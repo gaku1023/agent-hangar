@@ -40,7 +40,7 @@ const isStrOrObj = (v: unknown): boolean => isStr(v) || isObject(v);
 
 /** 運ぶ入れ物の下のディレクトリ。v1 形（単数）と v2 形（複数）は名前を変えずに運ぶ。 */
 export const OC_DIRS = ['agents', 'agent', 'commands', 'command', 'skills', 'skill', 'plugins', 'plugin', 'themes'] as const;
-/** 実行される指示や台本の置き場。他の PC から届いたときに承諾が要る。 */
+/** 実行される指示や台本の置き場。他の PC から届いたときに承認が要る。 */
 const EXEC_DIRS = new Set(['agents', 'agent', 'commands', 'command', 'skills', 'skill', 'plugins', 'plugin']);
 /** 設定の鍵として別に運ぶ、または PC の状態なので、ファイルとしては運ばない名前。 */
 const DENY_ROOT = new Set(['opencode.json', 'opencode.jsonc', 'cli.json', 'tui.json', 'service.json', 'package.json', 'package-lock.json', 'bun.lock', 'bun.lockb', '.gitignore']);
@@ -56,7 +56,7 @@ export function isCarriedRel(rel: string): boolean {
   return true;
 }
 
-/** 実行の印の対象になる（承諾が要る）ファイルか。AGENTS.md と themes/ の下は本文とデータなので要らない。 */
+/** 実行の印の対象になる（承認が要る）ファイルか。AGENTS.md と themes/ の下は本文とデータなので要らない。 */
 export function isExecRel(rel: string): boolean {
   if (rel === 'AGENTS.md') return false;
   const top = rel.split('/')[0]!;
@@ -190,7 +190,7 @@ export function isCarriedJsonPath(segs: readonly string[]): boolean {
   return (k === 'agent' || k === 'agents') && segs.length === 3 && segs[2] !== 'model' && AGENT_FIELDS.has(segs[2]!);
 }
 
-/** 権限に関わる鍵か（承諾が要る。消去も、拒否を外して権限を広げうるので承諾に掛ける）。 */
+/** 権限に関わる鍵か（承認が要る。消去も、拒否を外して権限を広げうるので承認に掛ける）。 */
 export const isPermissionPath = (segs: readonly string[]): boolean => segs[segs.length - 1] === 'permission';
 
 // ---- cli.json ----

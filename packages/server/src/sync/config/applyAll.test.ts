@@ -156,7 +156,7 @@ describe('控えが取れなければ 1 バイトも書かない（対象ごと�
     deliver(MIXED());
     const e = failOf(() => runApply(opts({ afterWrite: (rel) => { if (rel === 'config.toml') fs.appendFileSync(at('codexHome', 'config.toml'), 'sneaky = 1\n'); } })));
     expect(e.code).toBe('write-failed');
-    expect(e.message).toContain('ほかの対象に書いた分も、元へ戻しました');
+    expect(e.message).toContain('他の対象に書き込んだ分も元に戻しました');
     expect(read('claudeDir', 'commands/a.md')).toBe('a0');
     expect(read('codexHome', 'config.toml')).toBe(CODEX_ORIG);
     expect(fs.existsSync(at('agentsSkillsDir', 'demo/SKILL.md'))).toBe(false);

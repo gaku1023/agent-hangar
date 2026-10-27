@@ -10,7 +10,7 @@ const load = (parts: ConfigDetailPart[]): Effect[] => (parts.length > 0 ? [{ kin
 
 /**
  * configSync 領域：設定の同期（作り直した実装）のダイアログ。
- * ダイアログは 1 つの overlay（configSync）で、part が 4 つの顔（送る一覧、適用内容の確認、承諾、競合）を決める。
+ * ダイアログは 1 つの overlay（configSync）で、part が 4 つの顔（送る一覧、適用内容の確認、承認、競合）を決める。
  * 選んだ項目（チェック、採る側）は View が持ち、適用の UiAction で 1 度に渡す。Mediator は、開く、適用の最中に閉じさせない、結果で閉じる、だけを持つ。
  * 適用は、サーバに指示書を書かせてから、殻のネイティブの確認へ進む（runtime）。この領域は ~/.claude に何も書かない。
  * 画面の中身（件数でなく項目）は、設定の画面を見ているあいだと、ダイアログを開いているあいだだけ、状態が動くたびに取り直す。
@@ -37,7 +37,7 @@ export function configSyncStep(state: State, store: Store, input: Input): Step |
       if (!movable) return { state, effects: [] };
       return { state: { ...state, overlay: { kind: 'configSync', part: i.part, working: false } }, effects: load(PARTS_OF[i.part]) };
     }
-    // 送る一覧を承諾した。スイッチを入れる。
+    // 送る一覧を承認した。スイッチを入れる。
     case 'configSync.send.confirm':
       if (o.kind !== 'configSync' || o.part !== 'send') return { state, effects: [] };
       return { state: { ...state, overlay: { kind: 'none' } }, effects: [{ kind: 'api.updateSettings', patch: { configBundleSync: true } }] };

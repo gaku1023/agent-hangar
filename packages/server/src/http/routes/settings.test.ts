@@ -462,7 +462,7 @@ describe('設定の往復', () => {
     expect((await patch({ opencodeProviderPrep: { 'a\nb': { start: 'x' } } })).status).toBe(400);
   });
 
-  it('届いた設定の承諾の仕方は、既定が毎回で、auto を保存でき、知らない値は断る', async () => {
+  it('届いた設定の承認の仕方は、既定が毎回で、auto を保存でき、知らない値は断る', async () => {
     expect((await json(await get('/api/settings'))).body.configApproval).toBe('each');
     expect((await json(await get('/api/bootstrap'))).body.settings.configApproval).toBe('each');
     expect((await (await patch({ configApproval: 'auto' })).json()).configApproval).toBe('auto');

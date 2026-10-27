@@ -21,13 +21,13 @@ const PERMISSION_CARRIED = new Set<string>([...PERMISSION_LISTS, 'defaultMode'])
  * 新しい鍵（0.12、設計書 5 章）。古い版の PC は運ばないので、古い版が運ぶ鍵とは別の対象（claude-keys2）に持たせる。
  * 区分は Claude Code の文書（settings の鍵の一覧）で確かめた。いずれも実行もパスも持たない。
  * - 好み：modelSettings、promptSuggestionEnabled、tui、voice、voiceEnabled、agentPushNotifEnabled、inputNeededNotifEnabled、skipWorkflowUsageWarning、autoUpdatesChannel
- * - 権限（承諾）：autoMode（分類器の許可と拒否の規則。User or managed の鍵で、許可を広げうる）、skipAutoPermissionPrompt、deniedMcpServers
+ * - 権限（承認）：autoMode（分類器の許可と拒否の規則。User or managed の鍵で、許可を広げうる）、skipAutoPermissionPrompt、deniedMcpServers
  */
 export const CLAUDE_KEYS2_KEYS: ReadonlySet<string> = new Set([
   'autoMode', 'modelSettings', 'promptSuggestionEnabled', 'tui', 'voice', 'voiceEnabled', 'agentPushNotifEnabled', 'inputNeededNotifEnabled',
   'skipAutoPermissionPrompt', 'skipWorkflowUsageWarning', 'autoUpdatesChannel', 'deniedMcpServers',
 ]);
-/** 新しい鍵のうち、他の PC から届いたとき承諾が要るもの。 */
+/** 新しい鍵のうち、他の PC から届いたとき承認が要るもの。 */
 export const CLAUDE_KEYS2_APPROVAL: ReadonlySet<string> = new Set(['autoMode', 'skipAutoPermissionPrompt', 'deniedMcpServers']);
 const KEYS2_BOOLEAN = new Set(['promptSuggestionEnabled', 'voiceEnabled', 'agentPushNotifEnabled', 'inputNeededNotifEnabled', 'skipAutoPermissionPrompt', 'skipWorkflowUsageWarning']);
 const KEYS2_OBJECT = new Set(['autoMode', 'modelSettings', 'voice']);
@@ -37,7 +37,7 @@ const KEYS2_OBJECT = new Set(['autoMode', 'modelSettings', 'voice']);
  * claude の範囲の仕分けは今までどおりこれらを machine と記録する（対象が切のとき、運ばない理由を見せるため）。
  */
 export const CLAUDE_PLUGIN_KEYS: ReadonlySet<string> = new Set(['enabledPlugins', 'extraKnownMarketplaces']);
-/** 権限の鍵（`permissions.allow` など）か。他の PC から届いたとき、設定が `each` なら承諾が要る（SPEC 4 章）。 */
+/** 権限の鍵（`permissions.allow` など）か。他の PC から届いたとき、設定が `each` なら承認が要る（SPEC 4 章）。 */
 export const isPermissionKey = (key: string): boolean => key.startsWith('permissions.');
 
 /** 運ばない鍵の理由。実行は他の PC からの実行経路になり、パスと機械の事情は他の PC で意味を持たない。 */

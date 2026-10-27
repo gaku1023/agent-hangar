@@ -48,7 +48,7 @@ struct AppState {
     child_started: Mutex<Option<SystemTime>>,
     /// 設定の同期の確認（適用、世代へ戻す）と、連携の書き込みの確認が出ているか。頁から続けて呼ばれても、確認を重ねて出さない。
     config_busy: AtomicBool,
-    /// 開いている承諾の窓（`approve`）の状態。窓は同時に 1 つだけである。
+    /// 開いている承認の窓（`approve`）の状態。窓は同時に 1 つだけである。
     approve: Mutex<Option<approve::Session>>,
     /// 試験のための書き出しの先（`HANGAR_BOOT_PROBE`、`bootprobe`）。起動のときに一度だけ読む。ふだんは無い。
     /// 試験用の feature（`boot-probe`）を立てていない build では、変数があっても無い。
@@ -912,7 +912,7 @@ fn spawn_boot(app: AppHandle) -> bool {
     true
 }
 
-// ここから下の 5 つと、入力待ちの知らせの 4 つ（notify_waiting、notify_prune、notify_request、notify_status）と、設定の同期の 2 つ（apply_config_sync、restore_config_sync）と、連携の書き込み（setup_integration）と、承諾の窓の 2 つ（approve_view、approve_answer。承諾の窓の頁だけ）が、頁から呼べる殻の命令である。
+// ここから下の 5 つと、入力待ちの知らせの 4 つ（notify_waiting、notify_prune、notify_request、notify_status）と、設定の同期の 2 つ（apply_config_sync、restore_config_sync）と、連携の書き込み（setup_integration）と、承認の窓の 2 つ（approve_view、approve_answer。承認の窓の頁だけ）が、頁から呼べる殻の命令である。
 // 名前は build.rs の一覧、capabilities、UI（packages/ui/src/runtime/desktop.ts）、起動画面（loading/boot.js）とそろえる。
 // pick_folder、boot_probe、restore_config_sync、setup_integration、approve_answer、save_recovery_key（本文だけ）のほかは引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
 // pick_node（起動画面だけ）も引数を受け取らない。選ぶのは利用者で、確かめる条件と書く先は殻が決める。
@@ -1158,7 +1158,7 @@ fn apply_config_flow(app: &AppHandle, lang: &'static str) -> configapply::Outcom
         Ok(p) => p,
         Err(f) => return config_failure(app, title, &f),
     };
-    // 確認は殻の承諾の窓で行い、承諾されたら、確認したのと同じ指示書（--order）と同じ手元（--expect）にだけ適用する。
+    // 確認は殻の承認の窓で行い、承認されたら、確認したのと同じ指示書（--order）と同じ手元（--expect）にだけ適用する。
     let outcome = approval_flow(app, approve::Job::Apply, plan, lang);
     log(&format!("config sync: apply {}", outcome.status));
     outcome
@@ -1209,9 +1209,9 @@ fn restore_config_flow(
     outcome
 }
 
-/// 他の PC から届いて、承諾した設定を適用する。UI の設定の「適用…」が呼ぶ。引数は受け取らない。
+/// 他の PC から届いて、承認した設定を適用する。UI の設定の「適用…」が呼ぶ。引数は受け取らない。
 /// 適用の指示書（hangar の置き場の claude-config/apply-order.json）を CLI が読み、
-/// 書く先ごとの差分を承諾の窓に見せ、承諾されたときだけ、控えを取って書く。サーバは `~/.claude` に書かない。
+/// 書く先ごとの差分を承認の窓に見せ、承認されたときだけ、控えを取って書く。サーバは `~/.claude` に書かない。
 #[tauri::command]
 async fn apply_config_sync(app: AppHandle) -> configapply::Outcome {
     let lang = config_language();
@@ -1242,9 +1242,9 @@ async fn restore_config_sync(
     .unwrap_or_else(|_| configapply::Outcome::simple("failed", w.restore_stopped))
 }
 
-// ---- 承諾の窓（approve.rs） ----
+// ---- 承認の窓（approve.rs） ----
 
-/// 承諾の窓を開く。もう開いていれば前に出す。窓は main の窓の子にし、閉じたら結果を返す（`approve_closed`）。
+/// 承認の窓を開く。もう開いていれば前に出す。窓は main の窓の子にし、閉じたら結果を返す（`approve_closed`）。
 /// 頁は殻に同梱した approve.html で、サーバの頁へは移らせない（`approve::allowed_navigation`）。
 fn open_approve_window(app: &AppHandle, lang: &str) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(approve::LABEL) {
@@ -1276,7 +1276,7 @@ fn open_approve_window(app: &AppHandle, lang: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 承諾の窓が閉じた。結果をまだ返していなければ、取り消し（書けなかった理由があればその失敗）を返す。
+/// 承認の窓が閉じた。結果をまだ返していなければ、取り消し（書けなかった理由があればその失敗）を返す。
 /// 書いている最中に閉じられたときは、書き終わったところで結果を返す（`approve_answer`）。
 fn approve_closed(app: &AppHandle) {
     let state = app.state::<AppState>();
@@ -1295,7 +1295,7 @@ fn approve_closed(app: &AppHandle) {
     }
 }
 
-/// 承諾の窓を開き、利用者が書くか閉じるまで待って、結果を返す。呼び手は別のスレッドで待つ。
+/// 承認の窓を開き、利用者が書くか閉じるまで待って、結果を返す。呼び手は別のスレッドで待つ。
 fn approval_flow(
     app: &AppHandle,
     job: approve::Job,
@@ -1326,7 +1326,7 @@ fn run_hangar_cli(app: &AppHandle, args: &[String], lang: &str) -> Result<String
     )
 }
 
-/// 連携の書き込みの流れ。見立てを出させ、済んでいれば知らせだけ、書けなければ理由を返し、書けるなら承諾の窓を開く。
+/// 連携の書き込みの流れ。見立てを出させ、済んでいれば知らせだけ、書けなければ理由を返し、書けるなら承認の窓を開く。
 fn setup_flow(app: &AppHandle, target: &'static str, lang: &'static str) -> configapply::Outcome {
     let job = approve::Job::Setup(target);
     let out = match run_hangar_cli(app, &approve::plan_args(&job, server::PORT), lang) {
@@ -1359,7 +1359,7 @@ fn setup_flow(app: &AppHandle, target: &'static str, lang: &'static str) -> conf
 
 /// 連携を書き込む（MCP の登録と解除、シェル連携のインストールとアンインストール、ステータスラインの設定と解除）。
 /// UI の設定の連携の節と、ホームの始める前の確認のボタンが呼ぶ。受け取るのは決まった対象の名前（`approve::SETUP_TARGETS`）だけである。
-/// 見立てを殻の承諾の窓に見せ、承諾されたときだけ CLI が書く。サーバは書かない。
+/// 見立てを殻の承認の窓に見せ、承認されたときだけ CLI が書く。サーバは書かない。
 #[tauri::command]
 async fn setup_integration(app: AppHandle, target: String) -> configapply::Outcome {
     let lang = config_language();
@@ -1380,7 +1380,7 @@ async fn setup_integration(app: AppHandle, target: String) -> configapply::Outco
     .unwrap_or_else(|_| configapply::Outcome::simple("failed", words.stopped))
 }
 
-/// 承諾の窓の頁に出す材料。承諾の窓（approve）の頁だけが呼べる。
+/// 承認の窓の頁に出す材料。承認の窓（approve）の頁だけが呼べる。
 fn approve_view_of(app: &AppHandle) -> Result<serde_json::Value, String> {
     let state = app.state::<AppState>();
     let slot = state.approve.lock().unwrap();
@@ -1400,8 +1400,8 @@ fn approve_view(window: tauri::Window, app: AppHandle) -> Result<serde_json::Val
     approve_view_of(&app)
 }
 
-/// 承諾の窓の答え。write は書く、reload は見立てを出させ直す、cancel と close は窓を閉じる。
-/// 承諾の窓（approve）の頁だけが呼べる（capabilities/approve.json。殻の側でも窓の名前を確かめる）。
+/// 承認の窓の答え。write は書く、reload は見立てを出させ直す、cancel と close は窓を閉じる。
+/// 承認の窓（approve）の頁だけが呼べる（capabilities/approve.json。殻の側でも窓の名前を確かめる）。
 /// 返すのは、答えたあとの頁の材料である。
 #[tauri::command]
 async fn approve_answer(
@@ -1522,7 +1522,7 @@ async fn cloud_join_check(app: AppHandle, url: String) -> serde_json::Value {
 }
 
 /// 参加のリクエストを置き、確認コードと期限の目安を返す。参加コードは CLI の標準入力へ渡す。
-/// 別のクラウドへの上書きの承諾（overwrite）は、頁の段で済ませてある。省けば偽で、参加済みなら CLI が overwrite-required で断る。
+/// 別のクラウドへの上書きの承認（overwrite）は、頁の段で済ませてある。省けば偽で、参加済みなら CLI が overwrite-required で断る。
 #[tauri::command]
 async fn cloud_join_request(
     app: AppHandle,
@@ -2256,7 +2256,7 @@ pub fn run() {
         // 頁の読み込みが終わる前の評価は捨てられることがある。
         // 出しそこねた文言と、navigate の最中に届いたリンクをここで流す。
         .on_page_load(|webview, payload| {
-            // 承諾の窓（approve）の読み込みは、main の窓の段の数え方に混ぜない。
+            // 承認の窓（approve）の読み込みは、main の窓の段の数え方に混ぜない。
             if webview.label() != "main" {
                 return;
             }
@@ -2295,7 +2295,7 @@ pub fn run() {
                 event: tauri::WindowEvent::CloseRequested { .. },
                 ..
             } => log(&format!("window {label} close requested")),
-            // ファイルを落とせるのは main の窓だけである。承諾の窓に落とされたものは捨てる。
+            // ファイルを落とせるのは main の窓だけである。承認の窓に落とされたものは捨てる。
             RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Enter { position, .. }),

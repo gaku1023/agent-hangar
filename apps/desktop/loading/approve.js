@@ -1,10 +1,10 @@
-// 承諾の窓（承諾のダイアログ）。殻が自分の窓（approve）で開く、殻に同梱した頁である。サーバを通らない。
+// 承認の窓（承認のダイアログ）。殻が自分の窓（approve）で開く、殻に同梱した頁である。サーバを通らない。
 // 殻は CLI の見立て（--dry-run --json、設定の同期は --plan --json）をそのまま渡し（approve_view）、頁はここで文を作って出す。
 // 利用者が「書き込み」を押したときだけ、頁は殻に write を答え（approve_answer）、殻が CLI を --yes で走らせる。
-// この頁は UI の辞書（packages/shared/src/i18n）を持たないので、承諾の窓の文（approve.*）を写した小さい日英の表をここに持つ。
+// この頁は UI の辞書（packages/shared/src/i18n）を持たないので、承認の窓の文（approve.*）を写した小さい日英の表をここに持つ。
 // 表は辞書と同じでなければならない（apps/desktop/test/approve.test.ts が突き合わせる）。
 
-/** 承諾の窓の文。packages/shared/src/i18n/{ja,en}/approve.ts の写しである。 */
+/** 承認の窓の文。packages/shared/src/i18n/{ja,en}/approve.ts の写しである。 */
 export const WORDS = {
   ja: {
     'approve.title.mcpInstall': 'MCP サーバーを登録',

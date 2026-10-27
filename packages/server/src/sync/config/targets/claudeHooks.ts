@@ -25,7 +25,7 @@ import type { ConfigTarget, TargetContext } from './types.ts';
  * - 送り手が運ばないもの：`~/.claude` の外を指す hook、hangar の包みを指すもの。受け手の手元にあれば、書き戻しで残す。
  * - 受け手が保留するもの：送り手と OS が違う、`~/.claude` の外を指す、hangar の包みを指す（別の版から届いたときの備え）。
  *   保留は holdOfHooks で判定でき、書き戻し（planWrite、write）も ApplyError で断る。
- * - 入切は設定の `configTargets`（対象名→真偽）で、既定は切。承諾は設定が each のあいだ、消去も含めて全部。
+ * - 入切は設定の `configTargets`（対象名→真偽）で、既定は切。承認は設定が each のあいだ、消去も含めて全部。
  */
 export const CLAUDE_HOOKS_NAME = 'claude-hooks';
 export const HOOKS_ID = 'claude-hooks:hooks';
@@ -100,13 +100,13 @@ export function holdOfHooks(content: Buffer, o: { senderOs: HostOs | undefined; 
 }
 
 const HOLD_TEXT: Record<HookHold, string> = {
-  'other-os': '送り手の PC と OS が違うので、フックとステータス行は書きません（コマンドの書き方が OS ごとに違うため）。',
-  'outside-claude': 'フックのコマンドが ~/.claude の外を指しているので、書きません。',
-  'hangar-wrapper': 'フックのコマンドが Hangar 自身の包みを指しているので、書きません。',
+  'other-os': '送信元の PC と OS が違うため、hooks と statusLine は書き込みません（OS ごとにコマンドの書き方が違うため）。',
+  'outside-claude': 'hooks のコマンドが ~/.claude の外を指しているため、書き込みません。',
+  'hangar-wrapper': 'hooks のコマンドが Hangar 自身のラッパーを指しているため、書き込みません。',
 };
 
 function parsePayload(blob: Buffer, id: string): Payload {
-  const bad = (): ApplyError => new ApplyError('bad-content', `届いたフックの束の形が読めません（${id}）。`);
+  const bad = (): ApplyError => new ApplyError('bad-content', `受信した hooks の形式を読み込めません（${id}）。`);
   let v: unknown;
   try { v = JSON.parse(blob.toString('utf8')); } catch { throw bad(); }
   if (!isObject(v) || v.v !== 1 || !Array.isArray(v.files)) throw bad();
@@ -124,7 +124,7 @@ function makeSpec(id: string, key: 'hooks' | 'statusLine', c: Ctx): ItemSpec {
     decode(blob, from) {
       const payload = parsePayload(blob, id);
       const valueOk = key === 'hooks' ? isObject(payload.value) : isObject(payload.value) && typeof payload.value.command === 'string';
-      if (!valueOk) throw new ApplyError('bad-content', `届いたフックの値が、その鍵の型に合いません（${id}）。`);
+      if (!valueOk) throw new ApplyError('bad-content', `受信した hooks の値が、キーの型に合いません（${id}）。`);
       const hold = holdOfHooks(blob, { senderOs: from.senderOs, os: c.os, userHome: c.userHome, id });
       if (hold) throw new ApplyError('unsafe', HOLD_TEXT[hold]);
       const value = key === 'hooks'
@@ -134,7 +134,7 @@ function makeSpec(id: string, key: 'hooks' | 'statusLine', c: Ctx): ItemSpec {
       const allowed = filesOfValue(key, value, c);
       const files: FileWrite[] = [];
       for (const f of payload.files) {
-        if (!isCarriedHookFile(f.rel) || !allowed.has(f.rel) || files.some((x) => x.rel === f.rel)) throw new ApplyError('bad-content', `届いたフックの束に、書いてはいけないファイルがあります（${f.rel}）。書きません。`);
+        if (!isCarriedHookFile(f.rel) || !allowed.has(f.rel) || files.some((x) => x.rel === f.rel)) throw new ApplyError('bad-content', `受信した hooks に、書き込めないファイルがあります（${f.rel}）。書き込みません。`);
         files.push({ rel: f.rel, data: Buffer.from(f.b64, 'base64'), exec: f.x === true });
       }
       return { value, files };
@@ -231,7 +231,7 @@ export function createClaudeHooksTarget(o: { userHome?: () => string; os?: HostO
     write: (w) => writeItems(w, specs(w)),
     planOps: (w, read) => planItemOps(w, specs(w), read),
     store: CLAUDE_STORE,
-    // 実行されるものなので、設定が each のあいだは消去も承諾に掛ける。
+    // 実行されるものなので、設定が each のあいだは消去も承認に掛ける。
     needsApproval: (_item, approval) => approval === 'each',
     isMachineBound: () => false,
   };

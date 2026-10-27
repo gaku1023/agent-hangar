@@ -41,7 +41,7 @@ export type ResumeHereMode = 'resume' | 'takeover' | 'stale';
  * 「この PC で再開」の確認（2 枚のカードと黄の帯、試作の 2a の A、2b の Y、2c の P）。
  * takeover は赤みの帯（takeover のときだけ）で、相手が作業中なら作業中の 2 文、そうでなければ実行中の 2 文。
  * blocked は、この PC で場所が決まらないときの理由で、そのときは再開のボタンを押せなくする。
- * replace は、この PC のトランスクリプトを置き換えるときの 1 行（バックアップに残すこと）で、そのとき承諾は上書きつき（overwrite）で送る。
+ * replace は、この PC のトランスクリプトを置き換えるときの 1 行（バックアップに残すこと）で、そのとき承認は上書きつき（overwrite）で送る。
  */
 export type ResumeHereProps = {
   sessionId: string; title: string; lead: string;

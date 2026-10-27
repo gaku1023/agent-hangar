@@ -101,7 +101,7 @@ describe('hangar に移動と接続も止める', () => {
     expect(r.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'adoptSession', sessionId: 's1' } });
     expect(r.effects).toEqual([]);
   });
-  it('確認で承諾したあとでも、無ければ外の claude を止める前に止める', () => {
+  it('確認で承認したあとでも、無ければ外の claude を止める前に止める', () => {
     const confirming: State = { ...initialState(), overlay: { kind: 'confirm', confirm: { kind: 'adoptSession', sessionId: 's1' } } };
     const g = transition(confirming, storeWith(MISSING), action({ type: 'session.adopt', id: 's1', confirmed: true }));
     expect(g.state.overlay).toEqual({ kind: 'muxGuide', pending: { type: 'session.adopt', id: 's1', confirmed: true }, back: null });
@@ -131,7 +131,7 @@ describe('引き継ぎ（session.takeover.start）も止める', () => {
   };
   const confirm = { kind: 'confirm' as const, confirm: { kind: 'resumeHere' as const, sessionId: 's1', plan } };
   const confirming: State = { ...initialState(), overlay: confirm };
-  it('確認の承諾を止めて案内を出し、頼みは送らない', () => {
+  it('確認の承認を止めて案内を出し、頼みは送らない', () => {
     const g = transition(confirming, storeWith(MISSING), action({ type: 'session.takeover.start', id: 's1', force: false }));
     expect(g.state.overlay).toEqual({ kind: 'muxGuide', pending: { type: 'session.takeover.start', id: 's1', force: false }, back: confirm });
     expect(g.effects).toEqual([]);

@@ -4,7 +4,7 @@ import type { Input, State, Step } from './types.ts';
  * resumeHere 領域：他端末の本文を手元に降ろして再開するときの確認。
  *
  * 押した（session.resumeHere.open）ら、確認に出すもの（前の PC とこの PC）を取りに行き、届いたら確認の 1 枚を毎回出す。
- * 確認で承諾すると session.resumeHere が来て、写して再開する。手元の方が小さいときは、さらに上書きの確認（409）が出る。
+ * 確認で承認すると session.resumeHere が来て、写して再開する。手元の方が小さいときは、さらに上書きの確認（409）が出る。
  *
  * この領域は overlayStep の後ろに置く。
  * 確認のダイアログを閉じるのは overlayStep の overlay.close であって、ここではない。
@@ -28,7 +28,7 @@ export function resumeHereStep(state: State, input: Input): Step | null {
     return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'resumeHere', sessionId: plan.sessionId, plan } } }, effects: [] };
   }
   if (input.kind === 'action' && input.action.type === 'session.resumeHere.open') {
-    // 送信中は取りに行かない。確認を出しても、承諾が二重送信の歯止めで捨てられる。
+    // 送信中は取りに行かない。確認を出しても、承認が二重送信の歯止めで捨てられる。
     if (state.launch.kind === 'submitting') return { state, effects: [] };
     return { state, effects: [{ kind: 'api.resumeHerePlan', sessionId: input.action.id }] };
   }
@@ -37,8 +37,8 @@ export function resumeHereStep(state: State, input: Input): Step | null {
   // 起動と昇格と同じ歯止め。二重に走らせると run が 2 つできる。
   if (state.launch.kind === 'submitting') return { state, effects: [] };
   const overwrite = i.overwrite === true;
-  // 確認ダイアログから承諾したときだけ閉じる。ボタンから直接呼ばれたときは触らない。
-  // 確認の 1 枚（resumeHere）からの承諾は上書きを伴わないので、その確認が出ているときも閉じる。
+  // 確認ダイアログから承認したときだけ閉じる。ボタンから直接呼ばれたときは触らない。
+  // 確認の 1 枚（resumeHere）からの承認は上書きを伴わないので、その確認が出ているときも閉じる。
   const fromConfirm = state.overlay.kind === 'confirm' && (overwrite || (state.overlay.confirm.kind === 'resumeHere' && state.overlay.confirm.sessionId === i.id));
   const overlay = fromConfirm ? { kind: 'none' as const } : state.overlay;
   return { state: { ...state, overlay, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.resumeHere', sessionId: i.id, overwrite }] };
@@ -47,7 +47,7 @@ export function resumeHereStep(state: State, input: Input): Step | null {
 /**
  * ほかの PC で動いている会話を、停止を頼んでから引き継ぐ流れ。
  *
- * 確認の 1 枚（resumeHere）で承諾すると、同じ 1 枚が進み具合（takeover）に変わり、頼みを送る。
+ * 確認の 1 枚（resumeHere）で承認すると、同じ 1 枚が進み具合（takeover）に変わり、頼みを送る。
  * 段の変化は takeover.update のサーバの知らせで届く（頼みの応答も Runtime が同じ道で流す）。
  * ready なら閉じて今の再開に入る。timeout なら同じ 1 枚が警告に変わり、取り消す、もう少し待つ、このまま引き継ぐ（force）を選ばせる。
  *

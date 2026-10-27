@@ -3,7 +3,7 @@ import { initialStore } from '../store/store.ts';
 import { initialState, transition } from './transition.ts';
 import type { Input } from './types.ts';
 
-// 連携の書き込み（MCP、シェル連携、ステータスライン）のボタン。書くのは殻の承諾の窓を経た CLI で、画面は頼むだけである。
+// 連携の書き込み（MCP、シェル連携、ステータスライン）のボタン。書くのは殻の承認の窓を経た CLI で、画面は頼むだけである。
 const action = (a: Extract<Input, { kind: 'action' }>['action']): Input => ({ kind: 'action', action: a });
 const runtime = (e: Extract<Input, { kind: 'runtime' }>['event']): Input => ({ kind: 'runtime', event: e });
 

@@ -385,7 +385,7 @@ describe('設定のクラウド同期', () => {
   it('同期している人には、状態の札と、状態、操作、PC の一覧、設定の同期、使用量を上から並べる', () => {
     render(ui(at('cloud', { cloud: cloudProps() })));
     expect(screen.getByRole('heading', { level: 2, name: /^クラウド同期/ })).toHaveTextContent('同期済み');
-    expect(screen.getByRole('heading', { level: 3, name: 'Claude Code の設定を同期' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: '設定を同期' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'クラウドを作成して開始' })).toBeNull();
   });
   it('同期していない人には、1 文の説明と 2 つのボタンと、押せないスイッチの 1 行だけを出す', () => {
@@ -781,7 +781,7 @@ describe('設定の連携', () => {
 });
 
 describe('設定の連携の末尾の「Claude Code に環境を見てもらう」の札', () => {
-  const guide = { prompt: '~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで、私の環境を診断して。書き換えは私が承諾してから', version: '0.7.0' };
+  const guide = { prompt: '~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで、私の環境を診断して。書き換えは私が承認してから', version: '0.7.0' };
   const card = () => screen.getByRole('heading', { name: /Claude Code で環境を診断/ }).closest('section') as HTMLElement;
 
   it('連携の節の最後の札に、題、版の札、説明、貼る一言をそのまま見せる', () => {
@@ -790,7 +790,7 @@ describe('設定の連携の末尾の「Claude Code に環境を見てもらう�
     const sections = container.querySelectorAll('.settings-group > section');
     expect(sections[sections.length - 1]).toBe(c);
     expect(within(c).getByText('v0.7.0')).toBeInTheDocument();
-    expect(within(c).getByText('読み取り専用で診断し、登録と連携を提案します。変更は承諾してから行います。')).toBeInTheDocument();
+    expect(within(c).getByText('読み取り専用で診断し、登録と連携を提案します。変更は承認してから行います。')).toBeInTheDocument();
     expect(within(c).getByText(guide.prompt).tagName).toBe('CODE');
     expect(within(c).getByText(/ディレクトリの移動や削除はしません。CLAUDE\.md も変更しません。/)).toBeInTheDocument();
   });

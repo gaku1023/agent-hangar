@@ -188,7 +188,7 @@ describe('runSetupWrite（見せた中身から変わっていなければ書く
   });
 
   it('見立てで見せたバックアップの名前の形と、書いたときの実際の名前が食い違わない', async () => {
-    // 承諾の窓を開いた時刻と、書き込みを押した時刻はずれる（0.4.0-rc.1 の Windows の実機で 12 秒と 25 秒）。
+    // 承認の窓を開いた時刻と、書き込みを押した時刻はずれる（0.4.0-rc.1 の Windows の実機で 12 秒と 25 秒）。
     const shownAt = (p: string | null) => new RegExp(`^${p!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('YYYYMMDDhhmmss', '\\d{14}')}$`);
     fs.writeFileSync(env.claudeJson, JSON.stringify({ mcpServers: {} }), { mode: 0o600 });
     const script = path.join(env.claudeDir, 'sl.sh');

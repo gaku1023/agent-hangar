@@ -102,7 +102,7 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
 
   it('codex が見つからなければ断る', async () => {
     const { rm, booted } = make({ bin: null });
-    await expect(rm.start(params())).rejects.toMatchObject({ status: 400, message: 'codex が見つかりません（PATH を確認してください）' });
+    await expect(rm.start(params())).rejects.toMatchObject({ status: 400, message: 'Codex が見つかりません（PC の PATH を確認してください）' });
     expect(sessions()).toEqual([]);
     expect(booted()).toBe(false);
   });

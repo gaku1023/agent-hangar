@@ -28,7 +28,7 @@ export type ItemSpec = {
   decode(blob: Buffer, from: { senderOs: HostOs | undefined }): { value: unknown; files: FileWrite[] };
   /** 手元の settings.json の中身（cur）と、届いた値（消去なら undefined）から、書く値を決める。undefined なら鍵を消す。 */
   merge(cur: Record<string, unknown>, remote: unknown): unknown;
-  /** 承諾の窓に出す印。 */
+  /** 承認の窓に出す印。 */
   marks(files: FileWrite[]): ConfigExecMark[];
 };
 
@@ -103,12 +103,12 @@ function buildItemOps(o: { claudeDir: string }, items: Prep[], read?: PlanReader
     assertSafeTarget(o.claudeDir, 'settings.json');
     let text: string | null = null;
     if (read) text = read(fileOf(o.claudeDir, 'settings.json'))?.toString('utf8') ?? null;
-    else try { text = fs.readFileSync(fileOf(o.claudeDir, 'settings.json'), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplyError('settings-unreadable', 'settings.json を読めないので、設定の鍵は書きません。'); }
+    else try { text = fs.readFileSync(fileOf(o.claudeDir, 'settings.json'), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplyError('settings-unreadable', 'settings.json を読み込めないため、設定のキーは書き込みません。'); }
     let cur: Record<string, unknown> = {};
     if (text !== null) {
       let parsed: unknown;
-      try { parsed = JSON.parse(text); } catch { throw new ApplyError('settings-unreadable', 'settings.json を読めないので、設定の鍵は書きません（JSON として読めません）。'); }
-      if (!isObject(parsed)) throw new ApplyError('settings-unreadable', 'settings.json を読めないので、設定の鍵は書きません（中身がオブジェクトではありません）。');
+      try { parsed = JSON.parse(text); } catch { throw new ApplyError('settings-unreadable', 'settings.json を読み込めないため、設定のキーは書き込みません（JSON として読めません）。'); }
+      if (!isObject(parsed)) throw new ApplyError('settings-unreadable', 'settings.json を読み込めないため、設定のキーは書き込みません（中身がオブジェクトではありません）。');
       cur = parsed;
     }
     const edits: SettingsEdit[] = writes.map((p) => {
@@ -120,7 +120,7 @@ function buildItemOps(o: { claudeDir: string }, items: Prep[], read?: PlanReader
   return ops;
 }
 
-/** 書く先ごとの、書いた後の中身（承諾の窓の差分と指紋）。何も書かない。 */
+/** 書く先ごとの、書いた後の中身（承認の窓の差分と指紋）。何も書かない。 */
 export function planItemOps(o: WritePaths, specs: ReadonlyMap<string, ItemSpec>, read?: PlanReader): PlannedOp[] {
   const { items } = prepare(o.home, specs);
   return buildItemOps(o, items, read).map((op) => ({ rel: op.rel, path: fileOf(o.claudeDir, op.rel), after: op.data }));
@@ -152,7 +152,7 @@ export function writeItems(o: ApplyOptions, specs: ReadonlyMap<string, ItemSpec>
   let gen: { name: string; dir: string };
   try { gen = takeGeneration({ home: o.home, claudeDir: o.claudeDir, rels: ops.map((op) => op.rel), baseIds: items.map((p) => p.item.id), base: new ConfigBase(o.db), now, kind: 'apply' }); } catch (e) {
     if (e instanceof ApplyError) throw e;
-    throw new ApplyError('write-failed', `控えの世代を作れませんでした（${errText(e)}）。何も書いていません。`);
+    throw new ApplyError('write-failed', `バックアップの世代を作れませんでした（${errText(e)}）。何も書き込んでいません。`);
   }
   try {
     ops.forEach((op, i) => {

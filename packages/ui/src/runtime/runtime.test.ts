@@ -2650,7 +2650,7 @@ describe('アカウント', () => {
     expect(h.api.previewAccountDir).toHaveBeenCalledWith('univ', '');
     expect(h.rt.getStore().accountPreview).toEqual(preview);
   });
-  it('account.switchSession（承諾）は switchAccount を呼び、成功で run が入ってそのセッションの画面へ移る', async () => {
+  it('account.switchSession（承認）は switchAccount を呼び、成功で run が入ってそのセッションの画面へ移る', async () => {
     const h = await started({ switchAccount: vi.fn(async () => launched) });
     h.setHash('#/');
     h.rt.emit({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false });
@@ -2676,7 +2676,7 @@ describe('アカウント', () => {
     expect(h.api.loginAccount).toHaveBeenCalledWith('a1');
     expect(h.rt.getState().toasts.map((t) => t.message)).toEqual(['ログインはすでに始まっています']);
   });
-  it('update、remove（承諾）、login.cancel、refresh は、応答の AccountsDto を Store に入れる', async () => {
+  it('update、remove（承認）、login.cancel、refresh は、応答の AccountsDto を Store に入れる', async () => {
     const next = { ...accountsFixture, accounts: [accountsFixture.accounts[0]!], sessions: {} };
     const h = await started({
       updateAccount: vi.fn(async () => accountsFixture), removeAccount: vi.fn(async () => next),
@@ -2732,7 +2732,7 @@ describe('設定の同期（作り直した実装）', () => {
     expect(api.configInbox).toHaveBeenCalledTimes(2);
   });
 
-  it('殻があれば、承諾した項目を指示書にしてから殻の確認へ進み、書けたら状態を取り直してダイアログを閉じる', async () => {
+  it('殻があれば、承認した項目を指示書にしてから殻の確認へ進み、書けたら状態を取り直してダイアログを閉じる', async () => {
     const desktop = desktopOf(async () => shellOutcome('applied', '適用しました。'));
     const { rt, api } = withConfig(cfg(), { configSyncState: vi.fn(async () => cfg({ backups: 1 })), configPutOrder: vi.fn(async () => ({ createdAt: 1, items: [{ id: 'file:CLAUDE.md', kind: 'claude-md' as const, op: 'overwrite' as const, take: 'remote' as const, fromDeviceId: 'd', sha256: 's', target: 'CLAUDE.md' }] })) }, { desktop });
     rt.start();
@@ -2836,7 +2836,7 @@ describe('設定の同期（作り直した実装）', () => {
     expect(desktop.restoreConfigSync).toHaveBeenLastCalledWith('20261010-120001', 'opencode');
   });
 
-  it('送る一覧の承諾は、スイッチを入れる', async () => {
+  it('送る一覧の承認は、スイッチを入れる', async () => {
     const { rt, api } = withConfig(cfg({ enabled: false }));
     rt.start();
     await flush();

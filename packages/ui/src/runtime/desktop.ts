@@ -9,7 +9,7 @@ import { UPDATE_FAIL_REASONS, type UpdateFailReason } from '../store/update.ts';
  * 頼めるのは、ログを開くこと、アプリの再起動、フォルダの選択、設定の同期の適用と世代へ戻すこと、アプリの更新（確認、進み、取得、インストール）、
  * クラウド同期への参加と PC の解除とこの PC の参加の解除（remote-cloud.json）、リカバリーキーのファイルへの保存（remote-save-recovery-key.json）だけである。
  * どれも殻の capability（apps/desktop/src-tauri/capabilities/remote-shell.json、remote-pick-folder.json、remote-config-apply.json、remote-update.json）で、この頁の出どころにだけ許してある。
- * 設定の同期の 2 つと連携の書き込みは、殻が自分の承諾の窓（サーバを通らない頁）で書く中身を見せ、承諾されたときだけ CLI が書く。頁は結果を受け取るだけで、承諾を出すことはできない。
+ * 設定の同期の 2 つと連携の書き込みは、殻が自分の承認の窓（サーバを通らない頁）で書く中身を見せ、承認されたときだけ CLI が書く。頁は結果を受け取るだけで、承認を出すことはできない。
  */
 export type DesktopBridge = {
   openLog(): Promise<void>; restart(): Promise<void>; pickFolder(defaultPath: string | null): Promise<string | null>;
@@ -17,7 +17,7 @@ export type DesktopBridge = {
   applyConfigSync(): Promise<ConfigShellOutcome>;
   /** バックアップの世代（yyyyMMdd-HHmmss）を、対象（claude、codex、opencode、agents-skills）の置き場へ戻す。 */
   restoreConfigSync(name: string, target: string): Promise<ConfigShellOutcome>;
-  /** 連携を書き込む（MCP、シェル連携、ステータスライン）。殻が見立てを承諾の窓に見せ、承諾されたときだけ CLI が書く。 */
+  /** 連携を書き込む（MCP、シェル連携、ステータスライン）。殻が見立てを承認の窓に見せ、承認されたときだけ CLI が書く。 */
   setupIntegration(target: SetupTarget): Promise<SetupShellOutcome>;
   /** アプリの自動更新（段 5-4）。 */
   update: UpdateBridge;
@@ -116,7 +116,7 @@ function updateFailureOf(e: unknown): UpdateFailure {
 export type ConfigShellOutcome = { status: 'applied' | 'restored' | 'cancelled' | 'none' | 'failed' | 'busy'; message: string | null; generation: string | null };
 
 /**
- * 連携の書き込みの結果。written は書いた、none はもう済んでいた、cancelled は承諾の窓で取り消した（書けずに閉じたときは failed）。
+ * 連携の書き込みの結果。written は書いた、none はもう済んでいた、cancelled は承認の窓で取り消した（書けずに閉じたときは failed）。
  * code は理由の鍵（already、absent、windows、no-script、changed など）で、画面が文を選ぶ。message は殻の文（CLI の文は日本語だけ）。
  */
 export type SetupShellOutcome = { status: 'written' | 'none' | 'cancelled' | 'failed' | 'busy'; message: string | null; code: string | null };

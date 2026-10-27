@@ -16,7 +16,7 @@ import type { ConfigTarget } from './types.ts';
  * 運ばないもの（PC ごと）：Codex・opencode の有効と横取り、パス（claudeDir、tmuxPath、nodePath、claudePath、workspaceRoot）、エディタ、
  * 端末アプリ、秘密（summaryApiKey）、要約器の宛先（lmStudio*）、接続先の準備、対象ごとの入切（configTargets）。
  * configTargets は「この PC で何を同期するか」の選びなので PC ごととして運ばない。
- * サーバが settings.json を書くので、殻の承諾の窓は通さない。承諾が要るのは configApproval の変更だけ（needsApproval）。
+ * サーバが settings.json を書くので、殻の承認の窓は通さない。承認が要るのは configApproval の変更だけ（needsApproval）。
  */
 export const HANGAR_TARGET_NAME = 'hangar';
 
@@ -101,8 +101,8 @@ function prepare(home: string): Entry[] {
       if (!holder?.items.some((i) => i.id === item.id && i.sha256 === item.sha256)) throw stale();
       const blob = readInboxBlob(home, item.fromDeviceId, item.sha256);
       if (!blob || sha256(blob) !== item.sha256) throw stale();
-      try { e.value = JSON.parse(blob.toString('utf8')); } catch { throw new ApplyError('bad-content', `届いた設定の値が読めません（${item.id}）。`); }
-      if (!FITS[key]!(e.value)) throw new ApplyError('bad-content', `届いた設定の値が、その鍵の型に合いません（${item.id}）。`);
+      try { e.value = JSON.parse(blob.toString('utf8')); } catch { throw new ApplyError('bad-content', `受信した設定の値を読み込めません（${item.id}）。`); }
+      if (!FITS[key]!(e.value)) throw new ApplyError('bad-content', `受信した設定の値が、キーの型に合いません（${item.id}）。`);
     }
     out.push(e);
   }
@@ -123,7 +123,7 @@ export const hangarTarget: ConfigTarget = {
     const plan: ApplyPlan = { createdAt: Date.now(), items, counts, byKind: { 'hangar-pref': items.length }, instructions: 0, exec: [] };
     return plan;
   },
-  // 承諾の窓には hangar の settings.json の差分として見せる。サーバが常に書き換えるので、書く直前の指紋には入れない（volatile）。
+  // 承認の窓には hangar の settings.json の差分として見せる。サーバが常に書き換えるので、書く直前の指紋には入れない（volatile）。
   planOps: (o): PlannedOp[] => {
     const patch: Record<string, unknown> = {};
     for (const e of prepare(o.home)) if (e.act === 'write') patch[e.key] = e.value;
@@ -137,7 +137,7 @@ export const hangarTarget: ConfigTarget = {
     for (const e of entries) if (e.act === 'write') patch[e.key] = e.value;
     const written = Object.keys(patch).length;
     if (written > 0) {
-      try { applyHangarPrefs(o.home, patch); } catch (err) { throw new ApplyError('write-failed', `hangar の設定を書けませんでした（${err instanceof Error ? err.message : String(err)}）。適用内容は削除していません。`); }
+      try { applyHangarPrefs(o.home, patch); } catch (err) { throw new ApplyError('write-failed', `Hangar の設定を書き込めませんでした（${err instanceof Error ? err.message : String(err)}）。適用内容は削除していません。`); }
     }
     const base = new ConfigBase(o.db);
     o.db.transaction(() => {
@@ -148,8 +148,8 @@ export const hangarTarget: ConfigTarget = {
     })();
     return { generation: null, written, removed: 0, keptMine: entries.filter((e) => e.act !== 'write').length, files: written > 0 ? ['settings.json'] : [] };
   },
-  // 承諾の仕方そのものを変える項目だけ、承諾の仕方の設定に関わらず承諾に掛ける（自動への切り替えを他の PC から黙って通さない）。
-  // この口は値を受け取らないので、each へ戻す変更も承諾になる（厳しい側へ倒す）。
+  // 承認の仕方そのものを変える項目だけ、承認の仕方の設定に関わらず承認に掛ける（自動への切り替えを他の PC から黙って通さない）。
+  // この口は値を受け取らないので、each へ戻す変更も承認になる（厳しい側へ倒す）。
   needsApproval: (item) => item.op !== 'delete' && item.id === idOf('configApproval'),
   isMachineBound: () => false,
 };

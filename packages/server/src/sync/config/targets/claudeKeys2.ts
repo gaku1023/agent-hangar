@@ -29,7 +29,7 @@ export const claudeKeys2Target: ConfigTarget = {
   write: (o) => writeClaude(o),
   planOps: (o, read) => planClaudeOps(o, read),
   store: CLAUDE_STORE,
-  // 承諾の仕方の設定（each か auto）に従う。権限を広げうる鍵は、消去（deniedMcpServers を外すなど）も承諾に掛ける。
+  // 承認の仕方の設定（each か auto）に従う。権限を広げうる鍵は、消去（deniedMcpServers を外すなど）も承認に掛ける。
   needsApproval: (item, approval) => approval === 'each' && (() => { const k = keyOf(item.id); return k !== null && CLAUDE_KEYS2_APPROVAL.has(k); })(),
   isMachineBound: () => false,
 };

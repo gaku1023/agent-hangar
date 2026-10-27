@@ -8,7 +8,7 @@ import type { ConfigTarget } from './types.ts';
 
 /** Claude Code（`~/.claude`）。今までの処理をそのまま持つ最初の対象。 */
 
-/** 読んで実行される指示の種類。他の PC から届いたとき、設定が `each` なら承諾が要る。 */
+/** 読んで実行される指示の種類。他の PC から届いたとき、設定が `each` なら承認が要る。 */
 const EXEC_KINDS = new Set<ConfigItemKind>(['skills', 'commands', 'agents']);
 
 export const CLAUDE_TARGET_NAME = 'claude';
@@ -26,7 +26,7 @@ export const claudeTarget: ConfigTarget = {
   write: (o) => writeClaude(o),
   planOps: (o, read) => planClaudeOps(o, read),
   store: CLAUDE_STORE,
-  // 実行する指示（skills など）は消去を除く。権限の鍵は、消去も承諾に掛ける（deny を外すと許可が広がる。SPEC 4 章）。
+  // 実行する指示（skills など）は消去を除く。権限の鍵は、消去も承認に掛ける（deny を外すと許可が広がる。SPEC 4 章）。
   needsApproval: (item, approval) => approval === 'each' && ((item.op !== 'delete' && EXEC_KINDS.has(item.kind)) || isPermissionKey(item.id.startsWith('settings:') ? item.id.slice('settings:'.length) : '')),
   // 今の Claude の項目は、PC に依るものを collect の仕分け（settingsSort）の段で落としている。
   isMachineBound: () => false,

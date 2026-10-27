@@ -6,7 +6,7 @@ import type { ItemRef } from '../ids.ts';
 
 /**
  * 設定の同期の「対象」。Claude、Codex、opencode のように、設定の入れ物ごとに 1 つ持つ。
- * 対象は、自分の id（`owns`）、集め方、書き戻しの見立てと書き方、承諾の要否、PC に依る項目の判定を持つ。
+ * 対象は、自分の id（`owns`）、集め方、書き戻しの見立てと書き方、承認の要否、PC に依る項目の判定を持つ。
  * 3 方向の判定（threeWay.ts）は、id の持ち主の対象を `owns` で決め、その対象を扱う相手の束だけを数える。
  */
 
@@ -73,7 +73,7 @@ export interface ConfigTarget {
   /** 書き戻しの見立て。何も書かない。 */
   planWrite(o: PlanPaths): ApplyPlan;
   /**
-   * 書く先ごとの、書いた後の中身。何も書かない。承諾の窓に見せる差分と、書く直前の指紋の元になる。
+   * 書く先ごとの、書いた後の中身。何も書かない。承認の窓に見せる差分と、書く直前の指紋の元になる。
    * read は、同じファイルを先に書く対象があるときの読み手（そのファイルを読むときは、ディスクでなく read を使う）。
    * 持たない対象の項目は、適用で断る（見せずに書かないため）。
    */
@@ -84,7 +84,7 @@ export interface ConfigTarget {
   readonly store?: TargetStore;
   /** 指示書のとおりに書く。 */
   write(o: ApplyOptions): ApplyResult;
-  /** 他の PC から届いた項目の適用に、承諾が要るか。 */
+  /** 他の PC から届いた項目の適用に、承認が要るか。 */
   needsApproval(item: { id: string; kind: ConfigItemKind; op: ConfigInboxOp }, approval: ConfigApproval): boolean;
   /** その PC でしか意味を持たない項目か（絶対パスなど）。そうなら送らず、受けても適用しない。 */
   isMachineBound(item: { id: string; kind: ConfigItemKind; content: Buffer }): boolean;

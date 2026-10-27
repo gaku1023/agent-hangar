@@ -5,8 +5,8 @@ import { displayHomePath, setupGuidePrompt } from './setupGuide.ts';
 describe('セットアップのすゝめの一言', () => {
   const info = { path: '~/.agent-hangar/setup-guide.md', version: '0.7.0', sha: '3f9a1c2e' };
 
-  it('日本語は、写した md の場所、版、ハッシュを入れ、書き換えは承諾してからと言う', () => {
-    expect(setupGuidePrompt(translator('ja'), info)).toBe('~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで、私の環境を診断して。書き換えは私が承諾してから');
+  it('日本語は、写した md の場所、版、ハッシュを入れ、書き換えは承認してからと言う', () => {
+    expect(setupGuidePrompt(translator('ja'), info)).toBe('~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで、私の環境を診断して。書き換えは私が承認してから');
   });
 
   it('英語も同じ趣旨で、同じ場所、版、ハッシュを入れる', () => {

@@ -504,7 +504,7 @@ export class ConfigSyncService {
   // ---- 適用の指示書 ----
 
   /**
-   * 承諾した項目を、適用の指示書として書く。前の指示書は置き換える。
+   * 承認した項目を、適用の指示書として書く。前の指示書は置き換える。
    * 書くのは hangar の置き場だけで、~/.claude には書かない。
    */
   putApplyOrder(entries: ConfigApplyOrderEntryIn[]): ConfigApplyOrderDto {
@@ -529,7 +529,7 @@ export class ConfigSyncService {
   }
 
   /**
-   * hangar の好み（hangar:）は、サーバが自分の設定として書く（殻の承諾の窓は通さない）。
+   * hangar の好み（hangar:）は、サーバが自分の設定として書く（殻の承認の窓は通さない）。
    * 走っているサーバは設定を自分の入れ物に持つので、書くのはサーバの中で、setHangarPrefsApplier で登録した口（applySettingsPatch）を通す。
    * 書けたら指示書から外し、残りを殻と hangar config apply に渡す。書けなければ指示書ごと消して断る（何も適用しない）。
    */

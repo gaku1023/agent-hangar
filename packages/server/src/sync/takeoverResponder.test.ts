@@ -293,7 +293,7 @@ describe('Codex の会話の引き継ぎ（頼まれた側）', () => {
     ask();
     expect(await build().scan()).toBe(1);
     expect(calls).toEqual([
-      'note:[hangar] pc-a に引き継がれたため、この PC の codex を停止しました。',
+      'note:[hangar] pc-a に引き継がれたため、この PC の Codex を停止しました。',
       `flush:${THREAD}`,
       'kill:r1:taken_over',
       `flush:${THREAD}`,

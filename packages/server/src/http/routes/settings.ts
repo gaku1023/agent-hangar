@@ -239,7 +239,7 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.allowExternalSummarizer') }) }, 400);
       patch.allowExternalSummarizer = v;
     }
-    // 届いた skills、commands、agents の承諾の仕方。実行される指示なので、既定は毎回で、auto は明示で選ぶ。
+    // 届いた skills、commands、agents の承認の仕方。実行される指示なので、既定は毎回で、auto は明示で選ぶ。
     if ('configApproval' in body) {
       const v = body.configApproval;
       if (v !== 'each' && v !== 'auto') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.configApproval') }) }, 400);

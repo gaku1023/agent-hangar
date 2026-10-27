@@ -1,8 +1,8 @@
 import type { MessageSpec } from '../messageSpec.ts';
 
 /**
- * 殻の承諾の窓（apps/desktop/loading/approve.html）の文。
- * 連携の書き込み（MCP、シェル連携、ステータスライン）と、設定の同期の適用と戻すを、書く前に見せて承諾を取る。
+ * 殻の承認の窓（apps/desktop/loading/approve.html）の文。
+ * 連携の書き込み（MCP、シェル連携、ステータスライン）と、設定の同期の適用と戻すを、書く前に見せて承認を取る。
  * 頁は殻に同梱した静的な頁で、この辞書を読めないので、同じ表を loading/approve.js に写して持つ（apps/desktop/test/approve.test.ts が突き合わせる）。
  */
 export const approveKeys = {

@@ -39,7 +39,7 @@ export type ConfigApplyOpts = Common & {
   plan?: boolean;
   /** 確認した指示書の作成時刻（見立ての createdAt）。違う指示書に替わっていたら書かない。殻が使う。 */
   order?: number;
-  /** 承諾の窓で見せた書く先の指紋（見立ての fingerprint）。見せた後に手元が変わっていたら書かない。殻が使う。 */
+  /** 承認の窓で見せた書く先の指紋（見立ての fingerprint）。見せた後に手元が変わっていたら書かない。殻が使う。 */
   expect?: string;
 };
 
@@ -50,7 +50,7 @@ export type ConfigRestoreOpts = Common & {
   target?: string;
   /** 戻す先と消す先を出すだけで、何も戻さない。 */
   plan?: boolean;
-  /** 承諾の窓で見せた書く先の指紋。見せた後に手元が変わっていたら戻さない。殻が使う。 */
+  /** 承認の窓で見せた書く先の指紋。見せた後に手元が変わっていたら戻さない。殻が使う。 */
   expect?: string;
 };
 
@@ -134,7 +134,7 @@ function openDbFor(home: string): Db {
 }
 
 /**
- * 適用の指示書を読み、承諾を得て、控えを取って書く。戻り値は終了コード（0 が成功）。
+ * 適用の指示書を読み、承認を得て、控えを取って書く。戻り値は終了コード（0 が成功）。
  * --plan は見立てを出すだけ。--json は機械向けで、聞けないので --yes か --plan と一緒に使う。
  */
 export async function runConfigApply(o: ConfigApplyOpts = {}): Promise<number> {
@@ -147,7 +147,7 @@ export async function runConfigApply(o: ConfigApplyOpts = {}): Promise<number> {
     if (o.order !== undefined && o.order !== plan.createdAt) throw new ApplyError('stale', '確認したあとに、適用内容が変わりました。何も書き込んでいません。適用する項目をもう一度確認してください。');
   } catch (e) { return fail(o, e, log); }
   if (o.plan) {
-    // 機械向けには、書く先ごとの差分と指紋も添える（殻の承諾の窓が「何をどこに」と「差分」に出す）。
+    // 機械向けには、書く先ごとの差分と指紋も添える（殻の承認の窓が「何をどこに」と「差分」に出す）。
     if (o.json) {
       let files: ReturnType<typeof planApplyFiles>;
       try { files = planApplyFiles(paths); } catch (e) { return fail(o, e, log); }
@@ -202,7 +202,7 @@ export async function runConfigRestore(o: ConfigRestoreOpts = {}): Promise<numbe
     else {
       log('バックアップの世代（新しい順）:');
       for (const g of gens) log(`  ${g.name}  ${TARGET_LABEL[g.target ?? 'claude'] ?? g.target}  ${g.files} ファイル  ${atLabel(g.at)}`);
-      log('元に戻すには hangar config restore <世代> を実行してください（Claude Code 以外の世代は --target <対象> も付けます）');
+      log('元に戻すには hangar config restore <世代> を実行してください（Claude Code 以外の世代は --target <対象> も必要です）');
     }
     return 0;
   }

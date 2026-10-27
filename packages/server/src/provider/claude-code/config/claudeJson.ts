@@ -44,7 +44,7 @@ export type UpsertOptions = {
   onBeforeWrite?: () => void;
   /**
    * ロックを取って読んだ中身を渡す。投げたら書かず、控えも取らない。
-   * 承諾の窓で見せた中身から変わっていないかを、書く直前に確かめるために使う（CLI の --expect）。
+   * 承認の窓で見せた中身から変わっていないかを、書く直前に確かめるために使う（CLI の --expect）。
    */
   check?: (cur: JsonObject) => void;
 };
@@ -132,7 +132,7 @@ export function readUserMcpServers(file: string): JsonObject | null {
 /**
  * mcpServers.<name> だけを消す。登録と同じ 4 つの守り（ロック、リンクの実体、権限、控え）で書く。
  * 載っていなければ、書かずに控えも取らない。
- * 以前は claude mcp remove に任せていたが、承諾の窓で見せた差分と書く中身を同じにするため、自分で書く。
+ * 以前は claude mcp remove に任せていたが、承認の窓で見せた差分と書く中身を同じにするため、自分で書く。
  * 最後の 1 つを消しても、mcpServers の鍵は空の {} のまま残す。
  * Claude Code の claude mcp remove -s user も空の {} を残し、空の mcpServers を読んでも困らない（2.1.296 で確かめた）。
  * 登録の前に鍵が無かったのか、Claude Code や利用者が空で置いていたのかは見分けられないので、自分の足した hangar の項目だけを消す。

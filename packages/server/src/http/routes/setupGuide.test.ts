@@ -24,7 +24,7 @@ describe('GET /api/setup-guide', () => {
     expect(body.version).toBe('0.0.0-test');
     expect(body.sha).toMatch(/^[0-9a-f]{8}$/);
     expect(body.path.endsWith('setup-guide.md')).toBe(true);
-    expect(body.prompt).toBe(`${body.path}（v0.0.0-test sha256:${body.sha}）を読んで、私の環境を診断して。書き換えは私が承諾してから`);
+    expect(body.prompt).toBe(`${body.path}（v0.0.0-test sha256:${body.sha}）を読んで、私の環境を診断して。書き換えは私が承認してから`);
     const copied = fs.readFileSync(path.join(t.deps.home, 'setup-guide.md'), 'utf8');
     expect(copied.split('\n')[0]).toBe(guideHeader('0.0.0-test', body.sha));
     expect(fs.existsSync(path.join(t.deps.home, 'setup-guide-habits.md'))).toBe(true);

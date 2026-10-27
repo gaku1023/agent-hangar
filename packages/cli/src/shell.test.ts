@@ -30,7 +30,7 @@ beforeEach(() => { logs = []; });
 
 // zsh の包み。Windows の包みは次の区切りで作る。
 posixDescribe('hangar shell install', () => {
-  it('行を見せて承諾を得てから足し、本体を置き、控えを取る', async () => {
+  it('行を見せて承認を得てから足し、本体を置き、控えを取る', async () => {
     const asked: string[] = [];
     const r = await runShellInstall({ ...base(), tmuxPath: ok, ask: async (q) => { asked.push(q); return true; } });
     expect(r.installed).toBe(true);

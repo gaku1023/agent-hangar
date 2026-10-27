@@ -20,7 +20,7 @@ const mount = (p: ResumeHerePlanDto) => {
 };
 
 describe('他の PC で動いている会話を引き継ぐ確認', () => {
-  it('takeover の 1 枚は赤みの帯を出し、承諾で session.takeover.start（force: false）を送る', () => {
+  it('takeover の 1 枚は赤みの帯を出し、承認で session.takeover.start（force: false）を送る', () => {
     const onAction = mount(plan({ deviceName: 'pc-b', stale: false, heartbeatAt: NOW - 10_000 }));
     expect(screen.getByRole('dialog', { name: '他の PC で実行中の会話を、この PC で引き継ぎますか' })).toBeInTheDocument();
     const note = screen.getByRole('note', { name: /pc-b で実行中です/ });
@@ -31,7 +31,7 @@ describe('他の PC で動いている会話を引き継ぐ確認', () => {
     expect(onAction).toHaveBeenCalledWith({ type: 'session.takeover.start', id: 's1', force: false });
     expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.resumeHere' }));
   });
-  it('stale の 1 枚は赤みの帯なしで、最後の応答を出し、承諾は force: true', () => {
+  it('stale の 1 枚は赤みの帯なしで、最後の応答を出し、承認は force: true', () => {
     const onAction = mount(plan({ deviceName: 'pc-b', stale: true, heartbeatAt: NOW - 5 * 60_000 }));
     expect(screen.getByRole('dialog', { name: 'pc-b が応答していません。この PC で引き継ぎますか' })).toHaveTextContent('最後の応答：5 分前');
     expect(screen.getAllByRole('note')).toHaveLength(1);

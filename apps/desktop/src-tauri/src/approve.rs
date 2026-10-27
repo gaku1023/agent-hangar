@@ -1,4 +1,4 @@
-//! 利用者のファイルへの書き込みを承諾する窓（承諾のダイアログ）の、殻の側。
+//! 利用者のファイルへの書き込みを承認する窓（承認のダイアログ）の、殻の側。
 //!
 //! 連携（MCP の登録、シェル連携、ステータスライン）と、設定の同期の適用と世代へ戻す操作は、
 //! どれも利用者のファイル（`~/.claude.json`、`~/.zshrc`、ステータスラインのスクリプト、`~/.claude`）を書く。
@@ -11,7 +11,7 @@
 //! 4. 利用者がその窓で「書き込み」を押したときだけ、殻が CLI の `--yes --json --expect <指紋>` を走らせる。
 //!    CLI は書く直前に見立てを作り直し、指紋が違えば何も書かずに `changed` で断る。
 //!
-//! 承諾の窓の命令（`approve_view`、`approve_answer`）は、`approve` の窓の、殻に同梱した頁にだけ許す（capabilities/approve.json）。
+//! 承認の窓の命令（`approve_view`、`approve_answer`）は、`approve` の窓の、殻に同梱した頁にだけ許す（capabilities/approve.json）。
 //! サーバの頁（main の窓）からは呼べないので、HTTP の API に穴が開いても、押されずに書かれることは無い。
 //! ここには、対象の名前の確かめ、CLI の引数の組み立て、見立ての読み取り、頁へ渡す材料の組み立てだけを置き、
 //! 窓を開く、CLI を走らせる、といった殻の動きは lib.rs に置く。
@@ -20,10 +20,10 @@ use crate::configapply::{ApplyResult, Failure, Outcome, RestoreResult};
 use serde_json::{json, Value};
 use std::sync::mpsc;
 
-/// 承諾の窓の名前（Tauri の窓のラベル）。capabilities/approve.json の windows と同じにする。
+/// 承認の窓の名前（Tauri の窓のラベル）。capabilities/approve.json の windows と同じにする。
 pub const LABEL: &str = "approve";
 
-/// 承諾の窓に出す頁。殻に同梱した読み込み画面と同じ置き場（loading/）にある。
+/// 承認の窓に出す頁。殻に同梱した読み込み画面と同じ置き場（loading/）にある。
 pub const PAGE: &str = "approve.html";
 
 /// 頁から受け取れる連携の対象。CLI の setupPlan.ts の SETUP_TARGETS と同じ並びにする（config.test.ts が突き合わせる）。
@@ -41,7 +41,7 @@ pub fn setup_target(s: &str) -> Option<&'static str> {
     SETUP_TARGETS.iter().copied().find(|t| *t == s)
 }
 
-/// 承諾を求める仕事。
+/// 承認を求める仕事。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Job {
     /// 連携の書き込み。中身は SETUP_TARGETS の 1 つ。
@@ -134,7 +134,7 @@ pub fn valid_fingerprint(s: &str) -> bool {
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
-/// 承諾された後に走らせる CLI の引数。見立ての指紋（と適用は指示書の作成時刻）を添え、見せた後に変わっていたら CLI が断る。
+/// 承認された後に走らせる CLI の引数。見立ての指紋（と適用は指示書の作成時刻）を添え、見せた後に変わっていたら CLI が断る。
 /// 見立ての形が読めなければ None（書かない）。
 pub fn write_args(job: &Job, plan: &Value, port: u16) -> Option<Vec<String>> {
     let fp = plan.get("fingerprint")?.as_str()?;
@@ -242,7 +242,7 @@ impl Stage {
     }
 }
 
-/// 開いている承諾の窓 1 つ分の状態。窓は同時に 1 つだけで、殻の AppState が持つ。
+/// 開いている承認の窓 1 つ分の状態。窓は同時に 1 つだけで、殻の AppState が持つ。
 pub struct Session {
     pub job: Job,
     pub plan: Value,
@@ -390,7 +390,7 @@ impl Session {
     }
 }
 
-/// 殻が出す、承諾の窓まわりの文。頁の文は頁（loading/approve.js）が持つ。
+/// 殻が出す、承認の窓まわりの文。頁の文は頁（loading/approve.js）が持つ。
 pub struct Words {
     /// 窓の題。
     pub window_title: &'static str,

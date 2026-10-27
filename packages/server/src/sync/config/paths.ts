@@ -6,7 +6,7 @@ import { backupsRoot } from '../../config/cloud.ts';
  * `~/.claude` には何も置かない。サーバが書くのは、ここと DB だけである。
  *
  * - `<home>/claude-config/inbox/<端末の ID>/`：他の PC の束を開いた写し（目録と中身）。
- * - `<home>/claude-config/apply-order.json`：承諾した項目の「適用の指示書」。殻の命令と hangar config apply が読み、適用が済むか取り消されたら消す。
+ * - `<home>/claude-config/apply-order.json`：承認した項目の「適用の指示書」。殻の命令と hangar config apply が読み、適用が済むか取り消されたら消す。
  * - `<home>/backups/claude-config/<時刻>/`：適用の前に取る控えの世代。書くのは適用する側で、サーバは数えるだけである。旧実装が使っていた場所と同じである。
  */
 

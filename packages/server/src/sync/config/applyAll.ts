@@ -21,14 +21,14 @@ import type { TargetStore } from './targets/types.ts';
  *    同じ write を持つ対象（claude と claude-keys2）は 1 回だけ呼ぶ。
  * 2. 全部の対象の見立て（planWrite と planOps）を先に作る。どれか 1 つでも書けない状態なら、何も書かずに断る。
  *    同じファイルを 2 つの対象が書くとき（settings.json を claude と claude-hooks が書く）、後の対象は前の対象の書いた後の中身を読んで見立てる。
- * 3. 承諾の窓で見せた指紋（expect）を、全部の書く先で取り直して比べる。違えば何も書かない。
+ * 3. 承認の窓で見せた指紋（expect）を、全部の書く先で取り直して比べる。違えば何も書かない。
  * 4. 控えの置き場を全部作れるか確かめる。作れなければ何も書かない。
  * 5. 対象ごとに write を呼ぶ（各対象が自分の控えを取り、失敗したら自分を戻す）。
  *    途中の対象が失敗したら、先に書いた対象を、その世代から戻し、基準も適用の前へ戻す（どこか 1 つが書けなければ、全部書かない）。
  * 6. 全部書けたら、指示書を消す（指示書を消すのはここだけ。各対象の write は消さない）。
  */
 
-/** 承諾の窓の見立て。どの対象に書くかを添える。 */
+/** 承認の窓の見立て。どの対象に書くかを添える。 */
 export type ApplyAllPlan = ApplyPlan & { targets: string[] };
 export type ApplyAllResult = ApplyResult & { generations: { target: string; name: string }[] };
 
@@ -41,7 +41,7 @@ function writersOf(home: string): { createdAt: number; writers: Writer[]; ids: s
   const used = new Set<ConfigTarget>();
   for (const item of order.items) {
     const t = targetOfId(item.id);
-    if (!t || t.placeholder || !t.planOps) throw new ApplyError('unknown-target', `この版の Hangar では書けない項目が適用内容にあります（${item.id}）。何も書いていません。`);
+    if (!t || t.placeholder || !t.planOps) throw new ApplyError('unknown-target', `このバージョンの Hangar では書き込めない項目が適用内容にあります（${item.id}）。何も書き込んでいません。`);
     used.add(t);
   }
   const writers: Writer[] = [];
@@ -124,7 +124,7 @@ function assertBackupsWritable(home: string, stores: TargetStore[]): void {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       fs.accessSync(dir, fs.constants.W_OK);
     } catch (e) {
-      throw new ApplyError('write-failed', `控えの世代を作れませんでした（${s.name}、${errText(e)}）。何も書いていません。`);
+      throw new ApplyError('write-failed', `バックアップの世代を作れませんでした（${s.name}、${errText(e)}）。何も書き込んでいません。`);
     }
   }
 }
@@ -143,7 +143,7 @@ export function runApplyAll(o: ApplyOptions): ApplyAllResult {
     const all = new ConfigBase(o.db).all();
     before = ids.map((id) => [id, all.get(id) ?? null] as const);
   } catch (e) {
-    throw new ApplyError('write-failed', `基準を読めませんでした（${errText(e)}）。何も書いていません。`);
+    throw new ApplyError('write-failed', `基準を読めませんでした（${errText(e)}）。何も書き込んでいません。`);
   }
   const done: { w: Writer; r: ApplyResult }[] = [];
   for (const w of writers) {
@@ -182,8 +182,8 @@ function undoAll(o: ApplyOptions, done: { w: Writer; r: ApplyResult }[], before:
     const now = o.now ? o.now() : Date.now();
     o.db.transaction(() => { for (const [id, sha] of before) { if (sha === null) base.remove(id); else base.set(id, sha, now); } })();
   } catch { /* 基準が戻らなくても、次の同期で届いた変更として出直す */ }
-  if (left.length > 0) return new ApplyError(first.code, `${first.message} ほかの対象に書いた分を元へ戻す途中でも失敗しました。${left.join('、')} で戻してください。`);
-  return new ApplyError(first.code, `${first.message} ほかの対象に書いた分も、元へ戻しました。`);
+  if (left.length > 0) return new ApplyError(first.code, `${first.message} 他の対象を元に戻す途中でも失敗しました。${left.join('、')} で元に戻してください。`);
+  return new ApplyError(first.code, `${first.message} 他の対象に書き込んだ分も元に戻しました。`);
 }
 
 // ---- 控えの世代（対象ごと） ----
@@ -195,7 +195,7 @@ export function backupStores(): TargetStore[] {
 
 function storeOf(name: string | undefined): TargetStore {
   const s = backupStores().find((x) => x.name === (name ?? 'claude'));
-  if (!s) throw new ApplyError('no-generation', `その対象の控えはありません（${name}）。hangar config restore で一覧を見てください。`);
+  if (!s) throw new ApplyError('no-generation', `その対象のバックアップはありません（${name}）。hangar config restore で一覧を確認してください。`);
   return s;
 }
 

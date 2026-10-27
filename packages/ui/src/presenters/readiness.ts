@@ -235,7 +235,7 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
   const action = (label: string, who: string, send: UiAction, primary: boolean): BandAction => ({ id: 'fix', label, ariaLabel: t('home.band.actionFor', { action: label, name: who }), primary, ghost: false, send });
   const toSettings = (k: ReadinessKey) => action(t('home.ready.openSettings'), name(k), { type: 'nav.go', to: { name: 'settings', at: READINESS_AT[k] } }, true);
   const copy = (k: ReadinessKey, command: string) => action(t('home.ready.copyCommand'), name(k), { type: 'clipboard.copy', text: command }, false);
-  // 殻の中では、MCP とステータスラインの行も設定の連携の節と同じボタンにする（殻が承諾の窓で見せてから書く）。
+  // 殻の中では、MCP とステータスラインの行も設定の連携の節と同じボタンにする（殻が承認の窓で見せてから書く）。
   const write = (k: ReadinessKey, target: SetupTarget, label: string) => action(setup.running === target ? t('settings.integrations.waiting') : label, name(k), { type: 'setup.run', target }, true);
   const sl = r.statusline;
   const ws = r.workspace;

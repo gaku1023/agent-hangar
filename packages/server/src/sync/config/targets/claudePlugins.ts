@@ -7,14 +7,14 @@ import { CLAUDE_STORE } from './stores.ts';
 import type { ConfigTarget } from './types.ts';
 
 /**
- * Claude の enabledPlugins と extraKnownMarketplaces（SPEC 2 章、6 章）。今は運ばない鍵を、承諾つきで運ぶ。
+ * Claude の enabledPlugins と extraKnownMarketplaces（SPEC 2 章、6 章）。今は運ばない鍵を、承認つきで運ぶ。
  *
  * - id は `settings:enabledPlugins`、`settings:extraKnownMarketplaces`（kind plugins）。claude より前に登録し、claude.owns から外した。
  *   古い版はこの 2 つを machine として運ばないので、古い版の束に無いことが消去に見えないよう、別の対象にしてある。
  * - marketplace がローカルのパス（directory、file、パスを指す url など）なら、その marketplace と、それ由来の plugin（`名前@marketplace`）は送り手が運ばない。
  *   届いた中身にローカルの marketplace があれば、受け手は保留する（別の版から届いたときの備え）。
  * - 書き戻しは、届いた値に、手元のローカルの marketplace とその plugin を足して残す。
- * - 入切は設定の `configTargets`（既定は切）。承諾は設定が each のあいだ、消去も含めて全部。
+ * - 入切は設定の `configTargets`（既定は切）。承認は設定が each のあいだ、消去も含めて全部。
  */
 export const CLAUDE_PLUGINS_NAME = 'claude-plugins';
 
@@ -65,9 +65,9 @@ function specOf(key: string): ItemSpec {
     key,
     decode(blob) {
       let value: unknown;
-      try { value = JSON.parse(blob.toString('utf8')); } catch { throw new ApplyError('bad-content', `届いた設定の値が読めません（${id}）。`); }
-      if (!isObject(value) || !valueFits(key, value)) throw new ApplyError('bad-content', `届いた設定の値が、その鍵の型に合いません（${id}）。`);
-      if (holdOfPlugins(id, blob)) throw new ApplyError('unsafe', 'プラグインの配布元がこの PC のフォルダを指しているので、書きません。');
+      try { value = JSON.parse(blob.toString('utf8')); } catch { throw new ApplyError('bad-content', `受信した設定の値を読み込めません（${id}）。`); }
+      if (!isObject(value) || !valueFits(key, value)) throw new ApplyError('bad-content', `受信した設定の値が、キーの型に合いません（${id}）。`);
+      if (holdOfPlugins(id, blob)) throw new ApplyError('unsafe', 'plugin の配布元がこの PC のディレクトリを指しているため、書き込みません。');
       return { value, files: [] };
     },
     merge(cur, remote) {

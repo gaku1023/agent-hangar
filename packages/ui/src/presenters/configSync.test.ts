@@ -62,7 +62,7 @@ describe('適用内容の確認（b1）', () => {
     inb('memory:p9/memory/MEMORY.md', 'memory', 'proj/MEMORY.md', 'create', { held: 'no-project' }),
   ];
   const p = () => presentConfigDialog(open('review'), storeOf(dto({ incoming: 4, conflicts: 1, held: 1 }), { inbox: { items, approval: 'each' } }, { desktop: true }));
-  it('競合、承諾が必要なもの、そのまま適用するもの、保留の順に群を作る（U0 の 4a、4α）。群の中は操作の危ない順', () => {
+  it('競合、承認が必要なもの、そのまま適用するもの、保留の順に群を作る（U0 の 4a、4α）。群の中は操作の危ない順', () => {
     const r = p();
     if (r?.part !== 'review') throw new Error('part');
     expect(r.groups.map((g) => [g.id, g.count])).toEqual([['conflict', 1], ['approve', 1], ['auto', 3], ['held', 1]]);
@@ -70,7 +70,7 @@ describe('適用内容の確認（b1）', () => {
     expect(r.groups.filter((g) => g.id !== 'auto').every((g) => g.note !== null)).toBe(true);
     expect(r.summary).toBe('競合 1、削除 1、上書き 2、新規 1');
   });
-  it('適用内容に入れるのは、競合でも保留でも承諾の要るものでもない項目だけ', () => {
+  it('適用内容に入れるのは、競合でも保留でも承認の要るものでもない項目だけ', () => {
     const r = p();
     if (r?.part !== 'review') throw new Error('part');
     expect(r.entries).toEqual([{ id: 'file:skills/old/SKILL.md' }, { id: 'file:memory/m.md' }, { id: 'settings:model' }]);
@@ -80,7 +80,7 @@ describe('適用内容の確認（b1）', () => {
     expect(r.native).toBe(true);
     expect(items.filter(appliesNow).length).toBe(3);
   });
-  it('承諾が必要な行と保留の行に札を付ける。競合の行には承諾の札を付けない', () => {
+  it('承認が必要な行と保留の行に札を付ける。競合の行には承認の札を付けない', () => {
     const r = presentConfigDialog(open('review'), storeOf(dto(), { inbox: { items: [...items, inb('file:skills/c/SKILL.md', 'skills', 'skills/c/SKILL.md', 'conflict', { needsApproval: true })], approval: 'each' } }));
     if (r?.part !== 'review') throw new Error('part');
     const row = (id: string) => r.groups.flatMap((g) => g.rows).find((x) => x.id === id)!;
@@ -88,7 +88,7 @@ describe('適用内容の確認（b1）', () => {
     expect(row('file:skills/c/SKILL.md').tag).toBeNull();
     expect(row('memory:p9/memory/MEMORY.md')).toMatchObject({ dim: true, tag: { tone: 'off', text: 'この PC にそのプロジェクトがありません' } });
   });
-  it('承諾の仕方が自動なら、承諾の要るものも指示書に入る（needsApproval が偽）', () => {
+  it('承認の仕方が自動なら、承認の要るものも指示書に入る（needsApproval が偽）', () => {
     const r = presentConfigDialog(open('review'), storeOf(dto({ approval: 'auto' }), { inbox: { items: [inb('file:skills/a/SKILL.md', 'skills', 'skills/a/SKILL.md', 'create')], approval: 'auto' } }));
     if (r?.part !== 'review') throw new Error('part');
     expect(r.entries).toEqual([{ id: 'file:skills/a/SKILL.md' }]);
@@ -99,11 +99,11 @@ describe('適用内容の確認（b1）', () => {
   });
 });
 
-describe('承諾の表（c2）', () => {
+describe('承認の表（c2）', () => {
   const hooky = inb('file:skills/h/SKILL.md', 'skills', 'skills/h/SKILL.md', 'create', { needsApproval: true, marks: ['hooks'], size: 900, head: '---\nname: h\nhooks:\n  PreToolUse:\n---\nbody' });
   const plain = inb('file:commands/p.md', 'commands', 'commands/p.md', 'overwrite', { needsApproval: true, head: '# p' });
   const conflict = inb('file:skills/c/SKILL.md', 'skills', 'skills/c/SKILL.md', 'conflict', { needsApproval: true });
-  it('承諾の要る行だけを出し、競合と保留は含めない。印のある行は marked', () => {
+  it('承認の要る行だけを出し、競合と保留は含めない。印のある行は marked', () => {
     const r = presentConfigDialog(open('approve'), storeOf(dto(), { inbox: { items: [hooky, plain, conflict, inb('file:skills/z/SKILL.md', 'skills', 'skills/z/SKILL.md', 'create', { needsApproval: true, held: 'local-blocked' })], approval: 'each' } }));
     if (r?.part !== 'approve') throw new Error('part');
     expect(r.rows.map((x) => [x.label, x.marked, x.marks, x.opLabel, x.from])).toEqual([['skills/h/SKILL.md', true, ['フック'], '新規', 'Studio'], ['commands/p.md', false, [], '上書き', 'Studio']]);
@@ -170,7 +170,7 @@ describe('設定の節の常設の行', () => {
     const p = presentConfigSection(store, NOW);
     expect(p).toMatchObject({ workerPending: true, lastSent: '2 分前', order: { count: 5, when: '1 分前', command: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar config apply' } });
   });
-  it('承諾待ちは承諾の仕方が毎回のときだけ数え、受信した変更の送り主を並べる', () => {
+  it('承認待ちは承認の仕方が毎回のときだけ数え、受信した変更の送り主を並べる', () => {
     const inbox = { items: [inb('a', 'skills', 'skills/a/SKILL.md', 'create', { needsApproval: true }), inb('b', 'memory', 'memory/b.md', 'create', { fromDevice: 'Mini' })], approval: 'each' as const };
     const each = presentConfigSection(storeOf(dto({ incoming: 2 }), { inbox }), NOW);
     expect(each).toMatchObject({ awaiting: 1, incoming: { count: 2, from: 'Studio、Mini' } });

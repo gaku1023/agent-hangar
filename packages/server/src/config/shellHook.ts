@@ -383,7 +383,7 @@ export function planShellUnhook(cur: string | null): string | null {
 
 /**
  * ~/.zshrc の末尾に 1 行を足す。書き換える前に同じディレクトリへ控えを取る。
- * 書く中身は planShellHook が決める（承諾の窓で見せる差分と同じもの）。
+ * 書く中身は planShellHook が決める（承認の窓で見せる差分と同じもの）。
  */
 export function installShellHook(zshrc: string, line: string, now: Date = new Date()): { changed: boolean; backup: string | null } {
   const read = readUtf8Text(zshrc);

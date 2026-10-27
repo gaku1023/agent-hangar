@@ -365,7 +365,7 @@ describe('claude-hooks：書き戻し', () => {
     expect(b.read('hooks/fmt.sh')).toBeNull();
   });
 
-  it('承諾：設定が each のあいだは、消去も含めて全部。auto なら要らない', () => {
+  it('承認：設定が each のあいだは、消去も含めて全部。auto なら要らない', () => {
     for (const op of ['create', 'overwrite', 'delete'] as const) {
       expect(claudeHooksTarget.needsApproval({ id: HOOKS_ID, kind: 'claude-hooks', op }, 'each')).toBe(true);
       expect(claudeHooksTarget.needsApproval({ id: STATUSLINE_ID, kind: 'claude-statusline', op }, 'each')).toBe(true);
@@ -386,7 +386,7 @@ describe('claude-plugins', () => {
   };
   const PLUGINS = { 'p1@shared': true, 'p2@team': false, 'p3@mine': true, 'p4@mine2': true, solo: true };
 
-  it('承諾つきの 2 項目として集める。ローカルの marketplace と、それ由来の plugin は運ばない', () => {
+  it('承認つきの 2 項目として集める。ローカルの marketplace と、それ由来の plugin は運ばない', () => {
     const a = pc('a');
     a.putSettings({ model: 'x', enabledPlugins: PLUGINS, extraKnownMarketplaces: MK });
     const c = byId(collectPlugins(a).items);
@@ -453,15 +453,15 @@ describe('collectAll に載る', () => {
 });
 const MK_GH = { source: { source: 'github', repo: 'o/m' } };
 
-describe('permissions.* の承諾（SPEC 4 章）', () => {
+describe('permissions.* の承認（SPEC 4 章）', () => {
   const need = (id: string, op: 'create' | 'overwrite' | 'delete', a: 'each' | 'auto' = 'each') => claudeTarget.needsApproval({ id, kind: 'settings', op }, a);
-  it('設定が each のあいだ、権限の鍵は消去も含めて承諾が要る。auto なら要らない', () => {
+  it('設定が each のあいだ、権限の鍵は消去も含めて承認が要る。auto なら要らない', () => {
     for (const k of ['allow', 'ask', 'deny', 'defaultMode']) {
       for (const op of ['create', 'overwrite', 'delete'] as const) expect([k, op, need(`settings:permissions.${k}`, op)]).toEqual([k, op, true]);
       expect(need(`settings:permissions.${k}`, 'create', 'auto')).toBe(false);
     }
   });
-  it('ほかの好みの鍵と、今までの承諾（skills など）は変わらない', () => {
+  it('ほかの好みの鍵と、今までの承認（skills など）は変わらない', () => {
     expect(need('settings:model', 'overwrite')).toBe(false);
     expect(need('file:CLAUDE.md', 'create')).toBe(false);
     expect(claudeTarget.needsApproval({ id: 'file:skills/a/SKILL.md', kind: 'skills', op: 'create' }, 'each')).toBe(true);

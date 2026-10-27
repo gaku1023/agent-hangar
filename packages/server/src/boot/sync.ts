@@ -446,13 +446,13 @@ export function bootSync(
   delivery.publisher?.setConfigSync(() => core.configBundle?.dto() ?? null);
 
   // 設定の同期のスイッチが切から入に変わった瞬間に、次の周期を待たず 1 回回す。
-  // 送る一覧を承諾した人が、承諾したあとの 1 分近くを黙って待たないようにする。
+  // 送る一覧を承認した人が、承認したあとの 1 分近くを黙って待たないようにする。
   let bundleWasOn = settings.current.configBundleSync === true;
   const publishConfigSync = (): void => {
     const bundleOn = settings.current.configBundleSync === true;
     if (bundleOn && !bundleWasOn) void core.configBundle?.tick();
     bundleWasOn = bundleOn;
-    // 承諾の仕方とスイッチは新しい実装の状態にも載るので、配り直す。
+    // 承認の仕方とスイッチは新しい実装の状態にも載るので、配り直す。
     touchRow(db, 'config_state', 'self');
   };
   /**

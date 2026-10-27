@@ -134,7 +134,7 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
     expect(b.group.countText).toBe('準備完了 4 / 7');
   });
   it('すゝめの一言があれば、最後に「仕上げ」の 1 行を置き、一言をコピーさせる。件数と分母には数えない', () => {
-    const prompt = '~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで、私の環境を診断して。書き換えは私が承諾してから';
+    const prompt = '~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで、私の環境を診断して。書き換えは私が承認してから';
     const b = presentReadiness(READY, ja, 'darwin', 'idle', { desktop: false, running: null, guide: prompt })!;
     expect(b.group).toMatchObject({ count: 3, countText: '準備完了 4 / 7' });
     expect(b.group.rows.map((r) => r.key)).not.toContain('ready:guide');

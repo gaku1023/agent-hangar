@@ -82,8 +82,8 @@ export function overlayStep(state: State, input: Input): Step | null {
         const fromDialog = state.overlay.kind === 'resolveProject' && state.overlay.projectId === i.id;
         return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'unlinkProject', projectId: i.id, ...(fromDialog ? { fromDialog: true } : {}) } } }, effects: [] };
       }
-      // 確認から承諾したときも、ダイアログから決めたときも、閉じてから送る。帯の行から直に決めたときは、開いているものに触らない。
-      // まとめる確認から承諾したときも同じく閉じる。
+      // 確認から承認したときも、ダイアログから決めたときも、閉じてから送る。帯の行から直に決めたときは、開いているものに触らない。
+      // まとめる確認から承認したときも同じく閉じる。
       const closes = state.overlay.kind === 'resolveProject' || (state.overlay.kind === 'confirm' && (state.overlay.confirm.kind === 'unlinkProject' || state.overlay.confirm.kind === 'mergeProject'));
       return { state: closes ? { ...state, overlay: { kind: 'none' } } : state, effects: [{ kind: 'api.resolveProject', projectId: i.id, action: i.action }] };
     }

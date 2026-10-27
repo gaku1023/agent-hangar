@@ -740,7 +740,7 @@ describe('設定の同期の組み立て', () => {
     expect(bundle.outgoing().items.map((i) => i.id)).toEqual(['file:CLAUDE.md']);
   });
 
-  it('スイッチは configBundleSync だけで、旧い syncClaudeConfig が残っていても読まない。承諾の仕方は設定から読む', () => {
+  it('スイッチは configBundleSync だけで、旧い syncClaudeConfig が残っていても読まない。承認の仕方は設定から読む', () => {
     joinTo(NOWHERE);
     const b = boot();
     const bundle = b.sync.configBundle!;

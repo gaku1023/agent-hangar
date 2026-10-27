@@ -129,7 +129,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.cloud.resume': 'Resume sync',
   'settings.cloud.computers': 'Computers',
   'settings.cloud.thisPc': 'This computer',
-  'settings.cloud.config.title': 'Sync Claude Code settings',
+  'settings.cloud.config.title': 'Sync settings',
   'settings.cloud.config.enable': 'Enable on this computer',
   'settings.cloud.config.needsCloud': 'Available once cloud sync is on',
   'settings.integrations.mcp.title': 'MCP server',

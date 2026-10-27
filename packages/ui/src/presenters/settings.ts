@@ -353,7 +353,7 @@ function presentIntegrations(t: Translate, state: State, store: Store, install: 
   const act = (target: SetupTarget, label: string, primary: boolean, disabled = false): IntegrationAction => ({
     target, primary, running: running === target,
     label: running === target ? t('settings.integrations.waiting') : label,
-    // 返事を待っているあいだは、ほかの札も押せなくする（殻は承諾の窓を 1 つしか出さない）。
+    // 返事を待っているあいだは、ほかの札も押せなくする（殻は承認の窓を 1 つしか出さない）。
     disabled: disabled || running !== null,
   });
   const mcpOn = r?.mcp.registered ?? null;

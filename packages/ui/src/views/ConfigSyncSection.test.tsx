@@ -20,7 +20,7 @@ describe('Claude Code の設定の同期の節', () => {
     expect(screen.getByText('クラウド同期を開始すると使えます')).toBeInTheDocument();
     expect(screen.queryByText('受信した変更')).toBeNull();
   });
-  it('切のスイッチを入れるときは、送る一覧のダイアログを開く（承諾するまで入れない）。入っているものを切るのはその場で保存する', () => {
+  it('切のスイッチを入れるときは、送る一覧のダイアログを開く（承認するまで入れない）。入っているものを切るのはその場で保存する', () => {
     const onAction = vi.fn();
     const { rerender } = render(ui(propsOf(dto({ enabled: false })), onAction));
     expect(screen.queryByText('受信した変更')).toBeNull();
@@ -46,7 +46,7 @@ describe('Claude Code の設定の同期の節', () => {
     rerender(ui(propsOf(dto({ enabled: false, workerPending: true }))));
     expect(screen.queryByRole('status')).toBeNull();
   });
-  it('受信した変更、承諾待ち、競合は、押すとそれぞれのダイアログを開く。0 件のものは押せない', () => {
+  it('受信した変更、承認待ち、競合は、押すとそれぞれのダイアログを開く。0 件のものは押せない', () => {
     const onAction = vi.fn();
     const inbox = { items: [{ id: 'a', kind: 'skills' as const, label: 'skills/a/SKILL.md', op: 'create' as const, fromDeviceId: 'x', fromDevice: 'Studio', size: 1, marks: [], head: '', held: null, needsApproval: true }], approval: 'each' as const };
     render(ui(propsOf(dto({ incoming: 1, conflicts: 2 }), { inbox }), onAction));
@@ -83,7 +83,7 @@ describe('Claude Code の設定の同期の節', () => {
     fireEvent.click(within(screen.getByRole('group', { name: '自動で適用にする前の確認' })).getByRole('button', { name: '自動にする' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { configApproval: 'auto' } });
   });
-  it('自動のときは承諾待ちの行を出さず、毎回に戻すのは注意なしにその場で保存する', () => {
+  it('自動のときは承認待ちの行を出さず、毎回に戻すのは注意なしにその場で保存する', () => {
     const onAction = vi.fn();
     render(ui(propsOf(dto({ approval: 'auto' })), onAction));
     fireEvent.click(screen.getByRole('button', { name: '受信したスキル、コマンド、エージェントの説明' }));
@@ -106,7 +106,7 @@ describe('Claude Code の設定の同期の節', () => {
     fireEvent.click(screen.getByRole('button', { name: 'skills/x/SKILL.md をそれでも送信' }));
     // U0 の 3a：行の下で確かめてから送る。
     expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'configSync.unsent.send' }));
-    fireEvent.click(within(screen.getByRole('group', { name: 'シークレットと思われる値を送ります' })).getByRole('button', { name: '送る' }));
+    fireEvent.click(within(screen.getByRole('group', { name: 'シークレットと思われる値を送信します' })).getByRole('button', { name: '送信' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'configSync.unsent.send', id: 'secret:x' });
   });
   it('ベルの行から来たとき（at=unsent）は、送らなかった項目の行を開いた状態で出す。印が無ければ畳んだまま', () => {
