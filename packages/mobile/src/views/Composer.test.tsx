@@ -24,13 +24,14 @@ function noAttachments(over: Partial<Attachments> = {}): Attachments {
   return { items: [], add: vi.fn(async () => undefined), remove: vi.fn(), retry: vi.fn(), notice: null, busy: false, failed: false, ready: [], ...over };
 }
 
-type Opts = { pc?: string | null; projectId?: string | null; accountId?: string | null; asker?: Partial<Asker>; attachments?: Attachments; initial?: string; canAsk?: boolean; canAttach?: boolean };
+type Opts = { agent?: 'codex' | 'opencode'; pc?: string | null; projectId?: string | null; accountId?: string | null; asker?: Partial<Asker>; attachments?: Attachments; initial?: string; canAsk?: boolean; canAttach?: boolean };
 
 function setup(o: Opts = {}) {
   const asker: Asker = {
     commands: vi.fn(async () => COMMANDS),
     files: vi.fn(async () => FILES),
     agentOptions: vi.fn(async () => null),
+    codexOptions: vi.fn(async () => null),
     ...o.asker,
   };
   const attachments = o.attachments ?? noAttachments();
@@ -50,6 +51,7 @@ function setup(o: Opts = {}) {
           projectName="project-a"
           accountId={o.accountId === undefined ? 'acc-1' : o.accountId}
           accountName="アカウント 1"
+          agent={o.agent}
           attachments={attachments}
           canAsk={o.canAsk}
           canAttach={o.canAttach}
@@ -152,6 +154,17 @@ describe('Composer の / の候補', () => {
     await waitFor(() => expect(sheet()).toBeNull());
     type('/r');
     expect(sheet()).toBeNull();
+  });
+});
+
+describe('Composer と Codex', () => {
+  it('Codex では / を打っても PC に問い合わせず、スキルやコマンドを選べない旨を出す。@ は今までどおり', async () => {
+    const { asker, type } = setup({ agent: 'codex', accountId: null });
+    type('/');
+    expect(await screen.findByText('Codex では、スキルやコマンドを選べません')).toBeInTheDocument();
+    expect(asker.commands).not.toHaveBeenCalled();
+    type('@');
+    await waitFor(() => expect(asker.files).toHaveBeenCalled());
   });
 });
 

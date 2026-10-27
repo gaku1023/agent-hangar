@@ -11,7 +11,9 @@ import { applyRemoteChange } from '../apply.ts';
 import { testCloudConfig, testKey } from '../../../test/cloudConfig.ts';
 import { encryptBuffer, fileKeyFrom, sha256Hex } from '../crypto.ts';
 import { Keyring } from '../keyring.ts';
-import { unpackBundle } from './bundle.ts';
+import { packBundle, unpackBundle, type BundleManifest } from './bundle.ts';
+import { fakeTarget } from './targets/fakeTarget.ts';
+import { registerTarget } from './targets/index.ts';
 import { slugOfPath } from './ids.ts';
 import { writeApplyOrder } from './applyOrder.ts';
 import { applyOrderPath, BUNDLE_PATH, configBackupsDir } from './paths.ts';
@@ -843,5 +845,53 @@ describe('git・dotfiles の検出（表示だけ）', () => {
     deliver(a, b);
     await b.service.receive();
     expect(b.service.dto().incoming).toBe(1);
+  });
+});
+
+describe('束の対象と OS の配線（SPEC 12 章）', () => {
+  let unregister: () => void;
+  beforeEach(() => { unregister = registerTarget(fakeTarget('fake')); });
+  afterEach(() => unregister());
+
+  /** 自分の束の行を dev-c の行として b に降ろし、中身は作った目録の束にする（古い形も作れる）。 */
+  async function receiveCrafted(b: Pc, manifest: BundleManifest, blobs: Map<string, Buffer>): Promise<void> {
+    const tar = packBundle(manifest, blobs);
+    const src = pcs.find((p) => p.id === 'dev-a')!;
+    const row = src.db.prepare('select * from config_snapshots').get() as Record<string, unknown>;
+    const crafted = { ...row, device_id: 'dev-c', bundle_sha256: sha256Hex(tar), bundle_size: tar.length };
+    applyRemoteChange(b.db, { tableName: 'config_snapshots', rowId: 'dev-c', op: 'upsert', payload: crafted, updatedAt: Number(row.updated_at), seq: 1, deviceId: 'dev-c' }, { ownDeviceId: b.id, skipOwn: true });
+    await shared.asDevice('dev-c').putText({ path: BUNDLE_PATH, kind: 'config', sha256: sha256Hex(tar), mtime: 1 }, tar);
+    expect(await b.service.receive()).toEqual({ fetched: 1, failed: 0 });
+  }
+  const item = (id: string, kind: 'claude-md' | 'codex-file', text: string) => ({ id, kind, sha256: sha256Hex(text), size: text.length, marks: [] });
+
+  it('上げた束の目録に、集めた対象と OS が入る', async () => {
+    const a = pc('dev-a', 'mac');
+    a.write('CLAUDE.md', 'x');
+    await a.service.send();
+    const m = unpackBundle((await shared.openedFile(await bundleKey(a)))!.body).manifest;
+    expect(m.targets).toEqual(['claude', 'fake']);
+    expect(['darwin', 'win32', 'linux']).toContain(m.os);
+  });
+
+  it('targets の無い古い形の束を受けても、基準にある新しい対象の項目は消えない', async () => {
+    const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
+    a.write('CLAUDE.md', 'x');
+    await a.service.send();
+    new ConfigBase(b.db).set('fake:old.txt', sha256Hex('o'), NOW);
+    await receiveCrafted(b, { version: 1, deviceId: 'dev-c', createdAt: NOW, items: [item('file:CLAUDE.md', 'claude-md', 'x')] }, new Map([[sha256Hex('x'), Buffer.from('x')]]));
+    expect(ids(b)).toEqual(['create:file:CLAUDE.md']);
+    expect(new ConfigBase(b.db).all().get('fake:old.txt')).toBe(sha256Hex('o'));
+  });
+
+  it('対象を持つ束を受ければ、その対象の項目は今までどおり判定される', async () => {
+    const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
+    a.write('CLAUDE.md', 'x');
+    await a.service.send();
+    new ConfigBase(b.db).set('fake:old.txt', sha256Hex('o'), NOW);
+    await receiveCrafted(b, { version: 1, deviceId: 'dev-c', createdAt: NOW, items: [item('fake:new.txt', 'codex-file', 'n')], targets: ['claude', 'fake'], os: 'darwin' }, new Map([[sha256Hex('n'), Buffer.from('n')]]));
+    expect(ids(b)).toEqual(['create:fake:new.txt']);
+    // 相手が持たなくなった項目の基準は、今までどおり消える。
+    expect(new ConfigBase(b.db).all().has('fake:old.txt')).toBe(false);
   });
 });

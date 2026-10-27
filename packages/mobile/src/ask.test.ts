@@ -229,6 +229,38 @@ describe('askPc（opencode）', () => {
   });
 });
 
+describe('askPc（Codex）', () => {
+  const CX = { version: '0.164.0', verified: true, models: [{ id: 'gpt-5.5', label: 'GPT-5.5', efforts: ['low', 'high'], defaultEffort: 'high' }], stale: false, fetchedAt: 5 };
+
+  it('agent-options を codex で問い合わせ、Codex の選択肢を受け取る', async () => {
+    serve({ codexOptions: CX });
+    expect(await askPc(pairing, at1(key), 'pc-1', { kind: 'agent-options', agent: 'codex', projectId: null })).toEqual({ codexOptions: CX });
+    const sent = await open<MobileAsk>(key, aadAsk(asks[0]!.body.id, 'pc-1'), asks[0]!.body.sealed);
+    expect(sent).toEqual({ v: 1, kind: 'agent-options', agent: 'codex', projectId: null });
+  });
+
+  it('PC がまだ一覧を持っていなければ null。送れない形のモデルと推論の段階、defaultEffort は落とす', async () => {
+    serve({ codexOptions: null });
+    expect(await askPc(pairing, at1(key), 'pc-1', { kind: 'agent-options', agent: 'codex', projectId: null })).toEqual({ codexOptions: null });
+    serve({ codexOptions: { ...CX, models: [CX.models[0]!, { id: '-m', label: 'bad', efforts: [], defaultEffort: null }, { id: 'ok2', label: ' ', efforts: ['--x', 'medium', 3 as never], defaultEffort: 'gone' }] } });
+    const r = await askPc(pairing, at1(key), 'pc-1', { kind: 'agent-options', agent: 'codex', projectId: null });
+    if (!('codexOptions' in r) || !r.codexOptions) throw new Error('codexOptions でない');
+    expect(r.codexOptions.models).toEqual([CX.models[0], { id: 'ok2', label: 'ok2', efforts: ['medium'], defaultEffort: null }]);
+  });
+
+  it('Codex を使えない PC の答えは agent-missing。asker は codex の一覧を PC ごとに 1 回だけ問い合わせ、失敗は覚えない', async () => {
+    serve({ error: 'agent-missing' });
+    expect(await failureOf(askPc(pairing, at1(key), 'pc-1', { kind: 'agent-options', agent: 'codex', projectId: null }))).toBe('agent-missing');
+    const a = createAsker(pairing, at1(key));
+    asks.length = 0;
+    await expect(a.codexOptions('pc-1')).rejects.toBeInstanceOf(AskError);
+    serve({ codexOptions: CX });
+    expect(await a.codexOptions('pc-1')).toEqual(CX);
+    await a.codexOptions('pc-1');
+    expect(asks).toHaveLength(2);
+  });
+});
+
 describe('createAsker', () => {
   const cmds: MobileReply = { commands: [{ name: 'review', description: 'レビュー', kind: 'skill' }] };
 

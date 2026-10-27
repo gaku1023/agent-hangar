@@ -15,7 +15,8 @@ import { openTargetCommand } from '../platform/browser.ts';
 import { execFile } from '../external/open.ts';
 import { realReportDeps } from '../report/real.ts';
 import { ReportService } from '../report/service.ts';
-import { callTool, type ToolContext, type ToolDeps } from './tools.ts';
+import { MAX_SCREEN_LINES, MAX_SEND_CHARS } from './screenTools.ts';
+import { callTool,type ToolContext, type ToolDeps } from './tools.ts';
 
 /**
  * MCP の入口が受け付ける Origin。
@@ -51,12 +52,17 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   reg('list_sessions', D(tr('mcp.tool.listSessions')), { project_id: z.string().optional(), running: z.boolean().optional(), limit: z.number().int().positive().optional() });
   reg('search_sessions', D(tr('mcp.tool.searchSessions')), { query: z.string(), project_id: z.string().optional(), since: z.number().optional(), until: z.number().optional(), file: z.string().optional(), limit: z.number().int().positive().optional() });
   reg('get_transcript', D(tr('mcp.tool.getTranscript')), { session_id: z.string().optional(), from_seq: z.number().int().optional(), limit: z.number().int().positive().optional(), include_tools: z.boolean().optional() });
-  reg('create_session', D(tr('mcp.tool.createSession')), { project_id: z.string(), name: z.string().optional(), prompt: z.string().optional(), model: z.string().optional().describe(tr('mcp.createSession.modelParam')), effort: z.string().optional(), permission_mode: z.string().optional(), scratch: z.boolean().optional(), agent: z.enum(AGENT_KINDS).optional().describe(tr('mcp.createSession.agentParam')), mode: z.string().optional().describe(tr('mcp.createSession.modeParam')) });
+  reg('create_session', D(tr('mcp.tool.createSession')), { project_id: z.string(), name: z.string().optional(), prompt: z.string().optional(), model: z.string().optional().describe(tr('mcp.createSession.modelParam')), effort: z.string().optional(), permission_mode: z.string().optional().describe(tr('mcp.createSession.permissionModeParam')), scratch: z.boolean().optional(), agent: z.enum(AGENT_KINDS).optional().describe(tr('mcp.createSession.agentParam')), mode: z.string().optional().describe(tr('mcp.createSession.modeParam')), worktree: z.string().optional().describe(tr('mcp.createSession.worktreeParam')), add_dirs: z.array(z.string()).optional().describe(tr('mcp.createSession.addDirsParam')), account: z.string().optional().describe(tr('mcp.createSession.accountParam')) });
   reg('set_session_summary', D(tr('mcp.tool.setSessionSummary')), { session_id: z.string().optional(), title: z.string(), one_liner: z.string(), body: z.string(), state: STATE, next_steps: z.array(z.string()) });
   reg('set_turn_intent', D(tr('mcp.tool.setTurnIntent')), { session_id: z.string().optional(), text: z.string() });
   reg('propose_session_status', D(tr('mcp.tool.proposeSessionStatus')), { session_id: z.string().optional(), status: z.enum(['done', 'paused']), note: z.string().describe(tr('mcp.sessionStatus.noteParam')), return_on: z.string().optional().describe(tr('mcp.sessionStatus.returnOnParam')), return_time: z.string().optional().describe(tr('mcp.sessionStatus.returnTimeParam')), confirmed: z.boolean().optional().describe(tr('mcp.sessionStatus.confirmedParam')) });
+  reg('stop_session', D(tr('mcp.tool.stopSession')), { session_id: z.string() });
+  reg('resume_session', D(tr('mcp.tool.resumeSession')), { session_id: z.string(), account: z.string().optional().describe(tr('mcp.resumeSession.accountParam')) });
+  reg('delete_session', D(tr('mcp.tool.deleteSession')), { session_id: z.string(), confirmed: z.boolean().optional().describe(tr('mcp.deleteSession.confirmedParam')) });
   reg('get_usage', D(tr('mcp.tool.getUsage')), {});
   reg('open_in_hangar', D(tr('mcp.tool.openInHangar')), { session_id: z.string().optional(), project_id: z.string().optional() });
+  reg('send_to_session', D(tr('mcp.tool.sendToSession')), { session_id: z.string(), text: z.string().describe(tr('mcp.sendToSession.textParam', { max: MAX_SEND_CHARS })), submit: z.boolean().optional().describe(tr('mcp.sendToSession.submitParam')) });
+  reg('read_session_screen', D(tr('mcp.tool.readSessionScreen')), { session_id: z.string().optional(), lines: z.number().int().positive().optional().describe(tr('mcp.screen.linesParam', { max: MAX_SCREEN_LINES })) });
   // 節は種類ごとに必須が違うので、ここでは全部を任意にし、検査は report/compose.ts に任せる。断りの文で足りない節を名指しできる。
   const section = z.string().optional();
   reg('draft_issue_report', D(tr('report.tool.draft')), {

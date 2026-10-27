@@ -95,6 +95,14 @@ describe('startLaunch', () => {
     }
   });
 
+  it('Codex の依頼の agent-missing は、codex が見つかりませんと言う', async () => {
+    serve([{ status: 'failed', answer: { ok: false, reason: 'agent-missing' } }]);
+    const { last } = run(spec({ payload: { projectId: 'p-a', scratch: false, accountId: '', permissionMode: 'auto', model: '', prompt: 'a', agent: 'codex' } }));
+    await vi.waitFor(() => expect(last().kind).toBe('failed'));
+    const s = last();
+    expect(s.kind === 'failed' && s.message).toMatch(/codex が見つかりません（PC の PATH を確認してください）。/);
+  });
+
   it('鍵が合わない答え（bad-payload）は接続し直しを勧める', async () => {
     serve([{ status: 'failed', answer: { ok: false, reason: 'bad-payload' } }]);
     const { last } = run();

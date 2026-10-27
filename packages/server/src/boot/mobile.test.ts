@@ -45,7 +45,7 @@ const noPhone = (): CloudDevicesDto => devicesDto([device('pc-a', 'pc'), device(
 const homeDirs: string[] = [];
 afterEach(() => { for (const d of homeDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
 
-function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () => never; devices?: CloudDevicesDto } = {}) {
+function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () => never; devices?: CloudDevicesDto; boot?: Partial<Parameters<typeof bootMobile>[0]> } = {}) {
   const db = openDb(':memory:');
   const timers = new FakeTimers();
   const client = new FakeCloudClient({ deviceId: 'pc-a', now: () => timers.now });
@@ -89,6 +89,7 @@ function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () =>
     sync,
     timers,
     now: () => timers.now,
+    ...o.boot,
   });
   return {
     db, timers, client, mobile, homeDir, registryListeners, accounts, broadcasts, start, runListeners, events,
@@ -115,6 +116,30 @@ describe('bootMobile', () => {
     const feed = await open<MobileFeed>(await mobileKey(), aadFeed('pc-a'), client.mobileFeeds.get('pc-a')!.sealed);
     expect(feed).toMatchObject({ v: 1, deviceId: 'pc-a', deviceName: 'PC A', accounts: [{ id: 'primary', name: 'メイン' }] });
     mobile.stop();
+  });
+
+  it('Codex は、設定で有効で、手元に見つかるときだけ caps.agents に載る。opencode の入り切りとは別', async () => {
+    const codex = { options: { last: () => null } };
+    const on = setup({ boot: { home: { db: openDb(':memory:'), device: { id: 'pc-a', name: 'PC A' }, home: '/h', settings: { current: { codexEnabled: true } } }, codex, findCodex: () => '/bin/codex' } });
+    on.mobile.start();
+    await on.timers.advance(FEED_DEBOUNCE_MS);
+    await settle(() => on.client.mobileFeeds.size === 1);
+    const feed = await open<MobileFeed>(await mobileKey(), aadFeed('pc-a'), on.client.mobileFeeds.get('pc-a')!.sealed);
+    expect(feed.caps?.agents).toEqual(['claude-code', 'codex']);
+    on.mobile.stop();
+    for (const boot of [
+      { home: { db: openDb(':memory:'), device: { id: 'pc-a', name: 'PC A' }, home: '/h', settings: { current: { codexEnabled: true } } }, codex, findCodex: () => null },
+      { home: { db: openDb(':memory:'), device: { id: 'pc-a', name: 'PC A' }, home: '/h', settings: { current: {} } }, codex, findCodex: () => '/bin/codex' },
+      { home: { db: openDb(':memory:'), device: { id: 'pc-a', name: 'PC A' }, home: '/h', settings: { current: { codexEnabled: true } } }, findCodex: () => '/bin/codex' },
+    ]) {
+      const off = setup({ boot });
+      off.mobile.start();
+      await off.timers.advance(FEED_DEBOUNCE_MS);
+      await settle(() => off.client.mobileFeeds.size === 1);
+      const f = await open<MobileFeed>(await mobileKey(), aadFeed('pc-a'), off.client.mobileFeeds.get('pc-a')!.sealed);
+      expect(f.caps).toEqual({ asks: true, images: true, effort: true });
+      off.mobile.stop();
+    }
   });
 
   it('run の画面から Remote Control の URL を拾ったら nudge し、止めたら購読を外す', () => {
