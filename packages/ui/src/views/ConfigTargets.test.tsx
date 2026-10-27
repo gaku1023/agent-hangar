@@ -75,7 +75,7 @@ describe('送らなかった項目（3A、3a）', () => {
   const items = [uns('u1', 'secret', 'secret:aws-key'), uns('u2', 'unknown-key', 'unknown-key')];
   it('理由ごとの群で見せ、それでも送るは行の下で確かめてから送る', () => {
     const onAction = vi.fn();
-    render(section(storeOf(dto({ unsent: 2, unknownKeyCount: 1 }), { configTargets: { hangar: false } }, { unsent: { items } }), onAction));
+    render(section(storeOf(dto({ unsent: 1, unknownKeyCount: 1 }), { configTargets: { hangar: false } }, { unsent: { items } }), onAction));
     expect(screen.getByText('送信しなかった項目 1 件')).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole('button', { name: '表示' })[0]!);
     expect(screen.getByText('シークレットと思われる値を含む項目')).toBeInTheDocument();

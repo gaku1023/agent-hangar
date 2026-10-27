@@ -68,7 +68,7 @@ describe('対象ごとの入切の行（1A、2A）', () => {
 describe('送らなかった項目を理由ごとの群に（3A）', () => {
   const items = [uns('u1', 'secret', 'secret:aws-key'), uns('u2', 'permission-rule', 'absolute-path'), uns('u3', 'unknown-key', 'unknown-key'), uns('u4', 'secret', 'secret:mcp-credential')];
   it('シークレット、この PC だけ、未対応のキーの順に群を作り、未対応のキーは件数に入れない', () => {
-    const p = presentConfigSection(storeOf(dto({ unsent: 4, unknownKeyCount: 1 }), { unsent: { items } }), NOW);
+    const p = presentConfigSection(storeOf(dto({ unsent: 3, unknownKeyCount: 1 }), { unsent: { items } }), NOW);
     expect(p.unsent.count).toBe(3);
     expect(p.unsent.unknown).toBe(1);
     expect(p.unsent.groups.map((g) => [g.id, g.title, g.rows.map((r) => r.id)])).toEqual([
@@ -87,8 +87,8 @@ describe('送らなかった項目を理由ごとの群に（3A）', () => {
   });
   it('ベルの件数にも未対応のキーを数えない。未対応のキーだけなら知らせない', () => {
     const t = (c: ConfigSyncDto) => presentNotices(initialState(), { ...storeOf(c), configSync: c }, NOW).rows.filter((n) => n.kind === 'config');
-    expect(t(dto({ unsent: 3, unknownKeyCount: 1 }))[0]!.title).toContain('2');
-    expect(t(dto({ unsent: 2, unknownKeyCount: 2 }))).toEqual([]);
+    expect(t(dto({ unsent: 2, unknownKeyCount: 1 }))[0]!.title).toContain('2');
+    expect(t(dto({ unsent: 0, unknownKeyCount: 2 }))).toEqual([]);
   });
 });
 

@@ -439,13 +439,13 @@ function presentTargets(t: Translate, s: SettingsDto | null, c: ConfigSyncDto | 
   return { rows, showNew: rows.length > 0 && rows.every((r) => r.isNew), switches: sw };
 }
 
-/** U1a が足す、送らなかった項目のうち未対応のキーの件数。shared の型に入るまでは任意の欄として読む。unsent はこれを含む件数として扱う。 */
+/** U1a が足す、未対応のキーの件数。shared の型に入るまでは任意の欄として読む。サーバの unsent はこれを含まない。 */
 export const unknownKeyCountOf = (c: ConfigSyncDto | null): number => {
   const v = (c as (ConfigSyncDto & { unknownKeyCount?: unknown }) | null)?.unknownKeyCount;
   return typeof v === 'number' && v > 0 ? v : 0;
 };
-/** 送れるかどうかを選べる、送らなかった項目の件数（ベルと行の件数）。 */
-export const sendableUnsentOf = (c: ConfigSyncDto | null): number => Math.max(0, (c?.unsent ?? 0) - unknownKeyCountOf(c));
+/** 送れるかどうかを選べる、送らなかった項目の件数（ベルと行の件数）。サーバの unsent は未対応のキーを除いた数なので、そのまま使う。 */
+export const sendableUnsentOf = (c: ConfigSyncDto | null): number => c?.unsent ?? 0;
 
 const UNSENT_GROUPS = [
   { id: 'secret', kinds: ['secret'], title: 'configTargetsUi.unsent.g.secret', note: 'configTargetsUi.unsent.g.secretNote' },
@@ -475,7 +475,7 @@ export function presentConfigSection(store: Store, now: number, focusUnsent = fa
     awaiting: c?.approval === 'each' ? inbox.filter(needsPick).length : 0,
     conflicts: c?.conflicts ?? 0,
     unsent: (() => {
-      const rows = (c?.unsent ?? 0) === 0 ? [] : (d.unsent?.items ?? []).map((u) => ({ u, row: rowOfUnsent(u) }));
+      const rows = sendableUnsentOf(c) + unknownKeyCountOf(c) === 0 ? [] : (d.unsent?.items ?? []).map((u) => ({ u, row: rowOfUnsent(u) }));
       const groups = UNSENT_GROUPS.flatMap((g): ConfigGroupProps[] => {
         const xs = rows.filter((r) => (g.kinds as readonly string[]).includes(r.u.kind));
         return xs.length === 0 ? [] : [{ id: g.id, title: t(g.title), count: xs.length, peek: null, note: t(g.note), open: true, rows: xs.map((r) => r.row) }];
