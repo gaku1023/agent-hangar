@@ -7,7 +7,7 @@
  * 確かめた codex の版の範囲。x はその区切りを問わない。
  * 範囲を広げたら、範囲の判定（server の provider/codex/compat/version.ts）の試験もそろえる。
  */
-export const CODEX_VERIFIED_RANGE = '0.164.x';
+export const CODEX_VERIFIED_RANGE = '0.165.x';
 
 /**
  * hangar が起動する codex のシステムプロンプトへ足す指示の量。

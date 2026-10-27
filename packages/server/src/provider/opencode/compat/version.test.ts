@@ -21,14 +21,14 @@ describe('opencodeVersionOf', () => {
 });
 
 describe('judgeOpencodeVersion', () => {
-  it('確かめた範囲（2.1.x）の中', () => {
-    expect(judgeOpencodeVersion('2.1.0')).toBe('verified');
-    expect(judgeOpencodeVersion('2.1.4')).toBe('verified');
-    expect(judgeOpencodeVersion('2.1.99')).toBe('verified');
+  it('確かめた範囲（2.2.x）の中', () => {
+    expect(judgeOpencodeVersion('2.2.0')).toBe('verified');
+    expect(judgeOpencodeVersion('2.2.4')).toBe('verified');
+    expect(judgeOpencodeVersion('2.2.99')).toBe('verified');
   });
   it('範囲の外', () => {
-    expect(judgeOpencodeVersion('2.0.9')).toBe('unverified');
-    expect(judgeOpencodeVersion('2.2.0')).toBe('unverified');
+    expect(judgeOpencodeVersion('2.1.9')).toBe('unverified');
+    expect(judgeOpencodeVersion('2.3.0')).toBe('unverified');
     expect(judgeOpencodeVersion('3.0.0')).toBe('unverified');
     expect(judgeOpencodeVersion('0.9.0')).toBe('unverified');
   });
@@ -104,11 +104,11 @@ process.exit(${code});
   const callerEnv: NodeJS.ProcessEnv = { ...process.env, CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 'abc', HANGAR_TOKEN: 'secret' };
 
   posixIt('--version を空の環境で 1 回だけ打ち、何度聞いても同じ答えを返す', async () => {
-    const bin = fakeOpencode('2.1.4\n');
+    const bin = fakeOpencode('2.2.4\n');
     const local = new LocalOpencode({ bin: () => bin, env: callerEnv });
     const [a, b] = await Promise.all([local.status(), local.status()]);
     const c = await local.status();
-    for (const s of [a, b, c]) expect(s).toEqual({ found: true, version: '2.1.4', verified: true });
+    for (const s of [a, b, c]) expect(s).toEqual({ found: true, version: '2.2.4', verified: true });
     const got = calls();
     expect(got).toHaveLength(1);
     expect(got[0]!.args).toEqual(['--version']);
@@ -120,12 +120,12 @@ process.exit(${code});
   });
 
   posixIt('ファイルが替わったら（更新したら）読み直す', async () => {
-    const bin = fakeOpencode('2.1.4\n');
+    const bin = fakeOpencode('2.2.4\n');
     const local = new LocalOpencode({ bin: () => bin, env: callerEnv });
-    expect((await local.status()).version).toBe('2.1.4');
-    fakeOpencode('2.2.0-beta.1\n');
+    expect((await local.status()).version).toBe('2.2.4');
+    fakeOpencode('2.3.0-beta.1\n');
     fs.utimesSync(bin, new Date(), new Date(Date.now() + 5000));
-    expect(await local.status()).toEqual({ found: true, version: '2.2.0', verified: false });
+    expect(await local.status()).toEqual({ found: true, version: '2.3.0', verified: false });
     expect(calls()).toHaveLength(2);
   });
 
