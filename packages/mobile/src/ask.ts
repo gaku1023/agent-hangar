@@ -1,5 +1,5 @@
 // shared を入口（index.ts）から読むと PC 向けの表まで束に入るので、使うものだけを直に読む。
-import { isMobileMode, type MobileAgent, type MobileAgentOptions, type MobileAsk, type MobileAskIn, type MobileModelOption, type MobileReply } from '@agent-hangar/shared/src/mobile.ts';
+import { isMobileMode, type MobileAgent, type MobileAgentOptions, type MobileAsk, type MobileCodexOptions, type MobileAskIn, type MobileModelOption, type MobileReply } from '@agent-hangar/shared/src/mobile.ts';
 import { isModelName } from '@agent-hangar/shared/src/summaryEngine.ts';
 import { aadAsk, aadReply, MobilePairingError, open, seal } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { mobileHeaders, originOf, unpairedOf, workerCompatOf, workerTooOld, type UnpairedReason } from './api.ts';
@@ -47,7 +47,7 @@ export class AskError extends Error {
 export type AskBody = MobileAsk extends infer A ? (A extends { v: 1 } ? Omit<A, 'v'> : never) : never;
 export type CommandHit = { name: string; description: string; kind: 'skill' | 'command' };
 export type FileHit = { path: string; changed: boolean };
-export type AskReply = { files: FileHit[] } | { commands: CommandHit[] } | { agentOptions: MobileAgentOptions | null };
+export type AskReply = { files: FileHit[] } | { commands: CommandHit[] } | { agentOptions: MobileAgentOptions | null } | { codexOptions: MobileCodexOptions | null };
 
 /** 打つたびの問い合わせを出すまでに待つ長さ。 */
 export const ASK_DEBOUNCE_MS = 250;
@@ -146,6 +146,42 @@ export function capAgentOptions(v: unknown): MobileAgentOptions | null {
   };
 }
 
+/** Codex のモデルと推論の段階の件数の上限（PC の答えの上限と同じ）。 */
+const CODEX_MODELS_MAX = 40;
+const CODEX_EFFORTS_MAX = 8;
+/** PC が起動の依頼で受ける推論の段階の形（server の mobile/launchInbox.ts と同じ）。 */
+const isEffortWord = (v: unknown): v is string => typeof v === 'string' && /^[a-z0-9][a-z0-9_-]{0,23}$/.test(v);
+
+/**
+ * Codex の選択肢を、送れる形の行だけに絞る。モデルは isModelName、推論の段階は isEffortWord の形のものだけを残し、defaultEffort が段階の中に無ければ null にする。
+ * 形の違う答えは null。
+ */
+export function capCodexOptions(v: unknown): MobileCodexOptions | null {
+  if (!v || typeof v !== 'object') return null;
+  const o = v as Partial<Record<keyof MobileCodexOptions, unknown>>;
+  if (!Array.isArray(o.models) || typeof o.stale !== 'boolean') return null;
+  const models: MobileCodexOptions['models'] = [];
+  for (const m of o.models as unknown[]) {
+    if (models.length >= CODEX_MODELS_MAX) break;
+    const x = m as Partial<Record<'id' | 'label' | 'efforts' | 'defaultEffort', unknown>> | null;
+    if (!x || typeof x !== 'object' || !isModelName(x.id) || models.some((y) => y.id === x.id)) continue;
+    const efforts = (Array.isArray(x.efforts) ? (x.efforts as unknown[]) : []).filter(isEffortWord).slice(0, CODEX_EFFORTS_MAX);
+    models.push({
+      id: x.id,
+      label: typeof x.label === 'string' && x.label.trim() ? cut(x.label, AGENT_LABEL_MAX) : x.id,
+      efforts,
+      defaultEffort: typeof x.defaultEffort === 'string' && efforts.includes(x.defaultEffort) ? x.defaultEffort : null,
+    });
+  }
+  return {
+    version: typeof o.version === 'string' ? cut(o.version, 40) : null,
+    verified: o.verified === true,
+    models,
+    stale: o.stale,
+    fetchedAt: typeof o.fetchedAt === 'number' && Number.isFinite(o.fetchedAt) ? o.fetchedAt : 0,
+  };
+}
+
 /** 開いた答えから、形の合う行だけを残す。形の違う答えは null。 */
 function readReply(v: unknown): AskReply | { error: AskFailure } | null {
   if (!v || typeof v !== 'object') return null;
@@ -157,6 +193,11 @@ function readReply(v: unknown): AskReply | { error: AskFailure } | null {
     if (o.agentOptions === null) return { agentOptions: null };
     const a = capAgentOptions(o.agentOptions);
     return a ? { agentOptions: a } : null;
+  }
+  if ('codexOptions' in o) {
+    if (o.codexOptions === null) return { codexOptions: null };
+    const c = capCodexOptions(o.codexOptions);
+    return c ? { codexOptions: c } : null;
   }
   return null;
 }
@@ -235,6 +276,8 @@ export type Asker = {
   files: (pc: string, projectId: string, q: string) => Promise<FileHit[]>;
   /** opencode のモードとモデル。同じ PC とプロジェクトは画面の間 1 回だけ問い合わせる。PC がまだ一覧を持っていなければ null。 */
   agentOptions: (pc: string, projectId: string | null) => Promise<MobileAgentOptions | null>;
+  /** Codex のモデルと推論の段階。場所に依らないので PC ごとに画面の間 1 回だけ問い合わせる。PC がまだ一覧を持っていなければ null。 */
+  codexOptions: (pc: string) => Promise<MobileCodexOptions | null>;
 };
 
 /** 問い合わせ口を作る。失敗した問い合わせは覚えない（次で問い合わせ直す）。 */
@@ -244,6 +287,7 @@ export function createAsker(p: Pairing, key: PhoneKey, o: { now?: () => number; 
   const cmds = new Map<string, Promise<CommandHit[]>>();
   const files = new Map<string, { at: number; p: Promise<FileHit[]> }>();
   const options = new Map<string, Promise<MobileAgentOptions | null>>();
+  const codexOpts = new Map<string, Promise<MobileCodexOptions | null>>();
   /** 画面の間覚え、失敗したものは忘れる（次で問い合わせ直す）。 */
   const remember = <T>(m: Map<string, Promise<T>>, k: string, make: () => Promise<T>): Promise<T> => {
     const hit = m.get(k);
@@ -264,6 +308,8 @@ export function createAsker(p: Pairing, key: PhoneKey, o: { now?: () => number; 
       remember(options, JSON.stringify([pc, projectId]), () =>
         ask(p, key, pc, { kind: 'agent-options', agent: 'opencode', projectId }).then((r) => ('agentOptions' in r ? r.agentOptions : null)),
       ),
+    codexOptions: (pc) =>
+      remember(codexOpts, pc, () => ask(p, key, pc, { kind: 'agent-options', agent: 'codex', projectId: null }).then((r) => ('codexOptions' in r ? r.codexOptions : null))),
     files: (pc, projectId, q) => {
       const k = JSON.stringify([pc, projectId, q]);
       const t = now();

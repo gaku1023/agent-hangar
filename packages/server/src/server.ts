@@ -13,6 +13,9 @@ import { bootRuns, panesOf } from './boot/runs.ts';
 import { bootSummary } from './boot/summary.ts';
 import { bootSync } from './boot/sync.ts';
 import { bootTakeover } from './boot/takeover.ts';
+import { findCodex } from './config/tools.ts';
+import { LocalCodex } from './provider/codex/compat/version.ts';
+import { CodexOptionsService } from './provider/codex/options.ts';
 import { translatorOf } from './i18n/message.ts';
 import { IdleUnloadWatch } from './provider/opencode/localModels/idleUnload.ts';
 import { idleUnloadOf } from '@agent-hangar/shared';
@@ -134,8 +137,11 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
 
   // スマホの受信箱に預ける素を封じて書く。同期と run（アカウントと使用率）の後に組む。
   // スマホの opencode の問い合わせ（モードとモデル、`/` の候補）には、opencode の選択肢が手元に持った一覧で答える。
-  const mobile = bootMobile({ home, delivery, runs, sync, opencode });
-  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, opts, serverDir });
+  // Codex の検出と選択肢（ベータ）。設定の画面とスマホの問い合わせが同じ一覧を使う。
+  const localCodex = new LocalCodex({ bin: () => findCodex() });
+  const codex = { local: localCodex, options: new CodexOptionsService({ bin: () => findCodex(), status: localCodex.status }) };
+  const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options } });
+  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。
   delivery.live.start();

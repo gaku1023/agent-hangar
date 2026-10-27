@@ -26,7 +26,7 @@ const result = (sessionId: string): LaunchResult => ({ run: { id: 'run-1', sessi
 const tmpDirs: string[] = [];
 afterEach(() => { for (const d of tmpDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
 
-function setup(o: { start?: (p: LaunchParams) => LaunchResult | Promise<LaunchResult>; phoneKeys?: Pick<PhoneKeySource, 'at'>; onStarted?: MobileLaunchInboxDeps['onStarted']; opencodeReady?: boolean } = {}) {
+function setup(o: { start?: (p: LaunchParams) => LaunchResult | Promise<LaunchResult>; phoneKeys?: Pick<PhoneKeySource, 'at'>; onStarted?: MobileLaunchInboxDeps['onStarted']; opencodeReady?: boolean; codexReady?: boolean } = {}) {
   const db = openDb(':memory:');
   const dropsDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-inbox-')), 'drops');
   tmpDirs.push(path.dirname(dropsDir));
@@ -38,7 +38,7 @@ function setup(o: { start?: (p: LaunchParams) => LaunchResult | Promise<LaunchRe
   const inbox = new MobileLaunchInbox({
     db, client: cloud, phoneKeys: o.phoneKeys ?? fixedPhoneKeys(), deviceId: 'pc-a', dropsDir, start, hasProjectHere,
     hasAccount: (id) => id === 'primary', canProcess: () => canProcess, now: () => now,
-    hasAgent: (a) => a === 'opencode' && (o.opencodeReady ?? true),
+    hasAgent: (a) => (a === 'opencode' && (o.opencodeReady ?? true)) || (a === 'codex' && (o.codexReady ?? true)),
     ...(o.onStarted ? { onStarted: o.onStarted } : {}),
   });
   /** スマホの依頼を置き、pull で届く形（launches）を返す。key は封じる M（省けば M[1]）、epoch は依頼が名乗る世代（省けば 1）。置くのはスマホ phone-1 である。 */
@@ -715,5 +715,68 @@ describe('MobileLaunchInbox の記録の掃除', () => {
     expect(recorded('kept')).toBeDefined();
     expect(recorded('gone')).toBeUndefined();
     expect(recorded('missing')).toBeUndefined();
+  });
+});
+
+/** Codex の依頼。アカウントは空。権限は Codex の 3 段（空は自動）、model は slug、effort は推論の段階。 */
+const cxPayload = (over: Partial<MobileLaunchPayload> = {}): MobileLaunchPayload => payload({ agent: 'codex', accountId: '', permissionMode: 'read-only', model: 'gpt-5.5', effort: 'high', ...over });
+
+describe('MobileLaunchInbox の Codex', () => {
+  it('agent が codex なら、アカウントを見ずに agent、model、effort、権限（mode）を params に写して起こす', async () => {
+    const { start, inbox, post, answerOf } = setup();
+    await inbox.receive(await post('l1', cxPayload()));
+    expect(start).toHaveBeenCalledWith({ projectId: 'project-a', agent: 'codex', model: 'gpt-5.5', effort: 'high', mode: 'read-only', prompt: 'TODO の先頭をやって' });
+    expect((await answerOf('l1')).ok).toBe(true);
+  });
+
+  it('権限、model、effort が空（既定）なら params に付けない。クイックセッションは scratch', async () => {
+    const { start, inbox, post } = setup();
+    await inbox.receive(await post('l1', cxPayload({ permissionMode: '', model: '', effort: undefined })));
+    await inbox.receive(await post('l2', cxPayload({ scratch: true, projectId: null, permissionMode: 'full-access' })));
+    expect(start.mock.calls[0]![0]).toEqual({ projectId: 'project-a', agent: 'codex', prompt: 'TODO の先頭をやって' });
+    expect(start.mock.calls[1]![0]).toEqual({ scratch: true, agent: 'codex', model: 'gpt-5.5', effort: 'high', mode: 'full-access', prompt: 'TODO の先頭をやって' });
+  });
+
+  it('Codex の推論の段階は Codex の語（minimal など）も通す。引数に読まれる形と、知らない権限は bad-payload で起こさない', async () => {
+    const { start, inbox, post, answerOf } = setup();
+    await inbox.receive(await post('ok', cxPayload({ effort: 'minimal' })));
+    expect(start).toHaveBeenCalledTimes(1);
+    await inbox.receive(await post('l1', cxPayload({ effort: '--oss' })));
+    await inbox.receive(await post('l2', cxPayload({ effort: 'High Plus' })));
+    await inbox.receive(await post('l3', cxPayload({ permissionMode: 'bypassPermissions' })));
+    await inbox.receive(await post('l4', cxPayload({ model: '-m evil' })));
+    await inbox.receive(await post('l5', cxPayload({ accountId: 'primary' })));
+    await inbox.receive(await post('l6', cxPayload({ mode: 'plan' })));
+    await inbox.receive(await post('l7', cxPayload({ autoApprove: true })));
+    expect(start).toHaveBeenCalledTimes(1);
+    for (const id of ['l1', 'l2', 'l3', 'l4', 'l5', 'l6', 'l7']) expect(await answerOf(id)).toMatchObject({ ok: false, reason: 'bad-payload' });
+  });
+
+  it('Claude の依頼に Codex の権限（read-only など）が混ざったら bad-payload', async () => {
+    const { start, inbox, post, answerOf } = setup();
+    await inbox.receive(await post('l1', payload({ permissionMode: 'read-only' })));
+    expect(start).not.toHaveBeenCalled();
+    expect(await answerOf('l1')).toMatchObject({ ok: false, reason: 'bad-payload' });
+  });
+
+  it('この PC で Codex を使えない（無効、見つからない）なら agent-missing と答え、起こさない。opencode の PC かどうかとは別', async () => {
+    const { start, inbox, post, answerOf } = setup({ codexReady: false });
+    await inbox.receive(await post('l1', cxPayload()));
+    expect(start).not.toHaveBeenCalled();
+    expect(await answerOf('l1')).toEqual({ ok: false, reason: 'agent-missing' });
+    const other = setup({ opencodeReady: false });
+    await other.inbox.receive(await other.post('l2', cxPayload()));
+    expect(other.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('場所の無いプロジェクトは project-missing。フルアクセスの依頼は権限を bypassPermissions として控える（一覧のラベル「スマホから」）', async () => {
+    const started: string[] = [];
+    const { inbox, post, answerOf, recorded } = setup({ onStarted: (e) => { started.push(e.permissionMode); } });
+    await inbox.receive(await post('l1', cxPayload({ projectId: 'nowhere' })));
+    expect(await answerOf('l1')).toMatchObject({ ok: false, reason: 'project-missing' });
+    await inbox.receive(await post('l2', cxPayload({ permissionMode: 'full-access' })));
+    await inbox.receive(await post('l3', cxPayload({ permissionMode: 'auto' })));
+    expect(started).toEqual(['bypassPermissions', '']);
+    expect(recorded('l2')).toBeDefined();
   });
 });

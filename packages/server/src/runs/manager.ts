@@ -58,6 +58,9 @@ export const RUN_STIR_MS = 10_000;
 /** 応答に載せる外部コマンドの失敗の長さの上限。 */
 const MAX_ERROR_LEN = 200;
 
+/** send_to_session が貼り付けてから Enter を送るまでの間（ミリ秒）。TUI が貼り付けを取り込み終えるのを待つ。 */
+const SEND_SUBMIT_DELAY_MS = 150;
+
 /**
  * 外部コマンドの失敗を、応答やログに載せられる 1 行に整える。
  * トークンを名指しで伏せ、64 桁の 16 進（トークンとセッション別の秘密の形）もまとめて伏せる。
@@ -936,17 +939,17 @@ export class RunManager {
    * stop は、その claude を止め、止まったのを確かめてから再開する。止められなければ 409（run.error.strayNotStopped）で断り、再開しない。
    * ignore は、この判定を飛ばして再開する（2 つの claude が同じ会話を進めることを、利用者が承知している）。
    */
-  async resumeWith(sessionId: string, o: { stray?: ResumeStray; prepKey?: string } = {}): Promise<LaunchResult> {
+  async resumeWith(sessionId: string, o: { stray?: ResumeStray; prepKey?: string; account?: string } = {}): Promise<LaunchResult> {
     const target = this.session(sessionId);
     // hangar からの再開は、新しい起動と同じく接続先の準備を走らせる。進みは prepKey の鍵で配る（無ければ hangar が鍵を作る）。
     if (this.agentOf(target).launch.materialize) return this.resumeMaterialized(target, {}, { key: o.prepKey });
-    if (o.stray !== 'stop') return this.resume(sessionId, { stray: o.stray });
+    if (o.stray !== 'stop') return this.resume(sessionId, { stray: o.stray, ...(o.account !== undefined ? { account: o.account } : {}) });
     const s = this.session(sessionId);
     this.assertCan(s, 'resume');
     this.assertResumable(s, 'ignore');
     const pid = this.strayPid(s);
     if (pid !== null && !(await this.procs().terminate(pid, TERMINATE_MS))) throw new RunError(409, msg('run.error.strayNotStopped', { pid }));
-    return this.resume(sessionId, { stray: 'ignore' });
+    return this.resume(sessionId, { stray: 'ignore', ...(o.account !== undefined ? { account: o.account } : {}) });
   }
 
   /**
@@ -1566,6 +1569,11 @@ export class RunManager {
     }
   }
 
+  /** そのセッションの生きた run（どの PC のものでも）。MCP の stop_session と resume_session が、止める・再開する前に引く。 */
+  aliveRun(sessionId: string): RunDto | null {
+    return aliveRunForSession(this.db, sessionId, this.deps.deviceId, this.now());
+  }
+
   /** run を止める。タブも閉じ、killed で終わらせる。ほかの PC に引き継ぐために止めたときは taken_over で終わらせる。 */
   kill(runId: string, reason: 'killed' | 'taken_over' = 'killed'): RunDto {
     const run = getRun(this.db, runId);
@@ -1781,6 +1789,39 @@ export class RunManager {
       send: (key) => (key === 'C-o' ? panes.sendKey(run.tmuxName, 'ctrl+o') : panes.sendText(run.tmuxName, key)),
       sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     };
+  }
+
+  /**
+   * tmux の名前の画面にいま見えている文字（MCP の read_session_screen が使う）。
+   * 在る画面の名前に無ければ null。一覧が観測できなかったときは、確かめずに読む。
+   */
+  readScreen(tmuxName: string): string | null {
+    const panes = this.panes();
+    const names = panes.list();
+    if (names !== null && !names.includes(tmuxName)) return null;
+    return panes.capture(tmuxName);
+  }
+
+  /**
+   * tmux の名前の画面へ、text を 1 つの入力として届け、submit なら Enter で確定する（MCP の send_to_session が使う）。
+   * 複数行は 1 回の貼り付けで届ける。send-keys は 1 行ごとに Enter を打つのと変わらず、入力が行ごとに確定してしまう。
+   * 貼れない裏（psmux が貼り付けを断ったときなど）では、1 行の text に限って素の文字で打ち込む。複数行は投げる。
+   * Enter の前に短い間を置く。TUI が貼り付けを入力欄へ取り込み終えてから確定するためである。
+   */
+  async sendInput(tmuxName: string, text: string, submit: boolean): Promise<void> {
+    const panes = this.panes();
+    const names = panes.list();
+    if (names !== null && !names.includes(tmuxName)) throw new Error(`pane not found: ${tmuxName}`);
+    try {
+      if (!panes.pasteText) throw new Error('paste is not supported by this multiplexer');
+      panes.pasteText(tmuxName, text);
+    } catch (e) {
+      if (text.includes('\n')) throw e;
+      panes.sendText(tmuxName, text);
+    }
+    if (!submit) return;
+    await new Promise((r) => setTimeout(r, SEND_SUBMIT_DELAY_MS));
+    panes.sendKey(tmuxName, 'enter');
   }
 
   private queuePane<T>(runId: string, op: () => Promise<T>): Promise<T> {

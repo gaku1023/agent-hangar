@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { CODEX_VERIFIED_RANGE } from '@agent-hangar/shared';
 import { builtinSubcommandDrifts, parseCodexHelp } from '../src/provider/codex/compat/help.ts';
 import { HANGAR_CODEX_METHODS, type SchemaSubset } from '../src/provider/codex/compat/schemaSubset.ts';
+import { COMPRESSION_FEATURE, type FeatureRow } from '../src/provider/codex/compat/storage.ts';
 import { judgeCodexVersion } from '../src/provider/codex/compat/version.ts';
 import { newestCodexFixture, readCodexFixture, readCodexFixtureJson } from './codexCompatFixtures.ts';
 
@@ -35,6 +36,12 @@ describe('codex の見本', () => {
       expect(text, name).not.toMatch(/\/(Users|home)\/[^/\s"]+\//);
       expect(text, name).not.toMatch(/hangar-codex-/);
     }
+  });
+
+  it('rollout の圧縮は、見本の版で既定が切れている（local_thread_store_compression）', () => {
+    const feature = readCodexFixtureJson<Record<string, FeatureRow>>(f!, 'features.json')[COMPRESSION_FEATURE];
+    expect(feature, 'features.json に圧縮の行がありません。見本を採り直してください').toBeDefined();
+    expect(feature!.enabled).toBe(false);
   });
 
   it('控えの --help は、横取りの一覧（D1 の compat/cli.ts があれば）と同じ', async () => {

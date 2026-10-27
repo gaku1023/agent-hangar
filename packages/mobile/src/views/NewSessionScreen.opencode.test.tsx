@@ -49,6 +49,7 @@ const askerOf = (o: { options?: () => Promise<MobileAgentOptions | null> } = {})
   commands: vi.fn(async () => [{ name: 'init', description: 'create/update AGENTS.md', kind: 'command' as const }]),
   files: vi.fn(async () => []),
   agentOptions: vi.fn(o.options ?? (async () => OPTIONS)),
+  codexOptions: vi.fn(async () => null),
 });
 
 async function setup(asker: Asker = askerOf(), fs: MobileFeed[] = feeds()) {

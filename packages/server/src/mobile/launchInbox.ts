@@ -5,6 +5,7 @@ import {
   aadLaunch,
   appendPaths,
   clampText,
+  isCodexPermission,
   isEffort,
   isMobileMode,
   type MobileAgent,
@@ -56,7 +57,7 @@ export type MobileLaunchInboxDeps = {
   hasProjectHere: (projectId: string) => boolean;
   /** この PC に登録したアカウントか。 */
   hasAccount: (id: string) => boolean;
-  /** この PC でそのエージェントを起こせるか（opencode なら、設定で有効にしてあり、手元に見つかること）。省けば opencode を起こせない PC。 */
+  /** この PC でそのエージェントを起こせるか（opencode と Codex なら、設定で有効にしてあり、手元に見つかること）。省けばどちらも起こせない PC。 */
   hasAgent?: (agent: MobileAgent) => boolean;
   /** いま依頼を扱ってよいか（boot/sync.ts の canCarryMobile）。偽なら claim せずに残す（Worker の行は pending のまま）。 */
   canProcess: () => boolean;
@@ -95,7 +96,8 @@ function isImageRefs(v: unknown): v is MobileImageRef[] {
 
 /**
  * 開けた中身が依頼の形か。権限モードとモデルは、PC の新規セッションのダイアログと同じ値だけを通す（--model へそのまま渡すので、引数に読まれる形を断る）。
- * agent は無いか、claude-code か opencode だけを通す。
+ * agent は無いか、claude-code、opencode、codex だけを通す。
+ * codex では、アカウントは空、権限は Codex の 3 段か空、推論の段階は Codex の語（小文字の英数字と _ - だけ）、mode と autoApprove は無いこと。
  * opencode では、アカウントと権限モードは空、effort は無いこと（opencode には効かない値が混ざった依頼は、スマホの作りの崩れとして断る）。
  * Claude では、opencode の欄（mode、autoApprove）が無いこと。
  */
@@ -108,12 +110,23 @@ function isPayload(v: unknown): v is MobileLaunchPayload {
     (o.projectId === null || (typeof o.projectId === 'string' && o.projectId.length <= MOBILE_LAUNCH_ID_MAX)) &&
     typeof o.scratch === 'boolean' &&
     typeof o.accountId === 'string' && o.accountId.length <= MOBILE_LAUNCH_ID_MAX &&
-    typeof o.permissionMode === 'string' && PERMISSION_MODES.has(o.permissionMode) &&
+    typeof o.permissionMode === 'string' &&
     typeof o.model === 'string' && (o.model === '' || isModelName(o.model)) &&
     typeof o.prompt === 'string' && o.prompt.length <= MOBILE_PROMPT_MAX &&
-    (o.effort === undefined || isEffort(o.effort)) &&
+    (o.effort === undefined || typeof o.effort === 'string') &&
     (o.images === undefined || isImageRefs(o.images));
   if (!base) return false;
+  if (o.agent === 'codex') {
+    // 権限は Codex の 3 段（空は自動）。推論の段階は Codex の語で、引数に読まれる形を断る。
+    return (
+      o.accountId === '' &&
+      (o.permissionMode === '' || isCodexPermission(o.permissionMode)) &&
+      (o.effort === undefined || isCodexEffort(o.effort)) &&
+      o.mode === undefined &&
+      o.autoApprove === undefined
+    );
+  }
+  if (!PERMISSION_MODES.has(o.permissionMode as string) || !(o.effort === undefined || isEffort(o.effort))) return false;
   if (o.agent === 'opencode') {
     return (
       o.accountId === '' &&
@@ -127,6 +140,10 @@ function isPayload(v: unknown): v is MobileLaunchPayload {
 }
 
 const isOpencode = (p: MobileLaunchPayload): boolean => p.agent === 'opencode';
+const isCodex = (p: MobileLaunchPayload): boolean => p.agent === 'codex';
+
+/** Codex の推論の段階の形（provider/codex/launcher.ts の codexEffortOf より狭く、先頭は英数字）。モデルごとの語は PC の一覧が決めるので、ここでは形だけを見る。 */
+const isCodexEffort = (v: unknown): v is string => typeof v === 'string' && /^[a-z0-9][a-z0-9_-]{0,23}$/.test(v);
 
 /**
  * 依頼から起動の params を組む。scratch ならプロジェクトを渡さない。空（既定）の権限モードとモデルと effort は含めない。prompt は画像のパスを足したものを渡せる。
@@ -142,6 +159,15 @@ function paramsOf(p: MobileLaunchPayload, prompt = p.prompt): LaunchParams {
     if (prompt) params.prompt = prompt;
     return params;
   }
+  if (isCodex(p)) {
+    // Codex の権限は mode に入れる（PC の新規ダイアログと同じ。runs/manager.ts）。
+    params.agent = 'codex';
+    if (p.permissionMode) params.mode = p.permissionMode;
+    if (p.model) params.model = p.model;
+    if (p.effort) params.effort = p.effort;
+    if (prompt) params.prompt = prompt;
+    return params;
+  }
   params.account = p.accountId;
   if (p.permissionMode) params.permissionMode = p.permissionMode;
   if (p.model) params.model = p.model;
@@ -152,9 +178,9 @@ function paramsOf(p: MobileLaunchPayload, prompt = p.prompt): LaunchParams {
 
 /**
  * 手元の記録と右下の通知に控える権限モード。
- * opencode の自動承認（deny 以外をすべて許可）は、Claude の Bypass permissions と同じラベル（「スマホから」の危険の印）を出すため bypassPermissions として控える。
+ * opencode の自動承認（deny 以外をすべて許可）と Codex のフルアクセス（確認なしですべて実行）は、Claude の Bypass permissions と同じラベル（「スマホから」の危険の印）を出すため bypassPermissions として控える。
  */
-const recordedMode = (p: MobileLaunchPayload): string => (isOpencode(p) ? (p.autoApprove ? 'bypassPermissions' : '') : p.permissionMode);
+const recordedMode = (p: MobileLaunchPayload): string => (isOpencode(p) ? (p.autoApprove ? 'bypassPermissions' : '') : isCodex(p) ? (p.permissionMode === 'full-access' ? 'bypassPermissions' : '') : p.permissionMode);
 
 /** 最初の指示の、空でない最初の行の先頭 40 字（表示名の決め方と同じ長さ）。 */
 const firstLine = (prompt: string): string => [...(prompt.split(/\r?\n/).find((x) => x.trim()) ?? '').trim()].slice(0, 40).join('');
@@ -308,8 +334,8 @@ export class MobileLaunchInbox {
     opened.p = p;
     if (p.createdAt < this.deps.now() - LAUNCH_TTL_MS - LAUNCH_CLOCK_SLACK_MS) return fail('expired');
     if (!p.scratch && (p.projectId === null || !this.deps.hasProjectHere(p.projectId))) return fail('project-missing');
-    if (isOpencode(p)) {
-      if (!this.deps.hasAgent?.('opencode')) return fail('agent-missing');
+    if (isOpencode(p) || isCodex(p)) {
+      if (!this.deps.hasAgent?.(p.agent as MobileAgent)) return fail('agent-missing');
     } else if (!this.deps.hasAccount(p.accountId)) return fail('account-missing');
     // 画像は、起こすと決まってから取る（プロジェクトの無い依頼で本体を運ばない）。1 枚でも欠ければ起こさない。
     // 置いた画像は、起こせたときだけ残す。それ以外の出口（欠け、起動の失敗、途中の例外）では、finally で必ず消す。
