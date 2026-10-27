@@ -415,7 +415,7 @@ describe('3 方向の判定と受け取りの一覧', () => {
   });
 
   it('MCP サーバーの絶対パスの起動コマンドがこの PC に無ければ command-missing で保留する', async () => {
-    const mcpPc = (id: string, name: string): Pc => {
+    const mcpPc = (id: string, name: string): Pc & { jsonPath: string } => {
       const jsonPath = path.join(tmp, id, 'claude.json');
       return Object.assign(pc(id, name, { targetSwitches: () => ({ 'claude-mcp': true }), targetPaths: { claudeJsonPath: jsonPath } }), { jsonPath });
     };
