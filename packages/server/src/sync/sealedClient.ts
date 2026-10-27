@@ -12,7 +12,6 @@ import {
   sealRow,
   SHARED_TABLES,
   toBase64Url,
-  opencodeBlobKey,
   transcriptBlobKey,
   type ChangeIn,
   type ChangeOut,
@@ -28,7 +27,7 @@ import {
   type SealedFileEntry,
   type SharedTable,
 } from '@agent-hangar/shared';
-import { opencodeSessionOfPath } from './ledgerKey.ts';
+import { agentOfSyncPath, AGENT_SYNC } from './agentSync.ts';
 import { CloudError, type CloudClient, type KeyRefresh, type OpenedPullResponse, type OpenedSnapshotResponse, type Unreadable, type WireCloudClient } from './client.ts';
 import { decryptStream, encryptStream, fileKeyFrom } from './crypto.ts';
 
@@ -90,14 +89,16 @@ const TRANSCRIPT_AGENT_RE = /^projects\/[^/]+\/([^/]+)\/subagents\/agent-([^/]+)
 /**
  * 中身（種類、元の PC、パス）から、そのファイルが置かれるはずの R2 の鍵名を求める。
  * 本文はパスからセッションの UUID とサブエージェントの ID を取り出して transcriptBlobKey に、設定は相対パスのまま configBlobKey に渡す。
- * opencode の本文（`opencode/<会話>.json`）は、会話の ID を opencodeBlobKey に渡す。種類は Worker が受ける `transcript` のままで、path で見分ける。
+ * opencode の本文（`opencode/<会話>.json`）と Codex の本文（`codex/sessions/...` か `codex/archived_sessions/...`）は、会話の ID を持ち主のエージェントの鍵名の求め方（AGENT_SYNC の blobKey）に渡す。
+ * 種類は Worker が受ける `transcript` のままで、path で見分ける。
  * 形の違うパスと、鍵名に使えない端末 ID は null。
  */
 export async function blobKeyFor(index: CryptoKey, deviceId: string, kind: FileKind, origin: string, path: string): Promise<string | null> {
   try {
     if (kind === 'config') return await configBlobKey(index, deviceId, origin, path);
-    const oc = opencodeSessionOfPath(path);
-    if (oc !== null) return await opencodeBlobKey(index, deviceId, origin, oc);
+    // 専用の形の path（opencode の書き出し、Codex の rollout）は、持ち主のエージェントの求め方で求める。
+    const own = agentOfSyncPath(path);
+    if (own !== null) return await AGENT_SYNC[own.provider].blobKey(index, deviceId, origin, own.sessionId, null);
     const sub = TRANSCRIPT_AGENT_RE.exec(path);
     if (sub) return await transcriptBlobKey(index, deviceId, origin, sub[1]!, sub[2]!);
     const main = TRANSCRIPT_MAIN_RE.exec(path);

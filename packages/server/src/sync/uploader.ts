@@ -13,7 +13,10 @@ import { RELAY_HOLD_MS, RELAY_KIND, relayLedgerKey, relayTargetOf } from './rebu
 import type { RosterStore } from './roster.ts';
 import { sha256Stream } from './crypto.ts';
 import type { Timers } from './engine.ts';
-import { AGENT_SYNC, isExportAgent } from './agentSync.ts';
+import { AGENT_SYNC, codexSyncPathOfFile, isExportAgent } from './agentSync.ts';
+import { resolvePhysical } from '../provider/codex/transcript/logical.ts';
+import { decompressZstd } from '../provider/codex/transcript/zstd.ts';
+import { listRolloutFiles } from '../provider/codex/transcript/discover.ts';
 import { transcriptLedgerKey } from './ledgerKey.ts';
 import { noteBlobUpload, sweepSupersededBlobs } from './trashSweep.ts';
 import type { RowKeyring } from './sealedClient.ts';
@@ -25,6 +28,7 @@ import { transcriptsFrom } from './transcriptsFrom.ts';
  * 付けたときの path は remote/<origin>/ の下の写しで、台帳は relay: の鍵で引く。
  * provider は本文のエージェントで、省くと Claude である。
  * opencode の path は書き出しの置き場の `<会話>.json` で、待ち行列の見分けにだけ使う（上げる直前に書き出し直したファイルを読む）。
+ * Codex の path は `$CODEX_HOME` の中の rollout の論理パス（`…/rollout-<時刻>-<UUID>.jsonl`）で、実体が .jsonl.zst なら展開して上げる。
  */
 export type UploadTarget = { path: string; sessionId: string; agentId: string | null; origin?: string; provider?: AgentKind };
 
@@ -39,6 +43,12 @@ export type OpencodeExportSource = {
   export(sessionId: string): Promise<string | null>;
 };
 
+/** Codex（ベータ）の本文の置き場。Codex を有効にしている間だけ渡す。 */
+export type CodexRolloutSource = {
+  /** `$CODEX_HOME`。rollout は sessions/YYYY/MM/DD/ と archived_sessions/ の下にある。 */
+  home: string;
+};
+
 export type UploaderDeps = {
   /**
    * 本文の置き場の基準。Claude の本文は claudeDir（`~/.claude`）からの相対パスを封じたメタの path にする。
@@ -50,6 +60,11 @@ export type UploaderDeps = {
    * 省くか null なら、opencode の本文は上げない。
    */
   opencode?: () => OpencodeExportSource | null;
+  /**
+   * Codex の本文の置き場。呼ばれた時点の値を読む（設定の codexEnabled は途中で変わる）。
+   * 省くか null なら、Codex の本文は上げない（Codex を有効にしていない PC の振る舞いを変えない）。
+   */
+  codex?: () => CodexRolloutSource | null;
   /** hangar の home。remote/ の写しを上げ直すのに使う。省くと写しは上げない。 */
   home?: string;
   /** R2 の鍵名を求める鍵の束。client（SealedCloudClient）と同じものを渡す。 */
@@ -215,6 +230,8 @@ export class TranscriptUploader {
   /** 索引化が変化を見たファイルを待ち行列に入れる。1 件目から 30 秒後にまとめて上げる。 */
   noteChanged(f: UploadTarget): void {
     if (this.stopped) return;
+    // Codex を有効にしていない間は積まない。
+    if (f.provider === 'codex' && this.codexSource() === null) return;
     this.pending.set(f.path, f);
     // 窓はずらさない。書き込みが続くセッションでも、30 秒に 1 度は見に行く（上げ直すかは REUPLOAD_GAP_MS で決まる）。
     this.arm(this.deps.debounceMs ?? DEBOUNCE_MS);
@@ -318,6 +335,7 @@ export class TranscriptUploader {
       this.noteChanged({ path: r.path, sessionId: r.uuid, agentId: r.agentId });
       queued++;
     }
+    if (queued < limit) queued += this.sweepCodex(limit - queued);
     if (queued < limit) queued += this.sweepRelays(limit - queued);
     // 走査で拾ったものは、もう遅れている。デバウンスの窓を待たずに流す。
     if (queued > 0) this.startFlush();
@@ -339,7 +357,7 @@ export class TranscriptUploader {
     if (!isSafeKeyId(this.deps.deviceId)) return null;
     try {
       const row = this.countStatement().get({ head: `transcripts/${this.deps.deviceId}/`, from: this.transcriptFloor(), skip: SKIP_PREFIX }) as { n: number } | undefined;
-      return (row?.n ?? 0) + this.countRelays();
+      return (row?.n ?? 0) + this.countCodex() + this.countRelays();
     } catch {
       // 数えられないことは、同期そのものを止める理由にはならない。
       return null;
@@ -372,7 +390,7 @@ export class TranscriptUploader {
       left join sync_state sk on sk.key = @skip || (case when t.agent_id is null
         then @head || s.provider_session_id || '.jsonl.gz'
         else @head || s.provider_session_id || '/subagents/agent-' || t.agent_id || '.jsonl.gz' end)
-      where t.device_id is null and s.deleted_at is null and sk.key is null and t.mtime >= @from
+      where t.device_id is null and s.provider = 'claude-code' and s.deleted_at is null and sk.key is null and t.mtime >= @from
         and (fs.key is null or fs.size < t.size)`);
     return this.countStmt;
   }
@@ -392,11 +410,84 @@ export class TranscriptUploader {
       left join file_sync fs on fs.key = (case when t.agent_id is null
         then @head || s.provider_session_id || '.jsonl.gz'
         else @head || s.provider_session_id || '/subagents/agent-' || t.agent_id || '.jsonl.gz' end)
-      where t.device_id is null and s.deleted_at is null and t.mtime >= @from and (fs.key is null or fs.size < t.size)
+      where t.device_id is null and s.provider = 'claude-code' and s.deleted_at is null and t.mtime >= @from and (fs.key is null or fs.size < t.size)
       order by t.mtime desc
       limit @limit`);
     return this.sweepStmt;
   }
+
+  private codexSource(): CodexRolloutSource | null { return this.deps.codex?.() ?? null; }
+
+  private codexSweepStmt: ReturnType<Db['prepare']> | null = null;
+  private codexCountStmt: ReturnType<Db['prepare']> | null = null;
+
+  /**
+   * Codex の本文の取り残しを引く 1 文。Claude の sweepStatement と同じ突き合わせを、Codex の台帳の鍵（`codex/<端末>/<UUID>.jsonl.gz`）で行う。
+   * transcript_files の path は論理パスで、size は実体の大きさである。.jsonl.zst の実体は上げた jsonl より小さいので、圧縮されただけでは積み直さない。
+   */
+  private codexSweepStatement(): ReturnType<Db['prepare']> {
+    this.codexSweepStmt ??= this.deps.db.prepare(`
+      select t.path as path, s.provider_session_id as uuid, t.size as size
+      from transcript_files t
+      join sessions s on s.id = t.session_id
+      left join file_sync fs on fs.key = @head || s.provider_session_id || '.jsonl.gz'
+      where t.device_id is null and t.agent_id is null and s.provider = 'codex' and s.deleted_at is null and t.mtime >= @from and (fs.key is null or fs.size < t.size)
+      order by t.mtime desc
+      limit @limit`);
+    return this.codexSweepStmt;
+  }
+
+  /** Codex の本文の取り残しのうち、まだ上げていないものを積む。Codex を有効にしていなければ何もしない。戻り値は積んだ件数。 */
+  private sweepCodex(limit: number): number {
+    if (limit <= 0 || this.codexSource() === null) return 0;
+    const rows = this.codexSweepStatement().all({ head: `codex/${this.deps.deviceId}/`, from: this.transcriptFloor(), limit: Number.isFinite(limit) ? limit * SWEEP_SCAN_MULT : -1 }) as Omit<SweepRow, 'agentId'>[];
+    let queued = 0;
+    for (const r of rows) {
+      if (queued >= limit) break;
+      if (this.pending.has(r.path)) continue;
+      const t: UploadTarget = { provider: 'codex', path: r.path, sessionId: r.uuid, agentId: null };
+      const key = this.ledgerKeyOf(t);
+      if (key === null) continue;
+      const rec = this.readSkip(key);
+      if (rec && !this.mayRetrySkipped(key, rec, r.size, null)) continue;
+      this.noteChanged(t);
+      queued++;
+    }
+    return queued;
+  }
+
+  /** 未送信に数える Codex の本文の数。sweepCodex が積むものと同じ条件で、消した会話と諦めた本文は数えない。Codex を有効にしていなければ 0。 */
+  private countCodex(): number {
+    if (this.codexSource() === null) return 0;
+    this.codexCountStmt ??= this.deps.db.prepare(`
+      select count(*) as n
+      from transcript_files t
+      join sessions s on s.id = t.session_id
+      left join file_sync fs on fs.key = @head || s.provider_session_id || '.jsonl.gz'
+      left join sync_state sk on sk.key = @skip || @head || s.provider_session_id || '.jsonl.gz'
+      where t.device_id is null and t.agent_id is null and s.provider = 'codex' and s.deleted_at is null and sk.key is null and t.mtime >= @from
+        and (fs.key is null or fs.size < t.size)`);
+    const row = this.codexCountStmt.get({ head: `codex/${this.deps.deviceId}/`, from: this.transcriptFloor(), skip: SKIP_PREFIX }) as { n: number } | undefined;
+    return row?.n ?? 0;
+  }
+
+  /** この PC の Codex の会話の、手元の rollout（論理パス）。run の終わりと引き継ぎが会話の ID だけを渡してくるので、索引の台帳から引く。 */
+  private codexTargets(sessionUuid: string): UploadTarget[] {
+    if (this.codexSource() === null) return [];
+    this.codexFilesStmt ??= this.deps.db.prepare(`select t.path path from transcript_files t join sessions s on s.id = t.session_id
+      where s.provider = 'codex' and s.provider_session_id = ? and t.device_id is null and t.agent_id is null`);
+    const rows = this.codexFilesStmt.all(sessionUuid) as { path: string }[];
+    if (rows.length > 0) return rows.map((r) => ({ provider: 'codex', path: r.path, sessionId: sessionUuid, agentId: null }));
+    // 索引がまだ見ていない（開始直後、30 秒の窓の中の）会話は、$CODEX_HOME を走査して thread の UUID で探す。
+    // 引き継ぎの頼みに答える前（sync/takeoverResponder.ts）に、1 度も上がっていない会話を上げるためである。Codex の会話の行があるときだけ探す。
+    const known = this.deps.db.prepare("select 1 from sessions where provider = 'codex' and provider_session_id = ? and deleted_at is null").get(sessionUuid) !== undefined;
+    if (!known || !AGENT_SYNC.codex.isSessionId(sessionUuid)) return [];
+    const src = this.codexSource();
+    const f = src ? listRolloutFiles(src.home).files.find((x) => x.sessionId === sessionUuid) : undefined;
+    return f ? [{ provider: 'codex', path: f.path, sessionId: sessionUuid, agentId: null }] : [];
+  }
+
+  private codexFilesStmt: ReturnType<Db['prepare']> | null = null;
 
   /**
    * 作り直しで置いた remote/ の写し（sync/rebuild.ts の RELAY_KIND の行）のうち、まだ上げていないものを積む。
@@ -490,7 +581,7 @@ export class TranscriptUploader {
 
   /**
    * run の終了と「この PC で再開」から呼ぶ。待ち行列と、既に上げたことのある鍵の両方を見る。
-   * opencode の会話は、待ち行列に無くても書き出し直して上げる（上げ直しの間隔は待たない）。
+   * opencode の会話は、待ち行列に無くても書き出し直して上げる（上げ直しの間隔は待たない）。Codex の会話も、索引の台帳の rollout を同じく上げる。
    */
   flushSession(sessionUuid: string): Promise<void> {
     return this.enqueue(async () => {
@@ -499,6 +590,8 @@ export class TranscriptUploader {
       for (const f of this.knownTargets(sessionUuid)) if (!targets.has(f.path)) targets.set(f.path, f);
       const oc = this.isOpencodeSession(sessionUuid) ? this.opencodeTarget(sessionUuid) : null;
       if (oc && !targets.has(oc.path)) targets.set(oc.path, oc);
+      // Codex の会話は、待ち行列に無くても索引の台帳の rollout を上げる（上げ直しの間隔は待たない。中身が前と同じなら PUT しない）。
+      for (const f of this.codexTargets(sessionUuid)) if (!targets.has(f.path)) targets.set(f.path, f);
       for (const f of targets.values()) await this.attempt(f);
     });
   }
@@ -532,9 +625,9 @@ export class TranscriptUploader {
     return rel;
   }
 
-  /** 上げる 1 件の台帳の鍵。自分の本文は transcripts/<自分>/...、remote/ の写しは relay: の鍵である。使えなければ null。 */
+  /** 上げる 1 件の台帳の鍵。自分の本文は transcripts/<自分>/...（opencode と Codex はその行の鍵）、remote/ の写しは relay: の鍵である。使えなければ null。 */
   private ledgerKeyOf(f: UploadTarget): string | null {
-    if (isExportAgent(f.provider)) {
+    if (f.provider !== undefined && f.provider !== 'claude-code') {
       try { return AGENT_SYNC[f.provider].ledgerKey(this.deps.deviceId, f.sessionId, null); } catch { return null; }
     }
     if (!this.isRelay(f)) return this.safeKey(f.sessionId, f.agentId);
@@ -624,10 +717,13 @@ export class TranscriptUploader {
     // 「この PC で再開」で譲ったセッションは、相手が持ち主なので上げない。remote/ の写しは元の PC の本文なので、譲ったかどうかに依らない。
     if (!relay && this.deps.state.isYielded(f.sessionId)) return 'skipped';
     const exported = isExportAgent(f.provider);
-    // 読むファイル。Claude の本文は f.path、opencode の本文は書き出し直したファイルである。
+    const codex = f.provider === 'codex';
+    // 読むファイル。Claude の本文は f.path、opencode の本文は書き出し直したファイル、Codex の本文は論理パスの実体（.jsonl か .jsonl.zst）である。
     let file = f.path;
     let rel = '';
     let key = '';
+    // Codex の .jsonl.zst を展開した中身。上げるのはこの jsonl である。
+    let inflated: Buffer | null = null;
     if (exported) {
       const unit = AGENT_SYNC[f.provider!];
       const src = this.deps.opencode?.() ?? null;
@@ -650,6 +746,26 @@ export class TranscriptUploader {
       }
       file = out;
     }
+    if (codex) {
+      const src = this.codexSource();
+      if (src === null) return 'skipped';
+      try { key = AGENT_SYNC.codex.ledgerKey(this.deps.deviceId, f.sessionId, null); } catch (e) { throw new PermanentUploadError(errorMessage(e)); }
+      // 置き場（sessions/YYYY/MM/DD/ か archived_sessions/）と名前から写しの path を組む。$CODEX_HOME の外と rollout でない名前は上げない。
+      const r = codexSyncPathOfFile(src.home, f.path);
+      if (r === null || AGENT_SYNC.codex.sessionOfPath(r) !== f.sessionId) return 'skipped';
+      rel = r;
+      const phys = resolvePhysical(f.path);
+      if (phys === null) return 'skipped';
+      file = phys.path;
+      if (phys.compressed) {
+        // 展開してから指紋を取る。名前が .jsonl から .jsonl.zst に変わっただけなら、指紋は前と同じになる。
+        try { inflated = decompressZstd(fs.readFileSync(file)); } catch (e) {
+          // 圧縮の途中で消えた（.jsonl に戻った）なら、次の機会に上げる。壊れた zst は上げようがない。
+          if ((e as NodeJS.ErrnoException).code === 'ENOENT') return 'skipped';
+          throw new PermanentUploadError(errorMessage(e));
+        }
+      }
+    }
     let st: fs.Stats;
     try { st = fs.statSync(file); } catch { return 'skipped'; }
     if (!st.isFile()) return 'skipped';
@@ -661,7 +777,7 @@ export class TranscriptUploader {
       if (r === null) return 'skipped';
       rel = r;
       key = relayLedgerKey(origin, rel)!;
-    } else if (!exported) {
+    } else if (!exported && !codex) {
       rel = toPosix(path.relative(this.deps.claudeDir, f.path));
       if (!rel || rel.startsWith('..') || path.isAbsolute(rel) || !isSafeRelPath(rel)) return 'skipped';
       // 台帳の鍵の形が通らない ID は上げ損ねとして知らせる（黙って skipped にしない）。
@@ -670,12 +786,14 @@ export class TranscriptUploader {
 
     // 指紋も本文も「stat した時点の長さ」までに限って読む。
     // 実行中のセッションは読んでいる最中に伸びるので、限らないと sha256 と中身が食い違う。
-    const size = st.size;
-    const source = (): Readable => (size === 0 ? Readable.from([]) : fs.createReadStream(file, { start: 0, end: size - 1 }));
+    const plain = inflated;
+    const size = plain === null ? st.size : plain.length;
+    const source = (): Readable => (plain !== null ? Readable.from([plain]) : size === 0 ? Readable.from([]) : fs.createReadStream(file, { start: 0, end: size - 1 }));
     const sha = await sha256Stream(source());
     const skip = this.readSkip(key);
-    const prev = this.deps.db.prepare('select sha256 from file_sync where key = ?').get(key) as { sha256: string } | undefined;
-    if (prev?.sha256 === sha) { if (skip) this.clearSkip(key); return 'unchanged'; }
+    const prev = this.deps.db.prepare('select sha256, path from file_sync where key = ?').get(key) as { sha256: string; path: string } | undefined;
+    // Codex は、中身が同じでも置き場が変わった（アーカイブした、戻した）なら上げ直す。印は写しの path で運ぶからである。
+    if (prev?.sha256 === sha && (!codex || prev.path === rel)) { if (skip) this.clearSkip(key); return 'unchanged'; }
     // 直りようのない失敗で諦めた相手には、窓が開くまで雲に触らない。
     // 本文は変化のたびに全体を上げ直すので、送り直すたびに転送量を無料枠から削ることになる。
     if (skip && !this.mayRetrySkipped(key, skip, size, sha)) return 'skipped';

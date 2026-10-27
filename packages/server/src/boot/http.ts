@@ -19,6 +19,8 @@ import { sessionRunsAnywhere } from '../runs/announce.ts';
 import { resumeHereFor } from '../sync/resumeHere.ts';
 import { compareOpencodeForResume } from '../sync/opencodeResume.ts';
 import { compareForResume } from '../sync/copy.ts';
+import { stopCodexWriters } from '../sync/codexResume.ts';
+import { defaultCodexHome } from '../provider/codex/transcript/discover.ts';
 import { guardUpgrades } from '../ws/guard.ts';
 import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
@@ -158,7 +160,7 @@ export function bootHttp(p: {
     takeover: takeover.service,
     // 手元を置き換えるかの確認。opencode の会話は、上げるために書き出した最後のファイルとメッセージの ID で比べる（sync/opencodeResume.ts）。
     resumeHereReplace: (sessionId) => compareOpencodeForResume({ db, home: home.home, deviceId: device.id, sessionId }) ?? compareForResume({ db, home: home.home, claudeDir: home.claudeDir, sessionId }),
-    // Claude は本文を ~/.claude に写して再開し、opencode は降ろした export を opencode に取り込んでから再開する（sync/resumeHere.ts の resumeHereFor）。
+    // Claude は本文を ~/.claude に写して再開し、opencode は降ろした export を opencode に取り込んでから、Codex は rollout を $CODEX_HOME に写してから再開する（sync/resumeHere.ts の resumeHereFor）。
     resumeHere: (sessionId, overwrite) => resumeHereFor({
       db,
       claude: { db, home: home.home, claudeDir: home.claudeDir, check: (id) => { runs.runs.resumeCwdOf(id); }, resume: (id) => runs.runs.resume(id), pruneTranscripts: () => sync.pruneBackups('transcripts') },
@@ -170,6 +172,14 @@ export function bootHttp(p: {
         stopServe: (id) => p.opencode.serves.stop(id),
         resume: (id) => runs.runs.resumeWith(id),
         pruneTranscripts: () => sync.pruneBackups('transcripts'),
+      }),
+      // Codex は降ろした rollout を $CODEX_HOME（索引と同じ置き場）に写し、thread を握るこの PC の app-server を止めてから再開する（sync/codexResume.ts）。
+      codex: () => ({
+        db, home: home.home, deviceId: device.id,
+        codexHome: () => defaultCodexHome(),
+        prepare: (id) => runs.runs.prepareResumeDir(id),
+        stopWriters: async (id, threadId) => { await stopCodexWriters(delivery.codex, id, threadId); },
+        resume: (id) => runs.runs.resumeWith(id),
       }),
     }, sessionId, overwrite),
     get configBundle() { return sync.configBundle; },

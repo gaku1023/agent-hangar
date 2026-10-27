@@ -11,6 +11,7 @@ import type { TrashFn } from '../platform/trash.ts';
 import { isAgentKind, isSafeKeyId } from '@agent-hangar/shared';
 import { AGENT_SYNC, isExportAgent } from '../sync/agentSync.ts';
 import { mangleCwd } from '../provider/claude-code/transcript/discover.ts';
+import { resolvePhysical } from '../provider/codex/transcript/logical.ts';
 import { setSessionTrashed } from './states.ts';
 
 /**
@@ -37,6 +38,10 @@ import { setSessionTrashed } from './states.ts';
  * opencode の会話の本文は opencode の記録の置き場にあり、hangar は消さない（ゴミ箱へ移せるファイルが無い）。
  * hangar の持ち物である、同期のための書き出し（`~/.agent-hangar/opencode/export/<会話>.json`）と、降ろした写し（`remote/<PC>/opencode/<会話>.json`）は消す。
  * 索引に写した本文（agent_events）と、その索引と検索も片付ける。日別の使用量は Claude と同じく残す。
+ *
+ * Codex の会話の本文は $CODEX_HOME の rollout で、Claude と同じくゴミ箱へ移す（索引の行の論理パスから、.jsonl.zst の実体も引く）。
+ * 降ろした写しは remote/<PC>/codex/sessions/... か remote/<PC>/codex/archived_sessions/... で、名前は UUID で終わらないので、台帳の鍵（codex/<PC>/<UUID>.jsonl.gz）から引く。
+ * Codex の DB（state_5.sqlite）と索引には触らない。
  */
 
 /** 削除の誤り。status は HTTP の応答の番号で、message はトーストにそのまま出せる一文である。 */
@@ -206,6 +211,11 @@ export class SessionTrash {
     if (!SESSION_UUID.test(s.provider_session_id)) return [];
     const rows = this.db.prepare('select path from transcript_files where session_id = ? and agent_id is null').all(s.id) as { path: string }[];
     const mains = new Set(rows.map((r) => r.path).filter((p) => !this.underRemote(p)));
+    // Codex の rollout は索引の行（論理パス）だけから引き、実体（圧縮されていれば .jsonl.zst）を移す。隣のフォルダは無い。
+    if (s.provider === 'codex') {
+      if (!AGENT_SYNC.codex.isSessionId(s.provider_session_id)) return [];
+      return [...mains].flatMap((m) => { const p = resolvePhysical(m); return p ? [{ path: p.path, kind: 'file' as const }] : []; });
+    }
     mains.add(path.join(this.deps.claudeDir, 'projects', mangleCwd(s.cwd), `${s.provider_session_id}.jsonl`));
     const out: Target[] = [];
     for (const m of mains) {
@@ -223,6 +233,7 @@ export class SessionTrash {
   private remoteTargets(s: SessionFacts): string[] {
     const uuid = s.provider_session_id;
     if (isExportAgent(s.provider)) return this.opencodeTargets(s);
+    if (s.provider === 'codex') return this.codexRemoteTargets(s);
     if (!SESSION_UUID.test(uuid)) return [];
     const fromIndex = (this.db.prepare('select path from transcript_files where session_id = ?').all(s.id) as { path: string }[]).map((r) => r.path).filter((p) => this.underRemote(p));
     const fromLedger = (this.db.prepare("select path, device_id from file_sync where kind = 'transcript' and device_id <> ? and path like ?").all(this.deps.deviceId, `%/${uuid}.jsonl`) as { path: string; device_id: string }[])
@@ -257,6 +268,28 @@ export class SessionTrash {
     const rows = this.db.prepare("select device_id from file_sync where kind = 'transcript' and device_id <> ? and key like ?").all(this.deps.deviceId, `opencode/%/${id}.json.gz`) as { device_id: string }[];
     for (const r of rows) {
       const p = path.join(this.deps.remoteRoot, r.device_id, 'opencode', `${id}.json`);
+      if (exists(p) && this.underRemote(p)) out.add(p);
+    }
+    return [...out];
+  }
+
+  /**
+   * Codex の会話の降ろした写し。台帳（codex/<PC>/<UUID>.jsonl.gz）の path から、puller と同じ置き場の組み立てで引く。
+   * 索引の行が remote/ の下を指していれば、それも消す。いまあるものだけで、置き場の外を指すものは返さない。
+   */
+  private codexRemoteTargets(s: SessionFacts): string[] {
+    const id = s.provider_session_id;
+    if (!AGENT_SYNC.codex.isSessionId(id)) return [];
+    const out = new Set<string>();
+    for (const r of this.db.prepare('select path from transcript_files where session_id = ?').all(s.id) as { path: string }[]) {
+      const p = resolvePhysical(r.path)?.path;
+      if (p && this.underRemote(p)) out.add(p);
+    }
+    const rows = this.db.prepare("select path, device_id from file_sync where kind = 'transcript' and device_id <> ? and key like ?").all(this.deps.deviceId, `codex/%/${id}.jsonl.gz`) as { path: string; device_id: string }[];
+    for (const r of rows) {
+      // 置き場の組み立ては puller の remoteTranscriptPath と同じ（remote/<元の PC>/ の下に、写しの path のまま）。形の違う行は飛ばす。
+      if (!isSafeKeyId(r.device_id) || AGENT_SYNC.codex.sessionOfPath(r.path) !== id) continue;
+      const p = path.join(this.deps.remoteRoot, r.device_id, ...AGENT_SYNC.codex.remoteFile!(r.path, id));
       if (exists(p) && this.underRemote(p)) out.add(p);
     }
     return [...out];
@@ -459,6 +492,13 @@ export class SessionTrash {
   private forgetUploads(sessionId: string): void {
     const s = this.facts(sessionId);
     if (!s || !SESSION_UUID.test(s.provider_session_id)) return;
+    // Codex の本文は 1 本だけで、鍵は codex/<端末>/<UUID>.jsonl.gz である（サブエージェントの本文は無い）。
+    if (s.provider === 'codex') {
+      let key: string;
+      try { key = AGENT_SYNC.codex.ledgerKey(this.deps.deviceId, s.provider_session_id, null); } catch { return; }
+      this.db.prepare("delete from file_sync where kind = 'transcript' and device_id = ? and key = ?").run(this.deps.deviceId, key);
+      return;
+    }
     const head = `transcripts/${this.deps.deviceId}/${s.provider_session_id}`;
     this.db.prepare("delete from file_sync where kind = 'transcript' and device_id = ? and (key = ? or key like ? escape '\\')")
       .run(this.deps.deviceId, `${head}.jsonl.gz`, `${escapeLike(head)}/subagents/%`);

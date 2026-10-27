@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { Readable } from 'node:stream';
 import type { Language } from '@agent-hangar/shared';
@@ -8,6 +9,8 @@ import { isExportAgent } from './agentSync.ts';
 import { ledgerKeyFor } from './ledgerKey.ts';
 import type { RunManager } from '../runs/manager.ts';
 import { sha256Stream } from './crypto.ts';
+import { resolvePhysical } from '../provider/codex/transcript/logical.ts';
+import { decompressZstd } from '../provider/codex/transcript/zstd.ts';
 import { FLUSH_AGAIN_MS } from './flushOnRunEnd.ts';
 import { asksForMe, writeAnswer, type TakeoverAsk, type TakeoverResult } from './takeoverRows.ts';
 
@@ -48,6 +51,9 @@ export type TakeoverResponderDeps = {
  * opencode の会話は順番を変える（docs/design.md「opencode の本文の同期」）。
  * TUI を閉じてもサーバの側の作業は続き、止めたあとの本文は serve の外からしか書き出せないので、
  * interrupt して idle を待ち、書き出し直して上げてから、TUI と serve を止める。版は書き出したファイルで答える。
+ *
+ * Codex の会話は Claude と同じ順（止めて、2 度上げる）に、止める前の 1 度の上げを足す（docs/design.md「Codex の本文」の「引き継ぎ」）。
+ * 止める（release）と、動いているターンの interrupt で rollout に行が足されるので、版は止めたあとの rollout（.jsonl.zst なら展開したもの）で答える。
  */
 export class TakeoverResponder {
   private tail: Promise<unknown> = Promise.resolve();
@@ -99,8 +105,12 @@ export class TakeoverResponder {
       runs.kill(run.id, 'taken_over');
       result = 'stopped';
     } else if (mine) {
+      const codex = row?.provider === 'codex';
       // 止める前に端末へ残す。止めたあとは画面が閉じる。
-      this.deps.notePane?.(run.tmuxName, render(this.deps.language(), msg('sync.takeover.paneNote', { device: this.deps.deviceName(ask.fromDevice) })));
+      this.deps.notePane?.(run.tmuxName, render(this.deps.language(), msg(codex ? 'sync.takeover.paneNoteCodex' : 'sync.takeover.paneNote', { device: this.deps.deviceName(ask.fromDevice) })));
+      // Codex の会話は止める前にも上げる。開始直後の会話は、索引がまだ見ていないか 30 秒の窓の中で、1 度も上がっていないことがある。
+      // 止める途中で落ちても、頼んだ側が降ろせる版を先に置いておく（止めたあとの 2 度の上げで最後の版に追いつく）。
+      if (codex && uuid) await this.deps.flushSession(uuid);
       runs.kill(run.id, 'taken_over');
       result = 'stopped';
       // Claude は終わる直前まで書き足すので、少し置いてもう 1 度上げる（flushOnRunEnded と同じ作法）。
@@ -128,7 +138,21 @@ export class TakeoverResponder {
    */
   private async localVersion(sessionId: string): Promise<{ sha256: string; size: number } | null> {
     const f = this.deps.db.prepare('select path from transcript_files where session_id = ? and agent_id is null and device_id is null order by mtime desc limit 1').get(sessionId) as { path: string } | undefined;
-    return f ? this.fileVersion(f.path) : null;
+    if (!f) return null;
+    // Codex の索引の行は論理パス（.jsonl）で、実体は .jsonl.zst のこともある。上げる側は展開した jsonl の版を台帳に書くので、同じ形で答える。
+    const p = this.deps.db.prepare('select provider from sessions where id = ?').get(sessionId) as { provider: string } | undefined;
+    if (p?.provider === 'codex') {
+      const phys = resolvePhysical(f.path);
+      if (!phys) return null;
+      if (!phys.compressed) return this.fileVersion(phys.path);
+      try {
+        const body = decompressZstd(fs.readFileSync(phys.path));
+        return { sha256: createHash('sha256').update(body).digest('hex'), size: body.length };
+      } catch {
+        return null;
+      }
+    }
+    return this.fileVersion(f.path);
   }
 
   /** ファイルの版（平文の sha256 と大きさ）。無ければ null。 */

@@ -6,7 +6,7 @@ import readline from 'node:readline';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { createGunzip } from 'node:zlib';
-import { backfillTranscripts, backupsRoot, cloudConfigPath, type CloudConfig, decryptStream, agentOfSyncPath, AGENT_SYNC, HttpCloudClient, Keyring, openSealedFile, openTranscriptsFloor, parseCloudConfigV2, type WireCloudClient, readCloudConfig, readLegacyCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, SealedCloudClient, sha256Stream } from '@agent-hangar/server/src/cliEntry.ts';
+import { backfillTranscripts, backupsRoot, cloudConfigPath, type CloudConfig, decryptStream, agentOfSyncPath, AGENT_SYNC, codexHomePath, resolvePhysical, HttpCloudClient, Keyring, openSealedFile, openTranscriptsFloor, parseCloudConfigV2, type WireCloudClient, readCloudConfig, readLegacyCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, SealedCloudClient, sha256Stream } from '@agent-hangar/server/src/cliEntry.ts';
 // 同期の本体（暗号、置き場の組み立て、Worker の叩き方）はサーバ側の実装を借りる。
 // ここで写しを作ると、鍵の導出やパスの検査が片方だけ直されて食い違う。
 import {
@@ -1353,6 +1353,8 @@ export async function rescueSealedBodies(o: {
   wire: WireCloudClient;
   deviceId?: string;
   claudeDir?: string;
+  /** 自端末の $CODEX_HOME。自分の Codex の会話の原本があるかを見るために使う。省くと見ない（降ろす）。 */
+  codexHome?: string;
   log?: (line: string) => void;
 }): Promise<{ keys: string[]; rescued: RescueResult }> {
   const log = o.log ?? ((l: string) => console.log(l));
@@ -1383,6 +1385,13 @@ export async function rescueSealedBodies(o: {
       const own = agentOfSyncPath(e.path);
       const ownFile = own === null ? null : AGENT_SYNC[own.provider].exportFile;
       if (e.kind === 'transcript' && own && ownFile && o.deviceId && origin === o.deviceId && fs.existsSync(ownFile(o.home, own.sessionId))) {
+        r.already++;
+        continue;
+      }
+      // Codex の本文の写し（codex/sessions/... か codex/archived_sessions/...）も、自分の会話で原本が $CODEX_HOME にあれば降ろし直さない。
+      // 原本は .jsonl.zst に圧縮されていることもある。原本の無い自分の会話は、消すと失われるので降ろす。
+      const codexOriginal = own?.provider === 'codex' && o.codexHome ? codexHomePath(o.codexHome, e.path) : null;
+      if (e.kind === 'transcript' && codexOriginal && o.deviceId && origin === o.deviceId && resolvePhysical(codexOriginal) !== null) {
         r.already++;
         continue;
       }
@@ -1433,6 +1442,8 @@ export type TeardownOptions = {
   deviceId?: string;
   /** 自端末の ~/.claude。原本があるかを見るために使う。 */
   claudeDir?: string;
+  /** 自端末の $CODEX_HOME。自分の Codex の会話の原本があるかを見るために使う。 */
+  codexHome?: string;
 };
 
 /**
@@ -1491,7 +1502,7 @@ export async function runTeardown(o: TeardownOptions): Promise<boolean> {
     let r: { keys: string[]; rescued: RescueResult };
     try {
       log('R2 にあるトランスクリプトのうち、この PC にコピーが無いものを先にダウンロードします。');
-      r = await rescueSealedBodies({ home: o.home, cloud, wire, deviceId: o.deviceId, claudeDir: o.claudeDir, log });
+      r = await rescueSealedBodies({ home: o.home, cloud, wire, deviceId: o.deviceId, claudeDir: o.claudeDir, codexHome: o.codexHome, log });
     } catch (e) {
       throw new Error(`R2 にあるトランスクリプトの一覧を読み取れませんでした（${e instanceof Error ? e.message : String(e)}）。削除されるものが分からないため、中止しました`);
     }

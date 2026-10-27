@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { Command } from 'commander';
-import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, zshrcPath } from '@agent-hangar/server/src/cliEntry.ts';
+import { claudeJsonPath, defaultClaudeDir, defaultCodexHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, zshrcPath } from '@agent-hangar/server/src/cliEntry.ts';
 import { runConfigApply, runConfigRestore } from './config.ts';
 import { askLine, cloudBackfill, cloudStatus, installUsageToken, OVERWRITE_WORD, promptWord, readJoinCodeInput, readUsageToken, runSetupCloud, runTeardown, USAGE_TOKEN_HELP } from './cloud.ts';
 import { devicesCommand, JOIN_TOKEN_RETIRED, joinCheckCommand, joinInteractive, joinPollCommand, joinRequestCommand, leaveCommand, revokeCommand } from './membership.ts';
@@ -179,6 +179,8 @@ cloud
       home,
       deviceId: readOrCreateDevice(home).id,
       claudeDir: loadSettings(home).claudeDir || defaultClaudeDir(),
+      // Codex の会話の原本の置き場（索引と同じ、CODEX_HOME か ~/.codex）。
+      codexHome: defaultCodexHome(),
       confirm: promptWord,
     });
     if (!ok) process.exitCode = 1;

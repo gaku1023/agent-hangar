@@ -20,7 +20,7 @@ const originOf = (e: FileEntry): string => (typeof e.origin === 'string' && e.or
 
 /**
  * 写しの相対パス（projects/<フォルダ>/<uuid>.jsonl か projects/<フォルダ>/<uuid>/subagents/...）から、セッションの ID を取り出す。取れなければ空。
- * opencode の写し（opencode/<会話>.json）は、その会話の ID を返す。
+ * 専用の形の写し（opencode/<会話>.json、codex/sessions/... と codex/archived_sessions/...）は、その会話の ID を返す。
  */
 function uuidOfTranscript(rel: string): string {
   const own = agentOfSyncPath(rel);
@@ -28,6 +28,9 @@ function uuidOfTranscript(rel: string): string {
   const parts = path.posix.normalize(rel).split('/');
   return (parts[2] ?? '').replace(/\.jsonl$/, '');
 }
+
+/** Codex を切にしていた間に越えた Codex の行のいちばん小さい連番（sync_state）。有効にしたあとの取り直しの出発点。 */
+const CODEX_SKIPPED_FROM = 'codexSkippedFrom' as const;
 
 export type PullerDeps = {
   db: Db;
@@ -37,6 +40,11 @@ export type PullerDeps = {
   client: CloudClient;
   state: SyncStateStore;
   onError?: (key: string, message: string) => void;
+  /**
+   * Codex（ベータ）を有効にしているか。呼ばれた時点の値を読む。省くか偽なら、Codex の本文の行は降ろさずに区切りを越える。
+   * 有効にしていない PC の振る舞い（置くファイル、使う空き）を変えないためである。越えた行は、有効にしたあとの最初の降ろしで会話ごとの最新を取り直す。
+   */
+  codexEnabled?: () => boolean;
   /** 写しを 1 つ以上置いた回の終わりに、置いた数を知らせる。索引が全件走査を予約する（boot/sync.ts）。 */
   onDownloaded?: (count: number) => void;
   now?: () => number;
@@ -97,10 +105,18 @@ const sessionGroupOf = (e: FileEntry): string => `${originOf(e)}\0${uuidOfTransc
  * 最新は mtime で決め、同じなら連番の大きい方（世代を回して鍵名だけ変わった行）を採る。
  * 上げ直した写し（sync/rebuild.ts）は連番が大きくても中身が古いことがあるので、連番より mtime を先に見る。
  */
+/**
+ * 同じ写しの版をまとめる鍵。Claude は元の PC とパス、専用の形の写しは元の PC と会話（Codex はアーカイブで置き場が変わっても 1 つ）。
+ */
+const copyIdOf = (e: FileEntry): string => {
+  const own = agentOfSyncPath(e.path);
+  return own === null ? `${originOf(e)}\0${e.path}` : `${originOf(e)}\0${own.provider}:${own.sessionId}`;
+};
+
 function newestFirst(entries: FileEntry[]): FileEntry[] {
   const latest = new Map<string, FileEntry>();
   for (const e of entries) {
-    const id = `${originOf(e)}\0${e.path}`;
+    const id = copyIdOf(e);
     const prev = latest.get(id);
     if (!prev || prev.mtime < e.mtime || (prev.mtime === e.mtime && prev.seq < e.seq)) latest.set(id, e);
   }
@@ -176,13 +192,13 @@ function parseSkip(raw: string): SkipRecord | null {
 
 /**
  * 他端末の本文の置き場。
- * 相対パスは projects/ の下か、opencode の本文の写し（opencode/<会話>.json、会話の ID は鍵に使える形だけ）に限り、端末 ID も名前として安全な文字だけを許す。
+ * 相対パスは projects/ の下か、専用の形の写し（opencode/<会話>.json、Codex の codex/sessions/YYYY/MM/DD/<名前>.jsonl と codex/archived_sessions/<名前>.jsonl）に限り、端末 ID も名前として安全な文字だけを許す。
  * ここを通さずに R2 の申告した文字列で組み立てると、~/.claude のような外の場所へ書けてしまう。
  */
 export function remoteTranscriptPath(home: string, deviceId: string, rel: string): string {
   if (!/^[A-Za-z0-9._-]+$/.test(deviceId) || deviceId === '.' || deviceId === '..') throw new MessageError(msg('sync.pull.badDevice', { id: deviceId }));
   const own = agentOfSyncPath(rel);
-  if (own !== null) return path.join(remoteRoot(home), deviceId, AGENT_SYNC[own.provider].remoteDir!, `${own.sessionId}.json`);
+  if (own !== null) return path.join(remoteRoot(home), deviceId, ...AGENT_SYNC[own.provider].remoteFile!(rel, own.sessionId));
   const norm = path.posix.normalize(rel);
   if (!norm.startsWith('projects/') || norm.split('/').includes('..') || norm.startsWith('/')) throw new MessageError(msg('sync.pull.badPath', { path: rel }));
   return path.join(remoteRoot(home), deviceId, ...norm.split('/'));
@@ -408,10 +424,13 @@ export class RemotePuller {
       this.lastRetryAt = startedAt;
       downloaded += await this.retrySkipped();
     }
+    // Codex を切の間に越えた行を、有効にしたあとの最初の回で取り直す。
+    if (this.deps.codexEnabled?.() === true && Number.isFinite(this.deps.state.getNumber(CODEX_SKIPPED_FROM, Infinity))) downloaded += await this.catchUpCodex();
     let since = this.deps.state.getNumber('filesSeq', 0);
     let advanceTo = since;
     let minFailed: number | null = null;
     let minUnreadable: number | null = null;
+    let minCodexSkipped: number | null = null;
     // 一覧を先に読み切ってから、新しい会話から順に降ろす（newestFirst）。
     const candidates: FileEntry[] = [];
     for (;;) {
@@ -426,6 +445,8 @@ export class RemotePuller {
         if (e.kind === 'config') continue;
         // 削除したセッション（sessions/trash.ts）の写しは降ろさない。印を受け取る前の持ち主が上げた分でも、置けば消し直すだけになる。
         if (this.isTrashed(e.path)) continue;
+        // Codex を有効にしていない PC は、Codex の本文を置かない。越えた行のいちばん小さい連番を控え、有効にしたあとに取り直す（catchUpCodex）。
+        if (!this.takes(e.path)) { minCodexSkipped = minCodexSkipped === null ? e.seq : Math.min(minCodexSkipped, e.seq); continue; }
         candidates.push(e);
       }
       // その回の出発点より下がらないようにする。
@@ -464,8 +485,57 @@ export class RemotePuller {
       const prev = this.deps.state.getNumber('filesSkippedFrom', Infinity);
       this.deps.state.set('filesSkippedFrom', Math.min(prev, minUnreadable));
     }
+    if (minCodexSkipped !== null) {
+      const prev = this.deps.state.getNumber(CODEX_SKIPPED_FROM, Infinity);
+      this.deps.state.set(CODEX_SKIPPED_FROM, Math.min(prev, minCodexSkipped));
+    }
     if (downloaded > 0) this.deps.onDownloaded?.(downloaded);
     return { downloaded };
+  }
+
+  /**
+   * Codex を切にしていた間に越えた Codex の行を取り直す（docs/design.md「Codex の本文」）。
+   * 越えた行のいちばん小さい連番（CODEX_SKIPPED_FROM）から、いまの区切り（filesSeq）までの一覧を引き直し、会話ごとの最新の 1 件だけを降ろす。
+   * 区切りは動かさない。取り直しを終えたら控えを消し、2 度目からは頭から読み直さない。
+   * 失敗した行は onError に流して控えを残し、次の回にもう 1 度取り直す。空きが足りなければ残りを次の回に回す。
+   */
+  private async catchUpCodex(): Promise<number> {
+    const from = this.deps.state.getNumber(CODEX_SKIPPED_FROM, Infinity);
+    const until = this.deps.state.getNumber('filesSeq', 0);
+    const latest = new Map<string, FileEntry>();
+    let since = Math.max(0, from - 1);
+    while (since < until) {
+      const page = await this.deps.client.listFiles(since, PULL_LIMIT);
+      for (const e of page.files) {
+        if (e.seq > until) continue;
+        if (e.deviceId === this.deps.deviceId || originOf(e) === this.deps.deviceId || e.kind !== 'transcript') continue;
+        if (agentOfSyncPath(e.path)?.provider !== 'codex' || this.isTrashed(e.path)) continue;
+        const id = copyIdOf(e);
+        const prev = latest.get(id);
+        if (!prev || prev.seq < e.seq) latest.set(id, e);
+      }
+      if (!page.more || page.nextSeq <= since) break;
+      since = page.nextSeq;
+    }
+    let downloaded = 0;
+    let done = true;
+    for (const e of newestFirst([...latest.values()])) {
+      try {
+        if (await this.download(e)) downloaded++;
+      } catch (err) {
+        if (err instanceof CompatError || err instanceof LimitError) throw err;
+        done = false;
+        if (err instanceof DiskShortError) break;
+        this.deps.onError?.(e.key, this.errorText(err));
+      }
+    }
+    if (done) this.deps.state.set(CODEX_SKIPPED_FROM, null);
+    return downloaded;
+  }
+
+  /** その写しを、この PC が降ろすか。Codex の本文は Codex を有効にしているときだけ降ろす。 */
+  private takes(rel: string): boolean {
+    return agentOfSyncPath(rel)?.provider !== 'codex' || this.deps.codexEnabled?.() === true;
   }
 
   /**
@@ -493,9 +563,9 @@ export class RemotePuller {
       for (;;) {
         const page = await this.deps.client.listFiles(since, PULL_LIMIT);
         for (const e of page.files) {
-          if (e.deviceId === this.deps.deviceId || originOf(e) === this.deps.deviceId || e.kind !== 'transcript' || uuidOfTranscript(e.path) !== uuid) continue;
-          // 世代を回すと同じ写しが別の鍵名でもう 1 件並ぶので、元の PC とパスで 1 件にまとめる。
-          const id = `${originOf(e)}\0${e.path}`;
+          if (e.deviceId === this.deps.deviceId || originOf(e) === this.deps.deviceId || e.kind !== 'transcript' || uuidOfTranscript(e.path) !== uuid || !this.takes(e.path)) continue;
+          // 世代を回すと同じ写しが別の鍵名でもう 1 件並ぶので、元の PC とパス（専用の形は会話）で 1 件にまとめる。
+          const id = copyIdOf(e);
           const prev = latest.get(id);
           if (!prev || prev.seq < e.seq) latest.set(id, e);
         }
@@ -537,16 +607,23 @@ export class RemotePuller {
    * 降ろす要るか。要るなら置き場のパスと台帳の鍵を返し、既に同じ指紋の実体があるなどで要らなければ null を返す。
    * パスが不正なら投げる。
    */
-  private needsDownload(e: FileEntry): { target: string; ledger: string } | null {
+  private needsDownload(e: FileEntry): { target: string; ledger: string; stale: string | null } | null {
     const origin = originOf(e);
     const ledger = ledgerKeyOfPath(origin, e.path);
     if (ledger === null) throw new MessageError(msg('sync.pull.badPath', { path: e.path }));
     const target = remoteTranscriptPath(this.deps.home, origin, e.path);
-    const prev = this.deps.db.prepare('select sha256, mtime from file_sync where key = ?').get(ledger) as { sha256: string; mtime: number } | undefined;
+    const prev = this.deps.db.prepare('select sha256, mtime, path from file_sync where key = ?').get(ledger) as { sha256: string; mtime: number; path: string } | undefined;
     if (prev?.sha256 === e.sha256 && fs.existsSync(target)) return null;
     // 上げ直した写し（上げた PC と元の PC が違う）は、元の PC の上げた本文より古いことがある。手元の写しの方が新しければ残す。
     if (origin !== e.deviceId && prev && prev.mtime > e.mtime && fs.existsSync(target)) return null;
-    return { target, ledger };
+    // 同じ台帳の鍵で置き場が変わった写し（Codex のアーカイブと戻し）は、置き直した後に前の置き場を消す。同じ会話の写しを 2 つ残さない。
+    let stale: string | null = null;
+    // Claude の写しは今までどおり残す（台帳の鍵がフォルダを含まないので、別のフォルダの写しまで消してしまう）。
+    if (prev && prev.path !== e.path && agentOfSyncPath(e.path)?.provider === 'codex') {
+      try { stale = remoteTranscriptPath(this.deps.home, origin, prev.path); } catch { stale = null; }
+      if (stale === target) stale = null;
+    }
+    return { target, ledger, stale };
   }
 
   /**
@@ -557,7 +634,7 @@ export class RemotePuller {
     const origin = originOf(e);
     const need = this.needsDownload(e);
     if (need === null) return false;
-    const { target, ledger } = need;
+    const { target, ledger, stale } = need;
     this.ensureRoom(e.size);
     fs.mkdirSync(path.dirname(target), { recursive: true, mode: DIR_MODE });
     // 直接の宛先には書かない。
@@ -585,17 +662,18 @@ export class RemotePuller {
     }
     // 索引化の選別が更新時刻で最新の写しを選ぶので、相手の mtime に合わせる。
     fs.utimesSync(target, new Date(e.mtime), new Date(e.mtime));
+    if (stale !== null) fs.rmSync(stale, { force: true });
     this.deps.db.prepare(`insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)
       on conflict(key) do update set path = excluded.path, device_id = excluded.device_id, sha256 = excluded.sha256, size = excluded.size, mtime = excluded.mtime, remote_seq = excluded.remote_seq, synced_at = excluded.synced_at`)
       .run(ledger, 'transcript', e.path, origin, e.sha256, e.size, e.mtime, e.seq, this.now());
     return true;
   }
 
-  /** 手元に降ろした写しのうち、更新時刻が最新のもの。「この PC で再開」が使う。 */
+  /** 手元に降ろした写しのうち、更新時刻が最新のもの。「この PC で再開」が使う。Claude の本文と Codex の rollout（どちらも UUID）を引く。 */
   latestRemoteMain(sessionUuid: string): { deviceId: string; path: string; size: number; mtime: number } | null {
     const rows = this.deps.db
-      .prepare("select path, device_id, size, mtime from file_sync where kind = 'transcript' and device_id <> ? and key like ? order by mtime desc")
-      .all(this.deps.deviceId, `transcripts/%/${sessionUuid}.jsonl.gz`) as { path: string; device_id: string; size: number; mtime: number }[];
+      .prepare("select path, device_id, size, mtime from file_sync where kind = 'transcript' and device_id <> ? and (key like ? or key like ?) order by mtime desc")
+      .all(this.deps.deviceId, `transcripts/%/${sessionUuid}.jsonl.gz`, `codex/%/${sessionUuid}.jsonl.gz`) as { path: string; device_id: string; size: number; mtime: number }[];
     for (const r of rows) {
       let p: string;
       try { p = remoteTranscriptPath(this.deps.home, r.device_id, r.path); } catch { continue; }

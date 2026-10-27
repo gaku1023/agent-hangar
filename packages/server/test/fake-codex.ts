@@ -8,7 +8,8 @@ const requireFromHere = createRequire(import.meta.url);
  *
  * app-server のふり（`codex app-server --listen ws://127.0.0.1:<port> --ws-auth capability-token --ws-token-file <file> …`）：
  * - /healthz は token 無しで 200。WebSocket は `Authorization: Bearer <token>` が合わなければ 401。
- * - initialize、thread/start、turn/start、turn/interrupt、thread/resume、thread/fork、thread/loaded/list に答える。
+ * - initialize、thread/start、turn/start、turn/interrupt、thread/resume、thread/unarchive、thread/fork、thread/loaded/list に答える。
+ *   アーカイブ済みの会話（knownThreads の archived）の thread/resume は、実物と同じ -32600 `session … is archived` を返し、thread/unarchive の後は通す。
  *   thread/resume の cwd は、そのプロセスで最初の resume のときだけ会話の cwd を上書きする（E0）。thread/fork は rollout のある新しい会話を作る。
  *   thread/resume は、ターンがまだ無いスレッドには実物と同じ -32600 `no rollout found for thread id …` を返す。
  * - 通知：thread/started（接続の URL の query に `tui=1&cwd=…` を付けた接続が来たとき、ephemeral:false を全接続へ。実物の TUI の接続の真似）、
@@ -41,7 +42,7 @@ export type FakeCodexOptions = {
   /** ターンが終わるまでの時間（ミリ秒、既定 60）。interrupt の試験では長くする。 */
   turnMs?: number;
   /** app-server が起動時から持つ会話（rollout がある。hangar の外で作られたもの）。resume と fork の試験用。 */
-  knownThreads?: { id: string; cwd: string }[];
+  knownThreads?: { id: string; cwd: string; archived?: boolean }[];
   /** account/rateLimits/read が返す RateLimitSnapshot（rateLimits と rateLimitsByLimitId.codex の両方に入れる）。無ければ method not found のまま。 */
   rateLimits?: Record<string, unknown>;
 };
@@ -77,7 +78,7 @@ async function appServer(args) {
   const token = fs.readFileSync(flag('--ws-token-file'), 'utf8').trim();
   const threads = new Map(); // id -> { cwd, turns, subscribers:Set }
   let seq = 0;
-  for (const k of OPTS.k) threads.set(k.id, { cwd: k.cwd, turns: 1, subscribers: new Set(), loaded: false });
+  for (const k of OPTS.k) threads.set(k.id, { cwd: k.cwd, turns: 1, subscribers: new Set(), loaded: false, archived: !!k.archived });
   let turnSeq = 0;
   let polls = 0;
   const uuid = () => '01a00000-0000-7000-8000-' + String(++seq).padStart(12, '0');
@@ -144,10 +145,17 @@ async function appServer(args) {
           const t = threads.get(p.threadId);
           if (!t) return fail(-32600, 'no rollout found for thread id ' + p.threadId);
           if (t.turns === 0) return fail(-32600, 'no rollout found for thread id ' + p.threadId);
+          if (t.archived) return fail(-32600, 'session ' + p.threadId + ' is archived. Run \`codex unarchive ' + p.threadId + '\` to unarchive it first.');
           t.subscribers.add(ws);
           if (!t.loaded && p.cwd) t.cwd = p.cwd;
           t.loaded = true;
           return ok({ thread: threadBody(p.threadId, false), cwd: t.cwd });
+        }
+        case 'thread/unarchive': {
+          const t = threads.get(p.threadId);
+          if (!t || !t.archived) return fail(-32600, 'no archived rollout found for thread id ' + p.threadId);
+          t.archived = false;
+          return ok({ thread: threadBody(p.threadId, false) });
         }
         case 'thread/fork': {
           const src = threads.get(p.threadId);

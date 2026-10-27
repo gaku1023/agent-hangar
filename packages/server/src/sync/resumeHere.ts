@@ -4,6 +4,7 @@ import { RunError } from '../runs/manager.ts';
 import { copyTranscriptForResume } from './copy.ts';
 import { isExportAgent } from './agentSync.ts';
 import { resumeOpencodeHere, type OpencodeResumeDeps } from './opencodeResume.ts';
+import { resumeCodexHere, type CodexResumeDeps } from './codexResume.ts';
 import { msg } from '../i18n/message.ts';
 
 export type ResumeHereDeps = {
@@ -36,14 +37,19 @@ export function resumeHere(deps: ResumeHereDeps, sessionId: string, overwrite: b
  * 「この PC で再開」を会話のエージェントで振り分ける。
  * Claude は今までどおり本文を ~/.claude に写して再開する（同期のまま返す）。
  * opencode は降ろした export を opencode に取り込んでから再開する（sync/opencodeResume.ts）。serve を起こすので約束で返す。
- * opencode の口は使うときにだけ組む（serve の管理は同期より後に組まれるため）。
+ * Codex は降ろした rollout を $CODEX_HOME に写してから再開する（sync/codexResume.ts）。app-server を起こすので約束で返す。
+ * opencode と Codex の口は使うときにだけ組む（serve の管理は同期より後に組まれるため）。
  */
 export function resumeHereFor(
-  o: { db: Db; claude: ResumeHereDeps; opencode: () => OpencodeResumeDeps },
+  o: { db: Db; claude: ResumeHereDeps; opencode: () => OpencodeResumeDeps; codex?: () => CodexResumeDeps },
   sessionId: string,
   overwrite: boolean,
 ): LaunchResultDto | ResumeHereConflictDto | Promise<LaunchResultDto | ResumeHereConflictDto> {
   const row = o.db.prepare('select provider from sessions where id = ? and deleted_at is null').get(sessionId) as { provider: string } | undefined;
   if (isExportAgent(row?.provider)) return resumeOpencodeHere(o.opencode(), sessionId, overwrite);
+  if (row?.provider === 'codex') {
+    if (!o.codex) throw new RunError(400, msg('sync.resume.noTranscript'));
+    return resumeCodexHere(o.codex(), sessionId, overwrite);
+  }
   return resumeHere(o.claude, sessionId, overwrite);
 }
