@@ -46,7 +46,7 @@ const sha256 = (b: Buffer | string): string => crypto.createHash('sha256').updat
 const toPosix = (p: string): string => p.split(path.sep).join('/');
 const fileOf = (root: string, rel: string): string => path.join(root, ...rel.split('/'));
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-const EXCLUDE_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv']);
+const EXCLUDE_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv', '.trash']);
 
 function readRegular(abs: string): { content: Buffer; mtime: number } | 'absent' | 'blocked' {
   let st: fs.Stats;

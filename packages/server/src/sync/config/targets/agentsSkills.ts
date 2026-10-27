@@ -26,7 +26,7 @@ export const AGENTS_SKILLS_NAME = 'agents-skills';
 const PREFIX = `${AGENTS_SKILLS_NAME}:`;
 const MAX_ITEMS = 5000;
 const KEEP_GENERATIONS = 20;
-const EXCLUDE_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv']);
+const EXCLUDE_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv', '.trash']);
 
 export const agentsSkillsId = (rel: string): string => `${PREFIX}${rel}`;
 
