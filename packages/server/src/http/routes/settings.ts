@@ -8,6 +8,7 @@ import { checkToolPath, expandHome, isCommandName, toolPathIssue } from '../../c
 import { touchRow, tryWrites } from '../../db/notify.ts';
 import { workspaceSyncOutcomes } from '../../projects/registerMany.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../../projects/registry.ts';
+import { allTargets } from '../../sync/config/targets/index.ts';
 import { translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, readJson, tooLargeResult } from './common.ts';
@@ -44,7 +45,16 @@ const SETTING_LABEL = {
 /** Codex の 3 項目（ベータ）。設定の画面の行があるので、書かれていなくても既定（切、最小限、切）で常に返す。 */
 const codexSettingsDto = (s: Settings): Pick<SettingsDto, 'codexEnabled' | 'codexInjection' | 'codexIntercept'> => ({ codexEnabled: codexEnabledOf(s), codexInjection: codexInjectionOf(s), codexIntercept: codexInterceptOf(s) });
 
-export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, trustedWorkspaceRoot: s.trustedWorkspaceRoot ?? null, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, summaryEngine: s.summaryEngine ?? 'off', summaryClaudeModel: s.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryApiKeySet: typeof s.summaryApiKey === 'string' && s.summaryApiKey !== '', summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, askStatusAtEnd: s.askStatusAtEnd !== false, liveHints: s.liveHints !== false, autoDone: s.autoDone !== false, autoDoneIdleDays: isAutoDoneIdleDays(s.autoDoneIdleDays) ? s.autoDoneIdleDays : DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: s.autoPark !== false, remoteControl: s.remoteControl !== false, defaultModel: s.defaultModel ?? null, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language), ...codexSettingsDto(s), opencodeEnabled: opencodeEnabledOf(s), opencodeInjection: opencodeInjectionOf(s), opencodeIntercept: opencodeInterceptOf(s), opencodePermissionPreset: opencodePermissionPresetOf(s), opencodeLocalContext: localContextOf(s), opencodeIdleUnload: idleUnloadOf(s), opencodeProviderPrep: providerPrepsOf(s.opencodeProviderPrep) });
+/** 設定の同期の対象ごとの入切。登録済みの対象名と真偽値だけを残し、ほかは捨てる。 */
+export const configTargetsOf = (v: unknown): Record<string, boolean> => {
+  const out: Record<string, boolean> = {};
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return out;
+  const names = new Set(allTargets().map((t) => t.name));
+  for (const [k, x] of Object.entries(v)) if (names.has(k) && typeof x === 'boolean') out[k] = x;
+  return out;
+};
+
+export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, trustedWorkspaceRoot: s.trustedWorkspaceRoot ?? null, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, summaryEngine: s.summaryEngine ?? 'off', summaryClaudeModel: s.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryApiKeySet: typeof s.summaryApiKey === 'string' && s.summaryApiKey !== '', summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, configTargets: configTargetsOf(s.configTargets), askStatusAtEnd: s.askStatusAtEnd !== false, liveHints: s.liveHints !== false, autoDone: s.autoDone !== false, autoDoneIdleDays: isAutoDoneIdleDays(s.autoDoneIdleDays) ? s.autoDoneIdleDays : DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: s.autoPark !== false, remoteControl: s.remoteControl !== false, defaultModel: s.defaultModel ?? null, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language), ...codexSettingsDto(s), opencodeEnabled: opencodeEnabledOf(s), opencodeInjection: opencodeInjectionOf(s), opencodeIntercept: opencodeInterceptOf(s), opencodePermissionPreset: opencodePermissionPresetOf(s), opencodeLocalContext: localContextOf(s), opencodeIdleUnload: idleUnloadOf(s), opencodeProviderPrep: providerPrepsOf(s.opencodeProviderPrep) });
 
 /** http か https で、host のある URL だけを通す。`http://` のような繋ぎ先にならない文字列を弾く。 */
 function parseHttpUrl(v: string): URL | null {
@@ -240,6 +250,12 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       const v = body.configBundleSync;
       if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.configBundleSync') }) }, 400);
       patch.configBundleSync = v;
+    }
+    // 設定の同期の対象ごとの入切。全体の置き換えで、登録済みの対象名と真偽値だけを残す。
+    if ('configTargets' in body) {
+      const v = body.configTargets;
+      if (typeof v !== 'object' || v === null || Array.isArray(v)) return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.configBundleSync') }) }, 400);
+      patch.configTargets = configTargetsOf(v);
     }
     // hangar が起動する claude に足す段の入り切り（launch/injection.ts）。次に起こす claude から効く。
     // remoteControl は claude を会話アプリにつなぐ --remote-control の入り切り（launch/remoteControl.ts）。

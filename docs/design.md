@@ -7798,6 +7798,7 @@ id は 3 種類。`opencode:file:<相対パス>`、`opencode:json:<鍵の道>`�
 hangar の `settings.json` の鍵のうち、PC をまたいで同じでよいものを `hangar:<鍵>`（kind は `hangar-pref`）で運ぶ。
 鍵は `language`、`askStatusAtEnd`、`liveHints`、`defaultModel`、`autoDone`、`autoDoneIdleDays`、`autoPark`、`remoteControl`、`summaryEngine`、`summaryClaudeModel`、`configApproval`、`opencodeInjection`、`opencodePermissionPreset`、`opencodeLocalContext`、`codexInjection` の 15 個で、値は JSON、形は鍵ごとに検査する。
 設定にある鍵だけを集め、形の合わない値は塞ぐ（相手の値で上書きしない）。ファイルが壊れていれば `hangar:` を全部塞ぐ。
+対象ごとの入切 `configTargets`（対象名から真偽）は、`GET /api/settings` で返り、`PATCH /api/settings` は全体の置き換えで受ける。登録済みの対象名と真偽値だけを残し、ほかは捨てる。
 Codex・opencode の有効と横取り、パス、エディタ、端末アプリ、秘密（`summaryApiKey`）、要約器の宛先、接続先の準備、対象ごとの入切（`configTargets`）は、PC ごとの選びなので運ばない。
 サーバが `settings.json` を書くので、殻の承諾の窓は通さない。承諾が要るのは `configApproval` の項目だけで、承諾の仕方の設定に依らない（`needsApproval` は値を受け取らないため、`each` へ戻す変更も承諾になる）。
 書き込みは `loadSettings` と `saveSettings` で鍵を差し替える。走っているサーバは設定を自分の入れ物に持つので、サーバは起動のとき（`boot/http.ts`）に `setHangarPrefsApplier` で `applySettingsPatch` を通す口を登録する。
