@@ -197,3 +197,48 @@ describe('read（枠の知らせ）', () => {
     expect(seen).toEqual([]);
   });
 });
+
+describe('ほかの PC の写し（remoteRoot）', () => {
+  let remote: string;
+  beforeEach(() => { remote = makeCodexHome(); });
+  afterEach(() => { fs.rmSync(remote, { recursive: true, force: true }); });
+  const putRemote = (dev: string, n: number, when: string, archived = false) => {
+    const { rel, name } = rolloutName(uuid(n), when);
+    return putRollout(path.join(remote, dev, 'codex'), archived ? path.join('archived_sessions', name) : rel, fixtureBytes(CODEX_ONE_TURN.file));
+  };
+  const makeR = (limit?: number) => codexTranscriptSource({ codexHome: () => home, enabled: () => true, remoteRoot: remote, importLimit: limit });
+
+  it('remote/<PC>/codex の sessions と archived_sessions を、その PC の deviceId で列挙する。取り込みの上限には数えない', () => {
+    const a = putRemote('dev-b', 1, '2026-10-24T09-00-00');
+    const b = putRemote('dev-c', 2, '2026-10-25T09-00-00', true);
+    put(3, '2026-10-26T09-00-00');
+    // projects だけの PC（Claude の写し）は混ざらない。
+    fs.mkdirSync(path.join(remote, 'dev-d', 'projects'), { recursive: true });
+    const r = makeR(1).scan({});
+    expect(r.index.map((f) => [f.path, f.deviceId])).toEqual(expect.arrayContaining([[a, 'dev-b'], [b, 'dev-c']]));
+    expect(r.index).toHaveLength(3);
+    expect(r.seen).toEqual(new Set(r.index.map((f) => f.path)));
+  });
+
+  it('同じ会話が手元にあれば手元を採り、写しは drop。譲った会話なら新しい方を採る', () => {
+    const rp = putRemote('dev-b', 1, '2026-10-24T09-00-00');
+    const lp = put(1, '2026-10-24T09-00-00');
+    fs.utimesSync(rp, new Date(), new Date(Date.now() + 60_000));
+    const r = makeR().scan({});
+    expect(r.index.map((f) => f.path)).toEqual([lp]);
+    expect(r.drop.map((f) => f.path)).toEqual([rp]);
+    const y = makeR().scan({ isYielded: (id) => id === uuid(1) });
+    expect(y.index.map((f) => f.path)).toEqual([rp]);
+    expect(y.drop.map((f) => f.path)).toEqual([lp]);
+  });
+
+  it('pick：手元の本文が名指しされたら、同じ会話の写しを drop に入れる', () => {
+    const rp = putRemote('dev-b', 1, '2026-10-24T09-00-00');
+    const s = makeR();
+    s.scan({});
+    const lp = put(1, '2026-10-24T09-00-00');
+    const r = s.pick({ path: lp, sessionId: uuid(1), agentId: null, deviceId: null }, { size: 1, mtimeMs: 1 }, {});
+    expect(r.index.map((f) => f.path)).toEqual([lp]);
+    expect(r.drop.map((f) => f.path)).toEqual([rp]);
+  });
+});

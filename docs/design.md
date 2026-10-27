@@ -7591,6 +7591,16 @@ codex は起動のときに置かれた rollout を拾い直す。
 降ろした写しを `$CODEX_HOME` に直接置かないのは、この PC の Codex の索引がそれを手元の会話として読み、この PC の本文として上げ直してしまうからである。
 `AGENT_SYNC.codex.isSessionId` は thread の UUID の形（小文字の 8-4-4-4-12）だけを受ける。
 
+ほかの PC の Codex の会話の本文は、降ろした写しから読む。
+Claude の写し（`remote/<PC>/projects`）と同じく、Codex のトランスクリプトの面（`codexTranscriptSource` の `remoteRoot`）が `remote/<PC>/codex/` を `$CODEX_HOME` と同じ形で歩き、その PC の ID を deviceId にして索引へ渡す（`listRemoteRolloutFiles`）。
+写しは同期が展開した `.jsonl` で、`.jsonl.zst` は降りてこない。
+会話の行がまだ届いていない写しは索引が飛ばし、写しからは要約（`session_summaries`）を書かない。
+写しは取り込みの上限（`CODEX_IMPORT_LIMIT`）に数えない。
+同じ会話が `$CODEX_HOME` にもあれば手元を採り、写しは索引から外す（「この PC で再開」の後）。
+引き継ぎで譲った会話だけは、更新時刻の新しい方を採る。
+写しの置き場には見張りを付けず、写しが降りたときの全件走査の予約（`onRemoteChange`）で拾う。
+Codex を有効にしていない PC では、写しも読まない（そもそも降ろさない）。
+
 ##### この PC で再開（Codex）
 
 「この PC で再開」は、Codex の会話を `sync/codexResume.ts` の `resumeCodexHere` に振り分ける（`resumeHereFor`）。
