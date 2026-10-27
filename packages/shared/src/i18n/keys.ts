@@ -6,6 +6,7 @@ import { commonKeys } from './keys/common.ts';
 import { configKeys } from './keys/config.ts';
 import { configSyncKeys } from './keys/configSync.ts';
 import { configSyncUiKeys } from './keys/configSyncUi.ts';
+import { configTargetsUiKeys } from './keys/configTargetsUi.ts';
 import { confirmKeys } from './keys/confirm.ts';
 import { externalKeys } from './keys/external.ts';
 import { gitKeys } from './keys/git.ts';
@@ -90,6 +91,7 @@ export const MESSAGES = {
   ...configKeys,
   ...configSyncKeys,
   ...configSyncUiKeys,
+  ...configTargetsUiKeys,
   ...confirmKeys,
   ...gitKeys,
   ...gitUiKeys,

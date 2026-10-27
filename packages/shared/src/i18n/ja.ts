@@ -6,6 +6,7 @@ import { commonJa } from './ja/common.ts';
 import { configJa } from './ja/config.ts';
 import { configSyncJa } from './ja/configSync.ts';
 import { configSyncUiJa } from './ja/configSyncUi.ts';
+import { configTargetsUiJa } from './ja/configTargetsUi.ts';
 import { confirmJa } from './ja/confirm.ts';
 import { externalJa } from './ja/external.ts';
 import { gitJa } from './ja/git.ts';
@@ -78,6 +79,7 @@ export const ja: Dictionary = {
   ...configJa,
   ...configSyncJa,
   ...configSyncUiJa,
+  ...configTargetsUiJa,
   ...confirmJa,
   ...gitJa,
   ...gitUiJa,

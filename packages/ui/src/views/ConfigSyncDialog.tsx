@@ -1,10 +1,11 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useLayoutEffect, useRef, useState } from 'react';
 import type { ConfigApplyOrderEntryIn } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { ConfigApproveDialogProps, ConfigConflictsDialogProps, ConfigDialogProps, ConfigReviewDialogProps, ConfigSendDialogProps } from '../presenters/configSync.ts';
 import { ConfigGroup, MarkTags } from './ConfigSyncParts.tsx';
 import { Dialog } from './primitives/Dialog.tsx';
 import { Icon } from './primitives/Icon.tsx';
+import { fadeIn, resizeFrom } from './primitives/motionKit.ts';
 import { useT } from './primitives/language.tsx';
 
 const MARK = { ctx: ' ', add: '+', del: '-' } as const;
@@ -53,6 +54,27 @@ function ReviewDialog(props: ConfigReviewDialogProps) {
   const t = useT();
   const emit = useEmit();
   const close = () => { if (!props.working) emit({ type: 'overlay.close' }); };
+  // 対象の札での絞り込み（4B）。見せる行を変えるだけで、適用するものは変えない。対象が 1 つなら札は出さない。
+  const [filter, setFilter] = useState<string>('all');
+  const showChips = props.targets.length > 1;
+  const live = !showChips || props.targets.some((x) => x.id === filter) ? filter : 'all';
+  const groups = live === 'all' ? props.groups : props.groups
+    .map((g) => ({ ...g, rows: g.rows.filter((r) => r.target === live) }))
+    .filter((g) => g.rows.length > 0)
+    .map((g) => ({ ...g, count: g.rows.length }));
+  const total = props.targets.reduce((n, x) => n + x.count, 0);
+  // 札を替えたら、札は動かさず下の中身だけを入れ替える。高さは前の高さから伸び縮みさせ、中身は淡く出す（試作の 4B の動き）。
+  const body = useRef<HTMLDivElement | null>(null);
+  const before = useRef<number | null>(null);
+  const pick = (id: string) => { if (id === live) return; before.current = body.current?.offsetHeight ?? null; setFilter(id); };
+  useLayoutEffect(() => {
+    const el = body.current;
+    const from = before.current;
+    before.current = null;
+    if (!el || from === null) return;
+    resizeFrom(el, from);
+    fadeIn(el, '--dur-fast');
+  }, [live]);
   return (
     <Dialog title={t('configSyncUi.review.title')} icon="sync" className="dialog-config" onClose={close}
       footer={(
@@ -71,8 +93,19 @@ function ReviewDialog(props: ConfigReviewDialogProps) {
           {props.awaiting > 0 && <button type="button" className="btn btn-sm" disabled={props.working} onClick={() => emit({ type: 'configSync.open', part: 'approve' })}>{t('configSyncUi.review.openApprove', { n: props.awaiting })}</button>}
         </div>
       )}
+      {showChips && (
+        <div className="cfg-chips" role="group" aria-label={t('configTargetsUi.review.filterLabel')}>
+          {[{ id: 'all', label: t('configTargetsUi.review.filterAll'), count: total }, ...props.targets].map((x) => (
+            <button key={x.id} type="button" className="cfg-chip" aria-pressed={live === x.id} data-on={String(live === x.id)} onClick={() => pick(x.id)}>
+              {x.label}<span className="cfg-chip-n">{x.count}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {!props.loading && props.groups.length === 0 && <div className="faint">{t('configSyncUi.review.empty')}</div>}
-      {props.groups.map((g) => <ConfigGroup key={g.id} group={g} />)}
+      <div className="cfg-review-body" ref={body}>
+        {groups.map((g) => <ConfigGroup key={g.id} group={g} tone={g.id === 'conflict' || g.id === 'approve' ? 'warn' : undefined} />)}
+      </div>
     </Dialog>
   );
 }

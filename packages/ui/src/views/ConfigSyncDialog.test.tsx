@@ -54,11 +54,11 @@ describe('適用内容の確認（b1）', () => {
     inb('file:skills/a/SKILL.md', 'skills', 'skills/a/SKILL.md', 'overwrite', { needsApproval: true }),
     inb('settings:model', 'settings', 'model', 'create'),
   ];
-  it('操作ごとの群を危ない順に並べ、適用…は承諾の要らない項目だけを渡す', () => {
+  it('競合、承諾が必要なもの、そのまま適用するものの順に並べ（U0 の 4a）、適用…は承諾の要らない項目だけを渡す', () => {
     const onAction = vi.fn();
     show(open('review'), store({ inbox: { items, approval: 'each' } }, dto({ incoming: 3, conflicts: 1 })), onAction);
     const heads = [...document.querySelectorAll('.cfg-grp-t')].map((e) => e.textContent);
-    expect(heads).toEqual(['競合', '削除', '上書き', '新規']);
+    expect(heads).toEqual(['競合', '承諾が必要なもの', 'そのまま適用するもの']);
     fireEvent.click(screen.getByRole('button', { name: '適用…' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'configSync.apply', entries: [{ id: 'file:skills/old/SKILL.md' }, { id: 'settings:model' }] });
   });

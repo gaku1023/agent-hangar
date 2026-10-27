@@ -1,4 +1,5 @@
 import { compatState, type UiAction, type Language, type SyncDiskShortDto, type SyncStatusBody, type Translate } from '@agent-hangar/shared';
+import { sendableUnsentOf } from './configSync.ts';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
@@ -156,12 +157,14 @@ function retention({ store, now, t }: Ctx): Draft[] {
  */
 function configUnsent({ store, t }: Ctx): Draft[] {
   const c = store.configSync;
-  if (!c || !c.enabled || c.unsent <= 0) return [];
+  // 未対応のキーは送れないので、件数にもベルにも入れない（設定の画面で別の群として見せる）。
+  const n = sendableUnsentOf(c);
+  if (!c || !c.enabled || n <= 0) return [];
   const prefix = 'config|unsent|';
   return [{
-    covers: (k) => k.startsWith(prefix) && Number(k.slice(prefix.length)) >= c.unsent,
-    key: `${prefix}${c.unsent}`, kind: 'config', tone: 'warn', icon: 'settings', kindLabel: t('notices.kind.config'),
-    title: t('notices.config.unsent', { n: c.unsent }), detail: t('notices.config.unsentDetail'), when: null,
+    covers: (k) => k.startsWith(prefix) && Number(k.slice(prefix.length)) >= n,
+    key: `${prefix}${n}`, kind: 'config', tone: 'warn', icon: 'settings', kindLabel: t('notices.kind.config'),
+    title: t('notices.config.unsent', { n }), detail: t('notices.config.unsentDetail'), when: null,
     action: { label: t('notices.config.open'), send: { type: 'nav.go', to: { name: 'settings', at: 'unsent' } } },
   }];
 }

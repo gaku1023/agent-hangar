@@ -426,7 +426,14 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     const t = translatorOf(store);
     void (async () => {
       try {
-        if (entries) await deps.api.configPutOrder(entries);
+        const order = entries ? await deps.api.configPutOrder(entries) : null;
+        // Hangar の設定はサーバが PUT の場で書き、指示書から外す。外したあと何も残らなければ、殻は「適用内容がありません」と断るので呼ばない。
+        if (order && order.items.length === 0) {
+          toast(t('configTargetsUi.toast.prefsApplied'));
+          refreshConfigSync();
+          dispatch({ kind: 'runtime', event: { type: 'configSync.done', close: true } });
+          return;
+        }
         const shell = deps.desktop;
         if (!shell) {
           toast(t('configSyncUi.toast.orderWritten'));
