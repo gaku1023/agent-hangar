@@ -71,8 +71,8 @@ export type MobileProject = { id: string; name: string; lastUsedAt: number | nul
  * asks は `/` と `@` の問い合わせに答えること、images は起動の依頼の画像を受け取ること、effort は依頼の effort を効かせること。
  * rc.1 の PC は caps を載せず、依頼の images と effort を黙って捨てるので、スマホは caps の無い PC にそれらを出さない。
  *
- * agents は、この PC で起こせるエージェント（0.10.0 で足した）。opencode は、PC の設定で opencode を有効にしているときだけ載せる。
- * 無ければ Claude Code だけの PC である。古い PC は依頼の知らない欄（agent）を断らずに Claude を起こしてしまうので、スマホは agents に opencode のある PC にだけ opencode の依頼を出す。
+ * agents は、この PC で起こせるエージェント（0.10.0 で足した）。opencode と Codex は、PC の設定で有効にしているときだけ載せる。
+ * 無ければ Claude Code だけの PC である。古い PC は依頼の知らない欄（agent）を断らずに Claude を起こしてしまうので、スマホは agents にそのエージェントのある PC にだけ、そのエージェントの依頼を出す。
  */
 export type MobileCaps = { asks: boolean; images: boolean; effort: boolean; agents?: AgentKind[] };
 
@@ -111,6 +111,7 @@ export type MobileLaunchPayload = {
    * 起こすエージェント（0.10.0 で足した）。無ければ Claude Code。
    * スマホは caps.agents に opencode のある PC にだけ opencode を送る。古い PC は知らない欄を断らずに Claude を起こすからである。
    * opencode のとき、accountId と permissionMode は空、effort は無い。PC はこれが崩れた依頼を断る。
+   * codex のとき、accountId は空で、permissionMode は Codex の権限（CODEX_PERMISSIONS。空は自動）、model は Codex のモデルの slug（空は既定）、effort は推論の段階（無ければ既定）。mode と autoApprove は無い。
    */
   agent?: MobileLaunchAgent;
   /** opencode のモード（primary のエージェント。build、plan など）。無ければ opencode の既定。MOBILE_MODE_RE の形だけ。 */
@@ -147,6 +148,18 @@ export const MOBILE_AGENT_MODELS_MAX = 100;
 export const MOBILE_AGENT_LABEL_MAX = 60;
 /** 答えの opencode のモードの件数の上限。 */
 export const MOBILE_AGENT_MODES_MAX = 20;
+/** 答えの Codex のモデルの件数の上限と、モデル 1 つの推論の段階の件数の上限。 */
+export const MOBILE_CODEX_MODELS_MAX = 40;
+export const MOBILE_CODEX_EFFORTS_MAX = 8;
+
+/**
+ * スマホに渡す Codex のモデル 1 つ。id は起動の model に入れる slug、efforts はそのモデルで選べる推論の段階（Codex の並びのまま）、defaultEffort は既定の段階（分からなければ null）。
+ * PC の CodexOptionsDto から、説明の文を落として縮めたもの（呼び鈴の答えは 64KB に収める）。
+ */
+export type MobileCodexModel = { id: string; label: string; efforts: string[]; defaultEffort: string | null };
+
+/** スマホに渡す Codex の選択肢。stale は、PC が最後に取ってから間が空いた一覧であること。権限の 3 段は固定なので載せない（CODEX_PERMISSIONS）。 */
+export type MobileCodexOptions = { version: string | null; verified: boolean; models: MobileCodexModel[]; stale: boolean; fetchedAt: number };
 
 /**
  * スマホに渡す opencode のモデル 1 つ。id は `provider/model`、label は opencode の表示名、group はプロバイダーの表示名。
@@ -170,12 +183,13 @@ export type MobileAgentOptions = {
 
 /**
  * PC の答え（封の中身。AAD は aadReply）。
- * agentOptions が null なのは、PC がまだ一覧を持っていないとき。agent-missing は、PC で opencode を使えない（無効か、見つからない）とき。
+ * agentOptions と codexOptions が null なのは、PC がまだ一覧を持っていないとき。agent-missing は、PC でそのエージェントを使えない（無効か、見つからない）とき。
  */
 export type MobileReply =
   | { files: { path: string; changed: boolean }[] }
   | { commands: { name: string; description: string; kind: 'skill' | 'command' }[] }
   | { agentOptions: MobileAgentOptions | null }
+  | { codexOptions: MobileCodexOptions | null }
   | { error: 'project-missing' | 'account-missing' | 'agent-missing' | 'bad-request' };
 
 /**
