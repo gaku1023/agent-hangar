@@ -123,6 +123,11 @@ describe('codex の id', () => {
     expect(parseItemId('codex:toml:')).toBeNull();
     expect(parseItemId('codex:toml:tui..theme')).toBeNull();
   });
+  it('0.165.0 で足された鍵（auto_review.timeout_ms と features の旗）も運ぶ', () => {
+    for (const p of [['auto_review', 'timeout_ms'], ['features', 'guardianv3'], ['features', 'tui_multi_backend']]) {
+      expect(parseItemId(codexTomlId(p))?.kind, p.join('.')).toBe('codex-config');
+    }
+  });
   it('プラグインの id に点があっても往復する', () => {
     const id = codexTomlId(['plugins', 'a.b@m', 'enabled']);
     expect(id).not.toContain('a.b');
