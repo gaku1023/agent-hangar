@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { ConfigSyncSectionProps } from '../presenters/configSync.ts';
-import { ConfigRow } from './ConfigSyncParts.tsx';
+import { ConfigGroup, Reveal } from './ConfigSyncParts.tsx';
+import { ConfigTargetRows } from './ConfigTargetRows.tsx';
 import { CommandLine } from './primitives/CommandLine.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -27,8 +28,11 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
   // 自動に切り替える前の注意の帯。承諾の仕方は、利用者が「自動にする」を押すまで変えない。
   const [askAuto, setAskAuto] = useState(false);
   const [unsentOpen, setUnsentOpen] = useState(c.focusUnsent);
+  // 「それでも送る」の確認を出している行（3a）。
+  const [sendAsk, setSendAsk] = useState<string | null>(null);
   // ベルの一覧の行から来たときは、送らなかった項目の行を開いて、見える所へ移る。行は節が揃ってから出るので、出たときにも見直す。
-  const showUnsent = c.enabled && !props.cloudOff && !c.needsCloud && c.unsent.count > 0;
+  const unsentAll = c.unsent.count + c.unsent.unknown;
+  const showUnsent = c.enabled && !props.cloudOff && !c.needsCloud && unsentAll > 0;
   useEffect(() => {
     if (!c.focusUnsent || !showUnsent) return;
     setUnsentOpen(true);
@@ -50,7 +54,7 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
     <section aria-labelledby="settings-config-h">
       <h3 className="h2" id="settings-config-h">{t('settings.cloud.config.title')}</h3>
       {/* 何を同期するかは ⓘ に畳む。行には、使えない理由と、最後に送った時刻だけを出す。 */}
-      <SetRow title={t('settings.cloud.config.enable')} info={t('configSyncUi.section.desc')}
+      <SetRow title={t('settings.cloud.config.enable')} info={t('configTargetsUi.sync.info')}
         desc={off ? t('settings.cloud.config.needsCloud') : on ? (
           <div className="cfg-line">
             {c.lastSent !== null ? t('configSyncUi.section.lastSent', { time: c.lastSent }) : t('configSyncUi.section.notSentYet')}
@@ -64,6 +68,10 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
             <span><b>{t('configSyncUi.worker.title')}</b>{' '}{t('configSyncUi.worker.body')}</span>
           </div>
         ) : undefined} />
+      {/* 対象ごとの入切は親の下に並べ、親を切ると畳む（1A、1a）。 */}
+      <Reveal open={on}>
+        <ConfigTargetRows rows={c.targets.rows} showNew={c.targets.showNew} switches={c.targets.switches} />
+      </Reveal>
       {on && (
         <>
           {c.order && (
@@ -115,16 +123,32 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
             control={<button type="button" className="btn btn-sm" disabled={c.conflicts === 0} onClick={() => emit({ type: 'configSync.open', part: 'conflicts' })}>{t('configSyncUi.conflicts.open')}</button>} />
           {/* 送らなかった項目は、0 件でも行を残す（e2）。送った直後の知らせはベルの一覧に入る（段 4 の PR 19）。 */}
           <SetRow id="settings-config-unsent" title={t('configSyncUi.unsent.title', { n: c.unsent.count })} info={t('configSyncUi.unsent.desc')}
-            control={<button type="button" className="btn btn-sm" aria-expanded={unsentOpen && c.unsent.count > 0} disabled={c.unsent.count === 0} onClick={() => setUnsentOpen(!unsentOpen)}>{unsentOpen && c.unsent.count > 0 ? t('configSyncUi.word.fold') : t('configSyncUi.word.show')}</button>}
-            below={unsentOpen && c.unsent.count > 0 ? (
-              <div className="cfg-list">
-                {c.unsent.rows.length === 0 && <div className="faint">{t('settings.common.loading')}</div>}
-                {c.unsent.rows.map((r) => (
-                  <ConfigRow key={r.id} row={r}
-                    action={r.sendId !== null ? <button type="button" className="btn btn-sm" aria-label={t('configSyncUi.unsent.sendAnyway.label', { name: r.label })} onClick={() => emit({ type: 'configSync.unsent.send', id: r.sendId! })}>{t('configSyncUi.unsent.sendAnyway')}</button> : undefined} />
-                ))}
-              </div>
-            ) : undefined} />
+            control={<button type="button" className="btn btn-sm" aria-expanded={unsentOpen && unsentAll > 0} disabled={unsentAll === 0} onClick={() => setUnsentOpen(!unsentOpen)}>{unsentOpen && unsentAll > 0 ? t('configSyncUi.word.fold') : t('configSyncUi.word.show')}</button>}
+            below={(
+              <Reveal open={unsentOpen && unsentAll > 0}>
+                <div className="cfg-unsent">
+                  {c.unsent.rows.length === 0 && <div className="faint">{t('settings.common.loading')}</div>}
+                  {/* 理由ごとの群（3A）。「それでも送る」は行の下で確かめてから送る（3a）。 */}
+                  {c.unsent.groups.map((g) => (
+                    <ConfigGroup key={g.id} group={g}
+                      renderAction={(r) => (r.sendId !== null && sendAsk !== r.sendId ? <button type="button" className="btn btn-sm" aria-label={t('configSyncUi.unsent.sendAnyway.label', { name: r.label })} onClick={() => setSendAsk(r.sendId)}>{t('configSyncUi.unsent.sendAnyway')}</button> : null)}
+                      renderBelow={(r) => (r.sendId === null ? undefined : (
+                        <Reveal open={sendAsk === r.sendId}>
+                          <div className="cfg-strip" data-tone="danger" role="group" aria-label={t('configTargetsUi.unsent.anyway.title')}>
+                            <Icon name="alert" />
+                            <span><b>{t('configTargetsUi.unsent.anyway.title')}</b>{' '}{t('configTargetsUi.unsent.anyway.body')}</span>
+                            <span className="spacer" />
+                            <span className="cfg-strip-acts">
+                              <button type="button" className="btn btn-sm" onClick={() => setSendAsk(null)}>{t('common.button.cancel')}</button>
+                              <button type="button" className="btn btn-sm btn-primary" onClick={() => { setSendAsk(null); emit({ type: 'configSync.unsent.send', id: r.sendId! }); }}>{t('configTargetsUi.unsent.anyway.ok')}</button>
+                            </span>
+                          </div>
+                        </Reveal>
+                      ))} />
+                  ))}
+                </div>
+              </Reveal>
+            )} />
           <SetRow title={t('configSyncUi.backups.title', { n: c.backups.count })} desc={t('configSyncUi.backups.desc')}
             control={<button type="button" className="btn btn-sm" aria-expanded={backupsOpen && c.backups.count > 0} disabled={c.backups.count === 0} onClick={() => setBackupsOpen(!backupsOpen)}>{backupsOpen && c.backups.count > 0 ? t('configSyncUi.word.fold') : t('configSyncUi.word.show')}</button>}
             below={backupsOpen && c.backups.count > 0 ? (
@@ -133,7 +157,7 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
                 {c.backups.rows.map((g) => (
                   <div key={`${g.target}/${g.name}`} className="cfg-it cfg-gen">
                     <span className="cfg-k mono">{g.when}</span>
-                    <span />
+                    <span className="cfg-r"><span className="cfg-act" data-a="kind">{g.targetLabel}</span></span>
                     <span className="cfg-r">
                       <span className="cfg-side">{g.files}</span>
                       {c.native

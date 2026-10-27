@@ -683,7 +683,8 @@ export function configPartsToLoad(c: ConfigSyncDto | null): ConfigDetailPart[] {
   const parts: ConfigDetailPart[] = [];
   if (c.incoming + c.conflicts + c.held > 0) parts.push('inbox');
   if (c.conflicts > 0) parts.push('conflicts');
-  if (c.unsent > 0) parts.push('unsent');
+  // 未対応のキー（unknownKeyCount）は unsent に入らないが、設定の画面では別の群として見せるので一覧を取る。
+  if (c.unsent > 0 || ((c as { unknownKeyCount?: number }).unknownKeyCount ?? 0) > 0) parts.push('unsent');
   if (c.backups > 0) parts.push('backups');
   return parts;
 }

@@ -6112,6 +6112,13 @@ Worker の入れ替えを促す文（`sync.compat.worker`、`configSyncUi.worker
 ただし、Worker の互換の版が 8 以下（0.8.x までのクラウド）のときは入れ替えでは直らないので、`sync.compat.workerRebuild` で `docs/cloud-sync.md` の再構築の手順へ案内する（`sync/client.ts` の `compatMessage`）。
 月の予算の行は置かない（Cloudflare の月の予算で止める仕組みは段 5 で作る）。
 Claude Code の設定の同期は、常設の行で、スイッチと、届いている変更、競合、送らなかった項目、バックアップを出す。中身はダイアログで見せる（「設定の同期の作り直し」の節）。
+親のスイッチの下に、対象ごとの入切の行（`claude-keys2`、`claude-hooks`、`claude-plugins`、`claude-mcp`、`codex-mcp`、`opencode-mcp`、`codex`、`opencode`、`agents-skills`、`hangar`）を入れ子で並べ、親を切ると畳む（v0.12 の U0 の 1A、1a）。
+Codex と opencode の行（その MCP を含む）は、その PC でそのエージェントが有効なときだけ出し、共通の skills はどちらかが有効なときだけ出す。
+行のスイッチは設定の `configTargets` 全体を、その対象だけ替えて保存する。どれもまだ選んでいなければ「新」の札と、増えた知らせの帯（すべて有効にする、あとで）を出す。「あとで」は見る人ごとの便利さなのでブラウザの保存先に置く。
+入れ物が Git などで管理されていれば（`ConfigSyncDto.vcs`）、名前の横に札を出し、有効にするときは行の下の確認の帯を経る（2A、2a）。opencode の json と jsonc の併存（`notices`）は opencode の行に添える。
+送らなかった項目は理由ごとの群（シークレット、この PC だけ、未対応のキー）に分け、「それでも送る」は行の下の帯で確かめてから送る（3A、3a）。未対応のキーは送れないので、行の件数とベルの件数に入れない（`unknownKeyCount`）。
+適用内容の確認は、対象の札（Claude Code、Codex、opencode、共通の skills、Hangar の設定）で絞り込める 1 つの一覧にし、競合、承諾が必要なもの、そのまま適用するもの、保留（畳む）の順に群を置く（4B、4a、4α）。絞り込みは見せる行だけを変え、適用するものは変えない。
+Hangar の設定だけを適用するときは、サーバが PUT の場で書いて適用内容から外すので、残りが空なら殻を呼ばずに適用済みとする。
 ヘッダーの同期の語を押すと、設定がこの節で開く（`#/settings?at=sync`。`sync` は `cloud` の別名）。
 ヘッダーの同期の一行は状態を示すだけなので、同期の操作はこの節が唯一の置き場である。
 互換の版 9 で参加トークンの表示は無くした。
@@ -7700,7 +7707,7 @@ marketplace がこの PC のパス（`directory`、`file`、パスを指す `url
 `permissions.*` は、他の PC から届いたとき、設定が `each` なら承諾が要る（消去も。`deny` を外すと許可が広がるため）。
 今までは承諾なしで届いていたので、0.12 で初めて届くときに承諾で止まる。リリースノートに書く。
 TargetContext は Claude 以外の入れ物のパス（codexHome、opencodeDir、agentsSkillsDir、claudeJsonPath、hangarSettingsPath）と、Codex・opencode がその PC で有効か（codexEnabled、opencodeEnabled）を持つ。有効な入れ物は、service の vcs() の検出の表にも載る。
-入切は設定の `configTargets`（対象名から真偽）で、既定は切。入れる画面は後の PR で作る。
+入切は設定の `configTargets`（対象名から真偽）で、既定は切。入れる画面は設定の「クラウド同期」の節の対象ごとの行（「画面の構成」の節）。
 - 好み：`modelSettings`、`promptSuggestionEnabled`、`tui`、`voice`、`voiceEnabled`、`agentPushNotifEnabled`、`inputNeededNotifEnabled`、`skipWorkflowUsageWarning`、`autoUpdatesChannel`。
 - 権限（他の PC から届くとき承諾が要る。承諾の仕方が自動なら要らない）：`autoMode`（分類器の許可と拒否の規則）、`skipAutoPermissionPrompt`、`deniedMcpServers`。
 - 区分は Claude Code の文書で確かめた。値の型が合わないものは運ばない（`tui` は `default`・`fullscreen`、`autoUpdatesChannel` は `latest`・`stable`、`deniedMcpServers` はオブジェクトの配列、など）。

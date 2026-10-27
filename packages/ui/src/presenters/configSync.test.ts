@@ -62,11 +62,12 @@ describe('適用内容の確認（b1）', () => {
     inb('memory:p9/memory/MEMORY.md', 'memory', 'proj/MEMORY.md', 'create', { held: 'no-project' }),
   ];
   const p = () => presentConfigDialog(open('review'), storeOf(dto({ incoming: 4, conflicts: 1, held: 1 }), { inbox: { items, approval: 'each' } }, { desktop: true }));
-  it('競合、削除、上書き、新規、保留の順に群を作り、群ごとに何が起きるかの 1 文を持つ', () => {
+  it('競合、承諾が必要なもの、そのまま適用するもの、保留の順に群を作る（U0 の 4a、4α）。群の中は操作の危ない順', () => {
     const r = p();
     if (r?.part !== 'review') throw new Error('part');
-    expect(r.groups.map((g) => [g.id, g.count])).toEqual([['conflict', 1], ['delete', 1], ['overwrite', 2], ['create', 1], ['held', 1]]);
-    expect(r.groups.every((g) => g.note !== null)).toBe(true);
+    expect(r.groups.map((g) => [g.id, g.count])).toEqual([['conflict', 1], ['approve', 1], ['auto', 3], ['held', 1]]);
+    expect(r.groups[2]!.rows.map((x) => x.id)).toEqual(['file:skills/old/SKILL.md', 'file:memory/m.md', 'settings:model']);
+    expect(r.groups.filter((g) => g.id !== 'auto').every((g) => g.note !== null)).toBe(true);
     expect(r.summary).toBe('競合 1、削除 1、上書き 2、新規 1');
   });
   it('適用内容に入れるのは、競合でも保留でも承諾の要るものでもない項目だけ', () => {
@@ -146,12 +147,12 @@ describe('ダイアログの有無', () => {
 describe('設定の節の常設の行', () => {
   it('同期を組んでいない端末は needsCloud で、中身は空', () => {
     const p = presentConfigSection(storeOf(null), NOW);
-    expect(p).toMatchObject({ needsCloud: true, enabled: false, order: null, incoming: { count: 0, held: 0, from: null }, unsent: { count: 0, rows: [] }, backups: { count: 0, rows: [] } });
+    expect(p).toMatchObject({ needsCloud: true, enabled: false, order: null, incoming: { count: 0, held: 0, from: null }, unsent: { count: 0, unknown: 0, rows: [], groups: [] }, backups: { count: 0, rows: [] } });
   });
   it('件数は ConfigSyncDto が正で、件数が 0 なら取ってあった中身は出さない', () => {
     const detail: Partial<ConfigDetail> = { unsent: { items: [{ id: 'u', kind: 'secret', itemId: 'i', label: 'x', reason: 'secret:ghp_', allowed: false }] }, backups: { generations: [{ name: '20261010-110000', at: NOW, files: 3 }] } };
     const stale = presentConfigSection(storeOf(dto(), detail), NOW);
-    expect(stale.unsent).toEqual({ count: 0, rows: [] });
+    expect(stale.unsent).toEqual({ count: 0, unknown: 0, rows: [], groups: [] });
     expect(stale.backups).toEqual({ count: 0, rows: [] });
     const live = presentConfigSection(storeOf(dto({ unsent: 1, backups: 1 }), detail), NOW);
     expect(live.unsent.rows.map((r) => [r.label, r.sendId, r.dim])).toEqual([['x', 'u', true]]);

@@ -104,6 +104,9 @@ describe('Claude Code の設定の同期の節', () => {
     expect(screen.getByText('skills/x/SKILL.md')).toBeInTheDocument();
     expect(screen.getByText('シークレットと思われる文字列（ghp_ 形式）')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'skills/x/SKILL.md をそれでも送信' }));
+    // U0 の 3a：行の下で確かめてから送る。
+    expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'configSync.unsent.send' }));
+    fireEvent.click(within(screen.getByRole('group', { name: 'シークレットと思われる値を送ります' })).getByRole('button', { name: '送る' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'configSync.unsent.send', id: 'secret:x' });
   });
   it('ベルの行から来たとき（at=unsent）は、送らなかった項目の行を開いた状態で出す。印が無ければ畳んだまま', () => {

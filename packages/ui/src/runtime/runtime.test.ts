@@ -2734,7 +2734,7 @@ describe('設定の同期（作り直した実装）', () => {
 
   it('殻があれば、承諾した項目を指示書にしてから殻の確認へ進み、書けたら状態を取り直してダイアログを閉じる', async () => {
     const desktop = desktopOf(async () => shellOutcome('applied', '適用しました。'));
-    const { rt, api } = withConfig(cfg(), { configSyncState: vi.fn(async () => cfg({ backups: 1 })) }, { desktop });
+    const { rt, api } = withConfig(cfg(), { configSyncState: vi.fn(async () => cfg({ backups: 1 })), configPutOrder: vi.fn(async () => ({ createdAt: 1, items: [{ id: 'file:CLAUDE.md', kind: 'claude-md' as const, op: 'overwrite' as const, take: 'remote' as const, fromDeviceId: 'd', sha256: 's', target: 'CLAUDE.md' }] })) }, { desktop });
     rt.start();
     await flush();
     rt.emit({ type: 'configSync.open', part: 'review' });
@@ -2746,6 +2746,21 @@ describe('設定の同期（作り直した実装）', () => {
     expect(toasts(rt)).toEqual([['info', '適用しました。']]);
     expect(rt.getState().overlay).toEqual({ kind: 'none' });
     expect(rt.getStore().configSync?.backups).toBe(1);
+  });
+
+  it('Hangar の設定だけの適用で、指示書に書く項目が残らなければ、殻を呼ばずに適用済みとして閉じる', async () => {
+    const desktop = desktopOf(async () => shellOutcome('none', '適用内容がありません'));
+    const { rt, api } = withConfig(cfg(), { configPutOrder: vi.fn(async () => ({ createdAt: 1, items: [] })), configSyncState: vi.fn(async () => cfg()) }, { desktop });
+    rt.start();
+    await flush();
+    rt.emit({ type: 'configSync.open', part: 'review' });
+    rt.emit({ type: 'configSync.apply', entries: [{ id: 'hangar:language' }] });
+    await flush();
+    expect(api.configPutOrder).toHaveBeenCalledWith([{ id: 'hangar:language' }]);
+    expect(desktop.applyConfigSync).not.toHaveBeenCalled();
+    expect(toasts(rt)).toEqual([['info', 'Hangar の設定を適用しました。']]);
+    expect(rt.getState().overlay).toEqual({ kind: 'none' });
+    expect(api.configSyncState).toHaveBeenCalled();
   });
 
   it('殻の確認で取り消されたら、書いていないので閉じず、押せる状態に戻す。失敗は赤で知らせる', async () => {

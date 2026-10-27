@@ -149,7 +149,8 @@ export function fakeApiExtras(): Extras {
     configUnsent: vi.fn(async () => ({ items: [] })),
     configBackups: vi.fn(async () => ({ generations: [] })),
     configSendUnsent: vi.fn(async () => ({ items: [] })),
-    configPutOrder: vi.fn(async () => ({ createdAt: 1, items: [] })),
+    // 送った選択をそのまま指示書の行にして返す（Hangar の設定だけのときに空になるのは、試験ごとに差し替える）。
+    configPutOrder: vi.fn(async (entries: { id: string; take?: 'remote' | 'mine' }[]) => ({ createdAt: 1, items: entries.map((e) => ({ id: e.id, kind: 'settings' as const, op: 'overwrite' as const, take: e.take ?? 'remote' as const, fromDeviceId: 'd', sha256: 's', target: '' })) })),
     configDeleteOrder: vi.fn(async () => {}),
     retention: vi.fn(async () => ({ days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null })),
     retentionPreview: vi.fn(async () => unused()),

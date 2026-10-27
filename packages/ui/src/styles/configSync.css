@@ -86,3 +86,28 @@
 
 /* 下端の左の注記（件数、バックアップの置き場）は 1 行に収め、入らなければ省く。ボタンを押し出さない。 */
 .dialog-config .dialog-foot > .faint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 対象ごとの入切（v0.12 の U0 の 1A、2A、2a）。親の行の下に、左の線で入れ子にして並べる。 */
+.cfg-kids { margin: 0 0 calc(var(--u) * 1); padding-left: calc(var(--u) * 3.5); border-left: 2px solid var(--line); }
+.cfg-kids-h { padding: calc(var(--u) * 2) 0 calc(var(--u) * 0.5); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.cfg-cr + .cfg-cr { border-top: 1px solid var(--line); }
+.cfg-cr-main { display: flex; align-items: center; gap: calc(var(--u) * 3.5); min-height: 44px; padding: calc(var(--u) * 1.5) 0; }
+.cfg-cr-l { flex: 1; min-width: 0; }
+.cfg-cr-t { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 1.5); font-weight: 600; }
+.cfg-cr-d { font-size: var(--fs-xs); color: var(--ink-3); line-height: 1.45; }
+.cfg-cr-warn { color: var(--st-paused); }
+.cfg-cr-slot { padding-bottom: calc(var(--u) * 2); }
+.cfg-strip[data-tone='info'] { color: var(--ink); background: var(--accent-soft); }
+.cfg-strip[data-tone='info'] .icon { color: var(--accent); }
+.cfg-strip-acts { display: inline-flex; flex: none; gap: calc(var(--u) * 2); }
+/* 送らなかった項目の群（3A）と、行の下の添え書き（この PC に無い環境変数）。 */
+.cfg-unsent { display: flex; flex-direction: column; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 1); }
+.cfg-ir { border-top: 1px solid var(--line); }
+.cfg-ir > .cfg-it { border-top: 0; }
+.cfg-ir > .cfg-strip { margin: 0 calc(var(--u) * 2.5) calc(var(--u) * 2); }
+.cfg-why { padding: 0 calc(var(--u) * 2.5) calc(var(--u) * 1.5); font-size: var(--fs-xs); color: var(--st-paused); }
+/* 適用内容の確認の群（4a）。承諾が必要なものと競合は、見出しを注意の色にする。 */
+.cfg-grp[data-tone='warn'] > .cfg-grp-h { color: var(--st-paused); background: var(--st-paused-soft); }
+.cfg-grp[data-tone='warn'] > .cfg-grp-h .cfg-n { color: var(--st-paused); }
+.cfg-review-body { display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
+.cfg-chip-n { margin-left: calc(var(--u) * 1.5); font-weight: 500; opacity: 0.7; font-variant-numeric: tabular-nums; }
