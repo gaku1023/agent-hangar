@@ -725,11 +725,12 @@ Worker を入れ直すまでは、呼び鈴を使わずに、今までどおり 
   暗号鍵は人に見せない乱数で、参加済みの PC が新しい PC の公開鍵に封じて渡します。
   Worker は暗号鍵を持たないので、本文は復号できません）
 - Claude Code のユーザー設定（既定は off。
-  Settings で有効にし、取り込む内容を確認してから `~/.claude` に書きます。
+  Settings で有効にします。他の PC から届いた項目は、見せて承諾を取ってから `~/.claude` に書きます。
   上書きする前に必ず `~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取るので、何を書き換えられたかは後から追えます。
   中身は束にして、本文と同じ鍵で暗号化し、R2 に置きます）
 
-対象は `CLAUDE.md`、`settings.json`、`statusLine.command` が指すスクリプト、`skills/**`、`memory/**`、`projects/*/memory/**` です。
+対象は `CLAUDE.md`、`keybindings.json`、`settings.json` の運べる鍵、`skills/**`、`commands/**`、`agents/**`、`memory/**`、プロジェクトのメモリです。
+`statusLine` や `hooks` など、コマンドが自動で走る鍵とスクリプトは運びません。
 
 #### 暗号化するもの、しないもの
 
