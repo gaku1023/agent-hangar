@@ -641,8 +641,10 @@ export type ConfigOutgoingDto = {
   enabled: boolean;
   items: ConfigOutgoingItemDto[];
   droppedKeys: { key: string; reason: ConfigDropReason }[];
-  /** 送らなかった項目の数（GET /api/config-sync/unsent の長さ）。 */
+  /** 送らなかった項目の数（GET /api/config-sync/unsent の長さから、知らないキーを除いたもの）。 */
   unsentCount: number;
+  /** 知らないキー（unknown-key）の数。利用者が選べるものではないので unsentCount に入れず、画面は別の群として見せる。この項目を知らない古いサーバは返さないので、読む側は 0 として読む。 */
+  unknownKeyCount?: number;
   lastSentAt: number | null;
 };
 /** 届いた変更の操作。conflict は手元と相手の両方が変えた（または片方が消した）もの。 */
@@ -662,6 +664,8 @@ export type ConfigInboxItemDto = {
   held: ConfigHeldReason | null;
   /** 項目ごとの承諾が要るか（skills、commands、agents で、承諾の仕方が each のとき）。 */
   needsApproval: boolean;
+  /** この PC の環境に無い `{env:X}` の X（opencode の設定と MCP の項目）。無ければ欄ごと省く。 */
+  missingEnv?: string[];
 };
 export type ConfigInboxDto = { items: ConfigInboxItemDto[]; approval: ConfigApproval };
 export type ConfigConflictSideDto = { deviceName: string; at: number | null; size: number };
@@ -669,7 +673,7 @@ export type ConfigConflictDto = { id: string; kind: ConfigItemKind; label: strin
 export type ConfigUnsentKind = 'permission-rule' | 'secret' | 'unknown-key';
 export type ConfigUnsentItemDto = { id: string; kind: ConfigUnsentKind; itemId: string; label: string; reason: string; allowed: boolean };
 export type ConfigUnsentDto = { items: ConfigUnsentItemDto[] };
-/** target は世代の対象（codex、opencode、agents-skills など）。Claude の世代では省く。 */
+/** target は世代の対象（claude、codex、opencode、agents-skills など）。この項目を知らない古いサーバは返さないので、読む側は省かれたら claude として読む。 */
 export type ConfigBackupGenerationDto = { name: string; at: number | null; files: number; target?: string };
 export type ConfigBackupsDto = { generations: ConfigBackupGenerationDto[] };
 /** 承諾の選択 1 件。take が remote なら相手の中身を採り、mine なら手元を採る（手元は書き換えず、基準だけを進める）。 */
@@ -692,7 +696,10 @@ export type ConfigSyncDto = {
   incoming: number;
   conflicts: number;
   held: number;
+  /** 送らなかった項目の数。知らないキーは入れない（unknownKeyCount）。ベルの数にもこちらを使う。 */
   unsent: number;
+  /** 知らないキー（unknown-key）の数。0 のときも返す。この項目を知らない古いサーバは返さない。 */
+  unknownKeyCount?: number;
   backups: number;
   applyOrder: { count: number; createdAt: number } | null;
   lastSentAt: number | null;

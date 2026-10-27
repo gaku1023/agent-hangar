@@ -31,10 +31,10 @@ import { CLAUDE_PLUGINS_NAME, holdOfPlugins } from './targets/claudePlugins.ts';
 import { CLAUDE_MCP_NAME, claudeMcpSpec } from './targets/claudeMcp.ts';
 import { CODEX_MCP_NAME, codexMcpSpec } from './targets/codexMcp.ts';
 import { holdOfMcpItem } from './targets/mcpTarget.ts';
-import { OPENCODE_MCP_NAME, opencodeMcpSpec } from './targets/opencodeMcp.ts';
+import { OPENCODE_MCP_NAME, opencodeMcpNotes, opencodeMcpSpec } from './targets/opencodeMcp.ts';
 import { HANGAR_TARGET_NAME, hangarTarget } from './targets/hangar.ts';
 import { hostOs, type HostOs } from './targets/hookCommands.ts';
-import { opencodeNotices } from './targets/opencode.ts';
+import { OPENCODE_TARGET_NAME, opencodeItemNotes, opencodeNotices } from './targets/opencode.ts';
 import { detectVcsCached } from './vcs.ts';
 import { judge, type Action, type RemoteSnapshot } from './threeWay.ts';
 
@@ -108,6 +108,8 @@ type Resolved = {
   marks: ManifestItem['marks'];
   head: string;
   held: ConfigHeldReason | null;
+  /** この PC の環境に無い {env:X} の X（opencode の設定と MCP）。 */
+  missingEnv: string[];
   target: string | null;
   fromDevice: string;
   local: LocalItem | null;
@@ -231,7 +233,7 @@ export class ConfigSyncService {
       id: i.id, kind: i.kind, label: i.label, size: i.size, marks: i.marks,
       value: i.kind === 'settings' ? (i.content.length > 200 ? `${i.content.toString('utf8').slice(0, 200)}…` : i.content.toString('utf8')) : null,
     }));
-    return { enabled: this.deps.switchedOn(), items, droppedKeys: c.dropped, unsentCount: this.unsentRows().length, lastSentAt: this.ownRow()?.updated_at ?? null };
+    return { enabled: this.deps.switchedOn(), items, droppedKeys: c.dropped, unsentCount: this.unsentCounts().unsent, unknownKeyCount: this.unsentCounts().unknownKeys, lastSentAt: this.ownRow()?.updated_at ?? null };
   }
 
   // ---- 送る ----
@@ -424,8 +426,14 @@ export class ConfigSyncService {
           held = holdOfMcpItem(spec, blob, { home: this.deps.userHome })?.reason ?? null;
         }
       }
+      let missingEnv: string[] = [];
+      if (blob && snap) {
+        const owner = targetNameOfId(action.id);
+        if (owner === OPENCODE_MCP_NAME) missingEnv = opencodeMcpNotes({ id: action.id, content: blob }).missingEnv;
+        else if (owner === OPENCODE_TARGET_NAME) missingEnv = opencodeItemNotes({ id: action.id, content: blob }).missingEnv;
+      }
       out.push({
-        action, kind: parsed.kind, label, target, held, head,
+        action, kind: parsed.kind, label, target, held, head, missingEnv,
         size: remoteItem?.size ?? localItem?.size ?? 0,
         marks: remoteItem?.marks ?? localItem?.marks ?? [],
         fromDevice: this.deviceName(action.fromDeviceId),
@@ -442,6 +450,7 @@ export class ConfigSyncService {
       id: r.action.id, kind: r.kind, label: r.label, op: r.action.op,
       fromDeviceId: r.action.fromDeviceId, fromDevice: r.fromDevice, size: r.size, marks: r.marks, head: r.head, held: r.held,
       needsApproval: targetOfId(r.action.id)?.needsApproval({ id: r.action.id, kind: r.kind, op: r.action.op }, approval) ?? false,
+      ...(r.missingEnv.length ? { missingEnv: r.missingEnv } : {}),
     }));
     return { items, approval };
   }
@@ -469,6 +478,13 @@ export class ConfigSyncService {
   private unsentRows(): ConfigUnsentItemDto[] {
     return (this.deps.db.prepare('select id, kind, item_id, label, reason, allowed from config_unsent order by kind, id').all() as { id: string; kind: ConfigUnsentKind; item_id: string; label: string; reason: string; allowed: number }[])
       .map((r) => ({ id: r.id, kind: r.kind, itemId: r.item_id, label: r.label, reason: r.reason, allowed: r.allowed === 1 }));
+  }
+
+  /** 件数。知らないキーは利用者が選べないので、未送信の数（ベルの数）から外して別に数える。 */
+  private unsentCounts(): { unsent: number; unknownKeys: number } {
+    const rows = this.unsentRows();
+    const unknownKeys = rows.filter((r) => r.kind === 'unknown-key').length;
+    return { unsent: rows.length - unknownKeys, unknownKeys };
   }
 
   unsent(): ConfigUnsentDto { return { items: this.unsentRows() }; }
@@ -580,7 +596,8 @@ export class ConfigSyncService {
       incoming: r.filter((x) => x.action.op !== 'conflict' && !x.held).length,
       conflicts: r.filter((x) => x.action.op === 'conflict').length,
       held: r.filter((x) => x.held).length,
-      unsent: this.unsentRows().length,
+      unsent: this.unsentCounts().unsent,
+      unknownKeyCount: this.unsentCounts().unknownKeys,
       backups: listAllBackups(this.deps.home).length,
       applyOrder: order ? { count: order.items.length, createdAt: order.createdAt } : null,
       lastSentAt: this.ownRow()?.updated_at ?? null,

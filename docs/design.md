@@ -7928,7 +7928,7 @@ skills、commands、agents は実行される指示なので、他の PC から�
 
 | 経路 | 中身 |
 | --- | --- |
-| `GET /api/config-sync` | `ConfigSyncDto`（スイッチ、承諾の仕方、届いた数、競合、保留、送らなかった数、控えの世代の数、指示書、最後に送った時刻）。`GET /api/bootstrap` の `configSync` と、`config.update` イベントも同じ形 |
+| `GET /api/config-sync` | `ConfigSyncDto`（スイッチ、承諾の仕方、届いた数、競合、保留、送らなかった数（知らない鍵を除く。知らない鍵の数は `unknownKeyCount` で分ける）、控えの世代の数、指示書、最後に送った時刻）。`GET /api/bootstrap` の `configSync` と、`config.update` イベントも同じ形 |
 | `GET /api/config-sync/outgoing` | 送る一覧。種類ごとの項目、`settings` の鍵の値、運ばない鍵と理由。スイッチが切でも読める |
 | `GET /api/config-sync/inbox` | 届いた変更。項目ごとに種類、操作（`create`、`overwrite`、`delete`、`conflict`）、送り主、大きさ、実行の印、中身の先頭、保留、承諾が要るか |
 | `GET /api/config-sync/conflicts` | 競合。両側の PC と時刻と大きさ、差分の行（`RetentionPreviewLine` と同じ形） |
@@ -8004,6 +8004,11 @@ D1 の書き込みは消した行の数で、旧実装の項目の総数が 1 �
 どちらも適用でも断るが、選ばせる前に理由を見せるため、届いた変更の一覧の段で保留にする（`service.ts` の `resolved`）。
 `command-missing`（MCP の起動するコマンドがこの PC に無い）は MCP の対象のために型だけ用意してある。
 opencode の `opencode.json` と `opencode.jsonc` が両方あるときは、`ConfigSyncDto.notices` に `{ target: 'opencode', code: 'both-json-jsonc' }` を載せる（無ければ欄ごと省く）。
+
+知らない鍵（`unknown-key:`）は「送らなかった項目」の一覧（`GET /api/config-sync/unsent`）には出るが、利用者が選べるものではないので、`ConfigSyncDto.unsent`・`ConfigOutgoingDto.unsentCount`（ベルの数もこれ）には数えず、`unknownKeyCount` に分ける。
+画面は知らない鍵を別の群として見せる。
+届いた変更の項目（`ConfigInboxItemDto`）には、opencode の設定と MCP の項目で、この PC の環境に無い `{env:X}` の X を `missingEnv` に載せる（無ければ欄ごと省く）。
+世代の行（`ConfigBackupGenerationDto`）の `target` は、どの対象の世代かを常に返す（Claude の世代は `claude`）。古いサーバは Claude の世代で省くので、読む側は省かれたら `claude` と読む。
 
 ### 設定ファイルの書き戻しの道具（v0.12）
 

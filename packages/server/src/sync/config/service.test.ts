@@ -627,7 +627,7 @@ describe('控えの世代と状態', () => {
 
   it('状態は、切入り、承諾の仕方、届いた数、競合、保留、送らなかった数、最後に送った時刻を持つ', async () => {
     const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
-    expect(a.service.dto()).toEqual({ enabled: true, approval: 'each', workerPending: false, incoming: 0, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null });
+    expect(a.service.dto()).toEqual({ enabled: true, approval: 'each', workerPending: false, incoming: 0, conflicts: 0, held: 0, unsent: 0, unknownKeyCount: 0, backups: 0, applyOrder: null, lastSentAt: null });
     a.write('CLAUDE.md', 'a'); a.write('commands/x.md', 'a');
     b.write('commands/x.md', 'b');
     await sync(a, b);

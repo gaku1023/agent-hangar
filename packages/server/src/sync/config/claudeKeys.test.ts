@@ -137,7 +137,8 @@ describe('画面の DTO に知らない鍵が出る', () => {
     svc.outgoing();
     const u = svc.unsent();
     expect(u.items).toEqual([{ id: 'unknown-key:futureKey', kind: 'unknown-key', itemId: 'settings:futureKey', label: 'futureKey', reason: 'unknown-key', allowed: false }]);
-    expect(svc.dto().unsent).toBe(1);
+    // 知らない鍵は未送信の数に入れず、unknownKeyCount で分ける（U1a）。
+    expect(svc.dto()).toMatchObject({ unsent: 0, unknownKeyCount: 1 });
     await expect(svc.sendUnsent('unknown-key:futureKey')).rejects.toThrow();
     db.close(); fs.rmSync(tmp, { recursive: true, force: true });
   });
