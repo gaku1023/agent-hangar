@@ -490,8 +490,50 @@ describe('buildMobileFeed', () => {
       expect(buildMobileFeed(src(db)).caps).toEqual({ asks: true, images: true, effort: true });
       expect(buildMobileFeed(src(db, { opencodeEnabled: false })).caps).toEqual({ asks: true, images: true, effort: true });
       expect(buildMobileFeed(src(db, { opencodeEnabled: true })).caps).toEqual({ asks: true, images: true, effort: true, agents: ['claude-code', 'opencode'] });
-      // codex はスマホの面ができる（F1）まで、caps に出さない。
-      expect(feedCaps(true).agents).not.toContain('codex');
+    });
+
+    it('caps.agents は Codex も、設定で有効のときだけ載せる。並びは AGENT_KINDS のまま。opencode と別々に入り切りする', () => {
+      const db = seed();
+      const base = { asks: true, images: true, effort: true };
+      expect(buildMobileFeed(src(db, { codexEnabled: true })).caps).toEqual({ ...base, agents: ['claude-code', 'codex'] });
+      expect(buildMobileFeed(src(db, { codexEnabled: true, opencodeEnabled: true })).caps).toEqual({ ...base, agents: ['claude-code', 'codex', 'opencode'] });
+      expect(buildMobileFeed(src(db, { codexEnabled: false, opencodeEnabled: true })).caps).toEqual({ ...base, agents: ['claude-code', 'opencode'] });
+      expect(feedCaps(false, false)).toEqual(base);
+      expect(feedCaps(false)).toEqual(base);
+    });
+  });
+
+  describe('Codex の会話（F1）', () => {
+    function cxSession(db: Db, id: string): void {
+      upsertShared(db, 'sessions', { id, provider: 'codex', provider_session_id: `thr_${id}`, project_id: 'p-a', cwd: '/w/project-a', first_prompt: null, ai_title: 'Codex の会話', home_device: ME }, ME);
+    }
+    const cxLive = (id: string, o: Partial<LiveSessionDto> = {}): LiveSessionDto => ({ sessionId: `thr_${id}`, status: 'busy', name: null, nameSource: null, cwd: '/w/project-a', pid: 2, statusAt: NOW - 1000, agent: 'codex', ...o });
+
+    it('実行中の Codex の会話は live に出て、agent に codex、アカウントは空、rcUrl は無い。使用量は session_live_stats から付く', () => {
+      const db = seed();
+      cxSession(db, 'c1');
+      run(db, 'run-c1', 'c1');
+      db.prepare('insert into session_live_stats (provider_session_id, model, effort, context_used, context_size, cost_usd, updated_at) values (?,?,?,?,?,?,?)').run('thr_c1', 'gpt-5.5', 'high', 20_000, 200_000, null, NOW);
+      const feed = buildMobileFeed(src(db, { live: [cxLive('c1')] }));
+      expect(feed.live).toHaveLength(1);
+      expect(feed.live[0]).toMatchObject({ sessionId: 'c1', agent: 'codex', accountId: '', rcUrl: null, usage: { ctx: 10, tokens: 20_000, cost: null, model: 'gpt-5.5' } });
+    });
+
+    it('入力待ちの Codex の行は waiting を持つ（スマホは「PC で答えてください」を出す）。使用量がまだ無い行には usage を付けない', () => {
+      const db = seed();
+      cxSession(db, 'c1');
+      run(db, 'run-c1', 'c1');
+      const feed = buildMobileFeed(src(db, { live: [cxLive('c1', { status: 'waiting', waitingFor: 'permission', permission: { tool: 'shell', input: 'git push', description: null } as never })] }));
+      expect(feed.live[0]!.waiting).toEqual({ kind: 'permission', text: 'shell: git push' });
+      expect(feed.live[0]).not.toHaveProperty('usage');
+    });
+
+    it('休みと Done の Codex の行にも agent が付く', () => {
+      const db = seed();
+      cxSession(db, 'c1');
+      run(db, 'run-c1', 'c1', { endedAt: NOW - HOUR });
+      state(db, 'c1', { status: 'done', setAt: NOW - 2 * HOUR });
+      expect(buildMobileFeed(src(db)).done.map((d) => [d.sessionId, d.agent])).toEqual([['c1', 'codex']]);
     });
   });
 });

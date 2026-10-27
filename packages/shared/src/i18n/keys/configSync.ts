@@ -6,6 +6,7 @@ export const configSyncKeys = {
   'configSync.error.badTake': ['id'],
   'configSync.error.duplicate': ['id'],
   'configSync.error.emptyOrder': [],
+  'configSync.error.unsentUnknownKey': [],
   'configSync.error.unsentNotFound': ['id'],
   'configSync.error.badBody': [],
 } as const satisfies MessageSpec;

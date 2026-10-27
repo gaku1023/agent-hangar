@@ -1,5 +1,6 @@
 import { collectLocal } from '../collect.ts';
 import { parseClaudeItemId } from '../ids.ts';
+import { CLAUDE_KEYS2_KEYS } from '../settingsSort.ts';
 import { planApply, runApply } from '../apply.ts';
 import type { ConfigItemKind } from '@agent-hangar/shared';
 import type { ConfigTarget } from './types.ts';
@@ -14,7 +15,8 @@ export const CLAUDE_TARGET_NAME = 'claude';
 // apply.ts は ids.ts を読み、ids.ts はこの対象の登録を読む。循環を避けるため、apply の関数は呼ぶときに引く。
 export const claudeTarget: ConfigTarget = {
   name: CLAUDE_TARGET_NAME,
-  owns: (id) => id.startsWith('file:') || id.startsWith('settings:') || id.startsWith('memory:'),
+  // settings: のうち新しい鍵は claude-keys2 のもの（古い版が運ばない鍵は別の対象にする）。
+  owns: (id) => id.startsWith('file:') || (id.startsWith('settings:') && !CLAUDE_KEYS2_KEYS.has(id.slice('settings:'.length))) || id.startsWith('memory:'),
   parseId: (id) => parseClaudeItemId(id),
   // 設定の同期そのものの入切は、サービスが送受信の前で見る。対象ごとの入切は、後の対象から持つ。
   enabled: () => true,

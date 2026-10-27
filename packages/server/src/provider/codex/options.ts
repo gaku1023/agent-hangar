@@ -63,6 +63,16 @@ export class CodexOptionsService {
     return p;
   }
 
+  /**
+   * 手元の一覧を待たずに返す。無ければ null で、裏で取り始める。間が空いていれば、手元の一覧を返したあとで裏で取り直す。
+   * スマホの問い合わせ（呼び鈴は 5 秒しか待てない）が使う。取り直しの失敗は捨てる（手元の一覧が残る）。
+   */
+  last(): CodexOptionsDto | null {
+    const now = (this.deps.now ?? Date.now)();
+    if (!this.cached || now - this.cached.fetchedAt >= (this.deps.freshMs ?? FRESH_MS)) void this.get().catch(() => undefined);
+    return this.cached;
+  }
+
   private async fetch(now: number): Promise<CodexOptionsDto> {
     try {
       const bin = this.deps.bin();

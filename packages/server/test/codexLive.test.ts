@@ -3,12 +3,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { builtinSubcommandDrifts, helpDrifts, parseCodexHelp } from '../src/provider/codex/compat/help.ts';
 import { shapeOfRollout } from '../src/provider/codex/compat/rolloutShape.ts';
 import { diffJson, extractSchemaSubset, type SchemaSubset } from '../src/provider/codex/compat/schemaSubset.ts';
+import { appendOnlyDrifts, COMPRESSION_FEATURE, compressionDrifts, parseFeatureList, type FeatureRow } from '../src/provider/codex/compat/storage.ts';
 import { codexVersionOf, judgeCodexVersion } from '../src/provider/codex/compat/version.ts';
 import { readCodexBatch } from '../src/provider/codex/transcript/batch.ts';
 import { newestCodexFixture, readCodexFixture, readCodexFixtureJson } from './codexCompatFixtures.ts';
 import {
-  codexBin, codexHelpText, codexVersionText, dropWorld, generateSchemaBundle, makeCodexWorld, MOCK_REPLY, probeAppServer, PROMPT_TOOL, runMockExec,
-  startMockLlm, type CodexWorld, type MockLlm,
+  codexBin, codexFeaturesText, codexHelpText, codexVersionText, dropWorld, generateSchemaBundle, makeCodexWorld, MOCK_REPLY, probeAppServer, PROMPT_TOOL, rolloutNamesOf,
+  runMockExec, runMockResume, startMockLlm, StdioRpc, type CodexWorld, type MockLlm,
 } from './codexHarness.ts';
 
 /**
@@ -18,6 +19,7 @@ import {
  * - --help：サブコマンドと別名が、最も新しい見本と同じか、横取りの一覧（D1 の compat/cli.ts があれば）と同じか。
  * - app-server：JSON Schema のうち hangar が使う要求と通知の形が、見本と同じか。ログイン無しで話した答えのキーと、ターンの前は rollout が無いことも。
  * - rollout：模擬のモデルで codex exec を走らせてできた記録の形が見本と同じか。hangar の読み手（transcript/）で読めるか。
+ * - rollout の置かれ方：resume しても前の行が書き換わらず追記だけで伸びるか（本文の同期が頼る）。rollout を zst に切り替える local_thread_store_compression の既定が見本と同じか、7 日より古い会話が実際に zst にならないか。
  * モデルは使わず、ログインもしない（Responses API の模擬を手元に立てる）。
  * どれかが落ちたら、見本を採り直す合図である（npm run capture-codex-fixtures）。差分は落ちたときの文に出る。
  */
@@ -85,6 +87,45 @@ describe.skipIf(!LIVE)('いまの codex と最も新しい見本', () => {
       const events = batch.records.flatMap((r) => r.events);
       expect(events.length).toBeGreaterThan(0);
       expect(JSON.stringify(events)).toContain(MOCK_REPLY);
+    }
+  }, STEP_MS);
+
+  it('resume しても rollout は追記だけで伸びる（前の行が書き換わらない）', async () => {
+    const w = makeCodexWorld(bin);
+    try {
+      const first = await runMockExec(bin, w, llm.port, 'say hi');
+      const before = fs.readFileSync(first.path);
+      await runMockResume(bin, w, llm.port, first.path, 'say hi again');
+      const after = fs.readFileSync(first.path);
+      expect(appendOnlyDrifts(before, after)).toEqual([]);
+      expect(rolloutNamesOf(w.codexHome)).toHaveLength(1);
+    } finally {
+      dropWorld(w);
+    }
+  }, STEP_MS);
+
+  it('rollout を zst にする local_thread_store_compression の既定が見本と同じ', () => {
+    const want = readCodexFixtureJson<Record<string, FeatureRow>>(f!, 'features.json')[COMPRESSION_FEATURE]!;
+    expect(compressionDrifts(want, parseFeatureList(codexFeaturesText(bin, world))[COMPRESSION_FEATURE])).toEqual([]);
+  });
+
+  it('7 日より古い会話も、既定のままでは zst に切り替わらない', async () => {
+    const w = makeCodexWorld(bin);
+    let rpc: StdioRpc | null = null;
+    try {
+      const run = await runMockExec(bin, w, llm.port, 'say hi');
+      const old = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+      fs.utimesSync(run.path, old, old);
+      const before = rolloutNamesOf(w.codexHome);
+      rpc = new StdioRpc(bin, w);
+      await rpc.request('initialize', { clientInfo: { name: 'hangar-compat', version: '0' } });
+      rpc.notify('initialized');
+      // 圧縮は起動後の背景の仕事なので、少し待ってから見る。
+      await new Promise((r) => { setTimeout(r, 5000); });
+      expect(rolloutNamesOf(w.codexHome)).toEqual(before);
+    } finally {
+      await rpc?.stop();
+      dropWorld(w);
     }
   }, STEP_MS);
 });

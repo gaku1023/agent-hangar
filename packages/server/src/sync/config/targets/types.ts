@@ -19,6 +19,8 @@ export type TargetContext = {
   allowedUnsent: ReadonlyMap<string, string>;
   /** 項目の数の上限。試験が小さくするために使う。 */
   maxItems?: number;
+  /** 対象ごとの入切（設定の configTargets）。無い対象は切。 */
+  switches?: Readonly<Record<string, boolean>>;
 };
 
 /** id を解いた結果。`ref` は、その対象の項目の指す先。 */
@@ -44,7 +46,7 @@ export interface ConfigTarget {
   /** 指示書のとおりに書く。 */
   write(o: ApplyOptions): ApplyResult;
   /** 他の PC から届いた項目の適用に、承諾が要るか。 */
-  needsApproval(item: { kind: ConfigItemKind; op: ConfigInboxOp }, approval: ConfigApproval): boolean;
+  needsApproval(item: { id: string; kind: ConfigItemKind; op: ConfigInboxOp }, approval: ConfigApproval): boolean;
   /** その PC でしか意味を持たない項目か（絶対パスなど）。そうなら送らず、受けても適用しない。 */
   isMachineBound(item: { id: string; kind: ConfigItemKind; content: Buffer }): boolean;
 }

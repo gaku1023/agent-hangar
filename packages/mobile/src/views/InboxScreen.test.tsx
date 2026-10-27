@@ -406,6 +406,25 @@ describe('InboxScreen', () => {
     const OC_CAPS = { asks: true, images: true, effort: true, agents: ['claude-code' as const, 'opencode' as const] };
     const usage = (ctx: number | null, tokens: number, cost: number | null) => ({ ctx, tokens, cost, model: 'opencode/big-pickle' });
 
+    it('Codex の入力待ちの札もリンクにせず、「PC で答えてください」を出す。行には Codex の絵と使用量が付く', async () => {
+      await serveFeeds([
+        feedOf('pc-1', 'Mac', {
+          caps: { asks: true, images: true, effort: true, agents: ['claude-code', 'codex'] },
+          live: [
+            liveItem({ sessionId: 's-cx', status: 'waiting', agent: 'codex', waiting: { kind: 'permission', text: 'shell: git push origin main' }, rcUrl: 'https://claude.ai/code/session_abc' }),
+            liveItem({ sessionId: 's-cx2', status: 'busy', agent: 'codex', usage: { ctx: 10, tokens: 20_000, cost: null, model: 'gpt-5.5' } }),
+          ],
+        }),
+      ]);
+      render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} />);
+      const cx = (await screen.findByText('shell: git push origin main')).closest('.wait-card')!;
+      expect(cx.tagName).toBe('DIV');
+      expect(within(cx as HTMLElement).getByText('PC で答えてください')).toBeInTheDocument();
+      expect(screen.queryByText('開く ›')).not.toBeInTheDocument();
+      expect(document.querySelectorAll('.agent-icon[data-agent="codex"]').length).toBeGreaterThan(0);
+      expect(screen.getByText('20k')).toBeInTheDocument();
+    });
+
     it('opencode の入力待ちの札はリンクにせず、「開く ›」の代わりに「PC で答えてください」を出す。Claude の札はリンクのまま', async () => {
       await serveFeeds([
         feedOf('pc-1', 'Mac', {
