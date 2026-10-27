@@ -51,6 +51,9 @@ export const WORDS = {
     'approve.target.codex': 'Codex',
     'approve.target.opencode': 'opencode',
     'approve.target.agentsSkills': '共通のスキル',
+    'approve.target.claudeMcp': 'Claude の MCP',
+    'approve.target.codexMcp': 'Codex の MCP',
+    'approve.target.opencodeMcp': 'opencode の MCP',
     'approve.target.hangar': 'Hangar',
     'approve.kv.after': '変更後',
     'approve.kv.note': '補足',
@@ -137,6 +140,9 @@ export const WORDS = {
     'approve.target.codex': 'Codex',
     'approve.target.opencode': 'opencode',
     'approve.target.agentsSkills': 'Shared skills',
+    'approve.target.claudeMcp': 'Claude MCP',
+    'approve.target.codexMcp': 'Codex MCP',
+    'approve.target.opencodeMcp': 'opencode MCP',
     'approve.target.hangar': 'Hangar',
     'approve.kv.after': 'After writing',
     'approve.kv.note': 'Note',
@@ -211,11 +217,11 @@ export function shortPath(p, home) {
 }
 
 /** 対象の名前を、store の名前（hangar config restore --target の名前）にそろえる。claude-hooks などの Claude Code の対象は claude にまとめる。 */
-const storeOf = (name) => (typeof name === 'string' && name.startsWith('claude') ? 'claude' : name);
+const storeOf = (name) => (typeof name === 'string' && name.startsWith('claude') && name !== 'claude-mcp' ? 'claude' : name);
 /** 対象の名前の文の鍵。知らない名前は None で、名前をそのまま出す。 */
-const TARGET_WORD = { claude: 'claude', codex: 'codex', opencode: 'opencode', 'agents-skills': 'agentsSkills', hangar: 'hangar' };
+const TARGET_WORD = { claude: 'claude', codex: 'codex', opencode: 'opencode', 'agents-skills': 'agentsSkills', 'claude-mcp': 'claudeMcp', 'codex-mcp': 'codexMcp', 'opencode-mcp': 'opencodeMcp', hangar: 'hangar' };
 /** 控えの世代の置き場の名前（<hangar の置き場>/backups/<これ>/）。サーバの targets/stores.ts の backups と同じ。hangar は置き場を持たない。 */
-export const BACKUP_DIRS = { claude: 'claude-config', codex: 'codex-config', opencode: 'opencode-config', 'agents-skills': 'agents-skills-config' };
+export const BACKUP_DIRS = { claude: 'claude-config', codex: 'codex-config', opencode: 'opencode-config', 'agents-skills': 'agents-skills-config', 'claude-mcp': 'claude-mcp-config', 'codex-mcp': 'codex-mcp-config', 'opencode-mcp': 'opencode-mcp-config' };
 
 /** 世代の名前（yyyyMMdd-HHmmss）を読める形にする。形が違えばそのまま返す。 */
 export function generationLabel(name) {

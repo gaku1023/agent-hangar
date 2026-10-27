@@ -65,8 +65,16 @@ impl Job {
 }
 
 /// 頁から受け取れる、戻す先の対象。CLI の `hangar config restore --target` の名前（サーバの各対象の store.name）と同じにする。
-/// MCP の対象が増えても store の名前は増えないので、ここは増やさずに済む。増えたらここに足す。
-pub const RESTORE_TARGETS: [&str; 4] = ["claude", "codex", "opencode", "agents-skills"];
+/// MCP の対象（claude-mcp、codex-mcp、opencode-mcp）も store を持つので並べる。増えたらここに足す。
+pub const RESTORE_TARGETS: [&str; 7] = [
+    "claude",
+    "codex",
+    "opencode",
+    "agents-skills",
+    "claude-mcp",
+    "codex-mcp",
+    "opencode-mcp",
+];
 
 /// 頁から来た対象の名前を、決まった一覧の中の名前に直す。一覧に無ければ None（CLI へ渡さない）。
 pub fn restore_target(s: &str) -> Option<&'static str> {
@@ -446,10 +454,18 @@ mod tests {
         }
     }
 
-    // 頁から来る対象の名前は、形を確かめる 4 つだけを通す。引数に見える形や、別の対象の名前は通さない。
+    // 頁から来る対象の名前は、形を確かめる 7 つだけを通す。引数に見える形や、別の対象の名前は通さない。
     #[test]
     fn only_the_known_restore_targets_are_accepted() {
-        for t in ["claude", "codex", "opencode", "agents-skills"] {
+        for t in [
+            "claude",
+            "codex",
+            "opencode",
+            "agents-skills",
+            "claude-mcp",
+            "codex-mcp",
+            "opencode-mcp",
+        ] {
             assert_eq!(restore_target(t), Some(t));
         }
         for bad in [

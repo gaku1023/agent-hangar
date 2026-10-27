@@ -113,6 +113,13 @@ describe('承諾の窓：対象ごと', () => {
     expect(v.command).toBe('hangar config restore --target opencode 20261011-210400');
     expect(v.kv.find(([k]) => k === 'バックアップ')![1]).toBe('~/.agent-hangar/backups/opencode-config/（新しい世代）');
     expect(m.model({ ...base, lang: 'en', configTarget: 'agents-skills' }).title).toBe('Restore Shared skills backup (2026-10-11 21:04)');
+    for (const [t, ja, en, dir] of [['claude-mcp', 'Claude の MCP', 'Claude MCP', 'claude-mcp-config'], ['codex-mcp', 'Codex の MCP', 'Codex MCP', 'codex-mcp-config'], ['opencode-mcp', 'opencode の MCP', 'opencode MCP', 'opencode-mcp-config']]) {
+      const mv = m.model({ ...base, configTarget: t });
+      expect(mv.title).toBe(`${ja} のバックアップから復元（2026-10-11 21:04）`);
+      expect(mv.command).toBe(`hangar config restore --target ${t} 20261011-210400`);
+      expect(mv.kv.find(([k]) => k === 'バックアップ')![1]).toBe(`~/.agent-hangar/backups/${dir}/（新しい世代）`);
+      expect(m.model({ ...base, lang: 'en', configTarget: t }).title).toBe(`Restore ${en} backup (2026-10-11 21:04)`);
+    }
     const done = m.model({ ...base, stage: 'done', result: { safety: '20261011-220000' }, windows: true, home: 'C:\\Users\\u', hangarHome: 'C:\\Users\\u\\.agent-hangar' });
     expect(done.done.backups).toEqual(['~\\.agent-hangar\\backups\\opencode-config\\20261011-220000']);
     // 対象を持たない見立て（古い殻）は、今までどおり Claude の世代として読む。
