@@ -1,6 +1,6 @@
 /**
  * Codex の config.toml の鍵の仕分け（設計書 3 章）。
- * 鍵の名前は codex-rs の config.schema.json（確かめた版 0.164.0、トップレベル 103 鍵）から写した。値は写していない。
+ * 鍵の名前は codex-rs の config.schema.json（確かめた版 0.165.0、トップレベル 103 鍵）から写した。値は写していない。
  * 表に無い鍵は「知らない鍵」で、運ばない。
  *
  * 項目の単位は、トップレベルの鍵、または表の 1 段下の鍵（`tui.theme`）。
@@ -62,7 +62,7 @@ const TABLES: Readonly<Record<string, Table>> = {
   ghost_snapshot: { sub: carry('disable_warnings', 'ignore_large_untracked_dirs', 'ignore_large_untracked_files') },
   windows: { sub: carry('allow_mxc', 'sandbox') },
   tools: { sub: carry('experimental_request_user_input', 'update_plan', 'web_search') },
-  auto_review: { sub: carry('circuit_break_action', 'conversation_history_max_output_tokens', 'experimental_conversation_history_prompt', 'experimental_policy_template', 'extra_policy', 'policy') },
+  auto_review: { sub: carry('circuit_break_action', 'conversation_history_max_output_tokens', 'experimental_conversation_history_prompt', 'experimental_policy_template', 'extra_policy', 'policy', 'timeout_ms') },
   browser_use: { sub: carry('allow_history_access', 'default_origin_policy', 'origins') },
   computer_use: { sub: carry('default_app_access', 'macos', 'windows') },
   realtime: { sub: carry('transport', 'type', 'version', 'voice') },
