@@ -73,8 +73,8 @@ describe('設定の同期の旧実装の語が現役の話として残ってい�
     expect(hits).toEqual([]);
   });
 
-  it('設計書と README は、statusLine のスクリプトを運ぶとは書かない', () => {
-    const hits = ['docs/design.md', 'README.md'].flatMap((r) =>
+  it('設計書と README と docs/cloud-sync.md は、statusLine のスクリプトを運ぶとは書かない', () => {
+    const hits = ['docs/design.md', 'README.md', 'docs/cloud-sync.md'].flatMap((r) =>
       lines(path.join(ROOT, r)).flatMap((line, i) => (/statusLine\.command.{0,6}が指すスクリプト、/.test(line) && !/運ばない|運びません/.test(line) ? [`${r}:${i + 1}`] : [])),
     );
     expect(hits).toEqual([]);

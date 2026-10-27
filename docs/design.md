@@ -1378,7 +1378,7 @@ DB のマイグレーションを要らない形にするためにファイル�
 
 #### 確かめた版と見本
 
-確かめた版は、見本のうち最も新しい版である（`VERIFIED_CLAUDE_VERSION`、README にも書く）。
+確かめた版は、見本のうち最も新しい版である（`VERIFIED_CLAUDE_VERSION`、docs/usage.md にも書く）。
 手元の claude がそれより新しいときは「未確認の版」として知らせるが、止めはしない。
 見本のレジストリの写しは、本番と同じ門（`RegistryMissGate`）に、写しが書かれた時刻で通してからずれを見る。起動の直後には status の欄がまだ無い写しがあるためである（2.1.310 の見本は起動から 5ms の写しを拾った）。
 
@@ -9699,7 +9699,7 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 前提として Node 22.14 以上（Node-API 10 以上）と tmux と `claude` が要り、Homebrew なら `brew install node tmux` で足りる。
 古い Node を置き換えたくない人は `brew install node@22` で入れる。
 `node@22` は Homebrew の版によって `/opt/homebrew/bin` にリンクされる場合とされない場合（keg-only）があるが、アプリも同梱の CLI も両方の場所（`/opt/homebrew/bin/node` と `/opt/homebrew/opt/node@22`）を探すので、`brew link` は要らない。
-探す場所に無い入れ方をした人には、README で `nodePath` の指定か `brew link --overwrite --force node@22` を補足として案内する。
+探す場所に無い入れ方をした人には、docs/install.md で `nodePath` の指定か `brew link --overwrite --force node@22` を補足として案内する。
 移動を先に置くのは、検疫属性が付いたまま開くとアプリの案内より先に Gatekeeper のダイアログが出るからである（2026-09-20 の実測）。
 配布物は dmg が主で、zip は従（自動更新と予備）である（段 5 の決定）。
 Release の資産は `Hangar-<タグ>-macos-<arch>.dmg` と `.zip`、それぞれの `.sha256` である。
@@ -9707,7 +9707,7 @@ dmg の中身は `.app` と `/Applications` へのリンクの 2 つだけで、
 tauri の dmg ターゲットは使わない。
 tauri の dmg は build の途中の `.app` を詰め、`tauri bundle --bundles dmg` も `.app` を作り直してから詰めるので、build の後で署名した `.app` が入らないからである（2026-10-10 に手元で確かめた）。
 Finder を AppleScript で動かさないので、窓の並びは決めず、窓の無い CI でも同じに作れる。
-利用者の手順（dmg から `/Applications` へドラッグし、初回の警告を「完了」で閉じ、システム設定の「プライバシーとセキュリティ」の「このまま開く」と管理者のパスワードで越える）は README の「入れる（macOS）」にある。
+利用者の手順（dmg から `/Applications` へドラッグし、初回の警告を「完了」で閉じ、システム設定の「プライバシーとセキュリティ」の「このまま開く」と管理者のパスワードで越える）は docs/install.md の「入れる（macOS）」にある。
 クラウド同期の設定は `.app` の同梱 CLI からは行えない。
 wrangler を同梱していないので、リポジトリを clone した場所から `setup cloud` を走らせる。
 
@@ -10097,7 +10097,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   「"Hangar" は開いていません」と出て、ボタンは「ゴミ箱に入れる」と「完了」だけである。
   Finder の右クリックの「開く」でも同じ画面で、開く道は出なかった（macOS の版は控えていない。版によって違う可能性があるので、主の手順からは外し、効かなかったことだけを README に書いた）。
   システム設定の「プライバシーとセキュリティ」に出る「このまま開く」を押すと、管理者の名前とパスワードを求められ、入れると開けた。
-  README はこの順で書いてある。
+  docs/install.md はこの順で書いてある。
   2026-10-11 に、macOS 27.0（Gatekeeper の設定は「App Store と既知のデベロッパ」）の仮想マシンで `v0.2.0-rc.5` の dmg を撮り直した。
   警告の題、本文、ボタンと、右クリックの「開く」が効かないことは上のとおりだった。
   システム設定の「セキュリティ」の欄（見出しは「アプリケーションの実行許可」）の行は「お使いのMacを保護するために"Hangar"がブロックされました。」で、右に「このまま開く」があった。
