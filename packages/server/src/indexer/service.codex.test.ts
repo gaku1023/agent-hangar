@@ -203,3 +203,56 @@ describe('IndexerService に Codex の本文を通す', () => {
     expect(errors.some((e) => e.includes(CODEX_TOOLS.id))).toBe(true);
   });
 });
+
+describe('ほかの PC から降ろした Codex の写し（remote/<PC>/codex）', () => {
+  let remote: string;
+  beforeEach(() => { remote = fs.mkdtempSync(path.join(path.dirname(home), 'codex-remote-')); });
+  afterEach(() => { fs.rmSync(remote, { recursive: true, force: true }); });
+
+  const remoteSource = (): CodexTranscriptSource => codexTranscriptSource({ codexHome: () => home, enabled: () => enabled, remoteRoot: remote });
+  const putRemote = (dev: string, f: { file: string; id: string }, when: string) => putRollout(path.join(remote, dev, 'codex'), rolloutName(f.id, when).rel, fixtureBytes(f.file));
+  const sharedRow = () => upsertShared(db, 'sessions', { id: 's-remote', provider: 'codex', provider_session_id: CODEX_TOOLS.id, cwd: '/work/sample', home_device: 'dev-b' }, 'dev-b');
+
+  it('会話の行が届いていれば、降ろした写しから本文を読む。この PC で再開して手元に写ると、手元の本文に切り替わり、読める本文は同じ', async () => {
+    sharedRow();
+    const rp = putRemote('dev-b', CODEX_TOOLS, '2026-10-25T09-00-00');
+    const svc = makeSvc(db, [remoteSource()]);
+    await svc.fullScan();
+    expect(db.prepare("select path, device_id from transcript_files where agent = 'codex'").all()).toEqual([{ path: rp, device_id: 'dev-b' }]);
+    const before = readEvents(db, 's-remote', {});
+    expect(before.events.map((e) => e.kind)).toContain('tool_call');
+    // 写しからは要約を書かない（本文を持つ PC が書く）。
+    expect(count('select count(*) c from session_summaries where session_id = ?', 's-remote')).toBe(0);
+
+    // 「この PC で再開」は、写しを $CODEX_HOME の同じ相対パスへ置く。
+    const lp = putRollout(home, rolloutName(CODEX_TOOLS.id, '2026-10-25T09-00-00').rel, fixtureBytes(CODEX_TOOLS.file));
+    await svc.fullScan();
+    expect(db.prepare("select path, device_id from transcript_files where agent = 'codex'").all()).toEqual([{ path: lp, device_id: null }]);
+    const after = readEvents(db, 's-remote', {});
+    expect(after.events.map((e) => [e.kind, e.seq])).toEqual(before.events.map((e) => [e.kind, e.seq]));
+    expect(codexSessions()).toHaveLength(1);
+    svc.stop();
+  });
+
+  it('会話の行がまだ届いていない写しは飛ばし、行が届いたら入る', async () => {
+    putRemote('dev-b', CODEX_TOOLS, '2026-10-25T09-00-00');
+    const svc = makeSvc(db, [remoteSource()]);
+    await svc.fullScan();
+    expect(codexSessions()).toHaveLength(0);
+    expect(count("select count(*) c from transcript_files where agent = 'codex'")).toBe(0);
+    sharedRow();
+    await svc.fullScan();
+    expect(count('select count(*) c from event_index where session_id = ?', 's-remote')).toBeGreaterThan(0);
+    svc.stop();
+  });
+
+  it('Codex が切のときは、写しも読まない', async () => {
+    sharedRow();
+    putRemote('dev-b', CODEX_TOOLS, '2026-10-25T09-00-00');
+    enabled = false;
+    const svc = makeSvc(db, [remoteSource()]);
+    await svc.fullScan();
+    expect(count("select count(*) c from transcript_files where agent = 'codex'")).toBe(0);
+    svc.stop();
+  });
+});

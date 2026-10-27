@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import type { FileTranscriptSource, TranscriptFile, TranscriptSink } from '../../../agent/types.ts';
 import { readCodexBatch } from './batch.ts';
-import { archivedDirOf, classifyCodexEntry, listRolloutFiles, parseRolloutName, sessionsDirOf, type CodexWatched } from './discover.ts';
+import { archivedDirOf, classifyCodexEntry, listRemoteRolloutFiles, listRolloutFiles, parseRolloutName, sessionsDirOf, type CodexWatched } from './discover.ts';
 import { statLogical } from './logical.ts';
 import { readCodexPage } from './page.ts';
 
@@ -32,6 +32,11 @@ export type CodexTranscriptSource = FileTranscriptSource;
  * enabled が偽（設定の codexEnabled が切）のとき、start は何もせず、scan と pick は空を返し（seen は null で、既存の索引を消さない）、見張りも付けない。
  * codexHome は呼ばれた時点の値を読む（設定やアカウントの切り替えに追う）。
  * isLive は、hangar が起こして実行中の会話か。取り込みの上限に数えず、常に索引に入れる。
+ *
+ * remoteRoot を渡すと、ほかの PC から降ろした写し（remote/<PC>/codex/ の下）も、その PC の deviceId で列挙する。Claude の写し（remote/<PC>/projects）と同じ扱いである。
+ * 写しは会話の行が届いていなければ索引が飛ばすので、取り込みの上限には数えない。
+ * 同じ会話が手元（$CODEX_HOME）にもあれば手元を採り、写しは drop に入れる（「この PC で再開」の後）。譲った会話だけは、更新時刻の新しい方を採る。
+ * 写しの到着は同期の知らせ（全件走査の予約）で拾うので、写しの置き場には見張りを付けない。
  */
 export function codexTranscriptSource(o: {
   codexHome: () => string;
@@ -40,6 +45,8 @@ export function codexTranscriptSource(o: {
   /** 読んだ束の中の、最後の meta rate_limits（B5 の `{ rate_limits, … }` とその行の ts）。使用量の面（B7）へ渡す。切のときは呼ばない。 */
   onRateLimits?: (value: unknown, ts: unknown) => void;
   importLimit?: number;
+  /** ほかの PC から降ろした写しの根（~/.agent-hangar/remote）。 */
+  remoteRoot?: string;
   watch?: WatchFn;
   now?: () => number;
 }): CodexTranscriptSource {
@@ -49,6 +56,8 @@ export function codexTranscriptSource(o: {
   /** 最後に歩いた置き場の、会話の ID から本文の論理パスへの表。実行中の会話の本文を引くのに使う。 */
   let byId = new Map<string, TranscriptFile>();
   let listedAt = -Infinity;
+  /** 最後に歩いた写しの、会話の ID から写しへの表。手元の本文が名指しされたとき、写しを外すのに使う。 */
+  let remoteById = new Map<string, TranscriptFile[]>();
   const now = o.now ?? Date.now;
 
   const closeAll = (): void => {
@@ -151,14 +160,21 @@ export function codexTranscriptSource(o: {
 
     stat: statLogical,
 
-    scan({ isIndexed }) {
+    scan({ isIndexed, isYielded }) {
       if (!o.enabled()) return none({ seen: null });
-      const { files, drop, sessionsVisible } = relist();
+      const { files: localFiles, drop: localDrop, sessionsVisible } = relist();
+      const remote = o.remoteRoot ? listRemoteRolloutFiles(o.remoteRoot) : { files: [], drop: [] };
+      const stats = new Map<string, { size: number; mtimeMs: number } | null>();
+      const statOf = (p: string) => {
+        if (!stats.has(p)) stats.set(p, statLogical(p));
+        return stats.get(p) ?? null;
+      };
+      const { local, remoteKeep, drop } = chooseCopies(localFiles, remote.files, { isYielded, statOf });
+      remoteById = groupById(remote.files);
       const limit = o.importLimit ?? CODEX_IMPORT_LIMIT;
       let budget = limit;
       const index: TranscriptFile[] = [];
-      const stats = new Map<string, { size: number; mtimeMs: number } | null>();
-      for (const f of files) {
+      for (const f of local) {
         // すでに索引に入ったものと、hangar が起こした実行中の会話は、上限に数えず常に入れる（さもないと、古い会話が上限で押し出されて消える）。
         const free = (isIndexed?.(f.path) ?? false) || (o.isLive?.(f.sessionId) ?? false);
         if (!free) {
@@ -166,16 +182,23 @@ export function codexTranscriptSource(o: {
           budget--;
         }
         index.push(f);
-        stats.set(f.path, statLogical(f.path));
+        statOf(f.path);
       }
+      for (const f of remoteKeep) { index.push(f); statOf(f.path); }
+      const kept = new Map<string, { size: number; mtimeMs: number } | null>();
+      for (const f of index) kept.set(f.path, stats.get(f.path) ?? null);
       // sessions が見えないとき（外れたなど）は、索引の全部を消してしまわないよう、列挙したものを渡さない。
-      const seen = sessionsVisible ? new Set(files.map((f) => f.path)) : null;
-      return { index, drop, stats, seen };
+      const seen = sessionsVisible ? new Set([...localFiles, ...remote.files].map((f) => f.path)) : null;
+      return { index, drop: [...localDrop, ...remote.drop, ...drop], stats: kept, seen };
     },
 
-    pick(file, stat) {
+    pick(file, stat, { isYielded } = {}) {
       if (!o.enabled()) return none({ lost: false });
-      return { index: [file], drop: [], stats: new Map([[file.path, stat]]), lost: false };
+      // 手元の本文が現れたら、同じ会話の写しを外す（譲った会話は全件の見比べで新しい方を選ぶ）。
+      const drop = file.deviceId === null && isYielded?.(file.sessionId) !== true
+        ? (remoteById.get(file.sessionId) ?? []).filter((r) => statLogical(r.path) !== null)
+        : [];
+      return { index: [file], drop, stats: new Map([[file.path, stat]]), lost: false };
     },
 
     liveFiles(providerSessionId) {
@@ -198,4 +221,41 @@ export function codexTranscriptSource(o: {
 }
 
 const EMPTY_HISTORY = { index: new Map(), version: 0 };
+
+function groupById(files: TranscriptFile[]): Map<string, TranscriptFile[]> {
+  const m = new Map<string, TranscriptFile[]>();
+  for (const f of files) {
+    const g = m.get(f.sessionId);
+    if (g) g.push(f);
+    else m.set(f.sessionId, [f]);
+  }
+  return m;
+}
+
+/**
+ * 手元の本文と写しから、会話ごとに索引へ入れる 1 つを選ぶ（Claude の selectFilesToIndex と同じ規則）。
+ * 手元があれば手元を採る。譲った会話か、手元が無い会話は、更新時刻の新しいものを採る。選ばれなかったものは drop。
+ */
+function chooseCopies(
+  local: TranscriptFile[],
+  remote: TranscriptFile[],
+  o: { isYielded?: (id: string) => boolean; statOf: (p: string) => { mtimeMs: number } | null },
+): { local: TranscriptFile[]; remoteKeep: TranscriptFile[]; drop: TranscriptFile[] } {
+  const byRemote = groupById(remote);
+  const localIds = new Set(local.map((f) => f.sessionId));
+  const drop: TranscriptFile[] = [];
+  const remoteKeep: TranscriptFile[] = [];
+  const localDropped = new Set<string>();
+  for (const [id, copies] of byRemote) {
+    const mine = localIds.has(id) ? local.filter((f) => f.sessionId === id) : [];
+    const pool = mine.length > 0 && o.isYielded?.(id) !== true ? mine : [...mine, ...copies];
+    const chosen = pool.reduce((a, b) => ((o.statOf(b.path)?.mtimeMs ?? 0) > (o.statOf(a.path)?.mtimeMs ?? 0) ? b : a));
+    for (const f of [...mine, ...copies]) {
+      if (f === chosen) { if (f.deviceId !== null) remoteKeep.push(f); continue; }
+      drop.push(f);
+      if (f.deviceId === null) localDropped.add(f.path);
+    }
+  }
+  return { local: local.filter((f) => !localDropped.has(f.path)), remoteKeep, drop };
+}
 

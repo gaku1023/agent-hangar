@@ -81,6 +81,24 @@ export function listRolloutFiles(codexHome: string): { files: TranscriptFile[]; 
   return { files: sorted.filter((f) => keep.has(f.file.path)).map((f) => f.file), drop, sessionsVisible };
 }
 
+/**
+ * ほかの PC から降ろした写しを、PC ごとに列挙する。置き場は remote/<PC>/codex/ の下で、$CODEX_HOME と同じ sessions と archived_sessions の形である（同期の puller が置く）。
+ * deviceId はその PC の ID（フォルダの名前）にする。codex のフォルダが無い PC（Claude の写しだけの PC）は飛ばす。
+ */
+export function listRemoteRolloutFiles(remoteRoot: string): { files: TranscriptFile[]; drop: TranscriptFile[] } {
+  const files: TranscriptFile[] = [];
+  const drop: TranscriptFile[] = [];
+  for (const dev of readdir(remoteRoot)) {
+    if (!dev.isDirectory()) continue;
+    const home = path.join(remoteRoot, dev.name, 'codex');
+    if (!isDir(home)) continue;
+    const r = listRolloutFiles(home);
+    for (const f of r.files) files.push({ ...f, deviceId: dev.name });
+    for (const f of r.drop) drop.push({ ...f, deviceId: dev.name });
+  }
+  return { files, drop };
+}
+
 /** 見張りの通知の名前を、索引にとっての意味に振り分けた結果。 */
 export type CodexWatched = { kind: 'file'; file: TranscriptFile } | { kind: 'rescan' } | { kind: 'ignore' };
 

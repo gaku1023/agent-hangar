@@ -71,9 +71,10 @@ export function bootIndexing(
     marks: { get: (id) => sync.syncState.get(`opencodeView:${id}`), set: (id, v) => { sync.syncState.set(`opencodeView:${id}`, v); } },
     isRunningHere: (id) => live.current().some((l) => l.sessionId === id),
   });
-  // Codex の本文（$CODEX_HOME の sessions）。設定の codexEnabled が切なら、何も取り込まず、見張りも付けない。
+  // Codex の本文（$CODEX_HOME の sessions）と、ほかの PC から降ろした写し（remote/<PC>/codex）。設定の codexEnabled が切なら、何も取り込まず、見張りも付けない。
   const codex = codexTranscriptSource({
     codexHome: () => defaultCodexHome(),
+    remoteRoot: remoteRoot(home.home),
     enabled: () => codexEnabledOf(settings.current),
     // hangar が起こして動いている会話は、取り込みの上限に数えない。
     isLive: (id) => live.current().some((l) => l.agent === 'codex' && l.sessionId === id),
@@ -85,7 +86,7 @@ export function bootIndexing(
   const indexer = new IndexerService({
     db, deviceId,
     contextSizeOf: (model) => contextSize?.(model) ?? null,
-    // ファイル型の本文の発見と見張りは、各 driver のトランスクリプトの面が受け持つ。他端末から降ろした本文は、Claude の面が見つける。
+    // ファイル型の本文の発見と見張りは、各 driver のトランスクリプトの面が受け持つ。他端末から降ろした本文は、Claude と Codex の面がそれぞれ見つける。
     // Codex の面は driver（段 B2〜B3）より先に、hangar の外で始まった会話の取り込みのために足す（設定が切なら空）。
     transcripts: [delivery.claude.transcript, codex],
     // opencode（ベータ）の本文は serve の API から読んで束で押し込む。hangar が起こした会話だけを読むので、設定が切なら何も読まない。
