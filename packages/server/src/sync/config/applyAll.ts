@@ -199,13 +199,13 @@ function storeOf(name: string | undefined): TargetStore {
   return s;
 }
 
-/** 全部の対象の世代（新しい順）。Claude の世代は target を省く（古い版の画面と同じ形）。 */
+/** 全部の対象の世代（新しい順）。Claude の世代の target は 'claude'。 */
 export function listAllBackups(home: string): ConfigBackupGenerationDto[] {
   const out: ConfigBackupGenerationDto[] = [];
   for (const s of backupStores()) {
-    for (const g of listBackupsIn(path.join(backupsRoot(home), s.backups))) out.push(s.name === 'claude' ? g : { ...g, target: s.name });
+    for (const g of listBackupsIn(path.join(backupsRoot(home), s.backups))) out.push({ ...g, target: s.name });
   }
-  return out.sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : (a.target ?? '') < (b.target ?? '') ? -1 : 1));
+  return out.sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : a.target! < b.target! ? -1 : 1));
 }
 
 export type TargetRestoreOptions = WritePaths & { name: string; target?: string };
