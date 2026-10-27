@@ -12,10 +12,12 @@
     "hangar": "hangar",
     "capture-claude-fixtures": "node --import tsx scripts/capture-claude-fixtures.ts",
     "capture-opencode-fixtures": "node --import tsx scripts/capture-opencode-fixtures.ts",
-    "capture-codex-fixtures": "node --import tsx scripts/capture-codex-fixtures.ts"
+    "capture-codex-fixtures": "node --import tsx scripts/capture-codex-fixtures.ts",
+    "readme-shots": "node --import tsx scripts/readme-shots/run.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
+    "playwright": "^1.63.0",
     "typescript": "~6.0.3",
     "vitest": "^5.0.1"
   }
