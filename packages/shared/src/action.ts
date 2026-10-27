@@ -217,7 +217,7 @@ export type UiAction =
   // 送らなかった項目を、それでも送る。
   | { type: 'configSync.unsent.send'; id: string }
   // 控えの世代へ戻す。name は yyyyMMdd-HHmmss。
-  | { type: 'configSync.restore'; name: string }
+  | { type: 'configSync.restore'; name: string; /** 戻す先の対象（claude、codex、opencode、agents-skills）。省くと claude。 */ target?: string }
   | { type: 'summary.regenerate'; sessionId: SessionId }
   | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
   | { type: 'split.toggle' } | { type: 'split.resize'; ratio: number } | { type: 'transcript.toggle' }

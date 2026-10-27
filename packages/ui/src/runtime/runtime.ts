@@ -868,7 +868,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         // ブラウザでは殻が無い。画面は、その場合は戻すボタンの代わりにコマンドを出すので、ここへは来ない。
         const shell = deps.desktop;
         if (!shell) return;
-        shell.restoreConfigSync(e.name).then((r) => shellOutcome(r, false)).catch((err: unknown) => failWith(tr()('runtime.shell.restoreFailed'), err));
+        shell.restoreConfigSync(e.name, e.target).then((r) => shellOutcome(r, false)).catch((err: unknown) => failWith(tr()('runtime.shell.restoreFailed'), err));
         return;
       }
       case 'api.retentionPreview':

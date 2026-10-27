@@ -6115,8 +6115,9 @@ MCP の登録の有無は `~/.claude.json` の `mcpServers.hangar` を読んで�
 
 流れは次のとおりである。
 
-1. 頁（サーバの UI）が殻の命令を呼ぶ。連携は `setup_integration(target)`、設定の同期は `apply_config_sync` と `restore_config_sync(name)` である。
-   頁から受け取るのは、決まった対象の名前（`packages/shared/src/setup.ts` の `SETUP_TARGETS`）と世代の名前だけで、殻が形を確かめる。
+1. 頁（サーバの UI）が殻の命令を呼ぶ。連携は `setup_integration(target)`、設定の同期は `apply_config_sync` と `restore_config_sync(name, target)` である。
+   頁から受け取るのは、決まった対象の名前（`packages/shared/src/setup.ts` の `SETUP_TARGETS`）と世代の名前、戻す先の対象の名前（`claude`、`codex`、`opencode`、`agents-skills`。省くと `claude`）だけで、殻が形を確かめる（`approve.rs` の `RESTORE_TARGETS`）。
+   戻す先の対象は CLI の `--target` にそのまま渡り、`hangar config restore <世代> --target <対象> --plan --json` と `--yes --json --expect <指紋> --target <対象>` を走らせる。
 2. 殻が CLI に見立てを出させる（連携は `--dry-run --json`、設定の同期は `--plan --json`）。何も書かない。
    見立てが「済んでいる」（`noop`。登録済み、入っていない）か「書けない」（`blocked`。Windows のシェル連携、zsh でない、tmux が無い、スクリプトが無い、壊れた JSON など）なら、窓を開かずに理由の鍵（`code`）つきで返し、画面が知らせる。
 3. 殻が自分の窓（ラベル `approve`）を開き、殻に同梱した頁 `loading/approve.html` に見立てを見せる。この頁はサーバを通らない。
@@ -6128,6 +6129,14 @@ MCP の登録の有無は `~/.claude.json` の `mcpServers.hangar` を読んで�
 差分はタブを押して見る。MCP の API トークンは伏せ字にして黒い帯で描き、トークンそのものは見立てにも頁にも載せない。
 同じコマンドは、ターミナルで同じことをするコマンドである。
 解除とアンインストールの主のボタンは赤にする。
+設定の適用と戻すが、Claude Code のほかの対象（Codex、opencode、共通のスキル）に書くときは、窓に対象の名前を出す。
+何をどこにの各行はファイルのパスの前に、見立ての `files[].target` の対象の名前を小さい札で添え、補足の表は先頭に「対象」の行（`plan.targets` と `files[].target` から集めた、重複と別名をまとめた並び。`claude-hooks` などは Claude Code にまとめる）を足す。
+Claude Code だけに書くときは、パスで足りるので出さない（今までの見え方のまま）。
+バックアップの置き場は対象ごとに 1 行ずつ出す（`backups/claude-config/`、`codex-config/`、`opencode-config/`、`agents-skills-config/`）。
+完了の段は、結果の `generations`（対象と世代の名前の並び）から、書いた対象ごとの世代を出す。古い CLI は `generation`（Claude の世代）だけを返すので、それだけのときは Claude の世代として読む。
+世代へ戻すときは、題と同じコマンドと置き場に戻す先の対象を出す。
+殻が頁へ返す結果の文は、対象が Claude Code だけなら今までの文、ほかの対象があれば「Codex のバックアップの世代 … から復元できます。」のように対象ごとに言う。
+頁の対象の名前と題（`approve.target.*`、`approve.kv.targets`、`approve.title.restoreOf`）は、ほかの文と同じく辞書の写しである。
 設定の適用で、実行される指示（スキル、コマンド、エージェント）やフックを含むときは、見出しを注意の見た目にし、補足にその件数と名前を書く。
 段は確認、書き込み中、完了、失敗の 4 つである。
 完了はバックアップの置き場を出し、閉じるだけを置く。
@@ -7683,7 +7692,7 @@ skills、commands、agents は実行される指示なので、他の PC から�
   対話でない端末で `--yes` が無ければ書かない。
 - `hangar config restore [世代]`：世代を省くと一覧を出す。
   世代を指すと戻す先と消す先を見せて承諾を取る（`--plan`、`--yes`、`--json` は同じ）。
-- 殻の命令 `apply_config_sync`（引数なし）と `restore_config_sync(name)`：CLI に `--plan --json` を走らせ、返った見立てを殻の承諾の窓に見せ、承諾されたときだけ `--yes --json --expect <指紋>`（適用は `--order` 付き）を走らせる（0.4.0 から。それまではネイティブの確認だった。「承諾の窓」の節）。
+- 殻の命令 `apply_config_sync`（引数なし）と `restore_config_sync(name, target)`（target は省くと claude）：CLI に `--plan --json` を走らせ、返った見立てを殻の承諾の窓に見せ、承諾されたときだけ `--yes --json --expect <指紋>`（適用は `--order` 付き）を走らせる（0.4.0 から。それまではネイティブの確認だった。「承諾の窓」の節）。
   `--plan --json` の見立てには、書く先のファイルごとの操作（新規、変更、削除）と、今の中身から書いた後の中身への差分と、書く先の今の中身の指紋（`fingerprint`）が入る（`planApplyFiles`、`planRestoreFiles`）。
   `--expect` を渡すと、CLI は書く直前に書く先の指紋を取り直し、違えば何も書かずに `changed` で断る（指示書は残す）。見せた後に手で `~/.claude` を変えたときに、見せていない中身で上書きしないためである。
   実行される内容（skills、commands、agents、フックとコマンド実行とスクリプトの印）を含むときは、窓の見出しを注意の見た目にし、補足にその件数と項目の名前を書く。

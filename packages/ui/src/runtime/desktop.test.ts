@@ -42,8 +42,9 @@ describe('createDesktopBridge', () => {
     const invoke = vi.fn(async (cmd: string): Promise<unknown> => (cmd === 'apply_config_sync' ? { status: 'applied', message: '適用しました。', generation: '20261010-120000' } : { status: 'cancelled', message: '戻しませんでした。', generation: null }));
     const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
     expect(await b.applyConfigSync()).toEqual({ status: 'applied', message: '適用しました。', generation: '20261010-120000' });
-    expect(await b.restoreConfigSync('20261010-120000')).toEqual({ status: 'cancelled', message: '戻しませんでした。', generation: null });
-    expect(invoke.mock.calls).toEqual([['apply_config_sync'], ['restore_config_sync', { name: '20261010-120000' }]]);
+    expect(await b.restoreConfigSync('20261010-120000', 'claude')).toEqual({ status: 'cancelled', message: '戻しませんでした。', generation: null });
+    expect(await b.restoreConfigSync('20261010-120001', 'agents-skills')).toMatchObject({ status: 'cancelled' });
+    expect(invoke.mock.calls).toEqual([['apply_config_sync'], ['restore_config_sync', { name: '20261010-120000', target: 'claude' }], ['restore_config_sync', { name: '20261010-120001', target: 'agents-skills' }]]);
   });
   it('連携の書き込みは、対象の名前だけを渡し、結果を決まった形で返す。知らない形は失敗にする', async () => {
     const invoke = vi.fn(async (): Promise<unknown> => ({ status: 'none', message: '登録済みです。', generation: null, code: 'already' }));
@@ -58,7 +59,7 @@ describe('createDesktopBridge', () => {
     const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
     expect((await b.applyConfigSync()).status).toBe('failed');
     invoke.mockResolvedValueOnce(null);
-    expect((await b.restoreConfigSync('20261010-120000')).status).toBe('failed');
+    expect((await b.restoreConfigSync('20261010-120000', 'claude')).status).toBe('failed');
   });
   it('更新は決まった 4 つの命令だけを呼び、答えを決まった形に直す', async () => {
     const invoke = vi.fn(async (cmd: string): Promise<unknown> => {

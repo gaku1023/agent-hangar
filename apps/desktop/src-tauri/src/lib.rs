@@ -1164,13 +1164,25 @@ fn apply_config_flow(app: &AppHandle, lang: &'static str) -> configapply::Outcom
     outcome
 }
 
-fn restore_config_flow(app: &AppHandle, name: &str, lang: &'static str) -> configapply::Outcome {
+fn restore_config_flow(
+    app: &AppHandle,
+    name: &str,
+    target: &str,
+    lang: &'static str,
+) -> configapply::Outcome {
     let w = configapply::words(lang);
     let title = w.restore_flow_title;
-    // 頁から来る値は、世代の名前の形だけを受け取る。
+    // 頁から来る値は、世代の名前の形と、決まった対象の名前だけを受け取る。
     if !configapply::valid_generation_name(name) {
         return configapply::Outcome::simple("failed", w.bad_generation);
     }
+    let Some(target) = approve::restore_target(target) else {
+        return configapply::Outcome::simple("failed", w.bad_target);
+    };
+    let job = approve::Job::Restore {
+        name: name.to_string(),
+        target,
+    };
     let (node, dir, home) = match config_runtime(app) {
         Ok(v) => v,
         Err(e) => return config_runtime_failure(app, title, e),
@@ -1182,7 +1194,9 @@ fn restore_config_flow(app: &AppHandle, name: &str, lang: &'static str) -> confi
             lang,
         )
     };
-    let plan_out = match run(&["config", "restore", name, "--plan", "--json"]) {
+    let plan_args = approve::plan_args(&job, 0);
+    let plan_refs: Vec<&str> = plan_args.iter().map(String::as_str).collect();
+    let plan_out = match run(&plan_refs) {
         Ok(o) => o,
         Err(e) => return config_runtime_failure(app, title, e),
     };
@@ -1190,7 +1204,7 @@ fn restore_config_flow(app: &AppHandle, name: &str, lang: &'static str) -> confi
         Ok(p) => p,
         Err(f) => return config_failure(app, title, &f),
     };
-    let outcome = approval_flow(app, approve::Job::Restore(name.to_string()), plan, lang);
+    let outcome = approval_flow(app, job, plan, lang);
     log(&format!("config sync: restore {}", outcome.status));
     outcome
 }
@@ -1209,13 +1223,20 @@ async fn apply_config_sync(app: AppHandle) -> configapply::Outcome {
     .unwrap_or_else(|_| configapply::Outcome::simple("failed", w.apply_stopped))
 }
 
-/// 控えの世代へ戻す。UI の設定の「この世代に戻す」が呼ぶ。受け取るのは世代の名前（yyyyMMdd-HHmmss）だけで、形を確かめる。
+/// バックアップの世代へ戻す。UI の設定の「この世代に戻す」が呼ぶ。
+/// 受け取るのは世代の名前（yyyyMMdd-HHmmss）と、戻す先の対象の名前（省くと claude）だけで、どちらも形を確かめる。
 #[tauri::command]
-async fn restore_config_sync(app: AppHandle, name: String) -> configapply::Outcome {
+async fn restore_config_sync(
+    app: AppHandle,
+    name: String,
+    target: Option<String>,
+) -> configapply::Outcome {
     let lang = config_language();
     let w = configapply::words(lang);
     tauri::async_runtime::spawn_blocking(move || {
-        with_config_guard(&app, w, || restore_config_flow(&app, &name, lang))
+        with_config_guard(&app, w, || {
+            restore_config_flow(&app, &name, target.as_deref().unwrap_or("claude"), lang)
+        })
     })
     .await
     .unwrap_or_else(|_| configapply::Outcome::simple("failed", w.restore_stopped))

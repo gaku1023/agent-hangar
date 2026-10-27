@@ -15,8 +15,8 @@ export type DesktopBridge = {
   openLog(): Promise<void>; restart(): Promise<void>; pickFolder(defaultPath: string | null): Promise<string | null>;
   /** 適用の指示書を適用する。引数は無く、指示書は殻が hangar の置き場から読む。 */
   applyConfigSync(): Promise<ConfigShellOutcome>;
-  /** 控えの世代（yyyyMMdd-HHmmss）へ戻す。 */
-  restoreConfigSync(name: string): Promise<ConfigShellOutcome>;
+  /** バックアップの世代（yyyyMMdd-HHmmss）を、対象（claude、codex、opencode、agents-skills）の置き場へ戻す。 */
+  restoreConfigSync(name: string, target: string): Promise<ConfigShellOutcome>;
   /** 連携を書き込む（MCP、シェル連携、ステータスライン）。殻が見立てを承諾の窓に見せ、承諾されたときだけ CLI が書く。 */
   setupIntegration(target: SetupTarget): Promise<SetupShellOutcome>;
   /** アプリの自動更新（段 5-4）。 */
@@ -162,7 +162,7 @@ export function createDesktopBridge(win: unknown): DesktopBridge | null {
     // 取り消したら殻は null を返す。文字列でなければ取り消しと同じに扱う。
     pickFolder: async (defaultPath) => { const r = await invoke(DESKTOP_COMMANDS.pickFolder, { defaultPath }); return typeof r === 'string' ? r : null; },
     applyConfigSync: async () => outcomeOf(await invoke(DESKTOP_COMMANDS.applyConfigSync)),
-    restoreConfigSync: async (name) => outcomeOf(await invoke(DESKTOP_COMMANDS.restoreConfigSync, { name })),
+    restoreConfigSync: async (name, target) => outcomeOf(await invoke(DESKTOP_COMMANDS.restoreConfigSync, { name, target })),
     setupIntegration: async (target) => setupOutcomeOf(await invoke(DESKTOP_COMMANDS.setupIntegration, { target })),
     // 殻は書いたら true、取り消したら false を返す。true のときだけ書いたと言う。
     saveRecoveryKey: async (text) => ((await invoke(DESKTOP_COMMANDS.saveRecoveryKey, { text })) === true ? 'saved' : 'cancelled'),

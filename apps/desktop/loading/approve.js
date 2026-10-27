@@ -15,6 +15,7 @@ export const WORDS = {
     'approve.title.statuslineUninstall': 'ステータスラインの設定を解除',
     'approve.title.apply': '同期された設定を適用',
     'approve.title.restore': 'バックアップから復元（{when}）',
+    'approve.title.restoreOf': '{target} のバックアップから復元（{when}）',
     'approve.tab.what': '変更内容',
     'approve.tab.diff': '差分',
     'approve.tab.command': '同等のコマンド',
@@ -44,7 +45,13 @@ export const WORDS = {
     'approve.diff.tail': '（末尾）',
     'approve.diff.more': 'ほか {n} 行',
     'approve.diff.none': '内容に変更はありません。',
+    'approve.kv.targets': '対象',
     'approve.kv.backup': 'バックアップ',
+    'approve.target.claude': 'Claude Code',
+    'approve.target.codex': 'Codex',
+    'approve.target.opencode': 'opencode',
+    'approve.target.agentsSkills': '共通のスキル',
+    'approve.target.hangar': 'Hangar',
     'approve.kv.after': '変更後',
     'approve.kv.note': '補足',
     'approve.backup.none': '元のファイルが無いため、バックアップは作成しません。',
@@ -94,6 +101,7 @@ export const WORDS = {
     'approve.title.statuslineUninstall': 'Remove status line setup',
     'approve.title.apply': 'Apply settings from other computers',
     'approve.title.restore': 'Restore backup ({when})',
+    'approve.title.restoreOf': 'Restore {target} backup ({when})',
     'approve.tab.what': 'What and where',
     'approve.tab.diff': 'Diff',
     'approve.tab.command': 'Same command',
@@ -123,7 +131,13 @@ export const WORDS = {
     'approve.diff.tail': ' (end)',
     'approve.diff.more': '{n} more lines',
     'approve.diff.none': 'The contents do not change.',
+    'approve.kv.targets': 'Targets',
     'approve.kv.backup': 'Backup',
+    'approve.target.claude': 'Claude Code',
+    'approve.target.codex': 'Codex',
+    'approve.target.opencode': 'opencode',
+    'approve.target.agentsSkills': 'Shared skills',
+    'approve.target.hangar': 'Hangar',
     'approve.kv.after': 'After writing',
     'approve.kv.note': 'Note',
     'approve.backup.none': 'There is no file yet, so there is nothing to back up.',
@@ -196,6 +210,13 @@ export function shortPath(p, home) {
   return p.startsWith(`${h}/`) || p.startsWith(`${h}\\`) ? `~${p.slice(h.length)}` : p;
 }
 
+/** 対象の名前を、store の名前（hangar config restore --target の名前）にそろえる。claude-hooks などの Claude Code の対象は claude にまとめる。 */
+const storeOf = (name) => (typeof name === 'string' && name.startsWith('claude') ? 'claude' : name);
+/** 対象の名前の文の鍵。知らない名前は None で、名前をそのまま出す。 */
+const TARGET_WORD = { claude: 'claude', codex: 'codex', opencode: 'opencode', 'agents-skills': 'agentsSkills', hangar: 'hangar' };
+/** 控えの世代の置き場の名前（<hangar の置き場>/backups/<これ>/）。サーバの targets/stores.ts の backups と同じ。hangar は置き場を持たない。 */
+export const BACKUP_DIRS = { claude: 'claude-config', codex: 'codex-config', opencode: 'opencode-config', 'agents-skills': 'agents-skills-config' };
+
 /** 世代の名前（yyyyMMdd-HHmmss）を読める形にする。形が違えばそのまま返す。 */
 export function generationLabel(name) {
   const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/.exec(name ?? '');
@@ -212,7 +233,7 @@ const whatKey = (what) => {
 function configFile(job, f) {
   const op = f.op === 'create' ? 'Create' : f.op === 'remove' ? 'Remove' : 'Modify';
   return {
-    path: f.path, op: f.op, what: `${job === 'apply' ? 'config' : 'restore'}.${op}`, n: undefined, where: null, binary: !!f.binary,
+    path: f.path, op: f.op, what: `${job === 'apply' ? 'config' : 'restore'}.${op}`, n: undefined, where: null, binary: !!f.binary, target: f.target,
     lines: (f.lines ?? []).map((l) => ({ k: l.kind, t: l.text })),
   };
 }
@@ -225,16 +246,40 @@ export function model(view, tab = 'what') {
   const plan = view.plan ?? {};
   const files = view.job === 'setup' ? (plan.files ?? []) : (plan.files ?? []).map((f) => configFile(view.job, f));
   const sep = view.windows ? '\\' : '/';
-  const title = t(`approve.title.${target.key}`, { when: generationLabel(view.name) });
-  const command = view.job === 'setup' ? `hangar ${view.target.replace('-', ' ')}` : view.job === 'apply' ? 'hangar config apply' : `hangar config restore ${view.name ?? ''}`;
-  const generations = `${shortPath(view.hangarHome, view.home)}${sep}backups${sep}claude-config${sep}`;
+  const label = (name) => (name in TARGET_WORD ? t(`approve.target.${TARGET_WORD[name]}`) : String(name));
+  const config = view.job === 'apply' || view.job === 'restore';
+  // 戻す先の対象。対象を持たない見立て（古い殻）は Claude の世代として読む。
+  const restoreTarget = view.job === 'restore' ? storeOf(view.configTarget ?? 'claude') : null;
+  // 書く対象（重複と別名をまとめた並び）。見立ての targets を先に、無ければ書く先のファイルから拾う。
+  const targets = [];
+  if (view.job === 'apply') {
+    for (const n of [...(plan.targets ?? []), ...(plan.files ?? []).map((f) => f.target)]) {
+      const s = storeOf(n);
+      if (s && !targets.includes(s)) targets.push(s);
+    }
+  }
+  if (restoreTarget) targets.push(restoreTarget);
+  // 対象の名前は、Claude Code だけのときは出さない（書く先のパスで足りる）。ほかの対象が一つでも入るときに出す。
+  const showTargets = config && targets.some((n) => n !== 'claude');
+  const title = restoreTarget && view.configTarget
+    ? t('approve.title.restoreOf', { target: label(restoreTarget), when: generationLabel(view.name) })
+    : t(`approve.title.${target.key}`, { when: generationLabel(view.name) });
+  const command = view.job === 'setup' ? `hangar ${view.target.replace('-', ' ')}`
+    : view.job === 'apply' ? 'hangar config apply'
+      : `hangar config restore ${restoreTarget && restoreTarget !== 'claude' ? `--target ${restoreTarget} ` : ''}${view.name ?? ''}`;
+  const backupRoot = `${shortPath(view.hangarHome, view.home)}${sep}backups${sep}`;
+  /** 対象の世代の置き場。置き場を持たない対象（hangar）は None。 */
+  const generationsOf = (name) => (BACKUP_DIRS[storeOf(name)] ? `${backupRoot}${BACKUP_DIRS[storeOf(name)]}${sep}` : null);
   let backup;
   // 連携の書き込みのバックアップの名前は、末尾の日時が書いたときに決まる。CLI の見立ては日時の形（BACKUP_STAMP）のまま渡すので、何の日時かを添える。
   if (view.job === 'setup') {
     const shown = plan.backup ? shortPath(plan.backup, view.home) : null;
     backup = shown === null ? t('approve.backup.none') : shown.endsWith(BACKUP_STAMP) ? t('approve.backup.stamped', { path: shown, stamp: BACKUP_STAMP }) : shown;
   }
-  else backup = t('approve.backup.generation', { path: generations });
+  else {
+    const dirs = (restoreTarget ? [restoreTarget] : targets).map(generationsOf).filter((d) => d !== null);
+    backup = (dirs.length > 0 ? dirs : [generationsOf('claude')]).map((d) => t('approve.backup.generation', { path: d })).join('\n');
+  }
   const notes = [];
   if (plan.secret) notes.push(t('approve.note.secret'));
   if (view.job === 'apply' && plan.instructions > 0) notes.push(t('approve.note.instructions', { n: plan.instructions }));
@@ -250,19 +295,25 @@ export function model(view, tab = 'what') {
     lines: f.lines ?? [],
     own: f.op === 'own',
     binary: !!f.binary,
+    targetLabel: config && f.target ? label(storeOf(f.target)) : null,
   }));
   const result = view.result ?? null;
   let doneBackups = [];
   if (result && view.job === 'setup') doneBackups = (result.backups ?? []).map((b) => shortPath(b, view.home));
-  if (result && view.job === 'apply' && result.generation) doneBackups = [`${generations}${result.generation}`];
-  if (result && view.job === 'restore' && result.safety) doneBackups = [`${generations}${result.safety}`];
+  if (result && view.job === 'apply') {
+    // 対象ごとの世代。古い CLI は generation（Claude の世代）だけを返す。
+    const gens = Array.isArray(result.generations) && result.generations.length > 0 ? result.generations : result.generation ? [{ target: 'claude', name: result.generation }] : [];
+    doneBackups = gens.flatMap((g) => (generationsOf(g.target) ? [`${generationsOf(g.target)}${g.name}`] : []));
+  }
+  if (result && view.job === 'restore' && result.safety) doneBackups = [`${generationsOf(restoreTarget)}${result.safety}`];
   return {
     lang: view.lang === 'en' ? 'en' : 'ja',
     title, stage: view.stage, tab, warn,
     tabs: ['what', 'diff', 'command'].map((id) => ({ id, label: t(`approve.tab.${id}`), selected: id === tab })),
     files: shown,
     command, commandLead: t('approve.command.lead'),
-    kv: [[t('approve.kv.backup'), backup], [t('approve.kv.after'), t(`approve.after.${target.key}`)], [t('approve.kv.note'), notes.join('\n')]],
+    showTargets,
+    kv: [...(showTargets ? [[t('approve.kv.targets'), targets.map(label).join('\n')]] : []), [t('approve.kv.backup'), backup], [t('approve.kv.after'), t(`approve.after.${target.key}`)], [t('approve.kv.note'), notes.join('\n')]],
     primary: { label: view.stage === 'writing' ? t('approve.button.writing') : t(`approve.button.${target.button}`), danger: target.danger },
     cancel: t('approve.button.cancel'), close: t('approve.button.close'), reload: t('approve.button.reload'),
     writing: t('approve.stage.writing'),
@@ -311,7 +362,7 @@ export function render(m) {
     let pane;
     if (m.tab === 'diff') pane = diffHtml(m);
     else if (m.tab === 'command') pane = `<p class="muted">${esc(m.commandLead)}</p><pre class="cmd">${esc(m.command)}</pre>`;
-    else pane = `<div class="what">${m.files.map((f) => `<div class="w"><span class="k ${f.op}">${OP_MARK[f.op] ?? '·'}</span><div><div class="mono">${esc(f.path)}</div><div class="s">${esc(f.what)}</div></div><span class="faint">${esc(f.opLabel)}</span></div>`).join('')}</div>`;
+    else pane = `<div class="what">${m.files.map((f) => `<div class="w"><span class="k ${f.op}">${OP_MARK[f.op] ?? '·'}</span><div><div class="mono">${m.showTargets && f.targetLabel ? `<span class="tg">${esc(f.targetLabel)}</span> ` : ''}${esc(f.path)}</div><div class="s">${esc(f.what)}</div></div><span class="faint">${esc(f.opLabel)}</span></div>`).join('')}</div>`;
     body = `${tabs}<div class="pane">${pane}</div>${writing ? `<p class="muted"><span class="spin"></span> ${esc(m.writing)}</p>` : ''}${kv(m.kv)}`;
     foot = `<button class="btn" data-act="cancel" ${writing ? 'disabled' : ''}>${esc(m.cancel)}</button><span class="spacer"></span><button class="btn ${m.primary.danger ? 'btn-danger' : 'btn-primary'}" data-act="write" ${writing ? 'disabled' : ''}>${esc(m.primary.label)}</button>`;
   }

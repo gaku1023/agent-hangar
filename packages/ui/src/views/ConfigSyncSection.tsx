@@ -131,13 +131,13 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
               <div className="cfg-list">
                 {c.backups.rows.length === 0 && <div className="faint">{t('settings.common.loading')}</div>}
                 {c.backups.rows.map((g) => (
-                  <div key={g.name} className="cfg-it cfg-gen">
+                  <div key={`${g.target}/${g.name}`} className="cfg-it cfg-gen">
                     <span className="cfg-k mono">{g.when}</span>
                     <span />
                     <span className="cfg-r">
                       <span className="cfg-side">{g.files}</span>
                       {c.native
-                        ? <button type="button" className="btn btn-sm" aria-label={t('configSyncUi.backups.restore.label', { when: g.when })} onClick={() => emit({ type: 'configSync.restore', name: g.name })}>{t('configSyncUi.backups.restore')}</button>
+                        ? <button type="button" className="btn btn-sm" aria-label={t('configSyncUi.backups.restore.label', { when: g.when })} onClick={() => emit({ type: 'configSync.restore', name: g.name, target: g.target })}>{t('configSyncUi.backups.restore')}</button>
                         : <CommandLine command={g.command} />}
                     </span>
                   </div>

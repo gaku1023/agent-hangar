@@ -11,7 +11,8 @@ type Line = { k: string; t: string };
 type View = Record<string, unknown>;
 type Model = {
   lang: string; title: string; stage: string; warn: boolean; tabs: { id: string; label: string; selected: boolean }[];
-  files: { path: string; op: string; opLabel: string; what: string; header: string; lines: Line[]; own: boolean; binary: boolean }[];
+  files: { path: string; op: string; opLabel: string; what: string; header: string; lines: Line[]; own: boolean; binary: boolean; targetLabel: string | null }[];
+  showTargets: boolean;
   command: string; kv: [string, string][]; primary: { label: string; danger: boolean };
   done: { title: string; after: string; backups: string[]; note: string | null }; fail: { title: string; detail: string } | null;
 };
@@ -55,6 +56,72 @@ describe('承諾の窓の文', () => {
   });
   it('バックアップの名前の日時の置き場は CLI と同じ', () => {
     expect(m.BACKUP_STAMP).toBe(CLI_STAMP);
+  });
+});
+
+// 複数の対象に書く適用。files[].target は書く先の store の名前、plan.targets は書く対象の名前（claude-hooks など）。
+const multiView = (lang: string, extra: View = {}): View => ({
+  ...applyView(lang),
+  plan: {
+    createdAt: 1, counts: {}, byKind: {}, instructions: 0, exec: [], fingerprint: FP, targets: ['claude', 'claude-hooks', 'codex', 'agents-skills'],
+    files: [
+      { rel: 'CLAUDE.md', path: '/Users/u/.claude/CLAUDE.md', op: 'modify', binary: false, target: 'claude', lines: [{ kind: 'add', text: 'a' }] },
+      { rel: 'config.toml', path: '/Users/u/.codex/config.toml', op: 'modify', binary: false, target: 'codex', lines: [{ kind: 'add', text: 'b' }] },
+      { rel: 'skills/x/SKILL.md', path: '/Users/u/.agents/skills/x/SKILL.md', op: 'create', binary: false, target: 'agents-skills', lines: [{ kind: 'add', text: 'c' }] },
+    ],
+  },
+  ...extra,
+});
+
+describe('承諾の窓：対象ごと', () => {
+  it('適用：書く先のファイルに対象の名前を付け、対象の一覧と、対象ごとのバックアップの置き場を出す', () => {
+    const v = m.model(multiView('ja'));
+    expect(v.showTargets).toBe(true);
+    expect(v.files.map((f) => f.targetLabel)).toEqual(['Claude Code', 'Codex', '共通のスキル']);
+    expect(v.kv[0]).toEqual(['対象', 'Claude Code\nCodex\n共通のスキル']);
+    const backup = v.kv.find(([k]) => k === 'バックアップ')![1];
+    expect(backup.split('\n')).toEqual([
+      '~/.agent-hangar/backups/claude-config/（新しい世代）',
+      '~/.agent-hangar/backups/codex-config/（新しい世代）',
+      '~/.agent-hangar/backups/agents-skills-config/（新しい世代）',
+    ]);
+    expect(m.render(v)).toContain('共通のスキル');
+    const en = m.model(multiView('en'));
+    expect(en.kv[0]).toEqual(['Targets', 'Claude Code\nCodex\nShared skills']);
+  });
+  it('Claude だけの適用は、今までの見え方のまま', () => {
+    const v = m.model(applyView('ja'));
+    expect(v.showTargets).toBe(false);
+    expect(v.kv.map(([k]) => k)).toEqual(['バックアップ', '変更後', '補足']);
+    // Claude だけでも、対象が codex だけのときは名前を出す。
+    const only = m.model(multiView('ja', { plan: { ...(multiView('ja').plan as object), targets: ['codex'], files: [{ rel: 'c', path: '/Users/u/.codex/c', op: 'create', binary: false, target: 'codex', lines: [] }] } }));
+    expect(only.showTargets).toBe(true);
+    expect(only.kv[0]).toEqual(['対象', 'Codex']);
+  });
+  it('完了：対象ごとの世代の置き場を出し、古い CLI の generation だけの結果も読む', () => {
+    const done = m.model(multiView('ja', { stage: 'done', result: { generation: '20261012-104002', generations: [{ target: 'claude', name: '20261012-104002' }, { target: 'codex', name: '20261012-104003' }] } }));
+    expect(done.done.backups).toEqual(['~/.agent-hangar/backups/claude-config/20261012-104002', '~/.agent-hangar/backups/codex-config/20261012-104003']);
+    const old = m.model(applyView('ja'));
+    expect(old.done.backups).toEqual([]);
+    const oldDone = m.model({ ...applyView('ja'), stage: 'done', result: { generation: '20261012-104002' } });
+    expect(oldDone.done.backups).toEqual(['~/.agent-hangar/backups/claude-config/20261012-104002']);
+  });
+  it('戻す：題と置き場と同じコマンドに対象を出す。Windows の区切りも守る', () => {
+    const base = { ...applyView('ja'), job: 'restore', target: 'restore', name: '20261011-210400', configTarget: 'opencode' };
+    const v = m.model(base);
+    expect(v.title).toBe('opencode のバックアップから復元（2026-10-11 21:04）');
+    expect(v.command).toBe('hangar config restore --target opencode 20261011-210400');
+    expect(v.kv.find(([k]) => k === 'バックアップ')![1]).toBe('~/.agent-hangar/backups/opencode-config/（新しい世代）');
+    expect(m.model({ ...base, lang: 'en', configTarget: 'agents-skills' }).title).toBe('Restore Shared skills backup (2026-10-11 21:04)');
+    const done = m.model({ ...base, stage: 'done', result: { safety: '20261011-220000' }, windows: true, home: 'C:\\Users\\u', hangarHome: 'C:\\Users\\u\\.agent-hangar' });
+    expect(done.done.backups).toEqual(['~\\.agent-hangar\\backups\\opencode-config\\20261011-220000']);
+    // 対象を持たない見立て（古い殻）は、今までどおり Claude の世代として読む。
+    expect(m.model({ ...applyView('ja'), job: 'restore', target: 'restore', name: '20261011-210400' }).command).toBe('hangar config restore 20261011-210400');
+  });
+  it('英語では、対象の名前にも日本語が混ざらない', () => {
+    const v = m.model(multiView('en'));
+    const text = [v.title, ...v.files.map((f) => `${f.targetLabel} ${f.what}`), ...v.kv.map(([k, x]) => `${k} ${x}`)].join('\n');
+    expect(text).not.toMatch(KANA_KANJI);
   });
 });
 

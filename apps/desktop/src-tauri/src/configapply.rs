@@ -25,8 +25,17 @@ pub struct Words {
     unreadable: &'static str,
     applied: &'static str,
     applied_generation: &'static str,
+    /// 対象ごとの世代を言う文。`{target}` は対象の名前、`{g}` は世代。
+    applied_generation_of: &'static str,
     restored: &'static str,
     restored_safety: &'static str,
+    restored_safety_of: &'static str,
+    /// 対象の名前（`target_label` が引く）。
+    target_claude: &'static str,
+    target_codex: &'static str,
+    target_opencode: &'static str,
+    target_agents_skills: &'static str,
+    target_hangar: &'static str,
     cannot_start: &'static str,
     cannot_read: &'static str,
     too_long: &'static str,
@@ -35,6 +44,7 @@ pub struct Words {
     pub restore_flow_title: &'static str,
     pub busy: &'static str,
     pub bad_generation: &'static str,
+    pub bad_target: &'static str,
     pub apply_stopped: &'static str,
     pub restore_stopped: &'static str,
 }
@@ -45,8 +55,15 @@ const JA: Words = Words {
     unreadable: "設定の同期のコマンドの応答を読み取れませんでした。~/.agent-hangar/desktop.log を確認するか、ターミナルで hangar config apply を実行して確認してください。",
     applied: "適用しました（書き込み {written} 件、削除 {removed} 件、この PC の内容を保持 {kept} 件）。",
     applied_generation: "バックアップの世代 {g} から復元できます。",
+    applied_generation_of: "{target} のバックアップの世代 {g} から復元できます。",
     restored: "復元しました（書き戻し {restored} 件、削除 {removed} 件）。",
     restored_safety: "復元前の状態を世代 {g} としてバックアップしました。",
+    restored_safety_of: "復元前の状態を {target} のバックアップの世代 {g} として保存しました。",
+    target_claude: "Claude Code",
+    target_codex: "Codex",
+    target_opencode: "opencode",
+    target_agents_skills: "共通のスキル",
+    target_hangar: "Hangar",
     cannot_start: "設定の同期のコマンドを起動できません: {e}",
     cannot_read: "設定の同期のコマンドの結果を読み取れません: {e}",
     too_long: "設定の同期のコマンドが {s} 秒以内に終了しませんでした。",
@@ -54,6 +71,7 @@ const JA: Words = Words {
     restore_flow_title: "設定の復元",
     busy: "設定の確認がすでに表示されています。",
     bad_generation: "世代の名前が正しくありません。",
+    bad_target: "対象の名前が正しくありません。",
     apply_stopped: "設定の適用の処理が停止しました。",
     restore_stopped: "設定の復元の処理が停止しました。",
 };
@@ -63,8 +81,15 @@ const EN: Words = Words {
     unreadable: "Could not read the reply of the settings sync command. Check ~/.agent-hangar/desktop.log, or run hangar config apply in a terminal.",
     applied: "Applied ({written} written, {removed} deleted, {kept} kept as they were on this computer).",
     applied_generation: " You can go back to backup generation {g}.",
+    applied_generation_of: " You can go back to {target} backup generation {g}.",
     restored: "Restored ({restored} written back, {removed} deleted).",
     restored_safety: " The state before the restore was saved as generation {g}.",
+    restored_safety_of: " The state before the restore was saved as {target} backup generation {g}.",
+    target_claude: "Claude Code",
+    target_codex: "Codex",
+    target_opencode: "opencode",
+    target_agents_skills: "Shared skills",
+    target_hangar: "Hangar",
     cannot_start: "Cannot start the settings sync command: {e}",
     cannot_read: "Cannot read the result of the settings sync command: {e}",
     too_long: "The settings sync command did not finish within {s} seconds.",
@@ -72,6 +97,7 @@ const EN: Words = Words {
     restore_flow_title: "Restore settings to a generation",
     busy: "A settings confirmation is already open.",
     bad_generation: "The generation name is not valid.",
+    bad_target: "The target name is not valid.",
     apply_stopped: "Applying the settings stopped.",
     restore_stopped: "Restoring the settings stopped.",
 };
@@ -83,6 +109,20 @@ pub fn words(lang: &str) -> &'static Words {
     } else {
         &JA
     }
+}
+
+/// 対象の名前を、利用者に見せる名前にする。知らない名前はそのまま返す。
+pub fn target_label(lang: &str, target: &str) -> String {
+    let w = words(lang);
+    match target {
+        "claude" => w.target_claude,
+        "codex" => w.target_codex,
+        "opencode" => w.target_opencode,
+        "agents-skills" => w.target_agents_skills,
+        "hangar" => w.target_hangar,
+        other => return other.to_string(),
+    }
+    .to_string()
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -173,9 +213,19 @@ pub fn parse_reply<T: DeserializeOwned>(stdout: &str, key: &str, lang: &str) -> 
     })
 }
 
+/// 対象ごとのバックアップの世代。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct GenerationRef {
+    pub target: String,
+    pub name: String,
+}
+
 /// `hangar config apply --yes --json` の `result`。
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApplyResult {
+    /// 古い CLI は generations を返さず、この 1 つ（Claude の世代）だけを返す。
+    #[serde(default)]
+    pub generations: Vec<GenerationRef>,
     #[serde(default)]
     pub generation: Option<String>,
     #[serde(default)]
@@ -226,8 +276,21 @@ impl Outcome {
             .replace("{written}", &r.written.to_string())
             .replace("{removed}", &r.removed.to_string())
             .replace("{kept}", &r.kept_mine.to_string());
-        if let Some(g) = &r.generation {
-            message.push_str(&w.applied_generation.replace("{g}", g));
+        // Claude だけの世代なら、今までどおりの文にする。ほかの対象があれば、対象ごとに言う。
+        let only_claude =
+            r.generations.iter().all(|g| g.target == "claude") && r.generations.len() <= 1;
+        if r.generations.is_empty() || only_claude {
+            if let Some(g) = &r.generation {
+                message.push_str(&w.applied_generation.replace("{g}", g));
+            }
+        } else {
+            for g in &r.generations {
+                message.push_str(
+                    &w.applied_generation_of
+                        .replace("{target}", &target_label(lang, &g.target))
+                        .replace("{g}", &g.name),
+                );
+            }
         }
         Outcome {
             status: "applied",
@@ -237,14 +300,21 @@ impl Outcome {
         }
     }
 
-    pub fn restored(r: &RestoreResult, lang: &str) -> Self {
+    pub fn restored(r: &RestoreResult, lang: &str, target: &str) -> Self {
         let w = words(lang);
         let mut message = w
             .restored
             .replace("{restored}", &r.restored.len().to_string())
             .replace("{removed}", &r.removed.len().to_string());
         if let Some(g) = &r.safety {
-            message.push_str(&w.restored_safety.replace("{g}", g));
+            let sentence = if target == "claude" {
+                w.restored_safety.replace("{g}", g)
+            } else {
+                w.restored_safety_of
+                    .replace("{target}", &target_label(lang, target))
+                    .replace("{g}", g)
+            };
+            message.push_str(&sentence);
         }
         Outcome {
             status: "restored",
@@ -390,6 +460,7 @@ mod tests {
     fn outcomes_read_naturally_and_a_missing_order_is_not_a_failure() {
         let applied = Outcome::applied(
             &ApplyResult {
+                generations: vec![],
                 generation: Some("20261010-120000".to_string()),
                 written: 2,
                 removed: 1,
@@ -408,6 +479,7 @@ mod tests {
                 safety: Some("20261010-120100".to_string()),
             },
             "ja",
+            "claude",
         );
         assert_eq!(restored.status, "restored");
         assert!(restored.message.contains("20261010-120100"));
@@ -440,6 +512,7 @@ mod tests {
     fn the_outcomes_are_english_in_english() {
         let applied = Outcome::applied(
             &ApplyResult {
+                generations: vec![],
                 generation: Some("20261010-120000".to_string()),
                 written: 2,
                 removed: 1,
@@ -455,6 +528,7 @@ mod tests {
                 safety: Some("20261010-120100".to_string()),
             },
             "en",
+            "claude",
         );
         assert!(!has_japanese(&restored.message), "{}", restored.message);
         let r: Result<ApplyPlan, Failure> = parse_reply("not json", "plan", "en");
@@ -518,6 +592,43 @@ mod tests {
                 && *v == Some(std::ffi::OsStr::new("/h/home"))));
     }
 
+    // 戻す対象を添えた引数は、そのまま CLI へ渡る。置き場のパスは、どの OS でも plain な形（verbatim の接頭辞が付かない形）で渡る。
+    #[test]
+    fn the_restore_args_keep_the_target_and_the_paths_stay_plain() {
+        let job = crate::approve::Job::Restore {
+            name: "20261010-120000".to_string(),
+            target: "opencode",
+        };
+        let plan_args = crate::approve::plan_args(&job, 4177);
+        let refs: Vec<&str> = plan_args.iter().map(String::as_str).collect();
+        let cmd = cli_command(
+            Path::new("node"),
+            Path::new("/s/server"),
+            Path::new("/h/home"),
+            &refs,
+        );
+        let args: Vec<_> = cmd
+            .get_args()
+            .skip(1)
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args,
+            [
+                "config",
+                "restore",
+                "20261010-120000",
+                "--target",
+                "opencode",
+                "--plan",
+                "--json"
+            ]
+        );
+        for a in cmd.get_args().chain(cmd.get_envs().filter_map(|(_, v)| v)) {
+            assert!(!a.to_string_lossy().starts_with(r"\\?\"), "{a:?}");
+        }
+    }
+
     // 設定の同期の命令も、同梱の置き場（resource_dir の下）の cli.mjs を Node に渡す。
     // サーバと同じく、verbatim の形を外して渡す（Node 22.20 以降はその形の主スクリプトを読めない）。
     #[cfg(windows)]
@@ -527,13 +638,16 @@ mod tests {
             Path::new("node"),
             Path::new(r"\\?\C:\Users\me\AppData\Local\Hangar\server"),
             Path::new(r"\\?\C:\Users\me\.agent-hangar"),
-            &["config", "apply"],
+            &["config", "restore", "20261010-120000", "--target", "codex"],
         );
         let args: Vec<_> = cmd.get_args().collect();
         assert_eq!(
             args[0],
             std::ffi::OsStr::new(r"C:\Users\me\AppData\Local\Hangar\server\cli.mjs")
         );
+        // --target と値は、パスと違って手を加えずに渡る。
+        assert_eq!(args[4], std::ffi::OsStr::new("--target"));
+        assert_eq!(args[5], std::ffi::OsStr::new("codex"));
         assert!(cmd
             .get_envs()
             .any(|(k, v)| k == std::ffi::OsStr::new("HANGAR_HOME")
