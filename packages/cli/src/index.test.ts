@@ -357,7 +357,7 @@ describe('hangar start', () => {
   }, 90_000);
 });
 
-describe('連携の書き込みの --dry-run --json（殻の承諾の窓が読む）', () => {
+describe('連携の書き込みの --dry-run --json（殻の承認の窓が読む）', () => {
   it('mcp、shell、statusline の見立てを 1 行の JSON で出し、何も書かない', async () => {
     const claudeJson = path.join(path.dirname(home), '.claude.json');
     fs.writeFileSync(claudeJson, JSON.stringify({ mcpServers: { hangar: { type: 'http', url: 'http://127.0.0.1:4177/mcp' } } }));

@@ -52,7 +52,7 @@
 /* ダイアログの上の、ほかのダイアログへ移る入口。 */
 .cfg-jumps { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2); }
 
-/* 承諾の表（c2）。チェック、名前、種類、印、届いた、内容。 */
+/* 承認の表（c2）。チェック、名前、種類、印、届いた、内容。 */
 .cfg-chips { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); }
 .cfg-chip { display: inline-flex; align-items: center; height: 24px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); font: 600 var(--fs-xs) var(--font-sans); color: var(--ink-2); background: var(--surface-2); cursor: pointer; white-space: nowrap; }
 .cfg-chip:hover:not(:disabled) { color: var(--ink); background: var(--line-strong); }
@@ -106,7 +106,7 @@
 .cfg-ir > .cfg-it { border-top: 0; }
 .cfg-ir > .cfg-strip { margin: 0 calc(var(--u) * 2.5) calc(var(--u) * 2); }
 .cfg-why { padding: 0 calc(var(--u) * 2.5) calc(var(--u) * 1.5); font-size: var(--fs-xs); color: var(--st-paused); }
-/* 適用内容の確認の群（4a）。承諾が必要なものと競合は、見出しを注意の色にする。 */
+/* 適用内容の確認の群（4a）。承認が必要なものと競合は、見出しを注意の色にする。 */
 .cfg-grp[data-tone='warn'] > .cfg-grp-h { color: var(--st-paused); background: var(--st-paused-soft); }
 .cfg-grp[data-tone='warn'] > .cfg-grp-h .cfg-n { color: var(--st-paused); }
 .cfg-review-body { display: flex; flex-direction: column; gap: calc(var(--u) * 2); }

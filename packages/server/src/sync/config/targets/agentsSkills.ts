@@ -213,7 +213,7 @@ function takeGeneration(o: { home: string; root: string; rels: string[]; baseIds
     fs.writeFileSync(path.join(dir, GENERATION_META), JSON.stringify(meta) + '\n', { mode: 0o600 });
   } catch (e) {
     if (dir !== '') fs.rmSync(dir, { recursive: true, force: true });
-    throw new ApplyError('write-failed', `控えの世代を作れませんでした（${errText(e)}）。何も書いていません。`);
+    throw new ApplyError('write-failed', `バックアップの世代を作れませんでした（${errText(e)}）。何も書き込んでいません。`);
   }
   return { name, dir };
 }
@@ -245,9 +245,9 @@ function rollback(root: string, gen: { name: string; dir: string }, cause: unkno
       try { fs.rmdirSync(fileOf(root, d)); } catch { /* 空でなければ利用者の物が入っているので残す */ }
     }
     fs.rmSync(gen.dir, { recursive: true, force: true });
-    return new ApplyError('write-failed', `書き込みに失敗したので、元の状態へ戻しました（${errText(cause)}）。`);
+    return new ApplyError('write-failed', `書き込みに失敗したため、元の状態に戻しました（${errText(cause)}）。`);
   } catch (e2) {
-    return new ApplyError('write-failed', `書き込みに失敗し（${errText(cause)}）、元へ戻す途中でも失敗しました（${errText(e2)}）。控えの世代 ${gen.name}（${agentsBackupsDir('<hangar の置き場>')}）から手で戻してください。`);
+    return new ApplyError('write-failed', `書き込みに失敗し（${errText(cause)}）、元に戻す途中でも失敗しました（${errText(e2)}）。バックアップの世代 ${gen.name}（${agentsBackupsDir('<hangar の置き場>')}）から手で戻してください。`);
   }
 }
 
@@ -268,7 +268,7 @@ function fingerprint(root: string, rels: string[]): string {
 /** write に渡す口。agentsSkillsDir は殻と CLI が渡す。省くと書かない（既定の場所へ黙って書かない）。 */
 export type AgentsSkillsWriteOptions = ApplyOptions;
 
-/** 書く先ごとの、書いた後の中身（承諾の窓の差分と指紋）。何も書かない。 */
+/** 書く先ごとの、書いた後の中身（承認の窓の差分と指紋）。何も書かない。 */
 export function planAgentsSkillsOps(o: WritePaths): PlannedOp[] {
   const root = o.agentsSkillsDir;
   if (!root) throw new ApplyError('unsafe', '共通のスキルの置き場が指定されていません。書きません。');
@@ -286,7 +286,7 @@ export function runAgentsSkillsApply(o: AgentsSkillsWriteOptions): ApplyResult {
   const ops = preps.filter((p) => p.act !== 'keep');
   for (const p of ops) assertSafeTarget(root, p.rel);
   if (o.expect !== undefined && fingerprint(root, ops.map((p) => p.rel)) !== o.expect) {
-    throw new ApplyError('changed', '確認した後に、書く先のファイルが変わりました。何も書いていません。もう一度、書く中身を確かめてください。');
+    throw new ApplyError('changed', '確認した後に、書く先のファイルが変わりました。何も書き込んでいません。もう一度、書く中身を確かめてください。');
   }
   const base = new ConfigBase(o.db);
   const updateBase = (): void => {
@@ -337,7 +337,7 @@ export const agentsSkillsTarget: ConfigTarget = {
   write: (o) => runAgentsSkillsApply(o),
   planOps: (o) => planAgentsSkillsOps(o),
   store: AGENTS_SKILLS_STORE,
-  // 読まれて実行される指示なので、消去も含めて全部。承諾の仕方が自動なら要らない。
+  // 読まれて実行される指示なので、消去も含めて全部。承認の仕方が自動なら要らない。
   needsApproval: (_item, approval) => approval === 'each',
   isMachineBound: () => false,
 };

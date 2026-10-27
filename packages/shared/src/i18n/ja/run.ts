@@ -19,7 +19,7 @@ export const runJa: AreaDictionary<typeof runKeys> = {
   'run.agent.actionUnsupported': 'この操作は opencode のセッションでは使えません',
   'run.agent.launchFailed': 'opencode を起動できませんでした: {reason}',
   'run.agent.codex.disabled': 'Codex は有効になっていません。設定の「{label}」をオンにしてください',
-  'run.agent.codex.notFound': 'codex が見つかりません（PATH を確認してください）',
+  'run.agent.codex.notFound': 'Codex が見つかりません（PC の PATH を確認してください）',
   'run.agent.codex.isCmd': '{file} は .cmd のため使えません。PATH 上に codex.exe があるか確認してください',
   'run.agent.codex.optionUnsupported': '{option} は Codex のセッションでは指定できません',
   'run.agent.codex.actionUnsupported': 'この操作は Codex のセッションでは使えません',

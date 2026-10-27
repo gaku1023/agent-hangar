@@ -13,9 +13,9 @@ import { execCli, runMcpInstall, runMcpUninstall, type CliExec, type PortProbe }
 /**
  * 連携の書き込み（MCP の登録、シェル連携、ステータスライン）の見立てと、見立てどおりの書き込み。
  *
- * 殻の承諾の窓（apps/desktop の approve）は、`hangar <対象> --dry-run --json` でこの見立てを受け取り、
+ * 殻の承認の窓（apps/desktop の approve）は、`hangar <対象> --dry-run --json` でこの見立てを受け取り、
  * 書く先のファイル、新規か変更か削除か、差分を利用者に見せる。
- * 承諾されたら `--yes --json --expect <指紋>` を走らせる。
+ * 承認されたら `--yes --json --expect <指紋>` を走らせる。
  * 書く直前にもう一度見立てを作り、指紋が見せたときと違えば、何も書かずに changed で断る（全体計画の D9）。
  * サーバはここを通らない。利用者のファイルを書くのは、この CLI と殻の命令だけである。
  *
@@ -27,7 +27,7 @@ import { execCli, runMcpInstall, runMcpUninstall, type CliExec, type PortProbe }
 export { SETUP_TARGETS, isSetupTarget, type SetupTarget } from '@agent-hangar/shared';
 import type { SetupTarget } from '@agent-hangar/shared';
 
-/** 伏せた値の置き場。承諾の窓は、この文字を黒い帯にして出す。トークンそのものは見立てに載せない。 */
+/** 伏せた値の置き場。承認の窓は、この文字を黒い帯にして出す。トークンそのものは見立てに載せない。 */
 export const SECRET_MASK = '\u0000';
 
 /** 差分の 1 行。add は足す、del は消す、ctx は前後の文脈、gap は省いた行の印。 */
@@ -36,7 +36,7 @@ export type PlanLine = { k: 'add' | 'del' | 'ctx' | 'gap'; t: string };
 /**
  * 書く先の 1 つ。
  * op は、create（無いので作る）、modify（足すか差し替える）、remove（消す）、own（hangar 自身の置き場。利用者のファイルではない）。
- * what は承諾の窓が文を選ぶ鍵で、n はその文に入れる数（足す行の数など）。
+ * what は承認の窓が文を選ぶ鍵で、n はその文に入れる数（足す行の数など）。
  * where は差分がファイルのどこか（head は先頭、tail は末尾、json は mcpServers の中）。
  * watch は見せた部分の指紋で、書く直前に比べる。own は比べない。
  */
@@ -44,10 +44,10 @@ export type PlanFile = { path: string; op: 'create' | 'modify' | 'remove' | 'own
 
 /**
  * 見立て。state は、ready（書ける）、noop（もう済んでいる）、blocked（この PC では書けない）。
- * reason は noop と blocked の理由で、code は承諾の窓や画面が文を選ぶ鍵、message は端末に出す日本語の 1 文である。
+ * reason は noop と blocked の理由で、code は承認の窓や画面が文を選ぶ鍵、message は端末に出す日本語の 1 文である。
  * backup は、書く前に取るバックアップの置き場（もとのファイルが無ければ null）。secret は、差分に伏せた値があるか。
  * backup の名前の末尾の日時は、書いたときに決まる。見立てでは BACKUP_STAMP（YYYYMMDDhhmmss）の形のまま見せる。
- * 見立てを作った時刻で名前を決めると、承諾の窓を開いた時刻の名前を見せて、押した時刻の名前で書くことになり、食い違う。
+ * 見立てを作った時刻で名前を決めると、承認の窓を開いた時刻の名前を見せて、押した時刻の名前で書くことになり、食い違う。
  */
 export type SetupPlan = {
   target: SetupTarget;
@@ -187,7 +187,7 @@ function shellBlock(env: SetupEnv): { code: string; message: string } | null {
   return null;
 }
 
-/** UTF-8 でないファイルを断る理由。承諾の窓は開かず、画面は鍵（not-utf8）から文を引く。 */
+/** UTF-8 でないファイルを断る理由。承認の窓は開かず、画面は鍵（not-utf8）から文を引く。 */
 const NOT_UTF8 = (file: string) => `${file} が UTF-8 で保存されていない（UTF-16 など）ため、変更しません。UTF-8 で保存し直すか、手動で追記してください。`;
 
 function planShell(target: 'shell-install' | 'shell-uninstall', env: SetupEnv): SetupPlan {
@@ -366,8 +366,8 @@ export type SetupCommandFlags = { dryRun?: boolean; json?: boolean; yes?: boolea
 /**
  * --dry-run、--json、--expect の付いた呼び出しと、statusline uninstall の本体。戻り値は終了コード。
  * --dry-run は見立てだけ（--json なら `{ ok: true, plan }` の 1 行）。
- * --json の書き込みは聞けないので --yes を要る（殻は承諾の窓を経てから --yes を付ける）。
- * どちらも無ければ、見立てを見せて承諾を取ってから書く（端末から打ったとき）。
+ * --json の書き込みは聞けないので --yes を要る（殻は承認の窓を経てから --yes を付ける）。
+ * どちらも無ければ、見立てを見せて承認を取ってから書く（端末から打ったとき）。
  */
 export async function runSetupCommand(target: SetupTarget, env: SetupEnv, f: SetupCommandFlags, io: { log?: (s: string) => void; ask?: (q: string) => Promise<boolean>; interactive?: boolean } = {}): Promise<number> {
   const log = io.log ?? ((s: string) => console.log(s));

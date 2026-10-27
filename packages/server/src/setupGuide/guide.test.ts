@@ -110,7 +110,7 @@ describe('API の答え（readSetupGuide）', () => {
     const sha = sha8('# 手引き\n\n本文\n');
     expect(r).toEqual({
       path: shown, version: '0.7.0', sha,
-      prompt: `${shown}（v0.7.0 sha256:${sha}）を読んで、私の環境を診断して。書き換えは私が承諾してから`,
+      prompt: `${shown}（v0.7.0 sha256:${sha}）を読んで、私の環境を診断して。書き換えは私が承認してから`,
     });
     expect(fs.existsSync(path.join(home, 'setup-guide.md'))).toBe(true);
     const en = readSetupGuide({ home, version: '0.7.0', sourceDir: src, homeDir: path.dirname(home), platform, language: 'en' });

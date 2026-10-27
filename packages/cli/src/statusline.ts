@@ -15,7 +15,7 @@ import {
 
 export type Ask = (question: string) => Promise<boolean>;
 
-/** 端末で y か n を聞く。y と yes だけを承諾とみなす。 */
+/** 端末で y か n を聞く。y と yes だけを承認とみなす。 */
 export function promptYesNo(question: string): Promise<boolean> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) =>
@@ -28,7 +28,7 @@ export function promptYesNo(question: string): Promise<boolean> {
 
 /**
  * statusline スクリプトへスニペットを追記する。
- * 追記先が見つからなければ手順を印字して終わり、見つかれば承諾を得てからバックアップと追記を行う。
+ * 追記先が見つからなければ手順を印字して終わり、見つかれば承認を得てからバックアップと追記を行う。
  *
  * どちらの道でも、先に hangar 自身の置き場へヘッダのファイルを置く。
  * スニペットはこのファイルからトークンを読むので、無ければ何も送らずに素通しする。

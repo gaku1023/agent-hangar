@@ -7900,7 +7900,7 @@ skills、commands、agents は実行される指示なので、他の PC から�
 
 **画面（PR 17）。**
 設計は段 4 の設計書の 2.5（a1、b1、c2、d1、e2）である。
-設定の「クラウド同期」の節の「Claude Code の設定を同期」に常設の行を並べ、中身はダイアログで見せる。
+設定の「クラウド同期」の節の「設定を同期」に常設の行を並べ、中身はダイアログで見せる。
 スイッチは `SettingsDto.configBundleSync`（`PATCH /api/settings`）で動かす。
 入れるときは送る一覧（a1）を見せて承諾を取り、承諾すると `{ configBundleSync: true }` を送る。
 切るのは確認なしにその場で保存する。

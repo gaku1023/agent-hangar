@@ -18,7 +18,7 @@ function NativeNote(props: { native: boolean }) {
 
 /**
  * (a) 1 台目でスイッチを入れるとき：ほかの PC へ送るものの一覧。種類ごとの折りたたみで、見出しに件数、settings.json は鍵と値を出す。
- * 承諾すると新しい実装のスイッチが入る。承諾するまで、クラウドへは何も送らない。
+ * 承認すると新しい実装のスイッチが入る。承認するまで、クラウドへは何も送らない。
  */
 function SendDialog(props: ConfigSendDialogProps) {
   const t = useT();
@@ -48,7 +48,7 @@ function SendDialog(props: ConfigSendDialogProps) {
 
 /**
  * (b) 2 台目：適用内容の確認。操作ごとの折りたたみで、競合、削除、上書き、新規の順に置く。各群の見出しの下に、その操作で何が起きるかを 1 文で書く。
- * 「適用…」を押すと、承諾できる項目が指示書になり、殻がネイティブの確認を出す（D9）。
+ * 「適用…」を押すと、承認できる項目が指示書になり、殻がネイティブの確認を出す（D9）。
  */
 function ReviewDialog(props: ConfigReviewDialogProps) {
   const t = useT();
@@ -111,7 +111,7 @@ function ReviewDialog(props: ConfigReviewDialogProps) {
 }
 
 /**
- * (c) 届いたスキル、コマンド、エージェントの承諾。1 本の表にチェックを付ける。
+ * (c) 届いたスキル、コマンド、エージェントの承認。1 本の表にチェックを付ける。
  * フックとコマンド実行の印が無い行だけを「まとめて選択」でき、印のある行は中身を開いてから 1 件ずつ選ぶ。「すべて選択」は置かない。
  */
 function ApproveDialog(props: ConfigApproveDialogProps) {

@@ -466,7 +466,7 @@ export function resumeSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
 }
 
 /**
- * UI の削除と同じ trash.deleteSession を通す。どのセッションも、毎回 confirmed: true（利用者が会話の中で承諾した）でなければ消さない。
+ * UI の削除と同じ trash.deleteSession を通す。どのセッションも、毎回 confirmed: true（利用者が会話の中で承認した）でなければ消さない。
  * 動いている会話の断り（409）は、deleteSession の文をそのまま返す。
  */
 export function deleteSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
@@ -477,7 +477,7 @@ export function deleteSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
   return trash.deleteSession(s.id).then(() => ({ ok: true, session_id: s.id }));
 }
 
-/** 承諾を求めるときに利用者へ見せる題名。名前、AI の題、最初の発言の順に引く。 */
+/** 承認を求めるときに利用者へ見せる題名。名前、AI の題、最初の発言の順に引く。 */
 function sessionTitle(s: SessionDto): string {
   return (s.name ?? s.summary?.title ?? s.aiTitle ?? s.firstPrompt ?? s.id).replace(/\s+/g, ' ').trim().slice(0, 80);
 }

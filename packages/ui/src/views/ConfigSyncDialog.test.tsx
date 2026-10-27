@@ -21,7 +21,7 @@ const inb = (id: string, kind: ConfigInboxItemDto['kind'], label: string, op: Co
 
 describe('送る一覧（a1）', () => {
   const outgoing = (items: ConfigOutgoingItemDto[]) => ({ enabled: false, items, droppedKeys: [{ key: 'env', reason: 'execution' as const }], unsentCount: 0, lastSentAt: null });
-  it('種類ごとの折りたたみで、見出しに件数、settings.json は鍵と値を出し、承諾すると送る', () => {
+  it('種類ごとの折りたたみで、見出しに件数、settings.json は鍵と値を出し、承認すると送る', () => {
     const onAction = vi.fn();
     show(open('send'), store({ outgoing: outgoing([out('settings:model', 'settings', 'model', { value: '"opus"' }), out('file:CLAUDE.md', 'claude-md', 'CLAUDE.md')]) }, dto({ enabled: false })), onAction);
     expect(screen.getByRole('dialog', { name: '他の PC へ送信する項目' })).toBeInTheDocument();
@@ -39,7 +39,7 @@ describe('送る一覧（a1）', () => {
     expect(screen.getByRole('button', { name: '有効にする' })).toBeEnabled();
     expect(screen.getByText(/送信する項目はまだありません/)).toBeInTheDocument();
   });
-  it('すでに入っているときは、見るだけで閉じる（承諾の操作を出さない）', () => {
+  it('すでに入っているときは、見るだけで閉じる（承認の操作を出さない）', () => {
     show(open('send'), store({ outgoing: outgoing([out('file:CLAUDE.md', 'claude-md', 'CLAUDE.md')]) }));
     expect(screen.queryByRole('button', { name: /項目を送る$/ })).toBeNull();
     // 閉じる手は見出しの × と下端の 1 つだけ。
@@ -54,15 +54,15 @@ describe('適用内容の確認（b1）', () => {
     inb('file:skills/a/SKILL.md', 'skills', 'skills/a/SKILL.md', 'overwrite', { needsApproval: true }),
     inb('settings:model', 'settings', 'model', 'create'),
   ];
-  it('競合、承諾が必要なもの、そのまま適用するものの順に並べ（U0 の 4a）、適用…は承諾の要らない項目だけを渡す', () => {
+  it('競合、承認が必要なもの、そのまま適用するものの順に並べ（U0 の 4a）、適用…は承認の要らない項目だけを渡す', () => {
     const onAction = vi.fn();
     show(open('review'), store({ inbox: { items, approval: 'each' } }, dto({ incoming: 3, conflicts: 1 })), onAction);
     const heads = [...document.querySelectorAll('.cfg-grp-t')].map((e) => e.textContent);
-    expect(heads).toEqual(['競合', '承諾が必要なもの', 'そのまま適用するもの']);
+    expect(heads).toEqual(['競合', '承認が必要なもの', 'そのまま適用するもの']);
     fireEvent.click(screen.getByRole('button', { name: '適用…' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'configSync.apply', entries: [{ id: 'file:skills/old/SKILL.md' }, { id: 'settings:model' }] });
   });
-  it('競合と承諾の入口を出し、押すとそのダイアログを開く', () => {
+  it('競合と承認の入口を出し、押すとそのダイアログを開く', () => {
     const onAction = vi.fn();
     show(open('review'), store({ inbox: { items, approval: 'each' } }), onAction);
     fireEvent.click(screen.getByRole('button', { name: '競合 1 件を選択…' }));
@@ -82,7 +82,7 @@ describe('適用内容の確認（b1）', () => {
   });
 });
 
-describe('承諾の表（c2）', () => {
+describe('承認の表（c2）', () => {
   const hooky = inb('file:skills/h/SKILL.md', 'skills', 'skills/h/SKILL.md', 'create', { needsApproval: true, marks: ['hooks'], size: 90, head: '---\nname: h\nhooks:\n  PreToolUse:\n---\nbody' });
   const plainA = inb('file:commands/a.md', 'commands', 'commands/a.md', 'create', { needsApproval: true, head: '# a' });
   const plainB = inb('file:agents/b.md', 'agents', 'agents/b.md', 'overwrite', { needsApproval: true, head: '# b' });

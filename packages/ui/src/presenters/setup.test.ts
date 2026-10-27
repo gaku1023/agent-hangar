@@ -6,7 +6,7 @@ const ja = translator('ja');
 const en = translator('en');
 
 describe('setupNotice', () => {
-  it('書けたときと取り消したときは知らせない（承諾の窓が出している）', () => {
+  it('書けたときと取り消したときは知らせない（承認の窓が出している）', () => {
     expect(setupNotice(ja, { status: 'written', message: 'x', code: null })).toBeNull();
     expect(setupNotice(ja, { status: 'cancelled', message: 'x', code: null })).toBeNull();
   });

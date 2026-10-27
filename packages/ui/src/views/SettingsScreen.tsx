@@ -144,7 +144,7 @@ function Badge(props: { ok: boolean | null; yes: string; no: string }) {
 /**
  * 連携の札の書き込みの段（試作の連携 A）。
  * 殻の中では、書き込む先とバックアップの添え書きをボタンの横に常に出し、コマンドは「ターミナルで行うとき」に畳む。
- * ボタンは殻に頼むだけで、書く中身は殻の承諾の窓が見せ、承諾されたときだけ書く（D9）。
+ * ボタンは殻に頼むだけで、書く中身は殻の承認の窓が見せ、承認されたときだけ書く（D9）。
  * ブラウザでは書き込まないので、ボタンを出さずに、その旨とコマンドを出す。
  */
 function IntegrationWrite(props: { card: IntegrationCard; desktop: boolean; extra?: ReactNode }) {
@@ -525,14 +525,14 @@ export function SettingsScreen(props: SettingsProps) {
           </div>
         )}
         {props.shell.state === null && <div className="faint" style={{ marginTop: 4 }}>{t('settings.common.loading')}</div>}
-        {/* 殻の中では、ボタンで殻に頼む。書くのは殻の承諾の窓を経た CLI で、サーバと画面は書かない（D9）。 */}
+        {/* 殻の中では、ボタンで殻に頼む。書くのは殻の承認の窓を経た CLI で、サーバと画面は書かない（D9）。 */}
         {props.integrations.desktop && (props.shell.state === 'off' || props.shell.state === 'on') && (
           <>
             {props.shell.state === 'on' && <div className="faint" style={{ marginTop: 8 }}>{t('settings.integrations.shell.installedHintApp')}</div>}
             <IntegrationWrite card={props.integrations.shell} desktop />
           </>
         )}
-        {/* ブラウザでは書き込まない。入れるのは CLI で、承諾を求めてバックアップを取る。 */}
+        {/* ブラウザでは書き込まない。入れるのは CLI で、承認を求めてバックアップを取る。 */}
         {!props.integrations.desktop && props.shell.state === 'off' && (
           <>
             <div className="faint" style={{ marginTop: 8 }}>{t('settings.integrations.shell.installHint', { zshrc: props.shell.zshrc })}</div>

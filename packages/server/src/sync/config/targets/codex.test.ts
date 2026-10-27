@@ -269,9 +269,9 @@ describe('古い版の束との互換（SPEC 12 章）', () => {
   });
 });
 
-describe('承諾と PC に依る項目', () => {
+describe('承認と PC に依る項目', () => {
   const need = (id: string, kind: ConfigItemKind, op: ConfigInboxOp, ap: 'each' | 'auto') => codexTarget.needsApproval({ id, kind, op }, ap);
-  it('rules、skills、hooks.json、設定の profile は承諾が要る。AGENTS.md は要らない', () => {
+  it('rules、skills、hooks.json、設定の profile は承認が要る。AGENTS.md は要らない', () => {
     expect(need('codex:file:rules/a.rules', 'codex-file', 'create', 'each')).toBe(true);
     expect(need('codex:file:skills/s/SKILL.md', 'codex-file', 'overwrite', 'each')).toBe(true);
     expect(need('codex:file:hooks.json', 'codex-file', 'create', 'each')).toBe(true);
@@ -279,7 +279,7 @@ describe('承諾と PC に依る項目', () => {
     expect(need('codex:file:AGENTS.md', 'codex-file', 'create', 'each')).toBe(false);
     expect(need('codex:file:AGENTS.override.md', 'codex-file', 'create', 'each')).toBe(false);
   });
-  it('承諾が要る鍵：approval_policy、sandbox_mode、[hooks]、[plugins.*]。消去も承諾に掛ける', () => {
+  it('承認が要る鍵：approval_policy、sandbox_mode、[hooks]、[plugins.*]。消去も承認に掛ける', () => {
     for (const p of [['approval_policy'], ['sandbox_mode'], ['hooks', 'PreToolUse'], ['plugins', 'p', 'enabled'], ['sandbox_workspace_write', 'network_access']]) {
       expect(need(codexTomlId(p), 'codex-config', 'overwrite', 'each'), p.join('.')).toBe(true);
       expect(need(codexTomlId(p), 'codex-config', 'delete', 'each'), p.join('.')).toBe(true);
@@ -287,7 +287,7 @@ describe('承諾と PC に依る項目', () => {
     expect(need(codexTomlId(['model']), 'codex-config', 'overwrite', 'each')).toBe(false);
     expect(need(codexTomlId(['tui', 'theme']), 'codex-config', 'create', 'each')).toBe(false);
   });
-  it('承諾の仕方が auto なら要らない', () => {
+  it('承認の仕方が auto なら要らない', () => {
     expect(need('codex:file:rules/a.rules', 'codex-file', 'create', 'auto')).toBe(false);
     expect(need(codexTomlId(['approval_policy']), 'codex-config', 'create', 'auto')).toBe(false);
   });

@@ -38,7 +38,7 @@ const WINDOWS_NOTE = 'Windows ではシェル連携を使えません。claude �
 /**
  * 外のターミナルで起動した claude を hangar で開けるようにする。
  * 包み方の本体を ~/.agent-hangar/shell/claude.zsh に置き、~/.zshrc の末尾に読み込む 1 行を足す。
- * 足す前に行を見せて承諾を得て、~/.zshrc の控えを取る。
+ * 足す前に行を見せて承認を得て、~/.zshrc の控えを取る。
  * tmux が無い PC では入れない。包み方は hangar の tmux の中で claude を起こすので、入れても素の claude に戻るだけで、効き目が無い。
  */
 export async function runShellInstall(o: ShellOpts): Promise<{ installed: boolean }> {

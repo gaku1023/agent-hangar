@@ -255,7 +255,7 @@ program
 
 // プロジェクトの候補と登録（セットアップのすゝめ、2026-10-15）。
 // Claude Code が Bash から叩くので、対話の問いは作らない。
-// 書く前の見せ方は --dry-run だけで、承諾は Claude の会話の中で取る。
+// 書く前の見せ方は --dry-run だけで、承認は Claude の会話の中で取る。
 // どれも動いているサーバの API を鍵付きで呼び、サーバは起こさない。
 // 終了の符号は、全部成功が 0、一部でも失敗が 1、サーバが止まっているときが 2 である。
 const apiOptions = (o: { port: string; json?: boolean }) => ({ port: Number(o.port), token: readOrCreateToken(hangarHome()), json: o.json ?? false });
@@ -350,14 +350,14 @@ function tmuxPathFor(home: string): string | null {
   return loadSettings(home).tmuxPath ?? whichMuxCmd();
 }
 
-/** 連携の書き込みの、--dry-run と --json と --expect の道（setupPlan.ts）。殻の承諾の窓が使う。 */
+/** 連携の書き込みの、--dry-run と --json と --expect の道（setupPlan.ts）。殻の承認の窓が使う。 */
 function setupCommand(target: SetupTarget, port: number, flags: SetupCommandFlags): Promise<number> {
   const home = hangarHome();
   const env = setupEnvFor({ home, claudeDir: loadSettings(home).claudeDir || defaultClaudeDir(), claudeJson: claudeJsonPath(), zshrc: zshrcPath(), port, tmuxPath: tmuxPathFor(home) });
   return runSetupCommand(target, env, flags, { ask: promptYesNo });
 }
 
-/** 連携の書き込みの旗。殻の承諾の窓が使う。 */
+/** 連携の書き込みの旗。殻の承認の窓が使う。 */
 function setupFlags(c: Command): Command {
   return c
     .option('--dry-run', '書き込まずに、書き込み先と差分だけを表示する')
@@ -416,7 +416,7 @@ config
   .option('--json', '結果を JSON で 1 行出力する（デスクトップアプリが読み取る）')
   .option('--dry-run', '--plan と同じ（戻さずに、書き込み先と差分だけを表示する）')
   .option('--expect <fingerprint>', 'プレビューのフィンガープリント。表示した後に書き込み先が変わっていたら戻さない（デスクトップアプリが使う）')
-  .option('--target <target>', '世代の対象（claude、codex、opencode、agents-skills）。省くと claude')
+  .option('--target <target>', '世代の対象（claude、codex、opencode、agents-skills）。省略時は claude')
   .action(async (generation: string | undefined, o: { yes?: boolean; plan?: boolean; dryRun?: boolean; json?: boolean; expect?: string; target?: string }) => {
     process.exitCode = await runConfigRestore({ name: generation, target: o.target, yes: o.yes, plan: o.plan || o.dryRun, json: o.json, expect: o.expect });
   });

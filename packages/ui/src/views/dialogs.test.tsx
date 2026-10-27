@@ -37,7 +37,7 @@ describe('この PC で再開の確認', () => {
     render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={{ kind: 'resumeHere', sessionId: 's1', plan: p }} resumeHere={presentResumeHere(translator('ja'), p, '/Users/me', Date.now())} /></ActionRoot>);
     return onAction;
   };
-  it('前の PC とこの PC の 2 枚のカード、最後に使った日時、同期されないものの帯を出し、承諾で再開を送る', () => {
+  it('前の PC とこの PC の 2 枚のカード、最後に使った日時、同期されないものの帯を出し、承認で再開を送る', () => {
     const onAction = mountIt();
     const dialog = screen.getByRole('dialog', { name: '他の PC で進めた会話を、この PC で再開しますか' });
     expect(dialog).toHaveTextContent('この会話は work-pc で進めたものです。');
@@ -57,7 +57,7 @@ describe('この PC で再開の確認', () => {
     fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1' });
   });
-  it('手元のトランスクリプトを置き換えるときは、同じ 1 枚に 1 行で言い、承諾は上書きつきで送る（A → B → A）', () => {
+  it('手元のトランスクリプトを置き換えるときは、同じ 1 枚に 1 行で言い、承認は上書きつきで送る（A → B → A）', () => {
     const onAction = mountIt({ ...plan, replace: { kind: 'diverged', localSize: 10, remoteSize: 99 } });
     expect(screen.getByRole('dialog')).toHaveTextContent('この PC で進めた続きはバックアップに保存し、他の PC の続きから再開します。');
     fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
@@ -90,7 +90,7 @@ describe('ConfirmDialog の器', () => {
 });
 
 describe('ConfirmDialog（引き取り）', () => {
-  it('外部ターミナルの claude が終わることと、問いが閉じることを書き、承諾で移動する', () => {
+  it('外部ターミナルの claude が終わることと、問いが閉じることを書き、承認で移動する', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={{ kind: 'adoptSession', sessionId: 's1' }} /></ActionRoot>);
     expect(screen.getByRole('dialog', { name: 'hangar に移動しますか' })).toBeInTheDocument();
@@ -134,7 +134,7 @@ describe('ConfirmDialog（終わった扱いの claude が動き続けている�
 });
 
 describe('ConfirmDialog（停止）', () => {
-  it('作業中であることとシェルタブの数を書き、承諾で止める', () => {
+  it('作業中であることとシェルタブの数を書き、承認で止める', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={{ kind: 'killRun', runId: 'r1', working: true, shellTabs: 2 }} /></ActionRoot>);
     const dialog = screen.getByRole('dialog', { name: '停止しますか' });
@@ -165,7 +165,7 @@ describe('ConfirmDialog（停止）', () => {
 });
 
 describe('ConfirmDialog（一覧から削除）', () => {
-  it('名前と未分類に戻る件数と、他の PC からも削除されることを書き、承諾で送る', () => {
+  it('名前と未分類に戻る件数と、他の PC からも削除されることを書き、承認で送る', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={{ kind: 'unlinkProject', projectId: 'p1' }} project={{ name: 'alpha', sessions: 3 }} /></ActionRoot>);
     const dialog = screen.getByRole('dialog', { name: '一覧から削除しますか' });
@@ -190,7 +190,7 @@ describe('ConfirmDialog（一覧から削除）', () => {
 describe('ConfirmDialog（同じフォルダのプロジェクトをまとめる）', () => {
   const merge = { kind: 'mergeProject' as const, projectId: 'p-win', path: '/Users/me/workspace/shop', into: { projectId: 'p-mac', name: 'shop' },
     roots: [{ deviceName: null, path: '/Users/me/workspace/shop', here: true }, { deviceName: 'DESKTOP-01', path: 'D:\\workspace\\shop', here: false }, { deviceName: null, path: '/home/me/shop', here: false }], sessions: 98, fromSessions: 1 };
-  it('見出しを問いにし、まとめた後の PC ごとの場所と件数を並べ、承諾で merge を付けて送る', () => {
+  it('見出しを問いにし、まとめた後の PC ごとの場所と件数を並べ、承認で merge を付けて送る', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={merge} /></ActionRoot>);
     const dialog = screen.getByRole('dialog', { name: 'shop に統合しますか' });
@@ -213,7 +213,7 @@ describe('ConfirmDialog（同じフォルダのプロジェクトをまとめる
 
 describe('ConfirmDialog（アカウントの切り替え）', () => {
   const sw = (working: boolean) => ({ kind: 'switchAccount' as const, sessionId: 's1', accountId: 'a1', working });
-  it('見出しに名前を出し、止めて同じ会話を再開することと、新しいセッションの既定も変わることを書く。承諾で確認つきの UiAction を出す', () => {
+  it('見出しに名前を出し、止めて同じ会話を再開することと、新しいセッションの既定も変わることを書く。承認で確認つきの UiAction を出す', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={sw(false)} accountName="大学" /></ActionRoot>);
     const dialog = screen.getByRole('dialog', { name: '大学 に切り替えますか？' });
@@ -228,7 +228,7 @@ describe('ConfirmDialog（アカウントの切り替え）', () => {
     render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={sw(true)} accountName="大学" /></ActionRoot>);
     const dialog = screen.getByRole('dialog', { name: '大学 に切り替えますか？' });
     expect(dialog).toHaveTextContent('途中の作業が中断されます。');
-    // 取り消せる操作なので、危険の丸も赤いボタンも使わない。承諾は引き取りの確認と同じ強さである。
+    // 取り消せる操作なので、危険の丸も赤いボタンも使わない。承認は引き取りの確認と同じ強さである。
     expect(dialog.classList.contains('dialog-danger')).toBe(false);
     expect(screen.getByRole('button', { name: '切り替える' })).toHaveClass('btn-primary');
     expect(screen.getByRole('button', { name: '切り替える' })).not.toHaveClass('btn-danger-fill');
@@ -252,13 +252,13 @@ describe('ConfirmDialog（アカウントの切り替え）', () => {
 
 describe('ConfirmDialog（登録を解除する）', () => {
   const rm = { kind: 'removeAccount' as const, accountId: 'a1' };
-  it('見出しに名前を出し、設定ディレクトリは残ることと、このアカウントのセッションはメインアカウントで再開することを書き、承諾で外す', () => {
+  it('見出しに名前を出し、設定ディレクトリは残ることと、このアカウントのセッションはメインアカウントで再開することを書き、承認で外す', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={rm} accountName="大学" /></ActionRoot>);
     const dialog = screen.getByRole('dialog', { name: '大学 の登録を解除しますか？' });
     expect(dialog).toHaveTextContent('登録だけを解除します。設定ディレクトリ（ログインと設定のリンク）は削除しません。');
     expect(dialog).toHaveTextContent('このアカウントで実行したセッションは、次回からメインアカウントで再開します。');
-    // 同じ種類の「一覧から削除」と同じく、赤い丸と赤く塗った承諾のボタンで、並びも「やめる」が承諾の左に寄る。
+    // 同じ種類の「一覧から削除」と同じく、赤い丸と赤く塗った承認のボタンで、並びも「やめる」が承認の左に寄る。
     expect(dialog.classList.contains('dialog-danger')).toBe(true);
     expect(dialog.querySelector('.dialog-disc [data-icon="unlink"]')).not.toBeNull();
     const remove = screen.getByRole('button', { name: '登録を解除' });

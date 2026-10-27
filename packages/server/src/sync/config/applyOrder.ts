@@ -6,7 +6,7 @@ import { parseItemId } from './ids.ts';
 import { applyOrderPath } from './paths.ts';
 
 /**
- * 適用の指示書。承諾した項目を、サーバから殻の命令と hangar config apply へ渡す 1 つのファイルである。
+ * 適用の指示書。承認した項目を、サーバから殻の命令と hangar config apply へ渡す 1 つのファイルである。
  *
  * サーバは `~/.claude` に書かない（全体計画の D9）。書くのは、この指示書を読んでネイティブの確認を出し、
  * 控えを取ってから書く殻の命令と CLI だけである。指示書は、適用が済むか、利用者が取り消したら消す。

@@ -101,7 +101,7 @@ describe('hangar config apply', () => {
     expect(fs.existsSync(applyOrderPath(home))).toBe(true);
   });
 
-  it('承諾されたら書き、控えの世代の名前と戻し方を伝え、指示書を消す', async () => {
+  it('承認されたら書き、控えの世代の名前と戻し方を伝え、指示書を消す', async () => {
     arrive();
     expect(await runConfigApply({ ...opts(), interactive: true, ask: async () => true })).toBe(0);
     expect(read('commands/hello.md')).toBe('say hello');
@@ -160,7 +160,7 @@ describe('hangar config restore', () => {
     expect(JSON.parse(out.join(''))).toMatchObject({ ok: true, generations: [{ name: '20261010-120000', files: 1 }] });
   });
 
-  it('世代を指すと、戻す先と消す先を見せ、承諾で戻す。戻す前の状態も世代に取る', async () => {
+  it('世代を指すと、戻す先と消す先を見せ、承認で戻す。戻す前の状態も世代に取る', async () => {
     arrive();
     await runConfigApply({ ...opts(), yes: true });
     out = [];
@@ -183,7 +183,7 @@ describe('hangar config restore', () => {
     await runConfigApply({ ...opts(), yes: true });
     out = [];
     expect(await runConfigRestore({ ...opts(), name: '20261010-120000', plan: true, json: true })).toBe(0);
-    // 殻の承諾の窓のために、書く先ごとの差分（files）と指紋（fingerprint）も添える。
+    // 殻の承認の窓のために、書く先ごとの差分（files）と指紋（fingerprint）も添える。
     expect(JSON.parse(out.join(''))).toMatchObject({ ok: true, plan: { name: '20261010-120000', restore: ['commands/hello.md'], remove: ['skills/demo/SKILL.md', 'settings.json'], fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/) } });
     expect((JSON.parse(out.join('')) as { plan: { files: { rel: string; op: string }[] } }).plan.files.map((f) => [f.rel, f.op])).toEqual([['commands/hello.md', 'modify'], ['skills/demo/SKILL.md', 'remove'], ['settings.json', 'remove']]);
     expect(read('commands/hello.md')).toBe('say hello');
@@ -210,7 +210,7 @@ describe('hangar config restore', () => {
   });
 });
 
-describe('承諾の窓のための差分と、書く直前の確かめ（--expect）', () => {
+describe('承認の窓のための差分と、書く直前の確かめ（--expect）', () => {
   it('apply の --plan --json は書く先ごとの差分と指紋を添え、--expect が合わなければ書かない', async () => {
     arrive();
     expect(await runConfigApply({ ...opts(), plan: true, json: true })).toBe(0);

@@ -69,7 +69,7 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
     kind: z.enum(['bug', 'request']).describe(tr('report.param.kind')), title: z.string(),
     symptom: section, steps: section, cause: section, fix: section, problem: section, proposal: section, alternatives: section, notes: section,
   });
-  // confirmed を任意にするのは、渡し忘れを SDK の型の失敗でなく、承諾を求める断りの文で返すためである。
+  // confirmed を任意にするのは、渡し忘れを SDK の型の失敗でなく、承認を求める断りの文で返すためである。
   reg('submit_issue_report', D(tr('report.tool.submit')), { draft_id: z.string(), confirmed: z.boolean().optional().describe(tr('report.param.confirmed')) });
   return server;
 }

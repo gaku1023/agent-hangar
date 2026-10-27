@@ -144,7 +144,7 @@ function collectCodex(ctx: TargetContext): Collected {
   return { items: [...items.values()].sort(byId), dropped, unsent, blocked };
 }
 
-/** 承諾が要る Codex のファイル：rules、skills、hooks.json、profile の設定（SPEC 4 章）。 */
+/** 承認が要る Codex のファイル：rules、skills、hooks.json、profile の設定（SPEC 4 章）。 */
 function fileNeedsApproval(rel: string): boolean {
   const top = rel.split('/')[0]!;
   return rel === 'hooks.json' || top === 'rules' || top === 'skills' || rel.endsWith('.config.toml');
@@ -160,7 +160,7 @@ export const codexTarget: ConfigTarget = {
   write: (o) => writeCodex(o),
   planOps: (o, read) => planCodexOps(o, read),
   store: CODEX_STORE,
-  // 承諾の仕方の設定（each か auto）に従う。権限を広げうる設定は、消去も承諾に掛ける。
+  // 承認の仕方の設定（each か auto）に従う。権限を広げうる設定は、消去も承認に掛ける。
   needsApproval: (item, approval) => {
     if (approval !== 'each') return false;
     const parsed = parseCodexItemId(item.id);

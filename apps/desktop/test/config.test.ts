@@ -408,12 +408,12 @@ describe('読み込み画面', () => {
 describe('capabilities', () => {
   const dir = path.join(app, 'src-tauri', 'capabilities');
   const cap = (f: string) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
-  it('置くのは既定と、窓を動かすためと、入力待ちを知らせるためと、起動画面の操作と、UI から殻に頼む操作と、フォルダの選択と、設定の同期の適用と、連携の書き込みと、承諾の窓と、更新と、クラウド同期の参加と解除と、ターミナルのリンクを開くことと、リカバリーキーのファイルへの保存の 13 だけ', () => {
+  it('置くのは既定と、窓を動かすためと、入力待ちを知らせるためと、起動画面の操作と、UI から殻に頼む操作と、フォルダの選択と、設定の同期の適用と、連携の書き込みと、承認の窓と、更新と、クラウド同期の参加と解除と、ターミナルのリンクを開くことと、リカバリーキーのファイルへの保存の 13 だけ', () => {
     expect(fs.readdirSync(dir).sort()).toEqual(['approve.json', 'boot-screen.json', 'default.json', 'remote-cloud.json', 'remote-config-apply.json', 'remote-drag.json', 'remote-link.json', 'remote-notify.json', 'remote-pick-folder.json', 'remote-save-recovery-key.json', 'remote-setup.json', 'remote-shell.json', 'remote-update.json']);
   });
-  // 利用者のファイルを書く承諾は、殻の承諾の窓（approve）の、殻に同梱した頁だけが答えられる。
-  // サーバの頁（main の窓、127.0.0.1:4177）に承諾の命令を与えると、HTTP の API に穴が開いたとき、押されずに書かれうる（D9）。
-  it('承諾の窓の 2 つの命令は、approve の窓の同梱の頁だけに与え、サーバの頁には与えない', () => {
+  // 利用者のファイルを書く承認は、殻の承認の窓（approve）の、殻に同梱した頁だけが答えられる。
+  // サーバの頁（main の窓、127.0.0.1:4177）に承認の命令を与えると、HTTP の API に穴が開いたとき、押されずに書かれうる（D9）。
+  it('承認の窓の 2 つの命令は、approve の窓の同梱の頁だけに与え、サーバの頁には与えない', () => {
     const c = cap('approve.json');
     expect(c.windows).toEqual(['approve']);
     expect(c.remote).toBeUndefined();
@@ -423,7 +423,7 @@ describe('capabilities', () => {
       expect(cap(f).windows, f).not.toContain('approve');
     }
   });
-  it('UI の出どころには、連携の書き込みの 1 つだけを別に与える（書くかどうかは承諾の窓で決まる）', () => {
+  it('UI の出どころには、連携の書き込みの 1 つだけを別に与える（書くかどうかは承認の窓で決まる）', () => {
     const c = cap('remote-setup.json');
     expect(c.windows).toEqual(['main']);
     expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
@@ -535,7 +535,7 @@ describe('capabilities', () => {
     const lib = read('src-tauri/src/lib.rs');
     expect(lib).toMatch(/async fn save_recovery_key\(app: AppHandle, text: String\)/);
   });
-  // 設定の同期の適用と世代へ戻す操作は、どちらも殻がネイティブの確認を出し、承諾されたときだけ CLI（hangar config）を走らせる。
+  // 設定の同期の適用と世代へ戻す操作は、どちらも殻がネイティブの確認を出し、承認されたときだけ CLI（hangar config）を走らせる。
   // 頁から渡せるのは、戻す世代の名前だけで、殻が形を確かめる。サーバは `~/.claude` に書かない（D9）。
   it('UI の出どころには、設定の同期の適用と世代へ戻す 2 つだけを別に与える', () => {
     const c = cap('remote-config-apply.json');
@@ -572,9 +572,9 @@ describe('capabilities', () => {
     expect(req).toContain('Some(&code)');
     expect(req).not.toMatch(/join_request_args\([^)]*code/);
   });
-  it('設定の同期と連携の命令は、見立てを承諾の窓に見せてから CLI を走らせ、書く操作を殻の中で完結させない', () => {
+  it('設定の同期と連携の命令は、見立てを承認の窓に見せてから CLI を走らせ、書く操作を殻の中で完結させない', () => {
     const lib = read('src-tauri/src/lib.rs');
-    // 窓を開く前に --plan で見立てだけを取る。--yes は承諾の窓の答え（approve_answer）からだけ渡す。
+    // 窓を開く前に --plan で見立てだけを取る。--yes は承認の窓の答え（approve_answer）からだけ渡す。
     const apply = lib.slice(lib.indexOf('fn apply_config_flow'), lib.indexOf('fn restore_config_flow'));
     expect(apply.indexOf('"--plan"')).toBeGreaterThan(-1);
     expect(apply.indexOf('"--plan"')).toBeLessThan(apply.indexOf('approval_flow'));
@@ -585,12 +585,12 @@ describe('capabilities', () => {
     const setup = lib.slice(lib.indexOf('fn setup_flow'), lib.indexOf('async fn setup_integration'));
     expect(setup).toContain('plan_args');
     expect(setup).not.toContain('write_args');
-    // 書く引数を作るのは、承諾の窓の答えの write だけである。
+    // 書く引数を作るのは、承認の窓の答えの write だけである。
     const answer = lib.slice(lib.indexOf('async fn approve_answer'), lib.indexOf('\n}\n', lib.indexOf('async fn approve_answer')));
     expect(answer).toContain('approve::LABEL');
     expect(answer.indexOf('window.label() != approve::LABEL')).toBeLessThan(answer.indexOf('write_args'));
     expect(lib.match(/write_args\(/g)).toHaveLength(1);
-    // 承諾の窓はネイティブの確認に戻さない。
+    // 承認の窓はネイティブの確認に戻さない。
     expect(lib).not.toContain('confirm_natively');
   });
   // 命令の名前は、build.rs の一覧、lib.rs の #[tauri::command]、UI と起動画面の呼び出しの 4 か所にある。

@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 describe('runStatuslineInstall', () => {
-  it('承諾すれば追記し、断れば触らない', async () => {
+  it('承認すれば追記し、断れば触らない', async () => {
     const a = claudeDir('<file>');
     const log: string[] = [];
     const r = await runStatuslineInstall({ claudeDir: a.dir, port: 4177, yes: false, home: hangarHome(), ask: async () => true, log: (s) => log.push(s) });
@@ -61,7 +61,7 @@ describe('runStatuslineInstall', () => {
     fs.rmSync(a.home, { recursive: true, force: true });
   });
 
-  it('古い形のスニペットは、承諾を得て差し替える', async () => {
+  it('古い形のスニペットは、承認を得て差し替える', async () => {
     // 目印だけ見て「既に追記されています」で終わると、トークンを argv に載せる古い形が残り続ける。
     const old = [
       STATUSLINE_MARKER,

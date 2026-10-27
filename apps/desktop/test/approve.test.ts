@@ -5,8 +5,8 @@ import { approveEn } from '../../../packages/shared/src/i18n/en/approve.ts';
 import { approveJa } from '../../../packages/shared/src/i18n/ja/approve.ts';
 import { BACKUP_STAMP as CLI_STAMP, SECRET_MASK as CLI_MASK } from '../../../packages/cli/src/setupPlan.ts';
 
-// 承諾の窓（loading/approve.js）。殻が自分の窓で開く、殻に同梱した頁で、サーバを通らない。
-// 頁は UI の辞書を持たないので、承諾の窓の文の写しを持つ。写しが辞書とずれていないことと、見立てからの出し方をここで見る。
+// 承認の窓（loading/approve.js）。殻が自分の窓で開く、殻に同梱した頁で、サーバを通らない。
+// 頁は UI の辞書を持たないので、承認の窓の文の写しを持つ。写しが辞書とずれていないことと、見立てからの出し方をここで見る。
 type Line = { k: string; t: string };
 type View = Record<string, unknown>;
 type Model = {
@@ -46,7 +46,7 @@ const applyView = (lang: string): View => ({
   },
 });
 
-describe('承諾の窓の文', () => {
+describe('承認の窓の文', () => {
   it('写しの表は、UI の辞書（approve.*）とちょうど同じ', () => {
     expect(m.WORDS.ja).toEqual(approveJa);
     expect(m.WORDS.en).toEqual(approveEn);
@@ -73,7 +73,7 @@ const multiView = (lang: string, extra: View = {}): View => ({
   ...extra,
 });
 
-describe('承諾の窓：対象ごと', () => {
+describe('承認の窓：対象ごと', () => {
   it('適用：書く先のファイルに対象の名前を付け、対象の一覧と、対象ごとのバックアップの置き場を出す', () => {
     const v = m.model(multiView('ja'));
     expect(v.showTargets).toBe(true);
@@ -132,7 +132,7 @@ describe('承諾の窓：対象ごと', () => {
   });
 });
 
-describe('承諾の窓の出し方', () => {
+describe('承認の窓の出し方', () => {
   it('何をどこに：ファイル、新規か変更か、何をするかを出し、パスはホームを ~ で書く', () => {
     const v = m.model(setupView('ja'));
     expect(v.title).toBe('MCP サーバーを登録');

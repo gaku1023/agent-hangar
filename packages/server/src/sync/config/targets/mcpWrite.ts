@@ -96,11 +96,11 @@ function prepare(f: McpFlavor, home: string, env: McpHoldEnv): { createdAt: numb
       if (act === 'write') {
         const blob = readInboxBlob(home, item.fromDeviceId, item.sha256);
         if (!blob || sha256(blob) !== item.sha256) throw stale(item.id);
-        try { value = JSON.parse(blob.toString('utf8')); } catch { throw new ApplyError('bad-content', `届いた MCP サーバーの設定が読めません（${item.id}）。`); }
-        if (!mcpValueFits(f.kind, value)) throw new ApplyError('bad-content', `届いた MCP サーバーの設定が、この形として読めません（${item.id}）。`);
-        if (isHangarEntry(f.kind, name, value)) throw new ApplyError('unsafe', `Hangar 自身の MCP サーバーは書きません（${name}）。`);
+        try { value = JSON.parse(blob.toString('utf8')); } catch { throw new ApplyError('bad-content', `受信した MCP サーバーの設定を読み込めません（${item.id}）。`); }
+        if (!mcpValueFits(f.kind, value)) throw new ApplyError('bad-content', `受信した MCP サーバーの設定が、この形式として読み込めません（${item.id}）。`);
+        if (isHangarEntry(f.kind, name, value)) throw new ApplyError('unsafe', `Hangar 自身の MCP サーバーは書き込みません（${name}）。`);
         const hold = holdOfMcp(f.kind, value, env);
-        if (hold) throw new ApplyError('unsafe', `MCP サーバーの起動コマンドがこの PC にないので、書きません（${hold.path}）。`);
+        if (hold) throw new ApplyError('unsafe', `MCP サーバーの起動コマンドがこの PC に無いため、書き込みません（${hold.path}）。`);
       }
     }
     items.push({ item, name, value, plan: { id: item.id, kind: f.itemKind, op: item.op, take: item.take, label: name, marks, act } });
@@ -117,7 +117,7 @@ export function planMcp(f: McpFlavor, o: { home: string }, env: McpHoldEnv = {})
     if (p.op === 'conflict') counts[p.take === 'mine' ? 'conflictMine' : 'conflictRemote']++;
     else counts[p.op as ConfigInboxOp & ('create' | 'overwrite' | 'delete')]++;
   }
-  // 起動コマンドを足す設定なので、承諾の窓では実行の印を付けて見せる。
+  // 起動コマンドを足す設定なので、承認の窓では実行の印を付けて見せる。
   const writes = plans.filter((p) => p.act === 'write');
   return { createdAt, items: plans, counts, byKind: { [f.itemKind]: plans.length }, instructions: 0, exec: writes.filter((p) => p.marks.length > 0) };
 }
@@ -142,14 +142,14 @@ function assertSafeFile(root: string, rel: string): void {
 function readText(file: string): string | null {
   try { return fs.readFileSync(file, 'utf8'); } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw new ApplyError('settings-unreadable', `${path.basename(file)} を読めないので、MCP サーバーの設定は書きません。`);
+    throw new ApplyError('settings-unreadable', `${path.basename(file)} を読み込めないため、MCP サーバーの設定は書き込みません。`);
   }
 }
 
 function editText(f: McpFlavor, text: string | null, rel: string, items: Prepared[]): string {
   const edits: McpEdit[] = items.filter((p) => p.plan.act !== 'keep').map((p) => ({ name: p.name, value: p.value, remove: p.plan.act === 'remove' }));
   try { return f.edit(text, rel, edits); } catch (e) {
-    if (e instanceof ConfigEditError) throw new ApplyError(e.code === 'parse' || e.code === 'unsupported' ? 'settings-unreadable' : 'write-failed', `${rel} を読めない、または書けないので、MCP サーバーの設定は書きません（${e.message}）。`);
+    if (e instanceof ConfigEditError) throw new ApplyError(e.code === 'parse' || e.code === 'unsupported' ? 'settings-unreadable' : 'write-failed', `${rel} を読み込めない、または書き込めないため、MCP サーバーの設定は書き込みません（${e.message}）。`);
     throw e;
   }
 }
@@ -222,7 +222,7 @@ function takeGeneration(o: { home: string; f: McpFlavor; root: string; rel: stri
     fs.writeFileSync(path.join(dir, GENERATION_META), JSON.stringify(meta) + '\n', { mode: 0o600 });
   } catch (e) {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* 作れていなければ消すものも無い */ }
-    throw new ApplyError('write-failed', `控えの世代を作れませんでした（${errText(e)}）。何も書いていません。`);
+    throw new ApplyError('write-failed', `バックアップの世代を作れませんでした（${errText(e)}）。何も書き込んでいません。`);
   }
   return { name, dir };
 }
@@ -246,9 +246,9 @@ function rollback(root: string, rel: string, gen: { name: string; dir: string },
       writeAtomic(dest, fs.readFileSync(saved, 'utf8'), mode);
     } else fs.rmSync(fileOf(root, rel), { force: true });
     fs.rmSync(gen.dir, { recursive: true, force: true });
-    return new ApplyError('write-failed', `書き込みに失敗したので、元の状態へ戻しました（${errText(cause)}）。`);
+    return new ApplyError('write-failed', `書き込みに失敗したため、元の状態に戻しました（${errText(cause)}）。`);
   } catch (e2) {
-    return new ApplyError('write-failed', `書き込みに失敗し（${errText(cause)}）、元へ戻す途中でも失敗しました（${errText(e2)}）。控えは ${gen.dir} にあります。`);
+    return new ApplyError('write-failed', `書き込みに失敗し（${errText(cause)}）、元に戻す途中でも失敗しました（${errText(e2)}）。バックアップは ${gen.dir} にあります。`);
   }
 }
 
@@ -285,7 +285,7 @@ export function writeMcp(f: McpFlavor, o: ApplyOptions, env: McpWriteEnv): Apply
     return done(null);
   }
   assertSafeFile(env.root, rel);
-  if (o.expect !== undefined && fingerprint(env.root, rel) !== o.expect) throw new ApplyError('changed', '確認した後に、書く先のファイルが変わりました。何も書いていません。もう一度、書く中身を確かめてください。');
+  if (o.expect !== undefined && fingerprint(env.root, rel) !== o.expect) throw new ApplyError('changed', '確認した後に、書く先のファイルが変わりました。何も書き込んでいません。もう一度、書く中身を確かめてください。');
 
   // 控えを取る前に、今の中身に当てられるかを確かめる（読めない入れ物には、控えも作らず断る）。
   editText(f, readText(fileOf(env.root, rel)), rel, items);

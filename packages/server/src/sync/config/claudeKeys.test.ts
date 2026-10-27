@@ -77,7 +77,7 @@ describe('対象 claude-keys2', () => {
     expect(judge({ local: new Map(), base: new Map(), remotes: [has], localTargets: new Set(['claude']) }).actions).toEqual([]);
   });
 
-  it('承諾が要るのは skipAutoPermissionPrompt・deniedMcpServers・autoMode だけ（設定が each のとき）', () => {
+  it('承認が要るのは skipAutoPermissionPrompt・deniedMcpServers・autoMode だけ（設定が each のとき）', () => {
     const need = (id: string, op: 'create' | 'overwrite' | 'delete', a: 'each' | 'auto' = 'each') => claudeKeys2Target.needsApproval({ id, kind: 'settings', op }, a);
     expect(need('settings:deniedMcpServers', 'create')).toBe(true);
     expect(need('settings:skipAutoPermissionPrompt', 'overwrite')).toBe(true);

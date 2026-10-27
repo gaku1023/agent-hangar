@@ -14,7 +14,7 @@ import type { ConfigTarget, TargetContext, TargetStore } from './types.ts';
  * - 名前ごとに 1 項目。値は、そのエージェントの設定ファイルの中の形のまま運ぶ。
  * - Hangar 自身の登録、形の読めない値は運ばない。形の読めないものは、同名の項目が届いても上書きしないよう塞ぐ。
  * - 秘密らしい値があれば withheld にして「送らなかった項目」に出す。「それでも送る」を選んだ項目（同じ指紋のとき）は送る。
- * - 入切は設定の `configTargets` で、既定は切。承諾は設定が each のあいだ、消去も含めて全部（起動するコマンドを足すため）。
+ * - 入切は設定の `configTargets` で、既定は切。承認は設定が each のあいだ、消去も含めて全部（起動するコマンドを足すため）。
  */
 
 export type McpRead = { servers: Record<string, unknown>; mtime: number } | 'absent' | 'blocked';
@@ -76,7 +76,7 @@ export function collectMcp(spec: McpTargetSpec, ctx: TargetContext): Collected {
       out.unsent.push({ id: uid, kind: 'secret', itemId: id, label: name, reason: `secret:${found}`, contentSha256: hash, allowed } satisfies UnsentCandidate);
       if (!allowed) withheld = 'secret';
     }
-    // 起動するコマンドを足す項目なので、承諾の窓で実行の印を付けて見せる。
+    // 起動するコマンドを足す項目なので、承認の窓で実行の印を付けて見せる。
     out.items.push({ id, kind: f.itemKind, label: name, sha256: hash, size: content.length, marks: commandOf(f.kind, value) !== null ? ['shell'] : [], content, mtime: r.mtime, target: f.targetOf(name), withheld });
   }
   return out;

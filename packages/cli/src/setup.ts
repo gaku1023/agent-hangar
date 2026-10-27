@@ -56,7 +56,7 @@ function expandTilde(p: string, platform: NodeJS.Platform): string {
 /**
  * データディレクトリ、トークン、端末 ID を用意し、ツールとワークスペースと statusline の状態を報告する。
  * 書き込みは home 配下に限る。
- * statusline への追記はここでは行わず、承諾を得たうえで runStatuslineInstall が行う。
+ * statusline への追記はここでは行わず、承認を得たうえで runStatuslineInstall が行う。
  * プロジェクトの登録はサーバ起動時に行う。
  */
 export function runSetup(opts: { home: string; workspaceRoot?: string; claudeDir?: string; which?: (cmd: string) => string | null; platform?: NodeJS.Platform; readMuxVersion?: (file: string) => string | null }): SetupReport {

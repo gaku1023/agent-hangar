@@ -250,7 +250,7 @@ export type ApiClient = {
   configBackups(): Promise<ConfigBackupsDto>;
   /** 送らなかった項目を、それでも送る。更新後の一覧を返す。 */
   configSendUnsent(id: string): Promise<ConfigUnsentDto>;
-  /** 承諾した項目を適用の指示書にする。前の指示書は置き換わる。 */
+  /** 承認した項目を適用の指示書にする。前の指示書は置き換わる。 */
   configPutOrder(entries: ConfigApplyOrderEntryIn[]): Promise<ConfigApplyOrderDto>;
   configDeleteOrder(): Promise<void>;
   // 会話の保持期間。書き込みは下見の指紋を添え、ほかで変わっていたら 409 で断られる。

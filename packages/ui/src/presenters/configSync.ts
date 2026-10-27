@@ -70,7 +70,7 @@ export type ConfigRowProps = {
   /** 右端に出す小さな字（大きさ、送り主、理由）。 */
   side: string;
   marks: string[];
-  /** 行の札（承諾が要る、保留）。無ければ null。 */
+  /** 行の札（承認が要る、保留）。無ければ null。 */
   tag: { tone: 'warn' | 'off'; text: string } | null;
   /** 行をうすく出す（保留）。 */
   dim: boolean;
@@ -185,10 +185,10 @@ function inboxRow(t: Translate, i: ConfigInboxItemDto): ConfigRowProps {
   };
 }
 
-/** 承諾の表で選ぶ項目か。競合は、採る側を競合の札で選ぶので、承諾の表には入れない。 */
+/** 承認の表で選ぶ項目か。競合は、採る側を競合の札で選ぶので、承認の表には入れない。 */
 export const needsPick = (i: ConfigInboxItemDto): boolean => i.held === null && i.needsApproval && i.op !== 'conflict';
 
-/** 適用の指示書へ入れられる項目か。競合は採る側を選ぶので別、保留は書けない、承諾の要るものは承諾の表で選ぶ。 */
+/** 適用の指示書へ入れられる項目か。競合は採る側を選ぶので別、保留は書けない、承認の要るものは承認の表で選ぶ。 */
 export const appliesNow = (i: ConfigInboxItemDto): boolean => i.held === null && i.op !== 'conflict' && !i.needsApproval;
 
 export type ConfigReviewDialogProps = {
@@ -198,7 +198,7 @@ export type ConfigReviewDialogProps = {
   /** 操作ごとの数を並べた 1 行（「競合 1　削除 2　上書き 3　新規 4」）。 */
   summary: string;
   groups: ConfigGroupProps[];
-  /** 承諾の表で選ぶスキルなどの数と、競合の数。0 でなければ、ダイアログの中から開く入口を出す。 */
+  /** 承認の表で選ぶスキルなどの数と、競合の数。0 でなければ、ダイアログの中から開く入口を出す。 */
   awaiting: number; conflicts: number;
   entries: ConfigApplyOrderEntryIn[];
   working: boolean;
@@ -212,7 +212,7 @@ function presentReview(state: State, store: Store, t: Translate): ConfigReviewDi
   const inbox = store.configDetail.inbox;
   const items = inbox?.items ?? [];
   const o = state.overlay;
-  // 競合、承諾が必要なもの（4a）、そのまま適用するもの、保留（4α、畳む）の順。群の中は操作の危ない順に並べる。
+  // 競合、承認が必要なもの（4a）、そのまま適用するもの、保留（4α、畳む）の順。群の中は操作の危ない順に並べる。
   const byOp = (a: ConfigInboxItemDto, b: ConfigInboxItemDto) => OP_ORDER.indexOf(a.op) - OP_ORDER.indexOf(b.op);
   const live = items.filter((i) => i.held === null);
   const conflicts = live.filter((i) => i.op === 'conflict');
@@ -245,7 +245,7 @@ function presentReview(state: State, store: Store, t: Translate): ConfigReviewDi
   };
 }
 
-// ---- (c) 届いたスキル、コマンド、エージェントの承諾 ----
+// ---- (c) 届いたスキル、コマンド、エージェントの承認 ----
 
 export type ConfigApproveRowProps = {
   id: string; label: string; kind: string; opLabel: string; from: string;
@@ -321,7 +321,7 @@ export function presentConfigDialog(state: State, store: Store): ConfigDialogPro
   }
 }
 
-// ---- 設定の節の「Claude Code の設定を同期」 ----
+// ---- 設定の節の「設定を同期」 ----
 
 export type ConfigBackupRowProps = { name: string; /** 世代の対象（claude、codex、opencode、agents-skills）。Claude の世代は claude。 */ target: string; /** 対象の名前（同じ時刻の世代が対象ごとにあるので、行に出す）。 */ targetLabel: string; when: string; files: string; /** 殻が無いときに、ターミナルで戻すコマンド。 */ command: string };
 export type ConfigSyncSectionProps = {
@@ -336,7 +336,7 @@ export type ConfigSyncSectionProps = {
   /** 適用の待ち（指示書がある）。殻が無いときに打つコマンドと、いつ書かれたか。 */
   order: { count: number; when: string; command: string } | null;
   incoming: { count: number; held: number; from: string | null };
-  /** 承諾の表で選ぶスキルなどの数（承諾の仕方が毎回のとき）。 */
+  /** 承認の表で選ぶスキルなどの数（承認の仕方が毎回のとき）。 */
   awaiting: number;
   conflicts: number;
   /**
@@ -371,7 +371,7 @@ function backupRow(t: Translate, store: Store, g: ConfigBackupGenerationDto): Co
 /** 入切の行の対象。name は設定の configTargets の鍵（サーバの対象名）で、変えない。 */
 type TargetSpec = {
   name: string; key: string;
-  /** 項目が承諾制か（SPEC 4 章）。 */
+  /** 項目が承認制か（SPEC 4 章）。 */
   approve: boolean;
   /** その PC で出すか。Codex と opencode の行は、そのエージェントが有効なときだけ。 */
   shown: (s: SettingsDto | null) => boolean;
@@ -391,10 +391,10 @@ export const TARGET_SPECS: readonly TargetSpec[] = [
   { name: 'claude-hooks', key: 'claudeHooks', approve: true, shown: always, store: CLAUDE_STORE, desc: 'claudeHooks' },
   { name: 'claude-plugins', key: 'claudePlugins', approve: true, shown: always, store: CLAUDE_STORE, desc: 'claudePlugins' },
   { name: 'claude-mcp', key: 'claudeMcp', approve: true, shown: always, store: null, desc: 'mcp' },
-  { name: 'codex-mcp', key: 'codexMcp', approve: true, shown: codexOn, store: CODEX_STORE, desc: 'mcp' },
-  { name: 'opencode-mcp', key: 'opencodeMcp', approve: true, shown: opencodeOn, store: OPENCODE_STORE, desc: 'mcp' },
   { name: 'codex', key: 'codex', approve: true, shown: codexOn, store: CODEX_STORE, desc: 'codex' },
+  { name: 'codex-mcp', key: 'codexMcp', approve: true, shown: codexOn, store: CODEX_STORE, desc: 'mcp' },
   { name: 'opencode', key: 'opencode', approve: true, shown: opencodeOn, store: OPENCODE_STORE, desc: 'opencode' },
+  { name: 'opencode-mcp', key: 'opencodeMcp', approve: true, shown: opencodeOn, store: OPENCODE_STORE, desc: 'mcp' },
   { name: 'agents-skills', key: 'agentsSkills', approve: true, shown: (s) => codexOn(s) || opencodeOn(s), store: { vcs: 'agents-skills', path: '~/.agents/skills' }, desc: 'agentsSkills' },
   { name: 'hangar', key: 'hangar', approve: false, shown: always, store: null, desc: 'hangar' },
 ];

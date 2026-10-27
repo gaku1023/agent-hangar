@@ -250,9 +250,9 @@ function prepare(home: string): { createdAt: number; items: Prepared[] } {
         if (!blob || sha256(blob) !== item.sha256) throw stale(item.id);
         content = blob;
         if (parsed.ref.type !== 'opencode-file') {
-          try { value = JSON.parse(blob.toString('utf8')); } catch { throw new ApplyError('bad-content', `届いた設定の値が読めません（${item.id}）。`); }
-          if (parsed.ref.type === 'opencode-json' && !jsonValueFits(parsed.ref.path, value)) throw new ApplyError('bad-content', `届いた設定の値が、その鍵の型に合いません（${item.id}）。`);
-          if (parsed.ref.type === 'opencode-json' && isMachineBoundValue(parsed.ref.path, value)) throw new ApplyError('bad-content', `届いた設定の値が、この PC では使えない場所を指しています（${item.id}）。`);
+          try { value = JSON.parse(blob.toString('utf8')); } catch { throw new ApplyError('bad-content', `受信した設定の値を読み込めません（${item.id}）。`); }
+          if (parsed.ref.type === 'opencode-json' && !jsonValueFits(parsed.ref.path, value)) throw new ApplyError('bad-content', `受信した設定の値が、キーの型に合いません（${item.id}）。`);
+          if (parsed.ref.type === 'opencode-json' && isMachineBoundValue(parsed.ref.path, value)) throw new ApplyError('bad-content', `受信した設定の値が、この PC では使えないパスを指しています（${item.id}）。`);
         }
       }
     }
@@ -328,7 +328,7 @@ function editConfig(text: string | null, edits: KeyEdit[], jsonc: boolean, name:
       }
     }
   } catch (e) {
-    if (e instanceof ConfigEditError) throw new ApplyError(e.code === 'parse' || e.code === 'unsupported' ? 'settings-unreadable' : 'write-failed', `${name} を読めない、または書けないので、設定の鍵は書きません（${e.message}）。`);
+    if (e instanceof ConfigEditError) throw new ApplyError(e.code === 'parse' || e.code === 'unsupported' ? 'settings-unreadable' : 'write-failed', `${name} を読み込めない、または書き込めないため、設定のキーは書き込みません（${e.message}）。`);
     throw e;
   }
   return cur;
@@ -349,7 +349,7 @@ function buildOps(dir: string, items: Prepared[], readOver?: PlanReader): FileOp
   const read = (name: string): string | null => {
     assertSafeTarget(dir, name);
     if (readOver) return readOver(path.join(dir, name))?.toString('utf8') ?? null;
-    try { return fs.readFileSync(path.join(dir, name), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplyError('settings-unreadable', `${name} を読めないので、設定の鍵は書きません。`); return null; }
+    try { return fs.readFileSync(path.join(dir, name), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplyError('settings-unreadable', `${name} を読み込めないため、設定のキーは書き込みません。`); return null; }
   };
   if (json.length > 0) {
     // 両方あるときは、opencode が勝たせる jsonc に書く。無ければ opencode が新規に作るのと同じ opencode.json。
@@ -398,7 +398,7 @@ function takeGeneration(o: { home: string; dir: string; rels: string[]; baseIds:
     return { name, dir: gdir, created, createdDirs: [...createdDirs] };
   } catch (e) {
     fs.rmSync(gdir, { recursive: true, force: true });
-    throw new ApplyError('write-failed', `控えの世代を作れませんでした（${errText(e)}）。何も書いていません。`);
+    throw new ApplyError('write-failed', `バックアップの世代を作れませんでした（${errText(e)}）。何も書き込んでいません。`);
   }
 }
 
@@ -412,9 +412,9 @@ function rollback(dir: string, gen: { name: string; dir: string; created: string
     for (const rel of gen.created) fs.rmSync(fileOf(dir, rel), { force: true });
     for (const d of [...gen.createdDirs].sort((a, b) => b.split('/').length - a.split('/').length)) { try { fs.rmdirSync(fileOf(dir, d)); } catch { /* 空でなければ残す */ } }
     fs.rmSync(gen.dir, { recursive: true, force: true });
-    return new ApplyError('write-failed', `書き込みに失敗したので、元の状態へ戻しました（${errText(cause)}）。`);
+    return new ApplyError('write-failed', `書き込みに失敗したため、元の状態に戻しました（${errText(cause)}）。`);
   } catch (e2) {
-    return new ApplyError('write-failed', `書き込みに失敗し（${errText(cause)}）、元へ戻す途中でも失敗しました（${errText(e2)}）。控えの世代 ${gen.name} は ${gen.dir} に残してあります。`);
+    return new ApplyError('write-failed', `書き込みに失敗し（${errText(cause)}）、元に戻す途中でも失敗しました（${errText(e2)}）。バックアップの世代 ${gen.name} は ${gen.dir} に残してあります。`);
   }
 }
 
@@ -472,7 +472,7 @@ export function writeOpencode(o: ApplyOptions): ApplyResult {
   return result(gen.name);
 }
 
-/** 書く先ごとの、書いた後の中身（承諾の窓の差分と指紋）。何も書かない。 */
+/** 書く先ごとの、書いた後の中身（承認の窓の差分と指紋）。何も書かない。 */
 export function planOpencodeOps(o: WritePaths, read?: PlanReader): PlannedOp[] {
   const dir = OPENCODE_STORE.root(o);
   const { items } = prepare(o.home);
@@ -481,7 +481,7 @@ export function planOpencodeOps(o: WritePaths, read?: PlanReader): PlannedOp[] {
 
 // ---- 対象 ----
 
-/** 権限に関わる鍵は、消去も承諾に掛ける（拒否を外して権限を広げうる）。 */
+/** 権限に関わる鍵は、消去も承認に掛ける（拒否を外して権限を広げうる）。 */
 function needsApprovalOf(item: { id: string; kind: ConfigItemKind; op: string }, approval: string): boolean {
   if (approval !== 'each') return false;
   const parsed = parseOpencodeId(item.id);

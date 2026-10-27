@@ -82,7 +82,7 @@ describe('opencode の「この PC で再開」', () => {
     expect(calls).toEqual([`prepare ${sessionId}`, `export ${SES}`, `resume ${sessionId}`]);
   });
 
-  it('写しに手元に無い続きがあれば、上書きの承諾が無いうちは大きさを返して尋ねる（local_smaller）', async () => {
+  it('写しに手元に無い続きがあれば、上書きの承認が無いうちは大きさを返して尋ねる（local_smaller）', async () => {
     const remote = exportText('/x', ['m1', 'm2', 'm3']);
     landed('dev-b', remote);
     const mine = exportText('/Users/me/work/alpha', ['m1']);
@@ -91,7 +91,7 @@ describe('opencode の「この PC で再開」', () => {
     expect(calls).toEqual([`prepare ${sessionId}`, `export ${SES}`]);
   });
 
-  it('承諾があれば、手元の書き出しの控えを取り、消してから取り込み、控えを刈って再開する', async () => {
+  it('承認があれば、手元の書き出しの控えを取り、消してから取り込み、控えを刈って再開する', async () => {
     const p = landed('dev-b', exportText('/x', ['m1', 'm2', 'm3']));
     const mine = exportText('/Users/me/work/alpha', ['m1', 'mine']);
     local(mine);

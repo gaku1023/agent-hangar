@@ -260,9 +260,9 @@ describe('id の検査', () => {
   });
 });
 
-describe('承諾（SPEC 4 章）', () => {
+describe('承認（SPEC 4 章）', () => {
   const need = (id: string, kind: ConfigItemKind, op: ConfigInboxOp = 'overwrite', a: 'each' | 'auto' = 'each') => opencodeTarget.needsApproval({ id, kind, op }, a);
-  it('agents・commands・skills・plugins は each で承諾が要る。AGENTS.md と themes は要らない', () => {
+  it('agents・commands・skills・plugins は each で承認が要る。AGENTS.md と themes は要らない', () => {
     for (const r of ['agents/a.md', 'agent/a.md', 'commands/c.md', 'command/c.md', 'skills/s/SKILL.md', 'skill/s/SKILL.md', 'plugins/p.ts', 'plugin/p.ts', 'prompts/x.md']) expect(need(`opencode:file:${r}`, 'opencode-file'), r).toBe(true);
     expect(need('opencode:file:AGENTS.md', 'opencode-file')).toBe(false);
     expect(need('opencode:file:themes/t.json', 'opencode-file')).toBe(false);
@@ -472,7 +472,7 @@ describe('書き戻し：控えと安全', () => {
     expect(get('opencode.jsonc')).toBe('{"model":"mine"}');
     expect(listBackups(home)).toEqual([]);
   });
-  it('見立て：書く数と承諾が要る指示を数える', () => {
+  it('見立て：書く数と承認が要る指示を数える', () => {
     setup([
       { id: 'opencode:file:agents/a.md', kind: 'opencode-file', op: 'create', content: 'x' },
       { id: 'opencode:file:AGENTS.md', kind: 'opencode-file', op: 'create', content: 'y' },

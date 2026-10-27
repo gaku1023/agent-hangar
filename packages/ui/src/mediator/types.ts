@@ -152,7 +152,7 @@ export type Effect =
   | { kind: 'api.registerFolders'; items: FolderRegisterItem[]; workspaceRoot: string | null }
   // Finder でフォルダを選ぶ。defaultPath を省けば、ワークスペースのルートから開く（プロジェクトの作成）。
   | { kind: 'desktop.pickFolder'; defaultPath?: string | null }
-  // 連携の書き込みを殻に頼む（setup_integration）。殻が承諾の窓を出す。ブラウザでは殻が無いので、すぐ setup.done を返す。
+  // 連携の書き込みを殻に頼む（setup_integration）。殻が承認の窓を出す。ブラウザでは殻が無いので、すぐ setup.done を返す。
   | { kind: 'desktop.setup'; target: SetupTarget }
   | { kind: 'api.loadSettingsExtras' }
   | { kind: 'api.syncFocus' }
@@ -199,7 +199,7 @@ export type ConfirmRequest =
   // セッションを消す（本文をゴミ箱へ移し、同期しているほかの PC からも消す）前の確認（試作の 3A）。
   | { kind: 'deleteSession'; sessionId: string }
   // 同じフォルダのプロジェクトをまとめる（サーバの 409 の ProjectSameFolderDto から組む）。
-  // projectId はまとめる方で、承諾するとそのプロジェクトへ path と merge: true を送り直す。into は残す方、roots と件数はまとめた後の姿である。
+  // projectId はまとめる方で、承認するとそのプロジェクトへ path と merge: true を送り直す。into は残す方、roots と件数はまとめた後の姿である。
   | { kind: 'mergeProject'; projectId: string; path: string; into: { projectId: string; name: string }; roots: { deviceName: string | null; path: string; here: boolean }[]; sessions: number; fromSessions: number };
 export type Overlay =
   | { kind: 'none' } | { kind: 'resolveProject'; projectId: string } | { kind: 'palette' }

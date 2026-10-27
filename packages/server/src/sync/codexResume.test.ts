@@ -110,7 +110,7 @@ describe('Codex の会話の「この PC で再開」', () => {
     expect(calls.at(-1)).toBe(`resume:${SID}`);
   });
 
-  it('食い違う：手元が写しの先頭部分でなく、写しも手元の先頭部分でなければ、競合として上書きせず 409 で断る（承諾があっても）', async () => {
+  it('食い違う：手元が写しの先頭部分でなく、写しも手元の先頭部分でなければ、競合として上書きせず 409 で断る（承認があっても）', async () => {
     const mine = Buffer.concat([BODY, RESUME_LINE('/a/alpha')]);
     putRollout(codexHome, REL, mine);
     putRemote(LONGER);

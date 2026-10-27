@@ -391,7 +391,7 @@ describe('3 方向の判定と受け取りの一覧', () => {
     expect(ids(b)).toContain('conflict:settings:model');
   });
 
-  it('届いた項目に実行の印と中身の先頭が付く。skills、commands、agents は承諾の仕方で毎回の承諾を求める', async () => {
+  it('届いた項目に実行の印と中身の先頭が付く。skills、commands、agents は承認の仕方で毎回の承認を求める', async () => {
     const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
     a.write('CLAUDE.md', '# hello');
     a.write('skills/s/SKILL.md', '---\nname: s\nhooks:\n  a: 1\n---\nbody');
@@ -625,7 +625,7 @@ describe('控えの世代と状態', () => {
     expect(a.service.dto().backups).toBe(2);
   });
 
-  it('状態は、切入り、承諾の仕方、届いた数、競合、保留、送らなかった数、最後に送った時刻を持つ', async () => {
+  it('状態は、切入り、承認の仕方、届いた数、競合、保留、送らなかった数、最後に送った時刻を持つ', async () => {
     const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
     expect(a.service.dto()).toEqual({ enabled: true, approval: 'each', workerPending: false, incoming: 0, conflicts: 0, held: 0, unsent: 0, unknownKeyCount: 0, backups: 0, applyOrder: null, lastSentAt: null });
     a.write('CLAUDE.md', 'a'); a.write('commands/x.md', 'a');

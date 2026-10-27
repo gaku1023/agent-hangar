@@ -21,7 +21,7 @@ describe('対象ごとの入切の行（1A、2A）', () => {
   });
   it('有効なら Codex と opencode の行、その MCP、共通の skills を出す', () => {
     const p = presentConfigSection(storeOf(dto(), {}, { settings: settings({ codexEnabled: true, opencodeEnabled: true }) }), NOW);
-    expect(p.targets.rows.map((r) => r.name)).toEqual(['claude-keys2', 'claude-hooks', 'claude-plugins', 'claude-mcp', 'codex-mcp', 'opencode-mcp', 'codex', 'opencode', 'agents-skills', 'hangar']);
+    expect(p.targets.rows.map((r) => r.name)).toEqual(['claude-keys2', 'claude-hooks', 'claude-plugins', 'claude-mcp', 'codex', 'codex-mcp', 'opencode', 'opencode-mcp', 'agents-skills', 'hangar']);
     const only = presentConfigSection(storeOf(dto(), {}, { settings: settings({ codexEnabled: true }) }), NOW);
     expect(only.targets.rows.map((r) => r.name)).toContain('agents-skills');
     expect(only.targets.rows.map((r) => r.name)).not.toContain('opencode');
@@ -38,12 +38,12 @@ describe('対象ごとの入切の行（1A、2A）', () => {
     expect(p.targets.showNew).toBe(true);
     expect(p.targets.rows.every((r) => r.isNew && !r.on)).toBe(true);
   });
-  it('承諾が要る対象に承諾制の札、名前と説明は文面の表から', () => {
+  it('承認が要る対象に承認制の札、名前と説明は文面の表から', () => {
     const p = presentConfigSection(storeOf(dto(), {}, { settings: settings({ codexEnabled: true, opencodeEnabled: true }) }), NOW);
     const by = Object.fromEntries(p.targets.rows.map((r) => [r.name, r]));
-    expect(p.targets.rows.filter((r) => r.approve).map((r) => r.name)).toEqual(['claude-hooks', 'claude-plugins', 'claude-mcp', 'codex-mcp', 'opencode-mcp', 'codex', 'opencode', 'agents-skills']);
+    expect(p.targets.rows.filter((r) => r.approve).map((r) => r.name)).toEqual(['claude-hooks', 'claude-plugins', 'claude-mcp', 'codex', 'codex-mcp', 'opencode', 'opencode-mcp', 'agents-skills']);
     expect(by['claude-hooks']).toMatchObject({ title: 'hooks と statusLine', desc: '自動で実行するコマンドとスクリプト' });
-    expect(by['hangar']).toMatchObject({ title: 'Hangar の設定', desc: '言語、承諾の仕方など。PC ごとの設定は同期しません。' });
+    expect(by['hangar']).toMatchObject({ title: 'Hangar の設定', desc: '言語、承認の仕方など。PC ごとの設定は同期しません。' });
   });
   it('入れ物が Git などで管理されていれば、その入れ物を使う行に札と文を持たせる（vcs が無ければ出さない）', () => {
     const p = presentConfigSection(storeOf(dto({ vcs: [{ target: 'claude', tools: ['git'] }, { target: 'opencode', tools: ['chezmoi'] }] }), {}, { settings: settings({ opencodeEnabled: true }) }), NOW);
@@ -67,16 +67,16 @@ describe('対象ごとの入切の行（1A、2A）', () => {
 
 describe('送らなかった項目を理由ごとの群に（3A）', () => {
   const items = [uns('u1', 'secret', 'secret:aws-key'), uns('u2', 'permission-rule', 'absolute-path'), uns('u3', 'unknown-key', 'unknown-key'), uns('u4', 'secret', 'secret:mcp-credential')];
-  it('シークレット、この PC だけ、未対応のキーの順に群を作り、未対応のキーは件数に入れない', () => {
+  it('シークレット、この PC だけ、扱えないキーの順に群を作り、扱えないキーは件数に入れない', () => {
     const p = presentConfigSection(storeOf(dto({ unsent: 3, unknownKeyCount: 1 }), { unsent: { items } }), NOW);
     expect(p.unsent.count).toBe(3);
     expect(p.unsent.unknown).toBe(1);
     expect(p.unsent.groups.map((g) => [g.id, g.title, g.rows.map((r) => r.id)])).toEqual([
       ['secret', 'シークレットと思われる値を含む項目', ['u1', 'u4']],
       ['pc', 'この PC だけの設定', ['u2']],
-      ['unknown', '未対応のキー', ['u3']],
+      ['unknown', '扱えないキー', ['u3']],
     ]);
-    expect(p.unsent.groups[0]!.note).toBe('シークレットと思われる値があるため、送っていません。送るかどうかは選べます。');
+    expect(p.unsent.groups[0]!.note).toBe('シークレットと思われる値があるため、送信していません。送信するかどうかは選べます。');
   });
   it('MCP の認証情報は形の名前ではなく言葉で言い、それでも送るを出す', () => {
     const p = presentConfigSection(storeOf(dto({ unsent: 4 }), { unsent: { items } }), NOW);
@@ -85,7 +85,7 @@ describe('送らなかった項目を理由ごとの群に（3A）', () => {
     expect(row.sendId).toBe('u4');
     expect(p.unsent.groups[2]!.rows[0]!.sendId).toBeNull();
   });
-  it('ベルの件数にも未対応のキーを数えない。未対応のキーだけなら知らせない', () => {
+  it('ベルの件数にも扱えないキーを数えない。扱えないキーだけなら知らせない', () => {
     const t = (c: ConfigSyncDto) => presentNotices(initialState(), { ...storeOf(c), configSync: c }, NOW).rows.filter((n) => n.kind === 'config');
     expect(t(dto({ unsent: 2, unknownKeyCount: 1 }))[0]!.title).toContain('2');
     expect(t(dto({ unsent: 0, unknownKeyCount: 2 }))).toEqual([]);
@@ -107,9 +107,9 @@ describe('適用内容の確認を対象の札で 1 つに（4B、4a、4α）', 
     if (p?.part !== 'review') throw new Error('part');
     return p;
   };
-  it('競合、承諾が必要なもの、そのまま適用するもの、保留（畳む）の順に群を作る', () => {
+  it('競合、承認が必要なもの、そのまま適用するもの、保留（畳む）の順に群を作る', () => {
     expect(r().groups.map((g) => [g.id, g.count, g.open])).toEqual([['conflict', 1, true], ['approve', 1, true], ['auto', 3, true], ['held', 2, false]]);
-    expect(r().groups[1]!.title).toBe('承諾が必要なもの');
+    expect(r().groups[1]!.title).toBe('承認が必要なもの');
     expect(r().groups[3]!.note).toBe('この PC の条件に合わないため、保留しています。条件が揃うと適用します。');
   });
   it('対象の札は、項目のある対象だけを件数つきで並べる（保留は数えない）', () => {
@@ -120,8 +120,8 @@ describe('適用内容の確認を対象の札で 1 つに（4B、4a、4α）', 
   });
   it('保留の新しい理由と、この PC に無い環境変数の添え書き', () => {
     const row = (id: string) => r().groups.flatMap((g) => g.rows).find((x) => x.id === id)!;
-    expect(row('claude-hooks:hooks').tag).toEqual({ tone: 'off', text: '送信元の PC と OS が違うため、適用していません。' });
-    expect(row('claude-mcp:y').tag?.text).toBe('MCP サーバーの起動コマンドがこの PC にありません。');
+    expect(row('claude-hooks:hooks').tag).toEqual({ tone: 'off', text: '送信元の PC と OS が違うため適用していません。' });
+    expect(row('claude-mcp:y').tag?.text).toBe('この PC に MCP サーバーの起動コマンドがないため適用していません。');
     expect(row('opencode:mcp:x').note).toBe('この PC に API_KEY、TOKEN がありません');
     expect(row('settings:model').note).toBeNull();
   });

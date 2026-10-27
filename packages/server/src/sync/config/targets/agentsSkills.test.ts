@@ -96,7 +96,7 @@ describe('agents-skills: 集める', () => {
   });
 });
 
-describe('agents-skills: 入切と承諾', () => {
+describe('agents-skills: 入切と承認', () => {
   it('Codex か opencode のどちらかが有効で、入のときだけ出す。どちらも無効なら入でも出さない', () => {
     put('a/SKILL.md', 'x');
     const on = (o: Partial<TargetContext>) => enabledTargetNames(ctx(o)).includes('agents-skills');
@@ -108,7 +108,7 @@ describe('agents-skills: 入切と承諾', () => {
     expect(allTargets().find((t) => t.name === 'agents-skills')!.enabled(ctx({ codexEnabled: false, opencodeEnabled: false }))).toBe(false);
   });
 
-  it('承諾は、消去も含めて全部。自動なら要らない', () => {
+  it('承認は、消去も含めて全部。自動なら要らない', () => {
     for (const op of ['create', 'overwrite', 'delete', 'conflict'] as ConfigInboxOp[]) {
       expect(agentsSkillsTarget.needsApproval({ id: 'agents-skills:a', kind: 'agents-skills', op }, 'each')).toBe(true);
       expect(agentsSkillsTarget.needsApproval({ id: 'agents-skills:a', kind: 'agents-skills', op }, 'auto')).toBe(false);
@@ -176,7 +176,7 @@ describe('agents-skills: 書き戻し', () => {
     fs.writeFileSync(path.join(home, 'backups'), 'not a dir');
     inbox({ 'agents-skills:a/SKILL.md': 'x' });
     order(oi('agents-skills:a/SKILL.md', 'create', 'x'));
-    expect(() => runAgentsSkillsApply(opts())).toThrow(/何も書いていません/);
+    expect(() => runAgentsSkillsApply(opts())).toThrow(/何も書き込んでいません/);
     expect(read('a/SKILL.md')).toBeNull();
   });
 

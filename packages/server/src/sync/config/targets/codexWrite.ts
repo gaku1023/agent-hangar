@@ -45,7 +45,7 @@ const isCodexId = (id: string): boolean => id.startsWith('codex:file:') || id.st
 
 type Prepared = { item: ConfigApplyOrderItemDto; plan: ApplyPlanItem; ref: ItemRef; content: Buffer | null; value: unknown };
 
-/** 承諾の窓で「実行や指示」と数える Codex のファイル。 */
+/** 承認の窓で「実行や指示」と数える Codex のファイル。 */
 const isInstructionRel = (rel: string): boolean => rel === 'hooks.json' || SCRIPT_ONLY.has(rel.split('/')[0]!) || rel.endsWith('.config.toml');
 
 function prepare(home: string): { createdAt: number; items: Prepared[] } {
@@ -84,9 +84,9 @@ function prepare(home: string): { createdAt: number; items: Prepared[] } {
         const blob = readInboxBlob(home, item.fromDeviceId, item.sha256);
         if (!blob || sha256(blob) !== item.sha256) throw stale(item.id);
         content = blob;
-        const bad = (): ApplyError => new ApplyError('bad-content', `届いた設定の値が、その鍵の型に合わないか、この PC では使えません（${item.id}）。`);
+        const bad = (): ApplyError => new ApplyError('bad-content', `受信した設定の値が、キーの型に合わないか、この PC では使えません（${item.id}）。`);
         if (ref.type === 'codex-toml') {
-          try { value = JSON.parse(blob.toString('utf8')); } catch { throw new ApplyError('bad-content', `届いた設定の値が読めません（${item.id}）。`); }
+          try { value = JSON.parse(blob.toString('utf8')); } catch { throw new ApplyError('bad-content', `受信した設定の値を読み込めません（${item.id}）。`); }
           if (!valueFitsPath(ref.path, value) || hasAbsolutePath(value)) throw bad();
         } else if (ref.type === 'codex-file' && ref.rel.endsWith('.config.toml') && !profileIsClean(blob)) throw bad();
       }
@@ -151,12 +151,12 @@ function buildOps(codexHome: string, items: Prepared[], read?: PlanReader): File
     assertSafeTarget(codexHome, CODEX_CONFIG_FILE);
     let text: string | null = null;
     if (read) text = read(fileOf(codexHome, CODEX_CONFIG_FILE))?.toString('utf8') ?? null;
-    else try { text = fs.readFileSync(fileOf(codexHome, CODEX_CONFIG_FILE), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplyError('settings-unreadable', 'config.toml を読めないので、設定の鍵は書きません。'); }
+    else try { text = fs.readFileSync(fileOf(codexHome, CODEX_CONFIG_FILE), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplyError('settings-unreadable', 'config.toml を読み込めないため、設定のキーは書き込みません。'); }
     let out = text ?? '';
     for (const e of edits) {
       try { out = e.remove ? removeToml(out, e.path) : setToml(out, e.path, e.value); } catch (err) {
         if (err instanceof ConfigEditError) {
-          if (err.code === 'parse') throw new ApplyError('settings-unreadable', `config.toml を読めないので、設定の鍵は書きません（${err.message}）。`);
+          if (err.code === 'parse') throw new ApplyError('settings-unreadable', `config.toml を読み込めないため、設定のキーは書き込みません（${err.message}）。`);
           throw new ApplyError('bad-content', `config.toml に書けない値です（${e.path.join('.')}、${err.message}）。`);
         }
         throw err;
@@ -182,7 +182,7 @@ function localFingerprint(root: string, rels: string[]): string {
   return sha256(JSON.stringify(parts));
 }
 
-const changedError = (): ApplyError => new ApplyError('changed', '確認した後に、書く先のファイルが変わりました。何も書いていません。もう一度、書く中身を確かめてください。');
+const changedError = (): ApplyError => new ApplyError('changed', '確認した後に、書く先のファイルが変わりました。何も書き込んでいません。もう一度、書く中身を確かめてください。');
 
 function plannedFile(root: string, rel: string, before: Buffer | null, after: Buffer | string | null): PlannedFile {
   const op = after === null ? 'remove' : before === null ? 'create' : 'modify';
@@ -192,7 +192,7 @@ function plannedFile(root: string, rel: string, before: Buffer | null, after: Bu
   return { rel, path: fileOf(root, rel), op, lines, binary };
 }
 
-/** 書く先ごとの、書いた後の中身（承諾の窓の差分と指紋）。何も書かない。 */
+/** 書く先ごとの、書いた後の中身（承認の窓の差分と指紋）。何も書かない。 */
 export function planCodexOps(o: WritePaths, read?: PlanReader): PlannedOp[] {
   const root = codexHomeOf(o);
   const { items } = prepare(o.home);
@@ -253,7 +253,7 @@ function takeGeneration(o: { home: string; root: string; rels: string[]; baseIds
     fs.writeFileSync(path.join(dir, GENERATION_META), JSON.stringify(meta) + '\n', { mode: 0o600 });
   } catch (e) {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* 作れていなければ消すものも無い */ }
-    throw new ApplyError('write-failed', `控えの世代を作れませんでした（${errText(e)}）。何も書いていません。`);
+    throw new ApplyError('write-failed', `バックアップの世代を作れませんでした（${errText(e)}）。何も書き込んでいません。`);
   }
   return { name, dir };
 }
@@ -300,9 +300,9 @@ function rollback(root: string, gen: { name: string; dir: string }, cause: unkno
   try {
     putBack(root, gen.dir);
     fs.rmSync(gen.dir, { recursive: true, force: true });
-    return new ApplyError('write-failed', `${what}に失敗したので、元の状態へ戻しました（${errText(cause)}）。`);
+    return new ApplyError('write-failed', `${what}に失敗したため、元の状態に戻しました（${errText(cause)}）。`);
   } catch (e2) {
-    return new ApplyError('write-failed', `${what}に失敗し（${errText(cause)}）、元へ戻す途中でも失敗しました（${errText(e2)}）。控えは ${gen.dir} にあります。`);
+    return new ApplyError('write-failed', `${what}に失敗し（${errText(cause)}）、元に戻す途中でも失敗しました（${errText(e2)}）。バックアップは ${gen.dir} にあります。`);
   }
 }
 

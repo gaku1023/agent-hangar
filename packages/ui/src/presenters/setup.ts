@@ -13,7 +13,7 @@ const reasonKey = (code: string | null) => (code !== null && Object.hasOwn(REASO
 
 /**
  * 連携の書き込みの結果を、右下の知らせにする。null なら知らせない。
- * 書けたときは承諾の窓が完了の段を出しているので、知らせない。取り消したときも、利用者が自分で閉じたので知らせない。
+ * 書けたときは承認の窓が完了の段を出しているので、知らせない。取り消したときも、利用者が自分で閉じたので知らせない。
  * 済んでいた、書けなかった、は理由の鍵から文を引き、知らない鍵は殻の文（CLI の文は日本語だけ）をそのまま出す。
  */
 export function setupNotice(t: Translate, r: SetupShellOutcome): { level: 'info' | 'error'; message: string } | null {

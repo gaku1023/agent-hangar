@@ -40,7 +40,7 @@ export type StatusFilter = NonNullable<SearchFilter['status']>;
  * account、effort、permissionMode、worktree、addDirs は Claude Code だけのもので、opencode に付けると断る。
  */
 export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string; agent?: AgentKind; mode?: string; autoApprove?: boolean; prepKey?: string; prepChoice?: import('./launchPrep.ts').LaunchPrepChoice };
-/** 設定の同期（作り直した実装）のダイアログ。send は送るものの一覧、review は適用内容の確認、approve は届いたスキルなどの承諾、conflicts は競合。 */
+/** 設定の同期（作り直した実装）のダイアログ。send は送るものの一覧、review は適用内容の確認、approve は届いたスキルなどの承認、conflicts は競合。 */
 export type ConfigSyncPart = 'send' | 'review' | 'approve' | 'conflicts';
 export type PaletteCommand = { id: string; label: string };
 export type Settings = SettingsDto;
@@ -160,7 +160,7 @@ export type UiAction =
   | { type: 'diff.open'; sessionId: SessionId; file?: string } | { type: 'diff.select'; file: string } | { type: 'diff.source'; source: 'git' | 'session' }
   | { type: 'session.promote.open'; id: SessionId } | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean; /** 作る場所。作成場所（設定）が空のときだけ渡す。 */ parent?: string }
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
-  // 「この PC で再開」を押した。確認に出すもの（前の PC とこの PC）を取りに行き、確認の 1 枚を出す。承諾で session.resumeHere を送る。
+  // 「この PC で再開」を押した。確認に出すもの（前の PC とこの PC）を取りに行き、確認の 1 枚を出す。承認で session.resumeHere を送る。
   | { type: 'session.resumeHere.open'; id: SessionId }
   // ほかの PC で動いている会話を、相手に停止を頼んでから引き継ぐ。force は応答のない相手を頼まずに引き継ぐとき。
   | { type: 'session.takeover.start'; id: SessionId; force: boolean }
@@ -208,7 +208,7 @@ export type UiAction =
    */
   | { type: 'cloud.recovery.ask' } | { type: 'cloud.recovery.reissue' } | { type: 'cloud.recovery.saved' } | { type: 'cloud.recovery.reveal' }
   | { type: 'cloud.recovery.confirm'; tail: string } | { type: 'cloud.recovery.retry' } | { type: 'cloud.recovery.close' }
-  // 設定の同期。送る一覧を承諾するとスイッチが入り（send.confirm）、適用は選んだ項目を指示書にしてから殻のネイティブの確認へ渡す。
+  // 設定の同期。送る一覧を承認するとスイッチが入り（send.confirm）、適用は選んだ項目を指示書にしてから殻のネイティブの確認へ渡す。
   | { type: 'configSync.open'; part: ConfigSyncPart }
   | { type: 'configSync.send.confirm' }
   | { type: 'configSync.apply'; entries: ConfigApplyOrderEntryIn[] }
@@ -292,7 +292,7 @@ export type UiAction =
   // psmux（Windows）と tmux の再確認。サーバが探し直し、見つかれば設定の tmuxPath を埋める。
   // proceed は、始める前の案内で止めていた操作（新しいセッション、再開）を、見つかったあとに進める。
   | { type: 'mux.recheck' } | { type: 'mux.guide.proceed' }
-  // 連携の書き込み（MCP、シェル連携、ステータスライン）を殻に頼む。殻が承諾の窓で見せ、承諾されたときだけ CLI が書く。ブラウザでは何もしない。
+  // 連携の書き込み（MCP、シェル連携、ステータスライン）を殻に頼む。殻が承認の窓で見せ、承認されたときだけ CLI が書く。ブラウザでは何もしない。
   | { type: 'setup.run'; target: SetupTarget }
   // Claude Code のアカウント。load は一覧を取り直す。choose は新しいセッションの既定（いまのアカウント）を変える。
   // switchSession はそのセッションを別のアカウントで再開する。working は作業中かで、確認の文に使う。confirmed が無ければ先に確認を出す。

@@ -111,7 +111,7 @@ describe('この PC で再開の確認（presentResumeHere）', () => {
       takeover: null,
     });
   });
-  it('手元のトランスクリプトを置き換えるときは、バックアップに残すことを 1 行で言い、承諾は上書きつきにする（A → B → A）', () => {
+  it('手元のトランスクリプトを置き換えるときは、バックアップに残すことを 1 行で言い、承認は上書きつきにする（A → B → A）', () => {
     const ahead = presentResumeHere(ja, { ...plan, replace: { kind: 'ahead', localSize: 10, remoteSize: 99 } }, '/Users/me', NOW);
     expect(ahead).toMatchObject({ replace: 'この PC の古いトランスクリプトはバックアップに保存し、他の PC で進めた続きから再開します。', overwrite: true, action: 'この PC で再開' });
     const diverged = presentResumeHere(ja, { ...plan, replace: { kind: 'diverged', localSize: 10, remoteSize: 99 } }, '/Users/me', NOW);

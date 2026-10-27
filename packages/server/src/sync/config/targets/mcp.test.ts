@@ -242,8 +242,8 @@ describe('受け手の保留', () => {
   });
 });
 
-describe('承諾', () => {
-  it('設定が each のあいだは、作る・上書き・消去のどれも承諾が要る。auto なら要らない', () => {
+describe('承認', () => {
+  it('設定が each のあいだは、作る・上書き・消去のどれも承認が要る。auto なら要らない', () => {
     for (const t of [claudeMcpTarget, codexMcpTarget, opencodeMcpTarget]) {
       for (const op of ['create', 'overwrite', 'delete', 'conflict'] as const) {
         expect(t.needsApproval({ id: 'x:y', kind: 'claude-mcp', op }, 'each'), `${t.name} ${op}`).toBe(true);

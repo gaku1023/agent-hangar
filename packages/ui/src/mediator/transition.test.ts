@@ -1256,7 +1256,7 @@ describe('外で動くセッションを hangar で開く', () => {
     expect(r.effects).toEqual([{ kind: 'api.attach', sessionId: 's1' }]);
     expect(r.state.launch).toEqual({ kind: 'submitting' });
   });
-  it('引き取りは先に確認を出し、承諾で送る。やめれば何も送らない', () => {
+  it('引き取りは先に確認を出し、承認で送る。やめれば何も送らない', () => {
     const a = run([action({ type: 'session.adopt', id: 's1' })]);
     expect(a.effects).toEqual([]);
     expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'adoptSession', sessionId: 's1' } });
@@ -1288,7 +1288,7 @@ describe('プロジェクトを一覧から削除する確認', () => {
     // 戻ったダイアログを閉じれば、何も出ない。
     expect(run([action({ type: 'overlay.close' })], b.state).state.overlay).toEqual({ kind: 'none' });
   });
-  it('承諾で送り、ダイアログも確認も閉じる', () => {
+  it('承認で送り、ダイアログも確認も閉じる', () => {
     const a = run([action({ type: 'project.resolve.open', id: 'p1' }), action({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
     const b = run([action({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' }, confirmed: true })], a.state);
     expect(b.effects).toEqual([{ kind: 'api.resolveProject', projectId: 'p1', action: { kind: 'unlink' } }]);
@@ -1334,7 +1334,7 @@ describe('同じフォルダのプロジェクトをまとめる確認', () => {
     merged: { roots: [{ deviceName: null, path: '/w/shop', here: true }, { deviceName: 'DESKTOP-01', path: 'D:\\shop', here: false }], sessions: 98, fromSessions: 1 },
   };
   const merge = { kind: 'mergeProject' as const, projectId: 'p-win', path: '/w/shop', into: { projectId: 'p-mac', name: 'shop' }, roots: conflict.merged.roots, sessions: 98, fromSessions: 1 };
-  it('409 が届くと確認を出し、承諾で merge を付けて送り直して閉じる', () => {
+  it('409 が届くと確認を出し、承認で merge を付けて送り直して閉じる', () => {
     const a = run([action({ type: 'project.resolve.open', id: 'p-win' }), action({ type: 'project.resolve', id: 'p-win', action: { kind: 'repoint', path: '/w/shop/' } })]);
     expect(a.effects).toEqual([{ kind: 'api.resolveProject', projectId: 'p-win', action: { kind: 'repoint', path: '/w/shop/' } }]);
     const b = run([runtime({ type: 'api.conflict', kind: 'sameFolder', conflict })], a.state);
@@ -1379,7 +1379,7 @@ describe('停止の確認', () => {
     expect(closed.effects).toEqual([]);
     expect(closed.state).toEqual(initialState());
   });
-  it('シェルタブがあれば休みでも確認を出し、承諾で止めて確認を閉じる', () => {
+  it('シェルタブがあれば休みでも確認を出し、承認で止めて確認を閉じる', () => {
     const a = run([action({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 2 })]);
     expect(a.effects).toEqual([]);
     expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'killRun', runId: 'r1', working: false, shellTabs: 2 } });
@@ -1390,7 +1390,7 @@ describe('停止の確認', () => {
 });
 
 describe('この PC で再開', () => {
-  it('この PC で再開の 409 は確認ダイアログになり、承諾で上書きを送る', () => {
+  it('この PC で再開の 409 は確認ダイアログになり、承認で上書きを送る', () => {
     const a = run([action({ type: 'session.resumeHere', id: 's1' })]);
     expect(a.effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's1', overwrite: false }]);
     expect(a.state.overlay).toEqual({ kind: 'none' });
@@ -1423,7 +1423,7 @@ describe('この PC で再開', () => {
     // 409 は要求が終わった合図でもある。ここで解かないと確認に答えられない。
     const b = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1, remoteSize: 2 })], a.state);
     expect(b.state.launch).toEqual({ kind: 'idle' });
-    // 承諾の二連打も 1 回しか飛ばない。
+    // 承認の二連打も 1 回しか飛ばない。
     const c = run([action({ type: 'session.resumeHere', id: 's1', overwrite: true }), action({ type: 'session.resumeHere', id: 's1', overwrite: true })], b.state);
     expect(c.effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's1', overwrite: true }]);
     expect(c.state.launch).toEqual({ kind: 'submitting' });
@@ -1450,7 +1450,7 @@ describe('この PC で再開', () => {
     expect(r.state.overlay).toEqual({ kind: 'palette' });
     expect(r.effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's1', overwrite: true }]);
   });
-  it('押したら確認に出すものを取りに行き、届いたら確認の 1 枚を出し、承諾で写して再開する', () => {
+  it('押したら確認に出すものを取りに行き、届いたら確認の 1 枚を出し、承認で写して再開する', () => {
     const plan = { sessionId: 's1', from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\a', lastAt: 1 }, to: { deviceName: 'mac', platform: 'darwin', path: '/w/a' }, replace: null, lock: null };
     const a = run([action({ type: 'session.resumeHere.open', id: 's1' })]);
     expect(a.effects).toEqual([{ kind: 'api.resumeHerePlan', sessionId: 's1' }]);
@@ -1574,7 +1574,7 @@ describe('ダイアログを開いている間の画面の移動', () => {
     const launched = run([action({ type: 'session.new.submit', params: { projectId: 'p1' } }), runtime({ type: 'launch.done', sessionId: 's9', runId: 'r9' })], holding[2]![1]);
     expect(launched.state.overlay).toEqual({ kind: 'none' });
     expect(launched.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's9' } });
-    // 確認の承諾の後の移動（引き取りの完了）。
+    // 確認の承認の後の移動（引き取りの完了）。
     const adopt = run([action({ type: 'session.adopt', id: 's1' })], at).state;
     const adopted = run([action({ type: 'session.adopt', id: 's1', confirmed: true }), runtime({ type: 'launch.done', sessionId: 's1', runId: 'r1' })], adopt);
     expect(adopted.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
@@ -1922,14 +1922,14 @@ describe('アカウント', () => {
     expect(a.state.launch).toEqual({ kind: 'idle' });
     expect(a.effects).toEqual([]);
   });
-  it('切り替えを承諾したら、確認を閉じ、launch を submitting にして Effect を 1 つ出す', () => {
+  it('切り替えを承認したら、確認を閉じ、launch を submitting にして Effect を 1 つ出す', () => {
     const asked = run([action({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false })]);
     const b = run([action({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false, confirmed: true })], asked.state);
     expect(b.state.overlay).toEqual({ kind: 'none' });
     expect(b.state.launch).toEqual({ kind: 'submitting' });
     expect(b.effects).toEqual([{ kind: 'api.accounts.switchSession', sessionId: 's1', accountId: 'a1' }]);
   });
-  it('送信中の切り替え（承諾）は何もしない', () => {
+  it('送信中の切り替え（承認）は何もしない', () => {
     const busy: State = { ...initialState(), launch: { kind: 'submitting' } };
     const r = run([action({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false, confirmed: true })], busy);
     expect(r.effects).toEqual([]);

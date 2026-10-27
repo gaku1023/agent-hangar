@@ -54,6 +54,8 @@ export const FORBIDDEN_JA: ReadonlyArray<{ pattern: RegExp; use: string }> = [
   { pattern: /(?<!暗号)鍵/, use: 'キー' },
   { pattern: /秘密/, use: 'シークレット、暗号鍵' },
   { pattern: /道具/, use: 'ツール' },
+  { pattern: /承諾/, use: '承認' },
+  { pattern: /送らなかった|それでも送る/, use: '送信しなかった、それでも送信' },
   { pattern: /持ち主/, use: '所有者' },
   { pattern: /手元|相手/, use: 'この PC、他の PC' },
   { pattern: /読むだけ/, use: '読み取り専用' },

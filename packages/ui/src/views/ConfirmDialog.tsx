@@ -268,7 +268,7 @@ function TakeoverProgress(props: { p: TakeoverProps }) {
  * 「この PC で再開」の確認（試作の 2a の A、2b の Y、2c の P）。
  * 前の PC とこの PC の 2 枚のカードを矢印でつなぎ、下に同期されないものの黄の帯を置く。毎回出す。
  * この PC で場所が決まらないときは、再開のボタンを押せなくして理由を添える。
- * この PC のトランスクリプトを置き換えるとき（A → B → A）は、バックアップに残すことを 1 行で言い、承諾を上書きつきで送る。
+ * この PC のトランスクリプトを置き換えるとき（A → B → A）は、バックアップに残すことを 1 行で言い、承認を上書きつきで送る。
  */
 function ResumeHereConfirm(props: { p: ResumeHereProps; cancel: ReactNode; close: () => void }) {
   const emit = useEmit();

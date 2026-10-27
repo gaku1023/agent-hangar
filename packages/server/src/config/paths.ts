@@ -56,8 +56,8 @@ export type Settings = {
    */
   allowExternalSummarizer: boolean;
   /**
-   * 他の PC から届いた skills、commands、agents の承諾の仕方（作り直した設定の同期。sync/config/）。
-   * each は項目ごとに毎回承諾し、auto は自動で適用する。項目が無いうちは each として読む。
+   * 他の PC から届いた skills、commands、agents の承認の仕方（作り直した設定の同期。sync/config/）。
+   * each は項目ごとに毎回承認し、auto は自動で適用する。項目が無いうちは each として読む。
    * 実行される指示なので、既定では自動にしない。
    */
   configApproval?: ConfigApproval;

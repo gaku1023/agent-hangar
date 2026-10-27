@@ -108,7 +108,7 @@ export function fakeApiExtras(): Extras {
     saveMemo: vi.fn(async (projectId: string, markdown: string) => ({ projectId, markdown, updatedAt: 2 })),
     instructions: vi.fn(async (projectId: string) => ({ projectId, available: true, files: [] })),
     openInstruction: vi.fn(async () => {}),
-    setupGuide: vi.fn(async () => ({ path: '~/.agent-hangar/setup-guide.md', version: '0.7.0', sha: '3f9a1c2e', prompt: '~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで、私の環境を診断して。書き換えは私が承諾してから' })),
+    setupGuide: vi.fn(async () => ({ path: '~/.agent-hangar/setup-guide.md', version: '0.7.0', sha: '3f9a1c2e', prompt: '~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで、私の環境を診断して。書き換えは私が承認してから' })),
     openSetupGuide: vi.fn(async () => {}),
     addArtifact: vi.fn(async () => unused()),
     openArtifact: vi.fn(async () => {}),

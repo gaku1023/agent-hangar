@@ -21,7 +21,7 @@ import { remoteTranscriptPath } from './puller.ts';
  * export の JSON は場所（info.location.directory）を含むので、同じ中身でも PC ごとに大きさが変わるからである。
  * - 写しのメッセージが全部手元にある（写しが古いか同じ）なら、取り込まずに手元の会話を開く。
  * - 手元に会話が無ければ、そのまま取り込む。
- * - 写しに手元に無い続きがあれば、Claude と同じく上書きの承諾を求め（local_smaller）、承諾があれば手元の書き出しの控えを取ってから置き換える。
+ * - 写しに手元に無い続きがあれば、Claude と同じく上書きの承認を求め（local_smaller）、承認があれば手元の書き出しの控えを取ってから置き換える。
  *   既にある ID への import は上書きされない（実物の 2.1.4）ので、置き換えは消してから入れる（provider/opencode/transfer.ts）。
  */
 

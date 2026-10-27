@@ -59,7 +59,7 @@ describe('runMcpInstall', () => {
     expect(fs.existsSync(claudeJson)).toBe(false);
   });
 
-  // 解除は claude mcp remove に任せず、登録と同じ守りで自分で書く（承諾の窓で見せた差分と同じ中身を書くため）。
+  // 解除は claude mcp remove に任せず、登録と同じ守りで自分で書く（承認の窓で見せた差分と同じ中身を書くため）。
   it('解除は hangar だけを消し、控えを取る。claude が無くても消せる', async () => {
     fs.writeFileSync(claudeJson, JSON.stringify({ userID: 'u1', mcpServers: { other: { type: 'stdio' }, hangar: { type: 'http' } } }), { mode: 0o600 });
     const u = await runMcpUninstall({ home, claudeJson });

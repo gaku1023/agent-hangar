@@ -82,7 +82,7 @@ const TOP: Readonly<Record<string, KeyClass | 'table' | 'plugins' | 'skip'>> = {
   mcp_servers: 'skip',
 };
 
-/** 他の PC から届いたとき承諾が要る鍵の先頭（SPEC 4 章）。権限を広げうる鍵と、実行に関わる鍵。 */
+/** 他の PC から届いたとき承認が要る鍵の先頭（SPEC 4 章）。権限を広げうる鍵と、実行に関わる鍵。 */
 const APPROVAL_TOP = new Set(['approval_policy', 'approvals_reviewer', 'sandbox_mode', 'default_permissions', 'sandbox_workspace_write', 'hooks', 'plugins']);
 
 const isTableValue = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);

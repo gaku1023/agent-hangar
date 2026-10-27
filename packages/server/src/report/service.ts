@@ -7,7 +7,7 @@ import { composeReport, parseReportInput, type ReportEnv } from './compose.ts';
 import { newIssueUrl, searchSimilar, type FetchFn, type SimilarIssue } from './github.ts';
 import { makeRedactor, type RedactContext } from './redact.ts';
 
-/** 下書きを置いておく長さ。利用者が読んで承諾するのに足り、古い下書きを送らない長さにする。 */
+/** 下書きを置いておく長さ。利用者が読んで承認するのに足り、古い下書きを送らない長さにする。 */
 export const DRAFT_TTL_MS = 30 * 60_000;
 
 export type ReportServiceDeps = {
@@ -74,7 +74,7 @@ export class ReportService {
   }
 
   /**
-   * 承諾の検査を下書きの検索より先に行う。承諾が無ければ下書きは残し、承諾を得た後にそのまま送れるようにする。
+   * 承認の検査を下書きの検索より先に行う。承認が無ければ下書きは残し、承認を得た後にそのまま送れるようにする。
    * gh で作るのに失敗したらブラウザへ回す。送り先へ届いたかは分からないので、下書きは送る操作を始めた時点で消す。
    */
   async submit(args: Record<string, unknown>): Promise<SubmitResult> {

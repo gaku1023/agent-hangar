@@ -1764,7 +1764,7 @@ describe('アカウントの切り替え（セッション画面）', () => {
     await flush();
   };
 
-  it('ヘッダで別のアカウントを選ぶと確認が出て、承諾すると switchAccount を呼び、確認が閉じる', async () => {
+  it('ヘッダで別のアカウントを選ぶと確認が出て、承認すると switchAccount を呼び、確認が閉じる', async () => {
     const switchAccount = vi.fn(fakeApiExtras().switchAccount);
     await open({ switchAccount });
     await chooseUniv();

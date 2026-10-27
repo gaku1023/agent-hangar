@@ -77,11 +77,11 @@ describe('hangar の好み：集める', () => {
   });
 });
 
-describe('hangar の好み：承諾', () => {
-  it('configApproval の変更だけ承諾になる。ほかの鍵は設定が each でも要らない', () => {
+describe('hangar の好み：承認', () => {
+  it('configApproval の変更だけ承認になる。ほかの鍵は設定が each でも要らない', () => {
     const n = (id: string, approval: 'each' | 'auto', op: 'create' | 'overwrite' | 'delete' | 'conflict' = 'overwrite') => hangarTarget.needsApproval({ id, kind: 'hangar-pref', op }, approval);
     expect(n('hangar:configApproval', 'each')).toBe(true);
-    // 今の設定が auto でも、承諾の仕方そのものを変える項目は黙って通さない。
+    // 今の設定が auto でも、承認の仕方そのものを変える項目は黙って通さない。
     expect(n('hangar:configApproval', 'auto')).toBe(true);
     expect(n('hangar:configApproval', 'each', 'delete')).toBe(false);
     for (const k of HANGAR_PREF_KEYS.filter((x) => x !== 'configApproval')) {

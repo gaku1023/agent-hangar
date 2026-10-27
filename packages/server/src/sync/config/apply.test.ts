@@ -496,7 +496,7 @@ describe('指示書の読み書きの補助', () => {
   });
 });
 
-describe('承諾の窓に見せる中身（ファイルごとの差分）と、書く直前の確かめ', () => {
+describe('承認の窓に見せる中身（ファイルごとの差分）と、書く直前の確かめ', () => {
   function prepared(): void {
     write('commands/over.md', 'old\n');
     write('commands/del.md', 'bye\n');

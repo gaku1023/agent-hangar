@@ -80,7 +80,7 @@ export async function runMcpInstall(o: { home: string; port: number; claudeJson:
 
 /**
  * user スコープの hangar を消す。claude mcp remove に任せず、登録と同じ守り（ロック、リンクの実体、権限、控え）で自分で書く。
- * 承諾の窓で見せた差分と、書く中身を同じにするためである（トークンを渡さないので、argv の心配はもともと無い）。
+ * 承認の窓で見せた差分と、書く中身を同じにするためである（トークンを渡さないので、argv の心配はもともと無い）。
  * check は、ロックを取って読んだ中身が見せたときと同じかを確かめる穴で、投げたら書かない。
  */
 export async function runMcpUninstall(o: { home: string; claudeJson: string; lockWaitMs?: number; check?: (cur: Record<string, unknown>) => void; now?: Date }): Promise<{ ok: boolean; message: string; backup?: string | null }> {

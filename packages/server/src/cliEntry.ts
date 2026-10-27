@@ -42,7 +42,7 @@ export { ApplyError, planApply, planApplyFiles, planRestore, planRestoreFiles, r
 export { listBackups } from './sync/config/backups.ts';
 export { listAllBackups, planRestoreTarget, planRestoreTargetFiles, runRestoreTarget, type ApplyAllPlan } from './sync/config/applyAll.ts';
 export { defaultTargetPaths } from './sync/config/targets/paths.ts';
-// 承諾の窓に見せる差分（hangar mcp、shell、statusline の --dry-run）。設定の同期の競合と同じ行の形で作る。
+// 承認の窓に見せる差分（hangar mcp、shell、statusline の --dry-run）。設定の同期の競合と同じ行の形で作る。
 export { diffLines } from './config/jsonTextEdit.ts';
 export { openDb, type Db } from './db/open.ts';
 // OS の違いを吸う口。CLI の hangar open（ブラウザを開く）と hangar setup（道具を探す）が使う。

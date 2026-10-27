@@ -6,7 +6,7 @@ import { readUtf8Text } from '../../../config/textEncoding.ts';
 import { hasMode } from '../../../platform/secure.ts';
 
 // statusline スクリプトへの追記は、hangar が ~/.claude 配下に書く唯一の操作である。
-// ここでは読み取りと、承諾を得た後に呼ばれる追記だけを提供し、問いかけは CLI が担う。
+// ここでは読み取りと、承認を得た後に呼ばれる追記だけを提供し、問いかけは CLI が担う。
 
 export const STATUSLINE_MARKER = '# agent-hangar: 使用量をローカルサーバへ渡す。失敗は無視する。';
 
@@ -370,7 +370,7 @@ function writeWithBackup(scriptPath: string, next: string, now: Date): string {
  * バックアップを取ってから、shebang の直後（無ければ先頭）にスニペットを入れる。
  * 既に入っていて今の形と違えば、その範囲だけを差し替える。
  * 目印だけを見て何もしないと、トークンを argv に載せる古い形が残り続けるためである。
- * 書く中身は planStatuslineSnippet が決める（承諾の窓で見せる差分と同じもの）。
+ * 書く中身は planStatuslineSnippet が決める（承認の窓で見せる差分と同じもの）。
  */
 export function appendStatuslineSnippet(scriptPath: string, port: number, now: Date = new Date()): { changed: boolean; backup: string | null } {
   // UTF-8 でないスクリプト（UTF-16 など）は、UTF-8 で書き戻すと壊れるので触らない（config/textEncoding.ts）。

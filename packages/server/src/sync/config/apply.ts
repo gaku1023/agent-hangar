@@ -138,8 +138,8 @@ function prepare(home: string): { createdAt: number; items: Prepared[] } {
         if (!blob || crypto.createHash('sha256').update(blob).digest('hex') !== item.sha256) throw stale(item.id);
         content = blob;
         if (parsed.ref.type === 'settings') {
-          try { value = JSON.parse(blob.toString('utf8')); } catch { throw new ApplyError('bad-content', `届いた設定の値が読めません（${item.id}）。`); }
-          if (!contentFits(parsed.ref.key, value)) throw new ApplyError('bad-content', `届いた設定の値が、その鍵の型に合いません（${item.id}）。`);
+          try { value = JSON.parse(blob.toString('utf8')); } catch { throw new ApplyError('bad-content', `受信した設定の値を読み込めません（${item.id}）。`); }
+          if (!contentFits(parsed.ref.key, value)) throw new ApplyError('bad-content', `受信した設定の値が、キーの型に合いません（${item.id}）。`);
         }
       }
     }
@@ -269,7 +269,7 @@ export function takeGeneration(o: { home: string; claudeDir: string; rels: strin
     fs.writeFileSync(path.join(dir, GENERATION_META), JSON.stringify(meta) + '\n', { mode: 0o600 });
   } catch (e) {
     fs.rmSync(dir, { recursive: true, force: true });
-    throw new ApplyError('write-failed', `控えの世代を作れませんでした（${errText(e)}）。何も書いていません。`);
+    throw new ApplyError('write-failed', `バックアップの世代を作れませんでした（${errText(e)}）。何も書き込んでいません。`);
   }
   return { name, dir };
 }
@@ -327,9 +327,9 @@ export function rollback(claudeDir: string, gen: { name: string; dir: string }, 
   try {
     putBack(claudeDir, gen.dir, generationFiles(gen.dir), readMeta(gen.dir));
     fs.rmSync(gen.dir, { recursive: true, force: true });
-    return new ApplyError('write-failed', `${what}に失敗したので、元の状態へ戻しました（${errText(cause)}）。`);
+    return new ApplyError('write-failed', `${what}に失敗したため、元の状態に戻しました（${errText(cause)}）。`);
   } catch (e2) {
-    return new ApplyError('write-failed', `${what}に失敗し（${errText(cause)}）、元へ戻す途中でも失敗しました（${errText(e2)}）。控えの世代 ${gen.name} から、hangar config restore ${gen.name} で戻してください。`);
+    return new ApplyError('write-failed', `${what}に失敗し（${errText(cause)}）、元に戻す途中でも失敗しました（${errText(e2)}）。バックアップの世代 ${gen.name} から、hangar config restore ${gen.name} で戻してください。`);
   }
 }
 
@@ -341,7 +341,7 @@ export type SettingsEdit = { key: string; value: unknown; remove: boolean };
 
 /** settings.json の文字列に、鍵ごとの編集を当てる。並びと字下げと末尾の改行は保つ。 */
 export function editSettings(text: string | null, edits: SettingsEdit[]): string {
-  const unreadable = (why: string): ApplyError => new ApplyError('settings-unreadable', `settings.json を読めないので、設定の鍵は書きません（${why}）。`);
+  const unreadable = (why: string): ApplyError => new ApplyError('settings-unreadable', `settings.json を読み込めないため、設定のキーは書き込みません（${why}）。`);
   let obj: Record<string, unknown> = {};
   if (text !== null) {
     let parsed: unknown;
@@ -421,7 +421,7 @@ export type ApplyOptions = WritePaths & {
   now?: () => number;
   /** 試験が書き込みの途中の失敗を起こすための口。ファイルへ触る前に、何番目の操作かを渡す。 */
   onWrite?: (rel: string, index: number) => void;
-  /** 承諾の窓で見せたときの、書く先の指紋（planApplyFiles の fingerprint）。違えば何も書かずに changed で断る。 */
+  /** 承認の窓で見せたときの、書く先の指紋（planApplyFiles の fingerprint）。違えば何も書かずに changed で断る。 */
   expect?: string;
 };
 
@@ -439,20 +439,20 @@ function buildOps(claudeDir: string, items: Prepared[], read?: PlanReader): File
     assertSafeTarget(claudeDir, 'settings.json');
     let text: string | null = null;
     if (read) text = read(fileOf(claudeDir, 'settings.json'))?.toString('utf8') ?? null;
-    else try { text = fs.readFileSync(fileOf(claudeDir, 'settings.json'), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplyError('settings-unreadable', 'settings.json を読めないので、設定の鍵は書きません。'); }
+    else try { text = fs.readFileSync(fileOf(claudeDir, 'settings.json'), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplyError('settings-unreadable', 'settings.json を読み込めないため、設定のキーは書き込みません。'); }
     ops.push({ rel: 'settings.json', remove: false, data: editSettings(text, settings) });
   }
   return ops;
 }
 
-// ---- 承諾の窓に見せる中身と、書く直前の確かめ ----
+// ---- 承認の窓に見せる中身と、書く直前の確かめ ----
 
 /** 見立ての中で、前の対象が書くはずの中身を返す読み手（同じファイルを 2 つの対象が書くとき）。無いものは null。 */
 export type PlanReader = (abs: string) => Buffer | null;
 /** 対象ごとの見立ての 1 つの書く先。after は書いた後の中身で、null は消す。volatile は指紋に入れない（サーバが常に書き換えるもの）。 */
 export type PlannedOp = { rel: string; path: string; after: Buffer | string | null; volatile?: true };
 
-/** 承諾の窓に見せる 1 つの書く先。op は、create（無いので作る）、modify（書き換える）、remove（消す）。binary は文字でないので差分を出さないもの。 */
+/** 承認の窓に見せる 1 つの書く先。op は、create（無いので作る）、modify（書き換える）、remove（消す）。binary は文字でないので差分を出さないもの。 */
 export type PlannedFile = { rel: string; path: string; op: 'create' | 'modify' | 'remove'; lines: RetentionPreviewLine[]; binary: boolean; /** 書く先の対象（Claude だけのときは省く）。 */ target?: string };
 /** fingerprint は、書く先の今の中身の指紋。書く直前に比べ、違えば書かない（hangar config apply と restore の --expect）。 */
 export type PlannedFiles = { files: PlannedFile[]; fingerprint: string };
@@ -473,7 +473,7 @@ export function localFingerprint(claudeDir: string, rels: string[]): string {
   return crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex');
 }
 
-export const changedError = () => new ApplyError('changed', '確認した後に、書く先のファイルが変わりました。何も書いていません。もう一度、書く中身を確かめてください。');
+export const changedError = () => new ApplyError('changed', '確認した後に、書く先のファイルが変わりました。何も書き込んでいません。もう一度、書く中身を確かめてください。');
 
 /** 1 つの書く先の見せ方。before は今の中身（無ければ null）、after は書いた後の中身（消すなら null）。 */
 export function plannedFile(claudeDir: string, rel: string, before: Buffer | null, after: Buffer | string | null): PlannedFile {
@@ -564,11 +564,11 @@ export type RestorePlan = {
 export type RestoreOptions = { home: string; claudeDir: string; name: string; backups?: string };
 
 function openGeneration(home: string, name: string, backups?: string): { dir: string; meta: GenerationMeta | null; files: string[] } {
-  if (!STAMP_RE.test(name)) throw new ApplyError('bad-name', `世代の名前が正しくありません（${name}）。hangar config restore で一覧を見てください。`);
+  if (!STAMP_RE.test(name)) throw new ApplyError('bad-name', `世代の名前が正しくありません（${name}）。hangar config restore で一覧を確認してください。`);
   const dir = path.join(backups ?? configBackupsDir(home), name);
   let isDir = false;
   try { isDir = fs.lstatSync(dir).isDirectory(); } catch { /* 無い */ }
-  if (!isDir) throw new ApplyError('no-generation', `その世代がありません（${name}）。hangar config restore で一覧を見てください。`);
+  if (!isDir) throw new ApplyError('no-generation', `その世代がありません（${name}）。hangar config restore で一覧を確認してください。`);
   return { dir, meta: readMeta(dir), files: generationFiles(dir) };
 }
 

@@ -39,12 +39,12 @@ describe('設定の同期のダイアログ', () => {
     expect(r.state).toEqual(kill);
     expect(r.effects).toEqual([]);
   });
-  it('送る一覧を承諾すると、スイッチを入れて閉じる', () => {
+  it('送る一覧を承認すると、スイッチを入れて閉じる', () => {
     const r = run([action({ type: 'configSync.open', part: 'send' }), action({ type: 'configSync.send.confirm' })]);
     expect(r.state.overlay).toEqual({ kind: 'none' });
     expect(r.effects.at(-1)).toEqual({ kind: 'api.updateSettings', patch: { configBundleSync: true } });
   });
-  it('送る一覧の承諾は、その一覧を開いているときだけ効く', () => {
+  it('送る一覧の承認は、その一覧を開いているときだけ効く', () => {
     const r = run([action({ type: 'configSync.send.confirm' })]);
     expect(r.effects).toEqual([]);
   });

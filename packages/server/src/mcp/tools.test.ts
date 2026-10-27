@@ -514,7 +514,7 @@ describe('MCP tools', () => {
       await expect(Promise.resolve().then(() => call('delete_session', { session_id: alphaId, confirmed: false }))).rejects.toThrow(ToolError);
       expect(trashed).toEqual([]);
     });
-    it.each(['claude-code', 'codex', 'opencode'])('delete_session は %s の会話を、承諾つきで消す', async (agent) => {
+    it.each(['claude-code', 'codex', 'opencode'])('delete_session は %s の会話を、承認つきで消す', async (agent) => {
       asAgent(agent);
       expect(await call('delete_session', { session_id: alphaId, confirmed: true })).toEqual({ ok: true, session_id: alphaId });
       expect(trashed).toEqual([alphaId]);
