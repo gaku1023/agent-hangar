@@ -99,6 +99,17 @@ describe('LaunchSheet（D2）', () => {
     expect(onWantRefresh).not.toHaveBeenCalled();
   });
 
+  it('Codex の会話も同じ。開くボタンを出さず、URL を待って受信箱を読み直させない', () => {
+    vi.useFakeTimers();
+    const cxSpec = spec({ accountId: '', accountName: null, accountColor: null, payload: { projectId: 'p-a', scratch: false, accountId: '', permissionMode: 'auto', model: '', prompt: 'a', agent: 'codex' } });
+    const { onWantRefresh } = setup({ spec: cxSpec, state: started, view: viewOf([row({ agent: 'codex', accountName: null })]) });
+    const card = screen.getByRole('region', { name: '開始した会話' });
+    expect(within(card).queryByRole('button')).not.toBeInTheDocument();
+    expect(within(card).queryByRole('link')).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(onWantRefresh).not.toHaveBeenCalled();
+  });
+
   it('受信箱の素に会話の URL と意図が来たら、アカウントつきの開くリンクとして出す', () => {
     const { rerender } = setup({ state: started, view: viewOf([]) });
     rerender({ state: started, view: viewOf([row({ rcUrl: 'https://claude.ai/code/session_abc', intent: 'README を読んでいます' })]) });

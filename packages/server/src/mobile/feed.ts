@@ -21,6 +21,8 @@ export type FeedSources = {
   tz?: string;
   /** 設定の「opencode を有効にする」。真のときだけ caps.agents に opencode を載せる。省略は切。 */
   opencodeEnabled?: boolean;
+  /** 設定の「Codex を有効にする」。真のときだけ caps.agents に codex を載せる。省略は切。 */
+  codexEnabled?: boolean;
 };
 
 type SessionRow = {
@@ -83,12 +85,13 @@ export const LAST_USED_SQL = `select s.project_id id, max(r.started_at) at
 export const FEED_CAPS: MobileCaps = { asks: true, images: true, effort: true };
 
 /**
- * この PC のできること。設定で opencode を有効にしているときだけ agents を載せる（切なら今までと同じ形）。
- * 古い PC は依頼の agent を断らずに Claude を起こしてしまうので、スマホは agents に opencode のある PC にだけ opencode の依頼を出す。
+ * この PC のできること。設定で opencode か Codex を有効にしているときだけ agents を載せる（どちらも切なら今までと同じ形）。
+ * agents は Claude Code と有効なエージェントを AGENT_KINDS の並びで入れる。
+ * 古い PC は依頼の agent を断らずに Claude を起こしてしまうので、スマホは agents にそのエージェントのある PC にだけ、そのエージェントの依頼を出す。
  */
-export function feedCaps(opencodeEnabled: boolean): MobileCaps {
-  // codex はスマホの面ができる（F1）まで caps に出さない。F1 で codexEnabled を引数に足し、切なら外す。
-  return opencodeEnabled ? { ...FEED_CAPS, agents: AGENT_KINDS.filter((k) => k !== 'codex') } : FEED_CAPS;
+export function feedCaps(opencodeEnabled: boolean, codexEnabled = false): MobileCaps {
+  if (!opencodeEnabled && !codexEnabled) return FEED_CAPS;
+  return { ...FEED_CAPS, agents: AGENT_KINDS.filter((k) => k === 'claude-code' || (k === 'opencode' && opencodeEnabled) || (k === 'codex' && codexEnabled)) };
 }
 
 /** 行に付けるエージェントの印。Claude の行には付けない（欄ごと省く）。 */
@@ -98,7 +101,7 @@ const agentOf = (provider: AgentKind): { agent?: MobileAgent } => (provider === 
 const USAGE_MODEL_MAX = 60;
 
 /**
- * 実行中の opencode の行の使用量。session_live_stats（主キーで引く）の使ったコンテキストが無ければ付けない。
+ * 実行中の opencode と Codex の行の使用量。session_live_stats（主キーで引く）の使ったコンテキストが無ければ付けない。
  * ctx はモデルの上限（context_size）に対する割合を 0 から 100 の整数に丸めたもの。上限が分からなければ null。
  */
 function usageOf(db: Db, providerSessionId: string): MobileUsage | null {
@@ -129,7 +132,7 @@ export function buildMobileFeed(src: FeedSources): MobileFeed {
     const r = lastRunOf(db, s.id);
     if (!r || r.device_id !== deviceId || r.ended_at !== null) continue;
     liveIds.add(s.id);
-    const usage = s.provider === 'opencode' ? usageOf(db, l.sessionId) : null;
+    const usage = s.provider === 'opencode' || s.provider === 'codex' ? usageOf(db, l.sessionId) : null;
     liveItems.push({
       sessionId: s.id,
       projectId: s.project_id,
@@ -195,5 +198,5 @@ export function buildMobileFeed(src: FeedSources): MobileFeed {
     return { id: a.id, name: a.name, color: a.color, fiveHour: u?.fiveHour?.usedPercent ?? null, sevenDay: u?.sevenDay?.usedPercent ?? null };
   });
 
-  return { v: 1, deviceId, deviceName: src.deviceName, caps: feedCaps(src.opencodeEnabled === true), accounts, projects, live: liveItems, returns, done };
+  return { v: 1, deviceId, deviceName: src.deviceName, caps: feedCaps(src.opencodeEnabled === true, src.codexEnabled === true), accounts, projects, live: liveItems, returns, done };
 }

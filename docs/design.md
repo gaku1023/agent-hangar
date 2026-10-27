@@ -1567,7 +1567,11 @@ Claude と opencode のように最新へ追いかけない。範囲の外は利
    できた rollout の行を、種類（`type` と `payload.type`）ごとに、キーの道と型の和へ畳んで控える（`compat/rolloutShape.ts`）。値は見ない。
    読み捨てる `world_state` は見ない。
    形が同じでも読めなければ意味がないので、同じ rollout を hangar の読み手（`transcript/batch.ts` の `readCodexBatch`）に通し、読めない行が無いことと、返事が出てくることも見る。
-4. **`codex --help`**（`help.txt`）。Commands の名前と別名を読み（`compat/help.ts` の `parseCodexHelp`）、控えと比べる。
+4. **rollout の置かれ方**（`features.json`、`compat/storage.ts`）。Codex の本文の同期（「Codex の本文」）が頼る 2 つの性質を見る。
+   - 追記だけで伸びること。模擬のモデルで `codex exec` を 1 回走らせ、同じ会話を `codex exec resume` で進めて、後の rollout の先頭が前とバイト単位で一致し、伸びていて、ファイルが 1 つのままであることを見る（`appendOnlyDrifts`）。resume しただけで 1 行足される前提も含む。
+   - zst に切り替わらないこと。`codex features list` の `local_thread_store_compression`（0.164.0 では under development、既定 false）の段階と既定を見本（`features.json`）と比べる（`compressionDrifts`）。さらに、更新時刻を 8 日前にした会話を、既定の設定の app-server を起こして 5 秒置いても `.jsonl` のままであることを見る。この機能が有効になると、7 日より古い会話は背景の仕事で `.jsonl.zst` に名前を変える。
+   既定が true になったときの手当ては、`.jsonl.zst` を展開してから指紋を取り、台帳は UUID で引くことで済ませてある（「Codex の本文」）。見張りはその手当てが要る日が来たことを知らせる。
+5. **`codex --help`**（`help.txt`）。Commands の名前と別名を読み（`compat/help.ts` の `parseCodexHelp`）、控えと比べる。
    機種によってあるサブコマンド（`app`。デスクトップアプリを開くもので、Linux の版には無い）は、今の help に無いだけならずれとしない（`PLATFORM_DEPENDENT_COMMANDS`、`helpDrifts`）。見本に無いものが増えたら、これも落とす。
    外のターミナルの横取り（D1 の `provider/codex/compat/cli.ts` の `BUILTIN_CODEX_SUBCOMMANDS`）が入ったら、同じ一覧を見る。
    見ているのは `builtinSubcommandDrifts` で、`resume`（ID が 1 つのときだけ hangar の起動へ写す）を除く名前と別名が、一覧と過不足なく同じかである。
@@ -1577,7 +1581,7 @@ Claude と opencode のように最新へ追いかけない。範囲の外は利
 
 - **ログインの要るもの**。本物のモデルを通した応答、`account/rateLimits/updated` と `thread/tokenUsage/updated` の本物の中身、承認の要求が届く順は、JSON Schema の形（包みと型）までしか見ない。実際の値や順序は実機の確かめである。
 - **legacy の rollout**。いまの codex が書くのは paginated（`ordinal` つき）だけなので、legacy の読み方は B5 の試験の写しで守り、この見張りでは見ない。
-- **zstd の圧縮、会話の fork と resume の中身、TUI の見た目**。模擬では作らない。
+- **zstd の圧縮そのもの、会話の fork と resume の中身、TUI の見た目**。圧縮の既定が切れていること（有効にすると `.jsonl.zst` になること）までは見るが、有効にした側の解凍は B5 と同期の試験で守る。fork と TUI は模擬では作らない。
 - **Windows の codex**。照合は ubuntu で走る。
 - **道具の実行の記録**。`exec_command` の実行は、sandbox の効き方が OS で違う。CI の Linux で形が変わったら、見本を Mac の版から採った差として読み、必要なら道具を呼ぶターンの比べ方を絞る。
 
@@ -3659,6 +3663,9 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
 さらにこの URL は、そのセッションとそのプロジェクトに閉じる。
 ほかの `session_id` や `project_id` を渡されたら、黙って読み替えず、断りの文を返す。
 ただし読むだけの `get_transcript` は、ほかの `session_id` も受け付ける（2026-10-15）。セッション画面でコピーした宛先の 1 行（session_id 入り）を渡された別の Claude が、そのセッションの様子を読むためである。
+`send_to_session` と `read_session_screen` も、この枠に縛られず、ほかの `session_id` を受け付ける（2026-10-27、利用者の決定）。
+オーケストレータ役の Claude が、束ねるセッションの画面を見回り、指示を送るための道具だからである。
+送る側の書き込みの道具は「自分のセッションだけ」という決まりだったが、`send_to_session` に限って外した。
 `list_projects` と `list_sessions` も枠の外を返さない。
 セッションがプロジェクトに属していないときは、プロジェクトを必要とするツールを断る。
 共通の `/mcp` には枠が無く、今までどおりすべてを指せる。
@@ -3670,6 +3677,7 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
 - `list_sessions({ project_id?, running?, limit? })`。
 - `search_sessions({ query, project_id?, since?, until?, file? })`：FTS と絞り込み。結果は題名、要約の 1 文、一致箇所の抜粋、再開コマンド。
 - `list_sessions`、`search_sessions`、`get_project` の直近のセッションの再開コマンド（`resume_command`）は、この PC の素の `claude -r` で開ける会話にだけ返す（2026-10-21、#313）。
+  再開コマンドはエージェントで変わる。Claude Code は `claude -r <id>`、Codex は `codex resume <id>`、opencode は `opencode -s <id>` で、後ろ 2 つは外のターミナルの包み方（`codex()`、`opencode()`）が hangar の起動に写す形と同じである。会話の ID がまだ決まっていない行（`pending:…`）は `null` にする。
   他の PC が実行中のロックを持つ会話と、トランスクリプトが他の PC にしか無い会話（`SessionDto.remoteOnly`）では `null` にし、代わりに `resume_hint` で案内の文を返す。
   文は、`open_in_hangar` でセッションを開き「この PC で再開」をクリックするようユーザーに案内するよう Claude に求める（`mcp.resumeHint.*`）。
   条件は、画面が素の再開を閉じて「この PC で再開」に回す条件（`presenters/session.ts` の `sessionActions`）と同じ事実で、server の `SessionDto` の `lock` と `remoteOnly` から読む（`mcp/tools.ts` の `resumeOf`）。
@@ -3678,14 +3686,42 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   以前は手元に本文が無い会話にも `claude -r <id>` を返しており、それを打った Claude が失敗していた。
 - `list_sessions`、`search_sessions`、`get_project` の直近のセッションには、会話を最後に動かした PC を `device: { name, platform, here }` で添える（0.6.1）。最後の run の PC で、run が無ければ作った PC（`home_device`）である。`here` はこの PC か。ほかの PC の会話は、パスやファイルの状態がこの PC と違うことがあるので、Claude が読み分けられるようにする（`runs/handover.ts` の `deviceOfSession`）。
 - `get_transcript(session_id, { from_seq?, limit?, include_tools? })`：正規化イベントを返す。
-- `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch?, agent?, mode? })`：tmux で起動して run を返す。agent と mode は `POST /api/runs` と同じく `RunManager.start` にそのまま渡す。agent を省けば Claude Code で、mode は opencode のときだけ読む（Claude Code では捨てる）。知らない agent と、設定で有効でない agent は、黙って Claude Code にせず、start の前に断る。opencode の model は provider/model の形で渡す。
+- `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch?, agent?, mode?, worktree?, add_dirs?, account? })`：tmux で起動して run を返す。agent、mode、worktree、add_dirs は `POST /api/runs` と同じく `RunManager.start` にそのまま渡す。agent を省けば Claude Code で、mode は opencode のときだけ読む（Claude Code と Codex では捨てる）。
+  Codex の権限（read-only、auto、full-access。省くと auto）は `permission_mode` で渡し、model はモデル名、effort は推論の段階である。
+  worktree（claude の `--worktree` に渡す名前）と add_dirs（`--add-dir`）は Claude Code だけのもので、Codex と opencode に付けると `start` が `optionUnsupported` で断る（UI の新規ダイアログは札を出さないので、断られるのは API と MCP だけである）。知らない agent と、設定で有効でない agent は、黙って Claude Code にせず、start の前に断る。opencode の model は provider/model の形で渡す。
+  - account（Claude Code のときだけ）：省くと、呼んだセッション（セッション別 URL）がこの PC で最後に使ったアカウントを引き継ぐ。「別セッションを起こして」と頼んだ会話と同じ枠で続けるためで、ヘッダで選んでいるアカウントは最後に画面で選んだものにすぎない。ほかの PC の run は見ない（`RunAccounts.accountFor` と同じ）。共通の URL から呼ばれたとき、この PC で動かしたことが無いとき、そのアカウントが消えたときは、いま選んでいるアカウントにする。明示されたら名前か id で引き、知らないものは使える名前を添えて断る。opencode と Codex に渡されたら断る。結果には使ったアカウントの名前を添える。
 - `set_session_summary({ session_id?, title, one_liner, body, state, next_steps })`。
+- `stop_session({ session_id })`：この PC で動いているそのセッションの run を、UI の停止（`DELETE /api/runs/:id`）と同じ `RunManager.kill` で止める。session_id から run を引く口は `ToolDeps.runs.aliveRun` である。
+  動いていない会話と、ほかの PC で動く会話（その PC の名前を添える）、呼んだセッション自身（呼び出しの途中で自分が落ちるため）は、分かる文で断る。聞かずに使ってよい。
+- `resume_session({ session_id, account? })`：止まっている会話を、UI の再開（`POST /api/sessions/:id/resume`）と同じ `RunManager.resumeWith` で再開する。Claude Code、Codex、opencode のどれも通る（道筋は resumeWith の中で分かれる）。
+  すでに動いていれば断る。account は Claude Code の会話のときだけ受け、名前か id で引く（`create_session` と同じ引き方）。知らなければ使える名前を添えて断り、Codex と opencode に渡したら断る。省けば、これまでどおり最後に使ったアカウント（`RunAccounts.lastUsed`）で再開する。
+  結果は `create_session` と同じ形（`run_id`、`session_id`、`tmux_name`、`url`、Claude Code なら `account` の名前）である。聞かずに使ってよい。
+- `delete_session({ session_id, confirmed? })`：UI の削除（`DELETE /api/sessions/:id`）と同じ `SessionTrash.deleteSession` で消す。本文は OS のゴミ箱へ移る。
+  どのセッションも、毎回 `confirmed: true`（利用者が会話の中で承諾した）でなければ消さない。`propose_session_status` の `confirmed` と同じ考え方で、`confirmed` が無いか `true` でなければ、セッションの題名を添え、利用者に見せて承諾を得てから呼び直すよう促す文で断る。
+  動いている会話は `deleteSession` の 409 の文のまま断り、呼んだセッション自身も断る。
+  HTTP の `DELETE /api/sessions/:id` は、利用者の操作なので MCP の秘密では開けないままである。MCP からは、この道具が承諾つきで同じ処理を通す。
+  この 3 つはセッション別 URL でも別のセッションを指せる（`session_id` が要る。他のセッション用の道具のような閉じ込めはしない）。
 - `set_turn_intent({ session_id?, text })`：このターンで何のために何をするかを 1〜2 文（200 字まで）で書く。端末ローカルの `turn_intents` に積み、同期しない。セッション画面の現在の札に出す。
 - `set_session_memo` は 0.4.0 で道具ごと外した（セッションのノートを外したため。要約の `set_session_summary` と Paused の戻る日が役を担う）。
   `append_memo` のように `notice` で答える形にしなかったのは、あちらは同じ呼び出しのほかの項目を書くためにエラーにしなかったのに対し、こちらは道具が 1 つの仕事しか持たないからである。
   外す前の一覧を覚えた Claude が呼んでも、MCP の層が書かずに `isError`（道具が無い）で返す。モデルにこの道具を使うよう指示したことも無い。
 - `get_usage()`：5 時間と 7 日の使用率、最終更新時刻。
 - `open_in_hangar({ session_id | project_id })`：UI とディープリンクの URL を返す。
+- `send_to_session({ session_id, text, submit? })`：この PC の hangar の tmux（Windows では psmux）で動いているそのセッションの主の画面に、`text` を入力として送る（2026-10-27）。
+  どのセッションにも、聞かずに送れる。ただし呼んだセッション自身には断る。
+  複数行の `text` は tmux の貼り付け（`set-buffer` と `paste-buffer -p -d`、bracketed paste）で 1 回に届け、1 つの入力になる。`send-keys` は 1 行ごとに Enter を打つのと変わらず、行ごとに確定してしまうので使わない。
+  `submit`（既定 true）なら、貼り付けの 150 ミリ秒後に Enter キーで確定する。false なら入力欄に置くだけである。
+  Claude Code 2.1.311、Codex 0.164.0、opencode 2.1.4 の TUI で、複数行（空行を含む）が 1 つの入力になり、Enter で 1 つのメッセージとして送られることを、専用の tmux（macOS、tmux 3.6a）で確かめた。
+  Claude Code と opencode は貼り付けを「[Pasted text +N lines]」のように畳んで入力欄に置き、Codex は全文をそのまま置く。
+  `text` は 8,000 字までで、それを越えたら断る（psmux は CreateProcess のコマンドライン 32,767 文字の上限に当たるため）。
+  貼り付けの括弧を壊されないように、ESC を含む制御文字は落とす（改行とタブは残し、CRLF は LF にそろえる）。
+  貼り付けが使えない裏（psmux が `set-buffer` か `paste-buffer` を断ったとき）では、1 行の `text` だけ素の文字で打ち込み、複数行は Windows の事情を言う文で断る。psmux の貼り付けは Windows の実機では未確認である。
+  動いていない会話には「`resume_session` で再開してから」と促して断る。ほかの PC で動く会話（その PC の名前を添える）と、hangar の外の端末で動く会話（run が無く live だけに載る）にも断る。
+  結果は `{ session_id, sent_chars, submitted }` である。
+- `read_session_screen({ session_id?, lines? })`：そのセッションの主の画面の末尾を文字で返す（2026-10-27）。
+  `lines` の既定は 40、上限は 200 で、越えた指定は上限に丸める。読めるのは画面にいま見えている範囲だけで、スクロールバックは含まない（履歴は `get_transcript` で読む）。画面の下の空行は落とす。
+  live の状態を添え、結果は `{ session_id, status, waiting_for, screen }` である（live に載っていなければ `status` と `waiting_for` は null）。
+  どのセッションでも、自分自身でも読める。セッション別 URL では `session_id` を省くと自分を読む。動いていない会話、ほかの PC の会話、hangar の外の端末の会話は、`send_to_session` と同じ文で断る。
 - `draft_issue_report({ kind, title, ...節 })` と `submit_issue_report({ draft_id, confirmed })`：作者への問い合わせの下書きと送信。プロジェクトもセッションも指さないので、セッション別 URL の枠に関わりなく使える。詳しくは「作者への問い合わせ」の節。
 
 `update_project` は status の変更、TODO の追加、完了の印、完了の候補の提出を行い（ノートへの追記はしない）、TODO の書き込みは全部成功か全部失敗のどちらかにする（途中で失敗したものが残らない）。
@@ -7227,7 +7263,7 @@ R2 の無料枠は 10GB で、gzip したトランスクリプト全体でも 75
 
 - **hangar のメタデータ**：共有テーブルの全行。PC が 1 行ずつ封じてから D1 の `rows` に置く。
 - **セッションのトランスクリプト**：`~/.claude/projects` の jsonl を gzip し、暗号化して R2 に置く。鍵名は `b/<端末 ID>/<HMAC>` で、HMAC の入力は元の PC、セッションの UUID、サブエージェントの ID である（「Worker の表」）。端末ごとに分ける。UUID は Claude Code が付けた `provider_session_id` である。opencode（ベータ）の会話は、`session export` で書き出した JSON を同じ道で上げる（下の「opencode の本文」）。
-- **Claude Code のユーザー設定**：`~/.claude/CLAUDE.md`、`settings.json`、`settings.json` の `statusLine.command` が指すスクリプト、`skills/**`、`memory/**`、`projects/*/memory/**`。本文と同じく暗号化して R2 に置く。鍵名は `b/<端末 ID>/<HMAC("c:" 元の PC ":" 相対パス)>` で、相対パスは Worker に見えない。
+- **Claude Code のユーザー設定**：`~/.claude` の `CLAUDE.md`、`keybindings.json`、`skills/**`、`commands/**`、`agents/**`、`memory/**`、`settings.json` の運べる鍵、プロジェクトのメモリ（`projects/<slug>/memory/**`）。PC ごとに 1 つの束（tar を gzip したもの）にまとめ、本文と同じ鍵で暗号化して R2 に置く。鍵名は `b/<端末 ID>/<HMAC("c:" 元の PC ":" 束のパス)>` で、束のパスは固定の `.hangar/config-bundle.hgr` である。束の索引は共有テーブルの `config_snapshots`（PC ごとに 1 行）が持ち、中身の項目の id と相対パスは Worker に見えない。運ぶ項目と運ばない項目の仕分けは「設定の同期の作り直し」の節にある。
 
 hangar 自体の設定（ワークスペースルート、ターミナルアプリ）と UI の一時状態は同期しない。
 スマホ向けの 3 表（`mobile_feeds`、`launch_requests`、`mobile_pairings`）は共有テーブルではなく、PC どうしの同期には載らない（「スマホ（試験的）」）。
@@ -7236,15 +7272,22 @@ hangar 自体の設定（ワークスペースルート、ターミナルアプ�
 R2 は部分更新を持たないので、末尾だけを足す道が無いためである。
 同じ中身を二度上げないために、端末ローカルの `file_sync` に前回の指紋（平文の SHA-256）と大きさと更新時刻を残す。
 
-設定の同期で上げないものは、`node_modules` と `.git` と `__pycache__` と `.venv` の各段、シンボリックリンク、1MB を超えるファイル、`.DS_Store`、そして同期自身が作る `*.conflict-*` などの写しである。
+設定の同期が拾わないものは、`node_modules` と `.git` と `__pycache__` と `.venv` の各段、シンボリックリンク、1 MiB を超えるファイル、`.DS_Store`、そして同期自身が作る写し（`*.conflict-*`、`*.hangar-tmp-*`、`*.part`）である。
 写しを対象に戻すと、競合のファイルが端末間で無限に増える。
-**削除は同期しない。**
-片方で消したファイルが、もう片方から消えることはない。
-ホームの絶対パスは `$HOME` ではなく `__HANGAR_HOME__` という目印に置き換えて上げ、降ろすときに各端末のホームへ戻す。
-`$HOME` をそのまま使うと、ホームの綴りが違う端末で指紋が揃わない。
-設定の同期は Settings で明示的に有効にしたときだけ動き、初めて取り込むときは下見の一覧を見せて確認を取る。
+`claude` の対象は、`statusLine`、`hooks`、`env` などの実行にかかわる鍵と、`statusLine.command` が指すスクリプトは運ばない。
+ほかの PC のコマンドが自動で走る道にしないためである。
+`claude` の対象では、ホームの絶対パスの置き換え（`__HANGAR_HOME__`）は行わない。
+`hooks` と `statusLine` は、別の対象 `claude-hooks` が承諾つきで運ぶ（下の「hooks と statusLine」）。
+絶対パスを含む権限の規則は、落として「送らなかったもの」に出し、利用者が選んだときだけ送る。
+消えたファイルは、手元、相手の束、前回の共通の 3 方向の判定で扱い、どの相手の束にも無くなった項目だけを消えたと見なす（「3 方向の判定」）。
+消した PC から送られるのは束だけで、相手の `~/.claude` を直接消すことはない。
+受け手がファイルを消すのは承諾を経て適用するときだけで、消すファイルの元の中身は世代の控えに残る。
+設定の同期は Settings で明示的に有効にしたときだけ動く。
+受け取った項目は hangar の置き場（`~/.agent-hangar/claude-config/inbox/`）に置くだけで、`~/.claude` に書くのは、見せて承諾を取ったあとの `hangar config apply` と殻の命令だけである（「承諾と適用の指示書」）。
 `~/.claude` を上書きする前には必ず `~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ 1 バイトも書かない。
 控えは 20 世代を残し、古いものから消す。
+端末ローカルの `file_sync`（本文の台帳）は設定の束には使わない。
+束は中身の指紋が前回と同じなら上げ直さない。
 
 互換の版 9 から、D1 と R2 に置くものはどれも PC どうしの間で暗号化する（E2E）。
 Worker と Cloudflare は、表名、行 ID、行の中身、ファイルのパス、PC の名前、セッションの題を読めない。
@@ -7533,7 +7576,7 @@ claude` より前に登録する。
 `settings:hooks` にしないのは、古い版がこの id を運ばない鍵として読み飛ばすためで、別の頭にして別の対象にすれば、古い版の束に無いことが消去に見えない。
 中身は `{ v: 1, value, files: [{ rel, b64, x? }] }` を正規化した JSON で、指紋は鍵とファイルを合わせて取る（台本を直すと項目の指紋が変わる）。
 `command` のパスは、`~`、`$HOME`、`%USERPROFILE%`、ホームの絶対パスのどれも `~/.claude/…` に読み替えて判定する（`targets/hookCommands.ts`）。
-ホームの絶対パスだけは目印 `__HANGAR_HOME__` にして運び、受け手が自分のホームに戻して書く。ほかの形は触らない。
+`command` の中のホームの絶対パスだけは目印 `__HANGAR_HOME__` にして運び、受け手が自分のホームに戻して書く。ほかの形は触らない。
 送り手が運ばないのは、`~/.claude` の外を指す hook（`/usr/local/bin/x`、`~/bin/x`、知らない環境変数の下、`..` で抜けるもの）と、Hangar 自身の包み（`hangar-run`、`~/.agent-hangar` の下、`hangar statusline`）を指すものである。
 受け手の手元にそれらがあれば、書き戻しで残す（権限の絶対パスの規則と同じ考え）。
 受け手が保留するのは、送り手と OS が違う（束の目録の `os`。無いものも）、外を指す、包みを指す、のどれかである。
@@ -8764,6 +8807,8 @@ opencode を有効にした PC（`caps.agents` に opencode）があるときは
 既定が opencode なら、その PC が今無くても行を出す（戻せるように）。
 エージェントは opencode のときだけ `agent: 'opencode'` として置く。
 opencode のモードとモデルは PC の一覧から選ぶので既定に持たず、自動承認も毎回オフから始める。
+Codex のある PC があれば、行の選択肢に Codex も入る（Claude Code、Codex、opencode の順。0.12.0）。
+エージェントは opencode か Codex のときだけ `agent` として置く。
 
 新しい会話の画面で opencode のある PC を選ぶと、PC の段の次に「エージェント」の段（Claude Code／opencode と小札「ベータ」）が伸びて現れる。
 opencode にすると、アカウントの段と、詳しい設定の権限モード・モデル・effort の組は既存の Fold で畳まれ、モード・モデル・自動承認の組が伸びて現れる（試作 S1。新しい動きは足さない）。
@@ -8775,6 +8820,22 @@ opencode にすると、アカウントの段と、詳しい設定の権限モ�
 `/` の候補は、アカウントなしで opencode のコマンドとスキルを問い合わせる。
 opencode の会話には Remote Control が無いので、起動のシートは開くボタンを出さず、URL も待たない。
 
+**Codex の起動（0.12.0）。**
+Codex を有効にし、手元に codex が見つかる PC（`caps.agents` に codex）を選ぶと、エージェントの段に Codex（小札「ベータ」）が Claude Code と opencode の間に入る。
+並びは PC の新しい会話と同じ（Claude Code、Codex、opencode）。
+段の作りと動きは opencode と同じで、新しい部品も動きも足さない（既存の `Choice`、`Group`、`Fold`、危険の帯を使い回す）。
+Codex にすると、アカウントの段と、詳しい設定の権限モード・モデル・effort の組が畳まれ、権限・モデル・推論の強さの組が伸びて現れる。
+権限は PC の新しい会話と同じ 3 段（読み取りのみ、自動、フルアクセス。`launch.codexPermission.*` の辞書）で、既定は自動である。
+フルアクセスだけ危険の色にし、下に「確認なしでコマンドを実行します。信頼できるディレクトリでだけ使ってください。」を出す。
+フルアクセスは既定に持たず、毎回自動から始める。
+モデルと推論の段階は、Codex を選んだときに呼び鈴の問い合わせ（`agent-options`、`agent: 'codex'`）で PC から取る。
+Codex の一覧は場所に依らないので、問い合わせは PC ごとに 1 回である。
+推論の強さの札は、モデルを選んでいればそのモデルの段階だけ、既定のままなら全モデルの段階の和（先に現れた順）を出す。
+選んだモデルが一覧から消えたとき、段階がそのモデルに無いときは、送らない（既定に戻す）。
+要約の行は「権限 自動 · モデル … · 推論 high」になる。
+`/` は Codex では選べない（PC は Codex の commands を答えない）。
+Codex の会話にも Remote Control が無いので、起動のシートは開くボタンを出さず、URL も待たない。
+既定のエージェント（設定の「新しい会話のデフォルト」）にも Codex を選べる。
 接続のページには、接続先（受信箱の PC の名前）、接続した日、接続し直す期限（接続した日から `PHONE_MAX_AGE_MS`）を出す。
 接続した日は、接続するときに接続の値（`hangar.mobile.pairing` の `joinedAt`、スマホの時計）と一緒に置く。
 それより前に接続したスマホは「不明」と出し、期限は出さない。
@@ -8981,13 +9042,15 @@ PC の設定のスマホの表は Worker の一覧から解除済みを除いて
 会話は実行中の一覧の行の `agent`（無ければ Claude Code）と ID の組で `sessions` から引く。
 待っている内容は、境界の同じ形（状態の面の行の `waitingFor` と `permission`、`session_activity` の問い）から作る（`packages/server/src/agent/waiting.ts`）。
 opencode の許可は「shell: 命令」の形になり、form の問いは Claude の問いと同じく `session_activity` から入る。
-Claude Code 以外の会話の行（動いている会話、戻る会話、今日終わった会話）には `agent: 'opencode'` を付ける。
+Claude Code 以外の会話の行（動いている会話、戻る会話、今日終わった会話）には `agent: 'opencode'` か `agent: 'codex'` を付ける。
 Claude の行には付けない（古い PC の素と同じ形にし、古いスマホとの互換を保つ）。
-動いている opencode の会話には、使用量（`usage`）を付ける。
+動いている opencode と Codex の会話には、使用量（`usage`）を付ける。
+Codex の入力待ち（許可の要求）は、状態の面の行の `permission` から opencode と同じ形（「shell: 命令」）で入り、スマホの札は「PC で答えてください」を出す。
 中身は `session_live_stats` の使ったコンテキストのトークン数、モデルの上限に対する割合（0 から 100 の整数、上限が分からなければ null）、費用、モデルの ID で、使った量がまだ無ければ付けない。
-opencode の会話の Remote Control の URL はいつも null で、アカウント（`accountId`）は空にする（アカウントは Claude Code だけのもので、スマホにアカウントの札を出させない）。
-素の `caps.agents` は、設定で opencode を有効にしているときだけ `['claude-code', 'opencode']` を載せ、切なら欄ごと省く。
-古い PC は起動の依頼の知らない欄を断らずに Claude を起こすので、スマホは `agents` に opencode のある PC にだけ opencode の依頼を出す。
+opencode と Codex の会話の Remote Control の URL はいつも null で、アカウント（`accountId`）は空にする（アカウントは Claude Code だけのもので、スマホにアカウントの札を出させない）。
+素の `caps.agents` は、設定で opencode か Codex を有効にしているときだけ、`claude-code` と有効なエージェントを `AGENT_KINDS` の並びで載せ、どちらも切なら欄ごと省く。
+Codex は、設定で有効なうえ、手元に codex が見つかるときだけ載せる（`boot/mobile.ts` の `codexOn`）。
+古い PC は起動の依頼の知らない欄を断らずに Claude を起こすので、スマホは `agents` にそのエージェントのある PC にだけ、そのエージェントの依頼を出す。
 暗号化の前で 48 KiB（`MOBILE_FEED_MAX_BYTES`）までとし、超えたら次の順に、収まったところでやめる（`packages/shared/src/mobile.ts` の `fitFeed`）。
 
 0. 動いている会話の使用量を全部消す。飾りの数字なので、行を落とすより先に消す。
@@ -9093,6 +9156,17 @@ opencode の依頼ではアカウントを確かめず、代わりに設定で o
 `caps.agents` の無い PC（古い PC と、opencode を無効にした PC）への依頼は、既定のエージェントが opencode でも Claude の依頼にする。
 PC が一時停止しているときと、Worker の版が 7 に届かないときは、claim せずに残す。
 
+**Codex の起動の依頼（0.12.0）。**
+依頼の封の中身に新しい欄は足さない。`agent: 'codex'` を使い、既にある欄に次の意味を持たせる。
+`permissionMode` は Codex の権限（`read-only`、`auto`、`full-access`。空は自動）、`model` は Codex のモデルの slug（空は既定）、`effort` は推論の段階（無ければ既定）である。
+PC（`launchInbox.ts`）は Codex の依頼で、アカウントが空、権限が上の 3 段か空、`effort` が小文字の英数字と `_` `-` だけの語（先頭は英数字）、`mode` と `autoApprove` が無いことを確かめ、崩れていれば `bad-payload` で断る。
+Claude の依頼に Codex の権限が混ざったものも、Claude の権限の表に無いので断る。
+アカウントは確かめず、設定で Codex を有効にしてあり、手元に codex が見つかることを確かめる（無ければ `agent-missing`）。
+起動の params には、アカウントを渡さず、`agent: 'codex'`、権限を `mode` に、`model`、`effort` を渡す（空のものは渡さない。PC のダイアログと同じ写し先）。
+手元の記録の権限モードは、フルアクセスなら `bypassPermissions`、そうでなければ空で控える（opencode の自動承認と同じ危険の印）。
+古い PC は `agent` を知らずに Claude を起こしてしまうので、スマホは `caps.agents` に codex のある PC にだけ、Codex の段を出し、`agent` を送る。
+Worker は封の中身を読まないので、この依頼のための Worker の変更も配備も要らない。
+
 上限は次のとおりである。
 
 | 項目 | 値 |
@@ -9174,12 +9248,19 @@ SQLite 型で作る（無料プランで使えるのはこれだけ）。
     `cost`（費用の型）と `data`（データの扱い）は、モデルの小窓と同じ手書きの表（`shared/modelFacts.ts`）から、小窓と同じ関数（`modelCostKind` と `modelDataUse`）で PC が付ける。
     取ってから 1 分を過ぎた一覧は `stale` を立てる。
     PC がまだ一覧を持っていなければ `agentOptions` は null で、スマホは「モデルの一覧を取得できません。デフォルトで起動します。」と出す。
-  - opencode の問い合わせは、PC で opencode を有効にしていなければ `{ error: 'agent-missing' }` である。
+  - `{ kind: 'agent-options', agent: 'codex', projectId | null }` に、`{ codexOptions }` を返す（0.12.0）。
+    中身は、PC が手元に持った Codex の選択肢（`CodexOptionsService.last`。`codex debug models` から作った一覧で、デスクトップの設定の画面と同じものを共有する）を縮めたもので、取りに行かない。
+    版、検証済みか、モデル（`{ id, label, efforts, defaultEffort }`、`isModelName` に合うもの、最大 40、名前は 60 字、推論の段階は最大 8）、`stale`（取ってから 30 分を過ぎたとき）、取った時刻を載せる。説明の文は載せない（答えの上限に収めるため）。
+    権限の 3 段は固定なので載せない。
+    PC がまだ一覧を持っていなければ `codexOptions` は null で、この問い合わせが裏で一覧の取得を始めるので、次の問い合わせで答えられる。スマホは「モデルの一覧を取得できません。デフォルトで起動します。」と出す。
+    場所に依らないので `projectId` は見ない。ただし手元に無いプロジェクトは `project-missing` にする。
+    `commands` の `agent: 'codex'` は `bad-request` である（Codex に `/` の一覧は無い）。
+  - opencode と Codex の問い合わせは、PC でそのエージェントを有効にしていなければ（Codex は手元に見つからないときも）`{ error: 'agent-missing' }` である。
   - 失敗は `{ error: 'project-missing' | 'account-missing' | 'agent-missing' | 'bad-request' }` である。
   - 答えは `reply:` の AAD で封じる。
     PC は、開けない問い合わせには答えない（スマホは 5 秒で時間切れになる）。
 - **スマホ側。**
-  答えは画面の間だけ覚える（同じ PC、プロジェクト、アカウントの `/` は 1 回、`@` は同じ `q` を 30 秒、opencode の選択肢は同じ PC とプロジェクトで 1 回）。
+  答えは画面の間だけ覚える（同じ PC、プロジェクト、アカウントの `/` は 1 回、`@` は同じ `q` を 30 秒、opencode の選択肢は同じ PC とプロジェクトで 1 回、Codex の選択肢は同じ PC で 1 回）。
   打つたびの問い合わせは 250 ms 待ってから出す。
   PC がつないでいない、答えない、呼び鈴が無い Worker のときは、候補の欄にその旨を表示し、プロンプトは手で入力できる。
 - **PC 側の張る条件。**

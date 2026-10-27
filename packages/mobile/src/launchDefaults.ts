@@ -4,7 +4,7 @@
  * 既定は、新しい会話の画面を開いたときに最初から選んでおく値で、このスマホの localStorage にだけ持つ。
  * PC とアカウントは ID で持ち、そのとき選べなければ新しい会話の画面が無視する（今の初期値に戻す）。
  * 権限、モデル、effort は shared の並びにある値だけを受け、知らない値はデフォルト（空）に戻す。
- * エージェントは opencode のときだけ持つ（欄が無ければ Claude Code）。opencode のモードとモデルは PC の一覧から選ぶので、既定には持たない。
+ * エージェントは opencode か Codex のときだけ持つ（欄が無ければ Claude Code）。opencode のモードとモデルは PC の一覧から選ぶので、既定には持たない。
  * 自動承認も既定に持たない（危ない値を毎回の初期値にしない。PC のダイアログと同じ）。
  */
 
@@ -42,7 +42,7 @@ export type LaunchDefaults = {
   permissionMode: string;
   model: string;
   effort: string;
-  /** 既定のエージェント。opencode のときだけ持つ。opencode を選べない PC では新しい会話の画面が無視する。 */
+  /** 既定のエージェント。opencode か Codex のときだけ持つ。そのエージェントを選べない PC では新しい会話の画面が無視する。 */
   agent?: MobileAgent;
 };
 
@@ -69,7 +69,7 @@ export function loadLaunchDefaults(): LaunchDefaults {
       permissionMode: oneOf(v.permissionMode, PERMISSION_OPTIONS),
       model: oneOf(v.model, MODEL_OPTIONS),
       effort: oneOf(v.effort, EFFORT_OPTIONS),
-      ...(v.agent === 'opencode' ? { agent: 'opencode' as const } : {}),
+      ...(v.agent === 'opencode' || v.agent === 'codex' ? { agent: v.agent } : {}),
     };
   } catch {
     return { ...EMPTY_DEFAULTS };
@@ -78,7 +78,7 @@ export function loadLaunchDefaults(): LaunchDefaults {
 
 export function saveLaunchDefaults(d: LaunchDefaults): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ pc: d.pc, account: d.account, permissionMode: d.permissionMode, model: d.model, effort: d.effort, ...(d.agent === 'opencode' ? { agent: 'opencode' } : {}) }));
+    localStorage.setItem(KEY, JSON.stringify({ pc: d.pc, account: d.account, permissionMode: d.permissionMode, model: d.model, effort: d.effort, ...(d.agent === 'opencode' || d.agent === 'codex' ? { agent: d.agent } : {}) }));
   } catch {
     // 置けなければ、次に開いたときデフォルトに戻るだけである。
   }

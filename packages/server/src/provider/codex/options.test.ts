@@ -67,4 +67,27 @@ describe('CodexOptionsService', () => {
     const fresh = make({ run: async () => { throw new Error('boom'); } });
     await expect(fresh.svc.get()).rejects.toThrow('boom');
   });
+  it('last は手元の一覧を待たずに返す。無ければ null を返して裏で取り始め、取れたら返す。間が空いていれば返したあとで取り直す', async () => {
+    const { svc, calls, advance } = make();
+    expect(svc.last()).toBeNull();
+    await svc.get();
+    expect(calls()).toBe(1);
+    expect(svc.last()?.models).toHaveLength(2);
+    expect(calls()).toBe(1);
+    advance(61_000);
+    expect(svc.last()?.fetchedAt).toBe(1_000);
+    await svc.get();
+    expect(calls()).toBe(2);
+    const none = make({ bin: () => null });
+    expect(none.svc.last()).toBeNull();
+    await none.svc.get().catch(() => undefined);
+    expect(none.svc.last()).toBeNull();
+  });
+  it('last が裏で取り始めた一覧は、次の last で返る', async () => {
+    const { svc, calls } = make();
+    expect(svc.last()).toBeNull();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls()).toBe(1);
+    expect(svc.last()?.models).toHaveLength(2);
+  });
 });

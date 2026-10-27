@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { builtinSubcommandDrifts, helpDrifts, parseCodexHelp } from '../src/provider/codex/compat/help.ts';
+import { appendOnlyDrifts, compressionDrifts, parseFeatureList } from '../src/provider/codex/compat/storage.ts';
 import { shapeOfRollout } from '../src/provider/codex/compat/rolloutShape.ts';
 import { diffJson, extractSchemaSubset, type SchemaMethod } from '../src/provider/codex/compat/schemaSubset.ts';
 
@@ -124,5 +125,38 @@ describe('helpDrifts（機種によるサブコマンドを許す）', () => {
   });
   it('横取りの一覧に app があっても、help に無いだけでは落とさない', () => {
     expect(builtinSubcommandDrifts({ commands: ['exec', 'resume'], aliases: ['e'] }, ['app', 'e', 'exec'])).toEqual([]);
+  });
+});
+
+describe('rollout の置かれ方の見張り（compat/storage.ts）', () => {
+  const list = [
+    'agent_message_board                      under development  false',
+    'local_thread_store_compression           under development  false',
+    'enable_request_compression               stable             true',
+    'local_thread_store_shared_compression    removed            false',
+    '壊れた行',
+  ].join('\n');
+
+  it('features list の行を、名前、段階、真偽に読む', () => {
+    const f = parseFeatureList(list);
+    expect(f.local_thread_store_compression).toEqual({ stage: 'under development', enabled: false });
+    expect(f.enable_request_compression).toEqual({ stage: 'stable', enabled: true });
+    expect(Object.keys(f)).toHaveLength(4);
+  });
+
+  it('圧縮の既定か段階が変わる、機能が消えると知らせる', () => {
+    const want = { stage: 'under development', enabled: false };
+    expect(compressionDrifts(want, want)).toEqual([]);
+    expect(compressionDrifts(want, { stage: 'stable', enabled: true })).toHaveLength(2);
+    expect(compressionDrifts(want, { stage: 'experimental', enabled: false })).toHaveLength(1);
+    expect(compressionDrifts(want, undefined)[0]).toContain('is gone');
+  });
+
+  it('追記だけなら差は無く、書き換え、縮み、伸びないは知らせる', () => {
+    const a = Buffer.from('{"a":1}\n{"b":2}\n');
+    expect(appendOnlyDrifts(a, Buffer.concat([a, Buffer.from('{"c":3}\n')]))).toEqual([]);
+    expect(appendOnlyDrifts(a, Buffer.from('{"a":9}\n{"b":2}\n{"c":3}\n'))[0]).toContain('rewritten');
+    expect(appendOnlyDrifts(a, a.subarray(0, 5))[0]).toContain('shrank');
+    expect(appendOnlyDrifts(a, a)[0]).toContain('did not grow');
   });
 });
