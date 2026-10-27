@@ -6,6 +6,13 @@ const NAME = 'EXIF の撮影日時をタグにする';
 const scene: Scene = {
   name: 'hero',
   kind: 'motion',
+  watch: [
+    'packages/ui/src/views/{SessionScreen,TerminalPane,NowCard,SummaryCard,TocPane,TurnIndex,Transcript,ToolGroup,ToolItem,PaneHeader,TabStrip}.tsx',
+    'packages/ui/src/presenters/{live,nowCard,session,turns,tools,toolGroups,heading}.ts',
+    'packages/ui/src/mediator/{live,sessionView}.ts',
+    'packages/ui/src/runtime/{terminals,xterm,xtermSetup,terminalLinks}.ts',
+    'packages/server/src/live/*.ts',
+  ],
   setup(seed) {
     seed.live('hero', {
       project: 'photo-tagger',

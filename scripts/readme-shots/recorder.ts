@@ -2,6 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Page } from 'playwright';
 import type { Recorder } from './kit.ts';
 
@@ -9,6 +10,9 @@ type Frame = { t: number; data: Buffer };
 type Tools = { ffmpeg: string; img2webp: string };
 
 const FPS = 15;
+/** 確かめ用のコマ一覧の出し先（git に入れない）。 */
+export const SHEET_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '.out');
+const SHEET_FRAMES = 8;
 /** 3MB を超えたら、順に画質と幅を落とす。 */
 const LADDER: [number, number][] = [[85, 1600], [75, 1600], [65, 1500], [55, 1400], [45, 1280]];
 const MAX_BYTES = 3 * 1024 * 1024;
@@ -43,6 +47,7 @@ function encode(frames: Frame[], out: string, holdMs: number, tools: Tools, work
   const t0 = frames[0]!.t;
   const ticks = Math.ceil(((frames[frames.length - 1]!.t - t0) * FPS) / 1000) + 1;
   const groups: { frame: number; n: number }[] = [];
+  const groupAt: number[] = [];
   let k = 0;
   for (let i = 0; i < ticks; i++) {
     const at = t0 + (i * 1000) / FPS;
@@ -50,8 +55,10 @@ function encode(frames: Frame[], out: string, holdMs: number, tools: Tools, work
     const last = groups[groups.length - 1];
     if (last && last.frame === k) last.n++;
     else groups.push({ frame: k, n: 1 });
+    groupAt.push(groups.length - 1);
   }
   groups.forEach((g, i) => fs.writeFileSync(path.join(work, `s${String(i + 1).padStart(4, '0')}.jpg`), frames[g.frame]!.data));
+  contactSheet(work, groupAt, tools, path.join(SHEET_DIR, `${path.basename(out, '.webp')}.sheet.png`));
   let size = 0;
   for (const [q, width] of LADDER) {
     const pdir = path.join(work, `p${width}`);
@@ -72,4 +79,18 @@ function encode(frames: Frame[], out: string, holdMs: number, tools: Tools, work
   }
   if (size > MAX_BYTES) console.warn(`${path.basename(out)} が 3MB を超えています（${(size / 1024 / 1024).toFixed(2)} MB）`);
   fs.rmSync(work, { recursive: true, force: true });
+}
+
+/** 時間で等分した 6〜8 コマを 4 列に並べた一覧を 1 枚の PNG にする（WebP にする前のコマから。画面の確かめ用）。 */
+function contactSheet(work: string, groupAt: number[], tools: Tools, out: string): void {
+  const n = Math.min(SHEET_FRAMES, Math.max(1, groupAt.length));
+  const picks = Array.from({ length: n }, (_, j) => groupAt[Math.round((j * (groupAt.length - 1)) / Math.max(1, n - 1))]!);
+  const dir = path.join(work, 'sheet');
+  fs.mkdirSync(dir, { recursive: true });
+  picks.forEach((g, j) => fs.copyFileSync(path.join(work, `s${String(g + 1).padStart(4, '0')}.jpg`), path.join(dir, `c${String(j + 1).padStart(2, '0')}.jpg`)));
+  fs.mkdirSync(SHEET_DIR, { recursive: true });
+  const cols = n <= 4 ? n : 4;
+  const rows = Math.ceil(n / cols);
+  execFileSync(tools.ffmpeg, ['-y', '-loglevel', 'error', '-i', path.join(dir, 'c%02d.jpg'), '-vf', `scale=640:-2,tile=${cols}x${rows}:padding=6:color=white`, '-frames:v', '1', out]);
+  console.log(`コマ一覧: ${path.relative(process.cwd(), out)}（${n} コマ）`);
 }

@@ -7,6 +7,15 @@ const PROJECT = 'weather-cli';
 const scene: Scene = {
   name: 'wrap-up',
   kind: 'motion',
+  watch: [
+    'packages/ui/src/views/{SessionScreen,SummaryCard,ProjectScreen,PauseDialog,SessionList}.tsx',
+    'packages/ui/src/presenters/{session,sessions,project,pause,live}.ts',
+    'packages/ui/src/mediator/{live,sessionOrganize}.ts',
+    'packages/server/src/summary/*.ts',
+    'packages/server/src/sessions/{states,autoDone,notes}.ts',
+    'packages/server/src/mcp/*.ts',
+    'packages/server/src/http/routes/sessions.ts',
+  ],
   setup(seed) {
     seed.live('wrap-up', {
       project: PROJECT,

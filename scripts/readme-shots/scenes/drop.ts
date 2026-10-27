@@ -27,6 +27,16 @@ type W = { __drag: (t: number) => void };
 const scene: Scene = {
   name: 'drop',
   kind: 'motion',
+  watch: [
+    'packages/ui/src/views/{SessionScreen,TerminalPane,NowCard,SummaryCard,TocPane,TurnIndex,Transcript,ToolGroup,ToolItem,PaneHeader,TabStrip}.tsx',
+    'packages/ui/src/presenters/{live,nowCard,session,turns,tools,toolGroups,heading}.ts',
+    'packages/ui/src/mediator/{live,sessionView}.ts',
+    'packages/ui/src/runtime/{terminals,xterm,xtermSetup,terminalLinks}.ts',
+    'packages/server/src/live/*.ts',
+    'packages/ui/src/runtime/fileDrop.ts',
+    'packages/server/src/prompt/*.ts',
+    'packages/server/src/http/routes/prompt.ts',
+  ],
   setup(seed) {
     seed.project({ dir: 'plan-board', name: 'plan-board' });
     seed.live('drop', {

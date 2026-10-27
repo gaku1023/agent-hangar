@@ -1,5 +1,7 @@
 // README に載せる画面の画像を撮る台本の入口。
 //   node --import tsx scripts/readme-shots/run.ts [--only hero,search [--solo]] [--hold] [--keep]
+//   ... --stale [--shoot]      古い場面を一覧にして終わる（--shoot を付けると、その古い場面だけを撮る）
+//   ... --record-only          撮らずに、docs/images/shots.json の行を今の HEAD で書く（--only で場面を選べる）
 // scenes/<名前>.ts を全部読み、見本の HOME を作り、偽の claude で動かしたサーバを 4177 以外のポートで起こして、Playwright で撮る。
 // 出力は docs/images/（motion は <名前>.webp、still は <名前>.png）。場面の足し方は README.md。
 import fs from 'node:fs';
@@ -9,6 +11,7 @@ import { PAST, PROJECTS } from './data.mjs';
 import { api, type Env, prepare, requireBuilt, requireTools, startServer, teardown, waitHealthy } from './env.ts';
 import type { ApiMock, LiveScript, PastSession, Project, Scene, Seed } from './kit.ts';
 import { type Ids, OUT, shoot } from './stage.ts';
+import { printStale, readShots, recordShot, staleScenes } from './stale.ts';
 
 const args = process.argv.slice(2);
 const flag = (n: string) => args.includes(n);
@@ -87,9 +90,21 @@ async function populate(e: Env, data: ReturnType<typeof collect>): Promise<Ids> 
 }
 
 async function main(): Promise<void> {
+  let pick: Set<string> | null = only;
+  const scenes = await loadScenes();
+  if (flag('--record-only')) {
+    for (const s of scenes.filter((x) => !pick || pick.has(x.name))) { recordShot(s, { assumeClean: true }); console.log(`記録: ${s.name}`); }
+    return process.exit(0);
+  }
+  if (flag('--stale')) {
+    const stale = staleScenes(scenes.filter((x) => !pick || pick.has(x.name)), readShots());
+    printStale(stale, scenes.length);
+    if (!flag('--shoot') || !stale.length) return process.exit(0);
+    pick = new Set(stale.map((s) => s.name));
+    console.log(`古い場面を撮ります: ${[...pick].join(', ')}`);
+  }
   requireBuilt();
   const tools = requireTools();
-  const scenes = await loadScenes();
   // 場面ごとに環境を作り直す。共通の見本に、その場面の setup の分だけを足す。
   // 全場面の setup を 1 つの環境に入れると、ほかの場面の生きた会話まで「実行中」に並んでしまうため。
   let e: Awaited<ReturnType<typeof prepare>> | null = null;
@@ -98,7 +113,7 @@ async function main(): Promise<void> {
   }
   fs.mkdirSync(OUT, { recursive: true });
   let code = 0;
-  for (const scene of scenes.filter((s) => !only || only.has(s.name))) {
+  for (const scene of scenes.filter((s) => !pick || pick.has(s.name))) {
     const data = collect([scene]);
     e = await prepare(tools, data);
     console.log(`撮影用の環境: ${e.root}（ポート ${e.port}、場面 ${scene.name}）`);
@@ -111,6 +126,7 @@ async function main(): Promise<void> {
         await new Promise(() => {});
       }
       await shoot(e, ids, tools, [scene], data.mocks);
+      recordShot(scene);
     } catch (err) {
       console.error(err);
       code = 1;

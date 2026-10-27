@@ -15,6 +15,14 @@ const SKILLS: [string, string][] = [
 const scene: Scene = {
   name: 'new-session',
   kind: 'motion',
+  watch: [
+    'packages/ui/src/views/{NewSessionDialog,ModelPicker,LaunchChips,LaunchPrepBox,ParentField,FolderBrowse,AgentIcon}.tsx',
+    'packages/ui/src/presenters/{newSession,codexLaunch,modelPicker,launchPrep,agentIcon}.ts',
+    'packages/ui/src/mediator/{launch,launchPrep}.ts',
+    'packages/server/src/launch/*.ts',
+    'packages/server/src/prompt/*.ts',
+    'packages/server/src/http/routes/{runs,prompt}.ts',
+  ],
   setup(seed) {
     seed.project({ dir: PROJECT, name: PROJECT });
   },
