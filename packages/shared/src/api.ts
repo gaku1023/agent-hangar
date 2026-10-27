@@ -667,7 +667,13 @@ export type ConfigInboxItemDto = {
   /** この PC の環境に無い `{env:X}` の X（opencode の設定と MCP の項目）。無ければ欄ごと省く。 */
   missingEnv?: string[];
 };
-export type ConfigInboxDto = { items: ConfigInboxItemDto[]; approval: ConfigApproval };
+/**
+ * 書き戻しの入れ物 1 つの、適用内容の確認に出す場所。name は入れ物の名前（claude、claude-mcp、codex、codex-mcp、opencode、opencode-mcp、agents-skills、hangar）。
+ * dir は書き込み先、backup は控えの世代の置き場（末尾に区切りを付ける）で、どちらも利用者のホームの下なら `~` で始めた表示用の形。控えを取らない入れ物（hangar）は backup が null。
+ */
+export type ConfigStoreDto = { name: string; dir: string; backup: string | null };
+/** stores と backupsRoot（控えの世代の置き場の親、表示用の形）は適用内容の確認の説明文に使う。この項目を知らない古いサーバは返さない。 */
+export type ConfigInboxDto = { items: ConfigInboxItemDto[]; approval: ConfigApproval; stores?: ConfigStoreDto[]; backupsRoot?: string };
 export type ConfigConflictSideDto = { deviceName: string; at: number | null; size: number };
 export type ConfigConflictDto = { id: string; kind: ConfigItemKind; label: string; marks: ConfigExecMark[]; local: ConfigConflictSideDto | null; remote: ConfigConflictSideDto | null; /** 手元から相手への差分。 */ diff: RetentionPreviewLine[] };
 export type ConfigUnsentKind = 'permission-rule' | 'secret' | 'unknown-key';

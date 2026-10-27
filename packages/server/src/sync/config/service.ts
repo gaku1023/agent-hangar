@@ -6,7 +6,7 @@ import { Readable } from 'node:stream';
 import {
   CONFIG_BUNDLE_MIN_WORKER_COMPAT, configBlobKey, isSafeKeyId,
   type ConfigApplyOrderDto, type ConfigApplyOrderEntryIn, type ConfigApplyOrderItemDto, type ConfigApproval, type ConfigBackupsDto, type ConfigHeldReason, type ConfigConflictDto, type ConfigNoticeDto, type ConfigVcsDto,
-  type ConfigInboxDto, type ConfigInboxItemDto, type ConfigItemKind, type ConfigOutgoingDto, type ConfigSyncDto, type ConfigUnsentDto, type ConfigUnsentItemDto, type ConfigUnsentKind, type FileMetaIn,
+  type ConfigInboxDto, type ConfigInboxItemDto, type ConfigItemKind, type ConfigStoreDto, type ConfigOutgoingDto, type ConfigSyncDto, type ConfigUnsentDto, type ConfigUnsentItemDto, type ConfigUnsentKind, type FileMetaIn,
 } from '@agent-hangar/shared';
 import { diffLines } from '../../config/jsonTextEdit.ts';
 import { touchRow } from '../../db/notify.ts';
@@ -25,6 +25,9 @@ import { pruneInbox, readInbox, readInboxBlob, readInboxMeta, writeInbox, type I
 import { applyOrderPath, BUNDLE_PATH } from './paths.ts';
 import { collectAll, enabledTargetNames, targetNameOfId, targetOfId, type TargetContext } from './targets/index.ts';
 import { defaultTargetPaths, type TargetPaths } from './targets/paths.ts';
+import { AGENTS_SKILLS_STORE, CLAUDE_MCP_STORE, CLAUDE_STORE, CODEX_MCP_STORE, CODEX_STORE, OPENCODE_MCP_STORE, OPENCODE_STORE } from './targets/stores.ts';
+import type { TargetStore } from './targets/types.ts';
+import { backupsRoot } from '../../config/cloud.ts';
 import { CLAUDE_TARGET_NAME } from './targets/claude.ts';
 import { CLAUDE_HOOKS_NAME, holdOfHooks } from './targets/claudeHooks.ts';
 import { CLAUDE_PLUGINS_NAME, holdOfPlugins } from './targets/claudePlugins.ts';
@@ -452,7 +455,29 @@ export class ConfigSyncService {
       needsApproval: targetOfId(r.action.id)?.needsApproval({ id: r.action.id, kind: r.kind, op: r.action.op }, approval) ?? false,
       ...(r.missingEnv.length ? { missingEnv: r.missingEnv } : {}),
     }));
-    return { items, approval };
+    return { items, approval, ...this.storesDto() };
+  }
+
+  /**
+   * 適用内容の確認の説明文に出す、入れ物ごとの書き込み先と控えの置き場（表示用の形）。
+   * 同じファイルに書く入れ物（claude と claude-hooks など）は 1 つにまとまっている（targets/stores.ts）。hangar の好みは控えを取らない。
+   */
+  private storesDto(): Pick<ConfigInboxDto, 'stores' | 'backupsRoot'> {
+    const ctx = this.targetCtx();
+    const userHome = this.deps.userHome ?? os.homedir();
+    const show = (p: string): string => (p === userHome || p.startsWith(userHome + path.sep) ? `~${p.slice(userHome.length)}` : p);
+    const root = backupsRoot(this.deps.home);
+    const store = (s: TargetStore, dir: string): ConfigStoreDto => ({ name: s.name, dir: show(dir), backup: show(path.join(root, s.backups)) + path.sep });
+    return {
+      backupsRoot: show(root) + path.sep,
+      stores: [
+        store(CLAUDE_STORE, ctx.claudeDir), store(CLAUDE_MCP_STORE, ctx.claudeJsonPath),
+        store(CODEX_STORE, ctx.codexHome), store(CODEX_MCP_STORE, ctx.codexHome),
+        store(OPENCODE_STORE, ctx.opencodeDir), store(OPENCODE_MCP_STORE, ctx.opencodeDir),
+        store(AGENTS_SKILLS_STORE, ctx.agentsSkillsDir),
+        { name: HANGAR_TARGET_NAME, dir: show(ctx.hangarSettingsPath), backup: null },
+      ],
+    };
   }
 
   conflicts(): ConfigConflictDto[] {

@@ -52,6 +52,9 @@
 /* ダイアログの上の、ほかのダイアログへ移る入口。 */
 .cfg-jumps { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2); }
 
+/* 適用内容の確認の「すべて」で、対象ごとの書き込み先。パスは長いので折り返す。 */
+.cfg-dests { margin: 0; padding-left: calc(var(--u) * 5); overflow-wrap: anywhere; }
+
 /* 承認の表（c2）。チェック、名前、種類、印、届いた、内容。 */
 .cfg-chips { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); }
 .cfg-chip { display: inline-flex; align-items: center; height: 24px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); font: 600 var(--fs-xs) var(--font-sans); color: var(--ink-2); background: var(--surface-2); cursor: pointer; white-space: nowrap; }
@@ -86,6 +89,8 @@
 
 /* 下端の左の注記（件数、バックアップの置き場）は 1 行に収め、入らなければ省く。ボタンを押し出さない。 */
 .dialog-config .dialog-foot > .faint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 適用内容の確認のバックアップ先は、パスが 2 つ並ぶことがあるので切らずに折り返す。 */
+.dialog-config .dialog-foot > .cfg-backup { white-space: normal; overflow-wrap: anywhere; }
 
 /* 対象ごとの入切（v0.12 の U0 の 1A、2A、2a）。親の行の下に、左の線で入れ子にして並べる。 */
 .cfg-kids { margin: 0 0 calc(var(--u) * 1); padding-left: calc(var(--u) * 3.5); border-left: 2px solid var(--line); }

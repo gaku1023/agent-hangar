@@ -6119,6 +6119,7 @@ Codex と opencode の行（その MCP を含む）は、その PC でそのエ�
 入れ物が Git などで管理されていれば（`ConfigSyncDto.vcs`）、名前の横に札を出し、有効にするときは行の下の確認の帯を経る（2A、2a）。opencode の json と jsonc の併存（`notices`）は opencode の行に添える。
 送らなかった項目は理由ごとの群（シークレット、この PC だけ、未対応のキー）に分け、「それでも送る」は行の下の帯で確かめてから送る（3A、3a）。未対応のキーは送れないので、行の件数とベルの件数に入れない（`unknownKeyCount`）。
 適用内容の確認は、対象の札（Claude Code、Codex、opencode、共通の skills、Hangar の設定）で絞り込める 1 つの一覧にし、競合、承認が必要なもの、そのまま適用するもの、保留（畳む）の順に群を置く（4B、4a、4α）。絞り込みは見せる行だけを変え、適用するものは変えない。
+説明文の件数と内訳は、そのまま書き込む項目（競合と承認が必要なものを除く）だけで数え、札ごとに作る。札がその対象なら書き込み先とバックアップ先（`backups/<入れ物>-config/`）を言い、「すべて」で対象が 2 つ以上なら対象ごとの書き込み先を並べる。畳んだ群の抜粋も、その札の項目だけから作る。Hangar の設定はバックアップを取らないので、そう言わない。
 Hangar の設定だけを適用するときは、サーバが PUT の場で書いて適用内容から外すので、残りが空なら殻を呼ばずに適用済みとする。
 ヘッダーの同期の語を押すと、設定がこの節で開く（`#/settings?at=sync`。`sync` は `cloud` の別名）。
 ヘッダーの同期の一行は状態を示すだけなので、同期の操作はこの節が唯一の置き場である。
@@ -7949,7 +7950,7 @@ skills、commands、agents は実行される指示なので、他の PC から�
 | --- | --- |
 | `GET /api/config-sync` | `ConfigSyncDto`（スイッチ、承認の仕方、届いた数、競合、保留、送らなかった数（知らない鍵を除く。知らない鍵の数は `unknownKeyCount` で分ける）、控えの世代の数、指示書、最後に送った時刻）。`GET /api/bootstrap` の `configSync` と、`config.update` イベントも同じ形 |
 | `GET /api/config-sync/outgoing` | 送る一覧。種類ごとの項目、`settings` の鍵の値、運ばない鍵と理由。スイッチが切でも読める |
-| `GET /api/config-sync/inbox` | 届いた変更。項目ごとに種類、操作（`create`、`overwrite`、`delete`、`conflict`）、送り主、大きさ、実行の印、中身の先頭、保留、承認が要るか |
+| `GET /api/config-sync/inbox` | 届いた変更。項目ごとに種類、操作（`create`、`overwrite`、`delete`、`conflict`）、送り主、大きさ、実行の印、中身の先頭、保留、承認が要るか。あわせて、入れ物ごとの書き込み先とバックアップ先（`stores`、ホームの下は `~` の表示用の形）と、バックアップの親（`backupsRoot`） |
 | `GET /api/config-sync/conflicts` | 競合。両側の PC と時刻と大きさ、差分の行（`RetentionPreviewLine` と同じ形） |
 | `GET /api/config-sync/unsent`、`POST /api/config-sync/unsent/:id/send` | 送らなかった項目と、「それでも送る」 |
 | `GET /api/config-sync/backups` | 控えの世代（`backups/claude-config/` の `yyyyMMdd-HHmmss`）。戻す操作は殻の命令 `restore_config_sync` と `hangar config restore` |

@@ -133,3 +133,66 @@ describe('バックアップの世代に対象名', () => {
     expect(p.backups.rows.map((g) => g.targetLabel)).toEqual(['Claude Code', 'Codex', 'Claude の MCP']);
   });
 });
+
+describe('適用内容の確認の説明文を札ごとに（rc.2 B2、B3）', () => {
+  const stores = [
+    { name: 'claude', dir: '~/.claude', backup: '~/.agent-hangar/backups/claude-config/' },
+    { name: 'claude-mcp', dir: '~/.claude.json', backup: '~/.agent-hangar/backups/claude-mcp-config/' },
+    { name: 'codex', dir: '~/.codex', backup: '~/.agent-hangar/backups/codex-config/' },
+    { name: 'codex-mcp', dir: '~/.codex', backup: '~/.agent-hangar/backups/codex-mcp-config/' },
+    { name: 'hangar', dir: '~/.agent-hangar/settings.json', backup: null },
+  ];
+  const items = [
+    inb('file:CLAUDE.md', 'claude-md', 'CLAUDE.md', 'conflict'),
+    inb('file:skills/a/SKILL.md', 'skills', 'skills/a/SKILL.md', 'create', { needsApproval: true }),
+    inb('settings:model', 'settings', 'model', 'overwrite'),
+    inb('claude-mcp:y', 'claude-mcp', 'y', 'create'),
+    inb('codex:toml:model', 'codex-config', 'model', 'overwrite'),
+    inb('codex:mcp:z', 'codex-mcp', 'z', 'create'),
+    inb('hangar:language', 'hangar-pref', 'language', 'overwrite'),
+  ];
+  const r = (xs = items) => {
+    const p = presentConfigDialog(open('review'), storeOf(dto(), { inbox: { items: xs, approval: 'each', stores, backupsRoot: '~/.agent-hangar/backups/' } as never }));
+    if (p?.part !== 'review') throw new Error('part');
+    return p;
+  };
+  const view = (id: string, xs = items) => r(xs).views.find((v) => v.id === id)!;
+  it('件数と内訳は、そのまま書き込む項目だけで数える（競合と承認が必要なものは入れない）', () => {
+    expect(r().total).toBe(5);
+    expect(r().summary).toBe('削除 0、上書き 3、新規 2');
+  });
+  it('「すべて」は合計と、対象ごとの書き込み先を並べる。バックアップは対象ごとのディレクトリと言う', () => {
+    const v = view('all');
+    expect(v.lead).toBe('5 項目を、対象ごとに次のパスへ書き込みます（削除 0、上書き 3、新規 2）。変更前にバックアップを作成します。');
+    expect(v.dests).toEqual(['Claude Code：~/.claude、~/.claude.json（2 項目）', 'Codex：~/.codex（2 項目）', 'Hangar の設定：~/.agent-hangar/settings.json（1 項目）']);
+    expect(v.backupNote).toBe('バックアップ：~/.agent-hangar/backups/ 内の対象ごとのディレクトリ');
+    expect(v.applyNote).toBeNull();
+  });
+  it('対象の札は、その対象の件数と書き込み先とバックアップ先を言い、適用…が全部を書くことを添える', () => {
+    const v = view('codex');
+    expect(v.lead).toBe('2 項目を ~/.codex に書き込みます（削除 0、上書き 1、新規 1）。変更前にバックアップを作成します。');
+    expect(v.dests).toEqual([]);
+    expect(v.backupNote).toBe('バックアップ：~/.agent-hangar/backups/codex-config/、~/.agent-hangar/backups/codex-mcp-config/');
+    expect(v.applyNote).toBe('「適用…」では、他の対象を含む 5 項目を書き込みます。');
+  });
+  it('Hangar の設定はバックアップを作らないので、そう言わない', () => {
+    const v = view('hangar');
+    expect(v.lead).toBe('1 項目を ~/.agent-hangar/settings.json に書き込みます（削除 0、上書き 1、新規 0）。');
+    expect(v.backupNote).toBeNull();
+  });
+  it('対象が 1 つだけなら、「すべて」もその対象の書き込み先を言う', () => {
+    const v = view('all', [inb('codex:toml:model', 'codex-config', 'model', 'overwrite')]);
+    expect(v.lead).toBe('1 項目を ~/.codex に書き込みます（削除 0、上書き 1、新規 0）。変更前にバックアップを作成します。');
+    expect(v.backupNote).toBe('バックアップ：~/.agent-hangar/backups/codex-config/');
+  });
+  it('そのまま書き込む項目が無い札は、そう言う', () => {
+    expect(view('all', [inb('file:CLAUDE.md', 'claude-md', 'CLAUDE.md', 'conflict')]).lead).toBe('そのまま書き込む項目はありません。');
+  });
+  it('畳んだ「そのまま適用するもの」の抜粋は、札の対象の項目だけから作る（B3）', () => {
+    const many = [...Array.from({ length: 14 }, (_, i) => inb(`settings:k${i}`, 'settings', `k${i}`, 'overwrite')), inb('hangar:language', 'hangar-pref', 'language', 'overwrite')];
+    const auto = (id: string) => view(id, many).groups.find((g) => g.id === 'auto')!;
+    expect(auto('all')).toMatchObject({ count: 15, open: false, peek: 'k0、k1、k2、ほか 12' });
+    expect(auto('claude')).toMatchObject({ count: 14, open: false, peek: 'k0、k1、k2、ほか 11' });
+    expect(auto('hangar')).toMatchObject({ count: 1, open: true, peek: null });
+  });
+});

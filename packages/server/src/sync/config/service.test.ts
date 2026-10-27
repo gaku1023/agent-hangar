@@ -909,3 +909,28 @@ describe('束の対象と OS の配線（SPEC 12 章）', () => {
     expect(new ConfigBase(b.db).all().has('fake:old.txt')).toBe(false);
   });
 });
+
+describe('適用内容の確認に出す、入れ物ごとの書き込み先と控えの置き場（rc.2 B2）', () => {
+  it('利用者のホームの下は ~ にして返し、控えは backups/<入れ物>-config/。hangar の好みは控えを取らない', () => {
+    const user = path.join(tmp, 'user');
+    const a = pc('a', 'A', {
+      userHome: user,
+      targetPaths: { codexHome: path.join(user, '.codex'), opencodeDir: path.join(user, '.config', 'opencode'), agentsSkillsDir: path.join(user, '.agents', 'skills'), claudeJsonPath: path.join(user, '.claude.json') },
+      hangarSettingsPath: path.join(user, '.agent-hangar', 'settings.json'),
+    });
+    const s = path.sep;
+    const inbox = a.service.inbox();
+    const backups = path.join(a.home, 'backups');
+    expect(inbox.backupsRoot).toBe(backups + s);
+    const by = Object.fromEntries((inbox.stores ?? []).map((x) => [x.name, x]));
+    expect(Object.keys(by).sort()).toEqual(['agents-skills', 'claude', 'claude-mcp', 'codex', 'codex-mcp', 'hangar', 'opencode', 'opencode-mcp']);
+    // ホームの外（試験の claudeDir）はそのまま。
+    expect(by.claude).toEqual({ name: 'claude', dir: a.claudeDir, backup: path.join(backups, 'claude-config') + s });
+    expect(by['claude-mcp']).toEqual({ name: 'claude-mcp', dir: `~${s}.claude.json`, backup: path.join(backups, 'claude-mcp-config') + s });
+    expect(by.codex).toEqual({ name: 'codex', dir: `~${s}.codex`, backup: path.join(backups, 'codex-config') + s });
+    expect(by['codex-mcp']!.backup).toBe(path.join(backups, 'codex-mcp-config') + s);
+    expect(by.opencode!.dir).toBe(`~${s}${path.join('.config', 'opencode')}`);
+    expect(by['agents-skills']!.dir).toBe(`~${s}${path.join('.agents', 'skills')}`);
+    expect(by.hangar).toEqual({ name: 'hangar', dir: `~${s}${path.join('.agent-hangar', 'settings.json')}`, backup: null });
+  });
+});

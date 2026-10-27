@@ -76,7 +76,7 @@ describe('送らなかった項目（3A、3a）', () => {
   it('理由ごとの群で見せ、それでも送るは行の下で確かめてから送る', () => {
     const onAction = vi.fn();
     render(section(storeOf(dto({ unsent: 1, unknownKeyCount: 1 }), { configTargets: { hangar: false } }, { unsent: { items } }), onAction));
-    expect(screen.getByText('送信しなかった項目 1 件')).toBeInTheDocument();
+    expect(screen.getByText('送信しなかった項目 2 件')).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole('button', { name: '表示' })[0]!);
     expect(screen.getByText('シークレットと思われる値を含む項目')).toBeInTheDocument();
     expect(screen.getByText('不明なキー')).toBeInTheDocument();
@@ -118,5 +118,37 @@ describe('適用内容の確認の対象の札（4B）', () => {
   it('この PC に無い環境変数を行の下に添える', () => {
     show();
     expect(screen.getByText('この PC に API_KEY がありません')).toBeInTheDocument();
+  });
+});
+
+describe('適用内容の確認の説明文が札に従う（rc.2 B2）', () => {
+  const inb = (id: string, kind: ConfigInboxItemDto['kind'], op: ConfigInboxItemDto['op']): ConfigInboxItemDto => ({ id, kind, label: id, op, fromDeviceId: 'd', fromDevice: 'Studio', size: 1, marks: [], head: '', held: null, needsApproval: false });
+  const stores = [{ name: 'claude', dir: '~/.claude', backup: '~/.agent-hangar/backups/claude-config/' }, { name: 'codex', dir: '~/.codex', backup: '~/.agent-hangar/backups/codex-config/' }];
+  it('札を替えると、書き込み先とバックアップ先が替わる', () => {
+    const st = { ...initialState(), overlay: { kind: 'configSync' as const, part: 'review' as const, working: false } };
+    const p = presentConfigDialog(st, storeOf(dto(), {}, { inbox: { items: [inb('settings:model', 'settings', 'overwrite'), inb('codex:toml:model', 'codex-config', 'create')], approval: 'each', stores, backupsRoot: '~/.agent-hangar/backups/' } as never }))!;
+    render(<ActionRoot onAction={() => {}}><ConfigSyncDialog {...p} /></ActionRoot>);
+    expect(screen.getByText(/対象ごとに次のパスへ書き込みます/)).toBeInTheDocument();
+    expect(screen.getByText('Codex：~/.codex（1 項目）')).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole('group', { name: '対象で絞り込む' })).getByRole('button', { name: /^Codex/ }));
+    expect(screen.getByText(/1 項目を ~\/\.codex に書き込みます/)).toBeInTheDocument();
+    expect(screen.getByText('バックアップ：~/.agent-hangar/backups/codex-config/')).toBeInTheDocument();
+    expect(screen.getByText('「適用…」では、他の対象を含む 2 項目を書き込みます。')).toBeInTheDocument();
+  });
+});
+
+describe('設定の行の件数と名前（rc.2 B4、C4）', () => {
+  it('送信しなかった項目の見出しは、未対応のキーも数える。ベルの件数には入れない', () => {
+    const unsent = { items: Array.from({ length: 4 }, (_, i) => ({ id: `u${i}`, kind: 'unknown-key' as const, itemId: `u${i}`, label: `agent.x.k${i}`, reason: 'unknown-key', allowed: false })) };
+    const p = presentConfigSection(storeOf(dto({ unsent: 0, unknownKeyCount: 4 }), {}, { unsent }), Date.now(), false);
+    render(<ActionRoot onAction={() => {}}><ConfigSyncSection cfg={p} cloudOff={false} /></ActionRoot>);
+    expect(screen.getByText('送信しなかった項目 4 件')).toBeInTheDocument();
+    expect(p.unsent.count).toBe(0);
+  });
+  it('承認待ちの行は「承認待ちの項目」と呼ぶ', () => {
+    const items = [{ id: 'codex:plugins:x', kind: 'codex-config' as const, label: 'x', op: 'create' as const, fromDeviceId: 'd', fromDevice: 'Studio', size: 1, marks: [], head: '', held: null, needsApproval: true }];
+    const p = presentConfigSection(storeOf(dto(), {}, { inbox: { items, approval: 'each' } }), Date.now(), false);
+    render(<ActionRoot onAction={() => {}}><ConfigSyncSection cfg={p} cloudOff={false} /></ActionRoot>);
+    expect(screen.getByText('承認待ちの項目 1 件')).toBeInTheDocument();
   });
 });

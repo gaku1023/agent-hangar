@@ -58,10 +58,9 @@ function ReviewDialog(props: ConfigReviewDialogProps) {
   const [filter, setFilter] = useState<string>('all');
   const showChips = props.targets.length > 1;
   const live = !showChips || props.targets.some((x) => x.id === filter) ? filter : 'all';
-  const groups = live === 'all' ? props.groups : props.groups
-    .map((g) => ({ ...g, rows: g.rows.filter((r) => r.target === live) }))
-    .filter((g) => g.rows.length > 0)
-    .map((g) => ({ ...g, count: g.rows.length }));
+  // 群と説明文は札ごとに presenter が作る（抜粋も書き込み先も、その札の項目だけで決める）。
+  const view = props.views.find((v) => v.id === live) ?? props.views[0];
+  const groups = view?.groups ?? props.groups;
   const total = props.targets.reduce((n, x) => n + x.count, 0);
   // 札を替えたら、札は動かさず下の中身だけを入れ替える。高さは前の高さから伸び縮みさせ、中身は淡く出す（試作の 4B の動き）。
   const body = useRef<HTMLDivElement | null>(null);
@@ -79,13 +78,17 @@ function ReviewDialog(props: ConfigReviewDialogProps) {
     <Dialog title={t('configSyncUi.review.title')} icon="sync" className="dialog-config" onClose={close}
       footer={(
         <>
-          <span className="faint">{t('configSyncUi.review.backupNote')}</span>
+          {view?.backupNote && <span className="faint cfg-backup">{view.backupNote}</span>}
           <span className="spacer" />
           <button type="button" className="btn" disabled={props.working} onClick={close}>{t('common.button.cancel')}</button>
           <button type="button" className="btn btn-primary" disabled={props.working || props.loading || props.total === 0} onClick={() => emit({ type: 'configSync.apply', entries: props.entries })}>{props.working ? t('configSyncUi.word.applying') : t('configSyncUi.word.apply')}</button>
         </>
       )}>
-      <div className="muted">{props.loading ? t('settings.common.loading') : t('configSyncUi.review.lead', { n: props.total, summary: props.summary })}</div>
+      <div className="muted">{props.loading ? t('settings.common.loading') : view?.lead}</div>
+      {!props.loading && view && view.dests.length > 0 && (
+        <ul className="cfg-dests muted">{view.dests.map((d) => <li key={d}>{d}</li>)}</ul>
+      )}
+      {!props.loading && view?.applyNote && <span className="faint">{view.applyNote}</span>}
       <NativeNote native={props.native} />
       {(props.awaiting > 0 || props.conflicts > 0) && (
         <div className="cfg-jumps">
