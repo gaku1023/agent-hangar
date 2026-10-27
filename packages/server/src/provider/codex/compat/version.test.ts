@@ -61,16 +61,16 @@ describe('LocalCodex', () => {
   });
   it('版とログインを読む（login status が 0 ならログイン済み）', async () => {
     const bin = writeFakeCodex(dir, { version: '0.164.2' });
-    expect(await new LocalCodex({ bin: () => bin }).status()).toEqual({ found: true, version: '0.164.2', verified: true, loggedIn: true });
+    expect(await new LocalCodex({ bin: () => bin, codexHome: dir }).status()).toEqual({ found: true, version: '0.164.2', verified: true, loggedIn: true });
   });
   it('ログインしていなければ loggedIn が偽。範囲の外なら verified が偽', async () => {
     const bin = writeFakeCodex(dir, { version: '0.170.0', loggedIn: false });
-    expect(await new LocalCodex({ bin: () => bin }).status()).toEqual({ found: true, version: '0.170.0', verified: false, loggedIn: false });
+    expect(await new LocalCodex({ bin: () => bin, codexHome: dir }).status()).toEqual({ found: true, version: '0.170.0', verified: false, loggedIn: false });
   });
   it('版は同じファイルなら打ち直さず、ログインは聞くたびに打つ。呼び手の印は渡さない', async () => {
     const logFile = path.join(dir, 'log.jsonl');
     const bin = writeFakeCodex(dir, { logFile });
-    const c = new LocalCodex({ bin: () => bin, env: { HOME: dir, CLAUDECODE: '1', HANGAR_TOKEN: 's' } });
+    const c = new LocalCodex({ bin: () => bin, codexHome: dir, env: { HOME: dir, CLAUDECODE: '1', HANGAR_TOKEN: 's' } });
     await c.status();
     await c.status();
     const lines = fs.readFileSync(logFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { argv: string[]; env: Record<string, string> });
@@ -83,11 +83,33 @@ describe('LocalCodex', () => {
   });
   it('login status が時間切れなら loggedIn は null（分からない）。版は読める', async () => {
     const bin = writeFakeCodex(dir, { version: '0.164.2', loginHang: true });
-    expect(await new LocalCodex({ bin: () => bin, timeoutMs: 600 }).status()).toEqual({ found: true, version: '0.164.2', verified: true, loggedIn: null });
+    expect(await new LocalCodex({ bin: () => bin, codexHome: dir, timeoutMs: 600 }).status()).toEqual({ found: true, version: '0.164.2', verified: true, loggedIn: null });
+  });
+  it('版は一時の CODEX_HOME で読み、本物の置き場には何も作らせない。.codex が無ければ login status は起こさず未ログイン', async () => {
+    const logFile = path.join(dir, 'log.jsonl');
+    const bin = writeFakeCodex(dir, { logFile });
+    const home = path.join(dir, 'nohome');
+    const c = new LocalCodex({ bin: () => bin, codexHome: home });
+    expect(await c.status()).toEqual({ found: true, version: '0.164.0', verified: true, loggedIn: false });
+    const lines = fs.readFileSync(logFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { argv: string[]; env: Record<string, string> });
+    expect(lines.map((l) => l.argv[0])).toEqual(['--version']);
+    expect(lines[0]!.env.CODEX_HOME).toBeTruthy();
+    expect(lines[0]!.env.CODEX_HOME).not.toBe(home);
+    expect(fs.existsSync(lines[0]!.env.CODEX_HOME!)).toBe(false); // 打ったあとに消してある
+    expect(fs.existsSync(home)).toBe(false);
+  });
+  it('.codex が既にあれば login status は本物のログインを読む（CODEX_HOME は渡さない）', async () => {
+    const logFile = path.join(dir, 'log.jsonl');
+    const bin = writeFakeCodex(dir, { logFile });
+    const home = path.join(dir, 'real');
+    fs.mkdirSync(home);
+    expect(await new LocalCodex({ bin: () => bin, codexHome: home }).status()).toMatchObject({ loggedIn: true });
+    const lines = fs.readFileSync(logFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { argv: string[]; env: Record<string, string> });
+    expect(lines.find((l) => l.argv[0] === 'login')!.env.CODEX_HOME).toBeUndefined();
   });
   it('起こせない codex は、拒否せず読めなかった答えにする', async () => {
     const bin = path.join(dir, 'codex');
     fs.writeFileSync(bin, 'not executable');
-    expect(await new LocalCodex({ bin: () => bin }).status()).toEqual({ found: true, version: null, verified: false, loggedIn: false });
+    expect(await new LocalCodex({ bin: () => bin, codexHome: dir }).status()).toEqual({ found: true, version: null, verified: false, loggedIn: false });
   });
 });

@@ -29,7 +29,7 @@ export { planCodexFiles, writeCodex, type CodexApplyOptions } from './codexWrite
 export const CODEX_TARGET_NAME = 'codex';
 
 const MAX_ITEMS = 5000;
-const EXCLUDE_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv', '.system']);
+const EXCLUDE_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv', '.trash', '.system']);
 const sha256 = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 const toPosix = (p: string): string => p.split(path.sep).join('/');
 const dotted = (p: readonly string[]): string => p.join('.');

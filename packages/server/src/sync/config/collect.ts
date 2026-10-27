@@ -62,7 +62,7 @@ export const isBlocked = (b: Blocked, id: string): boolean => b.ids.has(id) || b
 export type Collected = { items: LocalItem[]; dropped: DroppedKey[]; unsent: UnsentCandidate[]; blocked: Blocked };
 
 const sha256 = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
-const EXCLUDE_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv']);
+const EXCLUDE_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv', '.trash']);
 /** 実行されない、本文やデータの拡張子。これ以外のファイルは script の印を付ける。 */
 const DATA_EXTS = new Set(['.md', '.markdown', '.txt', '.json', '.yaml', '.yml', '.toml', '.csv', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.pdf']);
 

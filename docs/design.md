@@ -1428,7 +1428,8 @@ ChatGPT.app に同梱の codex は使わない。版が利用者の入れたも�
 確かめた版の範囲は `@agent-hangar/shared` の `CODEX_VERIFIED_RANGE`（`0.164.x`）の 1 か所に持つ。
 範囲の外でも起動は止めず、知らせの種を出すだけにする（決定 8）。
 版の読みは `provider/codex/compat/version.ts` の `LocalCodex` が行い、`codex --version` を空の環境で打つ。
-ログインの有無は `codex login status` の終了コード（0 ならログイン済み）で、聞かれるたびに打つ。
+codex は起動するだけで `CODEX_HOME`（既定は `~/.codex`、Windows は環境変数でなく既知のフォルダから引く）の下に `tmp/arg0-*` を作るので、版は一時の `CODEX_HOME` を渡して打ち、打ったあとに一時の置き場ごと消す（利用者の置き場が確認だけで生えない。Mac でも同じ挙動を確かめた）。
+ログインの有無は `codex login status` の終了コード（0 ならログイン済み）で、聞かれるたびに打つ。ログインは利用者の本物の置き場を読む必要があるので `CODEX_HOME` は渡さない。その代わり、置き場（`~/.codex`）がまだ無いときは打たずに未ログインと答える（置き場が無ければログインしたことも無い）。置き場があるときの `tmp/arg0-*` は、利用者の置き場の中なので許す。
 空の環境は `provider/codex/env.ts` の `codexBaseEnv` で、opencode と同じ土台に、codex の置き場と hangar が使っている node の置き場を PATH へ足す（codex の道具が node を要るため）。
 `CODEX_HOME` は渡さず、いつも `~/.codex` で動かす（アカウントの切り替えは効かせない）。
 
@@ -7291,7 +7292,7 @@ hangar 自体の設定（ワークスペースルート、ターミナルアプ�
 R2 は部分更新を持たないので、末尾だけを足す道が無いためである。
 同じ中身を二度上げないために、端末ローカルの `file_sync` に前回の指紋（平文の SHA-256）と大きさと更新時刻を残す。
 
-設定の同期が拾わないものは、`node_modules` と `.git` と `__pycache__` と `.venv` の各段、シンボリックリンク、1 MiB を超えるファイル、`.DS_Store`、そして同期自身が作る写し（`*.conflict-*`、`*.hangar-tmp-*`、`*.part`）である。
+設定の同期が拾わないものは、`node_modules` と `.git` と `__pycache__` と `.venv` と `.trash`（hangar がスキルを消したときのごみ箱）の各段、シンボリックリンク、1 MiB を超えるファイル、`.DS_Store`、そして同期自身が作る写し（`*.conflict-*`、`*.hangar-tmp-*`、`*.part`）である。
 写しを対象に戻すと、競合のファイルが端末間で無限に増える。
 `claude` の対象は、`statusLine`、`hooks`、`env` などの実行にかかわる鍵と、`statusLine.command` が指すスクリプトは運ばない。
 ほかの PC のコマンドが自動で走る道にしないためである。
@@ -7736,7 +7737,7 @@ id は 2 種類ある。
 指示書が Codex の項目だけのときは、書き終えたら指示書を消す。Claude の項目と混ざった指示書を割り振るのは、適用の口を繋ぐ PR の役目である。
 全部が絶対パスの鍵は、空の配列で相手の規則を消さないよう運ばない。
 受け手が権限の鍵を適用するときは、手元の絶対パスの規則を残す（`hangar config apply` が守る。「適用と世代へ戻す」）。
-シンボリックリンクは辿らず、1 MiB を超えるファイルと、`node_modules`、`.git`、`__pycache__`、`.venv`、`.DS_Store`、同期自身の写し（`*.conflict-*`、`*.hangar-tmp-*`、`*.part`）は拾わない。
+シンボリックリンクは辿らず、1 MiB を超えるファイルと、`node_modules`、`.git`、`__pycache__`、`.venv`、`.trash`、`.DS_Store`、同期自身の写し（`*.conflict-*`、`*.hangar-tmp-*`、`*.part`）は拾わない。
 ホームのパスの置き換え（`__HANGAR_HOME__`）は、新しい実装では行わない。
 
 **秘密。**
