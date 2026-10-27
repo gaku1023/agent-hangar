@@ -17,6 +17,8 @@ export type PastSession = {
 /** 生きた会話の台本の 1 行。形は fake-claude.mjs が読む。gate は撮影側の合図を待つ行。 */
 export type LiveStep = {
   gate?: string;
+  /** 端末に打たれた 1 行（Enter まで）を待って、発言として記録する。 */
+  typed?: boolean;
   ms?: number;
   user?: string;
   say?: string;
@@ -29,6 +31,10 @@ export type LiveStep = {
   summary?: string;
   diff?: [string, number, string][];
   final?: boolean;
+  /** 許可の問いを出し、1 か Enter（許可）・2（そのまま許可）・3（断る）が打たれるまで waiting で止まる。hangar へは PermissionRequest の hook と同じ本文を送る。 */
+  ask?: { tool: string; input: string; description?: string; question?: string; always?: string };
+  /** hangar の MCP の道具を呼ぶ。args の '@todo:<文言>' は、その文言の TODO の id になる。 */
+  mcp?: { tool: string; args?: Record<string, unknown> };
 };
 export type LiveScript = { project: string; name: string; steps: LiveStep[] };
 
@@ -47,7 +53,7 @@ export type Seed = {
   past(s: PastSession): void;
   /** 生きた会話を足す。key は shoot で ctx.live[key]。name は偽の claude が台本を選ぶ鍵なので、全場面で重ならない名前にする。 */
   live(key: string, script: LiveScript): void;
-  /** 全場面のページで API の応答を差し替える（使用量など）。 */
+  /** この場面のページで API の応答を差し替える。 */
   mock(m: ApiMock): void;
 };
 
@@ -58,6 +64,12 @@ export type OpenOpts = {
   init?: string;
   /** ホームが出たあと、撮り始める前の用意。 */
   prepare?: (page: Page) => Promise<void>;
+  /** 画面の大きさ（CSS px）。既定は 1280×800。PC とスマホを横に並べる場面など、広い面が要るときに指定する。 */
+  viewport?: { width: number; height: number };
+  /** 最初に開く URL。指定すると hangar のホームを待たない（自分で並べた撮影用のページを開くとき）。 */
+  url?: string;
+  /** hangar の画面を iframe に入れられるようにする（X-Frame-Options と CSP の frame-ancestors を外す）。 */
+  frameable?: boolean;
 };
 
 export type Recorder = {
@@ -92,7 +104,7 @@ export type Scene = {
   /** --only で選ぶ名前。ファイル名と同じにする。 */
   name: string;
   kind: 'motion' | 'still';
-  /** 見本のデータを足す。撮る場面を絞っても、全場面の setup が毎回走る（画面の中身が変わらないため）。 */
+  /** 見本のデータを足す。場面ごとに環境を作り直し、共通の見本にこの分だけを足す。 */
   setup?(seed: Seed): void;
   shoot(ctx: ShootCtx): Promise<void>;
 };

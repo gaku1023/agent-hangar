@@ -3,7 +3,7 @@
 ```
 npm run readme-shots                       # 全部撮る
 npm run readme-shots -- --only hero,search # 場面を選ぶ
-npm run readme-shots -- --only mine --solo # その場面だけを読み、ほかの場面の setup も走らせない（試し撮り用）
+npm run readme-shots -- --only mine --solo # その場面のファイルだけを読む（ほかの作りかけの場面を import しない）
 npm run readme-shots -- --hold             # 撮らずに画面を開いたまま止める（画面の確かめ用）
 npm run readme-shots -- --keep             # 一時ディレクトリを残す
 ```
@@ -24,7 +24,7 @@ import type { Scene } from '../kit.ts';
 const scene: Scene = {
   name: 'mine',
   kind: 'motion',                       // 'motion' は webp、'still' は png
-  setup(seed) {                         // 見本のデータの追加。全場面の setup が毎回走る
+  setup(seed) {                         // 見本のデータの追加。場面ごとに環境を作り直し、共通の見本にこの分だけを足す
     seed.past({ project: 'photo-tagger', title: '…', minutesAgo: 90, state: 'done', turns: [['発言', [], '返答']] });
     seed.live('mine', { project: 'photo-tagger', name: '会話の名前', steps: [{ gate: 'mine' }, { user: '…' }, { say: '…', final: true }] });
   },
@@ -49,7 +49,7 @@ export default scene;
 | `seed.project({ dir, name })` | 見本のプロジェクトを足す。`dir` はワークスペース直下のフォルダ名 |
 | `seed.past({...})` | 過去の会話を足す。`title` は全場面で重ならない名前にする。`turns` は `[発言, [[ツール名, 入力, 結果]], 返答]` の並び。複数ターンにできる |
 | `seed.live(key, { project, name, steps })` | 偽の claude が台本どおりに流す生きた会話。`name` は全場面で重ならない名前にする。`steps` の形は `kit.ts` の `LiveStep`。`{ gate }` の行はそこで止まり、`shoot` の `c.gate(名前)` で進む。`ctx.live[key]` が会話の id |
-| `seed.mock({ match, json })` | 全場面のページで API の応答を差し替える。`match` は `'/api/usage'` のような pathname、正規表現、関数。`json` は値か、要求を受けて返す関数 |
+| `seed.mock({ match, json })` | この場面のページで API の応答を差し替える。`match` は `'/api/usage'` のような pathname、正規表現、関数。`json` は値か、要求を受けて返す関数 |
 | `mocks.ts` の `MOCKS` | 同じ差し替えを共通で置く場所。使用量の担当が `/api/usage` の見本を足す（右上の「メイン 未取得」を埋める） |
 | `c.openPage({ mocks, init, prepare })` | この場面のページだけ API を差し替える、ページが開く前に走らせる JS（localStorage など）、ホームが出た後の用意。画面は 1280×800・DPR 2 で固定（DPR は起動の引数で決める。context の deviceScaleFactor にすると端末の文字が倍になる） |
 | `c.live` / `c.projectIds` / `c.pastIds` | 登録した会話・プロジェクトの id（過去の会話は title から） |

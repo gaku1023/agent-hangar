@@ -4,7 +4,7 @@ import path from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { type Env, REPO } from './env.ts';
 import type { ApiMock, OpenOpts, Scene, ShootCtx } from './kit.ts';
-import { MOCKS } from './mocks.ts';
+import { MOCKS, PATCHES, patchEvent } from './mocks.ts';
 import { startRecording } from './recorder.ts';
 
 export const OUT = path.join(REPO, 'docs/images');
@@ -28,6 +28,11 @@ function matches(m: ApiMock, pathname: string, method: string): boolean {
   return m.match(pathname, method);
 }
 
+/** WebSocket の 1 通を JSON として読めれば mocks.ts の patchEvent を通す（accounts.update など）。読めなければそのまま。 */
+function fwdEvent(s: string): string {
+  try { return JSON.stringify(patchEvent(JSON.parse(s))); } catch { return s; }
+}
+
 /** 一時ディレクトリの名前を画面に出さない。API と WebSocket の文字列の中の HOME を /Users/demo に読み替え、画面からの要求は元へ戻す。mocks に当たる要求は差し替える。 */
 async function demoPaths(ctx: BrowserContext, e: Env, mocks: ApiMock[]): Promise<void> {
   const real = fs.realpathSync(e.home);
@@ -46,12 +51,14 @@ async function demoPaths(ctx: BrowserContext, e: Env, mocks: ApiMock[]): Promise
     const res = await route.fetch({ url: back(req.url()), ...(body !== null ? { postData: back(body) } : {}) });
     const type = res.headers()['content-type'] ?? '';
     if (!/json|text/.test(type)) return route.fulfill({ response: res });
+    const patch = PATCHES.find((p) => p.match === url.pathname);
+    if (patch && res.ok()) return route.fulfill({ response: res, body: JSON.stringify(patch.patch(JSON.parse(fwd(await res.text())))) });
     return route.fulfill({ response: res, body: fwd(await res.text()) });
   });
   await ctx.routeWebSocket((u) => u.pathname === '/ws', (ws) => {
     const server = ws.connectToServer();
     ws.onMessage((m) => server.send(typeof m === 'string' ? back(m) : m));
-    server.onMessage((m) => ws.send(typeof m === 'string' ? fwd(m) : m));
+    server.onMessage((m) => ws.send(typeof m === 'string' ? fwdEvent(fwd(m)) : m));
     ws.onClose((c, r) => server.close({ code: c, reason: r }));
     server.onClose((c, r) => ws.close({ code: c, reason: r }));
   });
@@ -84,7 +91,12 @@ function makeCtx(browser: Browser, e: Env, ids: Ids, tools: { ffmpeg: string; im
       throw new Error(`サイドバーに無い: ${text}`);
     },
     async openPage(opts: OpenOpts = {}) {
-      const bc = await browser.newContext({
+      // viewport を指定した場面は、context のエミュレーションでなく、その大きさの窓を持つ専用のブラウザで開く
+      // （エミュレーションだと xterm の WebGL がセルを測り違えて、端末の文字が小さくなる）。
+      const own = opts.viewport
+        ? await chromium.launch({ args: ['--force-device-scale-factor=2', `--window-size=${opts.viewport.width},${opts.viewport.height}`, '--disable-features=LocalNetworkAccessChecks,PrivateNetworkAccessSendPreflights,PrivateNetworkAccessRespectPreflightResults'] })
+        : null;
+      const bc = await (own ?? browser).newContext({
         // 画面の大きさと倍率は起動の引数で決める（下の launch）。
         viewport: null,
         locale: 'ja-JP',
@@ -92,14 +104,28 @@ function makeCtx(browser: Browser, e: Env, ids: Ids, tools: { ffmpeg: string; im
         colorScheme: 'light',
       });
       await demoPaths(bc, e, [...(opts.mocks ?? []), ...globalMocks, ...MOCKS]);
+      if (opts.frameable) {
+        // hangar の画面（api と ws 以外の要求）から、枠に入れるのを断る見出しを外す。
+        await bc.route((u) => u.origin === e.base && !u.pathname.startsWith('/api/') && u.pathname !== '/ws', async (route) => {
+          const res = await route.fetch();
+          const headers = { ...res.headers() };
+          delete headers['x-frame-options'];
+          for (const k of Object.keys(headers)) if (k.toLowerCase() === 'content-security-policy') headers[k] = headers[k]!.replace(/frame-ancestors[^;]*;?/i, '');
+          return route.fulfill({ response: res, headers });
+        });
+      }
       if (opts.init) await bc.addInitScript(opts.init);
       const page = await bc.newPage();
-      await page.goto(`${e.base}/?t=${e.token}`);
-      await page.getByText('ホーム', { exact: true }).first().waitFor();
-      await page.getByText('実行中').first().waitFor();
-      await sleep(1200);
+      if (opts.url) {
+        await page.goto(opts.url);
+      } else {
+        await page.goto(`${e.base}/?t=${e.token}`);
+        await page.getByText('ホーム', { exact: true }).first().waitFor();
+        await page.getByText('実行中').first().waitFor();
+        await sleep(1200);
+      }
       if (opts.prepare) await opts.prepare(page);
-      return { page, close: () => bc.close() };
+      return { page, close: async () => { await bc.close(); await own?.close(); } };
     },
     record: (page) => startRecording(page, tools, path.join(e.root, 'frames'), OUT),
     async screenshot(page, name) {
@@ -114,7 +140,7 @@ function makeCtx(browser: Browser, e: Env, ids: Ids, tools: { ffmpeg: string; im
 export async function shoot(e: Env, ids: Ids, tools: { ffmpeg: string; img2webp: string }, scenes: Scene[], globalMocks: ApiMock[]): Promise<void> {
   // DPR 2 は context の deviceScaleFactor（エミュレーション）でなく、起動の引数で決める。
   // エミュレーションだと xterm の WebGL がセルを 1 倍で測り、端末の文字が UI の倍になって行が欠ける。
-  const browser = await chromium.launch({ args: ['--force-device-scale-factor=2', `--window-size=${W},${H}`] });
+  const browser = await chromium.launch({ args: ['--force-device-scale-factor=2', `--window-size=${W},${H}`, '--disable-features=LocalNetworkAccessChecks,PrivateNetworkAccessSendPreflights,PrivateNetworkAccessRespectPreflightResults'] });
   try {
     for (const s of scenes) {
       console.log(`撮影: ${s.name}（${s.kind}）`);

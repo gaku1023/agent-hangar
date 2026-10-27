@@ -157,7 +157,8 @@ export async function prepare(tools: { tmux: string }, data: SeedData): Promise<
 
 export function startServer(e: Env): void {
   const env: Record<string, string> = {
-    PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
+    // root/bin は偽の codex・opencode の置き場（場面 agents、new-session が足す）。hangar が PATH から探す。
+    PATH: `${path.join(e.root, 'bin')}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`,
     HOME: e.home,
     LANG: 'ja_JP.UTF-8',
     TMPDIR: path.join(e.root, 'tmp'),

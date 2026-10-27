@@ -90,28 +90,34 @@ async function main(): Promise<void> {
   requireBuilt();
   const tools = requireTools();
   const scenes = await loadScenes();
-  const data = collect(scenes);
-  const e = await prepare(tools, data);
-  console.log(`撮影用の環境: ${e.root}（ポート ${e.port}）`);
-  let code = 0;
+  // 場面ごとに環境を作り直す。共通の見本に、その場面の setup の分だけを足す。
+  // 全場面の setup を 1 つの環境に入れると、ほかの場面の生きた会話まで「実行中」に並んでしまうため。
+  let e: Awaited<ReturnType<typeof prepare>> | null = null;
   for (const sig of ['SIGINT', 'SIGTERM'] as const) {
-    process.on(sig, () => { void teardown(e, tools, flag('--keep')).finally(() => process.exit(130)); });
+    process.on(sig, () => { void (e ? teardown(e, tools, flag('--keep')) : Promise.resolve()).finally(() => process.exit(130)); });
   }
-  try {
-    startServer(e);
-    await waitHealthy(e);
-    const ids = await populate(e, data);
-    if (flag('--hold')) {
-      console.log(`開く: ${e.base}/?t=${e.token}\nCtrl+C で止めます。`);
-      await new Promise(() => {});
+  fs.mkdirSync(OUT, { recursive: true });
+  let code = 0;
+  for (const scene of scenes.filter((s) => !only || only.has(s.name))) {
+    const data = collect([scene]);
+    e = await prepare(tools, data);
+    console.log(`撮影用の環境: ${e.root}（ポート ${e.port}、場面 ${scene.name}）`);
+    try {
+      startServer(e);
+      await waitHealthy(e);
+      const ids = await populate(e, data);
+      if (flag('--hold')) {
+        console.log(`開く: ${e.base}/?t=${e.token}\nCtrl+C で止めます。`);
+        await new Promise(() => {});
+      }
+      await shoot(e, ids, tools, [scene], data.mocks);
+    } catch (err) {
+      console.error(err);
+      code = 1;
+    } finally {
+      await teardown(e, tools, flag('--keep'));
+      e = null;
     }
-    fs.mkdirSync(OUT, { recursive: true });
-    await shoot(e, ids, tools, scenes.filter((s) => !only || only.has(s.name)), data.mocks);
-  } catch (err) {
-    console.error(err);
-    code = 1;
-  } finally {
-    await teardown(e, tools, flag('--keep'));
   }
   process.exit(code);
 }
