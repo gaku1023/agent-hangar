@@ -7,7 +7,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PAST, PROJECTS } from './data.mjs';
+import type { LiveScript, PastSession, Project } from './kit.ts';
 import { TranscriptWriter, transcriptPath } from './transcript.mjs';
 
 export const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -24,8 +24,10 @@ export type Env = {
   port: number;
   base: string;
   server: ChildProcess | null;
-  /** 過去の会話の id（PAST の添字順）。 */
+  /** 過去の会話の id（past の登録順）。 */
   pastIds: string[];
+  /** 生きた会話の台本の置き場（偽の claude が読む）。 */
+  liveFile: string;
   /** プロジェクトの dir から cwd へ。 */
   cwdOf: Record<string, string>;
 };
@@ -39,14 +41,19 @@ export function requireBuilt(): void {
   }
 }
 
-export function requireTools(): { tmux: string; ffmpeg: string } {
+export function requireTools(): { tmux: string; ffmpeg: string; img2webp: string } {
   const find = (n: string): string | null => {
     for (const d of ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']) if (fs.existsSync(path.join(d, n))) return path.join(d, n);
     return null;
   };
   const ffmpeg = find('ffmpeg');
   if (!ffmpeg) {
-    console.error('ffmpeg が見つかりません。GIF を作るのに要ります。`brew install ffmpeg` で入れてください。');
+    console.error('ffmpeg が見つかりません。コマの縮小に要ります。`brew install ffmpeg` で入れてください。');
+    process.exit(1);
+  }
+  const img2webp = find('img2webp');
+  if (!img2webp) {
+    console.error('img2webp が見つかりません。動く WebP を作るのに要ります。`brew install webp` で入れてください。');
     process.exit(1);
   }
   const tmux = find('tmux');
@@ -54,7 +61,7 @@ export function requireTools(): { tmux: string; ffmpeg: string } {
     console.error('tmux が見つかりません。`brew install tmux` で入れてください。');
     process.exit(1);
   }
-  return { tmux, ffmpeg };
+  return { tmux, ffmpeg, img2webp };
 }
 
 async function freePort(): Promise<number> {
@@ -68,7 +75,9 @@ async function freePort(): Promise<number> {
 }
 
 /** 一時ディレクトリを作り、見本のデータを置く。 */
-export async function prepare(tools: { tmux: string }): Promise<Env> {
+export type SeedData = { projects: Project[]; past: PastSession[]; live: Record<string, LiveScript> };
+
+export async function prepare(tools: { tmux: string }, data: SeedData): Promise<Env> {
   // tmux のソケットのパスは 104 バイトまでなので、短い場所に作る。
   const root = fs.mkdtempSync('/tmp/hgshots-');
   const home = path.join(root, 'home');
@@ -85,11 +94,13 @@ export async function prepare(tools: { tmux: string }): Promise<Env> {
     base: '',
     server: null,
     pastIds: [],
+    liveFile: path.join(root, 'live.json'),
     cwdOf: {},
   };
   e.base = `http://127.0.0.1:${e.port}`;
   for (const d of [e.hangarHome, e.claudeDir, e.workspace, e.gates, e.tmuxTmp, path.join(root, 'bin')]) fs.mkdirSync(d, { recursive: true });
   fs.chmodSync(e.hangarHome, 0o700);
+  fs.writeFileSync(e.liveFile, JSON.stringify(data.live));
   fs.writeFileSync(path.join(e.hangarHome, 'token'), e.token, { mode: 0o600 });
   fs.writeFileSync(path.join(e.hangarHome, 'settings.json'), JSON.stringify({
     workspaceRoot: e.workspace,
@@ -107,7 +118,7 @@ export async function prepare(tools: { tmux: string }): Promise<Env> {
   const wrapper = path.join(root, 'bin/claude');
   fs.writeFileSync(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${path.join(REPO, 'scripts/readme-shots/fake-claude.mjs')}" "$@"\n`, { mode: 0o755 });
 
-  for (const p of PROJECTS) {
+  for (const p of data.projects) {
     const dir = path.join(e.workspace, p.dir);
     fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'README.md'), `# ${p.name}\n`);
@@ -117,7 +128,7 @@ export async function prepare(tools: { tmux: string }): Promise<Env> {
 
   // 過去の会話。最後の発言が minutesAgo 分前になるように時刻を置く。
   const now = Date.now();
-  for (const s of PAST) {
+  for (const s of data.past) {
     const id = crypto.randomUUID();
     e.pastIds.push(id);
     const cwd = e.cwdOf[s.project]!;
@@ -146,7 +157,8 @@ export async function prepare(tools: { tmux: string }): Promise<Env> {
 
 export function startServer(e: Env): void {
   const env: Record<string, string> = {
-    PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
+    // root/bin は偽の codex・opencode の置き場（場面 agents、new-session が足す）。hangar が PATH から探す。
+    PATH: `${path.join(e.root, 'bin')}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`,
     HOME: e.home,
     LANG: 'ja_JP.UTF-8',
     TMPDIR: path.join(e.root, 'tmp'),
@@ -158,6 +170,7 @@ export function startServer(e: Env): void {
     HANGAR_UI_DIST: path.join(REPO, 'packages/ui/dist'),
     HANGAR_OS_LANGUAGE: 'ja',
     READMESHOTS_GATES: e.gates,
+    READMESHOTS_LIVE: e.liveFile,
   };
   fs.mkdirSync(env.TMPDIR!, { recursive: true });
   const log = fs.openSync(path.join(e.root, 'server.log'), 'a');
