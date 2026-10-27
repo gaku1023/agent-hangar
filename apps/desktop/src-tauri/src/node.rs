@@ -805,7 +805,7 @@ impl InstallHint {
     }
 }
 
-/// Windows で、何も無いときに Node（いまの LTS）を入れる命令。頁（boot-fail.js）、launch-cli.ts、hangar.cmd、README と同じ形にする。
+/// Windows で、何も無いときに Node（いまの LTS）を入れる命令。頁（boot-fail.js）、launch-cli.ts、hangar.cmd、docs/install.md と同じ形にする。
 pub const WINGET_LTS: &str = "winget install -e --id OpenJS.NodeJS.LTS";
 
 /// 詳細の文に埋める値。
@@ -1814,7 +1814,7 @@ mod tests {
         assert!(no_kana(&en), "{en}");
     }
 
-    /// 何も無いときに案内する、winget で Node の LTS を入れる命令。頁（boot-fail.js）、launch-cli.ts、hangar.cmd、README と同じ。
+    /// 何も無いときに案内する、winget で Node の LTS を入れる命令。頁（boot-fail.js）、launch-cli.ts、hangar.cmd、docs/install.md と同じ。
     const WINGET_LTS: &str = "winget install -e --id OpenJS.NodeJS.LTS";
 
     // 「node を選ぶ…」で選んだ 1 つを、設定の欄と同じ条件で確かめる。

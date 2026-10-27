@@ -1,6 +1,6 @@
 # 開発の手順
 
-README は、入れて使う人のための手引きです。
+README と、[install.md](install.md)、[usage.md](usage.md) は、入れて使う人のための手引きです。
 ここには、このリポジトリを clone して動かす人と、配布物を作る人のための手順を置きます。
 配布版の `hangar` は、clone した場所では `npm run hangar --` と打ちます。
 署名とリリースの手順は [signing.md](signing.md) と [release.md](release.md) にあります。
@@ -16,7 +16,7 @@ npm run hangar -- setup     # ~/.agent-hangar を作り、tmux と claude と gi
 npm run dev                 # サーバ（4177）と UI の開発サーバ（5173）を起動する
 ```
 
-README の「使い方」の例は配布版の `hangar` の形で書いてあります。
+[usage.md](usage.md) の「使い方」の例は配布版の `hangar` の形で書いてあります。
 clone した場所では、`hangar` を `npm run hangar --` に読み替えてください（`npm run hangar -- mcp install`、`npm run hangar -- statusline install` のように）。
 `npm install` と `npm run dev` は開発用で、配布版だけを入れた人には要りません。
 
@@ -41,7 +41,7 @@ API を `curl` から叩くときは、本文を送る要求に `-H 'Content-Typ
 ## Windows でソースから動かす
 
 1. Node 22.14 以上、Git for Windows、Claude Code を入れます。
-2. psmux を入れます（README の「[psmux を入れる](../README.md#psmux-を入れる)」）。
+2. psmux を入れます（[install.md](install.md) の「[psmux を入れる](install.md#psmux-を入れる)」）。
 3. `npm ci --ignore-scripts` のあと `npm run dev` で起こし、ブラウザで `http://127.0.0.1:5173/` を開きます。
    `--ignore-scripts` を付けないと、`better-sqlite3` が C++ のビルドを始めて、ビルドの道具が無い PC では失敗します。ネイティブモジュールは同梱の prebuild で動きます。
 
@@ -64,7 +64,7 @@ npm run tauri -w apps/desktop -- build --bundles nsis
 インストーラがこの置き場を利用者の PATH に足すので、入れたあとに新しく開いたターミナルで `hangar start` のように打てます（アンインストールで外します）。
 入れる前から開いていたターミナルでは、開き直すか、`%LOCALAPPDATA%\Hangar\server\bin\hangar.cmd` をフルパスで打ちます。
 
-Node の探し方は、README の「[Node の探し方](../README.md#node-の探し方)」にあります。
+Node の探し方は、[install.md](install.md) の「[Node の探し方](install.md#node-の探し方)」にあります。
 
 ## 開発
 

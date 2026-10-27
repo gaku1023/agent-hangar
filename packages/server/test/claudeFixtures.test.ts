@@ -156,9 +156,9 @@ it('最も新しい見本の --help のサブコマンドは、組み込みの�
   expect(subcommandsFromHelp(readFixtureText(f, 'help.txt'))).toEqual({ subcommands: [...BUILTIN_SUBCOMMANDS], drifts: [] });
 });
 
-it('確かめた版は最も新しい見本の版で、README にも書いてある', () => {
+it('確かめた版は最も新しい見本の版で、docs/usage.md にも書いてある', () => {
   expect(VERIFIED_CLAUDE_VERSION).toBe(newestClaudeFixture()!.version);
-  const readme = fs.readFileSync(fileURLToPath(new URL('../../../README.md', import.meta.url)), 'utf8');
+  const readme = fs.readFileSync(fileURLToPath(new URL('../../../docs/usage.md', import.meta.url)), 'utf8');
   expect(readme).toContain(`確かめた Claude Code の版は \`${VERIFIED_CLAUDE_VERSION}\` です`);
 });
 

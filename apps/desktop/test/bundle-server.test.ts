@@ -173,7 +173,7 @@ describe.skipIf(!host)('bundleServer', () => {
     expect(stdout).toContain('hangar');
     expect(stdout).toContain('setup');
 
-    // README が案内する /usr/local/bin/hangar への symlink と同じ形。
+    // docs/install.md が案内する /usr/local/bin/hangar への symlink と同じ形。
     // 配布版だけを持つ利用者がブラウザで入る唯一の道なので、リンク越しに鍵つきの URL まで見る。
     fs.symlinkSync(path.join(out, 'bin/hangar'), path.join(link, 'hangar'));
     const url = (await promisify(execFile)(path.join(link, 'hangar'), ['url', '--port', '4231'], { env })).stdout.trim();
@@ -198,7 +198,7 @@ describe.skipIf(!host)('bundleServer', () => {
     fs.mkdirSync(path.join(claude, 'sessions'));
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir: claude }));
     await bundleServer({ repoRoot, outDir: out, uiDist: ui, buildNodeMajor: BUNDLE_NODE_MAJOR });
-    // README が案内する /usr/local/bin/hangar と同じ形のリンク越しに起こす。
+    // docs/install.md が案内する /usr/local/bin/hangar と同じ形のリンク越しに起こす。
     fs.symlinkSync(path.join(out, 'bin/hangar'), path.join(link, 'hangar'));
     const port = await freePort();
     const { HANGAR_PARENT_PID: _pid, HANGAR_UI_DIST: _ui, HANGAR_PORT: _port, HANGAR_CLOUD_DIR: _cloud, ...base } = process.env;
@@ -607,7 +607,7 @@ describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () =
   });
 
   it('symlink 経由でも実体の dist を使う。多段でも、相対のリンク先でも、空白を含むパスでも', async () => {
-    // README が案内する /usr/local/bin/hangar はリンクである。
+    // docs/install.md が案内する /usr/local/bin/hangar はリンクである。
     // 実体まで辿らないと dist が /usr/local になり、配布版だけを持つ利用者はどこにも入れない。
     const dist = fakeDist();
     const node = fakeNode(path.join(emptyDirFor('hangar nodes-'), 'n d', 'node'));
@@ -1162,7 +1162,7 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
       expect(lines[winget]).toContain('置き換わります');
       expect(WINGET_NODE_LTS).toBe('winget install -e --id OpenJS.NodeJS.LTS');
     });
-    // 探す場所は殻と README に合わせる（fnm、Volta、scoop、PATH）。殻の文（node.rs の詳細）と同じ中身である。
+    // 探す場所は殻と docs/install.md に合わせる（fnm、Volta、scoop、PATH）。殻の文（node.rs の詳細）と同じ中身である。
     it('nvm-windows の行は、fnm、Volta、scoop と PATH も探すと言い、殻の札と同じ文にする', () => {
       const me = { path: 'node', result: 'failed' as const };
       expect(describeNotFound(want, me, [], 's.json').split('\n')).toContain('nvm-windows を使う場合は、nvm install 22 でインストールしたバージョンも検出します（fnm、Volta、scoop でインストールしたバージョンと、PATH にあるバージョンも検索します）。');
