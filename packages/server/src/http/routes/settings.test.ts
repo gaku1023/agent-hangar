@@ -152,7 +152,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {} });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {} });
   });
   // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
   it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
@@ -406,6 +406,7 @@ describe('設定の往復', () => {
         ['allowExternalSummarizer', true],
         ['configApproval', 'auto'],
         ['configBundleSync', true],
+        ['configTargets', { codex: true }],
         ['askStatusAtEnd', false],
         ['liveHints', false],
         ['defaultModel', 'opus'],
@@ -472,6 +473,19 @@ describe('設定の往復', () => {
       expect((await r.json()).error).toBe('「受信した設定の承認方法」の値の形式が正しくありません');
     }
     expect((await json(await get('/api/settings'))).body.configApproval).toBe('auto');
+  });
+  it('設定の同期の対象ごとの入切は、全体の置き換えで保存でき、知らない対象と真偽でない値は捨てる', async () => {
+    expect((await json(await get('/api/settings'))).body.configTargets).toEqual({});
+    expect((await (await patch({ configTargets: { codex: true, 'claude-keys2': false, nope: true, hangar: 'yes' } })).json()).configTargets).toEqual({ codex: true, 'claude-keys2': false });
+    expect((await json(await get('/api/settings'))).body.configTargets).toEqual({ codex: true, 'claude-keys2': false });
+    expect((await json(await get('/api/bootstrap'))).body.settings.configTargets).toEqual({ codex: true, 'claude-keys2': false });
+    // サーバが同期の入切として読む設定（boot/sync.ts の targetSwitches）にも入る。
+    expect(t.deps.settings().configTargets).toEqual({ codex: true, 'claude-keys2': false });
+    // 全体の置き換え：送らなかった対象は消える。
+    expect((await (await patch({ configTargets: { hangar: true } })).json()).configTargets).toEqual({ hangar: true });
+    expect((await patch({ configTargets: [] })).status).toBe(400);
+    expect((await patch({ configTargets: null })).status).toBe(400);
+    expect((await json(await get('/api/settings'))).body.configTargets).toEqual({ hangar: true });
   });
   it('設定の同期（作り直した実装）のスイッチは、既定が切で、保存でき、真偽値でない値は断る', async () => {
     expect((await json(await get('/api/settings'))).body.configBundleSync).toBe(false);

@@ -1,6 +1,6 @@
 // 頁から呼べる殻の命令の一覧。ここに載せた命令にだけ allow-<名前> の権限が作られ、
 // capabilities/ で与えた頁からしか呼べなくなる。
-// UI の出どころは remote-shell.json と remote-notify.json と remote-pick-folder.json と remote-config-apply.json と remote-setup.json と remote-update.json と remote-cloud.json と remote-link.json と remote-save-recovery-key.json、起動画面は boot-screen.json、承諾の窓は approve.json である。
+// UI の出どころは remote-shell.json と remote-notify.json と remote-pick-folder.json と remote-config-apply.json と remote-setup.json と remote-update.json と remote-cloud.json と remote-link.json と remote-save-recovery-key.json、起動画面は boot-screen.json、承認の窓は approve.json である。
 // pick_node（Node の札の「node を選ぶ…」）は起動画面だけに与える。
 // boot_probe は試験のための書き出しで、殻が HANGAR_BOOT_PROBE を持って起きたときだけ書く（bootprobe.rs）。
 // 名前は lib.rs の #[tauri::command] とそろえる（apps/desktop/test/config.test.ts が突き合わせる）。
