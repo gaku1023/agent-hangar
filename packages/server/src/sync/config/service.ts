@@ -28,6 +28,10 @@ import { defaultTargetPaths, type TargetPaths } from './targets/paths.ts';
 import { CLAUDE_TARGET_NAME } from './targets/claude.ts';
 import { CLAUDE_HOOKS_NAME, holdOfHooks } from './targets/claudeHooks.ts';
 import { CLAUDE_PLUGINS_NAME, holdOfPlugins } from './targets/claudePlugins.ts';
+import { CLAUDE_MCP_NAME, claudeMcpSpec } from './targets/claudeMcp.ts';
+import { CODEX_MCP_NAME, codexMcpSpec } from './targets/codexMcp.ts';
+import { holdOfMcpItem } from './targets/mcpTarget.ts';
+import { OPENCODE_MCP_NAME, opencodeMcpSpec } from './targets/opencodeMcp.ts';
 import { HANGAR_TARGET_NAME, hangarTarget } from './targets/hangar.ts';
 import { hostOs, type HostOs } from './targets/hookCommands.ts';
 import { opencodeNotices } from './targets/opencode.ts';
@@ -414,6 +418,11 @@ export class ConfigSyncService {
         const owner = targetNameOfId(action.id);
         if (owner === CLAUDE_HOOKS_NAME) held = holdOfHooks(blob, { senderOs: snap.meta.os, os: this.deps.hostOs ?? hostOs(), userHome: this.deps.userHome ?? os.homedir(), id: action.id });
         else if (owner === CLAUDE_PLUGINS_NAME) held = holdOfPlugins(action.id, blob);
+        else if (owner === CLAUDE_MCP_NAME || owner === CODEX_MCP_NAME || owner === OPENCODE_MCP_NAME) {
+          // MCP は、絶対パスの起動コマンドがこの PC に無ければ保留する。
+          const spec = owner === CLAUDE_MCP_NAME ? claudeMcpSpec : owner === CODEX_MCP_NAME ? codexMcpSpec : opencodeMcpSpec;
+          held = holdOfMcpItem(spec, blob, { home: this.deps.userHome })?.reason ?? null;
+        }
       }
       out.push({
         action, kind: parsed.kind, label, target, held, head,
