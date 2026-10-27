@@ -93,6 +93,7 @@ export type ConfigGroupProps = {
 /** 送らなかった項目の理由。秘密らしい文字列は、見つけた文字列ではなく形の名前だけを言う。 */
 export function unsentReason(t: Translate, u: ConfigUnsentItemDto): string {
   if (u.reason.startsWith('secret:')) return t('configSyncUi.unsent.secret', { form: u.reason.slice('secret:'.length) });
+  if (u.reason === 'unknown-key') return t('configSyncUi.unsent.unknownKey');
   if (u.reason === 'absolute-path') return t('configSyncUi.unsent.path');
   return u.reason;
 }
@@ -300,7 +301,7 @@ export function presentConfigSection(store: Store, now: number, focusUnsent = fa
   const from = [...new Set(inbox.filter((i) => i.held === null && i.op !== 'conflict').map((i) => i.fromDevice))];
   const rowOfUnsent = (u: ConfigUnsentItemDto): ConfigRowProps => ({
     id: u.id, label: u.label, value: null, side: unsentReason(t, u), marks: [],
-    tag: u.allowed ? { tone: 'off', text: t('configSyncUi.unsent.allowed') } : null, dim: !u.allowed, sendId: u.allowed ? null : u.id,
+    tag: u.allowed ? { tone: 'off', text: t('configSyncUi.unsent.allowed') } : null, dim: !u.allowed, sendId: u.allowed || u.kind === 'unknown-key' ? null : u.id,
   });
   return {
     needsCloud: c === null,

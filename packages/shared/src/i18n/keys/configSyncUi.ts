@@ -83,6 +83,7 @@ export const configSyncUiKeys = {
   'configSyncUi.unsent.desc': [],
   'configSyncUi.unsent.secret': ['form'],
   'configSyncUi.unsent.path': [],
+  'configSyncUi.unsent.unknownKey': [],
   'configSyncUi.unsent.allowed': [],
   'configSyncUi.unsent.sendAnyway': [],
   'configSyncUi.unsent.sendAnyway.label': ['name'],
