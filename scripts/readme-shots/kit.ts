@@ -104,6 +104,11 @@ export type Scene = {
   /** --only で選ぶ名前。ファイル名と同じにする。 */
   name: string;
   kind: 'motion' | 'still';
+  /**
+   * この場面の画面に関係するファイル（リポジトリからの相対パスか glob。ディレクトリは下を全部含む。試験のファイルは数えない）。
+   * 変わると `--stale` がこの場面を古いと言う。styles、primitives、ヘッダー、サイドバーなど全場面に効くものは stale.ts の COMMON_WATCH にあるので書かない。
+   */
+  watch: string[];
   /** 見本のデータを足す。場面ごとに環境を作り直し、共通の見本にこの分だけを足す。 */
   setup?(seed: Seed): void;
   shoot(ctx: ShootCtx): Promise<void>;

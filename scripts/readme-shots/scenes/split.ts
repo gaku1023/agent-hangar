@@ -7,6 +7,13 @@ const B = '気温の単位を設定で決める';
 const scene: Scene = {
   name: 'split',
   kind: 'motion',
+  watch: [
+    'packages/ui/src/views/{PaneWorkspace,SplitPane,PaneDivider,PaneHeader,PaneCorner,PaneMenu,PanePicker,PaneDropOverlay,TerminalPane,AgentIcon}.tsx',
+    'packages/ui/src/presenters/{panes,paneMenu,agentIcon}.ts',
+    'packages/ui/src/mediator/panes.ts',
+    'packages/ui/src/lib/pane*.ts',
+    'packages/ui/src/runtime/{terminals,xterm,xtermSetup}.ts',
+  ],
   setup(seed) {
     seed.live('split', {
       project: 'blog-engine',

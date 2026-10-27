@@ -7,6 +7,14 @@ const QUERY = 'タグ';
 const scene: Scene = {
   name: 'search',
   kind: 'motion',
+  watch: [
+    'packages/ui/src/views/{SessionList,Transcript,TurnIndex,TocPane,SessionScreen,Pager}.tsx',
+    'packages/ui/src/presenters/{find,highlight,excerpt,turns,pager,sessions}.ts',
+    'packages/ui/src/mediator/{search,searchMore,paging}.ts',
+    'packages/ui/src/lib/searchTokens.ts',
+    'packages/server/src/search/*.ts',
+    'packages/server/src/http/routes/sessions.ts',
+  ],
   setup(seed) {
     seed.past({
       project: 'photo-tagger',

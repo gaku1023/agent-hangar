@@ -9,6 +9,13 @@ const TODOS = ['材料の分量を 2 人前から換算する関数を書く', '
 const scene: Scene = {
   name: 'todo',
   kind: 'motion',
+  watch: [
+    'packages/ui/src/views/{TodoList,ProjectScreen,ProjectInfo,SessionScreen}.tsx',
+    'packages/ui/src/presenters/project.ts',
+    'packages/ui/src/mediator/todos.ts',
+    'packages/server/src/http/routes/todos.ts',
+    'packages/server/src/mcp/*.ts',
+  ],
   setup(seed) {
     seed.project({ dir: PROJECT, name: PROJECT });
     seed.live('todo', {

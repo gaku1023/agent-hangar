@@ -84,6 +84,14 @@ const sidebar = async (f: Frame, text: string) => {
 const scene: Scene = {
   name: 'mobile',
   kind: 'motion',
+  watch: [
+    'packages/mobile/src',
+    'packages/cloud/src/{mobile,mobileBlobs,bell,bellWire,push}.ts',
+    'packages/server/src/mobile/*.ts',
+    'packages/ui/src/mediator/phoneLaunch.ts',
+    'packages/ui/src/presenters/phoneLabel.ts',
+    'packages/ui/src/views/{SessionScreen,NewSessionDialog}.tsx',
+  ],
   setup(seed) {
     seed.project({ dir: 'hiking-log', name: 'hiking-log' });
     seed.project({ dir: 'pantry-app', name: 'pantry-app' });

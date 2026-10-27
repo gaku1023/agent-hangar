@@ -8,6 +8,13 @@ const QUERY = 'サムネ';
 const scene: Scene = {
   name: 'palette',
   kind: 'motion',
+  watch: [
+    'packages/ui/src/views/CommandPalette.tsx',
+    'packages/ui/src/presenters/palette.ts',
+    'packages/ui/src/keys.ts',
+    'packages/server/src/search/*.ts',
+    'packages/server/src/http/routes/sessions.ts',
+  ],
   setup(seed) {
     seed.past({
       project: 'photo-tagger',

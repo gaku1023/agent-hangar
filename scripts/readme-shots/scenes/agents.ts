@@ -41,6 +41,17 @@ const opencodeSteps = opencodeScript({
 const scene: Scene = {
   name: 'agents',
   kind: 'motion',
+  watch: [
+    'packages/ui/src/views/{PaneWorkspace,SplitPane,PaneDivider,PaneHeader,PaneCorner,PaneMenu,PanePicker,PaneDropOverlay,TerminalPane,AgentIcon}.tsx',
+    'packages/ui/src/presenters/{panes,paneMenu,agentIcon}.ts',
+    'packages/ui/src/mediator/panes.ts',
+    'packages/ui/src/lib/pane*.ts',
+    'packages/ui/src/runtime/{terminals,xterm,xtermSetup}.ts',
+    'packages/ui/src/views/{SessionScreen,NowCard}.tsx',
+    'packages/ui/src/presenters/{live,session}.ts',
+    'packages/server/src/runs/*.ts',
+    'packages/server/src/http/routes/runs.ts',
+  ],
   setup(seed) {
     seed.project({ dir: PROJECT, name: PROJECT });
     seed.live('agents', { project: PROJECT, name: CLAUDE, steps: claudeSteps });

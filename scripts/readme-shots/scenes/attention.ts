@@ -8,6 +8,13 @@ const C = '週間予報の表示を足す';
 const scene: Scene = {
   name: 'attention',
   kind: 'motion',
+  watch: [
+    'packages/ui/src/views/{SessionScreen,TerminalPane,NowCard,NoticeList,ToastStack}.tsx',
+    'packages/ui/src/presenters/{home,readiness,sessions,notices,toasts,live}.ts',
+    'packages/ui/src/mediator/{live,notices,notify,arrived,sidebar}.ts',
+    'packages/server/src/sessions/{permissionAsks,agentAsks,questionHook,stopNotices}.ts',
+    'packages/server/src/live/*.ts',
+  ],
   setup(seed) {
     seed.live('attA', {
       project: 'photo-tagger',
