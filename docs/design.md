@@ -1315,7 +1315,7 @@ Claude Code はほぼ毎日新しい版が出るので、範囲はすぐ古く�
 | トランスクリプト | 行の `type`、`system.subtype`、本文の塊の種類、メタ行の種類が、知っている集合にあるか。添付は、hangar が読む積んだ指示（`queued_command`）でない種類が文字の `prompt` を持つとき（積んだ指示の改名とみられるとき）だけ見る。使用制限の合成の行（`error` が `rate_limit` で `quotaLimits` を持つもの）は、`quotaLimits.resetsAt` が数か、`quotaLimits.rateLimitType` が知っている枠（`five_hour`、`seven_day`、`seven_day_opus`、`seven_day_sonnet`）か | 知らない行は meta として残し、知らない塊は捨てる。リセットの時刻が読めない使用制限の行は使用制限として扱わず、知らない枠は枠の名前を出さない。記録する |
 | レジストリ | `status` が busy、idle、waiting、shell のどれかか。`sessionId` と `pid` があるか。入力待ちの `waitingFor` が知っている値（`permission prompt`、`sandbox request`、`worker request`、`input needed`、`dialog open`、`goal proposal`）か | 知らない `status` は作業中として扱う。誤って止めるより待たせるほうが害が小さい。知らない `waitingFor` は許可待ちでない入力待ちとして扱う。配列や `null` の登録はその 1 件だけ読まない。記録する |
 | statusline | `session_id`、`model`、`context_window.context_window_size`、`cost.total_cost_usd`、`rate_limits` の各窓の `used_percentage` と `resets_at` があるか。`resets_at` の単位 | `resets_at` が 10^11 より大きければミリ秒と見て、そのまま使う。欠けた項目は直前の値を保つ。記録する |
-| `~/.claude` の項目 | 2 つ目以降のアカウントの置き場の直下に、共有のリンクでも、アカウントごとに持つと知っている項目でもないものがあるか | アカウントごとのままにする。記録する |
+| `~/.claude` の項目 | 2 つ目以降のアカウントの置き場の直下に、共有のリンクでも、アカウントごとに持つと知っている項目でもないものがあるか。それらを手で退避した写し（`<名前>.bak`、`<名前>.bak-<日時>`、`<名前>.bak.<番号>`）は見ない | アカウントごとのままにする。記録する |
 | CLI | `claude --help` のサブコマンド、`auth status --json`、`agents --json`、`-p --output-format json` の形 | サブコマンドは包みの一覧を作り直す。ほかは形が違えば読まずに既定へ落とす。記録する |
 | 画面の文字 | ターンへ跳ぶときに読む、transcript 表示の最下行の文言と、指示の行の頭の記号 | 見つからなければ跳ぶのをやめる。記録する |
 

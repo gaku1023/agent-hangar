@@ -55,6 +55,17 @@ describe('claudeDirDrifts', () => {
     expect(isClaudeDirDrift('entry=remote-settings.json.signature-iat.json.lock')).toBe(false);
     expect(isClaudeDirDrift('entry=.lock')).toBe(true);
   });
+  it('共有の項目やアカウントごとの項目を手で退避した写し（<名前>.bak…）は見ない', () => {
+    const dir = path.join(tmp, 'second');
+    fs.mkdirSync(dir);
+    for (const n of ['history.jsonl.bak-20261024', 'settings.json.bak', '.claude.json.bak.1']) fs.writeFileSync(path.join(dir, n), '');
+    // 知らない項目の写しと、.bak だけの名前はずれのまま。
+    fs.writeFileSync(path.join(dir, 'brand-new.json.bak-1'), '');
+    fs.writeFileSync(path.join(dir, '.bak'), '');
+    expect(claudeDirDrifts(dir)).toEqual([entry('.bak'), entry('brand-new.json.bak-1')]);
+    expect(isClaudeDirDrift('entry=history.jsonl.bak-20261024')).toBe(false);
+    expect(isClaudeDirDrift('entry=history.jsonl.backup')).toBe(true);
+  });
   it('読めない置き場は空', () => {
     expect(claudeDirDrifts(path.join(tmp, 'none'))).toEqual([]);
   });

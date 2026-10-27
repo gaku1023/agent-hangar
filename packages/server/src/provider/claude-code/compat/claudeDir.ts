@@ -25,8 +25,21 @@ const IGNORED: ReadonlySet<string> = new Set(['.DS_Store']);
  */
 const isPerAccount = (name: string): boolean =>
   KNOWN_PER_ACCOUNT_ENTRIES.has(name) || (name.endsWith('.lock') && KNOWN_PER_ACCOUNT_ENTRIES.has(name.slice(0, -'.lock'.length)));
+/**
+ * 共有の項目かアカウントごとの項目を、利用者が手で退避した写し（<名前>.bak、<名前>.bak-<日時> など）か。
+ * Claude Code が作るものではないので見ない。共有のリンクに置き換える前の history.jsonl を退避した写しが残っていた。
+ */
+const isBackupOfKnown = (name: string): boolean => {
+  const i = name.indexOf('.bak');
+  if (i <= 0) return false;
+  const rest = name.slice(i + '.bak'.length);
+  if (rest !== '' && !rest.startsWith('-') && !rest.startsWith('.')) return false;
+  const base = name.slice(0, i);
+  return LINKED_ENTRIES.includes(base) || KNOWN_PER_ACCOUNT_ENTRIES.has(base);
+};
 /** 共有のリンクでも、アカウントごとに持つと知っている項目でも、見ない名前でもない名前か。 */
-const isUnknownEntry = (name: string): boolean => !LINKED_ENTRIES.includes(name) && !isPerAccount(name) && !IGNORED.has(name);
+const isUnknownEntry = (name: string): boolean =>
+  !LINKED_ENTRIES.includes(name) && !isPerAccount(name) && !IGNORED.has(name) && !isBackupOfKnown(name);
 
 /**
  * 記録に残った置き場の項目の値が、今の一覧でもずれかを返す。
