@@ -40,7 +40,7 @@ export const configTargetsUiJa: AreaDictionary<typeof configTargetsUiKeys> = {
   'configTargetsUi.notice.bothJsonJsonc': 'opencode.json と opencode.jsonc が両方あります（opencode は jsonc を読み込み、json に書き込みます）',
   'configTargetsUi.unsent.g.secret': 'シークレットと思われる値を含む項目',
   'configTargetsUi.unsent.g.secretNote': 'シークレットと思われる値があるため、送信していません。送信するかどうかは選べます。',
-  'configTargetsUi.unsent.g.unknown': '扱えないキー',
+  'configTargetsUi.unsent.g.unknown': '不明なキー',
   'configTargetsUi.unsent.g.unknownNote': 'このバージョンの Hangar が扱えないキーです。送信できません。更新すると扱えることがあります。',
   'configTargetsUi.unsent.g.pc': 'この PC だけの設定',
   'configTargetsUi.unsent.g.pcNote': 'この PC のパスや接続先によるため、送信しません。',

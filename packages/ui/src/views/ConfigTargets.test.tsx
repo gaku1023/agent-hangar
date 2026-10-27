@@ -79,7 +79,7 @@ describe('送らなかった項目（3A、3a）', () => {
     expect(screen.getByText('送信しなかった項目 1 件')).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole('button', { name: '表示' })[0]!);
     expect(screen.getByText('シークレットと思われる値を含む項目')).toBeInTheDocument();
-    expect(screen.getByText('扱えないキー')).toBeInTheDocument();
+    expect(screen.getByText('不明なキー')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'u1 をそれでも送信' }));
     expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'configSync.unsent.send' }));
     const strip = screen.getByRole('group', { name: 'シークレットと思われる値を送信します' });

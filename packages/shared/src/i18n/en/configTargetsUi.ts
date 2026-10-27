@@ -40,7 +40,7 @@ export const configTargetsUiEn: AreaDictionary<typeof configTargetsUiKeys> = {
   'configTargetsUi.notice.bothJsonJsonc': 'Both opencode.json and opencode.jsonc exist (opencode reads jsonc and writes json)',
   'configTargetsUi.unsent.g.secret': 'Items with values that look like secrets',
   'configTargetsUi.unsent.g.secretNote': 'Not sent because they contain values that look like secrets. You can choose to send them.',
-  'configTargetsUi.unsent.g.unknown': 'Unsupported keys',
+  'configTargetsUi.unsent.g.unknown': 'Unknown keys',
   'configTargetsUi.unsent.g.unknownNote': 'This version of Hangar cannot handle these keys, so they cannot be sent. Updating may add support.',
   'configTargetsUi.unsent.g.pc': 'Settings only for this PC',
   'configTargetsUi.unsent.g.pcNote': 'Not sent because they depend on paths or connections on this PC.',

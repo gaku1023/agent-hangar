@@ -67,14 +67,14 @@ describe('対象ごとの入切の行（1A、2A）', () => {
 
 describe('送らなかった項目を理由ごとの群に（3A）', () => {
   const items = [uns('u1', 'secret', 'secret:aws-key'), uns('u2', 'permission-rule', 'absolute-path'), uns('u3', 'unknown-key', 'unknown-key'), uns('u4', 'secret', 'secret:mcp-credential')];
-  it('シークレット、この PC だけ、扱えないキーの順に群を作り、扱えないキーは件数に入れない', () => {
+  it('シークレット、この PC だけ、不明なキーの順に群を作り、不明なキーは件数に入れない', () => {
     const p = presentConfigSection(storeOf(dto({ unsent: 3, unknownKeyCount: 1 }), { unsent: { items } }), NOW);
     expect(p.unsent.count).toBe(3);
     expect(p.unsent.unknown).toBe(1);
     expect(p.unsent.groups.map((g) => [g.id, g.title, g.rows.map((r) => r.id)])).toEqual([
       ['secret', 'シークレットと思われる値を含む項目', ['u1', 'u4']],
       ['pc', 'この PC だけの設定', ['u2']],
-      ['unknown', '扱えないキー', ['u3']],
+      ['unknown', '不明なキー', ['u3']],
     ]);
     expect(p.unsent.groups[0]!.note).toBe('シークレットと思われる値があるため、送信していません。送信するかどうかは選べます。');
   });
@@ -85,7 +85,7 @@ describe('送らなかった項目を理由ごとの群に（3A）', () => {
     expect(row.sendId).toBe('u4');
     expect(p.unsent.groups[2]!.rows[0]!.sendId).toBeNull();
   });
-  it('ベルの件数にも扱えないキーを数えない。扱えないキーだけなら知らせない', () => {
+  it('ベルの件数にも不明なキーを数えない。不明なキーだけなら知らせない', () => {
     const t = (c: ConfigSyncDto) => presentNotices(initialState(), { ...storeOf(c), configSync: c }, NOW).rows.filter((n) => n.kind === 'config');
     expect(t(dto({ unsent: 2, unknownKeyCount: 1 }))[0]!.title).toContain('2');
     expect(t(dto({ unsent: 0, unknownKeyCount: 2 }))).toEqual([]);
