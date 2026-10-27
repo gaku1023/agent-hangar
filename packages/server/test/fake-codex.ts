@@ -48,7 +48,7 @@ export type FakeCodexOptions = {
 };
 
 export function writeFakeCodex(dir: string, o: FakeCodexOptions = {}): string {
-  const version = o.version ?? '0.164.0';
+  const version = o.version ?? '0.165.0';
   const script = `
 import fs from 'node:fs';
 import http from 'node:http';

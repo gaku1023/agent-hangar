@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, DEFAULT_CODEX_INJECTION, isCodexInjection } from './codexCompat.ts';
 
 describe('Codex の確かめた範囲と設定の読み方', () => {
-  it('確かめた範囲は 0.164.x', () => {
-    expect(CODEX_VERIFIED_RANGE).toBe('0.164.x');
+  it('確かめた範囲は 0.165.x', () => {
+    expect(CODEX_VERIFIED_RANGE).toBe('0.165.x');
   });
   it('有効と横取りのスイッチは、true のときだけ入りとして読む（古いサーバは項目を返さない）', () => {
     for (const f of [codexEnabledOf, codexInterceptOf] as const) {

@@ -13,7 +13,7 @@ macOS の `.app` か Windows のインストーラを入れると、サーバの
 これは上級者向けのベータです（始め方と、何を平文で置くかは「[クラウド同期](cloud-sync.md#クラウド同期上級者向けのベータ)」の節にあります）。
 実行中のセッションを他端末から奪う「引き継ぎ」は作りません。
 
-確かめた Claude Code の版は `2.1.310` です（見本は `packages/server/test/fixtures/claude/` にあります）。
+確かめた Claude Code の版は `2.1.312` です（見本は `packages/server/test/fixtures/claude/` にあります）。
 より新しい版でも動かしますが、hangar が知らない形式に出会うと、`~/.agent-hangar/compat.json` に記録し、設定の「連携」の節と、初回の確認リストで知らせます。
 
 ## 初日にすること

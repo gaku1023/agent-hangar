@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_OPENCODE_INJECTION, isOpencodeInjection, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf } from './opencodeCompat.ts';
 
 describe('opencode の確かめた範囲', () => {
-  it('確かめた範囲は 2.1.x', () => {
-    expect(OPENCODE_VERIFIED_RANGE).toBe('2.1.x');
+  it('確かめた範囲は 2.2.x', () => {
+    expect(OPENCODE_VERIFIED_RANGE).toBe('2.2.x');
   });
 });
 

@@ -1,0 +1,138 @@
+{
+ "idle": {
+  "data": {}
+ },
+ "running": {
+  "data": {
+   "ses_e8079343fffeAEL8xKJdmZS6C5": {
+    "type": "running"
+   }
+  }
+ },
+ "permission": {
+  "data": [
+   {
+    "id": "per_17f86cbe5001eiAN065Po7c52C",
+    "sessionID": "ses_e8079343fffeAEL8xKJdmZS6C5",
+    "action": "shell",
+    "resources": [
+     "echo hangar-live"
+    ],
+    "save": [
+     "echo *"
+    ],
+    "source": {
+     "type": "tool",
+     "messageID": "msg_17f86cbce001ftY0wAhYFEJ3iw",
+     "id": "call_shell_1"
+    }
+   }
+  ]
+ },
+ "permissionRequest": {
+  "location": {
+   "directory": "/work/repo"
+  },
+  "data": [
+   {
+    "id": "per_17f86cbe5001eiAN065Po7c52C",
+    "sessionID": "ses_e8079343fffeAEL8xKJdmZS6C5",
+    "action": "shell",
+    "resources": [
+     "echo hangar-live"
+    ],
+    "save": [
+     "echo *"
+    ],
+    "source": {
+     "type": "tool",
+     "messageID": "msg_17f86cbce001ftY0wAhYFEJ3iw",
+     "id": "call_shell_1"
+    }
+   }
+  ]
+ },
+ "form": {
+  "data": [
+   {
+    "id": "frm_17f86d2c3001aEmhaK4LvtnRDz",
+    "sessionID": "ses_e8079343fffeAEL8xKJdmZS6C5",
+    "title": "Questions",
+    "metadata": {
+     "kind": "question",
+     "tool": {
+      "messageID": "msg_17f86d2bd001Mgq6zlbFX4z9LE",
+      "id": "call_question_7"
+     }
+    },
+    "fields": [
+     {
+      "key": "q0",
+      "title": "Color",
+      "description": "Which color do you prefer?",
+      "type": "string",
+      "options": [
+       {
+        "value": "Red",
+        "label": "Red",
+        "description": "warm"
+       },
+       {
+        "value": "Blue",
+        "label": "Blue",
+        "description": "cool"
+       }
+      ],
+      "custom": true
+     }
+    ]
+   }
+  ]
+ },
+ "formRequest": {
+  "location": {
+   "directory": "/work/repo"
+  },
+  "data": [
+   {
+    "id": "frm_17f86d2c3001aEmhaK4LvtnRDz",
+    "sessionID": "ses_e8079343fffeAEL8xKJdmZS6C5",
+    "title": "Questions",
+    "metadata": {
+     "kind": "question",
+     "tool": {
+      "messageID": "msg_17f86d2bd001Mgq6zlbFX4z9LE",
+      "id": "call_question_7"
+     }
+    },
+    "fields": [
+     {
+      "key": "q0",
+      "title": "Color",
+      "description": "Which color do you prefer?",
+      "type": "string",
+      "options": [
+       {
+        "value": "Red",
+        "label": "Red",
+        "description": "warm"
+       },
+       {
+        "value": "Blue",
+        "label": "Blue",
+        "description": "cool"
+       }
+      ],
+      "custom": true
+     }
+    ]
+   }
+  ]
+ },
+ "noPermission": {
+  "data": []
+ },
+ "noForm": {
+  "data": []
+ }
+}

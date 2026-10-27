@@ -1425,7 +1425,7 @@ Codex を足す作業の段 B の 1 つ目（計画の B1）で、設定のス�
 
 場所は `config/tools.ts` の `findCodex` が、PATH と既知の置き場から探す。
 ChatGPT.app に同梱の codex は使わない。版が利用者の入れたものと別で、確かめた版を持てないためである。
-確かめた版の範囲は `@agent-hangar/shared` の `CODEX_VERIFIED_RANGE`（`0.164.x`）の 1 か所に持つ。
+確かめた版の範囲は `@agent-hangar/shared` の `CODEX_VERIFIED_RANGE`（`0.165.x`）の 1 か所に持つ。
 範囲の外でも起動は止めず、知らせの種を出すだけにする（決定 8）。
 版の読みは `provider/codex/compat/version.ts` の `LocalCodex` が行い、`codex --version` を空の環境で打つ。
 codex は起動するだけで `CODEX_HOME`（既定は `~/.codex`、Windows は環境変数でなく既知のフォルダから引く）の下に `tmp/arg0-*` を作るので、版は一時の `CODEX_HOME` を渡して打ち、打ったあとに一時の置き場ごと消す（利用者の置き場が確認だけで生えない。Mac でも同じ挙動を確かめた）。
@@ -1548,7 +1548,7 @@ Codex の見張りは、既存の 5 ジョブとは別の仕事 `.github/workflo
 
 #### 版を持つ場所
 
-確かめた範囲は `CODEX_VERIFIED_RANGE`（`0.164.x`）の 1 か所だけに持つ。
+確かめた範囲は `CODEX_VERIFIED_RANGE`（`0.165.x`）の 1 か所だけに持つ。
 CI が入れる版は、`scripts/codex-compat-version.mjs` がこの範囲から作る（`0.164.x` なら npm の指定は `0.164`、つまり 0.164 のうちいちばん新しい版）。
 ワークフローに版は書かない。
 範囲を広げるときは、新しい版で見本を採り直し、差分を読んでから範囲を上げる。
@@ -1672,7 +1672,7 @@ Windows は serve を起こすときと同じ許可リストの鍵を渡す（�
 同じファイル（パス、更新時刻、大きさ）なら打ち直さず、同時に聞かれても 1 回にまとめる。
 読めなかった答えも覚え、時間切れと起動の失敗だけは覚えない。
 
-確かめた範囲は `@agent-hangar/shared` の `OPENCODE_VERIFIED_RANGE`（`2.1.x`）である。
+確かめた範囲は `@agent-hangar/shared` の `OPENCODE_VERIFIED_RANGE`（`2.2.x`）である。
 判定は、範囲の中（verified）、範囲の外（unverified）、1.x（legacy。2.x と API の形が違う古い系統）、読めない（unknown）の 4 つに分ける。
 範囲の外でも起動は止めず、知らせるだけにする。
 

@@ -16,12 +16,12 @@ const found = (version: string | null, verified = false): OpencodeStatusDto => (
 
 describe('未検証の版の札（C7、試作の N1）', () => {
   it('範囲の外の版なら、見出し・題・本文・操作をそろえて出す', () => {
-    expect(presentOpencodeVersionCard(initialState(), storeOf(found('2.2.0')))).toEqual({
-      version: '2.2.0',
+    expect(presentOpencodeVersionCard(initialState(), storeOf(found('2.3.0')))).toEqual({
+      version: '2.3.0',
       head: '未検証のバージョン',
-      who: 'opencode 2.2.0',
-      title: 'opencode 2.2.0 は未検証のバージョンです',
-      body: '検証済み：2.1.x。API の変更により、状態や権限確認が正しく表示されない可能性があります。',
+      who: 'opencode 2.3.0',
+      title: 'opencode 2.3.0 は未検証のバージョンです',
+      body: '検証済み：2.2.x。API の変更により、状態や権限確認が正しく表示されない可能性があります。',
       settings: '設定を開く',
       proceed: 'このまま続行',
     });
@@ -32,28 +32,28 @@ describe('未検証の版の札（C7、試作の N1）', () => {
     expect(c?.body).toBe('opencode 1.x には対応していません。2.x に更新してください。');
   });
   it('同じ版では二度出さない。版が変われば、また出す', () => {
-    const seen: State = { ...initialState(), opencodeVersionSeen: '2.2.0' };
-    expect(presentOpencodeVersionCard(seen, storeOf(found('2.2.0')))).toBeNull();
-    expect(presentOpencodeVersionCard(seen, storeOf(found('2.3.1')))?.version).toBe('2.3.1');
+    const seen: State = { ...initialState(), opencodeVersionSeen: '2.3.0' };
+    expect(presentOpencodeVersionCard(seen, storeOf(found('2.3.0')))).toBeNull();
+    expect(presentOpencodeVersionCard(seen, storeOf(found('2.4.1')))?.version).toBe('2.4.1');
   });
   it('設定の opencode が切なら出さない', () => {
-    expect(presentOpencodeVersionCard(initialState(), storeOf(found('2.2.0'), false))).toBeNull();
-    expect(presentOpencodeVersionCard(initialState(), { ...initialStore(), opencodeStatus: found('2.2.0') })).toBeNull();
+    expect(presentOpencodeVersionCard(initialState(), storeOf(found('2.3.0'), false))).toBeNull();
+    expect(presentOpencodeVersionCard(initialState(), { ...initialStore(), opencodeStatus: found('2.3.0') })).toBeNull();
   });
   it('確かめた範囲の版、版が読めないとき、見つからないとき、答えが届く前は出さない', () => {
-    for (const s of [found('2.1.4', true), found(null), { found: false, version: null, verified: false }, null]) {
+    for (const s of [found('2.2.4', true), found(null), { found: false, version: null, verified: false }, null]) {
       expect(presentOpencodeVersionCard(initialState(), storeOf(s)), JSON.stringify(s)).toBeNull();
     }
   });
   it('設定の連携の節を開いている間は、そこの版の行が同じことを言うので出さない', () => {
     const at: State = { ...initialState(), screen: { name: 'settings', at: 'opencode' } };
-    expect(presentOpencodeVersionCard(at, storeOf(found('2.2.0')))).toBeNull();
+    expect(presentOpencodeVersionCard(at, storeOf(found('2.3.0')))).toBeNull();
     const other: State = { ...initialState(), screen: { name: 'settings', at: 'about' } };
-    expect(presentOpencodeVersionCard(other, storeOf(found('2.2.0')))).not.toBeNull();
+    expect(presentOpencodeVersionCard(other, storeOf(found('2.3.0')))).not.toBeNull();
   });
   it('右下の知らせに載る', () => {
-    expect(presentToasts(initialState(), storeOf(found('2.2.0')), 0).opencodeVersion?.version).toBe('2.2.0');
-    expect(presentToasts(initialState(), storeOf(found('2.1.4', true)), 0).opencodeVersion).toBeNull();
+    expect(presentToasts(initialState(), storeOf(found('2.3.0')), 0).opencodeVersion?.version).toBe('2.3.0');
+    expect(presentToasts(initialState(), storeOf(found('2.2.4', true)), 0).opencodeVersion).toBeNull();
   });
 });
 

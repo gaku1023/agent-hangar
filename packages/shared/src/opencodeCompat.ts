@@ -7,7 +7,7 @@
  * 確かめた opencode の版の範囲。x はその区切りを問わない。
  * 範囲を広げたら、範囲の判定（server の provider/opencode/compat/version.ts）の試験もそろえる。
  */
-export const OPENCODE_VERIFIED_RANGE = '2.1.x';
+export const OPENCODE_VERIFIED_RANGE = '2.2.x';
 
 /**
  * hangar が起動する opencode のシステムプロンプトへ足す指示の量。

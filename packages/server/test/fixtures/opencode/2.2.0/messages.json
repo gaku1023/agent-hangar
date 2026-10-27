@@ -1,0 +1,567 @@
+{
+ "data": [
+  {
+   "id": "msg_17f86d8380011VYguizrXhIkeR",
+   "time": {
+    "created": 1793140906040
+   },
+   "type": "idle",
+   "outcome": "succeeded"
+  },
+  {
+   "id": "msg_17f86d832001RUnh4Lb07ElN0n",
+   "time": {
+    "created": 1793140906035,
+    "streamed": 1793140906039,
+    "completed": 1793140906039
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "Hi."
+    }
+   ],
+   "finish": "stop",
+   "rawFinish": "stop",
+   "cost": 0,
+   "tokens": {
+    "input": 8,
+    "output": 5,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_17f86d82e0017MC572nkt1NvoQ",
+   "time": {
+    "created": 1793140906033
+   },
+   "text": "HI: just say hi.",
+   "type": "user"
+  },
+  {
+   "id": "msg_17f86d82c00265DVdebXRAHKIY",
+   "time": {
+    "created": 1793140906028
+   },
+   "type": "idle",
+   "outcome": "interrupted"
+  },
+  {
+   "id": "msg_17f86d55f001JwbX32UcZp2llk",
+   "time": {
+    "created": 1793140905313,
+    "streamed": 1793140905317,
+    "completed": 1793140906027
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_shell_9",
+     "name": "shell",
+     "executed": false,
+     "state": {
+      "status": "error",
+      "input": {
+       "command": "sleep 20",
+       "description": "Wait"
+      },
+      "error": {
+       "type": "aborted",
+       "message": "Tool execution interrupted"
+      },
+      "metadata": {
+       "shellID": "sh_17f86d62e002txClL2V3zyRajv"
+      }
+     },
+     "time": {
+      "created": 1793140905316,
+      "ran": 1793140905317,
+      "completed": 1793140906026
+     }
+    }
+   ],
+   "finish": "error",
+   "rawFinish": "tool_calls",
+   "cost": 0,
+   "tokens": {
+    "input": 6,
+    "output": 3,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   },
+   "error": {
+    "type": "aborted",
+    "message": "Step interrupted"
+   }
+  },
+  {
+   "id": "msg_17f86d55b001g4aTJq9QFt1QYk",
+   "time": {
+    "created": 1793140905310
+   },
+   "text": "SLEEP: run a long command.",
+   "type": "user"
+  },
+  {
+   "id": "msg_17f86d360004lvAQ6oItP52j11",
+   "time": {
+    "created": 1793140904800
+   },
+   "type": "idle",
+   "outcome": "succeeded"
+  },
+  {
+   "id": "msg_17f86d35a001SDtJBeIjZd3LJd",
+   "time": {
+    "created": 1793140904795,
+    "streamed": 1793140904800,
+    "completed": 1793140904800
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "reasoning",
+     "text": "The user picked a color; wrap up.",
+     "native": {
+      "reasoningField": "reasoning_content"
+     },
+     "time": {
+      "created": 1793140904798,
+      "completed": 1793140904799
+     }
+    },
+    {
+     "type": "text",
+     "text": "All done."
+    }
+   ],
+   "finish": "stop",
+   "rawFinish": "stop",
+   "cost": 0,
+   "tokens": {
+    "input": 8,
+    "output": 5,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_17f86d2bd001Mgq6zlbFX4z9LE",
+   "time": {
+    "created": 1793140904639,
+    "streamed": 1793140904642,
+    "completed": 1793140904791
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_question_7",
+     "name": "question",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "questions": [
+        {
+         "question": "Which color do you prefer?",
+         "header": "Color",
+         "options": [
+          {
+           "label": "Red",
+           "description": "warm"
+          },
+          {
+           "label": "Blue",
+           "description": "cool"
+          }
+         ]
+        }
+       ]
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "User has answered your questions: \"Which color do you prefer?\"=\"Red\". You can now continue with the user's answers in mind."
+       }
+      ],
+      "metadata": {
+       "answers": [
+        [
+         "Red"
+        ]
+       ],
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1793140904641,
+      "ran": 1793140904642,
+      "completed": 1793140904790
+     }
+    }
+   ],
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0,
+   "tokens": {
+    "input": 6,
+    "output": 3,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_17f86d2b3001yIL9W9PncqpBso",
+   "time": {
+    "created": 1793140904628,
+    "streamed": 1793140904633,
+    "completed": 1793140904635
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_read_6",
+     "name": "read",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "path": "/work/repo/notes.txt"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Read file /work/repo/notes.txt, lines 1-2\n1: alpha\n2: gamma"
+       }
+      ],
+      "metadata": {
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1793140904631,
+      "ran": 1793140904632,
+      "completed": 1793140904634
+     }
+    }
+   ],
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0,
+   "tokens": {
+    "input": 6,
+    "output": 3,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_17f86d2a9001KqR3qF1wsHFa9J",
+   "time": {
+    "created": 1793140904618,
+    "streamed": 1793140904622,
+    "completed": 1793140904624
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_edit_5",
+     "name": "edit",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "path": "/work/repo/notes.txt",
+       "oldString": "beta",
+       "newString": "gamma"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Edited notes.txt (1 replacement)"
+       }
+      ],
+      "metadata": {
+       "files": [
+        {
+         "file": "notes.txt",
+         "patch": "Index: notes.txt\n===================================================================\n--- notes.txt\n+++ notes.txt\n@@ -1,2 +1,2 @@\n alpha\n-beta\n+gamma\n",
+         "status": "modified",
+         "additions": 1,
+         "deletions": 1
+        }
+       ],
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1793140904620,
+      "ran": 1793140904621,
+      "completed": 1793140904624
+     }
+    }
+   ],
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0,
+   "tokens": {
+    "input": 6,
+    "output": 3,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_17f86d29e001lKWNJu3gt4H5Ka",
+   "time": {
+    "created": 1793140904607,
+    "streamed": 1793140904612,
+    "completed": 1793140904614
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_write_4",
+     "name": "write",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "path": "/work/repo/notes.txt",
+       "content": "alpha\nbeta\n"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Created file successfully: notes.txt"
+       }
+      ],
+      "metadata": {
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1793140904610,
+      "ran": 1793140904611,
+      "completed": 1793140904613
+     }
+    }
+   ],
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0,
+   "tokens": {
+    "input": 6,
+    "output": 3,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_17f86d28f001siliJf0mKqLBa4",
+   "time": {
+    "created": 1793140904592,
+    "streamed": 1793140904596,
+    "completed": 1793140904602
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_execute_3",
+     "name": "execute",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "code": "await tools.hangar.set_turn_intent({ text: \"Check the opencode API\" });\nreturn \"ok\";"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "ok"
+       }
+      ],
+      "metadata": {
+       "toolCalls": [
+        {
+         "tool": "hangar.set_turn_intent",
+         "status": "completed",
+         "input": {
+          "text": "Check the opencode API"
+         }
+        }
+       ],
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1793140904595,
+      "ran": 1793140904596,
+      "completed": 1793140904601
+     }
+    }
+   ],
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0,
+   "tokens": {
+    "input": 6,
+    "output": 3,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_17f86cbce001ftY0wAhYFEJ3iw",
+   "time": {
+    "created": 1793140902863,
+    "streamed": 1793140902876,
+    "completed": 1793140904587
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "mock",
+    "providerID": "mock"
+   },
+   "content": [
+    {
+     "type": "reasoning",
+     "text": "I will run echo first.",
+     "native": {
+      "reasoningField": "reasoning_content"
+     },
+     "time": {
+      "created": 1793140902872,
+      "completed": 1793140902874
+     }
+    },
+    {
+     "type": "tool",
+     "id": "call_shell_1",
+     "name": "shell",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "command": "echo hangar-live",
+       "description": "Print a word"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "hangar-live\n"
+       }
+      ],
+      "metadata": {
+       "status": "completed",
+       "truncated": false,
+       "exit": 0
+      }
+     },
+     "time": {
+      "created": 1793140902873,
+      "ran": 1793140902875,
+      "completed": 1793140904586
+     }
+    }
+   ],
+   "finish": "tool-calls",
+   "rawFinish": "tool_calls",
+   "cost": 0,
+   "tokens": {
+    "input": 6,
+    "output": 3,
+    "reasoning": 0,
+    "cache": {
+     "read": 4,
+     "write": 0
+    }
+   }
+  },
+  {
+   "id": "msg_17f86cbc4001ryc62CKDIyG5oY",
+   "time": {
+    "created": 1793140902857
+   },
+   "text": "TURN: run echo, record the intent, write and edit a file, then ask me a question.",
+   "type": "user"
+  }
+ ],
+ "cursor": {
+  "previous": "eyJpZCI6Im1zZ18xN2Y4NmQ4MzgwMDExVllndWl6clhoSWtlUiIsIm9yZGVyIjoiZGVzYyIsImRpcmVjdGlvbiI6InByZXZpb3VzIn0",
+  "next": "eyJpZCI6Im1zZ18xN2Y4NmNiYzQwMDFyeWM2MkNLREl5RzVvWSIsIm9yZGVyIjoiZGVzYyIsImRpcmVjdGlvbiI6Im5leHQifQ"
+ }
+}

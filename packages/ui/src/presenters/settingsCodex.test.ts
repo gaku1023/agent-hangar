@@ -5,7 +5,7 @@ import { initialStore, type Store } from '../store/store.ts';
 import { presentSettings } from './settings.ts';
 
 // 設定の「連携 › Codex」（ベータ、C4 の案 A）。
-const FOUND: CodexStatusDto = { found: true, version: '0.164.2', verified: true, loggedIn: true };
+const FOUND: CodexStatusDto = { found: true, version: '0.165.2', verified: true, loggedIn: true };
 const store = (settings: Partial<SettingsDto> = {}, status: CodexStatusDto | null = FOUND): Store => ({ ...initialStore(), settings: { ...(initialStore().settings ?? {}), ...settings } as SettingsDto, codexStatus: status });
 const present = (s: Store, platform = 'darwin') => presentSettings({ ...initialState(), screen: { name: 'settings' } }, s, Date.now(), platform).codex;
 
@@ -21,7 +21,7 @@ describe('設定の Codex の面', () => {
   });
   it('検証済みの版は、手元の版と確かめた範囲と「検証済み」の札を出す', () => {
     const p = present(store({ codexEnabled: true }));
-    expect(p.version).toEqual({ kind: 'verified', installed: '0.164.2', verified: '0.164.x', note: null, login: null });
+    expect(p.version).toEqual({ kind: 'verified', installed: '0.165.2', verified: '0.165.x', note: null, login: null });
     expect(p.badge).toEqual({ text: '検証済み', tone: 'ok' });
   });
   it('範囲の外の版は「未検証のバージョン」と注記（app-server の変更）', () => {
@@ -32,7 +32,7 @@ describe('設定の Codex の面', () => {
   });
   it('見つからないときは「見つかりません」の札と PATH の注記で、ログインの注記は出さない', () => {
     const p = present(store({ codexEnabled: true }, { found: false, version: null, verified: false, loggedIn: false }));
-    expect(p.version).toEqual({ kind: 'missing', installed: null, verified: '0.164.x', note: 'Codex が見つかりません（PC の PATH を確認してください）。', login: null });
+    expect(p.version).toEqual({ kind: 'missing', installed: null, verified: '0.165.x', note: 'Codex が見つかりません（PC の PATH を確認してください）。', login: null });
     expect(p.badge).toEqual({ text: '見つかりません', tone: 'warn' });
   });
   it('ログインしていないときだけ、版の行の下に注記を足す（札は検証済みのまま）', () => {

@@ -37,7 +37,7 @@ describe('ServeManager', () => {
     const m = new ServeManager({
       enabled: () => true,
       bin: () => bin,
-      version: async () => '2.1.4',
+      version: async () => '2.2.4',
       registry,
       env: dirtyEnv,
       killGraceMs: 300,
@@ -167,12 +167,12 @@ describe('ServeManager', () => {
 
   it('起動のたびに版を見て、範囲の外なら知らせの種を出す。起動は止めない', async () => {
     const seeds: OpencodeVersionNoticeSeed[] = [];
-    const { m } = make({}, { version: async () => '2.2.0', onVersionNotice: (s) => seeds.push(s) });
+    const { m } = make({}, { version: async () => '2.3.0', onVersionNotice: (s) => seeds.push(s) });
     await m.ensure('a');
     await m.ensure('b');
     expect(seeds).toEqual([
-      { kind: 'opencode-version', version: '2.2.0', verdict: 'unverified' },
-      { kind: 'opencode-version', version: '2.2.0', verdict: 'unverified' },
+      { kind: 'opencode-version', version: '2.3.0', verdict: 'unverified' },
+      { kind: 'opencode-version', version: '2.3.0', verdict: 'unverified' },
     ]);
   });
 
