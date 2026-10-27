@@ -216,6 +216,36 @@ export async function teardown(e: Env, tools: { tmux: string }, keep = false): P
   if (fs.existsSync(sock)) {
     try { execFileSync(tools.tmux, ['-S', sock, 'kill-server'], { stdio: 'ignore' }); } catch { /* 既に無い */ }
   }
+  await sweep(e.root);
   if (!keep) fs.rmSync(e.root, { recursive: true, force: true });
   else console.log(`一時ディレクトリを残しました: ${e.root}`);
+}
+
+/**
+ * この環境から起きて親を失ったプロセスを止める。
+ * 偽の codex の app-server と opencode の serve、hangar が `-L hangar` で起こした tmux のサーバは、
+ * サーバを止めても残る。引数にこの環境の一時ディレクトリを含むものと、その子孫だけを対象にする。
+ */
+async function sweep(root: string): Promise<void> {
+  const roots = [root, fs.realpathSync.native(root)];
+  const list = (): { pid: number; ppid: number; cmd: string }[] =>
+    execFileSync('ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8' }).split('\n').flatMap((l) => {
+      const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(l);
+      return m ? [{ pid: Number(m[1]), ppid: Number(m[2]), cmd: m[3]! }] : [];
+    });
+  const targets = (): number[] => {
+    const all = list().filter((p) => p.pid !== process.pid);
+    const hit = new Set(all.filter((p) => roots.some((r) => p.cmd.includes(r))).map((p) => p.pid));
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const p of all) if (hit.has(p.ppid) && !hit.has(p.pid)) { hit.add(p.pid); grew = true; }
+    }
+    return [...hit];
+  };
+  const signal = (pids: number[], sig: NodeJS.Signals) => {
+    for (const pid of pids) try { process.kill(pid, sig); } catch { /* 既に無い */ }
+  };
+  signal(targets(), 'SIGTERM');
+  await new Promise((r) => setTimeout(r, 1000));
+  signal(targets(), 'SIGKILL');
 }
