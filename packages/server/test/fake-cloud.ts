@@ -958,6 +958,11 @@ export class FakeCloudClient implements CloudClient {
     return (await blobKeyFor((await this.keyring).current().index, this.deviceId, 'transcript', origin, `opencode/${sessionId}.json`))!;
   }
 
+  /** この端末が今の世代で上げる Codex の本文（rollout）の R2 の鍵名。鍵名は thread の UUID だけで決まり、置き場と名前に依らない。 */
+  async codexKey(threadId: string, origin = this.deviceId): Promise<string> {
+    return (await blobKeyFor((await this.keyring).current().index, this.deviceId, 'transcript', origin, `codex/archived_sessions/rollout-2026-01-01T00-00-00-${threadId}.jsonl`))!;
+  }
+
   /** この端末が今の世代で上げる設定のファイルの R2 の鍵名。 */
   async configKey(rel: string, origin = this.deviceId): Promise<string> {
     return (await blobKeyFor((await this.keyring).current().index, this.deviceId, 'config', origin, rel))!;

@@ -40,6 +40,15 @@ export async function opencodeBlobKey(indexKey: CryptoKey, deviceId: string, ori
   return blobKey(deviceId, await mac(indexKey, `o:${origin}:${sessionId}`));
 }
 
+/**
+ * Codex の本文（rollout 1 ファイル）の R2 の鍵名。入力は thread の UUID だけで、ファイルの名前と置き場（sessions か archived_sessions か）は入れない。
+ * 名前が .jsonl から .jsonl.zst に変わっても、アーカイブで置き場が変わっても、同じ鍵名に上書きする（同じ会話が 2 つにならない）。
+ * 頭の `x:` は、Claude の本文（`t:`）、opencode（`o:`）、設定（`c:`）と入力が重ならないためである。
+ */
+export async function codexBlobKey(indexKey: CryptoKey, deviceId: string, origin: string, threadId: string): Promise<string> {
+  return blobKey(deviceId, await mac(indexKey, `x:${origin}:${threadId}`));
+}
+
 /** 設定の同期のファイルの R2 の鍵名。相対パスを平文で残さない。 */
 export async function configBlobKey(indexKey: CryptoKey, deviceId: string, origin: string, rel: string): Promise<string> {
   return blobKey(deviceId, await mac(indexKey, `c:${origin}:${rel}`));

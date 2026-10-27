@@ -16,8 +16,8 @@ export type SessionChangeDeps = {
   started: () => boolean;
   /** ワークスペースの置き場。設定は書き替わるので、呼ばれた時点の値を読む。 */
   workspaceRoot: () => string;
-  /** 手元の本文が動いたときに呼ぶ。同期の上げ手へ渡す。 */
-  onLocalTranscript?: (f: { path: string; sessionId: string; agentId: string | null }) => void;
+  /** 手元の本文が動いたときに呼ぶ。同期の上げ手へ渡す。Codex の rollout には provider を添える（Claude の本文は添えない）。 */
+  onLocalTranscript?: (f: { path: string; sessionId: string; agentId: string | null; provider?: 'codex' }) => void;
   /** 本文が伸びたときに呼ぶ。git の表示が、実行中のセッションの作業ツリーを読み直す。 */
   onAppended?: (sessionId: string) => void;
 };
@@ -37,10 +37,16 @@ export function createSessionChangeHandler(deps: SessionChangeDeps): (e: Session
   const { db, deviceId, hub } = deps;
   // その場の自動登録を試したセッション。本文が伸びるたびにディスクを見に行かないために持つ。
   const triedRegister = new Set<string>();
+  const providerStmt = db.prepare('select provider from sessions where id = ?');
+  const providerOf = (id: string): string | undefined => (providerStmt.get(id) as { provider: string } | undefined)?.provider;
   return (e) => {
     // 手元のファイルだけを上げる。他端末の写し（deviceId が入っているもの）は持ち主が上げる。
     // 本文を DB に持つエージェント（opencode）の変化は path が無く、上げ手へは渡さない（opencode の本文は export を上げる。段 E）。
-    if (e.deviceId === null && e.path !== null) deps.onLocalTranscript?.({ path: e.path, sessionId: e.providerSessionId, agentId: e.agentId });
+    // Codex の rollout は、上げ手が Codex の置き場から写しの path を組むので、エージェントを添える。
+    if (e.deviceId === null && e.path !== null) {
+      const f = { path: e.path, sessionId: e.providerSessionId, agentId: e.agentId };
+      deps.onLocalTranscript?.(providerOf(e.sessionId) === 'codex' ? { ...f, provider: 'codex' } : f);
+    }
     // 起動後に現れたセッションは project_id が空のままなので、ここで紐づける。
     const row = db.prepare('select project_id, cwd from sessions where id = ? and deleted_at is null').get(e.sessionId) as { project_id: string | null; cwd: string } | undefined;
     // 消されたセッションは配らない。
