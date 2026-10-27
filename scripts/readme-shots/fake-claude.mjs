@@ -1,13 +1,12 @@
 // README の画像を撮るための偽の claude。本物の claude は呼ばない。
 // HANGAR_CLAUDE_BIN で差され、hangar の tmux の中で動く。
-// 台本（data.mjs の LIVE）を -n の名前で選び、それらしい出力を端末へゆっくり流しながら、
+// 台本（場面の seed.live()。READMESHOTS_LIVE の JSON）を -n の名前で選び、それらしい出力を端末へゆっくり流しながら、
 // transcript と登録（<claude の置き場>/sessions/<pid>.json）を本物と同じ形で書く。
 // gate の行では、gate ディレクトリに同じ名前のファイルができるまで待つ（録画の開始の合図）。
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CLAUDE_VERSION, TranscriptWriter, transcriptPath } from './transcript.mjs';
-import { LIVE } from './data.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
@@ -16,7 +15,9 @@ const name = opt('-n') ?? '';
 const claudeDir = process.env.HANGAR_CLAUDE_DIR || process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 const gateDir = process.env.READMESHOTS_GATES ?? '';
 const cwd = process.cwd();
-const scenario = Object.values(LIVE).find((s) => s.name === name);
+// 台本は撮影側が場面の seed.live() を集めて書いた JSON。
+const live = process.env.READMESHOTS_LIVE ? JSON.parse(fs.readFileSync(process.env.READMESHOTS_LIVE, 'utf8')) : {};
+const scenario = Object.values(live).find((s) => s.name === name);
 
 const E = '\x1b[';
 const c = {

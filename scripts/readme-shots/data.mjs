@@ -1,5 +1,6 @@
 // README の画像に写す見本のデータ。名前も中身も架空である。
-// プロジェクトは 3 つ。過去の会話は seed.ts が transcript に書き、生きた会話は fake-claude.mjs が台本どおりに流す。
+// 共通の土台（プロジェクト 3 つと過去の会話）。場面が足す分は scenes/<名前>.ts の setup(seed) で足す。
+// 生きた会話の台本は各場面の seed.live() で登録する。
 
 export const PROJECTS = [
   { dir: 'photo-tagger', name: 'photo-tagger' },
@@ -88,66 +89,3 @@ export const PAST = [
     turns: [['天気 API が時々 503 を返します。リトライを入れてください。', [['Edit', { file_path: 'src/api.ts', old_string: 'await fetch(url)', new_string: 'await retry(() => fetch(url), { times: 3 })' }, 'The file src/api.ts has been updated.']], '最大 3 回、間隔を空けて再試行します。404 は再試行しません。']],
   },
 ];
-
-/** 生きた会話の台本。gate は録画の合図で待つ。ms は直前の行からの間。 */
-export const LIVE = {
-  hero: {
-    project: 'photo-tagger',
-    name: 'EXIF の撮影日時をタグにする',
-    steps: [
-      { gate: 'hero' },
-      { user: '写真の EXIF から撮影日時を読んで、「2026-春」のようなタグを自動で付けられるようにしてください。', intent: '写真の EXIF の撮影日時から、季節のタグ（2026-春 など）を自動で付ける処理を足す。まず既存のタグ付けを読んでいる。' },
-      { ms: 900, say: 'まず、いまのタグ付けの処理と、EXIF を読む処理があるかを確認します。' },
-      { ms: 700, tool: 'Read', arg: 'src/tagger.ts', input: { file_path: 'src/tagger.ts' }, out: ['Read 84 lines'] },
-      { ms: 600, tool: 'Grep', arg: 'exifr', input: { pattern: 'exifr' }, out: ['package.json:14:    "exifr": "^7.1.3"', 'src/meta.ts:3:import exifr from "exifr"'] },
-      { ms: 800, say: 'meta.ts がすでに exifr を使っています。撮影日時の読み出しを足して、季節のタグに直します。', intent: 'meta.ts の exifr を使って撮影日時を読み、tagger.ts で季節のタグに直す変更を入れている。' },
-      {
-        ms: 800, tool: 'Update', arg: 'src/tagger.ts',
-        input: { file_path: 'src/tagger.ts', old_string: "const tags: string[] = [];", new_string: "const tags: string[] = [];\n  const taken = await readTakenAt(file);\n  if (taken) tags.push(seasonTag(taken));" },
-        summary: 'Updated src/tagger.ts with 2 additions',
-        diff: [[' ', 12, '  const tags: string[] = [];'], ['+', 13, '  const taken = await readTakenAt(file);'], ['+', 14, '  if (taken) tags.push(seasonTag(taken));'], [' ', 15, '  for (const rule of rules) {']],
-      },
-      { ms: 900, intent: '変更は入った。npm test で、撮影日時の読み出しと季節のタグを確かめている。', tool: 'Bash', arg: 'npm test', input: { command: 'npm test' }, out: ['', '  ✓ reads DateTimeOriginal (12 ms)', '  ✓ maps March to 春 (3 ms)', '  ✓ skips photos without EXIF (4 ms)', '', 'Tests: 3 passed, 3 total'], lineMs: 260 },
-      { ms: 700, say: '撮影日時から 2026-春 のようなタグを付けられるようになりました。EXIF が無い写真は、これまでどおりタグを付けません。テストは 3 本とも通っています。', final: true },
-    ],
-  },
-  split: {
-    project: 'blog-engine',
-    name: 'RSS フィードにカテゴリを出す',
-    steps: [
-      { gate: 'split' },
-      { user: 'RSS の各記事に、タグを category として出してください。', intent: 'RSS の各記事に、タグを <category> として出す。フィードを作る feed.ts を読んでいる。' },
-      { ms: 700, say: 'フィードを作っている feed.ts を読みます。' },
-      { ms: 700, tool: 'Read', arg: 'src/feed.ts', input: { file_path: 'src/feed.ts' }, out: ['Read 61 lines'] },
-      {
-        ms: 800, tool: 'Update', arg: 'src/feed.ts',
-        input: { file_path: 'src/feed.ts', old_string: '</pubDate>', new_string: '</pubDate>\n${categories(post)}' },
-        summary: 'Updated src/feed.ts with 1 addition',
-        diff: [[' ', 27, '    <pubDate>${post.date.toUTCString()}</pubDate>'], ['+', 28, '    ${categories(post)}'], [' ', 29, '  </item>']],
-      },
-      { ms: 800, intent: 'feed.ts に category を足した。ビルドが通るかを確かめている。', tool: 'Bash', arg: 'npm run build', input: { command: 'npm run build' }, out: ['> blog-engine@1.4.0 build', '> tsc && node dist/build.js', '', 'rendered 48 posts, 12 tags', 'wrote public/feed.xml'], lineMs: 280 },
-      { ms: 700, say: '各 item に <category> を出すようにして、ビルドも通りました。', final: true },
-    ],
-  },
-  split2: {
-    project: 'weather-cli',
-    name: '気温の単位を設定で決める',
-    steps: [
-      { gate: 'split2' },
-      { user: '設定ファイルで気温の単位を決められるようにしてください。', intent: '気温の単位（摂氏か華氏）を設定ファイルで決められるようにする。設定を読む config.ts を見ている。' },
-      { ms: 700, say: 'まず、設定を読んでいる config.ts を確認します。' },
-      { ms: 700, tool: 'Read', arg: 'src/config.ts', input: { file_path: 'src/config.ts' }, out: ['Read 29 lines'] },
-      {
-        ms: 800, intent: 'config.ts に unit の項目を足し、既定は摂氏にしている。', tool: 'Update', arg: 'src/config.ts',
-        input: { file_path: 'src/config.ts', old_string: 'city: string;', new_string: "city: string;\n  unit: 'C' | 'F';" },
-        summary: 'Updated src/config.ts with 1 addition',
-        diff: [[' ', 8, '  city: string;'], ['+', 9, "  unit: 'C' | 'F';"], [' ', 10, '};']],
-      },
-      { ms: 800, tool: 'Bash', arg: 'npm test', input: { command: 'npm test' }, out: ['', '  ✓ defaults to C (4 ms)', '  ✓ reads unit from config (6 ms)', '', 'Tests: 2 passed, 2 total'], lineMs: 280 },
-      { ms: 700, say: '設定ファイルの unit に C か F を書けるようになりました。書かなければ摂氏です。', final: true },
-    ],
-  },
-};
-
-/** 検索の見本で探す語。過去の会話にこの語が入っている。 */
-export const SEARCH_QUERY = 'タグ';
