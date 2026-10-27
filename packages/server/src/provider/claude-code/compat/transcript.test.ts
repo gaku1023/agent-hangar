@@ -35,6 +35,10 @@ describe('transcriptDrifts', () => {
   it('isolation-latch（2.1.295 で現れた、side と sessionId だけの行）は meta として知っている', () => {
     expect(transcriptDrifts({ type: 'isolation-latch', side: 'connectors', sessionId: 's' })).toEqual([]);
   });
+  it('tools-used（2.1.311 で現れた、tools と sessionId だけの行）は meta として知っている', () => {
+    expect(transcriptDrifts({ type: 'tools-used', tools: ['ToolSearch', 'Bash'], sessionId: 's' })).toEqual([]);
+    expect(isTranscriptDrift('type=tools-used')).toBe(false);
+  });
   it('api-request 系の行（2.1.300 で現れた、API の要求の記録）は捨てる種類として知っている', () => {
     for (const type of ['api-request', 'api-request-blob', 'api-request-shape']) {
       expect(transcriptDrifts({ type, sessionId: 's' }), type).toEqual([]);

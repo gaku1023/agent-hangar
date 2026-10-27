@@ -5,6 +5,7 @@ import { isRec, splitDriftValue, versionOfRecord, type CompatSink, type Drift } 
 // 知っている値の集合。正規化（normalize.ts）が名前で読む値と、2.1.284 から 2.1.295 の実物の記録で見た値である。
 // 集合に足すのは、その値を正規化でどう扱うか（読むか、meta として残すか、捨てるか）を決めたときだけにする。
 // isolation-latch は 2.1.295 で現れた。atis-latch と同じ仲間で、side と sessionId だけを持つ行なので、meta として残す。
+// tools-used は 2.1.311 で現れた、その会話で使った道具の名前（tools）と sessionId だけを持つ行で、meta として残す。
 // api-request、api-request-blob、api-request-shape は 2.1.300 で現れた API の要求の記録で、正規化で捨てる（DROPPED_LINE_TYPES）。
 
 /** 正規化が中身を読む行の種類。 */
@@ -14,7 +15,7 @@ export const KNOWN_META_TYPES: ReadonlySet<string> = new Set([
   'last-prompt', 'atis-latch', 'mode', 'permission-mode', 'ai-title', 'custom-title', 'agent-name', 'pr-link',
   'queue-operation', 'file-history-snapshot', 'file-history-delta', 'relocated', 'worktree-state', 'bridge-session',
   'cost-state', 'frame-link', 'started', 'history-suppression', 'failed', 'result', 'artifact-autoreact-ledger',
-  'artifact-comment-monitor', 'fork-context-ref', 'continued-in', 'summary', 'isolation-latch',
+  'artifact-comment-monitor', 'fork-context-ref', 'continued-in', 'summary', 'isolation-latch', 'tools-used',
 ]);
 /** system の行の種類。turn_duration はターンの終わりの印として読む（live/aside.ts）。 */
 export const KNOWN_SYSTEM_SUBTYPES: ReadonlySet<string> = new Set([
