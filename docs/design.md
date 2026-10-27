@@ -7753,6 +7753,21 @@ D1 の書き込みは消した行の数で、旧実装の項目の総数が 1 �
 記録に当たる項目は、届いた変更の一覧に `held: 'local-blocked'` で出し、届いた数にも競合にも数えず、適用の指示書にも入れられない。
 塞ぎが解ければ、次の判定から通常に戻る。
 
+### 設定ファイルの書き戻しの道具（v0.12）
+
+Codex の config.toml と opencode の opencode.json(c)、cli.json へ書き戻す道具は `sync/config/edit/` にある。
+どれも「文字列を受けて文字列を返す」だけの関数で、ファイルには触れない（控えと書き込みは呼ぶ側）。
+
+- TOML は `setToml`・`removeToml`・`getToml`。自前で書いた（`tomlParse.ts` が文と行の位置を読み、`toml.ts` が行と値の範囲だけを書き換える）。
+  コメント、空行、鍵の並び、引用の形（基本・リテラル・複数行）、配列の折り返しを保つ。
+  鍵の道は `['mcp_servers', 'x', 'env', 'KEY']` のような文字列の並びで、点のついた鍵、インライン表の中、`[a.b]` の見出しのどれでも同じ道で指せる。
+  値が表（オブジェクト）なら表ごとの差し替えで、無い鍵は消え、変わらない鍵の体裁は残る。表が無ければ、近い表の後ろに節を作る。
+  表の配列（`[[x]]`）をまたぐ道は書かない。
+- jsonc は `setJsonc`・`removeJsonc`・`getJsonc`（`jsonc-parser` の `modify`）。コメントと他の行の体裁を保ち、触った所だけ書き換える。
+  json は opencode が書くたびに 2 空白で整形し直すので、`setJson`・`removeJson`・`formatJson` で同じ整形にして書く。
+- 壊れた入力、TOML・JSON にできない値、道の途中が値のときは `ConfigEditError`（`code`: parse、unsupported、conflict、invalid-value、verify）を投げる。何も書かない。
+  書いた結果は読み直し、狙った中身と合わなければ `verify` で失敗する。
+
 ### 使用量と費用
 
 設定の「クラウド同期」に、D1 の書き込み、Workers の要求、R2 の今月の量、今月の費用、プランを出す（見た目は「設定」の節）。
