@@ -1,4 +1,4 @@
-import { codexEnabledOf, opencodeEnabledOf, type ConfigApplyOrderEntryIn, type ConfigApproval, type ConfigBackupGenerationDto, type ConfigConflictDto, type ConfigExecMark, type ConfigHeldReason, type ConfigInboxItemDto, type ConfigInboxOp, type ConfigItemKind, type ConfigSyncDto, type ConfigUnsentItemDto, type ConfigVcsTool, type RetentionPreviewLine, type SettingsDto, type Translate } from '@agent-hangar/shared';
+import { codexEnabledOf, opencodeEnabledOf, type ConfigApplyOrderEntryIn, type ConfigApproval, type ConfigBackupGenerationDto, type ConfigConflictDto, type ConfigExecMark, type ConfigHeldReason, type ConfigInboxItemDto, type ConfigInboxOp, type ConfigItemKind, type ConfigStoreDto, type ConfigSyncDto, type ConfigUnsentItemDto, type ConfigVcsTool, type RetentionPreviewLine, type SettingsDto, type Translate } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { clientPlatform } from '../keys.ts';
@@ -16,6 +16,8 @@ import { translatorOf } from './i18n.ts';
 export const KIND_ORDER: readonly ConfigItemKind[] = ['claude-md', 'settings', 'skills', 'commands', 'agents', 'memory', 'keybindings'];
 /** 操作の並び。危ないもの、取り返しのつきにくいものを上に置く。 */
 export const OP_ORDER: readonly ConfigInboxOp[] = ['conflict', 'delete', 'overwrite', 'create'];
+/** そのまま書き込む項目の操作（競合は採る側を選んでから書くので入れない）。 */
+const WRITE_OPS: readonly ConfigInboxOp[] = ['delete', 'overwrite', 'create'];
 /** 項目が多いとき、最初から畳む種類（実行される指示とメモリ）。 */
 const FOLDED_WHEN_BIG: ReadonlySet<ConfigItemKind> = new Set(['skills', 'commands', 'agents', 'memory']);
 /** 「多い」の境目。これを超えたら、畳む種類を最初から畳む。 */
@@ -191,11 +193,25 @@ export const needsPick = (i: ConfigInboxItemDto): boolean => i.held === null && 
 /** 適用の指示書へ入れられる項目か。競合は採る側を選ぶので別、保留は書けない、承認の要るものは承認の表で選ぶ。 */
 export const appliesNow = (i: ConfigInboxItemDto): boolean => i.held === null && i.op !== 'conflict' && !i.needsApproval;
 
+/** 札 1 枚ぶんの見え方（4B）。「すべて」と、項目のある対象ごとに 1 つ。 */
+export type ConfigReviewViewProps = {
+  id: 'all' | ReviewTarget;
+  groups: ConfigGroupProps[];
+  /** 見出しの下の説明文。件数と内訳は、そのまま書き込む項目だけで数える。 */
+  lead: string;
+  /** 「すべて」で対象が 2 つ以上のとき、対象ごとの書き込み先の行。ほかは空。 */
+  dests: string[];
+  /** 下端のバックアップ先。控えを取らない対象（Hangar の設定）だけなら null。 */
+  backupNote: string | null;
+  /** 札で絞ったとき、「適用…」が他の対象も書くことの添え書き。絞っていなければ null。 */
+  applyNote: string | null;
+};
+
 export type ConfigReviewDialogProps = {
   part: 'review'; loading: boolean;
   /** 「適用…」で書く項目の数。 */
   total: number;
-  /** 操作ごとの数を並べた 1 行（「競合 1　削除 2　上書き 3　新規 4」）。 */
+  /** そのまま書き込む項目の操作ごとの数を並べた 1 行（「削除 2、上書き 3、新規 4」）。競合と承認が必要なものは入れない。 */
   summary: string;
   groups: ConfigGroupProps[];
   /** 承認の表で選ぶスキルなどの数と、競合の数。0 でなければ、ダイアログの中から開く入口を出す。 */
@@ -206,42 +222,106 @@ export type ConfigReviewDialogProps = {
   native: boolean;
   /** 絞り込みの札（4B）。項目のある対象だけを、保留を除いた件数つきで並べる。 */
   targets: { id: ReviewTarget; label: string; count: number }[];
+  /** 札ごとの見え方。先頭が「すべて」。 */
+  views: ConfigReviewViewProps[];
 };
+
+/**
+ * 項目の種類から、書き戻しの入れ物の名前（サーバの targets/stores.ts）。MCP は好みのキーと別の入れ物で、控えも別に取る。
+ * Hangar の好みは hangar（控えを取らない）。
+ */
+export function storeOfKind(kind: ConfigItemKind): string {
+  switch (kind) {
+    case 'claude-mcp': case 'codex-mcp': case 'opencode-mcp': return kind;
+    case 'agents-skills': return 'agents-skills';
+    case 'hangar-pref': return 'hangar';
+  }
+  if (kind.startsWith('codex-')) return 'codex';
+  if (kind.startsWith('opencode-')) return 'opencode';
+  return 'claude';
+}
+/** 入れ物の場所を返さない古いサーバのとき。Claude の入れ物だけは、前の版の説明文と同じ場所を言う。 */
+const FALLBACK_STORES: ConfigStoreDto[] = [{ name: 'claude', dir: '~/.claude', backup: '~/.agent-hangar/backups/claude-config/' }];
 
 function presentReview(state: State, store: Store, t: Translate): ConfigReviewDialogProps {
   const inbox = store.configDetail.inbox;
   const items = inbox?.items ?? [];
   const o = state.overlay;
+  const stores = new Map((inbox?.stores ?? FALLBACK_STORES).map((x) => [x.name, x]));
+  const sep = t('configSyncUi.review.summarySep');
   // 競合、承認が必要なもの（4a）、そのまま適用するもの、保留（4α、畳む）の順。群の中は操作の危ない順に並べる。
   const byOp = (a: ConfigInboxItemDto, b: ConfigInboxItemDto) => OP_ORDER.indexOf(a.op) - OP_ORDER.indexOf(b.op);
-  const live = items.filter((i) => i.held === null);
-  const conflicts = live.filter((i) => i.op === 'conflict');
-  const approve = live.filter(needsPick).sort(byOp);
-  const auto = live.filter((i) => i.op !== 'conflict' && !needsPick(i)).sort(byOp);
-  const held = items.filter((i) => i.held !== null);
-  const groups: ConfigGroupProps[] = [];
   const opRow = (x: ConfigInboxItemDto): ConfigRowProps => {
     const r = inboxRow(t, x);
-    return { ...r, side: `${t(`configSyncUi.op.${x.op}`)}${t('configSyncUi.review.summarySep')}${r.side}` };
+    return { ...r, side: `${t(`configSyncUi.op.${x.op}`)}${sep}${r.side}` };
   };
-  if (conflicts.length > 0) groups.push({ id: 'conflict', title: t('configSyncUi.op.conflict'), count: conflicts.length, peek: null, note: t('configSyncUi.opNote.conflict'), open: true, rows: conflicts.map((x) => inboxRow(t, x)) });
-  if (approve.length > 0) groups.push({ id: 'approve', title: t('configTargetsUi.review.grpApprove'), count: approve.length, peek: null, note: t('configTargetsUi.review.grpApproveNote'), open: true, rows: approve.map(opRow) });
-  if (auto.length > 0) {
-    const closed = items.length > BIG;
-    groups.push({ id: 'auto', title: t('configTargetsUi.review.grpAuto'), count: auto.length, peek: closed ? peekOf(t, auto.map((x) => x.label)) : null, note: null, open: !closed, rows: auto.map(opRow) });
-  }
-  if (held.length > 0) groups.push({ id: 'held', title: t('configSyncUi.op.held'), count: held.length, peek: peekOf(t, held.map((x) => x.label)), note: t('configTargetsUi.held.note'), open: false, rows: held.map((x) => inboxRow(t, x)) });
+  // 札ごとに群を作る。畳むかどうかと抜粋は、その札の項目だけで決める（B3）。
+  const groupsOf = (xs: ConfigInboxItemDto[]): ConfigGroupProps[] => {
+    const live = xs.filter((i) => i.held === null);
+    const conflicts = live.filter((i) => i.op === 'conflict');
+    const approve = live.filter(needsPick).sort(byOp);
+    const auto = live.filter((i) => i.op !== 'conflict' && !needsPick(i)).sort(byOp);
+    const held = xs.filter((i) => i.held !== null);
+    const groups: ConfigGroupProps[] = [];
+    if (conflicts.length > 0) groups.push({ id: 'conflict', title: t('configSyncUi.op.conflict'), count: conflicts.length, peek: null, note: t('configSyncUi.opNote.conflict'), open: true, rows: conflicts.map((x) => inboxRow(t, x)) });
+    if (approve.length > 0) groups.push({ id: 'approve', title: t('configTargetsUi.review.grpApprove'), count: approve.length, peek: null, note: t('configTargetsUi.review.grpApproveNote'), open: true, rows: approve.map(opRow) });
+    if (auto.length > 0) {
+      const closed = xs.length > BIG;
+      groups.push({ id: 'auto', title: t('configTargetsUi.review.grpAuto'), count: auto.length, peek: closed ? peekOf(t, auto.map((x) => x.label)) : null, note: null, open: !closed, rows: auto.map(opRow) });
+    }
+    if (held.length > 0) groups.push({ id: 'held', title: t('configSyncUi.op.held'), count: held.length, peek: peekOf(t, held.map((x) => x.label)), note: t('configTargetsUi.held.note'), open: false, rows: held.map((x) => inboxRow(t, x)) });
+    return groups;
+  };
+  const writes = items.filter(appliesNow);
+  const summaryOf = (xs: ConfigInboxItemDto[]): string => WRITE_OPS.map((op) => `${t(`configSyncUi.op.${op}`)} ${xs.filter((i) => i.op === op).length}`).join(sep);
+  const uniq = (xs: (string | null | undefined)[]): string[] => [...new Set(xs.filter((x): x is string => typeof x === 'string'))];
+  const dirsOf = (xs: ConfigInboxItemDto[]): string[] => uniq(xs.map((i) => stores.get(storeOfKind(i.kind))?.dir));
+  const backupsOf = (xs: ConfigInboxItemDto[]): string[] => uniq(xs.map((i) => stores.get(storeOfKind(i.kind))?.backup));
+  const byTarget = (x: ReviewTarget) => (i: ConfigInboxItemDto) => reviewTargetOf(i.kind) === x;
+  const writeTargets = REVIEW_TARGETS.filter((x) => writes.some(byTarget(x)));
+  /** 説明文。対象が 1 つならその書き込み先を言い、2 つ以上なら対象ごとの行を添える。 */
+  const leadOf = (xs: ConfigInboxItemDto[], many: boolean): Pick<ConfigReviewViewProps, 'lead' | 'dests' | 'backupNote'> => {
+    if (xs.length === 0) return { lead: t('configSyncUi.review.leadNone'), dests: [], backupNote: null };
+    const backups = backupsOf(xs);
+    const backup = backups.length > 0 ? t('configSyncUi.review.backupLead') : '';
+    const summary = summaryOf(xs);
+    if (!many) {
+      return {
+        lead: t('configSyncUi.review.lead', { n: xs.length, dir: dirsOf(xs).join(sep), summary, backup }).trim(),
+        dests: [],
+        backupNote: backups.length > 0 ? t('configSyncUi.review.backupNote', { dir: backups.join(sep) }) : null,
+      };
+    }
+    return {
+      lead: t('configSyncUi.review.leadAll', { n: xs.length, summary, backup }).trim(),
+      dests: writeTargets.map((x) => {
+        const ys = xs.filter(byTarget(x));
+        return t('configSyncUi.review.dest', { target: reviewTargetLabel(t, x), dir: dirsOf(ys).join(sep), n: ys.length });
+      }),
+      backupNote: backups.length === 0 ? null
+        : backups.length === 1 ? t('configSyncUi.review.backupNote', { dir: backups[0]! })
+          : t('configSyncUi.review.backupNoteAll', { dir: inbox?.backupsRoot ?? '~/.agent-hangar/backups/' }),
+    };
+  };
+  const live = items.filter((i) => i.held === null);
   const targets = REVIEW_TARGETS.flatMap((x) => {
-    const n = live.filter((i) => reviewTargetOf(i.kind) === x).length;
+    const n = live.filter(byTarget(x)).length;
     return n === 0 ? [] : [{ id: x, label: reviewTargetLabel(t, x), count: n }];
   });
-  const entries = items.filter(appliesNow).map((i) => ({ id: i.id }));
-  const count = (op: ConfigInboxOp) => items.filter((i) => i.held === null && i.op === op).length;
+  const all: ConfigReviewViewProps = { id: 'all', groups: groupsOf(items), ...leadOf(writes, writeTargets.length > 1), applyNote: null };
+  const views: ConfigReviewViewProps[] = [all, ...targets.map(({ id }): ConfigReviewViewProps => {
+    const own = writes.filter(byTarget(id));
+    return {
+      id, groups: groupsOf(items.filter(byTarget(id))), ...leadOf(own, false),
+      applyNote: own.length < writes.length ? t('configSyncUi.review.applyAll', { n: writes.length }) : null,
+    };
+  })];
+  const entries = writes.map((i) => ({ id: i.id }));
   return {
     part: 'review', loading: inbox === null, total: entries.length,
-    summary: OP_ORDER.map((op) => `${t(`configSyncUi.op.${op}`)} ${count(op)}`).join(t('configSyncUi.review.summarySep')),
-    groups, awaiting: items.filter(needsPick).length, conflicts: count('conflict'),
-    entries, working: o.kind === 'configSync' && o.working, native: store.desktop, targets,
+    summary: summaryOf(writes),
+    groups: all.groups, awaiting: items.filter(needsPick).length, conflicts: live.filter((i) => i.op === 'conflict').length,
+    entries, working: o.kind === 'configSync' && o.working, native: store.desktop, targets, views,
   };
 }
 

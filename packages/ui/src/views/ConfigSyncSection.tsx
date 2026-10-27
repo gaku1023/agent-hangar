@@ -122,7 +122,7 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
           <SetRow title={t('configSyncUi.conflicts.title', { n: c.conflicts })} info={t('configSyncUi.conflicts.desc')}
             control={<button type="button" className="btn btn-sm" disabled={c.conflicts === 0} onClick={() => emit({ type: 'configSync.open', part: 'conflicts' })}>{t('configSyncUi.conflicts.open')}</button>} />
           {/* 送らなかった項目は、0 件でも行を残す（e2）。送った直後の知らせはベルの一覧に入る（段 4 の PR 19）。 */}
-          <SetRow id="settings-config-unsent" title={t('configSyncUi.unsent.title', { n: c.unsent.count })} info={t('configSyncUi.unsent.desc')}
+          <SetRow id="settings-config-unsent" title={t('configSyncUi.unsent.title', { n: unsentAll })} info={t('configSyncUi.unsent.desc')}
             control={<button type="button" className="btn btn-sm" aria-expanded={unsentOpen && unsentAll > 0} disabled={unsentAll === 0} onClick={() => setUnsentOpen(!unsentOpen)}>{unsentOpen && unsentAll > 0 ? t('configSyncUi.word.fold') : t('configSyncUi.word.show')}</button>}
             below={(
               <Reveal open={unsentOpen && unsentAll > 0}>

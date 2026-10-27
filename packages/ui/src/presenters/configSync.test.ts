@@ -68,7 +68,7 @@ describe('適用内容の確認（b1）', () => {
     expect(r.groups.map((g) => [g.id, g.count])).toEqual([['conflict', 1], ['approve', 1], ['auto', 3], ['held', 1]]);
     expect(r.groups[2]!.rows.map((x) => x.id)).toEqual(['file:skills/old/SKILL.md', 'file:memory/m.md', 'settings:model']);
     expect(r.groups.filter((g) => g.id !== 'auto').every((g) => g.note !== null)).toBe(true);
-    expect(r.summary).toBe('競合 1、削除 1、上書き 2、新規 1');
+    expect(r.summary).toBe('削除 1、上書き 1、新規 1');
   });
   it('適用内容に入れるのは、競合でも保留でも承認の要るものでもない項目だけ', () => {
     const r = p();
