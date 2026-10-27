@@ -1151,6 +1151,35 @@ describe('runTeardown', () => {
     expect(lines.join('\n')).toContain('1 件をこの PC にダウンロードしました');
   });
 
+  it('Codex の本文の写しも降ろす。自分の会話で、原本が $CODEX_HOME にあるものは降ろし直さない', async () => {
+    const { home, cloudDir } = dirs();
+    fs.mkdirSync(path.join(home, 'cloud'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'cloud', 'wrangler.jsonc'), '{}');
+    const cfg = v2conf({ workerName: 'hangar', accountId: 'a'.repeat(32), dbName: 'hangar', bucketName: 'hangar-files' });
+    saveCloudConfig(home, cfg);
+    const keyring = Keyring.fromConfig(cfg);
+    const theirs = 'rollout-2026-10-26T14-00-00-0198a7c2-0000-7000-8000-00000000000b.jsonl';
+    const mine = 'rollout-2026-10-26T15-00-00-0198a7c2-0000-7000-8000-00000000000a.jsonl';
+    const gone = 'rollout-2026-10-26T16-00-00-0198a7c2-0000-7000-8000-00000000000c.jsonl';
+    const cloudB = new FakeCloudClient({ deviceId: 'dev-b', keyring });
+    await cloudB.putText({ path: `codex/archived_sessions/${theirs}` }, '{"b":1}\n');
+    const cloudA = cloudB.asDevice('dev-a', { keyring });
+    await cloudA.putText({ path: `codex/sessions/2026/10/26/${mine}` }, '{"a":1}\n');
+    // 自分の会話でも、原本が $CODEX_HOME に無いものは降ろす（消すと失われる）。
+    await cloudA.putText({ path: `codex/sessions/2026/10/26/${gone}` }, '{"c":1}\n');
+    // 原本は圧縮された .jsonl.zst のこともある。
+    const codexHome = path.join(home, 'codex-home');
+    fs.mkdirSync(path.join(codexHome, 'sessions', '2026', '10', '26'), { recursive: true });
+    fs.writeFileSync(path.join(codexHome, 'sessions', '2026', '10', '26', `${mine}.zst`), 'zst');
+    const w = fakeWrangler({ 'r2 object delete': () => ok(), 'r2 bucket delete': () => ok(), 'delete --name': () => ok(), 'd1 delete': () => ok() });
+
+    const done = await runTeardown({ home, deviceId: 'dev-a', claudeDir: path.join(home, 'claude'), codexHome, wire: cloudA.wire, wrangler: w.runner('a'.repeat(32), cloudDir), confirm: fakeConfirm([true, true]).fn, log: () => {} });
+    expect(done).toBe(true);
+    expect(fs.readFileSync(path.join(home, 'remote', 'dev-b', 'codex', 'archived_sessions', theirs), 'utf8')).toBe('{"b":1}\n');
+    expect(fs.existsSync(path.join(home, 'remote', 'dev-a', 'codex', 'sessions', '2026', '10', '26', mine))).toBe(false);
+    expect(fs.readFileSync(path.join(home, 'remote', 'dev-a', 'codex', 'sessions', '2026', '10', '26', gone), 'utf8')).toBe('{"c":1}\n');
+  });
+
   it('setup を確認の段で止めて cloud.json が無く下書きだけがあるときも、下書きの Worker、D1、R2 を消し、下書きも消す', async () => {
     const { home, cloudDir } = dirs();
     const conf = v2conf({ workerName: 'hangar', accountId: 'a'.repeat(32), dbName: 'hangar', bucketName: 'hangar-files' });

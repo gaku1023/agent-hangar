@@ -29,6 +29,9 @@ function uuidOfTranscript(rel: string): string {
   return (parts[2] ?? '').replace(/\.jsonl$/, '');
 }
 
+/** Codex を切にしていた間に越えた Codex の行のいちばん小さい連番（sync_state）。有効にしたあとの取り直しの出発点。 */
+const CODEX_SKIPPED_FROM = 'codexSkippedFrom' as const;
+
 export type PullerDeps = {
   db: Db;
   deviceId: string;
@@ -39,7 +42,7 @@ export type PullerDeps = {
   onError?: (key: string, message: string) => void;
   /**
    * Codex（ベータ）を有効にしているか。呼ばれた時点の値を読む。省くか偽なら、Codex の本文の行は降ろさずに区切りを越える。
-   * 有効にしていない PC の振る舞い（置くファイル、使う空き）を変えないためである。越えた会話は、次に上がった版から降りる。
+   * 有効にしていない PC の振る舞い（置くファイル、使う空き）を変えないためである。越えた行は、有効にしたあとの最初の降ろしで会話ごとの最新を取り直す。
    */
   codexEnabled?: () => boolean;
   /** 写しを 1 つ以上置いた回の終わりに、置いた数を知らせる。索引が全件走査を予約する（boot/sync.ts）。 */
@@ -421,10 +424,13 @@ export class RemotePuller {
       this.lastRetryAt = startedAt;
       downloaded += await this.retrySkipped();
     }
+    // Codex を切の間に越えた行を、有効にしたあとの最初の回で取り直す。
+    if (this.deps.codexEnabled?.() === true && Number.isFinite(this.deps.state.getNumber(CODEX_SKIPPED_FROM, Infinity))) downloaded += await this.catchUpCodex();
     let since = this.deps.state.getNumber('filesSeq', 0);
     let advanceTo = since;
     let minFailed: number | null = null;
     let minUnreadable: number | null = null;
+    let minCodexSkipped: number | null = null;
     // 一覧を先に読み切ってから、新しい会話から順に降ろす（newestFirst）。
     const candidates: FileEntry[] = [];
     for (;;) {
@@ -439,8 +445,8 @@ export class RemotePuller {
         if (e.kind === 'config') continue;
         // 削除したセッション（sessions/trash.ts）の写しは降ろさない。印を受け取る前の持ち主が上げた分でも、置けば消し直すだけになる。
         if (this.isTrashed(e.path)) continue;
-        // Codex を有効にしていない PC は、Codex の本文を置かない。
-        if (!this.takes(e.path)) continue;
+        // Codex を有効にしていない PC は、Codex の本文を置かない。越えた行のいちばん小さい連番を控え、有効にしたあとに取り直す（catchUpCodex）。
+        if (!this.takes(e.path)) { minCodexSkipped = minCodexSkipped === null ? e.seq : Math.min(minCodexSkipped, e.seq); continue; }
         candidates.push(e);
       }
       // その回の出発点より下がらないようにする。
@@ -479,8 +485,52 @@ export class RemotePuller {
       const prev = this.deps.state.getNumber('filesSkippedFrom', Infinity);
       this.deps.state.set('filesSkippedFrom', Math.min(prev, minUnreadable));
     }
+    if (minCodexSkipped !== null) {
+      const prev = this.deps.state.getNumber(CODEX_SKIPPED_FROM, Infinity);
+      this.deps.state.set(CODEX_SKIPPED_FROM, Math.min(prev, minCodexSkipped));
+    }
     if (downloaded > 0) this.deps.onDownloaded?.(downloaded);
     return { downloaded };
+  }
+
+  /**
+   * Codex を切にしていた間に越えた Codex の行を取り直す（docs/design.md「Codex の本文」）。
+   * 越えた行のいちばん小さい連番（CODEX_SKIPPED_FROM）から、いまの区切り（filesSeq）までの一覧を引き直し、会話ごとの最新の 1 件だけを降ろす。
+   * 区切りは動かさない。取り直しを終えたら控えを消し、2 度目からは頭から読み直さない。
+   * 失敗した行は onError に流して控えを残し、次の回にもう 1 度取り直す。空きが足りなければ残りを次の回に回す。
+   */
+  private async catchUpCodex(): Promise<number> {
+    const from = this.deps.state.getNumber(CODEX_SKIPPED_FROM, Infinity);
+    const until = this.deps.state.getNumber('filesSeq', 0);
+    const latest = new Map<string, FileEntry>();
+    let since = Math.max(0, from - 1);
+    while (since < until) {
+      const page = await this.deps.client.listFiles(since, PULL_LIMIT);
+      for (const e of page.files) {
+        if (e.seq > until) continue;
+        if (e.deviceId === this.deps.deviceId || originOf(e) === this.deps.deviceId || e.kind !== 'transcript') continue;
+        if (agentOfSyncPath(e.path)?.provider !== 'codex' || this.isTrashed(e.path)) continue;
+        const id = copyIdOf(e);
+        const prev = latest.get(id);
+        if (!prev || prev.seq < e.seq) latest.set(id, e);
+      }
+      if (!page.more || page.nextSeq <= since) break;
+      since = page.nextSeq;
+    }
+    let downloaded = 0;
+    let done = true;
+    for (const e of newestFirst([...latest.values()])) {
+      try {
+        if (await this.download(e)) downloaded++;
+      } catch (err) {
+        if (err instanceof CompatError || err instanceof LimitError) throw err;
+        done = false;
+        if (err instanceof DiskShortError) break;
+        this.deps.onError?.(e.key, this.errorText(err));
+      }
+    }
+    if (done) this.deps.state.set(CODEX_SKIPPED_FROM, null);
+    return downloaded;
   }
 
   /** その写しを、この PC が降ろすか。Codex の本文は Codex を有効にしているときだけ降ろす。 */
@@ -619,11 +669,11 @@ export class RemotePuller {
     return true;
   }
 
-  /** 手元に降ろした写しのうち、更新時刻が最新のもの。「この PC で再開」が使う。 */
+  /** 手元に降ろした写しのうち、更新時刻が最新のもの。「この PC で再開」が使う。Claude の本文と Codex の rollout（どちらも UUID）を引く。 */
   latestRemoteMain(sessionUuid: string): { deviceId: string; path: string; size: number; mtime: number } | null {
     const rows = this.deps.db
-      .prepare("select path, device_id, size, mtime from file_sync where kind = 'transcript' and device_id <> ? and key like ? order by mtime desc")
-      .all(this.deps.deviceId, `transcripts/%/${sessionUuid}.jsonl.gz`) as { path: string; device_id: string; size: number; mtime: number }[];
+      .prepare("select path, device_id, size, mtime from file_sync where kind = 'transcript' and device_id <> ? and (key like ? or key like ?) order by mtime desc")
+      .all(this.deps.deviceId, `transcripts/%/${sessionUuid}.jsonl.gz`, `codex/%/${sessionUuid}.jsonl.gz`) as { path: string; device_id: string; size: number; mtime: number }[];
     for (const r of rows) {
       let p: string;
       try { p = remoteTranscriptPath(this.deps.home, r.device_id, r.path); } catch { continue; }

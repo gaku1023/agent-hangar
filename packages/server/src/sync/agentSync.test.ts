@@ -23,7 +23,7 @@ describe('AGENT_SYNC（エージェントごとの同期の単位）', () => {
     }
   });
 
-  it('codex は rollout 1 ファイルを thread の UUID で引く行（削除の掃除は E2 まで ID を断る）', () => {
+  it('codex は rollout 1 ファイルを thread の UUID で引く行（削除の掃除は UUID の形の ID だけを受ける）', () => {
     const u = AGENT_SYNC.codex;
     expect(u.source).toBe('watched-file');
     expect(u.ledgerKey('d1', THREAD, null)).toBe(`codex/d1/${THREAD}.jsonl.gz`);
@@ -33,7 +33,8 @@ describe('AGENT_SYNC（エージェントごとの同期の単位）', () => {
     expect(u.idsOfLedgerKey('d1', `codex/d1/${THREAD}.jsonl.gz`)).toEqual({ uuid: THREAD, agentId: null });
     expect(u.idsOfLedgerKey('d2', `codex/d1/${THREAD}.jsonl.gz`)).toBeNull();
     expect(u.idsOfLedgerKey('d1', `transcripts/d1/${THREAD}.jsonl.gz`)).toBeNull();
-    expect(u.isSessionId(THREAD)).toBe(false);
+    expect(u.isSessionId(THREAD)).toBe(true);
+    for (const bad of ['ses_abc', THREAD.toUpperCase(), `${THREAD}x`, '', '../x']) expect(u.isSessionId(bad)).toBe(false);
     expect(u.relays).toBe(false);
     expect(isExportAgent('codex')).toBe(false);
     expect(agentOfSyncPath(codexSyncPath(NAME, false))).toEqual({ provider: 'codex', sessionId: THREAD });

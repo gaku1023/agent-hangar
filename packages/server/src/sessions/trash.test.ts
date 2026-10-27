@@ -732,3 +732,57 @@ describe('opencode の会話', () => {
     expect(count('select count(*) c from agent_events where session_id = ?')).toBe(0);
   });
 });
+
+describe('Codex の会話', () => {
+  // Codex の本文は $CODEX_HOME の rollout（sessions/YYYY/MM/DD/rollout-<時刻>-<UUID>.jsonl）で、名前は UUID で終わらない。
+  const THREAD = '0198a7c2-0000-7000-8000-00000000c0de';
+  const NAME = `rollout-2026-10-26T14-00-00-${THREAD}.jsonl`;
+  const SYNC_PATH = `codex/sessions/2026/10/26/${NAME}`;
+  let codexHome: string;
+  const rollout = () => path.join(codexHome, 'sessions', '2026', '10', '26', NAME);
+  const remoteCopy = () => path.join(remoteRoot, OTHER, ...SYNC_PATH.split('/'));
+  const ownUploads = () => (db.prepare("select key from file_sync where device_id = ? order by key").all(DEV) as { key: string }[]).map((r) => r.key);
+  beforeEach(() => {
+    codexHome = path.join(tmp, 'codex');
+    upsertShared(db, 'sessions', { id: 's-cx', provider: 'codex', provider_session_id: THREAD, cwd: CWD, home_device: DEV, project_id: 'pa' }, DEV);
+    fs.mkdirSync(path.dirname(rollout()), { recursive: true });
+    fs.writeFileSync(rollout(), '{"type":"session_meta"}\n');
+    db.prepare('insert into transcript_files (path, session_id, agent_id, device_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?,?)')
+      .run(rollout(), 's-cx', null, null, 1, 1, 1, 2);
+    fs.mkdirSync(path.dirname(remoteCopy()), { recursive: true });
+    fs.writeFileSync(remoteCopy(), '{"type":"session_meta"}\n');
+    const ins = db.prepare("insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?, 'transcript', ?, ?, 'x', 1, 1, 1, 1)");
+    ins.run(`codex/${OTHER}/${THREAD}.jsonl.gz`, SYNC_PATH, OTHER);
+    ins.run(`codex/${DEV}/${THREAD}.jsonl.gz`, SYNC_PATH, DEV);
+  });
+
+  it('消すと、手元の rollout をゴミ箱へ移し、降ろした写し（remote/<PC>/codex/...）を消す', async () => {
+    await service().deleteSession('s-cx');
+    expect([...binned.keys()]).toEqual([rollout()]);
+    expect(fs.existsSync(rollout())).toBe(false);
+    expect(fs.existsSync(remoteCopy())).toBe(false);
+    expect(db.prepare("select trashed_at from session_states where session_id = 's-cx'").get()).toEqual({ trashed_at: expect.any(Number) });
+    expect(db.prepare("select path, kind from trashed_transcripts where session_id = 's-cx'").all()).toEqual([{ path: rollout(), kind: 'file' }]);
+  });
+
+  it('rollout が .jsonl.zst に圧縮されていれば、その実体をゴミ箱へ移す', async () => {
+    fs.renameSync(rollout(), `${rollout()}.zst`);
+    await service().deleteSession('s-cx');
+    expect([...binned.keys()]).toEqual([`${rollout()}.zst`]);
+  });
+
+  it('印を受け取った PC でも、降ろした写しを消す', async () => {
+    fs.rmSync(rollout());
+    db.prepare("insert into session_states (session_id, trashed_at, updated_at, origin_device) values ('s-cx', ?, 1, ?)").run(Date.now(), OTHER);
+    const r = await service().applyMarks();
+    expect(r.trashed).toContain('s-cx');
+    expect(fs.existsSync(remoteCopy())).toBe(false);
+  });
+
+  it('ゴミ箱から戻すと、この PC が上げた Codex の台帳の行を忘れて上げ直してもらう', async () => {
+    await service().deleteSession('s-cx');
+    fs.renameSync(binned.get(rollout())!, rollout());
+    expect(service().checkRestores()).toEqual(['s-cx']);
+    expect(ownUploads()).toEqual([]);
+  });
+});

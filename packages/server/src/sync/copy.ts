@@ -89,14 +89,34 @@ function sha256File(file: string): string {
  * 降ろした後に壊れた（あるいは差し替えられた）写しを上書きに使わない。
  * file_sync の sha256 と size は平文の jsonl のものである（uploader が上げる前に取り、puller が復号して展開した後に突き合わせる）。
  */
-function verifiedAgainstLedger(db: Db, pick: RemotePick, sessionUuid: string): boolean {
+function verifiedAgainstLedger(db: Db, pick: RemotePick, ledgerKey: string): boolean {
   const row = db.prepare('select sha256, size from file_sync where key = ?')
-    .get(`transcripts/${pick.deviceId}/${sessionUuid}.jsonl.gz`) as { sha256: string; size: number } | undefined;
+    .get(ledgerKey) as { sha256: string; size: number } | undefined;
   if (!row) return false;
   let stat: fs.Stats;
   try { stat = fs.statSync(pick.path); } catch { return false; }
   if (stat.size !== row.size) return false;
   try { return sha256File(pick.path) === row.sha256; } catch { return false; }
+}
+
+const claudeLedgerKey = (deviceId: string, sessionUuid: string): string => `transcripts/${deviceId}/${sessionUuid}.jsonl.gz`;
+
+/**
+ * 降ろした写しのうち、台帳の指紋と合う最も新しいものを選ぶ（Claude と Codex の本文）。
+ * keyLike は台帳の鍵の LIKE の型（Claude は `transcripts/%/<UUID>.jsonl.gz`、Codex は `codex/%/<UUID>.jsonl.gz`）、ledgerKeyOf はその PC の台帳の鍵である。
+ * exclude を渡せば、その PC（自分）の行は選ばない。置き場の組み立ては puller の remoteTranscriptPath に任せる。
+ */
+export function pickVerifiedRemote(o: { db: Db; home: string; keyLike: string; ledgerKeyOf: (deviceId: string) => string; exclude?: string }): RemotePick | null {
+  const rows = o.db.prepare("select path, device_id, size, mtime from file_sync where kind = 'transcript' and key like ? and device_id <> ? order by mtime desc")
+    .all(o.keyLike, o.exclude ?? '') as { path: string; device_id: string; size: number; mtime: number }[];
+  for (const r of rows) {
+    let p: string;
+    try { p = remoteTranscriptPath(o.home, r.device_id, r.path); } catch { continue; }
+    if (!fs.existsSync(p)) continue;
+    const pick: RemotePick = { deviceId: r.device_id, path: p, size: fs.statSync(p).size, mtime: r.mtime };
+    if (verifiedAgainstLedger(o.db, pick, o.ledgerKeyOf(r.device_id))) return pick;
+  }
+  return null;
 }
 
 /**
@@ -106,18 +126,9 @@ function verifiedAgainstLedger(db: Db, pick: RemotePick, sessionUuid: string): b
 function chooseRemote(o: CopyOptions, sessionUuid: string): RemotePick | null {
   if (o.pickRemote) {
     const pick = o.pickRemote(sessionUuid);
-    return pick && verifiedAgainstLedger(o.db, pick, sessionUuid) ? pick : null;
+    return pick && verifiedAgainstLedger(o.db, pick, claudeLedgerKey(pick.deviceId, sessionUuid)) ? pick : null;
   }
-  const rows = o.db.prepare("select path, device_id, size, mtime from file_sync where kind = 'transcript' and key like ? order by mtime desc")
-    .all(`transcripts/%/${sessionUuid}.jsonl.gz`) as { path: string; device_id: string; size: number; mtime: number }[];
-  for (const r of rows) {
-    let p: string;
-    try { p = remoteTranscriptPath(o.home, r.device_id, r.path); } catch { continue; }
-    if (!fs.existsSync(p)) continue;
-    const pick: RemotePick = { deviceId: r.device_id, path: p, size: fs.statSync(p).size, mtime: r.mtime };
-    if (verifiedAgainstLedger(o.db, pick, sessionUuid)) return pick;
-  }
-  return null;
+  return pickVerifiedRemote({ db: o.db, home: o.home, keyLike: `transcripts/%/${sessionUuid}.jsonl.gz`, ledgerKeyOf: (d) => claudeLedgerKey(d, sessionUuid) });
 }
 
 /**
@@ -137,7 +148,7 @@ function chooseRemote(o: CopyOptions, sessionUuid: string): RemotePick | null {
  * 形は設定の同期の書き込み（sync/config/apply.ts）の経路の塞ぎ方と揃えてある。
  * 返すパスは呼び手が渡した root の綴りのままにする。枠の検査だけ realpath で行う。
  */
-function resolveUnder(root: string, rel: string, label: Message | string, o: { create?: boolean } = {}): string {
+export function resolveUnder(root: string, rel: string, label: Message | string, o: { create?: boolean } = {}): string {
   const segs = rel.split('/');
   if (segs.length === 0 || segs.some((x) => x === '' || x === '.' || x === '..')) throw new RunError(409, msg('sync.copy.badRelPath'));
   let fence: string;
@@ -171,7 +182,7 @@ function resolveUnder(root: string, rel: string, label: Message | string, o: { c
  * 潰してはいけない控えの側は backupBeforeOverwrite を使う。
  * 呼び手は必ず resolveUnder で解いたパスを渡す。ここでは入れ物を作らない。
  */
-function copyOverAtomically(from: string, to: string): void {
+export function copyOverAtomically(from: string, to: string): void {
   const tmp = `${to}.hangar-tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
   try {
     fs.copyFileSync(from, tmp, fs.constants.COPYFILE_EXCL);
@@ -236,7 +247,7 @@ export function backupBeforeOverwrite(target: string, home: string, sessionUuid:
 }
 
 /** a の中身が b の先頭部分か。1MB ずつ読み比べ、本文を丸ごと溜め込まない。a が b より大きければ偽。 */
-function isPrefixOf(a: string, b: string): boolean {
+export function isPrefixOf(a: string, b: string): boolean {
   const sizeA = fs.statSync(a).size;
   if (sizeA > fs.statSync(b).size) return false;
   const bufA = Buffer.allocUnsafe(HASH_BUF);

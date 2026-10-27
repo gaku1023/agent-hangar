@@ -23,6 +23,7 @@ import { writeFakeCodex, type FakeCodexOptions } from '../../test/fake-codex.ts'
 import { liveSourceOf } from '../../test/fake-live.ts';
 import { posixDescribe } from '../../test/platform.ts';
 import { RunManager } from './manager.ts';
+import { stopCodexWriters } from '../sync/codexResume.ts';
 
 type Row = { id: string; provider: string; provider_session_id: string; deleted_at: number | null };
 const until = async (f: () => boolean, ms = 5000): Promise<void> => {
@@ -196,6 +197,41 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
     expect(r.sessionId).toBe(sid);
     expect(codex.served(sid)?.threadId).toBe(EXT);
     expect(JSON.parse((db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string }).launch_params)).toMatchObject({ agent: 'codex' });
+  });
+
+  it('この PC で再開：ほかの PC の会話は、プロジェクトの対応づけで決めたこの PC の場所を、最初の thread/resume の cwd に渡す', async () => {
+    const EXT = '01bffff0-0000-7000-8000-00000000e002';
+    upsertShared(db, 'project_roots', { id: 'pr-other', project_id: 'p1', device_id: 'other', path: '/other/pc/alpha', resolved: 1 }, 'other');
+    const { rm, rpcs } = make({ fake: { knownThreads: [{ id: EXT, cwd: '/other/pc/alpha/sub' }] } });
+    fs.mkdirSync(path.join(cwd, 'sub'), { recursive: true });
+    upsertShared(db, 'sessions', { id: 's-other', provider: 'codex', provider_session_id: EXT, cwd: '/other/pc/alpha/sub', home_device: 'other', origin_device: 'other', project_id: 'p1' }, 'other');
+    expect(rm.prepareResumeDir('s-other')).toBe(path.join(cwd, 'sub'));
+    await rm.resumeWith('s-other', {});
+    expect(rpcs().find((x) => x.method === 'thread/resume')!.params).toMatchObject({ threadId: EXT, cwd: path.join(cwd, 'sub') });
+  });
+
+  it('アーカイブ済みの会話の再開は、thread/unarchive で戻してから thread/resume し直す', async () => {
+    const EXT = '01bffff0-0000-7000-8000-00000000e003';
+    const { rm, codex, rpcs } = make({ fake: { knownThreads: [{ id: EXT, cwd, archived: true }] } });
+    const sid = ensureSession(db, EXT, cwd, 'd', 'codex');
+    await rm.resumeWith(sid, {});
+    expect(rpcs().filter((x) => x.ev === 'rpc' && String(x.method).startsWith('thread/')).map((x) => x.method)).toEqual(['thread/resume', 'thread/unarchive', 'thread/resume']);
+    expect(codex.served(sid)?.threadId).toBe(EXT);
+  });
+
+  it('この PC で再開の前に、その thread の書き手の座を握る app-server（この PC の hangar が起こしたもの）を止める。別の会話の行が握っていても止める', async () => {
+    const EXT = '01bffff0-0000-7000-8000-00000000e004';
+    const { rm, codex } = make({ fake: { knownThreads: [{ id: EXT, cwd }] } });
+    const sid = ensureSession(db, EXT, cwd, 'd', 'codex');
+    await rm.resumeWith(sid, {});
+    const pid = codex.served(sid)!.pid;
+    expect(isProcessAlive(pid)).toBe(true);
+    // 会話の ID が違っても（同じ thread を握る、ほかの hangar の会話の行）、thread の ID で探して止める。
+    await stopCodexWriters(codex, 'another-session', EXT);
+    expect(codex.served(sid)).toBeNull();
+    await until(() => !isProcessAlive(pid));
+    // 握る者がいなければ何もしない。
+    await stopCodexWriters(codex, sid, EXT);
   });
 
   it('最初の入力の前の会話は再開できない。Codex を起動できなかったと、理由つきで断り、app-server を残さない', async () => {
