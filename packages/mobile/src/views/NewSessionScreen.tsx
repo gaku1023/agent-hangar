@@ -1,6 +1,7 @@
 import type { AgentKind } from '@agent-hangar/shared/src/agents.ts';
 import { launchJa } from '@agent-hangar/shared/src/i18n/ja/launch.ts';
-import { MOBILE_PROMPT_MAX, type MobileAccount, type MobileAgentOptions, type MobileModelOption } from '@agent-hangar/shared/src/mobile.ts';
+import { CODEX_PERMISSIONS, DEFAULT_CODEX_PERMISSION, type CodexPermission } from '@agent-hangar/shared/src/codexCompat.ts';
+import { MOBILE_PROMPT_MAX, type MobileAccount, type MobileAgentOptions, type MobileCodexOptions, type MobileModelOption } from '@agent-hangar/shared/src/mobile.ts';
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { workerTooOld } from '../api.ts';
 import { createAsker, type Asker } from '../ask.ts';
@@ -33,6 +34,9 @@ const CC_ON = ['cc'];
 const OC_ON = ['oc'];
 const AUTO_ON = ['on'];
 const AUTO_OFF = ['off'];
+const CX_ON = ['cx'];
+const FULL_ON = ['on'];
+const FULL_OFF = ['off'];
 const NO_MODELS: MobileModelOption[] = [];
 const NO_MODES: MobileAgentOptions['modes'] = [];
 
@@ -54,6 +58,16 @@ const modelSub = (m: MobileModelOption): string => [m.group, COST_LABEL[m.cost],
 
 /** opencode の選択肢の問い合わせの結果。key は PC とプロジェクト。 */
 type OcOptions = { key: string; ok: true; value: MobileAgentOptions | null } | { key: string; ok: false };
+/** Codex の選択肢の問い合わせの結果。key は PC。 */
+type CxOptions = { key: string; ok: true; value: MobileCodexOptions | null } | { key: string; ok: false };
+
+/** Codex の権限の札の文（PC の新規ダイアログと同じ辞書）。 */
+const CODEX_PERMISSION_TEXT: Record<CodexPermission, { name: string; note: string }> = {
+  'read-only': { name: launchJa['launch.codexPermission.readOnly'], note: launchJa['launch.codexPermission.readOnlyNote'] },
+  auto: { name: launchJa['launch.codexPermission.auto'], note: launchJa['launch.codexPermission.autoNote'] },
+  'full-access': { name: launchJa['launch.codexPermission.fullAccess'], note: launchJa['launch.codexPermission.fullAccessNote'] },
+};
+const NO_CX_MODELS: MobileCodexOptions['models'] = [];
 
 const COLOR = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const safeColor = (c: string): string | null => (COLOR.test(c) ? c : null);
@@ -101,11 +115,16 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
   const [effort, setEffort] = useState(defaults.effort);
   // エージェント。opencode を選べるのは、caps.agents に opencode のある PC だけである（下の canOpencode）。
   // モード、モデル、自動承認は既定に持たない（モードとモデルは PC の一覧から選び、自動承認は危ない値なので毎回オフから）。
-  const [agentPicked, setAgentPicked] = useState<Agent>(defaults.agent === 'opencode' ? 'opencode' : 'claude-code');
+  const [agentPicked, setAgentPicked] = useState<Agent>(defaults.agent === 'opencode' || defaults.agent === 'codex' ? defaults.agent : 'claude-code');
   const [ocMode, setOcMode] = useState('');
   const [ocModel, setOcModel] = useState('');
   const [ocAuto, setOcAuto] = useState(false);
   const [ocOptions, setOcOptions] = useState<OcOptions | null>(null);
+  // Codex の権限は自動から（フルアクセスは危ない値なので、毎回の初期値にしない）。モデルと推論は PC の一覧から選ぶ。
+  const [cxPerm, setCxPerm] = useState<CodexPermission>(DEFAULT_CODEX_PERMISSION);
+  const [cxModel, setCxModel] = useState('');
+  const [cxEffort, setCxEffort] = useState('');
+  const [cxOptions, setCxOptions] = useState<CxOptions | null>(null);
   const [adv, setAdv] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [submitted, setSubmitted] = useState(false);
@@ -140,7 +159,10 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
   // 載せていない PC（古い PC、opencode を無効にした PC）は依頼の agent を知らずに Claude を起こしてしまうので、段ごと出さず、依頼にも agent を入れない。
   const canOpencode = !!pc && !!caps?.agents?.includes('opencode');
   const oc = canOpencode && agentPicked === 'opencode';
-  const effortSent = canEffort && !oc ? effort : '';
+  // Codex も同じ決まり。caps.agents に codex の無い PC には、段ごと出さず、依頼にも agent を入れない。
+  const canCodex = !!pc && !!caps?.agents?.includes('codex');
+  const cx = canCodex && agentPicked === 'codex';
+  const effortSent = canEffort && !oc && !cx ? effort : '';
 
   // opencode の選択肢は、opencode を選んでいる間だけ問い合わせる。PC は手元に持った一覧を答える（取りに行かない）。
   const ocKey = oc && pc ? `${pc}\n${sel && !sel.scratch ? sel.id : ''}` : null;
@@ -177,29 +199,72 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
   const ocHint = !ocNow ? null : !ocNow.ok || !ocNow.value ? 'モデルの一覧を取得できません。デフォルトで起動します。' : ocNow.value.stale ? 'PC の一覧（更新が古い可能性があります）' : null;
   const ocVersion = ocList?.version ? `${ocList.version} · ${ocList.verified ? '検証済み' : '未検証'}` : undefined;
 
+  // Codex の選択肢は、Codex を選んでいる間だけ問い合わせる。場所に依らないので PC だけが鍵になる。
+  const cxKey = cx && pc ? pc : null;
+  useEffect(() => {
+    if (!cxKey || !pc) return;
+    if (workerOld) {
+      setCxOptions({ key: cxKey, ok: false });
+      return;
+    }
+    let stale = false;
+    asker.codexOptions(pc).then(
+      (value) => {
+        if (!stale) setCxOptions({ key: cxKey, ok: true, value });
+      },
+      () => {
+        if (!stale) setCxOptions({ key: cxKey, ok: false });
+      },
+    );
+    return () => {
+      stale = true;
+    };
+    // 問い合わせは PC が変わったときだけ出す（asker は画面の間同じ）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cxKey]);
+  const cxNow = cxOptions && cxOptions.key === cxKey ? cxOptions : null;
+  const cxList = cxNow?.ok ? cxNow.value : null;
+  const cxModels = cxList?.models ?? NO_CX_MODELS;
+  const cxModelSent = cxModels.some((m) => m.id === cxModel) ? cxModel : '';
+  const cxModelName = cxModels.find((m) => m.id === cxModelSent)?.label ?? '';
+  // 推論の段階は、選んだモデルのものだけ。モデルが既定のあいだは、どのモデルの段階も選べる（既定のモデルを PC の一覧は教えない）。
+  const cxEfforts = useMemo(() => {
+    const pickedModel = cxModels.find((m) => m.id === cxModelSent);
+    return pickedModel ? pickedModel.efforts : [...new Set(cxModels.flatMap((m) => m.efforts))];
+  }, [cxModels, cxModelSent]);
+  const cxEffortSent = cxEfforts.includes(cxEffort) ? cxEffort : '';
+  const cxHint = !cxNow ? null : !cxNow.ok || !cxNow.value ? 'モデルの一覧を取得できません。デフォルトで起動します。' : cxNow.value.stale ? 'PC の一覧（更新が古い可能性があります）' : null;
+  const cxVersion = cxList?.version ? `${cxList.version} · ${cxList.verified ? '検証済み' : '未検証'}` : undefined;
+  /** アカウントを使わないエージェント（opencode と Codex）。 */
+  const noAccount = oc || cx;
+
   const tooLong = prompt.length > PROMPT_MAX;
   const left = PROMPT_MAX - prompt.length;
   const hasText = prompt.trim().length > 0 || att.ready.length > 0;
   const imagesBlocked = !canImages && att.items.length > 0;
-  const ready = !!sel && (sel.scratch || !!project) && !!pc && (oc || !!account) && hasText && !att.busy && !att.failed && !imagesBlocked && !tooLong && !submitted;
+  const ready = !!sel && (sel.scratch || !!project) && !!pc && (noAccount || !!account) && hasText && !att.busy && !att.failed && !imagesBlocked && !tooLong && !submitted;
   const nothing = choices.scratchDeviceIds.length === 0;
 
   const advShown = usePresence(adv ? ADV_ON : NO_ITEMS, (k) => k);
   // まだ選べない段は出さない。前の段を選ぶと、次の段が伸びて現れる。
   const pcStep = usePresence(sel ? STEP_ON : NO_ITEMS, (k) => k);
   // エージェントの段は PC の次に出る。opencode にすると、アカウントの段は畳まれる（試作 S1：既存の Fold で段ごとに畳み、伸びる）。
-  const agentStep = usePresence(canOpencode ? STEP_ON : NO_ITEMS, (k) => k);
-  const acctStep = usePresence(pc && !oc ? STEP_ON : NO_ITEMS, (k) => k);
-  const ccAdv = usePresence(oc ? NO_ITEMS : CC_ON, (k) => k);
+  const agentStep = usePresence(canOpencode || canCodex ? STEP_ON : NO_ITEMS, (k) => k);
+  const acctStep = usePresence(pc && !noAccount ? STEP_ON : NO_ITEMS, (k) => k);
+  const ccAdv = usePresence(noAccount ? NO_ITEMS : CC_ON, (k) => k);
+  const cxAdv = usePresence(cx ? CX_ON : NO_ITEMS, (k) => k);
+  const fullNote = usePresence(cx && cxPerm === 'full-access' ? FULL_ON : FULL_OFF, (k) => k);
   const ocAdv = usePresence(oc ? OC_ON : NO_ITEMS, (k) => k);
   const autoNote = usePresence(ocAuto ? AUTO_ON : AUTO_OFF, (k) => k);
   const noteShown = usePresence(effortSent === 'xhigh' || effortSent === 'max' ? NOTE_ON : NO_ITEMS, (k) => k);
-  const summary = oc
+  const summary = cx
+    ? [`権限 ${CODEX_PERMISSION_TEXT[cxPerm].name}`, `モデル ${cxModelName || DEFAULT_LABEL}`, ...(cxEffortSent ? [`推論 ${cxEffortSent}`] : [])]
+    : oc
     ? [`モード ${ocModeSent || DEFAULT_LABEL}`, `モデル ${ocModelName || DEFAULT_LABEL}`, `自動承認 ${ocAuto ? 'オン' : 'オフ'}`]
     : [permissionMode ? `権限 ${permissionName(permissionMode)}` : '', model ? `モデル ${model}` : '', effortSent ? `effort ${effortSent}` : ''].filter(Boolean);
 
   const start = (): void => {
-    if (!ready || !sel || !pc || (!oc && !account)) return;
+    if (!ready || !sel || !pc || (!noAccount && !account)) return;
     setSubmitted(true);
     const images = att.ready;
     const imageRefs = images.length > 0 ? { images: images.map((i) => ({ n: i.n, mime: i.mime, bytes: i.data.length })) } : {};
@@ -209,11 +274,23 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
         targetDevice: pc,
         pcName,
         projectName: sel.scratch ? null : (project?.name || project?.id || null),
-        accountId: oc ? '' : account!,
-        accountName: !oc && accountOf ? accountOf.name || accountOf.id : null,
-        accountColor: !oc && accountOf ? safeColor(accountOf.color) : null,
+        accountId: noAccount ? '' : account!,
+        accountName: !noAccount && accountOf ? accountOf.name || accountOf.id : null,
+        accountColor: !noAccount && accountOf ? safeColor(accountOf.color) : null,
         // opencode の依頼は、アカウントと権限モードを空にし、effort を入れない（PC はこれが崩れた依頼を断る）。
-        payload: oc
+        // Codex の依頼も、アカウントは空にする。権限は permissionMode に Codex の 3 段のどれかを入れ、effort は推論の段階を入れる（PC が写す先は mode と effort）。
+        payload: cx
+          ? {
+              ...target,
+              accountId: '',
+              permissionMode: cxPerm,
+              model: cxModelSent,
+              ...(cxEffortSent ? { effort: cxEffortSent } : {}),
+              prompt,
+              ...imageRefs,
+              agent: 'codex',
+            }
+          : oc
           ? {
               ...target,
               accountId: '',
@@ -246,7 +323,7 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
     ? 'プロジェクトを選んでください'
     : !pc
       ? 'PC を選んでください'
-      : !oc && !account
+      : !noAccount && !account
         ? 'アカウントを選んでください'
         : imagesBlocked
           ? 'この PC では画像を添付できません'
@@ -295,8 +372,9 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
             {agentStep.map((s) => (
               <Fold key={s.key} phase={s.phase} className="ns-step">
                 <Group label="エージェント">
-                  <Choice checked={!oc} onPick={() => setAgentPicked('claude-code')} title={AGENT_NAMES['claude-code']} icon={<AgentIcon kind="claude-code" />} />
-                  <Choice checked={oc} onPick={() => setAgentPicked('opencode')} title={AGENT_NAMES.opencode} badge="ベータ" sub={oc ? ocVersion : undefined} icon={<AgentIcon kind="opencode" />} />
+                  <Choice checked={!noAccount} onPick={() => setAgentPicked('claude-code')} title={AGENT_NAMES['claude-code']} icon={<AgentIcon kind="claude-code" />} />
+                  {canCodex && <Choice checked={cx} onPick={() => setAgentPicked('codex')} title={AGENT_NAMES.codex} badge="ベータ" sub={cx ? cxVersion : undefined} icon={<AgentIcon kind="codex" />} />}
+                  {canOpencode && <Choice checked={oc} onPick={() => setAgentPicked('opencode')} title={AGENT_NAMES.opencode} badge="ベータ" sub={oc ? ocVersion : undefined} icon={<AgentIcon kind="opencode" />} />}
                 </Group>
               </Fold>
             ))}
@@ -334,9 +412,9 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
                 pcName={pcName}
                 projectId={sel && !sel.scratch ? sel.id : null}
                 projectName={project ? project.name || project.id : null}
-                accountId={oc ? null : account}
-                accountName={!oc && accountOf ? accountOf.name || accountOf.id : null}
-                agent={oc ? 'opencode' : undefined}
+                accountId={noAccount ? null : account}
+                accountName={!noAccount && accountOf ? accountOf.name || accountOf.id : null}
+                agent={cx ? 'codex' : oc ? 'opencode' : undefined}
                 attachments={att}
                 canAsk={canAsk}
                 canAttach={canImages}
@@ -392,6 +470,42 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
                               </div>
                             </div>
                           ))}
+                        </Fold>
+                      ))}
+                      {cxAdv.map((c) => (
+                        <Fold key={c.key} phase={c.phase}>
+                          <Group label="権限">
+                            {CODEX_PERMISSIONS.map((v) => (
+                              <Choice key={v} value={v} checked={cxPerm === v} onPick={() => setCxPerm(v)} title={CODEX_PERMISSION_TEXT[v].name} sub={CODEX_PERMISSION_TEXT[v].note} danger={v === 'full-access'} />
+                            ))}
+                          </Group>
+                          {fullNote.map((n) => (
+                            <div key={n.key} className={`fold ${phaseClass(n.phase)}`} aria-hidden={n.phase === 'leave' ? true : undefined}>
+                              <div className="fold-in">
+                                {n.key === 'on' ? (
+                                  <p className="strip danger adv-note" role="note">
+                                    {launchJa['launch.codexPermission.fullAccessWarn']}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </div>
+                          ))}
+                          <Group label="モデル" grid={2} hint={cxHint}>
+                            <Choice small stack value="" checked={cxModelSent === ''} onPick={() => setCxModel('')} title={DEFAULT_LABEL} />
+                            <Options
+                              items={cxModels}
+                              keyOf={(m) => m.id}
+                              render={(m) => <Choice small stack value={m.id} checked={cxModelSent === m.id} onPick={() => setCxModel(m.id)} title={m.label} />}
+                            />
+                          </Group>
+                          <Group label="推論の強さ" grid>
+                            <Choice small value="" checked={cxEffortSent === ''} onPick={() => setCxEffort('')} title={DEFAULT_LABEL} />
+                            <Options
+                              items={cxEfforts}
+                              keyOf={(e) => e}
+                              render={(e) => <Choice small value={e} checked={cxEffortSent === e} onPick={() => setCxEffort(e)} title={e} />}
+                            />
+                          </Group>
                         </Fold>
                       ))}
                       {ocAdv.map((o) => (

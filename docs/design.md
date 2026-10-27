@@ -8670,6 +8670,8 @@ opencode を有効にした PC（`caps.agents` に opencode）があるときは
 既定が opencode なら、その PC が今無くても行を出す（戻せるように）。
 エージェントは opencode のときだけ `agent: 'opencode'` として置く。
 opencode のモードとモデルは PC の一覧から選ぶので既定に持たず、自動承認も毎回オフから始める。
+Codex のある PC があれば、行の選択肢に Codex も入る（Claude Code、Codex、opencode の順。0.12.0）。
+エージェントは opencode か Codex のときだけ `agent` として置く。
 
 新しい会話の画面で opencode のある PC を選ぶと、PC の段の次に「エージェント」の段（Claude Code／opencode と小札「ベータ」）が伸びて現れる。
 opencode にすると、アカウントの段と、詳しい設定の権限モード・モデル・effort の組は既存の Fold で畳まれ、モード・モデル・自動承認の組が伸びて現れる（試作 S1。新しい動きは足さない）。
@@ -8681,6 +8683,22 @@ opencode にすると、アカウントの段と、詳しい設定の権限モ�
 `/` の候補は、アカウントなしで opencode のコマンドとスキルを問い合わせる。
 opencode の会話には Remote Control が無いので、起動のシートは開くボタンを出さず、URL も待たない。
 
+**Codex の起動（0.12.0）。**
+Codex を有効にし、手元に codex が見つかる PC（`caps.agents` に codex）を選ぶと、エージェントの段に Codex（小札「ベータ」）が Claude Code と opencode の間に入る。
+並びは PC の新しい会話と同じ（Claude Code、Codex、opencode）。
+段の作りと動きは opencode と同じで、新しい部品も動きも足さない（既存の `Choice`、`Group`、`Fold`、危険の帯を使い回す）。
+Codex にすると、アカウントの段と、詳しい設定の権限モード・モデル・effort の組が畳まれ、権限・モデル・推論の強さの組が伸びて現れる。
+権限は PC の新しい会話と同じ 3 段（読み取りのみ、自動、フルアクセス。`launch.codexPermission.*` の辞書）で、既定は自動である。
+フルアクセスだけ危険の色にし、下に「確認なしでコマンドを実行します。信頼できるディレクトリでだけ使ってください。」を出す。
+フルアクセスは既定に持たず、毎回自動から始める。
+モデルと推論の段階は、Codex を選んだときに呼び鈴の問い合わせ（`agent-options`、`agent: 'codex'`）で PC から取る。
+Codex の一覧は場所に依らないので、問い合わせは PC ごとに 1 回である。
+推論の強さの札は、モデルを選んでいればそのモデルの段階だけ、既定のままなら全モデルの段階の和（先に現れた順）を出す。
+選んだモデルが一覧から消えたとき、段階がそのモデルに無いときは、送らない（既定に戻す）。
+要約の行は「権限 自動 · モデル … · 推論 high」になる。
+`/` は Codex では選べない（PC は Codex の commands を答えない）。
+Codex の会話にも Remote Control が無いので、起動のシートは開くボタンを出さず、URL も待たない。
+既定のエージェント（設定の「新しい会話のデフォルト」）にも Codex を選べる。
 接続のページには、接続先（受信箱の PC の名前）、接続した日、接続し直す期限（接続した日から `PHONE_MAX_AGE_MS`）を出す。
 接続した日は、接続するときに接続の値（`hangar.mobile.pairing` の `joinedAt`、スマホの時計）と一緒に置く。
 それより前に接続したスマホは「不明」と出し、期限は出さない。
@@ -8887,13 +8905,15 @@ PC の設定のスマホの表は Worker の一覧から解除済みを除いて
 会話は実行中の一覧の行の `agent`（無ければ Claude Code）と ID の組で `sessions` から引く。
 待っている内容は、境界の同じ形（状態の面の行の `waitingFor` と `permission`、`session_activity` の問い）から作る（`packages/server/src/agent/waiting.ts`）。
 opencode の許可は「shell: 命令」の形になり、form の問いは Claude の問いと同じく `session_activity` から入る。
-Claude Code 以外の会話の行（動いている会話、戻る会話、今日終わった会話）には `agent: 'opencode'` を付ける。
+Claude Code 以外の会話の行（動いている会話、戻る会話、今日終わった会話）には `agent: 'opencode'` か `agent: 'codex'` を付ける。
 Claude の行には付けない（古い PC の素と同じ形にし、古いスマホとの互換を保つ）。
-動いている opencode の会話には、使用量（`usage`）を付ける。
+動いている opencode と Codex の会話には、使用量（`usage`）を付ける。
+Codex の入力待ち（許可の要求）は、状態の面の行の `permission` から opencode と同じ形（「shell: 命令」）で入り、スマホの札は「PC で答えてください」を出す。
 中身は `session_live_stats` の使ったコンテキストのトークン数、モデルの上限に対する割合（0 から 100 の整数、上限が分からなければ null）、費用、モデルの ID で、使った量がまだ無ければ付けない。
-opencode の会話の Remote Control の URL はいつも null で、アカウント（`accountId`）は空にする（アカウントは Claude Code だけのもので、スマホにアカウントの札を出させない）。
-素の `caps.agents` は、設定で opencode を有効にしているときだけ `['claude-code', 'opencode']` を載せ、切なら欄ごと省く。
-古い PC は起動の依頼の知らない欄を断らずに Claude を起こすので、スマホは `agents` に opencode のある PC にだけ opencode の依頼を出す。
+opencode と Codex の会話の Remote Control の URL はいつも null で、アカウント（`accountId`）は空にする（アカウントは Claude Code だけのもので、スマホにアカウントの札を出させない）。
+素の `caps.agents` は、設定で opencode か Codex を有効にしているときだけ、`claude-code` と有効なエージェントを `AGENT_KINDS` の並びで載せ、どちらも切なら欄ごと省く。
+Codex は、設定で有効なうえ、手元に codex が見つかるときだけ載せる（`boot/mobile.ts` の `codexOn`）。
+古い PC は起動の依頼の知らない欄を断らずに Claude を起こすので、スマホは `agents` にそのエージェントのある PC にだけ、そのエージェントの依頼を出す。
 暗号化の前で 48 KiB（`MOBILE_FEED_MAX_BYTES`）までとし、超えたら次の順に、収まったところでやめる（`packages/shared/src/mobile.ts` の `fitFeed`）。
 
 0. 動いている会話の使用量を全部消す。飾りの数字なので、行を落とすより先に消す。
@@ -8999,6 +9019,17 @@ opencode の依頼ではアカウントを確かめず、代わりに設定で o
 `caps.agents` の無い PC（古い PC と、opencode を無効にした PC）への依頼は、既定のエージェントが opencode でも Claude の依頼にする。
 PC が一時停止しているときと、Worker の版が 7 に届かないときは、claim せずに残す。
 
+**Codex の起動の依頼（0.12.0）。**
+依頼の封の中身に新しい欄は足さない。`agent: 'codex'` を使い、既にある欄に次の意味を持たせる。
+`permissionMode` は Codex の権限（`read-only`、`auto`、`full-access`。空は自動）、`model` は Codex のモデルの slug（空は既定）、`effort` は推論の段階（無ければ既定）である。
+PC（`launchInbox.ts`）は Codex の依頼で、アカウントが空、権限が上の 3 段か空、`effort` が小文字の英数字と `_` `-` だけの語（先頭は英数字）、`mode` と `autoApprove` が無いことを確かめ、崩れていれば `bad-payload` で断る。
+Claude の依頼に Codex の権限が混ざったものも、Claude の権限の表に無いので断る。
+アカウントは確かめず、設定で Codex を有効にしてあり、手元に codex が見つかることを確かめる（無ければ `agent-missing`）。
+起動の params には、アカウントを渡さず、`agent: 'codex'`、権限を `mode` に、`model`、`effort` を渡す（空のものは渡さない。PC のダイアログと同じ写し先）。
+手元の記録の権限モードは、フルアクセスなら `bypassPermissions`、そうでなければ空で控える（opencode の自動承認と同じ危険の印）。
+古い PC は `agent` を知らずに Claude を起こしてしまうので、スマホは `caps.agents` に codex のある PC にだけ、Codex の段を出し、`agent` を送る。
+Worker は封の中身を読まないので、この依頼のための Worker の変更も配備も要らない。
+
 上限は次のとおりである。
 
 | 項目 | 値 |
@@ -9080,12 +9111,19 @@ SQLite 型で作る（無料プランで使えるのはこれだけ）。
     `cost`（費用の型）と `data`（データの扱い）は、モデルの小窓と同じ手書きの表（`shared/modelFacts.ts`）から、小窓と同じ関数（`modelCostKind` と `modelDataUse`）で PC が付ける。
     取ってから 1 分を過ぎた一覧は `stale` を立てる。
     PC がまだ一覧を持っていなければ `agentOptions` は null で、スマホは「モデルの一覧を取得できません。デフォルトで起動します。」と出す。
-  - opencode の問い合わせは、PC で opencode を有効にしていなければ `{ error: 'agent-missing' }` である。
+  - `{ kind: 'agent-options', agent: 'codex', projectId | null }` に、`{ codexOptions }` を返す（0.12.0）。
+    中身は、PC が手元に持った Codex の選択肢（`CodexOptionsService.last`。`codex debug models` から作った一覧で、デスクトップの設定の画面と同じものを共有する）を縮めたもので、取りに行かない。
+    版、検証済みか、モデル（`{ id, label, efforts, defaultEffort }`、`isModelName` に合うもの、最大 40、名前は 60 字、推論の段階は最大 8）、`stale`（取ってから 30 分を過ぎたとき）、取った時刻を載せる。説明の文は載せない（答えの上限に収めるため）。
+    権限の 3 段は固定なので載せない。
+    PC がまだ一覧を持っていなければ `codexOptions` は null で、この問い合わせが裏で一覧の取得を始めるので、次の問い合わせで答えられる。スマホは「モデルの一覧を取得できません。デフォルトで起動します。」と出す。
+    場所に依らないので `projectId` は見ない。ただし手元に無いプロジェクトは `project-missing` にする。
+    `commands` の `agent: 'codex'` は `bad-request` である（Codex に `/` の一覧は無い）。
+  - opencode と Codex の問い合わせは、PC でそのエージェントを有効にしていなければ（Codex は手元に見つからないときも）`{ error: 'agent-missing' }` である。
   - 失敗は `{ error: 'project-missing' | 'account-missing' | 'agent-missing' | 'bad-request' }` である。
   - 答えは `reply:` の AAD で封じる。
     PC は、開けない問い合わせには答えない（スマホは 5 秒で時間切れになる）。
 - **スマホ側。**
-  答えは画面の間だけ覚える（同じ PC、プロジェクト、アカウントの `/` は 1 回、`@` は同じ `q` を 30 秒、opencode の選択肢は同じ PC とプロジェクトで 1 回）。
+  答えは画面の間だけ覚える（同じ PC、プロジェクト、アカウントの `/` は 1 回、`@` は同じ `q` を 30 秒、opencode の選択肢は同じ PC とプロジェクトで 1 回、Codex の選択肢は同じ PC で 1 回）。
   打つたびの問い合わせは 250 ms 待ってから出す。
   PC がつないでいない、答えない、呼び鈴が無い Worker のときは、候補の欄にその旨を表示し、プロンプトは手で入力できる。
 - **PC 側の張る条件。**

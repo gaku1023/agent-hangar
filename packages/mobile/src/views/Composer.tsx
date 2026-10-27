@@ -161,7 +161,9 @@ export function Composer({ id, value, onChange, asker, pc, pcName, projectId, pr
   const fileQ = trig ? [...trig.q].slice(0, FILE_QUERY_MAX).join('') : '';
   // opencode の `/` はアカウントを使わない（PC は opencode のコマンドとスキルを返す）。
   const slashWho = agent === 'opencode' ? '\u0000opencode' : accountId;
-  const want = !open || !trig || !pc || !canAsk ? null : trig.kind === '/' ? (slashWho ? `/\n${where}\n${slashWho}\n${retryNo}` : null) : projectId ? `@\n${where}\n${fileQ}\n${retryNo}` : null;
+  // Codex には `/` で選べるスキルとコマンドの一覧が無い（PC は Codex の commands を答えない）。
+  const noSlash = agent === 'codex';
+  const want = !open || !trig || !pc || !canAsk || (noSlash && trig.kind === '/') ? null : trig.kind === '/' ? (slashWho ? `/\n${where}\n${slashWho}\n${retryNo}` : null) : projectId ? `@\n${where}\n${fileQ}\n${retryNo}` : null;
 
   useEffect(() => {
     if (!want || !trig || !pc) return;
@@ -204,8 +206,9 @@ export function Composer({ id, value, onChange, asker, pc, pcName, projectId, pr
   if (open && trig) {
     const loading: SuggestView = { kind: 'loading', pcName };
     if (trig.kind === '/') {
-      head = pc ? (agent === 'opencode' ? `${pcName} · opencode のコマンドとスキル` : `${pcName} · ${accountName ?? accountId ?? ''} のスキル`) : 'スキルとコマンド';
+      head = pc ? (agent === 'codex' ? `${pcName} · Codex` : agent === 'opencode' ? `${pcName} · opencode のコマンドとスキル` : `${pcName} · ${accountName ?? accountId ?? ''} のスキル`) : 'スキルとコマンド';
       if (!pc) view = { kind: 'need', title: '先に PC を選んでください' };
+      else if (noSlash) view = { kind: 'need', title: 'Codex では、スキルやコマンドを選べません' };
       else if (!canAsk) view = errorView('unsupported', pcName, 'スキルやコマンド');
       else if (!slashWho) view = { kind: 'need', title: '先にアカウントを選んでください' };
       else if (res && res.key === want) view = res.ok ? { kind: 'commands', q: trig.q, list: res.list as CommandHit[] } : errorView(res.reason, pcName, 'スキルやコマンド', res.expired);
