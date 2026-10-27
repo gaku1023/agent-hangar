@@ -2813,9 +2813,12 @@ describe('設定の同期（作り直した実装）', () => {
     await flush();
     rt.emit({ type: 'configSync.restore', name: '20261010-120000' });
     await flush();
-    expect(desktop.restoreConfigSync).toHaveBeenCalledWith('20261010-120000');
+    expect(desktop.restoreConfigSync).toHaveBeenCalledWith('20261010-120000', 'claude');
     expect(toasts(rt)).toEqual([['info', '復元しました。']]);
     expect(api.configSyncState).toHaveBeenCalledTimes(1);
+    rt.emit({ type: 'configSync.restore', name: '20261010-120001', target: 'opencode' });
+    await flush();
+    expect(desktop.restoreConfigSync).toHaveBeenLastCalledWith('20261010-120001', 'opencode');
   });
 
   it('送る一覧の承諾は、スイッチを入れる', async () => {

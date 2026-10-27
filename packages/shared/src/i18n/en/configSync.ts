@@ -6,6 +6,7 @@ export const configSyncEn: AreaDictionary<typeof configSyncKeys> = {
   'configSync.error.held': '"{id}" cannot be applied on this PC (there is no matching project, or a file of the same name here cannot be synced)',
   'configSync.error.badTake': '"{id}" is not a conflict, so keeping your own side is not an option',
   'configSync.error.duplicate': '"{id}" appears more than once',
+  'configSync.error.prefsFailed': 'Could not write the Hangar preferences ({message}). Nothing was applied',
   'configSync.error.emptyOrder': 'No items were selected to apply',
   'configSync.error.unsentUnknownKey': "A key Hangar doesn't know can't be sent",
   'configSync.error.unsentNotFound': 'The unsent item "{id}" was not found',

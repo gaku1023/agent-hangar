@@ -224,3 +224,62 @@ describe('承諾の窓のための差分と、書く直前の確かめ（--expec
     expect(read('commands/hello.md')).toBe('changed by hand');
   });
 });
+
+describe('対象ごとの適用と世代へ戻す', () => {
+  const codexHome = (): string => path.join(tmp, 'codex');
+  const skills = (): string => path.join(tmp, 'agents', 'skills');
+  const more = () => ({ ...opts(), codexHome: codexHome(), opencodeDir: path.join(tmp, 'opencode'), agentsSkillsDir: skills(), userHome: tmp });
+
+  function arriveMixed(): void {
+    const items = [
+      { id: 'file:commands/hello.md', kind: 'commands' as const, content: 'hi', target: 'commands/hello.md' },
+      { id: 'agents-skills:demo/SKILL.md', kind: 'agents-skills' as const, content: 'S', target: 'demo/SKILL.md' },
+      { id: 'codex:toml:model', kind: 'codex-config' as const, content: '"new"', target: 'config.toml#model' },
+    ];
+    const blobs = new Map(items.map((i) => [sha(i.content), Buffer.from(i.content)]));
+    const targets = ['claude', 'codex', 'agents-skills'];
+    writeInbox(home, 'dev-b', { manifest: { version: 1, deviceId: 'dev-b', createdAt: NOW, items: items.map((i) => ({ id: i.id, kind: i.kind, sha256: sha(i.content), size: Buffer.byteLength(i.content), marks: [] })), targets }, blobs, skipped: 0 }, { bundleSha256: 'b', forRowSha256: 'r', at: NOW, itemCount: items.length, skipped: 0, targets });
+    writeApplyOrder(home, 'dev-a', items.map((i) => ({ id: i.id, kind: i.kind, op: i.id.startsWith('file:') || i.id.startsWith('codex:') ? 'overwrite' as const : 'create' as const, take: 'remote' as const, fromDeviceId: 'dev-b', sha256: sha(i.content), target: i.target })), NOW);
+  }
+
+  beforeEach(() => {
+    fs.mkdirSync(codexHome(), { recursive: true });
+    fs.writeFileSync(path.join(codexHome(), 'config.toml'), 'model = "old"\n');
+  });
+
+  it('各対象の入れ物に書き、共通のスキルを ~/.claude に書かない。世代は対象ごとに出す', async () => {
+    arriveMixed();
+    expect(await runConfigApply({ ...more(), plan: true })).toBe(0);
+    expect(text()).toContain('対象: Claude Code、Codex、共通のスキル');
+    out = [];
+    expect(await runConfigApply({ ...more(), yes: true })).toBe(0);
+    expect(read('commands/hello.md')).toBe('hi');
+    expect(fs.readFileSync(path.join(skills(), 'demo', 'SKILL.md'), 'utf8')).toBe('S');
+    expect(fs.existsSync(path.join(claudeDir, 'demo'))).toBe(false);
+    expect(fs.readFileSync(path.join(codexHome(), 'config.toml'), 'utf8')).toBe('model = "new"\n');
+    expect(text()).toContain('hangar config restore --target codex ');
+    expect(fs.existsSync(applyOrderPath(home))).toBe(false);
+
+    out = [];
+    expect(await runConfigRestore({ ...more(), json: true })).toBe(0);
+    const gens = (JSON.parse(out.join('')) as { generations: { name: string; target?: string }[] }).generations;
+    expect(gens.map((g) => g.target ?? 'claude').sort()).toEqual(['agents-skills', 'claude', 'codex']);
+    const codexGen = gens.find((g) => g.target === 'codex')!.name;
+    out = [];
+    expect(await runConfigRestore({ ...more(), name: codexGen, target: 'codex', yes: true })).toBe(0);
+    expect(fs.readFileSync(path.join(codexHome(), 'config.toml'), 'utf8')).toBe('model = "old"\n');
+    expect(read('commands/hello.md')).toBe('hi');
+    expect(text()).toContain('hangar config restore --target codex ');
+  });
+
+  it('控えの置き場を作れない対象があれば、どの入れ物にも書かない', async () => {
+    arriveMixed();
+    fs.mkdirSync(path.join(home, 'backups'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'backups', 'agents-skills-config'), 'not a dir');
+    expect(await runConfigApply({ ...more(), yes: true, json: true })).toBe(1);
+    expect(JSON.parse(out.join(''))).toMatchObject({ ok: false, code: 'write-failed' });
+    expect(read('commands/hello.md')).toBe('old hello');
+    expect(fs.readFileSync(path.join(codexHome(), 'config.toml'), 'utf8')).toBe('model = "old"\n');
+    expect(fs.existsSync(skills())).toBe(false);
+  });
+});

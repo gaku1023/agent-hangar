@@ -32,6 +32,14 @@ export const CLAUDE_KEYS2_APPROVAL: ReadonlySet<string> = new Set(['autoMode', '
 const KEYS2_BOOLEAN = new Set(['promptSuggestionEnabled', 'voiceEnabled', 'agentPushNotifEnabled', 'inputNeededNotifEnabled', 'skipAutoPermissionPrompt', 'skipWorkflowUsageWarning']);
 const KEYS2_OBJECT = new Set(['autoMode', 'modelSettings', 'voice']);
 
+/**
+ * plugins の鍵（0.12、SPEC 6 章）。古い版は運ばない（machine として落としていた）ので、別の対象（claude-plugins）に持たせる。
+ * claude の範囲の仕分けは今までどおりこれらを machine と記録する（対象が切のとき、運ばない理由を見せるため）。
+ */
+export const CLAUDE_PLUGIN_KEYS: ReadonlySet<string> = new Set(['enabledPlugins', 'extraKnownMarketplaces']);
+/** 権限の鍵（`permissions.allow` など）か。他の PC から届いたとき、設定が `each` なら承諾が要る（SPEC 4 章）。 */
+export const isPermissionKey = (key: string): boolean => key.startsWith('permissions.');
+
 /** 運ばない鍵の理由。実行は他の PC からの実行経路になり、パスと機械の事情は他の PC で意味を持たない。 */
 const DROPPED: { match: (k: string) => boolean; reason: ConfigDropReason }[] = [
   { match: (k) => ['env', 'apiKeyHelper', 'hooks', 'statusLine', 'fileSuggestion'].includes(k), reason: 'execution' },
@@ -81,7 +89,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v =
 /** 値の型が、その鍵で想定しているものか。想定外は運ばない（相手の設定を壊さない）。 */
 export function valueFits(key: string, v: unknown): boolean {
   if (KEYS2_BOOLEAN.has(key)) return typeof v === 'boolean';
-  if (KEYS2_OBJECT.has(key)) return isObject(v);
+  if (KEYS2_OBJECT.has(key) || CLAUDE_PLUGIN_KEYS.has(key)) return isObject(v);
   if (key === 'tui') return v === 'default' || v === 'fullscreen';
   if (key === 'autoUpdatesChannel') return v === 'latest' || v === 'stable';
   if (key === 'deniedMcpServers') return Array.isArray(v) && v.every(isObject);

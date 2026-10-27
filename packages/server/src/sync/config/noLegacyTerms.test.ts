@@ -44,6 +44,12 @@ const MIGRATION_FILES = new Set([
   'packages/server/test/legacyMigrations.ts',
 ]);
 
+/**
+ * hook と statusLine の command の中のホームの絶対パスだけは、claude-hooks の対象が目印にして運ぶ（設計書の「hooks と statusLine」）。
+ * 旧実装のように設定全体を置き換えるのではないので、その対象のファイルと試験だけを許す。
+ */
+const HOOK_MARK_FILES = /^packages\/server\/src\/sync\/config\/targets\/(hookCommands|claudeHooks)[A-Za-z]*(\.test)?\.ts$/;
+
 describe('設定の同期の旧実装の語が現役の話として残っていない', () => {
   it('旧実装の識別子は、試験と移行と、設計書の「旧」を断った行にしか出ない', () => {
     const hits = targets.flatMap((f) => {
@@ -54,11 +60,15 @@ describe('設定の同期の旧実装の語が現役の話として残ってい�
     expect(hits).toEqual([]);
   });
 
-  it('ホームの目印 __HANGAR_HOME__ は、運ばない（行わない）と断る行にしか出ない', () => {
+  it('ホームの目印 __HANGAR_HOME__ は、hook と statusLine の command を運ぶ対象（claude-hooks）と、運ばない（行わない）と断る行にしか出ない', () => {
     const hits = targets.flatMap((f) => {
       const r = rel(f);
-      if (r === SELF) return [];
-      return lines(f).flatMap((line, i) => (line.includes('__HANGAR_HOME__') && !/行わない|しない|使わない/.test(line) ? [`${r}:${i + 1}`] : []));
+      if (r === SELF || HOOK_MARK_FILES.test(r)) return [];
+      return lines(f).flatMap((line, i) =>
+        line.includes('__HANGAR_HOME__') && !/行わない|しない|使わない/.test(line) && !(r === 'docs/design.md' && line.includes('`command`'))
+          ? [`${r}:${i + 1}`]
+          : [],
+      );
     });
     expect(hits).toEqual([]);
   });

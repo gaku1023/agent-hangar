@@ -648,7 +648,12 @@ export type ConfigOutgoingDto = {
 /** 届いた変更の操作。conflict は手元と相手の両方が変えた（または片方が消した）もの。 */
 export type ConfigInboxOp = 'create' | 'overwrite' | 'delete' | 'conflict';
 /** 適用できない理由。no-project は、そのプロジェクトがこの PC に無いメモリ。local-blocked は、手元に同名のものがあるが運べない（リンク、大きすぎる、読めない、件数の上限）ので、黙って上書きしない。 */
-export type ConfigHeldReason = 'no-project' | 'local-blocked';
+/**
+ * 届いた項目をこの PC に書けない理由。no-project は対応するプロジェクトが無い、local-blocked は手元の同名のものが運べない。
+ * other-os は送り手と OS が違う（フックとステータス行）、outside-claude はフックが `~/.claude` の外を指す、hangar-wrapper は Hangar の包みを指す、
+ * local-marketplace はプラグインの配布元が送り手の PC のフォルダを指す、command-missing は MCP の起動するコマンドがこの PC に無い。
+ */
+export type ConfigHeldReason = 'no-project' | 'local-blocked' | 'other-os' | 'outside-claude' | 'hangar-wrapper' | 'local-marketplace' | 'command-missing';
 export type ConfigInboxItemDto = {
   id: string; kind: ConfigItemKind; label: string; op: ConfigInboxOp;
   fromDeviceId: string; fromDevice: string; size: number; marks: ConfigExecMark[];
@@ -664,7 +669,8 @@ export type ConfigConflictDto = { id: string; kind: ConfigItemKind; label: strin
 export type ConfigUnsentKind = 'permission-rule' | 'secret' | 'unknown-key';
 export type ConfigUnsentItemDto = { id: string; kind: ConfigUnsentKind; itemId: string; label: string; reason: string; allowed: boolean };
 export type ConfigUnsentDto = { items: ConfigUnsentItemDto[] };
-export type ConfigBackupGenerationDto = { name: string; at: number | null; files: number };
+/** target は世代の対象（codex、opencode、agents-skills など）。Claude の世代では省く。 */
+export type ConfigBackupGenerationDto = { name: string; at: number | null; files: number; target?: string };
 export type ConfigBackupsDto = { generations: ConfigBackupGenerationDto[] };
 /** 承諾の選択 1 件。take が remote なら相手の中身を採り、mine なら手元を採る（手元は書き換えず、基準だけを進める）。 */
 export type ConfigApplyOrderEntryIn = { id: string; take?: 'remote' | 'mine' };
@@ -675,6 +681,8 @@ export type ConfigApplyOrderDto = { createdAt: number; items: ConfigApplyOrderIt
 export type ConfigVcsTool = 'git' | 'chezmoi' | 'yadm' | 'stow';
 /** 入れ物ごとの検出。tools が空の入れ物は載せない。 */
 export type ConfigVcsDto = { target: string; tools: ConfigVcsTool[] };
+/** 対象ごとの知らせ。両方ある opencode.json と opencode.jsonc（opencode は jsonc を読み、json に書く）。 */
+export type ConfigNoticeDto = { target: string; code: 'both-json-jsonc' };
 export type ConfigSyncDto = {
   enabled: boolean;
   /** スイッチは入っているが、Worker がまだ束の行を知る版に届いていないので、送っていない（Worker の更新待ち）。Worker の版がまだ分からないあいだは偽。 */
@@ -690,6 +698,8 @@ export type ConfigSyncDto = {
   lastSentAt: number | null;
   /** 入れ物が git や dotfiles の道具で管理されているか（対象ごと、管理されているものだけ。印が無ければ欄ごと省く）。この項目を知らない古いサーバは返さないので、読む側は空として読む。 */
   vcs?: ConfigVcsDto[];
+  /** 対象ごとの知らせ。無ければ欄ごと省く。 */
+  notices?: ConfigNoticeDto[];
 };
 /**
  * 「場所を再指定」で選んだフォルダが、この PC で別のプロジェクトの場所になっているときの 409。

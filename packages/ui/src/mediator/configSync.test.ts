@@ -70,7 +70,9 @@ describe('設定の同期のダイアログ', () => {
   });
   it('指示書のやり直しと取り消しと世代へ戻す操作は、そのまま効果にする', () => {
     expect(run([action({ type: 'configSync.order.apply' })]).effects).toEqual([{ kind: 'api.configSyncApply', entries: null }]);
-    expect(run([action({ type: 'configSync.restore', name: '20261010-120000' })]).effects).toEqual([{ kind: 'api.configSyncRestore', name: '20261010-120000' }]);
+    // 対象を省いた戻すは Claude の世代、対象があればそれを殻まで運ぶ。
+    expect(run([action({ type: 'configSync.restore', name: '20261010-120000' })]).effects).toEqual([{ kind: 'api.configSyncRestore', name: '20261010-120000', target: 'claude' }]);
+    expect(run([action({ type: 'configSync.restore', name: '20261010-120000', target: 'codex' })]).effects).toEqual([{ kind: 'api.configSyncRestore', name: '20261010-120000', target: 'codex' }]);
   });
 });
 

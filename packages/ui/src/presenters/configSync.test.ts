@@ -155,7 +155,10 @@ describe('設定の節の常設の行', () => {
     expect(stale.backups).toEqual({ count: 0, rows: [] });
     const live = presentConfigSection(storeOf(dto({ unsent: 1, backups: 1 }), detail), NOW);
     expect(live.unsent.rows.map((r) => [r.label, r.sendId, r.dim])).toEqual([['x', 'u', true]]);
-    expect(live.backups.rows[0]).toMatchObject({ name: '20261010-110000', files: '3 件', command: 'hangar config restore 20261010-110000' });
+    expect(live.backups.rows[0]).toMatchObject({ name: '20261010-110000', target: 'claude', files: '3 件', command: 'hangar config restore 20261010-110000' });
+    // Claude 以外の世代は、対象を添えて戻す（同じ時刻の世代が対象ごとにある）。
+    const other: Partial<ConfigDetail> = { backups: { generations: [{ name: '20261010-110000', at: NOW, files: 1, target: 'codex' }] } };
+    expect(presentConfigSection(storeOf(dto({ backups: 1 }), other), NOW).backups.rows[0]).toMatchObject({ name: '20261010-110000', target: 'codex', command: 'hangar config restore --target codex 20261010-110000' });
   });
   it('「それでも送信」を押した項目は、送ると札で言い、もう押させない', () => {
     const p = presentConfigSection(storeOf(dto({ unsent: 1 }), { unsent: { items: [{ id: 'u', kind: 'secret', itemId: 'i', label: 'x', reason: 'secret:ghp_', allowed: true }] } }), NOW);

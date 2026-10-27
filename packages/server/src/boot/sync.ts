@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { codexEnabledOf, MOBILE_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto, type DeviceOut } from '@agent-hangar/shared';
+import { codexEnabledOf, MOBILE_MIN_WORKER_COMPAT, opencodeEnabledOf, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto, type DeviceOut } from '@agent-hangar/shared';
 import { defaultCodexHome } from '../provider/codex/transcript/discover.ts';
 import { cloudConfigPath, readCloudConfig, saveCloudConfig, type CloudConfig } from '../config/cloud.ts';
 import { defaultManagedDir, RetentionService } from '../provider/claude-code/config/retention.ts';
 import { ConfigSyncService } from '../sync/config/service.ts';
+import { defaultTargetPaths } from '../sync/config/targets/paths.ts';
 import { HttpCloudClient, type CloudClient } from '../sync/client.ts';
 import { leftPhoneSweeper, loadCloudDevices, sharedDeviceOf } from '../sync/devices.ts';
 import { Keyring } from '../sync/keyring.ts';
@@ -343,6 +344,9 @@ export function bootSync(
           switchedOn: () => settings.current.configBundleSync === true,
           approval: () => (settings.current.configApproval === 'auto' ? 'auto' : 'each'),
           targetSwitches: () => settings.current.configTargets ?? {},
+          agentsEnabled: () => ({ codex: codexEnabledOf(settings.current), opencode: opencodeEnabledOf(settings.current) }),
+          targetPaths: defaultTargetPaths(),
+          hangarSettingsPath: path.join(home.home, 'settings.json'),
           onError: (m) => console.error('[config-sync]', m),
         })
       : null;

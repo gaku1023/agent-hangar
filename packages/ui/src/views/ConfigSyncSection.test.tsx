@@ -121,7 +121,7 @@ describe('Claude Code の設定の同期の節', () => {
     const { unmount } = render(ui(propsOf(dto({ backups: 1 }), { backups }, true), onAction));
     fireEvent.click(rowBtn());
     fireEvent.click(screen.getByRole('button', { name: /の世代に戻す$/ }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'configSync.restore', name: '20261010-110000' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'configSync.restore', name: '20261010-110000', target: 'claude' });
     unmount();
     render(ui(propsOf(dto({ backups: 1 }), { backups }, false), onAction));
     fireEvent.click(rowBtn());

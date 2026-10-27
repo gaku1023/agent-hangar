@@ -166,7 +166,7 @@ export type Effect =
   // 設定の同期（作り直した実装）。Load は中身を取る。Apply は指示書を書き（entries が null なら、いまある指示書を使い）、殻のネイティブの確認へ進む。Restore は控えの世代へ戻す。
   | { kind: 'api.configSyncLoad'; parts: ConfigDetailPart[] }
   | { kind: 'api.configSyncApply'; entries: ConfigApplyOrderEntryIn[] | null }
-  | { kind: 'api.configSyncRestore'; name: string }
+  | { kind: 'api.configSyncRestore'; name: string; target: string }
   | { kind: 'api.retentionPreview'; days: number } | { kind: 'api.writeRetention'; days: number }
   // Claude Code のアカウント。
   | { kind: 'api.accounts.switchSession'; sessionId: string; accountId: string }

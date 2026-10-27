@@ -46,7 +46,7 @@ describe('束の目録の targets と os', () => {
     expect(un.manifest.items.map((i) => i.id)).toEqual(['file:CLAUDE.md']);
     expect(un.skipped).toBe(1);
     expect(parseItemId('unknown-target:foo')).toBeNull();
-    expect(parseItemId('codex:file:AGENTS.md')).toBeNull(); // 対象がまだ無い頭は null
+    expect(parseItemId('future-target:file:AGENTS.md')).toBeNull(); // 対象が無い頭は null（codex は S4 で本物になった）
   });
 
   it('壊れた目録そのものは、今までどおり断る', () => {

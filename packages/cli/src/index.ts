@@ -395,7 +395,7 @@ const config = program.command('config').description('Claude Code の設定の�
 
 config
   .command('apply')
-  .description('保存した適用内容を読み取り、件数と種類を表示して承認を得てから、バックアップを作成して ~/.claude に書き込む（書き込んだら適用内容を削除する）')
+  .description('保存した適用内容を読み取り、件数と種類を表示して承認を得てから、バックアップを作成して各エージェントの設定ディレクトリ（~/.claude、~/.codex など）に書き込む（書き込んだら適用内容を削除する）')
   .option('--yes', '確認せずに書き込む')
   .option('--plan', '書き込まずに、何をどれだけ書き込むかだけを表示する')
   .option('--json', '結果を JSON で 1 行出力する（デスクトップアプリが読み取る）')
@@ -416,8 +416,9 @@ config
   .option('--json', '結果を JSON で 1 行出力する（デスクトップアプリが読み取る）')
   .option('--dry-run', '--plan と同じ（戻さずに、書き込み先と差分だけを表示する）')
   .option('--expect <fingerprint>', 'プレビューのフィンガープリント。表示した後に書き込み先が変わっていたら戻さない（デスクトップアプリが使う）')
-  .action(async (generation: string | undefined, o: { yes?: boolean; plan?: boolean; dryRun?: boolean; json?: boolean; expect?: string }) => {
-    process.exitCode = await runConfigRestore({ name: generation, yes: o.yes, plan: o.plan || o.dryRun, json: o.json, expect: o.expect });
+  .option('--target <target>', '世代の対象（claude、codex、opencode、agents-skills）。省くと claude')
+  .action(async (generation: string | undefined, o: { yes?: boolean; plan?: boolean; dryRun?: boolean; json?: boolean; expect?: string; target?: string }) => {
+    process.exitCode = await runConfigRestore({ name: generation, target: o.target, yes: o.yes, plan: o.plan || o.dryRun, json: o.json, expect: o.expect });
   });
 
 const statusline = program.command('statusline').description('ステータスラインのスクリプトへの追記');

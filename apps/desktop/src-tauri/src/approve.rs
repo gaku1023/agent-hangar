@@ -48,8 +48,9 @@ pub enum Job {
     Setup(&'static str),
     /// 設定の同期の、適用の指示書の適用。
     Apply,
-    /// 設定の同期の、控えの世代へ戻す。中身は世代の名前（`configapply::valid_generation_name` で確かめたもの）。
-    Restore(String),
+    /// 設定の同期の、バックアップの世代へ戻す。name は世代の名前（`configapply::valid_generation_name` で確かめたもの）、
+    /// target は戻す先の対象（`restore_target` で確かめたもの）。
+    Restore { name: String, target: &'static str },
 }
 
 impl Job {
@@ -58,9 +59,26 @@ impl Job {
         match self {
             Job::Setup(t) => t,
             Job::Apply => "apply",
-            Job::Restore(_) => "restore",
+            Job::Restore { .. } => "restore",
         }
     }
+}
+
+/// 頁から受け取れる、戻す先の対象。CLI の `hangar config restore --target` の名前（サーバの各対象の store.name）と同じにする。
+/// MCP の対象（claude-mcp、codex-mcp、opencode-mcp）も store を持つので並べる。増えたらここに足す。
+pub const RESTORE_TARGETS: [&str; 7] = [
+    "claude",
+    "codex",
+    "opencode",
+    "agents-skills",
+    "claude-mcp",
+    "codex-mcp",
+    "opencode-mcp",
+];
+
+/// 頁から来た対象の名前を、決まった一覧の中の名前に直す。一覧に無ければ None（CLI へ渡さない）。
+pub fn restore_target(s: &str) -> Option<&'static str> {
+    RESTORE_TARGETS.iter().copied().find(|t| *t == s)
 }
 
 /// 対象を CLI のサブコマンドの 2 語にする（`mcp-install` は `mcp install`）。
@@ -95,10 +113,12 @@ pub fn plan_args(job: &Job, port: u16) -> Vec<String> {
             "--plan".into(),
             "--json".into(),
         ],
-        Job::Restore(name) => vec![
+        Job::Restore { name, target } => vec![
             "config".into(),
             "restore".into(),
             name.clone(),
+            "--target".into(),
+            target.to_string(),
             "--plan".into(),
             "--json".into(),
         ],
@@ -144,8 +164,14 @@ pub fn write_args(job: &Job, plan: &Value, port: u16) -> Option<Vec<String>> {
             v.extend(["--order".to_string(), order.to_string()]);
             v
         }
-        Job::Restore(name) => {
-            let mut v = vec!["config".to_string(), "restore".into(), name.clone()];
+        Job::Restore { name, target } => {
+            let mut v = vec![
+                "config".to_string(),
+                "restore".into(),
+                name.clone(),
+                "--target".into(),
+                target.to_string(),
+            ];
             v.extend(tail);
             v
         }
@@ -321,6 +347,7 @@ impl Session {
             Job::Apply => {
                 let r: ApplyResult =
                     serde_json::from_value(result.clone()).unwrap_or(ApplyResult {
+                        generations: vec![],
                         generation: None,
                         written: 0,
                         removed: 0,
@@ -328,29 +355,30 @@ impl Session {
                     });
                 Outcome::applied(&r, self.lang)
             }
-            Job::Restore(_) => {
+            Job::Restore { target, .. } => {
                 let r: RestoreResult =
                     serde_json::from_value(result.clone()).unwrap_or(RestoreResult {
                         restored: vec![],
                         removed: vec![],
                         safety: None,
                     });
-                Outcome::restored(&r, self.lang)
+                Outcome::restored(&r, self.lang, target)
             }
         }
     }
 
     /// 頁（loading/approve.js）へ渡す材料。文は頁が自分の表から作る。殻は種類と CLI の見立てをそのまま渡す。
     pub fn view(&self, home: &str, hangar_home: &str, windows: bool) -> Value {
-        let name = match &self.job {
-            Job::Restore(n) => Some(n.clone()),
-            _ => None,
+        let (name, config_target) = match &self.job {
+            Job::Restore { name, target } => (Some(name.clone()), Some(*target)),
+            _ => (None, None),
         };
         json!({
             "lang": self.lang,
-            "job": match self.job { Job::Setup(_) => "setup", Job::Apply => "apply", Job::Restore(_) => "restore" },
+            "job": match self.job { Job::Setup(_) => "setup", Job::Apply => "apply", Job::Restore { .. } => "restore" },
             "target": self.job.target(),
             "name": name,
+            "configTarget": config_target,
             "stage": self.stage.name(),
             "plan": self.plan,
             "result": self.result,
@@ -419,6 +447,40 @@ mod tests {
 
     const FP: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
+    fn restore(name: &str, target: &'static str) -> Job {
+        Job::Restore {
+            name: name.to_string(),
+            target,
+        }
+    }
+
+    // 頁から来る対象の名前は、形を確かめる 7 つだけを通す。引数に見える形や、別の対象の名前は通さない。
+    #[test]
+    fn only_the_known_restore_targets_are_accepted() {
+        for t in [
+            "claude",
+            "codex",
+            "opencode",
+            "agents-skills",
+            "claude-mcp",
+            "codex-mcp",
+            "opencode-mcp",
+        ] {
+            assert_eq!(restore_target(t), Some(t));
+        }
+        for bad in [
+            "",
+            "hangar",
+            "claude-hooks",
+            "--yes",
+            "../codex",
+            "Claude",
+            "codex ",
+        ] {
+            assert_eq!(restore_target(bad), None, "{bad}");
+        }
+    }
+
     #[test]
     fn only_the_fixed_targets_are_accepted() {
         assert_eq!(setup_target("mcp-install"), Some("mcp-install"));
@@ -446,8 +508,28 @@ mod tests {
             ["config", "apply", "--plan", "--json"]
         );
         assert_eq!(
-            plan_args(&Job::Restore("20261011-210400".into()), 4177),
-            ["config", "restore", "20261011-210400", "--plan", "--json"]
+            plan_args(&restore("20261011-210400", "claude"), 4177),
+            [
+                "config",
+                "restore",
+                "20261011-210400",
+                "--target",
+                "claude",
+                "--plan",
+                "--json"
+            ]
+        );
+        assert_eq!(
+            plan_args(&restore("20261011-210400", "agents-skills"), 4177),
+            [
+                "config",
+                "restore",
+                "20261011-210400",
+                "--target",
+                "agents-skills",
+                "--plan",
+                "--json"
+            ]
         );
         for job in [Job::Setup("statusline-install"), Job::Apply] {
             assert!(!plan_args(&job, 4177).iter().any(|a| a == "--yes"));
@@ -484,11 +566,13 @@ mod tests {
             ]
         );
         assert_eq!(
-            write_args(&Job::Restore("20261011-210400".into()), &plan, 4177).unwrap(),
+            write_args(&restore("20261011-210400", "codex"), &plan, 4177).unwrap(),
             [
                 "config",
                 "restore",
                 "20261011-210400",
+                "--target",
+                "codex",
                 "--yes",
                 "--json",
                 "--expect",
@@ -558,6 +642,38 @@ mod tests {
     }
 
     #[test]
+    fn the_apply_result_names_the_generation_of_each_target() {
+        let (tx, _rx) = mpsc::channel();
+        let s = Session::new(Job::Apply, json!({}), "ja", tx);
+        let o = s.done_outcome(&json!({
+            "generation": "20261012-104002", "written": 3, "removed": 0, "keptMine": 0,
+            "generations": [
+                { "target": "claude", "name": "20261012-104002" },
+                { "target": "agents-skills", "name": "20261012-104003" }
+            ]
+        }));
+        assert_eq!(o.generation.as_deref(), Some("20261012-104002"));
+        assert!(o
+            .message
+            .contains("Claude Code のバックアップの世代 20261012-104002"));
+        assert!(o
+            .message
+            .contains("共通のスキル のバックアップの世代 20261012-104003"));
+        // 戻した結果は、戻した対象のバックアップに保存したと言う。
+        let (tx, _rx) = mpsc::channel();
+        let s = Session::new(restore("20261012-104002", "codex"), json!({}), "en", tx);
+        let o = s.done_outcome(
+            &json!({ "restored": ["a"], "removed": [], "safety": "20261012-110000" }),
+        );
+        assert!(
+            o.message
+                .contains("Codex backup generation 20261012-110000"),
+            "{}",
+            o.message
+        );
+    }
+
+    #[test]
     fn done_outcomes_keep_the_config_sync_statuses() {
         let (tx, _rx) = mpsc::channel();
         let s = Session::new(Job::Apply, json!({}), "ja", tx);
@@ -619,7 +735,7 @@ mod tests {
     fn the_view_carries_the_plan_and_the_stage() {
         let (tx, _rx) = mpsc::channel();
         let s = Session::new(
-            Job::Restore("20261011-210400".into()),
+            restore("20261011-210400", "codex"),
             json!({ "fingerprint": FP }),
             "ja",
             tx,
@@ -628,6 +744,7 @@ mod tests {
         assert_eq!(v["job"], "restore");
         assert_eq!(v["target"], "restore");
         assert_eq!(v["name"], "20261011-210400");
+        assert_eq!(v["configTarget"], "codex");
         assert_eq!(v["stage"], "confirm");
         assert_eq!(v["plan"]["fingerprint"], FP);
         assert_eq!(v["failure"], Value::Null);

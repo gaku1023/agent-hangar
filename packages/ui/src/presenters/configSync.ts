@@ -267,7 +267,7 @@ export function presentConfigDialog(state: State, store: Store): ConfigDialogPro
 
 // ---- 設定の節の「Claude Code の設定を同期」 ----
 
-export type ConfigBackupRowProps = { name: string; when: string; files: string; /** 殻が無いときに、ターミナルで戻すコマンド。 */ command: string };
+export type ConfigBackupRowProps = { name: string; /** 世代の対象（claude、codex、opencode、agents-skills）。Claude の世代は claude。 */ target: string; when: string; files: string; /** 殻が無いときに、ターミナルで戻すコマンド。 */ command: string };
 export type ConfigSyncSectionProps = {
   /** クラウドに参加していない（または、新しい実装を知らない古いサーバ）。スイッチを押せない。 */
   needsCloud: boolean;
@@ -290,7 +290,8 @@ export type ConfigSyncSectionProps = {
 };
 
 function backupRow(t: Translate, store: Store, g: ConfigBackupGenerationDto): ConfigBackupRowProps {
-  return { name: g.name, when: g.at === null ? g.name : absoluteTime(t, g.at), files: t('configSyncUi.word.count', { n: g.files }), command: hangarCommand(store, `config restore ${g.name}`) };
+  const target = g.target ?? 'claude';
+  return { name: g.name, target, when: g.at === null ? g.name : absoluteTime(t, g.at), files: t('configSyncUi.word.count', { n: g.files }), command: hangarCommand(store, `config restore ${target === 'claude' ? '' : `--target ${target} `}${g.name}`) };
 }
 
 export function presentConfigSection(store: Store, now: number, focusUnsent = false): ConfigSyncSectionProps {

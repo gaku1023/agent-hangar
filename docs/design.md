@@ -6154,8 +6154,9 @@ MCP の登録の有無は `~/.claude.json` の `mcpServers.hangar` を読んで�
 
 流れは次のとおりである。
 
-1. 頁（サーバの UI）が殻の命令を呼ぶ。連携は `setup_integration(target)`、設定の同期は `apply_config_sync` と `restore_config_sync(name)` である。
-   頁から受け取るのは、決まった対象の名前（`packages/shared/src/setup.ts` の `SETUP_TARGETS`）と世代の名前だけで、殻が形を確かめる。
+1. 頁（サーバの UI）が殻の命令を呼ぶ。連携は `setup_integration(target)`、設定の同期は `apply_config_sync` と `restore_config_sync(name, target)` である。
+   頁から受け取るのは、決まった対象の名前（`packages/shared/src/setup.ts` の `SETUP_TARGETS`）と世代の名前、戻す先の対象の名前（`claude`、`codex`、`opencode`、`agents-skills`。省くと `claude`）だけで、殻が形を確かめる（`approve.rs` の `RESTORE_TARGETS`）。
+   戻す先の対象は CLI の `--target` にそのまま渡り、`hangar config restore <世代> --target <対象> --plan --json` と `--yes --json --expect <指紋> --target <対象>` を走らせる。
 2. 殻が CLI に見立てを出させる（連携は `--dry-run --json`、設定の同期は `--plan --json`）。何も書かない。
    見立てが「済んでいる」（`noop`。登録済み、入っていない）か「書けない」（`blocked`。Windows のシェル連携、zsh でない、tmux が無い、スクリプトが無い、壊れた JSON など）なら、窓を開かずに理由の鍵（`code`）つきで返し、画面が知らせる。
 3. 殻が自分の窓（ラベル `approve`）を開き、殻に同梱した頁 `loading/approve.html` に見立てを見せる。この頁はサーバを通らない。
@@ -6167,6 +6168,14 @@ MCP の登録の有無は `~/.claude.json` の `mcpServers.hangar` を読んで�
 差分はタブを押して見る。MCP の API トークンは伏せ字にして黒い帯で描き、トークンそのものは見立てにも頁にも載せない。
 同じコマンドは、ターミナルで同じことをするコマンドである。
 解除とアンインストールの主のボタンは赤にする。
+設定の適用と戻すが、Claude Code のほかの対象（Codex、opencode、共通のスキル）に書くときは、窓に対象の名前を出す。
+何をどこにの各行はファイルのパスの前に、見立ての `files[].target` の対象の名前を小さい札で添え、補足の表は先頭に「対象」の行（`plan.targets` と `files[].target` から集めた、重複と別名をまとめた並び。`claude-hooks` などは Claude Code にまとめる）を足す。
+Claude Code だけに書くときは、パスで足りるので出さない（今までの見え方のまま）。
+バックアップの置き場は対象ごとに 1 行ずつ出す（`backups/claude-config/`、`codex-config/`、`opencode-config/`、`agents-skills-config/`）。
+完了の段は、結果の `generations`（対象と世代の名前の並び）から、書いた対象ごとの世代を出す。古い CLI は `generation`（Claude の世代）だけを返すので、それだけのときは Claude の世代として読む。
+世代へ戻すときは、題と同じコマンドと置き場に戻す先の対象を出す。
+殻が頁へ返す結果の文は、対象が Claude Code だけなら今までの文、ほかの対象があれば「Codex のバックアップの世代 … から復元できます。」のように対象ごとに言う。
+頁の対象の名前と題（`approve.target.*`、`approve.kv.targets`、`approve.title.restoreOf`）は、ほかの文と同じく辞書の写しである。
 設定の適用で、実行される指示（スキル、コマンド、エージェント）やフックを含むときは、見出しを注意の見た目にし、補足にその件数と名前を書く。
 段は確認、書き込み中、完了、失敗の 4 つである。
 完了はバックアップの置き場を出し、閉じるだけを置く。
@@ -7277,9 +7286,10 @@ R2 は部分更新を持たないので、末尾だけを足す道が無いた�
 
 設定の同期が拾わないものは、`node_modules` と `.git` と `__pycache__` と `.venv` の各段、シンボリックリンク、1 MiB を超えるファイル、`.DS_Store`、そして同期自身が作る写し（`*.conflict-*`、`*.hangar-tmp-*`、`*.part`）である。
 写しを対象に戻すと、競合のファイルが端末間で無限に増える。
-`statusLine`、`hooks`、`env` などの実行にかかわる鍵と、`statusLine.command` が指すスクリプトは運ばない。
+`claude` の対象は、`statusLine`、`hooks`、`env` などの実行にかかわる鍵と、`statusLine.command` が指すスクリプトは運ばない。
 ほかの PC のコマンドが自動で走る道にしないためである。
-ホームの絶対パスの置き換え（`__HANGAR_HOME__`）は行わない。
+`claude` の対象では、ホームの絶対パスの置き換え（`__HANGAR_HOME__`）は行わない。
+`hooks` と `statusLine` は、別の対象 `claude-hooks` が承諾つきで運ぶ（下の「hooks と statusLine」）。
 絶対パスを含む権限の規則は、落として「送らなかったもの」に出し、利用者が選んだときだけ送る。
 消えたファイルは、手元、相手の束、前回の共通の 3 方向の判定で扱い、どの相手の束にも無くなった項目だけを消えたと見なす（「3 方向の判定」）。
 消した PC から送られるのは束だけで、相手の `~/.claude` を直接消すことはない。
@@ -7646,16 +7656,77 @@ slug は PC ごとに違うので、hangar のプロジェクトの id で運び
 受け手にそのプロジェクトが無いときは保留にし、適用の指示書には入れられない。
 `settings.json` の鍵は `sync/config/settingsSort.ts` が仕分ける。
 好みの鍵（`model`、`effortLevel`、`language`、`outputStyle`、`theme`、`editorMode`、`cleanupPeriodDays`、`attribution`、`autoCompact*`、`autoMemoryEnabled`）は運ぶ。
-実行（`env`、`apiKeyHelper`、`hooks`、`statusLine`、`fileSuggestion`）、認証（`aws*`、`forceLogin*`）、パス（`autoMemoryDirectory`、`plansDirectory`、`permissions.additionalDirectories`）、機械の事情（`sandbox`、`enabledPlugins`、`extraKnownMarketplaces`、`*McpjsonServers`）は運ばず、理由を付けて一覧に出す。
+実行（`env`、`apiKeyHelper`、`hooks`、`statusLine`、`fileSuggestion`）、認証（`aws*`、`forceLogin*`）、パス（`autoMemoryDirectory`、`plansDirectory`、`permissions.additionalDirectories`）、機械の事情（`sandbox`、`*McpjsonServers`）は運ばず、理由を付けて一覧に出す。
+`hooks`、`statusLine`、`enabledPlugins`、`extraKnownMarketplaces` は、今の Claude の対象は運ばない鍵として一覧に出し続けるが、0.12 から別の対象（下の `claude-hooks`、`claude-plugins`）が切り替えて運ぶ。
 知らない鍵（表に無い鍵、型が合わない値）も運ばない。
 知らない鍵は、送れない項目として `config_unsent`（kind は `unknown-key`、理由は `unknown-key`、id は `unknown-key:<鍵>`）に記録し、「送らなかった項目」に理由だけを出す（値は持たない。「それでも送る」は断る）。
 0.12 の新しい鍵は、古い版の PC が運ばないので、別の対象 `claude-keys2`（`targets/claudeKeys2.ts`）に持たせる。
 `claudeKeys2` は `claude` より前に登録し、`claude.owns` からは外してある。id は `settings:<鍵>` のままである。古い版の束には `claude-keys2` が無いので、判定の「どの束にも無い」に数えない（古い版の束を受けても消去に見えない）。
+枠だけの対象（`targets/placeholder.ts`）は、すべての対象が本物になった今は無い。仕組みは残してある。
+枠は owns が常に false、collect は空で、`placeholder` の印を持つ。印のある対象は束の `targets` と判定の「こちらが扱える対象」に載せない。載せると、まだ書けないのに他の PC の項目を受けてしまうためである。
+`claude-hooks` と `claude-plugins` は枠を外して本物になった（下の「hooks と statusLine」「plugins」）。`claude` より前に登録する。
+対象 `agents-skills`（`targets/agentsSkills.ts`）は枠を外した本物で、`~/.agents/skills`（Codex と opencode が読む共通の skills）の中身全部を `agents-skills:<相対>` の項目で運ぶ。
+除外の決まり（`node_modules` などの名前、同期自身の写し、1 MiB 超、シンボリックリンク）と秘密の走査、実行の印は、Claude の skills と同じ物差しを当てる。
+Codex か opencode のどちらかがその PC で有効で、設定の `configTargets` が入のときだけ集める。どちらも無効なら入でも出さない。
+他の PC から届いたときは、消去も含めて全部承諾に掛ける（承諾の仕方が自動なら要らない）。
+古い版の PC はこの項目を運ばないので、別の対象にしてある。古い版の束を受けても消去に見えない。
+書き戻しは Claude と同じ作法で、先の元の中身を `backups/agents-skills-config/<時刻>/` に控え、控えを取れなければ書かず、途中で失敗したら元へ戻す。
+書き戻しの口は `runAgentsSkillsApply`（置き場は `agentsSkillsDir` で渡す）。CLI と殻への接続は後の PR で行う。
+claude` より前に登録する。
+
+**hooks と statusLine**（対象 `claude-hooks`、`targets/claudeHooks.ts`）。
+`settings.json` の `hooks` と `statusLine`、および `command` が指す `~/.claude` の下の台本を、1 つの項目で運ぶ。
+項目は `claude-hooks:hooks`（kind `claude-hooks`）と `claude-hooks:statusline`（kind `claude-statusline`）の 2 つである。
+`settings:hooks` にしないのは、古い版がこの id を運ばない鍵として読み飛ばすためで、別の頭にして別の対象にすれば、古い版の束に無いことが消去に見えない。
+中身は `{ v: 1, value, files: [{ rel, b64, x? }] }` を正規化した JSON で、指紋は鍵とファイルを合わせて取る（台本を直すと項目の指紋が変わる）。
+`command` のパスは、`~`、`$HOME`、`%USERPROFILE%`、ホームの絶対パスのどれも `~/.claude/…` に読み替えて判定する（`targets/hookCommands.ts`）。
+`command` の中のホームの絶対パスだけは目印 `__HANGAR_HOME__` にして運び、受け手が自分のホームに戻して書く。ほかの形は触らない。
+送り手が運ばないのは、`~/.claude` の外を指す hook（`/usr/local/bin/x`、`~/bin/x`、知らない環境変数の下、`..` で抜けるもの）と、Hangar 自身の包み（`hangar-run`、`~/.agent-hangar` の下、`hangar statusline`）を指すものである。
+受け手の手元にそれらがあれば、書き戻しで残す（権限の絶対パスの規則と同じ考え）。
+受け手が保留するのは、送り手と OS が違う（束の目録の `os`。無いものも）、外を指す、包みを指す、のどれかである。
+前の 2 つは、新しい版どうしでは起きにくいが、別の版から届いたときの備えとして、書き戻し（`planWrite`、`write`）が `ApplyError` で断る。
+台本は `isCarriedHookFile` を通ったものだけを運び、書く。ほかの項目の置き場（skills など）、`settings.json`、認証、状態、`.log` は含めない。
+書くファイルは、届いた `command` が指す台本に限る（束がほかの場所へ書かせようとしたら `bad-content` で断る）。
+実行の印は、送り手の台本に付いていたものだけを posix で付け直す。
+書き戻しは、控えの世代（`backups/claude-config/<時刻>/`）に `settings.json` と台本を控えてから書く。控えを取れなければ書かない。途中で失敗したら戻す。
+承諾は、設定が `each` のあいだ、消去も含めて全部である。
+
+**plugins**（対象 `claude-plugins`、`targets/claudePlugins.ts`）。
+`enabledPlugins` と `extraKnownMarketplaces` を、`settings:enabledPlugins`、`settings:extraKnownMarketplaces`（kind `plugins`）として承諾つきで運ぶ。
+marketplace がこの PC のパス（`directory`、`file`、パスを指す `url`・`repo`）なら、その marketplace と `名前@marketplace` の plugin は運ばない。
+届いた中身にローカルの marketplace があれば受け手は保留し、書き戻しも断る。手元のローカルの marketplace とその plugin は、書き戻しで残す。
+
+**権限の鍵の承諾。**
+`permissions.*` は、他の PC から届いたとき、設定が `each` なら承諾が要る（消去も。`deny` を外すと許可が広がるため）。
+今までは承諾なしで届いていたので、0.12 で初めて届くときに承諾で止まる。リリースノートに書く。
+TargetContext は Claude 以外の入れ物のパス（codexHome、opencodeDir、agentsSkillsDir、claudeJsonPath、hangarSettingsPath）と、Codex・opencode がその PC で有効か（codexEnabled、opencodeEnabled）を持つ。有効な入れ物は、service の vcs() の検出の表にも載る。
 入切は設定の `configTargets`（対象名から真偽）で、既定は切。入れる画面は後の PR で作る。
 - 好み：`modelSettings`、`promptSuggestionEnabled`、`tui`、`voice`、`voiceEnabled`、`agentPushNotifEnabled`、`inputNeededNotifEnabled`、`skipWorkflowUsageWarning`、`autoUpdatesChannel`。
 - 権限（他の PC から届くとき承諾が要る。承諾の仕方が自動なら要らない）：`autoMode`（分類器の許可と拒否の規則）、`skipAutoPermissionPrompt`、`deniedMcpServers`。
 - 区分は Claude Code の文書で確かめた。値の型が合わないものは運ばない（`tui` は `default`・`fullscreen`、`autoUpdatesChannel` は `latest`・`stable`、`deniedMcpServers` はオブジェクトの配列、など）。
 権限（`permissions.allow`、`ask`、`deny`、`defaultMode`）は運ぶが、括弧の中が `//` かドライブ文字か UNC で始まる絶対パスの規則だけ落とす。
+
+**Codex の設定。**
+対象 `codex`（`targets/codex.ts`）は、`$CODEX_HOME`（既定は `~/.codex`。試験と確かめは必ず `CODEX_HOME` を渡す）を扱う。
+入切は設定の `configTargets.codex` と、その PC で Codex が有効か（`codexEnabled`）の両方で、有効でない PC では何も集めず、束の `targets` にも載せない。
+id は 2 種類ある。
+`codex:file:<相対>` は `AGENTS.md`、`AGENTS.override.md`、`rules/*.rules`（`default.rules` を除く）、`skills/**`（`.system` を除く）、`<名前>.config.toml`、`hooks.json`。
+`codex:toml:<鍵の道>` は `config.toml` の鍵 1 つで、道の各段は URL の形に符号化し、段の間は `.` でつなぐ（プラグインの id に点があっても往復する）。値は JSON にして運ぶ。
+`default.rules` は Codex が承認のたびに足す状態なので運ばない。`installation_id`、`tmp/`、Windows 固有の `.sandbox/`、`.sandbox_migration`、`auth.json`、`sessions/` は、運ぶ形の外なので集めない。
+`[mcp_servers.*]`（`codex:mcp:`）は別の PR の持ち分で、ここでは読まない。
+`config.toml` の鍵の仕分けは `targets/codexKeys.ts` の表で、`codex-rs/core/config.schema.json`（確かめた版 0.164.0、トップレベル 103 鍵）から鍵の名前だけを写した。
+運ぶのはモデルと推論、`approval_policy`、`sandbox_mode`、指示、`[tui]`、`[features]`（真偽の旗）、`[memories]`、`[desktop]`、`[agents]`、`[hooks]` のイベント、`[plugins.<id>].enabled` など。
+運ばないのは、この PC の事情（`notify`、`[projects.*]`、`[marketplaces.*]`、`[model_providers.*]`、`sandbox_workspace_write.writable_roots`、`shell_environment_policy`、ログや DB の置き場、接続先、認証の設定）と、Codex が書く状態（`[notice.*]`、`hooks.state`、`tui.model_availability_nux`、`tui.screen_reader_detection_done`、プラグインの `enabled` 以外）。
+絶対パスを値に持つ鍵（`/x`、`~/x`、`C:\x`）は運ばず、理由 `path` で一覧に出す。
+表に無い鍵は運ばず、Claude と同じに `config_unsent` の `unknown-key`（id は `unknown-key:codex:<鍵の道>`）に記録する。値は持たない。
+`<名前>.config.toml` は `config.toml` と同じ仕分けを通し、運べない鍵か知らない鍵が 1 つでもあれば、ファイルごと運ばない。
+承諾が要るのは `rules/`、`skills/`、`hooks.json`、`<名前>.config.toml`、`approval_policy`、`approvals_reviewer`、`sandbox_mode`、`default_permissions`、`sandbox_workspace_write.*`、`[hooks]`、`[plugins.*]` で、消去も承諾に掛ける。承諾の仕方が自動なら要らない。
+受け取る側も同じ物差し（`isCarriedPath`、絶対パスの検査）で見て、仕分けの外の鍵や絶対パスの値が届いても書かない。
+書き戻し（`targets/codexWrite.ts`）は、Claude の適用（`apply.ts`）と同じ流れで、書き込み先が `$CODEX_HOME` になる。
+`config.toml` は S2 の `setToml`・`removeToml` で鍵だけを差し替え、コメント、並び、他の鍵、状態の表を保つ。
+書く前に `<hangar の置き場>/backups/codex-config/<時刻>/` に控えを取り、取れなければ書かない。
+`config.toml` を書いた後は読み直し、書いたとおりでなければ（Codex の常駐が同時に書き換えた）元へ戻して失敗にする。
+指示書が Codex の項目だけのときは、書き終えたら指示書を消す。Claude の項目と混ざった指示書を割り振るのは、適用の口を繋ぐ PR の役目である。
 全部が絶対パスの鍵は、空の配列で相手の規則を消さないよう運ばない。
 受け手が権限の鍵を適用するときは、手元の絶対パスの規則を残す（`hangar config apply` が守る。「適用と世代へ戻す」）。
 シンボリックリンクは辿らず、1 MiB を超えるファイルと、`node_modules`、`.git`、`__pycache__`、`.venv`、`.DS_Store`、同期自身の写し（`*.conflict-*`、`*.hangar-tmp-*`、`*.part`）は拾わない。
@@ -7707,6 +7778,50 @@ Claude、Codex、opencode のように設定の入れ物ごとに「対象」（
 知らない頭の id は、今までどおりその項目だけ飛ばす。
 受け取った束の `targets` と `os` は、inbox の `meta.json` に残す（欄の無い写しは `['claude']` と読む）。
 
+**対象 opencode（v0.12.0 の S5、`targets/opencode.ts`・`targets/opencodeKeys.ts`）。**
+入れ物は `ctx.opencodeDir`（`$XDG_CONFIG_HOME/opencode`、既定 `~/.config/opencode`）。入切は、その PC で opencode が有効（`opencodeEnabled`）で、かつ設定の `configTargets.opencode` が真のときだけである。
+id は 3 種類。`opencode:file:<相対パス>`、`opencode:json:<鍵の道>`、`opencode:cli:<鍵の道>`。鍵の道は `.` で区切り、各段は URL 符号化に `.` も加えた形にする（agent の名前に `.` があってよい）。符号化が正規の形でない id は読まない。
+`opencode:mcp:` はこの対象のものではない（MCP の PR が持つ）。
+- ファイル：`AGENTS.md`、`agents/`・`agent/`、`commands/`・`command/`、`skills/`・`skill/`、`plugins/`・`plugin/`、`themes/`。v1 形と v2 形のディレクトリは名前を変えずに運ぶ。`opencode.json(c)`、`cli.json`、`tui.json`、`service.json`、`package.json`、`bun.lock*` は、ファイルとしては運ばない。
+- opencode.json(c) の鍵：運ぶのは `model`、`small_model`、`compaction`、`permission`、`share`、`autoupdate`、`theme`、`instructions`、`agent(s).<名前>.{prompt,description,mode,temperature,top_p,steps,permission}`。1 つの鍵が 1 項目である。
+  運ばないのは `provider(s)`、`skills`、`plugin(s)`、`agent(s).<名前>.model`（理由は `machine`）、絶対パスの `instructions` の要素（理由は `path`。`~/…` と URL と相対は運ぶ）。`$schema` は黙って外す。`mcp` は MCP の対象（`opencode-mcp`）が運ぶので、ここでは黙って外す。それ以外の鍵と、型の合わない値は「知らない鍵」で、`config_unsent` の `unknown-key`（id は `unknown-key:opencode:json:…`）に出し、値は持たない。
+  `instructions` を書くとき、手元の絶対パスの要素は残す（他の PC に運ばれていないので、届いた値で消さない）。
+- 両方あるとき：`opencode.json` と `opencode.jsonc` の両方があれば jsonc を正として読み、書くのも jsonc にする（opencode は両方読んで jsonc を優先し、自分が書くときは json に書くので、画面で「両方あります」と知らせる。`opencodeNotices` と `ConfigNoticeDto`）。
+- `{env:X}`：そのまま運ぶ。受け手の環境に X が無いと opencode は空文字にして黙って壊れるので、項目に添えて知らせる（`opencodeItemNotes`）。
+- `{file:p}`：p が入れ物の中の相対パスなら、そのファイルも `opencode:file:` の項目として運ぶ。外（絶対、`~`、`..`、opencode.json 自身）を指すなら、その項目ごと運ばず、`dropped`（理由は `path`）に出し、手元の項目として塞ぐ（相手の同名の項目で上書きしない）。受け手に届いた値が外を指していれば、適用を断る（`bad-content`）。
+- cli.json の鍵：`plugins` と `attention.sounds` を除いて運ぶ。最上位の鍵が 1 項目で、`attention` だけ 1 段下で分ける。
+- 承諾：`agents/`・`commands/`・`skills/`・`plugins/`（v1 形を含む）と、`{file:}` で運ぶファイルは、設定が each のとき承諾が要る（消去は要らない）。`permission` と `agent(s).*.permission` は、消去も承諾に掛ける（拒否の規則を外すと権限が広がるため）。`AGENTS.md`、`themes/`、ほかの鍵は要らない。
+- 書き戻し：jsonc と cli.json は鍵の差し替えだけで、コメントと並びと体裁を保つ（`setJsonc`・`removeJsonc`）。json は opencode が書くのと同じ 2 空白で整形し直す（`setJson`・`removeJson`）。書く前に `<hangar の置き場>/backups/opencode-config/<時刻>/` へ元の中身を控え、控えを作れなければ何も書かない。途中で失敗したら控えから戻す。控えの記録（`.hangar-apply.json`）は Claude の世代と同じ形である。`write` は指示書のうち opencode の項目だけを見て、指示書は消さない（ほかの対象の項目が残るため、消すのは呼び出し側）。
+- 既存の Claude の適用（`apply.ts`）は、opencode の項目を書き込み先の食い違いとして断る。
+
+**hangar の好み（対象 `hangar`、`targets/hangar.ts`）。**
+hangar の `settings.json` の鍵のうち、PC をまたいで同じでよいものを `hangar:<鍵>`（kind は `hangar-pref`）で運ぶ。
+鍵は `language`、`askStatusAtEnd`、`liveHints`、`defaultModel`、`autoDone`、`autoDoneIdleDays`、`autoPark`、`remoteControl`、`summaryEngine`、`summaryClaudeModel`、`configApproval`、`opencodeInjection`、`opencodePermissionPreset`、`opencodeLocalContext`、`codexInjection` の 15 個で、値は JSON、形は鍵ごとに検査する。
+設定にある鍵だけを集め、形の合わない値は塞ぐ（相手の値で上書きしない）。ファイルが壊れていれば `hangar:` を全部塞ぐ。
+Codex・opencode の有効と横取り、パス、エディタ、端末アプリ、秘密（`summaryApiKey`）、要約器の宛先、接続先の準備、対象ごとの入切（`configTargets`）は、PC ごとの選びなので運ばない。
+サーバが `settings.json` を書くので、殻の承諾の窓は通さない。承諾が要るのは `configApproval` の項目だけで、承諾の仕方の設定に依らない（`needsApproval` は値を受け取らないため、`each` へ戻す変更も承諾になる）。
+書き込みは `loadSettings` と `saveSettings` で鍵を差し替える。走っているサーバは設定を自分の入れ物に持つので、サーバは起動のとき（`boot/http.ts`）に `setHangarPrefsApplier` で `applySettingsPatch` を通す口を登録する。
+サーバは、`PUT /api/config-sync/apply-order` で指示書を受けたその場で `hangar:` の項目を書き、指示書から外す（残りだけを殻と `hangar config apply` に渡す。好みだけなら指示書は残さず、返す指示書の `items` は空になる）。
+書けなければ指示書ごと消して 500 で断る（何も適用しない）。
+古い版の束には `hangar` が無いので、`hangar:` の項目は消去に見えない。
+
+**MCP サーバー（対象 `claude-mcp`、`codex-mcp`、`opencode-mcp`、`targets/claudeMcp.ts`・`codexMcp.ts`・`opencodeMcp.ts`）。**
+MCP サーバーの設定は、名前ごとに 1 項目で運ぶ。URL も stdio も運び、値は、そのエージェントが自分の設定ファイルに書く形のままにする（エージェント間の訳は 0.13）。
+- 入れ物と id：`~/.claude.json` の `mcpServers.<名前>`（`claude-mcp:<名前>`、kind `claude-mcp`）、`$CODEX_HOME/config.toml` の `[mcp_servers.<名前>]` 表（小表の `env` や `http_headers` ごと。`codex:mcp:<名前>`、kind `codex-mcp`）、opencode.json(c) の `mcp.<名前>`（`opencode:mcp:<名前>`、kind `opencode-mcp`）。名前は URL の形に符号化し、往復しない形、空、`__proto__`、`hangar` は読まない。
+- 別の対象にする理由：古い版は `codex:` や `opencode:` の id を知らない。Codex・opencode の好みの鍵の対象が `mcp_servers`・`mcp` を読み飛ばすのはそのままで、MCP は別の対象が集める。対象名が違えば、古い版の束に無いことが消去に見えない（「消去の条件」）。
+- 入切：`configTargets` の対象名で、既定は切。`codex-mcp` と `opencode-mcp` は、その PC で Codex・opencode が有効なときだけ集める。
+- 運ばないもの：名前が `hangar`、または command が Hangar を指すもの（command の基本名が `hangar`、パスに `agent-hangar` か `Hangar.app` を含む）。Hangar が自分で登録するもので、受け手には受け手の登録がある。形の読めない登録は運ばず、同名の項目が届いても上書きしないよう塞ぐ。`~/.claude.json` のプロジェクトごとの `mcpServers` は読まない。
+- 秘密：既知の形（`secrets.ts` の `findSecret`）を値全体に掛け、さらに `env`・`environment`・`headers`・`http_headers` の、鍵の名前が秘密らしい（token、secret、password、api key、authorization、bearer、credential など）直書きの値、`bearer_token`、`--token=…` 形の引数、URL の問い合わせを見る。`${X}`・`{env:X}`・`$X` の参照と、`bearer_token_env_var`・`env_http_headers`（環境変数の名前を持つ）は止めない。見つけた項目は `withheld`、`config_unsent` の `secret`（理由は `secret:mcp-credential` か既知の形の名前）にし、「それでも送る」（同じ指紋のとき）で送れる。値は一覧に出さない。
+- 受け手の保留：絶対パスの command（Codex は `cwd` も、`~/` は受け手のホームで）が受け手に無ければ保留する（`holdOfMcp`、`holdOfMcpItem`）。相対の command（`npx` など）は PATH で探すので保留しない。書き戻しも、保留・Hangar 自身・形の悪い値を `ApplyError`（`unsafe`、`bad-content`）で断り、何も書かない。opencode の `{env:X}` が受け手の環境に無ければ `opencodeMcpNotes` で知らせる。
+- 承諾：設定が each のあいだ、作る・上書き・消去のどれも承諾が要る（起動するコマンドを足すため）。command のある項目には実行の印（`shell`）を付ける。
+- 書き戻し（`mcpWrite.ts`）：指示書の突き合わせ、控え、差し替えの流れは他の対象と同じ。控えは `backups/claude-mcp-config/`・`codex-mcp-config/`・`opencode-mcp-config/` の `<時刻>/` に取り（秘密が入りうるので 0600）、取れなければ書かない。
+  `~/.claude.json` は Claude Code が頻繁に書くので、読むのも書くのも `mcpServers` の鍵 1 つずつだけにする（`setJsonc`・`removeJsonc`。整形、並び、ほかの鍵はそのまま）。書く直前に読み直し、書いた後にもう一度読んで、自分の鍵が入っていてほかの鍵が書く前のままかを確かめる。合わなければ読み直しからやり直し（3 回まで）、それでも合わなければ控えから戻して失敗にする。
+  Codex は `setToml`・`removeToml` で表ごと差し替える。好みの鍵の対象（`codex:toml:`）と同じ config.toml に書くが、どちらも書く直前に読み直して自分の鍵だけを差し替えるので、互いの鍵を消さない。opencode は jsonc があれば jsonc に体裁を保って、無ければ opencode.json に 2 空白で書く。
+  `write` は指示書のうち自分の対象の項目だけを見て、指示書は消さない（消すのは適用の口）。
+  3 対象とも適用の口（`applyAll.ts`）に `planOps` と `store` を持つ。`planOps` は書く先の中身を `read` で読み、同じファイルを先に書く対象（`config.toml` は `codex`、opencode.json(c) は `opencode`）の書いた後の中身の上に自分の鍵を重ねる。`~/.claude.json` を書くのは `claude-mcp` だけである。
+  控えの置き場は `claude-mcp-config`（`~/.claude.json` の入れ物の下に戻す）、`codex-mcp-config`、`opencode-mcp-config`。好みの鍵の対象の置き場（`codex-config`、`opencode-config`）とは別にして、古い版の世代の数え方を変えない。`hangar config restore --target claude-mcp|codex-mcp|opencode-mcp` で戻せる。
+  受け手の保留（`command-missing`）は、service の `resolved()` が `held` に載せる（`holdOfMcpItem`）。保留の項目は選ばせず、適用でも断る。
+
 消去の条件は対象ごとに数える。
 - id の持ち主の対象を `owns` で決め、その対象を扱う相手（束の `targets` に入れている相手）の束だけで、holder と「どの束にも無い」を決める。
 - その対象を扱う相手が 1 台もいない id は、何もしない（delete も forget もしない。`config_base` の行は残す）。古い版の束は新しい項目を持たないので、そう読まないと消去に見える。
@@ -7732,7 +7847,7 @@ skills、commands、agents は実行される指示なので、他の PC から�
   対話でない端末で `--yes` が無ければ書かない。
 - `hangar config restore [世代]`：世代を省くと一覧を出す。
   世代を指すと戻す先と消す先を見せて承諾を取る（`--plan`、`--yes`、`--json` は同じ）。
-- 殻の命令 `apply_config_sync`（引数なし）と `restore_config_sync(name)`：CLI に `--plan --json` を走らせ、返った見立てを殻の承諾の窓に見せ、承諾されたときだけ `--yes --json --expect <指紋>`（適用は `--order` 付き）を走らせる（0.4.0 から。それまではネイティブの確認だった。「承諾の窓」の節）。
+- 殻の命令 `apply_config_sync`（引数なし）と `restore_config_sync(name, target)`（target は省くと claude）：CLI に `--plan --json` を走らせ、返った見立てを殻の承諾の窓に見せ、承諾されたときだけ `--yes --json --expect <指紋>`（適用は `--order` 付き）を走らせる（0.4.0 から。それまではネイティブの確認だった。「承諾の窓」の節）。
   `--plan --json` の見立てには、書く先のファイルごとの操作（新規、変更、削除）と、今の中身から書いた後の中身への差分と、書く先の今の中身の指紋（`fingerprint`）が入る（`planApplyFiles`、`planRestoreFiles`）。
   `--expect` を渡すと、CLI は書く直前に書く先の指紋を取り直し、違えば何も書かずに `changed` で断る（指示書は残す）。見せた後に手で `~/.claude` を変えたときに、見せていない中身で上書きしないためである。
   実行される内容（skills、commands、agents、フックとコマンド実行とスクリプトの印）を含むときは、窓の見出しを注意の見た目にし、補足にその件数と項目の名前を書く。
@@ -7741,12 +7856,24 @@ skills、commands、agents は実行される指示なので、他の PC から�
   書けなかったときは、承諾の窓が失敗の段で知らせ、窓を閉じたときに `failed` を返す。
   頁から渡せるのは世代の名前だけで、`yyyyMMdd-HHmmss` の形を殻が確かめる。
   権限は `capabilities/remote-config-apply.json` の 2 つだけである。頁の側の呼び出しは PR 17 で足した（`runtime/desktop.ts` の `applyConfigSync()`、`restoreConfigSync(name)`。結果は上の `{ status, message, generation }` で、形の違う返事は失敗として扱う）。
+- 指示書は項目の持ち主の対象ごとに分けて書く（0.12、`sync/config/applyAll.ts`）。
+  `targetOfId` で項目を対象に振り分け、同じ書き方を持つ対象（`claude` と `claude-keys2`。`writesWith`）は 1 回だけ呼ぶ。
+  持ち主のいない項目は指示書ごと読めないものとして断り（`broken-order`）、枠だけの対象や書き方（`planOps`）を持たない対象の項目があれば、何も書かずに `unknown-target` で断る。
+  各対象の `write` は自分の項目だけを見て自分の入れ物に書き、指示書は消さない。全部の対象が書き終えてから、呼び手が指示書を消す。
+  書く前に、全部の対象の見立て（`planWrite` と `planOps`）を作り、承諾の窓で見せた指紋を全部の書く先で取り直して比べ、全部の対象の控えの置き場を作れるかを確かめる。どれか 1 つでも合わなければ、どこにも書かない。
+  同じファイルを 2 つの対象が書くとき（`settings.json` を `claude`、`claude-hooks`、`claude-plugins` が書く）、見立ては後の対象が前の対象の書いた後の中身を読んで重ね、窓には 1 つのファイルとして見せる。
+  途中の対象が書けなければ（控えが取れない、Codex の `config.toml` を書いた直後の読み直しで指紋が合わない、など）、その対象は自分を戻し、先に書いた対象もその世代から戻し、基準を適用の前へ戻す（どこか 1 つが書けなければ、全部書かない）。
+  控えを取らない対象（hangar の好み）は最後に書く。
+  入れ物は殻と CLI が渡す（`WritePaths`。`claudeDir`、`codexHome`、`opencodeDir`、`agentsSkillsDir`、`claudeJsonPath`、利用者のホーム、この PC の OS）。CLI は省いた分をこの PC の既定の場所（`targets/paths.ts`）で埋める。
+  見立ての書く先は絶対パスで、対象の名前（`target`）を添える。
 - 適用の順序は、(1) 指示書を読み、inbox と突き合わせて全項目が書けるかを先に確かめる、(2) 書く先の元の中身を世代に控える、(3) 一時ファイルに書いて rename する、(4) `config_base` を 1 つの transaction で更新する、(5) 指示書を消して、世代を新しい 20 個に保つ、である。
   (1) で 1 つでも合わなければ何も書かずに断る。
   束が更新されて指紋が合わない（`stale`）、書き込み先が id から決まる場所と違う、途中がシンボリックリンクか通常でない（`unsafe`）、届いた値が鍵の型に合わない、`settings.json` が JSON のオブジェクトでない、のどれかである。
   指示書は残す。
   (3)、(4) の途中で失敗したら、世代から元へ戻し（作ったファイルとディレクトリも消す）、世代を消し、指示書は残す。
   戻す途中でも失敗したときは世代を残し、`hangar config restore <世代>` で戻す手順を文に入れる。
+- 控えの世代は対象ごとの置き場 `backups/<対象>-config/<yyyyMMdd-HHmmss>/`（`claude-config`、`codex-config`、`opencode-config`、`agents-skills-config`、MCP の `claude-mcp-config`、`codex-mcp-config`、`opencode-mcp-config`。`targets/stores.ts`）に取る。`claude-hooks` と `claude-plugins` は `~/.claude` に書くので `claude-config` を使う。
+  `hangar config restore` の一覧は全部の置き場の世代を出し（Claude 以外は `target` を添える）、Claude 以外の世代は `--target <対象>` で戻す。設定の画面の世代の数も全部の置き場を数える。
 - 控えの世代 `backups/claude-config/<yyyyMMdd-HHmmss>/` には、書く先の元のファイルを設定の入れ物からの相対パスで置き、直下の `.hangar-apply.json`（世代の数には入れない）に、その時点で無かった先と無かったディレクトリ、`config_base` の前の値を残す。
   旧実装の世代（記録なし）も、ファイルを書き戻すだけで戻せる。
   同じ秒にもう一度取るときは、前の世代を潰さずに次の秒の名前にする。
@@ -7870,6 +7997,13 @@ D1 の書き込みは消した行の数で、旧実装の項目の総数が 1 �
 記録が無いと、相手から同名の項目が届いたときに「手元に無い」と見て `create` と判定し、適用で手元を上書きしてしまう。
 記録に当たる項目は、届いた変更の一覧に `held: 'local-blocked'` で出し、届いた数にも競合にも数えず、適用の指示書にも入れられない。
 塞ぎが解ければ、次の判定から通常に戻る。
+
+**中身を見て書けないもの（0.12）。**
+フックとステータス行（`claude-hooks`）は、送り手と OS が違う（束の目録の `os`。無いときも違うと見る）、`~/.claude` の外を指す、Hangar の包みを指す、のどれかなら `held` を `other-os`、`outside-claude`、`hangar-wrapper` にする（`holdOfHooks`）。
+プラグインの配布元（`claude-plugins`）が送り手の PC のフォルダを指すときは `local-marketplace` にする（`holdOfPlugins`）。
+どちらも適用でも断るが、選ばせる前に理由を見せるため、届いた変更の一覧の段で保留にする（`service.ts` の `resolved`）。
+`command-missing`（MCP の起動するコマンドがこの PC に無い）は MCP の対象のために型だけ用意してある。
+opencode の `opencode.json` と `opencode.jsonc` が両方あるときは、`ConfigSyncDto.notices` に `{ target: 'opencode', code: 'both-json-jsonc' }` を載せる（無ければ欄ごと省く）。
 
 ### 設定ファイルの書き戻しの道具（v0.12）
 
