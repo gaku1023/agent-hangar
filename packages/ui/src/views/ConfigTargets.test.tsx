@@ -132,7 +132,7 @@ describe('適用内容の確認の説明文が札に従う（rc.2 B2）', () => 
     expect(screen.getByText('Codex：~/.codex（1 項目）')).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole('group', { name: '対象で絞り込む' })).getByRole('button', { name: /^Codex/ }));
     expect(screen.getByText(/1 項目を ~\/\.codex に書き込みます/)).toBeInTheDocument();
-    expect(screen.getByText('バックアップ: ~/.agent-hangar/backups/codex-config/')).toBeInTheDocument();
+    expect(screen.getByText('バックアップ：~/.agent-hangar/backups/codex-config/')).toBeInTheDocument();
     expect(screen.getByText('「適用…」では、他の対象を含む 2 項目を書き込みます。')).toBeInTheDocument();
   });
 });
