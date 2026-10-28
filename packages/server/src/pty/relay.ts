@@ -3,11 +3,12 @@ import os from 'node:os';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { originAllowed, tokenFromRequest } from '../auth/request.ts';
 import { muxServersOf, type MuxServers } from '../tmux/servers.ts';
+import { controlSpawn } from '../tmux/control.ts';
 import type { Tmux } from '../tmux/tmux.ts';
 
 export type PtyProcess = { pid: number; onData(cb: (d: string) => void): void; onExit(cb: (e: { exitCode: number }) => void): void; write(d: string): void; resize(cols: number, rows: number): void; kill(): void };
 export type PtySpawn = (file: string, args: string[], opts: { name: string; cols: number; rows: number; cwd: string; env: NodeJS.ProcessEnv }) => PtyProcess;
-type Deps = { token: string; /** 待ち受けているポート。許可する Origin をここから組み立てる。 */ port: number; /** hangar の tmux のサーバの組（tmux/servers.ts）。Tmux 1 つなら、そのサーバだけを使う。 */ tmux: Tmux | MuxServers | null; resolveTab: (tabId: string) => string | null; spawn: PtySpawn; /** attach が終わった（tmux の画面が閉じたかもしれない）。run の見張りを急がせる（RunManager.stir）。 */ onExit?: () => void };
+type Deps = { token: string; /** 待ち受けているポート。許可する Origin をここから組み立てる。 */ port: number; /** hangar の tmux のサーバの組（tmux/servers.ts）。Tmux 1 つなら、そのサーバだけを使う。 */ tmux: Tmux | MuxServers | null; resolveTab: (tabId: string) => string | null; spawn: PtySpawn; /** コントロールモード（tmux/control.ts）でつなぐタブか。シェルのタブだけを真にする。渡さなければ、どのタブも擬似端末の attach。 */ controlTab?: (tabId: string) => boolean; /** コントロールモードのつなぎ。試験で差し替える。 */ controlSpawn?: (tmux: Tmux, name: string) => PtyProcess; /** attach が終わった（tmux の画面が閉じたかもしれない）。run の見張りを急がせる（RunManager.stir）。 */ onExit?: () => void };
 
 /** close フレームに応えない相手を待つ上限。これを過ぎたら接続を切り、pty を落とす。 */
 const CLOSE_GRACE_MS = 500;
@@ -56,11 +57,12 @@ export class PtyRelay {
       if (!originAllowed(req.headers.origin, this.deps.port) || token !== this.deps.token) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return; }
       const name = this.deps.resolveTab(url.searchParams.get('tab') ?? '');
       if (!name || !this.deps.tmux) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); socket.destroy(); return; }
-      this.wss.handleUpgrade(req, socket, head, (ws) => this.serve(ws, name));
+      const tabId = url.searchParams.get('tab') ?? '';
+      this.wss.handleUpgrade(req, socket, head, (ws) => this.serve(ws, name, this.deps.controlTab?.(tabId) ?? false));
     });
   }
 
-  private serve(ws: WebSocket, tmuxName: string): void {
+  private serve(ws: WebSocket, tmuxName: string, control: boolean): void {
     const mux = muxServersOf(this.deps.tmux!);
     // 前の版が利用者の既定のサーバに作ったセッションは、そのサーバへつなぐ。
     const tmux = mux.serverOf(tmuxName);
@@ -72,7 +74,10 @@ export class PtyRelay {
     }
     let p: PtyProcess;
     try {
-      p = this.deps.spawn(tmux.tmuxPath, tmux.attachArgs(tmuxName), { name: 'xterm-256color', cols: 120, rows: 40, cwd: os.homedir(), env: { ...process.env, TERM: 'xterm-256color', LANG: process.env.LANG ?? 'ja_JP.UTF-8' } });
+      // シェルのタブは、選択とスクロールを xterm に持たせるためにコントロールモードでつなぐ（tmux/control.ts）。
+      // Windows の psmux は対応を確かめていないので、擬似端末の attach のままにする。
+      if (control && tmux.supportsControl) p = (this.deps.controlSpawn ?? controlSpawn)(tmux, tmuxName);
+      else p = this.deps.spawn(tmux.tmuxPath, tmux.attachArgs(tmuxName), { name: 'xterm-256color', cols: 120, rows: 40, cwd: os.homedir(), env: { ...process.env, TERM: 'xterm-256color', LANG: process.env.LANG ?? 'ja_JP.UTF-8' } });
     } catch (e) {
       // error を送ったら必ず閉じる。開いたままだと UI の端末が再接続せず、利用者がその画面から戻れない。
       ws.send(JSON.stringify({ t: 'error', message: `pty spawn failed: ${e instanceof Error ? e.message : String(e)}` }));

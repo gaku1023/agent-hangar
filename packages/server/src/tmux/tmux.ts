@@ -268,6 +268,16 @@ export class Tmux {
     return this.args('attach', '-t', `=${name}`);
   }
 
+  /** コントロールモードで attach する引数（tmux/control.ts）。target は attachArgs と同じく完全一致にする。 */
+  controlAttachArgs(name: string): string[] {
+    return this.args('-C', 'attach', '-t', `=${name}`);
+  }
+
+  /** コントロールモードでつないでよいか。psmux が対応しているかは確かめていないので、Windows では擬似端末の attach のままにする。 */
+  get supportsControl(): boolean {
+    return this.platform !== 'win32';
+  }
+
   /**
    * サーバごと落とす。試験の後始末にだけ使う。
    * Windows の psmux では呼ばない。psmux の kill-server は名前空間を越えて全部のセッションを落とすからである。

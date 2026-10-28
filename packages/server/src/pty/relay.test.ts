@@ -209,6 +209,41 @@ describe('PtyRelay（偽の spawn）', () => {
     await closed;
     expect(exits).toBe(1);
   });
+  it('controlTab が真のタブはコントロールモードでつなぎ、ほかは擬似端末の attach のまま', async () => {
+    const pty = fakeSpawn();
+    const ctl = fakeSpawn();
+    const names: string[] = [];
+    relay.close(); await new Promise<void>((r) => server.close(() => r()));
+    // Windows の CI でも macOS の分かれ道を通す。
+    const mac = new Tmux({ tmuxPath: '/x/tmux', socketName: 'fake', platform: 'darwin' });
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux: mac, resolveTab: (t) => (t === 'sh' ? 'hangar-a-t1' : 'hangar-a'), spawn: pty.spawn, controlTab: (t) => t === 'sh',
+      controlSpawn: (_tmux, name) => { names.push(name); return ctl.spawn('', [], { name: '', cols: 0, rows: 0, cwd: '', env: {} }); } });
+    await listen(relay);
+    const sh = await connect('tab=sh');
+    await waitFor(() => ctl.procs.length === 1);
+    expect(names).toEqual(['hangar-a-t1']);
+    sh.ws.send(JSON.stringify({ t: 'data', d: 'ls\r' }));
+    await waitFor(() => sh.msgs.length === 1);
+    expect(sh.msgs[0]).toEqual({ t: 'data', d: 'echo:ls\r' });
+    const agent = await connect('tab=t1');
+    await waitFor(() => pty.procs.length === 1);
+    expect(ctl.procs).toHaveLength(1);
+    sh.ws.close(); agent.ws.close();
+    await waitFor(() => ctl.procs[0]!.killed);
+  });
+  it('Windows（psmux）ではシェルのタブも擬似端末の attach のまま', async () => {
+    const pty = fakeSpawn();
+    let controlled = 0;
+    relay.close(); await new Promise<void>((r) => server.close(() => r()));
+    const win = new Tmux({ tmuxPath: 'C:/psmux.exe', socketName: 'fake', platform: 'win32' });
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux: win, resolveTab: () => 'hangar-a-t1', spawn: pty.spawn, controlTab: () => true,
+      controlSpawn: () => { controlled++; return pty.spawn('', [], { name: '', cols: 0, rows: 0, cwd: '', env: {} }); } });
+    await listen(relay);
+    const { ws } = await connect('tab=sh');
+    await waitFor(() => pty.procs.length === 1);
+    expect(controlled).toBe(0);
+    ws.close();
+  });
 });
 
 describe.skipIf(!TMUX)('PtyRelay（実物の tmux と node-pty）', () => {
