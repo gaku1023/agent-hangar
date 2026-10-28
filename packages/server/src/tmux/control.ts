@@ -36,7 +36,7 @@ type StreamHandlers = {
 
 /** コントロールモードの出力を行に分けて読む。塊が行の途中で切れていても、次の塊とつないでから読む。 */
 export class ControlStream {
-  private rest = Buffer.alloc(0);
+  private rest: Buffer = Buffer.alloc(0);
   private body: string[] | null = null;
   constructor(private readonly h: StreamHandlers) {}
 
