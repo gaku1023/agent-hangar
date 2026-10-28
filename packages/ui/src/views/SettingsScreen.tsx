@@ -564,8 +564,7 @@ export function SettingsScreen(props: SettingsProps) {
   const agentCodex = (
     <>
       {lead('settings.agents.codex.lead')}
-      {/* Codex のアカウントの一覧は、ここに差し込む（U1）。 */}
-      <CodexAccountsSettings />
+      <CodexAccountsSettings accounts={props.codexAccounts} />
       {/* Codex（ベータ、C4 の案 A）。 */}
       <CodexSection o={props.codex} showTitle={false} />
       <section>

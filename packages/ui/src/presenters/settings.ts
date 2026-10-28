@@ -6,7 +6,7 @@ import { indexProgressLabel, relativeTime } from './format.ts';
 import { storeLanguage, translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
 import { limitedWord, syncStateWord } from './syncLabel.ts';
-import { presentAccounts, type AccountView } from './accounts.ts';
+import { presentAccounts, presentCodexAccounts, type AccountView } from './accounts.ts';
 import { presentCloudUsage, SETUP_CLOUD_COMMAND, type CloudUsageProps } from './cloudUsage.ts';
 import { cloudJoinCommand, presentCloudMember, type CloudMemberProps } from './cloudMember.ts';
 import { presentConfigSection, type ConfigSyncSectionProps } from './configSync.ts';
@@ -325,6 +325,8 @@ export type SettingsProps = {
   /** 連携の opencode の面の下の「プロバイダー」（ベータ）。opencode を有効にしたときだけ出す。 */
   opencodeProviders?: OpencodeProvidersProps;
   accounts: AccountSettingsProps;
+  /** Codex のアカウントの一覧（Codex の節に置く）。Codex が切、または届いていなければ空。 */
+  codexAccounts: AccountSettingsProps;
   /** 右に出している節。URL の `at` で決まる（無ければ「一般」、`sync` はクラウド同期、`accounts` はセッション）。 */
   section: SettingsSection;
   /** 左の目次。節ごとに、名前と今の状態の 1 行を持つ。 */
@@ -582,6 +584,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     indexSource: [s?.claudeDir ?? '', ...(codexEnabledOf(s ?? {}) ? ['~/.codex'] : [])].join(storeLanguage(store) === 'ja' ? '、' : ', '),
     retention: retentionSettings(store),
     accounts: { list: presentAccounts(store, now), colors: ACCOUNT_COLORS },
+    codexAccounts: { list: presentCodexAccounts(store, now), colors: ACCOUNT_COLORS },
     section: settingsSectionOf(at),
     toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summaryEngine, summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, retentionDays: store.retention?.days ?? null, now, update, desktop: store.desktop, codex, opencode, usageAggregate: store.usageAggregate, version: store.version }),
     update,

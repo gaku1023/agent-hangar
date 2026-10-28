@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
-import { presentAccounts } from '../presenters/accounts.ts';
+import { presentAccounts, presentCodexAccounts } from '../presenters/accounts.ts';
 import type { HeaderAccountProps } from '../presenters/shell.ts';
 import { initialStore } from '../store/store.ts';
-import { accountsFixture } from '../test/accounts.ts';
+import { accountsFixture, codexAccountsFixture } from '../test/accounts.ts';
 import { AccountSwitcher } from './AccountSwitcher.tsx';
 
 const NOW = new Date(2026, 9, 6, 12, 0).getTime();
@@ -324,5 +324,73 @@ describe('AccountSwitcher の Codex の節', () => {
     expect(screen.queryByRole('group', { name: 'Codex' })).toBeNull();
     expect(screen.queryByText('Claude Code')).toBeNull();
     expect(screen.getAllByRole('menuitemradio')).toHaveLength(list.length);
+  });
+});
+
+describe('AccountSwitcher の Codex のアカウント（A7）', () => {
+  const store = { ...initialStore(), accounts: codexAccountsFixture };
+  const claude = presentAccounts(store, NOW);
+  const cx = presentCodexAccounts(store, NOW);
+  const withCodex = (over: Partial<NonNullable<Account['codexAccounts']>> = {}, accountOver: Partial<Account> = {}): Account => ({
+    shown: claude[0]!, list: claude, sessionId: null, working: false,
+    codexAccounts: { list: cx, shownId: 'primary', claudeShownId: 'primary', sessionId: null, working: false, ...over },
+    ...accountOver,
+  });
+  const open = (a: Account) => { const m = mount(a); fireEvent.click(m.face); return m; };
+
+  it('Codex の札を押すと、いまの Codex アカウントを替える動作が出る（Claude 側は触らない）', () => {
+    const { onAction } = open(withCodex());
+    fireEvent.click(within(screen.getByRole('menu', { name: 'Codex のアカウント' })).getByRole('menuitemradio', { name: /会社用/ }));
+    expect(onAction.mock.calls.map((c) => c[0])).toContainEqual({ type: 'account.choose', agent: 'codex', accountId: 'cw' });
+    expect(onAction.mock.calls.map((c) => c[0])).not.toContainEqual(expect.objectContaining({ type: 'account.choose', accountId: 'cw', agent: undefined }));
+  });
+  it('Codex の会話の画面では、別の札を押すと switchSession を出す（確認はその先）', () => {
+    const { onAction } = open(withCodex({ shownId: 'cw', sessionId: 'c1', working: true }));
+    fireEvent.click(within(screen.getByRole('menu', { name: 'Codex のアカウント' })).getByRole('menuitemradio', { name: /個人/ }));
+    expect(onAction.mock.calls.map((c) => c[0])).toContainEqual({ type: 'account.switchSession', agent: 'codex', sessionId: 'c1', accountId: 'primary', working: true });
+  });
+  it('いまの札を押しても何も出さない', () => {
+    const { onAction } = open(withCodex());
+    fireEvent.click(within(screen.getByRole('menu', { name: 'Codex のアカウント' })).getByRole('menuitemradio', { name: /個人/ }));
+    expect(onAction.mock.calls.map((c) => c[0]).filter((a: { type: string }) => a.type.startsWith('account.'))).toEqual([]);
+  });
+  it('節ごとの「＋」でそのエージェントの追加ダイアログを開く', () => {
+    const { onAction } = open(withCodex());
+    fireEvent.click(screen.getByRole('button', { name: 'Codex のアカウントを追加' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'account.add.open', agent: 'codex' });
+    fireEvent.click(screen.getByRole('button', { name: /^アカウントを切り替え/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Claude Code のアカウントを追加' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'account.add.open' });
+  });
+  it('下の段は「アカウントの設定」だけで、「アカウントを追加」は置かない', () => {
+    open(withCodex());
+    expect(screen.getByRole('button', { name: 'アカウントの設定' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'アカウントを追加' })).toBeNull();
+  });
+  it('承認待ちの札は押せる札ではなく、「確認コードでログイン」と「キャンセル」を持つ', () => {
+    const pending = presentCodexAccounts({ ...initialStore(), accounts: { ...codexAccountsFixture, codex: { ...codexAccountsFixture.codex!, accounts: [
+      codexAccountsFixture.codex!.accounts[0]!,
+      { ...codexAccountsFixture.codex!.accounts[1]!, auth: { loggedIn: false, email: null, plan: null, orgName: null, checkedAt: 1 }, loginRunning: true, login: { method: 'browser' } },
+    ] } } }, NOW);
+    const { onAction } = open(withCodex({ list: pending }));
+    expect(within(screen.getByRole('menu', { name: 'Codex のアカウント' })).queryByRole('menuitemradio', { name: /会社用/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '確認コードでログイン' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'account.login', agent: 'codex', accountId: 'cw', method: 'deviceCode' });
+    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'account.login.cancel', agent: 'codex', accountId: 'cw' });
+  });
+  it('取り消された札には、取り消しの文が出る', () => {
+    const cancelled = presentCodexAccounts({ ...initialStore(), accounts: { ...codexAccountsFixture, codex: { ...codexAccountsFixture.codex!, accounts: [
+      codexAccountsFixture.codex!.accounts[0]!,
+      { ...codexAccountsFixture.codex!.accounts[1]!, login: { method: 'browser', cancelledBy: '個人' } },
+    ] } } }, NOW);
+    open(withCodex({ list: cancelled }));
+    expect(screen.getByText('別のアカウントのログインを開始したため、取り消しました')).toBeInTheDocument();
+  });
+  it('codex の DTO が無ければ、従来の形（下の段に「アカウントを追加」、節の「＋」なし）', () => {
+    open(home());
+    expect(screen.getByRole('button', { name: 'アカウントを追加' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Codex のアカウントを追加' })).toBeNull();
+    expect(screen.queryByRole('menu', { name: 'Codex のアカウント' })).toBeNull();
   });
 });

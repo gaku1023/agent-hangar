@@ -2,10 +2,10 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AccountDto, AccountsDto } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
-import { presentAccounts } from '../presenters/accounts.ts';
+import { presentAccounts, presentCodexAccounts } from '../presenters/accounts.ts';
 import { ACCOUNT_COLORS, type SettingsProps } from '../presenters/settings.ts';
 import { initialStore } from '../store/store.ts';
-import { accountsFixture } from '../test/accounts.ts';
+import { accountsFixture, codexAccountsFixture } from '../test/accounts.ts';
 import { AccountSettings } from './AccountSettings.tsx';
 
 const NOW = new Date(2026, 9, 6, 12, 0).getTime();
@@ -281,3 +281,24 @@ describe('AccountSettings の追加', () => {
   });
 });
 
+
+describe('AccountSettings の Codex の一覧（agent="codex"）', () => {
+  const codexList = () => presentCodexAccounts({ ...initialStore(), home: '/Users/taro', accounts: codexAccountsFixture }, NOW);
+  const mountCodex = (list = codexList()) => {
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><AccountSettings agent="codex" list={list} colors={ACCOUNT_COLORS} /></ActionRoot>);
+    return onAction;
+  };
+  it('Codex の見出しとリードで、Codex のアカウントを並べる', () => {
+    mountCodex();
+    expect(screen.getByRole('heading', { name: 'Codex のアカウント' })).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem').map((li) => li.querySelector('.account-set-name')?.textContent)).toEqual(['個人', '会社用']);
+    fireEvent.click(screen.getByRole('button', { name: 'Codex のアカウントの説明' }));
+    expect(screen.getByRole('dialog', { name: 'Codex のアカウントの説明' })).toHaveTextContent('ログインだけを切り替えます。設定と会話の履歴は ~/.codex を共有します。hangar はログイン情報を読み取りません。');
+  });
+  it('操作は agent を付けて出す', () => {
+    const onAction = mountCodex();
+    choose('会社用', /再ログイン/);
+    expect(onAction.mock.calls.map((c) => c[0])).toContainEqual(expect.objectContaining({ type: 'account.login', accountId: 'cw', agent: 'codex' }));
+  });
+});

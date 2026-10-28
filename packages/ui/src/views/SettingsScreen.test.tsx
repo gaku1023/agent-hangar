@@ -3,12 +3,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { translator, type CompatDto, type SettingsDto, type UiAction, type SettingsSection } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
 import { initialState } from '../mediator/transition.ts';
-import { presentAccounts } from '../presenters/accounts.ts';
+import { presentAccounts, presentCodexAccounts } from '../presenters/accounts.ts';
 import { presentCompat } from '../presenters/compat.ts';
 import { presentInjection } from '../presenters/injection.ts';
 import { ACCOUNT_COLORS, presentSettings, type CloudSettingsProps, type SettingsProps } from '../presenters/settings.ts';
 import { initialStore } from '../store/store.ts';
-import { accountsFixture } from '../test/accounts.ts';
+import { accountsFixture, codexAccountsFixture } from '../test/accounts.ts';
 import { pick } from '../test/pick.ts';
 import { SettingsScreen } from './SettingsScreen.tsx';
 import { CopiedContext } from './primitives/CommandLine.tsx';
@@ -78,6 +78,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   save: {},
   todo: { must: 0, link: 0 },
   accounts: { list: presentAccounts({ ...initialStore(), accounts: accountsFixture }, Date.parse('2026-10-06T12:00:00+09:00')), colors: ACCOUNT_COLORS },
+  codexAccounts: { list: [], colors: ACCOUNT_COLORS },
   section: 'general',
   toc: tocOf(),
   language: { value: 'ja' },
@@ -554,6 +555,16 @@ describe('設定の連携', () => {
     const group = screen.getByRole('group', { name: /^Claude Code/ });
     expect(within(group).getByRole('heading', { level: 3, name: 'Claude Code のアカウント' })).toBeInTheDocument();
     expect(within(document.getElementById('settings-accounts')!).getAllByRole('listitem')).toHaveLength(1);
+  });
+  it('Codex の節に、Codex のアカウントの一覧が出る（A9）', () => {
+    const list = presentCodexAccounts({ ...initialStore(), accounts: codexAccountsFixture }, 0);
+    render(ui(at('agentCodex', { codexAccounts: { list, colors: ACCOUNT_COLORS } })));
+    expect(screen.getByRole('heading', { level: 3, name: 'Codex のアカウント' })).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem').map((li) => li.querySelector('.account-set-name')?.textContent).filter(Boolean)).toEqual(['個人', '会社用']);
+  });
+  it('Codex のアカウントが届いていなければ、Codex の節に一覧を出さない', () => {
+    render(ui(at('agentCodex')));
+    expect(screen.queryByRole('heading', { level: 3, name: 'Codex のアカウント' })).toBeNull();
   });
   it('アカウントがまだ届いていなければ、節を出さない', () => {
     render(ui(at('agentClaude', { accounts: { list: [], colors: ACCOUNT_COLORS } })));
