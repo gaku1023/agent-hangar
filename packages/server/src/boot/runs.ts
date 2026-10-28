@@ -32,6 +32,8 @@ import { accountOfProviderSession } from '../usage/accountOf.ts';
 import { AgentUsageTracker } from '../usage/agentUsage.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { createCodexUsage, type CodexUsage } from '../provider/codex/usage.ts';
+import { codexAccounts } from '../provider/codex/account.ts';
+import { CodexAccountAuth } from '../provider/codex/accountAuth.ts';
 import { defaultCodexHome } from '../provider/codex/transcript/discover.ts';
 import { touchRow } from '../db/notify.ts';
 import type { DeliveryParts } from './delivery.ts';
@@ -135,9 +137,9 @@ export function bootRuns(
   void localClaude.refreshVersion();
   // Claude Code のアカウント。置き場ごとのログインを切り替えるだけで、認証の中身は持たない。
   const accountStore = new AccountStore({ home: home.home, primaryDir: claudeDir });
-  // Codex のアカウント（CODEX_HOME ごと）。設定の codexEnabled が切なら作らない。Claude とは別のファイルに持つ。
+  // Codex のアカウント（CODEX_HOME ごと）。Claude とは別のファイルに持つ。設定の codexEnabled の入り切りは実行中に変わるので、store は常に作り、出すかどうかは都度 codexOn で決める。
   const codexPrimaryDir = defaultCodexHome();
-  const codexAccountStore = AGENT_ENTRY.codex.enabled(settings.current) ? new AccountStore({ home: home.home, primaryDir: codexPrimaryDir, file: 'codex-accounts.json', dirPrefix: '.codex-' }) : null;
+  const codexAccountStore = new AccountStore({ home: home.home, primaryDir: codexPrimaryDir, file: 'codex-accounts.json', dirPrefix: '.codex-' });
   const accountAuth = new AccountAuth({ claudeBin, compat: compatLog });
   // 認証は、画面がアカウントを読むとき（GET /api/accounts）にも読むが、組んだときにも裏で 1 回読んでおく。
   // 画面を開かずに起こした会話（スマホからの起動など）でも、--remote-control を付けてよいかを判定できるようにするためである。
@@ -157,7 +159,7 @@ export function bootRuns(
     live,
     // driver は配る層と一緒に組んである（boot/agents.ts）。
     agents: delivery.agents, claude: delivery.claude,
-    accounts: new RunAccounts({ db, claudeDir, store: accountStore, deviceId: device.id, ...(codexAccountStore ? { codex: { store: codexAccountStore, primaryDir: codexPrimaryDir } } : {}) }),
+    accounts: new RunAccounts({ db, claudeDir, store: accountStore, deviceId: device.id, codex: { store: codexAccountStore, primaryDir: codexPrimaryDir } }),
     compat: compatLog,
     // Claude に渡す指示とシェルタブの名前を、設定の言語で出す。
     language: home.language,
@@ -204,8 +206,13 @@ export function bootRuns(
   });
   const codexOn = (): boolean => AGENT_ENTRY.codex.enabled(settings.current);
   const agentUsage = new AgentUsageTracker({ enabled: codexOn });
+  const codexAuth = new CodexAccountAuth({ usage: agentUsage, log: (l) => console.error(l) });
   const codexUsage = createCodexUsage({
     db, tracker: agentUsage, enabled: codexOn, log: (l) => console.error(l),
+    // hangar の外の会話の枠は、読んだ chatgptAccountId の表で結ぶ。アカウントが最初の 1 つだけなら、まだ読んでいなくても最初のアカウントに付ける。
+    accountOfChatgptId: (id) => codexAuth.accountOfChatgptId(id) ?? (codexAccountStore.list().length === 1 ? PRIMARY_ACCOUNT_ID : null),
+    // 起こした会話は、そのときの CODEX_HOME から結ぶ。
+    accountOfCodexHome: (h) => (h === null ? PRIMARY_ACCOUNT_ID : codexAccountStore.byDir(h)?.id ?? null),
     // 会話の文脈とモデルが変わった。行は変わらないが中身が変わるので、名指しして配り直してもらう。
     onStats: (providerSessionId) => {
       const s = db.prepare("select id from sessions where provider = 'codex' and provider_session_id = ? and deleted_at is null").get(providerSessionId) as { id: string } | undefined;
@@ -216,10 +223,18 @@ export function bootRuns(
   delivery.bindCodexUsage(codexUsage);
   const accounts: AccountsDeps = {
     db, store: accountStore, auth: accountAuth, usage, agentUsage, runs, primaryDir: claudeDir, deviceId: device.id,
+    codex: { store: codexAccountStore, primaryDir: codexPrimaryDir, auth: codexAuth, service: codexAccounts, enabled: codexOn },
     broadcast: (dto) => hub.broadcast({ type: 'accounts.update', accounts: dto }),
   };
   // 認証を読み終えたとき、ログインが始まって終わったときに、画面へ配る。
   accountAuth.setOnChange(() => accounts.broadcast(buildAccountsDto(accounts)));
+  // Codex の認証を読み終えたとき、ログインの状態が変わったとき（成功したら読み直す）も同じ道で配る。
+  codexAuth.setOnChange(() => accounts.broadcast(buildAccountsDto(accounts)));
+  codexAccounts.onLoginChange((e) => {
+    accounts.broadcast(buildAccountsDto(accounts));
+    const a = e.state.status === 'success' ? codexAccountStore.get(e.accountId) : null;
+    if (a) void codexAuth.refresh(a);
+  });
   // Codex の枠が変わったときも、同じ道（accounts.update）で配る。
   agentUsage.onChange(() => accounts.broadcast(buildAccountsDto(accounts)));
   // 起動のたびに、セッションとアカウントの対応を配る。

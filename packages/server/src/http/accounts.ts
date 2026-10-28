@@ -10,10 +10,13 @@ import { sessionAccounts } from '../db/queries.ts';
 import { RunError, type RunManager } from '../runs/manager.ts';
 import type { AgentUsageTracker } from '../usage/agentUsage.ts';
 import type { UsageTracker } from '../usage/statusline.ts';
+import { buildCodexAccountsDto, codexAccountsRoutes, type CodexAccountsDeps } from './codexAccounts.ts';
 
 export type AccountsDeps = { db: Db; store: AccountStore; auth: AccountAuth; usage: UsageTracker;
   /** Claude 以外のエージェントの枠。渡せば AccountsDto.agents に載せる（無ければ載せない）。 */
-  agentUsage?: AgentUsageTracker; runs: Pick<RunManager, 'switchAccount'>; primaryDir: string; broadcast: (accounts: AccountsDto) => void;
+  agentUsage?: AgentUsageTracker;
+  /** Codex のアカウント（/api/codex/accounts と AccountsDto.codex）。渡さない、または enabled が偽なら、Codex のアカウントは出さない。 */
+  codex?: CodexAccountsDeps; runs: Pick<RunManager, 'switchAccount'>; primaryDir: string; broadcast: (accounts: AccountsDto) => void;
   /** この PC。渡せば、セッションのアカウントをこの PC の run だけから引く（db/queries.ts の sessionAccounts）。 */
   deviceId?: string;
   /** 起動の前に待つこと（他端末の変更の取り込み）。resume と同じ扱いにするため、app.ts が渡す。 */
@@ -54,13 +57,15 @@ export function buildAccountsDto(deps: AccountsDeps, opts: { checkLinks?: boolea
   const problemText = (p: LinkProblem): string | null => (p !== null && typeof p === 'object' ? render(language, p) : p);
   const sessions: Record<string, string> = {};
   for (const [sid, aid] of Object.entries(sessionAccounts(deps.db, deps.deviceId))) if (known.has(aid)) sessions[sid] = aid;
-  const agents = deps.agentUsage?.all();
+  const codex = buildCodexAccountsDto(deps, opts);
+  const agents = deps.agentUsage?.all(codex?.currentId);
   return {
     currentId: deps.store.current().id,
     accounts: list.map((a) => ({
       ...a, primary: a.id === PRIMARY_ACCOUNT_ID, auth: deps.auth.get(a.id), usage: deps.usage.of(a.id), loginRunning: deps.auth.loginRunning(a.id), linkProblem: problemText(memo.get(a.id) ?? null),
     })),
     sessions,
+    ...(codex ? { codex } : {}),
     ...(agents ? { agents } : {}),
   };
 }
@@ -94,9 +99,12 @@ export function accountsRoutes(api: Hono, deps: AccountsDeps): void {
     return a;
   };
 
+  codexAccountsRoutes(api, deps, changed);
+
   api.get('/accounts', (c) => {
     // まだ読んでいない認証は裏で読み、終わったら accounts.update で届く。応答は待たない。
     for (const a of deps.store.list()) deps.auth.ensureChecked(a);
+    if (deps.codex?.enabled()) for (const a of deps.codex.store.list()) deps.codex.auth.ensureChecked(a);
     return c.json(buildAccountsDto(deps, { checkLinks: true }));
   });
 
@@ -172,7 +180,9 @@ export function accountsRoutes(api: Hono, deps: AccountsDeps): void {
     await deps.beforeLaunch?.();
     const result = await deps.runs.switchAccount(c.req.param('id'), b.account);
     // セッション画面で選んだら、新しいセッションの既定もそのアカウントにする（設計書の決定）。
-    deps.store.setCurrent(b.account);
+    // Codex の会話は、switchAccount が Codex のいまのアカウントを変え済みである。Claude 側は変えない。
+    const provider = (deps.db.prepare('select provider from sessions where id = ?').get(c.req.param('id')) as { provider: string } | undefined)?.provider;
+    if (provider !== 'codex') deps.store.setCurrent(b.account);
     changed();
     return c.json(result as object, 201);
   }));

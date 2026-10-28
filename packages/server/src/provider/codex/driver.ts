@@ -74,7 +74,7 @@ export type CodexDriver = AgentDriver & {
   onServe(cb: (e: CodexServeEvent) => void): () => void;
 };
 
-type Served = CodexServed & { server: AppServerProcess; turnId: string | null; offs: (() => void)[]; cancelWatch: (() => void) | null; /** 起こしたときに指定したモデル（使用量の記録用）。 */ model?: string };
+type Served = CodexServed & { server: AppServerProcess; turnId: string | null; offs: (() => void)[]; cancelWatch: (() => void) | null; /** 起こしたときに指定したモデル（使用量の記録用）。 */ model?: string; /** 起こしたときの CODEX_HOME（最初のアカウントは無し）。使用量をアカウントに結ぶ。 */ codexHome?: string };
 
 /** 上限までに終わらなければ、待つのをやめて true を返す（interrupt が返らなくても止める）。 */
 function withTimeout(p: Promise<boolean>, ms: number): Promise<boolean> {
@@ -106,7 +106,7 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
   function trackLive(s: Served, subscribed: boolean): void {
     if (!s.rpc || !s.threadId) return;
     deps.live?.track?.({ providerSessionId: s.threadId, cwd: s.cwd, pid: s.pid, rpc: s.rpc, subscribed });
-    deps.usage?.()?.track({ providerSessionId: s.threadId, rpc: s.rpc, model: s.model ?? null });
+    deps.usage?.()?.track({ providerSessionId: s.threadId, rpc: s.rpc, model: s.model ?? null, codexHome: s.codexHome ?? null });
   }
   function untrackLive(s: Served): void {
     if (s.threadId) { deps.live?.untrack?.(s.threadId); deps.usage?.()?.untrack(s.threadId); }
@@ -175,7 +175,7 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
     });
     const s: Served = {
       sessionId: spec.hangarSessionId, cwd: spec.cwd, pid: handle.server.pid, url: handle.server.url, token: handle.server.token,
-      rpc: handle.rpc, threadId: null, server: handle.server, turnId: null, offs: [], cancelWatch: null, ...(spec.model?.trim() ? { model: spec.model.trim() } : {}),
+      rpc: handle.rpc, threadId: null, server: handle.server, turnId: null, offs: [], cancelWatch: null, ...(spec.model?.trim() ? { model: spec.model.trim() } : {}), ...(spec.env.CODEX_HOME?.trim() ? { codexHome: spec.env.CODEX_HOME.trim() } : {}),
     };
     served.set(s.sessionId, s);
     const record = (): void => { registry.set({ sessionId: s.sessionId, pid: s.pid, port: handle.server.port, tokenFile: handle.server.tokenFile, startedAt: handle.server.startedAt, cwd: s.cwd, ...(s.threadId ? { threadId: s.threadId } : {}) }); };

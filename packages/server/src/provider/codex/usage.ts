@@ -98,6 +98,8 @@ export type CodexUsageTarget = {
   model?: string | null;
   /** この会話のアカウントの id。渡されなければ最初のアカウント。 */
   accountId?: string;
+  /** 起こしたときの CODEX_HOME（最初のアカウントは null）。accountId が無いとき、accountOfCodexHome でアカウントに引く。 */
+  codexHome?: string | null;
 };
 
 export type CodexUsageOptions = {
@@ -111,6 +113,8 @@ export type CodexUsageOptions = {
   log?: (line: string) => void;
   /** chatgptAccountId からアカウントの id を引く表。無ければ（アカウントが 1 つ）、外の会話の枠は最初のアカウントに付ける。引けなければ null。 */
   accountOfChatgptId?: (chatgptAccountId: string) => string | null;
+  /** CODEX_HOME（最初のアカウントは null）からアカウントの id を引く。無ければ、アカウントを渡されない会話は最初のアカウントである。 */
+  accountOfCodexHome?: (codexHome: string | null) => string | null;
 };
 
 export type CodexUsage = {
@@ -152,7 +156,7 @@ export function createCodexUsage(o: CodexUsageOptions): CodexUsage {
       if (!enabled() || t.rpc.isClosed) return;
       release(t.providerSessionId);
       const id = t.providerSessionId;
-      const accountId = t.accountId ?? PRIMARY_ACCOUNT_ID;
+      const accountId = t.accountId ?? o.accountOfCodexHome?.(t.codexHome ?? null) ?? PRIMARY_ACCOUNT_ID;
       const on = t.rpc.onAny((n: CodexNotification) => {
         if (!enabled()) return;
         if (n.method === 'account/rateLimits/updated') {

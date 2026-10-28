@@ -14,6 +14,7 @@ type Extras = Pick<
   | 'retention' | 'retentionPreview' | 'writeRetention'
   | 'renameProject' | 'live' | 'sessionFiles' | 'gitSessions' | 'sessionChanges' | 'sessionDiff' | 'sessionEdits' | 'projectGit' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'previewAccountDir' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
+  | 'codexAccounts' | 'setCurrentCodexAccount' | 'addCodexAccount' | 'previewCodexAccountDir' | 'updateCodexAccount' | 'removeCodexAccount' | 'loginCodexAccount' | 'cancelCodexAccountLogin' | 'refreshCodexAccount'
   | 'dismissInterrupted' | 'dismissOverlap'
 >;
 
@@ -168,5 +169,15 @@ export function fakeApiExtras(): Extras {
     loginAccount: vi.fn(async () => undefined),
     cancelAccountLogin: vi.fn(async () => accountsFixture),
     refreshAccount: vi.fn(async () => accountsFixture),
+    // Codex のアカウント（画面は U1 以降）。
+    codexAccounts: vi.fn(async () => ({ currentId: 'primary', accounts: [], sessions: {} })),
+    setCurrentCodexAccount: vi.fn(async () => accountsFixture),
+    addCodexAccount: vi.fn(async () => accountsFixture),
+    previewCodexAccountDir: vi.fn(async (name: string, dir: string) => ({ name, input: dir, dir: dir || `/Users/me/.codex-${name}`, suggested: dir === '', exists: false, conflicts: [], registeredAs: null })),
+    updateCodexAccount: vi.fn(async () => accountsFixture),
+    removeCodexAccount: vi.fn(async () => accountsFixture),
+    loginCodexAccount: vi.fn(async () => undefined),
+    cancelCodexAccountLogin: vi.fn(async () => accountsFixture),
+    refreshCodexAccount: vi.fn(async () => accountsFixture),
   };
 }

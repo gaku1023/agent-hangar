@@ -1,4 +1,5 @@
 import os from 'node:os';
+import type { AccountAuthDto, AccountDto } from '@agent-hangar/shared';
 import { spawn } from 'node:child_process';
 import { openTargetCommand } from '../../platform/browser.ts';
 import { findCodex } from '../../config/tools.ts';
@@ -12,17 +13,14 @@ import { codexRateLimitsOf } from './usage.ts';
  * Codex のアカウントの読み取りとログイン（計画の S2）。
  * 置き場（CODEX_HOME）ごとに短命の app-server を起こし、`account/read` などを読んで止める。
  * 最初のアカウントは dir が null で、CODEX_HOME を渡さない（~/.codex のまま）。
- * S5 で shared の型に寄せる（ここの型は account.ts の中だけのもの）。
+ * 読み取りの形とログインの方法は shared の型（AccountAuthDto、AccountDto.login）に寄せてある。
  */
 
-export type CodexAccountRead = {
-  loggedIn: boolean;
-  email: string | null;
-  plan: string | null;
+export type CodexAccountRead = Pick<AccountAuthDto, 'loggedIn' | 'email' | 'plan'> & {
   chatgptAccountId: string | null;
 };
 
-export type CodexLoginMethod = 'browser' | 'deviceCode';
+export type CodexLoginMethod = NonNullable<AccountDto['login']>['method'];
 
 export type CodexLoginState =
   | { status: 'starting' }

@@ -186,6 +186,16 @@ describe('CodexUsage（接続の通知から枠と会話の値を取る）', () 
     expect(tracker.of('codex', 'work')?.fiveHour?.usedPercent).toBe(33);
     expect(tracker.of('codex')).toBeNull();
   });
+  it('accountId が無ければ、起こしたときの CODEX_HOME からアカウントを引く（null は最初のアカウント）', async () => {
+    const tracker = new AgentUsageTracker({ now: () => 1793000000000 });
+    const usage = createCodexUsage({ db: openDb(':memory:'), tracker, now: () => 1793000000000, accountOfCodexHome: (h) => (h === null ? 'primary' : h === '/h/.codex-2' ? 'work' : null) });
+    const r = new Stub();
+    usage.track({ providerSessionId: 'tA', rpc: asRpc(r), codexHome: '/h/.codex-2' });
+    await tick();
+    r.emit('account/rateLimits/updated', { rateLimits: { limitId: 'codex', primary: { usedPercent: 44, windowDurationMins: 300, resetsAt: 1793040104 } } });
+    expect(tracker.of('codex', 'work')?.fiveHour?.usedPercent).toBe(44);
+    expect(tracker.of('codex')).toBeNull();
+  });
   it('外の rollout は creator_account_id で振り、表にあって引けなければ捨てる', () => {
     const tracker = new AgentUsageTracker({ now: () => 1793000000000 });
     const table = new Map([['cg-1', 'primary'], ['cg-2', 'work']]);
