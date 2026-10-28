@@ -529,7 +529,7 @@ export class RunManager {
     // その置き場が登録済みならそのアカウントとして、未登録なら何も記録しない。呼び手が別のアカウントを渡していても、実際に動く置き場に合わせる。
     const own = o.env?.CLAUDE_CONFIG_DIR;
     const account = own ? this.accounts.byDir(own) : o.account ?? null;
-    const env = { ...this.accounts.envFor(own ? null : account), ...o.env };
+    const env = { ...this.accounts.envFor(own ? null : account, agent), ...o.env };
     const params: LaunchParams = account ? { ...o.params, account: account.id } : o.params;
     const runId = newId();
     const tmuxName = `hangar-${runTmuxId(runId)}`;
@@ -736,6 +736,9 @@ export class RunManager {
     const bad = claudeOnly.find(([, v]) => v);
     if (bad) throw new RunError(400, agentMsg.optionUnsupported(agent, bad[0]));
     const bin = this.agentBin(agent);
+    // アカウントとリンクは、app-server を起こす前（行を作る前）に確かめる。知らないアカウントや壊れたリンクで、何も残さず断る。
+    const account = this.accounts.resolve(params.account, agent);
+    const accountEnv = this.accounts.envFor(account, agent);
     if (params.scratch && !from) this.startPanes();
     const target = from ? null : this.startTarget(params);
     const cwd = from ? from.cwd : target!.cwd;
@@ -755,7 +758,7 @@ export class RunManager {
     const prep = from ? null : this.deps.preps?.begin(params.prepKey) ?? null;
     try {
       base = this.baseInput(sessionId, projectId, cwd, params, undefined, undefined, agent);
-      const r = await driver.launch.materialize({ kind: 'start' }, { ...base, env: {}, ...(prep ? { prep: { run: prep, choice: prepChoiceOf(params.prepChoice) } } : {}) });
+      const r = await driver.launch.materialize({ kind: 'start' }, { ...base, env: accountEnv, ...(prep ? { prep: { run: prep, choice: prepChoiceOf(params.prepChoice) } } : {}) });
       prep?.finish();
       if (!r?.providerSessionId) throw new Error(`agent ${agent} did not return a session id`);
       providerSessionId = r.providerSessionId;
@@ -770,7 +773,7 @@ export class RunManager {
       throw this.prepError(prep, e, agent);
     }
     try {
-      return this.launch({ sessionId, cwd, kind: 'start', agent, plan: (env) => driver.launch.plan(bin, { kind: 'start', id: providerSessionId }, { ...base, env }), params: { ...withoutPrep(params), agent, ...(from && projectId ? { projectId } : {}) } });
+      return this.launch({ sessionId, cwd, kind: 'start', agent, plan: (env) => driver.launch.plan(bin, { kind: 'start', id: providerSessionId }, { ...base, env }), params: { ...withoutPrep(params), agent, ...(from && projectId ? { projectId } : {}) }, account });
     } catch (e) {
       await Promise.resolve(driver.launch.release({ sessionId, providerSessionId, cwd }, 'killed')).catch(() => false);
       discard();
@@ -942,7 +945,7 @@ export class RunManager {
   async resumeWith(sessionId: string, o: { stray?: ResumeStray; prepKey?: string; account?: string } = {}): Promise<LaunchResult> {
     const target = this.session(sessionId);
     // hangar からの再開は、新しい起動と同じく接続先の準備を走らせる。進みは prepKey の鍵で配る（無ければ hangar が鍵を作る）。
-    if (this.agentOf(target).launch.materialize) return this.resumeMaterialized(target, {}, { key: o.prepKey });
+    if (this.agentOf(target).launch.materialize) return this.resumeMaterialized(target, o.account !== undefined ? { account: o.account } : {}, { key: o.prepKey });
     if (o.stray !== 'stop') return this.resume(sessionId, { stray: o.stray, ...(o.account !== undefined ? { account: o.account } : {}) });
     const s = this.session(sessionId);
     this.assertCan(s, 'resume');
@@ -963,7 +966,7 @@ export class RunManager {
    * 失敗したら serve を止め、秘密を無効にして 400 で断る。会話の行は消さない。
    * prep を渡されたら（hangar の画面、スマホ、同期の再開）、起動前の準備（接続先の準備のコマンド）を走らせる。外のターミナルからの再開は渡さない。
    */
-  private async resumeMaterialized(s: SessionRow, extra: { prompt?: string; autoApprove?: boolean; model?: string; effort?: string; permissionMode?: string } = {}, prepOf: { key?: string } | null = null): Promise<LaunchResult> {
+  private async resumeMaterialized(s: SessionRow, extra: { prompt?: string; autoApprove?: boolean; model?: string; effort?: string; permissionMode?: string; account?: string } = {}, prepOf: { key?: string } | null = null): Promise<LaunchResult> {
     const driver = this.agentOf(s);
     const agent = driver.kind;
     if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, agentMsg.disabled(agent));
@@ -973,6 +976,9 @@ export class RunManager {
     // serve と会話の場所が要るので、ほかの PC のクイックセッションのフォルダは下ごしらえの前に作る。
     this.precheck(cwd, { agent, create: createsFolder });
     const id = s.provider_session_id;
+    // 指定が無ければ最後に動かしたアカウント。リンクの確かめは app-server を起こす前に済ませる。
+    const account = extra.account !== undefined ? this.accounts.resolve(extra.account, agent) : this.accounts.lastUsed(s.id, agent);
+    const accountEnv = this.accounts.envFor(account, agent);
     const fail = async (e: unknown): Promise<never> => {
       await Promise.resolve(driver.launch.release({ sessionId: s.id, providerSessionId: id, cwd }, 'killed')).catch(() => false);
       revokeMcpSecret(this.db, s.id);
@@ -983,13 +989,13 @@ export class RunManager {
     const prep = prepOf ? this.deps.preps?.begin(prepOf.key) ?? null : null;
     try {
       base = this.baseInput(s.id, s.project_id, cwd, extra, s.id, undefined, agent);
-      await driver.launch.materialize!({ kind: 'resume', id }, { ...base, env: {}, ...(prep ? { prep: { run: prep, choice: {} } } : {}) });
+      await driver.launch.materialize!({ kind: 'resume', id }, { ...base, env: accountEnv, ...(prep ? { prep: { run: prep, choice: {} } } : {}) });
       prep?.finish();
     } catch (e) {
       return fail(this.prepError(prep, e, agent));
     }
     try {
-      return this.launch({ sessionId: s.id, cwd, kind: 'resume', agent, plan: (env) => driver.launch.plan(bin, { kind: 'resume', id }, { ...base, env }), params: { projectId: s.project_id ?? undefined, agent, ...(extra.autoApprove ? { autoApprove: true } : {}) } });
+      return this.launch({ sessionId: s.id, cwd, kind: 'resume', agent, plan: (env) => driver.launch.plan(bin, { kind: 'resume', id }, { ...base, env }), params: { projectId: s.project_id ?? undefined, agent, ...(extra.autoApprove ? { autoApprove: true } : {}) }, account });
     } catch (e) {
       return fail(e);
     }
@@ -1169,6 +1175,9 @@ export class RunManager {
     const agent = driver.kind;
     if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, agentMsg.disabled(agent));
     const bin = this.agentBin(agent);
+    // フォークは元の会話を最後に動かしたアカウントで起こす。リンクの確かめは行を作る前に済ませる。
+    const account = this.accounts.lastUsed(s.id, agent);
+    const accountEnv = this.accounts.envFor(account, agent);
     const { path: cwd, createsFolder } = this.cwdFor(s);
     this.precheck(cwd, { agent, create: createsFolder });
     const newSessionId = newId();
@@ -1185,7 +1194,7 @@ export class RunManager {
     let base: Omit<LaunchSpec, 'env'>;
     try {
       base = this.baseInput(newSessionId, s.project_id, cwd, {}, s.id, undefined, agent);
-      const r = await driver.launch.materialize!({ kind: 'fork', id: s.provider_session_id, newId: '' }, { ...base, env: {} });
+      const r = await driver.launch.materialize!({ kind: 'fork', id: s.provider_session_id, newId: '' }, { ...base, env: accountEnv });
       if (!r?.providerSessionId) throw new Error(`agent ${agent} did not return a session id`);
       providerSessionId = r.providerSessionId;
       const cur = this.db.prepare('select * from sessions where id = ?').get(newSessionId) as Record<string, unknown>;
@@ -1197,7 +1206,7 @@ export class RunManager {
       throw e instanceof RunError ? e : new RunError(400, agentMsg.launchFailed(agent, this.safeError(e)));
     }
     try {
-      return this.launch({ sessionId: newSessionId, cwd, kind: 'fork', agent, plan: (env) => driver.launch.plan(bin, { kind: 'fork', id: s.provider_session_id, newId: providerSessionId }, { ...base, env }), params: { projectId: s.project_id ?? undefined, agent } });
+      return this.launch({ sessionId: newSessionId, cwd, kind: 'fork', agent, plan: (env) => driver.launch.plan(bin, { kind: 'fork', id: s.provider_session_id, newId: providerSessionId }, { ...base, env }), params: { projectId: s.project_id ?? undefined, agent }, account });
     } catch (e) {
       await Promise.resolve(driver.launch.release({ sessionId: newSessionId, providerSessionId, cwd }, 'killed')).catch(() => false);
       discard();
@@ -1217,12 +1226,13 @@ export class RunManager {
       hasBody: (id) => this.hasBody(id),
       // 共有の行の cwd ではなく、再開に使う cwd（ほかの PC のパスをこの PC へ読み替えた後）で確かめる。
       // ほかの PC のクイックセッションのフォルダがまだ無ければ、ここでは作らず、再開（launch）が確かめの後に作る。
-      precheck: (id) => { const t = this.cwdFor(this.session(id)); this.precheck(t.path, { mayCreate: t.createsFolder }); },
+      precheck: (id) => { const s = this.session(id); const t = this.cwdFor(s); this.precheck(t.path, { mayCreate: t.createsFolder, agent: s.provider as AgentKind }); },
       isBackground: (providerSessionId) => !!this.liveOf(providerSessionId)?.background,
       isLive: (providerSessionId) => !!this.deps.live?.isLive(providerSessionId),
       aliveRun: (id) => aliveRunForSession(this.db, id, this.deps.deviceId, this.now()),
       kill: (runId) => { this.kill(runId); },
-      resume: (id, extra) => this.resume(id, extra),
+      // Codex など下ごしらえの要る会話は非同期の再開（app-server を起こし直す）、Claude は同期の再開。
+      resume: (id, extra) => (this.agentOf(this.session(id)).launch.materialize ? this.resumeMaterialized(this.session(id), extra) : this.resume(id, extra)),
       sleep: this.deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))),
     }, sessionId, accountId);
   }

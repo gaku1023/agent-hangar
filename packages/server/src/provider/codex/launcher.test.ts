@@ -76,6 +76,12 @@ describe('TUI の argv と環境', () => {
     expect(p.env).toEqual({});
     expect(p.unset).toEqual(expect.arrayContaining(['HANGAR_X', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME']));
   });
+  it('選んだアカウントの CODEX_HOME は効かせる（unset から外し、env に足す）。最初のアカウントでは外す', () => {
+    const p = planCodex('/bin/codex', { kind: 'start', id: 'pending:x' }, spec({ env: { CODEX_HOME: '/h/.codex-b' } }), remote, []);
+    expect(p.env).toEqual({ CODEX_HOME: '/h/.codex-b' });
+    expect(p.unset).not.toContain('CODEX_HOME');
+    expect(p.unset).toContain('CLAUDE_CONFIG_DIR');
+  });
   it('再開は resume <ID>、フォークは新しい ID を resume でつなぐ。ID の無い（pending:）ものは、分かる断りにする', () => {
     expect(planCodex('/bin/codex', { kind: 'resume', id: 'a' }, spec(), remote, []).argv.slice(-2)).toEqual(['resume', 'a']);
     expect(planCodex('/bin/codex', { kind: 'fork', id: 'a', newId: 'b' }, spec(), remote, []).argv.slice(-2)).toEqual(['resume', 'b']);

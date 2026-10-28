@@ -171,7 +171,7 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
     const handle = await launchCodexAppServer({
       bin, directory: spec.cwd, config, tokenDir, queue: deps.queue,
       // 空の環境に、この run だけの MCP の秘密を足す。argv にも設定にも載せない。
-      env: { ...codexBaseEnv(bin), [MCP_TOKEN_ENV]: spec.mcp.secret },
+      env: { ...codexBaseEnv(bin), ...(spec.env.CODEX_HOME?.trim() ? { CODEX_HOME: spec.env.CODEX_HOME.trim() } : {}), [MCP_TOKEN_ENV]: spec.mcp.secret },
     });
     const s: Served = {
       sessionId: spec.hangarSessionId, cwd: spec.cwd, pid: handle.server.pid, url: handle.server.url, token: handle.server.token,
@@ -333,8 +333,8 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
 
   return {
     kind: 'codex',
-    // アカウントは効かせない（決定 9）。推論と権限の 3 段は持つ。フォークは driver が thread/fork まで持ち、RunManager.fork の materialize の道（B3c）で受ける。外の会話の引き取りは E 段。
-    caps: { accounts: false, effort: true, permissionMode: true, remoteControl: false, fork: true, attachExternal: false, promptJump: false },
+    // アカウントは CODEX_HOME で分ける。推論と権限の 3 段は持つ。フォークは driver が thread/fork まで持ち、RunManager.fork の materialize の道（B3c）で受ける。外の会話の引き取りは E 段。
+    caps: { accounts: true, effort: true, permissionMode: true, remoteControl: false, fork: true, attachExternal: false, promptJump: false },
     launch: {
       // TUI は hangar が起こした app-server につなぐ。run の pid は TUI の包みで、RunManager は包みの生死で TUI の終わりを見る。
       servedByHangar: true,
