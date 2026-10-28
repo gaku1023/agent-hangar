@@ -76,6 +76,16 @@ describe('claudeMcpServers', () => {
     const all = run({ mcpJson, claudeJson: { projects: { [cwd]: { enableAllProjectMcpServers: true, disabledMcpjsonServers: ['off'] } } } });
     expect(all.map((s) => [s.name, s.skipped])).toEqual([['ok', undefined], ['no', undefined], ['off', 'disabled']]);
   });
+  it('承認は settings の鍵も見る。どれかで有効なら承認、無効の指定が勝つ', () => {
+    const mcpJson = { mcpServers: { a: { command: 'a' }, b: { command: 'b' }, c: { command: 'c' }, d: { command: 'd' } } };
+    const r = claudeMcpServers({ cwd, claudeJson: {}, mcpJson, env: {}, settings: [{ enabledMcpjsonServers: ['a', 'c'] }, { enabledMcpjsonServers: ['b'], disabledMcpjsonServers: ['c'] }] });
+    expect(r.map((s) => [s.name, s.skipped])).toEqual([['a', undefined], ['b', undefined], ['c', 'disabled'], ['d', 'unapproved']]);
+    const all = claudeMcpServers({ cwd, claudeJson: {}, mcpJson, env: {}, settings: [{ enableAllProjectMcpServers: true }, { disabledMcpjsonServers: ['d'] }] });
+    expect(all.map((s) => [s.name, s.skipped])).toEqual([['a', undefined], ['b', undefined], ['c', undefined], ['d', 'disabled']]);
+    // .claude.json の側と settings の側は合わせて判定する。
+    const mixed = claudeMcpServers({ cwd, claudeJson: { projects: { [cwd]: { enabledMcpjsonServers: ['a'] } } }, mcpJson, env: {}, settings: [{ enabledMcpjsonServers: ['b'] }, 'x', null] });
+    expect(mixed.map((s) => [s.name, s.skipped])).toEqual([['a', undefined], ['b', undefined], ['c', 'unapproved'], ['d', 'unapproved']]);
+  });
   it('Claude で切った（disabledMcpServers）ものは skipped: disabled', () => {
     const r = run({ claudeJson: { mcpServers: { a: { command: 'x' }, b: { command: 'y' } }, projects: { [cwd]: { disabledMcpServers: ['a'] } } } });
     expect(r.map((s) => [s.name, s.skipped])).toEqual([['a', 'disabled'], ['b', undefined]]);
@@ -129,6 +139,17 @@ describe('readShareSources', () => {
     const r = readShareSources({ cwd, claudeDir, homeDir: home, claudeJsonPath: path.join(home, '.claude.json'), env: {} });
     expect(r.instructions.map((f) => [f.scope, f.text])).toEqual([['user', 'user body'], ['project', 'repo body']]);
     expect(r.mcp.map((s) => [s.name, s.source])).toEqual([['p', 'project'], ['u', 'user']]);
+  });
+  it('.mcp.json の承認を、設定フォルダ、作業フォルダの .claude/settings.json と settings.local.json から読む', () => {
+    const home = path.join(root, 'home');
+    const claudeDir = path.join(home, '.claude');
+    const cwd = path.join(home, 'ws', 'repo');
+    put(path.join(cwd, '.mcp.json'), JSON.stringify({ mcpServers: { a: { command: 'a' }, b: { command: 'b' }, c: { command: 'c' }, d: { command: 'd' } } }));
+    put(path.join(claudeDir, 'settings.json'), JSON.stringify({ enabledMcpjsonServers: ['a'] }));
+    put(path.join(cwd, '.claude', 'settings.json'), JSON.stringify({ enabledMcpjsonServers: ['b', 'd'] }));
+    put(path.join(cwd, '.claude', 'settings.local.json'), JSON.stringify({ enabledMcpjsonServers: ['c'], disabledMcpjsonServers: ['d'] }));
+    const r = readShareSources({ cwd, claudeDir, homeDir: home, claudeJsonPath: path.join(home, '.claude.json'), env: {} });
+    expect(r.mcp.map((s) => [s.name, s.skipped])).toEqual([['a', undefined], ['b', undefined], ['c', undefined], ['d', 'disabled']]);
   });
   it('ファイルが無い、壊れているときは空で返し、投げない', () => {
     const cwd = path.join(root, 'w');

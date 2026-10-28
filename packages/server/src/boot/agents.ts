@@ -1,6 +1,6 @@
 import os from 'node:os';
 import { agentsOf, type Agents } from '../agent/agents.ts';
-import { localContextOf, opencodePermissionPresetOf, opencodeShareOf, providerPrepsOf, type LiveSessionDto } from '@agent-hangar/shared';
+import { codexShareOf, localContextOf, opencodePermissionPresetOf, opencodeShareOf, providerPrepsOf, type LiveSessionDto } from '@agent-hangar/shared';
 import { RUN_DROPPED_ENV, AGENT_RUN_DROPPED_ENV } from '../launch/env.ts';
 import { ensureHookScript } from '../launch/hookScript.ts';
 import { remoteRoot } from '../config/cloud.ts';
@@ -127,6 +127,8 @@ export function bootAgents(
     live: codexSurface.live,
     asks: codexSurface.asks,
     usage: () => codexUsage,
+    // Claude Code の指示と MCP の登録を渡すか。起こすたびに今の設定を読む。
+    share: () => codexShareOf(home.settings.current),
   });
   return { agents: agentsOf([claude, opencode, codex]), claude, opencode, codex, bindOpencodeServes: (s) => { serves = s; }, bindCodexUsage: (u) => { codexUsage = u; } };
 }

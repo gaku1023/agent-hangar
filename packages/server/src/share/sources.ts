@@ -148,6 +148,8 @@ export type ClaudeMcpOptions = {
   env: Record<string, string | undefined>;
   /** 作業フォルダの実体のパス。.claude.json の projects の鍵が実体で書かれているときのため。 */
   cwdReal?: string;
+  /** .mcp.json の承認の鍵（enableAllProjectMcpServers、enabledMcpjsonServers、disabledMcpjsonServers）を持つ settings の値。設定フォルダの settings.json と、作業フォルダの .claude/settings.json、settings.local.json。 */
+  settings?: unknown[];
 };
 
 const NAMES = (v: unknown): string[] => strList(v) ?? [];
@@ -167,7 +169,14 @@ export function claudeMcpServers(o: ClaudeMcpOptions): ShareMcp[] {
   const disabled = new Set(NAMES(proj.disabledMcpServers));
   const enabledJson = new Set(NAMES(proj.enabledMcpjsonServers));
   const disabledJson = new Set(NAMES(proj.disabledMcpjsonServers));
-  const enableAll = proj.enableAllProjectMcpServers === true;
+  let enableAll = proj.enableAllProjectMcpServers === true;
+  // 承認は、.claude.json の projects 側と settings の側を合わせて判定する。どれかで有効なら承認、無効の指定が勝つ。
+  for (const st of o.settings ?? []) {
+    if (!isObj(st)) continue;
+    if (st.enableAllProjectMcpServers === true) enableAll = true;
+    for (const n of NAMES(st.enabledMcpjsonServers)) enabledJson.add(n);
+    for (const n of NAMES(st.disabledMcpjsonServers)) disabledJson.add(n);
+  }
 
   const groups: { source: ShareMcp['source']; servers: Obj }[] = [
     { source: 'local', servers: isObj(proj.mcpServers) ? proj.mcpServers : {} },
@@ -229,6 +238,7 @@ export function readShareSources(o: ShareSourcesOptions): ShareSources {
   const instructions = instructionSources({ cwd: o.cwd, claudeDir: o.claudeDir, homeDir: o.homeDir, exists: isFile }).map((f) => ({ ...f, text: f.skipped ? null : readText(f.path) }));
   let cwdReal: string | undefined;
   try { cwdReal = fs.realpathSync.native(o.cwd); } catch { cwdReal = undefined; }
-  const mcp = claudeMcpServers({ cwd: o.cwd, ...(cwdReal ? { cwdReal } : {}), claudeJson: readJsonFile(o.claudeJsonPath), mcpJson: readJsonFile(path.join(o.cwd, '.mcp.json')), env: o.env });
+  const settings = [path.join(o.claudeDir, 'settings.json'), path.join(o.cwd, '.claude', 'settings.json'), path.join(o.cwd, '.claude', 'settings.local.json')].map(readJsonFile);
+  const mcp = claudeMcpServers({ cwd: o.cwd, ...(cwdReal ? { cwdReal } : {}), claudeJson: readJsonFile(o.claudeJsonPath), mcpJson: readJsonFile(path.join(o.cwd, '.mcp.json')), env: o.env, settings });
   return { instructions, mcp };
 }
