@@ -177,4 +177,24 @@ describe('CodexUsage（接続の通知から枠と会話の値を取る）', () 
     usage.noteRolloutRateLimits(rl(10), '2026-10-27T01:00:00.000Z');
     expect(tracker.of('codex')?.fiveHour?.usedPercent).toBe(50);
   });
+  it('hangar が起こした会話の枠は、その会話のアカウントに付く（渡されなければ primary）', async () => {
+    const { tracker, usage } = setup();
+    const r = new Stub();
+    usage.track({ providerSessionId: 'tA', rpc: asRpc(r), accountId: 'work' });
+    await tick();
+    r.emit('account/rateLimits/updated', { rateLimits: { limitId: 'codex', primary: { usedPercent: 33, windowDurationMins: 300, resetsAt: 1793040104 } } });
+    expect(tracker.of('codex', 'work')?.fiveHour?.usedPercent).toBe(33);
+    expect(tracker.of('codex')).toBeNull();
+  });
+  it('外の rollout は creator_account_id で振り、表にあって引けなければ捨てる', () => {
+    const tracker = new AgentUsageTracker({ now: () => 1793000000000 });
+    const table = new Map([['cg-1', 'primary'], ['cg-2', 'work']]);
+    const usage = createCodexUsage({ db: openDb(':memory:'), tracker, now: () => 1793000000000, accountOfChatgptId: (c) => table.get(c) ?? null });
+    const rl = (u: number) => ({ rate_limits: { primary: { used_percent: u, window_minutes: 300, resets_at: 1793040104 } } });
+    usage.noteRolloutRateLimits(rl(20), '2026-10-27T02:00:00.000Z', 'cg-2');
+    usage.noteRolloutRateLimits(rl(90), '2026-10-27T02:00:00.000Z', 'cg-x');
+    usage.noteRolloutRateLimits(rl(91), '2026-10-27T02:00:00.000Z', null);
+    expect(tracker.of('codex', 'work')?.fiveHour?.usedPercent).toBe(20);
+    expect(tracker.of('codex')).toBeNull();
+  });
 });

@@ -1,7 +1,7 @@
 import type { RateWindowDto } from '@agent-hangar/shared';
 import type { Db } from '../../db/open.ts';
 import { resetsAtMs } from '../claude-code/compat/statusline.ts';
-import type { AgentUsageTracker, AgentWindows } from '../../usage/agentUsage.ts';
+import { PRIMARY_ACCOUNT_ID, type AgentUsageTracker, type AgentWindows } from '../../usage/agentUsage.ts';
 import type { CodexNotification, CodexRpc } from './appServer.ts';
 
 /**
@@ -96,6 +96,8 @@ export type CodexUsageTarget = {
   rpc: CodexUsageRpc;
   /** 会話のモデル（thread/start の応答など、起こした側が知っているもの）。session_live_stats の model に書く。 */
   model?: string | null;
+  /** この会話のアカウントの id。渡されなければ最初のアカウント。 */
+  accountId?: string;
 };
 
 export type CodexUsageOptions = {
@@ -107,14 +109,16 @@ export type CodexUsageOptions = {
   onStats?: (providerSessionId: string) => void;
   now?: () => number;
   log?: (line: string) => void;
+  /** chatgptAccountId からアカウントの id を引く表。無ければ（アカウントが 1 つ）、外の会話の枠は最初のアカウントに付ける。引けなければ null。 */
+  accountOfChatgptId?: (chatgptAccountId: string) => string | null;
 };
 
 export type CodexUsage = {
   /** 会話の接続を読み始める。枠は account/rateLimits/read を 1 回読み、通知で重ねる。 */
   track(t: CodexUsageTarget): void;
   untrack(providerSessionId: string): void;
-  /** 外の会話の rollout の枠を入れる（B5 の meta rate_limits の value と ts）。 */
-  noteRolloutRateLimits(value: unknown, ts: unknown): void;
+  /** 外の会話の rollout の枠を入れる（B5 の meta rate_limits の value と ts）。creatorAccountId は rollout の session_meta.creator_account_id。表があるとき、引けなければ捨てる。 */
+  noteRolloutRateLimits(value: unknown, ts: unknown, creatorAccountId?: string | null): void;
 };
 
 /** 会話の今の値を書く。null の項目は前の値を保つ（Claude の statusline と同じ）。 */
@@ -131,11 +135,11 @@ export function createCodexUsage(o: CodexUsageOptions): CodexUsage {
   const enabled = o.enabled ?? (() => true);
   const offs = new Map<string, (() => void)[]>();
 
-  const putLimits = (snapshot: unknown): void => {
+  const putLimits = (snapshot: unknown, accountId: string): void => {
     // 別の枠（limit_id が codex でないもの）は、5 時間と週の枠ではない。
     if (isRec(snapshot) && typeof snapshot.limitId === 'string' && snapshot.limitId !== 'codex') return;
     const w = codexRateLimitsOf(snapshot);
-    if (w) o.tracker.set('codex', w, now());
+    if (w) o.tracker.set('codex', w, now(), accountId);
   };
 
   const release = (id: string): void => {
@@ -148,10 +152,11 @@ export function createCodexUsage(o: CodexUsageOptions): CodexUsage {
       if (!enabled() || t.rpc.isClosed) return;
       release(t.providerSessionId);
       const id = t.providerSessionId;
+      const accountId = t.accountId ?? PRIMARY_ACCOUNT_ID;
       const on = t.rpc.onAny((n: CodexNotification) => {
         if (!enabled()) return;
         if (n.method === 'account/rateLimits/updated') {
-          putLimits(isRec(n.params) ? n.params.rateLimits : undefined);
+          putLimits(isRec(n.params) ? n.params.rateLimits : undefined, accountId);
         } else if (n.method === 'thread/tokenUsage/updated') {
           const u = codexTokenUsageOf(n.params);
           if (!u || u.threadId !== id) return;
@@ -166,16 +171,22 @@ export function createCodexUsage(o: CodexUsageOptions): CodexUsage {
         (r) => {
           if (!enabled() || !isRec(r)) return;
           const byId = isRec(r.rateLimitsByLimitId) ? r.rateLimitsByLimitId.codex : undefined;
-          putLimits(byId ?? r.rateLimits);
+          putLimits(byId ?? r.rateLimits, accountId);
         },
         (e: unknown) => o.log?.(`[codex] account/rateLimits/read failed: ${e instanceof Error ? e.message : String(e)}`),
       );
     },
     untrack: release,
-    noteRolloutRateLimits(value, ts) {
+    noteRolloutRateLimits(value, ts, creatorAccountId) {
       if (!enabled()) return;
+      let accountId = PRIMARY_ACCOUNT_ID;
+      if (o.accountOfChatgptId) {
+        const found = creatorAccountId ? o.accountOfChatgptId(creatorAccountId) : null;
+        if (found === null) return;
+        accountId = found;
+      }
       const r = codexRolloutRateLimitsOf(value, ts);
-      if (r) o.tracker.set('codex', { fiveHour: r.fiveHour, sevenDay: r.sevenDay, plan: r.plan }, r.at ?? now());
+      if (r) o.tracker.set('codex', { fiveHour: r.fiveHour, sevenDay: r.sevenDay, plan: r.plan }, r.at ?? now(), accountId);
     },
   };
 }
