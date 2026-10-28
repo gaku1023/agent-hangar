@@ -214,7 +214,9 @@ describe('PtyRelay（偽の spawn）', () => {
     const ctl = fakeSpawn();
     const names: string[] = [];
     relay.close(); await new Promise<void>((r) => server.close(() => r()));
-    relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: (t) => (t === 'sh' ? 'hangar-a-t1' : 'hangar-a'), spawn: pty.spawn, controlTab: (t) => t === 'sh',
+    // Windows の CI でも macOS の分かれ道を通す。
+    const mac = new Tmux({ tmuxPath: '/x/tmux', socketName: 'fake', platform: 'darwin' });
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux: mac, resolveTab: (t) => (t === 'sh' ? 'hangar-a-t1' : 'hangar-a'), spawn: pty.spawn, controlTab: (t) => t === 'sh',
       controlSpawn: (_tmux, name) => { names.push(name); return ctl.spawn('', [], { name: '', cols: 0, rows: 0, cwd: '', env: {} }); } });
     await listen(relay);
     const sh = await connect('tab=sh');
