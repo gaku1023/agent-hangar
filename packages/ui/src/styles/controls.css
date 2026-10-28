@@ -453,6 +453,8 @@ textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) 
 .account-mail { min-height: 1.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); font-size: var(--fs-xs); }
 .account-mail[data-auth='out'] { color: var(--error); }
 .account-approve { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: var(--fs-xs); }
+/* 確認コードの文は、URL とコードを切らずに折り返す。 */
+.account-mail[data-wrap='true'], .account-approve[data-wrap='true'] { white-space: normal; overflow-wrap: anywhere; color: var(--ink-2); }
 .account-row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; color: var(--ink-2); font-size: var(--fs-xs); }
 .account-row .gauge-bar { width: 100%; }
 .account-row-num { text-align: right; color: var(--ink-3); }

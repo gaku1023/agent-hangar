@@ -379,6 +379,16 @@ describe('AccountSwitcher の Codex のアカウント（A7）', () => {
     fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'account.login.cancel', agent: 'codex', accountId: 'cw' });
   });
+  it('確認コードのログイン中の札は、URL とコードを折り返して全部見せ、「未取得」を出さない', () => {
+    const coding = presentCodexAccounts({ ...initialStore(), accounts: { ...codexAccountsFixture, codex: { ...codexAccountsFixture.codex!, accounts: [
+      codexAccountsFixture.codex!.accounts[0]!,
+      { ...codexAccountsFixture.codex!.accounts[1]!, auth: null, usage: { fiveHour: null, sevenDay: null, updatedAt: null }, loginRunning: true, login: { method: 'deviceCode', userCode: 'ABCD-1234', verificationUrl: 'https://auth.openai.com/codex/device' } },
+    ] } } }, NOW);
+    open(withCodex({ list: coding }));
+    const text = screen.getByText(/ABCD-1234/);
+    expect(text).toHaveAttribute('data-wrap', 'true');
+    expect(screen.queryByText('未取得')).toBeNull();
+  });
   it('取り消された札には、取り消しの文が出る', () => {
     const cancelled = presentCodexAccounts({ ...initialStore(), accounts: { ...codexAccountsFixture, codex: { ...codexAccountsFixture.codex!, accounts: [
       codexAccountsFixture.codex!.accounts[0]!,

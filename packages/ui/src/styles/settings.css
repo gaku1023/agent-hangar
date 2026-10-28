@@ -140,6 +140,9 @@
 .account-set-state { display: flex; align-items: baseline; gap: calc(var(--u) * 2); }
 .account-set-ident { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .account-set-approve { flex: 0 100 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-3); font-size: var(--fs-xs); }
+/* 確認コードの文は、URL とコードを切らずに折り返す（行は 1 行の決まりだが、読めないコードは役に立たない）。 */
+.account-set-approve[data-wrap='true'] { white-space: normal; overflow-wrap: anywhere; color: var(--ink-2); }
+.account-set-state:has(.account-set-approve[data-wrap='true']) { white-space: normal; }
 /* 色を選ぶ帯。点は大きめの押せる面に載せ、選んでいる色に輪を付ける。 */
 .account-set-colors { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: 0 calc(var(--u) * 3) calc(var(--u) * 2) calc(var(--u) * 3 + 8px + var(--u) * 3); }
 .account-set-color { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; transition: box-shadow var(--dur-fast) var(--ease-out); }

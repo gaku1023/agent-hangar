@@ -135,7 +135,7 @@ function AccountRow(props: { account: AccountView; agent: Agent; colors: string[
         <span className="account-set-dir mono" title={a.dir}>{path}</span>
         <span className="account-set-state" data-auth={a.auth} title={state}>
           <span className="account-set-ident">{main}</span>
-          {hint !== '' && <span className="account-set-approve">{hint}</span>}
+          {hint !== '' && <span className="account-set-approve" data-wrap={a.auth === 'running' && a.login?.method === 'deviceCode' ? 'true' : undefined}>{hint}</span>}
         </span>
         <span className="account-set-acts">
           {a.auth === 'out' && <button type="button" className="btn btn-sm" disabled={guarded} onClick={() => emit({ type: 'account.login', accountId: a.id, ...ag })}>{t('account.settings.login')}</button>}
