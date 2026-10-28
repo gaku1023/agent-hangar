@@ -7,7 +7,7 @@
     "typecheck": "tsc -p .",
     "bundle-server": "node --import tsx scripts/bundle-server.ts",
     "sign-macos": "node --import tsx scripts/sign-macos.ts",
-    "build-mac-local": "tauri build && node --import tsx scripts/sign-macos.ts src-tauri/target/release/bundle/macos/Hangar.app --adhoc",
+    "build-mac-local": "tauri build && node --import tsx scripts/sign-macos.ts src-tauri/target/release/bundle/macos/Hangar.app --local",
     "tauri": "tauri",
     "set-version": "node --experimental-strip-types --no-warnings scripts/release-plan.ts set-version"
   },

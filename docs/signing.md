@@ -60,11 +60,34 @@ npm run sign-macos -w apps/desktop -- "$PWD/$APP" --adhoc
 
 証明書の指紋が無いとき、台本は黙って ad-hoc に落とさず、止まって `--adhoc` を案内する（身元が弱くなるので、明示させる）。
 
-証明書の無い手元で build から ad-hoc の署名までを 1 回で行うときは、次の台本を使う。
+手元で build から署名までを 1 回で行うときは、次の台本を使う。
 
 ```bash
 npm run build-mac-local -w apps/desktop
 ```
+
+台本は `sign-macos.ts --local` で署名する。
+専用のキーチェーン（`~/.agent-hangar/signing/hangar-signing.keychain-db`、または `HANGAR_SIGN_KEYCHAIN`）があれば証明書で、無ければ警告を出して ad-hoc で署名する。
+ad-hoc の build は DR が cdhash になり、build ごとに変わる。入れ替えるたびに画面収録やアクセシビリティの許可が外れ、設定の画面では ON のまま効かなくなる（tccd のログに `Failed to match existing code requirement` が出る）。
+
+### 手元の build を証明書で署名する（一度だけ）
+
+1. 保守者のパスワード管理から p12 を、リポジトリの外へ取り出す。
+2. 既定の場所へ取り込む（下の「既存の p12 を手元へ取り込む」）。
+
+   ```bash
+   mkdir -p -m 700 ~/.agent-hangar/signing
+   bash apps/desktop/scripts/import-signing-cert.sh --p12 <取り出した p12> --keychain ~/.agent-hangar/signing/hangar-signing.keychain-db
+   ```
+
+3. キーチェーンのパスワード（p12 と同じ）を、ログインのキーチェーンに置く。build はこれを読んで無人で開ける。置かなければ、build のたびに端末で尋ねる。
+
+   ```bash
+   security add-generic-password -s dev.agent-hangar.signing-keychain -a "$USER" -w
+   ```
+
+4. p12 を取り出した場所から消す。
+5. 証明書で署名した build を初めて入れたら、画面収録とアクセシビリティの許可を一度だけ出し直す（`tccutil reset ScreenCapture dev.agent-hangar.hangar` のあと、システム設定の「＋」で Hangar を足す）。以後は入れ替えても保たれる。
 
 手元の build を署名せずに `/Applications` へ入れてはいけない。
 署名しない Tauri の build は、主の実行ファイルにリンカの仮の署名があるだけで、.app としての署名（Info.plist とリソースの封）が無く、`codesign --verify` が通らない。

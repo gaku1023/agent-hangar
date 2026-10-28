@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,6 +15,9 @@ import { fileURLToPath } from 'node:url';
  * 2 つの道がある。
  * - 証明書（既定）：キーチェーンの自作の証明書で署名し、DR を `certificate leaf = H"<指紋>"` に固定する。
  * - ad-hoc（`--adhoc`）：証明書が無い開発者の手元で、識別子だけを固定する。DR は build ごとに変わるので、識別子以外の許可は保たれない。
+ * - 手元の build（`--local`）：専用のキーチェーン（既定は `~/.agent-hangar/signing/hangar-signing.keychain-db`）があれば証明書で、無ければ警告して ad-hoc で署名する。
+ *   ad-hoc の build を入れ替えるたびに画面収録やアクセシビリティの許可が外れていたので、手元でも証明書で署名できるようにした。
+ *   パスワードが環境変数に無ければ、ログインのキーチェーンの項目（KEYCHAIN_PASSWORD_SERVICE）を読み、無人で開ける。
  *
  * 内側の Mach-O から外側へ署名し、`--deep` には頼らない。ハードンドランタイムは付けない（公証をしないので要らず、Node の JIT の entitlement も要らない）。
  * 秘密（キーチェーンのパスワード）は引数に取らず、環境変数か、端末の対話で受け取る。
@@ -31,6 +35,8 @@ export type SignOptions = {
   keychain?: string;
   /** キーチェーンのパスワード。codesign の引数には載せない。 */
   keychainPassword?: string;
+  /** `--local` で選んだか。ad-hoc に落としたときの警告と、保存したパスワードの読み出しに使う。 */
+  local?: boolean;
 };
 
 export type RunResult = { status: number; stdout: string; stderr: string };
@@ -40,6 +46,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONF = path.resolve(here, '../src-tauri/tauri.conf.json');
 /** リポジトリに置く指紋の置き場（公開の値だけ）。環境変数 HANGAR_SIGN_CERT_SHA1 が先に効く。 */
 export const DEFAULT_FINGERPRINT_FILE = path.resolve(here, '../signing/certificate-sha1.txt');
+/** `--local` で探す専用のキーチェーン。import-signing-cert.sh の --keychain にこのパスを渡して作る。 */
+export const DEFAULT_LOCAL_KEYCHAIN = path.join(os.homedir(), '.agent-hangar/signing/hangar-signing.keychain-db');
+/** 専用のキーチェーンのパスワードを置く、ログインのキーチェーンの項目の名前（-s）。 */
+export const KEYCHAIN_PASSWORD_SERVICE = 'dev.agent-hangar.signing-keychain';
 
 /** tauri.conf.json の identifier。署名の識別子はこれに合わせる。 */
 export function readIdentifier(confPath: string = DEFAULT_CONF): string {
@@ -82,7 +92,7 @@ export function parseDisplay(out: string): { identifier?: string; signature?: st
   return { identifier: get('Identifier'), signature: get('Signature') };
 }
 
-export type ParseDefaults = { identifier: string; fingerprintFile: string };
+export type ParseDefaults = { identifier: string; fingerprintFile: string; localKeychain?: string };
 
 /**
  * 引数と環境変数を読む。
@@ -92,8 +102,10 @@ export type ParseDefaults = { identifier: string; fingerprintFile: string };
 export function parseArgs(argv: string[], env: Record<string, string | undefined>, defaults: ParseDefaults): SignOptions {
   let app: string | undefined;
   let adhoc = false;
+  let local = false;
   for (const a of argv) {
     if (a === '--adhoc') adhoc = true;
+    else if (a === '--local') local = true;
     else if (a.startsWith('-')) throw new Error(`知らない引数: ${a}`);
     else if (app === undefined) app = a;
     else throw new Error(`app が 2 つ渡された: ${app}, ${a}`);
@@ -102,8 +114,14 @@ export function parseArgs(argv: string[], env: Record<string, string | undefined
   // 動いているアプリや、入れ済みのアプリを直接書き換えない。build の出力に署名してから入れる。
   const abs = path.resolve(app);
   if (abs === '/Applications' || abs.startsWith('/Applications/')) throw new Error('/Applications の中は直接署名しない。build の出力に署名してから入れる');
-  const base = { app, identifier: defaults.identifier };
+  if (local && adhoc) throw new Error('--local と --adhoc は一緒に使えない（--local はキーチェーンが無ければ自分で ad-hoc にする）');
+  const base = { app, identifier: defaults.identifier, ...(local ? { local: true } : {}) };
   if (adhoc) return { ...base, mode: 'adhoc' };
+  if (local && !env.HANGAR_SIGN_KEYCHAIN) {
+    const kc = defaults.localKeychain ?? DEFAULT_LOCAL_KEYCHAIN;
+    if (!fs.existsSync(kc)) return { ...base, mode: 'adhoc' };
+    env = { ...env, HANGAR_SIGN_KEYCHAIN: kc };
+  }
 
   const fromEnv = env.HANGAR_SIGN_CERT_SHA1;
   const fingerprint = fromEnv ? normalizeFingerprint(fromEnv) : readFingerprintFile(defaults.fingerprintFile);
@@ -150,6 +168,17 @@ export const defaultRun: Runner = (cmd, args, opts) => {
   const r = spawnSync(cmd, args, opts?.inheritStdio ? { stdio: 'inherit', encoding: 'utf8' } : { encoding: 'utf8' });
   return { status: r.status ?? -1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
 };
+
+/**
+ * `--local` でパスワードが環境変数に無ければ、ログインのキーチェーンに置いた項目から読む。
+ * 項目が無ければそのまま返し、unlockKeychain が security に端末で尋ねさせる。
+ */
+export function withStoredPassword(opts: SignOptions, run: Runner = defaultRun): SignOptions {
+  if (opts.mode !== 'cert' || !opts.local || opts.keychainPassword) return opts;
+  const r = run('security', ['find-generic-password', '-s', KEYCHAIN_PASSWORD_SERVICE, '-w']);
+  const pw = r.status === 0 ? r.stdout.replace(/\n$/, '') : '';
+  return pw ? { ...opts, keychainPassword: pw } : opts;
+}
 
 /**
  * キーチェーンを開ける。
@@ -207,7 +236,10 @@ export function signApp(opts: SignOptions, run: Runner = defaultRun, machOs: str
 // `node --import tsx scripts/sign-macos.ts <Hangar.app> [--adhoc]` として直接呼ばれたときだけ実行する。
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const opts = parseArgs(process.argv.slice(2), process.env, { identifier: readIdentifier(), fingerprintFile: DEFAULT_FINGERPRINT_FILE });
+    const opts = withStoredPassword(parseArgs(process.argv.slice(2), process.env, { identifier: readIdentifier(), fingerprintFile: DEFAULT_FINGERPRINT_FILE }));
+    if (opts.local && opts.mode === 'adhoc') {
+      console.warn(`警告: ${DEFAULT_LOCAL_KEYCHAIN} が無いので ad-hoc で署名する。入れ替えるたびに画面収録などの許可が外れる。証明書で署名する準備は docs/signing.md の「手元の build を証明書で署名する」`);
+    }
     unlockKeychain(opts);
     signApp(opts);
     const dr = opts.mode === 'cert' ? expectedDrLine(opts.fingerprint!) : '（ad-hoc：DR は build ごとに変わる。識別子だけ固定した）';
