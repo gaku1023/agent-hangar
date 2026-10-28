@@ -99,7 +99,7 @@ export function bootHttp(p: {
   const { server, port } = listening;
   // 終了した run の Claude のタブには繋がせない。attachTarget がその判断を持つ。
   // attach が終わったら、画面が閉じたかもしれないので run の見張りを急がせる（待機中の見張りは間が空く）。
-  const relay = new PtyRelay({ token: home.token, port, tmux: runs.mux(), resolveTab: (id) => runs.runs.attachTarget(id)?.tmuxName ?? null, spawn: nodePtySpawn, onExit: () => runs.runs.stir() });
+  const relay = new PtyRelay({ token: home.token, port, tmux: runs.mux(), resolveTab: (id) => runs.runs.attachTarget(id)?.tmuxName ?? null, spawn: nodePtySpawn, controlTab: (id) => runs.runs.attachTarget(id)?.kind === 'shell', onExit: () => runs.runs.stir() });
   // 引き継がれて止める claude の端末へ、止める理由の 1 行を差し込めるようにする。
   takeover.setNotePane((tmuxName, text) => { relay.note(tmuxName, text); });
   // 配布版（Tauri のバンドル）では UI の置き場所を環境変数 HANGAR_UI_DIST で受ける。
