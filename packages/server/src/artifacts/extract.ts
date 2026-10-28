@@ -3,10 +3,12 @@ import { newId } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 
-// Artifact ツールの呼び出しには元ファイルのパス、説明、favicon が、結果には公開先の URL が残る。
+// Artifact ツールの呼び出しには元ファイルのパス、説明、アイコンが、結果には公開先の URL が残る。
 // 呼び出しと結果は別の記録なので、呼び出しを artifact_calls に控えておき、結果が来たときに突き合わせる。
+// アイコンは icon（chart、map などの英単語）。以前のツールは favicon に絵文字を渡していたので、icon が無ければそれを拾う。
+// 表の列の名前は favicon のまま（同期の表の形を変えないため）で、中身は icon の語か昔の絵文字である。
 
-export type ArtifactCall = { filePath: string | null; description: string | null; favicon: string | null };
+export type ArtifactCall = { filePath: string | null; description: string | null; icon: string | null };
 
 /** 新形式 https://claude.ai/code/artifact/<uuid> と旧形式 https://claude.ai/artifact/<id>。 */
 export const ARTIFACT_URL_RE = /https:\/\/claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9_-]+/;
@@ -30,9 +32,9 @@ export function isArtifactPublish(input: unknown): boolean {
 }
 
 export function artifactCallOf(input: unknown): ArtifactCall {
-  if (typeof input !== 'object' || input === null) return { filePath: null, description: null, favicon: null };
+  if (typeof input !== 'object' || input === null) return { filePath: null, description: null, icon: null };
   const i = input as Record<string, unknown>;
-  return { filePath: str(i.file_path), description: str(i.description), favicon: str(i.favicon) };
+  return { filePath: str(i.file_path), description: str(i.description), icon: str(i.icon) ?? str(i.favicon) };
 }
 
 const HEAD_BYTES = 64 * 1024;
@@ -82,7 +84,7 @@ export function recordArtifactPublish(db: Db, deviceId: string, o: { sessionId: 
     project_id: newest ? o.projectId : cur!.project_id,
     title: newest ? title : cur!.title,
     description: newest ? o.call.description ?? cur?.description ?? null : cur!.description,
-    favicon: newest ? o.call.favicon ?? cur?.favicon ?? null : cur!.favicon,
+    favicon: newest ? o.call.icon ?? cur?.favicon ?? null : cur!.favicon,
     first_published_at: Math.min(cur?.first_published_at ?? o.publishedAt, o.publishedAt),
     last_published_at: Math.max(cur?.last_published_at ?? o.publishedAt, o.publishedAt),
     deleted_at: null,

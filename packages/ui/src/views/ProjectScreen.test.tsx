@@ -21,7 +21,7 @@ const INSTRUCTIONS: InstructionsProps = { state: 'ready', rows: [claudeRow, agen
 const props = (over: Partial<ProjectProps> = {}): ProjectProps => ({
   id: 'alpha', name: 'alpha', parent: { label: 'プロジェクト', route: { name: 'projects' } }, path: '/w/alpha', resolved: true, status: 'active', notFound: false, isScratch: false,
   list: list(), loadMore: null, info: { sessionsText: '2 本', lastActivity: '3 時間前' },
-  todos: [{ id: 't1', text: '買う', done: false, position: 1, candidate: null }], doneTodos: [], suggestions: [], pendingTodos: 0, instructions: INSTRUCTIONS, artifacts: [{ id: 'a1', title: '題名 a1', description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 2, canOpenEditor: false }], artifactAddError: null, railFolded: [],
+  todos: [{ id: 't1', text: '買う', done: false, position: 1, candidate: null }], doneTodos: [], suggestions: [], pendingTodos: 0, instructions: INSTRUCTIONS, artifacts: [{ id: 'a1', title: '題名 a1', description: '説明', icon: 'chart', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 2, canOpenEditor: false }], artifactAddError: null, railFolded: [],
   ...over,
 });
 const mount = (p: ProjectProps = props(), onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><ProjectScreen {...p} /></ActionRoot>), onAction });
@@ -365,7 +365,7 @@ describe('ProjectScreen の指示とメモリ', () => {
 });
 
 // 窓に収めた右パネル（A1 + B + C3 + D1）。節の見出しの左のシェブロンで折りたたみ、アーティファクトは新しい方から 3 件だけ出す。
-const artN = (n: number) => Array.from({ length: n }, (_, i) => ({ id: 'a' + (i + 1), title: '題名 a' + (i + 1), description: null, favicon: '📊', url: 'https://claude.ai/code/artifact/a' + (i + 1), lastPublished: '1 分前', versionCount: 1, canOpenEditor: false }));
+const artN = (n: number) => Array.from({ length: n }, (_, i) => ({ id: 'a' + (i + 1), title: '題名 a' + (i + 1), description: null, icon: 'chart' as const, url: 'https://claude.ai/code/artifact/a' + (i + 1), lastPublished: '1 分前', versionCount: 1, canOpenEditor: false }));
 const headOf = (name: RegExp) => screen.getByRole('heading', { name });
 // 見出しには ⓘ（説明）のボタンも並ぶので、折りたたみのボタンを名指しで取る。
 const toggleOf = (name: RegExp) => headOf(name).querySelector<HTMLElement>('.rail-toggle')!;

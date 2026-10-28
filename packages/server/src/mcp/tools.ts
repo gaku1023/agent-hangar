@@ -257,7 +257,7 @@ export function getProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
   const todos = todoBriefs(deps, id);
   const recent = listSessions(deps.db, deps.live(), { projectId: id, deviceId: deps.deviceId }).slice(0, RECENT_SESSIONS).map((s) => sessionBrief(deps, s));
   const artifacts = listArtifacts(deps.db, { projectId: id })
-    .map((a) => ({ id: a.id, url: a.url, title: a.title, favicon: a.favicon, last_published_at: a.lastPublishedAt, version_count: a.versionCount }));
+    .map((a) => ({ id: a.id, url: a.url, title: a.title, icon: a.icon, last_published_at: a.lastPublishedAt, version_count: a.versionCount }));
   return { id: p.id, name: p.name, status: p.status, path: p.path, resolved: p.resolved, last_activity_at: p.lastActivityAt, open_todo_count: p.openTodoCount, todos, recent_sessions: recent, artifacts };
 }
 

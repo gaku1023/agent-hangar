@@ -4,7 +4,7 @@ import { ENDED_LINE_KEY, type EndedLine } from '../presenters/agentText.ts';
 import type { LeadCardProps, SessionGitView } from '../presenters/session.ts';
 import { GitChip } from './GitChip.tsx';
 import { CountChip } from './primitives/Chip.tsx';
-import { Icon } from './primitives/Icon.tsx';
+import { ArtifactIcon, Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { useEditorLabels } from './primitives/editorName.tsx';
 import { growIn } from './primitives/motionKit.ts';
@@ -71,7 +71,7 @@ export function EndedFacts(props: LeadCardProps & { sessionId: string; /** git ã
             {artifacts.items.map((a) => (
               <li key={a.id} className="ns-art">
                 <button type="button" className="ns-art-open" title={a.description ?? t('session.artifact.openHint')} onClick={() => emit({ type: 'artifact.open', id: a.id })}>
-                  <span className="ns-art-icon" aria-hidden="true">{a.favicon}</span>
+                  <ArtifactIcon name={a.icon} />
                   <span className="ns-art-title">{a.title}</span>
                   <span className="ns-art-when faint">{t('session.artifact.lastPublished', { when: a.lastPublished })}</span>
                 </button>

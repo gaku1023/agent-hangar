@@ -1097,7 +1097,7 @@ describe('homePath', () => {
 });
 
 const todoDto = (id: string, position: number, done = false, candidate: TodoDto['candidate'] = null, projectId = 'p1'): TodoDto => ({ id, projectId, text: `やる ${id}`, done, position, sessionId: null, updatedAt: 1, candidate, suggestion: null });
-const artDto = (id: string, over: Partial<ArtifactDto> = {}): ArtifactDto => ({ id, projectId: 'p1', url: `https://claude.ai/code/artifact/${id}`, title: `題名 ${id}`, description: '説明', favicon: '📊', filePath: null, fileExists: false, firstPublishedAt: NOW - 100_000, lastPublishedAt: NOW - 60_000, versionCount: 2, sessionIds: ['s1'], ...over });
+const artDto = (id: string, over: Partial<ArtifactDto> = {}): ArtifactDto => ({ id, projectId: 'p1', url: `https://claude.ai/code/artifact/${id}`, title: `題名 ${id}`, description: '説明', icon: 'chart', filePath: null, fileExists: false, firstPublishedAt: NOW - 100_000, lastPublishedAt: NOW - 60_000, versionCount: 2, sessionIds: ['s1'], ...over });
 const scratchProject = (): ProjectDto => ({ ...project('sc'), name: 'クイックセッション', isScratch: true, path: '/h/.agent-hangar/scratch', lastActivityAt: NOW });
 
 describe('書式', () => {
@@ -1324,9 +1324,19 @@ describe('presentProject の右レール', () => {
     ]);
   });
   it('アーティファクトのカードは題名と最終公開と編集の可否を持つ', () => {
-    expect(presentArtifactCard(ja, artDto('a1'), NOW)).toEqual({ id: 'a1', title: '題名 a1', description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 2, canOpenEditor: false });
-    const manual = presentArtifactCard(ja, artDto('a2', { title: null, favicon: null, description: null, filePath: '/w/alpha/x.html', fileExists: true }), NOW);
-    expect(manual).toMatchObject({ title: 'a2', favicon: '📄', canOpenEditor: true });
+    expect(presentArtifactCard(ja, artDto('a1'), NOW)).toEqual({ id: 'a1', title: '題名 a1', description: '説明', icon: 'chart', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 2, canOpenEditor: false });
+    const manual = presentArtifactCard(ja, artDto('a2', { title: null, icon: null, description: null, filePath: '/w/alpha/x.html', fileExists: true }), NOW);
+    expect(manual).toMatchObject({ title: 'a2', icon: 'document', canOpenEditor: true });
+  });
+  it('アーティファクトの icon は語を絵の名前に当て、知らない語・昔の絵文字・無しは文書にする', () => {
+    const iconOf = (icon: string | null) => presentArtifactCard(ja, artDto('a1', { icon }), NOW).icon;
+    expect(iconOf('map')).toBe('map');
+    expect(iconOf(' Chart ')).toBe('chart');
+    expect(iconOf('dashboard')).toBe('chart');
+    expect(iconOf('checklist')).toBe('checklist');
+    expect(iconOf('zzz')).toBe('document');
+    expect(iconOf('📊')).toBe('document');
+    expect(iconOf(null)).toBe('document');
   });
 });
 

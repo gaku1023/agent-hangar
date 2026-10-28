@@ -7,7 +7,7 @@ import { OverlapBlock } from './OverlapPopover.tsx';
 import type { SessionGitView } from '../presenters/session.ts';
 import { GitFilesPop } from './GitFiles.tsx';
 import { CountChip } from './primitives/Chip.tsx';
-import { Icon } from './primitives/Icon.tsx';
+import { ArtifactIcon, Icon } from './primitives/Icon.tsx';
 import { fadeIn, motionOn } from './primitives/motionKit.ts';
 import { useT } from './primitives/language.tsx';
 import { useEditorLabels } from './primitives/editorName.tsx';
@@ -268,7 +268,7 @@ function Artifacts(props: { items: ArtifactCardProps[] }) {
             {props.items.map((a) => (
               <li key={a.id} className="nc-art">
                 <button type="button" className="nc-art-open" title={a.description ?? t('session.artifact.openHint')} onClick={() => { emit({ type: 'artifact.open', id: a.id }); close(); }}>
-                  <span className="nc-art-icon" aria-hidden="true">{a.favicon}</span>
+                  <ArtifactIcon name={a.icon} />
                   <span className="nc-art-title">{a.title}</span>
                   <span className="nc-art-when faint">{t('session.artifact.lastPublished', { when: a.lastPublished })}</span>
                 </button>

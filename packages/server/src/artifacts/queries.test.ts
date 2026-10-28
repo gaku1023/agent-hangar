@@ -17,9 +17,9 @@ function seed() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-art-'));
   const file = path.join(tmp, 'a.html');
   fs.writeFileSync(file, '<title>実在</title>');
-  const a = recordArtifactPublish(db, 'd', { sessionId: 's1', projectId: 'p1', url: 'https://claude.ai/code/artifact/a', publishedAt: 100, call: { filePath: '/tmp/gone.html', description: 'A', favicon: '📊' } });
-  recordArtifactPublish(db, 'd', { sessionId: 's2', projectId: 'p1', url: 'https://claude.ai/code/artifact/a', publishedAt: 300, call: { filePath: file, description: 'A2', favicon: '📊' } });
-  const b = recordArtifactPublish(db, 'd', { sessionId: 's3', projectId: 'p2', url: 'https://claude.ai/artifact/b', publishedAt: 200, call: { filePath: null, description: 'B', favicon: null } });
+  const a = recordArtifactPublish(db, 'd', { sessionId: 's1', projectId: 'p1', url: 'https://claude.ai/code/artifact/a', publishedAt: 100, call: { filePath: '/tmp/gone.html', description: 'A', icon: 'chart' } });
+  recordArtifactPublish(db, 'd', { sessionId: 's2', projectId: 'p1', url: 'https://claude.ai/code/artifact/a', publishedAt: 300, call: { filePath: file, description: 'A2', icon: 'chart' } });
+  const b = recordArtifactPublish(db, 'd', { sessionId: 's3', projectId: 'p2', url: 'https://claude.ai/artifact/b', publishedAt: 200, call: { filePath: null, description: 'B', icon: null } });
   return { db, a, b, file, tmp };
 }
 
@@ -28,7 +28,7 @@ describe('artifacts/queries', () => {
     const { db, a, b, file, tmp } = seed();
     const all = listArtifacts(db);
     expect(all.map((x) => x.id)).toEqual([a, b]);
-    expect(all[0]).toMatchObject({ url: 'https://claude.ai/code/artifact/a', title: '実在', description: 'A2', favicon: '📊', filePath: file, fileExists: true, firstPublishedAt: 100, lastPublishedAt: 300, versionCount: 2, sessionIds: ['s2', 's1'] });
+    expect(all[0]).toMatchObject({ url: 'https://claude.ai/code/artifact/a', title: '実在', description: 'A2', icon: 'chart', filePath: file, fileExists: true, firstPublishedAt: 100, lastPublishedAt: 300, versionCount: 2, sessionIds: ['s2', 's1'] });
     expect(all[1]).toMatchObject({ id: b, title: 'B', fileExists: false, filePath: null, versionCount: 1 });
     expect(listArtifacts(db, { projectId: 'p1' }).map((x) => x.id)).toEqual([a]);
     expect(listArtifacts(db, { sessionId: 's3' }).map((x) => x.id)).toEqual([b]);

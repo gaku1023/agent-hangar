@@ -59,7 +59,7 @@ describe('同じ URL の Artifact が別の ID で届いたとき', () => {
     expect(artifacts(db)).toEqual([{ id: 'b1', url: URL, first_published_at: 100, last_published_at: 300 }]);
     expect(versions(db)).toEqual([{ artifact_id: 'b1', published_at: 100 }, { artifact_id: 'b1', published_at: 300 }]);
     // その後の公開は、残した方へ積む。
-    recordArtifactPublish(db, 'a', { sessionId: 's1', projectId: 'p1', url: URL, publishedAt: 400, call: { filePath: null, description: null, favicon: null } });
+    recordArtifactPublish(db, 'a', { sessionId: 's1', projectId: 'p1', url: URL, publishedAt: 400, call: { filePath: null, description: null, icon: null } });
     expect(artifacts(db)).toHaveLength(1);
   });
 
@@ -97,7 +97,7 @@ describe('2 台が同じ公開を別々に記録して同期したとき', () =>
       engines.push(e);
       return e;
     };
-    const publish = (db: Db, device: string, at: number) => recordArtifactPublish(db, device, { sessionId: 's1', projectId: 'p1', url: URL, publishedAt: at, call: { filePath: null, description: null, favicon: null } });
+    const publish = (db: Db, device: string, at: number) => recordArtifactPublish(db, device, { sessionId: 's1', projectId: 'p1', url: URL, publishedAt: at, call: { filePath: null, description: null, icon: null } });
     const idA = publish(dbs.a, 'a', 100);
     const idB = publish(dbs.b, 'b', 100);
     publish(dbs.b, 'b', 200);

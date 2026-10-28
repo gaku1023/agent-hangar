@@ -9,6 +9,7 @@ import { translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
 import { byteBase, bytesLabel } from './bytes.ts';
 import { presentSessionList, type SessionListProps } from './sessions.ts';
+import { artifactIconOf, type ArtifactIconName } from './artifactIcon.ts';
 
 /** 候補の TODO の表示。sessionId は、そのセッションが手元にあって開けるときだけ入る。 */
 export type TodoCandidateProps = { note: string; sessionId: string | null; sessionName: string; ago: string };
@@ -16,7 +17,7 @@ export type TodoCandidateProps = { note: string; sessionId: string | null; sessi
 export type TodoItemProps = { id: string; text: string; done: boolean; position: number; candidate: TodoCandidateProps | null };
 /** Claude が足して、まだ受け入れていない TODO。sessionId は、そのセッションが手元にあって開けるときだけ入る。 */
 export type TodoSuggestionProps = { id: string; text: string; note: string | null; sessionId: string | null; sessionName: string; ago: string };
-export type ArtifactCardProps = { id: string; title: string; description: string | null; favicon: string; url: string; lastPublished: string; versionCount: number; canOpenEditor: boolean };
+export type ArtifactCardProps = { id: string; title: string; description: string | null; icon: ArtifactIconName; url: string; lastPublished: string; versionCount: number; canOpenEditor: boolean };
 /** 見出しの (i) のポップオーバーに出す値。プロジェクトは作成日を持たないので、出さない。 */
 export type ProjectInfoProps = { sessionsText: string; lastActivity: string };
 /**
@@ -62,7 +63,7 @@ function sessionLabel(store: Store, sessionId: string | null): { sessionId: stri
 /** アーティファクト 1 件分のカード。題名が無い手動追加は URL の末尾を出す。 */
 export function presentArtifactCard(t: Translate, a: ArtifactDto, now: number): ArtifactCardProps {
   return {
-    id: a.id, title: a.title ?? a.url.split('/').filter(Boolean).at(-1) ?? a.url, description: a.description, favicon: a.favicon ?? '📄',
+    id: a.id, title: a.title ?? a.url.split('/').filter(Boolean).at(-1) ?? a.url, description: a.description, icon: artifactIconOf(a.icon),
     url: a.url, lastPublished: relativeTime(t, a.lastPublishedAt, now), versionCount: a.versionCount, canOpenEditor: a.filePath !== null && a.fileExists,
   };
 }

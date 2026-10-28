@@ -10,7 +10,7 @@ import { syncFixture } from '../test/syncProps.ts';
 import { RollingNumber } from './primitives/RollingNumber.tsx';
 import { UsageGauge } from './primitives/UsageGauge.tsx';
 
-const art = (id: string, over: Partial<ArtifactCardProps> = {}): ArtifactCardProps => ({ id, title: '題名 ' + id, description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/' + id, lastPublished: '1 分前', versionCount: 2, canOpenEditor: false, ...over });
+const art = (id: string, over: Partial<ArtifactCardProps> = {}): ArtifactCardProps => ({ id, title: '題名 ' + id, description: '説明', icon: 'chart', url: 'https://claude.ai/code/artifact/' + id, lastPublished: '1 分前', versionCount: 2, canOpenEditor: false, ...over });
 const wrap = (node: ReactNode, onAction = vi.fn()) => { render(<ActionRoot onAction={onAction}>{node}</ActionRoot>); return onAction; };
 
 describe('UsageGauge', () => {
@@ -121,6 +121,12 @@ describe('Header', () => {
 });
 
 describe('ArtifactCards', () => {
+  it('札の頭は絵文字でなく線画で、icon の名前の絵を描く', () => {
+    const { container } = render(<ActionRoot onAction={vi.fn()}><ArtifactCards projectId="p1" artifacts={[art('a1', { icon: 'map' }), art('a2', { icon: 'document' })]} canAdd={false} /></ActionRoot>);
+    const marks = [...container.querySelectorAll('.artifact-icon')];
+    expect(marks.map((m) => m.querySelector('svg')?.getAttribute('data-icon'))).toEqual(['artifact-map', 'artifact-document']);
+    expect(marks.every((m) => m.getAttribute('aria-hidden') === 'true')).toBe(true);
+  });
   it('クリックで開き、編集ボタンは元ファイルがあるときだけ出す', () => {
     const onAction = wrap(<ArtifactCards projectId="p1" artifacts={[art('a1'), art('a2', { canOpenEditor: true })]} canAdd />);
     fireEvent.click(screen.getByText('題名 a1'));

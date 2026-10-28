@@ -22,10 +22,14 @@ describe('parsePublishedUrl', () => {
 });
 
 describe('artifactCallOf', () => {
-  it('file_path、description、favicon を取り出す', () => {
-    expect(artifactCallOf({ file_path: '/tmp/a.html', description: '説明', favicon: '📊' })).toEqual({ filePath: '/tmp/a.html', description: '説明', favicon: '📊' });
-    expect(artifactCallOf({ action: 'read', url: 'x' })).toEqual({ filePath: null, description: null, favicon: null });
-    expect(artifactCallOf('nope')).toEqual({ filePath: null, description: null, favicon: null });
+  it('file_path、description、icon を取り出す', () => {
+    expect(artifactCallOf({ file_path: '/tmp/a.html', description: '説明', icon: 'chart' })).toEqual({ filePath: '/tmp/a.html', description: '説明', icon: 'chart' });
+    expect(artifactCallOf({ action: 'read', url: 'x' })).toEqual({ filePath: null, description: null, icon: null });
+    expect(artifactCallOf('nope')).toEqual({ filePath: null, description: null, icon: null });
+  });
+  it('icon が無ければ、以前の favicon（絵文字）を拾う。両方あれば icon', () => {
+    expect(artifactCallOf({ favicon: '📊' }).icon).toBe('📊');
+    expect(artifactCallOf({ icon: 'map', favicon: '📊' }).icon).toBe('map');
   });
 });
 
@@ -57,19 +61,28 @@ describe('resolveArtifactTitle', () => {
 });
 
 describe('recordArtifactPublish', () => {
+  it('2 回目の公開で icon が省かれても、最初の icon を残す', () => {
+    const db = openDb(':memory:');
+    upsertShared(db, 'projects', { id: 'p1', name: 'p1', status: 'active' }, 'd');
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd: '/x', home_device: 'd', project_id: 'p1' }, 'd');
+    const url = 'https://claude.ai/code/artifact/0199a2b3-1111-7000-8000-000000000009';
+    const a = recordArtifactPublish(db, 'd', { sessionId: 's1', projectId: 'p1', url, publishedAt: 100, call: { filePath: missing, description: 'x', icon: 'map' } });
+    recordArtifactPublish(db, 'd', { sessionId: 's1', projectId: 'p1', url, publishedAt: 200, call: { filePath: missing, description: 'x', icon: null } });
+    expect((db.prepare('select favicon from artifacts where id = ?').get(a) as { favicon: string }).favicon).toBe('map');
+  });
   it('同じ URL は 1 件にまとめ、版を積み、同じ版は二重にしない', () => {
     const db = openDb(':memory:');
     for (const id of ['p1', 'p2']) upsertShared(db, 'projects', { id, name: id, status: 'active' }, 'd');
     upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd: '/x', home_device: 'd', project_id: 'p1' }, 'd');
     upsertShared(db, 'sessions', { id: 's2', provider: 'claude-code', provider_session_id: 'u2', cwd: '/x', home_device: 'd', project_id: 'p1' }, 'd');
     const url = 'https://claude.ai/code/artifact/0199a2b3-1111-7000-8000-000000000001';
-    const call = { filePath: missing, description: '週報のダッシュボード', favicon: '📊' };
+    const call = { filePath: missing, description: '週報のダッシュボード', icon: 'chart' };
     const a = recordArtifactPublish(db, 'd', { sessionId: 's1', projectId: 'p1', url, publishedAt: 100, call });
     const b = recordArtifactPublish(db, 'd', { sessionId: 's2', projectId: 'p2', url, publishedAt: 200, call: { ...call, description: '更新した説明' } });
     expect(b).toBe(a);
     const row = db.prepare('select * from artifacts where id = ?').get(a) as Record<string, unknown>;
     // 元ファイルが無いので題名は説明の先頭で、新しい公開の説明が勝つ。
-    expect(row).toMatchObject({ url, project_id: 'p2', title: '更新した説明', description: '更新した説明', favicon: '📊', first_published_at: 100, last_published_at: 200 });
+    expect(row).toMatchObject({ url, project_id: 'p2', title: '更新した説明', description: '更新した説明', favicon: 'chart', first_published_at: 100, last_published_at: 200 });
     expect((db.prepare('select count(*) c from artifact_versions where artifact_id = ?').get(a) as { c: number }).c).toBe(2);
     recordArtifactPublish(db, 'd', { sessionId: 's1', projectId: 'p1', url, publishedAt: 100, call });
     expect((db.prepare('select count(*) c from artifact_versions where artifact_id = ?').get(a) as { c: number }).c).toBe(2);

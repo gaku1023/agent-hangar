@@ -21,7 +21,7 @@ const session = (p: Partial<SessionDto> = {}): SessionDto => ({
   fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null,
   state: { status: 'done', note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: NOW - 3 * DAY, candidate: null }, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, ...p,
 });
-const art = (id: string, p: Partial<ArtifactCardProps> = {}): ArtifactCardProps => ({ id, title: `成果 ${id}`, description: null, favicon: '📄', url: 'https://x', lastPublished: '3 日前', versionCount: 1, canOpenEditor: false, ...p });
+const art = (id: string, p: Partial<ArtifactCardProps> = {}): ArtifactCardProps => ({ id, title: `成果 ${id}`, description: null, icon: 'document', url: 'https://x', lastPublished: '3 日前', versionCount: 1, canOpenEditor: false, ...p });
 const input = (p: Partial<LeadInput> = {}): LeadInput => ({
   session: session(), now: NOW, gone: false, summaryPending: false, summaryError: null, artifacts: [art('a1')],
   files: [{ path: '/w/web-shop/src/ProductImage.tsx', edits: 3, agentId: null }, { path: '/w/web-shop/src/products.tsx', edits: 1, agentId: 'abc' }, { path: '/w/web-shop/NOTES.md', edits: 1, agentId: null }],
