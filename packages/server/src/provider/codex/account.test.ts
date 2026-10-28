@@ -99,7 +99,7 @@ describe('ログイン', () => {
     const s = await svc.startLogin('a1', '/h', 'deviceCode');
     expect(s).toEqual({ status: 'waiting', method: 'deviceCode', loginId: 'L2', userCode: 'ABCD-1234', verificationUrl: 'https://v.example' });
     expect(opened).toEqual([]);
-    expect(f.calls[0].params).toEqual({ type: 'chatgptDeviceCode' });
+    expect(f.calls[0]!.params).toEqual({ type: 'chatgptDeviceCode' });
   });
 
   it('失敗の通知は failed と error を残す', async () => {
@@ -119,7 +119,7 @@ describe('ログイン', () => {
     await svc.startLogin('a1', '/h1', 'browser');
     await svc.startLogin('a2', '/h2', 'browser');
     expect(f1.calls.map((c) => c.method)).toEqual(['account/login/start', 'account/login/cancel']);
-    expect(f1.calls[1].params).toEqual({ loginId: 'L1' });
+    expect(f1.calls[1]!.params).toEqual({ loginId: 'L1' });
     expect(f1.state.stopped).toBe(true);
     expect(svc.loginState('a1')).toEqual({ status: 'superseded' });
     expect(svc.loginState('a2')).toMatchObject({ status: 'waiting', loginId: 'L9' });
