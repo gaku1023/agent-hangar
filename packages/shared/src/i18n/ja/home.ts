@@ -73,7 +73,7 @@ export const homeJa: AreaDictionary<typeof homeKeys> = {
   'home.ready.mcp.ok': '登録済み',
   'home.ready.statusline.text': 'ヘッダーの使用率ゲージに使います',
   'home.ready.statusline.noScript': 'Claude Code の /statusline でスクリプトを作成してから、次を実行してください',
-  'home.ready.statusline.noScriptApp': 'Claude Code の /statusline でスクリプトを作成してから、設定の「連携」で設定してください',
+  'home.ready.statusline.noScriptApp': 'Claude Code の /statusline でスクリプトを作成してから、設定の「Claude Code」で設定してください',
   'home.ready.statusline.ok': '設定済み',
   'home.ready.compat.drift': '変更点が {n} 件あります。無効にした機能は設定で確認できます',
   'home.ready.compat.unverified': '{local}（検証済みのバージョンは {verified}）',

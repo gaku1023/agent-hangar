@@ -1,6 +1,6 @@
 import { dbPath, defaultClaudeDir, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, type DeviceInfo, type Settings } from '../config/paths.ts';
 import { ensureStatuslineHeaderFile } from '../provider/claude-code/config/statusline.ts';
-import { resolveToolPaths } from '../config/tools.ts';
+import { resolveToolPaths, setAgentBinPaths } from '../config/tools.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureWrapperScript } from '../launch/wrapper.ts';
 import { ensureSpawnHelper } from '../pty/helper.ts';
@@ -75,6 +75,7 @@ export function bootHome(opts: Pick<StartOptions, 'home' | 'claudeDir'> = {}): H
     // tmux、code、claude のパスが設定に無ければここで探す。GUI 起動の貧弱な PATH でも見つけられる。
     // 書き戻すのは起動が通ってから（persistSettings）。
     const settings = { current: resolveToolPaths(loadSettings(home)) };
+    setAgentBinPaths(settings.current);
     ensureWrapperScript(home);
     copySetupGuide(home);
     const fixed = ensureSpawnHelper();

@@ -74,7 +74,7 @@ describe('設定（英語）', () => {
   it('アカウント：節の見出し、行の操作、メニュー', () => {
     const list = presentAccounts({ ...english, accounts: { ...accountsFixture, accounts: accounts.map((a, i): AccountDto => (i === 1 ? { ...a, auth: { ...a.auth!, loggedIn: false } } : a)) } }, NOW);
     inEnglish(<AccountSettings list={list} colors={ACCOUNT_COLORS} />);
-    expect(screen.getByRole('heading', { level: 3, name: 'Accounts' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'Claude Code accounts' })).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Account list' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add account…' })).toBeInTheDocument();
     expect(screen.getByText('Current')).toBeInTheDocument();

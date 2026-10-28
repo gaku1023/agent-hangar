@@ -152,12 +152,14 @@ export function presentPalette(state: State, store: Store, query: string, now: n
   const sectionRows = [
     cmd('settings:general', t('settings.section.general'), 'general', '', place),
     cmd('settings:sessions', t('settings.section.sessions'), 'sessions', '', place),
-    cmd('settings:integrations', t('settings.section.integrations'), 'integrations', '', place),
+    cmd('settings:agentClaude', t('settings.section.agentClaude'), 'integrations', '', place),
     cmd('settings:cloud', t('settings.section.cloud'), 'cloud', '', place),
     cmd('settings:retention', t('settings.general.retention.title'), 'retention', '', place),
   ];
   const typedSections = [
     cmd('settings:summary', t('settings.section.summary'), 'summary', '', place),
+    cmd('settings:agentCodex', t('settings.section.agentCodex'), 'integrations', '', place),
+    cmd('settings:agentOpencode', t('settings.section.agentOpencode'), 'integrations', '', place),
     cmd('settings:environment', t('settings.section.environment'), 'environment', '', place),
     cmd('settings:usage', t('settings.section.usage'), 'usage', '', place),
     cmd('settings:about', t('settings.section.about'), 'about', '', place),

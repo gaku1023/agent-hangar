@@ -19,7 +19,7 @@ export function presentCodexVersionCard(state: State, store: Store): CodexVersio
   if (!status || status.version === null) return null;
   if (codexVersionKind(status) !== 'unverified') return null;
   if (state.codexVersionSeen === status.version) return null;
-  if (state.screen.name === 'settings' && settingsSectionOf(state.screen.at) === 'integrations') return null;
+  if (state.screen.name === 'settings' && settingsSectionOf(state.screen.at) === 'agentCodex') return null;
   const t = translatorOf(store);
   const version = status.version;
   return {

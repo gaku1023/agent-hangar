@@ -36,7 +36,7 @@ function CodexVersion(props: { version: CodexSettingsProps['version'] }) {
  * 切のままでも、この「有効にする」の 1 行は出す（入口そのものなので、Codex を有効にするまで出さない決まりの例外）。
  * どれも選んだ時点で設定を保存するだけで、シェルの包みと追記の中身は別の段で入る。
  */
-export function CodexSection(props: { o: CodexSettingsProps }) {
+export function CodexSection(props: { o: CodexSettingsProps; /** 偽なら見出しの名前とベータの札を出さない（設定の節の見出しがすでに言うとき）。既定は真。 */ showTitle?: boolean }) {
   const t = useT();
   const emit = useEmit();
   const o = props.o;
@@ -61,8 +61,7 @@ export function CodexSection(props: { o: CodexSettingsProps }) {
   return (
     <section className="oc-sec" id="settings-codex" aria-label={title}>
       <h3 className="h2">
-        {title}
-        <span className="tag-beta">{t('settings.toc.beta')}</span>
+        {props.showTitle !== false && <>{title}<span className="tag-beta">{t('settings.toc.beta')}</span></>}
         {badge.mounted && b && (
           <span className="badge" data-tone={b.tone} ref={badge.ref}>
             {b.tone === 'ok' && <Icon name="check" />}

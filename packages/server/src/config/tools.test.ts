@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { Settings } from './paths.ts';
 import { writeFakeTool } from '../../test/fake-bin.ts';
 import { isWindows, posixIt } from '../../test/platform.ts';
-import { findCodex, findOpencode, resolveToolPaths, which, whichMux } from './tools.ts';
+import { findCodex, findOpencode, resolveToolPaths, setAgentBinPaths, which, whichMux } from './tools.ts';
 
 describe('which', () => {
   it('PATH の順に探し、実行できるものを返す', () => {
@@ -114,5 +114,24 @@ describe('resolveToolPaths', () => {
     expect(once.toolsResolved).toBe(true);
     const cleared = { ...once, tmuxPath: null };
     expect(resolveToolPaths(cleared, () => '/found/tool')).toEqual(cleared);
+  });
+});
+
+describe('codex と opencode のパスの設定', () => {
+  it('設定のパスがあれば、PATH より先にそれを返す。空と null は探す側に戻る', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-agentbin-'));
+    const codex = writeFakeTool(dir, 'mycodex', { sh: '', cmd: '' });
+    const oc = writeFakeTool(dir, 'myopencode', { sh: '', cmd: '' });
+    try {
+      setAgentBinPaths({ codexPath: codex, opencodePath: oc });
+      expect(findCodex({ PATH: '' })).toBe(codex);
+      expect(findOpencode({ PATH: '' })).toBe(oc);
+      setAgentBinPaths({ codexPath: '  ', opencodePath: null });
+      expect(findCodex({ PATH: '' })).not.toBe(codex);
+      expect(findOpencode({ PATH: '' })).not.toBe(oc);
+    } finally {
+      setAgentBinPaths({});
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -350,3 +350,9 @@
 .note-body { padding: 0 0 calc(var(--u) * 3); font-size: var(--fs-sm); line-height: 1.6; }
 .note-body .md h2 { font-size: var(--fs); }
 .note-body .md h3 { font-size: var(--fs-sm); }
+
+/* 目次の「エージェント」の群の見出しと、節の頭のリード。 */
+.settings-toc-group { margin: calc(var(--u) * 2) 0 calc(var(--u) * 0.5) calc(var(--u) * 2.5); font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.04em; color: var(--ink-3); }
+.settings-group-h > .agent-icon { align-self: center; }
+.agent-lead { margin: 0 0 calc(var(--u) * 3) var(--u); }
+@media (max-width: 1000px) { .settings-toc-group { grid-column: 1 / -1; } }

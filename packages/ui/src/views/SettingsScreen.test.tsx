@@ -14,11 +14,11 @@ import { SettingsScreen } from './SettingsScreen.tsx';
 import { CopiedContext } from './primitives/CommandLine.tsx';
 import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
-const TITLES: Record<SettingsSection, string> = { general: '一般', sessions: 'セッション', summary: '要約', integrations: '連携', environment: '環境', cloud: 'クラウド同期', usage: '使用量', about: 'Hangar について' };
+const TITLES: Record<SettingsSection, string> = { general: '一般', sessions: 'セッション', summary: '要約', cloud: 'クラウド同期', environment: '環境', usage: '使用量', agentClaude: 'Claude Code', agentCodex: 'Codex', agentOpencode: 'opencode', about: 'Hangar について' };
 const IDS = Object.keys(TITLES) as SettingsSection[];
 
 /** 目次の 8 行。状態の文は presenter の試験（settingsToc.test.ts）が見るので、ここでは決まった文を置く。 */
-const tocOf = (): SettingsProps['toc'] => IDS.map((id) => ({ id, title: TITLES[id], state: id === 'cloud' ? '同期オフ' : id === 'integrations' ? '要修正 2' : '確認中', tone: id === 'integrations' ? 'warn' : 'default', label: `${TITLES[id]}、${id === 'cloud' ? '同期オフ' : id === 'integrations' ? '要修正 2' : '確認中'}`, ...(id === 'cloud' ? { beta: true } : {}) }));
+const tocOf = (): SettingsProps['toc'] => IDS.map((id) => ({ id, title: TITLES[id], state: id === 'cloud' ? '同期オフ' : id === 'agentClaude' ? '要修正 2' : '確認中', tone: id === 'agentClaude' ? 'warn' : 'default', label: `${TITLES[id]}、${id === 'cloud' ? '同期オフ' : id === 'agentClaude' ? '要修正 2' : '確認中'}`, ...(id === 'cloud' || id === 'agentCodex' || id === 'agentOpencode' ? { beta: true } : {}), ...(id === 'agentClaude' ? { agent: 'claude-code' as const } : id === 'agentCodex' ? { agent: 'codex' as const } : id === 'agentOpencode' ? { agent: 'opencode' as const } : {}) }));
 
 /** 設定の同期（作り直した実装）の節の既定。クラウドに参加していない形で、使う試験が必要な分だけ上書きする。節の中身の試験は ConfigSyncSection.test.tsx が見る。 */
 const configSyncProps = (over: Partial<SettingsProps['configSync']> = {}): SettingsProps['configSync'] => ({
@@ -69,7 +69,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   configSync: configSyncProps(),
   shell: { state: 'off', zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install', uninstallCommand: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell uninstall', available: true, devices: [] },
   nodePath: '',
-  claudePath: null,
+  claudePath: null, codexPath: null, opencodePath: null, indexSource: '/c',
   retention: null,
   notify: { available: true, on: false, blocked: false },
   verify: { workspace: null, tmux: null, claude: null, node: null, git: null },
@@ -114,12 +114,12 @@ const typeAndLeave = (label: string, value: string) => {
 describe('設定の目次（S1）', () => {
   it('左の目次に 8 つの節を並べ、各行に今の状態を 1 行添える', () => {
     render(ui(settingsProps()));
-    expect(toc().getAllByRole('button').map((b) => b.querySelector('.settings-toc-t')!.textContent)).toEqual(['一般', 'セッション', '要約', '連携', '環境', 'クラウド同期ベータ', '使用量', 'Hangar について']);
-    expect(toc().getAllByRole('button').map((b) => b.querySelector('.settings-toc-s')!.textContent)).toEqual(['確認中', '確認中', '確認中', '要修正 2', '確認中', '同期オフ', '確認中', '確認中']);
+    expect(toc().getAllByRole('button').map((b) => b.querySelector('.settings-toc-t')!.textContent)).toEqual(['一般', 'セッション', '要約', 'クラウド同期ベータ', '環境', '使用量', 'Claude Code', 'Codexベータ', 'opencodeベータ', 'Hangar について']);
+    expect(toc().getAllByRole('button').map((b) => b.querySelector('.settings-toc-s')!.textContent)).toEqual(['確認中', '確認中', '確認中', '同期オフ', '確認中', '確認中', '要修正 2', '確認中', '確認中', '確認中']);
     // ベータの小札はクラウド同期の名前の横だけで、状態の段は潰さない。
-    expect(toc().getAllByRole('button').map((b) => b.querySelector('.tag-beta')?.textContent ?? null)).toEqual([null, null, null, null, null, 'ベータ', null, null]);
+    expect(toc().getAllByRole('button').map((b) => b.querySelector('.tag-beta')?.textContent ?? null)).toEqual([null, null, null, 'ベータ', null, null, null, 'ベータ', 'ベータ', null]);
     // 要修正は注意の色で言う。
-    expect(toc().getByRole('button', { name: '連携、要修正 2' }).querySelector('.settings-toc-s')).toHaveAttribute('data-tone', 'warn');
+    expect(toc().getByRole('button', { name: 'Claude Code、要修正 2' }).querySelector('.settings-toc-s')).toHaveAttribute('data-tone', 'warn');
   });
   it('読み上げの名前は、節の名前と状態を含む', () => {
     render(ui(settingsProps()));
@@ -167,7 +167,7 @@ describe('設定の目次（S1）', () => {
   it('目次は上下の矢印で行を移り、開いている行だけが Tab の道に入る', () => {
     render(ui(at('sessions')));
     const rows = toc().getAllByRole('button');
-    expect(rows.map((b) => b.getAttribute('tabindex'))).toEqual(['-1', '0', '-1', '-1', '-1', '-1', '-1', '-1']);
+    expect(rows.map((b) => b.getAttribute('tabindex'))).toEqual(['-1', '0', '-1', '-1', '-1', '-1', '-1', '-1', '-1', '-1']);
     rows[1]!.focus();
     fireEvent.keyDown(rows[1]!, { key: 'ArrowDown' });
     expect(rows[2]).toHaveFocus();
@@ -178,7 +178,7 @@ describe('設定の目次（S1）', () => {
     fireEvent.keyDown(rows[0]!, { key: 'ArrowUp' });
     expect(rows[0]).toHaveFocus();
     fireEvent.keyDown(rows[0]!, { key: 'End' });
-    expect(rows[7]).toHaveFocus();
+    expect(rows[9]).toHaveFocus();
   });
   it('節を切り替えたら、頁をスクロールする枠の先頭へ戻す', () => {
     const scrollTo = vi.fn();
@@ -195,9 +195,9 @@ describe('設定の目次（S1）', () => {
       main.remove();
     }
   });
-  it('連携と環境の見出しに、直すものがあれば「要修正 N」の札を付ける', () => {
-    const { rerender } = render(ui(at('integrations', { todo: { must: 0, link: 2 } })));
-    expect(screen.getByRole('heading', { level: 2, name: /^連携/ })).toHaveTextContent('要修正 2');
+  it('Claude Code の節と環境の見出しに、直すものがあれば「要修正 N」の札を付ける', () => {
+    const { rerender } = render(ui(at('agentClaude', { todo: { must: 0, link: 2 } })));
+    expect(screen.getByRole('heading', { level: 2, name: /^Claude Code/ })).toHaveTextContent('要修正 2');
     rerender(ui(at('environment', { todo: { must: 1, link: 0 } })));
     expect(screen.getByRole('heading', { level: 2, name: /^環境/ })).toHaveTextContent('要修正 1');
     rerender(ui(at('environment', { todo: { must: 0, link: 2 } })));
@@ -294,22 +294,36 @@ describe('設定の一般', () => {
 });
 
 describe('設定のセッション', () => {
-  it('「新しいセッション」（モデル、Remote Control、作成先）、Claude Code に渡す設定、ステータスの自動処理、トランスクリプトの保持、アカウントの順に並べる', () => {
+  it('セッションの節は「新しいセッション」（作成先）とステータスの自動処理だけを並べ、Claude 専用の行を置かない', () => {
     render(ui(at('sessions', { retention: { days: 365, options: [{ value: '365', label: '1 年' }], writable: true, reason: null, valueLabel: '1 年', bar: null, syncNote: false } })));
     const group = screen.getByRole('group', { name: /^セッション/ });
-    expect(within(group).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['新しいセッション', 'Claude Code に渡す設定', 'ステータスの自動処理', 'アカウント']);
+    expect(within(group).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['新しいセッション', 'ステータスの自動処理']);
     const rows = [...group.querySelectorAll('.set-row-t')].map((e) => e.textContent);
-    expect(rows.slice(0, 3)).toEqual(['デフォルトのモデル', 'Remote Control を付けて起動する', '新しいディレクトリの作成先']);
-    const tail = ['停止したセッションを自動で Done にする', '長期間アクティビティの無いセッションも Done にする', 'Done と Archived にしたセッションを停止する', 'トランスクリプトの保持'];
-    expect(rows.slice(-tail.length)).toEqual(tail);
+    expect(rows).toEqual(['新しいディレクトリの作成先', '停止したセッションを自動で Done にする', '長期間アクティビティの無いセッションも Done にする', 'Done と Archived にしたセッションを停止する']);
     // 作成先の欄は、行の下に名前を隠して置く（見出しは行の名前が兼ねる）。
     expect(screen.getByLabelText('新しいディレクトリの作成先').closest('.set-row')).not.toBeNull();
-    // 起動の既定はここへ集めたので、連携の節には無い。
-    expect(screen.queryByRole('heading', { level: 3, name: 'MCP サーバー' })).toBeNull();
+    for (const name of ['デフォルトのモデル', 'Remote Control を付けて起動する', '会話を残す期間']) expect(screen.queryByText(name)).toBeNull();
+    expect(screen.queryByRole('heading', { level: 3, name: /アカウント/ })).toBeNull();
+  });
+  it('Claude Code の節は、アカウント、新しいセッションのデフォルト、渡す設定、会話を残す期間、互換、ステータスライン、MCP、パスの順に並べる', () => {
+    const one = presentAccounts({ ...initialStore(), accounts: { ...accountsFixture, accounts: accountsFixture.accounts.slice(0, 1) } }, 0);
+    render(ui(at('agentClaude', { accounts: { list: one, colors: ACCOUNT_COLORS }, retention: { days: 365, options: [{ value: '365', label: '1 年' }], writable: true, reason: null, valueLabel: '1 年', bar: null, syncNote: false } })));
+    const group = screen.getByRole('group', { name: /^Claude Code/ });
+    const heads = within(group).getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
+    const order = ['Claude Code のアカウント', '新しいセッションのデフォルト', 'Claude Code に渡す設定', 'Claude Code との互換性', 'ステータスライン', 'MCP サーバー', '実行ファイルのパス'];
+    expect(order.every((n) => heads.some((h) => h?.startsWith(n)))).toBe(true);
+    const idx = order.map((n) => heads.findIndex((h) => h?.startsWith(n)));
+    expect(idx).toEqual([...idx].sort((x, y) => x - y));
+    const rows = [...group.querySelectorAll('.set-row-t')].map((e) => e.textContent);
+    expect(rows.slice(0, 2)).toEqual(['デフォルトのモデル', 'Remote Control を付けて起動する']);
+    expect(rows).toContain('会話を残す期間');
+    expect(screen.getByLabelText('claude のパス')).toBeInTheDocument();
+    // 共通の節に残した通知は、ここには無い。
+    expect(screen.queryByText('通知')).toBeNull();
   });
   it('保持の設定が届く前は、トランスクリプトの保持の行を出さない', () => {
-    render(ui(at('sessions')));
-    expect(screen.queryByText('トランスクリプトの保持')).toBeNull();
+    render(ui(at('agentClaude')));
+    expect(screen.queryByText('会話を残す期間')).toBeNull();
   });
   it('「ステータスの自動処理」の 1 枚で、自動の Done と自動の停止をスイッチで切り替える', () => {
     const onAction = vi.fn();
@@ -353,12 +367,12 @@ describe('設定のセッション', () => {
     const retention = { days: 3650, options: [{ value: '30', label: '30 日' }, { value: '90', label: '90 日' }, { value: '365', label: '1 年' }, { value: '3650', label: '10 年' }], writable: true, reason: null, valueLabel: '10 年', bar, syncNote: true };
     it('切り替えの帯で選ぶと確認を開き、今の値を押しても何も出さない', () => {
       const onAction = vi.fn();
-      render(ui(at('sessions', { retention }), onAction));
-      expect(screen.getByText('トランスクリプトの保持')).toBeInTheDocument();
+      render(ui(at('agentClaude', { retention }), onAction));
+      expect(screen.getByText('会話を残す期間')).toBeInTheDocument();
       expect(screen.getByText('10 年後に約 178 GB')).toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', { name: 'トランスクリプトの保持の説明' }));
+      fireEvent.click(screen.getByRole('button', { name: '会話を残す期間の説明' }));
       expect(screen.getByRole('dialog')).toHaveTextContent(/設定の同期で他の PC にも反映されます/);
-      fireEvent.click(screen.getByRole('button', { name: 'トランスクリプトの保持の説明' }));
+      fireEvent.click(screen.getByRole('button', { name: '会話を残す期間の説明' }));
       fireEvent.click(screen.getByRole('radio', { name: '1 年' }));
       expect(onAction).toHaveBeenCalledWith({ type: 'retention.edit', days: 365, from: 'settings' });
       onAction.mockClear();
@@ -366,7 +380,7 @@ describe('設定のセッション', () => {
       expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'retention.edit' }));
     });
     it('書けないときは帯を出さず、値と理由を出す', () => {
-      render(ui(at('sessions', { retention: { ...retention, days: 14, writable: false, reason: '組織の設定で管理されています', valueLabel: '14 日' } })));
+      render(ui(at('agentClaude', { retention: { ...retention, days: 14, writable: false, reason: '組織の設定で管理されています', valueLabel: '14 日' } })));
       expect(screen.queryByRole('radio', { name: '1 年' })).toBeNull();
       expect(screen.getByText(/組織の設定で管理されています/)).toBeInTheDocument();
     });
@@ -527,37 +541,38 @@ describe('設定のクラウド同期', () => {
 });
 
 describe('設定の連携', () => {
-  it('互換、Codex、opencode、MCP サーバー、ステータスライン、シェル連携の順に並べ、通知と Claude Code に渡す設定とアカウントは置かない', () => {
-    render(ui(at('integrations')));
-    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent?.replace(/(登録済み|未登録|設定済み|未設定|インストール済み|この PC は.*|確認中…|問題なし)$/, ''))).toEqual(['Claude Code との互換性', 'Codexベータ', 'opencodeベータ', 'MCP サーバー', 'ステータスライン', 'シェル連携']);
+  it('Claude Code の節の連携は、互換、ステータスライン、シェル連携、MCP サーバーの順に並べ、通知は置かない', () => {
+    render(ui(at('agentClaude')));
+    const heads = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent?.replace(/(登録済み|未登録|設定済み|未設定|インストール済み|この PC は.*|確認中…|問題なし)$/, ''));
+    expect(heads.slice(heads.indexOf('Claude Code との互換性'))).toEqual(['Claude Code との互換性', 'ステータスライン', 'シェル連携', 'MCP サーバー', '実行ファイルのパス']);
     expect(screen.queryByRole('switch', { name: '通知を有効にする' })).toBeNull();
-    expect(screen.queryByRole('switch', { name: 'Remote Control を付けて起動する' })).toBeNull();
+    expect(screen.queryByRole('switch', { name: 'Codex を有効にする' })).toBeNull();
   });
-  it('アカウントの節は「セッション」の中に出し、1 件でも出す', () => {
+  it('アカウントの節は「Claude Code」の中に出し、1 件でも出す', () => {
     const one = presentAccounts({ ...initialStore(), accounts: { ...accountsFixture, accounts: accountsFixture.accounts.slice(0, 1) } }, 0);
-    render(ui(at('sessions', { accounts: { list: one, colors: ACCOUNT_COLORS } })));
-    const group = screen.getByRole('group', { name: /^セッション/ });
-    expect(within(group).getByRole('heading', { level: 3, name: 'アカウント' })).toBeInTheDocument();
+    render(ui(at('agentClaude', { accounts: { list: one, colors: ACCOUNT_COLORS } })));
+    const group = screen.getByRole('group', { name: /^Claude Code/ });
+    expect(within(group).getByRole('heading', { level: 3, name: 'Claude Code のアカウント' })).toBeInTheDocument();
     expect(within(document.getElementById('settings-accounts')!).getAllByRole('listitem')).toHaveLength(1);
   });
   it('アカウントがまだ届いていなければ、節を出さない', () => {
-    render(ui(at('sessions', { accounts: { list: [], colors: ACCOUNT_COLORS } })));
-    expect(screen.queryByRole('heading', { level: 3, name: 'アカウント' })).toBeNull();
+    render(ui(at('agentClaude', { accounts: { list: [], colors: ACCOUNT_COLORS } })));
+    expect(screen.queryByRole('heading', { level: 3, name: 'Claude Code のアカウント' })).toBeNull();
   });
   it('アカウントの設定から来たとき（focus が accounts）、アカウントが見える位置へ滑る', () => {
     const scrolled: string[] = [];
     const orig = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this.id); };
     try {
-      render(ui(at('sessions', { focus: 'accounts' })));
+      render(ui(at('agentClaude', { focus: 'accounts' })));
       expect(scrolled).toEqual(['settings-accounts']);
-      expect(toc().getByRole('button', { name: /^セッション/ })).toHaveAttribute('aria-current', 'page');
+      expect(toc().getByRole('button', { name: /^Claude Code/ })).toHaveAttribute('aria-current', 'page');
     } finally {
       Element.prototype.scrollIntoView = orig;
     }
   });
   it('帯から来たとき（focus が tmux など）、その欄を淡い黄で目立たせて、入力欄へフォーカスを置く', () => {
-    for (const [section, focus, label] of [['environment', 'tmux', 'tmux のパス'], ['environment', 'claude', 'claude のパス'], ['sessions', 'workspace', '新しいディレクトリの作成先']] as const) {
+    for (const [section, focus, label] of [['environment', 'tmux', 'tmux のパス'], ['agentClaude', 'claude', 'claude のパス'], ['sessions', 'workspace', '新しいディレクトリの作成先']] as const) {
       const { unmount } = render(ui(at(section, { focus })));
       const input = screen.getByLabelText(label);
       expect(input.closest('.field')).toHaveAttribute('data-hit');
@@ -567,22 +582,41 @@ describe('設定の連携', () => {
     }
   });
   it('互換の節を指して来たとき（focus が compat）は、その節を目立たせる（入力欄が無いのでフォーカスは動かさない）', () => {
-    render(ui(at('integrations', { focus: 'compat' })));
+    render(ui(at('agentClaude', { focus: 'compat' })));
     expect(document.getElementById('settings-compat')).toHaveAttribute('data-hit');
     expect(document.body).toHaveFocus();
   });
-  it('連携の節では、Codex の面のすぐ下に opencode の別の面を置き、切のままでも「有効にする」の行は出す', () => {
-    render(ui(at('integrations')));
-    expect(document.getElementById('settings-codex')!.nextElementSibling).toBe(document.getElementById('settings-opencode'));
+  it('Codex の節は、リード、Codex の面、codex のパスの順に並べ、切のままでも「有効にする」の行は出す。Claude 専用の行は置かない', () => {
+    render(ui(at('agentCodex')));
+    const group = screen.getByRole('group', { name: /^Codex/ });
+    expect(within(group).getByText('Codex にだけ効く設定です。アカウントごとにログインを分けます。設定と会話の履歴は ~/.codex を共有します。')).toBeInTheDocument();
     expect(screen.getByRole('switch', { name: 'Codex を有効にする' })).toHaveAttribute('aria-checked', 'false');
+    expect(document.getElementById('settings-codex')!.nextElementSibling).toContainElement(screen.getByLabelText('codex のパス'));
+    expect(screen.queryByLabelText('claude のパス')).toBeNull();
+    expect(screen.queryByText('MCP サーバー')).toBeNull();
+    // 見出しの絵とベータの札は、節の見出しが出す（面の中では重ねない）。
+    expect(within(screen.getByRole('heading', { level: 2 })).getByText('ベータ')).toBeInTheDocument();
+    expect(group.querySelectorAll('.tag-beta')).toHaveLength(1);
   });
-  it('連携の節では、Claude Code との互換性のすぐ下に Codex、その下に opencode の面を置く（Windows では出さない）', () => {
-    const { unmount } = render(ui(at('integrations')));
-    const compat = document.getElementById('settings-compat')!;
-    expect(compat.nextElementSibling).toBe(document.getElementById('settings-codex'));
+  it('opencode の節は、リード、opencode の面、opencode のパスの順に並べる（面が偽なら面は出さない）', () => {
+    const { unmount } = render(ui(at('agentOpencode')));
+    expect(screen.getByText('opencode にだけ効く設定です。')).toBeInTheDocument();
+    expect(document.getElementById('settings-opencode')!.nextElementSibling).toContainElement(screen.getByLabelText('opencode のパス'));
     unmount();
-    render(ui(at('integrations', { opencode: { ...settingsProps().opencode, available: false } })));
+    render(ui(at('agentOpencode', { opencode: { ...settingsProps().opencode, available: false } })));
     expect(document.getElementById('settings-opencode')).toBeNull();
+  });
+  it('codex と opencode のパスは、入力して外すと保存する。空にすると null', () => {
+    const onAction = vi.fn();
+    render(ui(at('agentCodex', { codexPath: '/opt/codex' }), onAction));
+    const input = screen.getByLabelText('codex のパス');
+    fireEvent.change(input, { target: { value: '/usr/local/bin/codex' } });
+    fireEvent.blur(input);
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { codexPath: '/usr/local/bin/codex' }, field: 'codexPath' });
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { codexPath: null }, field: 'codexPath' });
+    expect(screen.getByRole('button', { name: 'codex のパスの説明' })).toBeInTheDocument();
   });
   it('欄を指さずに開いた環境とセッションの節は、どの欄も目立たせない', () => {
     const { unmount } = render(ui(at('environment')));
@@ -596,22 +630,22 @@ describe('設定の連携', () => {
     const orig = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this.id); };
     try {
-      render(ui(at('integrations')));
+      render(ui(at('agentClaude')));
       expect(scrolled).toEqual([]);
     } finally {
       Element.prototype.scrollIntoView = orig;
     }
   });
   it('MCP の登録を札で出す', () => {
-    const { rerender } = render(ui(at('integrations', { mcpRegistered: true })));
+    const { rerender } = render(ui(at('agentClaude', { mcpRegistered: true })));
     const mcp = () => within(screen.getByRole('heading', { name: /^MCP/ }).closest('section')!);
     expect(mcp().getByText('登録済み')).toBeInTheDocument();
-    rerender(ui(at('integrations', { mcpRegistered: false })));
+    rerender(ui(at('agentClaude', { mcpRegistered: false })));
     expect(mcp().getByText('未登録')).toBeInTheDocument();
   });
   it('MCP の登録のコマンドは hangar の呼び方でそろえ、押せばコピーする', () => {
     const onAction = vi.fn();
-    render(ui(at('integrations'), onAction));
+    render(ui(at('agentClaude'), onAction));
     expect(screen.getByText('hangar mcp install')).toBeInTheDocument();
     expect(screen.getByText('hangar statusline install')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'hangar mcp install をコピー' }));
@@ -619,7 +653,7 @@ describe('設定の連携', () => {
   });
   describe('ステータスライン', () => {
     it('状態と設定のコマンドを出す', () => {
-      render(ui(at('integrations')));
+      render(ui(at('agentClaude')));
       // スクリプトはあるが hangar の数行が無い、と言う。「設定されていません」だけだと、ステータスライン自体が無いと読める（0.4.0-rc.1 の Windows の実機）。
       expect(screen.getByText('ステータスラインのスクリプトはありますが、hangar に値を送る数行がまだ追加されていません。')).toBeTruthy();
       expect(screen.queryByText('まだ設定されていません')).toBeNull();
@@ -634,26 +668,26 @@ describe('設定の連携', () => {
     });
     it('案内にポートの指定を添える', () => {
       // 4177 以外で動いているサーバーに、4177 宛てのスニペットを追記させない。
-      render(ui(at('integrations')));
+      render(ui(at('agentClaude')));
       expect(screen.getByText('サーバーが 4177 以外のポートで実行中の場合は、--port <番号> を付けてください。')).toBeTruthy();
     });
     it('設定済みならそう出す', () => {
-      render(ui(at('integrations', { statusline: { command: 'bash x', scriptPath: '/h/x', installed: true } })));
+      render(ui(at('agentClaude', { statusline: { command: 'bash x', scriptPath: '/h/x', installed: true } })));
       expect(screen.getByText('設定済みです', { selector: '.muted' })).toBeTruthy();
     });
     it('設定が無いときは案内を出す', () => {
-      render(ui(at('integrations', { statusline: { command: null, scriptPath: null, installed: false } })));
+      render(ui(at('agentClaude', { statusline: { command: null, scriptPath: null, installed: false } })));
       expect(screen.getByText('ステータスラインの設定が見つかりません')).toBeTruthy();
     });
     it('まだ届いていなければ読み込み中を出す', () => {
-      render(ui(at('integrations', { statusline: null })));
+      render(ui(at('agentClaude', { statusline: null })));
       expect(screen.getByText('読み込み中…')).toBeTruthy();
     });
   });
   describe('シェル連携', () => {
     const shell = (over: Partial<SettingsProps['shell']>) => ({ ...settingsProps().shell, ...over });
     it('PC ごとの状態を並べ、入っていない PC には貼るコマンドを出す。書き換えるボタンは持たない', () => {
-      render(ui(at('integrations', { shell: shell({ devices: [{ id: 'd', name: 'mac', self: true, state: 'off', label: '未インストール' }, { id: 'd2', name: 'mini', self: false, state: 'on', label: 'インストール済み' }] }) })));
+      render(ui(at('agentClaude', { shell: shell({ devices: [{ id: 'd', name: 'mac', self: true, state: 'off', label: '未インストール' }, { id: 'd2', name: 'mini', self: false, state: 'on', label: 'インストール済み' }] }) })));
       const section = screen.getByRole('heading', { name: /^シェル連携/ }).closest('section')!;
       expect(within(section).getByText('mini')).toBeInTheDocument();
       expect(within(section).getByText('インストール済み')).toBeInTheDocument();
@@ -665,21 +699,21 @@ describe('設定の連携', () => {
       expect(within(section).queryByRole('checkbox')).toBeNull();
     });
     it('入っている PC では外し方を、使えない PC では直し方を出す', () => {
-      const { rerender } = render(ui(at('integrations', { shell: shell({ state: 'on' }) })));
+      const { rerender } = render(ui(at('agentClaude', { shell: shell({ state: 'on' }) })));
       expect(screen.getByText(/shell uninstall/)).toBeInTheDocument();
       expect(screen.queryByText(/shell install$/)).toBeNull();
-      rerender(ui(at('integrations', { shell: shell({ state: 'unsupported' }) })));
+      rerender(ui(at('agentClaude', { shell: shell({ state: 'unsupported' }) })));
       expect(screen.getByText(/brew install tmux/)).toBeInTheDocument();
     });
     it('この OS で包みを使えないとき（Windows）は、節ごと出さない', () => {
-      render(ui(at('integrations', { shell: shell({ state: 'unsupported', available: false }) })));
+      render(ui(at('agentClaude', { shell: shell({ state: 'unsupported', available: false }) })));
       expect(screen.queryByRole('heading', { name: /^シェル連携/ })).toBeNull();
       expect(screen.queryByText(/shell install/)).toBeNull();
       expect(screen.getByRole('heading', { name: /^ステータスライン/ })).toBeInTheDocument();
     });
   });
   describe('殻の中の連携（ボタンで殻に頼む）', () => {
-    const desktop = (over: Partial<SettingsProps['integrations']> = {}) => at('integrations', { integrations: integrationsProps({ desktop: true, ...over }) });
+    const desktop = (over: Partial<SettingsProps['integrations']> = {}) => at('agentClaude', { integrations: integrationsProps({ desktop: true, ...over }) });
     const card = (name: RegExp) => within(screen.getByRole('heading', { name }).closest('section')!);
     it('書き込む先とバックアップの添え書きをボタンの横に出し、押すと殻に頼む。コマンドは「ターミナルで行うとき」に畳む', () => {
       const onAction = vi.fn();
@@ -726,26 +760,27 @@ describe('設定の連携', () => {
     const DRIFT = { verifiedVersion: '2.1.292', localVersion: '2.1.300', driftCount: 3 };
     /** 互換の節。見出しの名前には右端の札の文も入る。 */
     const section = () => screen.getByRole('heading', { level: 3, name: /^Claude Code との互換/ }).closest('section')!;
-    it('連携の先頭に節を置く', () => {
-      render(ui(at('integrations')));
-      const link = screen.getByRole('group', { name: /^連携/ });
-      expect(within(link).getAllByRole('heading', { level: 3 })[0]).toHaveTextContent(/^Claude Code との互換/);
+    it('互換の節は、Claude Code の節の中の連携の先頭に置く', () => {
+      render(ui(at('agentClaude')));
+      const link = screen.getByRole('group', { name: /^Claude Code/ });
+      const heads = within(link).getAllByRole('heading', { level: 3 });
+      expect(heads[heads.findIndex((h) => /^Claude Code との互換/.test(h.textContent ?? '')) + 1]).toHaveTextContent(/^ステータスライン/);
     });
     it('準備の確かめが届く前は、本文の下に「確かめています」と出し、札は出さない', () => {
-      render(ui(at('integrations', { compat: null })));
+      render(ui(at('agentClaude', { compat: null })));
       expect(within(section()).getByText('確認中…')).toBeInTheDocument();
       fireEvent.click(within(section()).getByRole('button', { name: 'Claude Code との互換性の説明' }));
       expect(screen.getByRole('dialog')).toHaveTextContent('hangar は Claude Code のトランスクリプト、状態ファイル、ステータスライン、~/.claude の内容、CLI の出力、画面出力を読み取ります。未知の形式を検出すると、ここに表示します。');
     });
     it('問題なしは緑の札で、手元の版と確かめた版を出す', () => {
-      render(ui(at('integrations', { compat: presentCompat(translator('ja'), { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 }, null, '') })));
+      render(ui(at('agentClaude', { compat: presentCompat(translator('ja'), { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 }, null, '') })));
       expect(within(section()).getByText('問題なし')).toHaveAttribute('data-tone', 'ok');
       expect(section()).toHaveTextContent('インストール済みのバージョン 2.1.292');
       expect(section()).toHaveTextContent('検証済みのバージョン 2.1.292');
       expect(within(section()).queryByRole('list', { name: '無効にした機能' })).toBeNull();
     });
     it('未確認の版は灰色の札で、版の並びに止めていないことを添える', () => {
-      render(ui(at('integrations', { compat: presentCompat(translator('ja'), { verifiedVersion: '2.1.292', localVersion: '2.1.300', driftCount: 0 }, null, '') })));
+      render(ui(at('agentClaude', { compat: presentCompat(translator('ja'), { verifiedVersion: '2.1.292', localVersion: '2.1.300', driftCount: 0 }, null, '') })));
       expect(within(section()).getByText('未検証のバージョン')).toHaveAttribute('data-tone', 'info');
       expect(section()).toHaveTextContent('インストール済みのバージョン 2.1.300');
       expect(within(section()).getByText('未検証のバージョンです。無効にした機能はありません')).toBeInTheDocument();
@@ -753,7 +788,7 @@ describe('設定の連携', () => {
     it('ずれは注意の札で、止めた機能の一覧を常に出し、細目は畳む。表の下に置き場と報告用に写す', () => {
       const onAction = vi.fn();
       const c = presentCompat(translator('ja'), DRIFT, DETAIL, '0.3.0');
-      render(ui(at('integrations', { compat: c }), onAction));
+      render(ui(at('agentClaude', { compat: c }), onAction));
       const sec = within(section());
       expect(sec.getByText('変更点 3 件')).toHaveAttribute('data-tone', 'warn');
       expect(sec.getByText('未知の形式に依存する機能だけを無効にしています。その他の機能は使えます。')).toBeInTheDocument();
@@ -767,15 +802,15 @@ describe('設定の連携', () => {
     });
     it('ずれはあっても止めた機能が無ければ、一覧を出さず、記録だけだと言う', () => {
       const only: CompatDto = { ...DETAIL, drifts: [{ contract: 'cli', value: 'subcommand.added=newcmd', version: null, count: 1, firstSeenAt: when(7, 9, 0), lastSeenAt: when(7, 9, 0) }] };
-      render(ui(at('integrations', { compat: presentCompat(translator('ja'), { ...DRIFT, driftCount: 1 }, only, '') })));
+      render(ui(at('agentClaude', { compat: presentCompat(translator('ja'), { ...DRIFT, driftCount: 1 }, only, '') })));
       expect(within(section()).getByText('変更点 1 件')).toHaveAttribute('data-tone', 'warn');
       expect(within(section()).getByText('未知の形式を記録しました。無効にした機能はありません。')).toBeInTheDocument();
       expect(within(section()).queryByRole('list', { name: '無効にした機能' })).toBeNull();
       expect(within(section()).getByText('変更点 1 件の詳細')).toBeInTheDocument();
     });
     it('ずれがあっても、見出しの「要修正」は灯さない', () => {
-      render(ui(at('integrations', { compat: presentCompat(translator('ja'), DRIFT, DETAIL, ''), todo: { must: 0, link: 0 } })));
-      expect(screen.getByRole('heading', { level: 2, name: /^連携/ })).not.toHaveTextContent('要修正');
+      render(ui(at('agentClaude', { compat: presentCompat(translator('ja'), DRIFT, DETAIL, ''), todo: { must: 0, link: 0 } })));
+      expect(screen.getByRole('heading', { level: 2, name: /^Claude Code/ })).not.toHaveTextContent('要修正');
     });
   });
 });
@@ -785,10 +820,11 @@ describe('設定の連携の末尾の「Claude Code に環境を見てもらう�
   const card = () => screen.getByRole('heading', { name: /Claude Code で環境を診断/ }).closest('section') as HTMLElement;
 
   it('連携の節の最後の札に、題、版の札、説明、貼る一言をそのまま見せる', () => {
-    const { container } = render(ui(at('integrations', { setupGuide: guide })));
+    const { container } = render(ui(at('agentClaude', { setupGuide: guide })));
     const c = card();
+    // 最後の札は claude のパスの欄で、環境を診断する札はその 1 つ前に置く。
     const sections = container.querySelectorAll('.settings-group > section');
-    expect(sections[sections.length - 1]).toBe(c);
+    expect(sections[sections.length - 2]).toBe(c);
     expect(within(c).getByText('v0.7.0')).toBeInTheDocument();
     expect(within(c).getByText('読み取り専用で診断し、登録と連携を提案します。変更は承認してから行います。')).toBeInTheDocument();
     expect(within(c).getByText(guide.prompt).tagName).toBe('CODE');
@@ -797,7 +833,7 @@ describe('設定の連携の末尾の「Claude Code に環境を見てもらう�
 
   it('「コピー」は一言を clipboard.copy で渡し、写せたら「コピーしました」に替わる（ブラウザでも押せる）', () => {
     const onAction = vi.fn();
-    const props = at('integrations', { setupGuide: guide });
+    const props = at('agentClaude', { setupGuide: guide });
     const view = render(<ActionRoot onAction={onAction}><CopiedContext.Provider value={null}><SettingsScreen {...props} /></CopiedContext.Provider></ActionRoot>);
     const button = within(card()).getByRole('button', { name: 'コピー' });
     expect(button).not.toBeDisabled();
@@ -809,20 +845,20 @@ describe('設定の連携の末尾の「Claude Code に環境を見てもらう�
 
   it('「手引きの中身を表示」は写した md をエディタで開く', () => {
     const onAction = vi.fn();
-    render(ui(at('integrations', { setupGuide: guide }), onAction));
+    render(ui(at('agentClaude', { setupGuide: guide }), onAction));
     fireEvent.click(within(card()).getByRole('button', { name: 'セットアップのすゝめを表示' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'setupGuide.openEditor' });
   });
 
   it('写しが取れていなければ札を出さない', () => {
-    render(ui(at('integrations', { setupGuide: null })));
+    render(ui(at('agentClaude', { setupGuide: null })));
     expect(screen.queryByRole('heading', { name: /Claude Code で環境を診断/ })).toBeNull();
   });
 });
 
 describe('設定のセッションの「Claude Code に渡す設定」と「新しいセッション」（1e）', () => {
   it('3 つを行にし、切れない 2 つに「常に」を添え、2 つのスイッチは追記の行の中に置く', () => {
-    render(ui(at('sessions')));
+    render(ui(at('agentClaude')));
     const box = screen.getByRole('region', { name: 'Claude Code に渡す設定' });
     fireEvent.click(within(box).getByRole('button', { name: 'Claude Code に渡す設定の説明' }));
     // 足す範囲の例外と、効く時期は、見出しの横の ⓘ に畳む。
@@ -839,7 +875,7 @@ describe('設定のセッションの「Claude Code に渡す設定」と「新�
   });
   it('スイッチは切り替えた時点で、その 1 項目だけを保存する', () => {
     const onAction = vi.fn();
-    render(ui(at('sessions'), onAction));
+    render(ui(at('agentClaude'), onAction));
     fireEvent.click(screen.getByRole('switch', { name: '作業の区切りで Done／Paused を確認する' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { askStatusAtEnd: false } });
     fireEvent.click(screen.getByRole('switch', { name: 'ターンの意図と操作の短い説明を送る' }));
@@ -847,7 +883,7 @@ describe('設定のセッションの「Claude Code に渡す設定」と「新�
   });
   it('「Remote Control を付けて起動する」の切り替えが PATCH { remoteControl } を送る。説明に、claude.ai のログインのアカウントだけで効く旨がある', () => {
     const onAction = vi.fn();
-    render(ui(at('sessions'), onAction));
+    render(ui(at('agentClaude'), onAction));
     // 起動の既定なので、「新しいセッション」の小見出しの下に置く（Claude Code に渡す設定の線の外）。
     const sw = screen.getByRole('switch', { name: 'Remote Control を付けて起動する' });
     expect(sw.closest('section')!.querySelector('h3')).toHaveTextContent('新しいセッション');
@@ -867,12 +903,12 @@ describe('設定のセッションの「Claude Code に渡す設定」と「新�
   });
   it('既定のモデルは一覧から選んで保存し、「Claude Code の既定」は null を送る。一覧に無い名前も打って使える', () => {
     const onAction = vi.fn();
-    const { rerender } = render(ui(at('sessions'), onAction));
+    const { rerender } = render(ui(at('agentClaude'), onAction));
     expect(screen.getByRole('button', { name: 'デフォルトのモデル' })).toHaveTextContent('Claude Code のデフォルト');
-    expect(screen.getByRole('button', { name: 'デフォルトのモデル' }).closest('section')!.querySelector('h3')).toHaveTextContent('新しいセッション');
+    expect(screen.getByRole('button', { name: 'デフォルトのモデル' }).closest('section')!.querySelector('h3')).toHaveTextContent('新しいセッションのデフォルト');
     pick('デフォルトのモデル', 'sonnet');
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { defaultModel: 'sonnet' } });
-    rerender(ui(at('sessions', { injection: { ...settingsProps().injection, defaultModel: 'sonnet' } }), onAction));
+    rerender(ui(at('agentClaude', { injection: { ...settingsProps().injection, defaultModel: 'sonnet' } }), onAction));
     expect(screen.getByRole('button', { name: 'デフォルトのモデル' })).toHaveTextContent('sonnet');
     pick('デフォルトのモデル', 'Claude Code のデフォルト');
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { defaultModel: null } });
@@ -883,7 +919,7 @@ describe('設定のセッションの「Claude Code に渡す設定」と「新�
   });
   it('全文の畳みは、段落の名前を添え、切った段落は打ち消し線で残し、差し込む値は印にする', () => {
     const full = presentInjection(translator('ja'), { askStatusAtEnd: true, liveHints: false });
-    render(ui(at('sessions', { injection: { askStatusAtEnd: true, liveHints: false, remoteControl: true, defaultModel: null, full } })));
+    render(ui(at('agentClaude', { injection: { askStatusAtEnd: true, liveHints: false, remoteControl: true, defaultModel: null, full } })));
     const details = screen.getByText('追加する指示の全文を表示').closest('details')!;
     expect(details.open).toBe(false);
     fireEvent.click(screen.getByText('追加する指示の全文を表示'));
@@ -919,7 +955,7 @@ describe('設定の要約エンジンの選択（2a）', () => {
     expect(screen.queryByRole('button', { name: '保存' })).toBeNull();
     expect(screen.queryByRole('button', { name: '接続テスト' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '要約の説明' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent('終了したセッションの要約を作成します。セッションの中で Claude が書く要約は、どれを選んでも表示されます。');
+    expect(screen.getByRole('dialog')).toHaveTextContent('終了したセッションの要約を作成します。セッションの中でエージェントが書く要約は、どれを選んでも表示されます。');
   });
   it('Claude を選んだら、モデルと 1 時間の上限を出し、保存はその 2 つを送る。URL の欄は出さない', () => {
     const onAction = vi.fn();
@@ -1144,7 +1180,7 @@ describe('設定の環境と、セッションの節の作成先', () => {
     const onAction = vi.fn();
     render(ui(at('environment'), onAction));
     expect(screen.getByText('プロジェクトの登録')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Claude Code を使ったディレクトリから…' }));
+    fireEvent.click(screen.getByRole('button', { name: '会話したディレクトリから…' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'project.candidates.open' });
     fireEvent.click(screen.getByRole('button', { name: 'ディレクトリの中から…' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'project.candidates.open', source: 'folder' });
@@ -1166,10 +1202,10 @@ describe('設定の環境と、セッションの節の作成先', () => {
     render(ui(at('sessions')));
     expect(screen.queryByRole('button', { name: '保存' })).toBeNull();
   });
-  it('環境には、実行ファイルの 3 つのパスと git の読むだけの行、インデックス、プロジェクトの登録を置く（作成先はセッション、ターミナルアプリとエディタは一般にある）', () => {
+  it('環境には、実行ファイルの 2 つのパスと git の読むだけの行、インデックス、プロジェクトの登録を置く（作成先はセッション、ターミナルアプリとエディタは一般にある）', () => {
     render(ui(at('environment')));
     expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['実行ファイルのパス', 'インデックス']);
-    expect(screen.getAllByRole('textbox').map((e) => e.getAttribute('aria-label'))).toEqual(['tmux のパス', 'claude のパス', 'Node のパス']);
+    expect(screen.getAllByRole('textbox').map((e) => e.getAttribute('aria-label'))).toEqual(['tmux のパス', 'Node のパス']);
     expect(document.getElementById('settings-field-git')).not.toBeNull();
     expect(screen.getByText('プロジェクトの登録')).toBeInTheDocument();
     expect(screen.queryByRole('radio', { name: 'iTerm2' })).toBeNull();
@@ -1214,18 +1250,22 @@ describe('設定の環境と、セッションの節の作成先', () => {
       fireEvent.blur(field);
       typeAndLeave(label, ` ${field.value} `);
     };
-    for (const label of ['tmux のパス', 'claude のパス', 'Node のパス']) leaveAsIs(label);
+    for (const label of ['tmux のパス', 'Node のパス']) leaveAsIs(label);
+    expect(onAction).not.toHaveBeenCalled();
+    unmount();
+    const claude = render(ui(at('agentClaude', { claudePath: '/usr/local/bin/claude' }), onAction));
+    leaveAsIs('claude のパス');
     expect(onAction).not.toHaveBeenCalled();
     // 空白を足しただけの欄は、保存済みの値に戻す。
     expect(screen.getByLabelText('claude のパス')).toHaveValue('/usr/local/bin/claude');
-    unmount();
+    claude.unmount();
     render(ui(at('sessions'), onAction));
     leaveAsIs('新しいディレクトリの作成先');
     expect(onAction).not.toHaveBeenCalled();
   });
   it('Enter でも保存し、日本語入力の確定の Enter では保存しない', () => {
     const onAction = vi.fn();
-    render(ui(at('environment'), onAction));
+    render(ui(at('agentClaude'), onAction));
     const field = screen.getByLabelText('claude のパス');
     fireEvent.change(field, { target: { value: '/usr/local/bin/claude' } });
     fireEvent.keyDown(field, { key: 'Enter', keyCode: 229 });
@@ -1270,8 +1310,10 @@ describe('設定の環境と、セッションの節の作成先', () => {
     const under = (label: string) => screen.getByLabelText(label).closest('.path-field')!.querySelector('.verify')!;
     expect(under('新しいディレクトリの作成先')).toHaveTextContent('/w（プロジェクト 12 件）');
     unmount();
-    render(ui(at('environment', { verify }), onAction));
+    const claude = render(ui(at('agentClaude', { verify })));
     expect(under('claude のパス')).toHaveTextContent('/Users/me/.local/bin/claude（2.3.1）');
+    claude.unmount();
+    render(ui(at('environment', { verify }), onAction));
     expect(under('tmux のパス')).toHaveTextContent('見つかりません');
     expect(under('tmux のパス')).toHaveAttribute('data-tone', 'ng');
     // git は設定の欄が無いので、読むだけの行に出す。
@@ -1286,9 +1328,8 @@ describe('設定の環境と、セッションの節の作成先', () => {
   it('サーバーが正規化した値に入力欄が追従する', () => {
     const { rerender, unmount } = render(ui(at('environment', { tmuxPath: 'tmux', claudePath: null, nodePath: '' })));
     expect(screen.getByLabelText('tmux のパス')).toHaveValue('tmux');
-    rerender(ui(at('environment', { claudePath: '/Users/x/.local/bin/claude', nodePath: '/opt/homebrew/bin/node' })));
+    rerender(ui(at('environment', { nodePath: '/opt/homebrew/bin/node' })));
     expect(screen.getByLabelText('tmux のパス')).toHaveValue('/opt/homebrew/bin/tmux');
-    expect(screen.getByLabelText('claude のパス')).toHaveValue('/Users/x/.local/bin/claude');
     expect(screen.getByLabelText('Node のパス')).toHaveValue('/opt/homebrew/bin/node');
     unmount();
     const s = render(ui(at('sessions')));
@@ -1299,7 +1340,7 @@ describe('設定の環境と、セッションの節の作成先', () => {
   it('claude のパスを保存する', () => {
     // .app から起こすと PATH で claude を引けない。欄が無いと、起動が 400 で断られたまま直せない。
     const onAction = vi.fn();
-    render(ui(at('environment'), onAction));
+    render(ui(at('agentClaude'), onAction));
     typeAndLeave('claude のパス', ' /Users/x/.local/bin/claude ');
     expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { claudePath: '/Users/x/.local/bin/claude' }, field: 'claudePath' });
   });
@@ -1503,9 +1544,13 @@ describe('設定の説明は見出しの横の ⓘ に畳む（lean-labels の�
     }
     expect(screen.queryByText(/入力待ちのセッションを/)).toBeNull();
   });
+  it('Claude Code の節の行の説明も、見出しの横の ⓘ に畳む', () => {
+    render(ui(at('agentClaude')));
+    for (const label of ['デフォルトのモデル', 'Remote Control を付けて起動する']) expect(tip(label)).toBeInTheDocument();
+  });
   it('セッションの行の説明も、見出しの横の ⓘ に畳む', () => {
     render(ui(at('sessions')));
-    for (const label of ['デフォルトのモデル', 'Remote Control を付けて起動する', '新しいディレクトリの作成先', '停止したセッションを自動で Done にする', '長期間アクティビティの無いセッションも Done にする', 'Done と Archived にしたセッションを停止する']) {
+    for (const label of ['新しいディレクトリの作成先', '停止したセッションを自動で Done にする', '長期間アクティビティの無いセッションも Done にする', 'Done と Archived にしたセッションを停止する']) {
       expect(tip(label)).toBeInTheDocument();
     }
   });
