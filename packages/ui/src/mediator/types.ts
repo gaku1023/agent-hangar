@@ -170,8 +170,8 @@ export type Effect =
   | { kind: 'api.retentionPreview'; days: number } | { kind: 'api.writeRetention'; days: number }
   // Claude Code のアカウント。
   | { kind: 'api.accounts.switchSession'; sessionId: string; accountId: string }
-  | { kind: 'api.accounts.add'; name: string; dir: string | null }
-  | { kind: 'api.accounts.remove'; accountId: string };
+  | { kind: 'api.accounts.add'; name: string; dir: string | null; agent?: 'codex' }
+  | { kind: 'api.accounts.remove'; accountId: string; agent?: 'codex' };
 
 export type Screen = { name: 'booting' } | Route;
 /** results はセッションの一覧の画面の結果の一覧である。 */
@@ -194,8 +194,8 @@ export type ConfirmRequest =
   // fromDialog は、未解決のプロジェクトのダイアログから来たこと。やめるとそのダイアログへ戻る。
   | { kind: 'unlinkProject'; projectId: string; fromDialog?: true }
   // 別のアカウントで再開する場面と、アカウントを一覧から外す場面。
-  | { kind: 'switchAccount'; sessionId: string; accountId: string; working: boolean }
-  | { kind: 'removeAccount'; accountId: string }
+  | { kind: 'switchAccount'; sessionId: string; accountId: string; working: boolean; agent?: 'codex' }
+  | { kind: 'removeAccount'; accountId: string; agent?: 'codex' }
   // セッションを消す（本文をゴミ箱へ移し、同期しているほかの PC からも消す）前の確認（試作の 3A）。
   | { kind: 'deleteSession'; sessionId: string }
   // 同じフォルダのプロジェクトをまとめる（サーバの 409 の ProjectSameFolderDto から組む）。
@@ -210,7 +210,7 @@ export type Overlay =
   | { kind: 'promote'; sessionId: string }
   | { kind: 'newProject' }
   // 設定の「アカウントを足す…」。入力はダイアログが持ち、送信の進みは accountAdd が持つ。
-  | { kind: 'addAccount' }
+  | { kind: 'addAccount'; agent?: 'codex' }
   // まとめて登録のダイアログ（初日のプロジェクト）。source は開いた時点の見方（talked は Claude Code と会話したフォルダ、folder はフォルダの中から）。
   // submitting は登録の返事を待っているあいだ、error は登録の失敗の理由。
   | { kind: 'projectCandidates'; source: 'talked' | 'folder'; submitting: boolean; error: string | null }

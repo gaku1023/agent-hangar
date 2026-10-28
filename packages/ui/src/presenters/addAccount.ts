@@ -9,6 +9,8 @@ import type { Store } from '../store/store.ts';
  * preview は足す前の確かめの最後の答えで、今の欄と合うかはダイアログが見る。
  */
 export type AddAccountProps = {
+  /** どのエージェントのアカウントを足すか。省略は Claude Code。 */
+  agent?: 'claude-code' | 'codex';
   home: string | null;
   /** 共有の元（最初のアカウントの場所）を ~ の形で。 */
   primaryDirLabel: string;
@@ -21,8 +23,12 @@ export type AddAccountProps = {
 
 export function presentAddAccount(state: State, store: Store): AddAccountProps | null {
   if (state.overlay.kind !== 'addAccount') return null;
-  const primary = store.accounts?.accounts.find((a) => a.id === PRIMARY_ACCOUNT_ID)?.dir ?? store.settings?.claudeDir ?? '~/.claude';
+  const codex = state.overlay.agent === 'codex';
+  const primary = codex
+    ? store.accounts?.codex?.accounts.find((a) => a.id === PRIMARY_ACCOUNT_ID)?.dir ?? '~/.codex'
+    : store.accounts?.accounts.find((a) => a.id === PRIMARY_ACCOUNT_ID)?.dir ?? store.settings?.claudeDir ?? '~/.claude';
   return {
+    agent: codex ? 'codex' : 'claude-code',
     home: store.home,
     primaryDirLabel: homePath(primary, store.home),
     desktop: store.desktop,

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { ACCOUNT_LINK_GROUPS, type MessageKey } from '@agent-hangar/shared';
+import { ACCOUNT_LINK_GROUPS, CODEX_ACCOUNT_LINK_GROUPS, type MessageKey } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import { homePath } from '../lib/paths.ts';
 import type { AddAccountProps } from '../presenters/addAccount.ts';
@@ -12,13 +12,26 @@ import { useT } from './primitives/language.tsx';
 const GROUP_TITLE = {
   config: 'account.add.group.config', tools: 'account.add.group.tools', memory: 'account.add.group.memory', history: 'account.add.group.history',
 } as const satisfies Record<(typeof ACCOUNT_LINK_GROUPS)[number]['key'], MessageKey>;
+/** Codex の共有の組の見出し（組は CODEX_ACCOUNT_LINK_GROUPS）。 */
+const CODEX_GROUP_TITLE = { config: 'account.add.group.config', tools: 'account.add.group.codexTools', history: 'account.add.group.history' } as const satisfies Record<(typeof CODEX_ACCOUNT_LINK_GROUPS)[number]['key'], MessageKey>;
 /** 組の中の名前を、この数までは並べて、残りは「ほか N 項目」にする。 */
 const SHOWN_ENTRIES = 3;
 /** 分ける（共有しない）もの。見出しと、あれば名前。 */
-const SEPARATE: { title: 'account.add.separate.login' | 'account.add.separate.managed' | 'account.add.separate.cache'; detail?: 'account.add.separate.loginDetail' }[] = [
+/** 引数を取らない鍵だけ（t が 1 引数で呼べる）。 */
+type PlainKey = 'account.add.group.config' | 'account.add.group.tools' | 'account.add.group.codexTools' | 'account.add.group.memory' | 'account.add.group.history'
+  | 'account.add.separate.login' | 'account.add.separate.loginDetail' | 'account.add.separate.managed' | 'account.add.separate.cache'
+  | 'account.add.separate.codexLoginDetail' | 'account.add.separate.database' | 'account.add.separate.codexCache';
+type SeparateRow = { title: PlainKey; detail?: PlainKey };
+const SEPARATE: SeparateRow[] = [
   { title: 'account.add.separate.login', detail: 'account.add.separate.loginDetail' },
   { title: 'account.add.separate.managed' },
   { title: 'account.add.separate.cache' },
+];
+/** Codex の分けるもの（ログイン、内部のデータベース、キャッシュとログ）。 */
+const CODEX_SEPARATE: SeparateRow[] = [
+  { title: 'account.add.separate.login', detail: 'account.add.separate.codexLoginDetail' },
+  { title: 'account.add.separate.database' },
+  { title: 'account.add.separate.codexCache' },
 ];
 
 /**
@@ -30,6 +43,11 @@ const SEPARATE: { title: 'account.add.separate.login' | 'account.add.separate.ma
 export function AddAccountDialog(props: AddAccountProps) {
   const emit = useEmit();
   const t = useT();
+  const codex = props.agent === 'codex';
+  const agent = codex ? { agent: 'codex' as const } : {};
+  const groups: readonly { key: string; entries: readonly string[] }[] = codex ? CODEX_ACCOUNT_LINK_GROUPS : ACCOUNT_LINK_GROUPS;
+  const groupTitle = (key: string): PlainKey => (codex ? CODEX_GROUP_TITLE : GROUP_TITLE)[key as keyof typeof CODEX_GROUP_TITLE & keyof typeof GROUP_TITLE];
+  const separate = codex ? CODEX_SEPARATE : SEPARATE;
   const [name, setName] = useState('');
   // 利用者が場所を自分で打ったか選んだか。それまでは候補で埋める。
   const [dirTouched, setDirTouched] = useState(false);
@@ -38,7 +56,7 @@ export function AddAccountDialog(props: AddAccountProps) {
   const pickedAtOpen = useRef(props.picked?.n ?? 0);
   const input = dirTouched ? dir : '';
 
-  useEffect(() => { emit({ type: 'account.add.preview', name, dir: input }); }, [name, input]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { emit({ type: 'account.add.preview', name, dir: input, ...agent }); }, [name, input]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const p = props.picked;
     if (!p || p.n <= pickedAtOpen.current) return;
@@ -56,7 +74,7 @@ export function AddAccountDialog(props: AddAccountProps) {
   const submit = () => {
     if (!canSubmit) return;
     // 候補で埋まっているときは、見せている場所（の絶対パス）をそのまま送る。答えが届く前なら、サーバが名前から決める。
-    emit({ type: 'account.add', name, dir: dirTouched ? dir : pv?.dir ?? '' });
+    emit({ type: 'account.add', name, dir: dirTouched ? dir : pv?.dir ?? '', ...agent });
   };
   const onEnter = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Enter' || isComposing(e)) return;
@@ -72,13 +90,13 @@ export function AddAccountDialog(props: AddAccountProps) {
   // 名前を打ちかけたまま背景を押し違えても失わないよう、背景では閉じない。
   return (
     <Dialog
-      title={t('account.add.title')}
+      title={t(codex ? 'account.add.codexTitle' : 'account.add.title')}
       icon="add"
       className="dialog-wide"
       onClose={close}
       closeOnBackdrop={false}
       footer={<>
-        <span className="add-account-foot faint">{t('account.add.footnote')}</span>
+        <span className="add-account-foot faint">{t(codex ? 'account.add.codexFootnote' : 'account.add.footnote')}</span>
         <span className="spacer" />
         <button type="button" className="btn" onClick={close}>{t('common.button.cancel')}</button>
         <button type="button" className="btn btn-primary" disabled={!canSubmit} onClick={submit}>{t('account.add.submit')}</button>
@@ -101,13 +119,13 @@ export function AddAccountDialog(props: AddAccountProps) {
         <div className="add-account-col">
           <h4 className="add-account-col-h"><Icon name="link" />{sharedTitle}</h4>
           <ul aria-label={sharedTitle}>
-            {ACCOUNT_LINK_GROUPS.map((g) => <li key={g.key}><span>{t(GROUP_TITLE[g.key])}</span><small className="mono">{detailOf(g.entries)}</small></li>)}
+            {groups.map((g) => <li key={g.key}><span>{t(groupTitle(g.key))}</span><small className="mono">{detailOf(g.entries)}</small></li>)}
           </ul>
         </div>
         <div className="add-account-col" data-kind="separate">
           <h4 className="add-account-col-h"><Icon name="unlink" />{separateTitle}</h4>
           <ul aria-label={separateTitle}>
-            {SEPARATE.map((s) => <li key={s.title}><span>{t(s.title)}</span>{s.detail && <small className="mono">{t(s.detail)}</small>}</li>)}
+            {separate.map((s) => <li key={s.title}><span>{t(s.title)}</span>{s.detail && <small className="mono">{t(s.detail)}</small>}</li>)}
           </ul>
         </div>
       </div>

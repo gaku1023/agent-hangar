@@ -41,6 +41,8 @@ export const confirmEn: AreaDictionary<typeof confirmKeys> = {
   'confirm.switchAccount.working': 'Work in progress will be interrupted.',
   'confirm.switchAccount.default': 'New sessions will also default to {name}.',
   'confirm.switchAccount.action': 'Switch',
+  'confirm.switchAccount.codexTitle': 'Switch to the {name} account?',
+  'confirm.switchAccount.codexLead': 'This stops this conversation for now and resumes it with the {name} account. Work in progress will be interrupted.',
   'confirm.removeAccount.title': 'Remove {name}?',
   'confirm.removeAccount.lead': 'Only the registration is removed. The config directory (login and settings links) stays.',
   'confirm.removeAccount.note': 'Sessions run with this account will resume with the primary account from now on.',

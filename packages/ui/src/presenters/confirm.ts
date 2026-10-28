@@ -27,7 +27,8 @@ export function presentConfirm(state: State, store: Store, now: number): Confirm
   if (confirm.kind === 'resumeHere') return { confirm, project: null, accountName: null, resumeHere: presentResumeHere(translatorOf(store), confirm.plan, store.home, now) };
   if (confirm.kind === 'takeover') return { confirm, project: null, accountName: null, takeover: presentTakeover(translatorOf(store), confirm.plan, confirm.takeover) };
   if (confirm.kind === 'switchAccount' || confirm.kind === 'removeAccount') {
-    return { confirm, project: null, accountName: accountList(store).find((a) => a.id === confirm.accountId)?.name ?? null };
+    const list = confirm.agent === 'codex' ? store.accounts?.codex?.accounts ?? [] : accountList(store);
+    return { confirm, project: null, accountName: list.find((a) => a.id === confirm.accountId)?.name ?? null };
   }
   if (confirm.kind === 'deleteSession') {
     const t = translatorOf(store);

@@ -1,4 +1,4 @@
-import { approveText, loggedOutText, type AccountGauge, type AccountView } from '../../presenters/accounts.ts';
+import { approvalText, cancelledText, loggedOutText, type AccountGauge, type AccountView } from '../../presenters/accounts.ts';
 import { useT } from './language.tsx';
 
 /**
@@ -16,6 +16,7 @@ export function AccountMeters(props: { account: AccountView; showResets: boolean
   const t = useT();
   const noValue = a.fiveHour === null && a.sevenDay === null;
   const again = a.auth === 'running' && a.loggedIn;
+  const cancelled = cancelledText(t, a);
   return (
     <span className="account-meters">
       <span className="account-meters-head">
@@ -23,8 +24,9 @@ export function AccountMeters(props: { account: AccountView; showResets: boolean
         <b className="account-meters-name">{a.name}</b>
         {a.plan !== null && <span className="account-plan">{a.plan}</span>}
       </span>
-      <span className="account-mail mono" data-auth={a.auth}>{a.auth === 'out' ? loggedOutText(t) : a.auth === 'running' && !a.loggedIn ? approveText(t) : a.email ?? ''}</span>
-      {again && <span className="account-approve">{approveText(t)}</span>}
+      <span className="account-mail mono" data-auth={a.auth}>{a.auth === 'out' ? loggedOutText(t) : a.auth === 'running' && !a.loggedIn ? approvalText(t, a) : a.email ?? ''}</span>
+      {again && <span className="account-approve">{approvalText(t, a)}</span>}
+      {cancelled !== null && <span className="account-note" data-tone="warn">{cancelled}</span>}
       {noValue ? <span className="account-none">{t('account.meters.noValue')}</span> : (
         <>
           <MeterRow name={a.name} label={t('account.meters.fiveHourLabel')} short={t('account.meters.fiveHourShort')} gauge={a.fiveHour} showResets={props.showResets} />

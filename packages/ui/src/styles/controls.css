@@ -531,3 +531,14 @@ textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) 
 .reg-note { font-size: var(--fs-xs); color: var(--ink-3); }
 .reg-sum { font-size: var(--fs-xs); color: var(--ink-2); }
 .reg-sum b { font-weight: 600; color: var(--ink); }
+/* Codex のアカウントが届いているときの面（U1）。節の見出しの右の「＋」、承認待ちの札の操作、設定だけになった下の段。 */
+.account-sec-add { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin-left: auto; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--accent); cursor: pointer; }
+.account-sec-hint + .account-sec-add { margin-left: 0; }
+.account-sec-add .icon { width: 12px; height: 12px; stroke-width: 2.4; }
+.account-sec-add:hover { background: rgba(255, 255, 255, 0.92); }
+.account-card[data-approval='true'] { display: flex; flex-direction: column; gap: calc(var(--u) * 2); cursor: default; }
+.account-card-acts { display: flex; gap: calc(var(--u) * 2); }
+.account-card-act { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; font-size: var(--fs-xs); font-weight: 600; cursor: pointer; }
+.account-card-act[data-quiet='true'] { color: var(--ink-3); }
+.account-card-act:hover { text-decoration: underline; }
+.account-pop-foot[data-solo='true'] { justify-content: flex-end; }

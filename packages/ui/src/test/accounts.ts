@@ -16,3 +16,19 @@ export const accountsFixture: AccountsDto = {
   ],
   sessions: { s9: 'a1' },
 };
+
+/**
+ * Codex のアカウント付きの固定データ。Claude の 2 件（accountsFixture）に、Codex の 2 件（primary の「個人」と cw の「会社用」）を足す。
+ * primary がいまの Codex アカウントで、Codex の会話 c1 は cw で動いている。
+ */
+export const codexAccountsFixture: AccountsDto = {
+  ...accountsFixture,
+  codex: {
+    currentId: 'primary',
+    accounts: [
+      { id: 'primary', name: '個人', dir: '/h/.codex', color: '#7a4a9e', primary: true, auth: { loggedIn: true, email: 'me@personal.example', plan: 'plus', orgName: null, checkedAt: 1 }, usage: { fiveHour: { usedPercent: 23, resetsAt: FIVE_RESETS }, sevenDay: { usedPercent: 37, resetsAt: SEVEN_RESETS }, updatedAt: 500 }, loginRunning: false, linkProblem: null },
+      { id: 'cw', name: '会社用', dir: '/h/.codex-work', color: '#c77a1a', primary: false, auth: { loggedIn: true, email: 'me@company.example', plan: 'business', orgName: null, checkedAt: 1 }, usage: { fiveHour: { usedPercent: 4, resetsAt: FIVE_RESETS }, sevenDay: { usedPercent: 11, resetsAt: SEVEN_RESETS }, updatedAt: 500 }, loginRunning: false, linkProblem: null },
+    ],
+    sessions: { c1: 'cw' },
+  },
+};

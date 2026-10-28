@@ -6,7 +6,7 @@ import { LONG_TOAST_MS } from './actionTable.ts';
 import { GIT_POLL_MS } from './gitWatch.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
 import type { TerminalHost } from './terminals.ts';
-import { accountsFixture } from '../test/accounts.ts';
+import { accountsFixture, codexAccountsFixture } from '../test/accounts.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 import type { State } from '../mediator/types.ts';
 import { presentNewProject } from '../presenters/newProject.ts';
@@ -2630,6 +2630,22 @@ describe('アカウント', () => {
     expect(h.api.loginAccount).toHaveBeenCalledWith('a2');
     expect(h.rt.getStore().accounts).toEqual(next);
     expect(h.rt.getState().overlay).toEqual({ kind: 'none' });
+  });
+  it('Codex の account.add は addCodexAccount を呼び、末尾の Codex アカウントをブラウザの方法でログインさせる。解除も Codex の API', async () => {
+    const added = { ...codexAccountsFixture.codex!.accounts[1]!, id: 'c3', name: '研究室' };
+    const next = { ...codexAccountsFixture, codex: { ...codexAccountsFixture.codex!, accounts: [...codexAccountsFixture.codex!.accounts, added] } };
+    const h = await started({ addCodexAccount: vi.fn(async () => next), removeCodexAccount: vi.fn(async () => codexAccountsFixture) });
+    h.rt.emit({ type: 'account.add.open', agent: 'codex' });
+    h.rt.emit({ type: 'account.add', name: '研究室', dir: '~/.codex-lab', agent: 'codex' });
+    await flush();
+    expect(h.api.addCodexAccount).toHaveBeenCalledWith('研究室', '~/.codex-lab');
+    expect(h.api.addAccount).not.toHaveBeenCalled();
+    expect(h.api.loginCodexAccount).toHaveBeenCalledWith('c3', 'browser');
+    expect(h.api.loginAccount).not.toHaveBeenCalled();
+    expect(h.rt.getState().overlay).toEqual({ kind: 'none' });
+    h.rt.emit({ type: 'account.remove', agent: 'codex', accountId: 'c3', confirmed: true });
+    await flush();
+    expect(h.api.removeCodexAccount).toHaveBeenCalledWith('c3');
   });
   it('account.add の追加に失敗したら、ログインは始めず、サーバーの文をダイアログに残す', async () => {
     const h = await started({ addAccount: vi.fn(async () => { throw new Error('その名前はもう使われています'); }) });
