@@ -21,9 +21,9 @@ export type CodexShareDeps = {
   budget?: number;
 };
 
-type CodexConfig = { mcpNames: Set<string>; fallback: string[] | null };
+export type CodexConfig = { mcpNames: Set<string>; fallback: string[] | null };
 
-function readCodexConfig(codexHome: string): CodexConfig {
+export function readCodexConfig(codexHome: string): CodexConfig {
   let text: string;
   try { text = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8'); } catch { return { mcpNames: new Set(), fallback: null }; }
   let servers: unknown;

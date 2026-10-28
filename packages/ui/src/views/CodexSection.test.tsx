@@ -4,9 +4,10 @@ import type { UiAction } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
 import type { CodexSettingsProps } from '../presenters/settings.ts';
 import { CodexSection } from './CodexSection.tsx';
+import { shareOff } from '../test/share.ts';
 
 const props = (over: Partial<CodexSettingsProps> = {}): CodexSettingsProps => ({
-  enabled: false, injection: 'minimal',
+  enabled: false, injection: 'minimal', share: shareOff('codex'),
   injectionOptions: [{ value: 'minimal', label: '最小限（意図・要約・状態）' }, { value: 'claude', label: 'Claude Code と同じ' }, { value: 'none', label: '追記しない' }],
   intercept: { available: true, on: false, note: null },
   version: { kind: 'verified', installed: '0.164.2', verified: '0.164.x', note: null, login: null },
@@ -56,5 +57,27 @@ describe('設定の Codex の面', () => {
       { type: 'settings.update', patch: { codexEnabled: false } },
       { type: 'settings.update', patch: { codexIntercept: true } },
     ]);
+  });
+  it('Claude Code の指示と MCP を渡す 2 行を、追記の行の後ろに出す。入れたときは保存と一覧の取り直しを頼む', () => {
+    const seen: UiAction[] = [];
+    const base = shareOff('codex');
+    render(ui(props({ enabled: true, share: { ...base, instructions: { ...base.instructions, on: true } } }), (a) => seen.push(a)));
+    const rows =[...section().querySelectorAll('.set-row-t')].map((e) => e.textContent);
+    expect(rows.slice(-2)).toEqual(['Claude Code の指示を渡す', 'Claude Code の MCP を渡す']);
+    expect(rows.indexOf('システムプロンプトへの追記')).toBeLessThan(rows.indexOf('Claude Code の指示を渡す'));
+    fireEvent.click(screen.getByRole('switch', { name: 'Claude Code の MCP を渡す' }));
+    expect(seen).toEqual([{ type: 'settings.update', patch: { codexShareMcp: true } }, { type: 'share.preview', agent: 'codex' }]);
+    fireEvent.click(screen.getByRole('switch', { name: 'Claude Code の指示を渡す' }));
+    expect(seen.slice(2)).toEqual([{ type: 'settings.update', patch: { codexShareInstructions: false } }]);
+  });
+  it('入のときだけ一覧の箱を出し、切ると畳む（動かない環境ではすぐ外す）', () => {
+    const on = { on: true, desc: 'd', list: { empty: null, files: [{ path: '~/.claude/CLAUDE.md' }], mcp: [], skipped: [], notes: ['注記'] } };
+    const base = shareOff('codex');
+    const { rerender } = render(ui(props({ enabled: true, share: { ...base, instructions: on } })));
+    expect(section()).toHaveTextContent('渡すファイル');
+    expect(section()).toHaveTextContent('~/.claude/CLAUDE.md');
+    expect(section()).toHaveTextContent('注記');
+    rerender(ui(props({ enabled: true, share: base })));
+    expect(section()).not.toHaveTextContent('渡すファイル');
   });
 });

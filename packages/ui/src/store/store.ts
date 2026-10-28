@@ -5,7 +5,7 @@ import { initialCloudMember, reduceCloudMember, type CloudMemberState } from './
 import { initialUpdate, type UpdateState } from './update.ts';
 import type { FolderInspectState } from './folderInspect.ts';
 import type { LaunchPrepDto, GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
-import type { CodexStatusDto, EditorMissingDto, EditorsDto, EditorTestDto, SetupGuideDto, UiAction, SessionFilesDto, AccountDirPreviewDto, AccountDto, AccountsDto, ArtifactDto, CodexOptionsDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, FolderCandidatesDto, IndexProgressDto, InstructionsDto, InterruptedDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeOptionsDto, OpencodeProvidersDto, OpencodeStatusDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { CodexStatusDto, SharePreviewAgent, SharePreviewDto, EditorMissingDto, EditorsDto, EditorTestDto, SetupGuideDto, UiAction, SessionFilesDto, AccountDirPreviewDto, AccountDto, AccountsDto, ArtifactDto, CodexOptionsDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, FolderCandidatesDto, IndexProgressDto, InstructionsDto, InterruptedDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeOptionsDto, OpencodeProvidersDto, OpencodeStatusDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -139,6 +139,8 @@ export type Store = {
   folderInspect: FolderInspectState | null;
   /** アカウントを足す前の確かめの、最後に届いた答え（runtime/actionTable.ts の account.add.preview）。 */
   accountPreview: AccountDirPreviewDto | null;
+  /** 設定の「Claude Code の指示 / MCP を渡す」の下に出す、入にしたら何を渡すかの一覧（GET /api/share/preview）。取れていないエージェントは無い。 */
+  sharePreview: Partial<Record<SharePreviewAgent, SharePreviewDto>>;
   /** アプリの自動更新（store/update.ts）。殻が updater を持つかと、確認と取得の段階を、Runtime が入れる（runtime/updater.ts）。 */
   update: UpdateState;
   /** クラウド同期への参加と、PC の一覧と解除と、この PC の参加の解除（store/cloudMember.ts）。Runtime が入れる（runtime/cloudMember.ts）。 */
@@ -179,7 +181,7 @@ export function initialStore(): Store {
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     cloudUsage: null, sync: null, devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
-    readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, launchPreps: {}, opencodeProviders: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null,
+    readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, launchPreps: {}, opencodeProviders: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null, sharePreview: {},
     update: initialUpdate(),
     cloudMember: initialCloudMember(),
     interrupted: null,

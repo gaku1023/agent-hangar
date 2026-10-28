@@ -7,6 +7,7 @@ import { useT } from './primitives/language.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 import { collapseOut, fadeIn, fadeOut, growIn, motionOn } from './primitives/motionKit.ts';
 import { SetRow } from './primitives/SetRow.tsx';
+import { ShareRows } from './ShareRows.tsx';
 import { Switch } from './primitives/Switch.tsx';
 import { usePresence } from './primitives/usePresence.ts';
 
@@ -83,6 +84,7 @@ export function CodexSection(props: { o: CodexSettingsProps; /** 偽なら見出
           <SetRow title={t('settings.label.codexInjection')} info={t('settings.codex.injection.desc')}
             control={<Listbox label={t('settings.label.codexInjection')} value={o.injection} options={o.injectionOptions} align="end"
               onChange={(v) => emit({ type: 'settings.update', patch: { codexInjection: v as CodexInjection } })} />} />
+          <ShareRows o={o.share} />
         </div>
       )}
     </section>

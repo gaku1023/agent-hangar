@@ -1,7 +1,7 @@
 import { LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE } from '@agent-hangar/shared';
 import type { EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
-import type { AccountDirPreviewDto, AccountsDto, AgentAccountsDto, ArtifactDto, CodexOptionsDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MobilePairedDto, MobilePairingDto, MuxRecheckDto, OpencodeOptionsDto, OpencodeStatusDto, CodexStatusDto, OpencodeProvidersDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeCustomProviderBody, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
+import type { SharePreviewAgent, SharePreviewDto, AccountDirPreviewDto, AccountsDto, AgentAccountsDto, ArtifactDto, CodexOptionsDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MobilePairedDto, MobilePairingDto, MuxRecheckDto, OpencodeOptionsDto, OpencodeStatusDto, CodexStatusDto, OpencodeProvidersDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeCustomProviderBody, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -266,6 +266,8 @@ export type ApiClient = {
   addAccount(name: string, dir: string | null): Promise<AccountsDto>;
   /** アカウントを足す前の確かめ。何も作らない。 */
   previewAccountDir(name: string, dir: string): Promise<AccountDirPreviewDto>;
+  /** 設定の「Claude Code の指示 / MCP を渡す」の下に出す、入にしたら何を渡すかの一覧。 */
+  sharePreview(agent: SharePreviewAgent): Promise<SharePreviewDto>;
   updateAccount(id: string, patch: { name?: string; color?: string }): Promise<AccountsDto>;
   removeAccount(id: string): Promise<AccountsDto>;
   /** 202 が返るが、本文は使わない。ログインの進みは accounts.update で届く。 */
@@ -445,6 +447,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     setCurrentAccount: (id) => call('/api/accounts/current', { method: 'PUT', body: JSON.stringify({ id }) }),
     switchAccount: (sessionId, accountId) => post(`/api/sessions/${sessionId}/switch-account`, { account: accountId }),
     addAccount: (name, dir) => post('/api/accounts', dir === null ? { name } : { name, dir }),
+    sharePreview: (agent) => call(`/api/share/preview?agent=${agent}`),
     previewAccountDir: (name, dir) => call(`/api/accounts/preview?${new URLSearchParams({ name, dir }).toString()}`),
     updateAccount: (id, patch) => call(`/api/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
     removeAccount: (id) => call(`/api/accounts/${id}`, { method: 'DELETE' }),

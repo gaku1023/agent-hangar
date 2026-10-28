@@ -1,5 +1,5 @@
 import type { AgentKind } from './agents.ts';
-import type { ConfigApplyOrderEntryIn, FolderRegisterItem, InstructionFileKind, ProjectPlace, ProjectStatus, ResolveAction, ResumeStray, RetentionFrom, SettingsDto } from './api.ts';
+import type { ConfigApplyOrderEntryIn, FolderRegisterItem, InstructionFileKind, ProjectPlace, ProjectStatus, ResolveAction, ResumeStray, RetentionFrom, SettingsDto, SharePreviewAgent } from './api.ts';
 import type { LiveFilter } from './liveFilter.ts';
 import type { Route } from './route.ts';
 import type { SessionStatus } from './sessionState.ts';
@@ -307,6 +307,8 @@ export type UiAction =
   | { type: 'account.add'; name: string; dir: string; agent?: 'codex' }
   | { type: 'account.add.pick'; defaultPath: string | null }
   | { type: 'account.add.preview'; name: string; dir: string; agent?: 'codex' }
+  // 設定の「Claude Code の指示 / MCP を渡す」の下の一覧を取り直す（Store の sharePreview に入る）。スイッチを入れたときに送る。
+  | { type: 'share.preview'; agent: SharePreviewAgent }
   | { type: 'account.update'; accountId: string; name?: string; color?: string; agent?: 'codex' }
   | { type: 'account.remove'; accountId: string; confirmed?: boolean; agent?: 'codex' }
   | { type: 'account.login'; accountId: string; agent?: 'codex'; method?: 'browser' | 'deviceCode' } | { type: 'account.login.cancel'; accountId: string; agent?: 'codex' }

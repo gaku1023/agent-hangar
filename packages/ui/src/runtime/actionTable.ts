@@ -245,7 +245,8 @@ export const actionTable = {
       failed: (s) => s,
     });
   },
-  'account.add.preview': (i) => call((api) => (i.agent === 'codex' ? api.previewCodexAccountDir(i.name, i.dir) : api.previewAccountDir(i.name, i.dir)), { apply: (store, accountPreview) => ({ ...store, accountPreview }), failed: (store) => ({ ...store, accountPreview: null }) }),
+  'share.preview': (i) => call((api) => api.sharePreview(i.agent), { apply: (store, d) => ({ ...store, sharePreview: { ...store.sharePreview, [i.agent]: d } }) }),
+  'account.add.preview':(i) => call((api) => (i.agent === 'codex' ? api.previewCodexAccountDir(i.name, i.dir) : api.previewAccountDir(i.name, i.dir)), { apply: (store, accountPreview) => ({ ...store, accountPreview }), failed: (store) => ({ ...store, accountPreview: null }) }),
   'account.choose': (i) => call((api) => (i.agent === 'codex' ? api.setCurrentCodexAccount(i.accountId) : api.setCurrentAccount(i.accountId)), { apply: withAccounts }),
   'account.update': (i) => {
     // 名前は前後の空白を落とす。空になった名前は送らず、送るものが無ければ何も呼ばない。

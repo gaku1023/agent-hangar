@@ -4,6 +4,7 @@ import type { UiAction } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
 import type { OpencodeSettingsProps } from '../presenters/settings.ts';
 import { OpencodeSection } from './OpencodeSection.tsx';
+import { shareOff } from '../test/share.ts';
 import { LanguageRoot } from './primitives/language.tsx';
 
 const OPTIONS: OpencodeSettingsProps['injectionOptions'] = [
@@ -12,7 +13,7 @@ const OPTIONS: OpencodeSettingsProps['injectionOptions'] = [
   { value: 'none', label: '追記しない' },
 ];
 const props = (over: Partial<OpencodeSettingsProps> = {}): OpencodeSettingsProps => ({
-  available: true, enabled: false, injection: 'minimal', injectionOptions: OPTIONS, claudeNote: null,
+  available: true, enabled: false, injection: 'minimal', injectionOptions: OPTIONS, claudeNote: null, share: shareOff('opencode'),
   full: [{ label: '最小限（意図・要約・状態）', off: false, mark: null, pieces: [{ kind: 'text', text: 'あなたは agent-hangar から起動されたセッションです。' }] }],
   intercept: { available: true, on: false, note: null },
   permissionPreset: { on: true, byConfig: false, note: null },

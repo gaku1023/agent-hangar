@@ -186,6 +186,17 @@
 .oc-vers { display: block; font-size: var(--fs-sm); color: var(--ink-2); }
 .oc-vers code { font: 500 var(--fs-sm) var(--font-mono); color: var(--ink); }
 .oc-note { display: block; margin-top: 2px; }
+/* 「Claude Code の指示 / MCP を渡す」の下に伸びる一覧の箱。伸び縮みの間は中身をはみ出させない。 */
+.share-more { overflow: hidden; margin-top: calc(var(--u) * 2); }
+.share-detail { padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); font-size: var(--fs-sm); }
+.share-h { margin: calc(var(--u) * 1) 0 calc(var(--u) * 0.5); font: 600 var(--fs-xs) var(--font-sans); color: var(--ink-3); }
+.share-ul { margin: 0 0 calc(var(--u) * 1.5); padding: 0; list-style: none; }
+.share-ul li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--u) calc(var(--u) * 2); padding: calc(var(--u) * 0.5) 0; }
+.share-ul code { font: 500 var(--fs-xs) var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
+.share-pill { padding: 0 calc(var(--u) * 2); border-radius: 99px; box-shadow: inset 0 0 0 1px var(--line-strong); font-size: var(--fs-xs); color: var(--ink-2); }
+.share-why { font-size: var(--fs-xs); color: var(--st-paused); }
+.share-empty, .share-note { font-size: var(--fs-xs); color: var(--ink-3); }
+.share-note { margin-top: calc(var(--u) * 0.5); }
 .oc-note[data-tone='warn'] { color: var(--st-paused); }
 /* 連携の opencode の「プロバイダー」（試作 model-picker.html の設定の面）。つないだ先の行、行の下に伸びる欄、追加の一覧。 */
 .ocp { padding: calc(var(--u) * 3) 0 calc(var(--u) * 1); border-top: 1px solid var(--line); }

@@ -1,5 +1,5 @@
 import { presentOpencodeProviders, type OpencodeProvidersProps } from './opencodeProviders.ts';
-import { CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
+import { CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SharePreviewDto, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime } from './format.ts';
@@ -16,6 +16,7 @@ import { clientPlatform, presentMux, toolLine, workspaceLine, type MuxStatus, ty
 import { usageBar, type UsageBarProps } from './retentionDialog.ts';
 import { presentUpdateSection, type UpdateSectionProps } from './update.ts';
 import { presentInjection, presentOpencodeInjection, type InjectionPart } from './injection.ts';
+import { presentShare, type ShareSettingsProps } from './share.ts';
 
 /**
  * 設定の「連携 › opencode」の版の区分。
@@ -37,6 +38,8 @@ export type OpencodeSettingsProps = {
   version: { kind: OpencodeVersionKind; installed: string | null; verified: string; note: string | null } | null;
   badge: { text: string; tone: 'ok' | 'info' | 'warn' } | null;
   claudeNote: string | null;
+  /** 「Claude Code の指示を渡す」「Claude Code の MCP を渡す」の 2 行（追記の量の行の後ろ）。 */
+  share: ShareSettingsProps;
   /**
    * 「opencode コマンドを hangar 経由で起動」の行（段 D2）。available は macOS と Linux だけ真（Windows ではシェルの包みを作らない）。
    * note は、この PC にシェル連携が入っていないときの入れ方の注記。opencode() はシェル連携の本体の中に書くので、入っていなければ効かない。
@@ -93,6 +96,8 @@ export type CodexSettingsProps = {
   intercept: { available: boolean; on: boolean; note: string | null };
   version: { kind: CodexVersionKind; installed: string | null; verified: string; note: string | null; login: string | null } | null;
   badge: { text: string; tone: 'ok' | 'info' | 'warn' } | null;
+  /** 「Claude Code の指示を渡す」「Claude Code の MCP を渡す」の 2 行（追記の量の行の後ろ）。 */
+  share: ShareSettingsProps;
 };
 
 const CODEX_VERSION_TEXT = {
@@ -110,7 +115,7 @@ export function codexVersionKind(s: CodexStatusDto): CodexVersionKind {
   return s.verified ? 'verified' : 'unverified';
 }
 
-function presentCodex(t: Translate, settings: { codexEnabled?: boolean; codexInjection?: CodexInjection; codexIntercept?: boolean }, status: CodexStatusDto | null, platform: string, shell: ShellHookStateDto | null): CodexSettingsProps {
+function presentCodex(t: Translate, settings: { codexEnabled?: boolean; codexInjection?: CodexInjection; codexIntercept?: boolean; codexShareInstructions?: boolean; codexShareMcp?: boolean }, status: CodexStatusDto | null, platform: string, shell: ShellHookStateDto | null, preview: SharePreviewDto | undefined, home: string | null): CodexSettingsProps {
   const kind = status ? codexVersionKind(status) : null;
   const text = kind ? CODEX_VERSION_TEXT[kind] : null;
   return {
@@ -120,11 +125,12 @@ function presentCodex(t: Translate, settings: { codexEnabled?: boolean; codexInj
     intercept: { available: platform !== 'win32', on: codexInterceptOf(settings), note: shell !== null && shell !== 'on' ? t('settings.codex.intercept.needsShell') : null },
     version: status && kind && text ? { kind, installed: status.version, verified: CODEX_VERIFIED_RANGE, note: text.note ? t(text.note) : null, login: status.found && status.loggedIn === false ? t('settings.codex.version.loggedOut') : null } : null,
     badge: text ? { text: t(text.badge), tone: text.tone } : null,
+    share: presentShare(t, 'codex', settings, preview, home),
   };
 }
 
 /** 設定の「連携 › opencode」の面。platform は画面を開いている OS で、Windows ではコマンドの横取りの行だけを出さない。 */
-function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; opencodeInjection?: OpencodeInjection; opencodeIntercept?: boolean; opencodePermissionPreset?: boolean; opencodeLocalContext?: number; opencodeIdleUnload?: number; askStatusAtEnd?: boolean; liveHints?: boolean }, status: OpencodeStatusDto | null, platform: string, shell: ShellHookStateDto | null): OpencodeSettingsProps {
+function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; opencodeInjection?: OpencodeInjection; opencodeIntercept?: boolean; opencodePermissionPreset?: boolean; opencodeLocalContext?: number; opencodeIdleUnload?: number; opencodeShareInstructions?: boolean; opencodeShareMcp?: boolean; askStatusAtEnd?: boolean; liveHints?: boolean }, status: OpencodeStatusDto | null, platform: string, shell: ShellHookStateDto | null, preview: SharePreviewDto | undefined, home: string | null): OpencodeSettingsProps {
   const injection = opencodeInjectionOf(settings);
   const kind = status ? opencodeVersionKind(status) : null;
   const text = kind ? OPENCODE_VERSION_TEXT[kind] : null;
@@ -137,6 +143,7 @@ function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; op
     version: status && kind && text ? { kind, installed: status.version, verified: OPENCODE_VERIFIED_RANGE, note: text.note ? t(text.note) : null } : null,
     badge: text ? { text: t(text.badge), tone: text.tone } : null,
     claudeNote: injection === 'claude' ? t('settings.opencode.injection.claudeNote') : null,
+    share: presentShare(t, 'opencode', settings, preview, home),
     intercept: { available: platform !== 'win32', on: opencodeInterceptOf(settings), note: shell !== null && shell !== 'on' ? t('settings.opencode.intercept.needsShell') : null },
     permissionPreset: status?.configPermissions === true
       ? { on: false, byConfig: true, note: t('settings.opencode.permissionPreset.byConfig') }
@@ -545,8 +552,8 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     must: hard(verify.workspace) + hard(verify.tmux) + hard(verify.node),
     link: r ? (r.mcp.registered ? 0 : 1) + (r.statusline.installed ? 0 : 1) + hard(verify.claude) : 0,
   };
-  const codex = presentCodex(t, s ?? {}, store.codexStatus, platform, store.shellHook?.state ?? null);
-  const opencode = presentOpencode(t, s ?? {}, store.opencodeStatus, platform, store.shellHook?.state ?? null);
+  const codex = presentCodex(t, s ?? {}, store.codexStatus, platform, store.shellHook?.state ?? null, store.sharePreview.codex, store.home);
+  const opencode = presentOpencode(t, s ?? {}, store.opencodeStatus, platform, store.shellHook?.state ?? null, store.sharePreview.opencode, store.home);
   const integrations = presentIntegrations(t, state, store, { mcp: r?.commands.mcp ?? 'hangar mcp install', statusline: r?.commands.statusline ?? 'hangar statusline install', shell: command });
   return {
     cloud,

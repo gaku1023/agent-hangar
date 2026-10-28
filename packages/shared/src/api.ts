@@ -803,3 +803,17 @@ export type PromptCommandSource = 'project' | 'user' | 'plugin' | 'builtin';
 export type PromptCommandDto = { name: string; description: string; argumentHint: string | null; source: PromptCommandSource; uses: number };
 /** `~/.agent-hangar/drops/` に置いたファイル。 */
 export type DropDto = { path: string; name: string; size: number };
+
+/**
+ * 設定の「Claude Code の指示 / MCP を渡す」の下に出す、入にしたら何を渡すかの一覧（GET /api/share/preview?agent=）。
+ * 作業フォルダは決まらないので、利用者の CLAUDE.md と利用者の MCP の登録だけで作る。秘密（env、headers の値）は載せない。
+ * status は指示のファイルの扱い（inline は本文を追記に入れる、pointer は場所だけ、native は作業フォルダの分を Codex が自分で読む、agentsMd は AGENTS.md を優先、unreadable は読めない）。
+ * mcp の skipped は渡さない理由で、無ければ渡す。envName は missingEnv のとき、足りない環境変数の名前である。
+ */
+export type SharePreviewAgent = 'codex' | 'opencode';
+export type ShareFileStatus = 'inline' | 'pointer' | 'native' | 'agentsMd' | 'unreadable';
+export type ShareSkipReasonDto = 'agentsMd' | 'conflict' | 'sse' | 'missingEnv' | 'disabled' | 'unapproved' | 'invalid' | 'reserved';
+export type SharePreviewDto = {
+  files: { path: string; scope: 'user' | 'project' | 'local'; status: ShareFileStatus }[];
+  mcp: { name: string; source: 'user' | 'local' | 'project'; transport: 'stdio' | 'http' | 'sse'; skipped?: ShareSkipReasonDto; envName?: string }[];
+};
