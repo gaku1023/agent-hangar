@@ -384,7 +384,7 @@ Root
 │     ├─ ProjectsScreen     節 × n → ProjectRow（行の表）
 │     ├─ ProjectScreen      見出し / SessionList / 右パネル（TodoList、InstructionsPanel、ArtifactCards）
 │     ├─ SessionScreen      見出しの段（SessionBadges、(i) の詳細） / TabStrip / TerminalPane または Transcript（ToolGroup＝続けて呼んだツールのまとめ） / 見出しの下の 1 行（EndedFacts） / 右の列（NowCard＝現在の札、SummaryCard＝要約の札、TocPane（TurnIndex））
-│     └─ SettingsScreen     目次 / 選んだ節（一般、セッション、要約、連携、環境、クラウド同期、使用量、Hangar について）
+│     └─ SettingsScreen     目次 / 選んだ節（一般、セッション、要約、クラウド同期、環境、使用量、エージェントの 3 節、Hangar について）
 └─ Overlays
    ├─ CommandPalette
    ├─ NewSessionDialog / NewProjectDialog / PromoteDialog / ResolveProjectDialog / ConfigSyncDialog
@@ -1429,9 +1429,9 @@ ChatGPT.app に同梱の codex は使わない。版が利用者の入れたも�
 範囲の外でも起動は止めず、知らせの種を出すだけにする（決定 8）。
 版の読みは `provider/codex/compat/version.ts` の `LocalCodex` が行い、`codex --version` を空の環境で打つ。
 codex は起動するだけで `CODEX_HOME`（既定は `~/.codex`、Windows は環境変数でなく既知のフォルダから引く）の下に `tmp/arg0-*` を作るので、版は一時の `CODEX_HOME` を渡して打ち、打ったあとに一時の置き場ごと消す（利用者の置き場が確認だけで生えない。Mac でも同じ挙動を確かめた）。
-ログインの有無は `codex login status` の終了コード（0 ならログイン済み）で、聞かれるたびに打つ。ログインは利用者の本物の置き場を読む必要があるので `CODEX_HOME` は渡さない。その代わり、置き場（`~/.codex`）がまだ無いときは打たずに未ログインと答える（置き場が無ければログインしたことも無い）。置き場があるときの `tmp/arg0-*` は、利用者の置き場の中なので許す。
+ログインの有無は `codex login status` の終了コード（0 ならログイン済み）で、聞かれるたびに打つ。ログインは利用者の本物の置き場を読む必要があるので、この確かめには `CODEX_HOME` を渡さない（最初のアカウントの置き場、つまり `~/.codex` を見る）。その代わり、置き場（`~/.codex`）がまだ無いときは打たずに未ログインと答える（置き場が無ければログインしたことも無い）。置き場があるときの `tmp/arg0-*` は、利用者の置き場の中なので許す。
 空の環境は `provider/codex/env.ts` の `codexBaseEnv` で、opencode と同じ土台に、codex の置き場と hangar が使っている node の置き場を PATH へ足す（codex の道具が node を要るため）。
-`CODEX_HOME` は渡さず、いつも `~/.codex` で動かす（アカウントの切り替えは効かせない）。
+起こすときの `CODEX_HOME` は、選んだアカウントの置き場を渡す。最初のアカウント（`~/.codex`）のときは渡さない（`codexBaseEnv` に足すのは、2 つ目以降のアカウントのときだけ）。アカウントの扱いは「アカウントの切り替え」の節の「Codex のアカウント」に書く。
 
 この段で Codex が断る、または何もしないもの。
 - 起動：B1 の時点では、`RunManager` は driver が無い Codex を、知らないエージェントと同じ文（`run.agent.unknown`）で断った。driver は B3a で入り、いまは設定の `codexEnabled` が切のとき `run.agent.codex.disabled` で断る（次の節）。
@@ -1445,7 +1445,7 @@ codex は起動するだけで `CODEX_HOME`（既定は `~/.codex`、Windows は
 設定が切でも答える（有効にする前に、入っているかと版とログインを見せるため）。
 サーバは `LocalCodex.status()` を呼ぶだけで、画面は有効にしている間の起動時と、有効にしたとき、設定の画面に入ったときに取る。
 
-設定の「連携」の節で、opencode の面の下に、同じ形の別の白い面として「Codex」を置く（`views/CodexSection.tsx`）。
+設定の Codex の節（`agentCodex`）に、アカウントの一覧の下の白い面として置く（`views/CodexSection.tsx`。2026-10-28 までは「連携」の節で opencode の面の下にあった）。
 見出しの横にベータの小札、右端に版の札（検証済み、未検証のバージョン、見つかりません、バージョン不明）を出す。
 行は「有効にする」、「バージョン」（インストール済みと検証済みの範囲）、「codex コマンドを hangar 経由で起動」（macOS と Linux だけ）、「システムプロンプトへの追記」（最小限、Claude Code と同じ、追記しない）の 4 つである。
 ログインしていないときだけ、版の行の下に注記を足す（札は変えない）。
@@ -1455,7 +1455,7 @@ codex は起動するだけで `CODEX_HOME`（既定は `~/.codex`、Windows は
 
 範囲の外の版には、opencode の C7 と同じ右下の札を出す。
 決まりも同じで、設定で有効にしていて、検出の答えが範囲の外（`unverified`）のときだけ、同じ版では一度だけ出す。
-版が読めないとき、見つからないときは出さない。設定の連携の節を開いている間も出さない。
+版が読めないとき、見つからないときは出さない。設定の Codex の節を開いている間も出さない。
 閉じた版は端末の localStorage（`codex.versionSeen`）に持つ。「設定を開く」は `#/settings?at=codex` へ移る。
 opencode と違い、serve を起こしたときに出すイベントはまだ無く、答えを取ったときに判定する。
 
@@ -1679,7 +1679,7 @@ Windows は serve を起こすときと同じ許可リストの鍵を渡す（�
 `GET /api/opencode/status` は `{ found, version, verified }` を返す。
 設定の入り切りに関わらず答える。有効にする前に、入っているかと版を見せるためである。
 
-設定の画面では、「連携」の節の Claude Code との互換性のすぐ下に、opencode の面（小見出しに「ベータ」の小札）を置く。
+設定の画面では、opencode の節（2026-10-28 までは「連携」の節の Claude Code との互換性のすぐ下）に、opencode の面（小見出しに「ベータ」の小札）を置く。
 行は「opencode を有効にする」「バージョン」「opencode コマンドを hangar 経由で起動」「システムプロンプトへの追記」の 4 つで、有効にしたときだけ下の 3 行を growIn で伸ばして入れ、切ると collapseOut で畳んでから外す。
 見出しの右端の札（検証済み、未検証のバージョン、未対応のバージョン、バージョン不明、見つかりません）も、入のときだけ出す。
 画面は設定の画面に入ったときに `GET /api/opencode/status` を取り、答えの 4 つの判定に「見つからない」を足した 5 つで版の行の文を分ける。
@@ -1809,7 +1809,7 @@ Windows のコマンド行は引用符を含む（空白を含む場所、cmd.ex
 「このまま続行」と閉じるは、その版を知らせ終えたことにし、`localStorage` の `opencode.versionSeen` に残す（端末ごとで、同期しない。更新の札の `update.dismissed` と同じ扱い）。
 「設定を開く」も知らせ終えたことにして、設定の opencode の面へ移る。
 同じ版では二度出さず、版が変われば、また出す。
-設定の連携の節を開いている間は、版の行が同じことを言うので出さない。
+設定の opencode の節を開いている間は、版の行が同じことを言うので出さない。
 
 ### Codex の起動（ベータ）
 
@@ -1825,7 +1825,7 @@ driver が登録されたので、B1 の「知らないエージェント」の�
 RunManager は包みの生死で TUI の終わりを見て、終わったら `release` を呼ぶ。
 
 **起動の入口**（`RunManager.startMaterialized`、opencode と共有）で、Codex が受けない指定を断る。
-アカウント、追加ディレクトリ、worktree は断る（`run.agent.codex.optionUnsupported`）。アカウントの切り替えは効かせない（決定 9）。
+追加ディレクトリと worktree は断る（`run.agent.codex.optionUnsupported`）。アカウントは受け、`launch_params.account` に Codex のアカウントの id を書く（2026-10-28。決定 9 は取り下げた）。
 推論（`effort`）と権限（`permissionMode`）は Codex が持つので受ける（`caps.effort` と `caps.permissionMode` が真）。
 権限は 3 段で、`permissionMode` に `read-only`、`auto`（既定）、`full-access` を入れる（`@agent-hangar/shared` の `CODEX_PERMISSION_FLAGS`）。
 読み取りのみは `-s read-only -a on-request`、自動は `-s workspace-write -a on-request`、フルアクセスは `-s danger-full-access -a never` である。
@@ -1834,7 +1834,7 @@ TUI に `-s` と `-a` を付けるのは、resume なしでつなぐときだけ
 
 **materialize**（`driver.ts`）は、行を仮の ID（`pending:…`）で作ったあとに呼ばれる。
 1. 空の環境（`codexBaseEnv`）に、この run だけの MCP の秘密（環境変数 `HANGAR_CODEX_MCP_TOKEN`）を足して app-server を起こす。
-2. app-server に `-c` で設定を渡す（`launcher.ts` の `codexAppServerConfig`）。`~/.codex` の設定ファイルは書かず、`CODEX_HOME` も渡さない。
+2. app-server に `-c` で設定を渡す（`launcher.ts` の `codexAppServerConfig`）。`~/.codex` の設定ファイルは書かない。`CODEX_HOME` は、最初のアカウントでは渡さず、2 つ目以降のアカウントのときだけ、そのアカウントの置き場を渡す。
    - MCP：`mcp_servers.hangar.url`、`bearer_token_env_var`、`default_tools_approval_mode="approve"`。トークンの値は argv にも設定にも載せない。
    - 追記：`developer_instructions`（`model_instructions_file` は標準の約 17,000 字の指示を置き換えるので使わない）。
    - 推論（`model_reasoning_effort`）、モデル、権限の組（`sandbox_mode`、`approval_policy`）。
@@ -2333,7 +2333,7 @@ macOS と Linux だけで、Windows ではシェルの包みごと作らない�
 次は 1 つでもあれば素の codex を起動する。
 - 素通しのサブコマンド。codex 0.164.0 の `--help` の全部（`exec`、`login`、`logout`、`mcp`、`app-server`、`debug`、`apply`、`cloud`、`completion`、`help`、`review` など。別名の `e` と `a` も）である。`fork` も、hangar の入口が別なので素通しにする。`resume` だけは ID が UUID の 1 つのときに限って写し、ID なし、`--last`、名前、ほかの語つきは codex の選ぶ画面や探し方に任せる。
 - 一覧にないフラグ（`--version`、`--help`、`--oss`、`-C`、`--search` など）、2 つ目の位置引数、値の無いフラグ。
-- `CODEX_` で始まる変数が環境にあるとき。hangar は自分の app-server をふだんの置き場で起こし、`CODEX_HOME` は効かせない（決定 9）からである。
+- `CODEX_` で始まる変数が環境にあるとき。hangar は自分の app-server を選んだアカウントの置き場で起こし、利用者の環境の `CODEX_HOME` は引き継がない（`codexBaseEnv` が落とす）からである。
 値を取るフラグの次の語は値として読み、サブコマンドやプロンプトと取り違えない。1 回だけ包まずに起動するときは `command codex`、端末でないとき、`HANGAR_NO_WRAP`、tmux が無いときは包まない。
 
 包み方は本文に `"agent":"codex"` を足して `POST /api/runs/terminal` へ送り、端末の環境変数は送らない。
@@ -2494,7 +2494,7 @@ hangar の外の会話（状態を持たない）も、本文があれば同じ 
 新しいセッションの「モデル」の札の下に開く、幅 520px の小窓である（試作 model-picker.html の W1・L2・D1。`views/OpencodeModelPicker.tsx`）。
 設定の既定のモデルと要約のモデルを選ぶ `ModelPicker.tsx` は Claude の別名の一覧と名前の入力の部品なので、分けて作った。
 小窓は選ぶだけの面で、プロバイダーをつなぐのは設定で行う。
-一番下の「プロバイダーを管理…」は、ダイアログを閉じて（書きかけは下書きに残る）設定の連携の節の opencode の面（`at=opencode`）へ移る。
+一番下の「プロバイダーを管理…」は、ダイアログを閉じて（書きかけは下書きに残る）設定の opencode の節の面（`at=opencode`）へ移る。
 移った先には「‹ 新しいセッションに戻る」を出す（「opencode のプロバイダー」）。
 
 - 出すのは、つないだプロバイダーのモデルと、API キーの要らない無料のもの（OpenCode Zen）だけで、どちらも opencode の `/api/model` がそのまま返す一覧である。
@@ -2532,7 +2532,7 @@ hangar の起動では取りに行かないので、opencode を有効にして�
 
 #### opencode のプロバイダー
 
-設定の連携の節の opencode の面の下に、「プロバイダー」を置く（試作 model-picker.html の設定の面。`views/OpencodeProviders.tsx`）。
+設定の opencode の節の面の下に、「プロバイダー」を置く（試作 model-picker.html の設定の面。`views/OpencodeProviders.tsx`）。
 opencode を有効にしたときだけ、面の下の行と一緒に伸びて入る。
 見出しの右に「API キーは opencode が保存します（hangar には残りません）」を添える。
 
@@ -4623,7 +4623,7 @@ ssh（`git@host:owner/repo.git`、`ssh://git@host:22/owner/repo`）と https を
 | プロジェクト | 1 行 1 プロジェクトの表 | 「Projects」 |
 | 1 つのプロジェクト | 左にホームと同じ部品のセッションの一覧、右に TODO、指示とメモリ、アーティファクト | 「プロジェクト詳細」 |
 | セッション画面 | 実行中はターミナルと、右の列の現在の札と目次。終わった後は見出しの下の 1 行、トランスクリプト、右の列の要約の札と目次 | 「セッション詳細」 |
-| 設定 | 左の目次で 8 つの節を切り替える | 「Settings」 |
+| 設定 | 左の目次で 10 の節を切り替える | 「Settings」 |
 | 知らせ（画面の外） | 右下の札は入力待ちだけ。今日のものはホームの帯、画面のどこにも無い事実はヘッダーの注意に入り、トーストは操作の結果だけを言う | 「入力待ちの知らせ」「注意と知らせの出し分け」 |
 | 起動の失敗（画面の外） | サーバが起きないときは、殻の読み込みの頁が 1 枚の札で理由と次の手を言う | 「起動の失敗の札」 |
 | 始める前の確認（画面の外） | tmux、claude などがそろっていなければ、ホームの帯の最後の群として出る。そろえば消える | 「Home」 |
@@ -5108,12 +5108,36 @@ Codex の枠の更新時刻、戻る時刻は Codex の値から作り、使用�
 顔はいまのエージェントの枠だけなので、面で見られないと、ほかの枠を見るのにその会話を開かなければならないためである。
 Codex の枠が届いているときだけ、面を「Claude Code」と「Codex」の見出しで節に分け、Claude Code の見出しの右に、Claude のアカウントが 2 つ以上のときだけ「クリックで切り替え」と添える。
 Claude の札の右上には一言（「現在のアカウント」「このセッションのアカウント」「切り替える」）を置かない（2026-10-27 の利用者の決定）。いまの札は青い輪と地で分かり、切り替えられることは見出しで言えるので、札ごとに言うと繰り返しになるためである。
-Codex の札は押せない（Codex にはアカウントの切り替えが無い）ので、ボタンにも menu の項目にもしない。中身は Claude の札と同じ格子で、名前は「ChatGPT」、プラン、最終更新、5 時間と週の行である。
-Codex の会話を開いているときだけ、Codex の札の右上に「このセッション」と出し、灰の輪で囲む（青い輪は選べる札の「いま」に取っておく）。
+Codex のアカウントが届いている（`AccountsDto.codex`、`codexEnabled` が入のとき）ときは、Codex の札も Claude の札と同じ押せる札（`menuitemradio`）にする（2026-10-28、計画 D8。以前の「Codex の札は押せない」はやめた）。
+ホームと Claude の会話の画面で押すと、いまの Codex アカウントを替える（`account.choose` に `agent: 'codex'`）。Claude のいまのアカウントには触らない（D1。いまのアカウントはエージェントごとに 1 つ）。
+Codex の会話の画面では、顔にその会話の Codex アカウントを出し、別の札を押すと確認（`account.switchSession` に `agent: 'codex'`）を挟む。確認のあと、その会話を止めて選んだアカウントで再開し、いまの Codex アカウントも変わる（Claude と同じ）。
+札の中身は Claude の札と同じ格子（名前、プラン、メール、5 時間と週の行）で、使用量はそのアカウントのもの（「Codex のアカウント」の使用量の振り分け）。
+節の見出しの右に「＋」を置き（読み上げ名は「Claude Code のアカウントを追加」「Codex のアカウントを追加」）、押すとそのエージェントの追加ダイアログを開く。下の段は「アカウントの設定」だけにする（Codex のアカウントが届いていないときは、従来どおり左に「アカウントを追加」）。
+ログインの途中（初めてのログインで承認を待つ）の札は押せる札にせず、枠にして「確認コードでログイン」と「キャンセル」を置く。確認コードを選ぶと、札に「{url} を開き、コード {code} を入力してください」と出す。
+別のアカウントのログインを始めたために取り消された札には、「別のアカウントのログインを開始したため、取り消しました」と添える。
+Codex のアカウントが無く、枠（`AccountsDto.agents.codex`）だけが届いている古いサーバのときは、今までどおり押せない札（名前は「ChatGPT」、Codex の会話を開いているときだけ右上に「このセッション」）で枠だけを出す。
+Codex が切（`codexEnabled`）のときは、Codex のアカウントは DTO にも画面にも出さない。
 Codex の枠が無いときは見出しを出さず、面は Claude の札だけの今の形のままにする。
 面を開くたびに一度だけ、節の見出しと札を上から順に `staggerIn` で浮かせる。
 スマホには出さない。
 窓が狭いときは、ほかの表示と同じ順で畳み、名前を隠して色の点だけを残す。
+
+#### Codex のアカウント
+
+Codex も Claude Code と同じ形の複数アカウントを持つ（2026-10-28。計画は `docs/superpowers/plans/2026-10-28-codex-accounts.md`）。
+Codex には標準のアカウント切り替えが無いが、`CODEX_HOME` を分けるとログインが分かれる（codex 0.165.0 で確かめた）ので、置き場を分けて切り替える。
+
+- 一覧は PC ごとの `<home>/codex-accounts.json` に持ち、同期しない（Claude の `accounts.json` と同じ扱い）。`AccountStore` にファイル名、最初の置き場、候補の接頭辞を渡して、Claude と同じ実装を使う。
+- 最初のアカウントは `~/.codex` で、`CODEX_HOME` を渡さない。2 つ目以降は `~/.codex-<名前>` で、起こす app-server と TUI の env に `CODEX_HOME=<その置き場>` を足す。
+- 共有（リンク）は `config.toml`、`AGENTS.md`、`skills`、`prompts`、`rules`、`plugins`、`sessions`、`archived_sessions`、`session_index.jsonl`、`history.jsonl`。分けるのは `auth.json`、sqlite 類、`logs`、キャッシュ、`tmp`、`installation_id`、`version.json` である（`CODEX_ACCOUNT_LINK_GROUPS` は設定と指示、スキルとプロンプト、会話の履歴の 3 組）。`sessions` などをリンクしないと 2 つ目の置き場から `~/.codex` の会話が再開できず（`no rollout found`）、`config.toml` をリンクしないと既定のモデルが変わるので、リンクに含める。リンクの場所に実ファイルがあれば触らずに挙げる。Windows でリンクが張れないときは、理由を札に出して起動を断る（Claude と同じ）。
+- 会話の本文の置き場は、リンクのおかげで `~/.codex` に集まる。索引と同期は `~/.codex` だけを見たままにする。
+- ログインは app-server 経由（`provider/codex/account.ts`）。短命の app-server をその置き場で起こし、`account/login/start` を呼ぶ。ブラウザで開く方法を既定にし、確認コード（`chatgptDeviceCode`）も選べる。ブラウザのログイン（ポート 1455）は同時に 1 つしかできないので、ログインは hangar 全体で 1 本の列に並べ、新しく始めたら前のものは取り消して札にそう出す。メールとプランは `account/read` で読み、hangar はログイン情報（トークン）を読まない。
+- TUI の `--remote` は、ログインに app-server 側の置き場を使うので、TUI 側の置き場は問わない。
+- Codex の会話の再開は、最後に動かしたアカウントで起こす（`launch_params.account`）。付け替えは、止めて選んだアカウントで再開し、いまの Codex アカウントも変える。
+- 使用量の振り分け：hangar が起こした会話の `account/rateLimits/updated` は、その app-server のアカウントに付ける（`AgentUsageTracker` がアカウントの鍵を持つ）。hangar の外で動いた会話の rollout の `rate_limits` は、rollout の `session_meta` の `creator_account_id` が一致するアカウント（`account/read` の `chatgptAccountId` と同じ値）に付け、一致しなければ捨てる。
+- DTO は `AccountsDto.codex`（`{ currentId, accounts, sessions }`）で、`AccountsDto.agents.codex` には、いまの Codex アカウントの枠を古い画面のために残す。HTTP は `/api/codex/accounts` 系で、会話の付け替えは `POST /api/sessions/:id/switch-account` が Codex の会話にも対応する。
+- 新規ダイアログのアカウントの札は、Codex を選んだときも 2 件以上のときだけ出す。ログイン前と承認待ちの行は選べない。
+- スマホには出さない。
 
 アカウントが 1 件のときも、ヘッダは 2 件以上のときと同じ顔（色の点、名前、計器、▾）にし、押すと同じ一覧が開く（2026-10-16 の利用者の決定、試作 account-ime の 1A）。
 計器だけを出していると、戻る時刻はホバーしないと読めず、2 つ目のアカウントを足せることにも気付けないためである。
@@ -5162,7 +5186,7 @@ Claude をいったん止めて再開するので、確認は止める旨を言�
 注記は出すが、選ぶのは利用者である。
 どのアカウントに会話の本文が送られるかは、利用者が決めることだからである。
 
-アカウントの追加、名前と色の変更、ログイン、外すことは、設定の連携の節にある「アカウント」の項で行う。
+アカウントの追加、名前と色の変更、ログイン、外すことは、設定の Claude Code の節にある「アカウント」の項（Codex は Codex の節の「Codex のアカウント」）で行う。
 追加は「アカウントを足す…」で開くダイアログ（`views/AddAccountDialog.tsx`、試作の案 A）で行う。
 名前と場所の 2 つの欄、最初の場所と共有するもの（`ACCOUNT_LINK_GROUPS` の 4 つの組：設定と指示、スキルとコマンドとプラグイン、メモリと計画、会話の履歴）と分けるもの（ログイン、組織から配られる設定、キャッシュと常駐の状態）の 2 列を 1 枚に置く。
 「ログインだけが分かれ、設定と履歴は同じ」ことを、登録の前に読めるようにするためである。
@@ -5212,10 +5236,10 @@ git とエディタは無くても始められる（git の表示が出ない、
 殻の中では、MCP とステータスラインの行も設定の連携の節と同じボタン（登録…、設定…）にし、書き込む先を添える（0.4.0。殻が承認の窓で見せてから書く。「承認の窓」の節）。ステータスラインのスクリプトが無いときは「設定を開く」にする。
 シェル連携は始める前の確認の行に入っていない（無くても始められ、行の数を変えると帯の分母が変わるため）。
 「設定を開く」は、設定の頭ではなく、その行を直す欄を指して開く（`#/settings?at=tmux`、`claude`、`workspace`、`compat`、`editor`。行と開く先の対応は `READINESS_AT` の 1 か所で、全部の行が節を持つことを試験が縛る）。
-tmux、claude は環境の節のパスの欄へ、作成場所はセッションの節の作成先の欄へ、互換性は連携の節の互換性の節へ、エディタは一般の節のエディタの欄へ開く。
+tmux は環境の節のパスの欄へ、claude は Claude Code の節のパスの欄へ、作成場所はセッションの節の作成先の欄へ、互換性は Claude Code の節の互換性の節へ、エディタは一般の節のエディタの欄へ開く。
 開いたら、頁をスクロールする枠の中でその欄が見える所まで送り（`revealWithin`）、検索から跳んだ行と同じ淡い黄の地を一瞬だけ薄れさせて目立たせる（`markHit`、`prefers-reduced-motion` では動かさない）。
 パスの欄には入力欄へフォーカスも置く。互換性の節には入力欄が無いので、送って目立たせるだけにする。
-MCP とステータスラインは命令をコピーする行なので、欄は指さず連携の節（`integrations`）が対応先である。
+MCP とステータスラインは命令をコピーする行なので、欄は指さず Claude Code の節（`integrations` は別名）が対応先である。
 tmux の行は、Windows では psmux の名で出し、入れるコマンドは OS で変える（Windows は `winget install marlocarlo.psmux`、ほかは `brew install tmux`）。
 見つからないときの文は「psmux がインストールされていません」で、右端に「再確認」を足して 2 つのボタンにする（段 6 の B1）。
 再確認しても無ければ「psmux がまだ見つかりません。インストールしたあと、Hangar の再起動が必要な場合があります」に替え、確かめている間はボタンを「確認中…」にする。
@@ -5965,8 +5989,15 @@ DOM に載る行の数は件数によらず一定で、「追う」と「もっ�
 
 ### Settings
 
-左の目次で 8 つの節を切り替え、右は選んだ節だけを出す（S1。試作は `docs/superpowers/specs/2026-10-09-settings-screen/options.html`、決めた構成は `docs/superpowers/specs/2026-10-09-stage4-screens-design.md` の 2.4。0.9.4 の並び替えで今の形にした）。
-節は、一般（言語、通知、ターミナルアプリ、エディタ）、セッション（新しいセッション＝デフォルトのモデル・Remote Control・新しいディレクトリの作成先、Claude Code に渡す設定、ステータスの自動処理、トランスクリプトの保持、アカウント）、要約、連携（Claude Code との互換、MCP サーバー、ステータスライン、シェル連携、環境を診断）、環境（tmux の状態、tmux・claude・Node のパスと git の読むだけの行、インデックス、「プロジェクトの登録」の行）、クラウド同期、使用量、Hangar について（バージョンと更新、リリースノート、この PC）の順である（`SETTINGS_SECTIONS`）。
+左の目次で 10 の節を切り替え、右は選んだ節だけを出す（S1。試作は `docs/superpowers/specs/2026-10-09-settings-screen/options.html`、決めた構成は `docs/superpowers/specs/2026-10-09-stage4-screens-design.md` の 2.4。0.9.4 の並び替えで今の形にした）。
+節は、一般（言語、通知、ターミナルアプリ、エディタ）、セッション（新しいディレクトリの作成先、ステータスの自動処理）、要約、クラウド同期、環境（tmux の状態、tmux と Node のパス、git の読むだけの行、インデックス、「プロジェクトの登録」の行）、使用量、エージェントの 3 節（Claude Code、Codex、opencode）、Hangar について（バージョンと更新、リリースノート、この PC）の順である（`SETTINGS_SECTIONS` は `general`、`sessions`、`summary`、`cloud`、`environment`、`usage`、`agentClaude`、`agentCodex`、`agentOpencode`、`about`）。
+
+2026-10-28 に、目次へ「エージェント」の見出し（群、`settings.toc.group.agents`）を置き、Claude Code、Codex、opencode を 1 節ずつにした（計画 D10）。
+アカウント、新しいセッションの既定、渡す設定、会話の保持、連携、パスは、そのエージェントの節へ寄せた。
+- Claude Code の節：リード、アカウント（`AccountSettings`）、新しいセッションの既定（デフォルトのモデルと Remote Control）、Claude Code に渡す設定、会話を残す期間、互換、ステータスライン、シェル連携、MCP サーバー、セットアップのすゝめ、`claude` のパス。共通の節には Claude 専用の行を残さない。保持の説明は「Claude Code の cleanupPeriodDays です。Codex と opencode の会話は対象外です。」である。
+- Codex の節：リード、Codex のアカウントの一覧（`CodexAccountsSettings`。`codexEnabled` が切、または Codex のアカウントが届いていなければ出さない）、Codex の面（`CodexSection`）、`codex` のパス（空欄なら PATH から探す）。
+- opencode の節：リード、opencode の面（`OpencodeSection`）、`opencode` のパス。
+各節の見出しの絵と札（ベータ）は、ページの見出しが出す。
 2026-10-13 に、上級者向けのベータのクラウド同期を後ろへ下げた。2026-10-25（0.9.4）に、毎日触るもの、一度整えるもの、上級者向け、読むだけのもの、の順に組み替えた。Claude Code まわりの設定が一般・連携・ツールに散っていたのをセッションの節に集め、「情報」はアプリについての情報と使用量の集計が同居していて名前が合わなかったので、使用量と Hangar についてに割った。バージョンと更新は前例（Chrome の「Chrome について」、Obsidian、Docker Desktop）どおり同じ所に置き、一番下にする。名前は Gemini と Fable と詰め、カタカナや硬い語（ライフサイクル、既定値、環境設定）は退けた。
 クラウド同期の目次の行には、名前の横に「ベータ」の小札（`.tag-beta`）を添え、状態の段（同期オフ、同期済み）は潰さない。読み上げの名前は「クラウド同期 ベータ、同期オフ」である。
 節を開いた頭には、同期していてもいなくても「上級者向けのベータです。始めるには、リポジトリの clone、ターミナルでの CLI、自分の Cloudflare アカウントが要ります。」の 1 文を置く。
@@ -5977,16 +6008,16 @@ Hangar についての節は、殻の中では更新（バージョンと最終�
 一般の節の最初の行は言語（日本語、English）で、押した瞬間に保存する（保存のボタンは無い）。
 言語はこの PC の設定で、クラウドへは同期しない。
 一般の節のターミナルアプリの下にはエディタの欄を置く（「エディタの選択」の節）。ふだんは選んでいる 1 本の行（場所、バージョン、「テスト」）だけを出し、ほかの候補は「ほかのエディタ（検出済み N · 未検出 M）」に畳む（0.9.4 の案 D）。開くと検出済み（アプリのみと任意のコマンドを含む）が上、「未検出 N」の見出しの下に未検出が並ぶ。開くのは `growIn`、閉じるのは `collapseOut` である。選んだ時点で保存して閉じる。選んでいるエディタが見つからないときと、準備の帯から `at=editor` で来たときは開いて始める。「パスを指定…」と任意のコマンドの欄は畳みの外に残す。
-開いている節は URL の `at` が持つ（`#/settings?at=cloud`。値は `general`、`sessions`、`summary`、`integrations`、`environment`、`cloud`、`usage`、`about`）ので、戻ると進むで節も戻る。0.9.3 までの `tools`、`update`、`info` は、殻のディープリンクと履歴に残っているので、環境、Hangar について、Hangar についての別名として読み続ける。
-`at` が無ければ一般を出す。`sync`（ヘッダーの同期の語）はクラウド同期、`accounts`（ヘッダーのアカウントの設定）はセッションの別名で、`accounts` は節を開いたあとアカウントの位置まで滑る。
-`at` には節の中の欄も指せる。`workspace` はセッションの節の作成先の欄、`tmux`、`claude` は環境の節のパスの欄、`compat` は連携の節の互換性の節、`editor` は一般の節のエディタの欄で、開いたら見える所へ移って目立たせる（ホームの準備の帯の「設定を開く」が使う）。
+開いている節は URL の `at` が持つ（`#/settings?at=cloud`。値は `general`、`sessions`、`summary`、`cloud`、`environment`、`usage`、`agentClaude`、`agentCodex`、`agentOpencode`、`about`）ので、戻ると進むで節も戻る。0.9.3 までの `tools`、`update`、`info` は、殻のディープリンクと履歴に残っているので、環境、Hangar について、Hangar についての別名として読み続ける。`integrations` と `claude` と `compat` は `agentClaude`、`codex` は `agentCodex`、`opencode` は `agentOpencode` の別名として読む。
+`at` が無ければ一般を出す。`sync`（ヘッダーの同期の語）はクラウド同期、`accounts`（ヘッダーのアカウントの設定）は Claude Code の節（`agentClaude`）の別名で、`accounts` は節を開いたあとアカウントの位置まで滑る。
+`at` には節の中の欄も指せる。`workspace` はセッションの節の作成先の欄、`tmux` は環境の節のパスの欄、`claude` は Claude Code の節のパスの欄、`compat` は Claude Code の節の互換性の節、`editor` は一般の節のエディタの欄で、開いたら見える所へ移って目立たせる（ホームの準備の帯の「設定を開く」が使う）。
 目次の灯りは URL に従うので、節を移った直後に前の節が灯ったまま残ることは無い。
 節を切り替えたら、頁をスクロールする枠の先頭へ戻す。
 付属の値（準備の確かめ、使用量、保持期間など）は設定の画面に入ったときに 1 回だけ取り、節の切り替えでは取り直さない。
 目次の各行は、節の名前と今の状態の 1 行を持つ（`presentSettings` の `toc`）。
-一般は通知の状態、セッションは保持期間とセッションの数、クラウド同期は同期の状態と最終受信（同期していなければ「同期オフ」）、連携と環境は直すものの数（「要修正 N」。無ければ「問題なし」「すべて検出」）、要約は選んだもので言い分け、使わないなら淡い「オフ」、Claude なら「Claude（枠を使う）」、OpenAI 互換ならモデルの一覧が取れたかと接続テストの結果（「OpenAI 互換、接続済み」「OpenAI 互換に接続できません」）、使用量は「直近 30 日 · N セッション」（プロジェクト別の件数の和。日ごとの件数は日をまたぐ会話を重ねて数えるので使わない）、Hangar については殻の中で更新の状態、ブラウザでバージョンである。
+一般は通知の状態、セッションは保持期間とセッションの数、クラウド同期は同期の状態と最終受信（同期していなければ「同期オフ」）、Claude Code の節と環境は直すものの数（「要修正 N」。無ければ「問題なし」「すべて検出」）、要約は選んだもので言い分け、使わないなら淡い「オフ」、Claude なら「Claude（枠を使う）」、OpenAI 互換ならモデルの一覧が取れたかと接続テストの結果（「OpenAI 互換、接続済み」「OpenAI 互換に接続できません」）、使用量は「直近 30 日 · N セッション」（プロジェクト別の件数の和。日ごとの件数は日をまたぐ会話を重ねて数えるので使わない）、Hangar については殻の中で更新の状態、ブラウザでバージョンである。
 繋がらない警告は OpenAI 互換を選んだときだけ出す（試作 3 節の 2b の推す案 A）。
-連携と環境は、準備の確かめが届くまで「確認中」と言う。使用量も、集計が届くまで「確認中」と言う。
+Claude Code の節と環境は、準備の確かめが届くまで「確認中」と言う。Codex と opencode の節は有効かどうか（「オフ」など）を言う。使用量も、集計が届くまで「確認中」と言う。
 読み上げの名前は「環境、すべて検出」の形で、節の名前と状態を含む（クラウド同期はベータの小札も含む）。
 目次は上下の矢印、Home、End で行を移り、選ぶのは Enter と Space である。開いている行だけが Tab の道に入る。
 幅が 1000px 以下の窓では、目次は頁の上に並べる（節を切り替える道は目次だけなので、消さない）。
@@ -6039,14 +6070,14 @@ Windows では貼る先を PowerShell とみなし、英数字と `\ : . _ -` �
 写せなかったときは「コピーできませんでした。文字を選んで ⌘C で写してください」とだけ知らせ、写そうとした中身はトーストに出さない。
 参加コードのような、承認されれば PC を追加できる値も同じボタンで写すからである。
 MCP サーバー、ステータスライン、シェル連携の見出しの右には、登録済みか未登録か、設定済みか未設定か、この PC はインストール済みか未インストールかの札を置く。
-連携の節の最後には「Claude Code に環境を見てもらう」の札を置く（試作の案 C、`views/SetupGuideCard.tsx`。仕組みは「セットアップのすゝめ」の節）。
+Claude Code の節の最後には「Claude Code に環境を見てもらう」の札を置く（試作の案 C、`views/SetupGuideCard.tsx`。仕組みは「セットアップのすゝめ」の節）。
 見出しの右に版の札（灰色の `v0.7.0` の形）、本文に「この一言を Claude Code に貼ると、あなたの環境を読むだけで診断し、散らばった会話のフォルダの登録や連携を提案します。書き換えは、あなたが承認してからです。」を置く。
 その下に貼る一言を等幅の枠でそのまま見せ、右に主ボタン「コピー」を置く。写せたら `COPIED_MS`（1.6 秒）のあいだ「コピーしました」にする。
 コピーは書き込みではないので、ブラウザで開いた画面でも押せる。
 いちばん下に淡い文「フォルダの移動や削除はしません。CLAUDE.md にも触れません。」と「手引きの中身を見る」を置く。
 「手引きの中身を見る」は写した md を設定のエディタで開く（`setupGuide.openEditor`）。エディタが見つからないときは、ほかの「<名前> で開く」と同じ面を出す。
 写しが取れていない（同梱物が無い）ときは札を出さない。
-連携の節の先頭には「Claude Code との互換」の節を置く（試作は `docs/superpowers/specs/2026-10-07-stage0-claude-compat/checks.html` の A4、B1、C2）。
+Claude Code の節には「Claude Code との互換」の節を置く（試作は `docs/superpowers/specs/2026-10-07-stage0-claude-compat/checks.html` の A4、B1、C2）。
 見出しの右の札で状態を言い、本文に hangar が読む Claude Code の形と、手元の版と確かめた版を出す。
 問題なしは緑の「✓ 問題なし」、未確認の版は印の無い灰色の「未確認の版」で、版の並びに「まだ確かめていない版です。動きは止めていません」を添える。
 ずれは注意の色の「! ずれ N 件」で、止めた機能を「〜を止めています」「〜を控えています」の一覧で常に出し、契約、値、版、最初に見た時刻、止めた機能の表を「ずれ N 件の中身」で畳む。
