@@ -258,9 +258,15 @@ export type AccountAuthDto = { loggedIn: boolean; email: string | null; plan: st
  * primary は最初のアカウント（既定の置き場）で、消せない。
  * linkProblem は置き場のリンクが壊れている理由で、起動できるときは null。
  */
-export type AccountDto = { id: string; name: string; dir: string; color: string; primary: boolean; auth: AccountAuthDto | null; usage: UsageDto; loginRunning: boolean; linkProblem: string | null };
+export type AccountDto = { id: string; name: string; dir: string; color: string; primary: boolean; auth: AccountAuthDto | null; usage: UsageDto; loginRunning: boolean; linkProblem: string | null;
+  /** ログイン中だけ持つ（Codex）。userCode と verificationUrl は確認コードの方法のとき。cancelledBy は後から始めたログインに取り消されたときの相手の名前。 */
+  login?: { method: 'browser' | 'deviceCode'; userCode?: string; verificationUrl?: string; cancelledBy?: string } };
 /** sessions は、最初のアカウント以外で最後に動かしたセッションだけを載せる（セッションの id → アカウントの id）。載っていないものは最初のアカウントである。 */
+/** エージェントごとのアカウントの組。Claude は AccountsDto の直下、Codex は AccountsDto.codex に持つ。 */
+export type AgentAccountsDto = { currentId: string; accounts: AccountDto[]; sessions: Record<string, string> };
 export type AccountsDto = { currentId: string; accounts: AccountDto[]; sessions: Record<string, string>;
+  /** Codex のアカウント。codexEnabled が切なら付けない。 */
+  codex?: AgentAccountsDto;
   /** Claude 以外のエージェントの枠（AgentUsagesDto）。何も無ければ項目ごと付けない。この項目を知らない古いサーバは送らず、古い画面は読まない。 */
   agents?: AgentUsagesDto };
 /** 最初のアカウント（既定の置き場）の id。 */
@@ -280,6 +286,15 @@ export const ACCOUNT_LINK_GROUPS = [
   { key: 'tools', entries: ['skills', 'commands', 'plugins'] },
   { key: 'memory', entries: ['memory', 'plans', 'tasks'] },
   { key: 'history', entries: ['projects', 'history.jsonl', 'file-history', 'paste-cache', 'session-env', 'shell-snapshots', 'sessions', 'jobs'] },
+] as const satisfies readonly { key: string; entries: readonly string[] }[];
+/**
+ * Codex の 2 つ目以降の置き場で、最初の置き場（~/.codex）へのリンクにする項目の組。
+ * 組の中身を合わせると、サーバのリンクの一覧（provider/codex/config/accountLinks.ts の CODEX_LINKED_ENTRIES）とちょうど同じになる（試験で見る）。
+ */
+export const CODEX_ACCOUNT_LINK_GROUPS = [
+  { key: 'config', entries: ['config.toml', 'AGENTS.md', 'rules'] },
+  { key: 'tools', entries: ['skills', 'prompts', 'plugins'] },
+  { key: 'history', entries: ['sessions', 'archived_sessions', 'session_index.jsonl', 'history.jsonl'] },
 ] as const satisfies readonly { key: string; entries: readonly string[] }[];
 export type UsageDayDto = { day: string; inputTokens: number; outputTokens: number; sessions: number };
 export type UsageProjectDto = { projectId: string | null; name: string; inputTokens: number; outputTokens: number; costUsd: number | null; sessions: number };

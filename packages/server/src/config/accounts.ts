@@ -33,9 +33,12 @@ export class AccountStore {
   private state: FileShape;
   private readonly file: string;
   private readonly homeDir: string;
+  private readonly prefix: string;
 
-  constructor(private readonly o: { home: string; primaryDir: string; homeDir?: string }) {
-    this.file = path.join(o.home, 'accounts.json');
+  /** file は <home> の下の保存先、dirPrefix は足す置き場の名前の接頭辞（Claude は .claude-、Codex は .codex-）。 */
+  constructor(private readonly o: { home: string; primaryDir: string; homeDir?: string; file?: string; dirPrefix?: string }) {
+    this.file = path.join(o.home, o.file ?? 'accounts.json');
+    this.prefix = o.dirPrefix ?? '.claude-';
     this.homeDir = o.homeDir ?? os.homedir();
     this.state = this.load();
   }
@@ -87,7 +90,7 @@ export class AccountStore {
   /** まだ無い ~/.claude-N（N は 2 から）を返す。置き場そのものは作らない。作るのはリンクを張る側である。 */
   private nextDir(): string {
     for (let n = 2; ; n++) {
-      const dir = path.join(this.homeDir, `.claude-${n}`);
+      const dir = path.join(this.homeDir, `${this.prefix}${n}`);
       if (!fs.existsSync(dir) && !this.byDir(dir)) return dir;
     }
   }
@@ -101,7 +104,7 @@ export class AccountStore {
   suggestDir(name: string): string {
     const slug = name.normalize('NFKC').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, NAME_MAX);
     if (slug === '') return this.nextDir();
-    const base = path.join(this.homeDir, `.claude-${slug}`);
+    const base = path.join(this.homeDir, `${this.prefix}${slug}`);
     if (!this.byDir(base)) return base;
     for (let n = 2; ; n++) {
       const dir = `${base}-${n}`;
