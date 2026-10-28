@@ -80,7 +80,9 @@ function mcpPart(o: CodexShareOptions): { config: string[]; env: Record<string, 
     if (m.skipped) { skip(m.skipped); continue; }
     if (o.codexMcpNames.has(m.name)) { skip('conflict'); continue; }
     if (m.transport === 'sse') { skip('sse'); continue; }
-    const key = `mcp_servers.${toml(m.name)}`;
+    // Codex の -c は鍵を点で区切るだけで、TOML の引用を解かない（引用符ごと名前になる。codex 0.165.0 で確かめた）。
+    if (!/^[A-Za-z0-9_-]+$/.test(m.name)) { skip('invalid'); continue; }
+    const key = `mcp_servers.${m.name}`;
     if (m.transport === 'stdio') {
       if (!m.command) { skip('invalid'); continue; }
       const e = m.env ?? {};

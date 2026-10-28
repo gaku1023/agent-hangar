@@ -128,7 +128,7 @@ posixDescribe('Codex の driver（materialize、plan、release、reattach）', (
       await d.launch.materialize!({ kind: 'start' }, spec({ prompt: 'x' }));
       const b = boots()[0]!;
       expect(b.argv).toContain('project_doc_fallback_filenames=["CLAUDE.md"]');
-      expect(b.argv).toContain('mcp_servers."mine".command="npx"');
+      expect(b.argv).toContain('mcp_servers.mine.command="npx"');
       expect(b.argv.join(' ')).not.toContain('top-secret');
       expect(b.env.SHARE_SECRET).toBe('top-secret');
       const start = rpcs().find((x) => x.ev === 'rpc' && x.method === 'thread/start') as Extract<Rec, { ev: 'rpc' }>;

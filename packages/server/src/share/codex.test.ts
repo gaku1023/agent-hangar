@@ -53,28 +53,29 @@ const http = (name: string, over: Partial<ShareMcp> = {}): ShareMcp => ({ name, 
 describe('MCP', () => {
   it('stdio は command と args と env_vars。値は env に入れ、config に出さない', () => {
     const r = codexShareLaunch({ ...base, instructions: false, mcp: [stdio('a', { env: { TOKEN: 's3cret', K2: 'v2' } })] });
-    expect(r.config).toEqual(['mcp_servers."a".command="npx"', 'mcp_servers."a".args=["-y","x"]', 'mcp_servers."a".env_vars=["TOKEN","K2"]']);
+    expect(r.config).toEqual(['mcp_servers.a.command="npx"', 'mcp_servers.a.args=["-y","x"]', 'mcp_servers.a.env_vars=["TOKEN","K2"]']);
     expect(r.env).toEqual({ TOKEN: 's3cret', K2: 'v2' });
     expect(r.config.join('\n')).not.toContain('s3cret');
   });
   it('http は url と env_http_headers。見出しの値は env に入れ、config に出さない', () => {
-    const r = codexShareLaunch({ ...base, instructions: false, mcp: [http('my.srv', { headers: { Authorization: 'Bearer zzz', 'X-Id': 'q' } })] });
-    expect(r.config[0]).toBe('mcp_servers."my.srv".url="https://e.test/mcp"');
-    expect(r.config[1]).toBe('mcp_servers."my.srv".env_http_headers={"Authorization"="HANGAR_MCP_MY_SRV_0","X-Id"="HANGAR_MCP_MY_SRV_1"}');
+    const r = codexShareLaunch({ ...base, instructions: false, mcp: [http('my-srv', { headers: { Authorization: 'Bearer zzz', 'X-Id': 'q' } })] });
+    expect(r.config[0]).toBe('mcp_servers.my-srv.url="https://e.test/mcp"');
+    expect(r.config[1]).toBe('mcp_servers.my-srv.env_http_headers={"Authorization"="HANGAR_MCP_MY_SRV_0","X-Id"="HANGAR_MCP_MY_SRV_1"}');
     expect(r.env).toEqual({ HANGAR_MCP_MY_SRV_0: 'Bearer zzz', HANGAR_MCP_MY_SRV_1: 'q' });
     expect(r.config.join('\n')).not.toContain('zzz');
   });
   it('見出しが無い http は env_http_headers を書かない', () => {
-    expect(codexShareLaunch({ ...base, instructions: false, mcp: [http('a')] }).config).toEqual(['mcp_servers."a".url="https://e.test/mcp"']);
+    expect(codexShareLaunch({ ...base, instructions: false, mcp: [http('a')] }).config).toEqual(['mcp_servers.a.url="https://e.test/mcp"']);
   });
-  it('名前に引用符や空白があっても鍵が壊れない', () => {
-    const r = codexShareLaunch({ ...base, instructions: false, mcp: [stdio('a "b" c')] });
-    expect(r.config[0]).toBe('mcp_servers."a \\"b\\" c".command="npx"');
+  it('Codex の -c は点で区切るだけで引用を解かないので、英数字と _ - 以外の名前は渡さず、理由 invalid', () => {
+    const r = codexShareLaunch({ ...base, instructions: false, mcp: [stdio('a "b" c'), stdio('my.srv')] });
+    expect(r.config).toEqual([]);
+    expect(r.report.mcp.map((m) => m.skipped)).toEqual(['invalid', 'invalid']);
   });
   it('sse は渡さず、理由 sse。Codex に同じ名前があれば渡さず、理由 conflict', () => {
     const r = codexShareLaunch({ ...base, instructions: false, codexMcpNames: new Set(['dup']), mcp: [{ name: 's', source: 'user', transport: 'sse', url: 'https://e.test/sse' }, stdio('dup'), stdio('ok')] });
     expect(r.report.mcp.map((m) => [m.name, m.skipped])).toEqual([['s', 'sse'], ['dup', 'conflict'], ['ok', undefined]]);
-    expect(r.config.every((c) => c.startsWith('mcp_servers."ok"'))).toBe(true);
+    expect(r.config.every((c) => c.startsWith('mcp_servers.ok'))).toBe(true);
   });
   it('入力で skipped が付いているものは、その理由のまま渡さない', () => {
     const r = codexShareLaunch({ ...base, instructions: false, mcp: [{ name: 'u', source: 'project', transport: 'stdio', skipped: 'unapproved' }] });
@@ -85,7 +86,7 @@ describe('MCP', () => {
     const r = codexShareLaunch({ ...base, instructions: false, mcp: [stdio('a', { env: { K: '1' } }), stdio('b', { env: { K: '2' } }), stdio('c', { env: { K: '1' } })] });
     expect(r.report.mcp.map((m) => [m.name, m.skipped])).toEqual([['a', undefined], ['b', 'invalid'], ['c', undefined]]);
     expect(r.env).toEqual({ K: '1' });
-    expect(r.config.some((c) => c.startsWith('mcp_servers."b"'))).toBe(false);
+    expect(r.config.some((c) => c.startsWith('mcp_servers.b'))).toBe(false);
   });
   it('env の名前の衝突（a-b と a_b）は連番で避ける', () => {
     const r = codexShareLaunch({ ...base, instructions: false, mcp: [http('a-b', { headers: { H: '1' } }), http('a_b', { headers: { H: '2' } })] });

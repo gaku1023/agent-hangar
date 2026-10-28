@@ -34,8 +34,8 @@ describe('codexShareFor', () => {
     expect(r.instructions?.text).toContain('USER BODY');
     expect(r.instructions?.text).toContain('LOCAL BODY');
     expect(r.config).toContain('project_doc_fallback_filenames=["X.md","CLAUDE.md"]');
-    expect(r.config.some((c) => c.startsWith('mcp_servers."mine".command='))).toBe(true);
-    expect(r.config.some((c) => c.startsWith('mcp_servers."dup"'))).toBe(false);
+    expect(r.config.some((c) => c.startsWith('mcp_servers.mine.command='))).toBe(true);
+    expect(r.config.some((c) => c.startsWith('mcp_servers.dup'))).toBe(false);
     expect(r.report.mcp.find((m) => m.name === 'dup')?.skipped).toBe('conflict');
     expect(r.env).toEqual({ T: 'sec' });
   });
