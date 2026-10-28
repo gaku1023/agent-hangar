@@ -13,7 +13,7 @@ type Extras = Pick<
   | 'configSyncState' | 'configOutgoing' | 'configInbox' | 'configConflicts' | 'configUnsent' | 'configBackups' | 'configSendUnsent' | 'configPutOrder' | 'configDeleteOrder'
   | 'retention' | 'retentionPreview' | 'writeRetention'
   | 'renameProject' | 'live' | 'sessionFiles' | 'gitSessions' | 'sessionChanges' | 'sessionDiff' | 'sessionEdits' | 'projectGit' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
-  | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'previewAccountDir' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
+  | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'previewAccountDir' | 'sharePreview' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
   | 'codexAccounts' | 'setCurrentCodexAccount' | 'addCodexAccount' | 'previewCodexAccountDir' | 'updateCodexAccount' | 'removeCodexAccount' | 'loginCodexAccount' | 'cancelCodexAccountLogin' | 'refreshCodexAccount'
   | 'dismissInterrupted' | 'dismissOverlap'
 >;
@@ -163,6 +163,7 @@ export function fakeApiExtras(): Extras {
     setCurrentAccount: vi.fn(async () => accountsFixture),
     switchAccount: vi.fn(async (sessionId: string) => ({ run: { id: 'r-switch', sessionId, deviceId: 'd', kind: 'resume' as const, tmuxName: 'hangar-r-switch', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId, tabs: [{ id: 'r-switch', runId: 'r-switch', sessionId, kind: 'agent' as const, title: 'Claude', tmuxName: 'hangar-r-switch', createdAt: 1, closedAt: null }] })),
     addAccount: vi.fn(async () => accountsFixture),
+    sharePreview: vi.fn(async () => ({ files: [], mcp: [] })),
     previewAccountDir: vi.fn(async (name: string, dir: string) => ({ name, input: dir, dir: dir || `/Users/me/.claude-${name}`, suggested: dir === '', exists: false, conflicts: [], registeredAs: null })),
     updateAccount: vi.fn(async () => accountsFixture),
     removeAccount: vi.fn(async () => accountsFixture),

@@ -238,6 +238,8 @@ export type AppDeps = {
    * 渡さなければ、次の周期（数秒）で消える。
    */
   overlapRefresh?: () => void;
+  /** 設定の「Claude Code の指示 / MCP を渡す」の一覧が読むホーム（share/preview.ts）。渡さなければ os.homedir()。試験の世界が使う。 */
+  shareHome?: string;
   /** UI の dist。null なら UI を配らない（試験と、dist を持たない組み立て）。 */
   uiDist: string | null;
 };

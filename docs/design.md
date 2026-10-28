@@ -1813,6 +1813,8 @@ Windows のコマンド行は引用符を含む（空白を含む場所、cmd.ex
 
 ### Codex の起動（ベータ）
 
+Claude Code の指示と MCP の登録を起動のときに渡す仕組みは、「エージェント間の共有」の節に書く。
+
 Codex を足す作業の段 B の 3 つ目の前半（計画の B3a）で、新しい会話を API から起こし、止めるところまでを入れた。
 再開とフォークは B3b（下の「再開とフォーク」）、状態と許可と質問は B4（入り済み）、トランスクリプトは B5、ダイアログの札は C1 である。
 `provider/codex/driver.ts` の `createCodexDriver` が Codex の `AgentDriver` で、`boot/agents.ts` が Claude と opencode のとなりに登録する。
@@ -1927,6 +1929,8 @@ Codex で起こすと、エージェントとモデルと推論を書き換え�
 起動の params は、エージェント、モデル（デフォルトなら載せない）、推論、権限だけを載せる。
 
 ### opencode の起動
+
+Claude Code の指示と MCP の登録を serve に渡す仕組みは、「エージェント間の共有」の節に書く。
 
 hangar の画面や API から opencode の会話を起こす面である（計画の B3）。
 置き場は `provider/opencode/` の `driver.ts`、`launch.ts`、`client.ts` で、opencode の API に触るのは `client.ts` の包みだけにする。
@@ -3251,6 +3255,63 @@ hangar の外で起こした 4 ターン以上のものは、止まったとき�
 自動の Done は設定の `autoDone`（一般の節の「hangar が自分で行うこと」の「止まった会話を自動で Done にする」、既定は入り）で切れる。
 切っている間は、候補も引かず、Done にせず、そのための事後要約も回さない（使用量を食わないため）。入れ直したら、60 秒の数えを最初からやり直す。
 長く動いていないものの日数は、そのすぐ下の「長く動きの無い会話も Done にする」の行で選ぶ（試作の案 A）。上のスイッチを切っている間は選べない。
+
+### エージェント間の共有
+
+Codex と opencode を hangar から起こすとき、Claude Code の指示（CLAUDE.md）と MCP の登録を渡す（計画 `docs/superpowers/plans/2026-10-28-agent-share.md`、2026-10-28 の決定）。
+渡すのは起動のときだけで、Codex・opencode の設定ファイルも、プロジェクトのファイル（AGENTS.md など）も書き換えない。
+置き場は `server/src/share/`（`sources.ts` が読み手、`codex.ts` と `opencode.ts` が変換）と、各 driver の起動（`provider/codex/share.ts`、`provider/opencode/launch.ts` の `hangarServeConfig`）である。
+
+#### 何を渡すか
+
+- 指示：Claude の設定フォルダの `CLAUDE.md`（アカウントの `CLAUDE_CONFIG_DIR` に従う）、作業フォルダとその祖先の `CLAUDE.md` と `.claude/CLAUDE.md`、作業フォルダの `CLAUDE.local.md`。
+  - 祖先をたどるのは、作業フォルダがホームの下ならホームまでで止める。
+  - 同じフォルダに `AGENTS.md` があれば、そのフォルダの CLAUDE.md は重ねない（Codex・opencode が AGENTS.md を自分で読む）。
+  - `@` の取り込みは展開しない。
+- MCP：`.claude.json` の利用者の登録（`mcpServers`）と、そのフォルダの登録（`projects[cwd].mcpServers`）。`.mcp.json` は Claude で承認済み（`enabledMcpjsonServers`、`enableAllProjectMcpServers`）のものだけ。
+- 設定の画面向けに、渡すものと渡さないもの（理由つき）を一覧で返す。渡さないものは、秘密を流さないよう名前、出どころ、方式と理由だけを持つ。
+
+#### 渡さないもの
+
+- `hangar` の名前の MCP（hangar 自身のものと衝突させない。理由 `reserved`）。
+- Codex・opencode にすでに同じ名前の登録があるもの（相手の登録を使う。`conflict`）。
+- Claude で切ったもの（`disabledMcpServers`、`disabledMcpjsonServers`。`disabled`）と、Claude で承認していない `.mcp.json` のもの（`unapproved`）。
+- 形が壊れているもの（`invalid`）と、`${VAR}` を hangar の環境で展開できないもの（`missingEnv`）。
+- SSE の MCP は Codex には渡さない（Codex は SSE を使えない。`sse`。opencode には remote として渡す）。
+- Claude.ai のコネクタとプラグインの MCP。
+
+#### Codex への渡し方
+
+- app-server の `-c`、app-server の環境、`developer_instructions` の追記の 3 つを使う。
+- MCP は `-c mcp_servers.<名前>.*` で渡す。stdio は `command`、`args`、`env_vars`（鍵の名前だけ）、http は `url` と `env_http_headers`（見出し名と環境変数名の対）である。
+- 作業フォルダ側の CLAUDE.md は、`project_doc_fallback_filenames` に `CLAUDE.md` を足して Codex に自分で読ませる（利用者の値があれば後ろに足す）。ユーザー階層の CLAUDE.md と `CLAUDE.local.md` は追記の段（鍵 `share`）に本文を入れる。
+- 追記は合わせて 4000 字（`DEFAULT_SHARE_BUDGET`）までにする。超えたファイルは「次のファイルも読んで従ってください」の 1 行と場所だけを入れる。
+  - 理由：Codex は Windows では cmd.exe 越しに起こすので、引数の長さに上限（8191 字）がある。
+- 実物（codex 0.165.0）で確かめたこと：
+  - `-c` は鍵を点で区切るだけで、TOML の引用を解かない（引用符ごと名前になる）。だから MCP の名前は英数字と `_` `-` だけを渡し、ほかは `invalid` で渡さない。
+  - `project_doc_fallback_filenames` は、1 つのフォルダで最初に見つかった 1 つだけを読む。`CLAUDE.local.md` を並べても読まれないので、`CLAUDE.local.md` は追記で渡す。
+
+#### opencode への渡し方
+
+- serve の `OPENCODE_CONFIG_CONTENT` に、`instructions`（CLAUDE.md の絶対パス。利用者の分があれば先に並べて重複を除く）と `mcp.servers` を重ねる。
+- stdio は `{type:'local', command:[command, ...args], environment}`、http と SSE は `{type:'remote', url, headers}` である。
+
+#### 秘密
+
+- argv に載せない。MCP の env と headers の値は、Codex では app-server の環境変数に、opencode では `OPENCODE_CONFIG_CONTENT`（環境変数。hangar の token と同じ扱い）に置く。
+- Codex の `-c` に書くのは環境変数の名前だけである。http の headers 用の変数は `HANGAR_MCP_<名前>_<番号>` に付け替える。stdio の env は `env_vars` が親の同じ名前を渡すので元の名前を使い、同じ名前で違う値が 2 つあれば後のものを渡さない。
+
+#### 設定
+
+- 鍵は 4 つ：`codexShareInstructions`、`codexShareMcp`、`opencodeShareInstructions`、`opencodeShareMcp`（`codexShareOf`、`opencodeShareOf` で読む）。
+- 既定は指示が入、MCP が切。鍵の無い古い設定も同じに読む。
+- 切のときは何も渡さず、argv と環境は今までと同じである。起動のたびに読むので、切り替えは次に起こす会話から効く。
+
+#### 未確認
+
+- opencode の `instructions` が実際に system に入るかは、`OPENCODE_CONFIG_CONTENT` 経由では rc の実物で確かめる。
+- 応答しない stdio の MCP があると、Codex の `debug prompt-input` と opencode の `run --server` が待ち続けた。実物の会話への影響は rc で見る。
+- stdio の env の鍵が app-server の土台の環境（PATH など）と同じ名前なら、土台の値が勝つ。
 
 ### 再開とフォーク
 

@@ -8,6 +8,7 @@ import { msg, MessageError } from '../../i18n/message.ts';
 import type { LocalModelListing } from './localModels/available.ts';
 import { prepareLocalModels, type LocalModelsDeps, type LocalModelUse } from './localModels/prepare.ts';
 import type { ProviderPreps } from './providerPrep.ts';
+import type { OpencodeShareConfig } from '../../share/opencode.ts';
 
 /**
  * opencode の会話を hangar から起こす面（docs/design.md「opencode の起動」）。
@@ -32,10 +33,12 @@ export type OpencodeServes = {
  * extra は起動前の準備が重ねる設定（1 モデルに寄せるときの agent と small_model の上書き）。
  * 利用者の opencode.json は書き換えない（opencode はこれを利用者の設定に重ねて読む）。
  */
-export function hangarServeConfig(mcp: { url: string; secret: string }, permissions: readonly OpencodePermissionRule[] | null = null, extra: Record<string, unknown> = {}): string {
+export function hangarServeConfig(mcp: { url: string; secret: string }, permissions: readonly OpencodePermissionRule[] | null = null, extra: Record<string, unknown> = {}, share: OpencodeShareConfig | null = null): string {
   return JSON.stringify({
     ...extra,
-    mcp: { servers: { [HANGAR_MCP_NAME]: { type: 'remote', url: mcp.url, headers: { Authorization: `Bearer ${mcp.secret}` } } } },
+    // Claude Code から渡す指示と MCP（share/opencode.ts）。hangar の MCP は後に置いて、同じ名前でも消されないようにする。
+    ...(share?.instructions ? { instructions: share.instructions } : {}),
+    mcp: { servers: { ...share?.mcp?.servers, [HANGAR_MCP_NAME]: { type: 'remote', url: mcp.url, headers: { Authorization: `Bearer ${mcp.secret}` } } } },
     ...(permissions ? { permissions } : {}),
   });
 }
@@ -71,6 +74,8 @@ export type MaterializeDeps = {
   serves: OpencodeServes;
   /** 会話のフォルダで重ねる許可のひな形（permissionPreset.ts の permissionPresetFor）。null か省けば重ねない。 */
   permissions?: (cwd: string) => readonly OpencodePermissionRule[] | null;
+  /** Claude Code の指示と MCP を重ねる設定（share/opencode.ts の opencodeShareFor）。null か省けば重ねない。 */
+  share?: (spec: LaunchSpec) => OpencodeShareConfig | null;
   /** 知らせ。指示を差し込めなかった（instructions）、MCP がつながらなかった（mcp）。どちらも起動は止めない。 */
   report: (what: 'instructions' | 'mcp', e: unknown) => void;
   /** MCP の接続を待つ上限と間隔。 */
@@ -103,7 +108,7 @@ export type MaterializeDeps = {
 export async function materializeOpencode(deps: MaterializeDeps, mode: MaterializeMode, spec: LaunchSpec): Promise<{ providerSessionId: string; serve: ServeInfo }> {
   if (mode.kind !== 'start' && mode.kind !== 'resume') throw new Error(`opencode cannot ${mode.kind} a session`);
   if (mode.kind === 'resume') await deps.serves.stop(spec.hangarSessionId);
-  let serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarServeConfig(spec.mcp, deps.permissions?.(spec.cwd) ?? null), directory: spec.cwd });
+  let serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarServeConfig(spec.mcp, deps.permissions?.(spec.cwd) ?? null, {}, deps.share?.(spec) ?? null), directory: spec.cwd });
   let model = spec.model;
   let providerSessionId: string;
   try {
@@ -189,7 +194,7 @@ export async function prepareModels(deps: MaterializeDeps, local: LocalModelsDep
   const override: Record<string, unknown> = { ...(Object.keys(agent).length ? { agent } : {}), ...(conf.small && conf.small !== single ? { small_model: single } : {}) };
   if (Object.keys(override).length) {
     await deps.serves.stop(spec.hangarSessionId);
-    serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarServeConfig(spec.mcp, deps.permissions?.(spec.cwd) ?? null, override), directory: spec.cwd });
+    serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarServeConfig(spec.mcp, deps.permissions?.(spec.cwd) ?? null, override, deps.share?.(spec) ?? null), directory: spec.cwd });
   }
   const uses = [{ ref: single, uses: ['$session', ...(conf.small ? ['$small'] : []), ...conf.agents.map((a) => a.id)] }];
   await prepareWith(local, new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs }), { hangarSessionId: spec.hangarSessionId, cwd: spec.cwd, uses, prep: prep.run, choice: prep.choice, sleep: deps.sleep });

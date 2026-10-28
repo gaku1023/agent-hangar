@@ -830,6 +830,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         // opencode の検出（ベータ）。取れなくても設定の面の版の行が「読み込み中…」のままになるだけなので、知らせは出さない。
         deps.api.opencodeStatus().then((o) => setStore({ ...store, opencodeStatus: o })).catch(() => undefined);
         deps.api.codexStatus().then((o) => setStore({ ...store, codexStatus: o })).catch(() => undefined);
+        // 「Claude Code の指示 / MCP を渡す」の下の一覧。有効にしているエージェントの分だけ取る（画面はスイッチが入のときに出す）。
+        for (const agent of ['codex', 'opencode'] as const) {
+          if (!(agent === 'codex' ? codexEnabledOf(store.settings ?? {}) : opencodeEnabledOf(store.settings ?? {}))) continue;
+          deps.api.sharePreview(agent).then((d) => setStore({ ...store, sharePreview: { ...store.sharePreview, [agent]: d } })).catch(() => undefined);
+        }
         deps.api.usageAggregate(30).then((a) => setStore({ ...store, usageAggregate: a })).catch(fail);
         deps.api.retention().then((r) => setStore({ ...store, retention: r })).catch(fail);
         // アカウントの認証は、この呼び出しで読まれる（節に出るメールとプラン）。

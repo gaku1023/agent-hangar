@@ -97,6 +97,49 @@ posixDescribe('Codex の driver（materialize、plan、release、reattach）', (
     expect(boots()[0]!.env.CODEX_HOME).toBe('/h/.codex-b');
   });
 
+  describe('Claude Code の指示と MCP の共有', () => {
+    const setup = () => {
+      const home = path.join(dir, 'uhome');
+      const put = (f: string, t: string) => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, t); };
+      put(path.join(home, '.claude', 'CLAUDE.md'), 'SHARED USER BODY');
+      put(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { mine: { command: 'npx', env: { SHARE_SECRET: 'top-secret' } } } }));
+      return home;
+    };
+    it('両方切（既定）なら、共有を足す前と同じ argv と環境になる', async () => {
+      const home = setup();
+      const run = async (over: Partial<Parameters<typeof createCodexDriver>[0]>) => {
+        fs.rmSync(log, { force: true });
+        const { d } = make({}, over);
+        await d.launch.materialize!({ kind: 'start' }, spec({ prompt: 'x' }));
+        const b = boots()[0]!;
+        await d.launch.release({ sessionId: 's1', providerSessionId: '', cwd }, 'killed');
+        return b;
+      };
+      const off = await run({ share: () => ({ instructions: false, mcp: false }), shareHome: home });
+      const plain = await run({});
+      expect(off.argv.length).toBe(plain.argv.length);
+      expect(off.argv.filter((x) => x.includes('project_doc_fallback') || x.includes('"mine"'))).toEqual([]);
+      expect(Object.keys(off.env).sort()).toEqual(Object.keys(plain.env).sort());
+      expect(Object.keys(off.env)).not.toContain('SHARE_SECRET');
+    });
+    it('入なら -c に fallback と MCP、developerInstructions に指示の段が入る。秘密は環境にだけある', async () => {
+      const home = setup();
+      const { d } = make({}, { share: () => ({ instructions: true, mcp: true }), shareHome: home });
+      await d.launch.materialize!({ kind: 'start' }, spec({ prompt: 'x' }));
+      const b = boots()[0]!;
+      expect(b.argv).toContain('project_doc_fallback_filenames=["CLAUDE.md"]');
+      expect(b.argv).toContain('mcp_servers.mine.command="npx"');
+      expect(b.argv.join(' ')).not.toContain('top-secret');
+      expect(b.env.SHARE_SECRET).toBe('top-secret');
+      const start = rpcs().find((x) => x.ev === 'rpc' && x.method === 'thread/start') as Extract<Rec, { ev: 'rpc' }>;
+      const di = String(start.params.developerInstructions);
+      expect(di.startsWith('hello\n')).toBe(true);
+      expect(di).toContain('SHARED USER BODY');
+      // app-server の -c の追記にも同じ文が入る。
+      expect(b.argv.find((x) => x.startsWith('developer_instructions='))).toContain('SHARED USER BODY');
+    });
+  });
+
   it('MCP が failed でも起動は続け、知らせて、最初の入力を流す', async () => {
     const { d, reports } = make({ mcpPendingPolls: 'failed' });
     await d.launch.materialize!({ kind: 'start' }, spec({ prompt: 'x' }));

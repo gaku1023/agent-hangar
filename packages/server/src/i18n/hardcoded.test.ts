@@ -60,6 +60,7 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'sessions/candidateExpiry.ts': { lines: 1, why: LOG },
   'sessions/park.ts': { lines: 1, why: LOG },
   'sessions/trash.ts': { lines: 3, why: LOG },
+  'share/codex.ts': { lines: 2, why: 'Codex の追記に入れる、Claude Code の指示の見出しと「このファイルも読んで従う」の 1 行。Codex に渡す指示文で、画面には出さない' },
   'summary/job.ts': { lines: 2, why: LOG },
   'sync/apply.ts': { lines: 4, why: LOG_AND_FILE },
   'sync/config/apply.ts': { lines: 27, why: CLI },

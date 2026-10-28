@@ -144,6 +144,11 @@ export type Settings = {
   opencodeIntercept?: boolean;
   /** hangar が起動する opencode に許可のひな形を重ねるか（provider/opencode/permissionPreset.ts）。項目が無いうちは入りとして読む。 */
   opencodePermissionPreset?: boolean;
+  /** Claude Code の指示（CLAUDE.md）と MCP の登録を Codex・opencode の起動に渡すか（share/）。項目が無いうちは、指示が入、MCP が切として読む。 */
+  codexShareInstructions?: boolean;
+  codexShareMcp?: boolean;
+  opencodeShareInstructions?: boolean;
+  opencodeShareMcp?: boolean;
   /** 起動前に LM Studio のモデルを載せる長さ（起動前の準備）。項目が無いうちは既定の 64K として読む。 */
   opencodeLocalContext?: number;
   /** 使っていないローカルのモデルを外すまでの分（IDLE_UNLOAD_CHOICES、0 は外さない）。 */
@@ -250,6 +255,7 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   if (s.opencodeInjection !== undefined && !isOpencodeInjection(s.opencodeInjection)) delete s.opencodeInjection;
   if (s.opencodeIntercept !== undefined && typeof s.opencodeIntercept !== 'boolean') delete s.opencodeIntercept;
   if (s.opencodePermissionPreset !== undefined && typeof s.opencodePermissionPreset !== 'boolean') delete s.opencodePermissionPreset;
+  for (const k of ['codexShareInstructions', 'codexShareMcp', 'opencodeShareInstructions', 'opencodeShareMcp'] as const) if (s[k] !== undefined && typeof s[k] !== 'boolean') delete s[k];
   if (s.opencodeLocalContext !== undefined && !isLocalContext(s.opencodeLocalContext)) delete s.opencodeLocalContext;
   if (s.opencodeIdleUnload !== undefined && !isIdleUnload(s.opencodeIdleUnload)) delete s.opencodeIdleUnload;
   if (s.opencodeProviderPrep !== undefined) s.opencodeProviderPrep = providerPrepsOf(s.opencodeProviderPrep);

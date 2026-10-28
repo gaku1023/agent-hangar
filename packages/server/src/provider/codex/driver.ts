@@ -11,6 +11,7 @@ import type { CodexUsage } from './usage.ts';
 import { launchCodexAppServer } from './launch.ts';
 import { CodexRegistry, codexRegistryPath } from './registry.ts';
 import { CODEX_PERMISSION_FLAGS } from '@agent-hangar/shared';
+import { codexShareFor, type CodexShareDeps } from './share.ts';
 import { codexAppServerConfig, codexPermissionOf, HANGAR_MCP_NAME, instructionValue, MCP_TOKEN_ENV, loggedOutError, noRolloutError, planCodex, PENDING_PREFIX } from './launcher.ts';
 
 /**
@@ -65,6 +66,10 @@ export type CodexDriverDeps = {
    * 起動した会話は、スレッドの ID と接続が揃ったとき（trackLive と同じ位置）に track し、止めたら untrack する。
    */
   usage?: () => Pick<CodexUsage, 'track' | 'untrack'> | null | undefined;
+  /** Claude Code の指示と MCP の登録を渡すか（設定の codexShareInstructions と codexShareMcp）。無ければ渡さない。 */
+  share?: CodexShareDeps['share'];
+  /** 共有の読み取りで ~ にあたる場所（試験用）。無ければ利用者のホーム。 */
+  shareHome?: string;
 };
 
 export type CodexDriver = AgentDriver & {
@@ -161,7 +166,10 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
     if (deps.loggedIn && (await deps.loggedIn()) === false) throw loggedOutError();
     // app-server を起こす前に、指定が通るかを確かめる（通らなければ何も起こさない）。
     const perm = codexPermissionOf(spec.mode);
-    const config = codexAppServerConfig(spec, perm);
+    // Claude Code の共有。追記の段は hangar の段の後ろに足し、thread/start の developerInstructions にも同じものが入る。
+    const share = deps.share ? codexShareFor(spec, { share: deps.share, ...(deps.shareHome ? { homeDir: deps.shareHome } : {}) }) : null;
+    if (share?.instructions) spec = { ...spec, instructions: [...spec.instructions, share.instructions] };
+    const config = [...codexAppServerConfig(spec, perm), ...(share?.config ?? [])];
     const flags = CODEX_PERMISSION_FLAGS[perm];
     const prior = served.get(spec.hangarSessionId);
     if (prior) {
@@ -171,7 +179,8 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
     const handle = await launchCodexAppServer({
       bin, directory: spec.cwd, config, tokenDir, queue: deps.queue,
       // 空の環境に、この run だけの MCP の秘密を足す。argv にも設定にも載せない。
-      env: { ...codexBaseEnv(bin), ...(spec.env.CODEX_HOME?.trim() ? { CODEX_HOME: spec.env.CODEX_HOME.trim() } : {}), [MCP_TOKEN_ENV]: spec.mcp.secret },
+      // 共有の MCP の秘密の値は、ここにだけ置く。土台の環境が後ろにあるので、PATH などを上書きできない。
+      env: { ...(share?.env ?? {}), ...codexBaseEnv(bin), ...(spec.env.CODEX_HOME?.trim() ? { CODEX_HOME: spec.env.CODEX_HOME.trim() } : {}), [MCP_TOKEN_ENV]: spec.mcp.secret },
     });
     const s: Served = {
       sessionId: spec.hangarSessionId, cwd: spec.cwd, pid: handle.server.pid, url: handle.server.url, token: handle.server.token,

@@ -154,7 +154,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {} });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false });
   });
   // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
   it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
@@ -423,6 +423,10 @@ describe('設定の往復', () => {
         ['opencodeInjection', 'claude'],
         ['opencodeIntercept', true],
         ['opencodePermissionPreset', false],
+        ['codexShareInstructions', false],
+        ['codexShareMcp', true],
+        ['opencodeShareInstructions', false],
+        ['opencodeShareMcp', true],
         ['opencodeLocalContext', 131072],
         ['opencodeIdleUnload', 0],
         ['opencodeProviderPrep', { gpu: { start: 'gpu up', stop: '', stopAfter: 15 } }],
@@ -519,6 +523,15 @@ describe('設定の往復', () => {
       expect((await r.json()).error).toBe('「コマンド実行前に確認」の値の形式が正しくありません');
     }
     expect((await json(await get('/api/settings'))).body.opencodePermissionPreset).toBe(false);
+  });
+  it('Claude Code の指示と MCP を渡す 4 つのスイッチは、既定が指示入・MCP 切で、保存でき、真偽値でない値は断る', async () => {
+    const body = (await json(await get('/api/settings'))).body;
+    expect([body.codexShareInstructions, body.codexShareMcp, body.opencodeShareInstructions, body.opencodeShareMcp]).toEqual([true, false, true, false]);
+    expect((await (await patch({ codexShareInstructions: false, opencodeShareMcp: true })).json())).toMatchObject({ codexShareInstructions: false, opencodeShareMcp: true });
+    const r = await patch({ codexShareMcp: 'yes' });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toBe('「Claude Code の MCP を渡す」の値の形式が正しくありません');
+    expect((await json(await get('/api/settings'))).body).toMatchObject({ codexShareInstructions: false, codexShareMcp: false, opencodeShareMcp: true });
   });
   it('opencode を有効にするスイッチ（ベータ）は、既定が切で、保存でき、真偽値でない値は断る', async () => {
     expect((await json(await get('/api/settings'))).body.opencodeEnabled).toBe(false);
