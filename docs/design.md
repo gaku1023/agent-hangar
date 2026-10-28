@@ -5191,6 +5191,8 @@ Codex には標準のアカウント切り替えが無いが、`CODEX_HOME` を�
 - 一覧は PC ごとの `<home>/codex-accounts.json` に持ち、同期しない（Claude の `accounts.json` と同じ扱い）。`AccountStore` にファイル名、最初の置き場、候補の接頭辞を渡して、Claude と同じ実装を使う。
 - 最初のアカウントは `~/.codex` で、`CODEX_HOME` を渡さない。2 つ目以降は `~/.codex-<名前>` で、起こす app-server と TUI の env に `CODEX_HOME=<その置き場>` を足す。
 - 共有（リンク）は `config.toml`、`AGENTS.md`、`skills`、`prompts`、`rules`、`plugins`、`sessions`、`archived_sessions`、`session_index.jsonl`、`history.jsonl`。分けるのは `auth.json`、sqlite 類、`logs`、キャッシュ、`tmp`、`installation_id`、`version.json` である（`CODEX_ACCOUNT_LINK_GROUPS` は設定と指示、スキルとプロンプト、会話の履歴の 3 組）。`sessions` などをリンクしないと 2 つ目の置き場から `~/.codex` の会話が再開できず（`no rollout found`）、`config.toml` をリンクしないと既定のモデルが変わるので、リンクに含める。リンクの場所に実ファイルがあれば触らずに挙げる。Windows でリンクが張れないときは、理由を札に出して起動を断る（Claude と同じ）。
+- リンクを張るのは Claude と共通の `platform/links.ts` の `linkEntries` である。Windows では、開発者モードが切で管理者でないと、シンボリックリンクを作れない（EPERM）。そこでディレクトリは管理者なしで張れるジャンクションにし、ファイルはシンボリックリンク（`file`）を試す。ジャンクションの readlink が返す `\\?\` の頭は外してから先を比べる。
+- 1 つの項目が張れなくても投げずに残りを張り続け、張れなかった項目を `unlinked` に挙げる。札には生の例外の文でなく `account.links.unlinked` の文を出す（別のものが置かれている `conflicts` があれば、そちらを先に出す）。
 - 会話の本文の置き場は、リンクのおかげで `~/.codex` に集まる。索引と同期は `~/.codex` だけを見たままにする。
 - ログインは app-server 経由（`provider/codex/account.ts`）。短命の app-server をその置き場で起こし、`account/login/start` を呼ぶ。ブラウザで開く方法を既定にし、確認コード（`chatgptDeviceCode`）も選べる。ブラウザのログイン（ポート 1455）は同時に 1 つしかできないので、ログインは hangar 全体で 1 本の列に並べ、新しく始めたら前のものは取り消して札にそう出す。メールとプランは `account/read` で読み、hangar はログイン情報（トークン）を読まない。
 - TUI の `--remote` は、ログインに app-server 側の置き場を使うので、TUI 側の置き場は問わない。

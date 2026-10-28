@@ -17,6 +17,7 @@ export const accountEn: AreaDictionary<typeof accountKeys> = {
   'account.dir.alreadyRegistered': 'This config directory is already registered: {dir}',
   'account.color.invalid': 'Color must be in #rrggbb format (lowercase)',
   'account.links.conflict': 'These items in the config directory are not shared links: {names}. Check their contents and delete them if they are not needed',
+  'account.links.unlinked': 'These items could not be shared on this PC: {names}',
   'account.state.loggedOut': 'Not logged in',
   'account.state.approve': 'Approve in your browser…',
   'account.login.deviceCode': 'Open {url} and enter the code {code}',

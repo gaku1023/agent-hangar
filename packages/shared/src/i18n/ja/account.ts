@@ -17,6 +17,7 @@ export const accountJa: AreaDictionary<typeof accountKeys> = {
   'account.dir.alreadyRegistered': 'この設定ディレクトリはすでに登録されています: {dir}',
   'account.color.invalid': '色は #rrggbb（小文字）で指定してください',
   'account.links.conflict': '設定ディレクトリの {names} が共有のリンクではありません。中身を確認して、不要なら削除してください',
+  'account.links.unlinked': 'この PC では次の項目を共有できませんでした：{names}',
   'account.state.loggedOut': '未ログイン',
   'account.state.approve': 'ブラウザで承認してください…',
   'account.login.deviceCode': '{url} を開き、コード {code} を入力してください',

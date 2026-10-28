@@ -43,6 +43,11 @@ describe('アカウント', () => {
     expect(linkProblem(['skills', 'projects'])).toBe('設定ディレクトリの skills、projects が共有のリンクではありません。中身を確認して、不要なら削除してください');
     expect(render('en', linkProblemMessage(['skills', 'projects'])!)).toBe('These items in the config directory are not shared links: skills, projects. Check their contents and delete them if they are not needed');
   });
+
+  it('張れなかった項目は、生の例外の文の代わりに辞書の文で出す', () => {
+    expect(linkProblem([], ['config.toml', 'AGENTS.md'])).toBe('この PC では次の項目を共有できませんでした：config.toml、AGENTS.md');
+    expect(render('en', linkProblemMessage([], ['config.toml'])!)).toBe('These items could not be shared on this PC: config.toml');
+  });
 });
 
 describe('プロジェクト', () => {

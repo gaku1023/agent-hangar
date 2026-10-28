@@ -31,7 +31,7 @@ describe('ensureAccountLinks', () => {
   // Windows の symlink は管理者権限か開発者モードが要るので、Unix だけで確かめる（リンクを張る道は、アカウントを足したときだけ通る）。
   posixIt('置き場を 0700 で作り、最初の置き場にある項目だけをリンクにする', () => {
     const r = ensureAccountLinks(primary, dir);
-    expect(r).toEqual({ created: ['settings.json', 'skills', 'projects'], conflicts: [] });
+    expect(r).toEqual({ created: ['settings.json', 'skills', 'projects'], conflicts: [], unlinked: [] });
     expectMode(dir, 0o700);
     expect(fs.readlinkSync(path.join(dir, 'projects'))).toBe(path.join(primary, 'projects'));
     expect(fs.existsSync(path.join(dir, 'CLAUDE.md'))).toBe(false);
@@ -40,7 +40,7 @@ describe('ensureAccountLinks', () => {
 
   posixIt('二度目は何も作らない。あとから最初の置き場に増えた項目は足す', () => {
     ensureAccountLinks(primary, dir);
-    expect(ensureAccountLinks(primary, dir)).toEqual({ created: [], conflicts: [] });
+    expect(ensureAccountLinks(primary, dir)).toEqual({ created: [], conflicts: [], unlinked: [] });
     fs.writeFileSync(path.join(primary, 'CLAUDE.md'), '# x');
     expect(ensureAccountLinks(primary, dir).created).toEqual(['CLAUDE.md']);
   });
@@ -51,13 +51,23 @@ describe('ensureAccountLinks', () => {
     fs.mkdirSync(path.join(dir, 'skills'));
     fs.symlinkSync('/somewhere/else', path.join(dir, 'projects'));
     const r = ensureAccountLinks(primary, dir);
-    expect(r).toEqual({ created: [], conflicts: ['settings.json', 'skills', 'projects'] });
+    expect(r).toEqual({ created: [], conflicts: ['settings.json', 'skills', 'projects'], unlinked: [] });
     expect(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).toBe('{"mine":1}');
     expect(fs.readlinkSync(path.join(dir, 'projects'))).toBe('/somewhere/else');
   });
 
+  posixIt('Windows で張れない項目があっても投げず、残りを張って unlinked に挙げる', () => {
+    const eperm = (): never => { throw Object.assign(new Error('EPERM: operation not permitted, symlink'), { code: 'EPERM' }); };
+    const r = ensureAccountLinks(primary, dir, {
+      platform: 'win32',
+      fs: { existsSync: fs.existsSync, lstatSync: fs.lstatSync, statSync: fs.statSync, readlinkSync: (p) => fs.readlinkSync(p),
+        symlinkSync: (t, l, type) => (type === 'junction' ? fs.symlinkSync(t, l) : eperm()) },
+    });
+    expect(r).toEqual({ created: ['skills', 'projects'], conflicts: [], unlinked: ['settings.json'] });
+  });
+
   it('最初の置き場そのものを渡したら何もしない', () => {
-    expect(ensureAccountLinks(primary, path.join(primary, '.'))).toEqual({ created: [], conflicts: [] });
+    expect(ensureAccountLinks(primary, path.join(primary, '.'))).toEqual({ created: [], conflicts: [], unlinked: [] });
     expect(fs.lstatSync(path.join(primary, 'projects')).isSymbolicLink()).toBe(false);
   });
 

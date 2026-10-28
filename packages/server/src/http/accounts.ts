@@ -30,7 +30,7 @@ type LinkProblem = Message | string | null;
 /** 置き場のリンクの具合。欠けているリンクはここで張り直し、別のものが置かれている項目だけを問題として返す。 */
 function problemOf(primaryDir: string, a: Account): LinkProblem {
   if (a.id === PRIMARY_ACCOUNT_ID) return null;
-  try { return linkProblemMessage(ensureAccountLinks(primaryDir, a.dir).conflicts); } catch (e) { return causeOf(e); }
+  try { const r = ensureAccountLinks(primaryDir, a.dir); return linkProblemMessage(r.conflicts, r.unlinked); } catch (e) { return causeOf(e); }
 }
 
 /** アカウントの id ごとの、最後に点検したリンクの結果。AccountsDeps は app.ts で写されるので、共有の AccountStore に結ぶ。文にするのは配るときなので、言語を変えたあとも点検し直さずに済む。 */
