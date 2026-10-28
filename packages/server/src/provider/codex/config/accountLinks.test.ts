@@ -35,7 +35,7 @@ describe('ensureCodexAccountLinks', () => {
   // A1
   posixIt('置き場を 0700 で作り、共有の項目だけをリンクにする。分ける項目は作らない', () => {
     const r = ensureCodexAccountLinks(primary, dir);
-    expect(r).toEqual({ created: ['config.toml', 'skills', 'sessions'], conflicts: [] });
+    expect(r).toEqual({ created: ['config.toml', 'skills', 'sessions'], conflicts: [], unlinked: [] });
     expectMode(dir, 0o700);
     expect(fs.readlinkSync(path.join(dir, 'sessions'))).toBe(path.join(primary, 'sessions'));
     for (const n of ['auth.json', 'installation_id', 'logs']) expect(fs.existsSync(path.join(dir, n))).toBe(false);
@@ -43,7 +43,7 @@ describe('ensureCodexAccountLinks', () => {
 
   posixIt('二度目は何も作らない。あとから増えた項目は足す', () => {
     ensureCodexAccountLinks(primary, dir);
-    expect(ensureCodexAccountLinks(primary, dir)).toEqual({ created: [], conflicts: [] });
+    expect(ensureCodexAccountLinks(primary, dir)).toEqual({ created: [], conflicts: [], unlinked: [] });
     fs.writeFileSync(path.join(primary, 'AGENTS.md'), '# x');
     expect(ensureCodexAccountLinks(primary, dir).created).toEqual(['AGENTS.md']);
   });
@@ -54,13 +54,23 @@ describe('ensureCodexAccountLinks', () => {
     fs.mkdirSync(path.join(dir, 'skills'));
     fs.symlinkSync('/somewhere/else', path.join(dir, 'sessions'));
     const r = ensureCodexAccountLinks(primary, dir);
-    expect(r).toEqual({ created: [], conflicts: ['config.toml', 'skills', 'sessions'] });
+    expect(r).toEqual({ created: [], conflicts: ['config.toml', 'skills', 'sessions'], unlinked: [] });
     expect(fs.readFileSync(path.join(dir, 'config.toml'), 'utf8')).toBe('mine');
     expect(fs.readlinkSync(path.join(dir, 'sessions'))).toBe('/somewhere/else');
   });
 
+  posixIt('Windows で張れない項目があっても投げず、残りを張って unlinked に挙げる', () => {
+    const eperm = (): never => { throw Object.assign(new Error('EPERM: operation not permitted, symlink'), { code: 'EPERM' }); };
+    const r = ensureCodexAccountLinks(primary, dir, {
+      platform: 'win32',
+      fs: { existsSync: fs.existsSync, lstatSync: fs.lstatSync, statSync: fs.statSync, readlinkSync: (p) => fs.readlinkSync(p),
+        symlinkSync: (t, l, type) => (type === 'junction' ? fs.symlinkSync(t, l) : eperm()) },
+    });
+    expect(r).toEqual({ created: ['skills', 'sessions'], conflicts: [], unlinked: ['config.toml'] });
+  });
+
   it('最初の置き場そのものを渡したら何もしない', () => {
-    expect(ensureCodexAccountLinks(primary, path.join(primary, '.'))).toEqual({ created: [], conflicts: [] });
+    expect(ensureCodexAccountLinks(primary, path.join(primary, '.'))).toEqual({ created: [], conflicts: [], unlinked: [] });
     expect(fs.lstatSync(path.join(primary, 'sessions')).isSymbolicLink()).toBe(false);
   });
 });

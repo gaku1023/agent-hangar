@@ -81,11 +81,14 @@ export class RunAccounts {
     if (agent === 'codex') {
       const c = this.deps.codex;
       if (!c) return {};
-      const problem = linkProblemMessage(ensureCodexAccountLinks(c.primaryDir, a.dir).conflicts);
+      const r = ensureCodexAccountLinks(c.primaryDir, a.dir);
+      // 張れなかった項目（Windows の開発者モードが切のときのファイル）は、そのアカウントだけのものとして起動する。札で案内する。
+      const problem = linkProblemMessage(r.conflicts);
       if (problem) throw new RunError(400, problem);
       return { CODEX_HOME: a.dir };
     }
-    const problem = linkProblemMessage(ensureAccountLinks(this.deps.claudeDir, a.dir).conflicts);
+    const r = ensureAccountLinks(this.deps.claudeDir, a.dir);
+    const problem = linkProblemMessage(r.conflicts);
     if (problem) throw new RunError(400, problem);
     return { CLAUDE_CONFIG_DIR: a.dir };
   }

@@ -17,6 +17,7 @@ export const accountJa: AreaDictionary<typeof accountKeys> = {
   'account.dir.alreadyRegistered': 'この設定ディレクトリはすでに登録されています: {dir}',
   'account.color.invalid': '色は #rrggbb（小文字）で指定してください',
   'account.links.conflict': '設定ディレクトリの {names} が共有のリンクではありません。中身を確認して、不要なら削除してください',
+  'account.links.unlinked': 'Windows の開発者モードが無効なため、{names} はこのアカウントだけのファイルになります。共有するには、［設定］>［システム］>［開発者向け］で開発者モードを有効にしてください。',
   'account.state.loggedOut': '未ログイン',
   'account.state.approve': 'ブラウザで承認してください…',
   'account.login.deviceCode': '{url} を開き、コード {code} を入力してください',

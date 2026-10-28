@@ -39,7 +39,7 @@ const problemMemoOf = (store: AccountStore): Map<string, LinkProblem> => {
 
 function problemOf(c: CodexAccountsDeps, a: Account): LinkProblem {
   if (a.id === PRIMARY_ACCOUNT_ID) return null;
-  try { return linkProblemMessage(ensureCodexAccountLinks(c.primaryDir, a.dir).conflicts); } catch (e) { return causeOf(e); }
+  try { const r = ensureCodexAccountLinks(c.primaryDir, a.dir); return linkProblemMessage(r.conflicts, r.unlinked); } catch (e) { return causeOf(e); }
 }
 const checkLinks = (c: CodexAccountsDeps): void => { for (const a of c.store.list()) problemMemoOf(c.store).set(a.id, problemOf(c, a)); };
 
@@ -178,7 +178,8 @@ export function codexAccountsRoutes(api: Hono, deps: AccountsDeps, changed: (che
     if (b.method !== undefined && b.method !== 'browser' && b.method !== 'deviceCode') throw new AccountError(400, msg('common.field.sendString', { field: 'method' }));
     const method: CodexLoginMethod = b.method === 'deviceCode' ? 'deviceCode' : 'browser';
     try {
-      const problem = a.id === PRIMARY_ACCOUNT_ID ? null : linkProblemMessage(ensureCodexAccountLinks(cx.primaryDir, a.dir).conflicts);
+      const r = a.id === PRIMARY_ACCOUNT_ID ? null : ensureCodexAccountLinks(cx.primaryDir, a.dir);
+      const problem = r ? linkProblemMessage(r.conflicts) : null;
       if (problem) throw new AccountError(400, problem);
     } catch (e) { if (e instanceof AccountError) throw e; throw new AccountError(400, causeOf(e)); }
     const memo = loginMemoOf(cx.store);
