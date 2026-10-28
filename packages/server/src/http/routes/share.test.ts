@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SharePreviewDto } from '@agent-hangar/shared';
 import { createApp } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
@@ -15,6 +15,8 @@ const get = (q: string) => app().request(`/api/share/preview${q}`, { headers: H 
 const write = (file: string, text: string): void => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); };
 
 beforeEach(async () => {
+  // CI（GitHub の Linux）は XDG_CONFIG_HOME を持つ。opencode の設定を試験の世界の ~/.config から読ませるため外す。
+  vi.stubEnv('XDG_CONFIG_HOME', '');
   t = await testDeps();
   write(path.join(t.claudeDir, 'CLAUDE.md'), '# 私の指示\n');
   write(path.join(t.ws, '.claude.json'), JSON.stringify({
@@ -32,7 +34,7 @@ beforeEach(async () => {
   write(path.join(t.ws, '.codex', 'config.toml'), '[mcp_servers.dup]\ncommand = "other"\n');
   write(path.join(t.ws, '.config', 'opencode', 'opencode.json'), JSON.stringify({ mcp: { servers: { dup: { type: 'local', command: ['other'] } } } }));
 });
-afterEach(() => { t.dispose(); });
+afterEach(() => { t.dispose(); vi.unstubAllEnvs(); });
 
 const byName = (d: SharePreviewDto, name: string) => d.mcp.find((m) => m.name === name);
 
