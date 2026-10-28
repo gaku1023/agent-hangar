@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, DEFAULT_CODEX_INJECTION, isCodexInjection } from './codexCompat.ts';
+import { CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, codexShareOf, DEFAULT_CODEX_INJECTION, isCodexInjection } from './codexCompat.ts';
 
 describe('Codex の確かめた範囲と設定の読み方', () => {
   it('確かめた範囲は 0.165.x', () => {
@@ -20,5 +20,13 @@ describe('Codex の確かめた範囲と設定の読み方', () => {
     expect(codexInjectionOf({ codexInjection: 'none' })).toBe('none');
     expect(codexInjectionOf({ codexInjection: 'full' as never })).toBe('minimal');
     for (const v of ['', 'Minimal', null, 1]) expect(isCodexInjection(v)).toBe(false);
+  });
+});
+
+describe('codexShareOf', () => {
+  it('指示は入、MCP は切が既定で、真偽値でない値も既定に寄せる', () => {
+    expect(codexShareOf({})).toEqual({ instructions: true, mcp: false });
+    expect(codexShareOf({ codexShareInstructions: false, codexShareMcp: true })).toEqual({ instructions: false, mcp: true });
+    expect(codexShareOf({ codexShareInstructions: 'no' as never, codexShareMcp: 1 as never })).toEqual({ instructions: true, mcp: false });
   });
 });

@@ -25,6 +25,9 @@ export const codexEnabledOf = (s: { codexEnabled?: boolean }): boolean => s.code
 /** 外のターミナルの codex コマンドを hangar 経由で起動するか（シェルの包み、macOS と Linux だけ）。既定は切で、true のときだけ入りとして読む。 */
 export const codexInterceptOf = (s: { codexIntercept?: boolean }): boolean => s.codexIntercept === true;
 
+/** Claude Code の指示（CLAUDE.md）と MCP の登録を、起動のときに渡すか。指示は入、MCP は切が既定（2026-10-28 に利用者が決めた）。真偽値でない値は既定に寄せる。 */
+export const codexShareOf = (s: { codexShareInstructions?: boolean; codexShareMcp?: boolean }): { instructions: boolean; mcp: boolean } => ({ instructions: s.codexShareInstructions !== false, mcp: s.codexShareMcp === true });
+
 /** システムプロンプトへの追記。無い項目と知らない値は既定（最小限）に寄せる。 */
 export const codexInjectionOf = (s: { codexInjection?: CodexInjection }): CodexInjection => (isCodexInjection(s.codexInjection) ? s.codexInjection : DEFAULT_CODEX_INJECTION);
 

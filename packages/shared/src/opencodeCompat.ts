@@ -28,6 +28,9 @@ export const opencodeInterceptOf = (s: { opencodeIntercept?: boolean }): boolean
 /** hangar が起動する opencode に許可のひな形を重ねるか。既定は入りで、false のときだけ切として読む。 */
 export const opencodePermissionPresetOf = (s: { opencodePermissionPreset?: boolean }): boolean => s.opencodePermissionPreset !== false;
 
+/** Claude Code の指示（CLAUDE.md）と MCP の登録を、起動のときに渡すか。指示は入、MCP は切が既定（2026-10-28 に利用者が決めた）。真偽値でない値は既定に寄せる。 */
+export const opencodeShareOf = (s: { opencodeShareInstructions?: boolean; opencodeShareMcp?: boolean }): { instructions: boolean; mcp: boolean } => ({ instructions: s.opencodeShareInstructions !== false, mcp: s.opencodeShareMcp === true });
+
 /** システムプロンプトへの追記。無い項目と知らない値は既定（最小限）に寄せる。 */
 export const opencodeInjectionOf = (s: { opencodeInjection?: OpencodeInjection }): OpencodeInjection => (isOpencodeInjection(s.opencodeInjection) ? s.opencodeInjection : DEFAULT_OPENCODE_INJECTION);
 

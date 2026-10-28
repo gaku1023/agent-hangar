@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_OPENCODE_INJECTION, isOpencodeInjection, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf } from './opencodeCompat.ts';
+import { DEFAULT_OPENCODE_INJECTION, isOpencodeInjection, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeShareOf } from './opencodeCompat.ts';
 
 describe('opencode の確かめた範囲', () => {
   it('確かめた範囲は 2.2.x', () => {
@@ -25,5 +25,13 @@ describe('opencode の設定の読み方', () => {
   it('isOpencodeInjection は 3 つの値だけを通す', () => {
     for (const v of OPENCODE_INJECTIONS) expect(isOpencodeInjection(v)).toBe(true);
     for (const v of ['', 'Minimal', 'full', null, undefined, 1, true]) expect(isOpencodeInjection(v)).toBe(false);
+  });
+});
+
+describe('opencodeShareOf', () => {
+  it('指示は入、MCP は切が既定で、真偽値でない値も既定に寄せる', () => {
+    expect(opencodeShareOf({})).toEqual({ instructions: true, mcp: false });
+    expect(opencodeShareOf({ opencodeShareInstructions: false, opencodeShareMcp: true })).toEqual({ instructions: false, mcp: true });
+    expect(opencodeShareOf({ opencodeShareInstructions: 'no' as never, opencodeShareMcp: 1 as never })).toEqual({ instructions: true, mcp: false });
   });
 });

@@ -155,6 +155,17 @@ describe('Codex のアカウントの口と DTO', () => {
     expect(cancelled.json.codex?.accounts.find((a) => a.id === w.id)?.login).toBeUndefined();
   });
 
+  it('Codex の 2 つ目のアカウントで起こした会話は sessions に載り、メインへ付け替えたら外れる（無ければメインと読む）', async () => {
+    const w = (await call('POST', '/codex/accounts', { name: 'Work' })).json.codex!.accounts.find((a) => a.name === 'Work')!;
+    db.prepare("insert into sessions (id, provider, provider_session_id, cwd, home_device, origin_device, updated_at) values ('s-cx','codex','t1','/w','d','d',1)").run();
+    const addRun = (id: string, at: number, params: unknown) =>
+      db.prepare("insert into runs (id, session_id, device_id, kind, tmux_name, launch_params, pid, started_at, ended_at, end_reason, heartbeat_at, updated_at, origin_device) values (?, 's-cx', 'd', 'start', 'h', ?, null, ?, null, null, 1, 1, 'd')").run(id, JSON.stringify(params), at);
+    addRun('r1', 1, { scratch: true, agent: 'codex', account: w.id });
+    expect(buildAccountsDto(deps).codex?.sessions).toEqual({ 's-cx': w.id });
+    addRun('r2', 2, { agent: 'codex', account: 'primary' });
+    expect(buildAccountsDto(deps).codex?.sessions).toEqual({});
+  });
+
   it('ログインの method が不正なら 400', async () => {
     expect((await call('POST', '/codex/accounts/primary/login', { method: 'carrier-pigeon' })).status).toBe(400);
   });
