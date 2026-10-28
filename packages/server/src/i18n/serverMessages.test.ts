@@ -45,8 +45,8 @@ describe('アカウント', () => {
   });
 
   it('張れなかった項目は、生の例外の文の代わりに辞書の文で出す', () => {
-    expect(linkProblem([], ['config.toml', 'AGENTS.md'])).toBe('この PC では次の項目を共有できませんでした：config.toml、AGENTS.md');
-    expect(render('en', linkProblemMessage([], ['config.toml'])!)).toBe('These items could not be shared on this PC: config.toml');
+    expect(linkProblem([], ['config.toml', 'AGENTS.md'])).toBe('Windows の開発者モードが無効なため、config.toml、AGENTS.md はこのアカウントだけのファイルになります。共有するには、［設定］>［システム］>［開発者向け］で開発者モードを有効にしてください。');
+    expect(render('en', linkProblemMessage([], ['config.toml'])!)).toBe('Developer Mode is off in Windows, so these files stay separate for this account: config.toml. To share them, turn on Developer Mode in Settings > System > For developers.');
   });
 });
 

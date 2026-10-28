@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { LaunchResultDto, RunDto } from '@agent-hangar/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountStore } from '../config/accounts.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
@@ -109,6 +109,21 @@ describe('RunAccounts', () => {
     fs.mkdirSync(path.join(a.dir, 'projects'), { recursive: true });
     expect(() => make().envFor(a)).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('設定ディレクトリの projects が共有のリンクではありません') }));
     expect(fs.lstatSync(path.join(a.dir, 'projects')).isDirectory()).toBe(true);
+  });
+
+  it('envFor：張れない項目（Windows の開発者モードが切のファイル）があっても断らず、残りは張って置き場を渡す', () => {
+    const a = store.add({ name: '別' });
+    fs.writeFileSync(path.join(claudeDir, 'settings.json'), '{}');
+    const real = fs.symlinkSync;
+    const spy = vi.spyOn(fs, 'symlinkSync').mockImplementation((t, l, ty) => {
+      if (String(l).endsWith('settings.json')) throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+      return real(t, l, ty);
+    });
+    try {
+      expect(make().envFor(a)).toEqual({ CLAUDE_CONFIG_DIR: a.dir });
+      expect(fs.existsSync(path.join(a.dir, 'settings.json'))).toBe(false);
+      expect(fs.readlinkSync(path.join(a.dir, 'projects'))).toBe(path.join(claudeDir, 'projects'));
+    } finally { spy.mockRestore(); }
   });
 });
 
