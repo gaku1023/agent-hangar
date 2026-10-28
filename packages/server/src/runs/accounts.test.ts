@@ -119,7 +119,7 @@ describe('switchAccount（run の寿命は偽物）', () => {
     const calls: string[] = [];
     let liveLeft = o.liveFor ?? 0;
     const h: SwitchHost = {
-      session: (id) => { if (id !== 's1') throw new RunError(404, 'セッションが見つかりません'); return { id: 's1', provider_session_id: 'u-s1', cwd: home }; },
+      session: (id) => { if (id !== 's1') throw new RunError(404, 'セッションが見つかりません'); return { id: 's1', provider: 'claude-code', provider_session_id: 'u-s1', cwd: home }; },
       hasBody: () => o.body ?? true,
       precheck: () => { if (o.cwdOk === false) throw new RunError(400, 'ディレクトリが見つかりません: x'); },
       isBackground: () => o.background ?? false,
@@ -179,5 +179,74 @@ describe('switchAccount（run の寿命は偽物）', () => {
     expect(calls[0]).toBe('kill r-old');
     expect(calls.filter((c) => c.startsWith('sleep'))).toHaveLength(20);
     expect(calls.some((c) => c.startsWith('resume'))).toBe(false);
+  });
+});
+
+describe('Codex のアカウント', () => {
+  let codexPrimary: string;
+  let codexStore: AccountStore;
+  const makeCodex = (withCodex = true) => new RunAccounts({ db, claudeDir, store, deviceId: 'd', ...(withCodex ? { codex: { store: codexStore, primaryDir: codexPrimary } } : {}) });
+  beforeEach(() => {
+    codexPrimary = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ra-codex-'));
+    codexStore = new AccountStore({ home, primaryDir: codexPrimary, homeDir: userHome, file: 'codex-accounts.json', dirPrefix: '.codex-' });
+    upsertShared(db, 'sessions', { id: 'c1', provider: 'codex', provider_session_id: 't-c1', cwd: home, home_device: 'd', last_activity_at: 1 }, 'd');
+  });
+  afterEach(() => { fs.rmSync(codexPrimary, { recursive: true, force: true }); });
+
+  it('Codex の store で引く。Claude のいまのアカウントとは別である', () => {
+    const a = codexStore.add({ name: '別' });
+    codexStore.setCurrent(a.id);
+    const r = makeCodex();
+    expect(r.resolve(undefined, 'codex')?.id).toBe(a.id);
+    expect(r.resolve(undefined)?.id).toBe('primary');
+    expect(() => r.resolve('nope', 'codex')).toThrow(expect.objectContaining({ status: 400 }));
+  });
+
+  it('envFor：最初のアカウントは何も足さず、2 つ目は CODEX_HOME を足す', () => {
+    const a = codexStore.add({ name: '別' });
+    const r = makeCodex();
+    expect(r.envFor(codexStore.primary(), 'codex')).toEqual({});
+    expect(r.envFor(a, 'codex')).toEqual({ CODEX_HOME: a.dir });
+  });
+
+  it('envFor：リンクの場所に別のものがあれば断る', () => {
+    fs.writeFileSync(path.join(codexPrimary, 'config.toml'), 'x');
+    const a = codexStore.add({ name: '別' });
+    fs.mkdirSync(a.dir, { recursive: true });
+    fs.writeFileSync(path.join(a.dir, 'config.toml'), 'mine');
+    expect(() => makeCodex().envFor(a, 'codex')).toThrow(expect.objectContaining({ status: 400 }));
+  });
+
+  it('Codex の store を持たなければ、アカウント無しで起こす', () => {
+    const r = makeCodex(false);
+    expect(r.resolve('x', 'codex')).toBeNull();
+    expect(r.lastUsed('c1', 'codex')).toBeNull();
+    expect(r.envFor(null, 'codex')).toEqual({});
+  });
+
+  it('lastUsed：この会話の最後の run の Codex のアカウント', () => {
+    const a = codexStore.add({ name: '別' });
+    upsertShared(db, 'runs', { id: 'rc1', session_id: 'c1', device_id: 'd', kind: 'start', tmux_name: 'hangar-rc1', pid: null, launch_params: JSON.stringify({ account: a.id }), started_at: 5, ended_at: 6, end_reason: 'exited', heartbeat_at: 6 }, 'd');
+    expect(makeCodex().lastUsed('c1', 'codex')?.id).toBe(a.id);
+  });
+
+  it('switchAccount：Codex の会話は Codex のアカウントで再開し、Codex のいまのアカウントだけ変える', async () => {
+    const a = codexStore.add({ name: '別' });
+    const calls: string[] = [];
+    const h: SwitchHost = {
+      session: () => ({ id: 'c1', provider: 'codex', provider_session_id: 't-c1', cwd: home }),
+      hasBody: () => false,
+      precheck: () => undefined,
+      isBackground: () => false,
+      isLive: () => false,
+      aliveRun: () => ({ id: 'r-old' } as RunDto),
+      kill: (id) => { calls.push(`kill ${id}`); },
+      resume: async (id, extra) => { calls.push(`resume ${id} ${extra.account}`); return { run: { id: 'r-new' } as RunDto, sessionId: id, tabs: [] }; },
+      sleep: async () => undefined,
+    };
+    await switchAccount(makeCodex(), h, 'c1', a.id);
+    expect(calls).toEqual(['kill r-old', `resume c1 ${a.id}`]);
+    expect(codexStore.current().id).toBe(a.id);
+    expect(store.current().id).toBe('primary');
   });
 });

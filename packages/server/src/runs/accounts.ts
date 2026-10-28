@@ -1,6 +1,7 @@
-import type { LaunchResultDto, RunDto } from '@agent-hangar/shared';
+import type { AgentKind, LaunchResultDto, RunDto } from '@agent-hangar/shared';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import { ensureAccountLinks, linkProblemMessage } from '../provider/claude-code/config/accountLinks.ts';
+import { ensureCodexAccountLinks } from '../provider/codex/config/accountLinks.ts';
 import type { Db } from '../db/open.ts';
 import { accountOfSession } from '../db/queries.ts';
 import { RunError } from './errors.ts';
@@ -16,14 +17,32 @@ export class RunAccounts {
    * deviceId はこの PC。渡せば、セッションのアカウントをこの PC の run だけから引く（accountFor）。
    * アカウントの id と名前は PC ごとの設定なので、ほかの PC の run のアカウントをこの PC で引くと、別のアカウントで起きる。
    */
-  constructor(private readonly deps: { db: Db; claudeDir: string; store?: AccountStore; deviceId?: string }) {}
+  constructor(private readonly deps: { db: Db; claudeDir: string; store?: AccountStore; deviceId?: string;
+    /** Codex のアカウント。持たなければ（設定の codexEnabled が切など）、Codex はアカウント無しで起こす。primaryDir は最初のアカウントの置き場（~/.codex）。 */
+    codex?: { store: AccountStore; primaryDir: string } }) {}
+
+  /** そのエージェントのアカウントの store。Claude 以外は Codex だけが持つ。 */
+  private storeOf(agent: AgentKind): AccountStore | undefined {
+    if (agent === 'claude-code') return this.deps.store;
+    return agent === 'codex' ? this.deps.codex?.store : undefined;
+  }
+
+  /** そのエージェントがアカウントを使う構成か（store を持つか）。 */
+  has(agent: AgentKind = 'claude-code'): boolean {
+    return !!this.storeOf(agent);
+  }
+
+  /** そのエージェントのいまのアカウントを変える。store を持たなければ何もしない。 */
+  setCurrent(agent: AgentKind, id: string): void {
+    this.storeOf(agent)?.setCurrent(id);
+  }
 
   /**
    * 起動に使うアカウントを解く。id が無ければいまのアカウントで、store を持たなければ null を返す。
    * 知らない id は 400 で断る。黙って別のアカウントで起こすと、利用者が選んだものと違う枠を使うためである。
    */
-  resolve(id: string | undefined): Account | null {
-    const store = this.deps.store;
+  resolve(id: string | undefined, agent: AgentKind = 'claude-code'): Account | null {
+    const store = this.storeOf(agent);
     if (!store) return null;
     if (id === undefined) return store.current();
     const a = store.get(id);
@@ -36,15 +55,16 @@ export class RunAccounts {
    * PC を持てば、この PC の最後の run のアカウントにする（A → B → A と戻ったときに、この PC で前に使ったアカウントで起こす）。
    * この PC に run が無ければ、この PC でいま選んでいるアカウントにする。ほかの PC の run のアカウントは引かない。
    */
-  accountFor(sessionId: string): string {
+  accountFor(sessionId: string, agent: AgentKind = 'claude-code'): string {
+    const store = this.storeOf(agent);
     const id = accountOfSession(this.deps.db, sessionId, this.deps.deviceId);
-    if (id) return this.deps.store?.get(id) ? id : PRIMARY_ACCOUNT_ID;
-    return (this.deps.deviceId !== undefined ? this.deps.store?.current().id : undefined) ?? PRIMARY_ACCOUNT_ID;
+    if (id) return store?.get(id) ? id : PRIMARY_ACCOUNT_ID;
+    return (this.deps.deviceId !== undefined ? store?.current().id : undefined) ?? PRIMARY_ACCOUNT_ID;
   }
 
   /** accountFor のアカウントそのもの。再開、フォーク、attach が、前と同じアカウントで起こすのに使う。 */
-  lastUsed(sessionId: string): Account | null {
-    return this.deps.store ? this.resolve(this.accountFor(sessionId)) : null;
+  lastUsed(sessionId: string, agent: AgentKind = 'claude-code'): Account | null {
+    return this.storeOf(agent) ? this.resolve(this.accountFor(sessionId, agent), agent) : null;
   }
 
   /** その置き場を持つ登録済みのアカウント。未登録なら null。 */
@@ -56,8 +76,15 @@ export class RunAccounts {
    * アカウントの置き場で起こすための環境変数。最初のアカウントは何も足さない。
    * 起動の前にリンクを確かめる。リンクの場所に別のものがあれば、起こさずに伝える。
    */
-  envFor(a: Account | null): Record<string, string> {
+  envFor(a: Account | null, agent: AgentKind = 'claude-code'): Record<string, string> {
     if (!a || a.id === PRIMARY_ACCOUNT_ID) return {};
+    if (agent === 'codex') {
+      const c = this.deps.codex;
+      if (!c) return {};
+      const problem = linkProblemMessage(ensureCodexAccountLinks(c.primaryDir, a.dir).conflicts);
+      if (problem) throw new RunError(400, problem);
+      return { CODEX_HOME: a.dir };
+    }
     const problem = linkProblemMessage(ensureAccountLinks(this.deps.claudeDir, a.dir).conflicts);
     if (problem) throw new RunError(400, problem);
     return { CLAUDE_CONFIG_DIR: a.dir };
@@ -69,7 +96,7 @@ export class RunAccounts {
  * 断るもの（session、precheck、resume）は RunError を投げる。
  */
 export type SwitchHost = {
-  session(sessionId: string): { id: string; provider_session_id: string; cwd: string };
+  session(sessionId: string): { id: string; provider: string; provider_session_id: string; cwd: string };
   hasBody(sessionId: string): boolean;
   /**
    * そのセッションを再開する cwd で起動できるかを確かめる。
@@ -82,7 +109,7 @@ export type SwitchHost = {
   isLive(providerSessionId: string): boolean;
   aliveRun(sessionId: string): RunDto | null;
   kill(runId: string): void;
-  resume(sessionId: string, extra: { account: string }): LaunchResultDto;
+  resume(sessionId: string, extra: { account: string }): LaunchResultDto | Promise<LaunchResultDto>;
   sleep(ms: number): Promise<void>;
 };
 
@@ -94,12 +121,14 @@ export type SwitchHost = {
  */
 export async function switchAccount(accounts: RunAccounts, host: SwitchHost, sessionId: string, accountId: string): Promise<LaunchResultDto> {
   const s = host.session(sessionId);
-  const account = accounts.resolve(accountId);
+  const agent = s.provider as AgentKind;
+  const account = accounts.resolve(accountId, agent);
   if (!account) throw new RunError(400, msg('account.error.notFound'));
-  if (accounts.accountFor(s.id) === account.id) throw new RunError(409, msg('account.switch.sameAccount'));
-  accounts.envFor(account);
+  if (accounts.accountFor(s.id, agent) === account.id) throw new RunError(409, msg('account.switch.sameAccount'));
+  accounts.envFor(account, agent);
   // resume の前提も止める前に確かめる。本文が無いと、止めた時点でセッションの行ごと消え、起こし直せない。
-  if (!host.hasBody(s.id)) throw new RunError(400, msg('account.switch.noTranscript'));
+  // Codex の再開は thread/resume で会話を開くので、hangar の本文の写しは要らない。
+  if (agent === 'claude-code' && !host.hasBody(s.id)) throw new RunError(400, msg('account.switch.noTranscript'));
   host.precheck(s.id);
   // バックグラウンドのサービスは置き場ごとに別で、jobs と sessions は共有のリンクになる。この組み合わせの動きは実物で確かめていないので、確かめが済むまで断る。
   if (host.isBackground(s.provider_session_id)) throw new RunError(409, msg('account.switch.background'));
@@ -111,5 +140,8 @@ export async function switchAccount(accounts: RunAccounts, host: SwitchHost, ses
     if (waited >= 5000) throw new RunError(409, msg('account.switch.previousStillRunning'));
     await host.sleep(250);
   }
-  return host.resume(s.id, { account: account.id });
+  const result = await host.resume(s.id, { account: account.id });
+  // 付け替えたアカウントを、そのエージェントのいまのアカウントにする（Claude のいまのアカウントは変えない）。
+  if (agent !== 'claude-code') accounts.setCurrent(agent, account.id);
+  return result;
 }

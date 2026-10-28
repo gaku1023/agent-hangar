@@ -78,4 +78,15 @@ describe('Claude 以外のエージェントの枠', () => {
     expect(cb).toHaveBeenCalledTimes(1);
     expect(t.of('codex')?.fiveHour).toEqual(W(10, 9000));
   });
+  it('アカウントごとに枠を持つ。all() は渡されたアカウントの枠を返し、渡さなければ primary', () => {
+    const t = new AgentUsageTracker({ now: () => 1 });
+    t.set('codex', { fiveHour: W(10, 9000), sevenDay: null, plan: 'plus' }, 5);
+    t.set('codex', { fiveHour: W(70, 9000), sevenDay: null, plan: 'pro' }, 6, 'work');
+    expect(t.of('codex')?.fiveHour?.usedPercent).toBe(10);
+    expect(t.of('codex', 'work')?.fiveHour?.usedPercent).toBe(70);
+    expect(t.of('codex', 'none')).toBeNull();
+    expect(t.all()?.codex?.fiveHour?.usedPercent).toBe(10);
+    expect(t.all('work')?.codex?.fiveHour?.usedPercent).toBe(70);
+    expect(t.all('none')).toBeUndefined();
+  });
 });

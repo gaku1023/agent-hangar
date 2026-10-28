@@ -142,17 +142,22 @@ export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: Confir
   }
   if (c.kind === 'switchAccount') {
     const name = props.accountName ?? c.accountId;
+    const codex = c.agent === 'codex';
     // 止めて再開するだけで、あとから戻せる。危険の赤にはせず、hangar への移動の確認と同じ強さにする。
     return (
       <Dialog
-        title={t('confirm.switchAccount.title', { name })}
+        title={codex ? t('confirm.switchAccount.codexTitle', { name }) : t('confirm.switchAccount.title', { name })}
         icon="warning"
         onClose={close}
-        footer={<>{cancel}<span className="spacer" /><button type="button" className="btn btn-primary" onClick={() => emit({ type: 'account.switchSession', sessionId: c.sessionId, accountId: c.accountId, working: c.working, confirmed: true })}>{t('confirm.switchAccount.action')}</button></>}
+        footer={<>{cancel}<span className="spacer" /><button type="button" className="btn btn-primary" onClick={() => emit({ type: 'account.switchSession', sessionId: c.sessionId, accountId: c.accountId, working: c.working, confirmed: true, ...(codex ? { agent: 'codex' as const } : {}) })}>{t('confirm.switchAccount.action')}</button></>}
       >
-        <div className="muted">{slot(t('confirm.switchAccount.lead', { name: SLOT }), <b>{name}</b>)}</div>
-        {c.working && <div>{t('confirm.switchAccount.working')}</div>}
-        <div className="faint">{slot(t('confirm.switchAccount.default', { name: SLOT }), <b>{name}</b>)}</div>
+        {codex ? <div className="muted">{slot(t('confirm.switchAccount.codexLead', { name: SLOT }), <b>{name}</b>)}</div> : (
+          <>
+            <div className="muted">{slot(t('confirm.switchAccount.lead', { name: SLOT }), <b>{name}</b>)}</div>
+            {c.working && <div>{t('confirm.switchAccount.working')}</div>}
+            <div className="faint">{slot(t('confirm.switchAccount.default', { name: SLOT }), <b>{name}</b>)}</div>
+          </>
+        )}
       </Dialog>
     );
   }
@@ -164,7 +169,7 @@ export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: Confir
         danger
         icon="unlink"
         onClose={close}
-        footer={<><span className="spacer" />{cancel}<button type="button" className="btn btn-danger btn-danger-fill" onClick={() => emit({ type: 'account.remove', accountId: c.accountId, confirmed: true })}><Icon name="unlink" />{t('confirm.removeAccount.action')}</button></>}
+        footer={<><span className="spacer" />{cancel}<button type="button" className="btn btn-danger btn-danger-fill" onClick={() => emit({ type: 'account.remove', accountId: c.accountId, confirmed: true, ...(c.agent === 'codex' ? { agent: 'codex' as const } : {}) })}><Icon name="unlink" />{t('confirm.removeAccount.action')}</button></>}
       >
         <div className="muted">{t('confirm.removeAccount.lead')}</div>
         <div className="faint">{t('confirm.removeAccount.note')}</div>

@@ -1,6 +1,7 @@
 import type { SettingsDto } from '@agent-hangar/shared';
 import { agentSettingsKeys } from '../agent/entry.ts';
 import { saveSettings, type Settings } from './paths.ts';
+import { setAgentBinPaths } from './tools.ts';
 
 const SHELL_KEYS = agentSettingsKeys('shell');
 const ENABLED_KEYS = agentSettingsKeys('enabled');
@@ -35,6 +36,7 @@ export function applySettingsPatch(deps: SettingsUpdateDeps, patch: Partial<Sett
   deps.applyTmux(settings);
   if (patch.tmuxPath !== undefined || SHELL_KEYS.some((k) => patch[k] !== undefined)) deps.onTmuxPath();
   if (patch.claudePath !== undefined) deps.onClaudePath(settings);
+  if (patch.codexPath !== undefined || patch.opencodePath !== undefined) setAgentBinPaths(settings);
   if (patch.summaryHourlyCap !== undefined) deps.onSummaryCap();
   if (ENABLED_KEYS.some((k) => patch[k] !== undefined)) deps.onOpencodeEnabled?.();
   deps.publishConfigSync(settings);

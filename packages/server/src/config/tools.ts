@@ -23,6 +23,16 @@ export function which(cmd: string, env: NodeJS.ProcessEnv = process.env): string
 }
 
 /**
+ * 設定の codexPath と opencodePath。設定にあれば、findCodex と findOpencode は探さずにこれを返す（claudePath と同じく、利用者が決めた場所を優先する）。
+ * 探す側は設定を持たない関数なので、設定を読んだ時と書き替えた時に、ここへ写す。空と null は「探す」に戻す。
+ */
+let binPaths: { codexPath?: string; opencodePath?: string } = {};
+export function setAgentBinPaths(s: Pick<Settings, 'codexPath' | 'opencodePath'>): void {
+  const clean = (v: string | null | undefined): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined);
+  binPaths = { codexPath: clean(s.codexPath), opencodePath: clean(s.opencodePath) };
+}
+
+/**
  * opencode を探す（ベータ）。PATH の次に公式の install の台本の置き場（~/.opencode/bin）を見て、最後に既知の置き場を見る。
  * 台本はシェルの rc で PATH の先頭に足すだけなので、Finder から起こした .app の PATH には入らない。
  * 台本で入れた人のシェルでは Homebrew より先に引かれるので、既知の置き場（/opt/homebrew/bin など）より前に置く。
@@ -30,6 +40,7 @@ export function which(cmd: string, env: NodeJS.ProcessEnv = process.env): string
  * Windows で npm の .cmd の包みを見つけたら、包みが指す .exe を返す（platform/exec.ts の resolveNpmExeShim）。
  */
 export function findOpencode(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (binPaths.opencodePath) return binPaths.opencodePath;
   const home = (process.platform === 'win32' ? env.USERPROFILE : env.HOME) ?? os.homedir();
   const found = findInDirs('opencode', [...splitPathEnv(pathOf(env)), path.join(home, '.opencode', 'bin'), ...knownDirs(env)], env);
   // Windows で npm で入れた opencode は、PATH に opencode.cmd（npm の包み）が置かれる。包みが指す opencode.exe を直に起こす。
@@ -41,6 +52,7 @@ export function findOpencode(env: NodeJS.ProcessEnv = process.env): string | nul
  * 設定には場所を埋めない。見つけた場所は、版を読むたびと起動のたびにこれで引き直す。
  */
 export function findCodex(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (binPaths.codexPath) return binPaths.codexPath;
   const found = which('codex', env);
   return found === null ? null : resolveNpmExeShim(found);
 }

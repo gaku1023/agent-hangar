@@ -65,7 +65,7 @@ Claude Code、Codex、opencode のセッションを、プロジェクトごと�
     <td>
       <b>使用量を見る</b><br><br>
       Claude Code と Codex の、5 時間と週の窓ごとの使用量をヘッダーで見られます。
-      アカウントを複数登録して切り替えることもできます。
+      Claude Code も Codex も、アカウントを複数登録して切り替えられます。
     </td>
     <td width="60%"><img src="docs/images/usage.webp" alt="ヘッダーの使用量を開くと、Claude Code と Codex の窓ごとの残りが並ぶ"></td>
   </tr>

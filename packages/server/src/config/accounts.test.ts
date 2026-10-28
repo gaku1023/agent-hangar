@@ -123,3 +123,17 @@ describe('AccountStore', () => {
     expect(() => s.resolveDir('')).toThrow(AccountError);
   });
 });
+
+describe('AccountStore (Codex)', () => {
+  const makeCodex = () => new AccountStore({ home, primaryDir: path.join(homeDir, '.codex'), homeDir, file: 'codex-accounts.json', dirPrefix: '.codex-' });
+
+  it('codex-accounts.json に持ち、置き場は ~/.codex-<名前> と ~/.codex-N にする。accounts.json には触らない', () => {
+    const s = makeCodex();
+    expect(s.suggestDir('Work')).toBe(path.join(homeDir, '.codex-work'));
+    expect(s.add({ name: 'work' }).dir).toBe(path.join(homeDir, '.codex-2'));
+    expect(fs.existsSync(path.join(home, 'codex-accounts.json'))).toBe(true);
+    expect(fs.existsSync(path.join(home, 'accounts.json'))).toBe(false);
+    expect(makeCodex().list().map((a) => a.name)).toEqual([s.primary().name, 'work']);
+    expect(make().list()).toHaveLength(1);
+  });
+});

@@ -24,9 +24,20 @@ function demoAccounts(accounts: Json): Json {
       updatedAt: now - 2 * MIN,
     },
   }));
+  const codexUsage = {
+    fiveHour: { usedPercent: 18, resetsAt: Math.floor((now + 190 * MIN) / 1000) * 1000 },
+    sevenDay: { usedPercent: 31, resetsAt: Math.floor((now + 5 * 24 * 60 * MIN) / 1000) * 1000 },
+    updatedAt: now - 5 * MIN,
+  };
   return {
     ...accounts,
     accounts: list,
+    // Codex のアカウント（1 件）。ヘッダの面に Codex の節と「＋」が出る。
+    codex: {
+      currentId: 'primary',
+      accounts: [{ id: 'primary', name: 'メイン', dir: '/Users/demo/.codex', color: '#7a4a9e', primary: true, auth: { loggedIn: true, email: 'demo@example.com', plan: 'plus', orgName: null, checkedAt: now }, usage: codexUsage, loginRunning: false, linkProblem: null }],
+      sessions: {},
+    },
     agents: {
       codex: {
         fiveHour: { usedPercent: 18, resetsAt: Math.floor((now + 190 * MIN) / 1000) * 1000 },

@@ -111,3 +111,23 @@ describe('AddAccountDialog', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('その名前はもう使われています');
   });
 });
+
+describe('AddAccountDialog の Codex', () => {
+  const codexBase = { agent: 'codex' as const, primaryDirLabel: '~/.codex' };
+  it('題、共有の組、分ける組、注記が Codex のものになる', () => {
+    mount(codexBase);
+    expect(screen.getByRole('dialog', { name: 'Codex のアカウントを追加' })).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: /~\/\.codex/ }).querySelectorAll('li')).toHaveLength(3);
+    expect(screen.getByText('スキル、プロンプト、プラグイン')).toBeInTheDocument();
+    expect(screen.getByText('内部のデータベース')).toBeInTheDocument();
+    expect(screen.getByText('次にブラウザが開きます。追加する ChatGPT のアカウントで承認してください。')).toBeInTheDocument();
+  });
+  it('確かめも追加も agent を付けて送る', () => {
+    const { onAction, rerender } = mount(codexBase);
+    expect(sent(onAction, 'account.add.preview')).toEqual([{ type: 'account.add.preview', name: '', dir: '', agent: 'codex' }]);
+    fireEvent.change(nameField(), { target: { value: '会社用' } });
+    rerender({ ...codexBase, preview: preview({ name: '会社用', dir: `${HOME}/.codex-work` }) });
+    fireEvent.click(submit());
+    expect(sent(onAction, 'account.add')).toEqual([{ type: 'account.add', name: '会社用', dir: `${HOME}/.codex-work`, agent: 'codex' }]);
+  });
+});

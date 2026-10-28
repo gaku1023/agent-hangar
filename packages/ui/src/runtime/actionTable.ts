@@ -245,18 +245,18 @@ export const actionTable = {
       failed: (s) => s,
     });
   },
-  'account.add.preview': (i) => call((api) => api.previewAccountDir(i.name, i.dir), { apply: (store, accountPreview) => ({ ...store, accountPreview }), failed: (store) => ({ ...store, accountPreview: null }) }),
-  'account.choose': (i) => call((api) => api.setCurrentAccount(i.accountId), { apply: withAccounts }),
+  'account.add.preview': (i) => call((api) => (i.agent === 'codex' ? api.previewCodexAccountDir(i.name, i.dir) : api.previewAccountDir(i.name, i.dir)), { apply: (store, accountPreview) => ({ ...store, accountPreview }), failed: (store) => ({ ...store, accountPreview: null }) }),
+  'account.choose': (i) => call((api) => (i.agent === 'codex' ? api.setCurrentCodexAccount(i.accountId) : api.setCurrentAccount(i.accountId)), { apply: withAccounts }),
   'account.update': (i) => {
     // 名前は前後の空白を落とす。空になった名前は送らず、送るものが無ければ何も呼ばない。
     const name = i.name?.trim();
     const patch = { ...(name ? { name } : {}), ...(i.color !== undefined ? { color: i.color } : {}) };
-    return Object.keys(patch).length === 0 ? null : call((api) => api.updateAccount(i.accountId, patch), { apply: withAccounts });
+    return Object.keys(patch).length === 0 ? null : call((api) => (i.agent === 'codex' ? api.updateCodexAccount(i.accountId, patch) : api.updateAccount(i.accountId, patch)), { apply: withAccounts });
   },
   // ログインの進みは accounts.update で届くので、応答は使わない。
-  'account.login': (i) => call((api) => api.loginAccount(i.accountId)),
-  'account.login.cancel': (i) => call((api) => api.cancelAccountLogin(i.accountId), { apply: withAccounts }),
-  'account.refresh': (i) => call((api) => api.refreshAccount(i.accountId), { apply: withAccounts }),
+  'account.login': (i) => call((api) => (i.agent === 'codex' ? api.loginCodexAccount(i.accountId, i.method) : api.loginAccount(i.accountId))),
+  'account.login.cancel': (i) => call((api) => (i.agent === 'codex' ? api.cancelCodexAccountLogin(i.accountId) : api.cancelAccountLogin(i.accountId)), { apply: withAccounts }),
+  'account.refresh': (i) => call((api) => (i.agent === 'codex' ? api.refreshCodexAccount(i.accountId) : api.refreshAccount(i.accountId)), { apply: withAccounts }),
 } satisfies Rows;
 
 /** 表にある UiAction。Mediator の入力の型からは、これを外す（mediator/types.ts の MediatedAction）。 */

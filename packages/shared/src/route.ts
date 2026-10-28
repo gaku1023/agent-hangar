@@ -1,19 +1,20 @@
 /**
  * 設定の画面で開く先。
- * 節の名前（general、sessions、summary、integrations、environment、cloud、usage、about）は、左の目次で選んだ節をそのまま URL に持つ（戻ると進むで節も戻る）。
- * 並びは目次の並びで、毎日触るもの、一度整えるもの、上級者向けのベータのクラウド同期、読むだけのもの、の順にする（2026-10-25 の決定。Gemini と Fable と詰めた）。
+ * 節の名前（general、sessions、summary、cloud、environment、usage、agentClaude、agentCodex、agentOpencode、about）は、左の目次で選んだ節をそのまま URL に持つ（戻ると進むで節も戻る）。
+ * 並びは目次の並びで、共通の節、「エージェント」の群（Claude Code、Codex、opencode を 1 節ずつ）、読むだけのもの、の順にする（2026-10-28 の組み直し。2026-10-25 の並びを引き継ぐ）。
+ * エージェントに固有の設定（アカウント、新しいセッションの既定、渡す設定、会話の保持、連携、パス）は、そのエージェントの節に置く。
  * `sync` は、ヘッダーの同期の語が使うクラウド同期の節の別名、`unsent` はその節の「送らなかった項目」の行（ベルの一覧から開く）、`accounts` はセッションの節のアカウントの位置である。
- * `workspace` はセッションの節の作成先の欄、`tmux`、`claude` は環境の節のパスの欄、`compat` は連携の節の互換性の節、`editor` は一般の節のエディタの欄で、ホームの準備の帯の「設定を開く」が、直す欄を指して開くのに使う。
- * `opencode` は連携の節の opencode の小さな節で、新しいセッションのモデルの小窓の「プロバイダーを管理…」が開く。`codex` は同じく Codex の小さな節で、未検証の Codex の版の札の「設定を開く」が開く。
- * 0.9.3 までの節の名前（tools、update、info）は、殻のディープリンクと利用者の履歴に残っているので、新しい節の別名として読み続ける。
+ * `workspace` はセッションの節の作成先の欄、`tmux` は環境の節のパスの欄、`claude` は Claude Code の節のパスの欄、`compat` は Claude Code の節の互換性、`editor` は一般の節のエディタの欄で、ホームの準備の帯の「設定を開く」が、直す欄を指して開くのに使う。
+ * `opencode` は opencode の節の面で、新しいセッションのモデルの小窓の「プロバイダーを管理…」が開く。`codex` は Codex の節の面で、未検証の Codex の版の札の「設定を開く」が開く。
+ * 0.9.3 までの節の名前（tools、update、info）と、2026-10-28 までの連携の節（integrations）は、殻のディープリンクと利用者の履歴に残っているので、新しい節の別名として読み続ける。
  */
-export const SETTINGS_SECTIONS = ['general', 'sessions', 'summary', 'integrations', 'environment', 'cloud', 'usage', 'about'] as const;
+export const SETTINGS_SECTIONS = ['general', 'sessions', 'summary', 'cloud', 'environment', 'usage', 'agentClaude', 'agentCodex', 'agentOpencode', 'about'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 /** 節の中の、1 つの欄（か小さな節）を指す開く先。開いたら、その欄が見える所へ移って目立たせる。 */
 export const SETTINGS_FIELDS = ['workspace', 'tmux', 'claude', 'compat', 'editor', 'codex', 'opencode'] as const;
 export type SettingsField = (typeof SETTINGS_FIELDS)[number];
 /** 0.9.3 までの節の名前。 */
-const LEGACY_SECTIONS = { tools: 'environment', update: 'about', info: 'about' } as const;
+const LEGACY_SECTIONS = { tools: 'environment', update: 'about', info: 'about', integrations: 'agentClaude' } as const;
 type LegacySection = keyof typeof LEGACY_SECTIONS;
 export type SettingsAt = SettingsSection | SettingsField | LegacySection | 'accounts' | 'sync' | 'unsent';
 const SETTINGS_AT: readonly string[] = [...SETTINGS_SECTIONS, ...SETTINGS_FIELDS, ...Object.keys(LEGACY_SECTIONS), 'accounts', 'sync', 'unsent'];
@@ -26,9 +27,11 @@ export function isSettingsField(at: SettingsAt | undefined): at is SettingsField
 /** 開く先から、右に出す節を決める。無ければ「一般」。 */
 export function settingsSectionOf(at: SettingsAt | undefined): SettingsSection {
   if (at === 'sync' || at === 'unsent') return 'cloud';
-  if (at === 'accounts' || at === 'workspace') return 'sessions';
-  if (at === 'compat' || at === 'opencode' || at === 'codex') return 'integrations';
-  if (at === 'tmux' || at === 'claude') return 'environment';
+  if (at === 'workspace') return 'sessions';
+  if (at === 'accounts' || at === 'compat' || at === 'claude') return 'agentClaude';
+  if (at === 'codex') return 'agentCodex';
+  if (at === 'opencode') return 'agentOpencode';
+  if (at === 'tmux') return 'environment';
   if (at === 'editor') return 'general';
   if (at !== undefined && at in LEGACY_SECTIONS) return LEGACY_SECTIONS[at as LegacySection];
   return (at as SettingsSection | undefined) ?? 'general';

@@ -899,14 +899,15 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.accounts.add':
         // 追加の直後にログインを始める。新しいアカウントは応答の末尾の 1 件である。
         // 断られた理由はダイアログに残す（account.add.failed）。トーストにはしない。
-        deps.api.addAccount(e.name, e.dir).then((accounts) => {
+        // Codex は、ブラウザで開く方法でログインを始める（確認コードは札から選べる）。
+        (e.agent === 'codex' ? deps.api.addCodexAccount(e.name, e.dir) : deps.api.addAccount(e.name, e.dir)).then((accounts) => {
           accountsUpdated(accounts);
           dispatch({ kind: 'runtime', event: { type: 'account.add.done' } });
-          const added = accounts.accounts.at(-1);
-          if (added) deps.api.loginAccount(added.id).catch(fail);
+          const added = (e.agent === 'codex' ? accounts.codex?.accounts : accounts.accounts)?.at(-1);
+          if (added) (e.agent === 'codex' ? deps.api.loginCodexAccount(added.id, 'browser') : deps.api.loginAccount(added.id)).catch(fail);
         }).catch((err: unknown) => dispatch({ kind: 'runtime', event: { type: 'account.add.failed', message: errMsg(err) } }));
         return;
-      case 'api.accounts.remove': deps.api.removeAccount(e.accountId).then(accountsUpdated).catch(fail); return;
+      case 'api.accounts.remove': (e.agent === 'codex' ? deps.api.removeCodexAccount(e.accountId) : deps.api.removeAccount(e.accountId)).then(accountsUpdated).catch(fail); return;
       default: {
         // 効果を足したときに処理を忘れると、ここで型が合わなくなる。
         const _exhaustive: never = e;

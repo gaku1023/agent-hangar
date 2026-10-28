@@ -30,7 +30,9 @@ const SETTINGS = { name: 'settings', at: 'accounts' } as const;
  * 位置は place() で決め、Esc と外側の押下で閉じる。Esc ではボタンへフォーカスを戻す。
  */
 export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps>; children: ReactNode }) {
-  const { shown, list, sessionId, working, codex } = props.account;
+  const { shown, list, sessionId, working, codex, codexAccounts } = props.account;
+  // Claude の節でいまの札。Codex の会話の画面では顔が Codex のアカウントなので、Claude の節は別に持つ。
+  const claudeShownId = codexAccounts?.claudeShownId ?? shown.id;
   const emit = useEmit();
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -57,7 +59,7 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
   const ready = open && pos !== null;
   useLayoutEffect(() => {
     if (!ready || !pop.current) return;
-    pop.current.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')?.focus();
+    (pop.current.querySelector<HTMLElement>('[role="menuitemradio"][data-face="true"]') ?? pop.current.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]'))?.focus();
     staggerIn([...pop.current.querySelectorAll<HTMLElement>('.account-sec, .account-card')]);
   }, [ready]);
 
@@ -79,11 +81,11 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
   }, [open, reposition]);
 
   // 選べない札（isPickableAccount）は、押しても切り替えられない。shown の札だけは、押すと閉じるので除く。
-  const blocked = (a: AccountView) => !isPickableAccount(a) && a.id !== shown.id;
+  const blocked = (a: AccountView) => !isPickableAccount(a) && a.id !== claudeShownId;
   const choose = (a: AccountView) => {
     if (blocked(a)) return;
     hide(true);
-    if (a.id === shown.id) return;
+    if (a.id === claudeShownId) return;
     emit(sessionId === null ? { type: 'account.choose', accountId: a.id } : { type: 'account.switchSession', sessionId, accountId: a.id, working });
   };
 
@@ -98,13 +100,50 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
     cards[(next + cards.length) % cards.length]!.focus();
   };
 
+  // Codex の札。Codex の会話の画面なら、確認を挟んでその会話を別のアカウントで再開し、それ以外ではいまの Codex アカウントを替える。Claude 側は触らない。
+  const chooseCodex = (a: AccountView) => {
+    if (!codexAccounts) return;
+    if (!isPickableAccount(a) && a.id !== codexAccounts.shownId) return;
+    hide(true);
+    if (a.id === codexAccounts.shownId) return;
+    emit(codexAccounts.sessionId === null ? { type: 'account.choose', agent: 'codex', accountId: a.id } : { type: 'account.switchSession', agent: 'codex', sessionId: codexAccounts.sessionId, accountId: a.id, working: codexAccounts.working });
+  };
+  const codexMenu = codexAccounts && (
+    <div role="menu" aria-label={t('accountSwitcher.menu.codexAria')} className="account-cards">
+      {codexAccounts.list.map((a) => {
+        const isShown = a.id === codexAccounts.shownId;
+        // 承認待ち（初めてのログインの途中）の札は、中に押せる操作を持つので、ボタンではなく枠にする。
+        if (a.auth === 'running' && !a.loggedIn) {
+          return (
+            <div key={a.id} className="account-card" aria-disabled="true" data-approval="true">
+              <AccountMeters account={a} showResets />
+              <span className="account-card-acts">
+                {a.login?.method !== 'deviceCode' && <button type="button" className="account-card-act" onClick={() => emit({ type: 'account.login', agent: 'codex', accountId: a.id, method: 'deviceCode' })}>{t('account.login.deviceCodeButton')}</button>}
+                <button type="button" className="account-card-act" data-quiet="true" onClick={() => emit({ type: 'account.login.cancel', agent: 'codex', accountId: a.id })}>{t('account.settings.cancel')}</button>
+              </span>
+            </div>
+          );
+        }
+        const disabled = !isPickableAccount(a) && !isShown;
+        return (
+          <button key={a.id} type="button" role="menuitemradio" aria-checked={isShown} data-face={isShown && codexAccounts.sessionId !== null ? 'true' : undefined} aria-disabled={disabled ? 'true' : undefined} className="account-card" onClick={() => chooseCodex(a)}>
+            <AccountMeters account={a} showResets />
+          </button>
+        );
+      })}
+    </div>
+  );
+  const sectionAdd = (agent: 'claude' | 'codex') => (
+    <button type="button" className="account-sec-add" aria-label={t(agent === 'codex' ? 'accountSwitcher.add.codex' : 'accountSwitcher.add.claude')} onClick={() => { hide(true); emit(agent === 'codex' ? { type: 'account.add.open', agent: 'codex' } : { type: 'account.add.open' }); }}><Icon name="add" /></button>
+  );
+
   const claudeMenu = (
     <div role="menu" aria-label={t('accountSwitcher.menu.aria')} className="account-cards">
       {list.map((a) => {
-        const isShown = a.id === shown.id;
+        const isShown = a.id === claudeShownId;
         const disabled = blocked(a);
         return (
-          <button key={a.id} type="button" role="menuitemradio" aria-checked={isShown} aria-disabled={disabled ? 'true' : undefined} className="account-card" onClick={() => choose(a)}>
+          <button key={a.id} type="button" role="menuitemradio" aria-checked={isShown} data-face={isShown && codexAccounts?.sessionId == null ? 'true' : undefined} aria-disabled={disabled ? 'true' : undefined} className="account-card" onClick={() => choose(a)}>
             {/* 右上に一言（「現在のアカウント」「切り替える」）は置かない（2026-10-27 の利用者の決定）。いまの札は青い輪で、押せない理由は札の中身（メールの行）が言う。 */}
             <AccountMeters account={a} showResets />
           </button>
@@ -126,7 +165,18 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
         <div ref={pop} id={popId} role="dialog" aria-label={t('accountSwitcher.dialog.aria')} tabIndex={-1} className="menu-pop account-pop" data-up={pos?.up ? 'true' : undefined} onKeyDown={onKey}
           style={pos ? { left: pos.left, width: pos.width, top: pos.top, bottom: pos.bottom } : { visibility: 'hidden', left: 0, top: 0, width: WIDTH }}>
           {/* Codex の枠が届いていれば、Claude Code と Codex の見出しで節を分ける（試作 usage-pop-proto の B）。届いていなければ、見出しを出さず Claude の札だけにする。 */}
-          {codex ? (
+          {codexAccounts ? (
+            <div className="account-cards">
+              <div role="group" aria-labelledby={`${popId}-claude`} className="account-group">
+                <div className="account-sec"><AgentIcon kind="claude-code" decorative /><span id={`${popId}-claude`}>{t('accountSwitcher.section.claude')}</span>{list.length > 1 && <span className="account-sec-hint">{t('accountSwitcher.section.claudeHint')}</span>}{sectionAdd('claude')}</div>
+                {claudeMenu}
+              </div>
+              <div role="group" aria-labelledby={`${popId}-codex`} className="account-group">
+                <div className="account-sec"><AgentIcon kind="codex" decorative /><span id={`${popId}-codex`}>{t('accountSwitcher.section.codex')}</span>{codexAccounts.list.length > 1 && <span className="account-sec-hint">{t('accountSwitcher.section.claudeHint')}</span>}{sectionAdd('codex')}</div>
+                {codexMenu}
+              </div>
+            </div>
+          ) : codex ? (
             <div className="account-cards">
               <div role="group" aria-labelledby={`${popId}-claude`} className="account-group">
                 <div className="account-sec"><AgentIcon kind="claude-code" decorative /><span id={`${popId}-claude`}>{t('accountSwitcher.section.claude')}</span>{list.length > 1 && <span className="account-sec-hint">{t('accountSwitcher.section.claudeHint')}</span>}</div>
@@ -138,10 +188,10 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
               </div>
             </div>
           ) : claudeMenu}
-          {/* 下の段は、左に「アカウントを追加」、右に「アカウントの設定」。1 件でも 2 件以上でも同じ並びにする（試作の 1A）。
-              追加は、設定の画面にある「アカウントを足す」のダイアログを直接開く。 */}
-          <div className="account-pop-foot">
-            <button type="button" className="account-add" onClick={() => { hide(true); emit({ type: 'account.add.open' }); }}><Icon name="add" />{t('accountSwitcher.footer.add')}</button>
+          {/* 下の段は、左に「アカウントを追加」、右に「アカウントの設定」（試作の 1A）。追加は設定の画面にある「アカウントを足す」のダイアログを直接開く。
+              Codex のアカウントが届いているときは、追加は節の見出しの「＋」に移り、下の段は「アカウントの設定」だけにする。 */}
+          <div className="account-pop-foot" data-solo={codexAccounts ? 'true' : undefined}>
+            {!codexAccounts && <button type="button" className="account-add" onClick={() => { hide(true); emit({ type: 'account.add.open' }); }}><Icon name="add" />{t('accountSwitcher.footer.add')}</button>}
             <button type="button" className="account-settings" onClick={() => { hide(true); emit({ type: 'nav.go', to: SETTINGS }); }}>{t('accountSwitcher.footer.settings')}</button>
           </div>
         </div>,

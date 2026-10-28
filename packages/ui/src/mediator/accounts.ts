@@ -24,7 +24,7 @@ export function accountsStep(state: State, input: Input): Step | null {
   switch (i.type) {
     case 'account.switchSession': {
       // 動いている claude を止めて別の置き場で再開するので、押しただけでは動かさず、先に確認を出す。
-      if (!i.confirmed) return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'switchAccount', sessionId: i.sessionId, accountId: i.accountId, working: i.working } } }, effects: [] };
+      if (!i.confirmed) return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'switchAccount', sessionId: i.sessionId, accountId: i.accountId, working: i.working, ...(i.agent ? { agent: i.agent } : {}) } } }, effects: [] };
       if (state.launch.kind === 'submitting') return { state, effects: [] };
       const overlay = state.overlay.kind === 'confirm' ? { kind: 'none' as const } : state.overlay;
       return { state: { ...state, overlay, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.accounts.switchSession', sessionId: i.sessionId, accountId: i.accountId }] };
@@ -32,12 +32,12 @@ export function accountsStep(state: State, input: Input): Step | null {
     case 'account.add.open':
       // 確認や入力のあるダイアログが出ていれば、差し替えない（overlay.ts の overlayReplaceable）。
       if (!overlayReplaceable(state.overlay)) return { state, effects: [] };
-      return { state: { ...state, overlay: { kind: 'addAccount' }, accountAdd: { kind: 'idle' } }, effects: [] };
+      return { state: { ...state, overlay: { kind: 'addAccount', ...(i.agent ? { agent: i.agent } : {}) }, accountAdd: { kind: 'idle' } }, effects: [] };
     case 'account.add': {
       const name = i.name.trim();
       if (name === '' || state.accountAdd.kind === 'submitting') return { state, effects: [] };
       const dir = i.dir.trim();
-      return { state: { ...state, accountAdd: { kind: 'submitting' } }, effects: [{ kind: 'api.accounts.add', name, dir: dir === '' ? null : dir }] };
+      return { state: { ...state, accountAdd: { kind: 'submitting' } }, effects: [{ kind: 'api.accounts.add', name, dir: dir === '' ? null : dir, ...(i.agent ? { agent: i.agent } : {}) }] };
     }
     case 'account.add.pick': return { state, effects: [{ kind: 'desktop.pickFolder', defaultPath: i.defaultPath }] };
     case 'overlay.close':
@@ -45,9 +45,9 @@ export function accountsStep(state: State, input: Input): Step | null {
       if (state.overlay.kind !== 'addAccount') return null;
       return { state: { ...state, overlay: { kind: 'none' }, accountAdd: { kind: 'idle' } }, effects: [] };
     case 'account.remove': {
-      if (!i.confirmed) return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'removeAccount', accountId: i.accountId } } }, effects: [] };
+      if (!i.confirmed) return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'removeAccount', accountId: i.accountId, ...(i.agent ? { agent: i.agent } : {}) } } }, effects: [] };
       const overlay = state.overlay.kind === 'confirm' ? { kind: 'none' as const } : state.overlay;
-      return { state: { ...state, overlay }, effects: [{ kind: 'api.accounts.remove', accountId: i.accountId }] };
+      return { state: { ...state, overlay }, effects: [{ kind: 'api.accounts.remove', accountId: i.accountId, ...(i.agent ? { agent: i.agent } : {}) }] };
     }
     default: return null;
   }

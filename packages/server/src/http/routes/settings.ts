@@ -19,7 +19,7 @@ export type SettingsRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'settings' | '
 /** 空にできない文字列の設定。作成場所（workspaceRoot）は任意なので、ここに入れず別に見る。 */
 const TEXT_SETTING_KEYS = ['claudeDir'] as const;
 /** 未設定を null で表すパスの設定。空文字は null と同じに扱う。 */
-const PATH_SETTING_KEYS = ['tmuxPath', 'nodePath', 'claudePath'] as const;
+const PATH_SETTING_KEYS = ['tmuxPath', 'nodePath', 'claudePath', 'codexPath', 'opencodePath'] as const;
 /** 外部ターミナルは、動いている OS で開けるものだけを受ける。別の OS の値を保存させない。 */
 const TERMINAL_APPS = new Set<string>(terminalAppsFor(process.platform));
 const TERMINAL_APP_INVALID = process.platform === 'win32' ? ('settings.terminalApp.invalidWindows' as const) : ('settings.terminalApp.invalid' as const);
@@ -35,7 +35,7 @@ const SUMMARY_HOURLY_CAP_MAX = 200;
  */
 type LabeledSetting = 'workspaceRoot' | (typeof TEXT_SETTING_KEYS)[number] | (typeof PATH_SETTING_KEYS)[number];
 const SETTING_LABEL = {
-  workspaceRoot: 'settings.label.workspaceRoot', claudeDir: 'settings.label.claudeDir', tmuxPath: 'settings.label.tmuxPath', nodePath: 'settings.label.nodePath', claudePath: 'settings.label.claudePath',
+  workspaceRoot: 'settings.label.workspaceRoot', claudeDir: 'settings.label.claudeDir', tmuxPath: 'settings.label.tmuxPath', nodePath: 'settings.label.nodePath', claudePath: 'settings.label.claudePath', codexPath: 'settings.label.codexPath', opencodePath: 'settings.label.opencodePath',
 } as const satisfies Record<LabeledSetting, MessageKey>;
 
 /**
@@ -54,7 +54,7 @@ export const configTargetsOf = (v: unknown): Record<string, boolean> => {
   return out;
 };
 
-export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, trustedWorkspaceRoot: s.trustedWorkspaceRoot ?? null, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, summaryEngine: s.summaryEngine ?? 'off', summaryClaudeModel: s.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryApiKeySet: typeof s.summaryApiKey === 'string' && s.summaryApiKey !== '', summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, configTargets: configTargetsOf(s.configTargets), askStatusAtEnd: s.askStatusAtEnd !== false, liveHints: s.liveHints !== false, autoDone: s.autoDone !== false, autoDoneIdleDays: isAutoDoneIdleDays(s.autoDoneIdleDays) ? s.autoDoneIdleDays : DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: s.autoPark !== false, remoteControl: s.remoteControl !== false, defaultModel: s.defaultModel ?? null, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language), ...codexSettingsDto(s), opencodeEnabled: opencodeEnabledOf(s), opencodeInjection: opencodeInjectionOf(s), opencodeIntercept: opencodeInterceptOf(s), opencodePermissionPreset: opencodePermissionPresetOf(s), opencodeLocalContext: localContextOf(s), opencodeIdleUnload: idleUnloadOf(s), opencodeProviderPrep: providerPrepsOf(s.opencodeProviderPrep) });
+export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, trustedWorkspaceRoot: s.trustedWorkspaceRoot ?? null, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, summaryEngine: s.summaryEngine ?? 'off', summaryClaudeModel: s.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryApiKeySet: typeof s.summaryApiKey === 'string' && s.summaryApiKey !== '', summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, configTargets: configTargetsOf(s.configTargets), askStatusAtEnd: s.askStatusAtEnd !== false, liveHints: s.liveHints !== false, autoDone: s.autoDone !== false, autoDoneIdleDays: isAutoDoneIdleDays(s.autoDoneIdleDays) ? s.autoDoneIdleDays : DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: s.autoPark !== false, remoteControl: s.remoteControl !== false, defaultModel: s.defaultModel ?? null, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, codexPath: s.codexPath ?? null, opencodePath: s.opencodePath ?? null, language: languageOf(s.language), ...codexSettingsDto(s), opencodeEnabled: opencodeEnabledOf(s), opencodeInjection: opencodeInjectionOf(s), opencodeIntercept: opencodeInterceptOf(s), opencodePermissionPreset: opencodePermissionPresetOf(s), opencodeLocalContext: localContextOf(s), opencodeIdleUnload: idleUnloadOf(s), opencodeProviderPrep: providerPrepsOf(s.opencodeProviderPrep) });
 
 /** http か https で、host のある URL だけを通す。`http://` のような繋ぎ先にならない文字列を弾く。 */
 function parseHttpUrl(v: string): URL | null {

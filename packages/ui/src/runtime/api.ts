@@ -1,7 +1,7 @@
 import { LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE } from '@agent-hangar/shared';
 import type { EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
-import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, CodexOptionsDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MobilePairedDto, MobilePairingDto, MuxRecheckDto, OpencodeOptionsDto, OpencodeStatusDto, CodexStatusDto, OpencodeProvidersDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeCustomProviderBody, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
+import type { AccountDirPreviewDto, AccountsDto, AgentAccountsDto, ArtifactDto, CodexOptionsDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MobilePairedDto, MobilePairingDto, MuxRecheckDto, OpencodeOptionsDto, OpencodeStatusDto, CodexStatusDto, OpencodeProvidersDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeCustomProviderBody, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -272,6 +272,17 @@ export type ApiClient = {
   loginAccount(id: string): Promise<void>;
   cancelAccountLogin(id: string): Promise<AccountsDto>;
   refreshAccount(id: string): Promise<AccountsDto>;
+  // Codex のアカウント（/api/codex/accounts）。形は Claude のものと同じで、AccountsDto.codex に入る。
+  codexAccounts(): Promise<AgentAccountsDto>;
+  setCurrentCodexAccount(id: string): Promise<AccountsDto>;
+  addCodexAccount(name: string, dir: string | null): Promise<AccountsDto>;
+  previewCodexAccountDir(name: string, dir: string): Promise<AccountDirPreviewDto>;
+  updateCodexAccount(id: string, patch: { name?: string; color?: string }): Promise<AccountsDto>;
+  removeCodexAccount(id: string): Promise<AccountsDto>;
+  /** 202 が返る。進みは accounts.update で届く。method の既定は browser。 */
+  loginCodexAccount(id: string, method?: 'browser' | 'deviceCode'): Promise<void>;
+  cancelCodexAccountLogin(id: string): Promise<AccountsDto>;
+  refreshCodexAccount(id: string): Promise<AccountsDto>;
 };
 
 /** 相対 URL の `/api/...` を叩く薄いクライアント。
@@ -440,5 +451,14 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     loginAccount: (id) => post(`/api/accounts/${id}/login`),
     cancelAccountLogin: (id) => post(`/api/accounts/${id}/login/cancel`),
     refreshAccount: (id) => post(`/api/accounts/${id}/refresh`),
+    codexAccounts: () => call('/api/codex/accounts'),
+    setCurrentCodexAccount: (id) => call('/api/codex/accounts/current', { method: 'PUT', body: JSON.stringify({ id }) }),
+    addCodexAccount: (name, dir) => post('/api/codex/accounts', dir === null ? { name } : { name, dir }),
+    previewCodexAccountDir: (name, dir) => call(`/api/codex/accounts/preview?${new URLSearchParams({ name, dir }).toString()}`),
+    updateCodexAccount: (id, patch) => call(`/api/codex/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+    removeCodexAccount: (id) => call(`/api/codex/accounts/${id}`, { method: 'DELETE' }),
+    loginCodexAccount: (id, method) => post(`/api/codex/accounts/${id}/login`, method ? { method } : undefined),
+    cancelCodexAccountLogin: (id) => post(`/api/codex/accounts/${id}/login/cancel`),
+    refreshCodexAccount: (id) => post(`/api/codex/accounts/${id}/refresh`),
   };
 }

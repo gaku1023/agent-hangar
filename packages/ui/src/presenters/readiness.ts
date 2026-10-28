@@ -133,7 +133,7 @@ export type ReadinessKey = 'tmux' | 'claude' | 'workspace' | 'projects' | 'git' 
  * 全部の行が節を持つ（試験が縛る）。MCP とステータスラインは命令をコピーする行なので、欄までは指さず連携の節にする。
  */
 export const READINESS_AT: Record<ReadinessKey, SettingsAt> = {
-  tmux: 'tmux', claude: 'claude', workspace: 'workspace', projects: 'workspace', git: 'environment', mcp: 'integrations', statusline: 'integrations', editor: 'editor', compat: 'compat', notify: 'general',
+  tmux: 'tmux', claude: 'claude', workspace: 'workspace', projects: 'workspace', git: 'environment', mcp: 'agentClaude', statusline: 'agentClaude', editor: 'editor', compat: 'compat', notify: 'general',
 };
 /** 任意の行。無くても始められるので、残りがこれだけになったら帯ごと消す（設計書 2.11.4）。通知の行だけは例外で、答えるまで群を残す（presentReadiness）。 */
 const OPTIONAL: ReadonlySet<ReadinessKey> = new Set(['git', 'mcp', 'statusline', 'editor', 'notify']);

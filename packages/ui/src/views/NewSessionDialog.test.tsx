@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CodexOptionsDto, UiAction, LaunchParams } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
 import type { NewSessionProps } from '../presenters/newSession.ts';
-import { presentAccounts, type AccountView } from '../presenters/accounts.ts';
-import { accountsFixture } from '../test/accounts.ts';
+import { presentAccounts, presentCodexAccounts, type AccountView } from '../presenters/accounts.ts';
+import { accountsFixture, codexAccountsFixture } from '../test/accounts.ts';
 import { fakeMotionTokens } from '../test/motion.ts';
 import { initialStore } from '../store/store.ts';
 import type { LaunchPrepView } from '../presenters/launchPrep.ts';
@@ -1550,14 +1550,69 @@ describe('NewSessionDialog のエージェント（Codex、ベータ）', () => 
     expect(screen.queryByText(/信頼の確認ダイアログ/)).toBeNull();
     expect(asked()).toBe(1);
   });
-  it('アカウントが 2 件以上あっても、Codex ではアカウントの札を出さず、params にも account を載せない', async () => {
-    const accounts = { list: presentAccounts({ ...initialStore(), accounts: accountsFixture }, 0), currentId: 'primary' };
-    const { params } = collect({ projectId: 'p1', codex: ready(), accounts });
-    expect(names().some((n) => n?.startsWith('アカウント'))).toBe(true);
-    await toCodex();
-    expect(names().some((n) => n?.startsWith('アカウント'))).toBe(false);
-    start();
-    expect(params()[0]).not.toHaveProperty('account');
+  describe('アカウントの札（A8）', () => {
+    const NOW = 0;
+    const accountsOf = (store: ReturnType<typeof initialStore>, pick: (a: AccountView[]) => AccountView[] = (a) => a) => {
+      const list = pick(presentCodexAccounts(store, NOW));
+      return { list, currentId: list.find((a) => a.current)?.id ?? '' };
+    };
+    const both = () => ({ list: presentAccounts({ ...initialStore(), accounts: codexAccountsFixture }, NOW), currentId: 'primary' });
+    const cxSet = (pick?: (a: AccountView[]) => AccountView[]) => accountsOf({ ...initialStore(), accounts: codexAccountsFixture }, pick);
+    const hasChip = () => names().some((n) => n?.startsWith('アカウント'));
+    const row = (name: string) => within(screen.getByRole('listbox', { name: 'アカウント' })).getByRole('option', { name: new RegExp(name) });
+
+    it('Codex を選ぶと Codex のアカウントの札になり、初期値はいまのアカウントで、起動に account を載せる', async () => {
+      const { params } = collect({ projectId: 'p1', codex: ready(), accounts: both(), codexAccounts: cxSet() });
+      expect(chip('アカウント、会社')).toBeInTheDocument();
+      await toCodex();
+      expect(chip('アカウント、個人')).toBeInTheDocument();
+      start();
+      expect(params()[0]).toMatchObject({ agent: 'codex', account: 'primary' });
+    });
+    it('選ぶと札と params が替わり、Claude で選んだアカウントは Codex に持ち込まない', async () => {
+      const { params } = collect({ projectId: 'p1', codex: ready(), accounts: both(), codexAccounts: cxSet() });
+      fireEvent.click(chip('アカウント、会社'));
+      fireEvent.click(row('大学'));
+      expect(chip('アカウント、大学')).toBeInTheDocument();
+      await toCodex();
+      expect(chip('アカウント、個人')).toBeInTheDocument();
+      fireEvent.click(chip('アカウント、個人'));
+      fireEvent.click(row('会社用'));
+      start();
+      expect(params()[0]).toMatchObject({ agent: 'codex', account: 'cw' });
+    });
+    it('Codex のアカウントが 1 件以下なら札を出さず、account も載せない', async () => {
+      const { params } = collect({ projectId: 'p1', codex: ready(), accounts: both(), codexAccounts: null });
+      await toCodex();
+      expect(hasChip()).toBe(false);
+      start();
+      expect(params()[0]).not.toHaveProperty('account');
+    });
+    it('未ログインと承認待ちの行は選べず、理由を書く', async () => {
+      collect({ projectId: 'p1', codex: ready(), accounts: both(), codexAccounts: cxSet((l) => [l[0]!, { ...l[1]!, auth: 'out', loggedIn: false }, { ...l[1]!, id: 'x', name: '承認待ち', auth: 'running', loggedIn: false }]) });
+      await toCodex();
+      fireEvent.click(chip('アカウント、個人'));
+      expect(row('会社用')).toHaveAttribute('aria-disabled', 'true');
+      expect(row('会社用')).toHaveTextContent('未ログイン');
+      expect(row('承認待ち')).toHaveAttribute('aria-disabled', 'true');
+    });
+    it('選んでいた札が選べなくなったら、いまのアカウントへ戻る', async () => {
+      const { params, rerender } = collect({ projectId: 'p1', codex: ready(), accounts: both(), codexAccounts: cxSet() });
+      await toCodex();
+      fireEvent.click(chip('アカウント、個人'));
+      fireEvent.click(row('会社用'));
+      rerender({ projectId: 'p1', codex: ready(), accounts: both(), codexAccounts: cxSet((l) => [l[0]!, { ...l[1]!, auth: 'out', loggedIn: false }]) });
+      expect(chip('アカウント、個人')).toBeInTheDocument();
+      start();
+      expect(params()[0]).toMatchObject({ account: 'primary' });
+    });
+    it('opencode ではアカウントの札を出さない', async () => {
+      collect({ projectId: 'p1', opencode: { options: null }, accounts: both(), codexAccounts: cxSet() });
+      fireEvent.click(chip('エージェント、Claude Code'));
+      await act(async () => { fireEvent.click(screen.getByRole('option', { name: /opencode/ })); });
+      await screen.findByRole('button', { name: /^エージェント、opencode/ });
+      expect(hasChip()).toBe(false);
+    });
   });
   it('モデルはデフォルトと一覧のモデルで、選ぶと札に出て、起動に載る。推論は既定の medium を載せる', async () => {
     const { params } = collect({ projectId: 'p1', codex: ready() });

@@ -4,7 +4,7 @@ import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPrev
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState, transition } from '../mediator/transition.ts';
 import type { PhoneLaunchDto, ServerEvent } from '@agent-hangar/shared';
-import { accountsFixture, FIVE_RESETS, SEVEN_RESETS } from '../test/accounts.ts';
+import { accountsFixture, codexAccountsFixture, FIVE_RESETS, SEVEN_RESETS } from '../test/accounts.ts';
 import type { State } from '../mediator/types.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, setEventsLoading, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, percentLabel, relativeTime, resetsLabel, shortModel, tokensLabel } from './format.ts';
@@ -971,6 +971,15 @@ describe('presentNewSession', () => {
     it('currentId が一覧に無ければ、最初のアカウントがいまのアカウントになる', () => {
       expect(presentNewSession(open, { ...storeWith(), accounts: { ...accountsFixture, currentId: 'gone' } }, NOW)!.accounts!.currentId).toBe('primary');
     });
+    it('Codex のアカウントは別の組で、2 件以上のときだけ渡す（Claude の組とは混ぜない）', () => {
+      expect(presentNewSession(open, { ...storeWith(), accounts: accountsFixture }, NOW)!.codexAccounts).toBeNull();
+      const p = presentNewSession(open, { ...storeWith(), accounts: codexAccountsFixture }, NOW)!;
+      expect(p.codexAccounts!.currentId).toBe('primary');
+      expect(p.codexAccounts!.list.map((a) => [a.id, a.name])).toEqual([['primary', '個人'], ['cw', '会社用']]);
+      expect(p.accounts!.list.map((a) => a.id)).toEqual(['primary', 'a1']);
+      const one = { ...codexAccountsFixture, codex: { ...codexAccountsFixture.codex!, accounts: [codexAccountsFixture.codex!.accounts[0]!] } };
+      expect(presentNewSession(open, { ...storeWith(), accounts: one }, NOW)!.codexAccounts).toBeNull();
+    });
   });
 });
 
@@ -1025,7 +1034,7 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
     // 参加は同梱の CLI でできるので同じ呼び方にする。クラウドの用意は wrangler が要るので、clone した場所での呼び方にする。
     expect(p.commands).toEqual({ mcp: '/A/hangar mcp install', statusline: '/A/hangar statusline install', join: '/A/hangar cloud join <URL>', setupCloud: 'npm run hangar -- setup cloud' });
     // 直すものの数は、無くても動くもの（code）を数えない。連携は MCP と statusline を数える。
-    expect(p.todo).toEqual({ must: 1, link: 1 });
+    expect(p.todo).toEqual({ must: 0, link: 2 });
   });
   it('Claude Code との互換は、準備の確かめの要約とずれの中身から作り、ずれは直すものに数えない', () => {
     const r: ReadinessDto = { ...READY, compat: { verifiedVersion: '2.1.292', localVersion: '2.1.300', driftCount: 1 } };
@@ -1035,7 +1044,7 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
     expect(p.compat!.report!.split('\n')[0]).toBe('Claude Code との互換性の変更点（hangar 0.3.0）');
     // 直すもの（目次の点と群の見出しの札）は、ずれの無いときと同じ数のまま。
     expect(p.todo).toEqual(presentSettings(initialState(), { ...initialStore(), readiness: READY }).todo);
-    expect(p.todo).toEqual({ must: 1, link: 1 });
+    expect(p.todo).toEqual({ must: 0, link: 2 });
   });
   it('作成場所が無いときは注意にとどめ、環境の「要修正」に数えない（作成場所は任意）', () => {
     const r: ReadinessDto = { ...READY, tools: { ...READY.tools, claude: { path: '/x/claude', ok: true, problem: null, version: '2.1.292' } }, workspace: { path: 'C:\\Users\\me\\workspace', exists: false, projectCount: 0 } };

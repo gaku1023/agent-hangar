@@ -2,10 +2,22 @@ import fs from 'node:fs';
 import type { FileTranscriptSource, TranscriptFile, TranscriptSink } from '../../../agent/types.ts';
 import { readCodexBatch } from './batch.ts';
 import { archivedDirOf, classifyCodexEntry, listRemoteRolloutFiles, listRolloutFiles, parseRolloutName, sessionsDirOf, type CodexWatched } from './discover.ts';
-import { statLogical } from './logical.ts';
+import { readHeadLine, statLogical } from './logical.ts';
 import { readCodexPage } from './page.ts';
 
 /** fs.watch の形。試験が通知を自分で起こすために差し替える。 */
+/** rollout の先頭行（session_meta）の payload.creator_account_id。読めなければ null。 */
+export function creatorAccountIdOf(path: string): string | null {
+  try {
+    const head = readHeadLine(path);
+    if (!head) return null;
+    const raw: unknown = JSON.parse(head);
+    const p = typeof raw === 'object' && raw !== null ? (raw as { payload?: unknown }).payload : undefined;
+    const id = typeof p === 'object' && p !== null ? (p as { creator_account_id?: unknown }).creator_account_id : undefined;
+    return typeof id === 'string' && id !== '' ? id : null;
+  } catch { return null; }
+}
+
 export type WatchFn = (
   dir: string,
   options: { recursive: boolean },
@@ -43,7 +55,7 @@ export function codexTranscriptSource(o: {
   enabled: () => boolean;
   isLive?: (providerSessionId: string) => boolean;
   /** 読んだ束の中の、最後の meta rate_limits（B5 の `{ rate_limits, … }` とその行の ts）。使用量の面（B7）へ渡す。切のときは呼ばない。 */
-  onRateLimits?: (value: unknown, ts: unknown) => void;
+  onRateLimits?: (value: unknown, ts: unknown, creatorAccountId: string | null) => void;
   importLimit?: number;
   /** ほかの PC から降ろした写しの根（~/.agent-hangar/remote）。 */
   remoteRoot?: string;
@@ -136,7 +148,7 @@ export function codexTranscriptSource(o: {
       if (o.onRateLimits && o.enabled()) {
         let last: { value: unknown; ts: unknown } | null = null;
         for (const r of batch.records) for (const e of r.events) if (e.kind === 'meta' && e.name === 'rate_limits') last = { value: e.value, ts: e.ts };
-        if (last) o.onRateLimits(last.value, last.ts);
+        if (last) o.onRateLimits(last.value, last.ts, creatorAccountIdOf(file.path));
       }
       return batch;
     },

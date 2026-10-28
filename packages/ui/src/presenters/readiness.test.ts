@@ -345,7 +345,7 @@ describe('帯の行から設定の欄への対応（READINESS_AT）', () => {
     expect(settingsSectionOf(READINESS_AT.tmux)).toBe('environment');
     expect(settingsSectionOf(READINESS_AT.workspace)).toBe('sessions');
     expect(settingsSectionOf(READINESS_AT.git)).toBe('environment');
-    expect(settingsSectionOf(READINESS_AT.compat)).toBe('integrations');
+    expect(settingsSectionOf(READINESS_AT.compat)).toBe('agentClaude');
   });
   it('git とエディタの行（0.5.0）。git は入れるコマンドをコピーし、エディタは一般の節のエディタの欄を開く。どちらも任意', () => {
     const noGit: ReadinessDto = { ...ALL_OK, tools: { ...READY.tools, git: { path: null, ok: false, problem: 'unset', version: null } }, workspace: READY.workspace };
@@ -367,8 +367,8 @@ describe('帯の行から設定の欄への対応（READINESS_AT）', () => {
     expect(app.group.fold!.rows.find((r) => r.key === 'ready:editor')!.text).toBe('Zed（/Applications/Zed.app、アプリのみ）');
   });
   it('MCP とステータスラインは連携の節（命令をコピーする行なので、欄までは指さない）', () => {
-    expect(READINESS_AT.mcp).toBe('integrations');
-    expect(READINESS_AT.statusline).toBe('integrations');
+    expect(READINESS_AT.mcp).toBe('agentClaude');
+    expect(READINESS_AT.statusline).toBe('agentClaude');
   });
 });
 
@@ -386,8 +386,8 @@ describe('始める前の確認の MCP とステータスラインの行（殻�
   it('返事を待つあいだは「確認中…」、スクリプトが無ければ設定を開く', () => {
     expect(rowOf(READY, 'ready:mcp', { desktop: true, running: 'mcp-install' as const }).actions[0]!.label).toBe('確認中…');
     const none = rowOf({ ...READY, statusline: { command: null, scriptPath: null, installed: false } }, 'ready:statusline');
-    expect(none.text).toBe('Claude Code の /statusline でスクリプトを作成してから、設定の「連携」で設定してください');
-    expect(none.actions[0]!.send).toEqual({ type: 'nav.go', to: { name: 'settings', at: 'integrations' } });
+    expect(none.text).toBe('Claude Code の /statusline でスクリプトを作成してから、設定の「Claude Code」で設定してください');
+    expect(none.actions[0]!.send).toEqual({ type: 'nav.go', to: { name: 'settings', at: 'agentClaude' } });
   });
   it('ブラウザでは今までどおりコマンドをコピーする', () => {
     expect(rowOf(READY, 'ready:mcp', { desktop: false, running: null }).actions[0]!.send).toEqual({ type: 'clipboard.copy', text: 'hangar mcp install' });

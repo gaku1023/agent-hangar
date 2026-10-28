@@ -24,7 +24,7 @@ export function presentOpencodeVersionCard(state: State, store: Store): Opencode
   const kind = opencodeVersionKind(status);
   if (kind !== 'unverified' && kind !== 'legacy') return null;
   if (state.opencodeVersionSeen === status.version) return null;
-  if (state.screen.name === 'settings' && settingsSectionOf(state.screen.at) === 'integrations') return null;
+  if (state.screen.name === 'settings' && settingsSectionOf(state.screen.at) === 'agentOpencode') return null;
   const t = translatorOf(store);
   const version = status.version;
   return {

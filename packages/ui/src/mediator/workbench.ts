@@ -30,7 +30,7 @@ function paletteRun(state: State, store: Store, command: PaletteCommand): Step {
   if (kind === 'go' && rest === 'projects') return { state: closed, effects: [{ kind: 'navigate', route: { name: 'projects' } }] };
   // 設定の節の行。保持の設定はセッションの節の中にあるので、セッションの節へ移る。知らない節の名前は何もしない。
   if (kind === 'settings') {
-    const at = rest === 'retention' ? 'sessions' : SETTINGS_SECTIONS.find((x): x is SettingsSection => x === rest);
+    const at = rest === 'retention' ? 'agentClaude' : SETTINGS_SECTIONS.find((x): x is SettingsSection => x === rest);
     return { state: closed, effects: at ? [{ kind: 'navigate', route: { name: 'settings', at } }] : [] };
   }
   if (kind === 'cmd') {

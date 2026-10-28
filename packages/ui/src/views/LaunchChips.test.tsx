@@ -289,7 +289,7 @@ describe('LaunchChips のエージェント（opencode、ベータ）', () => {
   it('片方のエージェントだけの札は data-agent-only を持ち、エージェント、プロジェクト、名前、「＋」の札は持たない（切り替えの動きが見分ける）', () => {
     const agent = { value: 'claude-code' as const, onChange: vi.fn(), opencodeNote: null };
     const { unmount } = render(<LaunchChips lead={<button type="button">web-shop</button>} agent={agent} account={{ value: 'work', options: ACCOUNTS, onChange: vi.fn() }} values={{ ...BASE, name: 'n' }} onChange={vi.fn()} />);
-    expect(within(group()).getAllByRole('button').map(agentOf)).toEqual([null, null, 'claude-code', 'claude-code', 'claude-code', 'claude-code', 'claude-code', null, null]);
+    expect(within(group()).getAllByRole('button').map(agentOf)).toEqual([null, null, 'claude-code codex', 'claude-code', 'claude-code', 'claude-code', 'claude-code', null, null]);
     unmount();
     render(<LaunchChips lead={<button type="button">web-shop</button>} agent={{ ...agent, value: 'opencode' }} opencode={OC} values={{ ...BASE, name: 'n' }} onChange={vi.fn()} />);
     expect(within(group()).getAllByRole('button').map(agentOf)).toEqual([null, null, 'opencode', 'opencode', 'opencode', null]);

@@ -40,6 +40,8 @@ export const confirmKeys = {
   'confirm.switchAccount.working': [],
   'confirm.switchAccount.default': ['name'],
   'confirm.switchAccount.action': [],
+  'confirm.switchAccount.codexTitle': ['name'],
+  'confirm.switchAccount.codexLead': ['name'],
   'confirm.removeAccount.title': ['name'],
   'confirm.removeAccount.lead': [],
   'confirm.removeAccount.note': [],

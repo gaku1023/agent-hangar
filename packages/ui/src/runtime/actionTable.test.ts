@@ -275,6 +275,24 @@ describe('アカウント', () => {
     expect(loginAccount.mock.calls).toEqual([['a1']]);
     expect(r.store).toBe(r.during);
   });
+  it('agent が codex なら、同じ行が Codex の API を呼ぶ（A7）', async () => {
+    const api = fakeApi({ setCurrentCodexAccount: vi.fn(async () => next), previewCodexAccountDir: vi.fn(async () => ({ name: 'x', input: '', dir: '/h/.codex-x', suggested: true, exists: false, conflicts: [], registeredAs: null })), updateCodexAccount: vi.fn(async () => next), loginCodexAccount: vi.fn(async () => {}), cancelCodexAccountLogin: vi.fn(async () => next), refreshCodexAccount: vi.fn(async () => next) });
+    const choose = await runRow({ type: 'account.choose', agent: 'codex', accountId: 'cw' }, api);
+    await runRow({ type: 'account.add.preview', agent: 'codex', name: 'x', dir: '' }, api);
+    await runRow({ type: 'account.update', agent: 'codex', accountId: 'cw', name: ' 会社 ' }, api);
+    await runRow({ type: 'account.login', agent: 'codex', accountId: 'cw', method: 'deviceCode' }, api);
+    await runRow({ type: 'account.login', agent: 'codex', accountId: 'cw' }, api);
+    await runRow({ type: 'account.login.cancel', agent: 'codex', accountId: 'cw' }, api);
+    await runRow({ type: 'account.refresh', agent: 'codex', accountId: 'cw' }, api);
+    expect(choose.store.accounts).toEqual(next);
+    expect(vi.mocked(api.setCurrentCodexAccount).mock.calls).toEqual([['cw']]);
+    expect(vi.mocked(api.previewCodexAccountDir).mock.calls).toEqual([['x', '']]);
+    expect(vi.mocked(api.updateCodexAccount).mock.calls).toEqual([['cw', { name: '会社' }]]);
+    expect(vi.mocked(api.loginCodexAccount).mock.calls).toEqual([['cw', 'deviceCode'], ['cw', undefined]]);
+    expect(vi.mocked(api.cancelCodexAccountLogin).mock.calls).toEqual([['cw']]);
+    expect(vi.mocked(api.refreshCodexAccount).mock.calls).toEqual([['cw']]);
+    expect(vi.mocked(api.setCurrentAccount)).not.toHaveBeenCalled();
+  });
   it('更新は、渡された項目だけを送り、応答の一覧を Store に入れる', async () => {
     const updateAccount = vi.fn(async () => next);
     const api = fakeApi({ updateAccount });

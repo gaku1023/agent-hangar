@@ -118,6 +118,10 @@ export type Settings = {
    * `claude` という名前では引けない。だから絶対パスを持っておく。
    */
   claudePath?: string | null;
+  /** codex の場所（ベータ）。項目が無いか null、空文字のときは、PATH と既知の置き場から探す（config/tools.ts の findCodex）。 */
+  codexPath?: string | null;
+  /** opencode の場所（ベータ）。読み方は codexPath と同じ（findOpencode）。 */
+  opencodePath?: string | null;
   /**
    * 画面とサーバの文の言語。この PC だけの設定で、端末の間では同期しない。
    * `loadSettings` が必ず埋める。settings.json が無ければ OS の表示言語、あって項目が無ければ日本語にする（i18n/osLanguage.ts の decideLanguage）。

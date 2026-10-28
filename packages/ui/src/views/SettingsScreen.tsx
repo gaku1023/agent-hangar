@@ -27,6 +27,8 @@ import { CloudRecoveryButton, CloudRecoveryKey } from './CloudRecoveryKey.tsx';
 import { ConfigSyncSection } from './ConfigSyncSection.tsx';
 import { CompatSection } from './CompatSection.tsx';
 import { CodexSection } from './CodexSection.tsx';
+import { CodexAccountsSettings } from './CodexAccountsSettings.tsx';
+import { AgentIcon } from './primitives/AgentIcon.tsx';
 import { OpencodeSection } from './OpencodeSection.tsx';
 import { UpdateSection } from './UpdateSection.tsx';
 import { SetupGuideCard } from './SetupGuideCard.tsx';
@@ -38,7 +40,7 @@ import { Switch } from './primitives/Switch.tsx';
 export const SAVED_TICK_MS = 2000;
 
 /** 目次の各行のアイコン。 */
-const SECTION_ICON: Record<SettingsSection, IconName> = { general: 'general', sessions: 'sessions', summary: 'permissionAuto', integrations: 'link', environment: 'tool', cloud: 'cloud', usage: 'usage', about: 'info' };
+const SECTION_ICON: Record<SettingsSection, IconName> = { general: 'general', sessions: 'sessions', summary: 'permissionAuto', environment: 'tool', cloud: 'cloud', usage: 'usage', agentClaude: 'agent', agentCodex: 'agent', agentOpencode: 'agent', about: 'info' };
 
 /** 欄の横に「✓ 保存しました」を 2 秒出す。n が進むたびに出し直す（設定の C1）。 */
 /** 外部ターミナルの選択肢の印。製品のアプリは窓の印、OS の素のターミナルはターミナルの印にする。 */
@@ -269,7 +271,7 @@ export function SettingsScreen(props: SettingsProps) {
   // 節は一覧が届いてから出るので、出たときにも見直す。
   const showAccounts = props.accounts.list.length > 0;
   useEffect(() => {
-    if (props.focus !== 'accounts' || props.section !== 'sessions' || !showAccounts) return;
+    if (props.focus !== 'accounts' || props.section !== 'agentClaude' || !showAccounts) return;
     const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     document.getElementById('settings-accounts')?.scrollIntoView?.({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
   }, [props.focus, props.section, showAccounts]);
@@ -301,7 +303,7 @@ export function SettingsScreen(props: SettingsProps) {
   };
 
   const cur = props.toc.find((r) => r.id === props.section)!;
-  const todo = props.section === 'environment' ? props.todo.must : props.section === 'integrations' ? props.todo.link : 0;
+  const todo = props.section === 'environment' ? props.todo.must : props.section === 'agentClaude' ? props.todo.link : 0;
 
   const general = (
     <section aria-label={cur.title}>
@@ -331,14 +333,20 @@ export function SettingsScreen(props: SettingsProps) {
   const newSession = (
     <section aria-label={cur.title}>
       <h3 className="h2">{t('settings.sessions.new.title')}</h3>
+      {/* 作成場所は任意（2026-10-13、試作の 4 節 3a の案 A）。空を許し、デスクトップでは Finder でも選べる。 */}
+      <SetRow title={t('settings.tools.parent.title')} info={t('settings.tools.parent.desc')} control={null}
+        below={<PathField field="workspaceRoot" label={t('settings.tools.parent.title')} hideLabel value={props.workspaceRoot} nullable={false} placeholder={t('settings.tools.parent.placeholder')} quiet={props.workspaceRoot === ''} pick={props.workspacePick} line={props.verify.workspace} mark={props.save.workspaceRoot} />} />
+    </section>
+  );
+  // Claude Code の新しいセッションの既定（2026-10-28 に、セッションの節から Claude Code の節へ移した）。どれも選んだ時点で保存する。
+  const claudeDefaults = (
+    <section aria-label={t('settings.agents.claude.new.title')}>
+      <h3 className="h2">{t('settings.agents.claude.new.title')}</h3>
       <SetRow title={t('settings.label.defaultModel')} info={t('settings.integrations.inject.model.desc')}
         control={<ModelPicker label={t('settings.label.defaultModel')} value={props.injection.defaultModel} withDefault onChange={(m) => setNow({ defaultModel: m })} />} />
       {/* 起動のときに claude へ付ける --remote-control（試作 B1）。 */}
       <SetRow title={t('settings.label.remoteControl')} info={t('settings.integrations.inject.remoteControl.desc')}
         control={<Switch label={t('settings.label.remoteControl')} checked={props.injection.remoteControl} onChange={(next) => setNow({ remoteControl: next })} />} />
-      {/* 作成場所は任意（2026-10-13、試作の 4 節 3a の案 A）。空を許し、デスクトップでは Finder でも選べる。 */}
-      <SetRow title={t('settings.tools.parent.title')} info={t('settings.tools.parent.desc')} control={null}
-        below={<PathField field="workspaceRoot" label={t('settings.tools.parent.title')} hideLabel value={props.workspaceRoot} nullable={false} placeholder={t('settings.tools.parent.placeholder')} quiet={props.workspaceRoot === ''} pick={props.workspacePick} line={props.verify.workspace} mark={props.save.workspaceRoot} />} />
     </section>
   );
   // hangar が claude への指示ではなく自分で行うこと（試作の 5 節の案 A）。押した時点で保存する。次の見回りから効く。
@@ -475,18 +483,17 @@ export function SettingsScreen(props: SettingsProps) {
     </>
   );
 
-  const integrations = (
+  // 各エージェントの節（2026-10-28 の組み直し）。節の見出しの絵と札は、ページの見出しが出す。
+  const lead = (key: 'settings.agents.claude.lead' | 'settings.agents.codex.lead' | 'settings.agents.opencode.lead') => <p className="muted-p agent-lead">{t(key)}</p>;
+  const agentClaude = (
     <>
+      {lead('settings.agents.claude.lead')}
+      {showAccounts && <AccountSettings {...props.accounts} />}
+      {claudeDefaults}
+      <InjectionSettings injection={props.injection} />
+      {retention}
       {/* 互換のずれは利用者が直せるものではないので、todo には数えない（目次の状態も要修正にしない）。 */}
       <CompatSection compat={props.compat} />
-      {/* エージェントの面は、新規ダイアログの一覧と同じ Codex、opencode の順に並べる。Codex（ベータ、C4 の案 A）は互換性の下に置く。 */}
-      <CodexSection o={props.codex} />
-      {/* opencode（ベータ、試作の D1）。Codex の面の下に、同じ形の別の面を置く。 */}
-      <OpencodeSection o={props.opencode} providers={props.opencodeProviders} />
-      <section>
-        <h3 className="h2">{t('settings.integrations.mcp.title')}<InfoTip label={t('settings.integrations.mcp.title')}>{t('settings.integrations.mcp.desc')}</InfoTip><Badge ok={props.mcpRegistered} yes={t('settings.integrations.mcp.yes')} no={t('settings.integrations.mcp.no')} /></h3>
-        <IntegrationWrite card={props.integrations.mcp} desktop={props.integrations.desktop} />
-      </section>
       <section>
         <h3 className="h2">{t('settings.integrations.statusline.title')}<InfoTip label={t('settings.integrations.statusline.title')}>{t('settings.integrations.statusline.note')}</InfoTip><Badge ok={props.statusline ? props.statusline.installed : null} yes={t('settings.integrations.statusline.yes')} no={t('settings.integrations.statusline.no')} /></h3>
         {props.statusline === null && <div className="faint">{t('settings.common.loading')}</div>}
@@ -542,8 +549,39 @@ export function SettingsScreen(props: SettingsProps) {
         {!props.integrations.desktop && props.shell.state === 'on' && <div className="faint" style={{ marginTop: 8 }}>{t('settings.integrations.shell.installedHint', { uninstall: props.shell.uninstallCommand })}</div>}
         {props.shell.state === 'unsupported' && <div className="faint" style={{ marginTop: 8 }}>{t('settings.integrations.shell.noTmux', { install: muxInstallCommand(clientPlatform()) })}</div>}
       </section>}
+      <section>
+        <h3 className="h2">{t('settings.integrations.mcp.title')}<InfoTip label={t('settings.integrations.mcp.title')}>{t('settings.integrations.mcp.desc')}</InfoTip><Badge ok={props.mcpRegistered} yes={t('settings.integrations.mcp.yes')} no={t('settings.integrations.mcp.no')} /></h3>
+        <IntegrationWrite card={props.integrations.mcp} desktop={props.integrations.desktop} />
+      </section>
       {/* セットアップのすゝめ（試作の案 C）。連携の最後に置き、Claude Code に貼る一言を見せる。写しが取れていなければ出さない。 */}
       {props.setupGuide && <SetupGuideCard {...props.setupGuide} />}
+      <section>
+        <h3 className="h2">{t('settings.tools.paths.title')}</h3>
+        <PathField field="claudePath" label={t('settings.tools.claude')} value={props.claudePath} nullable placeholder={t('settings.tools.claudePlaceholder')} line={props.verify.claude} mark={props.save.claudePath} />
+      </section>
+    </>
+  );
+  const agentCodex = (
+    <>
+      {lead('settings.agents.codex.lead')}
+      <CodexAccountsSettings accounts={props.codexAccounts} />
+      {/* Codex（ベータ、C4 の案 A）。 */}
+      <CodexSection o={props.codex} showTitle={false} />
+      <section>
+        <h3 className="h2">{t('settings.tools.paths.title')}</h3>
+        <PathField field="codexPath" label={t('settings.tools.codex')} info={t('settings.tools.agentPathDesc')} value={props.codexPath} nullable placeholder={t('settings.tools.codexPlaceholder')} line={null} mark={props.save.codexPath} />
+      </section>
+    </>
+  );
+  const agentOpencode = (
+    <>
+      {lead('settings.agents.opencode.lead')}
+      {/* opencode（ベータ、試作の D1）。 */}
+      <OpencodeSection o={props.opencode} providers={props.opencodeProviders} showTitle={false} />
+      <section>
+        <h3 className="h2">{t('settings.tools.paths.title')}</h3>
+        <PathField field="opencodePath" label={t('settings.tools.opencode')} info={t('settings.tools.agentPathDesc')} value={props.opencodePath} nullable placeholder={t('settings.tools.opencodePlaceholder')} line={null} mark={props.save.opencodePath} />
+      </section>
     </>
   );
 
@@ -661,7 +699,6 @@ export function SettingsScreen(props: SettingsProps) {
         <h3 className="h2">{t('settings.tools.paths.title')}</h3>
         <div className="grid2">
           <PathField field="tmuxPath" label={t('settings.tools.tmux')} value={props.tmuxPath} nullable placeholder={t('settings.tools.tmuxPlaceholder', { install: muxInstallCommand(clientPlatform()) })} line={props.verify.tmux} mark={props.save.tmuxPath} />
-          <PathField field="claudePath" label={t('settings.tools.claude')} value={props.claudePath} nullable placeholder={t('settings.tools.claudePlaceholder')} line={props.verify.claude} mark={props.save.claudePath} />
           <PathField field="nodePath" label={t('settings.tools.node')} info={t(win ? 'settings.tools.nodeNoteWindows' : 'settings.tools.nodeNote')} value={props.nodePath} nullable placeholder={t(win ? 'settings.tools.nodePlaceholderWindows' : 'settings.tools.nodePlaceholder')} line={props.verify.node} mark={props.save.nodePath} />
           {/* git は設定の欄が無いので、見つけた場所と版だけを読むだけの行で出す。 */}
           <div className="field path-field" id="settings-field-git">
@@ -676,7 +713,7 @@ export function SettingsScreen(props: SettingsProps) {
           <span className="mono muted">{props.indexLabel}</span>
           <button className="btn" style={{ marginLeft: 'auto' }} onClick={() => emit({ type: 'index.rebuild' })}>{t('settings.info.index.rebuild')}</button>
         </div>
-        <div className="faint mono" style={{ marginTop: 4 }}>{t('settings.info.index.source', { dir: props.claudeDir })}</div>
+        <div className="faint mono" style={{ marginTop: 4 }}>{t('settings.info.index.source', { dir: props.indexSource })}</div>
         <div className="faint" style={{ marginTop: 4 }}>{t('settings.info.index.note')}</div>
       </section>
       {/* まとめて登録（0.6.1 の「フォルダの中から」を含む）。 */}
@@ -731,8 +768,8 @@ export function SettingsScreen(props: SettingsProps) {
 
   const body: Record<SettingsSection, ReactNode> = {
     general,
-    sessions: <>{newSession}<InjectionSettings injection={props.injection} />{self}{retention}{showAccounts && <AccountSettings {...props.accounts} />}</>,
-    summary, integrations, environment, cloud, usage, about,
+    sessions: <>{newSession}{self}</>,
+    summary, environment, cloud, usage, agentClaude, agentCodex, agentOpencode, about,
   };
 
   return (
@@ -740,20 +777,25 @@ export function SettingsScreen(props: SettingsProps) {
       <PageHeading title={t('settings.heading.title')} />
       <div className="settings-layout">
         <nav className="settings-toc" aria-label={t('settings.toc.label')} onKeyDown={onTocKey}>
-          {props.toc.map((r) => (
-            <button key={r.id} type="button" className="settings-toc-item" aria-current={props.section === r.id ? 'page' : undefined} aria-label={r.label} tabIndex={props.section === r.id ? 0 : -1} onClick={() => go(r.id)}>
-              <Icon name={SECTION_ICON[r.id]} />
+          {props.toc.map((r, i) => (
+            <Fragment key={r.id}>
+              {r.group && props.toc[i - 1]?.group !== r.group && <div className="settings-toc-group" role="presentation">{t(`settings.toc.group.${r.group}`)}</div>}
+              <button type="button" className="settings-toc-item" aria-current={props.section === r.id ? 'page' : undefined} aria-label={r.label} tabIndex={props.section === r.id ? 0 : -1} onClick={() => go(r.id)}>
+              {r.agent ? <AgentIcon kind={r.agent} decorative /> : <Icon name={SECTION_ICON[r.id]} />}
               <span className="settings-toc-text">
                 <span className="settings-toc-t">{r.title}{r.beta && <span className="tag-beta">{t('settings.toc.beta')}</span>}</span>
                 <span className="settings-toc-s" data-tone={r.tone}>{r.state}</span>
               </span>
-            </button>
+              </button>
+            </Fragment>
           ))}
         </nav>
         <div className="settings-page">
           <div className="settings-group" id={`settings-${props.section}`} role="group" aria-labelledby={`settings-${props.section}-h`}>
             <h2 className="settings-group-h" id={`settings-${props.section}-h`}>
+              {cur.agent && <AgentIcon kind={cur.agent} decorative />}
               {cur.title}
+              {cur.beta && cur.agent && <span className="tag-beta">{t('settings.toc.beta')}</span>}
               {props.section === 'summary' && <InfoTip label={cur.title}>{t('settings.summary.lead')}</InfoTip>}
               {props.section === 'cloud' && <span className="badge" data-tone={props.cloud.badge.tone}>{props.cloud.badge.text}</span>}
               {props.section === 'about' && props.update.supported && props.update.badge && <span className="badge" data-tone={props.update.badge.tone}>{props.update.badge.text}</span>}

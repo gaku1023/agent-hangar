@@ -42,7 +42,7 @@ function OpencodeVersion(props: { version: OpencodeSettingsProps['version'] }) {
  * その下に「プロバイダー」（つないだ先と追加、views/OpencodeProviders.tsx）を置く。providers を渡さなければ出さない。
  * available が偽なら面ごと出さない（いまはどの OS でも真）。横取りの行は Windows では出さない（intercept.available）。どれも選んだ時点で保存する。
  */
-export function OpencodeSection(props: { o: OpencodeSettingsProps; providers?: OpencodeProvidersProps }) {
+export function OpencodeSection(props: { o: OpencodeSettingsProps; providers?: OpencodeProvidersProps; /** 偽なら見出しの名前とベータの札を出さない（設定の節の見出しがすでに言うとき）。既定は真。 */ showTitle?: boolean }) {
   const t = useT();
   const emit = useEmit();
   const o = props.o;
@@ -69,8 +69,7 @@ export function OpencodeSection(props: { o: OpencodeSettingsProps; providers?: O
   return (
     <section className="oc-sec" id="settings-opencode" aria-label={title}>
       <h3 className="h2">
-        {title}
-        <span className="tag-beta">{t('settings.toc.beta')}</span>
+        {props.showTitle !== false && <>{title}<span className="tag-beta">{t('settings.toc.beta')}</span></>}
         {badge.mounted && b && (
           <span className="badge" data-tone={b.tone} ref={badge.ref}>
             {b.tone === 'ok' && <Icon name="check" />}

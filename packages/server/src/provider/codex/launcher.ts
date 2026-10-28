@@ -84,7 +84,7 @@ export function codexAppServerConfig(spec: LaunchSpec, perm: CodexPermission): s
  * 新しい会話で ID がまだ無い（pending:）ときは、resume を付けずにつなぐ。TUI が自分でスレッドを作り、hangar は `thread/started` で ID を知る。
  * token は環境変数（TUI_TOKEN_ENV）で渡し、argv に載せない。秘密の環境（secretEnv）として 0600 のファイルから包みが読んで消す（launch/secretEnv.ts）。
  * Claude だけの指定（アカウント、worktree、追加ディレクトリ、Remote Control）は捨てる。RunManager が入口で断る。
- * 起こすものへは CLAUDE 系と HANGAR_* を持ち込まない。アカウントの置き場（CLAUDE_CONFIG_DIR）と CODEX_HOME も効かせない（決定 9）。
+ * 起こすものへは CLAUDE 系と HANGAR_* を持ち込まない。CLAUDE_CONFIG_DIR は効かせない。CODEX_HOME は、選んだ Codex のアカウントの置き場（spec.env）だけを効かせる。
  */
 export function planCodex(bin: string, mode: SessionMode, spec: LaunchSpec, remote: { args: string[]; env: Record<string, string> }, droppedEnv: readonly string[]): LaunchPlan {
   // フォークは、呼び手が materialize（thread/fork）で作ったスレッドの ID を newId に入れて渡す。TUI は新しいスレッドを resume でつなぐ。
@@ -97,5 +97,7 @@ export function planCodex(bin: string, mode: SessionMode, spec: LaunchSpec, remo
   if (effort) argv.push('-c', `model_reasoning_effort=${toml(effort)}`);
   if (threadId.startsWith(PENDING_PREFIX)) argv.push('-s', flags.sandbox, '-a', flags.approval);
   else argv.push('resume', threadId);
-  return { argv, env: {}, secretEnv: { ...remote.env }, unset: [...new Set([...droppedEnv, 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'])] };
+  // 選んだアカウントの置き場（CODEX_HOME）は効かせる。最初のアカウントでは spec.env に無いので、利用者の環境の CODEX_HOME が漏れないよう外す。
+  const home = spec.env.CODEX_HOME?.trim();
+  return { argv, env: home ? { CODEX_HOME: home } : {}, secretEnv: { ...remote.env }, unset: [...new Set([...droppedEnv, 'CLAUDE_CONFIG_DIR', ...(home ? [] : ['CODEX_HOME'])])] };
 }

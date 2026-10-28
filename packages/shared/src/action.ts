@@ -298,18 +298,19 @@ export type UiAction =
   // switchSession はそのセッションを別のアカウントで再開する。working は作業中かで、確認の文に使う。confirmed が無ければ先に確認を出す。
   // add は名前だけで置き場を作り、続けてログインを始める。remove は一覧から外すだけで、置き場の中身は消さない。confirmed が無ければ先に確認を出す。
   | { type: 'accounts.load' }
-  | { type: 'account.choose'; accountId: string }
-  | { type: 'account.switchSession'; sessionId: SessionId; accountId: string; working: boolean; confirmed?: boolean }
+  | { type: 'account.choose'; accountId: string; agent?: 'codex' }
+  | { type: 'account.switchSession'; sessionId: SessionId; accountId: string; working: boolean; confirmed?: boolean; agent?: 'codex' }
   // 設定の「アカウントを足す…」のダイアログ。add は名前と場所（打ったまま。空ならサーバが名前から決める）で登録してログインを始める。
   // pick は「選ぶ…」で、開く場所を添える。preview は打つたびに足す前の確かめを読む（Store の accountPreview に入る）。
-  | { type: 'account.add.open' }
-  | { type: 'account.add'; name: string; dir: string }
+  // agent を付けると Codex のアカウントの操作になる（無ければ Claude Code）。login の method は Codex だけで、無ければブラウザで開く方法。
+  | { type: 'account.add.open'; agent?: 'codex' }
+  | { type: 'account.add'; name: string; dir: string; agent?: 'codex' }
   | { type: 'account.add.pick'; defaultPath: string | null }
-  | { type: 'account.add.preview'; name: string; dir: string }
-  | { type: 'account.update'; accountId: string; name?: string; color?: string }
-  | { type: 'account.remove'; accountId: string; confirmed?: boolean }
-  | { type: 'account.login'; accountId: string } | { type: 'account.login.cancel'; accountId: string }
-  | { type: 'account.refresh'; accountId: string }
+  | { type: 'account.add.preview'; name: string; dir: string; agent?: 'codex' }
+  | { type: 'account.update'; accountId: string; name?: string; color?: string; agent?: 'codex' }
+  | { type: 'account.remove'; accountId: string; confirmed?: boolean; agent?: 'codex' }
+  | { type: 'account.login'; accountId: string; agent?: 'codex'; method?: 'browser' | 'deviceCode' } | { type: 'account.login.cancel'; accountId: string; agent?: 'codex' }
+  | { type: 'account.refresh'; accountId: string; agent?: 'codex' }
   // デスクトップの殻に頼む操作。殻の無いブラウザでは、画面が場所のコピーと文の案内に落とす。
   | { type: 'shell.openLog' } | { type: 'shell.restart' }
   // done は写せたときにトーストで出す知らせ。書けなかったときは出さない。

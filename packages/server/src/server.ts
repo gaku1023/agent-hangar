@@ -112,7 +112,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   home.persistSettings();
   const runs = bootRuns(home, delivery, listening, { serverDir, launcher: opts.launcher });
   // hangar の外の Codex の会話の枠（rollout の meta rate_limits）を、使用量の面へ。
-  indexing.bindCodexRateLimits((value, ts) => { runs.codexUsage.noteRolloutRateLimits(value, ts); });
+  indexing.bindCodexRateLimits((value, ts, creator) => { runs.codexUsage.noteRolloutRateLimits(value, ts, creator); });
   const summary = bootSummary(home, delivery, runs, sync);
   const trash = bootTrash(home, delivery, sync, indexing);
   // opencode の serve の管理は下で組むので、引き継ぎの受け手には呼ばれた時点で引く口を渡す。

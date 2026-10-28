@@ -1092,12 +1092,12 @@ describe('パレット', () => {
   });
   // 設定の節の行は、その節へ移る。保持はセッションの節の中にあるので、セッションの節へ移る。
   it('設定の節の行は、その節の画面へ移る', () => {
-    for (const at of ['general', 'sessions', 'summary', 'integrations', 'environment', 'cloud', 'usage', 'about'] as const) {
+    for (const at of ['general', 'sessions', 'summary', 'agentClaude', 'agentCodex', 'agentOpencode', 'environment', 'cloud', 'usage', 'about'] as const) {
       const r = run([action({ type: 'palette.run', command: { id: `settings:${at}`, label: at } })], opened());
       expect(r.state.overlay).toEqual({ kind: 'none' });
       expect(r.effects).toEqual([{ kind: 'navigate', route: { name: 'settings', at } }]);
     }
-    expect(run([action({ type: 'palette.run', command: { id: 'settings:retention', label: 'トランスクリプトの保持' } })], opened()).effects).toEqual([{ kind: 'navigate', route: { name: 'settings', at: 'sessions' } }]);
+    expect(run([action({ type: 'palette.run', command: { id: 'settings:retention', label: '会話を残す期間' } })], opened()).effects).toEqual([{ kind: 'navigate', route: { name: 'settings', at: 'agentClaude' } }]);
     // 0.9.3 までの節の名前（tools、info）は、パレットの行には無いので何もしない。
     expect(run([action({ type: 'palette.run', command: { id: 'settings:tools', label: '' } })], opened()).effects).toEqual([]);
     // 知らない節の名前は、何もせずに閉じる。
@@ -1912,6 +1912,17 @@ describe('アカウント', () => {
     expect(closed.accountAdd).toEqual({ kind: 'idle' });
     const late = run([runtime({ type: 'account.add.failed', message: 'x' })], closed);
     expect(late.effects).toEqual([{ kind: 'toast', level: 'error', message: 'x' }]);
+  });
+  it('Codex のアカウント：追加のダイアログは agent を覚え、送る Effect と確認にも agent を運ぶ（A7）', () => {
+    const opened = run([action({ type: 'account.add.open', agent: 'codex' })]).state;
+    expect(opened.overlay).toEqual({ kind: 'addAccount', agent: 'codex' });
+    expect(effectsOf({ type: 'account.add', name: '会社用', dir: '', agent: 'codex' }, opened)).toEqual([{ kind: 'api.accounts.add', name: '会社用', dir: null, agent: 'codex' }]);
+    const sw = run([action({ type: 'account.switchSession', agent: 'codex', sessionId: 'c1', accountId: 'cw', working: true })]);
+    expect(sw.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'switchAccount', sessionId: 'c1', accountId: 'cw', working: true, agent: 'codex' } });
+    expect(run([action({ type: 'account.switchSession', agent: 'codex', sessionId: 'c1', accountId: 'cw', working: true, confirmed: true })], sw.state).effects).toEqual([{ kind: 'api.accounts.switchSession', sessionId: 'c1', accountId: 'cw' }]);
+    const rm = run([action({ type: 'account.remove', agent: 'codex', accountId: 'cw' })]);
+    expect(rm.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'removeAccount', accountId: 'cw', agent: 'codex' } });
+    expect(run([action({ type: 'account.remove', agent: 'codex', accountId: 'cw', confirmed: true })], rm.state).effects).toEqual([{ kind: 'api.accounts.remove', accountId: 'cw', agent: 'codex' }]);
   });
   it('「選ぶ…」は、開く場所を添えて Finder を開く', () => {
     expect(effectsOf({ type: 'account.add.pick', defaultPath: '/Users/me' })).toEqual([{ kind: 'desktop.pickFolder', defaultPath: '/Users/me' }]);

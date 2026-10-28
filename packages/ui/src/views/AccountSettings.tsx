@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { Translate } from '@agent-hangar/shared';
-import { approveText, loggedOutText, type AccountView } from '../presenters/accounts.ts';
+import { approvalText, cancelledText, loggedOutText, type AccountView } from '../presenters/accounts.ts';
 import type { AccountSettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
 import { useT } from './primitives/language.tsx';
@@ -29,8 +29,8 @@ const colorName = (t: Translate, c: string): string => (Object.hasOwn(COLOR_KEYS
 function stateParts(t: Translate, a: AccountView): { main: string; hint: string } {
   const who = [a.plan, a.email].filter((x): x is string => x !== null).join(t('account.settings.whoSeparator'));
   switch (a.auth) {
-    case 'out': return { main: loggedOutText(t), hint: '' };
-    case 'running': return a.loggedIn ? { main: who, hint: approveText(t) } : { main: '', hint: approveText(t) };
+    case 'out': return { main: loggedOutText(t), hint: cancelledText(t, a) ?? '' };
+    case 'running': return a.loggedIn ? { main: who, hint: approvalText(t, a) } : { main: '', hint: approvalText(t, a) };
     case 'in': return { main: who, hint: '' };
     case 'unknown': return { main: '', hint: '' };
   }
@@ -42,7 +42,7 @@ function stateParts(t: Translate, a: AccountView): { main: string; hint: string 
  * 変換中の Enter は確定しない。
  * Esc のあとに欄が消えるときの blur で保存しないよう、終わったかを持つ。
  */
-function NameField(props: { account: AccountView; onDone: () => void }) {
+function NameField(props: { account: AccountView; agent: Agent; onDone: () => void }) {
   const emit = useEmit();
   const t = useT();
   const a = props.account;
@@ -54,7 +54,7 @@ function NameField(props: { account: AccountView; onDone: () => void }) {
     if (done.current) return;
     done.current = true;
     const next = v.trim();
-    if (save && next !== '' && next !== a.name) emit({ type: 'account.update', accountId: a.id, name: next });
+    if (save && next !== '' && next !== a.name) emit({ type: 'account.update', accountId: a.id, name: next, ...props.agent });
     props.onDone();
   };
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -65,7 +65,7 @@ function NameField(props: { account: AccountView; onDone: () => void }) {
 }
 
 /** 色を選ぶ帯。5 色の点が並び、押すと保存して閉じる。いまの色を押したときは何も送らない。 */
-function ColorBand(props: { account: AccountView; colors: string[]; onDone: () => void }) {
+function ColorBand(props: { account: AccountView; agent: Agent; colors: string[]; onDone: () => void }) {
   const emit = useEmit();
   const t = useT();
   const a = props.account;
@@ -73,7 +73,7 @@ function ColorBand(props: { account: AccountView; colors: string[]; onDone: () =
   // いまの色へフォーカスを送る（radio の作法）。
   useEffect(() => { band.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus(); }, []);
   const pick = (c: string) => {
-    if (c !== a.color) emit({ type: 'account.update', accountId: a.id, color: c });
+    if (c !== a.color) emit({ type: 'account.update', accountId: a.id, color: c, ...props.agent });
     props.onDone();
   };
   return (
@@ -87,11 +87,15 @@ function ColorBand(props: { account: AccountView; colors: string[]; onDone: () =
   );
 }
 
+/** Codex の一覧のとき、各操作に付ける印。Claude Code では空。 */
+type Agent = { agent?: 'codex' };
+
 /** アカウント 1 行。色の点、名前（と札）、置き場、状態、右端の操作。 */
-function AccountRow(props: { account: AccountView; colors: string[] }) {
+function AccountRow(props: { account: AccountView; agent: Agent; colors: string[] }) {
   const emit = useEmit();
   const t = useT();
   const a = props.account;
+  const ag = props.agent;
   const [editing, setEditing] = useState(false);
   const [coloring, setColoring] = useState(false);
   const { main, hint } = stateParts(t, a);
@@ -113,10 +117,10 @@ function AccountRow(props: { account: AccountView; colors: string[] }) {
     { key: 'rename', label: t('account.menu.rename'), onSelect: () => { setColoring(false); setEditing(true); } },
     { key: 'color', label: t('account.menu.color'), onSelect: () => { setEditing(false); setColoring(true); } },
     // 未ログインは行に「ログイン」を直に出し、途中は「やめる」を出すので、メニューには置かない。
-    ...(a.auth === 'out' || a.auth === 'running' ? [] : [{ key: 'login', label: t('account.menu.loginAgain'), onSelect: () => emit({ type: 'account.login', accountId: a.id }) }]),
-    { key: 'refresh', label: t('account.menu.refresh'), onSelect: () => emit({ type: 'account.refresh', accountId: a.id }) },
+    ...(a.auth === 'out' || a.auth === 'running' ? [] : [{ key: 'login', label: t('account.menu.loginAgain'), onSelect: () => emit({ type: 'account.login', accountId: a.id, ...ag }) }]),
+    { key: 'refresh', label: t('account.menu.refresh'), onSelect: () => emit({ type: 'account.refresh', accountId: a.id, ...ag }) },
     // 押せない項目は消さずに、理由を出す。確認は account.remove を受けた側が出す。
-    { key: 'remove', label: t('account.menu.remove'), danger: true, disabled: a.primary ? t('account.menu.primaryLocked') : null, onSelect: () => emit({ type: 'account.remove', accountId: a.id }) },
+    { key: 'remove', label: t('account.menu.remove'), danger: true, disabled: a.primary ? t('account.menu.primaryLocked') : null, onSelect: () => emit({ type: 'account.remove', accountId: a.id, ...ag }) },
   ];
   return (
     <li className="account-set">
@@ -124,22 +128,23 @@ function AccountRow(props: { account: AccountView; colors: string[] }) {
         <span className="st-dot account-set-dot" style={{ color: a.color }} aria-hidden="true" />
         <span className="account-set-who">
           {editing
-            ? <NameField account={a} onDone={() => setEditing(false)} />
+            ? <NameField account={a} agent={ag} onDone={() => setEditing(false)} />
             : <b className="account-set-name" title={a.name}>{a.name}</b>}
           {a.current && <span className="account-set-tag" data-kind="current">{t('account.settings.current')}</span>}
         </span>
         <span className="account-set-dir mono" title={a.dir}>{path}</span>
         <span className="account-set-state" data-auth={a.auth} title={state}>
           <span className="account-set-ident">{main}</span>
-          {hint !== '' && <span className="account-set-approve">{hint}</span>}
+          {hint !== '' && <span className="account-set-approve" data-wrap={a.auth === 'running' && a.login?.method === 'deviceCode' ? 'true' : undefined}>{hint}</span>}
         </span>
         <span className="account-set-acts">
-          {a.auth === 'out' && <button type="button" className="btn btn-sm" disabled={guarded} onClick={() => emit({ type: 'account.login', accountId: a.id })}>{t('account.settings.login')}</button>}
-          {a.auth === 'running' && <button type="button" className="btn btn-sm" disabled={guarded} onClick={() => emit({ type: 'account.login.cancel', accountId: a.id })}>{t('account.settings.cancel')}</button>}
+          {a.auth === 'out' && <button type="button" className="btn btn-sm" disabled={guarded} onClick={() => emit({ type: 'account.login', accountId: a.id, ...ag })}>{t('account.settings.login')}</button>}
+          {a.auth === 'running' && ag.agent === 'codex' && a.login?.method !== 'deviceCode' && <button type="button" className="btn btn-sm" disabled={guarded} onClick={() => emit({ type: 'account.login', accountId: a.id, agent: 'codex', method: 'deviceCode' })}>{t('account.login.deviceCodeButton')}</button>}
+          {a.auth === 'running' && <button type="button" className="btn btn-sm" disabled={guarded} onClick={() => emit({ type: 'account.login.cancel', accountId: a.id, ...ag })}>{t('account.settings.cancel')}</button>}
           <MenuButton label={t('account.settings.actionsFor', { name: a.name })} items={items} minWidth={240} />
         </span>
       </div>
-      {coloring && <ColorBand account={a} colors={props.colors} onDone={() => setColoring(false)} />}
+      {coloring && <ColorBand account={a} agent={ag} colors={props.colors} onDone={() => setColoring(false)} />}
       {a.linkProblem !== null && <div className="account-set-problem">{a.linkProblem}</div>}
     </li>
   );
@@ -153,17 +158,22 @@ function AccountRow(props: { account: AccountView; colors: string[] }) {
  * hangar はログインの中身を読まず、ログインは account.login を出すだけ。
  * 保持する状態は、名前を直している行と、色の帯を開いている行だけ。
  */
-export function AccountSettings(props: AccountSettingsProps) {
+export function AccountSettings(props: AccountSettingsProps & { agent?: 'codex' }) {
   const emit = useEmit();
   const t = useT();
+  // agent が codex のときは Codex のアカウントの一覧。操作はすべて agent を付けて出す。
+  const ag: Agent = props.agent === 'codex' ? { agent: 'codex' } : {};
+  const codex = props.agent === 'codex';
+  const heading = t(codex ? 'account.settings.codexHeading' : 'account.settings.heading');
+  const id = codex ? 'settings-codex-accounts' : 'settings-accounts';
   return (
-    <section id="settings-accounts" className="account-set-section" aria-labelledby="settings-accounts-h">
-      <h3 className="h2"><span id="settings-accounts-h">{t('account.settings.heading')}</span><InfoTip label={t('account.settings.heading')}>{t('account.settings.lead')}</InfoTip></h3>
+    <section id={id} className="account-set-section" aria-labelledby={`${id}-h`}>
+      <h3 className="h2"><span id={`${id}-h`}>{heading}</span><InfoTip label={heading}>{t(codex ? 'account.settings.codexLead' : 'account.settings.lead')}</InfoTip></h3>
       <ul className="list account-set-list" aria-label={t('account.settings.listAria')}>
-        {props.list.map((a) => <AccountRow key={a.id} account={a} colors={props.colors} />)}
+        {props.list.map((a) => <AccountRow key={a.id} account={a} agent={ag} colors={props.colors} />)}
       </ul>
       <div className="account-set-add">
-        <button type="button" className="btn" onClick={() => emit({ type: 'account.add.open' })}><Icon name="add" />{t('account.settings.addButton')}</button>
+        <button type="button" className="btn" onClick={() => emit({ type: 'account.add.open', ...ag })}><Icon name="add" />{t('account.settings.addButton')}</button>
       </div>
     </section>
   );

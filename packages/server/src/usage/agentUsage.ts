@@ -4,6 +4,9 @@ import { usageAt, type AgentUsageDto, type AgentUsagesDto, type RateWindowDto } 
 export type UsageAgent = keyof AgentUsagesDto;
 
 /** 入れる値。窓が null の項目と plan が null の項目は、前の値を保つ（疎な更新）。 */
+/** アカウントの id を渡さない呼び方が指す、最初のアカウント。 */
+export const PRIMARY_ACCOUNT_ID = 'primary';
+
 export type AgentWindows = { fiveHour: RateWindowDto | null; sevenDay: RateWindowDto | null; plan: string | null };
 
 export type AgentUsageOptions = {
@@ -11,6 +14,8 @@ export type AgentUsageOptions = {
   /** 設定でそのエージェントを有効にしているか。切の間は受けず、返さない。 */
   enabled?: () => boolean;
 };
+
+const keyOf = (agent: UsageAgent, accountId: string): string => `${agent}\u0000${accountId}`;
 
 const same = (a: RateWindowDto | null, b: RateWindowDto | null) => a?.usedPercent === b?.usedPercent && a?.resetsAt === b?.resetsAt;
 
@@ -21,7 +26,8 @@ const same = (a: RateWindowDto | null, b: RateWindowDto | null) => a?.usedPercen
  * 戻る時刻を過ぎた窓は、Claude と同じく 0% として返す（usageAt）。
  */
 export class AgentUsageTracker {
-  private readonly state = new Map<UsageAgent, AgentUsageDto>();
+  /** 鍵は エージェント + アカウントの id。アカウントごとに枠を持つ。 */
+  private readonly state = new Map<string, AgentUsageDto>();
   private readonly listeners = new Set<() => void>();
   private readonly now: () => number;
   private readonly enabled: () => boolean;
@@ -32,15 +38,16 @@ export class AgentUsageTracker {
   }
 
   /** 窓を重ねる。受けたら真。切のときと、より新しい観測がすでにあるときは偽。 */
-  set(agent: UsageAgent, w: AgentWindows, at: number): boolean {
+  set(agent: UsageAgent, w: AgentWindows, at: number, accountId: string = PRIMARY_ACCOUNT_ID): boolean {
     if (!this.enabled()) return false;
-    const prev = this.state.get(agent);
+    const key = keyOf(agent, accountId);
+    const prev = this.state.get(key);
     if (prev && prev.updatedAt !== null && at < prev.updatedAt) return false;
     const next: AgentUsageDto = {
       fiveHour: w.fiveHour ?? prev?.fiveHour ?? null, sevenDay: w.sevenDay ?? prev?.sevenDay ?? null,
       plan: w.plan ?? prev?.plan ?? null, updatedAt: at,
     };
-    this.state.set(agent, next);
+    this.state.set(key, next);
     if (!prev || !same(prev.fiveHour, next.fiveHour) || !same(prev.sevenDay, next.sevenDay) || prev.plan !== next.plan) for (const cb of [...this.listeners]) cb();
     return true;
   }
@@ -53,17 +60,17 @@ export class AgentUsageTracker {
     for (const cb of [...this.listeners]) cb();
   }
 
-  of(agent: UsageAgent): AgentUsageDto | null {
+  of(agent: UsageAgent, accountId: string = PRIMARY_ACCOUNT_ID): AgentUsageDto | null {
     if (!this.enabled()) return null;
-    const s = this.state.get(agent);
+    const s = this.state.get(keyOf(agent, accountId));
     if (!s) return null;
     const u = usageAt(s, this.now());
     return u === s ? s : { ...u, plan: s.plan };
   }
 
-  /** 配る形。何も無ければ undefined（AccountsDto に項目ごと付けない）。 */
-  all(): AgentUsagesDto | undefined {
-    const codex = this.of('codex');
+  /** 配る形。codexAccountId は、いまの Codex アカウント（渡さなければ最初のアカウント）。何も無ければ undefined（AccountsDto に項目ごと付けない）。 */
+  all(codexAccountId: string = PRIMARY_ACCOUNT_ID): AgentUsagesDto | undefined {
+    const codex = this.of('codex', codexAccountId);
     return codex ? { codex } : undefined;
   }
 

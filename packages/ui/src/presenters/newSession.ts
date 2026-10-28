@@ -3,7 +3,7 @@ import type { LaunchPrefs, NewSessionDraft, State } from '../mediator/types.ts';
 import { hasMultipleAccounts, type CodexOptionsState, type OpencodeOptionsState, type Store } from '../store/store.ts';
 import type { FolderInspectState } from '../store/folderInspect.ts';
 import { SCRATCH_PREFS } from '../mediator/launch.ts';
-import { approveText, isPickableAccount, loggedOutText, presentAccounts, type AccountView } from './accounts.ts';
+import { approveText, isPickableAccount, loggedOutText, presentAccounts, presentCodexAccounts, type AccountView } from './accounts.ts';
 import { relativeTime } from './format.ts';
 import { translatorOf } from './i18n.ts';
 import { presentLaunchPrep, type LaunchPrepView } from './launchPrep.ts';
@@ -33,6 +33,8 @@ export type NewSessionProps = {
   createdProjectId: string | null;
   /** どのアカウントで起こすかの札。アカウントが 1 件以下なら null で、段ごと出さず、起動の params にも account を入れない。 */
   accounts: NewSessionAccounts | null;
+  /** Codex を選んだときのアカウントの札。決まりは accounts と同じ（2 件以上のときだけ）。opencode には札を出さない。 */
+  codexAccounts?: NewSessionAccounts | null;
   /** 前回値にモデルが無いときのモデルの札の初めの値（設定の既定のモデル）。null と省略は Claude Code の既定。 */
   defaultModel?: string | null;
   /** worktree の札をオンにして開くか（同じファイルの編集の警告の「worktree で新しいセッション」から開いたとき）。名前はダイアログが付ける。 */
@@ -146,7 +148,7 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
   const prepDto = mark ? store.launchPreps[mark.key] : undefined;
   return {
     projects, recentIds, projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, scratch: state.overlay.scratch, draft: state.newSessionDraft, prefs: state.launchPrefs,
-    dirs, takenNames, workspaceRoot: store.settings?.workspaceRoot ?? null, desktop: store.desktop, picked: store.pickedFolder, createdProjectId, accounts: newSessionAccounts(store, now), defaultModel: store.settings?.defaultModel ?? null,
+    dirs, takenNames, workspaceRoot: store.settings?.workspaceRoot ?? null, desktop: store.desktop, picked: store.pickedFolder, createdProjectId, accounts: newSessionAccounts(store, now), codexAccounts: newSessionCodexAccounts(store, now), defaultModel: store.settings?.defaultModel ?? null,
     ...(state.overlay.worktree ? { worktree: true } : {}),
     ...(state.overlay.agent ? { agent: state.overlay.agent } : {}),
     ...(state.overlay.pickModel ? { pickModel: true } : {}),
@@ -178,5 +180,12 @@ export function opencodeAgentNote(t: Translate, options: OpencodeOptionsDto | nu
 function newSessionAccounts(store: Store, now: number): NewSessionAccounts | null {
   if (!hasMultipleAccounts(store)) return null;
   const list = presentAccounts(store, now);
+  return { list, currentId: list.find((a) => a.current)?.id ?? '' };
+}
+
+/** Codex のアカウントが 2 件以上のときだけ札の中身を作る。 */
+function newSessionCodexAccounts(store: Store, now: number): NewSessionAccounts | null {
+  const list = presentCodexAccounts(store, now);
+  if (list.length < 2) return null;
   return { list, currentId: list.find((a) => a.current)?.id ?? '' };
 }

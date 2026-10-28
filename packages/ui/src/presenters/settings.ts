@@ -6,7 +6,7 @@ import { indexProgressLabel, relativeTime } from './format.ts';
 import { storeLanguage, translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
 import { limitedWord, syncStateWord } from './syncLabel.ts';
-import { presentAccounts, type AccountView } from './accounts.ts';
+import { presentAccounts, presentCodexAccounts, type AccountView } from './accounts.ts';
 import { presentCloudUsage, SETUP_CLOUD_COMMAND, type CloudUsageProps } from './cloudUsage.ts';
 import { cloudJoinCommand, presentCloudMember, type CloudMemberProps } from './cloudMember.ts';
 import { presentConfigSection, type ConfigSyncSectionProps } from './configSync.ts';
@@ -232,6 +232,8 @@ const shellLabel = (t: Translate, s: ShellHookStateDto | null): string => {
  * label は読み上げの名前で、節の名前と状態をつなげる（要修正は数を言う）。
  */
 export type SettingsTocRow = { id: SettingsSection; title: string; state: string; tone: 'default' | 'warn'; label: string;
+  /** 「エージェント」の群の行。目次は、群の最初の行の前に群の見出しを出し、行の絵はエージェントの絵にする。 */
+  agent?: 'claude-code' | 'codex' | 'opencode'; group?: 'agents';
   /** 上級者向けのベータの節（クラウド同期）。名前の横に「ベータ」の小札を添える。 */
   beta?: boolean };
 
@@ -282,6 +284,10 @@ export type SettingsProps = {
   nodePath: string;
   /** run を起こす claude の場所。未指定は null で表す。 */
   claudePath: string | null;
+  /** codex と opencode の場所（ベータ）。未指定は null で表す（空欄なら PATH から探す）。 */
+  codexPath: string | null; opencodePath: string | null;
+  /** インデックスの読み取り元（~/.claude と、Codex が有効なら ~/.codex）を並べた 1 行。 */
+  indexSource: string;
   /** Claude Code の会話の保持期間。まだ届いていなければ null。 */
   retention: RetentionSettingsProps | null;
   /**
@@ -319,6 +325,8 @@ export type SettingsProps = {
   /** 連携の opencode の面の下の「プロバイダー」（ベータ）。opencode を有効にしたときだけ出す。 */
   opencodeProviders?: OpencodeProvidersProps;
   accounts: AccountSettingsProps;
+  /** Codex のアカウントの一覧（Codex の節に置く）。Codex が切、または届いていなければ空。 */
+  codexAccounts: AccountSettingsProps;
   /** 右に出している節。URL の `at` で決まる（無ければ「一般」、`sync` はクラウド同期、`accounts` はセッション）。 */
   section: SettingsSection;
   /** 左の目次。節ごとに、名前と今の状態の 1 行を持つ。 */
@@ -399,11 +407,21 @@ function retentionSettings(store: Store): RetentionSettingsProps | null {
   };
 }
 
+/** 「エージェント」の群の節と、その絵の組。 */
+const AGENT_OF: Partial<Record<SettingsSection, 'claude-code' | 'codex' | 'opencode'>> = { agentClaude: 'claude-code', agentCodex: 'codex', agentOpencode: 'opencode' };
+
+function agentState(t: Translate, enabled: boolean, badge: { text: string; tone: 'ok' | 'info' | 'warn' } | null): { state: string; tone: 'default' | 'warn' } {
+  if (!enabled) return { state: t('settings.toc.agentOff'), tone: 'default' };
+  if (!badge) return { state: t('settings.toc.checking'), tone: 'default' };
+  return { state: badge.text, tone: badge.tone === 'warn' ? 'warn' : 'default' };
+}
+
 /** 目次の各行の状態。連携とツールは、準備の確かめが届くまで分からないので「確認中」と言う。 */
 function presentToc(a: {
   t: Translate; language: Language; todo: { must: number; link: number }; cloud: CloudSettingsProps; cloudWord: string; cloudTone: string;
   sync: Store['sync']; notify: Store['notify']; readiness: boolean; summaryEngine: SummaryEngine; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null; sessionCount: number; retentionDays: number | null; now: number;
   update: UpdateSectionProps; desktop: boolean; usageAggregate: UsageAggregateDto | null; version: string;
+  codex: CodexSettingsProps; opencode: OpencodeSettingsProps;
 }): SettingsTocRow[] {
   const { t } = a;
   type St = { state: string; tone: 'default' | 'warn' };
@@ -415,7 +433,10 @@ function presentToc(a: {
       state: a.cloud.state === 'idle' && a.sync?.lastPullAt != null ? t('settings.toc.cloudReceived', { state: a.cloudWord, time: relativeTime(t, a.sync.lastPullAt, a.now) }) : a.cloudWord,
       tone: a.cloudTone === 'warn' || a.cloudTone === 'stop' ? 'warn' : 'default',
     },
-    integrations: a.readiness ? fix(a.todo.link, t('settings.toc.noIssues')) : checking,
+    agentClaude: a.readiness ? fix(a.todo.link, t('settings.toc.noIssues')) : checking,
+    // Codex と opencode は、切のままなら淡く「オフ」と言う。入れたあとは、版の札（検証済み、未検証、見つかりません）をそのまま状態にする。
+    agentCodex: agentState(t, a.codex.enabled, a.codex.badge),
+    agentOpencode: agentState(t, a.opencode.enabled, a.opencode.badge),
     // 使わないときは淡く「オフ」とだけ言う（試作 3 節の 2b の案 A）。繋がらない警告は、OpenAI 互換を選んだときだけ出す。
     summary: a.summaryEngine === 'off' ? { state: t('settings.toc.summaryOff'), tone: 'default' }
       : a.summarizerTest?.ok === false ? { state: t('settings.toc.summaryTestFailed'), tone: 'warn' }
@@ -437,9 +458,10 @@ function presentToc(a: {
   return SETTINGS_SECTIONS.map((id) => {
     const title = t(`settings.section.${id}`);
     // クラウド同期は上級者向けのベータ。小札は状態の段を潰さないよう、名前の横に添える（試作の 5 節の案 A）。
-    const beta = id === 'cloud';
+    const agent = AGENT_OF[id];
+    const beta = id === 'cloud' || id === 'agentCodex' || id === 'agentOpencode';
     const name = beta ? `${title} ${t('settings.toc.beta')}` : title;
-    return { id, title, ...state[id], label: t('settings.toc.row', { name, state: state[id].state }), ...(beta ? { beta } : {}) };
+    return { id, title, ...state[id], label: t('settings.toc.row', { name, state: state[id].state }), ...(beta ? { beta } : {}), ...(agent ? { agent, group: 'agents' as const } : {}) };
   });
 }
 
@@ -520,9 +542,11 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
   const hard = (l: VerifyLine | null) => (l && !l.ok && !l.soft ? 1 : 0);
   const update = presentUpdateSection(store, now);
   const todo = {
-    must: hard(verify.workspace) + hard(verify.tmux) + hard(verify.claude) + hard(verify.node),
-    link: r ? (r.mcp.registered ? 0 : 1) + (r.statusline.installed ? 0 : 1) : 0,
+    must: hard(verify.workspace) + hard(verify.tmux) + hard(verify.node),
+    link: r ? (r.mcp.registered ? 0 : 1) + (r.statusline.installed ? 0 : 1) + hard(verify.claude) : 0,
   };
+  const codex = presentCodex(t, s ?? {}, store.codexStatus, platform, store.shellHook?.state ?? null);
+  const opencode = presentOpencode(t, s ?? {}, store.opencodeStatus, platform, store.shellHook?.state ?? null);
   const integrations = presentIntegrations(t, state, store, { mcp: r?.commands.mcp ?? 'hangar mcp install', statusline: r?.commands.statusline ?? 'hangar statusline install', shell: command });
   return {
     cloud,
@@ -532,9 +556,9 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     verify, todo,
     mux: presentMux(r, state.muxCheck),
     compat: compatSummary ? presentCompat(t, compatSummary, store.compat, store.version) : null,
-    opencode: presentOpencode(t, s ?? {}, store.opencodeStatus, platform, store.shellHook?.state ?? null),
+    opencode,
     opencodeProviders: presentOpencodeProviders(state, store),
-    codex: presentCodex(t, s ?? {}, store.codexStatus, platform, store.shellHook?.state ?? null),
+    codex,
     mcpRegistered: r ? r.mcp.registered : null,
     save: state.settingsSave,
     // 準備の確かめが届く前も、同じ hangar の呼び方で見せる。
@@ -555,10 +579,14 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     statusline: store.statusline, usageAggregate: store.usageAggregate && { ...store.usageAggregate, projects: store.usageAggregate.projects.map((u) => { const p = u.projectId ? store.projects[u.projectId] : undefined; return p ? { ...u, name: projectDisplayName(p, t) } : u; }) },
     nodePath: s?.nodePath ?? '',
     claudePath: s?.claudePath ?? null,
+    codexPath: s?.codexPath ?? null,
+    opencodePath: s?.opencodePath ?? null,
+    indexSource: [s?.claudeDir ?? '', ...(codexEnabledOf(s ?? {}) ? ['~/.codex'] : [])].join(storeLanguage(store) === 'ja' ? '、' : ', '),
     retention: retentionSettings(store),
     accounts: { list: presentAccounts(store, now), colors: ACCOUNT_COLORS },
+    codexAccounts: { list: presentCodexAccounts(store, now), colors: ACCOUNT_COLORS },
     section: settingsSectionOf(at),
-    toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summaryEngine, summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, retentionDays: store.retention?.days ?? null, now, update, desktop: store.desktop, usageAggregate: store.usageAggregate, version: store.version }),
+    toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summaryEngine, summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, retentionDays: store.retention?.days ?? null, now, update, desktop: store.desktop, codex, opencode, usageAggregate: store.usageAggregate, version: store.version }),
     update,
     language: { value: storeLanguage(store) },
     focus: at === 'accounts' || at === 'unsent' || isSettingsField(at) ? at : null,

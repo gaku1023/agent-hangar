@@ -21,17 +21,21 @@ const present = (s: Store, screen: State['screen'] = { name: 'settings' }) => pr
 const row = (rows: SettingsTocRow[], id: string) => rows.find((r) => r.id === id)!;
 
 describe('設定の目次（S1）', () => {
-  it('節は 8 つで、一般、セッション、要約、連携、環境、クラウド同期、使用量、Hangar についての順。クラウド同期だけにベータの印', () => {
+  it('節は 10 で、一般、セッション、要約、クラウド同期、環境、使用量、エージェントの 3 節（Claude Code、Codex、opencode）、Hangar についての順。クラウド同期と Codex と opencode にベータの印', () => {
     const p = present(store());
-    expect(p.toc.map((r) => r.id)).toEqual(['general', 'sessions', 'summary', 'integrations', 'environment', 'cloud', 'usage', 'about']);
-    expect(p.toc.map((r) => r.title)).toEqual(['一般', 'セッション', '要約', '連携', '環境', 'クラウド同期', '使用量', 'Hangar について']);
-    expect(p.toc.filter((r) => r.beta).map((r) => r.id)).toEqual(['cloud']);
+    expect(p.toc.map((r) => r.id)).toEqual(['general', 'sessions', 'summary', 'cloud', 'environment', 'usage', 'agentClaude', 'agentCodex', 'agentOpencode', 'about']);
+    expect(p.toc.map((r) => r.title)).toEqual(['一般', 'セッション', '要約', 'クラウド同期', '環境', '使用量', 'Claude Code', 'Codex', 'opencode', 'Hangar について']);
+    expect(p.toc.filter((r) => r.beta).map((r) => r.id)).toEqual(['cloud', 'agentCodex', 'agentOpencode']);
+    // エージェントの 3 節は「エージェント」の群に入り、行の絵はエージェントの絵になる。
+    expect(p.toc.filter((r) => r.group === 'agents').map((r) => [r.id, r.agent])).toEqual([['agentClaude', 'claude-code'], ['agentCodex', 'codex'], ['agentOpencode', 'opencode']]);
+    expect(row(p.toc, 'agentCodex').state).toBe('オフ');
+    expect(row(p.toc, 'agentOpencode').label).toBe('opencode ベータ、オフ');
     expect(row(p.toc, 'cloud').label).toBe('クラウド同期 ベータ、同期オフ');
   });
   it('殻の中では、「Hangar について」が更新の状態を言う。節の並びはブラウザと同じ', () => {
     const update = { ...initialUpdate(), supported: true, current: '1.4.2', phase: { kind: 'latest' as const }, checkedAt: NOW };
     const p = present(store({ desktop: true, update }));
-    expect(p.toc.map((r) => r.id)).toEqual(['general', 'sessions', 'summary', 'integrations', 'environment', 'cloud', 'usage', 'about']);
+    expect(p.toc.map((r) => r.id)).toEqual(['general', 'sessions', 'summary', 'cloud', 'environment', 'usage', 'agentClaude', 'agentCodex', 'agentOpencode', 'about']);
     expect(row(p.toc, 'about')).toMatchObject({ title: 'Hangar について', state: '最新', tone: 'default', label: 'Hangar について、最新' });
     expect(row(present(store({ desktop: true, update: { ...update, phase: { kind: 'ready', version: '1.5.0' } } })).toc, 'about')).toMatchObject({ state: '再起動待ち', tone: 'warn' });
     expect(row(present(store({ desktop: true, update: { ...update, phase: { kind: 'failed', step: 'download', version: '1.5.0', reason: 'network' } } })).toc, 'about')).toMatchObject({ state: '失敗', tone: 'warn' });
@@ -46,15 +50,15 @@ describe('設定の目次（S1）', () => {
   it('どの行も、読み上げの名前に節の名前と今の状態を含む', () => {
     expect(row(present(store()).toc, 'cloud').label).toBe('クラウド同期 ベータ、同期オフ');
   });
-  it('準備の確かめが届く前、連携と環境は「確認中」と言う', () => {
+  it('準備の確かめが届く前、Claude Code の節と環境は「確認中」と言う', () => {
     const p = present(store());
-    expect(row(p.toc, 'integrations')).toMatchObject({ state: '確認中', tone: 'default' });
+    expect(row(p.toc, 'agentClaude')).toMatchObject({ state: '確認中', tone: 'default' });
     expect(row(p.toc, 'environment')).toMatchObject({ state: '確認中', tone: 'default' });
   });
-  it('連携は、直すものがあれば「要修正 N」を注意の色で、無ければ「問題なし」と言う', () => {
+  it('Claude Code の節は、直すものがあれば「要修正 N」を注意の色で、無ければ「問題なし」と言う', () => {
     const fix = present(store({ readiness: { ...READY, mcp: { registered: false, file: '/h/.claude.json' }, statusline: { command: null, scriptPath: null, installed: false } } }));
-    expect(row(fix.toc, 'integrations')).toMatchObject({ state: '要修正 2', tone: 'warn', label: '連携、要修正 2' });
-    expect(row(present(store({ readiness: READY })).toc, 'integrations')).toMatchObject({ state: '問題なし', tone: 'default' });
+    expect(row(fix.toc, 'agentClaude')).toMatchObject({ state: '要修正 2', tone: 'warn', label: 'Claude Code、要修正 2' });
+    expect(row(present(store({ readiness: READY })).toc, 'agentClaude')).toMatchObject({ state: '問題なし', tone: 'default' });
   });
   it('環境は、動かせない道具（code は数えない）の数を「要修正 N」で、そろっていれば「すべて検出」と言う', () => {
     expect(row(present(store({ readiness: READY })).toc, 'environment')).toMatchObject({ state: 'すべて検出', tone: 'default' });
@@ -118,9 +122,10 @@ describe('設定の目次（S1）', () => {
   });
   it('言語が English なら、節の名前と状態も English で言う', () => {
     const p = present(store({ settings: { ...SETTINGS, language: 'en' } }));
-    expect(p.toc.map((r) => r.title)).toEqual(['General', 'Sessions', 'Summary', 'Integrations', 'Environment', 'Cloud sync', 'Usage', 'About Hangar']);
+    expect(p.toc.map((r) => r.title)).toEqual(['General', 'Sessions', 'Summary', 'Cloud sync', 'Environment', 'Usage', 'Claude Code', 'Codex', 'opencode', 'About Hangar']);
     expect(row(p.toc, 'cloud').label).toBe('Cloud sync Beta: Sync off');
-    expect(row(p.toc, 'integrations').state).toBe('Checking');
+    expect(row(p.toc, 'agentClaude').state).toBe('Checking');
+    expect(row(p.toc, 'agentCodex').state).toBe('Off');
   });
 });
 
@@ -128,7 +133,9 @@ describe('設定の節の選び方', () => {
   const at = (a: Extract<State['screen'], { name: 'settings' }>['at']) => present(store(), a ? { name: 'settings', at: a } : { name: 'settings' });
   it('URL に節が無ければ「一般」、節の名前ならその節', () => {
     expect(at(undefined).section).toBe('general');
-    for (const s of ['general', 'sessions', 'summary', 'integrations', 'environment', 'cloud', 'usage', 'about'] as const) expect(at(s).section).toBe(s);
+    for (const s of ['general', 'sessions', 'summary', 'cloud', 'environment', 'usage', 'agentClaude', 'agentCodex', 'agentOpencode', 'about'] as const) expect(at(s).section).toBe(s);
+    // 連携の節（integrations）は Claude Code の節の別名として読む。
+    expect(at('integrations').section).toBe('agentClaude');
   });
   it('0.9.3 までの節の名前（at=tools、update、info）は、新しい節で開き、欄へ移る印は立てない', () => {
     expect(at('tools').section).toBe('environment');
@@ -136,9 +143,9 @@ describe('設定の節の選び方', () => {
     expect(at('info').section).toBe('about');
     for (const s of ['tools', 'update', 'info'] as const) expect(at(s).focus).toBeNull();
   });
-  it('ヘッダーの同期の語（at=sync）はクラウド同期の節、アカウントの設定（at=accounts）はセッションの節を開く', () => {
+  it('ヘッダーの同期の語（at=sync）はクラウド同期の節、アカウントの設定（at=accounts）は Claude Code の節を開く', () => {
     expect(at('sync').section).toBe('cloud');
-    expect(at('accounts').section).toBe('sessions');
+    expect(at('accounts').section).toBe('agentClaude');
   });
   it('アカウントの位置へ移る印は、at=accounts のときだけ立つ', () => {
     expect(at('accounts').focus).toBe('accounts');
@@ -152,11 +159,11 @@ describe('設定の節の選び方', () => {
   it('帯の「設定を開く」が指す欄（at=workspace、tmux、claude、compat）は、その節を開いて、欄へ移る印を立てる', () => {
     expect(at('workspace').section).toBe('sessions');
     expect(at('workspace').focus).toBe('workspace');
-    for (const f of ['tmux', 'claude'] as const) {
-      expect(at(f).section).toBe('environment');
-      expect(at(f).focus).toBe(f);
-    }
-    expect(at('compat').section).toBe('integrations');
+    expect(at('tmux').section).toBe('environment');
+    expect(at('tmux').focus).toBe('tmux');
+    expect(at('claude').section).toBe('agentClaude');
+    expect(at('claude').focus).toBe('claude');
+    expect(at('compat').section).toBe('agentClaude');
     expect(at('compat').focus).toBe('compat');
     // 節だけを指したとき（目次から選んだとき）は、欄へは移らない。
     expect(at('environment').focus).toBeNull();

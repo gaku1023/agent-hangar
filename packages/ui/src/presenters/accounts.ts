@@ -20,6 +20,8 @@ export type AccountView = {
   /** 札に添える一言。上限が近い、値が古い、のどちらか 1 つ（上限が近いほうを優先）。無ければ null。 */
   note: { tone: 'warn' | 'stale'; text: string } | null;
   linkProblem: string | null;
+  /** ログイン中の Codex の方法と確認コード、取り消されたときの相手の名前。無ければ null（Claude は常に null）。 */
+  login: AccountDto['login'] | null;
   dir: string;
   /** 画面に出す置き場。サーバが返したホームの下なら ~ で始まる形に縮める。ホームが分からなければ dir のまま。 */
   dirLabel: string;
@@ -28,6 +30,12 @@ export type AccountView = {
 /** 認証の状態を言う文。AccountMeters と設定の行が同じものを使う。 */
 export const loggedOutText = (t: Translate): string => t('account.state.loggedOut');
 export const approveText = (t: Translate): string => t('account.state.approve');
+/** 承認待ちの文。確認コードの方法なら、開く先とコードを言い、それ以外は「ブラウザで承認してください…」。 */
+export const approvalText = (t: Translate, a: Pick<AccountView, 'login'>): string =>
+  a.login?.userCode && a.login.verificationUrl ? t('account.login.deviceCode', { url: a.login.verificationUrl, code: a.login.userCode }) : approveText(t);
+/** 別のアカウントのログインに取り消されたとき（承認待ちでなくなった札）に添える一文。無ければ null。 */
+export const cancelledText = (t: Translate, a: Pick<AccountView, 'login' | 'auth'>): string | null =>
+  a.auth !== 'running' && a.login?.cancelledBy !== undefined ? t('account.login.cancelled') : null;
 
 const PLANS: Record<string, string> = { max: 'Max', pro: 'Pro', team: 'Team', enterprise: 'Enterprise' };
 const HOUR = 3_600_000;
@@ -61,6 +69,7 @@ export function presentAccount(t: Translate, a: AccountDto, currentId: string, n
     fiveHour, sevenDay: gauge(a.usage.sevenDay, now),
     updatedLabel: a.usage.updatedAt === null ? null : relativeTime(t, a.usage.updatedAt, now),
     note: noteOf(t, a, fiveHour, now),
+    login: a.login ?? null,
     linkProblem: a.linkProblem, dir: a.dir, dirLabel: homePath(a.dir, home),
   };
 }
@@ -71,8 +80,10 @@ export type AgentUsageView = { plan: string | null; fiveHour: AccountGauge | nul
 /** planType の小文字の値（plus、pro など）。知らない値は頭だけ大文字にする。 */
 const AGENT_PLANS: Record<string, string> = { plus: 'Plus', pro: 'Pro', team: 'Team', business: 'Business', enterprise: 'Enterprise', edu: 'Edu', free: 'Free', go: 'Go' };
 
+const agentPlan = (plan: string | null): string | null => (plan === null || plan === '' ? null : AGENT_PLANS[plan] ?? plan.charAt(0).toUpperCase() + plan.slice(1));
+
 export function presentAgentUsage(t: Translate, u: AgentUsageDto, now: number): AgentUsageView {
-  const plan = u.plan === null || u.plan === '' ? null : AGENT_PLANS[u.plan] ?? u.plan.charAt(0).toUpperCase() + u.plan.slice(1);
+  const plan = agentPlan(u.plan);
   return { plan, fiveHour: gauge(u.fiveHour, now), sevenDay: gauge(u.sevenDay, now), updatedLabel: u.updatedAt === null ? null : relativeTime(t, u.updatedAt, now) };
 }
 
@@ -99,6 +110,23 @@ export function presentAccounts(store: Store, now: number): AccountView[] {
   const currentId = currentAccount(store)?.id ?? '';
   const t = translatorOf(store);
   return accountList(store).map((a) => presentAccount(t, a, currentId, now, store.home));
+}
+
+/** Codex のアカウントの札。AccountsDto.codex が無ければ空。currentId が一覧に無ければ最初のアカウントがいまのアカウント。 */
+export function presentCodexAccounts(store: Store, now: number): AccountView[] {
+  const c = store.accounts?.codex;
+  if (!c) return [];
+  const currentId = (c.accounts.find((a) => a.id === c.currentId) ?? c.accounts.find((a) => a.primary) ?? c.accounts[0])?.id ?? '';
+  const t = translatorOf(store);
+  return c.accounts.map((a) => ({ ...presentAccount(t, a, currentId, now, store.home), plan: agentPlan(a.auth?.plan ?? null) }));
+}
+
+/** その Codex の会話を最後に動かしたアカウントの id。対応に無い、または一覧に無ければ最初のアカウント。一覧が空なら null。 */
+export function codexAccountIdOfSession(store: Store, sessionId: string): string | null {
+  const c = store.accounts?.codex;
+  if (!c) return null;
+  const id = c.sessions[sessionId];
+  return (id ? c.accounts.find((a) => a.id === id) : undefined)?.id ?? c.accounts.find((a) => a.primary)?.id ?? c.accounts[0]?.id ?? null;
 }
 
 /** ホームの下の置き場を、~ で始まる形に縮める（macOS、Linux、Windows。lib/paths.ts）。ホームはサーバが返したものを渡す。 */

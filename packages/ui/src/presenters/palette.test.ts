@@ -114,10 +114,10 @@ describe('presentPalette（何も打っていないとき）', () => {
     expect(all.some((i) => i.id === 'go:home')).toBe(false);
     expect(ids(presentPalette(withPalette(), busy(), 'ホーム', NOW), '操作')).toContain('go:home');
   });
-  it('設定の群は節への行き先で、設定の添え書きを付ける。保持はセッションの節へ移る', () => {
+  it('設定の群は節への行き先で、設定の添え書きを付ける。保持は Claude Code の節へ移る', () => {
     const p = presentPalette(withPalette(), busy(), '', NOW)!;
-    expect(ids(p, '設定')).toEqual(['settings:general', 'settings:sessions', 'settings:integrations', 'settings:cloud', 'settings:retention']);
-    expect(p.sections.find((x) => x.title === '設定')!.items.map((i) => i.label)).toEqual(['一般', 'セッション', '連携', 'クラウド同期', 'トランスクリプトの保持']);
+    expect(ids(p, '設定')).toEqual(['settings:general', 'settings:sessions', 'settings:agentClaude', 'settings:cloud', 'settings:retention']);
+    expect(p.sections.find((x) => x.title === '設定')!.items.map((i) => i.label)).toEqual(['一般', 'セッション', 'Claude Code', 'クラウド同期', '会話を残す期間']);
     expect(item(p, 'settings:cloud')).toMatchObject({ kind: 'command', sub: '設定', lead: { kind: 'icon', icon: 'cloud' } });
   });
   it('新しいセッションは、いまの画面のプロジェクトを最初から選ぶ', () => {

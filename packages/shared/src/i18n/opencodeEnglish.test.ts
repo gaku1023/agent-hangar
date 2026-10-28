@@ -7,7 +7,7 @@ import { ja } from './ja.ts';
  * Gemini に 2 回当てて決めた英語を見張る。日本語は変えない（です・ます調のまま）。
  */
 const DECIDED: Record<string, string> = {
-  'settings.opencode.enabledDesc': 'Use opencode instead of Claude Code for new sessions.',
+  'settings.opencode.enabledDesc': 'Let new sessions use opencode.',
   'settings.label.opencodeIntercept': 'Launch the opencode command through hangar',
   'settings.opencode.intercept.desc': 'Running opencode in your shell starts it as a hangar session. When hangar is not running, plain opencode starts. To run once without wrapping, use command opencode.',
   'settings.opencode.version.unverifiedNote': 'This version is unverified. API changes may cause status and permission checks to display incorrectly.',

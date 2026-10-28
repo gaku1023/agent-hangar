@@ -91,6 +91,12 @@ posixDescribe('Codex の driver（materialize、plan、release、reattach）', (
     expect(plan.argv.join(' ')).not.toContain(plan.secretEnv![TUI_TOKEN_ENV]!);
   });
 
+  it('アカウントの置き場（spec.env の CODEX_HOME）は app-server の環境に入る', async () => {
+    const { d } = make();
+    await d.launch.materialize!({ kind: 'start' }, spec({ env: { CODEX_HOME: '/h/.codex-b' } }));
+    expect(boots()[0]!.env.CODEX_HOME).toBe('/h/.codex-b');
+  });
+
   it('MCP が failed でも起動は続け、知らせて、最初の入力を流す', async () => {
     const { d, reports } = make({ mcpPendingPolls: 'failed' });
     await d.launch.materialize!({ kind: 'start' }, spec({ prompt: 'x' }));
@@ -267,7 +273,7 @@ posixDescribe('Codex の driver（materialize、plan、release、reattach）', (
     const { d } = make();
     expect(d.kind).toBe('codex');
     expect(d.launch.servedByHangar).toBe(true);
-    expect(d.caps).toMatchObject({ accounts: false, effort: true, permissionMode: true, fork: true, remoteControl: false, attachExternal: false, promptJump: false });
+    expect(d.caps).toMatchObject({ accounts: true, effort: true, permissionMode: true, fork: true, remoteControl: false, attachExternal: false, promptJump: false });
     expect(d.live.current()).toEqual([]);
     expect(d.instructions.when).toBe('launch');
   });

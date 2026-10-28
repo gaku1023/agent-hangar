@@ -22,6 +22,8 @@ import { writeFakeClaude } from '../../test/fake-claude.ts';
 import { writeFakeCodex, type FakeCodexOptions } from '../../test/fake-codex.ts';
 import { liveSourceOf } from '../../test/fake-live.ts';
 import { posixDescribe } from '../../test/platform.ts';
+import { AccountStore } from '../config/accounts.ts';
+import { RunAccounts } from './accounts.ts';
 import { RunManager } from './manager.ts';
 import { stopCodexWriters } from '../sync/codexResume.ts';
 
@@ -56,7 +58,7 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
 
   const sessions = (): Row[] => db.prepare('select id, provider, provider_session_id, deleted_at from sessions where deleted_at is null').all() as Row[];
 
-  const make = (o: { enabled?: boolean; bin?: string | null; fake?: FakeCodexOptions; injection?: 'minimal' | 'claude' | 'none'; intercept?: boolean } = {}) => {
+  const make = (o: { enabled?: boolean; bin?: string | null; fake?: FakeCodexOptions; injection?: 'minimal' | 'claude' | 'none'; intercept?: boolean; accounts?: RunAccounts } = {}) => {
     const logFile = path.join(home, 'boot.jsonl');
     const rpcLog = path.join(home, 'rpc.jsonl');
     const bin = writeFakeCodex(path.join(home, 'cx'), { logFile, rpcLogFile: rpcLog, ...(o.fake ?? {}) });
@@ -84,6 +86,7 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
       terminalIntercept: (k) => k === 'codex' && o.intercept !== false,
       agentBin: (k) => (k === 'codex' ? (o.bin === undefined ? bin : o.bin) : null),
       injection: () => ({ askStatusAtEnd: true, liveHints: true, codex: o.injection ?? 'minimal' }),
+      ...(o.accounts ? { accounts: o.accounts } : {}),
     });
     const rpcs = (): { ev: string; method?: string; params?: Record<string, unknown> }[] => (fs.existsSync(rpcLog) ? fs.readFileSync(rpcLog, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as { ev: string; method?: string; params?: Record<string, unknown> }) : []);
     return { rm, codex, bin, opened, closed, rpcs, booted: () => fs.existsSync(logFile) };
@@ -107,14 +110,26 @@ posixDescribe('RunManager.start で Codex を起こす（materialize）', () => 
     expect(booted()).toBe(false);
   });
 
-  it('Codex が受けない指定（アカウント、追加ディレクトリ、worktree）は、行を作らずに断る。effort と permissionMode は受ける', async () => {
+  it('Codex が受けない指定（追加ディレクトリ、worktree）は、行を作らずに断る。effort と permissionMode は受ける', async () => {
     const { rm, booted } = make();
-    await expect(rm.start(params({ account: 'primary' }))).rejects.toMatchObject({ status: 400, message: 'account は Codex のセッションでは指定できません' });
     await expect(rm.start(params({ addDirs: ['/a'] }))).rejects.toMatchObject({ status: 400, message: 'addDirs は Codex のセッションでは指定できません' });
     await expect(rm.start(params({ worktree: 'w' }))).rejects.toMatchObject({ status: 400, message: 'worktree は Codex のセッションでは指定できません' });
     expect(sessions()).toEqual([]);
     expect(booted()).toBe(false);
     await expect(rm.start(params({ effort: 'low', permissionMode: 'read-only', prompt: 'x' }))).resolves.toBeTruthy();
+  });
+
+  it('Codex のアカウントで起こすと、app-server と TUI の環境に CODEX_HOME が入り、launch_params に id が残る。知らないアカウントは断る', async () => {
+    const codexPrimary = path.join(home, 'codex-primary');
+    fs.mkdirSync(codexPrimary, { recursive: true });
+    const store = new AccountStore({ home, primaryDir: codexPrimary, homeDir: home, file: 'codex-accounts.json', dirPrefix: '.codex-' });
+    const b = store.add({ name: '別' });
+    const accounts = new RunAccounts({ db, claudeDir: home, deviceId: 'd', codex: { store, primaryDir: codexPrimary } });
+    const { rm, opened } = make({ accounts });
+    const r = await rm.start(params({ account: b.id, prompt: 'x' }));
+    expect(opened[0]!.env.CODEX_HOME).toBe(b.dir);
+    expect(JSON.parse((db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string }).launch_params).account).toBe(b.id);
+    await expect(rm.start(params({ account: 'nope' }))).rejects.toMatchObject({ status: 400 });
   });
 
   it('権限や推論が Codex に通らない値なら、Codex を起動できなかったと断り、行を消す', async () => {
