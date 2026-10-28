@@ -31,7 +31,7 @@ const choose = (name: string, item: string | RegExp) => {
 describe('AccountSettings の一覧', () => {
   it('2 件を並べ、いまのアカウントに「いま」を添える。最初のアカウントの文字は行に出さない（外せない理由はメニューが言う）', () => {
     mount();
-    expect(screen.getByRole('heading', { name: 'アカウント' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Claude Code のアカウント' })).toBeInTheDocument();
     expect(screen.getAllByRole('listitem').map((li) => li.querySelector('.account-set-name')?.textContent)).toEqual(['会社', '大学']);
     expect(within(row('会社')).getByText('現在')).toBeInTheDocument();
     expect(within(row('大学')).queryByText('現在')).toBeNull();
@@ -66,8 +66,8 @@ describe('AccountSettings の一覧', () => {
   it('説明は見出しの横の ⓘ に畳み、押すと浮かぶ', () => {
     mount();
     expect(screen.queryByText(/hangar はログイン情報を読み取りません/)).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'アカウントの説明' }));
-    expect(screen.getByRole('dialog', { name: 'アカウントの説明' })).toHaveTextContent('ログインだけを切り替え、設定、スキル、履歴は共有します。hangar はログイン情報を読み取りません。');
+    fireEvent.click(screen.getByRole('button', { name: 'Claude Code のアカウントの説明' }));
+    expect(screen.getByRole('dialog', { name: 'Claude Code のアカウントの説明' })).toHaveTextContent('ログインだけを切り替えます。設定、スキル、履歴は ~/.claude を共有します。hangar はログイン情報を読み取りません。');
   });
 });
 

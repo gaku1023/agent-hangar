@@ -42,7 +42,7 @@ export const confirmJa: AreaDictionary<typeof confirmKeys> = {
   'confirm.switchAccount.default': '新しいセッションのデフォルトも {name} になります。',
   'confirm.switchAccount.action': '切り替える',
   'confirm.switchAccount.codexTitle': '{name} のアカウントに切り替えますか？',
-  'confirm.switchAccount.codexLead': 'この会話をいったん止め、{name} のアカウントで再開します。作業中の場合は中断されます。',
+  'confirm.switchAccount.codexLead': 'この会話をいったん停止し、{name} のアカウントで再開します。途中の作業が中断されます。',
   'confirm.removeAccount.title': '{name} の登録を解除しますか？',
   'confirm.removeAccount.lead': '登録だけを解除します。設定ディレクトリ（ログインと設定のリンク）は削除しません。',
   'confirm.removeAccount.note': 'このアカウントで実行したセッションは、次回からメインアカウントで再開します。',
