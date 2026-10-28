@@ -70,6 +70,15 @@ describe('recordArtifactPublish', () => {
     recordArtifactPublish(db, 'd', { sessionId: 's1', projectId: 'p1', url, publishedAt: 200, call: { filePath: missing, description: 'x', icon: null } });
     expect((db.prepare('select favicon from artifacts where id = ?').get(a) as { favicon: string }).favicon).toBe('map');
   });
+  it('icon の付いた最初の公開が後から読まれても、空いていれば埋める（索引の作り直しで新しい方が先に来るとき）', () => {
+    const db = openDb(':memory:');
+    upsertShared(db, 'projects', { id: 'p1', name: 'p1', status: 'active' }, 'd');
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd: '/x', home_device: 'd', project_id: 'p1' }, 'd');
+    const url = 'https://claude.ai/code/artifact/0199a2b3-1111-7000-8000-00000000000a';
+    const a = recordArtifactPublish(db, 'd', { sessionId: 's1', projectId: 'p1', url, publishedAt: 200, call: { filePath: missing, description: 'x', icon: null } });
+    recordArtifactPublish(db, 'd', { sessionId: 's1', projectId: 'p1', url, publishedAt: 100, call: { filePath: missing, description: 'x', icon: 'map' } });
+    expect((db.prepare('select favicon from artifacts where id = ?').get(a) as { favicon: string }).favicon).toBe('map');
+  });
   it('同じ URL は 1 件にまとめ、版を積み、同じ版は二重にしない', () => {
     const db = openDb(':memory:');
     for (const id of ['p1', 'p2']) upsertShared(db, 'projects', { id, name: id, status: 'active' }, 'd');

@@ -84,7 +84,8 @@ export function recordArtifactPublish(db: Db, deviceId: string, o: { sessionId: 
     project_id: newest ? o.projectId : cur!.project_id,
     title: newest ? title : cur!.title,
     description: newest ? o.call.description ?? cur?.description ?? null : cur!.description,
-    favicon: newest ? o.call.icon ?? cur?.favicon ?? null : cur!.favicon,
+    // icon は 2 回目以降の公開で省かれる。新しい公開に無ければ前の値を残し、古い公開でも空いていれば埋める。
+    favicon: newest ? o.call.icon ?? cur?.favicon ?? null : cur!.favicon ?? o.call.icon,
     first_published_at: Math.min(cur?.first_published_at ?? o.publishedAt, o.publishedAt),
     last_published_at: Math.max(cur?.last_published_at ?? o.publishedAt, o.publishedAt),
     deleted_at: null,
