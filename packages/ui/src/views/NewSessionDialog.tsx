@@ -174,8 +174,9 @@ export function NewSessionDialog(props: NewSessionProps) {
   const { model, effort, permissionMode, worktree, addDirs } = detail;
   // アカウントは、利用者が選んだ id だけを覚える。選んでいなければ、いまのアカウント（選べなければ選べる最初の 1 件）。
   // 選んだ id が一覧から消えたとき、選べなくなったときも、同じ規則でいまのアカウントへ戻る。
+  // Claude Code と Codex は別のアカウントの組なので、選んだ id もエージェントごとに覚える（Claude で選んだものを Codex に持ち込まない）。
   const [pickedAccount, setPickedAccount] = useState<string | null>(null);
-  const account = props.accounts ? accountChoice(props.accounts, pickedAccount) : null;
+  const [pickedCxAccount, setPickedCxAccount] = useState<string | null>(null);
   // エージェント。利用者が選んだものだけを覚え、選んでいなければプロジェクトの前回値（無ければ Claude Code）。設定で無効なら、いつも Claude Code。
   const oc = props.opencode ?? null;
   const cx = props.codex ?? null;
@@ -189,6 +190,9 @@ export function NewSessionDialog(props: NewSessionProps) {
   const opencode = agent === 'opencode';
   const codex = agent === 'codex';
   const caps = AGENT_UI_CAPS[agent];
+  // いまのエージェントのアカウントの組（opencode は無し）。2 件未満なら null で、札も params.account も出さない。
+  const accountSet = !caps.accounts ? null : codex ? props.codexAccounts ?? null : props.accounts;
+  const account = accountSet ? accountChoice(accountSet, codex ? pickedCxAccount : pickedAccount) : null;
   // opencode の一覧を聞く場所。opencode.json の重なりが場所で変わるので、起こす場所で聞く。新しいフォルダとクイックセッションはホームで聞く。
   const ocDir = dirPath ?? (scratch || newDir ? null : props.projects.find((p) => p.id === choice)?.path ?? null);
   const ocState = oc?.options && oc.options.dir === ocDir ? oc.options : null;
@@ -235,7 +239,7 @@ export function NewSessionDialog(props: NewSessionProps) {
     enterAgent(s.snap, agent);
   }, [agent]);
   // 開いたときに 1 回、認証と使用量を読み直させる。
-  const hasAccounts = props.accounts !== null;
+  const hasAccounts = props.accounts !== null || (props.codexAccounts ?? null) !== null;
   useEffect(() => { if (hasAccounts) emit({ type: 'accounts.load' }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 閉じるとき（どの経路で閉じても、ダイアログは外される）に、書きかけを下書きとして送る。
@@ -290,7 +294,7 @@ export function NewSessionDialog(props: NewSessionProps) {
     else if (choice) params.projectId = choice;
     // 開いてから送るまでにいまのアカウントが変わっても、選んだとおりに起こすため、いまのアカウントと同じでも入れる。
     // opencode にはアカウントを効かせない（サーバも断る）。
-    if (account !== null && caps.accounts) params.account = account;
+    if (account !== null) params.account = account;
     if (name.trim()) params.name = name.trim();
     // 添付は、本文の後にパスを足して渡す。起動の API は変えない（promptComposerModel.ts の composePrompt）。
     // 添付の置き場を claude に渡す --add-dir はサーバが足すので、ここでは addDirs に混ぜない。
@@ -443,7 +447,7 @@ export function NewSessionDialog(props: NewSessionProps) {
           autoApprove, onAutoApprove: setAutoApprove, pickModel: props.pickModel === true,
         } : undefined}
         lead={projectChip}
-        account={props.accounts && account !== null ? { value: account, options: accountOptions(t, props.accounts), onChange: setPickedAccount } : undefined}
+        account={accountSet && account !== null ? { value: account, options: accountOptions(t, accountSet), onChange: codex ? setPickedCxAccount : setPickedAccount } : undefined}
         values={{ model, effort, permissionMode, worktree, addDirs, name }}
         onChange={onChips}
         previousPermission={prev ? prev.permissionMode ?? '' : undefined}

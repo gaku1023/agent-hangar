@@ -4,7 +4,7 @@ import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPrev
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState, transition } from '../mediator/transition.ts';
 import type { PhoneLaunchDto, ServerEvent } from '@agent-hangar/shared';
-import { accountsFixture, FIVE_RESETS, SEVEN_RESETS } from '../test/accounts.ts';
+import { accountsFixture, codexAccountsFixture, FIVE_RESETS, SEVEN_RESETS } from '../test/accounts.ts';
 import type { State } from '../mediator/types.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, setEventsLoading, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, percentLabel, relativeTime, resetsLabel, shortModel, tokensLabel } from './format.ts';
@@ -970,6 +970,15 @@ describe('presentNewSession', () => {
     });
     it('currentId が一覧に無ければ、最初のアカウントがいまのアカウントになる', () => {
       expect(presentNewSession(open, { ...storeWith(), accounts: { ...accountsFixture, currentId: 'gone' } }, NOW)!.accounts!.currentId).toBe('primary');
+    });
+    it('Codex のアカウントは別の組で、2 件以上のときだけ渡す（Claude の組とは混ぜない）', () => {
+      expect(presentNewSession(open, { ...storeWith(), accounts: accountsFixture }, NOW)!.codexAccounts).toBeNull();
+      const p = presentNewSession(open, { ...storeWith(), accounts: codexAccountsFixture }, NOW)!;
+      expect(p.codexAccounts!.currentId).toBe('primary');
+      expect(p.codexAccounts!.list.map((a) => [a.id, a.name])).toEqual([['primary', '個人'], ['cw', '会社用']]);
+      expect(p.accounts!.list.map((a) => a.id)).toEqual(['primary', 'a1']);
+      const one = { ...codexAccountsFixture, codex: { ...codexAccountsFixture.codex!, accounts: [codexAccountsFixture.codex!.accounts[0]!] } };
+      expect(presentNewSession(open, { ...storeWith(), accounts: one }, NOW)!.codexAccounts).toBeNull();
     });
   });
 });

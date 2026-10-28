@@ -163,7 +163,7 @@ export function LaunchChips(props: {
   const names: Record<Extra, string> = { name: t('launch.chip.name'), addDirs: t('launch.chip.addDirs') };
   const oc = props.opencode;
   const cx = props.codex;
-  // opencode と Codex は自前の札の組を持ち、アカウント・effort・権限モード・worktree・追加ディレクトリの札は出さない。
+  // opencode と Codex は自前の札の組を持ち、effort・権限モード・worktree・追加ディレクトリの札は出さない。
   const alt = !!(oc || cx);
   const extras = alt ? OPENCODE_EXTRAS : EXTRAS;
   const extraItems = extras.filter((k) => !added.has(k)).map((k) => ({ key: k, label: names[k], onSelect: () => add(k) }));
@@ -172,19 +172,19 @@ export function LaunchChips(props: {
     <div className="launch-chips" role="group" aria-label={t('launch.chips.label')} ref={props.rootRef}>
       {props.agent && <AgentChip {...props.agent} />}
       {props.lead}
+      {account && (
+        <ChipPopover name={t('launch.chip.account')} value={accountLabel} dot={accountNow?.color} showName={false} width={260} agentOnly="accounts">
+          {(close) => (
+            <PickList label={t('launch.chip.account')} value={account.value}
+              items={account.options.map((o) => ({ value: o.value, label: o.label, disabled: o.disabled, tag: o.tag, lead: o.color ? <span className="st-dot" style={{ color: o.color }} aria-hidden="true" /> : undefined }))}
+              onPick={(v) => { account.onChange(v); close(); }} />
+          )}
+        </ChipPopover>
+      )}
       {oc && <OpencodeChips {...oc} />}
       {cx && <CodexChips {...cx} />}
       {!alt && (
         <>
-          {account && (
-            <ChipPopover name={t('launch.chip.account')} value={accountLabel} dot={accountNow?.color} showName={false} width={260} agentOnly="accounts">
-              {(close) => (
-                <PickList label={t('launch.chip.account')} value={account.value}
-                  items={account.options.map((o) => ({ value: o.value, label: o.label, disabled: o.disabled, tag: o.tag, lead: o.color ? <span className="st-dot" style={{ color: o.color }} aria-hidden="true" /> : undefined }))}
-                  onPick={(v) => { account.onChange(v); close(); }} />
-              )}
-            </ChipPopover>
-          )}
           <ChipPopover name={t('launch.chip.model')} value={values.model || def} tone={values.model ? 'default' : 'muted'} agentOnly="modelText">
             {(close) => <ModelEditor value={values.model} onChange={(v) => onChange({ model: v })} close={close} />}
           </ChipPopover>
