@@ -15,6 +15,8 @@ import {
   readIdentifier,
   signApp,
   unlockKeychain,
+  withStoredPassword,
+  KEYCHAIN_PASSWORD_SERVICE,
   type RunResult,
   type Runner,
 } from '../scripts/sign-macos.ts';
@@ -111,6 +113,51 @@ describe('引数の扱い', () => {
   });
   it('知らない引数は止まる', () => {
     expect(() => parseArgs(['/x/Hangar.app', '--adhoc', '--nope'], {}, base)).toThrow(/--nope/);
+  });
+});
+
+describe('手元の build（--local）', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-sign-local-'));
+  const fp = path.join(d, 'fp.txt');
+  fs.writeFileSync(fp, `${FP}\n`);
+  const localKeychain = path.join(d, 'hangar-signing.keychain-db');
+  const base = { identifier: ID, fingerprintFile: fp, localKeychain };
+  afterEach(() => fs.rmSync(localKeychain, { force: true }));
+
+  it('専用のキーチェーンがあれば証明書で署名する', () => {
+    fs.writeFileSync(localKeychain, '');
+    const o = parseArgs(['/x/Hangar.app', '--local'], {}, base);
+    expect(o).toMatchObject({ mode: 'cert', fingerprint: FP_LC, keychain: localKeychain, local: true });
+  });
+  it('HANGAR_SIGN_KEYCHAIN があればそちらを使う', () => {
+    const o = parseArgs(['/x/Hangar.app', '--local'], { HANGAR_SIGN_KEYCHAIN: '/k' }, base);
+    expect(o).toMatchObject({ mode: 'cert', keychain: '/k' });
+  });
+  it('キーチェーンが無ければ ad-hoc に落とし、落としたことを印に残す', () => {
+    const o = parseArgs(['/x/Hangar.app', '--local'], {}, base);
+    expect(o).toMatchObject({ mode: 'adhoc', local: true });
+  });
+  it('--adhoc と一緒には使えない', () => {
+    expect(() => parseArgs(['/x/Hangar.app', '--local', '--adhoc'], {}, base)).toThrow(/--local/);
+  });
+});
+
+describe('キーチェーンのパスワードをログインのキーチェーンから読む', () => {
+  const cert = { app: '/x', mode: 'cert' as const, identifier: ID, fingerprint: FP_LC, keychain: '/k', local: true };
+  it('--local でパスワードが無ければ、ログインのキーチェーンの項目を読む', () => {
+    const a = fakeRunner((cmd) => (cmd === 'security' ? { status: 0, stdout: 'pw\n' } : {}));
+    expect(withStoredPassword(cert, a.run)).toMatchObject({ keychainPassword: 'pw' });
+    expect(a.calls[0]).toEqual({ cmd: 'security', args: ['find-generic-password', '-s', KEYCHAIN_PASSWORD_SERVICE, '-w'] });
+  });
+  it('項目が無ければそのまま（security に端末で尋ねさせる）', () => {
+    const a = fakeRunner(() => ({ status: 44, stderr: 'not found' }));
+    expect(withStoredPassword(cert, a.run).keychainPassword).toBeUndefined();
+  });
+  it('環境変数のパスワードがあれば読まない。--local でなければ読まない', () => {
+    const a = fakeRunner();
+    withStoredPassword({ ...cert, keychainPassword: 'env' }, a.run);
+    withStoredPassword({ ...cert, local: false }, a.run);
+    expect(a.calls).toEqual([]);
   });
 });
 

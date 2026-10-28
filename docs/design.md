@@ -6371,7 +6371,7 @@ Windows には通知の許可を尋ねるダイアログが無いので、`notif
 macOS では Dock のバッジも通知の設定の「バッジ」に従うので、許可を求めるときは表示と音に加えてバッジも求める（`notify.rs` の `authorization_options`）。
 macOS は、署名の壊れた `.app`（署名せずに入れた手元の build）からの許可の求めを、システム設定で許可していても、ダイアログを出さずにエラーで断る（2026-10-24 に macOS 27 で実測）。
 断られたら、殻は理由をログ（`notifications refused by macOS: …`）に書く。
-手元の build は `npm run build-mac-local -w apps/desktop` で、build の出力に ad-hoc で署名してから入れる（`docs/signing.md`）。
+手元の build は `npm run build-mac-local -w apps/desktop` で、build の出力に署名してから入れる。専用のキーチェーンがあれば証明書で、無ければ ad-hoc で署名する（`docs/signing.md`）。
 ブラウザでは Web Notification と `navigator.setAppBadge` を使い、どちらも無ければ何もしない。
 
 通知を受け取るかは PC ごとに localStorage（`notify.waiting`）に残す。
@@ -10082,6 +10082,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   ファイルなどほかの許可は DR で引かれるので、DR は葉の証明書の指紋（`certificate leaf = H"<SHA-1>"`）で固定する。
   `apps/desktop/scripts/sign-macos.ts` が、内側の Mach-O から外側へ署名し（ハードンドランタイムなし、`--deep` に頼らない）、識別子、DR、`codesign --verify --deep --strict` を確かめて、違えば落とす。
   証明書が無い開発者の手元では `--adhoc` で識別子だけ固定できる（DR は build ごとに変わるので、ローカルネットワーク以外の許可は保たれない見込み）。
+  手元の build（`build-mac-local`）は `--local` で署名する。専用のキーチェーンがあれば証明書で、無ければ ad-hoc にする。ad-hoc の build を入れ替えるたびに画面収録の許可が外れていた（tccd が古い csreq と合わないと断る）ためである。
   証明書は 10 年以上の自己署名で、`make-signing-cert.sh` で利用者が一度だけ作る。秘密鍵は保守者のパスワード管理と CI の secret の 2 か所だけに置き、リポジトリには公開の証明書と指紋（`apps/desktop/signing/certificate-sha1.txt`）だけを置く。
   本番の証明書は作って CI の secret に入れてあり、指紋と公開の証明書は `apps/desktop/signing/` に置いてある。
   手元で署名する開発者は、既存の p12 を `import-signing-cert.sh` で専用のキーチェーンへ取り込む。指紋がリポジトリの値と違えば取り込まない。`make-signing-cert.sh` で作り直すと別の証明書になり、DR が変わって全員の許可が外れるためである。
