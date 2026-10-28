@@ -1,5 +1,6 @@
+import os from 'node:os';
 import { agentsOf, type Agents } from '../agent/agents.ts';
-import { localContextOf, opencodePermissionPresetOf, providerPrepsOf, type LiveSessionDto } from '@agent-hangar/shared';
+import { localContextOf, opencodePermissionPresetOf, opencodeShareOf, providerPrepsOf, type LiveSessionDto } from '@agent-hangar/shared';
 import { RUN_DROPPED_ENV, AGENT_RUN_DROPPED_ENV } from '../launch/env.ts';
 import { ensureHookScript } from '../launch/hookScript.ts';
 import { remoteRoot } from '../config/cloud.ts';
@@ -17,6 +18,8 @@ import { createCodexLive } from '../provider/codex/live.ts';
 import { findCodex } from '../config/tools.ts';
 import { createOpencodeDriver, type OpencodeDriver } from '../provider/opencode/driver.ts';
 import type { OpencodeServes } from '../provider/opencode/launch.ts';
+import { claudeJsonFor } from '../provider/claude-code/config/claudeJson.ts';
+import { opencodeShareFor } from '../share/opencode.ts';
 import { permissionPresetFor } from '../provider/opencode/permissionPreset.ts';
 import { LocalModelListing } from '../provider/opencode/localModels/available.ts';
 import { ProviderPreps } from '../provider/opencode/providerPrep.ts';
@@ -92,6 +95,11 @@ export function bootAgents(
     enrich: o.enrich,
     // 許可のひな形は、起こすたびに今の設定と、利用者の opencode.json（会話のフォルダから上も）を読んで決める。
     permissions: (cwd) => permissionPresetFor({ enabled: opencodePermissionPresetOf(home.settings.current), home: home.home, cwd }),
+    // Claude Code の指示と MCP を重ねる。置き場は起こす環境の CLAUDE_CONFIG_DIR（無ければ最初のアカウントの置き場）に従う。設定が切なら何も読まない。
+    share: (spec) => {
+      const configDir = spec.env.CLAUDE_CONFIG_DIR || null;
+      return opencodeShareFor({ cwd: spec.cwd, home: home.home, homeDir: os.homedir(), claudeDir: configDir ?? home.claudeDir, claudeJsonPath: claudeJsonFor(configDir, os.homedir()), env: process.env, share: opencodeShareOf(home.settings.current) });
+    },
     // 起動前に LM Studio のモデルを整える。長さは設定から、呼ばれた時点の値を読む。
     localModels: { home: home.home, context: () => localContextOf(home.settings.current) },
     // 起動前に、会話のモデルがこの PC の LM Studio などにあるかを聞く。無いモデルでは起こさない。

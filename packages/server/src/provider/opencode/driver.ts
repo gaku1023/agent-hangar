@@ -20,7 +20,7 @@ export type OpencodeDriverDeps = {
   droppedEnv: readonly string[];
   enrich?: (live: LiveSessionDto[]) => LiveSessionDto[];
   report?: (what: 'instructions' | 'mcp' | 'stop', e: unknown) => void;
-} & Pick<MaterializeDeps, 'permissions' | 'mcpWaitMs' | 'mcpPollMs' | 'requestTimeoutMs' | 'sleep' | 'providerPreps' | 'localListing'> & {
+} & Pick<MaterializeDeps, 'permissions' | 'share' | 'mcpWaitMs' | 'mcpPollMs' | 'requestTimeoutMs' | 'sleep' | 'providerPreps' | 'localListing'> & {
   /** 起動前にローカルのモデルを整える口（localModels/prepare.ts）。無ければ整えない。動いている会話かどうかは serve の有無で見る。 */
   localModels?: Omit<LocalModelsDeps, 'isRunning'>;
 };
@@ -76,7 +76,7 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): OpencodeDriver {
       async materialize(mode, spec) {
         const s = serves();
         const localModels = deps.localModels ? { ...deps.localModels, isRunning: (id: string) => s.get(id) !== null } : undefined;
-        const r = await materializeOpencode({ serves: s, report, permissions: deps.permissions, mcpWaitMs: deps.mcpWaitMs, mcpPollMs: deps.mcpPollMs, requestTimeoutMs: deps.requestTimeoutMs, sleep: deps.sleep, localModels, providerPreps: deps.providerPreps, localListing: deps.localListing }, mode, spec);
+        const r = await materializeOpencode({ serves: s, report, permissions: deps.permissions, share: deps.share, mcpWaitMs: deps.mcpWaitMs, mcpPollMs: deps.mcpPollMs, requestTimeoutMs: deps.requestTimeoutMs, sleep: deps.sleep, localModels, providerPreps: deps.providerPreps, localListing: deps.localListing }, mode, spec);
         hangarIdOf.set(r.providerSessionId, spec.hangarSessionId);
         live.track({ providerSessionId: r.providerSessionId, cwd: spec.cwd, serve: r.serve });
         transcript.track({ providerSessionId: r.providerSessionId, cwd: spec.cwd, serve: r.serve });
