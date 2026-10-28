@@ -86,10 +86,10 @@ describe('MCP tools', () => {
     expect((p.recent_sessions as { id: string }[]).map((s) => s.id)).toEqual([alphaId]);
     expect(() => call('get_project', { project_id: 'nope' })).toThrow(ToolError);
     call('update_project', { project_id: 'p1', add_todos: ['a'] });
-    recordArtifactPublish(db, 'd', { sessionId: alphaId, projectId: 'p1', url: 'https://claude.ai/code/artifact/z', publishedAt: 7, call: { filePath: null, description: 'Z', favicon: '🧪' } });
+    recordArtifactPublish(db, 'd', { sessionId: alphaId, projectId: 'p1', url: 'https://claude.ai/code/artifact/z', publishedAt: 7, call: { filePath: null, description: 'Z', icon: 'flask' } });
     const p2 = call('get_project', { project_id: 'p1' });
     expect((p2.todos as unknown[]).length).toBe(1);
-    expect(p2.artifacts).toEqual([{ id: expect.any(String), url: 'https://claude.ai/code/artifact/z', title: 'Z', favicon: '🧪', last_published_at: 7, version_count: 1 }]);
+    expect(p2.artifacts).toEqual([{ id: expect.any(String), url: 'https://claude.ai/code/artifact/z', title: 'Z', icon: 'flask', last_published_at: 7, version_count: 1 }]);
   });
   it('update_project は status と TODO を書き、イベントを配る', () => {
     const r = call('update_project', { project_id: 'p1', status: 'paused', add_todos: ['x', 'y'] }, { sessionId: alphaId });

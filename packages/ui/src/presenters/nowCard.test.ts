@@ -12,7 +12,7 @@ const res = (c: TranscriptEvent, isError = false): TranscriptEvent => ({ kind: '
 const prompt = (text: string, ts?: number): TranscriptEvent => ({ kind: 'user', seq: seq++, ...(ts === undefined ? {} : { ts }), text });
 const digest = (p: Partial<LiveDigestDto> = {}): LiveDigestDto => ({ sessionId: 's1', turnStartSeq: 0, intent: null, agents: [], ...p });
 const agent = (p: Partial<LiveAgentDto>): LiveAgentDto => ({ agentId: 'a', title: '担当', state: 'running', startedAt: 0, lastAt: 60_000, last: null, report: null, endNote: null, linked: true, ...p });
-const artifact = (id: string): ArtifactCardProps => ({ id, title: `成果 ${id}`, description: null, favicon: '📄', url: 'https://x', lastPublished: '12 分前', versionCount: 1, canOpenEditor: false });
+const artifact = (id: string): ArtifactCardProps => ({ id, title: `成果 ${id}`, description: null, icon: 'document', url: 'https://x', lastPublished: '12 分前', versionCount: 1, canOpenEditor: false });
 const input = (p: Partial<CardInput> = {}): CardInput => ({
   digest: digest(), events: [], turnFrom: 0, live: 'busy', activity: null, now: 180_000, viewingAgent: false, clock: (ts) => `t${ts}`, idleFor: '3 分',
   waited: '4 分', artifacts: [], ...p,

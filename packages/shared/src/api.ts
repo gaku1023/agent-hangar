@@ -375,7 +375,8 @@ export type InstructionFileKind = 'project' | 'projectDotClaude' | 'local' | 'ag
 export type InstructionFileDto = { kind: InstructionFileKind; name: string; size: number; updatedAt: number; read: boolean; markdown: string | null; truncated: boolean };
 /** プロジェクトの指示とメモリ。available はこの PC にプロジェクトのフォルダがあるか。無ければ files は空である。 */
 export type InstructionsDto = { projectId: string; available: boolean; files: InstructionFileDto[] };
-export type ArtifactDto = { id: string; projectId: string | null; url: string; title: string | null; description: string | null; favicon: string | null; filePath: string | null; fileExists: boolean; firstPublishedAt: number; lastPublishedAt: number; versionCount: number; sessionIds: string[] };
+/** icon は Artifact ツールに渡されたアイコンの語（chart、map など）。昔のものは絵文字のことがある。 */
+export type ArtifactDto = { id: string; projectId: string | null; url: string; title: string | null; description: string | null; icon: string | null; filePath: string | null; fileExists: boolean; firstPublishedAt: number; lastPublishedAt: number; versionCount: number; sessionIds: string[] };
 export type PromoteResultDto = { project: ProjectDto; session: SessionDto; moved: boolean; reason: string | null };
 /**
  * プロジェクトを作る場所。newDir は新しいフォルダを作り、dir は既存のディレクトリを登録する。

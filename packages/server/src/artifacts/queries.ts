@@ -32,7 +32,7 @@ function toDto(r: Row, versions: VersionRow[]): ArtifactDto {
     url: r.url,
     title: r.title,
     description: r.description,
-    favicon: r.favicon,
+    icon: r.favicon,
     filePath,
     fileExists: filePath !== null && fs.existsSync(filePath),
     firstPublishedAt: r.first_published_at,

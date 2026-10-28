@@ -24,7 +24,7 @@ let seq = 0;
 const call = (name: string, input: unknown): TranscriptEvent => ({ kind: 'tool_call', seq: seq++, ts: 0, toolId: `t${seq}`, name, input, summary: name });
 const res = (c: TranscriptEvent): TranscriptEvent => ({ kind: 'tool_result', seq: seq++, toolId: (c as { toolId: string }).toolId, text: '', isError: false });
 const agent = (p: Partial<LiveAgentDto>): LiveAgentDto => ({ agentId: 'a', title: '担当', state: 'running', startedAt: NOW - 120_000, lastAt: NOW - 60_000, last: null, report: null, endNote: null, linked: true, ...p });
-const artifact = (id: string, title: string, when: string, canOpenEditor = false): ArtifactCardProps => ({ id, title, description: null, favicon: '📄', url: 'https://example.invalid', lastPublished: when, versionCount: 1, canOpenEditor });
+const artifact = (id: string, title: string, when: string, canOpenEditor = false): ArtifactCardProps => ({ id, title, description: null, icon: 'document', url: 'https://example.invalid', lastPublished: when, versionCount: 1, canOpenEditor });
 
 /** 試作の「入力待ち」の例。読んだ 2 回と、答えを待っている問い。 */
 function waitingEvents(): TranscriptEvent[] {

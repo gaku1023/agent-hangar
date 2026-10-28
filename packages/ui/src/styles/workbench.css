@@ -125,7 +125,9 @@
 .artifacts-all[aria-expanded='true'] > .icon { transform: rotate(-90deg); }
 .artifact { cursor: pointer; padding: calc(var(--u) * 2); }
 .artifact-head { display: flex; align-items: center; gap: calc(var(--u) * 1.5); min-width: 0; }
-.artifact-favicon { flex: none; }
+/* 札の頭の絵（試作の案 B）。淡い青の四角に線画を置く。ほかの欄（いまの札、終わった画面）の一覧も同じものを使う。 */
+.artifact-icon { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); }
+.artifact-icon > .icon { width: 14px; height: 14px; }
 .artifact-head .card-title { flex: 1; font-size: var(--fs); min-width: 0; }
 .artifact-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 項目は語の途中で折らない。収まらないときは項目ごと次の行へ送る。 */

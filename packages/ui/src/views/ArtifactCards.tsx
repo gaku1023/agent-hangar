@@ -3,7 +3,7 @@ import { useEmit } from '../action/chain.tsx';
 import type { ArtifactCardProps } from '../presenters/project.ts';
 import { isComposing } from './ime.ts';
 import { FoldBox } from './primitives/FoldBox.tsx';
-import { Icon } from './primitives/Icon.tsx';
+import { ArtifactIcon, Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { useEditorLabels } from './primitives/editorName.tsx';
 import { motionOn } from './primitives/motionKit.ts';
@@ -17,7 +17,7 @@ function ArtifactCard(props: { a: ArtifactCardProps }) {
   return (
     <div className="card artifact" role="link" tabIndex={0} onClick={() => emit({ type: 'artifact.open', id: a.id })} onKeyDown={(e) => { if (e.key === 'Enter') emit({ type: 'artifact.open', id: a.id }); }}>
       <div className="artifact-head">
-        <span className="artifact-favicon" aria-hidden="true">{a.favicon}</span>
+        <ArtifactIcon name={a.icon} />
         <span className="card-title">{a.title}</span>
       </div>
       {a.description && <div className="muted artifact-desc">{a.description}</div>}

@@ -4083,13 +4083,18 @@ git の外では、その旨の 1 行だけを出す。
 
 **アーティファクト** は、セッションが claude.ai に公開した Artifact の URL である。
 トランスクリプトの Artifact ツール呼び出しと結果から自動で抽出する。
-呼び出しには元ファイルのパス、説明文、favicon の絵文字が、結果には `Published <path> at https://claude.ai/code/artifact/<uuid>` が残る。
+呼び出しには元ファイルのパス、説明文、アイコンの語（`icon`。chart、map などの英単語）が、結果には `Published <path> at https://claude.ai/code/artifact/<uuid>` が残る。
 旧形式の `https://claude.ai/artifact/<id>` も同じ扱いにする。
 
 同じ URL への再公開は 1 件のアーティファクトにまとめ、`artifact_versions` に「いつ、どのセッションが更新したか」を積む。
 題名は元ファイルが残っていれば HTML の `<title>` から、無ければ説明文の先頭から取る。
 プロジェクト画面には全セッション分を集約し、セッション画面にはそのセッション分を出す。
-カードには favicon、題名、説明、最終公開時刻、更新回数を出し、クリックで既定のブラウザに開く。
+カードには絵、題名、説明、最終公開時刻、更新回数を出し、クリックで既定のブラウザに開く。
+絵は `icon` の語を線画（lucide）に当て、淡い青の四角に置く（`presenters/artifactIcon.ts`）。
+以前のツールは `favicon` に絵文字を渡していたので、`icon` が無い呼び出しはそれを控えるが、画面には絵文字を出さない。
+知らない語、昔の絵文字、値の無いものは文書の線画にする。
+2 回目以降の公開では `icon` が省かれるので、最初に入った値を残す。
+表の列の名前は同期の形を変えないため `favicon` のままで、DTO と MCP の出力では `icon` と呼ぶ。
 元ファイルが残っていれば「<名前> で開く」（選んだエディタ）も付ける。
 利用者は URL を手で追加できる。
 手で足した URL がすでにあるときは、付いているプロジェクトで分ける。
@@ -9914,7 +9919,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - ヘッダのファイルを用意する場所：`hangar statusline install` と、サーバの起動時の両方で用意する。起動時はトークンを読むのと同じところで、無ければ作り、トークンと食い違えば書き直し、他人に読める権限なら 0600 へ狭める。中身も権限も揃っているときは触らない（毎回書き直すと mtime だけが動く）。install のときにしか置かないと、`~/.agent-hangar` を消した利用者の使用量が、何のエラーも出ないまま止まる。
 - 入っているスニペットの差し替え：目印の行があるだけでは何もしないとせず、目印から `exec <<<"$__hangar_input"` までの範囲を読み取り、今の形と違えばその範囲だけを差し替える。トークンを argv に載せる古い形が残り続けないようにするためである。目印はあるのに終わりの行が見つからないときは、手で書き換えられているとみなして何もしない。
 - jsonl の使用量の集計：端末ローカルの `usage_daily(session_id, day, file_path, input_tokens, output_tokens)` を索引化のときに埋める。鍵は（`session_id`、`file_path`、`day`）で、索引の作り直しではそのファイルのぶんだけを消してから積み直す。主線とサブエージェントは別のファイルなので、片方を積み直しても他方の集計は残る。`day` はイベントの `timestamp` をローカル時刻で `YYYY-MM-DD` にしたもの。プロジェクト別は `session_stats` のトークン数を `sessions.project_id` で束ねる。推定コストは価格表を持たず、statusline の `cost.total_cost_usd` を持つセッションの和だけを出す（1 件も無ければ null）。
-- アーティファクトの抽出：`Artifact` ツールの呼び出しを `artifact_calls(tool_id, session_id, file_path, description, favicon)` に控え、結果の本文から URL を取り出せたときだけ公開とみなす。記録するのは `action` が無いか `publish` のときだけで、`read` や `list` は公開ではない。`artifacts` は URL で 1 件にまとめ、`first_published_at` は最小、`last_published_at` は最大を保ち、説明と favicon は新しい公開の値で上書きする。
+- アーティファクトの抽出：`Artifact` ツールの呼び出しを `artifact_calls(tool_id, session_id, file_path, description, favicon)` に控え（`favicon` の列には `icon` の語、無ければ昔の `favicon` の絵文字を入れる）、結果の本文から URL を取り出せたときだけ公開とみなす。記録するのは `action` が無いか `publish` のときだけで、`read` や `list` は公開ではない。`artifacts` は URL で 1 件にまとめ、`first_published_at` は最小、`last_published_at` は最大を保ち、説明とアイコンは新しい公開の値で上書きする（アイコンは省かれたら前の値を残し、後から読んだ古い公開でも空いていれば埋める）。
 - アーティファクトの版：`artifact_versions` は（`artifact_id`、`session_id`、`published_at`）が同じ行が既にあれば追加しない。索引の作り直しでは版を消さず、同じ行を書き直すだけにする。消すとサブエージェント由来の版が巻き添えになり、`changes` にも削除が残らないためである。版はアーティファクト単位で引くので、`artifact_versions(artifact_id)` に索引を置く。
 - アーティファクトの題名：表示のたびに計算せず、公開を記録するときに決めて `artifacts.title` に書く。元ファイルがあれば先頭 64KB の `<title>`、無ければ説明文の先頭 60 字を使う。手で足した URL は題名 null で、UI は URL の末尾を出す。
 - TODO の並び：`position` は追加のたびにそのプロジェクトの最大値（削除した行も含む）に 1 を足し、番号を再利用しない。削除は論理削除。`todos.session_id` はセッション別 MCP URL の `update_project` から足したときだけ入る。

@@ -31,7 +31,7 @@ describe('フェーズ 3 の DTO', () => {
     const usage: UsageDto = { fiveHour: { usedPercent: 47, resetsAt: 1_700_000_000_000 }, sevenDay: null, updatedAt: 1 };
     const todo: TodoDto = { id: 't1', projectId: 'p1', text: 'x', done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null };
     const memo: MemoDto = { projectId: 'p1', markdown: '# m', updatedAt: 1 };
-    const art: ArtifactDto = { id: 'a1', projectId: 'p1', url: 'https://claude.ai/code/artifact/x', title: 't', description: null, favicon: '📊', filePath: null, fileExists: false, firstPublishedAt: 1, lastPublishedAt: 2, versionCount: 2, sessionIds: ['s1'] };
+    const art: ArtifactDto = { id: 'a1', projectId: 'p1', url: 'https://claude.ai/code/artifact/x', title: 't', description: null, icon: 'chart', filePath: null, fileExists: false, firstPublishedAt: 1, lastPublishedAt: 2, versionCount: 2, sessionIds: ['s1'] };
     const evs: ServerEvent[] = [{ type: 'todos.update', projectId: 'p1', todos: [todo] }, { type: 'memo.update', memo }, { type: 'artifact.upsert', artifact: art }, { type: 'summary.pending', sessionId: 's1' }, { type: 'summary.updated', sessionId: 's1' }, { type: 'summary.failed', sessionId: 's1', message: 'x' }];
     expect(evs.map((e) => e.type)).toHaveLength(6);
     expect(usage.fiveHour?.usedPercent).toBe(47);

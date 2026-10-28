@@ -189,11 +189,11 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
         if (r.locator.kind === 'stored') insBody.run(sessionId, agentKey, ev.seq, JSON.stringify(ev));
         if (ev.kind === 'tool_call' && ev.name === 'Artifact' && isArtifactPublish(ev.input)) {
           const c = artifactCallOf(ev.input);
-          insCall.run(ev.toolId, sessionId, c.filePath, c.description, c.favicon);
+          insCall.run(ev.toolId, sessionId, c.filePath, c.description, c.icon);
         } else if (ev.kind === 'tool_result') {
           const url = parsePublishedUrl(ev.text);
           const call = url ? (getCall.get(ev.toolId, sessionId) as { file_path: string | null; description: string | null; favicon: string | null } | undefined) : undefined;
-          if (url && call) artifactIds.add(recordArtifactPublish(db, opts.deviceId, { sessionId, projectId: projectOf(), url, publishedAt: ev.ts ?? Date.now(), call: { filePath: call.file_path, description: call.description, favicon: call.favicon } }));
+          if (url && call) artifactIds.add(recordArtifactPublish(db, opts.deviceId, { sessionId, projectId: projectOf(), url, publishedAt: ev.ts ?? Date.now(), call: { filePath: call.file_path, description: call.description, icon: call.favicon } }));
         }
       }
       for (const t of indexTexts(events)) insFts.run(sessionId, b.agentId, t.seq, t.role, t.text.slice(0, FTS_MAX_CHARS));

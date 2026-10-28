@@ -24,7 +24,7 @@ let seq = 0;
 const call = (name: string, input: unknown): TranscriptEvent => ({ kind: 'tool_call', seq: seq++, ts: 0, toolId: `t${seq}`, name, input, summary: name });
 const res = (c: TranscriptEvent): TranscriptEvent => ({ kind: 'tool_result', seq: seq++, toolId: (c as { toolId: string }).toolId, text: '', isError: false });
 const agent = (p: Partial<LiveAgentDto>): LiveAgentDto => ({ agentId: 'a', title: '担当', state: 'running', startedAt: 0, lastAt: 60_000, last: null, report: null, endNote: null, linked: true, ...p });
-const art = (id: string, p: Partial<ArtifactCardProps> = {}): ArtifactCardProps => ({ id, title: `成果 ${id}`, description: null, favicon: '📄', url: 'https://x', lastPublished: '12 分前', versionCount: 1, canOpenEditor: false, ...p });
+const art = (id: string, p: Partial<ArtifactCardProps> = {}): ArtifactCardProps => ({ id, title: `成果 ${id}`, description: null, icon: 'document', url: 'https://x', lastPublished: '12 分前', versionCount: 1, canOpenEditor: false, ...p });
 const input = (p: Partial<CardInput> = {}): CardInput => ({
   digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [] }, events: [], turnFrom: 0, live: 'waiting',
   activity: { tool: 'AskUserQuestion', summary: 'q', question: '既存のテストを書き換えてよいですか？' }, now: 120_000, viewingAgent: false, clock: () => '10:01', idleFor: '3 分',

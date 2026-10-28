@@ -15,7 +15,7 @@ const session = (p: Partial<SessionDto> = {}): SessionDto => ({
   hasTranscript: true, live: null, summary: summary(), stats: { turns: 11, model: 'claude-sonnet-4-5', effort: null, filesChanged: 5, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: null, costUsd: 0.42 },
   fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: state(), parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, ...p,
 });
-const artifact = (id: string): ArtifactCardProps => ({ id, title: `成果 ${id}`, description: null, favicon: '📄', url: 'https://x', lastPublished: '3 日前', versionCount: 1, canOpenEditor: true });
+const artifact = (id: string): ArtifactCardProps => ({ id, title: `成果 ${id}`, description: null, icon: 'document', url: 'https://x', lastPublished: '3 日前', versionCount: 1, canOpenEditor: true });
 const win = (path: string, p: Partial<ChangedFileProps> = {}): ChangedFileProps => ({ path, dir: '', base: path.split('/').pop()!, added: 1, removed: 0, created: false, ...p });
 const input = (p: Partial<LeadInput> = {}): LeadInput => ({ session: session(), now: NOW, gone: false, summaryPending: false, summaryError: null, artifacts: [], files: null, windowFiles: [], ...p });
 const present = (p: Partial<LeadInput> = {}, t = ja) => presentLeadCard(input(p), t);

@@ -1226,7 +1226,7 @@ describe('フェーズ 3 の効果', () => {
     expect(bad.rt.getState().promote).toEqual({ kind: 'failed', message: '409 /api/sessions/s1/promote' });
   });
   it('アーティファクトは開くだけの操作と、追加でストアに入る操作がある', async () => {
-    const artifact = { id: 'a1', projectId: 'p1', url: 'https://x/1', title: null, description: null, favicon: null, filePath: null, fileExists: false, firstPublishedAt: 1, lastPublishedAt: 1, versionCount: 1, sessionIds: [] };
+    const artifact = { id: 'a1', projectId: 'p1', url: 'https://x/1', title: null, description: null, icon: null, filePath: null, fileExists: false, firstPublishedAt: 1, lastPublishedAt: 1, versionCount: 1, sessionIds: [] };
     const addArtifact = vi.fn(async () => artifact);
     const openArtifact = vi.fn(async () => {});
     const openArtifactEditor = vi.fn(async () => {});
