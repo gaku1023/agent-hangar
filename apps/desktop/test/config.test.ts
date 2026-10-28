@@ -686,11 +686,11 @@ describe('互換の版', () => {
 // システム設定では許可のままに見えるので気づきにくい。手元向けの build は、署名までを 1 つの台本にする。
 describe('手元向けの macOS の build', () => {
   const pkg = JSON.parse(read('package.json'));
-  it('tauri build のあと、build の出力の .app に ad-hoc で署名する', () => {
+  it('tauri build のあと、build の出力の .app に 署名する（専用のキーチェーンがあれば証明書、無ければ ad-hoc）', () => {
     const script: string = pkg.scripts['build-mac-local'];
     expect(script).toBeDefined();
     const [build, sign] = script.split('&&').map((s) => s.trim());
     expect(build).toBe('tauri build');
-    expect(sign).toBe('node --import tsx scripts/sign-macos.ts src-tauri/target/release/bundle/macos/Hangar.app --adhoc');
+    expect(sign).toBe('node --import tsx scripts/sign-macos.ts src-tauri/target/release/bundle/macos/Hangar.app --local');
   });
 });
