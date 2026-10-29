@@ -110,6 +110,11 @@ describe('AddAccountDialog', () => {
     mount({ error: 'その名前はもう使われています' });
     expect(screen.getByRole('alert')).toHaveTextContent('その名前はもう使われています');
   });
+  it('断られた行に「エージェントで調査…」を出し、押すとその文を渡す', () => {
+    const { onAction } = mount({ error: 'EACCES: permission denied' });
+    fireEvent.click(within(screen.getByRole('alert')).getByRole('button', { name: 'エージェントで調査…' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'investigate.open', op: 'accountAdd', message: 'EACCES: permission denied', agent: 'claude-code' });
+  });
 });
 
 describe('AddAccountDialog の Codex', () => {

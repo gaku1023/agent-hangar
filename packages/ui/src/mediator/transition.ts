@@ -6,7 +6,7 @@ import { phoneLaunchStep, settlePhoneLaunches } from './phoneLaunch.ts';
 import { configSyncStep } from './configSync.ts';
 import { connectionStep } from './connection.ts';
 import { interruptedStep } from './interrupted.ts';
-import { launchStep } from './launch.ts';
+import { launchStep, pushInvestigateToast } from './launch.ts';
 import { muxGuideStep } from './muxGuide.ts';
 import { linkRepairStep } from './linkRepair.ts';
 import { setupStep } from './setup.ts';
@@ -42,7 +42,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, launchPrep: null, contextShorts: [], modelMissings: [], waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, accountAdd: { kind: 'idle' }, linkRepair: { detail: null, working: false, error: null }, toasts: [], arrivedProjects: [], phoneLaunches: [], sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH_DEFAULT, sidebarOrder: [], panes: emptyPanes(), sidebarFolded: [], projectRailFolded: {}, noticesRead: [], diskShortToasted: false, opencodeVersionSeen: null, codexVersionSeen: null, newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, launchPrep: null, contextShorts: [], modelMissings: [], waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, accountAdd: { kind: 'idle' }, linkRepair: { detail: null, working: false, error: null }, toasts: [], arrivedProjects: [], phoneLaunches: [], sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH_DEFAULT, sidebarOrder: [], panes: emptyPanes(), sidebarFolded: [], projectRailFolded: {}, noticesRead: [], diskShortToasted: false, opencodeVersionSeen: null, codexVersionSeen: null, newSessionDraft: null, newSessionSent: false, launchSent: null, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string, holdMs?: number): State {
@@ -94,7 +94,11 @@ export function transition(state: State, store: Store, input: Input): Step {
     return { state, effects: [] };
   }
   if (input.kind === 'runtime') {
-    if (input.event.type === 'api.failed') return { state: pushToast(state, 'error', input.event.message, input.event.holdMs), effects: [] };
+    if (input.event.type === 'api.failed') {
+      // 事情が付いた失敗（アカウントの切り替え）は、トーストから「エージェントで調査…」へ進める。
+      if (input.event.investigate) return { state: pushInvestigateToast(state, store, input.event.investigate), effects: [] };
+      return { state: pushToast(state, 'error', input.event.message, input.event.holdMs), effects: [] };
+    }
     // まとめる確認を出せなかった（決めるまで閉じないダイアログが開いていた）。断られた理由だけを知らせる。
     if (input.event.type === 'api.conflict' && input.event.kind === 'sameFolder') return { state: pushToast(state, 'error', input.event.conflict.error), effects: [] };
     return { state, effects: [] };

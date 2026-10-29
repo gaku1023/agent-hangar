@@ -4,6 +4,7 @@ import type { Translate } from '@agent-hangar/shared';
 import { approvalText, cancelledText, loggedOutText, type AccountView } from '../presenters/accounts.ts';
 import type { AccountSettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
+import { InvestigateButton } from './InvestigateButton.tsx';
 import { useT } from './primitives/language.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { InfoTip } from './primitives/InfoTip.tsx';
@@ -164,6 +165,8 @@ function AccountRow(props: { account: AccountView; agent: Agent; colors: string[
           {a.auth === 'running' && ag.agent === 'codex' && a.login?.method !== 'deviceCode' && <button type="button" className="btn btn-sm" disabled={guarded} onClick={() => emit({ type: 'account.login', accountId: a.id, agent: 'codex', method: 'deviceCode' })}>{t('account.login.deviceCodeButton')}</button>}
           {a.auth === 'running' && <button type="button" className="btn btn-sm" disabled={guarded} onClick={() => emit({ type: 'account.login.cancel', accountId: a.id, ...ag })}>{t('account.settings.cancel')}</button>}
           {a.linkConflicts.length > 0 && <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'linkRepair.open', agent: ag.agent === 'codex' ? 'codex' : 'claude-code', accountId: a.id })}>{t('account.repair.button')}</button>}
+          {/* 修復できない注意は、エージェントに調べさせる。「修復…」が出るときは、調査は修復のダイアログの中に置く。 */}
+          {a.linkConflicts.length === 0 && a.linkProblem !== null && <InvestigateButton ctx={{ op: 'accountLinks', message: a.linkProblem, agent: ag.agent === 'codex' ? 'codex' : 'claude-code', accountId: a.id }} />}
           <MenuButton label={t('account.settings.actionsFor', { name: a.name })} items={items} minWidth={240} />
         </span>
       </div>

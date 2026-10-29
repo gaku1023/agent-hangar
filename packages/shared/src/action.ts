@@ -39,6 +39,19 @@ export type StatusFilter = NonNullable<SearchFilter['status']>;
  * mode と autoApprove は opencode だけが読む。mode は opencode のエージェント（build、plan など）、autoApprove は `--auto` で、Claude Code では捨てる。
  * account、effort、permissionMode、worktree、addDirs は Claude Code だけのもので、opencode に付けると断る。
  */
+/**
+ * 「エージェントで調査…」で、新しいセッションのダイアログへ渡すエラーの事情（TODO 01a185d6）。
+ * op は何をしたときのエラーか、message はエラーの文。agent と accountId はエラーに絡むもの（分かれば）、sessionId は再開とフォークの元。
+ * code はエラーのコード、files は絡むファイルの名前。どれも分かるときだけ付ける。
+ */
+export type InvestigateOp = 'launch' | 'resume' | 'fork' | 'accountSwitch' | 'accountLinks' | 'linkRepair' | 'accountAdd' | 'sync' | 'cloud' | 'summary' | 'editor' | 'opencodeProvider';
+export type InvestigateContext = { op: InvestigateOp; message: string; agent?: AgentKind; accountId?: string; sessionId?: SessionId; code?: string; files?: string[] };
+/**
+ * 新しいセッションのダイアログを、中身を埋めて開くときの種（session.new.open の seed）。
+ * request は依頼の文（欄で書き換えられる）、quote はエラーの引用（欄の中に分けて見せ、送るときに依頼の文の後に足す）。
+ * accounts はエージェントごとに選んでおくアカウントの id。下書きは上書きせず、閉じても残さない。
+ */
+export type NewSessionSeed = { request: string; quote: string; accounts?: { 'claude-code'?: string; codex?: string } };
 export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string; agent?: AgentKind; mode?: string; autoApprove?: boolean; prepKey?: string; prepChoice?: import('./launchPrep.ts').LaunchPrepChoice };
 /** 設定の同期（作り直した実装）のダイアログ。send は送るものの一覧、review は適用内容の確認、approve は届いたスキルなどの承認、conflicts は競合。 */
 export type ConfigSyncPart = 'send' | 'review' | 'approve' | 'conflicts';
@@ -132,7 +145,8 @@ export type UiAction =
   // 入力待ちのセッションを順に開き、端末にフォーカスする。どれへ移るかはストアを見たランタイムが決める。
   | { type: 'session.nextWaiting' }
   // dir は、はじめに選んでおくフォルダ（作成のダイアログから、登録済みのプロジェクトの下のフォルダで始めるとき）。
-  | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean; dir?: string } | { type: 'session.new.submit'; params: LaunchParams; place?: ProjectPlace }
+  // seed は、欄とアカウントを埋めて開くときの種（NewSessionSeed、「エージェントで調査…」）。
+  | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean; dir?: string; seed?: NewSessionSeed } | { type: 'session.new.submit'; params: LaunchParams; place?: ProjectPlace }
   // place は、新しいフォルダと未登録のフォルダで始めるときだけ付ける。プロジェクトを作ってから起動する。
   // 新しいセッションのダイアログの書きかけ（名前と初期プロンプト）。ダイアログを閉じるときと「消す」で送る。両方空なら下書きを消す。
   | { type: 'session.new.draft'; name: string; prompt: string; attachments?: { path: string; name: string; size: number | null }[] }
@@ -316,6 +330,8 @@ export type UiAction =
   // 共有のリンクが実ファイルに置き換わった衝突の修復（#513）。open は修復のダイアログを開いて両側の中身を読み、apply は選んだとおりに直す。
   | { type: 'linkRepair.open'; agent: 'claude-code' | 'codex'; accountId: string }
   | { type: 'linkRepair.apply'; entries: { name: string; keep: 'mine' | 'shared' }[] }
+  // エラーの札の「エージェントで調査…」。エラーの事情を入れたクイックセッションのダイアログを開く（すぐには起動しない）。
+  | ({ type: 'investigate.open' } & InvestigateContext)
   // デスクトップの殻に頼む操作。殻の無いブラウザでは、画面が場所のコピーと文の案内に落とす。
   | { type: 'shell.openLog' } | { type: 'shell.restart' }
   // done は写せたときにトーストで出す知らせ。書けなかったときは出さない。

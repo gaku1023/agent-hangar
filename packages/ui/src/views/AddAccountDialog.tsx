@@ -7,6 +7,7 @@ import { isComposing } from './ime.ts';
 import { Dialog } from './primitives/Dialog.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
+import { InvestigateButton } from './InvestigateButton.tsx';
 
 /** 共有する組の見出し。中身の名前は ACCOUNT_LINK_GROUPS（サーバのリンクの一覧と同じもの）から引く。 */
 const GROUP_TITLE = {
@@ -132,7 +133,12 @@ export function AddAccountDialog(props: AddAccountProps) {
       {pv?.registeredAs != null ? <div className="add-account-note" data-tone="stop">{t('account.add.registered', { name: pv.registeredAs })}</div>
         : pv && pv.conflicts.length > 0 ? <div className="add-account-note" data-tone="warn">{t('account.add.conflicts', { dir: dirLabel, names: pv.conflicts.join(sep) })}</div>
           : pv?.exists ? <div className="add-account-note">{t('account.add.exists')}</div> : null}
-      {props.error && <div className="error" role="alert">{props.error}</div>}
+      {props.error && (
+        <div className="error" role="alert">
+          {props.error}
+          <div className="err-acts"><InvestigateButton ctx={{ op: 'accountAdd', message: props.error, agent: codex ? 'codex' : 'claude-code' }} /></div>
+        </div>
+      )}
     </Dialog>
   );
 }

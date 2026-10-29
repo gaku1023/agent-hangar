@@ -8,7 +8,8 @@ const card = (name: string, over: Partial<LinkRepairCardProps> = {}): LinkRepair
   name, mineWhen: '2026-10-29 08:40', sharedWhen: '2026-10-28 21:05',
   lines: [{ kind: 'ctx', text: 'a' }, { kind: 'del', text: 'shared' }, { kind: 'add', text: 'mine' }], ...over,
 });
-const base: LinkRepairProps = { account: '大学', names: 'settings.json、CLAUDE.md', loading: false, cards: [card('settings.json'), card('CLAUDE.md')], working: false, error: null };
+const investigate = { op: 'linkRepair' as const, message: 'settings.json が共有設定から外れています', agent: 'claude-code' as const, accountId: 'a1', files: ['settings.json', 'CLAUDE.md'] };
+const base: LinkRepairProps = { account: '大学', names: 'settings.json、CLAUDE.md', loading: false, cards: [card('settings.json'), card('CLAUDE.md')], working: false, error: null, investigate };
 
 function mount(p: Partial<LinkRepairProps> = {}) {
   const onAction = vi.fn();
@@ -58,6 +59,13 @@ describe('LinkRepairDialog', () => {
     fireEvent.click(within(cardOf('CLAUDE.md')).getByRole('button', { name: '共有設定を残す' }));
     fireEvent.click(repair());
     expect(onAction).toHaveBeenCalledWith({ type: 'linkRepair.apply', entries: [{ name: 'settings.json', keep: 'mine' }, { name: 'CLAUDE.md', keep: 'shared' }] });
+  });
+  it('足の左の「エージェントで調査…」は、修復の事情を渡す', () => {
+    const onAction = mount();
+    const button = within(document.querySelector('.dialog-foot') as HTMLElement).getByRole('button', { name: 'エージェントで調査…' });
+    expect(button).toHaveAttribute('title', 'エラーの内容を入れた新しいセッションのダイアログを開きます。');
+    fireEvent.click(button);
+    expect(onAction).toHaveBeenCalledWith({ type: 'investigate.open', ...investigate });
   });
   it('キャンセルで閉じる', () => {
     const onAction = mount();

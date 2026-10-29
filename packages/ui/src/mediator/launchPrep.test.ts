@@ -66,10 +66,10 @@ describe('準備のあとの起動の結果', () => {
     expect(r.effects).toContainEqual({ kind: 'navigate', route: { name: 'session', id: 's1' } });
     expect(r.state.toasts).toEqual([]);
   });
-  it('閉じたまま失敗したら、今までどおりエラーのトーストで理由を出す', () => {
+  it('閉じたまま失敗したら、エラーのトーストで理由を出す（「エージェントで調査…」付き）', () => {
     const store = withPrep(prep('key-12345678', { phase: 'failed', reason: 'メモリが足りません' }));
     const r = transition(closed(sent(params(), store), store), store, runtime({ type: 'launch.failed', message: 'メモリが足りません' }));
-    expect(r.effects).toContainEqual({ kind: 'toast', level: 'error', message: 'メモリが足りません' });
+    expect(r.state.toasts.at(-1)).toMatchObject({ level: 'error', message: 'メモリが足りません', action: { send: { type: 'investigate.open', op: 'launch' } } });
   });
   it('開いたまま失敗したら、トーストは重ねず、準備の印を残す（失敗の札を出すため）', () => {
     const store = withPrep(prep('key-12345678', { phase: 'failed', reason: 'x' }));

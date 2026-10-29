@@ -46,6 +46,8 @@ describe('presentNotices：事実から行を組む', () => {
     const [row] = presentNotices(initialState(), storeOf({ sync: sync({ state: 'error', error: 'サーバーが 503 を返しました' }) }), NOW).rows;
     expect(row).toMatchObject({ key: 'sync|error|サーバーが 503 を返しました', kind: 'sync', tone: 'err', kindLabel: '同期', title: '同期エラー', detail: 'サーバーが 503 を返しました', when: null, unread: true });
     expect(row!.action).toEqual({ label: '同期の設定を開く', send: { type: 'nav.go', to: { name: 'settings', at: 'sync' } } });
+    // 「エージェントで調査…」へ、同期のエラーの文を渡す。
+    expect(row!.investigate).toEqual({ op: 'sync', message: 'サーバーが 503 を返しました' });
   });
 
   it('理由が無いエラーは「同期に失敗しました」と言い、止めているときはその旨を足す', () => {
@@ -118,6 +120,7 @@ describe('presentNotices：事実から行を組む', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ key: 'sync|skipped|2', kind: 'sync', tone: 'err', kindLabel: '同期', title: '取得できなかったトランスクリプト 2 件', detail: '復号できません', unread: true });
     expect(rows[0]!.action.send).toEqual({ type: 'nav.go', to: { name: 'settings', at: 'sync' } });
+    expect(rows[0]!.investigate).toEqual({ op: 'sync', message: '取得できなかったトランスクリプト 2 件\ntranscripts/mini/u1.jsonl.gz: 復号できません\ntranscripts/mini/u2.jsonl.gz: 壊れています' });
     // 状態の行（エラー）と並べても、別の行になる。状態の行が先。
     const both = presentNotices(initialState(), storeOf({ sync: sync({ state: 'error', error: 'x', skipped }) }), NOW).rows;
     expect(both.map((r) => r.key)).toEqual(['sync|error|x', 'sync|skipped|2']);

@@ -1,3 +1,4 @@
+import type { UiAction } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { NoticeRow, NoticesProps } from '../presenters/notices.ts';
 import { NoticeList } from './NoticeList.tsx';
@@ -30,9 +31,9 @@ export function Bell(props: NoticesProps & { /** 開いた形で描く（試験�
       )}>
       {({ close }) => {
         // 行の操作は、未読なら既読にしてから、行き先へ移り、一覧を閉じる。
-        const act = (row: NoticeRow) => {
+        const act = (row: NoticeRow, send: UiAction) => {
           if (row.unread) emit({ type: 'notices.read', keys: [row.key] });
-          emit(row.action.send);
+          emit(send);
           close();
         };
         return (

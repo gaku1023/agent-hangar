@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { UiAction } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
@@ -98,6 +98,16 @@ describe('エディタの欄（試作の 1-1 の A）', () => {
     ui(props({ test: { running: false, result: { tone: 'ng', text: 'Cursor が未検出。インストール後に「再確認」をクリックするか、パスを指定してください。' } } }));
     expect(screen.getByRole('status')).toHaveTextContent('Cursor が未検出');
     expect(screen.getByRole('radio', { name: /VS Code/ }).nextElementSibling).toBe(screen.getByRole('status'));
+  });
+  it('開けなかった答えにだけ「エージェントで調査…」を出す', () => {
+    const onAction = vi.fn();
+    ui(props({ test: { running: false, result: { tone: 'ng', text: 'Cursor が未検出' } } }), onAction);
+    fireEvent.click(within(screen.getByRole('status')).getByRole('button', { name: 'エージェントで調査…' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'investigate.open', op: 'editor', message: 'Cursor が未検出' });
+  });
+  it('開けた答えには「エージェントで調査…」を出さない', () => {
+    ui(props({ test: { running: false, result: { tone: 'ok', text: '開きました' } } }));
+    expect(screen.queryByRole('button', { name: 'エージェントで調査…' })).toBeNull();
   });
   it('畳みを開いても、テストの答えは選んだ行のすぐ下にある', () => {
     ui(props({ test: { running: false, result: { tone: 'ok', text: '開きました' } } }), undefined, true);

@@ -24,6 +24,8 @@ import { PERMISSION_BYPASS } from './primitives/permissionModel.ts';
 import { PromptComposer } from './primitives/PromptComposer.tsx';
 import { composePrompt, type Attachment } from './primitives/promptComposerModel.ts';
 import { ParentField, parentReady } from './ParentField.tsx';
+import { InvestigateButton } from './InvestigateButton.tsx';
+import { fadeIn } from './primitives/motionKit.ts';
 import { boldFirst, inspectOf } from './folderNote.tsx';
 
 /** プロジェクトの一覧の先頭に置くクイックセッションの行。値はプロジェクトの id と重ならず、クイックセッションの前回値の鍵と同じ綴りである。 */
@@ -115,13 +117,16 @@ export function NewSessionDialog(props: NewSessionProps) {
   const pickedAtOpen = useRef(props.picked?.n ?? 0);
   // @ の候補はプロジェクトのフォルダを探すので、クイックセッションとパスの無いプロジェクトでは渡さない。/ の候補は自分のスキルだけになる。
   const assistProject = scratch || !choice ? null : props.projects.find((p) => p.id === prefKey)?.path ? prefKey : null;
-  const [name, setName] = useState(props.draft?.name ?? '');
-  const [prompt, setPrompt] = useState(props.draft?.prompt ?? '');
-  const [attachments, setAttachments] = useState<Attachment[]>(props.draft?.attachments ?? []);
+  // 埋めて開いたとき（「エージェントで調査…」）は、下書きの代わりに依頼の文を入れる。下書きは読まず、閉じても書かない（残したまま次に戻す）。
+  const seed = props.seed ?? null;
+  const draft = seed ? null : props.draft;
+  const [name, setName] = useState(draft?.name ?? '');
+  const [prompt, setPrompt] = useState(seed?.request ?? draft?.prompt ?? '');
+  const [attachments, setAttachments] = useState<Attachment[]>(draft?.attachments ?? []);
   // 置き場へ送っている最中の添付の数。終わるまで起動させない（添付が抜けたまま起動しないため）。
   const [uploading, setUploading] = useState(0);
   // 開いたときに下書きを戻したか。「破棄」を押すまで見出しに札を出す。
-  const [restored, setRestored] = useState(props.draft !== null);
+  const [restored, setRestored] = useState(draft !== null);
   // 札の値の初期値は、選んだプロジェクトの前回値にする（D1）。
   // 利用者が札に触れる前にプロジェクトを選び直したら、そのプロジェクトの前回値に入れ替える。触れた後は、自分で選んだ値を残す。
   // 同じファイルの編集の警告から開いたときは、worktree の札に新しい名前を入れておく。前の worktree の中で起動しないよう、開くたびに名前を替える。
@@ -175,8 +180,9 @@ export function NewSessionDialog(props: NewSessionProps) {
   // アカウントは、利用者が選んだ id だけを覚える。選んでいなければ、いまのアカウント（選べなければ選べる最初の 1 件）。
   // 選んだ id が一覧から消えたとき、選べなくなったときも、同じ規則でいまのアカウントへ戻る。
   // Claude Code と Codex は別のアカウントの組なので、選んだ id もエージェントごとに覚える（Claude で選んだものを Codex に持ち込まない）。
-  const [pickedAccount, setPickedAccount] = useState<string | null>(null);
-  const [pickedCxAccount, setPickedCxAccount] = useState<string | null>(null);
+  // 埋めて開いたときは、種のアカウント（エラーに絡まず壊れていないもの）を選んでおく。
+  const [pickedAccount, setPickedAccount] = useState<string | null>(seed?.accounts?.['claude-code'] ?? null);
+  const [pickedCxAccount, setPickedCxAccount] = useState<string | null>(seed?.accounts?.codex ?? null);
   // エージェント。利用者が選んだものだけを覚え、選んでいなければプロジェクトの前回値（無ければ Claude Code）。設定で無効なら、いつも Claude Code。
   const oc = props.opencode ?? null;
   const cx = props.codex ?? null;
@@ -252,7 +258,7 @@ export function NewSessionDialog(props: NewSessionProps) {
     return () => {
       gone.current = true;
       const l = latest.current;
-      if (!l.submitting) l.emit({ type: 'session.new.draft', name: l.name, prompt: l.prompt, attachments: l.attachments });
+      if (!l.submitting && !seed) l.emit({ type: 'session.new.draft', name: l.name, prompt: l.prompt, attachments: l.attachments });
     };
   }, []);
   // 送っている最中に閉じられても添付を失わない。外された後に送り終えたものは、Mediator の下書きへ添付だけを足す。
@@ -265,7 +271,7 @@ export function NewSessionDialog(props: NewSessionProps) {
     l.attachments = next;
     // 外された後に着いた分だけを送る（全部ではない。閉じるときの下書きにすでに入っているものは足し直さない）。
     const arrived = next.filter((a) => !before.has(a.path));
-    if (gone.current && !l.submitting && arrived.length) l.emit({ type: 'session.new.draft.attach', attachments: arrived });
+    if (gone.current && !l.submitting && !seed && arrived.length) l.emit({ type: 'session.new.draft.attach', attachments: arrived });
   };
 
   const discardDraft = () => {
@@ -298,7 +304,8 @@ export function NewSessionDialog(props: NewSessionProps) {
     if (name.trim()) params.name = name.trim();
     // 添付は、本文の後にパスを足して渡す。起動の API は変えない（promptComposerModel.ts の composePrompt）。
     // 添付の置き場を claude に渡す --add-dir はサーバが足すので、ここでは addDirs に混ぜない。
-    const text = composePrompt(prompt, attachments);
+    // 埋めて開いたときは、依頼の文の後にエラーの引用を足す。
+    const text = composePrompt(seed ? [prompt.trim(), seed.quote].filter(Boolean).join('\n\n') : prompt, attachments);
     if (text) params.prompt = text;
     // Codex は、エージェント、モデル、推論、権限の 3 段だけを渡す。Claude Code だけの値は載せない（サーバが断る）。モデルが空（デフォルト）なら載せない。
     if (codex) {
@@ -393,6 +400,11 @@ export function NewSessionDialog(props: NewSessionProps) {
       )} />
   );
 
+  // 埋めて開いたときは、埋めた欄を薄れから現す（試作の動き。ダイアログの pop に重ねる）。
+  useLayoutEffect(() => {
+    const box = seed ? document.getElementById(PROMPT_ID)?.closest<HTMLElement>('.pc-box') : null;
+    if (box) fadeIn(box);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const close = () => emit({ type: 'overlay.close' });
   // 起動前の準備。進みの箱は準備が走っている間（送信中）だけ、問いの札は止まっている間（送信中でない）だけ、失敗の札は準備が失敗した後の失敗の文があるときだけ出す。
   // 準備の進みが無い起動（Claude Code、ローカルでないモデル）は、どれも出さず今までの見た目のままである。
@@ -427,7 +439,7 @@ export function NewSessionDialog(props: NewSessionProps) {
       {/* 欄は箱（枠と道具の段）を持つので、label は欄の外に置く。見える文字の代わりは案内（placeholder）が言う。 */}
       <div className="field">
         <label className="sr-only" htmlFor={PROMPT_ID}>{t('newSession.prompt.label')}</label>
-        <PromptComposer id={PROMPT_ID} hero placeholder={t('newSession.prompt.placeholder')} value={prompt} onChange={setPrompt} projectId={assistProject} attachments={attachments} onAttachmentsChange={changeAttachments} onPendingChange={setUploading} />
+        <PromptComposer id={PROMPT_ID} hero placeholder={t('newSession.prompt.placeholder')} value={prompt} onChange={setPrompt} projectId={assistProject} attachments={attachments} onAttachmentsChange={changeAttachments} onPendingChange={setUploading} {...(seed ? { quote: seed.quote } : {})} />
       </div>
       <LaunchChips
         rootRef={chipsRef}
@@ -496,7 +508,9 @@ export function NewSessionDialog(props: NewSessionProps) {
       {errorShown !== null && failure === null && (
         <div className="error" role="alert">
           {errorShown}
-          {props.errorRepair && <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'linkRepair.open', ...props.errorRepair! })}>{t('account.repair.button')}</button>}
+          {props.errorRepair
+            ? <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'linkRepair.open', ...props.errorRepair! })}>{t('account.repair.button')}</button>
+            : <div className="err-acts"><InvestigateButton ctx={{ op: 'launch', message: errorShown, agent, ...(account !== null ? { accountId: account } : {}) }} /></div>}
         </div>
       )}
       <LaunchPrepAsk ask={asking} onChoose={submit} />

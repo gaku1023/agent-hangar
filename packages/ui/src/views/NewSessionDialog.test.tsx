@@ -1727,3 +1727,44 @@ describe('NewSessionDialog のエージェント（Codex、ベータ）', () => 
     expect(screen.getByText(/信頼の確認ダイアログ/)).toBeInTheDocument();
   });
 });
+
+describe('NewSessionDialog の埋めて開く種（エージェントで調査…）', () => {
+  const seed = { request: '下のエラーを調べてください。', quote: '操作：セッションの再開\nエラー：x', accounts: { 'claude-code': 'a1' } };
+  const accounts = { list: presentAccounts({ ...initialStore(), accounts: accountsFixture }, 0), currentId: 'primary' };
+  const renderSeeded = (over: Partial<NewSessionProps> = {}) => {
+    const out: UiAction[] = [];
+    render(<ActionRoot onAction={(i) => { out.push(i); }}><NewSessionDialog {...base} scratch seed={seed} accounts={accounts} {...over} /></ActionRoot>);
+    return out;
+  };
+  it('欄に依頼の文を入れ、エラーの引用は欄の中に分けて見せる。送ると依頼の文の後に引用を足す', () => {
+    const out = renderSeeded();
+    expect(prompt()).toHaveValue('下のエラーを調べてください。');
+    expect(document.querySelector('.pc-box .pc-quote')).toHaveTextContent('エラー：x');
+    start();
+    const sent = out.find((a) => a.type === 'session.new.submit');
+    expect(sent).toMatchObject({ params: { scratch: true, prompt: '下のエラーを調べてください。\n\n操作：セッションの再開\nエラー：x', account: 'a1' } });
+  });
+  it('保存済みの下書きは読まず、閉じても下書きを書かない', () => {
+    const out = renderSeeded({ draft: { name: '', prompt: '書きかけ', attachments: [] } });
+    expect(prompt()).toHaveValue('下のエラーを調べてください。');
+    expect(screen.queryByRole('button', { name: /下書きを破棄/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+    expect(out.some((a) => a.type === 'session.new.draft')).toBe(false);
+  });
+});
+
+describe('NewSessionDialog の失敗の行の「エージェントで調査…」', () => {
+  it('失敗の行に出し、押すと選んでいるエージェントとアカウントを添えて送る', () => {
+    const onAction = vi.fn();
+    const accounts = { list: presentAccounts({ ...initialStore(), accounts: accountsFixture }, 0), currentId: 'primary' };
+    render(<ActionRoot onAction={onAction}><NewSessionDialog {...base} projectId="p1" error="tmux が未検出" accounts={accounts} /></ActionRoot>);
+    const button = within(screen.getByRole('alert')).getByRole('button', { name: 'エージェントで調査…' });
+    expect(button).toHaveAttribute('title', 'エラーの内容を入れた新しいセッションのダイアログを開きます。');
+    fireEvent.click(button);
+    expect(onAction).toHaveBeenCalledWith({ type: 'investigate.open', op: 'launch', message: 'tmux が未検出', agent: 'claude-code', accountId: 'primary' });
+  });
+  it('「修復…」が出る失敗では出さない', () => {
+    render(<ActionRoot onAction={() => {}}><NewSessionDialog {...base} projectId="p1" error="x" errorRepair={{ agent: 'claude-code', accountId: 'a1' }} /></ActionRoot>);
+    expect(screen.queryByRole('button', { name: 'エージェントで調査…' })).toBeNull();
+  });
+});

@@ -1004,6 +1004,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       const next = c.failed?.(store, e) ?? null;
       if (next) setStore(next);
       else if (c.failHoldMs !== undefined) dispatch({ kind: 'runtime', event: { type: 'api.failed', message: errMsg(e), holdMs: c.failHoldMs } });
+      else if (c.failInvestigate) dispatch({ kind: 'runtime', event: { type: 'api.failed', message: errMsg(e), investigate: { ...c.failInvestigate, message: errMsg(e) } } });
       else fail(e);
     });
   }

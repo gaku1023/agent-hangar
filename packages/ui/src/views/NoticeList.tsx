@@ -1,3 +1,4 @@
+import type { UiAction } from '@agent-hangar/shared';
 import type { NoticeRow } from '../presenters/notices.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -9,7 +10,7 @@ import { useT } from './primitives/language.tsx';
  * 未読の行には data-unread と小さい点を付け、読み上げには「未読」を足す（色と点だけに頼らない）。
  * 操作を押したときの扱い（既読にする、移る、一覧を閉じる）は呼び手が決める（Bell.tsx）。
  */
-export function NoticeList(props: { rows: NoticeRow[]; onAct: (row: NoticeRow) => void }) {
+export function NoticeList(props: { rows: NoticeRow[]; onAct: (row: NoticeRow, send: UiAction) => void }) {
   const t = useT();
   return (
     <ul className="notices">
@@ -21,7 +22,10 @@ export function NoticeList(props: { rows: NoticeRow[]; onAct: (row: NoticeRow) =
             {r.unread && <span className="sr-only">{t('notices.row.unread')}</span>}
             <div className="p-t">{r.title}</div>
             {r.detail !== null && <div className="p-d">{r.detail}</div>}
-            <div className="p-acts"><button type="button" className="btn btn-sm" onClick={() => props.onAct(r)}>{r.action.label}</button></div>
+            <div className="p-acts">
+              <button type="button" className="btn btn-sm" onClick={() => props.onAct(r, r.action.send)}>{r.action.label}</button>
+              {r.investigate && <button type="button" className="btn btn-sm" title={t('newSession.investigate.title')} onClick={() => props.onAct(r, { type: 'investigate.open', ...r.investigate! })}>{t('newSession.investigate.button')}</button>}
+            </div>
           </div>
           {r.when !== null && <span className="p-when">{r.when}</span>}
         </li>
