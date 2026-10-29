@@ -3273,3 +3273,36 @@ describe('opencode の版の知らせの種（C7）', () => {
     expect(rt.getState().opencodeVersionSeen).toBe('2.2.0');
   });
 });
+
+describe('既読', () => {
+  const withUnread = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: 's1', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, lastTurnAt: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, unread: { count: 2, latest: '終わりました', at: 10 }, ...over });
+  it('未読のあるセッションを開くと、api.markSeen を呼ぶ', async () => {
+    const h = harness({}, { visible: () => true });
+    h.rt.start();
+    h.wsHandlers[0]!.onOpen();
+    h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: withUnread() });
+    h.setHash('#/session/s1');
+    await flush();
+    expect(h.api.markSeen).toHaveBeenCalledTimes(1);
+    expect(h.api.markSeen).toHaveBeenCalledWith('s1');
+  });
+  it('開いて見ている間に増えた分は、窓が前にあれば送り、裏なら送らず、前に出たときに送る', async () => {
+    let shown = true;
+    const visible = new Set<() => void>();
+    const h = harness({}, { visible: () => shown, onWindowVisible: (cb) => { visible.add(cb); return () => visible.delete(cb); } });
+    h.rt.start();
+    h.wsHandlers[0]!.onOpen();
+    h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: withUnread({ unread: null }) });
+    h.setHash('#/session/s1');
+    await flush();
+    expect(h.api.markSeen).not.toHaveBeenCalled();
+    h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: withUnread() });
+    expect(h.api.markSeen).toHaveBeenCalledTimes(1);
+    shown = false;
+    h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: withUnread({ unread: { count: 3, latest: 'もう 1 件', at: 20 } }) });
+    expect(h.api.markSeen).toHaveBeenCalledTimes(1);
+    shown = true;
+    for (const cb of visible) cb();
+    expect(h.api.markSeen).toHaveBeenCalledTimes(2);
+  });
+});

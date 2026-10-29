@@ -4,6 +4,7 @@ import type { AreaDictionary } from '../messageSpec.ts';
 export const sidebarJa: AreaDictionary<typeof sidebarKeys> = {
   'sidebar.live.label': '実行中のセッション',
   'sidebar.count.waiting': '、入力待ち {n}',
+  'sidebar.count.unread': '、未読 {n} 件',
   'sidebar.live.rowTitle': '{name}（{waited}）',
   'sidebar.live.waited': '入力待ち {time}',
   'sidebar.live.stop': '停止',

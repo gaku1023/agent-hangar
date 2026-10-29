@@ -57,7 +57,7 @@ type ButtonProps = ComponentPropsWithRef<'button'>;
  * mark を渡すと、右肩に琥珀の点を置き、その文を読み上げの名前にする（ホームの帯の「実行中」に、同じファイルを編集中のセッションがあること）。
  * Popover の開く元にもなるので、ボタンの属性と ref をそのまま受ける。
  */
-export function CountChip(props: { label: string; count: number; countText?: string; icon?: IconName; lead?: ReactNode; tone?: 'default' | 'wait' | 'cand' | 'warn'; size?: 'md' | 'sm'; expanded?: boolean; rolling?: boolean; mark?: string | null } & Omit<ButtonProps, 'children' | 'className'>) {
+export function CountChip(props: { label: string; count: number; countText?: string; icon?: IconName; lead?: ReactNode; tone?: 'default' | 'wait' | 'cand' | 'warn' | 'unread'; size?: 'md' | 'sm'; expanded?: boolean; rolling?: boolean; mark?: string | null } & Omit<ButtonProps, 'children' | 'className'>) {
   const { label, count, countText, icon, lead, tone = 'default', size = 'md', expanded, rolling, mark, onClick, ...rest } = props;
   const text = countText ?? String(count);
   const body = (

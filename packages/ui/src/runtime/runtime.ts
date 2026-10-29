@@ -149,6 +149,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const focused = (): boolean => typeof document !== 'undefined' && document.hasFocus();
   const notifyStore = () => { if (visible() || focused()) notify(); else heldStore = true; };
   const releaseStore = () => { if (heldStore) notify(); };
+  /** 裏にある間に増えた未読は送っていないので、窓が前に出たら、開いているセッションの分を送り直す。 */
+  const resendSeen = () => {
+    const id = state.screen.name === 'session' ? state.screen.id : null;
+    if (id && (store.sessions[id]?.unread?.count ?? 0) > 0) deps.api.markSeen(id).catch(fail);
+  };
   const present = deps.present ?? ((c: () => void) => c());
   // ストアが変わったら、そのことだけを Mediator へ知らせる。
   // ストアから決まる状態（入力待ちの知らせ、サイドバーの「動いている」の並び）は、Mediator がストアを読んで合わせる。
@@ -718,6 +723,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.dismissInterrupted':
         deps.api.dismissInterrupted(e.runIds, e.dismissed).then((r) => setStore(applyServerEvent(store, { type: 'interrupted.update', interrupted: r.interrupted }))).catch(fail);
         return;
+      case 'api.markSeen':
+        // 開いて見ている間に増えた分（ifFront）は、窓が前にあるときだけ送る。裏にある間は、前に出たとき（resendSeen）に送り直す。
+        if (e.ifFront && !visible()) return;
+        deps.api.markSeen(e.sessionId).catch(fail);
+        return;
       case 'api.attach': deps.api.attach(e.sessionId).then(launched).catch(launchFailed); return;
       case 'api.adopt': deps.api.adopt(e.sessionId).then(launched).catch(launchFailed); return;
       case 'api.killRun': deps.api.killRun(e.runId).then((run) => setStore(applyServerEvent(store, { type: 'run.ended', run }))).catch(fail); return;
@@ -1145,8 +1155,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), moved } });
       });
       // 前面に来たときも、隠れている間に溜めた Store の変化を出す。visibilitychange を出し損ねる WebView があっても、画面が古いまま残らないようにする。
-      unsubFocus = deps.onWindowFocus?.(() => { releaseStore(); dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); }) ?? null;
-      unsubVisible = deps.onWindowVisible?.(() => { releaseStore(); recheckNotify(); gitWatch.wake(); }) ?? null;
+      unsubFocus = deps.onWindowFocus?.(() => { releaseStore(); dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); resendSeen(); }) ?? null;
+      unsubVisible = deps.onWindowVisible?.(() => { releaseStore(); recheckNotify(); gitWatch.wake(); resendSeen(); }) ?? null;
       unsubHide = deps.onPageHide?.(() => cloudMember.flushPending()) ?? null;
       ws.connect();
     },

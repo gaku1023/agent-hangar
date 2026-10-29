@@ -222,7 +222,7 @@ describe('設定の一般', () => {
   });
   it('一般には、言語、通知、ターミナルアプリ、エディタだけを置く（保持とステータスの自動処理はセッションの節にある）', () => {
     render(ui(at('general', { retention: { days: 365, options: [{ value: '365', label: '1 年' }], writable: true, reason: null, valueLabel: '1 年', bar: null, syncNote: false } })));
-    expect([...document.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['言語', '通知を有効にする', 'ターミナルアプリ', 'エディタ']);
+    expect([...document.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['言語', '通知を有効にする', '未読数を表示する', '未読を OS の通知で知らせる', '未読をスマホの通知で知らせる', 'ターミナルアプリ', 'エディタ']);
     expect(screen.queryByRole('heading', { level: 3, name: 'ステータスの自動処理' })).toBeNull();
   });
   it('帯のエディタの行から来たとき（focus が editor）は、エディタの欄を目立たせ、他のエディタを開いて始める', () => {
@@ -922,6 +922,18 @@ describe('設定のセッションの「Claude Code に渡す設定」と「新�
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { askStatusAtEnd: false } });
     fireEvent.click(screen.getByRole('switch', { name: 'ターンの意図と操作の短い説明を送る' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { liveHints: false } });
+    fireEvent.click(screen.getByRole('switch', { name: '見てほしい出力を notify_user で知らせる' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { notifyUser: false } });
+  });
+  it('通知の節の 3 つのスイッチは、既定は入りで、切り替えた時点でその 1 項目だけを保存する', () => {
+    const onAction = vi.fn();
+    render(ui(at('general'), onAction));
+    for (const [name, key] of [['未読数を表示する', 'unreadBadge'], ['未読を OS の通知で知らせる', 'unreadOs'], ['未読をスマホの通知で知らせる', 'unreadPhone']] as const) {
+      const sw = screen.getByRole('switch', { name });
+      expect(sw).toHaveAttribute('aria-checked', 'true');
+      fireEvent.click(sw);
+      expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { [key]: false } });
+    }
   });
   it('「Remote Control を付けて起動する」の切り替えが PATCH { remoteControl } を送る。説明に、claude.ai のログインのアカウントだけで効く旨がある', () => {
     const onAction = vi.fn();

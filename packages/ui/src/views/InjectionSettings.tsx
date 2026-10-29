@@ -46,6 +46,9 @@ export function InjectionSettings(props: { injection: InjectionSettingsProps }) 
             control={<Switch label={t('settings.label.askStatusAtEnd')} checked={i.askStatusAtEnd} onChange={(next) => emit({ type: 'settings.update', patch: { askStatusAtEnd: next } })} />} />
           <SetRow title={t('settings.label.liveHints')} info={t('settings.integrations.inject.liveHints.desc')}
             control={<Switch label={t('settings.label.liveHints')} checked={i.liveHints} onChange={(next) => emit({ type: 'settings.update', patch: { liveHints: next } })} />} />
+          {/* 補助の説明は添えない。名前だけの行にする。 */}
+          <SetRow title={t('settings.label.notifyUser')}
+            control={<Switch label={t('settings.label.notifyUser')} checked={i.notifyUser !== false} onChange={(next) => emit({ type: 'settings.update', patch: { notifyUser: next } })} />} />
           <InjectionFull parts={i.full} />
         </AddItem>
       </ul>

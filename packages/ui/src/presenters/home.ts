@@ -6,7 +6,7 @@ import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
 import type { OverlapProps } from './overlap.ts';
 import { rowAgent } from './agentIcon.ts';
-import { aliveRunOf, awaitsAnswer, liveFilterOfSession, outsideOpenOf, runningSessionIds, shownAside, type Store } from '../store/store.ts';
+import { aliveRunOf, awaitsAnswer, liveFilterOfSession, outsideOpenOf, runningSessionIds, shownAside, unreadSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortenPaths } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
@@ -67,10 +67,15 @@ export type SessionConfirmCard = { kind: 'session'; id: string; name: string; pr
 /** 確かめるの行。TODO の候補とセッションの提案を、候補になった時刻の古い順に混ぜる。 */
 export type ConfirmCard = TodoConfirmCard | SessionConfirmCard;
 /**
- * 帯の引き出しの行になる 4 つの群の中身。要対応（入力待ちと今日戻る）、確認待ち、実行中である。
+ * 未読の札（エージェントが notify_user で知らせた会話）。latest は知らせの最後の文、ago はその時刻からの経過、count はたまった数。
+ * live は点の状態で、Done や Archived でも未読は残るので、休みとして出す。
+ */
+export type UnreadCard = { id: string; name: string; projectName: string | null; live: LiveStatus | null; aside: boolean; latest: string; ago: string; count: number; agent?: AgentIconKind | null };
+/**
+ * 帯の引き出しの行になる 5 つの群の中身。要対応（入力待ちと今日戻る）、未読、確認待ち、実行中である。
  * 引き出しの行は presentHomeBand が作る。
  */
-export type HomeCards = { attention: AttentionCard[]; returning: ReturnCard[]; confirm: ConfirmCard[]; running: RunningCard[] };
+export type HomeCards = { attention: AttentionCard[]; returning: ReturnCard[]; confirm: ConfirmCard[]; running: RunningCard[]; /** 未読の会話。無ければ空として読む。 */ unread?: UnreadCard[] };
 
 /** 使用制限の 1 行（枠、リセットの時刻、自動で続くか）と、リセットまでの残り。 */
 export function limitCardOf(t: Translate, limit: NonNullable<SessionDto['limit']>, now: number): { text: string; left: string } {
@@ -191,7 +196,16 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
     return { id: s.id, name: name(s), live, aside: aside !== null, elapsed: durationLabel(t, now - (s.startedAt ?? now)), meta, intent, activity, note, idleFor, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(t, s.stats.contextPercent), limit, git: presentGitChip(t, store.git, s.id, store.sessions), ...(agent !== undefined ? { agent } : {}) };
   });
 
-  return { attention, returning, confirm, running };
+  // 未読のある会話。知らせの新しいものが先。設定 unreadBadge が切なら出さない（store.ts の unreadSessionIds）。
+  const unread = unreadSessionIds(store).map((id): UnreadCard => {
+    const s = store.sessions[id]!;
+    const u = s.unread!;
+    const live = quietLive(liveWithLimit(s.live, s.limit), s.state?.status);
+    const agent = rowAgent(store, s);
+    return { id, name: name(s), projectName: projectName(s), live, aside: asideOf(live, s.liveAside) !== null, latest: u.latest ?? '', ago: relativeTime(t, u.at, now), count: u.count, ...(agent !== undefined ? { agent } : {}) };
+  });
+
+  return { attention, returning, confirm, running, unread };
 }
 
 /**
@@ -224,7 +238,7 @@ export type BandLead =
   // 中断の印（中身の無い輪）。spin は再開を頼んで返事を待っている間で、輪が回る。label は読み上げの名前に添える語。
   | { kind: 'ring'; spin: boolean; label: string };
 /** 行の右端に並べる文字。tone の wait は入力待ちの色、busy は作業中の色、limit は使用制限の色である。 */
-export type BandTrail = { text: string; tone?: 'wait' | 'busy' | 'limit' };
+export type BandTrail = { text: string; tone?: 'wait' | 'busy' | 'limit' | 'unread' };
 /**
  * 帯の引き出しの 1 行（1 件 1 行）。
  * 名前（name）、薄い添え（context）、本文（text）、等幅の詳細（detail、いまの手など）、右端の文字（trail）、ボタン（actions）を並べる。
@@ -258,7 +272,7 @@ export type BandSection = { key: string; name: string; color: string; meter: { p
  * fold は引き出しの末尾に畳む 1 行で、押すと rows を開く（済んだ確認の行）。
  */
 export type BandGroup = {
-  id: string; label: string; icon: IconName; tone: 'default' | 'wait' | 'cand' | 'warn'; count: number; summary: string; morning: boolean; rows: BandRow[];
+  id: string; label: string; icon: IconName; tone: 'default' | 'wait' | 'cand' | 'warn' | 'unread'; count: number; summary: string; morning: boolean; rows: BandRow[];
   countText?: string; progress?: number; fold?: { text: string; rows: BandRow[] };
   /** 引き出しの最後（fold の後ろ）に置く行。件数には数えない（始める前の確認の「仕上げ」の行）。 */
   tail?: BandRow[];
@@ -350,6 +364,11 @@ function runningRowBody(t: Translate, r: RunningCard): BandRow {
   return { key: `run:${r.id}`, lead: { kind: 'dot', live: r.live, aside: r.aside }, name: r.name, context: r.meta, text, detail, tone: null, trail, open: { type: 'session.open', id: r.id }, actions: [], git: r.git ? { id: r.id, chip: r.git } : null };
 }
 
+function unreadRow(c: UnreadCard): BandRow {
+  const row: BandRow = { key: `unread:${c.id}`, lead: { kind: 'dot', live: c.live, aside: c.aside }, name: c.name, context: c.projectName, text: c.latest, detail: null, tone: null, trail: [{ text: c.ago }, { text: String(c.count), tone: 'unread' }], open: { type: 'session.open', id: c.id }, actions: [] };
+  return c.agent !== undefined ? { ...row, agent: c.agent } : row;
+}
+
 function confirmRow(t: Translate, c: ConfirmCard): BandRow {
   if (c.kind === 'todo') {
     // 別のプロジェクトに同じ本文の候補があっても、ボタンの名前が 1 つに決まるよう、読み上げの名前にプロジェクトを添える。
@@ -393,7 +412,7 @@ function pendingHeadActions(t: Translate, confirm: ConfirmCard[]): BandAction[] 
 
 /**
  * ホームの帯（上の件数の細い帯と、押した群の引き出し）に渡すものを組む。
- * 3 つの群は要対応、実行中、確認待ちの順で、0 件でも群は残す（薄い錠剤として出す）。
+ * 4 つの群は要対応、未読、実行中、確認待ちの順で、0 件でも群は残す（薄い錠剤として出す）。
  * extra は後ろに足す群で、足したものがそのまま 4 つ目以降の錠剤になる（未解決のプロジェクトなど）。
  * 要対応は入力待ちの札に、今日戻るの札を続ける。実行中の見出しには内訳を添えない（件数は錠剤が言い、動きは行の点が言う）。
  */
@@ -405,8 +424,10 @@ export function presentHomeBand(home: BandInput, t: Translate, extra: BandGroup[
   const attentionSummary = reset > 0 ? t('stop.band.attentionSummaryReset', { waiting: asking, permission, reset, reminders })
     : permission > 0 ? t('stop.band.attentionSummary', { waiting: asking, permission, reminders })
       : t('home.band.attentionSummary', { waiting: asking, reminders });
+  const unread = home.unread ?? [];
   const groups: BandGroup[] = [
     { id: 'attention', label: t('home.band.attention'), icon: 'alert', tone: 'wait', count: home.attention.length + home.returning.length, summary: attentionSummary, morning: true, rows: [...home.attention.map((a) => attentionRow(t, a)), ...home.returning.map((r) => returnRow(t, r))] },
+    { id: 'unread', label: t('home.band.unread'), icon: 'unread', tone: 'unread', count: unread.reduce((n, c) => n + c.count, 0), summary: '', morning: false, rows: unread.map(unreadRow) },
     { id: 'running', label: t('home.band.running'), icon: 'tool', tone: 'default', count: home.running.length, summary: '', morning: true, rows: home.running.map((r) => runningRow(t, r)) },
     { id: 'pending', label: t('home.band.pending'), icon: 'check', tone: 'cand', count: home.confirm.length, summary: t('home.band.pendingSummary', { n: home.confirm.length }), morning: true, rows: home.confirm.map((c) => confirmRow(t, c)), headActions: pendingHeadActions(t, home.confirm) },
     ...extra,

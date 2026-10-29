@@ -252,7 +252,7 @@ export type RetentionSettingsProps = { days: number; options: { value: string; l
  * 連携の「hangar が起動する Claude Code に足すもの」（試作 1 節の推す案 B）。
  * 2 つのスイッチ（askStatusAtEnd、liveHints）と既定のモデル（null は Claude Code の既定）と、足す指示の全文。
  */
-export type InjectionSettingsProps = { askStatusAtEnd: boolean; liveHints: boolean; /** Remote Control を付けて起動する（--remote-control）。この項目を知らない古いサーバは返さないので入りとして読む。 */ remoteControl: boolean; defaultModel: string | null; full: InjectionPart[] };
+export type InjectionSettingsProps = { askStatusAtEnd: boolean; liveHints: boolean; /** 見てほしい出力を notify_user で知らせる段を足す（既定は入り）。無ければ入りとして読む。 */ notifyUser?: boolean; /** Remote Control を付けて起動する（--remote-control）。この項目を知らない古いサーバは返さないので入りとして読む。 */ remoteControl: boolean; defaultModel: string | null; full: InjectionPart[] };
 
 /** アカウントに付けられる 5 色（#rrggbb）。サーバは何色でも受けるが、画面からはここから選ぶ。 */
 export const ACCOUNT_COLORS = ['#2a57b8', '#7a4a9e', '#2b7048', '#c77a1a', '#a2452f'];
@@ -304,6 +304,8 @@ export type SettingsProps = {
    */
   /** ask は OS にまだ尋ねていないこと（「まだ許可していません」と［許可する］を添える）。 */
   notify: { available: boolean; on: boolean; blocked: boolean; ask?: boolean };
+  /** 未読の出し先（既定はどれも入り）。無ければ入りとして読む。 */
+  unread?: { badge: boolean; os: boolean; phone: boolean };
   /** ツールの節の先頭の psmux（tmux）の状態の行（段 6 の B3）。準備の確かめが届く前は null。 */
   mux?: MuxStatus | null;
   /**
@@ -581,7 +583,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     terminalOptions: terminalAppsFor(platform).map((value) => ({ value, label: terminalLabel(t, value) })),
     terminalDesc: t(platform === 'win32' ? 'settings.general.terminal.descWindows' : 'settings.general.terminal.desc'), terminalDescAlways: platform !== 'win32',
     summaryEngine, summaryClaudeModel: s?.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL, summaryApiKeySet: s?.summaryApiKeySet === true,
-    injection: { askStatusAtEnd: s?.askStatusAtEnd !== false, liveHints: s?.liveHints !== false, remoteControl: s?.remoteControl !== false, defaultModel: s?.defaultModel ?? null, full: presentInjection(t, { askStatusAtEnd: s?.askStatusAtEnd !== false, liveHints: s?.liveHints !== false }) },
+    injection: { askStatusAtEnd: s?.askStatusAtEnd !== false, liveHints: s?.liveHints !== false, notifyUser: s?.notifyUser !== false, remoteControl: s?.remoteControl !== false, defaultModel: s?.defaultModel ?? null, full: presentInjection(t, { askStatusAtEnd: s?.askStatusAtEnd !== false, liveHints: s?.liveHints !== false }) },
     lmStudioUrl: s?.lmStudioUrl ?? '', lmStudioModel: s?.lmStudioModel ?? null, summaryFallback: s?.summaryFallback ?? false, summaryHourlyCap: s?.summaryHourlyCap ?? 20, allowExternalSummarizer: s?.allowExternalSummarizer ?? false,
     summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest,
     statusline: store.statusline, usageAggregate: store.usageAggregate && { ...store.usageAggregate, projects: store.usageAggregate.projects.map((u) => { const p = u.projectId ? store.projects[u.projectId] : undefined; return p ? { ...u, name: projectDisplayName(p, t) } : u; }) },
@@ -599,6 +601,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     language: { value: storeLanguage(store) },
     focus: at === 'accounts' || at === 'unsent' || isSettingsField(at) ? at : null,
     notify: { available: store.notify.available, on: store.notify.on, blocked: store.notify.blocked, ...(store.notify.ask ? { ask: true } : {}) },
+    unread: { badge: s?.unreadBadge !== false, os: s?.unreadOs !== false, phone: s?.unreadPhone !== false },
     self: { autoDone: s?.autoDone !== false, autoDoneIdleDays: isAutoDoneIdleDays(s?.autoDoneIdleDays) ? s.autoDoneIdleDays : DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: s?.autoPark !== false },
     setupGuide: store.setupGuide ? { prompt: setupGuidePrompt(t, store.setupGuide), version: store.setupGuide.version, launch: canLaunchGuide(store) } : null,
   };

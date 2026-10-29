@@ -3,7 +3,7 @@ import { agentIconsOn, agentOfSession } from './agentIcon.ts';
 import { presentSessionMenu, type SessionMenuProps } from './sessionMenu.ts';
 import { type AgentIconKind, type AgentUsageDto, type IndexProgressDto, type LiveStatus, type Route, type SessionDto, type StopReason, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, liveWithLimit, quietLive, resetAtText, stopReasonOf, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
-import { accountList, accountOfSession, currentAccount, liveSessionIds, shownReason, waitingSessionIds, type Store } from '../store/store.ts';
+import { accountList, accountOfSession, currentAccount, liveSessionIds, shownReason, unreadOf, unreadTotal, waitingSessionIds, type Store } from '../store/store.ts';
 import { codexAccountIdOfSession, presentAccounts, presentAgentUsage, presentCodexAccounts, type AccountGauge, type AccountView, type AgentUsageView } from './accounts.ts';
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
 import { translatorOf, storeLanguage } from './i18n.ts';
@@ -14,10 +14,10 @@ import { presentNotices, type NoticesProps } from './notices.ts';
 import { limitedWord, syncStateWord } from './syncLabel.ts';
 
 /**
- * count は項目に添える数で、今はホームの入力待ちの数だけに使う。
+ * count は項目に添える数で、今はホームの入力待ちの数に未読の合計（unreadBadge が入りのとき）を足したものだけに使う。
  * 0 なら添えない。
  */
-export type NavItem = { route: Route; label: string; current: boolean; count: number };
+export type NavItem = { route: Route; label: string; current: boolean; count: number; /** count の内訳。入力待ちの数と未読の合計（読み上げが分けて言う）。無ければ count を入力待ちの数と読む。 */ waiting?: number; unread?: number };
 /**
  * fiveHourResets と sevenDayResets は、Claude の利用上限の枠が戻る時刻の文で、届いていなければ null である。
  * fiveHourLimit と sevenDayLimit は、その枠の使用制限でセッションが止まっているときのリセットの時刻の文（試作 stop-reason-proto の H2）。
@@ -73,6 +73,8 @@ export const HARD_AFTER_FAILURES = 3;
  * menu は行の右クリックと . で開くセッションのメニュー（1A）。一覧とホームの帯と同じものである。
  */
 export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; aside: boolean; reason: StopReason | null; waited: string | null; current: boolean; menu: SessionMenuProps;
+  /** 未読の数（notify_user で知らせた数）。無いか、設定 unreadBadge が切なら 0。 */
+  unread?: number;
   /** 同じファイルを別のセッションと編集していること。行末の印に乗せたときの文（相手の名前）。無ければ null か無し。 */
   overlap?: string | null;
   /** 名前の右端のエージェントのアイコン（一覧の行と同じ、agentIcon.ts）。出さないときは持たない。 */
@@ -197,7 +199,7 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
     // 停止の確認（stop.working）は本当の動きで決める。答えを待つ会話は、止めると問いが消える。
     const shown = quietLive(liveWithLimit(s.live, s.limit), s.state?.status);
     const reason = shownReason(s, shown);
-    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, waited: sideWaited(t, s, shown, reason, now), current: id === current, menu: presentSessionMenu(store, s, t), overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null, ...(icons ? { agent: agentOfSession(store, s) } : {}) };
+    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, waited: sideWaited(t, s, shown, reason, now), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null, ...(icons ? { agent: agentOfSession(store, s) } : {}) };
   };
   const byKey = new Map<string, string[]>();
   for (const id of order) {
@@ -308,6 +310,10 @@ export function presentShell(state: State, store: Store, now: number, tz?: strin
   // ホームに入力待ちの数を添える。
   // 数え方は shared の liveFilterOf に従う（waitingSessionIds）。
   const waiting = waitingSessionIds(store).length;
-  const item = (n: NavDef): NavItem => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 });
+  const unread = unreadTotal(store);
+  const item = (n: NavDef): NavItem => {
+    const home = n.route.name === 'home';
+    return { route: n.route, label: n.label, current: n.matches.includes(s.name), count: home ? waiting + unread : 0, waiting: home ? waiting : 0, unread: home ? unread : 0 };
+  };
   return { sidebarCollapsed: state.sidebarCollapsed, sidebarWidth: state.sidebarWidth, wide: s.name === 'session', nav: navDefs(t).map(item), foot: footDefs(t).map(item), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), notices: presentNotices(state, store, now, tz), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
 }

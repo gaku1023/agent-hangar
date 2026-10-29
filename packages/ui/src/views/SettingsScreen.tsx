@@ -323,6 +323,13 @@ export function SettingsScreen(props: SettingsProps) {
               </div>
             ) : undefined}
         control={<Switch label={t('settings.general.notify.title')} checked={props.notify.on} disabled={!props.notify.available} onChange={(next) => emit({ type: 'notify.set', on: next })} />} />
+      {/* 未読の出し先。補助の説明は添えない。どれも選んだ時点で保存する。 */}
+      <SetRow title={t('settings.label.unreadBadge')}
+        control={<Switch label={t('settings.label.unreadBadge')} checked={props.unread?.badge !== false} onChange={(next) => emit({ type: 'settings.update', patch: { unreadBadge: next } })} />} />
+      <SetRow title={t('settings.label.unreadOs')}
+        control={<Switch label={t('settings.label.unreadOs')} checked={props.unread?.os !== false} onChange={(next) => emit({ type: 'settings.update', patch: { unreadOs: next } })} />} />
+      <SetRow title={t('settings.label.unreadPhone')}
+        control={<Switch label={t('settings.label.unreadPhone')} checked={props.unread?.phone !== false} onChange={(next) => emit({ type: 'settings.update', patch: { unreadPhone: next } })} />} />
       {/* 切り替えた時点で保存する。iTerm2 は初回に macOS の自動化の許可ダイアログが出るので、その案内は行に常に出す。選択肢は画面を開いている OS のものだけ。 */}
       <SetRow title={t('settings.general.terminal.title')} desc={props.terminalDescAlways ? props.terminalDesc : undefined} info={props.terminalDescAlways ? undefined : props.terminalDesc}
         control={<Segmented label={t('settings.general.terminal.title')} value={props.terminalApp} options={props.terminalOptions.map((o) => ({ ...o, lead: <Icon name={TERMINAL_ICON[o.value]} /> }))} onChange={(v) => setNow({ terminalApp: v as TerminalApp })} />} />

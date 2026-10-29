@@ -297,7 +297,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.label.askStatusAtEnd': '作業の区切りで Done／Paused を確認する',
   'settings.label.liveHints': 'ターンの意図と操作の短い説明を送る',
   'settings.label.notifyUser': '見てほしい出力を notify_user で知らせる',
-  'settings.label.unreadBadge': '未読の数を出す',
+  'settings.label.unreadBadge': '未読数を表示する',
   'settings.label.unreadOs': '未読を OS の通知で知らせる',
   'settings.label.unreadPhone': '未読をスマホの通知で知らせる',
   'settings.label.autoDone': '停止したセッションを自動で Done にする',

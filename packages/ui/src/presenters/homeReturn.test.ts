@@ -98,7 +98,7 @@ describe('presentHome の、区切りを付けて休みのまま残っている�
     expect(h.running.map((r) => r.id).sort()).toEqual(['later', 'none']);
     const screen = presentHomeScreen(initialState(), store, NOW);
     expect(screen.band.groups[0]).toMatchObject({ id: 'attention', count: 1 });
-    expect(screen.band.groups[1]).toMatchObject({ id: 'running', count: 2 });
+    expect(screen.band.groups[2]).toMatchObject({ id: 'running', count: 2 });
   });
   it('戻る時点が来ても、作業中なら実行中、入力待ちなら要対応の入力待ちのまま（今日戻るには重ねない）', () => {
     const h = presentHome(initialState(), storeOf([paused('b', 1, '2026-10-02', { live: 'busy' }), paused('w', 1, '2026-10-02', { live: 'waiting' })]), NOW);
@@ -109,7 +109,7 @@ describe('presentHome の、区切りを付けて休みのまま残っている�
   it('ほかに動いているものが無ければ idle にする', () => {
     const screen = presentHomeScreen(initialState(), withRuns(storeOf([paused('later', 1, '2026-10-05', { live: 'idle', parked: true })]), ['later']), NOW);
     expect(screen.idle).toBe(true);
-    expect(screen.band.groups[1]).toMatchObject({ id: 'running', count: 0 });
+    expect(screen.band.groups[2]).toMatchObject({ id: 'running', count: 0 });
   });
   it('印が付いていても、作業中は実行中の札に、入力待ちは要対応の札に今までどおり出す', () => {
     const h = presentHome(initialState(), storeOf([paused('b', 1, '2026-10-05', { live: 'busy' }), paused('w', 1, '2026-10-05', { live: 'waiting' })]), NOW);
@@ -134,7 +134,7 @@ describe('presentHome の確かめる', () => {
   });
   it('帯の確認待ちは、TODO の候補もセッションの提案も数える', () => {
     const store = storeOf([proposed('nfd', 'done', NOW - 2 * H), proposed('orphan', 'done', NOW - H, null, { projectId: null })], [todo('a', NOW - 60_000)]);
-    expect(presentHomeScreen(initialState(), store, NOW).band.groups[2]).toMatchObject({ id: 'pending', count: 3 });
+    expect(presentHomeScreen(initialState(), store, NOW).band.groups[3]).toMatchObject({ id: 'pending', count: 3 });
   });
 });
 
