@@ -77,6 +77,19 @@ describe('設定の opencode の面', () => {
     render(ui(props({ enabled: true, version: { kind: 'missing', installed: null, verified: '2.1.x', note: 'opencode が見つかりません（PATH を確認してください）。' }, badge: { text: '見つかりません', tone: 'warn' } })));
     expect(section().querySelector('.oc-vers')).toBeNull();
     expect(screen.getByText('opencode が見つかりません（PATH を確認してください）。')).toBeInTheDocument();
+    // 見つからないときは見出しの右に「エージェントで調査…」を置き、版の行の文を入れて調べさせる。
+    expect(within(section().querySelector('h3')!).getByRole('button', { name: 'エージェントで調査…' })).toBeInTheDocument();
+  });
+
+  it('版の調べる口は、古い・読めない・見つからないときだけ。押すと版の行の文を入れて開く', () => {
+    const onAction = vi.fn();
+    const note = 'このバージョンには対応していません。';
+    const { unmount } = render(ui(props({ enabled: true, version: { kind: 'legacy', installed: '1.4.2', verified: '2.1.x', note }, badge: { text: '非対応', tone: 'warn' } }), onAction));
+    fireEvent.click(within(section()).getByRole('button', { name: 'エージェントで調査…' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'investigate.open', op: 'agentVersion', agent: 'opencode', message: note });
+    unmount();
+    render(ui(props({ enabled: true })));
+    expect(within(section()).queryByRole('button', { name: 'エージェントで調査…' })).toBeNull();
   });
 
   it('答えが届く前は「読み込み中…」を出す', () => {

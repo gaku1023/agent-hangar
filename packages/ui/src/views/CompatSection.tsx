@@ -1,5 +1,6 @@
 import type { CompatState } from '@agent-hangar/shared';
 import type { CompatProps } from '../presenters/compat.ts';
+import { InvestigateButton } from './InvestigateButton.tsx';
 import { CopyButton } from './primitives/CommandLine.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { InfoTip } from './primitives/InfoTip.tsx';
@@ -74,6 +75,8 @@ export function CompatSection(props: { compat: CompatProps | null }) {
             {c.badge}
           </span>
         )}
+        {/* ずれはその場で直せない（hangar の更新か Claude Code の版の戻しが要る）。報告の文（中身が届く前は札と前置き）を入れてエージェントに調べさせる。 */}
+        {c?.state === 'drift' && <InvestigateButton ctx={{ op: 'compat', agent: 'claude-code', message: c.report ?? [c.badge, c.lead].filter(Boolean).join('\n') }} />}
       </h3>
       {c === null ? <div className="faint" style={{ marginTop: 4 }}>{t('compat.section.checking')}</div> : (
         <div className="cp-vers">

@@ -439,7 +439,7 @@ export function NewSessionDialog(props: NewSessionProps) {
       {/* 欄は箱（枠と道具の段）を持つので、label は欄の外に置く。見える文字の代わりは案内（placeholder）が言う。 */}
       <div className="field">
         <label className="sr-only" htmlFor={PROMPT_ID}>{t('newSession.prompt.label')}</label>
-        <PromptComposer id={PROMPT_ID} hero placeholder={t('newSession.prompt.placeholder')} value={prompt} onChange={setPrompt} projectId={assistProject} attachments={attachments} onAttachmentsChange={changeAttachments} onPendingChange={setUploading} {...(seed ? { quote: seed.quote } : {})} />
+        <PromptComposer id={PROMPT_ID} hero placeholder={t('newSession.prompt.placeholder')} value={prompt} onChange={setPrompt} projectId={assistProject} attachments={attachments} onAttachmentsChange={changeAttachments} onPendingChange={setUploading} {...(seed ? { quote: seed.quote, quoteTone: seed.tone } : {})} />
       </div>
       <LaunchChips
         rootRef={chipsRef}

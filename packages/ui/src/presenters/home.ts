@@ -12,6 +12,7 @@ import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
 import { liveReadiness, presentReadiness } from './readiness.ts';
+import { canLaunchGuide } from './investigate.ts';
 import { presentInterrupted } from './interrupted.ts';
 import { withOverlaps } from './overlap.ts';
 import { presentSessionMenu, type SessionMenuProps } from './sessionMenu.ts';
@@ -203,6 +204,8 @@ export type BandAction = { id: string; label: string; ariaLabel: string; primary
   disabled?: boolean;
   /** 文字の代わりに出す絵（行の「再開しない」の ×）。読み上げの名前は ariaLabel のまま。 */
   icon?: IconName;
+  /** 押す前に見せる一言（ボタンの title）。 */
+  title?: string;
   /** send が clipboard.copy のとき、写せたら COPIED_MS のあいだ文字を「コピーしました」に替える（始める前の確認の「仕上げ」の行）。 */
   copyFeedback?: boolean };
 /**
@@ -448,7 +451,7 @@ export function presentHomeScreen(state: State, store: Store, now: number): Home
   const t = translatorOf(store);
   // 準備の確かめは起動のたびに取る。届くまで、また届いても直すものが無ければ、確認の群は出さない。
   // プロジェクトの行は、画面が持っているプロジェクトの数で決める（登録した直後に、準備の確かめを取り直す前でも行を消す）。
-  const ready = store.readiness ? presentReadiness(liveReadiness(store.readiness, Object.values(store.projects)), t, undefined, state.muxCheck, { desktop: store.desktop, running: state.setupRunning, notifyAsk: store.notify.ask === true, guide: store.setupGuide ? setupGuidePrompt(t, store.setupGuide) : null }) : null;
+  const ready = store.readiness ? presentReadiness(liveReadiness(store.readiness, Object.values(store.projects)), t, undefined, state.muxCheck, { desktop: store.desktop, running: state.setupRunning, notifyAsk: store.notify.ask === true, guide: store.setupGuide ? setupGuidePrompt(t, store.setupGuide) : null, launch: canLaunchGuide(store) }) : null;
   const band0 = presentHomeBand(presentHome(state, store, now), t);
   // 実行中の行に、同じファイルの編集の札を重ねる（presenters/overlap.ts）。
   const base = { ...band0, groups: band0.groups.map((g) => withOverlaps(g, store, now)) };

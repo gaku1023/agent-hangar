@@ -44,14 +44,20 @@ export type StatusFilter = NonNullable<SearchFilter['status']>;
  * op は何をしたときのエラーか、message はエラーの文。agent と accountId はエラーに絡むもの（分かれば）、sessionId は再開とフォークの元。
  * code はエラーのコード、files は絡むファイルの名前。どれも分かるときだけ付ける。
  */
-export type InvestigateOp = 'launch' | 'resume' | 'fork' | 'accountSwitch' | 'accountLinks' | 'linkRepair' | 'accountAdd' | 'sync' | 'cloud' | 'summary' | 'editor' | 'opencodeProvider';
+export type InvestigateErrorOp = 'launch' | 'resume' | 'fork' | 'accountSwitch' | 'accountLinks' | 'linkRepair' | 'accountAdd' | 'sync' | 'cloud' | 'summary' | 'editor' | 'opencodeProvider';
+/** エラーではない注意から調べるときの op。その場で直すボタンの無い注意にだけ置く（互換のずれ、空き不足、エージェントの版、クラウドの古い形式）。 */
+export type InvestigateNoticeOp = 'compat' | 'disk' | 'agentVersion' | 'cloudLegacy';
+export type InvestigateOp = InvestigateErrorOp | InvestigateNoticeOp;
+const NOTICE_OPS: ReadonlySet<InvestigateOp> = new Set<InvestigateNoticeOp>(['compat', 'disk', 'agentVersion', 'cloudLegacy']);
+/** 注意から調べる op か。依頼の文、引用の頭の語、ボタンの title が変わる。 */
+export const isNoticeOp = (op: InvestigateOp): op is InvestigateNoticeOp => NOTICE_OPS.has(op);
 export type InvestigateContext = { op: InvestigateOp; message: string; agent?: AgentKind; accountId?: string; sessionId?: SessionId; code?: string; files?: string[] };
 /**
  * 新しいセッションのダイアログを、中身を埋めて開くときの種（session.new.open の seed）。
  * request は依頼の文（欄で書き換えられる）、quote はエラーの引用（欄の中に分けて見せ、送るときに依頼の文の後に足す）。
  * accounts はエージェントごとに選んでおくアカウントの id。下書きは上書きせず、閉じても残さない。
  */
-export type NewSessionSeed = { request: string; quote: string; accounts?: { 'claude-code'?: string; codex?: string } };
+export type NewSessionSeed = { request: string; quote: string; accounts?: { 'claude-code'?: string; codex?: string }; /** info は引用を中立の色で見せる（注意とセットアップの状況）。無ければエラーの色。 */ tone?: 'info' };
 export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string; agent?: AgentKind; mode?: string; autoApprove?: boolean; prepKey?: string; prepChoice?: import('./launchPrep.ts').LaunchPrepChoice };
 /** 設定の同期（作り直した実装）のダイアログ。send は送るものの一覧、review は適用内容の確認、approve は届いたスキルなどの承認、conflicts は競合。 */
 export type ConfigSyncPart = 'send' | 'review' | 'approve' | 'conflicts';
@@ -125,6 +131,8 @@ export type UiAction =
   | { type: 'instructions.load'; projectId: ProjectId } | { type: 'instructions.openEditor'; projectId: ProjectId; kind: InstructionFileKind; once?: KnownEditorId }
   // セットアップのすゝめ。写した md をエディタで開く（設定の連携の札の「手引きの中身を見る」）。
   | { type: 'setupGuide.openEditor'; once?: KnownEditorId }
+  // セットアップのすゝめを、準備の状況を引用に入れたクイックセッションのダイアログで開く（tmux と claude があるときだけ置く）。
+  | { type: 'setupGuide.launch' }
   | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.add'; projectId: ProjectId; url: string } | { type: 'artifact.openEditor'; id: ArtifactId; once?: KnownEditorId }
   // seq と q は検索の結果から開くときの跳び先（抜粋の seq と検索語）。
   | { type: 'session.open'; id: SessionId; focus?: 'terminal'; seq?: number; q?: string }

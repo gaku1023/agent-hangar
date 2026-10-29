@@ -335,6 +335,14 @@
 .mux-notes { margin: calc(var(--u) * 0.75) 0 0; padding-left: calc(var(--u) * 5); }
 .mux-notes li { margin: calc(var(--u) * 0.5) 0; font-weight: 600; }
 /* 連携の末尾の「Claude Code に環境を見てもらう」の札（試作の案 C）。貼る一言を等幅の枠でそのまま見せ、右に主ボタンを置く。 */
+.guide-head { display: flex; align-items: flex-start; gap: calc(var(--u) * 4); }
+.guide-head > div { flex: 1; min-width: 0; }
+.guide-head .h2 { margin-top: 0; }
+.guide-head > .btn { flex: none; margin-top: calc(var(--u) * 0.5); }
+/* 見出しの右の「エージェントで調査…」（その場で直す口の無い注意）。札は margin-left: auto で右へ寄せてあり、その後ろに並べる。 */
+.settings-group > section > .h2:first-child > .btn { flex: none; }
+.strip-head { display: flex; align-items: center; gap: calc(var(--u) * 2); }
+.strip-head > .btn { margin-left: auto; flex: none; }
 .guide-prompt { display: flex; align-items: stretch; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2.5); }
 .guide-prompt > code { flex: 1; min-width: 0; padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border: 1px solid var(--line); border-radius: var(--r); background: var(--surface-2); font: var(--fs-sm) / 1.5 var(--font-mono); color: var(--ink); overflow-wrap: anywhere; -webkit-user-select: all; user-select: all; }
 .guide-prompt > .btn { flex: none; height: auto; min-height: var(--row-h); }

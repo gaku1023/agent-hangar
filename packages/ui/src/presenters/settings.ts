@@ -1,5 +1,6 @@
 import { presentOpencodeProviders, type OpencodeProvidersProps } from './opencodeProviders.ts';
 import { CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SharePreviewDto, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
+import { canLaunchGuide } from './investigate.ts';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime } from './format.ts';
@@ -354,7 +355,7 @@ export type SettingsProps = {
    * 連携の末尾の「Claude Code に環境を見てもらう」の札。prompt は貼る一言で、画面の言語で作る（setupGuidePrompt）。version は右上の版の札。
    * 写しが取れていなければ null で、札を出さない。
    */
-  setupGuide: { prompt: string; version: string } | null;
+  setupGuide: { prompt: string; version: string; /** すゝめをセッションのダイアログで開けるか（tmux と claude がある）。偽なら一言を見せてコピーさせる。 */ launch: boolean } | null;
 };
 
 /**
@@ -599,6 +600,6 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     focus: at === 'accounts' || at === 'unsent' || isSettingsField(at) ? at : null,
     notify: { available: store.notify.available, on: store.notify.on, blocked: store.notify.blocked, ...(store.notify.ask ? { ask: true } : {}) },
     self: { autoDone: s?.autoDone !== false, autoDoneIdleDays: isAutoDoneIdleDays(s?.autoDoneIdleDays) ? s.autoDoneIdleDays : DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: s?.autoPark !== false },
-    setupGuide: store.setupGuide ? { prompt: setupGuidePrompt(t, store.setupGuide), version: store.setupGuide.version } : null,
+    setupGuide: store.setupGuide ? { prompt: setupGuidePrompt(t, store.setupGuide), version: store.setupGuide.version, launch: canLaunchGuide(store) } : null,
   };
 }

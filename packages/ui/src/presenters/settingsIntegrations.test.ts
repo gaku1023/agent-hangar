@@ -62,9 +62,15 @@ describe('連携の末尾の「Claude Code に環境を見てもらう」の札'
   const of = (s: Store) => presentSettings({ ...initialState(), screen: { name: 'settings' } }, s).setupGuide;
 
   it('一言は画面の言語で作り直し、版を添える。サーバの一言はそのまま使わない（言語を変えても取り直さずに替わる）', () => {
-    expect(of(store({ setupGuide: guide }))).toEqual({ prompt: '~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで、私の環境を診断して。書き換えは私が承認してから', version: '0.7.0' });
+    expect(of(store({ setupGuide: guide }))).toEqual({ prompt: '~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで、私の環境を診断して。書き換えは私が承認してから', version: '0.7.0', launch: true });
     const en = of(store({ setupGuide: guide, settings: { ...SETTINGS, language: 'en' } }));
     expect(en?.prompt).toMatch(/^Read ~\/\.agent-hangar\/setup-guide\.md \(v0\.7\.0 sha256:3f9a1c2e\)/);
+  });
+
+  it('tmux と claude があるときだけ、すゝめをセッションのダイアログで開ける（launch）', () => {
+    const tools = (ok: boolean) => ({ tools: { tmux: { path: '/t', ok: true, problem: null, version: '3.5' }, claude: { path: ok ? '/c' : null, ok, problem: ok ? null : 'unset', version: null }, node: { path: '/n', ok: true, problem: null, version: 'v22', auto: true } }, workspace: { path: '/w', exists: true, projectCount: 0 }, mcp: { registered: true, file: '' }, statusline: { command: null, scriptPath: null, installed: false }, commands: { mcp: '', statusline: '', shell: '', join: '' } }) as unknown as NonNullable<Store['readiness']>;
+    expect(of(store({ setupGuide: guide, readiness: tools(true) }))?.launch).toBe(true);
+    expect(of(store({ setupGuide: guide, readiness: tools(false) }))?.launch).toBe(false);
   });
 
   it('写しが取れていなければ null', () => {

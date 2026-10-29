@@ -6,6 +6,7 @@ import type { OpencodeSettingsProps } from '../presenters/settings.ts';
 import { InjectionFull } from './InjectionFull.tsx';
 import { ShareRows } from './ShareRows.tsx';
 import { OpencodeProviders } from './OpencodeProviders.tsx';
+import { InvestigateButton } from './InvestigateButton.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
@@ -14,6 +15,9 @@ import { StepSlider } from './primitives/StepSlider.tsx';
 import { SetRow } from './primitives/SetRow.tsx';
 import { Switch } from './primitives/Switch.tsx';
 import { usePresence } from './primitives/usePresence.ts';
+
+/** 見出しの右に「エージェントで調査…」を置く版の区分。その場で直す口が無く、入れ直すか上げるか PATH を直すもの。 */
+const INVESTIGATE_KINDS: ReadonlySet<string> = new Set(['legacy', 'unknown', 'missing']);
 
 /** 版の行の本文。手元の版と確かめた範囲を並べ、範囲の外や見つからないときはその下に文を添える。届く前は「読み込み中…」。 */
 function OpencodeVersion(props: { version: OpencodeSettingsProps['version'] }) {
@@ -78,6 +82,7 @@ export function OpencodeSection(props: { o: OpencodeSettingsProps; providers?: O
             {b.text}
           </span>
         )}
+        {o.enabled && o.version && INVESTIGATE_KINDS.has(o.version.kind) && o.version.note && <InvestigateButton ctx={{ op: 'agentVersion', agent: 'opencode', message: o.version.note }} />}
       </h3>
       <SetRow title={t('settings.label.opencodeEnabled')} info={t('settings.opencode.enabledDesc')}
         control={<Switch label={t('settings.label.opencodeEnabled')} checked={o.enabled} onChange={(next) => emit({ type: 'settings.update', patch: { opencodeEnabled: next } })} />} />

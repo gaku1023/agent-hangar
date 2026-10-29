@@ -4,4 +4,7 @@ import type { MessageSpec } from '../messageSpec.ts';
 export const setupGuideKeys = {
   'setupGuide.prompt.line': ['path', 'version', 'sha'],
   'setupGuide.error.missing': [],
+  'setupGuide.launch.button': [],
+  'setupGuide.launch.title': [],
+  'setupGuide.quote.line': ['name', 'state', 'text'],
 } as const satisfies MessageSpec;

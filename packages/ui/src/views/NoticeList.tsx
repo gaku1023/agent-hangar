@@ -1,4 +1,4 @@
-import type { UiAction } from '@agent-hangar/shared';
+import { isNoticeOp, type UiAction } from '@agent-hangar/shared';
 import type { NoticeRow } from '../presenters/notices.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -24,7 +24,7 @@ export function NoticeList(props: { rows: NoticeRow[]; onAct: (row: NoticeRow, s
             {r.detail !== null && <div className="p-d">{r.detail}</div>}
             <div className="p-acts">
               <button type="button" className="btn btn-sm" onClick={() => props.onAct(r, r.action.send)}>{r.action.label}</button>
-              {r.investigate && <button type="button" className="btn btn-sm" title={t('newSession.investigate.title')} onClick={() => props.onAct(r, { type: 'investigate.open', ...r.investigate! })}>{t('newSession.investigate.button')}</button>}
+              {r.investigate && <button type="button" className="btn btn-sm" title={t(isNoticeOp(r.investigate.op) ? 'newSession.investigate.titleNotice' : 'newSession.investigate.title')} onClick={() => props.onAct(r, { type: 'investigate.open', ...r.investigate! })}>{t('newSession.investigate.button')}</button>}
             </div>
           </div>
           {r.when !== null && <span className="p-when">{r.when}</span>}
