@@ -4,6 +4,7 @@ import type { Db } from '../db/open.ts';
 import { getSession } from '../db/queries.ts';
 import type { GetLanguage } from '../i18n/language.ts';
 import { translatorOf } from '../i18n/message.ts';
+import { onUnread } from '../live/unread.ts';
 import { Pacer } from '../platform/pacer.ts';
 
 /**
@@ -132,6 +133,20 @@ export class StopNoticeWatch {
   pending(): boolean {
     for (const ep of this.episodes.values()) if (ep.phase !== 'done') return true;
     return false;
+  }
+
+  /**
+   * notify_user の知らせを購読し、出し先に os があるものを OS の通知の並びへ積む（kind unread）。
+   * 入力待ちとは別の kind なので、殻は別の枠に入れ、同じ会話の入力待ちの通知を置き換えない。戻り値を呼ぶと外す。
+   */
+  subscribeUnread(): () => void {
+    return onUnread((sessionId, text, _count, sent) => {
+      if (!sent.includes('os')) return;
+      const now = this.deps.now?.() ?? Date.now();
+      const s = this.session(this.deps.live(), sessionId, now);
+      if (!s) return;
+      this.deps.feed.push({ kind: 'unread', sessionId: s.id, title: this.titleOf(s), body: text, bare: false });
+    });
   }
 
   tick(): void {

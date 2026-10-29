@@ -18,6 +18,7 @@ const WAITING_PREFIX: &str = "hangar-waiting:";
 const RETURN_PREFIX: &str = "hangar-return:";
 const LIMIT_PREFIX: &str = "hangar-limit:";
 const JOIN_PREFIX: &str = "hangar-join:";
+const UNREAD_PREFIX: &str = "hangar-unread:";
 /// 参加リクエストの知らせがセッションの id の代わりに載せる値（サーバの `JOIN_NOTICE_ID`）。
 /// セッションの id（UUID）とは重ならない。
 /// 押されたら、セッションではなく設定のクラウド同期を開く（`open_js`）。
@@ -39,12 +40,14 @@ const ID_MAX: usize = 64;
 /// 同じ枠に入れると、後から来た戻る時刻の知らせが、同じセッションの入力待ちの知らせを置き換えて問いの文を消すからである。
 /// 参加リクエストの知らせ（Join）は、参加コードを発行した PC に、別の PC から参加リクエストを受信したことを知らせる。
 /// id はいつも `JOIN_SESSION` で、押すと設定を開く。
+/// 未読の知らせ（Unread、エージェントの notify_user）は、入力待ちとは別の枠に入り、押すとそのセッションを開く。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Kind {
     Waiting,
     Return,
     Limit,
     Join,
+    Unread,
 }
 
 impl Kind {
@@ -56,6 +59,7 @@ impl Kind {
             Some("return") => Ok(Kind::Return),
             Some("limit") => Ok(Kind::Limit),
             Some("join") => Ok(Kind::Join),
+            Some("unread") => Ok(Kind::Unread),
             Some(_) => Err("invalid notification kind".to_string()),
         }
     }
@@ -66,10 +70,17 @@ impl Kind {
             Kind::Return => RETURN_PREFIX,
             Kind::Limit => LIMIT_PREFIX,
             Kind::Join => JOIN_PREFIX,
+            Kind::Unread => UNREAD_PREFIX,
         }
     }
 
-    const ALL: [Kind; 4] = [Kind::Waiting, Kind::Return, Kind::Limit, Kind::Join];
+    const ALL: [Kind; 5] = [
+        Kind::Waiting,
+        Kind::Return,
+        Kind::Limit,
+        Kind::Join,
+        Kind::Unread,
+    ];
 }
 
 /// 確かめ終えた通知の中身。
@@ -121,7 +132,7 @@ impl Keep {
             Kind::Waiting => self.waiting.contains(session_id),
             Kind::Return => self.returning.contains(session_id),
             Kind::Limit => self.limited.contains(session_id),
-            Kind::Join => true,
+            Kind::Join | Kind::Unread => true,
         }
     }
 
@@ -131,7 +142,7 @@ impl Keep {
             Kind::Waiting => &mut self.waiting,
             Kind::Return => &mut self.returning,
             Kind::Limit => &mut self.limited,
-            Kind::Join => return,
+            Kind::Join | Kind::Unread => return,
         };
         set.insert(session_id.to_string());
     }
@@ -351,6 +362,7 @@ mod toast {
     const RETURN_GROUP: &str = "hangar-return";
     const LIMIT_GROUP: &str = "hangar-limit";
     const JOIN_GROUP: &str = "hangar-join";
+    const UNREAD_GROUP: &str = "hangar-unread";
     /// アプリが閉じている間に押されたトーストを受け取る COM の口の CLSID。
     /// 値は一度だけ作って固定した。
     /// 変えると、前の版が出したトーストを押しても、この版へ届かなくなる。
@@ -420,6 +432,7 @@ mod toast {
             Kind::Return => RETURN_GROUP,
             Kind::Limit => LIMIT_GROUP,
             Kind::Join => JOIN_GROUP,
+            Kind::Unread => UNREAD_GROUP,
         }
     }
 
@@ -1595,6 +1608,22 @@ mod tests {
         assert_eq!(open_hash("s1"), "#/session/s1");
         // セッションの知らせは今までどおりセッションを開く。
         assert!(open_js("s1").contains("__hangarOpenWaiting"));
+    }
+
+    /// 未読の知らせは入力待ちとは別の枠（識別子、タグの組）に入り、押すとそのセッションを開く。頁の顔ぶれの一覧に載らないので、一覧で外さない。
+    #[test]
+    fn an_unread_notice_has_its_own_slot_and_opens_the_session() {
+        assert_eq!(Kind::parse(Some("unread")), Ok(Kind::Unread));
+        assert_eq!(identifier(Kind::Unread, "s1"), "hangar-unread:s1");
+        assert_ne!(identifier(Kind::Unread, "s1"), identifier(Kind::Waiting, "s1"));
+        assert_eq!(parse_identifier("hangar-unread:s1"), Some((Kind::Unread, "s1")));
+        assert_eq!(session_of("hangar-unread:s1"), Some("s1"));
+        assert_eq!(toast_group(Kind::Unread), "hangar-unread");
+        assert_ne!(toast_group(Kind::Unread), toast_group(Kind::Waiting));
+        assert!(open_js("s1").contains("#/session/"));
+        let keep = Keep::new(&[], &[]);
+        assert!(keep.holds(Kind::Unread, "s1"));
+        assert!(stale_identifiers(&ids(&["hangar-unread:s1"]), &keep).is_empty());
     }
 
     /// 参加リクエストの知らせは、頁の顔ぶれの一覧に載らないので、一覧で外さない。

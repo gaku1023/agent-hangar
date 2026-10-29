@@ -251,6 +251,8 @@ export function bootRuns(
   });
   // 待っているもの（問いの文、許可の中身）がある間だけ短い周期で見る。登録が変わったときはその場で見る（paceNotices）。
   const notices = paceNotices(stopNotices);
+  // notify_user の知らせのうち、出し先に OS の通知を含むものを同じ並びへ積む。
+  stopNotices.subscribeUnread();
   live.onChange(() => notices.onLiveChange());
   const touch = (): void => touchDevice({ db, device, shellHook: shell.hook });
   let parkTimer: ReturnType<typeof setInterval> | null = null;

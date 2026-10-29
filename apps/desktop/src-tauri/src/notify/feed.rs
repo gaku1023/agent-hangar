@@ -17,7 +17,7 @@ pub const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(WAI
 /// 読めなかったとき（サーバが起き直している、止まっている）に、次に読むまで待つ長さ。
 pub const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// サーバから届いた通知 1 件。kind は入力待ち（許可待ちとリセット済みも含む）か使用制限か参加リクエストである。
+/// サーバから届いた通知 1 件。kind は入力待ち（許可待ちとリセット済みも含む）か使用制限か参加リクエストか未読（notify_user）である。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Item {
     pub kind: Kind,
@@ -83,6 +83,7 @@ fn item_of(v: &serde_json::Value) -> Option<Item> {
         "waiting" => Kind::Waiting,
         "limit" => Kind::Limit,
         "join" => Kind::Join,
+        "unread" => Kind::Unread,
         _ => return None,
     };
     Some(Item {
@@ -183,6 +184,24 @@ mod tests {
                 session_id: "join-request".into(),
                 title: "参加リクエストを受信しました".into(),
                 body: "b".into(),
+                bare: false
+            }]
+        );
+    }
+
+    #[test]
+    fn an_unread_notice_is_read_as_the_unread_kind() {
+        let mut c = Cursor::default();
+        c.take(&feed(BOOT, 0, "")).unwrap();
+        let item = r#"{"seq":1,"kind":"unread","sessionId":"s1","title":"名前","body":"調査が終わりました","bare":false}"#;
+        let got = c.take(&feed(BOOT, 1, item)).unwrap();
+        assert_eq!(
+            got,
+            vec![Item {
+                kind: Kind::Unread,
+                session_id: "s1".into(),
+                title: "名前".into(),
+                body: "調査が終わりました".into(),
                 bare: false
             }]
         );
