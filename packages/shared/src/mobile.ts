@@ -251,8 +251,10 @@ export type MobileLaunchStatus = { id: string; status: 'pending' | 'claimed' | '
  * スマホのプッシュ通知の中身（0.9.1）。
  * PC がスマホ用の鍵 `M[m]` で封じ（mobileCrypto.ts の sealPhoneNotice）、Worker は封じたまま Web Push で送る。
  * count は新しく要対応に入った会話の数で、2 以上なら「〈題〉ほか n 件」と出す。題と ID は先頭の 1 件のもの。
+ * kind が 'unread' のときは notify_user の知らせで、題は会話の名前、body が本文、count はまとめた回数である（出し方は本文を使い、「ほか n 件」は付けない）。
+ * kind が無いものは今までどおり入力待ちとして読む（古いスマホは kind と body を無視して入力待ちの文で出す）。
  */
-export type PhoneNotice = { title: string; pcName: string; sessionId: string; count: number };
+export type PhoneNotice = { title: string; pcName: string; sessionId: string; count: number; kind?: 'waiting' | 'unread'; body?: string };
 /** 通知の題と PC の名前の字数の上限。封じる前に切る。 */
 export const PHONE_NOTICE_TEXT_MAX = 120;
 /** 通知の会話の ID の字数の上限。 */

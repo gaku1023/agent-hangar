@@ -11,6 +11,8 @@ import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { latestIntent } from '../live/intents.ts';
+import { markSeen, onUnread } from '../live/unread.ts';
+import { getSession } from '../db/queries.ts';
 import { addTodo } from '../projects/todos.ts';
 import { assignSessions } from '../projects/registry.ts';
 import { rejectSessionState } from '../sessions/states.ts';
@@ -70,6 +72,7 @@ const SESSION_TOOL_CALLS: [string, Record<string, unknown>][] = [
   ['get_transcript', {}],
   ['set_session_summary', { title: 'T', one_liner: 'O', body: 'B', state: 'done', next_steps: [] }],
   ['set_turn_intent', { text: '意図' }],
+  ['notify_user', { text: '結果が出ました' }],
   ['open_in_hangar', {}],
   ['propose_session_status', { status: 'done', note: '済んだ' }],
 ];
@@ -572,7 +575,7 @@ describe('MCP tools', () => {
     expect(call('open_in_hangar', { project_id: 'p1' })).toEqual({ url: 'http://127.0.0.1:4177/#/project/p1', deep_link: 'hangar://project/p1' });
     expect(call('open_in_hangar', {}, { sessionId: alphaId }).url).toContain(alphaId);
     expect(() => call('nope')).toThrow(ToolError);
-    expect(TOOL_NAMES).toHaveLength(19);
+    expect(TOOL_NAMES).toHaveLength(20);
   });
   it('set_turn_intent は意図を積み、最新を返せるようにする', () => {
     const r = call('set_turn_intent', { text: '  抜けたあと、答え終えた会話だけ止める  ' }, { sessionId: alphaId });
@@ -598,6 +601,66 @@ describe('MCP tools', () => {
   });
   it('set_turn_intent はセッション別 URL の他のセッションを指せない', () => {
     expect(() => call('set_turn_intent', { session_id: 'other', text: 'x' }, { sessionId: alphaId })).toThrow(ToolError);
+  });
+  it('notify_user を 2 回呼ぶと、そのセッションの unread が 2 になり、最新の本文が残る。見ると null になり、Done にしても未読は残る', () => {
+    const unread = () => getSession(db, live, alphaId)!.unread;
+    expect(unread()).toBeNull();
+    expect(call('notify_user', { text: '  一つ目  ' }, { sessionId: alphaId })).toMatchObject({ ok: true, session_id: alphaId, unread: 1 });
+    expect(call('notify_user', { text: '二つ目' }, { sessionId: alphaId })).toMatchObject({ ok: true, unread: 2 });
+    expect(unread()).toMatchObject({ count: 2, latest: '二つ目' });
+    // 画面へは session.upsert が配られる。
+    expect(sent.some((e) => e.type === 'session.upsert')).toBe(true);
+    upsertShared(db, 'session_states', { session_id: alphaId, status: 'done', set_by: 'user', set_at: 5 }, 'd', 'session_id');
+    expect(unread()).toMatchObject({ count: 2 });
+    expect(markSeen(db, alphaId)).toBe(true);
+    expect(unread()).toBeNull();
+    // 行が無ければ何もしない。
+    expect(markSeen(db, alphaId)).toBe(false);
+  });
+  it('notify_user は積んだ後に onUnread の購読へ会話の ID と本文と数を知らせ、断ったときは知らせない', () => {
+    const seen: [string, string, number][] = [];
+    const off = onUnread((id, text, count) => seen.push([id, text, count]));
+    try {
+      call('notify_user', { text: '知らせる' }, { sessionId: alphaId });
+      expect(() => call('notify_user', { text: '   ' }, { sessionId: alphaId })).toThrow(ToolError);
+      call('notify_user', { text: 'もう一度' }, { sessionId: alphaId });
+      expect(seen).toEqual([[alphaId, '知らせる', 1], [alphaId, 'もう一度', 2]]);
+    } finally {
+      off();
+    }
+  });
+  it('notify_user の to：省くと設定で入りの先すべて、付けるとその中で入りのものだけ。設定の切が勝つ。unread が無ければ数を増やさない', () => {
+    const seen: [number, string[]][] = [];
+    const off = onUnread((_id, _text, count, sent) => seen.push([count, sent]));
+    const unread = () => getSession(db, live, alphaId)!.unread?.count ?? 0;
+    try {
+      expect(call('notify_user', { text: 'a' }, { sessionId: alphaId })).toMatchObject({ unread: 1, sent: ['unread', 'os', 'phone'] });
+      // スマホにだけ。数は増えず、購読へは今の数と出す先が渡る。
+      expect(call('notify_user', { text: 'b', to: ['phone'] }, { sessionId: alphaId })).toMatchObject({ unread: 1, sent: ['phone'] });
+      expect(unread()).toBe(1);
+      expect(seen.at(-1)).toEqual([1, ['phone']]);
+      // 重複はまとめ、順は決まった順にする。
+      expect(call('notify_user', { text: 'c', to: ['os', 'unread', 'os'] }, { sessionId: alphaId })).toMatchObject({ unread: 2, sent: ['unread', 'os'] });
+      // 設定の切が勝つ。
+      deps = { ...deps, settings: () => ({ unreadOs: false, unreadPhone: false }) };
+      expect(call('notify_user', { text: 'd', to: ['os', 'phone'] }, { sessionId: alphaId })).toMatchObject({ ok: true, unread: 2, sent: [] });
+      expect(call('notify_user', { text: 'e' }, { sessionId: alphaId })).toMatchObject({ unread: 3, sent: ['unread'] });
+      // 何も出さないときは購読へも知らせない。
+      const n = seen.length;
+      call('notify_user', { text: 'f', to: ['phone'] }, { sessionId: alphaId });
+      expect(seen).toHaveLength(n);
+      // 空の配列、知らない値、配列でないものは断る。
+      for (const to of [[], ['email'], ['phone', 'x'], 'phone']) expect(() => call('notify_user', { text: 'g', to }, { sessionId: alphaId })).toThrow(ToolError);
+    } finally {
+      off();
+    }
+  });
+  it('notify_user は空と 201 字を断り、200 字は通し、別のセッションの id を断る', () => {
+    expect(() => call('notify_user', { text: '   ' }, { sessionId: alphaId })).toThrow(ToolError);
+    expect(() => call('notify_user', { text: 'あ'.repeat(201) }, { sessionId: alphaId })).toThrow(ToolError);
+    expect(call('notify_user', { text: 'あ'.repeat(200) }, { sessionId: alphaId })).toMatchObject({ ok: true });
+    expect(() => call('notify_user', { session_id: 'other', text: 'x' }, { sessionId: alphaId })).toThrow(ToolError);
+    expect(call('notify_user', { session_id: alphaId, text: '共通 URL でも使える' })).toMatchObject({ ok: true, session_id: alphaId });
   });
   it('同じミリ秒に 2 回書いても両方残り、後の方が最新になる', async () => {
     const { addIntent } = await import('../live/intents.ts');

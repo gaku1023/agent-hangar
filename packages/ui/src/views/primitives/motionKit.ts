@@ -214,6 +214,12 @@ export function popMark(el: HTMLElement): Animation | null {
   return el.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.6)' }, { transform: 'scale(1)' }], { duration: motionMs('--dur', el), easing: motionEase('--ease-out', el) });
 }
 
+/** 数が増えたとき、数の丸が小さく跳ねる（上へ少し浮いて膨らみ、戻る）。 */
+export function bumpMark(el: HTMLElement): Animation | null {
+  if (!motionOn(el)) return null;
+  return el.animate([{ transform: 'none' }, { transform: 'translateY(-2px) scale(1.12)', offset: 0.4 }, { transform: 'none' }], { duration: motionMs('--dur', el), easing: motionEase('--ease-out', el) });
+}
+
 /** 地を淡い黄から薄れさせる（base.css の [data-hit]）。長さは CSS のトークンが持つ。 */
 export function markHit(el: HTMLElement): void {
   el.setAttribute('data-hit', '');

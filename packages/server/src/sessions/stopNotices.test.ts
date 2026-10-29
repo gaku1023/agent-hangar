@@ -5,6 +5,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { setSessionName } from './notes.ts';
 import { setSessionState } from './states.ts';
+import { noteUnread } from '../live/unread.ts';
 import { NOTICE_IDLE_MS, NOTICE_POLL_MS, OsNoticeFeed, paceNotices, StopNoticeWatch } from './stopNotices.ts';
 
 let db: Db;
@@ -357,5 +358,25 @@ describe('OsNoticeFeed', () => {
     const f = new OsNoticeFeed(3);
     for (let i = 0; i < 5; i++) f.push({ kind: 'waiting', sessionId: `s${i}`, title: 't', body: 'b', bare: false });
     expect(f.read(0, f.boot).items.map((i) => i.seq)).toEqual([3, 4, 5]);
+  });
+});
+
+describe('StopNoticeWatch：未読の知らせ（notify_user）', () => {
+  it('sent に os があれば kind unread で積み、無ければ積まない。解除すると積まない', () => {
+    const w = watch();
+    const off2 = w.subscribeUnread();
+    noteUnread(s1, '調査が終わりました', 1, ['unread', 'os']);
+    noteUnread(s2, '数だけ', 1, ['unread']);
+    expect(pushed).toEqual([{ kind: 'unread', sessionId: s1, title: '請求書の書き出し', body: '調査が終わりました', bare: false }]);
+    off2();
+    noteUnread(s1, 'もう 1 回', 2, ['os']);
+    expect(pushed).toHaveLength(1);
+  });
+
+  it('知らない会話は積まない', () => {
+    const off2 = watch().subscribeUnread();
+    noteUnread('nope', 'x', 1, ['os']);
+    off2();
+    expect(pushed).toEqual([]);
   });
 });

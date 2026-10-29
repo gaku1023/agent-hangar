@@ -17,6 +17,11 @@ export const FEED_SAFETY_MS = 60_000;
  */
 export const FEED_REFRESH_MS = 24 * 60 * 60_000;
 
+/** 未読の知らせ（notify_user）を、同じ会話ごとに 1 通へまとめる待ち。 */
+export const UNREAD_COALESCE_MS = 3_000;
+/** 1 回のまとめで送る未読の通知の数の上限。Worker は 1 台の PC から 1 分に 10 回までなので、入力待ちの分を残す。超えた分は捨てる（未読の数は手元に残る）。 */
+export const UNREAD_MAX_PER_BATCH = 5;
+
 export type FeedWriteResult = 'written' | 'unchanged' | 'skipped';
 
 export type MobileFeedPublisherDeps = {
@@ -97,6 +102,11 @@ export class MobileFeedPublisher {
   /** 前に書けた素で要対応だった会話の ID。起動の後でまだ 1 回も書けていなければ null。 */
   private lastWaiting: Set<string> | null = null;
   private chain: Promise<unknown> = Promise.resolve();
+  /** まとめを待っている未読の知らせ。会話の ID ごとに、題、最後の文、回数。 */
+  private pendingUnread = new Map<string, { title: string; text: string; n: number }>();
+  private unreadTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 最後に書けた素の PC の名前。未読の通知の pcName に入れる（まだ書けていなければ空）。 */
+  private pcName = '';
   private readonly onError: (e: unknown) => void;
 
   constructor(private readonly deps: MobileFeedPublisherDeps) {
@@ -110,6 +120,39 @@ export class MobileFeedPublisher {
     if (this.debounce) return;
     this.debounce = this.deps.timers.setTimeout(() => { this.debounce = null; this.fire(); }, FEED_DEBOUNCE_MS);
     this.debounce.unref?.();
+  }
+
+  /**
+   * notify_user の知らせ（出し先に phone を含むもの）を 1 つ預かる。
+   * 受信箱の素の書き込み（2 秒のデバウンスと 15 秒の間）とは別に、UNREAD_COALESCE_MS 待って、同じ会話の分を 1 通（kind unread、count は回数、本文は最後の文）にして送る。
+   * 入力待ちの比較（lastWaiting）には混ぜない。スマホが無いか、止めた後なら何もしない。投げない。
+   */
+  noticeUnread(n: { sessionId: string; title: string; text: string }): void {
+    if (this.stopped) return;
+    const prev = this.pendingUnread.get(n.sessionId);
+    this.pendingUnread.set(n.sessionId, { title: n.title, text: n.text, n: (prev?.n ?? 0) + 1 });
+    if (this.unreadTimer) return;
+    this.unreadTimer = this.deps.timers.setTimeout(() => { this.unreadTimer = null; void this.sendUnread(); }, UNREAD_COALESCE_MS);
+    this.unreadTimer.unref?.();
+  }
+
+  private async sendUnread(): Promise<void> {
+    const batch = [...this.pendingUnread.entries()].slice(0, UNREAD_MAX_PER_BATCH);
+    this.pendingUnread = new Map();
+    if (this.stopped || batch.length === 0) return;
+    try {
+      const post = this.deps.client.postNotice?.bind(this.deps.client);
+      if (!post || !this.deps.hasPhones()) return;
+      const key = await this.deps.phoneKeys.current();
+      if (!key) return;
+      for (const [sessionId, u] of batch) {
+        if (this.stopped) return;
+        const sealed = await sealPhoneNotice(key.key, key.epoch, { title: u.title, pcName: this.pcName, sessionId, count: u.n, kind: 'unread', body: u.text });
+        await post(sealed, key.epoch);
+      }
+    } catch (e) {
+      noteNoticeError(e);
+    }
   }
 
   /** 前に書いた中身を忘れる。次の書き込みは、中身が同じでも書く（新しくつながったスマホに今の素を置く）。dropFeed の後も、ここで書けるようにする。 */
@@ -163,6 +206,9 @@ export class MobileFeedPublisher {
     if (this.gap) t.clearTimeout(this.gap);
     if (this.safety) t.clearInterval(this.safety);
     this.debounce = this.gap = this.safety = null;
+    if (this.unreadTimer) t.clearTimeout(this.unreadTimer);
+    this.unreadTimer = null;
+    this.pendingUnread = new Map();
     this.waiting = false;
   }
 
@@ -201,6 +247,7 @@ export class MobileFeedPublisher {
     if (!key || this.stopped) return 'skipped';
     // 48 KiB を超えたら、done、returns、projects、待っていない live の順に古いものから落とし、live の文を詰める（shared の fitFeed）。
     const feed = fitFeed(this.deps.build());
+    this.pcName = feed.deviceName;
     const hash = createHash('sha256').update(JSON.stringify([key.epoch, feed])).digest('hex');
     const now = (this.deps.now ?? Date.now)();
     if (hash === this.lastHash && now - this.lastWrittenAt < FEED_REFRESH_MS) return 'unchanged';

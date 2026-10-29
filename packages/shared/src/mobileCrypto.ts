@@ -127,7 +127,11 @@ export async function sealPhoneNotice(key: CryptoKey | Uint8Array, epoch: number
   if (!n || typeof n.title !== 'string' || typeof n.pcName !== 'string' || typeof n.sessionId !== 'string' || n.sessionId.length > PHONE_NOTICE_ID_MAX || !isNoticeCount(n.count)) {
     throw new TypeError('通知の形が違います');
   }
+  if (n.kind !== undefined && n.kind !== 'waiting' && n.kind !== 'unread') throw new TypeError('通知の形が違います');
+  if (n.body !== undefined && typeof n.body !== 'string') throw new TypeError('通知の形が違います');
   const body: PhoneNotice = { title: clip(n.title), pcName: clip(n.pcName), sessionId: n.sessionId, count: n.count };
+  if (n.kind !== undefined) body.kind = n.kind;
+  if (n.body !== undefined) body.body = clip(n.body);
   return `${epoch}.${await seal(await noticeKey(key), aadPhoneNotice(epoch), body)}`;
 }
 
@@ -146,7 +150,10 @@ export async function openPhoneNotice(key: CryptoKey | Uint8Array, sealed: strin
   }
   const v = await open<Partial<PhoneNotice> | null>(k, aadPhoneNotice(Number(m[1])), m[2]!);
   if (!v || typeof v !== 'object' || typeof v.title !== 'string' || typeof v.pcName !== 'string' || typeof v.sessionId !== 'string' || !isNoticeCount(v.count)) throw new MobileOpenError();
-  return { title: v.title, pcName: v.pcName, sessionId: v.sessionId, count: v.count };
+  const out: PhoneNotice = { title: v.title, pcName: v.pcName, sessionId: v.sessionId, count: v.count };
+  if (v.kind === 'waiting' || v.kind === 'unread') out.kind = v.kind;
+  if (typeof v.body === 'string') out.body = v.body;
+  return out;
 }
 
 /**

@@ -4,6 +4,7 @@ import type { AreaDictionary } from '../messageSpec.ts';
 export const homeEn: AreaDictionary<typeof homeKeys> = {
   'home.band.label': 'Home summary',
   'home.band.attention': 'Needs attention',
+  'home.band.unread': 'Unread',
   'home.band.running': 'Running',
   'home.band.pending': 'Pending review',
   'home.band.source.inSession': 'In conversation',

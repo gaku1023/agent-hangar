@@ -52,6 +52,8 @@
 .crow .c-end [data-tone='wait'] { font-weight: 600; color: var(--waiting); }
 .crow .c-end [data-tone='busy'] { font-weight: 600; color: var(--busy); }
 .crow .c-end [data-tone='limit'] { font-weight: 600; color: var(--limit); }
+/* 未読の行の右端の数。薄い青の地に青い数字。 */
+.crow .c-end [data-tone='unread'] { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 6px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
 /* 許可待ちの道具の札と命令。札は作業中の手と同じ橙の系統、命令は等幅で地を敷く（試作の B1）。 */
 .crow .c-tool { display: inline-block; margin-right: calc(var(--u) * 1.5); padding: 0 calc(var(--u) * 1.5); border-radius: 4px; background: color-mix(in srgb, var(--busy) 12%, var(--surface)); color: color-mix(in srgb, var(--busy) 70%, var(--ink)); font-size: var(--fs-xs); font-weight: 600; }
 .crow .c-cmd { padding: 0 calc(var(--u) * 1.25); border-radius: 4px; background: var(--surface-2); color: var(--ink); font-family: var(--font-mono); font-size: var(--fs-xs); }

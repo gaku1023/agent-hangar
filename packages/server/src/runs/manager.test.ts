@@ -770,7 +770,7 @@ describe.skipIf(!TMUX)('シェルタブ（tmux 上）', () => {
     expect(sys1).toContain('AskUserQuestion');
     expect(sys1).toContain('set_turn_intent');
     plain.kill(r1.run.id);
-    const off = make({ injection: () => ({ askStatusAtEnd: false, liveHints: false }) });
+    const off = make({ injection: () => ({ askStatusAtEnd: false, liveHints: false, notifyUser: false }) });
     const r2 = await off.start({ projectId: 'p1' });
     const sys2 = (await launchedArgs(r2.run.id)).find((_, i, a) => a[i - 1] === '--append-system-prompt')!;
     expect(sys2).toContain('プロジェクト：alpha（' + cwd + '）');

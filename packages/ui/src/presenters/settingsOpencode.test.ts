@@ -109,9 +109,9 @@ describe('設定の opencode の面', () => {
   });
 
   it('追記の全文は選んでいる量で組み、Claude と同じスイッチが効く', () => {
-    expect(present(store({ opencodeEnabled: true })).full.map((p) => p.label)).toEqual(['最小限（意図・要約・状態）', '作業の区切りで Done／Paused を確認する（オン）']);
+    expect(present(store({ opencodeEnabled: true })).full.map((p) => p.label)).toEqual(['最小限（意図・要約・状態）', '作業の区切りで Done／Paused を確認する（オン）', '見てほしい出力を notify_user で知らせる（オン）']);
     const claude = present(store({ opencodeEnabled: true, opencodeInjection: 'claude', liveHints: false }));
-    expect(claude.full).toHaveLength(5);
+    expect(claude.full).toHaveLength(6);
     expect(claude.full[4]!.off).toBe(true);
     expect(present(store({ opencodeEnabled: true, opencodeInjection: 'none' })).full).toEqual([]);
   });

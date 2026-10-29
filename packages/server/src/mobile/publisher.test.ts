@@ -7,7 +7,7 @@ import { FakeTimers } from '../../test/fake-timers.ts';
 import { fixedPhoneKeys, PHONE_KEY_1, PHONE_KEY_2, phoneCryptoKey } from '../../test/phoneKeys.ts';
 import { Keyring } from '../sync/keyring.ts';
 import type { PhoneKeySource } from '../sync/phoneKeys.ts';
-import { FEED_DEBOUNCE_MS, FEED_MIN_GAP_MS, FEED_REFRESH_MS, FEED_SAFETY_MS, MobileFeedPublisher } from './publisher.ts';
+import { FEED_DEBOUNCE_MS, FEED_MIN_GAP_MS, FEED_REFRESH_MS, FEED_SAFETY_MS, MobileFeedPublisher, UNREAD_COALESCE_MS, UNREAD_MAX_PER_BATCH } from './publisher.ts';
 
 const mKey = (): Promise<CryptoKey> => phoneCryptoKey(PHONE_KEY_1);
 
@@ -397,5 +397,76 @@ describe('MobileFeedPublisher のスマホへの通知', () => {
     s.setFeed(withLive([liveOf('s1', 'waiting')]));
     expect(await s.pub.flushNow()).toBe('written');
     expect(notices(s)).toHaveLength(0);
+  });
+});
+
+describe('MobileFeedPublisher の未読の通知（notify_user）', () => {
+  const sent = async (s: ReturnType<typeof setup>) => Promise.all(s.client.notices.map(async (n) => openPhoneNotice(await mKey(), n.sealed)));
+
+  it('間隔の定数', () => {
+    expect(UNREAD_COALESCE_MS).toBe(3_000);
+    expect(UNREAD_MAX_PER_BATCH).toBe(5);
+  });
+
+  it('1 通を kind unread で送る。題は会話の名前、本文は知らせの文。素の書き込みは要らない', async () => {
+    const s = setup();
+    s.pub.noticeUnread({ sessionId: 's1', title: '会話 A', text: 'テストが通りました' });
+    await s.timers.advance(UNREAD_COALESCE_MS);
+    await settle(() => s.client.notices.length === 1);
+    expect(await sent(s)).toEqual([{ title: '会話 A', pcName: '', sessionId: 's1', count: 1, kind: 'unread', body: 'テストが通りました' }]);
+    expect(s.writes()).toBe(0);
+  });
+
+  it('同じ会話の続けての知らせは 1 通にまとめ、数と最後の文を入れる', async () => {
+    const s = setup();
+    s.pub.noticeUnread({ sessionId: 's1', title: '会話 A', text: '途中 1' });
+    await s.timers.advance(1000);
+    s.pub.noticeUnread({ sessionId: 's1', title: '会話 A', text: '途中 2' });
+    await s.timers.advance(1000);
+    s.pub.noticeUnread({ sessionId: 's1', title: '会話 A', text: '結果' });
+    await s.timers.advance(UNREAD_COALESCE_MS);
+    await settle(() => s.client.notices.length === 1);
+    expect(await sent(s)).toMatchObject([{ sessionId: 's1', count: 3, kind: 'unread', body: '結果' }]);
+  });
+
+  it('別の会話は別の通知。1 回に UNREAD_MAX_PER_BATCH 通までで、超えた分は捨てる（Worker の 1 分 10 回の上限を守る）', async () => {
+    const s = setup();
+    for (let i = 0; i < 8; i++) s.pub.noticeUnread({ sessionId: `s${i}`, title: `会話 ${i}`, text: 'x' });
+    await s.timers.advance(UNREAD_COALESCE_MS);
+    await settle(() => s.client.notices.length === UNREAD_MAX_PER_BATCH);
+    expect((await sent(s)).map((n) => n.sessionId)).toEqual(['s0', 's1', 's2', 's3', 's4']);
+  });
+
+  it('スマホが 1 台も無いときは送らない。失敗は捨てて記録に題と文を出さない', async () => {
+    const none = setup({ hasPhones: () => false });
+    none.pub.noticeUnread({ sessionId: 's1', title: 'a', text: 'x' });
+    await none.timers.advance(UNREAD_COALESCE_MS);
+    const bad = setup();
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      (bad.client as { postNotice?: unknown }).postNotice = async () => { throw new Error('秘密の題'); };
+      bad.pub.noticeUnread({ sessionId: 's1', title: 'a', text: 'x' });
+      await bad.timers.advance(UNREAD_COALESCE_MS);
+      await settle(() => logged.mock.calls.length > 0);
+      expect(JSON.stringify(logged.mock.calls)).not.toContain('秘密');
+    } finally {
+      logged.mockRestore();
+    }
+    expect(none.client.notices).toHaveLength(0);
+    expect(bad.errors).toHaveLength(0);
+  });
+
+  it('入力待ちの通知とは別に数える。止めた後は送らない', async () => {
+    const s = setup();
+    s.setFeed(withLive([]));
+    await s.pub.flushNow();
+    s.pub.noticeUnread({ sessionId: 's1', title: 'a', text: 'x' });
+    s.setFeed(withLive([liveOf('s2', 'waiting')], 1));
+    await s.pub.flushNow();
+    expect(s.client.notices).toHaveLength(1);
+    expect(await sent(s)).toMatchObject([{ sessionId: 's2', count: 1 }]);
+    s.pub.stop();
+    await s.timers.advance(UNREAD_COALESCE_MS);
+    expect(s.client.notices).toHaveLength(1);
   });
 });

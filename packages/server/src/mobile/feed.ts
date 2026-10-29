@@ -112,6 +112,12 @@ function usageOf(db: Db, providerSessionId: string): MobileUsage | null {
   return { ctx, tokens: r.context_used, cost: r.cost_usd, model: clampText(r.model, USAGE_MODEL_MAX) ?? '' };
 }
 
+/** 会話の名前（受信箱の題と同じ決め方）。会話が無い、消してあるときは null。未読の通知の題に使う。 */
+export function sessionTitleOf(db: Db, sessionId: string): string | null {
+  const s = db.prepare(`select ${SESSION_COLS} where s.id = ? and s.deleted_at is null`).get(sessionId) as SessionRow | undefined;
+  return s ? titleOf(s) || s.project_name || '' : null;
+}
+
 /**
  * 受信箱の素を、手元の DB と実行中の状態から組む。純粋な関数で、同じ入力からは同じ JSON になる。
  * 引くのは索引のある列だけで、events のような大きい表は読まない。本文は、許可でない待ちの会話の末尾の数件だけを読む（agent/waiting.ts の answered）。

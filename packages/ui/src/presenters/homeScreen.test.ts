@@ -9,7 +9,7 @@ const NOW = new Date(2026, 9, 2, 9, 0).getTime();
 const H = 3_600_000;
 const project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
 const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null, ...o });
-const dto = (id: string, hoursAgo: number, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - (hoursAgo + 1) * H, lastActivityAt: NOW - hoursAgo * H, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, ...over });
+const dto = (id: string, hoursAgo: number, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - (hoursAgo + 1) * H, lastActivityAt: NOW - hoursAgo * H, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, unread: null, ...over });
 function storeOf(list: SessionDto[]): Store {
   const s = initialStore();
   s.bootstrapped = true;
@@ -53,7 +53,7 @@ describe('presentHomeScreen の止まっている理由', () => {
 describe('presentHomeScreen の帯', () => {
   it('要対応、実行中、確認待ちの 3 つの群を、件数つきで並べる（4 つ目の錠剤は PR 33 で足す）', () => {
     const p = presentHomeScreen(initialState(), busyMorning(), NOW);
-    expect(p.band.groups.map((g) => [g.id, g.label, g.count])).toEqual([['attention', '要対応', 1], ['running', '実行中', 1], ['pending', '確認待ち', 1]]);
+    expect(p.band.groups.map((g) => [g.id, g.label, g.count])).toEqual([['attention', '要対応', 1], ['unread', '未読', 0], ['running', '実行中', 1], ['pending', '確認待ち', 1]]);
   });
 
   it('朝は要対応の引き出しが開いている。要対応が無ければ実行中、それも無ければ確認待ち', () => {
@@ -69,7 +69,7 @@ describe('presentHomeScreen の帯', () => {
 
   it('語は用語集のとおり、言語の設定で替わる', () => {
     const en = { ...busyMorning(), settings: { language: 'en' } as SettingsDto };
-    expect(presentHomeScreen(initialState(), en, NOW).band.groups.map((g) => g.label)).toEqual(['Needs attention', 'Running', 'Pending review']);
+    expect(presentHomeScreen(initialState(), en, NOW).band.groups.map((g) => g.label)).toEqual(['Needs attention', 'Unread', 'Running', 'Pending review']);
   });
 });
 
@@ -153,11 +153,11 @@ describe('presentHomeScreen の始める前の確認（2.11.4）', () => {
     const p = presentHomeScreen(initialState(), empty(null), NOW);
     expect(p.note).toBeNull();
     expect(p.idle).toBe(true);
-    expect(p.band.groups.map((g) => g.id)).toEqual(['attention', 'running', 'pending']);
+    expect(p.band.groups.map((g) => g.id)).toEqual(['attention', 'unread', 'running', 'pending']);
   });
   it('起動のたびの確かめで直すものがあれば、ふだんの 3 つの後ろ（最後）に確認の群を足す。誰にでも出す', () => {
     const p = presentHomeScreen(initialState(), busy(READY), NOW);
-    expect(p.band.groups.map((g) => g.id)).toEqual(['attention', 'running', 'pending', 'readiness']);
+    expect(p.band.groups.map((g) => g.id)).toEqual(['attention', 'unread', 'running', 'pending', 'readiness']);
     expect(p.band.groups.at(-1)).toMatchObject({ countText: '準備完了 4 / 7', count: 3 });
     // tmux と claude が揃っているので、右端の文は出さない。
     expect(p.note).toBeNull();
@@ -175,13 +175,13 @@ describe('presentHomeScreen の始める前の確認（2.11.4）', () => {
   });
   it('必須が済んで任意の行だけが残ったら、帯ごと消す。空の日の 1 行が戻る', () => {
     const p = presentHomeScreen(initialState(), empty(OPTIONAL_ONLY), NOW);
-    expect(p.band.groups.map((g) => g.id)).toEqual(['attention', 'running', 'pending']);
+    expect(p.band.groups.map((g) => g.id)).toEqual(['attention', 'unread', 'running', 'pending']);
     expect(p.note).toBeNull();
     expect(p.idle).toBe(true);
   });
   it('全部そろったときも、確認の群は出ない', () => {
     const all: ReadinessDto = { ...OPTIONAL_ONLY, mcp: { ...READY.mcp, registered: true }, statusline: { ...READY.statusline, installed: true } };
-    expect(presentHomeScreen(initialState(), busy(all), NOW).band.groups.map((g) => g.id)).toEqual(['attention', 'running', 'pending']);
+    expect(presentHomeScreen(initialState(), busy(all), NOW).band.groups.map((g) => g.id)).toEqual(['attention', 'unread', 'running', 'pending']);
   });
   it('言語の設定で文が替わる', () => {
     const en = { ...empty(READY), settings: { language: 'en' } as SettingsDto };
@@ -198,13 +198,13 @@ describe('presentHomeScreen の場所の不明なプロジェクト（2.11.5）'
 
   it('場所の消えたものがあれば、確認待ちの後ろに 4 つ目の錠剤を足す。帯の件数に入れるのはこの PC で消えたものだけ', () => {
     const p = presentHomeScreen(initialState(), withProjects(busyMorning(), [missing('lost'), arrived('x1'), arrived('x2'), arrived('x3')]), NOW);
-    expect(p.band.groups.map((g) => [g.id, g.count])).toEqual([['attention', 1], ['running', 1], ['pending', 1], ['unresolved', 1]]);
+    expect(p.band.groups.map((g) => [g.id, g.count])).toEqual([['attention', 1], ['unread', 0], ['running', 1], ['pending', 1], ['unresolved', 1]]);
     expect(p.band.morning).toBe('attention');
   });
 
   it('他の PC から届いただけなら、群を足さない。帯は消え、空の日の 1 行が出る', () => {
     const p = presentHomeScreen(initialState(), withProjects(storeOf([]), [arrived('x1'), arrived('x2'), arrived('x3')]), NOW);
-    expect(p.band.groups.map((g) => g.id)).toEqual(['attention', 'running', 'pending']);
+    expect(p.band.groups.map((g) => g.id)).toEqual(['attention', 'unread', 'running', 'pending']);
     expect(p.idle).toBe(true);
   });
 

@@ -314,6 +314,8 @@ export class SessionTrash {
    * 日別の使用量（usage_daily）は残す。実際に使った量なので、会話を消しても集計からは消さない（usage/aggregate.ts）。
    */
   private forgetIndex(sessionId: string): void {
+    // 未読は索引ではないが、会話ごと片付ける（行だけが残らないように）。
+    this.db.prepare('delete from session_unread where session_id = ?').run(sessionId);
     for (const r of this.db.prepare('select path from transcript_files where session_id = ?').all(sessionId) as { path: string }[]) forgetTranscriptFile(this.db, r.path, { keepUsage: true });
     // 本文を DB に持つ会話（opencode）は、ファイルの行が無いので会話ごと片付ける。
     const p = this.db.prepare('select provider from sessions where id = ?').get(sessionId) as { provider: string } | undefined;

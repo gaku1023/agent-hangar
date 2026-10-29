@@ -675,11 +675,11 @@ describe('「実行中」のグループ（Sidebar）', () => {
     return shaped(rows, [group('web', rows.slice(0, 2), over.web), group('docs', rows.slice(2, 3), over.docs), group('', rows.slice(3))]);
   };
   const head = (name: string) => screen.getByRole('button', { name: new RegExp(`^${name}`) });
-  it('グループごとに見出しを出し、名前と件数を添える。見出しは開き閉じのボタンで、開いていれば aria-expanded が真', () => {
+  it('グループごとに見出しを出し、名前だけを添える（動いている会話の数は出さない）。見出しは開き閉じのボタンで、開いていれば aria-expanded が真', () => {
     mount(three());
     expect(head('web')).toHaveAttribute('aria-expanded', 'true');
-    expect(head('web')).toHaveTextContent(/web.*2/);
-    expect(head('未分類')).toHaveTextContent(/未分類.*1/);
+    expect(head('web')).toHaveTextContent(/^web$/);
+    expect(head('未分類')).toHaveTextContent(/^未分類$/);
     const web = head('web').closest('[data-group]')!;
     expect([...web.querySelectorAll('a')].map((a) => a.dataset.id)).toEqual(['a', 'b']);
   });

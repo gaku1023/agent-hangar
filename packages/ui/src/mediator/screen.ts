@@ -131,6 +131,21 @@ export function searchQueryStep(state: State, text: string, filter?: SearchFilte
   return { state: next, effects: [{ kind: 'navigate', route: text ? { name: 'home', q: text } : { name: 'home' } }, { kind: 'focus', target: 'results' }] };
 }
 
+/**
+ * 開いているセッションの未読を既読にする。
+ * 開いた瞬間（hash.changed）は、未読があれば必ず頼む。
+ * 開いて見ている間に増えた分（ストアの変化）は、同じ未読（セッションの id と未読の最後の時刻）へは 1 回だけ頼み、窓が前にあるときだけ送る印（ifFront）を付ける。
+ * 設定 unreadBadge が切でも既読にする（出さないだけで、数えてはいる）。
+ */
+export function seenStep(state: State, store: Store, fromStore: boolean): Step {
+  const id = state.screen.name === 'session' ? state.screen.id : null;
+  const u = id ? store.sessions[id]?.unread : null;
+  if (!id || !u || u.count <= 0) return { state, effects: [] };
+  const key = `${id}|${u.at}`;
+  if (fromStore && state.seenAsked === key) return { state, effects: [] };
+  return { state: { ...state, seenAsked: key }, effects: [fromStore ? { kind: 'api.markSeen', sessionId: id, ifFront: true } : { kind: 'api.markSeen', sessionId: id }] };
+}
+
 /** screen 領域：どの画面にいるか。URL のハッシュが正で、UiAction は navigate 効果を出すだけ。 */
 export function screenStep(state: State, store: Store, input: Input): Step | null {
   if (input.kind === 'runtime' && input.event.type === 'hash.changed') {
@@ -161,6 +176,10 @@ export function screenStep(state: State, store: Store, input: Input): Step | nul
       if (leave) { next = leave.state; effects.push(...leave.effects); }
     }
     if (route.name === 'session') {
+      // 開いたら既読にする。
+      const ask = seenStep(next, store, false);
+      next = ask.state;
+      effects.push(...ask.effects);
       // 本文は末尾（いちばん新しい会話）が見える位置から開く。跳び先があるときは、そちらを優先する。
       next = openAtLatestStep(next, route.id);
       // 検索の結果から開いたときは、最新の側ではなく跳び先の周りを読む。

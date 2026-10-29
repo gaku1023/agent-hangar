@@ -31,6 +31,8 @@ const LIVE_JA = [
   'ターンを始めたときと方針を変えたときは、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。',
   'Bash と Agent の description は日本語で短く（20 字程度）書いてください。',
 ];
+/** notify_user で知らせる段（launch.injection.notify）。 */
+const NOTIFY_JA = tt('ja', 'launch.injection.notify').split('\n').slice(0, -1);
 const joined = (...parts: string[][]) => [...parts.flat(), ''].join('\n');
 
 describe('renderInjection', () => {
@@ -61,23 +63,23 @@ describe('renderInjection', () => {
 
   it('既定では、常に足す段、区切りの問いの段、ターンの意図の段をこの順に並べる', () => {
     const input = { projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 'ta', text: 'a' }] };
-    expect(renderInjection(input)).toBe(joined(BODY_JA, STATUS_JA, LIVE_JA));
-    expect(renderInjection(input, 'ja', { askStatusAtEnd: true, liveHints: true })).toBe(joined(BODY_JA, STATUS_JA, LIVE_JA));
+    expect(renderInjection(input)).toBe(joined(BODY_JA, STATUS_JA, LIVE_JA, NOTIFY_JA));
+    expect(renderInjection(input, 'ja', { askStatusAtEnd: true, liveHints: true })).toBe(joined(BODY_JA, STATUS_JA, LIVE_JA, NOTIFY_JA));
   });
   it('区切りの問いを切ると、問いの段を足さない', () => {
-    const t = renderInjection({ projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 'ta', text: 'a' }] }, 'ja', { askStatusAtEnd: false, liveHints: true });
+    const t = renderInjection({ projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 'ta', text: 'a' }] }, 'ja', { askStatusAtEnd: false, liveHints: true, notifyUser: false });
     expect(t).toBe(joined(BODY_JA, LIVE_JA));
     expect(t).not.toContain('AskUserQuestion');
     expect(t).not.toContain('propose_session_status');
   });
   it('ターンの意図と短い手の説明を切ると、その段を足さない', () => {
-    const t = renderInjection({ projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 'ta', text: 'a' }] }, 'ja', { askStatusAtEnd: true, liveHints: false });
+    const t = renderInjection({ projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 'ta', text: 'a' }] }, 'ja', { askStatusAtEnd: true, liveHints: false, notifyUser: false });
     expect(t).toBe(joined(BODY_JA, STATUS_JA));
     expect(t).not.toContain('set_turn_intent');
     expect(t).not.toContain('description');
   });
   it('両方を切ると、常に足す段だけになる', () => {
-    const t = renderInjection({ projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 'ta', text: 'a' }] }, 'ja', { askStatusAtEnd: false, liveHints: false });
+    const t = renderInjection({ projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 'ta', text: 'a' }] }, 'ja', { askStatusAtEnd: false, liveHints: false, notifyUser: false });
     expect(t).toBe(joined(BODY_JA));
   });
 
@@ -108,7 +110,7 @@ describe('renderInjection', () => {
   });
   it('英語でも、切った段は足さない', () => {
     const input = { projectName: 'alpha', projectPath: '/w/alpha', todos: [] };
-    expect(renderInjection(input, 'en', { askStatusAtEnd: false, liveHints: true })).not.toContain('AskUserQuestion');
+    expect(renderInjection(input, 'en', { askStatusAtEnd: false, liveHints: true, notifyUser: false })).not.toContain('AskUserQuestion');
     expect(renderInjection(input, 'en', { askStatusAtEnd: true, liveHints: false })).not.toContain('set_turn_intent');
   });
   it('英語では、TODO が無いときの語も英語になる', () => {
@@ -195,6 +197,7 @@ function renderBeforeSplit(i: InjectionInput, language: Language = 'ja', parts: 
     (i.deviceCount ?? 0) >= 2 ? tt(language, 'launch.injection.multiDevice', { deviceCount: String(i.deviceCount) }) : '',
     parts.askStatusAtEnd ? tt(language, 'launch.injection.status') : '',
     parts.liveHints ? tt(language, 'launch.injection.live') : '',
+    parts.notifyUser !== false ? tt(language, 'launch.injection.notify') : '',
   ].join('');
 }
 
@@ -213,6 +216,7 @@ describe('renderInjectionEntries', () => {
   const partsList: InjectionParts[] = [
     { askStatusAtEnd: true, liveHints: true }, { askStatusAtEnd: false, liveHints: true },
     { askStatusAtEnd: true, liveHints: false }, { askStatusAtEnd: false, liveHints: false },
+    { askStatusAtEnd: true, liveHints: true, notifyUser: false }, { askStatusAtEnd: false, liveHints: false, notifyUser: false },
   ];
 
   it('段を順につないだ文字列は、段に割る前の renderInjection と 1 字も違わない', () => {
@@ -229,12 +233,12 @@ describe('renderInjectionEntries', () => {
     expect(renderInjectionEntries(BASE).map((e) => e.text).join('')).toBe(renderBeforeSplit(BASE));
   });
 
-  it('段は body、handover、multiDevice、status、live の順で、足さない段は入れない', () => {
+  it('段は body、handover、multiDevice、status、live、notify の順で、足さない段は入れない', () => {
     const keys = (i: InjectionInput, parts?: InjectionParts) => renderInjectionEntries(i, 'ja', parts).map((e) => e.key);
-    expect(keys({ ...BASE, handover: FACTS, deviceCount: 2 })).toEqual(['body', 'handover', 'multiDevice', 'status', 'live']);
-    expect(keys(BASE)).toEqual(['body', 'status', 'live']);
-    expect(keys(BASE, { askStatusAtEnd: false, liveHints: false })).toEqual(['body']);
-    expect(keys({ ...BASE, deviceCount: 2 }, { askStatusAtEnd: false, liveHints: true })).toEqual(['body', 'multiDevice', 'live']);
+    expect(keys({ ...BASE, handover: FACTS, deviceCount: 2 })).toEqual(['body', 'handover', 'multiDevice', 'status', 'live', 'notify']);
+    expect(keys(BASE)).toEqual(['body', 'status', 'live', 'notify']);
+    expect(keys(BASE, { askStatusAtEnd: false, liveHints: false, notifyUser: false })).toEqual(['body']);
+    expect(keys({ ...BASE, deviceCount: 2 }, { askStatusAtEnd: false, liveHints: true, notifyUser: false })).toEqual(['body', 'multiDevice', 'live']);
     for (const e of renderInjectionEntries({ ...BASE, handover: FACTS, deviceCount: 2 })) expect(e.text, e.key).not.toBe('');
   });
 });
@@ -244,7 +248,7 @@ describe('renderOpencodeInjectionEntries（opencode に足す段）', () => {
 
   it('最小限（既定）は、hangar の MCP の使い方の段と、状態の段。時機は各ターンの最初の一手で、Code Mode の呼び方を添える（RESULT.md の条件 d）', () => {
     const entries = renderOpencodeInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'minimal');
-    expect(entries.map((e) => e.key)).toEqual(['body', 'status']);
+    expect(entries.map((e) => e.key)).toEqual(['body', 'status', 'notify']);
     expect(entries[0]!.text).toBe(
       'あなたは agent-hangar から起動されたセッションです。\n'
       + '各ターンの最初の一手で、他のツールより先に、execute で `await tools.hangar.set_turn_intent({ text: "<このターンで何のために何をするか、1〜2 文>" })` を呼んでください。方針を変えたときも呼びます。\n'
@@ -255,7 +259,7 @@ describe('renderOpencodeInjectionEntries（opencode に足す段）', () => {
       + 'ユーザーが Done か Paused にしてと言っていないのに、confirmed: true を渡さないでください。\n');
     // 英語も同じ道具と同じ時機を指す。
     const en = renderOpencodeInjectionEntries(input, 'en', DEFAULT_INJECTION_PARTS, 'minimal');
-    expect(en.map((e) => e.key)).toEqual(['body', 'status']);
+    expect(en.map((e) => e.key)).toEqual(['body', 'status', 'notify']);
     expect(en[0]!.text).toContain('tools.hangar.set_turn_intent');
     expect(en[0]!.text).toContain('tools.hangar.set_session_summary');
     expect(en[0]!.text).toContain('tools.hangar.propose_session_status({ status, note, confirmed: true })');
@@ -266,7 +270,7 @@ describe('renderOpencodeInjectionEntries（opencode に足す段）', () => {
   });
 
   it('最小限でも、区切りで状態を確認する設定を切れば状態の段は足さない。頼まれたときの確定は本文に残る', () => {
-    const entries = renderOpencodeInjectionEntries(input, 'ja', { askStatusAtEnd: false, liveHints: true }, 'minimal');
+    const entries = renderOpencodeInjectionEntries(input, 'ja', { askStatusAtEnd: false, liveHints: true, notifyUser: false }, 'minimal');
     expect(entries.map((e) => e.key)).toEqual(['body']);
     expect(entries[0]!.text).toContain('propose_session_status({ status, note, confirmed: true })');
   });
@@ -279,10 +283,11 @@ describe('renderOpencodeInjectionEntries（opencode に足す段）', () => {
     const claude = renderInjectionEntries(input, 'ja');
     const oc = renderOpencodeInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'claude');
     expect(oc.map((e) => e.key)).toEqual(claude.map((e) => e.key));
-    expect(oc.filter((e) => e.key !== 'live')).toEqual(claude.filter((e) => e.key !== 'live'));
+    expect(oc.filter((e) => e.key !== 'live' && e.key !== 'notify')).toEqual(claude.filter((e) => e.key !== 'live' && e.key !== 'notify'));
+    expect(oc.find((e) => e.key === 'notify')!.text).toContain('tools.hangar.notify_user');
     expect(oc.find((e) => e.key === 'live')!.text).toBe('各ターンの最初の一手で、他のツールより先に、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。方針を変えたときも呼びます。\nBash と Agent の description は日本語で短く（20 字程度）書いてください。\n');
     // 段の入り切りの設定は Claude と同じく効く。
-    expect(renderOpencodeInjectionEntries(input, 'ja', { askStatusAtEnd: false, liveHints: false }, 'claude').map((e) => e.key)).toEqual(['body', 'multiDevice']);
+    expect(renderOpencodeInjectionEntries(input, 'ja', { askStatusAtEnd: false, liveHints: false, notifyUser: false }, 'claude').map((e) => e.key)).toEqual(['body', 'multiDevice']);
     expect(renderOpencodeInjectionEntries(input, 'en', DEFAULT_INJECTION_PARTS, 'claude').find((e) => e.key === 'live')!.text).toMatch(/^At the first step of every turn, before any other tool/);
   });
 });
@@ -292,12 +297,12 @@ describe('renderCodexInjectionEntries（Codex に足す段）', () => {
 
   it('最小限（既定）は、hangar の MCP の使い方の段と、状態の段。道具は名前で指し、opencode の Code Mode の呼び方は使わない', () => {
     const ja = renderCodexInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'minimal');
-    expect(ja.map((e) => e.key)).toEqual(['body', 'status']);
+    expect(ja.map((e) => e.key)).toEqual(['body', 'status', 'notify']);
     for (const name of ['set_turn_intent', 'set_session_summary', 'propose_session_status']) expect(ja[0]!.text).toContain(name);
     expect(ja[0]!.text).toContain('confirmed: true');
     expect(ja[1]!.text).toContain('confirmed なし');
     const en = renderCodexInjectionEntries(input, 'en', DEFAULT_INJECTION_PARTS, 'minimal');
-    expect(en.map((e) => e.key)).toEqual(['body', 'status']);
+    expect(en.map((e) => e.key)).toEqual(['body', 'status', 'notify']);
     expect(en[0]!.text).toMatch(/first step of every turn, before any other tool/);
     expect(en[1]!.text).toContain('without confirmed');
     for (const e of [...ja, ...en]) {
@@ -307,11 +312,32 @@ describe('renderCodexInjectionEntries（Codex に足す段）', () => {
   });
 
   it('最小限でも、区切りで状態を確認する設定を切れば状態の段は足さない', () => {
-    expect(renderCodexInjectionEntries(input, 'ja', { askStatusAtEnd: false, liveHints: true }, 'minimal').map((e) => e.key)).toEqual(['body']);
+    expect(renderCodexInjectionEntries(input, 'ja', { askStatusAtEnd: false, liveHints: true, notifyUser: false }, 'minimal').map((e) => e.key)).toEqual(['body']);
   });
 
   it('追記しないなら段は無い。Claude Code と同じなら Claude の段をそのまま使う', () => {
     expect(renderCodexInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'none')).toEqual([]);
     expect(renderCodexInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'claude')).toEqual(renderInjectionEntries(input, 'ja'));
+  });
+});
+
+describe('notify_user の段', () => {
+  const input: InjectionInput = { projectName: 'alpha', projectPath: '/w/alpha', todos: [] };
+  it('Claude、opencode の最小限、Codex の最小限のどれも、notifyUser が入りなら節が入り、切なら入らない', () => {
+    const off: InjectionParts = { askStatusAtEnd: true, liveHints: true, notifyUser: false };
+    const key = (es: { key: string }[]) => es.map((e) => e.key).includes('notify');
+    expect(key(renderInjectionEntries(input, 'ja'))).toBe(true);
+    expect(key(renderInjectionEntries(input, 'ja', off))).toBe(false);
+    expect(key(renderOpencodeInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'minimal'))).toBe(true);
+    expect(key(renderOpencodeInjectionEntries(input, 'ja', off, 'minimal'))).toBe(false);
+    expect(key(renderCodexInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'minimal'))).toBe(true);
+    expect(key(renderCodexInjectionEntries(input, 'ja', off, 'minimal'))).toBe(false);
+  });
+  it('出し先を to で選べることを、どの節も一言で言う', () => {
+    for (const language of ['ja', 'en'] as const) {
+      for (const k of ['launch.injection.notify', 'launch.injection.opencode.notify', 'launch.injection.codex.notify'] as const) expect(tt(language, k), k).toContain("['phone']");
+    }
+    expect(tt('ja', 'launch.injection.opencode.notify')).toContain('await tools.hangar.notify_user({ text })');
+    expect(tt('ja', 'launch.injection.codex.notify')).toContain('hangar の MCP サーバーの notify_user ツール');
   });
 });

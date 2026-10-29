@@ -3,6 +3,7 @@ import type { MessageSpec } from '../messageSpec.ts';
 export const homeKeys = {
   'home.band.label': [],
   'home.band.attention': [],
+  'home.band.unread': [],
   'home.band.running': [],
   'home.band.pending': [],
   'home.band.source.inSession': [],

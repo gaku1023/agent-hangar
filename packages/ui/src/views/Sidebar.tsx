@@ -11,6 +11,7 @@ import type { MenuAnchor, MenuCloseHow } from './primitives/MenuButton.tsx';
 import { SessionMenuPop } from './sessionMenu.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import { FoldBox } from './primitives/FoldBox.tsx';
+import { CountBubble } from './primitives/CountBubble.tsx';
 import { motionMs } from './primitives/motion.ts';
 import { paneDrag } from './paneDrag.ts';
 
@@ -20,11 +21,16 @@ const NAV_ICON: Record<string, IconName> = { home: 'home', projects: 'projects',
 /**
  * 項目に添える入力待ちの数。
  * 開いた帯では項目の右端の錠剤、畳んだ帯ではアイコンの右上の丸になる（base.css の .nav-count）。
+ * 数は入力待ちに未読の合計を足したもので、0 から増えたら伸びて出て、増えたら跳ね、0 に戻ったら畳んで消える（CountBubble）。
  * 見えるのは数字だけなので、読み上げには何の数かを添える。
  */
-function NavCount(props: { n: number }) {
+function NavCount(props: { n: number; waiting?: number; unread?: number }) {
   const t = useT();
-  return <span className="nav-count"><span aria-hidden="true">{props.n}</span><span className="sr-only">{t('sidebar.count.waiting', { n: props.n })}</span></span>;
+  // 内訳があれば入力待ちと未読を分けて言う。無ければ、数を入力待ちの数と読む。
+  const waiting = props.waiting ?? (props.unread === undefined ? props.n : 0);
+  const unread = props.unread ?? 0;
+  const sr = `${waiting > 0 ? t('sidebar.count.waiting', { n: waiting }) : ''}${unread > 0 ? t('sidebar.count.unread', { n: unread }) : ''}`;
+  return <CountBubble n={props.n} sr={sr} className="nav-count" />;
 }
 
 /** 行を別の行の前か後ろへ移した後の並び。移す先が無ければ元のまま返す。 */
@@ -304,12 +310,12 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
           return (
           <li key={r.id}>
             <a className="side-live-row" href={formatRoute({ name: 'session', id: r.id })} draggable={false} aria-current={r.current ? 'page' : undefined} data-id={r.id} data-menu={props.menuId === r.id ? 'true' : undefined}
-              data-live={r.live ?? undefined} data-lift={lift} data-pane-drag={paneOn && sort?.id === r.id ? 'true' : undefined} style={style}
+              data-live={r.live ?? undefined} data-unread={(r.unread ?? 0) > 0 ? 'true' : undefined} data-lift={lift} data-pane-drag={paneOn && sort?.id === r.id ? 'true' : undefined} style={style}
               title={r.overlap ?? (r.waited ? t('sidebar.live.rowTitle', { name: r.name, waited: r.waited }) : r.name)}
               onClick={(e) => onClick(e, r)} onKeyDown={(e) => onKeyDown(e, r)}
               onContextMenu={(e) => { e.preventDefault(); if (sortNow.current) return; setMenu({ id: r.id, at: { top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 } }); }}
               onPointerDown={(e) => onPointerDown(e, r)} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}>
-              <StatusDot status={r.live} aside={r.aside} reason={r.reason} /><span className="side-live-name">{r.name}</span>{r.agent !== undefined && <span className="side-live-agent" data-agent={r.agent ?? 'none'}>{r.agent && <AgentIcon kind={r.agent} />}</span>}{r.overlap && <span className="side-live-overlap" role="img" aria-label={r.overlap} title={r.overlap}><Icon name="warning" /></span>}{r.waited && <span className="side-live-wait num" data-reason={r.reason ?? undefined}>{r.waited}</span>}
+              <StatusDot status={r.live} aside={r.aside} reason={r.reason} /><span className="side-live-name">{r.name}</span><CountBubble n={r.unread ?? 0} sr={t('sidebar.count.unread', { n: r.unread ?? 0 })} className="side-live-unread" />{r.agent !== undefined && <span className="side-live-agent" data-agent={r.agent ?? 'none'}>{r.agent && <AgentIcon kind={r.agent} />}</span>}{r.overlap && <span className="side-live-overlap" role="img" aria-label={r.overlap} title={r.overlap}><Icon name="warning" /></span>}{r.waited && <span className="side-live-wait num" data-reason={r.reason ?? undefined}>{r.waited}</span>}
             </a>
           </li>
           );
@@ -497,7 +503,6 @@ function LiveSection(props: { live: SideLiveProps }) {
                 <span className="side-live-grp-chev" aria-hidden="true"><Icon name="chevron" /></span>
                 <span className="side-live-grp-name">{g.name}</span>
                 <span className="side-live-grp-dot" aria-hidden="true" />
-                <span className="side-live-grp-n">{g.rows.length}</span>
                 {!g.open && g.waiting > 0 && <span className="sr-only">{t('sidebar.count.waiting', { n: g.waiting })}</span>}
               </button>
               <FoldBox open={g.open} keep id={body} className="side-live-grp-body">
@@ -520,7 +525,7 @@ export function Sidebar(props: { nav: NavItem[]; foot: NavItem[]; collapsed: boo
   const emit = useEmit();
   const t = useT();
   const item = (n: NavItem) => (
-    <a key={n.label} className="nav-item" href={formatRoute(n.route)} aria-current={n.current ? 'page' : undefined} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: n.route }); }}>{NAV_ICON[n.route.name] && <Icon name={NAV_ICON[n.route.name]!} />}<span className="nav-label">{n.label}</span>{n.count > 0 && <NavCount n={n.count} />}</a>
+    <a key={n.label} className="nav-item" href={formatRoute(n.route)} aria-current={n.current ? 'page' : undefined} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: n.route }); }}>{NAV_ICON[n.route.name] && <Icon name={NAV_ICON[n.route.name]!} />}<span className="nav-label">{n.label}</span><NavCount n={n.count} waiting={n.waiting} unread={n.unread} /></a>
   );
   const toggle = (
     <button className="btn sidebar-toggle" aria-controls="sidebar" aria-expanded={!props.collapsed} aria-keyshortcuts={ariaKeyShortcuts('sidebar.toggle')} aria-label={props.collapsed ? t('sidebar.toggle.open') : t('sidebar.toggle.close')} onClick={() => emit({ type: 'sidebar.toggle' })}><Icon name="sidebar" /><span className="toggle-tip" aria-hidden="true">{props.collapsed ? t('sidebar.toggle.tipOpen') : t('sidebar.toggle.tipClose')}<kbd>{keyLabel('⌘B')}</kbd></span></button>

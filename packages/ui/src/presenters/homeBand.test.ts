@@ -10,16 +10,16 @@ const reminder = (id: string, over: Partial<ReturnCard> = {}): ReturnCard => ({ 
 const running = (id: string, over: Partial<RunningCard> = {}): RunningCard => ({ id, name: `動く ${id}`, live: 'busy', aside: false, elapsed: '5分', meta: 'alpha', intent: null, activity: null, note: '作業中', idleFor: null, contextPercent: 40, contextLabel: '40%', ...over });
 const todoCard = (id: string): ConfirmCard => ({ kind: 'todo', id, text: `やる ${id}`, projectId: 'alpha', projectName: 'alpha', sessionName: 'one', ago: '1 時間前', note: '片付いた' });
 const sessionCard = (id: string, status: 'paused' | 'done', over: Partial<Extract<ConfirmCard, { kind: 'session' }>> = {}): ConfirmCard => ({ kind: 'session', id, name: `提案 ${id}`, projectName: null, status, label: status === 'done' ? 'Done にする？' : 'Paused · 10/3（土）？', note: '直した', ago: '2 時間前', source: 'in_session', daysLeft: status === 'done' ? 6 : null, ...over });
-const none = { attention: [], returning: [], running: [], confirm: [] };
+const none = { attention: [], returning: [], running: [], confirm: [], unread: [] };
 
 const ids = (gs: BandGroup[]) => gs.map((g) => g.id);
 
 describe('presentHomeBand の群', () => {
   it('要対応、実行中、確認待ちの順に 3 つの群を出し、0 件でも群は残す', () => {
     const band = presentHomeBand(none, ja);
-    expect(ids(band.groups)).toEqual(['attention', 'running', 'pending']);
-    expect(band.groups.map((g) => g.count)).toEqual([0, 0, 0]);
-    expect(band.groups.map((g) => g.label)).toEqual(['要対応', '実行中', '確認待ち']);
+    expect(ids(band.groups)).toEqual(['attention', 'unread', 'running', 'pending']);
+    expect(band.groups.map((g) => g.count)).toEqual([0, 0, 0, 0]);
+    expect(band.groups.map((g) => g.label)).toEqual(['要対応', '未読', '実行中', '確認待ち']);
   });
 
   it('要対応の件数は、入力待ちと今日のリマインダーを足したもの', () => {
@@ -34,7 +34,7 @@ describe('presentHomeBand の群', () => {
 
   it('実行中は件数だけで、見出しに内訳を添えない', () => {
     const band = presentHomeBand({ ...none, running: [running('a'), running('b', { live: 'idle' }), running('c', { live: 'idle' })] }, ja);
-    const g = band.groups[1]!;
+    const g = band.groups[2]!;
     expect(g.count).toBe(3);
     expect(g.summary).toBe('');
     expect(g.tone).toBe('default');
@@ -42,7 +42,7 @@ describe('presentHomeBand の群', () => {
 
   it('確認待ちの件数は、TODO の完了の提案とセッションの提案を合わせたもの', () => {
     const band = presentHomeBand({ ...none, confirm: [todoCard('t1'), sessionCard('s1', 'done')] }, ja);
-    const g = band.groups[2]!;
+    const g = band.groups[3]!;
     expect(g.count).toBe(2);
     expect(g.rows.map((r) => r.key)).toEqual(['todo:t1', 'session:s1']);
     expect(g.summary).toBe('提案 2');
@@ -51,7 +51,7 @@ describe('presentHomeBand の群', () => {
 
   it('文は辞書の言語で引く', () => {
     const band = presentHomeBand({ ...none, attention: [waiting('a')], confirm: [todoCard('t')] }, en);
-    expect(band.groups.map((g) => g.label)).toEqual(['Needs attention', 'Running', 'Pending review']);
+    expect(band.groups.map((g) => g.label)).toEqual(['Needs attention', 'Unread', 'Running', 'Pending review']);
     expect(band.groups[0]!.summary).toBe("Needs input 1, today's reminders 0");
     expect(band.groups[0]!.rows[0]!.trail).toEqual([{ text: 'Waiting 12分', tone: 'wait' }]);
   });
@@ -89,7 +89,7 @@ describe('presentHomeBand の止まっている理由（試作 stop-reason-proto
 
   it('使用制限は実行中に砂時計で置き、リセットの時刻と自動で続くかを言う。アイドルには数えない', () => {
     const band = presentHomeBand({ ...none, running: [running('a'), running('l', { live: 'idle', limit: { text: '使用制限（5 時間）· 16:50 にリセット · 自動で再開します', left: 'あと 8 分' } }), running('i', { live: 'idle' })] }, ja);
-    const g = band.groups[1]!;
+    const g = band.groups[2]!;
     expect(g.summary).toBe('');
     const row = g.rows[1]!;
     expect(row.lead).toEqual({ kind: 'dot', live: 'idle', aside: false, reason: 'limit' });
@@ -104,8 +104,8 @@ describe('presentHomeBand の追加の群（4 つ目の錠剤）', () => {
 
   it('渡した群を、3 つの後ろにそのまま足す', () => {
     const band = presentHomeBand(none, ja, [unresolved]);
-    expect(ids(band.groups)).toEqual(['attention', 'running', 'pending', 'unresolved']);
-    expect(band.groups[3]).toBe(unresolved);
+    expect(ids(band.groups)).toEqual(['attention', 'unread', 'running', 'pending', 'unresolved']);
+    expect(band.groups[4]).toBe(unresolved);
   });
 
   it('追加の群は朝に開く群の候補にならない（morning を立てたときだけなる）', () => {
@@ -180,7 +180,7 @@ describe('行（要対応）', () => {
 });
 
 describe('行（実行中）', () => {
-  const one = (r: RunningCard) => presentHomeBand({ ...none, running: [r] }, ja).groups[1]!.rows[0]!;
+  const one = (r: RunningCard) => presentHomeBand({ ...none, running: [r] }, ja).groups[2]!.rows[0]!;
 
   it('作業中：意図を本文に、いまの手を等幅の詳細に、経過とコンテキストを末尾に', () => {
     const row = one(running('a', { intent: '金額の上限のテストを足す', activity: { tool: 'Edit', summary: 'src/limit.ts' } }));
@@ -214,14 +214,14 @@ describe('行（実行中）', () => {
 
 describe('行（確認待ち）', () => {
   it('TODO の完了の提案：名前は TODO の文、確定と却下。名前を押すとプロジェクトへ', () => {
-    const row = presentHomeBand({ ...none, confirm: [todoCard('t1')] }, ja).groups[2]!.rows[0]!;
+    const row = presentHomeBand({ ...none, confirm: [todoCard('t1')] }, ja).groups[3]!.rows[0]!;
     expect(row).toMatchObject({ key: 'todo:t1', lead: { kind: 'todo' }, name: 'やる t1', context: 'alpha · 1 時間前', text: '片付いた', open: { type: 'project.open', id: 'alpha' } });
     expect(row.actions.map((a) => [a.id, a.label, a.ariaLabel, a.primary])).toEqual([['confirm', '確定', '確定、やる t1（alpha）', true], ['dismiss', '却下', '却下、やる t1（alpha）', false]]);
     expect(row.actions.map((a) => a.send)).toEqual([{ type: 'todo.confirm', id: 't1' }, { type: 'todo.reject', id: 't1' }]);
   });
 
   it('セッションの提案：札に提案の文言。Paused のときだけ日付を変更が入る', () => {
-    const rows = presentHomeBand({ ...none, confirm: [sessionCard('s1', 'paused'), sessionCard('s2', 'done')] }, ja).groups[2]!.rows;
+    const rows = presentHomeBand({ ...none, confirm: [sessionCard('s1', 'paused'), sessionCard('s2', 'done')] }, ja).groups[3]!.rows;
     expect(rows[0]!.lead).toEqual({ kind: 'tag', text: 'Paused · 10/3（土）？', tone: 'cand' });
     expect(rows[0]!.context).toBe('未分類 · 2 時間前');
     expect(rows[0]!.actions.map((a) => a.id)).toEqual(['confirm', 'changeDate', 'dismiss']);
@@ -236,26 +236,26 @@ describe('行（確認待ち）', () => {
 
   // 出どころと自動で確定するまでの日数（2026-10-13 の決定、知らせの 9d、試作の A）。
   it('名前の後ろに出どころの小札を添え、Done の提案には右に「あと N 日で確定」を出す', () => {
-    const rows = presentHomeBand({ ...none, confirm: [sessionCard('s1', 'done'), sessionCard('s2', 'done', { source: 'post_hoc', daysLeft: 1 }), sessionCard('s3', 'paused', { source: 'post_hoc' })] }, ja).groups[2]!.rows;
+    const rows = presentHomeBand({ ...none, confirm: [sessionCard('s1', 'done'), sessionCard('s2', 'done', { source: 'post_hoc', daysLeft: 1 }), sessionCard('s3', 'paused', { source: 'post_hoc' })] }, ja).groups[3]!.rows;
     expect(rows.map((r) => [r.badge, r.trail])).toEqual([
       ['会話の中で', [{ text: 'あと 6 日で確定' }]],
       ['要約から', [{ text: 'あと 1 日で確定' }]],
       ['要約から', []],
     ]);
-    const enRows = presentHomeBand({ ...none, confirm: [sessionCard('s1', 'done'), sessionCard('s2', 'paused', { source: 'post_hoc' })] }, en).groups[2]!.rows;
+    const enRows = presentHomeBand({ ...none, confirm: [sessionCard('s1', 'done'), sessionCard('s2', 'paused', { source: 'post_hoc' })] }, en).groups[3]!.rows;
     expect(enRows.map((r) => [r.badge, r.trail])).toEqual([['In conversation', [{ text: 'Confirms in 6 days' }]], ['From summary', []]]);
     // 取りやめた出どころ（exit）には小札を付けない。TODO の提案にも付けない。
-    const old = presentHomeBand({ ...none, confirm: [sessionCard('s4', 'done', { source: 'exit' }), todoCard('t1')] }, ja).groups[2]!.rows;
+    const old = presentHomeBand({ ...none, confirm: [sessionCard('s4', 'done', { source: 'exit' }), todoCard('t1')] }, ja).groups[3]!.rows;
     expect(old.map((r) => r.badge ?? null)).toEqual([null, null]);
   });
 
   it('群の見出しに「すべて確定」「すべて却下」を置き、いまある提案を全部渡す。0 件なら置かない', () => {
-    const g = presentHomeBand({ ...none, confirm: [todoCard('t1'), sessionCard('s1', 'done'), sessionCard('s2', 'paused')] }, ja).groups[2]!;
+    const g = presentHomeBand({ ...none, confirm: [todoCard('t1'), sessionCard('s1', 'done'), sessionCard('s2', 'paused')] }, ja).groups[3]!;
     expect(g.headActions!.map((a) => [a.id, a.label, a.primary, a.ghost, a.send])).toEqual([
       ['confirmAll', 'すべて確定', false, false, { type: 'pending.resolve', accept: true, sessionIds: ['s1', 's2'], todoIds: ['t1'] }],
       ['dismissAll', 'すべて却下', false, true, { type: 'pending.resolve', accept: false, sessionIds: ['s1', 's2'], todoIds: ['t1'] }],
     ]);
     expect(g.headActions![0]!.ariaLabel).toBe('すべて確定、確認待ち');
-    expect(presentHomeBand(none, ja).groups[2]!.headActions ?? []).toEqual([]);
+    expect(presentHomeBand(none, ja).groups[3]!.headActions ?? []).toEqual([]);
   });
 });

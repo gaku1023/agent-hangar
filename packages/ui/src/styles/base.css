@@ -162,6 +162,9 @@ a:hover { text-decoration: underline; }
 .side-live-agent { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 20px; height: 14px; }
 /* 入力待ちは行を動かさず、太字と待った時間で知らせる。 */
 .side-live-row[data-live='waiting'] .side-live-name { font-weight: 600; }
+.side-live-row[data-unread='true'] .side-live-name { font-weight: 700; }
+/* 未読の数の丸。ホームの項目の丸（.nav-count）と同じ色と書体で、20px を 16px に小さくしたもの。 */
+.side-live-unread { flex: none; display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--r-pill); background: var(--waiting); color: #ffffff; font-size: 10px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
 .side-live-wait { flex: none; font-size: var(--fs-xs); font-weight: 600; color: var(--waiting); }
 .side-live-wait[data-reason='limit'] { color: var(--limit); }
 /* 並べ替え（5A）。掴んだ行は白い面と影と 102% で浮き、ポインタに付いて縦だけ動く（translate は Sidebar.tsx が持つ）。
@@ -186,7 +189,6 @@ a:hover { text-decoration: underline; }
 /* 矢印のアイコンは右向き。開いているあいだだけ下へ回す（.fold-arrow と同じ）。 */
 .side-live-grp-h[aria-expanded='true'] .side-live-grp-chev { rotate: 90deg; }
 .side-live-grp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.side-live-grp-n { flex: none; font-weight: 500; font-variant-numeric: tabular-nums; }
 /* 畳んだグループに入力待ちがあるときだけ、件数の前に待ちの点を出す。 */
 .side-live-grp-dot { display: none; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--waiting); }
 .side-live-grp-h[data-waiting='true'] .side-live-grp-dot { display: inline-block; }
@@ -227,7 +229,7 @@ a:hover { text-decoration: underline; }
 .shell[data-sidebar='collapsed'] .nav-label { position: absolute; left: calc(var(--item) + var(--u) * 3); top: 50%; translate: 0 -50%; padding: calc(var(--u) * 0.75) calc(var(--u) * 2); border-radius: var(--r); background: var(--ink); color: var(--surface); font-size: var(--fs-xs); font-weight: 500; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast); }
 /* 畳んだ帯では、動いているセッションを点だけで縦に並べる。名前は title に持つ。「ほか N 件」は出さない。 */
 .shell[data-sidebar='collapsed'] .side-live { margin-top: calc(var(--u) * 2); padding-top: calc(var(--u) * 2); }
-.shell[data-sidebar='collapsed'] .side-live-name, .shell[data-sidebar='collapsed'] .side-live-agent, .shell[data-sidebar='collapsed'] .side-live-wait { display: none; }
+.shell[data-sidebar='collapsed'] .side-live-name, .shell[data-sidebar='collapsed'] .side-live-agent, .shell[data-sidebar='collapsed'] .side-live-wait, .shell[data-sidebar='collapsed'] .side-live-unread { display: none; }
 /* 畳んだ帯ではグループの見出しを出さず、畳んだグループの点も並べる。グループの境は少しの間だけで見せる。 */
 .shell[data-sidebar='collapsed'] .side-live-grp-h { display: none; }
 .shell[data-sidebar='collapsed'] .side-live-grp-body[hidden] { display: block; }

@@ -1,4 +1,4 @@
-import { waitingSessionIds, type Store } from '../store/store.ts';
+import { unreadTotal, waitingSessionIds, type Store } from '../store/store.ts';
 import type { Effect, State, Step } from './types.ts';
 
 /**
@@ -8,7 +8,7 @@ import type { Effect, State, Step } from './types.ts';
  * ストアが変わるたびに呼ばれ、前に見た顔ぶれ（waitingSeen）と違うときだけ動く。並びの順だけが変わっても動かない。
  * 新たに入力待ちになったものを右下のカードに積み、通知の効果を出す。
  * 解けたものはカードから下げる。
- * 数が変わったら、バッジの効果を出す。
+ * 数が変わったら、バッジの効果を出す。バッジの数は入力待ちの数に未読の合計（store.ts の unreadTotal、設定 unreadBadge が切なら 0）を足したものである。
  *
  * 問いの文は、入力待ちより少し遅れて届くことがある（hook の台本や本文の索引が後になる）。
  * 問いの文なしで知らせたもの（waitingBare）に問いの文が届いたら、同じセッションの通知の効果をもう一度出す。
@@ -29,10 +29,12 @@ export function liveStep(state: State, store: Store): Step {
   const was = new Set(state.waitingSeen);
   const asked = (id: string) => !!store.sessions[id]?.activity?.question;
   const same = ids.length === was.size && ids.every((id) => was.has(id));
+  // Dock のバッジは入力待ちの数に未読の合計を足す。未読だけが変わったときも出し直す。
+  const unread = unreadTotal(store);
   const keysSame = sameList(keys, state.waitingKeys);
   // 顔ぶれが同じなら、書き換えを待っているものはどれもまだ入力待ちである。
   const late = state.waitingBare.filter(asked);
-  if (same && late.length === 0) {
+  if (same && late.length === 0 && unread === state.unreadSeen) {
     if (keysSame) return { state, effects: [] };
     // 顔ぶれは同じで、最後の動きの時刻だけが進んだ（本文の索引が追いついたなど）。同じ入力待ちなので、鍵だけ残し直す。
     return { state: { ...state, waitingKeys: keys }, effects: [saveKeys(state.waitingCarried, keys)] };
@@ -54,9 +56,9 @@ export function liveStep(state: State, store: Store): Step {
   // 窓が背面にあれば、開いているセッションも見えていない。
   // 通知を出すかどうかは、ランタイムと殻が窓の様子と設定を見て決める。
   const effects: Effect[] = [...late.filter((id) => now.has(id)), ...told].map((sessionId) => ({ kind: 'notify.waiting', sessionId }));
-  if (ids.length !== state.waitingSeen.length) effects.push({ kind: 'badge', count: ids.length });
+  if (ids.length + unread !== state.waitingSeen.length + state.unreadSeen) effects.push({ kind: 'badge', count: ids.length + unread });
   if (!keysSame || waitingCarried.length !== state.waitingCarried.length) effects.push(saveKeys(waitingCarried, keys));
-  return { state: { ...state, waitingSeen: ids, waitingBare, waitingToasts, waitingKeys: keys, waitingCarried }, effects };
+  return { state: { ...state, waitingSeen: ids, waitingBare, waitingToasts, waitingKeys: keys, waitingCarried, unreadSeen: unread }, effects };
 }
 
 /**

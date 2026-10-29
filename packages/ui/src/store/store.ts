@@ -527,6 +527,22 @@ export function waitingSessionIds(store: Store): string[] {
 }
 
 /**
+ * 未読（エージェントが notify_user で知らせた数）の見せ方。設定 unreadBadge が切なら、データがあっても出さない。
+ * 既読にする側（seenWanted）は設定に関わらず生のデータを見る。
+ */
+export const unreadBadgeOn = (store: Store): boolean => store.settings?.unreadBadge !== false;
+export const unreadOf = (store: Store, id: string): NonNullable<SessionDto['unread']> | null => (unreadBadgeOn(store) ? store.sessions[id]?.unread ?? null : null);
+/** 未読のあるセッションの id。知らせの新しいものが先。 */
+export function unreadSessionIds(store: Store): string[] {
+  if (!unreadBadgeOn(store)) return [];
+  return Object.values(store.sessions).filter((s) => (s.unread?.count ?? 0) > 0)
+    .sort((a, b) => b.unread!.at - a.unread!.at || a.id.localeCompare(b.id))
+    .map((s) => s.id);
+}
+/** 未読の合計（ホームの項目の丸と Dock のバッジが入力待ちに足す数）。 */
+export const unreadTotal = (store: Store): number => unreadSessionIds(store).reduce((n, id) => n + store.sessions[id]!.unread!.count, 0);
+
+/**
  * 「次の入力待ちへ」で移る先。
  * 入力待ちのセッションを waitingSessionIds の順に並べ、from の次を返す。
  * from が並びに無ければ先頭を、末尾の次は先頭を返す。

@@ -25,7 +25,7 @@ import { PAGE_SIZE_DEFAULT } from './paging.ts';
 import { promoteStep } from './promote.ts';
 import { resumeHereStep } from './resumeHere.ts';
 import { retentionStep } from './retention.ts';
-import { screenStep } from './screen.ts';
+import { screenStep, seenStep } from './screen.ts';
 import { sessionViewStep } from './sessionView.ts';
 import { settingsStep } from './settings.ts';
 import { SIDEBAR_WIDTH_DEFAULT, sidebarFoldStep, sidebarLiveStep, sidebarOrderStep, sidebarStep, sidebarWidthStep } from './sidebar.ts';
@@ -42,7 +42,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, launchPrep: null, contextShorts: [], modelMissings: [], waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, accountAdd: { kind: 'idle' }, linkRepair: { detail: null, working: false, error: null }, toasts: [], arrivedProjects: [], phoneLaunches: [], sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH_DEFAULT, sidebarOrder: [], panes: emptyPanes(), sidebarFolded: [], projectRailFolded: {}, noticesRead: [], diskShortToasted: false, opencodeVersionSeen: null, codexVersionSeen: null, newSessionDraft: null, newSessionSent: false, launchSent: null, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, launchPrep: null, contextShorts: [], modelMissings: [], waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], unreadSeen: 0, seenAsked: null, returnSeen: [], promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, accountAdd: { kind: 'idle' }, linkRepair: { detail: null, working: false, error: null }, toasts: [], arrivedProjects: [], phoneLaunches: [], sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH_DEFAULT, sidebarOrder: [], panes: emptyPanes(), sidebarFolded: [], projectRailFolded: {}, noticesRead: [], diskShortToasted: false, opencodeVersionSeen: null, codexVersionSeen: null, newSessionDraft: null, newSessionSent: false, launchSent: null, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string, holdMs?: number): State {
@@ -120,12 +120,14 @@ function storeChanged(prev: State, store: Store): Step {
   const state = diskShortStep(prev, store);
   const waiting = liveStep(state, store);
   const live = sidebarLiveStep(waiting.state, store);
+  // 開いて見ているセッションに未読が増えたら、すぐ既読にする。
+  const seen = seenStep(live.state, store, true);
   // Store から消えたセッションのペインは外す。
-  const pruned = prunePanes(live.state, store);
+  const pruned = prunePanes(seen.state, store);
   // どちらも動かなかったら、整え（settled）を通さずそのまま返す。
   // ストアは本文が伸びるたびに変わるので、そのたびに札を触ると、無関係な更新で札が動いてしまう。
-  if (pruned === state && waiting.effects.length === 0 && live.effects.length === 0) return { state, effects: [] };
-  return settled(state, { state: pruned, effects: [...waiting.effects, ...live.effects] }, store);
+  if (pruned === state && waiting.effects.length === 0 && live.effects.length === 0 && seen.effects.length === 0) return { state, effects: [] };
+  return settled(state, { state: pruned, effects: [...waiting.effects, ...live.effects, ...seen.effects] }, store);
 }
 
 /**

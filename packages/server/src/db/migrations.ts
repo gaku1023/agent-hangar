@@ -654,6 +654,21 @@ alter table config_unsent_new rename to config_unsent;
 `;
 
 /**
+ * 版 39 は、エージェントが notify_user で知らせた未読の表を足す。
+ * 手元だけの表で、同期しない。count は開くまでにたまった回数、latest_text と latest_at は最後の知らせである。
+ * session_activity とは分ける。あちらは索引の作り直しで積み直すが、未読は利用者がまだ見ていないという事実なので、作り直しで消えてはならない。
+ * セッションを消すとき（sessions/trash.ts）に、行も片付ける。
+ */
+const V39_SESSION_UNREAD_SQL = `
+create table session_unread (
+  session_id text primary key,
+  count integer not null,
+  latest_text text,
+  latest_at integer not null
+);
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -682,4 +697,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 36, sql: V36_LAST_TURN_TS_SQL },
   { version: 37, sql: V37_TRANSCRIPT_FILES_AGENT_SQL },
   { version: 38, sql: V38_CONFIG_UNSENT_UNKNOWN_KEY_SQL },
+  { version: 39, sql: V39_SESSION_UNREAD_SQL },
 ];

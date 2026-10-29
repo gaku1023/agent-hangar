@@ -108,6 +108,8 @@ export type Effect =
   | { kind: 'api.resumeQueued'; sessionId: string; stray?: ResumeStray }
   // 中断の群の「再開しない」と、その取り消し。返った群を Store に入れる。
   | { kind: 'api.dismissInterrupted'; runIds: string[]; dismissed: boolean }
+  // セッションの未読を既読にする（POST /api/sessions/:id/seen）。ifFront は、開いて見ている間に増えた分のためで、窓が前にあるときだけ送る（裏にある間は、前に出たときに送り直す）。
+  | { kind: 'api.markSeen'; sessionId: string; ifFront?: boolean }
   | { kind: 'api.killRun'; runId: string } | { kind: 'api.openTab'; sessionId: string } | { kind: 'api.closeTab'; tabId: string }
   | { kind: 'api.jumpToPrompt'; sessionId: string; runId: string; seq: number; heads: string[]; index: number; from: 'top' | 'bottom' }
   | { kind: 'api.leaveTranscript'; runId: string }
@@ -363,6 +365,10 @@ export type State = {
    * 引き当てたセッションの鍵は、当たっても外れても外す。この頁で解けてまた入力待ちになったときは、鍵が同じでも知らせる。
    */
   waitingCarried: string[];
+  /** Dock のバッジに数えた未読の合計。入力待ちの数と合わせて出すので、どちらかが変わったときにバッジを出し直すために覚える。 */
+  unreadSeen: number;
+  /** 既読を頼んだ未読の鍵（「セッションの id|未読の最後の時刻」）。開いている間に同じ未読へ何度も頼まないために覚える。 */
+  seenAsked: string | null;
   /**
    * 右下に積む入力待ちのカードのセッション。
    * 古いものが先。
