@@ -40,14 +40,16 @@ export function inspectAccountLinks(primaryDir: string, dir: string, opts: LinkO
  * リンクの場所に別のものが置かれているとき、または張れなかった項目があるときの文。言語は、出す側（経路、起動）が選ぶ。
  * 両方あれば、利用者が手で直せる conflicts を先に出す。
  */
-export function linkProblemMessage(conflicts: string[], unlinked: string[] = []): Message | null {
+export function linkProblemMessage(conflicts: string[], unlinked: string[] = [], fixable: readonly string[] = []): Message | null {
+  // 衝突が全部、選んで直せるファイルなら、直す前提の文にする。ディレクトリが混じれば今の文のまま。
+  if (conflicts.length > 0 && conflicts.every((n) => fixable.includes(n))) return msg('account.links.conflictFiles', { names: conflicts });
   if (conflicts.length > 0) return msg('account.links.conflict', { names: conflicts });
   if (unlinked.length > 0) return msg('account.links.unlinked', { names: unlinked });
   return null;
 }
 
 /** 同じ文を、既定の言語（日本語）で返す。 */
-export function linkProblem(conflicts: string[], unlinked: string[] = []): string | null {
-  const m = linkProblemMessage(conflicts, unlinked);
+export function linkProblem(conflicts: string[], unlinked: string[] = [], fixable: readonly string[] = []): string | null {
+  const m = linkProblemMessage(conflicts, unlinked, fixable);
   return m ? render(DEFAULT_LANGUAGE, m) : null;
 }

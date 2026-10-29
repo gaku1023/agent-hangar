@@ -259,8 +259,20 @@ export type AccountAuthDto = { loggedIn: boolean; email: string | null; plan: st
  * linkProblem は置き場のリンクが壊れている理由で、起動できるときは null。
  */
 export type AccountDto = { id: string; name: string; dir: string; color: string; primary: boolean; auth: AccountAuthDto | null; usage: UsageDto; loginRunning: boolean; linkProblem: string | null;
+  /** リンクの場所にあるファイルが共有側と中身が違い、選んで直せる項目の名前（GET /api/accounts/:id/link-conflicts で詳細）。ディレクトリや張れなかった項目は入れない。 */
+  linkConflicts: string[];
   /** ログイン中だけ持つ（Codex）。userCode と verificationUrl は確認コードの方法のとき。cancelledBy は後から始めたログインに取り消されたときの相手の名前。 */
   login?: { method: 'browser' | 'deviceCode'; userCode?: string; verificationUrl?: string; cancelledBy?: string } };
+/** 衝突したファイルの片側。text は 256KB を超えるか NUL を含むと null。 */
+export type LinkConflictSideDto = { text: string | null; mtimeMs: number; size: number };
+/** 衝突した 1 項目の両側（手元 = そのアカウントの置き場、共有 = 最初の置き場）。 */
+export type LinkConflictDetailDto = { name: string; kind: 'file' | 'dir'; mine: LinkConflictSideDto; shared: LinkConflictSideDto };
+/** GET /api/accounts/:id/link-conflicts と GET /api/codex/accounts/:id/link-conflicts の答え。 */
+export type LinkConflictsDto = { accountId: string; agent: 'claude-code' | 'codex'; entries: LinkConflictDetailDto[] };
+/** POST の本文。選ばなかった側は .bak-hangar-日時 に退避される。答えは AccountsDto。 */
+export type LinkRepairRequest = { entries: { name: string; keep: 'mine' | 'shared' }[] };
+/** 起動が、リンクの場所のファイルの衝突だけで断られた（400）。画面は修復のダイアログを開く。 */
+export type AccountLinkConflictDto = { code: 'account_link_conflict'; error: string; accountId: string; agent: 'claude-code' | 'codex'; files: string[] };
 /** sessions は、最初のアカウント以外で最後に動かしたセッションだけを載せる（セッションの id → アカウントの id）。載っていないものは最初のアカウントである。 */
 /** エージェントごとのアカウントの組。Claude は AccountsDto の直下、Codex は AccountsDto.codex に持つ。 */
 export type AgentAccountsDto = { currentId: string; accounts: AccountDto[]; sessions: Record<string, string> };

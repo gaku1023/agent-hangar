@@ -7,7 +7,9 @@ import { causeOf, errorText, msg, render, type Message } from '../i18n/message.t
 import { linkProblemMessage } from '../provider/claude-code/config/accountLinks.ts';
 import type { CodexAccountService, CodexLoginMethod, CodexLoginState } from '../provider/codex/account.ts';
 import type { CodexAccountAuth } from '../provider/codex/accountAuth.ts';
-import { ensureCodexAccountLinks, inspectCodexAccountLinks } from '../provider/codex/config/accountLinks.ts';
+import { fixableConflicts } from '../platform/links.ts';
+import { linkConflictsOf, parseRepair, repairLinks, type LinkRepairTarget } from './linkRepair.ts';
+import { CODEX_LINKED_ENTRIES, ensureCodexAccountLinks, inspectCodexAccountLinks } from '../provider/codex/config/accountLinks.ts';
 import type { AccountsDeps } from './accounts.ts';
 
 /** Codex のアカウントの口が頼るもの。設定の codexEnabled が切の間は、DTO にも口にも出さない。 */
@@ -30,16 +32,23 @@ const loginMemoOf = (store: AccountStore): LoginMemo => {
   if (!m) { m = { methods: new Map(), latest: null }; loginMemos.set(store, m); }
   return m;
 };
-const linkProblems = new WeakMap<AccountStore, Map<string, LinkProblem>>();
-const problemMemoOf = (store: AccountStore): Map<string, LinkProblem> => {
+/** 点検の結果。fixable は、そのうち選んで直せるファイルの名前（AccountDto.linkConflicts）。 */
+type LinkState = { problem: LinkProblem; fixable: string[] };
+const NO_PROBLEM: LinkState = { problem: null, fixable: [] };
+const linkProblems = new WeakMap<AccountStore, Map<string, LinkState>>();
+const problemMemoOf = (store: AccountStore): Map<string, LinkState> => {
   let m = linkProblems.get(store);
   if (!m) { m = new Map(); linkProblems.set(store, m); }
   return m;
 };
 
-function problemOf(c: CodexAccountsDeps, a: Account): LinkProblem {
-  if (a.id === PRIMARY_ACCOUNT_ID) return null;
-  try { const r = ensureCodexAccountLinks(c.primaryDir, a.dir); return linkProblemMessage(r.conflicts, r.unlinked); } catch (e) { return causeOf(e); }
+function problemOf(c: CodexAccountsDeps, a: Account): LinkState {
+  if (a.id === PRIMARY_ACCOUNT_ID) return NO_PROBLEM;
+  try {
+    const r = ensureCodexAccountLinks(c.primaryDir, a.dir);
+    const fixable = fixableConflicts(c.primaryDir, a.dir, r.conflicts);
+    return { problem: linkProblemMessage(r.conflicts, r.unlinked, fixable), fixable };
+  } catch (e) { return { problem: causeOf(e), fixable: [] }; }
 }
 const checkLinks = (c: CodexAccountsDeps): void => { for (const a of c.store.list()) problemMemoOf(c.store).set(a.id, problemOf(c, a)); };
 
@@ -90,7 +99,7 @@ export function buildCodexAccountsDto(deps: AccountsDeps, opts: { checkLinks?: b
       const login = loginDtoOf(c, a);
       return {
         ...a, primary: a.id === PRIMARY_ACCOUNT_ID, auth: c.auth.get(a.id), usage: usageOf(deps, a.id),
-        loginRunning: running(c.service.loginState(a.id)), linkProblem: problemText(memo.get(a.id) ?? null),
+        loginRunning: running(c.service.loginState(a.id)), linkProblem: problemText((memo.get(a.id) ?? NO_PROBLEM).problem), linkConflicts: (memo.get(a.id) ?? NO_PROBLEM).fixable,
         ...(login ? { login } : {}),
       };
     }),
@@ -179,7 +188,7 @@ export function codexAccountsRoutes(api: Hono, deps: AccountsDeps, changed: (che
     const method: CodexLoginMethod = b.method === 'deviceCode' ? 'deviceCode' : 'browser';
     try {
       const r = a.id === PRIMARY_ACCOUNT_ID ? null : ensureCodexAccountLinks(cx.primaryDir, a.dir);
-      const problem = r ? linkProblemMessage(r.conflicts) : null;
+      const problem = r ? linkProblemMessage(r.conflicts, [], fixableConflicts(cx.primaryDir, a.dir, r.conflicts)) : null;
       if (problem) throw new AccountError(400, problem);
     } catch (e) { if (e instanceof AccountError) throw e; throw new AccountError(400, causeOf(e)); }
     const memo = loginMemoOf(cx.store);
@@ -189,6 +198,16 @@ export function codexAccountsRoutes(api: Hono, deps: AccountsDeps, changed: (che
     const state = await cx.service.startLogin(a.id, a.id === PRIMARY_ACCOUNT_ID ? null : a.dir, method);
     if (state.status === 'failed') return c.json({ error: state.error }, 400);
     return c.json(changed(true), 202);
+  }));
+
+  const target = (cx: CodexAccountsDeps): LinkRepairTarget => ({ agent: 'codex', primaryDir: cx.primaryDir, names: CODEX_LINKED_ENTRIES });
+  // 中身が違うファイルの衝突の修復（Claude の /accounts/:id/link-conflicts と同じ形）。
+  api.get('/codex/accounts/:id/link-conflicts', (c) => guard(c, (cx) => c.json(linkConflictsOf(target(cx), must(cx, c.req.param('id'))))));
+  api.post('/codex/accounts/:id/link-conflicts', (c) => guard(c, async (cx) => {
+    const a = must(cx, c.req.param('id'));
+    const entries = parseRepair(target(cx), await bodyOf(c));
+    try { repairLinks(target(cx), a, entries); } catch (e) { changed(true); throw e; }
+    return c.json(changed(true) as object);
   }));
 
   api.post('/codex/accounts/:id/login/cancel', (c) => guard(c, async (cx) => {

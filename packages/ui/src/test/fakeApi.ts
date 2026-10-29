@@ -14,7 +14,7 @@ type Extras = Pick<
   | 'retention' | 'retentionPreview' | 'writeRetention'
   | 'renameProject' | 'live' | 'sessionFiles' | 'gitSessions' | 'sessionChanges' | 'sessionDiff' | 'sessionEdits' | 'projectGit' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'previewAccountDir' | 'sharePreview' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
-  | 'codexAccounts' | 'setCurrentCodexAccount' | 'addCodexAccount' | 'previewCodexAccountDir' | 'updateCodexAccount' | 'removeCodexAccount' | 'loginCodexAccount' | 'cancelCodexAccountLogin' | 'refreshCodexAccount'
+  | 'codexAccounts' | 'setCurrentCodexAccount' | 'addCodexAccount' | 'previewCodexAccountDir' | 'updateCodexAccount' | 'removeCodexAccount' | 'loginCodexAccount' | 'cancelCodexAccountLogin' | 'refreshCodexAccount' | 'linkConflicts' | 'repairLinkConflicts'
   | 'dismissInterrupted' | 'dismissOverlap'
 >;
 
@@ -180,5 +180,7 @@ export function fakeApiExtras(): Extras {
     loginCodexAccount: vi.fn(async () => undefined),
     cancelCodexAccountLogin: vi.fn(async () => accountsFixture),
     refreshCodexAccount: vi.fn(async () => accountsFixture),
+    linkConflicts: vi.fn(async (agent, accountId) => ({ accountId, agent, entries: [] })),
+    repairLinkConflicts: vi.fn(async () => accountsFixture),
   };
 }

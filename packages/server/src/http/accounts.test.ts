@@ -320,3 +320,86 @@ describe('agents（Claude 以外のエージェントの枠）', () => {
     expect(buildAccountsDto({ ...deps, agentUsage: t }).agents).toEqual({ codex: { fiveHour: { usedPercent: 5, resetsAt: 100 }, sevenDay: null, updatedAt: 9, plan: 'plus' } });
   });
 });
+
+describe('リンクの修復（Claude）', () => {
+  type Conflicts = { accountId: string; agent: string; entries: { name: string; kind: string; mine: { text: string | null }; shared: { text: string | null } }[]; error?: string };
+  const raw = async (method: string, url: string, body?: unknown) => {
+    const res = await app.request(url, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: res.status, json: (await res.json()) as Conflicts & AccountsDto };
+  };
+  let dir: string;
+  beforeEach(async () => {
+    fs.writeFileSync(path.join(primaryDir, 'settings.json'), '{"shared":1}');
+    dir = path.join(userHome, '.claude-univ');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'settings.json'), '{"mine":1}');
+    await call('POST', '/accounts', { name: '大学', dir });
+  });
+
+  it('中身が違うファイルは linkConflicts に出し、文は選んで直す文になる。ディレクトリは入れない', async () => {
+    let r = await call('GET', '/accounts');
+    const a = r.json.accounts[1]!;
+    expect(a.linkConflicts).toEqual(['settings.json']);
+    expect(a.linkProblem).toBe('settings.json が共有の設定から切り離されています。どちらを残すか選んで直してください');
+    expect(r.json.accounts[0]!.linkConflicts).toEqual([]);
+    // ディレクトリが混じると、直せるファイルだけを挙げ、文は今のまま。
+    fs.rmSync(path.join(dir, 'projects'));
+    fs.mkdirSync(path.join(dir, 'projects'));
+    r = await call('GET', '/accounts');
+    expect(r.json.accounts[1]!.linkConflicts).toEqual(['settings.json']);
+    expect(r.json.accounts[1]!.linkProblem).toContain('共有のリンクではありません');
+  });
+
+  it('中身が同じ実ファイルは、黙ってリンクに張り直す', async () => {
+    fs.writeFileSync(path.join(dir, 'settings.json'), '{"shared":1}');
+    const r = await call('GET', '/accounts');
+    expect(r.json.accounts[1]).toMatchObject({ linkConflicts: [], linkProblem: null });
+    expect(fs.lstatSync(path.join(dir, 'settings.json')).isSymbolicLink()).toBe(true);
+  });
+
+  it('GET link-conflicts は両側の中身を返す', async () => {
+    const id = store.list()[1]!.id;
+    const r = await raw('GET', `/accounts/${id}/link-conflicts`);
+    expect(r.status).toBe(200);
+    expect(r.json).toMatchObject({ accountId: id, agent: 'claude-code', entries: [{ name: 'settings.json', kind: 'file', mine: { text: '{"mine":1}' }, shared: { text: '{"shared":1}' } }] });
+  });
+
+  it('POST で shared を残すと、手元は .bak-hangar- へ退避され、リンクになり、DTO の linkConflicts が空になる', async () => {
+    const id = store.list()[1]!.id;
+    const r = await raw('POST', `/accounts/${id}/link-conflicts`, { entries: [{ name: 'settings.json', keep: 'shared' }] });
+    expect(r.status).toBe(200);
+    expect(r.json.accounts[1]).toMatchObject({ linkConflicts: [], linkProblem: null });
+    expect(fs.readlinkSync(path.join(dir, 'settings.json'))).toBe(path.join(primaryDir, 'settings.json'));
+    const baks = fs.readdirSync(dir).filter((n) => n.startsWith('settings.json.bak-hangar-'));
+    expect(baks).toHaveLength(1);
+    expect(fs.readFileSync(path.join(dir, baks[0]!), 'utf8')).toBe('{"mine":1}');
+    expect(sent.at(-1)!.accounts[1]!.linkConflicts).toEqual([]);
+  });
+
+  it('POST で mine を残すと、共有側が書き換わり、元の共有側は退避される', async () => {
+    const id = store.list()[1]!.id;
+    expect((await raw('POST', `/accounts/${id}/link-conflicts`, { entries: [{ name: 'settings.json', keep: 'mine' }] })).status).toBe(200);
+    expect(fs.readFileSync(path.join(primaryDir, 'settings.json'), 'utf8')).toBe('{"mine":1}');
+    expect(fs.readdirSync(primaryDir).some((n) => n.startsWith('settings.json.bak-hangar-'))).toBe(true);
+  });
+
+  it('許さない名前、形の違う本文、最初のアカウント、知らない id を断る', async () => {
+    const id = store.list()[1]!.id;
+    expect((await raw('POST', `/accounts/${id}/link-conflicts`, { entries: [{ name: '../evil', keep: 'shared' }] })).status).toBe(400);
+    expect((await raw('POST', `/accounts/${id}/link-conflicts`, { entries: [{ name: 'notes.txt', keep: 'shared' }] })).status).toBe(400);
+    expect((await raw('POST', `/accounts/${id}/link-conflicts`, { entries: [{ name: 'settings.json', keep: 'x' }] })).status).toBe(400);
+    expect((await raw('POST', `/accounts/${id}/link-conflicts`, {})).status).toBe(400);
+    expect((await raw('GET', '/accounts/primary/link-conflicts')).status).toBe(400);
+    expect((await raw('GET', '/accounts/nope/link-conflicts')).status).toBe(404);
+    expect(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).toBe('{"mine":1}');
+  });
+
+  it('ディレクトリの項目を直そうとすると 400 で、何も動かさない', async () => {
+    const id = store.list()[1]!.id;
+    fs.mkdirSync(path.join(dir, 'skills'));
+    fs.mkdirSync(path.join(primaryDir, 'skills'));
+    expect((await raw('POST', `/accounts/${id}/link-conflicts`, { entries: [{ name: 'skills', keep: 'shared' }] })).status).toBe(400);
+    expect(fs.lstatSync(path.join(dir, 'skills')).isDirectory()).toBe(true);
+  });
+});
+

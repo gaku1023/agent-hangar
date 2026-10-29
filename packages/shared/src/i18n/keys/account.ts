@@ -16,6 +16,8 @@ export const accountKeys = {
   'account.dir.alreadyRegistered': ['dir'],
   'account.color.invalid': [],
   'account.links.conflict': ['names'],
+  'account.links.conflictFiles': ['names'],
+  'account.links.repairRejected': [],
   'account.links.unlinked': ['names'],
   'account.state.loggedOut': [],
   'account.state.approve': [],

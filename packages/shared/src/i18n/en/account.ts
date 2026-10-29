@@ -17,6 +17,8 @@ export const accountEn: AreaDictionary<typeof accountKeys> = {
   'account.dir.alreadyRegistered': 'This config directory is already registered: {dir}',
   'account.color.invalid': 'Color must be in #rrggbb format (lowercase)',
   'account.links.conflict': 'These items in the config directory are not shared links: {names}. Check their contents and delete them if they are not needed',
+  'account.links.conflictFiles': '{names} is no longer shared with the main config. Choose which one to keep to fix it',
+  'account.links.repairRejected': 'This item cannot be fixed by choosing. Only files can be fixed',
   'account.links.unlinked': 'Developer Mode is off in Windows, so these files stay separate for this account: {names}. To share them, turn on Developer Mode in Settings > System > For developers.',
   'account.state.loggedOut': 'Not logged in',
   'account.state.approve': 'Approve in your browser…',

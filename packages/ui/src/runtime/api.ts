@@ -1,5 +1,5 @@
 import { LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE } from '@agent-hangar/shared';
-import type { EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
+import type { AccountLinkConflictDto, LinkConflictsDto, EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
 import type { SharePreviewAgent, SharePreviewDto, AccountDirPreviewDto, AccountsDto, AgentAccountsDto, ArtifactDto, CodexOptionsDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MobilePairedDto, MobilePairingDto, MuxRecheckDto, OpencodeOptionsDto, OpencodeStatusDto, CodexStatusDto, OpencodeProvidersDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeCustomProviderBody, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 
@@ -16,6 +16,11 @@ export class StrayProcessApiError extends Error {
 /** エディタが見つからなかった（409）。UI は「<名前> が見つかりません」の面を出す。 */
 export class EditorMissingApiError extends Error {
   constructor(public readonly body: EditorMissingDto) { super(body.error); this.name = 'EditorMissingApiError'; }
+}
+
+/** 起動が、リンクの場所のファイルの衝突（中身が違うファイル）で断られた（400）。UI は修復のダイアログを開く。 */
+export class AccountLinkConflictApiError extends Error {
+  constructor(public readonly body: AccountLinkConflictDto) { super(body.error); this.name = 'AccountLinkConflictApiError'; }
 }
 
 /** 「場所を再指定」で選んだフォルダが、この PC で別のプロジェクトの場所だった（409）。UI はまとめる確認を出す。 */
@@ -285,6 +290,10 @@ export type ApiClient = {
   loginCodexAccount(id: string, method?: 'browser' | 'deviceCode'): Promise<void>;
   cancelCodexAccountLogin(id: string): Promise<AccountsDto>;
   refreshCodexAccount(id: string): Promise<AccountsDto>;
+  /** 中身が違うファイルの衝突（AccountDto.linkConflicts）の両側の中身。agent の経路は /api/accounts か /api/codex/accounts。 */
+  linkConflicts(agent: 'claude-code' | 'codex', accountId: string): Promise<LinkConflictsDto>;
+  /** 選んだとおりに直す。選ばなかった側は .bak-hangar-日時 に退避される。 */
+  repairLinkConflicts(agent: 'claude-code' | 'codex', accountId: string, entries: { name: string; keep: 'mine' | 'shared' }[]): Promise<AccountsDto>;
 };
 
 /** 相対 URL の `/api/...` を叩く薄いクライアント。
@@ -304,6 +313,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
       if (r.status === 409 && (body as { code?: unknown } | null)?.code === 'project_same_folder') throw new ProjectSameFolderApiError(body as unknown as ProjectSameFolderDto);
       if (r.status === 409 && (body as { code?: unknown } | null)?.code === 'stray_process') throw new StrayProcessApiError(body as unknown as StrayProcessDto);
       if (r.status === 409 && (body as { code?: unknown } | null)?.code === 'project_nested') throw new ProjectNestedApiError(body as unknown as ProjectNestedDto);
+      if (r.status === 400 && (body as { code?: unknown } | null)?.code === 'account_link_conflict') throw new AccountLinkConflictApiError(body as unknown as AccountLinkConflictDto);
       const message = body?.error ?? `${r.status} ${path}`;
       const code = (body as { code?: unknown } | null)?.code;
       if (r.status === 409 && code === LAUNCH_PREP_ASK_CODE) throw new LaunchPrepAskApiError(message);
@@ -463,5 +473,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     loginCodexAccount: (id, method) => post(`/api/codex/accounts/${id}/login`, method ? { method } : undefined),
     cancelCodexAccountLogin: (id) => post(`/api/codex/accounts/${id}/login/cancel`),
     refreshCodexAccount: (id) => post(`/api/codex/accounts/${id}/refresh`),
+    linkConflicts: (agent, id) => call(`/api/${agent === 'codex' ? 'codex/' : ''}accounts/${id}/link-conflicts`),
+    repairLinkConflicts: (agent, id, entries) => post(`/api/${agent === 'codex' ? 'codex/' : ''}accounts/${id}/link-conflicts`, { entries }),
   };
 }
