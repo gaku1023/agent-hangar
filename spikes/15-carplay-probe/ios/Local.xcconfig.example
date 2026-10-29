@@ -1,0 +1,5 @@
+// cp Local.xcconfig.example Local.xcconfig して値を入れる（Local.xcconfig は gitignore 済み）
+TEAM_ID = XXXXXXXXXX
+TEAM_ID_LAST4 = XXXX
+SINK_TOKEN = change-me
+SINK_URL = https:/$()/example.workers.dev

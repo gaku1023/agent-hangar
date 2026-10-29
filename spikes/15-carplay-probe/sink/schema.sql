@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS events (
+  run TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  at TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  detail TEXT NOT NULL,
+  PRIMARY KEY (run, seq)
+);

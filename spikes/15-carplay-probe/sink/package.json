@@ -1,0 +1,7 @@
+{
+  "name": "carprobe-sink",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "wrangler dev --local" },
+  "devDependencies": { "wrangler": "^4.0.0" }
+}

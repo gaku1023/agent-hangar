@@ -1,0 +1,45 @@
+name: CarProbe
+options:
+  deploymentTarget:
+    iOS: "26.0"
+configFiles:
+  Debug: Local.xcconfig
+  Release: Local.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    DEVELOPMENT_TEAM: $(TEAM_ID)
+    CODE_SIGN_STYLE: Automatic
+targets:
+  CarProbe:
+    type: application
+    platform: iOS
+    sources: [CarProbe]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.hangar.carprobe.$(TEAM_ID_LAST4)
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIBackgroundModes: audio
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: 車内の音声を文字にするために使います
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: 音声を文字にするために使います
+        SINK_TOKEN: $(SINK_TOKEN)
+  CarProbeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [CarProbeTests]
+    dependencies:
+      - target: CarProbe
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.hangar.carprobe.tests.$(TEAM_ID_LAST4)
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  CarProbe:
+    build:
+      targets:
+        CarProbe: all
+    test:
+      targets: [CarProbeTests]
