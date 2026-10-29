@@ -33,8 +33,9 @@ export const DEFAULT_INJECTION_PARTS: InjectionParts = { askStatusAtEnd: true, l
  * 状態は、頼まれたことが明確に終わったときだけ AskUserQuestion で聞かせる。利用者が選んだものは confirmed: true でそのまま状態になり、答えずに進めたものは候補として画面に残る。
  * attach で開く会話にはこの指示が渡らないので、そちらは事後の要約で拾う。
  *
- * 段は辞書の鍵に分けてある。常に足す段（body、launch.injection.body）、区切りの問いの段（status、launch.injection.status）、ターンの意図と手の説明の段（live、launch.injection.live）である。
- * PC をまたぐ会話には、引き継ぎの段（handover、launch.injection.handover）と、複数の PC で使うプロジェクトの 1 文（multiDevice、launch.injection.multiDevice）を、常に足す段の直後に足す。
+ * 段は辞書の鍵に分けてある。常に足す段（body、launch.injection.body）、notify_user で知らせる段（notify、launch.injection.notify）、区切りの問いの段（status、launch.injection.status）、ターンの意図と手の説明の段（live、launch.injection.live）である。
+ * notify の段は本文の直後に置く。後ろに置くと、ほかの段に埋もれて hangar の道具を丸ごと飛ばす回があった（docs/design.md「指示の注入」）。
+ * PC をまたぐ会話には、引き継ぎの段（handover、launch.injection.handover）と、複数の PC で使うプロジェクトの 1 文（multiDevice、launch.injection.multiDevice）を、notify の段の後に足す。
  * この 2 つはスイッチを持たず、DB の事実で決める。
  * 足さない段は入れない。段の文は末尾の改行まで含むので、区切りを足さずにつなげば 1 つの指示になる。
  * 段の中は行ごとに鍵を分けない。分けると、言語で行の切り方や語順を変えられない。
@@ -46,11 +47,11 @@ export function renderInjectionEntries(i: InjectionInput, language: Language = D
   const todos = i.todos.slice(0, 10);
   const todoText = todos.length ? '\n' + todos.map((todo) => `- [${todo.id}] ${todo.text}`).join('\n') : none;
   const entries: InjectionEntry[] = [{ key: 'body', text: t(language, 'launch.injection.body', { projectName: i.projectName, projectPath: i.projectPath, todos: todoText }) }];
+  if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.notify') });
   if (i.handover) entries.push({ key: 'handover', text: renderHandover(i.handover, language) });
   if ((i.deviceCount ?? 0) >= 2) entries.push({ key: 'multiDevice', text: t(language, 'launch.injection.multiDevice', { deviceCount: String(i.deviceCount) }) });
   if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.status') });
   if (parts.liveHints) entries.push({ key: 'live', text: t(language, 'launch.injection.live') });
-  if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.notify') });
   return entries;
 }
 
@@ -69,8 +70,8 @@ export function renderOpencodeInjectionEntries(i: InjectionInput, language: Lang
   if (choice === 'none') return [];
   if (choice === 'minimal') {
     const entries: InjectionEntry[] = [{ key: 'body', text: t(language, 'launch.injection.opencode.minimal') }];
-    if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.opencode.status') });
     if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.opencode.notify') });
+    if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.opencode.status') });
     return entries;
   }
   return renderInjectionEntries(i, language, parts).map((e) => (e.key === 'live' ? { key: 'live', text: t(language, 'launch.injection.opencode.live') } : e.key === 'notify' ? { key: 'notify', text: t(language, 'launch.injection.opencode.notify') } : e));
@@ -87,8 +88,8 @@ export function renderCodexInjectionEntries(i: InjectionInput, language: Languag
   if (choice === 'none') return [];
   if (choice === 'claude') return renderInjectionEntries(i, language, parts);
   const entries: InjectionEntry[] = [{ key: 'body', text: t(language, 'launch.injection.codex.minimal') }];
-  if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.codex.status') });
   if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.codex.notify') });
+  if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.codex.status') });
   return entries;
 }
 

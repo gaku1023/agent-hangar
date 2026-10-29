@@ -42,11 +42,11 @@ export function presentInjection(t: Translate, parts: InjectionSwitches): Inject
   const named = (name: string, on: boolean) => t(on ? 'settings.integrations.inject.part.on' : 'settings.integrations.inject.part.off', { name });
   return [
     { label: t('settings.integrations.inject.part.body'), off: false, mark: null, pieces: split(body) },
+    { label: named(t('settings.label.notifyUser'), parts.notifyUser), off: !parts.notifyUser, mark: null, pieces: split(t('launch.injection.notify')) },
     { label: t('settings.integrations.inject.part.handover'), off: false, mark: syncOnly, pieces: split(handover) },
     { label: t('settings.integrations.inject.part.multiDevice'), off: false, mark: syncOnly, pieces: split(multi) },
     { label: named(t('settings.label.askStatusAtEnd'), parts.askStatusAtEnd), off: !parts.askStatusAtEnd, mark: null, pieces: split(t('launch.injection.status')) },
     { label: named(t('settings.label.liveHints'), parts.liveHints), off: !parts.liveHints, mark: null, pieces: split(t('launch.injection.live')) },
-    { label: named(t('settings.label.notifyUser'), parts.notifyUser), off: !parts.notifyUser, mark: null, pieces: split(t('launch.injection.notify')) },
   ];
 }
 
@@ -54,13 +54,13 @@ export function presentInjection(t: Translate, parts: InjectionSwitches): Inject
 export type InjectionSwitches = { askStatusAtEnd: boolean; liveHints: boolean; notifyUser: boolean };
 
 /** presentInjection の段のうち、opencode 向けの文に替える段の位置（意図と notify_user）。 */
-const LIVE_PART = 4;
-const NOTIFY_PART = 5;
+const NOTIFY_PART = 1;
+const LIVE_PART = 5;
 
 /**
  * 設定の opencode の「システムプロンプトへの追記」の全文の畳みの中身。
  * サーバの renderOpencodeInjectionEntries（launch/injection.ts）と同じ組み方を、同じ辞書の鍵で画面の言語に埋める。
- * 最小限は辞書の本文と状態の段と notify_user の段で、本文の名前は選択肢の名前、ほかの段の名前はスイッチの名前にする。切った段は打ち消しで残す。
+ * 最小限は辞書の本文と notify_user の段と状態の段で、本文の名前は選択肢の名前、ほかの段の名前はスイッチの名前にする。切った段は打ち消しで残す。
  * Claude Code と同じは presentInjection の 6 段で、意図の段と notify_user の段の文だけ opencode 向けの文に替える。スイッチの入り切りも Claude と同じく効く。
  * 追記しないは段が無い（画面は畳みごと出さない）。
  */
@@ -70,8 +70,8 @@ export function presentOpencodeInjection(t: Translate, parts: InjectionSwitches,
   if (choice === 'minimal') {
     return [
       { label: t('settings.opencode.injection.minimal'), off: false, mark: null, pieces: split(t('launch.injection.opencode.minimal')) },
-      { label: named(t('settings.label.askStatusAtEnd'), parts.askStatusAtEnd), off: !parts.askStatusAtEnd, mark: null, pieces: split(t('launch.injection.opencode.status')) },
       { label: named(t('settings.label.notifyUser'), parts.notifyUser), off: !parts.notifyUser, mark: null, pieces: split(t('launch.injection.opencode.notify')) },
+      { label: named(t('settings.label.askStatusAtEnd'), parts.askStatusAtEnd), off: !parts.askStatusAtEnd, mark: null, pieces: split(t('launch.injection.opencode.status')) },
     ];
   }
   return presentInjection(t, parts).map((p, i) => (i === LIVE_PART ? { ...p, pieces: split(t('launch.injection.opencode.live')) } : i === NOTIFY_PART ? { ...p, pieces: split(t('launch.injection.opencode.notify')) } : p));

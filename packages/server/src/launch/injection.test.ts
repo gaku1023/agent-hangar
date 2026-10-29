@@ -63,8 +63,8 @@ describe('renderInjection', () => {
 
   it('既定では、常に足す段、区切りの問いの段、ターンの意図の段をこの順に並べる', () => {
     const input = { projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 'ta', text: 'a' }] };
-    expect(renderInjection(input)).toBe(joined(BODY_JA, STATUS_JA, LIVE_JA, NOTIFY_JA));
-    expect(renderInjection(input, 'ja', { askStatusAtEnd: true, liveHints: true })).toBe(joined(BODY_JA, STATUS_JA, LIVE_JA, NOTIFY_JA));
+    expect(renderInjection(input)).toBe(joined(BODY_JA, NOTIFY_JA, STATUS_JA, LIVE_JA));
+    expect(renderInjection(input, 'ja', { askStatusAtEnd: true, liveHints: true })).toBe(joined(BODY_JA, NOTIFY_JA, STATUS_JA, LIVE_JA));
   });
   it('区切りの問いを切ると、問いの段を足さない', () => {
     const t = renderInjection({ projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 'ta', text: 'a' }] }, 'ja', { askStatusAtEnd: false, liveHints: true, notifyUser: false });
@@ -193,11 +193,11 @@ function renderBeforeSplit(i: InjectionInput, language: Language = 'ja', parts: 
   };
   return [
     tt(language, 'launch.injection.body', { projectName: i.projectName, projectPath: i.projectPath, todos: todoText }),
+    parts.notifyUser !== false ? tt(language, 'launch.injection.notify') : '',
     i.handover ? handover(i.handover) : '',
     (i.deviceCount ?? 0) >= 2 ? tt(language, 'launch.injection.multiDevice', { deviceCount: String(i.deviceCount) }) : '',
     parts.askStatusAtEnd ? tt(language, 'launch.injection.status') : '',
     parts.liveHints ? tt(language, 'launch.injection.live') : '',
-    parts.notifyUser !== false ? tt(language, 'launch.injection.notify') : '',
   ].join('');
 }
 
@@ -233,10 +233,10 @@ describe('renderInjectionEntries', () => {
     expect(renderInjectionEntries(BASE).map((e) => e.text).join('')).toBe(renderBeforeSplit(BASE));
   });
 
-  it('段は body、handover、multiDevice、status、live、notify の順で、足さない段は入れない', () => {
+  it('段は body、notify、handover、multiDevice、status、live の順で、足さない段は入れない', () => {
     const keys = (i: InjectionInput, parts?: InjectionParts) => renderInjectionEntries(i, 'ja', parts).map((e) => e.key);
-    expect(keys({ ...BASE, handover: FACTS, deviceCount: 2 })).toEqual(['body', 'handover', 'multiDevice', 'status', 'live', 'notify']);
-    expect(keys(BASE)).toEqual(['body', 'status', 'live', 'notify']);
+    expect(keys({ ...BASE, handover: FACTS, deviceCount: 2 })).toEqual(['body', 'notify', 'handover', 'multiDevice', 'status', 'live']);
+    expect(keys(BASE)).toEqual(['body', 'notify', 'status', 'live']);
     expect(keys(BASE, { askStatusAtEnd: false, liveHints: false, notifyUser: false })).toEqual(['body']);
     expect(keys({ ...BASE, deviceCount: 2 }, { askStatusAtEnd: false, liveHints: true, notifyUser: false })).toEqual(['body', 'multiDevice', 'live']);
     for (const e of renderInjectionEntries({ ...BASE, handover: FACTS, deviceCount: 2 })) expect(e.text, e.key).not.toBe('');
@@ -248,23 +248,23 @@ describe('renderOpencodeInjectionEntries（opencode に足す段）', () => {
 
   it('最小限（既定）は、hangar の MCP の使い方の段と、状態の段。時機は各ターンの最初の一手で、Code Mode の呼び方を添える（RESULT.md の条件 d）', () => {
     const entries = renderOpencodeInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'minimal');
-    expect(entries.map((e) => e.key)).toEqual(['body', 'status', 'notify']);
+    expect(entries.map((e) => e.key)).toEqual(['body', 'notify', 'status']);
     expect(entries[0]!.text).toBe(
       'あなたは agent-hangar から起動されたセッションです。\n'
       + '各ターンの最初の一手で、他のツールより先に、execute で `await tools.hangar.set_turn_intent({ text: "<このターンで何のために何をするか、1〜2 文>" })` を呼んでください。方針を変えたときも呼びます。\n'
       + '依頼を完了したとき、方針が大きく変わったとき、作業を中断するときは、execute で `await tools.hangar.set_session_summary({ title, one_liner, body, state, next_steps })` を呼び、題名、2〜3 文の要約、進捗（state）、次のステップを更新してください。\n'
       + 'ユーザーがこのセッションを Done か Paused にしてと言ったら、execute で `await tools.hangar.propose_session_status({ status, note, confirmed: true })` を呼んでください。status は "done" か "paused"、note は根拠の一文です。Paused でリマインダーの日付があれば return_on（YYYY-MM-DD）に渡します。set_session_summary の state を変えても、セッションの状態は変わりません。\n');
-    expect(entries[1]!.text).toBe(
+    expect(entries.find((e) => e.key === 'status')!.text).toBe(
       '頼まれたことが全部済んで次のステップが残っていないとき、ユーザーが終わりを告げたとき（「ありがとう」「ここまで」など）は、ターンの終わりに execute で `await tools.hangar.propose_session_status({ status: "done", note })` を confirmed なしで呼び、提案だけ出してください。ユーザーが外の出来事（CI、レビュー、明日の確認など）を待つと言ったときは status: "paused" で同じようにします。\n'
       + 'ユーザーが Done か Paused にしてと言っていないのに、confirmed: true を渡さないでください。\n');
     // 英語も同じ道具と同じ時機を指す。
     const en = renderOpencodeInjectionEntries(input, 'en', DEFAULT_INJECTION_PARTS, 'minimal');
-    expect(en.map((e) => e.key)).toEqual(['body', 'status', 'notify']);
+    expect(en.map((e) => e.key)).toEqual(['body', 'notify', 'status']);
     expect(en[0]!.text).toContain('tools.hangar.set_turn_intent');
     expect(en[0]!.text).toContain('tools.hangar.set_session_summary');
     expect(en[0]!.text).toContain('tools.hangar.propose_session_status({ status, note, confirmed: true })');
     expect(en[0]!.text).toMatch(/first step of every turn, before any other tool/);
-    expect(en[1]!.text).toContain('without confirmed');
+    expect(en.find((e) => e.key === 'status')!.text).toContain('without confirmed');
     // 段は区切りを足さずにつなぐので、どの言語の段も改行で終わる。
     for (const e of [...entries, ...en]) expect(e.text.endsWith('\n'), e.key).toBe(true);
   });
@@ -297,14 +297,14 @@ describe('renderCodexInjectionEntries（Codex に足す段）', () => {
 
   it('最小限（既定）は、hangar の MCP の使い方の段と、状態の段。道具は名前で指し、opencode の Code Mode の呼び方は使わない', () => {
     const ja = renderCodexInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'minimal');
-    expect(ja.map((e) => e.key)).toEqual(['body', 'status', 'notify']);
+    expect(ja.map((e) => e.key)).toEqual(['body', 'notify', 'status']);
     for (const name of ['set_turn_intent', 'set_session_summary', 'propose_session_status']) expect(ja[0]!.text).toContain(name);
     expect(ja[0]!.text).toContain('confirmed: true');
-    expect(ja[1]!.text).toContain('confirmed なし');
+    expect(ja.find((e) => e.key === 'status')!.text).toContain('confirmed なし');
     const en = renderCodexInjectionEntries(input, 'en', DEFAULT_INJECTION_PARTS, 'minimal');
-    expect(en.map((e) => e.key)).toEqual(['body', 'status', 'notify']);
+    expect(en.map((e) => e.key)).toEqual(['body', 'notify', 'status']);
     expect(en[0]!.text).toMatch(/first step of every turn, before any other tool/);
-    expect(en[1]!.text).toContain('without confirmed');
+    expect(en.find((e) => e.key === 'status')!.text).toContain('without confirmed');
     for (const e of [...ja, ...en]) {
       expect(e.text).not.toContain('tools.hangar');
       expect(e.text.endsWith('\n'), e.key).toBe(true);
@@ -339,5 +339,14 @@ describe('notify_user の段', () => {
     }
     expect(tt('ja', 'launch.injection.opencode.notify')).toContain('await tools.hangar.notify_user({ text })');
     expect(tt('ja', 'launch.injection.codex.notify')).toContain('hangar の MCP サーバーの notify_user ツール');
+  });
+  it('どの節も、画面を見ていないことを前置きし、ターンを返すたびに最後の返答の前に呼ばせる', () => {
+    for (const k of ['launch.injection.notify', 'launch.injection.opencode.notify', 'launch.injection.codex.notify'] as const) {
+      expect(tt('ja', k), k).toMatch(/^ユーザーは複数のセッションを並べて使っており、このセッションの画面を見ていないことが多いです。/);
+      expect(tt('ja', k), k).toContain('ターンを終えてユーザーに返すたびに');
+      expect(tt('ja', k), k).toContain('最後の返答の前に');
+      expect(tt('en', k), k).toMatch(/^The user runs several sessions side by side/);
+      expect(tt('en', k), k).toContain('before your final reply');
+    }
   });
 });
