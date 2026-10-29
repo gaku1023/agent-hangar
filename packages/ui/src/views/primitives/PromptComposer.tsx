@@ -53,7 +53,7 @@ function Marked(props: { text: string; query: string }) {
  * hero は新しいセッションのダイアログの主役の欄で、高さを 150px から始め、ダイアログを開いたときの焦点を受ける（data-autofocus）。placeholder は空のときの案内である。
  * 候補はダイアログの外（body）に描く。ダイアログは backdrop-filter を持ち、中の fixed はダイアログ基準になるからである（Listbox と同じ）。
  */
-export function PromptComposer(props: { id: string; value: string; onChange: (value: string) => void; projectId: string | null; attachments: Attachment[]; onAttachmentsChange: (next: Attachment[]) => void; onPendingChange?: (count: number) => void; hero?: boolean; placeholder?: string }) {
+export function PromptComposer(props: { id: string; value: string; onChange: (value: string) => void; projectId: string | null; attachments: Attachment[]; onAttachmentsChange: (next: Attachment[]) => void; onPendingChange?: (count: number) => void; hero?: boolean; placeholder?: string; /** 欄の中で、打つ文の下に分けて見せる引用（書き換えない）。送るときに足すのは呼び手。 */ quote?: string }) {
   const t = useT();
   const assist = useContext(PromptAssistContext);
   const box = useRef<HTMLDivElement>(null);
@@ -393,6 +393,7 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
             send(files);
           }}
         />
+        {props.quote && <blockquote className="pc-quote">{props.quote}</blockquote>}
         <div className="pc-tools">
           <button type="button" className="pc-tool" onMouseDown={(e) => e.preventDefault()} onClick={() => startTrigger('/')}><span className="pc-tool-key" aria-hidden="true">/</span>{t('composer.tool.skill')}</button>
           <button type="button" className="pc-tool" disabled={props.projectId === null} title={props.projectId === null ? t('composer.tool.fileNeedsProject') : undefined} onMouseDown={(e) => e.preventDefault()} onClick={() => startTrigger('@')}><span className="pc-tool-key" aria-hidden="true">@</span>{t('composer.tool.file')}</button>

@@ -598,6 +598,7 @@ a:hover { text-decoration: underline; }
 /* 文字だけの小さな操作（下書きを消す、既定に戻す）。 */
 .linkish { display: inline-flex; flex: none; align-items: center; gap: 3px; padding: 0; border: 0; background: none; font-size: var(--fs-xs); font-weight: 600; color: var(--accent); cursor: pointer; }
 .linkish:hover { text-decoration: underline; }
+.linkish.investigate-link { gap: 4px; font-size: var(--fs-sm); }
 /* 札の下の前回値（D1）。「前回と同じ」と出どころが読め、右端の「既定に戻す」で空にできる。札は候補の色を借りる。 */
 .prev-tag { flex: none; padding: 1px calc(var(--u) * 1.75); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--cand); background: var(--cand-soft); }
 .linkish.prev-reset { margin-left: auto; }
@@ -605,6 +606,9 @@ a:hover { text-decoration: underline; }
 .dialog-foot { flex: none; position: relative; z-index: 1; display: flex; align-items: center; gap: calc(var(--u) * 2); padding: var(--dialog-gap) var(--dialog-pad) calc(var(--u) * 4); transition: box-shadow var(--dur-fast) var(--ease-out); }
 .error { color: var(--error); font-size: var(--fs-sm); }
 .error .btn { margin-left: calc(var(--u) * 2); }
+/* エラーの文の下に並べる操作（「エージェントで調査…」など）。 */
+.err-acts { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 1.5); margin-top: calc(var(--u) * 2); }
+.error .err-acts .btn, .err-acts .btn { margin-left: 0; }
 
 /* タブは端末の板から生えたフォルダの耳。選んだタブは板と同じ墨色になり、板とつながる。
    帯と板の間には線も隙間も置かない。 */

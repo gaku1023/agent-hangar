@@ -472,7 +472,7 @@ function InfoToast(props: { toast: Toast; motion: CardMotion }) {
       <div className="notice-body">
         <div className="notice-message">{props.toast.message}</div>
         {props.toast.action && (
-          <button type="button" className="btn btn-sm notice-action" onClick={(e) => { e.stopPropagation(); emit(props.toast.action!.send); dismiss(); }}>{props.toast.action.label}</button>
+          <button type="button" className="btn btn-sm notice-action" title={props.toast.action.title} onClick={(e) => { e.stopPropagation(); emit(props.toast.action!.send); dismiss(); }}>{props.toast.action.label}</button>
         )}
       </div>
     </div>
@@ -508,7 +508,7 @@ function ErrorToast(props: { toast: Toast; motion: CardMotion }) {
         <div ref={message} className="notice-message">{props.toast.message}</div>
         {long && <button type="button" className="btn-link notice-more" aria-expanded={open} onClick={() => setOpen(!open)}>{t('toasts.error.more')}</button>}
         {props.toast.action && (
-          <button type="button" className="btn btn-sm notice-action" onClick={() => { emit(props.toast.action!.send); emit({ type: 'toast.dismiss', id: props.toast.id }); }}>{props.toast.action.label}</button>
+          <button type="button" className="btn btn-sm notice-action" title={props.toast.action.title} onClick={() => { emit(props.toast.action!.send); emit({ type: 'toast.dismiss', id: props.toast.id }); }}>{props.toast.action.label}</button>
         )}
       </div>
     </div>

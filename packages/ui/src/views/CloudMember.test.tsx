@@ -157,6 +157,8 @@ describe('PC を追加（試作 A1）', () => {
     expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.add.open' });
     rerender(ui(<AddPc m={props({ add: { kind: 'failed', message: '承認できませんでした（x）。新しい参加コードを発行して、もう一度試してください' } })} />, onAction));
     expect(screen.getByRole('alert')).toHaveTextContent('新しい参加コードを発行して');
+    fireEvent.click(within(screen.getByRole('alert')).getByRole('button', { name: 'エージェントで調査…' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'investigate.open', op: 'cloud', message: '承認できませんでした（x）。新しい参加コードを発行して、もう一度試してください' });
   });
 
   it('承認で欄が閉じ、完了の帯を出す', () => {

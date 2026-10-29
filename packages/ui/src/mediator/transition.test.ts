@@ -340,7 +340,7 @@ describe('起動', () => {
     expect(a.effects.filter((e) => (e as { kind: string }).kind === 'toast')).toEqual([]);
     // 再開とフォークはダイアログを持たないので、そのときだけトーストで知らせる。
     const r = run([action({ type: 'session.resume', id: 's1' }), runtime({ type: 'launch.failed', message: 'tmux が見つかりません' })]);
-    expect(r.effects.at(-1)).toEqual({ kind: 'toast', level: 'error', message: 'tmux が見つかりません' });
+    expect(r.state.toasts.at(-1)).toMatchObject({ level: 'error', message: 'tmux が見つかりません' });
     const b = run([action({ type: 'overlay.close' })], a.state);
     expect(b.state).toMatchObject({ overlay: { kind: 'none' }, launch: { kind: 'idle' } });
   });

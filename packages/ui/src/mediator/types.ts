@@ -1,4 +1,4 @@
-import type { LinkConflictsDto, ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, NonDefaultAgentKind, ProjectPlace, ProjectRailSection, ResolveAction, PhoneLaunchDto, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto } from '@agent-hangar/shared';
+import type { InvestigateContext, NewSessionSeed, LinkConflictsDto, ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, NonDefaultAgentKind, ProjectPlace, ProjectRailSection, ResolveAction, PhoneLaunchDto, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { PanesState } from './panes.ts';
 import type { CloudMemberCommand } from '../runtime/cloudMember.ts';
@@ -14,7 +14,7 @@ export type SearchQuery = Omit<SearchParamsDto, 'since'> & { days?: number };
 export type RuntimeEvent =
   // ws.close は時刻を運ぶ。Mediator は純粋な遷移なので、いつ切れたかを自分では測れない。
   | { type: 'ws.open' } | { type: 'ws.close'; at: number } | { type: 'hash.changed'; route: Route; moved?: number }
-  | { type: 'api.failed'; message: string; holdMs?: number } | { type: 'search.done'; params: SearchParamsDto }
+  | { type: 'api.failed'; message: string; holdMs?: number; /** あれば、トーストに「エージェントで調査…」を付ける。 */ investigate?: InvestigateContext } | { type: 'search.done'; params: SearchParamsDto }
   | { type: 'launch.done'; sessionId: string; runId: string } | { type: 'launch.failed'; message: string; /** 起動が、リンクの場所のファイルの衝突だけで断られた（修復のダイアログを開ける）。 */ linkConflict?: LinkConflictRef }
   // 準備が問い（ask）で止まった、または利用者がやめた（cancel）。どちらも失敗ではない。message はサーバの文で、閉じた後に問いで止まったときだけ知らせる。
   | { type: 'launch.halted'; why: 'ask' | 'cancel'; message: string }
@@ -212,7 +212,8 @@ export type Overlay =
   | { kind: 'shortcuts' }
   // worktree は、worktree の札をオンにして開くこと（同じファイルの編集の警告から開いたとき）。名前はダイアログが付ける。
   // dir は、はじめに選んでおくフォルダ（作成のダイアログから、登録済みのプロジェクトの下のフォルダで始めるとき。0.6.1）。
-  | { kind: 'newSession'; projectId: string | null; scratch: boolean; worktree?: boolean; dir?: string; agent?: 'opencode'; pickModel?: true }
+  // seed は、欄とアカウントを埋めて開いたときの種（「エージェントで調査…」）。この開き方では下書きを読まず、書かず、消さない。
+  | { kind: 'newSession'; projectId: string | null; scratch: boolean; worktree?: boolean; dir?: string; agent?: 'opencode'; pickModel?: true; seed?: NewSessionSeed }
   | { kind: 'promote'; sessionId: string }
   | { kind: 'newProject' }
   // 設定の「アカウントを足す…」。入力はダイアログが持ち、送信の進みは accountAdd が持つ。
@@ -291,7 +292,8 @@ export type SessionViewState = {
   jump: JumpState | null;
 };
 /** holdMs は info の出している長さ（ミリ秒）。省くと既定の長さ（INFO_TOAST_MS）。action はトーストの中のボタン（「元に戻す」）で、押すとその UiAction を出してトーストを閉じる。 */
-export type Toast = { id: string; level: 'info' | 'error'; message: string; holdMs?: number; action?: { label: string; send: UiAction } };
+/** action の title は、ボタンに添える説明（「エージェントで調査…」）。 */
+export type Toast = { id: string; level: 'info' | 'error'; message: string; holdMs?: number; action?: { label: string; send: UiAction; title?: string } };
 /**
  * まとめて再開（中断の群）の進み。queued は順番待ち、active は再開を頼んで返事を待っているもの、failed は断られた理由（セッションの id から）。
  * 同時に頼むのは RESUME_CONCURRENCY 本までである。
@@ -427,8 +429,14 @@ export type State = {
   /**
    * 新しいセッションのダイアログから起動を送り、まだ終わっていないか。
    * 送った後にダイアログを閉じても起動は続くので、終わったときに下書きを消す手がかりにする。
+   * seeded は、埋めて開いたダイアログ（「エージェントで調査…」）から送ったこと。そのときは終わっても下書きを消さない。
    */
-  newSessionSent: boolean;
+  newSessionSent: boolean | 'seeded';
+  /**
+   * 送った起動、再開、フォークの事情。失敗したら、トーストの「エージェントで調査…」へエラーの文と一緒に渡す。
+   * ダイアログを閉じても launch は idle に戻るので、ここに別に持つ。終わるか失敗したら外す。
+   */
+  launchSent: Omit<InvestigateContext, 'message'> | null;
   /**
    * 新しいセッションの詳細の、プロジェクトごとの前回値。鍵はプロジェクトの id で、クイックセッションは ':scratch' である。
    * 次にそのプロジェクトでダイアログを開いたときの初期値にする。端末ごとに localStorage に残す。

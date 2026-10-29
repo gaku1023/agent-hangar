@@ -5,6 +5,7 @@ import type { OpencodeCatalogRowProps, OpencodeLoginProps, OpencodeProviderRowPr
 import { useT } from './primitives/language.tsx';
 import { collapseOut, growIn, markHit, motionOn } from './primitives/motionKit.ts';
 import { usePresence } from './primitives/usePresence.ts';
+import { InvestigateButton } from './InvestigateButton.tsx';
 
 /** ログインの進みを聞く間（ミリ秒）。 */
 const LOGIN_POLL_MS = 2000;
@@ -141,7 +142,7 @@ function ProviderRow(props: { r: OpencodeProviderRowProps }) {
         </button>
       </Grow>
       {r.canPrep && <Grow open={prepOpen} className="ocp-cform ocp-prep"><PrepForm id={r.id} prep={r.prep} /></Grow>}
-      {r.error && <div className="ocp-err" role="alert">{r.error}</div>}
+      {r.error && <OcpError message={r.error} />}
     </div>
   );
 }
@@ -166,7 +167,7 @@ function LoginPanel(props: { l: OpencodeLoginProps }) {
           <button type="submit" className="btn btn-sm" disabled={!code.trim() || l.busy}>{t('settings.opencode.providers.login.send')}</button>
         </form>
       )}
-      {l.error && <div className="ocp-err" role="alert">{l.error}</div>}
+      {l.error && <OcpError message={l.error} />}
     </div>
   );
 }
@@ -197,7 +198,7 @@ function CatalogRow(props: { c: OpencodeCatalogRowProps; selected: boolean; onSe
           </div>
         ) : null}
         {props.login && <LoginPanel l={props.login} />}
-        {c.error && <div className="ocp-err" role="alert">{c.error}</div>}
+        {c.error && <OcpError message={c.error} />}
       </Grow>
     </>
   );
@@ -218,7 +219,7 @@ function CustomForm(props: { open: boolean; busy: boolean; error: string | null;
       <label className="field">{t('settings.opencode.providers.custom.url')}<input className="input mono" value={url} spellCheck={false} placeholder="http://192.168.0.10:8000/v1" onChange={(e) => setUrl(e.target.value)} /></label>
       <label className="field">{t('settings.opencode.providers.custom.key')}<input className="input" type="password" autoComplete="off" value={key} placeholder={t('settings.opencode.providers.custom.keyPlaceholder')} onChange={(e) => setKey(e.target.value)} /></label>
       <div className="ocp-hint">{t('settings.opencode.providers.custom.note', { path: props.configPath })}</div>
-      {props.error && <div className="ocp-err" role="alert">{props.error}</div>}
+      {props.error && <OcpError message={props.error} />}
       <div><button type="submit" className="btn btn-sm btn-primary" disabled={!ready}>{t(props.busy ? 'settings.opencode.providers.custom.submitting' : 'settings.opencode.providers.custom.submit')}</button></div>
     </Grow>
   );
@@ -298,6 +299,16 @@ export function OpencodeProviders(props: { p: OpencodeProvidersProps }) {
           </>
         )}
       </Grow>
+    </div>
+  );
+}
+
+/** opencode の接続先の失敗の行。外の状態（鍵、URL、ログイン）に由来するので、エージェントに調べさせる口を添える。 */
+function OcpError(props: { message: string }) {
+  return (
+    <div className="ocp-err" role="alert">
+      {props.message}
+      <div className="err-acts"><InvestigateButton ctx={{ op: 'opencodeProvider', message: props.message, agent: 'opencode' }} /></div>
     </div>
   );
 }

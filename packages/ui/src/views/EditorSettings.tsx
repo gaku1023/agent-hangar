@@ -9,6 +9,7 @@ import { collapseOut, growIn } from './primitives/motionKit.ts';
 import { useT } from './primitives/language.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
 import { SetRow } from './primitives/SetRow.tsx';
+import { InvestigateButton } from './InvestigateButton.tsx';
 
 /** 任意のコマンドの例。押すとファイルのコマンドの欄に入る。 */
 const EXAMPLES = ['subl {path}:{line}', 'nvim +{line} {path}', 'hx {path}:{line}', 'emacsclient -n +{line} {path}', 'fleet {path}'];
@@ -152,7 +153,13 @@ export function EditorSettings(props: { editor: EditorSettingsProps; mark: SaveM
   const r = e.test.result;
   const testResult = testText
     ? <div className="editor-result" role="status">{testText}</div>
-    : r ? <div className="editor-result" data-tone={r.tone} role="status"><Icon name={r.tone === 'ng' ? 'close' : r.tone === 'warn' ? 'alert' : 'check'} />{r.text}</div> : null;
+    : r ? (
+      <div className="editor-result" data-tone={r.tone} role="status">
+        <Icon name={r.tone === 'ng' ? 'close' : r.tone === 'warn' ? 'alert' : 'check'} />{r.text}
+        {/* 開けなかったときは、エディタの場所やコマンドを調べさせる口を添える。 */}
+        {r.tone === 'ng' && <div className="err-acts"><InvestigateButton ctx={{ op: 'editor', message: r.text }} /></div>}
+      </div>
+    ) : null;
   return (
     <SetRow id="settings-field-editor" title={t('settings.editor.title')} info={t('settings.editor.desc')}
       control={<button type="button" className="btn btn-sm btn-ghost" onClick={() => emit({ type: 'editors.load' })}><Icon name="recheck" />{t('settings.editor.recheck')}</button>}

@@ -121,7 +121,7 @@
 /* 列は一覧が 1 つ持ち、li と行は subgrid で受ける。全行で、名前と「いま」の列、置き場の列、状態の列、操作の列の左端がそろう。
    名前と置き場の列は全行でいちばん長い中身の幅（fit-content）、状態の列が残りを取る。
    行の左右の余白（padding）は、subgrid の端の項目の margin として端の列に入るので、端の 2 列は余白の分だけ広げる。 */
-.account-set-list { display: grid; grid-template-columns: calc(8px + var(--u) * 3) fit-content(16em) fit-content(260px) minmax(0, 1fr) calc(116px + var(--u) * 3); column-gap: calc(var(--u) * 3); margin: calc(var(--u) * 2) 0 0; padding: 0; list-style: none; }
+.account-set-list { display: grid; grid-template-columns: calc(8px + var(--u) * 3) fit-content(16em) fit-content(260px) minmax(0, 1fr) minmax(calc(116px + var(--u) * 3), max-content); column-gap: calc(var(--u) * 3); margin: calc(var(--u) * 2) 0 0; padding: 0; list-style: none; }
 .account-set { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; column-gap: calc(var(--u) * 3); border-bottom: 1px solid var(--line); }
 .account-set:last-child { border-bottom: 0; }
 .account-set > * { grid-column: 1 / -1; }
@@ -370,3 +370,4 @@
 .settings-group-h > .agent-icon { align-self: center; }
 .agent-lead { margin: 0 0 calc(var(--u) * 3) var(--u); }
 @media (max-width: 1000px) { .settings-toc-group { grid-column: 1 / -1; } }
+.editor-result .err-acts { flex-basis: 100%; margin-top: 0; padding-left: calc(14px + var(--u) * 1.5); }

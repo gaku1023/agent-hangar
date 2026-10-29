@@ -1,5 +1,6 @@
-import { DEFAULT_AGENT_KIND, isAgentKind, type LaunchParams, type NonDefaultAgentKind } from '@agent-hangar/shared';
+import { DEFAULT_AGENT_KIND, isAgentKind, type InvestigateContext, type LaunchParams, type NonDefaultAgentKind } from '@agent-hangar/shared';
 import { translatorOf } from '../presenters/i18n.ts';
+import { investigateSeed } from '../presenters/investigate.ts';
 import type { Store } from '../store/store.ts';
 import { overlayReplaceable } from './overlay.ts';
 import type { Effect, Input, LaunchPrefs, LaunchPrepMark, NewSessionDraft, State, Step } from './types.ts';
@@ -116,6 +117,18 @@ function strayConflict(state: State, ev: Extract<Input, { kind: 'runtime' }>['ev
   return { state: { ...state, launch: { kind: 'failed', message: ev.message } }, effects: [{ kind: 'toast', level: 'error', message: ev.message }] };
 }
 
+/** 送った起動の、失敗したときに「エージェントで調査…」へ渡す事情。エージェントを選ばなければ Claude Code である。 */
+const sentOf = (params: LaunchParams): State['launchSent'] => ({ op: 'launch', agent: params.agent ?? 'claude-code', ...(params.account ? { accountId: params.account } : {}) });
+/** 送った印。埋めて開いたダイアログから送ったときは、下書きを消さないよう seeded にする。 */
+const sentMark = (state: State): State['newSessionSent'] => (state.overlay.kind === 'newSession' && state.overlay.seed ? 'seeded' : true);
+
+/** 失敗のトーストに「エージェントで調査…」を付けて積む。 */
+export function pushInvestigateToast(state: State, store: Store, ctx: InvestigateContext): State {
+  const t = translatorOf(store);
+  const toast = { id: String(state.nextToastId), level: 'error' as const, message: ctx.message, action: { label: t('newSession.investigate.button'), title: t('newSession.investigate.title'), send: { type: 'investigate.open' as const, ...ctx } } };
+  return { ...state, toasts: [...state.toasts, toast], nextToastId: state.nextToastId + 1 };
+}
+
 /** launch 領域：起動ダイアログ、送信中、失敗。再開とフォークも同じ送信中の状態を使う。 */
 export function launchStep(state: State, store: Store, input: Input): Step | null {
   if (input.kind === 'runtime') {
@@ -131,10 +144,12 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
     if (ev.type === 'launch.done') {
       // ダイアログから起動し終えたら、書きかけの下書きは役目を終えたので消す。再開やフォークの完了では触れない。
       // 送った後に Esc でダイアログを閉じても起動は止まらないので、送った印（newSessionSent）でも消す。
-      const fromDialog = state.overlay.kind === 'newSession' || state.newSessionSent;
+      // 埋めて開いたダイアログ（「エージェントで調査…」）は下書きを使っていないので、消さない。
+      const seeded = (state.overlay.kind === 'newSession' && !!state.overlay.seed) || state.newSessionSent === 'seeded';
+      const fromDialog = !seeded && (state.overlay.kind === 'newSession' || state.newSessionSent);
       const overlay = state.overlay.kind === 'newSession' ? { kind: 'none' as const } : state.overlay;
       const cleared = fromDialog ? setDraft(state, null) : { state, effects: [] as Effect[] };
-      const done: State = { ...cleared.state, launch: { kind: 'idle' }, overlay, newSessionSent: false, launchPrep: null };
+      const done: State = { ...cleared.state, launch: { kind: 'idle' }, overlay, newSessionSent: false, launchSent: null, launchPrep: null };
       // 段のあった準備（ローカルのモデルを載せた）の進みを見ていて、閉じた後に済んだときは、勝手に会話の画面へ移さず、右下の知らせで知らせる。
       // 段の無い準備は何も届かず、今までと見た目が同じなので、今までどおり移る。
       const prep = state.launchPrep ? store.launchPreps[state.launchPrep.key] : undefined;
@@ -159,7 +174,7 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
       const shown = state.overlay.kind === 'newSession';
       // 失敗した起動の下書きは、やり直せるよう残す。送った印だけ外す。
       const created = state.launch.kind === 'submitting' ? state.launch.createdProjectId : undefined;
-      const next = { ...state, launch: { kind: 'failed' as const, message: ev.message, ...(created ? { createdProjectId: created } : {}), ...(ev.linkConflict ? { linkConflict: ev.linkConflict } : {}) }, newSessionSent: false };
+      const next = { ...state, launch: { kind: 'failed' as const, message: ev.message, ...(created ? { createdProjectId: created } : {}), ...(ev.linkConflict ? { linkConflict: ev.linkConflict } : {}) }, newSessionSent: false, launchSent: null };
       if (shown) return { state: next, effects: [] };
       // リンクの場所のファイルの衝突は、トーストから修復のダイアログへ進める（#513）。
       if (ev.linkConflict) {
@@ -167,6 +182,9 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
         const toast = { id: String(next.nextToastId), level: 'error' as const, message: ev.message, action: { label, send: { type: 'linkRepair.open' as const, ...ev.linkConflict } } };
         return { state: { ...next, toasts: [...next.toasts, toast], nextToastId: next.nextToastId + 1 }, effects: [] };
       }
+      // 何を送ったか分かる失敗（起動、再開、フォーク）は、トーストから「エージェントで調査…」へ進める。
+      const sent = state.launchSent;
+      if (sent) return { state: pushInvestigateToast(next, store, { ...sent, message: ev.message }), effects: [] };
       return { state: next, effects: [{ kind: 'toast', level: 'error', message: ev.message }] };
     }
     return null;
@@ -179,7 +197,21 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
       if (!overlayReplaceable(state.overlay)) return { state, effects: [] };
       // クイックセッションはプロジェクトを選ばずに開く。ダイアログ側でプロジェクトの選択欄を隠す。
       // 前の起動の準備は、まだ走っているときだけ残す（開き直した画面に進みと「準備を中止」を出す）。止まった問いと失敗は、新しい画面に持ち越さない。
-      return { state: { ...state, overlay: { kind: 'newSession', projectId: i.projectId ?? null, scratch: i.scratch === true, ...(i.dir ? { dir: i.dir } : {}) }, launch: { kind: 'idle' }, launchPrep: state.launchPrep && store.launchPreps[state.launchPrep.key]?.phase === 'running' ? state.launchPrep : null }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
+      return { state: { ...state, overlay: { kind: 'newSession', projectId: i.projectId ?? null, scratch: i.scratch === true, ...(i.dir ? { dir: i.dir } : {}), ...(i.seed ? { seed: i.seed } : {}) }, launch: { kind: 'idle' }, launchPrep: state.launchPrep && store.launchPreps[state.launchPrep.key]?.phase === 'running' ? state.launchPrep : null }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
+    case 'investigate.open': {
+      // エラーの札から。修復のダイアログと、起動に失敗した新しいセッションのダイアログからは、それを閉じて差し替える。
+      // ほかの確認や入力のダイアログが出ていれば、差し替えない（session.new.open と同じ）。
+      const o = state.overlay;
+      // アカウントを足すダイアログの失敗の行からも、それを閉じて差し替える。
+      if (o.kind !== 'linkRepair' && o.kind !== 'newSession' && o.kind !== 'addAccount' && !overlayReplaceable(o)) return { state, effects: [] };
+      const { type: _type, ...ctx } = i;
+      const cleared: State = {
+        ...state, overlay: { kind: 'none' },
+        ...(o.kind === 'linkRepair' ? { linkRepair: { detail: null, working: false, error: null } } : {}),
+        ...(o.kind === 'addAccount' ? { accountAdd: { kind: 'idle' as const } } : {}),
+      };
+      return launchStep(cleared, store, { kind: 'action', action: { type: 'session.new.open', scratch: true, seed: investigateSeed(store, ctx) } });
+    }
     case 'opencode.providers.manage': {
       // ダイアログから来たときだけ、戻る先を覚える。ダイアログを閉じて、設定の opencode の面へ移る。
       const o = state.overlay;
@@ -194,12 +226,12 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
     case 'session.new.submit':
       if (state.launch.kind === 'submitting') return { state, effects: [] };
       // 新しいフォルダと未登録のフォルダは、プロジェクトを作ってから起動する（runtime が 2 つを順に行う）。
-      if (i.place) return { state: { ...state, launch: { kind: 'submitting' }, newSessionSent: true, launchPrep: prepMarkOf(i.params) }, effects: [{ kind: 'api.createProjectThenLaunch', place: i.place, params: i.params }] };
+      if (i.place) return { state: { ...state, launch: { kind: 'submitting' }, launchSent: sentOf(i.params), newSessionSent: sentMark(state), launchPrep: prepMarkOf(i.params) }, effects: [{ kind: 'api.createProjectThenLaunch', place: i.place, params: i.params }] };
       if (!i.params.projectId && !i.params.scratch) return { state: { ...state, launch: { kind: 'failed', message: translatorOf(store)('mediator.launch.pickProject') } }, effects: [] };
       {
         // 詳細は、送った時点でそのプロジェクトの前回値にする。起動に失敗しても、選んだ詳細は利用者の意図なので残す。
         const r = rememberPrefs(state, i.params, store.settings?.defaultModel ?? null);
-        return { state: { ...r.state, launch: { kind: 'submitting' }, newSessionSent: true, launchPrep: prepMarkOf(i.params) }, effects: [{ kind: 'api.launch', params: i.params }, ...r.effects] };
+        return { state: { ...r.state, launch: { kind: 'submitting' }, launchSent: sentOf(i.params), newSessionSent: sentMark(state), launchPrep: prepMarkOf(i.params) }, effects: [{ kind: 'api.launch', params: i.params }, ...r.effects] };
       }
     case 'session.new.draft': return setDraft(state, { name: i.name, prompt: i.prompt, attachments: i.attachments ?? [] });
     case 'session.new.draft.attach': {
@@ -219,9 +251,9 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
       const overlay = i.stray && state.overlay.kind === 'confirm' && state.overlay.confirm.kind === 'strayProcess' ? { kind: 'none' as const } : state.overlay;
       // 鍵があれば、準備の進み（opencode の接続先の準備）を右下の札で見せるために覚える。準備の無い再開は何も届かないので、札は出ない。
       const launchPrep = i.prepKey ? { key: i.prepKey, model: null, name: null, resume: true as const } : state.launchPrep;
-      return { state: { ...state, overlay, launch: { kind: 'submitting' }, launchPrep }, effects: [{ kind: 'api.resume', sessionId: i.id, ...(i.stray ? { stray: i.stray } : {}), ...(i.prepKey ? { prepKey: i.prepKey } : {}) }] };
+      return { state: { ...state, overlay, launch: { kind: 'submitting' }, launchSent: { op: 'resume', sessionId: i.id }, launchPrep }, effects: [{ kind: 'api.resume', sessionId: i.id, ...(i.stray ? { stray: i.stray } : {}), ...(i.prepKey ? { prepKey: i.prepKey } : {}) }] };
     }
-    case 'session.fork': return { state: { ...state, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.fork', sessionId: i.id }] };
+    case 'session.fork': return { state: { ...state, launch: { kind: 'submitting' }, launchSent: { op: 'fork', sessionId: i.id } }, effects: [{ kind: 'api.fork', sessionId: i.id }] };
     case 'session.attach':
       if (state.launch.kind === 'submitting') return { state, effects: [] };
       return { state: { ...state, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.attach', sessionId: i.id }] };

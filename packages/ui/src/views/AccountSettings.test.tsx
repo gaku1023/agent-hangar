@@ -122,6 +122,16 @@ describe('AccountSettings の状態', () => {
     expect(problem).toHaveClass('account-set-problem');
     expect(within(row('会社')).queryByText('skills がリンクでなく実体のディレクトリです')).toBeNull();
   });
+  it('修復できない注意には「エージェントで調査…」を出し、押すとそのアカウントの事情を渡す', () => {
+    const onAction = mount(props({ a1: { linkProblem: 'skills がリンクでなく実体のディレクトリです' } }));
+    expect(within(row('会社')).queryByRole('button', { name: 'エージェントで調査…' })).toBeNull();
+    fireEvent.click(within(row('大学')).getByRole('button', { name: 'エージェントで調査…' }));
+    expect(onAction.mock.calls).toEqual([[{ type: 'investigate.open', op: 'accountLinks', message: 'skills がリンクでなく実体のディレクトリです', agent: 'claude-code', accountId: 'a1' }]]);
+  });
+  it('「修復…」が出る行には「エージェントで調査…」を出さない', () => {
+    mount(props({ a1: { linkConflicts: ['settings.json'], linkProblem: '外れています' } }));
+    expect(within(row('大学')).queryByRole('button', { name: 'エージェントで調査…' })).toBeNull();
+  });
 });
 
 describe('AccountSettings の「修復…」（#513）', () => {

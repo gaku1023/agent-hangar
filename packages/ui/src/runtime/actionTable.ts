@@ -1,4 +1,4 @@
-import type { AccountsDto, UiAction, SyncStatusBody, TerminalApp } from '@agent-hangar/shared';
+import type { AccountsDto, InvestigateContext, UiAction, SyncStatusBody, TerminalApp } from '@agent-hangar/shared';
 import { applyConfigDetail, CUSTOM_PROVIDER_ROW, gitFileKey, type EditorOpenAction, type OpencodeProviderOp, type OpencodeProvidersState, type Store } from '../store/store.ts';
 import type { OpencodeProvidersDto } from '@agent-hangar/shared';
 import { EditorMissingApiError, type ApiClient } from './api.ts';
@@ -34,15 +34,17 @@ export type CallDone = { apply?: (store: Store) => Store; toast?: CallToast; toa
  * failed が null を返した失敗は、ふつうどおりトーストにする。
  * failHoldMs を持つ行の失敗は、その長さで消える error のトーストにする（押した直後に読めば足りる失敗。ほかの error は閉じるまで残る）。
  */
-export type ApiCall = { before?: (store: Store) => Store; run: (api: ApiClient) => Promise<CallDone>; failed?: (store: Store, error: unknown) => Store | null; failHoldMs?: number };
+/** failInvestigate は、失敗のトーストに「エージェントで調査…」を付けるときの事情（エラーの文は失敗の時点で足す）。 */
+export type ApiCall = { before?: (store: Store) => Store; run: (api: ApiClient) => Promise<CallDone>; failed?: (store: Store, error: unknown) => Store | null; failHoldMs?: number; failInvestigate?: Omit<InvestigateContext, 'message'> };
 
-type After<T> = { before?: (store: Store) => Store; apply?: (store: Store, r: T) => Store; toast?: (r: T) => CallToast | null; failed?: (store: Store, error: unknown) => Store | null; failHoldMs?: number };
+type After<T> = { before?: (store: Store) => Store; apply?: (store: Store, r: T) => Store; toast?: (r: T) => CallToast | null; failed?: (store: Store, error: unknown) => Store | null; failHoldMs?: number; failInvestigate?: Omit<InvestigateContext, 'message'> };
 
 /** 行の共通の形。API を呼び、応答を Store に当て、知らせがあれば添える。応答の型は、ここで閉じる。 */
 function call<T>(run: (api: ApiClient) => Promise<T>, after: After<T> = {}): ApiCall {
-  const { before, apply, toast, failed, failHoldMs } = after;
+  const { before, apply, toast, failed, failHoldMs, failInvestigate } = after;
   return {
     ...(before ? { before } : {}),
+    ...(failInvestigate ? { failInvestigate } : {}),
     ...(failed ? { failed } : {}),
     ...(failHoldMs !== undefined ? { failHoldMs } : {}),
     run: (api) => run(api).then((r) => {
@@ -247,7 +249,7 @@ export const actionTable = {
   },
   'share.preview': (i) => call((api) => api.sharePreview(i.agent), { apply: (store, d) => ({ ...store, sharePreview: { ...store.sharePreview, [i.agent]: d } }) }),
   'account.add.preview':(i) => call((api) => (i.agent === 'codex' ? api.previewCodexAccountDir(i.name, i.dir) : api.previewAccountDir(i.name, i.dir)), { apply: (store, accountPreview) => ({ ...store, accountPreview }), failed: (store) => ({ ...store, accountPreview: null }) }),
-  'account.choose': (i) => call((api) => (i.agent === 'codex' ? api.setCurrentCodexAccount(i.accountId) : api.setCurrentAccount(i.accountId)), { apply: withAccounts }),
+  'account.choose': (i) => call((api) => (i.agent === 'codex' ? api.setCurrentCodexAccount(i.accountId) : api.setCurrentAccount(i.accountId)), { apply: withAccounts, failInvestigate: { op: 'accountSwitch', agent: i.agent ?? 'claude-code', accountId: i.accountId } }),
   'account.update': (i) => {
     // 名前は前後の空白を落とす。空になった名前は送らず、送るものが無ければ何も呼ばない。
     const name = i.name?.trim();

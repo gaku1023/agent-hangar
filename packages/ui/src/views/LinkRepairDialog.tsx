@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { LinkRepairProps } from '../presenters/linkRepair.ts';
+import { InvestigateButton } from './InvestigateButton.tsx';
 import { Dialog } from './primitives/Dialog.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -28,6 +29,7 @@ export function LinkRepairDialog(props: LinkRepairProps) {
     <Dialog title={t('account.repair.title', { account: props.account })} icon="sync" className="dialog-config" onClose={close}
       footer={(
         <>
+          <InvestigateButton ctx={props.investigate} link />
           <span className="faint cfg-backup">{t('account.repair.note')}</span>
           <span className="faint">{t('account.repair.selected', { n: props.cards.length, m: entries.length })}</span>
           <span className="spacer" />

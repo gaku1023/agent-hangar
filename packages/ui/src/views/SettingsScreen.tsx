@@ -35,6 +35,7 @@ import { SetupGuideCard } from './SetupGuideCard.tsx';
 import { SetRow } from './primitives/SetRow.tsx';
 import { Stepper } from './primitives/Stepper.tsx';
 import { Switch } from './primitives/Switch.tsx';
+import { InvestigateButton } from './InvestigateButton.tsx';
 
 /** 「✓ 保存しました」を出しておく長さ（設定の C1）。 */
 export const SAVED_TICK_MS = 2000;
@@ -440,6 +441,7 @@ export function SettingsScreen(props: SettingsProps) {
                 <ul className="faint mono" style={{ margin: '4px 0 0', paddingLeft: 16, wordBreak: 'break-all' }}>
                   {props.cloud.skipped.map((k) => <li key={k.key}>{t('settings.cloud.failedItem', { key: k.key, message: k.message, attempts: k.attempts })}</li>)}
                 </ul>
+                <div className="err-acts"><InvestigateButton ctx={{ op: 'sync', message: [t('settings.cloud.failed', { n: props.cloud.skipped.length }), ...props.cloud.skipped.map((k) => `${k.key}: ${k.message}`)].join('\n') }} /></div>
               </div>
             )}
             <div className="btns">
@@ -681,9 +683,12 @@ export function SettingsScreen(props: SettingsProps) {
             </div>
           )}
           {props.summarizerTest?.ok === false && (
-            <ul className="faint" style={{ margin: '4px 0 0', paddingLeft: 16 }}>
-              {props.summarizerTest.tried.map((x) => <li key={x.id}>{engineName(x.id)}: {x.message}</li>)}
-            </ul>
+            <>
+              <ul className="faint" style={{ margin: '4px 0 0', paddingLeft: 16 }}>
+                {props.summarizerTest.tried.map((x) => <li key={x.id}>{engineName(x.id)}: {x.message}</li>)}
+              </ul>
+              <div className="err-acts"><InvestigateButton ctx={{ op: 'summary', message: props.summarizerTest.tried.map((x) => `${engineName(x.id)}: ${x.message}`).join('\n') }} /></div>
+            </>
           )}
         </>
       )}

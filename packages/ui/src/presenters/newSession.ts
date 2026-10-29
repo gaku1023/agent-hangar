@@ -1,4 +1,4 @@
-import { codexEnabledOf, opencodeEnabledOf, type OpencodeOptionsDto, type ProjectStatus, type Translate } from '@agent-hangar/shared';
+import { codexEnabledOf, opencodeEnabledOf, type NewSessionSeed, type OpencodeOptionsDto, type ProjectStatus, type Translate } from '@agent-hangar/shared';
 import type { LaunchPrefs, NewSessionDraft, State } from '../mediator/types.ts';
 import { hasMultipleAccounts, type CodexOptionsState, type OpencodeOptionsState, type Store } from '../store/store.ts';
 import type { FolderInspectState } from '../store/folderInspect.ts';
@@ -13,6 +13,8 @@ export type NewSessionProps = {
   projects: NewSessionProject[]; recentIds: string[]; projectId: string | null; submitting: boolean; error: string | null; /** 失敗が、リンクの場所のファイルの衝突だけのとき、修復のダイアログへ進める先。 */ errorRepair?: { agent: 'claude-code' | 'codex'; accountId: string } | null; scratch: boolean;
   /** 前に閉じたときの書きかけ。開いたときの名前と初期プロンプトにする。 */
   draft: NewSessionDraft | null;
+  /** 埋めて開いたときの種（「エージェントで調査…」）。あれば下書きを読まず、閉じても書かない。 */
+  seed?: NewSessionSeed | null;
   /** 詳細のプロジェクトごとの前回値。鍵はプロジェクトの id で、クイックセッションは ':scratch' である。 */
   prefs: Record<string, LaunchPrefs>;
   /** ワークスペース直下の未登録のフォルダ。store のプロジェクトのパスは除いてある（作った直後に残らないように）。 */
@@ -152,6 +154,7 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
     ...(state.overlay.worktree ? { worktree: true } : {}),
     ...(state.overlay.agent ? { agent: state.overlay.agent } : {}),
     ...(state.overlay.pickModel ? { pickModel: true } : {}),
+    ...(state.overlay.seed ? { seed: state.overlay.seed } : {}),
     dir: state.overlay.dir ?? null, inspect: store.folderInspect,
     opencode: opencodeEnabledOf(store.settings ?? {}) ? { options: store.opencodeOptions } : null,
     codex: codexEnabledOf(store.settings ?? {}) ? { options: store.codexOptions } : null,

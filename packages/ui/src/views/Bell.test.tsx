@@ -116,6 +116,14 @@ describe('NoticeList：知らせの行', () => {
     expect(items.map((li) => li.hasAttribute('data-unread'))).toEqual([true, true, false]);
     expect(items.map((li) => within(li).queryByText('未読') !== null)).toEqual([true, true, false]);
   });
+  it('調べられる行には、行の操作の後に「エージェントで調査…」を出し、押すとその事情を渡す', () => {
+    const onAct = vi.fn();
+    render(<LanguageRoot language="ja"><ActionRoot onAction={vi.fn()}><NoticeList rows={[row({ investigate: { op: 'sync', message: '401' } })]} onAct={onAct} /></ActionRoot></LanguageRoot>);
+    const button = screen.getByRole('button', { name: 'エージェントで調査…' });
+    expect(button).toHaveAttribute('title', 'エラーの内容を入れた新しいセッションのダイアログを開きます。');
+    fireEvent.click(button);
+    expect(onAct).toHaveBeenCalledWith(expect.objectContaining({ key: row().key }), { type: 'investigate.open', op: 'sync', message: '401' });
+  });
   it('説明の無い行は、説明の欄を作らない', () => {
     render(<LanguageRoot language="ja"><ActionRoot onAction={vi.fn()}><NoticeList rows={[row({ detail: null })]} onAct={vi.fn()} /></ActionRoot></LanguageRoot>);
     expect(document.querySelector('.p-d')).toBeNull();

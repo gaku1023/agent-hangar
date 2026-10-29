@@ -9,6 +9,7 @@ import { collapseOut, fadeIn, growIn, motionOn, resizeFrom } from './primitives/
 import { QrCode } from './primitives/QrCode.tsx';
 import { useNow } from './primitives/useNow.ts';
 import { usePresence } from './primitives/usePresence.ts';
+import { InvestigateButton } from './InvestigateButton.tsx';
 
 /**
  * 設定のクラウド同期の節の、参加と「PC を追加」、PC の一覧と解除、この PC の参加の解除。
@@ -179,6 +180,7 @@ export function CloudJoinSteps(props: { m: CloudMemberProps; onClose: () => void
           <div className="btns">
             <button type="button" className="btn btn-sm" onClick={cancel}>{t('cloudMember.common.cancel')}</button>
             {j.reenter && <button type="button" className="btn btn-sm btn-primary" onClick={() => emit({ type: 'cloud.join.reenter' })}>{t('cloudMember.join.reenter')}</button>}
+            {f && f.reason !== 'no-answer' && <InvestigateButton ctx={{ op: 'cloud', message: [f.title, f.body].filter(Boolean).join('\n') }} />}
           </div>
         </Strip>
         <div className="cm-note">{t('cloudMember.join.nothingWritten')}</div>
@@ -311,7 +313,7 @@ function AddPanel(props: { a: CloudAddProps; panelRef: RefObject<HTMLElement | n
     body = (
       <Strip tone="danger" role="alert">
         <p>{a.message}</p>
-        <div className="btns"><button type="button" className="btn btn-sm" onClick={close}>{t('cloudMember.common.close')}</button>{reissue}</div>
+        <div className="btns"><button type="button" className="btn btn-sm" onClick={close}>{t('cloudMember.common.close')}</button>{reissue}<InvestigateButton ctx={{ op: 'cloud', message: a.message ?? '' }} /></div>
       </Strip>
     );
   }
@@ -388,6 +390,7 @@ function RevokeFailed(props: { id: string; name: string; message: string | null;
       <div className="btns">
         <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'cloud.revoke.dismiss' })}>{t('cloudMember.common.close')}</button>
         <button type="button" className="btn btn-sm btn-danger-fill" onClick={() => emit({ type: 'cloud.device.revoke', id: props.id })}>{t('cloudMember.join.retry')}</button>
+        <InvestigateButton ctx={{ op: 'cloud', message: t('cloudMember.pcs.failed', { name: props.name, message: props.message ?? '' }) }} />
       </div>
     </Strip>
   );
@@ -618,7 +621,7 @@ function LeaveProgress(props: { m: CloudMemberProps }) {
     return (
       <Strip tone="danger" role="alert">
         <p>{t('cloudMember.leave.failed', { message: l.message ?? '' })}</p>
-        <div className="btns"><button type="button" className="btn btn-sm" onClick={() => emit({ type: 'cloud.leave.dismiss' })}>{t('cloudMember.common.close')}</button></div>
+        <div className="btns"><button type="button" className="btn btn-sm" onClick={() => emit({ type: 'cloud.leave.dismiss' })}>{t('cloudMember.common.close')}</button><InvestigateButton ctx={{ op: 'cloud', message: t('cloudMember.leave.failed', { message: l.message ?? '' }) }} /></div>
       </Strip>
     );
   }
@@ -870,7 +873,7 @@ export function CloudPhones(props: { m: CloudMemberProps }) {
       )}
       {p.kind === 'limited' && <Strip tone="warn" role="alert"><p>{t('cloudMember.phone.limited')}</p></Strip>}
       {p.kind === 'notJoined' && <Strip tone="warn"><p>{t('cloudMember.phone.notJoined')}</p></Strip>}
-      {p.kind === 'failed' && <Strip tone="danger" role="alert"><p>{t('cloudMember.phone.failed', { message: p.message })}</p></Strip>}
+      {p.kind === 'failed' && <Strip tone="danger" role="alert"><p>{t('cloudMember.phone.failed', { message: p.message })}</p><div className="btns"><InvestigateButton ctx={{ op: 'cloud', message: t('cloudMember.phone.failed', { message: p.message }) }} /></div></Strip>}
       {panel.mounted && last.current && <div ref={panel.ref} className="cm-pair"><PairPanel p={last.current} /></div>}
     </section>
   );

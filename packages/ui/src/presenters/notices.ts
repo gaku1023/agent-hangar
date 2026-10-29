@@ -1,4 +1,4 @@
-import { compatState, type UiAction, type Language, type SyncDiskShortDto, type SyncStatusBody, type Translate } from '@agent-hangar/shared';
+import { compatState, type InvestigateContext, type UiAction, type Language, type SyncDiskShortDto, type SyncStatusBody, type Translate } from '@agent-hangar/shared';
 import { sendableUnsentOf } from './configSync.ts';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
@@ -25,11 +25,13 @@ export type NoticeTone = 'err' | 'warn' | 'info';
  * key は既読の印で、`種類|対象|事実の版` の形である。事実の版が変われば鍵が変わり、また未読になる。
  * when は時の欄（無ければ null）、detail は題の下の 1 行（無ければ null）。
  * action は行の操作 1 つで、押すと行を既読にして send を送る（views/Bell.tsx）。
+ * investigate は、行の操作の後に「エージェントで調査…」を出すときのエラーの事情（同期の失敗）。
  */
 export type NoticeRow = {
   key: string; kind: NoticeKind; tone: NoticeTone; icon: IconName; kindLabel: string;
   title: string; detail: string | null; when: string | null; unread: boolean;
   action: { label: string; send: UiAction };
+  investigate?: InvestigateContext;
 };
 /**
  * 注意の props。rows は事実から組んだ行（既読も含む。閉じても残る）、keys はその鍵の全部で、「すべて既読にする」が送る。
@@ -75,7 +77,7 @@ function syncState(s: SyncStatusBody, base: SyncBase, t: Translate, language: La
     // 版で止まると state は error のまま paused の印だけが立つ。止まっていることも言う。
     const message = s.error ?? '';
     const detail = s.error ?? t('header.sync.failed');
-    return [{ ...base, key: `sync|error|${message}${s.paused ? '|paused' : ''}`, tone: 'err', title: t('header.sync.error'), detail: s.paused ? `${detail}。${t('notices.sync.pausedToo')}` : detail }];
+    return [{ ...base, key: `sync|error|${message}${s.paused ? '|paused' : ''}`, tone: 'err', title: t('header.sync.error'), detail: s.paused ? `${detail}。${t('notices.sync.pausedToo')}` : detail, investigate: { op: 'sync', message: detail } }];
   }
   if (s.state !== 'paused') return [];
   if (s.limitedUntil !== null) return [{ ...base, key: `sync|paused|quota|${s.limitedUntil}`, tone: 'warn', title: limitedWord(t, language, s.limitedUntil, tz), detail: null }];
@@ -90,7 +92,10 @@ function syncState(s: SyncStatusBody, base: SyncBase, t: Translate, language: La
  */
 function syncSkipped(s: SyncStatusBody, base: SyncBase, t: Translate): Draft[] {
   if (s.state === 'off' || s.skipped.length === 0) return [];
-  return [{ ...base, key: `sync|skipped|${s.skipped.length}`, tone: 'err', title: t('notices.sync.skipped', { n: s.skipped.length }), detail: s.skipped[0]!.message }];
+  const title = t('notices.sync.skipped', { n: s.skipped.length });
+  // 調べる会話には、諦めた項目ごとの理由を全部渡す（行の説明は最初の 1 件だけ）。
+  const message = [title, ...s.skipped.map((k) => `${k.key}: ${k.message}`)].join('\n');
+  return [{ ...base, key: `sync|skipped|${s.skipped.length}`, tone: 'err', title, detail: s.skipped[0]!.message, investigate: { op: 'sync', message } }];
 }
 
 /**

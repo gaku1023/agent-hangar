@@ -20,6 +20,11 @@ const open = (d: LinkConflictsDto | null, over: Partial<State['linkRepair']> = {
 });
 
 describe('presentLinkRepair', () => {
+  it('調査へ渡す事情は、修復の失敗の文、無ければアカウントの注意の文と、項目の名前', () => {
+    const problem: Store = { ...store, accounts: { ...codexAccountsFixture, accounts: codexAccountsFixture.accounts.map((a) => (a.id === 'a1' ? { ...a, linkProblem: 'settings.json が外れています' } : a)) } };
+    expect(presentLinkRepair(open(detail()), problem)!.investigate).toEqual({ op: 'linkRepair', message: 'settings.json が外れています', agent: 'claude-code', accountId: 'a1', files: ['settings.json'] });
+    expect(presentLinkRepair(open(detail(), { error: 'EACCES: permission denied' }), problem)!.investigate.message).toBe('EACCES: permission denied');
+  });
   it('ダイアログを開いていなければ null', () => {
     expect(presentLinkRepair(initialState(), store)).toBeNull();
   });
