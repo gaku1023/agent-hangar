@@ -5,6 +5,8 @@ import type { Db } from '../db/open.ts';
 import { accountOfSession, getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
 import { addIntent, INTENT_MAX, noteIntent } from '../live/intents.ts';
+import { addUnread, noteUnread, NOTIFY_TARGETS, type NotifyTarget } from '../live/unread.ts';
+import { touchRow } from '../db/notify.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { MessageError, msg, render, type Message } from '../i18n/message.ts';
@@ -42,6 +44,8 @@ export type ToolDeps = {
   accounts?: { store: Pick<AccountStore, 'list' | 'current' | 'get'>; usage: { of(accountId: string): UsageDto } };
   /** 道具の説明と結果の文の言語。渡さなければ日本語で出す。 */
   language?: GetLanguage;
+  /** notify_user の出し先の設定（unreadBadge、unreadOs、unreadPhone）。無ければ全部入りとして読む。 */
+  settings?: () => { unreadBadge?: boolean; unreadOs?: boolean; unreadPhone?: boolean };
   /** hook から届いた許可の確認の預け先（sessions/permissionAsks.ts）。無ければ許可の確認は読まない。 */
   permissionAsks?: { put(providerSessionId: string, ask: PermissionAskDto, now: number): void };
   /** 作者への問い合わせの口（report/service.ts）。無ければ draft_issue_report と submit_issue_report は断る。 */
@@ -72,7 +76,7 @@ export const TOOL_NAMES = [
   'create_session', 'set_session_summary', 'set_turn_intent', 'get_usage', 'open_in_hangar',
   'propose_session_status', 'draft_issue_report', 'submit_issue_report',
   'stop_session', 'resume_session', 'delete_session',
-  'send_to_session', 'read_session_screen',
+  'send_to_session', 'read_session_screen', 'notify_user',
 ] as const;
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
@@ -515,6 +519,36 @@ export function setTurnIntentTool(deps: ToolDeps, ctx: ToolContext, args: Record
 }
 
 /**
+ * 利用者に見てほしい出力を出したことを知らせる。そのセッションの未読が 1 つ増え、画面へ配り、購読（OS の通知、スマホ）へ知らせる。
+ * 長さの数え方と上限は set_turn_intent と同じ。道具の名前に state と status を入れない（sessions.test.ts の決まり）。
+ */
+export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, now = Date.now()) {
+  const id = sessionIdOf(ctx, args);
+  const session = requireSession(deps, id);
+  const text = typeof args.text === 'string' ? args.text.trim() : '';
+  if (text.length === 0 || [...text].length > INTENT_MAX) throw new ToolError(msg('mcp.intent.badLength', { max: INTENT_MAX }));
+  // 出し先。省くと設定で入りの全部、付けるとその中で設定が入りのものだけ（設定の切が勝つ）。
+  let wanted: NotifyTarget[] = [...NOTIFY_TARGETS];
+  if (args.to !== undefined) {
+    const to = args.to;
+    if (!Array.isArray(to) || to.length === 0 || !to.every((x): x is NotifyTarget => NOTIFY_TARGETS.includes(x as NotifyTarget))) throw new ToolError(msg('mcp.notify.badTo'));
+    wanted = NOTIFY_TARGETS.filter((x) => to.includes(x));
+  }
+  const st = deps.settings?.() ?? {};
+  const on: Record<NotifyTarget, boolean> = { unread: st.unreadBadge !== false, os: st.unreadOs !== false, phone: st.unreadPhone !== false };
+  const sent = wanted.filter((x) => on[x]);
+  let unread = session.unread?.count ?? 0;
+  if (sent.length > 0) {
+    if (sent.includes('unread')) {
+      unread = addUnread(deps.db, id, text, now);
+      touchRow(deps.db, 'sessions', id);
+    }
+    noteUnread(id, text, unread, sent);
+  }
+  return { ok: true, session_id: id, at: now, unread, sent };
+}
+
+/**
  * このセッションの状態（Done か Paused）を提案する。
  * confirmed が true のときだけ状態にする。利用者が会話の中で選んだという申告で、hangar はそれを確かめられない。
  * その余地は利用者の決定（2026-10-01）として受け入れ、代わりに set_by を conversation にして後から分かるようにする。
@@ -624,6 +658,7 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'create_session': return createSessionTool(deps, ctx, args);
     case 'set_session_summary': return setSessionSummaryTool(deps, ctx, args);
     case 'set_turn_intent': return setTurnIntentTool(deps, ctx, args);
+    case 'notify_user': return notifyUserTool(deps, ctx, args);
     case 'get_usage': return getUsageTool(deps);
     case 'open_in_hangar': return openInHangarTool(deps, ctx, args);
     case 'propose_session_status': return proposeSessionStatusTool(deps, ctx, args);

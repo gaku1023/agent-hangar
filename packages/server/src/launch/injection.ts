@@ -16,12 +16,14 @@ export type InjectionInput = { projectName: string; projectPath: string; todos: 
 export type InjectionParts = {
   askStatusAtEnd: boolean;
   liveHints: boolean;
+  /** 利用者に見てほしい出力を出したとき notify_user で知らせる段（launch.injection.notify）。設定の notifyUser。省けば入りとして読む。 */
+  notifyUser?: boolean;
   /** opencode に足す量（設定の opencodeInjection）。省けば既定の最小限。Claude には効かない。 */
   opencode?: OpencodeInjection;
   /** Codex に足す量（設定の codexInjection）。省けば既定の最小限。Claude と opencode には効かない。 */
   codex?: CodexInjection;
 };
-export const DEFAULT_INJECTION_PARTS: InjectionParts = { askStatusAtEnd: true, liveHints: true };
+export const DEFAULT_INJECTION_PARTS: InjectionParts = { askStatusAtEnd: true, liveHints: true, notifyUser: true };
 
 /**
  * エージェントに渡す短い指示を、段ごとに組む。ファイルや設定は書かず、要約の更新、片付いた TODO の候補、セッションの状態の問い、ターンの意図、短い手の説明を求める。
@@ -48,6 +50,7 @@ export function renderInjectionEntries(i: InjectionInput, language: Language = D
   if ((i.deviceCount ?? 0) >= 2) entries.push({ key: 'multiDevice', text: t(language, 'launch.injection.multiDevice', { deviceCount: String(i.deviceCount) }) });
   if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.status') });
   if (parts.liveHints) entries.push({ key: 'live', text: t(language, 'launch.injection.live') });
+  if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.notify') });
   return entries;
 }
 
@@ -67,9 +70,10 @@ export function renderOpencodeInjectionEntries(i: InjectionInput, language: Lang
   if (choice === 'minimal') {
     const entries: InjectionEntry[] = [{ key: 'body', text: t(language, 'launch.injection.opencode.minimal') }];
     if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.opencode.status') });
+    if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.opencode.notify') });
     return entries;
   }
-  return renderInjectionEntries(i, language, parts).map((e) => (e.key === 'live' ? { key: 'live', text: t(language, 'launch.injection.opencode.live') } : e));
+  return renderInjectionEntries(i, language, parts).map((e) => (e.key === 'live' ? { key: 'live', text: t(language, 'launch.injection.opencode.live') } : e.key === 'notify' ? { key: 'notify', text: t(language, 'launch.injection.opencode.notify') } : e));
 }
 
 /**
@@ -84,6 +88,7 @@ export function renderCodexInjectionEntries(i: InjectionInput, language: Languag
   if (choice === 'claude') return renderInjectionEntries(i, language, parts);
   const entries: InjectionEntry[] = [{ key: 'body', text: t(language, 'launch.injection.codex.minimal') }];
   if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.codex.status') });
+  if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.codex.notify') });
   return entries;
 }
 

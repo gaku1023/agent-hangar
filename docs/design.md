@@ -3128,6 +3128,11 @@ hangar が起動するセッションには、`--append-system-prompt` で短い
 起動のときは、段ごとに分けたまま driver に渡す（`renderInjectionEntries`、「Claude Code に固有の部分」の節）。
 常に足す段（`launch.injection.body`）、区切りの問いの段（`launch.injection.status`）、ターンの意図と短い手の説明の段（`launch.injection.live`）である。
 後の 2 つは設定の `askStatusAtEnd` と `liveHints` で入り切りし、どちらも既定は入りである（鍵の無い古い設定も入りとして読む）。
+
+4 つめの段として、`notify_user` で利用者に知らせる段（`launch.injection.notify`）を足す（Codex と opencode の最小限には、それぞれ `launch.injection.codex.notify` と `launch.injection.opencode.notify`）。
+依頼の結果、途中経過の報告、サブエージェントの結果がまとまったとき、利用者の判断が要るときに、何が起きたかを 1 文で書いて呼ぶ。
+AskUserQuestion で聞くときは呼ばない（入力待ちとして別に知らせる）。細かい手順のたびには呼ばない。出し先を `to` で選べることも一言で言う。
+設定の `notifyUser` で入り切りし、既定は入りである。いつ呼ぶかは、この段が提案し、利用者は自分の CLAUDE.md で場面と出し先を決められる。
 `askStatusAtEnd` を切ると問いの段を足さず、状態は事後の要約の提案と自動の Done だけで付く。
 `liveHints` を切るとターンの意図と手の説明を求めない。
 `RunManager` は起動のたびに今の設定を読むので、切り替えは次に起こす claude から効き、動いている会話の指示は変わらない。
@@ -3767,6 +3772,7 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   HTTP の `DELETE /api/sessions/:id` は、利用者の操作なので MCP の秘密では開けないままである。MCP からは、この道具が承認つきで同じ処理を通す。
   この 3 つはセッション別 URL でも別のセッションを指せる（`session_id` が要る。他のセッション用の道具のような閉じ込めはしない）。
 - `set_turn_intent({ session_id?, text })`：このターンで何のために何をするかを 1〜2 文（200 字まで）で書く。端末ローカルの `turn_intents` に積み、同期しない。セッション画面の現在の札に出す。
+- `notify_user({ session_id?, text, to? })`：利用者に見てほしい出力を出したことを知らせる。text は空白を除いて 1 字以上 200 字まで（`set_turn_intent` と同じ数え方）。`to` は `unread`（未読の数）、`os`（OS の通知）、`phone`（スマホの通知）の配列で、省くと設定で入りの出し先すべて、付けるとその中で設定が入りのものだけに出す（`unreadBadge`、`unreadOs`、`unreadPhone`。設定の切がいつも勝つ）。空の配列と知らない値は断り、重複はまとめる。返り値は `{ ok, session_id, at, unread, sent }` で、`sent` は実際に出した先である。全部切のときも `ok: true` で `sent` は空になる。`unread` を出さないときは、未読の数を増やさない。サーバ内の購読（`live/unread.ts` の `onUnread`）には、会話の ID、本文、数、`sent` を渡す。OS の通知とスマホの通知はこの購読で動く。道具の名前に state と status を入れない。
 - `set_session_memo` は 0.4.0 で道具ごと外した（セッションのノートを外したため。要約の `set_session_summary` と Paused の戻る日が役を担う）。
   `append_memo` のように `notice` で答える形にしなかったのは、あちらは同じ呼び出しのほかの項目を書くためにエラーにしなかったのに対し、こちらは道具が 1 つの仕事しか持たないからである。
   外す前の一覧を覚えた Claude が呼んでも、MCP の層が書かずに `isError`（道具が無い）で返す。モデルにこの道具を使うよう指示したことも無い。
@@ -5476,6 +5482,10 @@ hangar が起こした run では、問いの文を hook からも受け取る�
 `SessionDto.activity`（`{ tool, summary, question }`）は実行中のセッションにだけ値を持ち、実行中でないときと、呼び出しがまだ無いときは `null` になる。
 Home を開いたときにトランスクリプトを読み直すことはしない。
 主線のトランスクリプトを忘れさせたとき（`forgetTranscriptFile`）は、そのセッションの `session_activity` の行も一緒に消す。
+
+未読は別の端末ローカルの表 `session_unread`（マイグレーション version 39）に置く（`session_id`、`count`、`latest_text`、`latest_at`）。`session_activity` と分けるのは、あちらが索引の作り直しで積み直す表なのに対し、未読は利用者がまだ見ていないという事実で、作り直しで消えてはならないためである。
+`notify_user` が 1 回ごとに `count` を 1 つ増やし、`POST /api/sessions/:id/seen` が行を消す。Done、Paused、Archived でも、開くまで残る。会話を削除するとき（`sessions/trash.ts`）は行も片付ける。
+`SessionDto.unread`（`{ count, latest, at }`）は、行があるときだけ値を持ち、無いときは `null` になる。共有テーブルにも同期の changes にも入れない。
 実行中の登録（`~/.claude/sessions/<pid>.json`）から消えたセッションは、問いだけを消す（`sessions/liveChange.ts`）。終わった会話の問いにはもう答えられず、再開した直後の要対応の行に前の run の問いを出さないためである。
 消えたかどうかを書きかけの登録で誤らないよう、読めなかった登録は前に読めた中身のまま少しの間続ける（「保存先と読み方」の節の `RegistryCarry`）。
 

@@ -6,6 +6,7 @@ import { sameFolderPairs } from '../projects/registry.ts';
 import { scratchPlacesOf } from '../projects/scratch.ts';
 import { toStateDto } from '../sessions/states.ts';
 import { peerSeenAt, peerStale, readPeers, type PeerBook } from '../sync/peers.ts';
+import { unreadOf } from '../live/unread.ts';
 import type { Db } from './open.ts';
 
 /** sessions に要約と統計と本文の有無を左結合した 1 行。 */
@@ -82,6 +83,9 @@ type SessionRow = {
   last_interrupt_cause: InterruptCause | null;
   // 同じファイルの編集の写し（session_overlaps の payload）。無ければ null。
   overlap_payload: string | null;
+  unread_count: number | null;
+  unread_text: string | null;
+  unread_at: number | null;
   /** この PC がスマホの依頼で起こした会話なら、その依頼の権限モード（既定は空）。それ以外は null。 */
   ml_mode: string | null;
 };
@@ -107,6 +111,7 @@ select s.*, (exists(select 1 from transcript_files t where t.session_id = s.id a
   (select r.ended_at from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1) last_ended_at,
   (select i.cause from interrupted_runs i where i.run_id = (select r.id from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1)) last_interrupt_cause,
   ov.payload overlap_payload,
+  un.count unread_count, un.latest_text unread_text, un.latest_at unread_at,
   (select ifnull(ml.permission_mode, '') from mobile_launches ml where ml.session_id = s.id order by ml.handled_at limit 1) ml_mode
 from sessions s
 left join projects p on p.id = s.project_id
@@ -118,6 +123,7 @@ left join session_limits lim on lim.session_id = s.id
 left join session_states ss on ss.session_id = s.id and ss.deleted_at is null
 left join session_notes sn on sn.session_id = s.id and sn.deleted_at is null
 left join session_overlaps ov on ov.session_id = s.id
+left join session_unread un on un.session_id = s.id
 where s.deleted_at is null`;
 
 /**
@@ -361,6 +367,7 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     interrupted: r.ss_status === null && r.last_end_reason === 'lost' && r.last_ended_at !== null ? { at: r.last_ended_at, cause: r.last_interrupt_cause } : null,
     // 同じファイルの編集は、実行中の間だけの警告である。終わった後に古い写しが残っていても出さない。
     overlap: live ? overlapOf(r.overlap_payload) : null,
+    unread: unreadOf(r),
     // ほかの PC の続きの方が新しい（A → B → A）。手元に本文が無いものは remoteOnly の側で扱う。
     newerElsewhere: r.has_local === 1 && newer.has(r.id),
     takenOver: taken.get(r.id) ?? null,

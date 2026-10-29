@@ -10,6 +10,7 @@ import { PromoteError } from '../../projects/promote.ts';
 import { searchSessions } from '../../search/search.ts';
 import { MoveError, moveSession } from '../../sessions/move.ts';
 import { dismissOverlap } from '../../sessions/overlap.ts';
+import { markSeen } from '../../live/unread.ts';
 import { parkedSessionIds } from '../../sessions/park.ts';
 import { stopReasonsOf } from '../../sessions/stopReasons.ts';
 import { changedFilesOf } from '../../sessions/files.ts';
@@ -213,6 +214,11 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     }
     dismissOverlap(db, c.req.param('id'), body.with, paths, Date.now());
     deps.overlapRefresh?.();
+    return c.body(null, 204);
+  });
+  // 開いたら既読。未読の行を消して画面へ配る。行が無ければ何もしない。
+  api.post('/sessions/:id/seen', (c) => {
+    markSeen(db, c.req.param('id'));
     return c.body(null, 204);
   });
   api.post('/sessions/:id/promote', async (c) => {

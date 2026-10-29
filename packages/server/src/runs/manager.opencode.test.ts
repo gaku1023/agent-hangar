@@ -104,7 +104,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
       agents: agentsOf([claude, opencode]), claude,
       agentEnabled: (k) => k === 'claude-code' || enabled(),
       agentBin: (k) => (k === 'opencode' ? (o.bin === undefined ? bin : o.bin) : null),
-      injection: () => ({ askStatusAtEnd: true, liveHints: true, opencode: o.injection ?? 'minimal' }),
+      injection: () => ({ askStatusAtEnd: true, liveHints: true, notifyUser: false, opencode: o.injection ?? 'minimal' }),
       terminalIntercept: (k) => k === 'opencode' && o.intercept !== false,
       ...(o.preps ? { preps: o.preps } : {}),
     });
