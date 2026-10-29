@@ -36,6 +36,8 @@ import { createXterm } from './runtime/xterm.ts';
 import { FOCUS_IDS, focusSoon } from './runtime/focusSoon.ts';
 import { clickThrough } from './runtime/clickThrough.ts';
 import { suppressNativeMenu } from './runtime/nativeMenu.ts';
+import { openAnchorInShell } from './runtime/anchorLinks.ts';
+import { linkOpener } from './runtime/terminalLinks.ts';
 import { tabAlive } from './store/store.ts';
 import { createPresent } from './runtime/present.ts';
 import { FILE_DROP_EVENT, handleFileDrop } from './runtime/fileDrop.ts';
@@ -47,9 +49,16 @@ stripEntryToken(location.href, (u) => history.replaceState(null, '', u));
 
 // デスクトップの殻の頁は、窓を最小化しても凍らせない。入力待ちの通知は、この頁が WebSocket で受けて殻へ渡すからである（runtime/notifier.ts）。
 // 右クリックの WebKit の既定のメニュー（Back と Reload）も、殻の中では出さない（runtime/nativeMenu.ts）。ブラウザでは残す。
+// 外へのリンクは殻に既定のブラウザで開かせる。殻の窓は新しい窓の求めを受けない（runtime/anchorLinks.ts）。
+// 部品が伝わりを止める札（一覧の PR の札）もあるので、捕捉の段で受ける。
 if (typeof (window as unknown as Partial<DesktopEnv>).__TAURI_INTERNALS__?.invoke === 'function') {
   holdPageAwake(navigator as unknown as LockEnv);
   document.addEventListener('contextmenu', (e) => suppressNativeMenu(e, () => window.getSelection()?.toString() ?? ''));
+  const shell = createDesktopBridge(window);
+  if (shell?.openLink) {
+    const open = linkOpener({ openLink: shell.openLink });
+    for (const type of ['click', 'auxclick'] as const) document.addEventListener(type, (e) => { openAnchorInShell(e, open); }, true);
+  }
 }
 
 const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
