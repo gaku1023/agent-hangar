@@ -181,4 +181,24 @@ describe('Codex のアカウントの口と DTO', () => {
     expect((await call('POST', '/sessions/s-cl/switch-account', { account: claude.id })).status).toBe(201);
     expect(claudeStore.current().id).toBe(claude.id);
   });
+
+  it('リンクの修復：中身が違う config.toml を linkConflicts に出し、詳細と直しの口がある', async () => {
+    fs.writeFileSync(path.join(codexDir, 'config.toml'), 'model = "a"');
+    const dir = path.join(userHome, '.codex-work');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'config.toml'), 'model = "b"');
+    const added = await call('POST', '/codex/accounts', { name: '会社', dir });
+    const id = added.json.codex!.accounts[1]!.id;
+    const list = await call('GET', '/codex/accounts');
+    expect(list.json.accounts[1]).toMatchObject({ linkConflicts: ['config.toml'] });
+    expect(list.json.accounts[1]!.linkProblem).toContain('選んで修復して');
+    const d = await call('GET', `/codex/accounts/${id}/link-conflicts`);
+    expect(d.json).toMatchObject({ accountId: id, agent: 'codex', entries: [{ name: 'config.toml', mine: { text: 'model = "b"' }, shared: { text: 'model = "a"' } }] });
+    expect((await call('POST', `/codex/accounts/${id}/link-conflicts`, { entries: [{ name: 'evil', keep: 'mine' }] })).status).toBe(400);
+    const r = await call('POST', `/codex/accounts/${id}/link-conflicts`, { entries: [{ name: 'config.toml', keep: 'mine' }] });
+    expect(r.status).toBe(200);
+    expect(r.json.codex?.accounts[1]).toMatchObject({ linkConflicts: [], linkProblem: null });
+    expect(fs.readFileSync(path.join(codexDir, 'config.toml'), 'utf8')).toBe('model = "b"');
+    expect(fs.lstatSync(path.join(dir, 'config.toml')).isSymbolicLink()).toBe(true);
+  });
 });

@@ -60,7 +60,7 @@ describe('ensureAccountLinks', () => {
     const eperm = (): never => { throw Object.assign(new Error('EPERM: operation not permitted, symlink'), { code: 'EPERM' }); };
     const r = ensureAccountLinks(primary, dir, {
       platform: 'win32',
-      fs: { existsSync: fs.existsSync, lstatSync: fs.lstatSync, statSync: fs.statSync, readlinkSync: (p) => fs.readlinkSync(p),
+      fs: { readFileSync: (f) => fs.readFileSync(f), renameSync: fs.renameSync, unlinkSync: fs.unlinkSync, copyFileSync: (a, b) => fs.copyFileSync(a, b), writeFileSync: (f, d) => fs.writeFileSync(f, d), existsSync: fs.existsSync, lstatSync: fs.lstatSync, statSync: fs.statSync, readlinkSync: (p) => fs.readlinkSync(p),
         symlinkSync: (t, l, type) => (type === 'junction' ? fs.symlinkSync(t, l) : eperm()) },
     });
     expect(r).toEqual({ created: ['skills', 'projects'], conflicts: [], unlinked: ['settings.json'] });

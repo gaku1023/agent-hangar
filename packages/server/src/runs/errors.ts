@@ -6,7 +6,7 @@ import { MessageError, type Message } from '../i18n/message.ts';
  * body は、応答の本文に error と並べて載せる項目である。画面が断られた理由を見分けて、確認を出すのに使う。
  */
 export class RunError extends MessageError {
-  constructor(readonly status: 400 | 404 | 409, text: Message | string, readonly body?: Readonly<Record<string, string | number>>) {
+  constructor(readonly status: 400 | 404 | 409, text: Message | string, readonly body?: Readonly<Record<string, string | number | readonly string[]>>) {
     super(text);
     this.name = 'RunError';
   }

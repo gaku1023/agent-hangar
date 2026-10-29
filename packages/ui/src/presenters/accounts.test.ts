@@ -90,6 +90,10 @@ describe('presentAccount', () => {
     expect(v.updatedLabel).toBe('3 分前');
     expect(v).toMatchObject({ id: 'primary', name: '会社', color: '#2a57b8', primary: true, dir: '/h/.claude', linkProblem: 'リンクが壊れています' });
   });
+  it('linkConflicts（選んで直せるファイル）をそのまま運ぶ', () => {
+    expect(view({ linkConflicts: ['settings.json'] }).linkConflicts).toEqual(['settings.json']);
+    expect(view({}).linkConflicts).toEqual([]);
+  });
 });
 
 describe('presentAccounts', () => {

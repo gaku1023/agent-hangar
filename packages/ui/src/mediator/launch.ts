@@ -159,8 +159,15 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
       const shown = state.overlay.kind === 'newSession';
       // 失敗した起動の下書きは、やり直せるよう残す。送った印だけ外す。
       const created = state.launch.kind === 'submitting' ? state.launch.createdProjectId : undefined;
-      const next = { ...state, launch: { kind: 'failed' as const, message: ev.message, ...(created ? { createdProjectId: created } : {}) }, newSessionSent: false };
-      return { state: next, effects: shown ? [] : [{ kind: 'toast', level: 'error', message: ev.message }] };
+      const next = { ...state, launch: { kind: 'failed' as const, message: ev.message, ...(created ? { createdProjectId: created } : {}), ...(ev.linkConflict ? { linkConflict: ev.linkConflict } : {}) }, newSessionSent: false };
+      if (shown) return { state: next, effects: [] };
+      // リンクの場所のファイルの衝突は、トーストから修復のダイアログへ進める（#513）。
+      if (ev.linkConflict) {
+        const label = translatorOf(store)('account.repair.button');
+        const toast = { id: String(next.nextToastId), level: 'error' as const, message: ev.message, action: { label, send: { type: 'linkRepair.open' as const, ...ev.linkConflict } } };
+        return { state: { ...next, toasts: [...next.toasts, toast], nextToastId: next.nextToastId + 1 }, effects: [] };
+      }
+      return { state: next, effects: [{ kind: 'toast', level: 'error', message: ev.message }] };
     }
     return null;
   }

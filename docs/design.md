@@ -5270,6 +5270,37 @@ Claude をいったん止めて再開するので、確認は止める旨を言�
 最初のアカウントは外せない。
 外す前に確認を挟み、置き場は消さずに登録だけを外すと言う。
 
+#### リンクの衝突と修復
+
+2 つ目以降の置き場の項目（`settings.json` など）は、最初の置き場へのリンクである。
+`claude doctor` などが、リンクの先ではなくリンクそのものを実ファイルで置き換えると、リンクの場所に実ファイルが残る（#513）。
+データを失わないために、黙って消さない方針は保ち、衝突を 3 つに分ける（`platform/links.ts`）。
+
+- **中身が同じ実ファイル**：`linkEntries` が、リンクの場所がファイル（別の先を指すリンクならその先がファイル）で、最初の置き場のファイルとバイト単位で同じなら、失うものが無いので、make のときは張り直して `created` に入れ、点検（make でない）のときは `conflicts` に入れない。消す前に一時名へ rename し、張れなければ戻して `unlinked` に挙げる（Windows の EPERM の扱いと同じ）。
+- **中身が違うファイル**：起動と点検は今までどおり止め、選んで直せる。`AccountDto.linkConflicts` が、両側がファイルで中身が違う項目の名前を持つ（ディレクトリと張れなかった項目は入れない）。`linkProblem` の文は、衝突が全部この種類のときだけ `account.links.conflictFiles`（どちらを残すか選んで直す）になる。ディレクトリが混じれば今の `account.links.conflict` のまま。
+- **ディレクトリ**：`projects` などが実体になった場合は中身の統合が要るので、触らずに挙げる。
+
+直す口は、Claude が `GET|POST /api/accounts/:id/link-conflicts`、Codex が `GET|POST /api/codex/accounts/:id/link-conflicts` である。
+GET は `LinkConflictsDto`（項目ごとに `mine`（そのアカウントの置き場）と `shared`（最初の置き場）の `text`、`mtimeMs`、`size`。`text` は 256KB を超えるか NUL を含むと null）を返す。
+POST は `{ entries: [{ name, keep: 'mine' | 'shared' }] }` を受け、直したあと点検の覚えを更新して `AccountsDto` を返す。名前は `LINKED_ENTRIES` と `CODEX_LINKED_ENTRIES` にあるものだけを受け、パスの細工は断る。
+
+- `shared` を残す：そのアカウントの置き場のファイルを `<名前>.bak-hangar-YYYYMMDD-HHMMSS`（ローカル時刻）へ rename し、リンクを張る。
+- `mine` を残す：最初の置き場のファイルを `<名前>.bak-hangar-…` へ写し、手元の中身を最初の置き場のファイルへ書く。最初の置き場のファイルがさらに dotfiles へのリンクのことがあるので、rename で置き換えず、リンクをたどって書く。そのあと手元のファイルを一時名へ避けてリンクを張り、成功したら一時名を消す。失敗したら戻す。
+- 退避名が既にあれば `-2`、`-3` を付けて重ねない。ディレクトリは断る。既に共有へのリンクなら何もしない。
+
+起動が、この種類の衝突だけで断られたときは、応答に `code: 'account_link_conflict'`、`accountId`、`agent`、直せるファイル名 `files` を載せる（400。`RunError` の `body`）。
+画面はこれで修復のダイアログを開ける（UI の `AccountLinkConflictApiError`）。ディレクトリの衝突が混じるときは、直しても起動できないので、符号を付けず文だけを返す。
+
+画面の入口は 3 つで、どれも `linkRepair.open`（エージェントとアカウントの id）を出す。
+再開とフォークの起動の失敗のトースト（`launch.failed` が `linkConflict` を運ぶ）、新しいセッションのダイアログの失敗の行、設定のアカウントの行（`linkConflicts` が空でないとき。Claude と Codex の両方）に「修復…」を置く。
+ダイアログ（`views/LinkRepairDialog.tsx`、`presenters/linkRepair.ts`、`mediator/linkRepair.ts`）は、設定の同期の競合のダイアログと同じ形で、ファイルごとの札に 2 つの更新時刻、共有設定からこのアカウントへの行の差分、2 択のボタンを置く。
+本文が読めない側（256KB 超かバイナリ）があれば、差分の代わりに理由を言う。
+全部の札で選ぶまで「修復」は押せず、直している間は閉じない。
+断られた理由と読めなかった理由はダイアログの中に出す。
+直せたら閉じて、右下に知らせを出す。新しいセッションのダイアログから開いたときは、閉じるか直せたらそこへ戻る（直せたときは失敗の行を消す）。
+動きは新しく作らず、ダイアログは既存の出入り、設定の行の注意の 1 行は入りが `growIn`、直って消えるときが `collapseOut` である。
+
+
 ### Home
 
 上から順に、40px の帯、一覧の見出し、状態のタブ、検索の欄と絞り込みのボタン、平らな一覧を 1 列に置く（試作は `docs/superpowers/specs/2026-10-09-home/options.html` の B）。

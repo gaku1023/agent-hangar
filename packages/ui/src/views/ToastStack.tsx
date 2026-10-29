@@ -507,6 +507,9 @@ function ErrorToast(props: { toast: Toast; motion: CardMotion }) {
       <div className="notice-body">
         <div ref={message} className="notice-message">{props.toast.message}</div>
         {long && <button type="button" className="btn-link notice-more" aria-expanded={open} onClick={() => setOpen(!open)}>{t('toasts.error.more')}</button>}
+        {props.toast.action && (
+          <button type="button" className="btn btn-sm notice-action" onClick={() => { emit(props.toast.action!.send); emit({ type: 'toast.dismiss', id: props.toast.id }); }}>{props.toast.action.label}</button>
+        )}
       </div>
     </div>
   );

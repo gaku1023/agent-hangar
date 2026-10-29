@@ -8,6 +8,7 @@ import { connectionStep } from './connection.ts';
 import { interruptedStep } from './interrupted.ts';
 import { launchStep } from './launch.ts';
 import { muxGuideStep } from './muxGuide.ts';
+import { linkRepairStep } from './linkRepair.ts';
 import { setupStep } from './setup.ts';
 import { liveStep, settleWaiting } from './live.ts';
 import { returnStep } from './returnDue.ts';
@@ -41,7 +42,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, launchPrep: null, contextShorts: [], modelMissings: [], waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, accountAdd: { kind: 'idle' }, toasts: [], arrivedProjects: [], phoneLaunches: [], sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH_DEFAULT, sidebarOrder: [], panes: emptyPanes(), sidebarFolded: [], projectRailFolded: {}, noticesRead: [], diskShortToasted: false, opencodeVersionSeen: null, codexVersionSeen: null, newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, launchPrep: null, contextShorts: [], modelMissings: [], waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, accountAdd: { kind: 'idle' }, linkRepair: { detail: null, working: false, error: null }, toasts: [], arrivedProjects: [], phoneLaunches: [], sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH_DEFAULT, sidebarOrder: [], panes: emptyPanes(), sidebarFolded: [], projectRailFolded: {}, noticesRead: [], diskShortToasted: false, opencodeVersionSeen: null, codexVersionSeen: null, newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string, holdMs?: number): State {
@@ -56,6 +57,7 @@ export function transition(state: State, store: Store, input: Input): Step {
   // muxGuide は、セッションを始める操作（launch と resumeHere が受けるもの）を psmux が無いときに止めるので、それらより前に置く。
   // promoteStep、projectCreateStep、retentionStep は overlay.close を横取りするので overlayStep より前に置く。
   // accountsStep は確認を出す領域なので、overlayStep より前に置く。
+  // linkRepair は overlay.close を横取りする（直している最中は閉じない）ので、overlayStep より前に置く。
   // configSync は適用の最中の overlay.close を握りつぶすので、overlayStep より前に置く。
   // syncStep と resumeHereStep は overlayStep の後ろに置く。
   // 確認ダイアログと下見のダイアログは overlay.close で閉じたいので、横取りする領域の後ろでなければならない。
@@ -77,12 +79,13 @@ export function transition(state: State, store: Store, input: Input): Step {
   const launch = (s: State, i: Input) => launchStep(s, store, i);
   const interrupted = (s: State, i: Input) => interruptedStep(s, store, i);
   const muxGuide = (s: State, i: Input) => muxGuideStep(s, store, i);
+  const linkRepair = (s: State, i: Input) => linkRepairStep(s, store, i);
   const promote = (s: State, i: Input) => promoteStep(s, store, i);
   const projectCreate = (s: State, i: Input) => projectCreateStep(s, store, i);
   const projectCandidates = (s: State, i: Input) => projectCandidatesStep(s, store, i);
   const settings = (s: State, i: Input) => settingsStep(s, store, i);
   const pane = (s: State, i: Input) => paneStep(s, store, i);
-  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, pane, sidebarStep, sidebarOrderStep, sidebarFoldStep, sidebarWidthStep, projectRailStep, returnStep, arrived, phoneLaunch, contextShort, modelMissing, noticesStep, notifyStep, update, opencodeVersion, codexVersion, cloudMemberStep, todos, workbench]) {
+  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, linkRepair, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, pane, sidebarStep, sidebarOrderStep, sidebarFoldStep, sidebarWidthStep, projectRailStep, returnStep, arrived, phoneLaunch, contextShort, modelMissing, noticesStep, notifyStep, update, opencodeVersion, codexVersion, cloudMemberStep, todos, workbench]) {
     const r = step(state, input);
     if (r) return settled(state, r, store);
   }

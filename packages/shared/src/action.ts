@@ -313,6 +313,9 @@ export type UiAction =
   | { type: 'account.remove'; accountId: string; confirmed?: boolean; agent?: 'codex' }
   | { type: 'account.login'; accountId: string; agent?: 'codex'; method?: 'browser' | 'deviceCode' } | { type: 'account.login.cancel'; accountId: string; agent?: 'codex' }
   | { type: 'account.refresh'; accountId: string; agent?: 'codex' }
+  // 共有のリンクが実ファイルに置き換わった衝突の修復（#513）。open は修復のダイアログを開いて両側の中身を読み、apply は選んだとおりに直す。
+  | { type: 'linkRepair.open'; agent: 'claude-code' | 'codex'; accountId: string }
+  | { type: 'linkRepair.apply'; entries: { name: string; keep: 'mine' | 'shared' }[] }
   // デスクトップの殻に頼む操作。殻の無いブラウザでは、画面が場所のコピーと文の案内に落とす。
   | { type: 'shell.openLog' } | { type: 'shell.restart' }
   // done は写せたときにトーストで出す知らせ。書けなかったときは出さない。

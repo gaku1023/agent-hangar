@@ -8,6 +8,8 @@ import { useT } from './primitives/language.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { InfoTip } from './primitives/InfoTip.tsx';
 import { MenuButton, type MenuItem } from './primitives/MenuButton.tsx';
+import { collapseOut, growIn, motionOn } from './primitives/motionKit.ts';
+import { usePresence } from './primitives/usePresence.ts';
 
 /**
  * 行の「ログイン」と「やめる」は、押すとすぐ同じ場所で入れ替わる。
@@ -34,6 +36,26 @@ function stateParts(t: Translate, a: AccountView): { main: string; hint: string 
     case 'in': return { main: who, hint: '' };
     case 'unknown': return { main: '', hint: '' };
   }
+}
+
+/**
+ * 行の下の注意の 1 行。入るときは高さを 0 から伸ばし（growIn）、直って消えるときは畳む（collapseOut）。
+ * 畳む間は、消える前の文を出し続ける。畳む間は読み上げから外す。
+ */
+function ProblemNote(props: { text: string | null }) {
+  const last = useRef(props.text);
+  if (props.text !== null) last.current = props.text;
+  const note = usePresence<HTMLDivElement>(props.text !== null, (el) => (motionOn(el) ? collapseOut(el) : null));
+  // 設定を開いたときに最初からある注意は、動かさない（入る動きは、あとから現れたときだけ）。
+  const first = useRef(true);
+  useLayoutEffect(() => {
+    if (first.current) { first.current = false; return; }
+    if (props.text !== null && note.ref.current) growIn(note.ref.current);
+    // 入る向きの変わり目だけで動かす。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.text !== null]);
+  if (!note.mounted) return null;
+  return <div ref={note.ref} className="account-set-problem" aria-hidden={note.leaving ? true : undefined}>{last.current}</div>;
 }
 
 /**
@@ -141,11 +163,12 @@ function AccountRow(props: { account: AccountView; agent: Agent; colors: string[
           {a.auth === 'out' && <button type="button" className="btn btn-sm" disabled={guarded} onClick={() => emit({ type: 'account.login', accountId: a.id, ...ag })}>{t('account.settings.login')}</button>}
           {a.auth === 'running' && ag.agent === 'codex' && a.login?.method !== 'deviceCode' && <button type="button" className="btn btn-sm" disabled={guarded} onClick={() => emit({ type: 'account.login', accountId: a.id, agent: 'codex', method: 'deviceCode' })}>{t('account.login.deviceCodeButton')}</button>}
           {a.auth === 'running' && <button type="button" className="btn btn-sm" disabled={guarded} onClick={() => emit({ type: 'account.login.cancel', accountId: a.id, ...ag })}>{t('account.settings.cancel')}</button>}
+          {a.linkConflicts.length > 0 && <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'linkRepair.open', agent: ag.agent === 'codex' ? 'codex' : 'claude-code', accountId: a.id })}>{t('account.repair.button')}</button>}
           <MenuButton label={t('account.settings.actionsFor', { name: a.name })} items={items} minWidth={240} />
         </span>
       </div>
       {coloring && <ColorBand account={a} agent={ag} colors={props.colors} onDone={() => setColoring(false)} />}
-      {a.linkProblem !== null && <div className="account-set-problem">{a.linkProblem}</div>}
+      <ProblemNote text={a.linkProblem} />
     </li>
   );
 }

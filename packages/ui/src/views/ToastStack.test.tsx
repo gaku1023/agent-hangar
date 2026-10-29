@@ -271,6 +271,11 @@ describe('info と error のトースト', () => {
     fireEvent.click(within(alert).getByRole('button', { name: '閉じる' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'toast.dismiss', id: '1' });
   });
+  it('action を持つ error は、本文の下にボタンを出し、押すとその操作を送ってトーストを閉じる', () => {
+    const { onAction } = mount(props({ toasts: [{ id: '1', level: 'error', message: '外れています', action: { label: '修復…', send: { type: 'linkRepair.open', agent: 'claude-code', accountId: 'a1' } } }] }));
+    fireEvent.click(within(screen.getByRole('alert')).getByRole('button', { name: '修復…' }));
+    expect(onAction.mock.calls.map((c) => c[0])).toEqual([{ type: 'linkRepair.open', agent: 'claude-code', accountId: 'a1' }, { type: 'toast.dismiss', id: '1' }]);
+  });
   it('holdMs を持つ error は、その長さで消える。乗せている間は止める', () => {
     const { onAction } = mount(props({ toasts: [{ id: '1', level: 'error', message: '見つかりません', holdMs: 8000 }] }));
     act(() => { vi.advanceTimersByTime(7000); });

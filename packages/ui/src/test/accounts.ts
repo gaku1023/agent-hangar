@@ -11,8 +11,8 @@ export const SEVEN_RESETS = 4_000_100_000_000;
 export const accountsFixture: AccountsDto = {
   currentId: 'primary',
   accounts: [
-    { id: 'primary', name: '会社', dir: '/h/.claude', color: '#2a57b8', primary: true, auth: { loggedIn: true, email: 'taro@example.co.jp', plan: 'max', orgName: null, checkedAt: 1 }, usage: { fiveHour: { usedPercent: 82, resetsAt: FIVE_RESETS }, sevenDay: { usedPercent: 41, resetsAt: SEVEN_RESETS }, updatedAt: 500 }, loginRunning: false, linkProblem: null },
-    { id: 'a1', name: '大学', dir: '/h/.claude-univ', color: '#7a4a9e', primary: false, auth: { loggedIn: true, email: 'taro@example.ac.jp', plan: 'enterprise', orgName: null, checkedAt: 1 }, usage: { fiveHour: { usedPercent: 12, resetsAt: FIVE_RESETS }, sevenDay: { usedPercent: 9, resetsAt: SEVEN_RESETS }, updatedAt: 500 }, loginRunning: false, linkProblem: null },
+    { id: 'primary', name: '会社', dir: '/h/.claude', color: '#2a57b8', primary: true, auth: { loggedIn: true, email: 'taro@example.co.jp', plan: 'max', orgName: null, checkedAt: 1 }, usage: { fiveHour: { usedPercent: 82, resetsAt: FIVE_RESETS }, sevenDay: { usedPercent: 41, resetsAt: SEVEN_RESETS }, updatedAt: 500 }, loginRunning: false, linkProblem: null, linkConflicts: [] },
+    { id: 'a1', name: '大学', dir: '/h/.claude-univ', color: '#7a4a9e', primary: false, auth: { loggedIn: true, email: 'taro@example.ac.jp', plan: 'enterprise', orgName: null, checkedAt: 1 }, usage: { fiveHour: { usedPercent: 12, resetsAt: FIVE_RESETS }, sevenDay: { usedPercent: 9, resetsAt: SEVEN_RESETS }, updatedAt: 500 }, loginRunning: false, linkProblem: null, linkConflicts: [] },
   ],
   sessions: { s9: 'a1' },
 };
@@ -26,8 +26,8 @@ export const codexAccountsFixture: AccountsDto = {
   codex: {
     currentId: 'primary',
     accounts: [
-      { id: 'primary', name: '個人', dir: '/h/.codex', color: '#7a4a9e', primary: true, auth: { loggedIn: true, email: 'me@personal.example', plan: 'plus', orgName: null, checkedAt: 1 }, usage: { fiveHour: { usedPercent: 23, resetsAt: FIVE_RESETS }, sevenDay: { usedPercent: 37, resetsAt: SEVEN_RESETS }, updatedAt: 500 }, loginRunning: false, linkProblem: null },
-      { id: 'cw', name: '会社用', dir: '/h/.codex-work', color: '#c77a1a', primary: false, auth: { loggedIn: true, email: 'me@company.example', plan: 'business', orgName: null, checkedAt: 1 }, usage: { fiveHour: { usedPercent: 4, resetsAt: FIVE_RESETS }, sevenDay: { usedPercent: 11, resetsAt: SEVEN_RESETS }, updatedAt: 500 }, loginRunning: false, linkProblem: null },
+      { id: 'primary', name: '個人', dir: '/h/.codex', color: '#7a4a9e', primary: true, auth: { loggedIn: true, email: 'me@personal.example', plan: 'plus', orgName: null, checkedAt: 1 }, usage: { fiveHour: { usedPercent: 23, resetsAt: FIVE_RESETS }, sevenDay: { usedPercent: 37, resetsAt: SEVEN_RESETS }, updatedAt: 500 }, loginRunning: false, linkProblem: null, linkConflicts: [] },
+      { id: 'cw', name: '会社用', dir: '/h/.codex-work', color: '#c77a1a', primary: false, auth: { loggedIn: true, email: 'me@company.example', plan: 'business', orgName: null, checkedAt: 1 }, usage: { fiveHour: { usedPercent: 4, resetsAt: FIVE_RESETS }, sevenDay: { usedPercent: 11, resetsAt: SEVEN_RESETS }, updatedAt: 500 }, loginRunning: false, linkProblem: null, linkConflicts: [] },
     ],
     sessions: { c1: 'cw' },
   },

@@ -1,7 +1,7 @@
 import type { Context, Hono } from 'hono';
 import type { AccountDirPreviewDto, AccountsDto } from '@agent-hangar/shared';
 import type { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
-import { ensureAccountLinks, inspectAccountLinks, linkProblemMessage } from '../provider/claude-code/config/accountLinks.ts';
+import { ensureAccountLinks, inspectAccountLinks, LINKED_ENTRIES, linkProblemMessage } from '../provider/claude-code/config/accountLinks.ts';
 import { AccountError, PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
@@ -10,6 +10,8 @@ import { sessionAccounts } from '../db/queries.ts';
 import { RunError, type RunManager } from '../runs/manager.ts';
 import type { AgentUsageTracker } from '../usage/agentUsage.ts';
 import type { UsageTracker } from '../usage/statusline.ts';
+import { fixableConflicts } from '../platform/links.ts';
+import { linkConflictsOf, parseRepair, repairLinks, type LinkRepairTarget } from './linkRepair.ts';
 import { buildCodexAccountsDto, codexAccountsRoutes, type CodexAccountsDeps } from './codexAccounts.ts';
 
 export type AccountsDeps = { db: Db; store: AccountStore; auth: AccountAuth; usage: UsageTracker;
@@ -27,15 +29,23 @@ export type AccountsDeps = { db: Db; store: AccountStore; auth: AccountAuth; usa
 /** リンクの問題。辞書の文か、OS が返した失敗の文である。 */
 type LinkProblem = Message | string | null;
 
-/** 置き場のリンクの具合。欠けているリンクはここで張り直し、別のものが置かれている項目だけを問題として返す。 */
-function problemOf(primaryDir: string, a: Account): LinkProblem {
-  if (a.id === PRIMARY_ACCOUNT_ID) return null;
-  try { const r = ensureAccountLinks(primaryDir, a.dir); return linkProblemMessage(r.conflicts, r.unlinked); } catch (e) { return causeOf(e); }
+/** 点検の結果。fixable は、そのうち選んで直せるファイルの名前（AccountDto.linkConflicts）。 */
+type LinkState = { problem: LinkProblem; fixable: string[] };
+const NO_PROBLEM: LinkState = { problem: null, fixable: [] };
+
+/** 置き場のリンクの具合。欠けているリンクや中身が同じ実ファイルはここで張り直し、別のものが置かれている項目だけを問題として返す。 */
+function problemOf(primaryDir: string, a: Account): LinkState {
+  if (a.id === PRIMARY_ACCOUNT_ID) return NO_PROBLEM;
+  try {
+    const r = ensureAccountLinks(primaryDir, a.dir);
+    const fixable = fixableConflicts(primaryDir, a.dir, r.conflicts);
+    return { problem: linkProblemMessage(r.conflicts, r.unlinked, fixable), fixable };
+  } catch (e) { return { problem: causeOf(e), fixable: [] }; }
 }
 
 /** アカウントの id ごとの、最後に点検したリンクの結果。AccountsDeps は app.ts で写されるので、共有の AccountStore に結ぶ。文にするのは配るときなので、言語を変えたあとも点検し直さずに済む。 */
-const linkProblems = new WeakMap<AccountStore, Map<string, LinkProblem>>();
-const memoOf = (store: AccountStore): Map<string, LinkProblem> => {
+const linkProblems = new WeakMap<AccountStore, Map<string, LinkState>>();
+const memoOf = (store: AccountStore): Map<string, LinkState> => {
   let m = linkProblems.get(store);
   if (!m) { m = new Map(); linkProblems.set(store, m); }
   return m;
@@ -62,7 +72,7 @@ export function buildAccountsDto(deps: AccountsDeps, opts: { checkLinks?: boolea
   return {
     currentId: deps.store.current().id,
     accounts: list.map((a) => ({
-      ...a, primary: a.id === PRIMARY_ACCOUNT_ID, auth: deps.auth.get(a.id), usage: deps.usage.of(a.id), loginRunning: deps.auth.loginRunning(a.id), linkProblem: problemText(memo.get(a.id) ?? null),
+      ...a, primary: a.id === PRIMARY_ACCOUNT_ID, auth: deps.auth.get(a.id), usage: deps.usage.of(a.id), loginRunning: deps.auth.loginRunning(a.id), linkProblem: problemText((memo.get(a.id) ?? NO_PROBLEM).problem), linkConflicts: (memo.get(a.id) ?? NO_PROBLEM).fixable,
     })),
     sessions,
     ...(codex ? { codex } : {}),
@@ -100,6 +110,16 @@ export function accountsRoutes(api: Hono, deps: AccountsDeps): void {
   };
 
   codexAccountsRoutes(api, deps, changed);
+
+  const target: LinkRepairTarget = { agent: 'claude-code', primaryDir: deps.primaryDir, names: LINKED_ENTRIES };
+  // 中身が違うファイルの衝突の修復。GET は両側の中身、POST は選んで直し、点検の覚えを更新して AccountsDto を返す。
+  api.get('/accounts/:id/link-conflicts', (c) => guard(c, () => c.json(linkConflictsOf(target, must(c.req.param('id'))))));
+  api.post('/accounts/:id/link-conflicts', (c) => guard(c, async () => {
+    const a = must(c.req.param('id'));
+    const entries = parseRepair(target, await bodyOf(c));
+    try { repairLinks(target, a, entries); } catch (e) { changed(true); throw e; }
+    return c.json(changed(true) as object);
+  }));
 
   api.get('/accounts', (c) => {
     // まだ読んでいない認証は裏で読み、終わったら accounts.update で届く。応答は待たない。

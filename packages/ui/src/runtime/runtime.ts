@@ -22,7 +22,7 @@ import { clientPlatform, notifyBlockedKey, readinessComplete, readinessPending }
 import { unresolvedKind } from '../presenters/unresolved.ts';
 import type { FocusTarget, SessionViewState, TodoCall, TurnJumpStatus } from '../mediator/types.ts';
 import { applyGit, shownLive, aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, withoutProject, type ConfigDetailPart, type Store } from '../store/store.ts';
-import { ApiConflictError, ApiNotFoundError, LaunchPrepAskApiError, LaunchPrepCancelledApiError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient, type EventsQuery } from './api.ts';
+import { AccountLinkConflictApiError, ApiConflictError, ApiNotFoundError, LaunchPrepAskApiError, LaunchPrepCancelledApiError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient, type EventsQuery } from './api.ts';
 import { nestedInspect } from '../store/folderInspect.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { actionCall, isTableAction, type ApiCall } from './actionTable.ts';
@@ -317,6 +317,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const launchFailed = (e: unknown) => {
     if (e instanceof LaunchPrepAskApiError) dispatch({ kind: 'runtime', event: { type: 'launch.halted', why: 'ask', message: e.message } });
     else if (e instanceof LaunchPrepCancelledApiError) dispatch({ kind: 'runtime', event: { type: 'launch.halted', why: 'cancel', message: e.message } });
+    else if (e instanceof AccountLinkConflictApiError) dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e), linkConflict: { agent: e.body.agent, accountId: e.body.accountId } } });
     else dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e) } });
   };
   const strayConflict = (sessionId: string, err: StrayProcessApiError, queued: boolean) =>
@@ -911,6 +912,20 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           const added = (e.agent === 'codex' ? accounts.codex?.accounts : accounts.accounts)?.at(-1);
           if (added) (e.agent === 'codex' ? deps.api.loginCodexAccount(added.id, 'browser') : deps.api.loginAccount(added.id)).catch(fail);
         }).catch((err: unknown) => dispatch({ kind: 'runtime', event: { type: 'account.add.failed', message: errMsg(err) } }));
+        return;
+      case 'api.linkRepair.load':
+        // 両側の中身を読む。ほかで直っていて項目が空なら、一覧も取り直す（行の注意を消すため）。
+        deps.api.linkConflicts(e.agent, e.accountId).then((detail) => {
+          dispatch({ kind: 'runtime', event: { type: 'linkRepair.loaded', detail } });
+          if (detail.entries.length === 0) deps.api.accounts().then(accountsUpdated).catch(fail);
+        }).catch((err: unknown) => dispatch({ kind: 'runtime', event: { type: 'linkRepair.loadFailed', message: errMsg(err) } }));
+        return;
+      case 'api.linkRepair.apply':
+        // 断られた理由はダイアログに残す（linkRepair.failed）。トーストにはしない。
+        deps.api.repairLinkConflicts(e.agent, e.accountId, e.entries).then((accounts) => {
+          accountsUpdated(accounts);
+          dispatch({ kind: 'runtime', event: { type: 'linkRepair.done', names: e.entries.map((x) => x.name) } });
+        }).catch((err: unknown) => dispatch({ kind: 'runtime', event: { type: 'linkRepair.failed', message: errMsg(err) } }));
         return;
       case 'api.accounts.remove': (e.agent === 'codex' ? deps.api.removeCodexAccount(e.accountId) : deps.api.removeAccount(e.accountId)).then(accountsUpdated).catch(fail); return;
       default: {

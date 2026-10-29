@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { accountsFixture } from '../test/accounts.ts';
-import { ApiConflictError, ApiNotFoundError, ApiStatusError, createApi, LaunchPrepAskApiError, LaunchPrepCancelledApiError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient } from './api.ts';
+import { AccountLinkConflictApiError, ApiConflictError, ApiNotFoundError, ApiStatusError, createApi, LaunchPrepAskApiError, LaunchPrepCancelledApiError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient } from './api.ts';
 
 function harness(status = 200, body: unknown = { ok: true }) {
   const calls: { url: string; method: string; body: string | undefined }[] = [];
@@ -385,3 +385,26 @@ describe('起動前の準備の API', () => {
     await expect(other.api.launch({ projectId: 'p1' })).rejects.toMatchObject({ message: 'busy', status: 409 });
   });
 });
+
+describe('createApi（リンクの修復）', () => {
+  it('経路とメソッドと本文。Codex は /api/codex 側', async () => {
+    const { api, calls } = harness();
+    await api.linkConflicts('claude-code', 'a1'); await api.linkConflicts('codex', 'c1');
+    await api.repairLinkConflicts('claude-code', 'a1', [{ name: 'settings.json', keep: 'mine' }]);
+    await api.repairLinkConflicts('codex', 'c1', [{ name: 'config.toml', keep: 'shared' }]);
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      'GET /api/accounts/a1/link-conflicts', 'GET /api/codex/accounts/c1/link-conflicts', 'POST /api/accounts/a1/link-conflicts', 'POST /api/codex/accounts/c1/link-conflicts',
+    ]);
+    expect(calls[2]!.body).toBe('{"entries":[{"name":"settings.json","keep":"mine"}]}');
+  });
+
+  it('起動が account_link_conflict の 400 で断られたら、型の付いた失敗にする', async () => {
+    const body = { code: 'account_link_conflict', error: '文', accountId: 'a1', agent: 'claude-code', files: ['settings.json'] };
+    const { api } = harness(400, body);
+    const e = await api.launch({ projectId: 'p1', name: 'n' }).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(AccountLinkConflictApiError);
+    expect((e as AccountLinkConflictApiError).body).toEqual(body);
+    expect((e as Error).message).toBe('文');
+  });
+});
+

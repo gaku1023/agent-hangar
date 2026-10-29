@@ -111,6 +111,35 @@ describe('RunAccounts', () => {
     expect(fs.lstatSync(path.join(a.dir, 'projects')).isDirectory()).toBe(true);
   });
 
+  it('envFor：中身が違うファイルだけの衝突は、修復の符号と直せるファイル名を載せて断る', () => {
+    fs.writeFileSync(path.join(claudeDir, 'settings.json'), 'shared');
+    const a = store.add({ name: '別' });
+    fs.mkdirSync(a.dir, { recursive: true });
+    fs.writeFileSync(path.join(a.dir, 'settings.json'), 'mine');
+    let err: unknown;
+    try { make().envFor(a); } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(RunError);
+    expect(err).toMatchObject({ status: 400, body: { code: 'account_link_conflict', accountId: a.id, agent: 'claude-code', files: ['settings.json'] } });
+    expect(fs.readFileSync(path.join(a.dir, 'settings.json'), 'utf8')).toBe('mine');
+  });
+
+  it('envFor：ディレクトリの衝突が混じるときは、符号を付けない', () => {
+    fs.writeFileSync(path.join(claudeDir, 'settings.json'), 'shared');
+    const a = store.add({ name: '別' });
+    fs.mkdirSync(path.join(a.dir, 'projects'), { recursive: true });
+    fs.writeFileSync(path.join(a.dir, 'settings.json'), 'mine');
+    expect(() => make().envFor(a)).toThrow(expect.objectContaining({ status: 400, body: undefined }));
+  });
+
+  it('envFor：中身が同じ実ファイルは、断らずに張り直す', () => {
+    fs.writeFileSync(path.join(claudeDir, 'settings.json'), 'same');
+    const a = store.add({ name: '別' });
+    fs.mkdirSync(a.dir, { recursive: true });
+    fs.writeFileSync(path.join(a.dir, 'settings.json'), 'same');
+    expect(make().envFor(a)).toEqual({ CLAUDE_CONFIG_DIR: a.dir });
+    expect(fs.lstatSync(path.join(a.dir, 'settings.json')).isSymbolicLink()).toBe(true);
+  });
+
   it('envFor：張れない項目（Windows の開発者モードが切のファイル）があっても断らず、残りは張って置き場を渡す', () => {
     const a = store.add({ name: '別' });
     fs.writeFileSync(path.join(claudeDir, 'settings.json'), '{}');
@@ -229,7 +258,7 @@ describe('Codex のアカウント', () => {
     const a = codexStore.add({ name: '別' });
     fs.mkdirSync(a.dir, { recursive: true });
     fs.writeFileSync(path.join(a.dir, 'config.toml'), 'mine');
-    expect(() => makeCodex().envFor(a, 'codex')).toThrow(expect.objectContaining({ status: 400 }));
+    expect(() => makeCodex().envFor(a, 'codex')).toThrow(expect.objectContaining({ status: 400, body: { code: 'account_link_conflict', accountId: a.id, agent: 'codex', files: ['config.toml'] } }));
   });
 
   it('Codex の store を持たなければ、アカウント無しで起こす', () => {

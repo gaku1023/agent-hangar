@@ -1,7 +1,7 @@
 import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, CloudUsageDto, EventsPageDto, FolderRegisterItem, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, WorkspaceChildrenDto } from '@agent-hangar/shared';
-import { ApiConflictError, ApiNotFoundError, LaunchPrepAskApiError, LaunchPrepCancelledApiError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient } from './api.ts';
+import { AccountLinkConflictApiError, ApiConflictError, ApiNotFoundError, LaunchPrepAskApiError, LaunchPrepCancelledApiError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient } from './api.ts';
 import { LONG_TOAST_MS } from './actionTable.ts';
 import { GIT_POLL_MS } from './gitWatch.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
@@ -2657,6 +2657,43 @@ describe('アカウント', () => {
     expect(h.rt.getState().overlay).toEqual({ kind: 'addAccount' });
     expect(h.rt.getState().accountAdd).toEqual({ kind: 'failed', message: 'その名前はもう使われています' });
     expect(h.rt.getState().toasts).toEqual([]);
+  });
+  describe('リンクの修復（#513）', () => {
+    const body = { code: 'account_link_conflict' as const, error: 'settings.json が共有設定から外れています', accountId: 'a1', agent: 'claude-code' as const, files: ['settings.json'] };
+    const detail = { accountId: 'a1', agent: 'claude-code' as const, entries: [{ name: 'settings.json', kind: 'file' as const, mine: { text: 'a', mtimeMs: 1, size: 1 }, shared: { text: 'b', mtimeMs: 2, size: 1 } }] };
+    it('起動が衝突で断られたら、トーストに「修復…」を付け、押すとダイアログを開いて両側の中身を読む', async () => {
+      const h = await started({ launch: vi.fn(async () => { throw new AccountLinkConflictApiError(body); }), linkConflicts: vi.fn(async () => detail) });
+      h.rt.emit({ type: 'session.new.submit', params: { projectId: 'p1' } });
+      await flush();
+      const toast = h.rt.getState().toasts[0]!;
+      expect(toast).toMatchObject({ level: 'error', message: body.error, action: { label: '修復…', send: { type: 'linkRepair.open', agent: 'claude-code', accountId: 'a1' } } });
+      h.rt.emit(toast.action!.send);
+      await flush();
+      expect(h.api.linkConflicts).toHaveBeenCalledWith('claude-code', 'a1');
+      expect(h.rt.getState().overlay).toMatchObject({ kind: 'linkRepair', accountId: 'a1' });
+      expect(h.rt.getState().linkRepair.detail).toEqual(detail);
+    });
+    it('apply は選んだとおりに repairLinkConflicts を呼び、返った一覧を Store に入れて、閉じて知らせる', async () => {
+      const next = { ...accountsFixture, currentId: 'a1' };
+      const h = await started({ linkConflicts: vi.fn(async () => detail), repairLinkConflicts: vi.fn(async () => next) });
+      h.rt.emit({ type: 'linkRepair.open', agent: 'claude-code', accountId: 'a1' });
+      await flush();
+      h.rt.emit({ type: 'linkRepair.apply', entries: [{ name: 'settings.json', keep: 'mine' }] });
+      await flush();
+      expect(h.api.repairLinkConflicts).toHaveBeenCalledWith('claude-code', 'a1', [{ name: 'settings.json', keep: 'mine' }]);
+      expect(h.rt.getStore().accounts).toEqual(next);
+      expect(h.rt.getState().overlay).toEqual({ kind: 'none' });
+      expect(h.rt.getState().toasts.at(-1)).toMatchObject({ level: 'info', message: '大学 の settings.json を共有に戻しました' });
+    });
+    it('断られたら、ダイアログを開いたまま理由を残す。読めなかったときも同じ', async () => {
+      const h = await started({ linkConflicts: vi.fn(async () => detail), repairLinkConflicts: vi.fn(async () => { throw new Error('この項目は選んで直せません'); }) });
+      h.rt.emit({ type: 'linkRepair.open', agent: 'claude-code', accountId: 'a1' });
+      await flush();
+      h.rt.emit({ type: 'linkRepair.apply', entries: [{ name: 'settings.json', keep: 'shared' }] });
+      await flush();
+      expect(h.rt.getState().overlay.kind).toBe('linkRepair');
+      expect(h.rt.getState().linkRepair).toMatchObject({ working: false, error: 'この項目は選んで直せません' });
+    });
   });
   it('account.add.preview は足す前の確かめを読み、Store に入れる', async () => {
     const preview = { name: 'univ', input: '', dir: '/Users/me/.claude-univ', suggested: true, exists: false, conflicts: [], registeredAs: null };

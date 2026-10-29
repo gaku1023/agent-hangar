@@ -1,6 +1,7 @@
 import type { AgentKind, LaunchResultDto, RunDto } from '@agent-hangar/shared';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import { ensureAccountLinks, linkProblemMessage } from '../provider/claude-code/config/accountLinks.ts';
+import { fixableConflicts } from '../platform/links.ts';
 import { ensureCodexAccountLinks } from '../provider/codex/config/accountLinks.ts';
 import type { Db } from '../db/open.ts';
 import { accountOfSession } from '../db/queries.ts';
@@ -83,14 +84,25 @@ export class RunAccounts {
       if (!c) return {};
       const r = ensureCodexAccountLinks(c.primaryDir, a.dir);
       // 張れなかった項目（Windows の開発者モードが切のときのファイル）は、そのアカウントだけのものとして起動する。札で案内する。
-      const problem = linkProblemMessage(r.conflicts);
-      if (problem) throw new RunError(400, problem);
+      this.refuseConflicts(r.conflicts, c.primaryDir, a, 'codex');
       return { CODEX_HOME: a.dir };
     }
     const r = ensureAccountLinks(this.deps.claudeDir, a.dir);
-    const problem = linkProblemMessage(r.conflicts);
-    if (problem) throw new RunError(400, problem);
+    this.refuseConflicts(r.conflicts, this.deps.claudeDir, a, 'claude-code');
     return { CLAUDE_CONFIG_DIR: a.dir };
+  }
+
+  /**
+   * リンクの場所に別のものがあれば断る。
+   * 全部が「中身が違うファイル」なら、画面が修復のダイアログを開けるよう、符号と直せるファイル名を応答に載せる。
+   * ディレクトリが混じれば、直しても通らないので、文だけにする。
+   */
+  private refuseConflicts(conflicts: string[], primaryDir: string, a: Account, agent: 'claude-code' | 'codex'): void {
+    if (conflicts.length === 0) return;
+    const fixable = fixableConflicts(primaryDir, a.dir, conflicts);
+    const problem = linkProblemMessage(conflicts, [], fixable)!;
+    const all = fixable.length === conflicts.length;
+    throw new RunError(400, problem, all ? { code: 'account_link_conflict', accountId: a.id, agent, files: fixable } : undefined);
   }
 }
 
