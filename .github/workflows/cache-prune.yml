@@ -1,0 +1,55 @@
+name: cache-prune
+# Actions のキャッシュはリポジトリで 10GB までで、超えると古いものから消える。
+# PR ごとの npm のキャッシュと、ロックファイルが変わるたびに main に積もる古いキャッシュが、main の Rust のキャッシュを押し出しうる
+# （2026-10-29 に合計 10.8GB）。閉じた PR の分と、main の使われなくなった分を消す。
+on:
+  # 閉じた PR のキャッシュは、もう誰も読まない。
+  # dependabot の PR では pull_request の token が読み取りだけになるので、pull_request_target で受ける。
+  # pull_request_target のジョブは書き込みの token を持つので、PR のコードは取り出さない（gh を叩くだけ）。
+  pull_request_target:
+    types: [closed]
+  schedule:
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+permissions: {}
+jobs:
+  pr:
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    timeout-minutes: 5
+    steps:
+      - name: 閉じた PR のキャッシュを消す
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          REF: refs/pull/${{ github.event.pull_request.number }}/merge
+        run: |
+          gh cache list --ref "$REF" --limit 100 --json id -q '.[].id' > ids.txt
+          echo "消す: $(wc -l < ids.txt) 件（${REF}）"
+          while read -r id; do gh cache delete "$id"; done < ids.txt
+  # 族（ロックファイルの指紋を除いた鍵）ごとに、いちばん新しく使われた 1 つを残す（apps/desktop/scripts/cache-prune.ts）。
+  main:
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: main の古いキャッシュを消す
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh cache list --ref refs/heads/main --limit 500 --json id,key,lastAccessedAt > "$RUNNER_TEMP/caches.json"
+          node --experimental-strip-types --no-warnings apps/desktop/scripts/cache-prune.ts stale "$RUNNER_TEMP/caches.json" > "$RUNNER_TEMP/stale.txt"
+          echo "消す: $(wc -l < "$RUNNER_TEMP/stale.txt") 件"
+          while read -r id; do gh cache delete "$id"; done < "$RUNNER_TEMP/stale.txt"
+          gh api "repos/$GITHUB_REPOSITORY/actions/cache/usage" -q '"残り: \(.active_caches_count) 件、\(.active_caches_size_in_bytes / 1e9 * 10 | floor / 10)GB"'

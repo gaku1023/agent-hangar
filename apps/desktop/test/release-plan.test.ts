@@ -321,6 +321,12 @@ describe('release.yml の配線', () => {
     expect(m.some((s) => s.startsWith('run: npm test'))).toBe(false);
     expect(m.some((s) => s.startsWith('run: npm run typecheck'))).toBe(false);
   });
+  // macOS のランナーは、同じ macos-latest でも run ごとに 3 倍ほど速さが違った（2026-10-29）。機械の違いかを後から見分けられるよう、型と数を残す。
+  it('Mac の 2 つのジョブは、ランナーの CPU の型と数を記録に出す', () => {
+    for (const name of ['macos', 'macos-test']) {
+      expect(job(name), name).toContain('sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize');
+    }
+  });
   it('タグの run は Rust のキャッシュを保存しない（タグの範囲のキャッシュは次のタグから読めない）', () => {
     const cache = steps(job('macos'), 6).find((s) => s.includes('Swatinem/rust-cache'));
     expect(cache).toContain('save-if: false');

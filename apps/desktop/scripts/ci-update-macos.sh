@@ -1,5 +1,5 @@
 #!/bin/bash
-# 本当の更新の経路を 1 回通す（macOS）。CI の desktop ジョブが、.app の段の後で呼ぶ。
+# 本当の更新の経路を 1 回通す（macOS）。CI の desktop-update ジョブが呼ぶ（.app の段の desktop ジョブと並んで回る）。
 # 使い方: bash apps/desktop/scripts/ci-update-macos.sh <成果物の置き場>
 #
 # 1. CI の中で使い捨ての updater の鍵を作る（tauri signer generate）。本物の secret は使わない。

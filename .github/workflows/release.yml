@@ -90,6 +90,9 @@ jobs:
           - target: aarch64-apple-darwin
             arch: arm64
     steps:
+      # 同じ macos-latest でも、run ごとに 3 倍ほど速さが違った（2026-10-29）。機械の違いかを後から見分けられるよう、型と数を残す。
+      - name: ランナーの CPU を記録する
+        run: sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize
       # 書き込みの token を .git/config に残さない（npm の script や依存のコードから読めないようにする）。
       - uses: actions/checkout@v7
         with:
@@ -220,6 +223,9 @@ jobs:
       contents: read
     timeout-minutes: 40
     steps:
+      # 同じ macos-latest でも、run ごとに 3 倍ほど速さが違った（2026-10-29）。機械の違いかを後から見分けられるよう、型と数を残す。
+      - name: ランナーの CPU を記録する
+        run: sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize
       - uses: actions/checkout@v7
         with:
           persist-credentials: false

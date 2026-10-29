@@ -206,11 +206,19 @@ describe('CI の段', () => {
     // tmux が無いと、tmux に依存する試験が黙って飛ぶ。
     for (const j of ['check', 'check-2']) expect(job(j)).toContain('sudo apt-get install -y tmux');
   });
-  it('desktop ジョブは、.app の段の後で、版 A から版 B への入れ替えを通す', () => {
-    const d = job('desktop');
+  // Windows と同じく、版 A と版 B の 2 回の build を .app の段（desktop ジョブ）と並べて別のジョブで回す（2026-10-29）。
+  it('desktop-update ジョブは、UI を build してから、版 A から版 B への入れ替えを通す', () => {
+    const d = job('desktop-update');
     const run = 'run: bash apps/desktop/scripts/ci-update-macos.sh';
-    expect(d.indexOf(run)).toBeGreaterThan(d.indexOf('ci-boot-probe-macos.sh'));
+    expect(d.indexOf('run: npm run build')).toBeGreaterThan(-1);
+    expect(d.indexOf(run)).toBeGreaterThan(d.indexOf('run: npm run build'));
     expect(stepOf(d, run)).toMatch(/timeout-minutes: \d+\n/);
+    expect(stepOf(d, run)).toContain("CARGO_PROFILE_RELEASE_LTO: 'false'");
+    expect(job('desktop')).not.toContain('ci-update-macos.sh');
+    // desktop ジョブが main で保存したキャッシュを読む。保存は 1 か所にする。
+    expect(job('desktop')).toContain('shared-key: desktop');
+    expect(d).toContain('shared-key: desktop');
+    expect(d).toContain('save-if: false');
   });
   it('Windows の台本は、本当の更新の経路の印を確かめる', () => {
     const ps = read('apps/desktop/scripts/ci-update-windows.ps1');
