@@ -5,6 +5,8 @@ import AVFoundation
 protocol Speaking: AnyObject {
     var isSpeaking: Bool { get }
     var lastFinishedAt: Date? { get }
+    /// マイクを認識に渡すかの判断に使う、音声スレッドから読める写し。
+    var micGate: MicGate { get }
     func say(_ text: String)
 }
 
@@ -14,7 +16,10 @@ final class Speaker: NSObject, Speaking, AVSpeechSynthesizerDelegate {
     private let synth = AVSpeechSynthesizer()
     private var pendingCount = 0
     private(set) var lastFinishedAt: Date?
+    let micGate = MicGate()
     var isSpeaking: Bool { pendingCount > 0 }
+
+    private func syncGate() { micGate.update(isSpeaking: isSpeaking, lastFinishedAt: lastFinishedAt) }
 
     init(store: EventStore) {
         self.store = store
@@ -26,6 +31,7 @@ final class Speaker: NSObject, Speaking, AVSpeechSynthesizerDelegate {
         let u = AVSpeechUtterance(string: text)
         u.voice = AVSpeechSynthesisVoice(language: "ja-JP")
         pendingCount += 1
+        syncGate()
         synth.speak(u)
     }
 
@@ -40,10 +46,10 @@ final class Speaker: NSObject, Speaking, AVSpeechSynthesizerDelegate {
     }
     nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish u: AVSpeechUtterance) {
         let t = u.speechString
-        Task { @MainActor in self.pendingCount = max(0, self.pendingCount - 1); self.lastFinishedAt = Date(); self.record("tts.finish", t) }
+        Task { @MainActor in self.pendingCount = max(0, self.pendingCount - 1); self.lastFinishedAt = Date(); self.syncGate(); self.record("tts.finish", t) }
     }
     nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer, didCancel u: AVSpeechUtterance) {
         let t = u.speechString
-        Task { @MainActor in self.pendingCount = max(0, self.pendingCount - 1); self.lastFinishedAt = Date(); self.record("tts.finish", t) }
+        Task { @MainActor in self.pendingCount = max(0, self.pendingCount - 1); self.lastFinishedAt = Date(); self.syncGate(); self.record("tts.finish", t) }
     }
 }

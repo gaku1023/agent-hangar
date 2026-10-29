@@ -41,13 +41,61 @@ final class MicTap: @unchecked Sendable {
     }
 }
 
+/// 読み上げ中と、その直後の余韻の間は、マイクの音を認識に渡さない（自分の声を拾わないように）。
+/// 音声スレッドから読むので、状態は鍵で守る。
+final class MicGate: @unchecked Sendable {
+    static let tail: TimeInterval = 1.5
+    private let lock = NSLock()
+    private var speaking = false
+    private var finishedAt: Date?
+    private var muted = false
+    private var onChange: (@Sendable (Bool) -> Void)?
+
+    /// 音を渡してよいか。純粋関数なのでテストできる。
+    static func shouldFeed(isSpeaking: Bool, lastFinishedAt: Date?, now: Date, tail: TimeInterval = MicGate.tail) -> Bool {
+        if isSpeaking { return false }
+        if let f = lastFinishedAt, now.timeIntervalSince(f) < tail { return false }
+        return true
+    }
+
+    func update(isSpeaking: Bool, lastFinishedAt: Date?) {
+        lock.withLock { speaking = isSpeaking; finishedAt = lastFinishedAt }
+    }
+
+    func setOnChange(_ f: (@Sendable (Bool) -> Void)?) { lock.withLock { onChange = f } }
+
+    /// バッファごとに呼ぶ。状態が切り替わったときだけ onChange(muted) を呼ぶ。
+    func shouldFeed(now: Date = Date()) -> Bool {
+        let (feed, changed, cb): (Bool, Bool, (@Sendable (Bool) -> Void)?) = lock.withLock {
+            let feed = MicGate.shouldFeed(isSpeaking: speaking, lastFinishedAt: finishedAt, now: now)
+            let changed = (!feed) != muted
+            muted = !feed
+            return (feed, changed, onChange)
+        }
+        if changed { cb?(!feed) }
+        return feed
+    }
+
+    /// 同じ形で無音のバッファ。時間の流れ（音声範囲と実時刻の対応）を保つために、捨てずに無音を渡す。
+    static func silence(like buf: AVAudioPCMBuffer) -> AVAudioPCMBuffer {
+        guard let o = AVAudioPCMBuffer(pcmFormat: buf.format, frameCapacity: buf.frameCapacity) else { return buf }
+        o.frameLength = buf.frameLength
+        let abl = UnsafeMutableAudioBufferListPointer(o.mutableAudioBufferList)
+        for b in abl { if let d = b.mData { memset(d, 0, Int(b.mDataByteSize)) } }
+        return o
+    }
+}
+
 private final class ConverterBox: @unchecked Sendable { var c: AVAudioConverter? }
 
 final class AnalyzerTranscriber: Transcriber, @unchecked Sendable {
     private let mic = MicTap()
+    private let gate: MicGate
     private let lock = NSLock()
     private var analyzer: SpeechAnalyzer?
     private var task: Task<Void, Never>?
+
+    init(gate: MicGate = MicGate()) { self.gate = gate }
 
     func start(locale: Locale) async throws -> AsyncStream<TranscriptPiece> {
         let transcriber = SpeechTranscriber(locale: locale, preset: .timeIndexedProgressiveTranscription)
@@ -73,7 +121,9 @@ final class AnalyzerTranscriber: Transcriber, @unchecked Sendable {
             outCont.finish()
         }
         let box = ConverterBox()
-        try mic.start { buf in
+        let gate = self.gate
+        try mic.start { raw in
+            let buf = gate.shouldFeed() ? raw : MicGate.silence(like: raw)
             var b = buf
             if let target, buf.format != target {
                 if box.c == nil { box.c = AVAudioConverter(from: buf.format, to: target) }
@@ -103,6 +153,7 @@ final class AnalyzerTranscriber: Transcriber, @unchecked Sendable {
 
 final class LegacyTranscriber: Transcriber, @unchecked Sendable {
     private let mic = MicTap()
+    private let gate: MicGate
     private let lock = NSLock()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var rtask: SFSpeechRecognitionTask?
@@ -110,6 +161,8 @@ final class LegacyTranscriber: Transcriber, @unchecked Sendable {
     private var cont: AsyncStream<TranscriptPiece>.Continuation?
     private var stopped = false
     private var errors = 0
+
+    init(gate: MicGate = MicGate()) { self.gate = gate }
 
     func start(locale: Locale) async throws -> AsyncStream<TranscriptPiece> {
         guard let rec = SFSpeechRecognizer(locale: locale), rec.supportsOnDeviceRecognition else {
@@ -121,7 +174,8 @@ final class LegacyTranscriber: Transcriber, @unchecked Sendable {
         newTask()
         try mic.start { [weak self] buf in
             guard let self else { return }
-            self.lock.withLock { self.request }?.append(buf)
+            let b = self.gate.shouldFeed() ? buf : MicGate.silence(like: buf)
+            self.lock.withLock { self.request }?.append(b)
         }
         return out
     }
@@ -222,14 +276,18 @@ final class SpeechProbe {
         if let reason = await availability(locale) {
             let s = store
             Task { await s.record("speech.fallback", ["reason": reason, "locale": locale.identifier]) }
-            return LegacyTranscriber()
+            return LegacyTranscriber(gate: speaker.micGate)
         }
-        return AnalyzerTranscriber()
+        return AnalyzerTranscriber(gate: speaker.micGate)
     }
 
     func start(locale: Locale = Locale(identifier: "ja-JP")) async {
         let t = await makeTranscriber(locale: locale)
         current = t
+        let st = store
+        speaker.micGate.setOnChange { muted in
+            Task { await st.record("speech.muted", ["on": muted ? "true" : "false"]) }
+        }
         do {
             let stream = try await t.start(locale: locale)
             runTask = Task { [weak self] in

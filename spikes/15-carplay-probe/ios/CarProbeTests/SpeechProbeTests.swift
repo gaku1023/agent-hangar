@@ -1,11 +1,13 @@
 import Foundation
 import XCTest
+import AVFoundation
 @testable import CarProbe
 
 @MainActor
 final class FakeSpeaker: Speaking {
     var isSpeaking = false
     var lastFinishedAt: Date?
+    let micGate = MicGate()
     var said: [String] = []
     func say(_ text: String) { said.append(text) }
 }
@@ -118,4 +120,45 @@ final class SpeechProbeTests: XCTestCase {
         XCTAssertTrue(LegacyTranscriber.isNoSpeech(domain: "kAFAssistantErrorDomain", code: 1110))
         XCTAssertFalse(LegacyTranscriber.isNoSpeech(domain: "kAFAssistantErrorDomain", code: 1))
     }
+
+    func test_mic_gate_decision() {
+        let now = Date()
+        XCTAssertTrue(MicGate.shouldFeed(isSpeaking: false, lastFinishedAt: nil, now: now))
+        XCTAssertFalse(MicGate.shouldFeed(isSpeaking: true, lastFinishedAt: nil, now: now))
+        XCTAssertFalse(MicGate.shouldFeed(isSpeaking: false, lastFinishedAt: now.addingTimeInterval(-1.0), now: now))
+        XCTAssertTrue(MicGate.shouldFeed(isSpeaking: false, lastFinishedAt: now.addingTimeInterval(-1.6), now: now))
+    }
+
+    func test_mic_gate_reports_only_transitions() {
+        let gate = MicGate()
+        let log = LockedLog()
+        gate.setOnChange { log.add($0) }
+        let t0 = Date()
+        XCTAssertTrue(gate.shouldFeed(now: t0))
+        gate.update(isSpeaking: true, lastFinishedAt: nil)
+        XCTAssertFalse(gate.shouldFeed(now: t0))
+        XCTAssertFalse(gate.shouldFeed(now: t0.addingTimeInterval(0.1)))
+        gate.update(isSpeaking: false, lastFinishedAt: t0.addingTimeInterval(1))
+        XCTAssertFalse(gate.shouldFeed(now: t0.addingTimeInterval(2)))
+        XCTAssertTrue(gate.shouldFeed(now: t0.addingTimeInterval(2.6)))
+        XCTAssertTrue(gate.shouldFeed(now: t0.addingTimeInterval(3)))
+        XCTAssertEqual(log.values, [true, false])
+    }
+
+    func test_silence_keeps_length_and_is_zero() {
+        let fmt = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+        let b = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 100)!
+        b.frameLength = 100
+        b.floatChannelData![0][5] = 0.5
+        let s = MicGate.silence(like: b)
+        XCTAssertEqual(s.frameLength, 100)
+        XCTAssertEqual(s.floatChannelData![0][5], 0)
+    }
+}
+
+final class LockedLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var v: [Bool] = []
+    func add(_ x: Bool) { lock.withLock { v.append(x) } }
+    var values: [Bool] { lock.withLock { v } }
 }
