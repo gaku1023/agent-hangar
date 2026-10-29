@@ -5,6 +5,7 @@ import XCTest
 @MainActor
 final class FakeSpeaker: Speaking {
     var isSpeaking = false
+    var lastFinishedAt: Date?
     var said: [String] = []
     func say(_ text: String) { said.append(text) }
 }
@@ -72,6 +73,40 @@ final class SpeechProbeTests: XCTestCase {
         let all = await store.pending(limit: 1000).filter { $0.kind == "speech.partial" }
         XCTAssertEqual(all.count, 2)
         XCTAssertGreaterThanOrEqual(evs.count, 2)
+    }
+
+    func test_echo_grace_window_after_tts_finish() async {
+        let store = makeStore()
+        let sp = FakeSpeaker()
+        let t0 = Date(timeIntervalSince1970: 5000)
+        sp.lastFinishedAt = t0
+        let probe = SpeechProbe(store: store, speaker: sp, availability: { _ in nil })
+        probe.handle(TranscriptPiece(text: "echo", isFinal: true, at: t0.addingTimeInterval(1)))
+        probe.handle(TranscriptPiece(text: "real", isFinal: true, at: t0.addingTimeInterval(2)))
+        _ = await events(store, "speech.final", expect: 1)
+        try? await Task.sleep(for: .milliseconds(100))
+        let all = await store.pending(limit: 1000).filter { $0.kind == "speech.final" }
+        XCTAssertEqual(all.map { $0.detail["text"] }, ["real"])
+    }
+
+    func test_error_piece_is_recorded() async {
+        let store = makeStore()
+        let probe = SpeechProbe(store: store, speaker: FakeSpeaker(), availability: { _ in nil })
+        probe.handle(TranscriptPiece(text: "", isFinal: false, at: Date(), error: "boom", source: "legacy"))
+        let evs = await events(store, "speech.error", expect: 1)
+        XCTAssertEqual(evs.first?.detail["transcriber"], "legacy")
+        XCTAssertEqual(evs.first?.detail["error"], "boom")
+    }
+
+    func test_fromStartMs_uses_speechStart() async {
+        let store = makeStore()
+        let probe = SpeechProbe(store: store, speaker: FakeSpeaker(), availability: { _ in nil })
+        let t = Date(timeIntervalSince1970: 9000)
+        probe.handle(TranscriptPiece(text: "x", isFinal: true, at: t, speechEnd: t.addingTimeInterval(-0.5), speechStart: t.addingTimeInterval(-2)))
+        let evs = await events(store, "speech.final", expect: 1)
+        XCTAssertEqual(evs.first?.detail["fromStartMs"], "2000")
+        XCTAssertEqual(evs.first?.detail["fromEndMs"], "500")
+        XCTAssertEqual(evs.first?.detail["startBasis"], "audioRange")
     }
 
     func test_phrases_has_ten() {

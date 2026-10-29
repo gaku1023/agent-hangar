@@ -8,6 +8,11 @@ struct TranscriptPiece: Sendable {
     let at: Date
     /// 話し終わりの推定時刻。取れなければ nil（最後の partial の時刻で代用する）。
     var speechEnd: Date? = nil
+    /// 発話の始まりの推定時刻。取れなければ nil（最初の piece の到着時刻で代用する）。
+    var speechStart: Date? = nil
+    /// 認識の実行時エラー。text は空。
+    var error: String? = nil
+    var source: String = ""
 }
 
 protocol Transcriber: Sendable {
@@ -59,9 +64,12 @@ final class AnalyzerTranscriber: Transcriber, @unchecked Sendable {
                 for try await r in transcriber.results {
                     let text = String(r.text.characters)
                     let end = wallStart.addingTimeInterval(r.range.end.seconds)
-                    outCont.yield(TranscriptPiece(text: text, isFinal: r.isFinal, at: Date(), speechEnd: r.isFinal ? end : nil))
+                    let start = wallStart.addingTimeInterval(r.range.start.seconds)
+                    outCont.yield(TranscriptPiece(text: text, isFinal: r.isFinal, at: Date(), speechEnd: r.isFinal ? end : nil, speechStart: start))
                 }
-            } catch {}
+            } catch {
+                outCont.yield(TranscriptPiece(text: "", isFinal: false, at: Date(), error: "\(error)", source: "analyzer"))
+            }
             outCont.finish()
         }
         let box = ConverterBox()
@@ -101,7 +109,7 @@ final class LegacyTranscriber: Transcriber, @unchecked Sendable {
     private var recognizer: SFSpeechRecognizer?
     private var cont: AsyncStream<TranscriptPiece>.Continuation?
     private var stopped = false
-    private var wallStart = Date()
+    private var errors = 0
 
     func start(locale: Locale) async throws -> AsyncStream<TranscriptPiece> {
         guard let rec = SFSpeechRecognizer(locale: locale), rec.supportsOnDeviceRecognition else {
@@ -132,9 +140,16 @@ final class LegacyTranscriber: Transcriber, @unchecked Sendable {
                 if final, let seg = result.bestTranscription.segments.last {
                     end = began.addingTimeInterval(seg.timestamp + seg.duration)
                 }
-                cont.yield(TranscriptPiece(text: result.bestTranscription.formattedString, isFinal: final, at: Date(), speechEnd: end))
+                let start = result.bestTranscription.segments.first.map { began.addingTimeInterval($0.timestamp) }
+                self.lock.withLock { self.errors = 0 }
+                cont.yield(TranscriptPiece(text: result.bestTranscription.formattedString, isFinal: final, at: Date(), speechEnd: end, speechStart: start))
             }
-            if result?.isFinal == true || error != nil {
+            if let error {
+                let n = self.lock.withLock { self.errors += 1; return self.errors }
+                cont.yield(TranscriptPiece(text: "", isFinal: false, at: Date(), error: "\(error) (consecutive \(n))", source: "legacy"))
+                if n > 5 || self.lock.withLock({ self.stopped }) { cont.finish(); return }
+                Task { try? await Task.sleep(for: .seconds(Double(n))); if !self.lock.withLock({ self.stopped }) { self.newTask() } }
+            } else if result?.isFinal == true {
                 if !self.lock.withLock({ self.stopped }) { self.newTask() } else { cont.finish() }
             }
         }
@@ -157,6 +172,7 @@ final class SpeechProbe {
     private let availability: AnalyzerAvailability
     private var lastPartial: Date?
     private var utteranceStart: Date?
+    private var utteranceStartBasis = "firstPiece"
     private var lastPieceAt: Date?
     private var current: Transcriber?
     private var runTask: Task<Void, Never>?
@@ -229,9 +245,18 @@ final class SpeechProbe {
     }
 
     func handle(_ p: TranscriptPiece) {
-        if speaker.isSpeaking { return }
         let s = store
-        if utteranceStart == nil { utteranceStart = p.at }
+        if let e = p.error {
+            let d = ["transcriber": p.source, "error": e]
+            Task { await s.record("speech.error", d) }
+            return
+        }
+        if speaker.isSpeaking { return }
+        if let f = speaker.lastFinishedAt, p.at.timeIntervalSince(f) < 1.5 { return }
+        if utteranceStart == nil {
+            utteranceStart = p.speechStart ?? p.at
+            utteranceStartBasis = p.speechStart == nil ? "firstPiece" : "audioRange"
+        }
         if !p.isFinal {
             lastPieceAt = p.at
             if let l = lastPartial, p.at.timeIntervalSince(l) < 3 { return }
@@ -239,13 +264,16 @@ final class SpeechProbe {
             Task { await s.record("speech.partial", ["text": p.text]) }
             return
         }
-        let start = utteranceStart ?? p.at
+        var start = utteranceStart ?? p.at
+        var startBasis = utteranceStartBasis
+        if let ps = p.speechStart { start = ps; startBasis = "audioRange" }
         let (end, basis) = p.speechEnd.map { ($0, "audioRange") } ?? (lastPieceAt ?? p.at, "lastPartial")
         let detail = [
             "text": p.text,
             "fromStartMs": String(Int(p.at.timeIntervalSince(start) * 1000)),
             "fromEndMs": String(Int(p.at.timeIntervalSince(end) * 1000)),
             "endBasis": basis,
+            "startBasis": startBasis,
         ]
         utteranceStart = nil; lastPieceAt = nil
         Task { await s.record("speech.final", detail) }
