@@ -279,9 +279,8 @@ jobs:
           retention-days: 7
   desktop:
     runs-on: macos-latest
-    # Rust のビルドがキャッシュ外れで長引いたときの上限。
-    # キャッシュに当たれば数分で終わる。release の .app のビルド（更新の経路の 2 回を含めて 3 回）も含むので、その分を足してある。
-    timeout-minutes: 60
+    # Rust のビルドがキャッシュ外れで長引いたときの上限。キャッシュに当たれば数分で終わる。
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -294,6 +293,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri
+          # desktop-update ジョブも同じ鍵で読む（保存はこのジョブだけ）。鍵はジョブ名から決まっていたものと同じ名前にして、main のキャッシュを引き継ぐ。
+          shared-key: desktop
           # 保存は main だけにする。PR は main のキャッシュを読める。PR ごとに 1GB 前後を保存すると、リポジトリの上限（10GB）を超えて
           # 古いものから消え、main のキャッシュまで当たらなくなっていた（2026-10-15、直近の実行がすべて No cache found）。
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -355,7 +356,6 @@ jobs:
           retention-days: 7
       # 同じ .app を、nodePath で Node 24 を指して起こす。
       # 0.6.1 から、殻は Node-API 10 以上の Node を採る。Node 22 で作った束のネイティブモジュール（Node-API の prebuild）が、Node 24 でも読めることを確かめる。
-      # setup-node は PATH の先頭に置くので、後の段（Node 22 で build し直す更新の経路）のために、終わったら Node 22 に戻す。
       - uses: actions/setup-node@v7
         id: node24
         if: ${{ !cancelled() && steps.app.outcome == 'success' }}
@@ -374,12 +374,30 @@ jobs:
           path: ${{ runner.temp }}/boot-normal-macos-node24
           if-no-files-found: warn
           retention-days: 7
+  # macOS の本当の更新の経路の試し。版 A と版 B の 2 回の build があるので、.app の段（desktop）と並べて別のジョブで回す（2026-10-29）。
+  desktop-update:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
-        if: ${{ !cancelled() }}
         with:
           node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+          # desktop ジョブが main で保存したキャッシュを読む。ここでは保存しない。
+          # 環境の指紋に Rust の版と components が入るので、toolchain は desktop ジョブと同じものを入れる。
+          shared-key: desktop
+          save-if: false
+      - run: npm ci
+      # tauri build の beforeBuildCommand は同梱のサーバだけを作るので、UI はここで作る。
+      - run: npm run build
       # 本当の更新の経路を 1 回通す（apps/desktop/scripts/ci-update-macos.sh）。
-      # 台本は bundle の置き場で版 A と版 B を build し直すので、build した .app を使う段の後に置く。
       # 版 A の .app を一時の場所へ写して起こし、殻の updater が版 B の .app.tar.gz を取って .app を入れ替え、起き直した殻のサーバが /health で版 B を名乗るまでを見る。
       # 鍵は CI の中で作る使い捨てのもので、目録と更新物はローカルの HTTP で配る。本物の secret は使わない。
       - name: 版 A から版 B へ、updater の経路で .app を入れ替える
