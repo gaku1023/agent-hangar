@@ -95,4 +95,11 @@ final class AudioProbeTests: XCTestCase {
         XCTAssertEqual(r.count, 3)
         XCTAssertEqual(r.first?.detail["sampleRate"], "48000")
     }
+
+    func test_deskSpeakerOverride_ignores_setting_when_car_present() {
+        XCTAssertEqual(deskSpeakerOverride(setting: true, hasCar: false), .speaker)
+        XCTAssertEqual(deskSpeakerOverride(setting: true, hasCar: true), .none)
+        XCTAssertEqual(deskSpeakerOverride(setting: false, hasCar: false), .none)
+        XCTAssertEqual(deskSpeakerOverride(setting: false, hasCar: true), .none)
+    }
 }

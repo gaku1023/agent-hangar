@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import Observation
 
 enum ProbeMode: String { case media, call }
 
@@ -32,8 +33,14 @@ struct AudioRouteSnapshot: Equatable, Sendable {
     }
 }
 
-@MainActor
+/// 机用スイッチの判断。車の経路があるときは設定に関わらず上書きを外す。
+func deskSpeakerOverride(setting: Bool, hasCar: Bool) -> AVAudioSession.PortOverride {
+    (setting && !hasCar) ? .speaker : .none
+}
+
+@MainActor @Observable
 final class AudioProbe {
+    private(set) var carConnected = false
     typealias Scheduler = @MainActor (TimeInterval, @escaping @MainActor @Sendable () -> Void) -> Void
 
     private let store: EventStore
@@ -67,10 +74,13 @@ final class AudioProbe {
     /// 机用スイッチ。ON のときだけ出力をスピーカーに上書きする。カテゴリとオプションは触らない。
     func applyDeskSpeaker() {
         let on = UserDefaults.standard.bool(forKey: "deskSpeaker")
+        let car = AudioRouteSnapshot.current(reason: "deskSpeaker").hasCar
         var ok = true
         var err = ""
-        do { try AVAudioSession.sharedInstance().overrideOutputAudioPort(on ? .speaker : .none) } catch { ok = false; err = "\(error)" }
-        record("deskSpeaker", ["on": "\(on)", "ok": "\(ok)", "error": err])
+        do { try AVAudioSession.sharedInstance().overrideOutputAudioPort(deskSpeakerOverride(setting: on, hasCar: car)) } catch { ok = false; err = "\(error)" }
+        var d = ["on": "\(on)", "ok": "\(ok)", "error": err]
+        if car { d["ignoredForCar"] = "true" }
+        record("deskSpeaker", d)
     }
 
     /// 割り込みが終わったら呼ぶ。復帰の試みはアプリ側が行う。
@@ -100,6 +110,7 @@ final class AudioProbe {
                 self?.handleRoute(.current(reason: "reason\(r)"))
                 // 経路が変わると上書きが外れる。ON のときだけ、スピーカーでなければ掛け直す(自己ループ防止)。
                 if UserDefaults.standard.bool(forKey: "deskSpeaker"),
+                   !AudioRouteSnapshot.current(reason: "deskSpeaker").hasCar,
                    !AVAudioSession.sharedInstance().currentRoute.outputs.contains(where: { $0.portType == .builtInSpeaker }) {
                     self?.applyDeskSpeaker()
                 }
@@ -135,6 +146,7 @@ final class AudioProbe {
         if snap.hasCar && !was { record("carplay.connected", snap.detail) }
         if !snap.hasCar && was { record("carplay.disconnected", snap.detail) }
         previous = snap
+        carConnected = snap.hasCar
     }
 
     private func record(_ kind: String, _ detail: [String: String]) {

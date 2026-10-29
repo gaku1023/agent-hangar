@@ -27,6 +27,7 @@ struct ProbeView: View {
                 Toggle("起動したら自動で開始", isOn: Binding(get: { model.autoStart }, set: { model.autoStart = $0 })).font(.title3)
                 Toggle("机用: スピーカーで鳴らす", isOn: $deskSpeaker).font(.title3)
                     .onChange(of: deskSpeaker) { _, _ in model.audio.applyDeskSpeaker() }
+                if model.audio.carConnected { Text("車につながっている間は無効").font(.callout).foregroundStyle(.orange) }
                 Text("送信待ち: \(model.pendingCount) 件").font(.title2)
                 Button("ログを共有") {
                     Task { shareURL = await model.store.exportURL(); showShare = true }

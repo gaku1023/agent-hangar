@@ -30,7 +30,7 @@ final class CallProbe {
         delegate.setReallyEnd(false)
         let action = CXStartCallAction(call: id, handle: CXHandle(type: .generic, value: "Hangar"))
         let d = delegate
-        controller.request(CXTransaction(action: action)) { err in
+        controller.request(CXTransaction(action: action)) { @Sendable err in
             if let err { d.record("call.startError", CallProbe.errorDetail(err)) }
         }
     }
@@ -40,7 +40,7 @@ final class CallProbe {
         delegate.setReallyEnd(true)
         uuid = nil
         let d = delegate
-        controller.request(CXTransaction(action: CXEndCallAction(call: id))) { err in
+        controller.request(CXTransaction(action: CXEndCallAction(call: id))) { @Sendable err in
             if let err { d.record("call.endError", CallProbe.errorDetail(err)) }
         }
     }

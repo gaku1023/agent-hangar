@@ -15,9 +15,19 @@ final class Speaker: NSObject, Speaking, AVSpeechSynthesizerDelegate {
     private let store: EventStore
     private let synth = AVSpeechSynthesizer()
     private var pendingCount = 0
+    private var lastProgressAt = Date()
+    static let stuckAfter: TimeInterval = 30
     private(set) var lastFinishedAt: Date?
     let micGate = MicGate()
     var isSpeaking: Bool { pendingCount > 0 }
+
+    /// pendingCount が進展なしで 30 秒を超えたら 0 に戻す。say のたびと、完了通知のたびに確認する。
+    func resetIfStuck(now: Date = Date()) {
+        guard pendingCount > 0, now.timeIntervalSince(lastProgressAt) > Self.stuckAfter else { return }
+        pendingCount = 0
+        syncGate()
+        record("tts.stuckReset", "")
+    }
 
     private func syncGate() { micGate.update(isSpeaking: isSpeaking, lastFinishedAt: lastFinishedAt) }
 
@@ -30,6 +40,8 @@ final class Speaker: NSObject, Speaking, AVSpeechSynthesizerDelegate {
     func say(_ text: String) {
         let u = AVSpeechUtterance(string: text)
         u.voice = AVSpeechSynthesisVoice(language: "ja-JP")
+        resetIfStuck()
+        if pendingCount == 0 { lastProgressAt = Date() }
         pendingCount += 1
         syncGate()
         synth.speak(u)
@@ -42,14 +54,14 @@ final class Speaker: NSObject, Speaking, AVSpeechSynthesizerDelegate {
 
     nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer, didStart u: AVSpeechUtterance) {
         let t = u.speechString
-        Task { @MainActor in self.record("tts.start", t) }
+        Task { @MainActor in self.lastProgressAt = Date(); self.record("tts.start", t) }
     }
     nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish u: AVSpeechUtterance) {
         let t = u.speechString
-        Task { @MainActor in self.pendingCount = max(0, self.pendingCount - 1); self.lastFinishedAt = Date(); self.syncGate(); self.record("tts.finish", t) }
+        Task { @MainActor in self.lastProgressAt = Date(); self.pendingCount = max(0, self.pendingCount - 1); self.lastFinishedAt = Date(); self.syncGate(); self.record("tts.finish", t) }
     }
     nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer, didCancel u: AVSpeechUtterance) {
         let t = u.speechString
-        Task { @MainActor in self.pendingCount = max(0, self.pendingCount - 1); self.lastFinishedAt = Date(); self.syncGate(); self.record("tts.finish", t) }
+        Task { @MainActor in self.lastProgressAt = Date(); self.pendingCount = max(0, self.pendingCount - 1); self.lastFinishedAt = Date(); self.syncGate(); self.record("tts.finish", t) }
     }
 }
