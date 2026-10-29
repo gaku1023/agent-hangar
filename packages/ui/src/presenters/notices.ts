@@ -25,7 +25,7 @@ export type NoticeTone = 'err' | 'warn' | 'info';
  * key は既読の印で、`種類|対象|事実の版` の形である。事実の版が変われば鍵が変わり、また未読になる。
  * when は時の欄（無ければ null）、detail は題の下の 1 行（無ければ null）。
  * action は行の操作 1 つで、押すと行を既読にして send を送る（views/Bell.tsx）。
- * investigate は、行の操作の後に「エージェントで調査…」を出すときのエラーの事情（同期の失敗）。
+ * investigate は、行の操作の後に「エージェントで調査…」を出すときの事情（同期の失敗と、その場で直す口の無い注意：空き不足と互換のずれ）。
  */
 export type NoticeRow = {
   key: string; kind: NoticeKind; tone: NoticeTone; icon: IconName; kindLabel: string;
@@ -108,7 +108,10 @@ function syncSkipped(s: SyncStatusBody, base: SyncBase, t: Translate): Draft[] {
 function syncDiskShort(s: SyncStatusBody, base: SyncBase, t: Translate): Draft[] {
   if (s.state === 'off' || !s.diskShort) return [];
   const d = s.diskShort;
-  return [{ ...base, key: `sync|diskShort|${d.sessions}`, tone: 'warn', title: diskShortTitle(t, d), detail: t('notices.sync.diskShortDetail', { size: bytesLabel(diskShortfall(d), undefined, 'up') }) }];
+  const title = diskShortTitle(t, d);
+  const detail = t('notices.sync.diskShortDetail', { size: bytesLabel(diskShortfall(d), undefined, 'up') });
+  // 空ける口はこの PC の外にあるので、何を消せるかをエージェントに調べさせる口を添える。
+  return [{ ...base, key: `sync|diskShort|${d.sessions}`, tone: 'warn', title, detail, investigate: { op: 'disk', message: `${title}\n${detail}` } }];
 }
 
 /** あと空ければ残りを全部取得できる量。止めたときは必ず正になるが、念のため 0 で止める。 */
@@ -135,6 +138,8 @@ function compat({ store, now, t }: Ctx): Draft[] {
     kind: 'compat', tone: 'warn', icon: 'link', kindLabel: t('notices.kind.compat'),
     title: t('notices.compat.title'), detail, when: seen === null ? null : agoWord(t, seen, now),
     action: { label: t('notices.compat.open'), send: { type: 'nav.go', to: { name: 'settings' } } },
+    // 直すには hangar の更新か Claude Code の版の戻しが要る。その場で直す口は無いので、調べる口を添える。
+    investigate: { op: 'compat', message: `${t('notices.compat.title')}\n${detail}`, agent: 'claude-code' },
   }];
 }
 

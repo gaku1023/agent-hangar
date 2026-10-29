@@ -76,6 +76,7 @@ describe('presentNotices：事実から行を組む', () => {
     expect(presentNotices(initialState(), storeOf({ readiness: compatSummary(0, '2.5.0') }), NOW).rows).toEqual([]);
     const [row] = presentNotices(initialState(), storeOf({ readiness: compatSummary(1) }), NOW).rows;
     expect(row).toMatchObject({ key: 'compat|2.4.2|1 change', kind: 'compat', tone: 'warn', kindLabel: '互換性', title: '変更点あり', detail: 'Claude Code 2.4.2：変更点 1 件', when: null, unread: true });
+    expect(row!.investigate).toEqual({ op: 'compat', message: '変更点あり\nClaude Code 2.4.2：変更点 1 件', agent: 'claude-code' });
     // 設定の互換の節は、足す切り替え先がまだ無いので、設定の頭へ移る（at は設定の目次の作り直しで足す）。
     expect(row!.action).toEqual({ label: '詳細を開く', send: { type: 'nav.go', to: { name: 'settings' } } });
   });
@@ -136,6 +137,8 @@ describe('presentNotices：事実から行を組む', () => {
     const rows = presentNotices(initialState(), storeOf({ sync: sync({ diskShort }) }), NOW).rows;
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ key: 'sync|diskShort|3', kind: 'sync', tone: 'warn', title: DISK_TITLE_JA, detail: DISK_DETAIL_JA, unread: true });
+    // その場で空ける口は無いので、注意の文でエージェントに調べさせる。
+    expect(rows[0]!.investigate).toEqual({ op: 'disk', message: `${DISK_TITLE_JA}\n${DISK_DETAIL_JA}` });
     expect(rows[0]!.action.send).toEqual({ type: 'nav.go', to: { name: 'settings', at: 'sync' } });
     // 同期を使っていない端末では出さない。止めていなければ出さない。
     expect(presentNotices(initialState(), storeOf({ sync: sync({ state: 'off', url: null, diskShort }) }), NOW).rows).toEqual([]);

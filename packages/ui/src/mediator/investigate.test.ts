@@ -98,4 +98,16 @@ describe('失敗のトーストに「エージェントで調査…」', () => {
     const r = transition(base(), store, runtime({ type: 'api.failed', message: 'x', investigate: { op: 'accountSwitch', message: 'x', accountId: 'a1', agent: 'claude-code' } }));
     expect(r.state.toasts.at(-1)).toMatchObject({ level: 'error', message: 'x', action: { label: 'エージェントで調査…', send: { type: 'investigate.open', op: 'accountSwitch', message: 'x', accountId: 'a1', agent: 'claude-code' } } });
   });
+
+  it('セットアップのすゝめを、準備の状況を引用に入れたクイックセッションのダイアログで開く', () => {
+    const readiness = { tools: { tmux: { path: '/t', ok: true, problem: null, version: '3.5' }, claude: { path: '/c', ok: true, problem: null, version: '2.1.312' }, node: { path: '/n', ok: true, problem: null, version: 'v22', auto: true } }, workspace: { path: '/w', exists: true, projectCount: 1 }, mcp: { registered: true, file: '/m' }, statusline: { command: 'x', scriptPath: '/s', installed: true }, commands: { mcp: '', statusline: '', shell: '', join: '' } } as unknown as NonNullable<Store['readiness']>;
+    const withGuide: Store = { ...store, readiness, setupGuide: { path: '~/.agent-hangar/setup-guide.md', version: '3', sha: 'abc', prompt: '' } };
+    const r = transition(base(), withGuide, action({ type: 'setupGuide.launch' }));
+    expect(r.state.overlay).toMatchObject({ kind: 'newSession', projectId: null, scratch: true, seed: { tone: 'info' } });
+    const o = r.state.overlay as Extract<State['overlay'], { kind: 'newSession' }>;
+    expect(o.seed?.request).toContain('setup-guide.md');
+    expect(o.seed?.quote).toContain('tmux（準備完了）：/t（3.5）');
+    // 写しが無ければ何もしない。
+    expect(transition(base(), store, action({ type: 'setupGuide.launch' })).state.overlay).toEqual(base().overlay);
+  });
 });

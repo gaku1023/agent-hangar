@@ -203,33 +203,25 @@ const toolOk = (t: Translate, c: ToolCheckDto) => (c.version ? t('home.ready.too
 
 /**
  * 始める前の確認の最後の「仕上げ」の行（セットアップのすゝめ、試作の案 C）。
- * Claude Code に貼る一言（設定の連携の札と同じもの）をコピーさせる。直すものではないので、件数にも分母にも数えない。
+ * tmux と claude があれば、一言と準備の状況を入れたダイアログを開く（setupGuide.launch）。無ければ一言（設定の連携の札と同じもの）をコピーさせる。直すものではないので、件数にも分母にも数えない。
  * 群が出る・消える規則は変えない。この行のために群を出し続けることはせず、群が消えれば一緒に消える（設定の札は残る）。
  */
-function guideRow(t: Translate, prompt: string): BandRow {
+function guideRow(t: Translate, prompt: string, launch: boolean): BandRow {
   const name = t('home.ready.guide.name');
-  const label = t('home.ready.guide.copy');
+  const label = t(launch ? 'setupGuide.launch.button' : 'home.ready.guide.copy');
+  const ariaLabel = t('home.band.actionFor', { action: label, name });
+  // 起動できる（tmux と claude がある）ときは、一言を入れたダイアログを開く（試作 H1）。起動できないときは今までどおり写させる。
+  const act: BandAction = launch
+    ? { id: 'launchGuide', label, ariaLabel, title: t('setupGuide.launch.title'), primary: false, ghost: false, send: { type: 'setupGuide.launch' } }
+    : { id: 'copyGuide', label, ariaLabel, primary: false, ghost: false, send: { type: 'clipboard.copy', text: prompt }, copyFeedback: true };
   return {
     key: 'ready:guide', lead: { kind: 'guide' }, name, badge: null, context: null, text: t('home.ready.guide.text'), detail: null, tone: null, trail: [], open: null,
-    actions: [{ id: 'copyGuide', label, ariaLabel: t('home.band.actionFor', { action: label, name }), primary: false, ghost: false, send: { type: 'clipboard.copy', text: prompt }, copyFeedback: true }],
+    actions: [act],
   };
 }
 
-/**
- * 始める前の確認を、ホームの帯の群にする（設計書 2.11.4、試作の始める前の確認の B）。
- * 引き出しには直すものだけを 1 行ずつ出し（必須を先、任意を後ろ）、済んだものは 1 行に畳む（fold）。
- * 錠剤は「準備完了 3 / 6」（分母は任意の行も含めて数え、互換の未確認の版は済んだものに数える）で、件数は直すものの数である。
- * 残りの件数の要約は持たない（錠剤の数と並ぶと読み取りにくかった）。
- * 帯の右端の文は、始めるのに要る道具（tmux の役の道具と claude）のうち足りないものだけを名指しし、揃っていれば出さない。
- * 必須が済んで任意の行だけが残るか、全部そろったときは null で、帯の群を出さない。
- * 互換のずれは、直すものとして残る（任意の札は付けない）。
- * 右端のボタンは 1 つで、「設定を開く」か「コマンドをコピー」である。殻の中では、MCP とステータスラインの行を設定の連携の節と同じボタン（setup.run）にする。
- */
-export function presentReadiness(r: ReadinessDto, t: Translate, platform: string = clientPlatform(), check: MuxCheck = 'idle', setup: { desktop: boolean; running: SetupTarget | null; notifyAsk?: boolean; guide?: string | null } = { desktop: false, running: null }): ReadinessBand | null {
-  // OS の通知の許可をまだ尋ねていなければ、任意の行「通知」を足す。押したときだけ OS に尋ねる（notify.set の on）。
-  // この行だけは、答える（許可するか要らないを押す）まで群を残す。ほかの任意の行と違い、放っておくと通知が届かないまま気付けないからである。
-  if (!readinessPending(r) && !setup.notifyAsk) return null;
-  const checks: Check[] = [...checksOf(r), ...(setup.notifyAsk ? [{ key: 'notify' as const, ok: false, tone: 'soft' as const }] : [])];
+/** 準備の確かめの行を組む関数の組（帯の行と、すゝめのダイアログの引用が使う）。 */
+function readinessRows(r: ReadinessDto, t: Translate, platform: string, check: MuxCheck, setup: ReadinessSetup) {
   // tmux の行は、Windows では psmux の名で出す（段 6）。
   const name = (k: ReadinessKey) => (k === 'tmux' ? muxName(platform) : t(`home.ready.name.${k}`));
   const action = (label: string, who: string, send: UiAction, primary: boolean): BandAction => ({ id: 'fix', label, ariaLabel: t('home.band.actionFor', { action: label, name: who }), primary, ghost: false, send });
@@ -347,6 +339,40 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
     return { key: `ready:${c.key}`, lead: { kind: 'check', tone, label: t(`home.ready.state.${tone}`) }, name: name(c.key), badge: null, context: null, text, detail: null, tone: null, trail: [], open: null, actions: [] };
   };
 
+  return { name, fixRow, doneRow };
+}
+
+/**
+ * いまの準備の状況を 1 行ずつ「名前（状態）：文」にする（セットアップのすゝめのダイアログの引用）。
+ * 済んだ行は帯の畳んだ行と、直す行は帯の引き出しの行と同じ文にする。並びは帯の確かめの順のまま。
+ */
+export function readinessQuoteLines(r: ReadinessDto, t: Translate, platform: string = clientPlatform()): string[] {
+  const { name, fixRow, doneRow } = readinessRows(r, t, platform, 'idle', { desktop: false, running: null });
+  return checksOf(r).map((c) => {
+    const row = c.ok ? doneRow(c) : fixRow(c);
+    const state = row.lead.kind === 'check' ? row.lead.label : '';
+    return t('setupGuide.quote.line', { name: name(c.key), state, text: row.text });
+  });
+}
+
+/**
+ * 始める前の確認を、ホームの帯の群にする（設計書 2.11.4、試作の始める前の確認の B）。
+ * 引き出しには直すものだけを 1 行ずつ出し（必須を先、任意を後ろ）、済んだものは 1 行に畳む（fold）。
+ * 錠剤は「準備完了 3 / 6」（分母は任意の行も含めて数え、互換の未確認の版は済んだものに数える）で、件数は直すものの数である。
+ * 残りの件数の要約は持たない（錠剤の数と並ぶと読み取りにくかった）。
+ * 帯の右端の文は、始めるのに要る道具（tmux の役の道具と claude）のうち足りないものだけを名指しし、揃っていれば出さない。
+ * 必須が済んで任意の行だけが残るか、全部そろったときは null で、帯の群を出さない。
+ * 互換のずれは、直すものとして残る（任意の札は付けない）。
+ * 右端のボタンは 1 つで、「設定を開く」か「コマンドをコピー」である。殻の中では、MCP とステータスラインの行を設定の連携の節と同じボタン（setup.run）にする。
+ */
+type ReadinessSetup = { desktop: boolean; running: SetupTarget | null; notifyAsk?: boolean; guide?: string | null; /** 「仕上げ」の行で、すゝめをセッションのダイアログで開けるか（tmux と claude がある）。偽なら一言をコピーさせる。 */ launch?: boolean };
+
+export function presentReadiness(r: ReadinessDto, t: Translate, platform: string = clientPlatform(), check: MuxCheck = 'idle', setup: ReadinessSetup = { desktop: false, running: null }): ReadinessBand | null {
+  // OS の通知の許可をまだ尋ねていなければ、任意の行「通知」を足す。押したときだけ OS に尋ねる（notify.set の on）。
+  // この行だけは、答える（許可するか要らないを押す）まで群を残す。ほかの任意の行と違い、放っておくと通知が届かないまま気付けないからである。
+  if (!readinessPending(r) && !setup.notifyAsk) return null;
+  const checks: Check[] = [...checksOf(r), ...(setup.notifyAsk ? [{ key: 'notify' as const, ok: false, tone: 'soft' as const }] : [])];
+  const { name, fixRow, doneRow } = readinessRows(r, t, platform, check, setup);
   const todo = checks.filter((c) => !c.ok).sort((a, b) => Number(OPTIONAL.has(a.key)) - Number(OPTIONAL.has(b.key)));
   const done = checks.filter((c) => c.ok);
   const total = checks.length;
@@ -357,7 +383,7 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
     id: 'readiness', label: t('home.ready.label'), icon: 'alert', tone: 'warn', count: todo.length, countText: t('home.ready.progress', { done: done.length, total }),
     progress: Math.round((done.length / total) * 100), summary: '', morning: true, rows: todo.map(fixRow),
     fold: done.length > 0 ? { text: t('home.ready.fold', { names: done.map((c) => name(c.key)).join(t('home.ready.separator')) }), rows: done.map(doneRow) } : undefined,
-    ...(setup.guide ? { tail: [guideRow(t, setup.guide)] } : {}),
+    ...(setup.guide ? { tail: [guideRow(t, setup.guide, setup.launch === true)] } : {}),
   };
   return { group, note: lacking.length === 0 ? null : t('home.ready.noteNeed', { names: joinNames(t, lacking) }) };
 }

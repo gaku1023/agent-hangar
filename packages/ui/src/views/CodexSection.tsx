@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef } from 'react';
 import type { CodexInjection } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { CodexSettingsProps } from '../presenters/settings.ts';
+import { InvestigateButton } from './InvestigateButton.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
@@ -10,6 +11,9 @@ import { SetRow } from './primitives/SetRow.tsx';
 import { ShareRows } from './ShareRows.tsx';
 import { Switch } from './primitives/Switch.tsx';
 import { usePresence } from './primitives/usePresence.ts';
+
+/** 見出しの右に「エージェントで調査…」を置く版の区分。その場で直す口が無く、入れ直すか上げるか PATH を直すもの。 */
+const INVESTIGATE_KINDS: ReadonlySet<string> = new Set(['missing']);
 
 /** 版の行の本文。手元の版と確かめた範囲を並べ、範囲の外や見つからないときはその下に文を、ログインしていないときはさらにその下に注記を添える。届く前は「読み込み中…」。 */
 function CodexVersion(props: { version: CodexSettingsProps['version'] }) {
@@ -70,6 +74,7 @@ export function CodexSection(props: { o: CodexSettingsProps; /** 偽なら見出
             {b.text}
           </span>
         )}
+        {o.enabled && o.version && INVESTIGATE_KINDS.has(o.version.kind) && o.version.note && <InvestigateButton ctx={{ op: 'agentVersion', agent: 'codex', message: o.version.note }} />}
       </h3>
       <SetRow title={t('settings.label.codexEnabled')} info={t('settings.codex.enabledDesc')}
         control={<Switch label={t('settings.label.codexEnabled')} checked={o.enabled} onChange={(next) => emit({ type: 'settings.update', patch: { codexEnabled: next } })} />} />

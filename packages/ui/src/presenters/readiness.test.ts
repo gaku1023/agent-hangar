@@ -145,6 +145,10 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
     // 一言が無ければ（写しが取れていない）、行を置かない。
     expect(presentReadiness(READY, ja)!.group.tail).toBeUndefined();
   });
+  it('起動できる（tmux と claude がある）ときは、「仕上げ」の行のボタンを、すゝめを開くボタンにする', () => {
+    const b = presentReadiness(READY, ja, 'darwin', 'idle', { desktop: false, running: null, guide: 'p', launch: true })!;
+    expect(b.group.tail![0]!.actions).toEqual([{ id: 'launchGuide', label: 'エージェントで診断…', ariaLabel: 'エージェントで診断…、仕上げ：Claude Code で環境を診断', title: '診断の依頼を入れた新しいセッションのダイアログを開きます。', primary: false, ghost: false, send: { type: 'setupGuide.launch' } }]);
+  });
   it('「仕上げ」の行のために群を出し続けない。必須が済めば、一言があっても群ごと消える', () => {
     expect(presentReadiness(ALL_OK, ja, 'darwin', 'idle', { desktop: false, running: null, guide: 'p' })).toBeNull();
   });

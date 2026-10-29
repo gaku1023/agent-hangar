@@ -431,6 +431,15 @@ describe('設定のクラウド同期', () => {
     expect(screen.queryByText(/この PC だけで使用しています/)).toBeNull();
     expect(screen.getByRole('button', { name: '参加コードで参加' })).toBeInTheDocument();
   });
+  it('古い形式の帯は、題の行の右に「エージェントで調査…」を置き、帯の文を入れて調べさせる', () => {
+    const onAction = vi.fn();
+    render(ui(at('cloud', { cloud: cloudProps({ configured: false, url: null, state: 'off', devices: [], legacy: { statusCommand: 'hangar cloud status', docUrl: 'https://example.test/d' } }) }), onAction));
+    const band = screen.getByRole('alert');
+    fireEvent.click(within(band).getByRole('button', { name: 'エージェントで調査…' }));
+    const sent = onAction.mock.calls.map((c) => c[0]).find((a) => a.type === 'investigate.open');
+    expect(sent).toMatchObject({ op: 'cloudLegacy' });
+    expect(sent.message).toMatch(/^クラウドの再構築が必要です\n/);
+  });
   it('印の無い未参加の PC には、再構築の帯を出さない', () => {
     render(ui(at('cloud', { cloud: cloudProps({ configured: false, url: null, state: 'off', devices: [], legacy: null }) })));
     expect(screen.queryByText('クラウドの再構築が必要です')).toBeNull();
@@ -796,6 +805,8 @@ describe('設定の連携', () => {
       expect(within(section()).getByText('未検証のバージョン')).toHaveAttribute('data-tone', 'info');
       expect(section()).toHaveTextContent('インストール済みのバージョン 2.1.300');
       expect(within(section()).getByText('未検証のバージョンです。無効にした機能はありません')).toBeInTheDocument();
+      // 止めた機能が無いので、調べる口は置かない。
+      expect(within(section()).queryByRole('button', { name: 'エージェントで調査…' })).toBeNull();
     });
     it('ずれは注意の札で、止めた機能の一覧を常に出し、細目は畳む。表の下に置き場と報告用に写す', () => {
       const onAction = vi.fn();
@@ -811,6 +822,11 @@ describe('設定の連携', () => {
       expect(within(more).getByText('~/.agent-hangar/compat.json')).toBeInTheDocument();
       fireEvent.click(within(more).getByRole('button', { name: 'レポートをコピー' }));
       expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: c.report });
+      // その場で直す口は無いので、見出しの右に「エージェントで調査…」を置き、報告の文を入れて調べさせる。
+      const inv = within(section().querySelector('h3')!).getByRole('button', { name: 'エージェントで調査…' });
+      expect(inv).toHaveAttribute('title', 'この注意の内容を入れた新しいセッションのダイアログを開きます。');
+      fireEvent.click(inv);
+      expect(onAction).toHaveBeenCalledWith({ type: 'investigate.open', op: 'compat', agent: 'claude-code', message: c.report });
     });
     it('ずれはあっても止めた機能が無ければ、一覧を出さず、記録だけだと言う', () => {
       const only: CompatDto = { ...DETAIL, drifts: [{ contract: 'cli', value: 'subcommand.added=newcmd', version: null, count: 1, firstSeenAt: when(7, 9, 0), lastSeenAt: when(7, 9, 0) }] };
@@ -828,7 +844,7 @@ describe('設定の連携', () => {
 });
 
 describe('設定の連携の末尾の「Claude Code に環境を見てもらう」の札', () => {
-  const guide = { prompt: '~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで、私の環境を診断して。書き換えは私が承認してから', version: '0.7.0' };
+  const guide = { prompt: '~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで、私の環境を診断して。書き換えは私が承認してから', version: '0.7.0', launch: false };
   const card = () => screen.getByRole('heading', { name: /Claude Code で環境を診断/ }).closest('section') as HTMLElement;
 
   it('連携の節の最後の札に、題、版の札、説明、貼る一言をそのまま見せる', () => {
@@ -860,6 +876,20 @@ describe('設定の連携の末尾の「Claude Code に環境を見てもらう�
     render(ui(at('agentClaude', { setupGuide: guide }), onAction));
     fireEvent.click(within(card()).getByRole('button', { name: 'セットアップのすゝめを表示' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'setupGuide.openEditor' });
+  });
+
+  it('起動できるときは、一言の枠とコピーを外し、見出しの右に「エージェントで診断…」だけを置く', () => {
+    const onAction = vi.fn();
+    render(ui(at('agentClaude', { setupGuide: { ...guide, launch: true } }), onAction));
+    const c = card();
+    expect(within(c).queryByText(guide.prompt)).toBeNull();
+    expect(within(c).queryByRole('button', { name: 'コピー' })).toBeNull();
+    const button = within(c).getByRole('button', { name: 'エージェントで診断…' });
+    expect(button).toHaveAttribute('title', '診断の依頼を入れた新しいセッションのダイアログを開きます。');
+    fireEvent.click(button);
+    expect(onAction).toHaveBeenCalledWith({ type: 'setupGuide.launch' });
+    // 足（注記と中身の表示）は残す。
+    expect(within(c).getByRole('button', { name: 'セットアップのすゝめを表示' })).toBeInTheDocument();
   });
 
   it('写しが取れていなければ札を出さない', () => {

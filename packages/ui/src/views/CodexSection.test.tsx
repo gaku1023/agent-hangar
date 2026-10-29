@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { UiAction } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
 import type { CodexSettingsProps } from '../presenters/settings.ts';
@@ -18,6 +18,16 @@ const ui = (o: CodexSettingsProps, onAction: (a: UiAction) => void = () => {}) =
 const section = () => screen.getByRole('region', { name: 'Codex' });
 
 describe('設定の Codex の面', () => {
+  it('見つからないときだけ、見出しの右に「エージェントで調査…」を置き、版の行の文を入れて開く', () => {
+    const onAction = vi.fn();
+    const note = 'codex が見つかりません（PATH を確認してください）。';
+    const { unmount } = render(ui(props({ enabled: true, version: { kind: 'missing', installed: null, verified: '0.164.x', note, login: null }, badge: { text: '見つかりません', tone: 'warn' } }), onAction));
+    fireEvent.click(within(section().querySelector('h3')!).getByRole('button', { name: 'エージェントで調査…' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'investigate.open', op: 'agentVersion', agent: 'codex', message: note });
+    unmount();
+    render(ui(props({ enabled: true, version: { kind: 'unknown', installed: null, verified: '0.164.x', note: 'x', login: null } })));
+    expect(within(section()).queryByRole('button', { name: 'エージェントで調査…' })).toBeNull();
+  });
   it('見出しは「Codex」と「ベータ」の小札', () => {
     render(ui(props()));
     const h = within(section()).getByRole('heading');

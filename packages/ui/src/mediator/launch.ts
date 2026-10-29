@@ -1,6 +1,6 @@
 import { DEFAULT_AGENT_KIND, isAgentKind, type InvestigateContext, type LaunchParams, type NonDefaultAgentKind } from '@agent-hangar/shared';
 import { translatorOf } from '../presenters/i18n.ts';
-import { investigateSeed } from '../presenters/investigate.ts';
+import { investigateSeed, setupGuideSeed } from '../presenters/investigate.ts';
 import type { Store } from '../store/store.ts';
 import { overlayReplaceable } from './overlay.ts';
 import type { Effect, Input, LaunchPrefs, LaunchPrepMark, NewSessionDraft, State, Step } from './types.ts';
@@ -211,6 +211,12 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
         ...(o.kind === 'addAccount' ? { accountAdd: { kind: 'idle' as const } } : {}),
       };
       return launchStep(cleared, store, { kind: 'action', action: { type: 'session.new.open', scratch: true, seed: investigateSeed(store, ctx) } });
+    }
+    case 'setupGuide.launch': {
+      // 設定の札とホームの「仕上げ」の行から。すゝめの一言と準備の状況を入れたクイックセッションのダイアログを開く（すぐには起動しない）。
+      const seed = setupGuideSeed(store);
+      if (!seed) return { state, effects: [] };
+      return launchStep(state, store, { kind: 'action', action: { type: 'session.new.open', scratch: true, seed } });
     }
     case 'opencode.providers.manage': {
       // ダイアログから来たときだけ、戻る先を覚える。ダイアログを閉じて、設定の opencode の面へ移る。

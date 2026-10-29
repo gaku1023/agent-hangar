@@ -1,9 +1,10 @@
-import type { AccountDto, AgentAccountsDto, AgentKind, InvestigateContext, NewSessionSeed } from '@agent-hangar/shared';
+import { isNoticeOp, setupGuidePrompt, type AccountDto, type AgentAccountsDto, type AgentKind, type InvestigateContext, type NewSessionSeed } from '@agent-hangar/shared';
 import { clientPlatform } from '../keys.ts';
 import type { Store } from '../store/store.ts';
 import { AGENT_TEXT } from './agentText.ts';
 import { osLabel } from './cloudMember.ts';
 import { translatorOf } from './i18n.ts';
+import { liveReadiness, readinessQuoteLines } from './readiness.ts';
 
 type AccountAgent = 'claude-code' | 'codex';
 
@@ -42,20 +43,46 @@ function pickAccount(set: AgentAccountsDto, avoid: string | null): string | unde
 export function investigateSeed(store: Store, ctx: InvestigateContext, platform: string = clientPlatform()): NewSessionSeed {
   const t = translatorOf(store);
   const { agent, account } = involved(store, ctx);
+  // 注意（エラーではないもの）は、操作の行を持たず、「注意：」で始める。
+  const notice = isNoticeOp(ctx.op);
   const lines = [
-    t('newSession.investigate.line.action', { text: t(`newSession.investigate.op.${ctx.op}`) }),
-    t('newSession.investigate.line.error', { text: ctx.message }),
+    ...(isNoticeOp(ctx.op) ? [t('newSession.investigate.line.notice', { text: ctx.message })] : [
+      t('newSession.investigate.line.action', { text: t(`newSession.investigate.op.${ctx.op}`) }),
+      t('newSession.investigate.line.error', { text: ctx.message }),
+    ]),
     ...(ctx.code ? [t('newSession.investigate.line.code', { text: ctx.code })] : []),
     ...(ctx.files?.length ? [t('newSession.investigate.line.files', { text: ctx.files.join(t('common.list.separator')) })] : []),
     ...(agent ? [t('newSession.investigate.line.agent', { text: t(AGENT_TEXT[agent].launchLabel) })] : []),
     ...(account ? [t('newSession.investigate.line.account', { name: account.name, dir: account.dir })] : []),
     `hangar ${store.version} / ${osLabel(platform)}`,
   ];
+  const accounts = pickAccounts(store, agent, account?.id ?? null);
+  return { request: t(notice ? 'newSession.investigate.requestNotice' : 'newSession.investigate.request'), quote: lines.join('\n'), ...(accounts ? { accounts } : {}), ...(notice ? { tone: 'info' as const } : {}) };
+}
+
+/** エージェントごとに、調べる会話を起こすアカウント（pickAccount）。avoid は agent のアカウントのうち避ける id。どれも選べなければ undefined。 */
+function pickAccounts(store: Store, agent: AgentKind | null, avoid: string | null): NewSessionSeed['accounts'] {
   const accounts: { [K in AccountAgent]?: string } = {};
   for (const a of ['claude-code', 'codex'] as const) {
     const set = accountSet(store, a);
-    const id = set ? pickAccount(set, agent === a ? account?.id ?? null : null) : undefined;
+    const id = set ? pickAccount(set, agent === a ? avoid : null) : undefined;
     if (id) accounts[a] = id;
   }
-  return { request: t('newSession.investigate.request'), quote: lines.join('\n'), ...(Object.keys(accounts).length ? { accounts } : {}) };
+  return Object.keys(accounts).length ? accounts : undefined;
+}
+
+/** セットアップのすゝめを、セッションのダイアログで開けるか。tmux と claude が揃っていなければ、今までどおり一言をコピーさせる。 */
+export const canLaunchGuide = (store: Store): boolean => !!store.setupGuide && !!store.readiness && store.readiness.tools.tmux.ok && store.readiness.tools.claude.ok;
+
+/**
+ * 「エージェントで診断…」（setupGuide.launch）で開く新しいセッションのダイアログの種。
+ * 依頼の文はすゝめの一言（設定の札とホームの「仕上げ」の行が写させていたもの）で、引用はいまの準備の状況（帯と同じ文）と版と OS である。
+ * 引用はエラーではないので中立の色にする。すゝめの写しか準備の確かめがまだ無ければ null。
+ */
+export function setupGuideSeed(store: Store, platform: string = clientPlatform()): NewSessionSeed | null {
+  if (!store.setupGuide || !store.readiness) return null;
+  const t = translatorOf(store);
+  const lines = [...readinessQuoteLines(liveReadiness(store.readiness, Object.values(store.projects)), t, platform), `hangar ${store.version} / ${osLabel(platform)}`];
+  const accounts = pickAccounts(store, null, null);
+  return { request: setupGuidePrompt(t, store.setupGuide), quote: lines.join('\n'), ...(accounts ? { accounts } : {}), tone: 'info' };
 }

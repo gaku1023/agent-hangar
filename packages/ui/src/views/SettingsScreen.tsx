@@ -392,7 +392,8 @@ export function SettingsScreen(props: SettingsProps) {
             {props.cloud.legacy ? (
               <>
                 <Strip tone="warn" role="alert">
-                  <p><b>{t('settings.cloud.legacy.title')}</b></p>
+                  {/* 手順をエージェントに代わりに打たせられるよう、題の行の右に調べる口を置く。 */}
+                  <p className="strip-head"><b>{t('settings.cloud.legacy.title')}</b><InvestigateButton ctx={{ op: 'cloudLegacy', message: `${t('settings.cloud.legacy.title')}\n${t('settings.cloud.legacy.body')}\n${t('settings.cloud.legacy.steps')}` }} /></p>
                   <p>{t('settings.cloud.legacy.body')}</p>
                   <p>{t('settings.cloud.legacy.steps')}</p>
                   <p><a href={props.cloud.legacy.docUrl} target="_blank" rel="noreferrer"><Icon name="externalLink" />{t('settings.cloud.legacy.doc')}</a></p>
