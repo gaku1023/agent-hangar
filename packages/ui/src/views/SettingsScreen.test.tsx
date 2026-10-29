@@ -62,7 +62,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', terminalOptions: [{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }], terminalDesc: '「ターミナルで開く」で使うアプリ。', terminalDescAlways: true, editor: editorProps(), commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: '/A/hangar cloud join <URL>', setupCloud: 'npm run hangar -- setup cloud' },
   summaryEngine: 'openai', summaryClaudeModel: 'haiku', summaryApiKeySet: false,
   lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false,
-  injection: { askStatusAtEnd: true, liveHints: true, remoteControl: true, defaultModel: null, full: presentInjection(translator('ja'), { askStatusAtEnd: true, liveHints: true }) },
+  injection: { askStatusAtEnd: true, liveHints: true, remoteControl: true, defaultModel: null, full: presentInjection(translator('ja'), { askStatusAtEnd: true, liveHints: true, notifyUser: true }) },
   summarizerModels: ['gemma', 'qwen'], summarizerTest: null,
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
   usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 1200, outputTokens: 340, sessions: 2 }], projects: [{ projectId: 'p1', name: 'alpha', inputTokens: 1200, outputTokens: 340, costUsd: 1.5, sessions: 2 }] },
@@ -972,7 +972,7 @@ describe('設定のセッションの「Claude Code に渡す設定」と「新�
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { defaultModel: 'claude-opus-4-1' } });
   });
   it('全文の畳みは、段落の名前を添え、切った段落は打ち消し線で残し、差し込む値は印にする', () => {
-    const full = presentInjection(translator('ja'), { askStatusAtEnd: true, liveHints: false });
+    const full = presentInjection(translator('ja'), { askStatusAtEnd: true, liveHints: false, notifyUser: true });
     render(ui(at('agentClaude', { injection: { askStatusAtEnd: true, liveHints: false, remoteControl: true, defaultModel: null, full } })));
     const details = screen.getByText('追加する指示の全文を表示').closest('details')!;
     expect(details.open).toBe(false);
