@@ -50,7 +50,7 @@ final class Heartbeat {
             (UIApplication.protectedDataDidBecomeAvailableNotification, "lock.didUnlock"),
         ]
         for (name, kind) in pairs {
-            tokens.append(center.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
+            tokens.append(center.addObserver(forName: name, object: nil, queue: nil) { @Sendable [weak self] _ in
                 Task { @MainActor in self?.lockEvent(kind) }
             })
         }

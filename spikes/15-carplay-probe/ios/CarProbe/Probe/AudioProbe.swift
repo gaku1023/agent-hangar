@@ -79,16 +79,16 @@ final class AudioProbe {
 
     func startObserving() {
         guard tokens.isEmpty else { return }
-        tokens.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: nil) { [weak self] n in
+        tokens.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: nil) { @Sendable [weak self] n in
             let t = (n.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt).flatMap(AVAudioSession.InterruptionType.init(rawValue:))
             let o = AVAudioSession.InterruptionOptions(rawValue: (n.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt) ?? 0)
             Task { @MainActor in self?.handleInterruption(t, o) }
         })
-        tokens.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil) { [weak self] n in
+        tokens.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil) { @Sendable [weak self] n in
             let r = (n.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) ?? 0
             Task { @MainActor in self?.handleRoute(.current(reason: "reason\(r)")) }
         })
-        tokens.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: nil) { [weak self] _ in
+        tokens.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: nil) { @Sendable [weak self] _ in
             Task { @MainActor in self?.record("mediaReset", [:]) }
         })
     }

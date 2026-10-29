@@ -60,7 +60,7 @@ final class ProbeModel {
         }
         Task { await store.record("launch", ["autoStart": "\(UserDefaults.standard.object(forKey: "autoStartOnLaunch") as? Bool ?? true)"]) }
         if let u = uploader { Task { await u.start() } }
-        NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { _ in
+        NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { @Sendable _ in
             LaunchForensics.markCleanExit(defaults: .standard)
         }
         refresh = Task { [weak self] in
@@ -165,7 +165,7 @@ final class ProbeModel {
         // シミュレータでは応答が返らないことがあるので、20 秒で見切る。
         let sp: String = await withCheckedContinuation { c in
             let once = Once(c)
-            SFSpeechRecognizer.requestAuthorization { once.resume("\($0.rawValue)") }
+            SFSpeechRecognizer.requestAuthorization { @Sendable status in once.resume("\(status.rawValue)") }
             Task { try? await Task.sleep(for: .seconds(20)); once.resume("timeout") }
         }
         await store.record("permission.speech", ["status": sp])

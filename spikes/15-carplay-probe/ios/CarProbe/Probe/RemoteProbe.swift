@@ -36,7 +36,7 @@ final class RemoteProbe {
         self.mode = mode
         for (name, cmd) in commands {
             cmd.isEnabled = true
-            let t = cmd.addTarget { [weak self] _ in
+            let t = cmd.addTarget { @Sendable [weak self] _ in
                 Task { @MainActor [weak self] in self?.handle(name) }
                 return .success
             }
