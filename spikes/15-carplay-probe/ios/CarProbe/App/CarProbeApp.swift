@@ -9,7 +9,8 @@ struct CarProbeApp: App {
         WindowGroup {
             ProbeView(model: model)
         }
-        .onChange(of: phase) { _, new in
+        .onChange(of: phase, initial: true) { _, new in
+            model.appActive = (new == .active)
             model.heartbeat.scenePhase("\(new)")
         }
     }

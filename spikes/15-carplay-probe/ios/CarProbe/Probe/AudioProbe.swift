@@ -63,7 +63,12 @@ final class AudioProbe {
         handleRoute(.current(reason: "activate"))
     }
 
+    /// 割り込みが終わったら呼ぶ。復帰の試みはアプリ側が行う。
+    var onInterruptionEnded: (@MainActor (Bool) -> Void)?
+
     func deactivate() {
+        previous = nil
+        interruptionGeneration += 1
         tokens.forEach { center.removeObserver($0) }
         tokens = []
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -95,15 +100,14 @@ final class AudioProbe {
             record("interruption.began", [:])
         case .ended:
             let should = options.contains(.shouldResume)
-            resumed = should
+            resumed = false
             record("interruption.ended", ["shouldResume": String(should)])
-            if !should {
-                let gen = interruptionGeneration
-                schedule(3) { [weak self] in
-                    guard let self, self.interruptionGeneration == gen, !self.resumed else { return }
-                    self.record("interruption.noResume", [:])
-                }
+            let gen = interruptionGeneration
+            schedule(3) { [weak self] in
+                guard let self, self.interruptionGeneration == gen, !self.resumed else { return }
+                self.record("interruption.noResume", [:])
             }
+            onInterruptionEnded?(should)
         default: break
         }
     }

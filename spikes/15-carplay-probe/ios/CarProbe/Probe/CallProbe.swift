@@ -8,7 +8,8 @@ final class CallProbe {
     private let provider: CXProvider
     private let controller = CXCallController()
     private var uuid: UUID?
-    var lastCommand: String { delegate.lastCommand }
+    var lastCommand: (name: String, at: Date?) { delegate.lastCommand }
+    func resetLastCommand() { delegate.resetLast() }
 
     init(store: EventStore) {
         let cfg = CXProviderConfiguration()
@@ -45,7 +46,9 @@ final class CallProbe {
         private let lock = NSLock()
         private var reallyEnd = false
         private var last = "-"
-        var lastCommand: String { lock.lock(); defer { lock.unlock() }; return last }
+        private var lastAt: Date?
+        var lastCommand: (name: String, at: Date?) { lock.lock(); defer { lock.unlock() }; return (last, lastAt) }
+        func resetLast() { lock.lock(); last = "-"; lastAt = nil; lock.unlock() }
 
         init(store: EventStore) { self.store = store }
 
@@ -53,8 +56,9 @@ final class CallProbe {
         private func getReallyEnd() -> Bool { lock.lock(); defer { lock.unlock() }; return reallyEnd }
 
         func record(_ kind: String, _ detail: [String: String] = [:]) {
-            if !["call.reset", "call.didBegin", "call.audioActivated", "call.audioDeactivated"].contains(kind) {
-                lock.lock(); last = kind; lock.unlock()
+            // ボタン由来の操作だけを「最後のボタン」に数える。
+            if ["call.end", "call.setHeld", "call.setMuted", "call.setGroup", "call.playDTMF"].contains(kind) {
+                lock.lock(); last = kind; lastAt = Date(); lock.unlock()
             }
             let s = store
             Task { await s.record(kind, detail) }

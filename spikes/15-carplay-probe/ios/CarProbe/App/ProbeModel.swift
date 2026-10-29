@@ -16,7 +16,9 @@ final class ProbeModel {
     let call: CallProbe
     let label = NowPlayingLabel()
     let speech: SpeechProbe
-    let runId: String
+    var runId = "…"
+    var appActive = true
+    private var busy = false
 
     var mode: ProbeMode = .media
     var running = false
@@ -45,9 +47,15 @@ final class ProbeModel {
         remote = RemoteProbe(store: store)
         call = CallProbe(store: store)
         speech = SpeechProbe(store: store, speaker: Speaker(store: store))
-        runId = String(await_runId(store).prefix(8))
-        let rid = runId
-        _ = LaunchForensics.beginRun(defaults: .standard, run: rid, store: store)
+        Task { [weak self] in
+            let name = await store.exportURL().lastPathComponent
+            let rid = String(name.replacingOccurrences(of: "events-", with: "").prefix(8))
+            self?.runId = rid
+            _ = LaunchForensics.beginRun(defaults: .standard, run: rid, store: store)
+        }
+        audio.onInterruptionEnded = { [weak self] should in
+            Task { await self?.resumeAfterInterruption(shouldResume: should) }
+        }
         Task { await store.record("launch", ["autoStart": "\(UserDefaults.standard.object(forKey: "autoStartOnLaunch") as? Bool ?? true)"]) }
         if let u = uploader { Task { await u.start() } }
         heartbeat.start()
@@ -56,7 +64,7 @@ final class ProbeModel {
         }
         refresh = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.reload()
+                if self?.appActive ?? true { await self?.reload() }
                 try? await Task.sleep(for: .seconds(2))
             }
         }
@@ -72,6 +80,13 @@ final class ProbeModel {
     }
 
     func start() async {
+        guard !running, !busy else { return }
+        busy = true
+        defer { busy = false }
+        await doStart()
+    }
+
+    private func doStart() async {
         guard !running else { return }
         await requestPermissions()
         do { try audio.activate(mode: mode) } catch {
@@ -83,32 +98,43 @@ final class ProbeModel {
         remote.enable(mode: mode)
         label.startTicker { [weak self] in
             guard let self else { return (.media, "-") }
-            let c = self.call.lastCommand
-            return (self.mode, c != "-" ? c : self.remote.lastCommand)
+            let c = self.call.lastCommand, r = self.remote
+            let callNewer = (c.at ?? .distantPast) > (r.lastCommandAt ?? .distantPast)
+            return (self.mode, callNewer ? c.name : r.lastCommand)
         }
         if mode == .call { call.startCall() }
         if micOn { await startMic() }
     }
 
     func stop() async {
+        guard !busy else { return }
+        busy = true
+        defer { busy = false }
+        await doStop()
+    }
+
+    private func doStop() async {
         guard running else { return }
         await stopMic()
         call.endCall()
         remote.disable()
         label.stopTicker()
         audio.deactivate()
-        LaunchForensics.markCleanExit(defaults: .standard)
+        call.resetLastCommand()
+        remote.resetLastCommand()
         running = false
         status = "停止中"
         await uploader?.flush()
     }
 
     func switchMode(_ m: ProbeMode) async {
-        guard m != mode else { return }
+        guard m != mode, !busy else { return }
+        busy = true
+        defer { busy = false }
         let was = running
-        if was { await stop() }
+        if was { await doStop() }
         mode = m
-        if was { await start() }
+        if was { await doStart() }
     }
 
     func toggleMic() async {
@@ -122,7 +148,6 @@ final class ProbeModel {
         micRunning = true
         await speech.start()
         speech.startTicker()
-        audio.markResumed()
     }
 
     private func stopMic() async {
@@ -145,16 +170,19 @@ final class ProbeModel {
         await store.record("permission.speech", ["status": sp])
     }
 
-    func flush() async { await uploader?.flush() }
-}
+    /// 割り込み後に、音を実際に戻す。戻せたときだけ markResumed する。
+    func resumeAfterInterruption(shouldResume: Bool) async {
+        guard running else { return }
+        var ok = true
+        var err = ""
+        do { try AVAudioSession.sharedInstance().setActive(true) } catch { ok = false; err = "\(error)" }
+        if mode == .media, !remote.restartSilence() { ok = false; err += " silence" }
+        if micOn { await stopMic(); await startMic() }
+        await store.record("interruption.resumeAttempt", ["shouldResume": "\(shouldResume)", "ok": "\(ok)", "error": err])
+        if ok { audio.markResumed() }
+    }
 
-private func await_runId(_ store: EventStore) -> String {
-    // exportURL は actor 越しなので、同期的には取れない。起動直後だけセマフォで待つ。
-    final class Box: @unchecked Sendable { var v = "" }
-    let b = Box(); let sem = DispatchSemaphore(value: 0)
-    Task.detached { b.v = await store.exportURL().lastPathComponent; sem.signal() }
-    sem.wait()
-    return b.v.replacingOccurrences(of: "events-", with: "").replacingOccurrences(of: ".jsonl", with: "")
+    func flush() async { await uploader?.flush() }
 }
 
 private final class Once: @unchecked Sendable {

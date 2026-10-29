@@ -19,6 +19,39 @@ final class AudioProbeTests: XCTestCase {
         return await store.pending(limit: 100).filter { $0.kind == kind }
     }
 
+    func test_interruption_ended_without_markResumed_logs_noResume_even_with_shouldResume() async {
+        let store = EventStore(directory: dir)
+        let center = NotificationCenter()
+        var scheduled: [@MainActor @Sendable () -> Void] = []
+        let probe = AudioProbe(store: store, center: center) { _, work in scheduled.append(work) }
+        probe.startObserving()
+        center.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [
+            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue,
+            AVAudioSessionInterruptionOptionKey: AVAudioSession.InterruptionOptions.shouldResume.rawValue])
+        let ended = await eventually(store, "interruption.ended")
+        XCTAssertEqual(ended.first?.detail["shouldResume"], "true")
+        scheduled.forEach { $0() }
+        let nr = await eventually(store, "interruption.noResume")
+        XCTAssertEqual(nr.count, 1)
+    }
+
+    func test_markResumed_within_window_suppresses_noResume() async {
+        let store = EventStore(directory: dir)
+        let center = NotificationCenter()
+        var scheduled: [@MainActor @Sendable () -> Void] = []
+        let probe = AudioProbe(store: store, center: center) { _, work in scheduled.append(work) }
+        probe.startObserving()
+        center.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [
+            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue,
+            AVAudioSessionInterruptionOptionKey: AVAudioSession.InterruptionOptions.shouldResume.rawValue])
+        _ = await eventually(store, "interruption.ended")
+        probe.markResumed()
+        scheduled.forEach { $0() }
+        try? await Task.sleep(for: .milliseconds(100))
+        let nr = await store.pending(limit: 100).filter { $0.kind == "interruption.noResume" }
+        XCTAssertTrue(nr.isEmpty)
+    }
+
     func test_interruption_without_resume_is_logged() async {
         let store = EventStore(directory: dir)
         let center = NotificationCenter()

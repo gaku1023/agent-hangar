@@ -11,6 +11,8 @@ final class RemoteProbe {
     private var player: AVAudioPlayer?
     private(set) var mode: ProbeMode = .media
     private(set) var lastCommand = "-"
+    private(set) var lastCommandAt: Date?
+    func resetLastCommand() { lastCommand = "-"; lastCommandAt = nil }
 
     init(store: EventStore, micActive: @escaping @MainActor () -> Bool = { false }, playsSilence: Bool = true) {
         self.store = store
@@ -54,6 +56,7 @@ final class RemoteProbe {
 
     func handle(_ command: String) {
         lastCommand = command
+        lastCommandAt = Date()
         let detail = ["mode": mode.rawValue, "micActive": micActive() ? "true" : "false"]
         let s = store
         Task { await s.record("remote.\(command)", detail) }
@@ -64,14 +67,28 @@ final class RemoteProbe {
         tokens = []
     }
 
+    /// 割り込みのあとに無音ループを作り直す。鳴っていれば true。
+    func restartSilence() -> Bool {
+        guard mode == .media else { return true }
+        stopSilence()
+        startSilence()
+        return player?.isPlaying ?? !playsSilence
+    }
+
+    private func failSilence(_ reason: String) {
+        let s = store
+        Task { await s.record("remote.silenceFailed", ["reason": reason]) }
+    }
+
     private func startSilence() {
         guard playsSilence, player == nil else { return }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("silence.wav")
-        try? Self.silenceWAV().write(to: url)
-        guard let p = try? AVAudioPlayer(contentsOf: url) else { return }
+        do { try Self.silenceWAV().write(to: url) } catch { return failSilence("write: \(error)") }
+        let p: AVAudioPlayer
+        do { p = try AVAudioPlayer(contentsOf: url) } catch { return failSilence("init: \(error)") }
         p.numberOfLoops = -1
         p.prepareToPlay()
-        p.play()
+        if !p.play() { return failSilence("play() returned false") }
         player = p
     }
 
