@@ -131,7 +131,7 @@ function presentCodex(t: Translate, settings: { codexEnabled?: boolean; codexInj
 }
 
 /** 設定の「連携 › opencode」の面。platform は画面を開いている OS で、Windows ではコマンドの横取りの行だけを出さない。 */
-function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; opencodeInjection?: OpencodeInjection; opencodeIntercept?: boolean; opencodePermissionPreset?: boolean; opencodeLocalContext?: number; opencodeIdleUnload?: number; opencodeShareInstructions?: boolean; opencodeShareMcp?: boolean; askStatusAtEnd?: boolean; liveHints?: boolean }, status: OpencodeStatusDto | null, platform: string, shell: ShellHookStateDto | null, preview: SharePreviewDto | undefined, home: string | null): OpencodeSettingsProps {
+function presentOpencode(t: Translate, settings: { opencodeEnabled?: boolean; opencodeInjection?: OpencodeInjection; opencodeIntercept?: boolean; opencodePermissionPreset?: boolean; opencodeLocalContext?: number; opencodeIdleUnload?: number; opencodeShareInstructions?: boolean; opencodeShareMcp?: boolean; askStatusAtEnd?: boolean; liveHints?: boolean; notifyUser?: boolean }, status: OpencodeStatusDto | null, platform: string, shell: ShellHookStateDto | null, preview: SharePreviewDto | undefined, home: string | null): OpencodeSettingsProps {
   const injection = opencodeInjectionOf(settings);
   const kind = status ? opencodeVersionKind(status) : null;
   const text = kind ? OPENCODE_VERSION_TEXT[kind] : null;

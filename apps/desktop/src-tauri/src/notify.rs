@@ -1615,8 +1615,14 @@ mod tests {
     fn an_unread_notice_has_its_own_slot_and_opens_the_session() {
         assert_eq!(Kind::parse(Some("unread")), Ok(Kind::Unread));
         assert_eq!(identifier(Kind::Unread, "s1"), "hangar-unread:s1");
-        assert_ne!(identifier(Kind::Unread, "s1"), identifier(Kind::Waiting, "s1"));
-        assert_eq!(parse_identifier("hangar-unread:s1"), Some((Kind::Unread, "s1")));
+        assert_ne!(
+            identifier(Kind::Unread, "s1"),
+            identifier(Kind::Waiting, "s1")
+        );
+        assert_eq!(
+            parse_identifier("hangar-unread:s1"),
+            Some((Kind::Unread, "s1"))
+        );
         assert_eq!(session_of("hangar-unread:s1"), Some("s1"));
         assert_eq!(toast_group(Kind::Unread), "hangar-unread");
         assert_ne!(toast_group(Kind::Unread), toast_group(Kind::Waiting));
