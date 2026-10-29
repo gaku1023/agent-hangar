@@ -8,7 +8,7 @@ export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname !== "/e") return json({ error: "not found" }, 404);
-    if (req.headers.get("authorization") !== `Bearer ${env.TOKEN}`) return json({ error: "unauthorized" }, 401);
+    if (!env.TOKEN || req.headers.get("authorization") !== `Bearer ${env.TOKEN}`) return json({ error: "unauthorized" }, 401);
     if (req.method === "POST") {
       let evs: Ev[];
       try { evs = await req.json(); if (!Array.isArray(evs)) throw 0; } catch { return json({ error: "bad body" }, 400); }

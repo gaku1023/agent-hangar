@@ -11,13 +11,19 @@ struct ProbeEvent: Codable, Sendable {
 enum ProbeCoding {
     static func encoder() -> JSONEncoder {
         let e = JSONEncoder()
-        e.dateEncodingStrategy = .iso8601
+        e.dateEncodingStrategy = .custom { date, enc in
+            var c = enc.singleValueContainer()
+            try c.encode(date.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)))
+        }
         e.outputFormatting = [.sortedKeys]
         return e
     }
     static func decoder() -> JSONDecoder {
         let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
+        d.dateDecodingStrategy = .custom { dec in
+            let s = try dec.singleValueContainer().decode(String.self)
+            return try Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(s)
+        }
         return d
     }
 }

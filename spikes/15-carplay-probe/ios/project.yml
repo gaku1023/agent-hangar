@@ -16,16 +16,20 @@ targets:
     type: application
     platform: iOS
     sources: [CarProbe]
+    info:
+      path: CarProbe/Info.plist
+      properties:
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UILaunchScreen: {}
+        UIBackgroundModes: [audio]
+        NSMicrophoneUsageDescription: 車内の音声を文字にするために使います
+        NSSpeechRecognitionUsageDescription: 音声を文字にするために使います
+        SinkURL: $(SINK_URL)
+        SinkToken: $(SINK_TOKEN)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.hangar.carprobe.$(TEAM_ID_LAST4)
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UIBackgroundModes: audio
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: 車内の音声を文字にするために使います
-        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: 音声を文字にするために使います
-        SINK_TOKEN: $(SINK_TOKEN)
   CarProbeTests:
     type: bundle.unit-test
     platform: iOS
