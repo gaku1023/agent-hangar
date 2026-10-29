@@ -177,6 +177,7 @@ final class ProbeModel {
         var ok = true
         var err = ""
         do { try AVAudioSession.sharedInstance().setActive(true) } catch { ok = false; err = "\(error)" }
+        audio.applyDeskSpeaker()
         if mode == .media, !remote.restartSilence() { ok = false; err += " silence" }
         if micOn { await stopMic(); await startMic() }
         await store.record("interruption.resumeAttempt", ["shouldResume": "\(shouldResume)", "ok": "\(ok)", "error": err])

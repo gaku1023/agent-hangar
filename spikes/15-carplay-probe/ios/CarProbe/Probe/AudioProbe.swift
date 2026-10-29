@@ -61,6 +61,16 @@ final class AudioProbe {
         startObserving()
         record("mode", ["mode": mode.rawValue])
         handleRoute(.current(reason: "activate"))
+        applyDeskSpeaker()
+    }
+
+    /// 机用スイッチ。ON のときだけ出力をスピーカーに上書きする。カテゴリとオプションは触らない。
+    func applyDeskSpeaker() {
+        let on = UserDefaults.standard.bool(forKey: "deskSpeaker")
+        var ok = true
+        var err = ""
+        do { try AVAudioSession.sharedInstance().overrideOutputAudioPort(on ? .speaker : .none) } catch { ok = false; err = "\(error)" }
+        record("deskSpeaker", ["on": "\(on)", "ok": "\(ok)", "error": err])
     }
 
     /// 割り込みが終わったら呼ぶ。復帰の試みはアプリ側が行う。
@@ -86,7 +96,14 @@ final class AudioProbe {
         })
         tokens.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil) { @Sendable [weak self] n in
             let r = (n.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) ?? 0
-            Task { @MainActor in self?.handleRoute(.current(reason: "reason\(r)")) }
+            Task { @MainActor in
+                self?.handleRoute(.current(reason: "reason\(r)"))
+                // 経路が変わると上書きが外れる。ON のときだけ、スピーカーでなければ掛け直す(自己ループ防止)。
+                if UserDefaults.standard.bool(forKey: "deskSpeaker"),
+                   !AVAudioSession.sharedInstance().currentRoute.outputs.contains(where: { $0.portType == .builtInSpeaker }) {
+                    self?.applyDeskSpeaker()
+                }
+            }
         })
         tokens.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: nil) { @Sendable [weak self] _ in
             Task { @MainActor in self?.record("mediaReset", [:]) }

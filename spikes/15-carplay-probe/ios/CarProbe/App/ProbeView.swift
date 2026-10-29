@@ -4,6 +4,7 @@ struct ProbeView: View {
     let model: ProbeModel
     @State private var shareURL: URL?
     @State private var showShare = false
+    @AppStorage("deskSpeaker") private var deskSpeaker = false
 
     var body: some View {
         ScrollView {
@@ -24,6 +25,8 @@ struct ProbeView: View {
                     }.buttonStyle(.bordered).font(.title2.bold())
                 }
                 Toggle("起動したら自動で開始", isOn: Binding(get: { model.autoStart }, set: { model.autoStart = $0 })).font(.title3)
+                Toggle("机用: スピーカーで鳴らす", isOn: $deskSpeaker).font(.title3)
+                    .onChange(of: deskSpeaker) { _, _ in model.audio.applyDeskSpeaker() }
                 Text("送信待ち: \(model.pendingCount) 件").font(.title2)
                 Button("ログを共有") {
                     Task { shareURL = await model.store.exportURL(); showShare = true }
