@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@agent-hangar/shared": "*",
-    "@hono/node-server": "^2.1.1",
+    "@hono/node-server": "^2.1.5",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "better-sqlite3": "^13.0.3",
     "fzstd": "^0.1.1",
