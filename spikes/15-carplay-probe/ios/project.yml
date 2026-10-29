@@ -22,7 +22,7 @@ targets:
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UILaunchScreen: {}
-        UIBackgroundModes: [audio]
+        UIBackgroundModes: [audio, voip]
         NSMicrophoneUsageDescription: 車内の音声を文字にするために使います
         NSSpeechRecognitionUsageDescription: 音声を文字にするために使います
         SinkURL: $(SINK_URL)

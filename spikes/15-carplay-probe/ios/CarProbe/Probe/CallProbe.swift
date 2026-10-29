@@ -12,7 +12,10 @@ final class CallProbe {
     func resetLastCommand() { delegate.resetLast() }
 
     init(store: EventStore) {
-        let cfg = CXProviderConfiguration()
+        let cfg = CXProviderConfiguration(localizedName: "Hangar")
+        cfg.supportedHandleTypes = [.generic]
+        cfg.maximumCallsPerCallGroup = 1
+        cfg.maximumCallGroups = 1
         cfg.includesCallsInRecents = false
         cfg.supportsVideo = false
         provider = CXProvider(configuration: cfg)
@@ -28,7 +31,7 @@ final class CallProbe {
         let action = CXStartCallAction(call: id, handle: CXHandle(type: .generic, value: "Hangar"))
         let d = delegate
         controller.request(CXTransaction(action: action)) { err in
-            if let err { d.record("call.startError", ["error": "\(err)"]) }
+            if let err { d.record("call.startError", CallProbe.errorDetail(err)) }
         }
     }
 
@@ -38,8 +41,18 @@ final class CallProbe {
         uuid = nil
         let d = delegate
         controller.request(CXTransaction(action: CXEndCallAction(call: id))) { err in
-            if let err { d.record("call.endError", ["error": "\(err)"]) }
+            if let err { d.record("call.endError", CallProbe.errorDetail(err)) }
         }
+    }
+
+    nonisolated static func errorDetail(_ err: Error) -> [String: String] {
+        let ns = err as NSError
+        return [
+            "error": "\(err)",
+            "domain": ns.domain,
+            "code": String(ns.code),
+            "userInfo": "\(ns.userInfo)",
+        ]
     }
 
     /// provider のキューで呼ばれるので、MainActor には載せない。
