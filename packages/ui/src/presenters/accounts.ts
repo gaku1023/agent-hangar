@@ -20,6 +20,8 @@ export type AccountView = {
   /** 札に添える一言。上限が近い、値が古い、のどちらか 1 つ（上限が近いほうを優先）。無ければ null。 */
   note: { tone: 'warn' | 'stale'; text: string } | null;
   linkProblem: string | null;
+  /** 中身が違う実ファイルになっていて、選んで直せる項目の名前（修復のダイアログへ進める）。無ければ空。 */
+  linkConflicts: string[];
   /** ログイン中の Codex の方法と確認コード、取り消されたときの相手の名前。無ければ null（Claude は常に null）。 */
   login: AccountDto['login'] | null;
   dir: string;
@@ -70,7 +72,7 @@ export function presentAccount(t: Translate, a: AccountDto, currentId: string, n
     updatedLabel: a.usage.updatedAt === null ? null : relativeTime(t, a.usage.updatedAt, now),
     note: noteOf(t, a, fiveHour, now),
     login: a.login ?? null,
-    linkProblem: a.linkProblem, dir: a.dir, dirLabel: homePath(a.dir, home),
+    linkProblem: a.linkProblem, linkConflicts: a.linkConflicts, dir: a.dir, dirLabel: homePath(a.dir, home),
   };
 }
 

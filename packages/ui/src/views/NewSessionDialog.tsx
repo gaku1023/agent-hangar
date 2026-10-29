@@ -493,7 +493,12 @@ export function NewSessionDialog(props: NewSessionProps) {
       )}
       {dirPath && !enclosing && !link && <div className="faint">{outside ? t('newSession.dir.outside') : t('newSession.dir.unregistered', { path: dirPath })}</div>}
       {!scratch && caps.trustNote && <div className="faint" {...agentOnlyAttr('trustNote')}>{t('newSession.note.trust')}</div>}
-      {errorShown !== null && failure === null && <div className="error" role="alert">{errorShown}</div>}
+      {errorShown !== null && failure === null && (
+        <div className="error" role="alert">
+          {errorShown}
+          {props.errorRepair && <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'linkRepair.open', ...props.errorRepair! })}>{t('account.repair.button')}</button>}
+        </div>
+      )}
       <LaunchPrepAsk ask={asking} onChoose={submit} />
       <LaunchPrepFailed reason={failure} title={failure !== null ? prep?.failureTitle ?? null : null} />
       <LaunchPrepBox open={preparing} view={prep} />

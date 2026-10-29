@@ -604,6 +604,7 @@ a:hover { text-decoration: underline; }
 /* 下端のボタンの段。器の中身がスクロールしても動かない。 */
 .dialog-foot { flex: none; position: relative; z-index: 1; display: flex; align-items: center; gap: calc(var(--u) * 2); padding: var(--dialog-gap) var(--dialog-pad) calc(var(--u) * 4); transition: box-shadow var(--dur-fast) var(--ease-out); }
 .error { color: var(--error); font-size: var(--fs-sm); }
+.error .btn { margin-left: calc(var(--u) * 2); }
 
 /* タブは端末の板から生えたフォルダの耳。選んだタブは板と同じ墨色になり、板とつながる。
    帯と板の間には線も隙間も置かない。 */

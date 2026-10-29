@@ -340,7 +340,7 @@ describe('リンクの修復（Claude）', () => {
     let r = await call('GET', '/accounts');
     const a = r.json.accounts[1]!;
     expect(a.linkConflicts).toEqual(['settings.json']);
-    expect(a.linkProblem).toBe('settings.json が共有の設定から切り離されています。どちらを残すか選んで直してください');
+    expect(a.linkProblem).toBe('settings.json が共有設定から外れています。残す方を選んで修復してください');
     expect(r.json.accounts[0]!.linkConflicts).toEqual([]);
     // ディレクトリが混じると、直せるファイルだけを挙げ、文は今のまま。
     fs.rmSync(path.join(dir, 'projects'));

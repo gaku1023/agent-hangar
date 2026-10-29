@@ -207,6 +207,16 @@ describe('NewSessionDialog（N2）', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('tmux が未検出');
     expect(screen.getByText(/信頼の確認ダイアログ/)).toBeInTheDocument();
   });
+  it('起動の失敗がリンクの衝突なら、失敗の行に「修復…」を出し、押すと修復のダイアログを開く操作を出す', () => {
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><NewSessionDialog {...base} projectId="p1" error="settings.json が共有設定から外れています" errorRepair={{ agent: 'claude-code', accountId: 'a1' }} /></ActionRoot>);
+    fireEvent.click(within(screen.getByRole('alert')).getByRole('button', { name: '修復…' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'linkRepair.open', agent: 'claude-code', accountId: 'a1' });
+  });
+  it('衝突でない失敗には「修復…」を出さない', () => {
+    render(<ActionRoot onAction={() => {}}><NewSessionDialog {...base} projectId="p1" error="tmux が未検出" /></ActionRoot>);
+    expect(screen.queryByRole('button', { name: '修復…' })).toBeNull();
+  });
   // クイックセッションの置き場は hangar が前もって信頼済みにするので、信頼確認の注意は出さない。
   it('クイックセッションでは信頼確認の注意を出さない', () => {
     render(<ActionRoot onAction={() => {}}><NewSessionDialog {...base} scratch /></ActionRoot>);

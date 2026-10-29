@@ -5291,6 +5291,15 @@ POST は `{ entries: [{ name, keep: 'mine' | 'shared' }] }` を受け、直し�
 起動が、この種類の衝突だけで断られたときは、応答に `code: 'account_link_conflict'`、`accountId`、`agent`、直せるファイル名 `files` を載せる（400。`RunError` の `body`）。
 画面はこれで修復のダイアログを開ける（UI の `AccountLinkConflictApiError`）。ディレクトリの衝突が混じるときは、直しても起動できないので、符号を付けず文だけを返す。
 
+画面の入口は 3 つで、どれも `linkRepair.open`（エージェントとアカウントの id）を出す。
+再開とフォークの起動の失敗のトースト（`launch.failed` が `linkConflict` を運ぶ）、新しいセッションのダイアログの失敗の行、設定のアカウントの行（`linkConflicts` が空でないとき。Claude と Codex の両方）に「修復…」を置く。
+ダイアログ（`views/LinkRepairDialog.tsx`、`presenters/linkRepair.ts`、`mediator/linkRepair.ts`）は、設定の同期の競合のダイアログと同じ形で、ファイルごとの札に 2 つの更新時刻、共有設定からこのアカウントへの行の差分、2 択のボタンを置く。
+本文が読めない側（256KB 超かバイナリ）があれば、差分の代わりに理由を言う。
+全部の札で選ぶまで「修復」は押せず、直している間は閉じない。
+断られた理由と読めなかった理由はダイアログの中に出す。
+直せたら閉じて、右下に知らせを出す。新しいセッションのダイアログから開いたときは、閉じるか直せたらそこへ戻る（直せたときは失敗の行を消す）。
+動きは新しく作らず、ダイアログは既存の出入り、設定の行の注意の 1 行は入りが `growIn`、直って消えるときが `collapseOut` である。
+
 
 ### Home
 

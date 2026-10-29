@@ -26,6 +26,8 @@ const ALLOWED: Record<string, string> = {
   // ⌘W の行も、閉じるタブが無いときは分割から外す（同じ理由）。
   'shortcuts.key.tabClose': '外す（分割から外す）',
   'pane.menu.closeOthers': '外す、ほかの（ほかのペインを外す）',
+  // 会話の履歴の保持ではなく、選ばなかった側のファイルを .bak-hangar-日時 の名前で手元に置いておくこと（#513）。文言は Gemini で決めた。
+  'account.repair.note': '残します（選ばなかった側のファイルの退避）',
 };
 
 /** 「本文」が HTTP やモデルの応答の本体（body）を指す鍵。トランスクリプトの意味では使わない。 */

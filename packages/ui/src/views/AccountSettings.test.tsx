@@ -124,6 +124,30 @@ describe('AccountSettings の状態', () => {
   });
 });
 
+describe('AccountSettings の「修復…」（#513）', () => {
+  it('linkConflicts がある行にだけ「修復…」を出し、押すと修復のダイアログを開く操作を出す', () => {
+    const onAction = mount(props({ a1: { linkConflicts: ['settings.json'], linkProblem: 'settings.json が共有設定から外れています。残す方を選んで修復してください' } }));
+    expect(within(row('会社')).queryByRole('button', { name: '修復…' })).toBeNull();
+    fireEvent.click(within(row('大学')).getByRole('button', { name: '修復…' }));
+    expect(onAction.mock.calls).toEqual([[{ type: 'linkRepair.open', agent: 'claude-code', accountId: 'a1' }]]);
+  });
+  it('Codex の一覧では agent を codex にして出す', () => {
+    const onAction = vi.fn();
+    const dto: AccountsDto = { ...codexAccountsFixture, codex: { ...codexAccountsFixture.codex!, accounts: codexAccountsFixture.codex!.accounts.map((a) => (a.id === 'cw' ? { ...a, linkConflicts: ['config.toml'] } : a)) } };
+    const list = presentCodexAccounts({ ...initialStore(), home: '/Users/taro', accounts: dto }, NOW);
+    render(<ActionRoot onAction={onAction}><AccountSettings list={list} colors={ACCOUNT_COLORS} agent="codex" /></ActionRoot>);
+    fireEvent.click(screen.getByRole('button', { name: '修復…' }));
+    expect(onAction.mock.calls).toEqual([[{ type: 'linkRepair.open', agent: 'codex', accountId: 'cw' }]]);
+  });
+  it('直ったら注意の 1 行と「修復…」が消える', () => {
+    const view = render(<ActionRoot onAction={() => {}}><AccountSettings {...props({ a1: { linkConflicts: ['settings.json'], linkProblem: '外れています' } })} /></ActionRoot>);
+    expect(screen.getByRole('button', { name: '修復…' })).toBeInTheDocument();
+    view.rerender(<ActionRoot onAction={() => {}}><AccountSettings {...props()} /></ActionRoot>);
+    expect(screen.queryByRole('button', { name: '修復…' })).toBeNull();
+    expect(screen.queryByText('外れています')).toBeNull();
+  });
+});
+
 describe('AccountSettings の「ログイン」と「やめる」の入れ替わり', () => {
   afterEach(() => { vi.useRealTimers(); });
   const OUT = { loggedIn: false, email: null, plan: null, orgName: null, checkedAt: 1 };

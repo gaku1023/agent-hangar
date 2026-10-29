@@ -9,6 +9,7 @@ import { presentHomeScreen } from './presenters/home.ts';
 import { storeLanguage, translatorOf } from './presenters/i18n.ts';
 import { presentNewProject } from './presenters/newProject.ts';
 import { presentAddAccount } from './presenters/addAccount.ts';
+import { presentLinkRepair } from './presenters/linkRepair.ts';
 import { presentProjectCandidates } from './presenters/projectCandidates.ts';
 import { newSessionTarget, presentNewSession } from './presenters/newSession.ts';
 import { presentPalette } from './presenters/palette.ts';
@@ -40,6 +41,7 @@ import { ConfirmDialog } from './views/ConfirmDialog.tsx';
 import { HomeScreen } from './views/HomeScreen.tsx';
 import { NewProjectDialog } from './views/NewProjectDialog.tsx';
 import { AddAccountDialog } from './views/AddAccountDialog.tsx';
+import { LinkRepairDialog } from './views/LinkRepairDialog.tsx';
 import { ProjectCandidatesDialog } from './views/ProjectCandidatesDialog.tsx';
 import { NewSessionDialog } from './views/NewSessionDialog.tsx';
 import { PauseDialog } from './views/PauseDialog.tsx';
@@ -473,6 +475,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const moveSession = presentMoveSession(state, store);
   // 設定の同期のダイアログ（作り直した実装）。開いたときに取った中身（Store の configDetail）から組む。
   const configDialog = presentConfigDialog(state, store);
+  // リンクの修復のダイアログ（#513）。選びはダイアログが持つので、閉じれば消え、開き直せば空から始まる。
+  const linkRepair = presentLinkRepair(state, store);
   // psmux（tmux）が無いときに、セッションを始める操作を止めて出す案内（段 6 の B2）。
   const muxGuide = presentMuxGuide(state, store);
   // 差分のダイアログ（git の表示）。中身は Store の gitChanges、gitDiffs、gitEdits から組む。
@@ -487,6 +491,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       {overlay.kind === 'palette' && <CommandPalette {...presentPalette(state, store, paletteQuery, now, paletteFound)!} onQuery={setPaletteQuery} />}
       {overlay.kind === 'newProject' && <NewProjectDialog {...presentNewProject(state, store)!} />}
       {overlay.kind === 'addAccount' && <AddAccountDialog {...presentAddAccount(state, store)!} />}
+      {linkRepair && <LinkRepairDialog {...linkRepair} />}
       {overlay.kind === 'projectCandidates' && <ProjectCandidatesDialog {...presentProjectCandidates(state, store, now)!} />}
       {overlay.kind === 'promote' && <PromoteDialog {...presentPromote(state, store)!} />}
       {overlay.kind === 'promoted' && <PromotedDialog {...presentPromoted(state, store)!} />}

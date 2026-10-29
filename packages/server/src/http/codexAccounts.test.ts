@@ -191,7 +191,7 @@ describe('Codex のアカウントの口と DTO', () => {
     const id = added.json.codex!.accounts[1]!.id;
     const list = await call('GET', '/codex/accounts');
     expect(list.json.accounts[1]).toMatchObject({ linkConflicts: ['config.toml'] });
-    expect(list.json.accounts[1]!.linkProblem).toContain('選んで直して');
+    expect(list.json.accounts[1]!.linkProblem).toContain('選んで修復して');
     const d = await call('GET', `/codex/accounts/${id}/link-conflicts`);
     expect(d.json).toMatchObject({ accountId: id, agent: 'codex', entries: [{ name: 'config.toml', mine: { text: 'model = "b"' }, shared: { text: 'model = "a"' } }] });
     expect((await call('POST', `/codex/accounts/${id}/link-conflicts`, { entries: [{ name: 'evil', keep: 'mine' }] })).status).toBe(400);

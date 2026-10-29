@@ -10,7 +10,7 @@ import { presentLaunchPrep, type LaunchPrepView } from './launchPrep.ts';
 
 export type NewSessionProject = { id: string; name: string; path: string | null; status: ProjectStatus; lastActivity: string };
 export type NewSessionProps = {
-  projects: NewSessionProject[]; recentIds: string[]; projectId: string | null; submitting: boolean; error: string | null; scratch: boolean;
+  projects: NewSessionProject[]; recentIds: string[]; projectId: string | null; submitting: boolean; error: string | null; /** 失敗が、リンクの場所のファイルの衝突だけのとき、修復のダイアログへ進める先。 */ errorRepair?: { agent: 'claude-code' | 'codex'; accountId: string } | null; scratch: boolean;
   /** 前に閉じたときの書きかけ。開いたときの名前と初期プロンプトにする。 */
   draft: NewSessionDraft | null;
   /** 詳細のプロジェクトごとの前回値。鍵はプロジェクトの id で、クイックセッションは ':scratch' である。 */
@@ -147,7 +147,7 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
   const mark = state.launchPrep;
   const prepDto = mark ? store.launchPreps[mark.key] : undefined;
   return {
-    projects, recentIds, projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, scratch: state.overlay.scratch, draft: state.newSessionDraft, prefs: state.launchPrefs,
+    projects, recentIds, projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, errorRepair: state.launch.kind === 'failed' ? state.launch.linkConflict ?? null : null, scratch: state.overlay.scratch, draft: state.newSessionDraft, prefs: state.launchPrefs,
     dirs, takenNames, workspaceRoot: store.settings?.workspaceRoot ?? null, desktop: store.desktop, picked: store.pickedFolder, createdProjectId, accounts: newSessionAccounts(store, now), codexAccounts: newSessionCodexAccounts(store, now), defaultModel: store.settings?.defaultModel ?? null,
     ...(state.overlay.worktree ? { worktree: true } : {}),
     ...(state.overlay.agent ? { agent: state.overlay.agent } : {}),

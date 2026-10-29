@@ -1,4 +1,4 @@
-import type { ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, NonDefaultAgentKind, ProjectPlace, ProjectRailSection, ResolveAction, PhoneLaunchDto, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto } from '@agent-hangar/shared';
+import type { LinkConflictsDto, ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, NonDefaultAgentKind, ProjectPlace, ProjectRailSection, ResolveAction, PhoneLaunchDto, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { PanesState } from './panes.ts';
 import type { CloudMemberCommand } from '../runtime/cloudMember.ts';
@@ -15,7 +15,7 @@ export type RuntimeEvent =
   // ws.close は時刻を運ぶ。Mediator は純粋な遷移なので、いつ切れたかを自分では測れない。
   | { type: 'ws.open' } | { type: 'ws.close'; at: number } | { type: 'hash.changed'; route: Route; moved?: number }
   | { type: 'api.failed'; message: string; holdMs?: number } | { type: 'search.done'; params: SearchParamsDto }
-  | { type: 'launch.done'; sessionId: string; runId: string } | { type: 'launch.failed'; message: string }
+  | { type: 'launch.done'; sessionId: string; runId: string } | { type: 'launch.failed'; message: string; /** 起動が、リンクの場所のファイルの衝突だけで断られた（修復のダイアログを開ける）。 */ linkConflict?: LinkConflictRef }
   // 準備が問い（ask）で止まった、または利用者がやめた（cancel）。どちらも失敗ではない。message はサーバの文で、閉じた後に問いで止まったときだけ知らせる。
   | { type: 'launch.halted'; why: 'ask' | 'cancel'; message: string }
   // 起動した後にコンテキストが足りなかった札の「再ロードして再開」の結果。
@@ -28,6 +28,9 @@ export type RuntimeEvent =
   | { type: 'project.create.done'; projectId: string; startSession: boolean } | { type: 'project.create.failed'; message: string }
   // アカウントを足すダイアログの結果（登録が通ったか）。ログインは続けて裏で始まる。
   | { type: 'account.add.done' } | { type: 'account.add.failed'; message: string }
+  // リンクの修復のダイアログ（#513）。loaded は両側の中身、done は直せたこと（names は直した項目）、failed は断られた理由。
+  | { type: 'linkRepair.loaded'; detail: LinkConflictsDto } | { type: 'linkRepair.loadFailed'; message: string }
+  | { type: 'linkRepair.done'; names: string[] } | { type: 'linkRepair.failed'; message: string }
   // 候補からまとめて登録した結果（初日のプロジェクト）。registered は登録できた数、linked はそのうちほかの PC のプロジェクトに結び付けた数、failed は登録できなかったものの理由である。
   | { type: 'project.candidates.done'; registered: number; linked: number; failed: string[] } | { type: 'project.candidates.failed'; message: string }
   // 時刻つきの Paused のうち、今日その時刻を過ぎたものの鍵（mediator/returnDue.ts の dueReturnKeys）。
@@ -171,7 +174,10 @@ export type Effect =
   // Claude Code のアカウント。
   | { kind: 'api.accounts.switchSession'; sessionId: string; accountId: string }
   | { kind: 'api.accounts.add'; name: string; dir: string | null; agent?: 'codex' }
-  | { kind: 'api.accounts.remove'; accountId: string; agent?: 'codex' };
+  | { kind: 'api.accounts.remove'; accountId: string; agent?: 'codex' }
+  // リンクの修復（#513）。load は両側の中身を読み、apply は選んだとおりに直す。結果は linkRepair.* で返る。
+  | { kind: 'api.linkRepair.load'; agent: 'claude-code' | 'codex'; accountId: string }
+  | { kind: 'api.linkRepair.apply'; agent: 'claude-code' | 'codex'; accountId: string; entries: { name: string; keep: 'mine' | 'shared' }[] };
 
 export type Screen = { name: 'booting' } | Route;
 /** results はセッションの一覧の画面の結果の一覧である。 */
@@ -228,6 +234,8 @@ export type Overlay =
   // psmux（tmux）が無いときに、セッションを始める操作を止めて出す案内（段 6 の B2）。
   // pending は止めた操作で、見つかったあとの「開始」でそのまま進める。
   // back は止めたときに開いていた新しいセッションのダイアログか、引き継ぎの確認の 1 枚で、閉じたらそこへ戻る。
+  // リンクの修復のダイアログ（#513）。back は新しいセッションのダイアログから開いたときの戻り先で、閉じるか直せたらそこへ戻る。
+  | { kind: 'linkRepair'; agent: 'claude-code' | 'codex'; accountId: string; back: Extract<Overlay, { kind: 'newSession' }> | null }
   | { kind: 'muxGuide'; pending: MuxPending; back: Extract<Overlay, { kind: 'newSession' }> | Extract<Overlay, { kind: 'confirm' }> | null };
 /** psmux（tmux）が無いときに止める、セッションを始める操作。 */
 export type MuxPending = Extract<UiAction, { type: 'session.new.submit' | 'session.resume' | 'session.fork' | 'session.resumeHere' | 'session.adopt' | 'session.attach' | 'interrupted.resume' | 'session.takeover.start' }>;
@@ -245,11 +253,15 @@ export type NewSessionDraft = { name: string; prompt: string; attachments: { pat
  * agent は前回 Claude Code 以外で起こしたときだけその種類を持ち、無ければ Claude Code である。opencodeModel は opencode のモデル（`provider/model`）で、無ければデフォルト。
  */
 export type LaunchPrefs = Pick<LaunchParams, 'model' | 'effort' | 'permissionMode' | 'worktree' | 'addDirs'> & { agent?: NonDefaultAgentKind; opencodeModel?: string; codexModel?: string; codexEffort?: string };
+/** 起動を断った理由が、直せるリンクの衝突であること。どのアカウントの、どのエージェントか。 */
+export type LinkConflictRef = { agent: 'claude-code' | 'codex'; accountId: string };
+/** リンクの修復のダイアログの中身。detail は両側の中身（読むまで null）、working は直している最中、error は読めなかった理由か断られた理由。 */
+export type LinkRepairState = { detail: LinkConflictsDto | null; working: boolean; error: string | null };
 /**
  * createdProjectId は、作ってから起動する送信でプロジェクトができた後の印である。起動だけが失敗しても、押し直しで二重に作らない。
  * halted は、準備が問いで止まったか、利用者がやめたこと。失敗ではないので文を持たず、画面は準備の進み（launchPrep）を読んで問いを出す。
  */
-export type LaunchState = { kind: 'idle' } | { kind: 'submitting'; createdProjectId?: string } | { kind: 'failed'; message: string; createdProjectId?: string } | { kind: 'halted'; createdProjectId?: string };
+export type LaunchState = { kind: 'idle' } | { kind: 'submitting'; createdProjectId?: string } | { kind: 'failed'; message: string; createdProjectId?: string; linkConflict?: LinkConflictRef } | { kind: 'halted'; createdProjectId?: string };
 /**
  * 起動前の準備の見張り（起動の要求に添えた prepKey）。model は起動のモデル（provider/model）で、問いの答えの provider を取る。
  * name は利用者が付けた名前で、閉じた後に済んだときの知らせに使う（会話の名前が Store に届く前のため）。
@@ -377,6 +389,7 @@ export type State = {
   projectCreate: LaunchState;
   /** アカウントを足すダイアログの送信。 */
   accountAdd: LaunchState;
+  linkRepair: LinkRepairState;
   toasts: Toast[]; nextToastId: number;
   /** サイドバーを図とアイコンだけの帯に縮めているか。開閉のたびに保存し、起動時に読み戻す。 */
   sidebarCollapsed: boolean;
