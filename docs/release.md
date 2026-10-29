@@ -22,7 +22,7 @@ release.yml の最初の plan ジョブが、タグと 5 つを照らし、1 つ
 
 ## release.yml の流れ
 
-ジョブは plan、macos、windows、windows-upload、publish、channel の順に回る。
+ジョブは plan、macos と macos-test と windows、windows-upload、publish、channel の順に回る（macos と macos-test と windows は並んで回る）。
 
 - plan は、次のどれかに当たれば何も作らずに止まる。
   - タグと版の在りかの 5 つが食い違う。
@@ -31,6 +31,7 @@ release.yml の最初の plan ジョブが、タグと 5 つを照らし、1 つ
   - 本家のリポジトリで、署名の secret（`HANGAR_SIGN_P12_BASE64` か `TAURI_SIGNING_PRIVATE_KEY`）が無い。正式な版も試しの版も止まる（`docs/signing.md`）。fork では警告を出して、署名せずに続ける。
   - 正式な版で、Release の本文（`docs/release-notes/<版>.md`）が無いか空である（下の「正式な版を出す」）。
 - macos ジョブが Release を下書き（draft）で作り、最新にしない。windows-upload が Windows のインストーラを、publish が更新物と署名と目録（`latest.json`）を、その下書きに添える。
+- macos-test は Mac で型の確かめと試験（`npm run typecheck` と `npm test`）を回す。publish はこれも待ち、落ちれば公開しない。
 - publish は最後の段で、資産がそろったことを確かめてから Release を公開し、正式な版なら Release の最新にする。
   途中のジョブが落ちたら、Release は下書きのまま残り、利用者には見えない。直してから、Actions の画面で失敗したジョブを Re-run すれば、続きから公開される。
 - channel は、公開の後で試しの道の目録を置き換える（下の「試しの版（rc）」）。
@@ -83,7 +84,7 @@ Windows のインストーラのファイルの版（`VIProductVersion`）は数
    git push origin v0.2.0-rc.1
    ```
 
-3. Actions の release が、plan、macos、windows、windows-upload、publish、channel のすべてで緑になるのを待つ。
+3. Actions の release が、plan、macos、macos-test、windows、windows-upload、publish、channel のすべてで緑になるのを待つ。
    plan が版の食い違いで落ちたら、版を上げる PR が入っていない。
    plan の前に Release は作られないので、`gh release delete` ではなく、リモートのタグを直に消す（`git push origin :refs/tags/v0.2.0-rc.1`。手元のタグは `git tag -d` で消す）。
    PR を入れてから打ち直す。

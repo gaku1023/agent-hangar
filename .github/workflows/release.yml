@@ -80,7 +80,7 @@ jobs:
     permissions:
       contents: write
     # Rust のビルドがキャッシュ外れで長引いたときの上限。
-    # ci の desktop ジョブと違い、こちらは npm の試験と .app のビルドも含むので長めに取る。
+    # ci の desktop ジョブと違い、こちらは署名と dmg も含むので長めに取る。
     timeout-minutes: 60
     strategy:
       matrix:
@@ -105,12 +105,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable (2026-10-09)
         with:
           targets: ${{ matrix.target }}
+      # タグの run が保存したキャッシュは、そのタグの範囲にしか置かれず、次のタグからは読めない（読めるのは main のものだけ）。
+      # 保存しても使われないまま 440MB と 30 秒ほどを食うので、保存しない（2026-10-29）。
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: apps/desktop/src-tauri
+          save-if: false
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
+      # 型の確かめと試験は macos-test ジョブが並べて回す。publish はそちらも待つ。
       - run: npm run build
       # npx は入っていなければ取りに行くので、ここで動く版が package-lock.json の外から来うる。
       # workspace の script を通せば、動くのは npm ci が入れた @tauri-apps/cli だけになる。
@@ -208,16 +210,36 @@ jobs:
           path: ${{ env.UPDATER_DIR }}
           if-no-files-found: error
           retention-days: 1
+  # macOS で型の確かめと試験を回す。ci は試験の多くを Ubuntu で回すので、Mac で全部を回すのはここだけである。
+  # macos ジョブで .app のビルドの前に順に回すと、ランナーが遅い日は合わせて 20 分になった（2026-10-29 の実測）。
+  # 別のジョブにして並べ、publish がこのジョブも待つ。落ちれば公開しない（下書きの Release は残る）。
+  macos-test:
+    needs: plan
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
   # Windows 11 の x64 だけ。署名はしない（利用者の決定）。
   # 作る手順は ci の windows ジョブと同じ composite action（.github/actions/windows-installer）で、静かに入れて同梱の hangar.cmd が動くところと、殻を起こすとサーバが応えるところまで見る。
-  # npm test は回さない。psmux を相手にする試験は ci の windows ジョブが main の同じコミットで回していて、それが成功したことを plan が確かめている。
+  # npm test は回さない。psmux を相手にする試験は ci の windows-test ジョブが main の同じコミットで回していて、それが成功したことを plan が確かめている。
   # タグと版の照合は plan ジョブが行い、合わなければここまで来ない。
   windows:
     needs: plan
     runs-on: windows-latest
     permissions:
       contents: read
-    # ci の windows ジョブから npm test と cargo の検査を除いた分。Rust の release ビルドがキャッシュ外れで長引いたときの上限。
+    # ci の windows ジョブ（配布物の段）と同じ分。Rust の release ビルドがキャッシュ外れで長引いたときの上限。
     timeout-minutes: 60
     strategy:
       matrix:
@@ -327,7 +349,7 @@ jobs:
   # Windows の更新物はインストーラそのもので、windows-upload が添えたものを指す。だから windows-upload の後に回す。
   # 署名鍵が無ければ（fork）、更新物と目録は作らず、配布物がそろったことだけを確かめて公開する。
   publish:
-    needs: [plan, macos, windows-upload]
+    needs: [plan, macos, macos-test, windows-upload]
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -177,12 +177,34 @@ describe('CI の段', () => {
     expect(at, run).toBeGreaterThan(-1);
     return j.slice(j.lastIndexOf('- name:', at), at + run.length);
   };
-  it('windows ジョブは、配布物の段の後で、版 A から版 B への更新を通す', () => {
-    const w = job('windows');
+  // 版 A と版 B の 2 回の build が長いので、配布物の段（windows ジョブ）と並べて別のジョブで回す（2026-10-29）。
+  it('windows-update ジョブは、UI を build してから、版 A から版 B への更新を通す', () => {
+    const w = job('windows-update');
     const run = 'run: pwsh -NoProfile -File apps/desktop/scripts/ci-update-windows.ps1';
-    expect(w.indexOf(run)).toBeGreaterThan(w.indexOf('./.github/actions/windows-installer'));
-    expect(w.indexOf(run)).toBeGreaterThan(w.indexOf('ci-boot-probe-windows.ps1'));
+    expect(w.indexOf('run: npm run build')).toBeGreaterThan(-1);
+    expect(w.indexOf(run)).toBeGreaterThan(w.indexOf('run: npm run build'));
     expect(stepOf(w, run)).toMatch(/timeout-minutes: \d+\n/);
+    // 配布物の段と同じく、CI の release の build は LTO を切る。
+    expect(stepOf(w, run)).toContain("CARGO_PROFILE_RELEASE_LTO: 'false'");
+    expect(job('windows')).not.toContain('ci-update-windows.ps1');
+  });
+  it('Windows の 3 つのジョブは、Rust の試験と、配布物と、更新の試しを分けて並べ、release の依存のキャッシュは 1 つを分け合う', () => {
+    const rust = job('windows-rust');
+    expect(rust).toContain('run: cargo clippy --all-targets -- -D warnings');
+    expect(rust).toContain('run: cargo test');
+    expect(job('windows')).not.toContain('cargo clippy');
+    // 配布物の段が main で保存したキャッシュを、更新の試しが読む。保存は 1 か所にする。
+    expect(job('windows')).toContain('shared-key: windows-release');
+    expect(job('windows-update')).toContain('shared-key: windows-release');
+    expect(job('windows-update')).toContain('save-if: false');
+  });
+  it('check の試験は 2 つのジョブに分け、型の確かめは片方だけで回す', () => {
+    expect(job('check')).toContain('run: npm test -- --shard=1/2');
+    expect(job('check-2')).toContain('run: npm test -- --shard=2/2');
+    expect(job('check')).toContain('run: npm run typecheck');
+    expect(job('check-2')).not.toContain('typecheck');
+    // tmux が無いと、tmux に依存する試験が黙って飛ぶ。
+    for (const j of ['check', 'check-2']) expect(job(j)).toContain('sudo apt-get install -y tmux');
   });
   it('desktop ジョブは、.app の段の後で、版 A から版 B への入れ替えを通す', () => {
     const d = job('desktop');

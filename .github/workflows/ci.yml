@@ -37,8 +37,28 @@ jobs:
           tmux -V
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+      # 試験は check と check-2 の 2 つのジョブに分けて並べる（vitest の --shard）。
+      # 1 本では 5〜8 分かかり、windows と並んで CI 全体の長さを決めていた（2026-10-29 の実測）。
+      - run: npm test -- --shard=1/2
       - run: npm run build
+  # check の試験の残りの半分。型の確かめと build は check だけで回す。
+  check-2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      # check と同じく、tmux を入れないと tmux に依存する試験が黙って飛ぶ。
+      - name: tmux を入れる
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux
+          tmux -V
+      - run: npm ci
+      - run: npm test -- --shard=2/2
   # 殻と同梱の CLI は、Node-API 10 以上（Node 22.14 以上）の Node を採る。上限は付けない（0.6.1 から）。
   # 新しい Node（24）でもサーバが動くことを、サーバの試験で確かめる。
   # CI の時間を延ばさないよう、ここで回すのはサーバの試験だけにする（殻が Node 24 で同梱のサーバを起こす試験は desktop ジョブにある）。
@@ -100,11 +120,31 @@ jobs:
       # cloud（Miniflare の上の Worker）と ui（jsdom）は OS に依らないので、Linux の check だけで回す。Windows では cloud だけで 6 分近くかかっていた。
       # 4 コアのランナーで既定の 3 本より速かったので、ワーカーは 4 本にする（2026-10-16 の実測）。
       - run: npm test -- --project server --project desktop --project cli --project shared --maxWorkers=4
+  # 殻（Tauri、Rust）が Windows で組み上がることを clippy と cargo test で見る。窓や通知の振る舞いまでは見ない（段 6 の 6-2）。
+  # 配布物の段（windows）と更新の試し（windows-update）と並べて回す。1 本で続けて回すと 7〜11 分かかっていた（2026-10-29 の実測）。
+  windows-rust:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      # windows-latest に Rust は入っているが、版と components をここで決める。
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      # debug の依存のキャッシュ。保存は main だけにする（理由は windows ジョブの rust-cache の注記）。
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # clippy が型の検査も兼ねるので、cargo check は回さない。
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: apps/desktop/src-tauri
+      - run: cargo test
+        working-directory: apps/desktop/src-tauri
   windows:
     runs-on: windows-latest
-    # ビルドが固まったときの上限。Rust のビルドがキャッシュ外れで数分、配布物のビルド（Rust と NSIS）に数分、
-    # 更新の経路の 2 回の build に数分かかる。キャッシュに当たれば全体で 9 分ほどで終わる（2026-10-16 の実測）。
-    timeout-minutes: 60
+    # ビルドが固まったときの上限。Rust のビルドがキャッシュ外れで数分、配布物のビルド（Rust と NSIS）に数分かかる。
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -129,22 +169,16 @@ jobs:
           Expand-Archive -Path $zip -DestinationPath $dir
           Add-Content -Path $env:GITHUB_PATH -Value $dir
           & (Join-Path $dir 'psmux.exe') -V
-      # 殻（Tauri、Rust）が Windows で組み上がることを見る。窓や通知の振る舞いまでは見ない（段 6 の 6-2）。
-      # windows-latest に Rust は入っているが、版と components をここで決める。
+      # windows-latest に Rust は入っているが、版をここで決める。clippy と cargo test は windows-rust ジョブで回す。
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri
+          # release の依存のキャッシュ。windows-update ジョブも同じ鍵で読む（保存はこのジョブだけ）。
+          shared-key: windows-release
           # 保存は main だけにする。PR は main のキャッシュを読める。PR ごとに 1GB 前後を保存すると、リポジトリの上限（10GB）を超えて
           # 古いものから消え、main のキャッシュまで当たらなくなっていた（2026-10-15、直近の実行がすべて No cache found）。
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      # clippy が型の検査も兼ねるので、cargo check は回さない。
-      - run: cargo clippy --all-targets -- -D warnings
-        working-directory: apps/desktop/src-tauri
-      - run: cargo test
-        working-directory: apps/desktop/src-tauri
       # 配布物（NSIS のインストーラ）を作り、入れて、同梱の hangar.cmd が動くところと、殻を起こすとサーバが応えるところまで見る（段 6 の 6-8）。
       # 手順は release の windows ジョブと同じものを、composite action の 1 か所で持つ。
       # 署名はしない（利用者の決定）。Release には上げず、この実行の artifact に 7 日だけ残す。
@@ -184,6 +218,44 @@ jobs:
           path: ${{ runner.temp }}/boot-probe-windows
           if-no-files-found: warn
           retention-days: 7
+  # 本当の更新の経路の試し。版 A と版 B の 2 回の build に 2.5〜4 分かかるので、配布物の段（windows）と並べて別のジョブで回す（2026-10-29）。
+  windows-update:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      # better-sqlite3 は入れるたびに node-gyp でビルドを始める。ネイティブモジュールは Windows 向けの prebuild を同梱しているので、
+      # スクリプト無しで入れる。Linux の node-pty には prebuild が無くビルドが要るので、これは Windows のジョブでだけ行う。
+      - run: npm ci --ignore-scripts
+      # 入れた殻とサーバを起こす試しも、利用者の機械と同じく psmux のある状態で回す。版と SHA-256 は windows-test と同じものにする。
+      - name: psmux を入れる
+        shell: pwsh
+        env:
+          PSMUX_VERSION: '3.3.8'
+          PSMUX_SHA256: 1ad127ba937194a890b933a73d9b023e297bd73dc742abd841bf159984c2effe
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'psmux.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'psmux'
+          Invoke-WebRequest -Uri "https://github.com/psmux/psmux/releases/download/v$env:PSMUX_VERSION/psmux-v$env:PSMUX_VERSION-windows-x64.zip" -OutFile $zip
+          $got = (Get-FileHash -Algorithm SHA256 $zip).Hash
+          if ($got -ne $env:PSMUX_SHA256.ToUpper()) { throw "psmux の SHA-256 が合わない: $got" }
+          Expand-Archive -Path $zip -DestinationPath $dir
+          Add-Content -Path $env:GITHUB_PATH -Value $dir
+          & (Join-Path $dir 'psmux.exe') -V
+      # windows-latest に Rust は入っているが、版をここで決める。clippy と cargo test は windows-rust ジョブで回す。
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+          # windows ジョブが main で保存した release の依存のキャッシュを読む。ここでは保存しない。
+          shared-key: windows-release
+          save-if: false
+      # tauri build の beforeBuildCommand は同梱のサーバだけを作るので、UI はここで作る（windows ジョブではインストーラの段が作る）。
+      - run: npm run build
       # 本当の更新の経路を 1 回通す（apps/desktop/scripts/ci-update-windows.ps1）。
       # 版 A の殻を入れて起こし、殻の updater がインストーラを /P /UPDATE /R /ARGS で起こして版 B を入れ、起き直した殻のサーバが /health で版 B を名乗るまでを見る。
       # 途中で、殻がインストーラへ渡す直前（on_before_exit）にサーバを止めることと、入れるときのフック（hooks.nsh）が殻の抜けるのを待って置き場を空にすることも見る。

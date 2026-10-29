@@ -304,11 +304,26 @@ describe('release.yml の配線', () => {
     expect(job('plan')).toContain('release-plan.ts plan "$GITHUB_REF_NAME"');
     expect(job('macos')).toMatch(/needs: plan\n/);
     expect(job('windows')).toMatch(/needs: plan\n/);
+    expect(job('macos-test')).toMatch(/needs: plan\n/);
     expect(job('windows-upload')).toMatch(/needs: \[macos, windows\]\n/);
-    expect(job('publish')).toMatch(/needs: \[plan, macos, windows-upload\]\n/);
+    expect(job('publish')).toMatch(/needs: \[plan, macos, macos-test, windows-upload\]\n/);
     expect(job('channel')).toMatch(/needs: \[plan, publish\]\n/);
     // 照合は plan の 1 か所にする（tauri.conf.json だけを見る古い段は残さない）。
     expect(release).not.toContain("require('./apps/desktop/src-tauri/tauri.conf.json').version");
+  });
+  it('macOS の型の確かめと試験は、.app のビルドと並ぶ別のジョブで回し、通らなければ公開しない', () => {
+    const t = steps(job('macos-test'), 6);
+    expect(t.some((s) => s.startsWith('run: npm run typecheck'))).toBe(true);
+    expect(t.some((s) => s.startsWith('run: npm test'))).toBe(true);
+    expect(job('macos-test')).toContain('runs-on: macos-latest');
+    // ビルドのジョブで同じ試験を重ねて回さない。
+    const m = steps(job('macos'), 6);
+    expect(m.some((s) => s.startsWith('run: npm test'))).toBe(false);
+    expect(m.some((s) => s.startsWith('run: npm run typecheck'))).toBe(false);
+  });
+  it('タグの run は Rust のキャッシュを保存しない（タグの範囲のキャッシュは次のタグから読めない）', () => {
+    const cache = steps(job('macos'), 6).find((s) => s.includes('Swatinem/rust-cache'));
+    expect(cache).toContain('save-if: false');
   });
   it('plan は、タグのコミットが origin/main の祖先で、そのコミットの main の ci が成功していることを確かめる', () => {
     const p = job('plan');
