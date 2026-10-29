@@ -1,4 +1,4 @@
-# 本当の更新の経路を 1 回通す（Windows）。CI の windows ジョブが、配布物の段（.github/actions/windows-installer）の後で呼ぶ。
+# 本当の更新の経路を 1 回通す（Windows）。CI の windows-update ジョブが呼ぶ（配布物の段の windows ジョブと並んで回る）。
 # 使い方: pwsh apps/desktop/scripts/ci-update-windows.ps1 -Target x86_64-pc-windows-msvc -Out <成果物の置き場>
 #
 # 1. CI の中で使い捨ての updater の鍵を作る（tauri signer generate）。本物の secret は使わない。
