@@ -8,7 +8,8 @@ import { onRowChange } from '../db/notify.ts';
 import { onIntent } from '../live/intents.ts';
 import { answerAsk } from '../mobile/asks.ts';
 import { MobileBell } from '../mobile/bell.ts';
-import { buildMobileFeed } from '../mobile/feed.ts';
+import { onUnread } from '../live/unread.ts';
+import { buildMobileFeed, sessionTitleOf } from '../mobile/feed.ts';
 import { MobileLaunchInbox, type PhoneLaunchStarted } from '../mobile/launchInbox.ts';
 import { FEED_SAFETY_MS, MobileFeedPublisher } from '../mobile/publisher.ts';
 import type { LiveHub } from '../agent/liveHub.ts';
@@ -322,6 +323,13 @@ export function bootMobile(p: {
       started = true;
       offs.push(p.delivery.live.onChange(() => kick()));
       offs.push(onIntent(() => kick()));
+      // notify_user の知らせのうち、出し先に phone を含むものをスマホへ送る（受信箱の素の書き込みとは別の通知）。
+      offs.push(onUnread((sessionId, text, _count, sent) => {
+        if (!sent.includes('phone')) return;
+        const title = sessionTitleOf(db, sessionId);
+        if (title === null) return;
+        try { ensure()?.noticeUnread({ sessionId, title, text }); } catch (e) { console.error('[mobile] could not schedule the unread notice', e instanceof Error ? e.constructor.name : typeof e); }
+      }));
       offs.push(p.runs.runs.on({ remoteUrl: () => kick() }));
       offs.push(onRowChange((c) => { if (c.db === db && FEED_TABLES.has(c.table)) kick(); }));
       offs.push(p.sync.onCloudDevices(notePhones));

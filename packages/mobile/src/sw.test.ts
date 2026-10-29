@@ -101,6 +101,24 @@ describe('sw.js の push', () => {
     expect(h.shown[0]!.title).toBe('会話 a ほか 2 件');
   });
 
+  it('未読（kind unread）は、題を会話の名前、本文を body にし、「ほか n 件」を付けない。押したときの開き先は同じ', async () => {
+    const key = await makeKey();
+    await savePhoneKey(1, key);
+    const h = boot();
+    await push(h, await sealPhoneNotice(key, 1, notice({ kind: 'unread', body: 'テストが通りました', count: 3 })));
+    expect(h.shown[0]!.title).toBe('会話 a');
+    expect(h.shown[0]!.options.body).toBe('テストが通りました');
+    expect(h.shown[0]!.options.data).toEqual({ sessionId: 's-1' });
+  });
+
+  it('kind が waiting なら body があっても入力待ちとして読む', async () => {
+    const key = await makeKey();
+    await savePhoneKey(1, key);
+    const h = boot();
+    await push(h, await sealPhoneNotice(key, 1, notice({ kind: 'waiting', body: '無視される' })));
+    expect(h.shown[0]!.options.body).toBe('pc-a で入力を待っています');
+  });
+
   it('世代の合う鍵を選ぶ（古い世代と新しい世代が両方ある）', async () => {
     const old = await makeKey();
     const next = await makeKey();

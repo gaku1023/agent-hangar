@@ -77,3 +77,23 @@ describe('スマホの通知の封じ（sealPhoneNotice / openPhoneNotice）', (
     expect(shared.phoneNoticeEpoch).toBe(phoneNoticeEpoch);
   });
 });
+
+describe('スマホの通知の kind と body（未読）', () => {
+  it('kind と body を写して開ける。body は PHONE_NOTICE_TEXT_MAX 字で切る', async () => {
+    const key = keyBytes(1);
+    const long = 'あ'.repeat(PHONE_NOTICE_TEXT_MAX + 50);
+    const back = await openPhoneNotice(key, await sealPhoneNotice(key, 1, { ...notice, kind: 'unread', body: long }));
+    expect(back).toEqual({ ...notice, kind: 'unread', body: 'あ'.repeat(PHONE_NOTICE_TEXT_MAX) });
+  });
+
+  it('kind も body も無い古い形は、欄を足さずに戻る', async () => {
+    const key = keyBytes(1);
+    const back = await openPhoneNotice(key, await sealPhoneNotice(key, 1, notice));
+    expect(back).toEqual(notice);
+    expect('kind' in back).toBe(false);
+  });
+
+  it('知らない kind は封じない', async () => {
+    await expect(sealPhoneNotice(keyBytes(1), 1, { ...notice, kind: 'x' as never })).rejects.toBeInstanceOf(TypeError);
+  });
+});

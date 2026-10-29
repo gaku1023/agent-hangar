@@ -8,7 +8,7 @@ const SCOPE = new URL('./', self.location.href).pathname;
 // スマホの通知。
 // PC はスマホ用の鍵 M[世代] で通知の中身を封じ（shared の sealPhoneNotice）、Worker は封じたまま Web Push の本文にする。
 // このファイルは素の JS で shared の TS を読めないので、同じ手順をここに書き直す（src/sw.test.ts が shared で封じたものを開けることを確かめる）。
-// 封じた文字列は `<世代>.<base64url(iv(12) || AES-256-GCM の暗号文とタグ)>`、AAD は JSON の ["phone-notice", 世代]、中身は { title, pcName, sessionId, count } の JSON である。
+// 封じた文字列は `<世代>.<base64url(iv(12) || AES-256-GCM の暗号文とタグ)>`、AAD は JSON の ["phone-notice", 世代]、中身は { title, pcName, sessionId, count, kind?, body? } の JSON である（kind が 'unread' のときだけ body を本文に使う）。
 // 鍵は画面（src/store.ts）が IndexedDB に置いた取り出せない CryptoKey を読む。DB の名前と形は store.ts と同じにする。
 const DB_NAME = 'hangar-mobile';
 const DB_STORE = 'keys';
@@ -82,6 +82,8 @@ async function openNotice(sealed) {
 /** 通知の見出しと本文。受信箱の要対応の文と、用語集の「ほか N 件」に合わせる。 */
 function noticeText(v) {
   const title = v.title.trim() || 'hangar';
+  // 未読（notify_user）は、題を会話の名前、本文を知らせの文にする。数は本文に出さず、「ほか n 件」も付けない。
+  if (v.kind === 'unread' && typeof v.body === 'string' && v.body.trim()) return { title, body: v.body.trim(), sessionId: v.sessionId };
   const pc = v.pcName.trim();
   return {
     title: v.count >= 2 ? `${title} ほか ${v.count - 1} 件` : title,
