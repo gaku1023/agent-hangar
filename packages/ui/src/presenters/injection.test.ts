@@ -8,17 +8,17 @@ const textOf = (pieces: { text: string }[] | { kind: string; text: string }[]) =
 describe('足す指示の全文', () => {
   it('6 つの段に、どのスイッチのものかの名前を添えて、サーバが足す順に並べる', () => {
     const parts = presentInjection(ja, { askStatusAtEnd: true, liveHints: true, notifyUser: true });
-    expect(parts.map((p) => p.label)).toEqual(['基本（常に）', '他の PC で進めたセッションを再開したとき', '2 台以上の PC で使うプロジェクト', '作業の区切りで Done／Paused を確認する（オン）', 'ターンの意図と操作の短い説明を送る（オン）', '見てほしい出力を notify_user で知らせる（オン）']);
+    expect(parts.map((p) => p.label)).toEqual(['基本（常に）', '見てほしい出力を notify_user で知らせる（オン）', '他の PC で進めたセッションを再開したとき', '2 台以上の PC で使うプロジェクト', '作業の区切りで Done／Paused を確認する（オン）', 'ターンの意図と操作の短い説明を送る（オン）']);
     expect(parts.map((p) => p.off)).toEqual([false, false, false, false, false, false]);
     // PC をまたぐ 2 段には、同期を使っているときだけ足すことを印で添える。
-    expect(parts.map((p) => p.mark)).toEqual([null, '同期を使っているときだけ', '同期を使っているときだけ', null, null, null]);
-    expect(textOf(parts[5]!.pieces)).toBe(translate('ja', 'launch.injection.notify'));
+    expect(parts.map((p) => p.mark)).toEqual([null, null, '同期を使っているときだけ', '同期を使っているときだけ', null, null]);
+    expect(textOf(parts[1]!.pieces)).toBe(translate('ja', 'launch.injection.notify'));
   });
   it('notify_user の段も、切ったら消さずに「足しません」と言う', () => {
-    expect(presentInjection(ja, { askStatusAtEnd: true, liveHints: true, notifyUser: false })[5]).toMatchObject({ label: '見てほしい出力を notify_user で知らせる（オフ・追加しません）', off: true });
+    expect(presentInjection(ja, { askStatusAtEnd: true, liveHints: true, notifyUser: false })[1]).toMatchObject({ label: '見てほしい出力を notify_user で知らせる（オフ・追加しません）', off: true });
   });
   it('PC をまたぐ 2 段も辞書の全文で、差し込む値は印にする', () => {
-    const [, handover, multi] = presentInjection(ja, { askStatusAtEnd: true, liveHints: true, notifyUser: true });
+    const [, , handover, multi] = presentInjection(ja, { askStatusAtEnd: true, liveHints: true, notifyUser: true });
     const tokens = handover!.pieces.filter((p) => p.kind === 'token').map((p) => p.text);
     expect(tokens).toEqual(['前の PC', '前の PC の OS', '最後に使った日時', '前のパス', 'この PC', 'この PC の OS', 'この PC のパス', 'この PC のパス', 'ブランチ', '件数', '見つからないファイルの一覧']);
     expect(textOf(handover!.pieces)).toBe(translate('ja', 'launch.injection.handover', { prevDevice: '前の PC', prevOs: '前の PC の OS', lastAt: '最後に使った日時', prevPath: '前のパス', device: 'この PC', os: 'この PC の OS', path: 'この PC のパス', branch: 'ブランチ', editedCount: '件数', missing: '見つからないファイルの一覧' }));
@@ -26,7 +26,7 @@ describe('足す指示の全文', () => {
     expect(textOf(multi!.pieces)).toBe(translate('ja', 'launch.injection.multiDevice', { deviceCount: '台数' }));
   });
   it('本文は辞書の全文で、差し込む値は印にする（設定の画面はプロジェクトに属さない）', () => {
-    const [body, , , status, live] = presentInjection(ja, { askStatusAtEnd: true, liveHints: true, notifyUser: true });
+    const [body, , , , status, live] = presentInjection(ja, { askStatusAtEnd: true, liveHints: true, notifyUser: true });
     const tokens = body!.pieces.filter((p) => p.kind === 'token').map((p) => p.text);
     expect(tokens).toEqual(['プロジェクト名', 'パス', 'TODO の一覧']);
     expect(textOf(body!.pieces)).toBe(translate('ja', 'launch.injection.body', { projectName: 'プロジェクト名', projectPath: 'パス', todos: 'TODO の一覧' }));
@@ -35,15 +35,15 @@ describe('足す指示の全文', () => {
   });
   it('切った段は消さずに残し、名前で「足しません」と言う', () => {
     const parts = presentInjection(ja, { askStatusAtEnd: false, liveHints: true, notifyUser: true });
-    expect(parts[3]).toMatchObject({ label: '作業の区切りで Done／Paused を確認する（オフ・追加しません）', off: true });
-    expect(parts[4]).toMatchObject({ off: false });
-    expect(presentInjection(ja, { askStatusAtEnd: true, liveHints: false, notifyUser: true })[4]).toMatchObject({ label: 'ターンの意図と操作の短い説明を送る（オフ・追加しません）', off: true });
+    expect(parts[4]).toMatchObject({ label: '作業の区切りで Done／Paused を確認する（オフ・追加しません）', off: true });
+    expect(parts[5]).toMatchObject({ off: false });
+    expect(presentInjection(ja, { askStatusAtEnd: true, liveHints: false, notifyUser: true })[5]).toMatchObject({ label: 'ターンの意図と操作の短い説明を送る（オフ・追加しません）', off: true });
   });
   it('英語の画面では英語の指示を出す', () => {
     const [body] = presentInjection(translator('en'), { askStatusAtEnd: true, liveHints: true, notifyUser: true });
     expect(body!.label).toBe('Basics (always)');
     expect(body!.pieces.filter((p) => p.kind === 'token').map((p) => p.text)).toEqual(['project name', 'path', 'TODO list']);
-    expect(presentInjection(translator('en'), { askStatusAtEnd: true, liveHints: true, notifyUser: true })[1]!.mark).toBe('Only when you use sync');
+    expect(presentInjection(translator('en'), { askStatusAtEnd: true, liveHints: true, notifyUser: true })[2]!.mark).toBe('Only when you use sync');
   });
 });
 
@@ -51,29 +51,30 @@ describe('opencode に足す指示の全文', () => {
   const on = { askStatusAtEnd: true, liveHints: true, notifyUser: true };
   it('最小限は辞書の本文と状態の段と notify_user の段で、本文の名前は選択肢の名前、ほかの段はスイッチの名前', () => {
     const parts = presentOpencodeInjection(ja, on, 'minimal');
-    expect(parts.map((p) => p.label)).toEqual([translate('ja', 'settings.opencode.injection.minimal'), '作業の区切りで Done／Paused を確認する（オン）', '見てほしい出力を notify_user で知らせる（オン）']);
+    expect(parts.map((p) => p.label)).toEqual([translate('ja', 'settings.opencode.injection.minimal'), '見てほしい出力を notify_user で知らせる（オン）', '作業の区切りで Done／Paused を確認する（オン）']);
     expect(parts.map((p) => p.off)).toEqual([false, false, false]);
     expect(parts[0]).toMatchObject({ mark: null });
     expect(textOf(parts[0]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.minimal'));
-    expect(textOf(parts[1]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.status'));
-    expect(textOf(parts[2]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.notify'));
+    expect(textOf(parts[1]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.notify'));
+    expect(textOf(parts[2]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.status'));
   });
   it('最小限でも、切った状態の段は打ち消しで残す', () => {
     const parts = presentOpencodeInjection(ja, { askStatusAtEnd: false, liveHints: true, notifyUser: true }, 'minimal');
-    expect(parts[1]).toMatchObject({ label: '作業の区切りで Done／Paused を確認する（オフ・追加しません）', off: true });
+    expect(parts[2]).toMatchObject({ label: '作業の区切りで Done／Paused を確認する（オフ・追加しません）', off: true });
   });
   it('Claude Code と同じは Claude の 6 段で、意図の段と notify_user の段だけ opencode 向けの文に替える', () => {
     const parts = presentOpencodeInjection(ja, on, 'claude');
     const claude = presentInjection(ja, on);
     expect(parts.map((p) => p.label)).toEqual(claude.map((p) => p.label));
-    expect(parts.slice(0, 4)).toEqual(claude.slice(0, 4));
-    expect(textOf(parts[4]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.live'));
-    expect(textOf(parts[5]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.notify'));
+    expect(parts[0]).toEqual(claude[0]);
+    expect(parts.slice(2, 5)).toEqual(claude.slice(2, 5));
+    expect(textOf(parts[1]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.notify'));
+    expect(textOf(parts[5]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.live'));
   });
   it('Claude Code と同じでも、切った段は打ち消しで残す', () => {
     const parts = presentOpencodeInjection(ja, { askStatusAtEnd: false, liveHints: false, notifyUser: false }, 'claude');
-    expect(parts.map((p) => p.off)).toEqual([false, false, false, true, true, true]);
-    expect(textOf(parts[4]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.live'));
+    expect(parts.map((p) => p.off)).toEqual([false, true, false, false, true, true]);
+    expect(textOf(parts[5]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.live'));
   });
   it('追記しないは段が無い', () => {
     expect(presentOpencodeInjection(ja, on, 'none')).toEqual([]);
