@@ -8,6 +8,7 @@ final class CallProbe {
     private let provider: CXProvider
     private let controller = CXCallController()
     private var uuid: UUID?
+    var lastCommand: String { delegate.lastCommand }
 
     init(store: EventStore) {
         let cfg = CXProviderConfiguration()
@@ -43,6 +44,8 @@ final class CallProbe {
         private let store: EventStore
         private let lock = NSLock()
         private var reallyEnd = false
+        private var last = "-"
+        var lastCommand: String { lock.lock(); defer { lock.unlock() }; return last }
 
         init(store: EventStore) { self.store = store }
 
@@ -50,6 +53,9 @@ final class CallProbe {
         private func getReallyEnd() -> Bool { lock.lock(); defer { lock.unlock() }; return reallyEnd }
 
         func record(_ kind: String, _ detail: [String: String] = [:]) {
+            if !["call.reset", "call.didBegin", "call.audioActivated", "call.audioDeactivated"].contains(kind) {
+                lock.lock(); last = kind; lock.unlock()
+            }
             let s = store
             Task { await s.record(kind, detail) }
         }

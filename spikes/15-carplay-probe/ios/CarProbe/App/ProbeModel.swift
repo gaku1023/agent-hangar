@@ -1,0 +1,168 @@
+import SwiftUI
+import AVFoundation
+import Speech
+import UIKit
+
+@MainActor
+@Observable
+final class ProbeModel {
+    static let shared = ProbeModel()
+
+    let store: EventStore
+    let uploader: Uploader?
+    let audio: AudioProbe
+    let heartbeat: Heartbeat
+    let remote: RemoteProbe
+    let call: CallProbe
+    let label = NowPlayingLabel()
+    let speech: SpeechProbe
+    let runId: String
+
+    var mode: ProbeMode = .media
+    var running = false
+    var micOn = true
+    var events: [ProbeEvent] = []
+    var pendingCount = 0
+    var status = "停止中"
+    var autoStart: Bool {
+        get { UserDefaults.standard.object(forKey: "autoStartOnLaunch") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "autoStartOnLaunch") }
+    }
+
+    private var micRunning = false
+    private var asked = false
+    private var refresh: Task<Void, Never>?
+
+    private init() {
+        let dir = URL.documentsDirectory.appending(path: "events")
+        let store = EventStore(directory: dir)
+        self.store = store
+        if let url = SinkConfig.url {
+            uploader = Uploader(store: store, endpoint: url.path().count > 1 ? url : url.appending(path: "e"), token: SinkConfig.token, transport: URLSessionTransport())
+        } else { uploader = nil }
+        audio = AudioProbe(store: store)
+        heartbeat = Heartbeat(store: store)
+        remote = RemoteProbe(store: store)
+        call = CallProbe(store: store)
+        speech = SpeechProbe(store: store, speaker: Speaker(store: store))
+        runId = String(await_runId(store).prefix(8))
+        let rid = runId
+        _ = LaunchForensics.beginRun(defaults: .standard, run: rid, store: store)
+        Task { await store.record("launch", ["autoStart": "\(UserDefaults.standard.object(forKey: "autoStartOnLaunch") as? Bool ?? true)"]) }
+        if let u = uploader { Task { await u.start() } }
+        heartbeat.start()
+        NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { _ in
+            LaunchForensics.markCleanExit(defaults: .standard)
+        }
+        refresh = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.reload()
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    func reload() async {
+        let url = await store.exportURL()
+        if let text = try? String(contentsOf: url, encoding: .utf8) {
+            let dec = ProbeCoding.decoder()
+            events = text.split(separator: "\n").suffix(50).compactMap { try? dec.decode(ProbeEvent.self, from: Data($0.utf8)) }.reversed()
+        }
+        pendingCount = await store.pending(limit: 100_000).count
+    }
+
+    func start() async {
+        guard !running else { return }
+        await requestPermissions()
+        do { try audio.activate(mode: mode) } catch {
+            let m = "\(error)"; Task { await store.record("audio.error", ["error": m]) }
+        }
+        running = true
+        status = "動作中"
+        remote.micActive = { [weak self] in self?.micRunning ?? false }
+        remote.enable(mode: mode)
+        label.startTicker { [weak self] in
+            guard let self else { return (.media, "-") }
+            let c = self.call.lastCommand
+            return (self.mode, c != "-" ? c : self.remote.lastCommand)
+        }
+        if mode == .call { call.startCall() }
+        if micOn { await startMic() }
+    }
+
+    func stop() async {
+        guard running else { return }
+        await stopMic()
+        call.endCall()
+        remote.disable()
+        label.stopTicker()
+        audio.deactivate()
+        LaunchForensics.markCleanExit(defaults: .standard)
+        running = false
+        status = "停止中"
+        await uploader?.flush()
+    }
+
+    func switchMode(_ m: ProbeMode) async {
+        guard m != mode else { return }
+        let was = running
+        if was { await stop() }
+        mode = m
+        if was { await start() }
+    }
+
+    func toggleMic() async {
+        micOn.toggle()
+        guard running else { return }
+        if micOn { await startMic() } else { await stopMic() }
+    }
+
+    private func startMic() async {
+        guard !micRunning else { return }
+        micRunning = true
+        await speech.start()
+        speech.startTicker()
+        audio.markResumed()
+    }
+
+    private func stopMic() async {
+        guard micRunning else { return }
+        await speech.stop()
+        micRunning = false
+    }
+
+    private func requestPermissions() async {
+        guard !asked else { return }
+        asked = true
+        let mic = await AVAudioApplication.requestRecordPermission()
+        await store.record("permission.microphone", ["granted": "\(mic)"])
+        // シミュレータでは応答が返らないことがあるので、20 秒で見切る。
+        let sp: String = await withCheckedContinuation { c in
+            let once = Once(c)
+            SFSpeechRecognizer.requestAuthorization { once.resume("\($0.rawValue)") }
+            Task { try? await Task.sleep(for: .seconds(20)); once.resume("timeout") }
+        }
+        await store.record("permission.speech", ["status": sp])
+    }
+
+    func flush() async { await uploader?.flush() }
+}
+
+private func await_runId(_ store: EventStore) -> String {
+    // exportURL は actor 越しなので、同期的には取れない。起動直後だけセマフォで待つ。
+    final class Box: @unchecked Sendable { var v = "" }
+    let b = Box(); let sem = DispatchSemaphore(value: 0)
+    Task.detached { b.v = await store.exportURL().lastPathComponent; sem.signal() }
+    sem.wait()
+    return b.v.replacingOccurrences(of: "events-", with: "").replacingOccurrences(of: ".jsonl", with: "")
+}
+
+private final class Once: @unchecked Sendable {
+    private let lock = NSLock()
+    private var c: CheckedContinuation<String, Never>?
+    init(_ c: CheckedContinuation<String, Never>) { self.c = c }
+    func resume(_ v: String) {
+        lock.lock(); let x = c; c = nil; lock.unlock()
+        x?.resume(returning: v)
+    }
+}

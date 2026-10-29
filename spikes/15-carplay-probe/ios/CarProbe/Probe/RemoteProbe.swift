@@ -5,7 +5,7 @@ import MediaPlayer
 @MainActor
 final class RemoteProbe {
     private let store: EventStore
-    private let micActive: @MainActor () -> Bool
+    var micActive: @MainActor () -> Bool
     private let playsSilence: Bool
     private var tokens: [(name: String, command: MPRemoteCommand, token: Any)] = []
     private var player: AVAudioPlayer?
