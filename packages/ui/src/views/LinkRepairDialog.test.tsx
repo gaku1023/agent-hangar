@@ -23,7 +23,7 @@ describe('LinkRepairDialog', () => {
     mount();
     expect(screen.getByRole('dialog', { name: '大学 の設定を共有に戻す' })).toBeInTheDocument();
     expect(screen.getByText('settings.json、CLAUDE.md が共有設定から外れています。残す方を選択すると、再び共有状態に戻します。')).toBeInTheDocument();
-    expect(screen.getByText('選択しなかった方は、名前に .bak-hangar-日時 を付けて残します')).toBeInTheDocument();
+    expect(screen.getByText('選択しなかった方は、名前に .bak-hangar-日時 を付けてバックアップします')).toBeInTheDocument();
     expect(screen.getByText('2 件中 0 件を選択')).toBeInTheDocument();
   });
   it('札に 2 つの更新時刻と差分（赤は共有だけ、緑はこのアカウントだけ）を出す', () => {

@@ -92,7 +92,7 @@ export const accountJa: AreaDictionary<typeof accountKeys> = {
   'account.repair.when': 'このアカウント：{mine} 更新　共有設定：{shared} 更新',
   'account.repair.keepMine': 'このアカウントの設定を残す',
   'account.repair.keepShared': '共有設定を残す',
-  'account.repair.note': '選択しなかった方は、名前に .bak-hangar-日時 を付けて残します',
+  'account.repair.note': '選択しなかった方は、名前に .bak-hangar-日時 を付けてバックアップします',
   'account.repair.submit': '修復',
   'account.repair.working': '修復中…',
   'account.repair.done': '{account} の {names} を共有に戻しました',
