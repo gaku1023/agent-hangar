@@ -49,12 +49,17 @@ actor EventStore {
 
     /// 古い run から順に、未送信の分を seq の昇順で返す。
     func pending(limit: Int) -> [ProbeEvent] {
-        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.creationDateKey])) ?? []
+        // 同一ミリ秒に始まった run が UUID の乱数で並ばないよう、ファイルの作成日時を先に見る。
         let runs = files
             .filter { $0.lastPathComponent.hasPrefix("events-") && $0.pathExtension == "jsonl" }
-            .map { load($0).sorted { $0.seq < $1.seq } }
-            .filter { !$0.isEmpty }
-            .sorted { ($0[0].at, $0[0].run.uuidString) < ($1[0].at, $1[0].run.uuidString) }
+            .map { url -> (Date, [ProbeEvent]) in
+                let created = (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
+                return (created, load(url).sorted { $0.seq < $1.seq })
+            }
+            .filter { !$0.1.isEmpty }
+            .sorted { ($0.0, $0.1[0].at, $0.1[0].run.uuidString) < ($1.0, $1.1[0].at, $1.1[0].run.uuidString) }
+            .map { $0.1 }
         var out: [ProbeEvent] = []
         for evs in runs {
             let sent = sentUpTo(evs[0].run)
