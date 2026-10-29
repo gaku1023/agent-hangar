@@ -37,7 +37,7 @@ final class RemoteProbe {
         for (name, cmd) in commands {
             cmd.isEnabled = true
             let t = cmd.addTarget { [weak self] _ in
-                MainActor.assumeIsolated { self?.handle(name) }
+                Task { @MainActor [weak self] in self?.handle(name) }
                 return .success
             }
             tokens.append((name, cmd, t))

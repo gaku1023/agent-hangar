@@ -18,6 +18,7 @@ final class CallProbe {
         provider = CXProvider(configuration: cfg)
         delegate = Delegate(store: store)
         provider.setDelegate(delegate, queue: nil)
+        delegate.onReset = { [weak self] in Task { @MainActor in self?.uuid = nil } }
     }
 
     func startCall() {
@@ -34,6 +35,7 @@ final class CallProbe {
     func endCall() {
         guard let id = uuid else { return }
         delegate.setReallyEnd(true)
+        uuid = nil
         let d = delegate
         controller.request(CXTransaction(action: CXEndCallAction(call: id))) { err in
             if let err { d.record("call.endError", ["error": "\(err)"]) }
@@ -47,6 +49,7 @@ final class CallProbe {
         private var reallyEnd = false
         private var last = "-"
         private var lastAt: Date?
+        var onReset: (@Sendable () -> Void)?
         var lastCommand: (name: String, at: Date?) { lock.lock(); defer { lock.unlock() }; return (last, lastAt) }
         func resetLast() { lock.lock(); last = "-"; lastAt = nil; lock.unlock() }
 
@@ -64,7 +67,7 @@ final class CallProbe {
             Task { await s.record(kind, detail) }
         }
 
-        func providerDidReset(_ provider: CXProvider) { record("call.reset") }
+        func providerDidReset(_ provider: CXProvider) { onReset?(); record("call.reset") }
         func providerDidBegin(_ provider: CXProvider) { record("call.didBegin") }
 
         func provider(_ provider: CXProvider, perform action: CXStartCallAction) {

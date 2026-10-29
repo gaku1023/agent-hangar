@@ -113,4 +113,9 @@ final class SpeechProbeTests: XCTestCase {
         XCTAssertEqual(Phrases.all.count, 10)
         XCTAssertTrue(Phrases.all.contains("PR 42 をマージして"))
     }
+
+    func test_no_speech_errors_are_benign() {
+        XCTAssertTrue(LegacyTranscriber.isNoSpeech(domain: "kAFAssistantErrorDomain", code: 1110))
+        XCTAssertFalse(LegacyTranscriber.isNoSpeech(domain: "kAFAssistantErrorDomain", code: 1))
+    }
 }

@@ -51,14 +51,15 @@ final class ProbeModel {
             let name = await store.exportURL().lastPathComponent
             let rid = String(name.replacingOccurrences(of: "events-", with: "").prefix(8))
             self?.runId = rid
+            // 前回の判定を済ませてから最初の心拍を打つ。順序が逆だと gapSec が 0 になる。
             _ = LaunchForensics.beginRun(defaults: .standard, run: rid, store: store)
+            self?.heartbeat.start()
         }
         audio.onInterruptionEnded = { [weak self] should in
             Task { await self?.resumeAfterInterruption(shouldResume: should) }
         }
         Task { await store.record("launch", ["autoStart": "\(UserDefaults.standard.object(forKey: "autoStartOnLaunch") as? Bool ?? true)"]) }
         if let u = uploader { Task { await u.start() } }
-        heartbeat.start()
         NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { _ in
             LaunchForensics.markCleanExit(defaults: .standard)
         }

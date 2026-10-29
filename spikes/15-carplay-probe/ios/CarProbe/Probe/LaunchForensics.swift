@@ -23,6 +23,7 @@ struct LaunchForensics {
         let r = inspect(defaults: defaults, now: now)
         defaults.set(run, forKey: "prevRun")
         defaults.removeObject(forKey: "cleanExit")
+        defaults.removeObject(forKey: "lastLockAt")
         if let r { Task { await store.record("prevRunEnded", r) } }
         return r
     }

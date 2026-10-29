@@ -126,6 +126,11 @@ final class LegacyTranscriber: Transcriber, @unchecked Sendable {
         return out
     }
 
+    /// 静かな車内で出る「音声が検出されなかった」系のエラー。打ち切りの数に入れない。
+    static func isNoSpeech(domain: String, code: Int) -> Bool {
+        (domain == "kAFAssistantErrorDomain" && [1110, 1107, 203].contains(code)) || (domain == "kLSRErrorDomain" && code == 201)
+    }
+
     private func newTask() {
         guard let rec = recognizer, let cont else { return }
         let req = SFSpeechAudioBufferRecognitionRequest()
@@ -145,10 +150,19 @@ final class LegacyTranscriber: Transcriber, @unchecked Sendable {
                 cont.yield(TranscriptPiece(text: result.bestTranscription.formattedString, isFinal: final, at: Date(), speechEnd: end, speechStart: start))
             }
             if let error {
-                let n = self.lock.withLock { self.errors += 1; return self.errors }
-                cont.yield(TranscriptPiece(text: "", isFinal: false, at: Date(), error: "\(error) (consecutive \(n))", source: "legacy"))
+                let ns = error as NSError
+                let benign = LegacyTranscriber.isNoSpeech(domain: ns.domain, code: ns.code)
+                let ranFor = Date().timeIntervalSince(began)
+                let n: Int = self.lock.withLock {
+                    if ranFor >= 10 { self.errors = 0 }
+                    if !benign { self.errors += 1 }
+                    return self.errors
+                }
+                cont.yield(TranscriptPiece(text: "", isFinal: false, at: Date(), error: "\(ns.domain) \(ns.code) \(error) (consecutive \(n), benign \(benign), ranFor \(Int(ranFor))s)", source: "legacy"))
                 if n > 5 || self.lock.withLock({ self.stopped }) { cont.finish(); return }
-                Task { try? await Task.sleep(for: .seconds(Double(n))); if !self.lock.withLock({ self.stopped }) { self.newTask() } }
+                // 無音や短い失敗でも最低 1 秒は空けて、再起動が空回りしないようにする。
+                let wait = benign ? 1.0 : Double(max(n, 1))
+                Task { try? await Task.sleep(for: .seconds(wait)); if !self.lock.withLock({ self.stopped }) { self.newTask() } }
             } else if result?.isFinal == true {
                 if !self.lock.withLock({ self.stopped }) { self.newTask() } else { cont.finish() }
             }
