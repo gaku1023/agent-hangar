@@ -49,9 +49,9 @@ const SAVE_JA = (os: string, rules: string) => [
 const RULES_DEFAULT_JA = 'unread は done・ask・progress、os は done・ask、phone は done・ask';
 /** 知らせ方がまだ決まっていないときだけ足す段（launch.injection.notifyAsk）。 */
 const ASK_JA = (os: string) => [
-  '知らせ方がまだ決まっていません。このセッションの最初のターンの終わりに 1 度だけ、AskUserQuestion で、どんなときに知らせてほしいかを聞いてください。'
-  + `選択肢は「返答のたびに未読、${os} とスマホは済んだときと判断が必要なとき（デフォルト）」「${os} とスマホにも毎回」「${os} とスマホは判断が必要なときだけ」の 3 つにし、ユーザーは Other で自由に答えられます。答えたら set_notify_preference で保存してください。`,
-  '「このセッションをどうしますか」を聞くターンと同じなら、同じ AskUserQuestion の別の問いにしてください。',
+  '知らせ方がまだ決まっていません。このセッションの最初の返答の終わりには、依頼が済んだかどうか、区切りかどうかに関係なく、必ず AskUserQuestion で、どんなときに知らせてほしいかを 1 度だけ聞いてください。'
+  + `選択肢は「返答のたびに未読、${os} とスマホは済んだときと判断が必要なとき（デフォルト）」「${os} とスマホにも毎回」「${os} とスマホは判断が必要なときだけ」の 3 つにし、ユーザーは Other で自由に答えられます。答えたら set_notify_preference で保存してください。`
+  + 'この問いは、下の「このセッションをどうしますか」の決まり（明確に終わったときだけ聞く、迷ったら聞かない）とは別のもので、その決まりは当てはまりません。',
 ];
 /** Mac で、知らせ方が未設定の既定の入り（Windows の CI でも同じ文になるよう、OS を指す）。 */
 const MAC: InjectionParts = { askStatusAtEnd: true, liveHints: true, notifyUser: true, notify: { platform: 'darwin' } };
@@ -393,7 +393,7 @@ describe('notify_user の段', () => {
     expect(cx.find((e) => e.key === 'notifySave')!.text).toContain('hangar の MCP サーバーの set_notify_preference ツール');
     for (const es of [oc, cx]) {
       const ask = es.find((e) => e.key === 'notifyAsk')!.text;
-      expect(ask).toContain('最初の返答の終わりに 1 度だけ、文で');
+      expect(ask).toContain('依頼が済んだかどうか、区切りかどうかに関係なく、必ず文で');
       expect(ask).toContain('set_notify_preference');
       expect(ask).not.toContain('AskUserQuestion');
     }
