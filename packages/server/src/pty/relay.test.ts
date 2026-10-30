@@ -52,6 +52,69 @@ function connect(q: string, headers: Record<string, string> = { authorization: `
 }
 afterEach(async () => { relay?.close(); await new Promise<void>((r) => server?.close(() => r())); });
 
+describe('PtyRelay の出力のまとめ送り', () => {
+  const tmux = new Tmux({ tmuxPath: '/x/tmux', socketName: 'fake' });
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  async function setup(coalesce: { windowMs: number; maxBytes: number }) {
+    const f = fakeSpawn();
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: () => 'hangar-a', spawn: f.spawn, coalesce });
+    await listen(relay);
+    const c = await connect('tab=t1');
+    await waitFor(() => f.procs.length === 1);
+    return { f, p: f.procs[0]!, ...c };
+  }
+  it('窓より空いた後の先頭は、その場で送る', async () => {
+    const { p, msgs, ws } = await setup({ windowMs: 200, maxBytes: 1 << 20 });
+    p.emitData('a');
+    await waitFor(() => msgs.length === 1);
+    expect(msgs).toEqual([{ t: 'data', d: 'a' }]);
+    ws.close();
+  });
+  it('窓の中で続いた分は、窓の終わりに 1 通で送る', async () => {
+    const { p, msgs, ws } = await setup({ windowMs: 150, maxBytes: 1 << 20 });
+    p.emitData('a');
+    p.emitData('b'); p.emitData('c'); p.emitData('d');
+    await waitFor(() => msgs.length === 1);
+    await sleep(40);
+    expect(msgs).toEqual([{ t: 'data', d: 'a' }]);
+    await waitFor(() => msgs.length === 2);
+    expect(msgs[1]).toEqual({ t: 'data', d: 'bcd' });
+    ws.close();
+  });
+  it('貯めが上限に達したら、窓を待たずに送る', async () => {
+    const { p, msgs, ws } = await setup({ windowMs: 5000, maxBytes: 10 });
+    p.emitData('a');
+    p.emitData('12345'); p.emitData('67890');
+    await waitFor(() => msgs.length === 2);
+    expect(msgs[1]).toEqual({ t: 'data', d: '1234567890' });
+    ws.close();
+  });
+  it('pty が終わる前に貯めを出し切り、そのあとに閉じる。順番は崩れない', async () => {
+    const { p, msgs, ws, closed } = await setup({ windowMs: 5000, maxBytes: 1 << 20 });
+    p.emitData('a'); p.emitData('b'); p.emitData('c');
+    p.emitExit();
+    expect(await closed).toBe(1000);
+    expect(msgs.map((m) => m.d).join('')).toBe('abc');
+    ws.close();
+  });
+  it('note は貯めを先に出してから 1 行を送る', async () => {
+    const { p, msgs, ws } = await setup({ windowMs: 5000, maxBytes: 1 << 20 });
+    p.emitData('a'); p.emitData('b');
+    relay.note('hangar-a', 'x');
+    await waitFor(() => msgs.length === 3);
+    expect(msgs.map((m) => m.d)).toEqual(['a', 'b', '\r\nx\r\n']);
+    ws.close();
+  });
+  it('接続が閉じたら貯めを捨て、後から何も送らない', async () => {
+    const { p, msgs, ws, closed } = await setup({ windowMs: 100, maxBytes: 1 << 20 });
+    p.emitData('a'); p.emitData('b');
+    ws.close();
+    await closed;
+    await sleep(200);
+    expect(msgs).toEqual([{ t: 'data', d: 'a' }]);
+  });
+});
+
 describe('PtyRelay（偽の spawn）', () => {
   const tmux = new Tmux({ tmuxPath: '/x/tmux', socketName: 'fake' });
   beforeEach(async () => { relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: (t) => (t === 't1' ? 'hangar-a' : null), spawn: fakeSpawn().spawn }); await listen(relay); });

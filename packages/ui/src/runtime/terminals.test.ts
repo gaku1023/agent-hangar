@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createTerminalHost, GPU_MAX, type TerminalLike } from './terminals.ts';
+import { createTerminalHost, GPU_MAX, WRITE_MAX_WAIT_MS, type TerminalLike } from './terminals.ts';
 
 class FakeWs {
   static all: FakeWs[] = [];
@@ -520,5 +520,68 @@ describe('タブごとのつなぎ直し（F1）', () => {
       vi.advanceTimersByTime(60_000);
       expect(FakeWs.all).toHaveLength(1);
     } finally { vi.useRealTimers(); }
+  });
+});
+
+describe('届いた出力のまとめ書き', () => {
+  function makeFrames() {
+    FakeWs.all = [];
+    const terms: FakeTerm[] = [];
+    const frames: (() => void)[] = [];
+    const host = createTerminalHost({ wsUrl: (id) => `ws://x/ws/pty?tab=${id}`, createTerminal: () => { const t = fakeTerm(); terms.push(t); return t; }, wsFactory: (u) => new FakeWs(u) as unknown as WebSocket, frame: (cb) => { frames.push(cb); return () => { const i = frames.indexOf(cb); if (i >= 0) frames.splice(i, 1); }; } });
+    host.connect('t1');
+    const ws = FakeWs.all[0]!; ws.open();
+    ws.receive({ t: 'data', d: 'first' });
+    return { host, term: terms[0]!, ws, frames };
+  }
+  it('最初の 1 通はその場で書き、続く分は 1 フレームに 1 回で書く', () => {
+    const { term, ws, frames } = makeFrames();
+    expect(term.written).toEqual(['first']);
+    ws.receive({ t: 'data', d: 'a' }); ws.receive({ t: 'data', d: 'b' }); ws.receive({ t: 'data', d: 'c' });
+    expect(term.written).toEqual(['first']);
+    frames.shift()!();
+    expect(term.written).toEqual(['first', 'abc']);
+  });
+  it('描画が止まっていても、上限の時間で書く', () => {
+    vi.useFakeTimers();
+    try {
+      const { term, ws } = makeFrames();
+      ws.receive({ t: 'data', d: 'a' }); ws.receive({ t: 'data', d: 'b' });
+      vi.advanceTimersByTime(WRITE_MAX_WAIT_MS - 1);
+      expect(term.written).toEqual(['first']);
+      vi.advanceTimersByTime(1);
+      expect(term.written).toEqual(['first', 'ab']);
+    } finally { vi.useRealTimers(); }
+  });
+  it('フレームで書いたあとは、上限の時間で二重に書かない', () => {
+    vi.useFakeTimers();
+    try {
+      const { term, ws, frames } = makeFrames();
+      ws.receive({ t: 'data', d: 'a' });
+      frames.shift()!();
+      vi.advanceTimersByTime(WRITE_MAX_WAIT_MS * 2);
+      expect(term.written).toEqual(['first', 'a']);
+    } finally { vi.useRealTimers(); }
+  });
+  it('error の文の前に、貯めを書く。順番は崩れない', () => {
+    const { term, ws } = makeFrames();
+    ws.receive({ t: 'data', d: 'a' });
+    ws.receive({ t: 'error', message: 'gone' });
+    expect(term.written).toEqual(['first', 'a', '\r\n[agent-hangar] gone\r\n']);
+  });
+  it('接続が閉じたとき、disconnect のときは貯めを書き、dispose では捨てる', () => {
+    const a = makeFrames();
+    a.ws.receive({ t: 'data', d: 'a' });
+    a.ws.close(1006, '');
+    expect(a.term.written).toEqual(['first', 'a']);
+    const b = makeFrames();
+    b.ws.receive({ t: 'data', d: 'b' });
+    b.host.disconnect('t1');
+    expect(b.term.written).toEqual(['first', 'b']);
+    const c = makeFrames();
+    c.ws.receive({ t: 'data', d: 'c' });
+    c.host.dispose();
+    expect(c.term.written).toEqual(['first']);
+    expect(c.frames).toHaveLength(0);
   });
 });

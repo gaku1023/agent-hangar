@@ -8,7 +8,16 @@ import type { Tmux } from '../tmux/tmux.ts';
 
 export type PtyProcess = { pid: number; onData(cb: (d: string) => void): void; onExit(cb: (e: { exitCode: number }) => void): void; write(d: string): void; resize(cols: number, rows: number): void; kill(): void };
 export type PtySpawn = (file: string, args: string[], opts: { name: string; cols: number; rows: number; cwd: string; env: NodeJS.ProcessEnv }) => PtyProcess;
-type Deps = { token: string; /** 待ち受けているポート。許可する Origin をここから組み立てる。 */ port: number; /** hangar の tmux のサーバの組（tmux/servers.ts）。Tmux 1 つなら、そのサーバだけを使う。 */ tmux: Tmux | MuxServers | null; resolveTab: (tabId: string) => string | null; spawn: PtySpawn; /** コントロールモード（tmux/control.ts）でつなぐタブか。シェルのタブだけを真にする。渡さなければ、どのタブも擬似端末の attach。 */ controlTab?: (tabId: string) => boolean; /** コントロールモードのつなぎ。試験で差し替える。 */ controlSpawn?: (tmux: Tmux, name: string) => PtyProcess; /** attach が終わった（tmux の画面が閉じたかもしれない）。run の見張りを急がせる（RunManager.stir）。 */ onExit?: () => void };
+type Deps = { token: string; /** 待ち受けているポート。許可する Origin をここから組み立てる。 */ port: number; /** hangar の tmux のサーバの組（tmux/servers.ts）。Tmux 1 つなら、そのサーバだけを使う。 */ tmux: Tmux | MuxServers | null; resolveTab: (tabId: string) => string | null; spawn: PtySpawn; /** コントロールモード（tmux/control.ts）でつなぐタブか。シェルのタブだけを真にする。渡さなければ、どのタブも擬似端末の attach。 */ controlTab?: (tabId: string) => boolean; /** コントロールモードのつなぎ。試験で差し替える。 */ controlSpawn?: (tmux: Tmux, name: string) => PtyProcess; /** attach が終わった（tmux の画面が閉じたかもしれない）。run の見張りを急がせる（RunManager.stir）。 */ onExit?: () => void; /** 出力をまとめて送る窓と上限。試験で差し替える。 */ coalesce?: { windowMs: number; maxBytes: number } };
+
+/**
+ * pty の出力をまとめて送る窓（ミリ秒）。
+ * 出力が多いと通数が増え、画面の描画の負荷が上がる。
+ * 窓より空いた後の先頭の出力はその場で送り、窓の中で続いた分だけを 1 通にする。
+ */
+export const COALESCE_WINDOW_MS = 16;
+/** 貯めがこの大きさ（文字数）に達したら、窓の終わりを待たずに送る。 */
+export const COALESCE_MAX_BYTES = 64 * 1024;
 
 /** close フレームに応えない相手を待つ上限。これを過ぎたら接続を切り、pty を落とす。 */
 const CLOSE_GRACE_MS = 500;
@@ -24,6 +33,8 @@ export class PtyRelay {
   private clients = new Map<WebSocket, PtyProcess>();
   /** 接続ごとの tmux 名。note が宛先の画面に attach している接続を引くために持つ。 */
   private names = new Map<WebSocket, string>();
+  /** 接続ごとの貯めの吐き出し。note など、貯めの後ろに文を足す前に先に出すために持つ。 */
+  private flushers = new Map<WebSocket, () => void>();
   constructor(private readonly deps: Deps) {}
 
   /**
@@ -32,7 +43,7 @@ export class PtyRelay {
    */
   note(tmuxName: string, text: string): void {
     for (const [ws, name] of this.names) {
-      if (name === tmuxName && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ t: 'data', d: '\r\n' + text + '\r\n' }));
+      if (name === tmuxName && ws.readyState === ws.OPEN) { this.flushers.get(ws)?.(); ws.send(JSON.stringify({ t: 'data', d: '\r\n' + text + '\r\n' })); }
     }
   }
 
@@ -86,8 +97,27 @@ export class PtyRelay {
     }
     this.clients.set(ws, p);
     this.names.set(ws, tmuxName);
-    p.onData((d) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ t: 'data', d })); });
+    const { windowMs, maxBytes } = this.deps.coalesce ?? { windowMs: COALESCE_WINDOW_MS, maxBytes: COALESCE_MAX_BYTES };
+    let buf = '';
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let lastSent = -Infinity;
+    const drop = (): void => { buf = ''; if (timer !== null) clearTimeout(timer); timer = null; };
+    const flush = (): void => {
+      const d = buf;
+      drop();
+      if (d !== '' && ws.readyState === ws.OPEN) { ws.send(JSON.stringify({ t: 'data', d })); lastSent = Date.now(); }
+    };
+    this.flushers.set(ws, flush);
+    p.onData((d) => {
+      if (ws.readyState !== ws.OPEN) return;
+      const now = Date.now();
+      if (buf === '' && timer === null && now - lastSent >= windowMs) { ws.send(JSON.stringify({ t: 'data', d })); lastSent = now; return; }
+      buf += d;
+      if (buf.length >= maxBytes) { flush(); return; }
+      if (timer === null) timer = setTimeout(flush, Math.max(0, lastSent + windowMs - now));
+    });
     p.onExit(() => {
+      flush();
       if (ws.readyState === ws.OPEN) ws.close(1000, 'exited');
       this.deps.onExit?.();
     });
@@ -98,7 +128,7 @@ export class PtyRelay {
       else if (m.t === 'data' && typeof m.d === 'string') p.write(m.d);
     });
     // 殺すのは attach しているクライアントだけで、tmux セッションはそのまま残す。
-    ws.on('close', () => { this.clients.delete(ws); this.names.delete(ws); killQuietly(p); });
+    ws.on('close', () => { drop(); this.flushers.delete(ws); this.clients.delete(ws); this.names.delete(ws); killQuietly(p); });
   }
 
   clientCount(): number { return this.clients.size; }
