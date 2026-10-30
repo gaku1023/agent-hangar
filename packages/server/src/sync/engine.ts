@@ -4,7 +4,7 @@ import { onRowChange } from '../db/notify.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { errorText, msg, render } from '../i18n/message.ts';
 import { noteApplied } from '../db/notify.ts';
-import { adoptNoteFromOldSession, applyRemoteBatch, type MemoConflict, type SessionMemoBackup } from './apply.ts';
+import { adoptNoteFromOldSession, applyRemoteBatch, carriedRowBlocked, type MemoConflict, type SessionMemoBackup } from './apply.ts';
 import { CloudError, CompatError, LimitError, RevokedError, type CloudClient, type OpenedSnapshotResponse, type Unreadable } from './client.ts';
 import { recordPeers } from './peers.ts';
 import { rebuildIfCloudChanged } from './rebuild.ts';
@@ -687,17 +687,23 @@ export class SyncEngine {
    * done の後も超えていたら、写しを読み直してもそろわない行なので、捨てる。やり直しを繰り返す輪にしない。
    */
   private overflowRedo: 'none' | 'pending' | 'done' = 'none';
+  /** 持ち越しが覚えた後に変わったか。数 MB の JSON を頁ごとに作り直さないためのもの。起動の後の最初の 1 回は必ず書き比べる。 */
+  private carriedDirty = true;
+  /** 最後に記録へ出した持ち越しの数。同じ数を pull のたびに出さない。 */
+  private carriedLogged = 0;
 
   private carry(c: ChangeOut): void {
     const key = `${c.tableName}:${c.rowId}`;
     const cur = this.carried.get(key);
     if (!cur || cur.updatedAt <= c.updatedAt) this.carried.set(key, c);
     if (!this.carriedAt.has(key)) this.carriedAt.set(key, this.now());
+    this.carriedDirty = true;
   }
 
   private uncarry(key: string): void {
     this.carried.delete(key);
     this.carriedAt.delete(key);
+    this.carriedDirty = true;
   }
 
   /** 前の pull と前の起動が覚えた持ち越しを読む。壊れていれば捨てる。 */
@@ -733,6 +739,8 @@ export class SyncEngine {
    */
   /** 頁ごとの覚え。上限は見ない（見るのは 1 巡の終わりだけ。頁の途中では、親が後の頁に来るだけのことが多い）。 */
   private saveCarriedQuietly(): void {
+    if (!this.carriedDirty) return;
+    this.carriedDirty = false;
     const next = this.carried.size === 0 ? null : JSON.stringify([...this.carried.entries()].map(([k, c]) => ({ c, at: this.carriedAt.get(k) ?? this.now() })));
     if (next !== this.state.get('orphans')) this.state.set('orphans', next);
   }
@@ -794,21 +802,27 @@ export class SyncEngine {
    * 持ち越した行を、まとめて当て直す。写しを読み切った後と、差分を読み切った後に呼ぶ。
    * まだ当てられない行は持ち越したまま残し、数と表を記録に出す。黙って捨てない。
    * 自端末の行かどうかは、最初に落ちる前に見てあるので、ここでは見ない。
+   * いま当てても落ちると分かる行（carriedRowBlocked）は、当てずに持ち越したままにする。
+   * 当てて失敗させると、数千行で 30 秒ごとにサーバが約 1 秒止まる（#532）。
    */
   private settleCarried(endOfPass: boolean): number {
     let n = 0;
-    if (this.carried.size > 0) {
+    // 当たった親を待っていた子は、次の周で当たる。1 行も当たらなくなったら終わる。
+    for (let applied = 1; applied > 0 && this.carried.size > 0;) {
       // 当て直す間も、持ち越しは消さない。当て直しが投げたら、そのまま残る。
       // 当たった行は applyPage が外す。まだ当てられない行は onFailed でもう一度ここへ来る。
       // どちらでもない行（手元の方が新しくて採らなかった行）は、もう要らないので外す。
-      const before = new Map(this.carried);
+      const blocked = carriedRowBlocked(this.deps.db);
+      const before = new Map([...this.carried].filter(([, c]) => !blocked(c)));
+      if (before.size === 0) break;
       const failed = new Set<string>();
       this.settling = failed;
       try {
-        n = this.applyPage([...before.values()], false);
+        applied = this.applyPage([...before.values()], false);
       } finally {
         this.settling = null;
       }
+      n += applied;
       for (const [k, c] of before) if (!failed.has(k) && this.carried.get(k) === c) this.uncarry(k);
     }
     if (endOfPass) {
@@ -816,10 +830,11 @@ export class SyncEngine {
       this.adoptOldNotes();
       this.expireCarried();
     }
-    if (this.carried.size > 0) {
+    if (this.carried.size > 0 && this.carried.size !== this.carriedLogged) {
       const tables = [...new Set([...this.carried.values()].map((c) => c.tableName))].sort().join('、');
-      console.error(`[sync] 親の行が無いので当てられなかった行が ${this.carried.size} 件あります（${tables}）。覚えておき、次の pull でもう一度試します`);
+      console.error(`[sync] 親の行が無いか、同じ会話が手元に別の ID であるので当てられなかった行が ${this.carried.size} 件あります（${tables}）。覚えておき、当てられるようになったら当てます`);
     }
+    this.carriedLogged = this.carried.size;
     return n;
   }
 

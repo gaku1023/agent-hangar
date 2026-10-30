@@ -663,6 +663,11 @@ alter table config_unsent_new rename to config_unsent;
  * MCP の create_session で起こした会話の起動元（呼んだセッション）。手元だけの表で、同期しない。
  * 引き継ぎ（handoff）で起こした会話は残さない。画面は起動元の下に入れ子で並べる。
  */
+// 未送信の行は少ないのに、数えるたびに changes を全部読んでいた。送るときの並び（seq）も同じ索引で引ける。
+const V41_CHANGES_UNPUSHED_SQL = `
+create index changes_unpushed on changes(seq) where pushed_at is null;
+`;
+
 const V40_SESSION_SPAWNS_SQL = `
 create table session_spawns (
   session_id text primary key,
@@ -711,4 +716,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 38, sql: V38_CONFIG_UNSENT_UNKNOWN_KEY_SQL },
   { version: 39, sql: V39_SESSION_UNREAD_SQL },
   { version: 40, sql: V40_SESSION_SPAWNS_SQL },
+  { version: 41, sql: V41_CHANGES_UNPUSHED_SQL },
 ];
