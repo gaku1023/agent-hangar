@@ -14,14 +14,14 @@ describe('設定の知らせ方の欄', () => {
     expect(p.quote).toBe('終わったときだけ教えて');
     expect(p.defaultText).toBeNull();
     expect(p.rows.map((r) => [r.name, r.level, r.off])).toEqual([
-      ['未読数', 'すべて', false], ['Mac の通知', 'オフ', true], ['スマホの通知', '済んだ・判断が要る', false],
+      ['未読数', 'すべて', false], ['Mac の通知', 'オフ', true], ['スマホの通知', '済んだ・判断が必要', false],
     ]);
   });
   it('未設定は、引用の代わりに既定の文を出し、決まりは既定を読む', () => {
     const p = present(store());
     expect(p.quote).toBeNull();
-    expect(p.defaultText).toBe('返答のたびに未読数を増やす。Mac とスマホの通知は、依頼が済んだときと判断が要るときだけ。');
-    expect(p.rows.map((r) => [r.name, r.level])).toEqual([['未読数', 'すべて'], ['Mac の通知', '済んだ・判断が要る'], ['スマホの通知', '済んだ・判断が要る']]);
+    expect(p.defaultText).toBe('返答のたびに未読数を増やす。Mac とスマホの通知は、依頼が済んだときと判断が必要なときだけ。');
+    expect(p.rows.map((r) => [r.name, r.level])).toEqual([['未読数', 'すべて'], ['Mac の通知', '済んだ・判断が必要'], ['スマホの通知', '済んだ・判断が必要']]);
   });
   it('未設定で古いスイッチが切なら、その出し先はオフに読む', () => {
     expect(present(store({ unreadOs: false })).rows[1]).toMatchObject({ name: 'Mac の通知', level: 'オフ', off: true });

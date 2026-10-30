@@ -3,7 +3,7 @@
  * 利用者の言葉をエージェントが場面ごとの決まりに直して保存する。サーバは notify_user の kind と決まりで出し先を振り分ける。
  */
 export const NOTIFY_KINDS = ['done', 'ask', 'progress'] as const;
-/** 場面。done は済んだ、ask は判断が要る、progress は途中。 */
+/** 場面。done は済んだ、ask は判断が必要、progress は途中。 */
 export type NotifyKind = (typeof NOTIFY_KINDS)[number];
 
 export type NotifyPreference = {
