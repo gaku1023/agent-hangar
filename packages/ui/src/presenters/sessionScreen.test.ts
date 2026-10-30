@@ -13,7 +13,7 @@ const NOW = Date.parse('2026-09-02T12:00:00Z');
 const stats = { turns: 11, model: 'claude-sonnet-4-5', effort: 'high', filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: 41, costUsd: 0.42 };
 const session = (over: Partial<SessionDto> = {}): SessionDto => ({
   id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '画像の遅延読み込み', cwd: '/w/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 3_600_000, lastActivityAt: NOW - 60_000, lastTurnAt: null, 
-  hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, unread: null, ...over,
+  hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, unread: null, spawnedBy: null, ...over,
 });
 const run = (over: Partial<RunDto> = {}): RunDto => ({ id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: NOW - 3_600_000, endedAt: null, endReason: null, heartbeatAt: NOW, ...over });
 function store(s: SessionDto = session(), r: RunDto | null = null): Store {
@@ -282,5 +282,27 @@ describe('opencode の会話の「いま」の札（計画の C5）', () => {
   it('Claude の会話には使用量を渡さない（ヘッダの 5 時間・週と見出しの (i) のまま）', () => {
     const p = present(store(session({ live: 'busy', stats: { ...stats, contextTokens: 13_600 } }), run()));
     expect(p.strip?.usage).toBeNull();
+  });
+});
+
+describe('起動元と起こしたセッション（spawnedBy）', () => {
+  const many = (...ss: SessionDto[]): Store => { const st = store(ss[0]!); st.sessions = Object.fromEntries(ss.map((s) => [s.id, s])); return st; };
+  it('子の画面は起動元の id と名前を持ち、起動元が無ければ null（古いサーバの undefined も null）', () => {
+    const parent = session({ id: 'p', name: '親の会話' });
+    const child = session({ id: 's1', spawnedBy: 'p' });
+    expect(present(many(child, parent)).spawnedFrom).toEqual({ id: 'p', name: '親の会話' });
+    expect(present(many(child)).spawnedFrom).toBeNull();
+    expect(present(many(session({ spawnedBy: null }))).spawnedFrom).toBeNull();
+    expect(present(many(session())).spawnedFrom).toBeNull();
+  });
+  it('起動元の画面は、起こしたセッションを起動の古い順に並べ、状態を添える。無ければ空', () => {
+    const me = session({ id: 's1' });
+    const b = session({ id: 'b', name: 'B', spawnedBy: 's1', startedAt: NOW - 100, live: 'busy' });
+    const a = session({ id: 'a', name: 'A', spawnedBy: 's1', startedAt: NOW - 200 });
+    const other = session({ id: 'o', name: 'O', spawnedBy: 'zzz' });
+    const kids = present(many(me, b, a, other)).spawned ?? [];
+    expect(kids.map((k) => k.id)).toEqual(['a', 'b']);
+    expect(kids[1]).toMatchObject({ name: 'B', live: 'busy' });
+    expect(present(many(me, other)).spawned).toEqual([]);
   });
 });

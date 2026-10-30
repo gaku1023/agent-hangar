@@ -4,6 +4,7 @@ export const sidebarKeys = {
   'sidebar.live.label': [],
   'sidebar.count.waiting': ['n'],
   'sidebar.count.unread': ['n'],
+  'sidebar.live.nest': ['name'],
   'sidebar.live.rowTitle': ['name', 'waited'],
   'sidebar.live.waited': ['time'],
   'sidebar.live.stop': [],

@@ -20,6 +20,7 @@ import { GitUnsafeNote } from './GitUnsafeNote.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
 import { StatusSelect } from './primitives/StatusSelect.tsx';
 import { usePresence } from './primitives/usePresence.ts';
+import { SpawnedFrom, SpawnedPills } from './SpawnedLinks.tsx';
 import { SplitPane } from './SplitPane.tsx';
 import { TabStrip } from './TabStrip.tsx';
 import { TerminalPane } from './TerminalPane.tsx';
@@ -171,7 +172,7 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
   // 要約の札（S5）。書かれた要約か、作成中と失敗の知らせがあるときだけ描く（SummaryCard が自分で決める）。
   const summaryCard = props.lead ? <SummaryCard sessionId={id} {...props.lead} /> : null;
   // 見出しの下の押せない理由の行など。大きな見出しの below と同じものを、ペインの見出しの下にも出す。
-  const belowLines = <>{facts}{noRootLine}{takenOverLine}</>;
+  const belowLines = <><SpawnedPills sessionId={id} kids={props.spawned} />{facts}{noRootLine}{takenOverLine}</>;
   // 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。
   const primaryButton = (
     <>
@@ -193,7 +194,7 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
         menu={pv.tiny ? [item(primary), { key: 'details', label: t('pane.menu.details'), icon: 'info', onSelect: () => setInfoNonce((n) => n + 1) }, ...props.actions.menu.map(item)] : props.actions.menu.map(item)}
         info={pv.tiny ? (infoNonce > 0 ? <span className="pane-head-anchor"><InfoPopover key={infoNonce} defaultOpen rows={detailRows} width={360}>{props.gitFix ? <GitUnsafeNote command={props.gitFix} /> : null}</InfoPopover></span> : null) : <InfoPopover rows={detailRows} width={360}>{props.gitFix ? <GitUnsafeNote command={props.gitFix} /> : null}</InfoPopover>}
         sessionId={id} sessionStatus={statusPick && statusPick.value !== 'active' ? statusPick.value : null} />
-      {(facts || noRoot || props.takenOver) && <div className="pane-below">{belowLines}</div>}
+      {(facts || noRoot || props.takenOver || props.spawnedFrom || (props.spawned?.length ?? 0) > 0) && <div className="pane-below"><SpawnedFrom from={props.spawnedFrom} />{belowLines}</div>}
     </>
   ) : null;
   const header = paneHeader ?? (
@@ -202,7 +203,7 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
     // 名前は見出しにだけ出し、要約の題は出さない（C1）。
     // 名前の横に、他の PC で実行中の札（操作できない理由なので隠さない）。右端の (i) に、毎回は見ない属性を入れる。
     // 操作は状態に合う 1 つだけを主にし、残りは「…」に入れる（A1）。
-    <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} aside={props.aside} reason={props.reason ?? null} />} titleClassName="session-name" rowClassName="session-hero" hero={id} below={belowLines}>
+    <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} aside={props.aside} reason={props.reason ?? null} />} titleClassName="session-name" rowClassName="session-hero" hero={id} below={belowLines} origin={<SpawnedFrom from={props.spawnedFrom} />}>
       <SessionBadges badges={props.badges} />
       {props.oneLiner ? <span key={props.oneLiner} className="session-oneliner" title={props.oneLiner}>{props.oneLiner}</span> : <span className="spacer" />}
       {/* 状態の札（4A）。操作の並びの先頭、主の操作の左に置く。見た目と一言はプロジェクト画面の札と同じ。 */}

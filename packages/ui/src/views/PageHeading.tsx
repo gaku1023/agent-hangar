@@ -10,7 +10,7 @@ import type { ParentLink } from '../presenters/heading.ts';
  * hero はセッションの上段の印で、一覧の行からこの行へ広がる動き（runtime/present.ts）が探す。
  * 窓が狭くて見出しの行に入り切らないときは、ボタンの名前（.btn-label）を隠して印だけにする（fitRow）。
  */
-export function PageHeading(props: { title: string; parent?: ParentLink | null; lead?: ReactNode; children?: ReactNode; titleClassName?: string; rowClassName?: string; hero?: string; /** 見出しの行の下、区切りの線の上に置くもの（セッション画面の押せない理由の行など）。 */ below?: ReactNode }) {
+export function PageHeading(props: { title: string; parent?: ParentLink | null; lead?: ReactNode; children?: ReactNode; titleClassName?: string; rowClassName?: string; hero?: string; /** 親へのリンクの行の、親の右に置くもの（子の画面の、起動元へ戻るリンク）。行の高さは変えない。 */ origin?: ReactNode; /** 見出しの行の下、区切りの線の上に置くもの（セッション画面の押せない理由の行など）。 */ below?: ReactNode }) {
   const emit = useEmit();
   const parent = props.parent ?? null;
   const rowRef = useRef<HTMLDivElement>(null);
@@ -32,6 +32,7 @@ export function PageHeading(props: { title: string; parent?: ParentLink | null; 
     <div className="page-head">
       <div className="page-parent">
         {parent && <><a href={formatRoute(parent.route)} title={parent.label} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: parent.route }); }}>{parent.label}</a><span aria-hidden="true">›</span></>}
+        {props.origin}
       </div>
       <div ref={rowRef} className={props.rowClassName ? `page-title-row ${props.rowClassName}` : 'page-title-row'} data-morph-hero={props.hero}>
         {props.lead}

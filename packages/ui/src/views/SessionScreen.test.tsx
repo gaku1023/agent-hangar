@@ -21,7 +21,7 @@ const dto = (over: Partial<SessionDto> = {}): SessionDto => ({
   id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: 'name', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, lastTurnAt: null, 
   hasTranscript: true, live: null, stats: { turns: 2, model: 'claude-sonnet-4-5', effort: 'high', filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 1_000_000, outputTokens: 200_000, contextPercent: null, costUsd: null },
   summary: { title: 'T', oneLiner: 'ONE', body: 'BODY', state: 'in_progress', nextSteps: ['next1'], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 },
-  fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, unread: null, ...over,
+  fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, unread: null, spawnedBy: null, ...over,
 });
 const leadOf = (over: Partial<SessionDto> = {}, extra: { summaryPending?: boolean; summaryError?: string | null; gone?: boolean } = {}) =>
   presentLeadCard({ session: dto(over), now: NOW, gone: extra.gone ?? false, summaryPending: extra.summaryPending ?? false, summaryError: extra.summaryError ?? null, artifacts: [], files: null, windowFiles: [] }, ja);
@@ -54,6 +54,29 @@ describe('引き継がれた側の 1 行', () => {
     expect(container.querySelector('.page-head .session-reason')).not.toBeNull();
     rerender(<ActionRoot onAction={() => {}}><SS {...base} takenOver={null} /></ActionRoot>);
     expect(screen.queryByText(/に引き継ぎ/)).toBeNull();
+  });
+});
+describe('起動元と起こしたセッションの印', () => {
+  it('子の画面は見出しの上の行に起動元の名前のリンクを出し、押すと起動元へ移る。起動元が無ければ出さない', () => {
+    const onAction = vi.fn();
+    const { container, rerender } = render(<ActionRoot onAction={onAction}><SS {...base} spawnedFrom={{ id: 'p9', name: '親の会話' }} /></ActionRoot>);
+    const link = screen.getByRole('link', { name: '親の会話' });
+    expect(link.closest('.page-head > .page-parent')).not.toBeNull();
+    fireEvent.click(link);
+    expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'session', id: 'p9' } });
+    rerender(<ActionRoot onAction={onAction}><SS {...base} spawnedFrom={null} /></ActionRoot>);
+    expect(container.querySelector('.spawned-from')).toBeNull();
+  });
+  it('起動元の画面は見出しの下に起こしたセッションの札を並べ、押すとそこへ移る。子が無ければ列ごと出さない', () => {
+    const onAction = vi.fn();
+    const kids = [{ id: 'k1', name: '子A', live: 'busy' as const, aside: false, reason: null }, { id: 'k2', name: '子B', live: null, aside: false, reason: null }];
+    const { container, rerender } = render(<ActionRoot onAction={onAction}><SS {...base} spawned={kids} /></ActionRoot>);
+    const row = container.querySelector('.page-head > .spawned-row') as HTMLElement;
+    expect(within(row).getAllByRole('link').map((a) => a.textContent)).toEqual(['子A', '子B']);
+    fireEvent.click(within(row).getByRole('link', { name: /子B/ }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'session', id: 'k2' } });
+    rerender(<ActionRoot onAction={onAction}><SS {...base} spawned={[]} /></ActionRoot>);
+    expect(container.querySelector('.spawned-row')).toBeNull();
   });
 });
 /** 「…」のメニューを開いて、その中の項目を返す。 */

@@ -53,11 +53,30 @@ export function summarizerLabel(sourceId: string | null, sourceModel: string | n
   return sourceModel && sourceModel !== kind ? `${kind} / ${sourceModel}` : kind;
 }
 
+/** 起動元の画面の、起こしたセッションの札。 */
+export type SpawnedChild = { id: string; name: string; live: LiveStatus | null; aside: boolean; reason: StopReason | null };
+
+function spawnedFromOf(store: Store, s: SessionDto, t: Translate): { id: string; name: string } | null {
+  const from = s.spawnedBy ? store.sessions[s.spawnedBy] : undefined;
+  return from ? { id: from.id, name: from.name ?? t('common.label.noName') } : null;
+}
+
+function spawnedChildrenOf(store: Store, id: string, t: Translate): SpawnedChild[] {
+  return Object.values(store.sessions)
+    .filter((c) => c.spawnedBy === id)
+    .sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0))
+    .map((c) => ({ id: c.id, name: c.name ?? t('common.label.noName'), live: c.live, aside: asideOf(c.live, c.liveAside) !== null, reason: stopReasonOf(c) }));
+}
+
 export type SessionProps = { id: string; name: string; parent: ParentLink | null; live: LiveStatus | null; aside: boolean;
   /** 止まっている理由（shared の stopReasonOf）。見出しの点と端末の縁を替える。無ければ null。 */
   reason?: StopReason | null;
   /** 見出しの名前の横に出す、要約の 1 文。無ければ null。 */
   oneLiner: string | null;
+  /** このセッションを起こしたセッション（SessionDto.spawnedBy）。store に無い、または起こされていなければ null、省けば出さない。 */
+  spawnedFrom?: { id: string; name: string } | null;
+  /** このセッションが起こしたセッション（起動の古い順）。無ければ空、省けば出さない。 */
+  spawned?: SpawnedChild[];
   hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; canFork: boolean; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean; lock: SessionLockProps | null; remoteOnly: boolean; canResumeHere: boolean; outsideOpen: 'attach' | 'adopt' | null;
   /** この PC にプロジェクトのフォルダが無いほかの PC の会話の、押せない理由と場所を指定する先（presenters/resumeHere.ts）。省けば null として読む。 */
   noRoot?: { reason: string; projectId: string } | null;
@@ -624,6 +643,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     ...base, account, name: s.name ?? t('common.label.noName'), live: s.live, aside: asideOf(s.live, s.liveAside) !== null, reason,
     // 見出しの上には、属するプロジェクトへ戻るリンクを出す。プロジェクトに属さない（まだ知らない）セッションでは出さない。
     parent: project ? { label: projectDisplayName(project, t), route: { name: 'project', id: project.id } } : null,
+    spawnedFrom: spawnedFromOf(store, s, t), spawned: spawnedChildrenOf(store, id, t),
     oneLiner: s.summary?.oneLiner ? s.summary.oneLiner : null, hasTranscript: s.hasTranscript,
     items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: olderLeft, hasNewer: slice ? slice.nextSeq !== null : false, notFound: false,
     strip, overlap: alive ? presentOverlap(store, id, now) : null, lead, badges: presentSessionBadges(s, now, t),

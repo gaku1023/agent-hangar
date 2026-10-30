@@ -261,3 +261,18 @@
 .empty-card p { margin: 0 0 calc(var(--u) * 1.5); line-height: 1.6; color: var(--ink-2); }
 .empty-card .empty-acts { margin-top: calc(var(--u) * 4); }
 .empty-acts { display: flex; flex-wrap: wrap; justify-content: center; gap: calc(var(--u) * 2); }
+
+/* 入れ子（MCP の create_session で起こした子）。子は 1 段 14px ずつ右へ下げ、起動元の状態の丸の真下に縦の線を 1 本ずつ引く（B2）。行の高さは変えない。 */
+.row-2[data-depth], .row-2[data-nest] { position: relative; --nest-dot: 11px; }
+.rows-host[data-status-col='false'] .row-2 { --nest-dot: 4px; }
+.row-2[data-depth] { padding-left: calc(var(--u) * 5 + 14px * var(--depth)); }
+.row-2[data-depth]::before { content: ''; position: absolute; top: 0; bottom: 0; left: calc(var(--u) * 5 + var(--nest-dot)); width: calc(14px * var(--depth)); background: repeating-linear-gradient(to right, var(--line-strong) 0 1px, transparent 1px 14px); pointer-events: none; }
+/* 開閉の席。行の左の余白に置き、乗せたとき（と焦点のあるとき、カーソルの行）だけ出す（F2）。開いていれば 90 度回す。 */
+.row-fold { position: absolute; top: 50%; left: calc(var(--u) * 5 + 14px * var(--depth, 0) - 12px); translate: -50% -50%; display: inline-grid; place-items: center; width: 20px; height: 24px; padding: 0; border: 0; background: none; color: var(--ink-3); cursor: pointer; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.row-fold > svg { width: 12px; height: 12px; transition: rotate var(--dur-fast) var(--ease-out); }
+.row-fold[aria-expanded='true'] > svg { rotate: 90deg; }
+.row-fold:hover { color: var(--ink); }
+.row:hover > .row-fold, .row:focus-within > .row-fold, .row[data-cursor='true'] > .row-fold, .row-fold:focus-visible { opacity: 1; }
+/* 畳んだ起動元の名前の右に並べる、子孫ごとの小さな状態の丸（A1）。 */
+.row-kidots { display: inline-flex; align-items: center; gap: 3px; margin-left: calc(var(--u) * 2); vertical-align: middle; }
+.row-kidot { width: 6px; height: 6px; }
