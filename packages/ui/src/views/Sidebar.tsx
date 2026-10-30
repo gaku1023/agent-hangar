@@ -367,7 +367,7 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
           onContextMenu={(e) => { e.preventDefault(); if (sortNow.current) return; setMenu({ id: r.id, at: { top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 } }); }}
           onPointerDown={(e) => onPointerDown(e, r)} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}>
           {/* 子を持つ行は、乗せたとき（と焦点のあるとき）だけ、丸の席が開閉の印に替わる。押すと子の列を開閉し、行の他の所は今まで通りセッションへ移る。 */}
-          <span className="side-live-seat">
+          <span className="side-live-seat" data-fold={nest ? 'true' : undefined}>
             <StatusDot status={r.live} aside={r.aside} reason={r.reason} />
             {nest && (
               <button type="button" className="side-live-fold" aria-expanded={nest.open} aria-controls={body} aria-label={t('sidebar.live.nest', { name: r.name })}

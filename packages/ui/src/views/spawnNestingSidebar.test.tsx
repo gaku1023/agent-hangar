@@ -38,6 +38,14 @@ describe('サイドバーの実行中の入れ子（見た目と開閉）', () =
     expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.fold', key: 'spawn:p', open: false });
     expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
   });
+  it('開閉の印を持つ席だけに data-fold が付く（子の無い行は乗せても丸のまま）', () => {
+    mount(props(family()));
+    const seat = (id: string) => document.querySelector(`[data-id="${id}"] .side-live-seat`)!;
+    expect(seat('p')).toHaveAttribute('data-fold', 'true');
+    expect(seat('c')).toHaveAttribute('data-fold', 'true');
+    expect(seat('g')).not.toHaveAttribute('data-fold');
+    expect(seat('x')).not.toHaveAttribute('data-fold');
+  });
   it('行の他の所を押したら、今まで通りセッションへ移る', () => {
     const { onAction } = mount(props(family()));
     fireEvent.click(document.querySelector('[data-id="p"]')!);
