@@ -263,7 +263,9 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
     for (const key of ['askStatusAtEnd', 'liveHints', 'notifyUser', 'unreadBadge', 'unreadOs', 'unreadPhone', 'remoteControl'] as const) {
       if (!(key in body)) continue;
       const v = body[key];
-      if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr(`settings.label.${key}`) }) }, 400);
+      // 古い未読のスイッチは画面から外し、知らせ方の欄に置き換えた。断りの文はその欄の名前で出す。
+      const label = key === 'unreadBadge' || key === 'unreadOs' || key === 'unreadPhone' ? tr('settings.label.notifyPreference') : tr(`settings.label.${key}`);
+      if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label }) }, 400);
       patch[key] = v;
     }
     // 知らせ方の決まり。null は既定に戻す。形が合わなければ断る（読み込みと同じ形の関数で検査する）。
