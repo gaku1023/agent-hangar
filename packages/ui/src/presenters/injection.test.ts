@@ -18,7 +18,7 @@ describe('足す指示の全文', () => {
     expect(notify.indexOf('set_notify_preference で保存してください。text には')).toBeGreaterThan(translate('ja', 'launch.injection.notify').length - 1);
     expect(notify).toContain('今の決まり：unread は done・ask・progress、os は done・ask、phone は done・ask。');
     expect(notify.indexOf('今の決まり')).toBeLessThan(notify.indexOf('知らせ方がまだ決まっていません'));
-    expect(notify.endsWith('別の問いにしてください。\n')).toBe(true);
+    expect(notify.endsWith('その決まりは当てはまりません。\n')).toBe(true);
   });
   it('notify_user の段も、切ったら消さずに「足しません」と言う', () => {
     expect(presentInjection(ja, { askStatusAtEnd: true, liveHints: true, notifyUser: false })[1]).toMatchObject({ label: '見てほしい出力を notify_user で知らせる（オフ・追加しません）', off: true });
