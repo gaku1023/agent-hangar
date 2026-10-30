@@ -146,7 +146,7 @@ describe('checkSessionModel（この PC にモデルがあるか）', () => {
   it('LM Studio につながらなければ、起動していないことを言って断る', async () => {
     const { serve } = await serveStarting({ providerRowsAfter: 0, rows: lmRow, configProviders: {} });
     await expect(checkSessionModel(deps([]), listing({ down: true }), serve, { ...spec(), model: 'lmstudio/gemma' }))
-      .rejects.toThrow('lmstudio（http://127.0.0.1:1234）に接続できません。lmstudio を起動して再試行してください。');
+      .rejects.toThrow('lmstudio の API サーバー（http://127.0.0.1:1234）に接続できません。サーバーを起動して再試行してください。');
   });
 
   it('この PC でない接続先（anthropic など）は聞かずに通す', async () => {

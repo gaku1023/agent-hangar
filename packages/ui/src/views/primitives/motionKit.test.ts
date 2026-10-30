@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { collapseOut, fadeIn, fadeOut, staggerIn, growIn, haltSlide, liftIn, markHit, motionOn, popOut, resizeFrom, riseIn, risenKeys, shapeNow, slideAway, slideFrom } from './motionKit.ts';
+import { collapseOut, fadeIn, fadeOut, staggerIn, growIn, haltSlide, hangIn, hangOut, liftIn, markHit, motionOn, popOut, resizeFrom, riseIn, risenKeys, shapeNow, slideAway, slideFrom } from './motionKit.ts';
 import { beginLayoutMotion, endLayoutMotion, LAYOUT_MOVING_ATTR, LAYOUT_SETTLED } from './layoutMotion.ts';
 
 /**
@@ -36,6 +36,50 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate; });
 
 describe('motionKit', () => {
+  it('垂れて入る形は、箱の高さを伸ばし、面を上辺を軸に倒して --dur で正面へ向ける', () => {
+    tokens('420ms');
+    const calls = fakeAnimate();
+    const box = document.createElement('li');
+    const face = document.createElement('a');
+    hangIn(box, face);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.frames[0]).toMatchObject({ height: '0px' });
+    expect(calls[1]!.frames[0]).toMatchObject({ opacity: 0, transformOrigin: '50% 0' });
+    expect(String(calls[1]!.frames[0]!.transform)).toContain('rotateX(-82deg)');
+    expect(calls[1]!.frames[1]).toMatchObject({ opacity: 1, transform: 'none' });
+    expect(calls.every((c) => c.opts.duration === 420 && c.opts.easing === 'ease-out')).toBe(true);
+  });
+  it('垂れて出る形は、面を奥へ倒し切ってから高さを畳む。倒す途中で取り消されたら畳まずに解決する', async () => {
+    tokens('200ms');
+    let made = controlledAnimate();
+    const box = document.createElement('li');
+    const face = document.createElement('a');
+    let done = false;
+    void hangOut(box, face).then(() => { done = true; });
+    expect(made).toHaveLength(1);
+    expect(String(made[0]!.frames[1]!.transform)).toContain('rotateX(-82deg)');
+    await settle(() => made[0]!.resolve());
+    expect(made).toHaveLength(2);
+    expect(made[1]!.frames[1]).toMatchObject({ height: '0px' });
+    expect(done).toBe(false);
+    await settle(() => made[1]!.resolve());
+    expect(done).toBe(true);
+
+    made = controlledAnimate();
+    done = false;
+    void hangOut(box, face).then(() => { done = true; });
+    await settle(() => made[0]!.reject());
+    expect(made).toHaveLength(1);
+    expect(done).toBe(true);
+  });
+  it('動かない環境では、垂れる形は何もせず、出る形はすぐ解決する', async () => {
+    tokens('0ms');
+    const calls = fakeAnimate();
+    const box = document.createElement('li');
+    hangIn(box);
+    await hangOut(box);
+    expect(calls).toHaveLength(0);
+  });
   it('並べて入る形は、riseIn を --stagger ずつ遅らせる。札の入れ替えの薄れは --dur-swap で、最後の形を残す', async () => {
     tokens('420ms');
     const calls = fakeAnimate();

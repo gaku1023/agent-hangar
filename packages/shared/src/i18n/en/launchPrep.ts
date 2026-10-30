@@ -2,6 +2,11 @@ import type { launchPrepKeys } from '../keys/launchPrep.ts';
 import type { AreaDictionary } from '../messageSpec.ts';
 
 export const launchPrepEn: AreaDictionary<typeof launchPrepKeys> = {
+  'launchPrep.server.starting': 'Starting the LM Studio server…',
+  'launchPrep.server.done': 'Started the LM Studio server',
+  'launchPrep.server.failedTitle': 'Server startup failed',
+  'launchPrep.server.cliMissing': 'LM Studio startup command not found. Start the server in LM Studio, then try again.',
+  'launchPrep.server.failed': 'Could not start the LM Studio server ({url}). Check the status in LM Studio and try again.',
   'launchPrep.step.check': 'Checking LM Studio…',
   'launchPrep.step.load': 'Loading {model} ({context})…',
   'launchPrep.step.reload': 'Reloading {model} ({context})…',
@@ -59,5 +64,5 @@ export const launchPrepEn: AreaDictionary<typeof launchPrepKeys> = {
   'launchPrep.error.notFound': 'No preparation in progress.',
   'launchPrep.error.modelMissing': '{model} is not on this PC. Available: {available}',
   'launchPrep.error.modelMissingNone': '{model} is not on this PC. No models found in {name}.',
-  'launchPrep.error.serverDown': 'Can\'t connect to {name} ({url}). Start {name} and try again.',
+  'launchPrep.error.serverDown': 'Can\'t connect to the {name} API server ({url}). Start the server and try again.',
 };

@@ -38,6 +38,35 @@ afterEach(() => {
 });
 
 describe('useMotionList', () => {
+  it('enter に関数を渡すと、新しい行をその形で入れる', () => {
+    const enter = vi.fn();
+    const { rerender } = render(<List items={['a']} opts={{ enter }} />);
+    expect(enter).not.toHaveBeenCalled();
+    rerender(<List items={['a', 'b']} opts={{ enter }} />);
+    expect(enter.mock.calls.map(([el]) => (el as HTMLElement).textContent)).toEqual(['b']);
+  });
+  it('enterFromEmpty なら、空から 1 件だけ入った描画を動かす。最初の描画と、一度に複数入った描画は動かさない', () => {
+    const enter = vi.fn();
+    const opts = { enter, enterFromEmpty: true };
+    const first = render(<List items={['a']} opts={opts} />);
+    expect(enter).not.toHaveBeenCalled();
+    first.unmount();
+    const { rerender } = render(<List items={[]} opts={opts} />);
+    rerender(<List items={['a', 'b']} opts={opts} />);
+    expect(enter).not.toHaveBeenCalled();
+    const again = render(<List items={[]} opts={opts} />);
+    again.rerender(<List items={['c']} opts={opts} />);
+    expect(enter.mock.calls.map(([el]) => (el as HTMLElement).textContent)).toEqual(['c']);
+  });
+  it('出る途中で戻った行は、中の要素の動きも一緒に取り消す', () => {
+    const inner = { cancel: vi.fn() };
+    const spy = vi.spyOn(HTMLElement.prototype as unknown as { getAnimations: (o?: GetAnimationsOptions) => unknown[] }, 'getAnimations').mockImplementation(function (o) { return o?.subtree ? [inner] : []; });
+    const { rerender } = render(<List items={['a', 'b']} />);
+    rerender(<List items={['a']} />);
+    rerender(<List items={['a', 'b']} />);
+    expect(inner.cancel).toHaveBeenCalled();
+    spy.mockRestore();
+  });
   it('最初の描画と、空から埋まった描画では動かさない', () => {
     const { rerender } = render(<List items={[]} />);
     rerender(<List items={['a', 'b']} />);

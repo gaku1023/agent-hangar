@@ -13,7 +13,7 @@ const state = (p: Partial<SessionStateDto> = {}): SessionStateDto => ({ status: 
 const session = (p: Partial<SessionDto> = {}): SessionDto => ({
   id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: '画像の遅延読み込み', cwd: '/w/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 4 * DAY, lastActivityAt: NOW - 3 * DAY, lastTurnAt: null, 
   hasTranscript: true, live: null, summary: summary(), stats: { turns: 11, model: 'claude-sonnet-4-5', effort: null, filesChanged: 5, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: null, costUsd: 0.42 },
-  fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: state(), parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, unread: null, spawnedBy: null, ...p,
+  fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: state(), parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, unread: null, spawnedBy: null, ...p,
 });
 const artifact = (id: string): ArtifactCardProps => ({ id, title: `成果 ${id}`, description: null, icon: 'document', url: 'https://x', lastPublished: '3 日前', versionCount: 1, canOpenEditor: true });
 const win = (path: string, p: Partial<ChangedFileProps> = {}): ChangedFileProps => ({ path, dir: '', base: path.split('/').pop()!, added: 1, removed: 0, created: false, ...p });
@@ -50,10 +50,10 @@ describe('冒頭の 1 枚の 1 行目', () => {
     expect(present({ session: session({ lastTurnAt: NOW - 2 * DAY }) }, en).ended).toBe('Last message 2 days ago');
   });
   it('区切りを付けたので止めたときは、終了の代わりにその知らせを出す', () => {
-    const c = present({ session: session({ stoppedByStatus: true, state: state({ status: 'paused' }) }) });
+    const c = present({ session: session({ stoppedByStatus: true, woke: false, state: state({ status: 'paused' }) }) });
     expect(c.stopped).toBe('Paused にしたため停止しました。再開すると続けられます');
     expect(c.ended).toBeNull();
-    expect(present({ session: session({ stoppedByStatus: true, state: state({ status: 'done' }) }) }, en).stopped).toBe('Stopped because it was marked Done. Resume to continue');
+    expect(present({ session: session({ stoppedByStatus: true, woke: false, state: state({ status: 'done' }) }) }, en).stopped).toBe('Stopped because it was marked Done. Resume to continue');
   });
   it('ほかの PC で実行中（応答のあるロック）の間は、終了を出さない。見出しの札の「<PC 名> で実行中」と食い違うため', () => {
     const lock = (stale: boolean) => ({ deviceId: 'd2', deviceName: 'office-pc', runId: 'r9', heartbeatAt: NOW - 60_000, stale });

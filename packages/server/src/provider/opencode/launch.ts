@@ -6,6 +6,7 @@ import type { OpencodePermissionRule } from './permissionPreset.ts';
 import type { ServeEnsureOptions, ServeInfo } from './serve/manager.ts';
 import { msg, MessageError } from '../../i18n/message.ts';
 import type { LocalModelListing } from './localModels/available.ts';
+import type { LmServerStarter } from './localModels/serverStart.ts';
 import { prepareLocalModels, type LocalModelsDeps, type LocalModelUse } from './localModels/prepare.ts';
 import type { ProviderPreps } from './providerPrep.ts';
 import type { OpencodeShareConfig } from '../../share/opencode.ts';
@@ -89,6 +90,8 @@ export type MaterializeDeps = {
   providerPreps?: ProviderPreps;
   /** 起動前に、会話のモデルがこの PC のローカルのサーバーにあるかを聞く口（localModels/available.ts）。無ければ確かめない。 */
   localListing?: LocalModelListing;
+  /** ローカル LM Studio のサーバーを必要なときだけ起動する。 */
+  localServers?: Pick<LmServerStarter, 'ensure'>;
 };
 
 /**
@@ -113,6 +116,7 @@ export async function materializeOpencode(deps: MaterializeDeps, mode: Materiali
   let providerSessionId: string;
   try {
     if (spec.prep && deps.providerPreps?.any() && !spec.prep.choice.skip) await prepareProviders(deps, deps.providerPreps, serve, spec);
+    if (spec.prep && deps.localServers) await prepareServers(deps, deps.localServers, serve, spec);
     // モデルの有無は、接続先の準備（サーバーを起こすコマンド）の後、モデルを載せる前に確かめる。準備を飛ばす答えでも確かめる（無いモデルでは最初の発言で必ず落ちる）。
     // 外のターミナルからの起動（prep が無い）は確かめない。選び直す画面が無く、TUI の /models で替えられるからである。
     if (spec.prep && deps.localListing && mode.kind === 'start') await checkSessionModel(deps, deps.localListing, serve, spec);
@@ -148,6 +152,22 @@ export async function prepareProviders(deps: MaterializeDeps, preps: ProviderPre
   prep.run.throwIfCancelled();
   const names = new Map((await client.providerRows(spec.cwd).catch(() => [])).map((r) => [r.id, r.name]));
   for (const id of ids) await preps.prepare(id, names.get(id) ?? id, spec.hangarSessionId, prep.run);
+}
+
+/** 利用者の準備コマンドを優先し、その後で必要な LM Studio サーバーを補う。再開にも使う。 */
+export async function prepareServers(deps: MaterializeDeps, servers: Pick<LmServerStarter, 'ensure'>, serve: ServeInfo, spec: LaunchSpec): Promise<void> {
+  const prep = spec.prep!;
+  const client = new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs });
+  const conf = prep.choice.singleModel ? null : await client.modelUses(spec.cwd);
+  const uses = conf ? usesOf(conf, spec.model ?? conf.model ?? undefined) : [{ ref: prep.choice.singleModel!, uses: ['$session'] }];
+  const [rows, configured] = await Promise.all([client.providerRows(spec.cwd), client.configuredBaseURLs(spec.cwd)]);
+  prep.run.throwIfCancelled();
+  const providers = await providerURLs(client, { cwd: spec.cwd, uses, prep: prep.run, sleep: deps.sleep }, rows, configured);
+  const ids = new Set(uses.map((u) => u.ref.slice(0, u.ref.indexOf('/'))));
+  for (const provider of providers) {
+    prep.run.throwIfCancelled();
+    if (ids.has(provider.id)) await servers.ensure(provider, prep.run);
+  }
 }
 
 /**

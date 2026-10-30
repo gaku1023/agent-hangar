@@ -1,6 +1,7 @@
-import { candidateExpired, CANDIDATE_EXPIRE_DAYS, isReturnOn, isReturnTime, STATE_NOTE_MAX, type CandidateSource, type SessionCandidateDto, type SessionStateDto, type SessionStatus, type StateSetBy } from '@agent-hangar/shared';
+import { candidateExpired, CANDIDATE_EXPIRE_DAYS, isQuietStatus, isReturnOn, isReturnTime, STATE_NOTE_MAX, type CandidateSource, type SessionCandidateDto, type SessionStateDto, type SessionStatus, type StateSetBy } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { markSeen } from '../live/unread.ts';
 import { MessageError, msg, type Message } from '../i18n/message.ts';
 
 /**
@@ -131,7 +132,18 @@ export function setSessionState(db: Db, deviceId: string, sessionId: string, o: 
   const now = o.now ?? Date.now();
   if (o.status === null) return write(db, deviceId, sessionId, { ...NO_STATUS, set_by: o.setBy, set_at: now, ...NO_CANDIDATE });
   const { note, returnOn, returnTime } = validateStateInput(o.status, { note: o.note, returnOn: o.returnOn, returnTime: o.returnTime, requireNote: o.requireNote ?? false });
-  return write(db, deviceId, sessionId, { status: o.status, note, return_on: returnOn, return_time: returnTime, set_by: o.setBy, set_at: now, ...NO_CANDIDATE });
+  const state = write(db, deviceId, sessionId, { status: o.status, note, return_on: returnOn, return_time: returnTime, set_by: o.setBy, set_at: now, ...NO_CANDIDATE });
+  settleUnread(db, sessionId, o.status);
+  return state;
+}
+
+/**
+ * 知らせを止める状態（Done、Archived、Paused）にしたら、残っていた未読を消す。
+ * その会話はサイドバーから消えるので、残すとホームの未読の帯から開くまで消せない（2026-10-31）。
+ * 未読は手元だけの表（session_unread）なので、ほかの PC から届いた状態では消さない。ここは手元で付けたときだけ通る。
+ */
+function settleUnread(db: Db, sessionId: string, status: SessionStatus): void {
+  if (isQuietStatus(status)) markSeen(db, sessionId);
 }
 
 /**
@@ -233,6 +245,7 @@ export function confirmSessionState(db: Db, deviceId: string, sessionId: string,
   const returnTime = returnTimeOf(status, o.returnOn !== undefined ? o.returnTime : cand.returnTime);
   const returnOn = returnOnOf(status, o.returnOn ?? cand.returnOn);
   const state = write(db, deviceId, sessionId, { status, note: cand.note, return_on: returnOn, return_time: returnTime, set_by: 'user', set_at: o.now ?? Date.now(), ...NO_CANDIDATE });
+  settleUnread(db, sessionId, status);
   return { state, result: 'confirmed' };
 }
 

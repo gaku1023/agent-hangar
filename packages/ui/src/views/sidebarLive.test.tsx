@@ -17,7 +17,7 @@ const LEGACY = '\u30b9\u30af\u30e9\u30c3\u30c1';
 
 
 const NOW = 1_800_000_000_000;
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: null, name: `name-${id}`, cwd: '/w', firstPrompt: null, aiTitle: null, live: 'busy', lastActivityAt: NOW - 60_000, startedAt: NOW - 600_000, hasTranscript: true, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, cost: null }, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over } as unknown as SessionDto);
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: null, name: `name-${id}`, cwd: '/w', firstPrompt: null, aiTitle: null, live: 'busy', lastActivityAt: NOW - 60_000, startedAt: NOW - 600_000, hasTranscript: true, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, cost: null }, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over } as unknown as SessionDto);
 const storeWith = (list: SessionDto[]): Store => ({ ...initialStore(), bootstrapped: true, sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
 const liveOf = (store: Store, state = initialState()) => presentShell(state, store, NOW).live;
 const at = (name: 'home' | 'projects') => ({ ...initialState(), screen: { name } });
@@ -30,6 +30,17 @@ describe('サイドバーの「動いている」の並び（presentShell）', (
     expect(live.count).toBe(3);
     expect(live.rows[2]).toMatchObject({ live: 'waiting', waited: '入力待ち 4 分', current: false });
     expect(live.rows[1]).toMatchObject({ live: 'busy', waited: null });
+  });
+  it('Paused にした会話は、休みで未読が無ければ並べない。作業中、動き出した後の入力待ち、未読のあるものは並べる', () => {
+    const paused: SessionDto['state'] = { status: 'paused', note: null, returnOn: null, returnTime: null, setBy: 'conversation', setAt: NOW - 1000, candidate: null };
+    const s = storeWith([
+      session('i', { live: 'idle', state: paused }),
+      session('q', { live: 'waiting', state: paused }),
+      session('b', { live: 'busy', state: paused }),
+      session('w', { live: 'waiting', state: paused, woke: true }),
+      session('u', { live: 'idle', state: paused, unread: { count: 1, latest: '通った', at: NOW } }),
+    ] as SessionDto[]);
+    expect(liveSessionIds(s).sort()).toEqual(['b', 'u', 'w']);
   });
   it('許可待ちと使用制限は印と右端の語を替える（許可待ち N 分、リセットの時刻、リセット済み）。行の位置は変えない', () => {
     const resetsAt = new Date(NOW).setHours(new Date(NOW).getHours() + 1, 50, 0, 0);
@@ -915,4 +926,60 @@ describe('⌥クリックで右に分割して開く（サイドバーの行）'
     fireEvent.click(linkOf('a'));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.open', id: 'a' });
   });
+});
+
+describe('サイドバーの行の出入りの動き', () => {
+  const rowOf = (id: string): SideLiveRow => ({ id, name: `name-${id}`, current: false, menu: { items: [] } } as unknown as SideLiveRow);
+  const groupOf = (key: string, rows: SideLiveRow[]): SideLiveGroup => ({ key, name: key, open: true, waiting: 0, rows } as unknown as SideLiveGroup);
+  const liveWith = (groups: SideLiveGroup[]): SideLiveProps => ({ count: groups.length, rows: groups.flatMap((g) => g.rows), ids: groups.flatMap((g) => g.rows.map((r) => r.id)), groups } as unknown as SideLiveProps);
+  const view = (groups: SideLiveGroup[]) => <ActionRoot onAction={() => {}}><Sidebar nav={[]} foot={[]} collapsed={false} live={liveWith(groups)} /></ActionRoot>;
+  const withMotion = (fn: (anims: { el: Element; frames: Keyframe[]; finish: () => void }[]) => Promise<void> | void) => async () => {
+    const restore = fakeMotionTokens({ '--dur': '420ms', '--dur-fast': '200ms', '--dur-exit': '250ms', '--ease-out': 'ease-out', '--ease-in': 'ease-in', '--rise': '6px', '--blur-in': '6px' }, { everywhere: true });
+    const anims: { el: Element; frames: Keyframe[]; finish: () => void }[] = [];
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, frames: Keyframe[]) {
+      let finish!: () => void;
+      const finished = new Promise<void>((r) => { finish = r; });
+      anims.push({ el: this, frames, finish });
+      return { finished, cancel: vi.fn() };
+    };
+    try { await fn(anims); } finally {
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+      restore();
+      cleanupAll();
+    }
+  };
+  const flips = (anims: { el: Element; frames: Keyframe[] }[]) => anims.filter((a) => String(a.frames[0]?.transform ?? '').includes('rotateX'));
+
+  it('増えた行だけが垂れて入り、残りの行と最初の描画は動かない', withMotion((anims) => {
+    const { rerender } = render(view([groupOf('p', [rowOf('a')])]));
+    expect(anims).toHaveLength(0);
+    rerender(view([groupOf('p', [rowOf('a'), rowOf('b')])]));
+    expect(flips(anims).map((a) => a.el.getAttribute('data-id'))).toEqual(['b']);
+  }));
+  it('消えた行は倒れてから畳まれ、終わるまで操作を受けない', withMotion(async (anims) => {
+    const { container, rerender } = render(view([groupOf('p', [rowOf('a'), rowOf('b')])]));
+    rerender(view([groupOf('p', [rowOf('a')])]));
+    const row = container.querySelector('[data-id="b"]')!;
+    expect(row.closest('li')!.hasAttribute('inert')).toBe(true);
+    expect(anims.map((a) => a.el)).toEqual([row]);
+    await act(async () => { anims[0]!.finish(); await Promise.resolve(); await Promise.resolve(); });
+    expect(anims[1]!.el).toBe(row.closest('li'));
+    await act(async () => { anims[1]!.finish(); await Promise.resolve(); await Promise.resolve(); });
+    expect(container.querySelector('[data-id="b"]')).toBeNull();
+  }));
+  it('新しいプロジェクトのグループは丸ごと垂れて入り、中の行は重ねて動かさない', withMotion((anims) => {
+    const { container, rerender } = render(view([groupOf('p', [rowOf('a')])]));
+    rerender(view([groupOf('p', [rowOf('a')]), groupOf('q', [rowOf('b')])]));
+    expect(flips(anims).map((a) => a.el)).toEqual([container.querySelector('[data-group="q"]')]);
+  }));
+  it('実行中が 0 件のときに最初の 1 件が増えても、グループごと垂れて入る', withMotion((anims) => {
+    const { container, rerender } = render(view([]));
+    rerender(view([groupOf('p', [rowOf('a')])]));
+    expect(flips(anims).map((a) => a.el)).toEqual([container.querySelector('[data-group="p"]')]);
+  }));
+  it('並べ替えでは垂れず、滑らせもしない', withMotion((anims) => {
+    const { rerender } = render(view([groupOf('p', [rowOf('a'), rowOf('b')])]));
+    rerender(view([groupOf('p', [rowOf('b'), rowOf('a')])]));
+    expect(anims).toHaveLength(0);
+  }));
 });

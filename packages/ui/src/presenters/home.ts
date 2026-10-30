@@ -105,7 +105,7 @@ export function returnsNow(store: Store, s: SessionDto, now: number, alive: Set<
   if (s.state?.status !== 'paused' || !returnHasCome(s.state.returnOn, s.state.returnTime, now)) return false;
   const filter = liveFilterOfSession(store, s, alive);
   if (filter === 'ended') return true;
-  return filter === 'running' && quietLive(liveWithLimit(s.live, s.limit), s.state.status) !== 'busy' && shownAside(s) === null;
+  return filter === 'running' && quietLive(liveWithLimit(s.live, s.limit), s.state.status, s.woke) !== 'busy' && shownAside(s) === null;
 }
 
 /**
@@ -178,7 +178,7 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
     // summary の先頭に「ツール名+半角空白」が付くこともある（サーバの toolSummary が付けた分）。カードはツール名を <i> で先に出すので、その重なりを削る。
     // 裏だけ動いているときは、本体の手も意図も今のものではないので出さず、裏のものと指揮役が空いていることを言う。
     // 動きは、入力待ちの数え方と同じ規則を通す。Done と Archived にした入力待ちは休みとして出す（store.ts の shownLive と同じ quietLive）。
-    const live = quietLive(liveWithLimit(s.live, s.limit), s.state?.status);
+    const live = quietLive(liveWithLimit(s.live, s.limit), s.state?.status, s.woke);
     const aside = asideOf(live, s.liveAside);
     // 使用制限でリセットを待っているものは、実行中のまま理由と時刻を言う（試作の B1）。
     const limit = live === 'idle' && stopReasonOf(s) === 'limit' && s.limit ? limitCardOf(t, s.limit, now) : null;
@@ -200,7 +200,7 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
   const unread = unreadSessionIds(store).map((id): UnreadCard => {
     const s = store.sessions[id]!;
     const u = s.unread!;
-    const live = quietLive(liveWithLimit(s.live, s.limit), s.state?.status);
+    const live = quietLive(liveWithLimit(s.live, s.limit), s.state?.status, s.woke);
     const agent = rowAgent(store, s);
     return { id, name: name(s), projectName: projectName(s), live, aside: asideOf(live, s.liveAside) !== null, latest: u.latest ?? '', ago: relativeTime(t, u.at, now), count: u.count, ...(agent !== undefined ? { agent } : {}) };
   });

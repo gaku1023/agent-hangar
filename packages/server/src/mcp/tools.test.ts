@@ -16,6 +16,7 @@ import { getSession } from '../db/queries.ts';
 import { addTodo } from '../projects/todos.ts';
 import { assignSessions } from '../projects/registry.ts';
 import { rejectSessionState } from '../sessions/states.ts';
+import { noteWake } from '../sessions/wake.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { msg } from '../i18n/message.ts';
 import { DeleteError } from '../sessions/trash.ts';
@@ -616,6 +617,33 @@ describe('MCP tools', () => {
     expect(unread()).toBeNull();
     // 行が無ければ何もしない。
     expect(markSeen(db, alphaId)).toBe(false);
+  });
+  it('notify_user は Done、Archived、Paused にしたセッションでは何も出さない。付けた後に休みから動き出したら出す', () => {
+    const seen: string[] = [];
+    const off = onUnread((_id, text) => seen.push(text));
+    try {
+      for (const status of ['done', 'archived', 'paused'] as const) {
+        upsertShared(db, 'session_states', { session_id: alphaId, status, set_by: 'conversation', set_at: 1000 }, 'd', 'session_id');
+        expect(call('notify_user', { text: status }, { sessionId: alphaId })).toMatchObject({ ok: true, unread: 0, sent: [] });
+      }
+      expect(seen).toEqual([]);
+      expect(getSession(db, live, alphaId)!.unread).toBeNull();
+      // 付けた時刻より前に動き出したのは、付けたターンの続きである。
+      noteWake(db, alphaId, 999);
+      expect(call('notify_user', { text: 'まだ' }, { sessionId: alphaId })).toMatchObject({ sent: [] });
+      // 付けた後に休みから動き出した（見張りの終わりや、続けて打った発言）。
+      noteWake(db, alphaId, 1001);
+      expect(call('notify_user', { text: '通った' }, { sessionId: alphaId })).toMatchObject({ unread: 1, sent: ['unread', 'os', 'phone'] });
+      expect(seen).toEqual(['通った']);
+    } finally {
+      off();
+    }
+  });
+  it('propose_session_status で Done か Paused に確定すると、残っていた未読を消す', () => {
+    call('notify_user', { text: '前の知らせ' }, { sessionId: alphaId });
+    expect(getSession(db, live, alphaId)!.unread).toMatchObject({ count: 1 });
+    call('propose_session_status', { status: 'paused', note: 'CI を待つ', confirmed: true }, { sessionId: alphaId });
+    expect(getSession(db, live, alphaId)!.unread).toBeNull();
   });
   it('notify_user は積んだ後に onUnread の購読へ会話の ID と本文と数を知らせ、断ったときは知らせない', () => {
     const seen: [string, string, number][] = [];

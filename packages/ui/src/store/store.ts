@@ -442,7 +442,7 @@ export function runningSessionIds(store: Store): Set<string> {
  * alive を渡せば、何件も数えるときに run の集合を作り直さずに済む。
  */
 export function liveFilterOfSession(store: Store, session: SessionDto, alive: Set<string> = runningSessionIds(store)): LiveFilter {
-  return liveFilterOf(quietLive(liveWithLimit(session.live, session.limit), session.state?.status), alive.has(session.id), session.parked);
+  return liveFilterOf(quietLive(liveWithLimit(session.live, session.limit), session.state?.status, session.woke), alive.has(session.id), session.parked);
 }
 
 /**
@@ -451,7 +451,7 @@ export function liveFilterOfSession(store: Store, session: SessionDto, alive: Se
  * セッション画面は本当の動き（session.live）を出すので、これを使わない。
  */
 export function shownLive(session: SessionDto): LiveStatus | null {
-  return session.parked ? null : quietLive(liveWithLimit(session.live, session.limit), session.state?.status);
+  return session.parked ? null : quietLive(liveWithLimit(session.live, session.limit), session.state?.status, session.woke);
 }
 
 /**
@@ -491,14 +491,26 @@ export function outsideOpenOf(store: Store, session: SessionDto): 'attach' | 'ad
 }
 
 /**
+ * Paused にして、サイドバーから一旦外すセッションか（2026-10-31 の利用者の決定）。
+ * Done と Archived は止めて終了に数える（parked）が、Paused は戻ってくる会話なので止めず、見張り（CI の待ちなど）を生かしたまま外すだけにする。
+ * 作業中のもの、付けた後に動き出して問いで待っているもの（quietLive が waiting のまま返す）、未読のあるものは載せる。動き出した結果を見落とさないためである。
+ */
+function tucked(s: SessionDto): boolean {
+  if (s.state?.status !== 'paused' || (s.unread?.count ?? 0) > 0) return false;
+  const live = quietLive(liveWithLimit(s.live, s.limit), s.state.status, s.woke);
+  return live !== 'busy' && live !== 'waiting';
+}
+
+/**
  * サイドバーの「動いている」に載るセッションの id（実行中と入力待ち）。
  * 始めた時刻の古い順に並べ、時刻の無いものは後ろ、同じ時刻は id の順にする。
  * 状態や最後の活動では並べない。更新のたびに並びが揺れないようにするためである。
+ * Paused にして休んでいるもの（tucked）も載せない。
  */
 export function liveSessionIds(store: Store): string[] {
   const alive = runningSessionIds(store);
   const at = (s: SessionDto) => s.startedAt ?? Number.POSITIVE_INFINITY;
-  return Object.values(store.sessions).filter((s) => liveFilterOfSession(store, s, alive) !== 'ended')
+  return Object.values(store.sessions).filter((s) => liveFilterOfSession(store, s, alive) !== 'ended' && !tucked(s))
     .sort((a, b) => (at(a) === at(b) ? 0 : at(a) < at(b) ? -1 : 1) || a.id.localeCompare(b.id))
     .map((s) => s.id);
 }
@@ -506,12 +518,11 @@ export function liveSessionIds(store: Store): string[] {
 /**
  * 答えを待っているとして知らせるセッションか。
  * 数え方は liveFilterOfSession と同じ（shared の quietLive を通した liveFilterOf）。
- * Done と Archived にしたものは、live が waiting のままでも外す。
+ * Done、Archived、Paused にしたものは、付けた後に動き出すまで、live が waiting のままでも外す。
  * 問いで待っている最中に区切りを付けても Claude は止まらず（休みではないので）、一覧の live は waiting のまま残るが、利用者はもう答えないと決めているからである。
- * Paused は戻ってくるものなので外さない。
  */
 export function awaitsAnswer(s: SessionDto): boolean {
-  return liveFilterOf(quietLive(liveWithLimit(s.live, s.limit), s.state?.status), false) === 'waiting';
+  return liveFilterOf(quietLive(liveWithLimit(s.live, s.limit), s.state?.status, s.woke), false) === 'waiting';
 }
 
 /**

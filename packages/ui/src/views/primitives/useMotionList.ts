@@ -2,8 +2,8 @@ import { useLayoutEffect, useReducer, useRef } from 'react';
 import { collapseOut, growIn, markHit, motionOn, riseIn, risenKeys, slideFrom } from './motionKit.ts';
 
 export type MotionListOpts = {
-  /** 入る形。rise は浮かぶだけ、grow は高さ（横なら幅）も伸ばして下の行を押す。none は動かさない（入りを CSS の animation が持つ右下の知らせ）。 */
-  enter: 'rise' | 'grow' | 'none';
+  /** 入る形。rise は浮かぶだけ、grow は高さ（横なら幅）も伸ばして下の行を押す。none は動かさない（入りを CSS の animation が持つ右下の知らせ）。関数なら、その形で入れる（サイドバーの hangIn）。 */
+  enter: 'rise' | 'grow' | 'none' | ((el: HTMLElement) => void);
   axis?: 'y' | 'x';
   /** 入った行の地を淡い黄から薄れさせる。 */
   hit?: boolean;
@@ -19,6 +19,8 @@ export type MotionListOpts = {
   hitRisen?: boolean;
   /** 最後の行が消えて空になる描画も、切り替えではなく出来事として出す（右下の知らせ。1 枚だけの札が消えるのがふつうの形である）。 */
   exitWhenEmpty?: boolean;
+  /** 空から 1 件だけ入った描画も、切り替えではなく出来事として入れる（サイドバーの最初のグループ）。最初の描画と、一度に複数入った描画は動かさない。 */
+  enterFromEmpty?: boolean;
 };
 export type MotionEntry<T> = { item: T; key: string; leaving: boolean };
 
@@ -42,6 +44,7 @@ export function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: Moti
   const prev = useRef<{ item: T; key: string }[]>([]);
   const reset = useRef(false);
   const lastScope = useRef(opts.scope);
+  const mounted = useRef(false);
   const [, tick] = useReducer((n: number) => n + 1, 0);
 
   const cur = items.map((item) => ({ item, key: keyOf(item) }));
@@ -78,9 +81,11 @@ export function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: Moti
     const now = new Map<string, DOMRect | null>();
     for (const [k, el] of nodes.current) now.set(k, flip ? el.getBoundingClientRect() : null);
     const wasEmpty = rects.current.size === 0;
-    // 出る途中で戻った行は、畳む動きの最後の形（高さ 0、薄れ切り）を残さず取り消す。
-    for (const k of revived) nodes.current.get(k)?.getAnimations?.().forEach((a) => a.cancel());
-    if (!wasEmpty && !reset.current) {
+    // 出る途中で戻った行は、畳む動きの最後の形（高さ 0、薄れ切り）を残さず取り消す。中の要素を倒す形（hangOut）も一緒に取り消す。
+    for (const k of revived) nodes.current.get(k)?.getAnimations?.({ subtree: true }).forEach((a) => a.cancel());
+    const lone = opts.enterFromEmpty === true && mounted.current && cur.length === 1;
+    mounted.current = true;
+    if ((!wasEmpty || lone) && !reset.current) {
       const firstOld = before.find((b) => curKeys.has(b.key))?.key;
       const prepended = new Set<string>();
       if (opts.ignorePrepended && firstOld !== undefined) for (const c of cur) { if (c.key === firstOld) break; prepended.add(c.key); }
@@ -98,7 +103,7 @@ export function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: Moti
         }
         if (!rects.current.has(k)) {
           if (prepended.has(k)) continue;
-          if (opts.enter === 'grow') growIn(el, opts.axis); else if (opts.enter === 'rise') riseIn(el);
+          if (typeof opts.enter === 'function') opts.enter(el); else if (opts.enter === 'grow') growIn(el, opts.axis); else if (opts.enter === 'rise') riseIn(el);
           if (opts.hit) markHit(el);
           continue;
         }

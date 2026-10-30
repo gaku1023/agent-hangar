@@ -10,17 +10,18 @@ import { awaitsAnswer, initialStore, liveFilterOfSession, nextWaitingSession, sh
 
 /**
  * 入力待ちの数え方の規則。
- * 問いで待っている最中に Done や Archived にしたセッションは、Claude が止まらず live が waiting のまま残るが、利用者の注意を求める数や印には入れない。
+ * 問いで待っている最中に Done、Archived、Paused にしたセッションは、Claude が止まらず live が waiting のまま残るが、利用者の注意を求める数や印には入れない。
+ * 付けた後に休みから動き出したもの（woke）は入れる。見本の p は動き出した Paused である。
  * 数や印は、どの画面でも同じ 1 つの規則（quietLive）を通す。
  */
 const NOW = 1_800_000_000_000;
 const stateOf = (status: SessionStatus | null): SessionStateDto | null => (status === null ? null : { status, note: null, returnOn: status === 'paused' ? '2027-01-01' : null, returnTime: null, setBy: 'user', setAt: NOW - 1000, candidate: null });
-const session = (id: string, live: SessionDto['live'], status: SessionStatus | null = null, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: 'alpha', name: `name-${id}`, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, live, lastActivityAt: NOW - 60_000, lastTurnAt: null, startedAt: NOW - 600_000, hasTranscript: true, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: stateOf(status), parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, unread: null, spawnedBy: null, ...over });
+const session = (id: string, live: SessionDto['live'], status: SessionStatus | null = null, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: 'alpha', name: `name-${id}`, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, live, lastActivityAt: NOW - 60_000, lastTurnAt: null, startedAt: NOW - 600_000, hasTranscript: true, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: stateOf(status), parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, unread: null, spawnedBy: null, ...over });
 const project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
 const storeWith = (list: SessionDto[]): Store => ({ ...initialStore(), bootstrapped: true, projects: { alpha: project('alpha') }, sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
 
-// 問いで待っている最中に区切りを付けた 2 つと、区切りの無い 1 つ、Paused の 1 つ。
-const list = [session('d', 'waiting', 'done'), session('a', 'waiting', 'archived'), session('w', 'waiting'), session('p', 'waiting', 'paused')];
+// 問いで待っている最中に区切りを付けた 2 つと、区切りの無い 1 つ、付けた後に動き出した Paused の 1 つ。
+const list = [session('d', 'waiting', 'done'), session('a', 'waiting', 'archived'), session('w', 'waiting'), session('p', 'waiting', 'paused', { woke: true })];
 const store = storeWith(list);
 
 describe('Done と Archived で live が waiting のセッションは、入力待ちの数や印に入らない', () => {

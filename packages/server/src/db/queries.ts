@@ -8,6 +8,7 @@ import { toStateDto } from '../sessions/states.ts';
 import { peerSeenAt, peerStale, readPeers, type PeerBook } from '../sync/peers.ts';
 import { unreadOf } from '../live/unread.ts';
 import type { Db } from './open.ts';
+import { wokeSince } from '../sessions/wake.ts';
 
 /** sessions に要約と統計と本文の有無を左結合した 1 行。 */
 type SessionRow = {
@@ -291,7 +292,7 @@ function limitOf(r: SessionRow, live: LiveSessionDto | undefined, now: number): 
   return { kind: r.lim_kind, resetsAt: r.lim_resets_at, auto: r.lim_auto === 1, reset: limitReset(r.lim_resets_at, now, r.lim_auto === 1) };
 }
 
-function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, SessionLockDto>, runStarts: Map<string, number>, now: number, parking: boolean, newer: Set<string>, taken: Map<string, { deviceName: string; at: number }>): SessionDto {
+function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, SessionLockDto>, runStarts: Map<string, number>, now: number, parking: boolean, newer: Set<string>, taken: Map<string, { deviceName: string; at: number }>): SessionDto {
   const live = liveMap.get(r.provider_session_id);
   const limit = limitOf(r, live, now);
   const summary: SessionSummaryDto | null = r.sum_title !== null
@@ -360,6 +361,8 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     parked: parking && isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: live?.status ?? null, processStartedAt: processStartedAt(live, runStarts.get(r.id) ?? null), limited: limit !== null && !limit.reset }),
     // 止めた後に起こした run があれば、last_end_reason はその run のもの（動いている間は null）になるので偽に戻る。
     // 止めた後に付け直した印でも偽にする。その印のために止めたのではない。
+    // 状態を付けた後に休みから動き出したか（sessions/wake.ts）。状態の無いものは偽。
+    woke: r.ss_status !== null && wokeSince(db, r.id, r.ss_set_at),
     stoppedByStatus: r.ss_status !== null && r.last_end_reason === 'parked' && r.last_ended_at !== null && r.ss_set_at !== null && r.last_ended_at >= r.ss_set_at,
     // 最後に呼んだツールと待っている問いは、実行中のときだけ載せる。終わったセッションの古い呼び出しは出さず、null にする。
     activity: live && r.a_tool !== null ? { tool: r.a_tool, summary: r.a_summary ?? '', question: r.a_question } : null,
@@ -429,14 +432,14 @@ export function listSessions(db: Db, live: LiveSessionDto[], opts: SessionQueryO
   const parking = parkingOn(db);
   const newer = newerElsewhereSet(db, opts.deviceId);
   const taken = takenOverMap(db, opts.deviceId);
-  return rows.map((r) => toSessionDto(r, lm, locks, runStarts, now, parking, newer, taken));
+  return rows.map((r) => toSessionDto(db, r, lm, locks, runStarts, now, parking, newer, taken));
 }
 
 export function getSession(db: Db, live: LiveSessionDto[], id: string, opts: { deviceId?: string; now?: () => number } = {}): SessionDto | null {
   const r = db.prepare(`${SESSION_SELECT} and s.id = ?`).get(id) as SessionRow | undefined;
   if (!r) return null;
   const now = opts.now ? opts.now() : Date.now();
-  return toSessionDto(r, liveMapOf(live), lockMap(db, opts.deviceId, now), aliveRunStarts(db, opts.deviceId), now, parkingOn(db), newerElsewhereSet(db, opts.deviceId), takenOverMap(db, opts.deviceId));
+  return toSessionDto(db, r, liveMapOf(live), lockMap(db, opts.deviceId, now), aliveRunStarts(db, opts.deviceId), now, parkingOn(db), newerElsewhereSet(db, opts.deviceId), takenOverMap(db, opts.deviceId));
 }
 
 /** Settings の端末一覧。最終確認の新しい順で、自端末に印を付ける。 */
