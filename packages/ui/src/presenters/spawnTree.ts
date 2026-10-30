@@ -11,10 +11,16 @@ export const spawnFoldKey = (id: string): string => `spawn:${id}`;
 /** 畳んだ起動元の行に並べる、子孫ごとの小さな状態の丸。 */
 export type NestDot = { live: LiveStatus | null; aside: boolean; reason: StopReason | null };
 
-/** 起動元。自分自身を指すものと、無いものは null。 */
-export function spawnParentOf(sessions: Record<string, { spawnedBy?: string | null } | undefined>, id: string): string | null {
+/**
+ * 入れ子にするときの起動元。自分自身を指すもの、無いもの、Done か Archived のものは null。
+ * 終わった会話の下に、動いている仕事を並べないためである。起動元を Active に戻せば、また入れ子になる。
+ */
+export function spawnParentOf(sessions: Record<string, { spawnedBy?: string | null; state?: { status: string | null } | null } | undefined>, id: string): string | null {
   const p = sessions[id]?.spawnedBy;
-  return typeof p === 'string' && p !== '' && p !== id && sessions[p] !== undefined ? p : null;
+  if (typeof p !== 'string' || p === '' || p === id) return null;
+  const parent = sessions[p];
+  if (parent === undefined || parent.state?.status === 'done' || parent.state?.status === 'archived') return null;
+  return p;
 }
 
 /**

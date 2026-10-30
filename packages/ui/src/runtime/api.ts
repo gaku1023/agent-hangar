@@ -180,6 +180,7 @@ export type ApiClient = {
   reorderTodos(projectId: string, ids: string[]): Promise<TodoDto[]>;
   restoreTodos(rows: TodoDto[]): Promise<TodoDto[]>;
   /** セッションの状態を手で変える。status の null は Active に戻す。返り値は使わない（画面の正は session.upsert）。 */
+  detachSpawn(id: string): Promise<unknown>;
   setSessionState(id: string, body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string }): Promise<{ state: SessionStateDto }>;
   /** 提案を確定する。日を変えたときだけ returnOn を渡す。提案が無ければ 409 の一文で投げる。 */
   confirmSessionState(id: string, body: { returnOn?: string; returnTime?: string }): Promise<{ state: SessionStateDto }>;
@@ -404,6 +405,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     acceptTodo: (id) => post(`/api/todos/${id}/accept`),
     reorderTodos: (projectId, ids) => post(`/api/projects/${projectId}/todos/order`, { ids }),
     restoreTodos: (rows) => post('/api/todos/restore', { todos: rows }),
+    detachSpawn: (id) => call(`/api/sessions/${id}/spawn`, { method: 'DELETE' }),
     setSessionState: (id, body) => call(`/api/sessions/${id}/state`, { method: 'PUT', body: JSON.stringify(body) }),
     confirmSessionState: (id, body) => post(`/api/sessions/${id}/state/confirm`, body),
     rejectSessionState: (id) => post(`/api/sessions/${id}/state/reject`),

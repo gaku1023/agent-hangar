@@ -15,6 +15,20 @@ const storeOf = (list: SessionDto[]): Store => {
   return s;
 };
 
+describe('起動元の状態', () => {
+  const state = (status: 'done' | 'archived' | 'paused') => ({ state: { status, setBy: 'user', setAt: NOW, note: null, returnOn: null, candidate: null } as SessionDto['state'] });
+  const liveRows = (store: Store) => presentShell(initialState(), store, NOW).live.groups[0]!.rows.map((r) => [r.id, r.depth ?? 0]);
+  it.each(['done', 'archived'] as const)('起動元が %s なら、子は独立した行になり、起動元はサイドバーに出さない', (status) => {
+    const store = storeOf([session('p', { live: null, ...state(status) }), session('c', { live: 'busy', spawnedBy: 'p' })]);
+    expect(liveRows(store)).toEqual([['c', 0]]);
+    expect(presentSessionList(initialState(), store, NOW).rows.find((r) => r.id === 'c')?.nest?.depth ?? 0).toBe(0);
+  });
+  it('起動元が Paused なら、入れ子のままにする', () => {
+    const store = storeOf([session('p', { live: null, ...state('paused') }), session('c', { live: 'busy', spawnedBy: 'p' })]);
+    expect(liveRows(store)).toEqual([['p', 0], ['c', 1]]);
+  });
+});
+
 describe('サイドバーの実行中の入れ子', () => {
   it('子は起動元の下に並び、深さと開閉の印を持つ', () => {
     const store = storeOf([session('p', { live: 'busy', startedAt: 1 }), session('c', { live: 'busy', spawnedBy: 'p', startedAt: 2 }), session('g', { live: 'waiting', spawnedBy: 'c', startedAt: 3 }), session('x', { live: 'busy', startedAt: 4 })]);

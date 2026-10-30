@@ -36,6 +36,7 @@ export const rowKeys = {
   'row.menu.changeDate': [],
   'row.menu.dismiss': [],
   'row.menu.label': ['name'],
+  'row.menu.detachSpawn': [],
   'row.menu.move': [],
   'row.menu.moveNone': [],
   'row.menu.delete': [],

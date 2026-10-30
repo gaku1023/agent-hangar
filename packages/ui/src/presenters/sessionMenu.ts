@@ -16,7 +16,10 @@ export type SessionMenuStop = { runId: string; working: boolean; aside: boolean;
  * moveBlocked は、移動を押せない理由。押せるなら null。
  * 削除は動いていない（stop が null の）ときだけ出す。動いている間は停止を出し、止めると削除に入れ替わる。
  */
-export type SessionMenuProps = { id: string; name: string; status: SessionStatus | null; resumeHere: { disabled: string | null } | null; stop: SessionMenuStop | 'external' | null; moveBlocked: string | null;
+export type SessionMenuProps = { id: string; name: string; status: SessionStatus | null; resumeHere: { disabled: string | null } | null;
+  /** 起動元（SessionDto.spawnedBy）が store にあるか。あれば「起動元から外す」を出す。 */
+  spawned?: boolean;
+  stop: SessionMenuStop | 'external' | null; moveBlocked: string | null;
   /** そのセッションが分割の木にあるときのペイン。あれば分割のまとまりの先頭に「表示中のペインへ移動」を出す。木に無ければ null か省く。 */
   pane?: PaneId | null };
 
@@ -62,6 +65,7 @@ export function presentSessionMenu(store: Store, s: SessionDto, t: Translate): S
     resumeHere: here ? { disabled: here.disabled } : null,
     stop,
     moveBlocked: moveTargetIds(store, s.projectId).length === 0 ? t('row.menu.moveNone') : null,
+    spawned: s.spawnedBy != null && store.sessions[s.spawnedBy] !== undefined,
   };
 }
 
@@ -92,7 +96,8 @@ export function sessionMenuEntries(t: Translate, m: SessionMenuProps): SessionMe
     ...(m.resumeHere ? [{ key: 'resumeHere', label: t('session.action.resumeHere'), icon: 'resumeHere' as const, disabled: m.resumeHere.disabled, send: { type: 'session.resumeHere.open', id: m.id } as const }] : []),
     ...states,
     ...split,
-    { key: 'move', label: t('row.menu.move'), icon: 'moveSession', kbd: 'm', separatorBefore: true, disabled: m.moveBlocked, send: { type: 'session.move.open', id: m.id } },
+    ...(m.spawned ? [{ key: 'detachSpawn', label: t('row.menu.detachSpawn'), icon: 'detachSpawn' as const, separatorBefore: true, disabled: null, send: { type: 'session.spawn.detach', id: m.id } as const }] : []),
+    { key: 'move', label: t('row.menu.move'), icon: 'moveSession', kbd: 'm', separatorBefore: !m.spawned, disabled: m.moveBlocked, send: { type: 'session.move.open', id: m.id } },
     { key: 'copyId', label: t('session.action.copyId'), icon: 'copy', disabled: null, send: { type: 'session.copyId', id: m.id } },
     stop
       ? { key: 'stop', label: t('sidebar.live.stop'), icon: 'stop', danger: true, separatorBefore: true, disabled: stop === 'external' ? t('sidebar.live.stopExternal') : null, send: stop === 'external' ? null : { type: 'session.kill', ...stop } }

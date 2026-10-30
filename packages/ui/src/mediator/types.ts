@@ -140,6 +140,7 @@ export type Effect =
   // TODO の操作。どれも API を 1 回呼ぶだけで、画面の正は後から届く todos.update である。
   | { kind: 'api.todo'; call: TodoCall }
   // セッションの状態。本文には渡されたものだけを載せる。
+  | { kind: 'api.detachSpawn'; id: string }
   | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string } }
   | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string; returnTime?: string } }
   | { kind: 'api.rejectSessionState'; id: string }

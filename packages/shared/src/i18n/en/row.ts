@@ -37,6 +37,7 @@ export const rowEn: AreaDictionary<typeof rowKeys> = {
   'row.menu.changeDate': 'Change date',
   'row.menu.dismiss': 'Dismiss',
   'row.menu.label': 'Menu for {name}',
+  'row.menu.detachSpawn': 'Detach from Parent',
   'row.menu.move': 'Change project…',
   'row.menu.moveNone': 'No other project to move to',
   'row.menu.delete': 'Delete…',

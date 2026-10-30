@@ -1,3 +1,4 @@
+import { recordSpawn } from '../../sessions/spawns.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -358,6 +359,16 @@ describe('セッションの状態', () => {
     expect(sent.map((e) => e.type)).toEqual(['session.upsert']);
     expect((await send(`/api/sessions/${id}/state/confirm`)).status).toBe(409);
     expect((await send('/api/sessions/nope/state/confirm')).status).toBe(404);
+  });
+  it('DELETE /spawn は起動元の記録を消して配り直す。無くても 200、セッションが無ければ 404', async () => {
+    const id = alphaId();
+    recordSpawn(db, id, id + '-parent', 1);
+    sent.length = 0;
+    expect((await send(`/api/sessions/${id}/spawn`, undefined, 'DELETE')).status).toBe(200);
+    expect(db.prepare('select 1 from session_spawns where session_id = ?').get(id)).toBeUndefined();
+    expect(sent.map((e) => e.type)).toEqual(['session.upsert']);
+    expect((await send(`/api/sessions/${id}/spawn`, undefined, 'DELETE')).status).toBe(200);
+    expect((await send('/api/sessions/nope/spawn', undefined, 'DELETE')).status).toBe(404);
   });
   it('reject は提案を消し、同じセッションから出し直させない。提案が無ければ 409', async () => {
     const id = alphaId();

@@ -145,6 +145,7 @@ export type UiAction =
   // 移す先を選ぶダイアログと、削除の確認を開く（セッションのメニューの「プロジェクトを変更…」と「削除…」）。決めたら session.move と session.delete を送る。
   | { type: 'session.move.open'; id: SessionId } | { type: 'session.delete.open'; id: SessionId }
   // 提案の確定と却下。確定で日を変えたときだけ returnOn を添える。returnTime はその日の時刻（HH:MM）で、returnOn と一緒のときだけ効く。
+  | { type: 'session.spawn.detach'; id: SessionId }
   | { type: 'session.state.confirm'; id: SessionId; returnOn?: string; returnTime?: string } | { type: 'session.state.reject'; id: SessionId }
   // 確認待ちの群の見出しの「すべて確定」「すべて却下」（2026-10-13 の決定、知らせの 9d）。いまある提案を、セッションの提案と TODO の完了の提案に分けて渡す。
   | { type: 'pending.resolve'; accept: boolean; sessionIds: SessionId[]; todoIds: TodoId[] }
