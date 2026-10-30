@@ -11,13 +11,19 @@ export type LiveFilter = 'running' | 'waiting' | 'ended';
 
 /**
  * 利用者の注意を求める数や印に使う、セッションの動き。
- * Done と Archived にしたセッションは、問いで待っている最中に区切りを付けても Claude は止まらず（休みではないので）、live が waiting のまま残る。
+ * Done、Archived、Paused にしたセッションは、問いで待っている最中に区切りを付けても Claude は止まらず（休みではないので）、live が waiting のまま残る。
  * 利用者はもう答えないと決めているので、入力待ちには数えず、休み（idle）として扱う。動いている事実は変わらないので、実行中の側には残る。
- * Paused は戻ってくるものなので、そのまま入力待ちにする。
+ * Paused も静かにする（2026-10-31 の利用者の決定。それまでは戻ってくるものとして入力待ちのままにしていた）。
+ * ただし、状態を付けた後に休みから動き出したもの（woke、SessionDto の同じ欄）は、そのまま入力待ちにする。見張り（CI の待ちなど）の終わりで動き出した会話の問いは、利用者が待っていたものである。
  * 入力待ちの件数、要対応、バッジ、「入力待ち」の札や色は、すべてこの値から決める（liveFilterOf に渡す live も、これを通す）。
  */
-export function quietLive(live: LiveStatus | null, status: SessionStatus | null | undefined): LiveStatus | null {
-  return live === 'waiting' && (status === 'done' || status === 'archived') ? 'idle' : live;
+export function quietLive(live: LiveStatus | null, status: SessionStatus | null | undefined, woke = false): LiveStatus | null {
+  return live === 'waiting' && isQuietStatus(status) && !woke ? 'idle' : live;
+}
+
+/** 知らせを止める状態（Done、Archived、Paused）か。notify_user と入力待ちの通知が見る。 */
+export function isQuietStatus(status: SessionStatus | null | undefined): boolean {
+  return status === 'done' || status === 'archived' || status === 'paused';
 }
 
 /**

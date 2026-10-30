@@ -26,14 +26,15 @@ describe('notifyKeep', () => {
     const b = storeOf(session('a', { live: 'waiting', lastActivityAt: 3 }), session('b', { live: 'waiting', lastActivityAt: 2 }));
     expect(notifyKeep(a, at(9))).toEqual(notifyKeep(b, at(9)));
   });
-  it('Done や Archived にしたセッションは、live が waiting のままでも入力待ちの知らせを残さない。Paused は残す', () => {
+  it('Done、Archived、Paused にしたセッションは、live が waiting のままでも入力待ちの知らせを残さない。付けた後に動き出したものは残す', () => {
     const store = storeOf(
       session('done', { live: 'waiting', state: st({ status: 'done', setBy: 'user', setAt: 1 }) }),
       session('archived', { live: 'waiting', state: st({ status: 'archived', setBy: 'user', setAt: 1 }) }),
       session('paused', { live: 'waiting', state: st({ status: 'paused', setBy: 'user', setAt: 1 }) }),
+      session('woke', { live: 'waiting', state: st({ status: 'paused', setBy: 'user', setAt: 1 }), woke: true }),
       session('w', { live: 'waiting' }),
     );
-    expect(notifyKeep(store, at(9)).waiting).toEqual(['paused', 'w']);
+    expect([...notifyKeep(store, at(9)).waiting].sort()).toEqual(['w', 'woke']);
   });
   it('使用制限でリセットを待っているセッションの知らせを残す。リセット済みは入力待ちとして残す', () => {
     const limit = { kind: 'five_hour' as const, resetsAt: 1, auto: true, reset: false };

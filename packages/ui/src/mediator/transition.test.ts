@@ -782,9 +782,10 @@ describe('入力待ちの知らせ', () => {
     expect(b.state.waitingSeen).toEqual(['s2']);
     expect(b.effects).toContainEqual({ kind: 'badge', count: 1 });
   });
-  it('Done や Archived のセッションが入力待ちになっても、カードにも通知にもしない。Paused は今までどおり知らせる', () => {
-    const store = marked(marked(waitingStore('s1', 's2', 's3'), 's1', 'done'), 's2', 'archived');
-    const a = run([{ store: marked(store, 's3', 'paused') }]);
+  it('Done や Archived のセッションが入力待ちになっても、カードにも通知にもしない。Paused も付けた後に動き出すまでは知らせない', () => {
+    const store = marked(marked(marked(waitingStore('s1', 's2', 's3', 's4'), 's1', 'done'), 's2', 'archived'), 's4', 'paused');
+    const woke = marked(store, 's3', 'paused');
+    const a = run([{ store: { ...woke, sessions: { ...woke.sessions, s3: { ...woke.sessions.s3!, woke: true } } } }]);
     expect(a.state.waitingToasts).toEqual(['s3']);
     expect(a.effects.filter((e) => (e as { kind: string }).kind === 'notify.waiting')).toEqual([{ kind: 'notify.waiting', sessionId: 's3' }]);
   });

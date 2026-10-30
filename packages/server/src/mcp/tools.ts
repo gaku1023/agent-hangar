@@ -1,4 +1,4 @@
-import { isAgentKind, isNotifyKind, notifyRulesOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
+import { isAgentKind, isNotifyKind, isQuietStatus, notifyRulesOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
@@ -523,6 +523,8 @@ export function setTurnIntentTool(deps: ToolDeps, ctx: ToolContext, args: Record
 /**
  * 利用者に見てほしい出力を出したことを知らせる。そのセッションの未読が 1 つ増え、画面へ配り、購読（OS の通知、スマホ）へ知らせる。
  * 長さの数え方と上限は set_turn_intent と同じ。道具の名前に state と status を入れない（sessions.test.ts の決まり）。
+ * Done、Archived、Paused にしたセッションは、付けた後に休みから動き出すまで何も出さない（shared の isQuietStatus、sessions/wake.ts）。
+ * 付けたターンの終わりの知らせで、サイドバーから消えた会話に未読が残り、通知が鳴るのを防ぐ（2026-10-31）。断らずに sent を空で返す。
  */
 export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, now = Date.now()) {
   const id = sessionIdOf(ctx, args);
@@ -542,6 +544,7 @@ export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
   } else {
     sent = NOTIFY_TARGETS.filter((x) => rules[x].includes(kind));
   }
+  if (isQuietStatus(session.state?.status) && !session.woke) sent = [];
   let unread = session.unread?.count ?? 0;
   if (sent.length > 0) {
     if (sent.includes('unread')) {

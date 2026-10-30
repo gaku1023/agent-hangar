@@ -123,7 +123,7 @@ const LIMIT_FRESH_MS = 10 * 60_000;
  * - 使用制限に当たった：アカウントとリセットの時刻ごとに 1 通。同じアカウントの会話はまとめて止まるからである。
  * - リセットから猶予を過ぎても続かない：SessionDto の limit.reset が変わるので行を配り直し、Active のものはリセット済みとして知らせる。
  * 最初の tick は、そのとき既にある入力待ちと使用制限を覚えるだけで知らせない。サーバを起こし直す前に知らせ終えているからである。
- * Done と Archived にしたものは、入力待ちでも知らせない（shared の quietLive）。
+ * Done、Archived、Paused にしたものは、付けた後に動き出すまで、入力待ちでも知らせない（shared の quietLive）。
  */
 export class StopNoticeWatch {
   private episodes = new Map<string, Episode>();
@@ -202,7 +202,7 @@ export class StopNoticeWatch {
       if (ep.phase === 'done') continue;
       const id = this.idOf(l);
       const s = id ? this.session(live, id, now) : null;
-      if (!s || quietLive(s.live, s.state?.status) !== 'waiting') { ep.phase = 'done'; continue; }
+      if (!s || quietLive(s.live, s.state?.status, s.woke) !== 'waiting') { ep.phase = 'done'; continue; }
       const question = s.activity?.question ?? null;
       const push = (body: string, bare: boolean) => this.deps.feed.push({ kind: 'waiting', sessionId: s.id, title: this.titleOf(s), body, bare });
       if (ep.phase === 'bare') {

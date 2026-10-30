@@ -11,6 +11,7 @@ import { recordPeers } from '../../sync/peers.ts';
 import { SESSION_ALPHA } from '../../../test/fixtures.ts';
 import { createApp, type AppDeps, type ExternalApi, type RunsApi, type SummaryApi, type SummaryEnqueueOpts } from '../app.ts';
 import { H, run, testDeps, testResult, TOKEN, type TestWorld } from '../testing.ts';
+import { noteWake } from '../../sessions/wake.ts';
 
 // セッションの経路（routes/sessions.ts）の試験。依存は testDeps() で組み、createApp を通して /api の下から叩く。
 
@@ -114,20 +115,20 @@ describe('routes', () => {
     expect(await total('waiting')).toBe(1);
     expect(await total('running')).toBe(0);
   });
-  it('検索の is:waiting は、問いの最中に Done や Archived にしたものを入力待ちに数えず、実行中（休み）に数える', async () => {
+  it('検索の is:waiting は、問いの最中に Done、Archived、Paused にしたものを入力待ちに数えず、実行中（休み）に数える。付けた後に動き出したものは数える', async () => {
     const { body: sessions } = await json(await get('/api/sessions'));
     const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);
     const waiting: LiveSessionDto = { sessionId: SESSION_ALPHA, status: 'waiting', name: null, nameSource: null, cwd: ws, pid: 1 };
     app = createApp({ ...deps, live: () => [waiting] });
     const total = async (live: string) => (await json(await get(`/api/search?q=channels&live=${live}`))).body.total;
     expect(await total('waiting')).toBe(1);
-    for (const status of ['done', 'archived'] as const) {
-      setSessionState(db, 'd', alpha.id, { status, setBy: 'user' });
+    for (const status of ['done', 'archived', 'paused'] as const) {
+      setSessionState(db, 'd', alpha.id, { status, setBy: 'user', now: 1000 });
       expect([status, await total('waiting')]).toEqual([status, 0]);
       expect([status, await total('running')]).toEqual([status, 1]);
     }
-    // Paused は戻ってくるので、入力待ちのまま数える。
-    setSessionState(db, 'd', alpha.id, { status: 'paused', returnOn: '2027-01-01', setBy: 'user' });
+    // 付けた後に休みから動き出したものは、入力待ちに数える（sessions/wake.ts）。
+    noteWake(db, alpha.id, 1001);
     expect(await total('waiting')).toBe(1);
   });
   it('検索は、Done か Archived を付けて休みのまま残っているものを実行中にも Active にも数えない', async () => {
