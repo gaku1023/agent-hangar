@@ -7,11 +7,10 @@ import { AGENTS_SKILLS_STORE } from './stores.ts';
 import { readApplyOrder } from '../applyOrder.ts';
 import { GENERATION_META, STAMP_RE, stampLabel } from '../backups.ts';
 import { ConfigBase } from '../base.ts';
-import { MAX_ITEM_BYTES } from '../bundle.ts';
-import { execMarksOf, type Blocked, type Collected, type LocalItem, type UnsentCandidate } from '../collect.ts';
+import { fileItem, readRegular, walk as walkFiles } from '../fileMemo.ts';
+import { execMarksOf, execMarksOfLazy, type Blocked, type Collected, type LocalItem, type UnsentCandidate } from '../collect.ts';
 import { kindOfRel } from '../ids.ts';
 import { readInbox, readInboxBlob } from '../inbox.ts';
-import { findSecret } from '../secrets.ts';
 import { backupsRoot } from '../../../config/cloud.ts';
 import type { ConfigTarget } from './types.ts';
 
@@ -42,24 +41,8 @@ const errText = (e: unknown): string => (e instanceof Error ? e.message : String
 
 // ---- 集める ----
 
-function readRegular(abs: string): { content: Buffer; mtime: number } | 'absent' | 'blocked' {
-  let st: fs.Stats;
-  try { st = fs.lstatSync(abs); } catch (e) { return (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'absent' : 'blocked'; }
-  if (st.isSymbolicLink() || !st.isFile() || st.size > MAX_ITEM_BYTES) return 'blocked';
-  try { return { content: fs.readFileSync(abs), mtime: Math.floor(st.mtimeMs) }; } catch { return 'blocked'; }
-}
-
 /** リンクと読めないディレクトリは辿らず onLink へ。除外の名前のディレクトリは降りない。 */
-function walk(dir: string, onLink: (abs: string) => void, out: string[] = []): string[] {
-  let entries: fs.Dirent[];
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') onLink(dir); return out; }
-  for (const e of entries) {
-    const abs = path.join(dir, e.name);
-    if (e.isSymbolicLink()) { onLink(abs); continue; }
-    if (e.isDirectory()) { if (!EXCLUDE_DIRS.has(e.name)) walk(abs, onLink, out); } else out.push(abs);
-  }
-  return out;
-}
+const walk = (dir: string, onLink: (abs: string) => void): string[] => walkFiles(dir, onLink, EXCLUDE_DIRS);
 
 function collectSkills(root: string, allowedUnsent: ReadonlyMap<string, string>, maxItems: number): Collected {
   const blocked: Blocked = { ids: new Set(), prefixes: [] };
@@ -79,20 +62,9 @@ function collectSkills(root: string, allowedUnsent: ReadonlyMap<string, string>,
     if (f === 'absent') continue;
     if (f === 'blocked') { blocked.ids.add(id); continue; }
     if (items.length >= maxItems) { blocked.ids.add(id); continue; }
-    const hash = sha256(f.content);
-    let withheld: 'secret' | null = null;
-    if (!f.content.includes(0)) {
-      const found = findSecret(f.content.toString('utf8'));
-      if (found) {
-        const uid = `secret:${id}`;
-        const allowed = allowedUnsent.get(uid) === hash;
-        unsent.push({ id: uid, kind: 'secret', itemId: id, label: rel, reason: `secret:${found}`, contentSha256: hash, allowed });
-        if (!allowed) withheld = 'secret';
-      }
-    }
     // 実行の印は skills の決まり（拡張子、フロントマターの hooks、本文の !）をそのまま当てる。
-    const marks: ConfigExecMark[] = execMarksOf(`skills/${rel}`, f.content);
-    items.push({ id, kind: 'agents-skills', label: rel, sha256: hash, size: f.content.length, marks, content: f.content, mtime: f.mtime, target: rel, withheld });
+    const marks: ConfigExecMark[] = f.marks(`skills/${rel}`, (get) => execMarksOfLazy(`skills/${rel}`, get));
+    items.push(fileItem(f, { id, kind: 'agents-skills', label: rel, target: rel, marks, allowedUnsent, unsent }));
   }
   return out;
 }

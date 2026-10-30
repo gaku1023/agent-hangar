@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { ConfigExecMark, ConfigItemKind, ConfigUnsentKind } from '@agent-hangar/shared';
 import type { Db } from '../../db/open.ts';
-import { MAX_ITEM_BYTES } from './bundle.ts';
+import { fileItem, readRegular, walk as walkFiles, type RegularFile } from './fileMemo.ts';
 import { fileId, kindOfRel, memoryId, settingsId, slugOfPath } from './ids.ts';
 import { findSecret } from './secrets.ts';
 import { canonicalJson, CLAUDE_KEYS2_KEYS, sortSettings, type DroppedKey } from './settingsSort.ts';
@@ -70,13 +70,16 @@ const DATA_EXTS = new Set(['.md', '.markdown', '.txt', '.json', '.yaml', '.yml',
  * 実行の印。skills、commands、agents のファイルだけに付ける。
  * hooks はフロントマターの先頭の鍵、shell は本文の `!` で始まるコマンド実行、script は本文やデータでないファイル。
  */
-export function execMarksOf(rel: string, content: Buffer): ConfigExecMark[] {
+export function execMarksOf(rel: string, content: Buffer): ConfigExecMark[] { return execMarksOfLazy(rel, () => content); }
+
+/** execMarksOf の、中身が要るときだけ読む版（記憶したファイルの印を求めるときに使う）。 */
+export function execMarksOfLazy(rel: string, getContent: () => Buffer): ConfigExecMark[] {
   const top = rel.split('/')[0];
   if (top !== 'skills' && top !== 'commands' && top !== 'agents') return [];
   const ext = path.posix.extname(rel).toLowerCase();
   if (!DATA_EXTS.has(ext)) return ['script'];
   if (ext !== '.md' && ext !== '.markdown') return [];
-  const text = content.toString('utf8');
+  const text = getContent().toString('utf8');
   const marks: ConfigExecMark[] = [];
   const fm = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
   if (fm && /^hooks[ \t]*:/m.test(fm[1]!)) marks.push('hooks');
@@ -84,32 +87,8 @@ export function execMarksOf(rel: string, content: Buffer): ConfigExecMark[] {
   return marks;
 }
 
+const walk = (dir: string, onLink: (abs: string) => void): string[] => walkFiles(dir, onLink, EXCLUDE_DIRS);
 const isBinary = (b: Buffer): boolean => b.includes(0);
-
-/** 読めたら中身。無い（ENOENT）は 'absent'、あるのに運べない（リンク、普通のファイルでない、大きすぎる、読めない）は 'blocked'。 */
-function readRegular(abs: string): { content: Buffer; mtime: number } | 'absent' | 'blocked' {
-  let st: fs.Stats;
-  try { st = fs.lstatSync(abs); } catch (e) { return (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'absent' : 'blocked'; }
-  if (st.isSymbolicLink() || !st.isFile() || st.size > MAX_ITEM_BYTES) return 'blocked';
-  try { return { content: fs.readFileSync(abs), mtime: Math.floor(st.mtimeMs) }; } catch { return 'blocked'; }
-}
-
-/**
- * dir の下のファイルの絶対パスを、リンクを辿らず、除外の名前を降りずに集める。
- * リンクは辿らずに onLink へ渡す（ファイルかディレクトリかは辿らないと分からないので、どちらの id も塞げるように呼び手へ任せる）。
- * 読めないディレクトリも onLink へ渡す（中に何があるか分からない）。
- */
-function walk(dir: string, onLink: (abs: string) => void, out: string[] = []): string[] {
-  let entries: fs.Dirent[];
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') onLink(dir); return out; }
-  for (const e of entries) {
-    const abs = path.join(dir, e.name);
-    if (e.isSymbolicLink()) { onLink(abs); continue; }
-    if (e.isDirectory()) { if (!EXCLUDE_DIRS.has(e.name)) walk(abs, onLink, out); } else out.push(abs);
-  }
-  return out;
-}
-
 const toPosix = (p: string): string => p.split(path.sep).join('/');
 
 export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; allowedUnsent: ReadonlyMap<string, string>; /** 項目の数の上限。試験が小さくするために使う。 */ maxItems?: number; /** 'keys2' は settings.json の新しい鍵だけを集める（対象 claude-keys2）。 */ scope?: 'claude' | 'keys2' }): Collected {
@@ -141,13 +120,20 @@ export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; a
     items.set(id, { id, kind, label, sha256: hash, size: content.length, marks, content, mtime, target, withheld });
   };
 
+  /** ファイルの項目。中身は読まず、記憶した指紋などで作る（fileMemo.ts）。 */
+  const addMemo = (id: string, kind: ConfigItemKind, label: string, target: string, f: RegularFile, marks: ConfigExecMark[]): void => {
+    if (items.has(id)) return;
+    if (items.size >= maxItems) { blocked.ids.add(id); return; }
+    items.set(id, fileItem(f, { id, kind, label, target, marks, allowedUnsent: o.allowedUnsent, unsent }));
+  };
+
   const addFile = (rel: string, abs: string): void => {
     const kind = kindOfRel(rel);
     if (!kind) return;
     const f = readRegular(abs);
     if (f === 'absent') return;
     if (f === 'blocked') { blocked.ids.add(fileId(rel)); return; }
-    add(fileId(rel), kind, rel, rel, f.content, execMarksOf(rel, f.content), f.mtime);
+    addMemo(fileId(rel), kind, rel, rel, f, f.marks(rel, (get) => execMarksOfLazy(rel, get)));
   };
 
   const relOf = (abs: string): string => toPosix(path.relative(claudeDir, abs));
@@ -180,7 +166,7 @@ export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; a
       if (kindOfRel(`memory/${rel}`) !== 'memory') continue;
       const f = readRegular(abs);
       if (f === 'blocked') blocked.ids.add(memoryId(projectId, rel));
-      else if (f !== 'absent') add(memoryId(projectId, rel), 'memory', rel, `projects/${slug}/memory/${rel}`, f.content, [], f.mtime);
+      else if (f !== 'absent') addMemo(memoryId(projectId, rel), 'memory', rel, `projects/${slug}/memory/${rel}`, f, []);
     }
   }
 
@@ -192,7 +178,7 @@ export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; a
   const blockSettings = (): void => { if (keys2) for (const k of CLAUDE_KEYS2_KEYS) blocked.ids.add(settingsId(k)); else blocked.prefixes.push('settings:'); };
   if (settingsRead === 'blocked') blockSettings();
   if (rawSettings) {
-    try { json = JSON.parse(rawSettings.content.toString('utf8')); } catch { json = null; }
+    try { json = JSON.parse(rawSettings.read().toString('utf8')); } catch { json = null; }
     if (json === null || typeof json !== 'object' || Array.isArray(json)) { json = null; blockSettings(); }
   }
   const allowedRules = new Set<string>();

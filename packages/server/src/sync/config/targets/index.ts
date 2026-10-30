@@ -1,4 +1,5 @@
 import type { Collected, LocalItem } from '../collect.ts';
+import { endRound, startRound } from '../fileMemo.ts';
 import { claudeTarget, CLAUDE_TARGET_NAME } from './claude.ts';
 import { agentsSkillsTarget } from './agentsSkills.ts';
 import { claudeHooksTarget } from './claudeHooks.ts';
@@ -48,6 +49,8 @@ export const enabledTargetNames = (ctx: TargetContext): string[] => registry.fil
 export function collectAll(ctx: TargetContext): Collected {
   const out: Collected = { items: [], dropped: [], unsent: [], blocked: { ids: new Set(), prefixes: [] } };
   const seen = new Set<string>();
+  // ファイルの読みの記憶（fileMemo.ts）は、この 1 周で見なかったパスを最後に落とす。途中で投げたときは落とさない。
+  startRound();
   for (const t of registry) {
     if (!t.enabled(ctx)) continue;
     const c = t.collect(ctx);
@@ -57,6 +60,7 @@ export function collectAll(ctx: TargetContext): Collected {
     for (const id of c.blocked.ids) out.blocked.ids.add(id);
     out.blocked.prefixes.push(...c.blocked.prefixes);
   }
+  endRound();
   out.items.sort((a: LocalItem, b: LocalItem) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   out.unsent.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return out;
