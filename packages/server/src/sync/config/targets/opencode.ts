@@ -8,8 +8,8 @@ import { OPENCODE_STORE } from './stores.ts';
 import { readApplyOrder } from '../applyOrder.ts';
 import { GENERATION_META, stampLabel } from '../backups.ts';
 import { ConfigBase } from '../base.ts';
-import { MAX_ITEM_BYTES } from '../bundle.ts';
-import { execMarksOf, type Collected, type LocalItem, type UnsentCandidate } from '../collect.ts';
+import { fileItem, readRegular, walk as walkFiles } from '../fileMemo.ts';
+import { execMarksOfLazy, type Collected, type LocalItem, type UnsentCandidate } from '../collect.ts';
 import { readInbox, readInboxBlob } from '../inbox.ts';
 import type { ItemRef } from '../ids.ts';
 import { findSecret } from '../secrets.ts';
@@ -48,30 +48,14 @@ const fileOf = (root: string, rel: string): string => path.join(root, ...rel.spl
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const EXCLUDE_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv', '.trash']);
 
-function readRegular(abs: string): { content: Buffer; mtime: number } | 'absent' | 'blocked' {
-  let st: fs.Stats;
-  try { st = fs.lstatSync(abs); } catch (e) { return (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'absent' : 'blocked'; }
-  if (st.isSymbolicLink() || !st.isFile() || st.size > MAX_ITEM_BYTES) return 'blocked';
-  try { return { content: fs.readFileSync(abs), mtime: Math.floor(st.mtimeMs) }; } catch { return 'blocked'; }
-}
-
-function walk(dir: string, onLink: (abs: string) => void, out: string[] = []): string[] {
-  let entries: fs.Dirent[];
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') onLink(dir); return out; }
-  for (const e of entries) {
-    const abs = path.join(dir, e.name);
-    if (e.isSymbolicLink()) { onLink(abs); continue; }
-    if (e.isDirectory()) { if (!EXCLUDE_DIRS.has(e.name)) walk(abs, onLink, out); } else out.push(abs);
-  }
-  return out;
-}
+const walk = (dir: string, onLink: (abs: string) => void): string[] => walkFiles(dir, onLink, EXCLUDE_DIRS);
 
 /** 実行の印。plugins の下は全部 script、agents・commands・skills は Claude と同じ見方。 */
-function marksOf(rel: string, content: Buffer): ConfigExecMark[] {
+function marksOf(rel: string, get: () => Buffer): ConfigExecMark[] {
   const [top, ...rest] = rel.split('/');
   if (top === 'plugins' || top === 'plugin') return rest.length > 0 ? ['script'] : [];
   const mapped = top === 'agent' ? 'agents' : top === 'command' ? 'commands' : top === 'skill' ? 'skills' : null;
-  return mapped && rest.length > 0 ? execMarksOf(`${mapped}/${rest.join('/')}`, content) : [];
+  return mapped && rest.length > 0 ? execMarksOfLazy(`${mapped}/${rest.join('/')}`, get) : [];
 }
 
 /** 両方あるときの正は jsonc。 */
@@ -128,7 +112,10 @@ function collectOpencode(ctx: TargetContext): Collected {
     const f = readRegular(abs);
     if (f === 'absent') return;
     if (f === 'blocked') { blocked.ids.add(`${OC_FILE_PREFIX}${rel}`); return; }
-    add(`${OC_FILE_PREFIX}${rel}`, 'opencode-file', rel, rel, f.content, marksOf(rel, f.content), f.mtime);
+    const id = `${OC_FILE_PREFIX}${rel}`;
+    if (items.has(id)) return;
+    if (items.size >= maxItems) { blocked.ids.add(id); return; }
+    items.set(id, fileItem(f, { id, kind: 'opencode-file', label: rel, target: rel, marks: f.marks(rel, (get) => marksOf(rel, get)), allowedUnsent: ctx.allowedUnsent, unsent: out.unsent }));
   };
   addFile('AGENTS.md', path.join(dir, 'AGENTS.md'));
   for (const top of OC_DIRS) {
@@ -145,7 +132,7 @@ function collectOpencode(ctx: TargetContext): Collected {
     if (f === 'absent') return null;
     if (f === 'blocked') { blocked.prefixes.push(prefix); return null; }
     let root: unknown;
-    try { root = getJsonc(f.content.toString('utf8'), []); } catch { blocked.prefixes.push(prefix); return null; }
+    try { root = getJsonc(f.read().toString('utf8'), []); } catch { blocked.prefixes.push(prefix); return null; }
     if (root === undefined) return null;
     if (root === null || typeof root !== 'object' || Array.isArray(root)) { blocked.prefixes.push(prefix); return null; }
     return { root: root as Record<string, unknown>, mtime: f.mtime };

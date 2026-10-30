@@ -199,6 +199,32 @@ describe('束を送る', () => {
     expect(a.db.prepare('select count(*) n from config_snapshots').get()).toEqual({ n: 1 });
   });
 
+  it('定期の 1 回（tick）は、受け取りと送るで手元を 1 度だけ集める', async () => {
+    const a = pc('dev-a', 'mac');
+    a.write('CLAUDE.md', 'one');
+    const target = path.join(a.claudeDir, 'CLAUDE.md');
+    const spy = vi.spyOn(fs, 'lstatSync');
+    await a.service.tick();
+    expect(spy.mock.calls.filter((c) => c[0] === target)).toHaveLength(1);
+    expect(a.db.prepare('select count(*) n from config_snapshots').get()).toEqual({ n: 1 });
+    spy.mockClear();
+    await a.service.tick();
+    expect(spy.mock.calls.filter((c) => c[0] === target)).toHaveLength(1);
+    spy.mockRestore();
+  });
+
+  it('mtime と大きさが同じまま中身が変わっても、ctime が変わるので読み直して送り直す', async () => {
+    const a = pc('dev-a', 'mac');
+    a.write('CLAUDE.md', 'one');
+    await a.service.send();
+    const abs = path.join(a.claudeDir, 'CLAUDE.md');
+    const st = fs.statSync(abs);
+    fs.writeFileSync(abs, 'two');
+    fs.utimesSync(abs, st.atime, st.mtime);
+    advance(1000);
+    expect(await a.service.send()).toEqual({ sent: true, items: 1 });
+  });
+
   it('何も運ぶものが無い PC は、束を上げない', async () => {
     const a = pc('dev-a', 'mac');
     expect(await a.service.send()).toEqual({ sent: false, items: 0 });

@@ -19,6 +19,7 @@ import { deleteApplyOrder, readApplyOrder, writeApplyOrder } from './applyOrder.
 import { listAllBackups } from './applyAll.ts';
 import { ConfigBase } from './base.ts';
 import { bundleTargetsOf, packBundle, unpackBundle, type BundleManifest, type BundleOs, type ManifestItem } from './bundle.ts';
+import { StaleContentError } from './fileMemo.ts';
 import { isBlocked, type Blocked, type Collected, type LocalItem, type UnsentCandidate } from './collect.ts';
 import { otherRefLabelTarget, parseItemId } from './ids.ts';
 import { pruneInbox, readInbox, readInboxBlob, readInboxMeta, writeInbox, type InboxEntry } from './inbox.ts';
@@ -99,6 +100,12 @@ const MAX_BUNDLE_BYTES = 64 * 1024 * 1024;
 const SENT_KEY = 'configBundleKey';
 /** 取りに行って開けなかった束を、同じ指紋のまま取り直すまでの間。壊れた束を毎分取りに行って、クラウドの枠を使わないため。 */
 const RETRY_AFTER_FAILURE_MS = 10 * 60 * 1000;
+
+/** 手元の項目の中身。集めた後に変わっていたら（次の周で直る）、差分には載せない。 */
+function readLocalContent(i: LocalItem | null): Buffer | null {
+  if (!i) return null;
+  try { return i.content; } catch (e) { if (e instanceof StaleContentError) return null; throw e; }
+}
 
 const sha256 = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 
@@ -186,8 +193,14 @@ export class ConfigSyncService {
   private collect(): Collected {
     const c = collectAll(this.targetCtx());
     if (this.refreshUnsent(c.unsent)) this.touch();
+    // 定期の 1 回（tick）の中では、受け取りで集めた結果を、続く送るでも使う（sharedCollected）。
+    if (this.tickRound) this.tickRound.collected = c;
     return c;
   }
+
+  /** 定期の 1 回の中で、受け取りが集めた結果を送るへ渡す。集め直すと新しいほうに替わる。tick の外では使わない。 */
+  private tickRound: { collected: Collected | null } | null = null;
+  private sharedCollected(): Collected | null { return this.tickRound?.collected ?? null; }
 
   /** config_unsent を候補に合わせる。変わったら true。「それでも送る」の印は、中身が同じ候補にだけ残る（collect が決める）。 */
   private refreshUnsent(cands: UnsentCandidate[]): boolean {
@@ -246,11 +259,11 @@ export class ConfigSyncService {
     return this.enqueue(() => (this.stopped ? Promise.resolve({ sent: false, items: 0 }) : this.sendNow()));
   }
 
-  private async sendNow(): Promise<{ sent: boolean; items: number }> {
+  private async sendNow(retried = false): Promise<{ sent: boolean; items: number }> {
     if (!this.deps.enabled()) return { sent: false, items: 0 };
     if (this.workerState() !== 'ready') return { sent: false, items: 0 };
     const { db, deviceId } = this.deps;
-    const items = this.collect().items.filter((i) => !i.withheld);
+    const items = (retried ? this.collect() : this.sharedCollected() ?? this.collect()).items.filter((i) => !i.withheld);
     const own = this.ownRow();
     if (items.length === 0 && !own) return { sent: false, items: 0 };
     const contentKey = sha256(items.map((i) => `${i.id}\0${i.sha256}`).join('\n'));
@@ -261,7 +274,10 @@ export class ConfigSyncService {
     const manifest: BundleManifest = { version: 1, deviceId, createdAt: now, items: items.map((i) => ({ id: i.id, kind: i.kind, sha256: i.sha256, size: i.size, marks: i.marks })),
       targets: enabledTargetNames(this.targetCtx()), os: process.platform === 'darwin' || process.platform === 'win32' ? (process.platform as BundleOs) : 'linux',
     };
-    const tar = packBundle(manifest, new Map(items.map((i) => [i.sha256, i.content])));
+    // 中身はここで読む。集めた後に変わっていたら（StaleContentError）、集め直して 1 度だけやり直す。
+    let blobs: Map<string, Buffer>;
+    try { blobs = new Map(items.map((i) => [i.sha256, i.content])); } catch (e) { if (e instanceof StaleContentError && !retried) return this.sendNow(true); throw e; }
+    const tar = packBundle(manifest, blobs);
     const bundleSha = sha256(tar);
     // 鍵名は今の世代の鍵で求め、同じ世代で封じる。gzip と暗号化は cloud（SealedCloudClient）が行う。
     const cur = (await this.deps.keyring).current();
@@ -357,6 +373,8 @@ export class ConfigSyncService {
   /** 送受信を 1 回ずつ回す。失敗は onError へ渡して握る（定期の呼び出し用）。 */
   async tick(): Promise<void> {
     if (!this.deps.enabled()) return;
+    if (this.tickRound) return;
+    this.tickRound = { collected: null };
     try {
       await this.receive();
       await this.send();
@@ -367,6 +385,8 @@ export class ConfigSyncService {
       this.lastApplyState = applyState;
     } catch (e) {
       this.deps.onError?.(`設定の同期に失敗しました: ${e instanceof Error ? e.name : 'Error'}`);
+    } finally {
+      this.tickRound = null;
     }
   }
 
@@ -493,7 +513,7 @@ export class ConfigSyncService {
         id: r.action.id, kind: r.kind, label: r.label, marks: r.marks,
         local: r.local ? { deviceName: this.deps.deviceName, at: r.local.mtime, size: r.local.size } : null,
         remote: r.remote ? { deviceName: r.fromDevice, at: r.remote.at, size: r.remote.item.size } : null,
-        diff: diffLines(text(r.kind, r.local?.content ?? null), text(r.kind, remoteBlob)).slice(0, MAX_DIFF_LINES),
+        diff: diffLines(text(r.kind, readLocalContent(r.local)), text(r.kind, remoteBlob)).slice(0, MAX_DIFF_LINES),
       };
     });
   }

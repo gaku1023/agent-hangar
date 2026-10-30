@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ConfigExecMark, ConfigItemKind } from '@agent-hangar/shared';
-import { MAX_ITEM_BYTES } from '../bundle.ts';
-import { execMarksOf, type Blocked, type Collected, type LocalItem, type UnsentCandidate } from '../collect.ts';
+import { fileItem, readRegular, walk as walkFiles } from '../fileMemo.ts';
+import { execMarksOfLazy, type Blocked, type Collected, type LocalItem, type UnsentCandidate } from '../collect.ts';
 import { CODEX_CONFIG_FILE, CODEX_FILE_PREFIX, CODEX_TOML_PREFIX, codexFileId, codexTomlId, kindOfCodexRel, parseCodexItemId } from '../ids.ts';
 import { findSecret } from '../secrets.ts';
 import { canonicalJson, type DroppedKey } from '../settingsSort.ts';
@@ -34,29 +34,12 @@ const sha256 = (b: Buffer | string): string => createHash('sha256').update(b).di
 const toPosix = (p: string): string => p.split(path.sep).join('/');
 const dotted = (p: readonly string[]): string => p.join('.');
 
-/** 読めたら中身。無い（ENOENT）は 'absent'、あるのに運べない（リンク、普通のファイルでない、大きすぎる、読めない）は 'blocked'。 */
-function readRegular(abs: string): { content: Buffer; mtime: number } | 'absent' | 'blocked' {
-  let st: fs.Stats;
-  try { st = fs.lstatSync(abs); } catch (e) { return (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'absent' : 'blocked'; }
-  if (st.isSymbolicLink() || !st.isFile() || st.size > MAX_ITEM_BYTES) return 'blocked';
-  try { return { content: fs.readFileSync(abs), mtime: Math.floor(st.mtimeMs) }; } catch { return 'blocked'; }
-}
-
 /** dir の下のファイルを、リンクを辿らず集める。リンクと読めないディレクトリは onLink へ渡す。 */
-function walk(dir: string, onLink: (abs: string) => void, out: string[] = []): string[] {
-  let entries: fs.Dirent[];
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') onLink(dir); return out; }
-  for (const e of entries) {
-    const abs = path.join(dir, e.name);
-    if (e.isSymbolicLink()) { onLink(abs); continue; }
-    if (e.isDirectory()) { if (!EXCLUDE_DIRS.has(e.name)) walk(abs, onLink, out); } else out.push(abs);
-  }
-  return out;
-}
+const walk = (dir: string, onLink: (abs: string) => void): string[] => walkFiles(dir, onLink, EXCLUDE_DIRS);
 
-function marksOf(rel: string, content: Buffer): ConfigExecMark[] {
+function marksOf(rel: string, get: () => Buffer): ConfigExecMark[] {
   if (rel === 'hooks.json') return ['hooks'];
-  return execMarksOf(rel, content);
+  return execMarksOfLazy(rel, get);
 }
 
 function collectCodex(ctx: TargetContext): Collected {
@@ -99,11 +82,14 @@ function collectCodex(ctx: TargetContext): Collected {
     if (rel.endsWith('.config.toml')) {
       // <名前>.config.toml は config.toml と同じ仕分けを通す。運べない鍵が 1 つでもあれば、ファイルごと運ばない。
       let sorted: ReturnType<typeof sortCodexToml>;
-      try { sorted = sortCodexToml(f.content.toString('utf8')); } catch { blocked.ids.add(codexFileId(rel)); return; }
+      try { sorted = sortCodexToml(f.read().toString('utf8')); } catch { blocked.ids.add(codexFileId(rel)); return; }
       if (sorted.unknown.length > 0) { blocked.ids.add(codexFileId(rel)); unknownKey(codexFileId(rel), `file:${rel}`); return; }
       if (sorted.dropped.length > 0) { blocked.ids.add(codexFileId(rel)); dropped.push({ key: `codex:file:${rel}`, reason: sorted.dropped.some((d) => d.reason === 'machine') ? 'machine' : 'path' }); return; }
     }
-    add(codexFileId(rel), 'codex-file', rel, rel, f.content, marksOf(rel, f.content), f.mtime);
+    const id = codexFileId(rel);
+    if (items.has(id)) return;
+    if (items.size >= maxItems) { blocked.ids.add(id); return; }
+    items.set(id, fileItem(f, { id, kind: 'codex-file', label: rel, target: rel, marks: f.marks(rel, (get) => marksOf(rel, get)), allowedUnsent: ctx.allowedUnsent, unsent }));
   };
 
   // 直下のファイル。
@@ -124,7 +110,7 @@ function collectCodex(ctx: TargetContext): Collected {
   if (cfg === 'blocked') blocked.prefixes.push(CODEX_TOML_PREFIX);
   else if (cfg !== 'absent') {
     let sorted: ReturnType<typeof sortCodexToml> | null = null;
-    try { sorted = sortCodexToml(cfg.content.toString('utf8')); } catch { blocked.prefixes.push(CODEX_TOML_PREFIX); }
+    try { sorted = sortCodexToml(cfg.read().toString('utf8')); } catch { blocked.prefixes.push(CODEX_TOML_PREFIX); }
     if (sorted) {
       for (const c of sorted.carry) {
         const id = codexTomlId(c.path);
