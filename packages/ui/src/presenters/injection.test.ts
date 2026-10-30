@@ -12,7 +12,13 @@ describe('足す指示の全文', () => {
     expect(parts.map((p) => p.off)).toEqual([false, false, false, false, false, false]);
     // PC をまたぐ 2 段には、同期を使っているときだけ足すことを印で添える。
     expect(parts.map((p) => p.mark)).toEqual([null, null, '同期を使っているときだけ', '同期を使っているときだけ', null, null]);
-    expect(textOf(parts[1]!.pieces)).toBe(translate('ja', 'launch.injection.notify'));
+    const notify = textOf(parts[1]!.pieces);
+    // notify の文に、保存の段と、未設定のときだけ聞く段がこの順に続く。
+    expect(notify.startsWith(translate('ja', 'launch.injection.notify'))).toBe(true);
+    expect(notify.indexOf('set_notify_preference で保存してください。text には')).toBeGreaterThan(translate('ja', 'launch.injection.notify').length - 1);
+    expect(notify).toContain('今の決まり：unread は done・ask・progress、os は done・ask、phone は done・ask。');
+    expect(notify.indexOf('今の決まり')).toBeLessThan(notify.indexOf('知らせ方がまだ決まっていません'));
+    expect(notify.endsWith('別の問いにしてください。\n')).toBe(true);
   });
   it('notify_user の段も、切ったら消さずに「足しません」と言う', () => {
     expect(presentInjection(ja, { askStatusAtEnd: true, liveHints: true, notifyUser: false })[1]).toMatchObject({ label: '見てほしい出力を notify_user で知らせる（オフ・追加しません）', off: true });
@@ -55,7 +61,9 @@ describe('opencode に足す指示の全文', () => {
     expect(parts.map((p) => p.off)).toEqual([false, false, false]);
     expect(parts[0]).toMatchObject({ mark: null });
     expect(textOf(parts[0]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.minimal'));
-    expect(textOf(parts[1]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.notify'));
+    expect(textOf(parts[1]!.pieces).startsWith(translate('ja', 'launch.injection.opencode.notify'))).toBe(true);
+    expect(textOf(parts[1]!.pieces)).toContain('tools.hangar.set_notify_preference');
+    expect(textOf(parts[1]!.pieces)).toContain('知らせ方がまだ決まっていません');
     expect(textOf(parts[2]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.status'));
   });
   it('最小限でも、切った状態の段は打ち消しで残す', () => {
@@ -68,7 +76,9 @@ describe('opencode に足す指示の全文', () => {
     expect(parts.map((p) => p.label)).toEqual(claude.map((p) => p.label));
     expect(parts[0]).toEqual(claude[0]);
     expect(parts.slice(2, 5)).toEqual(claude.slice(2, 5));
-    expect(textOf(parts[1]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.notify'));
+    expect(textOf(parts[1]!.pieces).startsWith(translate('ja', 'launch.injection.opencode.notify'))).toBe(true);
+    expect(textOf(parts[1]!.pieces)).toContain('tools.hangar.set_notify_preference');
+    expect(textOf(parts[1]!.pieces)).toContain('知らせ方がまだ決まっていません');
     expect(textOf(parts[5]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.live'));
   });
   it('Claude Code と同じでも、切った段は打ち消しで残す', () => {

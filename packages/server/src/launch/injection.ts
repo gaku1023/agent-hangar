@@ -1,4 +1,4 @@
-import { DEFAULT_CODEX_INJECTION, DEFAULT_LANGUAGE, DEFAULT_OPENCODE_INJECTION, localDate, localTime, osName, t, translator, type CodexInjection, type Language, type OpencodeInjection } from '@agent-hangar/shared';
+import { DEFAULT_CODEX_INJECTION, DEFAULT_LANGUAGE, DEFAULT_NOTIFY_RULES, DEFAULT_OPENCODE_INJECTION, localDate, localTime, notifyOsLabel, notifyRulesLine, osName, t, translator, type CodexInjection, type Language, type NotifyRules, type OpencodeInjection } from '@agent-hangar/shared';
 import type { InjectionEntry } from '../agent/types.ts';
 import type { HandoverFacts } from '../runs/handover.ts';
 
@@ -18,12 +18,32 @@ export type InjectionParts = {
   liveHints: boolean;
   /** 利用者に見てほしい出力を出したとき notify_user で知らせる段（launch.injection.notify）。設定の notifyUser。省けば入りとして読む。 */
   notifyUser?: boolean;
+  /**
+   * 知らせ方（notify の段の続き）。rules は起動のときの設定から notifyRulesOf で作った今の決まり、decided は設定 notifyPreference が決まっているか。
+   * decided が真でなければ、最初のターンの終わりに知らせ方を 1 度聞く段（notifyAsk）を足す。platform は出し先の名前（Mac か Windows）を決める OS で、省けば process.platform。
+   */
+  notify?: { rules?: NotifyRules; decided?: boolean; platform?: string };
   /** opencode に足す量（設定の opencodeInjection）。省けば既定の最小限。Claude には効かない。 */
   opencode?: OpencodeInjection;
   /** Codex に足す量（設定の codexInjection）。省けば既定の最小限。Claude と opencode には効かない。 */
   codex?: CodexInjection;
 };
 export const DEFAULT_INJECTION_PARTS: InjectionParts = { askStatusAtEnd: true, liveHints: true, notifyUser: true };
+
+type Agent = '' | 'opencode.' | 'codex.';
+
+/**
+ * notify の段の続き。保存の段（notifySave）は常に、未設定のときだけ聞く段（notifyAsk）を足す。
+ * 今の決まりは起動のときの設定から、OS の名前は platform から差し込む。
+ */
+function notifyFollowEntries(language: Language, parts: InjectionParts, agent: Agent): InjectionEntry[] {
+  const n = parts.notify ?? {};
+  const os = notifyOsLabel(n.platform ?? process.platform);
+  const rules = notifyRulesLine(translator(language), n.rules ?? DEFAULT_NOTIFY_RULES);
+  const entries: InjectionEntry[] = [{ key: 'notifySave', text: t(language, `launch.injection.${agent}notifySave` as 'launch.injection.notifySave', { os, rules }) }];
+  if (!n.decided) entries.push({ key: 'notifyAsk', text: t(language, `launch.injection.${agent}notifyAsk` as 'launch.injection.notifyAsk', { os }) });
+  return entries;
+}
 
 /**
  * エージェントに渡す短い指示を、段ごとに組む。ファイルや設定は書かず、要約の更新、片付いた TODO の候補、セッションの状態の問い、ターンの意図、短い手の説明を求める。
@@ -35,6 +55,7 @@ export const DEFAULT_INJECTION_PARTS: InjectionParts = { askStatusAtEnd: true, l
  *
  * 段は辞書の鍵に分けてある。常に足す段（body、launch.injection.body）、notify_user で知らせる段（notify、launch.injection.notify）、区切りの問いの段（status、launch.injection.status）、ターンの意図と手の説明の段（live、launch.injection.live）である。
  * notify の段は本文の直後に置く。後ろに置くと、ほかの段に埋もれて hangar の道具を丸ごと飛ばす回があった（docs/design.md「指示の注入」）。
+ * notify の段の直後に、知らせ方を保存する段（notifySave、launch.injection.notifySave）と、知らせ方が未設定のときだけ最初のターンの終わりに聞く段（notifyAsk）を置く。
  * PC をまたぐ会話には、引き継ぎの段（handover、launch.injection.handover）と、複数の PC で使うプロジェクトの 1 文（multiDevice、launch.injection.multiDevice）を、notify の段の後に足す。
  * この 2 つはスイッチを持たず、DB の事実で決める。
  * 足さない段は入れない。段の文は末尾の改行まで含むので、区切りを足さずにつなげば 1 つの指示になる。
@@ -47,7 +68,7 @@ export function renderInjectionEntries(i: InjectionInput, language: Language = D
   const todos = i.todos.slice(0, 10);
   const todoText = todos.length ? '\n' + todos.map((todo) => `- [${todo.id}] ${todo.text}`).join('\n') : none;
   const entries: InjectionEntry[] = [{ key: 'body', text: t(language, 'launch.injection.body', { projectName: i.projectName, projectPath: i.projectPath, todos: todoText }) }];
-  if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.notify') });
+  if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.notify') }, ...notifyFollowEntries(language, parts, ''));
   if (i.handover) entries.push({ key: 'handover', text: renderHandover(i.handover, language) });
   if ((i.deviceCount ?? 0) >= 2) entries.push({ key: 'multiDevice', text: t(language, 'launch.injection.multiDevice', { deviceCount: String(i.deviceCount) }) });
   if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.status') });
@@ -70,11 +91,12 @@ export function renderOpencodeInjectionEntries(i: InjectionInput, language: Lang
   if (choice === 'none') return [];
   if (choice === 'minimal') {
     const entries: InjectionEntry[] = [{ key: 'body', text: t(language, 'launch.injection.opencode.minimal') }];
-    if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.opencode.notify') });
+    if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.opencode.notify') }, ...notifyFollowEntries(language, parts, 'opencode.'));
     if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.opencode.status') });
     return entries;
   }
-  return renderInjectionEntries(i, language, parts).map((e) => (e.key === 'live' ? { key: 'live', text: t(language, 'launch.injection.opencode.live') } : e.key === 'notify' ? { key: 'notify', text: t(language, 'launch.injection.opencode.notify') } : e));
+  const follow = notifyFollowEntries(language, parts, 'opencode.');
+  return renderInjectionEntries(i, language, parts).flatMap((e) => (e.key === 'live' ? [{ key: 'live', text: t(language, 'launch.injection.opencode.live') }] : e.key === 'notify' ? [{ key: 'notify', text: t(language, 'launch.injection.opencode.notify') }, ...follow] : e.key === 'notifySave' || e.key === 'notifyAsk' ? [] : [e]));
 }
 
 /**
@@ -88,7 +110,7 @@ export function renderCodexInjectionEntries(i: InjectionInput, language: Languag
   if (choice === 'none') return [];
   if (choice === 'claude') return renderInjectionEntries(i, language, parts);
   const entries: InjectionEntry[] = [{ key: 'body', text: t(language, 'launch.injection.codex.minimal') }];
-  if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.codex.notify') });
+  if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.codex.notify') }, ...notifyFollowEntries(language, parts, 'codex.'));
   if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.codex.status') });
   return entries;
 }

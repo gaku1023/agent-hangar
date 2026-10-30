@@ -1,4 +1,4 @@
-import type { OpencodeInjection, Translate } from '@agent-hangar/shared';
+import { DEFAULT_NOTIFY_RULES, notifyOsLabel, notifyRulesLine, type OpencodeInjection, type Translate } from '@agent-hangar/shared';
 
 /** 全文の 1 つの切れ。token は差し込む値の印（プロジェクト名など）で、画面は破線の枠で描く。 */
 export type InjectionPiece = { kind: 'text' | 'token'; text: string };
@@ -14,6 +14,17 @@ const MARK = '\u0001';
 /** 区切りで挟んだ印を切れに分ける。区切りの間（奇数番目）が印である。 */
 function split(text: string): InjectionPiece[] {
   return text.split(MARK).map((s, i): InjectionPiece => ({ kind: i % 2 === 1 ? 'token' : 'text', text: s })).filter((p) => p.text !== '');
+}
+
+/**
+ * notify の段の全文。notify の文に、保存の段と、知らせ方が未設定のときだけ足す段（notifyAsk）を続ける。
+ * 設定の画面は起動の前なので、今の決まりは既定の決まり、OS の名前は Mac で見せる。
+ */
+function notifyText(t: Translate, agent: '' | 'opencode.' | 'codex.'): string {
+  const os = notifyOsLabel(undefined);
+  return t(`launch.injection.${agent}notify` as 'launch.injection.notify')
+    + t(`launch.injection.${agent}notifySave` as 'launch.injection.notifySave', { os, rules: notifyRulesLine(t, DEFAULT_NOTIFY_RULES) })
+    + t(`launch.injection.${agent}notifyAsk` as 'launch.injection.notifyAsk', { os });
 }
 
 /**
@@ -42,7 +53,7 @@ export function presentInjection(t: Translate, parts: InjectionSwitches): Inject
   const named = (name: string, on: boolean) => t(on ? 'settings.integrations.inject.part.on' : 'settings.integrations.inject.part.off', { name });
   return [
     { label: t('settings.integrations.inject.part.body'), off: false, mark: null, pieces: split(body) },
-    { label: named(t('settings.label.notifyUser'), parts.notifyUser), off: !parts.notifyUser, mark: null, pieces: split(t('launch.injection.notify')) },
+    { label: named(t('settings.label.notifyUser'), parts.notifyUser), off: !parts.notifyUser, mark: null, pieces: split(notifyText(t, '')) },
     { label: t('settings.integrations.inject.part.handover'), off: false, mark: syncOnly, pieces: split(handover) },
     { label: t('settings.integrations.inject.part.multiDevice'), off: false, mark: syncOnly, pieces: split(multi) },
     { label: named(t('settings.label.askStatusAtEnd'), parts.askStatusAtEnd), off: !parts.askStatusAtEnd, mark: null, pieces: split(t('launch.injection.status')) },
@@ -70,9 +81,9 @@ export function presentOpencodeInjection(t: Translate, parts: InjectionSwitches,
   if (choice === 'minimal') {
     return [
       { label: t('settings.opencode.injection.minimal'), off: false, mark: null, pieces: split(t('launch.injection.opencode.minimal')) },
-      { label: named(t('settings.label.notifyUser'), parts.notifyUser), off: !parts.notifyUser, mark: null, pieces: split(t('launch.injection.opencode.notify')) },
+      { label: named(t('settings.label.notifyUser'), parts.notifyUser), off: !parts.notifyUser, mark: null, pieces: split(notifyText(t, 'opencode.')) },
       { label: named(t('settings.label.askStatusAtEnd'), parts.askStatusAtEnd), off: !parts.askStatusAtEnd, mark: null, pieces: split(t('launch.injection.opencode.status')) },
     ];
   }
-  return presentInjection(t, parts).map((p, i) => (i === LIVE_PART ? { ...p, pieces: split(t('launch.injection.opencode.live')) } : i === NOTIFY_PART ? { ...p, pieces: split(t('launch.injection.opencode.notify')) } : p));
+  return presentInjection(t, parts).map((p, i) => (i === LIVE_PART ? { ...p, pieces: split(t('launch.injection.opencode.live')) } : i === NOTIFY_PART ? { ...p, pieces: split(notifyText(t, 'opencode.')) } : p));
 }
