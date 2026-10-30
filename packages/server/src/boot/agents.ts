@@ -22,6 +22,7 @@ import { claudeJsonFor } from '../provider/claude-code/config/claudeJson.ts';
 import { opencodeShareFor } from '../share/opencode.ts';
 import { permissionPresetFor } from '../provider/opencode/permissionPreset.ts';
 import { LocalModelListing } from '../provider/opencode/localModels/available.ts';
+import { LmServerStarter } from '../provider/opencode/localModels/serverStart.ts';
 import { ProviderPreps } from '../provider/opencode/providerPrep.ts';
 import { msg, render } from '../i18n/message.ts';
 import { safeErrorText } from '../runs/manager.ts';
@@ -104,6 +105,7 @@ export function bootAgents(
     localModels: { home: home.home, context: () => localContextOf(home.settings.current) },
     // 起動前に、会話のモデルがこの PC の LM Studio などにあるかを聞く。無いモデルでは起こさない。
     localListing: new LocalModelListing(),
+    localServers: new LmServerStarter({ language: home.language }),
     // 接続先の準備のコマンド（この PC の設定）。呼ばれた時点の値を読む。
     providerPreps: new ProviderPreps({
       preps: () => providerPrepsOf(home.settings.current.opencodeProviderPrep),

@@ -12,6 +12,7 @@ import type { LaunchPrepDto } from '@agent-hangar/shared';
 import { LaunchPreps } from '../../runs/launchPrep.ts';
 import { createOpencodeDriver, type OpencodeDriverDeps } from './driver.ts';
 import { ProviderPrepFailed, ProviderPreps } from './providerPrep.ts';
+import { LocalModelListing } from './localModels/available.ts';
 import { isAlive, ServeRegistry } from './serve/registry.ts';
 import { ServeManager } from './serve/manager.ts';
 
@@ -165,6 +166,32 @@ posixDescribe('opencode の driver の materialize', () => {
     await failed.driver.launch.materialize!({ kind: 'start' }, spec(cwd));
     expect(ev(failed.log(), 'mcp')).toHaveLength(1);
     expect(failed.reports).toContain('mcp');
+  });
+
+  posixIt('準備コマンドの後、モデル確認の前にサーバーを起動し、再開時にも確かめる', async () => {
+    const order: string[] = [];
+    const preps = new LaunchPreps({ broadcast: () => {} });
+    const providerPreps = new ProviderPreps({ preps: () => ({ lmstudio: { start: 'server-up', stop: '', stopAfter: 5 } }), run: async () => { order.push('command'); return { code: 0, tail: '' }; }, exitReason: String, timeoutReason: String });
+    const { driver, log } = make({ providers: [{ id: 'lmstudio', name: 'LM Studio', baseURL: 'http://127.0.0.1:1234/v1' }] }, {
+      providerPreps,
+      localServers: { ensure: async (p) => { expect(p.id).toBe('lmstudio'); order.push('server'); } },
+      localListing: new LocalModelListing({ fetch: (async () => { order.push('list'); return Response.json({ models: [{ type: 'llm', key: 'qwen3.8' }] }); }) as typeof fetch }),
+    });
+    const launched = await driver.launch.materialize!({ kind: 'start' }, spec(cwd, { prep: { run: preps.begin(undefined), choice: {} } }));
+    expect(order).toEqual(['command', 'server', 'list']);
+    expect(ev(log(), 'create')).toHaveLength(1);
+    order.length = 0;
+    await driver.launch.materialize!({ kind: 'resume', id: launched!.providerSessionId }, spec(cwd, { prep: { run: preps.begin(undefined), choice: {} } }));
+    expect(order).toContain('server');
+    expect(ev(log(), 'create')).toHaveLength(1);
+  });
+
+  posixIt('サーバーの起動に失敗したら会話を作らず serve を解放する', async () => {
+    const { driver, serves, log } = make({ providers: [{ id: 'lmstudio', name: 'LM Studio', baseURL: 'http://127.0.0.1:1234/v1' }] }, { localServers: { ensure: async () => { throw new Error('server failed'); } } });
+    const run = new LaunchPreps({ broadcast: () => {} }).begin(undefined);
+    await expect(driver.launch.materialize!({ kind: 'start' }, spec(cwd, { prep: { run, choice: {} } }))).rejects.toThrow('server failed');
+    expect(ev(log(), 'create')).toHaveLength(0);
+    expect(serves.get('h1')).toBeNull();
   });
 
   posixIt('会話を作れなければ投げて、起こした serve を止める', async () => {

@@ -2007,7 +2007,7 @@ hook の受け口は、opencode の会話では何も読まずに 204 を返す�
 ### 起動前の準備
 
 opencode の会話を作る前に、hangar が段を走らせる（`runs/launchPrep.ts`）。
-段は 2 種類ある。この PC の LM Studio のモデルを足りる長さでロードする段（local-model）と、接続先の準備のコマンドを走らせる段（command、下の「接続先の準備」）。
+段は 3 種類ある。この PC の LM Studio のモデルを足りる長さでロードする段（local-model）、止まっている LM Studio の API サーバーを起こす段（local-server、下の「LM Studio のサーバーの起動」）、接続先の準備のコマンドを走らせる段（command、下の「接続先の準備」）。
 起動 1 回に `LaunchPrep` を 1 つ作り、段が動くたびに鍵ごとの全体を `launch.prep` で配る。鍵は画面が起動の要求に添える（`LaunchParams.prepKey`）。段の無い準備は何も配らない。
 利用者がやめたら（`DELETE /api/runs/prep/:key`）signal を切り、起動は 400（code `prep-cancelled`）で終わる。
 利用者に聞くことができたら、進みを asking で配り、起動を 409（code `prep-ask`）で止める。画面は届いた `ask` で問いを出し、答え（`LaunchParams.prepChoice`）を添えて送り直す。
@@ -2026,7 +2026,7 @@ LM Studio の段の前に、会話のモデルがこの PC にあるかを確か
 
 - 確かめるのは会話のモデル（答えの `singleModel`、指定、設定の `model` の順）だけである。接続先の準備のコマンドの後に聞く（コマンドがサーバーを起こすことがある）。「そのまま開始」（`skip`）でも確かめる。
 - baseURL が 127.0.0.1 か localhost の接続先だけに聞く。先に LM Studio の `/api/v1/models`（埋め込みのモデルは外す）を聞き、404 か形が違えば OpenAI 互換の `{baseURL}/models` を聞く。OpenAI 互換の `/v1/models` を先にしないのは、LM Studio の JIT の読み込みを切ると、載っているモデルしか返さないからである。
-- 無ければ「{model} はこの PC にありません。使えるのは: …」、どちらの口にもつながらなければ「{接続先}（{origin}）に接続できません。…」で起動を 400 で断る（`MessageError`、MCP の `create_session` も同じ文を返す）。一覧の形でない答えは確かめられないので通す。
+- 無ければ「{model} はこの PC にありません。使えるのは: …」、どちらの口にもつながらなければ「{接続先} の API サーバー（{origin}）に接続できません。…」で起動を 400 で断る（`MessageError`、MCP の `create_session` も同じ文を返す）。一覧の形でない答えは確かめられないので通す。
 - 取れた一覧は 30 秒使い回す。つながらなかった答えは覚えない（LM Studio を起こした直後に送り直せるように）。
 - 外のターミナルからの起動と再開では確かめない（選び直す画面が無く、TUI の `/models` で替えられる）。
 
@@ -2055,6 +2055,20 @@ LM Studio の段の前に、会話のモデルがこの PC にあるかを確か
 LM Studio につながらないときは記録を残して次の見回りに回し、すでに外れていた instance は知らせずに記録から外す。
 LM Studio の `/api/v1/models/load` は `ttl` を受け付けると公式の文書に書かれていない（2026-10-27 に確認した引数は model、context_length、eval_batch_size、flash_attention、num_experts、offload_kv_cache_to_gpu、echo_load_config）ので、ロードに保険の TTL は付けない。
 設定の「使っていないモデルのアンロード」は目盛りで止まるスライダー（`StepSlider`）で、離したときに保存する。
+
+#### LM Studio のサーバーの起動
+
+LM Studio のアプリが動いていても、API サーバーが止まっていることがある（アプリの設定でサーバーを切ったとき、アプリを閉じた後など）。会話を始めるときに hangar が CLI の `lms` でサーバーだけを起こす（`localModels/serverStart.ts` の `LmServerStarter`）。アプリのウィンドウは開かない。
+
+- 接続先の準備のコマンドの後、モデルの有無を確かめる前に走らせる（利用者の準備のコマンドを先にする）。対象は会話のモデル、`small_model`、agent ごとのモデルの接続先のうち、ID が `lmstudio` で、baseURL が `http://` の 127.0.0.1、localhost、::1 の `/v1` のものだけである。止まっているサーバーは応答から製品を判別できないので、別のサーバーや LAN の宛先を推して起こさない。
+- 先に `/api/v1/models` を聞く。何か答えれば（401 や別の形でも）起きているとみなし、CLI を呼ばない。つながらなければ段を出し、`lms daemon up` と `lms server start --port <baseURL のポート> --bind <ループバック>` をシェルを介さず走らせ、一覧が返るまで 250ms おきに聞く。CLI と待ちを合わせて 30 秒で打ち切る。
+- `lms` は `~/.lmstudio/bin` と PATH から探す（Finder から起こした hangar の PATH は短い）。`.cmd` と `.bat` は使わない。環境は serve と同じ空の環境で、秘密と hangar の印を渡さない。
+- 同じ宛先の起動が並んだら 1 本にまとめる。1 人がやめても残りは待ち続け、全員がやめたら CLI を止める。やめた後の送り直しは新しく起こす。
+- 起こしたサーバーは、会話が終わっても hangar を閉じても止めない。
+- hangar からの再開でも走らせる（鍵の無い再開も同じ。段は配られるが札は出ない）。外のターミナルからの起動と再開では走らせない。
+- `lms` が無ければ「LM Studio の起動コマンドが見つかりません。…」、起こせなければ「LM Studio のサーバーを起動できませんでした（{origin}）。…」で起動を断る。
+
+画面では、進みの 1 行が「LM Studio のサーバーを起動中…」、済んだ段が「LM Studio のサーバーを起動しました」、失敗の札の見出しが「サーバーの起動に失敗しました」になる（ほかは LM Studio の段と同じ箱）。
 
 #### 接続先の準備
 

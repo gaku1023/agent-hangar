@@ -2,6 +2,11 @@ import type { launchPrepKeys } from '../keys/launchPrep.ts';
 import type { AreaDictionary } from '../messageSpec.ts';
 
 export const launchPrepJa: AreaDictionary<typeof launchPrepKeys> = {
+  'launchPrep.server.starting': 'LM Studio のサーバーを起動中…',
+  'launchPrep.server.done': 'LM Studio のサーバーを起動しました',
+  'launchPrep.server.failedTitle': 'サーバーの起動に失敗しました',
+  'launchPrep.server.cliMissing': 'LM Studio の起動コマンドが見つかりません。LM Studio アプリでサーバーを起動してから再試行してください。',
+  'launchPrep.server.failed': 'LM Studio のサーバーを起動できませんでした（{url}）。LM Studio で状態を確認して再試行してください。',
   'launchPrep.step.check': 'LM Studio を確認中…',
   'launchPrep.step.load': '{model} をロード中…（{context}）',
   'launchPrep.step.reload': '{model} を再ロード中…（{context}）',
@@ -59,5 +64,5 @@ export const launchPrepJa: AreaDictionary<typeof launchPrepKeys> = {
   'launchPrep.error.notFound': '進行中の準備はありません。',
   'launchPrep.error.modelMissing': '{model} はこの PC にありません。使えるのは: {available}',
   'launchPrep.error.modelMissingNone': '{model} はこの PC にありません。{name} にモデルがありません。',
-  'launchPrep.error.serverDown': '{name}（{url}）に接続できません。{name} を起動して再試行してください。',
+  'launchPrep.error.serverDown': '{name} の API サーバー（{url}）に接続できません。サーバーを起動して再試行してください。',
 };
