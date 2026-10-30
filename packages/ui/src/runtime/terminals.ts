@@ -62,6 +62,15 @@ export const RETRY = { first: 1000, max: 30_000, attempts: 5 } as const;
  */
 export const GPU_MAX = 8;
 
+/**
+ * 届いた出力を貯めておく上限の時間（ミリ秒）。
+ * 通常は次の描画の前に書くが、隠れた頁では描画が止まるので、この時間でも書く。
+ * 通数が多いと term.write の回数が増えて描画の負荷が上がるので、1 フレームに 1 回にまとめる。
+ */
+export const WRITE_MAX_WAIT_MS = 50;
+/** 前に書いてからこの時間（ミリ秒）より空いて届いた出力は、貯めずにその場で書く。打鍵の返りを 1 フレーム遅らせないため。 */
+export const WRITE_IDLE_MS = 16;
+
 /** 前にあるダイアログが閉じるのを待つ描画の枚数。View Transitions で描き替えが 1 から 2 枚遅れても間に合う数にしてある（focusSoon と同じ）。 */
 const FOCUS_FRAMES = 10;
 
@@ -72,7 +81,7 @@ const FOCUS_FRAMES = 10;
  * painted は最初のデータが届いたか（それまで画面は透明にしておく）。
  * timer と retryAt は待っている自動の試し。
  */
-type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[]; want: boolean; fails: number; dropped: boolean; gaveUp: boolean; detached: boolean; painted: boolean; timer: ReturnType<typeof setTimeout> | null; retryAt: number | null };
+type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[]; want: boolean; fails: number; dropped: boolean; gaveUp: boolean; detached: boolean; painted: boolean; timer: ReturnType<typeof setTimeout> | null; retryAt: number | null; pending: string; cancelWrite: (() => void) | null; lastWrite: number };
 
 /**
  * タブごとの xterm と WebSocket を React の外で持つ。
@@ -90,8 +99,11 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
   /** ダイアログやメニューが前に出ているか。その間はフォーカスを奪わない。渡さなければ DOM の aria-modal と role="menu" を見る。 */
   held?: () => boolean;
   /** 次の描画を待つ。閉じる途中のダイアログが DOM から消えるのを待つのに使う。 */
-  nextFrame?: (cb: () => void) => void }): TerminalHost {
+  nextFrame?: (cb: () => void) => void;
+  /** 貯めた出力を書く次の描画を待つ。取り消す関数を返す。渡さなければ requestAnimationFrame。描画が無ければ上限の時間だけが頼り。 */
+  frame?: (cb: () => void) => () => void }): TerminalHost {
   const entries = new Map<string, Entry>();
+  const frame = deps.frame ?? ((cb: () => void) => { if (typeof requestAnimationFrame === 'undefined') return () => {}; const id = requestAnimationFrame(cb); return () => cancelAnimationFrame(id); });
   const held = deps.held ?? (() => typeof document !== 'undefined' && document.querySelector('[aria-modal="true"], [role="menu"]') !== null);
   const nextFrame = deps.nextFrame ?? ((cb: () => void) => { if (typeof requestAnimationFrame !== 'undefined') requestAnimationFrame(cb); });
   /**
@@ -125,10 +137,29 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     if (!e) {
       const term = deps.createTerminal();
       term.setFontSize(fontSize);
-      e = { term, ws: null, status: 'closed', opened: false, subs: [], want: false, fails: 0, dropped: false, gaveUp: false, detached: false, painted: false, timer: null, retryAt: null };
+      e = { term, ws: null, status: 'closed', opened: false, subs: [], want: false, fails: 0, dropped: false, gaveUp: false, detached: false, painted: false, timer: null, retryAt: null, pending: '', cancelWrite: null, lastWrite: -Infinity };
       entries.set(tabId, e);
     }
     return e;
+  };
+  /** 貯めた出力を 1 回で書く。待っている予約は取り消す。 */
+  const flushWrite = (e: Entry) => {
+    e.cancelWrite?.(); e.cancelWrite = null;
+    if (e.pending === '') return;
+    const d = e.pending; e.pending = '';
+    e.term.write(d);
+    e.lastWrite = Date.now();
+  };
+  /** 貯めた出力を捨てる（dispose のとき）。 */
+  const dropWrite = (e: Entry) => { e.cancelWrite?.(); e.cancelWrite = null; e.pending = ''; };
+  /** 次の描画か上限の時間のどちらか早いほうで書く。 */
+  const queueWrite = (e: Entry, d: string) => {
+    e.pending += d;
+    if (e.pending === d && !e.cancelWrite && Date.now() - e.lastWrite >= WRITE_IDLE_MS) { flushWrite(e); return; }
+    if (e.cancelWrite) return;
+    const cancelFrame = frame(() => flushWrite(e));
+    const t = setTimeout(() => flushWrite(e), WRITE_MAX_WAIT_MS);
+    e.cancelWrite = () => { cancelFrame(); clearTimeout(t); };
   };
   const send = (e: Entry, m: unknown) => { if (e.ws && e.ws.readyState === 1) e.ws.send(JSON.stringify(m)); };
   const stopRetry = (e: Entry) => { if (e.timer !== null) clearTimeout(e.timer); e.timer = null; e.retryAt = null; };
@@ -163,8 +194,12 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
       try { parsed = JSON.parse(String(m.data)); } catch { return; }
       if (typeof parsed !== 'object' || parsed === null) return;
       const msg = parsed as { t?: unknown; d?: unknown; message?: unknown };
-      if (msg.t === 'data' && typeof msg.d === 'string') { e.term.write(msg.d); if (!e.painted) { e.painted = true; notify(); } }
-      else if (msg.t === 'error') { e.term.write(`\r\n[agent-hangar] ${String(msg.message)}\r\n`); setStatus(e, 'error'); }
+      if (msg.t === 'data' && typeof msg.d === 'string') {
+        // 最初の 1 通は待たずに書く。画面を見せる（painted）ときに、文字がもう書かれているようにするため。
+        if (!e.painted) { queueWrite(e, msg.d); flushWrite(e); e.painted = true; notify(); }
+        else queueWrite(e, msg.d);
+      }
+      else if (msg.t === 'error') { flushWrite(e); e.term.write(`\r\n[agent-hangar] ${String(msg.message)}\r\n`); setStatus(e, 'error'); }
     };
     // 自分で閉じた接続（disconnect）は e.ws を先に外しているので、ここには来ない。
     // サーバが断った（error）ときは、待っても同じ答えなので自動ではつながず、「再接続」のボタンに任せる。
@@ -176,6 +211,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     ws.onclose = (ev?: { code?: number; reason?: string }) => {
       if (e.ws !== ws) return;
       e.ws = null;
+      flushWrite(e);
       if (e.status === 'error') { notify(); return; }
       setStatus(e, 'closed');
       const exited = ev?.code === 1000 && ev.reason === 'exited';
@@ -221,6 +257,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
       if (!e) return;
       e.want = false; e.fails = 0; e.dropped = false; e.gaveUp = false; e.detached = false;
       stopRetry(e);
+      flushWrite(e);
       const ws = e.ws; e.ws = null;
       ws?.close();
       setStatus(e, 'closed');
@@ -271,7 +308,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     },
     subscribe(cb) { listeners.add(cb); return () => { listeners.delete(cb); }; },
     dispose() {
-      for (const e of entries.values()) { e.want = false; stopRetry(e); e.ws?.close(); for (const s of e.subs) s.dispose(); e.term.dispose(); }
+      for (const e of entries.values()) { e.want = false; stopRetry(e); dropWrite(e); e.ws?.close(); for (const s of e.subs) s.dispose(); e.term.dispose(); }
       entries.clear(); listeners.clear(); pendingFocus = null; gpuOrder.length = 0;
     },
   };
