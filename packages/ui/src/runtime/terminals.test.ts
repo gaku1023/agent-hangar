@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createTerminalHost, GPU_MAX, WRITE_MAX_WAIT_MS, type TerminalLike } from './terminals.ts';
+import { createTerminalHost, GPU_MAX, WRITE_IDLE_MS, WRITE_MAX_WAIT_MS, type TerminalLike } from './terminals.ts';
 
 class FakeWs {
   static all: FakeWs[] = [];
@@ -541,6 +541,19 @@ describe('届いた出力のまとめ書き', () => {
     expect(term.written).toEqual(['first']);
     frames.shift()!();
     expect(term.written).toEqual(['first', 'abc']);
+  });
+  it('しばらく静かだったあとの先頭は、その場で書く（打鍵の返りを遅らせない）', () => {
+    vi.useFakeTimers();
+    try {
+      const { term, ws, frames } = makeFrames();
+      vi.advanceTimersByTime(WRITE_IDLE_MS);
+      ws.receive({ t: 'data', d: 'x' });
+      expect(term.written).toEqual(['first', 'x']);
+      ws.receive({ t: 'data', d: 'y' });
+      expect(term.written).toEqual(['first', 'x']);
+      frames.shift()!();
+      expect(term.written).toEqual(['first', 'x', 'y']);
+    } finally { vi.useRealTimers(); }
   });
   it('描画が止まっていても、上限の時間で書く', () => {
     vi.useFakeTimers();

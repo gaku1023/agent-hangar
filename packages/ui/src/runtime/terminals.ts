@@ -68,6 +68,8 @@ export const GPU_MAX = 8;
  * 通数が多いと term.write の回数が増えて描画の負荷が上がるので、1 フレームに 1 回にまとめる。
  */
 export const WRITE_MAX_WAIT_MS = 50;
+/** 前に書いてからこの時間（ミリ秒）より空いて届いた出力は、貯めずにその場で書く。打鍵の返りを 1 フレーム遅らせないため。 */
+export const WRITE_IDLE_MS = 16;
 
 /** 前にあるダイアログが閉じるのを待つ描画の枚数。View Transitions で描き替えが 1 から 2 枚遅れても間に合う数にしてある（focusSoon と同じ）。 */
 const FOCUS_FRAMES = 10;
@@ -79,7 +81,7 @@ const FOCUS_FRAMES = 10;
  * painted は最初のデータが届いたか（それまで画面は透明にしておく）。
  * timer と retryAt は待っている自動の試し。
  */
-type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[]; want: boolean; fails: number; dropped: boolean; gaveUp: boolean; detached: boolean; painted: boolean; timer: ReturnType<typeof setTimeout> | null; retryAt: number | null; pending: string; cancelWrite: (() => void) | null };
+type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[]; want: boolean; fails: number; dropped: boolean; gaveUp: boolean; detached: boolean; painted: boolean; timer: ReturnType<typeof setTimeout> | null; retryAt: number | null; pending: string; cancelWrite: (() => void) | null; lastWrite: number };
 
 /**
  * タブごとの xterm と WebSocket を React の外で持つ。
@@ -135,7 +137,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     if (!e) {
       const term = deps.createTerminal();
       term.setFontSize(fontSize);
-      e = { term, ws: null, status: 'closed', opened: false, subs: [], want: false, fails: 0, dropped: false, gaveUp: false, detached: false, painted: false, timer: null, retryAt: null, pending: '', cancelWrite: null };
+      e = { term, ws: null, status: 'closed', opened: false, subs: [], want: false, fails: 0, dropped: false, gaveUp: false, detached: false, painted: false, timer: null, retryAt: null, pending: '', cancelWrite: null, lastWrite: -Infinity };
       entries.set(tabId, e);
     }
     return e;
@@ -146,12 +148,14 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     if (e.pending === '') return;
     const d = e.pending; e.pending = '';
     e.term.write(d);
+    e.lastWrite = Date.now();
   };
   /** 貯めた出力を捨てる（dispose のとき）。 */
   const dropWrite = (e: Entry) => { e.cancelWrite?.(); e.cancelWrite = null; e.pending = ''; };
   /** 次の描画か上限の時間のどちらか早いほうで書く。 */
   const queueWrite = (e: Entry, d: string) => {
     e.pending += d;
+    if (e.pending === d && !e.cancelWrite && Date.now() - e.lastWrite >= WRITE_IDLE_MS) { flushWrite(e); return; }
     if (e.cancelWrite) return;
     const cancelFrame = frame(() => flushWrite(e));
     const t = setTimeout(() => flushWrite(e), WRITE_MAX_WAIT_MS);
