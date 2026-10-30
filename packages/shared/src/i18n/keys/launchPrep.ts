@@ -2,6 +2,11 @@ import type { MessageSpec } from '../messageSpec.ts';
 
 /** 起動前の準備（launchPrep.ts）の文。ダイアログの進み、問い、起動後の札、サーバの断り。 */
 export const launchPrepKeys = {
+  'launchPrep.server.starting': [],
+  'launchPrep.server.done': [],
+  'launchPrep.server.failedTitle': [],
+  'launchPrep.server.cliMissing': [],
+  'launchPrep.server.failed': ['url'],
   'launchPrep.step.check': [],
   'launchPrep.step.load': ['model', 'context'],
   'launchPrep.step.reload': ['model', 'context'],

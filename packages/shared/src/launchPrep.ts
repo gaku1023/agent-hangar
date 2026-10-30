@@ -4,10 +4,10 @@
  * 画面は起動のたびに作る鍵（key）で進みを受け取る。鍵は起動の要求（LaunchParams.prepKey）に添えて送る。
  */
 export type LaunchPrepPhase = 'running' | 'ready' | 'failed' | 'asking' | 'cancelled';
-export type LaunchPrepStepKind = 'local-model' | 'command';
+export type LaunchPrepStepKind = 'local-model' | 'local-server' | 'command';
 export type LaunchPrepStepState = 'running' | 'done' | 'skipped' | 'failed';
 /** local-model の段で行うこと。check は確かめるだけ、load は載せる、reload は外して載せ直す、unload は外す。command は run。 */
-export type LaunchPrepAction = 'check' | 'load' | 'reload' | 'unload' | 'run';
+export type LaunchPrepAction = 'check' | 'load' | 'reload' | 'unload' | 'run' | 'server-start';
 
 export type LaunchPrepStepDto = {
   id: string;

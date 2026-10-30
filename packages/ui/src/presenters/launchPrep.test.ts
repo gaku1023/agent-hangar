@@ -70,6 +70,13 @@ describe('起動前の準備の見せ方', () => {
 });
 
 describe('準備の問い', () => {
+  it('サーバー起動の一行、完了履歴、失敗見出しをモデルのロードと区別する', () => {
+    const s = step({ kind: 'local-server', action: 'server-start', target: 'LM Studio', toContext: null });
+    expect(presentLaunchPrep(prep({ steps: [s] }), t, null).line).toEqual({ text: 'LM Studio のサーバーを起動中…', bar: false });
+    expect(presentLaunchPrep(prep({ steps: [{ ...s, state: 'done', endedAt: 2_000 }] }), t, null).done[0]?.text).toBe('LM Studio のサーバーを起動しました');
+    expect(presentLaunchPrep(prep({ phase: 'failed', steps: [{ ...s, state: 'failed' }] }), t, null).failureTitle).toBe('サーバーの起動に失敗しました');
+    expect(presentLaunchPrep(prep({ steps: [s] }), en, null).line.text).toBe('Starting the LM Studio server…');
+  });
   const inst = (id: string, model: string, context: number | null = 8_192) => ({ instanceId: id, model, sizeBytes: 15 * 1024 ** 3, context });
   const ask = (a: LaunchPrepDto['ask']) => presentLaunchPrep(prep({ phase: 'asking', ask: a }), t, 'lmstudio/qwen3.8-27b').ask;
 

@@ -298,7 +298,7 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     const { rm, log } = make({ fake: lmFake, preps: new LaunchPreps({ broadcast: () => {} }), localListing: lmListing({ down: true }) });
     await expect(rm.start(params({ model: 'lmstudio/qwen3.8-27b-mlx' }))).rejects.toMatchObject({
       status: 400,
-      message: 'opencode を起動できませんでした: LM Studio（http://127.0.0.1:1234）に接続できません。LM Studio を起動して再試行してください。',
+      message: 'opencode を起動できませんでした: LM Studio の API サーバー（http://127.0.0.1:1234）に接続できません。サーバーを起動して再試行してください。',
     });
     expect(ev(log(), 'create')).toEqual([]);
   });

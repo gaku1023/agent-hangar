@@ -43,6 +43,7 @@ function lineOf(s: LaunchPrepStepDto | undefined, t: Translate): LaunchPrepLine 
   if (!s) return { text: t('launchPrep.step.starting'), bar: false };
   const context = contextLabel(s.toContext);
   switch (s.action) {
+    case 'server-start': return { text: t('launchPrep.server.starting'), bar: false };
     case 'check': return { text: t('launchPrep.step.check'), bar: false };
     case 'load': return { text: t('launchPrep.step.load', { model: s.target, context }), bar: true };
     case 'reload': return { text: t('launchPrep.step.reload', { model: s.target, context }), bar: true };
@@ -56,6 +57,7 @@ function lineOf(s: LaunchPrepStepDto | undefined, t: Translate): LaunchPrepLine 
 function doneOf(s: LaunchPrepStepDto, t: Translate): string | null {
   const time = elapsedLabel((s.endedAt ?? s.startedAt) - s.startedAt);
   switch (s.action) {
+    case 'server-start': return t('launchPrep.server.done');
     case 'load': return t('launchPrep.done.load', { model: s.target, context: contextLabel(s.toContext), time });
     case 'reload': return t('launchPrep.done.reload', { model: s.target, from: contextLabel(s.fromContext), to: contextLabel(s.toContext), time });
     case 'unload': return t('launchPrep.done.unload', { model: s.target });
@@ -105,6 +107,7 @@ function askOf(a: LaunchPrepAsk, t: Translate, model: string | null): LaunchPrep
 export function presentLaunchPrep(prep: LaunchPrepDto, t: Translate, model: string | null): LaunchPrepView {
   const running = prep.steps.find((s) => s.state === 'running');
   const failedRun = prep.steps.find((s) => s.state === 'failed' && s.kind === 'command');
+  const failedServer = prep.steps.some((s) => s.state === 'failed' && s.kind === 'local-server');
   return {
     key: prep.key,
     phase: prep.phase,
@@ -117,6 +120,6 @@ export function presentLaunchPrep(prep: LaunchPrepDto, t: Translate, model: stri
     }),
     ask: prep.phase === 'asking' && prep.ask ? askOf(prep.ask, t, model) : null,
     failure: prep.phase === 'failed' ? prep.reason ?? '' : null,
-    failureTitle: failedRun ? t('launchPrep.failed.run', { name: failedRun.target }) : t('launchPrep.failed.title'),
+    failureTitle: failedServer ? t('launchPrep.server.failedTitle') : failedRun ? t('launchPrep.failed.run', { name: failedRun.target }) : t('launchPrep.failed.title'),
   };
 }
