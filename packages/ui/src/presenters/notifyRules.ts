@@ -27,6 +27,6 @@ export function presentNotifyRules(t: Translate, s: SettingsDto | null, platform
     quote: set ? rules.text : null,
     defaultText: set ? null : t('settings.notifyRules.default', { os: t(`settings.notifyRules.os.${os}`) }),
     rows: [row('unread', t('settings.notifyRules.dest.unread')), row('os', t(`settings.notifyRules.dest.os.${os}`)), row('phone', t('settings.notifyRules.dest.phone'))],
-    seed: { request: set ? t('settings.notifyRules.request', { text: rules.text }) : t('settings.notifyRules.requestUnset'), quote: '' },
+    seed: { request: set ? t('settings.notifyRules.request', { text: rules.text.replace(/[。.]+$/, '') }) : t('settings.notifyRules.requestUnset'), quote: '' },
   };
 }

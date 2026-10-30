@@ -35,5 +35,6 @@ describe('設定の知らせ方の欄', () => {
   it('種の依頼文は、決まりがあれば今の決まりを引用し、なければ決めたい旨にする。引用の欄は空', () => {
     expect(present(store({ notifyPreference: { text: '静かに', unread: [], os: [], phone: [] } })).seed).toEqual({ request: '知らせ方を変えたい。今の決まりは「静かに」。どう変えたいか聞いて。', quote: '' });
     expect(present(store()).seed).toEqual({ request: '知らせ方を決めたい。どう知らせてほしいか聞いて。', quote: '' });
+    expect(present(store({ notifyPreference: { text: '静かに。', unread: [], os: [], phone: [] } })).seed.request).toBe('知らせ方を変えたい。今の決まりは「静かに」。どう変えたいか聞いて。');
   });
 });
