@@ -7,6 +7,7 @@
 //! 頁は remote の頁なので、中身をそのまま信じない。
 
 use std::collections::HashSet;
+use std::time::Duration;
 
 pub mod feed;
 pub mod hold;
@@ -345,6 +346,32 @@ pub fn status_name(raw: Option<isize>) -> &'static str {
         Some(2..=4) => "granted",
         Some(_) => "undetermined",
     }
+}
+
+/// 断られた許可の求めのあと、許可の状態を読み直す間隔と回数（合わせて 5 秒）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub const RECHECK_EVERY: Duration = Duration::from_millis(500);
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub const RECHECK_TRIES: u32 = 10;
+
+/// 許可の求めが断られたと答えたあと、許可が後から書かれたかを読み直す。
+/// macOS 27 では、札の「許可」を押しても求めの答えは断られた（エラー付き）になり、許可が書かれるのは約 2 秒後である（2026-10-30 に VM で確かめた）。
+/// 読み直さないと、札を出させた最初の通知を捨て、頁の「許可する」から求めたときは断られたと知らせてしまう。
+/// read は許可の状態（UNAuthorizationStatus の値）を読み、wait は間を置く。OS に尋ねられなければ（`None`）すぐやめる。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn granted_after_refusal(
+    mut read: impl FnMut() -> Option<isize>,
+    mut wait: impl FnMut(Duration),
+) -> bool {
+    for _ in 0..RECHECK_TRIES {
+        wait(RECHECK_EVERY);
+        match status_name(read()) {
+            "granted" => return true,
+            "unsupported" => return false,
+            _ => {}
+        }
+    }
+    false
 }
 
 /// Windows のトーストの中身と、押されたトーストを殻へ戻すための登録の値。
@@ -1007,14 +1034,25 @@ mod mac {
         }
         let done = Mutex::new(Some(done));
         let block = RcBlock::new(move |granted: Bool, err: *mut NSError| {
-            if !granted.as_bool() {
-                // SAFETY: OS が渡すエラーは、この呼び出しの間は生きている（無ければ null）。
-                let reason = unsafe { err.as_ref() }.map(|e| e.localizedDescription().to_string());
-                crate::log(&super::refused_line(reason.as_deref()));
+            let Some(f) = done.lock().unwrap().take() else {
+                return;
+            };
+            if granted.as_bool() {
+                f(true);
+                return;
             }
-            if let Some(f) = done.lock().unwrap().take() {
-                f(granted.as_bool());
-            }
+            // SAFETY: OS が渡すエラーは、この呼び出しの間は生きている（無ければ null）。
+            let reason = unsafe { err.as_ref() }.map(|e| e.localizedDescription().to_string());
+            // 札の「許可」でも断られたと答えることがあるので、OS の答えの口を塞がないよう別のスレッドで読み直す（granted_after_refusal）。
+            std::thread::spawn(move || {
+                let granted = super::granted_after_refusal(read_status, std::thread::sleep);
+                if granted {
+                    crate::log("notifications allowed after the answer said refused");
+                } else {
+                    crate::log(&super::refused_line(reason.as_deref()));
+                }
+                f(granted);
+            });
         });
         UNUserNotificationCenter::currentNotificationCenter()
             .requestAuthorizationWithOptions_completionHandler(authorization_options(), &block);
@@ -1048,6 +1086,16 @@ mod mac {
         });
         UNUserNotificationCenter::currentNotificationCenter()
             .getNotificationSettingsWithCompletionHandler(&block);
+    }
+
+    /// 許可の状態を待って読む。答えが来なければ（10 秒）まだ決まっていないとみなす。
+    fn read_status() -> Option<isize> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        status(move |raw| {
+            let _ = tx.send(raw);
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap_or(Some(0))
     }
 
     /// 通知を出す。
@@ -1123,6 +1171,46 @@ mod mac {
 mod tests {
     use super::toast::*;
     use super::*;
+
+    #[test]
+    fn a_grant_written_after_the_refusal_counts_as_granted() {
+        // macOS 27 では、札の「許可」を押しても答えは断られたで、許可は約 2 秒後に書かれる。
+        let mut reads = vec![Some(0), Some(0), Some(0), Some(2)].into_iter();
+        let mut waited = Duration::ZERO;
+        assert!(granted_after_refusal(
+            || reads.next().flatten(),
+            |d| waited += d
+        ));
+        assert_eq!(waited, RECHECK_EVERY * 4);
+    }
+
+    #[test]
+    fn a_refusal_that_stays_is_given_up_within_the_limit() {
+        let mut n = 0;
+        let mut waited = Duration::ZERO;
+        assert!(!granted_after_refusal(
+            || {
+                n += 1;
+                Some(1)
+            },
+            |d| waited += d
+        ));
+        assert_eq!(n, RECHECK_TRIES);
+        assert_eq!(waited, RECHECK_EVERY * RECHECK_TRIES);
+    }
+
+    #[test]
+    fn no_recheck_where_the_os_cannot_be_asked() {
+        let mut n = 0;
+        assert!(!granted_after_refusal(
+            || {
+                n += 1;
+                None
+            },
+            |_| {}
+        ));
+        assert_eq!(n, 1);
+    }
 
     #[test]
     fn a_refused_authorization_is_logged_with_the_reason() {
