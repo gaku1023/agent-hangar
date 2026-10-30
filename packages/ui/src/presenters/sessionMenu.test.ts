@@ -15,6 +15,22 @@ const storeWith = (s: SessionDto, extra: Partial<Store> = {}): Store => ({ ...in
 const keys = (m: SessionMenuProps) => sessionMenuEntries(ja, m).map((e) => e.key);
 const entry = (m: SessionMenuProps, key: string) => sessionMenuEntries(ja, m).find((e) => e.key === key)!;
 
+describe('起動元から外す', () => {
+  const child = session({ id: 'c', spawnedBy: 's1' });
+  it('起動元があるときだけ、プロジェクトの変更の前に出す', () => {
+    const store = { ...storeWith(session()), sessions: { s1: session(), c: child } };
+    const k = keys(presentSessionMenu(store, child, ja));
+    expect(k.indexOf('detachSpawn')).toBe(k.indexOf('move') - 1);
+    expect(entry(presentSessionMenu(store, child, ja), 'detachSpawn').send).toEqual({ type: 'session.spawn.detach', id: 'c' });
+    expect(keys(presentSessionMenu(store, session(), ja))).not.toContain('detachSpawn');
+  });
+  it('起動元が Done でも出す（戻したときにまた入れ子にならないように）', () => {
+    const done = session({ state: { status: 'done', setBy: 'user', setAt: NOW, note: null, returnOn: null, candidate: null } as SessionDto['state'] });
+    const store = { ...storeWith(done), sessions: { s1: done, c: child } };
+    expect(keys(presentSessionMenu(store, child, ja))).toContain('detachSpawn');
+  });
+});
+
 describe('セッションのメニューの中身（presentSessionMenu）', () => {
   it('終わった会話は、状態の 4 つ、プロジェクトを変更、削除を並べ、停止は出さない', () => {
     const s = session({ state: { status: 'done', setBy: 'user', setAt: NOW, note: null, returnOn: null, candidate: null } as SessionDto['state'] });

@@ -37,6 +37,7 @@ export const rowJa: AreaDictionary<typeof rowKeys> = {
   'row.menu.changeDate': '日付を変更',
   'row.menu.dismiss': '却下',
   'row.menu.label': '{name} のメニュー',
+  'row.menu.detachSpawn': '起動元から切り離す',
   'row.menu.move': 'プロジェクトを変更…',
   'row.menu.moveNone': '移動できるプロジェクトがありません',
   'row.menu.delete': '削除…',

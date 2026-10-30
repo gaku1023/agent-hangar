@@ -13,3 +13,9 @@ export function recordSpawn(db: Db, sessionId: string, parentId: string, now: nu
   ).run(sessionId, parentId, now);
   touchRow(db, 'sessions', sessionId);
 }
+
+/** 利用者が起動元から外した。入れ子も起動元へのリンクも消え、起動元の状態が変わっても戻らない。 */
+export function forgetSpawn(db: Db, sessionId: string): void {
+  const r = db.prepare('delete from session_spawns where session_id = ?').run(sessionId);
+  if (r.changes > 0) touchRow(db, 'sessions', sessionId);
+}

@@ -64,6 +64,7 @@ const ICONS = {
   moveFiles: FolderInput,
   // セッションのメニューの「プロジェクトを変更…」と「削除…」（ゴミ箱へ移す）。
   moveSession: FolderInput,
+  detachSpawn: Unlink,
   trash: Trash2,
   appWindow: AppWindow,
   latest: ArrowDownToLine,

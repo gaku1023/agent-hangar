@@ -9,6 +9,7 @@ import { LiveDigester } from '../../live/digest.ts';
 import { PromoteError } from '../../projects/promote.ts';
 import { searchSessions } from '../../search/search.ts';
 import { MoveError, moveSession } from '../../sessions/move.ts';
+import { forgetSpawn } from '../../sessions/spawns.ts';
 import { dismissOverlap } from '../../sessions/overlap.ts';
 import { markSeen } from '../../live/unread.ts';
 import { parkedSessionIds } from '../../sessions/park.ts';
@@ -169,6 +170,12 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     if (body.returnOn !== undefined && typeof body.returnOn !== 'string') return c.json({ error: tr('session.status.returnOnMustBeString') }, 400);
     if (body.returnTime !== undefined && typeof body.returnTime !== 'string') return c.json({ error: tr('session.status.returnTimeMustBeString') }, 400);
     return stateResult(c, () => confirmSessionState(db, deviceId, id, body.returnOn === undefined ? {} : { returnOn: body.returnOn as string, ...(body.returnTime !== undefined ? { returnTime: body.returnTime as string } : {}) }));
+  });
+  api.delete('/sessions/:id/spawn', (c) => {
+    const id = c.req.param('id');
+    if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
+    forgetSpawn(db, id);
+    return c.json({ ok: true });
   });
   api.post('/sessions/:id/state/reject', (c) => {
     const id = c.req.param('id');

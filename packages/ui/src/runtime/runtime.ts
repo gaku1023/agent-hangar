@@ -822,6 +822,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.addTodo': deps.api.addTodo(e.projectId, e.text).catch(fail); return;
       case 'api.todo': todoCall(deps.api, e.call).catch(fail); return;
       // セッションの状態。画面の正は後から届く session.upsert なので、返り値はストアに入れない。失敗の一文はトーストに出す。
+      case 'api.detachSpawn': deps.api.detachSpawn(e.id).catch(fail); return;
       case 'api.setSessionState': deps.api.setSessionState(e.id, e.body).catch(fail); return;
       case 'api.confirmSessionState': deps.api.confirmSessionState(e.id, e.body).catch(fail); return;
       case 'api.rejectSessionState': deps.api.rejectSessionState(e.id).catch(fail); return;
