@@ -328,6 +328,40 @@ function applyOne(db: Db, c: ChangeOut, o: ApplyOptions): 'applied' | 'skipped' 
   return 'applied';
 }
 
+/**
+ * 持ち越した行が、いま当て直しても落ちると分かるかを見る関数を作る（呼び手の 1 回の当て直しの間だけ使う）。
+ * 当てて失敗させると、prepare と例外の生成だけで 1 行あたり 0.2ms ほどかかり、数千行でサーバが止まる。ここは引くだけなので軽い。
+ * - 外部キーの親が手元に無い行。寄せた Artifact は、寄せた先があれば親があるとみなす。
+ * - sessions の行で、同じ会話が手元に別の ID であるもの。(provider, provider_session_id) の一意の制約で落ちる。
+ * 値を持たない列は見ない（当ててみて落ちるなら、これまでどおり持ち越す）。
+ */
+export function carriedRowBlocked(db: Db): (c: ChangeOut) => boolean {
+  type Fk = { from: string; table: string; to: string | null };
+  const fks = new Map<string, Fk[]>();
+  const exists = new Map<string, ReturnType<Db['prepare']>>();
+  const hasParent = (table: string, col: string, value: string): boolean => {
+    const key = `${table}.${col}`;
+    let s = exists.get(key);
+    if (!s) { s = db.prepare(`select 1 from ${table} where ${col} = ?`); exists.set(key, s); }
+    return s.get(value) !== undefined;
+  };
+  const alias = db.prepare('select 1 from artifact_aliases where alias_id = ?');
+  const sameSession = db.prepare('select 1 from sessions where provider = ? and provider_session_id = ? and id <> ?');
+  return (c) => {
+    if (c.tableName === 'sessions' && typeof c.payload.provider === 'string' && typeof c.payload.provider_session_id === 'string'
+      && sameSession.get(c.payload.provider, c.payload.provider_session_id, c.rowId) !== undefined) return true;
+    let list = fks.get(c.tableName);
+    if (!list) { list = db.pragma(`foreign_key_list(${c.tableName})`) as Fk[]; fks.set(c.tableName, list); }
+    for (const fk of list) {
+      const value = fk.from === TABLE_PK[c.tableName] ? c.rowId : c.payload[fk.from];
+      if (typeof value !== 'string') continue;
+      if (fk.table === 'artifacts' && alias.get(value) !== undefined) continue;
+      if (!hasParent(fk.table, fk.to ?? 'id', value)) return true;
+    }
+    return false;
+  };
+}
+
 /** 寄せた先の ID。寄せていなければ null。 */
 function artifactAlias(db: Db, id: string): string | null {
   const r = db.prepare('select artifact_id from artifact_aliases where alias_id = ?').get(id) as { artifact_id: string } | undefined;
