@@ -6601,7 +6601,10 @@ Windows には通知の許可を尋ねるダイアログが無いので、`notif
 バッジは Tauri の `set_badge_count` で出す。
 macOS では Dock のバッジも通知の設定の「バッジ」に従うので、許可を求めるときは表示と音に加えてバッジも求める（`notify.rs` の `authorization_options`）。
 macOS は、署名の壊れた `.app`（署名せずに入れた手元の build）からの許可の求めを、システム設定で許可していても、ダイアログを出さずにエラーで断る（2026-10-24 に macOS 27 で実測）。
-断られたら、殻は理由をログ（`notifications refused by macOS: …`）に書く。
+macOS 27 では、許可の札で「許可」を押しても、求めの答えは断られた（エラー付き）になり、許可が書かれるのは約 2 秒後である（2026-10-30 に VM で実測）。
+そのため殻は、断られたと答えたあと 0.5 秒おきに 5 秒まで許可の状態を読み直し、許可に変わっていれば許されたとみなす（`notify.rs` の `granted_after_refusal`）。
+読み直さないと、札を出させた最初の通知が捨てられ、頁の［許可する］から求めたときは断られたと知らせてしまう。
+読み直しても断られたままなら、殻は理由をログ（`notifications refused by macOS: …`）に書く。
 手元の build は `npm run build-mac-local -w apps/desktop` で、build の出力に署名してから入れる。専用のキーチェーンがあれば証明書で、無ければ ad-hoc で署名する（`docs/signing.md`）。
 ブラウザでは Web Notification と `navigator.setAppBadge` を使い、どちらも無ければ何もしない。
 
