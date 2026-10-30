@@ -208,7 +208,8 @@ a:hover { text-decoration: underline; }
 .side-live-fold:hover { color: var(--ink); }
 .side-live-seat > .dot { transition: background var(--dur) var(--ease-out), opacity var(--dur-fast) var(--ease-out); }
 .side-live-row:hover .side-live-fold, .side-live-row:focus-within .side-live-fold { opacity: 1; pointer-events: auto; }
-.side-live-row:hover .side-live-seat > .dot, .side-live-row:focus-within .side-live-seat > .dot { opacity: 0; }
+/* 丸を隠すのは開閉の印を持つ席だけ。子の無い行は、乗せても丸のままにする。 */
+.side-live-row:hover .side-live-seat[data-fold='true'] > .dot, .side-live-row:focus-within .side-live-seat[data-fold='true'] > .dot { opacity: 0; }
 /* 畳んだ起動元の名前の右に並べる、子孫ごとの小さな状態の丸（A1）。 */
 .side-live-kidots { display: inline-flex; align-items: center; gap: 3px; flex: none; }
 .side-live-kidot { width: 6px; height: 6px; }
