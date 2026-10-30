@@ -33,7 +33,7 @@ export function presentOverlap(store: Store, sessionId: string, now: number): Ov
   const clock = (ts: number) => resetsLabel(ts, now) ?? '';
   const partners = o.with.map((id): OverlapPartner => {
     const p = store.sessions[id];
-    const live = p ? quietLive(p.live, p.state?.status) : null;
+    const live = p ? quietLive(p.live, p.state?.status, p.woke) : null;
     const project = p?.projectId && store.projects[p.projectId] ? projectDisplayName(store.projects[p.projectId]!, t) : t('common.label.uncategorized');
     const state = live ? t(LIVE_KEY[live]) : t('row.dot.ended');
     return { id, name: p?.name ?? t('common.label.noName'), context: `${project} · ${state}`, live, aside: p ? asideOf(p.live, p.liveAside) !== null : false, open: { type: 'session.open', id } };

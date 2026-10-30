@@ -111,6 +111,7 @@ export type SessionActivityDto = { tool: string; summary: string; question: stri
  * state はセッションの状態と提案で、null は Active である。
  * parked は、区切りを付けたのにプロセスが休みのまま残っていること（shared の isParked）。真なら画面では実行中に数えない。
  * stoppedByStatus は、区切りを付けたので hangar が Claude を止め、その印がまだ残っていること。
+ * woke は、状態（Done・Archived・Paused）を付けた後に、この PC のサーバが休みから作業中へ移るのを見たこと（server の sessions/wake.ts）。真なら知らせを止めない（shared の quietLive）。手元の覚えで、サーバを起こし直すと偽に戻る。古いサーバは返さないので、読む側は偽として読む。
  * liveAside は登録の aside を写したもの（LiveSessionDto）で、無ければ null である。
  * activity は実行中のときだけ値を持ち、実行中でなければ null である。
  * waitingFor と permission は登録の同じ欄を写したもので、入力待ちの間だけ付く（LiveSessionDto）。
@@ -118,7 +119,7 @@ export type SessionActivityDto = { tool: string; summary: string; question: stri
  * lastTurnAt は最後の入力・返答の時刻（手元の統計）で、終わった会話の見出しの「終了」に使う。統計の無い会話は null。
  * provider は会話を動かすエージェントで、一覧とサイドバーのアイコンを決める（agentIcons.ts）。古いサーバは opencode を知らないので、読む側は agentIconKindOf で読む。
  */
-export type SessionDto = { id: string; provider: AgentKind; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; lastTurnAt: number | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity: SessionActivityDto | null; state: SessionStateDto | null; parked: boolean; stoppedByStatus: boolean; liveAside: LiveAsideDto | null; waitingFor: WaitKind | null; permission: PermissionAskDto | null; limit: SessionLimitDto | null;
+export type SessionDto = { id: string; provider: AgentKind; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; lastTurnAt: number | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity: SessionActivityDto | null; state: SessionStateDto | null; parked: boolean; stoppedByStatus: boolean; woke: boolean; liveAside: LiveAsideDto | null; waitingFor: WaitKind | null; permission: PermissionAskDto | null; limit: SessionLimitDto | null;
   /** 中断（SessionInterruptDto）。ステータスの無いセッションで、最後の run が lost で終わったときだけ値を持つ。 */
   interrupted: SessionInterruptDto | null;
   /** 同じファイルを別のセッションと編集していること（SessionOverlapDto）。実行中のときだけ値を持つ。 */

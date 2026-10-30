@@ -5,6 +5,7 @@ import type { NoticeEvent } from '../events/publisher.ts';
 import { writeBaselineIfNeeded } from '../indexer/baseline.ts';
 import { statusChanged } from './park.ts';
 import { getSessionState } from './states.ts';
+import { noteWake } from './wake.ts';
 
 export type LiveChangeDeps = {
   db: Db; deviceId: string;
@@ -65,11 +66,14 @@ export function createLiveChangeHandler(deps: LiveChangeDeps): { prime(live: rea
       }
       // 区切りを付けたセッションは、動きが変わると実行中に数えるか（parked）も変わる。
       // UI は live.update から動きしか直せないので、印の付いたものだけ行ごと配り直す。
+      const at = Date.now();
       for (const providerSessionId of statusChanged(liveStatus, live)) {
         const sessionId = sessionIdOf(providerSessionId);
         if (!sessionId) continue;
         // 動きが変わったら、休みの数え直しにする。
         deps.resetPark(sessionId);
+        // 休みから動き出したら覚える。状態を付けた後なら、知らせを止めない（wake.ts）。
+        if (liveStatus.get(providerSessionId) === 'idle') noteWake(db, sessionId, at);
         if (getSessionState(db, sessionId)?.status) touchRow(db, 'sessions', sessionId);
       }
       liveStatus = new Map(live.map((l) => [l.sessionId, l.status]));

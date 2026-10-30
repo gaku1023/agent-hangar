@@ -39,7 +39,7 @@ describe('statusMark（状態の札の説明と自動の印）', () => {
     expect(statusMark(ja, st({ setBy: 'import', setAt: at }), turns(9), null, null).title).toBe('hangar が自動で Done にしました');
   });
   it('一覧の行は、札の説明と自動の印を持つ', () => {
-    const base = { id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: null, name: 'n', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, stats: turns(1), fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: st({ setBy: 'import' }), parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null } as SessionDto;
+    const base = { id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: null, name: 'n', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, stats: turns(1), fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: st({ setBy: 'import' }), parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null } as SessionDto;
     const row = presentSessionRow(base, initialStore(), 10);
     expect(row).toMatchObject({ state: 'done', setBy: 'import', autoDone: true, statusTitle: 'hangar が自動で Done にしました（3 ターン以下で終了した会話）' });
     expect(presentSessionRow({ ...base, state: null }, initialStore(), 10)).toMatchObject({ autoDone: false, statusTitle: '進行中のもの' });

@@ -23,13 +23,18 @@ describe('liveFilterOf', () => {
 });
 
 describe('quietLive', () => {
-  it('Done と Archived にしたセッションは、問いで待っていても休みとして数える', () => {
+  it('Done、Archived、Paused にしたセッションは、問いで待っていても休みとして数える', () => {
     expect(quietLive('waiting', 'done')).toBe('idle');
     expect(quietLive('waiting', 'archived')).toBe('idle');
+    expect(quietLive('waiting', 'paused')).toBe('idle');
     expect(liveFilterOf(quietLive('waiting', 'done'), false)).toBe('running');
   });
-  it('Paused と、状態の無いセッションの入力待ちはそのまま', () => {
-    expect(quietLive('waiting', 'paused')).toBe('waiting');
+  it('状態を付けた後に休みから動き出したもの（woke）は、入力待ちをそのまま出す', () => {
+    expect(quietLive('waiting', 'paused', true)).toBe('waiting');
+    expect(quietLive('waiting', 'done', true)).toBe('waiting');
+    expect(quietLive('waiting', 'paused', false)).toBe('idle');
+  });
+  it('状態の無いセッションの入力待ちはそのまま', () => {
     expect(quietLive('waiting', null)).toBe('waiting');
     expect(quietLive('waiting', undefined)).toBe('waiting');
   });

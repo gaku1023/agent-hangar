@@ -127,6 +127,26 @@ describe('実行中の一覧の変化', () => {
     expect(calls.filter((c) => c === `reset ${alpha}`).length).toBe(2);
   });
 
+  it('印を付けた後に休みから動き出したら woke を立てる。付けたターンの続き（休みを挟まない）では立てない', () => {
+    setSessionState(db, 'd', alpha, { status: 'paused', note: 'CI を待つ', setBy: 'conversation' });
+    publisher.flush();
+    const h = handler();
+    // 付けたターンの間は作業中のまま。入力待ちから作業中に戻っても動き出しではない。
+    change(h, [entry('waiting')]);
+    change(h, [entry('busy')]);
+    expect(upserts().at(-1)!.session.woke).toBe(false);
+    change(h, [entry('idle')]);
+    expect(upserts().at(-1)!.session.woke).toBe(false);
+    // 見張りの終わりで動き出した。
+    sent.length = 0;
+    change(h, [entry('busy')]);
+    expect(upserts().at(-1)!.session.woke).toBe(true);
+    // 付け直したら、また静かにする。
+    setSessionState(db, 'd', alpha, { status: 'paused', note: '明日見る', setBy: 'conversation', now: Date.now() + 1 });
+    publisher.flush();
+    expect(upserts().at(-1)!.session.woke).toBe(false);
+  });
+
   it('印の無いセッションは、動きが変わっても行を配り直さない。動きは live.update が運ぶ', () => {
     const h = handler();
     change(h, [entry('idle')]);

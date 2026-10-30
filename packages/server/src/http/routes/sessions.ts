@@ -20,6 +20,7 @@ import { readEvents, subagentIds } from '../../transcript/read.ts';
 import { errorText, render, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, editorOptsOf, externalOf, isEnoent, numberOr, readJson, sessionOf, tooLargeResult } from './common.ts';
+import { wokeSince } from '../../sessions/wake.ts';
 
 /** セッションの経路が使う依存。 */
 export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh' | 'trash'> & LanguageDeps;
@@ -101,11 +102,11 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     const alive = new Set(deps.runs.listAlive().runs.filter((r) => r.endedAt === null).map((r) => r.sessionId));
     // 区切りを付けて休みのまま残っているものは、画面と同じく終了に数える。
     const parked = new Set(parkedSessionIds(db, deps.live(), deviceId));
-    // 問いで待っている最中に Done や Archived にしたものは、入力待ちに数えない（shared の quietLive。UI の数え方と同じ）。
-    const settled = new Map((db.prepare("select session_id id, status from session_states where status in ('done', 'archived') and deleted_at is null").all() as { id: string; status: SessionStatus }[]).map((r) => [r.id, r.status]));
+    // 問いで待っている最中に Done、Archived、Paused にしたものは、付けた後に動き出すまで入力待ちに数えない（shared の quietLive。UI の数え方と同じ）。
+    const settled = new Map((db.prepare("select session_id id, status, set_at at from session_states where status in ('done', 'archived', 'paused') and deleted_at is null").all() as { id: string; status: SessionStatus; at: number | null }[]).map((r) => [r.id, r]));
     // 自動で続かずにリセットを過ぎたもの（リセット済み）は、入力待ちに数える（shared の liveWithLimit。UI の数え方と同じ）。
     const stops = stopReasonsOf(db, deps.live(), Date.now());
-    const liveOf = (sid: string, psid: string) => liveFilterOf(quietLive(liveWithLimit(liveStatus.get(psid) ?? null, stops.limit(psid)), settled.get(sid)), alive.has(sid), parked.has(sid));
+    const liveOf = (sid: string, psid: string) => liveFilterOf(quietLive(liveWithLimit(liveStatus.get(psid) ?? null, stops.limit(psid)), settled.get(sid)?.status, wokeSince(db, sid, settled.get(sid)?.at ?? null)), alive.has(sid), parked.has(sid));
     return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), live, stop, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset), status, hideArchived }, liveOf, (_sid, psid) => stops.reason(psid)));
   });
 

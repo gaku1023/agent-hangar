@@ -17,7 +17,7 @@ const LEGACY = '\u30b9\u30af\u30e9\u30c3\u30c1';
 
 
 const NOW = 1_800_000_000_000;
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: null, name: `name-${id}`, cwd: '/w', firstPrompt: null, aiTitle: null, live: 'busy', lastActivityAt: NOW - 60_000, startedAt: NOW - 600_000, hasTranscript: true, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, cost: null }, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over } as unknown as SessionDto);
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: null, name: `name-${id}`, cwd: '/w', firstPrompt: null, aiTitle: null, live: 'busy', lastActivityAt: NOW - 60_000, startedAt: NOW - 600_000, hasTranscript: true, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, cost: null }, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over } as unknown as SessionDto);
 const storeWith = (list: SessionDto[]): Store => ({ ...initialStore(), bootstrapped: true, sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
 const liveOf = (store: Store, state = initialState()) => presentShell(state, store, NOW).live;
 const at = (name: 'home' | 'projects') => ({ ...initialState(), screen: { name } });
@@ -30,6 +30,17 @@ describe('サイドバーの「動いている」の並び（presentShell）', (
     expect(live.count).toBe(3);
     expect(live.rows[2]).toMatchObject({ live: 'waiting', waited: '入力待ち 4 分', current: false });
     expect(live.rows[1]).toMatchObject({ live: 'busy', waited: null });
+  });
+  it('Paused にした会話は、休みで未読が無ければ並べない。作業中、動き出した後の入力待ち、未読のあるものは並べる', () => {
+    const paused: SessionDto['state'] = { status: 'paused', note: null, returnOn: null, returnTime: null, setBy: 'conversation', setAt: NOW - 1000, candidate: null };
+    const s = storeWith([
+      session('i', { live: 'idle', state: paused }),
+      session('q', { live: 'waiting', state: paused }),
+      session('b', { live: 'busy', state: paused }),
+      session('w', { live: 'waiting', state: paused, woke: true }),
+      session('u', { live: 'idle', state: paused, unread: { count: 1, latest: '通った', at: NOW } }),
+    ] as SessionDto[]);
+    expect(liveSessionIds(s).sort()).toEqual(['b', 'u', 'w']);
   });
   it('許可待ちと使用制限は印と右端の語を替える（許可待ち N 分、リセットの時刻、リセット済み）。行の位置は変えない', () => {
     const resetsAt = new Date(NOW).setHours(new Date(NOW).getHours() + 1, 50, 0, 0);
