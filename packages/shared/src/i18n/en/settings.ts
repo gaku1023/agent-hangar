@@ -300,6 +300,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.label.unreadBadge': 'Show unread counts',
   'settings.label.unreadOs': 'Notify unread by OS notification',
   'settings.label.unreadPhone': 'Notify unread on the phone',
+  'settings.label.notifyPreference': 'How to notify',
   'settings.label.autoDone': 'Mark stopped conversations as Done',
   'settings.label.autoDoneIdleDays': 'Also mark long-idle conversations as Done',
   'settings.label.autoPark': 'Stop conversations marked Done or Archived',

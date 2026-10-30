@@ -299,6 +299,7 @@ export const settingsKeys = {
   'settings.label.unreadBadge': [],
   'settings.label.unreadOs': [],
   'settings.label.unreadPhone': [],
+  'settings.label.notifyPreference': [],
   'settings.label.autoDone': [],
   'settings.label.autoDoneIdleDays': [],
   'settings.label.autoPark': [],

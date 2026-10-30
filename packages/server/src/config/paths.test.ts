@@ -83,6 +83,14 @@ describe('paths', () => {
     const s = loadSettings(tmp, 'darwin');
     expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, toolsResolved: false, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKey: null, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, language: 'ja' });
   });
+  it('notifyPreference は読み込みで検査する。kind でない要素は捨て、配列でない・text が文字列でないものは項目ごと捨てる', () => {
+    ensureHome(tmp);
+    const load = (np: unknown) => { fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ notifyPreference: np })); return loadSettings(tmp, 'darwin').notifyPreference; };
+    expect(load({ text: 'a', unread: ['done', 'zzz'], os: ['ask'], phone: [], merge: false })).toEqual({ text: 'a', unread: ['done'], os: ['ask'], phone: [], merge: false });
+    expect(load({ text: 'a', unread: 'done', os: [], phone: [] })).toBeUndefined();
+    expect(load({ text: 1, unread: [], os: [], phone: [] })).toBeUndefined();
+    expect(load(null)).toBeNull();
+  });
   it('0.4.0 までの codePath は、VS Code とその場所のエディタに読み替え、古い鍵は持たない', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c', codePath: '/usr/local/bin/code' }));

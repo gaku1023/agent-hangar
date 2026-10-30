@@ -300,6 +300,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.label.unreadBadge': '未読数を表示する',
   'settings.label.unreadOs': '未読を OS の通知で知らせる',
   'settings.label.unreadPhone': '未読をスマホの通知で知らせる',
+  'settings.label.notifyPreference': '知らせ方',
   'settings.label.autoDone': '停止したセッションを自動で Done にする',
   'settings.label.autoDoneIdleDays': '長期間アクティビティの無いセッションも Done にする',
   'settings.label.autoPark': 'Done と Archived にしたセッションを停止する',
