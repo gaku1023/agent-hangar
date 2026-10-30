@@ -66,6 +66,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   summarizerModels: ['gemma', 'qwen'], summarizerTest: null,
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
   usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 1200, outputTokens: 340, sessions: 2 }], projects: [{ projectId: 'p1', name: 'alpha', inputTokens: 1200, outputTokens: 340, costUsd: 1.5, sessions: 2 }] },
+  notifyRules: { quote: null, defaultText: '既定', rows: [], seed: { request: '', quote: '' } },
   cloud: { configured: false, url: null, state: 'off', stateLabel: '同期オフ', badge: { text: '同期オフ', tone: 'off' }, paused: false, limited: false, lastPullAt: '不明', pending: 0, sweepPending: null, skipped: [], devices: [], usage: null },
   configSync: configSyncProps(),
   shell: { state: 'off', zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install', uninstallCommand: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell uninstall', available: true, devices: [] },
@@ -90,6 +91,13 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   update: updateProps(),
   self: { autoDone: true, autoDoneIdleDays: 7, autoPark: true },
   setupGuide: null,
+  ...over,
+});
+
+const rulesProps = (over: Partial<SettingsProps['notifyRules']> = {}): SettingsProps['notifyRules'] => ({
+  quote: '静かにしてほしい', defaultText: null,
+  rows: [{ key: 'unread', name: '未読数', level: 'すべて', off: false }, { key: 'os', name: 'Mac の通知', level: 'オフ', off: true }, { key: 'phone', name: 'スマホの通知', level: '済んだ', off: false }],
+  seed: { request: '知らせ方を変えたい。', quote: '' },
   ...over,
 });
 
@@ -222,7 +230,7 @@ describe('設定の一般', () => {
   });
   it('一般には、言語、通知、ターミナルアプリ、エディタだけを置く（保持とステータスの自動処理はセッションの節にある）', () => {
     render(ui(at('general', { retention: { days: 365, options: [{ value: '365', label: '1 年' }], writable: true, reason: null, valueLabel: '1 年', bar: null, syncNote: false } })));
-    expect([...document.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['言語', '通知を有効にする', '未読数を表示する', '未読を OS の通知で知らせる', '未読をスマホの通知で知らせる', 'ターミナルアプリ', 'エディタ']);
+    expect([...document.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['言語', '通知を有効にする', '知らせ方', 'ターミナルアプリ', 'エディタ']);
     expect(screen.queryByRole('heading', { level: 3, name: 'ステータスの自動処理' })).toBeNull();
   });
   it('帯のエディタの行から来たとき（focus が editor）は、エディタの欄を目立たせ、他のエディタを開いて始める', () => {
@@ -925,15 +933,25 @@ describe('設定のセッションの「Claude Code に渡す設定」と「新�
     fireEvent.click(screen.getByRole('switch', { name: '見てほしい出力を notify_user で知らせる' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { notifyUser: false } });
   });
-  it('通知の節の 3 つのスイッチは、既定は入りで、切り替えた時点でその 1 項目だけを保存する', () => {
+  it('知らせ方の欄は、引用と出し先ごとの段階を読むだけで出し、3 つのスイッチは無い', () => {
+    render(ui(at('general', { notifyRules: rulesProps() })));
+    const box = screen.getByRole('region', { name: '知らせ方' });
+    expect(within(box).getByText('静かにしてほしい')).toBeInTheDocument();
+    expect(box.querySelectorAll('dt')).toHaveLength(3);
+    expect(within(box).getByText('Mac の通知').nextElementSibling).toHaveTextContent('オフ');
+    expect(box.querySelector('dd[data-off="true"]')).not.toBeNull();
+    for (const name of ['未読数を表示する', '未読を OS の通知で知らせる', '未読をスマホの通知で知らせる']) expect(screen.queryByRole('switch', { name })).toBeNull();
+  });
+  it('未設定のときは、引用の代わりに既定の文を薄く出す', () => {
+    render(ui(at('general', { notifyRules: rulesProps({ quote: null, defaultText: '既定の文' }) })));
+    expect(screen.getByText('既定の文')).toHaveAttribute('data-default', 'true');
+    expect(screen.queryByText('静かにしてほしい')).toBeNull();
+  });
+  it('「エージェントで変える…」は、種を入れた新しいセッションのダイアログを開く（起動はしない）', () => {
     const onAction = vi.fn();
-    render(ui(at('general'), onAction));
-    for (const [name, key] of [['未読数を表示する', 'unreadBadge'], ['未読を OS の通知で知らせる', 'unreadOs'], ['未読をスマホの通知で知らせる', 'unreadPhone']] as const) {
-      const sw = screen.getByRole('switch', { name });
-      expect(sw).toHaveAttribute('aria-checked', 'true');
-      fireEvent.click(sw);
-      expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { [key]: false } });
-    }
+    render(ui(at('general', { notifyRules: rulesProps() }), onAction));
+    fireEvent.click(screen.getByRole('button', { name: 'エージェントで変える…' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.new.open', scratch: true, seed: { request: '知らせ方を変えたい。', quote: '' } });
   });
   it('「Remote Control を付けて起動する」の切り替えが PATCH { remoteControl } を送る。説明に、claude.ai のログインのアカウントだけで効く旨がある', () => {
     const onAction = vi.fn();

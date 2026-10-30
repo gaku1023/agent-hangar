@@ -16,7 +16,7 @@ import { Icon, type IconName } from './primitives/Icon.tsx';
 import { InfoTip } from './primitives/InfoTip.tsx';
 import { useT } from './primitives/language.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
-import { markHit } from './primitives/motionKit.ts';
+import { fadeIn, markHit } from './primitives/motionKit.ts';
 import { revealWithin } from './primitives/revealWithin.ts';
 import { Segmented } from './primitives/Segmented.tsx';
 import { UsageBar } from './UsageBar.tsx';
@@ -36,6 +36,7 @@ import { SetRow } from './primitives/SetRow.tsx';
 import { Stepper } from './primitives/Stepper.tsx';
 import { Switch } from './primitives/Switch.tsx';
 import { InvestigateButton } from './InvestigateButton.tsx';
+import type { NotifyRulesProps } from '../presenters/notifyRules.ts';
 
 /** 「✓ 保存しました」を出しておく長さ（設定の C1）。 */
 export const SAVED_TICK_MS = 2000;
@@ -186,6 +187,46 @@ function IntegrationWrite(props: { card: IntegrationCard; desktop: boolean; extr
  * パスの欄は欄を出たら保存し、欄の横に「✓ 保存しました」、欄の下に検証の 1 行を出す（C1 と B1）。
  * 保持する状態は入力途中の値だけで、保存は settings.update を出す。
  */
+/**
+ * 知らせ方の欄（案 A）。左に見出し、利用者の言葉の引用、出し先ごとの決まり、右に［エージェントで変える…］。決まりは読むだけで、変えるのはエージェントに頼む。
+ * 値が配りで変わったときだけ、中身を fadeIn で入れ替える（最初の描画では動かさない）。
+ */
+function NotifyRulesRow(props: { rules: NotifyRulesProps }) {
+  const t = useT();
+  const emit = useEmit();
+  const { rules } = props;
+  const body = useRef<HTMLDivElement>(null);
+  const sig = JSON.stringify([rules.quote, rules.defaultText, rules.rows]);
+  const seen = useRef(sig);
+  useEffect(() => {
+    if (seen.current === sig) return;
+    seen.current = sig;
+    if (body.current) fadeIn(body.current, '--dur-fast');
+  }, [sig]);
+  const title = t('settings.label.notifyPreference');
+  return (
+    <div className="set-row notify-rules" role="region" aria-label={title}>
+      <div className="set-row-l">
+        <div className="set-row-t">{title}</div>
+        <div ref={body}>
+          {rules.quote !== null ? <p className="notify-rules-quote">{rules.quote}</p> : <p className="notify-rules-quote faint" data-default="true">{rules.defaultText}</p>}
+          <dl className="notify-rules-list">
+            {rules.rows.map((r) => (
+              <Fragment key={r.key}>
+                <dt>{r.name}</dt>
+                <dd data-off={r.off}>{r.level}</dd>
+              </Fragment>
+            ))}
+          </dl>
+        </div>
+      </div>
+      <div className="set-row-r">
+        <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'session.new.open', scratch: true, seed: rules.seed })}>{t('settings.notifyRules.button')}</button>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsScreen(props: SettingsProps) {
   const emit = useEmit();
   const t = useT();
@@ -323,13 +364,7 @@ export function SettingsScreen(props: SettingsProps) {
               </div>
             ) : undefined}
         control={<Switch label={t('settings.general.notify.title')} checked={props.notify.on} disabled={!props.notify.available} onChange={(next) => emit({ type: 'notify.set', on: next })} />} />
-      {/* 未読の出し先。補助の説明は添えない。どれも選んだ時点で保存する。 */}
-      <SetRow title={t('settings.label.unreadBadge')}
-        control={<Switch label={t('settings.label.unreadBadge')} checked={props.unread?.badge !== false} onChange={(next) => emit({ type: 'settings.update', patch: { unreadBadge: next } })} />} />
-      <SetRow title={t('settings.label.unreadOs')}
-        control={<Switch label={t('settings.label.unreadOs')} checked={props.unread?.os !== false} onChange={(next) => emit({ type: 'settings.update', patch: { unreadOs: next } })} />} />
-      <SetRow title={t('settings.label.unreadPhone')}
-        control={<Switch label={t('settings.label.unreadPhone')} checked={props.unread?.phone !== false} onChange={(next) => emit({ type: 'settings.update', patch: { unreadPhone: next } })} />} />
+      <NotifyRulesRow rules={props.notifyRules} />
       {/* 切り替えた時点で保存する。iTerm2 は初回に macOS の自動化の許可ダイアログが出るので、その案内は行に常に出す。選択肢は画面を開いている OS のものだけ。 */}
       <SetRow title={t('settings.general.terminal.title')} desc={props.terminalDescAlways ? props.terminalDesc : undefined} info={props.terminalDescAlways ? undefined : props.terminalDesc}
         control={<Segmented label={t('settings.general.terminal.title')} value={props.terminalApp} options={props.terminalOptions.map((o) => ({ ...o, lead: <Icon name={TERMINAL_ICON[o.value]} /> }))} onChange={(v) => setNow({ terminalApp: v as TerminalApp })} />} />

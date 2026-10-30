@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isCodexInjection, type CodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isAutoDoneIdleDays, isIdleUnload, isLanguage, isLocalContext, isModelName, isOpencodeInjection, isSummaryEngine, newId, providerPrepsOf, terminalAppFor, type AutoDoneIdleDays, type ConfigApproval, type EditorSetting, type Language, type OpencodeInjection, type ProviderPrep, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
+import { isCodexInjection, type CodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isAutoDoneIdleDays, isIdleUnload, isLanguage, isLocalContext, isModelName, isOpencodeInjection, isSummaryEngine, newId, notifyPreferenceOf, type NotifyPreference, providerPrepsOf, terminalAppFor, type AutoDoneIdleDays, type ConfigApproval, type EditorSetting, type Language, type OpencodeInjection, type ProviderPrep, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
 import { isLoose } from '../platform/secure.ts';
 import { decideLanguage, osDisplayLanguage } from '../i18n/osLanguage.ts';
 
@@ -87,6 +87,11 @@ export type Settings = {
   unreadOs?: boolean;
   /** 未読が増えたとき、つないだスマホへ知らせるか。既定は入り。false のときだけ切りとして読む。 */
   unreadPhone?: boolean;
+  /**
+   * 知らせ方の決まり（利用者の言葉と、出し先ごとの場面）。null と未設定は既定。
+   * あれば unreadBadge・unreadOs・unreadPhone より先に効く（古い設定の読み替えは notifyRulesOf）。
+   */
+  notifyPreference?: NotifyPreference | null;
   /**
    * 新しいセッションのモデルの札の初めの値（0.6.0）。プロジェクトに前回の値があれば、画面はそちらを先に使う。
    * null は Claude Code の既定（--model を渡さない）である。
@@ -247,6 +252,11 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   if (typeof s.liveHints !== 'boolean') s.liveHints = true;
   // 未読の 4 つは既定の設定に持たない（書かれていなければ入りとして読む）。真偽値でない手書きの値は捨てる。
   for (const k of ['notifyUser', 'unreadBadge', 'unreadOs', 'unreadPhone'] as const) if (s[k] !== undefined && typeof s[k] !== 'boolean') delete s[k];
+  // 知らせ方の決まりは形を検査する。kind でない要素は捨て、形の合わないものは項目ごと捨てて既定として読む。
+  if (s.notifyPreference !== undefined && s.notifyPreference !== null) {
+    const np = notifyPreferenceOf(s.notifyPreference);
+    if (np) s.notifyPreference = np; else delete s.notifyPreference;
+  }
   // 要約エンジンとモデルの名前も、手で書き換えた値を既定に寄せる。モデルの名前は claude の引数へそのまま渡るので、形を確かめる。
   if (!isSummaryEngine(s.summaryEngine)) s.summaryEngine = 'off';
   if (!isModelName(s.summaryClaudeModel)) s.summaryClaudeModel = DEFAULT_SUMMARY_CLAUDE_MODEL;

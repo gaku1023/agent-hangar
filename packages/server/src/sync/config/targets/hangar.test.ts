@@ -30,7 +30,7 @@ afterEach(() => { setHangarPrefsApplier(null); db.close(); fs.rmSync(tmp, { recu
 describe('hangar の好み：集める', () => {
   it('運ぶ鍵だけを hangar:<鍵> で集める。PC ごとの鍵は集めない', () => {
     put({
-      language: 'en', askStatusAtEnd: false, liveHints: false, notifyUser: false, unreadBadge: false, unreadOs: false, unreadPhone: false, defaultModel: 'opus', autoDone: false, autoDoneIdleDays: 14, autoPark: false, remoteControl: false,
+      language: 'en', askStatusAtEnd: false, liveHints: false, notifyUser: false, unreadBadge: false, unreadOs: false, unreadPhone: false, notifyPreference: { text: '済んだら', unread: ['done'], os: ['ask'], phone: [] }, defaultModel: 'opus', autoDone: false, autoDoneIdleDays: 14, autoPark: false, remoteControl: false,
       summaryEngine: 'claude', summaryClaudeModel: 'sonnet', configApproval: 'auto', opencodeInjection: 'none', opencodePermissionPreset: false, opencodeLocalContext: 65536, codexInjection: 'none',
       // PC ごと
       codexEnabled: true, codexIntercept: true, opencodeEnabled: true, opencodeIntercept: true, claudeDir: '/x', tmuxPath: '/t', nodePath: '/n', claudePath: '/c', workspaceRoot: '/w',
@@ -39,7 +39,7 @@ describe('hangar の好み：集める', () => {
     });
     const ids = collectAll(ctx()).items.map((i) => i.id).sort();
     expect(ids).toEqual([...HANGAR_PREF_KEYS].map((k) => `hangar:${k}`).sort());
-    expect(HANGAR_PREF_KEYS).toHaveLength(19);
+    expect(HANGAR_PREF_KEYS).toHaveLength(20);
     for (const i of collectAll(ctx()).items) expect(i.kind).toBe('hangar-pref');
     const body = collectAll(ctx()).items.map((i) => i.content.toString()).join('\n');
     expect(body).not.toContain('sk-secret');

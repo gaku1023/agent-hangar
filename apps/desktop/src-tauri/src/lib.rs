@@ -1869,6 +1869,7 @@ fn notify_waiting(
         &title,
         &body,
         bare.unwrap_or(false),
+        false,
     )
 }
 
@@ -1880,6 +1881,7 @@ fn deliver_notice(
     title: &str,
     body: &str,
     bare: bool,
+    even_in_front: bool,
 ) -> Result<(), String> {
     // 題や本文が空のときの代わりの文は、殻の頁と同じ言語で書く。
     let lang = bootfail::page_language(&paths::hangar_home());
@@ -1887,13 +1889,13 @@ fn deliver_notice(
     let app = app.clone();
     let session_id = session_id.to_string();
     match notify::hold::offer(w, bare) {
-        notify::hold::Offer::Show(w) => show_unless_in_front(&app, &w),
+        notify::hold::Offer::Show(w) => show_unless_in_front(&app, &w, even_in_front),
         notify::hold::Offer::Hold(token) => {
             // 頁の時計は絞られるので、殻のスレッドで待つ。
             std::thread::spawn(move || {
                 std::thread::sleep(notify::hold::HOLD);
                 if let Some(w) = notify::hold::due(&session_id, token) {
-                    show_unless_in_front(&app, &w);
+                    show_unless_in_front(&app, &w, even_in_front);
                 }
             });
         }
@@ -1905,9 +1907,9 @@ fn deliver_notice(
     Ok(())
 }
 
-/// 窓が前になければ通知を出す。
+/// 窓が前になければ通知を出す。項目が前でも出す印（even_in_front）を持てば、前でも出す。
 /// 預かった通知も、出す瞬間の窓の様子で決める。
-fn show_unless_in_front(app: &AppHandle, w: &notify::Waiting) {
+fn show_unless_in_front(app: &AppHandle, w: &notify::Waiting, even_in_front: bool) {
     if let Some(win) = app.get_webview_window("main") {
         let visible = win.is_visible().unwrap_or(false);
         let minimized = win.is_minimized().unwrap_or(false);
@@ -1915,7 +1917,10 @@ fn show_unless_in_front(app: &AppHandle, w: &notify::Waiting) {
         // Windows では、フォーカスが WebView2 の子窓にあると is_focused が偽になるので、OS の前景の窓でも見る。
         #[cfg(windows)]
         let focused = focused || win.hwnd().is_ok_and(notify::window_owns_foreground);
-        if notify::window_in_front(visible, minimized, focused) {
+        if notify::skip_in_front(
+            notify::window_in_front(visible, minimized, focused),
+            even_in_front,
+        ) {
             log("notification skipped: the window is in front");
             return;
         }
@@ -1973,9 +1978,15 @@ fn watch_notices(app: AppHandle, addr: SocketAddr, token: String) {
                 if !notify::feed::enabled() {
                     continue;
                 }
-                if let Err(e) =
-                    deliver_notice(&app, i.kind, &i.session_id, &i.title, &i.body, i.bare)
-                {
+                if let Err(e) = deliver_notice(
+                    &app,
+                    i.kind,
+                    &i.session_id,
+                    &i.title,
+                    &i.body,
+                    i.bare,
+                    i.even_in_front,
+                ) {
                     log(&format!("notification from the server refused: {e}"));
                 }
             }

@@ -238,6 +238,11 @@ pub fn window_in_front(visible: bool, minimized: bool, focused: bool) -> bool {
     visible && !minimized && focused
 }
 
+/// 通知を出さずに済ませるか。窓が前にあれば出さないが、項目が前でも出す印（`even_in_front`、決まりの whileFocused）を持てば出す。
+pub fn skip_in_front(in_front: bool, even_in_front: bool) -> bool {
+    in_front && !even_in_front
+}
+
 /// Windows で、前景の窓が hangar の窓（`ours`）か、その子孫か、hangar の窓が持ち主の窓（ダイアログなど）か。
 /// tao の `is_focused` は、最上位の窓そのものがフォーカスを持つときだけ真になる。
 /// hangar の窓では、フォーカスはふだん中の WebView2 の子窓（Chrome_WidgetWin_1）にあるので、窓が前にあっても偽になる。
@@ -1215,6 +1220,14 @@ mod tests {
         assert!(!window_in_front(true, true, true));
         // 隠した（macOS の Cmd+H、閉じるボタン）。
         assert!(!window_in_front(false, false, true));
+    }
+
+    #[test]
+    fn a_window_in_front_skips_the_notification_unless_the_item_says_even_in_front() {
+        assert!(skip_in_front(true, false));
+        assert!(!skip_in_front(true, true));
+        assert!(!skip_in_front(false, false));
+        assert!(!skip_in_front(false, true));
     }
 
     /// OS の前景を取り合う試験を 1 本ずつにする錠。

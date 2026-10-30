@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { isAutoDoneIdleDays, isCodexInjection, isLanguage, isLocalContext, isModelName, isOpencodeInjection, isSummaryEngine, type ConfigExecMark } from '@agent-hangar/shared';
+import { isAutoDoneIdleDays, isCodexInjection, isLanguage, isLocalContext, isModelName, isNotifyPreference, isOpencodeInjection, isSummaryEngine, type ConfigExecMark } from '@agent-hangar/shared';
 import { loadSettings } from '../../../config/paths.ts';
 import { applyHangarPrefs } from './hangarApplier.ts';
 import { ApplyError, type ApplyPlan, type ApplyPlanItem, type ApplyResult, type PlannedOp } from '../apply.ts';
@@ -30,6 +30,7 @@ const FITS: Record<string, (v: unknown) => boolean> = {
   unreadBadge: bool,
   unreadOs: bool,
   unreadPhone: bool,
+  notifyPreference: (v) => v === null || isNotifyPreference(v),
   defaultModel: (v) => v === null || isModelName(v),
   autoDone: bool,
   autoDoneIdleDays: isAutoDoneIdleDays,

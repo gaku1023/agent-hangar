@@ -32,7 +32,30 @@ const LIVE_JA = [
   'Bash と Agent の description は日本語で短く（20 字程度）書いてください。',
 ];
 /** notify_user で知らせる段（launch.injection.notify）。 */
-const NOTIFY_JA = tt('ja', 'launch.injection.notify').split('\n').slice(0, -1);
+const NOTIFY_JA = [
+  'ユーザーは複数のセッションを並べて使っており、このセッションの画面を見ていないことが多いです。返答したことは notify_user でしか伝わりません。',
+  'ターンを終えてユーザーに返すたびに（依頼の結果、途中経過の報告、サブエージェントの結果がまとまったとき、ユーザーの判断が必要なときを含む）、最後の返答の前に notify_user を呼び、何が起きたかを 1 文で text に、場面を kind に書いてください。',
+  'kind は、頼まれたことが済んだら "done"、ユーザーの判断や答えが必要なら "ask"、まだ途中の報告なら "progress" です。どこに知らせるかは hangar がユーザーの設定で決めるので、to は渡さないでください。',
+  'AskUserQuestion で聞くときは呼ばなくて構いません（入力待ちとして別に知らせます）。',
+  'ターンの途中の細かい手順のたびには呼ばないでください。',
+];
+/** 知らせ方を保存する段（launch.injection.notifySave）。os は Mac か Windows、rules は今の決まり。 */
+const SAVE_JA = (os: string, rules: string) => [
+  'ユーザーが知らせ方を言ったら（AskUserQuestion の答えを含む）、set_notify_preference で保存してください。'
+  + `text にはユーザーの言葉をそのまま入れ、unread（未読の数）、os（${os} の通知）、phone（スマホの通知）のそれぞれに、知らせる場面を done、ask、progress から選んで入れます。ユーザーが触れていない出し先は、今の決まりのままにします。今の決まり：${rules}。`,
+  `whileFocused（見ている間も ${os} の通知を出すか）と merge（返答と入力待ちを 1 通にまとめるか）は、ユーザーがそう言ったときだけ true か false で渡してください。`,
+  '保存したら、出し先ごとにどの場面で知らせるかを返答で短く読み返してください。',
+];
+const RULES_DEFAULT_JA = 'unread は done・ask・progress、os は done・ask、phone は done・ask';
+/** 知らせ方がまだ決まっていないときだけ足す段（launch.injection.notifyAsk）。 */
+const ASK_JA = (os: string) => [
+  '知らせ方がまだ決まっていません。このセッションの最初のターンの終わりに 1 度だけ、AskUserQuestion で、どんなときに知らせてほしいかを聞いてください。'
+  + `選択肢は「返答のたびに未読、${os} とスマホは済んだときと判断が必要なとき（デフォルト）」「${os} とスマホにも毎回」「${os} とスマホは判断が必要なときだけ」の 3 つにし、ユーザーは Other で自由に答えられます。答えたら set_notify_preference で保存してください。`,
+  '「このセッションをどうしますか」を聞くターンと同じなら、同じ AskUserQuestion の別の問いにしてください。',
+];
+/** Mac で、知らせ方が未設定の既定の入り（Windows の CI でも同じ文になるよう、OS を指す）。 */
+const MAC: InjectionParts = { askStatusAtEnd: true, liveHints: true, notifyUser: true, notify: { platform: 'darwin' } };
+const NOTIFY_ALL_JA = [...NOTIFY_JA, ...SAVE_JA('Mac', RULES_DEFAULT_JA), ...ASK_JA('Mac')];
 const joined = (...parts: string[][]) => [...parts.flat(), ''].join('\n');
 
 describe('renderInjection', () => {
@@ -63,8 +86,21 @@ describe('renderInjection', () => {
 
   it('既定では、常に足す段、区切りの問いの段、ターンの意図の段をこの順に並べる', () => {
     const input = { projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 'ta', text: 'a' }] };
-    expect(renderInjection(input)).toBe(joined(BODY_JA, NOTIFY_JA, STATUS_JA, LIVE_JA));
-    expect(renderInjection(input, 'ja', { askStatusAtEnd: true, liveHints: true })).toBe(joined(BODY_JA, NOTIFY_JA, STATUS_JA, LIVE_JA));
+    expect(renderInjection(input, 'ja', MAC)).toBe(joined(BODY_JA, NOTIFY_ALL_JA, STATUS_JA, LIVE_JA));
+    expect(renderInjection(input, 'ja', { askStatusAtEnd: true, liveHints: true, notify: { platform: 'darwin' } })).toBe(joined(BODY_JA, NOTIFY_ALL_JA, STATUS_JA, LIVE_JA));
+  });
+  it('知らせ方が決まっていれば、未設定の段は出さず、今の決まりを差し込む。出し先が空なら「出さない」と言う', () => {
+    const input = { projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 'ta', text: 'a' }] };
+    const rules = { text: 'x', unread: ['done' as const], os: [], phone: ['ask' as const, 'progress' as const], whileFocused: false, merge: true };
+    const t = renderInjection(input, 'ja', { ...MAC, notify: { platform: 'darwin', rules, decided: true } });
+    expect(t).toBe(joined(BODY_JA, NOTIFY_JA, SAVE_JA('Mac', 'unread は done、os は 出さない、phone は ask・progress'), STATUS_JA, LIVE_JA));
+    expect(t).not.toContain('まだ決まっていません');
+  });
+  it('Windows の PC では、出し先の名前を Windows にする', () => {
+    const input = { projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 'ta', text: 'a' }] };
+    const t = renderInjection(input, 'ja', { ...MAC, notify: { platform: 'win32' } });
+    expect(t).toBe(joined(BODY_JA, [...NOTIFY_JA, ...SAVE_JA('Windows', RULES_DEFAULT_JA), ...ASK_JA('Windows')], STATUS_JA, LIVE_JA));
+    expect(t).not.toContain('Mac');
   });
   it('区切りの問いを切ると、問いの段を足さない', () => {
     const t = renderInjection({ projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 'ta', text: 'a' }] }, 'ja', { askStatusAtEnd: false, liveHints: true, notifyUser: false });
@@ -157,7 +193,7 @@ describe('renderInjection の PC をまたぐ段', () => {
   it('プロジェクトを 2 台以上で使っていれば弱い 1 文を足し、1 台なら足さない', () => {
     const two = renderInjection({ ...BASE, deviceCount: 2 });
     expect(two).toContain('このプロジェクトは 2 台の PC で使っています。過去の会話のパスやファイルの状態は、この PC と違うことがあります。\n');
-    expect(two.indexOf('このプロジェクトは')).toBeLessThan(two.indexOf('頼まれたことが'));
+    expect(two.indexOf('このプロジェクトは')).toBeLessThan(two.indexOf('頼まれたことが明確に終わったとき'));
     expect(renderInjection({ ...BASE, deviceCount: 1 })).not.toContain('台の PC');
     expect(renderInjection(BASE)).not.toContain('台の PC');
   });
@@ -194,6 +230,8 @@ function renderBeforeSplit(i: InjectionInput, language: Language = 'ja', parts: 
   return [
     tt(language, 'launch.injection.body', { projectName: i.projectName, projectPath: i.projectPath, todos: todoText }),
     parts.notifyUser !== false ? tt(language, 'launch.injection.notify') : '',
+    parts.notifyUser !== false ? tt(language, 'launch.injection.notifySave', { os: 'Mac', rules: tt(language, 'launch.injection.notifyRules', { unread: ['done', 'ask', 'progress'].join(tt(language, 'launch.injection.notifyJoin')), os: ['done', 'ask'].join(tt(language, 'launch.injection.notifyJoin')), phone: ['done', 'ask'].join(tt(language, 'launch.injection.notifyJoin')) }) }) : '',
+    parts.notifyUser !== false ? tt(language, 'launch.injection.notifyAsk', { os: 'Mac' }) : '',
     i.handover ? handover(i.handover) : '',
     (i.deviceCount ?? 0) >= 2 ? tt(language, 'launch.injection.multiDevice', { deviceCount: String(i.deviceCount) }) : '',
     parts.askStatusAtEnd ? tt(language, 'launch.injection.status') : '',
@@ -213,9 +251,10 @@ describe('renderInjectionEntries', () => {
     { ...BASE, deviceCount: 2 },
     { ...BASE, handover: FACTS, deviceCount: 3 },
   ];
+  const mac = { platform: 'darwin' };
   const partsList: InjectionParts[] = [
-    { askStatusAtEnd: true, liveHints: true }, { askStatusAtEnd: false, liveHints: true },
-    { askStatusAtEnd: true, liveHints: false }, { askStatusAtEnd: false, liveHints: false },
+    { askStatusAtEnd: true, liveHints: true, notify: mac }, { askStatusAtEnd: false, liveHints: true, notify: mac },
+    { askStatusAtEnd: true, liveHints: false, notify: mac }, { askStatusAtEnd: false, liveHints: false, notify: mac },
     { askStatusAtEnd: true, liveHints: true, notifyUser: false }, { askStatusAtEnd: false, liveHints: false, notifyUser: false },
   ];
 
@@ -230,13 +269,14 @@ describe('renderInjectionEntries', () => {
         }
       }
     }
-    expect(renderInjectionEntries(BASE).map((e) => e.text).join('')).toBe(renderBeforeSplit(BASE));
+    expect(renderInjectionEntries(BASE, 'ja', MAC).map((e) => e.text).join('')).toBe(renderBeforeSplit(BASE));
   });
 
-  it('段は body、notify、handover、multiDevice、status、live の順で、足さない段は入れない', () => {
+  it('段は body、notify、notifySave、notifyAsk（未設定のときだけ）、handover、multiDevice、status、live の順で、足さない段は入れない', () => {
     const keys = (i: InjectionInput, parts?: InjectionParts) => renderInjectionEntries(i, 'ja', parts).map((e) => e.key);
-    expect(keys({ ...BASE, handover: FACTS, deviceCount: 2 })).toEqual(['body', 'notify', 'handover', 'multiDevice', 'status', 'live']);
-    expect(keys(BASE)).toEqual(['body', 'notify', 'status', 'live']);
+    expect(keys({ ...BASE, handover: FACTS, deviceCount: 2 })).toEqual(['body', 'notify', 'notifySave', 'notifyAsk', 'handover', 'multiDevice', 'status', 'live']);
+    expect(keys(BASE)).toEqual(['body', 'notify', 'notifySave', 'notifyAsk', 'status', 'live']);
+    expect(keys(BASE, { ...MAC, notify: { decided: true } })).toEqual(['body', 'notify', 'notifySave', 'status', 'live']);
     expect(keys(BASE, { askStatusAtEnd: false, liveHints: false, notifyUser: false })).toEqual(['body']);
     expect(keys({ ...BASE, deviceCount: 2 }, { askStatusAtEnd: false, liveHints: true, notifyUser: false })).toEqual(['body', 'multiDevice', 'live']);
     for (const e of renderInjectionEntries({ ...BASE, handover: FACTS, deviceCount: 2 })) expect(e.text, e.key).not.toBe('');
@@ -248,7 +288,7 @@ describe('renderOpencodeInjectionEntries（opencode に足す段）', () => {
 
   it('最小限（既定）は、hangar の MCP の使い方の段と、状態の段。時機は各ターンの最初の一手で、Code Mode の呼び方を添える（RESULT.md の条件 d）', () => {
     const entries = renderOpencodeInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'minimal');
-    expect(entries.map((e) => e.key)).toEqual(['body', 'notify', 'status']);
+    expect(entries.map((e) => e.key)).toEqual(['body', 'notify', 'notifySave', 'notifyAsk', 'status']);
     expect(entries[0]!.text).toBe(
       'あなたは agent-hangar から起動されたセッションです。\n'
       + '各ターンの最初の一手で、他のツールより先に、execute で `await tools.hangar.set_turn_intent({ text: "<このターンで何のために何をするか、1〜2 文>" })` を呼んでください。方針を変えたときも呼びます。\n'
@@ -259,7 +299,7 @@ describe('renderOpencodeInjectionEntries（opencode に足す段）', () => {
       + 'ユーザーが Done か Paused にしてと言っていないのに、confirmed: true を渡さないでください。\n');
     // 英語も同じ道具と同じ時機を指す。
     const en = renderOpencodeInjectionEntries(input, 'en', DEFAULT_INJECTION_PARTS, 'minimal');
-    expect(en.map((e) => e.key)).toEqual(['body', 'notify', 'status']);
+    expect(en.map((e) => e.key)).toEqual(['body', 'notify', 'notifySave', 'notifyAsk', 'status']);
     expect(en[0]!.text).toContain('tools.hangar.set_turn_intent');
     expect(en[0]!.text).toContain('tools.hangar.set_session_summary');
     expect(en[0]!.text).toContain('tools.hangar.propose_session_status({ status, note, confirmed: true })');
@@ -283,7 +323,7 @@ describe('renderOpencodeInjectionEntries（opencode に足す段）', () => {
     const claude = renderInjectionEntries(input, 'ja');
     const oc = renderOpencodeInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'claude');
     expect(oc.map((e) => e.key)).toEqual(claude.map((e) => e.key));
-    expect(oc.filter((e) => e.key !== 'live' && e.key !== 'notify')).toEqual(claude.filter((e) => e.key !== 'live' && e.key !== 'notify'));
+    expect(oc.filter((e) => !['live', 'notify', 'notifySave', 'notifyAsk'].includes(e.key))).toEqual(claude.filter((e) => !['live', 'notify', 'notifySave', 'notifyAsk'].includes(e.key)));
     expect(oc.find((e) => e.key === 'notify')!.text).toContain('tools.hangar.notify_user');
     expect(oc.find((e) => e.key === 'live')!.text).toBe('各ターンの最初の一手で、他のツールより先に、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。方針を変えたときも呼びます。\nBash と Agent の description は日本語で短く（20 字程度）書いてください。\n');
     // 段の入り切りの設定は Claude と同じく効く。
@@ -297,12 +337,12 @@ describe('renderCodexInjectionEntries（Codex に足す段）', () => {
 
   it('最小限（既定）は、hangar の MCP の使い方の段と、状態の段。道具は名前で指し、opencode の Code Mode の呼び方は使わない', () => {
     const ja = renderCodexInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'minimal');
-    expect(ja.map((e) => e.key)).toEqual(['body', 'notify', 'status']);
+    expect(ja.map((e) => e.key)).toEqual(['body', 'notify', 'notifySave', 'notifyAsk', 'status']);
     for (const name of ['set_turn_intent', 'set_session_summary', 'propose_session_status']) expect(ja[0]!.text).toContain(name);
     expect(ja[0]!.text).toContain('confirmed: true');
     expect(ja.find((e) => e.key === 'status')!.text).toContain('confirmed なし');
     const en = renderCodexInjectionEntries(input, 'en', DEFAULT_INJECTION_PARTS, 'minimal');
-    expect(en.map((e) => e.key)).toEqual(['body', 'notify', 'status']);
+    expect(en.map((e) => e.key)).toEqual(['body', 'notify', 'notifySave', 'notifyAsk', 'status']);
     expect(en[0]!.text).toMatch(/first step of every turn, before any other tool/);
     expect(en.find((e) => e.key === 'status')!.text).toContain('without confirmed');
     for (const e of [...ja, ...en]) {
@@ -333,12 +373,34 @@ describe('notify_user の段', () => {
     expect(key(renderCodexInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'minimal'))).toBe(true);
     expect(key(renderCodexInjectionEntries(input, 'ja', off, 'minimal'))).toBe(false);
   });
-  it('出し先を to で選べることを、どの節も一言で言う', () => {
+  it('どの節も、to を渡さず kind で場面を添えることを言い、to で出し先を選ぶ文は持たない', () => {
     for (const language of ['ja', 'en'] as const) {
-      for (const k of ['launch.injection.notify', 'launch.injection.opencode.notify', 'launch.injection.codex.notify'] as const) expect(tt(language, k), k).toContain("['phone']");
+      for (const k of ['launch.injection.notify', 'launch.injection.opencode.notify', 'launch.injection.codex.notify'] as const) {
+        expect(tt(language, k), k).toContain('"done"');
+        expect(tt(language, k), k).toContain('"progress"');
+        expect(tt(language, k), k).not.toContain("['phone']");
+      }
     }
-    expect(tt('ja', 'launch.injection.opencode.notify')).toContain('await tools.hangar.notify_user({ text })');
+    expect(tt('ja', 'launch.injection.opencode.notify')).toContain('await tools.hangar.notify_user({ text, kind })');
     expect(tt('ja', 'launch.injection.codex.notify')).toContain('hangar の MCP サーバーの notify_user ツール');
+  });
+  it('opencode と Codex の最小限も、保存と未設定のときに聞く段を持つ。AskUserQuestion ではなく最初の返答の終わりに文で聞く', () => {
+    const decided = { ...MAC, notify: { platform: 'win32', decided: true } };
+    const oc = renderOpencodeInjectionEntries(input, 'ja', MAC, 'minimal');
+    const cx = renderCodexInjectionEntries(input, 'ja', MAC, 'minimal');
+    expect(oc.find((e) => e.key === 'notifySave')!.text).toContain('`await tools.hangar.set_notify_preference({ text, unread, os, phone })`');
+    expect(oc.find((e) => e.key === 'notifySave')!.text).toContain('今の決まり：' + RULES_DEFAULT_JA + '。');
+    expect(cx.find((e) => e.key === 'notifySave')!.text).toContain('hangar の MCP サーバーの set_notify_preference ツール');
+    for (const es of [oc, cx]) {
+      const ask = es.find((e) => e.key === 'notifyAsk')!.text;
+      expect(ask).toContain('最初の返答の終わりに 1 度だけ、文で');
+      expect(ask).toContain('set_notify_preference');
+      expect(ask).not.toContain('AskUserQuestion');
+    }
+    for (const es of [renderOpencodeInjectionEntries(input, 'en', decided, 'minimal'), renderCodexInjectionEntries(input, 'en', decided, 'minimal')]) {
+      expect(es.map((e) => e.key)).toEqual(['body', 'notify', 'notifySave', 'status']);
+      expect(es.find((e) => e.key === 'notifySave')!.text).toContain('the Windows notification');
+    }
   });
   it('どの節も、画面を見ていないことを前置きし、ターンを返すたびに最後の返答の前に呼ばせる', () => {
     for (const k of ['launch.injection.notify', 'launch.injection.opencode.notify', 'launch.injection.codex.notify'] as const) {
