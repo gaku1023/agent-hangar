@@ -575,7 +575,7 @@ describe('MCP tools', () => {
     expect(call('open_in_hangar', { project_id: 'p1' })).toEqual({ url: 'http://127.0.0.1:4177/#/project/p1', deep_link: 'hangar://project/p1' });
     expect(call('open_in_hangar', {}, { sessionId: alphaId }).url).toContain(alphaId);
     expect(() => call('nope')).toThrow(ToolError);
-    expect(TOOL_NAMES).toHaveLength(20);
+    expect(TOOL_NAMES).toHaveLength(21);
   });
   it('set_turn_intent は意図を積み、最新を返せるようにする', () => {
     const r = call('set_turn_intent', { text: '  抜けたあと、答え終えた会話だけ止める  ' }, { sessionId: alphaId });
@@ -654,6 +654,64 @@ describe('MCP tools', () => {
     } finally {
       off();
     }
+  });
+  it('notify_user の kind：省くと done。決まり（notifyPreference）で kind を含む先だけに出す', () => {
+    const rules = { text: '済んだら Mac、判断はスマホにも', unread: ['done', 'ask', 'progress'], os: ['done', 'ask'], phone: ['ask'] } as const;
+    deps = { ...deps, settings: () => ({ notifyPreference: { ...rules, unread: [...rules.unread], os: [...rules.os], phone: [...rules.phone] } }) };
+    expect(call('notify_user', { text: 'a' }, { sessionId: alphaId })).toMatchObject({ sent: ['unread', 'os'] });
+    expect(call('notify_user', { text: 'b', kind: 'done' }, { sessionId: alphaId })).toMatchObject({ sent: ['unread', 'os'] });
+    expect(call('notify_user', { text: 'c', kind: 'ask' }, { sessionId: alphaId })).toMatchObject({ sent: ['unread', 'os', 'phone'] });
+    expect(call('notify_user', { text: 'd', kind: 'progress' }, { sessionId: alphaId })).toMatchObject({ sent: ['unread'] });
+    for (const kind of ['finish', '', 1, null]) expect(() => call('notify_user', { text: 'e', kind }, { sessionId: alphaId })).toThrow(ToolError);
+  });
+  it('notify_user の既定（設定なし）は unread すべて、os と phone は done・ask。古いスイッチの OFF は空の決まりとして読む', () => {
+    expect(call('notify_user', { text: 'a', kind: 'progress' }, { sessionId: alphaId })).toMatchObject({ sent: ['unread'] });
+    expect(call('notify_user', { text: 'b', kind: 'ask' }, { sessionId: alphaId })).toMatchObject({ sent: ['unread', 'os', 'phone'] });
+    deps = { ...deps, settings: () => ({ unreadBadge: false, unreadPhone: false }) };
+    expect(call('notify_user', { text: 'c', kind: 'ask' }, { sessionId: alphaId })).toMatchObject({ sent: ['os'] });
+    // notifyPreference があれば古いスイッチより勝つ。
+    deps = { ...deps, settings: () => ({ unreadBadge: false, notifyPreference: { text: 't', unread: ['done'], os: [], phone: ['done'] } }) };
+    expect(call('notify_user', { text: 'd' }, { sessionId: alphaId })).toMatchObject({ sent: ['unread', 'phone'] });
+  });
+  it('notify_user の to は kind に勝つが、決まりで空の先（オフ）は to があっても出ない', () => {
+    deps = { ...deps, settings: () => ({ notifyPreference: { text: 't', unread: ['done'], os: [], phone: ['ask'] } }) };
+    // phone は決まりに done が無くても、to で名指しされたら出す。
+    expect(call('notify_user', { text: 'a', kind: 'done', to: ['phone'] }, { sessionId: alphaId })).toMatchObject({ sent: ['phone'] });
+    // os は空の配列（オフ）なので、名指しされても出ない。
+    expect(call('notify_user', { text: 'b', kind: 'ask', to: ['os', 'phone'] }, { sessionId: alphaId })).toMatchObject({ sent: ['phone'] });
+    expect(call('notify_user', { text: 'c', to: ['os'] }, { sessionId: alphaId })).toMatchObject({ sent: [] });
+  });
+  it('set_notify_preference は決まりを保存して、保存した決まり（省いた項目は埋めて）を返す', () => {
+    const saved: unknown[] = [];
+    let cur: Record<string, unknown> | null = null;
+    deps = { ...deps, settings: () => ({ notifyPreference: cur as never }), saveNotifyPreference: (p) => { saved.push(p); cur = p as never; } };
+    const r = call('set_notify_preference', { text: '  済んだら Mac だけ  ', unread: ['done', 'done', 'ask'], os: ['done'], phone: [] }, { sessionId: alphaId });
+    expect(r).toEqual({ text: '済んだら Mac だけ', unread: ['done', 'ask'], os: ['done'], phone: [], whileFocused: false, merge: true });
+    expect(saved).toHaveLength(1);
+    // 保存したあとの notify_user は決まりに従う。
+    expect(call('notify_user', { text: 'x', kind: 'ask' }, { sessionId: alphaId })).toMatchObject({ sent: ['unread'] });
+    // whileFocused と merge は、渡したときだけ変わり、省けば今の値を保つ。
+    expect(call('set_notify_preference', { text: 't', unread: [], os: ['done'], phone: [], whileFocused: true, merge: false })).toMatchObject({ whileFocused: true, merge: false, unread: [] });
+    expect(call('set_notify_preference', { text: 't2', unread: ['done'], os: [], phone: [] })).toMatchObject({ whileFocused: true, merge: false });
+    expect(call('set_notify_preference', { text: 't3', unread: ['done'], os: [], phone: [], merge: true })).toMatchObject({ whileFocused: true, merge: true });
+    expect(saved.at(-1)).toMatchObject({ text: 't3', whileFocused: true, merge: true });
+  });
+  it('set_notify_preference は必須の欠けと形の違いを断り、何も保存しない。保存の口が無ければ知らない道具として断る', () => {
+    const saved: unknown[] = [];
+    deps = { ...deps, saveNotifyPreference: (p) => { saved.push(p); } };
+    const ok = { text: 't', unread: ['done'], os: ['done'], phone: [] };
+    const bad: Record<string, unknown>[] = [
+      {}, { ...ok, text: undefined }, { ...ok, text: '   ' }, { ...ok, text: 1 },
+      { ...ok, unread: undefined }, { ...ok, os: undefined }, { ...ok, phone: undefined },
+      { ...ok, unread: 'done' }, { ...ok, os: ['done', 'email'] }, { ...ok, phone: [1] },
+      { ...ok, whileFocused: 'yes' }, { ...ok, merge: 1 },
+    ];
+    for (const a of bad) expect(() => call('set_notify_preference', a)).toThrow(ToolError);
+    expect(saved).toHaveLength(0);
+    // セッション別 URL では、ほかのセッションの id を断る。
+    expect(() => call('set_notify_preference', { ...ok, session_id: 'other' }, { sessionId: alphaId })).toThrow(ToolError);
+    deps = { ...deps, saveNotifyPreference: undefined };
+    expect(() => call('set_notify_preference', ok)).toThrow(ToolError);
   });
   it('notify_user は空と 201 字を断り、200 字は通し、別のセッションの id を断る', () => {
     expect(() => call('notify_user', { text: '   ' }, { sessionId: alphaId })).toThrow(ToolError);

@@ -1,4 +1,4 @@
-import { isAgentKind, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type PermissionAskDto, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
+import { isAgentKind, isNotifyKind, notifyRulesOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
@@ -44,8 +44,10 @@ export type ToolDeps = {
   accounts?: { store: Pick<AccountStore, 'list' | 'current' | 'get'>; usage: { of(accountId: string): UsageDto } };
   /** 道具の説明と結果の文の言語。渡さなければ日本語で出す。 */
   language?: GetLanguage;
-  /** notify_user の出し先の設定（unreadBadge、unreadOs、unreadPhone）。無ければ全部入りとして読む。 */
-  settings?: () => { unreadBadge?: boolean; unreadOs?: boolean; unreadPhone?: boolean };
+  /** notify_user の出し先の設定（notifyPreference と、古いスイッチの unreadBadge、unreadOs、unreadPhone）。無ければ既定（全部入り）として読む。 */
+  settings?: () => { notifyPreference?: NotifyPreference | null; unreadBadge?: boolean; unreadOs?: boolean; unreadPhone?: boolean };
+  /** 設定の保存（PATCH /api/settings と同じ道）。保存して、変えた欄を全部の画面へ配る。無ければ set_notify_preference は知らない道具として断る。 */
+  saveNotifyPreference?: (p: NotifyPreference) => void;
   /** hook から届いた許可の確認の預け先（sessions/permissionAsks.ts）。無ければ許可の確認は読まない。 */
   permissionAsks?: { put(providerSessionId: string, ask: PermissionAskDto, now: number): void };
   /** 作者への問い合わせの口（report/service.ts）。無ければ draft_issue_report と submit_issue_report は断る。 */
@@ -76,7 +78,7 @@ export const TOOL_NAMES = [
   'create_session', 'set_session_summary', 'set_turn_intent', 'get_usage', 'open_in_hangar',
   'propose_session_status', 'draft_issue_report', 'submit_issue_report',
   'stop_session', 'resume_session', 'delete_session',
-  'send_to_session', 'read_session_screen', 'notify_user',
+  'send_to_session', 'read_session_screen', 'notify_user', 'set_notify_preference',
 ] as const;
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
@@ -527,16 +529,19 @@ export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
   const session = requireSession(deps, id);
   const text = typeof args.text === 'string' ? args.text.trim() : '';
   if (text.length === 0 || [...text].length > INTENT_MAX) throw new ToolError(msg('mcp.intent.badLength', { max: INTENT_MAX }));
-  // 出し先。省くと設定で入りの全部、付けるとその中で設定が入りのものだけ（設定の切が勝つ）。
-  let wanted: NotifyTarget[] = [...NOTIFY_TARGETS];
+  // 場面。省くと done。
+  if (args.kind !== undefined && !isNotifyKind(args.kind)) throw new ToolError(msg('mcp.notify.badKind'));
+  const kind: NotifyKind = args.kind === undefined ? 'done' : (args.kind as NotifyKind);
+  const rules = notifyRulesOf(deps.settings?.() ?? {});
+  // 出し先。to が無ければ、決まりで kind を含む先。to があれば to の先（決まりで空の配列の先、つまりオフは勝つ）。
+  let sent: NotifyTarget[];
   if (args.to !== undefined) {
     const to = args.to;
     if (!Array.isArray(to) || to.length === 0 || !to.every((x): x is NotifyTarget => NOTIFY_TARGETS.includes(x as NotifyTarget))) throw new ToolError(msg('mcp.notify.badTo'));
-    wanted = NOTIFY_TARGETS.filter((x) => to.includes(x));
+    sent = NOTIFY_TARGETS.filter((x) => to.includes(x) && rules[x].length > 0);
+  } else {
+    sent = NOTIFY_TARGETS.filter((x) => rules[x].includes(kind));
   }
-  const st = deps.settings?.() ?? {};
-  const on: Record<NotifyTarget, boolean> = { unread: st.unreadBadge !== false, os: st.unreadOs !== false, phone: st.unreadPhone !== false };
-  const sent = wanted.filter((x) => on[x]);
   let unread = session.unread?.count ?? 0;
   if (sent.length > 0) {
     if (sent.includes('unread')) {
@@ -546,6 +551,32 @@ export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
     noteUnread(id, text, unread, sent);
   }
   return { ok: true, session_id: id, at: now, unread, sent };
+}
+
+/**
+ * 知らせ方の決まり（設定の notifyPreference）を保存する。利用者の言葉をエージェントが出し先ごとの場面に直して渡す。
+ * text と unread・os・phone は必須で、欠け、形の違い、kind でない要素は断る（空の配列はオフとして通す）。
+ * whileFocused と merge は省けて、省けば今の値を保つ。返すのは保存した決まり（notifyRulesOf を通した形）。
+ * 保存は設定の PATCH と同じ道（saveNotifyPreference）で、画面へも配る。
+ */
+export function setNotifyPreferenceTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
+  if (!deps.saveNotifyPreference) throw new ToolError(msg('mcp.error.unknownTool', { name: 'set_notify_preference' }));
+  if (ctx.sessionId !== null) sessionIdOf(ctx, args);
+  const text = typeof args.text === 'string' ? args.text.trim() : '';
+  if (text.length === 0) throw new ToolError(msg('mcp.notifyPref.badField', { field: 'text' }));
+  const lists: Record<'unread' | 'os' | 'phone', NotifyKind[]> = { unread: [], os: [], phone: [] };
+  for (const f of ['unread', 'os', 'phone'] as const) {
+    const v = args[f];
+    if (!Array.isArray(v) || !v.every(isNotifyKind)) throw new ToolError(msg('mcp.notifyPref.badField', { field: f }));
+    lists[f] = [...new Set(v)];
+  }
+  for (const f of ['whileFocused', 'merge'] as const) {
+    if (args[f] !== undefined && typeof args[f] !== 'boolean') throw new ToolError(msg('mcp.notifyPref.badField', { field: f }));
+  }
+  const now = notifyRulesOf(deps.settings?.() ?? {});
+  const saved: NotifyPreference = { text, ...lists, whileFocused: (args.whileFocused as boolean | undefined) ?? now.whileFocused, merge: (args.merge as boolean | undefined) ?? now.merge };
+  deps.saveNotifyPreference(saved);
+  return notifyRulesOf({ notifyPreference: saved });
 }
 
 /**
@@ -659,6 +690,7 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'set_session_summary': return setSessionSummaryTool(deps, ctx, args);
     case 'set_turn_intent': return setTurnIntentTool(deps, ctx, args);
     case 'notify_user': return notifyUserTool(deps, ctx, args);
+    case 'set_notify_preference': return setNotifyPreferenceTool(deps, ctx, args);
     case 'get_usage': return getUsageTool(deps);
     case 'open_in_hangar': return openInHangarTool(deps, ctx, args);
     case 'propose_session_status': return proposeSessionStatusTool(deps, ctx, args);
