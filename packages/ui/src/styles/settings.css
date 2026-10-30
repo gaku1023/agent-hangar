@@ -41,6 +41,13 @@
 .set-row-l { flex: 1 1 240px; min-width: 0; }
 .set-row-t { font-weight: 600; }
 .set-row-d { font-size: var(--fs-xs); color: var(--ink-3); line-height: 1.45; }
+.notify-rules-quote { margin: 4px 0 8px; color: var(--ink-2); }
+.notify-rules-quote:not(.faint)::before { content: "\201C"; }
+.notify-rules-quote:not(.faint)::after { content: "\201D"; }
+.notify-rules-list { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 2px calc(var(--u) * 4); font-size: var(--fs-sm); }
+.notify-rules-list dt { color: var(--ink-3); }
+.notify-rules-list dd { margin: 0; }
+.notify-rules-list dd[data-off="true"] { color: var(--ink-3); opacity: 0.6; }
 .set-row-r { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 2); }
 .set-row-below { flex: 1 0 100%; }
 .set-row-value { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }

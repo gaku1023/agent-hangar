@@ -25,6 +25,9 @@ const ALLOWED: Record<string, string> = {
   'shortcuts.key.paneRemove': '外す（分割から外す）',
   // ⌘W の行も、閉じるタブが無いときは分割から外す（同じ理由）。
   'shortcuts.key.tabClose': '外す（分割から外す）',
+  // 知らせ方の欄の場面名と既定の文。「判断が要る」は Gemini に当てて決めた言い方（2026-10-30）で、必要・不要の語の置き換えは座らない。
+  'settings.notifyRules.kind.ask': '要る（判断が要る）',
+  'settings.notifyRules.default': '要る（判断が要る）',
   'pane.menu.closeOthers': '外す、ほかの（ほかのペインを外す）',
 };
 
