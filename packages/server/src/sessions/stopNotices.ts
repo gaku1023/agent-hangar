@@ -1,4 +1,4 @@
-import { limitKindText, limitReset, limitResetGrace, newId, permissionNoticeText, quietLive, resetAtText, stopReasonOf, type LimitKind, type LiveSessionDto, type OsNoticeDto, type OsNoticeFeedDto, type SessionDto, type Translate } from '@agent-hangar/shared';
+import { limitKindText, notifyRulesOf, limitReset, limitResetGrace, newId, permissionNoticeText, quietLive, resetAtText, stopReasonOf, type LimitKind, type LiveSessionDto, type OsNoticeDto, type OsNoticeFeedDto, type SessionDto, type Translate } from '@agent-hangar/shared';
 import { touchRow } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
 import { getSession } from '../db/queries.ts';
@@ -74,6 +74,8 @@ export type StopNoticeDeps = {
   live: () => LiveSessionDto[];
   language: GetLanguage;
   feed: Pick<OsNoticeFeed, 'push'>;
+  /** いまの設定。知らせ方の決まり（whileFocused と merge）を notifyRulesOf で読む。省けば既定。 */
+  settings?: () => Parameters<typeof notifyRulesOf>[0];
   /** Claude のセッションの id から、使用量を数えるアカウントの id（usage/accountOf.ts）。 */
   accountOf: (providerSessionId: string) => string;
   now?: () => number;
@@ -89,6 +91,14 @@ export type StopNoticeDeps = {
  */
 export const PERMISSION_WAIT_MS = 800;
 const BARE_SETTLE_MS = 5000;
+
+/**
+ * merge（返答と入力待ちを 1 通にまとめる）で、notify_user の OS の通知の後に来る入力待ちを同じ 1 通とみなす長さ。
+ * エージェントは notify_user を呼んだ後、そのターンの最後の返答を書いて入力待ちになる。
+ * その間は、返答の長さと登録の読み直し（最大 0.5 秒）で、数秒から十数秒になりうる。
+ * 短すぎると 2 通に割れ、長すぎると、続けて別の用事で入力待ちになったものを落とす。10 秒に置く。
+ */
+export const MERGE_WINDOW_MS = 10_000;
 
 /**
  * 入力待ちの 1 回。new は知らせる前、bare は問いの文の無いまま知らせて問いの文を待っている、done は知らせ終えた。
@@ -119,6 +129,8 @@ export class StopNoticeWatch {
   private episodes = new Map<string, Episode>();
   private limitKeys = new Map<string, number>();
   private resetKeys = new Map<string, number>();
+  /** 会話ごとの、notify_user の OS の通知を積んだ時刻（merge の判定）。 */
+  private unreadAt = new Map<string, number>();
   private primed = false;
   private readonly tr: Translate;
 
@@ -145,7 +157,10 @@ export class StopNoticeWatch {
       const now = this.deps.now?.() ?? Date.now();
       const s = this.session(this.deps.live(), sessionId, now);
       if (!s) return;
-      this.deps.feed.push({ kind: 'unread', sessionId: s.id, title: this.titleOf(s), body: text, bare: false });
+      const rules = notifyRulesOf(this.deps.settings?.() ?? {});
+      this.unreadAt.set(s.id, now);
+      // evenInFront は、窓が前でも出す印。知らない古い殻は読み捨てるので、付けても壊れない。
+      this.deps.feed.push({ kind: 'unread', sessionId: s.id, title: this.titleOf(s), body: text, bare: false, evenInFront: rules.whileFocused });
     });
   }
 
@@ -200,9 +215,18 @@ export class StopNoticeWatch {
         ep.phase = 'done';
         continue;
       }
+      // merge：同じ会話の notify_user の OS の通知の直後なら、本文の方が中身があるので、入力待ちの通知は積まない。
+      // 逆の順（入力待ちを積んだ後に notify_user が来る）は、積んだ通知を引っ込められないので、そのまま両方出る。
+      if (this.merged(s.id, now)) { ep.phase = 'done'; continue; }
       if (question) { push(question, false); ep.phase = 'done'; } else { push(this.tr('home.card.noQuestion'), true); ep.phase = 'bare'; }
     }
     for (const id of [...this.episodes.keys()]) if (!waiting.has(id)) this.episodes.delete(id);
+  }
+
+  private merged(sessionId: string, now: number): boolean {
+    for (const [id, at] of this.unreadAt) if (now - at > MERGE_WINDOW_MS) this.unreadAt.delete(id);
+    const at = this.unreadAt.get(sessionId);
+    return at !== undefined && now - at <= MERGE_WINDOW_MS && notifyRulesOf(this.deps.settings?.() ?? {}).merge;
   }
 
   private watchLimits(live: LiveSessionDto[], now: number, primed: boolean): void {

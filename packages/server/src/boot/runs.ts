@@ -246,7 +246,7 @@ export function bootRuns(
   live.onChange((l) => overlaps.noteLive(l));
   // デスクトップ通知のきっかけ（入力待ち、許可待ち、使用制限、リセット済み）。殻が GET /api/notify/feed で読む。
   const stopNotices = new StopNoticeWatch({
-    db, deviceId: device.id, live: () => live.current(), language: home.language, feed: delivery.osNotices,
+    db, deviceId: device.id, live: () => live.current(), language: home.language, feed: delivery.osNotices, settings: () => home.settings.current,
     accountOf: (providerSessionId) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id), deviceId: device.id }, providerSessionId),
   });
   // 待っているもの（問いの文、許可の中身）がある間だけ短い周期で見る。登録が変わったときはその場で見る（paceNotices）。

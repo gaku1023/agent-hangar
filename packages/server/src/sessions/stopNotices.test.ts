@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LIMIT_RESET_AUTO_GRACE_MS, LIMIT_RESET_GRACE_MS, type LiveSessionDto, type OsNoticeDto } from '@agent-hangar/shared';
+import { LIMIT_RESET_AUTO_GRACE_MS, LIMIT_RESET_GRACE_MS, notifyRulesOf, type LiveSessionDto, type OsNoticeDto } from '@agent-hangar/shared';
 import { onRowChange } from '../db/notify.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/write.ts';
@@ -17,7 +17,9 @@ let s2: string;
 let touched: string[];
 let off: () => void;
 const entry = (sessionId: string, status: LiveSessionDto['status'], over: Partial<LiveSessionDto> = {}): LiveSessionDto => ({ sessionId, status, name: null, nameSource: null, cwd: '/w', pid: 1, ...over });
+let settings: Parameters<typeof notifyRulesOf>[0];
 const watch = (o: { account?: (id: string) => string } = {}) => new StopNoticeWatch({
+  settings: () => settings,
   db, deviceId: 'd', live: () => live, language: () => 'ja', feed: { push: (n) => { pushed.push(n); } },
   accountOf: o.account ?? (() => 'primary'), now: () => now, permissionWaitMs: 800,
 });
@@ -33,6 +35,7 @@ beforeEach(() => {
   live = [entry('u1', 'busy'), entry('u2', 'busy')];
   now = new Date(2026, 9, 12, 16, 0).getTime();
   pushed = [];
+  settings = {};
   touched = [];
   off = onRowChange((c) => { if (c.db === db && c.table === 'sessions' && c.origin === 'touch') touched.push(c.rowId); });
 });
@@ -367,7 +370,7 @@ describe('StopNoticeWatch：未読の知らせ（notify_user）', () => {
     const off2 = w.subscribeUnread();
     noteUnread(s1, '調査が終わりました', 1, ['unread', 'os']);
     noteUnread(s2, '数だけ', 1, ['unread']);
-    expect(pushed).toEqual([{ kind: 'unread', sessionId: s1, title: '請求書の書き出し', body: '調査が終わりました', bare: false }]);
+    expect(pushed).toEqual([{ kind: 'unread', sessionId: s1, title: '請求書の書き出し', body: '調査が終わりました', bare: false, evenInFront: false }]);
     off2();
     noteUnread(s1, 'もう 1 回', 2, ['os']);
     expect(pushed).toHaveLength(1);
@@ -378,5 +381,130 @@ describe('StopNoticeWatch：未読の知らせ（notify_user）', () => {
     noteUnread('nope', 'x', 1, ['os']);
     off2();
     expect(pushed).toEqual([]);
+  });
+});
+
+describe('StopNoticeWatch：知らせ方の決まり（whileFocused と merge）', () => {
+  const nu = (sid = s1, text = '調査が終わりました') => noteUnread(sid, text, 1, ['unread', 'os']);
+  const waitQ = (q = 'どちらにしますか？') => { ask(q); live = [entry('u1', 'waiting', { waitingFor: 'question' })]; };
+
+  it('whileFocused が真なら、未読の項目に evenInFront を付ける。既定は偽', () => {
+    const off2 = watch().subscribeUnread();
+    nu();
+    settings = { notifyPreference: { text: '', unread: ['done'], os: ['done'], phone: [], whileFocused: true } };
+    nu(s1, '2 回目');
+    off2();
+    expect(pushed.map((p) => (p as { evenInFront?: boolean }).evenInFront)).toEqual([false, true]);
+  });
+
+  it('入力待ちの項目には evenInFront を付けない', () => {
+    settings = { notifyPreference: { text: '', unread: [], os: [], phone: [], whileFocused: true } };
+    const w = watch();
+    w.tick();
+    waitQ();
+    w.tick();
+    expect(pushed).toHaveLength(1);
+    expect((pushed[0] as { evenInFront?: boolean }).evenInFront).toBeUndefined();
+  });
+
+  it('merge（既定）では、notify_user の OS の通知の直後の入力待ちは積まない', () => {
+    const w = watch();
+    const off2 = w.subscribeUnread();
+    w.tick();
+    nu();
+    now += 3000;
+    waitQ();
+    w.tick();
+    w.tick();
+    off2();
+    expect(pushed.map((p) => p.kind)).toEqual(['unread']);
+    expect(w.pending()).toBe(false);
+  });
+
+  it('merge でも、数秒を過ぎてからの入力待ちは積む', () => {
+    const w = watch();
+    const off2 = w.subscribeUnread();
+    w.tick();
+    nu();
+    now += 60_000;
+    waitQ();
+    w.tick();
+    off2();
+    expect(pushed.map((p) => p.kind)).toEqual(['unread', 'waiting']);
+  });
+
+  it('merge が偽なら両方積む', () => {
+    settings = { notifyPreference: { text: '', unread: ['done'], os: ['done'], phone: [], merge: false } };
+    const w = watch();
+    const off2 = w.subscribeUnread();
+    w.tick();
+    nu();
+    now += 1000;
+    waitQ();
+    w.tick();
+    off2();
+    expect(pushed.map((p) => p.kind)).toEqual(['unread', 'waiting']);
+  });
+
+  it('OS に出さなかった notify_user（sent に os が無い）は、入力待ちを抑えない', () => {
+    const w = watch();
+    const off2 = w.subscribeUnread();
+    w.tick();
+    noteUnread(s1, '数だけ', 1, ['unread']);
+    waitQ();
+    w.tick();
+    off2();
+    expect(pushed.map((p) => p.kind)).toEqual(['waiting']);
+  });
+
+  it('許可待ちは、直前に notify_user があっても積む', () => {
+    const w = watch();
+    const off2 = w.subscribeUnread();
+    w.tick();
+    nu();
+    live = [entry('u1', 'waiting', { waitingFor: 'permission' })];
+    now += 1000;
+    w.tick();
+    now += 1000;
+    w.tick();
+    off2();
+    expect(pushed.map((p) => p.kind)).toEqual(['unread', 'waiting']);
+  });
+
+  it('別の会話の notify_user は抑えない', () => {
+    const w = watch();
+    const off2 = w.subscribeUnread();
+    w.tick();
+    nu(s2);
+    waitQ();
+    w.tick();
+    off2();
+    expect(pushed.map((p) => p.kind)).toEqual(['unread', 'waiting']);
+  });
+
+  it('入力待ちが先に積まれ、その直後に notify_user が来る順は、両方積む（積んだ通知は引っ込められない）', () => {
+    const w = watch();
+    const off2 = w.subscribeUnread();
+    w.tick();
+    waitQ();
+    w.tick();
+    now += 500;
+    nu();
+    off2();
+    expect(pushed.map((p) => p.kind)).toEqual(['waiting', 'unread']);
+  });
+
+  it('問いの文を待つ間（bare）に notify_user が来ても、すでに積んだ代わりの文の通知を問いの文で置き換える', () => {
+    const w = watch();
+    const off2 = w.subscribeUnread();
+    w.tick();
+    live = [entry('u1', 'waiting', { waitingFor: 'question' })];
+    w.tick();
+    now += 500;
+    nu();
+    ask('どちらにしますか？');
+    w.tick();
+    off2();
+    expect(pushed.map((p) => `${p.kind}:${p.bare}`)).toEqual(['waiting:true', 'unread:false', 'waiting:false']);
   });
 });

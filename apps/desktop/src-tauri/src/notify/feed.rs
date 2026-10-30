@@ -26,6 +26,8 @@ pub struct Item {
     pub body: String,
     /// 問いの文がまだ無い入力待ち。殻が問いの文を少し待つ（`hold`）。
     pub bare: bool,
+    /// 窓が前でも出す（決まりの whileFocused）。サーバが未読にだけ付ける。印が無い古いサーバでは偽。
+    pub even_in_front: bool,
 }
 
 /// どこまで読んだか。boot はサーバの起動ごとに変わる印で、変わったら番号を合わせ直し、前の分は出さない。
@@ -92,6 +94,10 @@ fn item_of(v: &serde_json::Value) -> Option<Item> {
         title: v.get("title")?.as_str()?.to_string(),
         body: v.get("body")?.as_str()?.to_string(),
         bare: v.get("bare").and_then(|b| b.as_bool()).unwrap_or(false),
+        even_in_front: v
+            .get("evenInFront")
+            .and_then(|b| b.as_bool())
+            .unwrap_or(false),
     })
 }
 
@@ -157,14 +163,16 @@ mod tests {
                     session_id: "s1".into(),
                     title: "名前".into(),
                     body: "向きは？".into(),
-                    bare: true
+                    bare: true,
+                    even_in_front: false
                 },
                 Item {
                     kind: Kind::Limit,
                     session_id: "s2".into(),
                     title: "使用制限（5 時間）".into(),
                     body: "b".into(),
-                    bare: false
+                    bare: false,
+                    even_in_front: false
                 },
             ]
         );
@@ -184,7 +192,8 @@ mod tests {
                 session_id: "join-request".into(),
                 title: "参加リクエストを受信しました".into(),
                 body: "b".into(),
-                bare: false
+                bare: false,
+                even_in_front: false
             }]
         );
     }
@@ -202,8 +211,26 @@ mod tests {
                 session_id: "s1".into(),
                 title: "名前".into(),
                 body: "調査が終わりました".into(),
-                bare: false
+                bare: false,
+                even_in_front: false
             }]
+        );
+    }
+
+    #[test]
+    fn the_even_in_front_mark_is_read_and_defaults_to_false() {
+        let mut c = Cursor::default();
+        c.take(&feed(BOOT, 0, "")).unwrap();
+        let items = [
+            r#"{"seq":1,"kind":"unread","sessionId":"s1","title":"t","body":"b","bare":false,"evenInFront":true}"#,
+            r#"{"seq":2,"kind":"unread","sessionId":"s2","title":"t","body":"b","bare":false,"evenInFront":"yes"}"#,
+            r#"{"seq":3,"kind":"unread","sessionId":"s3","title":"t","body":"b","bare":false}"#,
+        ]
+        .join(",");
+        let got = c.take(&feed(BOOT, 3, &items)).unwrap();
+        assert_eq!(
+            got.iter().map(|i| i.even_in_front).collect::<Vec<_>>(),
+            vec![true, false, false]
         );
     }
 

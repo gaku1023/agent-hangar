@@ -92,7 +92,9 @@ export type JoinApproverState =
  * 新しい鍵ペアはサーバーのメモリにだけあり、確認するまで名簿も keybox も変えない。
  */
 export type RecoveryKeyDraftDto = { text: string; draftId: string };
-export type OsNoticeDto = { seq: number; kind: OsNoticeKind; sessionId: string; title: string; body: string; bare: boolean };
+export type OsNoticeDto = { seq: number; kind: OsNoticeKind; sessionId: string; title: string; body: string; bare: boolean;
+  /** 窓が前でも OS の通知を出す（kind unread で、決まりの whileFocused が真のとき）。省けば出さない。 */
+  evenInFront?: boolean };
 /** boot はサーバの起動ごとに変わる値。殻はこれが変わったら、seq を今の値に合わせ直し、前の分は出さない。 */
 export type OsNoticeFeedDto = { boot: string; seq: number; items: OsNoticeDto[] };
 /**
