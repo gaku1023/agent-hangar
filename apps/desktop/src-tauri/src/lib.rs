@@ -1978,8 +1978,7 @@ fn watch_notices(app: AppHandle, addr: SocketAddr, token: String) {
                 if !notify::feed::enabled() {
                     continue;
                 }
-                if let Err(e) =
-                    deliver_notice(
+                if let Err(e) = deliver_notice(
                     &app,
                     i.kind,
                     &i.session_id,
@@ -1987,8 +1986,7 @@ fn watch_notices(app: AppHandle, addr: SocketAddr, token: String) {
                     &i.body,
                     i.bare,
                     i.even_in_front,
-                )
-                {
+                ) {
                     log(&format!("notification from the server refused: {e}"));
                 }
             }
