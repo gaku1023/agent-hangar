@@ -18,6 +18,16 @@ describe('全体の決まり', () => {
   it('禁じた効果を使わない', () => {
     for (const bad of ['text-shadow', '@keyframes pulse', '@keyframes shimmer', '@keyframes skeleton', 'backdrop-filter:']) expect(css).not.toContain(bad);
   });
+  it('端末の縁と作業中の丸は動かさない。縁は状態の色の輪だけで、輪の外の光も持たない', () => {
+    const sheet = strip(base);
+    for (const gone of ['rim-breathe', 'live-pulse']) expect(sheet).not.toContain(gone);
+    const rims = [...sheet.matchAll(/\.term-pane\[data-live='[a-z]+'\] \{([^}]*)\}/g)].map((m) => m[1]!);
+    expect(rims).toHaveLength(4);
+    for (const rim of rims) {
+      expect(rim).not.toContain('animation');
+      expect(rim).toMatch(/^ box-shadow: 0 0 0 1\.5px var\(--[a-z]+\), var\(--term-lift\); $/);
+    }
+  });
   it('古いトークンの名前は、定義にも参照にも残さない', () => {
     for (const f of sheets) {
       const sheet = strip(read(f));
