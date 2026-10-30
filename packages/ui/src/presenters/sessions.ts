@@ -9,6 +9,7 @@ import { translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
 import { pageSlice, pagerOf, type PagerProps } from './pager.ts';
 import { matchesStatus, presentSessionRow, sortForList, type SessionRowProps } from './row.ts';
+import { nestRows, nestTops } from './nestRows.ts';
 import type { ListItem } from './listItem.ts';
 
 /** 状態のタブ。all は「すべて」。 */
@@ -118,8 +119,12 @@ export function presentSessionList(state: State, store: Store, now: number, inPr
     if (status) rows = rows.filter((r) => matchesStatus(r, status));
     else rows = rows.filter((r) => r.state !== 'archived');
     // 平らな一覧だけをいまのページの分に切り出す。
-    const pager = pagerOf(state.search.page, state.pageSize, rows.length);
-    const shown = pageSlice(rows, pager);
+    // 起動元の下に子を入れ子で並べる。ページ送りは根の行で数え、子は根に付いて同じページに出る（行の高さは変えない）。
+    // 子は状態の絞り込み前の全部から引くので、状態が起動元と違う子も起動元の下に出る。
+    const pool = status ? list.map((x) => x.row) : rows;
+    const tops = nestTops(rows, store);
+    const pager = pagerOf(state.search.page, state.pageSize, tops.length);
+    const shown = nestRows(pageSlice(tops, pager), pool, store, new Set(state.sidebarFolded));
     // 状態の列は、ページではなく条件に合う全件で決める。ページを送るたびに列が出入りしないように。
     return { text: '', rows: shown, total: rows.length, loading: false, mode: 'all', pager, statusColumn: statusColumnOf(tab, rows), items: null, ...common };
   }

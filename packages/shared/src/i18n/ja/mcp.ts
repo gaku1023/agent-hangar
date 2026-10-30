@@ -70,6 +70,7 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.tool.searchSessions': '過去のセッションを全文検索する。題名、要約の 1 文、一致箇所の抜粋、再開コマンド（resume_command）、最後に実行した PC（device。here はこの PC か）を返す。この PC の claude -r では再開できない会話（トランスクリプトが他の PC にしか無い、他の PC で実行中）では resume_command が null になり、ユーザーへの案内を resume_hint で返す。device.here が false の会話で起きやすい。',
   'mcp.tool.getTranscript': 'セッションのトランスクリプトを正規化イベントで返す。セッション別 URL では session_id を省ける。',
   'mcp.tool.createSession': 'プロジェクトで新しいセッションを tmux 上に起動する。agent を省くと Claude Code、codex を渡すと Codex（ベータ）、opencode を渡すと opencode（ベータ）で起動する。Codex では permission_mode に read-only、auto、full-access のどれかを渡し（省くと auto）、effort で推論の段階を選べる。opencode では model を provider/model の形で渡し、mode でエージェント名を選べる。worktree、add_dirs、account は Claude Code だけで、Codex と opencode に渡すと断る。account を省くと、このセッションと同じアカウントで起動する。',
+  'mcp.createSession.handoffParam': '引き継ぎで起こすなら true。この会話を終えて続きを新しい会話に任せるときに付ける。付けなければ、この会話が起こした会話として hangar の画面でこの会話の下に並ぶ',
   'mcp.createSession.worktreeParam': 'worktree の名前。claude の --worktree に渡す。claude-code だけで、codex と opencode に渡すと断る',
   'mcp.createSession.addDirsParam': '作業ディレクトリのほかに読み書きを許すディレクトリ（claude の --add-dir）。claude-code だけで、codex と opencode に渡すと断る',
   'mcp.createSession.permissionModeParam': '権限。claude-code では default、acceptEdits、plan などの権限モード、codex では read-only、auto、full-access のどれか（省くと auto）。opencode では使えない',

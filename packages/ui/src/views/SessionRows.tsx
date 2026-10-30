@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import type { UiAction, StatusFilter, Translate } from '@agent-hangar/shared';
 import { useBackgroundEmit, useEmit, type Emit } from '../action/chain.tsx';
 import { ACTIVE_LABEL, candidateLabel, candidateSourceLabel, candidateShortLabel, prNumberOf, returnOnLabel, returnOnRowLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
 import type { ListItem } from '../presenters/listItem.ts';
+import { spawnFoldKey } from '../presenters/spawnTree.ts';
 import { GitChip } from './GitChip.tsx';
 import { AgentIcon } from './primitives/AgentIcon.tsx';
 import { Icon } from './primitives/Icon.tsx';
@@ -224,6 +225,13 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
       case 'j': case 'ArrowDown': moveTo(Math.min(max, cursor + 1)); break;
       case 'k': case 'ArrowUp': moveTo(Math.max(0, cursor - 1)); break;
       case 'Enter': if (cur) emit(openAction(cur)); break;
+      // 子を持つ行は、→ で子の列を開き、← で畳む。
+      case 'ArrowRight': case 'ArrowLeft': {
+        const toggle = cur?.nest?.toggle;
+        if (!cur || !toggle || toggle.open !== (e.key === 'ArrowLeft')) return;
+        emit({ type: 'sidebar.fold', key: spawnFoldKey(cur.id), open: e.key === 'ArrowRight' });
+        break;
+      }
       case 'o': if (cur?.runId) emit({ type: 'session.openTerminalApp', runId: cur.runId }); break;
       case 'e': if (cur) emit({ type: 'session.openEditor', sessionId: cur.id }); break;
       // セッションのメニュー。カーソルの行の「⋯」を押したのと同じにする（見えていなくても押せる）。
@@ -334,18 +342,30 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   // Tab で止まる行。まだ選んでいなければ先頭の行にする。見出しには止まらない。
   const tabStopId = (cursor >= 0 ? rows[cursor] : rows[0])?.id ?? null;
   const cursorRowId = cursor >= 0 ? rows[cursor]!.id : null;
-  const rowEl = (r: SessionRowProps) => (
+  const rowEl = (r: SessionRowProps) => {
+    const depth = r.nest?.depth ?? 0;
+    const toggle = r.nest?.toggle ?? null;
+    return (
     <div className="row row-2" role="row" tabIndex={r.id === tabStopId ? 0 : -1} data-cursor={r.id === cursorRowId ? 'true' : undefined} data-archived={r.state === 'archived' ? 'true' : undefined} data-morph-id={r.id}
+      data-depth={depth > 0 ? depth : undefined} data-nest={toggle ? 'true' : undefined} style={depth > 0 ? ({ '--depth': depth } as CSSProperties) : undefined}
       onClick={(e) => emit(e.altKey ? splitRightAction(r) : openAction(r))} onFocus={() => setCursorId(r.id)}
       onContextMenu={r.menu ? (e) => { e.preventDefault(); setCursorId(r.id); setCtx({ id: r.id, at: pointAnchor(e.clientX, e.clientY) }); } : undefined}>
+      {/* 子を持つ行の開閉の席。行の左の余白に置き、乗せたときと焦点のあるときだけ見える。押すと子の列を開閉し、行は開かない。 */}
+      {toggle && (
+        <button type="button" className="row-fold" aria-expanded={toggle.open} aria-label={t('sidebar.live.nest', { name: r.name })} tabIndex={-1}
+          onClick={(e) => { e.stopPropagation(); emit({ type: 'sidebar.fold', key: spawnFoldKey(r.id), open: !toggle.open }); }}>
+          <Icon name="chevron" />
+        </button>
+      )}
       {statusColumn ? status(r) : <StatusDot status={r.live} aside={r.aside} reason={r.reason ?? null} />}
       <span className="row-main">
-        <span className="row-name">{r.agent !== undefined && <span className="row-agent" data-agent={r.agent ?? 'none'}>{r.agent && <AgentIcon kind={r.agent} />}</span>}{r.nameMarks ? r.nameMarks.map((m, i) => (m.hit ? <mark key={i} className="hit">{m.text}</mark> : <span key={i}>{m.text}</span>)) : r.name}{r.phone && <span className="row-phone" data-bypass={r.phone.bypass ? 'true' : undefined} title={r.phone.title}>{r.phone.label}</span>}{props.variant !== 'project' && <span className="row-proj">{r.projectName ?? t('common.label.uncategorized')}</span>}</span>
+        <span className="row-name">{r.agent !== undefined && <span className="row-agent" data-agent={r.agent ?? 'none'}>{r.agent && <AgentIcon kind={r.agent} />}</span>}{r.nameMarks ? r.nameMarks.map((m, i) => (m.hit ? <mark key={i} className="hit">{m.text}</mark> : <span key={i}>{m.text}</span>)) : r.name}{r.phone && <span className="row-phone" data-bypass={r.phone.bypass ? 'true' : undefined} title={r.phone.title}>{r.phone.label}</span>}{props.variant !== 'project' && <span className="row-proj">{r.projectName ?? t('common.label.uncategorized')}</span>}{toggle && !toggle.open && <span className="row-kidots" aria-hidden="true">{toggle.dots.map((d, k) => <i key={k} className="dot row-kidot" data-status={d.live ?? 'ended'} data-aside={d.aside && d.live === 'busy' ? 'true' : undefined} />)}</span>}</span>
         {sub(r)}
       </span>
       {side(r)}
     </div>
-  );
+    );
+  };
   // 器は Tab の順には入れず（tabIndex=-1）、画面に入ったときのフォーカスの受け皿にだけ使う。
   // 行の打鍵はここへ上がってきて、カーソルの行について 1 度だけ処理する。
   return (

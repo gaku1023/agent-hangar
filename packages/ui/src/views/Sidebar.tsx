@@ -1,5 +1,5 @@
 import { formatRoute } from '@agent-hangar/shared';
-import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { useEmit } from '../action/chain.tsx';
 import type { NavItem, SideLiveGroup, SideLiveProps, SideLiveRow } from '../presenters/shell.ts';
@@ -16,6 +16,7 @@ import { motionMs } from './primitives/motion.ts';
 import { hangIn, hangOut } from './primitives/motionKit.ts';
 import { useMotionList } from './primitives/useMotionList.ts';
 import { paneDrag } from './paneDrag.ts';
+import { spawnFoldKey } from '../presenters/spawnTree.ts';
 
 /** 画面の名前からナビのアイコンへの対応。見た目の話なので Presenter ではなくここに置く。 */
 const NAV_ICON: Record<string, IconName> = { home: 'home', projects: 'projects', settings: 'settings' };
@@ -63,6 +64,24 @@ const DRAG_SLOP = 4;
 
 /** 浮いた行が、両端の席より先へ出られる幅（px）。端に当たったことを、止まる手応えで見せる。 */
 const DRAG_OVERSHOOT = 8;
+
+/** 並べ替えで行を指す id。薄い起動元は rep（動いている最初の子孫）を使う。 */
+const sidOf = (r: SideLiveRow): string => r.rep ?? r.id;
+
+/** 深さの付いた平らな行を、起動元の下に子を持つ木にする。 */
+type RowNode = { row: SideLiveRow; kids: RowNode[] };
+function treeOf(rows: SideLiveRow[]): RowNode[] {
+  const roots: RowNode[] = [];
+  const stack: RowNode[] = [];
+  for (const row of rows) {
+    const d = Math.min(row.depth ?? 0, stack.length);
+    const node: RowNode = { row, kids: [] };
+    if (d === 0) roots.push(node); else stack[d - 1]!.kids.push(node);
+    stack.length = d;
+    stack.push(node);
+  }
+  return roots;
+}
 
 /** 押し下げてから離すまでの、ポインタの記録。active はしきいを越えて並べ替えに入ったかどうか。 */
 type Press = { id: string; pointer: number; x: number; y: number; active: boolean; cancelled: boolean };
@@ -128,6 +147,16 @@ function shiftOf(a: SortAt, j: number): number {
 /** 行の箱（li）の高さを伸ばし、中の行を倒す。 */
 const faceOf = (li: HTMLElement) => (li.firstElementChild as HTMLElement | null) ?? li;
 const ROW_MOTION = { enter: (li: HTMLElement) => hangIn(li, faceOf(li)), exit: (li: HTMLElement) => hangOut(li, faceOf(li)), flip: false } as const;
+/** 行の出入りの 1 つ分。leaving の行は元の位置に残り、畳んで出てから落ちる。 */
+type MotionSlot = { key: string; ref: (el: HTMLElement | null) => void; leaving: boolean };
+/**
+ * 根の行と、起動元の下の子の列のそれぞれで、行の出入り（ROW_MOTION）を付ける。
+ * フックを入れ子の列ごとに持つため、部品に分けた。
+ */
+function MotionNodes(props: { nodes: RowNode[]; render: (node: RowNode, m: MotionSlot) => ReactNode }) {
+  const motion = useMotionList(props.nodes, (n) => n.row.id, ROW_MOTION);
+  return <>{motion.list.map(({ item, key, leaving }) => props.render(item, { key, ref: motion.ref(key), leaving }))}</>;
+}
 const GROUP_MOTION = { enter: (g: HTMLElement) => hangIn(g), exit: (g: HTMLElement) => hangOut(g), flip: false, enterFromEmpty: true, exitWhenEmpty: true } as const;
 
 function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: (id: string, at: MenuAnchor) => void; blocked: boolean }) {
@@ -135,6 +164,7 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
   const t = useT();
   const [sort, setSortState] = useState<Sort | null>(null);
   const setMenu = (m: { id: string; at: MenuAnchor }) => props.openMenu(m.id, m.at);
+  const baseId = useId();
   const list = useRef<HTMLUListElement>(null);
   // 押し下げの記録と、並べ替えの途中の形の写し。ポインタのイベントの間で、描き直しを待たずに読むため ref にも持つ。
   const press = useRef<Press | null>(null);
@@ -146,7 +176,9 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
   const setSort = (next: Sort | null) => { sortNow.current = next; setSortState(next); };
   // 収まりを待つ予約。並びの確定は、ここから最新の行で組み立てる（待つ間に行が増減しても、古い並びで上書きしない）。
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const shapedLive = { rows: props.rows, ids: props.rows.map((r) => r.id) };
+  // 並べ替えるのは根の行だけで、子は起動元に付いて動く。薄い起動元は、動いている最初の子孫の id（rep）で並びに載る。
+  const tops = props.rows.filter((r) => !r.depth);
+  const shapedLive = { rows: tops, ids: tops.map(sidOf) };
   const liveNow = useRef(shapedLive);
   // 窓の Esc から呼ぶ、いまの描画の settle。
   const settleRef = useRef<(cancel: boolean) => void>(() => {});
@@ -195,7 +227,7 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
     const s = sortNow.current;
     if (!s || s.phase !== 'held') return;
     // 入る先は、離したこの時点で指している行の id として持つ。収まる間に行が増減しても、別の行の前後へ入れないためである。
-    const rows = liveNow.current.rows.map((r) => r.id);
+    const rows = liveNow.current.rows.map(sidOf);
     const a = sortAt(s, rows);
     if (!a) { setSort(null); return; }
     const moved = !cancel && a.to !== a.from;
@@ -220,22 +252,24 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
   const onPointerDown = (e: PointerEvent, r: SideLiveRow) => {
     // 右ボタンと control を押しながらの押し下げは、メニューを出すためのものなので掴まない。
     if (e.button !== 0 || e.ctrlKey || e.isPrimary === false) return;
+    // 開閉の席（子を持つ行の丸の席）を押したときは掴まない。
+    if ((e.target as HTMLElement).closest?.('.side-live-seat button')) return;
     // 収まる途中の行は、収まりきるまで掴み直さない。グループを動かしている間も掴まない。
     if (sortNow.current || props.blocked) return;
-    press.current = { id: r.id, pointer: e.pointerId, x: e.clientX, y: e.clientY, active: false, cancelled: false };
+    press.current = { id: sidOf(r), pointer: e.pointerId, x: e.clientX, y: e.clientY, active: false, cancelled: false };
   };
   const onPointerMove = (e: PointerEvent) => {
     const p = press.current;
     if (!p || p.cancelled || e.pointerId !== p.pointer) return;
     if (!p.active) {
       if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_SLOP) return;
-      const from = live.rows.findIndex((r) => r.id === p.id);
+      const from = live.rows.findIndex((r) => sidOf(r) === p.id);
       if (from < 0) return;
       p.active = true;
       // 掴んだ行の外へ出ても動きと離したことを受け取れるよう、ポインタをこの行に捕まえる。
       try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* 捕まえられなくても、行の上にいる間は動く */ }
       // 行の間隔は、並んだ行の上端の差で測る。開いた帯と畳んだ帯で行の高さが違うからである。
-      const boxes = [...list.current?.querySelectorAll<HTMLElement>('li:not([data-leaving]) > .side-live-row') ?? []].map((el) => el.getBoundingClientRect());
+      const boxes = [...list.current?.querySelectorAll<HTMLElement>(':scope > li:not([data-leaving]) > .side-live-row') ?? []].map((el) => el.getBoundingClientRect());
       const first = boxes[0];
       const last = boxes[boxes.length - 1];
       const pitch = boxes.length > 1 && first && last ? (last.top - first.top) / (boxes.length - 1) : first?.height ?? 0;
@@ -246,9 +280,9 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
     // 本体の側（サイドバーの右端より外）に出たら、並べ替えをやめて落とし先を指す。サイドバーへ戻したら並べ替えに戻る。
     const side = list.current?.closest('nav')?.getBoundingClientRect();
     if (side && side.width > 0 && e.clientX > side.right) {
-      const row = live.rows.find((r) => r.id === p.id);
+      const row = live.rows.find((r) => sidOf(r) === p.id);
       if (!overBody.current) setOverBody(true);
-      paneDrag.move({ kind: 'session', sessionId: p.id, name: row?.name ?? '', live: row?.live ?? null }, e.clientX, e.clientY);
+      paneDrag.move({ kind: 'session', sessionId: row?.id ?? p.id, name: row?.name ?? '', live: row?.live ?? null }, e.clientX, e.clientY);
       // 席に残して並べ替えのずれは 0 に戻す。
       if (!sort || s.pointerDy !== 0) setSort({ ...s, pointerDy: 0 });
       return;
@@ -274,7 +308,7 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
       // 本体の上で離した：落とせる所なら pane.open を出し、並びは変えない（元の席へ収める）。
       const hit = paneDrag.finish();
       setOverBody(false);
-      if (hit) emit({ type: 'pane.open', sessionId: p.id, target: hit.target, side: hit.side });
+      if (hit) emit({ type: 'pane.open', sessionId: live.rows.find((r) => sidOf(r) === p.id)?.id ?? p.id, target: hit.target, side: hit.side });
       settle(true);
       return;
     }
@@ -302,33 +336,65 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
       setMenu({ id: r.id, at: { top: box.top, bottom: box.bottom, left: box.left, width: box.width } });
       return;
     }
+    // → で子の列を開き、← で畳む（子を持つ行だけ）。
+    if (r.nest && !e.altKey && !e.metaKey && !e.ctrlKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft') && r.nest.open === (e.key === 'ArrowLeft')) {
+      e.preventDefault();
+      emit({ type: 'sidebar.fold', key: spawnFoldKey(r.id), open: e.key === 'ArrowRight' });
+      return;
+    }
     if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
     e.preventDefault();
-    const ids = nudgeId(live.ids, r.id, e.key === 'ArrowUp' ? -1 : 1);
+    const ids = nudgeId(live.ids, sidOf(r), e.key === 'ArrowUp' ? -1 : 1);
     if (ids !== live.ids) emit({ type: 'sidebar.order', ids });
   };
-  const rowMotion = useMotionList(live.rows, (r) => r.id, ROW_MOTION);
+  const nodeEl = (node: RowNode, top: number | null, m: MotionSlot) => {
+    const r = node.row;
+    const nest = r.nest;
+    const shift = top !== null && at && !m.leaving ? shiftOf(at, top) : 0;
+    const lift = top !== null && at && sort?.id === sidOf(r) ? sort.phase : undefined;
+    // 浮いた行には、元の席でも 0 を明示して持たせる（戻る動きの行き先が 0 であるため）。
+    const style: CSSProperties | undefined = lift || shift ? { translate: `0 ${shift}px` } : undefined;
+    // 子の列を持つ行は、列ごと動かすので、ずらしは行ではなく li に掛ける。
+    const withKids = node.kids.length > 0;
+    const body = `${baseId}-${r.id}`;
+    const waitingKids = nest && !nest.open ? nest.dots.filter((d) => d.live === 'waiting').length : 0;
+    return (
+      <li key={m.key} ref={m.ref} className="side-live-item" data-leaving={m.leaving ? 'true' : undefined} inert={m.leaving || undefined} data-lift={withKids ? lift : undefined} style={withKids ? style : undefined}>
+        <a className="side-live-row" href={formatRoute({ name: 'session', id: r.id })} draggable={false} aria-current={r.current ? 'page' : undefined} data-id={r.id} data-menu={props.menuId === r.id ? 'true' : undefined}
+          data-live={r.live ?? undefined} data-dim={r.dim ? 'true' : undefined} data-unread={(r.unread ?? 0) > 0 ? 'true' : undefined} data-lift={lift} data-pane-drag={paneOn && sort?.id === sidOf(r) ? 'true' : undefined} style={withKids ? undefined : style}
+          title={r.overlap ?? (r.waited ? t('sidebar.live.rowTitle', { name: r.name, waited: r.waited }) : r.name)}
+          onClick={(e) => onClick(e, r)} onKeyDown={(e) => onKeyDown(e, r)}
+          onContextMenu={(e) => { e.preventDefault(); if (sortNow.current) return; setMenu({ id: r.id, at: { top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 } }); }}
+          onPointerDown={(e) => onPointerDown(e, r)} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}>
+          {/* 子を持つ行は、乗せたとき（と焦点のあるとき）だけ、丸の席が開閉の印に替わる。押すと子の列を開閉し、行の他の所は今まで通りセッションへ移る。 */}
+          <span className="side-live-seat">
+            <StatusDot status={r.live} aside={r.aside} reason={r.reason} />
+            {nest && (
+              <button type="button" className="side-live-fold" aria-expanded={nest.open} aria-controls={body} aria-label={t('sidebar.live.nest', { name: r.name })}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); emit({ type: 'sidebar.fold', key: spawnFoldKey(r.id), open: !nest.open }); }}>
+                <Icon name="chevron" />
+              </button>
+            )}
+          </span>
+          <span className="side-live-name">{r.name}</span>
+          {nest && !nest.open && (
+            <span className="side-live-kidots" aria-hidden="true">{nest.dots.map((d, k) => <i key={k} className="dot side-live-kidot" data-status={d.live ?? 'ended'} data-aside={d.aside && d.live === 'busy' ? 'true' : undefined} />)}</span>
+          )}
+          {waitingKids > 0 && <span className="sr-only">{t('sidebar.count.waiting', { n: waitingKids })}</span>}
+          <CountBubble n={r.unread ?? 0} sr={t('sidebar.count.unread', { n: r.unread ?? 0 })} className="side-live-unread" />{r.agent !== undefined && <span className="side-live-agent" data-agent={r.agent ?? 'none'}>{r.agent && <AgentIcon kind={r.agent} />}</span>}{r.overlap && <span className="side-live-overlap" role="img" aria-label={r.overlap} title={r.overlap}><Icon name="warning" /></span>}{r.waited && <span className="side-live-wait num" data-reason={r.reason ?? undefined}>{r.waited}</span>}
+        </a>
+        {withKids && nest && (
+          <FoldBox open={nest.open} keep id={body} className="side-live-kids">
+            <ul className="side-live-list side-live-nest"><MotionNodes nodes={node.kids} render={(k, km) => nodeEl(k, null, km)} /></ul>
+          </FoldBox>
+        )}
+      </li>
+    );
+  };
+  const roots = treeOf(props.rows);
   return (
       <ul className="side-live-list" ref={list} data-sorting={at ? 'true' : undefined}>
-        {rowMotion.list.map(({ item: r, key, leaving }) => {
-          const j = live.rows.indexOf(r);
-          const shift = at && !leaving ? shiftOf(at, j) : 0;
-          const lift = at && sort?.id === r.id ? sort.phase : undefined;
-          // 浮いた行には、元の席でも 0 を明示して持たせる（戻る動きの行き先が 0 であるため）。
-          const style: CSSProperties | undefined = lift || shift ? { translate: `0 ${shift}px` } : undefined;
-          return (
-          <li key={key} ref={rowMotion.ref(key)} data-leaving={leaving ? 'true' : undefined} inert={leaving || undefined}>
-            <a className="side-live-row" href={formatRoute({ name: 'session', id: r.id })} draggable={false} aria-current={r.current ? 'page' : undefined} data-id={r.id} data-menu={props.menuId === r.id ? 'true' : undefined}
-              data-live={r.live ?? undefined} data-unread={(r.unread ?? 0) > 0 ? 'true' : undefined} data-lift={lift} data-pane-drag={paneOn && sort?.id === r.id ? 'true' : undefined} style={style}
-              title={r.overlap ?? (r.waited ? t('sidebar.live.rowTitle', { name: r.name, waited: r.waited }) : r.name)}
-              onClick={(e) => onClick(e, r)} onKeyDown={(e) => onKeyDown(e, r)}
-              onContextMenu={(e) => { e.preventDefault(); if (sortNow.current) return; setMenu({ id: r.id, at: { top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 } }); }}
-              onPointerDown={(e) => onPointerDown(e, r)} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}>
-              <StatusDot status={r.live} aside={r.aside} reason={r.reason} /><span className="side-live-name">{r.name}</span><CountBubble n={r.unread ?? 0} sr={t('sidebar.count.unread', { n: r.unread ?? 0 })} className="side-live-unread" />{r.agent !== undefined && <span className="side-live-agent" data-agent={r.agent ?? 'none'}>{r.agent && <AgentIcon kind={r.agent} />}</span>}{r.overlap && <span className="side-live-overlap" role="img" aria-label={r.overlap} title={r.overlap}><Icon name="warning" /></span>}{r.waited && <span className="side-live-wait num" data-reason={r.reason ?? undefined}>{r.waited}</span>}
-            </a>
-          </li>
-          );
-        })}
+        <MotionNodes nodes={roots} render={(node, m) => nodeEl(node, m.leaving ? null : roots.indexOf(node), m)} />
       </ul>
   );
 }
@@ -425,7 +491,7 @@ function LiveSection(props: { live: SideLiveProps }) {
   };
   /** グループをこの順に並べた並びを覚える。いまの並びと同じなら何もしない。 */
   const order = (groups: SideLiveGroup[]) => {
-    const ids = groups.flatMap((g) => g.rows.map((r) => r.id));
+    const ids = groups.flatMap((g) => g.rows.filter((r) => !r.dim).map((r) => r.id));
     if (ids.some((id, i) => id !== liveNow.current.ids[i])) emit({ type: 'sidebar.order', ids });
   };
   /** 浮いたグループを空いた席（取り消しなら元の席）へ --dur-fast で収め、収まってからグループの順を確定する。行の settle と同じ組み立てである。 */

@@ -5,6 +5,7 @@ export const sidebarEn: AreaDictionary<typeof sidebarKeys> = {
   'sidebar.live.label': 'Running sessions',
   'sidebar.count.waiting': ', needs input {n}',
   'sidebar.count.unread': ', {n} unread',
+  'sidebar.live.nest': 'Sessions started by {name}',
   'sidebar.live.rowTitle': '{name} ({waited})',
   'sidebar.live.waited': 'Waiting {time}',
   'sidebar.live.stop': 'Stop',

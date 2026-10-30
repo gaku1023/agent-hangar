@@ -63,6 +63,7 @@ export const mcpKeys = {
   'mcp.createSession.agentParam': [],
   'mcp.createSession.modeParam': [],
   'mcp.createSession.modelParam': [],
+  'mcp.createSession.handoffParam': [],
   'mcp.createSession.worktreeParam': [],
   'mcp.createSession.addDirsParam': [],
   'mcp.createSession.permissionModeParam': [],

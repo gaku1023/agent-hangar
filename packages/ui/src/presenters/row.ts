@@ -10,6 +10,7 @@ import { phoneLabelOf } from './phoneLabel.ts';
 import { projectDisplayName } from './projectName.ts';
 import type { Segment } from './highlight.ts';
 import { DEFAULT_DAYS, transcriptMark, type TranscriptMark } from './retention.ts';
+import { type NestDot } from './spawnTree.ts';
 import { presentGitChip, type GitChipProps } from './git.ts';
 
 /**
@@ -20,6 +21,8 @@ export type SummaryStateTag = { label: string; tone: 'blocked' | 'abandoned' | n
 
 /** summaryState は 2 段目の頭に置く見立ての札。要約が無いときと、土台の要約のときは null。 */
 export type SessionRowProps = { id: string; name: string; oneLiner: string; projectName: string | null; live: LiveStatus | null; aside: boolean; reason?: StopReason | null; reasonWord?: string | null; stateLabel: string; summaryState: SummaryStateTag | null; model: string; effort: string; when: string; whenAbs: string; filesChanged: number; prUrl: string | null; hasTranscript: boolean; transcript: TranscriptMark; cost: string; runId: string | null; excerpt?: Segment[];
+  /** 入れ子の位置（MCP の create_session で起こした子は起動元の下に並ぶ）。depth は深さ。toggle は子を持つ行だけが持ち、open は子を並べているか、dots は子孫ごとの状態の丸。 */
+  nest?: { depth: number; toggle: { open: boolean; dots: NestDot[] } | null };
   /** 検索の結果の行を開いたときの跳び先（抜粋の seq と検索語）。 */
   jump?: { seq: number; q: string };
   /** 検索で名前に当たった行の、名前の中の一致箇所（印を付ける塊）。名前に当たった行だけが持ち、名前の中に語が見つからないときも持たない。 */

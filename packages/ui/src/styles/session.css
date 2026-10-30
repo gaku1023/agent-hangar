@@ -105,3 +105,16 @@ a.chip { color: var(--accent); text-decoration: none; }
 .term-band-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: color-mix(in srgb, var(--term-fg) 65%, transparent); }
 .term-band .btn { margin-left: auto; flex: none; height: 24px; font-size: var(--fs-sm); color: var(--ink); }
 .term-band .btn .kc { color: var(--ink-2); background: rgba(30, 40, 90, 0.06); }
+
+/* 起動元と起こしたセッションの印（MCP の create_session）。子の画面は見出しの上の行に起動元へ戻るリンク、起動元の画面は見出しの下に子の札の列。 */
+.spawned-from { display: inline-flex; align-items: center; gap: 4px; min-width: 0; margin-left: calc(var(--u) * 2); font-size: var(--fs-xs); color: var(--ink-3); text-decoration: none; }
+.spawned-from > svg { width: 12px; height: 12px; flex: none; }
+.spawned-from > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spawned-from:hover { color: var(--accent); text-decoration: none; }
+.pane-below > .spawned-from { display: flex; margin: calc(var(--u) * 1.5) 0 0; }
+.spawned-row { display: flex; align-items: center; gap: calc(var(--u) * 1.5); margin-top: calc(var(--u) * 2.5); overflow: hidden; }
+.spawned-pill { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); flex: 0 1 auto; min-width: 0; max-width: 220px; height: calc(var(--u) * 5); padding: 0 calc(var(--u) * 2.5); border-radius: var(--r-pill); font-size: var(--fs-xs); color: var(--ink-2); background: var(--surface-2); text-decoration: none; white-space: nowrap; }
+.spawned-pill > span:not(.dot) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.spawned-pill .dot { flex: none; }
+.spawned-pill .dot:not([data-reason]) { width: 6px; height: 6px; }
+.spawned-pill:hover { color: var(--accent); text-decoration: none; }

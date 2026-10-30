@@ -8,6 +8,7 @@ import { codexAccountIdOfSession, presentAccounts, presentAgentUsage, presentCod
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
 import { translatorOf, storeLanguage } from './i18n.ts';
 import { presentOverlap } from './overlap.ts';
+import { descendantsEnd, nestOrder, spawnFoldKey, spawnParentOf, type NestDot } from './spawnTree.ts';
 import { projectDisplayName } from './projectName.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 import { presentNotices, type NoticesProps } from './notices.ts';
@@ -78,7 +79,15 @@ export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; a
   /** 同じファイルを別のセッションと編集していること。行末の印に乗せたときの文（相手の名前）。無ければ null か無し。 */
   overlap?: string | null;
   /** 名前の右端のエージェントのアイコン（一覧の行と同じ、agentIcon.ts）。出さないときは持たない。 */
-  agent?: AgentIconKind | null };
+  agent?: AgentIconKind | null;
+  /** 入れ子の深さ（MCP の create_session で起こした子は起動元の下に並ぶ）。起動元が無い行は 0 か無し。 */
+  depth?: number;
+  /** 子の動きがあるだけで、自分は止まっている起動元。薄く出し、数にも並べ替えの並びにも入れない。 */
+  dim?: boolean;
+  /** 並べ替えで使う id。薄い起動元は、動いている最初の子孫の id を持つ（覚えた並びに載っているのは動いているものだけだから）。無ければ id。 */
+  rep?: string;
+  /** 子を持つ行だけが持つ。open は子の列を開いているか、dots は子孫ごとの状態の丸（畳んだときに名前の右へ並べる）。 */
+  nest?: { open: boolean; dots: NestDot[] } };
 /** 「実行中」のグループ。key はプロジェクトの id で、未分類は空の文字列。waiting は入力待ちの行の数（畳んだ見出しに出す）。 */
 export type SideLiveGroup = { key: string; name: string; open: boolean; waiting: number; rows: SideLiveRow[] };
 /**
@@ -201,20 +210,49 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
     const reason = shownReason(s, shown);
     return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, waited: sideWaited(t, s, shown, reason, now), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null, ...(icons ? { agent: agentOfSession(store, s) } : {}) };
   };
-  const byKey = new Map<string, string[]>();
-  for (const id of order) {
-    const key = store.sessions[id]!.projectId ?? '';
-    byKey.set(key, [...byKey.get(key) ?? [], id]);
-  }
   const folded = new Set(state.sidebarFolded);
-  const groups = [...byKey].map(([key, ids]): SideLiveGroup => {
-    const rows = ids.map(rowOf);
+  // 子が動いている起動元は、止まっていても薄い行として出す（子の列の根に要る）。起動元の連なりを上までたどる。
+  const rank = new Map<string, number>();
+  order.forEach((id, i) => {
+    rank.set(id, i);
+    const seen = new Set<string>([id]);
+    for (let p = spawnParentOf(store.sessions, id); p !== null && !seen.has(p); p = spawnParentOf(store.sessions, p)) {
+      seen.add(p);
+      if (!on.has(p)) rank.set(p, Math.min(rank.get(p) ?? i, i));
+    }
+  });
+  const shown = [...rank.keys()].sort((a, b) => rank.get(a)! - rank.get(b)!);
+  const nested = nestOrder(shown, (id) => spawnParentOf(store.sessions, id));
+  const made = new Map<string, SideLiveRow>();
+  const liveRow = (id: string): SideLiveRow => { let r = made.get(id); if (!r) { r = rowOf(id); made.set(id, r); } return r; };
+  const dotOf = (id: string): NestDot => {
+    if (!on.has(id)) return { live: null, aside: false, reason: null };
+    const r = liveRow(id);
+    return { live: r.live, aside: r.aside, reason: r.reason };
+  };
+  const dimRow = (id: string): SideLiveRow => {
+    const s = store.sessions[id]!;
+    return { id, name: s.name ?? t('common.label.noName'), live: null, aside: false, reason: null, waited: null, current: id === current, menu: presentSessionMenu(store, s, t), dim: true, ...(icons ? { agent: agentOfSession(store, s) } : {}) };
+  };
+  const byKey = new Map<string, SideLiveRow[]>();
+  let key = '';
+  nested.forEach((n, i) => {
+    const kids = nested.slice(i + 1, descendantsEnd(nested, i));
+    if (n.depth === 0) key = store.sessions[n.id]!.projectId ?? '';
+    const row = on.has(n.id) ? liveRow(n.id) : dimRow(n.id);
+    if (n.depth > 0) row.depth = n.depth;
+    if (row.dim) { const first = kids.find((k) => on.has(k.id)); if (first) row.rep = first.id; }
+    if (kids.length > 0) row.nest = { open: !folded.has(spawnFoldKey(n.id)), dots: kids.map((k) => dotOf(k.id)) };
+    byKey.set(key, [...byKey.get(key) ?? [], row]);
+  });
+  const groups = [...byKey].map(([key, rows]): SideLiveGroup => {
     const p = store.projects[key];
     const name = key === '' ? t('common.label.uncategorized') : p ? projectDisplayName(p, t) : t('common.label.noName');
     return { key, name, open: !folded.has(key), waiting: rows.filter((r) => r.live === 'waiting').length, rows };
   });
   const rows = groups.flatMap((g) => g.rows);
-  return { count: rows.length, ids: rows.map((r) => r.id), rows, groups };
+  const alive = rows.filter((r) => !r.dim);
+  return { count: alive.length, ids: alive.map((r) => r.id), rows, groups };
 }
 
 /** サイドバーの行の右端の語。入力待ちと許可待ちは待った時間、使用制限はリセットの時刻、リセット済みはその語。 */

@@ -659,6 +659,18 @@ alter table config_unsent_new rename to config_unsent;
  * session_activity とは分ける。あちらは索引の作り直しで積み直すが、未読は利用者がまだ見ていないという事実なので、作り直しで消えてはならない。
  * セッションを消すとき（sessions/trash.ts）に、行も片付ける。
  */
+/**
+ * MCP の create_session で起こした会話の起動元（呼んだセッション）。手元だけの表で、同期しない。
+ * 引き継ぎ（handoff）で起こした会話は残さない。画面は起動元の下に入れ子で並べる。
+ */
+const V40_SESSION_SPAWNS_SQL = `
+create table session_spawns (
+  session_id text primary key,
+  parent_id text not null,
+  created_at integer not null
+);
+`;
+
 const V39_SESSION_UNREAD_SQL = `
 create table session_unread (
   session_id text primary key,
@@ -698,4 +710,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 37, sql: V37_TRANSCRIPT_FILES_AGENT_SQL },
   { version: 38, sql: V38_CONFIG_UNSENT_UNKNOWN_KEY_SQL },
   { version: 39, sql: V39_SESSION_UNREAD_SQL },
+  { version: 40, sql: V40_SESSION_SPAWNS_SQL },
 ];

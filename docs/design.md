@@ -3782,8 +3782,9 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   以前は手元に本文が無い会話にも `claude -r <id>` を返しており、それを打った Claude が失敗していた。
 - `list_sessions`、`search_sessions`、`get_project` の直近のセッションには、会話を最後に動かした PC を `device: { name, platform, here }` で添える（0.6.1）。最後の run の PC で、run が無ければ作った PC（`home_device`）である。`here` はこの PC か。ほかの PC の会話は、パスやファイルの状態がこの PC と違うことがあるので、Claude が読み分けられるようにする（`runs/handover.ts` の `deviceOfSession`）。
 - `get_transcript(session_id, { from_seq?, limit?, include_tools? })`：正規化イベントを返す。
-- `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch?, agent?, mode?, worktree?, add_dirs?, account? })`：tmux で起動して run を返す。agent、mode、worktree、add_dirs は `POST /api/runs` と同じく `RunManager.start` にそのまま渡す。agent を省けば Claude Code で、mode は opencode のときだけ読む（Claude Code と Codex では捨てる）。
+- `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch?, agent?, mode?, handoff?, worktree?, add_dirs?, account? })`：tmux で起動して run を返す。agent、mode、worktree、add_dirs は `POST /api/runs` と同じく `RunManager.start` にそのまま渡す。agent を省けば Claude Code で、mode は opencode のときだけ読む（Claude Code と Codex では捨てる）。
   Codex の権限（read-only、auto、full-access。省くと auto）は `permission_mode` で渡し、model はモデル名、effort は推論の段階である。
+  セッション別の URL から呼ばれたら、呼んだセッションを起こした会話の起動元として手元の表 `session_spawns` に残す（`handoff: true` のときと、呼んだセッションが分からない共通の URL では残さない）。画面は起動元の下に入れ子で並べる（「起動元の入れ子」）。
   worktree（claude の `--worktree` に渡す名前）と add_dirs（`--add-dir`）は Claude Code だけのもので、Codex と opencode に付けると `start` が `optionUnsupported` で断る（UI の新規ダイアログは札を出さないので、断られるのは API と MCP だけである）。知らない agent と、設定で有効でない agent は、黙って Claude Code にせず、start の前に断る。opencode の model は provider/model の形で渡す。
   - account（Claude Code のときだけ）：省くと、呼んだセッション（セッション別 URL）がこの PC で最後に使ったアカウントを引き継ぐ。「別セッションを起こして」と頼んだ会話と同じ枠で続けるためで、ヘッダで選んでいるアカウントは最後に画面で選んだものにすぎない。ほかの PC の run は見ない（`RunAccounts.accountFor` と同じ）。共通の URL から呼ばれたとき、この PC で動かしたことが無いとき、そのアカウントが消えたときは、いま選んでいるアカウントにする。明示されたら名前か id で引き、知らないものは使える名前を添えて断る。opencode と Codex に渡されたら断る。結果には使ったアカウントの名前を添える。
 - `set_session_summary({ session_id?, title, one_liner, body, state, next_steps })`。
@@ -5096,6 +5097,16 @@ Claude に渡す指示の段（`launch.injection.body`、`status`、`live`）と
 未読（エージェントが `notify_user` で知らせた数）のある行は、名前を太くし、名前の右に小さい丸で数を置く（`views/Sidebar.tsx` の `CountBubble`。ホームの項目の丸 `.nav-count` と同じ色と書体で、16px、字は 10px）。エージェントの札がある行では、丸は札の手前に置く。読み上げは「未読 N 件」である。畳んだ帯では出さない。決まりで未読をオフにすると、`notify_user` は未読の数を増やさないので出ない（すでにある数は残る）。丸は 0 から増えたら横に伸びて出て（`growIn`）、増えたら小さく跳ね（`bumpMark`）、0 に戻ったら畳んで消える（`collapseOut`、`usePresence`）。
 グループの順は別に持たず、覚えた並び（`sidebar.order`）の中でそのプロジェクトの行が先に出てくる順にし、グループの中は並びの順にする。新しく動き始めた行は、自分のグループの末尾に入る。初めてのプロジェクトなら、グループが末尾に増える。
 見出しを押すとグループを畳み、もう一度押すと開く（`sidebar.fold`）。畳んだグループは端末ごとに localStorage（`sidebar.folded`）に残す。開き閉じは `FoldBox` の伸び縮み（`growIn` と `collapseOut`）で、見出しの矢印は `--dur-fast` で回る。畳んだグループに入力待ちがあれば、見出しを待ちの色にして件数の前に点を出し、読み上げにも待ちの数を添える。畳んでも待っていることを見落とさないためである。
+
+#### 起動元の入れ子
+
+MCP の `create_session` で起こした会話（`SessionDto.spawnedBy` が起動元の id）は、起動元の行の下に入れ子で並ぶ（2026-10-31 の試作で決めた A1・B2・E1・C1・D3・F2）。孫も入れ子にし、1 段 14px 下げて、子の列の左に `--line-strong` の縦線を 1 本引く。組み立ては `presenters/spawnTree.ts`（サイドバー）と `presenters/nestRows.ts`（一覧）が持つ。
+既定は開いていて、畳んだ起動元だけを `sidebar.folded` に鍵 `spawn:<起動元の id>` で残す。サイドバーと一覧は同じ鍵を見るので、片方で畳めばもう片方も畳まれる。
+開閉の席は行の頭の丸の席で、ふだんは状態の丸だけを出し、乗せたときと焦点のあるときだけ矢印に入れ替わる。プロジェクトの見出しの矢印と見分けるためである（一覧は止まった行に丸が無いので、行の左の余白に矢印を出す）。畳んだ起動元は、名前の右に子孫ごとの 6px の状態の丸を並べる。キーボードでは → で開き、← で畳む。
+サイドバーの実行中では、子が動いていて起動元が止まっていれば、起動元を薄く（0.45）出して下に子を並べる。薄い起動元は実行中の数に数えない。並べ替えは根の行だけで、子は起動元に付いて動く。
+一覧では、子の状態の区分が起動元と違えば、子は起動元の下と自分の区分の両方に出る。ページ送りは根の行で数え、子は根と同じページに出る。起動元が見つからない子と、輪になった起動元は平らに並べる。
+セッション画面では、子は見出しの上（プロジェクトへのリンクの右）に起動元へのリンクを出し、起動元は見出しの下に子の札（状態の丸と名前）を 1 行で並べる（`views/SpawnedLinks.tsx`）。新しい札は `growIn` で出る。
+引き継ぎ（`handoff: true`）で起こした会話は記録しないので、入れ子にも印にもならない。
 見出しを掴んで上下に動かすとグループごと並べ替えられる。キーボードでは、見出しに焦点があるときに ⌥↑ と ⌥↓ で 1 つずつ動かす。確定は、グループをつないだ並びを `sidebar.order` で覚え直すことで行う。動きは行の 5A と同じで、掴んだグループは白い面と影で浮き、ほかのグループは掴んだグループの高さ分だけ滑ってよける（グループの高さはまちまちなので、掴んだときに各グループの上端と高さを測っておく）。入る席は、下へ動かすときは掴んだグループの下の端、上へ動かすときは上の端が、相手の真ん中を越えたかで決める。真ん中同士で比べると、行の多い背の高いグループを低いグループの下へ動かせない。
 サイドバーの幅は、右の縁を掴んで 208px から 400px の間で変えられる（`views/SidebarGrip.tsx`、`sidebar.width`）。長い題名を読むためである（2026-10-26 の利用者の決定。試作で縁の見せ方を 3 案比べた）。
 縁はガラスの縁を挟む 8px の当たりで、普段は何も見せず、触れたときと掴んでいる間だけ細い線を出す。幅は端末ごとに localStorage（`sidebar.width`）に残し、縁のダブルクリックで 208px に戻す。焦点のある縁では ← → で 16px ずつ動かす。
@@ -5571,6 +5582,8 @@ Home を開いたときにトランスクリプトを読み直すことはしな
 未読は別の端末ローカルの表 `session_unread`（マイグレーション version 39）に置く（`session_id`、`count`、`latest_text`、`latest_at`）。`session_activity` と分けるのは、あちらが索引の作り直しで積み直す表なのに対し、未読は利用者がまだ見ていないという事実で、作り直しで消えてはならないためである。
 `notify_user` が 1 回ごとに `count` を 1 つ増やし、`POST /api/sessions/:id/seen` が行を消す。Done、Paused、Archived でも、開くまで残る。会話を削除するとき（`sessions/trash.ts`）は行も片付ける。
 `SessionDto.unread`（`{ count, latest, at }`）は、行があるときだけ値を持ち、無いときは `null` になる。共有テーブルにも同期の changes にも入れない。
+起動元は別の端末ローカルの表 `session_spawns`（マイグレーション version 40）に置く（`session_id`、`parent_id`、`created_at`）。MCP の `create_session` がセッション別の URL から呼ばれたときに書き、`handoff: true` の引き継ぎでは書かない。
+`SessionDto.spawnedBy` は起動元のセッション id で、行が無ければ `null` になる。共有テーブルにも同期の changes にも入れないので、ほかの PC では入れ子にならない。会話を削除するときは、子としての行も起動元としての行も片付け、起動元が消えた子は平らに並ぶ。
 実行中の登録（`~/.claude/sessions/<pid>.json`）から消えたセッションは、問いだけを消す（`sessions/liveChange.ts`）。終わった会話の問いにはもう答えられず、再開した直後の要対応の行に前の run の問いを出さないためである。
 消えたかどうかを書きかけの登録で誤らないよう、読めなかった登録は前に読めた中身のまま少しの間続ける（「保存先と読み方」の節の `RegistryCarry`）。
 
