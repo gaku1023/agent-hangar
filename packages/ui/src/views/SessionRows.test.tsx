@@ -476,9 +476,8 @@ describe('セッションの状態の札と「⋯」', () => {
     // 提案の札の行も、点は札の中に置く。
     expect(rowOf('名前 c').querySelector('.row-status > .dot')).toHaveAttribute('data-status', 'waiting');
   });
-  it('札の中の点は、作業中だけが脈打ち、減らす動きの設定では止まる', () => {
-    expect(rowsCss).toMatch(/\.row-status > \.dot\[data-status='busy'\] \{[^}]*animation: live-pulse var\(--breathe-period\) ease-in-out infinite;/);
-    expect(rowsCss).toMatch(/@media \(prefers-reduced-motion: reduce\) \{ \.row-status > \.dot \{ animation: none; \} \}/);
+  it('札の中の点は脈打たない（止まらない動きは GPU を動かし続ける）', () => {
+    expect(rowsCss).not.toContain('live-pulse');
   });
   it('状態の列は 72px（点はその札の中）、時刻の列は 72px の右寄せで、行ごとにずれない', () => {
     expect(rowsCss).toMatch(/\.rows-host\[data-status-col='true'\] \.row-2 \{[^}]*grid-template-columns: 72px minmax\(0, 1fr\) auto;/);

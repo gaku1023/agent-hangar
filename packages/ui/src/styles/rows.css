@@ -40,9 +40,6 @@
 .row-status > .badge-link, .row-status > .row-act { width: 100%; }
 .row-status > .dot { position: absolute; left: 7px; top: 50%; margin-top: -4px; z-index: 1; pointer-events: none; }
 .row-status[data-live] .row-sq, .row-status[data-live] .row-cand { padding-left: 12px; }
-/* 作業中の点だけが脈打つ（ほかの場所の .live-dot と同じ周期と曲線）。減らす動きの設定では止める。 */
-.row-status > .dot[data-status='busy'] { animation: live-pulse var(--breathe-period) ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .row-status > .dot { animation: none; } }
 .row-main { display: flex; flex-direction: column; justify-content: center; gap: var(--u); min-width: 0; }
 .row-name { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 /* 題名の左のエージェントのアイコン（B10）。どの行も同じ幅の枠に置き、題名の頭をそろえる。絵の無い種類も枠だけ取る。

@@ -655,16 +655,12 @@ a:hover { text-decoration: underline; }
    xterm のスクロールバーや装飾は z-index を持つので、isolation で重なりを板の中に閉じる。
    閉じないと、ヘッダの下をくぐったときに、それらが浮いたヘッダの上に描かれる。 */
 .term-pane { position: relative; isolation: isolate; display: flex; flex-direction: column; min-width: 0; background: var(--term-bg); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--term-lift); transition: box-shadow var(--dur) var(--ease-out); }
-/* 縁の灯。そのセッションの状態で 1.5px の輪と、外側の淡い光を灯す。
-   作業中だけ --breathe-period でゆっくり明暗を往復し、入力待ちは動かさない。休みと終了は灯さず、板を持ち上げる影だけにする。 */
-.term-pane[data-live='busy'] { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 90%, transparent), 0 0 22px -2px color-mix(in srgb, var(--busy) 45%, transparent), var(--term-lift); animation: rim-breathe var(--breathe-period) ease-in-out infinite; }
-/* 裏だけ動いているときは、入力できるので呼吸させず、薄いオレンジの輪だけを静かに灯す。 */
+/* 縁の灯。そのセッションの状態の色で 1.5px の輪を置く。休みと終了は灯さず、板を持ち上げる影だけにする。
+   動かさず、ぼかしも足さない。作業中は長く続き、端末の周りを描き直し続けると重いため。 */
+.term-pane[data-live='busy'] { box-shadow: 0 0 0 1.5px var(--busy), var(--term-lift); }
 .term-pane[data-live='aside'] { box-shadow: 0 0 0 1.5px var(--aside), var(--term-lift); }
-.term-pane[data-live='waiting'] { box-shadow: 0 0 0 1.5px var(--waiting), 0 0 22px -2px color-mix(in srgb, var(--waiting) 45%, transparent), var(--term-lift); }
-/* 使用制限でリセットを待っている間は、灰の輪だけを静かに置く（光らせない）。 */
+.term-pane[data-live='waiting'] { box-shadow: 0 0 0 1.5px var(--waiting), var(--term-lift); }
 .term-pane[data-live='limit'] { box-shadow: 0 0 0 1.5px var(--limit), var(--term-lift); }
-@keyframes rim-breathe { 50% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 55%, transparent), 0 0 12px -4px color-mix(in srgb, var(--busy) 25%, transparent), var(--term-lift); } }
-@media (prefers-reduced-motion: reduce) { .term-pane[data-live='busy'] { animation: none; } }
 /* 耳の下の板は、左上だけを角張らせて耳とつなぐ。タブの列は本体（.c-body）の 1 行目にあり、耳の直下はターミナルで、分割しているときは左の板をつなぐ（現在の札は右の列にあり、耳にはつながない）。 */
 .c-body > .tabs + .c-main > :first-child.term-pane, .c-body > .tabs + .c-main > .split-h:first-child > .split-pane:first-child > .term-pane { border-top-left-radius: 0; }
 /* 初めてつなぐときは、最初のデータが届くまで面を透明にし、届いたら --dur で現す（設計書 ⑨）。一度描いたタブは付け替えても透明にしない。 */
@@ -685,7 +681,7 @@ a:hover { text-decoration: underline; }
 .tab-pane-open kbd { font-size: var(--fs-xs); color: var(--ink-3); }
 
 .live-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
-.live-dot[data-tone='busy'], .live-dot[data-tone='running'] { background: var(--busy); animation: live-pulse var(--breathe-period) ease-in-out infinite; }
+.live-dot[data-tone='busy'], .live-dot[data-tone='running'] { background: var(--busy); }
 .live-dot[data-tone='wait'] { background: var(--waiting); }
 .live-dot[data-tone='aside'] { background: var(--aside); }
 .live-dot[data-tone='limit'] { background: var(--limit); }
@@ -696,7 +692,6 @@ a:hover { text-decoration: underline; }
 .reason-glyph[data-reason='limit'] { color: var(--limit); }
 .live-dot[data-tone='done'] { background: var(--idle); }
 .live-dot[data-tone='error'] { background: var(--error); }
-@keyframes live-pulse { 50% { opacity: 0.3; } }
 @media (prefers-reduced-motion: reduce) { .live-dot { animation: none !important; } }
 /* ホームの実行中の札の意図（home.css が続きを持つ）。切り替え前の右パネルの意図の箱から引き継いだ規則で、ホームの切り替えで見直す。 */
 .live-intent { position: relative; overflow: hidden; padding: calc(var(--u) * 1.25) calc(var(--u) * 2.25); border-left: 3px solid var(--cand); border-radius: 0 var(--r) var(--r) 0; background: var(--cand-soft); font-size: var(--fs); transition: opacity var(--dur-fast) var(--ease-out); }

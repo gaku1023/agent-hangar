@@ -158,12 +158,12 @@ describe('splitMotion（動くとき）', () => {
       screen.className = 'screen';
       const other = host.appendChild(document.createElement('div'));
       const enter = css('enter', screen);
-      const breathe = css('rim-breathe', screen);
+      const pulse = css('notice-ping', screen);
       const notScreen = css('enter', other);
-      withAnims(host, [enter, breathe, notScreen]);
+      withAnims(host, [enter, pulse, notScreen]);
       settleEntrance(host);
       expect(enter.finish).toHaveBeenCalled();
-      expect(breathe.finish).not.toHaveBeenCalled();
+      expect(pulse.finish).not.toHaveBeenCalled();
       expect(notScreen.finish).not.toHaveBeenCalled();
     });
 
