@@ -13,6 +13,8 @@ import { StatusDot } from './primitives/StatusDot.tsx';
 import { FoldBox } from './primitives/FoldBox.tsx';
 import { CountBubble } from './primitives/CountBubble.tsx';
 import { motionMs } from './primitives/motion.ts';
+import { hangIn, hangOut } from './primitives/motionKit.ts';
+import { useMotionList } from './primitives/useMotionList.ts';
 import { paneDrag } from './paneDrag.ts';
 
 /** 画面の名前からナビのアイコンへの対応。見た目の話なので Presenter ではなくここに置く。 */
@@ -123,6 +125,11 @@ function shiftOf(a: SortAt, j: number): number {
  * 行を右クリックするか、行に焦点があるときに . を押すと、その行のセッションのメニュー（1A）を出す。中身は一覧の行の「⋯」と同じである（views/sessionMenu.tsx）。
  * メニューそのものは節（LiveSection）が 1 つだけ持ち、開いている行には印（data-menu）を付けて、どの行のものかを見せる。
  */
+/** 行の箱（li）の高さを伸ばし、中の行を倒す。 */
+const faceOf = (li: HTMLElement) => (li.firstElementChild as HTMLElement | null) ?? li;
+const ROW_MOTION = { enter: (li: HTMLElement) => hangIn(li, faceOf(li)), exit: (li: HTMLElement) => hangOut(li, faceOf(li)), flip: false } as const;
+const GROUP_MOTION = { enter: (g: HTMLElement) => hangIn(g), exit: (g: HTMLElement) => hangOut(g), flip: false, enterFromEmpty: true, exitWhenEmpty: true } as const;
+
 function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: (id: string, at: MenuAnchor) => void; blocked: boolean }) {
   const emit = useEmit();
   const t = useT();
@@ -228,7 +235,7 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
       // 掴んだ行の外へ出ても動きと離したことを受け取れるよう、ポインタをこの行に捕まえる。
       try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* 捕まえられなくても、行の上にいる間は動く */ }
       // 行の間隔は、並んだ行の上端の差で測る。開いた帯と畳んだ帯で行の高さが違うからである。
-      const boxes = [...list.current?.querySelectorAll<HTMLElement>('.side-live-row') ?? []].map((el) => el.getBoundingClientRect());
+      const boxes = [...list.current?.querySelectorAll<HTMLElement>('li:not([data-leaving]) > .side-live-row') ?? []].map((el) => el.getBoundingClientRect());
       const first = boxes[0];
       const last = boxes[boxes.length - 1];
       const pitch = boxes.length > 1 && first && last ? (last.top - first.top) / (boxes.length - 1) : first?.height ?? 0;
@@ -300,15 +307,17 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
     const ids = nudgeId(live.ids, r.id, e.key === 'ArrowUp' ? -1 : 1);
     if (ids !== live.ids) emit({ type: 'sidebar.order', ids });
   };
+  const rowMotion = useMotionList(live.rows, (r) => r.id, ROW_MOTION);
   return (
       <ul className="side-live-list" ref={list} data-sorting={at ? 'true' : undefined}>
-        {live.rows.map((r, j) => {
-          const shift = at ? shiftOf(at, j) : 0;
+        {rowMotion.list.map(({ item: r, key, leaving }) => {
+          const j = live.rows.indexOf(r);
+          const shift = at && !leaving ? shiftOf(at, j) : 0;
           const lift = at && sort?.id === r.id ? sort.phase : undefined;
           // 浮いた行には、元の席でも 0 を明示して持たせる（戻る動きの行き先が 0 であるため）。
           const style: CSSProperties | undefined = lift || shift ? { translate: `0 ${shift}px` } : undefined;
           return (
-          <li key={r.id}>
+          <li key={key} ref={rowMotion.ref(key)} data-leaving={leaving ? 'true' : undefined} inert={leaving || undefined}>
             <a className="side-live-row" href={formatRoute({ name: 'session', id: r.id })} draggable={false} aria-current={r.current ? 'page' : undefined} data-id={r.id} data-menu={props.menuId === r.id ? 'true' : undefined}
               data-live={r.live ?? undefined} data-unread={(r.unread ?? 0) > 0 ? 'true' : undefined} data-lift={lift} data-pane-drag={paneOn && sort?.id === r.id ? 'true' : undefined} style={style}
               title={r.overlap ?? (r.waited ? t('sidebar.live.rowTitle', { name: r.name, waited: r.waited }) : r.name)}
@@ -404,7 +413,9 @@ function LiveSection(props: { live: SideLiveProps }) {
   const gone = menu !== null && !props.live.rows.some((r) => r.id === menu.id);
   useEffect(() => { if (gone) setMenu(null); }, [gone]);
   const { live } = props;
-  if (live.count === 0) return null;
+  // 最後の行が消えたあとも、グループが畳み終わるまでは描く。
+  const groupMotion = useMotionList(live.groups, (g) => g.key, GROUP_MOTION);
+  if (live.count === 0 && groupMotion.list.length === 0) return null;
   const menuRow = menu ? live.rows.find((r) => r.id === menu.id) ?? null : null;
   const closeMenu = (how: MenuCloseHow) => {
     const id = menu?.id;
@@ -451,7 +462,7 @@ function LiveSection(props: { live: SideLiveProps }) {
     if (!p || e.pointerId !== p.pointer) return;
     if (!p.active) {
       if (Math.abs(e.clientY - p.y) < DRAG_SLOP) return;
-      const els = [...scroll.current?.querySelectorAll<HTMLElement>('[data-group]') ?? []];
+      const els = [...scroll.current?.querySelectorAll<HTMLElement>('[data-group]:not([data-leaving])') ?? []];
       const from = els.findIndex((el) => el.dataset.group === p.key);
       if (from < 0) return;
       p.active = true;
@@ -490,13 +501,14 @@ function LiveSection(props: { live: SideLiveProps }) {
   return (
     <section className="side-live" aria-label={t('sidebar.live.label')}>
       <div className="side-live-scroll" ref={scroll} onScroll={measureEnd} data-end={atEnd ? 'true' : undefined} data-sorting={gsort ? 'true' : undefined}>
-        {live.groups.map((g, i) => {
-          const shift = gsort ? groupShift(gsort, i) : 0;
+        {groupMotion.list.map(({ item: g, key, leaving }) => {
+          const i = live.groups.indexOf(g);
+          const shift = gsort && !leaving ? groupShift(gsort, i) : 0;
           const lift = gsort?.key === g.key ? gsort.phase : undefined;
           const style: CSSProperties | undefined = lift || shift ? { translate: `0 ${shift}px` } : undefined;
-          const body = `${baseId}-g${i}`;
+          const body = `${baseId}-g${key}`;
           return (
-            <div key={g.key} className="side-live-grp" data-group={g.key} data-lift={lift} style={style}>
+            <div key={key} ref={groupMotion.ref(key)} className="side-live-grp" data-group={g.key} data-lift={lift} data-leaving={leaving ? 'true' : undefined} inert={leaving || undefined} style={style}>
               <button type="button" className="side-live-grp-h" aria-expanded={g.open} aria-controls={body} data-waiting={!g.open && g.waiting > 0 ? 'true' : undefined}
                 onClick={() => onHeadClick(g)} onKeyDown={(e) => onHeadKey(e, g)}
                 onPointerDown={(e) => onHeadDown(e, g.key)} onPointerMove={onHeadMove} onPointerUp={onHeadUp} onPointerCancel={onHeadCancel}>

@@ -158,6 +158,34 @@ export function collapseOut(el: HTMLElement, axis: 'y' | 'x' = 'y', opts: { fade
   return a.finished.then(() => undefined, () => unclip(el, gen));
 }
 
+/** 垂れる形の、奥へ倒れた姿。上辺を軸にほぼ真横まで倒す（サイドバーの行）。 */
+const HUNG_BACK = 'perspective(260px) rotateX(-82deg)';
+const HANG_ORIGIN = '50% 0';
+
+/**
+ * 垂れて入る形。箱（box）の高さを伸ばして下を押しながら、面（face）を上辺を軸に奥から手前へ倒して正面へ向ける。
+ * 行き過ぎて戻らせない（掛かった瞬間に震えて見えるため）。face を省くと箱ごと倒す（サイドバーのグループ）。
+ */
+export function hangIn(box: HTMLElement, face: HTMLElement = box): void {
+  if (!motionOn(box)) return;
+  const size = box.offsetHeight;
+  const edges = edgesNow(box, 'y');
+  const free = unfloored('y');
+  const opts: KeyframeAnimationOptions = { duration: motionMs('--dur', box), easing: motionEase('--ease-out', box) };
+  box.animate([{ height: '0px', ...edgesZero('y'), ...free }, { height: `${size}px`, ...edges, ...free }], opts);
+  face.animate([{ transform: HUNG_BACK, opacity: 0, transformOrigin: HANG_ORIGIN }, { transform: 'none', opacity: 1, transformOrigin: HANG_ORIGIN }], opts);
+}
+
+/** 垂れて出る形。面を奥へ倒し切ってから、箱の高さを畳む。終わったら解決する。途中で取り消されたら畳まずに解決する。 */
+export function hangOut(box: HTMLElement, face: HTMLElement = box): Promise<void> {
+  if (!motionOn(box)) return Promise.resolve();
+  const size = box.offsetHeight;
+  const free = unfloored('y');
+  return face.animate([{ transform: 'none', opacity: 1, transformOrigin: HANG_ORIGIN }, { transform: HUNG_BACK, opacity: 0, transformOrigin: HANG_ORIGIN }], { duration: motionMs('--dur-fast', box), easing: motionEase('--ease-in', box), fill: 'forwards' }).finished
+    .then(() => box.animate([{ height: `${size}px`, ...free }, { height: '0px', ...edgesZero('y'), ...free }], { duration: motionMs('--dur-fast', box), easing: motionEase('--ease-out', box), fill: 'forwards' }).finished)
+    .then(() => undefined, () => undefined);
+}
+
 /**
  * ダイアログを引っ込める形。背景（.overlay）を薄れさせ、板（.dialog）を少し沈めて縮める。開くときの pop を逆にたどる。
  * 終わったら解決する。取り消されたとき（引っ込める途中で開き直したとき）と、動かないときも解決する。

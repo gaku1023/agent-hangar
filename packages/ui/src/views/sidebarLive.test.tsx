@@ -927,3 +927,59 @@ describe('⌥クリックで右に分割して開く（サイドバーの行）'
     expect(onAction).toHaveBeenCalledWith({ type: 'session.open', id: 'a' });
   });
 });
+
+describe('サイドバーの行の出入りの動き', () => {
+  const rowOf = (id: string): SideLiveRow => ({ id, name: `name-${id}`, current: false, menu: { items: [] } } as unknown as SideLiveRow);
+  const groupOf = (key: string, rows: SideLiveRow[]): SideLiveGroup => ({ key, name: key, open: true, waiting: 0, rows } as unknown as SideLiveGroup);
+  const liveWith = (groups: SideLiveGroup[]): SideLiveProps => ({ count: groups.length, rows: groups.flatMap((g) => g.rows), ids: groups.flatMap((g) => g.rows.map((r) => r.id)), groups } as unknown as SideLiveProps);
+  const view = (groups: SideLiveGroup[]) => <ActionRoot onAction={() => {}}><Sidebar nav={[]} foot={[]} collapsed={false} live={liveWith(groups)} /></ActionRoot>;
+  const withMotion = (fn: (anims: { el: Element; frames: Keyframe[]; finish: () => void }[]) => Promise<void> | void) => async () => {
+    const restore = fakeMotionTokens({ '--dur': '420ms', '--dur-fast': '200ms', '--dur-exit': '250ms', '--ease-out': 'ease-out', '--ease-in': 'ease-in', '--rise': '6px', '--blur-in': '6px' }, { everywhere: true });
+    const anims: { el: Element; frames: Keyframe[]; finish: () => void }[] = [];
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, frames: Keyframe[]) {
+      let finish!: () => void;
+      const finished = new Promise<void>((r) => { finish = r; });
+      anims.push({ el: this, frames, finish });
+      return { finished, cancel: vi.fn() };
+    };
+    try { await fn(anims); } finally {
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+      restore();
+      cleanupAll();
+    }
+  };
+  const flips = (anims: { el: Element; frames: Keyframe[] }[]) => anims.filter((a) => String(a.frames[0]?.transform ?? '').includes('rotateX'));
+
+  it('増えた行だけが垂れて入り、残りの行と最初の描画は動かない', withMotion((anims) => {
+    const { rerender } = render(view([groupOf('p', [rowOf('a')])]));
+    expect(anims).toHaveLength(0);
+    rerender(view([groupOf('p', [rowOf('a'), rowOf('b')])]));
+    expect(flips(anims).map((a) => a.el.getAttribute('data-id'))).toEqual(['b']);
+  }));
+  it('消えた行は倒れてから畳まれ、終わるまで操作を受けない', withMotion(async (anims) => {
+    const { container, rerender } = render(view([groupOf('p', [rowOf('a'), rowOf('b')])]));
+    rerender(view([groupOf('p', [rowOf('a')])]));
+    const row = container.querySelector('[data-id="b"]')!;
+    expect(row.closest('li')!.hasAttribute('inert')).toBe(true);
+    expect(anims.map((a) => a.el)).toEqual([row]);
+    await act(async () => { anims[0]!.finish(); await Promise.resolve(); await Promise.resolve(); });
+    expect(anims[1]!.el).toBe(row.closest('li'));
+    await act(async () => { anims[1]!.finish(); await Promise.resolve(); await Promise.resolve(); });
+    expect(container.querySelector('[data-id="b"]')).toBeNull();
+  }));
+  it('新しいプロジェクトのグループは丸ごと垂れて入り、中の行は重ねて動かさない', withMotion((anims) => {
+    const { container, rerender } = render(view([groupOf('p', [rowOf('a')])]));
+    rerender(view([groupOf('p', [rowOf('a')]), groupOf('q', [rowOf('b')])]));
+    expect(flips(anims).map((a) => a.el)).toEqual([container.querySelector('[data-group="q"]')]);
+  }));
+  it('実行中が 0 件のときに最初の 1 件が増えても、グループごと垂れて入る', withMotion((anims) => {
+    const { container, rerender } = render(view([]));
+    rerender(view([groupOf('p', [rowOf('a')])]));
+    expect(flips(anims).map((a) => a.el)).toEqual([container.querySelector('[data-group="p"]')]);
+  }));
+  it('並べ替えでは垂れず、滑らせもしない', withMotion((anims) => {
+    const { rerender } = render(view([groupOf('p', [rowOf('a'), rowOf('b')])]));
+    rerender(view([groupOf('p', [rowOf('b'), rowOf('a')])]));
+    expect(anims).toHaveLength(0);
+  }));
+});
