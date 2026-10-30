@@ -652,6 +652,17 @@ describe('中断（interrupted）と同じファイルの編集（overlap）', (
   });
 });
 
+describe('spawnedBy（MCP の create_session で起こした起動元）', () => {
+  it('手元の session_spawns に起動元があれば spawnedBy に載せる。無ければ null', () => {
+    const d2 = openDb(':memory:');
+    for (const id of ['s-parent', 's-child']) upsertShared(d2, 'sessions', { id, provider: 'claude-code', provider_session_id: `u-${id}`, cwd: '/w/a', home_device: 'pc-a' }, 'pc-a');
+    d2.prepare('insert into session_spawns (session_id, parent_id, created_at) values (?, ?, 1)').run('s-child', 's-parent');
+    expect(getSession(d2, [], 's-child')?.spawnedBy).toBe('s-parent');
+    expect(getSession(d2, [], 's-parent')?.spawnedBy).toBeNull();
+    expect(Object.fromEntries(listSessions(d2, []).map((s) => [s.id, s.spawnedBy]))).toEqual({ 's-parent': null, 's-child': 's-parent' });
+  });
+});
+
 describe('fromPhone（この PC がスマホの依頼で起こした会話）', () => {
   it('手元の mobile_launches に会話があれば fromPhone を載せ、Bypass permissions なら bypass が真。無ければ null', () => {
     const d2 = openDb(':memory:');

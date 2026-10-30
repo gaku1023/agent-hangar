@@ -821,6 +821,18 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
     expect(started).toHaveLength(1);
   });
 
+  it('create_session は呼んだセッションを起動元として残し、handoff なら残さない', async () => {
+    const parentOf = (id: string) => (db.prepare('select parent_id from session_spawns where session_id = ?').get(id) as { parent_id: string } | undefined)?.parent_id;
+    await call('create_session', { project_id: 'p1' }, scoped());
+    expect(parentOf('sNew')).toBe(alphaId);
+    db.prepare('delete from session_spawns').run();
+    await call('create_session', { project_id: 'p1', handoff: true }, scoped());
+    expect(parentOf('sNew')).toBeUndefined();
+    // 共通の URL では呼んだセッションが分からないので、残さない。
+    await call('create_session', { project_id: 'p1' });
+    expect(parentOf('sNew')).toBeUndefined();
+  });
+
   it('open_in_hangar は別のプロジェクトのリンクを返さない', () => {
     expect(() => call('open_in_hangar', { project_id: 'p2' }, scoped())).toThrow(ToolError);
     expect(call('open_in_hangar', { project_id: 'p1' }, scoped()).url).toContain('p1');

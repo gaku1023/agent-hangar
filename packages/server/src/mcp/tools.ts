@@ -12,6 +12,7 @@ import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { MessageError, msg, render, type Message } from '../i18n/message.ts';
 import { agentEnabledLabel, type LaunchResult } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
+import { recordSpawn } from '../sessions/spawns.ts';
 import { getSessionState, proposeSessionState, setSessionState, StateInputError, validateStateInput, type ProposeStateOutcome } from '../sessions/states.ts';
 import { readEvents } from '../transcript/read.ts';
 import { deviceOfSession } from '../runs/handover.ts';
@@ -392,7 +393,11 @@ export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
     effort: str(args.effort), permissionMode: str(args.permission_mode), scratch: bool(args.scratch),
     agent, mode: str(args.mode), ...(account ? { account: account.id } : {}),
     worktree: str(args.worktree), addDirs: strs(args.add_dirs),
-  })).then((r) => ({ run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`), ...(account ? { account: account.name } : {}) }));
+  })).then((r) => {
+    // 呼んだセッションを起動元として残す。引き継ぎと、呼んだセッションが分からない共通の URL では残さない。
+    if (ctx.sessionId && !bool(args.handoff)) recordSpawn(deps.db, r.sessionId, ctx.sessionId, Date.now());
+    return { run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`), ...(account ? { account: account.name } : {}) };
+  });
 }
 
 /**

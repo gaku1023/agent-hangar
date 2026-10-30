@@ -135,6 +135,12 @@ export type SessionDto = { id: string; provider: AgentKind; providerSessionId: s
    */
   unread: { count: number; latest: string | null; at: number } | null;
   /**
+   * MCP の create_session で起こした会話の起動元のセッション id（この PC の手元の表 session_spawns）。
+   * 引き継ぎ（handoff）で起こした会話と、画面や共通の URL から起こした会話は null。他の PC では null である。
+   * この項目を知らない古いサーバは返さないので、読む側は null として読む。
+   */
+  spawnedBy?: string | null;
+  /**
    * ほかの PC に引き継がれたこの PC の会話。この PC の最後の run が taken_over で終わっているときだけ値を持ち、ほかは null である。
    * deviceName は引き継いだ PC の名前、at はこの PC の run が終わった時刻。この PC で後から run を起こせば null に戻る。
    */
