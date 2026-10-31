@@ -81,19 +81,19 @@ describe('Tmux.captureUnwrapped（偽の tmux）', () => {
 
   // psmux は -J を受けても行の末尾の空白を落とすだけで、折り返しをつながない（connection.rs の capture-pane）。
   // 0 で終わるので断られたとは分からず、幅を渡さないと URL が 2 行に割れたまま拾えなかった（CI の windows で時間切れ）。
-  it('Windows（psmux）では -J を付けず、折り返したままの画面とペインの幅を返す', () => {
+  it('Windows（psmux）では -J を付けず、折り返したままの画面とペインの幅を返す', async () => {
     const { t, calls } = fake('win32');
-    expect(t.captureUnwrapped('hangar-a')).toEqual({ text: 'https://claude.ai/code/session_01AbCdEfG\nhIjKlMnOpQrStUv\n', width: 40 });
+    expect(await t.captureUnwrapped('hangar-a')).toEqual({ text: 'https://claude.ai/code/session_01AbCdEfG\nhIjKlMnOpQrStUv\n', width: 40 });
     expect(calls.some((a) => a.includes('-J'))).toBe(false);
   });
 
-  it('macOS と Linux（tmux）では -J でつないだ画面を、幅なしで返す', () => {
+  it('macOS と Linux（tmux）では -J でつないだ画面を、幅なしで返す', async () => {
     const { t, calls } = fake('darwin');
-    expect(t.captureUnwrapped('hangar-a').width).toBeNull();
+    expect((await t.captureUnwrapped('hangar-a')).width).toBeNull();
     expect(calls).toEqual([['-L', 's', 'capture-pane', '-p', '-J', '-t', '=hangar-a:']]);
   });
 
-  it('-J を断る裏では、付けずに読み直して幅を添え、断られたことを覚える。画面そのものが読めなかったときは覚えない', () => {
+  it('-J を断る裏では、付けずに読み直して幅を添え、断られたことを覚える。画面そのものが読めなかったときは覚えない', async () => {
     const calls: string[][] = [];
     let gone = true;
     const exec: TmuxExec = (_f, a) => {
@@ -104,13 +104,13 @@ describe('Tmux.captureUnwrapped（偽の tmux）', () => {
       return { status: 0, stdout: 'b\n', stderr: '' };
     };
     const t = new Tmux({ tmuxPath: '/x/tmux', socketName: 's', platform: 'linux', exec });
-    expect(t.captureUnwrapped('hangar-a')).toEqual({ text: '', width: null });
+    expect(await t.captureUnwrapped('hangar-a')).toEqual({ text: '', width: null });
     gone = false;
     const joined = ['-L', 's', 'capture-pane', '-p', '-J', '-t', '=hangar-a:'];
     const plain = ['-L', 's', 'capture-pane', '-p', '-t', '=hangar-a:'];
     const width = ['-L', 's', 'display-message', '-p', '-t', '=hangar-a:', '#{pane_width}'];
-    expect(t.captureUnwrapped('hangar-a')).toEqual({ text: 'b\n', width: 80 });
-    expect(t.captureUnwrapped('hangar-a')).toEqual({ text: 'b\n', width: 80 });
+    expect(await t.captureUnwrapped('hangar-a')).toEqual({ text: 'b\n', width: 80 });
+    expect(await t.captureUnwrapped('hangar-a')).toEqual({ text: 'b\n', width: 80 });
     expect(calls).toEqual([joined, plain, joined, plain, width, plain, width]);
   });
 });
@@ -330,9 +330,9 @@ describe.skipIf(!TMUX)('Tmux（実物）', () => {
     tmux!.newSession({ name, cwd, command: ['sh', '-c', `printf 'or at %s\\n' '${url}'; sleep 30`], width: 30, height: 10 });
     await waitFor(() => tmux!.capturePane(name).includes('or at'));
     expect(tmux!.capturePane(name).split('\n').some((l) => l.includes(url))).toBe(false);
-    expect(tmux!.captureUnwrapped(name)).toEqual({ text: expect.stringContaining(`or at ${url}\n`), width: null });
+    expect(await tmux!.captureUnwrapped(name)).toEqual({ text: expect.stringContaining(`or at ${url}\n`), width: null });
     // -J の無い裏（psmux）のために、折り返したままの画面からも URL を取り出せる。
-    expect(tmux!.paneWidth(name)).toBe(30);
+    expect(await tmux!.paneWidth(name)).toBe(30);
     expect(extractRemoteUrl(tmux!.capturePane(name), 30)).toBe(url);
     tmux!.killSession(name);
     fs.rmSync(cwd, { recursive: true, force: true });

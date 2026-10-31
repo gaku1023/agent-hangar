@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 
 export type TmuxResult = { code: number; stdout: string; stderr: string; failed: boolean };
@@ -10,6 +10,21 @@ const realExec = (env: NodeJS.ProcessEnv | undefined): TmuxExec => (file, args) 
   const r = spawnSync(file, args, { encoding: 'utf8', windowsHide: true, env: env ? { ...process.env, ...env } : process.env });
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', error: r.error };
 };
+
+/** 待たずに tmux を起こす口。周期の処理が使う。試験では差し替える。 */
+export type TmuxExecAsync = (file: string, args: string[]) => Promise<ReturnType<TmuxExec>>;
+
+/** 待たずに起こした tmux が返らないときの締め切り。返らないままだと見回りが止まる。 */
+const ASYNC_TIMEOUT_MS = 30_000;
+
+const realExecAsync = (env: NodeJS.ProcessEnv | undefined): TmuxExecAsync => (file, args) => new Promise((resolve) => {
+  execFile(file, args, { encoding: 'utf8', windowsHide: true, timeout: ASYNC_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024, env: env ? { ...process.env, ...env } : process.env }, (e, stdout, stderr) => {
+    // 数値の code は tmux の終了コードで、それ以外（ENOENT、締め切り、大きすぎる出力）は起こせなかった、または読めなかったである。
+    if (!e) resolve({ status: 0, stdout, stderr });
+    else if (typeof e.code === 'number' && !e.killed) resolve({ status: e.code, stdout, stderr });
+    else resolve({ status: null, stdout, stderr, error: e });
+  });
+});
 
 /**
  * Windows（psmux）で、hangar が起こす psmux に足す環境変数。
@@ -48,6 +63,12 @@ const RUN_SESSION_FORMAT = '#{m/r:^hangar-[0-9a-f]+$,#{session_name}}';
  */
 const NO_SERVER = /no server running|error connecting to .*\((?:No such file or directory|Connection refused)\)/i;
 
+function sessionNames(r: TmuxResult): string[] | null {
+  if (r.failed) return null;
+  if (r.code !== 0) return NO_SERVER.test(r.stderr) ? [] : null;
+  return r.stdout.split(/\r?\n/).filter(Boolean);
+}
+
 function isDirectory(p: string): boolean {
   try { return fs.statSync(p).isDirectory(); } catch { return false; }
 }
@@ -62,6 +83,7 @@ export class Tmux {
   private readonly socketPath: string | undefined;
   private readonly platform: NodeJS.Platform;
   private readonly exec: TmuxExec;
+  private readonly execAsync: TmuxExecAsync;
   /** この裏が capture-pane の -J を断ったか（captureUnwrapped）。 */
   private joinRefused = false;
 
@@ -70,12 +92,15 @@ export class Tmux {
    * psmux は PSMUX_DATA_DIR で置き場ごと分けられるので、試験が利用者のセッションに触れないために使う。
    * Windows では、これに PSMUX_NO_WARM=1 を足す（PSMUX_ENV）。
    */
-  constructor(opts: { tmuxPath: string; socketName?: string; socketPath?: string; platform?: NodeJS.Platform; exec?: TmuxExec; env?: NodeJS.ProcessEnv }) {
+  constructor(opts: { tmuxPath: string; socketName?: string; socketPath?: string; platform?: NodeJS.Platform; exec?: TmuxExec; execAsync?: TmuxExecAsync; env?: NodeJS.ProcessEnv }) {
     this.tmuxPath = opts.tmuxPath;
     this.socketName = opts.socketName;
     this.socketPath = opts.socketPath;
     this.platform = opts.platform ?? process.platform;
     this.exec = opts.exec ?? realExec(muxEnv(this.platform, opts.env));
+    // exec だけ差し替えた試験では、待たない口も同じ偽物を通す。
+    const exec = opts.exec;
+    this.execAsync = opts.execAsync ?? (exec ? async (f, a) => exec(f, a) : realExecAsync(muxEnv(this.platform, opts.env)));
   }
 
   args(...a: string[]): string[] {
@@ -90,6 +115,12 @@ export class Tmux {
    */
   run(...a: string[]): TmuxResult {
     const r = this.exec(this.tmuxPath, this.args(...a));
+    return { code: r.status ?? 1, stdout: r.stdout, stderr: r.stderr, failed: r.error != null };
+  }
+
+  /** run と同じ結果を、イベントループを止めずに返す。周期の処理が使う。 */
+  async runAsync(...a: string[]): Promise<TmuxResult> {
+    const r = await this.execAsync(this.tmuxPath, this.args(...a));
     return { code: r.status ?? 1, stdout: r.stdout, stderr: r.stderr, failed: r.error != null };
   }
 
@@ -132,10 +163,12 @@ export class Tmux {
    * サーバがまだ起きていないだけのときは、本当に 1 つも無いので空配列を返す。
    */
   listSessions(): string[] | null {
-    const r = this.run('list-sessions', '-F', '#{session_name}');
-    if (r.failed) return null;
-    if (r.code !== 0) return NO_SERVER.test(r.stderr) ? [] : null;
-    return r.stdout.split(/\r?\n/).filter(Boolean);
+    return sessionNames(this.run('list-sessions', '-F', '#{session_name}'));
+  }
+
+  /** listSessions の、イベントループを止めない版。 */
+  async listSessionsAsync(): Promise<string[] | null> {
+    return sessionNames(await this.runAsync('list-sessions', '-F', '#{session_name}'));
   }
 
   killSession(name: string): void {
@@ -240,21 +273,21 @@ export class Tmux {
    * 断られたことはこの Tmux に覚え、次からは -J を試さない。画面そのものが読めなかった（名前が無いなど）ときは覚えない。
    * 幅を読めなければ width は null である。
    */
-  captureUnwrapped(name: string): { text: string; width: number | null } {
+  async captureUnwrapped(name: string): Promise<{ text: string; width: number | null }> {
     const norm = (t: string): string => t.replace(/\r\n/g, '\n');
     if (this.platform !== 'win32' && !this.joinRefused) {
-      const r = this.run('capture-pane', '-p', '-J', '-t', `=${name}:`);
+      const r = await this.runAsync('capture-pane', '-p', '-J', '-t', `=${name}:`);
       if (r.code === 0) return { text: norm(r.stdout), width: null };
     }
-    const plain = this.run('capture-pane', '-p', '-t', `=${name}:`);
+    const plain = await this.runAsync('capture-pane', '-p', '-t', `=${name}:`);
     if (plain.code !== 0) return { text: '', width: null };
     this.joinRefused = true;
-    return { text: norm(plain.stdout), width: this.paneWidth(name) };
+    return { text: norm(plain.stdout), width: await this.paneWidth(name) };
   }
 
   /** ペインの幅（桁）。読めなければ null。 */
-  paneWidth(name: string): number | null {
-    const r = this.run('display-message', '-p', '-t', `=${name}:`, '#{pane_width}');
+  async paneWidth(name: string): Promise<number | null> {
+    const r = await this.runAsync('display-message', '-p', '-t', `=${name}:`, '#{pane_width}');
     const n = r.code === 0 ? Number(r.stdout.trim()) : NaN;
     return Number.isInteger(n) && n > 0 ? n : null;
   }
