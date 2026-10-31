@@ -9,7 +9,6 @@ import { SyncEngine } from './engine.ts';
 /** 待っても当たらない持ち越しの行。毎回の pull で当て直すと、失敗の生成だけでサーバが約 1 秒止まっていた（#532）。 */
 
 const remote: ChangeIn[] = [
-  { tableName: 'sessions', rowId: 'other-id', op: 'upsert', updatedAt: 100, payload: { id: 'other-id', provider: 'claude-code', provider_session_id: 'same', cwd: '/w', home_device: 'c', updated_at: 100, deleted_at: null, origin_device: 'c' } },
   { tableName: 'session_notes', rowId: 'other-id', op: 'upsert', updatedAt: 100, payload: { session_id: 'other-id', name: 'メモ', updated_at: 100, deleted_at: null, origin_device: 'c' } },
 ];
 
@@ -36,7 +35,7 @@ beforeEach(async () => {
 afterEach(() => { engine.stop(); err.mockRestore(); });
 
 describe('待っても当たらない行', () => {
-  it('同じ会話が手元に別の ID であるとき、次の pull から当て直さない', async () => {
+  it('親の行が手元に無いとき、次の pull から当て直さない', async () => {
     expect(count('session_notes')).toBe(0);
     const prepare = vi.spyOn(db, 'prepare');
     await engine.pullNow();
@@ -55,8 +54,8 @@ describe('待っても当たらない行', () => {
     expect(db.prepare("select 1 from sync_state where key = 'orphans'").get()).toBeDefined();
   });
 
-  it('手元の行とぶつからなくなったら、親も子も当たる', async () => {
-    db.prepare("update sessions set provider_session_id = 'moved' where id = 'local-id'").run();
+  it('親の行が届いたら、子も当たる', async () => {
+    await cloud.pushChanges([{ tableName: 'sessions', rowId: 'other-id', op: 'upsert', updatedAt: 100, payload: { id: 'other-id', provider: 'claude-code', provider_session_id: 'other', cwd: '/w', home_device: 'c', updated_at: 100, deleted_at: null, origin_device: 'c' } }]);
     await engine.pullNow();
     expect(db.prepare('select name from session_notes where session_id = ?').get('other-id')).toEqual({ name: 'メモ' });
     expect(db.prepare("select 1 from sync_state where key = 'orphans'").get()).toBeUndefined();

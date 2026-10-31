@@ -663,6 +663,15 @@ alter table config_unsent_new rename to config_unsent;
  * MCP の create_session で起こした会話の起動元（呼んだセッション）。手元だけの表で、同期しない。
  * 引き継ぎ（handoff）で起こした会話は残さない。画面は起動元の下に入れ子で並べる。
  */
+/**
+ * 同じ会話がほかの PC で別の ID を持つときの読み替え（版 42）。
+ * alias_id は届いた ID、session_id は手元の ID、merged_at は読み替えを覚えた時刻である（sync/apply.ts の settleSessionId）。
+ * 端末ローカルの表で、同期しない。
+ */
+const V42_SESSION_ALIASES_SQL = `
+create table session_aliases (alias_id text primary key, session_id text not null, merged_at integer not null);
+`;
+
 // 未送信の行は少ないのに、数えるたびに changes を全部読んでいた。送るときの並び（seq）も同じ索引で引ける。
 const V41_CHANGES_UNPUSHED_SQL = `
 create index changes_unpushed on changes(seq) where pushed_at is null;
@@ -717,4 +726,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 39, sql: V39_SESSION_UNREAD_SQL },
   { version: 40, sql: V40_SESSION_SPAWNS_SQL },
   { version: 41, sql: V41_CHANGES_UNPUSHED_SQL },
+  { version: 42, sql: V42_SESSION_ALIASES_SQL },
 ];

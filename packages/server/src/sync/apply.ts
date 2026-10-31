@@ -272,6 +272,10 @@ function applyOne(db: Db, c: ChangeOut, o: ApplyOptions): 'applied' | 'skipped' 
     if (s === 'merged') return 'skipped';
     displaced = s;
   }
+  if (c.tableName === 'sessions' && settleSessionId(db, c)) return 'applied';
+  const aliased = aliasSessionRefs(db, c);
+  if (aliased === null) return 'skipped';
+  c = aliased;
   if (c.tableName === 'artifact_versions') {
     const v = aliasVersion(db, c);
     if (v === null) return 'skipped';
@@ -331,8 +335,7 @@ function applyOne(db: Db, c: ChangeOut, o: ApplyOptions): 'applied' | 'skipped' 
 /**
  * 持ち越した行が、いま当て直しても落ちると分かるかを見る関数を作る（呼び手の 1 回の当て直しの間だけ使う）。
  * 当てて失敗させると、prepare と例外の生成だけで 1 行あたり 0.2ms ほどかかり、数千行でサーバが止まる。ここは引くだけなので軽い。
- * - 外部キーの親が手元に無い行。寄せた Artifact は、寄せた先があれば親があるとみなす。
- * - sessions の行で、同じ会話が手元に別の ID であるもの。(provider, provider_session_id) の一意の制約で落ちる。
+ * 外部キーの親が手元に無い行が当たる。寄せた Artifact と読み替えた会話は、寄せた先があれば親があるとみなす。
  * 値を持たない列は見ない（当ててみて落ちるなら、これまでどおり持ち越す）。
  */
 export function carriedRowBlocked(db: Db): (c: ChangeOut) => boolean {
@@ -346,20 +349,102 @@ export function carriedRowBlocked(db: Db): (c: ChangeOut) => boolean {
     return s.get(value) !== undefined;
   };
   const alias = db.prepare('select 1 from artifact_aliases where alias_id = ?');
-  const sameSession = db.prepare('select 1 from sessions where provider = ? and provider_session_id = ? and id <> ?');
   return (c) => {
-    if (c.tableName === 'sessions' && typeof c.payload.provider === 'string' && typeof c.payload.provider_session_id === 'string'
-      && sameSession.get(c.payload.provider, c.payload.provider_session_id, c.rowId) !== undefined) return true;
     let list = fks.get(c.tableName);
     if (!list) { list = db.pragma(`foreign_key_list(${c.tableName})`) as Fk[]; fks.set(c.tableName, list); }
     for (const fk of list) {
       const value = fk.from === TABLE_PK[c.tableName] ? c.rowId : c.payload[fk.from];
       if (typeof value !== 'string') continue;
       if (fk.table === 'artifacts' && alias.get(value) !== undefined) continue;
+      if (fk.table === 'sessions' && sessionAlias(db, value)) continue;
       if (!hasParent(fk.table, fk.to ?? 'id', value)) return true;
     }
     return false;
   };
+}
+
+type SessionAlias = { session_id: string; merged_at: number };
+const aliasTable = new WeakMap<Db, boolean>();
+
+/** 届いた会話の ID の読み替え。手元の行が無くなっていれば読み替えない。 */
+function sessionAlias(db: Db, id: string): SessionAlias | undefined {
+  // 版 42 より古い DB（試験）には表が無い。
+  let has = aliasTable.get(db);
+  if (has === undefined) { has = db.prepare("select 1 from sqlite_master where name = 'session_aliases'").get() !== undefined; aliasTable.set(db, has); }
+  if (!has) return undefined;
+  return db.prepare('select a.session_id, a.merged_at from session_aliases a join sessions s on s.id = a.session_id where a.alias_id = ?').get(id) as SessionAlias | undefined;
+}
+
+/**
+ * 届いた sessions の行が、手元の別の ID の行と同じ会話を指すときの決着（版 42、#532）。読み替えたら true を返す。
+ *
+ * 同じ会話の本文が 2 台にあると、相手の行が届く前に索引した PC は新しい ID を作る（indexer/write.ts の ensureSession）。
+ * (provider, provider_session_id) は一意なので、届いた行はそのままでは当たらない。
+ *
+ * settleArtifactUrl と違って、ID の小さい方に寄せない。手元の ID を残し、届いた ID を手元の ID へ読み替える。
+ * 手元の ID は索引、検索、動いている会話の MCP の URL が指していて、付け替えると本文の索引ごと書き直すことになる。
+ * ほかの PC も、この PC の行を受け取った時点で同じように読み替えるので、ID がそろわなくても中身は行ごとの後勝ちでそろう。
+ *
+ * cwd と置き場の PC は手元の値を保つ。本文はこの PC にあるからである。論理削除も当てない（削除は印で運ぶ）。
+ * 手元の表だけを直し、updated_at も changes も動かさない。
+ */
+function settleSessionId(db: Db, c: ChangeOut): boolean {
+  const known = sessionAlias(db, c.rowId);
+  const localId = known?.session_id ?? (db.prepare('select id from sessions where provider = ? and provider_session_id = ? and id <> ?').get(c.payload.provider, c.payload.provider_session_id, c.rowId) as { id: string } | undefined)?.id;
+  if (!localId) return false;
+  if (!known) db.prepare('insert or replace into session_aliases (alias_id, session_id, merged_at) values (?, ?, ?)').run(c.rowId, localId, Date.now());
+  if (c.op === 'delete' || c.payload.deleted_at != null) return true;
+  const p = c.payload;
+  db.prepare(`update sessions set first_prompt = coalesce(first_prompt, @first_prompt),
+      ai_title = case when @at > updated_at then coalesce(@ai_title, ai_title) else coalesce(ai_title, @ai_title) end,
+      custom_title = case when @at > updated_at then coalesce(@custom_title, custom_title) else coalesce(custom_title, @custom_title) end,
+      started_at = min(coalesce(started_at, @started_at), coalesce(@started_at, started_at)),
+      last_activity_at = max(coalesce(last_activity_at, @last_activity_at), coalesce(@last_activity_at, last_activity_at)),
+      project_id = coalesce(project_id, (select id from projects where id = @project_id))
+    where id = @id`).run({ id: localId, at: c.updatedAt, first_prompt: p.first_prompt ?? null, ai_title: p.ai_title ?? null, custom_title: p.custom_title ?? null, started_at: p.started_at ?? null, last_activity_at: p.last_activity_at ?? null, project_id: p.project_id ?? null });
+  return true;
+}
+
+/** 同期する表のうち、会話の ID を持つ列。 */
+const SESSION_REFS: Partial<Record<SharedTable, readonly string[]>> = {
+  runs: ['session_id'], session_summaries: ['session_id'], session_states: ['session_id'], session_notes: ['session_id'],
+  todos: ['session_id', 'candidate_session_id'], artifact_versions: ['session_id'], takeovers: ['session_id'],
+};
+
+/**
+ * 届いた行が指す会話の ID を、手元の ID へ読み替える。読み替えるものが無ければ、渡された行をそのまま返す。
+ *
+ * 読み替えを覚える前の時刻の session_states からは、削除の印を除く。
+ * 別の ID の間は、ほかの PC で消した印がこの PC の会話に届いていなかった。
+ * 寄せただけで、手元の本文が OS のゴミ箱へ移る会話を何千件も作らないためである。
+ * 覚えた後の時刻の印は、利用者がいま消したものとして当てる。
+ *
+ * 読み替えを覚える前の時刻の、終わっていない run の行は当てず、null を返す（#552）。
+ * 当てると、ずっと前に終わり損ねた run が、本文のあるこの PC の会話のロックになる。
+ * 心拍は行に載らないので、本当に動いている run とは見分けられない。別の ID の間もこの PC にはロックが無かったので、それと同じ扱いにする。
+ * その run の終わりや生き返りは新しい時刻で届くので、そのとき当たる。
+ */
+function aliasSessionRefs(db: Db, c: ChangeOut): ChangeOut | null {
+  const cols = SESSION_REFS[c.tableName];
+  if (!cols) return c;
+  const payload = { ...c.payload };
+  let rowId = c.rowId;
+  let merged: number | null = null;
+  for (const col of cols) {
+    const v = col === TABLE_PK[c.tableName] ? c.rowId : payload[col];
+    const a = typeof v === 'string' ? sessionAlias(db, v) : undefined;
+    if (!a) continue;
+    payload[col] = a.session_id;
+    merged = a.merged_at;
+    if (col === TABLE_PK[c.tableName]) rowId = a.session_id;
+  }
+  if (c.tableName === 'runs' && merged !== null && c.updatedAt <= merged && c.op === 'upsert' && payload.ended_at == null && payload.deleted_at == null) return null;
+  if (c.tableName === 'todos' && typeof payload.rejected_sessions === 'string') {
+    const ids = JSON.parse(payload.rejected_sessions) as string[];
+    payload.rejected_sessions = JSON.stringify(ids.map((id) => sessionAlias(db, id)?.session_id ?? id));
+  }
+  if (c.tableName === 'session_states' && merged !== null && c.updatedAt <= merged) delete payload.trashed_at;
+  return { ...c, rowId, payload };
 }
 
 /** 寄せた先の ID。寄せていなければ null。 */
@@ -485,6 +570,10 @@ export function applyRemoteBatch(db: Db, changes: ChangeOut[], o: ApplyOptions):
   // 当てた行を、行の変化の口（db/notify.ts）へ知らせる。画面へ配るのは events/publisher.ts である。
   // 出どころは apply なので、同期の push のデバウンスはこれを拾わない（降りた行を push し返さない）。
   // 確定の後に知らせる。確定に失敗すれば run() が投げるので、ここには来ない。
-  for (const c of applied) noteApplied(db, c.tableName, c.rowId, c.op);
+  // 読み替えた会話は、画面が知っている手元の ID で知らせる。呼び手へは持ち越しの鍵になる届いた行のまま返す。
+  for (const c of applied) {
+    const local = c.tableName === 'sessions' || TABLE_PK[c.tableName] === 'session_id' ? sessionAlias(db, c.rowId)?.session_id : undefined;
+    noteApplied(db, c.tableName, local ?? c.rowId, c.op);
+  }
   return applied;
 }
