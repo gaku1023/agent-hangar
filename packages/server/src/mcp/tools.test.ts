@@ -421,6 +421,86 @@ describe('MCP tools', () => {
     deps = { ...deps, runs: { start: async (p) => { started.push(p); await new Promise((r) => setTimeout(r, 5)); return { run: { id: 'r2', sessionId: 'sLater', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r2', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 'sLater', tabs: [] }; } } };
     expect(await call('create_session', { project_id: 'p1' })).toEqual({ run_id: 'r2', session_id: 'sLater', tmux_name: 'hangar-r2', url: 'http://127.0.0.1:4177/#/session/sLater' });
   });
+  describe('create_session の起動前の準備（#545）', () => {
+    const okRun = (sessionId: string) => ({ run: { id: 'rP', sessionId, deviceId: 'd', kind: 'start' as const, tmuxName: 'hangar-rP', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId, tabs: [] });
+    /** 準備が走り続ける起動。onPending で仮の行の ID を知らせ、finish か fail を呼ぶまで返らない。 */
+    let finish: (() => void) | null;
+    let fail: ((e: unknown) => void) | null;
+    let running: Set<string>;
+    beforeEach(() => {
+      finish = null; fail = null; running = new Set();
+      deps = { ...deps, launchWaitMs: 5, runs: {
+        agentEnabled: () => true,
+        prepRunning: (key) => running.has(key),
+        start: (p, hooks) => new Promise((resolve, reject) => {
+          started.push(p);
+          hooks?.onPending?.('sPending');
+          if (p.prepKey) running.add(p.prepKey);
+          finish = () => { running.clear(); resolve(okRun('sPending')); };
+          fail = (e) => { running.clear(); reject(e); };
+        }),
+      } };
+    });
+    const parentOf = (id: string) => (db.prepare('select parent_id from session_spawns where session_id = ?').get(id) as { parent_id: string } | undefined)?.parent_id ?? null;
+
+    it('opencode の起動には準備の鍵（prepKey）を添える。画面の札が準備の進みを拾えるようにするため', async () => {
+      const r = call('create_session', { project_id: 'p1', agent: 'opencode' });
+      finish!();
+      await r;
+      expect(started[0]!.prepKey).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+    });
+    it('準備が待ちの上限を越えたら、起動を待たずに preparing で返す。起動元の下にはその場で入れる', async () => {
+      const r = await call('create_session', { project_id: 'p1', agent: 'opencode', name: '準備の確かめ' }, { sessionId: alphaId });
+      expect(r).toMatchObject({ session_id: 'sPending', preparing: true, url: 'http://127.0.0.1:4177/#/session/sPending' });
+      expect(r).not.toHaveProperty('run_id');
+      expect(String(r.note)).toMatch(/準備/);
+      expect(parentOf('sPending')).toBe(alphaId);
+      finish!();
+    });
+    it('上限の内に済んだ起動は、これまでどおり run を添えて返す', async () => {
+      deps = { ...deps, launchWaitMs: 1_000 };
+      const r = call('create_session', { project_id: 'p1', agent: 'opencode' });
+      finish!();
+      expect(await r).toEqual({ run_id: 'rP', session_id: 'sPending', tmux_name: 'hangar-rP', url: 'http://127.0.0.1:4177/#/session/sPending' });
+    });
+    it('上限の内に起動が断られたら、これまでどおり理由をその場で返す', async () => {
+      deps = { ...deps, launchWaitMs: 1_000 };
+      const r = call('create_session', { project_id: 'p1', agent: 'opencode' });
+      fail!(new RunError(400, '接続先の準備に失敗しました: exit 1'));
+      await expect(r).rejects.toThrow('接続先の準備に失敗しました: exit 1');
+    });
+    it('準備が走っていなければ、上限を越えても起動を待つ（Claude Code と Codex は準備をしない）', async () => {
+      deps = { ...deps, runs: { ...deps.runs, prepRunning: () => false } };
+      const r = call('create_session', { project_id: 'p1', agent: 'opencode' }) as unknown as Promise<Record<string, unknown>>;
+      await new Promise((res) => setTimeout(res, 20));
+      finish!();
+      expect(await r).toMatchObject({ run_id: 'rP' });
+    });
+    it('返した後に起動が失敗したら、理由を起動元の会話の知らせとして利用者に届け、ログにも残す', async () => {
+      const seen: string[] = [];
+      const off = onUnread((id, text) => { if (id === alphaId) seen.push(text); });
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        await call('create_session', { project_id: 'p1', agent: 'opencode', name: '準備の確かめ' }, { sessionId: alphaId });
+        fail!(new RunError(400, 'opencode を起動できませんでした: 接続先が応答しません'));
+        await new Promise((res) => setTimeout(res, 0));
+        expect(seen).toHaveLength(1);
+        expect(seen[0]).toContain('準備の確かめ');
+        expect(seen[0]).toContain('接続先が応答しません');
+        expect(getSession(db, live, alphaId)!.unread).toMatchObject({ count: 1 });
+        expect(warn.mock.calls.flat().join(' ')).toContain('接続先が応答しません');
+      } finally { off(); warn.mockRestore(); }
+    });
+    it('起動元が分からない（共通の URL）ときも、失敗はログに残し、投げっぱなしにしない', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        await call('create_session', { project_id: 'p1', agent: 'opencode' });
+        fail!(new Error('boom'));
+        await new Promise((res) => setTimeout(res, 0));
+        expect(warn.mock.calls.flat().join(' ')).toContain('boom');
+      } finally { warn.mockRestore(); }
+    });
+  });
   describe('会話の寿命（stop_session、resume_session、delete_session）', () => {
     const killed: string[] = [];
     const resumed: { id: string; account?: string }[] = [];
@@ -469,6 +549,24 @@ describe('MCP tools', () => {
       const r = await call('resume_session', { session_id: alphaId });
       expect(resumed).toEqual([{ id: alphaId }]);
       expect(r).toEqual({ run_id: 'rRes', session_id: alphaId, tmux_name: 'hangar-rRes', url: `http://127.0.0.1:4177/#/session/${alphaId}` });
+    });
+    it('resume_session は opencode の準備が待ちの上限を越えたら preparing で返し、失敗は起動元に知らせる', async () => {
+      asAgent('opencode');
+      let reject: ((e: unknown) => void) | null = null;
+      let key: string | undefined;
+      deps = { ...deps, launchWaitMs: 5, runs: { ...deps.runs, prepRunning: (k) => k === key, resumeWith: (_id, o) => { key = o?.prepKey; return new Promise((_res, rej) => { reject = rej; }); } } };
+      const seen: string[] = [];
+      const off = onUnread((id, text) => { if (id === 'caller') seen.push(text); });
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      upsertShared(db, 'sessions', { id: 'caller', provider: 'claude-code', provider_session_id: 'caller-psid', cwd: '/Users/me/workspace/alpha', home_device: 'd', project_id: 'p1', started_at: 1, last_activity_at: 1 }, 'd');
+      try {
+        const r = await call('resume_session', { session_id: alphaId }, { sessionId: 'caller' });
+        expect(key).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+        expect(r).toMatchObject({ session_id: alphaId, preparing: true });
+        reject!(new RunError(400, '接続先の準備に失敗しました: exit 3'));
+        await new Promise((res) => setTimeout(res, 0));
+        expect(seen.join(' ')).toContain('exit 3');
+      } finally { off(); warn.mockRestore(); }
     });
     it('resume_session は動いている会話を断る', () => {
       alive = run('d');

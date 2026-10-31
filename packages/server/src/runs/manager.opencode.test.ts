@@ -492,6 +492,28 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     expect(manager.get(r.sessionId)).toBeNull();
   });
 
+  posixIt('準備の間は onPending で仮の行の ID を知らせ、prepRunning が真になる。進みには会話の ID を載せる（#545）', async () => {
+    let release: (() => void) | null = null;
+    const providerPreps = new ProviderPreps({
+      preps: () => ({ lmstudio: { start: 'gpu up', stop: '', stopAfter: 15 } }),
+      run: () => new Promise((res) => { release = () => res({ code: 0, tail: '' }); }),
+      exitReason: (c) => `exit ${c}`, timeoutReason: (m) => `timeout ${m}`,
+    });
+    const sent: LaunchPrepDto[] = [];
+    const preps = new LaunchPreps({ broadcast: (e) => { sent.push(structuredClone(e.prep)); } });
+    const { rm } = make({ providerPreps, preps });
+    let pending: string | null = null;
+    const p = rm.start(params({ model: 'lmstudio/qwen3.8', prepKey: 'mcp-key-0001' }), { onPending: (id) => { pending = id; } });
+    await until(() => release !== null);
+    expect(pending).not.toBeNull();
+    expect(rm.prepRunning('mcp-key-0001')).toBe(true);
+    expect(sent.at(-1)).toMatchObject({ key: 'mcp-key-0001', sessionId: pending });
+    release!();
+    const r = await p;
+    expect(r.sessionId).toBe(pending);
+    expect(rm.prepRunning('mcp-key-0001')).toBe(false);
+  });
+
   posixIt('「再開」は serve を新しい秘密で起こし直し、追記を PUT し直し、MCP を待ってから、-s で同じ会話につなぐ。秘密は argv に無い', async () => {
     const { rm, manager, opencode, opened, log } = make();
     const r = await rm.start(params({ prompt: '直して', autoApprove: true }));

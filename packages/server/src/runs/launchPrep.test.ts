@@ -18,6 +18,14 @@ describe('LaunchPreps', () => {
     expect(preps.has('key-0001')).toBe(false);
   });
 
+  it('会話の ID を渡されたら進みに載せる。画面が、自分で起こしていない準備（MCP の起動）を会話に結び付けるため', () => {
+    const { sent, preps } = hub();
+    preps.begin('key-0009', 'sess-1').step('command', 'gpu', 'run');
+    expect(sent.at(-1)).toMatchObject({ key: 'key-0009', sessionId: 'sess-1' });
+    preps.begin('key-0010').step('command', 'gpu', 'run');
+    expect(sent.at(-1)!.sessionId ?? null).toBeNull();
+  });
+
   it('段が動くたびに鍵ごとの全体を配り、終わったら ready にする', () => {
     const { sent, preps } = hub();
     const p = preps.begin('key-0002');

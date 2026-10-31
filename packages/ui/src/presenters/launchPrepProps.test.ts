@@ -34,6 +34,21 @@ describe('右下の知らせの準備の進み', () => {
     expect(presentToasts(closed({ newSessionSent: false }), storeWith(prep()), 5_000).prepProgress).toBeNull();
     expect(presentToasts(closed({ launchPrep: null }), storeWith(prep()), 5_000).prepProgress).toBeNull();
   });
+  it('この画面が起こしていない準備（MCP の起動）も、会話に結び付いて段が動いていれば同じ札で出す（#545）', () => {
+    const cmd = { id: '1', kind: 'command' as const, target: 'my-gpu', action: 'run' as const, state: 'running' as const, fromContext: null, toContext: null, startedAt: 2_000, endedAt: null, reason: null };
+    const mcp = prep({ key: 'mcp-00000001', sessionId: 's1', startedAt: 2_000, steps: [cmd] });
+    const idle = { ...initialState() };
+    expect(presentToasts(idle, storeWith(mcp), 5_000).prepProgress).toMatchObject({ key: 'mcp-00000001', line: 'my-gpu を準備中…', startedAt: 2_000 });
+    // 段がまだ無い（serve の立ち上がり）、会話が分からない、済んだものは出さない。
+    expect(presentToasts(idle, storeWith({ ...mcp, steps: [] }), 5_000).prepProgress).toBeNull();
+    expect(presentToasts(idle, storeWith({ ...mcp, sessionId: undefined }), 5_000).prepProgress).toBeNull();
+    expect(presentToasts(idle, storeWith({ ...mcp, phase: 'ready' }), 5_000).prepProgress).toBeNull();
+    // この画面の準備が走っていれば、そちらを先に出す。
+    const both: Store = { ...initialStore(), launchPreps: { [mcp.key]: mcp, 'key-12345678': prep() } };
+    expect(presentToasts(closed(), both, 5_000).prepProgress).toMatchObject({ key: 'key-12345678' });
+    // ダイアログで送っている最中の自分の準備は、ほかの準備として出さない。
+    expect(presentToasts(dialog(), storeWith(prep({ sessionId: 's2' })), 5_000).prepProgress).toBeNull();
+  });
   it('再開の準備（接続先の準備のコマンド）は、ダイアログを経ずに同じ札で出す', () => {
     const resume = closed({ newSessionSent: false, launch: { kind: 'submitting' }, launchPrep: { key: 'key-12345678', model: null, name: null, resume: true } });
     const run = prep({ steps: [{ id: '1', kind: 'command', target: 'my-gpu', action: 'run', state: 'running', fromContext: null, toContext: null, startedAt: 1_000, endedAt: null, reason: null }] });

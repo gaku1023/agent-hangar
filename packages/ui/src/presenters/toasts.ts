@@ -53,11 +53,20 @@ export type PrepProgressCardProps = { key: string; line: string; startedAt: numb
 export type ModelMissingCardProps = { sessionId: string; model: string; name: string; projectId: string | null };
 export type ContextShortCardProps = { sessionId: string; fix: { text: string; startedAt: number | null } | null; done: boolean };
 
+/**
+ * この画面が起こした準備を先に出す。無ければ、ほかから起こした準備（MCP の create_session、ほかの窓）のうち、
+ * 会話に結び付いて段が動いている最新のものを同じ札で出す。MCP の起動は準備を待たずに返るので、進みはここでしか見えない（#545）。
+ */
 function presentPrepProgress(state: State, store: Store, t: Translate): PrepProgressCardProps | null {
   const mark = state.launchPrep;
   const prep = mark ? store.launchPreps[mark.key] : undefined;
-  if (!mark || !prep || prep.phase !== 'running' || state.overlay.kind === 'newSession' || (!state.newSessionSent && !mark.resume)) return null;
-  return { key: mark.key, line: presentLaunchPrep(prep, t, mark.model).line.text, startedAt: prep.startedAt };
+  if (mark && prep && prep.phase === 'running' && state.overlay.kind !== 'newSession' && (state.newSessionSent || mark.resume)) {
+    return { key: mark.key, line: presentLaunchPrep(prep, t, mark.model).line.text, startedAt: prep.startedAt };
+  }
+  const other = Object.values(store.launchPreps)
+    .filter((p) => p.key !== mark?.key && p.phase === 'running' && p.sessionId && p.steps.length > 0)
+    .sort((a, b) => b.startedAt - a.startedAt)[0];
+  return other ? { key: other.key, line: presentLaunchPrep(other, t, null).line.text, startedAt: other.startedAt } : null;
 }
 
 function presentContextShorts(state: State, store: Store, t: Translate): ContextShortCardProps[] {
