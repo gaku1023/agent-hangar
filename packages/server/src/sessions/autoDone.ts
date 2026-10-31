@@ -1,4 +1,5 @@
 import type { Db } from '../db/open.ts';
+import { peerRunAlive } from '../runs/queries.ts';
 
 /**
  * 止まったセッションを自動で Done にする（2026-10-11 の利用者の決定）。
@@ -10,7 +11,7 @@ import type { Db } from '../db/open.ts';
  * - 長く動いていない（idle）：最後に動いてから設定の日数（autoDoneIdleDays）たったもの。ターン数や要約に関係しない（2026-10-15 の利用者の決定）。
  *   外で起こした長い会話は要約が回らないと上の 2 つに当たらず、hangar を入れる前の履歴も Active のまま残るためである。
  * 除くのは、Paused の提案があるもの（利用者に聞いている最中）、却下したもの、「Active に戻す」の後に動きが無いもの。
- * 他の端末のセッションはその端末に任せる。どの端末の run も生きていないことも見る。
+ * 他の端末のセッションはその端末に任せる。どの端末の run も生きていないことも見る。他の端末の run は、その端末が古ければ生きているとみなさない（aliveRunForSession と同じ、#553）。
  * 書いた後に resume して発言すれば、今までどおり状態は外れる（states.ts の stateClears）。
  */
 
@@ -36,7 +37,7 @@ function activeRows(db: Db, deviceId: string): Row[] {
   return db.prepare(`
     select s.id, s.provider_session_id p, s.last_activity_at last,
       exists(select 1 from runs r where r.session_id = s.id and r.deleted_at is null) had_run,
-      exists(select 1 from runs r where r.session_id = s.id and r.deleted_at is null and r.ended_at is null) alive_run,
+      exists(select 1 from runs r where r.session_id = s.id and r.deleted_at is null and r.ended_at is null and r.device_id = ?) alive_run,
       ifnull(ss.turns, 0) turns, sm.source sum_source, sm.state sum_state
     from sessions s
     left join session_states st on st.session_id = s.id and st.deleted_at is null
@@ -46,10 +47,11 @@ function activeRows(db: Db, deviceId: string): Row[] {
       and st.status is null and st.rejected_at is null
       and not (ifnull(st.candidate_status, '') = 'paused' and st.candidate_at is not null)
       and not (st.set_at is not null and st.set_at >= ifnull(s.last_activity_at, 0))
-  `).all(deviceId) as Row[];
+  `).all(deviceId, deviceId) as Row[];
 }
 
-const stopped = (r: Row, liveProviderIds: ReadonlySet<string>): boolean => r.alive_run === 0 && !liveProviderIds.has(r.p);
+const stopped = (db: Db, deviceId: string, now: number, r: Row, liveProviderIds: ReadonlySet<string>): boolean =>
+  r.alive_run === 0 && !liveProviderIds.has(r.p) && !peerRunAlive(db, r.id, deviceId, now);
 const realSummary = (r: Row): boolean => r.sum_source === 'in_session' || r.sum_source === 'post_hoc';
 
 /**
@@ -59,7 +61,7 @@ const realSummary = (r: Row): boolean => r.sum_source === 'in_session' || r.sum_
 export function autoDoneCandidates(db: Db, deviceId: string, o: { liveProviderIds: ReadonlySet<string>; pending: ReadonlySet<string>; now: number; idleDays: number }): AutoDoneCandidate[] {
   const out: AutoDoneCandidate[] = [];
   for (const r of activeRows(db, deviceId)) {
-    if (!stopped(r, o.liveProviderIds) || o.pending.has(r.id)) continue;
+    if (!stopped(db, deviceId, o.now, r, o.liveProviderIds) || o.pending.has(r.id)) continue;
     if (r.had_run === 0 && r.turns <= DISPOSABLE_MAX_TURNS) out.push({ id: r.id, reason: 'disposable' });
     else if (realSummary(r) && (r.sum_state === 'done' || r.sum_state === 'abandoned')) out.push({ id: r.id, reason: 'summary' });
     else if (o.idleDays > 0 && r.last !== null && o.now - r.last >= o.idleDays * DAY_MS) out.push({ id: r.id, reason: 'idle' });
@@ -75,7 +77,7 @@ export function autoDoneCandidates(db: Db, deviceId: string, o: { liveProviderId
 export function summaryCandidates(db: Db, deviceId: string, o: { liveProviderIds: ReadonlySet<string>; since: number }): string[] {
   const recent = new Set((db.prepare('select id from sessions where home_device = ? and ifnull(last_activity_at, 0) >= ?').all(deviceId, o.since) as { id: string }[]).map((r) => r.id));
   return activeRows(db, deviceId)
-    .filter((r) => recent.has(r.id) && stopped(r, o.liveProviderIds) && r.had_run === 0 && r.turns > DISPOSABLE_MAX_TURNS && !realSummary(r))
+    .filter((r) => recent.has(r.id) && stopped(db, deviceId, Date.now(), r, o.liveProviderIds) && r.had_run === 0 && r.turns > DISPOSABLE_MAX_TURNS && !realSummary(r))
     .map((r) => r.id);
 }
 
