@@ -29,8 +29,12 @@ const isOct = (c: number): boolean => c >= 0x30 && c <= 0x37;
 type StreamHandlers = {
   /** ペインの出力。 */
   output(pane: string, bytes: Buffer): void;
-  /** 送ったコマンドの答え。ok は %end なら真、%error なら偽。行は latin1 のまま渡す。 */
-  block(lines: string[], ok: boolean): void;
+  /**
+   * コマンドの答え。ok は %end なら真、%error なら偽。行は latin1 のまま渡す。
+   * fromClient は、標準入力から送ったコマンドへの答えか（%begin の flags が 1）。tmux は 3.0 から、
+   * つないだ直後に attach そのものの答えを flags 0 で返す。psmux（3.4.0）はその答えを返さない。flags の無い行は真とみなす。
+   */
+  block(lines: string[], ok: boolean, fromClient: boolean): void;
   exit(): void;
 };
 
@@ -38,6 +42,7 @@ type StreamHandlers = {
 export class ControlStream {
   private rest: Buffer = Buffer.alloc(0);
   private body: string[] | null = null;
+  private fromClient = true;
   constructor(private readonly h: StreamHandlers) {}
 
   feed(chunk: Buffer): void {
@@ -56,11 +61,11 @@ export class ControlStream {
       if (line.startsWith('%end ') || line.startsWith('%error ')) {
         const lines = this.body;
         this.body = null;
-        this.h.block(lines, line.startsWith('%end '));
+        this.h.block(lines, line.startsWith('%end '), this.fromClient);
       } else this.body.push(line);
       return;
     }
-    if (line.startsWith('%begin ')) { this.body = []; return; }
+    if (line.startsWith('%begin ')) { this.body = []; this.fromClient = line.split(' ')[3] !== '0'; return; }
     if (line.startsWith('%output ')) {
       const sp = line.indexOf(' ', 8);
       if (sp > 0) this.h.output(line.slice(8, sp), unescapeOutput(line.slice(sp + 1)));
@@ -97,8 +102,8 @@ export function initialPaint(o: { history: string[]; screen: string[]; cursorX: 
   return s;
 }
 
-type Spawn = (file: string, args: string[]) => ChildProcessWithoutNullStreams;
-const defaultSpawn: Spawn = (file, args) => nodeSpawn(file, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+type Spawn = (file: string, args: string[], env?: NodeJS.ProcessEnv) => ChildProcessWithoutNullStreams;
+const defaultSpawn: Spawn = (file, args, env) => nodeSpawn(file, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: env ? { ...process.env, ...env } : process.env });
 
 const latin1ToUtf8 = (s: string): string => Buffer.from(s, 'latin1').toString('utf8');
 
@@ -109,7 +114,7 @@ const latin1ToUtf8 = (s: string): string => Buffer.from(s, 'latin1').toString('u
  */
 export function controlSpawn(tmux: Tmux, name: string, spawn: Spawn = defaultSpawn): PtyProcess {
   const pane = tmux.run('display-message', '-p', '-t', `=${name}:`, '#{pane_id}').stdout.trim();
-  const child = spawn(tmux.tmuxPath, tmux.controlAttachArgs(name));
+  const child = spawn(tmux.tmuxPath, tmux.controlAttachArgs(name), tmux.env);
   // 終わった子へ書くと EPIPE になる。終わりは exit で知らせるので、ここでは捨てる。
   child.stdin.on('error', () => { /* 同上 */ });
   child.stderr.resume();
@@ -117,8 +122,8 @@ export function controlSpawn(tmux: Tmux, name: string, spawn: Spawn = defaultSpa
   let onData: (d: string) => void = () => {};
   let onExit: (e: { exitCode: number }) => void = () => {};
   const decoder = new TextDecoder('utf-8');
-  /** 答えを待っているコマンドの受け手。先頭は attach そのものの答え。 */
-  const replies: ((lines: string[], ok: boolean) => void)[] = [() => {}];
+  /** 答えを待っているコマンドの受け手。送った順に並ぶ。attach そのものの答え（fromClient が偽）は数えない。 */
+  const replies: ((lines: string[], ok: boolean) => void)[] = [];
   /** 'wait' は今の画面の写しが届くまで（出力は写しに含まれるので捨てる）、'capture' はカーソルの位置を待つ間（溜める）、'live' は出力を通す。 */
   let phase: 'wait' | 'capture' | 'live' = 'wait';
   let painting = false;
@@ -137,7 +142,7 @@ export function controlSpawn(tmux: Tmux, name: string, spawn: Spawn = defaultSpa
       if (p !== pane || phase === 'wait') return;
       if (phase === 'capture') held.push(bytes); else emit(bytes);
     },
-    block: (lines, ok) => replies.shift()?.(lines, ok),
+    block: (lines, ok, fromClient) => { if (fromClient) replies.shift()?.(lines, ok); },
     exit: () => { /* 子の exit で知らせる */ },
   });
   child.stdout.on('data', (d: Buffer) => stream.feed(d));

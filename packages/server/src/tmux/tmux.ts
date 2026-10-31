@@ -84,6 +84,8 @@ export class Tmux {
   private readonly platform: NodeJS.Platform;
   private readonly exec: TmuxExec;
   private readonly execAsync: TmuxExecAsync;
+  /** tmux を起こすときに足す環境（試験の置き場、Windows の PSMUX_NO_WARM）。コントロールモードの子（control.ts）にも渡す。 */
+  readonly env: NodeJS.ProcessEnv | undefined;
   /** この裏が capture-pane の -J を断ったか（captureUnwrapped）。 */
   private joinRefused = false;
 
@@ -97,10 +99,11 @@ export class Tmux {
     this.socketName = opts.socketName;
     this.socketPath = opts.socketPath;
     this.platform = opts.platform ?? process.platform;
-    this.exec = opts.exec ?? realExec(muxEnv(this.platform, opts.env));
+    this.env = muxEnv(this.platform, opts.env);
+    this.exec = opts.exec ?? realExec(this.env);
     // exec だけ差し替えた試験では、待たない口も同じ偽物を通す。
     const exec = opts.exec;
-    this.execAsync = opts.execAsync ?? (exec ? async (f, a) => exec(f, a) : realExecAsync(muxEnv(this.platform, opts.env)));
+    this.execAsync = opts.execAsync ?? (exec ? async (f, a) => exec(f, a) : realExecAsync(this.env));
   }
 
   args(...a: string[]): string[] {
@@ -306,7 +309,10 @@ export class Tmux {
     return this.args('-C', 'attach', '-t', `=${name}`);
   }
 
-  /** コントロールモードでつないでよいか。psmux が対応しているかは確かめていないので、Windows では擬似端末の attach のままにする。 */
+  /**
+   * コントロールモードでつないでよいか。Windows では擬似端末の attach のままにする。
+   * psmux 3.4.0 の -C は描画と打鍵は通るが、離れている間の出力を後でまとめて流し直すので、写しの後に履歴が重なる（issue #534）。
+   */
   get supportsControl(): boolean {
     return this.platform !== 'win32';
   }
