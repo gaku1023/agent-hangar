@@ -10,6 +10,7 @@ import type { LmServerStarter } from './localModels/serverStart.ts';
 import { prepareLocalModels, type LocalModelsDeps, type LocalModelUse } from './localModels/prepare.ts';
 import type { ProviderPreps } from './providerPrep.ts';
 import type { OpencodeShareConfig } from '../../share/opencode.ts';
+import { modelOf } from './transcript/convert.ts';
 
 /**
  * opencode の会話を hangar から起こす面（docs/design.md「opencode の起動」）。
@@ -106,15 +107,19 @@ export type MaterializeDeps = {
  * 再開（resume）は、終わった画面の「再開」から来る。既にある会話（mode.id）に、新しい serve でつなぎ直す。
  * serve が残っていれば先に止める。起きている serve には新しい run の MCP の秘密を当て直せない（ensure の config は起こすときにだけ効く）からである。
  * 会話は作らず、追記を PUT し直し（serve を起こし直すと追記は消える）、MCP を待つ。
+ * 起動前の準備は、会話が最後に使ったモデル（lastSessionModel）について走らせる。
  * フォークは受けない（caps.fork が偽で、RunManager が入口で断る）。
  */
 export async function materializeOpencode(deps: MaterializeDeps, mode: MaterializeMode, spec: LaunchSpec): Promise<{ providerSessionId: string; serve: ServeInfo }> {
   if (mode.kind !== 'start' && mode.kind !== 'resume') throw new Error(`opencode cannot ${mode.kind} a session`);
   if (mode.kind === 'resume') await deps.serves.stop(spec.hangarSessionId);
   let serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarServeConfig(spec.mcp, deps.permissions?.(spec.cwd) ?? null, {}, deps.share?.(spec) ?? null), directory: spec.cwd });
-  let model = spec.model;
   let providerSessionId: string;
   try {
+    // 再開には起動の指定のモデルが無い。準備は設定の既定ではなく、会話が最後に使ったモデル（途中の /models の切り替えも含む）について走らせる。
+    // 本文を読めなければ、これまでどおり設定の既定のモデルで準備する。
+    if (mode.kind === 'resume' && spec.prep && !spec.model) spec = { ...spec, model: (await lastSessionModel(new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs }), mode.id).catch(() => null)) ?? undefined };
+    let model = spec.model;
     if (spec.prep && deps.providerPreps?.any() && !spec.prep.choice.skip) await prepareProviders(deps, deps.providerPreps, serve, spec);
     if (spec.prep && deps.localServers) await prepareServers(deps, deps.localServers, serve, spec);
     // モデルの有無は、接続先の準備（サーバーを起こすコマンド）の後、モデルを載せる前に確かめる。準備を飛ばす答えでも確かめる（無いモデルでは最初の発言で必ず落ちる）。
@@ -230,6 +235,31 @@ export async function prepareRunning(local: LocalModelsDeps, serve: ServeInfo, o
   const client = new OpencodeClient(serve, { timeoutMs: o.requestTimeoutMs });
   const conf = await client.modelUses(o.cwd);
   await prepareWith(local, client, { hangarSessionId: o.hangarSessionId, cwd: o.cwd, uses: usesOf(conf, o.model ?? conf.model ?? undefined), prep: o.prep, choice: {}, reloadShort: true });
+}
+
+/** 会話の最後のモデルを探すときに読む本文のページの数と大きさ。 */
+const LAST_MODEL_PAGES = 5;
+const LAST_MODEL_PAGE_SIZE = 100;
+
+/**
+ * 会話が最後に使ったモデル（`provider/model`）。本文を新しい順にたどり、最初に見つかった assistant か model-switched のモデルを返す。
+ * model-switched は TUI の /models の後の最初の送信で入るので、切り替えた後の会話はその先のモデルになる。
+ * 前の run の起動の指定（launch_params）は使わない。/models の切り替えが載らず、再開の run には指定が無いからである。
+ * 見つからなければ（まだ何も送っていない会話）null で、呼び手は設定の既定のモデルを使う。
+ */
+export async function lastSessionModel(client: OpencodeClient, sessionId: string): Promise<string | null> {
+  let cursor: string | null = null;
+  for (let i = 0; i < LAST_MODEL_PAGES; i++) {
+    const page = await client.messages(sessionId, { limit: LAST_MODEL_PAGE_SIZE, cursor });
+    for (const m of page.data) {
+      const { type, model } = (m ?? {}) as { type?: unknown; model?: unknown };
+      const ref = type === 'assistant' || type === 'model-switched' ? modelOf(model) : undefined;
+      if (ref?.includes('/')) return ref;
+    }
+    if (!page.next) return null;
+    cursor = page.next;
+  }
+  return null;
 }
 
 /** 会話のモデル、small_model、agent ごとのモデルを、モデルごとの使い手にまとめる。 */
