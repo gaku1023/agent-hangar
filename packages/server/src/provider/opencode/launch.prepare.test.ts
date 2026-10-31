@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LaunchPrepAsked, LaunchPreps } from '../../runs/launchPrep.ts';
-import { checkSessionModel, prepareModels, type MaterializeDeps } from './launch.ts';
+import { checkSessionModel, materializeOpencode, prepareModels, type MaterializeDeps } from './launch.ts';
+import { ProviderPreps } from './providerPrep.ts';
 import { LocalModelListing } from './localModels/available.ts';
 import type { LocalModelsDeps } from './localModels/prepare.ts';
 import type { ServeInfo } from './serve/manager.ts';
@@ -155,5 +156,67 @@ describe('checkSessionModel（この PC にモデルがあるか）', () => {
     const l = new LocalModelListing({ fetch: (async (url: string | URL) => { calls.push(String(url)); return new Response('?', { status: 404 }); }) as typeof fetch });
     await expect(checkSessionModel(deps([]), l, serve, { ...spec(), model: 'anthropic/claude-sonnet-4-5' })).resolves.toBeUndefined();
     expect(calls).toEqual([]);
+  });
+});
+
+describe('materializeOpencode の再開（会話のモデルの接続先）', () => {
+  /**
+   * 既にある会話（ses_1）をつなぎ直す serve の偽物。設定の既定のモデルは lmstudio/gemma で、接続先 remote には準備のコマンドがある。
+   * messages は会話の本文（新しい順）。MCP はすぐつながる。
+   */
+  async function serveResuming(messages: unknown[]): Promise<ServeInfo> {
+    const providers = { lmstudio: { settings: { baseURL: LM } }, remote: { settings: { baseURL: 'http://10.0.0.5:8000/v1' } } };
+    server = http.createServer((req, res) => {
+      const p = new URL(req.url ?? '/', 'http://x').pathname;
+      res.setHeader('content-type', 'application/json');
+      if (p === '/api/config') res.end(JSON.stringify([{ type: 'document', info: { model: { providerID: 'lmstudio', model: 'gemma' }, providers } }]));
+      else if (p === '/api/provider') res.end(JSON.stringify({ data: [{ id: 'lmstudio', name: 'LM Studio', settings: { baseURL: LM } }, { id: 'remote', name: 'Remote GPU', settings: { baseURL: 'http://10.0.0.5:8000/v1' } }] }));
+      else if (p === '/api/session/ses_1/message') res.end(JSON.stringify({ data: messages, cursor: { next: null } }));
+      else if (p === '/api/mcp') res.end(JSON.stringify({ data: [{ name: 'hangar', status: { status: 'connected' } }] }));
+      else res.end('{}');
+    });
+    await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
+    const port = (server.address() as AddressInfo).port;
+    return { url: `http://127.0.0.1:${port}`, password: 'pw', port, pid: 1 } as unknown as ServeInfo;
+  }
+  /** ran は走った準備のコマンド、servers は整えたローカルのサーバーの接続先。 */
+  const resumeDeps = (serve: ServeInfo, ran: string[], servers: string[]): MaterializeDeps => ({
+    serves: { ensure: async () => serve, get: () => serve, stop: async () => undefined },
+    report: () => undefined,
+    sleep: async () => undefined,
+    providerPreps: new ProviderPreps({ preps: () => ({ remote: { start: 'remote-up', stop: '', stopAfter: 5 } }), run: async (cmd) => { ran.push(cmd); return { code: 0, tail: '' }; }, exitReason: String, timeoutReason: String }),
+    localServers: { ensure: async (p) => { servers.push(p.id); } },
+  });
+  const assistant = (providerID: string, id: string) => ({ id: `msg_${providerID}`, type: 'assistant', time: { created: 1 }, model: { providerID, id }, content: [] });
+  const resume = async (messages: unknown[]) => {
+    const serve = await serveResuming(messages);
+    const ran: string[] = [];
+    const servers: string[] = [];
+    await materializeOpencode(resumeDeps(serve, ran, servers), { kind: 'resume', id: 'ses_1' }, spec());
+    return { ran, servers };
+  };
+
+  it('設定の既定のモデルとは別の接続先で始めた会話を再開すると、その接続先の準備が走る', async () => {
+    const { ran, servers } = await resume([{ id: 'i', type: 'idle', outcome: 'succeeded' }, assistant('remote', 'big'), { id: 'u', type: 'user', text: 'hi' }]);
+    expect(ran).toEqual(['remote-up']);
+    expect(servers).toEqual(['remote']);
+  });
+
+  it('途中で /models を切り替えた会話は、切り替えた先のモデル（いちばん新しいもの）で準備する', async () => {
+    const { ran, servers } = await resume([{ id: 'sw', type: 'model-switched', model: { providerID: 'remote', id: 'big' }, previous: { providerID: 'lmstudio', id: 'gemma' } }, assistant('lmstudio', 'gemma')]);
+    expect(ran).toEqual(['remote-up']);
+    expect(servers).toEqual(['remote']);
+  });
+
+  it('準備のある接続先から既定のモデルへ切り替えた会話では、もう使わない接続先の準備を走らせない', async () => {
+    const { ran, servers } = await resume([assistant('lmstudio', 'gemma'), { id: 'sw', type: 'model-switched', model: { providerID: 'lmstudio', id: 'gemma' } }, assistant('remote', 'big')]);
+    expect(ran).toEqual([]);
+    expect(servers).toEqual(['lmstudio']);
+  });
+
+  it('本文にモデルが無ければ（まだ何も送っていない会話）、設定の既定のモデルで準備する', async () => {
+    const { ran, servers } = await resume([]);
+    expect(ran).toEqual([]);
+    expect(servers).toEqual(['lmstudio']);
   });
 });

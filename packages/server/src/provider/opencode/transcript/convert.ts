@@ -136,7 +136,7 @@ export function convertMessage(m: unknown, seqStart: number): IndexRecord {
 }
 
 /** モデルの名前。`provider/model` の形にする（起動のダイアログで選ぶ形と同じ）。 */
-function modelOf(v: unknown): string | undefined {
+export function modelOf(v: unknown): string | undefined {
   if (!isRec(v)) return undefined;
   const id = str(v.id) ?? str(v.modelID);
   const provider = str(v.providerID);
