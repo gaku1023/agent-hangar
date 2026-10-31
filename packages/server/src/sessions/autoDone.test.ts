@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { PEER_STALE_MS, recordPeers } from '../sync/peers.ts';
 import { AutoDoneWatch, autoDoneCandidates, AUTO_DONE_SETTLE_MS, summaryCandidates } from './autoDone.ts';
 import { getSessionState, markAutoDone, proposeSessionState, rejectSessionState, setSessionState } from './states.ts';
 
@@ -113,6 +114,19 @@ describe('autoDoneCandidates：除くもの', () => {
     const db = seed();
     session(db, 'other', { device: 'd2' });
     expect(cands(db)).toEqual([]);
+  });
+  it('他の端末の終わっていない run は、その端末が古ければ生きているとみなさない（#553）', () => {
+    const db = seed();
+    session(db, 'peer', { turns: 2 });
+    upsertShared(db, 'runs', { id: 'r-peer', session_id: 'peer', device_id: 'd2', kind: 'resume', tmux_name: 't', pid: null, launch_params: '{}', started_at: NOW - 60 * MIN, ended_at: null, end_reason: null, heartbeat_at: NOW - 60 * MIN }, 'd2');
+    // 他の端末は新しい：生きているので除く。
+    recordPeers(db, { selfDeviceId: 'd', peers: [{ id: 'd2', lastSeenAt: 1_000 }], workerNow: 1_000, localNow: NOW });
+    expect(cands(db)).toEqual([]);
+    // 他の端末が古い：止まっているとみなす。had_run は 1 なので、使い捨てではなく長さで見る。
+    recordPeers(db, { selfDeviceId: 'd', peers: [{ id: 'd2', lastSeenAt: 1_000 }], workerNow: 1_000 + PEER_STALE_MS + 1, localNow: NOW });
+    expect(cands(db, { idleDays: 0 })).toEqual([]);
+    summary(db, 'peer', 'done');
+    expect(cands(db)).toEqual([{ id: 'peer', reason: 'summary' }]);
   });
   it('状態が付いているもの、Paused の提案があるもの、却下したものは除く', () => {
     const db = seed();

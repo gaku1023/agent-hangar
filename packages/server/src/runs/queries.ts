@@ -49,6 +49,17 @@ export function aliveRunForSession(db: Db, sessionId: string, selfDeviceId: stri
   return null;
 }
 
+/**
+ * 他の PC の生きた run が、そのセッションをふさいでいるか。aliveRunForSession と同じく、古い PC の run はふさいでいるとみなさない。
+ * git の表示（remote にするか）と自動の Done（止まっているか）が使う（#553）。
+ */
+export function peerRunAlive(db: Db, sessionId: string, selfDeviceId: string, now: number = Date.now()): boolean {
+  const devices = db.prepare(`select distinct device_id from runs where deleted_at is null and ended_at is null and session_id = ? and device_id <> ?`).all(sessionId, selfDeviceId) as { device_id: string }[];
+  if (devices.length === 0) return false;
+  const peers = readPeers(db);
+  return devices.some((d) => !peerStale(peers, d.device_id, now));
+}
+
 /** その端末のそのセッションの run のうち、最も新しく起きたもの（終わったものも含める）。 */
 export function latestRunForSession(db: Db, sessionId: string, deviceId: string): RunDto | null {
   const r = db.prepare(`${RUN_SELECT} and session_id = ? and device_id = ? order by started_at desc limit 1`).get(sessionId, deviceId) as RunRow | undefined;

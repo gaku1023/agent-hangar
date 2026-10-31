@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { GitDto, LiveSessionDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { PEER_STALE_MS, recordPeers } from '../sync/peers.ts';
 import { indexFile } from '../../test/claudeIndex.ts';
 import { asDifferentOwner, git, hasGit, makeRepo } from '../../test/git.ts';
 import { GitService } from './service.ts';
@@ -98,6 +99,16 @@ describe.skipIf(!hasGit)('GitService', () => {
     const g = await make().sessions([id]);
     expect(g.sessions[id]).toEqual({ state: 'remote', root: null, branch: 'feature-x', worktree: null });
     expect(calls).toEqual([]);
+  });
+
+  it('他の PC が古ければ、その PC の終わっていない run があっても手元の git を読む（#553）', async () => {
+    const repo = makeRepo(path.join(tmp, 'alpha'));
+    const id = writeSession({ cwd: repo, branch: 'feature-x' });
+    upsertShared(db, 'runs', { id: 'r9', session_id: id, device_id: 'other', kind: 'resume', tmux_name: 'hangar-r9', pid: null, started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1, launch_params: '{}' }, 'other');
+    recordPeers(db, { selfDeviceId: DEV, peers: [{ id: 'other', lastSeenAt: 1_000 }], workerNow: 1_000 + PEER_STALE_MS + 1, localNow: Date.now() });
+    const g = await make().sessions([id]);
+    expect(g.sessions[id]?.state).not.toBe('remote');
+    expect(g.sessions[id]?.root).not.toBeNull();
   });
 
   it('worktree に入っていたセッションは、その作業ツリーを読み、名前と元の根を持つ', async () => {

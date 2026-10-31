@@ -4,6 +4,7 @@ import type { GitDiffDto, GitDto, GitFileDto, GitSessionDto, GitTreeDto, LiveSes
 import type { Db } from '../db/open.ts';
 import { EDIT_TOOLS } from '../indexer/write.ts';
 import { changedFilesOf } from '../sessions/files.ts';
+import { peerRunAlive } from '../runs/queries.ts';
 import { readEvents } from '../transcript/read.ts';
 import { readGitHint } from './hint.ts';
 import { diffFile, locateTree, numstatOf, readTreeStatus, type GitExec, type StatusEntry, type TreeLocation } from './status.ts';
@@ -86,13 +87,15 @@ export class GitService {
   private rows(ids: string[]): SessionRow[] {
     if (ids.length === 0) return [];
     const marks = ids.map(() => '?').join(',');
-    return this.deps.db.prepare(`
+    const rows = this.deps.db.prepare(`
       select s.id, s.cwd, s.provider_session_id,
         exists(select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null and t.device_id is null) has_local,
         exists(select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null) has_transcript,
-        (select t.path from transcript_files t where t.session_id = s.id and t.agent_id is null order by (t.device_id is null) desc, t.mtime desc limit 1) main_path,
-        exists(select 1 from runs r where r.session_id = s.id and r.ended_at is null and r.deleted_at is null and r.device_id <> ?) locked
-      from sessions s where s.id in (${marks}) and s.deleted_at is null`).all(this.deps.deviceId, ...ids) as SessionRow[];
+        (select t.path from transcript_files t where t.session_id = s.id and t.agent_id is null order by (t.device_id is null) desc, t.mtime desc limit 1) main_path
+      from sessions s where s.id in (${marks}) and s.deleted_at is null`).all(...ids) as Omit<SessionRow, 'locked'>[];
+    // 他の PC の run は、その PC が古ければふさいでいるとみなさない（aliveRunForSession と同じ、#553）。
+    const now = this.now();
+    return rows.map((r) => ({ ...r, locked: peerRunAlive(this.deps.db, r.id, this.deps.deviceId, now) ? 1 : 0 }));
   }
 
   private isLive(row: SessionRow): boolean {
