@@ -24,13 +24,15 @@ export interface PaneOps {
    * 空の一覧（1 つも無い）と null（分からない）は別である。
    */
   list(): string[] | null;
+  /** list の、イベントループを止めない版。持たない裏（試験の偽物など）は list で代える。 */
+  listAsync?(): Promise<string[] | null>;
   /** 画面にいま見えている文字。色や属性は落とす。 */
   capture(name: string): string;
   /**
    * 端末の幅で折り返した行をつないだ画面。裏がつなげないときは折り返したままの画面と、その幅（width）を返す。つないだときの width は null。
    * Remote Control の URL を拾うのに使う（mobile/remoteUrl.ts）。持たない裏（試験の偽物など）は capture で代える。
    */
-  captureUnwrapped?(name: string): { text: string; width: number | null };
+  captureUnwrapped?(name: string): { text: string; width: number | null } | Promise<{ text: string; width: number | null }>;
   /** 文字をそのまま打ち込む。キーの名前としては読ませない。 */
   sendText(name: string, text: string): void;
   /**
@@ -66,6 +68,7 @@ function muxPaneOps(mux: MuxServers): Omit<PaneOps, 'prepareForOutsideTerminals'
     // psmux の kill-server は別の名前空間のセッションまで落とすので、どちらの裏でもここでは使わない。
     close: (name) => at(name).killSession(name),
     list: () => mux.list(),
+    listAsync: () => mux.listAsync(),
     capture: (name) => at(name).capturePane(name),
     captureUnwrapped: (name) => at(name).captureUnwrapped(name),
     // -l を付けて 1 文字として送る。{ や q をキー名として読ませない。

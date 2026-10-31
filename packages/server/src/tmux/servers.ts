@@ -50,7 +50,18 @@ export class MuxServers {
     const mine = this.own.listSessions();
     if (mine === null) return null;
     if (!this.legacy || !this.watching) return mine;
-    const theirs = this.legacy.listSessions();
+    return this.merge(mine, this.legacy.listSessions());
+  }
+
+  /** list の、イベントループを止めない版。周期の見回りが使う。 */
+  async listAsync(): Promise<string[] | null> {
+    const mine = await this.own.listSessionsAsync();
+    if (mine === null) return null;
+    if (!this.legacy || !this.watching) return mine;
+    return this.merge(mine, await this.legacy.listSessionsAsync());
+  }
+
+  private merge(mine: string[], theirs: string[] | null): string[] | null {
     if (theirs === null) return null;
     const ownSet = new Set(mine);
     const left = theirs.filter((n) => HANGAR_PANE.test(n) && !ownSet.has(n));

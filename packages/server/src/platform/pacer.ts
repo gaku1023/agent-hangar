@@ -5,7 +5,8 @@
  * 間隔は 1 回ごとに fast() を読んで決め直す（setTimeout を重ねる）。
  */
 export type PacerOptions = {
-  run: () => void;
+  /** Promise を返したら、終わるまで次の回を始めない。 */
+  run: () => void | Promise<void>;
   fastMs: number;
   slowMs: number;
   /** いま急ぐか。回のたびと kick のたびに読む。 */
@@ -19,6 +20,10 @@ export class Pacer {
   /** 次の回の予定の時刻。 */
   private due = Infinity;
   private running = false;
+  /** 回が終わるのを待っている間か。 */
+  private busy = false;
+  /** 回の途中に来た kick の間隔。回が終わってから効かせる。 */
+  private kicked: number | null = null;
 
   constructor(private readonly o: PacerOptions) {}
 
@@ -42,6 +47,10 @@ export class Pacer {
   kick(ms?: number): void {
     if (!this.running) return;
     const wait = ms ?? this.delay();
+    if (this.busy) {
+      this.kicked = Math.min(this.kicked ?? Infinity, wait);
+      return;
+    }
     if (Date.now() + wait < this.due) this.schedule(wait);
   }
 
@@ -55,12 +64,24 @@ export class Pacer {
     this.timer = setTimeout(() => {
       this.timer = null;
       this.due = Infinity;
+      const onError = this.o.onError ?? ((x: unknown) => console.error(x instanceof Error ? x.message : x));
+      const done = (): void => {
+        this.busy = false;
+        const kicked = this.kicked;
+        this.kicked = null;
+        if (this.running && !this.timer) this.schedule(Math.min(kicked ?? Infinity, this.delay()));
+      };
+      this.busy = true;
+      let r: void | Promise<void>;
       try {
-        this.o.run();
+        r = this.o.run();
       } catch (e) {
-        (this.o.onError ?? ((x: unknown) => console.error(x instanceof Error ? x.message : x)))(e);
+        onError(e);
+        done();
+        return;
       }
-      if (this.running && !this.timer) this.schedule(this.delay());
+      if (r instanceof Promise) void r.catch(onError).then(done);
+      else done();
     }, ms);
     this.timer.unref?.();
   }

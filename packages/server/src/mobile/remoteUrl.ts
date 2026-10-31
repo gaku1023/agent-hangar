@@ -87,30 +87,50 @@ export type PaneScreen = { text: string; width: number | null };
  * 読めなかった回（画面がまだ無い、tmux が一瞬応えない）は投げずに次を待つ。
  * 返す関数で止める。何度呼んでもよい。
  */
-export function watchRemoteUrl(o: { capture: () => PaneScreen; onFound: (url: string) => void; timers: Pick<Timers, 'setInterval' | 'clearInterval'>; everyMs?: number; forMs?: number }): () => void {
+export function watchRemoteUrl(o: { capture: () => PaneScreen | Promise<PaneScreen>; onFound: (url: string) => void; timers: Pick<Timers, 'setInterval' | 'clearInterval'>; everyMs?: number; forMs?: number }): () => void {
   const every = o.everyMs ?? REMOTE_URL_EVERY_MS;
   const max = Math.max(1, Math.floor((o.forMs ?? REMOTE_URL_FOR_MS) / every));
   let reads = 0;
   let timer: ReturnType<typeof setInterval> | null = null;
+  /** 読みの途中か。遅い読みの上に次の読みを重ねない。 */
+  let reading = false;
+  let stopped = false;
   const stop = (): void => {
+    stopped = true;
     if (timer !== null) o.timers.clearInterval(timer);
     timer = null;
   };
+  const found = (screen: PaneScreen): void => {
+    const url = extractRemoteUrl(screen.text, screen.width);
+    if (url === null) return;
+    stop();
+    o.onFound(url);
+  };
   timer = o.timers.setInterval(() => {
+    if (reading) return;
     reads++;
-    let url: string | null = null;
+    const last = reads >= max;
+    let screen: PaneScreen | Promise<PaneScreen>;
     try {
-      const screen = o.capture();
-      url = extractRemoteUrl(screen.text, screen.width);
+      screen = o.capture();
     } catch {
-      url = null;
-    }
-    if (url !== null) {
-      stop();
-      o.onFound(url);
+      if (last) stop();
       return;
     }
-    if (reads >= max) stop();
+    if (!(screen instanceof Promise)) {
+      found(screen);
+      if (last) stop();
+      return;
+    }
+    reading = true;
+    void screen.then((s) => {
+      reading = false;
+      if (!stopped) found(s);
+    }, () => {
+      reading = false;
+    }).then(() => {
+      if (last) stop();
+    });
   }, every);
   timer.unref?.();
   return stop;

@@ -597,6 +597,96 @@ describe('RunManager の終了の見張りの周期（tmux 不要）', () => {
     }
   });
 
+  describe('待たない一覧（issue #534）', () => {
+    const asyncPanes = () => {
+      const pending: ((names: string[] | null) => void)[] = [];
+      const sync = { lists: 0 };
+      const panes: PaneOps = {
+        open: () => {},
+        close: () => {},
+        list: () => { sync.lists++; return []; },
+        listAsync: () => new Promise((r) => { pending.push(r); }),
+        capture: () => '',
+        sendText: () => {},
+        sendKey: () => {},
+        prepareForOutsideTerminals: () => {},
+      };
+      return { panes, pending, sync };
+    };
+    const endOf = (id: string) => (db.prepare('select ended_at from runs where id = ?').get(id) as { ended_at: number | null }).ended_at;
+
+    it('周期の見回りは待たない口で読み、同期の一覧を呼ばない。読み終わるまで次の回を重ねない', async () => {
+      vi.useFakeTimers();
+      try {
+        aliveRun('r1');
+        const { panes, pending, sync } = asyncPanes();
+        const rm = make({ panes });
+        rm.startPolling(100, 100);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(pending.length).toBe(1);
+        expect(sync.lists).toBe(0);
+        pending[0]!(['hangar-r1']);
+        await vi.advanceTimersByTimeAsync(100);
+        expect(pending.length).toBe(2);
+        pending[1]!(['hangar-r1']);
+        rm.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('読んでいる間に画面を閉じたら、その一覧は捨てる', async () => {
+      vi.useFakeTimers();
+      try {
+        aliveRun('r1');
+        const { panes, pending } = asyncPanes();
+        const rm = make({ panes });
+        const tick = vi.spyOn(rm, 'tick');
+        rm.startPolling(100, 100);
+        await vi.advanceTimersByTimeAsync(100);
+        rm.kill('r1');
+        tick.mockClear();
+        pending[0]!([]);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(tick).not.toHaveBeenCalled();
+        rm.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('止めた後に返った一覧では何も閉じない', async () => {
+      vi.useFakeTimers();
+      try {
+        aliveRun('r1');
+        const { panes, pending } = asyncPanes();
+        const rm = make({ panes });
+        rm.startPolling(100, 100);
+        await vi.advanceTimersByTimeAsync(100);
+        rm.stop();
+        pending[0]!([]);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(endOf('r1')).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('見張るものが無ければ、待たない一覧も読まない', async () => {
+      vi.useFakeTimers();
+      try {
+        const { panes, pending } = asyncPanes();
+        const rm = make({ panes });
+        rm.startPolling(100, 100);
+        await vi.advanceTimersByTimeAsync(500);
+        expect(pending.length).toBe(0);
+        rm.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it('heartbeat の書き直しは画面へ配らない（同期で他の PC へ届けるための書き込みである）', () => {
     let t = 1_000_000;
     aliveRun('r1', t);

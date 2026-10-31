@@ -172,6 +172,8 @@ function isDirectory(p: string): boolean {
 export class RunManager {
   private listeners = new Set<RunListener>();
   private pacer: Pacer | null = null;
+  /** 画面を作るか閉じた回数。見回りが読んでいる間の変化を見分ける（poll）。 */
+  private paneChanges = 0;
   /** 最後に stir した時刻。 */
   private stirredAt = -Infinity;
   /** 引き取りの途中のセッション。二度押しで元のプロセスを止めて移す手順が 2 本走らないようにする。 */
@@ -210,11 +212,18 @@ export class RunManager {
   /** sessions.provider の値から driver を引く（agent/agents.ts）。 */
   private readonly agents: Agents;
 
-  constructor(private readonly deps: RunManagerDeps) {
+  constructor(private deps: RunManagerDeps) {
     this.tr = translatorOf(deps.language);
     this.accounts = deps.accounts ?? new RunAccounts({ db: deps.db, claudeDir: deps.claudeDir, deviceId: deps.deviceId });
     this.claude = deps.claude;
     this.agents = deps.agents;
+    if (deps.panes) {
+      // 作ると閉じるだけ数える。ほかは元の口をそのまま通す。
+      const panes: PaneOps = Object.create(deps.panes);
+      panes.open = (o) => { this.paneChanges++; deps.panes!.open(o); };
+      panes.close = (name) => { this.paneChanges++; deps.panes!.close(name); };
+      this.deps = { ...deps, panes };
+    }
   }
 
   on(l: RunListener): () => void {
@@ -1318,17 +1327,22 @@ export class RunManager {
     }
   }
 
+  /** 見張るものがあるか。無ければ tmux を呼ばない。 */
+  private hasWatched(): boolean {
+    return this.openShellTabs().length > 0 || listAliveRuns(this.db, this.deviceId).length > 0 || this.now() < this.reviveWatchUntil;
+  }
+
   /** tmux の一覧を 1 回読み、消えた run とタブを閉じ、古い heartbeat を更新する。 */
-  tick(): { ended: RunDto[]; closedTabs: TabDto[] } {
+  tick(listedNow?: string[] | null): { ended: RunDto[]; closedTabs: TabDto[] } {
     // tmux が無いのも、tmux を呼べなかったのも「観測できない」であって「動いていない」ではない。
     // ここで一覧を空と見なすと、設定から tmuxPath を外した瞬間や、
     // tmux のバイナリが一瞬消えた隙に、実際には動いている run が全部 exited になって二度と戻らない。
     // 見張るものが無ければ tmux を呼ばない。一覧の読み取りは子プロセスを 1 つ起こす。
     // 閉じたばかりの run があれば、しばらくは読み続ける。戻ってきたら生き返らせる（revive）。
+    if (!this.hasWatched()) return { ended: [], closedTabs: [] };
     const shellTabs = this.openShellTabs();
     const now = this.now();
-    if (shellTabs.length === 0 && listAliveRuns(this.db, this.deviceId).length === 0 && now >= this.reviveWatchUntil) return { ended: [], closedTabs: [] };
-    const listed = this.deps.panes?.list() ?? null;
+    const listed = listedNow !== undefined ? listedNow : this.deps.panes?.list() ?? null;
     if (listed === null) return { ended: [], closedTabs: [] };
     const names = new Set(listed);
     const ended: RunDto[] = [];
@@ -1632,6 +1646,23 @@ export class RunManager {
   }
 
   /**
+   * 周期の見回りの 1 回。一覧は psmux を起こすので、Windows では 1 回に数十 ms かかる（issue #534）。その間サーバを止めないよう、待たずに読む。
+   * 読んでいる間に画面を作るか閉じたら、その一覧は古いので捨てて次の回に任せる。作ったばかりのシェルタブは、古い一覧に無いだけで閉じてしまう。
+   */
+  private poll(): void | Promise<void> {
+    const panes = this.deps.panes;
+    if (!panes?.listAsync || !this.hasWatched()) {
+      this.tick();
+      return;
+    }
+    const changes = this.paneChanges;
+    return panes.listAsync().then((listed) => {
+      if (this.pacer === null || changes !== this.paneChanges) return;
+      this.tick(listed);
+    });
+  }
+
+  /**
    * 終了検知の周期起動。tick の失敗でサーバが落ちないよう、必ず捕まえる。
    * stir の後 RUN_STIR_MS の間は intervalMs ごとに、それ以外は idleMs ごとに見る（2026-10-14、0.6.1）。
    * tmux の一覧の読み取りは子プロセスを 1 つ起こすので、待機中（何も出入りしない間）は間を空ける。
@@ -1641,7 +1672,7 @@ export class RunManager {
   startPolling(intervalMs = 2000, idleMs = intervalMs): void {
     if (this.pacer) return;
     this.pacer = new Pacer({
-      run: () => this.tick(),
+      run: () => this.poll(),
       fastMs: intervalMs,
       slowMs: idleMs,
       fast: () => this.now() - this.stirredAt < RUN_STIR_MS,

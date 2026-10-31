@@ -114,7 +114,9 @@ describe.skipIf(!PSMUX)('Tmux（実物の psmux）', () => {
     made.push('hangar-wrap');
     tmux.newSession({ name: 'hangar-wrap', cwd, command: ['cmd.exe', '/k', `echo ${url}`], width: 40, height: 20 });
     const panes = psmuxPaneOps(tmux);
-    await waitFor(() => { const s = panes.captureUnwrapped!('hangar-wrap'); return extractRemoteUrl(s.text, s.width) === url; }, 10_000);
+    let unwrapped: string | null = null;
+    const poll = setInterval(() => { void Promise.resolve(panes.captureUnwrapped!('hangar-wrap')).then((s) => { unwrapped = extractRemoteUrl(s.text, s.width); }); }, 200);
+    try { await waitFor(() => unwrapped === url, 10_000); } finally { clearInterval(poll); }
   }, 20_000);
 
   it('無い作業フォルダは、作る前に断る', () => {
