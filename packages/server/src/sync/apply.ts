@@ -273,7 +273,9 @@ function applyOne(db: Db, c: ChangeOut, o: ApplyOptions): 'applied' | 'skipped' 
     displaced = s;
   }
   if (c.tableName === 'sessions' && settleSessionId(db, c)) return 'applied';
-  c = aliasSessionRefs(db, c);
+  const aliased = aliasSessionRefs(db, c);
+  if (aliased === null) return 'skipped';
+  c = aliased;
   if (c.tableName === 'artifact_versions') {
     const v = aliasVersion(db, c);
     if (v === null) return 'skipped';
@@ -416,8 +418,13 @@ const SESSION_REFS: Partial<Record<SharedTable, readonly string[]>> = {
  * 別の ID の間は、ほかの PC で消した印がこの PC の会話に届いていなかった。
  * 寄せただけで、手元の本文が OS のゴミ箱へ移る会話を何千件も作らないためである。
  * 覚えた後の時刻の印は、利用者がいま消したものとして当てる。
+ *
+ * 読み替えを覚える前の時刻の、終わっていない run の行は当てず、null を返す（#552）。
+ * 当てると、ずっと前に終わり損ねた run が、本文のあるこの PC の会話のロックになる。
+ * 心拍は行に載らないので、本当に動いている run とは見分けられない。別の ID の間もこの PC にはロックが無かったので、それと同じ扱いにする。
+ * その run の終わりや生き返りは新しい時刻で届くので、そのとき当たる。
  */
-function aliasSessionRefs(db: Db, c: ChangeOut): ChangeOut {
+function aliasSessionRefs(db: Db, c: ChangeOut): ChangeOut | null {
   const cols = SESSION_REFS[c.tableName];
   if (!cols) return c;
   const payload = { ...c.payload };
@@ -428,8 +435,10 @@ function aliasSessionRefs(db: Db, c: ChangeOut): ChangeOut {
     const a = typeof v === 'string' ? sessionAlias(db, v) : undefined;
     if (!a) continue;
     payload[col] = a.session_id;
-    if (col === TABLE_PK[c.tableName]) { rowId = a.session_id; merged = a.merged_at; }
+    merged = a.merged_at;
+    if (col === TABLE_PK[c.tableName]) rowId = a.session_id;
   }
+  if (c.tableName === 'runs' && merged !== null && c.updatedAt <= merged && c.op === 'upsert' && payload.ended_at == null && payload.deleted_at == null) return null;
   if (c.tableName === 'todos' && typeof payload.rejected_sessions === 'string') {
     const ids = JSON.parse(payload.rejected_sessions) as string[];
     payload.rejected_sessions = JSON.stringify(ids.map((id) => sessionAlias(db, id)?.session_id ?? id));

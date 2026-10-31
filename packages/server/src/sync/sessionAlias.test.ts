@@ -99,12 +99,39 @@ describe('別の ID で届いた会話', () => {
     db.prepare("insert into projects (id, name, status, updated_at, origin_device) values ('p1', 'p', 'active', 1, 'c')").run();
     await cloud.pushChanges([
       sessionRow(),
-      { tableName: 'runs', rowId: 'run-1', op: 'upsert', updatedAt: OLD, payload: { id: 'run-1', session_id: 'other-id', device_id: 'c', kind: 'resume', tmux_name: 't', launch_params: '{}', started_at: 1, heartbeat_at: 1, updated_at: OLD, origin_device: 'c' } },
+      { tableName: 'runs', rowId: 'run-1', op: 'upsert', updatedAt: OLD, payload: { id: 'run-1', session_id: 'other-id', device_id: 'c', kind: 'resume', tmux_name: 't', launch_params: '{}', started_at: 1, ended_at: 50, heartbeat_at: 1, updated_at: OLD, origin_device: 'c' } },
       { tableName: 'todos', rowId: 'todo-1', op: 'upsert', updatedAt: OLD, payload: { id: 'todo-1', project_id: 'p1', text: 't', done: 0, position: 0, session_id: 'other-id', candidate_session_id: 'other-id', rejected_sessions: '["other-id"]', updated_at: OLD, origin_device: 'c' } },
     ]);
     await engine.pullNow();
     expect(get('select session_id from runs where id = ?', 'run-1')).toEqual({ session_id: localId });
     expect(get('select session_id, candidate_session_id, rejected_sessions from todos where id = ?', 'todo-1')).toEqual({ session_id: localId, candidate_session_id: localId, rejected_sessions: JSON.stringify([localId]) });
+  });
+
+  describe('ほかの PC の終わっていない run（#552）', () => {
+    const run = (id: string, updatedAt: number, ended_at: number | null = null): ChangeIn => ({ tableName: 'runs', rowId: id, op: 'upsert', updatedAt, payload: { id, session_id: 'other-id', device_id: 'c', kind: 'resume', tmux_name: 't', launch_params: '{}', started_at: 1, ended_at, heartbeat_at: 1, updated_at: updatedAt, origin_device: 'c' } });
+
+    it('読み替えを覚える前の時刻の行は当てず、手元の会話のロックにしない', async () => {
+      await cloud.pushChanges([sessionRow(), run('old-open', OLD)]);
+      await engine.pullNow();
+      expect(get('select 1 x from runs where id = ?', 'old-open')).toBeUndefined();
+      expect(get("select 1 x from sync_state where key = 'orphans'")).toBeUndefined();
+    });
+
+    it('読み替えを覚える前の時刻でも、終わった行は履歴として当てる', async () => {
+      await cloud.pushChanges([sessionRow(), run('old-ended', OLD, 50)]);
+      await engine.pullNow();
+      expect(get('select session_id from runs where id = ?', 'old-ended')).toEqual({ session_id: localId });
+    });
+
+    it('読み替えを覚えた後に起きた行は当てる。見送った行も、終わりが届けば当たる', async () => {
+      await cloud.pushChanges([sessionRow(), run('r', OLD)]);
+      await engine.pullNow();
+      const later = Date.now() + 1000;
+      await cloud.pushChanges([run('new-open', later), run('r', later, later)]);
+      await engine.pullNow();
+      expect(get('select session_id, ended_at from runs where id = ?', 'new-open')).toEqual({ session_id: localId, ended_at: null });
+      expect(get('select ended_at from runs where id = ?', 'r')).toEqual({ ended_at: later });
+    });
   });
 
   it('上限を超えて捨てた子の行を拾うため、最初の読み替えのあとに写しを 1 度だけ読み直す', async () => {
