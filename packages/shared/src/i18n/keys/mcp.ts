@@ -57,6 +57,8 @@ export const mcpKeys = {
   'mcp.sessionStatus.returnOnParam': [],
   'mcp.sessionStatus.returnTimeParam': [],
   'mcp.sessionStatus.confirmedParam': [],
+  'mcp.launch.preparing': [],
+  'mcp.launch.failedLater': ['name', 'reason'],
   'mcp.createSession.accountClaudeOnly': [],
   'mcp.createSession.accountParam': [],
   'mcp.createSession.accountUnknown': ['account', 'names'],

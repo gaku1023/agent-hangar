@@ -54,6 +54,8 @@ export type LaunchPrepDto = {
   ask: LaunchPrepAsk | null;
   /** 失敗の理由（phase が failed のとき）。 */
   reason: string | null;
+  /** 準備している会話の ID。画面が自分で起こしていない準備（MCP の起動）を会話に結び付ける。分からなければ無い。 */
+  sessionId?: string;
 };
 
 /** 準備で問いが出て起動を止めたときの 409 の本文の code。画面は届いている進み（ask）を読んで問いを出す。 */

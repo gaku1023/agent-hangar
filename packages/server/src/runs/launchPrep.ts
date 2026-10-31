@@ -46,8 +46,8 @@ export class LaunchPrep {
   private readonly abort = new AbortController();
   private readonly dto: LaunchPrepDto;
 
-  constructor(readonly key: string, private readonly deps: Required<LaunchPrepsDeps>, private readonly onEnd: () => void) {
-    this.dto = { key, phase: 'running', startedAt: deps.now(), endedAt: null, steps: [], ask: null, reason: null };
+  constructor(readonly key: string, private readonly deps: Required<LaunchPrepsDeps>, private readonly onEnd: () => void, sessionId?: string) {
+    this.dto = { key, phase: 'running', startedAt: deps.now(), endedAt: null, steps: [], ask: null, reason: null, ...(sessionId ? { sessionId } : {}) };
   }
 
   get signal(): AbortSignal { return this.abort.signal; }
@@ -120,10 +120,10 @@ export class LaunchPreps {
     this.deps = { now: Date.now, ...deps };
   }
 
-  /** 準備を始める。鍵が無いか形が違えば、hangar が鍵を作る（進みは配るが、受け取る画面は無い）。 */
-  begin(key: string | undefined): LaunchPrep {
+  /** 準備を始める。鍵が無いか形が違えば、hangar が鍵を作る（進みは配るが、受け取る画面は無い）。sessionId は準備している会話で、進みに載せる。 */
+  begin(key: string | undefined, sessionId?: string): LaunchPrep {
     const k = isLaunchPrepKey(key) && !this.running.has(key) ? key : randomUUID().replaceAll('-', '');
-    const p = new LaunchPrep(k, this.deps, () => { if (this.running.get(k) === p) this.running.delete(k); });
+    const p = new LaunchPrep(k, this.deps, () => { if (this.running.get(k) === p) this.running.delete(k); }, sessionId);
     this.running.set(k, p);
     return p;
   }

@@ -148,6 +148,9 @@ export function agentEnabledLabel(agent: AgentKind): Message {
 
 export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りと、包みの見張り（watchWrappers）の時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'>; /** そのエージェントを起こしてよいか（opencode は設定の opencodeEnabled）。渡さなければ Claude Code だけ。 */ agentEnabled?: (kind: AgentKind) => boolean; /** Claude Code 以外のエージェントの実行ファイル。見つからなければ null。Claude は claudeBin を使う。 */ agentBin?: (kind: AgentKind) => string | null; /** 外のターミナルで打ったそのエージェントのコマンドを受けるか（opencode は設定の opencodeIntercept）。渡さなければ受けない。Claude の包みはこれを見ない。 */ terminalIntercept?: (kind: AgentKind) => boolean; /** 起動前の準備の進みを配る口（runs/launchPrep.ts）。渡さなければ準備をしない。 */ preps?: LaunchPreps };
 
+/** 起動の途中を知らせる口。onPending は ID を後で決める driver（opencode）が仮の行を作った直後に呼ぶ（準備の前）。 */
+export type LaunchHooks = { onPending?: (sessionId: string) => void };
+
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 /** baseInput が Remote Control を足すかを決めるための、起こすアカウントと環境。渡さない起動（試験のための口など）は足さない。userArgs は利用者がターミナルで付けた引数。 */
 type RemoteControlAsk = { account: Account | null; env?: Record<string, string>; userArgs?: string[] };
@@ -662,9 +665,9 @@ export class RunManager {
    * 新しいセッションを起こす。検査をすべて先に済ませてから行を作る。
    * agent を省けば Claude Code で起こす。ID を先に決めない driver（opencode）は、下ごしらえ（materialize）を待つので非同期である。
    */
-  async start(params: LaunchParams): Promise<LaunchResult> {
+  async start(params: LaunchParams, hooks: LaunchHooks = {}): Promise<LaunchResult> {
     const agent = this.agentKindOf(params.agent);
-    const r = agent === DEFAULT_AGENT ? await this.startClaude(params) : await this.startMaterialized(agent, params);
+    const r = agent === DEFAULT_AGENT ? await this.startClaude(params) : await this.startMaterialized(agent, params, undefined, hooks);
     if (!params.scratch && params.projectId) this.unarchive(params.projectId);
     return r;
   }
@@ -721,7 +724,7 @@ export class RunManager {
    * 下ごしらえか画面で失敗したら、serve を止め、仮の行と秘密を消して 400 で断る。
    * from は外のターミナルからの起動（startOpencodeFromTerminal）で、その作業ディレクトリで起こし、プロジェクトは場所の最長一致で紐づける（無ければ未分類）。
    */
-  private async startMaterialized(agent: AgentKind, params: LaunchParams, from?: { cwd: string }): Promise<LaunchResult> {
+  private async startMaterialized(agent: AgentKind, params: LaunchParams, from?: { cwd: string }, hooks: LaunchHooks = {}): Promise<LaunchResult> {
     const driver = this.agents.of(agent);
     if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, agentMsg.disabled(agent));
     if (!driver.launch.materialize) throw new Error(`agent ${agent} cannot launch without choosing a session id`);
@@ -755,7 +758,8 @@ export class RunManager {
     let providerSessionId: string;
     let base: Omit<LaunchSpec, 'env'>;
     // 起動前の準備（LM Studio のモデル）。外のターミナルからの起動は、問いに答える画面が無いので準備しない。
-    const prep = from ? null : this.deps.preps?.begin(params.prepKey) ?? null;
+    const prep = from ? null : this.deps.preps?.begin(params.prepKey, sessionId) ?? null;
+    hooks.onPending?.(sessionId);
     try {
       base = this.baseInput(sessionId, projectId, cwd, params, undefined, undefined, agent);
       const r = await driver.launch.materialize({ kind: 'start' }, { ...base, env: accountEnv, ...(prep ? { prep: { run: prep, choice: prepChoiceOf(params.prepChoice) } } : {}) });
@@ -802,6 +806,11 @@ export class RunManager {
     return new RunError(400, agentMsg.launchFailed(agent, reason));
   }
 
+  /** その鍵の起動前の準備が走っているか。MCP の起動は、これを見て準備の終わりを待たずに返す。 */
+  prepRunning(key: string): boolean {
+    return this.deps.preps?.has(key) ?? false;
+  }
+
   /** 走っている起動前の準備をやめる。無ければ偽。 */
   cancelPrep(key: string): boolean {
     return this.deps.preps?.cancel(key) ?? false;
@@ -819,7 +828,7 @@ export class RunManager {
     const row = this.db.prepare('select launch_params from runs where id = ?').get(run.id) as { launch_params: string } | undefined;
     let model: string | null = null;
     try { const m = (JSON.parse(row?.launch_params ?? '{}') as { model?: unknown }).model; model = typeof m === 'string' && m ? m : null; } catch { /* 読めなければ設定の既定 */ }
-    const prep = this.deps.preps.begin(prepKey);
+    const prep = this.deps.preps.begin(prepKey, s.id);
     try {
       await driver.launch.prepare({ sessionId: s.id, cwd: this.cwdFor(s).path, model }, prep);
       prep.finish();
@@ -986,7 +995,7 @@ export class RunManager {
       throw new RunError(400, agentMsg.launchFailed(agent, this.safeError(e)));
     };
     let base: Omit<LaunchSpec, 'env'>;
-    const prep = prepOf ? this.deps.preps?.begin(prepOf.key) ?? null : null;
+    const prep = prepOf ? this.deps.preps?.begin(prepOf.key, s.id) ?? null : null;
     try {
       base = this.baseInput(s.id, s.project_id, cwd, extra, s.id, undefined, agent);
       await driver.launch.materialize!({ kind: 'resume', id }, { ...base, env: accountEnv, ...(prep ? { prep: { run: prep, choice: {} } } : {}) });

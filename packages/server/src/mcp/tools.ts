@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { isAgentKind, isNotifyKind, isQuietStatus, notifyRulesOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
@@ -9,8 +10,8 @@ import { addUnread, noteUnread, NOTIFY_TARGETS, type NotifyTarget } from '../liv
 import { touchRow } from '../db/notify.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
-import { MessageError, msg, render, type Message } from '../i18n/message.ts';
-import { agentEnabledLabel, type LaunchResult } from '../runs/manager.ts';
+import { errorText, MessageError, msg, render, type Message } from '../i18n/message.ts';
+import { agentEnabledLabel, type LaunchHooks, type LaunchResult } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
 import { recordSpawn } from '../sessions/spawns.ts';
 import { getSessionState, proposeSessionState, setSessionState, StateInputError, validateStateInput, type ProposeStateOutcome } from '../sessions/states.ts';
@@ -26,13 +27,15 @@ export type ToolDeps = {
   live: () => LiveSessionDto[];
   /** agentEnabled はそのエージェントを起こしてよいか（runs/manager.ts）。無ければ Claude Code だけを起こす。 */
   runs: {
-    start(params: LaunchParams): LaunchResult | Promise<LaunchResult>; agentEnabled?(kind: AgentKind): boolean;
+    start(params: LaunchParams, hooks?: LaunchHooks): LaunchResult | Promise<LaunchResult>; agentEnabled?(kind: AgentKind): boolean;
+    /** その鍵の起動前の準備が走っているか。無ければ準備を待たずに返すことはしない。 */
+    prepRunning?(key: string): boolean;
     /** そのセッションの生きた run（どの PC のものでも）。無ければ null。stop_session と resume_session が使う。 */
     aliveRun?(sessionId: string): RunDto | null;
     /** UI の停止（DELETE /api/runs/:id）と同じ処理。 */
     kill?(runId: string): unknown;
     /** UI の再開（POST /api/sessions/:id/resume）と同じ処理。account は Claude Code の会話のときだけ渡す。 */
-    resumeWith?(sessionId: string, o?: { account?: string }): LaunchResult | Promise<LaunchResult>;
+    resumeWith?(sessionId: string, o?: { account?: string; prepKey?: string }): LaunchResult | Promise<LaunchResult>;
     /** tmux の名前の画面にいま見えている文字。画面が無ければ null。無ければ read_session_screen は断る。 */
     readScreen?(tmuxName: string): string | null;
     /** tmux の名前の画面へ、text を 1 つの入力として貼り、submit なら Enter で確定する。届けられなければ投げる。無ければ send_to_session は断る。 */
@@ -55,6 +58,8 @@ export type ToolDeps = {
   report?: Pick<ReportService, 'draft' | 'submit'>;
   /** URL を既定のブラウザで開く口。問い合わせの送信で gh が使えないときに使う。 */
   openUrl?: (url: string) => Promise<void>;
+  /** create_session と resume_session が起動を待つ上限（ミリ秒）。越えても準備が走っていれば、待たずに preparing で返す。渡さなければ LAUNCH_WAIT_MS。 */
+  launchWaitMs?: number;
 };
 /** セッション別 URL では、そのセッションに固定される。共通 URL では null。 */
 export type ToolContext = { sessionId: string | null };
@@ -375,7 +380,76 @@ export function getTranscriptTool(deps: ToolDeps, ctx: ToolContext, args: Record
   return { session_id: id, events: page.events.filter(keep), total: page.total, next_seq: page.nextSeq };
 }
 
-/** プロジェクトの確かめはその場で投げ、起動（runs.start）は待つ。MCP の層は await してから包む。 */
+/**
+ * 起動を待つ上限。呼ぶ側（Claude Code）は MCP の呼び出しを 60 秒ほどで切るので、それより十分短くとる。
+ * opencode の serve の立ち上がりは数秒なので、準備の無い起動はこの内に済み、これまでどおり run を添えて返す。
+ */
+export const LAUNCH_WAIT_MS = 15_000;
+
+/**
+ * 起動（runs.start か resumeWith）を待って結果を返す。
+ * 上限を越えても終わらず、起動前の準備（接続先の準備のコマンド、LM Studio のモデル）が走っていれば、待たずに preparing で返す（#545）。
+ * 準備は数分から 20 分かかり、そのまま待つと MCP の呼び出しが時間切れになって、結果も失敗の理由も呼んだ側に届かないためである。
+ * 準備の進みは画面の札が鍵（prepKey）で拾い、返した後の失敗は reportLateFailure が起動元の会話の知らせにする。
+ * 準備が走っていなければ（Claude Code、Codex、準備の前後の段）、1 秒ごとに見直しながら起動を待つ。
+ */
+function awaitLaunch(deps: ToolDeps, ctx: ToolContext, launch: Promise<LaunchResult>, o: { key: string | undefined; sessionId: () => string | null; name: string; done: (r: LaunchResult) => Record<string, unknown>; detached: (sessionId: string) => void }): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let detached = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tryDetach = () => {
+      if (settled) return;
+      const id = o.sessionId();
+      if (!o.key || !id || !deps.runs.prepRunning?.(o.key)) {
+        timer = setTimeout(tryDetach, 1_000);
+        return;
+      }
+      detached = true;
+      o.detached(id);
+      resolve({ session_id: id, preparing: true, url: url(deps, `session/${id}`), note: render(languageOf(deps), msg('mcp.launch.preparing')) });
+    };
+    timer = setTimeout(tryDetach, deps.launchWaitMs ?? LAUNCH_WAIT_MS);
+    launch.then((r) => {
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (!detached) resolve(o.done(r));
+    }, (e: unknown) => {
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (!detached) reject(e);
+      else reportLateFailure(deps, ctx, o.name, e);
+    });
+  });
+}
+
+/**
+ * preparing で返した後の起動の失敗を届ける。呼び出しはもう返っているので、ここで知らせないと理由がどこにも残らない。
+ * ログ（desktop.log）には必ず書く。起動元の会話が分かれば、その会話の知らせ（未読、OS、スマホ。場面は ask）にする。
+ */
+function reportLateFailure(deps: ToolDeps, ctx: ToolContext, name: string, e: unknown): void {
+  const reason = errorText(languageOf(deps), e);
+  console.warn(`[mcp] launch of "${name}" failed after preparing: ${reason}`);
+  if (!ctx.sessionId) return;
+  const text = clipChars(render(languageOf(deps), msg('mcp.launch.failedLater', { name, reason })), INTENT_MAX);
+  try {
+    notifyUserTool(deps, ctx, { text, kind: 'ask' });
+  } catch (err) {
+    console.warn(`[mcp] could not notify the launch failure: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+const clipChars = (s: string, max: number): string => {
+  const cs = [...s];
+  return cs.length > max ? `${cs.slice(0, max - 1).join('')}…` : s;
+};
+
+/** 準備の鍵。画面の鍵（ui/src/lib/prepKey.ts）と同じく、shared の isLaunchPrepKey が受ける形にする。 */
+const languageOf = (deps: ToolDeps) => (deps.language ?? defaultLanguage)();
+
+const newPrepKey = (): string => `mcp-${randomUUID().replaceAll('-', '')}`;
+
+/** プロジェクトの確かめはその場で投げ、起動（runs.start）は awaitLaunch で待つ。MCP の層は await してから包む。 */
 /**
  * agent と mode は UI の起動（POST /api/runs）と同じく runs.start にそのまま渡す。省けば Claude Code で、mode は Claude Code では start が捨てる。
  * worktree と add_dirs も start にそのまま渡す。意味は UI の新規ダイアログと同じ（worktree は claude の --worktree に渡す名前、add_dirs は --add-dir の追加ディレクトリ）。
@@ -388,15 +462,25 @@ export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
   if (agent !== undefined && !isAgentKind(agent)) throw new ToolError(msg('run.agent.unknown', { agent: String(agent).slice(0, 40) }));
   if (agent !== undefined && agent !== 'claude-code' && !(deps.runs.agentEnabled?.(agent) ?? false)) throw new ToolError(msg('run.agent.disabled', { label: agentEnabledLabel(agent) }));
   const account = launchAccount(deps, ctx, args.account, agent ?? 'claude-code');
-  return Promise.resolve(deps.runs.start({
+  // 準備をするのは ID を後で決める driver（opencode、Codex）だけで、Claude Code には鍵を付けない。
+  const key = agent !== undefined && agent !== 'claude-code' ? newPrepKey() : undefined;
+  // 呼んだセッションを起動元として残す。引き継ぎと、呼んだセッションが分からない共通の URL では残さない。
+  const spawned = (id: string) => { if (ctx.sessionId && !bool(args.handoff)) recordSpawn(deps.db, id, ctx.sessionId, Date.now()); };
+  let pending: string | null = null;
+  const launch = Promise.resolve(deps.runs.start({
     projectId, name: str(args.name), prompt: str(args.prompt), model: str(args.model),
     effort: str(args.effort), permissionMode: str(args.permission_mode), scratch: bool(args.scratch),
     agent, mode: str(args.mode), ...(account ? { account: account.id } : {}),
-    worktree: str(args.worktree), addDirs: strs(args.add_dirs),
-  })).then((r) => {
-    // 呼んだセッションを起動元として残す。引き継ぎと、呼んだセッションが分からない共通の URL では残さない。
-    if (ctx.sessionId && !bool(args.handoff)) recordSpawn(deps.db, r.sessionId, ctx.sessionId, Date.now());
-    return { run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`), ...(account ? { account: account.name } : {}) };
+    worktree: str(args.worktree), addDirs: strs(args.add_dirs), ...(key ? { prepKey: key } : {}),
+  }, { onPending: (id) => { pending = id; } }));
+  return awaitLaunch(deps, ctx, launch, {
+    key, name: str(args.name) ?? agent ?? '', sessionId: () => pending,
+    // 準備の間も、起こした会話を起動元の下に並べる。
+    detached: (id) => { spawned(id); },
+    done: (r) => {
+      spawned(r.sessionId);
+      return { run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`), ...(account ? { account: account.name } : {}) };
+    },
   });
 }
 
@@ -472,8 +556,13 @@ export function resumeSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
       account = (last ? store.get(last) ?? store.get(PRIMARY_ACCOUNT_ID) : null) ?? store.current();
     }
   }
-  return Promise.resolve(deps.runs.resumeWith(s.id, given !== undefined && account ? { account: account.id } : {}))
-    .then((r) => ({ run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`), ...(account ? { account: account.name } : {}) }));
+  // 再開でも opencode は接続先の準備を走らせる。create_session と同じく、長い準備は待たずに返す。
+  const key = s.provider !== 'claude-code' ? newPrepKey() : undefined;
+  const launch = Promise.resolve(deps.runs.resumeWith(s.id, { ...(given !== undefined && account ? { account: account.id } : {}), ...(key ? { prepKey: key } : {}) }));
+  return awaitLaunch(deps, ctx, launch, {
+    key, name: sessionTitle(s), sessionId: () => s.id, detached: () => undefined,
+    done: (r) => ({ run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`), ...(account ? { account: account.name } : {}) }),
+  });
 }
 
 /**
