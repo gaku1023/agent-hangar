@@ -849,6 +849,11 @@ export class SyncEngine {
     this.loadCarried();
     try {
       await this.readPass(client, count);
+      // 読み替えがなかった間は、子の行が持ち越しの上限を超えて捨てられていた（#532）。捨てた行を拾うため、写しを 1 度だけ読み直す。
+      if (this.state.get('sessionAliasReread') === null && this.deps.db.prepare('select 1 from session_aliases limit 1').get()) {
+        this.state.set('sessionAliasReread', true);
+        this.state.set('snapshotDone', null);
+      }
     } finally {
       // 1 巡の終わり（途中で失敗したときも）に、上限を見てから覚える。頁ごとの覚えは readPass の中にある。
       this.saveCarried();

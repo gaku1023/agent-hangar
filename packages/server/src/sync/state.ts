@@ -29,6 +29,7 @@ export type SyncStateKey =
   | 'paused'
   | 'lastError'
   | 'snapshotDone'
+  | 'sessionAliasReread'
   | 'transcriptsFrom'
   | 'limitedUntil'
   | 'orphans'
