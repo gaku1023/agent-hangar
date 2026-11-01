@@ -46,6 +46,11 @@ export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: stri
  */
 export type WaitKind = 'permission' | 'question' | 'other';
 /**
+ * 会話を待った結果（MCP の wait_for_session、CLI の hangar run）。
+ * finished はターンが終わった、waiting は入力を待っている、timeout は上限まで動いたまま、failed は待っても終わらない（プロセスが居ない、使用制限で止まった）。
+ */
+export type SessionWaitState = 'finished' | 'waiting' | 'timeout' | 'failed';
+/**
  * Claude が求めている許可の中身。hangar が起こした claude の PermissionRequest の hook から届く（server の hooks/permission.ts）。
  * tool は道具の名前、input は命令やファイルなどの短い形（Bash は命令の全文）、description は Claude が書いた説明（Bash の description）である。
  * hook を持たない run（外のターミナル）では届かない。
