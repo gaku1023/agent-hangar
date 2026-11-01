@@ -3838,6 +3838,13 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   `lines` の既定は 40、上限は 200 で、越えた指定は上限に丸める。読めるのは画面にいま見えている範囲だけで、スクロールバックは含まない（履歴は `get_transcript` で読む）。画面の下の空行は落とす。
   live の状態を添え、結果は `{ session_id, status, waiting_for, screen }` である（live に載っていなければ `status` と `waiting_for` は null）。
   どのセッションでも、自分自身でも読める。セッション別 URL では `session_id` を省くと自分を読む。動いていない会話、ほかの PC の会話、hangar の外の端末の会話は、`send_to_session` と同じ文で断る。
+- `wait_for_session({ session_id, timeout_seconds? })`：指定した会話のターンの終わりか入力待ちまで待って返す（#548）。実装は `mcp/waitTool.ts` で、定期実行などサーバの中からも同じ関数を呼べる。
+  `timeout_seconds` の既定は 240、上限は 3600 で、越えた指定は上限に丸める。0 ならいまの様子を返す。
+  結果は `{ session_id, state, reason?, status, waiting?, last_message, turn_started?, waited_seconds, url }` である。`state` は `finished`（ターンが終わった）、`waiting`（入力待ち）、`timeout`（上限まで動いたまま。呼び直せば続きを待てる）、`failed`（`reason` が `not_running` か `limit`）のどれかである。
+  `send_to_session` と `create_session` は会話ごとの印（送った時刻）をサーバの中に残す。印があれば、送った時刻より古い idle と入力待ちを終わりと読まず、起動直後の idle も、送った後の返答が本文に載るまでは終わりと読まない。ターンにならない入力（斜線コマンドなど）で待ち続けないよう、30 秒で打ち切って `turn_started: false` で返す。印は DB に置かない。
+  run があるのに live に載らないまま 60 秒たった会話は、登録の前の問い（フォルダの信頼など）で止まっているものとして、画面の末尾を添えて `waiting` で返す。
+  ほかの PC で動く会話と自分自身は断る。
+  この道具だけ、応答を JSON でなく SSE で返す。Claude Code（2.1.316 で実測）は POST の応答の見出しを 60 秒で切り、応答も進みも 300 秒無い呼び出しも切るので、見出しを先に返し、呼び手が進みの札（`progressToken`）を付けていれば 30 秒ごとに進みを流す。
 - `draft_issue_report({ kind, title, ...節 })` と `submit_issue_report({ draft_id, confirmed })`：作者への問い合わせの下書きと送信。プロジェクトもセッションも指さないので、セッション別 URL の枠に関わりなく使える。詳しくは「作者への問い合わせ」の節。
 
 `update_project` は status の変更、TODO の追加、完了の印、完了の候補の提出を行い（ノートへの追記はしない）、TODO の書き込みは全部成功か全部失敗のどちらかにする（途中で失敗したものが残らない）。
@@ -4643,6 +4650,16 @@ Claude は Bash から叩く（TTY が無い）ので、対話の y/n は作ら�
 承認は Claude の会話の中で取り、書く前の見せ方は `--dry-run` だけにする。
 問いを飛ばす旗（`--yes`）も、入れ子を分ける旗（`allowNested`）も作らない。
 入れ子を分けるかは、利用者がアプリで決める。
+
+`hangar run [プロンプト]` は、スクリプトから会話を動かす入口である（#548、`packages/cli/src/run.ts`）。
+新しい会話を作るか、`--session <id>` の会話へ送り（止まっていれば再開してから送り、プロンプトを省くと待つだけ）、MCP の `create_session`、`send_to_session`、`wait_for_session` を呼んで結果を返す。
+プロンプトの `-` は標準入力から読む。プロジェクトは `--project`（id かパス）、無ければ作業フォルダを含むいちばん深いものである。
+`--timeout` の既定は 1800 秒で、CLI は 240 秒ずつ `wait_for_session` を呼び直す。
+標準出力には最後の返答を、`--json` なら結果を 1 行の JSON（`exit_code` 付き）を出す。
+終了の符号は 0 が終わった、1 が失敗、2 がサーバを使えない、3 が時間切れ、4 が入力待ちである。時間切れでも会話は止めない。
+ほかの CLI と違い、サーバが止まっていれば画面なしで子プロセスとして起こし（ログは `hangar-run-server.log`）、終わったら止める。
+残さないのは、残すと次に開くアプリがポートを取れないためである。止めても tmux の会話は動き続け、次のサーバがつなぎ直す。
+待っている間にサーバが消えたら（ほかの `hangar run` が自分のサーバを止めたとき）、起こし直して待ち続ける。
 `remove` はアプリの「一覧から削除」（resolve の `unlink`）と同じ経路で、会話は未分類に戻るだけで本文もフォルダも消えないことを必ず出す。
 `workspace set` の `--trust` は、作成場所を Claude Code の信頼済みにする（「フォルダの信頼」の節）。すゝめが同意を取ってから付ける。信頼を書けなかった書く先があれば、作成場所の保存は済ませたうえで 1 を返す。同意は残るので、そのときも「同意は記録しました」の 1 行を出す（JSON では `consentRecorded`）。
 `workspace unset` は作成場所を空にする。

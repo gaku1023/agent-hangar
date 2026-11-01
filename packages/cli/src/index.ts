@@ -10,6 +10,7 @@ import { cliErrorText, probeHealth, serverDownMessage } from './probe.ts';
 import { candidatesCommand, projectAddCommand, projectRemoveCommand, workspaceSetCommand, workspaceUnsetCommand } from './project.ts';
 import { formatSetupReport, runSetup, whichMuxCmd } from './setup.ts';
 import { runShellInstall, runShellUninstall, shellStatusLine } from './shell.ts';
+import { headlessServer, runCommand } from './run.ts';
 import { runStart } from './start.ts';
 import { promptYesNo, runStatuslineInstall } from './statusline.ts';
 import { runSetupCommand, setupEnvFor, type SetupCommandFlags, type SetupTarget } from './setupPlan.ts';
@@ -251,6 +252,47 @@ program
     // 開けなかったときも鍵は出さず、鍵の無い URL と hangar url の案内だけを出す。
     const url = entryUrl(port, readOrCreateToken(hangarHome()));
     console.log((await openInBrowser(url)) ? openedMessage(port) : openFailedMessage(port));
+  });
+
+// スクリプトから会話を動かす入口。動いているサーバが無ければ、画面なしで起こして終わりに止める。
+// 終了の符号は run.ts の EXIT（0 終わった、1 失敗、2 サーバを使えない、3 時間切れ、4 入力待ち）。
+program
+  .command('run [prompt]')
+  .description('会話を作るか既存の会話に送り、ターンの終わりか入力待ちまで待って結果を返す（終了コード: 0 終わった、1 失敗、2 サーバーを使えない、3 時間切れ、4 入力待ち）')
+  .option('--session <id>', '新しく作らず、この会話に送る（プロンプトを省くと待つだけ）')
+  .option('--project <id|path>', '新しい会話のプロジェクト（省くと作業ディレクトリから決める）')
+  .option('--agent <agent>', 'エージェント（claude-code、codex、opencode）')
+  .option('--model <model>', 'モデル')
+  .option('--effort <effort>', '推論の段階')
+  .option('--permission-mode <mode>', '権限モード')
+  .option('--name <name>', '会話の名前')
+  .option('--timeout <seconds>', '待つ上限（秒）', '1800')
+  .option('--json', '結果を 1 行の JSON で出す')
+  .option('--port <n>', 'ポート', '4177')
+  .action(async (promptArg: string | undefined, o: { session?: string; project?: string; agent?: string; model?: string; effort?: string; permissionMode?: string; name?: string; timeout: string; json?: boolean; port: string }) => {
+    const timeoutSeconds = Number(o.timeout);
+    if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 0) {
+      console.error('--timeout は 0 以上の秒数で指定してください。');
+      process.exitCode = 1;
+      return;
+    }
+    // - は標準入力から読む。長いプロンプトをシェルの引用から逃がすためである。
+    let prompt = promptArg;
+    if (prompt === '-') {
+      const chunks: Buffer[] = [];
+      for await (const c of process.stdin) chunks.push(c as Buffer);
+      prompt = Buffer.concat(chunks).toString('utf8');
+    }
+    const home = hangarHome();
+    const port = Number(o.port);
+    const server = headlessServer({ port, home });
+    // Ctrl-C で待ちをやめても、起こしたサーバを残さない。会話は tmux で動き続ける。
+    for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, () => { void server.stop().finally(() => process.exit(130)); });
+    process.exitCode = await runCommand({
+      port, token: readOrCreateToken(home), json: o.json ?? false, timeoutSeconds, cwd: process.cwd(), prompt: prompt?.trim() ? prompt : undefined, server,
+      ...(o.session ? { session: o.session } : {}), ...(o.project ? { project: o.project } : {}), ...(o.agent ? { agent: o.agent } : {}), ...(o.model ? { model: o.model } : {}),
+      ...(o.effort ? { effort: o.effort } : {}), ...(o.permissionMode ? { permissionMode: o.permissionMode } : {}), ...(o.name ? { name: o.name } : {}),
+    });
   });
 
 // プロジェクトの候補と登録（セットアップのすゝめ、2026-10-15）。

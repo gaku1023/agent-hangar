@@ -17,6 +17,7 @@ import { realReportDeps } from '../report/real.ts';
 import { ReportService } from '../report/service.ts';
 import { MAX_SCREEN_LINES, MAX_SEND_CHARS } from './screenTools.ts';
 import { callTool,type ToolContext, type ToolDeps } from './tools.ts';
+import { DEFAULT_WAIT_SECONDS, MAX_WAIT_SECONDS, WAIT_PROGRESS_MS } from './waitTool.ts';
 
 /**
  * MCP の入口が受け付ける Origin。
@@ -38,11 +39,19 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   const language = deps.language ?? defaultLanguage;
   const tr = translatorOf(language);
   const reg = (name: string, description: string, inputSchema: Record<string, z.ZodTypeAny>) => {
-    server.registerTool(name, { description, inputSchema }, async (args: Record<string, unknown>) => {
+    server.registerTool(name, { description, inputSchema }, async (args: Record<string, unknown>, extra) => {
+      // 長く待つ間は進みを流す。Claude Code は応答も進みも 300 秒無い呼び出しを切る（2.1.316 で実測）。進みの札は呼び手が付けたときだけ送れる。
+      const token = extra._meta?.progressToken;
+      let progress = 0;
+      const beat = name === 'wait_for_session' && token !== undefined
+        ? setInterval(() => { void extra.sendNotification({ method: 'notifications/progress', params: { progressToken: token, progress: ++progress } }).catch(() => undefined); }, deps.waitProgressMs ?? WAIT_PROGRESS_MS)
+        : null;
       try {
         return { content: [{ type: 'text' as const, text: JSON.stringify(await callTool(deps, ctx, name, args), null, 2) }] };
       } catch (e) {
         return { content: [{ type: 'text' as const, text: errorText(language(), e) }], isError: true };
+      } finally {
+        if (beat) clearInterval(beat);
       }
     });
   };
@@ -66,6 +75,7 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   reg('open_in_hangar', D(tr('mcp.tool.openInHangar')), { session_id: z.string().optional(), project_id: z.string().optional() });
   reg('send_to_session', D(tr('mcp.tool.sendToSession')), { session_id: z.string(), text: z.string().describe(tr('mcp.sendToSession.textParam', { max: MAX_SEND_CHARS })), submit: z.boolean().optional().describe(tr('mcp.sendToSession.submitParam')) });
   reg('read_session_screen', D(tr('mcp.tool.readSessionScreen')), { session_id: z.string().optional(), lines: z.number().int().positive().optional().describe(tr('mcp.screen.linesParam', { max: MAX_SCREEN_LINES })) });
+  reg('wait_for_session', D(tr('mcp.tool.waitForSession')), { session_id: z.string(), timeout_seconds: z.number().min(0).optional().describe(tr('mcp.wait.timeoutParam', { default: DEFAULT_WAIT_SECONDS, max: MAX_WAIT_SECONDS })) });
   // 節は種類ごとに必須が違うので、ここでは全部を任意にし、検査は report/compose.ts に任せる。断りの文で足りない節を名指しできる。
   const section = z.string().optional();
   reg('draft_issue_report', D(tr('report.tool.draft')), {
@@ -122,6 +132,16 @@ async function openWithOs(url: string): Promise<void> {
  */
 export type AsksOf = (provider: string) => AskSource;
 
+/** 要求が長く待つ道具の呼び出しか。読めない本文は、ふつうの要求としてトランスポートの断りに任せる。 */
+async function isLongCall(req: Request): Promise<boolean> {
+  try {
+    const m = await req.json() as { method?: unknown; params?: { name?: unknown } };
+    return m.method === 'tools/call' && m.params?.name === 'wait_for_session';
+  } catch {
+    return false;
+  }
+}
+
 /** asksOf を渡さなければ、hook の本文は読まずに 204 を返す。 */
 export function createMcpApp(given: ToolDeps & { token: string; asksOf?: AsksOf }): Hono {
   // 問い合わせの下書きは要求をまたいで残すので、口はアプリに 1 つだけ作る（MCP のサーバは要求ごとに作り直す）。
@@ -132,7 +152,9 @@ export function createMcpApp(given: ToolDeps & { token: string; asksOf?: AsksOf 
   const app = new Hono();
   const handle = async (req: Request, sessionId: string | null) => {
     if (req.method === 'GET') return new Response(null, { status: 405, headers: { allow: 'POST, DELETE' } });
-    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    // 長く待つ道具だけ SSE で返す。Claude Code は POST の応答の見出しを 60 秒しか待たないので、JSON で答えると待っている間に切られる（2.1.316 で実測）。
+    const stream = req.method === 'POST' && await isLongCall(req.clone());
+    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: !stream });
     await buildMcpServer(deps, { sessionId }).connect(transport);
     return transport.handleRequest(req);
   };
