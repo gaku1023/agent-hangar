@@ -48,10 +48,11 @@
     "bytes": 560636
   },
   "schedules": {
-    "commit": "0120629a8c36d1f50c6bbb8682c5f99908f543ef",
-    "shotAt": "2026-11-01T17:30:57.787Z",
+    "commit": "e0b6e97d924e06bf723a0b75ce6171d62157b818",
+    "shotAt": "2026-11-01T17:39:11.472Z",
     "file": "docs/images/schedules.webp",
-    "bytes": 351984
+    "bytes": 1758894,
+    "dirty": true
   },
   "search": {
     "commit": "0120629a8c36d1f50c6bbb8682c5f99908f543ef",

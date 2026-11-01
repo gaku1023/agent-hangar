@@ -119,6 +119,7 @@ export const actionTable = {
   // 消す。画面の正は後から届く session.removed なので、返り値は Store に入れない。
   'session.delete': (i) => call((api) => api.deleteSession(i.id)),
   // MCP の削除の依頼への答え。画面の正は後から届く deleteApprovals.update なので、返り値は Store に入れない。
+  'session.tryNow': (i) => call((api) => api.tryPausedSession(i.id)),
   'schedule.create': (i) => call((api) => api.createSchedule(i.input)),
   'schedule.update': (i) => call((api) => api.updateSchedule(i.id, i.patch)),
   'schedule.delete': (i) => call((api) => api.deleteSchedule(i.id)),

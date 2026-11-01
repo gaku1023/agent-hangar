@@ -103,7 +103,7 @@ export type AppDeps = {
   hub: { broadcast(ev: NoticeEvent): void };
   runs: RunsApi;
   /** 定期の実行（schedule/runner.ts）。画面の「今すぐ実行」が呼ぶ。 */
-  schedules: { runNow(id: string): 'started' | 'busy' | 'missing' };
+  schedules: { runNow(id: string): 'started' | 'busy' | 'missing'; deliver(sessionId: string, text: string): Promise<{ sessionId: string } | 'busy'> };
   external: ExternalApi;
   /** git の表示。渡さなければ、ここで作る（試験は実物の git を使う）。組み立てる側は、本文の伸びで読み直す同じものを渡す。 */
   git?: GitApi;

@@ -147,6 +147,8 @@ export type UiAction =
   | { type: 'session.delete'; id: SessionId }
   // MCP の削除の依頼への答え（#547）。approve は承認、reject は残す、dismiss は消せなかった行を閉じる。
   // 定期の実行（#549）。画面の正は後から届く schedules.update である。
+  // Paused の会話を今すぐ起こす。止まっていれば再開し、理由を入力として渡して、Active にする。
+  | { type: 'session.tryNow'; id: SessionId }
   | { type: 'schedule.create'; input: ScheduleInput } | { type: 'schedule.update'; id: string; patch: SchedulePatch }
   | { type: 'schedule.delete'; id: string } | { type: 'schedule.run'; id: string }
   | { type: 'deleteApproval.answer'; id: string; answer: 'approve' | 'reject' | 'dismiss' }

@@ -194,6 +194,7 @@ export type ApiClient = {
   dismissInterrupted(runIds: string[], dismissed: boolean): Promise<{ interrupted: InterruptedDto | null }>;
   /** 同じファイルの編集の「このファイルでは表示しない」。 */
   dismissOverlap(sessionId: string, other: string, paths: string[]): Promise<void>;
+  tryPausedSession(id: string): Promise<unknown>;
   createSchedule(input: ScheduleInput): Promise<unknown>;
   updateSchedule(id: string, patch: SchedulePatch): Promise<unknown>;
   deleteSchedule(id: string): Promise<unknown>;
@@ -421,6 +422,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     moveSession: (id, projectId) => call(`/api/sessions/${id}/project`, { method: 'PUT', body: JSON.stringify({ projectId }) }),
     deleteSession: (id) => call(`/api/sessions/${id}`, { method: 'DELETE' }),
     dismissInterrupted: (runIds, dismissed) => post('/api/interrupted/dismiss', { runIds, dismissed }),
+    tryPausedSession: (id) => post(`/api/sessions/${encodeURIComponent(id)}/try-now`),
     createSchedule: (input) => post('/api/schedules', input),
     updateSchedule: (id, patch) => call(`/api/schedules/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
     deleteSchedule: (id) => call(`/api/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }),

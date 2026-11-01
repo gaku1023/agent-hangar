@@ -55,7 +55,7 @@ describe('/api/schedules', () => {
   it('今すぐ実行は実行の口へ渡す', async () => {
     const { id } = await (await send('POST', '/api/schedules', input())).json() as ScheduleDto;
     const runNow = vi.fn(() => 'busy' as const);
-    t.deps.schedules = { runNow };
+    t.deps.schedules = { runNow, deliver: async (i) => ({ sessionId: i }) };
     app = createApp(t.deps);
     expect(await (await send('POST', `/api/schedules/${id}/run`)).json()).toEqual({ outcome: 'busy' });
     expect(runNow).toHaveBeenCalledWith(id);
@@ -64,6 +64,40 @@ describe('/api/schedules', () => {
   it('トークンが無ければ通さない', async () => {
     expect((await app.request('/api/schedules')).status).toBe(401);
     void issueMcpSecret;
+  });
+});
+
+describe('POST /api/sessions/:id/try-now', () => {
+  const pause = (note = '結果を見る') => t.db.prepare('select 1').get() && send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note });
+  const state = () => t.db.prepare('select status from session_states where session_id = ?').get(sessionId) as { status: string | null } | undefined;
+  const useDeliver = (deliver: (id: string, text: string) => Promise<{ sessionId: string } | 'busy'>) => { const f = vi.fn(deliver); t.deps.schedules = { runNow: () => 'missing', deliver: f }; app = createApp(t.deps); return f; };
+
+  it('理由を渡してから Active にする', async () => {
+    await pause();
+    const deliver = useDeliver(async (id) => ({ sessionId: id }));
+    expect((await send('POST', `/api/sessions/${sessionId}/try-now`)).status).toBe(200);
+    expect(deliver.mock.calls[0]![0]).toBe(sessionId);
+    expect(deliver.mock.calls[0]![1]).toContain('結果を見る');
+    expect(state()?.status ?? null).toBeNull();
+  });
+  it('動いていて渡せなければ Paused のまま 409', async () => {
+    await pause();
+    useDeliver(async () => 'busy');
+    expect((await send('POST', `/api/sessions/${sessionId}/try-now`)).status).toBe(409);
+    expect(state()?.status).toBe('paused');
+  });
+  it('再開に失敗したら Paused のまま理由を返す', async () => {
+    await pause();
+    useDeliver(async () => { throw new Error('nope'); });
+    const r = await send('POST', `/api/sessions/${sessionId}/try-now`);
+    expect(r.status).toBe(400);
+    expect((await r.json() as { error: string }).error).toContain('nope');
+    expect(state()?.status).toBe('paused');
+  });
+  it('Paused でなければ渡さない', async () => {
+    const deliver = useDeliver(async (id) => ({ sessionId: id }));
+    expect((await send('POST', `/api/sessions/${sessionId}/try-now`)).status).toBe(409);
+    expect(deliver).not.toHaveBeenCalled();
   });
 });
 

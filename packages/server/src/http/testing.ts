@@ -227,7 +227,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     live: () => [], indexer, ready: () => true,
     hub: publisher,
     runs, external, usage, memos, summary,
-    schedules: { runNow: () => 'missing' },
+    schedules: { runNow: () => 'missing', deliver: async (id) => ({ sessionId: id }) },
     // 本物の削除に、偽のゴミ箱（ワークスペースの .test-trash へ移すだけ）を渡す。
     trash: new SessionTrash({
       db, deviceId: 'd', claudeDir, remoteRoot: path.join(ws, 'remote'),

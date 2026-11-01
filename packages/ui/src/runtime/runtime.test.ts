@@ -26,7 +26,7 @@ function fakeTerminals(): TerminalHost & { connected: string[]; disconnected: st
 
 function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps> = {}) {
   const api: ApiClient = {
-    detachSpawn: async () => ({}), answerDeleteApproval: async () => ({}), createSchedule: async () => ({}), updateSchedule: async () => ({}), deleteSchedule: async () => ({}), runSchedule: async () => ({}),
+    detachSpawn: async () => ({}), answerDeleteApproval: async () => ({}), tryPausedSession: async () => ({}), createSchedule: async () => ({}), updateSchedule: async () => ({}), deleteSchedule: async () => ({}), runSchedule: async () => ({}),
     bootstrap: vi.fn(async () => boot),
     // 3 件のうち、開くと最新の 1 件、遡ると 1 つ古い 1 件、追記の取り込みでは前向きに 1 件。
     events: vi.fn(async (_s, q) => (q.latest ? page([2], 3) : q.beforeSeq !== undefined ? page([q.beforeSeq - 1], 3) : page([q.fromSeq!], 4))),

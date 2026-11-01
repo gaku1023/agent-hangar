@@ -29,6 +29,10 @@ const scene: Scene = {
     await c.sleep(1400);
     await title.click();
     await c.sleep(1400);
+    // 今すぐ実行：実物のサーバが会話を起こし、履歴に回が入る。
+    await page.getByRole('button', { name: '今すぐ実行' }).click();
+    await page.locator('.sch-runs .sch-run-name').first().waitFor({ timeout: 30_000 });
+    await c.sleep(2500);
     await page.getByRole('switch').first().click();
     await c.sleep(1200);
     await rec.save('schedules');
