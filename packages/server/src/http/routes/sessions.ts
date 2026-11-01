@@ -18,7 +18,7 @@ import { parkedSessionIds } from '../../sessions/park.ts';
 import { stopReasonsOf } from '../../sessions/stopReasons.ts';
 import { changedFilesOf } from '../../sessions/files.ts';
 import { DeleteError } from '../../sessions/trash.ts';
-import { confirmSessionState, rejectSessionState, setSessionPinned, setSessionState, StateInputError } from '../../sessions/states.ts';
+import { confirmSessionState, getSessionState, rejectSessionState, setSessionPinned, setSessionState, StateInputError } from '../../sessions/states.ts';
 import { readEvents, subagentIds } from '../../transcript/read.ts';
 import { errorText, render, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
@@ -26,7 +26,7 @@ import { BODY_LIMITS, editorOptsOf, externalOf, isEnoent, numberOr, readJson, se
 import { wokeSince } from '../../sessions/wake.ts';
 
 /** セッションの経路が使う依存。 */
-export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh' | 'trash'> & LanguageDeps;
+export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh' | 'trash' | 'schedules'> & LanguageDeps;
 
 /** セッションの状態として受け付ける値。Active は null で表す。 */
 const SESSION_STATUSES = new Set(['paused', 'done', 'archived']);
@@ -225,6 +225,21 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     dismissOverlap(db, c.req.param('id'), body.with, paths, Date.now());
     deps.overlapRefresh?.();
     return c.body(null, 204);
+  });
+  // Paused の会話を今すぐ起こす（#549）。渡せてから Active にする。渡せなければ Paused のまま残し、理由を返す。
+  api.post('/sessions/:id/try-now', async (c) => {
+    const id = c.req.param('id');
+    const state = getSessionState(db, id);
+    if (state?.status !== 'paused') return c.json({ error: tr('home.tryNow.notPaused') }, 409);
+    const text = state.note ? tr('home.tryNow.prompt', { note: state.note }) : tr('home.tryNow.promptNoReason');
+    try {
+      const got = await deps.schedules.deliver(id, text);
+      if (got === 'busy') return c.json({ error: tr('home.tryNow.busy') }, 409);
+    } catch (e) {
+      return c.json({ error: errorText(deps.language(), e) }, 400);
+    }
+    setSessionState(db, deviceId, id, { status: null, setBy: 'user' });
+    return c.json({ ok: true });
   });
   // MCP の削除の依頼への答え（#547）。答えられるのは画面（とスマホの問い合わせ）だけで、MCP の道具には出さない。
   api.post('/delete-approvals/:id/approve', async (c) => c.json({ outcome: await approveDeleteApproval(db, deps.trash, c.req.param('id')) }));

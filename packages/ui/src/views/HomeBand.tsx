@@ -203,7 +203,7 @@ function BandPlainButton(props: { action: BandAction }) {
   const a = props.action;
   const cls = bandButtonClass(a);
   return (
-    <button type="button" className={cls} aria-label={a.ariaLabel} title={a.icon ? a.label : a.title} disabled={a.disabled} onClick={() => emit(a.send)}>
+    <button type="button" className={cls} aria-label={a.ariaLabel} title={a.icon ? a.label : a.title} disabled={a.disabled} onClick={() => { emit(a.send); if (a.then) emit(a.then); }}>
       {a.icon ? <Icon name={a.icon} /> : a.label}
     </button>
   );

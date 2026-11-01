@@ -157,15 +157,18 @@ describe('行（要対応）', () => {
     expect(row.context).toBe('未分類 · 外部ターミナルで実行中');
   });
 
-  it('今日のリマインダーの行：戻る日の札、理由、開く・日付を変更・Done', () => {
+  it('今日のリマインダーの行：戻る日の札、理由、今すぐ試す・開く・日付を変更・Done', () => {
     const row = presentHomeBand({ ...none, returning: [reminder('r', { returnOn: '2026-09-29', overdueDays: 3 })] }, ja).groups[0]!.rows[0]!;
     expect(row).toMatchObject({ key: 'return:r', lead: { kind: 'tag', text: '3 日過ぎ', tone: 'due' }, name: '戻る r', context: 'alpha', text: '結果を確かめる', tone: null, trail: [] });
     expect(row.actions.map((a) => [a.id, a.label, a.ariaLabel, a.primary, a.ghost])).toEqual([
+      ['tryNow', '今すぐ試す', '今すぐ試す、戻る r', false, false],
       ['open', '開く', '開く、戻る r', false, false],
       ['changeDate', '日付を変更', '日付を変更、戻る r', false, true],
       ['done', 'Done', 'Done、戻る r', false, true],
     ]);
+    expect(row.actions[0]!.then).toEqual({ type: 'session.open', id: 'r' });
     expect(row.actions.map((a) => a.send)).toEqual([
+      { type: 'session.tryNow', id: 'r' },
       { type: 'session.open', id: 'r' },
       { type: 'session.pause.open', id: 'r', from: 'menu' },
       { type: 'session.state.set', id: 'r', status: 'done' },

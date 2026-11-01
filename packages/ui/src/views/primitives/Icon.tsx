@@ -5,6 +5,7 @@ import type { ArtifactIconName } from '../../presenters/artifactIcon.ts';
 const ICONS = {
   home: House,
   projects: Folder,
+  calendar: Calendar,
   folder: Folder,
   folderPlus: FolderPlus,
   folderOpen: FolderOpen,

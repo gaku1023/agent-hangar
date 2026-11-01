@@ -119,6 +119,11 @@ export const actionTable = {
   // 消す。画面の正は後から届く session.removed なので、返り値は Store に入れない。
   'session.delete': (i) => call((api) => api.deleteSession(i.id)),
   // MCP の削除の依頼への答え。画面の正は後から届く deleteApprovals.update なので、返り値は Store に入れない。
+  'session.tryNow': (i) => call((api) => api.tryPausedSession(i.id)),
+  'schedule.create': (i) => call((api) => api.createSchedule(i.input)),
+  'schedule.update': (i) => call((api) => api.updateSchedule(i.id, i.patch)),
+  'schedule.delete': (i) => call((api) => api.deleteSchedule(i.id)),
+  'schedule.run': (i) => call((api) => api.runSchedule(i.id)),
   'deleteApproval.answer': (i) => call((api) => api.answerDeleteApproval(i.id, i.answer)),
   // 同じファイルの編集の「このファイルでは表示しない」。写しは見張りが書き直し、session.upsert で消える。
   'overlap.dismiss': (i) => call((api) => api.dismissOverlap(i.sessionId, i.with, i.paths)),

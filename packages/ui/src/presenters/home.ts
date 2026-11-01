@@ -214,6 +214,8 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
  * primary は青いボタン、ghost は地の無いボタンで、どちらでもなければ枠のボタンである。
  */
 export type BandAction = { id: string; label: string; ariaLabel: string; primary: boolean; ghost: boolean; send: UiAction;
+  /** send の続けて送るもの（今すぐ試すの後に会話を開く）。 */
+  then?: UiAction;
   /** 押せない形にする（未ログインのアカウントの「再開」など）。 */
   disabled?: boolean;
   /** 文字の代わりに出す絵（行の「再開しない」の ×）。読み上げの名前は ariaLabel のまま。 */
@@ -334,6 +336,7 @@ function returnRow(t: Translate, r: ReturnCard): BandRow {
   return {
     key: `return:${r.id}`, lead, name: r.name, context: r.projectName ?? t('common.label.uncategorized'), text: r.reason, detail: null, tone: null, trail: [], open,
     actions: [
+      { ...action(t, 'tryNow', t('home.tryNow.action'), r.name, { type: 'session.tryNow', id: r.id }), then: open },
       action(t, 'open', t('home.band.open'), r.name, open),
       action(t, 'changeDate', t('home.band.changeDate'), r.name, { type: 'session.pause.open', id: r.id, from: 'menu' }, 'ghost'),
       action(t, 'done', 'Done', r.name, { type: 'session.state.set', id: r.id, status: 'done' }, 'ghost'),

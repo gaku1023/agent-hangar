@@ -2006,9 +2006,9 @@ describe('presentToasts（入力待ちのカード）', () => {
 
 describe('presentShell のサイドバーの項目', () => {
   const labels = (n: { label: string }[]) => n.map((x) => x.label);
-  it('項目は「ホーム」「プロジェクト」の 2 つで、設定は下端の別の組に置く。セッションの一覧の項目は無い', () => {
+  it('項目は「ホーム」「プロジェクト」「予定」の 3 つで、設定は下端の別の組に置く。セッションの一覧の項目は無い', () => {
     const p = presentShell(initialState(), storeWith(), NOW);
-    expect(labels(p.nav)).toEqual(['ホーム', 'プロジェクト']);
+    expect(labels(p.nav)).toEqual(['ホーム', 'プロジェクト', '予定']);
     expect(labels(p.foot)).toEqual(['設定']);
     expect(p.nav.some((n) => (n.route.name as string) === 'sessions')).toBe(false);
   });

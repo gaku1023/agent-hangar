@@ -20,7 +20,7 @@ import { measureRows, pinFlight, slideRows } from './pinSlide.ts';
 import { spawnFoldKey } from '../presenters/spawnTree.ts';
 
 /** 画面の名前からナビのアイコンへの対応。見た目の話なので Presenter ではなくここに置く。 */
-const NAV_ICON: Record<string, IconName> = { home: 'home', projects: 'projects', settings: 'settings' };
+const NAV_ICON: Record<string, IconName> = { home: 'home', projects: 'projects', schedules: 'calendar', settings: 'settings' };
 
 /**
  * 項目に添える入力待ちの数。

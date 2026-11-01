@@ -5,6 +5,7 @@ export * from './cloud.ts';
 export * from './events.ts';
 export * from './action.ts';
 export * from './route.ts';
+export * from './schedule.ts';
 export * from './fts.ts';
 export * from './steps.ts';
 export * from './liveFilter.ts';

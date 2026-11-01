@@ -49,6 +49,8 @@ import { MoveSessionDialog } from './views/MoveSessionDialog.tsx';
 import { MuxGuideDialog } from './views/MuxGuideDialog.tsx';
 import { ProjectScreen } from './views/ProjectScreen.tsx';
 import { ProjectsScreen } from './views/ProjectsScreen.tsx';
+import { presentSchedules } from './presenters/schedules.ts';
+import { SchedulesScreen } from './views/SchedulesScreen.tsx';
 import { PromoteDialog, PromotedDialog } from './views/PromoteDialog.tsx';
 import { ResolveProjectDialog } from './views/ResolveProjectDialog.tsx';
 import { SessionScreen } from './views/SessionScreen.tsx';
@@ -461,6 +463,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       body = <SessionScreen {...p} />;
       break;
     }
+    case 'schedules': body = <SchedulesScreen {...presentSchedules(store, translatorOf(store), now)} />; break;
     case 'settings': body = <SettingsScreen {...presentSettings(state, store, now)} />; break;
   }
 

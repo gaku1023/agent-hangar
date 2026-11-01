@@ -1,3 +1,4 @@
+import type { ScheduleInput, SchedulePatch } from '@agent-hangar/shared';
 import { LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE } from '@agent-hangar/shared';
 import type { AccountLinkConflictDto, LinkConflictsDto, EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto, SessionLaunchSettingsDto } from '@agent-hangar/shared';
@@ -193,6 +194,11 @@ export type ApiClient = {
   dismissInterrupted(runIds: string[], dismissed: boolean): Promise<{ interrupted: InterruptedDto | null }>;
   /** 同じファイルの編集の「このファイルでは表示しない」。 */
   dismissOverlap(sessionId: string, other: string, paths: string[]): Promise<void>;
+  tryPausedSession(id: string): Promise<unknown>;
+  createSchedule(input: ScheduleInput): Promise<unknown>;
+  updateSchedule(id: string, patch: SchedulePatch): Promise<unknown>;
+  deleteSchedule(id: string): Promise<unknown>;
+  runSchedule(id: string): Promise<unknown>;
   answerDeleteApproval(id: string, answer: 'approve' | 'reject' | 'dismiss'): Promise<unknown>;
   /** 開いたセッションを既読にする（未読の数を 0 にする）。 */
   markSeen(sessionId: string): Promise<void>;
@@ -416,6 +422,11 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     moveSession: (id, projectId) => call(`/api/sessions/${id}/project`, { method: 'PUT', body: JSON.stringify({ projectId }) }),
     deleteSession: (id) => call(`/api/sessions/${id}`, { method: 'DELETE' }),
     dismissInterrupted: (runIds, dismissed) => post('/api/interrupted/dismiss', { runIds, dismissed }),
+    tryPausedSession: (id) => post(`/api/sessions/${encodeURIComponent(id)}/try-now`),
+    createSchedule: (input) => post('/api/schedules', input),
+    updateSchedule: (id, patch) => call(`/api/schedules/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+    deleteSchedule: (id) => call(`/api/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    runSchedule: (id) => post(`/api/schedules/${encodeURIComponent(id)}/run`),
     answerDeleteApproval: (id, answer) => post(`/api/delete-approvals/${encodeURIComponent(id)}/${answer}`),
     dismissOverlap: (sessionId, other, paths) => post(`/api/sessions/${sessionId}/overlap/dismiss`, { with: other, paths }),
     markSeen: (sessionId) => post(`/api/sessions/${sessionId}/seen`, {}),

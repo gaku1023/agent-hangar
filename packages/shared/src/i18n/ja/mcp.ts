@@ -2,6 +2,16 @@ import type { mcpKeys } from '../keys/mcp.ts';
 import type { AreaDictionary } from '../messageSpec.ts';
 
 export const mcpJa: AreaDictionary<typeof mcpKeys> = {
+  'mcp.tool.listSchedules': 'この PC の hangar の予定を、次の時刻と直近の履歴つきで返す。',
+  'mcp.tool.createSchedule': '決まった時刻に指示を流す予定を作る。予定はこの PC でだけ動く。hangar が閉じていた間の回は、次の起動で最新の 1 回だけ流す。前の回が実行中なら次の回を飛ばす。session_id があれば既存の会話へ送り、無ければ project_id に新しい会話を作る。',
+  'mcp.tool.updateSchedule': '予定を変える。enabled を false にすると止まり、true で再開する。渡した項目だけ変わる。時刻を変えるときは kind から渡す。予定を消すことはできない。消すのはユーザーが画面で行う。',
+  'mcp.schedule.kindParam': 'once は 1 回だけ、weekly は曜日、every は N 分おき',
+  'mcp.schedule.atParam': 'once の時刻。ISO 8601',
+  'mcp.schedule.daysParam': 'weekly の曜日。0 が日曜、6 が土曜',
+  'mcp.schedule.timeParam': 'weekly の時刻。この PC の時刻の HH:MM',
+  'mcp.schedule.everyParam': 'every の間隔（分）。{min} 以上',
+  'mcp.schedule.sessionParam': '送り先の既存の会話。省くと新しい会話を作る',
+  'mcp.schedule.enabledParam': 'false で一時停止する、true で再開する',
   'mcp.scope.sessionOnly': 'この MCP の URL はセッション {sessionId} 専用です。他の session_id は指定できません',
   'mcp.scope.noProject': 'このセッションはまだプロジェクトに属していないため、プロジェクトのツールは使えません',
   'mcp.scope.projectOnly': 'この MCP の URL はプロジェクト {projectId} に閉じています。他の project_id は指定できません',

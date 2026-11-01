@@ -1,3 +1,4 @@
+import type { AppDeps } from '../http/deps.ts';
 import { serve } from '@hono/node-server';
 import type http from 'node:http';
 import path from 'node:path';
@@ -86,7 +87,7 @@ export type HttpParts = {
  * serverDir は、サーバの入口のファイルがある場所である。UI の置き場所の既定をそこから決める。
  */
 export function bootHttp(p: {
-  home: HomeParts; delivery: DeliveryParts; sync: SyncParts; indexing: IndexingParts; listening: ListeningParts; runs: RunsParts; summary: SummaryParts; trash: TrashParts; takeover: Pick<TakeoverParts, 'setNotePane' | 'service'>;
+  home: HomeParts; delivery: DeliveryParts; sync: SyncParts; indexing: IndexingParts; listening: ListeningParts; runs: RunsParts; schedules: AppDeps['schedules']; summary: SummaryParts; trash: TrashParts; takeover: Pick<TakeoverParts, 'setNotePane' | 'service'>;
   opencode: Pick<OpencodeParts, 'options' | 'providers' | 'exporter' | 'transfer' | 'serves'>;
   /** スマホの受信箱の素。opencode の入り切りで組み直させる。 */
   mobile: Pick<MobileParts, 'settingsChanged'>;
@@ -137,7 +138,7 @@ export function bootHttp(p: {
     // 経路と MCP の道具も、起動の管理や要約と同じ言語の関数で文を出す。
     language: home.language,
     updateSettings,
-    live: () => delivery.live.current(), indexer: indexing.indexer, git: indexing.git, hub: delivery.hub, runs: runs.runs, external: runs.external, usage: runs.usage, memos: indexing.memos, digester: delivery.digester, permissionAsks: delivery.permissionAsks, asksOf: (provider) => delivery.agents.of(provider).asks, osNotices: delivery.osNotices,
+    live: () => delivery.live.current(), indexer: indexing.indexer, git: indexing.git, hub: delivery.hub, runs: runs.runs, schedules: p.schedules, external: runs.external, usage: runs.usage, memos: indexing.memos, digester: delivery.digester, permissionAsks: delivery.permissionAsks, asksOf: (provider) => delivery.agents.of(provider).asks, osNotices: delivery.osNotices,
     summary: summary.api,
     trash: trash.trash,
     trustWorkspace: runs.trustWorkspace,

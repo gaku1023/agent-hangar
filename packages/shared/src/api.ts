@@ -1,3 +1,4 @@
+import type { ScheduleDto } from './schedule.ts';
 import type { AgentKind } from './agents.ts';
 import type { CompatSummaryDto } from './claudeCompat.ts';
 import type { LiveFilter } from './liveFilter.ts';
@@ -210,7 +211,7 @@ export type DeleteApprovalFailure = 'running' | 'trash';
  * title は消す会話の題名、project と turns はその事実、from は依頼した会話の題名（共通の URL からの依頼や、依頼元が消えたときは null）。failure は承認した後に消せなかったときだけ持つ。
  */
 export type DeleteApprovalDto = { id: string; sessionId: string; title: string; project: string | null; turns: number; from: string | null; requestedAt: number; failure: DeleteApprovalFailure | null };
-export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; /** MCP の削除の依頼のうち、利用者の答えを待っているもの。 */ deleteApprovals: DeleteApprovalDto[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto; /** サーバのホーム（os.homedir()）。画面はホームの下の置き場を ~ に縮めるときにだけ使う。 */ home: string; /** 中断の群（InterruptedDto）。 */ interrupted: InterruptedDto | null };
+export type BootstrapDto = { schedules: ScheduleDto[]; device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; /** MCP の削除の依頼のうち、利用者の答えを待っているもの。 */ deleteApprovals: DeleteApprovalDto[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto; /** サーバのホーム（os.homedir()）。画面はホームの下の置き場を ~ に縮めるときにだけ使う。 */ home: string; /** 中断の群（InterruptedDto）。 */ interrupted: InterruptedDto | null };
 export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; total: number; nextSeq: number | null };
 /**
  * 実行中のセッションの右ペインに出すライブの要約。サーバが主線とサブエージェントを読んで作る。

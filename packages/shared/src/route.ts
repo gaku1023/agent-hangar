@@ -42,7 +42,7 @@ export function settingsSectionOf(at: SettingsAt | undefined): SettingsSection {
  * セッションの一覧の画面は無くなった（設計書 2.1）。`#/sessions` と `#/sessions?q=` は、殻のディープリンクと利用者の履歴に残っているので、parseRoute がホームの別名として読み続ける。
  */
 export type Route =
-  | { name: 'home'; q?: string } | { name: 'projects' } | { name: 'project'; id: string }
+  | { name: 'home'; q?: string } | { name: 'projects' } | { name: 'schedules' } | { name: 'project'; id: string }
   | { name: 'session'; id: string } | { name: 'settings'; at?: SettingsAt };
 
 function homeOf(params: URLSearchParams): Route {
@@ -58,6 +58,7 @@ export function parseRoute(hash: string): Route {
   switch (parts[0]) {
     case undefined: return homeOf(params);
     case 'projects': return { name: 'projects' };
+    case 'schedules': return { name: 'schedules' };
     case 'project': return parts[1] ? { name: 'project', id: parts[1] } : { name: 'projects' };
     case 'session': return parts[1] ? { name: 'session', id: parts[1] } : { name: 'home' };
     case 'sessions': return homeOf(params);
@@ -70,6 +71,7 @@ export function formatRoute(route: Route): string {
   switch (route.name) {
     case 'home': return route.q ? `#/?q=${encodeURIComponent(route.q)}` : '#/';
     case 'projects': return '#/projects';
+    case 'schedules': return '#/schedules';
     case 'project': return `#/project/${route.id}`;
     case 'session': return `#/session/${route.id}`;
     case 'settings': return route.at ? `#/settings?at=${route.at}` : '#/settings';

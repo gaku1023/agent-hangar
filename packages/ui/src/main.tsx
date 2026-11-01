@@ -22,6 +22,7 @@ import './styles/notices.css';
 import './styles/cloudMember.css';
 import './styles/resume.css';
 import './styles/git.css';
+import './styles/schedules.css';
 import { Root } from './Root.tsx';
 import { createApi } from './runtime/api.ts';
 import { stripEntryToken } from './runtime/entryToken.ts';

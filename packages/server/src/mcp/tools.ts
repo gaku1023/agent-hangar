@@ -19,6 +19,7 @@ import { getSessionState, proposeSessionState, setSessionState, StateInputError,
 import { readEvents } from '../transcript/read.ts';
 import { deviceOfSession } from '../runs/handover.ts';
 import type { ReportService } from '../report/service.ts';
+import { createScheduleTool, listSchedulesTool, updateScheduleTool } from './scheduleTools.ts';
 import { readSessionScreenTool, sendToSessionTool } from './screenTools.ts';
 import { noteTurnStart, waitForSessionTool } from './waitTool.ts';
 
@@ -89,6 +90,7 @@ export const TOOL_NAMES = [
   'propose_session_status', 'draft_issue_report', 'submit_issue_report',
   'stop_session', 'resume_session', 'delete_session',
   'send_to_session', 'read_session_screen', 'wait_for_session', 'notify_user', 'set_notify_preference',
+  'list_schedules', 'create_schedule', 'update_schedule',
 ] as const;
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
@@ -130,7 +132,7 @@ function scopeProjectId(deps: ToolDeps, ctx: ToolContext): string | null | undef
 const NO_PROJECT = msg('mcp.scope.noProject');
 
 /** 引数の project_id を枠に照らし、枠の外を指していれば断る。返すのは枠そのものである。 */
-function projectScope(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>): string | null | undefined {
+export function projectScope(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>): string | null | undefined {
   const scope = scopeProjectId(deps, ctx);
   const given = str(args.project_id);
   if (scope !== undefined && given && given !== scope) {
@@ -140,7 +142,7 @@ function projectScope(deps: ToolDeps, ctx: ToolContext, args: Record<string, unk
 }
 
 /** プロジェクトを 1 件に決める道具のための project_id。 */
-function projectIdOf(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>): string {
+export function projectIdOf(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>): string {
   const scope = projectScope(deps, ctx, args);
   if (scope === null) throw new ToolError(NO_PROJECT);
   const id = scope ?? str(args.project_id);
@@ -832,6 +834,9 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'send_to_session': return sendToSessionTool(deps, ctx, args);
     case 'read_session_screen': return readSessionScreenTool(deps, ctx, args);
     case 'wait_for_session': return waitForSessionTool(deps, ctx, args);
+    case 'list_schedules': return listSchedulesTool(deps, ctx, args);
+    case 'create_schedule': return createScheduleTool(deps, ctx, args);
+    case 'update_schedule': return updateScheduleTool(deps, ctx, args);
     default: throw new ToolError(msg('mcp.error.unknownTool', { name }));
   }
 }

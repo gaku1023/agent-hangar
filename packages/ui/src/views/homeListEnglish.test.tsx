@@ -85,7 +85,7 @@ describe('ホーム、一覧、ヘッダー、サイドバー（英語）', () =
   it('ヘッダーとサイドバー、切断の帯', () => {
     const store = storeIn([session('w', { live: 'waiting' }), session('b', { live: 'busy' })]);
     const shell = presentShell({ ...initialState(), connection: 'disconnected', staleSince: NOW - 5 * MIN, nextRetryAt: NOW + 8_000 }, store, NOW);
-    expect(shell.nav.map((n) => n.label)).toEqual(['Home', 'Projects']);
+    expect(shell.nav.map((n) => n.label)).toEqual(['Home', 'Projects', 'Schedules']);
     expect(shell.foot.map((n) => n.label)).toEqual(['Settings']);
     expect(shell.live.rows.find((r) => r.id === 'w')!.waited).toBe('Waiting 5 min');
     expect(shell.conn).toMatchObject({ staleLabel: 'The screen stopped updating 5 min ago', retryLabel: 'Reconnecting in 8 s' });
