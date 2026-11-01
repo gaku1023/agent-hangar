@@ -93,6 +93,13 @@ type Props = {
 };
 
 /** 新しい会話の画面（B1 プロジェクト、C3 詳しい設定）。 */
+/** アカウントの札の下の使用率。5 時間があれば 5 時間、5 時間の枠が無い（週だけが届いた）なら週。 */
+export function accountUsageSub(a: { fiveHour: number | null; sevenDay: number | null }): string | undefined {
+  if (typeof a.fiveHour === 'number') return `5 時間 ${Math.round(a.fiveHour)}%`;
+  if (typeof a.sevenDay === 'number') return `週 ${Math.round(a.sevenDay)}%`;
+  return undefined;
+}
+
 export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onClose, leaving }: Props): ReactNode {
   const alive = useMemo(() => new Set(view.devices.filter((d) => d.alive).map((d) => d.id)), [view]);
   const choices = useMemo(() => launchChoices(view.feeds, alive), [view, alive]);
@@ -391,7 +398,7 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
                         onPick={() => setAcctPicked(a.id)}
                         title={a.name || a.id}
                         dot={safeColor(a.color)}
-                        sub={typeof a.fiveHour === 'number' ? `5 時間 ${Math.round(a.fiveHour)}%` : undefined}
+                        sub={accountUsageSub(a)}
                       />
                     )}
                   />

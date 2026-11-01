@@ -105,11 +105,12 @@ describe('Header', () => {
     expect(document.querySelector('.stopped-chip')).toBeNull();
   });
   it('最終更新が無ければ添えない', () => {
-    render(<ActionRoot onAction={() => {}}><Header account={null} notices={{ rows: [], unread: 0, keys: [], label: '通知' }} newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: 18, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={noSync} /></ActionRoot>);
+    render(<ActionRoot onAction={() => {}}><Header account={null} notices={{ rows: [], unread: 0, keys: [], label: '通知' }} newSession={{}} indexLabel={null} usage={{ fiveHour: 18, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={noSync} /></ActionRoot>);
     expect(screen.queryByText(/最終更新/)).toBeNull();
     expect(screen.getAllByText('未取得')).toHaveLength(1);
     // 戻る時刻が届いていなければ、title に時刻を添えない。
-    expect(screen.getByText('5 時間').closest('.gauge')).toHaveAttribute('title', '5 時間の使用率 未取得');
+    expect(screen.getByText('5 時間').closest('.gauge')).toHaveAttribute('title', '5 時間の使用率 18%');
+    expect(screen.getByText('週').closest('.gauge')).toHaveAttribute('title', '週の使用率 未取得');
   });
   it('使用率が一度も届いていない間は、空の棒を並べず 1 語にまとめ、押すと設定へ行く', () => {
     const onAction = vi.fn();

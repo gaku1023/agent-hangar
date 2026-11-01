@@ -97,6 +97,12 @@ describe('presentInterrupted（帯の「前回実行中」の群）', () => {
     expect(g.headActions?.[0]?.send).toEqual({ type: 'interrupted.resume', ids: ['busy2', 'busy1', 'idle1'] });
   });
 
+  it('5 時間の枠が無いアカウントの小見出しは、週の使用率を出す', () => {
+    const a0 = accountsFixture.accounts[0]!;
+    const accounts = { ...accountsFixture, accounts: [{ ...a0, usage: { ...a0.usage, fiveHour: null } }, accountsFixture.accounts[1]!] };
+    const g = presentInterrupted(initialState(), storeOf({ accounts }), NOW)!;
+    expect(g.rows[0]!.section).toMatchObject({ name: '会社', meter: { percent: 41, high: false, label: '週 41%' }, note: null });
+  });
   it('tmux のサーバが止まったときの群と、24 時間を過ぎた群は朝に開かない', () => {
     const mux = presentInterrupted(initialState(), storeOf({ interrupted: { ...group, cause: 'mux' } }), NOW)!;
     expect(mux.summary).toBe('tmux の停止で中断（03:12）');

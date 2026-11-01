@@ -50,8 +50,20 @@ const gauge = (raw: RateWindowDto | null, now: number): AccountGauge | null => {
   return w === null ? null : { percent: w.usedPercent, high: w.usedPercent >= HIGH, resets: resetsLabel(w.resetsAt, now) };
 };
 
-function noteOf(t: Translate, a: AccountDto, five: AccountGauge | null, now: number): AccountView['note'] {
-  if (five?.high) return { tone: 'warn', text: five.resets === null ? t('account.note.nearLimit') : t('account.note.nearLimitResets', { resets: five.resets }) };
+/**
+ * 5 時間の枠が無いアカウント（週だけが届いた）。5 時間の枠は順に撤廃されているので、5 時間の行や計器を出さない。
+ * どちらも届いていないときは、まだ読めていないだけなので、枠が無いとは言わない。
+ */
+export const fiveHourDropped = (u: { fiveHour: unknown; sevenDay: unknown }): boolean => u.fiveHour === null && u.sevenDay !== null;
+
+/** 1 本だけ出す所（中断の群の小見出し）の計器。5 時間があれば 5 時間、無ければ週。 */
+export function leadGauge(t: Translate, a: Pick<AccountView, 'fiveHour' | 'sevenDay'>): { percent: number; high: boolean; label: string } | null {
+  const [g, key] = a.fiveHour ? [a.fiveHour, 'accountSwitcher.face.fiveHour'] as const : a.sevenDay ? [a.sevenDay, 'accountSwitcher.face.sevenDay'] as const : [null, null];
+  return g === null ? null : { percent: g.percent, high: g.high, label: t(key, { percent: Math.round(g.percent) }) };
+}
+
+function noteOf(t: Translate, a: AccountDto, lead: AccountGauge | null, now: number): AccountView['note'] {
+  if (lead?.high) return { tone: 'warn', text: lead.resets === null ? t('account.note.nearLimit') : t('account.note.nearLimitResets', { resets: lead.resets }) };
   const at = a.usage.updatedAt;
   // 境は「1 時間より古い」。ちょうど 1 時間は注記なし。
   if (at === null || now - at <= HOUR) return null;
@@ -62,15 +74,17 @@ function noteOf(t: Translate, a: AccountDto, five: AccountGauge | null, now: num
 export function presentAccount(t: Translate, a: AccountDto, currentId: string, now: number, home: string | null = null): AccountView {
   const plan = a.auth?.plan ?? null;
   const fiveHour = gauge(a.usage.fiveHour, now);
+  const sevenDay = gauge(a.usage.sevenDay, now);
   return {
     id: a.id, name: a.name, color: a.color, primary: a.primary, current: a.id === currentId,
     plan: plan === null ? null : PLANS[plan] ?? plan,
     email: a.auth?.email ?? null,
     auth: a.loginRunning ? 'running' : a.auth === null ? 'unknown' : a.auth.loggedIn ? 'in' : 'out',
     loggedIn: a.auth?.loggedIn === true,
-    fiveHour, sevenDay: gauge(a.usage.sevenDay, now),
+    fiveHour, sevenDay,
     updatedLabel: a.usage.updatedAt === null ? null : relativeTime(t, a.usage.updatedAt, now),
-    note: noteOf(t, a, fiveHour, now),
+    // 5 時間の枠が無いアカウントは、週で上限に近いことを言う。
+    note: noteOf(t, a, fiveHour ?? (fiveHourDropped(a.usage) ? sevenDay : null), now),
     login: a.login ?? null,
     linkProblem: a.linkProblem, linkConflicts: a.linkConflicts, dir: a.dir, dirLabel: homePath(a.dir, home),
   };

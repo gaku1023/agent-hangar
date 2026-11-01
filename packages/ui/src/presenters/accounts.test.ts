@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { translator, type AccountDto } from '@agent-hangar/shared';
 import { initialStore } from '../store/store.ts';
 import { accountsFixture } from '../test/accounts.ts';
-import { isPickableAccount, presentAccount, presentAccounts, type AccountView } from './accounts.ts';
+import { isPickableAccount, presentAccount, presentAccounts, type AccountView, fiveHourDropped, leadGauge } from './accounts.ts';
 import { resetsLabel } from './format.ts';
 
 const ja = translator('ja');
@@ -78,6 +78,10 @@ describe('presentAccount', () => {
   it('note：5 時間が 85 で値も古ければ warn が優先', () => {
     expect(view({ usage: usage(85, 5 * HOUR) }).note?.tone).toBe('warn');
   });
+  it('note：5 時間の枠が無い（週だけ）なら、週が 80 以上で warn', () => {
+    const v = view({ usage: { fiveHour: null, sevenDay: { usedPercent: 90, resetsAt: null }, updatedAt: NOW - MIN } });
+    expect(v.note).toEqual({ tone: 'warn', text: '上限間近' });
+  });
   it('値が 1 度も無ければ、計器も updatedLabel も note も null', () => {
     const v = view({ usage: { fiveHour: null, sevenDay: null, updatedAt: null } });
     expect(v.fiveHour).toBeNull();
@@ -130,5 +134,21 @@ describe('isPickableAccount', () => {
     ['unknown', false, true],
   ] as const)('auth が %s で loggedIn が %s なら、選べる:%s', (auth, loggedIn, want) => {
     expect(isPickableAccount(of(auth, loggedIn))).toBe(want);
+  });
+});
+
+describe('fiveHourDropped と leadGauge', () => {
+  it('週だけが届いたら 5 時間の枠は無い。1 本だけ出す所は週で代える', () => {
+    const v = view({ usage: { fiveHour: null, sevenDay: { usedPercent: 9, resetsAt: null }, updatedAt: NOW - MIN } });
+    expect(fiveHourDropped(v)).toBe(true);
+    expect(leadGauge(ja, v)).toEqual({ percent: 9, high: false, label: '週 9%' });
+  });
+  it('5 時間があれば 5 時間を出す。どちらも無ければ枠が無いとは言わない', () => {
+    const v = view({ usage: usage(82, MIN) });
+    expect(fiveHourDropped(v)).toBe(false);
+    expect(leadGauge(ja, v)).toEqual({ percent: 82, high: true, label: '5 時間 82%' });
+    const none = view({ usage: { fiveHour: null, sevenDay: null, updatedAt: null } });
+    expect(fiveHourDropped(none)).toBe(false);
+    expect(leadGauge(ja, none)).toBeNull();
   });
 });

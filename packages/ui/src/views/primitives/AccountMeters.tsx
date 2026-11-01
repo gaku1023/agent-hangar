@@ -1,4 +1,7 @@
-import { approvalText, cancelledText, loggedOutText, type AccountGauge, type AccountView } from '../../presenters/accounts.ts';
+import { useRef } from 'react';
+import { approvalText, cancelledText, fiveHourDropped, loggedOutText, type AccountGauge, type AccountView } from '../../presenters/accounts.ts';
+import { collapseOut, motionOn } from './motionKit.ts';
+import { usePresence } from './usePresence.ts';
 import { useT } from './language.tsx';
 
 /**
@@ -8,6 +11,7 @@ import { useT } from './language.tsx';
  * 棒は UsageGauge と同じ形（.gauge-bar と .gauge-fill）で、警告の印（data-high）は presenter が決めた high に従う。
  * showResets のときは、枠が戻る時刻を右に添える。
  * 値が 1 つも無ければ、棒の代わりに 1 行で言う。
+ * 5 時間の枠が無いアカウント（週だけが届いた）では、5 時間の行を出さない。値が届いて枠が消えたときは、行を畳んで外す。
  * 認証は、未ログインと初めてのログインの途中だけメールの行で言い、未読のときは空のままにする。
  * ログインし直しの途中（running で loggedIn が真）は、メールを消さずに出したまま、承認の添え書きを 1 行足す。
  */
@@ -32,7 +36,7 @@ export function AccountMeters(props: { account: AccountView; showResets: boolean
       {cancelled !== null && <span className="account-note" data-tone="warn">{cancelled}</span>}
       {noValue ? (firstLogin ? null : <span className="account-none">{t('account.meters.noValue')}</span>) : (
         <>
-          <MeterRow name={a.name} label={t('account.meters.fiveHourLabel')} short={t('account.meters.fiveHourShort')} gauge={a.fiveHour} showResets={props.showResets} />
+          <MeterRow name={a.name} label={t('account.meters.fiveHourLabel')} short={t('account.meters.fiveHourShort')} gauge={a.fiveHour} showResets={props.showResets} present={!fiveHourDropped(a)} />
           <MeterRow name={a.name} label={t('account.meters.weekLabel')} short={t('account.meters.weekShort')} gauge={a.sevenDay} showResets={props.showResets} />
         </>
       )}
@@ -41,14 +45,22 @@ export function AccountMeters(props: { account: AccountView; showResets: boolean
   );
 }
 
-/** 札の中の 1 本の行（見出し、棒、%、戻る時刻）。切り替えの面の Codex の札（AccountSwitcher.tsx）も使う。 */
-export function MeterRow(props: { name: string; label: string; short: string; gauge: AccountGauge | null; showResets: boolean }) {
+/**
+ * 札の中の 1 本の行（見出し、棒、%、戻る時刻）。切り替えの面の Codex の札（AccountSwitcher.tsx）も使う。
+ * present が偽になったら（5 時間の枠が無くなった）、行を collapseOut で畳んでから外す。畳む間は最後の値のまま出す。
+ */
+export function MeterRow(props: { name: string; label: string; short: string; gauge: AccountGauge | null; showResets: boolean; present?: boolean }) {
   const t = useT();
-  const g = props.gauge;
+  const open = props.present ?? true;
+  const last = useRef(props.gauge);
+  if (open) last.current = props.gauge;
+  const p = usePresence<HTMLSpanElement>(open, (el) => (motionOn(el) ? collapseOut(el) : null));
+  if (!p.mounted) return null;
+  const g = open ? props.gauge : last.current;
   const pct = g === null ? 0 : Math.max(0, Math.min(100, g.percent));
   const high = g?.high === true;
   return (
-    <span className="account-row">
+    <span ref={p.ref} className="account-row" aria-hidden={p.leaving ? true : undefined}>
       <span className="account-row-key">{props.short}</span>
       <span className="gauge-bar" role="meter" aria-label={`${props.name} ${props.label}`} aria-valuenow={g?.percent} aria-valuemin={0} aria-valuemax={100}>
         <span className="gauge-fill" data-high={high ? 'true' : undefined} style={{ width: `${pct}%` }} />
