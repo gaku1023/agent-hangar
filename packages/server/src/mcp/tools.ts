@@ -13,6 +13,7 @@ import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { errorText, MessageError, msg, render, type Message } from '../i18n/message.ts';
 import { agentEnabledLabel, type LaunchHooks, type LaunchResult } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
+import { requestDeleteApproval } from '../sessions/deleteApprovals.ts';
 import { recordSpawn } from '../sessions/spawns.ts';
 import { getSessionState, proposeSessionState, setSessionState, StateInputError, validateStateInput, type ProposeStateOutcome } from '../sessions/states.ts';
 import { readEvents } from '../transcript/read.ts';
@@ -41,7 +42,7 @@ export type ToolDeps = {
     /** tmux の名前の画面へ、text を 1 つの入力として貼り、submit なら Enter で確定する。届けられなければ投げる。無ければ send_to_session は断る。 */
     sendInput?(tmuxName: string, text: string, submit: boolean): Promise<void>;
   };
-  /** 削除（DELETE /api/sessions/:id）と同じ処理。無ければ delete_session は知らない道具として断る。 */
+  /** 削除（DELETE /api/sessions/:id）の口。無ければ delete_session は知らない道具として断る。道具は承認待ちを預けるだけで、これを直に呼ばない。 */
   trash?: { deleteSession(sessionId: string): Promise<void> };
   usage: () => UsageDto;
   /** アカウントの口。無ければ get_usage は最初のアカウントの値だけを返し、create_session はアカウントを選ばない（runs.start がいまのアカウントで起こす）。 */
@@ -566,18 +567,43 @@ export function resumeSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
 }
 
 /**
- * UI の削除と同じ trash.deleteSession を通す。どのセッションも、毎回 confirmed: true（利用者が会話の中で承認した）でなければ消さない。
- * 動いている会話の断り（409）は、deleteSession の文をそのまま返す。
+ * 会話の削除を依頼する（#547）。ここでは消さず、承認待ちとして預けて、すぐ返す。消すのは利用者が画面かスマホで承認した後である（sessions/deleteApprovals.ts）。
+ * エージェントの自己申告はインジェクションされていても付けられるので、以前の confirmed はもう受けず、渡されても読まない。
+ * 動いている会話は預けずに断る。待っても消せないためである。
  */
-export function deleteSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
-  const trash = deps.trash;
-  if (!trash) throw new ToolError(msg('mcp.error.unknownTool', { name: 'delete_session' }));
+export function deleteSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, now = Date.now()) {
+  if (!deps.trash) throw new ToolError(msg('mcp.error.unknownTool', { name: 'delete_session' }));
   const s = targetSession(deps, ctx, args, msg('mcp.deleteSession.self'));
-  if (args.confirmed !== true) throw new ToolError(msg('mcp.deleteSession.confirm', { title: sessionTitle(s) }));
-  return trash.deleteSession(s.id).then(() => ({ ok: true, session_id: s.id }));
+  if (s.live || deps.runs.aliveRun?.(s.id)) throw new ToolError(msg('session.delete.running'));
+  const r = requestDeleteApproval(deps.db, { sessionId: s.id, fromSessionId: ctx.sessionId, now });
+  const lang = languageOf(deps);
+  if (r.outcome === 'too_many') throw new ToolError(msg('mcp.deleteSession.tooMany'));
+  if (r.outcome === 'rejected') return { status: 'rejected', session_id: s.id, note: render(lang, msg('mcp.deleteSession.rejected')) };
+  if (r.created) noticeDeleteApproval(deps, ctx, s, now);
+  return { status: 'pending_approval', session_id: s.id, title: sessionTitle(s), note: render(lang, msg('mcp.deleteSession.pending')) };
 }
 
-/** 承認を求めるときに利用者へ見せる題名。名前、AI の題、最初の発言の順に引く。 */
+/**
+ * 承認待ちができたことを、利用者の決まりの ask の出し先へ知らせる。
+ * 会話を静かにした（Done など）かどうかでは黙らせない。答えがないと進まない依頼だからである。
+ * 依頼元が分かれば、その会話の未読にする。共通の URL では依頼元が無いので、未読は増やさず、OS とスマホにだけ、消す会話の名で知らせる。
+ */
+function noticeDeleteApproval(deps: ToolDeps, ctx: ToolContext, s: SessionDto, now: number): void {
+  const name = sessionTitle(s);
+  const from = ctx.sessionId ? getSession(deps.db, deps.live(), ctx.sessionId, { deviceId: deps.deviceId }) : null;
+  const text = clipChars(render(languageOf(deps), from ? msg('mcp.deleteSession.notice', { from: sessionTitle(from), name }) : msg('mcp.deleteSession.noticeNoFrom', { name })), INTENT_MAX);
+  const rules = notifyRulesOf(deps.settings?.() ?? {});
+  const sent = NOTIFY_TARGETS.filter((x) => rules[x].includes('ask') && (x !== 'unread' || from !== null));
+  if (sent.length === 0) return;
+  let unread = from?.unread?.count ?? 0;
+  if (from && sent.includes('unread')) {
+    unread = addUnread(deps.db, from.id, text, now);
+    touchRow(deps.db, 'sessions', from.id);
+  }
+  noteUnread(from?.id ?? s.id, text, unread, sent);
+}
+
+/** 依頼の文に入れる題名。名前、AI の題、最初の発言の順に引く。 */
 function sessionTitle(s: SessionDto): string {
   return (s.name ?? s.summary?.title ?? s.aiTitle ?? s.firstPrompt ?? s.id).replace(/\s+/g, ' ').trim().slice(0, 80);
 }

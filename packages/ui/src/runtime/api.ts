@@ -193,6 +193,7 @@ export type ApiClient = {
   dismissInterrupted(runIds: string[], dismissed: boolean): Promise<{ interrupted: InterruptedDto | null }>;
   /** 同じファイルの編集の「このファイルでは表示しない」。 */
   dismissOverlap(sessionId: string, other: string, paths: string[]): Promise<void>;
+  answerDeleteApproval(id: string, answer: 'approve' | 'reject' | 'dismiss'): Promise<unknown>;
   /** 開いたセッションを既読にする（未読の数を 0 にする）。 */
   markSeen(sessionId: string): Promise<void>;
   memo(projectId: string): Promise<MemoDto>;
@@ -412,6 +413,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     moveSession: (id, projectId) => call(`/api/sessions/${id}/project`, { method: 'PUT', body: JSON.stringify({ projectId }) }),
     deleteSession: (id) => call(`/api/sessions/${id}`, { method: 'DELETE' }),
     dismissInterrupted: (runIds, dismissed) => post('/api/interrupted/dismiss', { runIds, dismissed }),
+    answerDeleteApproval: (id, answer) => post(`/api/delete-approvals/${encodeURIComponent(id)}/${answer}`),
     dismissOverlap: (sessionId, other, paths) => post(`/api/sessions/${sessionId}/overlap/dismiss`, { with: other, paths }),
     markSeen: (sessionId) => post(`/api/sessions/${sessionId}/seen`, {}),
     memo: (projectId) => call(`/api/projects/${projectId}/memo`),

@@ -94,6 +94,8 @@
      長さは必ずこれを通して書き、CSS にも JS にも数値を直書きしない（styles/motion.test.ts が見張る）。
      JS からは views/primitives/motion.ts で読む。 */
   --dur-fast: 200ms;
+  /* 待ちの輪が 1 周する長さ。 */
+  --dur-spin: 900ms;
   --dur: 420ms;
   --dur-exit: 250ms;
   /* 札の入れ替え（新しいセッションのエージェントの切り替え、M1）。消える札が薄れる長さと、新しい札を 1 枚ずつずらす間。 */

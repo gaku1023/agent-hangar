@@ -685,6 +685,21 @@ create table session_spawns (
 );
 `;
 
+/**
+ * MCP の delete_session の依頼を、利用者が答えるまで預かる表（#547）。手元だけの表で、同期しない。会話 1 つに 1 行。
+ */
+const V43_DELETE_APPROVALS_SQL = `
+create table delete_approvals (
+  id text primary key,
+  session_id text not null unique,
+  from_session_id text,
+  requested_at integer not null,
+  state text not null,
+  decided_at integer,
+  failure text
+);
+`;
+
 const V39_SESSION_UNREAD_SQL = `
 create table session_unread (
   session_id text primary key,
@@ -727,4 +742,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 40, sql: V40_SESSION_SPAWNS_SQL },
   { version: 41, sql: V41_CHANGES_UNPUSHED_SQL },
   { version: 42, sql: V42_SESSION_ALIASES_SQL },
+  { version: 43, sql: V43_DELETE_APPROVALS_SQL },
 ];

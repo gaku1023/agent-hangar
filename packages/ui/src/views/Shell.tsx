@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'rea
 import { sidebarWidthCss } from '../mediator/sidebar.ts';
 import type { ShellProps } from '../presenters/shell.ts';
 import { ConnectionBanner } from './ConnectionBanner.tsx';
+import { DeleteApprovalStrip } from './DeleteApprovalStrip.tsx';
 import { Header } from './Header.tsx';
 import { playSidebarMotion, playSidebarWidth } from './primitives/sidebarMotion.ts';
 import { Sidebar } from './Sidebar.tsx';
@@ -35,7 +36,7 @@ export function Shell(props: ShellProps & { children: ReactNode; overlays: React
       <Header indexLabel={props.indexLabel} usage={props.usage} account={props.account} sync={props.sync} notices={props.notices} newSession={props.newSession} />
       {/* 帯は 2 行目に置く。切断の帯だけで、無いときは箱が空になり、:empty で潰れる。保持期間は帯でなくベルの一覧の行になった。 */}
       <div className="banners"><ConnectionBanner {...props.conn} /></div>
-      <main className="main"><div className="main-inner">{props.children}</div></main>
+      <main className="main"><DeleteApprovalStrip rows={props.approvals} /><div className="main-inner">{props.children}</div></main>
       {props.overlays}
     </div>
   );

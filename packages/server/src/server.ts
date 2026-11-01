@@ -140,7 +140,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // Codex の検出と選択肢（ベータ）。設定の画面とスマホの問い合わせが同じ一覧を使う。
   const localCodex = new LocalCodex({ bin: () => findCodex() });
   const codex = { local: localCodex, options: new CodexOptionsService({ bin: () => findCodex(), status: localCodex.status }) };
-  const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options } });
+  const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, trash: trash.trash });
   const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。

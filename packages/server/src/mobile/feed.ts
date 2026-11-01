@@ -1,4 +1,4 @@
-import { AGENT_KINDS, addDays, clampText, isRemoteControlUrl, localDate, PRIMARY_ACCOUNT_ID, type LiveSessionDto, type MobileAccount, type MobileAgent, type MobileCaps, type MobileDoneItem, type MobileFeed, type MobileLiveItem, type MobileProject, type MobileReturnItem, type MobileUsage, type UsageDto } from '@agent-hangar/shared';
+import { AGENT_KINDS, addDays, clampText, isRemoteControlUrl, localDate, PRIMARY_ACCOUNT_ID, type LiveSessionDto, type MobileAccount, type MobileApproval, type MobileAgent, type MobileCaps, type MobileDoneItem, type MobileFeed, type MobileLiveItem, type MobileProject, type MobileReturnItem, type MobileUsage, type UsageDto } from '@agent-hangar/shared';
 import type { AgentKind } from '../agent/types.ts';
 import { waitingOf } from '../agent/waiting.ts';
 import type { Account } from '../config/accounts.ts';
@@ -23,6 +23,8 @@ export type FeedSources = {
   opencodeEnabled?: boolean;
   /** 設定の「Codex を有効にする」。真のときだけ caps.agents に codex を載せる。省略は切。 */
   codexEnabled?: boolean;
+  /** 利用者の答えを待っている削除の依頼（sessions/deleteApprovals.ts）。無ければ載せない。 */
+  approvals?: MobileApproval[];
 };
 
 type SessionRow = {
@@ -204,5 +206,5 @@ export function buildMobileFeed(src: FeedSources): MobileFeed {
     return { id: a.id, name: a.name, color: a.color, fiveHour: u?.fiveHour?.usedPercent ?? null, sevenDay: u?.sevenDay?.usedPercent ?? null };
   });
 
-  return { v: 1, deviceId, deviceName: src.deviceName, caps: feedCaps(src.opencodeEnabled === true, src.codexEnabled === true), accounts, projects, live: liveItems, returns, done };
+  return { v: 1, deviceId, deviceName: src.deviceName, caps: feedCaps(src.opencodeEnabled === true, src.codexEnabled === true), accounts, projects, live: liveItems, returns, done, ...(src.approvals && src.approvals.length > 0 ? { approvals: src.approvals } : {}) };
 }

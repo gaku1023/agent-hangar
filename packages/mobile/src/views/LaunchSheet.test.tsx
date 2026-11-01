@@ -42,7 +42,7 @@ const row = (over: Partial<Row> = {}): Row => ({
   ...over,
 });
 
-const viewOf = (running: Row[]): InboxView => ({ waiting: [], running, returning: [], doneToday: [], devices: [], unreadable: [], feeds: [], skewMs: 0, agentIcons: false });
+const viewOf = (running: Row[]): InboxView => ({ approvals: [], waiting: [], running, returning: [], doneToday: [], devices: [], unreadable: [], feeds: [], skewMs: 0, agentIcons: false });
 
 type Over = Partial<{ spec: LaunchSpec; state: RunState; view: InboxView | null; open: boolean }>;
 function setup(o: Over = {}) {

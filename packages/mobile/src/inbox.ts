@@ -1,6 +1,6 @@
 import type { LiveStatus } from '@agent-hangar/shared/src/api.ts';
 import { agentIconsShown } from '@agent-hangar/shared/src/agentIcons.ts';
-import { PEER_STALE_MS, type MobileFeed, type MobileInboxResponse, type MobileUsage, type MobileWaiting } from '@agent-hangar/shared/src/mobile.ts';
+import { PEER_STALE_MS, type MobileApproval, type MobileFeed, type MobileInboxResponse, type MobileUsage, type MobileWaiting } from '@agent-hangar/shared/src/mobile.ts';
 import { aadFeed, open } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { fetchInbox, type InboxFetched } from './api.ts';
 import { newestEpoch, type Keyring, type Pairing } from './store.ts';
@@ -36,6 +36,25 @@ export type Row = {
   usage: MobileUsage | null;
 };
 
+export type ApprovalRow = MobileApproval & { deviceId: string; alive: boolean };
+
+/** PC から来た値も信じない。形の合う依頼だけを行にする。 */
+export function approvalRowsOf(v: unknown, deviceId: string, alive: boolean): ApprovalRow[] {
+  if (!Array.isArray(v)) return [];
+  const out: ApprovalRow[] = [];
+  for (const a of v as Record<string, unknown>[]) {
+    if (!a || typeof a !== 'object' || typeof a.id !== 'string' || !a.id || typeof a.sessionId !== 'string' || typeof a.title !== 'string') continue;
+    out.push({
+      id: a.id, sessionId: a.sessionId, title: a.title, deviceId, alive,
+      project: typeof a.project === 'string' ? a.project : null,
+      turns: typeof a.turns === 'number' && Number.isFinite(a.turns) ? a.turns : 0,
+      from: typeof a.from === 'string' ? a.from : null,
+      failure: a.failure === 'running' || a.failure === 'trash' ? a.failure : null,
+    });
+  }
+  return out;
+}
+
 export type DeviceAlive = { id: string; name: string; lastSeenAt: number | null; alive: boolean };
 
 export type InboxView = {
@@ -48,6 +67,8 @@ export type InboxView = {
   unreadable: string[];
   /** 開けた feed そのもの（新しい会話の画面が、PC ごとのプロジェクトとアカウントを読む）。 */
   feeds: MobileFeed[];
+  /** 利用者の答えを待っている削除の依頼（#547）。deviceId は依頼を受けた PC で、alive はその PC が見えているか。 */
+  approvals: ApprovalRow[];
   /** Worker の時刻からスマホの時刻を引いた差（ms）。待った時間や何分前は、スマホの時刻にこれを足して測る。 */
   skewMs: number;
   /** 受信箱の応答の見出しから読んだ Worker の版。分からなければ null（古いとはみなさない）。 */
@@ -140,6 +161,7 @@ export async function openInbox(res: MobileInboxResponse & { workerCompat?: numb
 
   const unreadable: string[] = [];
   const feeds: MobileFeed[] = [];
+  const approvals: ApprovalRow[] = [];
   const feedNames = new Map<string, string>();
   const candidates = new Map<string, Candidate>();
   const offer = (c: Candidate): void => {
@@ -166,6 +188,7 @@ export async function openInbox(res: MobileInboxResponse & { workerCompat?: numb
     const deviceName = str(feed.deviceName).trim() || device?.name || shortPcName(f.deviceId);
     feedNames.set(f.deviceId, deviceName);
     const alive = device?.alive ?? false;
+    approvals.push(...approvalRowsOf(feed.approvals, f.deviceId, alive));
     const accounts = new Map(arr(feed.accounts).map((a) => [a.id, a]));
     const base = (s: { sessionId: string; projectName: string; title: string; agent?: unknown }, accountId: string | null): Omit<Row, 'status' | 'at' | 'startedAt' | 'waiting' | 'intent' | 'oneLiner' | 'returnOn' | 'returnTime' | 'rcUrl' | 'usage'> => {
       const acc = accountId ? accounts.get(accountId) : undefined;
@@ -237,7 +260,7 @@ export async function openInbox(res: MobileInboxResponse & { workerCompat?: numb
     codexEnabled: feeds.some((f) => Array.isArray(f.caps?.agents) && f.caps.agents.includes('codex')),
     hasCodex: rows.some((r) => r.agent === 'codex'),
   });
-  return { waiting, running, returning, doneToday, devices, unreadable, feeds, skewMs, workerCompat: res.workerCompat ?? null, agentIcons };
+  return { waiting, running, returning, doneToday, devices, unreadable, feeds, approvals, skewMs, workerCompat: res.workerCompat ?? null, agentIcons };
 }
 
 /** 受信箱の素のうち、いちばん新しい世代。素が無ければ 0。 */

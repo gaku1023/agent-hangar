@@ -159,6 +159,19 @@ details.p-more summary { font-size: 12.5px; color: var(--accent); cursor: pointe
 .reconnect { display: flex; flex-direction: column; gap: 10px; padding: 18px; }
 .reconnect-h { margin: 0; font-size: 16px; font-weight: 700; }
 .reconnect-t { margin: 0; font-size: 13px; color: var(--ink-2); line-height: 1.6; }
+/* MCP の削除の依頼（#547）。受信箱の一番上に、入力待ちとは分けて置く。 */
+.approvals { margin-bottom: 12px; }
+.approval { margin-bottom: 8px; }
+.approval-q { margin: 0; font-weight: 700; font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+.approval-f { margin: 2px 0 0; font-size: 12.5px; color: var(--ink-2); overflow-wrap: anywhere; }
+.approval-note { margin: 8px 0 0; font-size: 12.5px; color: var(--ink-2); }
+.approval-note.fail { color: var(--error); }
+.approval-spin { display: inline-block; width: 11px; height: 11px; margin-right: 6px; border-radius: 50%; border: 2px solid var(--line-strong); border-top-color: var(--ink-2); vertical-align: -2px; animation: approval-spin var(--spin-period) linear infinite; }
+@keyframes approval-spin { to { transform: rotate(360deg); } }
+.approval-acts { display: flex; gap: 8px; margin-top: 10px; }
+.approval-btn { flex: 1; min-height: 44px; padding: 10px 14px; border: 0; border-radius: 12px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line-strong); font-weight: 600; cursor: pointer; }
+.approval-btn.danger { background: var(--error); color: #fff; box-shadow: none; font-weight: 700; }
+.approval-btn:disabled { opacity: 0.45; cursor: default; }
 .btn-primary { border: 0; border-radius: 12px; min-height: 44px; padding: 10px 14px; background: var(--accent); color: var(--accent-ink); font-weight: 700; cursor: pointer; }
 
 .empty { margin: 0 0 8px; padding: 22px 16px; border-radius: 16px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--card-line); color: var(--ink-2); text-align: center; }

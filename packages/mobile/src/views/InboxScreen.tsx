@@ -8,6 +8,7 @@ import { usePresence } from '../presence.ts';
 import { clearPairing, type Keyring, type Pairing } from '../store.ts';
 import { AccountTag } from './AccountTag.tsx';
 import { AgentIcon } from './AgentIcon.tsx';
+import { ApprovalList } from './ApprovalList.tsx';
 import { Fold } from './Fold.tsx';
 
 /** /rc の URL が拾えなかったとき、または PC から来た値が claude.ai でないときに開く先。 */
@@ -264,6 +265,7 @@ export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onN
                 {view.unreadable.join('、')} の一覧を開けません。その PC の hangar が古いか、キーが合っていません。
               </p>
             )}
+            <ApprovalList rows={view.approvals} pairing={pairing} keys={keysRef.current} onAnswered={() => void load()} />
             <WaitingList rows={view.waiting} now={pcNow} target={target} icons={view.agentIcons} />
             <Sections view={view} now={pcNow} today={localDay(today)} target={target} />
           </>

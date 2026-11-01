@@ -94,6 +94,19 @@ a:hover { text-decoration: underline; }
    今の値では 44 + 6 + 28 + 8 = 86px になる。
    scroll-padding-top も同じ値にし、キーボードで届いた先が帯とヘッダの下に隠れないようにする。 */
 .shell:has(.banners > :nth-child(1)) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); }
+/* MCP の削除の依頼（#547）。本文の真上に置き、本文をスクロールしても見える所に留まる（top の 0 は .main の padding-top の下端から数える）。
+   セッション画面（.main が縦の flex）では、この高さの分だけ端末が縮み、入力の行は窓の中に残る。
+   依頼が多いときは帯の中でスクロールする（端末を押し潰さない）。 */
+.del-approvals { flex: none; position: sticky; top: 0; z-index: 1; display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); box-sizing: border-box; width: 100%; max-width: var(--main-w); max-height: 40vh; overflow-y: auto; margin: 0 auto; padding: calc(var(--u) * 2) calc(var(--u) * 4) 0 var(--gutter-l); }
+.shell[data-wide] .del-approvals { max-width: none; }
+.del-approval { flex: none; display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--glass-bg-toast); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); overflow: hidden; }
+.del-approval-text { flex: 1; min-width: 0; }
+.del-approval-q { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.del-approval-f { font-size: var(--fs-sm); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.del-approval-note { font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; }
+.del-approval[data-failed] .del-approval-note { color: var(--error); }
+.del-approval-spin { display: inline-block; width: 11px; height: 11px; margin-right: var(--u); border-radius: 50%; border: 2px solid var(--line-strong); border-top-color: var(--ink-2); vertical-align: -2px; animation: del-approval-spin var(--dur-spin) linear infinite; }
+@keyframes del-approval-spin { to { transform: rotate(360deg); } }
 .main-inner { max-width: var(--main-w); margin: 0 auto; padding: calc(var(--u) * 2) calc(var(--u) * 4) calc(var(--u) * 4) var(--gutter-l); }
 /* 現れるものは、ぼかしが晴れながら --rise だけ上がって来る。
    ぼかしは 20% の時点で none にして晴らし切り、残りは薄れと移動だけで入る。

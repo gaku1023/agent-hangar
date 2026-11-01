@@ -142,6 +142,8 @@ export type UiAction =
   | { type: 'session.move'; id: SessionId; projectId: ProjectId }
   // セッションを消す。本文を OS のゴミ箱へ移し、同期しているほかの PC からも消す。実行中は断られる。画面の正は後から届く session.removed である。
   | { type: 'session.delete'; id: SessionId }
+  // MCP の削除の依頼への答え（#547）。approve は承認、reject は残す、dismiss は消せなかった行を閉じる。
+  | { type: 'deleteApproval.answer'; id: string; answer: 'approve' | 'reject' | 'dismiss' }
   // 移す先を選ぶダイアログと、削除の確認を開く（セッションのメニューの「プロジェクトを変更…」と「削除…」）。決めたら session.move と session.delete を送る。
   | { type: 'session.move.open'; id: SessionId } | { type: 'session.delete.open'; id: SessionId }
   // 提案の確定と却下。確定で日を変えたときだけ returnOn を添える。returnTime はその日の時刻（HH:MM）で、returnOn と一緒のときだけ効く。

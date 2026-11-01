@@ -99,7 +99,7 @@ describe('表にある UiAction', () => {
   it('同期の応答と bootstrap の同期の状態は Store に直に当て、サーバのイベントに見せかけて transition へ流さない', async () => {
     const sync = { state: 'idle', pending: 4, skipped: [] } as unknown as NonNullable<ReturnType<ReturnType<typeof createRuntime>['getStore']>['sync']>;
     const devices = [{ id: 'd2', name: 'mini', platform: 'darwin', lastSeenAt: 3, self: false, shell: null }];
-    const boot = { version: 'v', device: { id: 'd', name: 'mac' }, settings: null, projects: [], sessions: [{ id: 's1' }], live: [], runs: [], tabs: [], index: { phase: 'idle', done: 0, total: 0 }, todos: [], artifacts: [], summaryPending: [], sync, devices, retention: null, cloudUsage: null, accounts: null } as unknown as BootstrapDto;
+    const boot = { version: 'v', device: { id: 'd', name: 'mac' }, settings: null, projects: [], sessions: [{ id: 's1' }], live: [], runs: [], tabs: [], index: { phase: 'idle', done: 0, total: 0 }, todos: [], artifacts: [], summaryPending: [], deleteApprovals: [], sync, devices, retention: null, cloudUsage: null, accounts: null } as unknown as BootstrapDto;
     const paused = { ...sync, state: 'paused' };
     const { rt } = harness({ bootstrap: vi.fn(async () => boot), syncNow: vi.fn(async () => sync), syncPause: vi.fn(async () => paused) } as Partial<ApiClient>);
     vi.mocked(mediator.transition).mockClear();

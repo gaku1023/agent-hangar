@@ -15,11 +15,11 @@ import { markSeen, onUnread } from '../live/unread.ts';
 import { getSession } from '../db/queries.ts';
 import { addTodo } from '../projects/todos.ts';
 import { assignSessions } from '../projects/registry.ts';
-import { rejectSessionState } from '../sessions/states.ts';
+import { listDeleteApprovals, rejectDeleteApproval } from '../sessions/deleteApprovals.ts';
+import { rejectSessionState, setSessionState } from '../sessions/states.ts';
 import { noteWake } from '../sessions/wake.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { msg } from '../i18n/message.ts';
-import { DeleteError } from '../sessions/trash.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { callTool, ToolError, TOOL_NAMES, type ToolDeps } from './tools.ts';
@@ -507,10 +507,9 @@ describe('MCP tools', () => {
     const trashed: string[] = [];
     const run = (deviceId: string, id = 'rLive') => ({ id, sessionId: alphaId, deviceId, kind: 'start' as const, tmuxName: 'hangar-x', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 });
     let alive: ReturnType<typeof run> | null;
-    let trashError: Error | null;
-    const asAgent = (provider: string) => db.prepare('update sessions set provider = ? where id = ?').run(provider, alphaId);
+        const asAgent = (provider: string) => db.prepare('update sessions set provider = ? where id = ?').run(provider, alphaId);
     beforeEach(() => {
-      killed.length = 0; resumed.length = 0; trashed.length = 0; alive = null; trashError = null;
+      killed.length = 0; resumed.length = 0; trashed.length = 0; alive = null;
       deps = {
         ...deps,
         runs: {
@@ -519,7 +518,7 @@ describe('MCP tools', () => {
           kill: (id) => { killed.push(id); },
           resumeWith: (id, o) => { resumed.push({ id, ...(o?.account !== undefined ? { account: o.account } : {}) }); return { run: { ...run('d', 'rRes'), sessionId: id, kind: 'resume', tmuxName: 'hangar-rRes' }, sessionId: id, tabs: [] }; },
         },
-        trash: { deleteSession: async (id) => { if (trashError) throw trashError; trashed.push(id); } },
+        trash: { deleteSession: async (id) => { trashed.push(id); } },
       };
     });
 
@@ -611,22 +610,60 @@ describe('MCP tools', () => {
       });
     });
 
-    it('delete_session は confirmed が true でなければ、題名を添えて断り、消さない', async () => {
-      await expect(Promise.resolve().then(() => call('delete_session', { session_id: alphaId }))).rejects.toThrow(/confirmed/);
-      await expect(Promise.resolve().then(() => call('delete_session', { session_id: alphaId, confirmed: false }))).rejects.toThrow(ToolError);
+    // 消す相手は動いていない会話でなければならない。alpha はこのファイルの live に載っているので外す。
+    const stopAlpha = () => { deps = { ...deps, live: () => [] }; };
+    it.each([{}, { confirmed: true }, { confirmed: false }])('delete_session は %j でも消さず、承認待ちで即座に返す', async (extra) => {
+      stopAlpha();
+      const r = call('delete_session', { session_id: alphaId, ...extra }) as { status: string; session_id: string; note: string };
+      expect(r).toMatchObject({ status: 'pending_approval', session_id: alphaId });
+      expect(r.note).toMatch(/待たずに/);
       expect(trashed).toEqual([]);
+      expect(listDeleteApprovals(db).map((a) => a.sessionId)).toEqual([alphaId]);
     });
-    it.each(['claude-code', 'codex', 'opencode'])('delete_session は %s の会話を、承認つきで消す', async (agent) => {
+    it.each(['claude-code', 'codex', 'opencode'])('delete_session は %s の会話も承認待ちにする', (agent) => {
+      stopAlpha();
       asAgent(agent);
-      expect(await call('delete_session', { session_id: alphaId, confirmed: true })).toEqual({ ok: true, session_id: alphaId });
-      expect(trashed).toEqual([alphaId]);
-    });
-    it('delete_session は自分自身と知らない会話を断り、trash の断り（動いている会話）はそのまま返す', async () => {
-      expect(() => call('delete_session', { session_id: alphaId, confirmed: true }, { sessionId: alphaId })).toThrow(/自分自身/);
-      expect(() => call('delete_session', { session_id: 'nope', confirmed: true })).toThrow(ToolError);
-      trashError = new DeleteError(409, msg('session.delete.running'));
-      await expect(call('delete_session', { session_id: alphaId, confirmed: true })).rejects.toThrow(/実行中のセッションは削除できません/);
+      expect(call('delete_session', { session_id: alphaId })).toMatchObject({ status: 'pending_approval' });
       expect(trashed).toEqual([]);
+    });
+    it('承認すると hangar が消す。断ると消さず、再度の依頼には断られたと返す', async () => {
+      stopAlpha();
+      call('delete_session', { session_id: alphaId });
+      const id = listDeleteApprovals(db)[0]!.id;
+      rejectDeleteApproval(db, id, Date.now());
+      expect(trashed).toEqual([]);
+      const again = call('delete_session', { session_id: alphaId }) as { status: string; note: string };
+      expect(again.status).toBe('rejected');
+      expect(again.note).toMatch(/依頼しないで/);
+      expect(listDeleteApprovals(db)).toEqual([]);
+    });
+    it('delete_session は自分自身、知らない会話、動いている会話を断る', () => {
+      expect(() => call('delete_session', { session_id: alphaId }, { sessionId: alphaId })).toThrow(/自分自身/);
+      expect(() => call('delete_session', { session_id: 'nope' })).toThrow(ToolError);
+      expect(() => call('delete_session', { session_id: alphaId })).toThrow(/実行中のセッションは削除できません/);
+      expect(listDeleteApprovals(db)).toEqual([]);
+    });
+    it('承認待ちができたら 1 回だけ、依頼元の会話の知らせにする。場面は ask で、静かにした会話でも黙らせない', () => {
+      stopAlpha();
+      const heard: { id: string; text: string; sent: string[] }[] = [];
+      const off = onUnread((id, text, _n, s) => { heard.push({ id, text, sent: s }); });
+      const other = (db.prepare('select id from sessions where id != ? limit 1').get(alphaId) as { id: string }).id;
+      setSessionState(db, 'd', other, { status: 'done', note: 'n', setBy: 'user', now: 1 });
+      call('delete_session', { session_id: alphaId }, { sessionId: other });
+      call('delete_session', { session_id: alphaId }, { sessionId: other });
+      off();
+      expect(heard).toHaveLength(1);
+      expect(heard[0]!.id).toBe(other);
+      expect(heard[0]!.text).toMatch(/削除確認を受信しました/);
+      expect(heard[0]!.sent).toEqual(['unread', 'os', 'phone']);
+    });
+    it('共通の URL では依頼元が無いので、未読は増やさず OS とスマホにだけ知らせる', () => {
+      stopAlpha();
+      const heard: { id: string; sent: string[] }[] = [];
+      const off = onUnread((id, _t, _n, s) => { heard.push({ id, sent: s }); });
+      call('delete_session', { session_id: alphaId });
+      off();
+      expect(heard).toEqual([{ id: alphaId, sent: ['os', 'phone'] }]);
     });
     it('3 つとも、道具の口が無ければ知らない道具として断る', () => {
       deps = { ...deps, runs: { start: deps.runs.start } };

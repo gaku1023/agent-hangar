@@ -1,3 +1,4 @@
+import type { DeleteApprovalDto } from '@agent-hangar/shared';
 import { liveFilterOf, liveWithLimit, quietLive, stopReasonOf, type LiveFilter, type PermissionAskDto, type StopReason } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
 import { sameValue } from '../lib/same.ts';
@@ -80,6 +81,8 @@ export type Store = {
   /** 手で足した URL が断られたときの理由と、入れた URL。次の追加を始めるか、成功したら消える。bootstrap は運ばない。 */
   artifactAddError: { projectId: string; url: string; message: string } | null;
   summaryPending: Record<string, true>;
+  /** MCP の削除の依頼のうち、利用者の答えを待っているもの。 */
+  deleteApprovals: DeleteApprovalDto[];
   /** 事後要約に失敗したセッションと、その理由。次に作り始めるか、作れたら消える。bootstrap は運ばないので、取り直しても残す。 */
   summaryFailed: Record<string, string>;
   // 設定画面に入ったときだけ読む値。
@@ -179,7 +182,7 @@ export function initialStore(): Store {
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     todos: {}, memos: {}, instructions: {}, artifacts: {}, artifactAddError: null, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
-    cloudUsage: null, sync: null, devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
+    cloudUsage: null, sync: null, deleteApprovals: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
     readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, launchPreps: {}, opencodeProviders: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null, sharePreview: {},
     update: initialUpdate(),
@@ -198,7 +201,7 @@ const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object
  * 差し替えると、終了した run のスクロールバックを見ている最中に画面が変わってしまう。
  */
 export function applyBootstrap(store: Store, b: BootstrapDto): Store {
-  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home, interrupted: b.interrupted };
+  return { ...store, bootstrapped: true, deleteApprovals: b.deleteApprovals, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home, interrupted: b.interrupted };
 }
 
 /** 鍵を 1 つ外す。無ければ同じ物を返す。 */
@@ -287,6 +290,7 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
       const cloudMember = reduceCloudMember(store.cloudMember, { type: 'add.state', state: ev.join });
       return cloudMember === store.cloudMember ? store : { ...store, cloudMember };
     }
+    case 'deleteApprovals.update': return sameValue(store.deleteApprovals, ev.approvals) ? store : { ...store, deleteApprovals: ev.approvals };
     case 'devices.update': return sameValue(store.devices, ev.devices) ? store : { ...store, devices: ev.devices };
     case 'retention.changed': return sameValue(store.retention, ev.retention) ? store : { ...store, retention: ev.retention };
     case 'interrupted.update': return sameValue(store.interrupted, ev.interrupted) ? store : { ...store, interrupted: ev.interrupted };
