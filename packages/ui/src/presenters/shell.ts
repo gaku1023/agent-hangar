@@ -180,6 +180,7 @@ type NavDef = { route: Route; label: string; matches: string[] };
 const navDefs = (t: Translate): NavDef[] => [
   { route: { name: 'home' }, label: t('sidebar.nav.home'), matches: ['home', 'booting'] },
   { route: { name: 'projects' }, label: t('sidebar.nav.projects'), matches: ['projects', 'project'] },
+  { route: { name: 'schedules' }, label: t('sidebar.nav.schedules'), matches: ['schedules'] },
 ];
 /** 下端の組。設定だけを置く。 */
 const footDefs = (t: Translate): NavDef[] => [

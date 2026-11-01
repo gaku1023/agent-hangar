@@ -21,5 +21,6 @@ export const sidebarJa: AreaDictionary<typeof sidebarKeys> = {
   'sidebar.nav.label': 'メインナビゲーション',
   'sidebar.nav.home': 'ホーム',
   'sidebar.nav.projects': 'プロジェクト',
+  'sidebar.nav.schedules': '予定',
   'sidebar.nav.settings': '設定',
 };

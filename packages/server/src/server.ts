@@ -1,3 +1,6 @@
+import type { ToolDeps } from './mcp/tools.ts';
+import { launchScheduled, waitScheduled } from './schedule/launch.ts';
+import { ScheduleRunner } from './schedule/runner.ts';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CLOSE_DEADLINE_MS, STOP_WATCHDOG_MS } from './boot/budget.ts';
@@ -141,7 +144,14 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const localCodex = new LocalCodex({ bin: () => findCodex() });
   const codex = { local: localCodex, options: new CodexOptionsService({ bin: () => findCodex(), status: localCodex.status }) };
   const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, trash: trash.trash });
-  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, opts, serverDir });
+  // 定期の実行（#549）。予定はこの PC のものだけを流す。起こし方と待ち方は MCP の道具と同じ本体を通す。
+  const scheduleTools: ToolDeps = { db: home.db, deviceId: home.device.id, port: listening.port, live: () => delivery.live.current(), runs: runs.runs, language: home.language, usage: () => runs.usage.current() };
+  const schedules = new ScheduleRunner({
+    db: home.db, deviceId: home.device.id, now: () => Date.now(),
+    launch: (s) => launchScheduled(scheduleTools, s),
+    wait: (id) => waitScheduled(scheduleTools, id),
+  });
+  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, schedules, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。
   delivery.live.start();
@@ -171,6 +181,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   mobile.start();
   // 削除の印の処理（sessions/trash.ts）。索引と紐づけが済んでから回す。起きていなかった間に届いた印も、ここで処理する。
   trash.start();
+  // 閉じていた間の回は、ここで最新の 1 回だけ流す。索引と紐づけが済んでから回す。
+  schedules.start();
 
   // 起動の手続き（最初の索引づけと紐づけ）が済んだ。.app はここまで起動画面に残る。
   console.log(`agent-hangar ready in ${((performance.now() - bootAt) / 1000).toFixed(1)}s (index ${indexing.indexer.progress().total} files)`);
@@ -191,6 +203,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       sync.stopTimers();
       takeover.stop();
       mobile.stop();
+      schedules.stop();
       // 本文をゴミ箱へ移している最中の回は、DB を閉じる前に待ち切る。
       await trash.stop();
       // 起こした opencode の serve を止める（interrupt、SIGTERM、間をおいて SIGKILL）。

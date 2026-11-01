@@ -1,3 +1,4 @@
+import type { ScheduleDto } from './schedule.ts';
 import type { TakeoverDto, DeleteApprovalDto, AccountsDto, ArtifactDto, CloudUsageDto, ConfigSyncDto, DeviceDto, IndexProgressDto, InterruptedDto, JoinApproverState, JoinRequestView, LiveSessionDto, MemoDto, PhoneLaunchDto, ProjectDto, RetentionDto, RunDto, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
 
 export type ServerEvent =
@@ -31,6 +32,7 @@ export type ServerEvent =
   | { type: 'sync.usage'; usage: CloudUsageDto }
   | { type: 'devices.update'; devices: DeviceDto[] }
   | { type: 'deleteApprovals.update'; approvals: DeleteApprovalDto[] }
+  | { type: 'schedules.update'; schedules: ScheduleDto[] }
   /** 設定の同期（作り直した実装）の状態。届いた変更、競合、送らなかった項目、適用の指示書が動いたときに配る。 */
   | { type: 'config.update'; configSync: ConfigSyncDto }
   | { type: 'retention.changed'; retention: RetentionDto }

@@ -1,3 +1,4 @@
+import { SCHEDULE_MIN_EVERY_MINUTES } from '@agent-hangar/shared';
 import { AGENT_KINDS } from '@agent-hangar/shared';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
@@ -76,6 +77,15 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   reg('send_to_session', D(tr('mcp.tool.sendToSession')), { session_id: z.string(), text: z.string().describe(tr('mcp.sendToSession.textParam', { max: MAX_SEND_CHARS })), submit: z.boolean().optional().describe(tr('mcp.sendToSession.submitParam')) });
   reg('read_session_screen', D(tr('mcp.tool.readSessionScreen')), { session_id: z.string().optional(), lines: z.number().int().positive().optional().describe(tr('mcp.screen.linesParam', { max: MAX_SCREEN_LINES })) });
   reg('wait_for_session', D(tr('mcp.tool.waitForSession')), { session_id: z.string(), timeout_seconds: z.number().min(0).optional().describe(tr('mcp.wait.timeoutParam', { default: DEFAULT_WAIT_SECONDS, max: MAX_WAIT_SECONDS })) });
+  const scheduleArgs = {
+    kind: z.enum(['once', 'weekly', 'every']).describe(tr('mcp.schedule.kindParam')), at: z.string().optional().describe(tr('mcp.schedule.atParam')),
+    days: z.array(z.number().int()).optional().describe(tr('mcp.schedule.daysParam')), time: z.string().optional().describe(tr('mcp.schedule.timeParam')),
+    every_minutes: z.number().int().optional().describe(tr('mcp.schedule.everyParam', { min: SCHEDULE_MIN_EVERY_MINUTES })), prompt: z.string(),
+    project_id: z.string().optional(), session_id: z.string().optional().describe(tr('mcp.schedule.sessionParam')), agent: z.string().optional(),
+  };
+  reg('list_schedules', D(tr('mcp.tool.listSchedules')), { project_id: z.string().optional() });
+  reg('create_schedule', D(tr('mcp.tool.createSchedule')), scheduleArgs);
+  reg('update_schedule', D(tr('mcp.tool.updateSchedule')), { schedule_id: z.string(), enabled: z.boolean().optional().describe(tr('mcp.schedule.enabledParam')), ...scheduleArgs, kind: scheduleArgs.kind.optional(), prompt: z.string().optional() });
   // 節は種類ごとに必須が違うので、ここでは全部を任意にし、検査は report/compose.ts に任せる。断りの文で足りない節を名指しできる。
   const section = z.string().optional();
   reg('draft_issue_report', D(tr('report.tool.draft')), {

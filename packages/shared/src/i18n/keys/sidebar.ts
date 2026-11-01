@@ -20,5 +20,6 @@ export const sidebarKeys = {
   'sidebar.nav.label': [],
   'sidebar.nav.home': [],
   'sidebar.nav.projects': [],
+  'sidebar.nav.schedules': [],
   'sidebar.nav.settings': [],
 } as const satisfies MessageSpec;

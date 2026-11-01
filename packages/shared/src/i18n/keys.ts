@@ -22,6 +22,7 @@ import { launchKeys } from './keys/launch.ts';
 import { launchPrepKeys } from './keys/launchPrep.ts';
 import { listKeys } from './keys/list.ts';
 import { mcpKeys } from './keys/mcp.ts';
+import { schedulesKeys } from './keys/schedules.ts';
 import { reportKeys } from './keys/report.ts';
 import { newProjectKeys } from './keys/newProject.ts';
 import { newSessionKeys } from './keys/newSession.ts';
@@ -107,6 +108,7 @@ export const MESSAGES = {
   ...launchPrepKeys,
   ...listKeys,
   ...mcpKeys,
+  ...schedulesKeys,
   ...reportKeys,
   ...newProjectKeys,
   ...newSessionKeys,

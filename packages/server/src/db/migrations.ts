@@ -700,6 +700,38 @@ create table delete_approvals (
 );
 `;
 
+/**
+ * 版 45。定期の実行の予定と履歴（#549）。手元だけの表で、同期には載らない。
+ */
+const V45_SCHEDULES_SQL = `
+create table schedules (
+  id text primary key,
+  device_id text not null,
+  project_id text,
+  prompt text not null,
+  spec text not null,
+  target text not null,
+  enabled integer not null,
+  next_at integer,
+  anchor_at integer not null,
+  from_session_id text,
+  created_at integer not null,
+  updated_at integer not null
+);
+create index schedules_due on schedules(device_id, enabled, next_at);
+create table schedule_runs (
+  id text primary key,
+  schedule_id text not null,
+  planned_at integer not null,
+  started_at integer not null,
+  ended_at integer,
+  result text not null,
+  session_id text,
+  error text
+);
+create index schedule_runs_of on schedule_runs(schedule_id, started_at);
+`;
+
 const V39_SESSION_UNREAD_SQL = `
 create table session_unread (
   session_id text primary key,
@@ -753,4 +785,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 42, sql: V42_SESSION_ALIASES_SQL },
   { version: 43, sql: V43_SESSION_PINNED_SQL },
   { version: 44, sql: V44_DELETE_APPROVALS_SQL },
+  { version: 45, sql: V45_SCHEDULES_SQL },
 ];

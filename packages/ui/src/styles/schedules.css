@@ -1,0 +1,46 @@
+/* 予定の画面（#549）。1 列の行で、押すとその場で開く。 */
+.sch-list { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--surface-shadow); overflow: hidden; }
+.sch-row { border-bottom: 1px solid var(--line); overflow: hidden; }
+.sch-row:last-child { border-bottom: 0; }
+.sch-row[data-gone='true'] { pointer-events: none; }
+.sch-grow { overflow: hidden; }
+.sch-head { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 120px) minmax(0, 112px) 76px; align-items: center; gap: calc(var(--u) * 3); min-height: 52px; padding: calc(var(--u) * 1.5) calc(var(--u) * 3.5); cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.sch-head:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
+.sch-row[data-open='true'] .sch-head { background: var(--accent-soft); }
+.sch-title { min-width: 0; padding: 0; border: 0; background: none; font: inherit; font-weight: 500; color: var(--ink); text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sch-when { font-size: var(--fs-sm); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sch-next { font-size: var(--fs-sm); text-align: right; white-space: nowrap; }
+.sch-row[data-off='true'] :is(.sch-title, .sch-when, .sch-next) { opacity: 0.45; }
+.sch-dots { display: flex; justify-content: flex-end; align-items: center; gap: var(--u); }
+.sch-dot { flex: none; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--st-done); }
+.sch-dot[data-result='failed'] { background: var(--error); }
+.sch-dot[data-result='waiting'] { background: var(--waiting); }
+.sch-dot[data-result='skipped'] { background: none; box-shadow: inset 0 0 0 1.5px var(--ink-3); }
+.sch-dot[data-result='running'] { background: var(--busy); animation: sch-breathe var(--breathe-period) ease-in-out infinite; }
+@keyframes sch-breathe { 50% { opacity: 0.35; transform: scale(0.8); } }
+.sch-detail { display: grid; gap: calc(var(--u) * 3.5); padding: calc(var(--u) * 3) calc(var(--u) * 3.5) calc(var(--u) * 3.5) 64px; }
+.sch-full { padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--surface-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.sch-runs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 2px calc(var(--u) * 3); align-items: center; font-size: var(--fs-sm); }
+.sch-run { display: contents; }
+.sch-run-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.sch-run-name { color: var(--accent); text-decoration: none; }
+a.sch-run-name:hover { text-decoration: underline; }
+.sch-acts { display: flex; align-items: center; gap: calc(var(--u) * 1.5); }
+.sch-form { display: grid; justify-items: start; gap: calc(var(--u) * 2.5); padding: calc(var(--u) * 3.5); border-bottom: 1px solid var(--line); }
+.sch-row .sch-form { border-bottom: 0; }
+.sch-prompt { justify-self: stretch; height: 64px; padding: calc(var(--u) * 1.5) calc(var(--u) * 2); resize: vertical; font: inherit; }
+.sch-line { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); animation: sch-fade var(--dur-fast) var(--ease-out); }
+@keyframes sch-fade { from { opacity: 0; } }
+.sch-days { display: inline-flex; gap: 3px; }
+.sch-day { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: var(--surface-2); color: var(--ink-2); font: inherit; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.sch-day[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); }
+.sch-day:active { transform: scale(0.9); }
+.sch-minutes { width: 72px; }
+.sch-session { max-width: 420px; }
+.sch-foot { justify-self: end; display: flex; gap: calc(var(--u) * 1.5); }
+@media (max-width: 720px) {
+  .sch-head { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .sch-when, .sch-next { display: none; }
+  .sch-detail { padding-left: calc(var(--u) * 3.5); }
+}
+.sch-acts .btn-danger { color: var(--error); }

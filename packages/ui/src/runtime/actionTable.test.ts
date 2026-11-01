@@ -48,7 +48,7 @@ describe('表の鍵', () => {
       'artifact.add', 'artifact.open', 'artifact.openEditor', 'codex.options', 'configSync.order.cancel', 'configSync.unsent.send', 'deleteApproval.answer', 'editor.test', 'editors.load', 'folder.inspect', 'git.changes.load', 'git.diff.load', 'git.edits.load', 'instructions.load', 'instructions.openEditor', 'launchPrep.cancel', 'memo.save',
       'opencode.options', 'opencode.providers.custom', 'opencode.providers.disconnect', 'opencode.providers.key', 'opencode.providers.load', 'opencode.providers.login', 'opencode.providers.login.cancel', 'opencode.providers.login.code', 'opencode.providers.login.poll', 'opencode.providers.model',
       'overlap.dismiss', 'project.git.load', 'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
-      'session.delete', 'session.move', 'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.state.reject', 'setupGuide.openEditor', 'share.preview', 'summarizer.test', 'summary.regenerate',
+      'schedule.create', 'schedule.delete', 'schedule.run', 'schedule.update', 'session.delete', 'session.move', 'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.state.reject', 'setupGuide.openEditor', 'share.preview', 'summarizer.test', 'summary.regenerate',
       'sync.now', 'sync.pause',
     ]);
   });

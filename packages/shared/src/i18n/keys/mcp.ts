@@ -1,6 +1,16 @@
 import type { MessageSpec } from '../messageSpec.ts';
 
 export const mcpKeys = {
+  'mcp.tool.listSchedules': [],
+  'mcp.tool.createSchedule': [],
+  'mcp.tool.updateSchedule': [],
+  'mcp.schedule.kindParam': [],
+  'mcp.schedule.atParam': [],
+  'mcp.schedule.daysParam': [],
+  'mcp.schedule.timeParam': [],
+  'mcp.schedule.everyParam': ['min'],
+  'mcp.schedule.sessionParam': [],
+  'mcp.schedule.enabledParam': [],
   'mcp.scope.sessionOnly': ['sessionId'],
   'mcp.scope.noProject': [],
   'mcp.scope.projectOnly': ['projectId'],
