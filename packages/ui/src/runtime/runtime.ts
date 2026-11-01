@@ -1,7 +1,7 @@
 import { codexEnabledOf, formatRoute, opencodeEnabledOf, parseRoute, permissionNoticeText, stopReasonOf, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ProjectPlace, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
-import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
+import { duplicateOpenAction, LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
 import { PAGE_SIZE_KEY, readPageSize } from '../mediator/paging.ts';
 import { NOTICES_READ_KEY, readNoticesRead } from '../mediator/notices.ts';
 import { CODEX_VERSION_SEEN_KEY, readCodexVersionSeen } from '../mediator/codexVersion.ts';
@@ -152,7 +152,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   /** 裏にある間に増えた未読は送っていないので、窓が前に出たら、開いているセッションの分を送り直す。 */
   const resendSeen = () => {
     const id = state.screen.name === 'session' ? state.screen.id : null;
-    if (id && (store.sessions[id]?.unread?.count ?? 0) > 0) deps.api.markSeen(id).catch(fail);
+    if (id && id !== state.unreadKept && (store.sessions[id]?.unread?.count ?? 0) > 0) deps.api.markSeen(id).catch(fail);
   };
   const present = deps.present ?? ((c: () => void) => c());
   // ストアが変わったら、そのことだけを Mediator へ知らせる。
@@ -823,6 +823,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.todo': todoCall(deps.api, e.call).catch(fail); return;
       // セッションの状態。画面の正は後から届く session.upsert なので、返り値はストアに入れない。失敗の一文はトーストに出す。
       case 'api.detachSpawn': deps.api.detachSpawn(e.id).catch(fail); return;
+      case 'api.setPinned': deps.api.setPinned(e.id, e.pinned).catch(fail); return;
+      case 'api.markUnread': deps.api.markUnread(e.id).catch(fail); return;
+      case 'api.loadDuplicate':
+        deps.api.launchSettings(e.id).then((settings) => { dispatch({ kind: 'action', action: duplicateOpenAction(store, e.id, settings) }); }).catch(fail);
+        return;
       case 'api.setSessionState': deps.api.setSessionState(e.id, e.body).catch(fail); return;
       case 'api.confirmSessionState': deps.api.confirmSessionState(e.id, e.body).catch(fail); return;
       case 'api.rejectSessionState': deps.api.rejectSessionState(e.id).catch(fail); return;

@@ -135,6 +135,8 @@ export type SessionDto = { id: string; provider: AgentKind; providerSessionId: s
    * 開くと 0 になり、そのとき null に戻る。Done・Paused・Archived でも、開くまで残す。この項目を知らない古いサーバは返さないので、読む側は null として読む。
    */
   unread: { count: number; latest: string | null; at: number } | null;
+  /** ピン留めした時刻（session_states.pinned_at、同期する）。留めていなければ null。 */
+  pinnedAt: number | null;
   /**
    * MCP の create_session で起こした会話の起動元のセッション id（この PC の手元の表 session_spawns）。
    * 引き継ぎ（handoff）で起こした会話と、画面や共通の URL から起こした会話は null。他の PC では null である。
@@ -233,6 +235,11 @@ export type RunKind = 'start' | 'resume' | 'fork';
 export type EndReason = 'exited' | 'killed' | 'lost' | 'parked' | 'taken_over';
 /** 「ターミナルで開く」で使う外部ターミナル。macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル（terminal.ts）。 */
 export type TerminalApp = 'terminal' | 'iterm' | 'windowsTerminal' | 'windowsDefault';
+/**
+ * `GET /api/sessions/:id/launch-settings`。「複製」の新規ダイアログに入れる値。
+ * 最後に指定のあった起動の値で、指定が無ければ null と空。account はこの PC で最後に使ったアカウント。
+ */
+export type SessionLaunchSettingsDto = { agent: AgentKind; model: string | null; effort: string | null; permissionMode: string | null; mode: string | null; addDirs: string[]; account: string | null };
 /** 1 回の起動または再開。tmux 上の寿命と一致する。 */
 export type RunDto = {
   id: string; sessionId: string; deviceId: string; kind: RunKind; tmuxName: string; pid: number | null; startedAt: number; endedAt: number | null; endReason: EndReason | null; heartbeatAt: number;

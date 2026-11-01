@@ -35,7 +35,7 @@ describe('一覧の行のメニュー（SessionRows）', () => {
     fireEvent.click(screen.getByRole('button', { name: 'na のメニュー' }));
     const menu = screen.getByRole('menu', { name: 'na のメニュー' });
     expect(within(menu).getAllByRole('menuitemradio').map((i) => i.getAttribute('aria-checked'))).toEqual(['false', 'false', 'true', 'false']);
-    expect([...menu.children].map((el) => (el.getAttribute('role') === 'separator' ? '|' : el.textContent))).toEqual(['Activeu', 'Pausedp', 'Doned', 'Archiveda', '|', '右に分割して開く', '下に分割して開く', '|', 'プロジェクトを変更…m', 'セッション ID をコピー', '|', '削除…']);
+    expect([...menu.children].map((el) => (el.getAttribute('role') === 'separator' ? '|' : el.textContent))).toEqual(['Activeu', 'Pausedp', 'Doned', 'Archiveda', '|', '未読に戻す', 'ピン留めする', '同じ設定で新しいセッション…', '|', '右に分割して開く', '下に分割して開く', '|', 'プロジェクトを変更…m', 'セッション ID をコピー', '|', '削除…']);
   });
   it('行を右クリックすると、押した点に同じメニューを出し、ブラウザのメニューは出さない。選ぶと送って閉じ、フォーカスを行へ戻す', () => {
     const onAction = mountRows([row('a'), row('b')]);
@@ -144,7 +144,7 @@ describe('ホームの帯の行のメニュー（BandRowView）', () => {
 });
 
 const NOW = new Date(2026, 9, 16, 12, 0).getTime();
-const session = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'ログイン画面の直し', cwd: '/Users/me/src/app', firstPrompt: null, aiTitle: null, startedAt: NOW, lastActivityAt: NOW, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 12, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, unread: null, spawnedBy: null, ...over });
+const session = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'ログイン画面の直し', cwd: '/Users/me/src/app', firstPrompt: null, aiTitle: null, startedAt: NOW, lastActivityAt: NOW, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 12, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, ...over });
 const project = (id: string, name: string, over: Partial<ProjectDto> = {}): ProjectDto => ({ id, name, status: 'active', isScratch: false, path: `/Users/me/src/${name}`, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1, unresolved: null, ...over });
 const store = (): Store => ({
   ...initialStore(), home: '/Users/me', sessions: { s1: session() },

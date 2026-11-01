@@ -57,7 +57,9 @@ export type InvestigateContext = { op: InvestigateOp; message: string; agent?: A
  * request は依頼の文（欄で書き換えられる）、quote はエラーの引用（欄の中に分けて見せ、送るときに依頼の文の後に足す）。
  * accounts はエージェントごとに選んでおくアカウントの id。下書きは上書きせず、閉じても残さない。
  */
-export type NewSessionSeed = { request: string; quote: string; accounts?: { 'claude-code'?: string; codex?: string }; /** info は引用を中立の色で見せる（注意とセットアップの状況）。無ければエラーの色。 */ tone?: 'info' };
+export type NewSessionSeed = { request: string; quote: string; accounts?: { 'claude-code'?: string; codex?: string }; /** info は引用を中立の色で見せる（注意とセットアップの状況）。無ければエラーの色。 */ tone?: 'info';
+  /** 「同じ設定で新しいセッション…」で入れる元の会話の値。あれば札の前回値より先に使う。 */
+  settings?: { agent: AgentKind; model: string | null; effort: string | null; permissionMode: string | null; mode: string | null; addDirs: string[] } };
 export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string; agent?: AgentKind; mode?: string; autoApprove?: boolean; prepKey?: string; prepChoice?: import('./launchPrep.ts').LaunchPrepChoice };
 /** 設定の同期（作り直した実装）のダイアログ。send は送るものの一覧、review は適用内容の確認、approve は届いたスキルなどの承認、conflicts は競合。 */
 export type ConfigSyncPart = 'send' | 'review' | 'approve' | 'conflicts';
@@ -146,6 +148,10 @@ export type UiAction =
   | { type: 'session.move.open'; id: SessionId } | { type: 'session.delete.open'; id: SessionId }
   // 提案の確定と却下。確定で日を変えたときだけ returnOn を添える。returnTime はその日の時刻（HH:MM）で、returnOn と一緒のときだけ効く。
   | { type: 'session.spawn.detach'; id: SessionId }
+  // 右クリックの 3 つ。未読に戻す、ピン留め、同じ設定で新しいセッション（設定を読んでから埋めたダイアログを開き、起動はしない）。
+  | { type: 'session.unread.mark'; id: SessionId }
+  | { type: 'session.pin'; id: SessionId; pinned: boolean }
+  | { type: 'session.duplicate'; id: SessionId }
   | { type: 'session.state.confirm'; id: SessionId; returnOn?: string; returnTime?: string } | { type: 'session.state.reject'; id: SessionId }
   // 確認待ちの群の見出しの「すべて確定」「すべて却下」（2026-10-13 の決定、知らせの 9d）。いまある提案を、セッションの提案と TODO の完了の提案に分けて渡す。
   | { type: 'pending.resolve'; accept: boolean; sessionIds: SessionId[]; todoIds: TodoId[] }

@@ -132,8 +132,13 @@ export function NewSessionDialog(props: NewSessionProps) {
   // 同じファイルの編集の警告から開いたときは、worktree の札に新しい名前を入れておく。前の worktree の中で起動しないよう、開くたびに名前を替える。
   // 前回値が無いときのモデルは、設定の既定のモデル（1d）。
   const defaultModel = props.defaultModel ?? '';
-  const [detail, setDetail] = useState(() => (props.worktree ? { ...optionsOf(props.prefs[choice], defaultModel), worktree: freshWorktreeName() } : optionsOf(props.prefs[choice], defaultModel)));
-  const [touched, setTouched] = useState(props.worktree === true);
+  // 「同じ設定で新しいセッション…」で開いたときは、前回値でなく元の会話の値を入れ、触れた後と同じに扱う（プロジェクトを選び直しても残す）。worktree は名前が重なるので引き継がない。
+  const seeded = seed?.settings ?? null;
+  const [detail, setDetail] = useState((): Options => {
+    if (seeded) return { ...defaultOptions(seeded.agent === DEFAULT_AGENT_KIND ? seeded.model ?? defaultModel : defaultModel), ...(seeded.agent === DEFAULT_AGENT_KIND ? { effort: seeded.effort ?? '', permissionMode: seeded.permissionMode ?? '', addDirs: seeded.addDirs.join('\n') } : {}) };
+    return props.worktree ? { ...optionsOf(props.prefs[choice], defaultModel), worktree: freshWorktreeName() } : optionsOf(props.prefs[choice], defaultModel);
+  });
+  const [touched, setTouched] = useState(props.worktree === true || seeded !== null);
   // 失敗の文言は、その送信の結果である。プロジェクトを選び直したら古い文言は出さず、送り直したらまた出す。
   // 同じ文言が続けて返ることがあるので、文言ではなく「選び直した時点の文言」を覚えて比べる。
   const [staleError, setStaleError] = useState<string | null>(null);
@@ -189,7 +194,8 @@ export function NewSessionDialog(props: NewSessionProps) {
   // 一覧に並べるエージェントは、設定で有効にしたものだけ（Claude Code は常に）。前回のエージェントが無効になっていたら Claude Code で開く。
   const offered: AgentValue[] = [DEFAULT_AGENT_KIND, ...(cx ? (['codex'] as const) : []), ...(oc ? (['opencode'] as const) : [])];
   // 開く経路が決めたエージェント（起動後の札の「別のモデルでやり直す」は opencode）。一覧に無ければ前回の値に任せる。
-  const [pickedAgent, setPickedAgent] = useState<AgentValue | null>(props.agent && offered.includes(props.agent) ? props.agent : null);
+  const openAgent = props.agent ?? seeded?.agent;
+  const [pickedAgent, setPickedAgent] = useState<AgentValue | null>(openAgent && offered.includes(openAgent) ? openAgent : null);
   const remembered = props.prefs[prefKey]?.agent;
   const chosenAgent = pickedAgent ?? remembered;
   const agent: AgentValue = isAgentKind(chosenAgent) && offered.includes(chosenAgent) ? chosenAgent : DEFAULT_AGENT_KIND;
@@ -205,21 +211,24 @@ export function NewSessionDialog(props: NewSessionProps) {
   const ocData = ocState?.data ?? null;
   useEffect(() => { if (opencode) emit({ type: 'opencode.options', dir: ocDir }); }, [opencode, ocDir]);   // eslint-disable-line react-hooks/exhaustive-deps
   // モードは選んだものが一覧にあればそれ、無ければ一覧の既定（build）。一覧が届く前は空（params に載せず、opencode の既定に任せる）。
-  const [pickedMode, setPickedMode] = useState<string | null>(null);
+  const seededOc = seeded?.agent === 'opencode' ? seeded : null;
+  const seededCx = seeded?.agent === 'codex' ? seeded : null;
+  const [pickedMode, setPickedMode] = useState<string | null>(seededOc?.mode ?? null);
   const ocMode = pickedMode !== null && (!ocData || ocData.modes.some((m) => m.id === pickedMode)) ? pickedMode : ocData ? defaultOpencodeMode(ocData.modes) : '';
   // モデルは選んだもの、選んでいなければ前回値。一覧から消えていたらデフォルトに戻す。
-  const [pickedModel, setPickedModel] = useState<string | null>(null);
+  const [pickedModel, setPickedModel] = useState<string | null>(seededOc?.model ?? null);
   const ocRemembered = pickedModel ?? props.prefs[prefKey]?.opencodeModel ?? '';
   const ocModel = opencodeModelChoice(ocRemembered, ocData);
   // Codex。モデルと推論は選んだもの、選んでいなければ前回値。一覧から消えたモデルはデフォルトに戻し、そのモデルで選べない推論は medium に戻す。権限は毎回自動から始める（前回値に残さない）。
   const cxState = cx?.options ?? null;
   const cxData = cxState?.data ?? null;
   useEffect(() => { if (codex) emit({ type: 'codex.options' }); }, [codex]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const [pickedCxModel, setPickedCxModel] = useState<string | null>(null);
+  const [pickedCxModel, setPickedCxModel] = useState<string | null>(seededCx?.model ?? null);
   const cxModel = codexModelChoice(pickedCxModel ?? props.prefs[prefKey]?.codexModel ?? '', cxData);
-  const [pickedCxEffort, setPickedCxEffort] = useState<string | null>(null);
+  const [pickedCxEffort, setPickedCxEffort] = useState<string | null>(seededCx?.effort ?? null);
   const cxEffort = codexEffortChoice(pickedCxEffort ?? props.prefs[prefKey]?.codexEffort ?? '', cxData, cxModel);
-  const [cxPermission, setCxPermission] = useState<CodexPermission>(DEFAULT_CODEX_PERMISSION);
+  // 複製でも、フルアクセスは黙って引き継がない（権限は毎回自動から始める決まりの、広い側だけを守る）。
+  const [cxPermission, setCxPermission] = useState<CodexPermission>(seededCx?.permissionMode === 'read-only' ? 'read-only' : DEFAULT_CODEX_PERMISSION);
   // モデルを替えて、選んでいる推論がそのモデルで選べなくなったら、その場で medium（無ければそのモデルの既定）に戻す。
   const pickCxModel = (v: string) => {
     setPickedCxModel(v);

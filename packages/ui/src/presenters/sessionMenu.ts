@@ -1,6 +1,6 @@
 import type { PaneId, SessionDto, SessionStatus, Translate, UiAction } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
-import { aliveRunOf, tabsOf, type Store } from '../store/store.ts';
+import { aliveRunOf, tabsOf, unreadBadgeOn, type Store } from '../store/store.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
 import { resumeHereOf } from './resumeHere.ts';
 import { ACTIVE_LABEL, STATUS_LABEL } from './row.ts';
@@ -21,7 +21,11 @@ export type SessionMenuProps = { id: string; name: string; status: SessionStatus
   spawned?: boolean;
   stop: SessionMenuStop | 'external' | null; moveBlocked: string | null;
   /** そのセッションが分割の木にあるときのペイン。あれば分割のまとまりの先頭に「表示中のペインへ移動」を出す。木に無ければ null か省く。 */
-  pane?: PaneId | null };
+  pane?: PaneId | null;
+  /** ピン留めしているか。真なら「ピン留めを外す」を出す。 */
+  pinned?: boolean;
+  /** 「未読に戻す」を出さない。すでに未読か、未読の数を出さない設定のとき（戻しても何も見えない）。 */
+  hideMarkUnread?: boolean };
 
 /** 状態の色の点。プロジェクトの状態の点（.st-dot）と同じ 4 色を使う。 */
 export type SessionMenuDot = 'active' | 'paused' | 'done' | 'archived';
@@ -66,6 +70,8 @@ export function presentSessionMenu(store: Store, s: SessionDto, t: Translate): S
     stop,
     moveBlocked: moveTargetIds(store, s.projectId).length === 0 ? t('row.menu.moveNone') : null,
     spawned: s.spawnedBy != null && store.sessions[s.spawnedBy] !== undefined,
+    pinned: (s.pinnedAt ?? null) !== null,
+    hideMarkUnread: !unreadBadgeOn(store) || (s.unread?.count ?? 0) > 0,
   };
 }
 
@@ -92,9 +98,18 @@ export function sessionMenuEntries(t: Translate, m: SessionMenuProps): SessionMe
     { key: 'splitRight', label: t('row.menu.splitRight'), icon: 'splitRight', disabled: null, send: { type: 'pane.open', sessionId: m.id, target: null, side: 'right' } },
     { key: 'splitDown', label: t('row.menu.splitDown'), icon: 'splitDown', disabled: null, send: { type: 'pane.open', sessionId: m.id, target: null, side: 'down' } },
   ] satisfies SessionMenuEntry[]).map((e, i): SessionMenuEntry => (i === 0 ? { ...e, separatorBefore: true } : e));
+  // 未読に戻す、ピン留め、同じ設定で新しいセッションは、状態の後ろに区切ってまとめる。
+  const keep = ([
+    ...(m.hideMarkUnread ? [] : [{ key: 'markUnread', label: t('row.menu.markUnread'), icon: 'markUnread', disabled: null, send: { type: 'session.unread.mark', id: m.id } }] satisfies SessionMenuEntry[]),
+    m.pinned
+      ? { key: 'pin', label: t('row.menu.unpin'), icon: 'unpin', disabled: null, send: { type: 'session.pin', id: m.id, pinned: false } }
+      : { key: 'pin', label: t('row.menu.pin'), icon: 'pin', disabled: null, send: { type: 'session.pin', id: m.id, pinned: true } },
+    { key: 'duplicate', label: t('row.menu.duplicate'), icon: 'duplicate', disabled: null, send: { type: 'session.duplicate', id: m.id } },
+  ] satisfies SessionMenuEntry[]).map((e, i): SessionMenuEntry => (i === 0 ? { ...e, separatorBefore: true } : e));
   return [
     ...(m.resumeHere ? [{ key: 'resumeHere', label: t('session.action.resumeHere'), icon: 'resumeHere' as const, disabled: m.resumeHere.disabled, send: { type: 'session.resumeHere.open', id: m.id } as const }] : []),
     ...states,
+    ...keep,
     ...split,
     ...(m.spawned ? [{ key: 'detachSpawn', label: t('row.menu.detachSpawn'), icon: 'detachSpawn' as const, separatorBefore: true, disabled: null, send: { type: 'session.spawn.detach', id: m.id } as const }] : []),
     { key: 'move', label: t('row.menu.move'), icon: 'moveSession', kbd: 'm', separatorBefore: !m.spawned, disabled: m.moveBlocked, send: { type: 'session.move.open', id: m.id } },

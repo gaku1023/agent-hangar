@@ -11,12 +11,13 @@ import { searchSessions } from '../../search/search.ts';
 import { MoveError, moveSession } from '../../sessions/move.ts';
 import { forgetSpawn } from '../../sessions/spawns.ts';
 import { dismissOverlap } from '../../sessions/overlap.ts';
-import { markSeen } from '../../live/unread.ts';
+import { markSeen, markUnread } from '../../live/unread.ts';
+import { launchSettingsOf } from '../../runs/launchSettings.ts';
 import { parkedSessionIds } from '../../sessions/park.ts';
 import { stopReasonsOf } from '../../sessions/stopReasons.ts';
 import { changedFilesOf } from '../../sessions/files.ts';
 import { DeleteError } from '../../sessions/trash.ts';
-import { confirmSessionState, rejectSessionState, setSessionState, StateInputError } from '../../sessions/states.ts';
+import { confirmSessionState, rejectSessionState, setSessionPinned, setSessionState, StateInputError } from '../../sessions/states.ts';
 import { readEvents, subagentIds } from '../../transcript/read.ts';
 import { errorText, render, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
@@ -228,6 +229,29 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   api.post('/sessions/:id/seen', (c) => {
     markSeen(db, c.req.param('id'));
     return c.body(null, 204);
+  });
+  // 未読に戻す。既存の未読の表に積むだけで、OS とスマホへは知らせない。
+  api.post('/sessions/:id/unread', (c) => {
+    const id = c.req.param('id');
+    if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
+    markUnread(db, id, Date.now());
+    return c.body(null, 204);
+  });
+  // ピン留め。状態と同じ行に置くので、同期で 2 台の PC にそろう。
+  api.post('/sessions/:id/pin', async (c) => {
+    const id = c.req.param('id');
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
+    if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
+    const pinned = (b.value as { pinned?: unknown } | null)?.pinned;
+    if (typeof pinned !== 'boolean') return c.json({ error: tr('http.request.badShape') }, 400);
+    setSessionPinned(db, deviceId, id, pinned);
+    return c.body(null, 204);
+  });
+  // 複製の新規ダイアログに入れる値。
+  api.get('/sessions/:id/launch-settings', (c) => {
+    const settings = launchSettingsOf(db, deviceId, c.req.param('id'));
+    return settings ? c.json(settings) : c.json({ error: tr('session.error.notFound') }, 404);
   });
   api.post('/sessions/:id/promote', async (c) => {
     const id = c.req.param('id');

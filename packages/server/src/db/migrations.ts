@@ -695,6 +695,15 @@ create table session_unread (
 `;
 
 /**
+ * 版 43。session_states にピン留めの時刻（pinned_at）を足す（2026-11-02）。
+ * ピンは利用者が決める会話の属性で、2 台の PC で同期するので、状態や移した先と同じ行に置く。null は留めていないこと。
+ * 版 25 と同じく列を足すだけなので、クラウド（Worker）にマイグレーションは要らず、互換の版も変えない。
+ */
+const V43_SESSION_PINNED_SQL = `
+alter table session_states add column pinned_at integer;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -727,4 +736,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 40, sql: V40_SESSION_SPAWNS_SQL },
   { version: 41, sql: V41_CHANGES_UNPUSHED_SQL },
   { version: 42, sql: V42_SESSION_ALIASES_SQL },
+  { version: 43, sql: V43_SESSION_PINNED_SQL },
 ];

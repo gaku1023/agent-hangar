@@ -13,9 +13,10 @@ import { StatusDot } from './primitives/StatusDot.tsx';
 import { FoldBox } from './primitives/FoldBox.tsx';
 import { CountBubble } from './primitives/CountBubble.tsx';
 import { motionMs } from './primitives/motion.ts';
-import { hangIn, hangOut } from './primitives/motionKit.ts';
+import { hangIn, hangOut, motionOn } from './primitives/motionKit.ts';
 import { useMotionList } from './primitives/useMotionList.ts';
 import { paneDrag } from './paneDrag.ts';
+import { measureRows, pinFlight, slideRows } from './pinSlide.ts';
 import { spawnFoldKey } from '../presenters/spawnTree.ts';
 
 /** 画面の名前からナビのアイコンへの対応。見た目の話なので Presenter ではなくここに置く。 */
@@ -146,7 +147,9 @@ function shiftOf(a: SortAt, j: number): number {
  */
 /** 行の箱（li）の高さを伸ばし、中の行を倒す。 */
 const faceOf = (li: HTMLElement) => (li.firstElementChild as HTMLElement | null) ?? li;
-const ROW_MOTION = { enter: (li: HTMLElement) => hangIn(li, faceOf(li)), exit: (li: HTMLElement) => hangOut(li, faceOf(li)), flip: false } as const;
+/** ピン留めで行が移る描画では、出入りの動きを止めて最後の形にする（pinSlide.ts が全体を滑らせる）。 */
+const leaveNow = (el: HTMLElement) => { el.style.display = 'none'; return Promise.resolve(); };
+const ROW_MOTION = { enter: (li: HTMLElement) => { if (!pinFlight.instant) hangIn(li, faceOf(li)); }, exit: (li: HTMLElement) => (pinFlight.instant ? leaveNow(li) : hangOut(li, faceOf(li))), flip: false } as const;
 /** 行の出入りの 1 つ分。leaving の行は元の位置に残り、畳んで出てから落ちる。 */
 type MotionSlot = { key: string; ref: (el: HTMLElement | null) => void; leaving: boolean };
 /**
@@ -157,9 +160,12 @@ function MotionNodes(props: { nodes: RowNode[]; render: (node: RowNode, m: Motio
   const motion = useMotionList(props.nodes, (n) => n.row.id, ROW_MOTION);
   return <>{motion.list.map(({ item, key, leaving }) => props.render(item, { key, ref: motion.ref(key), leaving }))}</>;
 }
-const GROUP_MOTION = { enter: (g: HTMLElement) => hangIn(g), exit: (g: HTMLElement) => hangOut(g), flip: false, enterFromEmpty: true, exitWhenEmpty: true } as const;
+const GROUP_MOTION = { enter: (g: HTMLElement) => { if (!pinFlight.instant) hangIn(g); }, exit: (g: HTMLElement) => (pinFlight.instant ? leaveNow(g) : hangOut(g)), flip: false, enterFromEmpty: true, exitWhenEmpty: true } as const;
 
-function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: (id: string, at: MenuAnchor) => void; blocked: boolean }) {
+const PIN_BLOCK_MOTION = { enter: (b: HTMLElement) => { if (!pinFlight.instant) hangIn(b); }, exit: (b: HTMLElement) => (pinFlight.instant ? leaveNow(b) : hangOut(b)), flip: false, enterFromEmpty: true, exitWhenEmpty: true } as const;
+
+/** static はピンの段の行で、掴んで並べ替えない（並びは留めた順）。 */
+function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: (id: string, at: MenuAnchor) => void; blocked: boolean; static?: boolean }) {
   const emit = useEmit();
   const t = useT();
   const [sort, setSortState] = useState<Sort | null>(null);
@@ -255,7 +261,7 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
     // 開閉の席（子を持つ行の丸の席）を押したときは掴まない。
     if ((e.target as HTMLElement).closest?.('.side-live-seat button')) return;
     // 収まる途中の行は、収まりきるまで掴み直さない。グループを動かしている間も掴まない。
-    if (sortNow.current || props.blocked) return;
+    if (sortNow.current || props.blocked || props.static) return;
     press.current = { id: sidOf(r), pointer: e.pointerId, x: e.clientX, y: e.clientY, active: false, cancelled: false };
   };
   const onPointerMove = (e: PointerEvent) => {
@@ -342,7 +348,7 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
       emit({ type: 'sidebar.fold', key: spawnFoldKey(r.id), open: e.key === 'ArrowRight' });
       return;
     }
-    if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    if (props.static || !e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
     e.preventDefault();
     const ids = nudgeId(live.ids, sidOf(r), e.key === 'ArrowUp' ? -1 : 1);
     if (ids !== live.ids) emit({ type: 'sidebar.order', ids });
@@ -476,18 +482,42 @@ function LiveSection(props: { live: SideLiveProps }) {
   const measureEnd = () => { const el = scroll.current; if (el) setAtEnd(el.scrollTop + el.clientHeight >= el.scrollHeight - 1); };
   useLayoutEffect(measureEnd);
   // 開いている間に行が消えたら（ほかの場所で止めた、Claude が自分で終わった）、開いていたことも忘れる。同じ行がまた現れたときに、勝手に開き直さないためである。
-  const gone = menu !== null && !props.live.rows.some((r) => r.id === menu.id);
+  const gone = menu !== null && !props.live.rows.some((r) => r.id === menu.id) && !props.live.pins.some((r) => r.id === menu.id);
   useEffect(() => { if (gone) setMenu(null); }, [gone]);
   const { live } = props;
   // 最後の行が消えたあとも、グループが畳み終わるまでは描く。
   const groupMotion = useMotionList(live.groups, (g) => g.key, GROUP_MOTION);
-  if (live.count === 0 && groupMotion.list.length === 0) return null;
-  const menuRow = menu ? live.rows.find((r) => r.id === menu.id) ?? null : null;
+  // ピンの段。入れ物ごと出入りさせ、最後の行が外れたら畳む。
+  const pinBlock = useMotionList(live.pins.length > 0 ? ['pins'] : [], (k) => k, PIN_BLOCK_MOTION);
+  const section = useRef<HTMLElement>(null);
+  // 段に出入りした行があれば、描き替わる前の位置を測っておき、描いた後に滑らせる（pinSlide.ts）。描き替えの前に読めるのはここだけである。
+  const pinIds = live.pins.map((r) => r.id);
+  const lastPins = useRef(pinIds);
+  const flight = useRef<{ before: Map<string, DOMRect>; moved: string[] } | null>(null);
+  if (pinIds.join('\n') !== lastPins.current.join('\n')) {
+    const moved = [...pinIds.filter((id) => !lastPins.current.includes(id)), ...lastPins.current.filter((id) => !pinIds.includes(id))];
+    lastPins.current = pinIds;
+    const before = section.current && motionOn(section.current) ? measureRows(section.current) : null;
+    // 元の席が見えていて、移った先でも見える行があるときだけ滑らせる。止まった会話を一覧の画面から留めたときなどは、ふつうの出入りにする。
+    if (before && moved.some((id) => before.has(id) && (pinIds.includes(id) || live.rows.some((r) => r.id === id)))) {
+      flight.current = { before, moved };
+      pinFlight.instant = true;
+    }
+  }
+  useLayoutEffect(() => {
+    const f = flight.current;
+    if (!f) return;
+    flight.current = null;
+    pinFlight.instant = false;
+    if (section.current) slideRows(section.current, f.before, f.moved);
+  });
+  if (live.count === 0 && groupMotion.list.length === 0 && pinBlock.list.length === 0) return null;
+  const menuRow = menu ? live.rows.find((r) => r.id === menu.id) ?? live.pins.find((r) => r.id === menu.id) ?? null : null;
   const closeMenu = (how: MenuCloseHow) => {
     const id = menu?.id;
     setMenu(null);
     // 外を押したときは、押した先にフォーカスを任せる。ほかは行へ戻す（止めて行が消えたら、戻す先は無い）。
-    if (how !== 'outside' && id) scroll.current?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`)?.focus();
+    if (how !== 'outside' && id) section.current?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`)?.focus();
   };
   /** グループをこの順に並べた並びを覚える。いまの並びと同じなら何もしない。 */
   const order = (groups: SideLiveGroup[]) => {
@@ -565,7 +595,12 @@ function LiveSection(props: { live: SideLiveProps }) {
     order(keys.map((k) => live.groups.find((x) => x.key === k)!));
   };
   return (
-    <section className="side-live" aria-label={t('sidebar.live.label')}>
+    <section className="side-live" ref={section} aria-label={t('sidebar.live.label')}>
+      {pinBlock.list.map(({ key, leaving }) => (
+        <div key={key} ref={pinBlock.ref(key)} className="side-pins" role="group" aria-label={t('sidebar.pins.label')} data-leaving={leaving ? 'true' : undefined} inert={leaving || undefined}>
+          <RowList rows={live.pins} menuId={menu?.id ?? null} openMenu={(id, at) => setMenu({ id, at })} blocked={false} static />
+        </div>
+      ))}
       <div className="side-live-scroll" ref={scroll} onScroll={measureEnd} data-end={atEnd ? 'true' : undefined} data-sorting={gsort ? 'true' : undefined}>
         {groupMotion.list.map(({ item: g, key, leaving }) => {
           const i = live.groups.indexOf(g);

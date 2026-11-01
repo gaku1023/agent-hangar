@@ -141,6 +141,10 @@ export type Effect =
   | { kind: 'api.todo'; call: TodoCall }
   // セッションの状態。本文には渡されたものだけを載せる。
   | { kind: 'api.detachSpawn'; id: string }
+  | { kind: 'api.setPinned'; id: string; pinned: boolean }
+  | { kind: 'api.markUnread'; id: string }
+  // 元の会話の設定を読み、埋めた新規ダイアログを開く（mediator/launch.ts の duplicateOpenAction）。
+  | { kind: 'api.loadDuplicate'; id: string }
   | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string } }
   | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string; returnTime?: string } }
   | { kind: 'api.rejectSessionState'; id: string }
@@ -370,6 +374,8 @@ export type State = {
   unreadSeen: number;
   /** 既読を頼んだ未読の鍵（「セッションの id|未読の最後の時刻」）。開いている間に同じ未読へ何度も頼まないために覚える。 */
   seenAsked: string | null;
+  /** 開いたまま未読に戻した会話。離れるまで既読にしない。 */
+  unreadKept: string | null;
   /**
    * 右下に積む入力待ちのカードのセッション。
    * 古いものが先。

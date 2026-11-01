@@ -15,6 +15,15 @@ export function addUnread(db: Db, sessionId: string, text: string, now: number):
   return (db.prepare('select count from session_unread where session_id = ?').get(sessionId) as { count: number }).count;
 }
 
+/**
+ * 利用者が未読に戻す。未読が無いときだけ 1 にし、エージェントの知らせではないので本文は持たない。
+ * すでに未読があれば、数も本文も変えない。OS とスマホへは知らせない（noteUnread を呼ばない）。
+ */
+export function markUnread(db: Db, sessionId: string, now: number): void {
+  const r = db.prepare('insert into session_unread (session_id, count, latest_text, latest_at) values (?, 1, null, ?) on conflict(session_id) do nothing').run(sessionId, now);
+  if (r.changes > 0) touchRow(db, 'sessions', sessionId);
+}
+
 /** 既読にする。行が無ければ何もせず、false を返す（画面へも配らない）。 */
 export function markSeen(db: Db, sessionId: string): boolean {
   const r = db.prepare('delete from session_unread where session_id = ?').run(sessionId);
