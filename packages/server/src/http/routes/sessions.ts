@@ -8,6 +8,7 @@ import { EDIT_TOOLS } from '../../indexer/write.ts';
 import { LiveDigester } from '../../live/digest.ts';
 import { PromoteError } from '../../projects/promote.ts';
 import { searchSessions } from '../../search/search.ts';
+import { approveDeleteApproval, dismissDeleteApproval, rejectDeleteApproval } from '../../sessions/deleteApprovals.ts';
 import { MoveError, moveSession } from '../../sessions/move.ts';
 import { forgetSpawn } from '../../sessions/spawns.ts';
 import { dismissOverlap } from '../../sessions/overlap.ts';
@@ -225,6 +226,10 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     deps.overlapRefresh?.();
     return c.body(null, 204);
   });
+  // MCP の削除の依頼への答え（#547）。答えられるのは画面（とスマホの問い合わせ）だけで、MCP の道具には出さない。
+  api.post('/delete-approvals/:id/approve', async (c) => c.json({ outcome: await approveDeleteApproval(db, deps.trash, c.req.param('id')) }));
+  api.post('/delete-approvals/:id/reject', (c) => c.json({ ok: rejectDeleteApproval(db, c.req.param('id'), Date.now()) }));
+  api.post('/delete-approvals/:id/dismiss', (c) => c.json({ ok: dismissDeleteApproval(db, c.req.param('id')) }));
   // 開いたら既読。未読の行を消して画面へ配る。行が無ければ何もしない。
   api.post('/sessions/:id/seen', (c) => {
     markSeen(db, c.req.param('id'));

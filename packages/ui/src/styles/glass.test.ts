@@ -11,7 +11,7 @@ const all = files.flatMap((f) => rules(read(f)).map((r) => ({ ...r, file: f })))
 const blurs = all.filter((r) => /(^|[^-])backdrop-filter\s*:/.test(r.body));
 
 // 仕様：ガラスは浮く部品（ヘッダ、サイドバー、⌘K、ダイアログ、通知と切断の帯、選ぶ部品の一覧、操作のメニュー、本文の中の検索の欄）にだけ使う。
-const GLASS = ['.header', '.conn-banner', '.dialog', '.palette', '.toast', '.listbox-pop', '.menu-pop', '.tr-find'];
+const GLASS = ['.header', '.conn-banner', '.del-approval', '.dialog', '.palette', '.toast', '.listbox-pop', '.menu-pop', '.tr-find'];
 
 describe('浮くガラス', () => {
   it('backdrop-filter は浮く部品の規則にだけ現れる', () => {

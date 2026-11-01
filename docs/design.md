@@ -3796,10 +3796,11 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
 - `resume_session({ session_id, account? })`：止まっている会話を、UI の再開（`POST /api/sessions/:id/resume`）と同じ `RunManager.resumeWith` で再開する。Claude Code、Codex、opencode のどれも通る（道筋は resumeWith の中で分かれる）。
   すでに動いていれば断る。account は Claude Code の会話のときだけ受け、名前か id で引く（`create_session` と同じ引き方）。知らなければ使える名前を添えて断り、Codex と opencode に渡したら断る。省けば、これまでどおり最後に使ったアカウント（`RunAccounts.lastUsed`）で再開する。
   結果は `create_session` と同じ形（`run_id`、`session_id`、`tmux_name`、`url`、Claude Code なら `account` の名前）である。聞かずに使ってよい。
-- `delete_session({ session_id, confirmed? })`：UI の削除（`DELETE /api/sessions/:id`）と同じ `SessionTrash.deleteSession` で消す。本文は OS のゴミ箱へ移る。
-  どのセッションも、毎回 `confirmed: true`（利用者が会話の中で承認した）でなければ消さない。`propose_session_status` の `confirmed` と同じ考え方で、`confirmed` が無いか `true` でなければ、セッションの題名を添え、利用者に見せて承認を得てから呼び直すよう促す文で断る。
-  動いている会話は `deleteSession` の 409 の文のまま断り、呼んだセッション自身も断る。
-  HTTP の `DELETE /api/sessions/:id` は、利用者の操作なので MCP の秘密では開けないままである。MCP からは、この道具が承認つきで同じ処理を通す。
+- `delete_session({ session_id })`：会話の削除を依頼する。ここでは消さず、承認待ちとして預けて即座に返す（`{ status: 'pending_approval', session_id, title, note }`）。ターンを塞いで待たない。
+  消すのは、利用者が画面かスマホで承認した後である。詳しくは「MCP の削除の承認」の節。
+  以前の `confirmed` はエージェントの自己申告で、インジェクションされたエージェントでも付けられるのでやめた。渡されても読まない。
+  動いている会話と呼んだセッション自身は断り、断られた依頼（24 時間）には `status: 'rejected'` を返す。
+  HTTP の `DELETE /api/sessions/:id` と答えの口（`/api/delete-approvals/:id/...`）は、利用者の操作なので MCP の秘密では開けない。
   この 3 つはセッション別 URL でも別のセッションを指せる（`session_id` が要る。他のセッション用の道具のような閉じ込めはしない）。
 - `set_turn_intent({ session_id?, text })`：このターンで何のために何をするかを 1〜2 文（200 字まで）で書く。端末ローカルの `turn_intents` に積み、同期しない。セッション画面の現在の札に出す。
 - `notify_user({ session_id?, text, kind?, to? })`：ユーザーに見てほしい出力を出したことを知らせる。text は空白を除いて 1 字以上 200 字まで（`set_turn_intent` と同じ数え方）。
@@ -3924,6 +3925,25 @@ git でないフォルダの歩きと、その最近変えたファイルの `st
 Tauri のシェルは `hangar://` スキームを登録する。
 `hangar://session/<id>`、`hangar://project/<id>`、`hangar://search?q=<text>` を受け、対応する画面を開く。
 ブラウザで使うときは同じ経路を `http://127.0.0.1:4177/#/session/<id>` で表す。
+
+## MCP の削除の承認
+
+MCP の道具は hangar の外のエージェントにも、プロンプトインジェクションされたエージェントにも届く（#547）。
+そこで道具を、取り消せない操作、止める操作、起こす操作、別の会話を動かす操作、外へ出す操作、記録を書く操作、読むだけの操作に分け、外に出してよい理由と一緒に `mcp/toolClasses.ts` に残す。道具を足して分類を忘れると、型と試験（`toolClasses.test.ts`）が止める。
+利用者の承認を挟むのは `delete_session` だけである（利用者の決定）。`stop_session` などは、止めても会話が残るので挟まない。
+
+依頼は手元だけの表 `delete_approvals`（同期しない、会話 1 つに 1 行）に預ける。状態は `pending`、`failed`（承認したが消せなかった）、`rejected` の 3 つで、消せたら行を外す。
+- 依頼を受けた PC に置き、答えもその PC へ返す。ほかの PC の画面には出ない。
+- 待てるのは 20 件までで、超える依頼は断る。断った依頼は 24 時間覚えておき、同じ会話への再度の依頼を `rejected` で返す。インジェクションされたエージェントが頼み続けても、利用者を煩わせないためである。
+- 手で消した会話の依頼は一覧を読むときに外し、会話を戻しても蘇らせない。
+- 新しい依頼は、利用者の決まりの `ask` の出し先へ 1 回だけ知らせる。Done などにした会話からでも黙らせない。依頼元が分からない共通の URL では、未読は増やさず、OS とスマホにだけ知らせる。
+
+答える口は 2 つで、どちらも MCP の道具には出さない。
+- 画面：`POST /api/delete-approvals/:id/approve`（`reject`、`dismiss`）。一覧は bootstrap と `deleteApprovals.update` で届く。
+- スマホ：受信箱の素の `approvals` で届き、呼び鈴の問い合わせ（`kind: 'delete-approval'`）で答える。中身は封をしてあるので Worker は読めず、Worker の変更は要らない。PC が見えないときは押せない。消すのが 4 秒を超えたら `accepted` と答え、結果は素が運ぶ。
+
+画面では、どの画面でも本文の真上に帯（`DeleteApprovalStrip`）を出す。スマホでは受信箱の一番上に、入力待ちと分けて置く。どちらも入力の焦点を奪わず、動きは行の出入り（`growIn` と `collapseOut`）だけである。
+ダイアログにしなかったのは、入力中の Enter で誤って承認するおそれがあるためである。
 
 ## 作者への問い合わせ
 

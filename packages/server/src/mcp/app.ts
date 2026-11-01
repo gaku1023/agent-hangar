@@ -70,7 +70,7 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   reg('propose_session_status', D(tr('mcp.tool.proposeSessionStatus')), { session_id: z.string().optional(), status: z.enum(['done', 'paused']), note: z.string().describe(tr('mcp.sessionStatus.noteParam')), return_on: z.string().optional().describe(tr('mcp.sessionStatus.returnOnParam')), return_time: z.string().optional().describe(tr('mcp.sessionStatus.returnTimeParam')), confirmed: z.boolean().optional().describe(tr('mcp.sessionStatus.confirmedParam')) });
   reg('stop_session', D(tr('mcp.tool.stopSession')), { session_id: z.string() });
   reg('resume_session', D(tr('mcp.tool.resumeSession')), { session_id: z.string(), account: z.string().optional().describe(tr('mcp.resumeSession.accountParam')) });
-  reg('delete_session', D(tr('mcp.tool.deleteSession')), { session_id: z.string(), confirmed: z.boolean().optional().describe(tr('mcp.deleteSession.confirmedParam')) });
+  reg('delete_session', D(tr('mcp.tool.deleteSession')), { session_id: z.string() });
   reg('get_usage', D(tr('mcp.tool.getUsage')), {});
   reg('open_in_hangar', D(tr('mcp.tool.openInHangar')), { session_id: z.string().optional(), project_id: z.string().optional() });
   reg('send_to_session', D(tr('mcp.tool.sendToSession')), { session_id: z.string(), text: z.string().describe(tr('mcp.sendToSession.textParam', { max: MAX_SEND_CHARS })), submit: z.boolean().optional().describe(tr('mcp.sendToSession.submitParam')) });

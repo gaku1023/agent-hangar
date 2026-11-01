@@ -61,6 +61,16 @@ export type MobileLiveItem = {
   usage?: MobileUsage;
 };
 
+/**
+ * MCP の削除の依頼 1 件（#547）。failure は承認した後に消せなかった理由で、running は動いている、trash はゴミ箱へ移せなかった。
+ * 答えは宛先の PC への問い合わせ（kind が delete-approval）で返す。
+ */
+export type MobileApproval = { id: string; sessionId: string; title: string; project: string | null; turns: number; from: string | null; failure: 'running' | 'trash' | null };
+/** approve は承認、reject は断る（残す）、dismiss は消せなかった行を閉じる。 */
+export type MobileApprovalAnswer = 'approve' | 'reject' | 'dismiss';
+/** 答えの結果。done は答えのとおりになった、failed は消せなかった、accepted は受けたが問い合わせの時間内に終わらなかった、missing はもう無い。 */
+export type MobileApprovalResult = 'done' | 'failed' | 'accepted' | 'missing';
+
 export type MobileReturnItem = { sessionId: string; projectName: string; title: string; accountId: string; returnOn: string; returnTime: string | null; agent?: MobileAgent };
 export type MobileDoneItem = { sessionId: string; projectName: string; title: string; oneLiner: string | null; doneAt: number; agent?: MobileAgent };
 export type MobileAccount = { id: string; name: string; color: string; fiveHour: number | null; sevenDay: number | null };
@@ -88,6 +98,8 @@ export type MobileFeed = {
   live: MobileLiveItem[];
   returns: MobileReturnItem[];
   done: MobileDoneItem[];
+  /** MCP の削除の依頼のうち答えを待っているもの（#547）。無ければ載せない。古いスマホは読み捨てる。 */
+  approvals?: MobileApproval[];
 };
 
 /** 起動の依頼に付ける画像 1 枚の控え。本体は R2 に封をして置き、番号（0 から 3）で引く。 */
@@ -141,7 +153,8 @@ export type MobileLaunchAnswer =
 export type MobileAsk =
   | { v: 1; kind: 'files'; projectId: string; q: string }
   | { v: 1; kind: 'commands'; projectId: string | null; accountId: string; agent?: MobileAgent }
-  | { v: 1; kind: 'agent-options'; agent: MobileAgent; projectId: string | null };
+  | { v: 1; kind: 'agent-options'; agent: MobileAgent; projectId: string | null }
+  | { v: 1; kind: 'delete-approval'; id: string; answer: MobileApprovalAnswer };
 
 /** 答えの opencode のモデルの件数の上限と、名前の字数の上限。 */
 export const MOBILE_AGENT_MODELS_MAX = 100;
@@ -190,6 +203,7 @@ export type MobileReply =
   | { commands: { name: string; description: string; kind: 'skill' | 'command' }[] }
   | { agentOptions: MobileAgentOptions | null }
   | { codexOptions: MobileCodexOptions | null }
+  | { approval: MobileApprovalResult }
   | { error: 'project-missing' | 'account-missing' | 'agent-missing' | 'bad-request' };
 
 /**

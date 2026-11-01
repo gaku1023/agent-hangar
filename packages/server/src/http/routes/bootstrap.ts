@@ -5,6 +5,7 @@ import { listArtifacts } from '../../artifacts/queries.ts';
 import { listProjects, listSessions } from '../../db/queries.ts';
 import { listTodos } from '../../projects/todos.ts';
 import { interruptedGroup } from '../../runs/interrupted.ts';
+import { listDeleteApprovals } from '../../sessions/deleteApprovals.ts';
 import { buildAccountsDto } from '../accounts.ts';
 import type { AppDeps } from '../deps.ts';
 import { syncStatusOf } from './common.ts';
@@ -35,6 +36,7 @@ export function bootstrapRoutes(api: Hono, deps: BootstrapRouteDeps): void {
       todos: listTodos(db),
       artifacts: listArtifacts(db),
       summaryPending: deps.summary.pending(),
+      deleteApprovals: listDeleteApprovals(db),
       index: deps.indexer.progress(),
       version: deps.version,
       retention: deps.retention.current(),

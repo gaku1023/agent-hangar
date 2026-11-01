@@ -6,6 +6,8 @@ import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
 import { onIntent } from '../live/intents.ts';
+import { approveDeleteApproval, dismissDeleteApproval, listDeleteApprovals, rejectDeleteApproval } from '../sessions/deleteApprovals.ts';
+import type { SessionTrash } from '../sessions/trash.ts';
 import { answerAsk } from '../mobile/asks.ts';
 import { MobileBell } from '../mobile/bell.ts';
 import { onUnread } from '../live/unread.ts';
@@ -28,7 +30,7 @@ import type { SyncParts } from './sync.ts';
  * 素が読むのは、会話（sessions、session_notes）、状態（session_states）、要約の 1 行（session_summaries）、run（runs）、プロジェクトとこの PC の場所（projects、project_roots）である。
  * 中身が変わらなければ書かない（ハッシュで比べる）ので、多めに拾っても書き込みは増えない。
  */
-export const FEED_TABLES: ReadonlySet<string> = new Set(['sessions', 'session_states', 'session_summaries', 'runs', 'project_roots', 'projects', 'session_notes']);
+export const FEED_TABLES: ReadonlySet<string> = new Set(['sessions', 'session_states', 'session_summaries', 'runs', 'project_roots', 'projects', 'session_notes', 'delete_approvals']);
 
 /**
  * 答えを送れなかった起動の依頼を送り直す見回りの間隔（mobile/launchInbox.ts の resendAnswers）。
@@ -118,6 +120,8 @@ export function bootMobile(p: {
   codex?: { options: Pick<CodexOptionsService, 'last'> };
   /** Codex の置き場を探す口。既定は config/tools.ts の findCodex。試験が差し替える。 */
   findCodex?: () => string | null;
+  /** セッションの削除の口。スマホの削除の承認（#547）に使う。省けば承認の問い合わせを断る。 */
+  trash?: Pick<SessionTrash, 'deleteSession'>;
 }): MobileParts {
   const { db } = p.home;
   const deviceId = p.home.device.id;
@@ -156,6 +160,7 @@ export function bootMobile(p: {
   const build = () => buildMobileFeed({
     db, deviceId, deviceName: p.home.device.name,
     live: p.delivery.live.current(),
+    approvals: listDeleteApprovals(db).map(({ requestedAt: _at, ...a }) => a),
     accounts: accounts.store.list(),
     usageOf: (id) => accounts.usage.of(id),
     now: Date.now(),
@@ -217,6 +222,7 @@ export function bootMobile(p: {
         projectPath: (projectId) => (rootHere.get(projectId, deviceId) as { path: string } | undefined)?.path ?? null,
         accountDir: (accountId) => accounts.store.list().find((a) => a.id === accountId)?.dir ?? null,
         ...(opencodeAsk ? { opencode: opencodeAsk } : {}),
+        ...(p.trash ? { deleteApprovals: { approve: (aid: string) => approveDeleteApproval(db, p.trash!, aid), reject: (aid: string) => rejectDeleteApproval(db, aid, Date.now()), dismiss: (aid: string) => dismissDeleteApproval(db, aid) } } : {}),
         ...(p.codex ? { codex: { ready: codexOn, options: () => p.codex!.options.last() } } : {}),
       }, id, sealed, epoch),
       timers,

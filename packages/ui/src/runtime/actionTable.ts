@@ -118,6 +118,8 @@ export const actionTable = {
   'session.move': (i) => call((api) => api.moveSession(i.id, i.projectId)),
   // 消す。画面の正は後から届く session.removed なので、返り値は Store に入れない。
   'session.delete': (i) => call((api) => api.deleteSession(i.id)),
+  // MCP の削除の依頼への答え。画面の正は後から届く deleteApprovals.update なので、返り値は Store に入れない。
+  'deleteApproval.answer': (i) => call((api) => api.answerDeleteApproval(i.id, i.answer)),
   // 同じファイルの編集の「このファイルでは表示しない」。写しは見張りが書き直し、session.upsert で消える。
   'overlap.dismiss': (i) => call((api) => api.dismissOverlap(i.sessionId, i.with, i.paths)),
   // 起動前の準備をやめる。やめる直前に準備が済んでいた（走っていない）ときの 404 は、利用者に見せることではないので黙る。

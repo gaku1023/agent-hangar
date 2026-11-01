@@ -16,6 +16,7 @@ import {
   seal,
   type CodexOptionsDto,
   type MobileAgentOptions,
+  type MobileApprovalAnswer,
   type MobileCodexOptions,
   type MobileModelOption,
   type MobileReply,
@@ -25,6 +26,8 @@ import { changedFiles, listProjectFiles, listRecentFiles } from '../prompt/files
 import { listPromptCommandsWithKind, type PromptCommandKind } from '../provider/claude-code/prompt/commands.ts';
 import type { PhoneKeySource } from '../sync/phoneKeys.ts';
 
+/** 承認の問い合わせで、消し終わるのを待つ長さ。呼び鈴の 5 秒より短くする。 */
+export const APPROVAL_WAIT_MS = 4_000;
 /** `@` の問いが空のときに返す件数。 */
 export const ASK_RECENT_FILES = 30;
 /** `@` の問いがあるときに返す件数。PC の指示欄（listProjectFiles の既定）と同じ。 */
@@ -63,6 +66,8 @@ export type AskDeps = {
     options(dir: string | null): OpencodeOptionsDto | null;
     commands(dir: string | null): { name: string; description: string; kind: 'skill' | 'command' }[] | null;
   };
+  /** 削除の依頼への答えの口（#547）。省けば断る。 */
+  deleteApprovals?: { approve(id: string): Promise<'deleted' | 'failed' | 'missing'>; reject(id: string): boolean; dismiss(id: string): boolean };
   /**
    * Codex の口（0.12.0 で足した）。省けば Codex を使えない PC として答える。
    * ready は設定で有効にしてあり、手元に見つかること。options は手元に持った一覧で、取りに行かない（持っていなければ null。裏で取り直しを始めてよい）。
@@ -211,8 +216,23 @@ function opencodeCommandsReply(d: AskDeps, projectId: string | null): MobileRepl
  * opencode と Codex の問い合わせ（agent-options と、agent が opencode の commands）は、PC が手元に持った一覧で答え、取りに行かない。そのエージェントを使えない PC は agent-missing。Codex に commands は無い（bad-request）。
  * 手元に無いプロジェクトは project-missing、手元に無いアカウントは account-missing。投げない。
  */
+/**
+ * 削除の依頼への答え。消すのに時間がかかっても、呼び鈴の待ち（MOBILE_ASK_TIMEOUT_MS）のうちに返す。間に合わなければ accepted と答え、結果は受信箱の素が運ぶ。
+ */
+async function approvalReply(d: AskDeps, id: string, answer: MobileApprovalAnswer): Promise<MobileReply> {
+  const a = d.deleteApprovals;
+  if (!a) return { error: 'bad-request' };
+  if (answer === 'reject') return { approval: a.reject(id) ? 'done' : 'missing' };
+  if (answer === 'dismiss') return { approval: a.dismiss(id) ? 'done' : 'missing' };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const slow = new Promise<'accepted'>((resolve) => { timer = setTimeout(() => resolve('accepted'), APPROVAL_WAIT_MS); });
+  const r = await Promise.race([a.approve(id), slow]).finally(() => clearTimeout(timer));
+  return { approval: r === 'deleted' ? 'done' : r };
+}
+
 export async function replyTo(d: AskDeps, ask: unknown): Promise<MobileReply> {
   if (!isRecord(ask) || ask.v !== 1) return { error: 'bad-request' };
+  if (ask.kind === 'delete-approval' && typeof ask.id === 'string' && (ask.answer === 'approve' || ask.answer === 'reject' || ask.answer === 'dismiss')) return approvalReply(d, ask.id, ask.answer);
   if (ask.kind === 'files' && typeof ask.projectId === 'string' && typeof ask.q === 'string') return filesReply(d, ask.projectId, ask.q);
   const projectOk = ask.projectId === null || typeof ask.projectId === 'string';
   if (ask.kind === 'commands' && projectOk && typeof ask.accountId === 'string') {

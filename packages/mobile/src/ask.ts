@@ -1,5 +1,5 @@
 // shared を入口（index.ts）から読むと PC 向けの表まで束に入るので、使うものだけを直に読む。
-import { isMobileMode, type MobileAgent, type MobileAgentOptions, type MobileAsk, type MobileCodexOptions, type MobileAskIn, type MobileModelOption, type MobileReply } from '@agent-hangar/shared/src/mobile.ts';
+import { isMobileMode, type MobileAgent, type MobileAgentOptions, type MobileApprovalResult, type MobileAsk, type MobileCodexOptions, type MobileAskIn, type MobileModelOption, type MobileReply } from '@agent-hangar/shared/src/mobile.ts';
 import { isModelName } from '@agent-hangar/shared/src/summaryEngine.ts';
 import { aadAsk, aadReply, MobilePairingError, open, seal } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { mobileHeaders, originOf, unpairedOf, workerCompatOf, workerTooOld, type UnpairedReason } from './api.ts';
@@ -47,7 +47,7 @@ export class AskError extends Error {
 export type AskBody = MobileAsk extends infer A ? (A extends { v: 1 } ? Omit<A, 'v'> : never) : never;
 export type CommandHit = { name: string; description: string; kind: 'skill' | 'command' };
 export type FileHit = { path: string; changed: boolean };
-export type AskReply = { files: FileHit[] } | { commands: CommandHit[] } | { agentOptions: MobileAgentOptions | null } | { codexOptions: MobileCodexOptions | null };
+export type AskReply = { files: FileHit[] } | { commands: CommandHit[] } | { agentOptions: MobileAgentOptions | null } | { codexOptions: MobileCodexOptions | null } | { approval: MobileApprovalResult };
 
 /** 打つたびの問い合わせを出すまでに待つ長さ。 */
 export const ASK_DEBOUNCE_MS = 250;
@@ -187,6 +187,7 @@ function readReply(v: unknown): AskReply | { error: AskFailure } | null {
   if (!v || typeof v !== 'object') return null;
   const o = v as Record<string, unknown>;
   if (typeof o.error === 'string') return PC_REFUSALS.has(o.error as AskFailure) ? { error: o.error as AskFailure } : null;
+  if (o.approval === 'done' || o.approval === 'failed' || o.approval === 'accepted' || o.approval === 'missing') return { approval: o.approval };
   if (Array.isArray(o.files)) return { files: capFiles(o.files as unknown[]) };
   if (Array.isArray(o.commands)) return { commands: capCommands(o.commands as unknown[]) };
   if ('agentOptions' in o) {

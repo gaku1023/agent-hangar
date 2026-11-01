@@ -5,7 +5,38 @@ import { describe, expect, it, vi } from 'vitest';
 import { aadAsk, aadReply, MOBILE_AGENT_LABEL_MAX, MOBILE_AGENT_MODELS_MAX, MOBILE_CODEX_EFFORTS_MAX, MOBILE_CODEX_MODELS_MAX, MOBILE_REPLY_MAX_BYTES, open, seal, type CodexOptionsDto, type MobileAsk, type MobileReply, type OpencodeOptionsDto } from '@agent-hangar/shared';
 import { testKey } from '../../test/cloudConfig.ts';
 import { fixedPhoneKeys, PHONE_KEY_1, PHONE_KEY_2, phoneCryptoKey } from '../../test/phoneKeys.ts';
-import { answerAsk, ASK_COMMANDS_MAX, ASK_DESCRIPTION_MAX, ASK_RECENT_FILES, ASK_SEARCH_FILES, replyTo, type AskDeps } from './asks.ts';
+import { answerAsk, APPROVAL_WAIT_MS, ASK_COMMANDS_MAX, ASK_DESCRIPTION_MAX, ASK_RECENT_FILES, ASK_SEARCH_FILES, replyTo, type AskDeps } from './asks.ts';
+
+describe('削除の依頼への答え（#547）', () => {
+  const approvals = (o: Partial<NonNullable<AskDeps['deleteApprovals']>> = {}) => ({ approve: vi.fn(async () => 'deleted' as const), reject: vi.fn(() => true), dismiss: vi.fn(() => true), ...o });
+  const ask = (answer: unknown, id: unknown = 'a1') => ({ v: 1, kind: 'delete-approval', id, answer });
+  it('承認、断る、閉じるを振り分ける', async () => {
+    const a = approvals();
+    expect(await replyTo(deps({ deleteApprovals: a }), ask('approve'))).toEqual({ approval: 'done' });
+    expect(a.approve).toHaveBeenCalledWith('a1');
+    expect(await replyTo(deps({ deleteApprovals: a }), ask('reject'))).toEqual({ approval: 'done' });
+    expect(await replyTo(deps({ deleteApprovals: a }), ask('dismiss'))).toEqual({ approval: 'done' });
+  });
+  it('消せなかった、もう無いを返す', async () => {
+    expect(await replyTo(deps({ deleteApprovals: approvals({ approve: vi.fn(async () => 'failed' as const) }) }), ask('approve'))).toEqual({ approval: 'failed' });
+    expect(await replyTo(deps({ deleteApprovals: approvals({ reject: vi.fn(() => false) }) }), ask('reject'))).toEqual({ approval: 'missing' });
+  });
+  it('消すのが長引いても、呼び鈴の待ちのうちに accepted で返す', async () => {
+    vi.useFakeTimers();
+    try {
+      const p = replyTo(deps({ deleteApprovals: approvals({ approve: vi.fn(() => new Promise<'deleted'>(() => undefined)) }) }), ask('approve'));
+      await vi.advanceTimersByTimeAsync(APPROVAL_WAIT_MS);
+      expect(await p).toEqual({ approval: 'accepted' });
+    } finally { vi.useRealTimers(); }
+  });
+  it('形の違う問いと、口の無い PC は断り、何も呼ばない', async () => {
+    const a = approvals();
+    expect(await replyTo(deps({ deleteApprovals: a }), ask('delete'))).toEqual({ error: 'bad-request' });
+    expect(await replyTo(deps({ deleteApprovals: a }), ask('approve', 3))).toEqual({ error: 'bad-request' });
+    expect(a.approve).not.toHaveBeenCalled();
+    expect(await replyTo(deps(), ask('approve'))).toEqual({ error: 'bad-request' });
+  });
+});
 
 const mKey = (): Promise<CryptoKey> => phoneCryptoKey(PHONE_KEY_1);
 const ROOT = path.join(os.tmpdir(), 'hangar-asks-root');
