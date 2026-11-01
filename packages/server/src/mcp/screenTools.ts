@@ -2,6 +2,7 @@ import { getSession } from '../db/queries.ts';
 import { msg } from '../i18n/message.ts';
 import { aliveRunForSession } from '../runs/queries.ts';
 import { ToolError, type ToolContext, type ToolDeps } from './tools.ts';
+import { noteTurnStart } from './waitTool.ts';
 
 /**
  * send_to_session の text の上限（文字数）。
@@ -69,6 +70,8 @@ export async function sendToSessionTool(deps: ToolDeps, ctx: ToolContext, args: 
   const submit = typeof args.submit === 'boolean' ? args.submit : true;
   const name = paneOf(deps, id);
   if (!deps.runs.sendInput) throw new ToolError(msg('mcp.screen.noPanes'));
+  // 届ける前に残す。届いた直後に待ち始めた wait_for_session が、前のターンの idle を終わりと読まないためである。
+  if (submit) noteTurnStart(deps.db, id, { at: Date.now() });
   try {
     await deps.runs.sendInput(name, text, submit);
   } catch (e) {

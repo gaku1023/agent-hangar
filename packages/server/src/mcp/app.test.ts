@@ -56,6 +56,25 @@ describe('createMcpApp', () => {
     expect((await rpc('/', 'initialize', INIT, 1, { ...H, origin: 'http://127.0.0.1:4177' })).status).toBe(200);
     expect((await app.request('/', { method: 'POST', headers: { ...H, origin: 'http://localhost:5173' }, body: '{}' })).status).toBe(403);
   });
+  it('wait_for_session だけ SSE で答え、ほかの道具は JSON で答える', async () => {
+    const call = (name: string, args: unknown) => app.request('/', { method: 'POST', headers: H, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) });
+    const wait = await call('wait_for_session', { session_id: alphaId, timeout_seconds: 0 });
+    expect(wait.headers.get('content-type')).toContain('text/event-stream');
+    const data = (await wait.text()).split('\n').find((l) => l.startsWith('data:') && l.includes('result'))!;
+    const parsed = JSON.parse(data.slice(5)) as { result: { content: { text: string }[] } };
+    expect(JSON.parse(parsed.result.content[0]!.text)).toMatchObject({ session_id: alphaId, state: 'failed', reason: 'not_running' });
+    expect((await call('list_projects', {})).headers.get('content-type')).toContain('application/json');
+  });
+  it('wait_for_session は、呼び手が進みの札を付けたら待つ間に進みを流す', async () => {
+    const busy = createMcpApp({ db, deviceId: 'd', port: 4177, token: TOKEN, waitProgressMs: 50, runs: { start: () => { throw new Error('not in this test'); } }, usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }),
+      live: () => [{ sessionId: SESSION_ALPHA, status: 'busy', name: null, nameSource: null, cwd: '/x', pid: 1 }] });
+    const res = await busy.request('/', { method: 'POST', headers: H, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'wait_for_session', arguments: { session_id: alphaId, timeout_seconds: 1 }, _meta: { progressToken: 7 } } }) });
+    const events = (await res.text()).split('\n').filter((l) => l.startsWith('data:')).map((l) => JSON.parse(l.slice(5)) as { method?: string; params?: { progressToken?: number }; result?: unknown });
+    const beats = events.filter((e) => e.method === 'notifications/progress');
+    expect(beats.length).toBeGreaterThan(2);
+    expect(beats[0]!.params!.progressToken).toBe(7);
+    expect(events.at(-1)!.result).toBeDefined();
+  });
   it('initialize と tools/list', async () => {
     const init = await rpc('/', 'initialize', INIT);
     expect(init.status).toBe(200);

@@ -19,6 +19,7 @@ import { readEvents } from '../transcript/read.ts';
 import { deviceOfSession } from '../runs/handover.ts';
 import type { ReportService } from '../report/service.ts';
 import { readSessionScreenTool, sendToSessionTool } from './screenTools.ts';
+import { noteTurnStart, waitForSessionTool } from './waitTool.ts';
 
 export type ToolDeps = {
   db: Db;
@@ -60,6 +61,8 @@ export type ToolDeps = {
   openUrl?: (url: string) => Promise<void>;
   /** create_session と resume_session が起動を待つ上限（ミリ秒）。越えても準備が走っていれば、待たずに preparing で返す。渡さなければ LAUNCH_WAIT_MS。 */
   launchWaitMs?: number;
+  /** wait_for_session が進みを流す間隔（ミリ秒）。渡さなければ WAIT_PROGRESS_MS。 */
+  waitProgressMs?: number;
 };
 /** セッション別 URL では、そのセッションに固定される。共通 URL では null。 */
 export type ToolContext = { sessionId: string | null };
@@ -84,7 +87,7 @@ export const TOOL_NAMES = [
   'create_session', 'set_session_summary', 'set_turn_intent', 'get_usage', 'open_in_hangar',
   'propose_session_status', 'draft_issue_report', 'submit_issue_report',
   'stop_session', 'resume_session', 'delete_session',
-  'send_to_session', 'read_session_screen', 'notify_user', 'set_notify_preference',
+  'send_to_session', 'read_session_screen', 'wait_for_session', 'notify_user', 'set_notify_preference',
 ] as const;
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
@@ -466,6 +469,9 @@ export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
   const key = agent !== undefined && agent !== 'claude-code' ? newPrepKey() : undefined;
   // 呼んだセッションを起動元として残す。引き継ぎと、呼んだセッションが分からない共通の URL では残さない。
   const spawned = (id: string) => { if (ctx.sessionId && !bool(args.handoff)) recordSpawn(deps.db, id, ctx.sessionId, Date.now()); };
+  // 待つ道具（wait_for_session）が、起動の途中と起動直後の idle をターンの終わりと読まないための印。
+  const launchedAt = Date.now();
+  const marked = (id: string) => noteTurnStart(deps.db, id, { at: launchedAt, expectsReply: str(args.prompt) !== undefined, ...(key ? { prepKey: key } : {}) });
   let pending: string | null = null;
   const launch = Promise.resolve(deps.runs.start({
     projectId, name: str(args.name), prompt: str(args.prompt), model: str(args.model),
@@ -476,9 +482,10 @@ export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
   return awaitLaunch(deps, ctx, launch, {
     key, name: str(args.name) ?? agent ?? '', sessionId: () => pending,
     // 準備の間も、起こした会話を起動元の下に並べる。
-    detached: (id) => { spawned(id); },
+    detached: (id) => { spawned(id); marked(id); },
     done: (r) => {
       spawned(r.sessionId);
+      marked(r.sessionId);
       return { run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`), ...(account ? { account: account.name } : {}) };
     },
   });
@@ -560,7 +567,7 @@ export function resumeSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
   const key = s.provider !== 'claude-code' ? newPrepKey() : undefined;
   const launch = Promise.resolve(deps.runs.resumeWith(s.id, { ...(given !== undefined && account ? { account: account.id } : {}), ...(key ? { prepKey: key } : {}) }));
   return awaitLaunch(deps, ctx, launch, {
-    key, name: sessionTitle(s), sessionId: () => s.id, detached: () => undefined,
+    key, name: sessionTitle(s), sessionId: () => s.id, detached: () => { if (key) noteTurnStart(deps.db, s.id, { at: Date.now(), prepKey: key, expectsReply: false }); },
     done: (r) => ({ run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`), ...(account ? { account: account.name } : {}) }),
   });
 }
@@ -798,6 +805,7 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'submit_issue_report': return reportOf(deps, name).submit(args);
     case 'send_to_session': return sendToSessionTool(deps, ctx, args);
     case 'read_session_screen': return readSessionScreenTool(deps, ctx, args);
+    case 'wait_for_session': return waitForSessionTool(deps, ctx, args);
     default: throw new ToolError(msg('mcp.error.unknownTool', { name }));
   }
 }
