@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useEmit } from '../action/chain.tsx';
-import { isPickableAccount, switchLabel, type AccountView } from '../presenters/accounts.ts';
+import { fiveHourDropped, isPickableAccount, switchLabel, type AccountView } from '../presenters/accounts.ts';
 import type { HeaderAccountProps } from '../presenters/shell.ts';
 import type { AgentUsageView } from '../presenters/accounts.ts';
 import { AccountMeters, MeterRow } from './primitives/AccountMeters.tsx';
@@ -203,7 +203,7 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
 
 /**
  * 面の Codex の節の札。Codex にはアカウントの切り替えが無いので、押せる札（ボタン）にしない。
- * 中身は Claude の札（AccountMeters）と同じ格子で、名前の行、最終更新の行、5 時間と週の行。Codex の会話を開いているときだけ、右上に「このセッション」と出す。
+ * 中身は Claude の札（AccountMeters）と同じ格子で、名前の行、最終更新の行、5 時間と週の行（5 時間の枠が無ければ週だけ）。Codex の会話を開いているときだけ、右上に「このセッション」と出す。
  */
 function CodexCard(props: { usage: AgentUsageView; here: boolean }) {
   const t = useT();
@@ -220,7 +220,7 @@ function CodexCard(props: { usage: AgentUsageView; here: boolean }) {
         <span className="account-mail">{u.updatedLabel === null ? '' : t('accountSwitcher.codex.updated', { time: u.updatedLabel })}</span>
         {u.fiveHour === null && u.sevenDay === null ? <span className="account-none">{t('account.meters.noValue')}</span> : (
           <>
-            <MeterRow name={name} label={t('account.meters.fiveHourLabel')} short={t('account.meters.fiveHourShort')} gauge={u.fiveHour} showResets />
+            <MeterRow name={name} label={t('account.meters.fiveHourLabel')} short={t('account.meters.fiveHourShort')} gauge={u.fiveHour} showResets present={!fiveHourDropped(u)} />
             <MeterRow name={name} label={t('account.meters.weekLabel')} short={t('account.meters.weekShort')} gauge={u.sevenDay} showResets />
           </>
         )}

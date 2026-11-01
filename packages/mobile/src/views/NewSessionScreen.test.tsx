@@ -10,7 +10,7 @@ import { at1, feedOf, inboxOf, liveItem, makeKey, MIN, ring } from '../test/fixt
 import { WORKER } from '../test/pairText.ts';
 import type { PhoneKey } from '../store.ts';
 import { clearLaunchDefaults, saveLaunchDefaults } from '../launchDefaults.ts';
-import { NewSessionScreen } from './NewSessionScreen.tsx';
+import { NewSessionScreen, accountUsageSub } from './NewSessionScreen.tsx';
 
 let key: CryptoKey;
 const pairing = { url: WORKER, token: 'tok-1', deviceId: 'phone-1' };
@@ -485,5 +485,13 @@ describe('NewSessionScreen と新しい会話のデフォルト（設定）', ()
     fireEvent.change(prompt(), { target: { value: 'a' } });
     fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
     expect(specOf(onLaunch).payload).not.toHaveProperty('effort');
+  });
+});
+
+describe('accountUsageSub', () => {
+  it('5 時間があれば 5 時間、5 時間の枠が無ければ週、どちらも無ければ出さない', () => {
+    expect(accountUsageSub({ fiveHour: 32.4, sevenDay: 10 })).toBe('5 時間 32%');
+    expect(accountUsageSub({ fiveHour: null, sevenDay: 9 })).toBe('週 9%');
+    expect(accountUsageSub({ fiveHour: null, sevenDay: null })).toBeUndefined();
   });
 });

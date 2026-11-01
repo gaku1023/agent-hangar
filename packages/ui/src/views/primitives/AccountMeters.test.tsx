@@ -114,4 +114,9 @@ describe('AccountMeters', () => {
     expect(screen.queryByText('ブラウザで承認してください…')).toBeNull();
     expect(container.querySelector('.account-mail')!.textContent).toBe('');
   });
+  it('5 時間の枠が無い（週だけ）なら、5 時間の行を出さない', () => {
+    render(<AccountMeters account={view({ usage: { fiveHour: null, sevenDay: { usedPercent: 9, resetsAt: null }, updatedAt: NOW - 60_000 } })} showResets={false} />);
+    expect(screen.queryByRole('meter', { name: '会社 5 時間の使用率' })).toBeNull();
+    expect(screen.getByRole('meter', { name: '会社 週の使用率' })).toHaveAttribute('aria-valuenow', '9');
+  });
 });

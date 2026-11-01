@@ -37,14 +37,14 @@ export class AgentUsageTracker {
     this.enabled = o.enabled ?? (() => true);
   }
 
-  /** 窓を重ねる。受けたら真。切のときと、より新しい観測がすでにあるときは偽。 */
+  /** 窓を重ねる。受けたら真。週だけの更新は 5 時間の枠が無いとみなし、前の 5 時間を消す（UsageTracker と同じ読み）。切のときと、より新しい観測がすでにあるときは偽。 */
   set(agent: UsageAgent, w: AgentWindows, at: number, accountId: string = PRIMARY_ACCOUNT_ID): boolean {
     if (!this.enabled()) return false;
     const key = keyOf(agent, accountId);
     const prev = this.state.get(key);
     if (prev && prev.updatedAt !== null && at < prev.updatedAt) return false;
     const next: AgentUsageDto = {
-      fiveHour: w.fiveHour ?? prev?.fiveHour ?? null, sevenDay: w.sevenDay ?? prev?.sevenDay ?? null,
+      fiveHour: w.fiveHour ?? (w.sevenDay ? null : prev?.fiveHour ?? null), sevenDay: w.sevenDay ?? prev?.sevenDay ?? null,
       plan: w.plan ?? prev?.plan ?? null, updatedAt: at,
     };
     this.state.set(key, next);

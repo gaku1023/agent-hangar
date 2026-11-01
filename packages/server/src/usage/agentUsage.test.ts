@@ -21,6 +21,12 @@ describe('Claude 以外のエージェントの枠', () => {
     t.set('codex', { fiveHour: W(30, 9500), sevenDay: null, plan: null }, 200);
     expect(t.of('codex')).toEqual({ fiveHour: W(30, 9500), sevenDay: W(20, 99000), updatedAt: 200, plan: 'plus' });
   });
+  it('週だけの更新は、5 時間の枠が無いとみなして前の 5 時間を消す', () => {
+    const t = new AgentUsageTracker({ now: () => 1 });
+    t.set('codex', { fiveHour: W(10, 9000), sevenDay: W(20, 99000), plan: 'plus' }, 100);
+    t.set('codex', { fiveHour: null, sevenDay: W(25, 99000), plan: null }, 200);
+    expect(t.of('codex')).toEqual({ fiveHour: null, sevenDay: W(25, 99000), updatedAt: 200, plan: 'plus' });
+  });
   it('観測の時刻が古い値は、新しいものを上書きしない（いちばん新しいものを使う）', () => {
     const t = new AgentUsageTracker({ now: () => 1 });
     t.set('codex', { fiveHour: W(30, 9500), sevenDay: null, plan: null }, 200);

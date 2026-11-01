@@ -2,7 +2,7 @@ import { PRIMARY_ACCOUNT_ID, type InterruptedItemDto, type LiveStatus, type Sess
 import { clientPlatform } from '../keys.ts';
 import type { State } from '../mediator/types.ts';
 import { hasMultipleAccounts, runningSessionIds, type Store } from '../store/store.ts';
-import { isPickableAccount, presentAccounts, type AccountView } from './accounts.ts';
+import { isPickableAccount, presentAccounts, type AccountView, leadGauge } from './accounts.ts';
 import { resetsLabel } from './format.ts';
 import type { BandAction, BandGroup, BandRow, BandSection } from './home.ts';
 import { translatorOf } from './i18n.ts';
@@ -38,11 +38,11 @@ function action(t: Translate, id: string, label: string, name: string, send: UiA
   return { id, label, ariaLabel: t('home.band.actionFor', { action: label, name }), primary: kind === 'primary', ghost: kind === 'ghost', send, ...(o.disabled ? { disabled: true } : {}), ...(o.icon ? { icon: o.icon } : {}) };
 }
 
-/** アカウントの小見出し。5 時間の使用率と、制限に近いことか未ログインを添える。 */
+/** アカウントの小見出し。5 時間の使用率（5 時間の枠が無ければ週）と、制限に近いことか未ログインを添える。 */
 function sectionOf(t: Translate, a: AccountView): BandSection {
   const out = !isPickableAccount(a);
-  const meter = a.fiveHour ? { percent: a.fiveHour.percent, label: t('accountSwitcher.face.fiveHour', { percent: Math.round(a.fiveHour.percent) }), high: a.fiveHour.high } : null;
-  const note = out ? { text: t('interrupted.account.loggedOut'), tone: 'faint' as const } : a.fiveHour?.high ? { text: t('interrupted.account.nearLimit'), tone: 'warn' as const } : null;
+  const meter = leadGauge(t, a);
+  const note = out ? { text: t('interrupted.account.loggedOut'), tone: 'faint' as const } : meter?.high ? { text: t('interrupted.account.nearLimit'), tone: 'warn' as const } : null;
   return { key: a.id, name: a.name, color: a.color, meter, note, action: out ? action(t, 'login', t('interrupted.account.login'), a.name, { type: 'account.login', accountId: a.id }) : null };
 }
 

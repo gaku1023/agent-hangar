@@ -1,4 +1,7 @@
+import { useRef } from 'react';
 import { percentLabel } from '../../presenters/format.ts';
+import { collapseOut, motionOn } from './motionKit.ts';
+import { usePresence } from './usePresence.ts';
 import { foldAt } from '../headerFold.ts';
 import { useT } from './language.tsx';
 import { RollingNumber } from './RollingNumber.tsx';
@@ -12,16 +15,23 @@ import { ReasonGlyph } from './StatusDot.tsx';
  * 棒はヘッダーが狭いときに畳む（headerFold.ts）。見出しと数字は残す。
  * limited は、その枠の使用制限でセッションが止まっているときのリセットの時刻（試作 stop-reason-proto の H2）。
  * そのときは砂時計を添えて棒を使用制限の色にし、% の代わりに時刻を出す。
+ * present が偽になったら（5 時間の枠が無くなった）、横に畳んで外す（collapseOut）。畳む間は最後の値のまま出す。
  */
-export function UsageGauge(props: { label: string; short?: string; percent: number | null; resets?: string | null; updated?: string | null; limited?: string | null }) {
+export function UsageGauge(live: { label: string; short?: string; percent: number | null; resets?: string | null; updated?: string | null; limited?: string | null; present?: boolean }) {
   const t = useT();
+  const open = live.present ?? true;
+  const last = useRef(live);
+  if (open) last.current = live;
+  const p = usePresence<HTMLSpanElement>(open, (el) => (motionOn(el) ? collapseOut(el, 'x') : null));
+  if (!p.mounted) return null;
+  const props = open ? live : last.current;
   const limited = props.limited ?? null;
   const pct = limited !== null ? 100 : props.percent === null ? 0 : Math.max(0, Math.min(100, props.percent));
   const title = limited !== null
     ? t('stop.header.gaugeTitle', { label: props.label, time: limited })
     : `${props.label} ${percentLabel(t, props.percent)}${props.resets ? t('header.gauge.resetsTitle', { time: props.resets }) : ''}${props.updated ? t('header.gauge.updatedTitle', { time: props.updated }) : ''}`;
   return (
-    <span className="gauge" title={title} data-limit={limited !== null ? 'true' : undefined}>
+    <span ref={p.ref} className="gauge" aria-hidden={p.leaving ? true : undefined} title={title} data-limit={limited !== null ? 'true' : undefined}>
       {limited !== null && <ReasonGlyph reason="limit" />}
       {props.short && <span className="gauge-key" aria-hidden="true">{props.short}</span>}
       <span className="gauge-bar" data-fold-at={foldAt('gauge-bars')} role="meter" aria-label={props.label} aria-valuenow={limited !== null ? 100 : props.percent ?? undefined} aria-valuemin={0} aria-valuemax={100}>

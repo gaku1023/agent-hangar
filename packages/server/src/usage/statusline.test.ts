@@ -77,6 +77,28 @@ describe('UsageTracker', () => {
     const again = new UsageTracker(db, { now: () => t, keep: 3 });
     expect(again.current()).toEqual({ fiveHour: { usedPercent: 47, resetsAt: 1_760_000_000_000 }, sevenDay: { usedPercent: 7, resetsAt: 1_760_500_000_000 }, updatedAt: t });
   });
+  it('週だけの読みが届いたら、5 時間の枠は撤廃されたとみなし、前の値を引き継がない', () => {
+    const db = openDb(':memory:');
+    let t = 1_000;
+    const tr = new UsageTracker(db, { now: () => t });
+    tr.ingest(second);
+    t = 2_000;
+    const r = tr.ingest({ ...second, rate_limits: { seven_day: { used_percentage: 9, resets_at: 1_760_500_000 } } })!;
+    expect(r.usageChanged).toBe(true);
+    expect(r.usage).toEqual({ fiveHour: null, sevenDay: { usedPercent: 9, resetsAt: 1_760_500_000_000 }, updatedAt: 2_000 });
+    // 起動し直しても、それより古い行の 5 時間で埋めない。
+    expect(new UsageTracker(db, { now: () => t }).current()).toEqual(r.usage);
+  });
+  it('5 時間だけの読みは、週を前の値のままにする', () => {
+    const db = openDb(':memory:');
+    let t = 1_000;
+    const tr = new UsageTracker(db, { now: () => t });
+    tr.ingest(second);
+    t = 2_000;
+    const r = tr.ingest({ ...second, rate_limits: { five_hour: { used_percentage: 50, resets_at: 1_760_000_000 } } })!;
+    expect(r.usage).toEqual({ fiveHour: { usedPercent: 50, resetsAt: 1_760_000_000_000 }, sevenDay: { usedPercent: 7, resetsAt: 1_760_500_000_000 }, updatedAt: 2_000 });
+    expect(new UsageTracker(db, { now: () => t }).current()).toEqual(r.usage);
+  });
   it('同じミリ秒の 2 件は at をずらして両方残す。壊れた payload は null', () => {
     const db = openDb(':memory:');
     const tr = new UsageTracker(db, { now: () => 5 });

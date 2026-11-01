@@ -62,6 +62,7 @@ const EMPTY: UsageDto = { fiveHour: null, sevenDay: null, updatedAt: null };
 /**
  * 使用率の現在値をアカウントごとに持ち、payload を積む。
  * 使用率は Claude のセッションが動いている間だけ届くので、値が無い payload では直前の値を保つ。
+ * ただし週を持ち 5 時間を持たない payload は、5 時間の枠が撤廃されたアカウントとみなし、5 時間を null にする（枠は順に撤廃されている）。
  * 本文の置き場はアカウントの間で共有なので、どのアカウントの値かは payload からは分からない。
  * 呼び手が渡す accountOf が、セッションの id から run を引いて決める。
  */
@@ -86,19 +87,25 @@ export class UsageTracker {
   /** 戻る時刻を過ぎた窓は 0% として返す（usageAt）。持っている値そのものは次の payload まで変えない。 */
   of(accountId: string): UsageDto { return usageAt(this.state.get(accountId) ?? EMPTY, this.now()); }
 
-  /** アカウントごとに新しい順に読み、両方の窓が埋まるか行が尽きるまで辿る。 */
+  /**
+   * アカウントごとに新しい順に読み、両方の窓が埋まるか行が尽きるまで辿る。
+   * 5 時間の窓を持たずに週を持つ行より古い行では、5 時間を探さない（その時点で 5 時間の枠は撤廃されている。ingest と同じ読み）。
+   */
   private restore(): void {
     const accounts = (this.db.prepare('select distinct coalesce(account, ?) a from usage_snapshots').all(PRIMARY_ACCOUNT_ID) as { a: string }[]).map((r) => r.a);
     for (const a of accounts) {
       const rows = this.db.prepare('select at, payload from usage_snapshots where coalesce(account, ?) = ? order by at desc limit ?').all(PRIMARY_ACCOUNT_ID, a, this.keep) as { at: number; payload: string }[];
       let s: UsageDto = EMPTY;
+      let fiveSettled = false;
       for (const r of rows) {
         let p: StatuslinePayload | null = null;
         try { p = parseStatusline(JSON.parse(r.payload)); } catch { continue; }
         if (!p?.rateLimits) continue;
-        if (s.fiveHour === null && p.rateLimits.fiveHour) s = { ...s, fiveHour: p.rateLimits.fiveHour, updatedAt: s.updatedAt ?? r.at };
+        if (!fiveSettled && p.rateLimits.fiveHour) s = { ...s, fiveHour: p.rateLimits.fiveHour, updatedAt: s.updatedAt ?? r.at };
         if (s.sevenDay === null && p.rateLimits.sevenDay) s = { ...s, sevenDay: p.rateLimits.sevenDay, updatedAt: s.updatedAt ?? r.at };
-        if (s.fiveHour && s.sevenDay) break;
+        // rateLimits を持つ最初の行が、5 時間を持つか、週だけで撤廃を示すかのどちらかで、5 時間はそこで決まる。
+        fiveSettled = true;
+        if (fiveSettled && s.sevenDay) break;
       }
       if (s !== EMPTY) this.state.set(a, s);
     }
@@ -129,7 +136,9 @@ export class UsageTracker {
     const before = this.of(accountId);
     let usageChanged = false;
     if (p.rateLimits) {
-      const next: UsageDto = { fiveHour: p.rateLimits.fiveHour ?? before.fiveHour, sevenDay: p.rateLimits.sevenDay ?? before.sevenDay, updatedAt: at };
+      // 週を持ち 5 時間を持たない読みは、5 時間の枠が撤廃されたアカウントである。前の 5 時間を引き継がない。
+      const fiveHour = p.rateLimits.fiveHour ?? (p.rateLimits.sevenDay ? null : before.fiveHour);
+      const next: UsageDto = { fiveHour, sevenDay: p.rateLimits.sevenDay ?? before.sevenDay, updatedAt: at };
       usageChanged = !sameWindow(next.fiveHour, before.fiveHour) || !sameWindow(next.sevenDay, before.sevenDay) || before.updatedAt === null;
       this.state.set(accountId, next);
     }
