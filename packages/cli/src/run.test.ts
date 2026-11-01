@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { EXIT, exitCodeOf, runCommand, type RunCommandOptions, type RunServer } from './run.ts';
 
@@ -29,8 +30,8 @@ function fakeMcp(handler: Handler) {
 }
 
 const PROJECTS = [
-  { id: 'p1', name: 'alpha', path: '/w/alpha' },
-  { id: 'p2', name: 'alpha-sub', path: '/w/alpha/sub' },
+  { id: 'p1', name: 'alpha', path: path.resolve('/w/alpha') },
+  { id: 'p2', name: 'alpha-sub', path: path.resolve('/w/alpha/sub') },
   { id: 'p3', name: 'other', path: null },
 ];
 const finished = { session_id: 's1', state: 'finished', status: 'idle', last_message: '答えです', waited_seconds: 3, url: 'u' };
@@ -58,7 +59,7 @@ async function run(handler: Handler, opts: Partial<RunCommandOptions> = {}) {
   const err: string[] = [];
   const { s, log } = server();
   const code = await runCommand({
-    port: 4177, token: 'tok', json: false, timeoutSeconds: 1800, cwd: '/w/alpha/sub/deep', prompt: 'やって',
+    port: 4177, token: 'tok', json: false, timeoutSeconds: 1800, cwd: path.resolve('/w/alpha/sub/deep'), prompt: 'やって',
     fetch: mcp.fetchFn, server: s, isRunning: async () => true, log: (l) => out.push(l), error: (l) => err.push(l), ...opts,
   });
   return { code, calls: mcp.calls, out, err, serverLog: log };
@@ -87,7 +88,7 @@ describe('hangar run', () => {
   it('--project は id でもパスでも指せる。--agent などは create_session に渡す', async () => {
     const byId = await run(basicHandler(), { project: 'p1', agent: 'codex', model: 'm', name: 'n', effort: 'high', permissionMode: 'auto' });
     expect(byId.calls.find((c) => c.name === 'create_session')!.args).toEqual({ project_id: 'p1', prompt: 'やって', agent: 'codex', model: 'm', name: 'n', effort: 'high', permission_mode: 'auto' });
-    const byPath = await run(basicHandler(), { project: '/w/alpha' });
+    const byPath = await run(basicHandler(), { project: path.resolve('/w/alpha') });
     expect(byPath.calls.find((c) => c.name === 'create_session')!.args.project_id).toBe('p1');
   });
 
@@ -168,7 +169,7 @@ describe('hangar run', () => {
     const mcp = fakeMcp(basicHandler());
     const out: string[] = [];
     const code = await runCommand({
-      port: 4177, token: 'tok', json: true, timeoutSeconds: 10, cwd: '/w/alpha', prompt: 'x', fetch: mcp.fetchFn,
+      port: 4177, token: 'tok', json: true, timeoutSeconds: 10, cwd: path.resolve('/w/alpha'), prompt: 'x', fetch: mcp.fetchFn,
       server: { ensure: async () => { throw new Error('boom'); }, stop: async () => undefined }, log: (l) => out.push(l), error: () => undefined,
     });
     expect(code).toBe(2);
@@ -178,7 +179,7 @@ describe('hangar run', () => {
   it('自分で起こしたサーバは終わりに止める。元から居たサーバは止めない', async () => {
     const mcp = fakeMcp(basicHandler());
     const stops: string[] = [];
-    await runCommand({ port: 4177, token: 'tok', json: false, timeoutSeconds: 10, cwd: '/w/alpha', prompt: 'x', fetch: mcp.fetchFn, log: () => undefined, error: () => undefined,
+    await runCommand({ port: 4177, token: 'tok', json: false, timeoutSeconds: 10, cwd: path.resolve('/w/alpha'), prompt: 'x', fetch: mcp.fetchFn, log: () => undefined, error: () => undefined,
       server: { ensure: async () => ({ owned: true }), stop: async () => { stops.push('stop'); } } });
     expect(stops).toEqual(['stop']);
     const r = await run(basicHandler());
@@ -195,7 +196,7 @@ describe('hangar run', () => {
       return inner.fetchFn(input, init);
     }) as typeof fetch;
     const out: string[] = [];
-    const code = await runCommand({ port: 4177, token: 'tok', json: false, timeoutSeconds: 10, cwd: '/w/alpha', prompt: 'x', fetch: fetchFn, log: (l) => out.push(l), error: () => undefined,
+    const code = await runCommand({ port: 4177, token: 'tok', json: false, timeoutSeconds: 10, cwd: path.resolve('/w/alpha'), prompt: 'x', fetch: fetchFn, log: (l) => out.push(l), error: () => undefined,
       server: { ensure: async () => { ensures++; return { owned: false }; }, stop: async () => undefined } });
     expect(code).toBe(0);
     expect(ensures).toBe(2);
