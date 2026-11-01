@@ -24,6 +24,7 @@ export const TOOL_CLASSES: Record<(typeof TOOL_NAMES)[number], ToolClass> = {
   get_usage: { kind: 'read', why: "Reads usage only, with no credentials." },
   open_in_hangar: { kind: 'read', why: "Returns a link and does not move the screen." },
   read_session_screen: { kind: 'read', why: "Reads another session's screen only." },
+  wait_for_session: { kind: 'read', why: "Waits for a session's turn to end and reads the result. It changes nothing." },
   update_project: { kind: 'write', why: "TODOs stay proposals. Only the user marks them done." },
   set_session_summary: { kind: 'write', why: "Writes the summary of the session itself." },
   set_turn_intent: { kind: 'write', why: "Writes the intent of the session itself." },
