@@ -1,6 +1,6 @@
 import { LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE } from '@agent-hangar/shared';
 import type { AccountLinkConflictDto, LinkConflictsDto, EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
-import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
+import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto, SessionLaunchSettingsDto } from '@agent-hangar/shared';
 import type { SharePreviewAgent, SharePreviewDto, AccountDirPreviewDto, AccountsDto, AgentAccountsDto, ArtifactDto, CodexOptionsDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MobilePairedDto, MobilePairingDto, MuxRecheckDto, OpencodeOptionsDto, OpencodeStatusDto, CodexStatusDto, OpencodeProvidersDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeCustomProviderBody, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
@@ -196,6 +196,9 @@ export type ApiClient = {
   answerDeleteApproval(id: string, answer: 'approve' | 'reject' | 'dismiss'): Promise<unknown>;
   /** 開いたセッションを既読にする（未読の数を 0 にする）。 */
   markSeen(sessionId: string): Promise<void>;
+  markUnread(sessionId: string): Promise<void>;
+  setPinned(sessionId: string, pinned: boolean): Promise<void>;
+  launchSettings(sessionId: string): Promise<SessionLaunchSettingsDto>;
   memo(projectId: string): Promise<MemoDto>;
   saveMemo(projectId: string, markdown: string): Promise<MemoDto>;
   /** プロジェクトの指示とメモリ。あるファイルだけが来る。 */
@@ -416,6 +419,9 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     answerDeleteApproval: (id, answer) => post(`/api/delete-approvals/${encodeURIComponent(id)}/${answer}`),
     dismissOverlap: (sessionId, other, paths) => post(`/api/sessions/${sessionId}/overlap/dismiss`, { with: other, paths }),
     markSeen: (sessionId) => post(`/api/sessions/${sessionId}/seen`, {}),
+    markUnread: (sessionId) => post(`/api/sessions/${sessionId}/unread`, {}),
+    setPinned: (sessionId, pinned) => post(`/api/sessions/${sessionId}/pin`, { pinned }),
+    launchSettings: (sessionId) => call(`/api/sessions/${sessionId}/launch-settings`),
     memo: (projectId) => call(`/api/projects/${projectId}/memo`),
     saveMemo: (projectId, markdown) => call(`/api/projects/${projectId}/memo`, { method: 'PUT', body: JSON.stringify({ markdown }) }),
     instructions: (projectId) => call(`/api/projects/${projectId}/instructions`),

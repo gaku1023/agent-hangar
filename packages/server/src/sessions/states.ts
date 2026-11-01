@@ -30,6 +30,8 @@ type StateRow = {
   trashed_at: number | null;
   /** 明示の復元の時刻（版 27）。印はこれが印より新しいときだけ外れる（sync/apply.ts）。 */
   restored_at: number | null;
+  /** ピン留めした時刻（版 43）。null なら留めていない。状態の書き込みでは触らない（setSessionPinned）。 */
+  pinned_at: number | null;
   updated_at: number; deleted_at: number | null; origin_device: string;
 };
 /** DTO に写すのに要る列。db/queries.ts の左結合の行も、この形に詰め直して渡す。 */
@@ -162,6 +164,13 @@ export function setSessionPlacement(db: Db, deviceId: string, sessionId: string,
  * 行の updated_at は、今と、手元の行の updated_at より 1 だけ後の、遅い方にする。
  * 手元の行は時計の進んだほかの PC が書いたことがある。クラウドは行ごとの後勝ち（packages/cloud/src/changes.ts）なので、今の時刻で書くと印や復元がその行に負ける。
  */
+export function setSessionPinned(db: Db, deviceId: string, sessionId: string, pinned: boolean, now = Date.now()): void {
+  const cur = db.prepare('select pinned_at, updated_at from session_states where session_id = ?').get(sessionId) as Pick<StateRow, 'updated_at'> & { pinned_at: number | null } | undefined;
+  // 押し直しでは書かない。留めた時刻は並びの順なので、変えると行が動く。
+  if ((cur?.pinned_at ?? null) !== null === pinned) return;
+  write(db, deviceId, sessionId, { pinned_at: pinned ? now : null }, Math.max(now, (cur?.updated_at ?? 0) + 1));
+}
+
 export function setSessionTrashed(db: Db, deviceId: string, sessionId: string, at: number | null, now = Date.now()): void {
   const cur = db.prepare('select trashed_at, restored_at, updated_at from session_states where session_id = ?').get(sessionId) as Pick<StateRow, 'trashed_at' | 'restored_at' | 'updated_at'> | undefined;
   const rowAt = Math.max(now, (cur?.updated_at ?? 0) + 1);

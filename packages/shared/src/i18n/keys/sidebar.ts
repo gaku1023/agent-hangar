@@ -2,6 +2,7 @@ import type { MessageSpec } from '../messageSpec.ts';
 
 export const sidebarKeys = {
   'sidebar.live.label': [],
+  'sidebar.pins.label': [],
   'sidebar.count.waiting': ['n'],
   'sidebar.count.unread': ['n'],
   'sidebar.live.nest': ['name'],

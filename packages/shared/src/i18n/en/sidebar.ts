@@ -3,6 +3,7 @@ import type { AreaDictionary } from '../messageSpec.ts';
 
 export const sidebarEn: AreaDictionary<typeof sidebarKeys> = {
   'sidebar.live.label': 'Running sessions',
+  'sidebar.pins.label': 'Pinned sessions',
   'sidebar.count.waiting': ', needs input {n}',
   'sidebar.count.unread': ', {n} unread',
   'sidebar.live.nest': 'Sessions started by {name}',

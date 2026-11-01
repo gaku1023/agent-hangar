@@ -688,7 +688,7 @@ create table session_spawns (
 /**
  * MCP の delete_session の依頼を、利用者が答えるまで預かる表（#547）。手元だけの表で、同期しない。会話 1 つに 1 行。
  */
-const V43_DELETE_APPROVALS_SQL = `
+const V44_DELETE_APPROVALS_SQL = `
 create table delete_approvals (
   id text primary key,
   session_id text not null unique,
@@ -707,6 +707,15 @@ create table session_unread (
   latest_text text,
   latest_at integer not null
 );
+`;
+
+/**
+ * 版 43。session_states にピン留めの時刻（pinned_at）を足す（2026-11-02）。
+ * ピンは利用者が決める会話の属性で、2 台の PC で同期するので、状態や移した先と同じ行に置く。null は留めていないこと。
+ * 版 25 と同じく列を足すだけなので、クラウド（Worker）にマイグレーションは要らず、互換の版も変えない。
+ */
+const V43_SESSION_PINNED_SQL = `
+alter table session_states add column pinned_at integer;
 `;
 
 /**
@@ -742,5 +751,6 @@ export const MIGRATIONS: Migration[] = [
   { version: 40, sql: V40_SESSION_SPAWNS_SQL },
   { version: 41, sql: V41_CHANGES_UNPUSHED_SQL },
   { version: 42, sql: V42_SESSION_ALIASES_SQL },
-  { version: 43, sql: V43_DELETE_APPROVALS_SQL },
+  { version: 43, sql: V43_SESSION_PINNED_SQL },
+  { version: 44, sql: V44_DELETE_APPROVALS_SQL },
 ];

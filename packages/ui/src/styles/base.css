@@ -165,6 +165,15 @@ a:hover { text-decoration: underline; }
    見出しは置かず、プロジェクトのグループの見出しから始める。行は掴んで上下に動かせ、入る場所に線を出す。 */
 .side-live { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: calc(var(--u) * 3); padding-top: calc(var(--u) * 2.5); border-top: 1px solid rgba(30, 40, 90, 0.1); }
 .side-live-list { list-style: none; margin: 0; padding: 0; }
+/* ピンの段。一覧の上に固定し、一覧のスクロールに混ぜない。多すぎるときは段の中で流す。下の線で一覧と分ける。 */
+.side-pins { flex: none; max-height: 40%; overflow-y: auto; scrollbar-width: thin; }
+.side-pins > .side-live-list { padding-bottom: calc(var(--u) * 2); }
+.side-pins + .side-live-scroll:not(:empty) { padding-top: calc(var(--u) * 2); border-top: 1px solid rgba(30, 40, 90, 0.1); }
+.side-pins .side-live-row { cursor: pointer; }
+.side-pins .side-live-row:active { cursor: pointer; }
+/* 止まった会話は丸を白抜きにする。動いている丸と見分けるためである。 */
+.side-pins .side-live-row:not([data-live]) .dot { background: none; box-shadow: inset 0 0 0 1.5px var(--ended); }
+.side-pins .side-live-row:not([data-live]) .side-live-name { color: var(--ink-2); }
 .side-live-row { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 30px; padding: 0 calc(var(--u) * 2) 0 calc(var(--u) * 3); border-radius: var(--r); color: var(--ink); cursor: grab; min-width: 0; transition: background var(--dur-fast) var(--ease-out); -webkit-user-select: none; user-select: none; -webkit-user-drag: none; }
 .side-live-row:hover, .side-live-row[data-menu='true'] { background: rgba(255, 255, 255, 0.5); text-decoration: none; }
 .side-live-row:active { cursor: grabbing; }

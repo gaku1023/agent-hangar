@@ -10,7 +10,7 @@ const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id,
 const props = (rows: SideLiveRow[]): SideLiveProps => {
   const g: SideLiveGroup = { key: 'web', name: 'web', open: true, waiting: 0, rows };
   const alive = rows.filter((r) => !r.dim);
-  return { count: alive.length, ids: alive.map((r) => r.id), rows, groups: [g] };
+  return { count: alive.length, ids: alive.map((r) => r.id), rows, groups: [g], pins: [] };
 };
 const mount = (live: SideLiveProps, onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></ActionRoot>), onAction });
 const family = () => [

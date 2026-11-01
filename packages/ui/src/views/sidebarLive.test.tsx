@@ -237,7 +237,7 @@ const menuOf = (id: string, stop: SessionMenuProps['stop'] = { runId: `r-${id}`,
 const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', aside: false, reason: null, waited: null, current: false, menu: menuOf(id), ...over });
 // 行を 1 つのグループ（web）にまとめた形。groups を渡せば、それで分ける。
 const group = (key: string, rows: SideLiveRow[], over: Partial<SideLiveGroup> = {}): SideLiveGroup => ({ key, name: key === '' ? '未分類' : key, open: true, waiting: rows.filter((r) => r.live === 'waiting').length, rows, ...over });
-const shaped = (rows: SideLiveRow[], groups: SideLiveGroup[] = [group('web', rows)]): SideLiveProps => ({ count: rows.length, ids: groups.flatMap((g) => g.rows.map((r) => r.id)), rows: groups.flatMap((g) => g.rows), groups });
+const shaped = (rows: SideLiveRow[], groups: SideLiveGroup[] = [group('web', rows)]): SideLiveProps => ({ count: rows.length, ids: groups.flatMap((g) => g.rows.map((r) => r.id)), rows: groups.flatMap((g) => g.rows), groups, pins: [] });
 const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ ...shaped([row('a'), row('b', { live: 'waiting', waited: '入力待ち 4 分' }), row('c', { current: true })]), ...over });
 const mount = (live: SideLiveProps, onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></ActionRoot>), onAction });
 // 並べ替えの途中で一覧が変わったことにする。行は ids の順に並べ、並びの計算にも同じ ids を渡す。
@@ -824,8 +824,8 @@ describe('行のメニュー（右クリックと .）', () => {
     expect(screen.getAllByRole('menuitemradio').map((i) => [i.textContent, i.getAttribute('aria-checked')])).toEqual([['Activeu', 'true'], ['Pausedp', 'false'], ['Doned', 'false'], ['Archiveda', 'false']]);
     const items = screen.getAllByRole('menuitem');
     // 停止の補足の 1 行は出さない。
-    expect(items.map((i) => i.textContent)).toEqual(['右に分割して開く', '下に分割して開く', 'プロジェクトを変更…m', 'セッション ID をコピー', '停止']);
-    expect(items[4]).toHaveAttribute('data-danger', 'true');
+    expect(items.map((i) => i.textContent)).toEqual(['未読に戻す', 'ピン留めする', '同じ設定で新しいセッション…', '右に分割して開く', '下に分割して開く', 'プロジェクトを変更…m', 'セッション ID をコピー', '停止']);
+    expect(items[7]).toHaveAttribute('data-danger', 'true');
   });
   it('「停止」を押すと、その行の run を止める手を出し、メニューを閉じる。行は開かない', () => {
     const { onAction } = mount(liveProps({ rows: [row('a', { menu: menuOf('a', { runId: 'r9', working: false, aside: false, shellTabs: 2 }) }), row('b')] }));
@@ -931,7 +931,7 @@ describe('⌥クリックで右に分割して開く（サイドバーの行）'
 describe('サイドバーの行の出入りの動き', () => {
   const rowOf = (id: string): SideLiveRow => ({ id, name: `name-${id}`, current: false, menu: { items: [] } } as unknown as SideLiveRow);
   const groupOf = (key: string, rows: SideLiveRow[]): SideLiveGroup => ({ key, name: key, open: true, waiting: 0, rows } as unknown as SideLiveGroup);
-  const liveWith = (groups: SideLiveGroup[]): SideLiveProps => ({ count: groups.length, rows: groups.flatMap((g) => g.rows), ids: groups.flatMap((g) => g.rows.map((r) => r.id)), groups } as unknown as SideLiveProps);
+  const liveWith = (groups: SideLiveGroup[]): SideLiveProps => ({ count: groups.length, rows: groups.flatMap((g) => g.rows), pins: [], ids: groups.flatMap((g) => g.rows.map((r) => r.id)), groups } as unknown as SideLiveProps);
   const view = (groups: SideLiveGroup[]) => <ActionRoot onAction={() => {}}><Sidebar nav={[]} foot={[]} collapsed={false} live={liveWith(groups)} /></ActionRoot>;
   const withMotion = (fn: (anims: { el: Element; frames: Keyframe[]; finish: () => void }[]) => Promise<void> | void) => async () => {
     const restore = fakeMotionTokens({ '--dur': '420ms', '--dur-fast': '200ms', '--dur-exit': '250ms', '--ease-out': 'ease-out', '--ease-in': 'ease-in', '--rise': '6px', '--blur-in': '6px' }, { everywhere: true });

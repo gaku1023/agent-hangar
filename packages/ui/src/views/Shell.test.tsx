@@ -6,7 +6,7 @@ import type { SideLiveGroup } from '../presenters/shell.ts';
 import { Shell } from './Shell.tsx';
 import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
-const props = { approvals: [], live: { count: 0, ids: [], rows: [], groups: [] }, sidebarCollapsed: false, sidebarWidth: 208, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], foot: [{ route: { name: 'settings' as const }, label: '設定', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: syncFixture({ visible: false, state: 'off', label: '' }), notices: { rows: [], unread: 0, keys: [], label: '通知' }, account: null, newSession: {} };
+const props = { approvals: [], live: { count: 0, ids: [], rows: [], groups: [], pins: [] }, sidebarCollapsed: false, sidebarWidth: 208, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], foot: [{ route: { name: 'settings' as const }, label: '設定', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: syncFixture({ visible: false, state: 'off', label: '' }), notices: { rows: [], unread: 0, keys: [], label: '通知' }, account: null, newSession: {} };
 
 describe('Shell の本文の幅', () => {
   // セッション画面だけ幅の上限を外す（案 b）。
@@ -51,7 +51,7 @@ describe('Shell のホームの入力待ちの数', () => {
 
 describe('Shell のサイドバーの並び', () => {
   const side = () => screen.getByRole('navigation', { name: 'メインナビゲーション' });
-  const live = { count: 2, ids: ['a', 'b'], rows: [{ id: 'a', name: 'name-a', live: 'busy' as const, aside: false, reason: null, waited: null, current: false, menu: { id: 'a', name: 'name-a', status: null, resumeHere: null, stop: 'external' as const, moveBlocked: null } }, { id: 'b', name: 'name-b', live: 'idle' as const, aside: false, reason: null, waited: null, current: false, menu: { id: 'b', name: 'name-b', status: null, resumeHere: null, stop: 'external' as const, moveBlocked: null } }], groups: [] as SideLiveGroup[] };
+  const live = { pins: [], count: 2, ids: ['a', 'b'], rows: [{ id: 'a', name: 'name-a', live: 'busy' as const, aside: false, reason: null, waited: null, current: false, menu: { id: 'a', name: 'name-a', status: null, resumeHere: null, stop: 'external' as const, moveBlocked: null } }, { id: 'b', name: 'name-b', live: 'idle' as const, aside: false, reason: null, waited: null, current: false, menu: { id: 'b', name: 'name-b', status: null, resumeHere: null, stop: 'external' as const, moveBlocked: null } }], groups: [] as SideLiveGroup[] };
   live.groups = [{ key: 'p', name: 'web', open: true, waiting: 0, rows: live.rows }];
   it('項目は「ホーム」「プロジェクト」の 2 つと「実行中」の節で、設定は下端に置く。「セッション」の項目は無い', () => {
     render(<ActionRoot onAction={vi.fn()}><Shell {...props} live={live} overlays={null}><div>body</div></Shell></ActionRoot>);
