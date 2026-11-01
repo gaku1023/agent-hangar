@@ -129,6 +129,15 @@ hangar を MCP サーバとして登録すると、Claude Code が自分で会�
       始め方は <a href="docs/cloud-sync.md">docs/cloud-sync.md</a> にあります。
     </td>
   </tr>
+  <tr>
+    <td>
+      <b>決まった時刻に動かす</b><br><br>
+      1 回だけ、曜日、N 分おきの予定で、新しい会話か既存の会話へ指示を流します。
+      予定は作った PC で動きます。
+      閉じていた間の回は、次の起動で最新の 1 回だけ流します。
+    </td>
+    <td width="60%"><img src="docs/images/schedules.webp" alt="予定に指示と曜日を入れて作り、一覧の行を開いて一時停止する"></td>
+  </tr>
 </table>
 
 ## 入れる
