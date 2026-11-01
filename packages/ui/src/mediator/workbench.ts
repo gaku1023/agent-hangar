@@ -64,6 +64,10 @@ export function workbenchStep(state: State, store: Store, input: Input): Step | 
     // 追加した後も入力欄に居座らせて、続けて書けるようにする。
     case 'todo.add': return i.text.trim() ? { state, effects: [{ kind: 'api.addTodo', projectId: i.projectId, text: i.text.trim() }, { kind: 'focus', target: 'todoInput' }] } : { state, effects: [] };
     case 'session.spawn.detach': return { state, effects: [{ kind: 'api.detachSpawn', id: i.id }] };
+    case 'session.pin': return { state, effects: [{ kind: 'api.setPinned', id: i.id, pinned: i.pinned }] };
+    case 'session.duplicate': return { state, effects: [{ kind: 'api.loadDuplicate', id: i.id }] };
+    // 開いている会話を未読に戻したときは、戻した未読がすぐ既読にならないよう、離れるまで印を持つ（screen.ts の seenStep）。
+    case 'session.unread.mark': return { state: { ...state, unreadKept: state.screen.name === 'session' && state.screen.id === i.id ? i.id : state.unreadKept }, effects: [{ kind: 'api.markUnread', id: i.id }] };
     case 'session.state.set': return { state: closePause(state, i.id), effects: [{ kind: 'api.setSessionState', id: i.id, body: stateBody(i) }] };
     case 'session.state.confirm': return { state: closePause(state, i.id), effects: [{ kind: 'api.confirmSessionState', id: i.id, body: i.returnOn !== undefined ? { returnOn: i.returnOn, ...(i.returnTime !== undefined ? { returnTime: i.returnTime } : {}) } : {} }] };
     // 確認待ちをまとめて片付ける。TODO の取り消し（⌘Z）の積みは作らない（1 件ずつの操作だけが積む）。

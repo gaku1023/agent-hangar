@@ -15,7 +15,7 @@ type Extras = Pick<
   | 'renameProject' | 'live' | 'sessionFiles' | 'gitSessions' | 'sessionChanges' | 'sessionDiff' | 'sessionEdits' | 'projectGit' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'previewAccountDir' | 'sharePreview' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
   | 'codexAccounts' | 'setCurrentCodexAccount' | 'addCodexAccount' | 'previewCodexAccountDir' | 'updateCodexAccount' | 'removeCodexAccount' | 'loginCodexAccount' | 'cancelCodexAccountLogin' | 'refreshCodexAccount' | 'linkConflicts' | 'repairLinkConflicts'
-  | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen'
+  | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen' | 'markUnread' | 'setPinned' | 'launchSettings'
 >;
 
 /** フェーズ 2 からフェーズ 4 で増えた API の偽物。
@@ -106,6 +106,9 @@ export function fakeApiExtras(): Extras {
     dismissInterrupted: vi.fn(async () => ({ interrupted: null })),
     dismissOverlap: vi.fn(async () => {}),
     markSeen: vi.fn(async () => {}),
+    markUnread: vi.fn(async () => {}),
+    setPinned: vi.fn(async () => {}),
+    launchSettings: vi.fn(async () => ({ agent: 'claude-code' as const, model: null, effort: null, permissionMode: null, mode: null, addDirs: [], account: null })),
     memo: vi.fn(async (projectId: string) => ({ projectId, markdown: '', updatedAt: 0 })),
     saveMemo: vi.fn(async (projectId: string, markdown: string) => ({ projectId, markdown, updatedAt: 2 })),
     instructions: vi.fn(async (projectId: string) => ({ projectId, available: true, files: [] })),

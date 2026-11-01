@@ -56,7 +56,7 @@ describe('一覧の行のアイコン（B10）', () => {
 });
 
 const side = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: 'n' + id, live: 'busy', aside: false, reason: null, waited: null, current: false, menu: { stop: null } as unknown as SideLiveRow['menu'], ...over });
-const sideProps = (rows: SideLiveRow[]): SideLiveProps => ({ count: rows.length, ids: rows.map((r) => r.id), rows, groups: [{ key: '', name: '未分類', open: true, waiting: 0, rows }] });
+const sideProps = (rows: SideLiveRow[]): SideLiveProps => ({ count: rows.length, ids: rows.map((r) => r.id), rows, groups: [{ key: '', name: '未分類', open: true, waiting: 0, rows }], pins: [] });
 
 describe('サイドバーの行のアイコン', () => {
   it('名前の右端に、一覧と同じ絵を置く', () => {

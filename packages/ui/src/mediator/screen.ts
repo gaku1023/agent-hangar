@@ -139,6 +139,9 @@ export function searchQueryStep(state: State, text: string, filter?: SearchFilte
  */
 export function seenStep(state: State, store: Store, fromStore: boolean): Step {
   const id = state.screen.name === 'session' ? state.screen.id : null;
+  // 開いたまま未読に戻した間は頼まない。別の画面へ移るか、開き直したら（fromStore が偽）印を外す。
+  if (state.unreadKept !== null && (state.unreadKept !== id || !fromStore)) state = { ...state, unreadKept: null };
+  if (state.unreadKept !== null) return { state, effects: [] };
   const u = id ? store.sessions[id]?.unread : null;
   if (!id || !u || u.count <= 0) return { state, effects: [] };
   const key = `${id}|${u.at}`;

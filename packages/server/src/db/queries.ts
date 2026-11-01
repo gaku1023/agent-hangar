@@ -84,6 +84,7 @@ type SessionRow = {
   last_interrupt_cause: InterruptCause | null;
   // 同じファイルの編集の写し（session_overlaps の payload）。無ければ null。
   overlap_payload: string | null;
+  ss_pinned_at: number | null;
   unread_count: number | null;
   unread_text: string | null;
   unread_at: number | null;
@@ -114,7 +115,7 @@ select s.*, (exists(select 1 from transcript_files t where t.session_id = s.id a
   (select r.ended_at from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1) last_ended_at,
   (select i.cause from interrupted_runs i where i.run_id = (select r.id from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1)) last_interrupt_cause,
   ov.payload overlap_payload,
-  un.count unread_count, un.latest_text unread_text, un.latest_at unread_at,
+  ss.pinned_at ss_pinned_at, un.count unread_count, un.latest_text unread_text, un.latest_at unread_at,
   sp.parent_id spawned_by,
   (select ifnull(ml.permission_mode, '') from mobile_launches ml where ml.session_id = s.id order by ml.handled_at limit 1) ml_mode
 from sessions s
@@ -375,6 +376,7 @@ function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto
     // 同じファイルの編集は、実行中の間だけの警告である。終わった後に古い写しが残っていても出さない。
     overlap: live ? overlapOf(r.overlap_payload) : null,
     unread: unreadOf(r),
+    pinnedAt: r.ss_pinned_at,
     spawnedBy: r.spawned_by,
     // ほかの PC の続きの方が新しい（A → B → A）。手元に本文が無いものは remoteOnly の側で扱う。
     newerElsewhere: r.has_local === 1 && newer.has(r.id),

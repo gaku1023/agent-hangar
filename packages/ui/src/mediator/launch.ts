@@ -1,4 +1,4 @@
-import { DEFAULT_AGENT_KIND, isAgentKind, type InvestigateContext, type LaunchParams, type NonDefaultAgentKind } from '@agent-hangar/shared';
+import { DEFAULT_AGENT_KIND, isAgentKind, type InvestigateContext, type LaunchParams, type NonDefaultAgentKind, type SessionLaunchSettingsDto, type UiAction } from '@agent-hangar/shared';
 import { translatorOf } from '../presenters/i18n.ts';
 import { investigateSeed, setupGuideSeed } from '../presenters/investigate.ts';
 import type { Store } from '../store/store.ts';
@@ -119,6 +119,18 @@ function strayConflict(state: State, ev: Extract<Input, { kind: 'runtime' }>['ev
 
 /** 送った起動の、失敗したときに「エージェントで調査…」へ渡す事情。エージェントを選ばなければ Claude Code である。 */
 const sentOf = (params: LaunchParams): State['launchSent'] => ({ op: 'launch', agent: params.agent ?? 'claude-code', ...(params.account ? { accountId: params.account } : {}) });
+/**
+ * 「同じ設定で新しいセッション…」で開くダイアログ。元の会話のプロジェクトと設定を種に入れ、本文は空にする。起動は利用者が押してから。
+ * クイックセッションと未分類はクイックセッションで開く。アカウントは元のエージェントの札へ入れる。
+ */
+export function duplicateOpenAction(store: Store, id: string, s: SessionLaunchSettingsDto): Extract<UiAction, { type: 'session.new.open' }> {
+  const projectId = store.sessions[id]?.projectId ?? null;
+  const { account, ...settings } = s;
+  const accounts = account === null || s.agent === 'opencode' ? {} : { [s.agent]: account };
+  const seed = { request: '', quote: '', accounts, settings };
+  return projectId && !store.projects[projectId]?.isScratch ? { type: 'session.new.open', projectId, seed } : { type: 'session.new.open', scratch: true, seed };
+}
+
 /** 送った印。埋めて開いたダイアログから送ったときは、下書きを消さないよう seeded にする。 */
 const sentMark = (state: State): State['newSessionSent'] => (state.overlay.kind === 'newSession' && state.overlay.seed ? 'seeded' : true);
 

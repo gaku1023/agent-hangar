@@ -94,7 +94,9 @@ export type SideLiveGroup = { key: string; name: string; open: boolean; waiting:
  * サイドバーの「実行中」。
  * count は動いているセッションの全数、ids と rows は見えている順（グループをつないだ順）の全部の並びと行（ids は並べ替えの計算に使う）、groups はプロジェクトごとのグループである。
  */
-export type SideLiveProps = { count: number; ids: string[]; rows: SideLiveRow[]; groups: SideLiveGroup[] };
+export type SideLiveProps = { count: number; ids: string[]; rows: SideLiveRow[]; groups: SideLiveGroup[];
+  /** ピン留めした会話（留めた順）。止まっていても並べ、グループと count と ids には入れない。一覧の上の固定の段に置く。 */
+  pins: SideLiveRow[] };
 export type ShellProps = { live: SideLiveProps; sidebarCollapsed: boolean; sidebarWidth: number; wide: boolean; nav: NavItem[]; foot: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; notices: NoticesProps; newSession: NewSessionTarget };
 
 /**
@@ -195,7 +197,11 @@ const footDefs = (t: Translate): NavDef[] => [
  */
 function sideLive(state: State, store: Store, now: number): SideLiveProps {
   const t = translatorOf(store);
-  const live = liveSessionIds(store);
+  const pinned = Object.values(store.sessions).filter((s) => (s.pinnedAt ?? null) !== null).sort((a, b) => a.pinnedAt! - b.pinnedAt! || a.id.localeCompare(b.id)).map((s) => s.id);
+  const pinnedSet = new Set(pinned);
+  const live = liveSessionIds(store).filter((id) => !pinnedSet.has(id));
+  // 留めた起動元は段にあるので、子はグループの根の行にする（起動元を薄い行で二重に出さない）。
+  const parentOf = (id: string): string | null => { const p = spawnParentOf(store.sessions, id); return p !== null && pinnedSet.has(p) ? null : p; };
   const on = new Set(live);
   const known = new Set(state.sidebarOrder);
   const order = [...state.sidebarOrder.filter((id) => on.has(id)), ...live.filter((id) => !known.has(id))];
@@ -216,13 +222,13 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
   order.forEach((id, i) => {
     rank.set(id, i);
     const seen = new Set<string>([id]);
-    for (let p = spawnParentOf(store.sessions, id); p !== null && !seen.has(p); p = spawnParentOf(store.sessions, p)) {
+    for (let p = parentOf(id); p !== null && !seen.has(p); p = parentOf(p)) {
       seen.add(p);
       if (!on.has(p)) rank.set(p, Math.min(rank.get(p) ?? i, i));
     }
   });
   const shown = [...rank.keys()].sort((a, b) => rank.get(a)! - rank.get(b)!);
-  const nested = nestOrder(shown, (id) => spawnParentOf(store.sessions, id));
+  const nested = nestOrder(shown, parentOf);
   const made = new Map<string, SideLiveRow>();
   const liveRow = (id: string): SideLiveRow => { let r = made.get(id); if (!r) { r = rowOf(id); made.set(id, r); } return r; };
   const dotOf = (id: string): NestDot => {
@@ -252,7 +258,7 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
   });
   const rows = groups.flatMap((g) => g.rows);
   const alive = rows.filter((r) => !r.dim);
-  return { count: alive.length, ids: alive.map((r) => r.id), rows, groups };
+  return { count: alive.length, ids: alive.map((r) => r.id), rows, groups, pins: pinned.map(rowOf) };
 }
 
 /** サイドバーの行の右端の語。入力待ちと許可待ちは待った時間、使用制限はリセットの時刻、リセット済みはその語。 */

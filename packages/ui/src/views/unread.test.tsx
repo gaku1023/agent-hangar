@@ -15,7 +15,7 @@ const menuOf = (id: string): SessionMenuProps => ({ id, name: `name-${id}`, stat
 const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', aside: false, reason: null, waited: null, current: false, menu: menuOf(id), ...over });
 const live = (rows: SideLiveRow[]): SideLiveProps => {
   const g: SideLiveGroup = { key: 'web', name: 'web', open: true, waiting: 0, rows };
-  return { count: rows.length, ids: rows.map((r) => r.id), rows, groups: [g] };
+  return { count: rows.length, ids: rows.map((r) => r.id), rows, groups: [g], pins: [] };
 };
 const mountSidebar = (props: SideLiveProps, nav: { count: number; waiting?: number; unread?: number } = { count: 0 }) => render(
   <LanguageRoot language="ja"><ActionRoot onAction={vi.fn()}><Sidebar nav={[{ route: { name: 'home' }, label: 'ホーム', current: false, ...nav }]} foot={[]} collapsed={false} live={props} /></ActionRoot></LanguageRoot>,
