@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
-import { aadAnswer, aadAsk, aadFeed, aadImage, aadLaunch, aadReply, COMPAT_HEADER, COMPAT_VERSION, MOBILE_BELL_MIN_WORKER_COMPAT, open, quotePath, seal, sealBytes, type MobileAsk, type AccountsDto, type CloudDevicesDto, type LaunchParams, type LiveSessionDto, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
+import { PEER_LAUNCH_MIN_WORKER_COMPAT, aadAnswer, aadAsk, aadFeed, aadImage, aadLaunch, aadReply, COMPAT_HEADER, COMPAT_VERSION, MOBILE_BELL_MIN_WORKER_COMPAT, open, quotePath, seal, sealBytes, type MobileAsk, type AccountsDto, type CloudDevicesDto, type LaunchParams, type LiveSessionDto, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
 import { upsertShared } from '../db/shared.ts';
 import type { LaunchResult, RunListener } from '../runs/manager.ts';
 import type { SyncListener } from '../sync/engine.ts';
@@ -42,11 +42,13 @@ const devicesDto = (devices: CloudDevicesDto['devices'], state: CloudDevicesDto[
 const withPhone = (): CloudDevicesDto => devicesDto([device('pc-a', 'pc'), device('phone-1', 'mobile')]);
 /** PC だけの一覧。 */
 const noPhone = (): CloudDevicesDto => devicesDto([device('pc-a', 'pc'), device('pc-b', 'pc')]);
+/** 自分の PC だけの一覧。スマホも、ほかの PC も居ない。 */
+const alone = (): CloudDevicesDto => devicesDto([device('pc-a', 'pc')]);
 
 const homeDirs: string[] = [];
 afterEach(() => { for (const d of homeDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
 
-function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () => never; devices?: CloudDevicesDto; boot?: Partial<Parameters<typeof bootMobile>[0]> } = {}) {
+function setup(o: { link?: boolean; canCarry?: () => boolean; canCarryPeer?: () => boolean; mobileLink?: () => never; devices?: CloudDevicesDto; boot?: Partial<Parameters<typeof bootMobile>[0]> } = {}) {
   const db = openDb(':memory:');
   const timers = new FakeTimers();
   const client = new FakeCloudClient({ deviceId: 'pc-a', now: () => timers.now });
@@ -75,6 +77,7 @@ function setup(o: { link?: boolean; canCarry?: () => boolean; mobileLink?: () =>
   });
   const sync = {
     canCarryMobile: o.canCarry ?? (() => true),
+    ...(o.canCarryPeer ? { canCarryPeer: o.canCarryPeer } : {}),
     mobileLink: o.mobileLink ?? (() => link),
     get engine() { return engine; },
     cloudDevices,
@@ -591,9 +594,9 @@ describe('bootMobile', () => {
     }
     const quiet = () => new Promise((r) => setTimeout(r, 40));
 
-    async function bellSetup(o: { workerCompat?: number; devices?: CloudDevicesDto } = {}) {
+    async function bellSetup(o: { workerCompat?: number; devices?: CloudDevicesDto; canCarryPeer?: () => boolean; boot?: Partial<Parameters<typeof bootMobile>[0]> } = {}) {
       const w = await fakeBellWorker();
-      const s = setup(o.devices ? { devices: o.devices } : {});
+      const s = setup({ ...(o.devices ? { devices: o.devices } : {}), ...(o.canCarryPeer ? { canCarryPeer: o.canCarryPeer } : {}), ...(o.boot ? { boot: o.boot } : {}) });
       s.client.workerCompat = o.workerCompat ?? COMPAT_VERSION;
       // Worker と 1 度話して版を覚える（本物は pull の応答で覚える）。
       // この PC の下限（MIN_WORKER_COMPAT）より古い Worker は断られるが、名乗った版は覚える。
@@ -627,7 +630,7 @@ describe('bootMobile', () => {
     });
 
     it('スマホが 1 台も無ければつながず、現れたらつなぎ、外したら閉じる', async () => {
-      const s = await bellSetup({ devices: noPhone() });
+      const s = await bellSetup({ devices: alone() });
       cleanups.push(() => s.mobile.stop(), () => s.w.close());
       s.mobile.start();
       await quiet();
@@ -636,6 +639,44 @@ describe('bootMobile', () => {
       await settle(() => s.w.open().length === 1);
       s.uiLoads(devicesDto([device('pc-a', 'pc'), device('phone-1', 'mobile', 5)]));
       await settle(() => s.w.open().length === 0);
+    });
+
+    it('スマホが居なくても、ほかの PC が居て Worker の版が足りれば張る。外したら閉じる', async () => {
+      const s = await bellSetup({ devices: noPhone(), workerCompat: PEER_LAUNCH_MIN_WORKER_COMPAT, canCarryPeer: () => true });
+      cleanups.push(() => s.mobile.stop(), () => s.w.close());
+      s.mobile.start();
+      await settle(() => s.w.open().length === 1);
+      s.uiLoads(alone());
+      await settle(() => s.w.open().length === 0);
+      s.uiLoads(devicesDto([device('pc-a', 'pc'), device('pc-b', 'pc', 5)]));
+      await quiet();
+      expect(s.w.open()).toHaveLength(0);
+    });
+
+    it('ほかの PC が居ても、PC どうしの頼みを運べない Worker にはつながない', async () => {
+      const s = await bellSetup({ devices: noPhone(), canCarryPeer: () => false });
+      cleanups.push(() => s.mobile.stop(), () => s.w.close());
+      s.mobile.start();
+      await quiet();
+      await s.timers.advance(FEED_SAFETY_MS);
+      await quiet();
+      expect(s.w.attempts).toHaveLength(0);
+    });
+
+    it('PC どうしの知らせ。頼みは pull を前倒しし、答えと結果は onPeer へ渡す', async () => {
+      const seen: [string, string][] = [];
+      const s = await bellSetup({ devices: noPhone(), canCarryPeer: () => true, boot: { onPeer: (kind, id) => { seen.push([kind, id]); } } });
+      cleanups.push(() => s.mobile.stop(), () => s.w.close());
+      s.mobile.start();
+      await settle(() => s.w.open().length === 1);
+      const ws = s.w.open()[0]!;
+      ws.send(JSON.stringify({ t: 'peer', kind: 'launch', id: 'r1' }));
+      await settle(() => s.engine().pullNow.mock.calls.length === 1);
+      ws.send(JSON.stringify({ t: 'peer', kind: 'answer', id: 'r1' }));
+      ws.send(JSON.stringify({ t: 'peer', kind: 'result', id: 'r1' }));
+      await settle(() => seen.length === 2);
+      expect(seen).toEqual([['answer', 'r1'], ['result', 'r1']]);
+      expect(s.engine().pullNow.mock.calls.length).toBe(1);
     });
 
     it('問い合わせに、この PC のプロジェクトの根で答え、封じた答えを返す', async () => {

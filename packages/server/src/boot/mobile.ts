@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type WebSocket from 'ws';
-import { codexEnabledOf, MOBILE_BELL_MIN_WORKER_COMPAT, opencodeEnabledOf, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
+import { codexEnabledOf, MOBILE_BELL_MIN_WORKER_COMPAT, opencodeEnabledOf, type PeerBellKind, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
 import type { AccountStore } from '../config/accounts.ts';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
@@ -89,7 +89,9 @@ type Link = { client: CloudClient; phoneKeys: PhoneKeySource };
  * 答えを送れなかった依頼は、ANSWER_RESEND_TICK_MS ごとの見回りで送り直す。
  *
  * Worker の呼び鈴（mobile/bell.ts）も、書き手と受け手の隣に組み、リンクが変わるたびに組み直す。
- * 張るのは、canCarryMobile が真で、Worker の名乗る版が MOBILE_BELL_MIN_WORKER_COMPAT に届き、外していないスマホが 1 台以上あるときだけである。
+ * 張るのは、Worker の名乗る版が MOBILE_BELL_MIN_WORKER_COMPAT に届き、次のどちらかのときだけである。
+ * - canCarryMobile が真で、外していないスマホが 1 台以上ある。
+ * - canCarryPeer が真で、外していないほかの PC が 1 台以上ある（PC どうしの頼みの知らせ、T8）。
  * 鳴ったら（`{t:'launch'}`）今の engine の pullNow で依頼を受け取る。問い合わせ（`{t:'ask'}`）には mobile/asks.ts が答える。
  * 張るかどうかは、きっかけ、見回り、スマホの有無が分かったときに読み直す。
  * 呼び鈴が張れなくても、依頼は今までどおり 30 秒の pull で届く。
@@ -101,7 +103,9 @@ export function bootMobile(p: {
   delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub?: { broadcast(ev: Extract<ServerEvent, { type: 'phone.launch' }>): void } };
   runs: { runs: Pick<RunManager, 'start' | 'on'>; accounts: { store: Pick<AccountStore, 'list'>; usage: Pick<UsageTracker, 'of'>; broadcast: (accounts: AccountsDto) => void } };
   /** engine は組み直すと変わる（boot/sync.ts の getter）。毎回引き直す。 */
-  sync: Pick<SyncParts, 'canCarryMobile' | 'mobileLink' | 'cloudDevices' | 'onCloudDevices'> & { readonly engine: Pick<SyncEngine, 'on' | 'pullNow'> };
+  sync: Pick<SyncParts, 'canCarryMobile' | 'mobileLink' | 'cloudDevices' | 'onCloudDevices'> & { readonly engine: Pick<SyncEngine, 'on' | 'pullNow'>; /** 無ければ偽（PC どうしの呼び鈴を張らない）。 */ canCarryPeer?: () => boolean };
+  /** 呼び鈴に PC どうしの答えと結果の知らせ（kind は answer か result）が鳴ったとき。呼ぶ側の取得（peer/outbox.ts）が受ける。頼みが来た知らせ（launch）は今の pull で受ける。 */
+  onPeer?: (kind: PeerBellKind, id: string) => void;
   timers?: Timers;
   now?: () => number;
   /** 呼び鈴の WebSocket を作る口。既定は ws。 */
@@ -149,6 +153,9 @@ export function bootMobile(p: {
   /** 外していないスマホがあるか。null は分からない（まだ読めていない、同期していない）。 */
   let phones: boolean | null = null;
   let phonesAt: number | null = null;
+  /** 外していないほかの PC があるか。null は分からない。phones と同じ一覧から読む。 */
+  let peers: boolean | null = null;
+  const canPeer = (): boolean => p.sync.canCarryPeer?.() ?? false;
   /** 外していないスマホが居るのを見たあとで、受信箱の素をまだ Worker から消していないか。真のあいだは、スマホが居なくなったと分かるたびに消しに行く。 */
   let hadPhones = false;
   let checking = false;
@@ -208,7 +215,8 @@ export function bootMobile(p: {
     const client = link.client;
     const bell = new MobileBell({
       target: () => {
-        if (!started || stopped || phones !== true || !p.sync.canCarryMobile()) return null;
+        if (!started || stopped) return null;
+        if (!(phones === true && p.sync.canCarryMobile()) && !(peers === true && canPeer())) return null;
         if ((client.lastWorkerCompat?.() ?? 0) < MOBILE_BELL_MIN_WORKER_COMPAT) return null;
         return client.bellTarget?.() ?? null;
       },
@@ -216,9 +224,9 @@ export function bootMobile(p: {
         // 今の engine の pull で依頼を受け取る。走っている pull があれば、それを分け合う。
         void p.sync.engine.pullNow().catch((e: unknown) => console.error('[mobile] could not pull after the bell', e instanceof Error ? e.constructor.name : typeof e));
       },
-      onPeer: (kind) => {
+      onPeer: (kind, id) => {
         // 頼みが来た知らせは、今の pull で受け取りを前倒しする。答えと結果の知らせは呼ぶ側（T7）の取得が受ける。
-        if (kind !== 'launch') return;
+        if (kind !== 'launch') { p.onPeer?.(kind, id); return; }
         void p.sync.engine.pullNow().catch((e: unknown) => console.error('[mobile] could not pull after the peer bell', e instanceof Error ? e.constructor.name : typeof e));
       },
       onAsk: (id, sealed, epoch) => answerAsk({
@@ -255,6 +263,7 @@ export function bootMobile(p: {
     if (stopped) return;
     if (d.state === 'unreachable') return;
     phonesAt = now();
+    peers = d.state === 'ok' ? d.devices.some((x) => x.kind === 'pc' && x.id !== deviceId && x.revokedAt === null) : d.state === 'outdated' ? false : null;
     if (d.state === 'ok') phoneNames = new Map(d.devices.flatMap((x) => (x.kind === 'mobile' && x.name ? [[x.id, x.name] as const] : [])));
     const next = d.state === 'ok' ? d.devices.some((x) => x.kind === 'mobile' && x.revokedAt === null) : d.state === 'outdated' ? false : null;
     const appeared = next === true && phones !== true;
@@ -280,7 +289,7 @@ export function bootMobile(p: {
   /** スマホの有無を読み直す時期なら、一覧を読みに行く。読めた一覧は onCloudDevices で notePhones に届く。投げない。 */
   function checkPhones(): void {
     try {
-      if (!started || stopped || checking || !p.sync.canCarryMobile()) return;
+      if (!started || stopped || checking || !(p.sync.canCarryMobile() || canPeer())) return;
       // 分からないあいだは見回りの間隔で、分かった後は PHONE_RECHECK_MS ごとに読む。きっかけが続いても、それより詰めない。
       const gap = phones === null ? FEED_SAFETY_MS : PHONE_RECHECK_MS;
       if (phonesAt !== null && now() - phonesAt < gap) return;
