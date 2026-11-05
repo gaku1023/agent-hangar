@@ -127,7 +127,7 @@ export function bootPeer(p: {
       console.error('[peer] could not read the peer keys', e instanceof Error ? e.constructor.name : typeof e);
     }
   };
-  /** 利用者への知らせ。会話があれば未読と通知、消えていれば起こした会話を軸に OS とスマホだけ（D14）。出し先は ask の決まりに従う。 */
+  // 利用者への知らせ。会話があれば未読と通知、消えていれば起こした会話を軸に OS とスマホだけ（D14）。出し先は ask の決まりに従う。
   const notify = (sessionId: string | null, text: string, anchor?: string | null): void => {
     const rules = notifyRulesOf(p.home.settings.current);
     const clipped = [...text].slice(0, INTENT_MAX).join('');
@@ -145,8 +145,8 @@ export function bootPeer(p: {
     if (sent.includes('unread')) {
       unread = addUnread(db, sessionId, clipped, now());
       touchRow(db, 'sessions', sessionId);
-    }
-    noteUnread(sessionId, clipped, unread, sent, { kind: 'ask', immediate: true });
+      }
+      noteUnread(sessionId, clipped, unread, sent, { kind: 'ask', immediate: true });
   };
   const outbox = new PeerOutbox({
     db,
@@ -262,8 +262,8 @@ export function bootPeer(p: {
 
   return {
     inbox: () => ensure(),
-    relay,
     approvals,
+    relay,
     onBell(kind) {
       if (stopped || (kind !== 'answer' && kind !== 'result')) return;
       void refreshRing().then(() => outbox.sync()).catch(() => {});
@@ -295,11 +295,11 @@ export function bootPeer(p: {
       stopped = true;
       if (timer) clearInterval(timer);
       timer = null;
+      approvals.stop();
       if (sshTimer) clearInterval(sshTimer);
       sshTimer = null;
       p.ssh?.local.onReceive(null);
       p.ssh?.link.onGaveUp(null);
-      approvals.stop();
       stopOutbox?.();
       stopOutbox = null;
       offLive?.();

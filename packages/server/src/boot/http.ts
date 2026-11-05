@@ -212,6 +212,7 @@ export function bootHttp(p: {
       ...(p.peer ? { requestApproval: (o: Parameters<NonNullable<typeof p.peer>['approvals']['request']>[0]) => p.peer!.approvals.request(o) } : {}),
       // SSH の予備（D3）。封の鍵は、Worker の版が古くても参加していれば持つ。
       ...(p.peerSsh ? { ssh: { registered: (id: string) => p.peerSsh!.store.get(id) !== null, api: (id: string) => p.peerSsh!.link.api(id), ring: () => sync.peerLink()?.ring ?? null, tokensReady: () => p.peerSsh!.tokens() !== null } } : {}),
+      ...(p.peer ? { requestApproval: (o) => p.peer!.approvals.request(o) } : {}),
     },
     ...(p.peer ? { peerApprovals: p.peer.approvals } : {}),
     codexStatus: () => codex.status(),
