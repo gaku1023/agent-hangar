@@ -663,6 +663,30 @@ describe('spawnedBy（MCP の create_session で起こした起動元）', () =>
   });
 });
 
+describe('spawnPeer（別の PC にまたがる起動元の結び付き）', () => {
+  const seed = () => {
+    const d2 = openDb(':memory:');
+    upsertShared(d2, 'devices', { id: 'pc-a', name: 'Win', platform: 'win32' }, 'pc-a');
+    upsertShared(d2, 'devices', { id: 'pc-b', name: 'Mac', platform: 'darwin' }, 'pc-a');
+    for (const id of ['s-parent', 's-child']) upsertShared(d2, 'sessions', { id, provider: 'claude-code', provider_session_id: `u-${id}`, cwd: '/w/a', home_device: id === 's-parent' ? 'pc-a' : 'pc-b' }, 'pc-a');
+    return d2;
+  };
+  it('子が別の PC なら child に PC の名前、親が別の PC なら parent に名前を載せ、この PC の側は null', () => {
+    const d2 = seed();
+    d2.prepare("insert into session_spawns (session_id, parent_id, created_at, parent_device_id, child_device_id, relay) values ('s-child', 's-parent', 1, 'pc-a', 'pc-b', 'on')").run();
+    expect(getSession(d2, [], 's-child', { deviceId: 'pc-a' })?.spawnPeer).toEqual({ parent: null, child: 'Mac', closed: false });
+    expect(getSession(d2, [], 's-child', { deviceId: 'pc-b' })?.spawnPeer).toEqual({ parent: 'Win', child: null, closed: false });
+  });
+  it('終わった（relay が off）結び付きは closed、同じ PC の中の結び付きと結び付きの無い会話は null', () => {
+    const d2 = seed();
+    d2.prepare("insert into session_spawns (session_id, parent_id, created_at, parent_device_id, child_device_id, relay, closed_at) values ('s-child', 's-parent', 1, 'pc-a', 'pc-b', 'off', 5)").run();
+    expect(getSession(d2, [], 's-child', { deviceId: 'pc-a' })?.spawnPeer?.closed).toBe(true);
+    expect(getSession(d2, [], 's-parent', { deviceId: 'pc-a' })?.spawnPeer).toBeNull();
+    d2.prepare("update session_spawns set child_device_id = 'pc-a', relay = 'on', closed_at = null").run();
+    expect(getSession(d2, [], 's-child', { deviceId: 'pc-a' })?.spawnPeer).toBeNull();
+  });
+});
+
 describe('fromPhone（この PC がスマホの依頼で起こした会話）', () => {
   it('手元の mobile_launches に会話があれば fromPhone を載せ、Bypass permissions なら bypass が真。無ければ null', () => {
     const d2 = openDb(':memory:');

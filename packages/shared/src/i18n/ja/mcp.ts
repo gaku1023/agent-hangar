@@ -162,4 +162,8 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.peer.notice.held': '{device} の「{title}」から報告を受信しています。この会話を再開すると渡します。',
   'mcp.peer.notice.heldRefused': '{device} への起動の頼みの答えを受信しています。この会話を再開すると渡します。',
   'mcp.peer.notice.gone': '{device} の「{title}」から報告が届きましたが、呼び出し元の会話が消えているので渡せません。{reason}',
+  'mcp.peer.screenStarted': '{device} で「{title}」を起こしました。',
+  'mcp.peer.screenStartedPlain': '{device} でセッションを起こしました。',
+  'mcp.peer.screenRefused': '{device} では起動できませんでした。{reason}',
+  'mcp.peer.screenExpired': '{device} が頼みを受け取らないまま、期限が過ぎました。',
 };

@@ -3,6 +3,16 @@ import type { AreaDictionary } from '../messageSpec.ts';
 
 export const newSessionJa: AreaDictionary<typeof newSessionKeys> = {
   'newSession.title.default': '新しいセッション',
+  'newSession.pc.label': '起動する PC',
+  'newSession.pc.here': 'この PC',
+  'newSession.pc.offline': '未接続',
+  'newSession.pc.outdated': '古い版',
+  'newSession.pc.start': '{device} で起動',
+  'newSession.peer.noAccount': 'なし',
+  'newSession.peer.loggedOut': 'ログアウト中',
+  'newSession.peer.noFolder': 'ディレクトリなし',
+  'newSession.peer.noAgent': '未導入',
+  'newSession.peer.asked': '{device} に起動を頼みました。',
   'newSession.title.newDir': '新しいディレクトリで開始',
   'newSession.title.dir': 'ディレクトリを登録して開始',
   'newSession.prompt.label': '初期プロンプト（任意）',

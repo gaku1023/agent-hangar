@@ -21,7 +21,7 @@ const dto = (over: Partial<SessionDto> = {}): SessionDto => ({
   id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: 'name', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, lastTurnAt: null, 
   hasTranscript: true, live: null, stats: { turns: 2, model: 'claude-sonnet-4-5', effort: 'high', filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 1_000_000, outputTokens: 200_000, contextPercent: null, costUsd: null },
   summary: { title: 'T', oneLiner: 'ONE', body: 'BODY', state: 'in_progress', nextSteps: ['next1'], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 },
-  fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, ...over,
+  fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over,
 });
 const leadOf = (over: Partial<SessionDto> = {}, extra: { summaryPending?: boolean; summaryError?: string | null; gone?: boolean } = {}) =>
   presentLeadCard({ session: dto(over), now: NOW, gone: extra.gone ?? false, summaryPending: extra.summaryPending ?? false, summaryError: extra.summaryError ?? null, artifacts: [], files: null, windowFiles: [] }, ja);
@@ -66,6 +66,15 @@ describe('起動元と起こしたセッションの印', () => {
     expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'session', id: 'p9' } });
     rerender(<ActionRoot onAction={onAction}><SS {...base} spawnedFrom={null} /></ActionRoot>);
     expect(container.querySelector('.spawned-from')).toBeNull();
+  });
+  it('別の PC から頼まれた子は、起動元のリンクに頼んだ PC の名前の札を添える。結び付きが終わっていれば ended（案 3A）', () => {
+    const { container, rerender } = render(<ActionRoot onAction={() => {}}><SS {...base} spawnedFrom={{ id: 'p9', name: '親の会話', peer: { name: 'Studio', ended: false } }} /></ActionRoot>);
+    expect(container.querySelector('.spawned-from .pc-pill')?.textContent).toBe('Studio');
+    expect(container.querySelector('.spawned-from')).not.toHaveAttribute('data-ended');
+    rerender(<ActionRoot onAction={() => {}}><SS {...base} spawnedFrom={{ id: 'p9', name: '親の会話', peer: { name: 'Studio', ended: true } }} /></ActionRoot>);
+    expect(container.querySelector('.spawned-from')).toHaveAttribute('data-ended', 'true');
+    rerender(<ActionRoot onAction={() => {}}><SS {...base} spawnedFrom={{ id: 'p9', name: '親の会話' }} /></ActionRoot>);
+    expect(container.querySelector('.spawned-from .pc-pill')).toBeNull();
   });
   it('起動元の画面は見出しの下に起こしたセッションの札を並べ、押すとそこへ移る。子が無ければ列ごと出さない', () => {
     const onAction = vi.fn();

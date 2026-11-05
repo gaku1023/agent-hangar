@@ -367,7 +367,7 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
     return (
       <li key={m.key} ref={m.ref} className="side-live-item" data-leaving={m.leaving ? 'true' : undefined} inert={m.leaving || undefined} data-lift={withKids ? lift : undefined} style={withKids ? style : undefined}>
         <a className="side-live-row" href={formatRoute({ name: 'session', id: r.id })} draggable={false} aria-current={r.current ? 'page' : undefined} data-id={r.id} data-menu={props.menuId === r.id ? 'true' : undefined}
-          data-live={r.live ?? undefined} data-dim={r.dim ? 'true' : undefined} data-unread={(r.unread ?? 0) > 0 ? 'true' : undefined} data-lift={lift} data-pane-drag={paneOn && sort?.id === sidOf(r) ? 'true' : undefined} style={withKids ? undefined : style}
+          data-live={r.live ?? undefined} data-dim={r.dim ? 'true' : undefined} data-peer-ended={r.peer?.ended ? 'true' : undefined} data-unread={(r.unread ?? 0) > 0 ? 'true' : undefined} data-lift={lift} data-pane-drag={paneOn && sort?.id === sidOf(r) ? 'true' : undefined} style={withKids ? undefined : style}
           title={r.overlap ?? (r.waited ? t('sidebar.live.rowTitle', { name: r.name, waited: r.waited }) : r.name)}
           onClick={(e) => onClick(e, r)} onKeyDown={(e) => onKeyDown(e, r)}
           onContextMenu={(e) => { e.preventDefault(); if (sortNow.current) return; setMenu({ id: r.id, at: { top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 } }); }}
@@ -383,6 +383,7 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
             )}
           </span>
           <span className="side-live-name">{r.name}</span>
+          {r.peer && <span className="pc-pill" title={r.peer.name}><Icon name="otherPc" /><span>{r.peer.name}</span></span>}
           {nest && !nest.open && (
             <span className="side-live-kidots" aria-hidden="true">{nest.dots.map((d, k) => <i key={k} className="dot side-live-kidot" data-status={d.live ?? 'ended'} data-aside={d.aside && d.live === 'busy' ? 'true' : undefined} />)}</span>
           )}
@@ -390,7 +391,7 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
           <CountBubble n={r.unread ?? 0} sr={t('sidebar.count.unread', { n: r.unread ?? 0 })} className="side-live-unread" />{r.agent !== undefined && <span className="side-live-agent" data-agent={r.agent ?? 'none'}>{r.agent && <AgentIcon kind={r.agent} />}</span>}{r.overlap && <span className="side-live-overlap" role="img" aria-label={r.overlap} title={r.overlap}><Icon name="warning" /></span>}{r.waited && <span className="side-live-wait num" data-reason={r.reason ?? undefined}>{r.waited}</span>}
         </a>
         {withKids && nest && (
-          <FoldBox open={nest.open} keep id={body} className="side-live-kids">
+          <FoldBox open={nest.open} keep id={body} className={`side-live-kids${node.kids.every((k) => k.row.peer?.ended) ? ' peer-ended' : ''}`}>
             <ul className="side-live-list side-live-nest"><MotionNodes nodes={node.kids} render={(k, km) => nodeEl(k, null, km)} /></ul>
           </FoldBox>
         )}

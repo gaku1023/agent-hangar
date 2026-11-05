@@ -6,7 +6,7 @@ import type { IconName } from './Icon.tsx';
  * faceSub は閉じた顔の 2 段目で、無ければ sub を使う。顔は mono で描くので、一覧では説明文、顔ではパスを見せたい行に使う。
  * searchOnly は語があるときだけ並べる行（未登録のフォルダ）、hidden は並べずに選んだときの顔にだけ使う行（作る途中の新しいフォルダ）、tag は行の右の小さな札である。
  */
-export type ListboxOption = { value: string; label: string; sub?: string; subKind?: 'path' | 'prose'; faceSub?: string; meta?: string; status?: ProjectStatus; icon?: IconName; danger?: boolean; searchOnly?: boolean; hidden?: boolean; tag?: string };
+export type ListboxOption = { value: string; label: string; sub?: string; subKind?: 'path' | 'prose'; faceSub?: string; meta?: string; status?: ProjectStatus; icon?: IconName; danger?: boolean; searchOnly?: boolean; hidden?: boolean; tag?: string; /** 選べない行（別の PC に置き場が無いプロジェクトなど）。薄く出し、押しても選ばない。理由は tag に書く。 */ disabled?: boolean };
 /** 一覧の下端に置く操作。行ではないので選んでも値にならず、onAction を呼ぶ。 */
 export type ListboxAction = { value: string; label: string; sub?: string; icon: IconName };
 export type ListboxGroup = { title: string; values: string[] };

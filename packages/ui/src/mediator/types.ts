@@ -1,4 +1,4 @@
-import type { InvestigateContext, NewSessionSeed, LinkConflictsDto, ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, NonDefaultAgentKind, ProjectPlace, ProjectRailSection, ResolveAction, PhoneLaunchDto, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto, ScheduleInput, SchedulePatch } from '@agent-hangar/shared';
+import type { InvestigateContext, NewSessionSeed, PeerLaunchBody, LinkConflictsDto, ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, NonDefaultAgentKind, ProjectPlace, ProjectRailSection, ResolveAction, PhoneLaunchDto, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto, ScheduleInput, SchedulePatch } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { PanesState } from './panes.ts';
 import type { CloudMemberCommand } from '../runtime/cloudMember.ts';
@@ -18,6 +18,8 @@ export type RuntimeEvent =
   | { type: 'launch.done'; sessionId: string; runId: string } | { type: 'launch.failed'; message: string; /** 起動が、リンクの場所のファイルの衝突だけで断られた（修復のダイアログを開ける）。 */ linkConflict?: LinkConflictRef }
   // 準備が問い（ask）で止まった、または利用者がやめた（cancel）。どちらも失敗ではない。message はサーバの文で、閉じた後に問いで止まったときだけ知らせる。
   | { type: 'launch.halted'; why: 'ask' | 'cancel'; message: string }
+  // 選んだ PC への起動の頼みが置けた（起きたかどうかは、後からサーバが札で知らせる）。device は頼んだ PC の名前。
+  | { type: 'peerLaunch.sent'; device: string }
   // 起動した後にコンテキストが足りなかった札の「再ロードして再開」の結果。
   | { type: 'contextShort.done'; sessionId: string } | { type: 'contextShort.failed'; sessionId: string; message: string }
   | { type: 'promote.done'; projectId: string; moved: boolean; reason: string | null }
@@ -100,7 +102,7 @@ export type Effect =
   | { kind: 'api.recheckMux' }
   | { kind: 'shell.openLog' } | { kind: 'shell.restart' } | { kind: 'clipboard.copy'; text: string; done?: string }
   | { kind: 'api.rebuildIndex' }
-  | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.resume'; sessionId: string; stray?: ResumeStray; prepKey?: string } | { kind: 'api.fork'; sessionId: string }
+  | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.peerLaunch'; body: PeerLaunchBody } | { kind: 'api.resume'; sessionId: string; stray?: ResumeStray; prepKey?: string } | { kind: 'api.fork'; sessionId: string }
   // 起動した後にコンテキストが足りなかった会話のローカルのモデルを整え直す。進みは prepKey の鍵の launch.prep で届き、結果は contextShort.done か contextShort.failed で返る。
   | { kind: 'api.fixContextShort'; sessionId: string; prepKey: string }
   | { kind: 'api.attach'; sessionId: string } | { kind: 'api.adopt'; sessionId: string }
@@ -156,6 +158,8 @@ export type Effect =
   // 予定の作成と更新。place があれば、先にそのフォルダを登録し、その id を送り先の projectId にして送る。
   | { kind: 'api.saveSchedule'; place?: ProjectPlace; save: { op: 'create'; input: ScheduleInput } | { op: 'update'; id: string; patch: SchedulePatch } }
   | { kind: 'api.workspaceDirs' }
+  // 新しいセッションのダイアログの PC の選択のための、ほかの PC の様子（GET /api/peers）。答えは Store の peers に入る。
+  | { kind: 'api.peers' }
   // Claude Code と会話したフォルダの候補を取る。答えは Store の folderCandidates に入る。
   | { kind: 'api.folderCandidates' }
   // 「フォルダの中から」の親フォルダの直下を取る。答えは Store の workspaceChildren に入り、後から頼んだ親の答えだけを採る。

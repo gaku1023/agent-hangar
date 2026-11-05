@@ -31,7 +31,9 @@ const OPENCODE_EXTRAS: readonly Extra[] = ['name'];
  * エージェントの札。opencodeNote と codexNote は一覧の opencode と Codex の行に添える版の確かめ（「opencode 2.1.4 · 検証済み」）。
  * offered は一覧に並べるエージェント（設定で有効にしたものだけ）。省くと Claude Code と opencode。
  */
-export type LaunchAgentChip = { value: AgentValue; onChange: (value: AgentValue) => void; opencodeNote: string | null; codexNote?: string | null; offered?: readonly AgentValue[] };
+export type LaunchAgentChip = { value: AgentValue; onChange: (value: AgentValue) => void; opencodeNote: string | null; codexNote?: string | null; offered?: readonly AgentValue[];
+  /** 選んだ別の PC に入っていないエージェントと、その理由の 1 語。選べず、一覧の末尾に集めて薄くする。 */
+  unavailable?: Record<string, string> };
 
 /**
  * Codex を選んだときの札。モデルの空はデフォルト（params に載せない）。
@@ -143,6 +145,8 @@ export function LaunchChips(props: {
   account?: { value: string; options: LaunchAccountOption[]; onChange: (value: string) => void };
   /** 前回の権限モード。一覧のその行に「前回」を添える。 */
   previousPermission?: string;
+  /** 別の PC への起動。worktree と追加ディレクトリは渡せないので、その札を出さない。 */
+  remote?: boolean;
   /** worktree の札の値の後ろに添える淡い文字（予定は回ごとに日時が付くので「-MMDD-HHmm」）。 */
   worktreeSuffix?: string;
 }) {
@@ -167,7 +171,7 @@ export function LaunchChips(props: {
   const cx = props.codex;
   // opencode と Codex は自前の札の組を持ち、effort・権限モード・worktree・追加ディレクトリの札は出さない。
   const alt = !!(oc || cx);
-  const extras = alt ? OPENCODE_EXTRAS : EXTRAS;
+  const extras = alt || props.remote ? OPENCODE_EXTRAS : EXTRAS;
   const extraItems = extras.filter((k) => !added.has(k)).map((k) => ({ key: k, label: names[k], onSelect: () => add(k) }));
 
   return (
@@ -200,9 +204,9 @@ export function LaunchChips(props: {
           <ChipPopover name={t('launch.permission.label')} value={permissionLabel(values.permissionMode, t)} tone={bypass ? 'danger' : values.permissionMode === PERMISSION_DEFAULT ? 'muted' : 'default'} icon={bypass ? 'warning' : undefined} agentOnly="permissionMode">
             {(close) => <PermissionList value={values.permissionMode} previous={props.previousPermission} onChange={(v) => { onChange({ permissionMode: v }); close(); }} />}
           </ChipPopover>
-          <ChipPopover name={t('launch.chip.worktree')} value={values.worktree.trim() || none} suffix={values.worktree.trim() ? props.worktreeSuffix : undefined} tone={values.worktree.trim() ? 'default' : 'muted'} width={280} agentOnly="worktree">
+          {!props.remote && <ChipPopover name={t('launch.chip.worktree')} value={values.worktree.trim() || none} suffix={values.worktree.trim() ? props.worktreeSuffix : undefined} tone={values.worktree.trim() ? 'default' : 'muted'} width={280} agentOnly="worktree">
             {(close) => <TextEditor name={t('launch.chip.worktree')} placeholder={t('launch.edit.worktreePlaceholder')} value={values.worktree} onChange={(v) => onChange({ worktree: v })} close={close} mono />}
-          </ChipPopover>
+          </ChipPopover>}
         </>
       )}
       {added.has('name') && (
@@ -210,7 +214,7 @@ export function LaunchChips(props: {
           {(close) => <TextEditor name={names.name} placeholder={t('launch.edit.namePlaceholder')} value={values.name} onChange={(v) => onChange({ name: v })} close={close} />}
         </ChipPopover>
       )}
-      {!alt && added.has('addDirs') && (
+      {!alt && !props.remote && added.has('addDirs') && (
         <ChipPopover name={names.addDirs} value={dirCount(values.addDirs) ? t('launch.value.dirCount', { n: dirCount(values.addDirs) }) : none} tone={dirCount(values.addDirs) ? 'default' : 'muted'} width={320} defaultOpen={fresh === 'addDirs'} agentOnly="addDirs">
           {() => (
             <>
@@ -241,7 +245,8 @@ function AgentChip(props: LaunchAgentChip) {
     <ChipPopover name={t('launch.chip.agent')} value={label(props.value)} lead={<AgentIcon kind={props.value} decorative />} badge={AGENT_UI_CAPS[props.value].beta ? beta : undefined} showName={false} width={260}>
       {(close) => (
         <PickList label={t('launch.chip.agent')} value={props.value}
-          items={(props.offered ?? DEFAULT_OFFERED).map((k) => ({
+          items={[...(props.offered ?? DEFAULT_OFFERED)].sort((a, b) => Number(!!props.unavailable?.[a]) - Number(!!props.unavailable?.[b])).map((k) => ({
+            ...(props.unavailable?.[k] ? { disabled: true, tag: props.unavailable[k] } : {}),
             value: k, label: label(k), lead: <AgentIcon kind={k} decorative />,
             ...(AGENT_UI_CAPS[k].beta ? { badge: beta } : {}),
             ...(k === 'opencode' && props.opencodeNote ? { sub: props.opencodeNote } : {}),

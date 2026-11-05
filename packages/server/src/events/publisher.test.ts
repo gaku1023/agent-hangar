@@ -117,6 +117,16 @@ describe('表から DTO とイベントへ', () => {
     expect(upserts(t.sent).map((e) => [e.session.id, e.session.name])).toEqual([['s1', '向こうの名前']]);
   });
 
+  it('session_spawns の行は、書き込みでも同期で降りても、子の session.upsert になり、別の PC の印を載せる', () => {
+    const t = setup();
+    seedSession(t.db);
+    upsertShared(t.db, 'devices', { id: OTHER, name: 'もう 1 台', platform: 'darwin', last_seen_at: 1 }, OTHER);
+    t.reset();
+    upsertShared(t.db, 'session_spawns', { session_id: 's1', parent_id: 'p-x', created_at: 1, parent_device_id: OTHER, child_device_id: ME, relay: 'on', closed_at: null, deleted_at: null }, ME, 'session_id');
+    t.publisher.flush();
+    expect(upserts(t.sent).map((e) => e.session.spawnPeer)).toEqual([{ parent: 'もう 1 台', child: null, closed: false }]);
+  });
+
   it('runs の行は、同期で降りたときだけ持ち主のセッションを配る。手元の run の変化は run.* の明示のイベントが運ぶ', () => {
     const t = setup();
     seedSession(t.db);

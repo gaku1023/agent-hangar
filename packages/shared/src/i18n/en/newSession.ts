@@ -3,6 +3,16 @@ import type { AreaDictionary } from '../messageSpec.ts';
 
 export const newSessionEn: AreaDictionary<typeof newSessionKeys> = {
   'newSession.title.default': 'New session',
+  'newSession.pc.label': 'Computer',
+  'newSession.pc.here': 'This computer',
+  'newSession.pc.offline': 'Offline',
+  'newSession.pc.outdated': 'Out of date',
+  'newSession.pc.start': 'Start on {device}',
+  'newSession.peer.noAccount': 'Not there',
+  'newSession.peer.loggedOut': 'Logged out',
+  'newSession.peer.noFolder': 'No folder',
+  'newSession.peer.noAgent': 'Not installed',
+  'newSession.peer.asked': 'Asked {device} to start it.',
   'newSession.title.newDir': 'Start in a new folder',
   'newSession.title.dir': 'Register the folder and start',
   'newSession.prompt.label': 'Initial prompt (optional)',

@@ -8,7 +8,7 @@ import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { acceptsResultFrom, forgetSpawn, getSpawn } from '../sessions/spawns.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
-import { PeerOutbox, recordPeerRequest } from './outbox.ts';
+import { getPeerRequest, PeerOutbox, recordPeerRequest, SCREEN_CALLER } from './outbox.ts';
 
 const ME = 'pc-a';
 const PEER = 'pc-b';
@@ -77,6 +77,59 @@ beforeEach(async () => {
   });
 });
 afterEach(() => { db.close(); });
+
+describe('PeerOutbox の画面からの頼み（呼び出し元の会話が無い）', () => {
+  let toasts: { level: string; message: string }[];
+  beforeEach(() => {
+    toasts = [];
+    ob = new PeerOutbox({
+      db, deviceId: ME, api: () => api, ring: () => ring, live: () => live,
+      inject: async (id, text) => { injected.push({ id, text }); return true; },
+      notify: (id, text, anchor) => { notices.push({ id, text, anchor: anchor ?? null }); },
+      toast: (level, message) => { toasts.push({ level, message }); },
+      deviceName: (id) => (id === PEER ? 'Mac' : null),
+      now: () => clock.t,
+    });
+  });
+  const placeScreen = async (id = REQ) => {
+    await a.peerLaunch.put({ id, to: PEER, sealed: SEALED });
+    recordPeerRequest(db, { requestId: id, to: PEER, callerSessionId: SCREEN_CALLER, now: clock.t });
+  };
+
+  it('started は画面の札で知らせ、結び付きも結果の預かりも作らない。頼みは終わる', async () => {
+    await placeScreen();
+    await started('child-9');
+    await ob.sync();
+    expect(toasts).toEqual([{ level: 'info', message: expect.stringContaining('Mac') }]);
+    expect(getSpawn(db, ME, 'child-9')).toBeNull();
+    expect(getPeerRequest(db, REQ)).toMatchObject({ state: 'done', child_session_id: 'child-9' });
+    expect(injected).toEqual([]);
+    expect(notices).toEqual([]);
+    await ob.sync();
+    expect(toasts).toHaveLength(1);
+  });
+
+  it('断りの答えは、入力にせず画面の札（error）で理由を知らせる', async () => {
+    await placeScreen();
+    await refused('project-missing');
+    await ob.sync();
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]).toMatchObject({ level: 'error' });
+    expect(toasts[0]!.message).toContain('Mac');
+    expect(toasts[0]!.message).toContain('ディレクトリがありません');
+    expect(injected).toEqual([]);
+    expect(notices).toEqual([]);
+  });
+
+  it('受け取られないまま期限を過ぎたら、画面の札で知らせる', async () => {
+    await placeScreen();
+    await ob.tick();
+    clock.t += PEER_LAUNCH_TTL_MS + 1_000;
+    await ob.tick();
+    expect(toasts).toEqual([{ level: 'error', message: expect.stringContaining('Mac') }]);
+    expect(injected).toEqual([]);
+  });
+});
 
 describe('PeerOutbox の答え', () => {
   it('started なら、結び付きを子の PC つきで残し、その子の結果を受けてよくなる', async () => {

@@ -110,8 +110,19 @@ a:hover { text-decoration: underline; }
 .peer-approval-route { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; font-weight: 600; }
 .peer-approval-route > svg { flex: none; width: 14px; height: 14px; color: var(--ink-3); }
 .peer-approval-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.peer-approval-pc { flex: none; display: inline-flex; align-items: center; gap: var(--u); padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill, 999px); background: var(--limit-soft); color: var(--limit); font-size: var(--fs-sm); line-height: 20px; white-space: nowrap; }
-.peer-approval-pc svg { width: 12px; height: 12px; }
+.peer-approval-pc, .pc-pill { flex: none; display: inline-flex; align-items: center; gap: var(--u); padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill, 999px); background: var(--limit-soft); color: var(--limit); font-size: var(--fs-sm); line-height: 20px; white-space: nowrap; }
+.peer-approval-pc svg, .pc-pill svg { width: 12px; height: 12px; flex: none; }
+/* サイドバーの別の PC の子の札。名前が長ければ札の中で切る。結び付きが終わった子は、灰色にする。 */
+.side-live-row .pc-pill { flex: 0 1 auto; min-width: 0; max-width: 52%; padding: 0 var(--u); }
+.side-live-row .pc-pill svg { display: none; }
+.side-live-row:has(.pc-pill) .side-live-name { min-width: 4em; }
+.side-live-row .pc-pill > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.side-live-row[data-peer-ended='true'] .side-live-name { color: var(--ink-3); }
+.side-live-row[data-peer-ended='true'] .pc-pill { background: var(--surface-2); color: var(--ink-3); }
+.spawned-from .pc-pill, .spawned-pill .pc-pill { min-width: 0; }
+.spawned-from[data-ended='true'] span:not(.pc-pill) { text-decoration: line-through; }
+.pc-pill[data-ended='true'], .spawned-from[data-ended='true'] .pc-pill { background: var(--surface-2); color: var(--ink-3); }
+.side-live-kids.peer-ended { border-left-style: dashed; border-left-color: var(--ink-3); }
 .peer-approval-project { flex: none; font: 600 var(--fs-sm) var(--font-mono); color: var(--ink-2); white-space: nowrap; }
 .peer-approval-note { flex: none; display: inline-flex; align-items: center; gap: var(--u); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
 .peer-approval-note svg { width: 14px; height: 14px; }

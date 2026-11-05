@@ -162,4 +162,8 @@ export const mcpEn: AreaDictionary<typeof mcpKeys> = {
   'mcp.peer.notice.held': 'A report arrived from "{title}" on {device}. It will be handed over when this conversation is resumed.',
   'mcp.peer.notice.heldRefused': 'The answer to a launch request on {device} has arrived. It will be handed over when this conversation is resumed.',
   'mcp.peer.notice.gone': 'A report arrived from "{title}" on {device}, but the conversation that asked for it is gone. {reason}',
+  'mcp.peer.screenStarted': 'Started "{title}" on {device}.',
+  'mcp.peer.screenStartedPlain': 'Started a session on {device}.',
+  'mcp.peer.screenRefused': '{device} could not start it. {reason}',
+  'mcp.peer.screenExpired': '{device} did not pick up the request in time.',
 };

@@ -7,7 +7,7 @@ import { presentShell } from './shell.ts';
 import { spawnFoldKey } from './spawnTree.ts';
 
 const NOW = Date.parse('2026-10-07T12:00:00Z');
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: null, name: 'name-' + id, cwd: '/w', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 180_000, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, ...over });
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: null, name: 'name-' + id, cwd: '/w', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 180_000, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over });
 const storeOf = (list: SessionDto[]): Store => {
   const s = initialStore();
   s.bootstrapped = true;
@@ -26,6 +26,28 @@ describe('起動元の状態', () => {
   it('起動元が Paused なら、入れ子のままにする', () => {
     const store = storeOf([session('p', { live: null, ...state('paused') }), session('c', { live: 'busy', spawnedBy: 'p' })]);
     expect(liveRows(store)).toEqual([['p', 0], ['c', 1]]);
+  });
+});
+
+describe('別の PC の子（案 3A）', () => {
+  const peerSpawn = (over: Partial<NonNullable<SessionDto['spawnPeer']>> = {}) => ({ spawnPeer: { parent: null, child: 'Mac', closed: false, ...over } });
+  it('親の下に入れ子になり、行は子の PC の名前を持つ（テスト 21）', () => {
+    const store = storeOf([session('p', { live: 'busy', startedAt: 1 }), session('c', { live: null, spawnedBy: 'p', startedAt: 2, ...peerSpawn() })]);
+    store.runs = { r1: { id: 'r1', sessionId: 'c', endedAt: null } as never };
+    const live = presentShell(initialState(), store, NOW).live;
+    expect(live.groups[0]!.rows.map((r) => [r.id, r.depth ?? 0])).toEqual([['p', 0], ['c', 1]]);
+    expect(live.rows.find((r) => r.id === 'c')!.peer).toEqual({ name: 'Mac', ended: false });
+    expect(live.rows.find((r) => r.id === 'p')!.peer).toBeUndefined();
+  });
+  it('結び付きが終わった（closed）子は ended。同じ PC の子と、相手の PC から見た子（親が別の PC）は札を持たない', () => {
+    const store = storeOf([
+      session('p', { live: 'busy', startedAt: 1 }), session('c', { live: 'busy', spawnedBy: 'p', startedAt: 2, ...peerSpawn({ closed: true }) }),
+      session('l', { live: 'busy', spawnedBy: 'p', startedAt: 3 }), session('r', { live: 'busy', startedAt: 4, spawnedBy: 'far', ...peerSpawn({ parent: 'Win', child: null }) }),
+    ]);
+    const rows = presentShell(initialState(), store, NOW).live.rows;
+    expect(rows.find((r) => r.id === 'c')!.peer).toEqual({ name: 'Mac', ended: true });
+    expect(rows.find((r) => r.id === 'l')!.peer).toBeUndefined();
+    expect(rows.find((r) => r.id === 'r')!.peer).toBeUndefined();
   });
 });
 

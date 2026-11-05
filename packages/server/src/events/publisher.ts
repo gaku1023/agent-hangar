@@ -90,6 +90,8 @@ const TABLES: Record<string, TableRule> = {
   // 別の PC への起動の承認待ち。画面は一覧ごと受ける。会話の題名を載せるが、題名の変化では配り直さない（答えるまでの短い間の札である）。
   peer_approvals: { to: () => [['peerApprovals', '']] },
   schedules: { to: () => [['schedules', '']] },
+  // 起動元の結び付き。主キーは子の会話で、起動元、PC、終わった印は子の SessionDto（spawnedBy、spawnPeer）に載る。ほかの PC から降りた行と、終わった印の書き込みも配る。
+  session_spawns: { to: self('session') },
   session_summaries: { to: self('session') },
   session_states: { to: self('session') },
   // 名前は SessionDto に載る。この端末の書き込みも、同期で降りた行も配る。

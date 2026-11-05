@@ -88,6 +88,8 @@ export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; a
   dim?: boolean;
   /** 並べ替えで使う id。薄い起動元は、動いている最初の子孫の id を持つ（覚えた並びに載っているのは動いているものだけだから）。無ければ id。 */
   rep?: string;
+  /** この行が、別の PC で動く子（呼び出し元の下に入れ子になる）のとき、その PC の名前の札（案 3A）。ended は結び付きが終わったこと（線を破線にして灰色にする）。同じ PC の子と、相手の PC から見た子は持たない。 */
+  peer?: { name: string; ended: boolean };
   /** 子を持つ行だけが持つ。open は子の列を開いているか、dots は子孫ごとの状態の丸（畳んだときに名前の右へ並べる）。 */
   nest?: { open: boolean; dots: NestDot[] } };
 /** 「実行中」のグループ。key はプロジェクトの id で、未分類は空の文字列。waiting は入力待ちの行の数（畳んだ見出しに出す）。 */
@@ -217,7 +219,7 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
     // 停止の確認（stop.working）は本当の動きで決める。答えを待つ会話は、止めると問いが消える。
     const shown = quietLive(liveWithLimit(s.live, s.limit), s.state?.status, s.woke);
     const reason = shownReason(s, shown);
-    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, waited: sideWaited(t, s, shown, reason, now), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null, ...(icons ? { agent: agentOfSession(store, s) } : {}) };
+    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, waited: sideWaited(t, s, shown, reason, now), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null, ...(icons ? { agent: agentOfSession(store, s) } : {}), ...(s.spawnPeer?.child ? { peer: { name: s.spawnPeer.child, ended: s.spawnPeer.closed } } : {}) };
   };
   const folded = new Set(state.sidebarFolded);
   // 子が動いている起動元は、止まっていても薄い行として出す（子の列の根に要る）。起動元の連なりを上までたどる。

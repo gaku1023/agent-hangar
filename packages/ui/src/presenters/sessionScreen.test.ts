@@ -13,7 +13,7 @@ const NOW = Date.parse('2026-09-02T12:00:00Z');
 const stats = { turns: 11, model: 'claude-sonnet-4-5', effort: 'high', filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: 41, costUsd: 0.42 };
 const session = (over: Partial<SessionDto> = {}): SessionDto => ({
   id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '画像の遅延読み込み', cwd: '/w/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 3_600_000, lastActivityAt: NOW - 60_000, lastTurnAt: null, 
-  hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, ...over,
+  hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over,
 });
 const run = (over: Partial<RunDto> = {}): RunDto => ({ id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: NOW - 3_600_000, endedAt: null, endReason: null, heartbeatAt: NOW, ...over });
 function store(s: SessionDto = session(), r: RunDto | null = null): Store {
@@ -292,7 +292,7 @@ describe('起動元と起こしたセッション（spawnedBy）', () => {
     const child = session({ id: 's1', spawnedBy: 'p' });
     expect(present(many(child, parent)).spawnedFrom).toEqual({ id: 'p', name: '親の会話' });
     expect(present(many(child)).spawnedFrom).toBeNull();
-    expect(present(many(session({ spawnedBy: null }))).spawnedFrom).toBeNull();
+    expect(present(many(session({ spawnedBy: null, spawnPeer: null }))).spawnedFrom).toBeNull();
     expect(present(many(session())).spawnedFrom).toBeNull();
   });
   it('起動元の画面は、起こしたセッションを起動の古い順に並べ、状態を添える。無ければ空', () => {

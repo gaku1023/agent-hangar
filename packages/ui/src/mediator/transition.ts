@@ -151,5 +151,6 @@ function fetchDirsOnOpen(prev: State, r: Step): Step {
   const k = r.state.overlay.kind;
   // 予定の画面のフォームも、新しいセッションと同じプロジェクトの札を出すので、画面を開いたときに取る。
   const opened = ((k === 'newSession' || k === 'newProject') && prev.overlay.kind !== k) || (r.state.screen.name === 'schedules' && prev.screen.name !== 'schedules');
-  return opened ? { ...r, effects: [...r.effects, { kind: 'api.workspaceDirs' }] } : r;
+  // 新しいセッションのダイアログは、PC の選択のために、ほかの PC の様子も取る（読めなくても、この PC への起動は今までどおりできる）。
+  return opened ? { ...r, effects: [...r.effects, { kind: 'api.workspaceDirs' }, ...(k === 'newSession' ? [{ kind: 'api.peers' as const }] : [])] } : r;
 }

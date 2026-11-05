@@ -54,18 +54,22 @@ export function summarizerLabel(sourceId: string | null, sourceModel: string | n
 }
 
 /** 起動元の画面の、起こしたセッションの札。 */
-export type SpawnedChild = { id: string; name: string; live: LiveStatus | null; aside: boolean; reason: StopReason | null };
+export type SpawnedChild = { id: string; name: string; live: LiveStatus | null; aside: boolean; reason: StopReason | null;
+  /** 子が別の PC にあるとき、その PC の名前と、結び付きが終わったか（案 3A）。 */
+  peer?: { name: string; ended: boolean } };
+/** 子の画面の起動元。別の PC から頼まれたときは、頼んだ PC の名前を添える（案 3A）。ended は結び付きが終わったこと。 */
+export type SpawnedFromView = { id: string; name: string; peer?: { name: string; ended: boolean } };
 
-function spawnedFromOf(store: Store, s: SessionDto, t: Translate): { id: string; name: string } | null {
+function spawnedFromOf(store: Store, s: SessionDto, t: Translate): SpawnedFromView | null {
   const from = s.spawnedBy ? store.sessions[s.spawnedBy] : undefined;
-  return from ? { id: from.id, name: from.name ?? t('common.label.noName') } : null;
+  return from ? { id: from.id, name: from.name ?? t('common.label.noName'), ...(s.spawnPeer?.parent ? { peer: { name: s.spawnPeer.parent, ended: s.spawnPeer.closed } } : {}) } : null;
 }
 
 function spawnedChildrenOf(store: Store, id: string, t: Translate): SpawnedChild[] {
   return Object.values(store.sessions)
     .filter((c) => c.spawnedBy === id)
     .sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0))
-    .map((c) => ({ id: c.id, name: c.name ?? t('common.label.noName'), live: c.live, aside: asideOf(c.live, c.liveAside) !== null, reason: stopReasonOf(c) }));
+    .map((c) => ({ id: c.id, name: c.name ?? t('common.label.noName'), live: c.live, aside: asideOf(c.live, c.liveAside) !== null, reason: stopReasonOf(c), ...(c.spawnPeer?.child ? { peer: { name: c.spawnPeer.child, ended: c.spawnPeer.closed } } : {}) }));
 }
 
 export type SessionProps = { id: string; name: string; parent: ParentLink | null; live: LiveStatus | null; aside: boolean;
@@ -74,7 +78,7 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   /** 見出しの名前の横に出す、要約の 1 文。無ければ null。 */
   oneLiner: string | null;
   /** このセッションを起こしたセッション（SessionDto.spawnedBy）。store に無い、または起こされていなければ null、省けば出さない。 */
-  spawnedFrom?: { id: string; name: string } | null;
+  spawnedFrom?: SpawnedFromView | null;
   /** このセッションが起こしたセッション（起動の古い順）。無ければ空、省けば出さない。 */
   spawned?: SpawnedChild[];
   hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; canFork: boolean; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean; lock: SessionLockProps | null; remoteOnly: boolean; canResumeHere: boolean; outsideOpen: 'attach' | 'adopt' | null;

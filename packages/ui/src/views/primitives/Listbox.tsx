@@ -75,6 +75,7 @@ export function Listbox(props: ListboxProps) {
     if (refocus) face.current?.focus();
   };
   const choose = (o: ListboxOption) => {
+    if (o.disabled) return;
     hide(true);
     if (o.value !== props.value) props.onChange(o.value);
     else props.onReselect?.(o.value);
@@ -163,7 +164,7 @@ export function Listbox(props: ListboxProps) {
 
   const option = ({ option: o, index }: { option: ListboxOption; index: number }) => (
     <div key={o.value} id={optId(index)} role="option" aria-selected={o.value === props.value} aria-label={o.label} aria-describedby={o.sub ? `${optId(index)}-sub` : undefined}
-      className="listbox-opt" data-active={index === current ? 'true' : undefined} data-danger={o.danger ? 'true' : undefined}
+      className="listbox-opt" data-active={index === current ? 'true' : undefined} data-danger={o.danger ? 'true' : undefined} aria-disabled={o.disabled ? true : undefined} data-disabled={o.disabled ? 'true' : undefined}
       onMouseMove={() => { if (index !== current) setActive(index); }} onClick={() => choose(o)}>
       {o.status ? <span className="st-dot" data-status={o.status} aria-hidden="true" /> : o.icon ? <Icon name={o.icon} /> : null}
       <span className="listbox-opt-main">

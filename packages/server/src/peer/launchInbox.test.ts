@@ -78,6 +78,19 @@ describe('PeerLaunchInbox', () => {
     expect(db.prepare('select result, session_id, answered from peer_launches where id = ?').get('l1')).toEqual({ result: 'started', session_id: 's-new', answered: 1 });
   });
 
+  it('画面から人が頼んだ起動（親の会話が空）は、起こして started と答えるが、結び付きも結果の見張りも作らない', async () => {
+    const onStarted = vi.fn();
+    const { db, inbox, post, start, answerOf } = await setup({ onStarted });
+    await inbox.receive(await post('l1', request({ parentSessionId: '' })));
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(await answerOf('l1')).toEqual({ ok: true, sessionId: 's-new', title: 'TODO の先頭をやって' });
+    expect(getSpawn(db, 'pc-b', 's-new')).toBeNull();
+    expect(onStarted).not.toHaveBeenCalled();
+    // send と stop は、起こした会話が要るので、親が空では受けない。
+    await inbox.receive(await post('l2', request({ parentSessionId: '', op: 'send', targetSessionId: 's-new', prompt: 'x' })));
+    expect(await answerOf('l2')).toEqual({ ok: false, reason: 'bad-payload' });
+  });
+
   it('auto_approve と permission_mode はそのまま通す（D10）。opencode と Codex の欄も組む', async () => {
     const { inbox, post, start } = await setup();
     await inbox.receive(await post('l1', request({ permissionMode: 'bypassPermissions', effort: 'high' })));

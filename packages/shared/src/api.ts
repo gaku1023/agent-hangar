@@ -150,6 +150,12 @@ export type SessionDto = { id: string; provider: AgentKind; providerSessionId: s
    */
   spawnedBy: string | null;
   /**
+   * 起動元の結び付き（session_spawns、同期する）のうち、別の PC にまたがるものの印（D17）。親と子が両方この PC にあれば null。
+   * parent と child は、その側が別の PC にあるときのその PC の名前で、この PC にある側は null。
+   * closed は「終わった」を返し終えた結び付きで、入れ子の線を破線にする。この項目を知らない古いサーバは返さないので、読む側は null として読む。
+   */
+  spawnPeer: { parent: string | null; child: string | null; closed: boolean } | null;
+  /**
    * ほかの PC に引き継がれたこの PC の会話。この PC の最後の run が taken_over で終わっているときだけ値を持ち、ほかは null である。
    * deviceName は引き継いだ PC の名前、at はこの PC の run が終わった時刻。この PC で後から run を起こせば null に戻る。
    */
@@ -219,6 +225,21 @@ export type PeerApprovalState = 'pending' | 'approved' | 'denied' | 'timeout' | 
  * expiresAt を過ぎると timeout になる。
  */
 export type PeerApprovalDto = { id: string; from: string | null; device: string; project: string | null; scratch: boolean; ask: string; expiresAt: number; state: PeerApprovalState };
+/**
+ * 新規ダイアログの PC の選択（GET /api/peers）。ほかの PC 1 台につき 1 件で、自分は含めない。
+ * state は起動を頼めるか。ready は頼める、offline はいま接続できない、outdated は hangar が古くこの機能を持たない。
+ * accounts は相手のアカウントの名前とログインの可否、agents は相手で起こせるエージェント、projects は相手に置き場があるプロジェクトの id。
+ */
+export type PeerDeviceDto = {
+  id: string; name: string; platform: string; state: 'ready' | 'offline' | 'outdated';
+  accounts: { name: string; agent: string; loggedIn: boolean | null }[]; agents: string[]; projects: string[];
+};
+/** 画面から別の PC へ起動を頼む本体（POST /api/peer-launch）。人が選んだので承認は要らない（D8）。account は相手のアカウントの名前で、省けば相手の既定。 */
+export type PeerLaunchBody = {
+  device: string; projectId: string | null; scratch: boolean; agent: AgentKind; account?: string; permissionMode?: string; model?: string; effort?: string; mode?: string; autoApprove?: boolean; name?: string; prompt?: string;
+};
+/** 画面からの起動の答え。requested は頼みを置いた（起きたかどうかは後から toast で知らせる）、refused は置く前に断った。message は断りの文。 */
+export type PeerLaunchOutcomeDto = { status: 'requested'; requestId: string; device: string } | { status: 'refused'; reason: string; message: string };
 export type BootstrapDto = { schedules: ScheduleDto[]; device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; /** MCP の削除の依頼のうち、利用者の答えを待っているもの。 */ deleteApprovals: DeleteApprovalDto[]; /** 別の PC への起動の承認待ち。 */ peerApprovals: PeerApprovalDto[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto; /** サーバのホーム（os.homedir()）。画面はホームの下の置き場を ~ に縮めるときにだけ使う。 */ home: string; /** 中断の群（InterruptedDto）。 */ interrupted: InterruptedDto | null };
 export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; total: number; nextSeq: number | null };
 /**

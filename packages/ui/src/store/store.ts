@@ -1,5 +1,5 @@
 import type { ScheduleDto } from '@agent-hangar/shared';
-import type { DeleteApprovalDto, PeerApprovalDto } from '@agent-hangar/shared';
+import type { DeleteApprovalDto, PeerApprovalDto, PeerDeviceDto } from '@agent-hangar/shared';
 import { liveFilterOf, liveWithLimit, quietLive, stopReasonOf, type LiveFilter, type PermissionAskDto, type StopReason } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
 import { sameValue } from '../lib/same.ts';
@@ -115,6 +115,8 @@ export type Store = {
   opencodeOptions: OpencodeOptionsState | null;
   /** 新しいセッションで Codex を選んだときのモデルと推論の段階（GET /api/codex/options）。頼む前は null。 */
   codexOptions: CodexOptionsState | null;
+  /** 新しいセッションのダイアログの PC の選択（GET /api/peers）。ほかの PC の様子で、ダイアログを開いたときに読む。読む前は null。 */
+  peers: PeerDeviceDto[] | null;
   /**
    * 起動前の準備の進み（launch.prep、docs/design.md「起動前の準備」）。鍵（起動の要求に添えた prepKey）ごとに全体を持つ。
    * 古いものから LAUNCH_PREPS_KEPT 件まで残し、走っているものは捨てない。段の無い準備は何も届かない。
@@ -188,7 +190,7 @@ export function initialStore(): Store {
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     cloudUsage: null, sync: null, deleteApprovals: [], peerApprovals: [], schedules: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
-    readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, launchPreps: {}, opencodeProviders: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null, sharePreview: {},
+    readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, peers: null, launchPreps: {}, opencodeProviders: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null, sharePreview: {},
     update: initialUpdate(),
     cloudMember: initialCloudMember(),
     interrupted: null,

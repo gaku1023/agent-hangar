@@ -168,6 +168,8 @@ export function bootPeer(p: {
       return true;
     },
     notify,
+    // 画面から人が頼んだ起動の答えは、利用者が待っているので、知らせの出し先の決まりによらず画面の札で出す。
+    toast: (level, message) => { p.delivery.hub.broadcast({ type: 'toast', level, message }); },
   });
   const callDeps = { link: () => (p.sync.canCarryPeer() ? p.sync.peerLink() : null), workerOk: () => p.sync.canCarryPeer() };
   // 別の PC への起動の承認待ち（D8）。承認されたら経路を決めて封じて置き、断りと時間切れは呼び出し元に入力として入れる。

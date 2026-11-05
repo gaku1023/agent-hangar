@@ -7,7 +7,7 @@ import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { turnRunning } from '../live/unreadHold.ts';
 import { acceptsResultFrom, closeSpawn, recordSpawn } from '../sessions/spawns.ts';
 import type { Timers } from '../sync/engine.ts';
-import { expiredText, goneNotice, heldNotice, PEER_TEXT_MAX, refusalText, resultText, sshGaveUpText, stopReasonText, type PeerLocalRefusal } from './text.ts';
+import { expiredText, goneNotice, heldNotice, PEER_TEXT_MAX, refusalText, resultText, screenExpiredText, screenRefusalText, screenStartedText, sshGaveUpText, stopReasonText, type PeerLocalRefusal } from './text.ts';
 
 /**
  * 呼ぶ側（T7）。別の PC へ置いた頼みの答えと結果を受け取り、呼び出し元の会話へ送り込む。
@@ -34,6 +34,9 @@ const OUTBOX_PAGES = 10;
 /** 1 件の頼みで、1 回の取得に続けて読む結果の頁の上限。 */
 const RESULT_PAGES = 50;
 const CURSOR_KEY = 'peerOutboxSince';
+
+/** 画面から人が頼んだ起動の呼び出し元。会話が無いので空で、答えは画面の札で知らせ、結び付きも結果の預かりも作らない。 */
+export const SCREEN_CALLER = '';
 
 export type PeerRequestState = 'requested' | 'started' | 'refused' | 'expired' | 'done';
 
@@ -85,6 +88,8 @@ export type PeerOutboxDeps = {
    * null なら、会話が消えているので、OS とスマホの通知だけにする。そのとき anchorSessionId は、通知が開く先（起こした相手の会話）で、無ければ null である。
    */
   notify: (sessionId: string | null, text: string, anchorSessionId?: string | null) => void;
+  /** 画面から人が頼んだ起動（SCREEN_CALLER）の答えを、画面の札で知らせる。渡さなければ知らせない。 */
+  toast?: (level: 'info' | 'error', message: string) => void;
   /** PC の名前。分からなければ null で、ID をそのまま出す。既定は devices 表。 */
   deviceName?: (deviceId: string) => string | null;
   language?: GetLanguage;
@@ -275,6 +280,12 @@ export class PeerOutbox {
       db.prepare("update peer_outbox set state = 'done', title = ?, updated_at = ? where request_id = ?").run(ans.title, this.now(), row.request_id);
       return true;
     }
+    // 画面から人が頼んだ起動は、起きたと知らせて終わる（結び付きも結果の預かりも作らない。相手の会話は、同期でサイドバーに出る）。
+    if (row.caller_session_id === SCREEN_CALLER) {
+      db.prepare("update peer_outbox set state = 'done', child_session_id = ?, title = ?, updated_at = ? where request_id = ?").run(ans.sessionId, ans.title, this.now(), row.request_id);
+      this.safeToast('info', screenStartedText(this.language(), { device: this.nameOf(row.to_device), title: ans.title }));
+      return true;
+    }
     db.prepare("update peer_outbox set state = 'started', child_session_id = ?, title = ?, updated_at = ? where request_id = ?").run(ans.sessionId, ans.title, this.now(), row.request_id);
     // 呼び出し元がもう消えていれば、結び付きは作らない（相手の PC の側は、結果の行が受け取られないまま切れる）。
     if (this.callerState(row.caller_session_id) !== 'gone') {
@@ -286,6 +297,12 @@ export class PeerOutbox {
   private refuse(row: PeerRequestRow, reason: PeerLaunchRefusal | PeerLocalRefusal, detail?: string, expired = false): void {
     const lang = this.language();
     const device = this.nameOf(row.to_device);
+    // 画面から人が頼んだ起動の断りは、入力にせず画面の札で知らせる。
+    if (row.caller_session_id === SCREEN_CALLER) {
+      this.deps.db.prepare('update peer_outbox set state = ?, reason = ?, updated_at = ? where request_id = ?').run(expired ? 'expired' : 'refused', expired ? 'expired' : reason, this.now(), row.request_id);
+      this.safeToast('error', expired ? screenExpiredText(lang, { device }) : screenRefusalText(lang, { device, reason, ...(detail ? { detail } : {}) }));
+      return;
+    }
     const text = expired ? expiredText(lang, { device }) : refusalText(lang, { device, reason, op: row.op, ...(detail ? { detail } : {}) });
     this.deps.db.prepare('update peer_outbox set state = ?, reason = ?, updated_at = ? where request_id = ?').run(expired ? 'expired' : 'refused', expired ? 'expired' : reason, this.now(), row.request_id);
     this.enqueue(row, 0, text, heldNotice(lang, { device, title: null }), text);
@@ -421,6 +438,10 @@ export class PeerOutbox {
   private anchorOf(requestId: string): string | null {
     const r = this.deps.db.prepare('select s.id from peer_outbox o join sessions s on s.id = o.child_session_id and s.deleted_at is null where o.request_id = ?').get(requestId) as { id: string } | undefined;
     return r?.id ?? null;
+  }
+
+  private safeToast(level: 'info' | 'error', message: string): void {
+    try { this.deps.toast?.(level, message); } catch (e) { console.error('[peer] could not show the answer', e instanceof Error ? e.constructor.name : typeof e); }
   }
 
   private safeNotify(sessionId: string | null, text: string, anchor: string | null = null): void {
