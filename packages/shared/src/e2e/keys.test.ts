@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { fromBase64Url, toBase64Url } from './bytes.ts';
 import { PURPOSE_INFO, deriveEpochKeys, deriveSubkeyBytes, generateKeyPair, generateKeyPairNonExtractable, importPrivate, importPublic, randomEpochKey, type Purpose } from './keys.ts';
 
-const PURPOSES: Purpose[] = ['row', 'index', 'fp', 'file', 'roster', 'peer'];
+const PURPOSES: Purpose[] = ['row', 'index', 'fp', 'file', 'roster', 'peer', 'peer-token'];
 
 async function ecdh(priv: CryptoKey, pub: string): Promise<string> {
   const bits = await globalThis.crypto.subtle.deriveBits({ name: 'X25519', public: await importPublic(pub) }, priv, 256);
