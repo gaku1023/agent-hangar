@@ -147,8 +147,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // Codex の検出と選択肢（ベータ）。設定の画面とスマホの問い合わせが同じ一覧を使う。
   const localCodex = new LocalCodex({ bin: () => findCodex() });
   const codex = { local: localCodex, options: new CodexOptionsService({ bin: () => findCodex(), status: localCodex.status }) };
-  const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, trash: trash.trash });
+  // 別の PC への頼みの、受ける側と呼ぶ側。呼び鈴の answer と result の知らせは、スマホの呼び鈴（bootMobile）が受けて peer.onBell へ渡す。
   const peer = bootPeer({ home, runs, sync, delivery });
+  const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, trash: trash.trash, onPeer: (kind, id) => { peer.onBell(kind, id); } });
   peerRelayEnded = (id) => peer.relay.onEnded(id);
   // 定期の実行（#549）。予定はこの PC のものだけを流す。起こし方と待ち方は MCP の道具と同じ本体を通す。
   const scheduleTools: ToolDeps = { db: home.db, deviceId: home.device.id, port: listening.port, live: () => delivery.live.current(), runs: runs.runs, language: home.language, usage: () => runs.usage.current(),

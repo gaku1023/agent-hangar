@@ -19,6 +19,8 @@ import { getSessionState, proposeSessionState, setSessionState, StateInputError,
 import { readEvents } from '../transcript/read.ts';
 import { deviceOfSession } from '../runs/handover.ts';
 import type { ReportService } from '../report/service.ts';
+import type { PeerCallDeps } from '../peer/caller.ts';
+import { createRemoteSessionTool, isThisDevice, listDevicesTool } from './peerTools.ts';
 import { createScheduleTool, listSchedulesTool, updateScheduleTool } from './scheduleTools.ts';
 import { readSessionScreenTool, sendToSessionTool } from './screenTools.ts';
 import { noteTurnStart, waitForSessionTool } from './waitTool.ts';
@@ -65,6 +67,8 @@ export type ToolDeps = {
   openUrl?: (url: string) => Promise<void>;
   /** create_session と resume_session が起動を待つ上限（ミリ秒）。越えても準備が走っていれば、待たずに preparing で返す。渡さなければ LAUNCH_WAIT_MS。 */
   launchWaitMs?: number;
+  /** 別の PC へ起こす口（peer/caller.ts）。無ければ list_devices は空で、device を付けた create_session は device-unknown で断る。 */
+  peer?: PeerCallDeps;
   /** wait_for_session が進みを流す間隔（ミリ秒）。渡さなければ WAIT_PROGRESS_MS。 */
   waitProgressMs?: number;
 };
@@ -88,7 +92,7 @@ export class ToolError extends MessageError {
  */
 export const TOOL_NAMES = [
   'list_projects', 'get_project', 'update_project', 'list_sessions', 'search_sessions', 'get_transcript',
-  'create_session', 'set_session_summary', 'set_turn_intent', 'get_usage', 'open_in_hangar',
+  'list_devices', 'create_session', 'set_session_summary', 'set_turn_intent', 'get_usage', 'open_in_hangar',
   'propose_session_status', 'draft_issue_report', 'submit_issue_report',
   'stop_session', 'resume_session', 'delete_session',
   'send_to_session', 'read_session_screen', 'wait_for_session', 'notify_user', 'set_notify_preference',
@@ -469,6 +473,8 @@ const newPrepKey = (): string => `mcp-${randomUUID().replaceAll('-', '')}`;
  * cwd は MCP のスキーマに出さない内部の引数で、予定が登録済みのプロジェクトの下のフォルダを渡すのに使う。
  */
 export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
+  const device = str(args.device);
+  if (device && !isThisDevice(deps, device)) return createRemoteSessionTool(deps, ctx, args, device);
   const quick = bool(args.scratch) === true && !str(args.project_id);
   if (quick && projectScope(deps, ctx, args) !== undefined) throw new ToolError(msg('schedules.error.scratchScoped'));
   const projectId = quick ? undefined : projectIdOf(deps, ctx, args);
@@ -836,6 +842,7 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'list_sessions': return listSessionsTool(deps, ctx, args);
     case 'search_sessions': return searchSessionsTool(deps, ctx, args);
     case 'get_transcript': return getTranscriptTool(deps, ctx, args);
+    case 'list_devices': return listDevicesTool(deps);
     case 'create_session': return createSessionTool(deps, ctx, args);
     case 'set_session_summary': return setSessionSummaryTool(deps, ctx, args);
     case 'set_turn_intent': return setTurnIntentTool(deps, ctx, args);
