@@ -6,6 +6,7 @@ import type { ListItem } from '../presenters/listItem.ts';
 import { spawnFoldKey } from '../presenters/spawnTree.ts';
 import { GitChip } from './GitChip.tsx';
 import { AgentIcon } from './primitives/AgentIcon.tsx';
+import { pillName } from '../lib/pcName.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { MenuButton, type MenuAnchor, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
@@ -264,7 +265,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
         {/* 要約に当たった行の札（検索の結果）。一致した語そのものは要約の本文にあるので、ここは札だけにする。 */}
         {r.summaryMatch && <span className="row-tag">{t('list.match.summary')}</span>}
         {/* git の札（試作の 2-1 の A）。要約が先に縮み、札は右端に残る。 */}
-        {flat && r.peer && <span className="pc-pill row-peer" data-ended={r.peer.ended ? 'true' : undefined} title={r.peer.name}><Icon name="otherPc" /><span>{r.peer.name}</span></span>}
+        {flat && r.peer && <span className="pc-pill row-peer" data-ended={r.peer.ended ? 'true' : undefined} title={r.peer.name}><Icon name="otherPc" /><span>{pillName(r.peer.name)}</span></span>}
         {flat && r.git && !(r.peer && r.git.kind === 'remote') && <GitChip id={r.id} chip={r.git} className="row-git" />}
         {flat && r.prUrl && (
           // 2 段目の右端。PR の番号（設計書 2.2）。PR は外のブラウザで開くリンクで、行は開かない。

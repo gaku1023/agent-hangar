@@ -112,10 +112,18 @@ a:hover { text-decoration: underline; }
 .peer-approval-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .peer-approval-pc, .pc-pill { flex: none; display: inline-flex; align-items: center; gap: var(--u); padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill, 999px); background: var(--limit-soft); color: var(--limit); font-size: var(--fs-sm); line-height: 20px; white-space: nowrap; }
 .peer-approval-pc svg, .pc-pill svg { width: 12px; height: 12px; flex: none; }
-/* サイドバーの別の PC の子の札。札は 7em までで省略し（全文は title）、会話の名前に幅を残す。結び付きが終わった子は、灰色にする。 */
-.side-live-row .pc-pill { flex: 0 1 auto; min-width: 5.5em; max-width: 7em; padding: 0 var(--u); }
+/*
+ * サイドバーの別の PC の子の札。札は縮めず、8em を超える名前だけ省略する（全文は title）。
+ * 行が狭くて会話の名前と並ばないときは、札を PC の絵だけにして、会話の名前に幅を回す。結び付きが終わった子は、灰色にする。
+ */
+.side-live-row:has(.pc-pill) { container-type: inline-size; }
+.side-live-row .pc-pill { flex: none; max-width: 8em; padding: 0 var(--u); }
 .side-live-row .pc-pill > span { overflow: hidden; text-overflow: ellipsis; }
 .side-live-row .pc-pill svg { display: none; }
+@container (max-width: 219px) {
+  .side-live-row .pc-pill > span { display: none; }
+  .side-live-row .pc-pill svg { display: block; }
+}
 .side-live-row:has(.pc-pill) .side-live-name { min-width: 3em; }
 .side-live-row[data-peer-ended='true'] .side-live-name { color: var(--ink-3); }
 .side-live-row[data-peer-ended='true'] .pc-pill { background: var(--surface-2); color: var(--ink-3); }

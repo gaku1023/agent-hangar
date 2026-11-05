@@ -42,10 +42,16 @@ describe('PaneOps の貼り付けと Enter（偽の実行）', () => {
     expect(calls.map((c) => c[0])).toEqual(['set-buffer', 'paste-buffer', 'send-keys']);
     expect(calls[2]).toEqual(['send-keys', '-t', '=hangar-a:', 'Enter']);
   });
-  it('psmux でも同じ口で貼る', () => {
+  it('psmux でも同じ口で貼る。バッファは宛先のセッションのサーバに入れる（-t）', () => {
     const { t, calls } = fake('win32');
     psmuxPaneOps(t).pasteText!('hangar-a', 'x');
     expect(calls.map((c) => c[0])).toEqual(['set-buffer', 'paste-buffer']);
+    expect(calls[0]!.slice(0, 3)).toEqual(['set-buffer', '-t', '=hangar-a:']);
+  });
+  it('psmux で貼れなかったら、残ったバッファも宛先のサーバで消す', () => {
+    const { t, calls } = fake('win32', (a) => (a[0] === 'paste-buffer' ? { status: 1, stderr: 'psmux: no buffer x\n' } : { status: 0 }));
+    expect(() => t.pasteText('hangar-a', 'x')).toThrow('no buffer');
+    expect(calls.at(-1)!.slice(0, 3)).toEqual(['delete-buffer', '-t', '=hangar-a:']);
   });
 });
 

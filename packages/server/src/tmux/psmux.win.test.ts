@@ -87,6 +87,17 @@ describe.skipIf(!PSMUX)('Tmux（実物の psmux）', () => {
     await waitFor(() => tmux.capturePane('hangar-keys').split('\n').some((l) => l.trim() === '{q} 日本語'), 10_000);
   });
 
+  // psmux はセッションごとに別のサーバを立て、宛先の無い set-buffer は最後に作ったセッションのサーバに入る。
+  // 前に作ったセッションへ貼ると「no buffer」で断られていた（別の PC からの報告が、一番新しい会話にしか届かなかった）。
+  it('前に作ったセッションにも、複数行を貼れる', async () => {
+    start('hangar-paste-old', ['cmd.exe']);
+    start('hangar-paste-new', ['cmd.exe']);
+    await waitFor(() => tmux.capturePane('hangar-paste-old').includes('>'), 10_000);
+    tmux.pasteText('hangar-paste-old', 'echo paste-old-1\necho paste-old-2');
+    tmux.sendKeys('hangar-paste-old', 'Enter');
+    await waitFor(() => tmux.capturePane('hangar-paste-old').split('\n').some((l) => l.trim() === 'paste-old-2'), 10_000);
+  });
+
   // RunManager が使う口を、そのまま実物の psmux に通す。
   it('PaneOps 越しに、画面を作り、文字を送って読み、名指しで止める', async () => {
     const panes = psmuxPaneOps(tmux);

@@ -250,14 +250,18 @@ export class Tmux {
    * 中のプログラムが貼り付けのモードを求めていれば括弧（ESC[200~ と ESC[201~）で囲んで届き、求めていなければ素の文字として届く。
    * バッファは貼ったら消す（-d）。貼れなかったときも、残らないように消す。
    * 貼れなかったら投げる。
+   * psmux はセッションごとに別のサーバを立て、宛先の無い set-buffer は最後に作ったセッションのサーバに入る。
+   * それより前のセッションへ貼ると「no buffer」で断られるので、psmux ではバッファの出し入れも宛先のセッションに向ける（-t）。
+   * tmux の set-buffer の -t はクライアントの指定なので付けない（サーバは 1 つでバッファも共通）。
    */
   pasteText(name: string, text: string): void {
     const buf = `hangar-paste-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    const set = this.run('set-buffer', '-b', buf, '--', text);
+    const at = this.platform === 'win32' ? ['-t', `=${name}:`] : [];
+    const set = this.run('set-buffer', ...at, '-b', buf, '--', text);
     if (set.code !== 0 || set.failed) throw new Error(`tmux set-buffer failed: ${set.stderr.trim() || set.stdout.trim() || `exit ${set.code}`}`);
     const paste = this.run('paste-buffer', '-p', '-d', '-b', buf, '-t', `=${name}:`);
     if (paste.code !== 0 || paste.failed) {
-      this.run('delete-buffer', '-b', buf);
+      this.run('delete-buffer', ...at, '-b', buf);
       throw new Error(`tmux paste-buffer failed: ${paste.stderr.trim() || paste.stdout.trim() || `exit ${paste.code}`}`);
     }
   }

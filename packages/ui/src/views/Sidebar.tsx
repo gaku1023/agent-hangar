@@ -4,6 +4,7 @@ import { flushSync } from 'react-dom';
 import { useEmit } from '../action/chain.tsx';
 import type { NavItem, SideLiveGroup, SideLiveProps, SideLiveRow } from '../presenters/shell.ts';
 import { AgentIcon } from './primitives/AgentIcon.tsx';
+import { pillName } from '../lib/pcName.ts';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { ariaKeyShortcuts, keyLabel } from '../keys.ts';
@@ -383,7 +384,7 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
             )}
           </span>
           <span className="side-live-name">{r.name}</span>
-          {r.peer && <span className="pc-pill" title={r.peer.name}><Icon name="otherPc" /><span>{r.peer.name}</span></span>}
+          {r.peer && <span className="pc-pill" title={r.peer.name}><Icon name="otherPc" /><span>{pillName(r.peer.name)}</span></span>}
           {nest && !nest.open && (
             <span className="side-live-kidots" aria-hidden="true">{nest.dots.map((d, k) => <i key={k} className="dot side-live-kidot" data-status={d.live ?? 'ended'} data-aside={d.aside && d.live === 'busy' ? 'true' : undefined} />)}</span>
           )}
