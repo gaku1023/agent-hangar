@@ -201,7 +201,7 @@ function ScheduleRowView(props: SchedulesProps & { row: ScheduleRow; open: boole
               <div className="faint">{r.dest}</div>
               {r.chips.length > 0 && (
                 <div className="sch-chips">
-                  {r.chips.map((c) => <span key={c.name} className="set-chip sch-chip" data-tone={c.danger ? 'danger' : 'default'}><span className="set-chip-name">{c.name}</span><span className="set-chip-value">{c.value}</span></span>)}
+                  {r.chips.map((c) => <span key={c.name} className="set-chip sch-chip" data-tone={c.danger ? 'danger' : 'default'}><span className="set-chip-name">{c.name}</span><span className="set-chip-value">{c.value}</span>{c.suffix && <span className="wt-suffix" aria-hidden="true">{c.suffix}</span>}</span>)}
                 </div>
               )}
               <div className="sch-full">{r.prompt}</div>

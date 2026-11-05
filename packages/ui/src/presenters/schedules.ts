@@ -6,7 +6,7 @@ import { presentLaunchChoice, type LaunchChoiceData } from './newSession.ts';
 
 export type ScheduleRunRow = { id: string; result: ScheduleRunResult; label: string; sessionId: string | null; title: string | null; took: string | null; at: string };
 /** 保存した起動設定の 1 項目（読み取り専用の札）。danger は確認なしに動く設定（Bypass permissions、full-access、自動承認）。 */
-export type ScheduleLaunchChip = { name: string; value: string; danger?: boolean };
+export type ScheduleLaunchChip = { name: string; value: string; danger?: boolean; suffix?: string };
 export type ScheduleRow = {
   id: string; prompt: string; when: string; next: string; enabled: boolean; dest: string;
   spec: ScheduleSpec; target: ScheduleTarget; runs: ScheduleRunRow[];
@@ -39,7 +39,7 @@ export function launchChips(t: Translate, target: Extract<ScheduleTarget, { kind
     } else out.push({ name: t('launch.permission.label'), value: permissionLabel(target.permissionMode, t), ...(target.permissionMode === PERMISSION_BYPASS ? { danger: true } : {}) });
   }
   if (target.autoApprove) out.push({ name: t('launch.chip.autoApprove'), value: t('launch.autoApprove.on'), danger: true });
-  if (target.worktree) out.push({ name: t('launch.chip.worktree'), value: `${target.worktree}${t('schedules.worktree.suffix')}` });
+  if (target.worktree) out.push({ name: t('launch.chip.worktree'), value: target.worktree, suffix: t('schedules.worktree.suffix') });
   if (target.addDirs?.length) out.push({ name: t('launch.chip.addDirs'), value: t('launch.value.dirCount', { n: target.addDirs.length }) });
   if (target.name) out.push({ name: t('launch.chip.name'), value: target.name });
   return out;
