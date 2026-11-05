@@ -703,12 +703,6 @@ create table delete_approvals (
 /**
  * 版 45。定期の実行の予定と履歴（#549）。手元だけの表で、同期には載らない。
  */
-const V46_DEVICE_STATUS_SQL = `
--- 各 PC が自分の様子（アカウントとログインの可否、入っているエージェント、LAN の IP、ホスト鍵の指紋、hangar の版）を JSON で載せる。
--- 同期の行の鍵で封じて送られるので、Worker は読めない。この列を知らない古い版は、届いた行の列を落とす（sync/apply.ts）。
-alter table devices add column status text;
-`;
-
 const V45_SCHEDULES_SQL = `
 create table schedules (
   id text primary key,
@@ -736,6 +730,14 @@ create table schedule_runs (
   error text
 );
 create index schedule_runs_of on schedule_runs(schedule_id, started_at);
+`;
+
+/**
+ * 版 46。各 PC が自分の様子（アカウントとログインの可否、入っているエージェント、LAN の IP、ホスト鍵の指紋、hangar の版）を JSON で載せる列。
+ * 同期の行の鍵で封じて送られるので、Worker は読めない。この列を知らない古い版は、届いた行の列を落とす（sync/apply.ts）。
+ */
+const V46_DEVICE_STATUS_SQL = `
+alter table devices add column status text;
 `;
 
 const V39_SESSION_UNREAD_SQL = `
