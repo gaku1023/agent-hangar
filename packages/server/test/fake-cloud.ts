@@ -12,6 +12,16 @@ import {
   MOBILE_BELL_MIN_WORKER_COMPAT,
   MOBILE_MIN_WORKER_COMPAT,
   NOTICE_RATE,
+  PEER_ANSWER_SEALED_MAX,
+  PEER_LAUNCH_MIN_WORKER_COMPAT,
+  PEER_LAUNCH_RATE,
+  PEER_LAUNCH_SEALED_MAX,
+  PEER_LAUNCH_TTL_MS,
+  PEER_OUTBOX_LIMIT,
+  PEER_RESULT_SEALED_MAX,
+  PEER_RESULTS_MAX,
+  PEER_RESULTS_PAGE,
+  peerSealEpoch,
   PHONE_NOTICE_SEALED_MAX,
   phoneNoticeEpoch,
   PULL_LIMIT,
@@ -49,6 +59,12 @@ import {
   type MobilePairingResponse,
   type MobilePairingsMine,
   type NoticeOut,
+  type PeerBellKind,
+  type PeerLaunchApi,
+  type PeerLaunchIncoming,
+  type PeerLaunchState,
+  type PeerLaunchStatus,
+  type PeerResultOut,
   type PushChangesResponse,
   type Roster,
   type SealedChangeIn,
@@ -134,8 +150,17 @@ export type FakeCloudStore = {
   notices: FakeNotice[];
   /** 偽にすると、POST /notices を知らない Worker（0.9.1 より前。互換の版は同じ 9）の真似になり、404 で断る。 */
   noticeRoute: boolean;
+  /** PC から PC への起動の頼み（POST /launches）。実物の peer_launches の表に当たる。 */
+  peerLaunches: Map<string, FakePeerLaunch>;
+  /** 結果の行（実物の peer_results）。頼みの ID から、seq の昇順の行へ。 */
+  peerResults: Map<string, PeerResultOut[]>;
+  /** 呼び鈴で鳴らした記録。実物は WebSocket の知らせ（{ t: 'peer', kind, id }）を送るので、試験は何を誰に鳴らしたかをここで見る。 */
+  peerRings: { to: string; kind: PeerBellKind; id: string }[];
   now: () => number;
 };
+
+/** 偽物の Worker が持つ PC どうしの頼みの 1 行（実物の peer_launches）。状態の進み方は実物（packages/cloud/src/peerLaunch.ts）と同じ。 */
+export type FakePeerLaunch = { id: string; to: string; from: string; sealed: string; status: PeerLaunchState; createdAt: number; updatedAt: number; sealedAnswer: string | null; resultSeq: number };
 
 /** 偽物の Worker が受けた通知の 1 件。sealed は PC がスマホ用の鍵で封じたままで、偽物は開けない。 */
 export type FakeNotice = { deviceId: string; sealed: string; epoch: number; at: number };
@@ -195,6 +220,8 @@ export const TOUCH_EVERY_MS = 60_000;
 
 /** 断りの本文は Worker と同じ JSON にする。CloudError.message がそのまま実物と揃う。 */
 const errorBody = (error: string): string => JSON.stringify({ error });
+/** PC どうしの封（<世代>.<base64url>）の形と長さ。実物は peerSealEpoch で頭の世代を読み、長さの上限を見る。 */
+const isPeerSealed = (v: unknown, max: number): v is string => typeof v === 'string' && v.length > 0 && v.length <= max && peerSealEpoch(v) !== null;
 
 const isEpoch = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
 
@@ -289,6 +316,9 @@ export class FakeWireClient implements WireCloudClient {
       blobDeletes: new Map(),
       notices: [],
       noticeRoute: true,
+      peerLaunches: new Map(),
+      peerResults: new Map(),
+      peerRings: [],
       now: o.now ?? (() => Date.now()),
     };
     if (o.store && o.now) this.store.now = o.now;
@@ -317,6 +347,9 @@ export class FakeWireClient implements WireCloudClient {
   get launches(): Map<string, FakeLaunch> { return this.store.launches; }
   get mobileBlobs(): Map<string, Uint8Array> { return this.store.mobileBlobs; }
   get notices(): FakeNotice[] { return this.store.notices; }
+  get peerLaunches(): Map<string, FakePeerLaunch> { return this.store.peerLaunches; }
+  get peerResults(): Map<string, PeerResultOut[]> { return this.store.peerResults; }
+  get peerRings(): { to: string; kind: PeerBellKind; id: string }[] { return this.store.peerRings; }
   /** 偽にすると、POST /notices を知らない Worker の真似になる。 */
   get noticeRoute(): boolean { return this.store.noticeRoute; }
   set noticeRoute(v: boolean) { this.store.noticeRoute = v; }
@@ -528,7 +561,107 @@ export class FakeWireClient implements WireCloudClient {
     const res: SealedPullChangesResponse = { changes: page.map(toOut), nextSeq: more ? page[page.length - 1]!.seq : this.maxSeq(), more, peers, now };
     // 版 7 の Worker は、この PC 宛ての、まだ受け取られていない TTL の内の依頼を、どの頁にも添える。版 6 は載せない。
     if (this.store.workerCompat >= MOBILE_MIN_WORKER_COMPAT) res.launches = this.pendingLaunches(now);
+    // 版 10 の Worker は、この PC 宛ての、まだ受け取られていない期限の内の別の PC からの頼みも添える。
+    if (this.store.workerCompat >= PEER_LAUNCH_MIN_WORKER_COMPAT) {
+      res.peerLaunches = [...this.store.peerLaunches.values()]
+        .filter((l) => l.to === this.deviceId && l.status === 'pending' && l.createdAt > now - PEER_LAUNCH_TTL_MS)
+        .sort((x, y) => x.createdAt - y.createdAt)
+        .slice(0, PULL_LAUNCH_LIMIT)
+        .map((l): PeerLaunchIncoming => ({ id: l.id, from: l.from, createdAt: l.createdAt, sealed: l.sealed }));
+    }
     return res;
+  }
+
+  /**
+   * PC どうしの頼みの口。実物（packages/cloud/src/peerLaunch.ts）と同じ向きと断り方で、版が足りない Worker は 404 で断る。
+   * 鳴らした呼び鈴は peerRings に残す。
+   */
+  readonly peerLaunch: PeerLaunchApi = {
+    put: async (body) => {
+      this.guard('peerLaunch.put', body);
+      this.requirePeer();
+      const id = typeof body?.id === 'string' ? body.id : '';
+      if (!/^[A-Za-z0-9._-]{1,64}$/.test(id) || typeof body.to !== 'string' || body.to.length === 0 || !isPeerSealed(body.sealed, PEER_LAUNCH_SEALED_MAX)) throw new CloudError(400, errorBody('invalid body'));
+      if (body.from !== undefined && body.from !== this.deviceId) throw new CloudError(403, errorBody('forbidden'));
+      if (body.to === this.deviceId) throw new CloudError(400, errorBody('cannot launch on self'));
+      const prev = this.store.peerLaunches.get(id);
+      if (prev) {
+        if (prev.from !== this.deviceId) throw new CloudError(409, errorBody('conflict'));
+        return this.peerStatus(prev);
+      }
+      const target = this.store.devices.get(body.to);
+      if (!target || target.revokedAt !== null) throw new CloudError(404, errorBody('not found'));
+      const now = this.store.now();
+      const recent = [...this.store.peerLaunches.values()].filter((l) => l.from === this.deviceId && l.createdAt > now - PEER_LAUNCH_RATE.windowMs).length;
+      if (recent >= PEER_LAUNCH_RATE.max) throw new CloudError(429, errorBody('rate limited'));
+      const row: FakePeerLaunch = { id, to: body.to, from: this.deviceId, sealed: body.sealed, status: 'pending', createdAt: now, updatedAt: now, sealedAnswer: null, resultSeq: 0 };
+      this.store.peerLaunches.set(id, row);
+      this.store.peerRings.push({ to: row.to, kind: 'launch', id });
+      return this.peerStatus(row);
+    },
+    outbox: async (since) => {
+      this.guard('peerLaunch.outbox', since);
+      this.requirePeer();
+      const now = this.store.now();
+      const mine = [...this.store.peerLaunches.values()].filter((l) => l.from === this.deviceId);
+      for (const l of mine) if (l.status === 'pending' && l.createdAt <= now - PEER_LAUNCH_TTL_MS) Object.assign(l, { status: 'expired', updatedAt: now });
+      const launches = mine
+        .filter((l) => l.updatedAt >= since)
+        .sort((x, y) => x.updatedAt - y.updatedAt || (x.id < y.id ? -1 : 1))
+        .slice(0, PEER_OUTBOX_LIMIT)
+        .map((l) => this.peerStatus(l));
+      return { now, launches };
+    },
+    claim: async (id) => {
+      this.guard('peerLaunch.claim', id);
+      this.requirePeer();
+      const l = this.store.peerLaunches.get(id);
+      if (!l || l.to !== this.deviceId || l.status !== 'pending' || l.createdAt <= this.store.now() - PEER_LAUNCH_TTL_MS) return false;
+      l.status = 'claimed';
+      return true;
+    },
+    answer: async (id, ok, sealedAnswer) => {
+      this.guard('peerLaunch.answer', id, ok, sealedAnswer);
+      this.requirePeer();
+      if (typeof ok !== 'boolean' || !isPeerSealed(sealedAnswer, PEER_ANSWER_SEALED_MAX)) throw new CloudError(400, errorBody('invalid body'));
+      const l = this.store.peerLaunches.get(id);
+      if (!l || l.to !== this.deviceId || l.status !== 'claimed') throw new CloudError(409, errorBody('conflict'));
+      Object.assign(l, { status: ok ? 'started' : 'failed', sealedAnswer, updatedAt: this.store.now() });
+      this.store.peerRings.push({ to: l.from, kind: 'answer', id });
+    },
+    postResult: async (id, body) => {
+      this.guard('peerLaunch.postResult', id, body);
+      this.requirePeer();
+      if (!body || !Number.isSafeInteger(body.seq) || body.seq < 1 || !isPeerSealed(body.sealed, PEER_RESULT_SEALED_MAX)) throw new CloudError(400, errorBody('invalid body'));
+      const l = this.store.peerLaunches.get(id);
+      if (!l || l.to !== this.deviceId || l.status !== 'started') throw new CloudError(409, errorBody('conflict'));
+      const rows = this.store.peerResults.get(id) ?? [];
+      if (rows.some((r) => r.seq === body.seq)) return { ok: true, duplicate: true };
+      if (rows.length >= PEER_RESULTS_MAX) throw new CloudError(429, errorBody('rate limited'));
+      const now = this.store.now();
+      rows.push({ seq: body.seq, sealed: body.sealed, createdAt: now });
+      rows.sort((x, y) => x.seq - y.seq);
+      this.store.peerResults.set(id, rows);
+      Object.assign(l, { resultSeq: Math.max(l.resultSeq, body.seq), updatedAt: now });
+      this.store.peerRings.push({ to: l.from, kind: 'result', id });
+      return { ok: true, duplicate: false };
+    },
+    results: async (id, after) => {
+      this.guard('peerLaunch.results', id, after);
+      this.requirePeer();
+      const l = this.store.peerLaunches.get(id);
+      if (!l || l.from !== this.deviceId) throw new CloudError(404, errorBody('not found'));
+      const rest = (this.store.peerResults.get(id) ?? []).filter((r) => r.seq > after);
+      return { results: rest.slice(0, PEER_RESULTS_PAGE).map((r) => ({ ...r })), more: rest.length > PEER_RESULTS_PAGE };
+    },
+  };
+
+  private requirePeer(): void {
+    if (this.store.workerCompat < PEER_LAUNCH_MIN_WORKER_COMPAT) throw new CloudError(404, errorBody('not found'));
+  }
+
+  private peerStatus(l: FakePeerLaunch): PeerLaunchStatus {
+    return { id: l.id, to: l.to, status: l.status, sealedAnswer: l.sealedAnswer, resultSeq: l.resultSeq, updatedAt: l.updatedAt };
   }
 
   private pendingLaunches(now: number): MobileLaunchOut[] {
@@ -1032,6 +1165,7 @@ export class FakeCloudClient implements CloudClient {
   deleteMobileFeed(): Promise<void> { return this.wire.deleteMobileFeed(); }
   postNotice(sealed: string, epoch: number): Promise<NoticeOut> { return this.wire.postNotice(sealed, epoch); }
   claimLaunch(id: string): Promise<boolean> { return this.wire.claimLaunch(id); }
+  get peerLaunch(): PeerLaunchApi { return this.wire.peerLaunch; }
   answerLaunch(id: string, ok: boolean, sealedAnswer: string): Promise<void> { return this.wire.answerLaunch(id, ok, sealedAnswer); }
   getMobileBlob(launchId: string, n: number): Promise<Uint8Array> { return this.wire.getMobileBlob(launchId, n); }
   deleteBlobs(keys: string[]): Promise<BlobsDeleteOut> { return this.wire.deleteBlobs(keys); }

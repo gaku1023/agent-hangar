@@ -678,6 +678,45 @@ describe('PC の一覧と解除', () => {
     await expect(taken.answerLaunch('l1', true, 's')).rejects.toMatchObject({ status: 409 });
   });
 
+  it('peerLaunch は PC どうしの頼みの口を呼ぶ（置く、取る、答える、結果を書く、読む）', async () => {
+    const status = { id: 'l1', to: 'pc-b', status: 'pending', sealedAnswer: null, resultSeq: 0, updatedAt: 1 };
+    const f = fakeFetch((req) => {
+      const url = String(req.url ?? req);
+      if (url.endsWith('/launches/mine?since=5')) return json({ now: 9, launches: [status] });
+      if (url.endsWith('/launches/l%201/results?after=3')) return json({ results: [{ seq: 4, sealed: '1.eA', createdAt: 2 }], more: false });
+      if (url.endsWith('/results')) return json({ ok: true, duplicate: false });
+      return json(status, 201);
+    });
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    const p = c.peerLaunch;
+    expect(await p.put({ id: 'l1', to: 'pc-b', sealed: '1.eA' })).toEqual(status);
+    expect(f.calls[0]!.url).toBe('https://w.example/launches');
+    expect(f.calls[0]!.init.method).toBe('POST');
+    expect(JSON.parse(String(f.calls[0]!.init.body))).toEqual({ id: 'l1', to: 'pc-b', sealed: '1.eA' });
+    expect((await p.outbox(5)).launches).toEqual([status]);
+    expect(f.calls[1]!.url).toBe('https://w.example/launches/mine?since=5');
+    await p.answer('l 1', true, '1.YW5z');
+    expect(f.calls[2]!.url).toBe('https://w.example/launches/l%201/answer');
+    expect(JSON.parse(String(f.calls[2]!.init.body))).toEqual({ ok: true, sealedAnswer: '1.YW5z' });
+    expect(await p.postResult('l1', { seq: 1, sealed: '1.eA' })).toEqual({ ok: true, duplicate: false });
+    expect(f.calls[3]!.url).toBe('https://w.example/launches/l1/results');
+    expect(JSON.parse(String(f.calls[3]!.init.body))).toEqual({ seq: 1, sealed: '1.eA' });
+    expect((await p.results('l 1', 3)).results[0]!.seq).toBe(4);
+    expect(f.calls[4]!.url).toBe('https://w.example/launches/l%201/results?after=3');
+  });
+
+  it('peerLaunch.claim は 200 で true、409 で false、他の失敗は投げる。口の無い古い Worker は 404', async () => {
+    const ok = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ ok: true })).fetch });
+    expect(await ok.peerLaunch.claim('l1')).toBe(true);
+    const taken = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'conflict' }, 409)).fetch });
+    expect(await taken.peerLaunch.claim('l1')).toBe(false);
+    const broken = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'boom' }, 500)).fetch });
+    await expect(broken.peerLaunch.claim('l1')).rejects.toMatchObject({ status: 500 });
+    // 呼び手は lastWorkerCompat と PEER_LAUNCH_MIN_WORKER_COMPAT で、呼ぶ前にこれを見分ける。
+    const old = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'not found' }, 404)).fetch });
+    await expect(old.peerLaunch.put({ id: 'l1', to: 'pc-b', sealed: '1.eA' })).rejects.toMatchObject({ status: 404 });
+  });
+
   it('getMobileBlob は GET /m/blobs/<依頼>/<番号> のバイト列をそのまま返す。404 と形の違う ID は投げる', async () => {
     const bytes = new Uint8Array([0, 1, 2, 250, 251, 252]);
     const f = fakeFetch(() => new Response(bytes, { status: 200, headers: { 'content-type': 'application/octet-stream', 'x-hangar-compat': String(COMPAT_VERSION) } }));
