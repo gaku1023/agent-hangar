@@ -362,10 +362,10 @@ describe('セッションの状態', () => {
   });
   it('DELETE /spawn は起動元の記録を消して配り直す。無くても 200、セッションが無ければ 404', async () => {
     const id = alphaId();
-    recordSpawn(db, id, id + '-parent', 1);
+    recordSpawn(db, 'd', id, id + '-parent', 1);
     sent.length = 0;
     expect((await send(`/api/sessions/${id}/spawn`, undefined, 'DELETE')).status).toBe(200);
-    expect(db.prepare('select 1 from session_spawns where session_id = ?').get(id)).toBeUndefined();
+    expect(db.prepare('select 1 from session_spawns where session_id = ? and deleted_at is null').get(id)).toBeUndefined();
     expect(sent.map((e) => e.type)).toEqual(['session.upsert']);
     expect((await send(`/api/sessions/${id}/spawn`, undefined, 'DELETE')).status).toBe(200);
     expect((await send('/api/sessions/nope/spawn', undefined, 'DELETE')).status).toBe(404);

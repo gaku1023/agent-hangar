@@ -129,7 +129,7 @@ left join session_states ss on ss.session_id = s.id and ss.deleted_at is null
 left join session_notes sn on sn.session_id = s.id and sn.deleted_at is null
 left join session_overlaps ov on ov.session_id = s.id
 left join session_unread un on un.session_id = s.id
-left join session_spawns sp on sp.session_id = s.id
+left join session_spawns sp on sp.session_id = s.id and sp.deleted_at is null
 where s.deleted_at is null`;
 
 /**
