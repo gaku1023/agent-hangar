@@ -16,6 +16,7 @@ export const newSessionKeys = {
   'newSession.title.dir': [],
   'newSession.prompt.label': [],
   'newSession.prompt.placeholder': [],
+  'newSession.prompt.placeholderPeer': [],
   'newSession.project.label': [],
   'newSession.project.quick': [],
   'newSession.project.quickSub': [],

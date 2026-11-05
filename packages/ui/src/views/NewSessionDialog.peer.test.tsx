@@ -35,13 +35,13 @@ describe('PC のメニュー', () => {
     expect(screen.queryByRole('button', { name: '起動する PC' })).toBeNull();
     expect(startButton(/^起動$/)).toBeEnabled();
   });
-  it('見出しの右に出て、「この PC」と、頼めない PC には印（未接続、古い版）を添えて並ぶ', () => {
+  it('見出しの右に出て、「この PC」と、頼めない PC には印（未接続、古いバージョン）を添えて並ぶ', () => {
     mount({ peers: [mac(), old, away] });
     const face = screen.getByRole('button', { name: '起動する PC' });
     expect(face.textContent).toContain('この PC');
     expect(face.closest('.dialog-head, header, .dialog-title-row, [class*="dialog"]')).not.toBeNull();
     fireEvent.click(face);
-    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['この PC', 'Mac', 'Garage古い版', 'Attic未接続']);
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['この PC', 'Mac', 'Garage古いバージョン', 'Attic未接続']);
   });
 });
 
@@ -100,7 +100,7 @@ describe('選んだ PC で使えない項目（テスト 22）', () => {
 });
 
 describe('起動', () => {
-  it('頼めない PC（古い版、つながらない）を選ぶと、起動のボタンが押せない', () => {
+  it('頼めない PC（古いバージョン、つながらない）を選ぶと、起動のボタンが押せない', () => {
     mount({ peers: [mac(), old, away] });
     pick('起動する PC', 'Garage');
     expect(startButton('Garage で起動')).toBeDisabled();

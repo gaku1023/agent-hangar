@@ -162,7 +162,7 @@ describe('PeerOutbox の答え', () => {
     clock.t += PEER_LAUNCH_TTL_MS + 1_000;
     await ob.tick();
     expect(injected).toHaveLength(1);
-    expect(injected[0]!.text).toContain('期限が過ぎました');
+    expect(injected[0]!.text).toContain('タイムアウトしました');
     await ob.tick();
     expect(injected).toHaveLength(1);
   });
