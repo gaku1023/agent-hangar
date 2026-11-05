@@ -25,7 +25,7 @@ const nodePriv = (priv: string) => createPrivateKey({ key: Buffer.concat([PKCS8_
 const nodePub = (pub: string) => createPublicKey({ key: Buffer.concat([SPKI_PREFIX, raw32(pub)]), format: 'der', type: 'spki' });
 const nodeEcdh = (priv: string, pub: string): Buffer => diffieHellman({ privateKey: nodePriv(priv), publicKey: nodePub(pub) });
 
-const PURPOSES: Purpose[] = ['row', 'index', 'fp', 'file', 'roster'];
+const PURPOSES: Purpose[] = ['row', 'index', 'fp', 'file', 'roster', 'peer'];
 const hkdfOf = (epochKey: string, purpose: string): Buffer => Buffer.from(hkdfSync('sha256', raw32(epochKey), Buffer.alloc(0), `hangar-e2e-v2/${purpose}`, 32));
 
 type BoxAad = { epoch: number; recipient: string };

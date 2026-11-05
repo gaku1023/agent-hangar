@@ -7687,7 +7687,12 @@ AEAD の AAD に行の宛先を入れるのは、能動的な攻撃への守り�
 行ごとの署名、PC ごとの連番による隠蔽の検知、R2 の再暗号化は作らない。
 
 鍵は世代鍵 `K[n]`（32 バイト）から HKDF で用途ごとに導く。
-用途は、行の封（`hangar-e2e-v2/row`）、鍵名の HMAC（`/index`）、指紋（`/fp`）、本文の暗号（`/file`）、名簿の封（`/roster`）である。
+用途は、行の封（`hangar-e2e-v2/row`）、鍵名の HMAC（`/index`）、指紋（`/fp`）、本文の暗号（`/file`）、名簿の封（`/roster`）、PC どうしの封（`/peer`）である。
+PC どうしの封は、別の PC への起動の頼み、その答え、ターンが止まるたびの結果に使う（`packages/shared/src/e2e/peer.ts`）。
+封は `<世代>.<base64url(行と同じ形の封)>` の文字列で、開く側は封が名乗る世代の鍵で開く。
+AAD は `["peer-launch", 世代, 頼みの ID, 頼んだ PC, 頼まれた PC]` の JSON で、答えは頭を `peer-answer`、結果は `peer-result` にして末尾に連番を足す。
+グループの PC はどれも同じ鍵を持つので、この封が守るのはグループの外（Worker、別のグループ、解除の後に回した世代を持たない PC）に対してである。
+頼んだ PC が名乗る ID と、端末トークンで確かめた送り手が同じことは Worker が検める。
 PC は持っている世代鍵を `~/.agent-hangar/cloud.json`（版 2）の `epochs` に置き、`Keyring`（`packages/server/src/sync/keyring.ts`）が用途の鍵を導いて世代の番号で引けるようにする。
 書くときは今の世代（`currentEpoch`）を使い、読むときは行やファイルが名乗る世代を使う。
 世代鍵は、受け手の公開鍵で封じた keybox で配る。

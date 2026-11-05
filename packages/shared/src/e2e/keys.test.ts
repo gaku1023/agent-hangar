@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { fromBase64Url, toBase64Url } from './bytes.ts';
 import { PURPOSE_INFO, deriveEpochKeys, deriveSubkeyBytes, generateKeyPair, generateKeyPairNonExtractable, importPrivate, importPublic, randomEpochKey, type Purpose } from './keys.ts';
 
-const PURPOSES: Purpose[] = ['row', 'index', 'fp', 'file', 'roster'];
+const PURPOSES: Purpose[] = ['row', 'index', 'fp', 'file', 'roster', 'peer'];
 
 async function ecdh(priv: CryptoKey, pub: string): Promise<string> {
   const bits = await globalThis.crypto.subtle.deriveBits({ name: 'X25519', public: await importPublic(pub) }, priv, 256);
@@ -24,7 +24,7 @@ describe('世代鍵と用途の鍵', () => {
     const k = randomEpochKey();
     const raws = await Promise.all(PURPOSES.map(async (p) => toBase64Url(await deriveSubkeyBytes(k, p))));
     for (const r of raws) expect(fromBase64Url(r)?.length).toBe(32);
-    expect(new Set(raws).size).toBe(5);
+    expect(new Set(raws).size).toBe(PURPOSES.length);
   });
 
   it('同じ世代鍵からは同じ用途の鍵', async () => {
