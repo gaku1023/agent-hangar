@@ -1,20 +1,49 @@
-import { codexEnabledOf, opencodeEnabledOf, type ScheduleDto, type ScheduleRunResult, type ScheduleSpec, type ScheduleTarget, type Translate } from '@agent-hangar/shared';
+import type { ScheduleDto, ScheduleRunResult, ScheduleSpec, ScheduleTarget, Translate } from '@agent-hangar/shared';
 import type { Store } from '../store/store.ts';
+import { PERMISSION_BYPASS, permissionLabel } from '../views/primitives/permissionModel.ts';
 import { durationLabel } from './format.ts';
+import { presentLaunchChoice, type LaunchChoiceData } from './newSession.ts';
 
 export type ScheduleRunRow = { id: string; result: ScheduleRunResult; label: string; sessionId: string | null; title: string | null; took: string | null; at: string };
+/** 保存した起動設定の 1 項目（読み取り専用の札）。danger は確認なしに動く設定（Bypass permissions、full-access、自動承認）。 */
+export type ScheduleLaunchChip = { name: string; value: string; danger?: boolean };
 export type ScheduleRow = {
   id: string; prompt: string; when: string; next: string; enabled: boolean; dest: string;
   spec: ScheduleSpec; target: ScheduleTarget; runs: ScheduleRunRow[];
+  /** 新しい会話の予定が保存している起動設定。未指定の項目は含めない。 */
+  chips: ScheduleLaunchChip[];
   /** 1 回だけの予定で、もう流れたものは再開できない。 */
   spent: boolean;
 };
 export type SchedulesProps = {
   rows: ScheduleRow[];
-  projects: { id: string; name: string }[];
   sessions: { id: string; name: string }[];
-  agents: { id: string; label: string }[];
+  /** プロジェクトの札とエージェント、アカウントの札の中身（新しいセッションのダイアログと同じ）。前回値は持ち込まない。 */
+  launch: LaunchChoiceData;
 };
+
+const CODEX_PERMISSION_LABEL = { 'read-only': 'launch.codexPermission.readOnly', auto: 'launch.codexPermission.auto', 'full-access': 'launch.codexPermission.fullAccess' } as const;
+
+/** 保存した起動設定を、詳細の札の並びにする。値の無い項目は出さない。 */
+export function launchChips(t: Translate, target: Extract<ScheduleTarget, { kind: 'new' }>, accountName: string | null): ScheduleLaunchChip[] {
+  const out: ScheduleLaunchChip[] = [];
+  const codex = target.agent === 'codex';
+  if (target.account) out.push({ name: t('launch.chip.account'), value: accountName ?? target.account });
+  if (target.mode) out.push({ name: t('launch.chip.mode'), value: target.mode });
+  if (target.model) out.push({ name: t('launch.chip.model'), value: target.model });
+  if (target.effort) out.push({ name: t(codex ? 'launch.chip.reasoning' : 'launch.chip.effort'), value: target.effort });
+  if (target.permissionMode) {
+    if (codex) {
+      const key = CODEX_PERMISSION_LABEL[target.permissionMode as keyof typeof CODEX_PERMISSION_LABEL];
+      out.push({ name: t('launch.chip.codexPermission'), value: key ? t(key) : target.permissionMode, ...(target.permissionMode === 'full-access' ? { danger: true } : {}) });
+    } else out.push({ name: t('launch.permission.label'), value: permissionLabel(target.permissionMode, t), ...(target.permissionMode === PERMISSION_BYPASS ? { danger: true } : {}) });
+  }
+  if (target.autoApprove) out.push({ name: t('launch.chip.autoApprove'), value: t('launch.autoApprove.on'), danger: true });
+  if (target.worktree) out.push({ name: t('launch.chip.worktree'), value: `${target.worktree}${t('schedules.worktree.suffix')}` });
+  if (target.addDirs?.length) out.push({ name: t('launch.chip.addDirs'), value: t('launch.value.dirCount', { n: target.addDirs.length }) });
+  if (target.name) out.push({ name: t('launch.chip.name'), value: target.name });
+  return out;
+}
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const hm = (ms: number) => { const d = new Date(ms); return `${d.getHours()}:${pad(d.getMinutes())}`; };
@@ -60,23 +89,19 @@ function runRow(t: Translate, r: ScheduleDto['runs'][number], now: number): Sche
   };
 }
 
-export function presentSchedules(store: Pick<Store, 'schedules' | 'projects' | 'sessions' | 'settings'>, t: Translate, now: number): SchedulesProps {
+export function presentSchedules(store: Store, t: Translate, now: number): SchedulesProps {
   const rows = store.schedules.map((s): ScheduleRow => ({
     id: s.id, prompt: s.prompt, when: whenLabel(t, s.spec), next: nextLabel(t, s.nextAt, now), enabled: s.enabled,
-    dest: s.target.kind === 'session' ? s.sessionTitle ?? '' : [s.projectName, s.target.agent ? agentLabel(s.target.agent) : null].filter(Boolean).join(' · '),
+    // クイックセッションの予定はプロジェクトを持たないので、プロジェクト名の代わりにその名前を出す。
+    dest: s.target.kind === 'session' ? s.sessionTitle ?? '' : [s.target.projectId === null ? t('schedules.list.quick') : s.projectName, s.target.agent ? agentLabel(s.target.agent) : null].filter(Boolean).join(' · '),
     spec: s.spec, target: s.target, runs: s.runs.map((r) => runRow(t, r, now)),
+    chips: s.target.kind === 'new' ? launchChips(t, s.target, s.accountName) : [],
     spent: s.spec.kind === 'once' && s.spec.at <= now,
   }));
-  const settings = store.settings;
   return {
     rows,
-    projects: Object.values(store.projects).filter((p) => p.status !== 'archived').map((p) => ({ id: p.id, name: p.name })).sort((a, b) => a.name.localeCompare(b.name)),
     sessions: Object.values(store.sessions).filter((s) => s.projectId !== null).sort((a, b) => (b.lastTurnAt ?? 0) - (a.lastTurnAt ?? 0)).slice(0, 50).map((s) => ({ id: s.id, name: s.name || s.summary?.title || s.id })),
-    agents: [
-      { id: 'claude-code', label: agentLabel('claude-code') },
-      ...(settings && codexEnabledOf(settings) ? [{ id: 'codex', label: agentLabel('codex') }] : []),
-      ...(settings && opencodeEnabledOf(settings) ? [{ id: 'opencode', label: agentLabel('opencode') }] : []),
-    ],
+    launch: presentLaunchChoice(store, now, {}, null),
   };
 }
 

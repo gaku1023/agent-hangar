@@ -1,4 +1,4 @@
-import { codexEnabledOf, formatRoute, opencodeEnabledOf, parseRoute, permissionNoticeText, stopReasonOf, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ProjectPlace, type ServerEvent } from '@agent-hangar/shared';
+import { codexEnabledOf, formatRoute, opencodeEnabledOf, parseRoute, permissionNoticeText, stopReasonOf, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ProjectPlace, type ScheduleTarget, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { duplicateOpenAction, LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
@@ -629,6 +629,23 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           })
           .catch((err: unknown) => { keepNested(e.place, err); launchFailed(err); });
         return;
+      case 'api.saveSchedule': {
+        // 予定の作成と更新。place があれば、登録できたプロジェクトを新しい会話の送り先にして送る。画面の正は後から届く schedules.update。
+        const save = e.save;
+        const send = (projectId: string | null) => {
+          const withProject = <T extends { target?: ScheduleTarget }>(body: T): T => (projectId !== null && body.target?.kind === 'new' ? { ...body, target: { ...body.target, projectId } } : body);
+          return save.op === 'create' ? deps.api.createSchedule(withProject(save.input)) : deps.api.updateSchedule(save.id, withProject(save.patch));
+        };
+        const place = e.place;
+        if (!place) { send(null).catch(fail); return; }
+        deps.api.createProject(place)
+          .then((p) => {
+            setStore({ ...store, projects: { ...store.projects, [p.id]: p } });
+            return send(p.id);
+          })
+          .catch((err: unknown) => { keepNested(place, err); fail(err); });
+        return;
+      }
       case 'api.createProject':
         deps.api.createProject(e.place)
           .then((p) => {

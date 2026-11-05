@@ -318,6 +318,10 @@ describe('セッション画面の開き方（本文は最新の末尾から）'
 });
 
 describe('起動', () => {
+  it('予定の画面を開いたら、フォームのプロジェクトの札のために未登録のフォルダを取る', () => {
+    const a = run([runtime({ type: 'ws.open' }), runtime({ type: 'hash.changed', route: { name: 'schedules' } })]);
+    expect(a.effects).toContainEqual({ kind: 'api.workspaceDirs' });
+  });
   it('ダイアログを開き、送信で submitting になり、done で画面へ移る', () => {
     const a = run([action({ type: 'session.new.open', projectId: 'p1' })]);
     expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: 'p1', scratch: false });
@@ -1782,6 +1786,15 @@ describe('プロジェクトを作る', () => {
     const { state, effects } = run([action({ type: 'session.new.open' }), action({ type: 'session.new.submit', params: { name: 'n' }, place })]);
     expect(state.launch).toEqual({ kind: 'submitting' });
     expect(effects).toContainEqual({ kind: 'api.createProjectThenLaunch', place, params: { name: 'n' } });
+  });
+  it('予定の保存は、place があれば登録してから送るよう頼み、無ければそのまま送るよう頼む', () => {
+    const input = { prompt: 'p', spec: { kind: 'every' as const, minutes: 30 }, target: { kind: 'new' as const, projectId: '' } };
+    const a = run([action({ type: 'schedule.create', input, place })]);
+    expect(a.effects).toContainEqual({ kind: 'api.saveSchedule', place, save: { op: 'create', input } });
+    const b = run([action({ type: 'schedule.update', id: 's1', patch: input, place })]);
+    expect(b.effects).toContainEqual({ kind: 'api.saveSchedule', place, save: { op: 'update', id: 's1', patch: input } });
+    const c = run([action({ type: 'schedule.create', input })]);
+    expect(c.effects).toContainEqual({ kind: 'api.saveSchedule', save: { op: 'create', input } });
   });
   it('作れた後に起動だけ失敗したら、作ったプロジェクトを失敗の状態に持ち、詳細はそのプロジェクトの前回値にする', () => {
     const { state } = run([

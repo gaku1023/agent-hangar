@@ -68,6 +68,11 @@ export type NewSessionProps = {
    */
   prep?: LaunchPrepView | null;
 };
+/**
+ * プロジェクトの札とエージェント、アカウントの札の中身。新しいセッションのダイアログと予定のフォームが同じ形で使う（views/useLaunchChoice.tsx）。
+ * 予定は prefs を空にして渡し、前回値を持ち込まない。
+ */
+export type LaunchChoiceData = Pick<NewSessionProps, 'projects' | 'recentIds' | 'prefs' | 'dirs' | 'takenNames' | 'workspaceRoot' | 'desktop' | 'picked' | 'createdProjectId' | 'accounts' | 'codexAccounts' | 'defaultModel' | 'inspect' | 'opencode' | 'codex'>;
 export type NewSessionOpencode = { options: OpencodeOptionsState | null };
 export type NewSessionCodex = { options: CodexOptionsState | null };
 export type NewSessionAccounts = { list: AccountView[]; currentId: string };
@@ -129,9 +134,8 @@ export function newSessionTarget(state: State, store: Store): NewSessionTarget {
   return store.projects[projectId]?.isScratch ? { scratch: true } : { projectId };
 }
 
-/** 起動ダイアログ。overlay が newSession のときだけ props を作る。 */
-export function presentNewSession(state: State, store: Store, now: number): NewSessionProps | null {
-  if (state.overlay.kind !== 'newSession') return null;
+/** プロジェクトの札と、エージェントとアカウントの札の中身。prefs と createdProjectId は呼び手が決める。 */
+export function presentLaunchChoice(store: Store, now: number, prefs: Record<string, LaunchPrefs>, createdProjectId: string | null): LaunchChoiceData {
   const t = translatorOf(store);
   // クイックセッションの擬似プロジェクトは選ばせない。
   const resolved = Object.values(store.projects).filter((p) => !p.isScratch && p.resolved);
@@ -145,19 +149,30 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
   const dirs = (store.workspaceDirs ?? []).filter((d) => !taken.has(d.path));
   // クイックセッションはワークスペースの外に置くので、その名前で作っても重ならない。
   const takenNames = [...new Set(Object.values(store.projects).filter((p) => !p.isScratch && p.path).map((p) => baseName(p.path!).toLowerCase()))];
+  return {
+    projects, recentIds, prefs, dirs, takenNames, workspaceRoot: store.settings?.workspaceRoot ?? null, desktop: store.desktop, picked: store.pickedFolder, createdProjectId,
+    accounts: newSessionAccounts(store, now), codexAccounts: newSessionCodexAccounts(store, now), defaultModel: store.settings?.defaultModel ?? null,
+    inspect: store.folderInspect,
+    opencode: opencodeEnabledOf(store.settings ?? {}) ? { options: store.opencodeOptions } : null,
+    codex: codexEnabledOf(store.settings ?? {}) ? { options: store.codexOptions } : null,
+  };
+}
+
+/** 起動ダイアログ。overlay が newSession のときだけ props を作る。 */
+export function presentNewSession(state: State, store: Store, now: number): NewSessionProps | null {
+  if (state.overlay.kind !== 'newSession') return null;
+  const t = translatorOf(store);
   const createdProjectId = state.launch.kind === 'failed' || state.launch.kind === 'submitting' || state.launch.kind === 'halted' ? state.launch.createdProjectId ?? null : null;
   const mark = state.launchPrep;
   const prepDto = mark ? store.launchPreps[mark.key] : undefined;
   return {
-    projects, recentIds, projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, errorRepair: state.launch.kind === 'failed' ? state.launch.linkConflict ?? null : null, scratch: state.overlay.scratch, draft: state.newSessionDraft, prefs: state.launchPrefs,
-    dirs, takenNames, workspaceRoot: store.settings?.workspaceRoot ?? null, desktop: store.desktop, picked: store.pickedFolder, createdProjectId, accounts: newSessionAccounts(store, now), codexAccounts: newSessionCodexAccounts(store, now), defaultModel: store.settings?.defaultModel ?? null,
+    ...presentLaunchChoice(store, now, state.launchPrefs, createdProjectId),
+    projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, errorRepair: state.launch.kind === 'failed' ? state.launch.linkConflict ?? null : null, scratch: state.overlay.scratch, draft: state.newSessionDraft,
     ...(state.overlay.worktree ? { worktree: true } : {}),
     ...(state.overlay.agent ? { agent: state.overlay.agent } : {}),
     ...(state.overlay.pickModel ? { pickModel: true } : {}),
     ...(state.overlay.seed ? { seed: state.overlay.seed } : {}),
-    dir: state.overlay.dir ?? null, inspect: store.folderInspect,
-    opencode: opencodeEnabledOf(store.settings ?? {}) ? { options: store.opencodeOptions } : null,
-    codex: codexEnabledOf(store.settings ?? {}) ? { options: store.codexOptions } : null,
+    dir: state.overlay.dir ?? null,
     prep: mark && prepDto ? presentLaunchPrep(prepDto, t, mark.model) : null,
   };
 }
