@@ -5,7 +5,8 @@ import { defaultLanguage } from '../i18n/language.ts';
 import { msg, render, type Message } from '../i18n/message.ts';
 import { choosePeerRoute, listPeerDevices, resolvePeer, type PeerCallRefusal } from '../peer/caller.ts';
 import { recordPeerRequest } from '../peer/outbox.ts';
-import { isSpawnedFromOtherDevice } from '../sessions/spawns.ts';
+import { versionAtLeast } from '../peer/version.ts';
+import { getSpawn, isSpawnedBy, isSpawnedFromOtherDevice, type SpawnLink } from '../sessions/spawns.ts';
 import { ToolError, type ToolContext, type ToolDeps } from './tools.ts';
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v : undefined);
@@ -95,4 +96,50 @@ export async function createRemoteSessionTool(deps: ToolDeps, ctx: ToolContext, 
   }
   recordPeerRequest(deps.db, { requestId, to: peer.device_id, callerSessionId: ctx.sessionId, now });
   return { status: 'requested' as const, request_id: requestId, device: peer.name, note: render_(deps, msg('mcp.device.requested', { device: peer.name })) };
+}
+
+/**
+ * この会話が起こした、別の PC の会話か（D16）。そうならその結び付きを返す。
+ * 別の PC の会話でも、自分が起こしたものでなければ null で、呼び出し側は今までどおり断る。
+ */
+export function remoteSpawnOf(deps: ToolDeps, ctx: ToolContext, targetId: string): SpawnLink | null {
+  if (!ctx.sessionId) return null;
+  const link = getSpawn(deps.db, deps.deviceId, targetId);
+  if (!link || link.childDeviceId === deps.deviceId) return null;
+  return isSpawnedBy(deps.db, deps.deviceId, ctx.sessionId, targetId) ? link : null;
+}
+
+/**
+ * 起こした別の PC の会話への send と stop（D16）。頼みを封じて置き、答えと断りは後から入力で届く。
+ * 相手が op を読む版（deps.peer.version 以上）でなければ、置かずに device-outdated で断る。
+ * 読まない版は launch と扱い、ダミーの欄で新しい会話を起こしてしまうからである。
+ * 返り値の status は requested か refused。
+ */
+export async function remoteControlTool(deps: ToolDeps, ctx: ToolContext, op: 'send' | 'stop', link: SpawnLink, text: string) {
+  const peerDeps = deps.peer;
+  const now = peerDeps?.now?.() ?? Date.now();
+  const peer = peerDeps ? resolvePeer(deps.db, deps.deviceId, link.childDeviceId) : null;
+  if (!peer) {
+    const names = listPeerDevices(deps.db, deps.deviceId, { link: () => null, workerOk: () => false }, now).map((d) => d.name);
+    return refused(deps, 'device-unknown', link.childDeviceId.slice(0, 40), msg('mcp.device.unknown', { device: link.childDeviceId.slice(0, 40), names }));
+  }
+  if (!ctx.sessionId) throw new ToolError(msg('mcp.device.needsSession'));
+  if (peer.outdated || (peerDeps!.version !== undefined && !versionAtLeast(peer.status?.hangar_version, peerDeps!.version))) {
+    return refused(deps, 'device-outdated', peer.name, msg('mcp.device.outdated', { device: peer.name }));
+  }
+  const route = choosePeerRoute(peer, peerDeps!, now);
+  if ('refuse' in route) return refused(deps, route.refuse, peer.name, msg(route.refuse === 'device-outdated' ? 'mcp.device.outdated' : 'mcp.device.offline', { device: peer.name }));
+  const requestId = (peerDeps!.newId ?? randomUUID)();
+  const req: PeerLaunchRequest = {
+    v: 1, createdAt: now, parentSessionId: ctx.sessionId, projectId: null, scratch: true, agent: 'claude-code',
+    account: '', permissionMode: '', model: '', prompt: op === 'send' ? text : '', op, targetSessionId: link.childId,
+  };
+  try {
+    const sealed = await sealPeerLaunch(await route.ring(), { requestId, from: deps.deviceId, to: peer.device_id }, req);
+    await route.api.put({ id: requestId, to: peer.device_id, sealed, from: deps.deviceId });
+  } catch (e) {
+    throw new ToolError(msg('mcp.device.sendFailed', { reason: e instanceof Error ? e.message : String(e) }));
+  }
+  recordPeerRequest(deps.db, { requestId, to: peer.device_id, callerSessionId: ctx.sessionId, now, op, childSessionId: link.childId });
+  return { status: 'requested' as const, request_id: requestId, device: peer.name, note: render_(deps, msg(op === 'send' ? 'mcp.device.requestedSend' : 'mcp.device.requestedStop', { device: peer.name })) };
 }

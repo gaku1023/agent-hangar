@@ -793,6 +793,14 @@ create index peer_deliveries_open on peer_deliveries (caller_session_id) where d
 `;
 
 /**
+ * 版 54。呼ぶ側の頼みの種類（T8 の続き）。launch は起動、send と stop は起こした会話への入力と停止（D16）。
+ * send と stop の答えは、起動の答えと違って結び付きを作らない。受け取ったら終わりで、断られたときだけ呼び出し元へ理由を返す。
+ */
+const V54_PEER_OUTBOX_OP_SQL = `
+alter table peer_outbox add column op text not null default 'launch';
+`;
+
+/**
  * MCP の delete_session の依頼を、利用者が答えるまで預かる表（#547）。手元だけの表で、同期しない。会話 1 つに 1 行。
  */
 const V44_DELETE_APPROVALS_SQL = `
@@ -906,4 +914,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 48, sql: V48_PEER_OUTBOX_SQL },
   { version: 49, sql: V49_PEER_LAUNCHES_SQL },
   { version: 50, sql: V50_PEER_RELAY_SQL },
+  { version: 54, sql: V54_PEER_OUTBOX_OP_SQL },
 ];

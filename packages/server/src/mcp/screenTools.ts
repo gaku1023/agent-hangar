@@ -1,6 +1,7 @@
 import { getSession } from '../db/queries.ts';
 import { msg } from '../i18n/message.ts';
 import { aliveRunForSession } from '../runs/queries.ts';
+import { remoteControlTool, remoteSpawnOf } from './peerTools.ts';
 import { ToolError, type ToolContext, type ToolDeps } from './tools.ts';
 import { noteTurnStart } from './waitTool.ts';
 
@@ -68,6 +69,9 @@ export async function sendToSessionTool(deps: ToolDeps, ctx: ToolContext, args: 
   if (raw.length > MAX_SEND_CHARS) throw new ToolError(msg('mcp.sendToSession.textTooLong', { max: MAX_SEND_CHARS }));
   const text = sanitizeInput(raw);
   const submit = typeof args.submit === 'boolean' ? args.submit : true;
+  // 自分が起こした別の PC の会話には、頼みを置いて渡す（D16）。そうでない別の PC の会話は、paneOf が断る。
+  const spawn = remoteSpawnOf(deps, ctx, id);
+  if (spawn) return remoteControlTool(deps, ctx, 'send', spawn, text);
   const name = paneOf(deps, id);
   if (!deps.runs.sendInput) throw new ToolError(msg('mcp.screen.noPanes'));
   // 届ける前に残す。届いた直後に待ち始めた wait_for_session が、前のターンの idle を終わりと読まないためである。
