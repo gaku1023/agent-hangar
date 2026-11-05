@@ -11,6 +11,7 @@ import {
 import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { getSpawn, recordSpawn } from '../sessions/spawns.ts';
+import { setSessionState } from '../sessions/states.ts';
 import { CloudError } from '../sync/client.ts';
 import { PEER_REPLY_MAX, PeerRelay } from './relay.ts';
 
@@ -213,6 +214,62 @@ describe('PeerRelay', () => {
     t.setLive([entry('u-child', 'idle')]);
     t.relay.check();
     t.relay.onEnded(t.id);
+    await t.flush();
+    expect(await t.results()).toHaveLength(1);
+  });
+
+  it('プロセスの終わりは stopped を 1 件書き、結び付きは残す。再開して send が入ればまた返る（D15）', async () => {
+    const t = await setup();
+    t.start();
+    t.setReply({ text: '途中', ts: T0 + 100 });
+    t.setLive([entry('u-child', 'busy')]);
+    t.relay.check();
+    t.relay.onProcessEnded(t.id);
+    t.relay.onProcessEnded('nope');
+    await t.flush();
+    expect(await t.results()).toMatchObject([{ seq: 1, reason: 'stopped', lastReply: '途中' }]);
+    expect(getSpawn(t.db, 'pc-b', t.id)).toMatchObject({ relay: 'on' });
+    // 印は外れている。再開後に利用者が直接打ったターンは返らない。
+    t.setNow(T0 + 10_000);
+    t.setLive([entry('u-child', 'busy')]);
+    t.relay.check();
+    t.setReply({ text: '利用者', ts: T0 + 10_500 });
+    t.setLive([entry('u-child', 'idle')]);
+    t.relay.check();
+    await t.flush();
+    expect(await t.results()).toHaveLength(1);
+    // 呼び出し元の send は返る。
+    t.setNow(T0 + 20_000);
+    t.relay.arm(t.id);
+    t.setLive([entry('u-child', 'busy')]);
+    t.relay.check();
+    t.setReply({ text: '再開後', ts: T0 + 20_500 });
+    t.setLive([entry('u-child', 'idle')]);
+    t.relay.check();
+    await t.flush();
+    expect((await t.results()).map((r) => [r.seq, r.reason, r.lastReply])).toEqual([[1, 'stopped', '途中'], [2, 'idle', '再開後']]);
+  });
+
+  it('Done にすると ended を 1 度だけ書いて切る。Active に戻しても返さない', async () => {
+    const t = await setup();
+    t.start();
+    t.setReply({ text: '最後', ts: T0 + 100 });
+    t.relay.check();
+    await t.flush();
+    expect(await t.results()).toHaveLength(0);
+    setSessionState(t.db, 'pc-b', t.id, { status: 'done', setBy: 'user' });
+    t.relay.check();
+    t.relay.check();
+    await t.flush();
+    expect(await t.results()).toMatchObject([{ seq: 1, reason: 'ended', lastReply: '最後' }]);
+    expect(getSpawn(t.db, 'pc-b', t.id)).toMatchObject({ relay: 'off' });
+    setSessionState(t.db, 'pc-b', t.id, { status: null, setBy: 'user' });
+    t.relay.arm(t.id);
+    t.setLive([entry('u-child', 'busy')]);
+    t.relay.check();
+    t.setLive([entry('u-child', 'idle')]);
+    t.relay.check();
+    t.relay.onProcessEnded(t.id);
     await t.flush();
     expect(await t.results()).toHaveLength(1);
   });

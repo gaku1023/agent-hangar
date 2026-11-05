@@ -119,6 +119,7 @@ export const mcpEn: AreaDictionary<typeof mcpKeys> = {
   'mcp.peer.reason.idle': 'Its turn has finished and it is waiting for input.',
   'mcp.peer.reason.question': 'It asked a question and is waiting for the answer.',
   'mcp.peer.reason.permission': 'It is waiting for permission.',
+  'mcp.peer.reason.stopped': 'The process of this conversation has stopped. If it is resumed and given more work, it will report again.',
   'mcp.peer.reason.ended': 'The conversation has ended. No more reports will follow.',
   'mcp.peer.summary': 'Summary: {summary}',
   'mcp.peer.status': 'Status: {status}',

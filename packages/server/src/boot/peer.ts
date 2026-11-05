@@ -136,7 +136,7 @@ export function bootPeer(p: {
     start() {
       if (timer || stopped) return;
       offLive = p.delivery.live.onChange(() => relay.check());
-      offRuns = p.runs.runs.on({ runEnded: (run) => relay.onEnded(run.sessionId) });
+      offRuns = p.runs.runs.on({ runEnded: (run) => relay.onProcessEnded(run.sessionId) });
       tick();
       timer = (p.setInterval ?? setInterval)(tick, PEER_RESEND_MS);
       timer.unref?.();

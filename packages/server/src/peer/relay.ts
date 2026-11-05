@@ -59,7 +59,8 @@ const kindOf = (e: unknown): string => `${e instanceof Error ? e.constructor.nam
  *
  * 止まるたびに結果を 1 件書く。idle は印を外す。質問と許可の waiting は印を残し、そのあとの idle でもう 1 件書く。
  * 結果の連番（seq）は頼みごとに 1 から数え、peer_relay.seq に持つ。結果の中身は peer_relay_out に控え、Worker に届くまで同じ seq で送り直す。
- * 終わり（onEnded）は、相手の会話の run が終わったとき、または会話を消す前に呼ぶ。ended を 1 度だけ書き、結び付きを閉じる（closeSpawn）。
+ * プロセスの終わり（onProcessEnded）は stopped を 1 件書いて印を外し、結び付きは残す。
+ * 会話の終わり（onEnded）は、会話が Done になったとき（check が見つける）と、会話を消す前に呼ぶ。ended を 1 度だけ書き、結び付きを閉じる（closeSpawn）。
  * 同じ PC の中の入れ子、切り離された結び付き、閉じた結び付きでは何も書かない（relayTarget が null）。
  */
 export class PeerRelay {
@@ -94,6 +95,13 @@ export class PeerRelay {
   /** 登録が変わったときに呼ぶ。印のある会話の止まりを見て、結果を書く。 */
   check(): void {
     const { db } = this.deps;
+    try {
+      // Done にされた会話は、ended を返して切る。Active に戻しても、切った後なので返さない。
+      const done = db.prepare("select r.session_id from peer_relay r join session_states st on st.session_id = r.session_id where r.ended = 0 and st.status = 'done'").all() as { session_id: string }[];
+      for (const d of done) this.onEnded(d.session_id);
+    } catch (e) {
+      console.error('[peer] could not look for done sessions', kindOf(e));
+    }
     const rows = db.prepare('select * from peer_relay where armed_at is not null and ended = 0').all() as RelayRow[];
     if (rows.length === 0) return;
     const now = this.deps.now();
@@ -156,7 +164,25 @@ export class PeerRelay {
   }
 
   /**
-   * 会話が終わった（run の終わり）か、消える（削除の前）。
+   * プロセスが終わった（利用者が閉じた、落ちた、lost、stop_session）。
+   * 返し続けている結び付きなら、stopped を 1 件書き、印を外す。結び付きは残すので、再開して send が入ればまた返る。投げない。
+   */
+  onProcessEnded(sessionId: string): void {
+    try {
+      const { db, deviceId } = this.deps;
+      const row = db.prepare('select * from peer_relay where session_id = ?').get(sessionId) as RelayRow | undefined;
+      if (!row || row.ended === 1) return;
+      const link = relayTarget(db, deviceId, sessionId);
+      if (!link || link.parentDeviceId !== row.from_device) return;
+      this.emit(row, 'stopped', this.deps.lastReply(sessionId));
+      this.disarm(sessionId);
+    } catch (e) {
+      console.error('[peer] could not write the stopped result', kindOf(e));
+    }
+  }
+
+  /**
+   * 会話が Done になった（check が見つける）か、消える（削除の前）。
    * 返し続けている結び付きなら、ended を 1 度だけ書いて閉じる。ほかは何もしない。投げない。
    */
   onEnded(sessionId: string): void {

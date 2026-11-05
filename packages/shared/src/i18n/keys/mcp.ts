@@ -118,6 +118,7 @@ export const mcpKeys = {
   'mcp.peer.reason.idle': [],
   'mcp.peer.reason.question': [],
   'mcp.peer.reason.permission': [],
+  'mcp.peer.reason.stopped': [],
   'mcp.peer.reason.ended': [],
   'mcp.peer.summary': ['summary'],
   'mcp.peer.status': ['status'],

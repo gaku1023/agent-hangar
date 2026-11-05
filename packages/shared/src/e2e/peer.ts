@@ -82,8 +82,8 @@ export type PeerLaunchRefusal = (typeof PEER_LAUNCH_REFUSALS)[number];
 /** 頼みへの答え（封の中身）。 */
 export type PeerLaunchAnswer = { ok: true; sessionId: string; title: string } | { ok: false; reason: PeerLaunchRefusal; detail?: string };
 
-/** 結果を返すときの止まった理由。ended は相手が終わったか消えたことで、その後は返さない。 */
-export const PEER_STOP_REASONS = ['idle', 'question', 'permission', 'ended'] as const;
+/** 結果を返すときの止まった理由。stopped はプロセスが終わったこと（閉じた、落ちた、止めた）で、結び付きは残り、再開して send が入ればまた返る。ended は会話が Done にされたか消えたことで、その後は返さない。 */
+export const PEER_STOP_REASONS = ['idle', 'question', 'permission', 'stopped', 'ended'] as const;
 export type PeerStopReason = (typeof PEER_STOP_REASONS)[number];
 
 /**

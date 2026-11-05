@@ -119,6 +119,7 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.peer.reason.idle': 'ターンが終わり、入力を待っています。',
   'mcp.peer.reason.question': '質問をして、答えを待っています。',
   'mcp.peer.reason.permission': '許可を待っています。',
+  'mcp.peer.reason.stopped': 'この会話のプロセスは終わりました。再開して続きを頼めば、また報告します。',
   'mcp.peer.reason.ended': 'この会話は終了しました。以後の報告はありません。',
   'mcp.peer.summary': '要約: {summary}',
   'mcp.peer.status': '状態: {status}',
