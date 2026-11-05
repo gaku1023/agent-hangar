@@ -1,4 +1,4 @@
-import { DEFAULT_LANGUAGE, MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type CloudPeer, type Language, type ChangeOut, type MobileLaunchOut, type SharedTable, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
+import { DEFAULT_LANGUAGE, MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type CloudPeer, type Language, type ChangeOut, type MobileLaunchOut, type PeerLaunchIncoming, type SharedTable, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
@@ -64,7 +64,22 @@ export type SyncListener = {
    * Worker は差分のどの頁にも同じ依頼を添えるので、ID で重ねずにまとめて渡す。受け手は投げない（受け取りは非同期に扱う）。
    */
   launches?(l: MobileLaunchOut[]): void;
+  /**
+   * pull の応答に載った、この PC 宛ての別の PC からの起動の頼み（互換の版 10）。launches と同じく、1 巡に 1 回、空でなければ呼ぶ。
+   * from は Worker が端末トークンで決めた値である。受け手は投げない（受け取りは非同期に扱う）。
+   */
+  peerLaunches?(l: PeerLaunchIncoming[]): void;
 };
+
+/** pull の応答の peerLaunches から、形の合うものだけを ID で重ねずに拾う。 */
+function collectPeerLaunches(into: Map<string, PeerLaunchIncoming>, raw: unknown): void {
+  if (!Array.isArray(raw)) return;
+  for (const v of raw as unknown[]) {
+    const l = v as Partial<PeerLaunchIncoming> | null;
+    if (!l || typeof l.id !== 'string' || !l.id || typeof l.from !== 'string' || !l.from || typeof l.sealed !== 'string' || typeof l.createdAt !== 'number') continue;
+    if (!into.has(l.id)) into.set(l.id, { id: l.id, from: l.from, createdAt: l.createdAt, sealed: l.sealed });
+  }
+}
 
 /** pull の応答の launches から、形の合うものだけを ID で重ねずに拾う。 */
 function collectLaunches(into: Map<string, MobileLaunchOut>, raw: unknown): void {
@@ -520,6 +535,16 @@ export class SyncEngine {
     }
   }
 
+  /** 拾った別の PC からの頼みを受け手へ渡す。受け手の失敗で pull を倒さない。 */
+  private emitPeerLaunches(l: PeerLaunchIncoming[]): void {
+    if (l.length === 0) return;
+    try {
+      this.emit('peerLaunches', l);
+    } catch (e) {
+      console.error('[sync] could not hand over the peer launch requests', e instanceof Error ? e.constructor.name : typeof e);
+    }
+  }
+
   /** pull の応答の peers を覚える（sync/peers.ts）。形の違う応答は黙って捨てる。 */
   private notePeers(page: { peers?: unknown; now?: unknown }): void {
     if (!Array.isArray(page.peers) || typeof page.now !== 'number' || !Number.isFinite(page.now)) return;
@@ -915,12 +940,14 @@ export class SyncEngine {
     }
     let since = this.state.getNumber('lastSeq', 0);
     const launches = new Map<string, MobileLaunchOut>();
+    const peerLaunches = new Map<string, PeerLaunchIncoming>();
     try {
       for (;;) {
         const at = since;
         const page = await this.readable(client, await client.pullChanges(at, PULL_LIMIT), () => client.pullChanges(at, PULL_LIMIT), count);
         this.notePeers(page);
         collectLaunches(launches, page.launches);
+        collectPeerLaunches(peerLaunches, page.peerLaunches);
         count.applied += this.applyPage(page.changes, true);
         since = page.nextSeq;
         // 持ち越しを先に覚えてから、区切りを進める。逆だと、その間に落ちたときに持ち越した行を失う。
@@ -931,6 +958,7 @@ export class SyncEngine {
     } finally {
       // 途中の頁で倒れても、受け取った依頼は渡す（時間切れまで 75 秒しかない）。
       this.emitLaunches([...launches.values()]);
+      this.emitPeerLaunches([...peerLaunches.values()]);
     }
     count.applied += this.settleCarried(true);
   }

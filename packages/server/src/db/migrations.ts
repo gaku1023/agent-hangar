@@ -695,6 +695,21 @@ create table session_spawns (
  * 古い版の PC はこの表を共有表として知らないので、届いた行を知らない表として捨てる（sync/apply.ts）。手元の表の中身は触られない。
  * 列の追加に not null の既定が要るので、表を作り直す。
  */
+const V49_PEER_LAUNCHES_SQL = `
+create table peer_launches (
+  id text primary key,
+  from_device text not null,
+  handled_at integer not null,
+  result text not null,
+  sealed_answer text,
+  ok integer,
+  answered integer not null default 0,
+  session_id text,
+  parent_session_id text
+);
+create index peer_launches_session on peer_launches(session_id);
+`;
+
 const V47_SESSION_SPAWNS_SYNC_SQL = `
 create table session_spawns_v47 (
   session_id text primary key,
@@ -712,6 +727,42 @@ insert into session_spawns_v47 (session_id, parent_id, created_at, updated_at)
   select session_id, parent_id, created_at, created_at from session_spawns;
 drop table session_spawns;
 alter table session_spawns_v47 rename to session_spawns;
+`;
+
+/**
+ * 版 48。別の PC へ置いた起動の頼みと、呼び出し元の会話へまだ渡していない報告（T7）。手元だけの表で、同期には載らない。
+ * peer_outbox は頼み 1 件に 1 行で、受け取り済みの結果の連番（received_seq）を覚えて二重に入れないために使う。
+ * peer_deliveries は送り込む入力の預かりで、呼び出し元がターンの最中や停止中のときに残す。seq が 0 の行は答え（断りと期限切れ）である。
+ * notice_held は呼び出し元が止まっているときに、notice_gone は呼び出し元が消えているときに、未読と通知へ出す短い文である。
+ */
+const V48_PEER_OUTBOX_SQL = `
+create table peer_outbox (
+  request_id text primary key,
+  to_device text not null,
+  caller_session_id text not null,
+  state text not null default 'requested',
+  child_session_id text,
+  title text,
+  reason text,
+  received_seq integer not null default 0,
+  seen_seq integer not null default 0,
+  created_at integer not null,
+  updated_at integer not null
+);
+create table peer_deliveries (
+  id integer primary key autoincrement,
+  request_id text not null,
+  seq integer not null,
+  caller_session_id text not null,
+  text text not null,
+  notice_held text not null,
+  notice_gone text not null,
+  notified integer not null default 0,
+  created_at integer not null,
+  delivered_at integer,
+  unique (request_id, seq)
+);
+create index peer_deliveries_open on peer_deliveries (caller_session_id) where delivered_at is null;
 `;
 
 /**
@@ -825,4 +876,6 @@ export const MIGRATIONS: Migration[] = [
   { version: 45, sql: V45_SCHEDULES_SQL },
   { version: 46, sql: V46_DEVICE_STATUS_SQL },
   { version: 47, sql: V47_SESSION_SPAWNS_SYNC_SQL },
+  { version: 48, sql: V48_PEER_OUTBOX_SQL },
+  { version: 49, sql: V49_PEER_LAUNCHES_SQL },
 ];
