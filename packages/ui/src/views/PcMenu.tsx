@@ -25,7 +25,7 @@ export function PcMenu(props: { peers: PeerDeviceDto[]; value: string | null; on
   ];
   return (
     <Listbox id="new-session-pc" label={t('newSession.pc.label')} value={props.value ?? HERE} options={options} onChange={(v) => props.onChange(v === HERE ? null : v)}
-      minWidth={Math.max(240, ...props.peers.map((p) => p.name.length * 8 + 96))} align="end" faceClassName="set-chip pc-menu"
+      minWidth={Math.max(240, ...props.peers.map((p) => p.name.length * 9 + 110 + (tagOf(p) ? 110 : 0)))} align="end" faceClassName="set-chip pc-menu"
       renderFace={(sel) => (
         <>
           <Icon name="otherPc" /><span className="set-chip-value">{sel?.label ?? ''}</span>
