@@ -60,4 +60,5 @@ export const syncEn: AreaDictionary<typeof syncKeys> = {
   'sync.copy.backupFailed': 'The transcript was not replaced because a backup could not be made: {cause}',
   'sync.peerSsh.hostKeyMismatch': 'Did not connect to {name} over SSH because its host key does not match the one {name} reported. Check the SSH server on {name}',
   'sync.peerSsh.tunnelClosed': 'The SSH connection to {name} was lost',
+  'sync.peerSsh.gaveUp': 'Could not reconnect to {name} over SSH for a while, so it stopped trying. Check that hangar is running on {name}, then send the request again',
 };

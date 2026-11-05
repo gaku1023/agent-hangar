@@ -1,4 +1,4 @@
-import { notifyRulesOf, type AgentKind, type PeerBellKind, type PeerKeyring, type PeerLaunchIncoming, type ServerEvent } from '@agent-hangar/shared';
+import { notifyRulesOf, type AgentKind, type PeerBellKind, type PeerKeyring, type PeerLaunchApi, type PeerLaunchIncoming, type ServerEvent } from '@agent-hangar/shared';
 import { AGENT_ENTRY } from '../agent/entry.ts';
 import type { LiveHub } from '../agent/liveHub.ts';
 import { getSession } from '../db/queries.ts';
@@ -16,10 +16,13 @@ import type { SyncEngine } from '../sync/engine.ts';
 import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
 import type { RunsParts } from './runs.ts';
-import type { SyncParts } from './sync.ts';
+import type { PeerSshParts } from './peerSsh.ts';
+import type { PeerLink, SyncParts } from './sync.ts';
 
 /** 答えを送れなかった頼みを送り直す見回りの間隔。 */
 export const PEER_RESEND_MS = 30_000;
+/** SSH の頼みを待っているあいだ、呼び出し元がトンネル越しに答えと結果を取る間隔。呼び鈴が無いので、クラウドの 30 秒より短くする。 */
+export const PEER_SSH_POLL_MS = 5_000;
 
 export type PeerParts = {
   start(): void;
@@ -44,6 +47,8 @@ export function bootPeer(p: {
   /** 実行中の一覧と、画面への知らせの口。呼ぶ側が使う。 */
   delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub: { broadcast(ev: Extract<ServerEvent, { type: 'toast' }>): void } };
   sync: Pick<SyncParts, 'engine' | 'peerLink' | 'canCarryPeer'>;
+  /** SSH の予備の経路（boot/peerSsh.ts）。渡せば、SSH で来た頼みを受け、SSH で頼んだ答えと結果を取る。 */
+  ssh?: Pick<PeerSshParts, 'local' | 'link' | 'bindInbox'>;
   now?: () => number;
   setInterval?: typeof setInterval;
 }): PeerParts & { inbox(): PeerLaunchInbox | null; relay: PeerRelay } {
@@ -54,14 +59,21 @@ export function bootPeer(p: {
   let cur: { link: ReturnType<SyncParts['peerLink']> & object; inbox: PeerLaunchInbox } | null = null;
   let sub: { engine: Pick<SyncEngine, 'on'>; off: () => void } | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
+  let sshTimer: ReturnType<typeof setInterval> | null = null;
+  let sshCur: { link: PeerLink; inbox: PeerLaunchInbox } | null = null;
   let stopped = false;
   const now = p.now ?? Date.now;
+  const cloudPost: PeerLaunchApi['postResult'] = (id, body) => {
+    const l = p.sync.peerLink();
+    return l ? l.api.postResult(id, body) : Promise.reject(new Error('peer link is not ready'));
+  };
   const relay = new PeerRelay({
     db, deviceId, now,
     live: () => p.delivery.live.current(),
     ring: async () => { const l = p.sync.peerLink(); if (!l) throw new Error('peer link is not ready'); return l.ring(); },
-    api: () => p.sync.peerLink()?.api ?? null,
-    canProcess: () => !stopped && p.sync.canCarryPeer(),
+    // 結果は頼みが来た経路で書く。SSH で来た頼みは手元の口へ書き、相手が /peer の results で取りに来る。
+    api: () => (p.ssh ? { postResult: (id, body) => (p.ssh!.local.has(id) ? p.ssh!.local.api.postResult(id, body) : cloudPost(id, body)) } : p.sync.peerLink()?.api ?? null),
+    canProcess: () => !stopped && (p.sync.canCarryPeer() || p.ssh !== undefined),
     lastReply: (id) => lastReply(db, id),
     describe: (id) => {
       const s = getSession(db, p.delivery.live.current(), id, { deviceId });
@@ -114,6 +126,8 @@ export function bootPeer(p: {
     db,
     deviceId,
     api: () => (p.sync.canCarryPeer() ? p.sync.peerLink()?.api ?? null : null),
+    // SSH の頼みは相手ごとの口で取る。口はトンネルを持ち、切れていれば張り直す。
+    ...(p.ssh ? { sshApi: (id: string) => p.ssh!.link.api(id) } : {}),
     ring: () => ringNow,
     live: () => p.delivery.live.current(),
     language: p.home.language,
@@ -163,24 +177,41 @@ export function bootPeer(p: {
   };
   const agentUsable = (k: AgentKind): boolean => (k === 'claude-code' ? p.runs.claudeBin() !== null : AGENT_ENTRY[k].enabled(p.home.settings.current) && AGENT_ENTRY[k].bin() !== null);
 
+  /** 受け口を組む。クラウドの経路と SSH の経路で、api と canProcess だけが違う。 */
+  const makeInbox = (api: PeerLaunchApi, link: PeerLink, canProcess: () => boolean): PeerLaunchInbox => new PeerLaunchInbox({
+    db, api, ring: link.ring, reread: link.reread, deviceId,
+    start: (params) => p.runs.runs.start(params),
+    hasProjectHere: (id) => !!placeHere.get(id, deviceId),
+    accountByName: byName,
+    hasAgent: agentUsable,
+    canProcess,
+    now,
+    onStarted: (e) => relay.onStarted(e),
+    control,
+  });
+
   /** 今の同期の口に合う受け口を返す。口が変わっていたら組み直す。 */
   const ensure = (): PeerLaunchInbox | null => {
     if (stopped) return null;
     const link = p.sync.peerLink();
     if (!link) { cur = null; return null; }
     if (cur && cur.link.api === link.api && cur.link.ring === link.ring) return cur.inbox;
-    const inbox = new PeerLaunchInbox({
-      db, api: link.api, ring: link.ring, reread: link.reread, deviceId,
-      start: (params) => p.runs.runs.start(params),
-      hasProjectHere: (id) => !!placeHere.get(id, deviceId),
-      accountByName: byName,
-      hasAgent: agentUsable,
-      canProcess: () => !stopped && p.sync.canCarryPeer(),
-      now,
-      onStarted: (e) => relay.onStarted(e),
-      control,
-    });
+    const inbox = makeInbox(link.api, link, () => !stopped && p.sync.canCarryPeer());
     cur = { link, inbox };
+    return inbox;
+  };
+
+  /**
+   * SSH で来た頼みの受け口。claim・answer・結果は手元の口（ssh.local.api）で済ませ、トンネルの向こうへは送らない。
+   * 封の鍵は同期の口から引く（クラウドの Worker の版が古くても、参加していれば鍵はある）。鍵が無ければ組めず、頼みは受け取られないまま期限で切れる。
+   */
+  const ensureSsh = (): PeerLaunchInbox | null => {
+    if (stopped || !p.ssh) return null;
+    const link = p.sync.peerLink();
+    if (!link) { sshCur = null; return null; }
+    if (sshCur && sshCur.link.ring === link.ring) return sshCur.inbox;
+    const inbox = makeInbox(p.ssh.local.api, link, () => !stopped);
+    sshCur = { link, inbox };
     return inbox;
   };
   const follow = (): void => {
@@ -219,11 +250,25 @@ export function bootPeer(p: {
       void refreshRing().then(() => outbox.tick()).catch(() => {});
       timer = (p.setInterval ?? setInterval)(tick, PEER_RESEND_MS);
       timer.unref?.();
+      if (p.ssh) {
+        // SSH で頼みが来たら、その場で処理する（呼び鈴が無い）。差し込むまで /peer の頼みの口は 503 を返す。
+        p.ssh.local.onReceive((l) => { void ensureSsh()?.receive([l]).catch((e: unknown) => console.error('[peer] could not handle the SSH launch request', e instanceof Error ? e.constructor.name : typeof e)); });
+        p.ssh.bindInbox(p.ssh.local);
+        // 張り直しを諦めたら、答えか結果を待っていた頼みの呼び出し元に 1 度だけ知らせる。
+        p.ssh.link.onGaveUp((id) => { void outbox.noteSshGaveUp(id); });
+        // SSH で頼んだ答えと結果を、トンネルを張ったまま短い間隔で取る。待つ頼みが無ければ何もしない（トンネルも張らない）。
+        sshTimer = (p.setInterval ?? setInterval)(() => { if (outbox.hasSshWork()) void outbox.syncSsh(); }, PEER_SSH_POLL_MS);
+        sshTimer.unref?.();
+      }
     },
     stop() {
       stopped = true;
       if (timer) clearInterval(timer);
       timer = null;
+      if (sshTimer) clearInterval(sshTimer);
+      sshTimer = null;
+      p.ssh?.local.onReceive(null);
+      p.ssh?.link.onGaveUp(null);
       stopOutbox?.();
       stopOutbox = null;
       offLive?.();
