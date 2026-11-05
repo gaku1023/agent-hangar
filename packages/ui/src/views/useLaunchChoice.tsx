@@ -229,6 +229,10 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
   // いまのエージェントのアカウントの組（opencode は無し）。2 件未満なら null で、札も params.account も出さない。
   const accountSet = !caps.accounts ? null : codex ? data.codexAccounts ?? null : data.accounts;
   const account = accountSet ? accountChoice(accountSet, codex ? pickedCxAccount : pickedAccount) : null;
+  // 既存の予定の編集では、アカウントの札に触れない限り、元の target の account をそのまま保つ（無ければ無いまま、一覧から消えた id も黙って替えない）。エージェントを替えたら、組が違うので札の値に従う。
+  const [accountTouched, setAccountTouched] = useState(false);
+  const keepAccount = initial !== null && !accountTouched && caps.accounts && (initial.agent ?? DEFAULT_AGENT_KIND) === agent;
+  const pickAccount = (v: string) => { setAccountTouched(true); (codex ? setPickedCxAccount : setPickedAccount)(v); };
   // opencode の一覧を聞く場所。opencode.json の重なりが場所で変わるので、起こす場所で聞く。新しいフォルダとクイックセッションはホームで聞く。
   const ocDir = dirPath ?? (scratch || newDir ? null : data.projects.find((p) => p.id === choice)?.path ?? null);
   const ocState = oc?.options && oc.options.dir === ocDir ? oc.options : null;
@@ -301,7 +305,8 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
     else if (choice) params.projectId = choice;
     // 開いてから送るまでにいまのアカウントが変わっても、選んだとおりに起こすため、いまのアカウントと同じでも入れる。
     // opencode にはアカウントを効かせない（サーバも断る）。
-    if (account !== null) params.account = account;
+    if (keepAccount) { if (initial.account !== undefined) params.account = initial.account; }
+    else if (account !== null) params.account = account;
     if (name.trim()) params.name = name.trim();
     // Codex は、エージェント、モデル、推論、権限の 3 段だけを渡す。Claude Code だけの値は載せない（サーバが断る）。モデルが空（デフォルト）なら載せない。
     if (codex) {
@@ -396,7 +401,7 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
         autoApprove, onAutoApprove: setAutoApprove, pickModel: o.pickModel === true,
       } : undefined}
       lead={projectChip}
-      account={accountSet && account !== null ? { value: account, options: accountOptions(t, accountSet), onChange: codex ? setPickedCxAccount : setPickedAccount } : undefined}
+      account={accountSet && account !== null ? { value: account, options: accountOptions(t, accountSet), onChange: pickAccount } : undefined}
       values={{ model, effort, permissionMode, worktree, addDirs, name }}
       onChange={onChips}
       previousPermission={prev ? prev.permissionMode ?? '' : undefined}

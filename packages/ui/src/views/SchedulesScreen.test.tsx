@@ -171,6 +171,36 @@ describe('予定の起動設定（新しいセッションと同じ札）', () =
     expect(lastInput(onAction).input.target).toEqual({ kind: 'new', projectId: 'p', account: 'a1' });
   });
 
+  describe('既存の予定の編集で、アカウントは札に触れない限り元のまま', () => {
+    const openEdit = () => {
+      fireEvent.click(screen.getByRole('button', { name: '依存を点検して' }));
+      fireEvent.click(screen.getByRole('button', { name: t('schedules.action.edit') }));
+    };
+    const save = () => fireEvent.click(screen.getByRole('button', { name: t('schedules.form.save') }));
+
+    it('アカウントの無い古い形の予定を、何も触らず保存しても、target にアカウントは付かない', () => {
+      const onAction = mount([dto({ target: { kind: 'new', projectId: 'p', model: 'sonnet' } })], { store: { accounts: accountsFixture } });
+      openEdit();
+      save();
+      expect(lastInput(onAction).patch.target).toEqual({ kind: 'new', projectId: 'p', model: 'sonnet' });
+    });
+
+    it('一覧から消えたアカウントの id の予定を、何も触らず保存しても、元の id のまま', () => {
+      const onAction = mount([dto({ target: { kind: 'new', projectId: 'p', account: 'gone' } as ScheduleDto['target'] })], { store: { accounts: accountsFixture } });
+      openEdit();
+      save();
+      expect(lastInput(onAction).patch.target).toEqual({ kind: 'new', projectId: 'p', account: 'gone' });
+    });
+
+    it('札でアカウントを選び直したら、選んだ id になる', () => {
+      const onAction = mount([dto({ target: { kind: 'new', projectId: 'p', account: 'gone' } as ScheduleDto['target'] })], { store: { accounts: accountsFixture } });
+      openEdit();
+      choose('アカウント、会社', '大学');
+      save();
+      expect(lastInput(onAction).patch.target).toEqual({ kind: 'new', projectId: 'p', account: 'a1' });
+    });
+  });
+
   it('エージェントを Codex に替えて作ると、Claude Code だけの値は target に入らない', async () => {
     const onAction = mount([], { launch: codexOn });
     openNew();
