@@ -4,7 +4,7 @@ import type { Db } from '../db/open.ts';
 import { getSession } from '../db/queries.ts';
 import type { GetLanguage } from '../i18n/language.ts';
 import { translatorOf } from '../i18n/message.ts';
-import { onUnread } from '../live/unread.ts';
+import { onUnreadReady } from '../live/unread.ts';
 import { Pacer } from '../platform/pacer.ts';
 
 /**
@@ -94,9 +94,10 @@ const BARE_SETTLE_MS = 5000;
 
 /**
  * merge（返答と入力待ちを 1 通にまとめる）で、notify_user の OS の通知の後に来る入力待ちを同じ 1 通とみなす長さ。
- * エージェントは notify_user を呼んだ後、そのターンの最後の返答を書いて入力待ちになる。
- * その間は、返答の長さと登録の読み直し（最大 0.5 秒）で、数秒から十数秒になりうる。
- * 短すぎると 2 通に割れ、長すぎると、続けて別の用事で入力待ちになったものを落とす。10 秒に置く。
+ * notify_user の done と ask は、ターンを抜けるまで預かり（live/unreadHold.ts）、抜けた登録の変わり目で積む。
+ * 入力待ちの見張り（watchWaiting）は同じ変わり目の後に回るので、ふつうは同じ瞬間に並ぶ。
+ * progress のように預からずに積んだものの後で入力待ちになる場合のために、幅を残す。
+ * 長すぎると、続けて別の用事で入力待ちになったものを落とす。10 秒に置く。
  */
 export const MERGE_WINDOW_MS = 10_000;
 
@@ -149,10 +150,11 @@ export class StopNoticeWatch {
 
   /**
    * notify_user の知らせを購読し、出し先に os があるものを OS の通知の並びへ積む（kind unread）。
+   * 聞くのはターンの終わりまで預かった後の知らせ（live/unreadHold.ts の UnreadHold が流す onUnreadReady）である。
    * 入力待ちとは別の kind なので、殻は別の枠に入れ、同じ会話の入力待ちの通知を置き換えない。戻り値を呼ぶと外す。
    */
   subscribeUnread(): () => void {
-    return onUnread((sessionId, text, _count, sent) => {
+    return onUnreadReady((sessionId, text, _count, sent) => {
       if (!sent.includes('os')) return;
       const now = this.deps.now?.() ?? Date.now();
       const s = this.session(this.deps.live(), sessionId, now);
@@ -216,7 +218,7 @@ export class StopNoticeWatch {
         continue;
       }
       // merge：同じ会話の notify_user の OS の通知の直後なら、本文の方が中身があるので、入力待ちの通知は積まない。
-      // 逆の順（入力待ちを積んだ後に notify_user が来る）は、積んだ通知を引っ込められないので、そのまま両方出る。
+      // done と ask の預かりは、登録の変わり目でこの見張りより先に出す（boot/runs.ts の並び）ので、ここで重なりが分かる。
       if (this.merged(s.id, now)) { ep.phase = 'done'; continue; }
       if (question) { push(question, false); ep.phase = 'done'; } else { push(this.tr('home.card.noQuestion'), true); ep.phase = 'bare'; }
     }

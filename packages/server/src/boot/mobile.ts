@@ -10,7 +10,7 @@ import { approveDeleteApproval, dismissDeleteApproval, listDeleteApprovals, reje
 import type { SessionTrash } from '../sessions/trash.ts';
 import { answerAsk } from '../mobile/asks.ts';
 import { MobileBell } from '../mobile/bell.ts';
-import { onUnread } from '../live/unread.ts';
+import { onUnreadReady } from '../live/unread.ts';
 import { buildMobileFeed, sessionTitleOf } from '../mobile/feed.ts';
 import { MobileLaunchInbox, type PhoneLaunchStarted } from '../mobile/launchInbox.ts';
 import { FEED_SAFETY_MS, MobileFeedPublisher } from '../mobile/publisher.ts';
@@ -330,7 +330,8 @@ export function bootMobile(p: {
       offs.push(p.delivery.live.onChange(() => kick()));
       offs.push(onIntent(() => kick()));
       // notify_user の知らせのうち、出し先に phone を含むものをスマホへ送る（受信箱の素の書き込みとは別の通知）。
-      offs.push(onUnread((sessionId, text, _count, sent) => {
+      // 聞くのはターンの終わりまで預かった後の知らせ（live/unreadHold.ts）で、返答を書き終えてから届く。
+      offs.push(onUnreadReady((sessionId, text, _count, sent) => {
         if (!sent.includes('phone')) return;
         const title = sessionTitleOf(db, sessionId);
         if (title === null) return;

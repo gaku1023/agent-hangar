@@ -26,6 +26,7 @@ import { OVERLAP_TICK_MS, OverlapWatch } from '../sessions/overlap.ts';
 import { hasMarkedIdle, ParkWatch, parkedSessionIds } from '../sessions/park.ts';
 import { setParkingSwitch } from '../db/queries.ts';
 import { paceNotices, StopNoticeWatch } from '../sessions/stopNotices.ts';
+import { UnreadHold } from '../live/unreadHold.ts';
 import { paneOpsFor, type PaneOps } from '../tmux/pane.ts';
 import { HANGAR_SOCKET, hangarMux, type MuxServers } from '../tmux/servers.ts';
 import { accountOfProviderSession } from '../usage/accountOf.ts';
@@ -256,7 +257,11 @@ export function bootRuns(
   const notices = paceNotices(stopNotices);
   // notify_user の知らせのうち、出し先に OS の通知を含むものを同じ並びへ積む。
   stopNotices.subscribeUnread();
-  live.onChange(() => notices.onLiveChange());
+  // notify_user の OS とスマホの通知は、done と ask ならターンを抜けるまで預かる。返答を書き終えてから届くようにするためである。
+  // 入力待ちの見張りより先に出し、merge（返答と入力待ちを 1 通に）が同じ変わり目で重なりを見られるようにする。
+  const unreadHold = new UnreadHold({ db, live: () => live.current() });
+  unreadHold.start();
+  live.onChange(() => { try { unreadHold.check(); } catch (e) { console.error('[unread] could not release held notices', e instanceof Error ? e.message : e); } notices.onLiveChange(); });
   const touch = (): void => touchDevice({ db, device, shellHook: shell.hook });
   let parkTimer: ReturnType<typeof setInterval> | null = null;
   let overlapTimer: ReturnType<typeof setInterval> | null = null;

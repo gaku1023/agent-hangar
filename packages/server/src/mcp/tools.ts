@@ -441,7 +441,8 @@ function reportLateFailure(deps: ToolDeps, ctx: ToolContext, name: string, e: un
   if (!ctx.sessionId) return;
   const text = clipChars(render(languageOf(deps), msg('mcp.launch.failedLater', { name, reason })), INTENT_MAX);
   try {
-    notifyUserTool(deps, ctx, { text, kind: 'ask' });
+    // 起動元のターンの終わりを待たずに出す。エージェントは失敗を知らないので、返答を待っても中身は増えない。
+    notifyUserTool(deps, ctx, { text, kind: 'ask' }, Date.now(), { immediate: true });
   } catch (err) {
     console.warn(`[mcp] could not notify the launch failure: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -624,7 +625,8 @@ function noticeDeleteApproval(deps: ToolDeps, ctx: ToolContext, s: SessionDto, n
     unread = addUnread(deps.db, from.id, text, now);
     touchRow(deps.db, 'sessions', from.id);
   }
-  noteUnread(from?.id ?? s.id, text, unread, sent);
+  // 依頼元のターンの終わりを待たずに出す。依頼元は承認を待って止まっていることがあるからである。
+  noteUnread(from?.id ?? s.id, text, unread, sent, { kind: 'ask', immediate: true });
 }
 
 /** 依頼の文に入れる題名。名前、AI の題、最初の発言の順に引く。 */
@@ -670,7 +672,7 @@ export function setTurnIntentTool(deps: ToolDeps, ctx: ToolContext, args: Record
  * Done、Archived、Paused にしたセッションは、付けた後に休みから動き出すまで何も出さない（shared の isQuietStatus、sessions/wake.ts）。
  * 付けたターンの終わりの知らせで、サイドバーから消えた会話に未読が残り、通知が鳴るのを防ぐ（2026-10-31）。断らずに sent を空で返す。
  */
-export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, now = Date.now()) {
+export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, now = Date.now(), o: { immediate?: boolean } = {}) {
   const id = sessionIdOf(ctx, args);
   const session = requireSession(deps, id);
   const text = typeof args.text === 'string' ? args.text.trim() : '';
@@ -695,7 +697,8 @@ export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
       unread = addUnread(deps.db, id, text, now);
       touchRow(deps.db, 'sessions', id);
     }
-    noteUnread(id, text, unread, sent);
+    // OS とスマホへの通知は、done と ask ならこのターンが終わるまで預かってから出る（live/unreadHold.ts）。
+    noteUnread(id, text, unread, sent, { kind, ...(o.immediate ? { immediate: true } : {}) });
   }
   return { ok: true, session_id: id, at: now, unread, sent };
 }

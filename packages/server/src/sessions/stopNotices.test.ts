@@ -5,7 +5,8 @@ import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { setSessionName } from './notes.ts';
 import { setSessionState } from './states.ts';
-import { noteUnread } from '../live/unread.ts';
+import { noteUnread, noteUnreadReady } from '../live/unread.ts';
+import { UnreadHold } from '../live/unreadHold.ts';
 import { NOTICE_IDLE_MS, NOTICE_POLL_MS, OsNoticeFeed, paceNotices, StopNoticeWatch } from './stopNotices.ts';
 
 let db: Db;
@@ -368,24 +369,24 @@ describe('StopNoticeWatch：未読の知らせ（notify_user）', () => {
   it('sent に os があれば kind unread で積み、無ければ積まない。解除すると積まない', () => {
     const w = watch();
     const off2 = w.subscribeUnread();
-    noteUnread(s1, '調査が終わりました', 1, ['unread', 'os']);
-    noteUnread(s2, '数だけ', 1, ['unread']);
+    noteUnreadReady(s1, '調査が終わりました', 1, ['unread', 'os']);
+    noteUnreadReady(s2, '数だけ', 1, ['unread']);
     expect(pushed).toEqual([{ kind: 'unread', sessionId: s1, title: '請求書の書き出し', body: '調査が終わりました', bare: false, evenInFront: false }]);
     off2();
-    noteUnread(s1, 'もう 1 回', 2, ['os']);
+    noteUnreadReady(s1, 'もう 1 回', 2, ['os']);
     expect(pushed).toHaveLength(1);
   });
 
   it('知らない会話は積まない', () => {
     const off2 = watch().subscribeUnread();
-    noteUnread('nope', 'x', 1, ['os']);
+    noteUnreadReady('nope', 'x', 1, ['os']);
     off2();
     expect(pushed).toEqual([]);
   });
 });
 
 describe('StopNoticeWatch：知らせ方の決まり（whileFocused と merge）', () => {
-  const nu = (sid = s1, text = '調査が終わりました') => noteUnread(sid, text, 1, ['unread', 'os']);
+  const nu = (sid = s1, text = '調査が終わりました') => noteUnreadReady(sid, text, 1, ['unread', 'os']);
   const waitQ = (q = 'どちらにしますか？') => { ask(q); live = [entry('u1', 'waiting', { waitingFor: 'question' })]; };
 
   it('whileFocused が真なら、未読の項目に evenInFront を付ける。既定は偽', () => {
@@ -421,6 +422,24 @@ describe('StopNoticeWatch：知らせ方の決まり（whileFocused と merge）
     expect(w.pending()).toBe(false);
   });
 
+  it('預かり（UnreadHold）を通すと、作業中の notify_user は積まず、ターンを抜けた変わり目で 1 通だけ積む', () => {
+    const w = watch();
+    const off2 = w.subscribeUnread();
+    const h = new UnreadHold({ db, live: () => live });
+    const off3 = h.start();
+    w.tick();
+    noteUnread(s1, '調べ終えました', 1, ['unread', 'os'], { kind: 'done' });
+    w.tick();
+    expect(pushed).toEqual([]);
+    now += 20_000;
+    waitQ();
+    h.check();
+    w.tick();
+    off2();
+    off3();
+    expect(pushed.map((p) => [p.kind, p.body])).toEqual([['unread', '調べ終えました']]);
+  });
+
   it('merge でも、数秒を過ぎてからの入力待ちは積む', () => {
     const w = watch();
     const off2 = w.subscribeUnread();
@@ -450,7 +469,7 @@ describe('StopNoticeWatch：知らせ方の決まり（whileFocused と merge）
     const w = watch();
     const off2 = w.subscribeUnread();
     w.tick();
-    noteUnread(s1, '数だけ', 1, ['unread']);
+    noteUnreadReady(s1, '数だけ', 1, ['unread']);
     waitQ();
     w.tick();
     off2();
