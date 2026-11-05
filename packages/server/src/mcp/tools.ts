@@ -560,10 +560,11 @@ function targetSession(deps: ToolDeps, ctx: ToolContext, args: Record<string, un
 /** UI の停止と同じ runs.kill を通す。この PC の run だけ止められる。 */
 export function stopSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   if (!deps.runs.aliveRun || !deps.runs.kill) throw new ToolError(msg('mcp.error.unknownTool', { name: 'stop_session' }));
-  const s = targetSession(deps, ctx, args, msg('mcp.stopSession.self'));
-  // 自分が起こした別の PC の会話は、頼みを置いて止めてもらう（D16）。
-  const spawn = remoteSpawnOf(deps, ctx, s.id);
+  // 自分が起こした別の PC の会話は、sessions の行が同期で届く前でも、結び付きの行で引き、頼みを置いて止めてもらう（D16）。
+  const targetId = str(args.session_id);
+  const spawn = targetId ? remoteSpawnOf(deps, ctx, targetId) : null;
   if (spawn) return remoteControlTool(deps, ctx, 'stop', spawn, '');
+  const s = targetSession(deps, ctx, args, msg('mcp.stopSession.self'));
   const run = deps.runs.aliveRun(s.id);
   if (!run) throw new ToolError(msg('mcp.stopSession.notRunning'));
   if (run.deviceId !== deps.deviceId) throw new ToolError(msg('mcp.stopSession.otherDevice', { device: deviceBrief(deps, s.id)?.name ?? run.deviceId }));

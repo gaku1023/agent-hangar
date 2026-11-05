@@ -322,6 +322,17 @@ describe('send_to_session と stop_session の別の PC への頼み（D16）', 
     expect(getPeerRequest(db, 'req-2')).toBeNull();
   });
 
+  it('sessions の行が同期で届く前でも、結び付きの行だけで send と stop が requested になる', async () => {
+    putPeer();
+    const id = 'child-not-synced';
+    recordSpawn(db, ME, id, caller, NOW, { childDeviceId: PEER });
+    expect(await call('send_to_session', { session_id: id, text: '続けて' })).toMatchObject({ status: 'requested', request_id: 'req-1' });
+    deps.peer!.newId = () => 'req-2';
+    expect(await call('stop_session', { session_id: id })).toMatchObject({ status: 'requested', request_id: 'req-2' });
+    await expect(call('send_to_session', { session_id: 'never-spawned', text: 'x' })).rejects.toThrow();
+    await expect(call('stop_session', { session_id: 'never-spawned' })).rejects.toThrow();
+  });
+
   it('自分が起こしていない別の PC の会話は、今までどおり断り、何も置かない（受け入れ 14）', async () => {
     putPeer();
     const other = ensureSession(db, 'ux', '/w', PEER);
