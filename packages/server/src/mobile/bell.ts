@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import { PEER_BELL_KINDS, type PeerBellKind } from '@agent-hangar/shared';
 import type { BellTarget } from '../sync/client.ts';
 import type { Timers } from '../sync/engine.ts';
 
@@ -39,8 +40,8 @@ export type MobileBellDeps = {
   target: () => BellTarget | null;
   /** `{t:'launch'}` を受けた。起動の依頼が置かれたので、今の pull の道で受け取る（engine.pullNow）。 */
   onLaunch: () => void;
-  /** `{t:'peer', kind:'launch', id}` を受けた。別の PC からの起動の頼みが置かれたので、今の pull の道で受け取る。省けば無視する。 */
-  onPeerLaunch?: () => void;
+  /** `{t:'peer', kind, id}` を受けた。PC どうしの頼みの知らせで、kind は launch（頼みが来た）、answer（答えが来た）、result（結果が来た）。種類ごとの取得は呼ぶ側が分ける。無ければ捨てる（30 秒の取得が拾う）。 */
+  onPeer?: (kind: PeerBellKind, id: string) => void;
   /** `{t:'ask', id, sealed, epoch}` を受けた。epoch は封じたスマホ用の鍵の世代。封じた答えを返す。開けないものは null で、答えない。 */
   onAsk: (id: string, sealed: string, epoch: number) => Promise<string | null>;
   timers?: Timers;
@@ -190,14 +191,15 @@ export class MobileBell {
       return;
     }
     if (typeof m !== 'object' || m === null) return;
-    const msg = m as { t?: unknown; id?: unknown; sealed?: unknown; epoch?: unknown };
+    const msg = m as { t?: unknown; id?: unknown; sealed?: unknown; epoch?: unknown; kind?: unknown };
     if (msg.t === 'launch') {
       try { this.deps.onLaunch(); } catch (e) { console.error('[mobile] could not take the launch bell', describe(e)); }
       return;
     }
     if (msg.t === 'peer') {
-      if ((m as { kind?: unknown }).kind === 'launch') {
-        try { this.deps.onPeerLaunch?.(); } catch (e) { console.error('[mobile] could not take the peer bell', describe(e)); }
+      const kind = (PEER_BELL_KINDS as readonly unknown[]).includes(msg.kind) ? (msg.kind as PeerBellKind) : null;
+      if (kind && typeof msg.id === 'string' && msg.id.length > 0 && msg.id.length <= MAX_ASK_ID && this.deps.onPeer) {
+        try { this.deps.onPeer(kind, msg.id); } catch (e) { console.error('[mobile] could not take the peer bell', describe(e)); }
       }
       return;
     }
