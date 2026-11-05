@@ -116,3 +116,32 @@ describe('一覧の入れ子', () => {
     expect(rowsOf(store).map((r) => [r.id, r.nest?.depth ?? 0])).toEqual([['c', 0]]);
   });
 });
+
+describe('別の PC の子のサイドバーと一覧（実物の確かめの直し）', () => {
+  const peerSpawn = (over: Partial<NonNullable<SessionDto['spawnPeer']>> = {}) => ({ spawnPeer: { parent: null, child: 'Mac', closed: false, ...over } });
+  const done = { state: { status: 'done', setBy: 'user', setAt: NOW, note: null, returnOn: null, candidate: null } as SessionDto['state'] };
+  const remote = (id: string, over: Partial<SessionDto> = {}) => session(id, { live: null, remoteOnly: true, spawnedBy: 'p', startedAt: 2, ...peerSpawn(), ...over });
+  const rowsOf = (store: Store) => presentShell(initialState(), store, NOW).live.groups.flatMap((g) => g.rows);
+  it('この PC で動く親の下に、別の PC の子を札つきで入れ子にする（run も live も無くてよい）', () => {
+    const rows = rowsOf(storeOf([session('p', { live: 'busy', startedAt: 1 }), remote('c')]));
+    expect(rows.map((r) => [r.id, r.depth ?? 0])).toEqual([['p', 0], ['c', 1]]);
+    expect(rows[1]!.peer).toEqual({ name: 'Mac', ended: false });
+    expect(rows[0]!.nest?.dots).toHaveLength(1);
+  });
+  it('結び付きが終わった子も、切り離していなければ出す（ended）', () => {
+    const rows = rowsOf(storeOf([session('p', { live: 'busy', startedAt: 1 }), remote('c', peerSpawn({ closed: true }))]));
+    expect(rows[1]!.peer).toEqual({ name: 'Mac', ended: true });
+  });
+  it('子が Done なら出さない。親が止まっているときは、別の PC の子で親を引き出さない', () => {
+    expect(rowsOf(storeOf([session('p', { live: 'busy', startedAt: 1 }), remote('c', done)])).map((r) => r.id)).toEqual(['p']);
+    expect(rowsOf(storeOf([session('p', { live: null }), remote('c')])).map((r) => r.id)).toEqual([]);
+  });
+  it('別の PC の子でない止まった子（同じ PC）は出さない', () => {
+    expect(rowsOf(storeOf([session('p', { live: 'busy', startedAt: 1 }), session('c', { live: null, spawnedBy: 'p' })])).map((r) => r.id)).toEqual(['p']);
+  });
+  it('一覧の行は子の PC の名前を持つ（他の PC の会話一般は持たない）', () => {
+    const rows = presentSessionList(initialState(), storeOf([session('p', { live: 'busy' }), remote('c'), session('o', { remoteOnly: true })]), NOW).rows;
+    expect(rows.find((r) => r.id === 'c')!.peer).toEqual({ name: 'Mac', ended: false });
+    expect(rows.find((r) => r.id === 'o')!.peer).toBeUndefined();
+  });
+});

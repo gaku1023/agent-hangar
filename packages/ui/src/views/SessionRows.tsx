@@ -264,7 +264,8 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
         {/* 要約に当たった行の札（検索の結果）。一致した語そのものは要約の本文にあるので、ここは札だけにする。 */}
         {r.summaryMatch && <span className="row-tag">{t('list.match.summary')}</span>}
         {/* git の札（試作の 2-1 の A）。要約が先に縮み、札は右端に残る。 */}
-        {flat && r.git && <GitChip id={r.id} chip={r.git} className="row-git" />}
+        {flat && r.peer && <span className="pc-pill row-peer" data-ended={r.peer.ended ? 'true' : undefined} title={r.peer.name}><Icon name="otherPc" /><span>{r.peer.name}</span></span>}
+        {flat && r.git && !(r.peer && r.git.kind === 'remote') && <GitChip id={r.id} chip={r.git} className="row-git" />}
         {flat && r.prUrl && (
           // 2 段目の右端。PR の番号（設計書 2.2）。PR は外のブラウザで開くリンクで、行は開かない。
           <span className="row-marks">

@@ -58,6 +58,8 @@ export type SessionRowProps = { id: string; name: string; oneLiner: string; proj
   /** 題名の左のエージェントのアイコン（B10、agentIcon.ts）。null は空の枠（絵の無い種類）。アイコンを出さないとき（opencode が切で、その会話も無い）は持たない。 */
   agent?: AgentIconKind | null;
 
+  /** 別の PC に起こした会話の PC の名前（spawnPeer.child）。あれば、git の札の「他の PC」の代わりに PC の札を出す。 */
+  peer?: { name: string; ended: boolean };
   /** git の札（2 段目の右端、試作の 2-1 の A）。まだ届いていないものと git でないものは null。 */
   git?: GitChipProps | null;
   /** 行の「⋯」と右クリックで開くセッションのメニュー（1A）。無ければ「⋯」を置かない。 */
@@ -140,6 +142,7 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
     git: presentGitChip(t, store.git, s.id, store.sessions),
   };
   if (excerpt) row.excerpt = excerpt;
+  if (s.spawnPeer?.child) row.peer = { name: s.spawnPeer.child, ended: s.spawnPeer.closed };
   const here = resumeHereOf(store, s, t);
   if (here) row.resumeHere = { disabled: here.disabled };
   row.menu = presentSessionMenu(store, s, t);

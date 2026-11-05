@@ -205,6 +205,15 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
   const pinned = Object.values(store.sessions).filter((s) => (s.pinnedAt ?? null) !== null).sort((a, b) => a.pinnedAt! - b.pinnedAt! || a.id.localeCompare(b.id)).map((s) => s.id);
   const pinnedSet = new Set(pinned);
   const live = liveSessionIds(store).filter((id) => !pinnedSet.has(id));
+  const here = new Set([...live, ...pinned]);
+  // 別の PC で動かしている子は、この PC の run も live も持たない。親がここで動いている間だけ、親の下に出す。
+  // 子の動きは分からないので動きの印は持たせず、PC の札で示す。結び付きが終わった子も、切り離していなければ出す。
+  // 子だけが動いていても、止まった親は引き出さない（動いているかを、この PC は知らないため）。
+  const remoteKids = Object.values(store.sessions).filter((s) => {
+    const parent = spawnParentOf(store.sessions, s.id);
+    return s.spawnPeer?.child && parent !== null && here.has(parent) && !here.has(s.id) && s.state?.status !== 'done' && s.state?.status !== 'archived' && s.state?.status !== 'paused';
+  }).sort((a, b) => (a.startedAt ?? Infinity) - (b.startedAt ?? Infinity) || a.id.localeCompare(b.id)).map((s) => s.id);
+  live.push(...remoteKids);
   // 留めた起動元は段にあるので、子はグループの根の行にする（起動元を薄い行で二重に出さない）。
   const parentOf = (id: string): string | null => { const p = spawnParentOf(store.sessions, id); return p !== null && pinnedSet.has(p) ? null : p; };
   const on = new Set(live);
