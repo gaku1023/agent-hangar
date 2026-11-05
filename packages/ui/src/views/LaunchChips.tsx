@@ -179,7 +179,7 @@ export function LaunchChips(props: {
       {props.agent && <AgentChip {...props.agent} />}
       {props.lead}
       {account && (
-        <ChipPopover name={t('launch.chip.account')} value={accountLabel} dot={accountNow?.color} showName={false} width={260} agentOnly="accounts">
+        <ChipPopover name={t('launch.chip.account')} value={accountLabel} dot={accountNow?.color} showName={false} tone={accountNow?.disabled ? 'muted' : 'default'} suffix={accountNow?.disabled ? accountNow.tag : undefined} width={260} agentOnly="accounts">
           {(close) => (
             <PickList label={t('launch.chip.account')} value={account.value}
               items={account.options.map((o) => ({ value: o.value, label: o.label, disabled: o.disabled, tag: o.tag, lead: o.color ? <span className="st-dot" style={{ color: o.color }} aria-hidden="true" /> : undefined }))}

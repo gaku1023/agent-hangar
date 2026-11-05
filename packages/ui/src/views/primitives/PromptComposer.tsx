@@ -53,7 +53,9 @@ function Marked(props: { text: string; query: string }) {
  * hero は新しいセッションのダイアログの主役の欄で、高さを 150px から始め、ダイアログを開いたときの焦点を受ける（data-autofocus）。placeholder は空のときの案内である。
  * 候補はダイアログの外（body）に描く。ダイアログは backdrop-filter を持ち、中の fixed はダイアログ基準になるからである（Listbox と同じ）。
  */
-export function PromptComposer(props: { id: string; value: string; onChange: (value: string) => void; projectId: string | null; attachments: Attachment[]; onAttachmentsChange: (next: Attachment[]) => void; onPendingChange?: (count: number) => void; hero?: boolean; placeholder?: string; /** 欄の中で、打つ文の下に分けて見せる引用（書き換えない）。送るときに足すのは呼び手。 */ quote?: string; /** info は引用を中立の色にする（注意とセットアップの状況）。無ければエラーの色。 */ quoteTone?: 'info' }) {
+export function PromptComposer(props: { id: string; value: string; onChange: (value: string) => void; projectId: string | null; attachments: Attachment[]; onAttachmentsChange: (next: Attachment[]) => void; onPendingChange?: (count: number) => void; remote?: boolean; hero?: boolean; placeholder?: string; /** 欄の中で、打つ文の下に分けて見せる引用（書き換えない）。送るときに足すのは呼び手。 */ quote?: string; /** info は引用を中立の色にする（注意とセットアップの状況）。無ければエラーの色。 */ quoteTone?: 'info' }) {
+  /** 別の PC へ頼むときは、この PC のファイルを添付も候補にも出さない。 */
+  const fileProject = props.remote ? null : props.projectId;
   const t = useT();
   const assist = useContext(PromptAssistContext);
   const box = useRef<HTMLDivElement>(null);
@@ -84,7 +86,7 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
   const trigger = focused ? rawTrigger : null;
   // スキルの名前に / は入らない。貼ったパス（/Users/x）の下に「一致なし」を出しても邪魔なので、/ は語に / があれば開かない。
   // @ の語はパスなので / が入るのがふつうで、その規則は持ち込まない。@ はプロジェクトのファイルを探すので、プロジェクトが無い（クイックセッション）ときは出さない。
-  const open = trigger !== null && (trigger.kind === '/' ? !trigger.query.includes('/') : props.projectId !== null) && dismissed !== keyOf(trigger);
+  const open = trigger !== null && (trigger.kind === '/' ? !trigger.query.includes('/') : fileProject !== null) && dismissed !== keyOf(trigger);
   const mode = open ? trigger.kind : null;
   const sections = mode === '/' && Array.isArray(commands) ? arrangeCommands(t, commands, trigger!.query) : [];
 
@@ -93,7 +95,7 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
   // ただし前の問いの一覧は見せるだけで、入れられない（stale）。いま打った語の候補ではないので、Enter や Tab で入れると、打った語と関係ないファイルが入る。
   const fileQuery = mode === '@' ? trigger!.query : null;
   const mentionStart = mode === '@' ? trigger!.start : null;
-  const own = files !== null && files.project === props.projectId && files.start === mentionStart ? files : null;
+  const own = files !== null && files.project === fileProject && files.start === mentionStart ? files : null;
   const shown = own && own.query === fileQuery ? own : own && Array.isArray(own.list) && own.list.length > 0 ? own : null;
   const fileList = shown?.list ?? null;
   const stale = shown !== null && shown.query !== fileQuery;
@@ -108,13 +110,13 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
   useEffect(() => { if (dismissed !== null && dismissed !== rawKey) setDismissed(null); }, [dismissed, rawKey]);
 
   // 一覧は 1 つの @ の間だけ持つ。閉じる（Esc、確定、焦点が外れる）か別の @ に移ったら捨てる。無関係な一覧を、新しい @ の最初に見せないためである。
-  useEffect(() => { setFiles(null); }, [mentionStart, props.projectId]);
+  useEffect(() => { setFiles(null); }, [mentionStart, fileProject]);
 
   // 問いは打鍵のたびに送らず、少し待って打ち終わった語だけ送る（サーバは同じプロジェクトの仕事をまとめるが、往復そのものを減らす）。
   // 問いが空（@ だけ、「ファイル」ボタン）なら、最近変えたファイルをすぐ見せたいので待たない。
   useEffect(() => {
-    if (fileQuery === null || mentionStart === null || props.projectId === null) return;
-    const project = props.projectId;
+    if (fileQuery === null || mentionStart === null || fileProject === null) return;
+    const project = fileProject;
     let live = true;
     const run = () => {
       assist.files(project, fileQuery).then(
@@ -126,7 +128,7 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
     const timer = fileQuery === '' ? null : setTimeout(run, FILE_DEBOUNCE_MS);
     // 次の問いに移ったら、この問いの返事は捨てる。待っている問いも取り消す。
     return () => { live = false; if (timer !== null) clearTimeout(timer); };
-  }, [assist, fileQuery, mentionStart, props.projectId]);
+  }, [assist, fileQuery, mentionStart, fileProject]);
 
   const picker = useRef<HTMLInputElement>(null);
   // 送っている間に次の添付が来ても取りこぼさないよう、いまの一覧は ref で読む。
@@ -167,6 +169,7 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
 
   /** 貼り付け、ブラウザでのドロップ、添付ボタンのどれも、ここで置き場へ送る。 */
   const send = (files: File[]) => {
+    if (props.remote) return;
     for (const f of files) {
       if (f.size > MAX_BYTES) { assist.notify(t('composer.attach.tooLarge', { name: f.name })); continue; }
       const id = nextId.current++;
@@ -396,8 +399,8 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
         {props.quote && <blockquote className="pc-quote" data-tone={props.quoteTone}>{props.quote}</blockquote>}
         <div className="pc-tools">
           <button type="button" className="pc-tool" onMouseDown={(e) => e.preventDefault()} onClick={() => startTrigger('/')}><span className="pc-tool-key" aria-hidden="true">/</span>{t('composer.tool.skill')}</button>
-          <button type="button" className="pc-tool" disabled={props.projectId === null} title={props.projectId === null ? t('composer.tool.fileNeedsProject') : undefined} onMouseDown={(e) => e.preventDefault()} onClick={() => startTrigger('@')}><span className="pc-tool-key" aria-hidden="true">@</span>{t('composer.tool.file')}</button>
-          <button type="button" className="pc-tool" title={t('composer.tool.pasteHint', { keys: keyLabel('⌘V') })} onClick={() => picker.current?.click()}><Icon name="attach" />{t('composer.tool.attach')}</button>
+          {!props.remote && <button type="button" className="pc-tool" disabled={props.projectId === null} title={props.projectId === null ? t('composer.tool.fileNeedsProject') : undefined} onMouseDown={(e) => e.preventDefault()} onClick={() => startTrigger('@')}><span className="pc-tool-key" aria-hidden="true">@</span>{t('composer.tool.file')}</button>}
+          {!props.remote && <button type="button" className="pc-tool" title={t('composer.tool.pasteHint', { keys: keyLabel('⌘V') })} onClick={() => picker.current?.click()}><Icon name="attach" />{t('composer.tool.attach')}</button>}
           <input ref={picker} type="file" multiple hidden data-testid="pc-picker" onChange={(e) => { send([...(e.target.files ?? [])]); e.target.value = ''; }} />
         </div>
         {open && createPortal(

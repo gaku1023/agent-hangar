@@ -49,13 +49,14 @@ describe('peerAccountOptions（選べるものを先に、選べないものを�
 
 describe('peerAccountPick（札の値）', () => {
   const rows: PeerAccountRow[] = [{ name: 'Work', state: 'ok', localId: 'a2' }, { name: 'Main', state: 'missing', localId: 'a1' }, { name: 'Old', state: 'loggedOut', localId: null }];
-  it('選んだ名前が選べればそれ。選べなければ、この PC のいまのアカウントと同じ名前（D7）、それも無ければ選べる最初', () => {
+  it('選んだ名前、無ければこの PC のいまのアカウントと同じ名前、それも無ければ選べる最初。選べない名前も黙って移さない', () => {
     expect(peerAccountPick(rows, 'Work', 'Main')).toBe('Work');
-    expect(peerAccountPick(rows, 'Old', 'Work')).toBe('Work');
-    expect(peerAccountPick(rows, null, 'Main')).toBe('Work');
+    expect(peerAccountPick(rows, null, 'Main')).toBe('Main');
+    expect(peerAccountPick(rows, null, 'Old')).toBe('Old');
+    expect(peerAccountPick(rows, null, 'Gone')).toBe('Work');
     expect(peerAccountPick(rows, null, null)).toBe('Work');
   });
-  it('選べるものが無ければ null（相手の既定に任せる）', () => {
+  it('名前が一覧に無く、選べるものも無ければ null（相手の既定に任せる）', () => {
     expect(peerAccountPick([{ name: 'Old', state: 'loggedOut', localId: null }], null, null)).toBeNull();
     expect(peerAccountPick([], null, 'Main')).toBeNull();
   });

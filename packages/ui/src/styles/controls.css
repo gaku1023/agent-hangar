@@ -553,3 +553,4 @@ textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) 
 .account-card-act[data-quiet='true'] { color: var(--ink-3); }
 .account-card-act:hover { text-decoration: underline; }
 .account-pop-foot[data-solo='true'] { justify-content: flex-end; }
+.set-chip[data-unusable='true'] > :not(.listbox-tag) { opacity: 0.55; }

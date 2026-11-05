@@ -44,10 +44,11 @@ export function peerAccountOptions(p: PeerDeviceDto, agent: string, local: { nam
 }
 
 /**
- * アカウントの札の値（名前）。選んだ名前が選べればそれ。選べなければ、この PC のいまのアカウントと同じ名前（D7）、それも選べなければ選べる最初。
- * 選べるものが無ければ null で、アカウントを指定せず、相手の既定に任せる。
+ * アカウントの札の値（名前）。選んだ名前、無ければこの PC のいまのアカウントと同じ名前（D7）、それも一覧に無ければ選べる最初。
+ * 選べない名前（相手に無い、ログアウト中）でも、一覧にあればそのまま返す。黙って別のものへ移さず、呼び手が起動を止める。
+ * 一覧に名前が無く、選べるものも無ければ null で、アカウントを指定せず、相手の既定に任せる。
  */
 export function peerAccountPick(rows: PeerAccountRow[], picked: string | null, currentName: string | null): string | null {
-  const ok = (n: string | null) => (n !== null && rows.some((r) => r.name === n && r.state === 'ok') ? n : null);
-  return ok(picked) ?? ok(currentName) ?? rows.find((r) => r.state === 'ok')?.name ?? null;
+  const has = (n: string | null) => (n !== null && rows.some((r) => r.name === n) ? n : null);
+  return has(picked) ?? has(currentName) ?? rows.find((r) => r.state === 'ok')?.name ?? null;
 }

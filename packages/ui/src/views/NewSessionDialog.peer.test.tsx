@@ -56,13 +56,37 @@ describe('選んだ PC で使えない項目（テスト 22）', () => {
     // 選べないので一覧は閉じず、札の値も変わらない。
     expect(screen.getByRole('option', { name: 'alpha' })).toBeInTheDocument();
   });
-  it('選んでいたプロジェクトが相手に無ければ、クイックセッションへ移り、この PC に戻すと元のプロジェクトへ戻る', () => {
+  it('選んでいたプロジェクトが相手に無ければ、黙って移さず選んだまま残し（薄く、末尾の印）、起動を止める。この PC に戻すと押せる', () => {
     mount({ peers: [mac({ projects: [] })], projectId: 'p1' });
-    expect(screen.getByRole('button', { name: /^プロジェクト/ }).textContent).toContain('alpha');
     pick('起動する PC', 'Mac');
-    expect(screen.getByRole('button', { name: /^プロジェクト/ }).textContent).toContain('クイックセッション');
+    expect(screen.getByRole('button', { name: /^プロジェクト/ }).textContent).toContain('alpha');
+    expect(startButton('Mac で起動')).toBeDisabled();
+    expect(projectOptions().find(([n]) => n === 'alpha')).toEqual(['alpha', true]);
+    expect(screen.getByRole('option', { name: 'alpha' }).textContent).toContain('ディレクトリなし');
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
     pick('起動する PC', 'この PC');
     expect(screen.getByRole('button', { name: /^プロジェクト/ }).textContent).toContain('alpha');
+    expect(startButton(/^起動$/)).toBeEnabled();
+  });
+  it('登録していないフォルダを選んだまま PC を替えても、移さず残し、起動を止める', () => {
+    mount({ peers: [mac()], dir: '/w/url-short', projectId: null, dirs: [{ name: 'url-short', path: '/w/url-short' }] });
+    pick('起動する PC', 'Mac');
+    expect(screen.getByRole('button', { name: /^プロジェクト/ }).textContent).toContain('url-short');
+    expect(startButton('Mac で起動')).toBeDisabled();
+  });
+  it('入っていないエージェントも、選んだまま残して起動を止める', () => {
+    mount({ peers: [mac()], codex: { options: null }, agent: 'codex' } as never);
+    pick('起動する PC', 'Mac');
+    expect(startButton('Mac で起動')).toBeDisabled();
+  });
+  it('別の PC を選んだ間は、添付と @ のファイルの札を出さない。この PC に戻すと出る', () => {
+    mount({ peers: [mac()] });
+    expect(screen.getByRole('button', { name: /添付/ })).toBeInTheDocument();
+    pick('起動する PC', 'Mac');
+    expect(screen.queryByRole('button', { name: /添付/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /ファイル/ })).toBeNull();
+    pick('起動する PC', 'この PC');
+    expect(screen.getByRole('button', { name: /添付/ })).toBeInTheDocument();
   });
   it('新しいフォルダと worktree の札は出さない（別の PC には頼めない）', () => {
     mount({ peers: [mac()], dirs: [{ name: 'url-short', path: '/w/url-short' }], desktop: true });
@@ -111,18 +135,20 @@ describe('起動', () => {
 
 describe('アカウント（名前で突き合わせる）', () => {
   const two = { list: [{ id: 'primary', name: 'Main', color: '#2a57b8', current: true, auth: 'ok', loggedIn: true }, { id: 'a2', name: 'Work', color: '#7a4a9e', current: false, auth: 'ok', loggedIn: true }], currentId: 'primary' } as never;
-  it('相手に無い名前とログアウト中の名前は末尾に集まり選べない。既定はこの PC のいまのアカウントと同じ名前、無ければ選べる最初', () => {
+  it('相手に無い名前とログアウト中の名前は末尾に集まり選べない。この PC のいまのアカウントが相手に無ければ、そのまま残して起動を止め、選べる名前を選ぶと押せる', () => {
     const actions = mount({
       accounts: two,
       peers: [mac({ accounts: [{ name: 'Work', agent: 'claude-code', loggedIn: true }, { name: 'Old', agent: 'claude-code', loggedIn: false }] })],
     });
     pick('起動する PC', 'Mac');
     const chip = within(screen.getByRole('group', { name: '起動の設定' })).getByRole('button', { name: /^アカウント/ });
-    expect(chip.textContent).toContain('Work');
+    expect(chip.textContent).toContain('Main');
+    expect(startButton('Mac で起動')).toBeDisabled();
     fireEvent.click(chip);
     const rows = screen.getAllByRole('option').map((o) => [o.textContent, o.getAttribute('aria-disabled')]);
     expect(rows).toEqual([['Work', null], ['Mainなし', 'true'], ['Oldログアウト中', 'true']]);
-    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    fireEvent.click(screen.getByRole('option', { name: 'Work' }));
+    expect(startButton('Mac で起動')).toBeEnabled();
     fireEvent.click(startButton('Mac で起動'));
     expect(actions.find((a) => a.type === 'session.new.submitPeer')).toMatchObject({ body: { account: 'Work' } });
   });

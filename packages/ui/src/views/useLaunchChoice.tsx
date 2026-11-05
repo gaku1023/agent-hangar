@@ -144,7 +144,7 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
   // 作成場所が空で、新しいフォルダを作る場所をまだ選んでいなければ起動できない。
   // 選んだフォルダの事前の問い合わせを待つ間も起動できない（包むプロジェクトで起こすか、登録するかが決まらないため）。
   // 選んだ別の PC へ頼めないとき（つながらない、古い版）も、起動できない。
-  const blocked = (newDir && !parentReady(data.workspaceRoot, parent)) || inspecting || (remote !== null && remote.state !== 'ready');
+  const blockedHere = (newDir && !parentReady(data.workspaceRoot, parent)) || inspecting;
   const titleKey = newDir ? 'newSession.title.newDir' as const : dirPath && !nested && !linking ? 'newSession.title.dir' as const : 'newSession.title.default' as const;
   // 新しいフォルダの名前と git init。名前は「『語』を新しいフォルダとして作る」で選んだときの語を入れる。
   const [newName, setNewName] = useState('');
@@ -181,19 +181,6 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
     if (touched) return;
     setDetail(optionsOf(data.prefs[value], defaultModel));
   };
-  // 別の PC を選んだとき、その PC に置き場の無いプロジェクトや、フォルダの選択は残せないので、クイックセッションへ移す。
-  // この PC に戻したら、移す前の選択へ戻す。
-  const beforePeer = useRef<string | null>(null);
-  useEffect(() => {
-    if (remote) {
-      const keep = choice === SCRATCH || (data.projects.some((p) => p.id === choice) && peerProjectState(remote, choice) === 'ok');
-      if (!keep) { beforePeer.current ??= choice; choose(SCRATCH); }
-    } else if (beforePeer.current !== null) {
-      const back = beforePeer.current;
-      beforePeer.current = null;
-      choose(back);
-    }
-  }, [remote?.id]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const p = data.picked;
     if (!p || p.n <= pickedAtOpen.current) return;
@@ -247,12 +234,6 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
   const opencode = agent === 'opencode';
   const codex = agent === 'codex';
   const caps = AGENT_UI_CAPS[agent];
-  // 選んだ別の PC にそのエージェントが入っていなければ、入っている最初のエージェントへ移す。
-  useEffect(() => {
-    if (!remote || peerAgentState(remote, agent) === 'ok') return;
-    const to = offered.find((k) => peerAgentState(remote, k) === 'ok');
-    if (to) setPickedAgent(to);
-  }, [remote?.id, agent]);   // eslint-disable-line react-hooks/exhaustive-deps
   // いまのエージェントのアカウントの組（opencode は無し）。2 件未満なら null で、札も params.account も出さない。
   const accountSet = !caps.accounts ? null : codex ? data.codexAccounts ?? null : data.accounts;
   const account = accountSet ? accountChoice(accountSet, codex ? pickedCxAccount : pickedAccount) : null;
@@ -261,6 +242,13 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
   const [pickedPeerAccount, setPickedPeerAccount] = useState<string | null>(null);
   const peerRows = remote && caps.accounts ? peerAccountOptions(remote, agent, accountSet?.list.map((a) => ({ name: a.name, id: a.id })) ?? []) : null;
   const peerAccount = peerRows ? peerAccountPick(peerRows, pickedPeerAccount, accountSet?.list.find((a) => a.id === account)?.name ?? null) : null;
+  // 選んだ別の PC で使えない項目を選んだままのとき（置き場の無いプロジェクト、入っていないエージェント、選べないアカウント）、黙って別の項目へ移さず、起動だけを止める。
+  const peerUnusable = remote !== null && (
+    remote.state !== 'ready' || peerAgentState(remote, agent) !== 'ok'
+    || !(choice === SCRATCH || (data.projects.some((p) => p.id === choice) && peerProjectState(remote, choice) === 'ok'))
+    || (peerRows !== null && peerRows.length > 0 && peerRows.find((r) => r.name === peerAccount)?.state !== 'ok')
+  );
+  const blocked = blockedHere || peerUnusable;
   // 既存の予定の編集では、アカウントの札に触れない限り、元の target の account をそのまま保つ（無ければ無いまま、一覧から消えた id も黙って替えない）。エージェントを替えたら、組が違うので札の値に従う。
   const [accountTouched, setAccountTouched] = useState(false);
   const keepAccount = initial !== null && !accountTouched && caps.accounts && (initial.agent ?? DEFAULT_AGENT_KIND) === agent;
@@ -388,8 +376,9 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
     // アーカイブは語に一致したときだけ、札付きで出す。presenter が後ろに並べてあるので、検索の結果でもほかのプロジェクトの後に来る。
     // 別の PC を選んでいるときは、その PC に置き場の無いプロジェクトを末尾へ集めて選べなくする（理由は札の 1 語）。
     ...[...data.projects.filter(placedOn), ...data.projects.filter((p) => !placedOn(p))].map((p) => ({ value: p.id, label: p.name, sub: p.path ?? undefined, meta: p.lastActivity || undefined, status: p.status, ...(placedOn(p) ? {} : { disabled: true, tag: t('newSession.peer.noFolder') }), ...(p.status === 'archived' && placedOn(p) ? { tag: STATUS_LABEL.archived, searchOnly: true } : {}) })),
-    ...(remote ? [] : data.dirs.map((d) => ({ value: DIR + d.path, label: d.name, sub: d.path, icon: 'folder' as const, tag: t('newSession.project.unregistered'), searchOnly: true }))),
-    ...(extraDir && !remote ? [{ value: DIR + extraDir, label: baseName(extraDir), sub: extraDir, icon: 'folder' as const, hidden: true }] : []),
+    // 登録していないフォルダは、別の PC には頼めない。選んだまま PC を替えたときに見えるよう、選べない行として残す。
+    ...data.dirs.map((d) => ({ value: DIR + d.path, label: d.name, sub: d.path, icon: 'folder' as const, tag: t('newSession.project.unregistered'), searchOnly: true, ...(remote ? { disabled: true, tag: t('newSession.peer.noFolder') } : {}) })),
+    ...(extraDir ? [{ value: DIR + extraDir, label: baseName(extraDir), sub: extraDir, icon: 'folder' as const, hidden: true, ...(remote ? { disabled: true } : {}) }] : []),
     { value: NEW_DIR, label: newName.trim() || t('newSession.project.newFolderChip'), faceSub: t('newSession.project.newFolderPath', { path: joinPath(root, newName.trim()) }), icon: 'folderPlus', hidden: true },
   ];
   // 作れない名前。APFS は大文字小文字を区別しないので、小文字で比べる。
@@ -425,12 +414,12 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
   };
   const projectChip = (
     <Listbox id="new-session-project" label={t('newSession.project.label')} value={choice || null} options={options} groups={groups} onChange={choose} actions={actions} onAction={onAction}
-      searchPlaceholder={t('newSession.project.search')} minWidth={360} align="start" faceClassName="set-chip" faceProps={{ 'data-tone': nested || linking ? 'linked' : 'default' }}
+      searchPlaceholder={t('newSession.project.search')} minWidth={360} align="start" faceClassName="set-chip" faceProps={{ 'data-tone': nested || linking ? 'linked' : 'default', ...(chosen?.disabled ? { 'data-unusable': 'true' } : {}) }}
       renderFace={(sel) => (
         // 包むプロジェクトで始めるときは、札をそのプロジェクトにして下のフォルダを添える。結び付けるときは、結び付く先の名前にして「ほかの PC」を添える。
         nested ? <><Icon name="folder" /><span className="set-chip-value">{nested.name}</span><small className="set-chip-sub">{nested.relative}</small><Icon name="chevronDown" /></>
           : linking ? <><Icon name="folder" /><span className="set-chip-value">{linking.name}</span>{linking.deviceName && <span className="listbox-tag">{t('newSession.project.otherPc')}</span>}<Icon name="chevronDown" /></>
-            : <><Icon name={sel?.icon ?? 'folder'} /><span className="set-chip-value">{sel?.label ?? ''}</span><Icon name="chevronDown" /></>
+            : <><Icon name={sel?.icon ?? 'folder'} /><span className="set-chip-value">{sel?.label ?? ''}</span>{sel?.disabled && sel.tag && <span className="listbox-tag">{sel.tag}</span>}<Icon name="chevronDown" /></>
       )} />
   );
 
