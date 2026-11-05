@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { codexEnabledOf, MOBILE_MIN_WORKER_COMPAT, opencodeEnabledOf, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto, type DeviceOut } from '@agent-hangar/shared';
+import { codexEnabledOf, MOBILE_MIN_WORKER_COMPAT, opencodeEnabledOf, PEER_LAUNCH_MIN_WORKER_COMPAT, type PeerKeyring, type PeerLaunchApi, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto, type DeviceOut } from '@agent-hangar/shared';
 import { defaultCodexHome } from '../provider/codex/transcript/discover.ts';
 import { cloudConfigPath, readCloudConfig, saveCloudConfig, type CloudConfig } from '../config/cloud.ts';
 import { defaultManagedDir, RetentionService } from '../provider/claude-code/config/retention.ts';
@@ -52,6 +52,9 @@ const CLOUD_JSON_SETTLE_MS = 100;
 
 /** cloud.json の見張りの差し替え口。試験が fs.watch を壊したり、読み直しの間隔を縮めたりする。 */
 export type CloudWatchOptions = { watch?: typeof fs.watch; pollMs?: number };
+
+/** 別の PC への頼みの部品が同期から引くもの（peerLink）。 */
+export type PeerLink = { api: PeerLaunchApi; ring: () => Promise<PeerKeyring>; reread: () => Promise<void> };
 
 export type SyncParts = {
   engine: SyncEngine;
@@ -132,6 +135,16 @@ export type SyncParts = {
    * スマホ用の鍵 M は名簿の phoneKey にあり、名簿を読むたびに Keyring と cloud.json へ写る（sync/roster.ts）。
    */
   mobileLink(): MobileLink | null;
+  /**
+   * 別の PC への起動の頼みを受けてよいか。canCarryMobile と同じ形で、Worker が名乗る版が PEER_LAUNCH_MIN_WORKER_COMPAT に届いているとき真。
+   * 版 9 までの Worker は頼みの口を知らないので、満たさないあいだは頼みを扱わない。
+   */
+  canCarryPeer(): boolean;
+  /**
+   * PC どうしの頼みが使う、今の頼みの口、封の鍵の束、keybox の読み直し。同期を設定していなければ（または古い Worker で口が無ければ）null。
+   * cloud.json が後から現れて組み直すと、別のものを返す。
+   */
+  peerLink(): PeerLink | null;
   /** 最初の同期、使用量、ファイルの取り込み、保持期間、定期の押し出しと走査を始める。 */
   start(): void;
   /** 定期の仕事（タイマー、保持期間、使用量）を止める。走っている通信は待たない。 */
@@ -173,6 +186,8 @@ type Core = {
   roster: RosterStore | null;
   /** スマホ用の鍵の引き口と、スマホの接続の PC 側。同期を設定していなければ null。 */
   phone: { keys: PhoneKeySource; pairer: PhonePairer } | null;
+  /** PC どうしの封の鍵の束と、keybox の読み直し。同期を設定していなければ null。 */
+  peer: { ring: () => Promise<PeerKeyring>; reread: () => Promise<void> } | null;
   /** 参加コードの発行と承認。同期を設定していなければ null。 */
   joinApprover: JoinApprover | null;
   /** リカバリーキーの再発行。同期を設定していなければ null。 */
@@ -435,7 +450,9 @@ export function bootSync(
     const recoveryKey = wire && roster && keyring && cloud ? new RecoveryKeyReissuer({ roster, keyring, wire, url: () => cloud.url, state: syncState }) : null;
     // 名簿を書いた後に recovery 宛ての keybox を置けなかった印があれば、pull の度に置き直す（印が無ければ何も送らない）。
     if (recoveryKey) engine.on({ pulled: () => { void recoveryKey.resumePending(); } });
-    const c: Core = { cloud, client, roster, phone, joinApprover, recoveryKey, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null, revoke, rotationRetry: retry };
+    // PC どうしの頼みの封の鍵。知らない世代の頼みを受けたら、名簿と keybox を読み直してから開き直す。
+    const peer = keyring ? { ring: () => keyring as Promise<PeerKeyring>, reread: async () => { if (roster) { roster.invalidate(); await roster.read(); } } } : null;
+    const c: Core = { cloud, client, roster, phone, peer, joinApprover, recoveryKey, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null, revoke, rotationRetry: retry };
     built = c;
     return c;
   };
@@ -588,6 +605,11 @@ export function bootSync(
     },
     canCarryTakeover: () => canCarry(TAKEOVER_MIN_WORKER_COMPAT),
     canCarryMobile: () => canCarry(MOBILE_MIN_WORKER_COMPAT),
+    canCarryPeer: () => canCarry(PEER_LAUNCH_MIN_WORKER_COMPAT),
+    peerLink: () => {
+      const { client, peer } = core;
+      return client?.peerLaunch && peer ? { api: client.peerLaunch, ring: peer.ring, reread: peer.reread } : null;
+    },
     mobileLink: () => {
       const { cloud, client, phone } = core;
       return cloud && client && phone ? { client, url: cloud.url, phoneKeys: phone.keys, pairer: phone.pairer } : null;

@@ -67,7 +67,7 @@ describe('PC どうしの封', () => {
   it('頼み・答え・結果が往復する', async () => {
     const ring = await ringOf({ 1: randomEpochKey() }, 1);
     expect(await openPeerLaunch(ring, route, await sealPeerLaunch(ring, route, request))).toEqual(request);
-    const full: PeerLaunchRequest = { ...request, agent: 'opencode', account: '', permissionMode: '', effort: 'high', mode: 'build', autoApprove: true, name: '名前', projectId: null, scratch: true };
+    const full: PeerLaunchRequest = { ...request, agent: 'opencode', account: '', permissionMode: '', effort: 'high', mode: 'build', autoApprove: true, name: '名前', callerAccount: 'work', spawnedRemotely: true, projectId: null, scratch: true };
     expect(await openPeerLaunch(ring, route, await sealPeerLaunch(ring, route, full))).toEqual(full);
     const ok = { ok: true as const, sessionId: 'sess-child', title: '題' };
     expect(await openPeerAnswer(ring, route, await sealPeerAnswer(ring, route, ok))).toEqual(ok);

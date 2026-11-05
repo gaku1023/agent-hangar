@@ -5,7 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DbBackupError } from '../db/backup.ts';
 import { DbTooOldError } from '../db/open.ts';
 import { copyFixtureClaudeDir } from '../../test/fixtures.ts';
-import { BASELINE_DB_VERSION, dbVersionOf, LATEST_DB_VERSION, seedDbAt } from '../../test/oldDb.ts';
+import { BASELINE_DB_VERSION, dbVersionOf, seedDbAt } from '../../test/oldDb.ts';
+import { MIGRATIONS } from '../db/migrations.ts';
+
+/** 最新の 1 つ前の版。版の番号に欠けがあっても（並行の作業が先の番号を取っているとき）、1 を引かずに一覧から引く。 */
+const PREVIOUS_DB_VERSION = MIGRATIONS[MIGRATIONS.length - 2]!.version;
 import { expectMode } from '../../test/platform.ts';
 import { bootHome } from './home.ts';
 
@@ -33,11 +37,11 @@ describe('置き場の用意', () => {
   it('DB の控えが取れなければ、マイグレーションを当てずに起動を止める', () => {
     // 1 つ前の版までの DB を置き、控えの置き場（backups/db）を通常のファイルにして作れなくする。
     const file = path.join(home, 'hangar.db');
-    seedDbAt(file, LATEST_DB_VERSION - 1);
+    seedDbAt(file, PREVIOUS_DB_VERSION);
     fs.mkdirSync(path.join(home, 'backups'), { recursive: true });
     fs.writeFileSync(path.join(home, 'backups', 'db'), 'x');
     expect(() => bootHome({ home, claudeDir })).toThrow(DbBackupError);
-    expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION - 1);
+    expect(dbVersionOf(file)).toBe(PREVIOUS_DB_VERSION);
   });
 
   it('起動でヘッダのファイルを用意する。~/.agent-hangar を消しても使用量が静かに止まらない', () => {

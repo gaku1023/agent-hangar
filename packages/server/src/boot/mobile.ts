@@ -216,6 +216,11 @@ export function bootMobile(p: {
         // 今の engine の pull で依頼を受け取る。走っている pull があれば、それを分け合う。
         void p.sync.engine.pullNow().catch((e: unknown) => console.error('[mobile] could not pull after the bell', e instanceof Error ? e.constructor.name : typeof e));
       },
+      onPeer: (kind) => {
+        // 頼みが来た知らせは、今の pull で受け取りを前倒しする。答えと結果の知らせは呼ぶ側（T7）の取得が受ける。
+        if (kind !== 'launch') return;
+        void p.sync.engine.pullNow().catch((e: unknown) => console.error('[mobile] could not pull after the peer bell', e instanceof Error ? e.constructor.name : typeof e));
+      },
       onAsk: (id, sealed, epoch) => answerAsk({
         phoneKeys: link.phoneKeys,
         deviceId,
