@@ -59,4 +59,5 @@ export const syncKeys = {
   'sync.copy.backupFailed': ['cause'],
   'sync.peerSsh.hostKeyMismatch': ['name'],
   'sync.peerSsh.tunnelClosed': ['name'],
+  'sync.peerSsh.gaveUp': ['name'],
 } as const satisfies MessageSpec;

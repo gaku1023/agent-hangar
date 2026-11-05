@@ -101,6 +101,8 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.device.unknown': '「{device}」という PC は見つかりません。使えるのは: {names}',
   'mcp.device.outdated': '{device} の hangar は古く、この頼みを受けられません。先にそちらの hangar を更新してください',
   'mcp.device.offline': '{device} には今接続できません。そちらで hangar が実行中か確認して、もう一度試してください',
+  'mcp.device.sshUnreachable': '{device} に SSH で接続できません。そちらで hangar が実行中か、SSH の設定が合っているか確認して、もう一度試してください',
+  'mcp.device.sshHostKeyMismatch': '{device} のホストキーが、同期で知らされた指紋と違うため、SSH で接続しませんでした。{device} の SSH サーバーを確認してください',
   'mcp.device.depthExceeded': 'この会話は別の PC から起動されたため、さらに別の PC には起動できません',
   'mcp.device.requested': '{device} に起動を頼みました。結果は後で、この会話への入力として届きます',
   'mcp.device.approvalPending': '{device} で別のプロジェクトやクイックセッションを起動するには、ユーザーの承認が必要です。承認を待っています',

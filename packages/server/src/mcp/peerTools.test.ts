@@ -5,6 +5,7 @@ import { upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { getPeerRequest } from '../peer/outbox.ts';
 import { PEER_ONLINE_MS, type PeerCallDeps } from '../peer/caller.ts';
+import { PeerSshConnectError } from '../peer/ssh/link.ts';
 import { recordSpawn } from '../sessions/spawns.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { callTool, TOOL_NAMES, type ToolDeps } from './tools.ts';
@@ -200,5 +201,57 @@ describe('create_session の device', () => {
   it('リモートで使えない引数は断る', async () => {
     putPeer();
     await expect(call('create_session', { device: 'Mac', worktree: 'w' })).rejects.toThrow();
+  });
+});
+
+describe('create_session の device（SSH の予備、受け入れ 17・18）', () => {
+  const sshStatus = () => status({ ssh_host_key: 'SHA256:abc' });
+  const puts: string[] = [];
+  const withSsh = (api: PeerLaunchApi): void => {
+    puts.length = 0;
+    deps.peer!.ssh = { registered: () => true, api: () => api, ring: () => async () => ring, tokensReady: () => true };
+  };
+  const sshApi = (over: Partial<PeerLaunchApi> = {}): PeerLaunchApi => ({ ...a.peerLaunch, put: async (b) => { puts.push(b.id); return { id: b.id, to: b.to, status: 'pending', sealedAnswer: null, resultSeq: 0, updatedAt: NOW }; }, ...over });
+
+  it('クラウドに入っていなければ SSH で頼み、経路を ssh と記録する。クラウドには置かない', async () => {
+    putPeer({ status: sshStatus() });
+    linkOk = false;
+    withSsh(sshApi());
+    expect(await call('create_session', { device: 'Mac' })).toMatchObject({ status: 'requested', request_id: 'req-1' });
+    expect(puts).toEqual(['req-1']);
+    expect(a.wire.peerLaunches.size).toBe(0);
+    expect(getPeerRequest(db, 'req-1')).toMatchObject({ via: 'ssh', state: 'requested' });
+  });
+
+  it('両方が参加していれば、SSH が登録済みでもクラウドで頼み、経路は cloud', async () => {
+    putPeer({ status: sshStatus() });
+    withSsh(sshApi());
+    expect(await call('create_session', { device: 'Mac' })).toMatchObject({ status: 'requested' });
+    expect(puts).toEqual([]);
+    expect(a.wire.peerLaunches.has('req-1')).toBe(true);
+    expect(getPeerRequest(db, 'req-1')).toMatchObject({ via: 'cloud' });
+  });
+
+  it('指紋の食い違いは ssh-host-key-mismatch で断る。何も記録せず、クラウドへも乗り換えない', async () => {
+    putPeer({ status: sshStatus(), lastSeen: NOW - PEER_ONLINE_MS - 1 });
+    withSsh(sshApi({ put: () => Promise.reject(new PeerSshConnectError('ssh-host-key-mismatch')) }));
+    expect(await call('create_session', { device: 'Mac' })).toMatchObject({ status: 'refused', reason: 'ssh-host-key-mismatch' });
+    expect(getPeerRequest(db, 'req-1')).toBeNull();
+    expect(a.wire.peerLaunches.size).toBe(0);
+  });
+
+  it('つながらなければ ssh-unreachable で断る', async () => {
+    putPeer({ status: sshStatus() });
+    linkOk = false;
+    withSsh(sshApi({ put: () => Promise.reject(new PeerSshConnectError('ssh-unreachable', 'network')) }));
+    expect(await call('create_session', { device: 'Mac' })).toMatchObject({ status: 'refused', reason: 'ssh-unreachable' });
+    expect(getPeerRequest(db, 'req-1')).toBeNull();
+  });
+
+  it('list_devices の via に ssh が並ぶ', async () => {
+    putPeer({ status: sshStatus() });
+    withSsh(sshApi());
+    const r = (await call('list_devices')) as unknown as { devices: { via: string[] }[] };
+    expect(r.devices[0]!.via).toEqual(['cloud', 'ssh']);
   });
 });

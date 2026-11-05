@@ -5,6 +5,7 @@ import { defaultLanguage } from '../i18n/language.ts';
 import { msg, render, type Message } from '../i18n/message.ts';
 import { choosePeerRoute, listPeerDevices, resolvePeer, type PeerCallRefusal } from '../peer/caller.ts';
 import { recordPeerRequest } from '../peer/outbox.ts';
+import { PeerSshConnectError } from '../peer/ssh/link.ts';
 import { isSpawnedFromOtherDevice } from '../sessions/spawns.ts';
 import { ToolError, type ToolContext, type ToolDeps } from './tools.ts';
 
@@ -32,6 +33,13 @@ export function isThisDevice(deps: ToolDeps, key: string): boolean {
 /** 頼みを置く前の断り。request_id は無い（何も置いていない）。 */
 function refused(deps: ToolDeps, reason: PeerCallRefusal, device: string, m: Message) {
   return { status: 'refused' as const, reason, device, note: render_(deps, m) };
+}
+
+/** SSH のトンネルが張れなかった断り。登録や鍵が無いときは SSH が使えないということなので、device-offline にする。 */
+function refusedSsh(deps: ToolDeps, e: PeerSshConnectError, device: string) {
+  if (e.reason === 'ssh-host-key-mismatch') return refused(deps, 'ssh-host-key-mismatch', device, msg('mcp.device.sshHostKeyMismatch', { device }));
+  if (e.reason === 'ssh-unreachable') return refused(deps, 'ssh-unreachable', device, msg('mcp.device.sshUnreachable', { device }));
+  return refused(deps, 'device-offline', device, msg('mcp.device.offline', { device }));
 }
 
 /**
@@ -91,8 +99,10 @@ export async function createRemoteSessionTool(deps: ToolDeps, ctx: ToolContext, 
     const sealed = await sealPeerLaunch(await route.ring(), { requestId, from: deps.deviceId, to: peer.device_id }, req);
     await route.api.put({ id: requestId, to: peer.device_id, sealed, from: deps.deviceId });
   } catch (e) {
+    // SSH のトンネルが張れなければ、何も置かずに断る。クラウドへは乗り換えない（二重の起動を防ぐ）。
+    if (e instanceof PeerSshConnectError) return refusedSsh(deps, e, peer.name);
     throw new ToolError(msg('mcp.device.sendFailed', { reason: e instanceof Error ? e.message : String(e) }));
   }
-  recordPeerRequest(deps.db, { requestId, to: peer.device_id, callerSessionId: ctx.sessionId, now });
+  recordPeerRequest(deps.db, { requestId, to: peer.device_id, callerSessionId: ctx.sessionId, now, via: route.via });
   return { status: 'requested' as const, request_id: requestId, device: peer.name, note: render_(deps, msg('mcp.device.requested', { device: peer.name })) };
 }

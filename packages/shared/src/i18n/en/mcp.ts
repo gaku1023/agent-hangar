@@ -101,6 +101,8 @@ export const mcpEn: AreaDictionary<typeof mcpKeys> = {
   'mcp.device.unknown': 'No computer named "{device}" was found. Available: {names}',
   'mcp.device.outdated': '{device} runs an older hangar that cannot receive this request. Update hangar on it first',
   'mcp.device.offline': '{device} is not reachable right now. Check that hangar is running there and try again',
+  'mcp.device.sshUnreachable': 'Could not reach {device} over SSH. Check that hangar is running there and that the SSH settings are right, then try again',
+  'mcp.device.sshHostKeyMismatch': 'Did not connect to {device} over SSH because its host key does not match the one it reported. Check the SSH server on {device}',
   'mcp.device.depthExceeded': 'This session was itself started from another computer, so it cannot start a session on yet another computer',
   'mcp.device.requested': 'Asked {device} to start the session. The result arrives later as input to this session',
   'mcp.device.approvalPending': 'Starting in another project or a quick session on {device} needs the user\'s approval. The request is waiting for it',

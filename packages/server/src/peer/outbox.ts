@@ -41,15 +41,17 @@ export type PeerRequestRow = {
   request_id: string; to_device: string; caller_session_id: string; state: PeerRequestState;
   child_session_id: string | null; title: string | null; reason: string | null;
   received_seq: number; seen_seq: number; created_at: number; updated_at: number;
+  /** 頼みを置いたときに決めた経路。 */
+  via: 'cloud' | 'ssh';
 };
 
 /**
  * 頼みを置いたら、手元に記録する（T8 の create_session が、POST /launches の後に呼ぶ）。
  * 記録が無い頼みの答えと結果は読まない。同じ ID なら何もしない。
  */
-export function recordPeerRequest(db: Db, o: { requestId: string; to: string; callerSessionId: string; now: number }): void {
-  db.prepare('insert into peer_outbox (request_id, to_device, caller_session_id, created_at, updated_at) values (?, ?, ?, ?, ?) on conflict(request_id) do nothing')
-    .run(o.requestId, o.to, o.callerSessionId, o.now, o.now);
+export function recordPeerRequest(db: Db, o: { requestId: string; to: string; callerSessionId: string; now: number; via?: 'cloud' | 'ssh' }): void {
+  db.prepare('insert into peer_outbox (request_id, to_device, caller_session_id, created_at, updated_at, via) values (?, ?, ?, ?, ?, ?) on conflict(request_id) do nothing')
+    .run(o.requestId, o.to, o.callerSessionId, o.now, o.now, o.via ?? 'cloud');
 }
 
 export function getPeerRequest(db: Db, requestId: string): PeerRequestRow | null {
@@ -62,6 +64,8 @@ export type PeerOutboxDeps = {
   deviceId: string;
   /** 取得の口。クラウドに入っていなければ null（取得は何もしない）。 */
   api: () => PeerLaunchApi | null;
+  /** SSH の経路の相手ごとの口（peer/ssh/link.ts の PeerSshLink.api）。渡さなければ SSH の頼みは読まない。 */
+  sshApi?: (deviceId: string) => PeerLaunchApi | null;
   /** 封を開く鍵の束。読めなければ null。 */
   ring: () => PeerKeyring | null;
   /** いまの実行中の一覧（agent/liveHub.ts の LiveHub.current）。 */
@@ -139,29 +143,76 @@ export class PeerOutbox {
 
   // ---- 取得 ----
 
-  private cursor(): number {
-    const r = this.deps.db.prepare('select value from sync_state where key = ?').get(CURSOR_KEY) as { value: string } | undefined;
+  private cursor(key: string): number {
+    const r = this.deps.db.prepare('select value from sync_state where key = ?').get(key) as { value: string } | undefined;
     const n = r ? Number(r.value) : 0;
     return Number.isFinite(n) && n > 0 ? n : 0;
   }
 
-  private setCursor(n: number): void {
-    this.deps.db.prepare('insert into sync_state (key, value) values (?, ?) on conflict(key) do update set value = excluded.value').run(CURSOR_KEY, String(n));
+  private setCursor(key: string, n: number): void {
+    this.deps.db.prepare('insert into sync_state (key, value) values (?, ?) on conflict(key) do update set value = excluded.value').run(key, String(n));
   }
 
   private async syncOnce(): Promise<void> {
     const api = this.deps.api();
     const ring = this.deps.ring();
-    if (!api || !ring) return;
+    try {
+      if (api && ring) await this.syncVia(api, ring, CURSOR_KEY, 'cloud');
+    } finally {
+      // クラウドが読めなくても、SSH の経路は取る（SSH は、クラウドが使えないときの予備でもある）。
+      await this.syncSshOnce();
+    }
+  }
+
+  /** SSH の頼みが残っている相手（答えか結果をまだ待っている）。 */
+  private sshPeers(): string[] {
+    const rows = this.deps.db.prepare("select distinct to_device from peer_outbox where via = 'ssh' and state in ('requested', 'started')").all() as { to_device: string }[];
+    return rows.map((r) => r.to_device);
+  }
+
+  /** SSH の経路で答えか結果を待っている頼みがあるか。あれば呼び出し元はトンネルを張ったまま、短い間隔で取る。 */
+  hasSshWork(): boolean {
+    return this.deps.sshApi !== undefined && this.sshPeers().length > 0;
+  }
+
+  /** SSH の経路の取得と送り込みを 1 回。投げない。boot の短い間隔の見回りが呼ぶ。 */
+  syncSsh(): Promise<void> {
+    return this.serial(async () => {
+      try { await this.syncSshOnce(); } catch (e) { console.error('[peer] could not read the SSH outbox', e instanceof Error ? e.constructor.name : typeof e); }
+      await this.flushOnce();
+    });
+  }
+
+  /**
+   * SSH の相手ごとに取る。相手の時計は別なので、起点は相手ごとに持つ。
+   * 張れない、つながらない相手は、その相手だけ飛ばす（張り直しの間隔は口の側が守る）。受け取り済みの連番は同じ表で見るので、張り直しても二重に入れない。
+   */
+  private async syncSshOnce(): Promise<void> {
+    const ring = this.deps.ring();
+    const open = this.deps.sshApi;
+    if (!ring || !open) return;
+    for (const peer of this.sshPeers()) {
+      const api = open(peer);
+      if (!api) continue;
+      try {
+        await this.syncVia(api, ring, `${CURSOR_KEY}:ssh:${peer}`, 'ssh', peer);
+      } catch (e) {
+        console.warn('[peer] could not read the outbox over SSH; will retry', e instanceof Error ? e.constructor.name : typeof e);
+      }
+    }
+  }
+
+  private async syncVia(api: PeerLaunchApi, ring: PeerKeyring, cursorKey: string, via: 'cloud' | 'ssh', peer?: string): Promise<void> {
     const db = this.deps.db;
-    let since = Math.max(0, this.cursor() - PEER_OUTBOX_OVERLAP_MS);
-    let next = this.cursor();
+    let since = Math.max(0, this.cursor(cursorKey) - PEER_OUTBOX_OVERLAP_MS);
+    let next = this.cursor(cursorKey);
     let clean = true;
     for (let page = 0; page < OUTBOX_PAGES; page++) {
       const res = await api.outbox(since);
       for (const l of res.launches) {
         const row = getPeerRequest(db, l.id);
-        if (!row) continue;
+        // 頼みごとに経路は決まっている。ほかの経路の頼みは、この口からは読まない。
+        if (!row || row.via !== via) continue;
         if (l.resultSeq > row.seen_seq) db.prepare('update peer_outbox set seen_seq = ? where request_id = ?').run(l.resultSeq, l.id);
         if (row.state !== 'requested') continue;
         if (l.status === 'expired') this.refuse(row, 'expired', undefined, true);
@@ -175,8 +226,10 @@ export class PeerOutbox {
       since = next;
     }
     // 取りこぼしを残さないため、読めないものがあった回は起点を進めない（次の回で読み直す）。
-    if (clean) this.setCursor(next);
-    const rows = db.prepare("select * from peer_outbox where state = 'started' and seen_seq > received_seq").all() as PeerRequestRow[];
+    if (clean) this.setCursor(cursorKey, next);
+    const rows = (peer === undefined
+      ? db.prepare("select * from peer_outbox where state = 'started' and seen_seq > received_seq and via = ?").all(via)
+      : db.prepare("select * from peer_outbox where state = 'started' and seen_seq > received_seq and via = ? and to_device = ?").all(via, peer)) as PeerRequestRow[];
     for (const row of rows) await this.fetchResults(api, ring, row);
   }
 

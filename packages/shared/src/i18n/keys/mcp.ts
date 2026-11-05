@@ -91,6 +91,8 @@ export const mcpKeys = {
   'mcp.device.unknown': ['device', 'names'],
   'mcp.device.outdated': ['device'],
   'mcp.device.offline': ['device'],
+  'mcp.device.sshUnreachable': ['device'],
+  'mcp.device.sshHostKeyMismatch': ['device'],
   'mcp.device.depthExceeded': [],
   'mcp.device.requested': ['device'],
   'mcp.device.approvalPending': ['device'],
