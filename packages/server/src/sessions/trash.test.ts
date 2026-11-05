@@ -102,6 +102,18 @@ const unpushed = (table: string) => db.prepare("select op from changes where tab
 const indexMain = (p = mainPath(), deviceId: string | null = null) => indexFile(db, { path: p, sessionId: UUID, agentId: null, deviceId }, { deviceId: DEV, remote: deviceId !== null });
 
 describe('消した PC', () => {
+  it('結び付きを切る前に beforeForget を呼ぶ（別の PC へ終わったを返すため、D15）', async () => {
+    writeTranscript();
+    indexMain();
+    upsertShared(db, 'session_spawns', { session_id: 's1', parent_id: 'p0', created_at: 1, parent_device_id: OTHER, child_device_id: DEV, relay: 'on', closed_at: null, deleted_at: null }, DEV, 'session_id');
+    const seen: (string | null)[] = [];
+    const t = new SessionTrash({ db, deviceId: DEV, claudeDir, remoteRoot, trash: async (p) => { fs.renameSync(p, path.join(bin, path.basename(p))); }, runsAnywhere: () => false, runsHere: () => false, log: () => {},
+      beforeForget: (id) => { seen.push((db.prepare('select relay from session_spawns where session_id = ? and deleted_at is null').get(id) as { relay: string } | undefined)?.relay ?? null); } });
+    await t.deleteSession('s1');
+    expect(seen).toEqual(['on']);
+    expect(db.prepare("select deleted_at from session_spawns where session_id = 's1'").get()).toEqual({ deleted_at: expect.any(Number) });
+  });
+
   it('本文と隣のフォルダをゴミ箱へ移し、印を書き、行を論理削除する。名前と要約は残す', async () => {
     writeTranscript();
     indexMain();

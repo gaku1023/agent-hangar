@@ -85,7 +85,7 @@ const clip = (s: string): string => {
 };
 
 /** 最後の返答とその時刻。本文が読めなければ null。 */
-function lastReply(db: Db, id: string): { text: string; ts: number | null } | null {
+export function lastReply(db: Db, id: string): { text: string; ts: number | null } | null {
   try {
     const events = readEvents(db, id, { latest: true, limit: RESULT_TAIL }).events;
     for (let i = events.length - 1; i >= 0; i--) {

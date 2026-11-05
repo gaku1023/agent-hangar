@@ -134,6 +134,7 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.peer.refusal.badPayload': '頼みの中身を読めませんでした。',
   'mcp.peer.refusal.expired': '頼みの期限が過ぎていました。',
   'mcp.peer.refusal.launchFailed': '起動に失敗しました。',
+  'mcp.peer.refusal.notSpawnedByCaller': 'その会話は、こちらの PC から起こしたものではありません。',
   'mcp.peer.expired': '【hangar】{device} が頼みを受け取らないまま、期限が過ぎました。その PC が起きているか確認してください。',
   'mcp.peer.notice.held': '{device} の「{title}」から報告を受信しています。この会話を再開すると渡します。',
   'mcp.peer.notice.heldRefused': '{device} への起動の頼みの答えを受信しています。この会話を再開すると渡します。',

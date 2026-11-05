@@ -134,6 +134,7 @@ export const mcpEn: AreaDictionary<typeof mcpKeys> = {
   'mcp.peer.refusal.badPayload': 'The request could not be read.',
   'mcp.peer.refusal.expired': 'The request had expired.',
   'mcp.peer.refusal.launchFailed': 'The launch failed.',
+  'mcp.peer.refusal.notSpawnedByCaller': 'That session was not started by this device.',
   'mcp.peer.expired': '[hangar] {device} did not pick up the request before it expired. Check that the PC is awake.',
   'mcp.peer.notice.held': 'A report arrived from "{title}" on {device}. It will be handed over when this conversation is resumed.',
   'mcp.peer.notice.heldRefused': 'The answer to a launch request on {device} has arrived. It will be handed over when this conversation is resumed.',

@@ -133,6 +133,7 @@ export const mcpKeys = {
   'mcp.peer.refusal.badPayload': [],
   'mcp.peer.refusal.expired': [],
   'mcp.peer.refusal.launchFailed': [],
+  'mcp.peer.refusal.notSpawnedByCaller': [],
   'mcp.peer.expired': ['device'],
   'mcp.peer.notice.held': ['device', 'title'],
   'mcp.peer.notice.heldRefused': ['device'],

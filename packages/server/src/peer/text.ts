@@ -44,6 +44,7 @@ const REFUSAL_KEY = {
   'bad-payload': 'mcp.peer.refusal.badPayload',
   'expired': 'mcp.peer.refusal.expired',
   'launch-failed': 'mcp.peer.refusal.launchFailed',
+  'not-spawned-by-caller': 'mcp.peer.refusal.notSpawnedByCaller',
 } as const satisfies Record<PeerLaunchRefusal, string>;
 
 /** 断られた答えの文。detail は相手の PC が添えた短い説明で、あれば末尾に足す。 */

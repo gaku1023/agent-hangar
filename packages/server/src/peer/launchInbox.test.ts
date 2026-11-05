@@ -35,7 +35,7 @@ const started = (sessionId: string): LaunchResult => ({ run: { id: 'run-1', sess
 
 const ACCOUNTS: Record<string, PeerAccount> = { 'claude-code:work': { id: 'acc-work', loggedIn: true }, 'claude-code:out': { id: 'acc-out', loggedIn: false }, 'codex:cx': { id: 'acc-cx', loggedIn: true } };
 
-async function setup(o: { start?: (p: LaunchParams) => LaunchResult | Promise<LaunchResult>; ownRing?: PeerKeyring; canProcess?: () => boolean; db?: ReturnType<typeof openDb>; hasAgent?: PeerLaunchInboxDeps['hasAgent'] } = {}) {
+async function setup(o: { start?: (p: LaunchParams) => LaunchResult | Promise<LaunchResult>; ownRing?: PeerKeyring; canProcess?: () => boolean; db?: ReturnType<typeof openDb>; hasAgent?: PeerLaunchInboxDeps['hasAgent']; control?: PeerLaunchInboxDeps['control']; onStarted?: PeerLaunchInboxDeps['onStarted'] } = {}) {
   const db = o.db ?? openDb(':memory:');
   const key = randomEpochKey();
   const callerRing = await ringOf({ 1: key }, 1);
@@ -53,6 +53,8 @@ async function setup(o: { start?: (p: LaunchParams) => LaunchResult | Promise<La
     hasAgent: o.hasAgent ?? (() => true),
     canProcess: o.canProcess ?? (() => true),
     now: () => now,
+    ...(o.control ? { control: o.control } : {}),
+    ...(o.onStarted ? { onStarted: o.onStarted } : {}),
   });
   /** pc-a が頼みを置き、pc-b の pull で届く形を返す。 */
   const post = async (id: string, req: PeerLaunchRequest, sealWith: PeerKeyring = callerRing) => {
@@ -213,6 +215,72 @@ describe('PeerLaunchInbox', () => {
     ok = true;
     await inbox.receive(list);
     expect(start).toHaveBeenCalledTimes(1);
+  });
+
+  it('onStarted に prompt の有無を渡す', async () => {
+    const onStarted = vi.fn();
+    const { inbox, post } = await setup({ onStarted });
+    await inbox.receive(await post('l1', request()));
+    await inbox.receive(await post('l2', request({ prompt: '' })));
+    expect(onStarted.mock.calls.map((c) => [c[0].requestId, c[0].hasPrompt])).toEqual([['l1', true], ['l2', false]]);
+  });
+
+  describe('send と stop（D16、テスト 14 の受ける側）', () => {
+    const sendReq = (over: Partial<PeerLaunchRequest> = {}): PeerLaunchRequest => request({ op: 'send', targetSessionId: 's-new', scratch: true, projectId: null, account: '', permissionMode: '', model: '', prompt: '続きをお願い', ...over });
+    const stopReq = (over: Partial<PeerLaunchRequest> = {}): PeerLaunchRequest => sendReq({ op: 'stop', prompt: '', ...over });
+
+    it('自分が起こした会話への send は入力を入れ、stop は止める。起動はしない', async () => {
+      const control = { send: vi.fn(async () => {}), stop: vi.fn(async () => {}) };
+      const { db, inbox, post, start, answerOf } = await setup({ control });
+      await inbox.receive(await post('l1', request()));
+      await inbox.receive(await post('s1', sendReq()));
+      await inbox.receive(await post('t1', stopReq()));
+      expect(start).toHaveBeenCalledTimes(1);
+      expect(control.send).toHaveBeenCalledWith('s-new', '続きをお願い');
+      expect(control.stop).toHaveBeenCalledWith('s-new');
+      expect(await answerOf('s1')).toMatchObject({ ok: true, sessionId: 's-new' });
+      expect(await answerOf('t1')).toMatchObject({ ok: true, sessionId: 's-new' });
+      expect(db.prepare('select result, session_id from peer_launches where id = ?').get('s1')).toEqual({ result: 'send', session_id: 's-new' });
+    });
+
+    it('起こしていない会話、別の親の会話、別の PC の親の会話は not-spawned-by-caller で断る', async () => {
+      const control = { send: vi.fn(async () => {}), stop: vi.fn(async () => {}) };
+      const { db, inbox, post, answerOf } = await setup({ control });
+      await inbox.receive(await post('l1', request()));
+      recordSpawn(db, 'pc-b', 's-local', 'parent-1', T0);
+      recordSpawn(db, 'pc-b', 's-other-parent', 'parent-9', T0, { parentDeviceId: 'pc-a' });
+      recordSpawn(db, 'pc-b', 's-other-pc', 'parent-1', T0, { parentDeviceId: 'pc-c' });
+      for (const [i, target] of ['nowhere', 's-local', 's-other-parent', 's-other-pc'].entries()) {
+        await inbox.receive(await post(`s${i}`, sendReq({ targetSessionId: target })));
+        await inbox.receive(await post(`t${i}`, stopReq({ targetSessionId: target })));
+        expect(await answerOf(`s${i}`)).toEqual({ ok: false, reason: 'not-spawned-by-caller' });
+        expect(await answerOf(`t${i}`)).toEqual({ ok: false, reason: 'not-spawned-by-caller' });
+      }
+      expect(control.send).not.toHaveBeenCalled();
+      expect(control.stop).not.toHaveBeenCalled();
+    });
+
+    it('入力を入れられなければ launch-failed と理由を答える。bad-payload の形も断る', async () => {
+      const control = { send: vi.fn(async () => { throw new Error('no pane'); }), stop: vi.fn(async () => {}) };
+      const { inbox, post, answerOf } = await setup({ control });
+      await inbox.receive(await post('l1', request()));
+      await inbox.receive(await post('s1', sendReq()));
+      await inbox.receive(await post('s2', sendReq({ prompt: '   ' })));
+      await inbox.receive(await post('s3', sendReq({ targetSessionId: undefined })));
+      expect(await answerOf('s1')).toEqual({ ok: false, reason: 'launch-failed', detail: 'no pane' });
+      expect(await answerOf('s2')).toEqual({ ok: false, reason: 'bad-payload' });
+      expect(await answerOf('s3')).toEqual({ ok: false, reason: 'bad-payload' });
+    });
+
+    it('op の欄が無い頼みは今までどおり起動、知らない op は封じられない', async () => {
+      const { inbox, post, start, answerOf } = await setup();
+      await inbox.receive(await post('l1', request()));
+      await inbox.receive(await post('l2', { ...request(), op: 'launch' }));
+      expect(start).toHaveBeenCalledTimes(2);
+      // 知らない op は、封じる側が断る（開く側も同じ検査で bad-payload にする）。
+      await expect(post('l3', { ...request(), op: 'restart' as never })).rejects.toThrow();
+      void answerOf;
+    });
   });
 
   it('peer_launches の表は版 49 にある', () => {
