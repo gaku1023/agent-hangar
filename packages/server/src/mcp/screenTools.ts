@@ -61,7 +61,9 @@ function requireTarget(deps: ToolDeps, id: string): void {
 export async function sendToSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const id = str(args.session_id);
   if (!id) throw new ToolError(msg('mcp.args.sessionIdRequired'));
-  requireTarget(deps, id);
+  // 自分が起こした別の PC の会話は、sessions の行が同期で届く前でも、結び付きの行で引く。
+  const spawn = remoteSpawnOf(deps, ctx, id);
+  if (!spawn) requireTarget(deps, id);
   // 送るのはどのセッションにも許すが、自分自身には送らない。自分に送った入力は、自分の次の入力として返ってくる。
   if (ctx.sessionId === id) throw new ToolError(msg('mcp.screen.self'));
   const raw = typeof args.text === 'string' ? args.text : '';
@@ -70,7 +72,6 @@ export async function sendToSessionTool(deps: ToolDeps, ctx: ToolContext, args: 
   const text = sanitizeInput(raw);
   const submit = typeof args.submit === 'boolean' ? args.submit : true;
   // 自分が起こした別の PC の会話には、頼みを置いて渡す（D16）。そうでない別の PC の会話は、paneOf が断る。
-  const spawn = remoteSpawnOf(deps, ctx, id);
   if (spawn) return remoteControlTool(deps, ctx, 'send', spawn, text);
   const name = paneOf(deps, id);
   if (!deps.runs.sendInput) throw new ToolError(msg('mcp.screen.noPanes'));
