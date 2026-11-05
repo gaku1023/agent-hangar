@@ -1,3 +1,4 @@
+import type { NotifyKind } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
 
@@ -42,22 +43,46 @@ export function unreadOf(row: { unread_count: number | null; unread_text: string
 export const NOTIFY_TARGETS = ['unread', 'os', 'phone'] as const;
 export type NotifyTarget = (typeof NOTIFY_TARGETS)[number];
 
-type UnreadListener = (sessionId: string, text: string, count: number, sent: NotifyTarget[]) => void;
+/**
+ * 知らせの添え書き。kind は場面（done、ask、progress）。
+ * immediate は、ターンの終わりを待たずに出す印である。エージェントの notify_user ではなく、hangar が代わりに知らせるもの（承認待ち、起動の失敗）に付ける。
+ */
+export type UnreadMeta = { kind: NotifyKind; immediate?: boolean };
+type UnreadListener = (sessionId: string, text: string, count: number, sent: NotifyTarget[], meta: UnreadMeta) => void;
 const unreadListeners = new Set<UnreadListener>();
+const readyListeners = new Set<UnreadListener>();
 
 /**
  * 未読が増えたときの購読を足す。戻り値を呼ぶと外す。
  * 知らせるのは書いた側（mcp/tools.ts の notifyUserTool）で、addUnread の後に noteUnread を呼ぶ。onIntent と同じ形である。
- * OS の通知とスマホの通知が、この購読で動く。
+ * OS の通知とスマホの通知はこれを直に聞かず、ターンの終わりまで預かった後の onUnreadReady を聞く（live/unreadHold.ts）。
  */
 export function onUnread(cb: UnreadListener): () => void {
   unreadListeners.add(cb);
   return () => { unreadListeners.delete(cb); };
 }
 
-/** 知らせを購読へ渡す。sent は設定を通って実際に出す先で、購読者は os と phone を見て送る。count は積んだ後の数（unread を出さなかったときは今の数）。購読が投げても、書いた側にも他の購読にも波及させない。 */
-export function noteUnread(sessionId: string, text: string, count: number, sent: NotifyTarget[]): void {
-  for (const cb of unreadListeners) {
-    try { cb(sessionId, text, count, sent); } catch (e) { console.error('[unread] a listener failed', e instanceof Error ? e.constructor.name : typeof e); }
+/**
+ * OS の通知とスマホの通知に出してよくなった知らせの購読。戻り値を呼ぶと外す。
+ * notify_user は最後の返答を書く前に呼ばれるので、done と ask はそのターンが終わるまで預かってから流れてくる（live/unreadHold.ts の UnreadHold）。
+ */
+export function onUnreadReady(cb: UnreadListener): () => void {
+  readyListeners.add(cb);
+  return () => { readyListeners.delete(cb); };
+}
+
+const fire = (set: Set<UnreadListener>, sessionId: string, text: string, count: number, sent: NotifyTarget[], meta: UnreadMeta): void => {
+  for (const cb of set) {
+    try { cb(sessionId, text, count, sent, meta); } catch (e) { console.error('[unread] a listener failed', e instanceof Error ? e.constructor.name : typeof e); }
   }
+};
+
+/** 知らせを購読へ渡す。sent は設定を通って実際に出す先で、購読者は os と phone を見て送る。count は積んだ後の数（unread を出さなかったときは今の数）。購読が投げても、書いた側にも他の購読にも波及させない。 */
+export function noteUnread(sessionId: string, text: string, count: number, sent: NotifyTarget[], meta: UnreadMeta = { kind: 'done' }): void {
+  fire(unreadListeners, sessionId, text, count, sent, meta);
+}
+
+/** 出してよくなった知らせを onUnreadReady の購読へ渡す。呼ぶのは預かり（UnreadHold）である。 */
+export function noteUnreadReady(sessionId: string, text: string, count: number, sent: NotifyTarget[], meta: UnreadMeta = { kind: 'done' }): void {
+  fire(readyListeners, sessionId, text, count, sent, meta);
 }

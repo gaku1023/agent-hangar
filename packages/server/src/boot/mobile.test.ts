@@ -12,7 +12,7 @@ import type { SyncListener } from '../sync/engine.ts';
 import { openDb } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
 import { noteIntent } from '../live/intents.ts';
-import { noteUnread } from '../live/unread.ts';
+import { noteUnreadReady } from '../live/unread.ts';
 import type { MobileLink } from '../mobile/pairer.ts';
 import { FEED_DEBOUNCE_MS, FEED_MIN_GAP_MS, FEED_SAFETY_MS } from '../mobile/publisher.ts';
 import type { BellTarget, CloudClient } from '../sync/client.ts';
@@ -158,14 +158,14 @@ describe('bootMobile', () => {
     upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd: '/x', home_device: 'pc-a', custom_title: '会話の名前' }, 'pc-a');
     mobile.start();
     const noticeUnread = vi.spyOn(mobile.publisher()!, 'noticeUnread');
-    noteUnread('s1', '終わりました', 1, ['unread', 'os']);
+    noteUnreadReady('s1', '終わりました', 1, ['unread', 'os']);
     expect(noticeUnread).not.toHaveBeenCalled();
-    noteUnread('nope', '終わりました', 1, ['phone']);
+    noteUnreadReady('nope', '終わりました', 1, ['phone']);
     expect(noticeUnread).not.toHaveBeenCalled();
-    noteUnread('s1', '終わりました', 1, ['phone']);
+    noteUnreadReady('s1', '終わりました', 1, ['phone']);
     expect(noticeUnread).toHaveBeenCalledWith({ sessionId: 's1', title: '会話の名前', text: '終わりました' });
     mobile.stop();
-    noteUnread('s1', '止めた後', 2, ['phone']);
+    noteUnreadReady('s1', '止めた後', 2, ['phone']);
     expect(noticeUnread).toHaveBeenCalledTimes(1);
   });
 
