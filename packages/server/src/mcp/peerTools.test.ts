@@ -27,6 +27,7 @@ let deps: ToolDeps;
 let caller: string;
 let live: LiveSessionDto[];
 let approvals: { requestId: string; to: string }[];
+let approvalRequests: Record<string, unknown>[];
 
 const ctx = () => ({ sessionId: caller });
 const call = async (name: string, args: Record<string, unknown> = {}, c: { sessionId: string | null } = ctx()) => (await callTool(deps, c, name, args)) as Record<string, unknown>;
@@ -43,6 +44,7 @@ beforeEach(async () => {
   workerOk = true;
   linkOk = true;
   approvals = [];
+  approvalRequests = [];
   upsertShared(db, 'devices', { id: ME, name: 'Win', platform: 'win32', last_seen_at: NOW }, ME);
   upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, ME);
   upsertShared(db, 'projects', { id: 'p2', name: 'beta', status: 'active', is_scratch: 0 }, ME);
@@ -55,7 +57,7 @@ beforeEach(async () => {
     workerOk: () => workerOk,
     now: () => NOW,
     newId: () => 'req-1',
-    requestApproval: (o) => { approvals.push({ requestId: o.requestId, to: o.to }); },
+    requestApproval: (o) => { approvals.push({ requestId: o.requestId, to: o.to }); approvalRequests.push({ ...o.request, toName: o.toName, scratch: o.scratch }); },
   };
   deps = {
     db, deviceId: ME, port: 4177, live: () => live, peer,
@@ -190,6 +192,9 @@ describe('create_session の device', () => {
     expect(a.wire.peerLaunches.size).toBe(0);
     const q = await call('create_session', { device: 'Mac', scratch: true, prompt: 'x' });
     expect(q.status).toBe('approval-pending');
+    // 承認されたら封じて置くので、頼みの中身は封じる前の値で渡す。
+    expect(approvalRequests[0]).toMatchObject({ prompt: 'x', projectId: 'p2', scratch: false, parentSessionId: caller, toName: 'Mac' });
+    expect(approvalRequests[1]).toMatchObject({ projectId: null, scratch: true });
   });
 
   it('呼び出し元の会話が無い共通の URL では断る', async () => {

@@ -211,7 +211,15 @@ export type DeleteApprovalFailure = 'running' | 'trash';
  * title は消す会話の題名、project と turns はその事実、from は依頼した会話の題名（共通の URL からの依頼や、依頼元が消えたときは null）。failure は承認した後に消せなかったときだけ持つ。
  */
 export type DeleteApprovalDto = { id: string; sessionId: string; title: string; project: string | null; turns: number; from: string | null; requestedAt: number; failure: DeleteApprovalFailure | null };
-export type BootstrapDto = { schedules: ScheduleDto[]; device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; /** MCP の削除の依頼のうち、利用者の答えを待っているもの。 */ deleteApprovals: DeleteApprovalDto[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto; /** サーバのホーム（os.homedir()）。画面はホームの下の置き場を ~ に縮めるときにだけ使う。 */ home: string; /** 中断の群（InterruptedDto）。 */ interrupted: InterruptedDto | null };
+/** 別の PC への起動の承認の状態。pending は答えを待つ。ほかは答えた直後（または時間切れ）に短く残る結果で、failed は承認したが送れなかった。 */
+export type PeerApprovalState = 'pending' | 'approved' | 'denied' | 'timeout' | 'failed';
+/**
+ * 別の PC へ起動を頼む MCP の呼び出しのうち、利用者の承認を待つもの（D8）。依頼元の PC の画面とスマホで答える。
+ * from は頼んだ会話の題名（消えていれば null）、device は頼まれた PC の名前、project はプロジェクトの名前（クイックセッションなら null）。ask は頼みの先頭。
+ * expiresAt を過ぎると timeout になる。
+ */
+export type PeerApprovalDto = { id: string; from: string | null; device: string; project: string | null; scratch: boolean; ask: string; expiresAt: number; state: PeerApprovalState };
+export type BootstrapDto = { schedules: ScheduleDto[]; device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; /** MCP の削除の依頼のうち、利用者の答えを待っているもの。 */ deleteApprovals: DeleteApprovalDto[]; /** 別の PC への起動の承認待ち。 */ peerApprovals: PeerApprovalDto[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto; /** サーバのホーム（os.homedir()）。画面はホームの下の置き場を ~ に縮めるときにだけ使う。 */ home: string; /** 中断の群（InterruptedDto）。 */ interrupted: InterruptedDto | null };
 export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; total: number; nextSeq: number | null };
 /**
  * 実行中のセッションの右ペインに出すライブの要約。サーバが主線とサブエージェントを読んで作る。

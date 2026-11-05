@@ -33,6 +33,7 @@ import type { SummaryParts } from './summary.ts';
 import type { SyncParts } from './sync.ts';
 import type { TakeoverParts } from './takeover.ts';
 import type { TrashParts } from './trash.ts';
+import type { PeerParts } from './peer.ts';
 import type { PeerSshParts } from './peerSsh.ts';
 
 /** createApp が返すアプリの fetch。listen した後に差し込むために型だけ取る。 */
@@ -97,6 +98,8 @@ export function bootHttp(p: {
   opts: Pick<StartOptions, 'uiDist'>; serverDir: string;
   /** SSH の予備の経路（boot/peerSsh.ts）。渡せば /peer と /api/peer-ssh を持つ。 */
   peerSsh?: PeerSshParts;
+  /** 別の PC への起動の承認待ち（boot/peer.ts）。渡せば、承認の口と、MCP からの承認待ちの預け口を持つ。 */
+  peer?: Pick<PeerParts, 'approvals'>;
 }): HttpParts {
   const { home, delivery, sync, indexing, listening, runs, summary, trash, takeover } = p;
   const { db, settings, device } = home;
@@ -202,7 +205,8 @@ export function bootHttp(p: {
     opencodeStatus: async () => ({ ...(await opencode.status()), configPermissions: userConfigDefinesPermissions(home.home) }),
     codexOptions: (o) => codexOptions.get(o),
     ...(p.peerSsh ? { peerSsh: { endpoint: p.peerSsh.endpoint, store: p.peerSsh.store, hostKeyState: (id: string) => p.peerSsh!.connector.hostKeyState(id) } } : {}),
-    peerCall: { link: () => (sync.canCarryPeer() ? sync.peerLink() : null), workerOk: () => sync.canCarryPeer() },
+    peerCall: { link: () => (sync.canCarryPeer() ? sync.peerLink() : null), workerOk: () => sync.canCarryPeer(), ...(p.peer ? { requestApproval: (o) => p.peer!.approvals.request(o) } : {}) },
+    ...(p.peer ? { peerApprovals: p.peer.approvals } : {}),
     codexStatus: () => codex.status(),
     opencodeOptions: (dir, o) => p.opencode.options.get(dir, o),
     opencodeProviders: p.opencode.providers,

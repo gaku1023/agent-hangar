@@ -153,6 +153,7 @@ export type UiAction =
   | { type: 'schedule.create'; input: ScheduleInput; place?: ProjectPlace } | { type: 'schedule.update'; id: string; patch: SchedulePatch; place?: ProjectPlace }
   | { type: 'schedule.delete'; id: string } | { type: 'schedule.run'; id: string }
   | { type: 'deleteApproval.answer'; id: string; answer: 'approve' | 'reject' | 'dismiss' }
+  | { type: 'peerApproval.answer'; id: string; answer: 'approve' | 'reject' }
   // 移す先を選ぶダイアログと、削除の確認を開く（セッションのメニューの「プロジェクトを変更…」と「削除…」）。決めたら session.move と session.delete を送る。
   | { type: 'session.move.open'; id: SessionId } | { type: 'session.delete.open'; id: SessionId }
   // 提案の確定と却下。確定で日を変えたときだけ returnOn を添える。returnTime はその日の時刻（HH:MM）で、returnOn と一緒のときだけ効く。

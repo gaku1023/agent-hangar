@@ -839,6 +839,28 @@ alter table session_states add column pinned_at integer;
 `;
 
 /**
+ * 版 52。別の PC への起動の承認待ち（D8）。手元だけの表で、同期しない。頼みの 1 件に 1 行（id は頼みの request_id）。
+ * request は封じる前の頼みの中身（JSON）で、承認されたら封じて置く。承認待ちの間は呼び出し元の PC にだけ残る。
+ * state は pending、approved、denied、timeout、failed。答えた行は、画面が結果を見せる間だけ残して外す。
+ * 期限は created_at から決まるので、hangar を再起動しても同じに決まる。
+ */
+const V52_PEER_APPROVALS_SQL = `
+create table peer_approvals (
+  id text primary key,
+  caller_session_id text not null,
+  to_device text not null,
+  to_name text not null,
+  project_id text,
+  scratch integer not null default 0,
+  request text not null,
+  created_at integer not null,
+  state text not null default 'pending',
+  decided_at integer
+);
+create index peer_approvals_state on peer_approvals (state);
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -878,4 +900,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 47, sql: V47_SESSION_SPAWNS_SYNC_SQL },
   { version: 48, sql: V48_PEER_OUTBOX_SQL },
   { version: 49, sql: V49_PEER_LAUNCHES_SQL },
+  { version: 52, sql: V52_PEER_APPROVALS_SQL },
 ];

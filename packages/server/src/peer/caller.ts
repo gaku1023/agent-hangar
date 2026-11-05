@@ -1,4 +1,4 @@
-import type { PeerDeviceStatus, PeerKeyring, PeerLaunchApi } from '@agent-hangar/shared';
+import type { PeerDeviceStatus, PeerKeyring, PeerLaunchApi, PeerLaunchRequest } from '@agent-hangar/shared';
 import { readPeerStatuses } from '../config/deviceStatus.ts';
 import type { Db } from '../db/open.ts';
 
@@ -28,10 +28,11 @@ export type PeerCallDeps = {
   /** 頼みの ID の作り方。既定は randomUUID。 */
   newId?: () => string;
   /**
-   * T9 の口。ほかのプロジェクトやクイックセッションを名指しされたとき、承認待ちの行を作って知らせる。
-   * 渡さなければ approval-pending を返すだけで、何も作らない。
+   * ほかのプロジェクトやクイックセッションを名指しされたとき、承認待ちの行を作って利用者に知らせる（peer/approvals.ts）。
+   * request は封じる前の頼みの中身で、承認されたら封じて置く。渡さなければ approval-pending を返すだけで、何も作らない。
+   * 積めなければ false を返す（呼び出し元には launch-failed の入力が入る）。
    */
-  requestApproval?: (o: { requestId: string; to: string; toName: string; callerSessionId: string; projectId: string | null; scratch: boolean }) => void;
+  requestApproval?: (o: { requestId: string; to: string; toName: string; callerSessionId: string; projectId: string | null; scratch: boolean; request: PeerLaunchRequest }) => boolean | void;
 };
 
 /** list_devices の 1 行の素。 */

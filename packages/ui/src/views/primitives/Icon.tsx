@@ -72,6 +72,7 @@ const ICONS = {
   retention: Clock,
   transcriptGone: FileX2,
   seeAll: ArrowRight,
+  route: ArrowRight,
   nothingRunning: CirclePause,
   fullText: TextSearch,
   nextWaiting: SkipForward,

@@ -49,7 +49,7 @@ function callerAccountName(deps: ToolDeps, callerId: string, agent: AgentKind): 
 
 /**
  * create_session に device を付けたときの本体。同じプロジェクトなら頼みを封じて置き、結果は後から入力で届く（D12）。
- * ほかのプロジェクトやクイックセッションは approval-pending を返す口だけで、承認の行と札は T9 が作る（D8）。
+ * ほかのプロジェクトやクイックセッションは approval-pending を返す口だけで、承認の行と札は peer/approvals.ts が作る（D8）。
  * 返り値の status は requested、approval-pending、refused のどれか。断りは例外にせず reason で返す。
  */
 export async function createRemoteSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, key: string) {
@@ -73,20 +73,21 @@ export async function createRemoteSessionTool(deps: ToolDeps, ctx: ToolContext, 
   const quick = bool(args.scratch) === true && !str(args.project_id);
   const projectId = quick ? null : str(args.project_id) ?? callerProject;
   const newId = peerDeps!.newId ?? randomUUID;
-  // 呼び出し元と同じプロジェクトだけ、承認なしで起こせる。人が画面から起こす経路はここを通らない（D8）。
-  if (quick || projectId === null || projectId !== callerProject) {
-    const requestId = newId();
-    peerDeps!.requestApproval?.({ requestId, to: peer.device_id, toName: peer.name, callerSessionId: ctx.sessionId, projectId, scratch: quick });
-    return { status: 'approval-pending' as const, request_id: requestId, device: peer.name, note: render_(deps, msg('mcp.device.approvalPending', { device: peer.name })) };
-  }
+  // プロジェクトを引けない呼び出し元（クイックセッション）から省かれたときも、クイックセッションとして承認に回す。
+  const scratch = quick || projectId === null;
   const requestId = newId();
   const req: PeerLaunchRequest = {
-    v: 1, createdAt: now, parentSessionId: ctx.sessionId, projectId, scratch: false, agent: kind,
+    v: 1, createdAt: now, parentSessionId: ctx.sessionId, projectId, scratch, agent: kind,
     account: str(args.account) ?? '', permissionMode: str(args.permission_mode) ?? '', model: str(args.model) ?? '', prompt: str(args.prompt) ?? '',
     ...(str(args.effort) ? { effort: str(args.effort)! } : {}), ...(str(args.mode) ? { mode: str(args.mode)! } : {}),
     ...(bool(args.auto_approve) === true ? { autoApprove: true } : {}), ...(str(args.name) ? { name: str(args.name)! } : {}),
     callerAccount: callerAccountName(deps, ctx.sessionId, kind),
   };
+  // 呼び出し元と同じプロジェクトだけ、承認なしで起こせる。人が画面から起こす経路はここを通らない（D8）。
+  if (scratch || projectId !== callerProject) {
+    peerDeps!.requestApproval?.({ requestId, to: peer.device_id, toName: peer.name, callerSessionId: ctx.sessionId, projectId, scratch, request: req });
+    return { status: 'approval-pending' as const, request_id: requestId, device: peer.name, note: render_(deps, msg('mcp.device.approvalPending', { device: peer.name })) };
+  }
   try {
     const sealed = await sealPeerLaunch(await route.ring(), { requestId, from: deps.deviceId, to: peer.device_id }, req);
     await route.api.put({ id: requestId, to: peer.device_id, sealed, from: deps.deviceId });
