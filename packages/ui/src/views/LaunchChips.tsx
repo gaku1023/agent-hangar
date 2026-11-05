@@ -143,7 +143,7 @@ export function LaunchChips(props: {
   account?: { value: string; options: LaunchAccountOption[]; onChange: (value: string) => void };
   /** 前回の権限モード。一覧のその行に「前回」を添える。 */
   previousPermission?: string;
-  /** worktree の札の値の後ろに添える淡い文字（予定は回ごとに日時が付くので「-月日-時分」）。 */
+  /** worktree の札の値の後ろに添える淡い文字（予定は回ごとに日時が付くので「-MMDD-HHmm」）。 */
   worktreeSuffix?: string;
 }) {
   const t = useT();
