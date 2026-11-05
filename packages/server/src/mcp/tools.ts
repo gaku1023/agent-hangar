@@ -480,7 +480,7 @@ export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
   // 準備をするのは ID を後で決める driver（opencode、Codex）だけで、Claude Code には鍵を付けない。
   const key = agent !== undefined && agent !== 'claude-code' ? newPrepKey() : undefined;
   // 呼んだセッションを起動元として残す。引き継ぎと、呼んだセッションが分からない共通の URL では残さない。
-  const spawned = (id: string) => { if (ctx.sessionId && !bool(args.handoff)) recordSpawn(deps.db, id, ctx.sessionId, Date.now()); };
+  const spawned = (id: string) => { if (ctx.sessionId && !bool(args.handoff)) recordSpawn(deps.db, deps.deviceId, id, ctx.sessionId, Date.now()); };
   // 待つ道具（wait_for_session）が、起動の途中と起動直後の idle をターンの終わりと読まないための印。
   const launchedAt = Date.now();
   const marked = (id: string) => noteTurnStart(deps.db, id, { at: launchedAt, expectsReply: str(args.prompt) !== undefined, ...(key ? { prepKey: key } : {}) });

@@ -1,11 +1,13 @@
 import os from 'node:os';
 import path from 'node:path';
-import { codexInjectionOf, notifyRulesOf, opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type CompatDto, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
+import { AGENT_KINDS, codexInjectionOf, notifyRulesOf, opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type AgentKind, type CompatDto, type DeviceStatus, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
 import { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { claudeJsonFor, claudeJsonPath } from '../provider/claude-code/config/claudeJson.ts';
 import { trustBeforeLaunch, trustedWorkspaceOf, trustWorkspaceFolders } from '../projects/folderTrust.ts';
 import { DEVICE_TOUCH_MS, measureShellHook, touchDevice } from '../config/devicePresence.ts';
+import { collectDeviceStatus, DEVICE_STATUS_MS, liveStatusSources, refreshDeviceStatus } from '../config/deviceStatus.ts';
+import { VERSION } from './options.ts';
 import type { Settings } from '../config/paths.ts';
 import { createReadiness } from '../config/readiness.ts';
 import { bundledHangarIn, createShellWrap } from '../config/shellWrap.ts';
@@ -266,6 +268,7 @@ export function bootRuns(
   let parkTimer: ReturnType<typeof setInterval> | null = null;
   let overlapTimer: ReturnType<typeof setInterval> | null = null;
   let deviceTimer: ReturnType<typeof setInterval> | null = null;
+  let statusTimer: ReturnType<typeof setInterval> | null = null;
   return {
     runs, usage, agentUsage, codexUsage, accounts, claudeBin, localClaude, overlaps,
     // 最初のアカウントは CLAUDE_CONFIG_DIR を付けずに起こすので、ホームの直下の .claude.json を読む（RunAccounts.envFor）。
@@ -343,12 +346,23 @@ export function bootRuns(
       touch();
       deviceTimer = setInterval(touch, DEVICE_TOUCH_MS);
       deviceTimer.unref();
+      // 自分の様子（アカウントとログイン、起こせるエージェント、LAN の IP、ホスト鍵の指紋、版）を、変わったときだけ devices に書く。
+      const collect = (): DeviceStatus => collectDeviceStatus(liveStatusSources({
+        claude: { list: () => accountStore.list(), auth: accountAuth },
+        codex: { list: () => codexAccountStore.list(), auth: codexAuth, enabled: codexOn },
+        agentUsable: (k) => (k === 'claude-code' ? claudeBin() !== null : AGENT_ENTRY[k as AgentKind].enabled(settings.current) && AGENT_ENTRY[k as AgentKind].bin() !== null),
+        agentKinds: AGENT_KINDS, version: VERSION,
+      }));
+      const refresh = (): void => { refreshDeviceStatus({ db, device, collect }); };
+      refresh();
+      statusTimer = setInterval(refresh, DEVICE_STATUS_MS);
+      statusTimer.unref();
     },
     stopParkTimer() {
       if (parkTimer) clearInterval(parkTimer);
       if (overlapTimer) clearInterval(overlapTimer);
       notices.stop();
     },
-    stopPresence() { if (deviceTimer) clearInterval(deviceTimer); },
+    stopPresence() { if (deviceTimer) clearInterval(deviceTimer); if (statusTimer) clearInterval(statusTimer); },
   };
 }

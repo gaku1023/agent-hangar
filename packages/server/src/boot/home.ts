@@ -7,6 +7,7 @@ import { ensureSpawnHelper } from '../pty/helper.ts';
 import { VERSION, type StartOptions } from './options.ts';
 import { bundledGuideDir, syncSetupGuide } from '../setupGuide/guide.ts';
 import { languageReader, type GetLanguage } from '../i18n/language.ts';
+import { backfillSpawnDevices } from '../sessions/spawns.ts';
 
 /**
  * サーバの寿命の印。
@@ -72,6 +73,7 @@ export function bootHome(opts: Pick<StartOptions, 'home' | 'claudeDir'> = {}): H
     // install のときにしか置かないと、置き場を消した利用者の使用量が何も言わずに止まる。
     ensureStatuslineHeaderFile(home, token);
     const device = readOrCreateDevice(home);
+    backfillSpawnDevices(db, device.id);
     // tmux、code、claude のパスが設定に無ければここで探す。GUI 起動の貧弱な PATH でも見つけられる。
     // 書き戻すのは起動が通ってから（persistSettings）。
     const settings = { current: resolveToolPaths(loadSettings(home)) };
