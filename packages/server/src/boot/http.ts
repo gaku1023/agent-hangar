@@ -33,6 +33,7 @@ import type { SummaryParts } from './summary.ts';
 import type { SyncParts } from './sync.ts';
 import type { TakeoverParts } from './takeover.ts';
 import type { TrashParts } from './trash.ts';
+import type { PeerSshParts } from './peerSsh.ts';
 
 /** createApp が返すアプリの fetch。listen した後に差し込むために型だけ取る。 */
 type Fetch = ReturnType<typeof createApp>['fetch'];
@@ -94,6 +95,8 @@ export function bootHttp(p: {
   /** Codex の検出と選択肢。スマホの問い合わせと同じ一覧を使う（server.ts で 1 つ作る）。 */
   codex: { local: LocalCodex; options: CodexOptionsService };
   opts: Pick<StartOptions, 'uiDist'>; serverDir: string;
+  /** SSH の予備の経路（boot/peerSsh.ts）。渡せば /peer と /api/peer-ssh を持つ。 */
+  peerSsh?: PeerSshParts;
 }): HttpParts {
   const { home, delivery, sync, indexing, listening, runs, summary, trash, takeover } = p;
   const { db, settings, device } = home;
@@ -198,6 +201,7 @@ export function bootHttp(p: {
     // 利用者の opencode.json が許可を決めているかも、聞かれるたびに読み直して添える（設定の画面の許可のひな形の行）。
     opencodeStatus: async () => ({ ...(await opencode.status()), configPermissions: userConfigDefinesPermissions(home.home) }),
     codexOptions: (o) => codexOptions.get(o),
+    ...(p.peerSsh ? { peerSsh: { endpoint: p.peerSsh.endpoint, store: p.peerSsh.store, hostKeyState: (id: string) => p.peerSsh!.connector.hostKeyState(id) } } : {}),
     codexStatus: () => codex.status(),
     opencodeOptions: (dir, o) => p.opencode.options.get(dir, o),
     opencodeProviders: p.opencode.providers,

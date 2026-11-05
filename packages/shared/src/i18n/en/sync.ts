@@ -58,4 +58,6 @@ export const syncEn: AreaDictionary<typeof syncKeys> = {
   'sync.copy.noFreeName': 'No free file name is left for the backup',
   'sync.copy.badSessionId': 'The session ID is not valid as a file name',
   'sync.copy.backupFailed': 'The transcript was not replaced because a backup could not be made: {cause}',
+  'sync.peerSsh.hostKeyMismatch': 'Did not connect to {name} over SSH because its host key does not match the one {name} reported. Check the SSH server on {name}',
+  'sync.peerSsh.tunnelClosed': 'The SSH connection to {name} was lost',
 };

@@ -78,8 +78,12 @@ export function randomEpochKey(): string {
   return toBase64Url(globalThis.crypto.getRandomValues(new Uint8Array(32)));
 }
 
-/** 世代鍵から導く用途。 */
-export type Purpose = 'row' | 'index' | 'fp' | 'file' | 'roster' | 'peer';
+/**
+ * 世代鍵から導く用途。
+ * peer-token は SSH の予備の経路で、相手の hangar の `/peer` に見せる PC どうしの token の HMAC の鍵である。
+ * EpochKeys には入れず、使う PC だけが Keyring から導く（server の peer/ssh/token.ts）。
+ */
+export type Purpose = 'row' | 'index' | 'fp' | 'file' | 'roster' | 'peer' | 'peer-token';
 
 /** 用途ごとの HKDF の info。値を変えると、過去に封じたものが開けなくなる。 */
 export const PURPOSE_INFO: Record<Purpose, string> = {
@@ -89,6 +93,7 @@ export const PURPOSE_INFO: Record<Purpose, string> = {
   file: 'hangar-e2e-v2/file',
   roster: 'hangar-e2e-v2/roster',
   peer: 'hangar-e2e-v2/peer',
+  'peer-token': 'hangar-e2e-v2/peer-token',
 };
 
 /** 世代鍵から用途の鍵の生の 32 バイトを導く（salt は空）。 */

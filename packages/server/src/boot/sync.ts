@@ -34,6 +34,7 @@ import { stopAfterIdle, stopUploader } from './stopping.ts';
 import { t } from '@agent-hangar/shared';
 import { touchRow } from '../db/notify.ts';
 import { followRemoteScratch } from '../projects/scratch.ts';
+import { keyringPeerTokenKeys, type PeerTokenKeys } from '../peer/ssh/token.ts';
 
 /**
  * 上がっていない本文を拾い直す走査の間隔。
@@ -65,6 +66,8 @@ export type SyncParts = {
   retention: RetentionService;
   /** 同期の状態に添える付録と、状態の配り。HTTP の応答と websocket の通知の両方がこれを通る。 */
   feed: SyncFeed;
+  /** SSH の予備の経路の、PC どうしの token の鍵（peer/ssh/token.ts）。同期を設定していなければ null。 */
+  peerTokenKeys(): PeerTokenKeys | null;
   /** 利用者が押した「今すぐ同期」。 */
   syncNow(): Promise<void>;
   /** 本文とメモの控えの世代を刈る。 */
@@ -180,6 +183,8 @@ function cloudWriter(home: string, cloud: CloudConfig, built: () => { cloud: Clo
 /** クラウドの設定に依る部品の束。cloud.json が無ければ client は null で、各部品は「off」の形になる。 */
 type Core = {
   cloud: CloudConfig | null;
+  /** cloud.json の世代鍵の束。同期を設定していなければ null。 */
+  keyring: Promise<Keyring> | null;
   /** 行を封じて開く client（線の HttpCloudClient を包んだもの）。部品はみなこれを持つ。 */
   client: SealedCloudClient | null;
   /** 封じた名簿と keybox の読み書き。PC の一覧の名前と OS もここから読む。 */
@@ -452,7 +457,7 @@ export function bootSync(
     if (recoveryKey) engine.on({ pulled: () => { void recoveryKey.resumePending(); } });
     // PC どうしの頼みの封の鍵。知らない世代の頼みを受けたら、名簿と keybox を読み直してから開き直す。
     const peer = keyring ? { ring: () => keyring as Promise<PeerKeyring>, reread: async () => { if (roster) { roster.invalidate(); await roster.read(); } } } : null;
-    const c: Core = { cloud, client, roster, phone, peer, joinApprover, recoveryKey, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null, revoke, rotationRetry: retry };
+    const c: Core = { cloud, keyring, client, roster, phone, peer, joinApprover, recoveryKey, engine, cloudUsage, uploader, configBundle, puller, feed, once, bundleTimer: null, uploadTimer: null, sweepTrash, trashTimers: null, revoke, rotationRetry: retry };
     built = c;
     return c;
   };
@@ -590,6 +595,7 @@ export function bootSync(
     get cloudUsage() { return core.cloudUsage; },
     retention,
     get feed() { return core.feed; },
+    peerTokenKeys: () => (core.keyring ? keyringPeerTokenKeys(core.keyring) : null),
     pruneBackups,
     get configBundle() { return core.configBundle; },
     syncNow: () => core.once.syncNow(),
