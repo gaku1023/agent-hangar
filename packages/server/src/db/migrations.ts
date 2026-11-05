@@ -715,6 +715,42 @@ alter table session_spawns_v47 rename to session_spawns;
 `;
 
 /**
+ * 版 48。別の PC へ置いた起動の頼みと、呼び出し元の会話へまだ渡していない報告（T7）。手元だけの表で、同期には載らない。
+ * peer_outbox は頼み 1 件に 1 行で、受け取り済みの結果の連番（received_seq）を覚えて二重に入れないために使う。
+ * peer_deliveries は送り込む入力の預かりで、呼び出し元がターンの最中や停止中のときに残す。seq が 0 の行は答え（断りと期限切れ）である。
+ * notice_held は呼び出し元が止まっているときに、notice_gone は呼び出し元が消えているときに、未読と通知へ出す短い文である。
+ */
+const V48_PEER_OUTBOX_SQL = `
+create table peer_outbox (
+  request_id text primary key,
+  to_device text not null,
+  caller_session_id text not null,
+  state text not null default 'requested',
+  child_session_id text,
+  title text,
+  reason text,
+  received_seq integer not null default 0,
+  seen_seq integer not null default 0,
+  created_at integer not null,
+  updated_at integer not null
+);
+create table peer_deliveries (
+  id integer primary key autoincrement,
+  request_id text not null,
+  seq integer not null,
+  caller_session_id text not null,
+  text text not null,
+  notice_held text not null,
+  notice_gone text not null,
+  notified integer not null default 0,
+  created_at integer not null,
+  delivered_at integer,
+  unique (request_id, seq)
+);
+create index peer_deliveries_open on peer_deliveries (caller_session_id) where delivered_at is null;
+`;
+
+/**
  * MCP の delete_session の依頼を、利用者が答えるまで預かる表（#547）。手元だけの表で、同期しない。会話 1 つに 1 行。
  */
 const V44_DELETE_APPROVALS_SQL = `
@@ -825,4 +861,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 45, sql: V45_SCHEDULES_SQL },
   { version: 46, sql: V46_DEVICE_STATUS_SQL },
   { version: 47, sql: V47_SESSION_SPAWNS_SYNC_SQL },
+  { version: 48, sql: V48_PEER_OUTBOX_SQL },
 ];
