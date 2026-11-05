@@ -59,6 +59,11 @@ export function refusalText(lang: Language, o: { device: string; reason: PeerLau
   return render(lang, msg(key, { device: oneLine(o.device, 80), reason: why + detail }));
 }
 
+/** SSH の張り直しを諦めたときの、呼び出し元への文。頼みは終わらせず、つながれば続きを受け取る。 */
+export function sshGaveUpText(lang: Language, o: { device: string }): string {
+  return render(lang, msg('mcp.peer.sshGaveUp', { device: oneLine(o.device, 80) }));
+}
+
 /** 受け取られないまま期限が過ぎた頼みの文。 */
 export function expiredText(lang: Language, o: { device: string }): string {
   return render(lang, msg('mcp.peer.expired', { device: oneLine(o.device, 80) }));

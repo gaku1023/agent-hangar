@@ -896,6 +896,33 @@ create index peer_approvals_state on peer_approvals (state);
 `;
 
 /**
+ * 版 53。SSH の予備の経路（T11）。手元だけの表で、同期には載らない。
+ * peer_outbox.via は頼みを置いたときに決めた経路（cloud か ssh）で、送った後に乗り換えない。
+ * peer_ssh_requests は SSH のトンネル越しに受けた頼みの置き場（Worker の peer_launches の代わり）で、
+ * 受け取り（claimed）、答え（sealed_answer）、結果の行（peer_ssh_results）を手元で持つ。呼ぶ側は /peer の outbox と results で取りに来る。
+ */
+const V53_PEER_SSH_SQL = `
+alter table peer_outbox add column via text not null default 'cloud';
+create table peer_ssh_requests (
+  id text primary key,
+  from_device text not null,
+  sealed text not null,
+  status text not null default 'pending',
+  sealed_answer text,
+  created_at integer not null,
+  updated_at integer not null
+);
+create index idx_peer_ssh_requests_from on peer_ssh_requests (from_device, updated_at);
+create table peer_ssh_results (
+  request_id text not null,
+  seq integer not null,
+  sealed text not null,
+  created_at integer not null,
+  primary key (request_id, seq)
+);
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -935,7 +962,8 @@ export const MIGRATIONS: Migration[] = [
   { version: 47, sql: V47_SESSION_SPAWNS_SYNC_SQL },
   { version: 48, sql: V48_PEER_OUTBOX_SQL },
   { version: 49, sql: V49_PEER_LAUNCHES_SQL },
-  { version: 52, sql: V52_PEER_APPROVALS_SQL },
   { version: 50, sql: V50_PEER_RELAY_SQL },
+  { version: 52, sql: V52_PEER_APPROVALS_SQL },
+  { version: 53, sql: V53_PEER_SSH_SQL },
   { version: 54, sql: V54_PEER_OUTBOX_OP_SQL },
 ];

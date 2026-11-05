@@ -31,7 +31,8 @@ export type SshProbe = (baseUrl: string, deviceId: string) => Promise<'ok' | 're
 /** 利用者へ知らせること。boot が画面の知らせ（toast）に換える。 */
 export type SshPeerNotice =
   | { kind: 'host-key-mismatch'; deviceId: string; name: string }
-  | { kind: 'tunnel-closed'; deviceId: string; name: string; detail: string };
+  | { kind: 'tunnel-closed'; deviceId: string; name: string; detail: string }
+  | { kind: 'gave-up'; deviceId: string; name: string };
 
 /** 張れなかった理由。登録が無い、同期にホスト鍵が無いときは SSH を使わない（経路の選び方が別の経路か断るかを決める）。 */
 export type SshConnectFailure = SshFailure | 'ssh-not-registered' | 'ssh-no-host-key';

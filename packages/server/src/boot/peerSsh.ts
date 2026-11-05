@@ -7,14 +7,20 @@ import { sshPeerProbe } from '../peer/ssh/client.ts';
 import { sshBinaries } from '../peer/ssh/command.ts';
 import { PeerSshStore } from '../peer/ssh/config.ts';
 import { SshPeerConnector, freeLocalPort, nodeSshRun, nodeSshSpawn, type SshPeerNotice } from '../peer/ssh/connector.ts';
+import { SshPeerInbox } from '../peer/ssh/inbox.ts';
+import { PeerSshLink } from '../peer/ssh/link.ts';
 import type { PeerTokenKeys } from '../peer/ssh/token.ts';
 
 /** SSH の予備の経路の部品。 */
 export type PeerSshParts = {
   /** 設定「ほかの PC」の登録。 */
   store: PeerSshStore;
-  /** トンネルを張る口。経路の選び方と張り直し（T11）が使う。 */
+  /** トンネルを張る口。 */
   connector: SshPeerConnector;
+  /** 相手ごとのトンネルと、その上の PeerLaunchApi（呼ぶ側。張り直しと間隔と中断を持つ）。 */
+  link: PeerSshLink;
+  /** 受ける側の置き場。/peer の PeerInbox で、手元の PeerLaunchApi（local.api）も持つ。 */
+  local: SshPeerInbox;
   /** token の鍵。同期を設定していなければ null。 */
   tokens: () => PeerTokenKeys | null;
   /** `/peer` の入口の依存（app.ts が載せる）。 */
@@ -28,7 +34,8 @@ export type PeerSshParts = {
 /** 知らせを画面の toast の文にする。 */
 export function peerSshNoticeText(language: GetLanguage, n: SshPeerNotice): string {
   const tr = translatorOf(language);
-  return n.kind === 'host-key-mismatch' ? tr('sync.peerSsh.hostKeyMismatch', { name: n.name }) : tr('sync.peerSsh.tunnelClosed', { name: n.name });
+  if (n.kind === 'host-key-mismatch') return tr('sync.peerSsh.hostKeyMismatch', { name: n.name });
+  return tr(n.kind === 'gave-up' ? 'sync.peerSsh.gaveUp' : 'sync.peerSsh.tunnelClosed', { name: n.name });
 }
 
 /**
@@ -43,9 +50,11 @@ export function bootPeerSsh(o: {
   language: GetLanguage;
   tokens: () => PeerTokenKeys | null;
   broadcast(ev: { type: 'toast'; level: 'info' | 'error'; message: string }): void;
+  now?: () => number;
 }): PeerSshParts {
   const store = new PeerSshStore(o.home);
   let inbox: PeerInbox | null = null;
+  const notify = (n: SshPeerNotice): void => { o.broadcast({ type: 'toast', level: 'error', message: peerSshNoticeText(o.language, n) }); };
   const connector = new SshPeerConnector({
     home: o.home,
     platform: process.platform,
@@ -56,11 +65,22 @@ export function bootPeerSsh(o: {
     spawn: nodeSshSpawn,
     freePort: freeLocalPort,
     probe: sshPeerProbe({ selfId: o.deviceId, tokens: o.tokens }),
-    notify: (n) => { o.broadcast({ type: 'toast', level: 'error', message: peerSshNoticeText(o.language, n) }); },
+    notify,
   });
+  const link = new PeerSshLink({
+    connector,
+    selfId: o.deviceId,
+    tokens: o.tokens,
+    nameOf: (id) => readPeerStatuses(o.db, o.deviceId).find((p) => p.device_id === id)?.name ?? id,
+    notify,
+    ...(o.now ? { now: o.now } : {}),
+  });
+  const local = new SshPeerInbox(o.db, o.deviceId, o.now ?? Date.now);
   return {
     store,
     connector,
+    link,
+    local,
     tokens: o.tokens,
     endpoint: { selfId: o.deviceId, tokens: o.tokens, inbox: () => inbox },
     bindInbox: (i) => { inbox = i; },

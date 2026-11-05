@@ -614,3 +614,7 @@ R2 の既存のファイルは暗号化し直しません。
 D1 の書き込みと読み取りの見積もり、Durable Object と R2 の見積もりは `docs/design.md` の「スマホ（試験的）」の末尾にあります。
 実測は、1 日使ってから、その表の「実測」の欄に埋めます。
 いまは未実測です。
+
+## ほかの PC への起動の SSH の予備
+
+SSH の予備の経路は、作りだけ残して止めています（`packages/server/src/peer/ssh/enabled.ts` の `PEER_SSH_ENABLED`）。
