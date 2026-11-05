@@ -50,6 +50,15 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   'create index if not exists launch_requests_from on launch_requests(from_device, created_at)',
   // 7 日より古い行を消す文（mobile.ts の POST /m/launches）が表を走査しないための索引。
   'create index if not exists launch_requests_at on launch_requests(created_at)',
+  // PC から PC への起動の頼み（互換の版 10）。中身（sealed、sealed_answer）は PC どうしの鍵で封じたまま置き、Worker が平文で持つのは宛先と送り手と時刻と状態だけである。
+  // updated_at は答えと結果で進め、掃除と呼ぶ側の取得（GET /launches/mine）の目印にする。result_seq は書かれた結果の行の最大の seq である。
+  'create table if not exists peer_launches (id text primary key, to_device text not null, from_device text not null, sealed text not null, status text not null, created_at integer not null, updated_at integer not null, claimed_at integer, answered_at integer, sealed_answer text, result_seq integer not null default 0)',
+  'create index if not exists peer_launches_to on peer_launches(to_device, status, created_at)',
+  'create index if not exists peer_launches_from on peer_launches(from_device, updated_at)',
+  // 残す期間を過ぎた行を消す文（peerLaunch.ts の POST /launches）が表を走査しないための索引。
+  'create index if not exists peer_launches_at on peer_launches(updated_at)',
+  // 頼まれた PC が書く、ターンが止まるたびの結果の行。request_id と seq で一意で、同じ seq の再送は入らない。
+  'create table if not exists peer_results (request_id text not null, seq integer not null, sealed text not null, created_at integer not null, primary key (request_id, seq))',
   // スマホのプッシュ通知の購読（0.9.1）。スマホ 1 台に 1 行で、互換の版 9 の D1 にもこの文で足す（足すだけなので版は上げない）。
   // endpoint と鍵（p256dh、auth）はブラウザの PushSubscription の値で、通知の中身ではない。夜の時間帯は端末の時刻の 0 時からの分、tz_offset は端末の getTimezoneOffset() である。
   'create table if not exists push_subscriptions (device_id text primary key, endpoint text not null, p256dh text not null, auth text not null, quiet_start integer, quiet_end integer, tz_offset integer, created_at integer not null)',

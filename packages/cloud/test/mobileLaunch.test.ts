@@ -209,7 +209,7 @@ describe('起動の依頼（POST /m/launches と GET /changes の launches）', 
     expect(typeof body.more).toBe('boolean');
     expect(body.peers.map((p) => p.id)).toEqual(['pc-a']);
     expect(typeof body.now).toBe('number');
-    expect(Object.keys(body).sort()).toEqual(['changes', 'launches', 'more', 'nextSeq', 'now', 'peers']);
+    expect(Object.keys(body).sort()).toEqual(['changes', 'launches', 'more', 'nextSeq', 'now', 'peerLaunches', 'peers']);
   });
 
   it('スマホのトークンで claim と answer は 403、PC のトークンで依頼と GET は 403', async () => {

@@ -1,5 +1,6 @@
 /** 端末とクラウド Worker の間の契約。サーバ、CLI、Worker が共有する。 */
 import type { MobileLaunchOut } from './mobile.ts';
+import type { PeerLaunchIncoming } from './peerCloud.ts';
 
 export type SharedTable = 'devices' | 'projects' | 'project_roots' | 'sessions' | 'runs' | 'run_tabs' | 'session_summaries' | 'session_states' | 'session_notes' | 'todos' | 'project_memos' | 'artifacts' | 'artifact_versions' | 'config_snapshots' | 'takeovers' | 'takeover_answers';
 
@@ -54,6 +55,8 @@ export type SealedPullChangesResponse = {
   now: number;
   /** この PC 宛ての、まだ受け取っていない起動の依頼（互換の版 7）。中身はスマホが封をしたまま。 */
   launches?: MobileLaunchOut[];
+  /** この PC 宛ての、まだ受け取っていない別の PC からの頼み（互換の版 10）。封は PC どうしの鍵で、Worker は開かない。 */
+  peerLaunches?: PeerLaunchIncoming[];
 };
 /** 封じた行の取り直し（`GET /rows`）。`k` の順に並び、`nextAfter` は次に渡す `after` である。 */
 export type SealedSnapshotResponse = { changes: SealedChangeOut[]; nextAfter: string | null; seq: number };
