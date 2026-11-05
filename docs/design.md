@@ -5642,8 +5642,8 @@ Home を開いたときにトランスクリプトを読み直すことはしな
 未読は別の端末ローカルの表 `session_unread`（マイグレーション version 39）に置く（`session_id`、`count`、`latest_text`、`latest_at`）。`session_activity` と分けるのは、あちらが索引の作り直しで積み直す表なのに対し、未読は利用者がまだ見ていないという事実で、作り直しで消えてはならないためである。
 `notify_user` が 1 回ごとに `count` を 1 つ増やし、`POST /api/sessions/:id/seen` が行を消す。Done、Paused、Archived でも、開くまで残る。会話を削除するとき（`sessions/trash.ts`）は行も片付ける。
 `SessionDto.unread`（`{ count, latest, at }`）は、行があるときだけ値を持ち、無いときは `null` になる。共有テーブルにも同期の changes にも入れない。
-起動元は別の端末ローカルの表 `session_spawns`（マイグレーション version 40）に置く（`session_id`、`parent_id`、`created_at`）。MCP の `create_session` がセッション別の URL から呼ばれたときに書き、`handoff: true` の引き継ぎでは書かない。
-`SessionDto.spawnedBy` は起動元のセッション id で、行が無ければ `null` になる。共有テーブルにも同期の changes にも入れないので、ほかの PC では入れ子にならない。会話を削除するときは、子としての行も起動元としての行も片付け、起動元が消えた子は平らに並ぶ。
+起動元は共有テーブル `session_spawns`（version 40 で手元の表として作り、version 47 で同期の表にした）に置く。列は `session_id`（子）、`parent_id`、`created_at`、`parent_device_id`、`child_device_id`、`relay`（`on` か `off`）、`closed_at`、共有表の三つ組である。MCP の `create_session` がセッション別の URL から呼ばれたときに書き、`handoff: true` の引き継ぎでは書かない。
+`SessionDto.spawnedBy` は起動元のセッション id で、行が無ければ `null` になる。同期の表なので、ほかの PC でも親の下に入れ子になる。`relay` は結果を返し続けるかで、「終わった」を返した後は `off` になり、入れ子は残る。切り離しと会話の削除は `deleted_at` を付け、入れ子も結果の返却もなくなる（起動元が消えた子は平らに並ぶ）。古い版の PC はこの表を知らない表として捨てる。
 実行中の登録（`~/.claude/sessions/<pid>.json`）から消えたセッションは、問いだけを消す（`sessions/liveChange.ts`）。終わった会話の問いにはもう答えられず、再開した直後の要対応の行に前の run の問いを出さないためである。
 消えたかどうかを書きかけの登録で誤らないよう、読めなかった登録は前に読めた中身のまま少しの間続ける（「保存先と読み方」の節の `RegistryCarry`）。
 

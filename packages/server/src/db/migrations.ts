@@ -686,6 +686,35 @@ create table session_spawns (
 `;
 
 /**
+ * 版 47。session_spawns を同期の共有表にする（別の PC への起動と結果の返却、D17）。
+ * 足す列：parent_device_id と child_device_id（親と子の会話がある PC）、relay（結果を返し続けるか、on か off）、closed_at（off にした時刻）、
+ * 共有表の三つ組（updated_at、deleted_at、origin_device）。
+ * 既存の行の親と子の PC は、マイグレーションからは自分の device_id が読めないので null のまま置き、起動時に手元の ID で埋める（sessions/spawns.ts の backfillSpawnDevices）。
+ * 埋める前の行は、同期の行としてまだ上げない。
+ * 同期する表には check を付けない。後の版が値を足しても、古い PC の適用が落ちないようにするためである。
+ * 古い版の PC はこの表を共有表として知らないので、届いた行を知らない表として捨てる（sync/apply.ts）。手元の表の中身は触られない。
+ * 列の追加に not null の既定が要るので、表を作り直す。
+ */
+const V47_SESSION_SPAWNS_SYNC_SQL = `
+create table session_spawns_v47 (
+  session_id text primary key,
+  parent_id text not null,
+  created_at integer not null,
+  parent_device_id text,
+  child_device_id text,
+  relay text not null default 'on',
+  closed_at integer,
+  updated_at integer not null default 0,
+  deleted_at integer,
+  origin_device text not null default ''
+);
+insert into session_spawns_v47 (session_id, parent_id, created_at, updated_at)
+  select session_id, parent_id, created_at, created_at from session_spawns;
+drop table session_spawns;
+alter table session_spawns_v47 rename to session_spawns;
+`;
+
+/**
  * MCP の delete_session の依頼を、利用者が答えるまで預かる表（#547）。手元だけの表で、同期しない。会話 1 つに 1 行。
  */
 const V44_DELETE_APPROVALS_SQL = `
@@ -795,4 +824,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 44, sql: V44_DELETE_APPROVALS_SQL },
   { version: 45, sql: V45_SCHEDULES_SQL },
   { version: 46, sql: V46_DEVICE_STATUS_SQL },
+  { version: 47, sql: V47_SESSION_SPAWNS_SYNC_SQL },
 ];

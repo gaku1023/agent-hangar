@@ -13,6 +13,7 @@ import { AGENT_SYNC, isExportAgent } from '../sync/agentSync.ts';
 import { mangleCwd } from '../provider/claude-code/transcript/discover.ts';
 import { resolvePhysical } from '../provider/codex/transcript/logical.ts';
 import { setSessionTrashed } from './states.ts';
+import { forgetSpawnsOf } from './spawns.ts';
 
 /**
  * セッションの削除（docs/design.md の「セッションの削除」）。
@@ -316,8 +317,8 @@ export class SessionTrash {
   private forgetIndex(sessionId: string): void {
     // 未読は索引ではないが、会話ごと片付ける（行だけが残らないように）。
     this.db.prepare('delete from session_unread where session_id = ?').run(sessionId);
-    // 起動元の印も手元だけの表なので、会話ごと片付ける。起動元が消えた子は、平らに並ぶ。
-    this.db.prepare('delete from session_spawns where session_id = ? or parent_id = ?').run(sessionId, sessionId);
+    // 起動元の印（同期する表）も会話ごと切る。起動元が消えた子は、平らに並ぶ。
+    forgetSpawnsOf(this.db, this.deps.deviceId, sessionId);
     for (const r of this.db.prepare('select path from transcript_files where session_id = ?').all(sessionId) as { path: string }[]) forgetTranscriptFile(this.db, r.path, { keepUsage: true });
     // 本文を DB に持つ会話（opencode）は、ファイルの行が無いので会話ごと片付ける。
     const p = this.db.prepare('select provider from sessions where id = ?').get(sessionId) as { provider: string } | undefined;
