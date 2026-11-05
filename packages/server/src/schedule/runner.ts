@@ -13,7 +13,8 @@ export type RunnerDeps = {
   deviceId: string;
   now(): number;
   /** 会話を起こす、または既存の会話へ送る。既存の会話が動いていて送れなければ 'busy'。 */
-  launch(s: { id: string; prompt: string; target: ScheduleTarget }): Promise<{ sessionId: string } | 'busy'>;
+  /** plannedAt はこの回の予定の時刻。遅れて走っても、worktree の名前はこの時刻で付ける。 */
+  launch(s: { id: string; prompt: string; target: ScheduleTarget; plannedAt: number }): Promise<{ sessionId: string } | 'busy'>;
   /** その会話のターンが終わるか、入力待ちになるまで待つ。 */
   wait(sessionId: string): Promise<ScheduleOutcome>;
 };
@@ -82,7 +83,7 @@ export class ScheduleRunner {
     const runId = addRun(db, { scheduleId: r.id, plannedAt: planned, now: now(), result: 'running' });
     void (async () => {
       try {
-        const got = await this.d.launch({ id: r.id, prompt: r.prompt, target: targetOf(r) });
+        const got = await this.d.launch({ id: r.id, prompt: r.prompt, target: targetOf(r), plannedAt: planned });
         if (got === 'busy') { finishRun(db, runId, { now: now(), result: 'skipped' }); return; }
         setRunSession(db, runId, got.sessionId);
         await this.watch(runId, got.sessionId);

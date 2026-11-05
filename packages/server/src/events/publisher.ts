@@ -6,7 +6,7 @@ import { getProject, getSession, listDevices } from '../db/queries.ts';
 import { memoFromDb } from '../projects/memo.ts';
 import { listTodos } from '../projects/todos.ts';
 import { listDeleteApprovals } from '../sessions/deleteApprovals.ts';
-import { listSchedules } from '../schedule/store.ts';
+import { listSchedules, type AccountNamer } from '../schedule/store.ts';
 
 /**
  * DB の行の変化を、画面へのイベントにして配る 1 層。
@@ -31,7 +31,7 @@ export type RowEvent = Extract<ServerEvent, { type: 'schedules.update' | 'sessio
 export type NoticeEvent = Exclude<ServerEvent, RowEvent>;
 
 /** DTO を組むのに要るもの。 */
-type Ctx = { db: Db; deviceId: string; live: () => LiveSessionDto[]; configSync: () => ConfigSyncDto | null };
+type Ctx = { db: Db; deviceId: string; live: () => LiveSessionDto[]; configSync: () => ConfigSyncDto | null; accountName?: AccountNamer };
 
 /**
  * 配るイベントの種類。行のイベントは、種類と ID の組（鍵）で 1 つに畳む。
@@ -51,7 +51,7 @@ const KINDS = {
   // 端末は一覧ごと配るので、ID は持たない。
   devices: (ctx) => ({ type: 'devices.update', devices: listDevices(ctx.db, ctx.deviceId) }),
   deleteApprovals: (ctx) => ({ type: 'deleteApprovals.update', approvals: listDeleteApprovals(ctx.db) }),
-  schedules: (ctx) => ({ type: 'schedules.update', schedules: listSchedules(ctx.db, ctx.deviceId) }),
+  schedules: (ctx) => ({ type: 'schedules.update', schedules: listSchedules(ctx.db, ctx.deviceId, undefined, ctx.accountName) }),
   memo: (ctx, id) => { const m = memoFromDb(ctx.db, id); return m ? { type: 'memo.update', memo: m } : null; },
   artifact: (ctx, id) => { const a = getArtifact(ctx.db, id); return a ? { type: 'artifact.upsert', artifact: a } : null; },
   // TODO はプロジェクトの一覧ごと配るので、ID はプロジェクトのものである。
@@ -148,6 +148,8 @@ export type PublisherDeps = {
 export class Publisher {
   /** 設定の同期の状態の組み方。同期を組んだ後（boot/sync.ts）に渡される。それまでは何も配らない。 */
   private configSync: () => ConfigSyncDto | null = () => null;
+  /** 予定のアカウントの表示名の引き方。アカウントの組を組んだ後（boot/runs.ts）に渡される。それまでは引けない（null）。 */
+  private accountName: AccountNamer | undefined;
   private queue: Item[] = [];
   /** いまの列に並んでいる行。鍵から、その並びを引く。 */
   private rows = new Map<string, Extract<Item, { key: string }>>();
@@ -161,11 +163,14 @@ export class Publisher {
   /** 設定の同期の状態の組み方を渡す。組み立ての順で、配る層のほうが先にできるので、後から渡す。 */
   setConfigSync(read: () => ConfigSyncDto | null): void { this.configSync = read; }
 
+  /** 予定のアカウントの表示名の引き方を渡す。 */
+  setAccountNamer(namer: AccountNamer): void { this.accountName = namer; }
+
   /** 行の変化を受ける。配る先を決めて列に並べる。DTO はここでは組まない。 */
   private onRow(c: RowChange): void {
     const rule = TABLES[c.table];
     if (!rule || (rule.from && !rule.from.includes(c.origin))) return;
-    for (const [kind, id] of rule.to(c, { ...this.deps, configSync: this.configSync })) {
+    for (const [kind, id] of rule.to(c, { ...this.deps, configSync: this.configSync, accountName: this.accountName })) {
       const key = keyOf(kind, id);
       // 同じ行がもう並んでいれば、最後に知らされた位置へ並び直す。配るのは 1 回のままである。
       const cur = this.rows.get(key);
@@ -211,7 +216,7 @@ export class Publisher {
       try {
         if ('ev' in it) { this.deps.hub.broadcast(it.ev); continue; }
         if (it.dead || !active) continue;
-        const ev = KINDS[it.kind]({ ...this.deps, configSync: this.configSync }, it.id);
+        const ev = KINDS[it.kind]({ ...this.deps, configSync: this.configSync, accountName: this.accountName }, it.id);
         if (ev) this.deps.hub.broadcast(ev);
       } catch (e) {
         // 1 つの行が読めなくても、残りは配る。

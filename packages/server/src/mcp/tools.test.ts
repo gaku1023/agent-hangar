@@ -412,6 +412,44 @@ describe('MCP tools', () => {
       expect(r).not.toHaveProperty('account');
     });
   });
+  describe('create_session の予定向けの項目', () => {
+    it('opencode は auto_approve を start の autoApprove に渡す。Claude Code と Codex には断る', async () => {
+      deps = { ...deps, runs: { ...deps.runs, agentEnabled: () => true } };
+      await call('create_session', { project_id: 'p1', agent: 'opencode', auto_approve: true });
+      expect(started[0]!.autoApprove).toBe(true);
+      expect(() => call('create_session', { project_id: 'p1', auto_approve: true })).toThrow(ToolError);
+      expect(() => call('create_session', { project_id: 'p1', agent: 'codex', auto_approve: true })).toThrow(ToolError);
+      expect(started).toHaveLength(1);
+    });
+    it('scratch: true で project_id が無くてもクイックセッションを起こす（共通の URL だけ）', async () => {
+      await call('create_session', { scratch: true });
+      expect(started[0]).toMatchObject({ scratch: true });
+      expect(started[0]!.projectId).toBeUndefined();
+      expect(() => call('create_session', { scratch: true }, { sessionId: alphaId })).toThrow(ToolError);
+      expect(() => call('create_session', {})).toThrow(ToolError);
+    });
+    it('内部の引数 cwd を start の cwd に渡す', async () => {
+      await call('create_session', { project_id: 'p1', cwd: '/Users/me/workspace/alpha/sub' });
+      expect(started[0]!.cwd).toBe('/Users/me/workspace/alpha/sub');
+    });
+    it('Codex の account は Codex の組から名前か id で引き、その id を start に渡す', async () => {
+      const userHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mcp-user-'));
+      try {
+        const codexStore = new AccountStore({ home, primaryDir: path.join(userHome, '.codex'), homeDir: userHome, file: 'codex-accounts.json', dirPrefix: '.codex-' });
+        const work = codexStore.add({ name: '仕事' });
+        deps = { ...deps, codexAccounts: codexStore, runs: { ...deps.runs, agentEnabled: () => true } };
+        const r = await call('create_session', { project_id: 'p1', agent: 'codex', account: '仕事' });
+        expect(started[0]!.account).toBe(work.id);
+        expect(r).toMatchObject({ account: '仕事' });
+        await call('create_session', { project_id: 'p1', agent: 'codex', account: work.id });
+        expect(started[1]!.account).toBe(work.id);
+        expect(() => call('create_session', { project_id: 'p1', agent: 'codex', account: '個人' })).toThrow(/メイン.*仕事/);
+        // 省けば何も渡さない（runs.start が Codex のいまのアカウントで起こす）。
+        await call('create_session', { project_id: 'p1', agent: 'codex' });
+        expect(started[2]!.account).toBeUndefined();
+      } finally { fs.rmSync(userHome, { recursive: true, force: true }); }
+    });
+  });
   it('create_session は、起動の口が断った理由（この PC に無いモデルと、使えるモデル）をそのまま返す', async () => {
     const why = 'opencode を起動できませんでした: lmstudio/qwen3.6-35b-a3b はこの PC にありません。使えるのは: lmstudio/gemma';
     deps = { ...deps, runs: { start: async () => { throw new RunError(400, why); }, agentEnabled: () => true } };

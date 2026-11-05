@@ -149,6 +149,7 @@ function settled(prev: State, r: Step, store: Store): Step {
  */
 function fetchDirsOnOpen(prev: State, r: Step): Step {
   const k = r.state.overlay.kind;
-  const opened = (k === 'newSession' || k === 'newProject') && prev.overlay.kind !== k;
+  // 予定の画面のフォームも、新しいセッションと同じプロジェクトの札を出すので、画面を開いたときに取る。
+  const opened = ((k === 'newSession' || k === 'newProject') && prev.overlay.kind !== k) || (r.state.screen.name === 'schedules' && prev.screen.name !== 'schedules');
   return opened ? { ...r, effects: [...r.effects, { kind: 'api.workspaceDirs' }] } : r;
 }

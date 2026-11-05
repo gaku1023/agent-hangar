@@ -71,10 +71,10 @@ const dirCount = (text: string) => text.split('\n').filter((d) => d.trim()).leng
  * 札と、押すと開く小さい面。面の見出しは札の名前で、開く元は SettingChip である。
  * 面の高さは開く側の空きまでに抑え（bounded）、見出しを残して中身を送る。長い一覧（Codex のモデル）が窓の外へ出ないためである。
  */
-function ChipPopover(props: { name: string; value: string; tone?: 'default' | 'muted' | 'danger'; icon?: IconName; lead?: ReactNode; dot?: string; badge?: string; showName?: boolean; width?: number; defaultOpen?: boolean; agentOnly?: AgentUiCap; children: (close: () => void) => ReactNode }) {
+function ChipPopover(props: { name: string; value: string; tone?: 'default' | 'muted' | 'danger'; icon?: IconName; lead?: ReactNode; dot?: string; badge?: string; suffix?: string; showName?: boolean; width?: number; defaultOpen?: boolean; agentOnly?: AgentUiCap; children: (close: () => void) => ReactNode }) {
   return (
     <Popover label={props.name} width={props.width ?? 240} align="start" className="launch-pop" bounded defaultOpen={props.defaultOpen}
-      face={(p) => <SettingChip name={props.name} value={props.value} showName={props.showName ?? true} tone={props.tone} icon={props.icon} lead={props.lead} dot={props.dot} badge={props.badge} {...(props.agentOnly ? agentOnlyAttr(props.agentOnly) : {})} {...p} />}>
+      face={(p) => <SettingChip name={props.name} value={props.value} showName={props.showName ?? true} tone={props.tone} icon={props.icon} lead={props.lead} dot={props.dot} badge={props.badge} suffix={props.suffix} {...(props.agentOnly ? agentOnlyAttr(props.agentOnly) : {})} {...p} />}>
       {({ close }) => (
         <>
           <div className="pick-head">{props.name}</div>
@@ -143,6 +143,8 @@ export function LaunchChips(props: {
   account?: { value: string; options: LaunchAccountOption[]; onChange: (value: string) => void };
   /** 前回の権限モード。一覧のその行に「前回」を添える。 */
   previousPermission?: string;
+  /** worktree の札の値の後ろに添える淡い文字（予定は回ごとに日時が付くので「-MMDD-HHmm」）。 */
+  worktreeSuffix?: string;
 }) {
   const t = useT();
   const { values, onChange } = props;
@@ -198,7 +200,7 @@ export function LaunchChips(props: {
           <ChipPopover name={t('launch.permission.label')} value={permissionLabel(values.permissionMode, t)} tone={bypass ? 'danger' : values.permissionMode === PERMISSION_DEFAULT ? 'muted' : 'default'} icon={bypass ? 'warning' : undefined} agentOnly="permissionMode">
             {(close) => <PermissionList value={values.permissionMode} previous={props.previousPermission} onChange={(v) => { onChange({ permissionMode: v }); close(); }} />}
           </ChipPopover>
-          <ChipPopover name={t('launch.chip.worktree')} value={values.worktree.trim() || none} tone={values.worktree.trim() ? 'default' : 'muted'} width={280} agentOnly="worktree">
+          <ChipPopover name={t('launch.chip.worktree')} value={values.worktree.trim() || none} suffix={values.worktree.trim() ? props.worktreeSuffix : undefined} tone={values.worktree.trim() ? 'default' : 'muted'} width={280} agentOnly="worktree">
             {(close) => <TextEditor name={t('launch.chip.worktree')} placeholder={t('launch.edit.worktreePlaceholder')} value={values.worktree} onChange={(v) => onChange({ worktree: v })} close={close} mono />}
           </ChipPopover>
         </>

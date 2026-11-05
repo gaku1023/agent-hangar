@@ -1,4 +1,4 @@
-import type { InvestigateContext, NewSessionSeed, LinkConflictsDto, ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, NonDefaultAgentKind, ProjectPlace, ProjectRailSection, ResolveAction, PhoneLaunchDto, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto } from '@agent-hangar/shared';
+import type { InvestigateContext, NewSessionSeed, LinkConflictsDto, ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, NonDefaultAgentKind, ProjectPlace, ProjectRailSection, ResolveAction, PhoneLaunchDto, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto, ScheduleInput, SchedulePatch } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { PanesState } from './panes.ts';
 import type { CloudMemberCommand } from '../runtime/cloudMember.ts';
@@ -153,6 +153,8 @@ export type Effect =
   | { kind: 'api.promote'; sessionId: string; name: string; gitInit: boolean; moveFiles: boolean; parent?: string }
   | { kind: 'api.createProject'; place: ProjectPlace; startSession: boolean }
   | { kind: 'api.createProjectThenLaunch'; place: ProjectPlace; params: LaunchParams }
+  // 予定の作成と更新。place があれば、先にそのフォルダを登録し、その id を送り先の projectId にして送る。
+  | { kind: 'api.saveSchedule'; place?: ProjectPlace; save: { op: 'create'; input: ScheduleInput } | { op: 'update'; id: string; patch: SchedulePatch } }
   | { kind: 'api.workspaceDirs' }
   // Claude Code と会話したフォルダの候補を取る。答えは Store の folderCandidates に入る。
   | { kind: 'api.folderCandidates' }

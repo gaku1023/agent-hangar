@@ -37,6 +37,12 @@ a.sch-run-name:hover { text-decoration: underline; }
 .sch-day:active { transform: scale(0.9); }
 .sch-minutes { width: 72px; }
 .sch-session { max-width: 420px; }
+.sch-form > .sch-grow { justify-self: stretch; }
+.sch-launch { display: grid; gap: calc(var(--u) * 2.5); padding: 2px; }
+.sch-form .faint { font-size: var(--fs-sm); }
+.sch-chips { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); }
+.sch-chip { cursor: default; background: var(--surface-2); }
+.sch-chip:hover:not(:disabled) { background: var(--surface-2); }
 .sch-foot { justify-self: end; display: flex; gap: calc(var(--u) * 1.5); }
 @media (max-width: 720px) {
   .sch-head { grid-template-columns: auto minmax(0, 1fr) auto; }

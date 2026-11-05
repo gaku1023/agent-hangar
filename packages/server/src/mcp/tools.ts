@@ -49,6 +49,8 @@ export type ToolDeps = {
   usage: () => UsageDto;
   /** アカウントの口。無ければ get_usage は最初のアカウントの値だけを返し、create_session はアカウントを選ばない（runs.start がいまのアカウントで起こす）。 */
   accounts?: { store: Pick<AccountStore, 'list' | 'current' | 'get'>; usage: { of(accountId: string): UsageDto } };
+  /** Codex のアカウントの組。無ければ Codex の account は引けず、断る（省けば runs.start がいまのアカウントで起こす）。 */
+  codexAccounts?: Pick<AccountStore, 'list' | 'get' | 'current'>;
   /** 道具の説明と結果の文の言語。渡さなければ日本語で出す。 */
   language?: GetLanguage;
   /** notify_user の出し先の設定（notifyPreference と、古いスイッチの unreadBadge、unreadOs、unreadPhone）。無ければ既定（全部入り）として読む。 */
@@ -461,12 +463,18 @@ const newPrepKey = (): string => `mcp-${randomUUID().replaceAll('-', '')}`;
  * worktree と add_dirs も start にそのまま渡す。意味は UI の新規ダイアログと同じ（worktree は claude の --worktree に渡す名前、add_dirs は --add-dir の追加ディレクトリ）。
  * Claude Code だけのもので、Codex と opencode に付けると start が UI と同じ文で断る（黙って捨てない）。
  * 知らない agent と、設定で有効でない agent は、黙って Claude Code にせず、start の前に UI と同じ文で断る。
+ * auto_approve は opencode だけ（start の autoApprove。opencode の --auto）で、Claude Code と Codex に付けると断る。
+ * scratch: true で project_id が無ければクイックセッションを起こす。プロジェクトを固定した URL では、そのプロジェクトの外を起こせないので断る。
+ * cwd は MCP のスキーマに出さない内部の引数で、予定が登録済みのプロジェクトの下のフォルダを渡すのに使う。
  */
 export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
-  const projectId = projectIdOf(deps, ctx, args);
+  const quick = bool(args.scratch) === true && !str(args.project_id);
+  if (quick && projectScope(deps, ctx, args) !== undefined) throw new ToolError(msg('schedules.error.scratchScoped'));
+  const projectId = quick ? undefined : projectIdOf(deps, ctx, args);
   const agent = args.agent;
   if (agent !== undefined && !isAgentKind(agent)) throw new ToolError(msg('run.agent.unknown', { agent: String(agent).slice(0, 40) }));
   if (agent !== undefined && agent !== 'claude-code' && !(deps.runs.agentEnabled?.(agent) ?? false)) throw new ToolError(msg('run.agent.disabled', { label: agentEnabledLabel(agent) }));
+  if (bool(args.auto_approve) === true && (agent ?? 'claude-code') !== 'opencode') throw new ToolError(msg('mcp.createSession.autoApproveOpencodeOnly'));
   const account = launchAccount(deps, ctx, args.account, agent ?? 'claude-code');
   // 準備をするのは ID を後で決める driver（opencode、Codex）だけで、Claude Code には鍵を付けない。
   const key = agent !== undefined && agent !== 'claude-code' ? newPrepKey() : undefined;
@@ -481,6 +489,7 @@ export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
     effort: str(args.effort), permissionMode: str(args.permission_mode), scratch: bool(args.scratch),
     agent, mode: str(args.mode), ...(account ? { account: account.id } : {}),
     worktree: str(args.worktree), addDirs: strs(args.add_dirs), ...(key ? { prepKey: key } : {}),
+    ...(bool(args.auto_approve) === true ? { autoApprove: true } : {}), ...(str(args.cwd) ? { cwd: str(args.cwd) } : {}),
   }, { onPending: (id) => { pending = id; } }));
   return awaitLaunch(deps, ctx, launch, {
     key, name: str(args.name) ?? agent ?? '', sessionId: () => pending,
@@ -495,7 +504,8 @@ export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
 }
 
 /**
- * create_session で起こすアカウント。Claude Code のときだけ選び、ほかのエージェントでは null（アカウントを持たない）。
+ * create_session で起こすアカウント。Claude Code と Codex だけが選び、opencode では null（アカウントを持たない）。
+ * Codex は、明示されたら Codex の組（deps.codexAccounts）から名前か id で引く。省けば null で、runs.start が Codex のいまのアカウントで起こす。
  * 明示されたら名前か id で引く。知らないものは、使える名前を添えて断る。黙っていまのアカウントで起こすと、頼まれたのと違う枠を使うためである。
  * 省けば、呼んだセッションがこの PC で最後に使ったアカウントを引き継ぐ。別セッションを起こしてと頼んだ会話と同じ枠で続けるのが自然なためである。
  * ヘッダで選んでいるアカウント（store.current）は最後に画面で選んだものにすぎず、呼んだ会話とは関係が無い。
@@ -504,6 +514,11 @@ export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
  */
 function launchAccount(deps: ToolDeps, ctx: ToolContext, given: unknown, agent: AgentKind): Account | null {
   const name = str(given);
+  if (agent === 'codex') {
+    if (name === undefined) return null;
+    if (!deps.codexAccounts) throw new ToolError(msg('mcp.createSession.accountUnknown', { account: name.slice(0, 40), names: [] }));
+    return accountNamed(deps.codexAccounts, name);
+  }
   if (agent !== 'claude-code') {
     if (name !== undefined) throw new ToolError(msg('mcp.createSession.accountClaudeOnly'));
     return null;
@@ -516,7 +531,7 @@ function launchAccount(deps: ToolDeps, ctx: ToolContext, given: unknown, agent: 
 }
 
 /** 名前か id でアカウントを引く。知らなければ、使える名前を添えて断る。create_session と resume_session が共有する。 */
-function accountNamed(store: Pick<AccountStore, 'list' | 'get'>, name: string): Account {
+export function accountNamed(store: Pick<AccountStore, 'list' | 'get'>, name: string): Account {
   const all = store.list();
   const hit = store.get(name) ?? all.find((a) => a.name === name);
   if (!hit) throw new ToolError(msg('mcp.createSession.accountUnknown', { account: name.slice(0, 40), names: all.map((a) => a.name) }));

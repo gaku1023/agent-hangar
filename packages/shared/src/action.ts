@@ -149,7 +149,8 @@ export type UiAction =
   // 定期の実行（#549）。画面の正は後から届く schedules.update である。
   // Paused の会話を今すぐ起こす。止まっていれば再開し、理由を入力として渡して、Active にする。
   | { type: 'session.tryNow'; id: SessionId }
-  | { type: 'schedule.create'; input: ScheduleInput } | { type: 'schedule.update'; id: string; patch: SchedulePatch }
+  // place があるときは、先にそのフォルダをプロジェクトに登録し（新しいセッションの起動と同じ道筋）、その id を新しい会話の送り先の projectId にして送る。
+  | { type: 'schedule.create'; input: ScheduleInput; place?: ProjectPlace } | { type: 'schedule.update'; id: string; patch: SchedulePatch; place?: ProjectPlace }
   | { type: 'schedule.delete'; id: string } | { type: 'schedule.run'; id: string }
   | { type: 'deleteApproval.answer'; id: string; answer: 'approve' | 'reject' | 'dismiss' }
   // 移す先を選ぶダイアログと、削除の確認を開く（セッションのメニューの「プロジェクトを変更…」と「削除…」）。決めたら session.move と session.delete を送る。

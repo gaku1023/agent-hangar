@@ -1,4 +1,4 @@
-import type { ScheduleTarget } from '@agent-hangar/shared';
+import type { AgentKind, ScheduleTarget } from '@agent-hangar/shared';
 import { getSession } from '../db/queries.ts';
 import { MessageError, msg } from '../i18n/message.ts';
 import { sendToSessionTool } from '../mcp/screenTools.ts';
@@ -18,10 +18,37 @@ const nameOf = (prompt: string): string => {
   return cs.length > NAME_MAX ? `${cs.slice(0, NAME_MAX - 1).join('')}…` : cs.join('');
 };
 
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+
+/** 回ごとの worktree の名前。予定の時刻を手元の時刻で MMDD-HHmm にして付ける。遅れて走った回も、走った時刻でなく予定の時刻で付く。 */
+export function worktreeForRun(base: string, plannedAt: number): string {
+  const d = new Date(plannedAt);
+  return `${base}-${pad2(d.getMonth() + 1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(d.getMinutes())}`;
+}
+
+/**
+ * 予定の account（id）がいまの組にまだあるか。無ければ、別のアカウントで黙って起こさず、その回を失敗にする。
+ * 組が渡されていない（アカウントを使わない構成）ときも、頼まれた枠で起こせないので同じ扱いにする。
+ */
+function checkAccount(deps: ToolDeps, agent: AgentKind, id: string): void {
+  const store = agent === 'codex' ? deps.codexAccounts : agent === 'claude-code' ? deps.accounts?.store : undefined;
+  if (!store?.get(id)) throw new MessageError(msg('schedules.error.accountGone'));
+}
+
 /** 予定を流す。新しい会話を起こすか、既存の会話へ送る。動いている会話には送らず 'busy' を返す。止まっている会話は再開してから送る。 */
-export async function launchScheduled(deps: ToolDeps, s: { prompt: string; target: ScheduleTarget }, clock: WaitClock = REAL): Promise<{ sessionId: string } | 'busy'> {
+export async function launchScheduled(deps: ToolDeps, s: { prompt: string; target: ScheduleTarget; plannedAt: number }, clock: WaitClock = REAL): Promise<{ sessionId: string } | 'busy'> {
   if (s.target.kind === 'new') {
-    const r = await createSessionTool(deps, CTX, { project_id: s.target.projectId, prompt: s.prompt, name: nameOf(s.prompt), ...(s.target.agent ? { agent: s.target.agent } : {}) }) as { session_id: string };
+    const t = s.target;
+    if (t.account) checkAccount(deps, t.agent ?? 'claude-code', t.account);
+    // 項目は create_session の引数の名前に写す。あるものだけを渡し、渡さなかったものは create_session の既定に任せる。
+    const r = await createSessionTool(deps, CTX, {
+      ...(t.projectId ? { project_id: t.projectId } : {}), ...(t.scratch ? { scratch: true } : {}),
+      prompt: s.prompt, name: t.name ?? nameOf(s.prompt),
+      ...(t.agent ? { agent: t.agent } : {}), ...(t.account ? { account: t.account } : {}), ...(t.model ? { model: t.model } : {}),
+      ...(t.effort ? { effort: t.effort } : {}), ...(t.permissionMode ? { permission_mode: t.permissionMode } : {}),
+      ...(t.worktree ? { worktree: worktreeForRun(t.worktree, s.plannedAt) } : {}), ...(t.addDirs?.length ? { add_dirs: t.addDirs } : {}),
+      ...(t.mode ? { mode: t.mode } : {}), ...(t.autoApprove ? { auto_approve: true } : {}), ...(t.cwd ? { cwd: t.cwd } : {}),
+    }) as { session_id: string };
     return { sessionId: r.session_id };
   }
   const id = s.target.sessionId;

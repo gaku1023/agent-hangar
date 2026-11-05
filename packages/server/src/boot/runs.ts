@@ -32,6 +32,7 @@ import { accountOfProviderSession } from '../usage/accountOf.ts';
 import { AgentUsageTracker } from '../usage/agentUsage.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { createCodexUsage, type CodexUsage } from '../provider/codex/usage.ts';
+import { accountNamerOf } from '../schedule/store.ts';
 import { codexAccounts } from '../provider/codex/account.ts';
 import { CodexAccountAuth } from '../provider/codex/accountAuth.ts';
 import { defaultCodexHome } from '../provider/codex/transcript/discover.ts';
@@ -111,7 +112,7 @@ export type RunsParts = {
  */
 export function bootRuns(
   home: Pick<HomeParts, 'home' | 'token' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language' | 'life'>,
-  delivery: Pick<DeliveryParts, 'hub' | 'live' | 'agents' | 'claude' | 'bindCodexUsage' | 'compatLog' | 'claudeVersion' | 'osNotices'>,
+  delivery: Pick<DeliveryParts, 'hub' | 'live' | 'agents' | 'claude' | 'bindCodexUsage' | 'compatLog' | 'claudeVersion' | 'osNotices'> & Partial<Pick<DeliveryParts, 'publisher'>>,
   listening: { host: string; port: number },
   o: { serverDir: string; launcher?: string },
 ): RunsParts {
@@ -226,6 +227,8 @@ export function bootRuns(
     codex: { store: codexAccountStore, primaryDir: codexPrimaryDir, auth: codexAuth, service: codexAccounts, enabled: codexOn },
     broadcast: (dto) => hub.broadcast({ type: 'accounts.update', accounts: dto }),
   };
+  // 予定の札に出すアカウントの表示名を、配る層が引けるようにする。
+  delivery.publisher?.setAccountNamer(accountNamerOf(accounts));
   // 認証を読み終えたとき、ログインが始まって終わったときに、画面へ配る。
   accountAuth.setOnChange(() => accounts.broadcast(buildAccountsDto(accounts)));
   // Codex の認証を読み終えたとき、ログインの状態が変わったとき（成功したら読み直す）も同じ道で配る。

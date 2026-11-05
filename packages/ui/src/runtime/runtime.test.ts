@@ -649,6 +649,30 @@ describe('起動とターミナル', () => {
     expect(rt.getStore().projects.p9).toEqual(created);
     expect(rt.getState()).toMatchObject({ launch: { kind: 'idle' }, screen: { name: 'session', id: 's1' } });
   });
+  it('place 付きの予定の保存は、登録してから、登録したプロジェクトを送り先にして作る（更新）', async () => {
+    const createProject = vi.fn(async () => created);
+    const createSchedule = vi.fn(async () => ({}));
+    const updateSchedule = vi.fn(async () => ({}));
+    const { rt } = harness({ createProject, createSchedule, updateSchedule });
+    rt.start();
+    const place = { kind: 'dir' as const, path: '/w/fresh' };
+    const target = { kind: 'new' as const, projectId: '', model: 'opus' };
+    rt.emit({ type: 'schedule.create', input: { prompt: 'p', spec: { kind: 'every', minutes: 30 }, target }, place });
+    await flush();
+    expect(createProject).toHaveBeenCalledWith(place);
+    expect(createSchedule).toHaveBeenCalledWith({ prompt: 'p', spec: { kind: 'every', minutes: 30 }, target: { kind: 'new', projectId: 'p9', model: 'opus' } });
+    rt.emit({ type: 'schedule.update', id: 's1', patch: { target }, place });
+    await flush();
+    expect(updateSchedule).toHaveBeenCalledWith('s1', { target: { kind: 'new', projectId: 'p9', model: 'opus' } });
+  });
+  it('place 付きの予定の保存で登録に失敗したら、予定は作らない', async () => {
+    const createSchedule = vi.fn(async () => ({}));
+    const { rt } = harness({ createProject: vi.fn(async () => { throw new Error('/w/x はすでにあります'); }), createSchedule });
+    rt.start();
+    rt.emit({ type: 'schedule.create', input: { prompt: 'p', spec: { kind: 'every', minutes: 30 }, target: { kind: 'new', projectId: '' } }, place: { kind: 'newDir', name: 'x', gitInit: false } });
+    await flush();
+    expect(createSchedule).not.toHaveBeenCalled();
+  });
   it('作れた後に起動だけ失敗したら、作ったプロジェクトを失敗の状態に持つ', async () => {
     const { rt } = harness({ createProject: vi.fn(async () => created), launch: vi.fn(async () => { throw new Error('tmux が未検出'); }) });
     rt.start();

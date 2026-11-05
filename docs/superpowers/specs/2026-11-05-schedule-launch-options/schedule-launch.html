@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>予定の起動設定 試作</title>
+<link rel="stylesheet" href="../../../../packages/ui/src/styles/tokens.css">
+<link rel="stylesheet" href="../../../../packages/ui/src/styles/base.css">
+<link rel="stylesheet" href="../../../../packages/ui/src/styles/controls.css">
+<link rel="stylesheet" href="../../../../packages/ui/src/styles/schedules.css">
+<style>
+  body { background: var(--bg); overflow: auto; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 24px 20px 80px; display: grid; gap: 18px; }
+  .proto-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: var(--fs-sm); color: var(--ink-3); }
+  .proto-bar button { height: 28px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-strong); background: #fff; font: inherit; font-weight: 600; color: var(--ink-2); cursor: pointer; }
+  .proto-bar button[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .proto-note { font-size: var(--fs-sm); color: var(--ink-3); line-height: 1.6; }
+  h1.pt { margin: 0; font-size: 20px; }
+  .pick { position: relative; display: inline-flex; }
+  .menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; min-width: 200px; padding: 6px; border-radius: 12px; background: #fff; box-shadow: 0 12px 32px -8px rgba(30,40,90,.28), 0 0 0 1px var(--line); display: grid; animation: pop .16s var(--ease-out); }
+  @keyframes pop { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
+  .menu .mh { padding: 4px 10px 6px; font-size: var(--fs-xs); color: var(--ink-3); font-weight: 600; }
+  .menu button { text-align: left; border: 0; background: none; padding: 7px 10px; border-radius: 8px; font: inherit; font-size: var(--fs-sm); cursor: pointer; display: flex; gap: 8px; align-items: center; }
+  .menu button:hover { background: var(--surface-2); }
+  .menu button[aria-selected='true'] { color: var(--accent); font-weight: 600; }
+  .menu small { color: var(--ink-3); margin-left: auto; }
+  .menu input, .menu textarea { margin: 4px; font: inherit; }
+  .chip-in { animation: chipIn .22s var(--ease-out) both; }
+  @keyframes chipIn { from { opacity: 0; transform: translateY(3px) scale(.96); } }
+  .sch-dest { display: grid; gap: 10px; justify-items: start; }
+  .wt-suffix { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); font-weight: 500; }
+  .btn-danger-fill { background: var(--error); color: #fff; }
+  .set-chip[data-tone='danger'] { color: var(--error); box-shadow: inset 0 0 0 1.5px var(--error); }
+  .chips-ro { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips-ro .set-chip { cursor: default; background: var(--surface-2); box-shadow: none; }
+  .sec-label { font-size: var(--fs-xs); color: var(--ink-3); font-weight: 600; }
+  .ico { width: 13px; height: 13px; display: inline-block; border-radius: 3px; background: var(--ink-3); opacity: .55; }
+  .ico.agent { width: 14px; height: 14px; border-radius: 50%; }
+  .ico.cc { background: #d97757; opacity: 1; } .ico.cx { background: #222; opacity: 1; } .ico.oc { background: #4c8bf5; opacity: 1; }
+  .chev { font-size: 10px; color: var(--ink-3); }
+  .grow { display: grid; grid-template-rows: 1fr; transition: grid-template-rows var(--dur) var(--ease-out), opacity var(--dur) var(--ease-out); }
+  .grow.closed { grid-template-rows: 0fr; opacity: 0; }
+  .grow > div { overflow: hidden; }
+  .grow:not(.closed) > div { overflow: visible; }
+  .sch-list, .sch-row { overflow: visible; }
+  .listbox-opt .ico { flex: none; }
+  .listbox-check { visibility: hidden; color: var(--accent); }
+  .listbox-opt[aria-selected='true'] .listbox-check { visibility: visible; }
+  .listbox-pop { animation: listbox-in var(--dur-fast) var(--ease-out); }
+  .seg-plain { display: inline-flex; padding: 3px; border-radius: 999px; background: rgba(30,40,90,.06); }
+  .seg-plain button { height: 22px; padding: 0 10px; border: 0; border-radius: 999px; background: none; font: inherit; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); cursor: pointer; transition: background .15s, box-shadow .15s; }
+  .seg-plain button[aria-checked='true'] { background: #fff; color: var(--ink); box-shadow: 0 2px 6px rgba(30,40,90,.14); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="proto-note" id="note"></div>
+
+  <h1 class="pt">予定</h1>
+  <div class="sch-list">
+    <div id="form"></div>
+    <div class="sch-row">
+      <div class="sch-head"><span class="sch-dot" style="width:9px;height:9px"></span><button class="sch-title">依存の脆弱性を調べて、直せるものは PR にする</button><span class="sch-when">毎週 月 09:00</span><span class="sch-next faint">11/10 09:00</span><span class="sch-dots"><i class="sch-dot"></i><i class="sch-dot"></i><i class="sch-dot"></i></span></div>
+      <div class="sch-detail">
+        <div class="chips-ro">
+          <span class="set-chip"><i class="ico agent cc"></i>Claude Code</span>
+          <span class="set-chip"><i class="ico"></i>agent-hangar</span>
+          <span class="set-chip">work@example</span>
+          <span class="set-chip">opus</span>
+          <span class="set-chip">high</span>
+          <span class="set-chip">acceptEdits</span>
+          <span class="set-chip">deps-audit<span class="wt-suffix">-月日-時分</span></span>
+        </div>
+        <div class="sch-full">依存の脆弱性を調べて、直せるものは PR にする</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const S = {
+  v: 'A', dest: 'new', agent: 'cc', project: 'agent-hangar', account: 'work@example',
+  model: 'opus', effort: 'high', perm: 'acceptEdits', worktree: 'deps-audit', name: '', addDirs: '',
+  cxModel: 'gpt-5-codex', cxEffort: 'medium', cxPerm: 'auto', cxAccount: 'personal',
+  ocMode: 'build', ocModel: 'lmstudio/qwen3.5-9b', ocAuto: false, session: '予定の改修の相談',
+  open: null, kind: 'weekly', extra: [],
+};
+const AG = { cc: 'Claude Code', cx: 'Codex', oc: 'opencode' };
+const NOTES = {
+  A: '今のフォームの並び（指示 → いつ → 送り先）のまま、送り先が「新しい会話」のときに select の代わりに新規ダイアログの札の列を出す。',
+  B: '新規ダイアログと同じく、指示のすぐ下に札の列。送り先の切り替えは「いつ」の後。既存の会話を選ぶと札の列が畳まれる。',
+  C: '送り先の Segmented を無くし、先頭の札（プロジェクトの札）に「既存の会話」も入れる。既存の会話を選ぶと残りの札が消える。',
+};
+const menus = {
+  agent: () => ({ h: 'エージェント', items: Object.entries(AG).map(([k, l]) => [k, l]), cur: S.agent, set: (v) => { S.agent = v; } }),
+  project: () => ({ h: 'プロジェクト', items: [['__quick', 'クイックセッション'], ['agent-hangar', 'agent-hangar'], ['CIT-Code', 'CIT-Code'], ['dotfiles', 'dotfiles']], cur: S.project, set: (v) => { S.project = v; } }),
+  lead: () => ({ h: '送り先', items: [['__quick', 'クイックセッション'], ['agent-hangar', 'agent-hangar'], ['CIT-Code', 'CIT-Code'], ['---', '既存の会話'], ['s:予定の改修の相談', '予定の改修の相談'], ['s:Windows の移植', 'Windows の移植']], cur: S.dest === 'session' ? 's:' + S.session : S.project, set: (v) => { if (v.startsWith('s:')) { S.dest = 'session'; S.session = v.slice(2); } else { S.dest = 'new'; S.project = v; } } }),
+  account: () => S.agent === 'cx'
+    ? { h: 'Codex のアカウント', items: [['personal', 'personal'], ['team', 'team']], cur: S.cxAccount, set: (v) => { S.cxAccount = v; } }
+    : { h: 'アカウント', items: [['work@example', 'work@example'], ['home@example', 'home@example']], cur: S.account, set: (v) => { S.account = v; } },
+  model: () => S.agent === 'cx'
+    ? { h: 'モデル', items: [['gpt-5-codex', 'gpt-5-codex'], ['gpt-5', 'gpt-5']], cur: S.cxModel, set: (v) => { S.cxModel = v; } }
+    : S.agent === 'oc'
+      ? { h: 'モデル', items: [['lmstudio/qwen3.5-9b', 'lmstudio/qwen3.5-9b'], ['anthropic/claude-sonnet-5-5', 'anthropic/claude-sonnet-5-5']], cur: S.ocModel, set: (v) => { S.ocModel = v; } }
+      : { h: 'モデル', items: [['', '既定'], ['opus', 'opus'], ['sonnet', 'sonnet'], ['haiku', 'haiku']], cur: S.model, set: (v) => { S.model = v; } },
+  effort: () => S.agent === 'cx'
+    ? { h: 'effort', items: [['low', 'low'], ['medium', 'medium'], ['high', 'high']], cur: S.cxEffort, set: (v) => { S.cxEffort = v; } }
+    : { h: 'effort', items: [['', '既定'], ['low', 'low'], ['medium', 'medium'], ['high', 'high'], ['xhigh', 'xhigh'], ['max', 'max']], cur: S.effort, set: (v) => { S.effort = v; } },
+  perm: () => S.agent === 'cx'
+    ? { h: '権限', items: [['read-only', 'read-only'], ['auto', 'auto'], ['full-access', 'full-access']], cur: S.cxPerm, set: (v) => { S.cxPerm = v; } }
+    : { h: '権限モード', items: [['', '既定'], ['acceptEdits', 'acceptEdits'], ['plan', 'plan'], ['auto', 'auto'], ['bypassPermissions', 'Bypass permissions']], cur: S.perm, set: (v) => { S.perm = v; } },
+  mode: () => ({ h: 'モード', items: [['build', 'build'], ['plan', 'plan']], cur: S.ocMode, set: (v) => { S.ocMode = v; } }),
+  add: () => ({ h: '足す', items: [['name', '名前'], ['addDirs', '追加ディレクトリ'], ...(S.worktree ? [] : [['worktree', 'worktree']])], cur: null, set: (v) => { if (!S.extra.includes(v)) S.extra.push(v); if (v === 'worktree') S.worktree = 'nightly'; if (v === 'name') S.name = '脆弱性の点検'; if (v === 'addDirs') S.addDirs = '~/workspace/dotfiles'; } }),
+};
+let prevAgent = S.agent;
+const chip = (key, inner, tone) => `<span class="pick"><button type="button" class="set-chip" data-m="${key}" ${tone ? `data-tone="${tone}"` : ''} aria-expanded="${S.open === key}">${inner}<span class="chev">▾</span></button>${S.open === key ? menuHtml(key) : ''}</span>`;
+function menuHtml(key) {
+  const m = menus[key]();
+  return `<div class="menu"><div class="mh">${m.h}</div>${m.items.map(([v, l]) => v === '---' ? `<div class="mh" style="margin-top:6px">${l}</div>` : `<button data-pick="${key}" data-val="${v}" aria-selected="${m.cur === v}">${l}</button>`).join('')}</div>`;
+}
+function agentChips(withLead) {
+  const anim = prevAgent !== S.agent ? 'chip-in' : '';
+  const out = [];
+  out.push(chip('agent', `<i class="ico agent ${S.agent}"></i>${AG[S.agent]}`));
+  if (withLead) out.push(withLead);
+  const w = (h) => `<span class="${anim}">${h}</span>`;
+  if (S.agent === 'cc') {
+    out.push(w(chip('account', S.account)));
+    out.push(w(chip('model', S.model || 'モデル', S.model ? '' : 'muted')));
+    out.push(w(chip('effort', S.effort || 'effort', S.effort ? '' : 'muted')));
+    out.push(w(chip('perm', S.perm === 'bypassPermissions' ? 'Bypass permissions' : (S.perm || '権限モード'), S.perm === 'bypassPermissions' ? 'danger' : (S.perm ? '' : 'muted'))));
+    if (S.worktree) out.push(w(`<span class="pick"><button class="set-chip" data-m="wt">${S.worktree}<span class="wt-suffix">-月日-時分</span><span class="chev">×</span></button></span>`));
+    if (S.extra.includes('name')) out.push(w(`<span class="pick"><button class="set-chip"><span class="set-chip-name">名前</span>${S.name}</button></span>`));
+    if (S.extra.includes('addDirs')) out.push(w(`<span class="pick"><button class="set-chip"><span class="set-chip-name">+dir</span>${S.addDirs}</button></span>`));
+    out.push(`<span class="pick"><button class="set-add" data-m="add" aria-expanded="${S.open === 'add'}">＋</button>${S.open === 'add' ? menuHtml('add') : ''}</span>`);
+  } else if (S.agent === 'cx') {
+    out.push(w(chip('account', S.cxAccount)));
+    out.push(w(chip('model', S.cxModel)));
+    out.push(w(chip('effort', S.cxEffort)));
+    out.push(w(chip('perm', S.cxPerm, S.cxPerm === 'full-access' ? 'danger' : '')));
+  } else {
+    out.push(w(chip('mode', S.ocMode)));
+    out.push(w(chip('model', S.ocModel)));
+    out.push(w(`<label class="set-chip" style="cursor:pointer"><input type="checkbox" data-oc-auto ${S.ocAuto ? 'checked' : ''}> 自動承認</label>`));
+  }
+  return `<div class="launch-chips">${out.join('')}</div>`;
+}
+const PROJECTS = [
+  { v: 'agent-hangar', path: 'D:\\workspace\\agent-hangar', meta: '3 分前', recent: true },
+  { v: 'CIT-Code', path: 'D:\\workspace\\CIT-Code', meta: '昨日', recent: true },
+  { v: 'dotfiles', path: 'D:\\workspace\\dotfiles', meta: '11/1' },
+  { v: 'research-notes', path: null, meta: '10/28', other: true },
+  { v: 'old-site', path: 'D:\\workspace\\old-site', meta: '9/2', archived: true },
+];
+const DIRS = [{ v: 'dir:scratch-tools', name: 'scratch-tools', path: 'D:\\workspace\\scratch-tools' }];
+const projLabel = () => S.project === '__quick' ? 'クイックセッション' : S.project === '__new' ? (S.newName || '新しいディレクトリ') : S.project.startsWith('dir:') ? S.project.slice(4) : S.project;
+const hl = (s) => S.q ? s.replace(new RegExp(S.q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'), (m) => `<mark>${m}</mark>`) : s;
+function projPop() {
+  const q = (S.q || '').toLowerCase();
+  const hit = (s) => !q || (s || '').toLowerCase().includes(q);
+  const opt = (v, label, sub, opts = {}) => `<div class="listbox-opt" role="option" data-pick="project" data-val="${v}" aria-selected="${S.project === v}">${opts.icon ? `<i class="ico" style="background:${opts.icon}"></i>` : '<span class="st-dot" data-status="active"></span>'}<span class="listbox-opt-main"><b>${hl(label)}</b>${sub ? `<small data-kind="${opts.prose ? 'prose' : 'path'}">${opts.prose ? sub : hl(sub)}</small>` : ''}</span>${opts.tag ? `<span class="listbox-tag">${opts.tag}</span>` : ''}${opts.meta ? `<span class="listbox-meta">${opts.meta}</span>` : ''}<span class="listbox-check">✓</span></div>`;
+  const P = (p) => opt(p.v, p.v, p.path ?? '', { meta: p.meta, tag: p.other ? '他の PC' : p.archived ? 'Archived' : '' });
+  const vis = PROJECTS.filter((p) => hit(p.v) || hit(p.path)).filter((p) => !p.archived || q);
+  let rows = '';
+  if (!q) {
+    rows += `<div role="group"><div class="listbox-group-title">クイックスタート</div>${opt('__quick', 'クイックセッション', '名前を決めずに開始し、あとでプロジェクトにできます', { icon: '#c9b8f5', prose: true })}</div>`;
+    rows += `<div role="group"><div class="listbox-group-title">最近</div>${vis.filter((p) => p.recent).map(P).join('')}</div>`;
+    rows += `<div role="group"><div class="listbox-group-title">すべて</div>${vis.filter((p) => !p.recent).map(P).join('')}</div>`;
+  } else {
+    rows += [...(hit('クイックセッション') ? [opt('__quick', 'クイックセッション', '名前を決めずに開始し、あとでプロジェクトにできます', { icon: '#c9b8f5', prose: true })] : []), ...vis.map(P), ...DIRS.filter((d) => hit(d.name) || hit(d.path)).map((d) => opt(d.v, d.name, d.path, { icon: '#b9c0d4', tag: '未登録' }))].join('') || '<div class="listbox-empty">一致するものがありません</div>';
+  }
+  const word = (S.q || '').trim();
+  const taken = word && [...PROJECTS.map((p) => p.v), ...DIRS.map((d) => d.name)].some((n) => n.toLowerCase() === word.toLowerCase());
+  const acts = `<div class="listbox-acts" role="group">
+    <div class="listbox-act" data-act="new"><span>📁＋</span><span class="listbox-act-label">${word && !taken ? `新しいディレクトリ「${word}」を作成` : '新しいディレクトリを作成…'}</span>${word && !taken ? `<small>D:\\workspace\\${word}</small>` : ''}</div>
+    <div class="listbox-act" data-act="finder"><span>📂</span><span class="listbox-act-label">他のディレクトリを選択…</span><small>エクスプローラー</small></div></div>`;
+  return `<div class="listbox-pop" style="position:absolute;top:calc(100% + 6px);left:0;width:380px;max-height:380px">
+    <div class="listbox-search"><span>🔍</span><input id="pq" placeholder="名前かパスで検索" value="${S.q || ''}"></div>
+    <div class="listbox-body" role="listbox"><div class="listbox-rows">${rows}</div>${acts}</div>
+    <div class="listbox-keys"><span><kbd>↑</kbd><kbd>↓</kbd> 移動</span><span><kbd>Enter</kbd> 選択</span><span><kbd>Esc</kbd> 閉じる</span></div></div>`;
+}
+const projChip = () => {
+  const tone = S.project.startsWith('dir:') || S.project === '__new' ? '' : '';
+  const icon = S.project === '__quick' ? '<i class="ico" style="background:#c9b8f5;opacity:1"></i>' : S.project === '__new' ? '<span>📁＋</span>' : '<i class="ico"></i>';
+  const sub = S.project === '__new' ? `<small class="set-chip-sub">D:\\workspace\\${S.newName || ''}（新規作成）</small>` : '';
+  return `<span class="pick"><button type="button" class="set-chip" data-m="project" ${tone} aria-expanded="${S.open === 'project'}">${icon}<span class="set-chip-value">${projLabel()}</span>${sub}<span class="chev">▾</span></button>${S.open === 'project' ? projPop() : ''}</span>`;
+};
+const projExtra = () => {
+  if (S.project === '__new') return `<label class="field" style="justify-self:stretch;max-width:420px">ディレクトリ名<input class="input mono" id="nn" value="${S.newName || ''}" placeholder="my-project"></label>
+    <label class="check-card" style="display:flex;gap:8px"><input type="checkbox" checked> git init</label>`;
+  if (S.project.startsWith('dir:')) return `<div class="faint">D:\\workspace\\${S.project.slice(4)} はまだプロジェクトではありません。保存すると登録します</div>`;
+  if (S.project === 'research-notes') return `<div class="faint dir-note"><span><b>MacBook-Pro の research-notes</b> と同じ名前です。この PC のパスに関連付けます。</span><button class="linkish">新規作成</button></div>`;
+  return '';
+};
+const leadChip = () => S.dest === 'session'
+  ? chip('lead', `<i class="ico"></i>${S.session}`, 'linked')
+  : chip('lead', `<i class="ico"></i>${projLabel()}`);
+const sessionSel = `<select class="input sch-session"><option>予定の改修の相談</option><option>Windows の移植</option></select>`;
+const when = () => `
+  <div class="seg-plain" role="radiogroup">${[['weekly', '毎週'], ['every', 'N 分おき'], ['once', '1 回']].map(([k, l]) => `<button data-kind="${k}" aria-checked="${S.kind === k}">${l}</button>`).join('')}</div>
+  <div class="sch-line">${S.kind === 'weekly' ? `<div class="sch-days">${['月', '火', '水', '木', '金', '土', '日'].map((d, i) => `<button class="sch-day" aria-pressed="${i === 0}">${d}</button>`).join('')}</div><input class="input" type="time" value="09:00">` : S.kind === 'every' ? `<input class="input sch-minutes" type="number" value="60"><span>分おき</span>` : `<input class="input" type="date" value="2026-11-06"><input class="input" type="time" value="09:00">`}</div>`;
+const destSeg = () => `<div class="seg-plain" role="radiogroup"><button data-dest="new" aria-checked="${S.dest === 'new'}">新しい会話</button><button data-dest="session" aria-checked="${S.dest === 'session'}">既存の会話</button></div>`;
+const grow = (open, html) => `<div class="grow ${open ? '' : 'closed'}"><div>${html}</div></div>`;
+const bypass = () => (S.agent === 'cc' && S.perm === 'bypassPermissions');
+const foot = () => `<div class="sch-foot"><button class="btn btn-ghost">キャンセル</button><button class="btn ${bypass() ? 'btn-danger-fill' : 'btn-primary'}">${bypass() ? 'Bypass permissions で作成' : '作成'}</button></div>`;
+const prompt = `<textarea class="input sch-prompt" placeholder="指示">依存の脆弱性を調べて、直せるものは PR にする</textarea>`;
+function render() {
+  let h = '';
+  if (S.v === 'A') {
+    h = `${prompt}${when()}${destSeg()}
+      ${grow(S.dest === 'new', `<div style="display:grid;gap:10px;justify-items:start;overflow:visible">${agentChips(projChip())}${projExtra()}</div>`)}
+      ${grow(S.dest === 'session', sessionSel)}`;
+  } else if (S.v === 'B') {
+    h = `${prompt}${grow(S.dest === 'new', agentChips(projChip()))}${when()}${destSeg()}${grow(S.dest === 'session', sessionSel)}`;
+  } else {
+    h = `${prompt}${when()}${S.dest === 'session' ? `<div class="launch-chips">${leadChip()}</div>` : agentChips(leadChip())}`;
+  }
+  document.getElementById('form').innerHTML = `<div class="sch-form">${h}${foot()}</div>`;
+  prevAgent = S.agent;
+}
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'pq') { S.q = e.target.value; render(); const i = document.getElementById('pq'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+  if (e.target.id === 'nn') { S.newName = e.target.value; const pos = e.target.selectionStart; render(); const i = document.getElementById('nn'); i.focus(); i.setSelectionRange(pos, pos); }
+});
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.listbox-search')) return;
+  const act = e.target.closest('[data-act]');
+  if (act) { if (act.dataset.act === 'new') { S.project = '__new'; if ((S.q || '').trim()) S.newName = S.q.trim(); } else { S.project = 'dir:picked-folder'; } S.open = null; S.q = ''; render(); return; }
+  const t = e.target.closest('button, input, [data-pick]');
+  if (!t) { S.open = null; render(); return; }
+  if (t.id === 'nn') return;
+  if (t.dataset.v) { S.v = t.dataset.v; document.querySelectorAll('[data-v]').forEach((b) => b.setAttribute('aria-pressed', b === t)); S.open = null; render(); return; }
+  if (t.dataset.pick) { menus[t.dataset.pick]().set(t.dataset.val); S.open = null; S.q = ''; render(); return; }
+  if (t.dataset.m === 'wt') { S.worktree = ''; render(); return; }
+  if (t.dataset.m) { S.open = S.open === t.dataset.m ? null : t.dataset.m; render(); return; }
+  if (t.dataset.dest) { S.dest = t.dataset.dest; render(); return; }
+  if (t.dataset.kind) { S.kind = t.dataset.kind; render(); return; }
+  if (t.dataset.ocAuto !== undefined) { S.ocAuto = t.checked; return; }
+});
+if (location.hash === '#open') S.open = 'project';
+if (location.hash === '#search') { S.open = 'project'; S.q = 'scr'; }
+if (location.hash === '#newdir') { S.project = '__new'; S.newName = 'nightly-notes'; }
+render();
+</script>
+</body>
+</html>

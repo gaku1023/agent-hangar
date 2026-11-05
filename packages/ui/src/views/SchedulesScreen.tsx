@@ -9,6 +9,7 @@ import { useT } from './primitives/language.tsx';
 import { collapseOut, growIn, popMark } from './primitives/motionKit.ts';
 import { Segmented } from './primitives/Segmented.tsx';
 import { usePresence } from './primitives/usePresence.ts';
+import { scheduleTargetOf, useLaunchChoice, type LaunchBuilt } from './useLaunchChoice.tsx';
 
 /** 月曜を頭にした曜日の並び。値は Date.getDay()。 */
 const WEEK = [1, 2, 3, 4, 5, 6, 0];
@@ -16,16 +17,17 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const localDate = (ms: number) => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 const localTime = (ms: number) => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 
+/** 送り先が新しい会話のときの起動の項目（プロジェクト、エージェント、モデルなど）は、useLaunchChoice が持つ。 */
 type Draft = {
   prompt: string; kind: ScheduleSpec['kind']; days: number[]; time: string; minutes: string; date: string;
-  dest: ScheduleTarget['kind']; projectId: string; agent: string; sessionId: string;
+  dest: ScheduleTarget['kind']; sessionId: string;
 };
 
 function draftOf(props: SchedulesProps, row: ScheduleRow | null): Draft {
   const tomorrow = Date.now() + 86_400_000;
   const base: Draft = {
     prompt: '', kind: 'weekly', days: [1, 2, 3, 4, 5], time: '09:00', minutes: '30', date: localDate(tomorrow),
-    dest: 'new', projectId: props.projects[0]?.id ?? '', agent: 'claude-code', sessionId: props.sessions[0]?.id ?? '',
+    dest: 'new', sessionId: props.sessions[0]?.id ?? '',
   };
   if (!row) return base;
   const s = row.spec;
@@ -36,12 +38,12 @@ function draftOf(props: SchedulesProps, row: ScheduleRow | null): Draft {
     ...(s.kind === 'every' ? { minutes: String(s.minutes) } : {}),
     ...(s.kind === 'once' ? { date: localDate(s.at), time: localTime(s.at) } : {}),
     dest: t.kind,
-    ...(t.kind === 'new' ? { projectId: t.projectId, agent: t.agent ?? 'claude-code' } : { sessionId: t.sessionId }),
+    ...(t.kind === 'session' ? { sessionId: t.sessionId } : {}),
   };
 }
 
-/** 入力から送る形を組む。足りなければ null で、作成のボタンが押せない。 */
-function inputOf(d: Draft): ScheduleInput | null {
+/** 入力から送る形を組む。足りなければ null で、作成のボタンが押せない。new は新しい会話の札から組んだ起動の項目で、送り先が既存の会話のときは null。 */
+function inputOf(d: Draft, built: LaunchBuilt | null, blocked: boolean): ScheduleInput | null {
   if (!d.prompt.trim() || d.prompt.length > SCHEDULE_PROMPT_MAX) return null;
   let spec: ScheduleSpec;
   if (d.kind === 'weekly') {
@@ -56,7 +58,11 @@ function inputOf(d: Draft): ScheduleInput | null {
     if (!Number.isFinite(at) || at <= Date.now()) return null;
     spec = { kind: 'once', at };
   }
-  if (d.dest === 'new') return d.projectId ? { prompt: d.prompt, spec, target: { kind: 'new', projectId: d.projectId, ...(d.agent !== 'claude-code' ? { agent: d.agent } : {}) } } : null;
+  if (d.dest === 'new') {
+    // フォルダを選んだときは、保存の後にプロジェクトを登録する（mediator）。そのとき target の projectId は空で、登録した id に差し替わる。
+    if (!built || blocked || !(built.params.scratch || built.params.projectId || built.place)) return null;
+    return { prompt: d.prompt, spec, target: scheduleTargetOf(built.params) };
+  }
   return d.sessionId ? { prompt: d.prompt, spec, target: { kind: 'session', sessionId: d.sessionId } } : null;
 }
 
@@ -65,10 +71,17 @@ function ScheduleForm(props: SchedulesProps & { row: ScheduleRow | null; onClose
   const t = useT();
   const [d, setD] = useState<Draft>(() => draftOf(props, props.row));
   const set = (p: Partial<Draft>) => setD((cur) => ({ ...cur, ...p }));
-  const input = inputOf(d);
+  // 新しい会話の札は新しいセッションのダイアログと同じ部品で、前回値と下書きは持ち込まない。作るときは、最初のプロジェクト（無ければクイックセッション）を選んでおく。
+  const saved = props.row?.target.kind === 'new' ? props.row.target : null;
+  const first = props.launch.projects.find((p) => p.status !== 'archived')?.id ?? null;
+  const lc = useLaunchChoice({ data: props.launch, projectId: first, scratch: first === null, schedule: { target: saved } });
+  const built = d.dest === 'new' ? lc.build() : null;
+  const input = inputOf(d, built, lc.blocked);
+  const bypass = d.dest === 'new' && lc.bypass;
   const save = () => {
     if (!input) return;
-    emit(props.row ? { type: 'schedule.update', id: props.row.id, patch: input } : { type: 'schedule.create', input });
+    const place = built?.place ? { place: built.place } : {};
+    emit(props.row ? { type: 'schedule.update', id: props.row.id, patch: input, ...place } : { type: 'schedule.create', input, ...place });
     props.onClose();
   };
   return (
@@ -98,19 +111,14 @@ function ScheduleForm(props: SchedulesProps & { row: ScheduleRow | null; onClose
       </div>
       <Segmented label={t('schedules.form.dest')} value={d.dest} onChange={(v) => set({ dest: v as Draft['dest'] })}
         options={[{ value: 'new', label: t('schedules.form.dest.new') }, { value: 'session', label: t('schedules.form.dest.session') }]} />
-      <div className="sch-line" key={d.dest}>
-        {d.dest === 'new'
-          ? (
-            <>
-              <select className="input" aria-label={t('schedules.form.project')} value={d.projectId} onChange={(e) => set({ projectId: e.target.value })}>{props.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
-              <select className="input" aria-label={t('schedules.form.agent')} value={d.agent} onChange={(e) => set({ agent: e.target.value })}>{props.agents.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}</select>
-            </>
-          )
-          : <select className="input sch-session" aria-label={t('schedules.form.session')} value={d.sessionId} onChange={(e) => set({ sessionId: e.target.value })}>{props.sessions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
-      </div>
+      {/* 送り先の切り替えで、札の列と会話の選択を高さで開け閉めする。札の値は開け閉めで失わない（useLaunchChoice が親で持つ）。 */}
+      <Grow open={d.dest === 'new'}>{() => <div className="sch-launch">{lc.chips}{lc.notes}</div>}</Grow>
+      <Grow open={d.dest === 'session'}>
+        {() => <div className="sch-line"><select className="input sch-session" aria-label={t('schedules.form.session')} value={d.sessionId} onChange={(e) => set({ sessionId: e.target.value })}>{props.sessions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>}
+      </Grow>
       <div className="sch-foot">
         <button type="button" className="btn btn-ghost" onClick={props.onClose}>{t('common.button.cancel')}</button>
-        <button type="button" className="btn btn-primary" disabled={!input} onClick={save}>{t(props.row ? 'schedules.form.save' : 'schedules.form.create')}</button>
+        <button type="button" className={`btn ${bypass ? 'btn-danger-fill' : 'btn-primary'}`} disabled={!input} onClick={save}>{t(bypass ? (props.row ? 'schedules.form.saveBypass' : 'schedules.form.createBypass') : props.row ? 'schedules.form.save' : 'schedules.form.create')}</button>
       </div>
     </div>
   );
@@ -191,6 +199,11 @@ function ScheduleRowView(props: SchedulesProps & { row: ScheduleRow; open: boole
           : (
             <div className="sch-detail">
               <div className="faint">{r.dest}</div>
+              {r.chips.length > 0 && (
+                <div className="sch-chips">
+                  {r.chips.map((c) => <span key={c.name} className="set-chip sch-chip" data-tone={c.danger ? 'danger' : 'default'}><span className="set-chip-name">{c.name}</span><span className="set-chip-value">{c.value}</span>{c.suffix && <span className="wt-suffix" aria-hidden="true">{c.suffix}</span>}</span>)}
+                </div>
+              )}
               <div className="sch-full">{r.prompt}</div>
               <RunList runs={r.runs} />
               <div className="sch-acts">

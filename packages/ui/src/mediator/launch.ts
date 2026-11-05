@@ -251,6 +251,12 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
         const r = rememberPrefs(state, i.params, store.settings?.defaultModel ?? null);
         return { state: { ...r.state, launch: { kind: 'submitting' }, launchSent: sentOf(i.params), newSessionSent: sentMark(state), launchPrep: prepMarkOf(i.params) }, effects: [{ kind: 'api.launch', params: i.params }, ...r.effects] };
       }
+    case 'schedule.create':
+    case 'schedule.update': {
+      // 予定の作成と更新。フォルダを選んだ予定は、新しいセッションの起動と同じく、先にプロジェクトを登録する（runtime が登録してから、その id で送る）。
+      const save = i.type === 'schedule.create' ? { op: 'create' as const, input: i.input } : { op: 'update' as const, id: i.id, patch: i.patch };
+      return { state, effects: [{ kind: 'api.saveSchedule', ...(i.place ? { place: i.place } : {}), save }] };
+    }
     case 'session.new.draft': return setDraft(state, { name: i.name, prompt: i.prompt, attachments: i.attachments ?? [] });
     case 'session.new.draft.attach': {
       // 名前と本文は、いまの下書きのまま残す。同じパスは足さない（setDraft は変わらなければ何もしない）。
