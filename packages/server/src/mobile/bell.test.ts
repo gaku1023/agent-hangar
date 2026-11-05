@@ -46,10 +46,11 @@ async function setup(o: { reject?: number | false; pong?: boolean; target?: Bell
   const timers = new FakeTimers();
   let target: BellTarget | null = o.target === undefined ? { url: w.url, headers: { authorization: 'Bearer pc-token', [COMPAT_HEADER]: String(COMPAT_VERSION) } } : o.target;
   const onLaunch = vi.fn();
+  const onPeer = vi.fn();
   const onAsk = vi.fn(async (id: string, sealed: string, _epoch: number): Promise<string | null> => (sealed === 'unopenable' ? null : `reply-for-${id}`));
-  const bell = new MobileBell({ target: () => target, onLaunch, onAsk, timers });
+  const bell = new MobileBell({ target: () => target, onLaunch, onAsk, onPeer, timers });
   cleanups.push(() => bell.stop(), () => w.close());
-  return { w, timers, bell, onLaunch, onAsk, setTarget: (t: BellTarget | null) => { target = t; } };
+  return { w, timers, bell, onLaunch, onAsk, onPeer, setTarget: (t: BellTarget | null) => { target = t; } };
 }
 
 describe('MobileBell', () => {
@@ -77,6 +78,18 @@ describe('MobileBell', () => {
     await settle(() => s.w.open().length === 1);
     s.w.open()[0]!.send(JSON.stringify({ t: 'launch' }));
     await settle(() => s.onLaunch.mock.calls.length === 1);
+  });
+
+  it('{t:peer} の kind と id を onPeer に渡す。知らない kind と形の違うものは渡さない', async () => {
+    const s = await setup();
+    s.bell.check();
+    await settle(() => s.w.open().length === 1);
+    const ws = s.w.open()[0]!;
+    for (const bad of ['{"t":"peer","kind":"other","id":"x"}', '{"t":"peer","kind":"answer"}', '{"t":"peer","kind":"result","id":1}', '{"t":"peer","kind":"result","id":""}']) ws.send(bad);
+    ws.send(JSON.stringify({ t: 'peer', kind: 'answer', id: 'l1' }));
+    ws.send(JSON.stringify({ t: 'peer', kind: 'result', id: 'l2' }));
+    await settle(() => s.onPeer.mock.calls.length === 2);
+    expect(s.onPeer.mock.calls).toEqual([['answer', 'l1'], ['result', 'l2']]);
   });
 
   it('{t:ask} を onAsk に渡し、答えを {t:reply} で返す。開けないもの（null）には答えない', async () => {
