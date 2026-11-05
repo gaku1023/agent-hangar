@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { SpawnedChild, SpawnedFromView } from '../presenters/session.ts';
 import { growIn } from './primitives/motionKit.ts';
+import { pillName } from '../lib/pcName.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 
@@ -21,7 +22,7 @@ export function SpawnedFrom(props: { from: SpawnedFromView | null | undefined })
   return (
     <a className="spawned-from" title={props.from.name} data-ended={props.from.peer?.ended ? 'true' : undefined} {...go(props.from.id)}>
       <Icon name="reset" /><span>{props.from.name}</span>
-      {props.from.peer && <span className="pc-pill" title={props.from.peer.name}><Icon name="otherPc" /><span>{props.from.peer.name}</span></span>}
+      {props.from.peer && <span className="pc-pill" title={props.from.peer.name}><Icon name="otherPc" /><span>{pillName(props.from.peer.name)}</span></span>}
     </a>
   );
 }
@@ -54,7 +55,7 @@ export function SpawnedPills(props: { sessionId: string; kids: SpawnedChild[] | 
       {kids.map((k) => (
         <a key={k.id} className="spawned-pill" data-spawned={k.id} title={k.name} {...go(k.id)}>
           <StatusDot status={k.live} aside={k.aside} reason={k.reason} /><span>{k.name}</span>
-          {k.peer && <span className="pc-pill" data-ended={k.peer.ended ? 'true' : undefined}><Icon name="otherPc" /><span>{k.peer.name}</span></span>}
+          {k.peer && <span className="pc-pill" data-ended={k.peer.ended ? 'true' : undefined} title={k.peer.name}><Icon name="otherPc" /><span>{pillName(k.peer.name)}</span></span>}
         </a>
       ))}
     </div>
