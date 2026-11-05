@@ -68,6 +68,8 @@ export type AskDeps = {
   };
   /** 削除の依頼への答えの口（#547）。省けば断る。 */
   deleteApprovals?: { approve(id: string): Promise<'deleted' | 'failed' | 'missing'>; reject(id: string): boolean; dismiss(id: string): boolean };
+  /** 別の PC への起動の承認待ちへの答えの口（D8）。省けば断る。 */
+  peerApprovals?: { approve(id: string): Promise<'done' | 'failed' | 'missing'>; reject(id: string): boolean };
   /**
    * Codex の口（0.12.0 で足した）。省けば Codex を使えない PC として答える。
    * ready は設定で有効にしてあり、手元に見つかること。options は手元に持った一覧で、取りに行かない（持っていなければ null。裏で取り直しを始めてよい）。
@@ -230,9 +232,20 @@ async function approvalReply(d: AskDeps, id: string, answer: MobileApprovalAnswe
   return { approval: r === 'deleted' ? 'done' : r };
 }
 
+/** 別の PC への起動の承認への答え。頼みを置くのに時間がかかっても、呼び鈴の待ちのうちに返す。間に合わなければ accepted と答える。 */
+async function peerApprovalReply(d: AskDeps, id: string, answer: 'approve' | 'reject'): Promise<MobileReply> {
+  const a = d.peerApprovals;
+  if (!a) return { error: 'bad-request' };
+  if (answer === 'reject') return { approval: a.reject(id) ? 'done' : 'missing' };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const slow = new Promise<'accepted'>((resolve) => { timer = setTimeout(() => resolve('accepted'), APPROVAL_WAIT_MS); });
+  return { approval: await Promise.race([a.approve(id), slow]).finally(() => clearTimeout(timer)) };
+}
+
 export async function replyTo(d: AskDeps, ask: unknown): Promise<MobileReply> {
   if (!isRecord(ask) || ask.v !== 1) return { error: 'bad-request' };
   if (ask.kind === 'delete-approval' && typeof ask.id === 'string' && (ask.answer === 'approve' || ask.answer === 'reject' || ask.answer === 'dismiss')) return approvalReply(d, ask.id, ask.answer);
+  if (ask.kind === 'peer-approval' && typeof ask.id === 'string' && (ask.answer === 'approve' || ask.answer === 'reject')) return peerApprovalReply(d, ask.id, ask.answer);
   if (ask.kind === 'files' && typeof ask.projectId === 'string' && typeof ask.q === 'string') return filesReply(d, ask.projectId, ask.q);
   const projectOk = ask.projectId === null || typeof ask.projectId === 'string';
   if (ask.kind === 'commands' && projectOk && typeof ask.accountId === 'string') {

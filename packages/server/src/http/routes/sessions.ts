@@ -26,7 +26,7 @@ import { BODY_LIMITS, editorOptsOf, externalOf, isEnoent, numberOr, readJson, se
 import { wokeSince } from '../../sessions/wake.ts';
 
 /** セッションの経路が使う依存。 */
-export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh' | 'trash' | 'schedules'> & LanguageDeps;
+export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh' | 'trash' | 'schedules' | 'peerApprovals'> & LanguageDeps;
 
 /** セッションの状態として受け付ける値。Active は null で表す。 */
 const SESSION_STATUSES = new Set(['paused', 'done', 'archived']);
@@ -245,6 +245,9 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   api.post('/delete-approvals/:id/approve', async (c) => c.json({ outcome: await approveDeleteApproval(db, deps.trash, c.req.param('id')) }));
   api.post('/delete-approvals/:id/reject', (c) => c.json({ ok: rejectDeleteApproval(db, c.req.param('id'), Date.now()) }));
   api.post('/delete-approvals/:id/dismiss', (c) => c.json({ ok: dismissDeleteApproval(db, c.req.param('id')) }));
+  // 別の PC への起動の承認待ちへの答え（D8）。答えられるのは画面（とスマホの問い合わせ）だけで、MCP の道具には出さない。
+  api.post('/peer-approvals/:id/approve', async (c) => c.json({ outcome: deps.peerApprovals ? await deps.peerApprovals.approve(c.req.param('id')) : 'missing' }));
+  api.post('/peer-approvals/:id/reject', (c) => c.json({ ok: deps.peerApprovals?.reject(c.req.param('id')) ?? false }));
   // 開いたら既読。未読の行を消して画面へ配る。行が無ければ何もしない。
   api.post('/sessions/:id/seen', (c) => {
     markSeen(db, c.req.param('id'));

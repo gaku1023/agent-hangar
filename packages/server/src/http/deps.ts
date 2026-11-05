@@ -11,6 +11,7 @@ import type { CandidateEnv } from '../projects/candidates.ts';
 import type { MemoStore } from '../projects/memo.ts';
 import type { PermissionAsks } from '../sessions/permissionAsks.ts';
 import type { OsNoticeFeed } from '../sessions/stopNotices.ts';
+import type { PeerApprovals } from '../peer/approvals.ts';
 import type { SessionTrash } from '../sessions/trash.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { MobileLink } from '../mobile/pairer.ts';
@@ -116,6 +117,8 @@ export type AppDeps = {
   summary: SummaryApi;
   /** セッションの削除（sessions/trash.ts）。本文を OS のゴミ箱へ移し、削除の印を書く。 */
   trash: Pick<SessionTrash, 'deleteSession'>;
+  /** 別の PC への起動の承認待ちへの答え（peer/approvals.ts）。画面の HTTP だけが答える。無ければ答えを断る。 */
+  peerApprovals?: Pick<PeerApprovals, 'approve' | 'reject'>;
   promote: (o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean; parent?: string }) => { projectId: string; moved: boolean; reason: string | null; /** reason と同じ理由の、言語を決めていない文。あれば経路がこちらを応答の言語で出す。 */ reasonMessage?: Message | null };
   /**
    * Claude Code と会話したフォルダの候補を探すときの、ホームと一時フォルダの差し替え（projects/candidates.ts）。

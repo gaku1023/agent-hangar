@@ -117,3 +117,42 @@ describe('bootPeer の呼ぶ側', () => {
     await vi.waitFor(() => { expect(toasts).toHaveLength(1); });
   });
 });
+
+describe('bootPeer の承認（D8）', () => {
+  const putPeerStatus = (lastSeen: number) => {
+    db.prepare('insert into devices (id, name, platform, last_seen_at, status, updated_at, origin_device) values (?, ?, ?, ?, ?, 1, ?)')
+      .run(PEER, 'Mac', 'darwin', lastSeen, JSON.stringify({ accounts: [], agents: ['claude-code'], lan_ips: [], ssh_host_key: null, hangar_version: '9.9.9' }), PEER);
+  };
+  const ask = (id = 'ap-1') => parts.approvals.request({
+    requestId: id, callerSessionId: caller, to: PEER, toName: 'Mac', projectId: 'p2', scratch: false,
+    request: { v: 1, createdAt: 1, parentSessionId: caller, projectId: 'p2', scratch: false, agent: 'claude-code', account: '', permissionMode: '', model: '', prompt: '目次を直して' },
+  });
+
+  it('承認すると頼みを封じて置き、呼ぶ側に記録する。あとは通常どおり答えが届く', async () => {
+    putPeerStatus(NOW - 1000);
+    ask();
+    expect(await parts.approvals.approve('ap-1')).toBe('done');
+    expect(db.prepare('select to_device, state from peer_outbox where request_id = ?').get('ap-1')).toMatchObject({ to_device: PEER, state: 'requested' });
+    await b.peerLaunch.claim('ap-1');
+    await b.peerLaunch.answer('ap-1', true, await sealPeerAnswer(ring, { requestId: 'ap-1', from: ME, to: PEER }, { ok: true, sessionId: 'child-9', title: 'worker' }));
+    parts.onBell('answer', 'ap-1');
+    await vi.waitFor(() => { expect((db.prepare('select state from peer_outbox where request_id = ?').get('ap-1') as { state: string }).state).toBe('started'); });
+  });
+
+  it('断ると approval-denied が呼び出し元の入力として入り、何も置かない', async () => {
+    putPeerStatus(NOW - 1000);
+    ask();
+    expect(parts.approvals.reject('ap-1')).toBe(true);
+    await vi.waitFor(() => { expect(sent).toHaveLength(1); });
+    expect(sent[0]!.text).toContain('承認しませんでした');
+    expect(db.prepare('select state, reason from peer_outbox where request_id = ?').get('ap-1')).toMatchObject({ state: 'refused', reason: 'approval-denied' });
+  });
+
+  it('相手に送れない（長く見えていない）ときは、承認しても launch-failed が入る', async () => {
+    putPeerStatus(1);
+    ask();
+    expect(await parts.approvals.approve('ap-1')).toBe('failed');
+    await vi.waitFor(() => { expect(sent).toHaveLength(1); });
+    expect(sent[0]!.text).toContain('起動に失敗');
+  });
+});

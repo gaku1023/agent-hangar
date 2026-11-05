@@ -1,6 +1,6 @@
 import type { LiveStatus } from '@agent-hangar/shared/src/api.ts';
 import { agentIconsShown } from '@agent-hangar/shared/src/agentIcons.ts';
-import { PEER_STALE_MS, type MobileApproval, type MobileFeed, type MobileInboxResponse, type MobileUsage, type MobileWaiting } from '@agent-hangar/shared/src/mobile.ts';
+import { PEER_STALE_MS, type MobileApproval, type MobileFeed, type MobilePeerApproval, type MobileInboxResponse, type MobileUsage, type MobileWaiting } from '@agent-hangar/shared/src/mobile.ts';
 import { aadFeed, open } from '@agent-hangar/shared/src/mobileCrypto.ts';
 import { fetchInbox, type InboxFetched } from './api.ts';
 import { newestEpoch, type Keyring, type Pairing } from './store.ts';
@@ -38,6 +38,25 @@ export type Row = {
 
 export type ApprovalRow = MobileApproval & { deviceId: string; alive: boolean };
 
+/** 別の PC への起動の承認待ち（D8）。deviceId は承認を受けた（頼んだ側の）PC で、alive はその PC が見えているか。 */
+export type PeerApprovalRow = MobilePeerApproval & { deviceId: string; alive: boolean };
+
+/** PC から来た値も信じない。形の合う行だけを承認の行にする。 */
+export function peerApprovalRowsOf(v: unknown, deviceId: string, alive: boolean): PeerApprovalRow[] {
+  if (!Array.isArray(v)) return [];
+  const out: PeerApprovalRow[] = [];
+  for (const a of v as Record<string, unknown>[]) {
+    if (!a || typeof a !== 'object' || typeof a.id !== 'string' || !a.id || typeof a.device !== 'string' || typeof a.expiresAt !== 'number' || !Number.isFinite(a.expiresAt)) continue;
+    out.push({
+      id: a.id, device: a.device, expiresAt: a.expiresAt, deviceId, alive,
+      from: typeof a.from === 'string' ? a.from : null,
+      project: typeof a.project === 'string' ? a.project : null,
+      ask: typeof a.ask === 'string' ? a.ask : '',
+    });
+  }
+  return out;
+}
+
 /** PC から来た値も信じない。形の合う依頼だけを行にする。 */
 export function approvalRowsOf(v: unknown, deviceId: string, alive: boolean): ApprovalRow[] {
   if (!Array.isArray(v)) return [];
@@ -69,6 +88,8 @@ export type InboxView = {
   feeds: MobileFeed[];
   /** 利用者の答えを待っている削除の依頼（#547）。deviceId は依頼を受けた PC で、alive はその PC が見えているか。 */
   approvals: ApprovalRow[];
+  /** 別の PC への起動の承認待ち（D8）。 */
+  peerApprovals: PeerApprovalRow[];
   /** Worker の時刻からスマホの時刻を引いた差（ms）。待った時間や何分前は、スマホの時刻にこれを足して測る。 */
   skewMs: number;
   /** 受信箱の応答の見出しから読んだ Worker の版。分からなければ null（古いとはみなさない）。 */
@@ -162,6 +183,7 @@ export async function openInbox(res: MobileInboxResponse & { workerCompat?: numb
   const unreadable: string[] = [];
   const feeds: MobileFeed[] = [];
   const approvals: ApprovalRow[] = [];
+  const peerApprovals: PeerApprovalRow[] = [];
   const feedNames = new Map<string, string>();
   const candidates = new Map<string, Candidate>();
   const offer = (c: Candidate): void => {
@@ -189,6 +211,7 @@ export async function openInbox(res: MobileInboxResponse & { workerCompat?: numb
     feedNames.set(f.deviceId, deviceName);
     const alive = device?.alive ?? false;
     approvals.push(...approvalRowsOf(feed.approvals, f.deviceId, alive));
+    peerApprovals.push(...peerApprovalRowsOf(feed.peerApprovals, f.deviceId, alive));
     const accounts = new Map(arr(feed.accounts).map((a) => [a.id, a]));
     const base = (s: { sessionId: string; projectName: string; title: string; agent?: unknown }, accountId: string | null): Omit<Row, 'status' | 'at' | 'startedAt' | 'waiting' | 'intent' | 'oneLiner' | 'returnOn' | 'returnTime' | 'rcUrl' | 'usage'> => {
       const acc = accountId ? accounts.get(accountId) : undefined;
@@ -260,7 +283,7 @@ export async function openInbox(res: MobileInboxResponse & { workerCompat?: numb
     codexEnabled: feeds.some((f) => Array.isArray(f.caps?.agents) && f.caps.agents.includes('codex')),
     hasCodex: rows.some((r) => r.agent === 'codex'),
   });
-  return { waiting, running, returning, doneToday, devices, unreadable, feeds, approvals, skewMs, workerCompat: res.workerCompat ?? null, agentIcons };
+  return { waiting, running, returning, doneToday, devices, unreadable, feeds, approvals, peerApprovals, skewMs, workerCompat: res.workerCompat ?? null, agentIcons };
 }
 
 /** 受信箱の素のうち、いちばん新しい世代。素が無ければ 0。 */

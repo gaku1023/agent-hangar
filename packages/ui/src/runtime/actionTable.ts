@@ -123,6 +123,8 @@ export const actionTable = {
   'schedule.delete': (i) => call((api) => api.deleteSchedule(i.id)),
   'schedule.run': (i) => call((api) => api.runSchedule(i.id)),
   'deleteApproval.answer': (i) => call((api) => api.answerDeleteApproval(i.id, i.answer)),
+  // 別の PC への起動の承認への答え。画面の正は後から届く peerApprovals.update なので、返り値は Store に入れない。
+  'peerApproval.answer': (i) => call((api) => api.answerPeerApproval(i.id, i.answer)),
   // 同じファイルの編集の「このファイルでは表示しない」。写しは見張りが書き直し、session.upsert で消える。
   'overlap.dismiss': (i) => call((api) => api.dismissOverlap(i.sessionId, i.with, i.paths)),
   // 起動前の準備をやめる。やめる直前に準備が済んでいた（走っていない）ときの 404 は、利用者に見せることではないので黙る。

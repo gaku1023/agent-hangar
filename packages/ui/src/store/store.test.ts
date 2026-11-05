@@ -4,7 +4,7 @@ import { accountsFixture } from '../test/accounts.ts';
 import { accountList, accountOfSession, aliveRunOf, appendSearchResult, applyBootstrap, applyEventsPage, applyGit, gitFileKey, applyLaunch, applyPickedFolder, applySearch, applyServerEvent, applyWorkspaceDirs, artifactsOf, currentAccount, indexFinishedBy, currentRunOf, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, lastTurnAt: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null });
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], deleteApprovals: [], schedules: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], deleteApprovals: [], peerApprovals: [], schedules: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null };
 
 describe('索引の段階', () => {
   const progress = (phase: 'idle' | 'scanning' | 'indexing') => ({ type: 'index.progress' as const, progress: { phase, done: 0, total: 0 } });
@@ -489,7 +489,7 @@ describe('設定の同期（作り直した実装）の状態', () => {
   it('bootstrap の configSync を入れ、無ければ（古いサーバ、参加していない端末）null にする', async () => {
     const { initialStore, applyBootstrap, applyServerEvent, applyConfigDetail, configPartsToLoad, EMPTY_CONFIG_DETAIL } = await import('./store.ts');
     const base = initialStore();
-    const boot = { device: { id: 'd', name: 'mac' }, settings: null, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], deleteApprovals: [], schedules: [], index: { phase: 'idle', done: 0, total: 0 }, version: 'v', sync: null, devices: [], retention: null, cloudUsage: null, accounts: null } as never;
+    const boot = { device: { id: 'd', name: 'mac' }, settings: null, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], deleteApprovals: [], peerApprovals: [], schedules: [], index: { phase: 'idle', done: 0, total: 0 }, version: 'v', sync: null, devices: [], retention: null, cloudUsage: null, accounts: null } as never;
     expect(applyBootstrap(base, { ...(boot as object), configSync: c({ incoming: 2 }) } as never).configSync).toMatchObject({ incoming: 2 });
     expect(applyBootstrap({ ...base, configSync: c() }, boot).configSync).toBeNull();
     // config.update は状態を丸ごと差し替える。
@@ -525,5 +525,16 @@ describe('opencode の版の知らせ（C7）', () => {
     const legacy = applyServerEvent(s, { type: 'opencode.version', version: '1.4.0', verdict: 'legacy' });
     expect(legacy.opencodeStatus).toEqual({ found: true, version: '1.4.0', verified: false });
     expect(applyServerEvent(legacy, { type: 'opencode.version', version: '1.4.0', verdict: 'legacy' })).toBe(legacy);
+  });
+});
+
+describe('別の PC への起動の承認待ち', () => {
+  const a = { id: 'r1', from: null, device: 'laptop', project: null, scratch: true, ask: 'x', expiresAt: 5, state: 'pending' as const };
+  it('bootstrap で載り、peerApprovals.update で一覧ごと入れ替わる。同じ中身なら Store を変えない', () => {
+    let s = applyBootstrap(initialStore(), { ...boot, peerApprovals: [a] });
+    expect(s.peerApprovals).toEqual([a]);
+    expect(applyServerEvent(s, { type: 'peerApprovals.update', approvals: [{ ...a }] })).toBe(s);
+    s = applyServerEvent(s, { type: 'peerApprovals.update', approvals: [{ ...a, state: 'approved' }] });
+    expect(s.peerApprovals[0]!.state).toBe('approved');
   });
 });

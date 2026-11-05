@@ -71,6 +71,14 @@ export type MobileApprovalAnswer = 'approve' | 'reject' | 'dismiss';
 /** 答えの結果。done は答えのとおりになった、failed は消せなかった、accepted は受けたが問い合わせの時間内に終わらなかった、missing はもう無い。 */
 export type MobileApprovalResult = 'done' | 'failed' | 'accepted' | 'missing';
 
+/**
+ * 別の PC への起動の承認待ち 1 件（D8）。依頼元の PC の受信箱の素に載せ、スマホから approve か reject で答える。
+ * project が null ならクイックセッション。expiresAt（ミリ秒）を過ぎた行は、スマホは出さない。
+ */
+export type MobilePeerApproval = { id: string; from: string | null; device: string; project: string | null; ask: string; expiresAt: number };
+/** スマホの答え。承認か断る。 */
+export type MobilePeerApprovalAnswer = 'approve' | 'reject';
+
 export type MobileReturnItem = { sessionId: string; projectName: string; title: string; accountId: string; returnOn: string; returnTime: string | null; agent?: MobileAgent };
 export type MobileDoneItem = { sessionId: string; projectName: string; title: string; oneLiner: string | null; doneAt: number; agent?: MobileAgent };
 export type MobileAccount = { id: string; name: string; color: string; fiveHour: number | null; sevenDay: number | null };
@@ -100,6 +108,8 @@ export type MobileFeed = {
   done: MobileDoneItem[];
   /** MCP の削除の依頼のうち答えを待っているもの（#547）。無ければ載せない。古いスマホは読み捨てる。 */
   approvals?: MobileApproval[];
+  /** 別の PC への起動の承認待ち（D8）。無ければ載せない。古いスマホは読み捨てる。 */
+  peerApprovals?: MobilePeerApproval[];
 };
 
 /** 起動の依頼に付ける画像 1 枚の控え。本体は R2 に封をして置き、番号（0 から 3）で引く。 */
@@ -154,7 +164,8 @@ export type MobileAsk =
   | { v: 1; kind: 'files'; projectId: string; q: string }
   | { v: 1; kind: 'commands'; projectId: string | null; accountId: string; agent?: MobileAgent }
   | { v: 1; kind: 'agent-options'; agent: MobileAgent; projectId: string | null }
-  | { v: 1; kind: 'delete-approval'; id: string; answer: MobileApprovalAnswer };
+  | { v: 1; kind: 'delete-approval'; id: string; answer: MobileApprovalAnswer }
+  | { v: 1; kind: 'peer-approval'; id: string; answer: MobilePeerApprovalAnswer };
 
 /** 答えの opencode のモデルの件数の上限と、名前の字数の上限。 */
 export const MOBILE_AGENT_MODELS_MAX = 100;

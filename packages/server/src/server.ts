@@ -153,7 +153,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 今回のリリースでは止めている（peer/ssh/enabled.ts）。止めているあいだは何も組まず、ssh の子プロセスも起こさない。
   const peerSsh = whenPeerSshEnabled(() => bootPeerSsh({ home: home.home, db: home.db, deviceId: home.device.id, language: home.language, tokens: () => sync.peerTokenKeys(), broadcast: (ev) => { delivery.hub.broadcast(ev); } }));
   const peer = bootPeer({ home, runs, sync, delivery, ...(peerSsh ? { ssh: peerSsh } : {}) });
-  const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, trash: trash.trash, onPeer: (kind, id) => { peer.onBell(kind, id); } });
+  const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, trash: trash.trash, onPeer: (kind, id) => { peer.onBell(kind, id); }, peerApprovals: peer.approvals });
   peerRelayEnded = (id) => peer.relay.onEnded(id);
   // 定期の実行（#549）。予定はこの PC のものだけを流す。起こし方と待ち方は MCP の道具と同じ本体を通す。
   const scheduleTools: ToolDeps = { db: home.db, deviceId: home.device.id, port: listening.port, live: () => delivery.live.current(), runs: runs.runs, language: home.language, usage: () => runs.usage.current(),
@@ -164,7 +164,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     launch: (s) => launchScheduled(scheduleTools, s),
     wait: (id) => waitScheduled(scheduleTools, id),
   });
-  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, ...(peerSsh ? { peerSsh } : {}), schedules: { runNow: (id) => schedules.runNow(id), deliver: (id, text) => launchScheduled(scheduleTools, { prompt: text, target: { kind: 'session', sessionId: id }, plannedAt: Date.now() }) }, opts, serverDir });
+  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, ...(peerSsh ? { peerSsh } : {}), peer, schedules: { runNow: (id) => schedules.runNow(id), deliver: (id, text) => launchScheduled(scheduleTools, { prompt: text, target: { kind: 'session', sessionId: id }, plannedAt: Date.now() }) }, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。
   delivery.live.start();
