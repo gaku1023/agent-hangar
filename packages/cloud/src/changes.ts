@@ -1,11 +1,13 @@
 import { Hono } from 'hono';
 import {
   LAUNCH_TTL_MS,
+  PEER_LAUNCH_TTL_MS,
   MAX_PUSH_BATCH,
   PULL_LIMIT,
   SEALED_ROW_K_RE,
   type CloudPeer,
   type MobileLaunchOut,
+  type PeerLaunchIncoming,
   type PushChangesResponse,
   type SealedChangeIn,
   type SealedChangeOut,
@@ -262,6 +264,10 @@ changesApp.get('/', async (c) => {
     db
       .prepare("select id, created_at, sealed, epoch, from_device from launch_requests where target_device = ? and status = 'pending' and created_at > ? order by created_at limit ?")
       .bind(device.id, now - LAUNCH_TTL_MS, PULL_LAUNCH_LIMIT),
+    // この PC 宛ての、まだ受け取っていない別の PC からの頼み（互換の版 10）。索引 peer_launches_to で引く。送り手は端末トークンで決まった from_device である。
+    db
+      .prepare("select id, from_device, created_at, sealed from peer_launches where to_device = ? and status = 'pending' and created_at > ? order by created_at limit ?")
+      .bind(device.id, now - PEER_LAUNCH_TTL_MS, PULL_LAUNCH_LIMIT),
   ];
   const results = await db.batch(stmts);
   const off = touch ? 1 : 0;
@@ -270,7 +276,8 @@ changesApp.get('/', async (c) => {
   const nextSeq = more ? last!.seq : firstNum(results[off + 1] as D1Result<{ s: number }> | undefined);
   const peers: CloudPeer[] = ((results[off + 2]?.results ?? []) as PeerRow[]).map((p) => ({ id: p.id, lastSeenAt: p.last_seen_at ?? null }));
   const launches: MobileLaunchOut[] = ((results[off + 3]?.results ?? []) as LaunchRow[]).map((l) => ({ id: l.id, createdAt: l.created_at, sealed: l.sealed, epoch: Number(l.epoch), from: l.from_device }));
-  const res: SealedPullChangesResponse = { changes: page.map(toOut), nextSeq, more, peers, now, launches };
+  const peerLaunches: PeerLaunchIncoming[] = ((results[off + 4]?.results ?? []) as { id: string; from_device: string; created_at: number; sealed: string }[]).map((l) => ({ id: l.id, from: l.from_device, createdAt: Number(l.created_at), sealed: l.sealed }));
+  const res: SealedPullChangesResponse = { changes: page.map(toOut), nextSeq, more, peers, now, launches, peerLaunches };
   return c.json(res);
 });
 

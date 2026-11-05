@@ -10,6 +10,9 @@ import type { Env } from './env.ts';
 export const BELL_NAME = 'bell';
 /** Worker が Durable Object に端末の ID を渡す見出し。 */
 export const BELL_DEVICE_HEADER = 'x-hangar-device';
+/** 鳴らすときに、PC どうしの頼みの知らせの種類と頼みの ID を渡す見出し（無ければ従来の { t: 'launch' }）。 */
+export const BELL_RING_KIND_HEADER = 'x-hangar-ring-kind';
+export const BELL_RING_ID_HEADER = 'x-hangar-ring-id';
 /** スマホ 1 台からの問い合わせの回数の上限。 */
 export const ASK_RATE = { max: 20, windowMs: 10_000 } as const;
 /** 同じ PC が新しくつないだとき、古い WebSocket を閉じる符号。 */

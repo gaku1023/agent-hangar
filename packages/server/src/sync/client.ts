@@ -39,6 +39,11 @@ import {
   type MobilePairingsMine,
   type NoticeIn,
   type NoticeOut,
+  type PeerLaunchApi,
+  type PeerLaunchStatus,
+  type PeerOutboxResponse,
+  type PeerResultAck,
+  type PeerResultsResponse,
   type PushChangesResponse,
   type RosterOut,
   type RosterPut,
@@ -276,6 +281,12 @@ export interface CloudClientBase {
    * 自分宛てで、まだ誰も受け取っておらず、時間切れでないときだけ true で、PC は true のときだけ起こす。409 は false。ほかの失敗は投げる。偽物は実装しなくてよい。
    */
   claimLaunch?(id: string): Promise<boolean>;
+  /**
+   * PC どうしの頼みの口（/launches、互換の版 10 の Worker から）。封は呼び手が PC どうしの鍵で封じた文字列で、ここでは開かない。
+   * 呼ぶ前に lastWorkerCompat() が PEER_LAUNCH_MIN_WORKER_COMPAT に届くことを確かめる。口を持たない古い Worker は 404 を返す。
+   * 頼みが来た知らせは pull の peerLaunches と、呼び鈴の { t: 'peer' } で届く。
+   */
+  readonly peerLaunch?: PeerLaunchApi;
   /** 受け取った依頼の結果を返す（POST /m/launches/:id/answer）。sealedAnswer はスマホ用の鍵で封じた MobileLaunchAnswer。409 も投げる。 */
   answerLaunch?(id: string, ok: boolean, sealedAnswer: string): Promise<void>;
   /**
@@ -566,6 +577,27 @@ export class HttpCloudClient implements WireCloudClient {
   }
 
   lastWorkerCompat(): number | null { return this.seenWorkerCompat; }
+
+  /** PC どうしの頼みの口（POST /launches ほか）。 */
+  readonly peerLaunch: PeerLaunchApi = {
+    put: (body) => this.json<PeerLaunchStatus>('/launches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+    outbox: (since) => this.json<PeerOutboxResponse>(`/launches/mine?since=${Math.max(0, Math.floor(since))}`),
+    claim: async (id) => {
+      try {
+        await this.json<{ ok: boolean }>(`/launches/${encodeURIComponent(id)}/claim`, { method: 'POST' });
+        return true;
+      } catch (e) {
+        // 2 回目、宛先でない、期限切れ、無い ID。どれも起こさない。
+        if (e instanceof CloudError && e.status === 409) return false;
+        throw e;
+      }
+    },
+    answer: async (id, ok, sealedAnswer) => {
+      await this.json<{ ok: boolean }>(`/launches/${encodeURIComponent(id)}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ok, sealedAnswer }) });
+    },
+    postResult: (id, body) => this.json<PeerResultAck>(`/launches/${encodeURIComponent(id)}/results`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+    results: (id, after) => this.json<PeerResultsResponse>(`/launches/${encodeURIComponent(id)}/results?after=${Math.max(0, Math.floor(after))}`),
+  };
   bellTarget(): BellTarget {
     // https を wss に、http（手元の Worker）を ws にする。版と authorization は send と同じ見出しで送る。
     return { url: `${this.base.replace(/^http/i, 'ws')}/m/bell`, headers: { ...compatHeaders(), authorization: this.authorization() } };

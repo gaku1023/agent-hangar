@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
-import { MOBILE_REPLY_MAX_BYTES } from '@agent-hangar/shared';
-import { ASK_RATE, askTimeoutMs, BELL_DEVICE_HEADER, REPLACED_CLOSE_CODE } from './bellWire.ts';
+import { MOBILE_REPLY_MAX_BYTES, PEER_BELL_KINDS, type PeerBellKind } from '@agent-hangar/shared';
+import { ASK_RATE, askTimeoutMs, BELL_DEVICE_HEADER, BELL_RING_ID_HEADER, BELL_RING_KIND_HEADER, REPLACED_CLOSE_CODE } from './bellWire.ts';
 import type { Env } from './env.ts';
 
 /**
@@ -17,7 +17,7 @@ import type { Env } from './env.ts';
  * 内向きの道は 3 つである。
  * GET /connect は PC の WebSocket を受ける（見出しは PC の ID）。
  * POST /ask はスマホの問い合わせを宛先の PC に渡して答えを待つ（見出しはスマホの ID）。
- * POST /ring は宛先の PC（見出しの ID）を鳴らす。
+ * POST /ring は宛先の PC（見出しの ID）を鳴らす。PC どうしの頼みのときは、種類と頼みの ID を見出しで受けて { t: 'peer', kind, id } を送る。
  *
  * 問い合わせも答えもスマホの鍵で封をしたまま運び、ここでは読まない。D1 にも書かない。
  * 待ちと回数の数えはメモリに置く。問い合わせの間は fetch が開いているので、Durable Object は眠らない。
@@ -45,7 +45,7 @@ export class HangarBell extends DurableObject<Env> {
     if (!device) return json({ error: 'bad request' }, 400);
     if (path === '/connect') return this.acceptPc(req, device);
     if (path === '/ask' && req.method === 'POST') return this.ask(req, device);
-    if (path === '/ring' && req.method === 'POST') return this.ring(device);
+    if (path === '/ring' && req.method === 'POST') return this.ring(device, req.headers.get(BELL_RING_KIND_HEADER), req.headers.get(BELL_RING_ID_HEADER));
     return json({ error: 'not found' }, 404);
   }
 
@@ -112,11 +112,13 @@ export class HangarBell extends DurableObject<Env> {
   }
 
   /** 宛先の PC を鳴らす。つないでいなければ何もしない（PC は 30 秒の pull で拾う）。 */
-  private ring(target: string): Response {
+  private ring(target: string, kind: string | null, id: string | null): Response {
     const ws = this.socketOf(target);
     if (ws) {
       try {
-        ws.send(JSON.stringify({ t: 'launch' }));
+        // PC どうしの頼みの知らせ（頼みが来た、答えが来た、結果が来た）は種類と頼みの ID を添える。スマホの依頼は従来どおり。
+        const peer = kind !== null && id !== null && (PEER_BELL_KINDS as readonly string[]).includes(kind);
+        ws.send(JSON.stringify(peer ? { t: 'peer', kind: kind as PeerBellKind, id } : { t: 'launch' }));
       } catch {
         // 送れなくても依頼は D1 にあり、PC は pull で拾う。
       }

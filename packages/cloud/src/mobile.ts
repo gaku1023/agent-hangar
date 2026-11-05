@@ -13,9 +13,10 @@ import {
   type MobileLaunchStatus,
   type MobilePairingResponse,
   type MobilePairingsMine,
+  type PeerBellKind,
 } from '@agent-hangar/shared';
 import { authMiddleware, LIVE_PHONE_SQL, requireKind } from './auth.ts';
-import { BELL_DEVICE_HEADER, BELL_NAME } from './bellWire.ts';
+import { BELL_DEVICE_HEADER, BELL_NAME, BELL_RING_ID_HEADER, BELL_RING_KIND_HEADER } from './bellWire.ts';
 import { revokeDevice } from './devices.ts';
 import type { Env, Vars } from './env.ts';
 import { isDeviceId, issueDeviceToken } from './join.ts';
@@ -450,11 +451,16 @@ function bellOf(env: Env): DurableObjectStub | null {
 }
 
 /** 宛先の PC を鳴らす。束縛が無いときと失敗したときは何もしない。 */
-async function ringBell(env: Env, target: string): Promise<void> {
+export async function ringBell(env: Env, target: string, peer?: { kind: PeerBellKind; id: string }): Promise<void> {
   try {
     const bell = bellOf(env);
     if (!bell) return;
-    const r = await bell.fetch('https://bell/ring', { method: 'POST', headers: { [BELL_DEVICE_HEADER]: target } });
+    const headers: Record<string, string> = { [BELL_DEVICE_HEADER]: target };
+    if (peer) {
+      headers[BELL_RING_KIND_HEADER] = peer.kind;
+      headers[BELL_RING_ID_HEADER] = peer.id;
+    }
+    const r = await bell.fetch('https://bell/ring', { method: 'POST', headers });
     await r.body?.cancel();
   } catch (e) {
     console.error('bell ring failed', e instanceof Error ? e.name : typeof e);

@@ -345,6 +345,32 @@ sqlite3 ~/.agent-hangar/hangar.db "select count(*) from transcript_files"
 - ブラウザで開いた画面からは参加できません。
   ターミナルでは `hangar cloud join <接続先の URL>` で同じ手順を進められます（参加コードは標準入力で尋ねます）。
 
+## 別の PC への起動の頼み（Worker の入れ替え、互換の版 10）
+
+別の PC に会話を起こす頼みと、その結果の返却は、Worker の口 `/launches` を通ります。
+頼み、答え、結果の中身は PC どうしの鍵で封じたままで、Worker は開けません。
+Worker が平文で持つのは、頼んだ PC と頼まれた PC の ID、時刻、状態、結果の行の連番だけです。
+
+この口を使うには、Worker をこの版で入れ直します。
+手順は、スマホの画面のときと同じです。
+クラウドを作った PC で、clone した場所から `npm run hangar -- setup cloud` をもう一度実行します。
+表（`peer_launches` と `peer_results`）は、Worker が最初の要求で `create table if not exists` で足します。
+D1 の移行ファイルや、`wrangler d1 migrations apply` は要りません。
+既存の表と、スマホの起動の依頼（`launch_requests`）には触りません。
+
+Worker を入れ直す前でも、同期とスマホの起動は今までどおり動きます（`MIN_DEVICE_COMPAT` は 9 のままです）。
+入れ直すまでの間、別の PC への頼みは置かれず、端末は「Worker の更新が要る」ことを返します。
+端末は、Worker が名乗る版が `PEER_LAUNCH_MIN_WORKER_COMPAT`（10）に届くまで、この口を呼びません。
+
+入れ直したあとの確かめは次のとおりです。
+
+- `curl <Worker の URL>/health` の `compat` が 10 になっている。
+- 参加している PC のどれかで、別の PC への頼みが `started` まで進む。
+
+置いた頼みは、受け取られないまま 75 秒を過ぎると `expired` になります。
+頼みと結果の行は、最後に動いてから 7 日で消えます。
+1 件の頼みに積める結果の行は 200 まで、1 台の PC が置ける頼みは 10 分に 30 件までです。
+
 ## リカバリーキー
 
 リカバリーキーは、すべての PC を失ったときに、新しい PC でクラウドの暗号鍵を取り戻すためのものです。

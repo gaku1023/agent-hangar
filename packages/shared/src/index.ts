@@ -34,6 +34,7 @@ export * from './device.ts';
 export * from './deviceStatus.ts';
 export * from './setupGuide.ts';
 export * from './mobile.ts';
+export * from './peerCloud.ts';
 export * from './mobileCrypto.ts';
 export * from './e2e/index.ts';
 export * from './launchChoices.ts';

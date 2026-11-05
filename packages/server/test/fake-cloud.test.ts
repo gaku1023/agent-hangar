@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
-import { COMPAT_VERSION, MAX_PUSH_BATCH, MAX_SEALED_META_CHARS, NOTICE_RATE, PHONE_NOTICE_SEALED_MAX, ROSTER_MARKER_K, toBase64Url, type SealedChangeIn, type SealedFileIn } from '@agent-hangar/shared';
+import { COMPAT_VERSION, MAX_PUSH_BATCH, MAX_SEALED_META_CHARS, NOTICE_RATE, PEER_LAUNCH_MIN_WORKER_COMPAT, PEER_LAUNCH_TTL_MS, PEER_RESULTS_MAX, PHONE_NOTICE_SEALED_MAX, ROSTER_MARKER_K, toBase64Url, type SealedChangeIn, type SealedFileIn } from '@agent-hangar/shared';
 import { CloudError, CompatError } from '../src/sync/client.ts';
 import { FakeCloudClient, FakeWireClient, MAX_BODY_BYTES, MAX_ANSWER_BODY_BYTES, MAX_FEED_BODY_BYTES, MAX_LAUNCH_BODY_BYTES, MAX_NOTICE_BODY_BYTES, MAX_PAGE_SEALED_CHARS, MAX_ROW_BYTES, MIN_DEVICE_COMPAT, PULL_LAUNCH_LIMIT, TOUCH_EVERY_MS } from './fake-cloud.ts';
 
@@ -485,6 +485,83 @@ describe('FakeCloudClient', () => {
     c.wire.noticeRoute = false;
     await expect(c.postNotice('3.c2VhbGVk', 3)).rejects.toMatchObject({ status: 404 });
     expect(c.notices).toHaveLength(NOTICE_RATE.max + 2);
+  });
+});
+
+describe('PC どうしの頼み（peerLaunch）', () => {
+  const S = '1.c2VhbGVk';
+  /** pc-a が頼み、pc-b が受けて started にしたところまで進める。 */
+  async function started(now: () => number = () => 1_000) {
+    const a = new FakeCloudClient({ deviceId: 'pc-a', now });
+    const b = a.asDevice('pc-b');
+    await b.pullChanges(0, 10);
+    await a.peerLaunch.put({ id: 'l1', to: 'pc-b', sealed: S });
+    expect(await b.peerLaunch.claim('l1')).toBe(true);
+    await b.peerLaunch.answer('l1', true, '1.YW5z');
+    return { a, b };
+  }
+
+  it('頼みを置くと宛先の pull の peerLaunches に from つきで出て、受け取ると消える。呼び鈴の鳴らした記録が残る', async () => {
+    const a = new FakeCloudClient({ deviceId: 'pc-a', now: () => 1_000 });
+    const b = a.asDevice('pc-b');
+    await b.pullChanges(0, 10);
+    expect(await a.peerLaunch.put({ id: 'l1', to: 'pc-b', sealed: S })).toMatchObject({ id: 'l1', to: 'pc-b', status: 'pending' });
+    expect((await b.pullChanges(0, 10)).peerLaunches).toEqual([{ id: 'l1', from: 'pc-a', createdAt: 1_000, sealed: S }]);
+    expect((await a.pullChanges(0, 10)).peerLaunches).toEqual([]);
+    expect(a.wire.peerRings).toEqual([{ to: 'pc-b', kind: 'launch', id: 'l1' }]);
+    expect(await b.peerLaunch.claim('l1')).toBe(true);
+    expect(await b.peerLaunch.claim('l1')).toBe(false);
+    expect((await b.pullChanges(0, 10)).peerLaunches).toEqual([]);
+  });
+
+  it('実物と同じ断り方：from の詐称は 403、自分宛ては 400、無い宛先は 404、封の形違いは 400、ほかの PC の ID と重なれば 409', async () => {
+    const a = new FakeCloudClient({ deviceId: 'pc-a', now: () => 1_000 });
+    const b = a.asDevice('pc-b');
+    await b.pullChanges(0, 10);
+    await expect(a.peerLaunch.put({ id: 'x', from: 'pc-b', to: 'pc-b', sealed: S })).rejects.toMatchObject({ status: 403 });
+    await expect(a.peerLaunch.put({ id: 'x', to: 'pc-a', sealed: S })).rejects.toMatchObject({ status: 400 });
+    await expect(a.peerLaunch.put({ id: 'x', to: 'pc-none', sealed: S })).rejects.toMatchObject({ status: 404 });
+    await expect(a.peerLaunch.put({ id: 'x', to: 'pc-b', sealed: 'bad' })).rejects.toMatchObject({ status: 400 });
+    await a.peerLaunch.put({ id: 'l1', to: 'pc-b', sealed: S });
+    expect((await a.peerLaunch.put({ id: 'l1', to: 'pc-b', sealed: S })).status).toBe('pending');
+    await expect(b.peerLaunch.put({ id: 'l1', to: 'pc-a', sealed: S })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('答え、結果、読み取りは実物と同じ向き：宛先だけが答えと結果を書き、頼んだ PC だけが読む', async () => {
+    const { a, b } = await started();
+    expect(a.wire.peerRings.map((r) => r.kind)).toEqual(['launch', 'answer']);
+    await expect(a.peerLaunch.postResult('l1', { seq: 1, sealed: '1.eA' })).rejects.toMatchObject({ status: 409 });
+    expect(await b.peerLaunch.postResult('l1', { seq: 1, sealed: '1.eA' })).toEqual({ ok: true, duplicate: false });
+    expect(await b.peerLaunch.postResult('l1', { seq: 1, sealed: '1.eA' })).toEqual({ ok: true, duplicate: true });
+    await b.peerLaunch.postResult('l1', { seq: 2, sealed: '1.eB' });
+    await expect(b.peerLaunch.results('l1', 0)).rejects.toMatchObject({ status: 404 });
+    expect((await a.peerLaunch.results('l1', 1)).results.map((r) => r.seq)).toEqual([2]);
+    const out = await a.peerLaunch.outbox(0);
+    expect(out.launches).toEqual([{ id: 'l1', to: 'pc-b', status: 'started', sealedAnswer: '1.YW5z', resultSeq: 2, updatedAt: 1_000 }]);
+    expect(a.wire.peerRings.filter((r) => r.kind === 'result')).toHaveLength(2);
+  });
+
+  it('期限を過ぎた頼みは pull に出ず claim できず、呼ぶ側には expired が見える', async () => {
+    let now = 1_000;
+    const a = new FakeCloudClient({ deviceId: 'pc-a', now: () => now });
+    const b = a.asDevice('pc-b');
+    await b.pullChanges(0, 10);
+    await a.peerLaunch.put({ id: 'l1', to: 'pc-b', sealed: S });
+    now += PEER_LAUNCH_TTL_MS + 1;
+    expect((await b.pullChanges(0, 10)).peerLaunches).toEqual([]);
+    expect(await b.peerLaunch.claim('l1')).toBe(false);
+    expect((await a.peerLaunch.outbox(0)).launches[0]!.status).toBe('expired');
+  });
+
+  it('古い Worker（版が足りない）は口を 404 で断り、pull に peerLaunches を載せない', async () => {
+    const a = new FakeCloudClient({ deviceId: 'pc-a' });
+    a.workerCompat = PEER_LAUNCH_MIN_WORKER_COMPAT - 1;
+    await expect(a.peerLaunch.put({ id: 'l1', to: 'pc-b', sealed: S })).rejects.toMatchObject({ status: 404 });
+    expect((await a.pullChanges(0, 10)).peerLaunches).toBeUndefined();
+  });
+
+  it('偽物の上限は実物の定数と同じ', () => {
+    expect(PEER_RESULTS_MAX).toBe(200);
   });
 });
 
