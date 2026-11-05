@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveEpochKeys } from '@agent-hangar/shared';
+import { deriveEpochKeys, openPeerAnswer, sealPeerAnswer } from '@agent-hangar/shared';
 import { testCloudConfig, testKey } from '../../test/cloudConfig.ts';
 import { Keyring } from './keyring.ts';
 
@@ -17,6 +17,18 @@ describe('Keyring', () => {
     const k = await Keyring.fromConfig(testCloudConfig());
     const want = await deriveEpochKeys(1, testKey(3));
     expect(k.current().fileBytes).toEqual(want.fileBytes);
+  });
+
+  it('PC どうしの封を、書く世代が進んだ後も封が名乗る世代の鍵で開ける', async () => {
+    const route = { requestId: 'r1', from: 'pc-a', to: 'pc-b' };
+    const ans = { ok: true as const, sessionId: 's1', title: 't' };
+    const old = await Keyring.fromConfig(testCloudConfig());
+    const sealed = await sealPeerAnswer(old, route, ans);
+    const k = await Keyring.fromConfig(testCloudConfig());
+    await k.addEpochs({ epochs: { '1': testKey(3), '2': testKey(4) } });
+    expect(k.current().epoch).toBe(2);
+    expect(await openPeerAnswer(k, route, sealed)).toEqual(ans);
+    expect((await sealPeerAnswer(k, route, ans)).startsWith('2.')).toBe(true);
   });
 
   it('addEpochs の後に at で引け、今の世代は一番新しいものに進む', async () => {

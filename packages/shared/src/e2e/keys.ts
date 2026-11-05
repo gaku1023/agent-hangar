@@ -79,7 +79,7 @@ export function randomEpochKey(): string {
 }
 
 /** 世代鍵から導く用途。 */
-export type Purpose = 'row' | 'index' | 'fp' | 'file' | 'roster';
+export type Purpose = 'row' | 'index' | 'fp' | 'file' | 'roster' | 'peer';
 
 /** 用途ごとの HKDF の info。値を変えると、過去に封じたものが開けなくなる。 */
 export const PURPOSE_INFO: Record<Purpose, string> = {
@@ -88,6 +88,7 @@ export const PURPOSE_INFO: Record<Purpose, string> = {
   fp: 'hangar-e2e-v2/fp',
   file: 'hangar-e2e-v2/file',
   roster: 'hangar-e2e-v2/roster',
+  peer: 'hangar-e2e-v2/peer',
 };
 
 /** 世代鍵から用途の鍵の生の 32 バイトを導く（salt は空）。 */
@@ -97,18 +98,20 @@ export async function deriveSubkeyBytes(epochKey: string, purpose: Purpose): Pro
 
 /**
  * 1 つの世代の用途の鍵。
- * row と roster は AES-256-GCM、index と fp は HMAC-SHA256 の鍵。
+ * row、roster、peer は AES-256-GCM、index と fp は HMAC-SHA256 の鍵。
+ * peer は PC どうしの封（別の PC への起動の頼み、答え、結果。peer.ts）に使う。
  * fileBytes は R2 の本文の鍵の生バイトで、サーバの node:crypto のストリーム暗号に渡す。
  */
-export type EpochKeys = { epoch: number; row: CryptoKey; index: CryptoKey; fp: CryptoKey; roster: CryptoKey; fileBytes: Uint8Array };
+export type EpochKeys = { epoch: number; row: CryptoKey; index: CryptoKey; fp: CryptoKey; roster: CryptoKey; peer: CryptoKey; fileBytes: Uint8Array };
 
 export async function deriveEpochKeys(epoch: number, epochKey: string): Promise<EpochKeys> {
-  const [row, index, fp, roster, fileBytes] = await Promise.all([
+  const [row, index, fp, roster, peer, fileBytes] = await Promise.all([
     deriveSubkeyBytes(epochKey, 'row').then(importAesKey),
     deriveSubkeyBytes(epochKey, 'index').then(importHmacKey),
     deriveSubkeyBytes(epochKey, 'fp').then(importHmacKey),
     deriveSubkeyBytes(epochKey, 'roster').then(importAesKey),
+    deriveSubkeyBytes(epochKey, 'peer').then(importAesKey),
     deriveSubkeyBytes(epochKey, 'file'),
   ]);
-  return { epoch, row, index, fp, roster, fileBytes };
+  return { epoch, row, index, fp, roster, peer, fileBytes };
 }
