@@ -3,7 +3,7 @@ import { Keyring } from '../../sync/keyring.ts';
 import { testCloudConfig, testKey } from '../../../test/cloudConfig.ts';
 import { issuePeerToken, keyringPeerTokenKeys, peerTokenEpoch, verifyPeerToken } from './token.ts';
 
-const ring = async (epochs: Record<string, string>, currentEpoch: number) => keyringPeerTokenKeys(await Keyring.fromConfig(testCloudConfig({ epochs, currentEpoch })));
+const ring = async (epochs: Record<string, string>, currentEpoch: number) => keyringPeerTokenKeys(Keyring.fromConfig(testCloudConfig({ epochs, currentEpoch })));
 
 describe('PC どうしの token', () => {
   it('同じグループの今の世代の token は通る', async () => {

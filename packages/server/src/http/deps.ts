@@ -22,6 +22,9 @@ import type { TakeoverService } from '../sync/takeover.ts';
 import type { AccountsDeps } from './accounts.ts';
 import type { GitService } from '../git/service.ts';
 import type { OpencodeProvidersService } from '../provider/opencode/integration.ts';
+import type { PeerEndpointDeps } from '../peer/endpoint.ts';
+import type { PeerSshStore } from '../peer/ssh/config.ts';
+import type { HostKeyState } from '../peer/ssh/connector.ts';
 
 /**
  * HTTP の層が外から受け取る依存の一覧。
@@ -244,4 +247,14 @@ export type AppDeps = {
   shareHome?: string;
   /** UI の dist。null なら UI を配らない（試験と、dist を持たない組み立て）。 */
   uiDist: string | null;
+  /**
+   * SSH の予備の経路（boot/peerSsh.ts）。
+   * endpoint は別の PC から来る `/peer` の入口、store と hostKeyState は設定「ほかの PC」の `/api/peer-ssh` が使う。
+   * 渡さなければ、どちらの経路も持たない。
+   */
+  peerSsh?: {
+    endpoint: PeerEndpointDeps;
+    store: Pick<PeerSshStore, 'list' | 'set' | 'remove'>;
+    hostKeyState(deviceId: string): HostKeyState;
+  };
 };

@@ -33,8 +33,8 @@ describe('ssh の引数', () => {
       ForwardAgent: 'no',
     });
     expect(args.slice(0, 4)).toEqual(['-N', '-T', '-F', 'none']);
-    expect(args).toContain('-i');
-    expect(args[args.indexOf('-i') + 1]).toBe(entry.keyPath);
+    expect(args).not.toContain('-i');
+    expect(o.IdentityFile).toBe(entry.keyPath);
     expect(args[args.indexOf('-l') + 1]).toBe('alice');
     expect(args[args.indexOf('-L') + 1]).toBe('127.0.0.1:50123:127.0.0.1:4177');
     // 宛先は最後の 1 つで、その後にコマンドを付けない。
@@ -52,6 +52,7 @@ describe('ssh の引数', () => {
   it('Windows のパスは / にし、空白を含めば引用符で包み、% を逃がす', () => {
     expect(sshOptionPath('C:\\Users\\A B\\.agent-hangar\\peer-ssh\\known_hosts-d', 'win32')).toBe('"C:/Users/A B/.agent-hangar/peer-ssh/known_hosts-d"');
     expect(sshOptionPath('/Users/x%d/known', 'darwin')).toBe('/Users/x%%d/known');
+    expect(sshOptionPath('/Users/x%d/known', 'darwin', false)).toBe('/Users/x%d/known');
     expect(() => sshOptionPath('/a"b', 'linux')).toThrow();
   });
 

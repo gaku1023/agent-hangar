@@ -20,20 +20,22 @@ export const PEER_TOKEN_PREFIX = 'hpeer1';
 
 /** token の鍵の引き口。サーバでは Keyring の今の世代と peerTokenKey を渡す（keyringPeerTokenKeys）。 */
 export type PeerTokenKeys = {
-  currentEpoch(): number;
+  currentEpoch(): number | Promise<number>;
   keyAt(epoch: number): Promise<CryptoKey | null>;
 };
 
-/** Keyring を token の鍵の引き口にする。 */
-export function keyringPeerTokenKeys(ring: { current(): { epoch: number }; peerTokenKey(epoch: number): Promise<CryptoKey | null> }): PeerTokenKeys {
-  return { currentEpoch: () => ring.current().epoch, keyAt: (epoch) => ring.peerTokenKey(epoch) };
+type TokenRing = { current(): { epoch: number }; peerTokenKey(epoch: number): Promise<CryptoKey | null> };
+
+/** Keyring を token の鍵の引き口にする。同期の組み立ては Keyring を Promise で持つので、それも受ける。 */
+export function keyringPeerTokenKeys(ring: TokenRing | Promise<TokenRing>): PeerTokenKeys {
+  return { currentEpoch: async () => (await ring).current().epoch, keyAt: async (epoch) => (await ring).peerTokenKey(epoch) };
 }
 
 const message = (epoch: number, from: string, to: string): Uint8Array<ArrayBuffer> => utf8.encode(JSON.stringify(['peer-token', epoch, from, to])) as Uint8Array<ArrayBuffer>;
 
 /** 今の世代で、from から to への token を作る。鍵が無ければ null。 */
 export async function issuePeerToken(keys: PeerTokenKeys, from: string, to: string): Promise<string | null> {
-  const epoch = keys.currentEpoch();
+  const epoch = await keys.currentEpoch();
   const key = await keys.keyAt(epoch);
   if (!key) return null;
   const mac = new Uint8Array(await globalThis.crypto.subtle.sign('HMAC', key, message(epoch, from, to)));
@@ -54,7 +56,7 @@ export function peerTokenEpoch(token: string): number | null {
 export async function verifyPeerToken(keys: PeerTokenKeys, token: string | null | undefined, from: string, to: string): Promise<boolean> {
   if (typeof token !== 'string') return false;
   const epoch = peerTokenEpoch(token);
-  if (epoch === null || epoch < keys.currentEpoch()) return false;
+  if (epoch === null || epoch < (await keys.currentEpoch())) return false;
   const key = await keys.keyAt(epoch);
   if (!key) return false;
   const mac = fromBase64Url(token.slice(token.lastIndexOf('.') + 1));

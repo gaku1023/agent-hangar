@@ -32,19 +32,17 @@ export function sshBinaries(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, e
 
 /**
  * `-o 名前=値` の値に入れるパス。
- * ssh は -o の値を設定ファイルの 1 行と同じく読み、空白で区切り、% と ~ を展開する。
- * % は %% にし、空白を含むときは二重引用符で包む。Windows の \ は / にする（OpenSSH for Windows は / を受ける）。
+ * ssh は -o の値を設定ファイルの 1 行と同じく読み、空白で区切る。空白を含むときは二重引用符で包む。
+ * Windows の \ は / にする（OpenSSH for Windows は / を受ける）。
+ * % を展開する項目（UserKnownHostsFile）では % を %% にする。GlobalKnownHostsFile は展開しないので、そのまま渡す（ssh -G で確かめた）。
  */
-export function sshOptionPath(p: string, platform: NodeJS.Platform): string {
+export function sshOptionPath(p: string, platform: NodeJS.Platform, expandsTokens = true): string {
   if (/["\r\n\0]/.test(p)) throw new Error('path cannot be passed to ssh');
-  const v = (platform === 'win32' ? p.replace(/\\/g, '/') : p).replace(/%/g, '%%');
+  const slashed = platform === 'win32' ? p.replace(/\\/g, '/') : p;
+  const v = expandsTokens ? slashed.replace(/%/g, '%%') : slashed;
   return /\s/.test(v) ? `"${v}"` : v;
 }
 
-/** -i の値。別の引数なので空白は割られないが、% は展開される。 */
-export function sshIdentityPath(p: string): string {
-  return p.replace(/%/g, '%%');
-}
 
 /** known_hosts に書く、PC ごとの別名。 */
 export const hostAlias = (deviceId: string): string => `hangar-peer-${deviceId}`;
@@ -109,7 +107,7 @@ export function tunnelArgs(o: {
     ...opt('BatchMode', 'yes'),
     ...opt('StrictHostKeyChecking', 'yes'),
     ...opt('UserKnownHostsFile', sshOptionPath(o.knownHosts, o.platform)),
-    ...opt('GlobalKnownHostsFile', sshOptionPath(o.emptyKnownHosts, o.platform)),
+    ...opt('GlobalKnownHostsFile', sshOptionPath(o.emptyKnownHosts, o.platform, false)),
     ...opt('HostKeyAlgorithms', 'ssh-ed25519'),
     ...opt('HostKeyAlias', hostAlias(o.deviceId)),
     ...opt('CheckHostIP', 'no'),
@@ -123,7 +121,8 @@ export function tunnelArgs(o: {
     ...opt('ControlPath', 'none'),
     ...opt('ForwardAgent', 'no'),
     ...opt('PermitLocalCommand', 'no'),
-    '-i', sshIdentityPath(o.entry.keyPath),
+    // 鍵は -i でなく -o IdentityFile で渡す。-i は渡したままの字でファイルの有無を見てから後で % を展開するので、% を含むパスを正しく渡せない（ssh -G で確かめた）。
+    ...opt('IdentityFile', sshOptionPath(o.entry.keyPath, o.platform)),
     '-l', o.entry.user,
     '-p', String(o.entry.sshPort),
     '-L', `127.0.0.1:${o.localPort}:127.0.0.1:${o.entry.hangarPort}`,
