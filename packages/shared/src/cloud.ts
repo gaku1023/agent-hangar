@@ -2,20 +2,21 @@
 import type { MobileLaunchOut } from './mobile.ts';
 import type { PeerLaunchIncoming } from './peerCloud.ts';
 
-export type SharedTable = 'devices' | 'projects' | 'project_roots' | 'sessions' | 'runs' | 'run_tabs' | 'session_summaries' | 'session_states' | 'session_notes' | 'todos' | 'project_memos' | 'artifacts' | 'artifact_versions' | 'config_snapshots' | 'takeovers' | 'takeover_answers';
+export type SharedTable = 'devices' | 'projects' | 'project_roots' | 'sessions' | 'runs' | 'run_tabs' | 'session_summaries' | 'session_states' | 'session_notes' | 'todos' | 'project_memos' | 'artifacts' | 'artifact_versions' | 'config_snapshots' | 'takeovers' | 'takeover_answers' | 'session_spawns';
 
 /**
  * 親から子の順。pull の適用はこの順に並べ替えて外部キーの順序違反を避ける。
  * Worker（packages/cloud/src/changes.ts）はこの一覧に無い表の変更を含む push を断るので、表を足したら Worker も配備し直す。
  * session_notes（セッションの名前とメモ）は互換の版 2 で足した。版 1 の Worker はこの表の行を断るので、端末は Worker に版 2 を求める。
  * takeovers と takeover_answers（ほかの PC で動く会話を止めて引き継ぐ頼みと応答）は互換の版 6 で足した。版 5 までの Worker はこの 2 表の行を含む push を 400 で丸ごと断るので、端末は Worker の版が TAKEOVER_MIN_WORKER_COMPAT に届くまで書かない。
+ * session_spawns（MCP で起こした会話の親子の結び付き）は、別の PC への起動で足した。封じた行は表名を Worker に見せないので、Worker の更新は要らない。古い版の端末は知らない表の行を捨てる。
  * takeover_requests は v1 のマイグレーションに表が残るが、誰も書かないので一覧に入れない。
  */
-export const SHARED_TABLES: readonly SharedTable[] = ['devices', 'projects', 'project_roots', 'sessions', 'runs', 'run_tabs', 'session_summaries', 'session_states', 'session_notes', 'todos', 'project_memos', 'artifacts', 'artifact_versions', 'config_snapshots', 'takeovers', 'takeover_answers'];
+export const SHARED_TABLES: readonly SharedTable[] = ['devices', 'projects', 'project_roots', 'sessions', 'runs', 'run_tabs', 'session_summaries', 'session_states', 'session_notes', 'todos', 'project_memos', 'artifacts', 'artifact_versions', 'config_snapshots', 'takeovers', 'takeover_answers', 'session_spawns'];
 
 export const TABLE_PK: Record<SharedTable, string> = {
   devices: 'id', projects: 'id', project_roots: 'id', sessions: 'id', runs: 'id', run_tabs: 'id',
-  session_summaries: 'session_id', session_states: 'session_id', session_notes: 'session_id', todos: 'id', project_memos: 'project_id', artifacts: 'id', artifact_versions: 'id', config_snapshots: 'device_id', takeovers: 'id', takeover_answers: 'ask_id',
+  session_summaries: 'session_id', session_states: 'session_id', session_notes: 'session_id', todos: 'id', project_memos: 'project_id', artifacts: 'id', artifact_versions: 'id', config_snapshots: 'device_id', takeovers: 'id', takeover_answers: 'ask_id', session_spawns: 'session_id',
 };
 
 export type ChangeOp = 'upsert' | 'delete';

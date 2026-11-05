@@ -176,7 +176,7 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   api.delete('/sessions/:id/spawn', (c) => {
     const id = c.req.param('id');
     if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
-    forgetSpawn(db, id);
+    forgetSpawn(db, deviceId, id);
     return c.json({ ok: true });
   });
   api.post('/sessions/:id/state/reject', (c) => {
