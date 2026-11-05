@@ -253,6 +253,15 @@ describe('PeerOutbox の終わりと二重の防ぎ', () => {
     expect(injected.map((x) => x.text).join('\n')).not.toContain('さらに来た');
   });
 
+  it('stopped は入るが、結び付きは切れず、その後の結果も入る', async () => {
+    await result(1, { reason: 'stopped', lastReply: '' });
+    await result(2, { lastReply: '再開後の返答' });
+    await ob.sync();
+    const t = injected.map((x) => x.text).join('\n');
+    expect(t).toContain('再開後の返答');
+    expect(getSpawn(db, ME, 'child-1')).toMatchObject({ relay: 'on' });
+  });
+
   it('同じ seq は二度入れない。取得の起点を戻しても、口が after を無視して返し直しても（受け入れ 20）', async () => {
     await result(1);
     await ob.sync();

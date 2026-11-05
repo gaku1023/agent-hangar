@@ -1,16 +1,19 @@
 import { notifyRulesOf, type AgentKind, type PeerBellKind, type PeerKeyring, type PeerLaunchIncoming, type ServerEvent } from '@agent-hangar/shared';
 import { AGENT_ENTRY } from '../agent/entry.ts';
 import type { LiveHub } from '../agent/liveHub.ts';
+import { getSession } from '../db/queries.ts';
 import { touchRow } from '../db/notify.ts';
 import { INTENT_MAX } from '../live/intents.ts';
 import { addUnread, noteUnread, NOTIFY_TARGETS } from '../live/unread.ts';
-import { sanitizeInput } from '../mcp/screenTools.ts';
-import { noteTurnStart } from '../mcp/waitTool.ts';
+import { MAX_SEND_CHARS, sanitizeInput } from '../mcp/screenTools.ts';
+import { lastReply, noteTurnStart } from '../mcp/waitTool.ts';
 import { PeerLaunchInbox, type PeerAccount } from '../peer/launchInbox.ts';
 import { PeerOutbox } from '../peer/outbox.ts';
+import { PeerRelay } from '../peer/relay.ts';
 import { aliveRunForSession } from '../runs/queries.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { SyncEngine } from '../sync/engine.ts';
+import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
 import type { RunsParts } from './runs.ts';
 import type { SyncParts } from './sync.ts';
@@ -32,16 +35,18 @@ export type PeerParts = {
  * 呼ぶ側（peer/outbox.ts の PeerOutbox）もここで組む。別の PC へ頼んだ答えと結果を取り、呼び出し元の会話へ入力として送り込む。
  * 取得は 30 秒ごとと、呼び鈴の answer と result で回り、実行中の一覧が変わるたびに預かりを渡し直す。
  * 組み立てた受け口は inbox() で引ける。SSH の /peer の入口は、同じ受け口の receive に頼みを渡す。
+ * 起こした会話のターンの止まりは、結果の見張り（peer/relay.ts）が呼び出し元へ書く。登録の変化（live）と run の終わりを聞き、返す。
+ * send と stop の頼み（D16）は、受け口が結び付きを確かめたうえで、この組みの入力の口と run の停止に渡す。
  */
 export function bootPeer(p: {
   home: Pick<HomeParts, 'db' | 'device' | 'settings' | 'language'>;
-  runs: { runs: Pick<RunManager, 'start' | 'sendInput'>; accounts: RunsParts['accounts']; claudeBin: RunsParts['claudeBin'] };
+  runs: { runs: Pick<RunManager, 'start' | 'sendInput' | 'kill' | 'on'>; accounts: RunsParts['accounts']; claudeBin: RunsParts['claudeBin'] };
   /** 実行中の一覧と、画面への知らせの口。呼ぶ側が使う。 */
   delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub: { broadcast(ev: Extract<ServerEvent, { type: 'toast' }>): void } };
   sync: Pick<SyncParts, 'engine' | 'peerLink' | 'canCarryPeer'>;
   now?: () => number;
   setInterval?: typeof setInterval;
-}): PeerParts & { inbox(): PeerLaunchInbox | null } {
+}): PeerParts & { inbox(): PeerLaunchInbox | null; relay: PeerRelay } {
   const { db } = p.home;
   const deviceId = p.home.device.id;
   const accounts = p.runs.accounts;
@@ -51,6 +56,45 @@ export function bootPeer(p: {
   let timer: ReturnType<typeof setInterval> | null = null;
   let stopped = false;
   const now = p.now ?? Date.now;
+  const relay = new PeerRelay({
+    db, deviceId, now,
+    live: () => p.delivery.live.current(),
+    ring: async () => { const l = p.sync.peerLink(); if (!l) throw new Error('peer link is not ready'); return l.ring(); },
+    api: () => p.sync.peerLink()?.api ?? null,
+    canProcess: () => !stopped && p.sync.canCarryPeer(),
+    lastReply: (id) => lastReply(db, id),
+    describe: (id) => {
+      const s = getSession(db, p.delivery.live.current(), id, { deviceId });
+      return s ? { title: s.name ?? s.summary?.title ?? s.aiTitle ?? s.firstPrompt ?? null, summary: s.summary?.oneLiner ?? null, status: s.summary?.state ?? null } : null;
+    },
+    schedule: (fn, ms) => { const t = setTimeout(fn, ms); t.unref?.(); },
+  });
+  const ownRun = (sessionId: string) => {
+    const run = aliveRunForSession(db, sessionId, deviceId, now());
+    if (!run || run.deviceId !== deviceId) throw new Error('the session is not running on this device');
+    return run;
+  };
+  const control = {
+    async send(sessionId: string, text: string): Promise<void> {
+      const run = ownRun(sessionId);
+      const clean = sanitizeInput(text);
+      if (!clean.trim() || clean.length > MAX_SEND_CHARS) throw new Error('the text cannot be sent');
+      // 入れる直前に印を付ける。届いた直後の止まりを取りこぼさず、前のターンの idle を結果にしないためである。
+      relay.arm(sessionId);
+      noteTurnStart(db, sessionId, { at: now() });
+      try {
+        await p.runs.runs.sendInput(run.tmuxName, clean, true);
+      } catch (e) {
+        relay.disarm(sessionId);
+        throw e;
+      }
+    },
+    stop(sessionId: string): void {
+      p.runs.runs.kill(ownRun(sessionId).id);
+    },
+  };
+  let offRelayLive: (() => void) | null = null;
+  let offRuns: (() => void) | null = null;
 
   /**
    * 封を開く鍵の束。PeerOutbox は同期の口で鍵を求めるが、同期の ring は Promise なので、読めた最後のものを持つ。
@@ -128,7 +172,9 @@ export function bootPeer(p: {
       accountByName: byName,
       hasAgent: agentUsable,
       canProcess: () => !stopped && p.sync.canCarryPeer(),
-      now: p.now ?? Date.now,
+      now,
+      onStarted: (e) => relay.onStarted(e),
+      control,
     });
     cur = { link, inbox };
     return inbox;
@@ -143,6 +189,8 @@ export function bootPeer(p: {
     try {
       follow();
       void ensure()?.resendAnswers();
+      relay.check();
+      void relay.flush();
       void refreshRing();
     } catch (e) {
       console.error('[peer] could not run the peer watch', e instanceof Error ? e.constructor.name : typeof e);
@@ -151,12 +199,15 @@ export function bootPeer(p: {
 
   return {
     inbox: () => ensure(),
+    relay,
     onBell(kind) {
       if (stopped || (kind !== 'answer' && kind !== 'result')) return;
       void refreshRing().then(() => outbox.sync()).catch(() => {});
     },
     start() {
       if (timer || stopped) return;
+      offRelayLive = p.delivery.live.onChange(() => relay.check());
+      offRuns = p.runs.runs.on({ runEnded: (run) => relay.onProcessEnded(run.sessionId) });
       tick();
       stopOutbox = outbox.start();
       // 実行中の一覧が変わったら、預かっている入力を渡し直す（止められていた呼び出し元が再開したときなど）。
@@ -175,6 +226,9 @@ export function bootPeer(p: {
       offLive = null;
       sub?.off();
       sub = null;
+      offRelayLive?.();
+      offRelayLive = null;
+      offRuns?.();
     },
   };
 }

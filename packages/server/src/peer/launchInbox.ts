@@ -25,7 +25,7 @@ import {
 import type { Db } from '../db/open.ts';
 import { displayName } from '../db/queries.ts';
 import type { LaunchResult } from '../runs/manager.ts';
-import { isSpawnedFromOtherDevice, recordSpawn } from '../sessions/spawns.ts';
+import { getSpawn, isSpawnedFromOtherDevice, recordSpawn } from '../sessions/spawns.ts';
 import { CloudError } from '../sync/client.ts';
 
 /** 頼んだ PC と頼まれた PC の時計のずれを見込んで、期限に足す余裕（スマホの依頼と同じ）。 */
@@ -61,10 +61,18 @@ export type PeerLaunchInboxDeps = {
   now: () => number;
   /** 頼みで会話を起こせたときの受け手。記録の後、答えの前に 1 回だけ呼ぶ。投げても答えは送る。 */
   onStarted?: (e: PeerLaunchStarted) => void;
+  /**
+   * send と stop の頼み（D16）の実行。対象が頼んだ側の起こした会話であることは、呼ぶ前に確かめてある。
+   * send は入力を入れる前に結果の印を付け、入れられなければ印を戻す。投げれば launch-failed で断る。省けば send と stop は断る。
+   */
+  control?: {
+    send(sessionId: string, text: string): Promise<void>;
+    stop(sessionId: string): Promise<void> | void;
+  };
 };
 
 /** 頼みで起こした会話。from は頼んだ PC の ID、parentSessionId は頼んだ PC の会話。 */
-export type PeerLaunchStarted = { requestId: string; from: string; parentSessionId: string; sessionId: string; title: string };
+export type PeerLaunchStarted = { requestId: string; from: string; parentSessionId: string; sessionId: string; title: string; hasPrompt: boolean };
 
 const PERMISSION_MODES: ReadonlySet<string> = new Set(PERMISSION_MODE_VALUES);
 const isCodexEffort = (v: unknown): v is string => typeof v === 'string' && /^[a-z0-9][a-z0-9_-]{0,23}$/.test(v);
@@ -81,6 +89,12 @@ const kindOf = (e: unknown): string => {
  * Codex の権限は mode か permissionMode のどちらかに入っていればよい。opencode にはアカウントと権限モードと effort が無く、Claude には mode と autoApprove が無い。
  */
 function isMeaningful(r: PeerLaunchRequest): boolean {
+  if (r.op === 'send' || r.op === 'stop') {
+    // 起動の欄は使わない。対象と、send の本文だけを見る。
+    if (r.parentSessionId.length === 0 || r.parentSessionId.length > MOBILE_LAUNCH_ID_MAX) return false;
+    if (!r.targetSessionId || r.targetSessionId.length > MOBILE_LAUNCH_ID_MAX) return false;
+    return r.op === 'send' ? r.prompt.trim().length > 0 && r.prompt.length <= MOBILE_PROMPT_MAX : r.prompt === '';
+  }
   if (r.prompt.length > MOBILE_PROMPT_MAX || r.parentSessionId.length === 0 || r.parentSessionId.length > MOBILE_LAUNCH_ID_MAX) return false;
   if (r.account.length > MOBILE_LAUNCH_ID_MAX || (r.callerAccount?.length ?? 0) > MOBILE_LAUNCH_ID_MAX) return false;
   if (r.projectId !== null && (r.projectId.length === 0 || r.projectId.length > MOBILE_LAUNCH_ID_MAX)) return false;
@@ -205,14 +219,15 @@ export class PeerLaunchInbox {
     const opened: { r: PeerLaunchRequest | null } = { r: null };
     const answer = await this.decide(ring, route, l, opened).catch((): PeerLaunchAnswer => ({ ok: false, reason: 'launch-failed' }));
     const sealed = await sealPeerAnswer(ring, route, answer).catch(() => null);
-    const started = answer.ok && opened.r ? { ...answer, r: opened.r } : null;
+    const launched = opened.r && (opened.r.op ?? 'launch') === 'launch';
+    const started = answer.ok && opened.r && launched ? { ...answer, r: opened.r } : null;
     if (started) this.link(l, started.r, started.sessionId);
     db
       .prepare('insert or ignore into peer_launches (id, from_device, handled_at, result, sealed_answer, ok, answered, session_id, parent_session_id) values (?, ?, ?, ?, ?, ?, 0, ?, ?)')
-      .run(l.id, l.from, now(), answer.ok ? 'started' : answer.reason, sealed, answer.ok ? 1 : 0, started?.sessionId ?? null, opened.r?.parentSessionId ?? null);
+      .run(l.id, l.from, now(), answer.ok ? (launched ? 'started' : opened.r!.op!) : answer.reason, sealed, answer.ok ? 1 : 0, answer.ok ? answer.sessionId : null, opened.r?.parentSessionId ?? null);
     if (started) {
       try {
-        this.deps.onStarted?.({ requestId: l.id, from: l.from, parentSessionId: started.r.parentSessionId, sessionId: started.sessionId, title: started.title });
+        this.deps.onStarted?.({ requestId: l.id, from: l.from, parentSessionId: started.r.parentSessionId, sessionId: started.sessionId, title: started.title, hasPrompt: started.r.prompt !== '' });
       } catch (e) {
         console.error('[peer] could not announce the started session', kindOf(e));
       }
@@ -241,6 +256,7 @@ export class PeerLaunchInbox {
     opened.r = r;
     if (!isMeaningful(r)) return fail('bad-payload');
     if (r.createdAt < this.deps.now() - PEER_LAUNCH_TTL_MS - PEER_CLOCK_SLACK_MS) return fail('expired');
+    if (r.op === 'send' || r.op === 'stop') return this.control(r, l.from, fail);
     // 深さは 1 まで（D11）。頼んだ会話が、さらに別の PC から起こされたものなら断る。頼みの申告と、同期で届いた結び付きのどちらでも見る。
     if (r.spawnedRemotely === true || isSpawnedFromOtherDevice(this.deps.db, l.from, r.parentSessionId)) return fail('depth-exceeded');
     if (!r.scratch && !this.deps.hasProjectHere(r.projectId!)) return fail('project-missing');
@@ -279,6 +295,27 @@ export class PeerLaunchInbox {
     let title: string;
     try { title = this.titleOf(res.sessionId, r.prompt); } catch { title = firstLine(r.prompt); }
     return { ok: true, sessionId: res.sessionId, title };
+  }
+
+  /**
+   * send と stop（D16）。対象は、この PC にあり、結び付きの親が頼んだ PC と頼んだ会話である会話に限る。
+   * 結び付きが閉じた後（終わりを返した後）でも、切り離されるまでは起こした相手のままである。
+   */
+  private async control(r: PeerLaunchRequest, from: string, fail: (reason: PeerLaunchRefusal, detail?: string) => PeerLaunchAnswer): Promise<PeerLaunchAnswer> {
+    const target = r.targetSessionId!;
+    const link = getSpawn(this.deps.db, this.deps.deviceId, target);
+    if (!link || link.childDeviceId !== this.deps.deviceId || link.parentDeviceId !== from || link.parentId !== r.parentSessionId) return fail('not-spawned-by-caller');
+    const c = this.deps.control;
+    if (!c) return fail('launch-failed', 'unsupported');
+    try {
+      if (r.op === 'send') await c.send(target, r.prompt);
+      else await c.stop(target);
+    } catch (e) {
+      return fail('launch-failed', clampText(e instanceof Error ? e.message : String(e)) ?? undefined);
+    }
+    let title: string;
+    try { title = this.titleOf(target, ''); } catch { title = ''; }
+    return { ok: true, sessionId: target, title };
   }
 
   private titleOf(sessionId: string, prompt: string): string {

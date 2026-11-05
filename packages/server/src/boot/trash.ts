@@ -28,6 +28,8 @@ export function bootTrash(
   delivery: Pick<DeliveryParts, 'live'>,
   sync: Pick<SyncParts, 'onStatesApplied' | 'refetchSession'>,
   indexing: Pick<IndexingParts, 'indexer'>,
+  /** 削除で行が消える前に呼ぶ（別の PC へ「終わった」を返す、D15）。 */
+  beforeForget?: (sessionId: string) => void,
 ): TrashParts {
   const { db, claudeDir } = home;
   const deviceId = home.device.id;
@@ -45,6 +47,7 @@ export function bootTrash(
     },
     onRestored: () => indexing.indexer.requestSweep(),
     onRestoredElsewhere: (uuid) => sync.refetchSession(uuid),
+    ...(beforeForget ? { beforeForget } : {}),
   });
   const offStates = sync.onStatesApplied(() => trash.schedule());
   const offIndexer = indexing.indexer.on({ deletedSeen: () => trash.schedule() });
