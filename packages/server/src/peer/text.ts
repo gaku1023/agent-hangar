@@ -11,7 +11,7 @@ export const PEER_TEXT_MAX = 7_800;
 const clean = (s: string): string => s.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '');
 const oneLine = (s: string, max: number): string => clean(s).replace(/\s+/g, ' ').trim().slice(0, max);
 
-/** 止まった理由（idle、question、permission、ended）の文。 */
+/** 止まった理由（idle、question、permission、stopped、ended）の文。 */
 export const stopReasonText = (lang: Language, reason: PeerLaunchResult['reason']): string => render(lang, msg(`mcp.peer.reason.${reason}`));
 
 /** ターンが止まるたびの結果を、1 通の文にする。返答が長くて 1 通に収まらなければ、さらに切って truncated の扱いにする。 */
@@ -22,7 +22,7 @@ export function resultText(lang: Language, o: { device: string; result: PeerLaun
   if (r.status) lines.push(render(lang, msg('mcp.peer.status', { status: oneLine(r.status, 40) })));
   if (r.summary) lines.push(render(lang, msg('mcp.peer.summary', { summary: clean(r.summary).trim().slice(0, 1_000) })));
   const reply = clean(r.lastReply).trim();
-  if (r.reason === 'ended' && reply === '') return lines.join('\n');
+  if ((r.reason === 'ended' || r.reason === 'stopped') && reply === '') return lines.join('\n');
   if (reply === '') {
     lines.push(render(lang, msg('mcp.peer.noReply')));
     return lines.join('\n');
@@ -44,6 +44,7 @@ const REFUSAL_KEY = {
   'bad-payload': 'mcp.peer.refusal.badPayload',
   'expired': 'mcp.peer.refusal.expired',
   'launch-failed': 'mcp.peer.refusal.launchFailed',
+  'not-spawned-by-caller': 'mcp.peer.refusal.notSpawnedByCaller',
 } as const satisfies Record<PeerLaunchRefusal, string>;
 
 /** 頼んだ PC の側で決まる断り。承認で断られた、承認が時間切れになった（D8）。 */
@@ -51,10 +52,11 @@ export type PeerLocalRefusal = 'approval-denied' | 'approval-timeout';
 const LOCAL_REFUSAL_KEY = { 'approval-denied': 'mcp.peer.refusal.approvalDenied', 'approval-timeout': 'mcp.peer.refusal.approvalTimeout' } as const satisfies Record<PeerLocalRefusal, string>;
 
 /** 断られた答えの文。detail は相手の PC が添えた短い説明で、あれば末尾に足す。 */
-export function refusalText(lang: Language, o: { device: string; reason: PeerLaunchRefusal | PeerLocalRefusal; detail?: string }): string {
+export function refusalText(lang: Language, o: { device: string; reason: PeerLaunchRefusal | PeerLocalRefusal; detail?: string; op?: 'launch' | 'send' | 'stop' }): string {
   const why = render(lang, msg(o.reason === 'approval-denied' || o.reason === 'approval-timeout' ? LOCAL_REFUSAL_KEY[o.reason] : REFUSAL_KEY[o.reason]));
   const detail = o.detail ? ` (${oneLine(o.detail, 200)})` : '';
-  return render(lang, msg('mcp.peer.refused', { device: oneLine(o.device, 80), reason: why + detail }));
+  const key = o.op === 'send' ? 'mcp.peer.refusedSend' : o.op === 'stop' ? 'mcp.peer.refusedStop' : 'mcp.peer.refused';
+  return render(lang, msg(key, { device: oneLine(o.device, 80), reason: why + detail }));
 }
 
 /** 受け取られないまま期限が過ぎた頼みの文。 */

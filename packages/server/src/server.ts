@@ -119,7 +119,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // hangar の外の Codex の会話の枠（rollout の meta rate_limits）を、使用量の面へ。
   indexing.bindCodexRateLimits((value, ts, creator) => { runs.codexUsage.noteRolloutRateLimits(value, ts, creator); });
   const summary = bootSummary(home, delivery, runs, sync);
-  const trash = bootTrash(home, delivery, sync, indexing);
+  // 別の PC から起こされた会話を消すときの「終わった」は、下で組む peer の見張りが書く。呼ばれるのは起動が済んでからである。
+  let peerRelayEnded: (sessionId: string) => void = () => {};
+  const trash = bootTrash(home, delivery, sync, indexing, (id) => peerRelayEnded(id));
   // opencode の serve の管理は下で組むので、引き継ぎの受け手には呼ばれた時点で引く口を渡す。
   let opencodeParts: ReturnType<typeof bootOpencode> | null = null;
   const takeover = bootTakeover({ home, runs, sync, delivery, opencode: () => opencodeParts });
@@ -148,6 +150,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 別の PC への頼みの、受ける側と呼ぶ側。呼び鈴の answer と result の知らせは、スマホの呼び鈴（bootMobile）が受けて peer.onBell へ渡す。
   const peer = bootPeer({ home, runs, sync, delivery });
   const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, trash: trash.trash, onPeer: (kind, id) => { peer.onBell(kind, id); }, peerApprovals: peer.approvals });
+  peerRelayEnded = (id) => peer.relay.onEnded(id);
   // 定期の実行（#549）。予定はこの PC のものだけを流す。起こし方と待ち方は MCP の道具と同じ本体を通す。
   const scheduleTools: ToolDeps = { db: home.db, deviceId: home.device.id, port: listening.port, live: () => delivery.live.current(), runs: runs.runs, language: home.language, usage: () => runs.usage.current(),
     // 予定のアカウントを id で引くための組。Claude Code と Codex は別の組を持つ。

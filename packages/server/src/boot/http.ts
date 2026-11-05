@@ -205,7 +205,7 @@ export function bootHttp(p: {
     opencodeStatus: async () => ({ ...(await opencode.status()), configPermissions: userConfigDefinesPermissions(home.home) }),
     codexOptions: (o) => codexOptions.get(o),
     ...(p.peerSsh ? { peerSsh: { endpoint: p.peerSsh.endpoint, store: p.peerSsh.store, hostKeyState: (id: string) => p.peerSsh!.connector.hostKeyState(id) } } : {}),
-    peerCall: { link: () => (sync.canCarryPeer() ? sync.peerLink() : null), workerOk: () => sync.canCarryPeer(), ...(p.peer ? { requestApproval: (o) => p.peer!.approvals.request(o) } : {}) },
+    peerCall: { link: () => (sync.canCarryPeer() ? sync.peerLink() : null), workerOk: () => sync.canCarryPeer(), version: VERSION, ...(p.peer ? { requestApproval: (o) => p.peer!.approvals.request(o) } : {}) },
     ...(p.peer ? { peerApprovals: p.peer.approvals } : {}),
     codexStatus: () => codex.status(),
     opencodeOptions: (dir, o) => p.opencode.options.get(dir, o),

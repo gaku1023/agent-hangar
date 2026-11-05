@@ -25,6 +25,11 @@ export type PeerCallDeps = {
   /** Worker の版が足りるか（SyncParts.canCarryPeer）。 */
   workerOk(): boolean;
   now?: () => number;
+  /**
+   * この hangar の版。send と stop の頼み（op を読む版にだけ送れる）は、相手の hangar_version がこれ以上のときだけ送る（D16）。
+   * 渡さなければ版では断らない。
+   */
+  version?: string;
   /** 頼みの ID の作り方。既定は randomUUID。 */
   newId?: () => string;
   /**

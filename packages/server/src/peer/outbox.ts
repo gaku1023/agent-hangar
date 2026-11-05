@@ -37,7 +37,11 @@ const CURSOR_KEY = 'peerOutboxSince';
 
 export type PeerRequestState = 'requested' | 'started' | 'refused' | 'expired' | 'done';
 
+/** 頼みの種類。launch は起動、send と stop は起こした会話への入力と停止（D16）。 */
+export type PeerRequestOp = 'launch' | 'send' | 'stop';
+
 export type PeerRequestRow = {
+  op: PeerRequestOp;
   request_id: string; to_device: string; caller_session_id: string; state: PeerRequestState;
   child_session_id: string | null; title: string | null; reason: string | null;
   received_seq: number; seen_seq: number; created_at: number; updated_at: number;
@@ -47,9 +51,10 @@ export type PeerRequestRow = {
  * 頼みを置いたら、手元に記録する（T8 の create_session が、POST /launches の後に呼ぶ）。
  * 記録が無い頼みの答えと結果は読まない。同じ ID なら何もしない。
  */
-export function recordPeerRequest(db: Db, o: { requestId: string; to: string; callerSessionId: string; now: number }): void {
-  db.prepare('insert into peer_outbox (request_id, to_device, caller_session_id, created_at, updated_at) values (?, ?, ?, ?, ?) on conflict(request_id) do nothing')
-    .run(o.requestId, o.to, o.callerSessionId, o.now, o.now);
+export function recordPeerRequest(db: Db, o: { requestId: string; to: string; callerSessionId: string; now: number; op?: PeerRequestOp; childSessionId?: string }): void {
+  // send と stop は、対象の会話（相手の PC で起こした子）の ID も残す。結果は最初の launch の request_id の下に届くので、ここには答えだけが来る。
+  db.prepare('insert into peer_outbox (request_id, to_device, caller_session_id, op, child_session_id, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?) on conflict(request_id) do nothing')
+    .run(o.requestId, o.to, o.callerSessionId, o.op ?? 'launch', o.childSessionId ?? null, o.now, o.now);
 }
 
 export function getPeerRequest(db: Db, requestId: string): PeerRequestRow | null {
@@ -73,9 +78,9 @@ export type PeerOutboxDeps = {
   inject: (sessionId: string, text: string) => Promise<boolean>;
   /**
    * 利用者への知らせ。sessionId があれば、その会話の未読と OS・スマホの通知（ターンの終わりを待たない ask）にする。
-   * null なら、会話が消えているので、OS とスマホの通知だけにする。
+   * null なら、会話が消えているので、OS とスマホの通知だけにする。そのとき anchorSessionId は、通知が開く先（起こした相手の会話）で、無ければ null である。
    */
-  notify: (sessionId: string | null, text: string) => void;
+  notify: (sessionId: string | null, text: string, anchorSessionId?: string | null) => void;
   /** PC の名前。分からなければ null で、ID をそのまま出す。既定は devices 表。 */
   deviceName?: (deviceId: string) => string | null;
   language?: GetLanguage;
@@ -196,6 +201,11 @@ export class PeerOutbox {
       this.refuse(row, ans.reason, ans.detail);
       return true;
     }
+    // send と stop の答えは、受け取られたというだけで、結び付きも預かりも作らない。
+    if (row.op !== 'launch') {
+      db.prepare("update peer_outbox set state = 'done', title = ?, updated_at = ? where request_id = ?").run(ans.title, this.now(), row.request_id);
+      return true;
+    }
     db.prepare("update peer_outbox set state = 'started', child_session_id = ?, title = ?, updated_at = ? where request_id = ?").run(ans.sessionId, ans.title, this.now(), row.request_id);
     // 呼び出し元がもう消えていれば、結び付きは作らない（相手の PC の側は、結果の行が受け取られないまま切れる）。
     if (this.callerState(row.caller_session_id) !== 'gone') {
@@ -207,7 +217,7 @@ export class PeerOutbox {
   private refuse(row: PeerRequestRow, reason: PeerLaunchRefusal | PeerLocalRefusal, detail?: string, expired = false): void {
     const lang = this.language();
     const device = this.nameOf(row.to_device);
-    const text = expired ? expiredText(lang, { device }) : refusalText(lang, { device, reason, ...(detail ? { detail } : {}) });
+    const text = expired ? expiredText(lang, { device }) : refusalText(lang, { device, reason, op: row.op, ...(detail ? { detail } : {}) });
     this.deps.db.prepare('update peer_outbox set state = ?, reason = ?, updated_at = ? where request_id = ?').run(expired ? 'expired' : 'refused', expired ? 'expired' : reason, this.now(), row.request_id);
     this.enqueue(row, 0, text, heldNotice(lang, { device, title: null }), text);
   }
@@ -314,7 +324,7 @@ export class PeerOutbox {
       if (state === 'gone') {
         for (const d of rows) {
           done.run(this.now(), d.id);
-          this.safeNotify(null, d.notice_gone);
+          this.safeNotify(null, d.notice_gone, this.anchorOf(d.request_id));
         }
       } else if (state === 'stopped') {
         for (const d of rows) {
@@ -338,7 +348,13 @@ export class PeerOutbox {
     }
   }
 
-  private safeNotify(sessionId: string | null, text: string): void {
-    try { this.deps.notify(sessionId, text); } catch (e) { console.error('[peer] could not notify', e instanceof Error ? e.constructor.name : typeof e); }
+  /** 呼び出し元が消えているときの通知が開く先。頼みで起こした会話が、この PC にまだあれば、その ID。 */
+  private anchorOf(requestId: string): string | null {
+    const r = this.deps.db.prepare('select s.id from peer_outbox o join sessions s on s.id = o.child_session_id and s.deleted_at is null where o.request_id = ?').get(requestId) as { id: string } | undefined;
+    return r?.id ?? null;
+  }
+
+  private safeNotify(sessionId: string | null, text: string, anchor: string | null = null): void {
+    try { this.deps.notify(sessionId, text, anchor); } catch (e) { console.error('[peer] could not notify', e instanceof Error ? e.constructor.name : typeof e); }
   }
 }

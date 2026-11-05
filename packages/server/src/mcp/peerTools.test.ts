@@ -5,6 +5,7 @@ import { upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { getPeerRequest } from '../peer/outbox.ts';
 import { PEER_ONLINE_MS, type PeerCallDeps } from '../peer/caller.ts';
+import { aliveRunForSession } from '../runs/queries.ts';
 import { recordSpawn } from '../sessions/spawns.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { callTool, TOOL_NAMES, type ToolDeps } from './tools.ts';
@@ -56,12 +57,13 @@ beforeEach(async () => {
     link: () => (linkOk ? { api, ring: async () => ring } : null),
     workerOk: () => workerOk,
     now: () => NOW,
+    version: '1.0.0',
     newId: () => 'req-1',
     requestApproval: (o) => { approvals.push({ requestId: o.requestId, to: o.to }); approvalRequests.push({ ...o.request, toName: o.toName, scratch: o.scratch }); },
   };
   deps = {
     db, deviceId: ME, port: 4177, live: () => live, peer,
-    runs: { start: () => { throw new Error('local start must not run'); } },
+    runs: { start: () => { throw new Error('local start must not run'); }, aliveRun: (id: string) => aliveRunForSession(db, id, ME, NOW), kill: () => { throw new Error('local kill must not run'); } },
     usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }),
     accounts: { store: { list: () => [{ id: 'primary', name: 'Main', dir: '/x', color: '#000' }, { id: 'a2', name: 'Work', dir: '/y', color: '#111' }], current: () => ({ id: 'primary', name: 'Main', dir: '/x', color: '#000' }), get: (id: string) => (id === 'a2' ? { id: 'a2', name: 'Work', dir: '/y', color: '#111' } : id === 'primary' ? { id: 'primary', name: 'Main', dir: '/x', color: '#000' } : null) } as never, usage: { of: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }) } },
   };
@@ -205,5 +207,75 @@ describe('create_session の device', () => {
   it('リモートで使えない引数は断る', async () => {
     putPeer();
     await expect(call('create_session', { device: 'Mac', worktree: 'w' })).rejects.toThrow();
+  });
+});
+
+describe('send_to_session と stop_session の別の PC への頼み（D16）', () => {
+  /** 相手の PC で動いている、自分が起こした会話。 */
+  const spawned = (parent = caller): string => {
+    const id = ensureSession(db, 'uc', '/w', PEER);
+    recordSpawn(db, ME, id, parent, NOW, { childDeviceId: PEER });
+    db.prepare('insert into runs (id, session_id, device_id, kind, tmux_name, started_at, heartbeat_at, launch_params, updated_at, origin_device) values (?,?,?,?,?,?,?,?,?,?)')
+      .run('run-c', id, PEER, 'start', 'hangar-c', 1, NOW, '{}', 1, PEER);
+    return id;
+  };
+  const open = async () => openPeerLaunch(ring, { requestId: 'req-1', from: ME, to: PEER }, a.wire.peerLaunches.get('req-1')!.sealed);
+
+  it('起こした相手への send は封じて置き、記録して requested を返す', async () => {
+    putPeer();
+    const id = spawned();
+    const r = await call('send_to_session', { session_id: id, text: '続けて' });
+    expect(r).toMatchObject({ status: 'requested', request_id: 'req-1' });
+    expect(await open()).toMatchObject({ op: 'send', targetSessionId: id, parentSessionId: caller, prompt: '続けて', scratch: true, projectId: null, agent: 'claude-code', account: '', permissionMode: '', model: '' });
+    expect(getPeerRequest(db, 'req-1')).toMatchObject({ to_device: PEER, caller_session_id: caller, op: 'send', child_session_id: id });
+  });
+
+  it('起こした相手への stop も同じ口で置く', async () => {
+    putPeer();
+    const id = spawned();
+    const r = await call('stop_session', { session_id: id });
+    expect(r).toMatchObject({ status: 'requested', request_id: 'req-1' });
+    expect(await open()).toMatchObject({ op: 'stop', targetSessionId: id, prompt: '' });
+  });
+
+  it('自分が起こしていない別の PC の会話は、今までどおり断り、何も置かない（受け入れ 14）', async () => {
+    putPeer();
+    const other = ensureSession(db, 'ux', '/w', PEER);
+    db.prepare('insert into runs (id, session_id, device_id, kind, tmux_name, started_at, heartbeat_at, launch_params, updated_at, origin_device) values (?,?,?,?,?,?,?,?,?,?)')
+      .run('run-x', other, PEER, 'start', 'hangar-x', 1, NOW, '{}', 1, PEER);
+    await expect(call('send_to_session', { session_id: other, text: 'x' })).rejects.toThrow('Mac');
+    await expect(call('stop_session', { session_id: other })).rejects.toThrow('Mac');
+    expect(a.wire.peerLaunches.size).toBe(0);
+  });
+
+  it('別の会話が起こした相手にも触れない', async () => {
+    putPeer();
+    const id = spawned('someone-else');
+    await expect(call('send_to_session', { session_id: id, text: 'x' })).rejects.toThrow('Mac');
+    expect(a.wire.peerLaunches.size).toBe(0);
+  });
+
+  it('wait_for_session と read_session_screen は起こした相手でも断る', async () => {
+    putPeer();
+    const id = spawned();
+    await expect(call('wait_for_session', { session_id: id, timeout_seconds: 0 })).rejects.toThrow('Mac');
+    await expect(call('read_session_screen', { session_id: id })).rejects.toThrow('Mac');
+  });
+
+  it('古い版の相手には送らず device-outdated で断る', async () => {
+    putPeer({ status: status({ hangar_version: '0.9.0' }) });
+    const id = spawned();
+    expect(await call('send_to_session', { session_id: id, text: 'x' })).toMatchObject({ status: 'refused', reason: 'device-outdated' });
+    expect(await call('stop_session', { session_id: id })).toMatchObject({ status: 'refused', reason: 'device-outdated' });
+    expect(a.wire.peerLaunches.size).toBe(0);
+  });
+
+  it('空白だけと長すぎる本文は断る。相手が落ちていれば device-offline', async () => {
+    putPeer();
+    const id = spawned();
+    await expect(call('send_to_session', { session_id: id, text: '  ' })).rejects.toThrow();
+    await expect(call('send_to_session', { session_id: id, text: 'あ'.repeat(8001) })).rejects.toThrow();
+    putPeer({ lastSeen: NOW - PEER_ONLINE_MS - 1 });
+    expect(await call('send_to_session', { session_id: id, text: 'x' })).toMatchObject({ status: 'refused', reason: 'device-offline' });
   });
 });

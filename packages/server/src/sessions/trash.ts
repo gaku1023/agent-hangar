@@ -72,6 +72,8 @@ export type SessionTrashDeps = {
   onRestored?: (sessionId: string) => void;
   /** ほかの PC で復元された。消した写しを降ろし直してもらう（sync/puller.ts）。引数は Claude Code のセッション ID。 */
   onRestoredElsewhere?: (providerSessionId: string) => void;
+  /** 会話を消して起動元の結び付きを切る直前に呼ぶ。別の PC へ「終わった」を返す（D15）。投げても削除は続く。 */
+  beforeForget?: (sessionId: string) => void;
   /** 記録に残す口。省けば console.error。 */
   log?: (message: string) => void;
   now?: () => number;
@@ -318,6 +320,7 @@ export class SessionTrash {
     // 未読は索引ではないが、会話ごと片付ける（行だけが残らないように）。
     this.db.prepare('delete from session_unread where session_id = ?').run(sessionId);
     // 起動元の印（同期する表）も会話ごと切る。起動元が消えた子は、平らに並ぶ。
+    try { this.deps.beforeForget?.(sessionId); } catch (e) { this.log(`beforeForget failed: ${e instanceof Error ? e.message : String(e)}`); }
     forgetSpawnsOf(this.db, this.deps.deviceId, sessionId);
     for (const r of this.db.prepare('select path from transcript_files where session_id = ?').all(sessionId) as { path: string }[]) forgetTranscriptFile(this.db, r.path, { keepUsage: true });
     // 本文を DB に持つ会話（opencode）は、ファイルの行が無いので会話ごと片付ける。

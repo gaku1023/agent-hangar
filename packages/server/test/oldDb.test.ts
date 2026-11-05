@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MIGRATIONS } from '../src/db/migrations.ts';
+import { BASELINE_VERSION, MIGRATIONS } from '../src/db/migrations.ts';
+import { LEGACY_MIGRATIONS } from './legacyMigrations.ts';
 import { dbVersionOf, LATEST_DB_VERSION, nextMigration, seedDbAt, withPendingMigration } from './oldDb.ts';
 
 let tmp: string;
@@ -39,7 +40,7 @@ describe('古い版の DB を作る補助', () => {
     try {
       // 版 1 から 1 本ずつ当てた跡が残る。利用者の手元の DB と同じ形である。
       const versions = (db.prepare('select version from schema_migrations order by version').all() as { version: number }[]).map((r) => r.version);
-      expect(versions).toEqual(Array.from({ length: LATEST_DB_VERSION }, (_, i) => i + 1));
+      expect(versions).toEqual([...LEGACY_MIGRATIONS.map((m) => m.version), ...MIGRATIONS.filter((m) => m.version > BASELINE_VERSION).map((m) => m.version)]);
     } finally {
       db.close();
     }

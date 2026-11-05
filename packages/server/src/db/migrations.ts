@@ -710,6 +710,33 @@ create table peer_launches (
 create index peer_launches_session on peer_launches(session_id);
 `;
 
+/**
+ * 別の PC から起こされた会話の、結果の返却の状態（手元だけの表、T6）。
+ * peer_relay は会話 1 つに 1 行で、頼みの ID と頼んだ PC、結果の連番（seq）の最後の値、呼び出し元が入れたターンの印（armed_at）、終わりを返したか（ended）を持つ。
+ * seq はここに持つので、再起動をまたいでも重複しない。
+ * peer_relay_out は書いた結果の封で、Worker へ届くまで送り直す。
+ */
+const V50_PEER_RELAY_SQL = `
+create table peer_relay (
+  session_id text primary key,
+  request_id text not null,
+  from_device text not null,
+  seq integer not null default 0,
+  armed_at integer,
+  ended integer not null default 0,
+  title text not null default '',
+  created_at integer not null
+);
+create table peer_relay_out (
+  request_id text not null,
+  seq integer not null,
+  payload text not null,
+  sent integer not null default 0,
+  created_at integer not null,
+  primary key (request_id, seq)
+);
+`;
+
 const V47_SESSION_SPAWNS_SYNC_SQL = `
 create table session_spawns_v47 (
   session_id text primary key,
@@ -763,6 +790,14 @@ create table peer_deliveries (
   unique (request_id, seq)
 );
 create index peer_deliveries_open on peer_deliveries (caller_session_id) where delivered_at is null;
+`;
+
+/**
+ * 版 54。呼ぶ側の頼みの種類（T8 の続き）。launch は起動、send と stop は起こした会話への入力と停止（D16）。
+ * send と stop の答えは、起動の答えと違って結び付きを作らない。受け取ったら終わりで、断られたときだけ呼び出し元へ理由を返す。
+ */
+const V54_PEER_OUTBOX_OP_SQL = `
+alter table peer_outbox add column op text not null default 'launch';
 `;
 
 /**
@@ -901,4 +936,6 @@ export const MIGRATIONS: Migration[] = [
   { version: 48, sql: V48_PEER_OUTBOX_SQL },
   { version: 49, sql: V49_PEER_LAUNCHES_SQL },
   { version: 52, sql: V52_PEER_APPROVALS_SQL },
+  { version: 50, sql: V50_PEER_RELAY_SQL },
+  { version: 54, sql: V54_PEER_OUTBOX_OP_SQL },
 ];
