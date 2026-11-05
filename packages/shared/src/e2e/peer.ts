@@ -57,6 +57,10 @@ export type PeerLaunchRequest = {
   mode?: string;
   autoApprove?: boolean;
   name?: string;
+  /** 頼んだ PC の会話のアカウントの名前。account が空のとき、頼まれた PC はこの名前のアカウントで起こす（D7）。 */
+  callerAccount?: string;
+  /** 頼んだ PC の会話が、さらに別の PC から起こされたものなら true（D11 の深さの検査。同期の遅れで結び付きが届いていなくても断れる）。 */
+  spawnedRemotely?: boolean;
 };
 
 /** 頼まれた PC が起動を断る理由（計画の断る理由のうち、頼まれた PC が決めるもの）。 */
@@ -118,7 +122,7 @@ function isRequest(v: unknown): v is PeerLaunchRequest {
   if (!isObj(v) || v.v !== 1 || !isTime(v.createdAt) || !isStr(v.parentSessionId) || typeof v.scratch !== 'boolean') return false;
   if (!(v.projectId === null || isStr(v.projectId)) || !isAgentKind(v.agent)) return false;
   if (!isStr(v.account) || !isStr(v.permissionMode) || !isStr(v.model) || !isStr(v.prompt)) return false;
-  return optStr(v.effort) && optStr(v.mode) && optStr(v.name) && (v.autoApprove === undefined || typeof v.autoApprove === 'boolean');
+  return optStr(v.effort) && optStr(v.mode) && optStr(v.name) && optStr(v.callerAccount) && (v.spawnedRemotely === undefined || typeof v.spawnedRemotely === 'boolean') && (v.autoApprove === undefined || typeof v.autoApprove === 'boolean');
 }
 
 function pickRequest(v: PeerLaunchRequest): PeerLaunchRequest {
@@ -138,6 +142,8 @@ function pickRequest(v: PeerLaunchRequest): PeerLaunchRequest {
   if (v.mode !== undefined) out.mode = v.mode;
   if (v.autoApprove !== undefined) out.autoApprove = v.autoApprove;
   if (v.name !== undefined) out.name = v.name;
+  if (v.callerAccount !== undefined) out.callerAccount = v.callerAccount;
+  if (v.spawnedRemotely !== undefined) out.spawnedRemotely = v.spawnedRemotely;
   return out;
 }
 

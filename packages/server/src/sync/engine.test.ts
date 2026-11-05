@@ -734,6 +734,19 @@ describe('他の PC の生存（同期の版 6）', () => {
     e.stop(); eb.stop();
   });
 
+  it('engine は pull の応答の peerLaunches（別の PC からの頼み）を from つきで listener に渡す。空なら呼ばない', async () => {
+    const e = make();
+    const got: unknown[] = [];
+    e.on({ peerLaunches: (l) => got.push(l) });
+    await e.start();
+    expect(got).toEqual([]);
+    await cloud.health();
+    await cloud.asDevice('b').peerLaunch.put({ id: 'p1', to: 'a', sealed: '1.eA' });
+    await e.pullNow();
+    expect(got).toEqual([[{ id: 'p1', from: 'b', createdAt: expect.any(Number), sealed: '1.eA' }]]);
+    e.stop();
+  });
+
   it('launches の from（依頼を置いたスマホの ID）を listener まで渡す。文字列でない from は落とす', async () => {
     const e = make();
     const got: MobileLaunchOut[][] = [];

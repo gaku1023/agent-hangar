@@ -10,6 +10,7 @@ import { bootHttp, bootListen } from './boot/http.ts';
 import { bootTrash } from './boot/trash.ts';
 import { bootIndexing } from './boot/indexing.ts';
 import { bootMobile } from './boot/mobile.ts';
+import { bootPeer } from './boot/peer.ts';
 import { bootOpencode } from './boot/opencode.ts';
 import type { StartOptions } from './boot/options.ts';
 import { bootRuns, panesOf } from './boot/runs.ts';
@@ -144,6 +145,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const localCodex = new LocalCodex({ bin: () => findCodex() });
   const codex = { local: localCodex, options: new CodexOptionsService({ bin: () => findCodex(), status: localCodex.status }) };
   const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, trash: trash.trash });
+  const peer = bootPeer({ home, runs, sync });
   // 定期の実行（#549）。予定はこの PC のものだけを流す。起こし方と待ち方は MCP の道具と同じ本体を通す。
   const scheduleTools: ToolDeps = { db: home.db, deviceId: home.device.id, port: listening.port, live: () => delivery.live.current(), runs: runs.runs, language: home.language, usage: () => runs.usage.current(),
     // 予定のアカウントを id で引くための組。Claude Code と Codex は別の組を持つ。
@@ -181,6 +183,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   takeover.start();
   // 受信箱の素。書いてよいか（Worker の版 7 から）は同期が決めるので、同期が始まってから回す。
   mobile.start();
+  // 別の PC からの起動の頼み。同期が始まってから回す（Worker の版が足りないあいだは何もしない）。
+  peer.start();
   // 削除の印の処理（sessions/trash.ts）。索引と紐づけが済んでから回す。起きていなかった間に届いた印も、ここで処理する。
   trash.start();
   // 閉じていた間の回は、ここで最新の 1 回だけ流す。索引と紐づけが済んでから回す。
@@ -205,6 +209,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       sync.stopTimers();
       takeover.stop();
       mobile.stop();
+      peer.stop();
       schedules.stop();
       // 本文をゴミ箱へ移している最中の回は、DB を閉じる前に待ち切る。
       await trash.stop();

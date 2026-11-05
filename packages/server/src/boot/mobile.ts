@@ -216,6 +216,9 @@ export function bootMobile(p: {
         // 今の engine の pull で依頼を受け取る。走っている pull があれば、それを分け合う。
         void p.sync.engine.pullNow().catch((e: unknown) => console.error('[mobile] could not pull after the bell', e instanceof Error ? e.constructor.name : typeof e));
       },
+      onPeerLaunch: () => {
+        void p.sync.engine.pullNow().catch((e: unknown) => console.error('[mobile] could not pull after the peer bell', e instanceof Error ? e.constructor.name : typeof e));
+      },
       onAsk: (id, sealed, epoch) => answerAsk({
         phoneKeys: link.phoneKeys,
         deviceId,

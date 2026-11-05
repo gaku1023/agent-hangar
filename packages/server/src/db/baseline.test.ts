@@ -232,7 +232,7 @@ describe('いちばん新しい版の DB', () => {
       try { return db.prepare('select version, applied_at from schema_migrations order by version').all(); } finally { db.close(); }
     };
     const before = rows(file);
-    expect(before).toHaveLength(LATEST_DB_VERSION);
+    expect(before.at(-1)).toMatchObject({ version: LATEST_DB_VERSION });
     const db = openDb(file);
     expect(db.prepare('select id, name from projects').all()).toEqual([{ id: 'p1', name: 'a' }]);
     db.close();

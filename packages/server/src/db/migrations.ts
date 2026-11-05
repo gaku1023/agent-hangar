@@ -695,6 +695,21 @@ create table session_spawns (
  * 古い版の PC はこの表を共有表として知らないので、届いた行を知らない表として捨てる（sync/apply.ts）。手元の表の中身は触られない。
  * 列の追加に not null の既定が要るので、表を作り直す。
  */
+const V49_PEER_LAUNCHES_SQL = `
+create table peer_launches (
+  id text primary key,
+  from_device text not null,
+  handled_at integer not null,
+  result text not null,
+  sealed_answer text,
+  ok integer,
+  answered integer not null default 0,
+  session_id text,
+  parent_session_id text
+);
+create index peer_launches_session on peer_launches(session_id);
+`;
+
 const V47_SESSION_SPAWNS_SYNC_SQL = `
 create table session_spawns_v47 (
   session_id text primary key,
@@ -825,4 +840,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 45, sql: V45_SCHEDULES_SQL },
   { version: 46, sql: V46_DEVICE_STATUS_SQL },
   { version: 47, sql: V47_SESSION_SPAWNS_SYNC_SQL },
+  { version: 49, sql: V49_PEER_LAUNCHES_SQL },
 ];

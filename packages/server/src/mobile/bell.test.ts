@@ -79,6 +79,19 @@ describe('MobileBell', () => {
     await settle(() => s.onLaunch.mock.calls.length === 1);
   });
 
+  it('{t:peer, kind:launch} で onPeerLaunch を呼ぶ。ほかの kind と、口の無い受け手では何もしない', async () => {
+    const w = await fakeWorker({});
+    const onPeerLaunch = vi.fn();
+    const bell = new MobileBell({ target: () => ({ url: w.url, headers: { authorization: 'Bearer pc-token', [COMPAT_HEADER]: String(COMPAT_VERSION) } }), onLaunch: vi.fn(), onAsk: async () => null, onPeerLaunch, timers: new FakeTimers() });
+    cleanups.push(() => bell.stop(), () => w.close());
+    bell.check();
+    await settle(() => w.open().length === 1);
+    w.open()[0]!.send(JSON.stringify({ t: 'peer', kind: 'result', id: 'r1' }));
+    w.open()[0]!.send(JSON.stringify({ t: 'peer', kind: 'launch', id: 'p1' }));
+    await settle(() => onPeerLaunch.mock.calls.length === 1);
+    expect(bell.state()).toBe('open');
+  });
+
   it('{t:ask} を onAsk に渡し、答えを {t:reply} で返す。開けないもの（null）には答えない', async () => {
     const s = await setup();
     s.bell.check();
