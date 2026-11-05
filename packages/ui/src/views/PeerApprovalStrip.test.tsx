@@ -17,13 +17,13 @@ describe('別の PC への起動の承認の帯', () => {
   it('承認待ちが無ければ何も描かない', () => {
     expect(mount([]).container.querySelector('.peer-approvals')).toBeNull();
   });
-  it('1 行目に 会話、PC 名の札、プロジェクト、2 行目に頼みの先頭、断ると承認、下端の線を出す', () => {
+  it('1 行目に 会話、PC 名の札、プロジェクト、2 行目に頼みの先頭、拒否と承認、下端の線を出す', () => {
     const { container } = mount([dto()]);
     expect(screen.getByText('ログイン修正')).toBeInTheDocument();
     expect(container.querySelector('.peer-approval-pc')).toHaveTextContent('laptop');
     expect(screen.getByText('docs-site')).toBeInTheDocument();
     expect(screen.getByText('「目次の見出しを直して」')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '断る' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '拒否' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '承認' })).toBeInTheDocument();
     expect(container.querySelector('.peer-approval-bar')).not.toBeNull();
   });
@@ -40,16 +40,16 @@ describe('別の PC への起動の承認の帯', () => {
     const { onAction } = mount([dto()]);
     fireEvent.click(screen.getByRole('button', { name: '承認' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'peerApproval.answer', id: 'r1', answer: 'approve' });
-    expect(screen.getByRole('button', { name: '断る' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: '断る' }));
+    expect(screen.getByRole('button', { name: '拒否' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '拒否' }));
     expect(onAction).toHaveBeenCalledTimes(1);
   });
-  it('断るで断りを送る', () => {
+  it('拒否で拒否を送る', () => {
     const { onAction } = mount([dto()]);
-    fireEvent.click(screen.getByRole('button', { name: '断る' }));
+    fireEvent.click(screen.getByRole('button', { name: '拒否' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'peerApproval.answer', id: 'r1', answer: 'reject' });
   });
-  it.each([['approved', '承認しました'], ['denied', '断りました'], ['timeout', '時間切れ'], ['failed', '送れませんでした']] as const)('%s は結果に入れ替わり、ボタンと線を外す', (state, text) => {
+  it.each([['approved', '承認しました'], ['denied', '拒否しました'], ['timeout', '時間切れ'], ['failed', '送れませんでした']] as const)('%s は結果に入れ替わり、ボタンと線を外す', (state, text) => {
     const { container } = mount([dto({ state })]);
     expect(screen.getByRole('status')).toHaveTextContent(text);
     expect(screen.queryByRole('button', { name: '承認' })).toBeNull();

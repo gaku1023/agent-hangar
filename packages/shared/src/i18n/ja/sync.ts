@@ -60,5 +60,5 @@ export const syncJa: AreaDictionary<typeof syncKeys> = {
   'sync.copy.backupFailed': 'バックアップを作成できなかったため、トランスクリプトを置き換えませんでした: {cause}',
   'sync.peerSsh.hostKeyMismatch': '{name} のホストキーが、{name} が同期で知らせた指紋と違うため、SSH で接続しませんでした。{name} の SSH サーバーを確認してください',
   'sync.peerSsh.tunnelClosed': '{name} との SSH の接続が切れました',
-  'sync.peerSsh.gaveUp': '{name} に SSH でしばらく接続できなかったため、接続し直すのをやめました。{name} で hangar が実行中か確認して、もう一度頼んでください',
+  'sync.peerSsh.gaveUp': '{name} に SSH でしばらく接続できなかったため、接続し直すのをやめました。{name} で hangar が実行中か確認して、もう一度リクエストしてください',
 };
