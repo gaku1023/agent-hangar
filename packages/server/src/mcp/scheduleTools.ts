@@ -55,10 +55,15 @@ function targetArg(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknow
   // 宛先（プロジェクトかクイックセッション）が変わるなら、元の cwd は引き継がない。
   const moved = base !== undefined && (base.projectId !== projectId || (base.scratch === true) !== scratch);
   const raw: Record<string, unknown> = { kind: 'new', projectId, ...(scratch ? { scratch: true } : {}), ...(base && !moved && base.cwd ? { cwd: base.cwd } : {}) };
+  // agent の空の文字列は未指定（既定の Claude Code）。
+  const givenAgent = typeof args.agent === 'string' && !args.agent.trim() ? null : args.agent;
+  // エージェントが元と変わるときは、元の起動の項目（名前以外）を引き継がない。組の違うアカウントや合わないモデルが紛れ込むため。
+  const agentChanged = base !== undefined && args.agent !== undefined && (givenAgent ?? 'claude-code') !== (base.agent ?? 'claude-code');
   for (const [arg, key] of LAUNCH_ARGS) {
-    const given = args[arg];
-    const prev = base ? (base as Record<string, unknown>)[key] : undefined;
+    const given = arg === 'agent' ? givenAgent : args[arg];
+    const prev = base && !(agentChanged && key !== 'name') ? (base as Record<string, unknown>)[key] : undefined;
     // 渡されなかった項目は、変える前の宛先から引き継ぐ。エージェントに合わなくなった項目は、parseNewTarget が断る。
+    if (given === null) continue;
     if (given !== undefined) raw[key] = given;
     else if (prev !== undefined) raw[key] = prev;
   }

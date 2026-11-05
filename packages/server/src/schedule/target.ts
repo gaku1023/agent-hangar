@@ -37,7 +37,8 @@ export function parseNewTarget(v: unknown, agentEnabled: (a: AgentKind) => boole
   if (scratch ? o.projectId !== null : typeof o.projectId !== 'string' || !o.projectId) throw bad();
 
   let agent: AgentKind | undefined;
-  if (o.agent !== undefined) {
+  // 空の文字列は未指定（既定の Claude Code）として扱う。
+  if (o.agent !== undefined && !(typeof o.agent === 'string' && !o.agent.trim())) {
     if (!isAgentKind(o.agent)) throw new MessageError(msg('run.agent.unknown', { agent: String(o.agent).slice(0, 40) }));
     if (o.agent !== 'claude-code' && !agentEnabled(o.agent)) throw new MessageError(msg('run.agent.disabled', { label: agentEnabledLabel(o.agent) }));
     agent = o.agent;

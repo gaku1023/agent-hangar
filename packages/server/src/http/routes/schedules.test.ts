@@ -216,7 +216,24 @@ describe('予定の起動の項目', () => {
     expect(u1.target).toEqual({ kind: 'new', projectId, model: 'opus', effort: 'high', worktree: 'w' });
     const u2 = mcp({ sessionId: null }, 'update_schedule', { schedule_id: s.id, effort: '' });
     expect(u2.target).toEqual({ kind: 'new', projectId, model: 'opus', worktree: 'w' });
-    expect(() => mcp({ sessionId: null }, 'update_schedule', { schedule_id: s.id, agent: 'codex' })).toThrow(/worktree/);
+    // 渡した項目が新しいエージェントに合わないときは、いまも断る。
+    expect(() => mcp({ sessionId: null }, 'update_schedule', { schedule_id: s.id, agent: 'codex', worktree: 'w' })).toThrow(/worktree/);
+  });
+
+  it('MCP の update_schedule で agent を替えると、元の起動の項目（名前以外）は引き継がない。cwd とプロジェクトは残す', () => {
+    const s = mk({ name: '夜', account: 'メイン', model: 'sonnet', effort: 'high', permission_mode: 'acceptEdits', worktree: 'w', add_dirs: ['/x'] });
+    const u = mcp({ sessionId: null }, 'update_schedule', { schedule_id: s.id, agent: 'codex' });
+    expect(u.target).toEqual({ kind: 'new', projectId, agent: 'codex', name: '夜' });
+    // 同じエージェントを渡し直しただけなら、引き継ぎは変わらない。
+    const same = mk({ model: 'sonnet', worktree: 'w' });
+    expect(mcp({ sessionId: null }, 'update_schedule', { schedule_id: same.id, agent: 'claude-code' }).target).toEqual({ kind: 'new', projectId, agent: 'claude-code', model: 'sonnet', worktree: 'w' });
+  });
+
+  it('agent に空の文字列を渡すと未指定（既定の Claude Code）として扱い、Codex の予定を戻せる', () => {
+    const s = mk({ agent: 'codex', model: 'gpt-5', effort: 'high' });
+    const u = mcp({ sessionId: null }, 'update_schedule', { schedule_id: s.id, agent: '' });
+    expect(u.target).toEqual({ kind: 'new', projectId });
+    expect(mk({ agent: '', model: 'sonnet' }).target).toEqual({ kind: 'new', projectId, model: 'sonnet' });
   });
 
   it('MCP の scratch は共通の URL からだけ作れ、プロジェクトを固定した URL では断る', () => {
