@@ -64,6 +64,17 @@ describe('定期の実行', () => {
     expect(listSchedules(db, 'dev-a')[0]!.nextAt).toBe(T0 + 10 * 60 * MIN + 30 * MIN);
   });
 
+  it('遅れて走った回にも、元の予定の時刻を plannedAt として渡す', async () => {
+    every30();
+    const plans: number[] = [];
+    const { deps } = fakeDeps({ launch: async (s) => { plans.push(s.plannedAt); return { sessionId: 's-x' }; } });
+    const r = new ScheduleRunner(deps);
+    now = T0 + 3 * 60 * MIN + 5 * MIN;
+    r.tick();
+    await flush();
+    expect(plans).toEqual([T0 + 3 * 60 * MIN]);
+  });
+
   it('前の回が動いていれば次の回を飛ばし、終われば次は流す', async () => {
     const s = every30();
     const { deps, launched, waits } = fakeDeps();

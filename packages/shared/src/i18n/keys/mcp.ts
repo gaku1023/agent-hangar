@@ -76,6 +76,7 @@ export const mcpKeys = {
   'mcp.launch.preparing': [],
   'mcp.launch.failedLater': ['name', 'reason'],
   'mcp.createSession.accountClaudeOnly': [],
+  'mcp.createSession.autoApproveOpencodeOnly': [],
   'mcp.createSession.accountParam': [],
   'mcp.createSession.accountUnknown': ['account', 'names'],
   'mcp.createSession.agentParam': [],

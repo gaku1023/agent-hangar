@@ -145,13 +145,15 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const codex = { local: localCodex, options: new CodexOptionsService({ bin: () => findCodex(), status: localCodex.status }) };
   const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, trash: trash.trash });
   // 定期の実行（#549）。予定はこの PC のものだけを流す。起こし方と待ち方は MCP の道具と同じ本体を通す。
-  const scheduleTools: ToolDeps = { db: home.db, deviceId: home.device.id, port: listening.port, live: () => delivery.live.current(), runs: runs.runs, language: home.language, usage: () => runs.usage.current() };
+  const scheduleTools: ToolDeps = { db: home.db, deviceId: home.device.id, port: listening.port, live: () => delivery.live.current(), runs: runs.runs, language: home.language, usage: () => runs.usage.current(),
+    // 予定のアカウントを id で引くための組。Claude Code と Codex は別の組を持つ。
+    accounts: { store: runs.accounts.store, usage: runs.accounts.usage }, ...(runs.accounts.codex ? { codexAccounts: runs.accounts.codex.store } : {}) };
   const schedules = new ScheduleRunner({
     db: home.db, deviceId: home.device.id, now: () => Date.now(),
     launch: (s) => launchScheduled(scheduleTools, s),
     wait: (id) => waitScheduled(scheduleTools, id),
   });
-  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, schedules: { runNow: (id) => schedules.runNow(id), deliver: (id, text) => launchScheduled(scheduleTools, { prompt: text, target: { kind: 'session', sessionId: id } }) }, opts, serverDir });
+  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, schedules: { runNow: (id) => schedules.runNow(id), deliver: (id, text) => launchScheduled(scheduleTools, { prompt: text, target: { kind: 'session', sessionId: id }, plannedAt: Date.now() }) }, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。
   delivery.live.start();

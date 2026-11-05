@@ -163,6 +163,15 @@ describe('予定の起動の項目', () => {
     expect(old.accountName).toBeNull();
   });
 
+  it('MCP で Codex のアカウントを名前で渡すと、Codex の組の id で保存し、表示名を引ける', () => {
+    const cx = { id: 'cx1', name: '仕事', dir: '/c', color: 'x' };
+    const codexStore = { list: () => [cx], get: (id: string) => (id === 'cx1' ? cx : undefined), current: () => cx };
+    const deps = tools({ codexAccounts: codexStore, runs: { ...t.deps.runs, agentEnabled: () => true } });
+    const made = callTool(deps, { sessionId: null }, 'create_schedule', { kind: 'every', every_minutes: 30, prompt: 'p', project_id: projectId, agent: 'codex', account: '仕事' }) as ScheduleDto;
+    expect(made.target).toMatchObject({ agent: 'codex', account: 'cx1' });
+    expect(made.accountName).toBe('仕事');
+  });
+
   it('エージェントに合わない項目は 400 で、保存しない', async () => {
     const r = await send('POST', '/api/schedules', { ...input(), target: { kind: 'new', projectId, agent: 'codex', worktree: 'w' } });
     expect(r.status).toBe(400);

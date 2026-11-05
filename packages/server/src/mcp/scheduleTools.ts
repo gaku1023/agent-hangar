@@ -63,8 +63,9 @@ function targetArg(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknow
     else if (prev !== undefined) raw[key] = prev;
   }
   const effective = raw.agent ?? 'claude-code';
-  // Claude Code のアカウントは、名前か id で渡せる。保存するのは id である。
-  if (effective === 'claude-code' && typeof args.account === 'string' && args.account.trim() && deps.accounts?.store) raw.account = accountNamed(deps.accounts.store, args.account.trim()).id;
+  // Claude Code と Codex のアカウントは、名前か id で渡せる（組は別）。保存するのは id である。
+  const store = effective === 'claude-code' ? deps.accounts?.store : effective === 'codex' ? deps.codexAccounts : undefined;
+  if (typeof args.account === 'string' && args.account.trim() && store) raw.account = accountNamed(store, args.account.trim()).id;
   const target = parseNewTarget(raw, (a) => deps.runs.agentEnabled?.(a) ?? false);
   return { target, projectId: target.projectId };
 }
@@ -79,8 +80,8 @@ function guarded<T>(f: () => T): T {
   }
 }
 
-/** 予定の札に出すアカウントの表示名の引き方。Codex の組は、起動の経路を足すとき（ToolDeps.codexAccounts）に加える。 */
-const namesOf = (deps: ToolDeps): AccountNamer | undefined => (deps.accounts ? accountNamerOf({ store: deps.accounts.store }) : undefined);
+/** 予定の札に出すアカウントの表示名の引き方。Claude Code と Codex は別の組から引く。 */
+const namesOf = (deps: ToolDeps): AccountNamer | undefined => (deps.accounts ? accountNamerOf({ store: deps.accounts.store, ...(deps.codexAccounts ? { codex: { store: deps.codexAccounts } } : {}) }) : undefined);
 
 export function listSchedulesTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const scope = projectScope(deps, ctx, args);
