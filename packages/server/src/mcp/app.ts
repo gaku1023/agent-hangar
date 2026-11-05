@@ -81,7 +81,13 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
     kind: z.enum(['once', 'weekly', 'every']).describe(tr('mcp.schedule.kindParam')), at: z.string().optional().describe(tr('mcp.schedule.atParam')),
     days: z.array(z.number().int()).optional().describe(tr('mcp.schedule.daysParam')), time: z.string().optional().describe(tr('mcp.schedule.timeParam')),
     every_minutes: z.number().int().optional().describe(tr('mcp.schedule.everyParam', { min: SCHEDULE_MIN_EVERY_MINUTES })), prompt: z.string(),
-    project_id: z.string().optional(), session_id: z.string().optional().describe(tr('mcp.schedule.sessionParam')), agent: z.string().optional(),
+    project_id: z.string().optional(), session_id: z.string().optional().describe(tr('mcp.schedule.sessionParam')), agent: z.string().optional().describe(tr('mcp.createSession.agentParam')),
+    // 新しい会話の起動の項目。名前と意味は create_session と同じ。
+    name: z.string().optional(), model: z.string().optional().describe(tr('mcp.createSession.modelParam')), effort: z.string().optional(),
+    permission_mode: z.string().optional().describe(tr('mcp.createSession.permissionModeParam')), account: z.string().optional().describe(tr('mcp.schedule.accountParam')),
+    worktree: z.string().optional().describe(tr('mcp.createSession.worktreeParam')), add_dirs: z.array(z.string()).optional().describe(tr('mcp.createSession.addDirsParam')),
+    mode: z.string().optional().describe(tr('mcp.createSession.modeParam')), auto_approve: z.boolean().optional().describe(tr('mcp.schedule.autoApproveParam')),
+    scratch: z.boolean().optional().describe(tr('mcp.schedule.scratchParam')),
   };
   reg('list_schedules', D(tr('mcp.tool.listSchedules')), { project_id: z.string().optional() });
   reg('create_schedule', D(tr('mcp.tool.createSchedule')), scheduleArgs);

@@ -14,6 +14,8 @@ export const schedulesJa: AreaDictionary<typeof schedulesKeys> = {
   'schedules.error.notFound': '予定 {id} が見つかりません',
   'schedules.error.idRequired': 'schedule_id を指定してください',
   'schedules.error.outOfScope': 'このセッションのプロジェクトの外の予定や会話は扱えません',
+  'schedules.error.optionNotForClaude': '{option} は Claude Code の予定では指定できません',
+  'schedules.error.scratchScoped': 'プロジェクトを固定した URL からは、クイックセッションの予定は作れません',
   'schedules.error.notReady': '会話を再開しましたが、入力を受けられる状態になりませんでした',
   'schedules.heading.title': '予定',
   'schedules.list.empty': '予定はありません',

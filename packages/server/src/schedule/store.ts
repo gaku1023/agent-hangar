@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { SCHEDULE_PROMPT_MAX, SCHEDULE_RUNS_KEPT, SCHEDULES_MAX, type ScheduleDto, type ScheduleRunDto, type ScheduleRunResult, type ScheduleSpec, type ScheduleTarget } from '@agent-hangar/shared';
+import { DEFAULT_AGENT_KIND, SCHEDULE_PROMPT_MAX, SCHEDULE_RUNS_KEPT, SCHEDULES_MAX, type AgentKind, type ScheduleDto, type ScheduleRunDto, type ScheduleRunResult, type ScheduleSpec, type ScheduleTarget } from '@agent-hangar/shared';
+import type { AccountStore } from '../config/accounts.ts';
 import { touchRow } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
 import { MessageError, msg } from '../i18n/message.ts';
@@ -29,12 +30,20 @@ const runDto = (db: Db, r: RunRow): ScheduleRunDto => ({
   sessionTitle: r.session_id ? sessionTitleOf(db, r.session_id) : null, error: r.error,
 });
 
-function dto(db: Db, r: ScheduleRow): ScheduleDto {
+/** アカウントの id から表示名を引く。引けなければ null。Claude Code と Codex は別の組を持つ。 */
+export type AccountNamer = (agent: AgentKind, accountId: string) => string | null;
+
+/** アカウントの組（http/accounts.ts の AccountsDeps と、MCP の ToolDeps.accounts）から表示名を引く口を作る。 */
+export const accountNamerOf = (a: { store: Pick<AccountStore, 'get'>; codex?: { store: Pick<AccountStore, 'get'> } }): AccountNamer =>
+  (agent, id) => (agent === 'codex' ? a.codex?.store : agent === DEFAULT_AGENT_KIND ? a.store : undefined)?.get(id)?.name ?? null;
+
+function dto(db: Db, r: ScheduleRow, names?: AccountNamer): ScheduleDto {
   const target = targetOf(r);
   const runs = db.prepare('select * from schedule_runs where schedule_id = ? order by started_at desc, rowid desc').all(r.id) as RunRow[];
+  const accountName = target.kind === 'new' && target.account ? names?.(target.agent ?? DEFAULT_AGENT_KIND, target.account) ?? null : null;
   const project = r.project_id ? db.prepare('select name from projects where id = ?').get(r.project_id) as { name: string } | undefined : undefined;
   return {
-    id: r.id, prompt: r.prompt, spec: specOf(r), target, projectId: r.project_id, projectName: project?.name ?? null,
+    id: r.id, prompt: r.prompt, spec: specOf(r), target, projectId: r.project_id, projectName: project?.name ?? null, accountName,
     sessionTitle: target.kind === 'session' ? sessionTitleOf(db, target.sessionId) : null,
     enabled: r.enabled === 1, nextAt: r.next_at, runs: runs.map((x) => runDto(db, x)),
   };
@@ -43,17 +52,18 @@ function dto(db: Db, r: ScheduleRow): ScheduleDto {
 export const scheduleRow = (db: Db, id: string): ScheduleRow | undefined => db.prepare('select * from schedules where id = ?').get(id) as ScheduleRow | undefined;
 
 /** この PC の予定。動いているものを先に、作った新しい順で並べる。 */
-export function listSchedules(db: Db, deviceId: string, projectId?: string): ScheduleDto[] {
+/** projectId を渡すと、そのプロジェクトの予定だけにする。プロジェクトを持たないクイックセッションの予定（project_id が null）は出ない。 */
+export function listSchedules(db: Db, deviceId: string, projectId?: string, names?: AccountNamer): ScheduleDto[] {
   const rows = db.prepare('select * from schedules where device_id = ? order by enabled desc, created_at desc, rowid desc').all(deviceId) as ScheduleRow[];
-  return rows.filter((r) => projectId === undefined || r.project_id === projectId).map((r) => dto(db, r));
+  return rows.filter((r) => projectId === undefined || r.project_id === projectId).map((r) => dto(db, r, names));
 }
 
-export function getSchedule(db: Db, deviceId: string, id: string): ScheduleDto | null {
+export function getSchedule(db: Db, deviceId: string, id: string, names?: AccountNamer): ScheduleDto | null {
   const r = scheduleRow(db, id);
-  return r && r.device_id === deviceId ? dto(db, r) : null;
+  return r && r.device_id === deviceId ? dto(db, r, names) : null;
 }
 
-export function createSchedule(db: Db, o: { deviceId: string; prompt: string; spec: ScheduleSpec; target: ScheduleTarget; projectId: string | null; fromSessionId: string | null; now: number }): ScheduleDto {
+export function createSchedule(db: Db, o: { deviceId: string; prompt: string; spec: ScheduleSpec; target: ScheduleTarget; projectId: string | null; fromSessionId: string | null; now: number; names?: AccountNamer }): ScheduleDto {
   checkPrompt(o.prompt);
   const count = (db.prepare('select count(*) c from schedules where device_id = ?').get(o.deviceId) as { c: number }).c;
   if (count >= SCHEDULES_MAX) throw new MessageError(msg('schedules.error.tooMany', { max: SCHEDULES_MAX }));
@@ -61,11 +71,11 @@ export function createSchedule(db: Db, o: { deviceId: string; prompt: string; sp
   db.prepare('insert into schedules (id, device_id, project_id, prompt, spec, target, enabled, next_at, anchor_at, from_session_id, created_at, updated_at) values (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)')
     .run(id, o.deviceId, o.projectId, o.prompt, JSON.stringify(o.spec), JSON.stringify(o.target), nextOccurrence(o.spec, o.now, o.now), o.now, o.fromSessionId, o.now, o.now);
   touchRow(db, 'schedules', id);
-  return dto(db, scheduleRow(db, id)!);
+  return dto(db, scheduleRow(db, id)!, o.names);
 }
 
 /** 変える。時刻を変えたか、止めていたものを再開したら、今を起点に次の回を決め直す。過ぎた回はさかのぼらない。 */
-export function updateSchedule(db: Db, id: string, p: { prompt?: string; spec?: ScheduleSpec; target?: ScheduleTarget; projectId?: string | null; enabled?: boolean }, now: number): ScheduleDto {
+export function updateSchedule(db: Db, id: string, p: { prompt?: string; spec?: ScheduleSpec; target?: ScheduleTarget; projectId?: string | null; enabled?: boolean }, now: number, names?: AccountNamer): ScheduleDto {
   const r = scheduleRow(db, id);
   if (!r) throw new MessageError(msg('schedules.error.notFound', { id }));
   if (p.prompt !== undefined) checkPrompt(p.prompt);
@@ -79,7 +89,7 @@ export function updateSchedule(db: Db, id: string, p: { prompt?: string; spec?: 
   db.prepare('update schedules set prompt = ?, spec = ?, target = ?, project_id = ?, enabled = ?, next_at = ?, anchor_at = ?, updated_at = ? where id = ?')
     .run(p.prompt ?? r.prompt, JSON.stringify(spec), p.target ? JSON.stringify(p.target) : r.target, p.projectId !== undefined ? p.projectId : r.project_id, enabled ? 1 : 0, next, anchor, now, id);
   touchRow(db, 'schedules', id);
-  return dto(db, scheduleRow(db, id)!);
+  return dto(db, scheduleRow(db, id)!, names);
 }
 
 export function deleteSchedule(db: Db, id: string): boolean {

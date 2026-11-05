@@ -14,6 +14,8 @@ export const schedulesEn: AreaDictionary<typeof schedulesKeys> = {
   'schedules.error.notFound': 'Schedule {id} was not found',
   'schedules.error.idRequired': 'Specify schedule_id',
   'schedules.error.outOfScope': "Schedules and sessions outside this session's project cannot be used",
+  'schedules.error.optionNotForClaude': '{option} cannot be set for Claude Code schedules',
+  'schedules.error.scratchScoped': 'A quick-session schedule cannot be created from a project-scoped URL',
   'schedules.error.notReady': 'The session resumed but did not become ready for input',
   'schedules.heading.title': 'Schedules',
   'schedules.list.empty': 'No schedules',

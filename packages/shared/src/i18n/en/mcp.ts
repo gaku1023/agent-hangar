@@ -3,8 +3,8 @@ import type { AreaDictionary } from '../messageSpec.ts';
 
 export const mcpEn: AreaDictionary<typeof mcpKeys> = {
   'mcp.tool.listSchedules': 'Returns the schedules in Hangar on this computer, with the next time and recent runs.',
-  'mcp.tool.createSchedule': 'Creates a schedule that sends a prompt at set times. It runs only on this computer. Runs missed while Hangar was closed collapse into the latest one at the next launch. A run is skipped if the previous one is still going. With session_id it sends to that session; otherwise it starts a new session in project_id.',
-  'mcp.tool.updateSchedule': 'Changes a schedule. enabled: false stops it and true resumes it. Only the given fields change. To change the time, pass it starting from kind. Schedules cannot be deleted here; the user deletes them on the screen.',
+  'mcp.tool.createSchedule': 'Creates a schedule that sends a prompt at set times. It runs only on this computer. Runs missed while Hangar was closed collapse into the latest one at the next launch. A run is skipped if the previous one is still going. With session_id it sends to that session; otherwise it starts a new session in project_id. For a new session, agent, name, account, model, effort, permission_mode, worktree, add_dirs, mode, and auto_approve mean the same as in create_session. Options that do not fit the agent are rejected.',
+  'mcp.tool.updateSchedule': 'Changes a schedule. enabled: false stops it and true resumes it. Only the given fields change, including the launch options of a new session (model, effort, and so on). An empty string resets that option to its default. To change the time, pass it starting from kind. Schedules cannot be deleted here; the user deletes them on the screen.',
   'mcp.schedule.kindParam': 'once is one time, weekly is days of the week, every is every N minutes',
   'mcp.schedule.atParam': 'The time for once, in ISO 8601',
   'mcp.schedule.daysParam': 'The days for weekly. 0 is Sunday and 6 is Saturday',
@@ -12,6 +12,9 @@ export const mcpEn: AreaDictionary<typeof mcpKeys> = {
   'mcp.schedule.everyParam': 'The interval for every, in minutes. At least {min}',
   'mcp.schedule.sessionParam': 'An existing session to send to. Omit it to start a new session',
   'mcp.schedule.enabledParam': 'false stops it and true resumes it',
+  'mcp.schedule.accountParam': 'An account name or id (the names in get_usage accounts). For claude-code and codex. The id is saved; if omitted, the run starts with the account selected at that time',
+  'mcp.schedule.scratchParam': 'true starts the new session as a quick session in a throwaway folder. Only from the shared URL, and without project_id',
+  'mcp.schedule.autoApproveParam': 'true auto-approves permission prompts in a new opencode session. Only for opencode',
   'mcp.scope.sessionOnly': 'This MCP URL is for session {sessionId} only. You cannot specify another session_id',
   'mcp.scope.noProject': 'This session does not belong to a project yet, so the project tools are not available',
   'mcp.scope.projectOnly': 'This MCP URL is limited to project {projectId}. You cannot specify another project_id',

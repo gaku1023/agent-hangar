@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ScheduleDto } from '@agent-hangar/shared';
 import { issueMcpSecret } from '../../runs/secrets.ts';
 import { callTool, TOOL_NAMES, type ToolDeps } from '../../mcp/tools.ts';
+import { PRIMARY_ACCOUNT_ID } from '../../config/accounts.ts';
+import { listSchedules } from '../../schedule/store.ts';
 import { TOOL_CLASSES, toolsNeedingApproval } from '../../mcp/toolClasses.ts';
 import { createApp } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
@@ -136,5 +138,84 @@ describe('予定の MCP の道具', () => {
     expect((callTool(tools(), ctx, 'list_schedules', {}) as { schedules: ScheduleDto[] }).schedules).toEqual([]);
     expect(() => create(ctx, { project_id: 'other-project' })).toThrow();
     expect(create(ctx).projectId).toBe(projectId);
+  });
+});
+
+describe('予定の起動の項目', () => {
+  const full = () => ({ kind: 'new', projectId, agent: 'claude-code', name: 'n', account: PRIMARY_ACCOUNT_ID, model: 'sonnet', effort: 'high', permissionMode: 'acceptEdits', worktree: 'w', addDirs: ['/x'] });
+  const tools = (over = {}) => ({ db: t.db, deviceId: t.deps.deviceId, port: 1, live: () => [], runs: t.deps.runs, accounts: t.deps.accounts, language: t.deps.language, usage: () => t.deps.usage.current(), ...over }) as unknown as ToolDeps;
+  const mcp = (ctx: { sessionId: string | null }, name: string, args: Record<string, unknown>) => callTool(tools(), ctx, name, args) as ScheduleDto;
+  const mk = (over: Record<string, unknown> = {}) => mcp({ sessionId: null }, 'create_schedule', { kind: 'every', every_minutes: 30, prompt: 'p', project_id: projectId, ...over });
+
+  it('全項目つきの予定を作ると、GET で同じ値が返り、アカウントの表示名が付く', async () => {
+    const made = await (await send('POST', '/api/schedules', { ...input(), target: full() })).json() as ScheduleDto;
+    expect(made.target).toEqual(full());
+    expect(made.accountName).toBe('メイン');
+    const list = await (await send('GET', '/api/schedules')).json() as { schedules: ScheduleDto[] };
+    expect(list.schedules[0]).toMatchObject({ id: made.id, target: full(), accountName: 'メイン' });
+  });
+
+  it('消えたアカウントの id は表示名を引けず null で、古い形の予定は accountName が null のまま', async () => {
+    const gone = await (await send('POST', '/api/schedules', { ...input(), target: { ...full(), account: 'no-such' } })).json() as ScheduleDto;
+    expect(gone.accountName).toBeNull();
+    const old = await (await send('POST', '/api/schedules', { ...input(), target: { kind: 'new', projectId, agent: 'opencode' } })).json() as ScheduleDto;
+    expect(old.target).toStrictEqual({ kind: 'new', projectId, agent: 'opencode' });
+    expect(old.accountName).toBeNull();
+  });
+
+  it('エージェントに合わない項目は 400 で、保存しない', async () => {
+    const r = await send('POST', '/api/schedules', { ...input(), target: { kind: 'new', projectId, agent: 'codex', worktree: 'w' } });
+    expect(r.status).toBe(400);
+    expect((await r.json() as { error: string }).error).toContain('worktree');
+    expect(((await (await send('GET', '/api/schedules')).json()) as { schedules: unknown[] }).schedules).toEqual([]);
+  });
+
+  it('クイックセッションの予定は project_id が null で、プロジェクトの名前を持たない。絞った一覧には出ない', async () => {
+    const q = await (await send('POST', '/api/schedules', { ...input(), target: { kind: 'new', projectId: null, scratch: true, agent: 'opencode', autoApprove: true } })).json() as ScheduleDto;
+    expect(q).toMatchObject({ projectId: null, projectName: null, target: { kind: 'new', projectId: null, scratch: true, agent: 'opencode', autoApprove: true } });
+    expect((t.db.prepare('select project_id from schedules where id = ?').get(q.id) as { project_id: string | null }).project_id).toBeNull();
+    expect((await send('POST', '/api/schedules', { ...input(), target: { kind: 'new', projectId: null } })).status).toBe(400);
+    expect(listSchedules(t.db, t.deps.deviceId, projectId).map((s) => s.id)).toEqual([]);
+    expect(listSchedules(t.db, t.deps.deviceId).map((s) => s.id)).toEqual([q.id]);
+  });
+
+  it('PATCH で agent を替えるとき、合わない値は断り、合う形なら通る', async () => {
+    const made = await (await send('POST', '/api/schedules', { ...input(), target: full() })).json() as ScheduleDto;
+    expect((await send('PATCH', `/api/schedules/${made.id}`, { target: { ...full(), agent: 'codex' } })).status).toBe(400);
+    const ok = await send('PATCH', `/api/schedules/${made.id}`, { target: { kind: 'new', projectId, agent: 'codex', model: 'gpt-5' } });
+    expect(await ok.json()).toMatchObject({ target: { kind: 'new', projectId, agent: 'codex', model: 'gpt-5' } });
+  });
+
+  it('MCP の create_schedule に起動の項目を渡すと、target に入る', () => {
+    const s = mk({ model: 'sonnet', effort: 'high', permission_mode: 'bypassPermissions', worktree: 'w', add_dirs: ['/x'], name: 'n', account: 'メイン' });
+    expect(s.target).toEqual({ kind: 'new', projectId, name: 'n', account: PRIMARY_ACCOUNT_ID, model: 'sonnet', effort: 'high', permissionMode: 'bypassPermissions', worktree: 'w', addDirs: ['/x'] });
+    expect(s.accountName).toBe('メイン');
+    const o = mk({ agent: 'opencode', mode: 'plan', auto_approve: true, model: 'lmstudio/x' });
+    expect(o.target).toEqual({ kind: 'new', projectId, agent: 'opencode', mode: 'plan', autoApprove: true, model: 'lmstudio/x' });
+  });
+
+  it('MCP でもエージェントに合わない項目と、知らないアカウントは断る', () => {
+    expect(() => mk({ agent: 'codex', worktree: 'w' })).toThrow(/worktree/);
+    expect(() => mk({ agent: 'opencode', account: 'a' })).toThrow(/account/);
+    expect(() => mk({ auto_approve: true })).toThrow(/autoApprove/);
+    expect(() => mk({ account: 'ないアカウント' })).toThrow(/ないアカウント/);
+  });
+
+  it('MCP の update_schedule は渡した項目だけ変え、渡さなかった項目を引き継ぎ、空の文字列で既定に戻す', () => {
+    const s = mk({ model: 'sonnet', effort: 'high', worktree: 'w' });
+    const u1 = mcp({ sessionId: null }, 'update_schedule', { schedule_id: s.id, model: 'opus' });
+    expect(u1.target).toEqual({ kind: 'new', projectId, model: 'opus', effort: 'high', worktree: 'w' });
+    const u2 = mcp({ sessionId: null }, 'update_schedule', { schedule_id: s.id, effort: '' });
+    expect(u2.target).toEqual({ kind: 'new', projectId, model: 'opus', worktree: 'w' });
+    expect(() => mcp({ sessionId: null }, 'update_schedule', { schedule_id: s.id, agent: 'codex' })).toThrow(/worktree/);
+  });
+
+  it('MCP の scratch は共通の URL からだけ作れ、プロジェクトを固定した URL では断る', () => {
+    const q = mcp({ sessionId: null }, 'create_schedule', { kind: 'every', every_minutes: 30, prompt: 'p', scratch: true });
+    expect(q).toMatchObject({ projectId: null, target: { kind: 'new', projectId: null, scratch: true } });
+    expect(() => mcp({ sessionId }, 'create_schedule', { kind: 'every', every_minutes: 30, prompt: 'p', scratch: true })).toThrow();
+    // 固定した URL からは、クイックセッションの予定に触れない（一覧にも出ない）。
+    expect((callTool(tools(), { sessionId }, 'list_schedules', {}) as { schedules: ScheduleDto[] }).schedules).toEqual([]);
+    expect(() => mcp({ sessionId }, 'update_schedule', { schedule_id: q.id, enabled: false })).toThrow();
   });
 });

@@ -3,8 +3,8 @@ import type { AreaDictionary } from '../messageSpec.ts';
 
 export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.tool.listSchedules': 'この PC の hangar の予定を、次の時刻と直近の履歴つきで返す。',
-  'mcp.tool.createSchedule': '決まった時刻に指示を流す予定を作る。予定はこの PC でだけ動く。hangar が閉じていた間の回は、次の起動で最新の 1 回だけ流す。前の回が実行中なら次の回を飛ばす。session_id があれば既存の会話へ送り、無ければ project_id に新しい会話を作る。',
-  'mcp.tool.updateSchedule': '予定を変える。enabled を false にすると止まり、true で再開する。渡した項目だけ変わる。時刻を変えるときは kind から渡す。予定を消すことはできない。消すのはユーザーが画面で行う。',
+  'mcp.tool.createSchedule': '決まった時刻に指示を流す予定を作る。予定はこの PC でだけ動く。hangar が閉じていた間の回は、次の起動で最新の 1 回だけ流す。前の回が実行中なら次の回を飛ばす。session_id があれば既存の会話へ送り、無ければ project_id に新しい会話を作る。新しい会話では agent、name、account、model、effort、permission_mode、worktree、add_dirs、mode、auto_approve も create_session と同じ意味で渡せる。エージェントに合わない項目は断る。',
+  'mcp.tool.updateSchedule': '予定を変える。enabled を false にすると止まり、true で再開する。渡した項目だけ変わる。新しい会話の起動の項目（model、effort など）も、渡したものだけ変わる。空の文字列を渡すと、その項目をデフォルトに戻す。時刻を変えるときは kind から渡す。予定を消すことはできない。消すのはユーザーが画面で行う。',
   'mcp.schedule.kindParam': 'once は 1 回だけ、weekly は曜日、every は N 分おき',
   'mcp.schedule.atParam': 'once の時刻。ISO 8601',
   'mcp.schedule.daysParam': 'weekly の曜日。0 が日曜、6 が土曜',
@@ -12,6 +12,9 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.schedule.everyParam': 'every の間隔（分）。{min} 以上',
   'mcp.schedule.sessionParam': '送り先の既存の会話。省くと新しい会話を作る',
   'mcp.schedule.enabledParam': 'false で一時停止する、true で再開する',
+  'mcp.schedule.accountParam': 'アカウントの名前か id（get_usage の accounts の名前）。claude-code と codex で使える。保存するのは id で、省くと、実行するときにいま選んでいるアカウントで起動する',
+  'mcp.schedule.scratchParam': 'true でクイックセッション（使い捨てのディレクトリ）に新しい会話を作る。共通の URL からだけ使え、project_id は付けない',
+  'mcp.schedule.autoApproveParam': 'opencode の新しい会話で、権限の確認を自動で承認するなら true。opencode のときだけ使う',
   'mcp.scope.sessionOnly': 'この MCP の URL はセッション {sessionId} 専用です。他の session_id は指定できません',
   'mcp.scope.noProject': 'このセッションはまだプロジェクトに属していないため、プロジェクトのツールは使えません',
   'mcp.scope.projectOnly': 'この MCP の URL はプロジェクト {projectId} に閉じています。他の project_id は指定できません',

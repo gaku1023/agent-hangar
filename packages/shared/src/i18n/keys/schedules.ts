@@ -13,6 +13,8 @@ export const schedulesKeys = {
   'schedules.error.notFound': ['id'],
   'schedules.error.idRequired': [],
   'schedules.error.outOfScope': [],
+  'schedules.error.optionNotForClaude': ['option'],
+  'schedules.error.scratchScoped': [],
   'schedules.error.notReady': [],
   'schedules.heading.title': [],
   'schedules.list.empty': [],

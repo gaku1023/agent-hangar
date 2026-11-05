@@ -516,7 +516,7 @@ function launchAccount(deps: ToolDeps, ctx: ToolContext, given: unknown, agent: 
 }
 
 /** 名前か id でアカウントを引く。知らなければ、使える名前を添えて断る。create_session と resume_session が共有する。 */
-function accountNamed(store: Pick<AccountStore, 'list' | 'get'>, name: string): Account {
+export function accountNamed(store: Pick<AccountStore, 'list' | 'get'>, name: string): Account {
   const all = store.list();
   const hit = store.get(name) ?? all.find((a) => a.name === name);
   if (!hit) throw new ToolError(msg('mcp.createSession.accountUnknown', { account: name.slice(0, 40), names: all.map((a) => a.name) }));
