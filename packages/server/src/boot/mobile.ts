@@ -6,6 +6,7 @@ import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
 import { onIntent } from '../live/intents.ts';
+import { mobilePeerApprovals } from '../peer/approvals.ts';
 import { approveDeleteApproval, dismissDeleteApproval, listDeleteApprovals, rejectDeleteApproval } from '../sessions/deleteApprovals.ts';
 import type { SessionTrash } from '../sessions/trash.ts';
 import { answerAsk } from '../mobile/asks.ts';
@@ -30,7 +31,7 @@ import type { SyncParts } from './sync.ts';
  * 素が読むのは、会話（sessions、session_notes）、状態（session_states）、要約の 1 行（session_summaries）、run（runs）、プロジェクトとこの PC の場所（projects、project_roots）である。
  * 中身が変わらなければ書かない（ハッシュで比べる）ので、多めに拾っても書き込みは増えない。
  */
-export const FEED_TABLES: ReadonlySet<string> = new Set(['sessions', 'session_states', 'session_summaries', 'runs', 'project_roots', 'projects', 'session_notes', 'delete_approvals']);
+export const FEED_TABLES: ReadonlySet<string> = new Set(['sessions', 'session_states', 'session_summaries', 'runs', 'project_roots', 'projects', 'session_notes', 'delete_approvals', 'peer_approvals']);
 
 /**
  * 答えを送れなかった起動の依頼を送り直す見回りの間隔（mobile/launchInbox.ts の resendAnswers）。
@@ -106,6 +107,8 @@ export function bootMobile(p: {
   sync: Pick<SyncParts, 'canCarryMobile' | 'mobileLink' | 'cloudDevices' | 'onCloudDevices'> & { readonly engine: Pick<SyncEngine, 'on' | 'pullNow'>; /** 無ければ偽（PC どうしの呼び鈴を張らない）。 */ canCarryPeer?: () => boolean };
   /** 呼び鈴に PC どうしの答えと結果の知らせ（kind は answer か result）が鳴ったとき。呼ぶ側の取得（peer/outbox.ts）が受ける。頼みが来た知らせ（launch）は今の pull で受ける。 */
   onPeer?: (kind: PeerBellKind, id: string) => void;
+  /** 別の PC への起動の承認待ちへの答えの口（peer/approvals.ts）。省けば、スマホの答えを断る。 */
+  peerApprovals?: { approve(id: string): Promise<'done' | 'failed' | 'missing'>; reject(id: string): boolean };
   timers?: Timers;
   now?: () => number;
   /** 呼び鈴の WebSocket を作る口。既定は ws。 */
@@ -168,6 +171,7 @@ export function bootMobile(p: {
     db, deviceId, deviceName: p.home.device.name,
     live: p.delivery.live.current(),
     approvals: listDeleteApprovals(db).map(({ requestedAt: _at, ...a }) => a),
+    peerApprovals: mobilePeerApprovals(db, Date.now()),
     accounts: accounts.store.list(),
     usageOf: (id) => accounts.usage.of(id),
     now: Date.now(),
@@ -236,6 +240,7 @@ export function bootMobile(p: {
         accountDir: (accountId) => accounts.store.list().find((a) => a.id === accountId)?.dir ?? null,
         ...(opencodeAsk ? { opencode: opencodeAsk } : {}),
         ...(p.trash ? { deleteApprovals: { approve: (aid: string) => approveDeleteApproval(db, p.trash!, aid), reject: (aid: string) => rejectDeleteApproval(db, aid, Date.now()), dismiss: (aid: string) => dismissDeleteApproval(db, aid) } } : {}),
+        ...(p.peerApprovals ? { peerApprovals: p.peerApprovals } : {}),
         ...(p.codex ? { codex: { ready: codexOn, options: () => p.codex!.options.last() } } : {}),
       }, id, sealed, epoch),
       timers,

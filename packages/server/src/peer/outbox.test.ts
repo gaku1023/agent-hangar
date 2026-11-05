@@ -322,6 +322,32 @@ describe('PeerOutbox の終わりと二重の防ぎ', () => {
     await ob.sync();
     expect(injected).toEqual([]);
   });
+
+  describe('承認で決まる断り（refuseLocal）', () => {
+    it('承認を断られたら approval-denied を、時間切れなら approval-timeout を、呼び出し元に入力として入れる', async () => {
+      await ob.refuseLocal({ requestId: 'ap-1', to: PEER, callerSessionId: caller, reason: 'approval-denied' });
+      expect(injected).toHaveLength(1);
+      expect(injected[0]!.id).toBe(caller);
+      expect(injected[0]!.text).toContain('Mac');
+      expect(injected[0]!.text).toContain('承認しませんでした');
+      await ob.refuseLocal({ requestId: 'ap-2', to: PEER, callerSessionId: caller, reason: 'approval-timeout' });
+      expect(injected[1]!.text).toContain('時間内に承認しませんでした');
+    });
+    it('同じ頼みの断りは 1 度しか入れない', async () => {
+      await ob.refuseLocal({ requestId: 'ap-1', to: PEER, callerSessionId: caller, reason: 'approval-denied' });
+      await ob.refuseLocal({ requestId: 'ap-1', to: PEER, callerSessionId: caller, reason: 'approval-timeout' });
+      expect(injected).toHaveLength(1);
+    });
+    it('呼び出し元が止まっていれば預かって通知し、再開したら入れる', async () => {
+      live = [];
+      await ob.refuseLocal({ requestId: 'ap-1', to: PEER, callerSessionId: caller, reason: 'approval-denied' });
+      expect(injected).toEqual([]);
+      expect(notices).toHaveLength(1);
+      live = [entry('u1', 'idle')];
+      await ob.flush();
+      expect(injected).toHaveLength(1);
+    });
+  });
 });
 
 describe('PeerOutbox の send と stop の答え', () => {

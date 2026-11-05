@@ -1,4 +1,4 @@
-import { notifyRulesOf, type AgentKind, type PeerBellKind, type PeerKeyring, type PeerLaunchApi, type PeerLaunchIncoming, type ServerEvent } from '@agent-hangar/shared';
+import { notifyRulesOf, sealPeerLaunch, type AgentKind, type PeerBellKind, type PeerKeyring, type PeerLaunchApi, type PeerLaunchIncoming, type ServerEvent } from '@agent-hangar/shared';
 import { AGENT_ENTRY } from '../agent/entry.ts';
 import type { LiveHub } from '../agent/liveHub.ts';
 import { getSession } from '../db/queries.ts';
@@ -7,8 +7,11 @@ import { INTENT_MAX } from '../live/intents.ts';
 import { addUnread, noteUnread, NOTIFY_TARGETS } from '../live/unread.ts';
 import { MAX_SEND_CHARS, sanitizeInput } from '../mcp/screenTools.ts';
 import { lastReply, noteTurnStart } from '../mcp/waitTool.ts';
+import { msg, render } from '../i18n/message.ts';
+import { PeerApprovals } from '../peer/approvals.ts';
+import { choosePeerRoute, resolvePeer } from '../peer/caller.ts';
 import { PeerLaunchInbox, type PeerAccount } from '../peer/launchInbox.ts';
-import { PeerOutbox } from '../peer/outbox.ts';
+import { PeerOutbox, recordPeerRequest } from '../peer/outbox.ts';
 import { PeerRelay } from '../peer/relay.ts';
 import { aliveRunForSession } from '../runs/queries.ts';
 import type { RunManager } from '../runs/manager.ts';
@@ -29,6 +32,8 @@ export type PeerParts = {
   stop(): void;
   /** 呼び鈴に鳴った、答えと結果の知らせ。呼ぶ側の取得（PeerOutbox）をすぐ回す。boot/mobile.ts の onPeer へ渡す。 */
   onBell(kind: PeerBellKind, id: string): void;
+  /** 別の PC への起動の承認待ち（D8）。MCP の呼び出し（peerCall.requestApproval）が預け、画面の HTTP とスマホの問い合わせが答える。 */
+  approvals: PeerApprovals;
 };
 
 /**
@@ -122,6 +127,27 @@ export function bootPeer(p: {
       console.error('[peer] could not read the peer keys', e instanceof Error ? e.constructor.name : typeof e);
     }
   };
+  /** 利用者への知らせ。会話があれば未読と通知、消えていれば起こした会話を軸に OS とスマホだけ（D14）。出し先は ask の決まりに従う。 */
+  const notify = (sessionId: string | null, text: string, anchor?: string | null): void => {
+    const rules = notifyRulesOf(p.home.settings.current);
+    const clipped = [...text].slice(0, INTENT_MAX).join('');
+    const sent = NOTIFY_TARGETS.filter((x) => rules[x].includes('ask') && (x !== 'unread' || sessionId !== null));
+    if (sent.length === 0) return;
+    if (sessionId === null) {
+      const out = sent.filter((x) => x !== 'unread');
+      if (out.length === 0) return;
+      // 消えた会話には未読を積めないので、起こした会話を軸に OS とスマホの通知を出す（押すと、その報告元の会話が開く）。軸が無いときだけ画面の札に落とす。
+      if (anchor) noteUnread(anchor, clipped, 0, out, { kind: 'ask', immediate: true });
+      else p.delivery.hub.broadcast({ type: 'toast', level: 'info', message: clipped });
+      return;
+    }
+    let unread = 0;
+    if (sent.includes('unread')) {
+      unread = addUnread(db, sessionId, clipped, now());
+      touchRow(db, 'sessions', sessionId);
+    }
+    noteUnread(sessionId, clipped, unread, sent, { kind: 'ask', immediate: true });
+  };
   const outbox = new PeerOutbox({
     db,
     deviceId,
@@ -141,26 +167,26 @@ export function bootPeer(p: {
       await p.runs.runs.sendInput(run.tmuxName, sanitizeInput(text), true);
       return true;
     },
-    // 利用者への知らせ。会話があれば未読と通知、消えていれば起こした会話を軸に OS とスマホだけ（D14）。出し先は ask の決まりに従う。
-    notify: (sessionId, text, anchor) => {
-      const rules = notifyRulesOf(p.home.settings.current);
-      const clipped = [...text].slice(0, INTENT_MAX).join('');
-      const sent = NOTIFY_TARGETS.filter((x) => rules[x].includes('ask') && (x !== 'unread' || sessionId !== null));
-      if (sent.length === 0) return;
-      if (sessionId === null) {
-        const out = sent.filter((x) => x !== 'unread');
-        if (out.length === 0) return;
-        // 消えた会話には未読を積めないので、起こした会話を軸に OS とスマホの通知を出す（押すと、その報告元の会話が開く）。軸が無いときだけ画面の札に落とす。
-        if (anchor) noteUnread(anchor, clipped, 0, out, { kind: 'ask', immediate: true });
-        else p.delivery.hub.broadcast({ type: 'toast', level: 'info', message: clipped });
-        return;
-      }
-      let unread = 0;
-      if (sent.includes('unread')) {
-        unread = addUnread(db, sessionId, clipped, now());
-        touchRow(db, 'sessions', sessionId);
-      }
-      noteUnread(sessionId, clipped, unread, sent, { kind: 'ask', immediate: true });
+    notify,
+  });
+  const callDeps = { link: () => (p.sync.canCarryPeer() ? p.sync.peerLink() : null), workerOk: () => p.sync.canCarryPeer() };
+  // 別の PC への起動の承認待ち（D8）。承認されたら経路を決めて封じて置き、断りと時間切れは呼び出し元に入力として入れる。
+  const approvals = new PeerApprovals({
+    db, now,
+    send: async (row) => {
+      const peer = resolvePeer(db, deviceId, row.to);
+      if (!peer) throw new Error('device-unknown');
+      const route = choosePeerRoute(peer, callDeps, now());
+      if ('refuse' in route) throw new Error(route.refuse);
+      const sealed = await sealPeerLaunch(await route.ring(), { requestId: row.requestId, from: deviceId, to: row.to }, { ...row.request, createdAt: now() });
+      await route.api.put({ id: row.requestId, to: row.to, sealed, from: deviceId });
+      recordPeerRequest(db, { requestId: row.requestId, to: row.to, callerSessionId: row.callerSessionId, now: now() });
+    },
+    refuse: (o) => { void outbox.refuseLocal(o); },
+    // 承認待ちは答えがないと進まないので、会話の状態によらず、ask の決まりの出し先へ出す。
+    notify: (o) => {
+      const text = render(p.home.language(), o.from ? msg('mcp.peer.notice.approval', { from: o.from.slice(0, 80), device: o.device.slice(0, 80) }) : msg('mcp.peer.notice.approvalNoFrom', { device: o.device.slice(0, 80) }));
+      notify(o.callerSessionId, text);
     },
   });
   let stopOutbox: (() => void) | null = null;
@@ -235,6 +261,7 @@ export function bootPeer(p: {
   return {
     inbox: () => ensure(),
     relay,
+    approvals,
     onBell(kind) {
       if (stopped || (kind !== 'answer' && kind !== 'result')) return;
       void refreshRing().then(() => outbox.sync()).catch(() => {});
@@ -244,6 +271,7 @@ export function bootPeer(p: {
       offRelayLive = p.delivery.live.onChange(() => relay.check());
       offRuns = p.runs.runs.on({ runEnded: (run) => relay.onProcessEnded(run.sessionId) });
       tick();
+      approvals.start();
       stopOutbox = outbox.start();
       // 実行中の一覧が変わったら、預かっている入力を渡し直す（止められていた呼び出し元が再開したときなど）。
       offLive = p.delivery.live.onChange(() => { void outbox.flush(); });
@@ -269,6 +297,7 @@ export function bootPeer(p: {
       sshTimer = null;
       p.ssh?.local.onReceive(null);
       p.ssh?.link.onGaveUp(null);
+      approvals.stop();
       stopOutbox?.();
       stopOutbox = null;
       offLive?.();

@@ -7,6 +7,38 @@ import { testKey } from '../../test/cloudConfig.ts';
 import { fixedPhoneKeys, PHONE_KEY_1, PHONE_KEY_2, phoneCryptoKey } from '../../test/phoneKeys.ts';
 import { answerAsk, APPROVAL_WAIT_MS, ASK_COMMANDS_MAX, ASK_DESCRIPTION_MAX, ASK_RECENT_FILES, ASK_SEARCH_FILES, replyTo, type AskDeps } from './asks.ts';
 
+describe('別の PC への起動の承認への答え（D8）', () => {
+  const approvals = (o: Partial<NonNullable<AskDeps['peerApprovals']>> = {}) => ({ approve: vi.fn(async () => 'done' as const), reject: vi.fn(() => true), ...o });
+  const ask = (answer: unknown, id: unknown = 'r1') => ({ v: 1, kind: 'peer-approval', id, answer });
+  it('承認と断るを振り分ける', async () => {
+    const a = approvals();
+    expect(await replyTo(deps({ peerApprovals: a }), ask('approve'))).toEqual({ approval: 'done' });
+    expect(a.approve).toHaveBeenCalledWith('r1');
+    expect(await replyTo(deps({ peerApprovals: a }), ask('reject'))).toEqual({ approval: 'done' });
+    expect(a.reject).toHaveBeenCalledWith('r1');
+  });
+  it('送れなかった、もう無い（時間切れを含む）を返す', async () => {
+    expect(await replyTo(deps({ peerApprovals: approvals({ approve: vi.fn(async () => 'failed' as const) }) }), ask('approve'))).toEqual({ approval: 'failed' });
+    expect(await replyTo(deps({ peerApprovals: approvals({ approve: vi.fn(async () => 'missing' as const) }) }), ask('approve'))).toEqual({ approval: 'missing' });
+    expect(await replyTo(deps({ peerApprovals: approvals({ reject: vi.fn(() => false) }) }), ask('reject'))).toEqual({ approval: 'missing' });
+  });
+  it('置くのが長引いても、呼び鈴の待ちのうちに accepted で返す', async () => {
+    vi.useFakeTimers();
+    try {
+      const p = replyTo(deps({ peerApprovals: approvals({ approve: vi.fn(() => new Promise<'done'>(() => undefined)) }) }), ask('approve'));
+      await vi.advanceTimersByTimeAsync(APPROVAL_WAIT_MS);
+      expect(await p).toEqual({ approval: 'accepted' });
+    } finally { vi.useRealTimers(); }
+  });
+  it('dismiss など形の違う答えと、口の無い PC は断り、何も呼ばない', async () => {
+    const a = approvals();
+    expect(await replyTo(deps({ peerApprovals: a }), ask('dismiss'))).toEqual({ error: 'bad-request' });
+    expect(await replyTo(deps({ peerApprovals: a }), ask('approve', 3))).toEqual({ error: 'bad-request' });
+    expect(a.approve).not.toHaveBeenCalled();
+    expect(await replyTo(deps(), ask('approve'))).toEqual({ error: 'bad-request' });
+  });
+});
+
 describe('削除の依頼への答え（#547）', () => {
   const approvals = (o: Partial<NonNullable<AskDeps['deleteApprovals']>> = {}) => ({ approve: vi.fn(async () => 'deleted' as const), reject: vi.fn(() => true), dismiss: vi.fn(() => true), ...o });
   const ask = (answer: unknown, id: unknown = 'a1') => ({ v: 1, kind: 'delete-approval', id, answer });

@@ -7,7 +7,7 @@ import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { turnRunning } from '../live/unreadHold.ts';
 import { acceptsResultFrom, closeSpawn, recordSpawn } from '../sessions/spawns.ts';
 import type { Timers } from '../sync/engine.ts';
-import { expiredText, goneNotice, heldNotice, PEER_TEXT_MAX, refusalText, resultText, sshGaveUpText, stopReasonText } from './text.ts';
+import { expiredText, goneNotice, heldNotice, PEER_TEXT_MAX, refusalText, resultText, sshGaveUpText, stopReasonText, type PeerLocalRefusal } from './text.ts';
 
 /**
  * 呼ぶ側（T7）。別の PC へ置いた頼みの答えと結果を受け取り、呼び出し元の会話へ送り込む。
@@ -283,12 +283,24 @@ export class PeerOutbox {
     return true;
   }
 
-  private refuse(row: PeerRequestRow, reason: PeerLaunchRefusal, detail?: string, expired = false): void {
+  private refuse(row: PeerRequestRow, reason: PeerLaunchRefusal | PeerLocalRefusal, detail?: string, expired = false): void {
     const lang = this.language();
     const device = this.nameOf(row.to_device);
     const text = expired ? expiredText(lang, { device }) : refusalText(lang, { device, reason, op: row.op, ...(detail ? { detail } : {}) });
     this.deps.db.prepare('update peer_outbox set state = ?, reason = ?, updated_at = ? where request_id = ?').run(expired ? 'expired' : 'refused', expired ? 'expired' : reason, this.now(), row.request_id);
     this.enqueue(row, 0, text, heldNotice(lang, { device, title: null }), text);
+  }
+
+  /**
+   * 頼みを置かずに断る（承認で断られた、時間切れ、承認したが置けなかった。peer/approvals.ts）。
+   * 記録を作り、断りの入力を預かりに積んで、渡せるものを渡す。同じ ID は 1 度しか積まない。投げない。
+   */
+  refuseLocal(o: { requestId: string; to: string; callerSessionId: string; reason: PeerLocalRefusal | 'launch-failed'; detail?: string }): Promise<void> {
+    const now = this.now();
+    recordPeerRequest(this.deps.db, { requestId: o.requestId, to: o.to, callerSessionId: o.callerSessionId, now });
+    const row = getPeerRequest(this.deps.db, o.requestId)!;
+    if (row.state === 'requested') this.refuse(row, o.reason, o.detail);
+    return this.flush();
   }
 
   private async fetchResults(api: PeerLaunchApi, ring: PeerKeyring, row: PeerRequestRow): Promise<void> {

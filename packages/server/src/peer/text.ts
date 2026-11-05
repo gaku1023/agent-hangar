@@ -47,9 +47,13 @@ const REFUSAL_KEY = {
   'not-spawned-by-caller': 'mcp.peer.refusal.notSpawnedByCaller',
 } as const satisfies Record<PeerLaunchRefusal, string>;
 
+/** 頼んだ PC の側で決まる断り。承認で断られた、承認が時間切れになった（D8）。 */
+export type PeerLocalRefusal = 'approval-denied' | 'approval-timeout';
+const LOCAL_REFUSAL_KEY = { 'approval-denied': 'mcp.peer.refusal.approvalDenied', 'approval-timeout': 'mcp.peer.refusal.approvalTimeout' } as const satisfies Record<PeerLocalRefusal, string>;
+
 /** 断られた答えの文。detail は相手の PC が添えた短い説明で、あれば末尾に足す。 */
-export function refusalText(lang: Language, o: { device: string; reason: PeerLaunchRefusal; detail?: string; op?: 'launch' | 'send' | 'stop' }): string {
-  const why = render(lang, msg(REFUSAL_KEY[o.reason]));
+export function refusalText(lang: Language, o: { device: string; reason: PeerLaunchRefusal | PeerLocalRefusal; detail?: string; op?: 'launch' | 'send' | 'stop' }): string {
+  const why = render(lang, msg(o.reason === 'approval-denied' || o.reason === 'approval-timeout' ? LOCAL_REFUSAL_KEY[o.reason] : REFUSAL_KEY[o.reason]));
   const detail = o.detail ? ` (${oneLine(o.detail, 200)})` : '';
   const key = o.op === 'send' ? 'mcp.peer.refusedSend' : o.op === 'stop' ? 'mcp.peer.refusedStop' : 'mcp.peer.refused';
   return render(lang, msg(key, { device: oneLine(o.device, 80), reason: why + detail }));
