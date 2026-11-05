@@ -22,6 +22,7 @@ import type { TakeoverService } from '../sync/takeover.ts';
 import type { AccountsDeps } from './accounts.ts';
 import type { GitService } from '../git/service.ts';
 import type { OpencodeProvidersService } from '../provider/opencode/integration.ts';
+import type { PeerCallDeps } from '../peer/caller.ts';
 import type { PeerEndpointDeps } from '../peer/endpoint.ts';
 import type { PeerSshStore } from '../peer/ssh/config.ts';
 import type { HostKeyState } from '../peer/ssh/connector.ts';
@@ -245,6 +246,8 @@ export type AppDeps = {
   overlapRefresh?: () => void;
   /** 設定の「Claude Code の指示 / MCP を渡す」の一覧が読むホーム（share/preview.ts）。渡さなければ os.homedir()。試験の世界が使う。 */
   shareHome?: string;
+  /** 別の PC へ起こす口（peer/caller.ts）。MCP の create_session の device と list_devices が使う。渡さなければ、別の PC は引けない。 */
+  peerCall?: PeerCallDeps;
   /** UI の dist。null なら UI を配らない（試験と、dist を持たない組み立て）。 */
   uiDist: string | null;
   /**
