@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// SSH は今回のリリースで止めている。有効にした状態で試す。
+vi.mock('../peer/ssh/enabled.ts', () => ({ PEER_SSH_ENABLED: true, whenPeerSshEnabled: <T>(f: () => T) => f() }));
 import { deriveEpochKeys, openPeerLaunch, randomEpochKey, type DeviceStatus, type LiveSessionDto, type PeerKeyring, type PeerLaunchApi } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';

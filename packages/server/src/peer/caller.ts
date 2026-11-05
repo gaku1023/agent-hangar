@@ -1,6 +1,7 @@
 import type { PeerDeviceStatus, PeerKeyring, PeerLaunchApi } from '@agent-hangar/shared';
 import { readPeerStatuses } from '../config/deviceStatus.ts';
 import type { Db } from '../db/open.ts';
+import { PEER_SSH_ENABLED } from './ssh/enabled.ts';
 
 /**
  * 呼ぶ側（T8、T11）。別の PC へ起こす前の、相手の引き当てと経路の決め方。
@@ -87,7 +88,7 @@ const cloudUnjoined = (p: PeerDeviceStatus, deps: RouteDeps): boolean => p.outda
  */
 const sshUsable = (p: PeerDeviceStatus, deps: RouteDeps): boolean => {
   const s = deps.ssh;
-  if (!s || !s.registered(p.device_id) || !s.tokensReady() || s.ring() === null) return false;
+  if (!PEER_SSH_ENABLED || !s || !s.registered(p.device_id) || !s.tokensReady() || s.ring() === null) return false;
   const st = p.status;
   return !!st && !!st.ssh_host_key && st.lan_ips.length > 0;
 };

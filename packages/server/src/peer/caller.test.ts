@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// SSH は今回のリリースで止めている。有効にした状態で試す。
+vi.mock('./ssh/enabled.ts', () => ({ PEER_SSH_ENABLED: true, whenPeerSshEnabled: <T>(f: () => T) => f() }));
 import type { PeerDeviceStatus, PeerKeyring, PeerLaunchApi } from '@agent-hangar/shared';
 import { choosePeerRoute, peerVias, type PeerSshRouteDeps } from './caller.ts';
 import { PeerSshConnectError } from './ssh/link.ts';
