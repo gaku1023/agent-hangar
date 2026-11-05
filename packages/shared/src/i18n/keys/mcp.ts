@@ -161,4 +161,8 @@ export const mcpKeys = {
   'mcp.peer.notice.held': ['device', 'title'],
   'mcp.peer.notice.heldRefused': ['device'],
   'mcp.peer.notice.gone': ['device', 'title', 'reason'],
+  'mcp.peer.screenStarted': ['device', 'title'],
+  'mcp.peer.screenStartedPlain': ['device'],
+  'mcp.peer.screenRefused': ['device', 'reason'],
+  'mcp.peer.screenExpired': ['device'],
 } as const satisfies MessageSpec;

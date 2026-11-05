@@ -173,6 +173,14 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
       }
       return { state: done, effects: [{ kind: 'navigate', route: { name: 'session', id: ev.sessionId } }, ...cleared.effects] };
     }
+    if (ev.type === 'peerLaunch.sent') {
+      // 別の PC への頼みが置けた。会話はこの PC に無いので、開く先は無い。ダイアログを閉じ、書きかけの下書きは役目を終えたので消す。起きたかどうかは、後からサーバが札で知らせる。
+      const seeded = (state.overlay.kind === 'newSession' && !!state.overlay.seed) || state.newSessionSent === 'seeded';
+      const cleared = seeded ? { state, effects: [] as Effect[] } : setDraft(state, null);
+      const overlay = state.overlay.kind === 'newSession' ? { kind: 'none' as const } : state.overlay;
+      const message = translatorOf(store)('newSession.peer.asked', { device: ev.device });
+      return { state: { ...cleared.state, launch: { kind: 'idle' }, overlay, newSessionSent: false, launchSent: null }, effects: [{ kind: 'toast', level: 'info', message }, ...cleared.effects] };
+    }
     if (ev.type === 'launch.halted') {
       // 準備が問いで止まったか、利用者がやめた。失敗ではない。ダイアログが開いていれば進みと問いの札がそこに出るので、何も重ねない。
       // 閉じた後に問いで止まったときだけ、続けるには確認が要ることを知らせる（やめたのは利用者自身なので、知らせない）。
@@ -251,6 +259,10 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
         const r = rememberPrefs(state, i.params, store.settings?.defaultModel ?? null);
         return { state: { ...r.state, launch: { kind: 'submitting' }, launchSent: sentOf(i.params), newSessionSent: sentMark(state), launchPrep: prepMarkOf(i.params) }, effects: [{ kind: 'api.launch', params: i.params }, ...r.effects] };
       }
+    case 'session.new.submitPeer':
+      if (state.launch.kind === 'submitting') return { state, effects: [] };
+      // 選んだ PC の起動は、前回値を書き換えない（前回値はこの PC の起動の札の値で、相手の PC の既定ではない）。
+      return { state: { ...state, launch: { kind: 'submitting' }, launchSent: { op: 'launch', agent: i.body.agent }, newSessionSent: sentMark(state), launchPrep: null }, effects: [{ kind: 'api.peerLaunch', body: i.body }] };
     case 'schedule.create':
     case 'schedule.update': {
       // 予定の作成と更新。フォルダを選んだ予定は、新しいセッションの起動と同じく、先にプロジェクトを登録する（runtime が登録してから、その id で送る）。

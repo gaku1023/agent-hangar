@@ -75,6 +75,25 @@ export function heldNotice(lang: Language, o: { device: string; title: string | 
   return o.title === null ? render(lang, msg('mcp.peer.notice.heldRefused', { device })) : render(lang, msg('mcp.peer.notice.held', { device, title: oneLine(o.title, 80) }));
 }
 
+/** 画面から人が頼んだ起動が、相手で起きたときの札の文。 */
+export function screenStartedText(lang: Language, o: { device: string; title: string }): string {
+  const device = oneLine(o.device, 80);
+  const title = oneLine(o.title, 80);
+  return title === '' ? render(lang, msg('mcp.peer.screenStartedPlain', { device })) : render(lang, msg('mcp.peer.screenStarted', { device, title }));
+}
+
+/** 画面から人が頼んだ起動が断られた（相手の答え、置く前の検査）ときの札の文。 */
+export function screenRefusalText(lang: Language, o: { device: string; reason: PeerLaunchRefusal | PeerLocalRefusal; detail?: string }): string {
+  const why = render(lang, msg(o.reason === 'approval-denied' || o.reason === 'approval-timeout' ? LOCAL_REFUSAL_KEY[o.reason] : REFUSAL_KEY[o.reason]));
+  const detail = o.detail ? ` (${oneLine(o.detail, 200)})` : '';
+  return render(lang, msg('mcp.peer.screenRefused', { device: oneLine(o.device, 80), reason: why + detail }));
+}
+
+/** 画面から人が頼んだ起動が、受け取られないまま期限を過ぎたときの札の文。 */
+export function screenExpiredText(lang: Language, o: { device: string }): string {
+  return render(lang, msg('mcp.peer.screenExpired', { device: oneLine(o.device, 80) }));
+}
+
 /** 呼び出し元が消えているときに、利用者への通知へ出す短い文。reason はその報告の止まった理由の文。 */
 export function goneNotice(lang: Language, o: { device: string; title: string | null; reason: string }): string {
   return render(lang, msg('mcp.peer.notice.gone', { device: oneLine(o.device, 80), title: o.title === null ? '' : oneLine(o.title, 80), reason: o.reason }));

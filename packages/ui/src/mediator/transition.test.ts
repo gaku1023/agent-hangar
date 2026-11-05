@@ -325,7 +325,7 @@ describe('起動', () => {
   it('ダイアログを開き、送信で submitting になり、done で画面へ移る', () => {
     const a = run([action({ type: 'session.new.open', projectId: 'p1' })]);
     expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: 'p1', scratch: false });
-    expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }]);
+    expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }, { kind: 'api.peers' }]);
     const b = run([action({ type: 'session.new.submit', params: { projectId: 'p1', name: 'n' } })], a.state);
     expect(b.state.launch).toEqual({ kind: 'submitting' });
     expect(b.effects).toEqual([{ kind: 'api.launch', params: { projectId: 'p1', name: 'n' } }]);
@@ -352,7 +352,7 @@ describe('起動', () => {
     expect(run([action({ type: 'session.new.submit', params: {} })]).state.launch).toEqual({ kind: 'failed', message: 'プロジェクトを選択してください' });
     const s = run([action({ type: 'session.new.open', scratch: true })]);
     expect(s.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
-    expect(s.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }]);
+    expect(s.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }, { kind: 'api.peers' }]);
     // クイックセッションはプロジェクトが無くても送信できる。
     expect(run([action({ type: 'session.new.submit', params: { scratch: true } })]).effects).toEqual([{ kind: 'api.launch', params: { scratch: true } }]);
   });
@@ -1072,7 +1072,7 @@ describe('パレット', () => {
   it('コマンドを実行して閉じる', () => {
     const a = run([action({ type: 'palette.run', command: { id: 'cmd:new-scratch', label: 'クイックセッションで始める' } })], opened());
     expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
-    expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }]);
+    expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }, { kind: 'api.peers' }]);
     const b = run([action({ type: 'palette.run', command: { id: 'settings:cloud', label: 'クラウド同期' } })], opened());
     expect(b.state.overlay).toEqual({ kind: 'none' });
     expect(b.effects).toEqual([{ kind: 'navigate', route: { name: 'settings', at: 'cloud' } }]);
@@ -1082,7 +1082,7 @@ describe('パレット', () => {
     expect(e.effects).toEqual([{ kind: 'navigate', route: { name: 'session', id: 's1' } }]);
     const g = run([action({ type: 'palette.run', command: { id: 'cmd:new-session', label: '新しいセッション' } })], opened());
     expect(g.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: false });
-    expect(g.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }]);
+    expect(g.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }, { kind: 'api.peers' }]);
     const f = run([action({ type: 'palette.run', command: { id: 'nope', label: '' } })], opened());
     expect(f.state.overlay).toEqual({ kind: 'none' });
     expect(f.effects).toEqual([]);
@@ -1091,7 +1091,7 @@ describe('パレット', () => {
   it('新しいセッションは、ID に載せたプロジェクトかクイックセッションを選んで開く', () => {
     const a = run([action({ type: 'palette.run', command: { id: 'cmd:new-session:project:p1', label: '新しいセッション' } })], opened());
     expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: 'p1', scratch: false });
-    expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }]);
+    expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }, { kind: 'api.peers' }]);
     const b = run([action({ type: 'palette.run', command: { id: 'cmd:new-session:scratch', label: '新しいセッション' } })], opened());
     expect(b.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
   });

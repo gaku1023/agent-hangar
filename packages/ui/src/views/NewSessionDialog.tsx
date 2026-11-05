@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { type LaunchPrepChoice } from '@agent-hangar/shared';
+import { type LaunchPrepChoice, type PeerDeviceDto } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { NewSessionProps } from '../presenters/newSession.ts';
 import { isComposing } from './ime.ts';
@@ -14,6 +14,7 @@ import { composePrompt, type Attachment } from './primitives/promptComposerModel
 import { InvestigateButton } from './InvestigateButton.tsx';
 import { fadeIn } from './primitives/motionKit.ts';
 import { useLaunchChoice } from './useLaunchChoice.tsx';
+import { PcMenu } from './PcMenu.tsx';
 
 /** 初期プロンプトの欄の id。Mediator の focus の効果（runtime/focusSoon.ts の FOCUS_IDS）がこの id で探す。 */
 const PROMPT_ID = 'new-session-prompt';
@@ -48,7 +49,12 @@ export function NewSessionDialog(props: NewSessionProps) {
   // 埋めて開いたとき（「エージェントで調査…」）は、下書きの代わりに依頼の文を入れる。下書きは読まず、閉じても書かない（残したまま次に戻す）。
   const seed = props.seed ?? null;
   const draft = seed ? null : props.draft;
+  // 選んだ別の PC（案 1C）。毎回この PC から始める（覚えない）。ほかの PC が無いときは、メニューごと出さない。
+  const peers: PeerDeviceDto[] = props.peers ?? [];
+  const [peerId, setPeerId] = useState<string | null>(null);
+  const peer = peers.find((p) => p.id === peerId) ?? null;
   const lc = useLaunchChoice({
+    peer,
     data: props, projectId: props.projectId, scratch: props.scratch, dir: props.dir ?? null, freshWorktree: props.worktree === true,
     agent: props.agent, pickModel: props.pickModel === true, seed, name: draft?.name ?? '', onChoose: () => setStaleError(props.error),
   });
@@ -97,8 +103,14 @@ export function NewSessionDialog(props: NewSessionProps) {
 
   // answer は、準備が止まって聞かれたことへの答え（LaunchPrepChoice）。同じ詳細に添え、新しい鍵で送り直す。
   const submit = (answer?: LaunchPrepChoice) => {
-    if (props.submitting || uploading > 0 || blocked) return;
+    if (props.submitting || (uploading > 0 && !peer) || blocked) return;
     setStaleError(null);
+    if (peer) {
+      // 選んだ別の PC へ頼む。添付はこの PC のファイルなので渡さない。準備の鍵も要らない（相手の PC が自分で準備する）。
+      const body = lc.buildPeer(seed ? [prompt.trim(), seed.quote].filter(Boolean).join('\n\n') : prompt.trim());
+      if (body) emit({ type: 'session.new.submitPeer', body });
+      return;
+    }
     const { params, place } = lc.build();
     // 添付は、本文の後にパスを足して渡す。起動の API は変えない（promptComposerModel.ts の composePrompt）。
     // 添付の置き場を claude に渡す --add-dir はサーバが足すので、ここでは addDirs に混ぜない。
@@ -144,10 +156,13 @@ export function NewSessionDialog(props: NewSessionProps) {
   return (
     <Dialog
       title={t(lc.titleKey)}
-      titleAside={restored && (
+      titleAside={(peers.length > 0 || restored) && (
         <>
+          {peers.length > 0 && <PcMenu peers={peers} value={peerId} onChange={setPeerId} />}
+          {restored && <>
           <span className="draft-tag"><Icon name="edit" />{t('newSession.draft.tag')}</span>
           <button type="button" className="linkish" aria-label={t('newSession.draft.discard')} onClick={discardDraft}><Icon name="discard" />{t('newSession.draft.discardShort')}</button>
+          </>}
         </>
       )}
       className="dialog-wide dialog-new-session"
@@ -158,15 +173,15 @@ export function NewSessionDialog(props: NewSessionProps) {
         <button type="button" className="btn" onClick={close}>{t('common.button.cancel')}</button>
         <span className="spacer" />
         {preparing && prep && <CancelPrepButton onClick={() => emit({ type: 'launchPrep.cancel', key: prep.key })} />}
-        <button type="button" className={`btn ${lc.bypass ? 'btn-danger-fill' : 'btn-primary'}`} disabled={props.submitting || uploading > 0 || blocked} aria-keyshortcuts={isMacClient() ? 'Meta+Enter' : 'Control+Enter'} onClick={() => submit()}>
-          {preparing ? t('launchPrep.button.preparing') : props.submitting ? t('newSession.button.starting') : uploading > 0 ? t('newSession.button.uploading') : <>{lc.bypass ? t('newSession.button.startBypass') : t('newSession.button.start')}<span className="kc" aria-hidden="true">{keyLabel('⌘↵')}</span></>}
+        <button type="button" className={`btn ${lc.bypass ? 'btn-danger-fill' : 'btn-primary'}`} disabled={props.submitting || (uploading > 0 && !peer) || blocked} aria-keyshortcuts={isMacClient() ? 'Meta+Enter' : 'Control+Enter'} onClick={() => submit()}>
+          {preparing ? t('launchPrep.button.preparing') : props.submitting ? t('newSession.button.starting') : uploading > 0 && !peer ? t('newSession.button.uploading') : peer ? t('newSession.pc.start', { device: peer.name }) : <>{lc.bypass ? t('newSession.button.startBypass') : t('newSession.button.start')}<span className="kc" aria-hidden="true">{keyLabel('⌘↵')}</span></>}
         </button>
       </>}
     >
       {/* 欄は箱（枠と道具の段）を持つので、label は欄の外に置く。見える文字の代わりは案内（placeholder）が言う。 */}
       <div className="field">
         <label className="sr-only" htmlFor={PROMPT_ID}>{t('newSession.prompt.label')}</label>
-        <PromptComposer id={PROMPT_ID} hero placeholder={t('newSession.prompt.placeholder')} value={prompt} onChange={setPrompt} projectId={lc.assistProject} attachments={attachments} onAttachmentsChange={changeAttachments} onPendingChange={setUploading} {...(seed ? { quote: seed.quote, quoteTone: seed.tone } : {})} />
+        <PromptComposer id={PROMPT_ID} remote={peer !== null} hero placeholder={t('newSession.prompt.placeholder')} value={prompt} onChange={setPrompt} projectId={lc.assistProject} attachments={attachments} onAttachmentsChange={changeAttachments} onPendingChange={setUploading} {...(seed ? { quote: seed.quote, quoteTone: seed.tone } : {})} />
       </div>
       {lc.chips}
       {lc.notes}

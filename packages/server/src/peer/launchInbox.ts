@@ -95,7 +95,8 @@ function isMeaningful(r: PeerLaunchRequest): boolean {
     if (!r.targetSessionId || r.targetSessionId.length > MOBILE_LAUNCH_ID_MAX) return false;
     return r.op === 'send' ? r.prompt.trim().length > 0 && r.prompt.length <= MOBILE_PROMPT_MAX : r.prompt === '';
   }
-  if (r.prompt.length > MOBILE_PROMPT_MAX || r.parentSessionId.length === 0 || r.parentSessionId.length > MOBILE_LAUNCH_ID_MAX) return false;
+  // 親の会話が空なのは、人が画面から頼んだ起動（結び付きも結果の返却も無い）。
+  if (r.prompt.length > MOBILE_PROMPT_MAX || r.parentSessionId.length > MOBILE_LAUNCH_ID_MAX) return false;
   if (r.account.length > MOBILE_LAUNCH_ID_MAX || (r.callerAccount?.length ?? 0) > MOBILE_LAUNCH_ID_MAX) return false;
   if (r.projectId !== null && (r.projectId.length === 0 || r.projectId.length > MOBILE_LAUNCH_ID_MAX)) return false;
   if (r.scratch ? r.projectId !== null : r.projectId === null) return false;
@@ -221,11 +222,12 @@ export class PeerLaunchInbox {
     const sealed = await sealPeerAnswer(ring, route, answer).catch(() => null);
     const launched = opened.r && (opened.r.op ?? 'launch') === 'launch';
     const started = answer.ok && opened.r && launched ? { ...answer, r: opened.r } : null;
-    if (started) this.link(l, started.r, started.sessionId);
+    const reported = started !== null && started.r.parentSessionId !== '';
+    if (started && reported) this.link(l, started.r, started.sessionId);
     db
       .prepare('insert or ignore into peer_launches (id, from_device, handled_at, result, sealed_answer, ok, answered, session_id, parent_session_id) values (?, ?, ?, ?, ?, ?, 0, ?, ?)')
       .run(l.id, l.from, now(), answer.ok ? (launched ? 'started' : opened.r!.op!) : answer.reason, sealed, answer.ok ? 1 : 0, answer.ok ? answer.sessionId : null, opened.r?.parentSessionId ?? null);
-    if (started) {
+    if (started && reported) {
       try {
         this.deps.onStarted?.({ requestId: l.id, from: l.from, parentSessionId: started.r.parentSessionId, sessionId: started.sessionId, title: started.title, hasPrompt: started.r.prompt !== '' });
       } catch (e) {

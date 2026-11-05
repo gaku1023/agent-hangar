@@ -90,6 +90,7 @@ type SessionRow = {
   unread_at: number | null;
   /** MCP の create_session で起こした会話の起動元（session_spawns）。無ければ null。 */
   spawned_by: string | null;
+  sp_parent_dev: string | null; sp_child_dev: string | null; sp_relay: string | null; sp_parent_name: string | null; sp_child_name: string | null;
   /** この PC がスマホの依頼で起こした会話なら、その依頼の権限モード（既定は空）。それ以外は null。 */
   ml_mode: string | null;
 };
@@ -116,7 +117,8 @@ select s.*, (exists(select 1 from transcript_files t where t.session_id = s.id a
   (select i.cause from interrupted_runs i where i.run_id = (select r.id from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1)) last_interrupt_cause,
   ov.payload overlap_payload,
   ss.pinned_at ss_pinned_at, un.count unread_count, un.latest_text unread_text, un.latest_at unread_at,
-  sp.parent_id spawned_by,
+  sp.parent_id spawned_by, sp.parent_device_id sp_parent_dev, sp.child_device_id sp_child_dev, sp.relay sp_relay,
+  (select d.name from devices d where d.id = sp.parent_device_id) sp_parent_name, (select d.name from devices d where d.id = sp.child_device_id) sp_child_name,
   (select ifnull(ml.permission_mode, '') from mobile_launches ml where ml.session_id = s.id order by ml.handled_at limit 1) ml_mode
 from sessions s
 left join projects p on p.id = s.project_id
@@ -293,7 +295,7 @@ function limitOf(r: SessionRow, live: LiveSessionDto | undefined, now: number): 
   return { kind: r.lim_kind, resetsAt: r.lim_resets_at, auto: r.lim_auto === 1, reset: limitReset(r.lim_resets_at, now, r.lim_auto === 1) };
 }
 
-function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, SessionLockDto>, runStarts: Map<string, number>, now: number, parking: boolean, newer: Set<string>, taken: Map<string, { deviceName: string; at: number }>): SessionDto {
+function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, SessionLockDto>, runStarts: Map<string, number>, now: number, parking: boolean, newer: Set<string>, taken: Map<string, { deviceName: string; at: number }>, self?: string): SessionDto {
   const live = liveMap.get(r.provider_session_id);
   const limit = limitOf(r, live, now);
   const summary: SessionSummaryDto | null = r.sum_title !== null
@@ -378,11 +380,28 @@ function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto
     unread: unreadOf(r),
     pinnedAt: r.ss_pinned_at,
     spawnedBy: r.spawned_by,
+    spawnPeer: spawnPeerOf(r, self),
     // ほかの PC の続きの方が新しい（A → B → A）。手元に本文が無いものは remoteOnly の側で扱う。
     newerElsewhere: r.has_local === 1 && newer.has(r.id),
     takenOver: taken.get(r.id) ?? null,
     // スマホの依頼で起こした会話（試作 F1）。印は起こした PC の手元の mobile_launches にだけある。
     fromPhone: r.ml_mode === null ? null : { bypass: r.ml_mode === 'bypassPermissions' },
+  };
+}
+
+/**
+ * 別の PC にまたがる起動元の結び付きの印（SessionDto.spawnPeer）。self はこの PC の ID で、渡さなければ印は付けない。
+ * PC の ID が無い行（版 47 より前）は、この PC の中の結び付きとして読む。
+ */
+function spawnPeerOf(r: SessionRow, self: string | undefined): SessionDto['spawnPeer'] {
+  if (!self || r.spawned_by === null) return null;
+  const parentDev = r.sp_parent_dev ?? self;
+  const childDev = r.sp_child_dev ?? self;
+  if (parentDev === self && childDev === self) return null;
+  return {
+    parent: parentDev === self ? null : r.sp_parent_name ?? parentDev,
+    child: childDev === self ? null : r.sp_child_name ?? childDev,
+    closed: r.sp_relay === 'off',
   };
 }
 
@@ -434,14 +453,14 @@ export function listSessions(db: Db, live: LiveSessionDto[], opts: SessionQueryO
   const parking = parkingOn(db);
   const newer = newerElsewhereSet(db, opts.deviceId);
   const taken = takenOverMap(db, opts.deviceId);
-  return rows.map((r) => toSessionDto(db, r, lm, locks, runStarts, now, parking, newer, taken));
+  return rows.map((r) => toSessionDto(db, r, lm, locks, runStarts, now, parking, newer, taken, opts.deviceId));
 }
 
 export function getSession(db: Db, live: LiveSessionDto[], id: string, opts: { deviceId?: string; now?: () => number } = {}): SessionDto | null {
   const r = db.prepare(`${SESSION_SELECT} and s.id = ?`).get(id) as SessionRow | undefined;
   if (!r) return null;
   const now = opts.now ? opts.now() : Date.now();
-  return toSessionDto(db, r, liveMapOf(live), lockMap(db, opts.deviceId, now), aliveRunStarts(db, opts.deviceId), now, parkingOn(db), newerElsewhereSet(db, opts.deviceId), takenOverMap(db, opts.deviceId));
+  return toSessionDto(db, r, liveMapOf(live), lockMap(db, opts.deviceId, now), aliveRunStarts(db, opts.deviceId), now, parkingOn(db), newerElsewhereSet(db, opts.deviceId), takenOverMap(db, opts.deviceId), opts.deviceId);
 }
 
 /** Settings の端末一覧。最終確認の新しい順で、自端末に印を付ける。 */

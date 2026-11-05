@@ -2,6 +2,16 @@ import type { MessageSpec } from '../messageSpec.ts';
 
 export const newSessionKeys = {
   'newSession.title.default': [],
+  'newSession.pc.label': [],
+  'newSession.pc.here': [],
+  'newSession.pc.offline': [],
+  'newSession.pc.outdated': [],
+  'newSession.pc.start': ['device'],
+  'newSession.peer.noAccount': [],
+  'newSession.peer.loggedOut': [],
+  'newSession.peer.noFolder': [],
+  'newSession.peer.noAgent': [],
+  'newSession.peer.asked': ['device'],
   'newSession.title.newDir': [],
   'newSession.title.dir': [],
   'newSession.prompt.label': [],

@@ -1,6 +1,6 @@
 import type { ScheduleInput, SchedulePatch } from './schedule.ts';
 import type { AgentKind } from './agents.ts';
-import type { ConfigApplyOrderEntryIn, FolderRegisterItem, InstructionFileKind, ProjectPlace, ProjectStatus, ResolveAction, ResumeStray, RetentionFrom, SettingsDto, SharePreviewAgent } from './api.ts';
+import type { ConfigApplyOrderEntryIn, FolderRegisterItem, InstructionFileKind, PeerLaunchBody, ProjectPlace, ProjectStatus, ResolveAction, ResumeStray, RetentionFrom, SettingsDto, SharePreviewAgent } from './api.ts';
 import type { LiveFilter } from './liveFilter.ts';
 import type { Route } from './route.ts';
 import type { SessionStatus } from './sessionState.ts';
@@ -102,6 +102,8 @@ export type UiAction =
   | { type: 'opencode.options'; dir: string | null; refresh?: boolean }
   // 新しいセッションで Codex（ベータ）を選んだときの、モデルと推論の段階の一覧（GET /api/codex/options）。答えは Store の codexOptions に入る。refresh は手元の一覧を使わずに取り直す。
   | { type: 'codex.options'; refresh?: boolean }
+  // 選んだ PC への起動。人が選んだので承認は要らない。置けたらダイアログを閉じ、起きたかどうかは後からサーバが札で知らせる。断られたらダイアログの中に出す。
+  | { type: 'session.new.submitPeer'; body: PeerLaunchBody }
   // 設定の「連携 › opencode › プロバイダー」（ベータ）。どれも答えは Store の opencodeProviders に入る。
   // key は API キーで接続する（変更も同じ）。API キーは opencode の integration に渡すだけで、Store にも残さない。
   // custom は OpenAI 互換のサーバー（opencode.json に書く）、model はモデル ID の追加、login はログインを始め、poll で進みを聞き、code でコードを送り、cancel で取り消す。

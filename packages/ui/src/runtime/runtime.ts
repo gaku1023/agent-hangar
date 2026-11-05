@@ -612,6 +612,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       case 'api.rebuildIndex': deps.api.rebuildIndex().catch(fail); return;
       case 'api.launch': deps.api.launch(e.params).then(launched).catch(launchFailed); return;
+      // 選んだ PC への起動。置けたらダイアログを閉じ、置く前に断られたらダイアログの中に理由を出す（launch.failed）。
+      case 'api.peerLaunch':
+        deps.api.peerLaunch(e.body)
+          .then((r) => dispatch({ kind: 'runtime', event: r.status === 'requested' ? { type: 'peerLaunch.sent', device: r.device } : { type: 'launch.failed', message: r.message } }))
+          .catch(launchFailed);
+        return;
       // 起動後にコンテキストが足りなかった会話のローカルのモデルの整え直し。進みは prepKey の鍵の launch.prep で届く。
       case 'api.fixContextShort':
         deps.api.prepareModels(e.sessionId, e.prepKey)
@@ -690,6 +696,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       }
       // 取れなければ空にする。一覧が出ないだけで、作ることもパスで選ぶこともできる。
+      case 'api.peers': deps.api.peers().then((r) => setStore({ ...store, peers: r.peers })).catch(() => {}); return;
       case 'api.workspaceDirs': deps.api.workspaceDirs().then((dirs) => setStore(applyWorkspaceDirs(store, dirs))).catch(() => setStore(applyWorkspaceDirs(store, []))); return;
       case 'desktop.setup': {
         // ブラウザには殻が無い。画面はその場合ボタンの代わりにコマンドを出すので、ここへは来ないが、来ても何もしない。

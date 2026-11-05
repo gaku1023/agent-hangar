@@ -1,4 +1,4 @@
-import { codexEnabledOf, opencodeEnabledOf, type NewSessionSeed, type OpencodeOptionsDto, type ProjectStatus, type Translate } from '@agent-hangar/shared';
+import { codexEnabledOf, opencodeEnabledOf, type NewSessionSeed, type OpencodeOptionsDto, type PeerDeviceDto, type ProjectStatus, type Translate } from '@agent-hangar/shared';
 import type { LaunchPrefs, NewSessionDraft, State } from '../mediator/types.ts';
 import { hasMultipleAccounts, type CodexOptionsState, type OpencodeOptionsState, type Store } from '../store/store.ts';
 import type { FolderInspectState } from '../store/folderInspect.ts';
@@ -67,6 +67,11 @@ export type NewSessionProps = {
    * 進みの箱、問いの札、失敗の札はこれから出す。
    */
   prep?: LaunchPrepView | null;
+  /**
+   * ほかの PC（GET /api/peers）。1 台以上あるときだけ、ダイアログは見出しの右に PC のメニューを出す（案 1C）。無い、または省いたときは今までの見た目のまま。
+   * ダイアログは開いたときに peers.load を送って読む。
+   */
+  peers?: PeerDeviceDto[];
 };
 /**
  * プロジェクトの札とエージェント、アカウントの札の中身。新しいセッションのダイアログと予定のフォームが同じ形で使う（views/useLaunchChoice.tsx）。
@@ -174,6 +179,7 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
     ...(state.overlay.seed ? { seed: state.overlay.seed } : {}),
     dir: state.overlay.dir ?? null,
     prep: mark && prepDto ? presentLaunchPrep(prepDto, t, mark.model) : null,
+    peers: store.peers ?? [],
   };
 }
 

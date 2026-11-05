@@ -1,4 +1,4 @@
-import type { ScheduleInput, SchedulePatch } from '@agent-hangar/shared';
+import type { ScheduleInput, SchedulePatch, PeerDeviceDto, PeerLaunchBody, PeerLaunchOutcomeDto } from '@agent-hangar/shared';
 import { LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE } from '@agent-hangar/shared';
 import type { AccountLinkConflictDto, LinkConflictsDto, EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto, SessionLaunchSettingsDto } from '@agent-hangar/shared';
@@ -161,6 +161,10 @@ export type ApiClient = {
   /** 新しいセッションで opencode を選んだときのモードとモデル。dir はその場所で、null はホーム。refresh は手元の一覧を使わずに取り直す。 */
   opencodeOptions(dir: string | null, refresh?: boolean): Promise<OpencodeOptionsDto>;
   codexOptions(refresh?: boolean): Promise<CodexOptionsDto>;
+  /** 新しいセッションのダイアログの PC の選択。ほかの PC の様子（アカウント、エージェント、置き場のあるプロジェクト、頼めるか）。 */
+  peers(): Promise<{ peers: PeerDeviceDto[] }>;
+  /** 選んだ PC へ起動を頼む（承認は要らない）。置いたら requested、置く前に断れるものは refused と文を返す。 */
+  peerLaunch(body: PeerLaunchBody): Promise<PeerLaunchOutcomeDto>;
   /** 設定のプロバイダー（ベータ）。API キーは本文で送るだけで、応答には載らない。 */
   opencodeProviders(): Promise<OpencodeProvidersDto>;
   opencodeProviderKey(id: string, key: string): Promise<OpencodeProvidersDto>;
@@ -397,6 +401,8 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     opencodeStatus: () => call('/api/opencode/status'),
     codexStatus: () => call('/api/codex/status'),
     codexOptions: (refresh) => call(`/api/codex/options${qs({ refresh: refresh ? '1' : null })}`),
+    peers: () => call('/api/peers'),
+    peerLaunch: (body) => post('/api/peer-launch', body),
     opencodeOptions: (dir, refresh) => call(`/api/opencode/options${qs({ dir, refresh: refresh ? '1' : null })}`),
     opencodeProviders: () => call('/api/opencode/providers'),
     opencodeProviderKey: (id, key) => post(`/api/opencode/providers/${encodeURIComponent(id)}/key`, { key }),
