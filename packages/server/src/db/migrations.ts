@@ -732,6 +732,14 @@ create table schedule_runs (
 create index schedule_runs_of on schedule_runs(schedule_id, started_at);
 `;
 
+/**
+ * 版 46。各 PC が自分の様子（アカウントとログインの可否、入っているエージェント、LAN の IP、ホスト鍵の指紋、hangar の版）を JSON で載せる列。
+ * 同期の行の鍵で封じて送られるので、Worker は読めない。この列を知らない古い版は、届いた行の列を落とす（sync/apply.ts）。
+ */
+const V46_DEVICE_STATUS_SQL = `
+alter table devices add column status text;
+`;
+
 const V39_SESSION_UNREAD_SQL = `
 create table session_unread (
   session_id text primary key,
@@ -786,4 +794,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 43, sql: V43_SESSION_PINNED_SQL },
   { version: 44, sql: V44_DELETE_APPROVALS_SQL },
   { version: 45, sql: V45_SCHEDULES_SQL },
+  { version: 46, sql: V46_DEVICE_STATUS_SQL },
 ];
