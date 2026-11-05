@@ -20,7 +20,7 @@ import { readEvents } from '../transcript/read.ts';
 import { deviceOfSession } from '../runs/handover.ts';
 import type { ReportService } from '../report/service.ts';
 import type { PeerCallDeps } from '../peer/caller.ts';
-import { createRemoteSessionTool, isThisDevice, listDevicesTool } from './peerTools.ts';
+import { createRemoteSessionTool, isThisDevice, listDevicesTool, remoteControlTool, remoteSpawnOf } from './peerTools.ts';
 import { createScheduleTool, listSchedulesTool, updateScheduleTool } from './scheduleTools.ts';
 import { readSessionScreenTool, sendToSessionTool } from './screenTools.ts';
 import { noteTurnStart, waitForSessionTool } from './waitTool.ts';
@@ -561,6 +561,9 @@ function targetSession(deps: ToolDeps, ctx: ToolContext, args: Record<string, un
 export function stopSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   if (!deps.runs.aliveRun || !deps.runs.kill) throw new ToolError(msg('mcp.error.unknownTool', { name: 'stop_session' }));
   const s = targetSession(deps, ctx, args, msg('mcp.stopSession.self'));
+  // 自分が起こした別の PC の会話は、頼みを置いて止めてもらう（D16）。
+  const spawn = remoteSpawnOf(deps, ctx, s.id);
+  if (spawn) return remoteControlTool(deps, ctx, 'stop', spawn, '');
   const run = deps.runs.aliveRun(s.id);
   if (!run) throw new ToolError(msg('mcp.stopSession.notRunning'));
   if (run.deviceId !== deps.deviceId) throw new ToolError(msg('mcp.stopSession.otherDevice', { device: deviceBrief(deps, s.id)?.name ?? run.deviceId }));

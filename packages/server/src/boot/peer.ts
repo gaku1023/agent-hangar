@@ -127,14 +127,18 @@ export function bootPeer(p: {
       await p.runs.runs.sendInput(run.tmuxName, sanitizeInput(text), true);
       return true;
     },
-    // 利用者への知らせ。会話があれば未読と通知、消えていれば OS とスマホだけ（画面の札）。出し先は ask の決まりに従う。
-    notify: (sessionId, text) => {
+    // 利用者への知らせ。会話があれば未読と通知、消えていれば起こした会話を軸に OS とスマホだけ（D14）。出し先は ask の決まりに従う。
+    notify: (sessionId, text, anchor) => {
       const rules = notifyRulesOf(p.home.settings.current);
       const clipped = [...text].slice(0, INTENT_MAX).join('');
       const sent = NOTIFY_TARGETS.filter((x) => rules[x].includes('ask') && (x !== 'unread' || sessionId !== null));
       if (sent.length === 0) return;
       if (sessionId === null) {
-        if (sent.includes('os') || sent.includes('phone')) p.delivery.hub.broadcast({ type: 'toast', level: 'info', message: clipped });
+        const out = sent.filter((x) => x !== 'unread');
+        if (out.length === 0) return;
+        // 消えた会話には未読を積めないので、起こした会話を軸に OS とスマホの通知を出す（押すと、その報告元の会話が開く）。軸が無いときだけ画面の札に落とす。
+        if (anchor) noteUnread(anchor, clipped, 0, out, { kind: 'ask', immediate: true });
+        else p.delivery.hub.broadcast({ type: 'toast', level: 'info', message: clipped });
         return;
       }
       let unread = 0;

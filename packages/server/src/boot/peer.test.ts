@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deriveEpochKeys, randomEpochKey, sealPeerAnswer, sealPeerResult, type LiveSessionDto, type PeerKeyring, type PeerLaunchResult, type PeerRoute } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/write.ts';
+import { onUnread } from '../live/unread.ts';
+import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { recordPeerRequest } from '../peer/outbox.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { bootPeer } from './peer.ts';
@@ -20,6 +22,7 @@ let live: LiveSessionDto[];
 let canCarry: boolean;
 let sent: { tmux: string; text: string; submit: boolean }[];
 let parts: ReturnType<typeof bootPeer>;
+let toasts: unknown[];
 
 beforeEach(async () => {
   db = openDb(':memory:');
@@ -33,10 +36,11 @@ beforeEach(async () => {
   live = [{ sessionId: 'u1', status: 'idle', name: null, nameSource: null, cwd: '/w', pid: 1 }];
   canCarry = true;
   sent = [];
+  toasts = [];
   parts = bootPeer({
     home: { db, device: { id: ME, name: 'Win' } as never, settings: { current: {} } as never, language: () => 'ja' },
     runs: { runs: { start: vi.fn(), sendInput: async (tmux: string, text: string, submit: boolean) => { sent.push({ tmux, text, submit }); } } as never, accounts: {} as never, claudeBin: () => null },
-    delivery: { live: { current: () => live, onChange: () => () => {} }, hub: { broadcast: () => {} } },
+    delivery: { live: { current: () => live, onChange: () => () => {} }, hub: { broadcast: (ev: unknown) => { toasts.push(ev); } } },
     sync: {
       engine: { on: () => () => {} } as never,
       canCarryPeer: () => canCarry,
@@ -87,5 +91,29 @@ describe('bootPeer の呼ぶ側', () => {
     parts.onBell('result', 'req-1');
     await new Promise((r) => setTimeout(r, 50));
     expect(sent).toHaveLength(0);
+  });
+  it('呼び出し元が消えていれば、起こした会話を軸に OS とスマホの通知を ask で出し、画面の札だけにしない（D14）', async () => {
+    const child = 'child-1';
+    upsertShared(db, 'sessions', { id: child, provider: 'claude-code', provider_session_id: 'uc', cwd: '/w', home_device: PEER }, PEER);
+    await placeAndRespond();
+    softDeleteShared(db, 'sessions', caller, ME);
+    const got: { id: string; sent: string[]; meta: unknown }[] = [];
+    const off = onUnread((id, _t, _c, s, meta) => { got.push({ id, sent: s, meta }); });
+    try {
+      parts.onBell('result', 'req-1');
+      await vi.waitFor(() => { expect(got).toHaveLength(1); });
+    } finally { off(); }
+    expect(got[0]).toMatchObject({ id: child, meta: { kind: 'ask', immediate: true } });
+    expect(got[0]!.sent).toEqual(expect.arrayContaining(['os', 'phone']));
+    expect(got[0]!.sent).not.toContain('unread');
+    expect(sent).toEqual([]);
+    expect(toasts).toEqual([]);
+  });
+
+  it('軸にする会話がこの PC に無ければ、画面の札に落とす', async () => {
+    await placeAndRespond();
+    softDeleteShared(db, 'sessions', caller, ME);
+    parts.onBell('result', 'req-1');
+    await vi.waitFor(() => { expect(toasts).toHaveLength(1); });
   });
 });
