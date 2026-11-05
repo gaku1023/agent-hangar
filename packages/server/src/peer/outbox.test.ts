@@ -4,7 +4,7 @@ import {
   type LiveSessionDto, type PeerKeyring, type PeerLaunchApi, type PeerLaunchResult, type PeerRoute,
 } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
-import { softDeleteShared } from '../db/shared.ts';
+import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { acceptsResultFrom, forgetSpawn, getSpawn } from '../sessions/spawns.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
@@ -23,7 +23,7 @@ let b: FakeCloudClient;
 let ring: PeerKeyring;
 let live: LiveSessionDto[];
 let injected: { id: string; text: string }[];
-let notices: { id: string | null; text: string }[];
+let notices: { id: string | null; text: string; anchor: string | null }[];
 let injectOk: boolean;
 let caller: string;
 let ob: PeerOutbox;
@@ -71,7 +71,7 @@ beforeEach(async () => {
   ob = new PeerOutbox({
     db, deviceId: ME, api: () => api, ring: () => ring, live: () => live,
     inject: async (id, text) => { if (injectOk) injected.push({ id, text }); return injectOk; },
-    notify: (id, text) => { notices.push({ id, text }); },
+    notify: (id, text, anchor) => { notices.push({ id, text, anchor: anchor ?? null }); },
     deviceName: (id) => (id === PEER ? 'Mac' : null),
     now: () => clock.t,
   });
@@ -217,6 +217,7 @@ describe('PeerOutbox の結果の送り込み（D14）', () => {
   });
 
   it('呼び出し元が消されていれば、入力にせず利用者への通知だけ。繰り返さない（受け入れ 11）', async () => {
+    upsertShared(db, 'sessions', { id: 'child-1', provider: 'claude-code', provider_session_id: 'uc', cwd: '/w', home_device: PEER }, PEER);
     softDeleteShared(db, 'sessions', caller, ME);
     await result(1);
     await ob.sync();
@@ -224,6 +225,8 @@ describe('PeerOutbox の結果の送り込み（D14）', () => {
     expect(injected).toEqual([]);
     expect(notices).toHaveLength(1);
     expect(notices[0]!.id).toBeNull();
+    // 軸は、起こした会話（OS とスマホの通知がそれを開く）。
+    expect(notices[0]!.anchor).toBe('child-1');
     expect(notices[0]!.text).toContain('消えている');
     // 2 回目以降の報告では通知しない。
     await result(2, { lastReply: '二つ目' });
@@ -318,5 +321,48 @@ describe('PeerOutbox の終わりと二重の防ぎ', () => {
     await a.peerLaunch.put({ id: 'not-mine', to: PEER, sealed: SEALED });
     await ob.sync();
     expect(injected).toEqual([]);
+  });
+});
+
+describe('PeerOutbox の send と stop の答え', () => {
+  const SEND = 'req-send';
+  const sendRoute: PeerRoute = { requestId: SEND, from: ME, to: PEER };
+  const placeSend = async (op: 'send' | 'stop' = 'send'): Promise<void> => {
+    await a.peerLaunch.put({ id: SEND, to: PEER, sealed: SEALED });
+    recordPeerRequest(db, { requestId: SEND, to: PEER, callerSessionId: caller, now: clock.t, op, childSessionId: 'child-1' });
+    await b.peerLaunch.claim(SEND);
+  };
+  beforeEach(async () => {
+    await place();
+    await started();
+    await ob.sync();
+  });
+
+  it('受け取られれば、結び付きも入力も作らず終わる', async () => {
+    await placeSend();
+    await b.peerLaunch.answer(SEND, true, await sealPeerAnswer(ring, sendRoute, { ok: true, sessionId: 'child-1', title: 'worker' }));
+    await ob.sync();
+    expect(db.prepare('select state, op from peer_outbox where request_id = ?').get(SEND)).toEqual({ state: 'done', op: 'send' });
+    expect(injected).toEqual([]);
+    expect(getSpawn(db, ME, 'child-1')!.childDeviceId).toBe(PEER);
+  });
+
+  it('断られれば、その理由を呼び出し元に入力で返す。起こした相手の結び付きには触れない', async () => {
+    await placeSend();
+    await b.peerLaunch.answer(SEND, false, await sealPeerAnswer(ring, sendRoute, { ok: false, reason: 'not-spawned-by-caller' }));
+    await ob.sync();
+    expect(db.prepare('select state, reason from peer_outbox where request_id = ?').get(SEND)).toEqual({ state: 'refused', reason: 'not-spawned-by-caller' });
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.id).toBe(caller);
+    expect(getSpawn(db, ME, 'child-1')).not.toBeNull();
+  });
+
+  it('期限が切れても、同じく入力で返す', async () => {
+    await a.peerLaunch.put({ id: SEND, to: PEER, sealed: SEALED });
+    recordPeerRequest(db, { requestId: SEND, to: PEER, callerSessionId: caller, now: clock.t, op: 'stop', childSessionId: 'child-1' });
+    clock.t += PEER_LAUNCH_TTL_MS + 1000;
+    await ob.sync();
+    expect(db.prepare('select state from peer_outbox where request_id = ?').get(SEND)).toEqual({ state: 'expired' });
+    expect(injected).toHaveLength(1);
   });
 });

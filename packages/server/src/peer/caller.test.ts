@@ -33,33 +33,32 @@ describe('choosePeerRoute（受け入れ 17）', () => {
     expect(choosePeerRoute(peer(), deps({ cloud: false }), NOW)).toMatchObject({ via: 'ssh', api: sshApi });
   });
 
-  it('相手の行が古い（last_seen_at が鮮度の外）なら、SSH が登録済みなら SSH、無ければ device-offline', () => {
+  it('両方がクラウドに参加していて相手の行が古い（online でない）なら、SSH が登録済みでも SSH に落とさず device-offline', () => {
     const stale = peer({ last_seen_at: NOW - 60 * 60_000 });
-    expect(choosePeerRoute(stale, deps(), NOW)).toMatchObject({ via: 'ssh' });
+    expect(choosePeerRoute(stale, deps(), NOW)).toEqual({ refuse: 'device-offline' });
     expect(choosePeerRoute(stale, deps({ ssh: null }), NOW)).toEqual({ refuse: 'device-offline' });
   });
 
-  it('Worker の版が足りなければ、SSH があれば SSH、無ければ device-outdated（封の鍵は参加していれば持つ）', () => {
-    expect(choosePeerRoute(peer(), deps({ worker: false }), NOW)).toMatchObject({ via: 'ssh' });
+  it('Worker の版が足りなければ、SSH が登録済みでも SSH に落とさず device-outdated', () => {
+    expect(choosePeerRoute(peer(), deps({ worker: false }), NOW)).toEqual({ refuse: 'device-outdated' });
     expect(choosePeerRoute(peer(), deps({ worker: false, ssh: null }), NOW)).toEqual({ refuse: 'device-outdated' });
   });
 
   it('SSH を使わない条件：未登録、相手がホスト鍵か宛先を知らせていない、封か token の鍵が無い。どれも device-offline か device-outdated になる', () => {
-    const offline = { last_seen_at: NOW - 60 * 60_000 };
-    expect(choosePeerRoute(peer(offline), deps({ ssh: { registered: () => false } }), NOW)).toEqual({ refuse: 'device-offline' });
-    expect(choosePeerRoute(peer(offline, { ssh_host_key: null }), deps(), NOW)).toEqual({ refuse: 'device-offline' });
-    expect(choosePeerRoute(peer(offline, { lan_ips: [] }), deps(), NOW)).toEqual({ refuse: 'device-offline' });
-    expect(choosePeerRoute(peer(offline), deps({ ssh: { ring: () => null } }), NOW)).toEqual({ refuse: 'device-offline' });
-    expect(choosePeerRoute(peer(offline), deps({ ssh: { tokensReady: () => false } }), NOW)).toEqual({ refuse: 'device-offline' });
-    expect(choosePeerRoute(peer({ outdated: true }, null), deps(), NOW)).toEqual({ refuse: 'device-outdated' });
+    const unjoined = (o: Parameters<typeof deps>[0] = {}) => deps({ cloud: false, ...o });
+    expect(choosePeerRoute(peer(), unjoined({ ssh: { registered: () => false } }), NOW)).toEqual({ refuse: 'device-offline' });
+    expect(choosePeerRoute(peer({}, { ssh_host_key: null }), unjoined(), NOW)).toEqual({ refuse: 'device-offline' });
+    expect(choosePeerRoute(peer({}, { lan_ips: [] }), unjoined(), NOW)).toEqual({ refuse: 'device-offline' });
+    expect(choosePeerRoute(peer(), unjoined({ ssh: { ring: () => null } }), NOW)).toEqual({ refuse: 'device-offline' });
+    expect(choosePeerRoute(peer(), unjoined({ ssh: { tokensReady: () => false } }), NOW)).toEqual({ refuse: 'device-offline' });
+    expect(choosePeerRoute(peer({ outdated: true }, null), unjoined(), NOW)).toEqual({ refuse: 'device-outdated' });
   });
 
   it('選んだ経路は 1 つで、SSH を選んだ後は SSH の口が断ってもクラウドの口には替わらない（乗り換えない）', async () => {
-    let cloudUsed = 0;
     const failing: PeerLaunchApi = { ...sshApi, put: () => Promise.reject(new PeerSshConnectError('ssh-unreachable')) } as PeerLaunchApi;
-    const d = deps({ cloud: true, ssh: { api: () => failing } });
-    // 相手の行が古いので ssh を選ぶ。クラウドの口は、選ばれた経路に含まれない。
-    const route = choosePeerRoute(peer({ last_seen_at: NOW - 60 * 60_000 }), { ...d, link: () => { cloudUsed++; return { api: cloudApi, ring }; } }, NOW);
+    const d = deps({ cloud: false, ssh: { api: () => failing } });
+    // 手元がクラウドに未参加なので ssh を選ぶ。クラウドの口は、選ばれた経路に含まれない。
+    const route = choosePeerRoute(peer(), d, NOW);
     if (!('via' in route)) throw new Error('refused');
     expect(route.via).toBe('ssh');
     await expect(route.api.put({ id: 'x', to: 'dev-mac', sealed: '1.x' })).rejects.toMatchObject({ reason: 'ssh-unreachable' });
@@ -69,7 +68,7 @@ describe('choosePeerRoute（受け入れ 17）', () => {
 
 describe('peerVias', () => {
   it('list_devices の via に、使える経路を並べる', () => {
-    expect(peerVias(peer(), deps())).toEqual(['cloud', 'ssh']);
+    expect(peerVias(peer(), deps())).toEqual(['cloud']);
     expect(peerVias(peer(), deps({ cloud: false }))).toEqual(['ssh']);
     expect(peerVias(peer(), deps({ ssh: null }))).toEqual(['cloud']);
     expect(peerVias(peer({ outdated: true }, null), deps())).toEqual([]);

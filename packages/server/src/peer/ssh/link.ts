@@ -51,6 +51,12 @@ type State = {
 export class PeerSshLink {
   private readonly st = new Map<string, State>();
   private readonly now: () => number;
+  private gaveUpListener: ((deviceId: string) => void) | null = null;
+
+  /** 張り直しを諦めたときの聞き手（呼び出し元の会話への知らせ）。 */
+  onGaveUp(cb: ((deviceId: string) => void) | null): void {
+    this.gaveUpListener = cb;
+  }
 
   constructor(private readonly d: PeerSshLinkDeps) {
     this.now = d.now ?? Date.now;
@@ -119,6 +125,7 @@ export class PeerSshLink {
     } else if (!s.gaveUp && s.failures > 1 && t - s.firstFailAt >= SSH_GIVE_UP_MS) {
       s.gaveUp = true;
       try { this.d.notify({ kind: 'gave-up', deviceId, name: this.d.nameOf(deviceId) }); } catch { /* 知らせの失敗は広げない */ }
+      try { this.gaveUpListener?.(deviceId); } catch { /* 聞き手の失敗は広げない */ }
     }
     throw new PeerSshConnectError(r.reason, r.detail);
   }

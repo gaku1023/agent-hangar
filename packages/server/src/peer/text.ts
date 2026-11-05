@@ -48,10 +48,16 @@ const REFUSAL_KEY = {
 } as const satisfies Record<PeerLaunchRefusal, string>;
 
 /** 断られた答えの文。detail は相手の PC が添えた短い説明で、あれば末尾に足す。 */
-export function refusalText(lang: Language, o: { device: string; reason: PeerLaunchRefusal; detail?: string }): string {
+export function refusalText(lang: Language, o: { device: string; reason: PeerLaunchRefusal; detail?: string; op?: 'launch' | 'send' | 'stop' }): string {
   const why = render(lang, msg(REFUSAL_KEY[o.reason]));
   const detail = o.detail ? ` (${oneLine(o.detail, 200)})` : '';
-  return render(lang, msg('mcp.peer.refused', { device: oneLine(o.device, 80), reason: why + detail }));
+  const key = o.op === 'send' ? 'mcp.peer.refusedSend' : o.op === 'stop' ? 'mcp.peer.refusedStop' : 'mcp.peer.refused';
+  return render(lang, msg(key, { device: oneLine(o.device, 80), reason: why + detail }));
+}
+
+/** SSH の張り直しを諦めたときの、呼び出し元への文。頼みは終わらせず、つながれば続きを受け取る。 */
+export function sshGaveUpText(lang: Language, o: { device: string }): string {
+  return render(lang, msg('mcp.peer.sshGaveUp', { device: oneLine(o.device, 80) }));
 }
 
 /** 受け取られないまま期限が過ぎた頼みの文。 */

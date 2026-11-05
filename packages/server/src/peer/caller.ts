@@ -39,6 +39,11 @@ export type PeerCallDeps = {
   /** SSH の予備。渡さなければ SSH は使わない。 */
   ssh?: PeerSshRouteDeps;
   now?: () => number;
+  /**
+   * この hangar の版。send と stop の頼み（op を読む版にだけ送れる）は、相手の hangar_version がこれ以上のときだけ送る（D16）。
+   * 渡さなければ版では断らない。
+   */
+  version?: string;
   /** 頼みの ID の作り方。既定は randomUUID。 */
   newId?: () => string;
   /**
@@ -70,6 +75,13 @@ type RouteDeps = Pick<PeerCallDeps, 'link' | 'workerOk'> & Partial<Pick<PeerCall
 const cloudUsable = (p: PeerDeviceStatus, deps: RouteDeps): boolean => !p.outdated && deps.workerOk() && deps.link() !== null;
 
 /**
+ * どちらかの PC がクラウドに未参加か（D3）。SSH に落としてよいのは、このときだけである。
+ * 相手は様子の欄が無い（クラウドの一覧に載っていない同然）、手元は Worker の版が足りているのに頼みの口が無い、のどちらか。
+ * 両方参加していて相手が online でない、または Worker の版が足りないときは、SSH に落とさない。
+ */
+const cloudUnjoined = (p: PeerDeviceStatus, deps: RouteDeps): boolean => p.outdated || (deps.workerOk() && deps.link() === null);
+
+/**
  * SSH で送れるか（D3）。設定に登録があり、相手が同期でホスト鍵と宛先を知らせていて、手元に封と token の鍵がある。
  * 相手の様子の欄が無い（この機能より前の版）か、ホスト鍵が無ければ使わない。
  */
@@ -87,7 +99,7 @@ const sshUsable = (p: PeerDeviceStatus, deps: RouteDeps): boolean => {
 export function peerVias(p: PeerDeviceStatus, deps: RouteDeps): PeerVia[] {
   const out: PeerVia[] = [];
   if (cloudUsable(p, deps)) out.push('cloud');
-  if (sshUsable(p, deps)) out.push('ssh');
+  if (cloudUnjoined(p, deps) && sshUsable(p, deps)) out.push('ssh');
   return out;
 }
 
@@ -122,15 +134,18 @@ export type PeerRouteChoice =
 
 /**
  * 送る前に経路を 1 つに決める（D1、D3）。送った後に乗り換えない。経路を選ぶのはここだけである。
- * - 両方の PC がクラウドに参加していて、Worker の版が足りて、相手が online なら cloud。
- * - それが使えず、SSH が使えれば ssh（クラウドの一覧で相手の行が古い、手元が未参加、Worker が古いなど）。
+ * - 両方の PC がクラウドに参加しているなら、クラウドだけを使う。相手が online なら cloud、そうでなければ device-offline（SSH に落とさない）。
+ *   Worker の版が足りなければ device-outdated（SSH に落とさない）。
+ * - どちらかが未参加（手元に頼みの口が無い、相手の様子の欄が無い）で、SSH が使えれば ssh。
  *   SSH を選んだあとでトンネルが張れなければ、送らずに PeerSshConnectError で断る（クラウドへは乗り換えない）。
  * - どちらも使えなければ、版が古いか様子の欄が無ければ device-outdated、そうでなければ device-offline。
  * 選んだ経路（via）は、呼ぶ側が頼みごとに記録し（recordPeerRequest）、答えと結果の取得もその経路で行う。
  */
 export function choosePeerRoute(peer: PeerDeviceStatus, deps: RouteDeps, now: number): PeerRouteChoice {
-  if (cloudUsable(peer, deps) && isOnline(peer, now)) {
-    const link = deps.link()!;
+  if (!cloudUnjoined(peer, deps)) {
+    if (!deps.workerOk()) return { refuse: 'device-outdated' };
+    const link = deps.link();
+    if (!link || !isOnline(peer, now)) return { refuse: 'device-offline' };
     return { via: 'cloud', api: link.api, ring: link.ring };
   }
   if (sshUsable(peer, deps)) {

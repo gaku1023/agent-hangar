@@ -192,6 +192,21 @@ describe('SSH の経路の通し', () => {
     expect(outbox.hasSshWork()).toBe(true);
   });
 
+  it('張り直しを諦めたら、待っている頼みの呼び出し元に 1 度だけ入力で知らせる。頼みは終わらせず、つながれば続きを受ける', async () => {
+    await placeSsh();
+    await vi.waitFor(async () => { expect((await inbox.outbox(A, 0)).launches[0]?.status).toBe('started'); });
+    await outbox.syncSsh();
+    await outbox.noteSshGaveUp(B);
+    await outbox.noteSshGaveUp(B);
+    expect(injected).toHaveLength(1);
+    expect(injected[0]).toContain('SSH');
+    expect(getPeerRequest(dbA, 'req-1')!.state).toBe('started');
+    await postResult(1, '続きの結果');
+    await outbox.syncSsh();
+    expect(injected).toHaveLength(2);
+    expect(injected[1]).toContain('続きの結果');
+  });
+
   it('受け取られないまま期限を過ぎた頼みは expired になり、claim もできない', async () => {
     const sealed = await sealPeerLaunch(ring, { requestId: 'late', from: A, to: B }, request());
     inbox.onReceive(null);
