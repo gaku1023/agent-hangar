@@ -611,6 +611,41 @@ describe('PeerChatHost: answer と interrupt', () => {
     expect(s.w.pane.events).toEqual([]);
   });
 
+  it('この PC の手元で札に答えたら、札を「この PC で答えた」記録にして閉じ、遅れて来た答えは already-answered', async () => {
+    const { s, ask, askItemUuid } = await withPermission();
+    const before = s.state(await s.ask(tailOp()));
+    // 手元の画面で人が答えた（登録も動き出す）。
+    s.w.pane.plain = RUNNING_SCREEN;
+    s.w.session!.live = 'busy';
+    s.host.poke('s1');
+    const st = s.state(await s.ask(tailOp(before.cursor, 1000)));
+    const closed = st.items.find((i) => i.ask?.askId === ask.askId);
+    expect(closed?.uuid).toBe(askItemUuid);
+    expect(closed?.ask?.answered).toMatchObject({ by: { deviceId: 'pc-a', deviceName: 'pc-a' }, label: '' });
+    // 遅れて来た答えは、札が違うではなく、すでに答えがあると断る。
+    expect(await s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] }, { from: 'pc-c' })).toEqual({ ok: false, reason: 'already-answered' });
+    expect(s.w.pane.events).toEqual([]);
+  });
+
+  it('札が出たまま会話が止まった（動いていない）ときは、答えたとは記録しない', async () => {
+    const { s, ask } = await withPermission();
+    const before = s.state(await s.ask(tailOp()));
+    s.w.run = null;
+    s.w.session!.live = null;
+    s.host.poke('s1');
+    const st = s.state(await s.ask(tailOp(before.cursor, 0)));
+    expect(st.items.find((i) => i.ask?.askId === ask.askId)?.ask?.answered).toBeUndefined();
+  });
+
+  it('画面の読み取りが一度失敗しても（登録はまだ入力待ち）、答えたとは記録しない', async () => {
+    const { s, ask } = await withPermission();
+    const before = s.state(await s.ask(tailOp()));
+    s.w.pane.plain = RUNNING_SCREEN;
+    s.host.poke('s1');
+    const st = s.state(await s.ask(tailOp(before.cursor, 0)));
+    expect(st.items.find((i) => i.ask?.askId === ask.askId)?.ask?.answered).toBeUndefined();
+  });
+
   it('interrupt は走っているターンに Escape を打つ', async () => {
     const s = await setup({ session: idleSession({ live: 'busy' }) });
     s.w.pane.plain = RUNNING_SCREEN;

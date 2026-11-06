@@ -145,6 +145,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     pane: deps.pane,
     tail: { readTranscript: deps.readTranscript, ...(deps.cache ? { cache: deps.cache } : {}) },
     queued: (sessionId) => queue.list(sessionId),
+    self: () => ({ deviceId: deps.deviceId, deviceName: deps.deviceName(deps.deviceId) }),
   });
 
   const answerer = createPeerAnswerer({
@@ -186,6 +187,8 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
   const sendDeps: SendDeps = { deps, queue, view, staged, pathsByQueue };
 
   async function answerOp(sessionId: string, from: PeerChatDevice, op: Extract<PeerChatRequest['op'], { t: 'answer' }>): Promise<PeerChatReply> {
+    // 手元で答えた札が、まだ tail に見られていなくても、記録にしてから見る。
+    view.observe(sessionId);
     // 同じ札に先に答えた PC があれば、画面を見るまでもなく断る（札が閉じた後に遅れて来た答えも）。
     if (view.answeredAsk(op.askId)) return refuse('already-answered');
     const current = view.currentAsk(sessionId);
