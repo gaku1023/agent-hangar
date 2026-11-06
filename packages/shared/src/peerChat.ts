@@ -20,7 +20,7 @@
 import { openPeerPayload, PeerUnknownEpochError, sealPeerPayload, type PeerKeyring, type PeerRoute } from './e2e/peer.ts';
 import { E2eOpenError } from './e2e/seal.ts';
 import { openBytes, sealBytes } from './mobileCrypto.ts';
-import { MOBILE_IMAGES_PER_LAUNCH, MOBILE_REPLY_MAX_BYTES, type MobileImageRef } from './mobile.ts';
+import { MOBILE_IMAGE_MAX_BYTES, MOBILE_IMAGES_PER_LAUNCH, MOBILE_REPLY_MAX_BYTES, type MobileImageRef } from './mobile.ts';
 
 /**
  * ほかの PC からの送信（send、answer、interrupt、resume-send）を受けるか（設定 peerChatAcceptFromPeers）。
@@ -428,9 +428,19 @@ export type PeerAskRefusal = { error: string; reason: 'offline' | 'duplicate' | 
 // ---- 画像の封（PC どうし） ----
 
 /**
- * 画像 1 枚の AAD。
- * 頼みと同じ route（requestId は頼みの askId）と、画像の番号で縛る。
- * 頼みの AAD とは頭の印が違うので、頼みの封を画像として開くことはできない。
+ * 封をした画像（sealPeerChatBlob の戻り）が、元の画像より増える分（バイト）。
+ * 世代 4 バイト、IV 12 バイト、タグ 16 バイトである（スマホの封は世代が無く 28 バイト）。
+ */
+export const PEER_CHAT_BLOB_OVERHEAD_BYTES = 4 + 12 + 16;
+/** 封をした画像 1 枚の大きさの上限。Worker の PUT /peer/blobs の上限と、元の PC の取り込みの上限に使う。 */
+export const PEER_CHAT_BLOB_MAX_BYTES = MOBILE_IMAGE_MAX_BYTES + PEER_CHAT_BLOB_OVERHEAD_BYTES;
+
+/**
+ * 画像 1 枚の AAD（AES-GCM の additionalData、UTF-8）。
+ * 形は JSON 配列の文字列 `["peer-chat-blob", 世代, 頼み主の端末 ID, 頼まれた端末 ID, askId, 画像の番号]` である。
+ * 世代は封の頭の 4 バイトと同じ整数、端末 ID は route.from と route.to、askId は route.requestId、番号は 0 から始まる整数（数字のまま、文字列にしない）。
+ * 頼みの AAD（`["peer-chat", ...]`）とは頭の印が違うので、頼みの封を画像として開くことはできない。
+ * 見る側の PC は、封じるときに sealPeerChatBlob を使う（AAD を自分で組まない）。
  */
 export const aadPeerChatBlob = (epoch: number, r: PeerRoute, n: number): string => JSON.stringify(['peer-chat-blob', epoch, ...ids(r), n]);
 

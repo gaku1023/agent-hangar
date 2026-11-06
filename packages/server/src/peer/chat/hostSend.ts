@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { MOBILE_IMAGE_MAX_BYTES, openPeerChatBlob, type PeerBlobRef, type PeerChatDevice, type PeerChatReply, type PeerKeyring } from '@agent-hangar/shared';
+import { MOBILE_IMAGE_MAX_BYTES, openPeerChatBlob, PEER_CHAT_BLOB_MAX_BYTES, type PeerBlobRef, type PeerChatDevice, type PeerChatReply, type PeerKeyring } from '@agent-hangar/shared';
 import { pruneDrops, saveDrop } from '../../prompt/drops.ts';
 import { inputEmptyFromCapture } from './inputBox.ts';
 import type { ChatView } from './hostView.ts';
@@ -23,8 +23,6 @@ import type { PeerQueue } from './queue.ts';
  */
 export const RESUME_READY_MS = 15_000;
 const READY_STEP_MS = 100;
-/** 画像の封の上限（画像と封の分）。 */
-const SEAL_OVERHEAD_BYTES = 4 + 28;
 const IMAGE_EXT: Readonly<Record<PeerBlobRef['mime'], string>> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 
 type Refuse = Extract<PeerChatReply, { ok: false }>;
@@ -55,7 +53,7 @@ async function placeImages(s: SendDeps, ring: PeerKeyring, askId: string, from: 
     pruneDrops(deps.dropsDir, deps.now());
     for (const r of refs) {
       const sealed = await deps.fetchBlob(askId, from, r.n);
-      if (sealed.byteLength > MOBILE_IMAGE_MAX_BYTES + SEAL_OVERHEAD_BYTES) { discard(); return { reason: 'too-large' }; }
+      if (sealed.byteLength > PEER_CHAT_BLOB_MAX_BYTES) { discard(); return { reason: 'too-large' }; }
       const bytes = await openPeerChatBlob(ring, { requestId: askId, from, to: deps.deviceId }, r.n, sealed);
       if (bytes.byteLength > MOBILE_IMAGE_MAX_BYTES) { discard(); return { reason: 'too-large' }; }
       saved.push(saveDrop(deps.dropsDir, `peer-${r.n + 1}.${IMAGE_EXT[r.mime]}`, bytes, deps.now()).path);

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   deriveEpochKeys,
-  MOBILE_IMAGE_MAX_BYTES,
+  PEER_CHAT_BLOB_MAX_BYTES,
   openPeerChatReply,
   peerChatExpiresAt,
   randomEpochKey,
@@ -369,7 +369,7 @@ describe('PeerChatHost: send と預かり', () => {
 
   it('画像の封が上限を超えていれば too-large で断り、置いた分も残さない', async () => {
     const s = await setup();
-    s.w.blobs.set('big/0', new Uint8Array(MOBILE_IMAGE_MAX_BYTES + 4 + 28 + 1));
+    s.w.blobs.set('big/0', new Uint8Array(PEER_CHAT_BLOB_MAX_BYTES + 1));
     const r = await s.ask(send('big', [{ n: 0, mime: 'image/png', bytes: 3 }]), { id: 'big' });
     expect(r).toEqual({ ok: false, reason: 'too-large' });
     expect(fs.readdirSync(s.dropsDir)).toEqual([]);

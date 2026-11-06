@@ -3,7 +3,8 @@ import { deriveEpochKeys, randomEpochKey, type EpochKeys } from './e2e/keys.ts';
 import { E2eOpenError } from './e2e/seal.ts';
 import type { PeerKeyring, PeerRoute } from './e2e/peer.ts';
 import { PeerUnknownEpochError } from './e2e/peer.ts';
-import { aadPeerChat, aadPeerChatBlob, openPeerChatBlob, openPeerChatReply, sealPeerChatBlob, sealPeerChatReply, type PeerChatState } from './peerChat.ts';
+import { MOBILE_IMAGE_MAX_BYTES } from './mobile.ts';
+import { aadPeerChat, aadPeerChatBlob, PEER_CHAT_BLOB_MAX_BYTES, PEER_CHAT_BLOB_OVERHEAD_BYTES, openPeerChatBlob, openPeerChatReply, sealPeerChatBlob, sealPeerChatReply, type PeerChatState } from './peerChat.ts';
 
 async function ringOf(epochs: Record<number, string>, cur: number): Promise<PeerKeyring> {
   const keys = new Map<number, EpochKeys>();
@@ -38,6 +39,11 @@ describe('画像の封（PC どうし）', () => {
     await expect(openPeerChatBlob(ring, { ...route, to: 'pc-c' }, 0, sealed)).rejects.toBeInstanceOf(E2eOpenError);
     await expect(openPeerChatBlob(ring, { ...route, requestId: 'other' }, 0, sealed)).rejects.toBeInstanceOf(E2eOpenError);
     expect(aadPeerChatBlob(1, route, 0)).not.toBe(aadPeerChat(1, route));
+  });
+  it('封は元の画像より PEER_CHAT_BLOB_OVERHEAD_BYTES だけ大きい。最大の画像は PEER_CHAT_BLOB_MAX_BYTES ちょうど', async () => {
+    const ring = await ringOf({ 1: randomEpochKey() }, 1);
+    expect((await sealPeerChatBlob(ring, route, 0, new Uint8Array(10))).byteLength).toBe(10 + PEER_CHAT_BLOB_OVERHEAD_BYTES);
+    expect((await sealPeerChatBlob(ring, route, 0, new Uint8Array(MOBILE_IMAGE_MAX_BYTES))).byteLength).toBe(PEER_CHAT_BLOB_MAX_BYTES);
   });
   it('世代の鍵が無ければ PeerUnknownEpochError', async () => {
     const a = await ringOf({ 1: randomEpochKey() }, 1);

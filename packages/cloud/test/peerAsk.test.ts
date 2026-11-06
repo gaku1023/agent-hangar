@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MOBILE_IMAGE_MAX_BYTES, PEER_CHAT_REPLY_SEALED_MAX, PEER_CHAT_SEALED_MAX, PEER_CHAT_WAIT_MAX_MS } from '@agent-hangar/shared';
+import { deriveEpochKeys, MOBILE_IMAGE_MAX_BYTES, PEER_CHAT_BLOB_MAX_BYTES, PEER_CHAT_REPLY_SEALED_MAX, PEER_CHAT_SEALED_MAX, PEER_CHAT_WAIT_MAX_MS, randomEpochKey, sealPeerChatBlob } from '@agent-hangar/shared';
 import { IMAGE_KEEP_MS, MAX_BLOB_BYTES, PEER_IMAGES_PER_PC, sweepOldImages } from '../src/mobileBlobs.ts';
 import { MAX_PEER_ASK_BODY_BYTES, PEER_ASK_RATE } from '../src/peerAsk.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
@@ -307,14 +307,22 @@ describe('/peer/blobs（PC から PC への画像）', () => {
     expect(await keys('')).toEqual([]);
   });
 
-  it('上限は 5 MiB + 封の 28 バイト。超える名乗りは 413、長さの無い本文は 411', async () => {
+  it('上限は 5 MiB + 封の 32 バイト（世代 4、IV 12、タグ 16）。最大の画像の封は置け、超える名乗りは 413、長さの無い本文は 411', async () => {
     const a = await joinPc('pc-a');
     await joinPc('pc-b');
+    expect(PEER_CHAT_BLOB_MAX_BYTES).toBe(MOBILE_IMAGE_MAX_BYTES + 32);
+    // スマホの上限（28 バイト）は変えない。
     expect(MAX_BLOB_BYTES).toBe(MOBILE_IMAGE_MAX_BYTES + 28);
-    expect((await putBlob(a, 'a-1', 0, 'pc-b', bytes(MAX_BLOB_BYTES))).status).toBe(201);
+    // 実際に封じた最大の画像（sealPeerChatBlob）の大きさで置く。
+    const keys = await deriveEpochKeys(1, randomEpochKey());
+    const ring = { current: () => keys, at: () => keys };
+    const sealedMax = await sealPeerChatBlob(ring, { requestId: 'a-1', from: 'pc-a', to: 'pc-b' }, 0, new Uint8Array(MOBILE_IMAGE_MAX_BYTES));
+    expect(sealedMax.byteLength).toBe(PEER_CHAT_BLOB_MAX_BYTES);
+    expect(sealedMax.byteLength).toBeGreaterThan(MAX_BLOB_BYTES);
+    expect((await putBlob(a, 'a-1', 0, 'pc-b', sealedMax as Uint8Array<ArrayBuffer>)).status).toBe(201);
     const big = await send('/peer/blobs/a-1/1?to=pc-b', {
       method: 'PUT',
-      headers: auth(a, { 'content-type': 'application/octet-stream', 'content-length': String(MAX_BLOB_BYTES + 1) }),
+      headers: auth(a, { 'content-type': 'application/octet-stream', 'content-length': String(PEER_CHAT_BLOB_MAX_BYTES + 1) }),
       body: new ReadableStream({ start: (c) => c.enqueue(bytes(16)) }),
       duplex: 'half',
     } as RequestInit);
