@@ -113,25 +113,42 @@ export class ChatView {
   private readonly lastSig = new Map<string, string>();
   private readonly waiters = new Set<Waiter>();
   private disposed = false;
+  /** 長いポーリングが使う（画面の取り込みを、確かめ直しの間隔に 1 回に抑える）。 */
   readonly tailDeps: TailDeps;
+  /** 答えるときが使う（いつも画面を取り込み直す）。 */
+  private readonly freshDeps: TailDeps;
+  /** 札が出ている間の、画面の取り込みの覚え。登録の状態が同じで、確かめ直しの間隔の内なら、取り込み直さない。 */
+  private readonly captured = new Map<string, { at: number; sig: string; ask: PeerPendingAsk | null }>();
 
   constructor(private readonly d: ViewDeps) {
-    this.tailDeps = { ...d.tail, pendingAsk: (sessionId) => this.pendingAsk(sessionId) };
+    this.tailDeps = { ...d.tail, pendingAsk: (sessionId) => this.pendingAsk(sessionId, false) };
+    this.freshDeps = { ...d.tail, pendingAsk: (sessionId) => this.pendingAsk(sessionId, true) };
   }
 
   /**
    * 画面に出ている許可か質問。
    * 札が出ていない（登録が入力待ちでない）か、画面から読めなければ null。
+   * fresh でなければ、登録の状態（waitingFor、許可の中身、問い）が変わらないかぎり、確かめ直しの間隔に 1 回だけ画面を取り込む。
    */
-  pendingAsk(sessionId: string): PeerPendingAsk | null {
+  pendingAsk(sessionId: string, fresh: boolean): PeerPendingAsk | null {
     const session = this.d.session(sessionId);
-    if (!session || session.live !== 'waiting') return null;
+    if (!session || session.live !== 'waiting') {
+      this.captured.delete(sessionId);
+      return null;
+    }
+    const sig = JSON.stringify([session.waitingFor, session.permission, session.activity?.question ?? null]);
+    const t = this.d.now();
+    const hit = this.captured.get(sessionId);
+    if (!fresh && hit && hit.sig === sig && t - hit.at < this.d.recheckMs) return hit.ask;
     const run = this.d.run(sessionId);
     const pane = run ? this.d.pane(run.tmuxName) : null;
-    if (!pane) return null;
-    let screen: string;
-    try { screen = pane.capture(); } catch { return null; }
-    return pendingAskFrom(session, screen);
+    let ask: PeerPendingAsk | null = null;
+    if (pane) {
+      try { ask = pendingAskFrom(session, pane.capture()); } catch { ask = null; }
+    }
+    this.captured.set(sessionId, { at: t, sig, ask });
+    if (this.captured.size > 64) this.captured.delete(this.captured.keys().next().value!);
+    return ask;
   }
 
   /**
@@ -139,7 +156,7 @@ export class ChatView {
    * T4 の答える処理と askId を突き合わせる。
    */
   currentAsk(sessionId: string): PeerChatAsk | null {
-    return currentPendingAsk(sessionId, this.tailDeps);
+    return currentPendingAsk(sessionId, this.freshDeps);
   }
 
   /**
@@ -147,7 +164,7 @@ export class ChatView {
    * 答える前に取っておき、答えた後の記録に使う（答えれば札は閉じる）。
    */
   askItem(sessionId: string, askId: string): PeerChatItem | null {
-    const last = transcriptTail(sessionId, null, 1, this.tailDeps).items.at(-1);
+    const last = transcriptTail(sessionId, null, 1, this.freshDeps).items.at(-1);
     return last?.ask?.askId === askId ? last : null;
   }
 
@@ -266,6 +283,8 @@ export class ChatView {
    * sessionId を省けば全部。
    */
   poke(sessionId?: string): void {
+    if (sessionId === undefined) this.captured.clear();
+    else this.captured.delete(sessionId);
     for (const w of [...this.waiters]) if (sessionId === undefined || w.sessionId === sessionId) w.wake();
   }
 

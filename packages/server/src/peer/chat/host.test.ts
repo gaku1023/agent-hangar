@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   deriveEpochKeys,
+  MOBILE_IMAGE_MAX_BYTES,
   openPeerChatReply,
   peerChatExpiresAt,
   randomEpochKey,
@@ -15,6 +16,7 @@ import {
   type PeerChatState,
   type PeerKeyring,
 } from '@agent-hangar/shared';
+import { sanitizeInput } from '../../mcp/screenTools.ts';
 import type { PaneKey } from '../../tmux/pane.ts';
 import { WIN_BUSY_WITH_DRAFT, WIN_DRAFT, WIN_EMPTY_AFTER_TURN } from './inputBox.fixtures.ts';
 import { createPeerChatHost, type PeerChatHost } from './host.ts';
@@ -39,7 +41,8 @@ class FakePane implements HostPane {
   events: string[] = [];
   /** '1' を打ったときの動き。 */
   onText: (t: string) => void = () => {};
-  capture(): string { return this.plain; }
+  captures = 0;
+  capture(): string { this.captures++; return this.plain; }
   async captureStyled(): Promise<string | null> { return this.styled; }
   sendKey(key: PaneKey): void { this.events.push(`key:${key}`); }
   sendText(t: string): void { this.events.push(`text:${t}`); this.onText(t); }
@@ -55,10 +58,12 @@ type World = {
   resumeFails: boolean;
   events: PeerChatHostEvent[];
   acceptFromPeers: boolean;
+  /** 時計の進み（ミリ秒）。期限を過ぎた後の再送の試験に使う。 */
+  skew: number;
   blobs: Map<string, Uint8Array>;
 };
 
-const idleSession = (over: Partial<HostSession> = {}): HostSession => ({ provider: 'claude-code', live: 'idle', waitingFor: null, permission: null, activity: null, cwd: '/proj', ...over });
+const idleSession = (over: Partial<HostSession> = {}): HostSession => ({ provider: 'claude-code', live: 'idle', waitingFor: null, permission: null, activity: null, cwd: '/proj', lock: false, newerElsewhere: false, remoteOnly: false, takenOver: false, ...over });
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
@@ -68,10 +73,10 @@ async function setup(o: Partial<World> & { deps?: Partial<PeerChatHostDeps> } = 
   const ring: PeerKeyring = { current: () => keys, at: (e) => (e === 1 ? keys : null) };
   const dropsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-host-'));
   dirs.push(dropsDir);
-  const w: World = { session: idleSession(), run: { tmuxName: 'hangar-1' }, pane: new FakePane(), lines: [userLine('first'), asstLine('hello')], sent: [], resumed: 0, resumeFails: false, events: [], acceptFromPeers: true, blobs: new Map(), ...o };
+  const w: World = { session: idleSession(), run: { tmuxName: 'hangar-1' }, pane: new FakePane(), lines: [userLine('first'), asstLine('hello')], sent: [], resumed: 0, resumeFails: false, events: [], acceptFromPeers: true, skew: 0, blobs: new Map(), ...o };
   const deps: PeerChatHostDeps = {
     deviceId: 'pc-a',
-    now: () => Date.now(),
+    now: () => Date.now() + w.skew,
     ring: async () => ring,
     acceptFromPeers: () => w.acceptFromPeers,
     deviceName: (id) => (id === 'pc-b' ? 'Mac' : id === 'pc-c' ? 'Linux' : id),
@@ -357,9 +362,131 @@ describe('PeerChatHost: send と預かり', () => {
   it('画像が取れなければ、何も預からずに断る', async () => {
     const s = await setup();
     const r = await s.ask(send('see', [{ n: 0, mime: 'image/png', bytes: 3 }]));
-    expect(r.ok).toBe(false);
+    expect(r).toEqual({ ok: false, reason: 'expired' });
     expect(s.w.sent).toEqual([]);
     expect(s.state(await s.ask(tailOp())).queued).toEqual([]);
+  });
+
+  it('画像の封が上限を超えていれば too-large で断り、置いた分も残さない', async () => {
+    const s = await setup();
+    s.w.blobs.set('big/0', new Uint8Array(MOBILE_IMAGE_MAX_BYTES + 4 + 28 + 1));
+    const r = await s.ask(send('big', [{ n: 0, mime: 'image/png', bytes: 3 }]), { id: 'big' });
+    expect(r).toEqual({ ok: false, reason: 'too-large' });
+    expect(fs.readdirSync(s.dropsDir)).toEqual([]);
+    expect(s.w.sent).toEqual([]);
+  });
+
+  it('複数行の文（タブと日本語を含む）は、そのまま入力欄へ渡す。制御文字だけを落とす', async () => {
+    const s = await setup();
+    const text = '一行目\n\t字下げ\n三行目 ```code```';
+    expect(sanitizeInput(text)).toBe(text);
+    expect(sanitizeInput('a\r\nb\u001b[31m')).toBe('a\nb[31m');
+    await s.ask(send(text));
+    await settle(() => s.w.sent.length === 1);
+    expect(s.w.sent).toEqual([text]);
+  });
+
+  it('預かりに入れた画像は、預かりの ID で結び付く（別の文の画像を取り違えない）', async () => {
+    const s = await setup({ session: idleSession({ live: 'busy' }) });
+    const route = (id: string) => ({ requestId: id, from: 'pc-b', to: 'pc-a' });
+    s.w.blobs.set('a1/0', await sealPeerChatBlob(s.ring, route('a1'), 0, new Uint8Array([1])));
+    s.w.blobs.set('a2/0', await sealPeerChatBlob(s.ring, route('a2'), 0, new Uint8Array([2])));
+    await s.ask(send('first', [{ n: 0, mime: 'image/png', bytes: 1 }]), { id: 'a1' });
+    await s.ask(send('plain'), { id: 'a-plain' });
+    await s.ask(send('second', [{ n: 0, mime: 'image/png', bytes: 1 }]), { id: 'a2' });
+    s.w.session!.live = 'idle';
+    s.w.pane.plain = IDLE_PLAIN;
+    s.w.pane.styled = WIN_EMPTY_AFTER_TURN;
+    // 1 件渡すたびにターンが走り出すので、止めながら 3 件を順に渡させる。
+    for (let i = 1; i <= 3; i++) {
+      s.host.turnChanged();
+      await settle(() => s.w.sent.length === i);
+      s.w.session!.live = 'idle';
+      s.w.pane.plain = IDLE_PLAIN;
+      s.w.pane.styled = WIN_EMPTY_AFTER_TURN;
+    }
+    expect(s.w.sent[0]).toMatch(/^first\n\n.*peer-1\.png/);
+    expect(s.w.sent[1]).toBe('plain');
+    expect(s.w.sent[2]).toMatch(/^second\n\n.*peer-1\.png/);
+    expect(s.w.sent[0]).not.toBe(s.w.sent[2]);
+  });
+});
+
+describe('PeerChatHost: この PC の会話でないもの', () => {
+  const flags = ['lock', 'newerElsewhere', 'remoteOnly', 'takenOver'] as const;
+  for (const flag of flags) {
+    it(`${flag} が真なら、読む系も送る系も session-unknown、resume-send は resume-failed で、何もしない`, async () => {
+      const s = await setup({ run: null, session: idleSession({ live: null, [flag]: true }) });
+      const others: PeerChatOp[] = [tailOp(), send('x'), { t: 'answer', askId: 'a', keys: ['1'] }, { t: 'interrupt' }, { t: 'cancel', queueId: 'q' }, { t: 'files', query: '' }];
+      for (const op of others) expect(await s.ask(op)).toEqual({ ok: false, reason: 'session-unknown' });
+      expect(await s.ask({ t: 'resume-send', text: 'x', images: [] })).toEqual({ ok: false, reason: 'resume-failed' });
+      expect(s.w.resumed).toBe(0);
+      expect(s.w.sent).toEqual([]);
+      expect(s.w.pane.events).toEqual([]);
+    });
+  }
+});
+
+describe('PeerChatHost: 再送と想定外の失敗', () => {
+  it('開けない枠を大量に送っても、生きている頼みの覚えは消えない（捕まえた封は再送できない）', async () => {
+    const s = await setup();
+    const a = await s.askRaw(send('once'), { id: 'cap' });
+    for (let i = 0; i < 600; i++) expect(await s.host.handle({ t: 'chat', id: `junk-${i}`, from: 'pc-b', epoch: 1, sealed: 'junk' })).toBeNull();
+    const b = await s.askRaw(send('once'), { id: 'cap' });
+    expect(b!.frame.sealed).toBe(a!.frame.sealed);
+    await settle(() => s.w.sent.length === 1);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(s.w.sent).toHaveLength(1);
+  });
+
+  it('覚えが上限に達したら、新しい頼みを rate で断り、生きている覚えは追い出さない', async () => {
+    const s = await setup();
+    const first = await s.askRaw(send('once'), { id: 'first' });
+    for (let i = 0; i < 255; i++) await s.ask(tailOp(), { id: `fill-${i}` });
+    expect(await s.ask(tailOp(), { id: 'overflow' })).toEqual({ ok: false, reason: 'rate' });
+    const again = await s.askRaw(send('once'), { id: 'first' });
+    expect(again!.frame.sealed).toBe(first!.frame.sealed);
+    await settle(() => s.w.sent.length === 1);
+    expect(s.w.sent).toHaveLength(1);
+  });
+
+  it('期限を過ぎてからの再送は expired で断り、もう一度は実行しない', async () => {
+    const s = await setup();
+    const id = 'late';
+    const route = { requestId: id, from: 'pc-b', to: 'pc-a' };
+    const sealed = await sealPeerChat(s.ring, route, { v: 1, askId: id, expiresAt: peerChatExpiresAt(Date.now()), sessionId: 's1', op: send('once') });
+    const frame = { t: 'chat' as const, id, from: 'pc-b', epoch: 1, sealed };
+    const first = await s.host.handle(frame);
+    expect(await openPeerChatReply(s.ring, route, first!.sealed)).toMatchObject({ ok: true });
+    await settle(() => s.w.sent.length === 1);
+    // 期限と時計のずれの幅を過ぎる。覚えは時間で消えるが、再送は期限切れで断られる。
+    s.w.skew = 5 * 60_000;
+    const replay = await s.host.handle(frame);
+    expect(await openPeerChatReply(s.ring, route, replay!.sealed)).toEqual({ ok: false, reason: 'expired' });
+    expect(s.w.sent).toHaveLength(1);
+  });
+
+  it('host の中の想定外の失敗は offline で返す（session-unknown と取り違えない）', async () => {
+    const s = await setup({ deps: { files: async () => { throw new Error('disk'); } } });
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await s.ask({ t: 'files', query: '' })).toEqual({ ok: false, reason: 'offline' });
+    expect(spy).toHaveBeenCalledWith('[peer-chat] request failed inside the host', 'files', 'Error');
+    spy.mockRestore();
+  });
+});
+
+describe('PeerChatHost: 札が出ている間の画面の取り込み', () => {
+  it('長いポーリングは、登録の状態が同じなら画面を取り込み直さない。答えるときは必ず取り込み直す', async () => {
+    const s = await setup({ session: idleSession({ live: 'waiting', waitingFor: 'permission', permission: { tool: 'Bash', input: 'rm -rf build', description: 'd' } }), deps: { recheckMs: 60_000 } });
+    s.w.pane.plain = PERMISSION_SCREEN;
+    const st = s.state(await s.ask(tailOp()));
+    const ask = st.items.at(-1)!.ask!;
+    const base = s.w.pane.captures;
+    for (let i = 0; i < 5; i++) await s.ask(tailOp(st.cursor, 0));
+    expect(s.w.pane.captures).toBe(base);
+    s.w.pane.onText = (t) => { if (t === '1') { s.w.pane.plain = RUNNING_SCREEN; s.w.session!.live = 'busy'; } };
+    expect((await s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] })).ok).toBe(true);
+    expect(s.w.pane.captures).toBeGreaterThan(base);
   });
 });
 

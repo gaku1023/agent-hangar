@@ -19,7 +19,7 @@ import type { SyncParts } from './sync.ts';
  * 会話の素性を覚えておく長さ。
  * 長いポーリングが 1 秒ごとに調べ直すので、毎回 DB の組み立てをしない。
  */
-const SESSION_MEMO_MS = 500;
+const SESSION_MEMO_MS = 1500;
 
 export type PeerChatParts = {
   /** 呼び鈴の chat の枠に答える（boot/mobile.ts の onChat へ渡す）。 */
@@ -71,7 +71,7 @@ export function bootPeerChat(p: {
     deviceName: (id) => (deviceName.get(id) as { name: string } | undefined)?.name ?? id.slice(0, 8),
     session: (sessionId): HostSession | null => {
       const s = sessionOf(sessionId);
-      return s ? { provider: s.provider, live: s.live, waitingFor: s.waitingFor, permission: s.permission, activity: s.activity, cwd: s.cwd } : null;
+      return s ? { provider: s.provider, live: s.live, waitingFor: s.waitingFor, permission: s.permission, activity: s.activity, cwd: s.cwd, lock: s.lock !== null, newerElsewhere: s.newerElsewhere, remoteOnly: s.remoteOnly, takenOver: s.takenOver !== null } : null;
     },
     run: (sessionId) => {
       const run = aliveRunForSession(db, sessionId, deviceId, now());
@@ -113,11 +113,13 @@ export function bootPeerChat(p: {
       if (offs.length > 0) return;
       // 実行中の一覧が変わったら、ターンの状態が変わったかもしれない。
       // 預かりが渡せるか確かめ、待っている tail を起こす。
-      offs.push(p.delivery.live.onChange(() => host.turnChanged()));
+      offs.push(p.delivery.live.onChange(() => { memo.clear(); host.turnChanged(); }));
       // 会話が消えた（ゴミ箱へ入れた）ら、その会話の預かりを捨てる。
       const gone = db.prepare('select 1 from sessions where id = ? and deleted_at is not null');
       offs.push(onRowChange((c) => {
-        if (c.db === db && c.table === 'sessions' && gone.get(c.rowId)) host.dropSession(c.rowId);
+        if (c.db !== db || (c.table !== 'sessions' && c.table !== 'runs')) return;
+        memo.clear();
+        if (c.table === 'sessions' && gone.get(c.rowId)) host.dropSession(c.rowId);
       }));
     },
     stop() {

@@ -49,7 +49,7 @@ export type PeerQueueDeps = {
    * それでも、読んでから貼り付けるまでの間に人が打ち始める余地は残る。
    * だから実装は、貼り付ける直前にもう一度、入力欄が空であることを確かめ、空でなければ送らずに false を返す。
    */
-  deliver(runId: string, text: string, images: PeerBlobRef[]): Promise<boolean>;
+  deliver(runId: string, text: string, images: PeerBlobRef[], queueId: string): Promise<boolean>;
   /** 預かりの ID を作る。 */
   newId(): string;
   pollMs?: number;
@@ -255,7 +255,7 @@ export class PeerQueue {
     item.state = 'delivering';
     this.emit({ type: 'delivering', runId, item: snap(item) });
     let ok = false;
-    try { ok = (await this.deps.deliver(runId, item.text, item.images)) === true; } catch { ok = false; }
+    try { ok = (await this.deps.deliver(runId, item.text, item.images, item.queueId)) === true; } catch { ok = false; }
     if (this.disposed) return;
     if (!ok) {
       item.state = 'waiting';

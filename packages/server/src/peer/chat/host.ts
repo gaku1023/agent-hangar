@@ -4,8 +4,8 @@ import {
   appendPaths,
   checkPeerChatRequest,
   openPeerChat,
+  PEER_CHAT_CLOCK_SKEW_MS,
   sealPeerChatReply,
-  type PeerBlobRef,
   type PeerChatBellAsk,
   type PeerChatBellReply,
   type PeerChatDevice,
@@ -49,9 +49,12 @@ import { PeerQueue, type TurnState } from './queue.ts';
  * run が替わっても（再開）、同じ会話の預かりが続く。
  */
 
-/** 同じ askId の答えを覚えておく長さ（頼みの期限 60 秒より長く）。 */
-const REPLAY_KEEP_MS = 2 * 60_000;
-const REPLAY_MAX = 128;
+/**
+ * 同じ頼み（頼み主と askId）の再送を覚える数の上限。
+ * 覚えは頼みの期限（expiresAt）に時計のずれの幅を足した時刻まで残し、数では消さない。
+ * 上限に達したら、新しい頼みを rate で断る（生きている覚えを追い出して、再送を通さないため）。
+ */
+const SEEN_MAX = 256;
 
 export type PeerChatHost = {
   /**
@@ -93,8 +96,13 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     if (!s || s.live === null || !deps.run(sessionId)) return 'stopped';
     return s.live;
   };
-  const imagePaths = new WeakMap<PeerBlobRef[], string[]>();
   const pathsByQueue = new Map<string, string[]>();
+  /**
+   * 次に預かる文の画像のパス。
+   * newId が預かりの ID と結び付ける（add の中で同期に呼ばれる）。
+   */
+  const staged: { paths: string[] | null } = { paths: null };
+  const newId = deps.newId ?? randomUUID;
   const active = new Set<string>();
 
   const queue: PeerQueue = new PeerQueue({
@@ -105,16 +113,21 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
       return cap != null && inputEmptyFromCapture(cap);
     },
     // 貼る直前にもう一度、入力欄が空であることを確かめる（人が打ち始めたら渡さず、預かりに戻す）。
-    deliver: async (sessionId, text, images) => {
+    deliver: async (sessionId, text, _images, queueId) => {
       const run = deps.run(sessionId);
       const pane = paneOf(sessionId);
       if (!run || !pane) return false;
       const cap = await pane.captureStyled();
       if (cap === null || !inputEmptyFromCapture(cap)) return false;
-      await deps.sendInput(sessionId, run.tmuxName, appendPaths(text, imagePaths.get(images) ?? []));
+      await deps.sendInput(sessionId, run.tmuxName, appendPaths(text, pathsByQueue.get(queueId) ?? []));
       return true;
     },
-    newId: deps.newId ?? randomUUID,
+    newId: () => {
+      const id = newId();
+      if (staged.paths) pathsByQueue.set(id, staged.paths);
+      staged.paths = null;
+      return id;
+    },
     ...deps.queue,
   });
 
@@ -163,7 +176,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     view.poke(e.runId);
   });
 
-  const sendDeps: SendDeps = { deps, queue, view, imagePaths, pathsByQueue };
+  const sendDeps: SendDeps = { deps, queue, view, staged, pathsByQueue };
 
   async function answerOp(sessionId: string, from: PeerChatDevice, op: Extract<PeerChatRequest['op'], { t: 'answer' }>): Promise<PeerChatReply> {
     // 同じ札に先に答えた PC があれば、画面を見るまでもなく断る（札が閉じた後に遅れて来た答えも）。
@@ -179,12 +192,12 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
   }
 
   async function dispatch(ring: PeerKeyring, req: PeerChatRequest, fromId: string): Promise<PeerChatReply> {
-    const check = checkPeerChatRequest(req, deps.now());
-    if (!check.ok) return refuse(check.reason);
     const { sessionId, op } = req;
     const session = deps.session(sessionId);
     if (!session) return refuse('session-unknown');
     if (session.provider !== 'claude-code') return refuse('not-claude');
+    // この PC が会話の持ち主でなければ（ほかの PC で動いている、続きが新しい、本文が無い、引き継がれた）、手元の古い写しを見せも動かしもしない。
+    if (session.lock || session.newerElsewhere || session.remoteOnly || session.takenOver) return refuse(op.t === 'resume-send' ? 'resume-failed' : 'session-unknown');
     if (SENDING.has(op.t) && !deps.acceptFromPeers()) return refuse('refused-by-setting');
     const from: PeerChatDevice = { deviceId: fromId, deviceName: deps.deviceName(fromId) };
     switch (op.t) {
@@ -215,26 +228,18 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     }
   }
 
-  /** 同じ askId の再送には、同じ答えを返す（効果を 2 回起こさない）。 */
-  const replays = new Map<string, { at: number; reply: Promise<PeerChatBellReply | null> }>();
+  /**
+   * 開けて、期限の中にある頼みの覚え（頼み主と askId が鍵）。
+   * 同じ頼みの再送（捕まえた封の使い回し）には、同じ答えを返し、効果は 1 回にする。
+   * 開けない頼みと、期限切れ、大きすぎる頼みは覚えない（どれも何もしないので、再送されても害が無い）。
+   * 覚えは expiresAt に時計のずれの幅を足した時刻まで残す。その後の再送は期限切れで断られるので、隙間は無い。
+   */
+  const seen = new Map<string, { until: number; reply: Promise<PeerChatBellReply | null> }>();
 
-  async function respond(frame: PeerChatBellAsk): Promise<PeerChatBellReply | null> {
-    const ring = await deps.ring();
-    if (!ring) return null;
+  const kind = (e: unknown): string => (e instanceof Error ? e.constructor.name : typeof e);
+
+  async function seal(ring: PeerKeyring, frame: PeerChatBellAsk, reply: PeerChatReply): Promise<PeerChatBellReply | null> {
     const route = { requestId: frame.id, from: frame.from, to: deps.deviceId };
-    let req: PeerChatRequest;
-    try {
-      req = await openPeerChat(ring, route, frame.sealed);
-    } catch {
-      return null;
-    }
-    let reply: PeerChatReply;
-    try {
-      reply = await dispatch(ring, req, frame.from);
-    } catch (e) {
-      console.error('[peer-chat] could not handle the request', e instanceof Error ? e.constructor.name : typeof e);
-      reply = refuse('session-unknown');
-    }
     let sealed: string;
     try {
       sealed = await sealPeerChatReply(ring, route, reply);
@@ -244,20 +249,45 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     return { t: 'chat-reply', id: frame.id, from: frame.from, sealed };
   }
 
+  async function respond(frame: PeerChatBellAsk): Promise<PeerChatBellReply | null> {
+    const ring = await deps.ring();
+    if (!ring) return null;
+    let req: PeerChatRequest;
+    try {
+      req = await openPeerChat(ring, { requestId: frame.id, from: frame.from, to: deps.deviceId }, frame.sealed);
+    } catch {
+      return null;
+    }
+    const check = checkPeerChatRequest(req, deps.now());
+    if (!check.ok) return seal(ring, frame, refuse(check.reason));
+    // ここから先は同期で、覚えの確かめと登録の間に別の頼みが割り込まない。
+    const key = `${frame.from}|${frame.id}`;
+    const t = deps.now();
+    for (const [k, v] of seen) if (t > v.until) seen.delete(k);
+    const hit = seen.get(key);
+    if (hit) return hit.reply;
+    if (seen.size >= SEEN_MAX) return seal(ring, frame, refuse('rate'));
+    const reply = (async (): Promise<PeerChatBellReply | null> => {
+      let r: PeerChatReply;
+      try {
+        r = await dispatch(ring, req, frame.from);
+      } catch (e) {
+        // 想定外の失敗。計画の断りの中で、いちばん誤解が少ない offline（いまは頼めない）で返す。
+        console.error('[peer-chat] request failed inside the host', req.op.t, kind(e));
+        r = refuse('offline');
+      }
+      return seal(ring, frame, r);
+    })();
+    seen.set(key, { until: req.expiresAt + PEER_CHAT_CLOCK_SKEW_MS, reply });
+    return reply;
+  }
+
   return {
     handle(frame) {
-      const now = deps.now();
-      for (const [k, v] of replays) if (now - v.at > REPLAY_KEEP_MS) replays.delete(k);
-      const key = `${frame.from}|${frame.id}`;
-      const hit = replays.get(key);
-      if (hit) return hit.reply;
-      const reply = respond(frame).catch((e: unknown) => {
-        console.error('[peer-chat] could not answer', e instanceof Error ? e.constructor.name : typeof e);
+      return respond(frame).catch((e: unknown) => {
+        console.error('[peer-chat] could not answer', kind(e));
         return null;
       });
-      replays.set(key, { at: now, reply });
-      while (replays.size > REPLAY_MAX) replays.delete(replays.keys().next().value!);
-      return reply;
     },
     poke: (sessionId) => view.poke(sessionId),
     turnChanged() {

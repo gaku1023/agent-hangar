@@ -15,6 +15,19 @@ export type HostSession = {
   activity: SessionActivityDto | null;
   /** files の探す根。 */
   cwd: string;
+  /**
+   * この PC の手元が、いまの会話の持ち主でないことの印。
+   * どれかが真なら、この PC の写しは古いか、ここで動かしてはならない。
+   * send、answer、interrupt、cancel、tail、files は session-unknown、resume-send は resume-failed で断る。
+   * lock：ほかの PC で動いている。
+   * newerElsewhere：ほかの PC に、この PC より新しい続きがある。
+   * remoteOnly：この PC に本文が無い。
+   * takenOver：ほかの PC に引き継がれた。
+   */
+  lock: boolean;
+  newerElsewhere: boolean;
+  remoteOnly: boolean;
+  takenOver: boolean;
 };
 
 /**

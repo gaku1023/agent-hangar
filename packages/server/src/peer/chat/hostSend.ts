@@ -35,11 +35,11 @@ export type SendDeps = {
   queue: PeerQueue;
   view: ChatView;
   /**
-   * 預かりへ入れる前に置いた画像のパス（渡すときに文へ足す）。
-   * images の配列そのもので引く。
+   * 次に預かる文の画像のパス。
+   * add の直前に入れ、預かりの ID を作る newId が pathsByQueue に結び付けて空にする。
    */
-  imagePaths: WeakMap<PeerBlobRef[], string[]>;
-  /** 預かりの ID から、置いた画像のパス（消えたときに片付ける）。 */
+  staged: { paths: string[] | null };
+  /** 預かりの ID から、置いた画像のパス（渡すときに文へ足し、消えたときに片付ける）。 */
   pathsByQueue: Map<string, string[]>;
 };
 
@@ -79,14 +79,14 @@ async function enqueue(s: SendDeps, ring: PeerKeyring, sessionId: string, askId:
     const placed = await placeImages(s, ring, askId, from.deviceId, own);
     if ('reason' in placed) return refuse(placed.reason);
     paths = placed.paths;
-    s.imagePaths.set(own, paths);
   }
+  s.staged.paths = paths.length > 0 ? paths : null;
   const queueId = s.queue.add(sessionId, from, text, own);
+  s.staged.paths = null;
   if (queueId === null) {
     for (const f of paths) { try { fs.unlinkSync(f); } catch { /* 無ければよい */ } }
     return refuse('rate');
   }
-  if (paths.length > 0) s.pathsByQueue.set(queueId, paths);
   s.view.poke(sessionId);
   return { ok: true, queueId };
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { pendingAskFrom } from './hostView.ts';
 import type { HostSession } from './hostTypes.ts';
 
-const session = (over: Partial<HostSession> = {}): HostSession => ({ provider: 'claude-code', live: 'waiting', waitingFor: 'permission', permission: null, activity: null, cwd: '/p', ...over });
+const session = (over: Partial<HostSession> = {}): HostSession => ({ provider: 'claude-code', live: 'waiting', waitingFor: 'permission', permission: null, activity: null, cwd: '/p', lock: false, newerElsewhere: false, remoteOnly: false, takenOver: false, ...over });
 const RULE = '╌'.repeat(44);
 
 describe('pendingAskFrom', () => {
