@@ -45,9 +45,12 @@ export type PeerChatView = {
   notice: { n: number; text: string } | null;
 };
 
-/** ほかの PC の Claude Code の会話か（ここで見張りを始めてよいか）。 */
+/**
+ * ほかの PC の Claude Code の会話か（ここで見張りを始めてよいか）。
+ * ほかの PC で動いている（lock）、手元に本文が無い（remoteOnly）に加え、ほかの PC に手元より新しい続きがある会話（newerElsewhere。A → B → A で、B で止まっていて手元に古い写しが残る）も含める。
+ */
 export function isPeerChatCandidate(s: SessionDto | undefined): boolean {
-  return !!s && s.provider === 'claude-code' && (s.lock !== null || s.remoteOnly);
+  return !!s && s.provider === 'claude-code' && (s.lock !== null || s.remoteOnly || s.newerElsewhere === true);
 }
 
 const STATUS_KEY = { busy: 'peerChat.status.busy', idle: 'peerChat.status.idle', waiting: 'peerChat.status.waiting', stopped: 'peerChat.status.stopped' } as const;
@@ -60,8 +63,9 @@ const REFUSAL_KEY = {
 } as const;
 
 /** 断りの理由を、入力欄のそばに出す一言にする。知らない理由は「送れませんでした」。 */
-export function refusalText(t: Translate, reason: PeerChatReason | 'gone', device: string): string {
+export function refusalText(t: Translate, reason: PeerChatReason | 'gone' | 'cancel-late', device: string): string {
   if (reason === 'gone') return t('peerChat.notice.gone');
+  if (reason === 'cancel-late') return t('peerChat.notice.cancelLate');
   const key = (REFUSAL_KEY as Record<string, (typeof REFUSAL_KEY)[keyof typeof REFUSAL_KEY]>)[reason];
   return key ? t(key, { device }) : t('peerChat.refusal.other');
 }
@@ -82,14 +86,27 @@ export function permissionWord(t: Translate, label: string): string | null {
 function answerLine(t: Translate, it: PeerChatItem): string | null {
   const a = it.ask?.answered;
   if (!a) return null;
+  // 元の PC の手元で答えた札は、選んだ行が分からない（label が空）。
+  if (a.label === '') return t('peerChat.ask.answeredHere', { device: a.by.deviceName });
   const word = it.ask!.kind === 'permission' ? permissionWord(t, a.label) : null;
   // 許可の文が決めた形に合うときは語で、合わないとき（と質問）は元の文を引用する。
   return word !== null ? t('peerChat.ask.answeredPermission', { device: a.by.deviceName, label: word }) : t('peerChat.ask.answeredQuestion', { device: a.by.deviceName, label: a.label });
 }
 
-function rowOf(t: Translate, it: PeerChatItem, slice: PeerChatSlice): PeerChatRow {
+/**
+ * 答えの付かない札を閉じて見せるか（開いたまま残さない安全網）。
+ * 元の PC が答えの記録を付けそこねても、入力待ちでなくなった、または後ろに項目が続いたら、答えを待つ札ではない。
+ * 状態がまだ分からない間（status が null）は閉じない。
+ */
+function staleAsk(slice: PeerChatSlice, index: number): boolean {
+  if (slice.status === null) return false;
+  return slice.status !== 'waiting' || index < slice.items.length - 1;
+}
+
+function rowOf(t: Translate, it: PeerChatItem, slice: PeerChatSlice, index: number): PeerChatRow {
   if (it.ask) {
-    return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, answered: answerLine(t, it), pending: slice.answering.includes(it.ask.askId), locked: slice.locked };
+    const answered = answerLine(t, it) ?? (staleAsk(slice, index) ? t('peerChat.ask.closed') : null);
+    return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, answered, pending: slice.answering.includes(it.ask.askId), locked: slice.locked };
   }
   switch (it.kind) {
     case 'user': return { kind: 'user', key: it.uuid, text: it.text, from: it.from ? t('peerChat.log.sentFrom', { device: it.from.deviceName }) : null };
@@ -113,21 +130,22 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
   const device = slice.device?.deviceName ?? s!.lock?.deviceName ?? '';
   const myId = store.device?.id ?? null;
   const status = slice.status;
-  const rows: PeerChatRow[] = slice.items.map((it) => rowOf(t, it, slice));
+  const rows: PeerChatRow[] = slice.items.map((it, i) => rowOf(t, it, slice, i));
   for (const q of slice.queued) {
     const mine = myId !== null && q.from.deviceId === myId;
     rows.push({ kind: 'queued', key: `queued:${q.queueId}`, queueId: q.queueId, text: q.text, images: q.images, tag: t(q.state === 'delivering' ? 'peerChat.queued.delivering' : 'peerChat.queued.tag'), from: mine ? null : t('peerChat.queued.from', { device: q.from.deviceName }), mine, delivering: q.state === 'delivering' });
   }
   const offline = slice.link === 'offline';
   const hostError = slice.link === 'host-error';
+  const clockOff = slice.link === 'clock';
   const locked = slice.locked;
-  const kind: PeerChatComposerKind = offline || hostError || locked ? 'blocked' : status === 'stopped' ? 'resume' : status === 'busy' || status === 'waiting' ? 'queue' : 'send';
+  const kind: PeerChatComposerKind = offline || hostError || clockOff || locked ? 'blocked' : status === 'stopped' ? 'resume' : status === 'busy' || status === 'waiting' ? 'queue' : 'send';
   const sendLabel = kind === 'resume' ? t('peerChat.composer.resume', { device }) : kind === 'queue' ? t('peerChat.composer.queue') : t('peerChat.composer.send');
-  const hint = kind === 'queue' && slice.queued.length === 0 ? t(status === 'waiting' ? 'peerChat.composer.hintWaiting' : 'peerChat.composer.hintBusy') : kind === 'resume' ? t('peerChat.composer.hintStopped', { device }) : hostError ? t('peerChat.composer.hostError') : locked ? refusalText(t, 'refused-by-setting', device) : null;
-  const statusLabel = offline ? t('peerChat.status.offline') : hostError ? t('peerChat.status.hostError') : status ? t(STATUS_KEY[status]) : t('peerChat.log.loading');
+  const hint = kind === 'queue' && slice.queued.length === 0 ? t(status === 'waiting' ? 'peerChat.composer.hintWaiting' : 'peerChat.composer.hintBusy') : kind === 'resume' ? t('peerChat.composer.hintStopped', { device }) : hostError ? t('peerChat.composer.hostError') : clockOff ? t('peerChat.composer.clock', { device }) : locked ? refusalText(t, 'refused-by-setting', device) : null;
+  const statusLabel = offline ? t('peerChat.status.offline') : hostError ? t('peerChat.status.hostError') : clockOff ? t('peerChat.status.clock') : status ? t(STATUS_KEY[status]) : t('peerChat.log.loading');
   return {
     sessionId, device, status, statusLabel,
-    tone: offline || hostError || status === null ? 'ended' : TONE[status],
+    tone: offline || hostError || clockOff || status === null ? 'ended' : TONE[status],
     loading: slice.phase === 'loading',
     rows,
     composer: {
@@ -135,8 +153,9 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
       placeholder: t(offline ? 'peerChat.composer.placeholderOffline' : 'peerChat.composer.placeholder', { device }),
       hint,
       offline: offline ? t('peerChat.composer.offline', { device }) : null,
-      canTakeOver: offline && (s!.lock !== null || s!.remoteOnly),
-      canInterrupt: !offline && !hostError && !locked && (status === 'busy' || status === 'waiting'),
+      canTakeOver: offline && isPeerChatCandidate(s),
+      // 札が出ている間（waiting）は、Escape が札の断りになり、元の PC が ask-mismatch で断る。止めるボタンは出さない。
+      canInterrupt: !offline && !hostError && !clockOff && !locked && status === 'busy',
       sending: slice.sending,
     },
     restore: slice.restore,

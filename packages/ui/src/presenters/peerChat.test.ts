@@ -3,7 +3,7 @@ import { translator, type PeerChatItem, type PeerChatQueued, type SessionDto } f
 import { initialState } from '../mediator/transition.ts';
 import { initialStore, type Store } from '../store/store.ts';
 import { emptySlice, type PeerChatSlice } from '../store/peerChat.ts';
-import { permissionWord, presentPeerChat } from './peerChat.ts';
+import { isPeerChatCandidate, permissionWord, presentPeerChat } from './peerChat.ts';
 import { presentSession } from './session.ts';
 
 const ja = translator('ja');
@@ -45,9 +45,9 @@ describe('ほかの PC の会話の画面の描き分け（presenters/peerChat�
     expect(v).toMatchObject({ tone: 'idle', composer: { kind: 'send', sendLabel: '送る', canInterrupt: false, hint: null, placeholder: 'Mac の会話に送る' } });
   });
 
-  it('許可待ちは入力待ちで、送った文は預かる。中断も出す', () => {
+  it('許可待ちは入力待ちで、送った文は預かる。中断は出さない（札が出ている間の Escape は札の断りになる）', () => {
     const v = view(store({ status: 'waiting', items: [ask()] }))!;
-    expect(v).toMatchObject({ statusLabel: '入力待ち', tone: 'waiting', composer: { kind: 'queue', canInterrupt: true } });
+    expect(v).toMatchObject({ statusLabel: '入力待ち', tone: 'waiting', composer: { kind: 'queue', canInterrupt: false } });
     expect(v.composer.hint).toContain('許可か質問に答えるまで');
   });
 
@@ -144,6 +144,40 @@ describe('チャットを出さない会話は、今までの読み取り専用�
   it('見張りの状態が live なら、セッションの props に画面の値を載せる', () => {
     const p = presentSession(initialState(), store({ status: 'busy' }), NOW, 's1');
     expect(p.peerChat?.view).toMatchObject({ device: 'Mac', composer: { kind: 'queue' } });
+  });
+
+  it('ほかの PC に手元より新しい続きがある（A → B → A、止まっていて手元に古い写し）会話も、チャットの対象。この PC で再開も出せる', () => {
+    const newer = session({ lock: null, remoteOnly: false, newerElsewhere: true });
+    expect(isPeerChatCandidate(newer)).toBe(true);
+    expect(isPeerChatCandidate(session({ lock: null, remoteOnly: false, newerElsewhere: false }))).toBe(false);
+    const v = view(store({ status: 'idle', link: 'offline' }, newer))!;
+    expect(v.composer.canTakeOver).toBe(true);
+  });
+
+  it('間に合わなかった取り消し（cancel-late）の一言は、渡せなかったとは別の文', () => {
+    const v = view(store({ status: 'busy', notice: { n: 1, reason: 'cancel-late' } }))!;
+    expect(v.notice).toEqual({ n: 1, text: 'すでに渡したため取り消せません' });
+  });
+
+  it('時計のずれ（link が clock）は、入力欄を閉じ、時計を合わせるよう一言を出す。つながっていない表示にはしない', () => {
+    const v = view(store({ status: 'busy', link: 'clock' }))!;
+    expect(v).toMatchObject({ statusLabel: '時計が合いません', tone: 'ended', composer: { kind: 'blocked', offline: null, canInterrupt: false, canTakeOver: false } });
+    expect(v.composer.hint).toBe('Mac と時計が合わないため届きません。時刻を合わせてください');
+  });
+
+  it('元の PC の手元で答えた札（label が空）は、選択肢を出さず「{device} で答えました」の行になる', () => {
+    const it0 = { ...ask(true), ask: { ...ask(true).ask!, answered: { by: MAC, label: '', at: 9 } } };
+    expect(view(store({ status: 'busy', items: [it0] }))!.rows[0]).toMatchObject({ kind: 'ask', answered: 'Mac で答えました' });
+  });
+
+  it('答えの付かない札でも、会話が入力待ちでなくなったか、後ろに項目が続いたら、閉じた札にする（開いたままにしない）', () => {
+    const closed = (r: unknown) => (r as { answered: string | null }).answered;
+    expect(closed(view(store({ status: 'busy', items: [ask()] }))!.rows[0])).toBe('確認は終わりました');
+    expect(closed(view(store({ status: 'idle', items: [ask()] }))!.rows[0])).toBe('確認は終わりました');
+    expect(closed(view(store({ status: 'waiting', items: [ask(), ai('a2', '続き')] }))!.rows[0])).toBe('確認は終わりました');
+    // 入力待ちの最後の札と、状態がまだ分からない間（読み込み中）は開いている。
+    expect(closed(view(store({ status: 'waiting', items: [ai('a0', '前'), ask()] }))!.rows[1])).toBeNull();
+    expect(closed(view(store({ status: null, items: [ask()] }))!.rows[0])).toBeNull();
   });
 
   it('答えの行は、許可の選択肢の画面の文（Yes、Yes, and ask-again の形、No）を固定の語にする。合わなければ引用する', () => {

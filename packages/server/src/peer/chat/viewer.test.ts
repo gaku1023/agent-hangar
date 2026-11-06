@@ -271,6 +271,46 @@ describe('流れ（peerChat.update）', () => {
     expect(again.ok && again.update.gone?.map((g) => g.queueId)).toEqual(['q1', 'q2']);
   });
 
+  describe('元の PC の再起動（hostId が替わる）', () => {
+    const mine = (queueId: string, deviceId = ME) => ({ queueId, from: { deviceId, deviceName: 'x' }, text: 'hi', images: 0, at: 5, state: 'waiting' as const });
+
+    it('この PC が預けた文が、再起動のあとの預かりに無ければ、渡せなかったとして gone に載せる', async () => {
+      answers.push(() => ok(state([item('u1')], { hostId: 'h1', queued: [mine('q1'), mine('q2', 'pc-c')] })));
+      answers.push(() => ok(state([], { cursor: 'u1', hostId: 'h2', queued: [] })));
+      await viewer.open(SID, { viewer: 'v1' });
+      await clock.advance(PEER_CHAT_MIN_GAP_MS);
+      expect(updates().at(-1)!.gone).toEqual([{ queueId: 'q1', reason: 'queue-expired' }]);
+    });
+
+    it('hostId が同じなら、預かりが消えても（渡した、取り消した）gone にしない', async () => {
+      answers.push(() => ok(state([item('u1')], { hostId: 'h1', queued: [mine('q1')] })));
+      answers.push(() => ok(state([], { cursor: 'u1', hostId: 'h1', queued: [] })));
+      await viewer.open(SID, { viewer: 'v1' });
+      await clock.advance(PEER_CHAT_MIN_GAP_MS);
+      expect(updates().every((u) => !u.gone)).toBe(true);
+    });
+
+    it('hostId が替わっても、新しい側の預かりに残っている文は gone にしない。hostId を持たない古い相手でも何も起きない', async () => {
+      answers.push(() => ok(state([item('u1')], { hostId: 'h1', queued: [mine('q1')] })));
+      answers.push(() => ok(state([], { cursor: 'u1', hostId: 'h2', queued: [mine('q1')] })));
+      answers.push(() => ok(state([], { cursor: 'u1', queued: [] })));
+      await viewer.open(SID, { viewer: 'v1' });
+      await clock.advance(PEER_CHAT_MIN_GAP_MS);
+      await clock.advance(PEER_CHAT_MIN_GAP_MS);
+      expect(updates().every((u) => !u.gone)).toBe(true);
+    });
+
+    it('send の答えで知った queueId も、再起動で消えていれば gone にする', async () => {
+      answers.push(() => ok(state([item('u1')], { hostId: 'h1' })));
+      await viewer.open(SID, { viewer: 'v1' });
+      answers.push(() => ({ ok: true, queueId: 'q9' }));
+      expect((await viewer.op(SID, { t: 'send', text: 'x' })).ok).toBe(true);
+      answers.push(() => ok(state([], { cursor: 'u1', hostId: 'h2', queued: [] })));
+      await clock.advance(PEER_CHAT_MIN_GAP_MS);
+      expect(updates().at(-1)!.gone).toEqual([{ queueId: 'q9', reason: 'queue-expired' }]);
+    });
+  });
+
   it('truncated の返事は写しを捨てて差し替える（replace）。貯めた分も捨てる', async () => {
     answers.push(() => ok(state([item('u1'), item('u2')])));
     answers.push(() => ok(state([item('u50'), item('u51')], { truncated: true })));
@@ -344,7 +384,7 @@ describe('相手がつながっていないとき', () => {
   it('届かない（例外）や 504 は短い間から空けて頼み直し、3 回続いたら offline にする', async () => {
     fallback = () => new Error('boom');
     await viewer.open(SID, { viewer: 'v1' });
-    await clock.advance(1_000);
+    await clock.advance(2_000);
     await clock.advance(5_000);
     expect(tails()).toHaveLength(3);
     expect(updates().filter((u) => u.link === 'offline')).toHaveLength(1);
@@ -513,6 +553,33 @@ describe('見張りの上限と見ている人', () => {
   });
 });
 
+describe('忙しい会話の問い合わせの間', () => {
+  it('毎回すぐ変わりが返る会話でも、1 分に 30 回までで（Worker の 120 回に操作の余地を残す）、間は A1 の 5 秒に収まる', async () => {
+    expect(PEER_CHAT_MIN_GAP_MS).toBeGreaterThanOrEqual(2000);
+    expect(PEER_CHAT_MIN_GAP_MS).toBeLessThan(5000);
+    let n = 0;
+    fallback = () => ok(state([item(`u${++n}`)]));
+    await viewer.open(SID, { viewer: 'v1' });
+    const t0 = clock.now();
+    while (clock.now() - t0 < 59_000) await clock.advance(1000);
+    expect(tails().length).toBeLessThanOrEqual(31);
+  });
+});
+
+describe('時計のずれ（元の PC が tail を expired で断る）', () => {
+  it('offline に数えず、つながりを clock にして、15 秒、30 秒の間で頼み直す。つながり直したら online を流す', async () => {
+    fallback = () => ({ ok: false, reason: 'expired' });
+    const r = await viewer.open(SID, { viewer: 'v1' });
+    expect(r.ok && r.update.link).toBe('clock');
+    await clock.advance(PEER_CHAT_OFFLINE_RETRY_MS[0]);
+    expect(tails()).toHaveLength(2);
+    expect(updates().map((u) => u.link)).toEqual(['clock']);
+    fallback = () => ok(state([item('u1')]));
+    await clock.advance(PEER_CHAT_OFFLINE_RETRY_MS[1]);
+    expect(updates().map((u) => u.link)).toEqual(['clock', 'online']);
+  });
+});
+
 describe('host-error', () => {
   it('元の PC の host-error は offline と同じ 15 秒、30 秒の間で頼み直し、つながりは host-error のまま流す', async () => {
     fallback = () => ({ ok: false, reason: 'host-error' });
@@ -625,9 +692,17 @@ describe('ops', () => {
     answers.push(() => ({ ok: true, queueId: 'q-9' }));
     const r = await viewer.op(SID, { t: 'send', text: 'こんにちは' });
     expect(r).toEqual({ ok: true, queueId: 'q-9' });
-    expect(asks[0]!.req.op).toEqual({ t: 'send', text: 'こんにちは', images: [] });
+    // 元の PC が全体を収める待ち（waitMs）も運ぶ（Worker に渡す waitMs と同じ値）。
+    expect(asks[0]!.req.op).toEqual({ t: 'send', text: 'こんにちは', images: [], waitMs: 10_000 });
     expect(asks[0]!.body).toMatchObject({ askId: 'ask-1', to: PEER, waitMs: 10_000 });
     expect(asks[0]!.req.expiresAt).toBe(clock.now() + 60_000);
+  });
+
+  it('resume-send は、再開を待つぶん長い待ちを運ぶ', async () => {
+    answers.push(() => ({ ok: true, queueId: 'q-9' }));
+    await viewer.op(SID, { t: 'resume-send', text: 'wake' });
+    expect(asks[0]!.req.op).toEqual({ t: 'resume-send', text: 'wake', images: [], waitMs: 20_000 });
+    expect(asks[0]!.body.waitMs).toBe(20_000);
   });
 
   it('元の PC の断りは reason のまま返す（画面が文を入力欄に戻す）', async () => {
@@ -678,7 +753,7 @@ describe('ops', () => {
     expect(r).toEqual({ ok: true, queueId: 'q1' });
     expect(blobs).toHaveLength(1);
     expect(blobs[0]).toMatchObject({ askId: 'ask-1', n: 0, to: PEER });
-    expect(asks[0]!.req.op).toEqual({ t: 'send', text: 'see', images: [{ n: 0, mime: 'image/png', bytes: 5 }] });
+    expect(asks[0]!.req.op).toEqual({ t: 'send', text: 'see', images: [{ n: 0, mime: 'image/png', bytes: 5 }], waitMs: 10_000 });
     const opened = await openPeerChatBlob(ring, { requestId: 'ask-1', from: ME, to: PEER }, 0, blobs[0]!.sealed);
     expect([...opened]).toEqual([...png]);
     // 別の askId や番号では開けない。

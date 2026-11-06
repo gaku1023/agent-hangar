@@ -74,9 +74,9 @@ const state: PeerChatState = {
 };
 
 describe('互換の版と呼び鈴の種類', () => {
-  it('互換の版は 11、呼び鈴の種類に chat がある', () => {
+  it('互換の版は 11。会話の問い合わせは t が chat の枠で運ぶので、t が peer の知らせの種類には chat が無い', () => {
     expect(COMPAT_VERSION).toBe(11);
-    expect(PEER_BELL_KINDS).toContain('chat');
+    expect(PEER_BELL_KINDS).not.toContain('chat');
   });
   it('パッケージの入口から取れる', () => {
     expect(shared.sealPeerChat).toBe(sealPeerChat);
@@ -194,7 +194,7 @@ describe('期限と大きさ', () => {
     expect(at(NOW + PEER_CHAT_TTL_MS + PEER_CHAT_CLOCK_SKEW_MS)).toEqual({ ok: true });
     expect(at(NOW + PEER_CHAT_TTL_MS + PEER_CHAT_CLOCK_SKEW_MS + 1)).toEqual({ ok: false, reason: 'expired' });
     expect(at(NOW + 365 * 86_400_000)).toEqual({ ok: false, reason: 'expired' });
-    expect(PEER_CHAT_CLOCK_SKEW_MS).toBe(5_000);
+    expect(PEER_CHAT_CLOCK_SKEW_MS).toBe(90_000);
   });
 
   it('期限は作った時刻の 60 秒後', () => {
@@ -285,6 +285,19 @@ describe('PeerChatState.gone', () => {
     expect(shared.parsePeerChatReply({ ok: true, state: { ...base, gone: [{ queueId: 'q1', reason: 'nope' }] } })).toBeNull();
     expect(shared.parsePeerChatReply({ ok: true, state: { ...base, gone: 'x' } })).toBeNull();
     expect(shared.parsePeerChatReply({ ok: true, state: base })).toEqual({ ok: true, state: base });
+  });
+
+  it('send と resume-send の waitMs（頼み主の待ち）は省ける。あれば残し、上限を超える値と整数でない値は断る', () => {
+    const r = (op: unknown) => shared.parsePeerChatRequest({ v: 1, askId: 'a', expiresAt: 1, sessionId: 's', op });
+    expect(r({ t: 'send', text: 'x', images: [] })?.op).toEqual({ t: 'send', text: 'x', images: [] });
+    expect(r({ t: 'resume-send', text: 'x', images: [], waitMs: 20_000 })?.op).toEqual({ t: 'resume-send', text: 'x', images: [], waitMs: 20_000 });
+    expect(r({ t: 'send', text: 'x', images: [], waitMs: 20_001 })).toBeNull();
+    expect(r({ t: 'send', text: 'x', images: [], waitMs: 1.5 })).toBeNull();
+  });
+
+  it('hostId（元の PC の起動ごとの印）を残す。文字列でなければ答え全体を断る', () => {
+    expect(shared.parsePeerChatReply({ ok: true, state: { ...base, hostId: 'h1' } })).toEqual({ ok: true, state: { ...base, hostId: 'h1' } });
+    expect(shared.parsePeerChatReply({ ok: true, state: { ...base, hostId: 7 } })).toBeNull();
   });
 });
 

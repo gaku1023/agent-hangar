@@ -27,7 +27,7 @@ export type PeerChatSlice = {
   /** 元の PC が他の PC からの操作を受け付けない設定だと分かった。入力欄と札を閉じる（会話は読める）。 */
   locked: boolean;
   restore: { n: number; text: string; images: string[] } | null;
-  notice: { n: number; reason: PeerChatReason | 'gone' } | null;
+  notice: { n: number; reason: PeerChatReason | 'gone' | 'cancel-late' } | null;
   /** 自分が預けた文（queueId から文へ）。渡せずに消えた知らせ（gone）で入力欄へ戻すために持つ。 */
   mine: Record<string, string>;
 };
@@ -95,7 +95,7 @@ export function restoreText(s: PeerChatSlice, text: string, images: string[] = [
 }
 
 /** 入力欄のそばの一言を出す。 */
-export function showNotice(s: PeerChatSlice, reason: PeerChatReason | 'gone'): PeerChatSlice {
+export function showNotice(s: PeerChatSlice, reason: PeerChatReason | 'gone' | 'cancel-late'): PeerChatSlice {
   return { ...s, notice: { n: nextN(s.notice), reason } };
 }
 

@@ -58,8 +58,14 @@ import { versionAtLeast } from '../version.ts';
  * 元の PC が truncated を返したら、貯めた項目を捨て、画面にも replace で差し替えさせる。
  */
 
-/** 問い合わせの最短の間（Worker の 1 分 120 回に、操作の分の余裕を見る）。 */
-export const PEER_CHAT_MIN_GAP_MS = 700;
+/**
+ * 問い合わせの最短の間。
+ * 作業中の会話は毎回すぐ変わりが返るので、この間が 1 分の問い合わせの数を決める（2 秒なら 1 つの見張りで 1 分に 30 回、3 つで 90 回）。
+ * Worker の 1 分 120 回に、操作の分の余裕を見る。
+ * 元の PC は同じ頼み主の頼みの覚えを数えるので（host.ts の SEEN_PER_SENDER、読むだけの頼みは 30 秒だけ覚える）、この回数でも上限に届かない。
+ * 画面への反映は、この間が最大の遅れで、5 秒以内に収まる。
+ */
+export const PEER_CHAT_MIN_GAP_MS = 2_000;
 /**
  * つながっていない相手への頼み直しの間。
  * 2 回目以降は最後の値。
@@ -206,6 +212,10 @@ class Watch {
   queued: PeerChatQueued[] = [];
   link: PeerChatLink = 'online';
   replace = false;
+  /** 元の PC の起動ごとの印（state.hostId）。替われば再起動である。 */
+  private hostId: string | null = null;
+  /** この PC が預けて、まだ預かりにあると知っている（または send の答えで知った）文の queueId。再起動で消えた文を見つけるために持つ。 */
+  private readonly mine = new Set<string>();
   private readonly goneSeen = new Map<string, { reason: PeerChatGone['reason']; at: number }>();
   private freshGone: PeerChatGone[] = [];
   /**
@@ -217,9 +227,14 @@ class Watch {
   private resolveFirst: () => void = () => {};
   readonly first = new Promise<void>((r) => { this.resolveFirst = r; });
 
-  constructor(readonly sessionId: string, public target: ViewTarget, after: string | null) {
+  constructor(readonly sessionId: string, public target: ViewTarget, after: string | null, private readonly selfId: string) {
     this.cursor = after;
     this.startedAfter = after;
+  }
+
+  /** send の答えで知った、自分の預かりの queueId。 */
+  noteSent(queueId: string): void {
+    this.mine.add(queueId);
   }
 
   settleFirst(): void {
@@ -285,7 +300,20 @@ class Watch {
     if (sigOf(s.queued) !== sigOf(this.queued)) { this.queued = s.queued; changed = true; }
     // 渡せずに消えた預かり。元の PC は同じ印を数分のあいだ繰り返すので、queueId で覚えて 1 度だけ流す。
     for (const [id, g] of this.goneSeen) if (now - g.at > PEER_CHAT_GONE_KEEP_MS) this.goneSeen.delete(id);
-    for (const g of s.gone ?? []) {
+    // 元の PC が再起動した（hostId が替わった）。預かりはメモリだけなので、自分が預けた文で新しい預かりに無いものは消えている。
+    // 再起動の前に渡った文は、そのときの取り込みで mine から落ちているので、ここでは戻さない。
+    const goneIn: PeerChatGone[] = [...(s.gone ?? [])];
+    const stillQueued = new Set(s.queued.map((q) => q.queueId));
+    if (s.hostId !== undefined) {
+      if (this.hostId !== null && s.hostId !== this.hostId) {
+        for (const id of this.mine) if (!stillQueued.has(id) && !goneIn.some((g) => g.queueId === id)) goneIn.push({ queueId: id, reason: 'queue-expired' });
+      }
+      this.hostId = s.hostId;
+    }
+    // いま預かりにある自分の文だけを覚え直す（消えたものは、渡した、取り消した、捨てられた、のどれかで、もう戻す文ではない）。
+    this.mine.clear();
+    for (const q of s.queued) if (q.from.deviceId === this.selfId) this.mine.add(q.queueId);
+    for (const g of goneIn) {
       if (this.goneSeen.has(g.queueId)) continue;
       this.goneSeen.set(g.queueId, { reason: g.reason, at: now });
       this.freshGone.push({ queueId: g.queueId, reason: g.reason });
@@ -307,6 +335,8 @@ class Watch {
     this.cursor = null;
     this.status = null;
     this.queued = [];
+    this.hostId = null;
+    this.mine.clear();
     this.replace = true;
   }
 
@@ -423,7 +453,7 @@ export class PeerChatViewer {
     if (!w && this.watches.size >= PEER_CHAT_WATCHES_MAX) return { ok: false, reason: 'too-many', device: g.device };
     if (!w) {
       const from = after === undefined ? this.deps.localCursor(sessionId) : after;
-      w = new Watch(sessionId, g.target, from);
+      w = new Watch(sessionId, g.target, from, this.deps.selfId);
       this.watches.set(sessionId, w);
       void this.run(w);
     }
@@ -523,10 +553,11 @@ export class PeerChatViewer {
           if (!r.ok) {
             if (r.reason === 'session-unknown' || r.reason === 'not-claude' || r.reason === 'refused-by-setting') { this.refuse(w, r.reason); return; }
             if (r.reason === 'rate') { delay = PEER_CHAT_RATE_RETRY_MS; break; }
-            if (r.reason === 'offline' || r.reason === 'host-error') {
+            if (r.reason === 'offline' || r.reason === 'host-error' || r.reason === 'expired') {
               // 元の PC が offline と答えたときも、Worker の 409 と同じ間を空ける。
               // host-error（元の PC の中の想定外の失敗）も同じ間で頼み直すが、画面が「PC がつながらない」と取り違えないよう、つながりは host-error のまま流す。
-              this.setLink(w, r.reason === 'host-error' ? 'host-error' : 'offline');
+              // expired は、作ったばかりの tail が期限切れと断られたので、2 台の時計のずれである。届いているので offline とは数えず、clock として流す。
+              this.setLink(w, r.reason === 'host-error' ? 'host-error' : r.reason === 'expired' ? 'clock' : 'offline');
               delay = PEER_CHAT_OFFLINE_RETRY_MS[Math.min(offlineStep, PEER_CHAT_OFFLINE_RETRY_MS.length - 1)]!;
               offlineStep++;
               break;
@@ -675,8 +706,9 @@ export class PeerChatViewer {
         if (img.bytes.byteLength === 0 || img.bytes.byteLength > MOBILE_IMAGE_MAX_BYTES) return { ok: false, reason: 'too-large' };
         blobs.push(img);
       }
-      wire = { t: op.t, text: op.text, images: [] };
       if (op.t === 'resume-send') waitMs = RESUME_WAIT_MS;
+      // 元の PC が、画像の取り込みと再開を含む全体をこの長さに収める（過ぎたら expired で、何も預からない）。
+      wire = { t: op.t, text: op.text, images: [], waitMs };
     } else if (op.t === 'answer') {
       if (op.text !== undefined && Buffer.byteLength(op.text) > PEER_CHAT_TEXT_MAX_BYTES) return { ok: false, reason: 'too-large' };
       wire = { t: 'answer', askId: op.askId, keys: op.keys, ...(op.text !== undefined ? { text: op.text } : {}) };
@@ -687,6 +719,7 @@ export class PeerChatViewer {
     switch (out.kind) {
       case 'reply': {
         const r = out.reply;
+        if (r.ok && r.queueId) this.watches.get(sessionId)?.noteSent(r.queueId);
         if (r.ok && r.state) this.absorb(sessionId, r.state);
         return r;
       }

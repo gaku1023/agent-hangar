@@ -52,6 +52,12 @@ export type PeerQueueDeps = {
   deliver(runId: string, text: string, images: PeerBlobRef[], queueId: string): Promise<boolean>;
   /** 預かりの ID を作る。 */
   newId(): string;
+  /**
+   * ほかの PC からの送信を受ける設定が入っているか。
+   * 偽になったら、確認のたびに、預かっていた文を渡さずに捨てる（expired、reason は queue-expired）。
+   * 送り主には、文が戻る知らせ（gone）として届く。省けば常に受ける。
+   */
+  accepting?(): boolean;
   pollMs?: number;
   expireMs?: number;
   settleMs?: number;
@@ -228,6 +234,7 @@ export class PeerQueue {
     rs.ticking = true;
     try {
       const { deps } = this;
+      if (!this.acceptingNow()) { this.refuseWaiting(runId, rs); return; }
       const turn = this.turnOf(runId);
       const t0 = this.now();
       if (turn === 'idle' || turn === 'stopped') rs.idleSince ??= t0;
@@ -272,6 +279,20 @@ export class PeerQueue {
     if (i >= 0) rs.items.splice(i, 1);
     rs.settle = { at: this.now(), sawNonIdle: false };
     this.emit({ type: 'delivered', runId, item: snap(item), from: item.from });
+  }
+
+  /** 受ける設定を読む。読めなければ（投げたら）受けるとみなす（設定の読み出しの失敗で、預かりを捨てない）。 */
+  private acceptingNow(): boolean {
+    try { return this.deps.accepting ? this.deps.accepting() !== false : true; } catch { return true; }
+  }
+
+  /** 受けない設定になったので、渡していない預かりを全部捨てる（渡している最中の 1 件には触らない）。 */
+  private refuseWaiting(runId: string, rs: RunState): void {
+    for (const item of [...rs.items]) {
+      if (item.state !== 'waiting') continue;
+      rs.items.splice(rs.items.indexOf(item), 1);
+      this.emit({ type: 'expired', runId, item: snap(item), reason: 'queue-expired' });
+    }
   }
 
   /** 止まってから expireMs たっても渡せない預かりを捨てる。数え始めは、止まった時刻と預かった時刻の遅いほう。 */

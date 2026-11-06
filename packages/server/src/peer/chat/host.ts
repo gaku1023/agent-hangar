@@ -4,7 +4,6 @@ import {
   appendPaths,
   checkPeerChatRequest,
   openPeerChat,
-  PEER_CHAT_CLOCK_SKEW_MS,
   sealPeerChatReply,
   type PeerChatBellAsk,
   type PeerChatBellReply,
@@ -52,11 +51,18 @@ import { PeerQueue, type TurnState } from './queue.ts';
 
 /**
  * 同じ頼み（頼み主と askId）の再送を覚える数の、頼み主ごとの上限。
- * 覚えは頼みの期限（expiresAt）に時計のずれの幅を足した時刻まで残し、数では消さない。
+ * 覚えは頼みの期限（expiresAt）に少しの余裕（SEEN_MARGIN_MS）を足した時刻まで残し、数では消さない。
+ * 期限を過ぎた再送は、覚えが無くても expired で断られるので、時計のずれの幅までは延ばさない。
  * 実行の覚えが上限に達したら、その頼み主の新しい頼みを rate で断る（生きている覚えを追い出して、再送を通さないため）。
+ * 上限は、Worker が 1 分に通す回数（120）を、期限までの 65 秒ほどの寿命で保てる数にする（120 回 × 65 秒 ÷ 60 秒 = 130）。
+ * 読むだけの頼み（tail、files）は、SEEN_READ_KEEP_MS だけ覚える。見張りは 2 秒おきに頼むので、忙しい会話が覚えを埋めない。
  * 断りの覚え（答えが小さい）は、別の上限を持つ。
  */
 const SEEN_PER_SENDER = 160;
+/** 覚えを期限より先まで残す余裕。 */
+const SEEN_MARGIN_MS = 5_000;
+/** 読むだけの頼みの覚えの寿命。 */
+const SEEN_READ_KEEP_MS = 30_000;
 const SEEN_REFUSALS_PER_SENDER = 512;
 
 export type PeerChatHost = {
@@ -88,7 +94,12 @@ export type PeerChatHost = {
 };
 
 const refuse = (reason: Extract<PeerChatReply, { ok: false }>['reason']): PeerChatReply => ({ ok: false, reason });
-const SENDING: ReadonlySet<PeerChatRequest['op']['t']> = new Set(['send', 'answer', 'interrupt', 'resume-send', 'cancel']);
+/**
+ * 設定 peerChatAcceptFromPeers が切れていると断る op。
+ * cancel は入れない（送り主が自分の預かりを取り戻すだけで、この PC の入力には触れない。
+ * 設定を切ったあとも、預けた文を取り戻せるようにする）。
+ */
+const SENDING: ReadonlySet<PeerChatRequest['op']['t']> = new Set(['send', 'answer', 'interrupt', 'resume-send']);
 
 export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -113,12 +124,15 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
   const queue: PeerQueue = new PeerQueue({
     now: deps.now,
     turnState,
+    accepting: deps.acceptFromPeers,
     inputEmpty: async (sessionId) => {
       const cap = await paneOf(sessionId)?.captureStyled();
       return cap != null && inputEmptyFromCapture(cap);
     },
     // 貼る直前にもう一度、入力欄が空であることを確かめる（人が打ち始めたら渡さず、預かりに戻す）。
     deliver: async (sessionId, text, _images, queueId) => {
+      // 預けたあとに設定が切れたら、渡さない（次の確認で捨てて、送り主に文を返す）。
+      if (!deps.acceptFromPeers()) return false;
       const run = deps.run(sessionId);
       const pane = paneOf(sessionId);
       if (!run || !pane) return false;
@@ -145,6 +159,9 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     pane: deps.pane,
     tail: { readTranscript: deps.readTranscript, ...(deps.cache ? { cache: deps.cache } : {}) },
     queued: (sessionId) => queue.list(sessionId),
+    self: () => ({ deviceId: deps.deviceId, deviceName: deps.deviceName(deps.deviceId) }),
+    // 起動ごとに替わる印。預かりはメモリだけなので、再起動を見る側に知らせる。
+    hostId: randomUUID(),
   });
 
   const answerer = createPeerAnswerer({
@@ -186,6 +203,8 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
   const sendDeps: SendDeps = { deps, queue, view, staged, pathsByQueue };
 
   async function answerOp(sessionId: string, from: PeerChatDevice, op: Extract<PeerChatRequest['op'], { t: 'answer' }>): Promise<PeerChatReply> {
+    // 手元で答えた札が、まだ tail に見られていなくても、記録にしてから見る。
+    view.observe(sessionId);
     // 同じ札に先に答えた PC があれば、画面を見るまでもなく断る（札が閉じた後に遅れて来た答えも）。
     if (view.answeredAsk(op.askId)) return refuse('already-answered');
     const current = view.currentAsk(sessionId);
@@ -211,9 +230,9 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
       case 'tail':
         return { ok: true, state: await view.tail(sessionId, fromId, op.after, op.waitMs) };
       case 'send':
-        return sendOp(sendDeps, ring, sessionId, req.askId, from, op.text, op.images);
+        return sendOp(sendDeps, ring, sessionId, req.askId, from, op.text, op.images, op.waitMs);
       case 'resume-send':
-        return resumeSendOp(sendDeps, ring, sessionId, req.askId, from, op.text, op.images);
+        return resumeSendOp(sendDeps, ring, sessionId, req.askId, from, op.text, op.images, op.waitMs);
       case 'answer':
         return answerOp(sessionId, from, op);
       case 'interrupt': {
@@ -225,8 +244,8 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
         const r = queue.cancel(op.queueId, fromId);
         // 無い（渡した、捨てた）、ほかの PC の預かり、渡している最中は、どれも取り消せない。
         // ほかの PC の預かりの有無は教えない。
-        if (r.ok) return { ok: true };
-        return refuse(r.reason === 'delivering' ? 'already-answered' : 'queue-expired');
+        // どれも queue-expired で返す（もう渡した、または預かりに無い）。already-answered は札の答えの断りで、取り消しには合わない。
+        return r.ok ? { ok: true } : refuse('queue-expired');
       }
       case 'files': {
         if (!session.cwd) return refuse('session-unknown');
@@ -240,7 +259,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
    * 同じ頼みの再送（捕まえた封の使い回し）には、同じ答えを返し、効果は 1 回にする。
    * 覚えるのは、実行した頼みと、将来のいつか通るようになる頼みの断り（期限が遠い未来の expired、上限での rate）である。
    * 開けない頼みと、期限が過ぎた頼み、大きすぎる頼みは覚えない（どれも何もしないので、再送されても害が無い）。
-   * 覚えは expiresAt に時計のずれの幅を足した時刻まで残す。その後の再送は期限切れで断られるので、隙間は無い。
+   * 覚えは expiresAt に少しの余裕を足した時刻まで残す（読むだけの頼みは短く）。その後の再送は期限切れで断られるので、隙間は無い。
    * 数は頼み主ごとに数える。refusal は、答えが小さい断りの覚えで、実行の覚えとは別の上限を持つ。
    */
   const seen = new Map<string, { from: string; until: number; refusal: boolean; reply: Promise<PeerChatBellReply | null> }>();
@@ -278,11 +297,14 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     for (const [k, v] of seen) if (t > v.until) seen.delete(k);
     const hit = seen.get(key);
     if (hit) return hit.reply;
-    const until = req.expiresAt + PEER_CHAT_CLOCK_SKEW_MS;
+    // 覚えは期限の少し先まで残す（期限を過ぎた再送は expired で断られる）。時計のずれの幅までは延ばさない（延ばすと、忙しい見張りの覚えが上限を埋める）。
+    // 読むだけの頼み（tail、files）は、再送されても害が無いので、短い間だけ覚える。
+    const keep = req.expiresAt + SEEN_MARGIN_MS;
+    const until = req.op.t === 'tail' || req.op.t === 'files' ? Math.min(keep, t + SEEN_READ_KEEP_MS) : keep;
     /** 断りを覚えて返す。覚えの上限に達していれば、覚えずに返す（頼み主 1 台が覚えを埋め尽くせないように）。 */
     const refused = (r: PeerChatReply): Promise<PeerChatBellReply | null> => {
       const reply = seal(ring, frame, r);
-      if (countOf(frame.from, true) < SEEN_REFUSALS_PER_SENDER) seen.set(key, { from: frame.from, until, refusal: true, reply });
+      if (countOf(frame.from, true) < SEEN_REFUSALS_PER_SENDER) seen.set(key, { from: frame.from, until: keep, refusal: true, reply });
       return reply;
     };
     const check = checkPeerChatRequest(req, t);

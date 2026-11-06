@@ -56,6 +56,10 @@ export type ViewDeps = {
   pane(tmuxName: string): HostPane | null;
   tail: Omit<TailDeps, 'pendingAsk'>;
   queued(sessionId: string): PeerChatQueued[];
+  /** この PC（手元で札に答えた記録の by に使う）。 */
+  self(): PeerChatDevice;
+  /** この hangar の起動ごとの印（state.hostId）。 */
+  hostId: string;
 };
 
 const jsonSize = (v: unknown): number => Buffer.byteLength(JSON.stringify(v));
@@ -116,6 +120,8 @@ export class ChatView {
   private gone: GoneRec[] = [];
   private deliveries: DeliveryRec[] = [];
   private readonly fromByUuid = new Map<string, PeerChatDevice>();
+  /** 会話ごとに、最後に出ていた札の項目。札が消えたとき、ほかの PC の答えが無ければ、この PC の手元で答えたと記録する。 */
+  private readonly lastAsk = new Map<string, PeerChatItem>();
   private readonly lastSig = new Map<string, string>();
   private readonly waiters = new Set<Waiter>();
   private disposed = false;
@@ -191,9 +197,43 @@ export class ChatView {
     if (!asked.ask) return;
     const askId = asked.ask.askId;
     const item: PeerChatItem = { ...asked, ask: { ...asked.ask, answered: { by, label, at: this.d.now() } } };
+    // 同じ札の記録は 1 つにする。答える最中に、札が消えたことを見て先にこの PC の手元の記録が入ったときは、選んだ行の分かる、後の記録で置き換える。
+    this.answers = this.answers.filter((a) => a.askId !== askId);
     this.answers.push({ askId, sessionId, item, at: this.d.now() });
     if (this.answers.length > RECORD_MAX) this.answers.shift();
     this.poke(sessionId);
+  }
+
+  /**
+   * 札の出入りを見る（build と答えの前に呼ぶ）。
+   * 出ている札を覚え、その札が消えたのに、ほかの PC の答えの記録が無ければ、この PC の手元で答えた記録を足す。
+   * 札が閉じたことを見る側に伝え、遅れて来たほかの PC の答えを already-answered で断るためである。
+   * label は空にする（手元で選んだ行は分からない）。画面は「{device} で答えました」と読ませる。
+   * 札が消えただけで答えたとは言えない場合は、記録せず覚えも保つ。
+   * 画面の読み取りが一度失敗しただけ（登録はまだ入力待ち）のときは、次の確かめまで待つ。
+   * 会話が動いていないときは、答えたのではなく止まったので、記録せずに忘れる。
+   */
+  observe(sessionId: string): void {
+    const cur = transcriptTail(sessionId, null, 1, this.tailDeps).items.at(-1);
+    const now = cur?.ask ? cur : null;
+    const prev = this.lastAsk.get(sessionId);
+    if (now) {
+      if (prev && prev.ask!.askId !== now.ask!.askId) this.settleAsk(sessionId, prev);
+      this.lastAsk.delete(sessionId);
+      this.lastAsk.set(sessionId, now);
+      if (this.lastAsk.size > RECORD_MAX) this.lastAsk.delete(this.lastAsk.keys().next().value!);
+      return;
+    }
+    if (!prev) return;
+    if (this.status(sessionId) === 'stopped') { this.lastAsk.delete(sessionId); return; }
+    if (this.d.session(sessionId)?.live === 'waiting') return;
+    this.settleAsk(sessionId, prev);
+    this.lastAsk.delete(sessionId);
+  }
+
+  private settleAsk(sessionId: string, prev: PeerChatItem): void {
+    if (!prev.ask || this.answers.some((a) => a.askId === prev.ask!.askId)) return;
+    this.recordAnswer(sessionId, prev, this.d.self(), '');
   }
 
   answeredAsk(askId: string): boolean {
@@ -249,6 +289,7 @@ export class ChatView {
    */
   build(sessionId: string, deviceId: string, after: string | null): { state: PeerChatState; hasNew: boolean; sig: string } {
     this.sweep();
+    this.observe(sessionId);
     const t = transcriptTail(sessionId, after, undefined, this.tailDeps);
     const extras = this.answers.filter((a) => a.sessionId === sessionId && !t.items.some((i) => i.uuid === a.item.uuid)).map((a) => a.item);
     const items = [...this.annotate(t.items, sessionId), ...extras];
@@ -256,7 +297,7 @@ export class ChatView {
     const status = this.status(sessionId);
     const queued = this.d.queued(sessionId).map((q) => ({ ...q, text: clipText(q.text, QUEUED_TEXT_MAX_BYTES) }));
     const sig = JSON.stringify([status, queued.map((q) => [q.queueId, q.state]), this.answers.filter((a) => a.sessionId === sessionId).map((a) => a.askId), gone.map((g) => g.queueId)]);
-    const state: PeerChatState = { sessionId, status, items, queued, cursor: t.cursor, truncated: t.truncated };
+    const state: PeerChatState = { sessionId, status, items, queued, cursor: t.cursor, truncated: t.truncated, hostId: this.d.hostId };
     if (gone.length > 0) state.gone = gone;
     return { state: fit(state), hasNew: t.items.length > 0, sig };
   }

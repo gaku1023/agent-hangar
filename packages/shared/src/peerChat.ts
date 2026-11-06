@@ -76,6 +76,10 @@ export type PeerChatStatus = (typeof PEER_CHAT_STATUSES)[number];
  * 送った文が渡されないまま消えた知らせ（送り主の PC に返す）。
  * queue-expired は止まってから 10 分渡せなかったとき、session-unknown は会話が消えたとき。
  * 受け取った側は、自分の預かりの queueId を探し、文を入力欄に戻す。
+ * 届くのは、その会話の画面が開いていて、見張りが動いている間だけである（元の PC は数分のあいだ同じ知らせを載せ続けるが、見る側の画面が無ければ誰も受け取らない）。
+ * 画面を閉じたあとに渡せなくなった文は、知らせない（渡せたかどうかは、会話を開き直して見るしかない）。
+ * 見張りが動いていても、元の PC の再起動で消えた文は、見る側が hostId の変わりで見つけて同じ知らせにする（PeerChatState.hostId）。
+ * 受けない設定への切り替えで捨てた文も、reason は queue-expired で知らせる。
  */
 export type PeerChatGone = { queueId: string; reason: 'queue-expired' | 'session-unknown' };
 
@@ -88,6 +92,13 @@ export type PeerChatState = {
   truncated: boolean;
   /** その頼み主の預かりのうち、渡せずに消えたもの（元の PC が数分のあいだ載せる。無ければ付かない）。 */
   gone?: PeerChatGone[];
+  /**
+   * 元の PC の hangar の起動ごとの印（プロセスごとの乱数）。
+   * 預かりはメモリだけなので、再起動で消える。
+   * 見る側は、この値が前と替わったとき、自分が預けた文で新しい預かりに無いものを、渡せなかったとして文を戻す。
+   * 無い（古い相手）ときは何もしない。
+   */
+  hostId?: string;
 };
 
 /**
@@ -98,10 +109,15 @@ export type PeerBlobRef = MobileImageRef;
 
 export type PeerChatOp =
   | { t: 'tail'; after: string | null; waitMs: number }
-  | { t: 'send'; text: string; images: PeerBlobRef[] }
+  /**
+   * waitMs は、頼み主が答えを待つ長さ（Worker に渡す waitMs と同じ値）。
+   * 元の PC は、画像の取り込みと再開を含む全体をこの長さに収め、過ぎたら expired で断って何も預からない（頼み主が諦めたあとで預けて、二重に渡さないため）。
+   * 省くと PEER_CHAT_SEND_WAIT_DEFAULT_MS。
+   */
+  | { t: 'send'; text: string; images: PeerBlobRef[]; waitMs?: number }
   | { t: 'answer'; askId: string; keys: string[]; text?: string }
   | { t: 'interrupt' }
-  | { t: 'resume-send'; text: string; images: PeerBlobRef[] }
+  | { t: 'resume-send'; text: string; images: PeerBlobRef[]; waitMs?: number }
   | { t: 'cancel'; queueId: string }
   | { t: 'files'; query: string };
 
@@ -137,13 +153,23 @@ export const PEER_CHAT_TTL_MS = 60_000;
 /**
  * 2 台の PC の時計のずれとして許す幅。
  * 頼んだ側の時計が進んでいても、expiresAt が now + PEER_CHAT_TTL_MS + この値までなら有効として扱う。
+ * 家の PC の時計は数十秒ずれていることがあるので、90 秒にする（5 秒では、ずれた組の頼みが全部 expired になった）。
+ * 同じ頼みの再送の覚えは expiresAt にこの値を足した時刻まで残るので、広げても再送の防ぎは変わらない。
+ * 頼まれた側の時計が TTL より進んでいる組は、この値では救えない（画面は clock のつながりで時計を直すよう知らせる）。
  */
-export const PEER_CHAT_CLOCK_SKEW_MS = 5_000;
+export const PEER_CHAT_CLOCK_SKEW_MS = 90_000;
 /**
  * tail が答えを待たせる時間の上限。
  * Worker は waitMs + 5 秒まで待つ。
  */
 export const PEER_CHAT_WAIT_MAX_MS = 20_000;
+/**
+ * send、resume-send の頼みが waitMs を持たないときに、元の PC が使う待ちの長さ。
+ * Worker は頼み主の waitMs + 5 秒まで待つ。
+ * 頼み主の send の待ち（10 秒）と同じ値にして、持たない頼みでも、Worker の待ちより先に諦める。
+ * 頼み主は自分の待ちを waitMs で載せる。
+ */
+export const PEER_CHAT_SEND_WAIT_DEFAULT_MS = 10_000;
 /** send、resume-send、answer の text の上限（UTF-8 のバイト数）。 */
 export const PEER_CHAT_TEXT_MAX_BYTES = 32 * 1024;
 /**
@@ -224,7 +250,8 @@ function readOp(v: unknown): PeerChatOp | null {
     case 'resume-send': {
       const images = readImages(v.images);
       if (!isStr(v.text) || !images) return null;
-      return { t: v.t, text: v.text, images };
+      if (v.waitMs !== undefined && (!isNat(v.waitMs) || v.waitMs > PEER_CHAT_WAIT_MAX_MS)) return null;
+      return v.waitMs === undefined ? { t: v.t, text: v.text, images } : { t: v.t, text: v.text, images, waitMs: v.waitMs };
     }
     case 'answer': {
       if (!isId(v.askId) || !Array.isArray(v.keys) || v.keys.length > PEER_CHAT_KEYS_MAX || !optStr(v.text)) return null;
@@ -328,6 +355,10 @@ function readState(v: unknown): PeerChatState | null {
   if (v.gone !== undefined) {
     if (!Array.isArray(v.gone) || !v.gone.every((g) => isObj(g) && isStr(g.queueId) && (g.reason === 'queue-expired' || g.reason === 'session-unknown'))) return null;
     out.gone = (v.gone as PeerChatGone[]).map((g) => ({ queueId: g.queueId, reason: g.reason }));
+  }
+  if (v.hostId !== undefined) {
+    if (!isStr(v.hostId)) return null;
+    out.hostId = v.hostId;
   }
   return out;
 }
@@ -504,8 +535,10 @@ export type PeerChatReason = PeerChatRefusal | PeerChatViewRefusal;
  * offline は呼び鈴がつながっていない（または届かない）。
  * host-error は、つながっているが元の PC の中で想定外の失敗が続いている（見張りは間を空けて頼み直している）。
  * 画面は「PC がつながらない」ではなく「いまは届かない、頼み直します」と読ませる。
+ * clock は、つながっているが、2 台の時計がずれていて、元の PC が頼みを期限切れと断っている（tail が expired で返る）。
+ * 画面は「時計を合わせてください」と読ませる。見張りは間を空けて頼み直す。
  */
-export type PeerChatLink = 'online' | 'offline' | 'host-error';
+export type PeerChatLink = 'online' | 'offline' | 'host-error' | 'clock';
 
 /**
  * 見ている会話の更新（WebSocket の peerChat.update、GET /api/sessions/:id/peer-chat の update）。

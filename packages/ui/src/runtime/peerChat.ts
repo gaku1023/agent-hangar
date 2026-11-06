@@ -16,12 +16,28 @@ export type PeerChatRunnerDeps = {
   send: (msg: PeerChatClientMsg) => void;
   get: () => Record<string, PeerChatSlice>;
   set: (next: Record<string, PeerChatSlice>) => void;
+  /** ms 後に fn を呼ぶ。戻りは取り消し（省けば setTimeout）。worker-outdated の開き直しに使う。 */
+  after?: (ms: number, fn: () => void) => () => void;
 };
+
+/**
+ * 最初の同期の前は、Worker の版がまだ分からず、見張りの入口が worker-outdated で断る。
+ * 読み取り専用に固定せず、この間隔で開き直す（最後の値を繰り返す）。
+ * 入口の確かめは手元の判断だけで、Worker へは頼まない。
+ */
+const WORKER_RETRY_MS = [5_000, 15_000, 30_000] as const;
+/** 開き直す回数の上限（本当に古い Worker なら、いつまでも繰り返さない）。 */
+const WORKER_RETRY_MAX = 20;
 
 export type PeerChatRunner = {
   run(cmd: PeerChatCommand): void;
   /** WebSocket がつながり直した。見ている会話の見張りを最後の位置から張り直す（休止中は張らない）。 */
   rewatch(): void;
+  /**
+   * WebSocket の peerChat.update を Store に入れたあとに呼ぶ。
+   * 見張りの途中で worker-outdated の reason が来て読み取り専用になった会話も、最初の問い合わせと同じく、間を空けて開き直す。
+   */
+  noteUpdate(sessionId: string): void;
   /** 窓が隠れた。見張りを外す（見えない間は元の PC へ頼み続けない）。状態は残す。 */
   pause(): void;
   /** 窓が見えた。外していた見張りを、最後の位置から張り直す。 */
@@ -46,6 +62,48 @@ export function createPeerChatRunner(deps: PeerChatRunnerDeps): PeerChatRunner {
   };
   const watch = (sessionId: string, viewer: string, after: string | null): void => { if (!paused) deps.send({ type: 'peerChat.watch', sessionId, viewer, after }); };
   const failure = (): PeerChatReason => 'host-error';
+  const after = deps.after ?? ((ms: number, fn: () => void) => { const t = setTimeout(fn, ms); return () => clearTimeout(t); });
+  const retryTimers = new Map<string, () => void>();
+  const retryCount = new Map<string, number>();
+  const stopRetry = (sessionId: string): void => {
+    retryTimers.get(sessionId)?.();
+    retryTimers.delete(sessionId);
+  };
+
+  /** worker-outdated で読み取り専用になった会話を、間を空けて開き直す（Worker の版が分かれば入れる）。 */
+  function retryLater(sessionId: string): void {
+    stopRetry(sessionId);
+    const n = retryCount.get(sessionId) ?? 0;
+    if (n >= WORKER_RETRY_MAX) return;
+    retryCount.set(sessionId, n + 1);
+    retryTimers.set(sessionId, after(WORKER_RETRY_MS[Math.min(n, WORKER_RETRY_MS.length - 1)]!, () => {
+      retryTimers.delete(sessionId);
+      const cur = slice(sessionId);
+      if (!cur || cur.phase !== 'fallback' || cur.fallback !== 'worker-outdated' || cur.viewers.length === 0) return;
+      // 休止中は張らない。戻ったときの開き直しは、次の周に任せる。
+      if (paused) { retryLater(sessionId); return; }
+      void load(sessionId, cur.viewers[0]!, true);
+    }));
+  }
+
+  /** 最初の問い合わせ（GET）と、その答えの取り込み。retry のときは fallback から入り直す。 */
+  async function load(sessionId: string, viewer: string, retry: boolean): Promise<void> {
+    let r: PeerChatViewDto;
+    try { r = await deps.open(sessionId, viewer, ''); } catch { r = { ok: false, reason: 'unreachable' }; }
+    // 待つ間に、全員が閉じた（状態が消えた）か、別の答えで済んだ。
+    const now = slice(sessionId);
+    if (!now || now.phase !== (retry ? 'fallback' : 'loading')) return;
+    if (!r.ok) {
+      write(sessionId, (s) => ({ ...s, phase: 'fallback', fallback: r.reason, device: r.device ?? s.device }));
+      if (r.reason === 'worker-outdated') retryLater(sessionId);
+      return;
+    }
+    retryCount.delete(sessionId);
+    write(sessionId, (s) => applyUpdate({ ...s, device: r.device }, r.update));
+    if (r.update.reason) return;
+    const next = slice(sessionId);
+    for (const v of next?.viewers ?? []) watch(sessionId, v, r.update.cursor);
+  }
 
   async function open(sessionId: string, viewer: string): Promise<void> {
     const cur = slice(sessionId);
@@ -58,16 +116,8 @@ export function createPeerChatRunner(deps: PeerChatRunnerDeps): PeerChatRunner {
       return;
     }
     deps.set({ ...deps.get(), [sessionId]: emptySlice(viewer) });
-    let r: PeerChatViewDto;
-    try { r = await deps.open(sessionId, viewer, ''); } catch { r = { ok: false, reason: 'unreachable' }; }
-    // 待つ間に、全員が閉じた（状態が消えた）か、別の答えで済んだ。
-    const now = slice(sessionId);
-    if (!now || now.phase !== 'loading') return;
-    if (!r.ok) { write(sessionId, (s) => ({ ...s, phase: 'fallback', fallback: r.reason, device: r.device ?? s.device })); return; }
-    write(sessionId, (s) => applyUpdate({ ...s, device: r.device }, r.update));
-    if (r.update.reason) return;
-    const after = slice(sessionId);
-    for (const v of after?.viewers ?? []) watch(sessionId, v, r.update.cursor);
+    retryCount.delete(sessionId);
+    await load(sessionId, viewer, false);
   }
 
   function close(sessionId: string, viewer: string): void {
@@ -77,7 +127,7 @@ export function createPeerChatRunner(deps: PeerChatRunnerDeps): PeerChatRunner {
     deps.send({ type: 'peerChat.unwatch', sessionId, viewer });
     const viewers = s.viewers.filter((v) => v !== viewer);
     const rest = { ...deps.get() };
-    if (viewers.length === 0) delete rest[sessionId];
+    if (viewers.length === 0) { delete rest[sessionId]; stopRetry(sessionId); retryCount.delete(sessionId); }
     else rest[sessionId] = { ...s, viewers };
     deps.set(rest);
   }
@@ -103,7 +153,8 @@ export function createPeerChatRunner(deps: PeerChatRunnerDeps): PeerChatRunner {
         let done: PeerChatSlice = { ...s, sending: false, locked };
         // 断られた答えの札は、また押せるようにする。
         if (body.t === 'answer') done = { ...done, answering: done.answering.filter((a) => a !== body.askId) };
-        if (!(r.reason === 'refused-by-setting')) done = showNotice(done, r.reason);
+        // 取り消しが間に合わなかった（もう渡した、または預かりに無い）ときは、渡せなかったとは言わない。
+        if (!(r.reason === 'refused-by-setting')) done = showNotice(done, body.t === 'cancel' && r.reason === 'queue-expired' ? 'cancel-late' : r.reason);
         // 送れなかった文は、入力欄へ戻す（画像も、置き場の名前のまま戻す）。
         return sends ? restoreText(done, text, images) : done;
       });
@@ -135,6 +186,10 @@ export function createPeerChatRunner(deps: PeerChatRunnerDeps): PeerChatRunner {
       }
     },
     rewatch,
+    noteUpdate(sessionId) {
+      const s = slice(sessionId);
+      if (s && s.phase === 'fallback' && s.fallback === 'worker-outdated' && !retryTimers.has(sessionId)) retryLater(sessionId);
+    },
     pause() {
       if (paused) return;
       paused = true;

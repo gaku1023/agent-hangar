@@ -176,8 +176,10 @@ describe('PeerChatHost: 入口と断り', () => {
 
   it('設定が切れていれば、送る系は refused-by-setting。tail と files は通る', async () => {
     const s = await setup({ acceptFromPeers: false });
-    const sending: PeerChatOp[] = [send('x'), { t: 'answer', askId: 'a', keys: ['1'] }, { t: 'interrupt' }, { t: 'resume-send', text: 'x', images: [] }, { t: 'cancel', queueId: 'q' }];
+    const sending: PeerChatOp[] = [send('x'), { t: 'answer', askId: 'a', keys: ['1'] }, { t: 'interrupt' }, { t: 'resume-send', text: 'x', images: [] }];
     for (const op of sending) expect(await s.ask(op)).toEqual({ ok: false, reason: 'refused-by-setting' });
+    // 取り消しは、送った文を取り戻すだけなので、設定が切れていても断らない（ここでは預かりが無いので queue-expired）。
+    expect(await s.ask({ t: 'cancel', queueId: 'q' })).toEqual({ ok: false, reason: 'queue-expired' });
     expect((await s.ask(tailOp())).ok).toBe(true);
     expect(await s.ask({ t: 'files', query: 'a' })).toEqual({ ok: true, files: [{ path: '/proj:a', changed: false }] });
     expect(s.w.sent).toEqual([]);
@@ -259,6 +261,17 @@ describe('PeerChatHost: tail', () => {
   });
 });
 
+describe('PeerChatHost: 起動ごとの印', () => {
+  it('state に hostId を載せ、同じ host では変わらず、別の host（再起動）では変わる', async () => {
+    const a = await setup();
+    const b = await setup();
+    const ida = a.state(await a.ask(tailOp())).hostId;
+    expect(typeof ida).toBe('string');
+    expect(a.state(await a.ask(tailOp())).hostId).toBe(ida);
+    expect(b.state(await b.ask(tailOp())).hostId).not.toBe(ida);
+  });
+});
+
 describe('PeerChatHost: send と預かり', () => {
   it('作業中の send は預かり、止まって入力欄が空なら渡す。渡した文に送り主が付く', async () => {
     const s = await setup({ session: idleSession({ live: 'busy' }) });
@@ -326,6 +339,48 @@ describe('PeerChatHost: send と預かり', () => {
     expect(await s.ask({ t: 'cancel', queueId: r.queueId })).toEqual({ ok: true });
     expect(s.state(await s.ask(tailOp())).queued).toEqual([]);
     expect(await s.ask({ t: 'cancel', queueId: r.queueId })).toEqual({ ok: false, reason: 'queue-expired' });
+  });
+
+  it('渡している最中に取り消しが間に合わなかったときは、すでに答えがあるとは言わず、queue-expired（もう渡した）で断る', async () => {
+    const s = await setup({ session: idleSession({ live: 'busy' }), deps: { sendInput: async () => { await new Promise((res) => setTimeout(res, 300)); } } });
+    const r = (await s.ask(send('racing cancel'))) as { ok: true; queueId: string };
+    s.w.session!.live = 'idle';
+    s.host.turnChanged();
+    await settle(() => s.host.queued()['s1']?.[0]?.state === 'delivering');
+    expect(await s.ask({ t: 'cancel', queueId: r.queueId })).toEqual({ ok: false, reason: 'queue-expired' });
+  });
+
+  it('設定を切ったら、預かっていた文は渡さずに捨て、送り主の state.gone に載せる（止まって空いていても渡さない）', async () => {
+    const s = await setup({ session: idleSession({ live: 'busy' }) });
+    const r = (await s.ask(send('queued before off'))) as { ok: true; queueId: string };
+    s.w.acceptFromPeers = false;
+    s.w.session!.live = 'idle';
+    s.host.turnChanged();
+    await settle(() => s.w.events.some((e) => e.type === 'peerChat.queue' && e.queued.length === 0));
+    await new Promise((res) => setTimeout(res, 60));
+    expect(s.w.sent).toEqual([]);
+    const st = s.state(await s.ask(tailOp()));
+    expect(st.queued).toEqual([]);
+    expect(st.gone).toEqual([{ queueId: r.queueId, reason: 'queue-expired' }]);
+  });
+
+  it('渡す直前（入力欄を読む間）に設定が切れても、渡さない', async () => {
+    const s = await setup({ session: idleSession({ live: 'busy' }) });
+    const r = (await s.ask(send('racing'))) as { ok: true; queueId: string };
+    s.w.session!.live = 'idle';
+    s.w.pane.captureStyled = async () => { s.w.acceptFromPeers = false; return WIN_EMPTY_AFTER_TURN; };
+    s.host.turnChanged();
+    await settle(() => s.w.events.some((e) => e.type === 'peerChat.queue' && e.queued.length === 0));
+    await new Promise((res) => setTimeout(res, 60));
+    expect(s.w.sent).toEqual([]);
+    expect(s.state(await s.ask(tailOp())).gone).toEqual([{ queueId: r.queueId, reason: 'queue-expired' }]);
+  });
+
+  it('設定が切れていても、送り主は預かりを取り消せる（文が戻る）', async () => {
+    const s = await setup({ session: idleSession({ live: 'busy' }), deps: { queue: { pollMs: 60_000, settleMs: 20 } } });
+    const r = (await s.ask(send('mine'))) as { ok: true; queueId: string };
+    s.w.acceptFromPeers = false;
+    expect(await s.ask({ t: 'cancel', queueId: r.queueId })).toEqual({ ok: true });
   });
 
   it('預かりが上限なら rate', async () => {
@@ -457,6 +512,18 @@ describe('PeerChatHost: 再送と想定外の失敗', () => {
     expect(again!.frame.sealed).toBe(first!.frame.sealed);
     await settle(() => s.w.sent.length === 1);
     expect(s.w.sent).toHaveLength(1);
+  });
+
+  it('忙しい会話の見張りを 3 つ（1 分に 90 回、ここでは 1 分に 180 回）続けても、覚えの上限で rate にならない', async () => {
+    const s = await setup();
+    const reasons = new Set<string>();
+    for (let i = 0; i < 300; i++) {
+      // 3 件ごとに host の時計が 1 秒進む（100 秒で 300 件）。
+      s.w.skew = Math.floor(i / 3) * 1000;
+      const r = await s.ask(tailOp(), { id: `busy-${i}`, expiresAt: Date.now() + s.w.skew + 60_000 });
+      reasons.add(r.ok ? 'ok' : r.reason);
+    }
+    expect([...reasons]).toEqual(['ok']);
   });
 
   it('期限を過ぎてからの再送は expired で断り、もう一度は実行しない', async () => {
@@ -611,6 +678,41 @@ describe('PeerChatHost: answer と interrupt', () => {
     expect(s.w.pane.events).toEqual([]);
   });
 
+  it('この PC の手元で札に答えたら、札を「この PC で答えた」記録にして閉じ、遅れて来た答えは already-answered', async () => {
+    const { s, ask, askItemUuid } = await withPermission();
+    const before = s.state(await s.ask(tailOp()));
+    // 手元の画面で人が答えた（登録も動き出す）。
+    s.w.pane.plain = RUNNING_SCREEN;
+    s.w.session!.live = 'busy';
+    s.host.poke('s1');
+    const st = s.state(await s.ask(tailOp(before.cursor, 1000)));
+    const closed = st.items.find((i) => i.ask?.askId === ask.askId);
+    expect(closed?.uuid).toBe(askItemUuid);
+    expect(closed?.ask?.answered).toMatchObject({ by: { deviceId: 'pc-a', deviceName: 'pc-a' }, label: '' });
+    // 遅れて来た答えは、札が違うではなく、すでに答えがあると断る。
+    expect(await s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] }, { from: 'pc-c' })).toEqual({ ok: false, reason: 'already-answered' });
+    expect(s.w.pane.events).toEqual([]);
+  });
+
+  it('札が出たまま会話が止まった（動いていない）ときは、答えたとは記録しない', async () => {
+    const { s, ask } = await withPermission();
+    const before = s.state(await s.ask(tailOp()));
+    s.w.run = null;
+    s.w.session!.live = null;
+    s.host.poke('s1');
+    const st = s.state(await s.ask(tailOp(before.cursor, 0)));
+    expect(st.items.find((i) => i.ask?.askId === ask.askId)?.ask?.answered).toBeUndefined();
+  });
+
+  it('画面の読み取りが一度失敗しても（登録はまだ入力待ち）、答えたとは記録しない', async () => {
+    const { s, ask } = await withPermission();
+    const before = s.state(await s.ask(tailOp()));
+    s.w.pane.plain = RUNNING_SCREEN;
+    s.host.poke('s1');
+    const st = s.state(await s.ask(tailOp(before.cursor, 0)));
+    expect(st.items.find((i) => i.ask?.askId === ask.askId)?.ask?.answered).toBeUndefined();
+  });
+
   it('interrupt は走っているターンに Escape を打つ', async () => {
     const s = await setup({ session: idleSession({ live: 'busy' }) });
     s.w.pane.plain = RUNNING_SCREEN;
@@ -646,6 +748,51 @@ describe('PeerChatHost: resume-send', () => {
     const s = await setup({ run: null, session: idleSession({ live: null }), deps: { resumeWaitMs: 60, resume: async () => undefined } });
     expect(await s.ask({ t: 'resume-send', text: 'x', images: [] })).toEqual({ ok: false, reason: 'resume-failed' });
     expect(s.w.sent).toEqual([]);
+  });
+
+  it('画像は再開の前に取る。取れなければ、会話を再開せずに断る', async () => {
+    const s = await setup({ run: null, session: idleSession({ live: null }) });
+    const r = await s.ask({ t: 'resume-send', text: 'x', images: [{ n: 0, mime: 'image/png', bytes: 3 }] });
+    expect(r).toEqual({ ok: false, reason: 'expired' });
+    expect(s.w.resumed).toBe(0);
+    expect(fs.readdirSync(s.dropsDir)).toEqual([]);
+  });
+
+  it('頼み主の待ち（waitMs）を過ぎたら、expired で断り、あとで画面が現れても預からない（二重に渡さない）', async () => {
+    const s = await setup({
+      run: null,
+      session: idleSession({ live: null }),
+      deps: {
+        resumeWaitMs: 5000,
+        resume: async () => {
+          setTimeout(() => { s.w.run = { tmuxName: 'hangar-2' }; s.w.session!.live = 'idle'; }, 250);
+        },
+      },
+    });
+    const t0 = Date.now();
+    const r = await s.ask({ t: 'resume-send', text: 'late', images: [], waitMs: 100 });
+    expect(r).toEqual({ ok: false, reason: 'expired' });
+    expect(Date.now() - t0).toBeLessThan(240);
+    await new Promise((res) => setTimeout(res, 500));
+    expect(s.w.sent).toEqual([]);
+    expect(s.state(await s.ask(tailOp())).queued).toEqual([]);
+  });
+
+  it('画像の取り込みが待ちを過ぎたら、expired で断り、預からず、置いた画像も残さない', async () => {
+    const s = await setup({ deps: { fetchBlob: async () => { await new Promise((res) => setTimeout(res, 250)); return sealed; } } });
+    const sealed = await sealPeerChatBlob(s.ring, { requestId: 'slow', from: 'pc-b', to: 'pc-a' }, 0, new Uint8Array([1, 2, 3]));
+    const r = await s.ask({ t: 'send', text: 'slow image', images: [{ n: 0, mime: 'image/png', bytes: 3 }], waitMs: 100 }, { id: 'slow' });
+    expect(r).toEqual({ ok: false, reason: 'expired' });
+    await new Promise((res) => setTimeout(res, 500));
+    expect(s.w.sent).toEqual([]);
+    expect(s.state(await s.ask(tailOp())).queued).toEqual([]);
+    expect(fs.readdirSync(s.dropsDir)).toEqual([]);
+  });
+
+  it('待ちの中で済めば（waitMs 内）、これまでどおり預かる', async () => {
+    const s = await setup({ run: null, session: idleSession({ live: null }) });
+    expect((await s.ask({ t: 'resume-send', text: 'in time', images: [], waitMs: 5000 })).ok).toBe(true);
+    await settle(() => s.w.sent.length === 1);
   });
 
   it('動いている会話への resume-send は、再開せずに send と同じ', async () => {
