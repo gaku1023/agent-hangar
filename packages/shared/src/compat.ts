@@ -46,10 +46,15 @@
  * 共有表にも MIN_DEVICE_COMPAT にも触れないので、版 9 の端末は今までどおり同期できる（MIN_DEVICE_COMPAT は 9 のまま）。
  * 端末は、Worker が名乗る版が PEER_LAUNCH_MIN_WORKER_COMPAT に届くまで、別の PC への頼みを置かず、「Worker の更新が要る」ことを返す。
  *
+ * 版 11（ほかの PC の会話をチャットで見て続ける）：Worker が、PC どうしの会話の問い合わせの口（POST /peer/ask、/peer/blobs/）を持ち、呼び鈴の知らせに { t: 'peer', kind: 'chat' } が増える。
+ * 中身は PC どうしの鍵で封じ（packages/shared/src/peerChat.ts）、Worker は読まない。D1 にも永続の行にも書かない（画像だけ、封をしたまま 24 時間で消える置き場に置く）。
+ * 共有表にも MIN_DEVICE_COMPAT にも触れないので、版 10 の端末は今までどおり同期できる（MIN_DEVICE_COMPAT は 9 のまま）。
+ * 端末は、相手の PC が版 11 以上を名乗るときだけチャットの画面を出し、それ未満の相手には読み取り専用のトランスクリプトのままにする。
+ *
  * 殻は同梱するサーバと同じ版を名乗る写しを持つ（apps/desktop/src-tauri/src/health.rs の COMPAT_VERSION）。apps/desktop/test/config.test.ts がこの値と突き合わせる。
  * 殻は 4177 の既存のサーバと下限ではなく一致で比べるので、この版を上げると、上げた殻は上げる前のサーバを採らず、上げる前の殻は上げた後のサーバを採らない。
  */
-export const COMPAT_VERSION = 10;
+export const COMPAT_VERSION = 11;
 
 /**
  * PC の一覧と解除の口（GET /devices、POST /devices/:id/revoke）を持つ Worker の版。
