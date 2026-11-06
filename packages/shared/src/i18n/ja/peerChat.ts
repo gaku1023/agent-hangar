@@ -29,6 +29,8 @@ export const peerChatJa: AreaDictionary<typeof peerChatKeys> = {
   'peerChat.ask.wordDeny': '拒否',
   'peerChat.ask.answeredPermission': '{device} で{label}',
   'peerChat.ask.answeredQuestion': '{device} で「{label}」',
+  'peerChat.ask.answeredHere': '{device} で答えました',
+  'peerChat.ask.closed': '確認は終わりました',
   'peerChat.composer.label': 'メッセージ',
   'peerChat.composer.placeholder': '{device} の会話に送る',
   'peerChat.composer.placeholderOffline': '{device} に接続できません',

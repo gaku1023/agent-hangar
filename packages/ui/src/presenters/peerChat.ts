@@ -82,14 +82,27 @@ export function permissionWord(t: Translate, label: string): string | null {
 function answerLine(t: Translate, it: PeerChatItem): string | null {
   const a = it.ask?.answered;
   if (!a) return null;
+  // 元の PC の手元で答えた札は、選んだ行が分からない（label が空）。
+  if (a.label === '') return t('peerChat.ask.answeredHere', { device: a.by.deviceName });
   const word = it.ask!.kind === 'permission' ? permissionWord(t, a.label) : null;
   // 許可の文が決めた形に合うときは語で、合わないとき（と質問）は元の文を引用する。
   return word !== null ? t('peerChat.ask.answeredPermission', { device: a.by.deviceName, label: word }) : t('peerChat.ask.answeredQuestion', { device: a.by.deviceName, label: a.label });
 }
 
-function rowOf(t: Translate, it: PeerChatItem, slice: PeerChatSlice): PeerChatRow {
+/**
+ * 答えの付かない札を閉じて見せるか（開いたまま残さない安全網）。
+ * 元の PC が答えの記録を付けそこねても、入力待ちでなくなった、または後ろに項目が続いたら、答えを待つ札ではない。
+ * 状態がまだ分からない間（status が null）は閉じない。
+ */
+function staleAsk(slice: PeerChatSlice, index: number): boolean {
+  if (slice.status === null) return false;
+  return slice.status !== 'waiting' || index < slice.items.length - 1;
+}
+
+function rowOf(t: Translate, it: PeerChatItem, slice: PeerChatSlice, index: number): PeerChatRow {
   if (it.ask) {
-    return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, answered: answerLine(t, it), pending: slice.answering.includes(it.ask.askId), locked: slice.locked };
+    const answered = answerLine(t, it) ?? (staleAsk(slice, index) ? t('peerChat.ask.closed') : null);
+    return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, answered, pending: slice.answering.includes(it.ask.askId), locked: slice.locked };
   }
   switch (it.kind) {
     case 'user': return { kind: 'user', key: it.uuid, text: it.text, from: it.from ? t('peerChat.log.sentFrom', { device: it.from.deviceName }) : null };
@@ -113,7 +126,7 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
   const device = slice.device?.deviceName ?? s!.lock?.deviceName ?? '';
   const myId = store.device?.id ?? null;
   const status = slice.status;
-  const rows: PeerChatRow[] = slice.items.map((it) => rowOf(t, it, slice));
+  const rows: PeerChatRow[] = slice.items.map((it, i) => rowOf(t, it, slice, i));
   for (const q of slice.queued) {
     const mine = myId !== null && q.from.deviceId === myId;
     rows.push({ kind: 'queued', key: `queued:${q.queueId}`, queueId: q.queueId, text: q.text, images: q.images, tag: t(q.state === 'delivering' ? 'peerChat.queued.delivering' : 'peerChat.queued.tag'), from: mine ? null : t('peerChat.queued.from', { device: q.from.deviceName }), mine, delivering: q.state === 'delivering' });

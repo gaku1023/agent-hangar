@@ -29,6 +29,8 @@ export const peerChatEn: AreaDictionary<typeof peerChatKeys> = {
   'peerChat.ask.wordDeny': 'Denied',
   'peerChat.ask.answeredPermission': '{label} on {device}',
   'peerChat.ask.answeredQuestion': '"{label}" on {device}',
+  'peerChat.ask.answeredHere': 'Answered on {device}',
+  'peerChat.ask.closed': 'No longer waiting',
   'peerChat.composer.label': 'Message',
   'peerChat.composer.placeholder': 'Send to the conversation on {device}',
   'peerChat.composer.placeholderOffline': '{device} is not connected',

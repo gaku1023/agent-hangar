@@ -146,6 +146,21 @@ describe('チャットを出さない会話は、今までの読み取り専用�
     expect(p.peerChat?.view).toMatchObject({ device: 'Mac', composer: { kind: 'queue' } });
   });
 
+  it('元の PC の手元で答えた札（label が空）は、選択肢を出さず「{device} で答えました」の行になる', () => {
+    const it0 = { ...ask(true), ask: { ...ask(true).ask!, answered: { by: MAC, label: '', at: 9 } } };
+    expect(view(store({ status: 'busy', items: [it0] }))!.rows[0]).toMatchObject({ kind: 'ask', answered: 'Mac で答えました' });
+  });
+
+  it('答えの付かない札でも、会話が入力待ちでなくなったか、後ろに項目が続いたら、閉じた札にする（開いたままにしない）', () => {
+    const closed = (r: unknown) => (r as { answered: string | null }).answered;
+    expect(closed(view(store({ status: 'busy', items: [ask()] }))!.rows[0])).toBe('確認は終わりました');
+    expect(closed(view(store({ status: 'idle', items: [ask()] }))!.rows[0])).toBe('確認は終わりました');
+    expect(closed(view(store({ status: 'waiting', items: [ask(), ai('a2', '続き')] }))!.rows[0])).toBe('確認は終わりました');
+    // 入力待ちの最後の札と、状態がまだ分からない間（読み込み中）は開いている。
+    expect(closed(view(store({ status: 'waiting', items: [ai('a0', '前'), ask()] }))!.rows[1])).toBeNull();
+    expect(closed(view(store({ status: null, items: [ask()] }))!.rows[0])).toBeNull();
+  });
+
   it('答えの行は、許可の選択肢の画面の文（Yes、Yes, and ask-again の形、No）を固定の語にする。合わなければ引用する', () => {
     expect(permissionWord(ja, 'Yes')).toBe('許可');
     expect(permissionWord(ja, "Yes, and don't ask again for mkdir -p zz commands in C:\\work\\w1")).toBe('今後も許可');

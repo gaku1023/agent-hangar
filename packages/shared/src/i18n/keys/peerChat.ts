@@ -28,6 +28,8 @@ export const peerChatKeys = {
   'peerChat.ask.wordDeny': [],
   'peerChat.ask.answeredPermission': ['device', 'label'],
   'peerChat.ask.answeredQuestion': ['device', 'label'],
+  'peerChat.ask.answeredHere': ['device'],
+  'peerChat.ask.closed': [],
   'peerChat.composer.label': [],
   'peerChat.composer.placeholder': ['device'],
   'peerChat.composer.placeholderOffline': ['device'],
