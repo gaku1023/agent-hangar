@@ -238,8 +238,8 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
         const r = queue.cancel(op.queueId, fromId);
         // 無い（渡した、捨てた）、ほかの PC の預かり、渡している最中は、どれも取り消せない。
         // ほかの PC の預かりの有無は教えない。
-        if (r.ok) return { ok: true };
-        return refuse(r.reason === 'delivering' ? 'already-answered' : 'queue-expired');
+        // どれも queue-expired で返す（もう渡した、または預かりに無い）。already-answered は札の答えの断りで、取り消しには合わない。
+        return r.ok ? { ok: true } : refuse('queue-expired');
       }
       case 'files': {
         if (!session.cwd) return refuse('session-unknown');

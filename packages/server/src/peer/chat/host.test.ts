@@ -341,6 +341,15 @@ describe('PeerChatHost: send と預かり', () => {
     expect(await s.ask({ t: 'cancel', queueId: r.queueId })).toEqual({ ok: false, reason: 'queue-expired' });
   });
 
+  it('渡している最中に取り消しが間に合わなかったときは、すでに答えがあるとは言わず、queue-expired（もう渡した）で断る', async () => {
+    const s = await setup({ session: idleSession({ live: 'busy' }), deps: { sendInput: async () => { await new Promise((res) => setTimeout(res, 300)); } } });
+    const r = (await s.ask(send('racing cancel'))) as { ok: true; queueId: string };
+    s.w.session!.live = 'idle';
+    s.host.turnChanged();
+    await settle(() => s.host.queued()['s1']?.[0]?.state === 'delivering');
+    expect(await s.ask({ t: 'cancel', queueId: r.queueId })).toEqual({ ok: false, reason: 'queue-expired' });
+  });
+
   it('設定を切ったら、預かっていた文は渡さずに捨て、送り主の state.gone に載せる（止まって空いていても渡さない）', async () => {
     const s = await setup({ session: idleSession({ live: 'busy' }) });
     const r = (await s.ask(send('queued before off'))) as { ok: true; queueId: string };

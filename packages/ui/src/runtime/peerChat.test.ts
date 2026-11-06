@@ -218,6 +218,15 @@ describe('送る・預ける・取り消す', () => {
     expect(t.slice().notice?.reason).toBe('expired');
   });
 
+  it('取り消しが間に合わなかった（queue-expired）ときは、渡せなかったとは言わず、もう渡したと出す。文は戻さない', async () => {
+    const t = await opened(async () => ({ ok: false, reason: 'queue-expired' }));
+    t.push(update({ queued: [queued('q1', 'あとで')] }));
+    t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'cancel', queueId: 'q1' } });
+    await t.tick();
+    expect(t.slice().restore).toBeNull();
+    expect(t.slice().notice?.reason).toBe('cancel-late');
+  });
+
   it('渡せずに消えた自分の預かり（gone）は、文を入力欄へ戻し、同じ queueId は 1 度だけ', async () => {
     const t = await opened(async () => ({ ok: true, queueId: 'q9' }));
     t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'send', text: '預けた文' } });

@@ -52,6 +52,7 @@ export const peerChatJa: AreaDictionary<typeof peerChatKeys> = {
   'peerChat.image.kind': '画像は PNG、JPEG、WebP のみ対応しています',
   'peerChat.image.tooLarge': '{name} は 5 MB を超えているため添付できません',
   'peerChat.notice.gone': '渡せなかったため入力欄に戻しました',
+  'peerChat.notice.cancelLate': 'もう渡したため、取り消せません',
   'peerChat.refusal.offline': '{device} に接続できません',
   'peerChat.refusal.refusedBySetting': '{device} は、他の PC からの操作を受け付けない設定です',
   'peerChat.refusal.notClaude': 'Claude Code の会話ではないため送れません',

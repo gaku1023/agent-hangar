@@ -60,8 +60,9 @@ const REFUSAL_KEY = {
 } as const;
 
 /** 断りの理由を、入力欄のそばに出す一言にする。知らない理由は「送れませんでした」。 */
-export function refusalText(t: Translate, reason: PeerChatReason | 'gone', device: string): string {
+export function refusalText(t: Translate, reason: PeerChatReason | 'gone' | 'cancel-late', device: string): string {
   if (reason === 'gone') return t('peerChat.notice.gone');
+  if (reason === 'cancel-late') return t('peerChat.notice.cancelLate');
   const key = (REFUSAL_KEY as Record<string, (typeof REFUSAL_KEY)[keyof typeof REFUSAL_KEY]>)[reason];
   return key ? t(key, { device }) : t('peerChat.refusal.other');
 }

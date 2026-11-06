@@ -52,6 +52,7 @@ export const peerChatEn: AreaDictionary<typeof peerChatKeys> = {
   'peerChat.image.kind': 'Only PNG, JPEG and WebP images are supported',
   'peerChat.image.tooLarge': '{name} is over 5 MB',
   'peerChat.notice.gone': 'Couldn\'t deliver. Your message is back in the input',
+  'peerChat.notice.cancelLate': 'Already delivered, so it cannot be canceled',
   'peerChat.refusal.offline': '{device} is not connected',
   'peerChat.refusal.refusedBySetting': '{device} is set not to accept actions from other computers',
   'peerChat.refusal.notClaude': 'This is not a Claude Code conversation, so it cannot be sent to',

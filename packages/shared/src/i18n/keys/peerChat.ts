@@ -51,6 +51,7 @@ export const peerChatKeys = {
   'peerChat.image.kind': [],
   'peerChat.image.tooLarge': ['name'],
   'peerChat.notice.gone': [],
+  'peerChat.notice.cancelLate': [],
   'peerChat.refusal.offline': ['device'],
   'peerChat.refusal.refusedBySetting': ['device'],
   'peerChat.refusal.notClaude': [],

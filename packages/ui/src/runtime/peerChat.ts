@@ -103,7 +103,8 @@ export function createPeerChatRunner(deps: PeerChatRunnerDeps): PeerChatRunner {
         let done: PeerChatSlice = { ...s, sending: false, locked };
         // 断られた答えの札は、また押せるようにする。
         if (body.t === 'answer') done = { ...done, answering: done.answering.filter((a) => a !== body.askId) };
-        if (!(r.reason === 'refused-by-setting')) done = showNotice(done, r.reason);
+        // 取り消しが間に合わなかった（もう渡した、または預かりに無い）ときは、渡せなかったとは言わない。
+        if (!(r.reason === 'refused-by-setting')) done = showNotice(done, body.t === 'cancel' && r.reason === 'queue-expired' ? 'cancel-late' : r.reason);
         // 送れなかった文は、入力欄へ戻す（画像も、置き場の名前のまま戻す）。
         return sends ? restoreText(done, text, images) : done;
       });

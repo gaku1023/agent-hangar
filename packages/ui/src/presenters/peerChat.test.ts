@@ -146,6 +146,11 @@ describe('チャットを出さない会話は、今までの読み取り専用�
     expect(p.peerChat?.view).toMatchObject({ device: 'Mac', composer: { kind: 'queue' } });
   });
 
+  it('間に合わなかった取り消し（cancel-late）の一言は、渡せなかったとは別の文', () => {
+    const v = view(store({ status: 'busy', notice: { n: 1, reason: 'cancel-late' } }))!;
+    expect(v.notice).toEqual({ n: 1, text: 'もう渡したため、取り消せません' });
+  });
+
   it('時計のずれ（link が clock）は、入力欄を閉じ、時計を合わせるよう一言を出す。つながっていない表示にはしない', () => {
     const v = view(store({ status: 'busy', link: 'clock' }))!;
     expect(v).toMatchObject({ statusLabel: '時計が合いません', tone: 'ended', composer: { kind: 'blocked', offline: null, canInterrupt: false, canTakeOver: false } });
