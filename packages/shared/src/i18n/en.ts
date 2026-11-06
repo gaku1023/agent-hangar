@@ -30,6 +30,7 @@ import { noticesEn } from './en/notices.ts';
 import { muxEn } from './en/mux.ts';
 import { approveEn } from './en/approve.ts';
 import { pauseEn } from './en/pause.ts';
+import { peerChatEn } from './en/peerChat.ts';
 import { platformEn } from './en/platform.ts';
 import { projectEn } from './en/project.ts';
 import { projectsEn } from './en/projects.ts';
@@ -104,6 +105,7 @@ export const en: Dictionary = {
   ...muxEn,
   ...approveEn,
   ...pauseEn,
+  ...peerChatEn,
   ...platformEn,
   ...projectEn,
   ...projectsEn,

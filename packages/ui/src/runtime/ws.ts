@@ -1,6 +1,6 @@
 import type { ServerEvent } from '@agent-hangar/shared';
 
-export type WsClient = { connect(): void; close(): void };
+export type WsClient = { connect(): void; close(): void; /** サーバへ知らせを送る（つながっていなければ捨てる。画面からの見張りの頼みだけが使う）。 */ send?(msg: unknown): void };
 
 /** WebSocket を一本だけ持ち、開閉と受信を呼び出し側の handler に渡す。 */
 export function createWs(opts: { url: string; onOpen(): void; onClose(): void; onEvent(ev: ServerEvent): void; factory?: (url: string) => WebSocket }): WsClient {
@@ -17,5 +17,6 @@ export function createWs(opts: { url: string; onOpen(): void; onClose(): void; o
       ws.onerror = () => { /* onclose が続く */ };
     },
     close() { closed = true; ws?.close(); ws = null; },
+    send(msg) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg)); },
   };
 }

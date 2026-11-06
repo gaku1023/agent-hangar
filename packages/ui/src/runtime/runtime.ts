@@ -31,6 +31,7 @@ import type { Notifier } from './notifier.ts';
 import { createUpdateRunner } from './updater.ts';
 import type { ReleaseNote } from '../lib/releaseNotes.ts';
 import { createCloudMemberRunner } from './cloudMember.ts';
+import { createPeerChatRunner } from './peerChat.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
 import { keyLabel } from '../keys.ts';
@@ -238,6 +239,14 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     setTimeout: deps.setTimeout,
     get: () => store.cloudMember,
     set: (c) => { if (c !== store.cloudMember) setStore({ ...store, cloudMember: c }); },
+  });
+  /** ほかの PC の会話の見張りと操作（runtime/peerChat.ts）。更新は WebSocket の peerChat.update で届き、Store へは applyEvent が入れる。 */
+  const peerChat = createPeerChatRunner({
+    open: (sessionId, viewer, after) => deps.api.peerChatOpen(sessionId, viewer, after),
+    op: (sessionId, body) => deps.api.peerChatOp(sessionId, body),
+    send: (msg) => ws?.send?.(msg),
+    get: () => store.peerChat,
+    set: (next) => setStore({ ...store, peerChat: next }),
   });
   const updater = deps.desktop ? createUpdateRunner({
     bridge: deps.desktop.update, storage: deps.storage, setTimeout: deps.setTimeout, now: () => clock(), bundled: deps.releaseNotes ?? [],
@@ -843,6 +852,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'badge': notifier?.badge(e.count); return;
       case 'update': updater?.run(e.command); return;
       case 'cloudMember': cloudMember.run(e.command); return;
+      case 'peerChat': peerChat.run(e.command); return;
       case 'api.addTodo': deps.api.addTodo(e.projectId, e.text).catch(fail); return;
       case 'api.todo': todoCall(deps.api, e.call).catch(fail); return;
       // セッションの状態。画面の正は後から届く session.upsert なので、返り値はストアに入れない。失敗の一文はトーストに出す。
@@ -1169,7 +1179,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // 更新の確認（起動したときに 1 度、その後は数時間おき）。殻が updater を持たなければ何もしない。
       updater?.start();
       ws = deps.ws({
-        onOpen: () => dispatch({ kind: 'runtime', event: { type: 'ws.open' } }),
+        onOpen: () => { dispatch({ kind: 'runtime', event: { type: 'ws.open' } }); peerChat.rewatch(); },
         // 切れた時刻を添える。Mediator は純粋な遷移なので、画面がいつから古いかを自分では測れない。
         onClose: () => dispatch({ kind: 'runtime', event: { type: 'ws.close', at: (deps.now ?? Date.now)() } }),
         onEvent: (ev) => dispatch({ kind: 'server', event: ev }),

@@ -1,4 +1,4 @@
-import type { ScheduleInput, SchedulePatch, PeerDeviceDto, PeerLaunchBody, PeerLaunchOutcomeDto } from '@agent-hangar/shared';
+import type { PeerChatOpIn, PeerChatOpResult, PeerChatViewDto, ScheduleInput, SchedulePatch, PeerDeviceDto, PeerLaunchBody, PeerLaunchOutcomeDto } from '@agent-hangar/shared';
 import { LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE } from '@agent-hangar/shared';
 import type { AccountLinkConflictDto, LinkConflictsDto, EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto, SessionLaunchSettingsDto } from '@agent-hangar/shared';
@@ -163,6 +163,10 @@ export type ApiClient = {
   codexOptions(refresh?: boolean): Promise<CodexOptionsDto>;
   /** 新しいセッションのダイアログの PC の選択。ほかの PC の様子（アカウント、エージェント、置き場のあるプロジェクト、頼めるか）。 */
   peers(): Promise<{ peers: PeerDeviceDto[] }>;
+  /** ほかの PC の会話の見張りを始める（GET /api/sessions/:id/peer-chat）。after が空文字なら頭から取る。 */
+  peerChatOpen(sessionId: string, viewer: string, after: string): Promise<PeerChatViewDto>;
+  /** ほかの PC の会話への操作（POST /api/sessions/:id/peer-chat/ops）。断りは 200 の本文で返る。 */
+  peerChatOp(sessionId: string, body: PeerChatOpIn): Promise<PeerChatOpResult>;
   /** 選んだ PC へ起動を頼む（承認は要らない）。置いたら requested、置く前に断れるものは refused と文を返す。 */
   peerLaunch(body: PeerLaunchBody): Promise<PeerLaunchOutcomeDto>;
   /** 設定のプロバイダー（ベータ）。API キーは本文で送るだけで、応答には載らない。 */
@@ -402,6 +406,8 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     codexStatus: () => call('/api/codex/status'),
     codexOptions: (refresh) => call(`/api/codex/options${qs({ refresh: refresh ? '1' : null })}`),
     peers: () => call('/api/peers'),
+    peerChatOpen: (sessionId, viewer, after) => call(`/api/sessions/${encodeURIComponent(sessionId)}/peer-chat?viewer=${encodeURIComponent(viewer)}&after=${encodeURIComponent(after)}`),
+    peerChatOp: (sessionId, body) => post(`/api/sessions/${encodeURIComponent(sessionId)}/peer-chat/ops`, body),
     peerLaunch: (body) => post('/api/peer-launch', body),
     opencodeOptions: (dir, refresh) => call(`/api/opencode/options${qs({ dir, refresh: refresh ? '1' : null })}`),
     opencodeProviders: () => call('/api/opencode/providers'),

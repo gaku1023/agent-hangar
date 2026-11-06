@@ -2,6 +2,7 @@ import type { InvestigateContext, NewSessionSeed, PeerLaunchBody, LinkConflictsD
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { PanesState } from './panes.ts';
 import type { CloudMemberCommand } from '../runtime/cloudMember.ts';
+import type { PeerChatCommand } from '../runtime/peerChat.ts';
 import type { UpdateCommand } from '../runtime/updater.ts';
 import type { ConfigDetailPart } from '../store/store.ts';
 
@@ -134,6 +135,8 @@ export type Effect =
   | { kind: 'update'; command: UpdateCommand }
   // クラウド同期への参加と、PC の解除と、この PC の参加の解除。Runtime が殻の命令に頼み、結果を Store の cloudMember に置く（runtime/cloudMember.ts）。
   | { kind: 'cloudMember'; command: CloudMemberCommand }
+  // ほかの PC の会話の見張りと操作。Runtime が runtime/peerChat.ts に渡し、結果は Store の peerChat に置く。
+  | { kind: 'peerChat'; command: PeerChatCommand }
   // Dock（ブラウザならアプリ）のバッジに入力待ちの数を出す。
   // 0 で消す。
   | { kind: 'badge'; count: number }

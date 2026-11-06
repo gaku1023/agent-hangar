@@ -15,7 +15,7 @@ type Extras = Pick<
   | 'renameProject' | 'live' | 'sessionFiles' | 'gitSessions' | 'sessionChanges' | 'sessionDiff' | 'sessionEdits' | 'projectGit' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'previewAccountDir' | 'sharePreview' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
   | 'codexAccounts' | 'setCurrentCodexAccount' | 'addCodexAccount' | 'previewCodexAccountDir' | 'updateCodexAccount' | 'removeCodexAccount' | 'loginCodexAccount' | 'cancelCodexAccountLogin' | 'refreshCodexAccount' | 'linkConflicts' | 'repairLinkConflicts'
-  | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen' | 'markUnread' | 'setPinned' | 'launchSettings' | 'answerPeerApproval' | 'peers' | 'peerLaunch'
+  | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen' | 'markUnread' | 'setPinned' | 'launchSettings' | 'answerPeerApproval' | 'peers' | 'peerLaunch' | 'peerChatOpen' | 'peerChatOp'
 >;
 
 /** フェーズ 2 からフェーズ 4 で増えた API の偽物。
@@ -28,6 +28,8 @@ export function fakeApiExtras(): Extras {
     renameProject: vi.fn(async () => unused()),
     answerPeerApproval: vi.fn(async () => ({})),
     peers: vi.fn(async () => ({ peers: [] })),
+    peerChatOpen: vi.fn(async () => ({ ok: false as const, reason: 'not-remote' as const })),
+    peerChatOp: vi.fn(async () => ({ ok: true as const })),
     peerLaunch: vi.fn(async () => ({ status: 'requested' as const, requestId: 'r1', device: 'Mac' })),
     // git の表示。一覧と画面を開くたびに取りに行くので、どのテストでも空の答えを返す。
     gitSessions: vi.fn(async () => ({ sessions: {}, trees: {} })),
