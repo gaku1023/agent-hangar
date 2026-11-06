@@ -238,6 +238,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       indexing.indexer.stop();
       delivery.live.stop();
       web.stopRelay();
+      web.stopPeerChat();
       // WebSocket を先に畳み、残った keep-alive の接続を切ってから listen を閉じる。
       await delivery.stopPublishing();
       await listening.stop();

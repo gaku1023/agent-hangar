@@ -480,3 +480,133 @@ export async function openPeerChatBlob(ring: PeerKeyring, route: PeerRoute, n: n
     throw new E2eOpenError();
   }
 }
+
+// ---- 見る側の画面へ ----
+
+/**
+ * 画面が見る前に、見る側の PC が断る理由。
+ * not-remote はこの PC の会話（相手の PC が無い）、device-unknown は相手の PC が名簿に無い、
+ * device-outdated は相手の hangar がこの機能の版に届かない、worker-outdated はクラウドの Worker の版が足りない、
+ * no-link は同期に参加していない、unreachable は Worker に届かなかった、image-missing は添えた画像が読めない、
+ * too-many は同時に見られる会話の数の上限（接続ごと、全体）を超えた。
+ * 画面は、これらのときは読み取り専用のトランスクリプトのままにする。
+ */
+export const PEER_CHAT_VIEW_REFUSALS = ['not-remote', 'not-claude', 'session-unknown', 'device-unknown', 'device-outdated', 'worker-outdated', 'no-link', 'unreachable', 'image-missing', 'too-many'] as const;
+export type PeerChatViewRefusal = (typeof PEER_CHAT_VIEW_REFUSALS)[number];
+/**
+ * 画面に返す理由。
+ * 元の PC の断り（PeerChatRefusal）と、見る側が断る理由（PeerChatViewRefusal）を合わせたもの。
+ */
+export type PeerChatReason = PeerChatRefusal | PeerChatViewRefusal;
+
+/**
+ * 相手の PC とのつながり。
+ * offline は呼び鈴がつながっていない（または届かない）。
+ * host-error は、つながっているが元の PC の中で想定外の失敗が続いている（見張りは間を空けて頼み直している）。
+ * 画面は「PC がつながらない」ではなく「いまは届かない、頼み直します」と読ませる。
+ */
+export type PeerChatLink = 'online' | 'offline' | 'host-error';
+
+/**
+ * 見ている会話の更新（WebSocket の peerChat.update、GET /api/sessions/:id/peer-chat の update）。
+ * items は uuid で重ね書きする（同じ uuid は置き換え、新しい uuid は末尾に足す）。
+ * 許可と質問の札は、答えが付いたときに同じ uuid で届く。
+ * replace が真のときは、手元の写しを捨てて items で差し替える（元の PC が truncated を返した、またはこの側の覚えが溢れた）。
+ * status と queued は、そのときの全体である（差分ではない）。
+ * つながっていない間は、最後に知った値のまま link だけが offline になる。
+ * reason があるときは、この会話を見続けられない（見張りは止まっている）。
+ */
+export type PeerChatUpdate = {
+  sessionId: string;
+  link: PeerChatLink;
+  replace: boolean;
+  status: PeerChatStatus | null;
+  items: PeerChatItem[];
+  queued: PeerChatQueued[];
+  cursor: string | null;
+  /** 渡せずに消えた預かり（今回新しく分かったもの。GET では数分以内のもの全部）。画面は queueId で重ねず、文を入力欄に戻す。 */
+  gone?: PeerChatGone[];
+  reason?: PeerChatReason;
+};
+
+/** 相手の PC。 */
+export type PeerChatTargetDto = { deviceId: string; deviceName: string };
+
+/**
+ * GET /api/sessions/:id/peer-chat の答え。
+ * startedAfter は、この見張りが元の PC から取り始めた位置（after）。
+ * 手元の写しの続きなら、update.items は写しの後ろの項目である。
+ * 見張りがすでに動いていれば、動き始めてから貯めた項目の全部が update.items に入る。
+ */
+export type PeerChatViewDto = { ok: true; device: PeerChatTargetDto; startedAfter: string | null; update: PeerChatUpdate } | { ok: false; reason: PeerChatReason; device?: PeerChatTargetDto };
+
+/**
+ * 画面から見る側の PC への WebSocket の知らせ。
+ * viewer は画面が振る見ている人の ID（64 字まで）。
+ */
+export type PeerChatClientMsg =
+  | { type: 'peerChat.watch'; sessionId: string; viewer: string; after?: string | null }
+  | { type: 'peerChat.unwatch'; sessionId: string; viewer: string };
+
+const VIEWER_RE = /^[A-Za-z0-9._:-]{1,64}$/;
+/** viewer の形（HTTP と WebSocket で同じ）。 */
+export const isPeerChatViewerId = (v: unknown): v is string => typeof v === 'string' && VIEWER_RE.test(v);
+
+/**
+ * 画面からの WebSocket の本文を読む。
+ * 形が違えば null。
+ */
+export function parsePeerChatClientMsg(raw: string): PeerChatClientMsg | null {
+  let v: unknown;
+  try { v = JSON.parse(raw); } catch { return null; }
+  if (!isObj(v) || !isId(v.sessionId) || !isPeerChatViewerId(v.viewer)) return null;
+  if (v.type === 'peerChat.unwatch') return { type: 'peerChat.unwatch', sessionId: v.sessionId, viewer: v.viewer };
+  if (v.type !== 'peerChat.watch') return null;
+  if (v.after !== undefined && v.after !== null && !isId(v.after)) return null;
+  return v.after === undefined ? { type: 'peerChat.watch', sessionId: v.sessionId, viewer: v.viewer } : { type: 'peerChat.watch', sessionId: v.sessionId, viewer: v.viewer, after: v.after };
+}
+
+/**
+ * POST /api/sessions/:id/peer-chat/ops の本文（tail 以外の op）。
+ * 画像は、画面が POST /api/drops で置いたファイルの名前か絶対パス（DropDto.path）の並びで渡す。
+ */
+export type PeerChatOpIn =
+  | { t: 'send'; text: string; images?: string[] }
+  | { t: 'resume-send'; text: string; images?: string[] }
+  | { t: 'answer'; askId: string; keys: string[]; text?: string }
+  | { t: 'interrupt' }
+  | { t: 'cancel'; queueId: string }
+  | { t: 'files'; query: string };
+
+/**
+ * ops の答え。
+ * 元の PC の答え（PeerChatReply）に、見る側の断りの理由を足したもの。
+ * ok が偽のときは、画面が入力欄に文を戻す。
+ */
+export type PeerChatOpResult = { ok: true; state?: PeerChatState; queueId?: string; files?: PeerChatFile[] } | { ok: false; reason: PeerChatReason };
+
+/** 見る側の PC が、見張りの 1 周で元の PC に頼む tail の待ち（ミリ秒）。 */
+export const PEER_CHAT_TAIL_WAIT_MS = PEER_CHAT_WAIT_MAX_MS;
+
+// ---- 頼みの口（Worker との線） ----
+
+/**
+ * POST /peer/ask の結果。
+ * Worker の断り（409 の offline と duplicate、429 の rate、413、400、502、504）は例外にせず ok が偽で返す。
+ */
+export type PeerAskResult = { ok: true; sealed: string } | { ok: false; status: number; reason: 'offline' | 'duplicate' | 'rate' | null };
+
+/** 見る側の PC が使う、会話の問い合わせの口（互換の版 11 の Worker から）。 */
+export interface PeerChatApi {
+  /**
+   * POST /peer/ask。
+   * signal を中止すると、待っている要求を切る。
+   */
+  ask(body: PeerAskIn, signal?: AbortSignal): Promise<PeerAskResult>;
+  /**
+   * PUT /peer/blobs/:askId/:n?to=。
+   * 封じたバイト列をそのまま置く。
+   * 失敗は CloudError（status を持つ）で投げる。
+   */
+  putBlob(askId: string, n: number, to: string, sealed: Uint8Array): Promise<void>;
+}

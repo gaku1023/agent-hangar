@@ -161,6 +161,7 @@ export class SealedCloudClient implements CloudClient {
   createPairing?: CloudClient['createPairing'];
   claimLaunch?: CloudClient['claimLaunch'];
   peerLaunch?: CloudClient['peerLaunch'];
+  peerChat?: CloudClient['peerChat'];
   answerLaunch?: CloudClient['answerLaunch'];
   bellTarget?: CloudClient['bellTarget'];
   getMobileBlob?: CloudClient['getMobileBlob'];
@@ -188,6 +189,7 @@ export class SealedCloudClient implements CloudClient {
     if (w.createPairing) this.createPairing = () => w.createPairing!();
     if (w.claimLaunch) this.claimLaunch = (id) => w.claimLaunch!(id);
     if (w.peerLaunch) this.peerLaunch = w.peerLaunch;
+    if (w.peerChat) this.peerChat = w.peerChat;
     if (w.answerLaunch) this.answerLaunch = (id, ok, sealedAnswer) => w.answerLaunch!(id, ok, sealedAnswer);
     if (w.bellTarget) this.bellTarget = () => w.bellTarget!();
     if (w.getMobileBlob) this.getMobileBlob = (launchId, n) => w.getMobileBlob!(launchId, n);

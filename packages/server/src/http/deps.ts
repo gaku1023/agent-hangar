@@ -25,6 +25,7 @@ import type { GitService } from '../git/service.ts';
 import type { OpencodeProvidersService } from '../provider/opencode/integration.ts';
 import type { PeerCallDeps } from '../peer/caller.ts';
 import type { PeerEndpointDeps } from '../peer/endpoint.ts';
+import type { PeerChatViewer } from '../peer/chat/viewer.ts';
 import type { PeerSshStore } from '../peer/ssh/config.ts';
 import type { HostKeyState } from '../peer/ssh/connector.ts';
 
@@ -119,6 +120,11 @@ export type AppDeps = {
   trash: Pick<SessionTrash, 'deleteSession'>;
   /** 別の PC への起動の承認待ちへの答え（peer/approvals.ts）。画面の HTTP だけが答える。無ければ答えを断る。 */
   peerApprovals?: Pick<PeerApprovals, 'approve' | 'reject'>;
+  /**
+   * ほかの PC の Claude Code の会話を、チャットの形で見て続ける、見る側の部品（peer/chat/viewer.ts）。
+   * 無ければ GET と POST の経路を出さない。
+   */
+  peerChat?: Pick<PeerChatViewer, 'open' | 'op'>;
   promote: (o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean; parent?: string }) => { projectId: string; moved: boolean; reason: string | null; /** reason と同じ理由の、言語を決めていない文。あれば経路がこちらを応答の言語で出す。 */ reasonMessage?: Message | null };
   /**
    * Claude Code と会話したフォルダの候補を探すときの、ホームと一時フォルダの差し替え（projects/candidates.ts）。

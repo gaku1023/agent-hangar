@@ -8,6 +8,7 @@ import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
 import type { AppDeps } from './deps.ts';
 import { artifactRoutes } from './routes/artifacts.ts';
 import { notifyRoutes } from './routes/notify.ts';
+import { peerChatRoutes } from './routes/peerChat.ts';
 import { peerLaunchRoutes } from './routes/peerLaunch.ts';
 import { peerSshRoutes } from './routes/peerSsh.ts';
 import { peerRoutes } from '../peer/endpoint.ts';
@@ -152,6 +153,7 @@ export function createApp(deps: AppDeps): Hono {
   notifyRoutes(api, deps);
   peerSshRoutes(api, deps);
   peerLaunchRoutes(api, { ...deps, language });
+  peerChatRoutes(api, deps);
   gitRoutes(api, { ...deps, git: deps.git ?? new GitService({ db, deviceId, live: deps.live, broadcast: (git) => deps.hub.broadcast({ type: 'git.upsert', git }), exec: () => { const f = gitPath(); return f ? spawnGit(f) : null; } }) });
 
   app.route('/api', api);

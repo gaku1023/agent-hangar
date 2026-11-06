@@ -108,9 +108,11 @@ export type TailResult = { items: PeerChatItem[]; cursor: string | null; truncat
  * 他の端末から降ろした写し（device_id がある）とサブエージェントのファイル（agent_id がある）は使わない。
  * ファイルが PEER_CHAT_TAIL_READ_MAX_BYTES より大きければ末尾だけを読み、最初の改行までを捨てて行の頭に合わせる。
  * 手がかりを作るときに stat だけをして、中身は読まない。
+ * copies を真にすると、他の端末から降ろした写しも使う（見る側の PC が、手元の写しの最後の uuid を知るのに使う）。
+ * mtime が新しいものを選ぶ。
  */
-export function dbTranscriptReader(db: Db): (sessionId: string) => TranscriptHandle | null {
-  const find = db.prepare("select path from transcript_files where session_id = ? and agent_id is null and device_id is null and agent = 'claude-code' order by mtime desc limit 1");
+export function dbTranscriptReader(db: Db, o: { copies?: boolean } = {}): (sessionId: string) => TranscriptHandle | null {
+  const find = db.prepare(`select path from transcript_files where session_id = ? and agent_id is null${o.copies ? "" : " and device_id is null"} and agent = 'claude-code' order by mtime desc limit 1`);
   return (sessionId) => {
     const row = find.get(sessionId) as { path: string } | undefined;
     if (!row) return null;

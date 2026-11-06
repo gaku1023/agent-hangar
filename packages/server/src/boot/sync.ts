@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { codexEnabledOf, MOBILE_MIN_WORKER_COMPAT, opencodeEnabledOf, PEER_LAUNCH_MIN_WORKER_COMPAT, type PeerKeyring, type PeerLaunchApi, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto, type DeviceOut } from '@agent-hangar/shared';
+import { codexEnabledOf, MOBILE_MIN_WORKER_COMPAT, opencodeEnabledOf, PEER_CHAT_MIN_WORKER_COMPAT, PEER_LAUNCH_MIN_WORKER_COMPAT, type PeerChatApi, type PeerKeyring, type PeerLaunchApi, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto, type DeviceOut } from '@agent-hangar/shared';
 import { defaultCodexHome } from '../provider/codex/transcript/discover.ts';
 import { cloudConfigPath, readCloudConfig, saveCloudConfig, type CloudConfig } from '../config/cloud.ts';
 import { defaultManagedDir, RetentionService } from '../provider/claude-code/config/retention.ts';
@@ -154,6 +154,18 @@ export type SyncParts = {
    * cloud.json が後から現れて組み直すと、別のものを返す。
    */
   peerLink(): PeerLink | null;
+  /**
+   * ほかの PC の会話を見て続けてよいか。
+   * canCarryPeer と同じ形で、Worker が名乗る版が PEER_CHAT_MIN_WORKER_COMPAT に届いているとき真。
+   * 版 10 までの Worker は /peer/ask を知らないので、満たさないあいだは問い合わせを出さない。
+   */
+  canCarryPeerChat(): boolean;
+  /**
+   * 会話の問い合わせの口と封の鍵の束。
+   * 同期を設定していなければ（または古い Worker で口が無ければ）null。
+   * cloud.json が後から現れて組み直すと、別のものを返す。
+   */
+  peerChatLink(): { api: PeerChatApi; ring: () => Promise<PeerKeyring> } | null;
   /** 最初の同期、使用量、ファイルの取り込み、保持期間、定期の押し出しと走査を始める。 */
   start(): void;
   /** 定期の仕事（タイマー、保持期間、使用量）を止める。走っている通信は待たない。 */
@@ -623,6 +635,11 @@ export function bootSync(
       if (!client?.peerLaunch || !peer) return null;
       const get = client.getPeerBlob?.bind(client);
       return { api: client.peerLaunch, ring: peer.ring, reread: peer.reread, ...(get ? { getBlob: get } : {}) };
+    },
+    canCarryPeerChat: () => canCarry(PEER_CHAT_MIN_WORKER_COMPAT),
+    peerChatLink: () => {
+      const { client, peer } = core;
+      return client?.peerChat && peer ? { api: client.peerChat, ring: peer.ring } : null;
     },
     mobileLink: () => {
       const { cloud, client, phone } = core;

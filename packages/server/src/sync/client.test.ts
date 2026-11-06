@@ -717,6 +717,53 @@ describe('PC の一覧と解除', () => {
     await expect(old.peerLaunch.put({ id: 'l1', to: 'pc-b', sealed: '1.eA' })).rejects.toMatchObject({ status: 404 });
   });
 
+  it('peerChat.ask は POST /peer/ask に本文を送り、封じた答えを返す。Worker の断りは例外にせず返す', async () => {
+    const body = { askId: 'a-1', to: 'pc-b', sealed: '1.eA', epoch: 1, waitMs: 20_000 };
+    const f = fakeFetch(() => json({ sealed: '1.YW5z' }));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    expect(await c.peerChat.ask(body)).toEqual({ ok: true, sealed: '1.YW5z' });
+    expect(f.calls[0]!.url).toBe('https://w.example/peer/ask');
+    expect(f.calls[0]!.init.method).toBe('POST');
+    expect(JSON.parse(String(f.calls[0]!.init.body))).toEqual(body);
+    expect(headersOf(f.calls[0]!)['content-type']).toBe('application/json');
+    const refuse = (status: number, reason?: string) => new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json(reason ? { error: 'x', reason } : { error: 'x' }, status)).fetch });
+    expect(await refuse(409, 'offline').peerChat.ask(body)).toEqual({ ok: false, status: 409, reason: 'offline' });
+    expect(await refuse(409, 'duplicate').peerChat.ask(body)).toEqual({ ok: false, status: 409, reason: 'duplicate' });
+    expect(await refuse(429, 'rate').peerChat.ask(body)).toEqual({ ok: false, status: 429, reason: 'rate' });
+    expect(await refuse(504).peerChat.ask(body)).toEqual({ ok: false, status: 504, reason: null });
+    expect(await refuse(413).peerChat.ask(body)).toEqual({ ok: false, status: 413, reason: null });
+    expect(await refuse(502).peerChat.ask(body)).toEqual({ ok: false, status: 502, reason: null });
+    // それ以外の失敗は投げる（呼び手は届かなかったものとして扱う）。
+    await expect(refuse(500).peerChat.ask(body)).rejects.toMatchObject({ status: 500 });
+  });
+
+  it('peerChat.ask は待ちの長さに合わせて締め切りを延ばし、signal の中止で要求を切る', async () => {
+    let seen: AbortSignal | undefined;
+    const f = fakeFetch(async (call) => { seen = call.init.signal as AbortSignal; await new Promise<void>((_, rej) => { seen!.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')), { once: true }); }); return json({ sealed: 'x' }); });
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch, timeoutMs: 50 });
+    const ac = new AbortController();
+    const p = c.peerChat.ask({ askId: 'a-1', to: 'pc-b', sealed: '1.eA', epoch: 1, waitMs: 20_000 }, ac.signal);
+    await sleep(120);
+    // timeoutMs（50 ms）を超えても、待ちが 20 秒の問い合わせは切れていない。
+    expect(seen!.aborted).toBe(false);
+    ac.abort();
+    await expect(p).rejects.toBeTruthy();
+  });
+
+  it('peerChat.putBlob は PUT /peer/blobs/<頼み>/<番号>?to= に封じたバイト列をそのまま置く。失敗は投げる', async () => {
+    const f = fakeFetch(() => json({ ok: true }, 201));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    await c.peerChat.putBlob('a-1', 2, 'pc-b', new Uint8Array([9, 8, 7]));
+    expect(f.calls[0]!.url).toBe('https://w.example/peer/blobs/a-1/2?to=pc-b');
+    expect(f.calls[0]!.init.method).toBe('PUT');
+    expect([...(f.calls[0]!.init.body as Uint8Array)]).toEqual([9, 8, 7]);
+    expect(headersOf(f.calls[0]!)['content-type']).toBe('application/octet-stream');
+    const full = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'too many images' }, 429)).fetch });
+    await expect(full.peerChat.putBlob('a1', 0, 'pc-b', new Uint8Array([1]))).rejects.toMatchObject({ status: 429 });
+    await expect(c.peerChat.putBlob('../x', 0, 'pc-b', new Uint8Array([1]))).rejects.toMatchObject({ status: 400 });
+    await expect(c.peerChat.putBlob('a1', 9, 'pc-b', new Uint8Array([1]))).rejects.toMatchObject({ status: 400 });
+  });
+
   it('getMobileBlob は GET /m/blobs/<依頼>/<番号> のバイト列をそのまま返す。404 と形の違う ID は投げる', async () => {
     const bytes = new Uint8Array([0, 1, 2, 250, 251, 252]);
     const f = fakeFetch(() => new Response(bytes, { status: 200, headers: { 'content-type': 'application/octet-stream', 'x-hangar-compat': String(COMPAT_VERSION) } }));
