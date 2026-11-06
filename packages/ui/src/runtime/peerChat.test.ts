@@ -19,11 +19,14 @@ const view = (over: Partial<PeerChatUpdate> = {}): PeerChatViewDto => ({ ok: tru
 function rig(open: (s: string, v: string, after: string) => Promise<PeerChatViewDto>, op: (s: string, b: PeerChatOpIn) => Promise<PeerChatOpResult> = async () => ({ ok: true })) {
   let store: Store = initialStore();
   const sent: PeerChatClientMsg[] = [];
-  const runner = createPeerChatRunner({ open, op, send: (m) => sent.push(m), get: () => store.peerChat, set: (peerChat) => { store = { ...store, peerChat }; } });
+  // 開き直しの待ち（試験が手で進める）。
+  const timers: (() => void)[] = [];
+  const after = (_ms: number, fn: () => void): (() => void) => { timers.push(fn); return () => { const i = timers.indexOf(fn); if (i >= 0) timers.splice(i, 1); }; };
+  const runner = createPeerChatRunner({ open, op, send: (m) => sent.push(m), get: () => store.peerChat, set: (peerChat) => { store = { ...store, peerChat }; }, after });
   const slice = (id = 's1'): PeerChatSlice => store.peerChat[id]!;
   const push = (u: PeerChatUpdate) => { store = applyServerEvent(store, { type: 'peerChat.update', ...u }); };
   const tick = () => new Promise((r) => setTimeout(r, 0));
-  return { runner, sent, slice, push, tick, all: () => store.peerChat };
+  return { runner, sent, slice, push, tick, all: () => store.peerChat, fire: () => { timers.shift()?.(); }, waiting: () => timers.length };
 }
 
 describe('ほかの PC の会話を見る（runtime/peerChat）', () => {
@@ -60,6 +63,46 @@ describe('ほかの PC の会話を見る（runtime/peerChat）', () => {
     await t.tick();
     expect(t.slice()).toMatchObject({ phase: 'fallback', fallback: 'device-outdated' });
     expect(t.sent).toEqual([]);
+  });
+
+  it('最初の同期の前（worker-outdated）に開いても、読み取り専用に固定せず、間を空けて開き直す。Worker の版が分かれば見張りを始める', async () => {
+    let n = 0;
+    const t = rig(async () => (++n === 1 ? { ok: false, reason: 'worker-outdated' } : view()));
+    t.runner.run({ op: 'open', sessionId: 's1', viewer: 'v1' });
+    await t.tick();
+    expect(t.slice()).toMatchObject({ phase: 'fallback', fallback: 'worker-outdated' });
+    expect(t.waiting()).toBe(1);
+    t.fire();
+    await t.tick();
+    expect(t.slice()).toMatchObject({ phase: 'live', fallback: null, status: 'busy' });
+    expect(t.sent).toEqual([{ type: 'peerChat.watch', sessionId: 's1', viewer: 'v1', after: 'c1' }]);
+    expect(t.waiting()).toBe(0);
+  });
+
+  it('開き直しても worker-outdated なら、もう一度待つ。ほかの理由の fallback は開き直さない', async () => {
+    const t = rig(async () => ({ ok: false, reason: 'worker-outdated' }));
+    t.runner.run({ op: 'open', sessionId: 's1', viewer: 'v1' });
+    await t.tick();
+    t.fire();
+    await t.tick();
+    expect(t.slice().phase).toBe('fallback');
+    expect(t.waiting()).toBe(1);
+    const u = rig(async () => ({ ok: false, reason: 'device-outdated' }));
+    u.runner.run({ op: 'open', sessionId: 's1', viewer: 'v1' });
+    await u.tick();
+    expect(u.waiting()).toBe(0);
+  });
+
+  it('閉じたら、待っている開き直しは何もしない', async () => {
+    const open = vi.fn(async (): Promise<PeerChatViewDto> => ({ ok: false, reason: 'worker-outdated' }));
+    const t = rig(open);
+    t.runner.run({ op: 'open', sessionId: 's1', viewer: 'v1' });
+    await t.tick();
+    t.runner.run({ op: 'close', sessionId: 's1', viewer: 'v1' });
+    t.fire();
+    await t.tick();
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(t.all()).toEqual({});
   });
 
   it('問い合わせが投げたら、届かなかったとして fallback にする', async () => {
