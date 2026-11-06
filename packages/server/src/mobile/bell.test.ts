@@ -105,6 +105,37 @@ describe('MobileBell', () => {
     expect(s.w.received.map((x) => JSON.parse(x) as unknown)).toEqual([{ t: 'reply', id: 'q1', sealed: 'reply-for-q1' }]);
   });
 
+  it('{t:chat} を onChat に渡し、答えを {t:chat-reply} で返す。開けないもの（null）と投げたものには答えない', async () => {
+    const onChat = vi.fn(async (f: { id: string; from: string }) => (f.id === 'c0' ? null : f.id === 'c9' ? Promise.reject(new Error('boom')) : { t: 'chat-reply' as const, id: f.id, from: f.from, sealed: `reply-${f.id}` }));
+    const w = await fakeWorker();
+    const timers = new FakeTimers();
+    const bell = new MobileBell({ target: () => ({ url: w.url, headers: {} }), onLaunch: vi.fn(), onAsk: vi.fn(async () => null), onChat, timers });
+    cleanups.push(() => bell.stop(), () => w.close());
+    bell.check();
+    await settle(() => w.open().length === 1);
+    const ws = w.open()[0]!;
+    ws.send(JSON.stringify({ t: 'chat', id: 'c0', from: 'pc-a', epoch: 3, sealed: 'unopenable' }));
+    ws.send(JSON.stringify({ t: 'chat', id: 'c9', from: 'pc-a', epoch: 3, sealed: 'x' }));
+    ws.send(JSON.stringify({ t: 'chat', id: 'c1', from: 'pc-a', epoch: 3, sealed: 'sealed-body' }));
+    await settle(() => w.received.some((x) => x.includes('c1')));
+    expect(onChat).toHaveBeenCalledWith({ t: 'chat', id: 'c1', from: 'pc-a', epoch: 3, sealed: 'sealed-body' });
+    expect(w.received.map((x) => JSON.parse(x) as unknown)).toEqual([{ t: 'chat-reply', id: 'c1', from: 'pc-a', sealed: 'reply-c1' }]);
+  });
+
+  it('形の違う {t:chat} は onChat に渡さない（id、from、epoch、sealed の欠け）', async () => {
+    const onChat = vi.fn(async () => null);
+    const w = await fakeWorker();
+    const bell = new MobileBell({ target: () => ({ url: w.url, headers: {} }), onLaunch: vi.fn(), onAsk: vi.fn(async () => null), onChat, timers: new FakeTimers() });
+    cleanups.push(() => bell.stop(), () => w.close());
+    bell.check();
+    await settle(() => w.open().length === 1);
+    const ws = w.open()[0]!;
+    for (const bad of ['{"t":"chat"}', '{"t":"chat","id":"c","from":"p","sealed":"x"}', '{"t":"chat","id":"c","from":"p","epoch":0,"sealed":"x"}', '{"t":"chat","id":"c","epoch":1,"sealed":"x"}', '{"t":"chat","from":"p","epoch":1,"sealed":"x"}', '{"t":"chat","id":"c","from":"p","epoch":1}', `{"t":"chat","id":"${'a'.repeat(129)}","from":"p","epoch":1,"sealed":"x"}`]) ws.send(bad);
+    ws.send(JSON.stringify({ t: 'launch' }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(onChat).not.toHaveBeenCalled();
+  });
+
   it('形の違う文面は無視して落ちない', async () => {
     const s = await setup();
     s.bell.check();

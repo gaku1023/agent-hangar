@@ -734,6 +734,22 @@ describe('PC の一覧と解除', () => {
     expect(bad.calls).toHaveLength(0);
   });
 
+  it('getPeerBlob は GET /peer/blobs/<askId>/<番号>?from=<PC> のバイト列をそのまま返す。404 と形の違う ID は投げる', async () => {
+    const bytes = new Uint8Array([0, 1, 2, 250]);
+    const f = fakeFetch(() => new Response(bytes, { status: 200, headers: { 'content-type': 'application/octet-stream', 'x-hangar-compat': String(COMPAT_VERSION) } }));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    expect([...await c.getPeerBlob('ask-1.x', 'pc-b', 1)]).toEqual([...bytes]);
+    expect(f.calls[0]!.url).toBe('https://w.example/peer/blobs/ask-1.x/1?from=pc-b');
+    const missing = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'not found' }, 404)).fetch });
+    await expect(missing.getPeerBlob('a1', 'pc-b', 0)).rejects.toMatchObject({ status: 404 });
+    const bad = fakeFetch(() => json({}));
+    const c2 = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: bad.fetch });
+    await expect(c2.getPeerBlob('../x', 'pc-b', 0)).rejects.toBeInstanceOf(CloudError);
+    await expect(c2.getPeerBlob('a1', '../pc', 0)).rejects.toBeInstanceOf(CloudError);
+    await expect(c2.getPeerBlob('a1', 'pc-b', 4)).rejects.toBeInstanceOf(CloudError);
+    expect(bad.calls).toHaveLength(0);
+  });
+
   it('deleteMobileFeed は DELETE /m/feed を送る', async () => {
     const f = fakeFetch(() => json({ ok: true }));
     const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });

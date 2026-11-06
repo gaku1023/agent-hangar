@@ -101,22 +101,29 @@ const clip = (s: string, n: number): string => {
   return cs.length <= n ? s : cs.slice(0, n).join('');
 };
 
-async function filesReply(d: AskDeps, projectId: string, q: string): Promise<MobileReply> {
-  const root = d.projectPath(projectId);
-  if (root === null) return { error: 'project-missing' };
-  const f = d.files ?? DEFAULT_FILES;
+/**
+ * `@` の候補（root の中の相対パス）。スマホの files の答えと、ほかの PC の会話の files（peer/chat/host.ts）が同じ本体を通る。
+ * 最近のファイル（q が空）か、q で探したファイルを返し、root の外へ出る経路は落とす。読めなければ空。
+ */
+export async function listFilesIn(root: string, q: string, f: NonNullable<AskDeps['files']> = DEFAULT_FILES): Promise<{ path: string; changed: boolean }[]> {
   const query = q.trim();
   try {
     if (!query) {
       const list = await f.recent(root, ASK_RECENT_FILES);
-      return { files: list.filter((x) => insideProject(x.path)).slice(0, ASK_RECENT_FILES).map((x) => ({ path: x.path, changed: x.changed === true })) };
+      return list.filter((x) => insideProject(x.path)).slice(0, ASK_RECENT_FILES).map((x) => ({ path: x.path, changed: x.changed === true }));
     }
     const [hits, changed] = await Promise.all([f.search(root, query, ASK_SEARCH_FILES), f.changed(root).catch(() => new Set<string>())]);
-    return { files: hits.filter(insideProject).slice(0, ASK_SEARCH_FILES).map((p) => ({ path: p, changed: changed.has(p) })) };
+    return hits.filter(insideProject).slice(0, ASK_SEARCH_FILES).map((p) => ({ path: p, changed: changed.has(p) }));
   } catch (e) {
     console.error('[mobile] could not list the project files', e instanceof Error ? e.constructor.name : typeof e);
-    return { files: [] };
+    return [];
   }
+}
+
+async function filesReply(d: AskDeps, projectId: string, q: string): Promise<MobileReply> {
+  const root = d.projectPath(projectId);
+  if (root === null) return { error: 'project-missing' };
+  return { files: await listFilesIn(root, q, d.files ?? DEFAULT_FILES) };
 }
 
 function commandsReply(d: AskDeps, projectId: string | null, accountId: string): MobileReply {

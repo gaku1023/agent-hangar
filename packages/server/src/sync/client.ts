@@ -301,6 +301,11 @@ export interface CloudClientBase {
    */
   getMobileBlob?(launchId: string, n: number): Promise<Uint8Array>;
   /**
+   * ほかの PC が置いた画像（封じたままのバイト列、世代の 4 バイトつき）を取る（GET /peer/blobs/<askId>/<番号>?from=<置いた PC>、互換の版 11 の Worker から）。
+   * 自分宛てに置かれたものだけが読める。無いもの、宛先でないものは CloudError(404)。偽物は実装しなくてよい。
+   */
+  getPeerBlob?(askId: string, from: string, n: number): Promise<Uint8Array>;
+  /**
    * この PC の受信箱の素を Worker から消す（DELETE /m/feed、互換の版 8 の Worker から）。行が無くても成功する。
    * 最後のスマホを解除したあとに 1 回呼ぶ。偽物は実装しなくてよい。
    */
@@ -714,6 +719,20 @@ export class HttpCloudClient implements WireCloudClient {
     if (keys.length === 0 || keys.length > MAX_BLOB_DELETE_KEYS || !keys.every(isBlobKey)) throw new CloudError(400, JSON.stringify({ error: 'invalid body' }));
     await this.ensureWorkerCompat();
     return this.json<BlobsDeleteOut>('/blobs', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ keys }) });
+  }
+
+  async getPeerBlob(askId: string, from: string, n: number): Promise<Uint8Array> {
+    // ID は URL の断片に入る。Worker も入口で断るが、形の違うものは外へ出さない。
+    if (!isSafeKeyId(askId) || !isSafeKeyId(from) || !Number.isInteger(n) || n < 0 || n >= MOBILE_IMAGES_PER_LAUNCH) throw new CloudError(400, JSON.stringify({ error: 'invalid id' }));
+    const { res, d } = await this.send(`/peer/blobs/${encodeURIComponent(askId)}/${n}?from=${encodeURIComponent(from)}`, {}, this.transferTimeoutMs);
+    try {
+      return new Uint8Array(await d.race(res.arrayBuffer()));
+    } catch (e) {
+      void res.body?.cancel().catch(() => {});
+      throw toCloudError(e);
+    } finally {
+      d.clear();
+    }
   }
 
   async getMobileBlob(launchId: string, n: number): Promise<Uint8Array> {

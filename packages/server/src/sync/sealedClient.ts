@@ -164,6 +164,7 @@ export class SealedCloudClient implements CloudClient {
   answerLaunch?: CloudClient['answerLaunch'];
   bellTarget?: CloudClient['bellTarget'];
   getMobileBlob?: CloudClient['getMobileBlob'];
+  getPeerBlob?: CloudClient['getPeerBlob'];
   deleteMobileFeed?: CloudClient['deleteMobileFeed'];
   postNotice?: CloudClient['postNotice'];
   deleteBlobs?: CloudClient['deleteBlobs'];
@@ -190,6 +191,7 @@ export class SealedCloudClient implements CloudClient {
     if (w.answerLaunch) this.answerLaunch = (id, ok, sealedAnswer) => w.answerLaunch!(id, ok, sealedAnswer);
     if (w.bellTarget) this.bellTarget = () => w.bellTarget!();
     if (w.getMobileBlob) this.getMobileBlob = (launchId, n) => w.getMobileBlob!(launchId, n);
+    if (w.getPeerBlob) this.getPeerBlob = (askId, from, n) => w.getPeerBlob!(askId, from, n);
     if (w.deleteMobileFeed) this.deleteMobileFeed = () => w.deleteMobileFeed!();
     if (w.postNotice) this.postNotice = (sealed, epoch) => w.postNotice!(sealed, epoch);
     if (w.deleteBlobs) this.deleteBlobs = (keys) => w.deleteBlobs!(keys);

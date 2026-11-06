@@ -55,7 +55,13 @@ const CLOUD_JSON_SETTLE_MS = 100;
 export type CloudWatchOptions = { watch?: typeof fs.watch; pollMs?: number };
 
 /** 別の PC への頼みの部品が同期から引くもの（peerLink）。 */
-export type PeerLink = { api: PeerLaunchApi; ring: () => Promise<PeerKeyring>; reread: () => Promise<void> };
+export type PeerLink = {
+  api: PeerLaunchApi;
+  ring: () => Promise<PeerKeyring>;
+  reread: () => Promise<void>;
+  /** ほかの PC が置いた画像の封を取る（会話のチャット、peer/chat/host.ts）。口を持たない Worker では無い。 */
+  getBlob?: (askId: string, from: string, n: number) => Promise<Uint8Array>;
+};
 
 export type SyncParts = {
   engine: SyncEngine;
@@ -614,7 +620,9 @@ export function bootSync(
     canCarryPeer: () => canCarry(PEER_LAUNCH_MIN_WORKER_COMPAT),
     peerLink: () => {
       const { client, peer } = core;
-      return client?.peerLaunch && peer ? { api: client.peerLaunch, ring: peer.ring, reread: peer.reread } : null;
+      if (!client?.peerLaunch || !peer) return null;
+      const get = client.getPeerBlob?.bind(client);
+      return { api: client.peerLaunch, ring: peer.ring, reread: peer.reread, ...(get ? { getBlob: get } : {}) };
     },
     mobileLink: () => {
       const { cloud, client, phone } = core;

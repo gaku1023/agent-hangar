@@ -17,8 +17,9 @@
  * Worker の本文の上限（96 KiB）と、答えの上限（MOBILE_REPLY_MAX_BYTES）に収める。
  */
 
-import { openPeerPayload, sealPeerPayload, type PeerKeyring, type PeerRoute } from './e2e/peer.ts';
+import { openPeerPayload, PeerUnknownEpochError, sealPeerPayload, type PeerKeyring, type PeerRoute } from './e2e/peer.ts';
 import { E2eOpenError } from './e2e/seal.ts';
+import { openBytes, sealBytes } from './mobileCrypto.ts';
 import { MOBILE_IMAGES_PER_LAUNCH, MOBILE_REPLY_MAX_BYTES, type MobileImageRef } from './mobile.ts';
 
 /**
@@ -71,6 +72,13 @@ export type PeerChatQueued = { queueId: string; from: PeerChatDevice; text: stri
 export const PEER_CHAT_STATUSES = ['busy', 'idle', 'waiting', 'stopped'] as const;
 export type PeerChatStatus = (typeof PEER_CHAT_STATUSES)[number];
 
+/**
+ * 送った文が渡されないまま消えた知らせ（送り主の PC に返す）。
+ * queue-expired は止まってから 10 分渡せなかったとき、session-unknown は会話が消えたとき。
+ * 受け取った側は、自分の預かりの queueId を探し、文を入力欄に戻す。
+ */
+export type PeerChatGone = { queueId: string; reason: 'queue-expired' | 'session-unknown' };
+
 export type PeerChatState = {
   sessionId: string;
   status: PeerChatStatus;
@@ -78,6 +86,8 @@ export type PeerChatState = {
   queued: PeerChatQueued[];
   cursor: string | null;
   truncated: boolean;
+  /** その頼み主の預かりのうち、渡せずに消えたもの（元の PC が数分のあいだ載せる。無ければ付かない）。 */
+  gone?: PeerChatGone[];
 };
 
 /**
@@ -309,7 +319,12 @@ function readState(v: unknown): PeerChatState | null {
   const items = v.items.map(readItem);
   const queued = v.queued.map(readQueued);
   if (items.some((i) => !i) || queued.some((q) => !q)) return null;
-  return { sessionId: v.sessionId, status: v.status as PeerChatStatus, items: items as PeerChatItem[], queued: queued as PeerChatQueued[], cursor: v.cursor, truncated: v.truncated };
+  const out: PeerChatState = { sessionId: v.sessionId, status: v.status as PeerChatStatus, items: items as PeerChatItem[], queued: queued as PeerChatQueued[], cursor: v.cursor, truncated: v.truncated };
+  if (v.gone !== undefined) {
+    if (!Array.isArray(v.gone) || !v.gone.every((g) => isObj(g) && isStr(g.queueId) && (g.reason === 'queue-expired' || g.reason === 'session-unknown'))) return null;
+    out.gone = (v.gone as PeerChatGone[]).map((g) => ({ queueId: g.queueId, reason: g.reason }));
+  }
+  return out;
 }
 
 /**
@@ -409,3 +424,44 @@ export type PeerChatBellReply = { t: 'chat-reply'; id: string; from: string; sea
 export type PeerAskIn = { askId: string; to: string; sealed: string; epoch: number; waitMs: number };
 /** POST /peer/ask の断り。offline はすぐ、duplicate は同じ askId が待っているとき、rate は 1 分 120 回を超えたときである。 */
 export type PeerAskRefusal = { error: string; reason: 'offline' | 'duplicate' | 'rate' };
+
+// ---- 画像の封（PC どうし） ----
+
+/**
+ * 画像 1 枚の AAD。
+ * 頼みと同じ route（requestId は頼みの askId）と、画像の番号で縛る。
+ * 頼みの AAD とは頭の印が違うので、頼みの封を画像として開くことはできない。
+ */
+export const aadPeerChatBlob = (epoch: number, r: PeerRoute, n: number): string => JSON.stringify(['peer-chat-blob', epoch, ...ids(r), n]);
+
+/**
+ * 画像のバイト列を今の世代の鍵で封じる（見る側の PC が呼び、PUT /peer/blobs/:askId/:n に置く）。
+ * 戻りは 4 バイトの世代（大きい桁から）に、封じたバイト列（IV、暗号文、タグ）を続けたもの。
+ * 画像の封は文字列でなく生のバイト列なので、世代は頭に 4 バイトで持つ。
+ */
+export async function sealPeerChatBlob(ring: PeerKeyring, route: PeerRoute, n: number, bytes: Uint8Array): Promise<Uint8Array> {
+  checkRoute(route);
+  if (!isNat(n) || n >= PEER_CHAT_IMAGES_MAX) throw new TypeError('画像の番号の形が違います');
+  const keys = ring.current();
+  const body = await sealBytes(keys.peer, aadPeerChatBlob(keys.epoch, route, n), bytes);
+  const out = new Uint8Array(4 + body.length);
+  new DataView(out.buffer).setUint32(0, keys.epoch, false);
+  out.set(body, 4);
+  return out;
+}
+
+/**
+ * 画像の封を開く（元の PC が呼ぶ）。
+ * 封が名乗る世代の鍵で開く。鍵、AAD、中身のどれが違っても E2eOpenError、世代の鍵が無ければ PeerUnknownEpochError を投げる。
+ */
+export async function openPeerChatBlob(ring: PeerKeyring, route: PeerRoute, n: number, sealed: Uint8Array): Promise<Uint8Array> {
+  if (sealed.length < 4) throw new E2eOpenError();
+  const epoch = new DataView(sealed.buffer, sealed.byteOffset, sealed.byteLength).getUint32(0, false);
+  const keys = ring.at(epoch);
+  if (!keys) throw new PeerUnknownEpochError(epoch);
+  try {
+    return await openBytes(keys.peer, aadPeerChatBlob(epoch, route, n), sealed.subarray(4));
+  } catch {
+    throw new E2eOpenError();
+  }
+}
