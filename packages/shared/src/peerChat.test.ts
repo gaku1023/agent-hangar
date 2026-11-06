@@ -194,7 +194,7 @@ describe('期限と大きさ', () => {
     expect(at(NOW + PEER_CHAT_TTL_MS + PEER_CHAT_CLOCK_SKEW_MS)).toEqual({ ok: true });
     expect(at(NOW + PEER_CHAT_TTL_MS + PEER_CHAT_CLOCK_SKEW_MS + 1)).toEqual({ ok: false, reason: 'expired' });
     expect(at(NOW + 365 * 86_400_000)).toEqual({ ok: false, reason: 'expired' });
-    expect(PEER_CHAT_CLOCK_SKEW_MS).toBe(5_000);
+    expect(PEER_CHAT_CLOCK_SKEW_MS).toBe(90_000);
   });
 
   it('期限は作った時刻の 60 秒後', () => {

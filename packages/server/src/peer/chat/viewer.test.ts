@@ -513,6 +513,20 @@ describe('見張りの上限と見ている人', () => {
   });
 });
 
+describe('時計のずれ（元の PC が tail を expired で断る）', () => {
+  it('offline に数えず、つながりを clock にして、15 秒、30 秒の間で頼み直す。つながり直したら online を流す', async () => {
+    fallback = () => ({ ok: false, reason: 'expired' });
+    const r = await viewer.open(SID, { viewer: 'v1' });
+    expect(r.ok && r.update.link).toBe('clock');
+    await clock.advance(PEER_CHAT_OFFLINE_RETRY_MS[0]);
+    expect(tails()).toHaveLength(2);
+    expect(updates().map((u) => u.link)).toEqual(['clock']);
+    fallback = () => ok(state([item('u1')]));
+    await clock.advance(PEER_CHAT_OFFLINE_RETRY_MS[1]);
+    expect(updates().map((u) => u.link)).toEqual(['clock', 'online']);
+  });
+});
+
 describe('host-error', () => {
   it('元の PC の host-error は offline と同じ 15 秒、30 秒の間で頼み直し、つながりは host-error のまま流す', async () => {
     fallback = () => ({ ok: false, reason: 'host-error' });

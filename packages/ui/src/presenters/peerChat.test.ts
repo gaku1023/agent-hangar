@@ -146,6 +146,12 @@ describe('チャットを出さない会話は、今までの読み取り専用�
     expect(p.peerChat?.view).toMatchObject({ device: 'Mac', composer: { kind: 'queue' } });
   });
 
+  it('時計のずれ（link が clock）は、入力欄を閉じ、時計を合わせるよう一言を出す。つながっていない表示にはしない', () => {
+    const v = view(store({ status: 'busy', link: 'clock' }))!;
+    expect(v).toMatchObject({ statusLabel: '時計が合いません', tone: 'ended', composer: { kind: 'blocked', offline: null, canInterrupt: false, canTakeOver: false } });
+    expect(v.composer.hint).toBe('Mac と時計が合わないため届きません。時計を合わせてください');
+  });
+
   it('元の PC の手元で答えた札（label が空）は、選択肢を出さず「{device} で答えました」の行になる', () => {
     const it0 = { ...ask(true), ask: { ...ask(true).ask!, answered: { by: MAC, label: '', at: 9 } } };
     expect(view(store({ status: 'busy', items: [it0] }))!.rows[0]).toMatchObject({ kind: 'ask', answered: 'Mac で答えました' });

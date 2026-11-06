@@ -137,8 +137,11 @@ export const PEER_CHAT_TTL_MS = 60_000;
 /**
  * 2 台の PC の時計のずれとして許す幅。
  * 頼んだ側の時計が進んでいても、expiresAt が now + PEER_CHAT_TTL_MS + この値までなら有効として扱う。
+ * 家の PC の時計は数十秒ずれていることがあるので、90 秒にする（5 秒では、ずれた組の頼みが全部 expired になった）。
+ * 同じ頼みの再送の覚えは expiresAt にこの値を足した時刻まで残るので、広げても再送の防ぎは変わらない。
+ * 頼まれた側の時計が TTL より進んでいる組は、この値では救えない（画面は clock のつながりで時計を直すよう知らせる）。
  */
-export const PEER_CHAT_CLOCK_SKEW_MS = 5_000;
+export const PEER_CHAT_CLOCK_SKEW_MS = 90_000;
 /**
  * tail が答えを待たせる時間の上限。
  * Worker は waitMs + 5 秒まで待つ。
@@ -504,8 +507,10 @@ export type PeerChatReason = PeerChatRefusal | PeerChatViewRefusal;
  * offline は呼び鈴がつながっていない（または届かない）。
  * host-error は、つながっているが元の PC の中で想定外の失敗が続いている（見張りは間を空けて頼み直している）。
  * 画面は「PC がつながらない」ではなく「いまは届かない、頼み直します」と読ませる。
+ * clock は、つながっているが、2 台の時計がずれていて、元の PC が頼みを期限切れと断っている（tail が expired で返る）。
+ * 画面は「時計を合わせてください」と読ませる。見張りは間を空けて頼み直す。
  */
-export type PeerChatLink = 'online' | 'offline' | 'host-error';
+export type PeerChatLink = 'online' | 'offline' | 'host-error' | 'clock';
 
 /**
  * 見ている会話の更新（WebSocket の peerChat.update、GET /api/sessions/:id/peer-chat の update）。

@@ -133,14 +133,15 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
   }
   const offline = slice.link === 'offline';
   const hostError = slice.link === 'host-error';
+  const clockOff = slice.link === 'clock';
   const locked = slice.locked;
-  const kind: PeerChatComposerKind = offline || hostError || locked ? 'blocked' : status === 'stopped' ? 'resume' : status === 'busy' || status === 'waiting' ? 'queue' : 'send';
+  const kind: PeerChatComposerKind = offline || hostError || clockOff || locked ? 'blocked' : status === 'stopped' ? 'resume' : status === 'busy' || status === 'waiting' ? 'queue' : 'send';
   const sendLabel = kind === 'resume' ? t('peerChat.composer.resume', { device }) : kind === 'queue' ? t('peerChat.composer.queue') : t('peerChat.composer.send');
-  const hint = kind === 'queue' && slice.queued.length === 0 ? t(status === 'waiting' ? 'peerChat.composer.hintWaiting' : 'peerChat.composer.hintBusy') : kind === 'resume' ? t('peerChat.composer.hintStopped', { device }) : hostError ? t('peerChat.composer.hostError') : locked ? refusalText(t, 'refused-by-setting', device) : null;
-  const statusLabel = offline ? t('peerChat.status.offline') : hostError ? t('peerChat.status.hostError') : status ? t(STATUS_KEY[status]) : t('peerChat.log.loading');
+  const hint = kind === 'queue' && slice.queued.length === 0 ? t(status === 'waiting' ? 'peerChat.composer.hintWaiting' : 'peerChat.composer.hintBusy') : kind === 'resume' ? t('peerChat.composer.hintStopped', { device }) : hostError ? t('peerChat.composer.hostError') : clockOff ? t('peerChat.composer.clock', { device }) : locked ? refusalText(t, 'refused-by-setting', device) : null;
+  const statusLabel = offline ? t('peerChat.status.offline') : hostError ? t('peerChat.status.hostError') : clockOff ? t('peerChat.status.clock') : status ? t(STATUS_KEY[status]) : t('peerChat.log.loading');
   return {
     sessionId, device, status, statusLabel,
-    tone: offline || hostError || status === null ? 'ended' : TONE[status],
+    tone: offline || hostError || clockOff || status === null ? 'ended' : TONE[status],
     loading: slice.phase === 'loading',
     rows,
     composer: {
@@ -149,7 +150,7 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
       hint,
       offline: offline ? t('peerChat.composer.offline', { device }) : null,
       canTakeOver: offline && (s!.lock !== null || s!.remoteOnly),
-      canInterrupt: !offline && !hostError && !locked && (status === 'busy' || status === 'waiting'),
+      canInterrupt: !offline && !hostError && !clockOff && !locked && (status === 'busy' || status === 'waiting'),
       sending: slice.sending,
     },
     restore: slice.restore,

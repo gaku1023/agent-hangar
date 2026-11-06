@@ -523,10 +523,11 @@ export class PeerChatViewer {
           if (!r.ok) {
             if (r.reason === 'session-unknown' || r.reason === 'not-claude' || r.reason === 'refused-by-setting') { this.refuse(w, r.reason); return; }
             if (r.reason === 'rate') { delay = PEER_CHAT_RATE_RETRY_MS; break; }
-            if (r.reason === 'offline' || r.reason === 'host-error') {
+            if (r.reason === 'offline' || r.reason === 'host-error' || r.reason === 'expired') {
               // 元の PC が offline と答えたときも、Worker の 409 と同じ間を空ける。
               // host-error（元の PC の中の想定外の失敗）も同じ間で頼み直すが、画面が「PC がつながらない」と取り違えないよう、つながりは host-error のまま流す。
-              this.setLink(w, r.reason === 'host-error' ? 'host-error' : 'offline');
+              // expired は、作ったばかりの tail が期限切れと断られたので、2 台の時計のずれである。届いているので offline とは数えず、clock として流す。
+              this.setLink(w, r.reason === 'host-error' ? 'host-error' : r.reason === 'expired' ? 'clock' : 'offline');
               delay = PEER_CHAT_OFFLINE_RETRY_MS[Math.min(offlineStep, PEER_CHAT_OFFLINE_RETRY_MS.length - 1)]!;
               offlineStep++;
               break;
