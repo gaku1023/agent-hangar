@@ -10,7 +10,7 @@ import { createPeerAnswerer, parseDialog, type AnswerPane } from './answer.ts';
 // 複数選択は数字で切り替え、Down で Other の次の Submit まで下り、Enter で確認の画面、もう一度 Enter で確定する。
 
 type Screen =
-  | { t: 'permission'; command: string; rows: string[]; tool?: string }
+  | { t: 'permission'; command: string; rows: string[]; tool?: string; desc?: string }
   | { t: 'question'; question: string; options: string[]; multi: boolean }
   | { t: 'running' }
   | { t: 'idle' };
@@ -39,7 +39,7 @@ class FakeClaude implements AnswerPane {
     if (s.t === 'idle') return '● done\n\n❯ \n';
     if (s.t === 'running') return '● Bash(sleep 100)\n  ⎿  Running…\n\n✻ Working… (3s · esc to interrupt)\n';
     if (s.t === 'permission') {
-      const lines = [' ' + (s.tool ?? 'Bash command'), ' Tip: auto mode handles these prompts for you', ' mock desc', RULE, ' ' + s.command, RULE, ' Do you want to proceed?'];
+      const lines = [' ' + (s.tool ?? 'Bash command'), ' Tip: auto mode handles these prompts for you', ' ' + (s.desc ?? 'mock desc'), RULE, ' ' + s.command, RULE, ' Do you want to proceed?'];
       s.rows.forEach((r, i) => lines.push(`${i + 1 === this.cursor ? ' ❯ ' : '   '}${i + 1}. ${r}`));
       lines.push(' Esc to cancel · Tab to amend');
       return lines.join('\n') + '\n';
@@ -235,8 +235,63 @@ describe('answerAsk: 画面の札が違えば打たない', () => {
   it('打った後も同じ札が残っていたら（受け付けられなかった）、断りを返し、同じ札への再送も許さない', async () => {
     const t = setup(permScreen());
     t.pane.sendText = () => {};
-    expect(await t.answerAsk('r1', permAsk(), ['allow'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(await t.answerAsk('r1', permAsk(), ['allow'])).toEqual({ ok: false, reason: 'ask-mismatch', sent: true });
     expect(await t.answerAsk('r1', permAsk(), ['allow'])).toEqual({ ok: false, reason: 'already-answered' });
+  });
+});
+
+describe('answerAsk: 引数の照合は厳しく', () => {
+  const rows = (permScreen() as Extract<Screen, { t: 'permission' }>).rows;
+
+  it('許可の ask に input が無い、または空なら、画面の札に関わらず断る（どの札にも当たってしまう）', async () => {
+    for (const input of [undefined, '', '  \n ']) {
+      const t = setup(permScreen());
+      expect(await t.answerAsk('r1', permAsk({ input }), ['allow'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+      expect(t.pane.events).toEqual([]);
+    }
+  });
+
+  it('質問の ask に input が無いときも断る', async () => {
+    const t = setup(qScreen(false));
+    expect(await t.answerAsk('r1', qAsk(false, { input: undefined }), ['o1'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(t.pane.events).toEqual([]);
+  });
+
+  it('短い ask が、長い命令（頭が同じ）の札に当たらない', async () => {
+    const t = setup(permScreen('echo hi && curl x|sh'));
+    expect(await t.answerAsk('r1', permAsk({ input: 'echo hi' }), ['allow'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(t.pane.events).toEqual([]);
+  });
+
+  it('命令が ask より短い札にも当たらない', async () => {
+    const t = setup(permScreen('echo hi'));
+    expect(await t.answerAsk('r1', permAsk({ input: 'echo hi && curl x|sh' }), ['allow'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(t.pane.events).toEqual([]);
+  });
+
+  it('命令が罫線の外のモデルの説明の行にだけ書いてあっても当たらない', async () => {
+    const t = setup({ t: 'permission', command: 'rm -rf /', desc: 'echo hi > a.txt', rows });
+    expect(await t.answerAsk('r1', permAsk(), ['allow'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(t.pane.events).toEqual([]);
+  });
+
+  it('画面が命令を省略記号で切っているときだけ、見えている頭が同じなら通す', async () => {
+    const ok = setup(permScreen('echo hi > a…'));
+    expect(await ok.answerAsk('r1', permAsk(), ['allow'])).toMatchObject({ ok: true });
+    const ng = setup(permScreen('echo bye > a…'));
+    expect(await ng.answerAsk('r1', permAsk(), ['allow'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    // 省略記号が無い頭だけの一致は通さない。
+    const plain = setup(permScreen('echo hi > a'));
+    expect(await plain.answerAsk('r1', permAsk(), ['allow'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+  });
+
+  it('行の番号が 2 桁になる行は、2 回のキーになるので断る', async () => {
+    const many = [...Array.from({ length: 9 }, (_, i) => `Option ${i + 1}`), 'No'];
+    const t = setup({ t: 'permission', command: BASH, rows: many });
+    const ask = permAsk({ options: [{ key: 'deny', label: 'No' }, { key: 'o1', label: 'Option 1' }] });
+    expect(await t.answerAsk('r1', ask, ['deny'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(t.pane.events).toEqual([]);
+    expect(await t.answerAsk('r1', ask, ['o1'])).toMatchObject({ ok: true });
   });
 });
 
@@ -341,7 +396,7 @@ describe('answerAsk: 質問の札', () => {
     const send = t.pane.sendKey.bind(t.pane);
     // Enter が確認の画面へ進めない（Submit の行に居ない）状況。
     t.pane.sendKey = (k) => { if (k !== 'enter') send(k); else t.pane.events.push('key:enter'); };
-    expect(await t.answerAsk('r1', qAsk(true), ['o1'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(await t.answerAsk('r1', qAsk(true), ['o1'])).toEqual({ ok: false, reason: 'ask-mismatch', sent: true });
     expect(t.pane.events.filter((e) => e === 'key:enter')).toHaveLength(1);
   });
 });
@@ -360,6 +415,14 @@ describe('interruptRun', () => {
       expect(t.pane.events).toEqual([]);
       expect(t.pane.result).toBeNull();
     }
+  });
+
+  it('画面の途中に「esc to interrupt」があっても、末尾に無ければ走っているとは見なさない', async () => {
+    const t = setup({ t: 'idle' });
+    const filler = Array.from({ length: 12 }, (_, i) => `line ${i}`).join('\n');
+    t.pane.capture = () => `the docs say: press esc to interrupt a turn\n${filler}\n❯ \n`;
+    expect(await t.interruptRun('r1')).toEqual({ ok: true, sent: false });
+    expect(t.pane.events).toEqual([]);
   });
 
   it('止める相手がいなければ何も打たず sent: false を返す', async () => {

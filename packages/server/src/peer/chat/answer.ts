@@ -40,11 +40,8 @@ const REVIEW_WAIT_MS = 2000;
  */
 export const ANSWERED_TTL_MS = 10 * 60_000;
 export const ANSWERED_MAX = 256;
-/**
- * 引数の照合に使う長さ（空白を除いた文字数）。
- * 画面が長い命令を省くときがあるので、頭だけを見る。
- */
-const INPUT_COMPARE_MAX = 600;
+/** 走っているターンの印を探す、画面の末尾の行数。 */
+const RUNNING_TAIL_LINES = 8;
 
 export type AnswerPane = {
   capture(): string;
@@ -53,7 +50,16 @@ export type AnswerPane = {
 };
 
 export type AnswerRefusal = Extract<PeerChatRefusal, 'ask-mismatch' | 'already-answered' | 'session-unknown'>;
-export type AnswerResult = { ok: true; label: string } | { ok: false; reason: AnswerRefusal };
+/**
+ * 断りの理由は計画の一覧のままにし、sent だけを足す。
+ * sent が真は、キーを打った後に断ったこと（札が閉じなかった、確認の画面が出なかった）。
+ * 偽か無しは、何も打っていないこと。
+ * sent が真の断りは、答えが画面に届いたかもしれない。呼び手は「打っていない断り」と同じに扱わない。
+ * 残る危険：古い ask への答えが、同じ見た目の新しい札に当たりうる。
+ * 照合は画面の文字だけなので、同じ命令の札が続けて出れば区別できない。
+ * この窓は、頼みの期限（60 秒）と、答えた askId の記録（ANSWERED_TTL_MS）で抑える。
+ */
+export type AnswerResult = { ok: true; label: string } | { ok: false; reason: AnswerRefusal; sent?: boolean };
 /**
  * sent が偽は、止める相手（走っているターン）がいなかったこと。
  */
@@ -128,6 +134,11 @@ export type Dialog = {
    * 引数の照合に使う。
    */
   above: string;
+  /**
+   * 許可の札の、2 本の罫線に挟まれた文字（命令や引数の本体）。
+   * 罫線が 2 本見つからなければ null。
+   */
+  ruled: string | null;
   /**
    * 札の頭の見出し（ツールの題名を含む行）の文字。
    * 小文字。
@@ -216,6 +227,7 @@ export function parseDialog(screen: string): Dialog | null {
     options,
     question,
     above: strip(body.join('\n')),
+    ruled: rules.length >= 2 ? aboveLines.slice(rules[rules.length - 2]! + 1, rules[rules.length - 1]!).join('\n') : null,
     header: headerLines.join(' ').toLowerCase(),
     manyQuestions: chips > 1,
     multi: options.some((o) => o.checked !== null),
@@ -247,10 +259,24 @@ function toolMatches(ask: PeerChatAsk, d: Dialog): boolean {
   return words.some((w) => d.header.includes(w));
 }
 
+/**
+ * 主な引数（許可）か質問の文（質問）が、画面と同じか。
+ * input が無い、または空なら、何とも照合できないので通さない（どの札にも当たってしまう）。
+ * 許可は、2 本の罫線に挟まれた文字と、空白を除いて等しいことを求める。
+ * 部分一致にしない（短い ask が長い命令に当たる）。
+ * モデルが書く説明の行は罫線の外なので、照合に入らない。
+ * 画面が長い命令を省略記号（… か ...）で切っているときだけ、見えている頭が ask の頭と同じなら通す。
+ */
 function inputMatches(ask: PeerChatAsk, d: Dialog): boolean {
-  if (!ask.input) return true;
-  const want = strip(ask.input).slice(0, INPUT_COMPARE_MAX);
-  return want === '' || d.above.includes(want);
+  const want = strip(ask.input ?? '');
+  if (want === '') return false;
+  if (ask.kind === 'question') return d.above.includes(want);
+  if (d.ruled === null) return false;
+  const got = strip(d.ruled);
+  if (got === want) return true;
+  const elided = /(?:…|\.\.\.)$/.test(got);
+  const head = got.replace(/(?:…|\.\.\.)$/, '');
+  return elided && head !== '' && want.startsWith(head);
 }
 
 /**
@@ -344,7 +370,7 @@ export function createPeerAnswerer(deps: PeerAnswererDeps): PeerAnswerer {
   };
 
   async function answer(runId: string, ask: PeerChatAsk, keys: string[], text: string | undefined): Promise<AnswerResult> {
-    const refuse = (reason: AnswerRefusal): AnswerResult => ({ ok: false, reason });
+    const refuse = (reason: AnswerRefusal, sent = false): AnswerResult => (sent ? { ok: false, reason, sent: true } : { ok: false, reason });
     if (isAnswered(ask.askId)) return refuse('already-answered');
     const pane = deps.pane(runId);
     if (!pane) return refuse('session-unknown');
@@ -368,6 +394,8 @@ export function createPeerAnswerer(deps: PeerAnswererDeps): PeerAnswerer {
     if (rows.some((r) => !r)) return refuse('ask-mismatch');
     const other = hasText ? otherRow(dialog) : null;
     if (hasText && !other) return refuse('ask-mismatch');
+    // 番号は数字 1 つで打つ。2 桁の行は 2 回のキーになり、別の行に当たるので断る。
+    if (rows.some((r) => r!.n > 9) || (other && other.n > 9)) return refuse('ask-mismatch');
 
     // ここから先は打つ。
     // 途中で止まっても、同じ札に 2 度は打たせない。
@@ -401,12 +429,12 @@ export function createPeerAnswerer(deps: PeerAnswererDeps): PeerAnswerer {
         pane.sendKey('enter');
       }
     } catch (e) {
-      if (e instanceof Stop) return refuse('ask-mismatch');
+      if (e instanceof Stop) return refuse('ask-mismatch', true);
       throw e;
     }
     // 札が閉じたことを確かめる。
     // 閉じなければ、打ったキーは受け付けられていない。
-    if (!(await waitUntil(pane, closed(ask), CLOSE_WAIT_MS))) return refuse('ask-mismatch');
+    if (!(await waitUntil(pane, closed(ask), CLOSE_WAIT_MS))) return refuse('ask-mismatch', true);
     return { ok: true, label: [...labels, ...(hasText ? [text!] : [])].join(', ') };
   }
 
@@ -417,7 +445,10 @@ export function createPeerAnswerer(deps: PeerAnswererDeps): PeerAnswerer {
     // 札が出ているときの Escape は、断ると同じ。
     // 答えのつもりのない断りを打たない。
     if (parseDialog(screen)) return { ok: false, reason: 'ask-mismatch' };
-    if (!RUNNING_RE.test(screen)) return { ok: true, sent: false };
+    // 印は画面の末尾（案内の行）に出る。
+    // 本文やアシスタントの出力に同じ語があっても、走っているとは見なさない。
+    const tail = screen.replace(/\r/g, '').split('\n').filter((l) => l.trim() !== '').slice(-RUNNING_TAIL_LINES).join('\n');
+    if (!RUNNING_RE.test(tail)) return { ok: true, sent: false };
     pane.sendKey('escape');
     return { ok: true, sent: true };
   }
