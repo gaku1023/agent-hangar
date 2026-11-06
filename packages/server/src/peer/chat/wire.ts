@@ -14,7 +14,7 @@ export function attachPeerChatSocket(hub: Pick<EventHub, 'onMessage' | 'onClose'
     const msg = parsePeerChatClientMsg(raw);
     if (!msg) return;
     if (msg.type === 'peerChat.watch') viewer.watchFromSocket(client, msg);
-    else viewer.unwatch(msg.sessionId, msg.viewer);
+    else viewer.unwatch(msg.sessionId, msg.viewer, client);
   });
   hub.onClose((client) => { viewer.dropSocket(client); });
 }

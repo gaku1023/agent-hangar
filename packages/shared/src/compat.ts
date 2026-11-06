@@ -107,6 +107,14 @@ export const PEER_LAUNCH_MIN_WORKER_COMPAT = 10;
  */
 export const PEER_CHAT_MIN_WORKER_COMPAT = 11;
 
+/**
+ * ほかの PC の会話をチャットの形で見て続ける機能（ピア チャット）を持つ、最初の hangar の版。
+ * 見る側の PC は、相手の hangar_version がこの版以上のときだけ、この機能の問い合わせを頼む。
+ * 版の比べ方は、前置き（rc など）を見ず、major、minor、patch の順に比べる（server の peer/version.ts）。
+ * この機能を載せる最初のリリースの番号が違ったら、この値を直す。
+ */
+export const PEER_CHAT_MIN_HANGAR_VERSION = '0.20.0-rc.1';
+
 /** 版を運ぶ見出し（X-Hangar-Compat）。端末は要求に、Worker は応答に、自分の版を載せる。 */
 export const COMPAT_HEADER = 'x-hangar-compat';
 

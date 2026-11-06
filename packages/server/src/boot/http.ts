@@ -2,7 +2,7 @@ import type { AppDeps } from '../http/deps.ts';
 import { serve } from '@hono/node-server';
 import type http from 'node:http';
 import path from 'node:path';
-import type { SettingsDto } from '@agent-hangar/shared';
+import { PEER_CHAT_MIN_HANGAR_VERSION, type SettingsDto } from '@agent-hangar/shared';
 import { attachPeerChatSocket } from '../peer/chat/wire.ts';
 import { readDropImage } from '../peer/chat/viewImage.ts';
 import { resolveViewTarget, localCursorOf } from '../peer/chat/viewTarget.ts';
@@ -147,7 +147,7 @@ export function bootHttp(p: {
     resolve: (sessionId) => resolveViewTarget(db, device.id, sessionId, Date.now()),
     link: () => sync.peerChatLink(),
     workerOk: () => sync.canCarryPeerChat(),
-    version: VERSION,
+    version: PEER_CHAT_MIN_HANGAR_VERSION,
     localCursor: (sessionId) => localCursorOf(db, sessionId),
     readImage: (ref) => readDropImage(dropsDir, ref),
     publish: (ev) => { delivery.hub.broadcast(ev); },

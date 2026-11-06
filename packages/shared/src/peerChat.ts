@@ -487,10 +487,11 @@ export async function openPeerChatBlob(ring: PeerKeyring, route: PeerRoute, n: n
  * 画面が見る前に、見る側の PC が断る理由。
  * not-remote はこの PC の会話（相手の PC が無い）、device-unknown は相手の PC が名簿に無い、
  * device-outdated は相手の hangar がこの機能の版に届かない、worker-outdated はクラウドの Worker の版が足りない、
- * no-link は同期に参加していない、unreachable は Worker に届かなかった、image-missing は添えた画像が読めない。
+ * no-link は同期に参加していない、unreachable は Worker に届かなかった、image-missing は添えた画像が読めない、
+ * too-many は同時に見られる会話の数の上限（接続ごと、全体）を超えた。
  * 画面は、これらのときは読み取り専用のトランスクリプトのままにする。
  */
-export const PEER_CHAT_VIEW_REFUSALS = ['not-remote', 'not-claude', 'session-unknown', 'device-unknown', 'device-outdated', 'worker-outdated', 'no-link', 'unreachable', 'image-missing'] as const;
+export const PEER_CHAT_VIEW_REFUSALS = ['not-remote', 'not-claude', 'session-unknown', 'device-unknown', 'device-outdated', 'worker-outdated', 'no-link', 'unreachable', 'image-missing', 'too-many'] as const;
 export type PeerChatViewRefusal = (typeof PEER_CHAT_VIEW_REFUSALS)[number];
 /**
  * 画面に返す理由。

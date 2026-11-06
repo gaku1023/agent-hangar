@@ -31,7 +31,7 @@ beforeEach(async () => {
   hub = new EventHub('test');
   attachPeerChatSocket(hub, {
     watchFromSocket: (socket, msg) => { socketOf.set(msg.viewer, socket); calls.push(`watch ${msg.sessionId} ${msg.viewer} ${String(msg.after)}`); },
-    unwatch: (sessionId, viewer) => { calls.push(`unwatch ${sessionId} ${viewer}`); },
+    unwatch: (sessionId, viewer, socket) => { calls.push(`unwatch ${sessionId} ${viewer} ${socket === socketOf.get(viewer) ? 'own' : 'other'}`); },
     dropSocket: (socket) => { calls.push(`drop ${[...socketOf].filter(([, s]) => s === socket).map(([v]) => v).join(',')}`); },
   });
   server = http.createServer();
@@ -54,7 +54,7 @@ describe('attachPeerChatSocket', () => {
     ws.send(JSON.stringify({ type: 'peerChat.watch', sessionId: 's2', viewer: 'tab-1', after: 'u3' }));
     ws.send(JSON.stringify({ type: 'peerChat.unwatch', sessionId: 's1', viewer: 'tab-1' }));
     await until(() => calls.length === 3);
-    expect(calls).toEqual(['watch s1 tab-1 undefined', 'watch s2 tab-1 u3', 'unwatch s1 tab-1']);
+    expect(calls).toEqual(['watch s1 tab-1 undefined', 'watch s2 tab-1 u3', 'unwatch s1 tab-1 own']);
   });
 
   it('接続が切れたら、その接続で見始めた人を外す（画面を閉じたら見張りが止まる）', async () => {

@@ -79,6 +79,12 @@ export const PEER_CHAT_FIRST_WAIT_MS = 10_000;
  * 超えたら古いものを捨て、replace にする。
  */
 export const PEER_CHAT_ITEMS_KEEP = 1000;
+/** 1 つの接続（GET だけの見ている人は 1 つにまとめて数える）が同時に見られる会話の数。 */
+export const PEER_CHAT_VIEWERS_PER_SOCKET = 8;
+/** 同時に見張れる会話の数の上限。超える会話の見張りは断る（too-many）。 */
+export const PEER_CHAT_WATCHES_MAX = 8;
+/** 見張りを止めた同じ会話を、また見始めるまでに空ける最短の間。閉じて開き直すたびに、Durable Object の待ちが重ならないようにする。 */
+export const PEER_CHAT_REWATCH_GAP_MS = 2_000;
 /** 渡せずに消えた預かりの印を覚えておく長さ（元の PC が繰り返し返す長さと同じ 5 分）。 */
 export const PEER_CHAT_GONE_KEEP_MS = 5 * 60_000;
 /** この回数続けて届かなければ、画面には offline と知らせる。 */
@@ -170,7 +176,9 @@ type Outcome =
   | { kind: 'aborted' }
   | { kind: 'gate'; reason: PeerChatReason };
 
-type Viewer = { socket: number | null; cancelLease: (() => void) | null };
+type Viewer = { id: string; socket: number | null; cancelLease: (() => void) | null };
+/** 見ている人の鍵。接続（GET だけなら h）と画面の ID の組で、別の接続が同じ ID で入っても、ほかの接続の見ている人を乗っ取れない。 */
+const viewerKey = (socket: number | null, id: string): string => (socket === null ? `h:${id}` : `s${socket}:${id}`);
 
 const sigOf = (v: unknown): string => JSON.stringify(v);
 const statusOf = (e: unknown): number | null => {
@@ -264,7 +272,10 @@ class Watch {
       let drop = this.items.size - PEER_CHAT_ITEMS_KEEP;
       for (const k of [...this.items.keys()]) {
         if (drop-- <= 0) break;
+        const dropped = this.items.get(k);
         this.items.delete(k);
+        // 札の覚えも一緒に捨てる（残すと、あとで同じ札が来たときに、無い項目の重ね書きになる）。
+        if (dropped?.ask && this.asks.get(dropped.ask.askId)?.uuid === k) this.asks.delete(dropped.ask.askId);
       }
       this.replace = true;
       replaced = true;
@@ -315,6 +326,8 @@ class Watch {
 
 export class PeerChatViewer {
   private readonly watches = new Map<string, Watch>();
+  /** 会話ごとの、見張りを最後に止めた時刻。 */
+  private readonly endedAt = new Map<string, number>();
   private readonly clock: ViewerClock;
   private readonly newId: () => string;
 
@@ -333,7 +346,7 @@ export class PeerChatViewer {
 
   // ---- 入口の確かめ ----
 
-  private gate(sessionId: string): { ok: true; target: ViewTarget } | { ok: false; reason: PeerChatReason; device?: PeerChatTargetDto } {
+  private gate(sessionId: string): { ok: true; target: ViewTarget; device: PeerChatTargetDto } | { ok: false; reason: PeerChatReason; device?: PeerChatTargetDto } {
     const r = this.deps.resolve(sessionId);
     if (!r.ok) return { ok: false, reason: r.reason };
     const t = r.target;
@@ -341,7 +354,7 @@ export class PeerChatViewer {
     if (t.outdated || (this.deps.version !== undefined && !versionAtLeast(t.hangarVersion, this.deps.version))) return { ok: false, reason: 'device-outdated', device };
     if (this.deps.link() === null) return { ok: false, reason: 'no-link', device };
     if (!this.deps.workerOk()) return { ok: false, reason: 'worker-outdated', device };
-    return { ok: true, target: t };
+    return { ok: true, target: t, device };
   }
 
   // ---- 見張り ----
@@ -378,10 +391,10 @@ export class PeerChatViewer {
    * WebSocket の peerChat.unwatch、または画面が閉じたとき。
    * 見ている人が 1 人もいなくなれば止める。
    */
-  unwatch(sessionId: string, viewer: string): void {
+  unwatch(sessionId: string, viewer: string, socket: number | null = null): void {
     const w = this.watches.get(sessionId);
     if (!w) return;
-    this.dropViewer(w, viewer);
+    this.dropViewer(w, viewerKey(socket, viewer));
   }
 
   /**
@@ -390,7 +403,7 @@ export class PeerChatViewer {
    */
   dropSocket(socket: number): void {
     for (const w of [...this.watches.values()]) {
-      for (const [id, v] of [...w.viewers]) if (v.socket === socket) this.dropViewer(w, id);
+      for (const [key, v] of [...w.viewers]) if (v.socket === socket) this.dropViewer(w, key);
     }
   }
 
@@ -404,6 +417,10 @@ export class PeerChatViewer {
     const g = this.gate(sessionId);
     if (!g.ok) return g;
     let w = this.watches.get(sessionId);
+    // 上限は、見張りを作る前に見る（断った見張りを、見ている人のいないまま残さない）。
+    const key = viewerKey(socket, viewer);
+    if (!w?.viewers.has(key) && this.viewersOf(socket) >= PEER_CHAT_VIEWERS_PER_SOCKET) return { ok: false, reason: 'too-many', device: g.device };
+    if (!w && this.watches.size >= PEER_CHAT_WATCHES_MAX) return { ok: false, reason: 'too-many', device: g.device };
     if (!w) {
       const from = after === undefined ? this.deps.localCursor(sessionId) : after;
       w = new Watch(sessionId, g.target, from);
@@ -414,20 +431,35 @@ export class PeerChatViewer {
     return { ok: true, watch: w };
   }
 
-  private addViewer(w: Watch, id: string, socket: number | null): void {
-    const known = w.viewers.get(id);
-    if (known && known.socket !== null && socket === null) return; // WebSocket で見ている人の GET は、期限を付けない
-    known?.cancelLease?.();
-    const v: Viewer = { socket, cancelLease: null };
-    if (socket === null) v.cancelLease = this.clock.after(PEER_CHAT_LEASE_MS, () => this.dropViewer(w, id));
-    w.viewers.set(id, v);
+  /** その接続（null は GET だけの見ている人）が、いま見ている会話の数。 */
+  private viewersOf(socket: number | null): number {
+    let n = 0;
+    for (const w of this.watches.values()) for (const v of w.viewers.values()) if (v.socket === socket) n++;
+    return n;
   }
 
-  private dropViewer(w: Watch, id: string): void {
-    const v = w.viewers.get(id);
+  private addViewer(w: Watch, id: string, socket: number | null): void {
+    if (socket === null) {
+      // WebSocket で見ている人の GET は、期限を付けない（その接続の見ている人に任せる）。
+      for (const v of w.viewers.values()) if (v.id === id && v.socket !== null) return;
+    } else {
+      // WebSocket で見始めたら、同じ ID の GET の期限は不要になる。ほかの接続の見ている人には触れない。
+      const http = w.viewers.get(viewerKey(null, id));
+      http?.cancelLease?.();
+      w.viewers.delete(viewerKey(null, id));
+    }
+    const key = viewerKey(socket, id);
+    w.viewers.get(key)?.cancelLease?.();
+    const v: Viewer = { id, socket, cancelLease: null };
+    if (socket === null) v.cancelLease = this.clock.after(PEER_CHAT_LEASE_MS, () => this.dropViewer(w, key));
+    w.viewers.set(key, v);
+  }
+
+  private dropViewer(w: Watch, key: string): void {
+    const v = w.viewers.get(key);
     if (!v) return;
     v.cancelLease?.();
-    w.viewers.delete(id);
+    w.viewers.delete(key);
     if (w.viewers.size === 0) this.finish(w);
   }
 
@@ -436,6 +468,10 @@ export class PeerChatViewer {
     w.viewers.clear();
     w.abort.abort();
     if (this.watches.get(w.sessionId) === w) this.watches.delete(w.sessionId);
+    // 開き直しの間隔を空けるために、止めた時刻を覚える（古いものは捨てる）。
+    const now = this.clock.now();
+    for (const [id, at] of this.endedAt) if (now - at > 60_000) this.endedAt.delete(id);
+    this.endedAt.set(w.sessionId, now);
     w.settleFirst();
   }
 
@@ -460,6 +496,12 @@ export class PeerChatViewer {
     let offlineStep = 0;
     let lastAt = Number.NEGATIVE_INFINITY;
     const wait = (ms: number) => this.clock.sleep(ms, signal);
+    // 同じ会話を止めてすぐ開き直したときは、前の待ちが片付くまで空ける。
+    const ended = this.endedAt.get(w.sessionId);
+    if (ended !== undefined) {
+      const rest = ended + PEER_CHAT_REWATCH_GAP_MS - this.clock.now();
+      if (rest > 0) await wait(rest);
+    }
     while (!signal.aborted) {
       // 相手と入口を毎周確かめる。
       // 会話が別の PC へ移ったら、写しを捨てて取り直す。
@@ -481,6 +523,13 @@ export class PeerChatViewer {
           if (!r.ok) {
             if (r.reason === 'session-unknown' || r.reason === 'not-claude' || r.reason === 'refused-by-setting') { this.refuse(w, r.reason); return; }
             if (r.reason === 'rate') { delay = PEER_CHAT_RATE_RETRY_MS; break; }
+            if (r.reason === 'offline') {
+              // 元の PC が offline と答えたときも、Worker の 409 と同じ間を空ける。
+              if (w.link !== 'offline') { w.link = 'offline'; this.publish(w, [], false); }
+              delay = PEER_CHAT_OFFLINE_RETRY_MS[Math.min(offlineStep, PEER_CHAT_OFFLINE_RETRY_MS.length - 1)]!;
+              offlineStep++;
+              break;
+            }
             errors++;
             delay = this.errorDelay(errors);
             this.noteErrors(w, errors);

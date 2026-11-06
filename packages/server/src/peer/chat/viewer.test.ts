@@ -15,7 +15,8 @@ import {
   type PeerKeyring,
   type ServerEvent,
 } from '@agent-hangar/shared';
-import { PeerChatViewer, PEER_CHAT_LEASE_MS, PEER_CHAT_MIN_GAP_MS, PEER_CHAT_OFFLINE_RETRY_MS, PEER_CHAT_RATE_RETRY_MS, type ViewTarget } from './viewer.ts';
+import { PeerChatViewer, PEER_CHAT_ITEMS_KEEP, PEER_CHAT_LEASE_MS, PEER_CHAT_MIN_GAP_MS, PEER_CHAT_OFFLINE_RETRY_MS, PEER_CHAT_RATE_RETRY_MS, PEER_CHAT_REWATCH_GAP_MS, PEER_CHAT_VIEWERS_PER_SOCKET, PEER_CHAT_WATCHES_MAX, type ViewTarget } from './viewer.ts';
+import { PEER_CHAT_MIN_HANGAR_VERSION } from '@agent-hangar/shared';
 
 const ME = 'pc-a';
 const PEER = 'pc-b';
@@ -99,6 +100,12 @@ let api: PeerChatApi;
 let drops: Map<string, { bytes: Uint8Array; mime: 'image/png' | 'image/jpeg' | 'image/webp' }>;
 
 const peerTarget = (over: Partial<ViewTarget> = {}): ViewTarget => ({ deviceId: PEER, deviceName: 'Mac', hangarVersion: '9.9.9', outdated: false, ...over });
+// 止めた直後の開き直しは PEER_CHAT_REWATCH_GAP_MS 待たされるので、時計を進めて開く。
+const reopen = async (o: { viewer: string; after?: string | null }) => {
+  const p = viewer.open(SID, o);
+  await clock.advance(PEER_CHAT_REWATCH_GAP_MS);
+  return p;
+};
 const tails = () => asks.filter((a) => a.req.op.t === 'tail');
 const updates = () => events.map(({ type: _t, ...u }) => u);
 
@@ -159,7 +166,7 @@ describe('見張りを始める（GET）', () => {
     await viewer.open(SID, { viewer: 'v1', after: 'x5' });
     expect(tails()[0]!.req.op).toMatchObject({ after: 'x5' });
     viewer.unwatch(SID, 'v1');
-    await viewer.open(SID, { viewer: 'v2', after: null });
+    await reopen({ viewer: 'v2', after: null });
     expect(tails().at(-1)!.req.op).toMatchObject({ after: null });
   });
 
@@ -420,8 +427,108 @@ describe('画面を閉じたら止まる', () => {
     await viewer.open(SID, { viewer: 'v1' });
     viewer.unwatch(SID, 'v1');
     localCursor = 'local-1';
-    await viewer.open(SID, { viewer: 'v1' });
+    await reopen({ viewer: 'v1' });
     expect(tails().at(-1)!.req.op).toMatchObject({ after: 'local-1' });
+  });
+});
+
+describe('見張りの上限と見ている人', () => {
+  it('1 つの接続が同時に見られる会話は PEER_CHAT_VIEWERS_PER_SOCKET まで。超えたら too-many で断る', async () => {
+    for (let i = 0; i < PEER_CHAT_VIEWERS_PER_SOCKET; i++) viewer.watchFromSocket(7, { type: 'peerChat.watch', sessionId: `s${i}`, viewer: `v${i}` });
+    expect(events.filter((e) => e.reason)).toEqual([]);
+    viewer.watchFromSocket(7, { type: 'peerChat.watch', sessionId: 'extra', viewer: 'vx' });
+    expect(updates().at(-1)).toMatchObject({ sessionId: 'extra', reason: 'too-many' });
+    expect(viewer.watching('extra')).toBe(false);
+    // 別の接続は数えが別。ただし会話の総数の上限（PEER_CHAT_WATCHES_MAX）には当たる。
+    viewer.watchFromSocket(8, { type: 'peerChat.watch', sessionId: 'other', viewer: 'v0' });
+    expect(updates().at(-1)).toMatchObject({ sessionId: 'other', reason: 'too-many' });
+  });
+
+  it('会話の総数の上限を超える見張りは断り、見ている人のいない見張りを残さない', async () => {
+    for (let i = 0; i < PEER_CHAT_WATCHES_MAX; i++) viewer.watchFromSocket(10 + i, { type: 'peerChat.watch', sessionId: `w${i}`, viewer: 'v' });
+    const r = await viewer.open('overflow', { viewer: 'h1' });
+    expect(r).toMatchObject({ ok: false, reason: 'too-many' });
+    expect(viewer.watching('overflow')).toBe(false);
+    // 見ている会話に加わるのは、上限に当たっても通る。
+    expect((await viewer.open('w0', { viewer: 'h2' })).ok).toBe(true);
+  });
+
+  it('別の接続が同じ viewer ID で入っても、元の接続の見ている人を乗っ取れない', async () => {
+    viewer.watchFromSocket(7, { type: 'peerChat.watch', sessionId: SID, viewer: 'tab' });
+    viewer.watchFromSocket(8, { type: 'peerChat.watch', sessionId: SID, viewer: 'tab' });
+    // 接続 8 が外れても、接続 7 の見張りは続く。
+    viewer.dropSocket(8);
+    expect(viewer.watching(SID)).toBe(true);
+    // 接続 8 の unwatch は、接続 7 の見ている人を外さない。
+    viewer.watchFromSocket(8, { type: 'peerChat.watch', sessionId: SID, viewer: 'tab' });
+    viewer.unwatch(SID, 'tab', 8);
+    expect(viewer.watching(SID)).toBe(true);
+    viewer.unwatch(SID, 'tab', 7);
+    expect(viewer.watching(SID)).toBe(false);
+  });
+
+  it('WebSocket で見始めた画面が unwatch したら、同じ ID の GET の期限を待たずに止まる', async () => {
+    await viewer.open(SID, { viewer: 'tab' });
+    viewer.watchFromSocket(7, { type: 'peerChat.watch', sessionId: SID, viewer: 'tab' });
+    viewer.unwatch(SID, 'tab', 7);
+    expect(viewer.watching(SID)).toBe(false);
+  });
+
+  it('止めてすぐ開き直しても、PEER_CHAT_REWATCH_GAP_MS が過ぎるまで新しい問い合わせを出さない', async () => {
+    await viewer.open(SID, { viewer: 'v1' });
+    viewer.unwatch(SID, 'v1');
+    const before = tails().length;
+    const p = viewer.open(SID, { viewer: 'v1' });
+    await clock.advance(PEER_CHAT_REWATCH_GAP_MS - 1);
+    expect(tails()).toHaveLength(before);
+    await clock.advance(1);
+    await p;
+    expect(tails()).toHaveLength(before + 1);
+  });
+
+  it('溢れて捨てた項目の札の覚えも捨てる（あとで同じ札が来ても、無い項目の重ね書きにならない）', async () => {
+    const filler = Array.from({ length: PEER_CHAT_ITEMS_KEEP }, (_, i) => item(`f${i}`));
+    answers.push(() => ok(state([askItem('old@ask:A', 'A'), ...filler])));
+    answers.push(() => ok(state([askItem('new@ask:A', 'A')], { cursor: 'new@ask:A' })));
+    const first = await viewer.open(SID, { viewer: 'v1' });
+    expect(first.ok && first.update.items.some((i) => i.ask)).toBe(false);
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    // 札 A は捨てた側の覚えが無いので、新しい項目として足される。
+    expect(updates().at(-1)!.items.some((i) => i.uuid === 'new@ask:A')).toBe(true);
+  });
+
+  it('元の PC が offline と答えたときも、Worker の 409 と同じ 15 秒、30 秒の間を空ける', async () => {
+    fallback = () => ({ ok: false, reason: 'offline' });
+    const r = await viewer.open(SID, { viewer: 'v1' });
+    expect(r.ok && r.update.link).toBe('offline');
+    await clock.advance(PEER_CHAT_OFFLINE_RETRY_MS[0] - 1);
+    expect(tails()).toHaveLength(1);
+    await clock.advance(1);
+    expect(tails()).toHaveLength(2);
+    await clock.advance(PEER_CHAT_OFFLINE_RETRY_MS[1] - 1);
+    expect(tails()).toHaveLength(2);
+    await clock.advance(1);
+    expect(tails()).toHaveLength(3);
+    expect(updates().filter((u) => u.link === 'offline')).toHaveLength(1);
+  });
+});
+
+describe('版の下限（PEER_CHAT_MIN_HANGAR_VERSION）', () => {
+  const gated = (hangarVersion: string | null) => {
+    target = { ok: true, ...peerTarget({ hangarVersion }) } as never;
+    const v = new PeerChatViewer({
+      selfId: ME, resolve: () => ({ ok: true, target: target as ViewTarget }), link: () => ({ api, ring: async () => ring }), workerOk: () => true,
+      version: PEER_CHAT_MIN_HANGAR_VERSION, localCursor: () => null, readImage: () => null, publish: () => {}, clock, newId: () => 'x',
+    });
+    return v.op(SID, { t: 'interrupt' });
+  };
+
+  it('固定の版以上の相手を受ける。自分の版が新しくても、機能を持つ古い版の相手を断らない', async () => {
+    for (const v of ['0.20.0-rc.1', '0.20.0-rc.2', '0.20.0', '0.20.1', '0.21.0', '1.0.0']) expect(await gated(v)).toMatchObject({ ok: true });
+  });
+
+  it('機能の前の版と、版の無い相手は device-outdated', async () => {
+    for (const v of ['0.19.0', '0.19.9', null, 'dev']) expect(await gated(v)).toEqual({ ok: false, reason: 'device-outdated' });
   });
 });
 
