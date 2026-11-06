@@ -76,6 +76,10 @@ export type PeerChatStatus = (typeof PEER_CHAT_STATUSES)[number];
  * 送った文が渡されないまま消えた知らせ（送り主の PC に返す）。
  * queue-expired は止まってから 10 分渡せなかったとき、session-unknown は会話が消えたとき。
  * 受け取った側は、自分の預かりの queueId を探し、文を入力欄に戻す。
+ * 届くのは、その会話の画面が開いていて、見張りが動いている間だけである（元の PC は数分のあいだ同じ知らせを載せ続けるが、見る側の画面が無ければ誰も受け取らない）。
+ * 画面を閉じたあとに渡せなくなった文は、知らせない（渡せたかどうかは、会話を開き直して見るしかない）。
+ * 見張りが動いていても、元の PC の再起動で消えた文は、見る側が hostId の変わりで見つけて同じ知らせにする（PeerChatState.hostId）。
+ * 受けない設定への切り替えで捨てた文も、reason は queue-expired で知らせる。
  */
 export type PeerChatGone = { queueId: string; reason: 'queue-expired' | 'session-unknown' };
 

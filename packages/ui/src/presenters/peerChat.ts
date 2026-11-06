@@ -45,9 +45,12 @@ export type PeerChatView = {
   notice: { n: number; text: string } | null;
 };
 
-/** ほかの PC の Claude Code の会話か（ここで見張りを始めてよいか）。 */
+/**
+ * ほかの PC の Claude Code の会話か（ここで見張りを始めてよいか）。
+ * ほかの PC で動いている（lock）、手元に本文が無い（remoteOnly）に加え、ほかの PC に手元より新しい続きがある会話（newerElsewhere。A → B → A で、B で止まっていて手元に古い写しが残る）も含める。
+ */
 export function isPeerChatCandidate(s: SessionDto | undefined): boolean {
-  return !!s && s.provider === 'claude-code' && (s.lock !== null || s.remoteOnly);
+  return !!s && s.provider === 'claude-code' && (s.lock !== null || s.remoteOnly || s.newerElsewhere === true);
 }
 
 const STATUS_KEY = { busy: 'peerChat.status.busy', idle: 'peerChat.status.idle', waiting: 'peerChat.status.waiting', stopped: 'peerChat.status.stopped' } as const;
@@ -150,7 +153,7 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
       placeholder: t(offline ? 'peerChat.composer.placeholderOffline' : 'peerChat.composer.placeholder', { device }),
       hint,
       offline: offline ? t('peerChat.composer.offline', { device }) : null,
-      canTakeOver: offline && (s!.lock !== null || s!.remoteOnly),
+      canTakeOver: offline && isPeerChatCandidate(s),
       // 札が出ている間（waiting）は、Escape が札の断りになり、元の PC が ask-mismatch で断る。止めるボタンは出さない。
       canInterrupt: !offline && !hostError && !clockOff && !locked && status === 'busy',
       sending: slice.sending,

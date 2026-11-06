@@ -3,7 +3,7 @@ import { translator, type PeerChatItem, type PeerChatQueued, type SessionDto } f
 import { initialState } from '../mediator/transition.ts';
 import { initialStore, type Store } from '../store/store.ts';
 import { emptySlice, type PeerChatSlice } from '../store/peerChat.ts';
-import { permissionWord, presentPeerChat } from './peerChat.ts';
+import { isPeerChatCandidate, permissionWord, presentPeerChat } from './peerChat.ts';
 import { presentSession } from './session.ts';
 
 const ja = translator('ja');
@@ -144,6 +144,14 @@ describe('チャットを出さない会話は、今までの読み取り専用�
   it('見張りの状態が live なら、セッションの props に画面の値を載せる', () => {
     const p = presentSession(initialState(), store({ status: 'busy' }), NOW, 's1');
     expect(p.peerChat?.view).toMatchObject({ device: 'Mac', composer: { kind: 'queue' } });
+  });
+
+  it('ほかの PC に手元より新しい続きがある（A → B → A、止まっていて手元に古い写し）会話も、チャットの対象。この PC で再開も出せる', () => {
+    const newer = session({ lock: null, remoteOnly: false, newerElsewhere: true });
+    expect(isPeerChatCandidate(newer)).toBe(true);
+    expect(isPeerChatCandidate(session({ lock: null, remoteOnly: false, newerElsewhere: false }))).toBe(false);
+    const v = view(store({ status: 'idle', link: 'offline' }, newer))!;
+    expect(v.composer.canTakeOver).toBe(true);
   });
 
   it('間に合わなかった取り消し（cancel-late）の一言は、渡せなかったとは別の文', () => {
