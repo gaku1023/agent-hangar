@@ -21,10 +21,12 @@ process.stdin.setRawMode(true);
 process.stdin.resume();
 const dialog = [' Bash command', RULE, ' echo hi > a.txt', RULE, ' Do you want to proceed?', ' ❯ 1. Yes', '   2. Yes, and always allow access to this project', '   3. No', ' Esc to cancel · Tab to amend'].join('\\n');
 const running = ['● Bash(sleep 100)', '  ⎿  Running…', '', '✻ Working… (3s · esc to interrupt)'].join('\\n');
-process.stdout.write(mode === 'perm' ? dialog : running);
+// Edit の札（2.1.319 の実機と同じ並び。パスは cwd からの相対で出る）。
+const edit = ['● Update(sub/m.txt)', '', '─'.repeat(44), ' Edit file', ' sub/m.txt', RULE, ' 1  one', ' 2 -two', ' 2 +TWO', RULE, ' Do you want to make this edit to m.txt?', ' ❯ 1. Yes', '   2. Yes, and switch to accept edits (shift+tab)', '   3. No', ' Esc to cancel · Tab to amend'].join('\\n');
+process.stdout.write(mode === 'perm' ? dialog : mode === 'edit' ? edit : running);
 process.stdin.on('data', (d) => {
   fs.appendFileSync(log, d.toString('hex') + '\\n');
-  if (mode === 'perm' && d[0] >= 0x31 && d[0] <= 0x39) process.stdout.write('\\x1b[2J\\x1b[H● allowed');
+  if ((mode === 'perm' || mode === 'edit') && d[0] >= 0x31 && d[0] <= 0x39) process.stdout.write('\\x1b[2J\\x1b[H● allowed');
   if (mode === 'run' && d[0] === 0x1b) process.stdout.write('\\x1b[2J\\x1b[H● interrupted');
 });
 `;
@@ -48,7 +50,7 @@ describe.skipIf(!real)('answerAsk と interruptRun（実物のペイン）', () 
     for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
   });
 
-  function start(name: string, mode: 'perm' | 'run') {
+  function start(name: string, mode: 'perm' | 'run' | 'edit') {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-answer-'));
     dirs.push(dir);
     const script = path.join(dir, 'fake.cjs');
@@ -58,7 +60,7 @@ describe.skipIf(!real)('answerAsk と interruptRun（実物のペイン）', () 
     made.push(name);
     panes!.open({ name, cwd: dir, command: [process.execPath, script, mode, log] });
     const keys = () => fs.readFileSync(log, 'utf8').split('\n').filter(Boolean);
-    return { keys, answerer: createPeerAnswerer({ pane: (id) => (id === name ? answerPaneOf(panes!, name) : null) }) };
+    return { dir, keys, answerer: createPeerAnswerer({ pane: (id) => (id === name ? answerPaneOf(panes!, name) : null), cwd: () => dir }) };
   }
 
   const ask: PeerChatAsk = {
@@ -86,6 +88,18 @@ describe.skipIf(!real)('answerAsk と interruptRun（実物のペイン）', () 
     await waitFor(() => panes!.capture('hangar-ans-mis').includes('Do you want to proceed?'), 15_000);
     expect(await t.answerer.answerAsk('hangar-ans-mis', { ...ask, askId: 'real-2', input: 'rm -rf /' }, ['allow'])).toEqual({ ok: false, reason: 'ask-mismatch' });
     expect(t.keys()).toEqual([]);
+  }, 40_000);
+
+  it('Edit の札は、cwd からの相対のパスを絶対の ask と突き合わせて、数字 1 回で答える。別のファイルなら打たない', async () => {
+    const t = start('hangar-ans-edit', 'edit');
+    await waitFor(() => panes!.capture('hangar-ans-edit').includes('Do you want to make this edit'), 15_000);
+    const editAsk = (askId: string, file: string): PeerChatAsk => ({ ...ask, askId, tool: 'Edit', input: path.join(t.dir, file), options: [{ key: 'allow', label: 'Yes' }, { key: 'deny', label: 'No' }] });
+    expect(await t.answerer.answerAsk('hangar-ans-edit', editAsk('real-e0', 'sub/other.txt'), ['allow'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(t.keys()).toEqual([]);
+    expect(await t.answerer.answerAsk('hangar-ans-edit', { ...editAsk('real-e1', 'sub/m.txt'), tool: 'Bash' }, ['allow'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(t.keys()).toEqual([]);
+    expect(await t.answerer.answerAsk('hangar-ans-edit', editAsk('real-e2', 'sub/m.txt'), ['allow'])).toEqual({ ok: true, label: 'Yes' });
+    expect(t.keys()).toEqual(['31']);
   }, 40_000);
 
   it('Escape は 1 回だけ届き、札が出ている画面には打たない', async () => {

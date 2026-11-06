@@ -71,6 +71,12 @@ export type PeerAnswererDeps = {
    * run が無い、終わっている、画面が無いときは null。
    */
   pane: (runId: string) => AnswerPane | null;
+  /**
+   * run の作業ディレクトリ（Claude Code を起こした場所）。
+   * ファイルの道具の札は、cwd からの相対のパスを出すので、絶対の ask と突き合わせるのに使う。
+   * 分からなければ null（相対と絶対は突き合わせられず、同じ文字のときだけ通す）。
+   */
+  cwd?: (runId: string) => string | null;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   answeredTtlMs?: number;
@@ -122,6 +128,20 @@ export type DialogOption = {
   checked: boolean | null;
 };
 
+export type DialogFile = {
+  /**
+   * 題がさす道具。
+   * Edit file は Edit と MultiEdit、Create file と Overwrite file は Write。
+   */
+  tools: string[];
+  /**
+   * 画面に出ているパス。
+   * cwd からの相対のことがあり、長いと左が … で切れる。
+   * 読めなければ空。
+   */
+  path: string;
+};
+
 export type Dialog = {
   kind: 'permission' | 'question';
   options: DialogOption[];
@@ -145,6 +165,12 @@ export type Dialog = {
    */
   header: string;
   /**
+   * ファイルの道具（Edit、Write、NotebookEdit、Read）の札のとき、その中身。
+   * 見出しの題で決める（Bash などの命令の札は null）。
+   * 罫線の間は差分で引数ではないので、パスは見出しの 2 行目（Read は罫線の間の Read(パス)）から読む。
+   */
+  file: DialogFile | null;
+  /**
    * 1 回の呼び出しに質問が複数ある札か。
    * */
   manyQuestions: boolean;
@@ -158,6 +184,18 @@ const OPTION_RE = /^\s*(?:[❯>›]\s*)?(\d{1,2})\.\s+(?:\[([ ✔✓xX]?)\]\s*)?
 const RULE_RE = /^\s*[╌─┄━]{8,}\s*$/;
 const FOOTER_RE = /esc to cancel|enter to (?:select|confirm)/i;
 const CHIP_RE = /[☐☒☑✔✓]/g;
+const CHIP_ONE_RE = /[☐☒☑✔✓]/;
+const DO_YOU_WANT_RE = /^\s*do you want\b/i;
+/**
+ * 札の見出しは、画面いっぱいの実線（─）の下に始まり、差分や引数を挟む破線（╌）の上で終わる。
+ * 差分の行には行番号と +/- の印が付くので、この 2 種の線だけの行は差分には現れない。
+ */
+const SOLID_RE = /^\s*─{8,}\s*$/;
+const DASHED_RE = /^\s*╌{8,}\s*$/;
+/** 折り返した問いの上の行を探す行数。 */
+const WRAP_LINES = 3;
+/** 見出しの塊の行数の上限（題とパスと、NotebookEdit の説明の行）。 */
+const HEAD_MAX = 5;
 /**
  * 見出しの窓の行数（札の最初の罫線の上）。
  */
@@ -168,6 +206,53 @@ const HEADER_WINDOW = 4;
 const ABOVE_LINES = 40;
 
 export const strip = (s: string): string => s.replace(/\s+/g, '');
+/** 端末に打つ本文から、制御文字（C0 と DEL）を除く。 */
+export const stripControl = (s: string): string => s.replace(/[\x00-\x1f\x7f]/g, '');
+
+/**
+ * ファイルの道具の札の題。
+ * 見出しの 1 行目がこれと等しいときだけ、ファイルの札と読む（知らない題は読まず、照合は断る）。
+ * call は、罫線の間が差分でなく ツール名(引数) の形の札（Read）。
+ * 2.1.319 の実機で確かめた（fileDialogs.fixtures.ts）。MultiEdit の道具はこの版には無く、Edit file に MultiEdit の名も当てておく。
+ */
+const FILE_TITLES: Record<string, { tools: string[]; call?: true }> = {
+  'edit file': { tools: ['Edit', 'MultiEdit'] },
+  'create file': { tools: ['Write'] },
+  'overwrite file': { tools: ['Write'] },
+  'edit notebook': { tools: ['NotebookEdit'] },
+  'read file': { tools: ['Read'], call: true },
+};
+const CALL_RE = /^([A-Za-z_]\w*)\(([\s\S]*)\)$/;
+
+/**
+ * 問い（qTop 行から）の上にある、見出し + 破線 + 中身 + 破線の札を、ファイルの札として読む。
+ * 実線、題、パス、（説明の行）、破線、差分、破線、問いの順でなければ null。
+ * 破線で挟まれた中身は、差分の行が番号と印を前に付けるので、見出しや線の偽物は作れない。
+ */
+function fileDialogOf(lines: string[], qTop: number): DialogFile | null {
+  let bottom = qTop - 1;
+  while (bottom >= 0 && lines[bottom]!.trim() === '') bottom--;
+  if (bottom < 0 || !DASHED_RE.test(lines[bottom]!)) return null;
+  let top = bottom - 1;
+  while (top >= 0 && !DASHED_RE.test(lines[top]!)) top--;
+  if (top < 0) return null;
+  const head: string[] = [];
+  let anchored = false;
+  for (let k = top - 1; k >= 0 && head.length <= HEAD_MAX; k--) {
+    const l = lines[k]!;
+    if (SOLID_RE.test(l)) { anchored = true; break; }
+    if (RULE_RE.test(l)) return null;
+    if (l.trim() !== '') head.unshift(l.trim());
+  }
+  if (!anchored || head.length === 0) return null;
+  const spec = FILE_TITLES[head[0]!.toLowerCase().replace(/\s+/g, ' ')];
+  if (!spec) return null;
+  if (spec.call) {
+    const m = CALL_RE.exec(lines.slice(top + 1, bottom).map((l) => l.trim()).join(' ').trim());
+    return { tools: spec.tools, path: m && m[1] === spec.tools[0] ? m[2]!.trim() : '' };
+  }
+  return { tools: spec.tools, path: head[1] ?? '' };
+}
 
 /**
  * 画面から、出ている札（番号つきの選択肢と下の案内の行がある塊）を読む。
@@ -209,7 +294,17 @@ export function parseDialog(screen: string): Dialog | null {
 
   let q = first.i - 1;
   while (q >= 0 && (lines[q]!.trim() === '' || RULE_RE.test(lines[q]!))) q--;
-  const question = q >= 0 ? lines[q]!.trim() : '';
+  // 長いファイル名の問い（Do you want to create …）は 2 行に折り返す。
+  // 最後の行は文の続きなので、すぐ上に続く行に Do you want… の頭があれば、つないで 1 つの問いとして読む。
+  let qTop = q;
+  if (q >= 0 && !DO_YOU_WANT_RE.test(lines[q]!)) {
+    for (let k = q - 1; k >= 0 && q - k <= WRAP_LINES; k--) {
+      const l = lines[k]!;
+      if (l.trim() === '' || RULE_RE.test(l) || CHIP_ONE_RE.test(l)) break;
+      if (DO_YOU_WANT_RE.test(l)) { qTop = k; break; }
+    }
+  }
+  const question = q >= 0 ? lines.slice(qTop, q + 1).map((l) => l.trim()).join(' ') : '';
   const aboveLines = lines.slice(Math.max(0, first.i - ABOVE_LINES), first.i);
   // 札の最初の罫線（許可の札は命令を 2 本の罫線で挟む）の上の数行を、見出しの窓にする。
   const rules = aboveLines.map((l, i) => (RULE_RE.test(l) ? i : -1)).filter((i) => i >= 0);
@@ -228,6 +323,7 @@ export function parseDialog(screen: string): Dialog | null {
     question,
     above: strip(body.join('\n')),
     ruled: rules.length >= 2 ? aboveLines.slice(rules[rules.length - 2]! + 1, rules[rules.length - 1]!).join('\n') : null,
+    file: fileDialogOf(lines, qTop),
     header: headerLines.join(' ').toLowerCase(),
     manyQuestions: chips > 1,
     multi: options.some((o) => o.checked !== null),
@@ -279,12 +375,103 @@ function inputMatches(ask: PeerChatAsk, d: Dialog): boolean {
   return elided && head !== '' && want.startsWith(head);
 }
 
+// ---- ファイルのパス ----
+
+const TRUNC_RE = /^(?:…|\.\.\.)/;
+const slashed = (p: string, keepSpaces = false): string => (keepSpaces ? p.trim() : strip(p)).replace(/\\/g, '/');
+const isAbsolute = (p: string): boolean => /^(?:[A-Za-z]:)?\//.test(p);
+
+/**
+ * パスを、cwd を根にした絶対のパス（区切りは /、. と .. は畳む）にする。
+ * 照合のときは、空白を除き（折り返しで空白が変わるため）、ドライブ文字つきは大小を無視する（Windows）。
+ * 見せるとき（display）は、空白も大小もそのままにする。
+ * 相対なのに cwd が無いとき、左が … で切れているとき、~ で始まるときは null。
+ */
+export function resolvePath(p: string, cwd: string | null, display = false): string | null {
+  const s = slashed(p, display);
+  if (s === '' || TRUNC_RE.test(s) || s.startsWith('~')) return null;
+  let full = s;
+  if (!isAbsolute(s)) {
+    if (cwd === null || cwd === '') return null;
+    full = `${slashed(cwd, display)}/${s}`;
+    if (!isAbsolute(full)) return null;
+  }
+  const drive = /^[A-Za-z]:/.exec(full)?.[0] ?? '';
+  const segs: string[] = [];
+  for (const seg of full.slice(drive.length).split('/')) {
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') segs.pop();
+    else segs.push(seg);
+  }
+  const out = `${drive}/${segs.join('/')}`;
+  return drive && !display ? out.toLowerCase() : out;
+}
+
+/**
+ * 札のパスを、ほかの PC に見せる絶対のパスにする（hook の入力が無いときに、ask の input にする）。
+ * 絶対にできなければ（相対で cwd が無い、左が … で切れている）、画面の文字をそのまま返す。
+ * 区切りは、ドライブ文字つきなら \\ に戻す。大小は変えない。
+ */
+export function displayPath(shown: string, cwd: string | null): string {
+  const abs = resolvePath(shown, cwd, true);
+  if (abs === null) return shown.trim();
+  return /^[A-Za-z]:/.test(abs) ? abs.replace(/\//g, '\\') : abs;
+}
+
+/**
+ * ask のパス（hook が届けた絶対パス、または画面から組んだ文字）が、札に出ているパスと同じファイルか。
+ * 札のパスは cwd からの相対で出ることがあるので、cwd を根にして絶対にしてから比べる。
+ * 札のパスは長いと左が … で切れる。
+ * 切れていれば、ask の絶対パスがその末尾で終わることを求める（切れ目は区切りの途中でもよい）。
+ * 画面から組んだ ask も切れていれば、同じ文字であることだけを求める。
+ * 空白は除いて比べる。
+ */
+export function samePath(want: string, shown: string, cwd: string | null): boolean {
+  const w = slashed(want);
+  const s = slashed(shown);
+  if (w === '' || s === '') return false;
+  if (w === s) return true;
+  const wCut = TRUNC_RE.test(w);
+  const sCut = TRUNC_RE.test(s);
+  if (wCut && sCut) return false;
+  if (!wCut && !sCut) {
+    const rw = resolvePath(w, cwd);
+    return rw !== null && rw === resolvePath(s, cwd);
+  }
+  const full = resolvePath(wCut ? s : w, cwd);
+  const tail = (wCut ? w : s).replace(TRUNC_RE, '');
+  if (full === null || tail === '') return false;
+  return full.endsWith(/^[A-Za-z]:/.test(full) ? tail.toLowerCase() : tail);
+}
+
+const baseName = (p: string): string => slashed(p).split('/').filter(Boolean).pop() ?? '';
+
+/**
+ * ファイルの札が ask と同じか。
+ * ask のツールが題のさすツールで、パスが同じファイルで、問いの文のファイル名も ask のものと同じであること。
+ * 罫線の間の差分は見ない（ask は差分を持たない）。
+ */
+function fileMatches(ask: PeerChatAsk, f: DialogFile, d: Dialog, cwd: string | null): boolean {
+  if (!ask.tool || !f.tools.includes(ask.tool)) return false;
+  if (!ask.input || f.path === '' || !samePath(ask.input, f.path, cwd)) return false;
+  // Read の問いはファイル名を含まない（Do you want to proceed?）ので、パスの照合だけにする。
+  if (f.tools.includes('Read')) return true;
+  // 編集、作成、上書きの問いには、ファイル名（ディレクトリは含まない）が入る。
+  // 見出しのパスと問いのファイル名の両方が ask と合うことを求める。
+  if (!/^do you want to (?:make this edit to|create|overwrite)\b/i.test(d.question)) return false;
+  const base = baseName(ask.input);
+  return base !== '' && !TRUNC_RE.test(base) && strip(d.question).toLowerCase().includes(strip(base).toLowerCase());
+}
+
 /**
  * 画面の札が ask と同じか（種類、ツールと主な引数または質問の文、複数選択か）。
  * 選択肢のラベルは行を当てるときに見る。
+ * ファイルの道具の札は、差分でなくパスで照合する（cwd は相対のパスを絶対にするのに使う）。
  */
-export function dialogMatches(ask: PeerChatAsk, d: Dialog): boolean {
-  return d.kind === ask.kind && d.multi === ask.multi && !d.manyQuestions && toolMatches(ask, d) && inputMatches(ask, d);
+export function dialogMatches(ask: PeerChatAsk, d: Dialog, cwd: string | null = null): boolean {
+  if (d.kind !== ask.kind || d.multi !== ask.multi || d.manyQuestions) return false;
+  if (d.file) return ask.kind === 'permission' && fileMatches(ask, d.file, d, cwd);
+  return toolMatches(ask, d) && inputMatches(ask, d);
 }
 
 /**
@@ -364,12 +551,17 @@ export function createPeerAnswerer(deps: PeerAnswererDeps): PeerAnswerer {
    * ask の札が、もう画面に無いこと。
    * 別の札に替わっていても、ask の札は閉じたとみなす。
    */
-  const closed = (ask: PeerChatAsk) => (screen: string): boolean => {
+  const closed = (ask: PeerChatAsk, cwd: string | null) => (screen: string): boolean => {
     const d = parseDialog(screen);
-    return d === null || !dialogMatches(ask, d);
+    return d === null || !dialogMatches(ask, d, cwd);
   };
 
-  async function answer(runId: string, ask: PeerChatAsk, keys: string[], text: string | undefined): Promise<AnswerResult> {
+  async function answer(runId: string, ask: PeerChatAsk, keys: string[], rawText: string | undefined): Promise<AnswerResult> {
+    // 本文は send-keys -l で打つので、制御文字（CR、ESC、改行など）が入ると、途中で確定したり次の入力に落ちたりする。
+    // 制御文字は除き、通常の文字（日本語を含む）は変えない。
+    // 除いたら空になる本文は、何も打たずに断る。
+    const text = rawText === undefined ? undefined : stripControl(rawText);
+    if (rawText !== undefined && rawText !== '' && text === '') return { ok: false, reason: 'ask-mismatch' };
     const refuse = (reason: AnswerRefusal, sent = false): AnswerResult => (sent ? { ok: false, reason, sent: true } : { ok: false, reason });
     if (isAnswered(ask.askId)) return refuse('already-answered');
     const pane = deps.pane(runId);
@@ -387,7 +579,8 @@ export function createPeerAnswerer(deps: PeerAnswererDeps): PeerAnswerer {
     const labels = chosen.map((o) => o!.label);
 
     const dialog = parseDialog(pane.capture());
-    if (!dialog || !dialogMatches(ask, dialog)) return refuse('ask-mismatch');
+    const cwd = deps.cwd?.(runId) ?? null;
+    if (!dialog || !dialogMatches(ask, dialog, cwd)) return refuse('ask-mismatch');
     // 質問の札は、ask が見せた選択肢がすべて画面にあるときだけ通す（別の質問に取り違えない）。
     if (ask.kind === 'question' && ask.options.some((o) => !rowByLabel(dialog, o.label))) return refuse('ask-mismatch');
     const rows = labels.map((l) => rowByLabel(dialog, l));
@@ -434,7 +627,7 @@ export function createPeerAnswerer(deps: PeerAnswererDeps): PeerAnswerer {
     }
     // 札が閉じたことを確かめる。
     // 閉じなければ、打ったキーは受け付けられていない。
-    if (!(await waitUntil(pane, closed(ask), CLOSE_WAIT_MS))) return refuse('ask-mismatch', true);
+    if (!(await waitUntil(pane, closed(ask, cwd), CLOSE_WAIT_MS))) return refuse('ask-mismatch', true);
     return { ok: true, label: [...labels, ...(hasText ? [text!] : [])].join(', ') };
   }
 
