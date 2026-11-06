@@ -57,6 +57,15 @@ describe('tmuxPaneOps（tmux 不要）', () => {
     expect(calls).toEqual([['send-keys', '-t', '=hangar-a:', '-l', '{'], ['send-keys', '-t', '=hangar-a:', 'C-o']]);
   });
 
+  // peer chat が許可の札に答え、走っているターンを止めるのに使う。
+  // Escape は 1 回の send-keys で 1 つだけ送る。
+  it('sendKey は escape と down を tmux のキー名（Escape、Down）で 1 回だけ送る', () => {
+    const { panes, calls } = recording();
+    panes.sendKey('hangar-a', 'escape');
+    panes.sendKey('hangar-a', 'down');
+    expect(calls).toEqual([['send-keys', '-t', '=hangar-a:', 'Escape'], ['send-keys', '-t', '=hangar-a:', 'Down']]);
+  });
+
   it('prepareForOutsideTerminals は、サーバが動いていなければ何も入れない', () => {
     const { panes, calls } = recording(() => ({ status: 1, stderr: 'no server running\n' }));
     panes.prepareForOutsideTerminals();
@@ -104,6 +113,13 @@ describe('psmuxPaneOps（psmux 不要）', () => {
       ['-L', 'ns', 'send-keys', '-t', '=hangar-a:', '-l', '{q} 日本語'],
       ['-L', 'ns', 'send-keys', '-t', '=hangar-a:', 'C-o'],
     ]);
+  });
+
+  it('sendKey の escape と down は tmux と同じキー名で送る', () => {
+    const { panes, calls } = recordingPsmux();
+    panes.sendKey('hangar-a', 'escape');
+    panes.sendKey('hangar-a', 'down');
+    expect(calls).toEqual([['-L', 'ns', 'send-keys', '-t', '=hangar-a:', 'Escape'], ['-L', 'ns', 'send-keys', '-t', '=hangar-a:', 'Down']]);
   });
 
   // psmux 3.3.8 は -J を受けて 0 で終わるが、つながない。0 で終わるので断られたとは見分けられず、-J の画面を信じると URL が割れたまま拾えない。
