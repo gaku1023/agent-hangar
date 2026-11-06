@@ -384,7 +384,7 @@ describe('相手がつながっていないとき', () => {
   it('届かない（例外）や 504 は短い間から空けて頼み直し、3 回続いたら offline にする', async () => {
     fallback = () => new Error('boom');
     await viewer.open(SID, { viewer: 'v1' });
-    await clock.advance(1_000);
+    await clock.advance(2_000);
     await clock.advance(5_000);
     expect(tails()).toHaveLength(3);
     expect(updates().filter((u) => u.link === 'offline')).toHaveLength(1);
@@ -550,6 +550,19 @@ describe('見張りの上限と見ている人', () => {
     await clock.advance(1);
     expect(tails()).toHaveLength(3);
     expect(updates().filter((u) => u.link === 'offline')).toHaveLength(1);
+  });
+});
+
+describe('忙しい会話の問い合わせの間', () => {
+  it('毎回すぐ変わりが返る会話でも、1 分に 30 回までで（Worker の 120 回に操作の余地を残す）、間は A1 の 5 秒に収まる', async () => {
+    expect(PEER_CHAT_MIN_GAP_MS).toBeGreaterThanOrEqual(2000);
+    expect(PEER_CHAT_MIN_GAP_MS).toBeLessThan(5000);
+    let n = 0;
+    fallback = () => ok(state([item(`u${++n}`)]));
+    await viewer.open(SID, { viewer: 'v1' });
+    const t0 = clock.now();
+    while (clock.now() - t0 < 59_000) await clock.advance(1000);
+    expect(tails().length).toBeLessThanOrEqual(31);
   });
 });
 
