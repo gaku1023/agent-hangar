@@ -353,6 +353,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.label.opencodeLocalContext': 'Context length for local models',
   'settings.label.opencodeIdleUnload': 'Unload idle models',
   'settings.label.opencodeProviderPrep': 'Server preparation',
+  'settings.label.peerChatAcceptFromPeers': 'Accept messages from other PCs',
   'settings.opencode.title': 'opencode',
   'settings.codex.title': 'Codex',
   'settings.codex.enabledDesc': 'Let new sessions use Codex.',

@@ -210,6 +210,15 @@ describe('paths', () => {
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', autoDoneIdleDays: 0 }));
     expect(loadSettings(tmp)).toMatchObject({ autoDoneIdleDays: 0 });
   });
+  it('ほかの PC からの送信を受ける設定は、無ければ持たず、保存した値を読め、手で書き換えた真偽値でない値は捨てる', () => {
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));
+    expect(loadSettings(tmp).peerChatAcceptFromPeers).toBeUndefined();
+    saveSettings(tmp, { ...loadSettings(tmp), peerChatAcceptFromPeers: false });
+    expect(loadSettings(tmp).peerChatAcceptFromPeers).toBe(false);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', peerChatAcceptFromPeers: 'no' }));
+    expect('peerChatAcceptFromPeers' in loadSettings(tmp)).toBe(false);
+  });
   it('要約器の設定は既定値で埋まる', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));
