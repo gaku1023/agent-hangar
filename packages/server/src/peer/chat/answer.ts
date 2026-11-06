@@ -28,16 +28,16 @@ import type { PaneKey, PaneOps } from '../../tmux/pane.ts';
 
 /**
  * 打った後に札が閉じるのを待つ長さと間隔。
- * */
+ */
 const CLOSE_WAIT_MS = 4000;
 const CLOSE_STEP_MS = 100;
 /**
  * 複数選択で、確認の画面が出るのを待つ長さ。
- * */
+ */
 const REVIEW_WAIT_MS = 2000;
 /**
  * 答えた askId を覚えておく長さと数。
- * */
+ */
 export const ANSWERED_TTL_MS = 10 * 60_000;
 export const ANSWERED_MAX = 256;
 /**
@@ -56,7 +56,7 @@ export type AnswerRefusal = Extract<PeerChatRefusal, 'ask-mismatch' | 'already-a
 export type AnswerResult = { ok: true; label: string } | { ok: false; reason: AnswerRefusal };
 /**
  * sent が偽は、止める相手（走っているターン）がいなかったこと。
- * */
+ */
 export type InterruptResult = { ok: true; sent: boolean } | { ok: false; reason: Extract<AnswerRefusal, 'ask-mismatch' | 'session-unknown'> };
 
 export type PeerAnswererDeps = {
@@ -85,7 +85,7 @@ export type PeerAnswerer = {
 
 /**
  * PaneOps の tmuxName の画面を、AnswerPane として見る。
- * */
+ */
 export function answerPaneOf(panes: Pick<PaneOps, 'capture' | 'sendKey' | 'sendText'>, tmuxName: string): AnswerPane {
   return {
     capture: () => panes.capture(tmuxName),
@@ -149,11 +149,11 @@ const FOOTER_RE = /esc to cancel|enter to (?:select|confirm)/i;
 const CHIP_RE = /[☐☒☑✔✓]/g;
 /**
  * 見出しの窓の行数（札の最初の罫線の上）。
- * */
+ */
 const HEADER_WINDOW = 4;
 /**
  * 札の上を読む行数。
- * */
+ */
 const ABOVE_LINES = 40;
 
 export const strip = (s: string): string => s.replace(/\s+/g, '');
@@ -273,7 +273,7 @@ function rowByLabel(d: Dialog, label: string): DialogOption | null {
 
 /**
  * 自由入力の行（「Type something.」か「Other」）。
- * */
+ */
 function otherRow(d: Dialog): DialogOption | null {
   const hits = d.options.filter((o) => /^(?:type something|other)\b/i.test(o.first));
   return hits.length === 1 ? hits[0]! : null;
@@ -281,7 +281,7 @@ function otherRow(d: Dialog): DialogOption | null {
 
 /**
  * 走っているターンの印（案内に「esc to interrupt」が出る）。
- * */
+ */
 const RUNNING_RE = /esc to interrupt/i;
 
 // ---- 答える ----
