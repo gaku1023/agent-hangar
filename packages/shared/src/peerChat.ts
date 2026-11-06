@@ -21,6 +21,12 @@ import { openPeerPayload, sealPeerPayload, type PeerKeyring, type PeerRoute } fr
 import { E2eOpenError } from './e2e/seal.ts';
 import { MOBILE_IMAGES_PER_LAUNCH, MOBILE_REPLY_MAX_BYTES, type MobileImageRef } from './mobile.ts';
 
+/**
+ * ほかの PC からの送信（send、answer、interrupt、resume-send）を受けるか（設定 peerChatAcceptFromPeers）。
+ * この PC だけの設定で、設定の同期には載せない。項目が無いときは受ける（既定は入り）。
+ */
+export const peerChatAcceptOf = (s: { peerChatAcceptFromPeers?: boolean }): boolean => s.peerChatAcceptFromPeers !== false;
+
 // ---- 型 ----
 
 export type PeerChatDevice = { deviceId: string; deviceName: string };

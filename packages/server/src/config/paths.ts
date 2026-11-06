@@ -168,6 +168,8 @@ export type Settings = {
   opencodeIdleUnload?: number;
   /** opencode の接続先ごとの準備のコマンド（起動前の準備）。この PC だけの設定で、同期しない。項目が無いうちは準備なしとして読む。読む側は providerPrepsOf を通す（null の項目は捨てる）。 */
   opencodeProviderPrep?: Record<string, ProviderPrep | null>;
+  /** ほかの PC の画面からの送信（peer chat）を受けるか。この PC だけの設定で、同期しない。項目が無いうちは入りとして読む（peerChatAcceptOf）。 */
+  peerChatAcceptFromPeers?: boolean;
 };
 
 /** 要約器の宛先に既定で許すホスト。 */
@@ -279,6 +281,7 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   if (s.opencodeLocalContext !== undefined && !isLocalContext(s.opencodeLocalContext)) delete s.opencodeLocalContext;
   if (s.opencodeIdleUnload !== undefined && !isIdleUnload(s.opencodeIdleUnload)) delete s.opencodeIdleUnload;
   if (s.opencodeProviderPrep !== undefined) s.opencodeProviderPrep = providerPrepsOf(s.opencodeProviderPrep);
+  if (s.peerChatAcceptFromPeers !== undefined && typeof s.peerChatAcceptFromPeers !== 'boolean') delete s.peerChatAcceptFromPeers;
   // 項目が無い設定と知らない言語は、OS に合わせる前の日本語にする。手で書き換えた値を、画面とサーバの辞書引きへそのまま流さない。
   if (!isLanguage(s.language)) s.language = decideLanguage(text, osLanguage).language;
   return s;

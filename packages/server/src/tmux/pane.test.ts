@@ -44,6 +44,17 @@ describe('tmuxPaneOps（tmux 不要）', () => {
     expect(calls).toEqual([['capture-pane', '-p', '-J', '-t', '=hangar-a:']]);
   });
 
+  it('captureStyled は色と属性を残して読む（-e）。入力欄の薄字と打った字を見分けるのに使う', async () => {
+    const { panes, calls } = recording(() => ({ status: 0, stdout: '\x1b[2mTry\x1b[0m\r\n' }));
+    expect(await panes.captureStyled!('hangar-a')).toBe('\x1b[2mTry\x1b[0m\n');
+    expect(calls).toEqual([['capture-pane', '-p', '-e', '-t', '=hangar-a:']]);
+  });
+
+  it('captureStyled は読めなかったとき null を返す', async () => {
+    const { panes } = recording(() => ({ status: 1, stderr: "can't find session: hangar-a\n" }));
+    expect(await panes.captureStyled!('hangar-a')).toBeNull();
+  });
+
   it('list は名前の一覧を返し、観測できなかったときは null を返す', () => {
     expect(recording(() => ({ status: 0, stdout: 'hangar-a\nhangar-a-t1\n' })).panes.list()).toEqual(['hangar-a', 'hangar-a-t1']);
     expect(recording(() => ({ status: 1, stderr: 'no server running on /x\n' })).panes.list()).toEqual([]);

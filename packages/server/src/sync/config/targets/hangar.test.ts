@@ -35,7 +35,7 @@ describe('hangar の好み：集める', () => {
       // PC ごと
       codexEnabled: true, codexIntercept: true, opencodeEnabled: true, opencodeIntercept: true, claudeDir: '/x', tmuxPath: '/t', nodePath: '/n', claudePath: '/c', workspaceRoot: '/w',
       editor: { id: 'vscode', path: null }, terminalApp: 'terminal', summaryApiKey: 'sk-secret', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'm',
-      opencodeProviderPrep: { a: { command: 'x' } }, opencodeIdleUnload: 5, configTargets: { hangar: true }, configBundleSync: true, toolsResolved: true,
+      opencodeProviderPrep: { a: { command: 'x' } }, opencodeIdleUnload: 5, peerChatAcceptFromPeers: false, configTargets: { hangar: true }, configBundleSync: true, toolsResolved: true,
     });
     const ids = collectAll(ctx()).items.map((i) => i.id).sort();
     expect(ids).toEqual([...HANGAR_PREF_KEYS].map((k) => `hangar:${k}`).sort());

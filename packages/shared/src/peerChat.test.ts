@@ -268,3 +268,11 @@ describe('答えの封', () => {
     await expect(sealPeerChatReply(ring, route, { ok: true, state: { ...state, items: [{ uuid: 'u', at: NOW, kind: 'assistant', text: noisy }] } })).rejects.toBeInstanceOf(TypeError);
   });
 });
+
+describe('peerChatAcceptOf', () => {
+  it('項目が無いときと true は受ける。false だけが受けない', () => {
+    expect(shared.peerChatAcceptOf({})).toBe(true);
+    expect(shared.peerChatAcceptOf({ peerChatAcceptFromPeers: true })).toBe(true);
+    expect(shared.peerChatAcceptOf({ peerChatAcceptFromPeers: false })).toBe(false);
+  });
+});

@@ -352,6 +352,7 @@ export const settingsKeys = {
   'settings.label.opencodeLocalContext': [],
   'settings.label.opencodeIdleUnload': [],
   'settings.label.opencodeProviderPrep': [],
+  'settings.label.peerChatAcceptFromPeers': [],
   'settings.opencode.title': [],
   'settings.codex.title': [],
   'settings.codex.enabledDesc': [],

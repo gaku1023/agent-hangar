@@ -272,6 +272,15 @@ export class Tmux {
   }
 
   /**
+   * ペインにいま見えている文字を、色と属性（SGR）つきで返す（-e）。読めなかったら null。
+   * Claude Code の入力欄の薄字の提案と、打った字を見分けるのに使う（peer/chat/inputBox.ts）。
+   */
+  async captureStyled(name: string): Promise<string | null> {
+    const r = await this.runAsync('capture-pane', '-p', '-e', '-t', `=${name}:`);
+    return r.code === 0 ? r.stdout.replace(/\r\n/g, '\n') : null;
+  }
+
+  /**
    * 端末の幅で折り返した行をつないだ画面（-J）。width は null を返す。
    * Windows（psmux）では -J を付けず、まだ折り返したままの画面とペインの幅を返す（つなぐのは呼び手）。
    * psmux 3.3.8 は -J を受けて 0 で終わるが、行の末尾の空白を落とすだけで折り返しをつながない。
