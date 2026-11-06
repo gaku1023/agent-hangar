@@ -37,6 +37,8 @@ export interface PaneOps {
    * Remote Control の URL を拾うのに使う（mobile/remoteUrl.ts）。持たない裏（試験の偽物など）は capture で代える。
    */
   captureUnwrapped?(name: string): { text: string; width: number | null } | Promise<{ text: string; width: number | null }>;
+  /** 色と属性（SGR）つきの画面。読めなかったら null。持たない裏（試験の偽物など）は無い。 */
+  captureStyled?(name: string): Promise<string | null>;
   /** 文字をそのまま打ち込む。キーの名前としては読ませない。 */
   sendText(name: string, text: string): void;
   /**
@@ -75,6 +77,7 @@ function muxPaneOps(mux: MuxServers): Omit<PaneOps, 'prepareForOutsideTerminals'
     listAsync: () => mux.listAsync(),
     capture: (name) => at(name).capturePane(name),
     captureUnwrapped: (name) => at(name).captureUnwrapped(name),
+    captureStyled: (name) => at(name).captureStyled(name),
     // -l を付けて 1 文字として送る。{ や q をキー名として読ませない。
     sendText: (name, text) => at(name).sendKeys(name, '-l', text),
     pasteText: (name, text) => at(name).pasteText(name, text),
