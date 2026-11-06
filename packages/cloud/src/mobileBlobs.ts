@@ -75,6 +75,64 @@ export async function deleteLaunchImages(bucket: R2Bucket, phoneId: string, laun
   await removeKeys(bucket, (await listAll(bucket, launchPrefix(phoneId, launchId))).map((o) => o.key));
 }
 
+/**
+ * PC から PC への画像（互換の版 11、会話の送信に添える画像。peerAsk.ts）。
+ *
+ * 画像は送り手の PC が封をしたバイト列のまま R2 の `mobile/<送り手の ID>/<宛先の ID>/<頼みの ID>/<番号>` に置く。Worker は中身を読まない。
+ * 頭を `mobile/` にそろえるのは、24 時間の掃除（sweepImages と sweep.ts の sweepPhoneImages）をそのまま効かせるためである。
+ * 端末の ID は devices の主キーで、PC とスマホで重ならない。だから PC の ID の下の鍵が、スマホの鍵（`mobile/<スマホの ID>/<依頼の ID>/<番号>`）と混ざることはない。
+ * 宛先の PC が読めるのは、自分の ID を宛先にして置かれた画像だけである（鍵に宛先を入れ、読む側の鍵は端末トークンの ID で組む）。
+ * D1 には何も書かず、頼みの行も持たない。読む側は送り手の ID を `from` で名乗る。
+ * 置いたままの枚数の上限は PEER_IMAGES_PER_PC で、スマホより広く取る（会話の送信は何度も続くため）。
+ */
+export const PEER_IMAGES_PER_PC = 100;
+
+const peerPrefix = (from: string, to: string, askId: string) => `${phonePrefix(from)}${to}/${askId}/`;
+
+/** 端末の ID の形。R2 の鍵に入るので、スラッシュと `..` と先頭のドットを通さない。 */
+const isBlobDeviceId = (id: string | undefined): id is string => id !== undefined && id.length > 0 && id.length <= 128 && isSafeKeyId(id);
+
+export const peerBlobsApp = new Hono<{ Bindings: Env; Variables: Vars }>();
+
+/**
+ * 送り手の PC が、封をした画像を宛先 `?to=` に向けて置く。本文は封をしたバイト列そのまま。
+ * 長さを名乗らない本文は 411、上限（MAX_BLOB_BYTES）を超える名乗りは本文を読まずに 413 で断る。
+ * 置いたままの画像が PEER_IMAGES_PER_PC 枚に達していたら、新しい鍵は 429 で断る（同じ鍵の置き直しは通る）。
+ * 数える前に 24 時間より古いものを消す。認証と PC だけの検査は app.ts の一覧が付ける。
+ */
+peerBlobsApp.put('/:id/:n', async (c) => {
+  const id = c.req.param('id');
+  const n = parseIndex(c.req.param('n'));
+  const to = c.req.query('to');
+  const from = c.get('device').id;
+  if (!isBlobLaunchId(id) || n === null || !isBlobDeviceId(to) || to === from) return c.json({ error: 'invalid key' }, 400);
+  const declaredText = c.req.header('content-length');
+  if (declaredText === undefined || !/^\d+$/.test(declaredText)) return c.json({ error: 'length required' }, 411);
+  const declared = Number(declaredText);
+  if (declared > MAX_BLOB_BYTES) return c.json({ error: 'payload too large', limit: MAX_BLOB_BYTES }, 413);
+  const body = c.req.raw.body;
+  if (declared === 0 || !body) return c.json({ error: 'empty body' }, 400);
+  const key = `${peerPrefix(from, to, id)}${n}`;
+  const { kept } = await sweepImages(c.env.BUCKET, from, Date.now());
+  if (kept.length >= PEER_IMAGES_PER_PC && !kept.includes(key)) return c.json({ error: 'too many images' }, 429);
+  await c.env.BUCKET.put(key, body);
+  return c.json({ ok: true }, 201);
+});
+
+/**
+ * 宛先の PC が画像を読む。送り手は `?from=` で名乗り、鍵の宛先は端末トークンの ID から組む。
+ * 自分宛てでない画像、無い画像、掃除で消えた画像は 404 である。
+ */
+peerBlobsApp.get('/:id/:n', async (c) => {
+  const id = c.req.param('id');
+  const n = parseIndex(c.req.param('n'));
+  const from = c.req.query('from');
+  if (!isBlobLaunchId(id) || n === null || !isBlobDeviceId(from)) return c.json({ error: 'invalid key' }, 400);
+  const obj = await c.env.BUCKET.get(`${peerPrefix(from, c.get('device').id, id)}${n}`);
+  if (!obj) return c.json({ error: 'not found' }, 404);
+  return new Response(obj.body, { status: 200, headers: { 'content-type': 'application/octet-stream', 'content-length': String(obj.size) } });
+});
+
 export const blobsApp = new Hono<{ Bindings: Env; Variables: Vars }>();
 
 /**

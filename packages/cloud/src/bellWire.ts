@@ -15,8 +15,21 @@ export const BELL_RING_KIND_HEADER = 'x-hangar-ring-kind';
 export const BELL_RING_ID_HEADER = 'x-hangar-ring-id';
 /** スマホ 1 台からの問い合わせの回数の上限。 */
 export const ASK_RATE = { max: 20, windowMs: 10_000 } as const;
+/** PC 1 台からの会話の問い合わせ（POST /peer/ask）の回数の上限（互換の版 11）。 */
+export const PEER_ASK_RATE = { max: 120, windowMs: 60_000 } as const;
+/** 会話の問い合わせの答えの待ちに足す余裕。実際の待ちは waitMs にこれを足した長さである。 */
+export const PEER_ASK_GRACE_MS = 5_000;
 /** 同じ PC が新しくつないだとき、古い WebSocket を閉じる符号。 */
 export const REPLACED_CLOSE_CODE = 4000;
+
+/**
+ * 会話の問い合わせの、waitMs に足す余裕の長さ（5 秒）。
+ * 試験では BELL_ASK_TIMEOUT_MS で短くできる（短くする向きにだけ効く）。
+ */
+export function peerAskGraceMs(env: Pick<Env, 'BELL_ASK_TIMEOUT_MS'>): number {
+  const n = Number(env.BELL_ASK_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 && n < PEER_ASK_GRACE_MS ? n : PEER_ASK_GRACE_MS;
+}
 
 /**
  * 答えの待ちの長さ。

@@ -445,7 +445,7 @@ mobileApp.post('/launches/:id/answer', authMiddleware(), requireKind('pc'), asyn
 mobileApp.route('/blobs', blobsApp);
 
 /** 呼び鈴の実体。束縛が無い（rc.1 の設定のまま再配備していない）Worker では null。 */
-function bellOf(env: Env): DurableObjectStub | null {
+export function bellOf(env: Env): DurableObjectStub | null {
   const ns = env.BELL;
   return ns ? ns.get(ns.idFromName(BELL_NAME)) : null;
 }

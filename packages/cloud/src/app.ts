@@ -10,6 +10,7 @@ import { bootstrapHandler, joinApp, joinCodesApp } from './join.ts';
 import { keysApp } from './keys.ts';
 import { d1LimitOfError, limitBody } from './limits.ts';
 import { mobileApp } from './mobile.ts';
+import { peerAskApp } from './peerAsk.ts';
 import { peerApp } from './peerLaunch.ts';
 import { noticesApp, pushApp } from './push.ts';
 import { ensureSchema } from './schema.ts';
@@ -39,7 +40,7 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
 
   // ここから下は PC の端末トークンが要る。経路を足すときは必ずこの一覧にも足す。
   // スマホのトークン（kind = 'mobile'）は 403 で断る。スマホが通れるのは /m/ のスマホ用の口だけである（互換の版 7）。
-  for (const path of ['/changes', '/changes/*', '/rows', '/rows/*', '/files', '/files/*', '/blobs', '/usage', '/devices', '/devices/*', '/join-codes', '/join-codes/*', '/roster', '/keyboxes', '/phone-keyboxes', '/notices', '/launches', '/launches/*']) {
+  for (const path of ['/changes', '/changes/*', '/rows', '/rows/*', '/files', '/files/*', '/blobs', '/usage', '/devices', '/devices/*', '/join-codes', '/join-codes/*', '/roster', '/keyboxes', '/phone-keyboxes', '/notices', '/launches', '/launches/*', '/peer', '/peer/*']) {
     app.use(path, authMiddleware(), requireKind('pc'));
   }
 
@@ -63,6 +64,8 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
   app.route('/notices', noticesApp);
   // PC から PC への起動の頼み（互換の版 10）。PC の端末トークンが要る（上の一覧）。
   app.route('/launches', peerApp);
+  // PC から PC への会話の問い合わせと画像（互換の版 11）。PC の端末トークンが要る（上の一覧）。D1 には書かない。
+  app.route('/peer', peerAskApp);
 
   // 使用量と費用。トークンの secret が無ければ外へ出ずに configured: false を返す。D1 には書かない。
   app.get('/usage', async (c) => {
