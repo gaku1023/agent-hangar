@@ -211,6 +211,11 @@ async function openWith(ring: PeerKeyring, aad: (epoch: number) => string, seale
   return openJson(keys.peer, aad(epoch), raw);
 }
 
+/** 封じる共通の道具。会話の封（peerChat.ts）が、同じ鍵と同じ封の形で使う。aad は世代から AAD の文字列を作る関数。 */
+export const sealPeerPayload = sealWith;
+/** 開く共通の道具。封が名乗る世代の鍵で開く。世代の鍵が無ければ PeerUnknownEpochError、そのほかは E2eOpenError を投げる。 */
+export const openPeerPayload = openWith;
+
 /** 起動の頼みを今の世代の鍵で封じる（頼む PC が呼ぶ）。 */
 export async function sealPeerLaunch(ring: PeerKeyring, route: PeerRoute, req: PeerLaunchRequest): Promise<string> {
   checkRoute(route);

@@ -44,8 +44,8 @@ export type PeerResultAck = { ok: true; duplicate: boolean };
 export type PeerResultOut = { seq: number; sealed: string; createdAt: number };
 export type PeerResultsResponse = { results: PeerResultOut[]; more: boolean };
 
-/** 呼び鈴で PC に届く知らせ。launch は頼みが来た、answer は答えが来た、result は結果が来た。id は頼みの ID。 */
-export const PEER_BELL_KINDS = ['launch', 'answer', 'result'] as const;
+/** 呼び鈴で PC に届く知らせ。launch は頼みが来た、answer は答えが来た、result は結果が来た、chat は会話の問い合わせ（peerChat.ts）が来た。id は頼みの ID。 */
+export const PEER_BELL_KINDS = ['launch', 'answer', 'result', 'chat'] as const;
 export type PeerBellKind = (typeof PEER_BELL_KINDS)[number];
 export type PeerBellMessage = { t: 'peer'; kind: PeerBellKind; id: string };
 
