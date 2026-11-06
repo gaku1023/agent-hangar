@@ -31,6 +31,7 @@ import type { Notifier } from './notifier.ts';
 import { createUpdateRunner } from './updater.ts';
 import type { ReleaseNote } from '../lib/releaseNotes.ts';
 import { createCloudMemberRunner } from './cloudMember.ts';
+import { createPeerChatRunner } from './peerChat.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
 import { keyLabel } from '../keys.ts';
@@ -58,6 +59,11 @@ export type RuntimeDeps = {
    * 隠れていた窓を前に出しただけでは focus が来ないことがあるので、通知の許可の読み直しはこちらでも行う。
    */
   onWindowVisible?: (cb: () => void) => () => void;
+  /**
+   * 頁が隠れたこと（document の visibilitychange で hidden）を知らせる。返り値で購読を外す。
+   * ほかの PC の会話の見張りは、隠れている間は外し、見えたら（onWindowVisible か onWindowFocus）張り直す。
+   */
+  onWindowHidden?: (cb: () => void) => () => void;
   /**
    * 状態の変化を画面へ出す。
    * commit を呼ぶまで、getState は前に描いた状態を返し、React はそれを描き続ける。
@@ -239,6 +245,14 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     get: () => store.cloudMember,
     set: (c) => { if (c !== store.cloudMember) setStore({ ...store, cloudMember: c }); },
   });
+  /** ほかの PC の会話の見張りと操作（runtime/peerChat.ts）。更新は WebSocket の peerChat.update で届き、Store へは applyEvent が入れる。 */
+  const peerChat = createPeerChatRunner({
+    open: (sessionId, viewer, after) => deps.api.peerChatOpen(sessionId, viewer, after),
+    op: (sessionId, body) => deps.api.peerChatOp(sessionId, body),
+    send: (msg) => ws?.send?.(msg),
+    get: () => store.peerChat,
+    set: (next) => setStore({ ...store, peerChat: next }),
+  });
   const updater = deps.desktop ? createUpdateRunner({
     bridge: deps.desktop.update, storage: deps.storage, setTimeout: deps.setTimeout, now: () => clock(), bundled: deps.releaseNotes ?? [],
     get: () => store.update, set: (u) => { if (u !== store.update) setStore({ ...store, update: u }); },
@@ -255,6 +269,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   let lastDepth = 0;
   let unsubFocus: (() => void) | null = null;
   let unsubVisible: (() => void) | null = null;
+  let unsubHidden: (() => void) | null = null;
   let unsubHide: (() => void) | null = null;
   /** 通知の許可を最後に読み直した時刻。 */
   let notifyCheckedAt = -Infinity;
@@ -843,6 +858,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'badge': notifier?.badge(e.count); return;
       case 'update': updater?.run(e.command); return;
       case 'cloudMember': cloudMember.run(e.command); return;
+      case 'peerChat': peerChat.run(e.command); return;
       case 'api.addTodo': deps.api.addTodo(e.projectId, e.text).catch(fail); return;
       case 'api.todo': todoCall(deps.api, e.call).catch(fail); return;
       // セッションの状態。画面の正は後から届く session.upsert なので、返り値はストアに入れない。失敗の一文はトーストに出す。
@@ -1169,7 +1185,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // 更新の確認（起動したときに 1 度、その後は数時間おき）。殻が updater を持たなければ何もしない。
       updater?.start();
       ws = deps.ws({
-        onOpen: () => dispatch({ kind: 'runtime', event: { type: 'ws.open' } }),
+        onOpen: () => { dispatch({ kind: 'runtime', event: { type: 'ws.open' } }); peerChat.rewatch(); },
         // 切れた時刻を添える。Mediator は純粋な遷移なので、画面がいつから古いかを自分では測れない。
         onClose: () => dispatch({ kind: 'runtime', event: { type: 'ws.close', at: (deps.now ?? Date.now)() } }),
         onEvent: (ev) => dispatch({ kind: 'server', event: ev }),
@@ -1185,11 +1201,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), moved } });
       });
       // 前面に来たときも、隠れている間に溜めた Store の変化を出す。visibilitychange を出し損ねる WebView があっても、画面が古いまま残らないようにする。
-      unsubFocus = deps.onWindowFocus?.(() => { releaseStore(); dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); resendSeen(); }) ?? null;
-      unsubVisible = deps.onWindowVisible?.(() => { releaseStore(); recheckNotify(); gitWatch.wake(); resendSeen(); }) ?? null;
+      unsubFocus = deps.onWindowFocus?.(() => { peerChat.resume(); releaseStore(); dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); resendSeen(); }) ?? null;
+      unsubHidden = deps.onWindowHidden?.(() => peerChat.pause()) ?? null;
+      unsubVisible = deps.onWindowVisible?.(() => { peerChat.resume(); releaseStore(); recheckNotify(); gitWatch.wake(); resendSeen(); }) ?? null;
       unsubHide = deps.onPageHide?.(() => cloudMember.flushPending()) ?? null;
       ws.connect();
     },
-    stop() { ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubHide?.(); unsubHide = null; unsubNotify?.(); unsubNotify = null; unsubJoin?.(); unsubJoin = null; deps.terminals.dispose(); },
+    stop() { unsubHidden?.(); unsubHidden = null; ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubHide?.(); unsubHide = null; unsubNotify?.(); unsubNotify = null; unsubJoin?.(); unsubJoin = null; deps.terminals.dispose(); },
   };
 }

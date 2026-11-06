@@ -30,6 +30,7 @@ import { noticesJa } from './ja/notices.ts';
 import { muxJa } from './ja/mux.ts';
 import { approveJa } from './ja/approve.ts';
 import { pauseJa } from './ja/pause.ts';
+import { peerChatJa } from './ja/peerChat.ts';
 import { platformJa } from './ja/platform.ts';
 import { projectJa } from './ja/project.ts';
 import { projectsJa } from './ja/projects.ts';
@@ -104,6 +105,7 @@ export const ja: Dictionary = {
   ...muxJa,
   ...approveJa,
   ...pauseJa,
+  ...peerChatJa,
   ...platformJa,
   ...projectJa,
   ...projectsJa,

@@ -16,6 +16,7 @@ import { presentArtifactCard, type ArtifactCardProps } from './project.ts';
 import { presentTool, relPath, type ToolView } from './tools.ts';
 import { turnsText } from './stats.ts';
 import { translatorOf } from './i18n.ts';
+import { isPeerChatCandidate, presentPeerChat, type PeerChatView } from './peerChat.ts';
 import { interruptMark } from './interrupted.ts';
 import { presentOverlap, type OverlapProps } from './overlap.ts';
 import { projectDisplayName } from './projectName.ts';
@@ -78,6 +79,11 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   reason?: StopReason | null;
   /** 見出しの名前の横に出す、要約の 1 文。無ければ null。 */
   oneLiner: string | null;
+  /**
+   * ほかの PC の Claude Code の会話を、チャットの形で見て続ける画面（views/PeerChatPane.tsx）。
+   * watch が真の間、画面は見張りを張る。view が null の間（読み込み中、見続けられなかった）は、読み取り専用のトランスクリプトを出す。
+   */
+  peerChat?: { watch: boolean; view: PeerChatView | null };
   /** このセッションを起こしたセッション（SessionDto.spawnedBy）。store に無い、または起こされていなければ null、省けば出さない。 */
   spawnedFrom?: SpawnedFromView | null;
   /** このセッションが起こしたセッション（起動の古い順）。無ければ空、省けば出さない。 */
@@ -679,6 +685,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     fromScratch: s.fromScratch, canPromote: !!(s.projectId && store.projects[s.projectId]?.isScratch),
     split: right && selectedTab ? { left: selectedTab, right: right.id } : null, canSplit,
     gone, transcriptBand, peerOrigin: presentPeerOrigin(store, id, t),
+    peerChat: isPeerChatCandidate(s) ? { watch: true, view: presentPeerChat(store, id, t) } : { watch: false, view: null },
   };
   props.endedLine = run !== null || agentKind === null ? null : pending ? AGENT_TEXT[agentKind].endedPending : props.canResume ? AGENT_TEXT[agentKind].endedLine : null;
   return { ...props, actions: sessionActions({ ...props, summaryOff }, t, openLabel(t, store.settings)) };

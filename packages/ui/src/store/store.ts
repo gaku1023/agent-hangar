@@ -5,6 +5,7 @@ import { asideOf } from '../lib/aside.ts';
 import { sameValue } from '../lib/same.ts';
 import { initialCloudMember, reduceCloudMember, type CloudMemberState } from './cloudMember.ts';
 import { initialUpdate, type UpdateState } from './update.ts';
+import { applyUpdate as applyPeerChatUpdate, type PeerChatSlice } from './peerChat.ts';
 import type { FolderInspectState } from './folderInspect.ts';
 import type { LaunchPrepDto, GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
 import type { CodexStatusDto, SharePreviewAgent, SharePreviewDto, EditorMissingDto, EditorsDto, EditorTestDto, SetupGuideDto, UiAction, SessionFilesDto, AccountDirPreviewDto, AccountDto, AccountsDto, ArtifactDto, CodexOptionsDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, FolderCandidatesDto, IndexProgressDto, InstructionsDto, InterruptedDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeOptionsDto, OpencodeProvidersDto, OpencodeStatusDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto } from '@agent-hangar/shared';
@@ -93,6 +94,8 @@ export type Store = {
   peerQueued: Record<string, PeerChatQueued[]>;
   /** ほかの PC から来た文を渡した直後の知らせ（会話の id ごとの最後の 1 件）。at は渡した時刻で、札を出し直す鍵に使う。 */
   peerDelivered: Record<string, { from: PeerChatDevice; at: number }>;
+  /** ほかの PC の会話を見ている画面の状態（セッションごと。store/peerChat.ts）。 */
+  peerChat: Record<string, PeerChatSlice>;
   schedules: ScheduleDto[];
   /** 事後要約に失敗したセッションと、その理由。次に作り始めるか、作れたら消える。bootstrap は運ばないので、取り直しても残す。 */
   summaryFailed: Record<string, string>;
@@ -195,7 +198,7 @@ export function initialStore(): Store {
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     todos: {}, memos: {}, instructions: {}, artifacts: {}, artifactAddError: null, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
-    cloudUsage: null, sync: null, deleteApprovals: [], peerApprovals: [], peerQueued: {}, peerDelivered: {}, schedules: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
+    cloudUsage: null, sync: null, deleteApprovals: [], peerApprovals: [], peerQueued: {}, peerDelivered: {}, peerChat: {}, schedules: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
     readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, peers: null, launchPreps: {}, opencodeProviders: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null, sharePreview: {},
     update: initialUpdate(),
@@ -314,6 +317,11 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
       return sameValue(store.peerQueued[ev.sessionId], ev.queued) ? store : { ...store, peerQueued: { ...store.peerQueued, [ev.sessionId]: ev.queued } };
     }
     case 'peerChat.delivered': return { ...store, peerDelivered: { ...store.peerDelivered, [ev.sessionId]: { from: ev.from, at: ev.at } } };
+    case 'peerChat.update': {
+      // 見ていない会話の更新は捨てる（画面を閉じたあとに届いた分）。
+      const cur = store.peerChat[ev.sessionId];
+      return cur ? { ...store, peerChat: { ...store.peerChat, [ev.sessionId]: applyPeerChatUpdate(cur, ev) } } : store;
+    }
     case 'peerApprovals.update': return sameValue(store.peerApprovals, ev.approvals) ? store : { ...store, peerApprovals: ev.approvals };
     case 'deleteApprovals.update': return sameValue(store.deleteApprovals, ev.approvals) ? store : { ...store, deleteApprovals: ev.approvals };
     case 'devices.update': return sameValue(store.devices, ev.devices) ? store : { ...store, devices: ev.devices };

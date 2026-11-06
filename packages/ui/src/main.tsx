@@ -23,6 +23,7 @@ import './styles/cloudMember.css';
 import './styles/resume.css';
 import './styles/git.css';
 import './styles/schedules.css';
+import './styles/peerChat.css';
 import { Root } from './Root.tsx';
 import { createApi } from './runtime/api.ts';
 import { stripEntryToken } from './runtime/entryToken.ts';
@@ -128,6 +129,12 @@ const runtime = createRuntime({
   // 頁が見える状態に戻ったら、通知の許可を読み直す（focus が来ない戻り方もある）。
   onWindowVisible: (cb) => {
     const h = () => { if (document.visibilityState === 'visible') cb(); };
+    document.addEventListener('visibilitychange', h);
+    return () => document.removeEventListener('visibilitychange', h);
+  },
+  // 頁が隠れたら、ほかの PC の会話の見張りを外す。
+  onWindowHidden: (cb) => {
+    const h = () => { if (document.visibilityState === 'hidden') cb(); };
     document.addEventListener('visibilitychange', h);
     return () => document.removeEventListener('visibilitychange', h);
   },
