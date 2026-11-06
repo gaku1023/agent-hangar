@@ -88,7 +88,12 @@ export type PeerChatHost = {
 };
 
 const refuse = (reason: Extract<PeerChatReply, { ok: false }>['reason']): PeerChatReply => ({ ok: false, reason });
-const SENDING: ReadonlySet<PeerChatRequest['op']['t']> = new Set(['send', 'answer', 'interrupt', 'resume-send', 'cancel']);
+/**
+ * 設定 peerChatAcceptFromPeers が切れていると断る op。
+ * cancel は入れない（送り主が自分の預かりを取り戻すだけで、この PC の入力には触れない。
+ * 設定を切ったあとも、預けた文を取り戻せるようにする）。
+ */
+const SENDING: ReadonlySet<PeerChatRequest['op']['t']> = new Set(['send', 'answer', 'interrupt', 'resume-send']);
 
 export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -113,12 +118,15 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
   const queue: PeerQueue = new PeerQueue({
     now: deps.now,
     turnState,
+    accepting: deps.acceptFromPeers,
     inputEmpty: async (sessionId) => {
       const cap = await paneOf(sessionId)?.captureStyled();
       return cap != null && inputEmptyFromCapture(cap);
     },
     // 貼る直前にもう一度、入力欄が空であることを確かめる（人が打ち始めたら渡さず、預かりに戻す）。
     deliver: async (sessionId, text, _images, queueId) => {
+      // 預けたあとに設定が切れたら、渡さない（次の確認で捨てて、送り主に文を返す）。
+      if (!deps.acceptFromPeers()) return false;
       const run = deps.run(sessionId);
       const pane = paneOf(sessionId);
       if (!run || !pane) return false;

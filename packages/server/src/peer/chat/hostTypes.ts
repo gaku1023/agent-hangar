@@ -60,7 +60,8 @@ export type PeerChatHostDeps = {
   ring(): Promise<PeerKeyring | null>;
   /**
    * 設定 peerChatAcceptFromPeers（peerChatAcceptOf）。
-   * 偽なら送る系の頼み（send、answer、interrupt、resume-send、cancel）を断る。
+   * 偽なら送る系の頼み（send、answer、interrupt、resume-send）を断り、預かっていた文は渡さずに捨てる。
+   * cancel は断らない（預けた文を取り戻すだけ）。
    * 読む系（tail、files）は通す。
    */
   acceptFromPeers(): boolean;

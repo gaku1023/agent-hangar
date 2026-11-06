@@ -176,8 +176,10 @@ describe('PeerChatHost: 入口と断り', () => {
 
   it('設定が切れていれば、送る系は refused-by-setting。tail と files は通る', async () => {
     const s = await setup({ acceptFromPeers: false });
-    const sending: PeerChatOp[] = [send('x'), { t: 'answer', askId: 'a', keys: ['1'] }, { t: 'interrupt' }, { t: 'resume-send', text: 'x', images: [] }, { t: 'cancel', queueId: 'q' }];
+    const sending: PeerChatOp[] = [send('x'), { t: 'answer', askId: 'a', keys: ['1'] }, { t: 'interrupt' }, { t: 'resume-send', text: 'x', images: [] }];
     for (const op of sending) expect(await s.ask(op)).toEqual({ ok: false, reason: 'refused-by-setting' });
+    // 取り消しは、送った文を取り戻すだけなので、設定が切れていても断らない（ここでは預かりが無いので queue-expired）。
+    expect(await s.ask({ t: 'cancel', queueId: 'q' })).toEqual({ ok: false, reason: 'queue-expired' });
     expect((await s.ask(tailOp())).ok).toBe(true);
     expect(await s.ask({ t: 'files', query: 'a' })).toEqual({ ok: true, files: [{ path: '/proj:a', changed: false }] });
     expect(s.w.sent).toEqual([]);
@@ -326,6 +328,39 @@ describe('PeerChatHost: send と預かり', () => {
     expect(await s.ask({ t: 'cancel', queueId: r.queueId })).toEqual({ ok: true });
     expect(s.state(await s.ask(tailOp())).queued).toEqual([]);
     expect(await s.ask({ t: 'cancel', queueId: r.queueId })).toEqual({ ok: false, reason: 'queue-expired' });
+  });
+
+  it('設定を切ったら、預かっていた文は渡さずに捨て、送り主の state.gone に載せる（止まって空いていても渡さない）', async () => {
+    const s = await setup({ session: idleSession({ live: 'busy' }) });
+    const r = (await s.ask(send('queued before off'))) as { ok: true; queueId: string };
+    s.w.acceptFromPeers = false;
+    s.w.session!.live = 'idle';
+    s.host.turnChanged();
+    await settle(() => s.w.events.some((e) => e.type === 'peerChat.queue' && e.queued.length === 0));
+    await new Promise((res) => setTimeout(res, 60));
+    expect(s.w.sent).toEqual([]);
+    const st = s.state(await s.ask(tailOp()));
+    expect(st.queued).toEqual([]);
+    expect(st.gone).toEqual([{ queueId: r.queueId, reason: 'queue-expired' }]);
+  });
+
+  it('渡す直前（入力欄を読む間）に設定が切れても、渡さない', async () => {
+    const s = await setup({ session: idleSession({ live: 'busy' }) });
+    const r = (await s.ask(send('racing'))) as { ok: true; queueId: string };
+    s.w.session!.live = 'idle';
+    s.w.pane.captureStyled = async () => { s.w.acceptFromPeers = false; return WIN_EMPTY_AFTER_TURN; };
+    s.host.turnChanged();
+    await settle(() => s.w.events.some((e) => e.type === 'peerChat.queue' && e.queued.length === 0));
+    await new Promise((res) => setTimeout(res, 60));
+    expect(s.w.sent).toEqual([]);
+    expect(s.state(await s.ask(tailOp())).gone).toEqual([{ queueId: r.queueId, reason: 'queue-expired' }]);
+  });
+
+  it('設定が切れていても、送り主は預かりを取り消せる（文が戻る）', async () => {
+    const s = await setup({ session: idleSession({ live: 'busy' }), deps: { queue: { pollMs: 60_000, settleMs: 20 } } });
+    const r = (await s.ask(send('mine'))) as { ok: true; queueId: string };
+    s.w.acceptFromPeers = false;
+    expect(await s.ask({ t: 'cancel', queueId: r.queueId })).toEqual({ ok: true });
   });
 
   it('預かりが上限なら rate', async () => {
