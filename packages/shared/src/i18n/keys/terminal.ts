@@ -23,4 +23,6 @@ export const terminalKeys = {
   'terminal.split.width': [],
   'terminal.split.valueText': ['percent'],
   'terminal.off.then': ['first', 'next'],
+  'terminal.peer.queued': ['devices', 'n'],
+  'terminal.peer.delivered': ['device'],
 } as const satisfies MessageSpec;

@@ -26,6 +26,7 @@ import { AGENT_TEXT, type EndedLine } from './agentText.ts';
 import { bandsOf, presentNowCard, resultsOf, type NowCardProps } from './live.ts';
 import { buildTurns } from './turns.ts';
 import { tocFolds } from './tocFold.ts';
+import { presentPeerOrigin, type PeerOriginProps } from './peerOrigin.ts';
 import type { JumpState, TurnJumpStatus } from '../mediator/types.ts';
 
 export type TranscriptItem =
@@ -116,6 +117,8 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
    * when は跳ばしたターンの時刻。
    */
   transcriptBand: { when: string } | null;
+  /** ほかの PC から来た文の預かりの帯と、渡した直後の札（presenters/peerOrigin.ts）。Claude の枠にだけ出す。無ければ null か無し。 */
+  peerOrigin?: PeerOriginProps | null;
   /** 現在の札（右の欄の上）。生きた run があるときだけ。 */
   strip: NowCardProps | null;
   /** 現在の札の「同じファイルを編集中」の 1 節（presenters/overlap.ts）。重なりが無ければ null。 */
@@ -675,7 +678,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null,
     fromScratch: s.fromScratch, canPromote: !!(s.projectId && store.projects[s.projectId]?.isScratch),
     split: right && selectedTab ? { left: selectedTab, right: right.id } : null, canSplit,
-    gone, transcriptBand,
+    gone, transcriptBand, peerOrigin: presentPeerOrigin(store, id, t),
   };
   props.endedLine = run !== null || agentKind === null ? null : pending ? AGENT_TEXT[agentKind].endedPending : props.canResume ? AGENT_TEXT[agentKind].endedLine : null;
   return { ...props, actions: sessionActions({ ...props, summaryOff }, t, openLabel(t, store.settings)) };

@@ -126,6 +126,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.cloud.legacy.steps': 'クラウドを作成した PC で古いクラウドを削除してから、新しいクラウドを作成します。他の PC は、新しいクラウドに参加コードで参加します。始める前に、手順の順番を確認してください。',
   'settings.cloud.legacy.doc': '再構築の手順を開く（docs/cloud-sync.md）',
   'settings.cloud.state': '状態',
+  'settings.cloud.peerChat.info': '同じグループの PC から、この PC の Claude Code の会話へ文を送る、許可や質問に答える、会話を停止することができます。切ると、他の PC からは見るだけになります。',
   'settings.cloud.lastReceived': '最終受信',
   'settings.cloud.unsentChanges': '未送信の変更',
   'settings.cloud.unsentTranscripts': '未送信のトランスクリプト',

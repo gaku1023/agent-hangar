@@ -125,6 +125,7 @@ export const settingsKeys = {
   'settings.cloud.legacy.steps': [],
   'settings.cloud.legacy.doc': [],
   'settings.cloud.state': [],
+  'settings.cloud.peerChat.info': [],
   'settings.cloud.lastReceived': [],
   'settings.cloud.unsentChanges': [],
   'settings.cloud.unsentTranscripts': [],

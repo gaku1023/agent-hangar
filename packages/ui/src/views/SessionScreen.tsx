@@ -273,7 +273,7 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
       // 終わった run は、タブの印と再開のボタンが見せるので、案内では言い直さない。
       const hint = agentTab && props.trustHint ? t('session.screen.trustHint') : null;
       const transcript = agentTab && run.alive && props.transcriptBand ? { when: props.transcriptBand.when, onLatest: () => emit({ type: 'turn.latest', sessionId: id, runId: run.id }) } : null;
-      return <TerminalPane key={tabId} tabId={tabId} hint={hint} live={props.live} aside={props.aside} reason={props.reason ?? null} agent={agentTab} transcript={transcript} />;
+      return <TerminalPane key={tabId} tabId={tabId} hint={hint} live={props.live} aside={props.aside} reason={props.reason ?? null} agent={agentTab} transcript={transcript} peer={agentTab ? props.peerOrigin ?? null : null} />;
     };
     // 分割は .c-main の中でさらに 2 列に割る。高さは .c-main から 100% で伝わる。
     const terminals = props.split ? <SplitPane left={terminal(props.split.left)} right={terminal(props.split.right)} /> : terminal(props.selectedTab);

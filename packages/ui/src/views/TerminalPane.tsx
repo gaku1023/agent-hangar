@@ -7,6 +7,8 @@ import { LAYOUT_MOVING_ATTR, LAYOUT_SETTLED, beginLayoutMotion, endLayoutMotion 
 import { collapseOut, growIn, motionOn } from './primitives/motionKit.ts';
 import { usePresence } from './primitives/usePresence.ts';
 import { useNow } from './primitives/useNow.ts';
+import type { PeerOriginProps } from '../presenters/peerOrigin.ts';
+import { PeerBadge, usePeerFlash } from './PeerOrigin.tsx';
 
 export const TerminalHostContext = createContext<TerminalHost | null>(null);
 
@@ -38,8 +40,9 @@ export function liveEdge(live: LiveStatus | null, aside: boolean, reason: StopRe
  * 分割して 2 つ並べたとき、片方だけが切れることがあるからである。
  * agent は Claude のタブか。
  * transcript は、目次から跳ばした Claude が transcript を見せている間の帯（Claude の枠にだけ渡す）。
+ * peer は、ほかの PC から来た文の知らせ（Claude の枠にだけ渡す）。預かっている間は端末の下に帯を出し、渡した直後は右上に札を数秒出す。
  */
-export function TerminalPane(props: { tabId: string; hint: string | null; live: LiveStatus | null; aside?: boolean; reason?: StopReason | null; agent?: boolean; transcript?: { when: string; onLatest: () => void } | null }) {
+export function TerminalPane(props: { tabId: string; hint: string | null; live: LiveStatus | null; aside?: boolean; reason?: StopReason | null; agent?: boolean; transcript?: { when: string; onLatest: () => void } | null; peer?: PeerOriginProps | null }) {
   const host = useContext(TerminalHostContext);
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
@@ -58,8 +61,13 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
   const lastBand = useRef(props.transcript ?? null);
   if (props.transcript) lastBand.current = props.transcript;
   const band = usePresence<HTMLDivElement>(!!props.transcript, (el) => withLayout(() => collapseOut(el)));
+  // 預かりの帯は端末の下に置く。入るときと畳むときは、上の帯と同じ形で動かす。
+  const lastPeer = useRef(props.peer?.band ?? null);
+  if (props.peer?.band) lastPeer.current = props.peer.band;
+  const peerBand = usePresence<HTMLDivElement>(!!props.peer?.band, (el) => withLayout(() => collapseOut(el)));
+  const flash = usePeerFlash(props.peer?.flash ?? null);
   // 入るときは伸ばして、下の端末の面を押し下げる。最初の描画では動かさない。
-  const shown = useRef({ hint: props.hint !== null, band: !!props.transcript });
+  const shown = useRef({ hint: props.hint !== null, band: !!props.transcript, peer: !!props.peer?.band });
   useLayoutEffect(() => {
     const p = paneRef.current;
     const grow = (el: HTMLElement | null) => {
@@ -71,10 +79,11 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
     };
     if (props.hint !== null && !shown.current.hint) grow(hint.ref.current);
     if (props.transcript && !shown.current.band) grow(band.ref.current);
-    shown.current = { hint: props.hint !== null, band: !!props.transcript };
+    if (props.peer?.band && !shown.current.peer) grow(peerBand.ref.current);
+    shown.current = { hint: props.hint !== null, band: !!props.transcript, peer: !!props.peer?.band };
     // 入る向きの変わり目だけで動かすので、依存は有無だけにする。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.hint !== null, !!props.transcript]);
+  }, [props.hint !== null, !!props.transcript, !!props.peer?.band]);
   useEffect(() => {
     const el = ref.current;
     if (!host || !el) return;
@@ -122,6 +131,13 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
       {hint.mounted && <div ref={hint.ref} className="term-hint" role={hint.leaving ? undefined : 'status'}>{props.hint ?? lastHint.current}</div>}
       {/* key を付けて、タブが変わったら枠ごと作り直す。前のタブの xterm の要素を残さないためである。 */}
       <div key={props.tabId} ref={ref} className="term-host" data-tab={props.tabId} data-painted={host?.painted(props.tabId) === false ? 'false' : undefined} onClick={() => host?.focus(props.tabId)} />
+      {peerBand.mounted && lastPeer.current && (
+        <div ref={peerBand.ref} className="term-peer-band" data-testid="peer-band" role={peerBand.leaving ? undefined : 'status'} aria-hidden={peerBand.leaving ? 'true' : undefined}>
+          <Icon name="reminder" />
+          <span>{props.peer?.band ?? lastPeer.current}</span>
+        </div>
+      )}
+      <PeerBadge flash={flash} />
       {off && (
         <div className="term-veil">
           <div className="term-off-card">

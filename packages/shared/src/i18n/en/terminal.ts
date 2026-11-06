@@ -24,4 +24,6 @@ export const terminalEn: AreaDictionary<typeof terminalKeys> = {
   'terminal.split.width': 'Left and right width',
   'terminal.split.valueText': 'Left {percent}%',
   'terminal.off.then': '{first} {next}',
+  'terminal.peer.queued': 'Holding {n} from {devices}. Delivered when Claude stops',
+  'terminal.peer.delivered': 'Sent from {device}',
 };

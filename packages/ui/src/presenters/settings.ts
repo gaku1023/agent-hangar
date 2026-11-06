@@ -1,5 +1,5 @@
 import { presentOpencodeProviders, type OpencodeProvidersProps } from './opencodeProviders.ts';
-import { CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SharePreviewDto, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
+import { peerChatAcceptOf, CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SharePreviewDto, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
 import { canLaunchGuide } from './investigate.ts';
 import { presentNotifyRules, type NotifyRulesProps } from './notifyRules.ts';
 import type { SaveMark, State } from '../mediator/types.ts';
@@ -165,7 +165,9 @@ export type CloudDeviceProps = { id: string; name: string; platform: string; las
  */
 export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; stateLabel: string; /** 節の見出しの右の札。目次の状態の語と同じもの。 */ badge: { text: string; tone: 'ok' | 'off' | 'warn' | 'stop' }; paused: boolean; /** Cloudflare の上限で退いているか。そのあいだは一時停止の切り替えを出さない（試作の Q4 の案 B）。 */ limited: boolean; /** 一時停止のまま、押した 1 回の同期が進んでいる最中。 */ once?: boolean; lastPullAt: string; pending: number; sweepPending: number | null; skipped: SyncSkippedDto[]; devices: CloudDeviceProps[]; usage: CloudUsageProps | null; /** 参加、PC の一覧と解除、この PC の参加の解除（presenters/cloudMember.ts）。試験の固定値は省ける（省くと今までの一覧とコマンドの案内を出す）。 */ member?: CloudMemberProps;
   /** cloud.json が古い形式で同期を止めているときの案内（再構築の手順の行き先と、状態を確かめるコマンド）。それ以外は null。試験の固定値は省ける。 */
-  legacy?: { statusCommand: string; docUrl: string } | null };
+  legacy?: { statusCommand: string; docUrl: string } | null;
+  /** ほかの PC の画面からの送信（文・答え・止める・再開して送る）を受けるか（設定 peerChatAcceptFromPeers、この PC だけの設定）。省くと入りとして読む。 */
+  peerChatAccept?: boolean };
 
 /** 0.9.0 への再構築の手順（docs/cloud-sync.md の節）。公開リポジトリの main を指す。節の名前の部分は、UI の直書きの見張りに掛からないよう % で包んで書く。 */
 export const CLOUD_REBUILD_DOC_URL = 'https://github.com/gaku1023/agent-hangar/blob/main/docs/cloud-sync.md#090-%E3%81%B8%E3%81%AE%E4%BD%9C%E3%82%8A%E7%9B%B4%E3%81%97';
@@ -525,6 +527,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     member: presentCloudMember(store, now),
     // 状態のコマンドは、参加のコマンドと同じ hangar の呼び方（同梱の hangar の絶対パスなど）を使う。
     legacy: legacy ? { statusCommand: cloudJoinCommand(store).replace(/ cloud join <URL>$/, ' cloud status'), docUrl: CLOUD_REBUILD_DOC_URL } : null,
+    peerChatAccept: peerChatAcceptOf(store.settings ?? {}),
   };
   const at = state.screen.name === 'settings' ? state.screen.at : undefined;
   const h = store.shellHook;

@@ -13,6 +13,7 @@ import { projectDisplayName } from './projectName.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 import { presentDeleteApprovals, type DeleteApprovalRow } from './deleteApprovals.ts';
 import { presentPeerApprovals, type PeerApprovalRow } from './peerApprovals.ts';
+import { presentPeerOrigin, type PeerOriginProps } from './peerOrigin.ts';
 import { presentNotices, type NoticesProps } from './notices.ts';
 import { limitedWord, syncStateWord } from './syncLabel.ts';
 
@@ -69,6 +70,9 @@ export const HARD_AFTER_FAILURES = 3;
  * wide は本文の幅の上限（--main-w）を外す画面か。
  * セッション画面だけ外し、ターミナルに幅と高さを渡す（UX 刷新 2 の案 b）。
  */
+/** 預かりも札も無い行は peerIn を持たない（行の形を今までと同じに保つ）。 */
+const peerInOf = (store: Store, id: string, t: Translate): { peerIn?: PeerOriginProps } => { const p = presentPeerOrigin(store, id, t); return p ? { peerIn: p } : {}; };
+
 /**
  * サイドバーの「実行中」の 1 行。waited は入力待ちのときだけ（「待ち 4 分」）。current はいま見ているセッション。
  * reason は止まっている理由で、点を盾（許可待ち）か砂時計（使用制限）に替える。waited も「許可待ち 4 分」、リセットの時刻（16:50）、「リセット済み」に替える。
@@ -78,6 +82,8 @@ export const HARD_AFTER_FAILURES = 3;
 export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; aside: boolean; reason: StopReason | null; waited: string | null; current: boolean; menu: SessionMenuProps;
   /** 未読の数（notify_user で知らせた数）。無いか、設定 unreadBadge が切なら 0。 */
   unread?: number;
+  /** ほかの PC から来た文の預かりと、渡した直後の札（presenters/peerOrigin.ts）。無ければ null か無し。 */
+  peerIn?: PeerOriginProps | null;
   /** 同じファイルを別のセッションと編集していること。行末の印に乗せたときの文（相手の名前）。無ければ null か無し。 */
   overlap?: string | null;
   /** 名前の右端のエージェントのアイコン（一覧の行と同じ、agentIcon.ts）。出さないときは持たない。 */
@@ -228,7 +234,7 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
     // 停止の確認（stop.working）は本当の動きで決める。答えを待つ会話は、止めると問いが消える。
     const shown = quietLive(liveWithLimit(s.live, s.limit), s.state?.status, s.woke);
     const reason = shownReason(s, shown);
-    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, waited: sideWaited(t, s, shown, reason, now), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null, ...(icons ? { agent: agentOfSession(store, s) } : {}), ...(s.spawnPeer?.child ? { peer: { name: s.spawnPeer.child, ended: s.spawnPeer.closed } } : {}) };
+    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, waited: sideWaited(t, s, shown, reason, now), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null, ...(icons ? { agent: agentOfSession(store, s) } : {}), ...peerInOf(store, id, t), ...(s.spawnPeer?.child ? { peer: { name: s.spawnPeer.child, ended: s.spawnPeer.closed } } : {}) };
   };
   const folded = new Set(state.sidebarFolded);
   // 子が動いている起動元は、止まっていても薄い行として出す（子の列の根に要る）。起動元の連なりを上までたどる。

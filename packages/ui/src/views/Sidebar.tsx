@@ -19,6 +19,7 @@ import { useMotionList } from './primitives/useMotionList.ts';
 import { paneDrag } from './paneDrag.ts';
 import { measureRows, pinFlight, slideRows } from './pinSlide.ts';
 import { spawnFoldKey } from '../presenters/spawnTree.ts';
+import { PeerMark } from './PeerOrigin.tsx';
 
 /** 画面の名前からナビのアイコンへの対応。見た目の話なので Presenter ではなくここに置く。 */
 const NAV_ICON: Record<string, IconName> = { home: 'home', projects: 'projects', schedules: 'calendar', settings: 'settings' };
@@ -384,6 +385,7 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
             )}
           </span>
           <span className="side-live-name">{r.name}</span>
+          <PeerMark origin={r.peerIn} />
           {r.peer && <span className="pc-pill" title={r.peer.name}><Icon name="otherPc" /><span>{pillName(r.peer.name)}</span></span>}
           {nest && !nest.open && (
             <span className="side-live-kidots" aria-hidden="true">{nest.dots.map((d, k) => <i key={k} className="dot side-live-kidot" data-status={d.live ?? 'ended'} data-aside={d.aside && d.live === 'busy' ? 'true' : undefined} />)}</span>
