@@ -4,7 +4,11 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../../db/open.ts';
 import {
+  PEER_CHAT_ASK_LABEL_MAX_BYTES,
+  PEER_CHAT_ASK_OPTIONS_MAX,
   PEER_CHAT_TAIL_BYTE_BUDGET,
+  PEER_CHAT_TAIL_CACHE_MAX,
+  createTailCache,
   currentPendingAsk,
   dbTranscriptReader,
   transcriptTail,
@@ -25,7 +29,7 @@ const result = (id: string, content: string, isError = false): string => line({ 
 const body = (lines: string[], tail = ''): Buffer => Buffer.from(lines.join('\n') + '\n' + tail);
 
 function deps(buf: Buffer | null, pending: PeerPendingAsk | null = null): TailDeps {
-  return { readTranscript: () => buf, pendingAsk: () => pending };
+  return { readTranscript: () => (buf ? { key: 'mem', read: () => buf } : null), pendingAsk: () => pending };
 }
 const uuidOf = (l: string): string => (JSON.parse(l) as { uuid: string }).uuid;
 
@@ -369,11 +373,107 @@ describe('dbTranscriptReader', () => {
       const r = transcriptTail('sess', null, 200, { readTranscript: read, pendingAsk: () => null });
       expect(r.items.map((i) => i.text)).toEqual(['from file']);
       expect(read('unknown')).toBeNull();
+      // 手がかりは stat の値で作り、更新すれば変わる
+      const k1 = read('sess')!.key;
+      fs.appendFileSync(file, user('more') + '\n');
+      expect(read('sess')!.key).not.toBe(k1);
       // 索引にあるが消えたファイル
       fs.rmSync(file);
       expect(read('sess')).toBeNull();
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('transcriptTail: 読み直しの省き', () => {
+  function counted(initial: Buffer): { deps: TailDeps; reads: () => number; set(b: Buffer): void } {
+    let buf = initial;
+    let reads = 0;
+    return {
+      deps: {
+        readTranscript: () => ({ key: `len:${buf.length}`, read: () => { reads++; return buf; } }),
+        pendingAsk: () => null,
+        cache: createTailCache(),
+      },
+      reads: () => reads,
+      set: (b) => { buf = b; },
+    };
+  }
+
+  it('手がかりが変わっていなければ、2 回目はファイルを読まず解析もしない（答えは同じ）', () => {
+    const lines = [user('a'), asst(text('b'))];
+    const c = counted(body(lines));
+    const r1 = transcriptTail('s', null, 200, c.deps);
+    const r2 = transcriptTail('s', null, 200, c.deps);
+    const r3 = transcriptTail('s', r1.items[0]!.uuid, 200, c.deps);
+    expect(c.reads()).toBe(1);
+    expect(r2).toEqual(r1);
+    expect(r3.items.map((i) => i.text)).toEqual(['b']);
+  });
+
+  it('currentPendingAsk も同じ覚えを使う', () => {
+    const c = counted(body([user('a')]));
+    c.deps.pendingAsk = () => permissionAsk();
+    transcriptTail('s', null, 200, c.deps);
+    currentPendingAsk('s', c.deps);
+    expect(c.reads()).toBe(1);
+  });
+
+  it('ファイルが伸びたら読み直し、増えた分が出る', () => {
+    const first = [user('a')];
+    const c = counted(body(first));
+    const r1 = transcriptTail('s', null, 200, c.deps);
+    c.set(body([...first, asst(text('later'))]));
+    const r2 = transcriptTail('s', r1.cursor, 200, c.deps);
+    expect(c.reads()).toBe(2);
+    expect(r2.items.map((i) => i.text)).toEqual(['later']);
+  });
+
+  it('cache を渡さなければ毎回読む', () => {
+    let reads = 0;
+    const d: TailDeps = { readTranscript: () => ({ key: 'k', read: () => { reads++; return body([user('a')]); } }), pendingAsk: () => null };
+    transcriptTail('s', null, 200, d);
+    transcriptTail('s', null, 200, d);
+    expect(reads).toBe(2);
+  });
+
+  it('覚える会話の数には上限があり、古いものから捨てる', () => {
+    const cache = createTailCache();
+    let reads = 0;
+    const d: TailDeps = { readTranscript: (id) => ({ key: id, read: () => { reads++; return body([user(id)]); } }), pendingAsk: () => null, cache };
+    for (let i = 0; i < PEER_CHAT_TAIL_CACHE_MAX + 2; i++) transcriptTail(`s${i}`, null, 200, d);
+    expect(cache.size).toBe(PEER_CHAT_TAIL_CACHE_MAX);
+    const before = reads;
+    transcriptTail('s0', null, 200, d);
+    expect(reads).toBe(before + 1);
+  });
+
+  it('本文が無くなったら覚えを捨てる', () => {
+    const c = counted(body([user('a')]));
+    transcriptTail('s', null, 200, c.deps);
+    const gone: TailDeps = { ...c.deps, readTranscript: () => null };
+    expect(transcriptTail('s', null, 200, gone).items).toEqual([]);
+    expect(c.deps.cache!.size).toBe(0);
+  });
+});
+
+describe('transcriptTail: 札の大きさと重複した行', () => {
+  it('選択肢の数と label の長さを抑え、札を足しても予算に収まる', () => {
+    const options = Array.from({ length: 200 }, (_, i) => ({ key: String(i), label: 'L'.repeat(5000) }));
+    const big = 'y'.repeat(500_000);
+    const r = transcriptTail('s', null, 200, deps(body([user(big)]), permissionAsk({ options, input: 'z'.repeat(100_000) })));
+    const ask = r.items.at(-1)!.ask!;
+    expect(ask.options).toHaveLength(PEER_CHAT_ASK_OPTIONS_MAX);
+    expect(ask.options.every((o) => Buffer.byteLength(o.label) <= PEER_CHAT_ASK_LABEL_MAX_BYTES)).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(r.items))).toBeLessThanOrEqual(PEER_CHAT_TAIL_BYTE_BUDGET);
+    expect(r.items.at(-1)!.kind).toBe('permission');
+  });
+
+  it('再開で写された同じ uuid の利用者の行は、開いている道具を中断として閉じない', () => {
+    const u = user('first');
+    const lines = [u, asst(use('t1', 'Bash', { command: 'sleep 20' })), u];
+    const r = transcriptTail('s', null, 200, deps(body(lines)));
+    expect(r.items.map((i) => i.kind)).toEqual(['user']);
   });
 });
