@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { PeerChatAsk } from '@agent-hangar/shared';
 import { createPeerAnswerer, type AnswerPane } from './answer.ts';
 import { EDIT_NARROW_SPACES, EDIT_OUTSIDE, EDIT_RELATIVE, EDIT_SUBDIR, NOTEBOOK_EDIT, READ_OUTSIDE, WRITE_NARROW_TRUNCATED, WRITE_NEW, WRITE_OVERWRITE } from './fileDialogs.fixtures.ts';
+import { readPermissionHook } from '../../provider/claude-code/hooks/permission.ts';
 import { pendingAskFrom } from './hostView.ts';
 import type { HostSession } from './hostTypes.ts';
 
@@ -38,39 +39,65 @@ describe('pendingAskFrom', () => {
 describe('pendingAskFrom: ファイルの道具の札', () => {
   const CWD = 'C:\\Users\\dev\\work\\proj';
   const at = (over: Partial<HostSession> = {}) => session({ cwd: CWD, ...over });
+  const hookPayload = (tool: string, input: Record<string, unknown>) => ({ hook_event_name: 'PermissionRequest', session_id: 's1', tool_name: tool, tool_input: input });
+  const permissionOf = (tool: string, input: Record<string, unknown>) => readPermissionHook(hookPayload(tool, input))!.ask;
 
-  it('hook の入力が無ければ、題から道具を、画面のパスを cwd で絶対にして input にする', () => {
-    expect(pendingAskFrom(at(), EDIT_SUBDIR)).toMatchObject({ kind: 'permission', tool: 'Edit', input: `${CWD}\\sub\\m.txt` });
-    expect(pendingAskFrom(at(), EDIT_OUTSIDE)).toMatchObject({ tool: 'Edit', input: 'C:\\Users\\dev\\work\\outside.txt' });
-    expect(pendingAskFrom(at(), WRITE_NEW)).toMatchObject({ tool: 'Write', input: `${CWD}\\sub\\new1.txt` });
-    expect(pendingAskFrom(at(), WRITE_OVERWRITE)).toMatchObject({ tool: 'Write', input: `${CWD}\\a.txt` });
-    expect(pendingAskFrom(at(), NOTEBOOK_EDIT)).toMatchObject({ tool: 'NotebookEdit', input: `${CWD}\\nb.ipynb` });
-    expect(pendingAskFrom(at(), READ_OUTSIDE)).toMatchObject({ tool: 'Read', input: 'C:\\Users\\dev\\work\\outside.txt' });
-  });
+  // 本物の hook の入力の形（tool_input）。
+  // Edit は file_path、old_string、new_string、replace_all。
+  // Write は file_path と content。
+  // NotebookEdit は notebook_path。
+  // Read は file_path。
+  const CASES: { name: string; screen: string; tool: string; input: Record<string, unknown>; path: string }[] = [
+    { name: 'Edit（cwd の中）', screen: EDIT_RELATIVE, tool: 'Edit', input: { file_path: `${CWD}\\a.txt`, old_string: 'beta', new_string: 'BETA', replace_all: false }, path: `${CWD}\\a.txt` },
+    { name: 'Edit（下の階層）', screen: EDIT_SUBDIR, tool: 'Edit', input: { file_path: `${CWD}\\sub\\m.txt`, old_string: 'two', new_string: 'TWO' }, path: `${CWD}\\sub\\m.txt` },
+    { name: 'Edit（cwd の外）', screen: EDIT_OUTSIDE, tool: 'Edit', input: { file_path: 'C:\\Users\\dev\\work\\outside.txt', old_string: 'x2', new_string: 'X2' }, path: 'C:\\Users\\dev\\work\\outside.txt' },
+    { name: 'Write（新規）', screen: WRITE_NEW, tool: 'Write', input: { file_path: `${CWD}\\sub\\new1.txt`, content: 'hello\n' }, path: `${CWD}\\sub\\new1.txt` },
+    { name: 'Write（上書き）', screen: WRITE_OVERWRITE, tool: 'Write', input: { file_path: `${CWD}\\a.txt`, content: 'one\ntwo' }, path: `${CWD}\\a.txt` },
+    { name: 'NotebookEdit', screen: NOTEBOOK_EDIT, tool: 'NotebookEdit', input: { notebook_path: `${CWD}\\nb.ipynb`, cell_id: 'c1', new_source: 'print(2)', edit_mode: 'replace' }, path: `${CWD}\\nb.ipynb` },
+    { name: 'Read（cwd の外）', screen: READ_OUTSIDE, tool: 'Read', input: { file_path: 'C:\\Users\\dev\\work\\outside.txt' }, path: 'C:\\Users\\dev\\work\\outside.txt' },
+    { name: 'Edit（空白を含むパス）', screen: EDIT_NARROW_SPACES, tool: 'Edit', input: { file_path: `${CWD}\\long dir name with spaces\\deeper level folder\\some file name.txt`, old_string: 'k2', new_string: 'K2' }, path: `${CWD}\\long dir name with spaces\\deeper level folder\\some file name.txt` },
+    { name: 'Write（左が切れたパス）', screen: WRITE_NARROW_TRUNCATED, tool: 'Write', input: { file_path: `${CWD}\\long dir name with spaces\\deeper level folder\\an even longer file name for the wrapping test of this dialog.txt`, content: 'hi' }, path: `${CWD}\\long dir name with spaces\\deeper level folder\\an even longer file name for the wrapping test of this dialog.txt` },
+  ];
 
-  it('空白を含むパスは空白と大小をそのまま見せる', () => {
-    expect(pendingAskFrom(at(), EDIT_NARROW_SPACES)!.input).toBe(`${CWD}\\long dir name with spaces\\deeper level folder\\some file name.txt`);
-  });
+  for (const c of CASES) {
+    it(`${c.name}: hook の入力は素のパスで、そのまま ask の tool と input になる`, () => {
+      const perm = permissionOf(c.tool, c.input);
+      expect(perm).toMatchObject({ tool: c.tool, input: c.path });
+      expect(pendingAskFrom(at({ permission: perm }), c.screen)).toMatchObject({ kind: 'permission', tool: c.tool, input: c.path });
+    });
 
-  it('cwd が分からないか、パスが左で切れているときは、画面の文字のまま input にする', () => {
-    expect(pendingAskFrom(session({ cwd: '' }), EDIT_SUBDIR)!.input).toBe('sub\\m.txt');
-    expect(pendingAskFrom(at(), WRITE_NARROW_TRUNCATED)!.input).toBe('…r\\an even longer file name for the wrapping test of this dialog.txt');
-  });
-
-  it('hook の入力（道具と絶対パス）があれば、それを使う', () => {
-    const a = pendingAskFrom(at({ permission: { tool: 'Edit', input: `${CWD}\\sub\\m.txt`, description: null } }), EDIT_SUBDIR)!;
-    expect(a).toMatchObject({ tool: 'Edit', input: `${CWD}\\sub\\m.txt` });
-  });
-
-  it('作った ask は、同じ画面の答えとして通る（組み立てと照合の往復）', async () => {
-    for (const screen of [EDIT_RELATIVE, EDIT_SUBDIR, EDIT_OUTSIDE, WRITE_NEW, WRITE_OVERWRITE, NOTEBOOK_EDIT, READ_OUTSIDE, EDIT_NARROW_SPACES, WRITE_NARROW_TRUNCATED]) {
-      const p = pendingAskFrom(at(), screen)!;
+    it(`${c.name}: 作った ask は、同じ画面の答えとして通る（組み立てと照合の往復）`, async () => {
+      const p = pendingAskFrom(at({ permission: permissionOf(c.tool, c.input) }), c.screen)!;
       const ask = { askId: 'x', ...p } as PeerChatAsk;
       const yes = ask.options.find((o) => o.label === 'Yes')!;
       let closed = false;
-      const pane: AnswerPane = { capture: () => (closed ? '● done\n' : screen), sendKey: () => {}, sendText: () => { closed = true; } };
+      const pane: AnswerPane = { capture: () => (closed ? '● done\n' : c.screen), sendKey: () => {}, sendText: () => { closed = true; } };
       const r = await createPeerAnswerer({ pane: () => pane, cwd: () => CWD, sleep: async () => {} }).answerAsk('r', ask, [yes.key]);
-      expect(r, screen.slice(0, 80)).toEqual({ ok: true, label: 'Yes' });
-    }
+      expect(r).toEqual({ ok: true, label: 'Yes' });
+    });
+
+    it(`${c.name}: hook の許可が無ければ、画面から tool と input を組まず、答えられない`, async () => {
+      const p = pendingAskFrom(at(), c.screen)!;
+      expect(p.kind).toBe('permission');
+      expect(p.tool).toBeUndefined();
+      expect(p.input).toBeUndefined();
+      const ask = { askId: 'x', ...p } as PeerChatAsk;
+      const yes = ask.options.find((o) => o.label === 'Yes')!;
+      const sent: string[] = [];
+      const pane: AnswerPane = { capture: () => c.screen, sendKey: () => {}, sendText: (t) => { sent.push(t); } };
+      const r = await createPeerAnswerer({ pane: () => pane, cwd: () => CWD, sleep: async () => {} }).answerAsk('r', ask, [yes.key]);
+      expect(r).toEqual({ ok: false, reason: 'ask-mismatch' });
+      expect(sent).toEqual([]);
+    });
+  }
+
+  it('hook の許可の道具と画面の題が合わなければ、答えられない', async () => {
+    const perm = permissionOf('Bash', { command: 'ls' });
+    const p = pendingAskFrom(at({ permission: perm }), EDIT_SUBDIR)!;
+    const sent: string[] = [];
+    const pane: AnswerPane = { capture: () => EDIT_SUBDIR, sendKey: () => {}, sendText: (t) => { sent.push(t); } };
+    const r = await createPeerAnswerer({ pane: () => pane, cwd: () => CWD, sleep: async () => {} }).answerAsk('r', { askId: 'x', ...p } as PeerChatAsk, ['1']);
+    expect(r).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(sent).toEqual([]);
   });
 });

@@ -1,5 +1,5 @@
 import { PEER_CHAT_REPLY_SEALED_MAX, type PeerChatAsk, type PeerChatDevice, type PeerChatGone, type PeerChatItem, type PeerChatQueued, type PeerChatState, type PeerChatStatus } from '@agent-hangar/shared';
-import { displayPath, parseDialog } from './answer.ts';
+import { parseDialog } from './answer.ts';
 import type { HostPane, HostSession } from './hostTypes.ts';
 import { currentPendingAsk, transcriptTail, type PeerPendingAsk, type TailDeps } from './tail.ts';
 
@@ -79,8 +79,10 @@ const CHAT_ROW = /^chat about this\b/i;
  * 画面に札が無ければ null。
  * 選択肢の label は画面の行そのままにする（answer.ts が label で行を当てる）。
  * key は画面の番号。
- * 許可の input は、登録に中身（hook の届いた許可）があればそれ。
- * 無ければ、2 本の罫線に挟まれた文字。ファイルの道具の札（Edit、Write など）は、罫線の間が差分なので、見出しのパス（cwd で絶対にしたもの）と、題から決めた道具。
+ * 許可の tool と input は、登録に中身（hook の届いた許可）があればそれ。
+ * 無ければ、2 本の罫線に挟まれた文字を input にして、道具は付けない。
+ * ファイルの道具の札（Edit、Write、NotebookEdit、Read）は、画面から tool と input を組まない。
+ * 画面の見出しは命令の本文でも書けるので、hook の届いた許可がないとき、この札は答えられない（answer.ts が断る）。
  * 質問の input は問いの文（answer.ts が画面の問いと突き合わせる）。
  */
 export function pendingAskFrom(session: HostSession, screen: string): PeerPendingAsk | null {
@@ -94,13 +96,10 @@ export function pendingAskFrom(session: HostSession, screen: string): PeerPendin
     return { kind: 'question', tool: 'AskUserQuestion', input: q, question: q, options, multi: d.multi, allowText };
   }
   const p = session.permission;
-  // ファイルの道具の札は、罫線の間が差分なので、見出しのパスを使う。
-  // 画面のパスは cwd からの相対のことがあるので、cwd で絶対にして見せる（answer.ts は同じ cwd で突き合わせる）。
-  const file = d.file;
-  const input = p?.input || (file ? (file.path ? displayPath(file.path, session.cwd) : undefined) : d.ruled?.trim()) || undefined;
+  // ファイルの道具の札は、罫線の間が差分なので、画面からは組まない。
+  const input = p?.input || (d.file ? undefined : d.ruled?.trim()) || undefined;
   const out: PeerPendingAsk = { kind: 'permission', description: p?.description ?? null, options, multi: false, allowText: false };
-  const tool = p?.tool || file?.tools[0];
-  if (tool) out.tool = tool;
+  if (p?.tool) out.tool = p.tool;
   if (input) out.input = input;
   return out;
 }
