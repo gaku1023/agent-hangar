@@ -170,6 +170,12 @@ export type Dialog = {
    */
   header: string;
   /**
+   * 札の題（罫線で挟んだ本体の上の見出しの 1 行目）。
+   * 小文字で、空白の連なりは 1 つにする。
+   * 罫線で挟んだ本体が読めなければ null。
+   */
+  title: string | null;
+  /**
    * ファイルの道具（Edit、Write、NotebookEdit、Read）の札のとき、その中身。
    * 見出しの題で決める（Bash などの命令の札は null）。
    * 罫線の間は差分で引数ではないので、パスは見出しの 2 行目（Read は罫線の間の Read(パス)）から読む。
@@ -211,6 +217,15 @@ const DASHED_RE = /^╌{8,}\s*$/;
 const WRAP_LINES = 3;
 /** 見出しの塊の行数の上限（題とパスと、NotebookEdit の説明の行）。 */
 const HEAD_MAX = 5;
+/** 題を探す行数の上限（題、Tip、モデルの書いた説明の行）。 */
+const TITLE_LINES = 8;
+/**
+ * 命令の札の題。
+ * hook の許可が無いとき、答えてよいのはこの題の札だけである（ほかの札は、画面の本体を input にして答えさせない）。
+ * 2.1.319 の実機で確かめたのは Bash command だけ。
+ */
+const COMMAND_TITLES = new Set(['bash command']);
+export const isCommandTitle = (title: string): boolean => COMMAND_TITLES.has(title);
 /**
  * 見出しの窓の行数（札の最初の罫線の上）。
  */
@@ -277,6 +292,22 @@ function fileDialogOf(lines: string[], qTop: number): DialogFile | null {
     return { tools: spec.tools, lead: null, path: m && m[1] === spec.tools[0] ? m[2]!.trim() : '' };
   }
   return { tools: spec.tools, lead: spec.lead, path: head[1] ?? '' };
+}
+
+/**
+ * 上の罫線（topAbs 行）の上にある見出しの 1 行目を、札の題として返す。
+ * 左端の罫線（札の頭の実線）か画面の頭までを見出しとし、行が多すぎるときは null にする。
+ */
+function titleAbove(lines: string[], topAbs: number): string | null {
+  const head: string[] = [];
+  for (let k = topAbs - 1; k >= 0; k--) {
+    const l = lines[k]!;
+    if (RULE_RE.test(l)) break;
+    if (l.trim() === '') continue;
+    head.unshift(l.trim());
+    if (head.length > TITLE_LINES) return null;
+  }
+  return head.length > 0 ? head[0]!.replace(/\s+/g, ' ').toLowerCase() : null;
 }
 
 /**
@@ -352,6 +383,7 @@ export function parseDialog(screen: string): Dialog | null {
       ruled = aboveLines.slice(rt + 1, rb).join('\n');
     }
   }
+  const title = ruled === null ? null : titleAbove(lines, Math.max(0, first.i - ABOVE_LINES) + top);
   const headerLines = aboveLines.slice(Math.max(0, top - HEADER_WINDOW), top).filter((l) => l.trim() !== '');
   const body = rules.length >= 2 ? aboveLines.slice(Math.max(0, top - HEADER_WINDOW)) : aboveLines;
 
@@ -368,6 +400,7 @@ export function parseDialog(screen: string): Dialog | null {
     ruled,
     file,
     header: headerLines.join(' ').toLowerCase(),
+    title,
     manyQuestions: chips > 1,
     multi: options.some((o) => o.checked !== null),
   };
@@ -510,6 +543,9 @@ function fileMatches(ask: PeerChatAsk, f: DialogFile, d: Dialog, cwd: string | n
 export function dialogMatches(ask: PeerChatAsk, d: Dialog, cwd: string | null = null): boolean {
   if (d.kind !== ask.kind || d.multi !== ask.multi || d.manyQuestions) return false;
   if (d.file) return ask.kind === 'permission' && fileMatches(ask, d.file, d, cwd);
+  // hook の許可が無い ask（ツールが無い）は、命令の札にだけ当てる。
+  // 知らない題の札は、画面の本体を input にしても答えさせない。
+  if (ask.kind === 'permission' && !ask.tool && !(d.title !== null && isCommandTitle(d.title))) return false;
   return toolMatches(ask, d) && inputMatches(ask, d);
 }
 

@@ -1,5 +1,5 @@
 import { PEER_CHAT_REPLY_SEALED_MAX, type PeerChatAsk, type PeerChatDevice, type PeerChatGone, type PeerChatItem, type PeerChatQueued, type PeerChatState, type PeerChatStatus } from '@agent-hangar/shared';
-import { parseDialog } from './answer.ts';
+import { isCommandTitle, parseDialog } from './answer.ts';
 import type { HostPane, HostSession } from './hostTypes.ts';
 import { currentPendingAsk, transcriptTail, type PeerPendingAsk, type TailDeps } from './tail.ts';
 
@@ -97,7 +97,9 @@ export function pendingAskFrom(session: HostSession, screen: string): PeerPendin
   }
   const p = session.permission;
   // ファイルの道具の札は、罫線の間が差分なので、画面からは組まない。
-  const input = p?.input || (d.file ? undefined : d.ruled?.trim()) || undefined;
+  // 画面から input を組むのは、命令の札（Bash command）だけにする。
+  const fromScreen = !d.file && d.title !== null && isCommandTitle(d.title) ? d.ruled?.trim() : undefined;
+  const input = p?.input || fromScreen || undefined;
   const out: PeerPendingAsk = { kind: 'permission', description: p?.description ?? null, options, multi: false, allowText: false };
   if (p?.tool) out.tool = p.tool;
   if (input) out.input = input;
