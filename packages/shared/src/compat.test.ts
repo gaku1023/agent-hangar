@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COMPAT_HEADER, COMPAT_VERSION, CONFIG_BUNDLE_MIN_WORKER_COMPAT, DEVICE_ADMIN_MIN_WORKER_COMPAT, MOBILE_BELL_MIN_WORKER_COMPAT, MOBILE_MIN_WORKER_COMPAT, PEER_LAUNCH_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, compatHeaders, compatRefusalBody, parseCompat, readCompatRefusal } from './compat.ts';
+import { COMPAT_HEADER, COMPAT_VERSION, CONFIG_BUNDLE_MIN_WORKER_COMPAT, DEVICE_ADMIN_MIN_WORKER_COMPAT, MOBILE_BELL_MIN_WORKER_COMPAT, MOBILE_MIN_WORKER_COMPAT, PEER_CHAT_MIN_WORKER_COMPAT, PEER_LAUNCH_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, compatHeaders, compatRefusalBody, parseCompat, readCompatRefusal } from './compat.ts';
 import * as shared from './index.ts';
 
 describe('互換の版番号', () => {
@@ -16,6 +16,8 @@ describe('互換の版番号', () => {
     expect(COMPAT_VERSION).toBeGreaterThanOrEqual(10);
     expect(PEER_LAUNCH_MIN_WORKER_COMPAT).toBe(10);
     expect(shared.PEER_LAUNCH_MIN_WORKER_COMPAT).toBe(10);
+    expect(PEER_CHAT_MIN_WORKER_COMPAT).toBe(11);
+    expect(shared.PEER_CHAT_MIN_WORKER_COMPAT).toBe(11);
   });
 
   it('版 8 は呼び鈴と画像を知る Worker の版', () => {

@@ -100,6 +100,13 @@ export const MOBILE_BELL_MIN_WORKER_COMPAT = 8;
  */
 export const PEER_LAUNCH_MIN_WORKER_COMPAT = 10;
 
+/**
+ * PC どうしの会話の問い合わせ（POST /peer/ask）と、その画像の口（/peer/blobs/）を持つ Worker の版。
+ * 版 10 までの Worker はこの口を 404 で返す。端末は、Worker が名乗る版がこの値に届くまで、ほかの PC の会話をチャットの形では開かない。
+ * 端末に求める下限（MIN_DEVICE_COMPAT）は上げない。
+ */
+export const PEER_CHAT_MIN_WORKER_COMPAT = 11;
+
 /** 版を運ぶ見出し（X-Hangar-Compat）。端末は要求に、Worker は応答に、自分の版を載せる。 */
 export const COMPAT_HEADER = 'x-hangar-compat';
 

@@ -385,3 +385,21 @@ export async function openPeerChatReply(ring: PeerKeyring, route: PeerRoute, sea
   if (!v) throw new E2eOpenError();
   return v;
 }
+
+/**
+ * 呼び鈴の枠（Worker の Durable Object と PC の間）。中身の sealed は封のまま運び、Worker は開かない。
+ * 頼まれた PC に届く枠。
+ * id は頼みの askId（封の AAD の ask_id と同じ値）、from は頼んだ PC の端末 ID、epoch は封の世代である。
+ * PC は from と id から route（{ requestId: id, from, to: 自分 }）を組んで開く。
+ */
+export type PeerChatBellAsk = { t: 'chat'; id: string; from: string; epoch: number; sealed: string };
+/**
+ * 頼まれた PC が返す枠。
+ * id と from は届いた枠のものをそのまま返す。
+ * Durable Object は、この 2 つが待ちの鍵と合い、送ってきた WebSocket が宛先の PC のものであるときだけ答えにする。
+ */
+export type PeerChatBellReply = { t: 'chat-reply'; id: string; from: string; sealed: string };
+/** POST /peer/ask の本文。askId は頼む側が振り、封の AAD の ask_id と同じ値にする。 */
+export type PeerAskIn = { askId: string; to: string; sealed: string; epoch: number; waitMs: number };
+/** POST /peer/ask の断り。offline はすぐ、duplicate は同じ askId が待っているとき、rate は 1 分 120 回を超えたときである。 */
+export type PeerAskRefusal = { error: string; reason: 'offline' | 'duplicate' | 'rate' };
