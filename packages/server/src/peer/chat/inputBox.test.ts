@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { inputEmptyFromCapture } from './inputBox.ts';
-import { MAC_DRAFT, MAC_GHOST, WIN_BUSY_WITH_DRAFT, WIN_DRAFT, WIN_EMPTY_AFTER_TURN, WIN_GHOST_FRESH, WIN_MULTILINE } from './inputBox.fixtures.ts';
+import { MAC_DRAFT, MAC_GHOST, SYNTHETIC_FAINT_CHIP, WIN_CHIP_IMAGE, WIN_CHIP_PASTE, WIN_BUSY_WITH_DRAFT, WIN_DRAFT, WIN_EMPTY_AFTER_TURN, WIN_GHOST_FRESH, WIN_MULTILINE } from './inputBox.fixtures.ts';
 
 const RULE = '─'.repeat(40);
 
@@ -19,6 +19,12 @@ describe('inputEmptyFromCapture（実機の capture-pane -pe の見本）', () =
     expect(inputEmptyFromCapture(MAC_DRAFT)).toBe(false);
     expect(inputEmptyFromCapture(WIN_BUSY_WITH_DRAFT)).toBe(false);
     expect(inputEmptyFromCapture(WIN_MULTILINE)).toBe(false);
+  });
+
+  it('貼り付けの札と画像の札（実機では普通の字）は打ちかけ。薄字で描かれる版でも、[ で始まる薄字は空でない', () => {
+    expect(inputEmptyFromCapture(WIN_CHIP_PASTE)).toBe(false);
+    expect(inputEmptyFromCapture(WIN_CHIP_IMAGE)).toBe(false);
+    expect(inputEmptyFromCapture(SYNTHETIC_FAINT_CHIP)).toBe(false);
   });
 
   it('箱の上に残る直前の指示の行（❯ で始まる）は数えない', () => {

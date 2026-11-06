@@ -10,6 +10,8 @@
  * 入力欄は、最後の 2 本の区切り線（─ だけの行）の間にある。
  * 1 行目は ❯ で始まる。複数行の打ちかけは、箱が伸びて 2 行目以降に続く。
  * 箱が見つからない、1 行目が ❯ で始まらない（許可や質問の札が出ている）画面は、空と言わない。
+ * 薄字でも [ で始まる語は、貼り付けや画像の札かもしれないので、空でないとみなす。
+ * 実機の psmux では、札（[Pasted text #1 +29 lines]、[Image #2]）は普通の字で描かれ、薄字ではない。
  * 迷ったら空でないと答える。誤って渡すより、渡さずに待つほうが安全だからである。
  */
 
@@ -46,6 +48,8 @@ export function inputEmptyFromCapture(capture: string): boolean {
   if (box.length === 0 || !plain(box[0]!).replace(/^\s+/, '').startsWith('❯')) return false;
   let dim = false;
   let promptSeen = false;
+  // 語の頭か（空白と ❯ の直後）。薄字でも [ で始まる語は、提案でなく札（貼り付けや画像）かもしれないので、空でないとみなす。
+  let wordStart = true;
   for (const line of box) {
     for (let i = 0; i < line.length; ) {
       if (line[i] === '\x1b') {
@@ -61,12 +65,17 @@ export function inputEmptyFromCapture(capture: string): boolean {
       }
       const ch = line[i]!;
       i++;
-      if (/\s/.test(ch)) continue;
-      if (!promptSeen && ch === '❯') {
-        promptSeen = true;
+      if (/\s/.test(ch)) {
+        wordStart = true;
         continue;
       }
-      if (!dim) return false;
+      if (!promptSeen && ch === '❯') {
+        promptSeen = true;
+        wordStart = true;
+        continue;
+      }
+      if (!dim || (wordStart && ch === '[')) return false;
+      wordStart = false;
     }
   }
   return true;

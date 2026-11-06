@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PeerBlobRef } from '@agent-hangar/shared';
-import { PEER_QUEUE_EXPIRE_MS, PeerQueue, type PeerQueueEvent, type TurnState } from './queue.ts';
+import { PEER_QUEUE_EXPIRE_MS, PEER_QUEUE_MAX_PER_RUN, PeerQueue, type PeerQueueEvent, type TurnState } from './queue.ts';
 
 const MAC = { deviceId: 'dev-mac', deviceName: 'Mac' };
 const WIN = { deviceId: 'dev-win', deviceName: 'Win' };
@@ -37,7 +37,7 @@ afterEach(() => { vi.useRealTimers(); });
 describe('PeerQueue：預かる', () => {
   it('作業中に来た文は預かり、渡さない。waiting で一覧に出る', async () => {
     const { q, st, events } = setup({ turn: 'busy' });
-    const id = q.add(RUN, MAC, 'hello', []);
+    const id = q.add(RUN, MAC, 'hello', [])!;
     await advance(5000);
     expect(st.delivered).toEqual([]);
     expect(q.list(RUN)).toEqual([{ queueId: id, from: MAC, text: 'hello', images: 0, at: 1_000_000, state: 'waiting' }]);
@@ -70,7 +70,7 @@ describe('PeerQueue：預かる', () => {
 describe('PeerQueue：渡す', () => {
   it('ターンが止まり入力欄が空なら渡す。delivering のあと消え、delivered に送り主が付く', async () => {
     const { q, st, events } = setup({ turn: 'busy' });
-    const id = q.add(RUN, MAC, 'hello', []);
+    const id = q.add(RUN, MAC, 'hello', [])!;
     st.turn = 'idle';
     await advance(1000);
     expect(st.delivered.map((d) => d.text)).toEqual(['hello']);
@@ -256,7 +256,7 @@ describe('PeerQueue：10 分で捨てる（U11）', () => {
 describe('PeerQueue：取り消し', () => {
   it('送った PC だけが取り消せ、文が返る。預かりから消える', () => {
     const { q, events } = setup({ turn: 'busy' });
-    const id = q.add(RUN, MAC, 'oops', []);
+    const id = q.add(RUN, MAC, 'oops', [])!;
     expect(q.cancel(id, WIN.deviceId)).toEqual({ ok: false, reason: 'not-sender' });
     expect(q.list(RUN)).toHaveLength(1);
     expect(q.cancel(id, MAC.deviceId)).toEqual({ ok: true, text: 'oops' });
@@ -269,7 +269,7 @@ describe('PeerQueue：取り消し', () => {
   it('無い ID と、すでに渡した預かりは取り消せない', async () => {
     const { q, st } = setup({ turn: 'idle' });
     expect(q.cancel('nope', MAC.deviceId)).toEqual({ ok: false, reason: 'not-found' });
-    const id = q.add(RUN, MAC, 'x', []);
+    const id = q.add(RUN, MAC, 'x', [])!;
     await advance(1000);
     expect(st.delivered).toHaveLength(1);
     expect(q.cancel(id, MAC.deviceId)).toEqual({ ok: false, reason: 'not-found' });
@@ -280,7 +280,7 @@ describe('PeerQueue：取り消し', () => {
     const { q, st } = setup({ turn: 'idle' });
     let release!: () => void;
     st.deliverGate = new Promise<void>((r) => { release = r; });
-    const id = q.add(RUN, MAC, 'x', []);
+    const id = q.add(RUN, MAC, 'x', [])!;
     await advance(1000);
     expect(q.cancel(id, MAC.deviceId)).toEqual({ ok: false, reason: 'delivering' });
     release();
@@ -290,7 +290,7 @@ describe('PeerQueue：取り消し', () => {
 
   it('取り消した文は、あとで止まっても渡さない', async () => {
     const { q, st } = setup({ turn: 'busy' });
-    const id = q.add(RUN, MAC, 'oops', []);
+    const id = q.add(RUN, MAC, 'oops', [])!;
     q.cancel(id, MAC.deviceId);
     st.turn = 'idle';
     await advance(5000);
@@ -312,7 +312,7 @@ describe('PeerQueue：メモリだけ・後始末', () => {
   it('預かりが空なら確認の時計を止める。dispose のあとは何も渡さない', async () => {
     const { q, st } = setup({ turn: 'busy' });
     expect(vi.getTimerCount()).toBe(0);
-    const id = q.add(RUN, MAC, 'x', []);
+    const id = q.add(RUN, MAC, 'x', [])!;
     expect(vi.getTimerCount()).toBe(1);
     q.cancel(id, MAC.deviceId);
     expect(vi.getTimerCount()).toBe(0);
@@ -334,6 +334,173 @@ describe('PeerQueue：メモリだけ・後始末', () => {
     await advance(1000);
     expect(seen).toEqual(['queued']);
     expect(st.delivered).toHaveLength(1);
+    q.dispose();
+  });
+});
+
+describe('PeerQueue：外の口が投げたとき', () => {
+  it('turnState が投げたら、止まった（stopped）とみなす。例外を外へ出さず、渡さず、10 分で捨てる', async () => {
+    const unhandled: unknown[] = [];
+    const onRejection = (e: unknown) => { unhandled.push(e); };
+    process.on('unhandledRejection', onRejection);
+    try {
+      const delivered: string[] = [];
+      const q = new PeerQueue({
+        now: () => Date.now(),
+        turnState: () => { throw new Error('live read failed'); },
+        inputEmpty: async () => true,
+        deliver: async (_r, text) => { delivered.push(text); return true; },
+        newId: () => 'q1',
+        pollMs: 1000,
+      });
+      const events: string[] = [];
+      q.subscribe((e) => events.push(e.type));
+      q.add(RUN, MAC, 'hello', []);
+      q.notifyTurnChanged(RUN);
+      await advance(PEER_QUEUE_EXPIRE_MS - 5000);
+      expect(delivered).toEqual([]);
+      expect(q.list(RUN)).toHaveLength(1);
+      await advance(10_000);
+      expect(q.list(RUN)).toEqual([]);
+      expect(events).toEqual(['queued', 'expired']);
+      await advance(0);
+      expect(unhandled).toEqual([]);
+      q.dispose();
+    } finally {
+      process.off('unhandledRejection', onRejection);
+    }
+  });
+
+  it('now が投げても、確認の時計から例外を外へ出さない', async () => {
+    const unhandled: unknown[] = [];
+    const onRejection = (e: unknown) => { unhandled.push(e); };
+    process.on('unhandledRejection', onRejection);
+    try {
+      let broken = false;
+      const q = new PeerQueue({
+        now: () => { if (broken) throw new Error('clock'); return Date.now(); },
+        turnState: () => 'busy',
+        inputEmpty: async () => true,
+        deliver: async () => true,
+        newId: () => 'q1',
+        pollMs: 1000,
+      });
+      q.add(RUN, MAC, 'hello', []);
+      broken = true;
+      await advance(5000);
+      q.notifyTurnChanged(RUN);
+      await advance(0);
+      expect(unhandled).toEqual([]);
+      q.dispose();
+    } finally {
+      process.off('unhandledRejection', onRejection);
+    }
+  });
+});
+
+describe('PeerQueue：渡す直前の確かめ', () => {
+  it('入力欄を読んでから渡すまでの間に打ちかけが現れたら、渡さず預かりに残す', async () => {
+    const reads: boolean[] = [true, false];
+    const delivered: string[] = [];
+    const q = new PeerQueue({
+      now: () => Date.now(),
+      turnState: () => 'idle',
+      // 1 回目は空、渡す直前の 2 回目は打ちかけ。以降は空
+      inputEmpty: async () => (reads.length > 0 ? reads.shift()! : true),
+      deliver: async (_r, text) => { delivered.push(text); return true; },
+      newId: () => 'q1',
+      pollMs: 1000,
+    });
+    const events: string[] = [];
+    q.subscribe((e) => events.push(e.type));
+    q.add(RUN, MAC, 'hello', []);
+    await advance(0);
+    expect(delivered).toEqual([]);
+    expect(q.list(RUN)[0]!.state).toBe('waiting');
+    expect(events).toEqual(['queued']);
+    await advance(1000);
+    expect(delivered).toEqual(['hello']);
+    expect(events).toEqual(['queued', 'delivering', 'delivered']);
+    q.dispose();
+  });
+
+  it('確かめている間にターンが動き出したら（idle でなくなったら）渡さない', async () => {
+    let turn: TurnState = 'idle';
+    let calls = 0;
+    const delivered: string[] = [];
+    const q = new PeerQueue({
+      now: () => Date.now(),
+      turnState: () => turn,
+      inputEmpty: async () => { calls++; if (calls === 2) turn = 'busy'; return true; },
+      deliver: async (_r, text) => { delivered.push(text); return true; },
+      newId: () => 'q1',
+      pollMs: 1000,
+    });
+    q.add(RUN, MAC, 'hello', []);
+    await advance(0);
+    expect(delivered).toEqual([]);
+    expect(q.list(RUN)[0]!.state).toBe('waiting');
+    q.dispose();
+  });
+});
+
+describe('PeerQueue：後始末のあと・上限・会話の消去', () => {
+  it('dispose のあとの add は預からず null を返す', () => {
+    const { q } = setup({ turn: 'busy' });
+    q.dispose();
+    expect(q.add(RUN, MAC, 'late', [])).toBeNull();
+    expect(q.list(RUN)).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('1 つの会話に預かれるのは PEER_QUEUE_MAX_PER_RUN 件まで。超えたら null を返し、ほかの会話は預かる', () => {
+    const { q, events } = setup({ turn: 'busy' });
+    const ids: (string | null)[] = [];
+    for (let i = 0; i < PEER_QUEUE_MAX_PER_RUN; i++) ids.push(q.add(RUN, MAC, `m${i}`, []));
+    expect(ids.every((x) => typeof x === 'string')).toBe(true);
+    expect(q.add(RUN, MAC, 'one too many', [])).toBeNull();
+    expect(q.list(RUN)).toHaveLength(PEER_QUEUE_MAX_PER_RUN);
+    expect(events.filter((e) => e.type === 'queued')).toHaveLength(PEER_QUEUE_MAX_PER_RUN);
+    expect(typeof q.add('run-2', MAC, 'other run', [])).toBe('string');
+    // 取り消せば空きができる
+    q.cancel(ids[0]!, MAC.deviceId);
+    expect(typeof q.add(RUN, MAC, 'fits again', [])).toBe('string');
+    q.dispose();
+  });
+
+  it('dropRun は、その会話の預かりを全部消し、1 件ごとに dropped を出す（送り主へ早く返せる）', async () => {
+    const { q, st, events } = setup({ turn: 'busy' });
+    q.add(RUN, MAC, 'a', []);
+    q.add(RUN, WIN, 'b', []);
+    q.add('run-2', MAC, 'other', []);
+    expect(q.dropRun(RUN)).toBe(2);
+    expect(q.list(RUN)).toEqual([]);
+    expect(q.list('run-2')).toHaveLength(1);
+    const dropped = events.filter((e) => e.type === 'dropped');
+    expect(dropped).toHaveLength(2);
+    expect(dropped[0]).toMatchObject({ type: 'dropped', runId: RUN, item: { text: 'a', from: MAC } });
+    expect(dropped[1]).toMatchObject({ type: 'dropped', runId: RUN, item: { text: 'b', from: WIN } });
+    // 消したあとに止まっても渡さない
+    st.turn = 'idle';
+    await advance(5000);
+    expect(st.delivered.map((d) => d.text)).toEqual(['other']);
+    expect(q.dropRun('nothing')).toBe(0);
+    q.dispose();
+  });
+
+  it('dropRun は渡している最中の 1 件には触らない', async () => {
+    const { q, st, events } = setup({ turn: 'idle' });
+    let release!: () => void;
+    st.deliverGate = new Promise<void>((r) => { release = r; });
+    q.add(RUN, MAC, 'one', []);
+    q.add(RUN, MAC, 'two', []);
+    await advance(1000);
+    expect(q.dropRun(RUN)).toBe(1);
+    expect(q.list(RUN).map((i) => i.text)).toEqual(['one']);
+    release();
+    await advance(0);
+    expect(st.delivered.map((d) => d.text)).toEqual(['one']);
+    expect(events.filter((e) => e.type === 'dropped').map((e) => (e as { item: { text: string } }).item.text)).toEqual(['two']);
     q.dispose();
   });
 });
