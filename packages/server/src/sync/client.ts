@@ -15,6 +15,7 @@ import {
   isSafeRelPath,
   MAX_BLOB_DELETE_KEYS,
   MOBILE_IMAGES_PER_LAUNCH,
+  PEER_CHAT_IMAGES_MAX,
   parseCompat,
   readCloudLimit,
   readCompatRefusal,
@@ -39,6 +40,7 @@ import {
   type MobilePairingsMine,
   type NoticeIn,
   type NoticeOut,
+  type PeerChatApi,
   type PeerLaunchApi,
   type PeerLaunchStatus,
   type PeerOutboxResponse,
@@ -65,6 +67,19 @@ export class CloudError extends MessageError {
   constructor(public readonly status: number, message: Message | string) {
     super(message);
     this.name = 'CloudError';
+  }
+}
+
+/** POST /peer/ask の締め切りに足す余裕（Worker の待ち waitMs + 5 秒に、往復の分を足す）。 */
+const PEER_ASK_SLACK_MS = 8_000;
+/** POST /peer/ask の断りのうち、例外にせず返すもの。 */
+const PEER_ASK_REFUSED: ReadonlySet<number> = new Set([400, 409, 413, 429, 502, 504]);
+function peerAskReason(message: string): 'offline' | 'duplicate' | 'rate' | null {
+  try {
+    const r = (JSON.parse(message) as { reason?: unknown } | null)?.reason;
+    return r === 'offline' || r === 'duplicate' || r === 'rate' ? r : null;
+  } catch {
+    return null;
   }
 }
 
@@ -287,6 +302,13 @@ export interface CloudClientBase {
    * 頼みが来た知らせは pull の peerLaunches と、呼び鈴の { t: 'peer' } で届く。
    */
   readonly peerLaunch?: PeerLaunchApi;
+  /**
+   * PC どうしの会話の問い合わせの口（POST /peer/ask と /peer/blobs、互換の版 11 の Worker から）。
+   * 封は呼び手が封じた文字列で、ここでは開かない。
+   * 呼ぶ前に lastWorkerCompat() が PEER_CHAT_MIN_WORKER_COMPAT に届くことを確かめる。
+   * 偽物は実装しなくてよい。
+   */
+  readonly peerChat?: PeerChatApi;
   /** 受け取った依頼の結果を返す（POST /m/launches/:id/answer）。sealedAnswer はスマホ用の鍵で封じた MobileLaunchAnswer。409 も投げる。 */
   answerLaunch?(id: string, ok: boolean, sealedAnswer: string): Promise<void>;
   /**
@@ -509,7 +531,7 @@ export class HttpCloudClient implements WireCloudClient {
    * 解除ではない 401 は、宛先とトークンを読み直し（reloadCredentials）、変わっていれば 1 度だけ試し直す。
    * 本文を流れで送る要求は試し直しで送り直せるよう、init を作る関数で渡す。
    */
-  private async send(path: string, initOrMake: RequestInit | (() => RequestInit), ms: number, retried = false): Promise<{ res: Response; d: Deadline }> {
+  private async send(path: string, initOrMake: RequestInit | (() => RequestInit), ms: number, retried = false, ext?: AbortSignal): Promise<{ res: Response; d: Deadline }> {
     const init: RequestInit & { duplex?: 'half' } = typeof initOrMake === 'function' ? initOrMake() : initOrMake;
     const sentGen = this.credentialGen;
     const d = new Deadline(ms);
@@ -519,7 +541,7 @@ export class HttpCloudClient implements WireCloudClient {
       res = await d.race(
         this.fetchFn(`${this.base}${path}`, {
           ...init,
-          signal: d.signal,
+          signal: ext ? AbortSignal.any([d.signal, ext]) : d.signal,
           headers: { ...((init.headers as Record<string, string> | undefined) ?? {}), ...compatHeaders(), authorization: this.authorization() },
         } as RequestInit),
       );
@@ -546,7 +568,7 @@ export class HttpCloudClient implements WireCloudClient {
       }
       if (res.status === 401 && !retried && this.renewCredentials(sentGen)) {
         d.clear();
-        return this.send(path, initOrMake, ms, true);
+        return this.send(path, initOrMake, ms, true, ext);
       }
     }
     const workerCompat = parseCompat(res.headers.get(COMPAT_HEADER));
@@ -602,6 +624,46 @@ export class HttpCloudClient implements WireCloudClient {
     },
     postResult: (id, body) => this.json<PeerResultAck>(`/launches/${encodeURIComponent(id)}/results`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
     results: (id, after) => this.json<PeerResultsResponse>(`/launches/${encodeURIComponent(id)}/results?after=${Math.max(0, Math.floor(after))}`),
+  };
+  /**
+   * PC どうしの会話の問い合わせの口（POST /peer/ask、PUT /peer/blobs）。
+   * Worker の断りのうち呼び手が分けて扱うものは、例外にせず返す。
+   */
+  readonly peerChat: PeerChatApi = {
+    ask: async (body, signal) => {
+      try {
+        // Worker は waitMs に 5 秒を足すまで答えを待つ。
+        // 締め切りはそれより長くする。
+        const { res, d } = await this.send('/peer/ask', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }, Math.max(this.timeoutMs, body.waitMs + PEER_ASK_SLACK_MS), false, signal);
+        try {
+          const v = (await d.race(res.json())) as { sealed?: unknown } | null;
+          if (typeof v?.sealed !== 'string') throw new CloudError(0, 'invalid answer');
+          return { ok: true as const, sealed: v.sealed };
+        } catch (e) {
+          void res.body?.cancel().catch(() => {});
+          throw toCloudError(e);
+        } finally {
+          d.clear();
+        }
+      } catch (e) {
+        if (e instanceof CloudError && !(e instanceof LimitError) && !(e instanceof CompatError) && PEER_ASK_REFUSED.has(e.status)) return { ok: false as const, status: e.status, reason: peerAskReason(e.message) };
+        throw e;
+      }
+    },
+    putBlob: async (askId, n, to, sealed) => {
+      // ID は URL の断片に入る。
+      // Worker も入口で断るが、形の違うものは外へ出さない。
+      if (!isSafeKeyId(askId) || !isSafeKeyId(to) || !Number.isInteger(n) || n < 0 || n >= PEER_CHAT_IMAGES_MAX) throw new CloudError(400, JSON.stringify({ error: 'invalid key' }));
+      const { res, d } = await this.send(`/peer/blobs/${encodeURIComponent(askId)}/${n}?to=${encodeURIComponent(to)}`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body: sealed as unknown as BodyInit }, this.transferTimeoutMs);
+      try {
+        await d.race(res.arrayBuffer());
+      } catch (e) {
+        void res.body?.cancel().catch(() => {});
+        throw toCloudError(e);
+      } finally {
+        d.clear();
+      }
+    },
   };
   bellTarget(): BellTarget {
     // https を wss に、http（手元の Worker）を ws にする。版と authorization は send と同じ見出しで送る。

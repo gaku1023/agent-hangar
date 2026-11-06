@@ -276,3 +276,52 @@ describe('peerChatAcceptOf', () => {
     expect(shared.peerChatAcceptOf({ peerChatAcceptFromPeers: false })).toBe(false);
   });
 });
+
+describe('PeerChatState.gone', () => {
+  const base = { sessionId: 's', status: 'idle', items: [], queued: [], cursor: null, truncated: false };
+  it('渡せずに消えた預かりを答えの形検査が残す。形の違う gone は答え全体を断る', () => {
+    const ok = shared.parsePeerChatReply({ ok: true, state: { ...base, gone: [{ queueId: 'q1', reason: 'queue-expired', extra: 1 }] } });
+    expect(ok).toEqual({ ok: true, state: { ...base, gone: [{ queueId: 'q1', reason: 'queue-expired' }] } });
+    expect(shared.parsePeerChatReply({ ok: true, state: { ...base, gone: [{ queueId: 'q1', reason: 'nope' }] } })).toBeNull();
+    expect(shared.parsePeerChatReply({ ok: true, state: { ...base, gone: 'x' } })).toBeNull();
+    expect(shared.parsePeerChatReply({ ok: true, state: base })).toEqual({ ok: true, state: base });
+  });
+});
+
+describe('画像の封（sealPeerChatBlob と openPeerChatBlob）', () => {
+  it('同じ世代の鍵、route、番号でだけ開ける', async () => {
+    const ring = await ringOf({ 1: randomEpochKey() }, 1);
+    const bytes = new Uint8Array([1, 2, 3, 250]);
+    const sealed = await shared.sealPeerChatBlob(ring.current(), route, 2, bytes);
+    expect([...(await shared.openPeerChatBlob(ring, route, 2, sealed))]).toEqual([1, 2, 3, 250]);
+    await expect(shared.openPeerChatBlob(ring, route, 3, sealed)).rejects.toBeTruthy();
+    await expect(shared.openPeerChatBlob(ring, { ...route, requestId: 'ask-2' }, 2, sealed)).rejects.toBeTruthy();
+    await expect(shared.openPeerChatBlob(ring, { ...route, from: 'pc-c' }, 2, sealed)).rejects.toBeTruthy();
+    const other = new Uint8Array(sealed);
+    new DataView(other.buffer).setUint32(0, 7, false);
+    await expect(shared.openPeerChatBlob(ring, route, 2, other)).rejects.toBeInstanceOf(PeerUnknownEpochError);
+    await expect(shared.openPeerChatBlob(ring, route, 2, new Uint8Array([0, 0]))).rejects.toBeInstanceOf(E2eOpenError);
+    expect(new DataView(sealed.buffer).getUint32(0, false)).toBe(1);
+  });
+
+  it('封は、先頭の世代 4 バイトと iv と tag の 28 バイトを画像の大きさに足したものになる', async () => {
+    const ring = await ringOf({ 1: randomEpochKey() }, 1);
+    const sealed = await shared.sealPeerChatBlob(ring.current(), route, 0, new Uint8Array(1000));
+    expect(sealed.byteLength).toBe(1032);
+  });
+});
+
+describe('画面からの WebSocket の本文（parsePeerChatClientMsg）', () => {
+  it('watch と unwatch を読む。after は省略、null、文字列のどれでも読む', () => {
+    expect(shared.parsePeerChatClientMsg('{"type":"peerChat.watch","sessionId":"s1","viewer":"tab-1"}')).toEqual({ type: 'peerChat.watch', sessionId: 's1', viewer: 'tab-1' });
+    expect(shared.parsePeerChatClientMsg('{"type":"peerChat.watch","sessionId":"s1","viewer":"tab-1","after":null}')).toEqual({ type: 'peerChat.watch', sessionId: 's1', viewer: 'tab-1', after: null });
+    expect(shared.parsePeerChatClientMsg('{"type":"peerChat.watch","sessionId":"s1","viewer":"tab-1","after":"u9"}')).toEqual({ type: 'peerChat.watch', sessionId: 's1', viewer: 'tab-1', after: 'u9' });
+    expect(shared.parsePeerChatClientMsg('{"type":"peerChat.unwatch","sessionId":"s1","viewer":"tab-1"}')).toEqual({ type: 'peerChat.unwatch', sessionId: 's1', viewer: 'tab-1' });
+  });
+
+  it('形が違う、知らない種類、壊れた JSON は null', () => {
+    for (const raw of ['nope', '{}', '{"type":"x","sessionId":"s","viewer":"v"}', '{"type":"peerChat.watch","sessionId":"","viewer":"v"}', '{"type":"peerChat.watch","sessionId":"s","viewer":"a b"}', '{"type":"peerChat.watch","sessionId":"s","viewer":"v","after":3}', '{"type":"peerChat.unwatch","sessionId":"s"}']) {
+      expect(shared.parsePeerChatClientMsg(raw)).toBeNull();
+    }
+  });
+});

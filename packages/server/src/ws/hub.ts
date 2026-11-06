@@ -5,16 +5,36 @@ import { originAllowed, tokenFromRequest } from '../auth/request.ts';
 
 /** close フレームに応えない相手を待つ上限。これを過ぎたら接続を切る。 */
 const CLOSE_GRACE_MS = 500;
+/** 画面から受ける本文の大きさの上限（バイト）。 */
+const MAX_CLIENT_MESSAGE_BYTES = 16 * 1024;
 
 /** UI へのイベント配信。接続時に ready を送り、以後は broadcast を全員に流す。 */
 export class EventHub {
   private wss: WebSocketServer | null = null;
   private clients = new Set<WebSocket>();
+  private nextId = 1;
+  private readonly messageHandlers: ((client: number, raw: string) => void)[] = [];
+  private readonly closeHandlers: ((client: number) => void)[] = [];
   constructor(private readonly version: string) {}
+
+  /**
+   * 画面から来た本文を受ける（ほかの PC の会話の見張りの peerChat.watch と peerChat.unwatch など）。
+   * client は接続ごとの番号で、onClose に同じ番号が渡る。
+   * handler が投げても、接続とサーバは続ける。
+   */
+  onMessage(handler: (client: number, raw: string) => void): void { this.messageHandlers.push(handler); }
+
+  /**
+   * 接続が閉じた（閉じる手続きを経ない切断も含む）。
+   * onMessage に渡した番号と同じ。
+   */
+  onClose(handler: (client: number) => void): void { this.closeHandlers.push(handler); }
 
   /** upgrade 要求のうち path が一致するものだけを受け、Origin とトークンで検査する。 */
   attach(server: http.Server, opts: { path: string; token: string; port: number }): void {
-    this.wss = new WebSocketServer({ noServer: true });
+    // 画面から来る本文は、見張りの開始と終了の知らせだけである。
+    // 大きいものは受けずに接続を切る（1009）。
+    this.wss = new WebSocketServer({ noServer: true, maxPayload: MAX_CLIENT_MESSAGE_BYTES });
     server.on('upgrade', (req, socket, head) => {
       const url = new URL(req.url ?? '/', 'http://x');
       // 一致しない経路は黙って返し、同じ server に載る別の WebSocket サーバに譲る。
@@ -30,8 +50,22 @@ export class EventHub {
         return;
       }
       this.wss!.handleUpgrade(req, socket, head, (ws) => {
+        const id = this.nextId++;
         this.clients.add(ws);
-        ws.on('close', () => this.clients.delete(ws));
+        ws.on('message', (data, isBinary) => {
+          if (isBinary) return;
+          const raw = String(data);
+          for (const h of this.messageHandlers) {
+            try { h(id, raw); } catch (e) { console.error('[ws] a message handler failed', e instanceof Error ? e.constructor.name : typeof e); }
+          }
+        });
+        ws.on('error', () => { /* close が続く */ });
+        ws.on('close', () => {
+          this.clients.delete(ws);
+          for (const h of this.closeHandlers) {
+            try { h(id); } catch (e) { console.error('[ws] a close handler failed', e instanceof Error ? e.constructor.name : typeof e); }
+          }
+        });
         ws.send(JSON.stringify({ type: 'ready', version: this.version } satisfies ServerEvent));
       });
     });

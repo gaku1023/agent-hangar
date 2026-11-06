@@ -3,6 +3,10 @@ import { serve } from '@hono/node-server';
 import type http from 'node:http';
 import path from 'node:path';
 import type { SettingsDto } from '@agent-hangar/shared';
+import { attachPeerChatSocket } from '../peer/chat/wire.ts';
+import { readDropImage } from '../peer/chat/viewImage.ts';
+import { resolveViewTarget, localCursorOf } from '../peer/chat/viewTarget.ts';
+import { PeerChatViewer } from '../peer/chat/viewer.ts';
 import { applySettingsPatch } from '../config/settingsUpdate.ts';
 import { setHangarPrefsApplier } from '../sync/config/targets/hangarApplier.ts';
 import { findCodex, findOpencode, whichMux } from '../config/tools.ts';
@@ -81,6 +85,8 @@ export async function bootListen(opts: Pick<StartOptions, 'port' | 'host'>, home
 export type HttpParts = {
   /** 端末の中継を閉じる。 */
   stopRelay(): void;
+  /** ほかの PC の会話の見張りを全部止める（長いポーリングを出し切らない）。 */
+  stopPeerChat(): void;
 };
 
 /**
@@ -133,7 +139,22 @@ export function bootHttp(p: {
     onOpencodeEnabled: () => { p.mobile.settingsChanged(); indexing.onSettingsChanged(); runs.agentUsage.refresh(); },
   }, patch);
   setHangarPrefsApplier((_home, patch) => { updateSettings(patch as Partial<SettingsDto>); });
+  // ほかの PC の会話の見張り。
+  // 画面の WebSocket の peerChat.watch と peerChat.unwatch、切断で見ている人を数え、いなくなれば止める。
+  const dropsDir = path.join(home.home, 'drops');
+  const peerChat = new PeerChatViewer({
+    selfId: device.id,
+    resolve: (sessionId) => resolveViewTarget(db, device.id, sessionId, Date.now()),
+    link: () => sync.peerChatLink(),
+    workerOk: () => sync.canCarryPeerChat(),
+    version: VERSION,
+    localCursor: (sessionId) => localCursorOf(db, sessionId),
+    readImage: (ref) => readDropImage(dropsDir, ref),
+    publish: (ev) => { delivery.hub.broadcast(ev); },
+  });
+  attachPeerChatSocket(delivery.sockets, peerChat);
   const app = createApp({
+    peerChat,
     // 同期は起動のあとに始まることがある（boot/sync.ts）。同期の部品は呼ぶたびに引く。
     cloudUsage: { current: () => sync.cloudUsage.current(), refresh: () => sync.cloudUsage.refresh() },
     accounts: runs.accounts,
@@ -227,5 +248,5 @@ export function bootHttp(p: {
   relay.attach(server, '/ws/pty');
   // 経路を握る側は path が違えば黙って返すので、最後に未知の経路を切る番人を置く。
   guardUpgrades(server);
-  return { stopRelay: () => relay.close() };
+  return { stopRelay: () => relay.close(), stopPeerChat: () => peerChat.stop() };
 }
