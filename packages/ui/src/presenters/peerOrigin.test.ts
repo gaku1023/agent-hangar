@@ -58,10 +58,13 @@ describe('元の PC の側の表示（presentPeerOrigin）', () => {
     expect(b).toBe(a);
   });
 
-  it('つなぎ直して bootstrap を受けたら、古い預かりを捨てる（空の知らせを取りこぼしたままにしない）', () => {
+  it('bootstrap が預かりを運べば、帯の元が戻る。運ばなければ（古いサーバ）空になる', () => {
     const a = applyServerEvent(initialStore(), { type: 'peerChat.queue', sessionId: 's1', queued: [q('a')] });
     const empty = { device: { id: 'd', name: 'm' }, settings: {}, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], deleteApprovals: [], peerApprovals: [], schedules: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: null, devices: [], retention: null, cloudUsage: null, accounts: null, home: '/h', interrupted: null };
-    const b = applyBootstrap(a, empty as never);
-    expect(b.peerQueued).toEqual({});
+    // 取りこぼした空の知らせで古い帯が残らないよう、bootstrap の値で置き換える。
+    expect(applyBootstrap(a, empty as never).peerQueued).toEqual({});
+    const b = applyBootstrap(initialStore(), { ...empty, peerQueued: { s1: [q('a'), q('b')] } } as never);
+    expect(presentPeerOrigin(b, 's1', t)).toEqual({ band: 'Mac から 2 件を預かっています。止まったら渡します', flash: null });
+    expect(presentPeerOrigin(b, 's2', t)).toBeNull();
   });
 });

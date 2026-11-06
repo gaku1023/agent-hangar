@@ -269,6 +269,8 @@ describe('PeerChatHost: send と預かり', () => {
     const queued = s.state(await s.ask(tailOp())).queued;
     expect(queued).toMatchObject([{ queueId: (r as { queueId: string }).queueId, from: { deviceId: 'pc-b', deviceName: 'Mac' }, text: 'from the mac', images: 0, state: 'waiting' }]);
     expect(s.w.events.at(-1)).toMatchObject({ type: 'peerChat.queue', sessionId: 's1' });
+    // 画面を開き直したときの最初の状態（bootstrap）は、同じ預かりを会話の id ごとに返す。
+    expect(s.host.queued()).toMatchObject({ s1: [{ text: 'from the mac', from: { deviceName: 'Mac' } }] });
     // ターンが止まる。
     s.w.session!.live = 'idle';
     s.w.pane.plain = IDLE_PLAIN;
@@ -278,6 +280,7 @@ describe('PeerChatHost: send と預かり', () => {
     expect(s.w.sent).toEqual(['from the mac']);
     expect(s.w.events.find((e) => e.type === 'peerChat.delivered')).toMatchObject({ sessionId: 's1', from: { deviceId: 'pc-b', deviceName: 'Mac' } });
     expect(s.w.events.filter((e) => e.type === 'peerChat.queue').at(-1)).toMatchObject({ queued: [] });
+    expect(s.host.queued()).toEqual({});
     // 本文に出た利用者の行に、送り主が付く。
     s.w.lines.push(userLine('from the mac'));
     const st = s.state(await s.ask(tailOp(null)));

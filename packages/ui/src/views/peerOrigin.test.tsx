@@ -77,6 +77,21 @@ describe('「{device} から送信しました」の札', () => {
     expect(screen.queryByTestId('peer-badge')).toBeNull();
   });
 
+  it('消える前に外れたら、数えていた時計を残さない（アンマウントと、会話を替えて札が無くなったとき）', () => {
+    const idle = vi.getTimerCount();
+    const a = render(pane(null));
+    const base = vi.getTimerCount();
+    a.rerender(pane(delivered(100)));
+    expect(vi.getTimerCount()).toBeGreaterThan(base);
+    // 会話を替えて、新しい会話には札が無い。
+    a.rerender(pane(null));
+    expect(screen.queryByTestId('peer-badge')).toBeNull();
+    expect(vi.getTimerCount()).toBe(base);
+    a.rerender(pane(delivered(200)));
+    a.unmount();
+    expect(vi.getTimerCount()).toBe(idle);
+  });
+
   it('預かりの帯と札は同時に出せる（渡した直後に次の預かりが入った）', () => {
     const { rerender } = render(pane(null));
     const both: PeerOriginProps = { band: 'Mac から 1 件を預かっています。止まったら渡します', flash: { text: 'Mac から送信しました', key: 5 } };

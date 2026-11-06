@@ -39,6 +39,7 @@ import type { TakeoverParts } from './takeover.ts';
 import type { TrashParts } from './trash.ts';
 import type { PeerParts } from './peer.ts';
 import type { PeerSshParts } from './peerSsh.ts';
+import type { PeerChatHost } from '../peer/chat/host.ts';
 
 /** createApp が返すアプリの fetch。listen した後に差し込むために型だけ取る。 */
 type Fetch = ReturnType<typeof createApp>['fetch'];
@@ -106,6 +107,8 @@ export function bootHttp(p: {
   peerSsh?: PeerSshParts;
   /** 別の PC への起動の承認待ち（boot/peer.ts）。渡せば、承認の口と、MCP からの承認待ちの預け口を持つ。 */
   peer?: Pick<PeerParts, 'approvals'>;
+  /** ほかの PC の会話の頼みを受ける部品（boot/peerChat.ts）。渡せば、bootstrap が預かりを運ぶ。 */
+  peerChat?: { host: Pick<PeerChatHost, 'queued'> };
 }): HttpParts {
   const { home, delivery, sync, indexing, listening, runs, summary, trash, takeover } = p;
   const { db, settings, device } = home;
@@ -236,6 +239,7 @@ export function bootHttp(p: {
       ...(p.peer ? { requestApproval: (o) => p.peer!.approvals.request(o) } : {}),
     },
     ...(p.peer ? { peerApprovals: p.peer.approvals } : {}),
+    ...(p.peerChat ? { peerQueued: () => p.peerChat!.host.queued() } : {}),
     codexStatus: () => codex.status(),
     opencodeOptions: (dir, o) => p.opencode.options.get(dir, o),
     opencodeProviders: p.opencode.providers,

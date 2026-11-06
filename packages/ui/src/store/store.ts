@@ -88,7 +88,7 @@ export type Store = {
   peerApprovals: PeerApprovalDto[];
   /**
    * ほかの PC から来て、この PC の入力欄へまだ渡していない文（会話の id ごと、古い順）。空の会話は持たない。
-   * サーバのメモリだけにある値で bootstrap は運ばないので、つなぎ直したら空に戻し、次の知らせで取り直す。
+   * サーバのメモリだけにある値。bootstrap が最初の状態を運び（つなぎ直しも同じ）、あとは peerChat.queue が全体を置き換える。
    */
   peerQueued: Record<string, PeerChatQueued[]>;
   /** ほかの PC から来た文を渡した直後の知らせ（会話の id ごとの最後の 1 件）。at は渡した時刻で、札を出し直す鍵に使う。 */
@@ -214,7 +214,7 @@ const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object
  * 差し替えると、終了した run のスクロールバックを見ている最中に画面が変わってしまう。
  */
 export function applyBootstrap(store: Store, b: BootstrapDto): Store {
-  return { ...store, bootstrapped: true, peerQueued: {}, deleteApprovals: b.deleteApprovals, peerApprovals: b.peerApprovals, schedules: b.schedules ?? [], version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home, interrupted: b.interrupted };
+  return { ...store, bootstrapped: true, peerQueued: b.peerQueued ?? {}, deleteApprovals: b.deleteApprovals, peerApprovals: b.peerApprovals, schedules: b.schedules ?? [], version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home, interrupted: b.interrupted };
 }
 
 /** 鍵を 1 つ外す。無ければ同じ物を返す。 */

@@ -68,7 +68,7 @@ export function PeerMark(props: { origin: PeerOriginProps | null | undefined }) 
   if (text === null) return null;
   return (
     <span ref={ref} className="side-live-peer" title={text}>
-      <Icon name="otherPc" />
+      <Icon name="reminder" />
       <span className="sr-only">{text}</span>
     </span>
   );

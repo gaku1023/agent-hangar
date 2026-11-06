@@ -717,6 +717,11 @@ describe('ターミナルの知らせ（F1）', () => {
     fireEvent.click(left.getByRole('button', { name: /最新へ移動/ }));
     expect(onAction).toHaveBeenCalledWith({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
   });
+  it('ほかの PC から来た文の帯と札は、Claude の枠にだけ出し、シェルの枠には出さない', () => {
+    withHost(<SS {...running} canSplit split={{ left: 'r1', right: 't1' }} peerOrigin={{ band: 'Mac から 1 件を預かっています。止まったら渡します', flash: null }} />);
+    expect(within(screen.getByTestId('term-r1')).getByTestId('peer-band')).toBeInTheDocument();
+    expect(within(screen.getByTestId('term-t1')).queryByTestId('peer-band')).toBeNull();
+  });
   it('帯が出ていても、枠の中の Esc は横取りせずに Claude へ渡す', () => {
     // Esc は Claude の中断に要る。
     // 利用者が xterm で自分で transcript を抜けた後に横取りすると、中断が「最新へ」に化けて失われる。

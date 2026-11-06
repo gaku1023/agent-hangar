@@ -9,6 +9,7 @@ import {
   type PeerChatBellAsk,
   type PeerChatBellReply,
   type PeerChatDevice,
+  type PeerChatQueued,
   type PeerChatReply,
   type PeerChatRequest,
   type PeerKeyring,
@@ -81,6 +82,8 @@ export type PeerChatHost = {
    * 預かりを捨て、送り主に session-unknown を知らせる。
    */
   dropSession(sessionId: string): void;
+  /** 全部の会話の、いまの預かり（会話の id ごと）。画面を開き直したときの最初の状態に使う。 */
+  queued(): Record<string, PeerChatQueued[]>;
   dispose(): void;
 };
 
@@ -317,6 +320,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
       queue.dropRun(sessionId);
       view.poke(sessionId);
     },
+    queued: () => queue.listAll(),
     dispose() {
       offQueue();
       queue.dispose();
