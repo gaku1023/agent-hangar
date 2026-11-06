@@ -11,7 +11,7 @@ describe('mediator: ほかの PC の会話の操作は効果にして Runtime �
     const open = step({ type: 'peerChat.open', sessionId: 's1', viewer: 'v1' });
     expect(open.effects).toEqual([{ kind: 'peerChat', command: { op: 'open', sessionId: 's1', viewer: 'v1' } }]);
     expect(open.state).toEqual(initialState());
-    expect(step({ type: 'peerChat.close', sessionId: 's1' }).effects).toEqual([{ kind: 'peerChat', command: { op: 'close', sessionId: 's1' } }]);
+    expect(step({ type: 'peerChat.close', sessionId: 's1', viewer: 'v1' }).effects).toEqual([{ kind: 'peerChat', command: { op: 'close', sessionId: 's1', viewer: 'v1' } }]);
     const body: { t: 'answer'; askId: string; keys: string[] } = { t: 'answer', askId: 'a', keys: ['1'] };
     expect(step({ type: 'peerChat.send', sessionId: 's1', body }).effects).toEqual([{ kind: 'peerChat', command: { op: 'send', sessionId: 's1', body } }]);
   });

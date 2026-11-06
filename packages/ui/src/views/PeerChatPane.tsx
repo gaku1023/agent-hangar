@@ -18,7 +18,8 @@ export function usePeerChatWatch(sessionId: string, enabled: boolean): void {
     if (!enabled) return;
     viewer.current ??= newViewer();
     bg({ type: 'peerChat.open', sessionId, viewer: viewer.current });
-    return () => bg({ type: 'peerChat.close', sessionId });
+    const mine = viewer.current;
+    return () => bg({ type: 'peerChat.close', sessionId, viewer: mine });
   }, [bg, sessionId, enabled]);
 }
 

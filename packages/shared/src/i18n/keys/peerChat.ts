@@ -23,6 +23,9 @@ export const peerChatKeys = {
   'peerChat.ask.textPlaceholder': [],
   'peerChat.ask.textSend': [],
   'peerChat.ask.multiSend': [],
+  'peerChat.ask.wordAllow': [],
+  'peerChat.ask.wordAlways': [],
+  'peerChat.ask.wordDeny': [],
   'peerChat.ask.answeredPermission': ['device', 'label'],
   'peerChat.ask.answeredQuestion': ['device', 'label'],
   'peerChat.composer.label': [],
@@ -58,5 +61,4 @@ export const peerChatKeys = {
   'peerChat.refusal.hostError': ['device'],
   'peerChat.refusal.tooMany': [],
   'peerChat.refusal.other': [],
-  'peerChat.fallback.refusedBySetting': ['device'],
 } as const satisfies MessageSpec;

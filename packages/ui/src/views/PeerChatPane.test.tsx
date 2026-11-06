@@ -17,7 +17,7 @@ const user = (uuid: string, text: string, from?: typeof MAC): PeerChatItem => ({
 const ai = (uuid: string, text: string): PeerChatItem => ({ uuid, at: 2, kind: 'assistant', text });
 const ask = (answered = false, over: Partial<NonNullable<PeerChatItem['ask']>> = {}): PeerChatItem => ({
   uuid: 'k1', at: 4, kind: 'permission', text: 'git push origin fix',
-  ask: { askId: 'ask-1', kind: 'permission', tool: 'Bash', input: 'git push origin fix', options: [{ key: '1', label: '許可' }, { key: '2', label: '拒否' }], multi: false, allowText: false, ...over, ...(answered ? { answered: { by: MAC, label: '許可', at: 9 } } : {}) },
+  ask: { askId: 'ask-1', kind: 'permission', tool: 'Bash', input: 'git push origin fix', options: [{ key: '1', label: '許可' }, { key: '2', label: '拒否' }], multi: false, allowText: false, ...over, ...(answered ? { answered: { by: MAC, label: 'Yes', at: 9 } } : {}) },
 });
 const queued = (queueId: string, text: string, deviceId = 'me'): PeerChatQueued => ({ queueId, from: { deviceId, deviceName: 'Win' }, text, images: 0, at: 5, state: 'waiting' });
 
@@ -67,7 +67,7 @@ describe('PeerChatPane の状態ごとの描き分け', () => {
 
   it('作業中は「預ける」と中断を出し、中断で interrupt を送る', () => {
     const { actions } = mount(viewOf({ status: 'busy' }));
-    expect(screen.getByText('作業中に送ると、停止してから渡します')).toBeInTheDocument();
+    expect(screen.getByText('作業中に送ると、止まってから渡します')).toBeInTheDocument();
     type('あとで');
     fireEvent.click(screen.getByRole('button', { name: /^預ける/ }));
     expect(actions[0]).toEqual({ type: 'peerChat.send', sessionId: 's1', body: { t: 'send', text: 'あとで' } });
@@ -80,7 +80,7 @@ describe('PeerChatPane の状態ごとの描き分け', () => {
     const bubbles = container.querySelectorAll('.pchat-queued');
     expect(bubbles).toHaveLength(2);
     expect(bubbles[0]).toHaveTextContent('あとで');
-    expect(bubbles[0]).toHaveTextContent('停止したら渡す');
+    expect(bubbles[0]).toHaveTextContent('止まったら渡す');
     expect(bubbles[1]!.querySelector('.pchat-link')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '取り消す' }));
     expect(actions).toEqual([{ type: 'peerChat.send', sessionId: 's1', body: { t: 'cancel', queueId: 'q1' } }]);
@@ -119,11 +119,12 @@ describe('PeerChatPane の状態ごとの描き分け', () => {
 });
 
 describe('会話の中の札（3A）', () => {
-  it('許可の札の選択肢を押すと、そのキーで answer を送り、閉じるまで 2 度送らない', () => {
-    const { actions } = mount(viewOf({ status: 'waiting', items: [ask()] }));
+  it('許可の札の選択肢を押すと、そのキーで answer を送り、答えを待つ間（pending）は押せない', () => {
+    const { actions, update } = mount(viewOf({ status: 'waiting', items: [ask()] }));
     expect(screen.getByText('git push origin fix')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '1. 許可' }));
     expect(actions).toEqual([{ type: 'peerChat.send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['1'] } }]);
+    update(viewOf({ status: 'waiting', items: [ask()], answering: ['ask-1'] }));
     expect(screen.getByRole('button', { name: '2. 拒否' })).toBeDisabled();
   });
 
@@ -174,7 +175,7 @@ describe('入力欄へ戻る文（取り消し、渡せなかった、送れな�
 
   it('渡せなかった預かりが戻ったときは、その旨を出す', () => {
     mount(viewOf({ status: 'idle', notice: { n: 1, reason: 'gone' }, restore: { n: 1, text: 'x', images: [] } }));
-    expect(screen.getByText('渡せませんでした。文を入力欄に戻しました')).toBeInTheDocument();
+    expect(screen.getByText('渡せなかったため入力欄に戻しました')).toBeInTheDocument();
   });
 });
 
@@ -202,7 +203,7 @@ describe('@ と画像', () => {
     fireEvent.click(screen.getByRole('button', { name: /^送る/ }));
     expect(actions).toEqual([{ type: 'peerChat.send', sessionId: 's1', body: { t: 'send', text: 'これ', images: ['/h/drops/1-1-a.png'] } }]);
     fireEvent.change(picker, { target: { files: [new File(['x'], 'a.gif', { type: 'image/gif' })] } });
-    expect(await screen.findByText('添付できる画像は PNG、JPEG、WebP です')).toBeInTheDocument();
+    expect(await screen.findByText('画像は PNG、JPEG、WebP のみ対応しています')).toBeInTheDocument();
     expect(upload).toHaveBeenCalledTimes(1);
   });
 });
@@ -228,5 +229,36 @@ describe('動き（試作に合わせる）', () => {
     expect(bubbles).toHaveLength(1);
     expect(bubbles[0]).toHaveTextContent('あとで');
     expect(container.querySelector('.pchat-queued')).toBeNull();
+  });
+});
+
+describe('札の再び押せる状態と、受け付けない設定', () => {
+  it('答えが断られて pending が外れたら、同じ札をまた押せる', () => {
+    const { actions, update } = mount(viewOf({ status: 'waiting', items: [ask()], answering: ['ask-1'] }));
+    expect(screen.getByRole('button', { name: '1. 許可' })).toBeDisabled();
+    update(viewOf({ status: 'waiting', items: [ask()], answering: [] }));
+    fireEvent.click(screen.getByRole('button', { name: '1. 許可' }));
+    expect(actions).toEqual([{ type: 'peerChat.send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['1'] } }]);
+  });
+
+  it('受け付けない設定の PC は、札も入力欄も閉じ、理由を先に出す。会話は読める', () => {
+    mount(viewOf({ status: 'waiting', locked: true, items: [ai('a1', '読める会話'), ask()] }));
+    expect(screen.getByText('読める会話')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1. 許可' })).toBeDisabled();
+    expect(box()).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /中断/ })).toBeNull();
+    expect(screen.getByText('Mac は、他の PC からの操作を受け付けない設定です')).toBeInTheDocument();
+  });
+
+  it('取り消し（預かりが消えるだけ）では弾まない', () => {
+    const { update, container } = mount(viewOf({ status: 'busy', items: [ai('a1', '見ます')], queued: [queued('q1', 'あとで')] }));
+    update(viewOf({ status: 'busy', items: [ai('a1', '見ます')], queued: [] }));
+    expect(container.querySelectorAll('.pchat-deliver')).toHaveLength(0);
+  });
+
+  it('預かりの文と渡った文が違っても（元の PC が整えた文でも）、預かりが消えて文が現れれば渡ったとして弾む', () => {
+    const { update, container } = mount(viewOf({ status: 'busy', items: [ai('a1', '見ます')], queued: [queued('q1', 'あとで')] }));
+    update(viewOf({ status: 'busy', items: [ai('a1', '見ます'), user('u9', 'あとで\n', MAC)], queued: [] }));
+    expect(container.querySelectorAll('.pchat-deliver')).toHaveLength(1);
   });
 });

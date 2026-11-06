@@ -11,7 +11,7 @@ export function peerChatStep(state: State, input: Input): Step | null {
   const a = input.action;
   switch (a.type) {
     case 'peerChat.open': return { state, effects: [{ kind: 'peerChat', command: { op: 'open', sessionId: a.sessionId, viewer: a.viewer } }] };
-    case 'peerChat.close': return { state, effects: [{ kind: 'peerChat', command: { op: 'close', sessionId: a.sessionId } }] };
+    case 'peerChat.close': return { state, effects: [{ kind: 'peerChat', command: { op: 'close', sessionId: a.sessionId, viewer: a.viewer } }] };
     case 'peerChat.send': return { state, effects: [{ kind: 'peerChat', command: { op: 'send', sessionId: a.sessionId, body: a.body } }] };
     default: return null;
   }

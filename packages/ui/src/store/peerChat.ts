@@ -3,14 +3,16 @@ import type { PeerChatGone, PeerChatItem, PeerChatLink, PeerChatQueued, PeerChat
 /**
  * ほかの PC の Claude Code の会話を、チャットの形で見ている 1 画面ぶんの状態。
  * 持ち主は Runtime（runtime/peerChat.ts）で、会話の項目は WebSocket の peerChat.update が運ぶ。
- * 画面を閉じたら捨てる（開き直すと、元の PC からまた取る）。
+ * 同じ会話を複数の画面（分割のペイン）で開くと、1 つの状態を共有し、見ている人（viewers）を画面ごとに持つ。
+ * 最後の人が閉じたら捨てる（開き直すと、元の PC からまた取る）。
  *
  * phase は、loading が最初の問い合わせの間、live が見ている間、fallback が見続けられなかったとき（読み取り専用のトランスクリプトに戻す）。
  * restore は、入力欄へ戻す文（預かりの取り消し、渡せなかった、送れなかった）。n が増えるたびに入力欄が取り込む。
  * notice は、入力欄のそばに出す一言（断りの理由）。
  */
 export type PeerChatSlice = {
-  viewer: string;
+  /** この会話を見ている画面（見ている人の ID）。画面ごとに 1 つ。 */
+  viewers: string[];
   phase: 'loading' | 'live' | 'fallback';
   fallback: PeerChatReason | null;
   device: PeerChatTargetDto | null;
@@ -20,6 +22,10 @@ export type PeerChatSlice = {
   queued: PeerChatQueued[];
   cursor: string | null;
   sending: boolean;
+  /** 答えを送って、結果を待っている札の askId。断られたら外す（札がまた押せるように）。 */
+  answering: string[];
+  /** 元の PC が他の PC からの操作を受け付けない設定だと分かった。入力欄と札を閉じる（会話は読める）。 */
+  locked: boolean;
   restore: { n: number; text: string; images: string[] } | null;
   notice: { n: number; reason: PeerChatReason | 'gone' } | null;
   /** 自分が預けた文（queueId から文へ）。渡せずに消えた知らせ（gone）で入力欄へ戻すために持つ。 */
@@ -30,7 +36,7 @@ export type PeerChatSlice = {
 const MINE_MAX = 20;
 
 export function emptySlice(viewer: string): PeerChatSlice {
-  return { viewer, phase: 'loading', fallback: null, device: null, link: 'online', status: null, items: [], queued: [], cursor: null, sending: false, restore: null, notice: null, mine: {} };
+  return { viewers: [viewer], phase: 'loading', fallback: null, device: null, link: 'online', status: null, items: [], queued: [], cursor: null, sending: false, answering: [], locked: false, restore: null, notice: null, mine: {} };
 }
 
 /** 項目を重ね書きする。同じ uuid は置き換え、札は askId が同じものも置き換え、新しいものは末尾に足す。 */

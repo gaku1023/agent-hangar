@@ -14,7 +14,7 @@ export type PeerChatRow =
   | { kind: 'assistant'; key: string; text: string }
   | { kind: 'tool'; key: string; name: string; summary: string; ok: boolean }
   | { kind: 'system'; key: string; text: string }
-  | { kind: 'ask'; key: string; askId: string; askKind: 'permission' | 'question'; title: string; input: string | null; options: { key: string; label: string }[]; multi: boolean; allowText: boolean; answered: string | null }
+  | { kind: 'ask'; key: string; askId: string; askKind: 'permission' | 'question'; title: string; input: string | null; options: { key: string; label: string }[]; multi: boolean; allowText: boolean; answered: string | null; /** 答えを送って結果を待っている。 */ pending: boolean; /** 受け付けない設定の PC。押せない。 */ locked: boolean }
   | { kind: 'queued'; key: string; queueId: string; text: string; images: number; tag: string; from: string | null; mine: boolean; delivering: boolean };
 
 /** 送る口の形。send は今すぐ渡る、queue はターンが止まるまで預かる、resume は止まっている会話を再開して渡す、blocked は送れない。 */
@@ -66,15 +66,30 @@ export function refusalText(t: Translate, reason: PeerChatReason | 'gone', devic
   return key ? t(key, { device }) : t('peerChat.refusal.other');
 }
 
+/**
+ * 許可の答えの文を、固定の語（許可、今後も許可、拒否）にする。
+ * 元の PC は Claude Code が画面に出している選択肢の文（Yes、Yes, and don't ask again …、No）をそのまま返すので、その形で見分ける。
+ * 合う形が無ければ null で、呼び手は元の文をそのまま引用する。
+ */
+export function permissionWord(t: Translate, label: string): string | null {
+  const l = label.trim();
+  if (/^yes\b.*\b(don.?t ask again|always)\b/i.test(l)) return t('peerChat.ask.wordAlways');
+  if (/^yes$/i.test(l)) return t('peerChat.ask.wordAllow');
+  if (/^no$/i.test(l)) return t('peerChat.ask.wordDeny');
+  return null;
+}
+
 function answerLine(t: Translate, it: PeerChatItem): string | null {
   const a = it.ask?.answered;
   if (!a) return null;
-  return t(it.ask!.kind === 'permission' ? 'peerChat.ask.answeredPermission' : 'peerChat.ask.answeredQuestion', { device: a.by.deviceName, label: a.label });
+  const word = it.ask!.kind === 'permission' ? permissionWord(t, a.label) : null;
+  // 許可の文が決めた形に合うときは語で、合わないとき（と質問）は元の文を引用する。
+  return word !== null ? t('peerChat.ask.answeredPermission', { device: a.by.deviceName, label: word }) : t('peerChat.ask.answeredQuestion', { device: a.by.deviceName, label: a.label });
 }
 
-function rowOf(t: Translate, it: PeerChatItem): PeerChatRow {
+function rowOf(t: Translate, it: PeerChatItem, slice: PeerChatSlice): PeerChatRow {
   if (it.ask) {
-    return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, answered: answerLine(t, it) };
+    return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, answered: answerLine(t, it), pending: slice.answering.includes(it.ask.askId), locked: slice.locked };
   }
   switch (it.kind) {
     case 'user': return { kind: 'user', key: it.uuid, text: it.text, from: it.from ? t('peerChat.log.sentFrom', { device: it.from.deviceName }) : null };
@@ -98,16 +113,17 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
   const device = slice.device?.deviceName ?? s!.lock?.deviceName ?? '';
   const myId = store.device?.id ?? null;
   const status = slice.status;
-  const rows: PeerChatRow[] = slice.items.map((it) => rowOf(t, it));
+  const rows: PeerChatRow[] = slice.items.map((it) => rowOf(t, it, slice));
   for (const q of slice.queued) {
     const mine = myId !== null && q.from.deviceId === myId;
     rows.push({ kind: 'queued', key: `queued:${q.queueId}`, queueId: q.queueId, text: q.text, images: q.images, tag: t(q.state === 'delivering' ? 'peerChat.queued.delivering' : 'peerChat.queued.tag'), from: mine ? null : t('peerChat.queued.from', { device: q.from.deviceName }), mine, delivering: q.state === 'delivering' });
   }
   const offline = slice.link === 'offline';
   const hostError = slice.link === 'host-error';
-  const kind: PeerChatComposerKind = offline || hostError ? 'blocked' : status === 'stopped' ? 'resume' : status === 'busy' || status === 'waiting' ? 'queue' : 'send';
+  const locked = slice.locked;
+  const kind: PeerChatComposerKind = offline || hostError || locked ? 'blocked' : status === 'stopped' ? 'resume' : status === 'busy' || status === 'waiting' ? 'queue' : 'send';
   const sendLabel = kind === 'resume' ? t('peerChat.composer.resume', { device }) : kind === 'queue' ? t('peerChat.composer.queue') : t('peerChat.composer.send');
-  const hint = kind === 'queue' && slice.queued.length === 0 ? t(status === 'waiting' ? 'peerChat.composer.hintWaiting' : 'peerChat.composer.hintBusy') : kind === 'resume' ? t('peerChat.composer.hintStopped', { device }) : hostError ? t('peerChat.composer.hostError') : null;
+  const hint = kind === 'queue' && slice.queued.length === 0 ? t(status === 'waiting' ? 'peerChat.composer.hintWaiting' : 'peerChat.composer.hintBusy') : kind === 'resume' ? t('peerChat.composer.hintStopped', { device }) : hostError ? t('peerChat.composer.hostError') : locked ? refusalText(t, 'refused-by-setting', device) : null;
   const statusLabel = offline ? t('peerChat.status.offline') : hostError ? t('peerChat.status.hostError') : status ? t(STATUS_KEY[status]) : t('peerChat.log.loading');
   return {
     sessionId, device, status, statusLabel,
@@ -120,20 +136,10 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
       hint,
       offline: offline ? t('peerChat.composer.offline', { device }) : null,
       canTakeOver: offline && (s!.lock !== null || s!.remoteOnly),
-      canInterrupt: !offline && !hostError && (status === 'busy' || status === 'waiting'),
+      canInterrupt: !offline && !hostError && !locked && (status === 'busy' || status === 'waiting'),
       sending: slice.sending,
     },
     restore: slice.restore,
     notice: slice.notice ? { n: slice.notice.n, text: refusalText(t, slice.notice.reason, device) } : null,
   };
-}
-
-/**
- * 見続けられなかったとき、読み取り専用のトランスクリプトの上に出す 1 行。
- * 相手が古い、Codex や opencode の会話などは何も出さない（今までの画面と同じ）。受けない設定のときだけ理由を伝える。
- */
-export function peerChatFallbackNote(store: Store, sessionId: string, t: Translate): string | null {
-  const slice = store.peerChat[sessionId];
-  if (!slice || slice.phase !== 'fallback' || slice.fallback !== 'refused-by-setting') return null;
-  return t('peerChat.fallback.refusedBySetting', { device: slice.device?.deviceName ?? store.sessions[sessionId]?.lock?.deviceName ?? '' });
 }

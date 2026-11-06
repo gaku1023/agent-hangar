@@ -132,6 +132,12 @@ const runtime = createRuntime({
     document.addEventListener('visibilitychange', h);
     return () => document.removeEventListener('visibilitychange', h);
   },
+  // 頁が隠れたら、ほかの PC の会話の見張りを外す。
+  onWindowHidden: (cb) => {
+    const h = () => { if (document.visibilityState === 'hidden') cb(); };
+    document.addEventListener('visibilitychange', h);
+    return () => document.removeEventListener('visibilitychange', h);
+  },
   present,
   // 入力待ちを窓の外へ知らせる。
   // デスクトップの殻では macOS の通知と Dock のバッジ、ブラウザでは Web Notification を使う。

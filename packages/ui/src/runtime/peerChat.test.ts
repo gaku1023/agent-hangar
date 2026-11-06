@@ -73,7 +73,7 @@ describe('ほかの PC の会話を見る（runtime/peerChat）', () => {
     let done!: (v: PeerChatViewDto) => void;
     const t = rig(() => new Promise((r) => { done = r; }));
     t.runner.run({ op: 'open', sessionId: 's1', viewer: 'v1' });
-    t.runner.run({ op: 'close', sessionId: 's1' });
+    t.runner.run({ op: 'close', sessionId: 's1', viewer: 'v1' });
     done(view());
     await t.tick();
     expect(t.all()).toEqual({});
@@ -84,7 +84,7 @@ describe('ほかの PC の会話を見る（runtime/peerChat）', () => {
     const t = rig(async () => view());
     t.runner.run({ op: 'open', sessionId: 's1', viewer: 'v1' });
     await t.tick();
-    t.runner.run({ op: 'close', sessionId: 's1' });
+    t.runner.run({ op: 'close', sessionId: 's1', viewer: 'v1' });
     expect(t.all()).toEqual({});
     expect(t.sent.at(-1)).toEqual({ type: 'peerChat.unwatch', sessionId: 's1', viewer: 'v1' });
   });
@@ -241,5 +241,130 @@ describe('送る・預ける・取り消す', () => {
     await t.tick();
     expect(t.slice().notice?.reason).toBe('already-answered');
     expect(t.slice().restore).toBeNull();
+  });
+});
+
+describe('同じ会話を複数の画面（分割のペイン）で見る', () => {
+  it('2 つ目の画面は状態を共有して見ている人に加わり、watch だけを張る（GET はしない）', async () => {
+    const open = vi.fn(async () => view());
+    const t = rig(open);
+    t.runner.run({ op: 'open', sessionId: 's1', viewer: 'A' });
+    await t.tick();
+    t.runner.run({ op: 'open', sessionId: 's1', viewer: 'B' });
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(t.slice().viewers).toEqual(['A', 'B']);
+    expect(t.slice().phase).toBe('live');
+    expect(t.sent.at(-1)).toEqual({ type: 'peerChat.watch', sessionId: 's1', viewer: 'B', after: 'c1' });
+  });
+
+  it('読み込み中に 2 つ目が開いたら、最初の答えで全員ぶんの watch を張る', async () => {
+    let done!: (v: PeerChatViewDto) => void;
+    const t = rig(() => new Promise((r) => { done = r; }));
+    t.runner.run({ op: 'open', sessionId: 's1', viewer: 'A' });
+    t.runner.run({ op: 'open', sessionId: 's1', viewer: 'B' });
+    expect(t.slice().phase).toBe('loading');
+    done(view());
+    await t.tick();
+    expect(t.sent.map((m) => (m as { viewer: string }).viewer)).toEqual(['A', 'B']);
+    expect(t.slice().phase).toBe('live');
+  });
+
+  it('片方を閉じても、もう片方は見続ける。閉じた側の unwatch だけ送り、最後の 1 人が閉じたら状態を捨てる', async () => {
+    const t = rig(async () => view());
+    t.runner.run({ op: 'open', sessionId: 's1', viewer: 'A' });
+    await t.tick();
+    t.runner.run({ op: 'open', sessionId: 's1', viewer: 'B' });
+    t.runner.run({ op: 'close', sessionId: 's1', viewer: 'A' });
+    expect(t.sent.at(-1)).toEqual({ type: 'peerChat.unwatch', sessionId: 's1', viewer: 'A' });
+    expect(t.slice()).toMatchObject({ viewers: ['B'], phase: 'live' });
+    expect(t.slice().items).toHaveLength(2);
+    t.runner.run({ op: 'close', sessionId: 's1', viewer: 'B' });
+    expect(t.sent.at(-1)).toEqual({ type: 'peerChat.unwatch', sessionId: 's1', viewer: 'B' });
+    expect(t.all()).toEqual({});
+  });
+
+  it('見ていない画面の close は何もしない。つながり直したら全員ぶんを張り直す', async () => {
+    const t = rig(async () => view());
+    t.runner.run({ op: 'open', sessionId: 's1', viewer: 'A' });
+    await t.tick();
+    t.runner.run({ op: 'open', sessionId: 's1', viewer: 'B' });
+    t.sent.length = 0;
+    t.runner.run({ op: 'close', sessionId: 's1', viewer: 'zzz' });
+    expect(t.sent).toEqual([]);
+    t.runner.rewatch();
+    expect(t.sent.map((m) => (m as { viewer: string }).viewer)).toEqual(['A', 'B']);
+  });
+});
+
+describe('受け付けない設定と、断られた答え', () => {
+  const opened = async (op: (s: string, b: PeerChatOpIn) => Promise<PeerChatOpResult>) => {
+    const t = rig(async () => view(), op);
+    t.runner.run({ op: 'open', sessionId: 's1', viewer: 'v1' });
+    await t.tick();
+    return t;
+  };
+
+  it('送る系が refused-by-setting で断られたら、以後は閉じる（会話は読めるまま）。文は戻す', async () => {
+    const t = await opened(async () => ({ ok: false, reason: 'refused-by-setting' }));
+    expect(t.slice().locked).toBe(false);
+    t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'send', text: '送る文' } });
+    await t.tick();
+    expect(t.slice()).toMatchObject({ locked: true, phase: 'live', restore: { text: '送る文' }, notice: null });
+    t.push(update({ items: [ai('a9', '続き')] }));
+    expect(t.slice().locked).toBe(true);
+  });
+
+  it('答えが refused-by-setting で断られても閉じる', async () => {
+    const t = await opened(async () => ({ ok: false, reason: 'refused-by-setting' }));
+    t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['1'] } });
+    await t.tick();
+    expect(t.slice().locked).toBe(true);
+  });
+
+  it('答えを送っている間は札が pending で、断られたら外して、また押せる（投げたときも）', async () => {
+    let fail: 'refuse' | 'throw' = 'refuse';
+    let release!: () => void;
+    const t = await opened(() => new Promise<PeerChatOpResult>((res, rej) => { release = () => (fail === 'refuse' ? res({ ok: false, reason: 'ask-mismatch' }) : rej(new Error('net'))); }));
+    t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['1'] } });
+    expect(t.slice().answering).toEqual(['ask-1']);
+    release();
+    await t.tick();
+    expect(t.slice()).toMatchObject({ answering: [], notice: { reason: 'ask-mismatch' }, locked: false });
+    fail = 'throw';
+    t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['1'] } });
+    release();
+    await t.tick();
+    expect(t.slice().answering).toEqual([]);
+  });
+
+  it('答えが通ったら pending のまま（札が閉じるまで 2 度送らせない）', async () => {
+    const t = await opened(async () => ({ ok: true }));
+    t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['1'] } });
+    await t.tick();
+    expect(t.slice().answering).toEqual(['ask-1']);
+  });
+});
+
+describe('窓が隠れている間は見張りを外す', () => {
+  it('pause で全員ぶん unwatch、resume で最後の位置から張り直す。休止中の open は watch を張らない', async () => {
+    const t = rig(async () => view());
+    t.runner.run({ op: 'open', sessionId: 's1', viewer: 'A' });
+    await t.tick();
+    t.push(update({ items: [ai('a2', '続き')], cursor: 'c2' }));
+    t.sent.length = 0;
+    t.runner.pause();
+    expect(t.sent).toEqual([{ type: 'peerChat.unwatch', sessionId: 's1', viewer: 'A' }]);
+    expect(t.slice().phase).toBe('live');
+    t.sent.length = 0;
+    t.runner.rewatch();
+    t.runner.run({ op: 'open', sessionId: 's1', viewer: 'B' });
+    expect(t.sent).toEqual([]);
+    t.runner.resume();
+    expect(t.sent).toEqual([
+      { type: 'peerChat.watch', sessionId: 's1', viewer: 'A', after: 'c2' },
+      { type: 'peerChat.watch', sessionId: 's1', viewer: 'B', after: 'c2' },
+    ]);
+    t.runner.resume();
+    expect(t.sent).toHaveLength(2);
   });
 });

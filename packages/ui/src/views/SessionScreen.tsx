@@ -175,11 +175,7 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
   // 要約の札（S5）。書かれた要約か、作成中と失敗の知らせがあるときだけ描く（SummaryCard が自分で決める）。
   const summaryCard = props.lead ? <SummaryCard sessionId={id} {...props.lead} /> : null;
   // 見出しの下の押せない理由の行など。大きな見出しの below と同じものを、ペインの見出しの下にも出す。
-  // 見続けられなかった理由（相手が他の PC からの操作を受け付けない設定のとき）。読み取り専用のトランスクリプトの上に 1 行だけ出す。
-  const peerChatNote = props.peerChat?.note ? (
-    <div className="session-reason" role="note"><Icon name="info" /><span>{props.peerChat.note}</span></div>
-  ) : null;
-  const belowLines = <><SpawnedPills sessionId={id} kids={props.spawned} />{facts}{noRootLine}{takenOverLine}{peerChatNote}</>;
+  const belowLines = <><SpawnedPills sessionId={id} kids={props.spawned} />{facts}{noRootLine}{takenOverLine}</>;
   // 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。
   const primaryButton = (
     <>

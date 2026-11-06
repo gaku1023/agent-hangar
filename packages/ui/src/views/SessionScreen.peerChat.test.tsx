@@ -33,7 +33,7 @@ describe('セッション画面: ほかの PC の Claude Code の会話', () => 
     const { actions, unmount } = screenOf(session(), null);
     expect(actions).toContainEqual({ type: 'peerChat.open', sessionId: 's1', viewer: expect.stringMatching(/^ui-[a-z0-9]+$/) });
     unmount();
-    expect(actions).toContainEqual({ type: 'peerChat.close', sessionId: 's1' });
+    expect(actions).toContainEqual({ type: 'peerChat.close', sessionId: 's1', viewer: expect.stringMatching(/^ui-[a-z0-9]+$/) });
   });
 
   it('見張りが動いている間は、トランスクリプトの代わりにチャットを出す', () => {
@@ -57,12 +57,6 @@ describe('セッション画面: ほかの PC の Claude Code の会話', () => 
       expect(container.querySelector('.session-reason'), fallback).toBeNull();
       unmount();
     }
-  });
-
-  it('相手が他の PC からの操作を受け付けない設定のときは、トランスクリプトの上にその理由を 1 行出す', () => {
-    const { container } = screenOf(session(), { phase: 'fallback', fallback: 'refused-by-setting' });
-    expect(container.querySelector('.pchat-pane')).toBeNull();
-    expect(screen.getByText('Mac は、他の PC からの操作を受け付けない設定です。読み取り専用で表示しています')).toBeInTheDocument();
   });
 
   it('Codex と opencode の会話は、見張りを頼まず、チャットも出さない', () => {

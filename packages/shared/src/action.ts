@@ -253,7 +253,7 @@ export type UiAction =
    * ほかの PC の Claude Code の会話を、チャットの形で見て続ける（runtime/peerChat.ts）。
    * open は画面が開いたとき（viewer は画面が振る見ている人の ID）、close は閉じたとき、send は tail 以外の操作（文、答え、止める、取り消し）である。
    */
-  | { type: 'peerChat.open'; sessionId: SessionId; viewer: string } | { type: 'peerChat.close'; sessionId: SessionId } | { type: 'peerChat.send'; sessionId: SessionId; body: import('./peerChat.ts').PeerChatOpIn }
+  | { type: 'peerChat.open'; sessionId: SessionId; viewer: string } | { type: 'peerChat.close'; sessionId: SessionId; viewer: string } | { type: 'peerChat.send'; sessionId: SessionId; body: import('./peerChat.ts').PeerChatOpIn }
   // 設定の同期。送る一覧を承認するとスイッチが入り（send.confirm）、適用は選んだ項目を指示書にしてから殻のネイティブの確認へ渡す。
   | { type: 'configSync.open'; part: ConfigSyncPart }
   | { type: 'configSync.send.confirm' }

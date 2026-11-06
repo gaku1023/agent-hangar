@@ -3,7 +3,7 @@ import { translator, type PeerChatItem, type PeerChatQueued, type SessionDto } f
 import { initialState } from '../mediator/transition.ts';
 import { initialStore, type Store } from '../store/store.ts';
 import { emptySlice, type PeerChatSlice } from '../store/peerChat.ts';
-import { peerChatFallbackNote, presentPeerChat } from './peerChat.ts';
+import { permissionWord, presentPeerChat } from './peerChat.ts';
 import { presentSession } from './session.ts';
 
 const ja = translator('ja');
@@ -19,7 +19,7 @@ const ai = (uuid: string, text: string): PeerChatItem => ({ uuid, at: 2, kind: '
 const tool = (uuid: string): PeerChatItem => ({ uuid, at: 3, kind: 'tool', text: 'Grep', tool: { name: 'Grep', summary: '"parent row" packages/server', ok: true } });
 const ask = (answered = false): PeerChatItem => ({
   uuid: 'k1', at: 4, kind: 'permission', text: 'git push origin fix',
-  ask: { askId: 'ask-1', kind: 'permission', tool: 'Bash', input: 'git push origin fix', options: [{ key: '1', label: '許可' }, { key: '2', label: '拒否' }], multi: false, allowText: false, ...(answered ? { answered: { by: MAC, label: '許可', at: 9 } } : {}) },
+  ask: { askId: 'ask-1', kind: 'permission', tool: 'Bash', input: 'git push origin fix', options: [{ key: 'allow', label: 'Yes' }, { key: 'deny', label: 'No' }], multi: false, allowText: false, ...(answered ? { answered: { by: MAC, label: 'Yes', at: 9 } } : {}) },
 });
 const queued = (queueId: string, deviceId: string, text: string): PeerChatQueued => ({ queueId, from: { deviceId, deviceName: deviceId === 'me' ? 'Win' : 'Phone-PC' }, text, images: 0, at: 5, state: 'waiting' });
 
@@ -37,7 +37,7 @@ describe('ほかの PC の会話の画面の描き分け（presenters/peerChat�
   it('作業中は「預ける」で、中断を出し、預かりの案内を出す', () => {
     const v = view(store({ status: 'busy', items: [user('u1', '調べて')] }))!;
     expect(v).toMatchObject({ status: 'busy', statusLabel: '作業中', tone: 'busy', composer: { kind: 'queue', sendLabel: '預ける', canInterrupt: true, offline: null } });
-    expect(v.composer.hint).toContain('停止してから渡します');
+    expect(v.composer.hint).toContain('止まってから渡します');
   });
 
   it('アイドルは「送る」で、中断は出さない', () => {
@@ -92,7 +92,7 @@ describe('ほかの PC の会話の画面の描き分け（presenters/peerChat�
   it('預かりは会話の末尾に並び、自分の預かりだけ取り消せる印が付く', () => {
     const v = view(store({ status: 'busy', items: [ai('a1', '見ます')], queued: [queued('q1', 'me', 'あとで'), queued('q2', 'phone', '別の PC の文')] }))!;
     expect(v.rows.map((r) => r.kind)).toEqual(['assistant', 'queued', 'queued']);
-    expect(v.rows[1]).toMatchObject({ queueId: 'q1', mine: true, from: null, tag: '停止したら渡す' });
+    expect(v.rows[1]).toMatchObject({ queueId: 'q1', mine: true, from: null, tag: '止まったら渡す' });
     expect(v.rows[2]).toMatchObject({ queueId: 'q2', mine: false, from: 'Phone-PC が預けた文' });
     // 預かりがあるときは、預かりの案内は出さない。
     expect(v.composer.hint).toBeNull();
@@ -107,7 +107,7 @@ describe('ほかの PC の会話の画面の描き分け（presenters/peerChat�
     const v = view(store({ restore: { n: 2, text: '戻す文', images: [] }, notice: { n: 1, reason: 'resume-failed' } }))!;
     expect(v.restore).toEqual({ n: 2, text: '戻す文', images: [] });
     expect(v.notice).toEqual({ n: 1, text: 'Mac で再開できませんでした' });
-    expect(view(store({ notice: { n: 1, reason: 'gone' } }))!.notice?.text).toBe('渡せませんでした。文を入力欄に戻しました');
+    expect(view(store({ notice: { n: 1, reason: 'gone' } }))!.notice?.text).toBe('渡せなかったため入力欄に戻しました');
   });
 
   it('断りの理由は、全部に文がある（知らない理由は「送れませんでした」）', () => {
@@ -124,17 +124,10 @@ describe('チャットを出さない会話は、今までの読み取り専用�
     expect(view(store({ phase: 'fallback', fallback: 'too-many' }))).toBeNull();
   });
 
-  it('受けない設定のときだけ、トランスクリプトの上に理由の 1 行を出す', () => {
-    const st = store({ phase: 'fallback', fallback: 'refused-by-setting' });
-    expect(view(st)).toBeNull();
-    expect(peerChatFallbackNote(st, 's1', ja)).toBe('Mac は、他の PC からの操作を受け付けない設定です。読み取り専用で表示しています');
-    expect(peerChatFallbackNote(store({ phase: 'fallback', fallback: 'device-outdated' }), 's1', ja)).toBeNull();
-  });
-
   it('Codex と opencode の会話は、見張りも張らない', () => {
     for (const provider of ['codex', 'opencode'] as const) {
       const p = presentSession(initialState(), store(null, session({ provider })), NOW, 's1');
-      expect(p.peerChat).toEqual({ watch: false, view: null, note: null });
+      expect(p.peerChat).toEqual({ watch: false, view: null });
     }
   });
 
@@ -151,5 +144,26 @@ describe('チャットを出さない会話は、今までの読み取り専用�
   it('見張りの状態が live なら、セッションの props に画面の値を載せる', () => {
     const p = presentSession(initialState(), store({ status: 'busy' }), NOW, 's1');
     expect(p.peerChat?.view).toMatchObject({ device: 'Mac', composer: { kind: 'queue' } });
+  });
+
+  it('答えの行は、許可の選択肢の画面の文（Yes、Yes, and ask-again の形、No）を固定の語にする。合わなければ引用する', () => {
+    expect(permissionWord(ja, 'Yes')).toBe('許可');
+    expect(permissionWord(ja, "Yes, and don't ask again for mkdir -p zz commands in C:\\work\\w1")).toBe('今後も許可');
+    expect(permissionWord(ja, 'No')).toBe('拒否');
+    expect(permissionWord(ja, 'Yes, and switch to auto mode')).toBeNull();
+    const ans = (label: string, kind: 'permission' | 'question' = 'permission') => view(store({ status: 'busy', items: [{ ...ask(true), kind, ask: { ...ask(true).ask!, kind, answered: { by: MAC, label, at: 9 } } }] }))!.rows[0] as { answered: string };
+    expect(ans("Yes, and don't ask again for x").answered).toBe('Mac で今後も許可');
+    expect(ans('No').answered).toBe('Mac で拒否');
+    expect(ans('Yes, and switch to auto mode').answered).toBe('Mac で「Yes, and switch to auto mode」');
+    // 質問は、許可の形に見えても引用する。
+    expect(ans('Yes', 'question').answered).toBe('Mac で「Yes」');
+  });
+
+  it('答えを待っている札は pending、受け付けない設定の PC では札も入力欄も閉じる（理由を先に出す）', () => {
+    const v = view(store({ status: 'waiting', items: [ask()], answering: ['ask-1'] }))!;
+    expect(v.rows[0]).toMatchObject({ pending: true, locked: false });
+    const l = view(store({ status: 'waiting', items: [ask()], locked: true }))!;
+    expect(l.rows[0]).toMatchObject({ locked: true });
+    expect(l.composer).toMatchObject({ kind: 'blocked', canInterrupt: false, offline: null, hint: 'Mac は、他の PC からの操作を受け付けない設定です' });
   });
 });

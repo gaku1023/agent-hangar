@@ -60,6 +60,11 @@ export type RuntimeDeps = {
    */
   onWindowVisible?: (cb: () => void) => () => void;
   /**
+   * 頁が隠れたこと（document の visibilitychange で hidden）を知らせる。返り値で購読を外す。
+   * ほかの PC の会話の見張りは、隠れている間は外し、見えたら（onWindowVisible か onWindowFocus）張り直す。
+   */
+  onWindowHidden?: (cb: () => void) => () => void;
+  /**
    * 状態の変化を画面へ出す。
    * commit を呼ぶまで、getState は前に描いた状態を返し、React はそれを描き続ける。
    * 画面の移り変わりを View Transitions で包むための口である（runtime/present.ts）。無ければその場で出す。
@@ -264,6 +269,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   let lastDepth = 0;
   let unsubFocus: (() => void) | null = null;
   let unsubVisible: (() => void) | null = null;
+  let unsubHidden: (() => void) | null = null;
   let unsubHide: (() => void) | null = null;
   /** 通知の許可を最後に読み直した時刻。 */
   let notifyCheckedAt = -Infinity;
@@ -1195,11 +1201,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), moved } });
       });
       // 前面に来たときも、隠れている間に溜めた Store の変化を出す。visibilitychange を出し損ねる WebView があっても、画面が古いまま残らないようにする。
-      unsubFocus = deps.onWindowFocus?.(() => { releaseStore(); dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); resendSeen(); }) ?? null;
-      unsubVisible = deps.onWindowVisible?.(() => { releaseStore(); recheckNotify(); gitWatch.wake(); resendSeen(); }) ?? null;
+      unsubFocus = deps.onWindowFocus?.(() => { peerChat.resume(); releaseStore(); dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); resendSeen(); }) ?? null;
+      unsubHidden = deps.onWindowHidden?.(() => peerChat.pause()) ?? null;
+      unsubVisible = deps.onWindowVisible?.(() => { peerChat.resume(); releaseStore(); recheckNotify(); gitWatch.wake(); resendSeen(); }) ?? null;
       unsubHide = deps.onPageHide?.(() => cloudMember.flushPending()) ?? null;
       ws.connect();
     },
-    stop() { ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubHide?.(); unsubHide = null; unsubNotify?.(); unsubNotify = null; unsubJoin?.(); unsubJoin = null; deps.terminals.dispose(); },
+    stop() { unsubHidden?.(); unsubHidden = null; ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubHide?.(); unsubHide = null; unsubNotify?.(); unsubNotify = null; unsubJoin?.(); unsubJoin = null; deps.terminals.dispose(); },
   };
 }
