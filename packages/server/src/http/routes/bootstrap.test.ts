@@ -30,6 +30,13 @@ describe('routes', () => {
     expect(body.index.phase).toBe('idle');
     expect(body.version).toBe('0.0.0-test');
   });
+  it('預かりの口があれば、bootstrap が預かりを運ぶ。口が無ければ項目ごと運ばない', async () => {
+    expect((await json(await get('/api/bootstrap'))).body).not.toHaveProperty('peerQueued');
+    const queued = { s1: [{ queueId: 'q1', from: { deviceId: 'pc-b', deviceName: 'Mac' }, text: 'x', images: 0, at: 1, state: 'waiting' }] };
+    const withQueue = createApp({ ...t.deps, peerQueued: () => queued as never });
+    const r = await withQueue.request('/api/bootstrap', { headers: H });
+    expect((await r.json()).peerQueued).toEqual(queued);
+  });
   it('bootstrap は runs と tabs と新しい settings を含む', async () => {
     const { body } = await json(await get('/api/bootstrap'));
     expect(body.runs).toEqual([run]);

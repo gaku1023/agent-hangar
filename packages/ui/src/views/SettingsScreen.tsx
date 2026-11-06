@@ -500,6 +500,9 @@ export function SettingsScreen(props: SettingsProps) {
             </div>
             {member && !member.revoked && <CloudAddPc m={member} />}
             {member && !member.revoked && <CloudRecoveryKey m={member} />}
+            {/* この PC の会話へ、ほかの PC の画面から送る・答える・止めるのを受けるか。PC ごとの設定で、同期しない。 */}
+            <SetRow title={t('settings.label.peerChatAcceptFromPeers')} info={t('settings.cloud.peerChat.info')}
+              control={<Switch label={t('settings.label.peerChatAcceptFromPeers')} checked={props.cloud.peerChatAccept !== false} onChange={(next) => setNow({ peerChatAcceptFromPeers: next })} />} />
             {/* 小見出し「PC」の表（試作 cloud-e2e の E2）。Worker の一覧から、参加日、最終同期、解除を出す。IP と所在地は出さない。 */}
             {/* 表の下に小見出し「スマホ」とスマホの表、「スマホを接続」（試作 A1、E2）。解除されている間は出さない。 */}
             {member ? <><CloudPcTable m={member} heading={t('settings.cloud.computers')} />{!member.revoked && <CloudPhones m={member} />}</> : (

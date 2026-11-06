@@ -105,6 +105,13 @@ a.chip { color: var(--accent); text-decoration: none; }
 .term-band-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: color-mix(in srgb, var(--term-fg) 65%, transparent); }
 .term-band .btn { margin-left: auto; flex: none; height: 24px; font-size: var(--fs-sm); color: var(--ink); }
 .term-band .btn .kc { color: var(--ink-2); background: rgba(30, 40, 90, 0.06); }
+/* ほかの PC から来た文の知らせ（試作 peer-chat の 5B）。預かりの帯は端末の下、渡した直後の札は端末の右上に置く。 */
+.term-peer-band { flex: none; display: flex; align-items: center; gap: calc(var(--u) * 2.5); height: 34px; padding: 0 calc(var(--u) * 3.5); background: color-mix(in srgb, var(--accent) 24%, var(--term-bg)); color: var(--term-fg); font-size: var(--fs-sm); border-top: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); white-space: nowrap; overflow: hidden; }
+.term-peer-band > .icon { flex: none; color: color-mix(in srgb, var(--accent) 55%, #ffffff); }
+.term-peer-band > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.term-peer-badge { position: absolute; z-index: 2; top: calc(var(--u) * 3); right: calc(var(--u) * 3); display: flex; align-items: center; gap: calc(var(--u) * 2); max-width: calc(100% - var(--u) * 6); padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--glass-bg-toast); color: var(--ink); box-shadow: var(--glass-edge), var(--glass-drop); font-size: var(--fs-sm); white-space: nowrap; pointer-events: none; }
+.term-peer-badge > .icon { flex: none; color: var(--accent); }
+.term-peer-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* 起動元と起こしたセッションの印（MCP の create_session）。子の画面は見出しの上の行に起動元へ戻るリンク、起動元の画面は見出しの下に子の札の列。 */
 .spawned-from { display: inline-flex; align-items: center; gap: 4px; min-width: 0; margin-left: calc(var(--u) * 2); font-size: var(--fs-xs); color: var(--ink-3); text-decoration: none; }

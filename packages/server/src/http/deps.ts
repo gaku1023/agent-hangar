@@ -120,6 +120,8 @@ export type AppDeps = {
   trash: Pick<SessionTrash, 'deleteSession'>;
   /** 別の PC への起動の承認待ちへの答え（peer/approvals.ts）。画面の HTTP だけが答える。無ければ答えを断る。 */
   peerApprovals?: Pick<PeerApprovals, 'approve' | 'reject'>;
+  /** ほかの PC から来た文の、まだ渡していない預かり（peer/chat/host.ts の queued）。bootstrap が最初の状態として運ぶ。無ければ運ばない。 */
+  peerQueued?: () => Record<string, import('@agent-hangar/shared').PeerChatQueued[]>;
   /**
    * ほかの PC の Claude Code の会話を、チャットの形で見て続ける、見る側の部品（peer/chat/viewer.ts）。
    * 無ければ GET と POST の経路を出さない。

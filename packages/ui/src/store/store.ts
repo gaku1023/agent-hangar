@@ -1,5 +1,5 @@
 import type { ScheduleDto } from '@agent-hangar/shared';
-import type { DeleteApprovalDto, PeerApprovalDto, PeerDeviceDto } from '@agent-hangar/shared';
+import type { DeleteApprovalDto, PeerApprovalDto, PeerChatDevice, PeerChatQueued, PeerDeviceDto } from '@agent-hangar/shared';
 import { liveFilterOf, liveWithLimit, quietLive, stopReasonOf, type LiveFilter, type PermissionAskDto, type StopReason } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
 import { sameValue } from '../lib/same.ts';
@@ -86,6 +86,13 @@ export type Store = {
   deleteApprovals: DeleteApprovalDto[];
   /** 別の PC への起動の承認待ち（peer/approvals.ts）。答えた直後の結果も、短い間だけ載る。 */
   peerApprovals: PeerApprovalDto[];
+  /**
+   * ほかの PC から来て、この PC の入力欄へまだ渡していない文（会話の id ごと、古い順）。空の会話は持たない。
+   * サーバのメモリだけにある値。bootstrap が最初の状態を運び（つなぎ直しも同じ）、あとは peerChat.queue が全体を置き換える。
+   */
+  peerQueued: Record<string, PeerChatQueued[]>;
+  /** ほかの PC から来た文を渡した直後の知らせ（会話の id ごとの最後の 1 件）。at は渡した時刻で、札を出し直す鍵に使う。 */
+  peerDelivered: Record<string, { from: PeerChatDevice; at: number }>;
   schedules: ScheduleDto[];
   /** 事後要約に失敗したセッションと、その理由。次に作り始めるか、作れたら消える。bootstrap は運ばないので、取り直しても残す。 */
   summaryFailed: Record<string, string>;
@@ -188,7 +195,7 @@ export function initialStore(): Store {
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     todos: {}, memos: {}, instructions: {}, artifacts: {}, artifactAddError: null, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
-    cloudUsage: null, sync: null, deleteApprovals: [], peerApprovals: [], schedules: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
+    cloudUsage: null, sync: null, deleteApprovals: [], peerApprovals: [], peerQueued: {}, peerDelivered: {}, schedules: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
     readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, peers: null, launchPreps: {}, opencodeProviders: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null, sharePreview: {},
     update: initialUpdate(),
@@ -207,7 +214,7 @@ const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object
  * 差し替えると、終了した run のスクロールバックを見ている最中に画面が変わってしまう。
  */
 export function applyBootstrap(store: Store, b: BootstrapDto): Store {
-  return { ...store, bootstrapped: true, deleteApprovals: b.deleteApprovals, peerApprovals: b.peerApprovals, schedules: b.schedules ?? [], version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home, interrupted: b.interrupted };
+  return { ...store, bootstrapped: true, peerQueued: b.peerQueued ?? {}, deleteApprovals: b.deleteApprovals, peerApprovals: b.peerApprovals, schedules: b.schedules ?? [], version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home, interrupted: b.interrupted };
 }
 
 /** 鍵を 1 つ外す。無ければ同じ物を返す。 */
@@ -261,9 +268,13 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     case 'project.upsert': return sameValue(store.projects[ev.project.id], ev.project) ? store : { ...store, projects: { ...store.projects, [ev.project.id]: ev.project } };
     case 'session.upsert': return sameValue(store.sessions[ev.session.id], ev.session) ? store : { ...store, sessions: { ...store.sessions, [ev.session.id]: ev.session } };
     case 'session.removed': {
-      if (!(ev.id in store.sessions)) return store;
+      // 預かりと札は、会話が Store に無くても持っていることがあるので、先に片付ける。
+      const peer = ev.id in store.peerQueued || ev.id in store.peerDelivered
+        ? { peerQueued: without(store.peerQueued, ev.id), peerDelivered: without(store.peerDelivered, ev.id) }
+        : null;
+      if (!(ev.id in store.sessions)) return peer ? { ...store, ...peer } : store;
       const { [ev.id]: _gone, ...sessions } = store.sessions;
-      return { ...store, sessions };
+      return { ...store, sessions, ...peer };
     }
     case 'live.update': return sameValue(store.live, ev.live) ? store : { ...store, live: ev.live, sessions: relive(store.sessions, ev.live) };
     case 'index.progress': return sameValue(store.index, ev.progress) ? store : { ...store, index: ev.progress };
@@ -297,6 +308,12 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
       return cloudMember === store.cloudMember ? store : { ...store, cloudMember };
     }
     case 'schedules.update': return sameValue(store.schedules, ev.schedules) ? store : { ...store, schedules: ev.schedules };
+    // ほかの PC から来た文の預かり。全体を運ぶ知らせなので、空なら会話の分を外す。
+    case 'peerChat.queue': {
+      if (ev.queued.length === 0) return ev.sessionId in store.peerQueued ? { ...store, peerQueued: without(store.peerQueued, ev.sessionId) } : store;
+      return sameValue(store.peerQueued[ev.sessionId], ev.queued) ? store : { ...store, peerQueued: { ...store.peerQueued, [ev.sessionId]: ev.queued } };
+    }
+    case 'peerChat.delivered': return { ...store, peerDelivered: { ...store.peerDelivered, [ev.sessionId]: { from: ev.from, at: ev.at } } };
     case 'peerApprovals.update': return sameValue(store.peerApprovals, ev.approvals) ? store : { ...store, peerApprovals: ev.approvals };
     case 'deleteApprovals.update': return sameValue(store.deleteApprovals, ev.approvals) ? store : { ...store, deleteApprovals: ev.approvals };
     case 'devices.update': return sameValue(store.devices, ev.devices) ? store : { ...store, devices: ev.devices };

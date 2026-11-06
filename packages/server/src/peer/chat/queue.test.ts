@@ -34,6 +34,22 @@ const advance = (ms: number) => vi.advanceTimersByTimeAsync(ms);
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(1_000_000); });
 afterEach(() => { vi.useRealTimers(); });
 
+describe('PeerQueue：全部の預かり（listAll）', () => {
+  it('会話ごとに古い順で返し、空の会話は含めない', async () => {
+    const { q } = setup({ turn: 'busy' });
+    expect(q.listAll()).toEqual({});
+    q.add(RUN, MAC, 'one', []);
+    q.add(RUN, WIN, 'two', []);
+    q.add('run-2', MAC, 'three', []);
+    const all = q.listAll();
+    expect(Object.keys(all).sort()).toEqual([RUN, 'run-2']);
+    expect(all[RUN]!.map((i) => i.text)).toEqual(['one', 'two']);
+    expect(all[RUN]).toEqual(q.list(RUN));
+    q.dropRun('run-2');
+    expect(Object.keys(q.listAll())).toEqual([RUN]);
+  });
+});
+
 describe('PeerQueue：預かる', () => {
   it('作業中に来た文は預かり、渡さない。waiting で一覧に出る', async () => {
     const { q, st, events } = setup({ turn: 'busy' });

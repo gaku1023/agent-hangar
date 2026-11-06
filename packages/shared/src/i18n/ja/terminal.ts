@@ -24,4 +24,6 @@ export const terminalJa: AreaDictionary<typeof terminalKeys> = {
   'terminal.split.width': '左右の幅',
   'terminal.split.valueText': '左 {percent}%',
   'terminal.off.then': '{first}{next}',
+  'terminal.peer.queued': '{devices} から {n} 件を預かっています。止まったら渡します',
+  'terminal.peer.delivered': '{device} から送信しました',
 };

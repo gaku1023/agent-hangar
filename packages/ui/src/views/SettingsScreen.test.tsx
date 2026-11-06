@@ -406,6 +406,26 @@ describe('設定のクラウド同期', () => {
     render(ui(at('cloud')));
     expect(screen.getByText(lead)).toBeInTheDocument();
   });
+  it('「他の PC からの送信を受ける」のスイッチは、入りの値を映し、押すと切る設定を送る。説明は ⓘ に畳む', () => {
+    const onAction = vi.fn();
+    const { unmount } = render(ui(at('cloud', { cloud: cloudProps({ peerChatAccept: true }) }), onAction));
+    const sw = screen.getByRole('switch', { name: '他の PC からの送信を受ける' });
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(sw);
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { peerChatAcceptFromPeers: false } });
+    unmount();
+    render(ui(at('cloud', { cloud: cloudProps({ peerChatAccept: false }) }), onAction));
+    const off = screen.getByRole('switch', { name: '他の PC からの送信を受ける' });
+    expect(off).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(off);
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { peerChatAcceptFromPeers: true } });
+    fireEvent.click(screen.getByRole('button', { name: '他の PC からの送信を受けるの説明' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('切ると、他の PC からは見るだけになります。');
+  });
+  it('クラウドに参加していない PC には、このスイッチを出さない', () => {
+    render(ui(at('cloud', { cloud: cloudProps({ configured: false, url: null, state: 'off', devices: [], peerChatAccept: true }) })));
+    expect(screen.queryByRole('switch', { name: '他の PC からの送信を受ける' })).toBeNull();
+  });
   it('同期している人には、状態の札と、状態、操作、PC の一覧、設定の同期、使用量を上から並べる', () => {
     render(ui(at('cloud', { cloud: cloudProps() })));
     expect(screen.getByRole('heading', { level: 2, name: /^クラウド同期/ })).toHaveTextContent('同期済み');

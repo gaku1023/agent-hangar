@@ -135,6 +135,13 @@ export class PeerQueue {
     return gone.length;
   }
 
+  /** 全部の会話の預かり（古い順、会話の id ごと）。空の会話は含めない。画面を開き直したときの最初の状態（bootstrap）に使う。 */
+  listAll(): Record<string, PeerChatQueued[]> {
+    const out: Record<string, PeerChatQueued[]> = {};
+    for (const [runId, rs] of this.runs) if (rs.items.length > 0) out[runId] = rs.items.map(snap);
+    return out;
+  }
+
   /** runId の預かり（古い順）。PeerChatState.queued に使う。 */
   list(runId: string): PeerChatQueued[] {
     return (this.runs.get(runId)?.items ?? []).map(snap);

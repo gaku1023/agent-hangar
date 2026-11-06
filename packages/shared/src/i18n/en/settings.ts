@@ -126,6 +126,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.cloud.legacy.steps': 'On the computer that set up the cloud, delete the old cloud, then set up a new one. The other computers then join the new cloud with a join code. Check the order of the steps before you start.',
   'settings.cloud.legacy.doc': 'Open the rebuild steps (docs/cloud-sync.md)',
   'settings.cloud.state': 'State',
+  'settings.cloud.peerChat.info': 'PCs in the same group can send text to Claude Code sessions on this PC, answer prompts and questions, and interrupt them. When off, other PCs can only view.',
   'settings.cloud.lastReceived': 'Last received',
   'settings.cloud.unsentChanges': 'Unsent changes',
   'settings.cloud.unsentTranscripts': 'Unsent transcripts',
