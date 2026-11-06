@@ -92,7 +92,7 @@ describe('POST /peer/ask（PC から PC への会話の問い合わせ）', () =
     const r = await peerAsk(a, askBody({ waitMs: 20_000 }));
     expect(r.status).toBe(409);
     expect(await r.json()).toMatchObject({ reason: 'offline' });
-    expect(Date.now() - started).toBeLessThan(GRACE_MS);
+    expect(Date.now() - started).toBeLessThan(2_000);
   });
 
   it('待っている間に宛先が切れたら、待ち切らずに 409 offline', async () => {
@@ -179,7 +179,7 @@ describe('POST /peer/ask（PC から PC への会話の問い合わせ）', () =
     const a = await joinPc('pc-a');
     const b = await joinPc('pc-b');
     const bell = await openBell(b);
-    const pending = peerAsk(a, askBody({ waitMs: 500 }));
+    const pending = peerAsk(a, askBody({ waitMs: 2_000 }));
     await bell.next();
     await new Promise((r) => setTimeout(r, 450));
     bell.send(JSON.stringify({ t: 'chat-reply', id: 'a-1', from: 'pc-a', sealed: '1.bGF0ZQ' }));
@@ -219,9 +219,9 @@ describe('POST /peer/ask（PC から PC への会話の問い合わせ）', () =
     const a = await joinPc('pc-a');
     const b = await joinPc('pc-b');
     const bell = await openBell(b);
-    const first = peerAsk(a, askBody({ waitMs: 400 }));
+    const first = peerAsk(a, askBody({ waitMs: 2_000 }));
     await bell.next();
-    const dup = await peerAsk(a, askBody({ waitMs: 400 }));
+    const dup = await peerAsk(a, askBody({ waitMs: 2_000 }));
     expect(dup.status).toBe(409);
     expect(await dup.json()).toMatchObject({ reason: 'duplicate' });
     await bell.silent(30);

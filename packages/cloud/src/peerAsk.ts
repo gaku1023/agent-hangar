@@ -14,7 +14,8 @@ import { peerBlobsApp } from './mobileBlobs.ts';
  * 待ちと回数の数えは Durable Object のメモリに置く（bell.ts）。
  *
  * 送り手は端末トークンで決める。本文に送り手は無く、Durable Object へ渡す見出しの端末の ID が送り手になる。
- * 宛先が解除された PC かどうかは見ない（D1 を読まないため）。つないでいない宛先は offline で、解除した PC は呼び鈴をつなげない。
+ * 宛先が解除された PC かどうかは見ない（D1 を読まないため）。つないでいない宛先は offline である。
+ * 解除した PC の開いたままの WebSocket は、つなぎ直すまで残りうる。中身は PC どうしの鍵で封じてあるので、影響は小さい。
  */
 
 /** POST /peer/ask の本文の上限。封は PEER_CHAT_SEALED_MAX 字までで、JSON の枠に余裕を見て 96 KiB にする。 */
