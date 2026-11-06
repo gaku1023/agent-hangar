@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type WebSocket from 'ws';
-import { codexEnabledOf, MOBILE_BELL_MIN_WORKER_COMPAT, opencodeEnabledOf, type PeerBellKind, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
+import { codexEnabledOf, MOBILE_BELL_MIN_WORKER_COMPAT, opencodeEnabledOf, type PeerBellKind, type PeerChatBellAsk, type PeerChatBellReply, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
 import type { AccountStore } from '../config/accounts.ts';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
@@ -127,6 +127,8 @@ export function bootMobile(p: {
   codex?: { options: Pick<CodexOptionsService, 'last'> };
   /** Codex の置き場を探す口。既定は config/tools.ts の findCodex。試験が差し替える。 */
   findCodex?: () => string | null;
+  /** ほかの PC の会話の頼み（呼び鈴の chat の枠、boot/peerChat.ts）に答える口。省けば chat の枠を捨てる。 */
+  chat?: { handle(frame: PeerChatBellAsk): Promise<PeerChatBellReply | null> };
   /** セッションの削除の口。スマホの削除の承認（#547）に使う。省けば承認の問い合わせを断る。 */
   trash?: Pick<SessionTrash, 'deleteSession'>;
 }): MobileParts {
@@ -243,6 +245,7 @@ export function bootMobile(p: {
         ...(p.peerApprovals ? { peerApprovals: p.peerApprovals } : {}),
         ...(p.codex ? { codex: { ready: codexOn, options: () => p.codex!.options.last() } } : {}),
       }, id, sealed, epoch),
+      ...(p.chat ? { onChat: (frame: PeerChatBellAsk) => p.chat!.handle(frame) } : {}),
       timers,
       ...(p.bellConnect ? { connect: p.bellConnect } : {}),
     });

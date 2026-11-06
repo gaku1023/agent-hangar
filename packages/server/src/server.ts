@@ -11,6 +11,7 @@ import { bootTrash } from './boot/trash.ts';
 import { bootIndexing } from './boot/indexing.ts';
 import { bootMobile } from './boot/mobile.ts';
 import { bootPeer } from './boot/peer.ts';
+import { bootPeerChat } from './boot/peerChat.ts';
 import { bootOpencode } from './boot/opencode.ts';
 import type { StartOptions } from './boot/options.ts';
 import { bootRuns, panesOf } from './boot/runs.ts';
@@ -153,7 +154,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 今回のリリースでは止めている（peer/ssh/enabled.ts）。止めているあいだは何も組まず、ssh の子プロセスも起こさない。
   const peerSsh = whenPeerSshEnabled(() => bootPeerSsh({ home: home.home, db: home.db, deviceId: home.device.id, language: home.language, tokens: () => sync.peerTokenKeys(), broadcast: (ev) => { delivery.hub.broadcast(ev); } }));
   const peer = bootPeer({ home, runs, sync, delivery, ...(peerSsh ? { ssh: peerSsh } : {}) });
-  const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, trash: trash.trash, onPeer: (kind, id) => { peer.onBell(kind, id); }, peerApprovals: peer.approvals });
+  // ほかの PC の会話の頼み（呼び鈴の chat の枠）。預かりと答えた記録はメモリだけに持つ。
+  const peerChat = bootPeerChat({ home, runs, delivery, sync });
+  const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, chat: peerChat, trash: trash.trash, onPeer: (kind, id) => { peer.onBell(kind, id); }, peerApprovals: peer.approvals });
   peerRelayEnded = (id) => peer.relay.onEnded(id);
   // 定期の実行（#549）。予定はこの PC のものだけを流す。起こし方と待ち方は MCP の道具と同じ本体を通す。
   const scheduleTools: ToolDeps = { db: home.db, deviceId: home.device.id, port: listening.port, live: () => delivery.live.current(), runs: runs.runs, language: home.language, usage: () => runs.usage.current(),
@@ -192,6 +195,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   takeover.start();
   // 受信箱の素。書いてよいか（Worker の版 7 から）は同期が決めるので、同期が始まってから回す。
   mobile.start();
+  peerChat.start();
   // 別の PC からの起動の頼み。同期が始まってから回す（Worker の版が足りないあいだは何もしない）。
   peer.start();
   // 削除の印の処理（sessions/trash.ts）。索引と紐づけが済んでから回す。起きていなかった間に届いた印も、ここで処理する。
@@ -218,6 +222,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       sync.stopTimers();
       takeover.stop();
       mobile.stop();
+      peerChat.stop();
       peer.stop();
       schedules.stop();
       // 自分が起こした ssh のトンネルだけを止める。

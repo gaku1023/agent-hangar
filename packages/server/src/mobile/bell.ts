@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import { PEER_BELL_KINDS, type PeerBellKind } from '@agent-hangar/shared';
+import { PEER_BELL_KINDS, type PeerBellKind, type PeerChatBellAsk, type PeerChatBellReply } from '@agent-hangar/shared';
 import type { BellTarget } from '../sync/client.ts';
 import type { Timers } from '../sync/engine.ts';
 
@@ -11,8 +11,12 @@ export const BELL_PONG_TIMEOUT_MS = 75_000;
 export const BELL_RETRY_MIN_MS = 1_000;
 /** 張り直しの待ちの頭打ち。 */
 export const BELL_RETRY_MAX_MS = 60_000;
-/** 受ける 1 通の上限。問い合わせは封をした本文で 4 KiB までなので、余裕を持たせても小さく抑える。 */
-const BELL_MAX_PAYLOAD = 64 * 1024;
+/**
+ * 受ける 1 通の上限。
+ * スマホの問い合わせは封をした本文で 4 KiB までだが、ほかの PC の会話の頼み（chat）は封が最大 PEER_CHAT_SEALED_MAX（80,000 文字）になる。
+ * 枠の分を足しても収まる 128 KiB にする。
+ */
+const BELL_MAX_PAYLOAD = 128 * 1024;
 /** つなぐときの手合わせの締め切り。 */
 const BELL_HANDSHAKE_MS = 30_000;
 /** 問い合わせの ID の長さの上限。形の違うものは答えない。 */
@@ -44,6 +48,12 @@ export type MobileBellDeps = {
   onPeer?: (kind: PeerBellKind, id: string) => void;
   /** `{t:'ask', id, sealed, epoch}` を受けた。epoch は封じたスマホ用の鍵の世代。封じた答えを返す。開けないものは null で、答えない。 */
   onAsk: (id: string, sealed: string, epoch: number) => Promise<string | null>;
+  /**
+   * `{t:'chat', id, from, epoch, sealed}` を受けた（ほかの PC の会話の頼み、peer/chat/host.ts）。
+   * 封じた答えの枠（`{t:'chat-reply', id, from, sealed}`）を返す。開けない頼みは null で、答えない。
+   * 省けば頼みを捨てる。
+   */
+  onChat?: (frame: PeerChatBellAsk) => Promise<PeerChatBellReply | null>;
   timers?: Timers;
   /** WebSocket を作る口。既定は ws。 */
   connect?: (t: BellTarget) => WebSocket;
@@ -200,6 +210,21 @@ export class MobileBell {
       const kind = (PEER_BELL_KINDS as readonly unknown[]).includes(msg.kind) ? (msg.kind as PeerBellKind) : null;
       if (kind && typeof msg.id === 'string' && msg.id.length > 0 && msg.id.length <= MAX_ASK_ID && this.deps.onPeer) {
         try { this.deps.onPeer(kind, msg.id); } catch (e) { console.error('[mobile] could not take the peer bell', describe(e)); }
+      }
+      return;
+    }
+    // ほかの PC の会話の頼み（版 11）。
+    // 開けない頼みには答えない（頼み主の待ちは Worker が切る）。
+    if (msg.t === 'chat') {
+      const f = msg as { id?: unknown; from?: unknown; sealed?: unknown; epoch?: unknown };
+      if (this.deps.onChat && typeof f.id === 'string' && f.id.length > 0 && f.id.length <= MAX_ASK_ID && typeof f.from === 'string' && f.from.length > 0 && f.from.length <= MAX_ASK_ID && typeof f.sealed === 'string' && typeof f.epoch === 'number' && Number.isSafeInteger(f.epoch) && f.epoch > 0) {
+        let reply: Promise<PeerChatBellReply | null>;
+        try { reply = this.deps.onChat({ t: 'chat', id: f.id, from: f.from, epoch: f.epoch, sealed: f.sealed }); } catch (e) { reply = Promise.reject(e); }
+        void reply.then((r) => {
+          // 答えを作る間に切れた、または張り直したなら送らない。
+          if (r === null || this.sock !== s || s.readyState !== WebSocket.OPEN) return;
+          s.send(JSON.stringify(r));
+        }).catch((e: unknown) => console.error('[mobile] could not answer the chat ask', describe(e)));
       }
       return;
     }

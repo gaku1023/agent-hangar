@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { MOBILE_IMAGE_MAX_BYTES, MOBILE_IMAGES_PER_LAUNCH, MOBILE_IMAGES_PER_PHONE, isSafeKeyId } from '@agent-hangar/shared';
+import { MOBILE_IMAGE_MAX_BYTES, MOBILE_IMAGES_PER_LAUNCH, PEER_CHAT_BLOB_MAX_BYTES, MOBILE_IMAGES_PER_PHONE, isSafeKeyId } from '@agent-hangar/shared';
 import { authMiddleware, requireKind } from './auth.ts';
 import type { Env, Vars } from './env.ts';
 
@@ -96,7 +96,8 @@ export const peerBlobsApp = new Hono<{ Bindings: Env; Variables: Vars }>();
 
 /**
  * 送り手の PC が、封をした画像を宛先 `?to=` に向けて置く。本文は封をしたバイト列そのまま。
- * 長さを名乗らない本文は 411、上限（MAX_BLOB_BYTES）を超える名乗りは本文を読まずに 413 で断る。
+ * 封は世代の 4 バイトがつくので、スマホの封（MAX_BLOB_BYTES）より 4 バイト大きい。
+ * 長さを名乗らない本文は 411、上限（PEER_CHAT_BLOB_MAX_BYTES）を超える名乗りは本文を読まずに 413 で断る。
  * 置いたままの画像が PEER_IMAGES_PER_PC 枚に達していたら、新しい鍵は 429 で断る（同じ鍵の置き直しは通る）。
  * 数える前に 24 時間より古いものを消す。認証と PC だけの検査は app.ts の一覧が付ける。
  */
@@ -109,7 +110,7 @@ peerBlobsApp.put('/:id/:n', async (c) => {
   const declaredText = c.req.header('content-length');
   if (declaredText === undefined || !/^\d+$/.test(declaredText)) return c.json({ error: 'length required' }, 411);
   const declared = Number(declaredText);
-  if (declared > MAX_BLOB_BYTES) return c.json({ error: 'payload too large', limit: MAX_BLOB_BYTES }, 413);
+  if (declared > PEER_CHAT_BLOB_MAX_BYTES) return c.json({ error: 'payload too large', limit: PEER_CHAT_BLOB_MAX_BYTES }, 413);
   const body = c.req.raw.body;
   if (declared === 0 || !body) return c.json({ error: 'empty body' }, 400);
   const key = `${peerPrefix(from, to, id)}${n}`;

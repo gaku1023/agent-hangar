@@ -1,3 +1,4 @@
+import type { PeerChatDevice, PeerChatQueued } from './peerChat.ts';
 import type { ScheduleDto } from './schedule.ts';
 import type { TakeoverDto, DeleteApprovalDto, PeerApprovalDto, AccountsDto, ArtifactDto, CloudUsageDto, ConfigSyncDto, DeviceDto, IndexProgressDto, InterruptedDto, JoinApproverState, JoinRequestView, LiveSessionDto, MemoDto, PhoneLaunchDto, ProjectDto, RetentionDto, RunDto, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
 
@@ -57,6 +58,13 @@ export type ServerEvent =
   | { type: 'join.request'; request: JoinRequestView; expiresAt: number }
   /** スマホからの依頼でこの PC が会話を起こした。1 つの依頼につき 1 回だけ配る（右下の通知、試作 F1）。 */
   | { type: 'phone.launch'; launch: PhoneLaunchDto }
+  /**
+   * ほかの PC から来た文の預かり（peer/chat/queue.ts）が変わった。sessionId の預かりの全体（古い順）を運ぶ。空なら帯を畳む。
+   * 預かった、渡し始めた、渡した、取り消された、10 分で捨てた、会話が消えた、のどれでも配る。
+   */
+  | { type: 'peerChat.queue'; sessionId: string; queued: PeerChatQueued[] }
+  /** ほかの PC から来た文を、この PC の入力欄へ渡した。1 件につき 1 回だけ配る（「{device} から送信しました」の札）。from は送り主、at は渡した時刻。 */
+  | { type: 'peerChat.delivered'; sessionId: string; from: PeerChatDevice; at: number }
   /**
    * opencode（ベータ）の serve を、確かめた範囲の外の版で起こした。起こすたびに配る（docs/design.md「opencode の検出（ベータ）」）。
    * verdict は unverified（範囲の外）、legacy（1.x）、unknown（版が読めない）。画面は検出の答え（GET /api/opencode/status）として受け、右下の札を一度だけ出す。
