@@ -150,7 +150,8 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
       hint,
       offline: offline ? t('peerChat.composer.offline', { device }) : null,
       canTakeOver: offline && (s!.lock !== null || s!.remoteOnly),
-      canInterrupt: !offline && !hostError && !clockOff && !locked && (status === 'busy' || status === 'waiting'),
+      // 札が出ている間（waiting）は、Escape が札の断りになり、元の PC が ask-mismatch で断る。止めるボタンは出さない。
+      canInterrupt: !offline && !hostError && !clockOff && !locked && status === 'busy',
       sending: slice.sending,
     },
     restore: slice.restore,

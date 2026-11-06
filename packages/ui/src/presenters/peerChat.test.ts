@@ -45,9 +45,9 @@ describe('ほかの PC の会話の画面の描き分け（presenters/peerChat�
     expect(v).toMatchObject({ tone: 'idle', composer: { kind: 'send', sendLabel: '送る', canInterrupt: false, hint: null, placeholder: 'Mac の会話に送る' } });
   });
 
-  it('許可待ちは入力待ちで、送った文は預かる。中断も出す', () => {
+  it('許可待ちは入力待ちで、送った文は預かる。中断は出さない（札が出ている間の Escape は札の断りになる）', () => {
     const v = view(store({ status: 'waiting', items: [ask()] }))!;
-    expect(v).toMatchObject({ statusLabel: '入力待ち', tone: 'waiting', composer: { kind: 'queue', canInterrupt: true } });
+    expect(v).toMatchObject({ statusLabel: '入力待ち', tone: 'waiting', composer: { kind: 'queue', canInterrupt: false } });
     expect(v.composer.hint).toContain('許可か質問に答えるまで');
   });
 
