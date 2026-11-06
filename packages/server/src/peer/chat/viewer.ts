@@ -206,6 +206,10 @@ class Watch {
   queued: PeerChatQueued[] = [];
   link: PeerChatLink = 'online';
   replace = false;
+  /** 元の PC の起動ごとの印（state.hostId）。替われば再起動である。 */
+  private hostId: string | null = null;
+  /** この PC が預けて、まだ預かりにあると知っている（または send の答えで知った）文の queueId。再起動で消えた文を見つけるために持つ。 */
+  private readonly mine = new Set<string>();
   private readonly goneSeen = new Map<string, { reason: PeerChatGone['reason']; at: number }>();
   private freshGone: PeerChatGone[] = [];
   /**
@@ -217,9 +221,14 @@ class Watch {
   private resolveFirst: () => void = () => {};
   readonly first = new Promise<void>((r) => { this.resolveFirst = r; });
 
-  constructor(readonly sessionId: string, public target: ViewTarget, after: string | null) {
+  constructor(readonly sessionId: string, public target: ViewTarget, after: string | null, private readonly selfId: string) {
     this.cursor = after;
     this.startedAfter = after;
+  }
+
+  /** send の答えで知った、自分の預かりの queueId。 */
+  noteSent(queueId: string): void {
+    this.mine.add(queueId);
   }
 
   settleFirst(): void {
@@ -285,7 +294,20 @@ class Watch {
     if (sigOf(s.queued) !== sigOf(this.queued)) { this.queued = s.queued; changed = true; }
     // 渡せずに消えた預かり。元の PC は同じ印を数分のあいだ繰り返すので、queueId で覚えて 1 度だけ流す。
     for (const [id, g] of this.goneSeen) if (now - g.at > PEER_CHAT_GONE_KEEP_MS) this.goneSeen.delete(id);
-    for (const g of s.gone ?? []) {
+    // 元の PC が再起動した（hostId が替わった）。預かりはメモリだけなので、自分が預けた文で新しい預かりに無いものは消えている。
+    // 再起動の前に渡った文は、そのときの取り込みで mine から落ちているので、ここでは戻さない。
+    const goneIn: PeerChatGone[] = [...(s.gone ?? [])];
+    const stillQueued = new Set(s.queued.map((q) => q.queueId));
+    if (s.hostId !== undefined) {
+      if (this.hostId !== null && s.hostId !== this.hostId) {
+        for (const id of this.mine) if (!stillQueued.has(id) && !goneIn.some((g) => g.queueId === id)) goneIn.push({ queueId: id, reason: 'queue-expired' });
+      }
+      this.hostId = s.hostId;
+    }
+    // いま預かりにある自分の文だけを覚え直す（消えたものは、渡した、取り消した、捨てられた、のどれかで、もう戻す文ではない）。
+    this.mine.clear();
+    for (const q of s.queued) if (q.from.deviceId === this.selfId) this.mine.add(q.queueId);
+    for (const g of goneIn) {
       if (this.goneSeen.has(g.queueId)) continue;
       this.goneSeen.set(g.queueId, { reason: g.reason, at: now });
       this.freshGone.push({ queueId: g.queueId, reason: g.reason });
@@ -307,6 +329,8 @@ class Watch {
     this.cursor = null;
     this.status = null;
     this.queued = [];
+    this.hostId = null;
+    this.mine.clear();
     this.replace = true;
   }
 
@@ -423,7 +447,7 @@ export class PeerChatViewer {
     if (!w && this.watches.size >= PEER_CHAT_WATCHES_MAX) return { ok: false, reason: 'too-many', device: g.device };
     if (!w) {
       const from = after === undefined ? this.deps.localCursor(sessionId) : after;
-      w = new Watch(sessionId, g.target, from);
+      w = new Watch(sessionId, g.target, from, this.deps.selfId);
       this.watches.set(sessionId, w);
       void this.run(w);
     }
@@ -688,6 +712,7 @@ export class PeerChatViewer {
     switch (out.kind) {
       case 'reply': {
         const r = out.reply;
+        if (r.ok && r.queueId) this.watches.get(sessionId)?.noteSent(r.queueId);
         if (r.ok && r.state) this.absorb(sessionId, r.state);
         return r;
       }

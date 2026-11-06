@@ -286,6 +286,11 @@ describe('PeerChatState.gone', () => {
     expect(shared.parsePeerChatReply({ ok: true, state: { ...base, gone: 'x' } })).toBeNull();
     expect(shared.parsePeerChatReply({ ok: true, state: base })).toEqual({ ok: true, state: base });
   });
+
+  it('hostId（元の PC の起動ごとの印）を残す。文字列でなければ答え全体を断る', () => {
+    expect(shared.parsePeerChatReply({ ok: true, state: { ...base, hostId: 'h1' } })).toEqual({ ok: true, state: { ...base, hostId: 'h1' } });
+    expect(shared.parsePeerChatReply({ ok: true, state: { ...base, hostId: 7 } })).toBeNull();
+  });
 });
 
 describe('画像の封（sealPeerChatBlob と openPeerChatBlob）', () => {

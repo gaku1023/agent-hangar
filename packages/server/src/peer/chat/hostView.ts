@@ -58,6 +58,8 @@ export type ViewDeps = {
   queued(sessionId: string): PeerChatQueued[];
   /** この PC（手元で札に答えた記録の by に使う）。 */
   self(): PeerChatDevice;
+  /** この hangar の起動ごとの印（state.hostId）。 */
+  hostId: string;
 };
 
 const jsonSize = (v: unknown): number => Buffer.byteLength(JSON.stringify(v));
@@ -293,7 +295,7 @@ export class ChatView {
     const status = this.status(sessionId);
     const queued = this.d.queued(sessionId).map((q) => ({ ...q, text: clipText(q.text, QUEUED_TEXT_MAX_BYTES) }));
     const sig = JSON.stringify([status, queued.map((q) => [q.queueId, q.state]), this.answers.filter((a) => a.sessionId === sessionId).map((a) => a.askId), gone.map((g) => g.queueId)]);
-    const state: PeerChatState = { sessionId, status, items, queued, cursor: t.cursor, truncated: t.truncated };
+    const state: PeerChatState = { sessionId, status, items, queued, cursor: t.cursor, truncated: t.truncated, hostId: this.d.hostId };
     if (gone.length > 0) state.gone = gone;
     return { state: fit(state), hasNew: t.items.length > 0, sig };
   }

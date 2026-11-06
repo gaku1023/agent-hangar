@@ -154,6 +154,8 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     tail: { readTranscript: deps.readTranscript, ...(deps.cache ? { cache: deps.cache } : {}) },
     queued: (sessionId) => queue.list(sessionId),
     self: () => ({ deviceId: deps.deviceId, deviceName: deps.deviceName(deps.deviceId) }),
+    // 起動ごとに替わる印。預かりはメモリだけなので、再起動を見る側に知らせる。
+    hostId: randomUUID(),
   });
 
   const answerer = createPeerAnswerer({

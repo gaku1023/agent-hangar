@@ -88,6 +88,13 @@ export type PeerChatState = {
   truncated: boolean;
   /** その頼み主の預かりのうち、渡せずに消えたもの（元の PC が数分のあいだ載せる。無ければ付かない）。 */
   gone?: PeerChatGone[];
+  /**
+   * 元の PC の hangar の起動ごとの印（プロセスごとの乱数）。
+   * 預かりはメモリだけなので、再起動で消える。
+   * 見る側は、この値が前と替わったとき、自分が預けた文で新しい預かりに無いものを、渡せなかったとして文を戻す。
+   * 無い（古い相手）ときは何もしない。
+   */
+  hostId?: string;
 };
 
 /**
@@ -331,6 +338,10 @@ function readState(v: unknown): PeerChatState | null {
   if (v.gone !== undefined) {
     if (!Array.isArray(v.gone) || !v.gone.every((g) => isObj(g) && isStr(g.queueId) && (g.reason === 'queue-expired' || g.reason === 'session-unknown'))) return null;
     out.gone = (v.gone as PeerChatGone[]).map((g) => ({ queueId: g.queueId, reason: g.reason }));
+  }
+  if (v.hostId !== undefined) {
+    if (!isStr(v.hostId)) return null;
+    out.hostId = v.hostId;
   }
   return out;
 }

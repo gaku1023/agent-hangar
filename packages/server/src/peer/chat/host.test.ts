@@ -261,6 +261,17 @@ describe('PeerChatHost: tail', () => {
   });
 });
 
+describe('PeerChatHost: 起動ごとの印', () => {
+  it('state に hostId を載せ、同じ host では変わらず、別の host（再起動）では変わる', async () => {
+    const a = await setup();
+    const b = await setup();
+    const ida = a.state(await a.ask(tailOp())).hostId;
+    expect(typeof ida).toBe('string');
+    expect(a.state(await a.ask(tailOp())).hostId).toBe(ida);
+    expect(b.state(await b.ask(tailOp())).hostId).not.toBe(ida);
+  });
+});
+
 describe('PeerChatHost: send と預かり', () => {
   it('作業中の send は預かり、止まって入力欄が空なら渡す。渡した文に送り主が付く', async () => {
     const s = await setup({ session: idleSession({ live: 'busy' }) });

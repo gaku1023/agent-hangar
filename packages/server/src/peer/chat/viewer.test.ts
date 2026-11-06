@@ -271,6 +271,46 @@ describe('流れ（peerChat.update）', () => {
     expect(again.ok && again.update.gone?.map((g) => g.queueId)).toEqual(['q1', 'q2']);
   });
 
+  describe('元の PC の再起動（hostId が替わる）', () => {
+    const mine = (queueId: string, deviceId = ME) => ({ queueId, from: { deviceId, deviceName: 'x' }, text: 'hi', images: 0, at: 5, state: 'waiting' as const });
+
+    it('この PC が預けた文が、再起動のあとの預かりに無ければ、渡せなかったとして gone に載せる', async () => {
+      answers.push(() => ok(state([item('u1')], { hostId: 'h1', queued: [mine('q1'), mine('q2', 'pc-c')] })));
+      answers.push(() => ok(state([], { cursor: 'u1', hostId: 'h2', queued: [] })));
+      await viewer.open(SID, { viewer: 'v1' });
+      await clock.advance(PEER_CHAT_MIN_GAP_MS);
+      expect(updates().at(-1)!.gone).toEqual([{ queueId: 'q1', reason: 'queue-expired' }]);
+    });
+
+    it('hostId が同じなら、預かりが消えても（渡した、取り消した）gone にしない', async () => {
+      answers.push(() => ok(state([item('u1')], { hostId: 'h1', queued: [mine('q1')] })));
+      answers.push(() => ok(state([], { cursor: 'u1', hostId: 'h1', queued: [] })));
+      await viewer.open(SID, { viewer: 'v1' });
+      await clock.advance(PEER_CHAT_MIN_GAP_MS);
+      expect(updates().every((u) => !u.gone)).toBe(true);
+    });
+
+    it('hostId が替わっても、新しい側の預かりに残っている文は gone にしない。hostId を持たない古い相手でも何も起きない', async () => {
+      answers.push(() => ok(state([item('u1')], { hostId: 'h1', queued: [mine('q1')] })));
+      answers.push(() => ok(state([], { cursor: 'u1', hostId: 'h2', queued: [mine('q1')] })));
+      answers.push(() => ok(state([], { cursor: 'u1', queued: [] })));
+      await viewer.open(SID, { viewer: 'v1' });
+      await clock.advance(PEER_CHAT_MIN_GAP_MS);
+      await clock.advance(PEER_CHAT_MIN_GAP_MS);
+      expect(updates().every((u) => !u.gone)).toBe(true);
+    });
+
+    it('send の答えで知った queueId も、再起動で消えていれば gone にする', async () => {
+      answers.push(() => ok(state([item('u1')], { hostId: 'h1' })));
+      await viewer.open(SID, { viewer: 'v1' });
+      answers.push(() => ({ ok: true, queueId: 'q9' }));
+      expect((await viewer.op(SID, { t: 'send', text: 'x' })).ok).toBe(true);
+      answers.push(() => ok(state([], { cursor: 'u1', hostId: 'h2', queued: [] })));
+      await clock.advance(PEER_CHAT_MIN_GAP_MS);
+      expect(updates().at(-1)!.gone).toEqual([{ queueId: 'q9', reason: 'queue-expired' }]);
+    });
+  });
+
   it('truncated の返事は写しを捨てて差し替える（replace）。貯めた分も捨てる', async () => {
     answers.push(() => ok(state([item('u1'), item('u2')])));
     answers.push(() => ok(state([item('u50'), item('u51')], { truncated: true })));
