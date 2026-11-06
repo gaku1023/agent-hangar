@@ -354,6 +354,24 @@ describe('answerAsk: 質問の札', () => {
     expect(t.pane.result).toBe('text:紫がいい');
   });
 
+  it('本文の改行とタブは空白 1 つにし、ほかの制御文字（ESC、DEL、NUL）は除く。日本語はそのまま通す', async () => {
+    const t = setup(qScreen(false));
+    expect(await t.answerAsk('r1', qAsk(false), [], '紫\r\n\x1b[2Jが\x00い\t\x7fい')).toEqual({ ok: true, label: '紫 [2Jがい い' });
+    expect(t.pane.events).toEqual(['text:4', 'text:紫 [2Jがい い', 'key:enter']);
+    for (const e of t.pane.events) if (e.startsWith('text:')) expect(e).not.toMatch(/[\x00-\x1f\x7f]/);
+    const m = setup(qScreen(true));
+    expect(await m.answerAsk('r1', qAsk(true), ['o2'], 'Dur\rian\x1b')).toEqual({ ok: true, label: 'Green, Dur ian' });
+    expect(m.pane.events).toContain('text:Dur ian');
+    expect(m.pane.events.some((e) => /[\r\x1b]/.test(e))).toBe(false);
+  });
+
+  it('本文が制御文字と空白だけなら、何も打たずに断る', async () => {
+    const t = setup(qScreen(false));
+    expect(await t.answerAsk('r1', qAsk(false), [], '\r\x1b\n')).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(await t.answerAsk('r1', qAsk(false), [], '  \x00')).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(t.pane.events).toEqual([]);
+  });
+
   it('単一選択に keys が 2 つ、keys と本文の両方、allowText でない本文は断る', async () => {
     const t = setup(qScreen(false));
     expect(await t.answerAsk('r1', qAsk(false), ['o1', 'o2'])).toEqual({ ok: false, reason: 'ask-mismatch' });

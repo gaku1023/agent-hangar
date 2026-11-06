@@ -19,6 +19,7 @@ import {
 import { sanitizeInput } from '../../mcp/screenTools.ts';
 import type { PaneKey } from '../../tmux/pane.ts';
 import { WIN_BUSY_WITH_DRAFT, WIN_DRAFT, WIN_EMPTY_AFTER_TURN } from './inputBox.fixtures.ts';
+import { EDIT_SUBDIR } from './fileDialogs.fixtures.ts';
 import { createPeerChatHost, type PeerChatHost } from './host.ts';
 import type { HostPane, HostSession, PeerChatHostDeps, PeerChatHostEvent } from './hostTypes.ts';
 
@@ -554,6 +555,26 @@ describe('PeerChatHost: answer と interrupt', () => {
     // 答えた記録は cursor を動かさず、待っていた tail を空振りで起こし続けない。
     const again = s.state(await s.ask(tailOp(st.cursor, 120)));
     expect(again.items.filter((i) => !i.ask)).toEqual([]);
+  });
+
+  it('ファイルの道具の札（Edit）も、hook の絶対パスと cwd で相対の画面のパスを突き合わせて答える', async () => {
+    const cwd = 'C:\\Users\\dev\\work\\proj';
+    const s = await setup({ session: idleSession({ cwd, live: 'waiting', waitingFor: 'permission', permission: { tool: 'Edit', input: `${cwd}\\sub\\m.txt`, description: null } }) });
+    s.w.pane.plain = EDIT_SUBDIR;
+    s.w.pane.onText = (t) => { if (t === '1' && s.w.pane.plain === EDIT_SUBDIR) { s.w.pane.plain = RUNNING_SCREEN; s.w.session!.live = 'busy'; } };
+    const ask = s.state(await s.ask(tailOp())).items.at(-1)!.ask!;
+    expect(ask).toMatchObject({ kind: 'permission', tool: 'Edit', input: `${cwd}\\sub\\m.txt` });
+    expect((await s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] })).ok).toBe(true);
+    expect(s.w.pane.events).toEqual(['text:1']);
+  });
+
+  it('ファイルの道具の札で、hook のパスと画面のパスが違えば、何も打たずに断る', async () => {
+    const cwd = 'C:\\Users\\dev\\work\\proj';
+    const s = await setup({ session: idleSession({ cwd, live: 'waiting', waitingFor: 'permission', permission: { tool: 'Edit', input: `${cwd}\\sub\\other.txt`, description: null } }) });
+    s.w.pane.plain = EDIT_SUBDIR;
+    const ask = s.state(await s.ask(tailOp())).items.at(-1)!.ask!;
+    expect(await s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] })).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(s.w.pane.events).toEqual([]);
   });
 
   it('二重の答え: 2 台から同じ許可に答えても、キーは 1 回だけ。2 台目は already-answered', async () => {

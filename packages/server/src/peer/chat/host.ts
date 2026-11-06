@@ -149,6 +149,8 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
 
   const answerer = createPeerAnswerer({
     pane: (sessionId): AnswerPane | null => paneOf(sessionId),
+    // ファイルの道具の札は cwd からの相対のパスを出すので、cwd で絶対にして突き合わせる。
+    cwd: (sessionId) => deps.session(sessionId)?.cwd || null,
     now: deps.now,
   });
 
