@@ -523,9 +523,10 @@ export class PeerChatViewer {
           if (!r.ok) {
             if (r.reason === 'session-unknown' || r.reason === 'not-claude' || r.reason === 'refused-by-setting') { this.refuse(w, r.reason); return; }
             if (r.reason === 'rate') { delay = PEER_CHAT_RATE_RETRY_MS; break; }
-            if (r.reason === 'offline') {
+            if (r.reason === 'offline' || r.reason === 'host-error') {
               // 元の PC が offline と答えたときも、Worker の 409 と同じ間を空ける。
-              if (w.link !== 'offline') { w.link = 'offline'; this.publish(w, [], false); }
+              // host-error（元の PC の中の想定外の失敗）も同じ間で頼み直すが、画面が「PC がつながらない」と取り違えないよう、つながりは host-error のまま流す。
+              this.setLink(w, r.reason === 'host-error' ? 'host-error' : 'offline');
               delay = PEER_CHAT_OFFLINE_RETRY_MS[Math.min(offlineStep, PEER_CHAT_OFFLINE_RETRY_MS.length - 1)]!;
               offlineStep++;
               break;
@@ -537,14 +538,14 @@ export class PeerChatViewer {
           }
           errors = 0;
           offlineStep = 0;
-          const wasOffline = w.link === 'offline';
+          const wasOffline = w.link !== 'online';
           w.link = 'online';
           const m = r.state ? w.merge(r.state, this.clock.now()) : { emit: [], replaced: false, changed: false };
           if (m.changed || wasOffline || !w.firstDone) this.publish(w, m.replaced ? [...w.items.values()] : m.emit, m.replaced);
           break;
         }
         case 'offline':
-          if (w.link !== 'offline') { w.link = 'offline'; this.publish(w, [], false); }
+          this.setLink(w, 'offline');
           delay = PEER_CHAT_OFFLINE_RETRY_MS[Math.min(offlineStep, PEER_CHAT_OFFLINE_RETRY_MS.length - 1)]!;
           offlineStep++;
           break;
@@ -575,7 +576,14 @@ export class PeerChatViewer {
 
   /** 届かない周が続いたら、画面には offline と知らせる。 */
   private noteErrors(w: Watch, errors: number): void {
-    if (errors >= ERRORS_BEFORE_OFFLINE && w.link !== 'offline') { w.link = 'offline'; this.publish(w, [], false); }
+    if (errors >= ERRORS_BEFORE_OFFLINE && w.link === 'online') this.setLink(w, 'offline');
+  }
+
+  /** つながりの状態を変え、変わったときだけ update を流す（offline と host-error の行き来も変わりである）。 */
+  private setLink(w: Watch, link: PeerChatLink): void {
+    if (w.link === link) return;
+    w.link = link;
+    this.publish(w, [], false);
   }
 
   // ---- 問い合わせ 1 回 ----
@@ -609,7 +617,7 @@ export class PeerChatViewer {
         const refs: PeerBlobRef[] = [];
         for (const [n, b] of o.blobs.entries()) {
           try {
-            await link.api.putBlob(askId, n, target.deviceId, await sealPeerChatBlob(keys, route, n, b.bytes));
+            await link.api.putBlob(askId, n, target.deviceId, await sealPeerChatBlob(fixed, route, n, b.bytes));
           } catch (e) {
             const s = statusOf(e);
             return s === 429 ? { kind: 'rate' } : s === 413 ? { kind: 'too-large' } : { kind: 'error' };

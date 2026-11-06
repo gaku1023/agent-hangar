@@ -292,7 +292,7 @@ describe('画像の封（sealPeerChatBlob と openPeerChatBlob）', () => {
   it('同じ世代の鍵、route、番号でだけ開ける', async () => {
     const ring = await ringOf({ 1: randomEpochKey() }, 1);
     const bytes = new Uint8Array([1, 2, 3, 250]);
-    const sealed = await shared.sealPeerChatBlob(ring.current(), route, 2, bytes);
+    const sealed = await shared.sealPeerChatBlob(ring, route, 2, bytes);
     expect([...(await shared.openPeerChatBlob(ring, route, 2, sealed))]).toEqual([1, 2, 3, 250]);
     await expect(shared.openPeerChatBlob(ring, route, 3, sealed)).rejects.toBeTruthy();
     await expect(shared.openPeerChatBlob(ring, { ...route, requestId: 'ask-2' }, 2, sealed)).rejects.toBeTruthy();
@@ -306,8 +306,8 @@ describe('画像の封（sealPeerChatBlob と openPeerChatBlob）', () => {
 
   it('封は、先頭の世代 4 バイトと iv と tag の 28 バイトを画像の大きさに足したものになる', async () => {
     const ring = await ringOf({ 1: randomEpochKey() }, 1);
-    const sealed = await shared.sealPeerChatBlob(ring.current(), route, 0, new Uint8Array(1000));
-    expect(sealed.byteLength).toBe(1032);
+    const sealed = await shared.sealPeerChatBlob(ring, route, 0, new Uint8Array(1000));
+    expect(sealed.byteLength).toBe(1000 + shared.PEER_CHAT_BLOB_OVERHEAD_BYTES);
   });
 });
 

@@ -16,7 +16,7 @@ import {
   type ServerEvent,
 } from '@agent-hangar/shared';
 import { PeerChatViewer, PEER_CHAT_ITEMS_KEEP, PEER_CHAT_LEASE_MS, PEER_CHAT_MIN_GAP_MS, PEER_CHAT_OFFLINE_RETRY_MS, PEER_CHAT_RATE_RETRY_MS, PEER_CHAT_REWATCH_GAP_MS, PEER_CHAT_VIEWERS_PER_SOCKET, PEER_CHAT_WATCHES_MAX, type ViewTarget } from './viewer.ts';
-import { PEER_CHAT_MIN_HANGAR_VERSION } from '@agent-hangar/shared';
+import { PEER_CHAT_BLOB_MAX_BYTES, PEER_CHAT_BLOB_OVERHEAD_BYTES, PEER_CHAT_MIN_HANGAR_VERSION } from '@agent-hangar/shared';
 
 const ME = 'pc-a';
 const PEER = 'pc-b';
@@ -510,6 +510,57 @@ describe('見張りの上限と見ている人', () => {
     await clock.advance(1);
     expect(tails()).toHaveLength(3);
     expect(updates().filter((u) => u.link === 'offline')).toHaveLength(1);
+  });
+});
+
+describe('host-error', () => {
+  it('元の PC の host-error は offline と同じ 15 秒、30 秒の間で頼み直し、つながりは host-error のまま流す', async () => {
+    fallback = () => ({ ok: false, reason: 'host-error' });
+    const r = await viewer.open(SID, { viewer: 'v1' });
+    expect(r.ok && r.update.link).toBe('host-error');
+    await clock.advance(PEER_CHAT_OFFLINE_RETRY_MS[0] - 1);
+    expect(tails()).toHaveLength(1);
+    await clock.advance(1);
+    expect(tails()).toHaveLength(2);
+    await clock.advance(PEER_CHAT_OFFLINE_RETRY_MS[1] - 1);
+    expect(tails()).toHaveLength(2);
+    await clock.advance(1);
+    expect(tails()).toHaveLength(3);
+    expect(updates().map((u) => u.link)).toEqual(['host-error']);
+  });
+
+  it('offline と host-error が入れ替わったら、そのたびに流す。つながり直したら online を流す', async () => {
+    answers.push(() => ({ status: 409, reason: 'offline' }));
+    answers.push(() => ({ ok: false, reason: 'host-error' }));
+    answers.push(() => ok(state([item('u1')])));
+    await viewer.open(SID, { viewer: 'v1' });
+    await clock.advance(PEER_CHAT_OFFLINE_RETRY_MS[0]);
+    await clock.advance(PEER_CHAT_OFFLINE_RETRY_MS[1]);
+    expect(updates().map((u) => u.link)).toEqual(['offline', 'host-error', 'online']);
+  });
+
+  it('ops の host-error は reason のまま返す', async () => {
+    answers.push(() => ({ ok: false, reason: 'host-error' }));
+    expect(await viewer.op(SID, { t: 'send', text: 'x' })).toEqual({ ok: false, reason: 'host-error' });
+  });
+});
+
+describe('画像の封の形（元の PC の openPeerChatBlob で開く）', () => {
+  it('見る側の経路で封じた画像は、元の PC の側の openPeerChatBlob（同じ route）で開け、大きさは PEER_CHAT_BLOB_MAX_BYTES に収まる', async () => {
+    const big = new Uint8Array(5 * 1024 * 1024).fill(7);
+    drops.set('big.png', { bytes: big, mime: 'image/png' });
+    drops.set('s.webp', { bytes: new Uint8Array([9, 8]), mime: 'image/webp' });
+    answers.push(() => ({ ok: true, queueId: 'q' }));
+    await viewer.op(SID, { t: 'send', text: 'x', images: ['s.webp', 'big.png'] });
+    expect(blobs.map((b) => b.n)).toEqual([0, 1]);
+    for (const [i, expected] of [[0, 2], [1, big.byteLength]] as const) {
+      const route = { requestId: asks[0]!.body.askId, from: ME, to: PEER };
+      const opened = await openPeerChatBlob(ring, route, i, blobs[i]!.sealed);
+      expect(opened.byteLength).toBe(expected);
+      expect(blobs[i]!.sealed.byteLength).toBe(expected + PEER_CHAT_BLOB_OVERHEAD_BYTES);
+      expect(blobs[i]!.sealed.byteLength).toBeLessThanOrEqual(PEER_CHAT_BLOB_MAX_BYTES);
+    }
+    expect(asks[0]!.req.op).toMatchObject({ images: [{ n: 0, mime: 'image/webp', bytes: 2 }, { n: 1, mime: 'image/png', bytes: big.byteLength }] });
   });
 });
 

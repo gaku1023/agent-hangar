@@ -502,8 +502,10 @@ export type PeerChatReason = PeerChatRefusal | PeerChatViewRefusal;
 /**
  * 相手の PC とのつながり。
  * offline は呼び鈴がつながっていない（または届かない）。
+ * host-error は、つながっているが元の PC の中で想定外の失敗が続いている（見張りは間を空けて頼み直している）。
+ * 画面は「PC がつながらない」ではなく「いまは届かない、頼み直します」と読ませる。
  */
-export type PeerChatLink = 'online' | 'offline';
+export type PeerChatLink = 'online' | 'offline' | 'host-error';
 
 /**
  * 見ている会話の更新（WebSocket の peerChat.update、GET /api/sessions/:id/peer-chat の update）。
