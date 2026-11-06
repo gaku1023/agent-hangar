@@ -4,6 +4,7 @@ import type { SessionAction, SessionActionId, SessionProps } from '../presenters
 import { EndedAgentLine, EndedFacts } from './EndedFacts.tsx';
 import { NowCard } from './NowCard.tsx';
 import { PageHeading } from './PageHeading.tsx';
+import { PeerChatPane, usePeerChatWatch } from './PeerChatPane.tsx';
 import { PaneHeader, type PaneView } from './PaneHeader.tsx';
 import { SessionBadges } from './SessionBadges.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
@@ -74,6 +75,8 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
     return () => bg({ type: 'git.watch', key, sessionIds: [] });
   }, [bg, props.id, pv?.id]);
   const hasGit = props.git != null;
+  // ほかの PC の Claude Code の会話は、チャットの形で見て続ける（見張りは、この画面が開いている間だけ）。
+  usePeerChatWatch(props.id, props.peerChat?.watch === true);
   useEffect(() => { if (hasGit) bg({ type: 'git.changes.load', sessionId: props.id }); }, [bg, props.id, gitCount, hasGit]);
   const tocOpen = pv ? pv.toc : narrow ? drawer : props.transcriptOpen;
   // 現在の札は生きた run があるときだけ。札は目次と同じ右の列に入っていて、列ごと畳まれる。
@@ -172,7 +175,11 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
   // 要約の札（S5）。書かれた要約か、作成中と失敗の知らせがあるときだけ描く（SummaryCard が自分で決める）。
   const summaryCard = props.lead ? <SummaryCard sessionId={id} {...props.lead} /> : null;
   // 見出しの下の押せない理由の行など。大きな見出しの below と同じものを、ペインの見出しの下にも出す。
-  const belowLines = <><SpawnedPills sessionId={id} kids={props.spawned} />{facts}{noRootLine}{takenOverLine}</>;
+  // 見続けられなかった理由（相手が他の PC からの操作を受け付けない設定のとき）。読み取り専用のトランスクリプトの上に 1 行だけ出す。
+  const peerChatNote = props.peerChat?.note ? (
+    <div className="session-reason" role="note"><Icon name="info" /><span>{props.peerChat.note}</span></div>
+  ) : null;
+  const belowLines = <><SpawnedPills sessionId={id} kids={props.spawned} />{facts}{noRootLine}{takenOverLine}{peerChatNote}</>;
   // 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。
   const primaryButton = (
     <>
@@ -312,6 +319,19 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
   );
   // 続けて呼んだツールは 1 行にまとめる（T1）。詳細表示の間は、今までどおり 1 件ずつにする。
   const transcript = <Transcript sessionId={id} items={props.items} hasMore={props.hasMore} loading={props.loading} follow={props.follow} live={props.live !== null} remaining={Math.max(props.total - props.loaded, 0)} jump={props.jump} hasNewer={props.hasNewer} groupTools={!props.showRaw} />;
+
+  // ほかの PC の Claude Code の会話は、読み取り専用のトランスクリプトの代わりにチャットを出す（目次の列は持たない）。
+  // 読み込み中と見続けられなかったとき（view が無い間）は、今までのトランスクリプトのままにする。
+  if (props.peerChat?.view) {
+    return (
+      <div className="screen session-screen" data-variant={pv ? 'pane' : undefined}>
+        {header}
+        <div className="c-body" data-toc="none">
+          <div className="c-main"><section className="tr-sheet pchat-sheet"><PeerChatPane view={props.peerChat.view} /></section></div>
+        </div>
+      </div>
+    );
+  }
 
   // 終わった画面。
   // 本文の右に、要約の札と、実行中と同じ目次を置く。変更したファイル、アーティファクト、PR は見出しの下の 1 行にある。

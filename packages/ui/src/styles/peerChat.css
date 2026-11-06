@@ -1,0 +1,85 @@
+/* ほかの PC の Claude Code の会話を、チャットの形で見て続ける（views/PeerChat*.tsx、試作は trials/peer-chat/proto の 1A、2A、3A、4A）。
+   色と動きの値は tokens.css のトークンを通す。入る動きは base.css の @keyframes enter（下から --rise とぼかし）をそのまま使う。 */
+.pchat-sheet { padding: 0; overflow: hidden; }
+.pchat-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; min-width: 0; }
+.pchat-bar { display: flex; align-items: center; gap: calc(var(--u) * 3); padding: calc(var(--u) * 2.5) calc(var(--u) * 4); border-bottom: 1px solid var(--line); min-height: 40px; }
+.pchat-pill { display: inline-flex; align-items: center; height: 20px; padding: 0 calc(var(--u) * 2.5); border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; flex: none; }
+.pchat-state { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); margin-left: auto; font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; }
+.pchat-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--ended); }
+.pchat-dot[data-tone='busy'] { background: var(--busy); }
+.pchat-dot[data-tone='idle'] { background: var(--idle); }
+.pchat-dot[data-tone='waiting'] { background: var(--waiting); }
+
+/* 会話の列 */
+.pchat-log { flex: 1; min-height: 0; overflow-y: auto; padding: calc(var(--u) * 3.5) calc(var(--u) * 4); display: flex; flex-direction: column; gap: calc(var(--u) * 2.5); }
+.pchat-empty { margin: auto; color: var(--ink-3); font-size: var(--fs-sm); }
+.pchat-in { animation: enter var(--dur) var(--ease-out) both; }
+.pchat-user { align-self: flex-end; max-width: 78%; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: 12px 12px 4px 12px; background: var(--accent); color: var(--accent-ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.pchat-from { display: block; margin-bottom: 1px; font-size: 10px; font-weight: 700; opacity: 0.75; }
+.pchat-ai { max-width: 92%; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pchat-tool { display: flex; align-items: center; gap: calc(var(--u) * 2); align-self: flex-start; max-width: 100%; padding: calc(var(--u) * 1.25) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--surface-2); color: var(--ink-2); font: var(--fs-sm) var(--font-mono); }
+.pchat-tool svg { width: 12px; height: 12px; flex: none; color: var(--idle); }
+.pchat-tool[data-ok='false'] svg { color: var(--error); }
+.pchat-tool-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pchat-sys { align-self: center; font-size: var(--fs-xs); color: var(--ink-3); }
+
+/* 預かり（2A）。点線の吹き出しを末尾に置き、渡ると会話に入って小さく弾む。 */
+.pchat-queued { opacity: 0.6; background: transparent; color: var(--accent); border: 1.5px dashed var(--accent); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); }
+.pchat-queued[data-delivering='true'] { opacity: 0.85; }
+.pchat-qtag { display: flex; align-items: center; gap: calc(var(--u) * 1.5); margin-top: calc(var(--u) * 1); font-size: 10px; font-weight: 700; }
+.pchat-qtag svg { width: 12px; height: 12px; }
+.pchat-link { border: 0; background: none; padding: 0; cursor: pointer; color: inherit; text-decoration: underline; font-size: inherit; font-weight: inherit; }
+.pchat-deliver { animation: pchat-deliver calc(var(--dur) + var(--dur-fast) / 2) var(--ease-out); }
+@keyframes pchat-deliver { 0% { transform: scale(0.97); } 60% { transform: scale(1.02); } }
+
+/* 許可と質問の札（3A）。答えが付くと、ボタンは答えの行に変わる。 */
+.pchat-ask-wrap { align-self: stretch; }
+.pchat-ask { display: flex; flex-direction: column; gap: calc(var(--u) * 2); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--waiting), 0 6px 18px -10px rgba(162, 69, 47, 0.5); transition: box-shadow var(--dur) var(--ease-out), opacity var(--dur) var(--ease-out); }
+.pchat-ask[data-done='true'] { box-shadow: inset 0 0 0 1px var(--line-strong); opacity: 0.75; }
+.pchat-ask-head { display: flex; align-items: center; gap: calc(var(--u) * 2); font-size: var(--fs-xs); font-weight: 700; color: var(--waiting); }
+.pchat-ask[data-done='true'] .pchat-ask-head { color: var(--ink-3); }
+.pchat-ask[data-done='true'] .pchat-dot { background: var(--ended); }
+.pchat-ask-input { margin: 0; padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--surface-2); font: var(--fs-sm) var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.pchat-ask-acts { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); }
+.pchat-opt { justify-content: flex-start; }
+.pchat-opt[data-primary='true'], .pchat-opt[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); }
+.pchat-ask-text { display: flex; gap: calc(var(--u) * 1.5); }
+.pchat-ask-text input { flex: 1; min-width: 0; height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 0; border-radius: var(--r); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); font: inherit; color: inherit; }
+.pchat-ask-text input:focus { outline: none; box-shadow: inset 0 0 0 1.5px var(--accent); }
+.pchat-ans { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); font-size: var(--fs-sm); font-weight: 600; color: var(--st-done); }
+.pchat-ans svg { width: 12px; height: 12px; }
+
+/* 入力欄 */
+.pchat-comp { position: relative; display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-top: 1px solid var(--line); }
+.pchat-box { position: relative; display: flex; align-items: flex-end; gap: calc(var(--u) * 2); padding: calc(var(--u) * 1.5) calc(var(--u) * 1.5) calc(var(--u) * 1.5) calc(var(--u) * 2); border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); transition: box-shadow var(--dur-fast) var(--ease-out); }
+.pchat-box:focus-within { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.pchat-box[data-blocked='true'] { opacity: 0.6; }
+.pchat-box textarea { flex: 1; min-width: 120px; border: 0; outline: 0; resize: none; height: 22px; max-height: 120px; padding: 2px 0; background: none; font: inherit; color: inherit; }
+.pchat-ib { width: 28px; height: 28px; border: 0; border-radius: var(--r); background: none; cursor: pointer; display: grid; place-items: center; color: var(--ink-3); flex: none; font: 600 14px var(--font-mono); }
+.pchat-ib:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
+.pchat-ib:disabled { opacity: 0.4; cursor: default; }
+.pchat-ib svg { width: 16px; height: 16px; }
+.pchat-send { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); flex: none; height: 28px; padding: 0 calc(var(--u) * 3); border: 0; border-radius: var(--r); background: var(--accent); color: var(--accent-ink); font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; cursor: pointer; }
+.pchat-send svg { width: 14px; height: 14px; }
+.pchat-send[data-kind='queue'] { background: var(--surface); color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.pchat-send[data-kind='resume'] { background: var(--idle); }
+.pchat-send:disabled { opacity: 0.45; cursor: default; }
+.pchat-stop { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); flex: none; height: 28px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r); background: var(--surface-2); font-size: var(--fs-sm); font-weight: 600; cursor: pointer; }
+.pchat-stop kbd { padding: 0 4px; border-radius: 4px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); font: 600 10px var(--font-mono); }
+.pchat-hint { display: flex; align-items: center; gap: calc(var(--u) * 2); min-height: 16px; font-size: var(--fs-xs); color: var(--ink-3); }
+.pchat-hint svg { width: 12px; height: 12px; flex: none; }
+.pchat-notice { font-size: var(--fs-sm); color: var(--error); }
+.pchat-offline { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: calc(var(--u) * 3); padding: calc(var(--u) * 2) 0; color: var(--ink-2); }
+.pchat-offline svg { width: 14px; height: 14px; flex: none; }
+.pchat-images { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2); margin: 0; padding: 0; list-style: none; }
+.pchat-image { position: relative; width: 48px; height: 48px; border-radius: var(--r); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line-strong); overflow: hidden; display: grid; place-items: center; font-size: var(--fs-xs); color: var(--ink-3); }
+.pchat-image img { width: 100%; height: 100%; object-fit: cover; }
+.pchat-image button { position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--ink); color: var(--accent-ink); cursor: pointer; padding: 0; }
+.pchat-image button svg { width: 10px; height: 10px; }
+
+/* @ の候補。入力欄の上に開く。 */
+.pchat-mention { position: absolute; left: 0; right: 0; bottom: calc(100% + var(--u) * 1.5); max-height: 240px; overflow-y: auto; padding: calc(var(--u) * 1) 0; border-radius: var(--r-lg); background: var(--glass-bg-menu); box-shadow: var(--glass-edge), var(--glass-drop); animation: listbox-in-up var(--dur-fast) var(--ease-out); z-index: 5; }
+.pchat-mention-opt { display: flex; align-items: baseline; gap: calc(var(--u) * 2); padding: calc(var(--u) * 1.5) calc(var(--u) * 3); cursor: pointer; font-size: var(--fs-sm); }
+.pchat-mention-opt small { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pchat-mention-opt[data-active='true'] { background: var(--accent-soft); }
+.pchat-mention-empty { padding: calc(var(--u) * 2) calc(var(--u) * 3); color: var(--ink-3); font-size: var(--fs-sm); }

@@ -129,6 +129,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       files: (projectId, query) => api.promptFiles(projectId, query),
       upload: (file) => api.uploadDrop(file, file.name),
       existing: (paths) => api.existingDrops(paths),
+      peerFiles: (sessionId, query) => api.peerChatOp(sessionId, { t: 'files', query }).then((r) => (r.ok ? (r.files ?? []).map((f) => f.path) : [])),
       notify: (message) => rt.dispatch({ kind: 'server', event: { type: 'toast', level: 'error', message } }),
     };
   }, [props.api, rt]);

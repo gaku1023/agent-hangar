@@ -144,7 +144,7 @@ describe('チャットを出さない会話は、今までの読み取り専用�
   });
 
   it('ほかの PC の Claude Code の会話は、見張りを張る。ロックの無い本文だけ（remoteOnly）の会話も同じ', () => {
-    expect(presentSession(initialState(), store(null), NOW, 's1').peerChat).toMatchObject({ watch: true, view: null });
+    expect(presentSession(initialState(), store(null), NOW, 's1').peerChat).toMatchObject({ watch: true, view: { loading: true, device: 'Mac' } });
     expect(presentSession(initialState(), store(null, session({ lock: null, remoteOnly: true })), NOW, 's1').peerChat?.watch).toBe(true);
   });
 
