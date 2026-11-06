@@ -14,6 +14,7 @@ import {
   openPeerChat,
   openPeerChatReply,
   parsePeerChatRequest,
+  PEER_CHAT_CLOCK_SKEW_MS,
   PEER_CHAT_IMAGES_MAX,
   PEER_CHAT_REFUSALS,
   PEER_CHAT_REPLY_SEALED_MAX,
@@ -186,6 +187,14 @@ describe('期限と大きさ', () => {
     const r = req(ops[0]!);
     expect(checkPeerChatRequest(r, r.expiresAt)).toEqual({ ok: true });
     expect(checkPeerChatRequest(r, r.expiresAt + 1)).toEqual({ ok: false, reason: 'expired' });
+  });
+
+  it('期限が遠い未来の頼みは expired で断る。時計のずれの幅までは通す', () => {
+    const at = (expiresAt: number) => checkPeerChatRequest(req(ops[0]!, { expiresAt }), NOW);
+    expect(at(NOW + PEER_CHAT_TTL_MS + PEER_CHAT_CLOCK_SKEW_MS)).toEqual({ ok: true });
+    expect(at(NOW + PEER_CHAT_TTL_MS + PEER_CHAT_CLOCK_SKEW_MS + 1)).toEqual({ ok: false, reason: 'expired' });
+    expect(at(NOW + 365 * 86_400_000)).toEqual({ ok: false, reason: 'expired' });
+    expect(PEER_CHAT_CLOCK_SKEW_MS).toBe(5_000);
   });
 
   it('期限は作った時刻の 60 秒後', () => {

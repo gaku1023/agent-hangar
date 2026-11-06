@@ -13,7 +13,8 @@
  * op が answer のときの op.askId は、答える相手の PeerChatAsk（会話の中の許可や質問の札）の ID である。
  * 前者は route.requestId と同じ値でなければ、封じない、開けない。
  *
- * 大きさの上限は PEER_CHAT_* の定数で決める。Worker の本文の上限（96 KiB）と、答えの上限（MOBILE_REPLY_MAX_BYTES）に収める。
+ * 大きさの上限は PEER_CHAT_* の定数で決める。
+ * Worker の本文の上限（96 KiB）と、答えの上限（MOBILE_REPLY_MAX_BYTES）に収める。
  */
 
 import { openPeerPayload, sealPeerPayload, type PeerKeyring, type PeerRoute } from './e2e/peer.ts';
@@ -27,7 +28,11 @@ export type PeerChatDevice = { deviceId: string; deviceName: string };
 export const PEER_CHAT_ITEM_KINDS = ['user', 'assistant', 'tool', 'permission', 'question', 'system'] as const;
 export type PeerChatItemKind = (typeof PEER_CHAT_ITEM_KINDS)[number];
 
-/** 許可や質問の札。options は番号の選択肢（key は画面に打つキー）。answered は、どの PC がどの選択肢で答えたか。 */
+/**
+ * 許可や質問の札。
+ * options は番号の選択肢（key は画面に打つキー）。
+ * answered は、どの PC がどの選択肢で答えたか。
+ */
 export type PeerChatAsk = {
   askId: string;
   kind: 'permission' | 'question';
@@ -39,7 +44,11 @@ export type PeerChatAsk = {
   answered?: { by: PeerChatDevice; label: string; at: number };
 };
 
-/** 会話の 1 項目。uuid はトランスクリプトの行の uuid で、tail の after に使う。from は、ほかの PC から送った文のときの送り手。 */
+/**
+ * 会話の 1 項目。
+ * uuid はトランスクリプトの行の uuid で、tail の after に使う。
+ * from は、ほかの PC から送った文のときの送り手。
+ */
 export type PeerChatItem = {
   uuid: string;
   at: number;
@@ -65,7 +74,10 @@ export type PeerChatState = {
   truncated: boolean;
 };
 
-/** 頼みに付ける画像 1 枚の控え。スマホの起動の画像（MobileImageRef）と同じ形で、本体は /peer/blobs/:askId/:n に封をして置く。 */
+/**
+ * 頼みに付ける画像 1 枚の控え。
+ * スマホの起動の画像（MobileImageRef）と同じ形で、本体は /peer/blobs/:askId/:n に封をして置く。
+ */
 export type PeerBlobRef = MobileImageRef;
 
 export type PeerChatOp =
@@ -77,26 +89,46 @@ export type PeerChatOp =
   | { t: 'cancel'; queueId: string }
   | { t: 'files'; query: string };
 
-/** 頼み（封の中身）。expiresAt は作った時刻 + PEER_CHAT_TTL_MS で、元の PC は過ぎた頼みを捨てる。 */
+/**
+ * 頼み（封の中身）。
+ * expiresAt は作った時刻 + PEER_CHAT_TTL_MS で、元の PC は過ぎた頼みを捨てる。
+ */
 export type PeerChatRequest = { v: 1; askId: string; expiresAt: number; sessionId: string; op: PeerChatOp };
 
 export const PEER_CHAT_REFUSALS = ['offline', 'refused-by-setting', 'not-claude', 'session-unknown', 'expired', 'already-answered', 'ask-mismatch', 'resume-failed', 'queue-expired', 'too-large', 'rate'] as const;
 export type PeerChatRefusal = (typeof PEER_CHAT_REFUSALS)[number];
 
-/** files の答えの 1 件。スマホの files の答え（MobileReply）と同じ形。 */
+/**
+ * files の答えの 1 件。
+ * スマホの files の答え（MobileReply）と同じ形。
+ */
 export type PeerChatFile = { path: string; changed: boolean };
 
 export type PeerChatReply = { ok: true; state?: PeerChatState; queueId?: string; files?: PeerChatFile[] } | { ok: false; reason: PeerChatRefusal };
 
 // ---- 上限 ----
 
-/** 頼みの有効な時間。作った時刻からこれだけ経った頼みは、元の PC が捨てる（眠っていた PC が起きて、古い文を打たないため）。 */
+/**
+ * 頼みの有効な時間。
+ * 作った時刻からこれだけ経った頼みは、元の PC が捨てる（眠っていた PC が起きて、古い文を打たないため）。
+ */
 export const PEER_CHAT_TTL_MS = 60_000;
-/** tail が答えを待たせる時間の上限。Worker は waitMs + 5 秒まで待つ。 */
+/**
+ * 2 台の PC の時計のずれとして許す幅。
+ * 頼んだ側の時計が進んでいても、expiresAt が now + PEER_CHAT_TTL_MS + この値までなら有効として扱う。
+ */
+export const PEER_CHAT_CLOCK_SKEW_MS = 5_000;
+/**
+ * tail が答えを待たせる時間の上限。
+ * Worker は waitMs + 5 秒まで待つ。
+ */
 export const PEER_CHAT_WAIT_MAX_MS = 20_000;
 /** send、resume-send、answer の text の上限（UTF-8 のバイト数）。 */
 export const PEER_CHAT_TEXT_MAX_BYTES = 32 * 1024;
-/** 1 回に付けられる画像の数。スマホの起動と同じ。 */
+/**
+ * 1 回に付けられる画像の数。
+ * スマホの起動と同じ。
+ */
 export const PEER_CHAT_IMAGES_MAX = MOBILE_IMAGES_PER_LAUNCH;
 /** 1 回の answer に載せるキーの数と、キー 1 つの長さ。 */
 export const PEER_CHAT_KEYS_MAX = 32;
@@ -112,7 +144,10 @@ export const PEER_CHAT_ID_MAX_CHARS = 256;
  * 封じる側は、この長さでも念のため断る（ほかの欄が増えたときの安全網）。
  */
 export const PEER_CHAT_SEALED_MAX = 80_000;
-/** 答えの封の文字数の上限。Worker が返せる答えの上限（MOBILE_REPLY_MAX_BYTES）と同じ。 */
+/**
+ * 答えの封の文字数の上限。
+ * Worker が返せる答えの上限（MOBILE_REPLY_MAX_BYTES）と同じ。
+ */
 export const PEER_CHAT_REPLY_SEALED_MAX = MOBILE_REPLY_MAX_BYTES;
 
 /** 頼みを作る時刻から expiresAt を決める。 */
@@ -122,9 +157,15 @@ export const peerChatExpiresAt = (now: number): number => now + PEER_CHAT_TTL_MS
 
 const ids = (r: PeerRoute): [string, string, string] => [r.from, r.to, r.requestId];
 
-/** 頼みの AAD。route.requestId は頼みの askId と同じ値を渡す。 */
+/**
+ * 頼みの AAD。
+ * route.requestId は頼みの askId と同じ値を渡す。
+ */
 export const aadPeerChat = (epoch: number, r: PeerRoute): string => JSON.stringify(['peer-chat', epoch, ...ids(r)]);
-/** 答えの AAD。向きは頼みと同じ route を渡す。 */
+/**
+ * 答えの AAD。
+ * 向きは頼みと同じ route を渡す。
+ */
 export const aadPeerChatReply = (epoch: number, r: PeerRoute): string => JSON.stringify(['peer-chat-reply', epoch, ...ids(r)]);
 
 // ---- 形の検査 ----
@@ -182,7 +223,11 @@ function readOp(v: unknown): PeerChatOp | null {
   }
 }
 
-/** 頼みの形を検べ、知らない欄を捨てた写しを返す。形が違えば null。期限と大きさは見ない（checkPeerChatRequest）。 */
+/**
+ * 頼みの形を検べ、知らない欄を捨てた写しを返す。
+ * 形が違えば null。
+ * 期限と大きさは見ない（checkPeerChatRequest）。
+ */
 export function parsePeerChatRequest(v: unknown): PeerChatRequest | null {
   if (!isObj(v) || v.v !== 1 || !isId(v.askId) || !isTime(v.expiresAt) || !isId(v.sessionId)) return null;
   const op = readOp(v.op);
@@ -196,11 +241,14 @@ function textOf(op: PeerChatOp): string {
 
 /**
  * 開いた頼みの期限と大きさを検べる（元の PC が呼ぶ）。
- * 期限切れは expired、本文が上限を超えれば too-large（PeerChatRefusal の文字列）で断る。now は元の PC の時計。
+ * 期限切れは expired、本文が上限を超えれば too-large（PeerChatRefusal の文字列）で断る。
+ * 期限が遠い未来の頼み（now + PEER_CHAT_TTL_MS + PEER_CHAT_CLOCK_SKEW_MS より先）も expired で断る。
+ * 期限を遠くへ書いた頼みが、いつまでも有効になるのを防ぐためである。
+ * now は元の PC の時計。
  * 形の検査は parsePeerChatRequest（openPeerChat が済ませている）。
  */
 export function checkPeerChatRequest(req: PeerChatRequest, now: number): { ok: true } | { ok: false; reason: 'expired' | 'too-large' } {
-  if (now > req.expiresAt) return { ok: false, reason: 'expired' };
+  if (now > req.expiresAt || req.expiresAt > now + PEER_CHAT_TTL_MS + PEER_CHAT_CLOCK_SKEW_MS) return { ok: false, reason: 'expired' };
   if (byteLength(textOf(req.op)) > PEER_CHAT_TEXT_MAX_BYTES) return { ok: false, reason: 'too-large' };
   return { ok: true };
 }
@@ -258,7 +306,10 @@ function readState(v: unknown): PeerChatState | null {
   return { sessionId: v.sessionId, status: v.status as PeerChatStatus, items: items as PeerChatItem[], queued: queued as PeerChatQueued[], cursor: v.cursor, truncated: v.truncated };
 }
 
-/** 答えの形を検べ、知らない欄を捨てた写しを返す。形が違う、知らない断りの理由は null。 */
+/**
+ * 答えの形を検べ、知らない欄を捨てた写しを返す。
+ * 形が違う、知らない断りの理由は null。
+ */
 export function parsePeerChatReply(v: unknown): PeerChatReply | null {
   if (!isObj(v)) return null;
   if (v.ok === false) return isStr(v.reason) && REFUSALS.has(v.reason) ? { ok: false, reason: v.reason as PeerChatRefusal } : null;
@@ -288,7 +339,8 @@ function checkRoute(r: PeerRoute): void {
 
 /**
  * 会話の頼みを今の世代の鍵で封じる（見る側の PC が呼ぶ）。
- * route.requestId は req.askId と同じ値にする。形が違う、封が PEER_CHAT_SEALED_MAX を超えるときは TypeError を投げる。
+ * route.requestId は req.askId と同じ値にする。
+ * 形が違う、封が PEER_CHAT_SEALED_MAX を超えるときは TypeError を投げる。
  */
 export async function sealPeerChat(ring: PeerKeyring, route: PeerRoute, req: PeerChatRequest): Promise<string> {
   checkRoute(route);
@@ -302,8 +354,10 @@ export async function sealPeerChat(ring: PeerKeyring, route: PeerRoute, req: Pee
 }
 
 /**
- * 会話の頼みを開く（元の PC が呼ぶ）。鍵、AAD、中身の形、askId と requestId の食い違いのどれでも E2eOpenError を投げる。
- * 世代の鍵が無いときは PeerUnknownEpochError（E2eOpenError の仲間）。期限と大きさは開けた後に checkPeerChatRequest で検べる。
+ * 会話の頼みを開く（元の PC が呼ぶ）。
+ * 鍵、AAD、中身の形、askId と requestId の食い違いのどれでも E2eOpenError を投げる。
+ * 世代の鍵が無いときは PeerUnknownEpochError（E2eOpenError の仲間）。
+ * 期限と大きさは開けた後に checkPeerChatRequest で検べる。
  */
 export async function openPeerChat(ring: PeerKeyring, route: PeerRoute, sealed: string): Promise<PeerChatRequest> {
   const v = parsePeerChatRequest(await openPeerPayload(ring, (e) => aadPeerChat(e, route), sealed));
@@ -311,7 +365,11 @@ export async function openPeerChat(ring: PeerKeyring, route: PeerRoute, sealed: 
   return v;
 }
 
-/** 会話の答えを封じる（元の PC が呼ぶ）。route は頼みと同じ値を渡す。形が違う、封が PEER_CHAT_REPLY_SEALED_MAX を超えるときは TypeError。 */
+/**
+ * 会話の答えを封じる（元の PC が呼ぶ）。
+ * route は頼みと同じ値を渡す。
+ * 形が違う、封が PEER_CHAT_REPLY_SEALED_MAX を超えるときは TypeError。
+ */
 export async function sealPeerChatReply(ring: PeerKeyring, route: PeerRoute, reply: PeerChatReply): Promise<string> {
   checkRoute(route);
   const v = parsePeerChatReply(reply);
