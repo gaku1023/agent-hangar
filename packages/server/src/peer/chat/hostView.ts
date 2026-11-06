@@ -197,6 +197,8 @@ export class ChatView {
     if (!asked.ask) return;
     const askId = asked.ask.askId;
     const item: PeerChatItem = { ...asked, ask: { ...asked.ask, answered: { by, label, at: this.d.now() } } };
+    // 同じ札の記録は 1 つにする。答える最中に、札が消えたことを見て先にこの PC の手元の記録が入ったときは、選んだ行の分かる、後の記録で置き換える。
+    this.answers = this.answers.filter((a) => a.askId !== askId);
     this.answers.push({ askId, sessionId, item, at: this.d.now() });
     if (this.answers.length > RECORD_MAX) this.answers.shift();
     this.poke(sessionId);

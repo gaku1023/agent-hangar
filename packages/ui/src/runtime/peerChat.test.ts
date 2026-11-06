@@ -79,6 +79,32 @@ describe('ほかの PC の会話を見る（runtime/peerChat）', () => {
     expect(t.waiting()).toBe(0);
   });
 
+  it('見張りの途中で WebSocket の更新が worker-outdated を運んできても、同じように間を空けて開き直す（二重には待たない）', async () => {
+    let n = 0;
+    const t = rig(async () => { n++; return view(); });
+    t.runner.run({ op: 'open', sessionId: 's1', viewer: 'v1' });
+    await t.tick();
+    t.push(update({ link: 'offline', status: null, reason: 'worker-outdated' }));
+    expect(t.slice()).toMatchObject({ phase: 'fallback', fallback: 'worker-outdated' });
+    t.runner.noteUpdate('s1');
+    t.runner.noteUpdate('s1');
+    expect(t.waiting()).toBe(1);
+    t.fire();
+    await t.tick();
+    expect(n).toBe(2);
+    expect(t.slice()).toMatchObject({ phase: 'live', fallback: null });
+  });
+
+  it('更新が worker-outdated 以外なら、開き直しの待ちを作らない', async () => {
+    const t = rig(async () => view());
+    t.runner.run({ op: 'open', sessionId: 's1', viewer: 'v1' });
+    await t.tick();
+    t.push(update({ reason: 'not-claude' }));
+    t.runner.noteUpdate('s1');
+    t.runner.noteUpdate('nobody');
+    expect(t.waiting()).toBe(0);
+  });
+
   it('開き直しても worker-outdated なら、もう一度待つ。ほかの理由の fallback は開き直さない', async () => {
     const t = rig(async () => ({ ok: false, reason: 'worker-outdated' }));
     t.runner.run({ op: 'open', sessionId: 's1', viewer: 'v1' });

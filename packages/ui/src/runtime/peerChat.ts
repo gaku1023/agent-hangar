@@ -33,6 +33,11 @@ export type PeerChatRunner = {
   run(cmd: PeerChatCommand): void;
   /** WebSocket がつながり直した。見ている会話の見張りを最後の位置から張り直す（休止中は張らない）。 */
   rewatch(): void;
+  /**
+   * WebSocket の peerChat.update を Store に入れたあとに呼ぶ。
+   * 見張りの途中で worker-outdated の reason が来て読み取り専用になった会話も、最初の問い合わせと同じく、間を空けて開き直す。
+   */
+  noteUpdate(sessionId: string): void;
   /** 窓が隠れた。見張りを外す（見えない間は元の PC へ頼み続けない）。状態は残す。 */
   pause(): void;
   /** 窓が見えた。外していた見張りを、最後の位置から張り直す。 */
@@ -181,6 +186,10 @@ export function createPeerChatRunner(deps: PeerChatRunnerDeps): PeerChatRunner {
       }
     },
     rewatch,
+    noteUpdate(sessionId) {
+      const s = slice(sessionId);
+      if (s && s.phase === 'fallback' && s.fallback === 'worker-outdated' && !retryTimers.has(sessionId)) retryLater(sessionId);
+    },
     pause() {
       if (paused) return;
       paused = true;

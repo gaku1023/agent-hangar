@@ -3,11 +3,29 @@ import type { PeerChatAsk } from '@agent-hangar/shared';
 import { createPeerAnswerer, type AnswerPane } from './answer.ts';
 import { EDIT_NARROW_SPACES, EDIT_OUTSIDE, EDIT_RELATIVE, EDIT_SUBDIR, NOTEBOOK_EDIT, READ_OUTSIDE, WRITE_NARROW_TRUNCATED, WRITE_NEW, WRITE_OVERWRITE } from './fileDialogs.fixtures.ts';
 import { readPermissionHook } from '../../provider/claude-code/hooks/permission.ts';
-import { pendingAskFrom } from './hostView.ts';
+import { ChatView, pendingAskFrom } from './hostView.ts';
 import type { HostSession } from './hostTypes.ts';
 
 const session = (over: Partial<HostSession> = {}): HostSession => ({ provider: 'claude-code', live: 'waiting', waitingFor: 'permission', permission: null, activity: null, cwd: '/p', lock: false, newerElsewhere: false, remoteOnly: false, takenOver: false, ...over });
 const RULE = '╌'.repeat(44);
+
+describe('ChatView.recordAnswer', () => {
+  it('同じ札の記録は 1 つ。手元の記録が先に入っても、後から答えた PC の記録で置き換え、同じ uuid の項目を 2 つ出さない', () => {
+    const SELF = { deviceId: 'pc-a', deviceName: 'Win' };
+    const MAC = { deviceId: 'pc-b', deviceName: 'Mac' };
+    const view = new ChatView({
+      now: () => 1000, sleep: async () => undefined, recheckMs: 1000,
+      session: () => null, run: () => null, pane: () => null,
+      tail: { readTranscript: () => null }, queued: () => [], self: () => SELF, hostId: 'h',
+    });
+    const item = { uuid: 'u1@ask:A', at: 1, kind: 'permission' as const, text: 'run', ask: { askId: 'A', kind: 'permission' as const, options: [{ key: '1', label: 'Yes' }], multi: false, allowText: false } };
+    view.recordAnswer('s1', item, SELF, '');
+    view.recordAnswer('s1', item, MAC, 'Yes');
+    const items = view.build('s1', 'pc-b', null).state.items.filter((i) => i.ask?.askId === 'A');
+    expect(items).toHaveLength(1);
+    expect(items[0]!.ask!.answered).toMatchObject({ by: MAC, label: 'Yes' });
+  });
+});
 
 describe('pendingAskFrom', () => {
   const perm = [' Bash command', ' mock desc', RULE, ' ls -la', RULE, ' Do you want to proceed?', ' ❯ 1. Yes', '   2. No', ' Esc to cancel'].join('\n');

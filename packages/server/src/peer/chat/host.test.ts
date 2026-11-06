@@ -514,6 +514,18 @@ describe('PeerChatHost: 再送と想定外の失敗', () => {
     expect(s.w.sent).toHaveLength(1);
   });
 
+  it('忙しい会話の見張りを 3 つ（1 分に 90 回、ここでは 1 分に 180 回）続けても、覚えの上限で rate にならない', async () => {
+    const s = await setup();
+    const reasons = new Set<string>();
+    for (let i = 0; i < 300; i++) {
+      // 3 件ごとに host の時計が 1 秒進む（100 秒で 300 件）。
+      s.w.skew = Math.floor(i / 3) * 1000;
+      const r = await s.ask(tailOp(), { id: `busy-${i}`, expiresAt: Date.now() + s.w.skew + 60_000 });
+      reasons.add(r.ok ? 'ok' : r.reason);
+    }
+    expect([...reasons]).toEqual(['ok']);
+  });
+
   it('期限を過ぎてからの再送は expired で断り、もう一度は実行しない', async () => {
     const s = await setup();
     const id = 'late';

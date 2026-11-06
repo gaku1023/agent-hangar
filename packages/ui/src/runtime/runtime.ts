@@ -1089,6 +1089,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     const arrivedId = input.kind === 'server' && input.event.type === 'project.upsert' && arrivedFromSync(store, input.event.project) ? input.event.project.id : null;
     if (input.kind === 'server') {
       setStore(applyServerEvent(store, input.event));
+      // 見張りの途中で Worker の版が足りなくなった（reason が worker-outdated）会話は、間を空けて開き直す。
+      if (input.event.type === 'peerChat.update' && input.event.reason === 'worker-outdated') peerChat.noteUpdate(input.event.sessionId);
       // 本文が伸びたセッションは、サブエージェントが増えているかもしれない。
       // ここでは取りに行かず、次に本文を読むときに取り直させる。
       // 本文を読むのは画面に出ているセッションだけなので、見ていないセッションの分は無駄に取らない。
