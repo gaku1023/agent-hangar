@@ -50,11 +50,13 @@ import { PeerQueue, type TurnState } from './queue.ts';
  */
 
 /**
- * 同じ頼み（頼み主と askId）の再送を覚える数の上限。
+ * 同じ頼み（頼み主と askId）の再送を覚える数の、頼み主ごとの上限。
  * 覚えは頼みの期限（expiresAt）に時計のずれの幅を足した時刻まで残し、数では消さない。
- * 上限に達したら、新しい頼みを rate で断る（生きている覚えを追い出して、再送を通さないため）。
+ * 実行の覚えが上限に達したら、その頼み主の新しい頼みを rate で断る（生きている覚えを追い出して、再送を通さないため）。
+ * 断りの覚え（答えが小さい）は、別の上限を持つ。
  */
-const SEEN_MAX = 256;
+const SEEN_PER_SENDER = 160;
+const SEEN_REFUSALS_PER_SENDER = 512;
 
 export type PeerChatHost = {
   /**
@@ -229,12 +231,19 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
   }
 
   /**
-   * 開けて、期限の中にある頼みの覚え（頼み主と askId が鍵）。
+   * 開けた頼みの覚え（頼み主と askId が鍵）。
    * 同じ頼みの再送（捕まえた封の使い回し）には、同じ答えを返し、効果は 1 回にする。
-   * 開けない頼みと、期限切れ、大きすぎる頼みは覚えない（どれも何もしないので、再送されても害が無い）。
+   * 覚えるのは、実行した頼みと、将来のいつか通るようになる頼みの断り（期限が遠い未来の expired、上限での rate）である。
+   * 開けない頼みと、期限が過ぎた頼み、大きすぎる頼みは覚えない（どれも何もしないので、再送されても害が無い）。
    * 覚えは expiresAt に時計のずれの幅を足した時刻まで残す。その後の再送は期限切れで断られるので、隙間は無い。
+   * 数は頼み主ごとに数える。refusal は、答えが小さい断りの覚えで、実行の覚えとは別の上限を持つ。
    */
-  const seen = new Map<string, { until: number; reply: Promise<PeerChatBellReply | null> }>();
+  const seen = new Map<string, { from: string; until: number; refusal: boolean; reply: Promise<PeerChatBellReply | null> }>();
+  const countOf = (from: string, refusal: boolean): number => {
+    let n = 0;
+    for (const v of seen.values()) if (v.from === from && v.refusal === refusal) n++;
+    return n;
+  };
 
   const kind = (e: unknown): string => (e instanceof Error ? e.constructor.name : typeof e);
 
@@ -258,27 +267,37 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     } catch {
       return null;
     }
-    const check = checkPeerChatRequest(req, deps.now());
-    if (!check.ok) return seal(ring, frame, refuse(check.reason));
     // ここから先は同期で、覚えの確かめと登録の間に別の頼みが割り込まない。
     const key = `${frame.from}|${frame.id}`;
     const t = deps.now();
     for (const [k, v] of seen) if (t > v.until) seen.delete(k);
     const hit = seen.get(key);
     if (hit) return hit.reply;
-    if (seen.size >= SEEN_MAX) return seal(ring, frame, refuse('rate'));
+    const until = req.expiresAt + PEER_CHAT_CLOCK_SKEW_MS;
+    /** 断りを覚えて返す。覚えの上限に達していれば、覚えずに返す（頼み主 1 台が覚えを埋め尽くせないように）。 */
+    const refused = (r: PeerChatReply): Promise<PeerChatBellReply | null> => {
+      const reply = seal(ring, frame, r);
+      if (countOf(frame.from, true) < SEEN_REFUSALS_PER_SENDER) seen.set(key, { from: frame.from, until, refusal: true, reply });
+      return reply;
+    };
+    const check = checkPeerChatRequest(req, t);
+    if (!check.ok) {
+      // 期限が遠い未来の頼みは、時がたてば通るようになる。覚えて、再送を断り続ける。
+      return check.reason === 'expired' && req.expiresAt > t ? refused(refuse('expired')) : seal(ring, frame, refuse(check.reason));
+    }
+    if (countOf(frame.from, false) >= SEEN_PER_SENDER) return refused(refuse('rate'));
     const reply = (async (): Promise<PeerChatBellReply | null> => {
       let r: PeerChatReply;
       try {
         r = await dispatch(ring, req, frame.from);
       } catch (e) {
-        // 想定外の失敗。計画の断りの中で、いちばん誤解が少ない offline（いまは頼めない）で返す。
+        // 想定外の失敗。画面が「PC がつながらない」と取り違えないよう、専用の断り host-error で返す。
         console.error('[peer-chat] request failed inside the host', req.op.t, kind(e));
-        r = refuse('offline');
+        r = refuse('host-error');
       }
       return seal(ring, frame, r);
     })();
-    seen.set(key, { until: req.expiresAt + PEER_CHAT_CLOCK_SKEW_MS, reply });
+    seen.set(key, { from: frame.from, until, refusal: false, reply });
     return reply;
   }
 

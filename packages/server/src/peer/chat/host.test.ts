@@ -439,11 +439,16 @@ describe('PeerChatHost: 再送と想定外の失敗', () => {
     expect(s.w.sent).toHaveLength(1);
   });
 
-  it('覚えが上限に達したら、新しい頼みを rate で断り、生きている覚えは追い出さない', async () => {
+  it('覚えが頼み主ごとの上限に達したら、その頼み主の新しい頼みを rate で断る。生きている覚えは追い出さず、ほかの頼み主は通り、断った頼みの再送も実行しない', async () => {
     const s = await setup();
     const first = await s.askRaw(send('once'), { id: 'first' });
-    for (let i = 0; i < 255; i++) await s.ask(tailOp(), { id: `fill-${i}` });
-    expect(await s.ask(tailOp(), { id: 'overflow' })).toEqual({ ok: false, reason: 'rate' });
+    for (let i = 0; i < 159; i++) await s.ask(tailOp(), { id: `fill-${i}` });
+    const over = await s.askRaw(send('overflow'), { id: 'overflow' });
+    expect(over!.reply).toEqual({ ok: false, reason: 'rate' });
+    expect((await s.ask(tailOp(), { id: 'other-sender', from: 'pc-c' })).ok).toBe(true);
+    const replay = await s.askRaw(send('overflow'), { id: 'overflow' });
+    expect(replay!.frame.sealed).toBe(over!.frame.sealed);
+    expect(s.w.sent).not.toContain('overflow');
     const again = await s.askRaw(send('once'), { id: 'first' });
     expect(again!.frame.sealed).toBe(first!.frame.sealed);
     await settle(() => s.w.sent.length === 1);
@@ -466,10 +471,26 @@ describe('PeerChatHost: 再送と想定外の失敗', () => {
     expect(s.w.sent).toHaveLength(1);
   });
 
-  it('host の中の想定外の失敗は offline で返す（session-unknown と取り違えない）', async () => {
+  it('期限が遠い未来の頼みは expired で断り、時がたって通る時刻になってからの再送も、実行せずに同じ断りを返す', async () => {
+    const s = await setup();
+    const id = 'future';
+    const route = { requestId: id, from: 'pc-b', to: 'pc-a' };
+    const sealed = await sealPeerChat(s.ring, route, { v: 1, askId: id, expiresAt: Date.now() + 10 * 60_000, sessionId: 's1', op: send('later') });
+    const frame = { t: 'chat' as const, id, from: 'pc-b', epoch: 1, sealed };
+    const first = await s.host.handle(frame);
+    expect(await openPeerChatReply(s.ring, route, first!.sealed)).toEqual({ ok: false, reason: 'expired' });
+    // 9 分半進む。期限は窓の中に入り、覚えが無ければ通ってしまう時刻。
+    s.w.skew = 9.5 * 60_000;
+    const replay = await s.host.handle(frame);
+    expect(replay!.sealed).toBe(first!.sealed);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(s.w.sent).toEqual([]);
+  });
+
+  it('host の中の想定外の失敗は host-error で返す（offline と取り違えない）', async () => {
     const s = await setup({ deps: { files: async () => { throw new Error('disk'); } } });
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(await s.ask({ t: 'files', query: '' })).toEqual({ ok: false, reason: 'offline' });
+    expect(await s.ask({ t: 'files', query: '' })).toEqual({ ok: false, reason: 'host-error' });
     expect(spy).toHaveBeenCalledWith('[peer-chat] request failed inside the host', 'files', 'Error');
     spy.mockRestore();
   });
@@ -487,6 +508,20 @@ describe('PeerChatHost: 札が出ている間の画面の取り込み', () => {
     s.w.pane.onText = (t) => { if (t === '1') { s.w.pane.plain = RUNNING_SCREEN; s.w.session!.live = 'busy'; } };
     expect((await s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] })).ok).toBe(true);
     expect(s.w.pane.captures).toBeGreaterThan(base);
+  });
+
+  it('待っている間、確かめ直しの間隔が何度来ても、変わらなければ取り込みは 1 回。poke で取り込み直す', async () => {
+    const s = await setup({ session: idleSession({ live: 'waiting', waitingFor: 'permission', permission: { tool: 'Bash', input: 'rm -rf build', description: 'd' } }), deps: { recheckMs: 10 } });
+    s.w.pane.plain = PERMISSION_SCREEN;
+    const st = s.state(await s.ask(tailOp()));
+    const base = s.w.pane.captures;
+    // 10 ms ごとに確かめ直す長いポーリングを 300 ms 待たせる（確かめ直しは 20 回ほど）。
+    const idle = s.state(await s.ask(tailOp(st.cursor, 300)));
+    expect(idle.items).toEqual([]);
+    expect(s.w.pane.captures).toBe(base);
+    s.host.poke('s1');
+    await s.ask(tailOp(st.cursor, 0));
+    expect(s.w.pane.captures).toBe(base + 1);
   });
 });
 

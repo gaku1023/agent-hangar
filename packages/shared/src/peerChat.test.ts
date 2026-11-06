@@ -243,7 +243,7 @@ describe('答えの封', () => {
   });
 
   it('断りの理由は計画の 11 個', () => {
-    expect([...PEER_CHAT_REFUSALS]).toEqual(['offline', 'refused-by-setting', 'not-claude', 'session-unknown', 'expired', 'already-answered', 'ask-mismatch', 'resume-failed', 'queue-expired', 'too-large', 'rate']);
+    expect([...PEER_CHAT_REFUSALS]).toEqual(['offline', 'refused-by-setting', 'not-claude', 'session-unknown', 'expired', 'already-answered', 'ask-mismatch', 'resume-failed', 'queue-expired', 'too-large', 'rate', 'host-error']);
   });
 
   it('AAD が違えば開けず、形が不正な答えは封じも開けもしない', async () => {

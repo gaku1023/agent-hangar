@@ -111,7 +111,12 @@ export type PeerChatOp =
  */
 export type PeerChatRequest = { v: 1; askId: string; expiresAt: number; sessionId: string; op: PeerChatOp };
 
-export const PEER_CHAT_REFUSALS = ['offline', 'refused-by-setting', 'not-claude', 'session-unknown', 'expired', 'already-answered', 'ask-mismatch', 'resume-failed', 'queue-expired', 'too-large', 'rate'] as const;
+/**
+ * 断りの理由。
+ * host-error は、元の PC の中の想定外の失敗である（つながっていないことを示す offline とは別）。
+ * 画面は「相手の PC で問題が起きた」と出し、つながっていないとは出さない。
+ */
+export const PEER_CHAT_REFUSALS = ['offline', 'refused-by-setting', 'not-claude', 'session-unknown', 'expired', 'already-answered', 'ask-mismatch', 'resume-failed', 'queue-expired', 'too-large', 'rate', 'host-error'] as const;
 export type PeerChatRefusal = (typeof PEER_CHAT_REFUSALS)[number];
 
 /**

@@ -113,11 +113,11 @@ export class ChatView {
   private readonly lastSig = new Map<string, string>();
   private readonly waiters = new Set<Waiter>();
   private disposed = false;
-  /** 長いポーリングが使う（画面の取り込みを、確かめ直しの間隔に 1 回に抑える）。 */
+  /** 長いポーリングが使う（画面の取り込みを、登録の状態が変わるか poke が来るまで使い回す）。 */
   readonly tailDeps: TailDeps;
   /** 答えるときが使う（いつも画面を取り込み直す）。 */
   private readonly freshDeps: TailDeps;
-  /** 札が出ている間の、画面の取り込みの覚え。登録の状態が同じで、確かめ直しの間隔の内なら、取り込み直さない。 */
+  /** 札が出ている間の、画面の取り込みの覚え。登録の状態が同じで、poke が消していなければ、取り込み直さない。 */
   private readonly captured = new Map<string, { at: number; sig: string; ask: PeerPendingAsk | null }>();
 
   constructor(private readonly d: ViewDeps) {
@@ -128,7 +128,7 @@ export class ChatView {
   /**
    * 画面に出ている許可か質問。
    * 札が出ていない（登録が入力待ちでない）か、画面から読めなければ null。
-   * fresh でなければ、登録の状態（waitingFor、許可の中身、問い）が変わらないかぎり、確かめ直しの間隔に 1 回だけ画面を取り込む。
+   * fresh でなければ、登録の状態（waitingFor、許可の中身、問い）が変わらず poke も来ないかぎり、前の取り込みを使い続ける。
    */
   pendingAsk(sessionId: string, fresh: boolean): PeerPendingAsk | null {
     const session = this.d.session(sessionId);
@@ -139,7 +139,8 @@ export class ChatView {
     const sig = JSON.stringify([session.waitingFor, session.permission, session.activity?.question ?? null]);
     const t = this.d.now();
     const hit = this.captured.get(sessionId);
-    if (!fresh && hit && hit.sig === sig && t - hit.at < this.d.recheckMs) return hit.ask;
+    // 取り込みの覚えは、登録の状態が変わるか、poke（実行中の一覧の変化、預かりの変化、答え）が消すまで使い続ける。
+    if (!fresh && hit && hit.sig === sig) return hit.ask;
     const run = this.d.run(sessionId);
     const pane = run ? this.d.pane(run.tmuxName) : null;
     let ask: PeerPendingAsk | null = null;
