@@ -105,10 +105,15 @@ export type PeerBlobRef = MobileImageRef;
 
 export type PeerChatOp =
   | { t: 'tail'; after: string | null; waitMs: number }
-  | { t: 'send'; text: string; images: PeerBlobRef[] }
+  /**
+   * waitMs は、頼み主が答えを待つ長さ（Worker に渡す waitMs と同じ値）。
+   * 元の PC は、画像の取り込みと再開を含む全体をこの長さに収め、過ぎたら expired で断って何も預からない（頼み主が諦めたあとで預けて、二重に渡さないため）。
+   * 省くと PEER_CHAT_SEND_WAIT_DEFAULT_MS。
+   */
+  | { t: 'send'; text: string; images: PeerBlobRef[]; waitMs?: number }
   | { t: 'answer'; askId: string; keys: string[]; text?: string }
   | { t: 'interrupt' }
-  | { t: 'resume-send'; text: string; images: PeerBlobRef[] }
+  | { t: 'resume-send'; text: string; images: PeerBlobRef[]; waitMs?: number }
   | { t: 'cancel'; queueId: string }
   | { t: 'files'; query: string };
 
@@ -154,6 +159,13 @@ export const PEER_CHAT_CLOCK_SKEW_MS = 90_000;
  * Worker は waitMs + 5 秒まで待つ。
  */
 export const PEER_CHAT_WAIT_MAX_MS = 20_000;
+/**
+ * send、resume-send の頼みが waitMs を持たないときに、元の PC が使う待ちの長さ。
+ * Worker は頼み主の waitMs + 5 秒まで待つ。
+ * 頼み主の send の待ち（10 秒）と同じ値にして、持たない頼みでも、Worker の待ちより先に諦める。
+ * 頼み主は自分の待ちを waitMs で載せる。
+ */
+export const PEER_CHAT_SEND_WAIT_DEFAULT_MS = 10_000;
 /** send、resume-send、answer の text の上限（UTF-8 のバイト数）。 */
 export const PEER_CHAT_TEXT_MAX_BYTES = 32 * 1024;
 /**
@@ -234,7 +246,8 @@ function readOp(v: unknown): PeerChatOp | null {
     case 'resume-send': {
       const images = readImages(v.images);
       if (!isStr(v.text) || !images) return null;
-      return { t: v.t, text: v.text, images };
+      if (v.waitMs !== undefined && (!isNat(v.waitMs) || v.waitMs > PEER_CHAT_WAIT_MAX_MS)) return null;
+      return v.waitMs === undefined ? { t: v.t, text: v.text, images } : { t: v.t, text: v.text, images, waitMs: v.waitMs };
     }
     case 'answer': {
       if (!isId(v.askId) || !Array.isArray(v.keys) || v.keys.length > PEER_CHAT_KEYS_MAX || !optStr(v.text)) return null;

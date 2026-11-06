@@ -287,6 +287,14 @@ describe('PeerChatState.gone', () => {
     expect(shared.parsePeerChatReply({ ok: true, state: base })).toEqual({ ok: true, state: base });
   });
 
+  it('send と resume-send の waitMs（頼み主の待ち）は省ける。あれば残し、上限を超える値と整数でない値は断る', () => {
+    const r = (op: unknown) => shared.parsePeerChatRequest({ v: 1, askId: 'a', expiresAt: 1, sessionId: 's', op });
+    expect(r({ t: 'send', text: 'x', images: [] })?.op).toEqual({ t: 'send', text: 'x', images: [] });
+    expect(r({ t: 'resume-send', text: 'x', images: [], waitMs: 20_000 })?.op).toEqual({ t: 'resume-send', text: 'x', images: [], waitMs: 20_000 });
+    expect(r({ t: 'send', text: 'x', images: [], waitMs: 20_001 })).toBeNull();
+    expect(r({ t: 'send', text: 'x', images: [], waitMs: 1.5 })).toBeNull();
+  });
+
   it('hostId（元の PC の起動ごとの印）を残す。文字列でなければ答え全体を断る', () => {
     expect(shared.parsePeerChatReply({ ok: true, state: { ...base, hostId: 'h1' } })).toEqual({ ok: true, state: { ...base, hostId: 'h1' } });
     expect(shared.parsePeerChatReply({ ok: true, state: { ...base, hostId: 7 } })).toBeNull();

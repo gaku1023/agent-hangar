@@ -729,6 +729,51 @@ describe('PeerChatHost: resume-send', () => {
     expect(s.w.sent).toEqual([]);
   });
 
+  it('画像は再開の前に取る。取れなければ、会話を再開せずに断る', async () => {
+    const s = await setup({ run: null, session: idleSession({ live: null }) });
+    const r = await s.ask({ t: 'resume-send', text: 'x', images: [{ n: 0, mime: 'image/png', bytes: 3 }] });
+    expect(r).toEqual({ ok: false, reason: 'expired' });
+    expect(s.w.resumed).toBe(0);
+    expect(fs.readdirSync(s.dropsDir)).toEqual([]);
+  });
+
+  it('頼み主の待ち（waitMs）を過ぎたら、expired で断り、あとで画面が現れても預からない（二重に渡さない）', async () => {
+    const s = await setup({
+      run: null,
+      session: idleSession({ live: null }),
+      deps: {
+        resumeWaitMs: 5000,
+        resume: async () => {
+          setTimeout(() => { s.w.run = { tmuxName: 'hangar-2' }; s.w.session!.live = 'idle'; }, 250);
+        },
+      },
+    });
+    const t0 = Date.now();
+    const r = await s.ask({ t: 'resume-send', text: 'late', images: [], waitMs: 100 });
+    expect(r).toEqual({ ok: false, reason: 'expired' });
+    expect(Date.now() - t0).toBeLessThan(240);
+    await new Promise((res) => setTimeout(res, 500));
+    expect(s.w.sent).toEqual([]);
+    expect(s.state(await s.ask(tailOp())).queued).toEqual([]);
+  });
+
+  it('画像の取り込みが待ちを過ぎたら、expired で断り、預からず、置いた画像も残さない', async () => {
+    const s = await setup({ deps: { fetchBlob: async () => { await new Promise((res) => setTimeout(res, 250)); return sealed; } } });
+    const sealed = await sealPeerChatBlob(s.ring, { requestId: 'slow', from: 'pc-b', to: 'pc-a' }, 0, new Uint8Array([1, 2, 3]));
+    const r = await s.ask({ t: 'send', text: 'slow image', images: [{ n: 0, mime: 'image/png', bytes: 3 }], waitMs: 100 }, { id: 'slow' });
+    expect(r).toEqual({ ok: false, reason: 'expired' });
+    await new Promise((res) => setTimeout(res, 500));
+    expect(s.w.sent).toEqual([]);
+    expect(s.state(await s.ask(tailOp())).queued).toEqual([]);
+    expect(fs.readdirSync(s.dropsDir)).toEqual([]);
+  });
+
+  it('待ちの中で済めば（waitMs 内）、これまでどおり預かる', async () => {
+    const s = await setup({ run: null, session: idleSession({ live: null }) });
+    expect((await s.ask({ t: 'resume-send', text: 'in time', images: [], waitMs: 5000 })).ok).toBe(true);
+    await settle(() => s.w.sent.length === 1);
+  });
+
   it('動いている会話への resume-send は、再開せずに send と同じ', async () => {
     const s = await setup();
     expect((await s.ask({ t: 'resume-send', text: 'plain', images: [] })).ok).toBe(true);

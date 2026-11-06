@@ -700,8 +700,9 @@ export class PeerChatViewer {
         if (img.bytes.byteLength === 0 || img.bytes.byteLength > MOBILE_IMAGE_MAX_BYTES) return { ok: false, reason: 'too-large' };
         blobs.push(img);
       }
-      wire = { t: op.t, text: op.text, images: [] };
       if (op.t === 'resume-send') waitMs = RESUME_WAIT_MS;
+      // 元の PC が、画像の取り込みと再開を含む全体をこの長さに収める（過ぎたら expired で、何も預からない）。
+      wire = { t: op.t, text: op.text, images: [], waitMs };
     } else if (op.t === 'answer') {
       if (op.text !== undefined && Buffer.byteLength(op.text) > PEER_CHAT_TEXT_MAX_BYTES) return { ok: false, reason: 'too-large' };
       wire = { t: 'answer', askId: op.askId, keys: op.keys, ...(op.text !== undefined ? { text: op.text } : {}) };

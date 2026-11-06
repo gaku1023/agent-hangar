@@ -679,9 +679,17 @@ describe('ops', () => {
     answers.push(() => ({ ok: true, queueId: 'q-9' }));
     const r = await viewer.op(SID, { t: 'send', text: 'こんにちは' });
     expect(r).toEqual({ ok: true, queueId: 'q-9' });
-    expect(asks[0]!.req.op).toEqual({ t: 'send', text: 'こんにちは', images: [] });
+    // 元の PC が全体を収める待ち（waitMs）も運ぶ（Worker に渡す waitMs と同じ値）。
+    expect(asks[0]!.req.op).toEqual({ t: 'send', text: 'こんにちは', images: [], waitMs: 10_000 });
     expect(asks[0]!.body).toMatchObject({ askId: 'ask-1', to: PEER, waitMs: 10_000 });
     expect(asks[0]!.req.expiresAt).toBe(clock.now() + 60_000);
+  });
+
+  it('resume-send は、再開を待つぶん長い待ちを運ぶ', async () => {
+    answers.push(() => ({ ok: true, queueId: 'q-9' }));
+    await viewer.op(SID, { t: 'resume-send', text: 'wake' });
+    expect(asks[0]!.req.op).toEqual({ t: 'resume-send', text: 'wake', images: [], waitMs: 20_000 });
+    expect(asks[0]!.body.waitMs).toBe(20_000);
   });
 
   it('元の PC の断りは reason のまま返す（画面が文を入力欄に戻す）', async () => {
@@ -732,7 +740,7 @@ describe('ops', () => {
     expect(r).toEqual({ ok: true, queueId: 'q1' });
     expect(blobs).toHaveLength(1);
     expect(blobs[0]).toMatchObject({ askId: 'ask-1', n: 0, to: PEER });
-    expect(asks[0]!.req.op).toEqual({ t: 'send', text: 'see', images: [{ n: 0, mime: 'image/png', bytes: 5 }] });
+    expect(asks[0]!.req.op).toEqual({ t: 'send', text: 'see', images: [{ n: 0, mime: 'image/png', bytes: 5 }], waitMs: 10_000 });
     const opened = await openPeerChatBlob(ring, { requestId: 'ask-1', from: ME, to: PEER }, 0, blobs[0]!.sealed);
     expect([...opened]).toEqual([...png]);
     // 別の askId や番号では開けない。

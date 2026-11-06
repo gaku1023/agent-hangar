@@ -224,9 +224,9 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
       case 'tail':
         return { ok: true, state: await view.tail(sessionId, fromId, op.after, op.waitMs) };
       case 'send':
-        return sendOp(sendDeps, ring, sessionId, req.askId, from, op.text, op.images);
+        return sendOp(sendDeps, ring, sessionId, req.askId, from, op.text, op.images, op.waitMs);
       case 'resume-send':
-        return resumeSendOp(sendDeps, ring, sessionId, req.askId, from, op.text, op.images);
+        return resumeSendOp(sendDeps, ring, sessionId, req.askId, from, op.text, op.images, op.waitMs);
       case 'answer':
         return answerOp(sessionId, from, op);
       case 'interrupt': {
