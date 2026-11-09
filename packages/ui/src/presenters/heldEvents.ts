@@ -4,21 +4,29 @@ import { absoluteTime } from './format.ts';
 
 /**
  * 閉じている間に溜まったイベントの札（#563 の C4 と C6）。
- * 結び付けごとに畳んだ群で、items は古い順の 1 件ずつの行（種類と届いた時刻）である。本文と題名は外から来た文なので、札には出さない。
+ * 結び付けごとに畳んだ群で、items は古い順の 1 件ずつの行（種類と届いた時刻）である。
+ * 本文と題名は外から来た文なので、札には出さない。
  */
 export type HeldGroupProps = { bindingId: string; label: string; count: number; items: { text: string; at: string }[] };
 export type HeldEventsCardProps = { head: string; groups: HeldGroupProps[] };
 
 const WHEN_KEY = { ci_done: 'schedules.event.when.ciDone', review: 'schedules.event.when.review', comment: 'schedules.event.when.comment', merged: 'schedules.event.when.merged', issue_opened: 'schedules.event.when.issueOpened' } as const;
 
-/** 1 件の言い方。CI の失敗は ci_done の結果で見分け、知らない種類は名前のまま出す。外の webhook は種類を持たないので「webhook」と言う。 */
+/**
+ * 1 件の言い方。
+ * CI の失敗は ci_done の結果で見分け、知らない種類は名前のまま出す。
+ * 外の webhook は種類を持たないので「webhook」と言う。
+ */
 function factText(t: Translate, f: HeldFactDto): string {
   if (f.source === 'hook') return t('schedules.event.kind.hook');
   if (f.event === 'ci_done' && f.outcome === 'failure') return t('schedules.event.when.ciFailed');
   return f.event in WHEN_KEY ? t(WHEN_KEY[f.event as keyof typeof WHEN_KEY]) : f.event;
 }
 
-/** 結び付けの名前。GitHub は repo と PR の番号、外の webhook は「webhook」。 */
+/**
+ * 結び付けの名前。
+ * GitHub は repo と PR の番号、外の webhook は「webhook」。
+ */
 function groupLabel(t: Translate, facts: HeldFactDto[]): string {
   const f = facts.find((x) => x.source === 'github' && x.repo);
   if (!f) return t('schedules.event.kind.hook');

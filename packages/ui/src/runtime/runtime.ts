@@ -331,7 +331,10 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       deps.api.compat().then((c) => { if (seq === readinessSeq) setStore({ ...store, compat: c }); }).catch(fail);
     } else setStore({ ...store, readiness: r, compat: null });
   };
-  /** 起こす結び付けの結果。会話がほかの PC で動いているときは other_pc、webhook を付けられなかったときはその旨。 */
+  /**
+   * 起こす結び付けの結果。
+   * 会話がほかの PC で動いているときは other_pc、webhook を付けられなかったときはその旨。
+   */
   const wakeToast = (r: { wake?: WakeResultDto }) => {
     if (!r.wake || r.wake.status === 'created') return;
     dispatch({ kind: 'server', event: { type: 'toast', level: 'error', message: tr()(r.wake.message === 'other_pc' ? 'pause.wake.otherPc' : 'pause.wake.failed') } });
@@ -510,7 +513,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           loadSetupGuide();
           loadOpencodeStatus();
           loadCodexStatus();
-          // 閉じている間に溜まったイベントの山は bootstrap が運ばない。使える PC では、起動のたびに読む。
+          // 閉じている間に溜まったイベントの山は bootstrap が運ばない。
+          // 使える PC では、起動のたびに読む。
           emit({ type: 'heldEvents.load' });
         }).catch(fail);
         return;
@@ -1098,7 +1102,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     if (input.kind === 'server') {
       const couldHold = eventsAvailable(store.sync);
       setStore(applyServerEvent(store, input.event));
-      // 閉じている間のイベントが積まれた。山の中身は画面が読み直す（本文を知らせの道に載せない）。
+      // 閉じている間のイベントが積まれた。
+      // 山の中身は画面が読み直す（本文を知らせの道に載せない）。
       // Worker の版が起動のあとに分かって使えるようになったときも、積まれていたかもしれないので読む。
       if (input.event.type === 'events.held' || (input.event.type === 'sync.status' && !couldHold && eventsAvailable(store.sync))) emit({ type: 'heldEvents.load' });
       // 見張りの途中で Worker の版が足りなくなった（reason が worker-outdated）会話は、間を空けて開き直す。

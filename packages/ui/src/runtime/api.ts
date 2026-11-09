@@ -207,21 +207,37 @@ export type ApiClient = {
   updateSchedule(id: string, patch: SchedulePatch): Promise<unknown>;
   deleteSchedule(id: string): Promise<unknown>;
   runSchedule(id: string): Promise<unknown>;
-  /** 予定の画面のイベント（#563）。結び付けの一覧（下書きを含む）と、担当する PR の印の下書き。 */
+  /**
+   * 予定の画面のイベント（#563）。
+   * 結び付けの一覧（下書きを含む）と、担当する PR の印の下書き。
+   */
   eventBindings(): Promise<{ bindings: EventBindingDto[] }>;
   prClaims(): Promise<{ claims: PrClaimDto[] }>;
-  /** 作成。webhook を付けられなかったときは、200 で { hook: { status, message? } } が返り、何も作られない。 */
+  /**
+   * 作成。
+   * webhook を付けられなかったときは、200 で { hook: { status, message? } } が返り、何も作られない。
+   */
   createEventBinding(input: EventCreateInput): Promise<EventSaveResultDto>;
   approveEventBinding(id: string): Promise<EventSaveResultDto>;
   deleteEventBinding(id: string): Promise<unknown>;
   answerPrClaim(op: 'approve' | 'reject', claim: { sessionId: string; repo: string; pr: number }): Promise<unknown>;
   /** 閉じている間に溜まって、選びを待つイベント（結び付けごと、古い順）。 */
   heldEvents(): Promise<{ held: HeldEventDto[] }>;
-  /** 溜まったイベントの選びを送る。流すのは裏で進み、始めたところで返る。 */
+  /**
+   * 溜まったイベントの選びを送る。
+   * 流すのは裏で進み、始めたところで返る。
+   */
   runHeldEvents(choices: HeldChoiceDto[]): Promise<unknown>;
-  /** 外の webhook の URL（秘密を含む）。受け箱がまだ無いときは null。持たずに、見せる間だけ画面の中に置く。 */
+  /**
+   * 外の webhook の URL（秘密を含む）。
+   * 受け箱がまだ無いときは null。
+   * 持たずに、見せる間だけ画面の中に置く。
+   */
   eventHookUrl(id: string): Promise<{ url: string | null }>;
-  /** 外の webhook の URL を作り直す。付けられなかったときは 200 で { hook } が返る。 */
+  /**
+   * 外の webhook の URL を作り直す。
+   * 付けられなかったときは 200 で { hook } が返る。
+   */
   rotateEventUrl(id: string): Promise<{ ok: true } | { hook: { status: 'failed'; message?: string } }>;
   /** repo の webhook の状態。 */
   eventRepoHook(repo: string): Promise<{ hook: EventRepoHookDto }>;

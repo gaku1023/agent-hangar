@@ -15,21 +15,39 @@ export type ScheduleRow = {
   /** 1 回だけの予定で、もう流れたものは再開できない。 */
   spent: boolean;
 };
-/** 外のできごとで動く結び付けの 1 行（#563）。下書き（承認待ち）も同じ形で、pending が真。 */
+/**
+ * 外のできごとで動く結び付けの 1 行（#563）。
+ * 下書き（承認待ち）も同じ形で、pending が真。
+ */
 export type EventRow = {
   id: string; prompt: string; state: EventBindingState; pending: boolean; held: boolean;
   /** 元の言い方（GitHub と repo、または webhook）。 */
   source: string;
   sourceKind: 'github' | 'hook';
-  /** GitHub の repo。外の webhook は null。 */
+  /**
+   * GitHub の repo。
+   * 外の webhook は null。
+   */
   repo: string | null;
-  /** 見るできごと（CI 完了、マージなど）を読点でつないだもの。外の webhook は空。 */
+  /**
+   * 見るできごと（CI 完了、マージなど）を読点でつないだもの。
+   * 外の webhook は空。
+   */
   when: string;
-  /** PR の番号と札の絞り込み。無ければ空。 */
+  /**
+   * PR の番号と札の絞り込み。
+   * 無ければ空。
+   */
   filters: string[];
-  /** 動き。送り先の会話が分かれば、その名前を添える。 */
+  /**
+   * 動き。
+   * 送り先の会話が分かれば、その名前を添える。
+   */
   action: string;
-  /** 新しい会話の起動設定。承認の前に見えるよう、行が閉じていても出す（danger は確認なしに動く設定）。 */
+  /**
+   * 新しい会話の起動設定。
+   * 承認の前に見えるよう、行が閉じていても出す（danger は確認なしに動く設定）。
+   */
   chips: ScheduleLaunchChip[];
   passBody: boolean; allowAuthors: string[];
   /** 止めた理由の一文（held のとき）。 */
@@ -43,7 +61,10 @@ export type EventsProps = {
   drafts: EventRow[];
   claims: PrClaimRow[];
   rows: EventRow[];
-  /** 作成の送信の状態。done は作れた回数で、増えたらフォームを閉じる。 */
+  /**
+   * 作成の送信の状態。
+   * done は作れた回数で、増えたらフォームを閉じる。
+   */
   form: { busy: boolean; error: string | null; done: number };
   /** 承認や削除の失敗の一文。 */
   error: string | null;
@@ -52,7 +73,10 @@ export type EventsProps = {
 };
 export type SchedulesProps = {
   rows: ScheduleRow[];
-  /** イベントの節。クラウドを設定していない、Worker の版が足りないなど、使えないときは null で、画面は節ごと出さない。 */
+  /**
+   * イベントの節。
+   * クラウドを設定していない、Worker の版が足りないなど、使えないときは null で、画面は節ごと出さない。
+   */
   events: EventsProps | null;
   sessions: { id: string; name: string }[];
   /** プロジェクトの札とエージェント、アカウントの札の中身（新しいセッションのダイアログと同じ）。前回値は持ち込まない。 */
@@ -130,7 +154,10 @@ const WHEN_KEY = { ci_done: 'schedules.event.when.ciDone', ci_failed: 'schedules
 /** GitHub で見るできごとの言い方（決めた文面 w12）。 */
 export const githubWhenLabel = (t: Translate, w: GithubWhen): string => t(WHEN_KEY[w]);
 
-/** 履歴の error に入る印を、決めた言い方にする。知らない印は null で、ふつうの結果の言い方のまま。 */
+/**
+ * 履歴の error に入る印を、決めた言い方にする。
+ * 知らない印は null で、ふつうの結果の言い方のまま。
+ */
 export function eventMarker(t: Translate, error: string | null): string | null {
   if (!error) return null;
   const rejected = /^rejected:(signature|unparsable) x(\d+)$/.exec(error);
@@ -150,7 +177,8 @@ function actionLabel(t: Translate, store: Store, a: EventAction): string {
 }
 
 /**
- * 新しい会話の動きの札。どこで何が動くかが承認の前に見えるよう、プロジェクト（クイックセッションはその名前）とエージェントを頭に置く。
+ * 新しい会話の動きの札。
+ * どこで何が動くかが承認の前に見えるよう、プロジェクト（クイックセッションはその名前）とエージェントを頭に置く。
  * アカウントは、ストアに名前があればその名前、無ければ id のまま出す（launchChips）。
  */
 function newActionChips(store: Store, t: Translate, a: Extract<EventAction, { kind: 'new' }>): ScheduleLaunchChip[] {

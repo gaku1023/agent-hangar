@@ -1,8 +1,13 @@
 // 閉じている間に溜まったイベントの札（#563 の C4 と C6）と、起こした行の光り（E4）を、本物の部品で出す頁（撮るとき用）。
-// `npm run dev -w @agent-hangar/ui` のあと /preview/held.html を開く。本番の bundle には入らない。値はすべて作り物である。
+// `npm run dev -w @agent-hangar/ui` のあと /preview/held.html を開く。
+// 本番の bundle には入らない。
+// 値はすべて作り物である。
 // ?case=card（既定。畳んだ札）|choose（「選ぶ」で結び付けごとの群を開いた形）|wake（サイドバーの行が Active に入って光る）|none（イベントを使えない PC。札は出ない）
-// ?click=押すボタンの名前（コンマ区切り）で、群の選びまで進める。例：?case=choose&click=すべて（先頭の群が「すべて」）
-// wake は ?at=行が入るまでのミリ秒（既定 700）。もう一度見るときは頁のボタンか window.__held.wake() を呼ぶ。?motion=off で動きを止めた形（prefers-reduced-motion 相当）。
+// ?click=押すボタンの名前（コンマ区切り）で、群の選びまで進める。
+// 例：?case=choose&click=すべて（先頭の群が「すべて」）
+// wake は ?at=行が入るまでのミリ秒（既定 700）。
+// もう一度見るときは頁のボタンか window.__held.wake() を呼ぶ。
+// ?motion=off で動きを止めた形（prefers-reduced-motion 相当）。
 import { useReducer } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@fontsource-variable/inter';
@@ -53,7 +58,8 @@ function Page() {
   const rows = [row('s1', '同期の親子の順序を直す', { current: true }), row('s2', 'README の画像を撮り直す'), ...(woken ? [row('s3', 'イベントの試作', { ...(glow ? { wake: true as const } : {}) })] : [])];
   const group: SideLiveGroup = { key: 'web', name: 'agent-hangar', open: true, waiting: 0, rows };
   const live: SideLiveProps = { count: rows.length, ids: rows.map((r) => r.id), rows, groups: [group], pins: [] };
-  // 本番と同じ道を通す。札の中身は presenter が、store の山とイベントを使えるかから決める。
+  // 本番と同じ道を通す。
+  // 札の中身は presenter が、store の山とイベントを使えるかから決める。
   const toasts = presentToasts(initialState(), store, Date.now());
   const card = presentHeldEvents(store, t);
   return (
@@ -73,7 +79,8 @@ function Page() {
 
 createRoot(document.getElementById('root')!).render(<Page />);
 
-// 撮るための自動の操作。本番の画面には無い。
+// 撮るための自動の操作。
+// 本番の画面には無い。
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 void (async () => {
   await wait(400);

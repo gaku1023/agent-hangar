@@ -154,7 +154,8 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   };
   /**
    * 状態を書いたあとで、Paused を起こす結び付けを作る（#563）。
-   * wakeOn は画面が持つ、起こす条件（外されていれば null）。Paused は確定したままで、結び付けを作れなかったときは wake にその理由を載せる。
+   * wakeOn は画面が持つ、起こす条件（外されていれば null）。
+   * Paused は確定したままで、結び付けを作れなかったときは wake にその理由を載せる。
    */
   const settled = async (c: Context, fn: () => { state: SessionStateDto; result?: string }, wakeOn: WakeOn | null, id: string) => {
     let r: { state: SessionStateDto; result?: string };
@@ -173,7 +174,11 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
       throw e;
     }
   };
-  /** 本文の wakeOn。無ければ undefined、外したなら null、形が違えば MessageError。結び付けを作るのは object のときだけ。 */
+  /**
+   * 本文の wakeOn。
+   * 無ければ undefined、外したなら null、形が違えば MessageError。
+   * 結び付けを作るのは object のときだけ。
+   */
   const wakeOnOf = (v: unknown): WakeOn | null | undefined => (v === undefined ? undefined : v === null ? null : parseWakeOn(v));
   const putSessionState = async (c: Context, id: string) => {
     if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
@@ -189,7 +194,8 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     try { wakeOn = wakeOnOf(body.wakeOn); } catch (e) { if (e instanceof MessageError) return c.json({ error: errorText(language(), e) }, 400); throw e; }
     // Paused のまま書き直すときは、前の起こす結び付けを残す（Paused を付け直しても、同じ待ちである）。
     const keepWakes = status === 'paused' && wakeOn === undefined && getSessionState(db, id)?.status === 'paused';
-    // 手で Paused にするときに、利用者が自分で選んだ条件。Paused のときだけ結び付けにする。
+    // 手で Paused にするときに、利用者が自分で選んだ条件。
+    // Paused のときだけ結び付けにする。
     return settled(c, () => {
       const state = setSessionState(db, deviceId, id, { status, note: body.note as string | undefined, returnOn: body.returnOn as string | undefined, returnTime: body.returnTime as string | undefined, setBy: 'user' });
       if (keepWakes) deps.events.bindings.keepWakes(id);
@@ -207,8 +213,10 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     if (body.returnTime !== undefined && typeof body.returnTime !== 'string') return c.json({ error: tr('session.status.returnTimeMustBeString') }, 400);
     let given: WakeOn | null | undefined;
     try { given = wakeOnOf(body.wakeOn); } catch (e) { if (e instanceof MessageError) return c.json({ error: errorText(language(), e) }, 400); throw e; }
-    // 結び付けを作るのは、画面が wakeOn の object を送ったときだけ。送らない（今の画面、スマホ、古い画面）と null は、どちらも作らない。
-    // 利用者が見ていない webhook を、確定のたびに付けないためである。提案の wake_on は、画面が見せて、利用者が外さなければこの本文で送り返す。
+    // 結び付けを作るのは、画面が wakeOn の object を送ったときだけ。
+    // 送らない（今の画面、スマホ、古い画面）と null は、どちらも作らない。
+    // 利用者が見ていない webhook を、確定のたびに付けないためである。
+    // 提案の wake_on は、画面が見せて、利用者が外さなければこの本文で送り返す。
     const wakeOn = getSessionState(db, id)?.candidate?.status === 'paused' ? given ?? null : null;
     return settled(c, () => confirmSessionState(db, deviceId, id, body.returnOn === undefined ? {} : { returnOn: body.returnOn as string, ...(body.returnTime !== undefined ? { returnTime: body.returnTime as string } : {}) }), wakeOn, id);
   });

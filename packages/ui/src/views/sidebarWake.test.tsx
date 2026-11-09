@@ -34,7 +34,8 @@ describe('起こした行の光り（Sidebar）', () => {
     const onAction = vi.fn();
     const { rerender } = render(view([row('a')], onAction));
     expect(linkOf('a')).not.toHaveAttribute('data-hit');
-    // 起こされた会話の行が Active に入る。印の付いた行が光り、光ったと知らせて印を下げる。
+    // 起こされた会話の行が Active に入る。
+    // 印の付いた行が光り、光ったと知らせて印を下げる。
     rerender(view([row('a'), row('b', { wake: true })], onAction));
     expect(linkOf('b')).toHaveAttribute('data-hit');
     expect(linkOf('a')).not.toHaveAttribute('data-hit');

@@ -163,9 +163,15 @@ export type FakeCloudStore = {
   peerResults: Map<string, PeerResultOut[]>;
   /** 呼び鈴で鳴らした記録。実物は WebSocket の知らせ（{ t: 'peer', kind, id }）を送るので、試験は何を誰に鳴らしたかをここで見る。 */
   peerRings: { to: string; kind: PeerBellKind; id: string }[];
-  /** 外のできごとの受け箱（実物の event_inboxes）。dropped は上限で捨てた荷物の数。 */
+  /**
+   * 外のできごとの受け箱（実物の event_inboxes）。
+   * dropped は上限で捨てた荷物の数。
+   */
   inboxes: Map<string, FakeInbox>;
-  /** 預かっている荷物（実物の event_parcels）。届いた順。 */
+  /**
+   * 預かっている荷物（実物の event_parcels）。
+   * 届いた順。
+   */
   parcels: FakeParcel[];
   now: () => number;
 };
@@ -824,7 +830,11 @@ export class FakeWireClient implements WireCloudClient {
     if (this.store.workerCompat < EVENT_INBOX_MIN_WORKER_COMPAT) throw new CloudError(404, errorBody('not found'));
   }
 
-  /** POST /inboxes。受け箱を作り、ID を返す。公開鍵の形は実物と同じく、raw の 32 バイトの base64url（43 字）。 */
+  /**
+   * POST /inboxes。
+   * 受け箱を作り、ID を返す。
+   * 公開鍵の形は実物と同じく、raw の 32 バイトの base64url（43 字）。
+   */
   async createInbox(publicKey: string): Promise<EventInboxCreated> {
     this.guard('createInbox', publicKey);
     this.inboxRoute();
@@ -834,7 +844,11 @@ export class FakeWireClient implements WireCloudClient {
     return { inboxId: id };
   }
 
-  /** DELETE /inboxes/:id。自分の受け箱だけを、預かっている荷物ごと消す。ほかの PC の分と無い ID は、実物は 404 で、HttpCloudClient はそれを成功として返す。 */
+  /**
+   * DELETE /inboxes/:id。
+   * 自分の受け箱だけを、預かっている荷物ごと消す。
+   * ほかの PC の分と無い ID は、実物は 404 で、HttpCloudClient はそれを成功として返す。
+   */
   async deleteInbox(inboxId: string): Promise<void> {
     this.guard('deleteInbox', inboxId);
     this.inboxRoute();
@@ -844,7 +858,11 @@ export class FakeWireClient implements WireCloudClient {
     this.store.parcels = this.store.parcels.filter((p) => p.inboxId !== inboxId);
   }
 
-  /** GET /inboxes/pending。自分の受け箱の荷物を古い順に EVENT_INBOX_PULL_PAGE 通。dropped は 1 以上の受け箱だけ。 */
+  /**
+   * GET /inboxes/pending。
+   * 自分の受け箱の荷物を古い順に EVENT_INBOX_PULL_PAGE 通。
+   * dropped は 1 以上の受け箱だけ。
+   */
   async pendingParcels(): Promise<EventInboxPending> {
     this.guard('pendingParcels');
     this.inboxRoute();
@@ -854,7 +872,10 @@ export class FakeWireClient implements WireCloudClient {
     return { items, dropped };
   }
 
-  /** POST /inboxes/ack。自分の受け箱の荷物だけを消し、自分の受け箱の dropped を全部 0 に戻す。 */
+  /**
+   * POST /inboxes/ack。
+   * 自分の受け箱の荷物だけを消し、自分の受け箱の dropped を全部 0 に戻す。
+   */
   async ackParcels(ids: string[]): Promise<void> {
     this.guard('ackParcels', ids);
     this.inboxRoute();
@@ -867,7 +888,8 @@ export class FakeWireClient implements WireCloudClient {
 
   /**
    * 外から webhook が届いた真似（試験の口で、WireCloudClient には無い）。
-   * 受け箱が無ければ false（実物は 404）。EVENT_INBOX_PENDING_MAX を越えたら荷物を置かず dropped を 1 増やす。
+   * 受け箱が無ければ false（実物は 404）。
+   * EVENT_INBOX_PENDING_MAX を越えたら荷物を置かず dropped を 1 増やす。
    * 置いたら、宛先の PC に呼び鈴（kind は event、id は受け箱の ID）を鳴らした記録を残す。
    */
   postParcel(inboxId: string, sealed: string): boolean {

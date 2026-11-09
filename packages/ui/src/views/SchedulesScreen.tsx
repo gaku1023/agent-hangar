@@ -178,12 +178,19 @@ function ScheduleRowView(props: SchedulesProps & { row: ScheduleRow; open: boole
   );
 }
 
-/** イベントを読み直す間隔。サーバに押し出す道が無いので、画面を開いている間だけ、この間隔で読む。 */
+/**
+ * イベントを読み直す間隔。
+ * サーバに押し出す道が無いので、画面を開いている間だけ、この間隔で読む。
+ */
 const EVENTS_POLL_MS = 15_000;
 const KINDS = ['time', 'github', 'hook'] as const;
 type Kind = (typeof KINDS)[number];
 
-/** 作成の入口。イベントが使えるときは、先に種類のカード（時刻、GitHub、webhook）を選ぶ。時刻は今までの予定のフォームのまま。 */
+/**
+ * 作成の入口。
+ * イベントが使えるときは、先に種類のカード（時刻、GitHub、webhook）を選ぶ。
+ * 時刻は今までの予定のフォームのまま。
+ */
 function CreateFlow(props: SchedulesProps & { onClose: () => void }) {
   const t = useT();
   const [kind, setKind] = useState<Kind>('time');
@@ -210,7 +217,8 @@ export function SchedulesScreen(props: SchedulesProps) {
   const [creating, setCreating] = useState(false);
   const flip = useFlip(props.rows.map((r) => r.id));
   const ev = props.events;
-  // イベントは開いたときに読み、開いている間は一定の間隔で読み直す。使えない PC では読みに行かない。
+  // イベントは開いたときに読み、開いている間は一定の間隔で読み直す。
+  // 使えない PC では読みに行かない。
   const available = ev !== null;
   useEffect(() => {
     if (!available) return;
@@ -219,9 +227,11 @@ export function SchedulesScreen(props: SchedulesProps) {
     return () => clearInterval(id);
   }, [available, emit]);
   const eventCount = ev ? ev.drafts.length + ev.claims.length + ev.rows.length : 0;
-  // 節は、行か失敗の一文があるときだけ出す。時刻の見出しは、イベントの節と並ぶときだけ出す。
+  // 節は、行か失敗の一文があるときだけ出す。
+  // 時刻の見出しは、イベントの節と並ぶときだけ出す。
   const showEvents = ev !== null && (eventCount > 0 || ev.error !== null);
-  // イベントの節が出るとき（行か失敗の一文があるとき）は、空の案内で隠さない。予定も行も無いまま読み込みが失敗した一文を出すため。
+  // イベントの節が出るとき（行か失敗の一文があるとき）は、空の案内で隠さない。
+  // 予定も行も無いまま読み込みが失敗した一文を出すため。
   const empty = props.rows.length === 0 && eventCount === 0 && !showEvents;
   return (
     <div className="screen schedules-screen">

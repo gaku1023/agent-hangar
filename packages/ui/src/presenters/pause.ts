@@ -11,7 +11,8 @@ export type PauseChoice = { key: 'none' | 'today' | 'tomorrow' | 'monday' | 'nex
 /**
  * Paused の入力。draft は理由の欄の下書き、candidateNote は提案から開いたときの Claude の根拠（変えたかを見るのに使う）。
  * today は暦の欄の下限で、initialReturnOn は開いたときに選んでおく日である（null は日付なし）。
- * wake は起こす条件（#563、A4）。クラウドを設定していなければ null で、画面は条件の欄を出さない。
+ * wake は起こす条件（#563、A4）。
+ * クラウドを設定していなければ null で、画面は条件の欄を出さない。
  * suggested は提案の wake_on、repo と pr は自分で選ぶときの下書き（会話の PR から読む）である。
  * initialReturnTime は時刻の欄に入れておく時刻（HH:MM）で、無ければ空（その日のうち）。candidateReturnTime は提案の時刻で、変えたかを見るのに使う。
  */
@@ -36,7 +37,10 @@ export function pauseChoices(now: number, t: Translate): PauseChoice[] {
   ];
 }
 
-/** 会話の PR の URL（https://github.com/owner/repo/pull/N）から repo と番号を読む。読めなければ空と null。 */
+/**
+ * 会話の PR の URL（https://github.com/owner/repo/pull/N）から repo と番号を読む。
+ * 読めなければ空と null。
+ */
 function prefillOf(s: SessionDto): { repo: string; pr: number | null } {
   const m = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/pull\/(\d+)(?:[/?#].*)?$/.exec(s.stats?.prUrl ?? '');
   return m ? { repo: m[1]!, pr: Number(m[2]) } : { repo: '', pr: null };

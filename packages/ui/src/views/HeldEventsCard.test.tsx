@@ -56,7 +56,8 @@ describe('溜まったイベントの札', () => {
     const { onAction } = mount(props({ heldEvents: card() }));
     expect(screen.queryByText('octo/demo #7')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '選ぶ' }));
-    // 結び付けごとに畳んだ群。群の見出しに名前と件数、選びは「最新のみ / すべて / 実行しない」。
+    // 結び付けごとに畳んだ群。
+    // 群の見出しに名前と件数、選びは「最新のみ / すべて / 実行しない」。
     const g1 = screen.getByRole('group', { name: 'octo/demo #7' });
     expect(within(g1).getByText('3')).toBeInTheDocument();
     expect(within(g1).getByRole('button', { name: '最新のみ' })).toHaveAttribute('aria-pressed', 'true');

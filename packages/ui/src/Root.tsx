@@ -135,7 +135,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     };
   }, [props.api, rt]);
 
-  // 予定の画面の webhook の URL と repo の状態。URL は秘密を含むので、ストアを通さず画面の部品へ直に返す。
+  // 予定の画面の webhook の URL と repo の状態。
+  // URL は秘密を含むので、ストアを通さず画面の部品へ直に返す。
   const eventHookApi = useMemo<EventHookApi>(() => {
     const api = props.api ?? apiFromRuntime(rt);
     return {

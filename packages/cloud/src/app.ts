@@ -21,7 +21,8 @@ import { VERSION } from './util.ts';
 /**
  * 記録に残す経路から、資格になる ID を伏せる。
  * 受け箱の URL（/hooks/<受け箱の ID>）は、知っているだけで荷物を置ける資格なので、記録に残さない。
- * 管理の口（/inboxes/<受け箱の ID>）も同じ ID を運ぶ。/inboxes/pending と /inboxes/ack は ID ではないのでそのまま残す。
+ * 管理の口（/inboxes/<受け箱の ID>）も同じ ID を運ぶ。
+ * /inboxes/pending と /inboxes/ack は ID ではないのでそのまま残す。
  */
 export function redactedPath(pathname: string): string {
   return pathname.replace(/^\/hooks\/[^/]+/, '/hooks/:id').replace(/^\/inboxes\/(?!pending$|ack$)[^/]+/, '/inboxes/:id');
@@ -76,9 +77,12 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
   app.route('/launches', peerApp);
   // PC から PC への会話の問い合わせと画像（互換の版 11）。PC の端末トークンが要る（上の一覧）。D1 には書かない。
   app.route('/peer', peerAskApp);
-  // 受け箱（互換の版 12）。管理の口（/inboxes）は PC の端末トークンが要る（上の一覧）。
+  // 受け箱（互換の版 12）。
+  // 管理の口（/inboxes）は PC の端末トークンが要る（上の一覧）。
   app.route('/inboxes', inboxApp);
-  // 外のサービスが webhook を置く口。端末トークンも互換の版の見出しも求めない（compat.ts が通す）。受け箱の ID が資格である。
+  // 外のサービスが webhook を置く口。
+  // 端末トークンも互換の版の見出しも求めない（compat.ts が通す）。
+  // 受け箱の ID が資格である。
   app.route('/hooks', hooksApp);
 
   // 使用量と費用。トークンの secret が無ければ外へ出ずに configured: false を返す。D1 には書かない。

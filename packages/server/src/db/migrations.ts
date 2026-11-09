@@ -801,10 +801,13 @@ alter table peer_outbox add column op text not null default 'launch';
 `;
 
 /**
- * 版 55。外のできごとで動く結び付け（#563）。手元だけの表で、同期には載らない。
+ * 版 55。
+ * 外のできごとで動く結び付け（#563）。
+ * 手元だけの表で、同期には載らない。
  * event_bindings の inbox_private_key と hook_secret は秘密で、DTO にも同期にもログにも出さない。
  * event_deliveries は、GitHub の x-github-delivery を結び付けごとに覚え、再送された荷物を二度動かさないための表である。
- * session_prs は、会話が持つ PR の印である。state が active のものだけが、レビューの宛先になる。
+ * session_prs は、会話が持つ PR の印である。
+ * state が active のものだけが、レビューの宛先になる。
  * session_states.candidate_wake_on は、Paused の提案に添えた起こす条件（WakeOn の JSON）である。
  */
 const V55_EVENT_BINDINGS_SQL = `
@@ -857,10 +860,13 @@ alter table session_states add column candidate_wake_on text;
 `;
 
 /**
- * 版 56。GitHub の webhook と Worker の受け箱の後片付けの預かり（#563）。手元だけの表で、同期には載らない。
+ * 版 56。
+ * GitHub の webhook と Worker の受け箱の後片付けの預かり（#563）。
+ * 手元だけの表で、同期には載らない。
  * 受け箱を使う最後の結び付けが消えたとき、その受け箱（と GitHub の webhook）を外す仕事をここに預ける。
  * 外すのに失敗しても、結び付けの行はもう無いので、この行が次の試しの手がかりになる。
- * 秘密の値は持たない。外すのに要るのは、受け箱の ID と webhook の ID だけである。
+ * 秘密の値は持たない。
+ * 外すのに要るのは、受け箱の ID と webhook の ID だけである。
  */
 const V56_EVENT_HOOK_ORPHANS_SQL = `
 create table event_hook_orphans (

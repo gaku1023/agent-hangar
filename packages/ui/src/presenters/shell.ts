@@ -82,7 +82,10 @@ const peerInOf = (store: Store, id: string, t: Translate): { peerIn?: PeerOrigin
 export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; aside: boolean; reason: StopReason | null; waited: string | null; current: boolean; menu: SessionMenuProps;
   /** 未読の数（notify_user で知らせた数）。無いか、設定 unreadBadge が切なら 0。 */
   unread?: number;
-  /** できごとで Paused から起こしたばかりの会話。真の行は、Active に入るときに 1 度だけ光る（#563 の E4、mediator/wakeGlow.ts）。 */
+  /**
+   * できごとで Paused から起こしたばかりの会話。
+   * 真の行は、Active に入るときに 1 度だけ光る（#563 の E4、mediator/wakeGlow.ts）。
+   */
   wake?: true;
   /** ほかの PC から来た文の預かりと、渡した直後の札（presenters/peerOrigin.ts）。無ければ null か無し。 */
   peerIn?: PeerOriginProps | null;
@@ -102,7 +105,10 @@ export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; a
   nest?: { open: boolean; dots: NestDot[] } };
 /** 「実行中」のグループ。key はプロジェクトの id で、未分類は空の文字列。waiting は入力待ちの行の数（畳んだ見出しに出す）。 */
 export type SideLiveGroup = { key: string; name: string; open: boolean; waiting: number; rows: SideLiveRow[] };
-/** 起こした印を使う長さ。行が出ないまま残った印で、あとの普通の再開が光らないようにする。 */
+/**
+ * 起こした印を使う長さ。
+ * 行が出ないまま残った印で、あとの普通の再開が光らないようにする。
+ */
 const WAKE_GLOW_MS = 60_000;
 const wokenFresh = (state: State, id: string, now: number): boolean => state.wakeGlow.some((g) => g.id === id && now - g.at < WAKE_GLOW_MS);
 

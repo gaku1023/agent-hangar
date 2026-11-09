@@ -491,7 +491,8 @@ describe('予定の画面のイベント', () => {
   it('rev は読み直しと操作が済んだときに進み、始めたときには進めない（repo の札が取り直す合図）', async () => {
     const r = await runRow({ type: 'events.load' }, apiWith());
     expect(r.store.eventTrigger.rev).toBe(r.during.eventTrigger.rev + 1);
-    // 一覧が同じままの読み直しでは、Store も rev も動かさない。変わったときだけ進む。
+    // 一覧が同じままの読み直しでは、Store も rev も動かさない。
+    // 変わったときだけ進む。
     const again = await runRow({ type: 'events.load' }, apiWith(), r.store);
     expect(again.store).toBe(r.store);
     const changed = await runRow({ type: 'events.load' }, apiWith({ eventBindings: vi.fn(async () => ({ bindings: [] })) }), r.store);

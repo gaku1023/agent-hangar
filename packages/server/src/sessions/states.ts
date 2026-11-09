@@ -24,7 +24,10 @@ type StateRow = {
   session_id: string;
   status: SessionStatus | null; note: string | null; return_on: string | null; return_time: string | null; set_by: StateSetBy | null; set_at: number | null;
   candidate_status: 'paused' | 'done' | null; candidate_note: string | null; candidate_return_on: string | null; candidate_return_time: string | null; candidate_source: CandidateSource | null; candidate_at: number | null;
-  /** Paused の提案に添えた起こす条件（版 55、WakeOn の JSON）。提案と一緒に消える。 */
+  /**
+   * Paused の提案に添えた起こす条件（版 55、WakeOn の JSON）。
+   * 提案と一緒に消える。
+   */
   candidate_wake_on: string | null;
   rejected_at: number | null;
   /** 利用者が移した先（版 25）。null なら cwd からの自動の振り分けに従う。状態の書き込みでは触らない（sessions/move.ts）。 */

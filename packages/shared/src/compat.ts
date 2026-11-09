@@ -114,7 +114,8 @@ export const PEER_CHAT_MIN_WORKER_COMPAT = 11;
 
 /**
  * 受け箱の口（/inboxes、POST /hooks/:inboxId）を持つ Worker の版。
- * 版 11 までの Worker はこの口を 404 で返す。端末は、Worker が名乗る版がこの値に届くまで、イベントの種類を出さない。
+ * 版 11 までの Worker はこの口を 404 で返す。
+ * 端末は、Worker が名乗る版がこの値に届くまで、イベントの種類を出さない。
  * 端末に求める下限（MIN_DEVICE_COMPAT）は上げない。
  */
 export const EVENT_INBOX_MIN_WORKER_COMPAT = 12;

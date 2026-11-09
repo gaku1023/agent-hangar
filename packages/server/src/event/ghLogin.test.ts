@@ -7,7 +7,8 @@ import { ghLoginResolver } from './ghLogin.ts';
 
 const ok = (stdout: string): Captured => ({ code: 0, stdout, stderr: '' });
 
-// findTool が見つける、中身の無い gh を置く。呼ぶのは差し替えた capture で、これは実行しない。
+// findTool が見つける、中身の無い gh を置く。
+// 呼ぶのは差し替えた capture で、これは実行しない。
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-gh-'));
 fs.writeFileSync(path.join(dir, process.platform === 'win32' ? 'gh.exe' : 'gh'), '', { mode: 0o755 });
 const env: NodeJS.ProcessEnv = { ...process.env, PATH: dir, Path: dir };

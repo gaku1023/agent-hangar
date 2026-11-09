@@ -1,7 +1,10 @@
-// 予定の画面のイベントの節（#563）を撮るための頁。`npm run dev -w @agent-hangar/ui` のあと /preview/schedules.html
-// 本番の bundle には入らない。値はすべて作り物である。
+// 予定の画面のイベントの節（#563）を撮るための頁。
+// `npm run dev -w @agent-hangar/ui` のあと /preview/schedules.html
+// 本番の bundle には入らない。
+// 値はすべて作り物である。
 // ?case=list（既定。承認待ちと行）|new（作成の入口で GitHub を選んだ形）|hook（webhook を選んだ形）|steps（最初の結び付けの手順が進む形）|none（Worker の版が足りない）
-// ?open=行の指示の一部&click=押すボタンの名前（コンマ区切り）で、行を開いて URL の表示や作り直しの確かめまで進める。例：?open=デプロイ&click=表示,作り直す
+// ?open=行の指示の一部&click=押すボタンの名前（コンマ区切り）で、行を開いて URL の表示や作り直しの確かめまで進める。
+// 例：?open=デプロイ&click=表示,作り直す
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import '../src/styles/tokens.css';
@@ -40,7 +43,8 @@ const store = {
   eventTrigger: { ...initialStore().eventTrigger, ready: true, bindings, claims: [{ sessionId: 's', repo: 'acme/app', pr: 571, claimedAt: 1, sessionTitle: 'Windows の移植' }] },
 };
 
-// 作り物の webhook の口。repo ごとに札の状態を変え、作り直すたびに別の URL を返す。
+// 作り物の webhook の口。
+// repo ごとに札の状態を変え、作り直すたびに別の URL を返す。
 let generation = 0;
 const hookApi: EventHookApi = {
   hookUrl: async () => `https://hook.example.test/hooks/${['k7Qp2xVd9mZt4Hn8', 'Rr6uY1sEa5Mm3Jc7'][generation % 2]}`,
@@ -64,7 +68,8 @@ const draw = (busy: boolean, done: number) => {
 };
 draw(false, 0);
 
-// 撮るための自動の操作。本番の画面には無い。
+// 撮るための自動の操作。
+// 本番の画面には無い。
 const params = new URLSearchParams(location.search);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const press = async (name: string) => {

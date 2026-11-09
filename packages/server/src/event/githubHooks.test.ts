@@ -9,7 +9,8 @@ import { CloudError } from '../sync/client.ts';
 import { EventHooks } from './githubHooks.ts';
 import { bindingsForInbox, createBinding, deleteBinding, getBindingRow, listHookOrphans, type BindingInput } from './store.ts';
 
-// findTool が見つける、中身の無い gh を置く。呼ぶのは差し替えた capture で、これは実行しない。
+// findTool が見つける、中身の無い gh を置く。
+// 呼ぶのは差し替えた capture で、これは実行しない。
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-gh-hooks-'));
 fs.writeFileSync(path.join(dir, process.platform === 'win32' ? 'gh.exe' : 'gh'), '', { mode: 0o755 });
 const env: NodeJS.ProcessEnv = { ...process.env, PATH: dir, Path: dir };
@@ -23,10 +24,16 @@ type FakeApi = { create: () => Promise<{ inboxId: string }>; remove: (id: string
 type Rig = {
   hooks: EventHooks; db: Db; calls: Call[];
   created: string[]; deleted: string[]; changed: { n: number };
-  /** gh の答えを決める。既定は作成が id 4242、削除が成功。 */
+  /**
+   * gh の答えを決める。
+   * 既定は作成が id 4242、削除が成功。
+   */
   gh: { create: () => Captured; remove: () => Captured };
   api: FakeApi | 'none';
-  /** 今の時刻。進めると、取り直しの間隔が過ぎる。 */
+  /**
+   * 今の時刻。
+   * 進めると、取り直しの間隔が過ぎる。
+   */
   t: number;
   /** 立てると、gh の呼びが開くまで待つ。 */
   gate: Promise<void> | null;
@@ -94,7 +101,8 @@ describe('ensureRepoHook', () => {
     expect(r.created).toHaveLength(1);
     // 結び付けを作る前に、もう一度頼まれても、同じ組を返し、gh も Worker も呼ばない。
     expect(await r.hooks.ensureRepoHook('octo/demo')).toEqual({ status: 'registered', ...first });
-    // 作った後は、結び付けの行から同じ組を引く。大文字小文字は区別しない。
+    // 作った後は、結び付けの行から同じ組を引く。
+    // 大文字小文字は区別しない。
     bind(r, 'octo/demo', first.share);
     expect(await r.hooks.ensureRepoHook('OCTO/Demo')).toEqual({ status: 'registered', ...first });
     expect(r.calls.filter((c) => c.args.includes('POST'))).toHaveLength(1);

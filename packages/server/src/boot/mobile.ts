@@ -111,9 +111,11 @@ export function bootMobile(p: {
   /** 呼び鈴に PC どうしの答えと結果の知らせ（kind は answer か result）が鳴ったとき。呼ぶ側の取得（peer/outbox.ts）が受ける。頼みが来た知らせ（launch）は今の pull で受ける。 */
   onPeer?: (kind: Exclude<PeerBellKind, 'event'>, id: string) => void;
   /**
-   * 外のできごとの受け箱の取り手（event/puller.ts、#563）。呼び鈴の event の知らせで bell、リンクを組んだとき（起動と cloud.json が現れたとき）に start で取りに行く。
+   * 外のできごとの受け箱の取り手（event/puller.ts、#563）。
+   * 呼び鈴の event の知らせで bell、リンクを組んだとき（起動と cloud.json が現れたとき）に start で取りに行く。
    * 結び付けがあって Worker の版が EVENT_INBOX_MIN_WORKER_COMPAT に届くときは、スマホもほかの PC も居なくても呼び鈴を張る。
-   * 省けば、event の知らせを捨てる。取った事実の渡し先は、取り手の onPulled に渡す側（server.ts）で決める。
+   * 省けば、event の知らせを捨てる。
+   * 取った事実の渡し先は、取り手の onPulled に渡す側（server.ts）で決める。
    */
   event?: Pick<EventPuller, 'pull' | 'hasBindings'>;
   /** 別の PC への起動の承認待ちへの答えの口（peer/approvals.ts）。省けば、スマホの答えを断る。 */
@@ -169,10 +171,16 @@ export function bootMobile(p: {
   let phonesAt: number | null = null;
   /** 外していないほかの PC があるか。null は分からない。phones と同じ一覧から読む。 */
   let peers: boolean | null = null;
-  /** 外のできごとの受け箱を最後に取りに行った時刻。呼び鈴がつながらないあいだの見回りの間隔を測る。 */
+  /**
+   * 外のできごとの受け箱を最後に取りに行った時刻。
+   * 呼び鈴がつながらないあいだの見回りの間隔を測る。
+   */
   let eventPulledAt = 0;
   const canPeer = (): boolean => p.sync.canCarryPeer?.() ?? false;
-  /** 外のできごとの受け箱を取りに行く。投げない。 */
+  /**
+   * 外のできごとの受け箱を取りに行く。
+   * 投げない。
+   */
   const pullEvents = (reason: 'bell' | 'start'): void => {
     if (!p.event) return;
     eventPulledAt = now();
@@ -255,7 +263,8 @@ export function bootMobile(p: {
         void p.sync.engine.pullNow().catch((e: unknown) => console.error('[mobile] could not pull after the peer bell', e instanceof Error ? e.constructor.name : typeof e));
       },
       onEvent: () => { pullEvents('bell'); },
-      // つなぎ直したときも取りに行く。つながっていなかった間の荷物には、呼び鈴が鳴らなかった。
+      // つなぎ直したときも取りに行く。
+      // つながっていなかった間の荷物には、呼び鈴が鳴らなかった。
       onOpen: () => { pullEvents('bell'); },
       onAsk: (id, sealed, epoch) => answerAsk({
         phoneKeys: link.phoneKeys,

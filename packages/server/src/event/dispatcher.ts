@@ -18,7 +18,8 @@ import { addEventRun, deleteBinding, expireBindings, failStaleRuns, finishEventR
  *   hook は外の webhook の結び付けに当たる。
  * - repo：GitHub の事実が repo を持たないときは、どの結び付けにも当てない。
  * - pr：結び付けが pr を持つなら、事実の number と同じものだけ。
- * - labels：結び付けが札を持つなら、事実の札のどれかと重なるものだけ。大文字小文字は区別しない。
+ * - labels：結び付けが札を持つなら、事実の札のどれかと重なるものだけ。
+ * 大文字小文字は区別しない。
  *
  * 動き：
  * - 起こす：会話が Paused のときだけ起こし、起こしたら結び付けを消す。
@@ -123,7 +124,10 @@ export class EventDispatcher {
    */
   private readonly units = new Map<string, Unit>();
   private readonly waking = new Set<string>();
-  /** 巡の終わりまで待たせている起こす事実。結び付けごとに最新の 1 件だけを持つ。 */
+  /**
+   * 巡の終わりまで待たせている起こす事実。
+   * 結び付けごとに最新の 1 件だけを持つ。
+   */
   private readonly deferred = new Map<string, { b: BindingRow; facts: EventFacts }>();
   private readonly held = new Map<string, EventFacts[]>();
   private readonly recent = new Map<string, number[]>();
@@ -138,7 +142,10 @@ export class EventDispatcher {
     this.released();
   }
 
-  /** 結び付けを消したあとの webhook の後片付けを頼む。起動のときは、前の回の取り残しも進める。 */
+  /**
+   * 結び付けを消したあとの webhook の後片付けを頼む。
+   * 起動のときは、前の回の取り残しも進める。
+   */
   private released(): void {
     try { this.d.releaseHooks?.(); } catch (e) { this.d.onError?.(e); }
   }
@@ -276,7 +283,8 @@ export class EventDispatcher {
     const { db } = this.d;
     try {
       const sessionId = b.action.sessionId;
-      // 結び付けより後に付いた Paused は、別の理由のもの。この結び付けの役目は、その前の Paused で終わっている。
+      // 結び付けより後に付いた Paused は、別の理由のもの。
+      // この結び付けの役目は、その前の Paused で終わっている。
       const paused = getSessionState(db, sessionId);
       if (paused?.status === 'paused' && paused.setAt !== null && paused.setAt > b.createdAt) {
         deleteBinding(db, b.id, this.d.now());
@@ -373,7 +381,8 @@ export class EventDispatcher {
       this.recent.set(b.id, [...list, now]);
       return false;
     }
-    // 止めたら数えを空にする。利用者が再開したときに、同じ 1 時間の数えで、すぐ止め直されないようにする。
+    // 止めたら数えを空にする。
+    // 利用者が再開したときに、同じ 1 時間の数えで、すぐ止め直されないようにする。
     this.recent.delete(b.id);
     updateBinding(this.d.db, b.id, { state: 'held' }, now);
     const runId = addEventRun(this.d.db, { bindingId: b.id, now, result: 'running' });

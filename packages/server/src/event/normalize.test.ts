@@ -119,7 +119,8 @@ describe('verifyGithubSignature', () => {
     expect(verifyGithubSignature('s3cret', body, 'sha256=abcd')).toBe(false);
     expect(verifyGithubSignature('s3cret', body, `sha256=${'z'.repeat(64)}`)).toBe(false);
     expect(verifyGithubSignature('', body, sign('', body))).toBe(false);
-    // 接頭辞は小文字の sha256= だけ。16 進の部分は大文字でもよい。
+    // 接頭辞は小文字の sha256= だけ。
+    // 16 進の部分は大文字でもよい。
     expect(verifyGithubSignature('s3cret', body, sign('s3cret', body).replace('sha256=', 'SHA256='))).toBe(false);
     const good = sign('s3cret', body);
     expect(verifyGithubSignature('s3cret', body, `sha256=${good.slice(7).toUpperCase()}`)).toBe(true);

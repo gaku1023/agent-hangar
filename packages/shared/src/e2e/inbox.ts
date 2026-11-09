@@ -23,10 +23,16 @@ export const INBOX_INFO = 'hangar-inbox-v1';
 /** 封の文字列の頭の版。 */
 export const INBOX_SEAL_VERSION = '1';
 
-/** 荷物に残す見出し（小文字）。これ以外の見出しは封じない。 */
+/**
+ * 荷物に残す見出し（小文字）。
+ * これ以外の見出しは封じない。
+ */
 export const INBOX_HEADER_NAMES = ['x-github-event', 'x-github-delivery', 'x-hub-signature-256', 'content-type'] as const;
 
-/** 受け箱に届いた荷物。receivedAt は Worker が受けた時刻（ミリ秒）、body は届いた本文そのもの。 */
+/**
+ * 受け箱に届いた荷物。
+ * receivedAt は Worker が受けた時刻（ミリ秒）、body は届いた本文そのもの。
+ */
 export type InboxParcel = { receivedAt: number; headers: Record<string, string>; body: string };
 
 const PUB_LEN = 32;
@@ -55,13 +61,19 @@ async function publicOf(priv: string): Promise<Uint8Array> {
   return fromBase64UrlLen(jwk.x ?? '', PUB_LEN, '受け箱の公開鍵');
 }
 
-/** 受け箱の鍵の対を作る。どちらも raw の 32 バイトの base64url。 */
+/**
+ * 受け箱の鍵の対を作る。
+ * どちらも raw の 32 バイトの base64url。
+ */
 export async function generateInboxKeyPair(): Promise<{ publicKey: string; privateKey: string }> {
   const { pub, priv } = await generateKeyPair();
   return { publicKey: pub, privateKey: priv };
 }
 
-/** 荷物を受け箱の公開鍵に封じる。見出しは小文字にし、INBOX_HEADER_NAMES の 4 つだけを残す。 */
+/**
+ * 荷物を受け箱の公開鍵に封じる。
+ * 見出しは小文字にし、INBOX_HEADER_NAMES の 4 つだけを残す。
+ */
 export async function sealToInbox(publicKey: string, inboxId: string, value: InboxParcel): Promise<string> {
   const inboxPub = fromBase64UrlLen(publicKey, PUB_LEN, '受け箱の公開鍵');
   const eph = (await globalThis.crypto.subtle.generateKey({ name: 'X25519' }, false, ['deriveBits'])) as CryptoKeyPair;
@@ -72,7 +84,10 @@ export async function sealToInbox(publicKey: string, inboxId: string, value: Inb
   return `${INBOX_SEAL_VERSION}.${toBase64Url(concatBytes(ephPub, sealed))}`;
 }
 
-/** 受け箱の秘密鍵で荷物を開く。鍵、受け箱、中身、形のどれが違っても E2eOpenError を投げる。 */
+/**
+ * 受け箱の秘密鍵で荷物を開く。
+ * 鍵、受け箱、中身、形のどれが違っても E2eOpenError を投げる。
+ */
 export async function openFromInbox(privateKey: string, inboxId: string, sealed: string): Promise<InboxParcel> {
   if (typeof sealed !== 'string') throw new E2eOpenError();
   const dot = sealed.indexOf('.');

@@ -146,7 +146,8 @@ describe('propose_session_status with wake_on', () => {
 
   it('ignores a wake_on left by an older PC when a later suggestion does not carry it', () => {
     propose();
-    // 古い版の PC が、あとの提案の行を candidate_wake_on を知らないまま書き戻す。条件は前の提案のまま残り、candidate_at だけが進む。
+    // 古い版の PC が、あとの提案の行を candidate_wake_on を知らないまま書き戻す。
+    // 条件は前の提案のまま残り、candidate_at だけが進む。
     db.prepare('update session_states set candidate_at = candidate_at + 5 where session_id = ?').run(alphaId);
     expect(getSessionState(db, alphaId)!.candidate).not.toBeNull();
     expect(getSessionState(db, alphaId)!.candidate!.wakeOn).toBeUndefined();
@@ -164,7 +165,8 @@ describe('propose_session_status with wake_on', () => {
 
 describe('what the tools may return', () => {
   it('mcp responses never include a hook url or secret', () => {
-    // 結び付けは受け箱と秘密を持っている（承認済みの GitHub と外の webhook）。道具の応答にはどれも出ない。
+    // 結び付けは受け箱と秘密を持っている（承認済みの GitHub と外の webhook）。
+    // 道具の応答にはどれも出ない。
     createBinding(db, { inboxId: 'inbox-real-id', inboxPublicKey: 'public-key', inboxPrivateKey: 'private-key', webhookId: 42, hookSecret: 'hook-signing-secret', source: { ...github, when: ['ci_done'] }, action: { kind: 'send_pr_owner' }, prompt: 'p', state: 'active' }, 1);
     createBinding(db, { inboxId: 'hook-inbox-real-id', inboxPublicKey: 'public-key', inboxPrivateKey: 'private-key', source: { kind: 'hook' }, action: { kind: 'send_pr_owner' }, prompt: 'p', state: 'active' }, 1);
     const out = [

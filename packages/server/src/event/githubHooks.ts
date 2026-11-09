@@ -15,17 +15,22 @@ import { addHookOrphan, bindingsForInbox, bindingsForRepo, dropHookOrphan, getBi
  * 外の webhook の結び付けは、結び付けごとに自分の受け箱を持つ。
  *
  * 登録（ensureRepoHook）：
- * - その repo の結び付けがすでに webhook を持っていれば、その組をそのまま返す。何も呼ばない。
- * - まだなら、受け箱を作り、gh api で webhook を付ける。秘密の値は 32 バイトの乱数で、gh へは標準入力の JSON で渡す（引数には載せない）。
- * - 404 と 403 は no_admin（その repo の管理者の権限が無い）。そのとき作った受け箱は消す。
- * - 返す組（share）は、呼び手が createBinding にそのまま渡す。結び付けを作れなかったときは、呼び手が removeRepoHookIfUnused を呼ぶ。
+ * - その repo の結び付けがすでに webhook を持っていれば、その組をそのまま返す。
+ * 何も呼ばない。
+ * - まだなら、受け箱を作り、gh api で webhook を付ける。
+ * 秘密の値は 32 バイトの乱数で、gh へは標準入力の JSON で渡す（引数には載せない）。
+ * - 404 と 403 は no_admin（その repo の管理者の権限が無い）。
+ * そのとき作った受け箱は消す。
+ * - 返す組（share）は、呼び手が createBinding にそのまま渡す。
+ * 結び付けを作れなかったときは、呼び手が removeRepoHookIfUnused を呼ぶ。
  *   結び付けを作るまでの組はメモリに持ち、removeRepoHookIfUnused が外す。
  *
  * 解除：
  * 受け箱を使う最後の結び付けが消えると、store が後片付けの預かり（event_hook_orphans）に 1 行を残す。
  * 結び付けの行はもう無いので、webhook の ID と受け箱の ID はこの預かりから引く。
  * removeRepoHookIfUnused（repo ごと）と sweep（全部）が、webhook を外し、受け箱を消し、預かりを消す。
- * 404 は成功とみなす。403（もう管理者でない）は webhook を外せないので諦め、受け箱だけ消す。
+ * 404 は成功とみなす。
+ * 403（もう管理者でない）は webhook を外せないので諦め、受け箱だけ消す。
  * それ以外の失敗（gh が無い、ネットワーク、クラウド未設定）では預かりを残し、次の sweep が続きをする。
  * どちらも投げない。
  *
@@ -37,7 +42,10 @@ const EVENTS = ['check_suite', 'pull_request', 'pull_request_review', 'pull_requ
 
 type Capture = (file: string, args: string[], o: CaptureOptions) => Promise<Captured>;
 
-/** 結び付けが分け合う組。BindingInput へそのまま渡せる形である。 */
+/**
+ * 結び付けが分け合う組。
+ * BindingInput へそのまま渡せる形である。
+ */
 export type RepoShare = Required<Pick<BindingInput, 'inboxId' | 'inboxPublicKey' | 'inboxPrivateKey' | 'webhookId' | 'hookSecret'>>;
 
 export type EnsureRepoHookResult =
@@ -49,14 +57,27 @@ export type HookInboxResult = { status: 'ready' } | { status: 'failed'; message:
 
 export type EventHooksDeps = {
   db: Db;
-  /** 今の受け箱の口。同期が組み直されると別のものになるので、毎回引く。使えないとき（クラウド未設定、口の無い client）は null。 */
+  /**
+   * 今の受け箱の口。
+   * 同期が組み直されると別のものになるので、毎回引く。
+   * 使えないとき（クラウド未設定、口の無い client）は null。
+   */
   api: () => Pick<InboxApi, 'createInbox' | 'deleteInbox'> | null;
-  /** Worker の URL。無ければ null。 */
+  /**
+   * Worker の URL。
+   * 無ければ null。
+   */
   baseUrl: () => string | null;
-  /** 受け箱を作ったか消した。スマホの呼び鈴を、受け箱だけを使う利用者にも開けるために知らせる。 */
+  /**
+   * 受け箱を作ったか消した。
+   * スマホの呼び鈴を、受け箱だけを使う利用者にも開けるために知らせる。
+   */
   onInboxChanged?: () => void;
   env?: NodeJS.ProcessEnv;
-  /** gh を探す口。試験が差し替える（既定は findTool で、PATH のほかに既知の置き場も見るので、環境に gh があると見つかる）。 */
+  /**
+   * gh を探す口。
+   * 試験が差し替える（既定は findTool で、PATH のほかに既知の置き場も見るので、環境に gh があると見つかる）。
+   */
   findGh?: (env: NodeJS.ProcessEnv) => string | null;
   capture?: Capture;
   now?: () => number;
@@ -64,20 +85,35 @@ export type EventHooksDeps = {
 
 type GhResult = { ok: true; stdout: string } | { ok: false; status: number | null; code: number | null; limited: boolean };
 
-/** 取り直しの間隔。1 分から倍にし、1 時間で止める。 */
+/**
+ * 取り直しの間隔。
+ * 1 分から倍にし、1 時間で止める。
+ */
 const RETRY_FIRST_MS = 60_000;
 const RETRY_MAX_MS = 60 * 60_000;
 
-/** gh の失敗の文。標準エラーは載せない（URL や秘密を含み得る）。 */
+/**
+ * gh の失敗の文。
+ * 標準エラーは載せない（URL や秘密を含み得る）。
+ */
 const ghMessage = (r: Extract<GhResult, { ok: false }>): string => (r.limited ? 'rate limited' : r.status !== null ? `gh failed (HTTP ${r.status})` : r.code === null ? 'gh could not run' : `gh exited with ${r.code}`);
 
 export class EventHooks {
-  /** 結び付けをまだ作っていない webhook の組。repo は小文字で引く。 */
+  /**
+   * 結び付けをまだ作っていない webhook の組。
+   * repo は小文字で引く。
+   */
   private readonly pending = new Map<string, RepoShare>();
   private chain: Promise<unknown> = Promise.resolve();
-  /** 順番待ちで、まだ始まっていない sweep。あれば新しく積まずに、これを返す。 */
+  /**
+   * 順番待ちで、まだ始まっていない sweep。
+   * あれば新しく積まずに、これを返す。
+   */
   private sweepWaiting: Promise<void> | null = null;
-  /** 外しきれなかった預かりの、次に試してよい時刻と、今の間隔。メモリだけで持ち、再起動で忘れる。 */
+  /**
+   * 外しきれなかった預かりの、次に試してよい時刻と、今の間隔。
+   * メモリだけで持ち、再起動で忘れる。
+   */
   private readonly retry = new Map<string, { at: number; wait: number }>();
 
   constructor(private readonly d: EventHooksDeps) {}
@@ -86,7 +122,10 @@ export class EventHooks {
   private ghPath(): string | null { return (this.d.findGh ?? ((e) => findTool('gh', e)))(this.env); }
   private now(): number { return (this.d.now ?? Date.now)(); }
 
-  /** 登録と解除を 1 本ずつ流す。同じ repo の登録が二重にならず、解除と登録が行き違わない。 */
+  /**
+   * 登録と解除を 1 本ずつ流す。
+   * 同じ repo の登録が二重にならず、解除と登録が行き違わない。
+   */
   private locked<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.chain.then(fn);
     this.chain = run.catch(() => undefined);
@@ -102,11 +141,15 @@ export class EventHooks {
       return { ok: false, status: null, code: null, limited: false };
     }
     if (r.code === 0) return { ok: true, stdout: r.stdout };
-    // 403 は権限が無いときと、呼びすぎのときの両方で返る。見分けて、呼びすぎは取り直せる失敗にする。
+    // 403 は権限が無いときと、呼びすぎのときの両方で返る。
+    // 見分けて、呼びすぎは取り直せる失敗にする。
     return { ok: false, status: statusOf(r), code: r.code, limited: /rate limit/i.test(r.stderr) || /rate limit/i.test(r.stdout) };
   }
 
-  /** その repo の webhook を付ける。すでにあれば同じ組を返す。 */
+  /**
+   * その repo の webhook を付ける。
+   * すでにあれば同じ組を返す。
+   */
   ensureRepoHook(repo: string): Promise<EnsureRepoHookResult> {
     return this.locked(() => this.register(repo)).catch(() => ({ status: 'failed', message: 'unexpected failure' }) as const);
   }
@@ -142,7 +185,9 @@ export class EventHooks {
     const r = await this.gh(bin, ['api', '--method', 'POST', `repos/${repo}/hooks`, '--input', '-'], JSON.stringify(spec));
     const hookId = r.ok ? idOf(r.stdout) : null;
     if (!r.ok || hookId === null) {
-      // 付けられなかった。作った受け箱は要らないので消す。消せなければ預かりに残し、次の sweep で消す。
+      // 付けられなかった。
+      // 作った受け箱は要らないので消す。
+      // 消せなければ預かりに残し、次の sweep で消す。
       addHookOrphan(this.d.db, { inboxId, repo, webhookId: null }, this.now());
       await this.drain([{ inboxId, repo, webhookId: null }]);
       if (r.ok) return { status: 'failed', message: 'gh printed no hook id' };
@@ -155,7 +200,8 @@ export class EventHooks {
 
   /**
    * その repo の結び付けが 1 つも無ければ、webhook と受け箱を外す。
-   * 結び付けを消したあとと、結び付けを作れなかったときに呼ぶ。まだ使っているなら何もしない。
+   * 結び付けを消したあとと、結び付けを作れなかったときに呼ぶ。
+   * まだ使っているなら何もしない。
    * 結び付けを消した分の預かりは store が残しているので、ここでは預かりを片付ける。
    */
   removeRepoHookIfUnused(repo: string): Promise<void> {
@@ -171,7 +217,10 @@ export class EventHooks {
     }).catch(() => undefined);
   }
 
-  /** 預かっている後片付けを全部進める。結び付けを消したあとと、起動のときに呼ぶ。 */
+  /**
+   * 預かっている後片付けを全部進める。
+   * 結び付けを消したあとと、起動のときに呼ぶ。
+   */
   sweep(): Promise<void> {
     if (this.sweepWaiting) return this.sweepWaiting;
     const p = this.locked(async () => {
@@ -182,7 +231,10 @@ export class EventHooks {
     return p;
   }
 
-  /** 預かりを 1 件ずつ片付ける。外しきれたものだけ預かりから消す。 */
+  /**
+   * 預かりを 1 件ずつ片付ける。
+   * 外しきれたものだけ預かりから消す。
+   */
   private async drain(orphans: HookOrphan[]): Promise<void> {
     for (const o of orphans) {
       try {
@@ -197,7 +249,10 @@ export class EventHooks {
           const bin = this.ghPath();
           if (!bin) { this.later(o.inboxId); continue; }
           const r = await this.gh(bin, ['api', '--method', 'DELETE', `repos/${o.repo}/hooks/${o.webhookId}`]);
-          // 404 はもう無い。403 は外す権限が無く、待っても変わらない。受け箱だけ消す。呼びすぎの 403 は、あとで取り直す。
+          // 404 はもう無い。
+          // 403 は外す権限が無く、待っても変わらない。
+          // 受け箱だけ消す。
+          // 呼びすぎの 403 は、あとで取り直す。
           if (!r.ok && r.status !== 404 && !(r.status === 403 && !r.limited)) { this.later(o.inboxId); continue; }
         }
         const api = this.d.api();
@@ -229,7 +284,10 @@ export class EventHooks {
     }).catch(() => ({ status: 'failed', message: 'unexpected failure' }) as const);
   }
 
-  /** 外の webhook の URL を作り直す。新しい受け箱と鍵の対を作り、古い受け箱を消す。 */
+  /**
+   * 外の webhook の URL を作り直す。
+   * 新しい受け箱と鍵の対を作り、古い受け箱を消す。
+   */
   rotateHookInbox(bindingId: string): Promise<HookInboxResult> {
     return this.locked(async () => {
       const row = getBindingRow(this.d.db, bindingId);
@@ -251,7 +309,8 @@ export class EventHooks {
     try {
       setBindingInbox(this.d.db, bindingId, { inboxId, inboxPublicKey: keys.publicKey, inboxPrivateKey: keys.privateKey });
     } catch {
-      // 結び付けが先に消えた。作った受け箱は預かりに回す。
+      // 結び付けが先に消えた。
+      // 作った受け箱は預かりに回す。
       addHookOrphan(this.d.db, { inboxId, repo: null, webhookId: null }, this.now());
       await this.drain([{ inboxId, repo: null, webhookId: null }]);
       return { status: 'failed', message: 'binding is gone' };
@@ -264,7 +323,11 @@ export class EventHooks {
     return { status: 'ready' };
   }
 
-  /** 外の webhook の URL。受け箱がまだ無い、Worker の URL が無い、外の webhook でないときは null。画面の専用の道だけが呼ぶ。 */
+  /**
+   * 外の webhook の URL。
+   * 受け箱がまだ無い、Worker の URL が無い、外の webhook でないときは null。
+   * 画面の専用の道だけが呼ぶ。
+   */
   hookUrlOf(bindingId: string): string | null {
     const row = getBindingRow(this.d.db, bindingId);
     const base = this.d.baseUrl();
@@ -275,7 +338,10 @@ export class EventHooks {
 
 const hookUrl = (base: string, inboxId: string): string => `${base.replace(/\/+$/, '')}/hooks/${encodeURIComponent(inboxId)}`;
 
-/** gh api の失敗の HTTP の状態。標準エラーの `(HTTP 404)` を読み、無ければ標準出力の JSON の status を見る。 */
+/**
+ * gh api の失敗の HTTP の状態。
+ * 標準エラーの `(HTTP 404)` を読み、無ければ標準出力の JSON の status を見る。
+ */
 function statusOf(r: Captured): number | null {
   const m = /HTTP (\d{3})/.exec(r.stderr);
   if (m) return Number(m[1]);

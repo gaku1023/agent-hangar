@@ -112,7 +112,10 @@ export type AppDeps = {
   runs: RunsApi;
   /** 定期の実行（schedule/runner.ts）。画面の「今すぐ実行」が呼ぶ。 */
   schedules: { runNow(id: string): 'started' | 'busy' | 'missing'; deliver(sessionId: string, text: string): Promise<{ sessionId: string } | 'busy'> };
-  /** 外のできごとで動く結び付け（#563）。結び付けを作る流れと、閉じている間に溜まったできごとを流す部品。 */
+  /**
+   * 外のできごとで動く結び付け（#563）。
+   * 結び付けを作る流れと、閉じている間に溜まったできごとを流す部品。
+   */
   events: { bindings: Pick<EventBindingService, 'list' | 'create' | 'update' | 'remove' | 'rotate' | 'hookUrl' | 'repoHookState' | 'createWake' | 'keepWakes'>; dispatcher: Pick<EventDispatcher, 'heldForUser' | 'runHeld'> };
   external: ExternalApi;
   /** git の表示。渡さなければ、ここで作る（試験は実物の git を使う）。組み立てる側は、本文の伸びで読み直す同じものを渡す。 */

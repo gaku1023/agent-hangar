@@ -9,7 +9,8 @@ import { Grow, RunDots, RunList } from './schedulesParts.tsx';
 
 /**
  * 行の中の、外の webhook の URL のカード（D1）と、GitHub の repo の札（D3）。
- * 承認待ちの外の webhook はまだ URL が無いので何も出さない。承認待ちの GitHub は、付けられなかった理由の札と、承認をやり直す再試行を持つ。
+ * 承認待ちの外の webhook はまだ URL が無いので何も出さない。
+ * 承認待ちの GitHub は、付けられなかった理由の札と、承認をやり直す再試行を持つ。
  * 承認済みの行の失敗には再試行を出さない（サーバに付け直す道が、承認待ちの承認にしか無い）。
  */
 export function EventRowExtra(props: { row: EventRow; rev: number }) {
@@ -41,7 +42,10 @@ function EventChips(props: { row: EventRow; detail: boolean }) {
   );
 }
 
-/** 承認待ちの下書き（MCP から）。閉じずに、指示と元と動きと起動設定を全部見せてから、承認か却下を選ばせる。 */
+/**
+ * 承認待ちの下書き（MCP から）。
+ * 閉じずに、指示と元と動きと起動設定を全部見せてから、承認か却下を選ばせる。
+ */
 function DraftRow(props: { row: EventRow; rev: number }) {
   const emit = useEmit();
   const t = useT();
@@ -65,7 +69,10 @@ function DraftRow(props: { row: EventRow; rev: number }) {
   );
 }
 
-/** 担当する PR の印の下書き（MCP の claim_pr）。承認するまで、レビューやコメントの宛先には使われない。 */
+/**
+ * 担当する PR の印の下書き（MCP の claim_pr）。
+ * 承認するまで、レビューやコメントの宛先には使われない。
+ */
 function ClaimRowView(props: { row: PrClaimRow }) {
   const emit = useEmit();
   const t = useT();
@@ -111,7 +118,8 @@ function EventRowView(props: { row: EventRow; rev: number; open: boolean; onOpen
         {() => (
           <div className="sch-detail">
             <EventChips row={r} detail />
-            {/* 止めた理由が履歴の行に同じ文で出ているときは、二度言わない。履歴から消えたあとだけ、この一文で伝える。 */}
+            {/* 止めた理由が履歴の行に同じ文で出ているときは、二度言わない。 */}
+            {/* 履歴から消えたあとだけ、この一文で伝える。 */}
             {r.note && !r.runs.some((x) => x.label === r.note) && <div className="faint">{r.note}</div>}
             <div className="sch-full">{r.prompt}</div>
             <RunList runs={r.runs} />
@@ -130,7 +138,10 @@ function EventRowView(props: { row: EventRow; rev: number; open: boolean; onOpen
   );
 }
 
-/** イベントの節の中身。承認待ち（下書きと PR の印）を頭に、そのあとに有効な行。 */
+/**
+ * イベントの節の中身。
+ * 承認待ち（下書きと PR の印）を頭に、そのあとに有効な行。
+ */
 export function EventList(props: { drafts: EventRow[]; claims: PrClaimRow[]; rows: EventRow[]; rev: number; open: string | null; onOpen: (id: string | null) => void }) {
   return (
     <ul className="sch-evlist">

@@ -270,7 +270,8 @@ describe('merged wake that fails', () => {
     await d.handle([ev(b.id)]);
     await d.idle();
     expect(getBinding(db, b.id)!.runs[0]).toMatchObject({ result: 'skipped' });
-    // PR がまだ開いているので、次の事実を待つ。知らせない。
+    // PR がまだ開いているので、次の事実を待つ。
+    // 知らせない。
     expect(notices).toEqual([]);
   });
 });

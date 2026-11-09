@@ -180,7 +180,8 @@ export type TestWorld = {
 };
 
 /**
- * 外のできごと（#563）の webhook の偽物。GitHub にも Worker にも触らず、呼び出しを記録する。
+ * 外のできごと（#563）の webhook の偽物。
+ * GitHub にも Worker にも触らず、呼び出しを記録する。
  * 外の webhook の受け箱は、本物と同じく結び付けの行に書き込む。
  */
 export function fakeEventHooks(db: Db) {
@@ -256,7 +257,8 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     hub: publisher,
     runs, external, usage, memos, summary,
     schedules: { runNow: () => 'missing', deliver: async (id) => ({ sessionId: id }) },
-    // 外のできごと（#563）。試験は本物の結び付けの流れに、付けない偽の webhook を渡す。
+    // 外のできごと（#563）。
+    // 試験は本物の結び付けの流れに、付けない偽の webhook を渡す。
     events: noEvents(db, () => settings),
     // 本物の削除に、偽のゴミ箱（ワークスペースの .test-trash へ移すだけ）を渡す。
     trash: new SessionTrash({

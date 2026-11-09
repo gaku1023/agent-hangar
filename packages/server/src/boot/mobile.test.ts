@@ -680,7 +680,10 @@ describe('bootMobile', () => {
     });
 
     describe('外のできごとの受け箱（#563）', () => {
-      /** 取り手の偽物。結び付けの有無と、呼ばれた理由を持つ。 */
+      /**
+       * 取り手の偽物。
+       * 結び付けの有無と、呼ばれた理由を持つ。
+       */
       const fakePuller = (bindings: boolean) => {
         const reasons: string[] = [];
         return { reasons, puller: { pull: vi.fn(async (reason: 'bell' | 'start') => { reasons.push(reason); return []; }), hasBindings: () => bindings } };

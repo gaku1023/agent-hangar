@@ -92,22 +92,33 @@ function providerCall(id: string, op: OpencodeProviderOp, run: (api: ApiClient) 
   });
 }
 
-/** webhook を付けられなかった理由の文。権限なしは画面が辞書で言い、それ以外はサーバの文をそのまま出す。 */
+/**
+ * webhook を付けられなかった理由の文。
+ * 権限なしは画面が辞書で言い、それ以外はサーバの文をそのまま出す。
+ */
 const hookNotice = (h: EventHookFailureDto): EventNotice => (h.status === 'no_admin' ? { kind: 'no_admin' } : h.message ? { kind: 'text', text: h.message } : { kind: 'hook_failed' });
 const failureOf = (r: unknown): EventHookFailureDto | null => {
   const h = (r as { hook?: { status?: string } }).hook;
   return h && h.status !== 'registered' ? (h as EventHookFailureDto) : null;
 };
-/** quiet でないときは rev を進める。before（まだ何も済んでいない）だけ quiet にする。 */
+/**
+ * quiet でないときは rev を進める。
+ * before（まだ何も済んでいない）だけ quiet にする。
+ */
 const withEventTrigger = (store: Store, f: (e: EventTriggerState) => Partial<EventTriggerState>, quiet = false): Store => ({ ...store, eventTrigger: { ...store.eventTrigger, ...f(store.eventTrigger), rev: store.eventTrigger.rev + (quiet ? 0 : 1) } });
 const heldSnapshot = (api: ApiClient) => api.heldEvents().then((r) => r.held);
 const eventSnapshot = (api: ApiClient) => Promise.all([api.eventBindings(), api.prClaims()]).then(([b, c]) => ({ ready: true, bindings: b.bindings, claims: c.claims }));
 /**
- * 書き込みが済んだあとの読み直し。読み直しだけが失敗しても、書き込みは済んでいるので null を返して前の一覧を残す。
+ * 書き込みが済んだあとの読み直し。
+ * 読み直しだけが失敗しても、書き込みは済んでいるので null を返して前の一覧を残す。
  * 失敗にすると、利用者が同じ操作を打ち直して二重に作る（次の間隔の読み直しが追いつく）。
  */
 const reloadAfterWrite = (api: ApiClient) => eventSnapshot(api).catch(() => null);
-/** 一覧に影響する操作の共通の形。済んだら読み直す。失敗は、トーストにせず一覧の頭の一文にする。 */
+/**
+ * 一覧に影響する操作の共通の形。
+ * 済んだら読み直す。
+ * 失敗は、トーストにせず一覧の頭の一文にする。
+ */
 const eventOp = (run: (api: ApiClient) => Promise<unknown>): ApiCall => call(
   (api) => run(api).then((r) => reloadAfterWrite(api).then((snap) => ({ snap, failure: failureOf(r) }))),
   {
@@ -147,7 +158,8 @@ export const actionTable = {
   'session.tryNow': (i) => call((api) => api.tryPausedSession(i.id)),
   'schedule.delete': (i) => call((api) => api.deleteSchedule(i.id)),
   'schedule.run': (i) => call((api) => api.runSchedule(i.id)),
-  // イベント（#563）。読み直しの失敗は、間隔で何度も来るので黙って前の一覧を残す。
+  // イベント（#563）。
+  // 読み直しの失敗は、間隔で何度も来るので黙って前の一覧を残す。
   // 読み直しで一覧が変わっていなければ、Store も rev も動かさない（15 秒ごとの読み直しで repo の札が取り直さないように）。
   'events.load': () => call(eventSnapshot, {
     apply: (store, snap) => {
@@ -167,13 +179,17 @@ export const actionTable = {
       failed: (store, e) => withEventTrigger(store, (cur) => ({ form: { ...cur.form, busy: false, error: { kind: 'text', text: errText(e) } } })),
     },
   ),
-  // 閉じている間に溜まったイベントの札（#563）。イベントを使えない PC では読まない。読み直しの失敗は黙って前の山を残す。
+  // 閉じている間に溜まったイベントの札（#563）。
+  // イベントを使えない PC では読まない。
+  // 読み直しの失敗は黙って前の山を残す。
   'heldEvents.load': (_i, store) => (eventsAvailable(store.sync) ? call(heldSnapshot, {
     apply: (cur, held) => (JSON.stringify(cur.heldEvents) === JSON.stringify(held) ? cur : { ...cur, heldEvents: held }),
     failed: (cur) => cur,
   }) : null),
-  // 選びを送る。送れなかったときは、ふつうどおりエラーのトーストにして札は残す（サーバは 409 で選びを断ることがある）。
-  // 送れたら山を読み直す。読み直しだけが失敗しても送った分は済んでいるので、選んだ結び付けの分を手元の山から外す。
+  // 選びを送る。
+  // 送れなかったときは、ふつうどおりエラーのトーストにして札は残す（サーバは 409 で選びを断ることがある）。
+  // 送れたら山を読み直す。
+  // 読み直しだけが失敗しても送った分は済んでいるので、選んだ結び付けの分を手元の山から外す。
   'heldEvents.run': (i) => call(
     (api) => api.runHeldEvents(i.choices).then(() => api.heldEvents().then((r) => r.held, () => null)),
     { apply: (cur, held) => ({ ...cur, heldEvents: held ?? cur.heldEvents.filter((h) => !i.choices.some((c) => c.bindingId === h.bindingId)) }) },

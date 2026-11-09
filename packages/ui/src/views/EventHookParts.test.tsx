@@ -30,7 +30,10 @@ const fakeHookApi = (o: Partial<EventHookApi> = {}): EventHookApi => ({
 });
 
 type Over = { hookApi?: EventHookApi | null; busy?: boolean; done?: number; rev?: number; copied?: { text: string; n: number } | null };
-/** 画面を描く。rerender で busy や done を変えて、送信中や成功のあとの形を作る。 */
+/**
+ * 画面を描く。
+ * rerender で busy や done を変えて、送信中や成功のあとの形を作る。
+ */
 function mount(bindings: EventBindingDto[], first: Over = {}) {
   const onAction = vi.fn();
   const api = first.hookApi === undefined ? fakeHookApi() : first.hookApi;

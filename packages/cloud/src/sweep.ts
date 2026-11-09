@@ -170,7 +170,8 @@ async function sweepPhoneImages(env: Env, now: number): Promise<{ deleted: strin
 
 /**
  * 引き取られないまま EVENT_INBOX_KEEP_MS（7 日）を過ぎた受け箱の荷物を消す（互換の版 12）。
- * 受け箱そのものは消さない（消すのは PC の DELETE /inboxes/:id だけである）。索引 event_parcels_at で引くので、表を走査しない。
+ * 受け箱そのものは消さない（消すのは PC の DELETE /inboxes/:id だけである）。
+ * 索引 event_parcels_at で引くので、表を走査しない。
  */
 export async function sweepEventParcels(env: Env, now: number): Promise<void> {
   await env.DB.prepare('delete from event_parcels where received_at < ?').bind(now - EVENT_INBOX_KEEP_MS).run();

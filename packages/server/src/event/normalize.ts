@@ -3,7 +3,8 @@ import type { EventFacts } from '@agent-hangar/shared';
 
 /**
  * GitHub の webhook の荷物を、結び付けに当てる事実（EventFacts）に直す（#563）。
- * 署名の確かめもここに置く。荷物を開くのは puller.ts で、ここは文字列と JSON だけを見る。
+ * 署名の確かめもここに置く。
+ * 荷物を開くのは puller.ts で、ここは文字列と JSON だけを見る。
  */
 
 type Obj = Record<string, unknown>;
@@ -11,11 +12,15 @@ const obj = (v: unknown): Obj | null => (typeof v === 'object' && v !== null && 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined);
 const int = (v: unknown): number | undefined => (typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? v : undefined);
 
-/** `sha256=<hex 64 字>` の形。接頭辞は小文字の sha256= だけを受け、16 進の部分は大小どちらでもよい。 */
+/**
+ * `sha256=<hex 64 字>` の形。
+ * 接頭辞は小文字の sha256= だけを受け、16 進の部分は大小どちらでもよい。
+ */
 const SIGNATURE = /^sha256=([0-9a-fA-F]{64})$/;
 
 /**
- * x-hub-signature-256 を確かめる。本文（届いたままの文字列）の HMAC-SHA256 を、定数時間で比べる。
+ * x-hub-signature-256 を確かめる。
+ * 本文（届いたままの文字列）の HMAC-SHA256 を、定数時間で比べる。
  * 見出しが無い、形が違う、秘密の値が空のときは偽。
  */
 export function verifyGithubSignature(secret: string, body: string, header: string | undefined): boolean {
@@ -29,7 +34,10 @@ export function verifyGithubSignature(secret: string, body: string, header: stri
 
 type Outcome = NonNullable<EventFacts['outcome']>;
 
-/** スイートの結論を、成否の 3 通りに寄せる。知らない結論（action_required、startup_failure など）は失敗として数える。 */
+/**
+ * スイートの結論を、成否の 3 通りに寄せる。
+ * 知らない結論（action_required、startup_failure など）は失敗として数える。
+ */
 export function outcomeOf(conclusion: unknown): Outcome {
   switch (conclusion) {
     case 'success': case 'neutral': case 'skipped': return 'success';
@@ -38,7 +46,10 @@ export function outcomeOf(conclusion: unknown): Outcome {
   }
 }
 
-/** check_suite の completed が指す repo、head の SHA、スイートの ID。形が違えば null。 */
+/**
+ * check_suite の completed が指す repo、head の SHA、スイートの ID。
+ * 形が違えば null。
+ */
 export function checkSuiteRef(payload: unknown): { repo: string; sha: string; suiteId: number } | null {
   const p = obj(payload);
   const repo = str(obj(p?.repository)?.full_name);
@@ -49,11 +60,17 @@ export function checkSuiteRef(payload: unknown): { repo: string; sha: string; su
 }
 
 export type NormalizeOptions = {
-  /** Worker が荷物を受けた時刻。既定は今。 */
+  /**
+   * Worker が荷物を受けた時刻。
+   * 既定は今。
+   */
   receivedAt?: number;
 };
 
-/** payload の labels（{ name } の並び）から名前を取る。無い、空のときは undefined。 */
+/**
+ * payload の labels（{ name } の並び）から名前を取る。
+ * 無い、空のときは undefined。
+ */
 function labelsOf(v: unknown): string[] | undefined {
   if (!Array.isArray(v)) return undefined;
   const names = v.map((l) => str(obj(l)?.name)).filter((n): n is string => n !== undefined);
@@ -70,12 +87,16 @@ function facts(f: Omit<EventFacts, 'source'>): EventFacts {
 }
 
 /**
- * GitHub の荷物（見出しの x-github-event と本文の JSON）を事実に直す。扱わない種類と動きは null。
+ * GitHub の荷物（見出しの x-github-event と本文の JSON）を事実に直す。
+ * 扱わない種類と動きは null。
  * 形の違う本文は投げずに null にする。
- * check_suite の completed は、そのスイート 1 つの成否の ci_done にする。同じ head の残りのスイートを見て 1 件にまとめるのは puller の仕事で、GitHub への問い合わせが要るのでここでは行わない。
+ * check_suite の completed は、そのスイート 1 つの成否の ci_done にする。
+ * 同じ head の残りのスイートを見て 1 件にまとめるのは puller の仕事で、GitHub への問い合わせが要るのでここでは行わない。
  * labels は issue か PR の札の名前で、結び付けの札の絞り込みに使う。
- * 本文（body）は切らずに入れる。渡すかどうかと長さは、指示を組む側（Task 5）が決める。
- * me は今の PC の gh のユーザー名。誰の書き込みかは actor に入れて、自分かどうかの判断は指示を組む側に任せる。
+ * 本文（body）は切らずに入れる。
+ * 渡すかどうかと長さは、指示を組む側（Task 5）が決める。
+ * me は今の PC の gh のユーザー名。
+ * 誰の書き込みかは actor に入れて、自分かどうかの判断は指示を組む側に任せる。
  */
 export function normalizeGithub(eventName: string, payload: unknown, _me: string, opts: NormalizeOptions = {}): EventFacts | null {
   const p = obj(payload);

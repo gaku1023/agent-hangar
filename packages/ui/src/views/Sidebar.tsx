@@ -198,7 +198,9 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
   const rowIds = shapedLive.ids;
   const at = sort ? sortAt(sort, rowIds) : null;
   // できごとで起こした会話の行は、Active に入るときに 1 度だけ地を光らせる（#563 の E4）。
-  // 光らせたら印を下げる（wakeGlow.seen）。この一覧に行が無い印は、別の一覧が使うので触らない。印の集まりが変わったときだけ動く。
+  // 光らせたら印を下げる（wakeGlow.seen）。
+  // この一覧に行が無い印は、別の一覧が使うので触らない。
+  // 印の集まりが変わったときだけ動く。
   const wokeIds = props.rows.filter((r) => r.wake).map((r) => r.id).join('\n');
   useEffect(() => {
     for (const id of wokeIds === '' ? [] : wokeIds.split('\n')) {

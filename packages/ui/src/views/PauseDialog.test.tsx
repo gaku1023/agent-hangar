@@ -118,7 +118,8 @@ describe('PauseDialog（B1）', () => {
     expect(onAction).toHaveBeenCalledTimes(2);
   });
 
-  // #563 A4：提案は文のカードに「外す」。自分で選ぶときは点線の「＋」から。
+  // #563 A4：提案は文のカードに「外す」。
+  // 自分で選ぶときは点線の「＋」から。
   describe('起こす条件（A4）', () => {
     const SUGGESTED = { repo: 'acme/app', pr: 567, when: 'ci_done' } as const;
     const wake = (over: Partial<NonNullable<PauseProps['wake']>> = {}) => ({ suggested: SUGGESTED, repo: 'acme/app', pr: 567, ...over });

@@ -14,68 +14,110 @@ import { addEventRun, bindingsForInbox, finishEventRun, hasDelivery, markDeliver
  *
  * 取った荷物は 1 通ずつ次の順で扱う。
  * 1. 受け箱に結び付けが無ければ、何もせず ack する。
- * 2. 受け箱の秘密鍵で開く。開けなければ unparsable として扱う。
- * 3. GitHub の受け箱は、結び付けごとに hook の秘密の値で署名を確かめる。合わなければ signature として扱う。
- *    続けて x-github-delivery で再送を弾く（結び付けごとに覚えている配送の ID と比べる）。配送の ID が無い荷物は、再送と見分けられないので unparsable にする。
+ * 2. 受け箱の秘密鍵で開く。
+ * 開けなければ unparsable として扱う。
+ * 3. GitHub の受け箱は、結び付けごとに hook の秘密の値で署名を確かめる。
+ * 合わなければ signature として扱う。
+ * 続けて x-github-delivery で再送を弾く（結び付けごとに覚えている配送の ID と比べる）。
+ * 配送の ID が無い荷物は、再送と見分けられないので unparsable にする。
  * 4. 外の webhook の受け箱には署名も配送の ID も無いので、確かめずに本文をそのまま事実にする。
- * 5. 受け入れた荷物の本文を JSON として読み、normalizeGithub で事実にする。扱わない種類は何も出さない。
+ * 5. 受け入れた荷物の本文を JSON として読み、normalizeGithub で事実にする。
+ * 扱わない種類は何も出さない。
  *    check_suite の completed は、同じ head の SHA のスイートを GitHub に問い合わせ（gh api）、全部終わったときだけ 1 件の ci_done にする。
- * 断った荷物も ack する。ack しないと、同じ荷物を何度も取り直すことになる。
+ * 断った荷物も ack する。
+ * ack しないと、同じ荷物を何度も取り直すことになる。
  *
- * 取り方は、空のページが返るまで「取る、渡す、ack する」を繰り返す。1 ページは EVENT_INBOX_PULL_PAGE 通で、ack は 1 回に EVENT_INBOX_ACK_MAX 通までである。
+ * 取り方は、空のページが返るまで「取る、渡す、ack する」を繰り返す。
+ * 1 ページは EVENT_INBOX_PULL_PAGE 通で、ack は 1 回に EVENT_INBOX_ACK_MAX 通までである。
  * 取りこぼさないため、覚えること（配送の ID、CI の済みの印、履歴の記録、溢れた数）は、そのページを onPulled が受け取ってから行う。
- * onPulled が投げたら、そのページは ack せず、覚えもせずに巡を止める。荷物は Worker に残り、次の取得でやり直す。
- * 断った荷物の履歴は、1 巡のあいだ結び付けごとに数え、巡の終わりに `rejected:<理由> x<数>` の 1 件にまとめる。偽の荷物が履歴の 5 件を押し出さないため。
- * 溢れた数（dropped）は、その受け箱の結び付けの履歴に `dropped:<数>` で残す。ack で Worker の数が 0 に戻る。
- * 同時に 2 つは走らせない。走っている間に頼まれた分は、まとめて 1 巡だけ後に回す。
- * 受け箱の ID と秘密鍵はログに出さない。ログに出すのは例外の名前だけである。
- * pull は投げない。失敗したら、そこまでに出したものを返して巡を閉じる。
+ * onPulled が投げたら、そのページは ack せず、覚えもせずに巡を止める。
+ * 荷物は Worker に残り、次の取得でやり直す。
+ * 断った荷物の履歴は、1 巡のあいだ結び付けごとに数え、巡の終わりに `rejected:<理由> x<数>` の 1 件にまとめる。
+ * 偽の荷物が履歴の 5 件を押し出さないため。
+ * 溢れた数（dropped）は、その受け箱の結び付けの履歴に `dropped:<数>` で残す。
+ * ack で Worker の数が 0 に戻る。
+ * 同時に 2 つは走らせない。
+ * 走っている間に頼まれた分は、まとめて 1 巡だけ後に回す。
+ * 受け箱の ID と秘密鍵はログに出さない。
+ * ログに出すのは例外の名前だけである。
+ * pull は投げない。
+ * 失敗したら、そこまでに出したものを返して巡を閉じる。
  */
 
-/** 結び付けへ渡すもの。rejected は、荷物を受け入れなかった印（履歴にも残してある）。 */
+/**
+ * 結び付けへ渡すもの。
+ * rejected は、荷物を受け入れなかった印（履歴にも残してある）。
+ */
 export type PulledEvent =
   | { bindingId: string; facts: EventFacts; atStart: boolean }
   | { bindingId: string; rejected: 'signature' | 'unparsable' };
 
-/** GitHub の API を gh で呼ぶ口。apiPath は `repos/...` の形で、JSON を読んで返す。投げたら、呼び手は代わりの道に回る。 */
+/**
+ * GitHub の API を gh で呼ぶ口。
+ * apiPath は `repos/...` の形で、JSON を読んで返す。
+ * 投げたら、呼び手は代わりの道に回る。
+ */
 export type GhApi = (apiPath: string) => Promise<unknown>;
 
 export type EventPullerDeps = {
   db: Db;
-  /** 今の受け箱の口。同期が組み直されると別のものになるので、毎回引く。使えないとき（クラウド未設定、口の無い client）は null。 */
+  /**
+   * 今の受け箱の口。
+   * 同期が組み直されると別のものになるので、毎回引く。
+   * 使えないとき（クラウド未設定、口の無い client）は null。
+   */
   api: () => Pick<InboxApi, 'pendingParcels' | 'ackParcels'> | null;
   /**
-   * 1 ページ分の結果を渡す。ack の前に呼ぶ。投げたら、そのページは ack も記録もせずに巡を止める。
+   * 1 ページ分の結果を渡す。
+   * ack の前に呼ぶ。
+   * 投げたら、そのページは ack も記録もせずに巡を止める。
    * 事実を結び付けに当てて動かす側（Task 5 の dispatcher）が受ける。
    */
   onPulled?: (events: PulledEvent[]) => void;
   /**
-   * 巡が終わった。最後のページを渡した後に 1 度呼ぶ（途中で失敗しても呼ぶ）。
+   * 巡が終わった。
+   * 最後のページを渡した後に 1 度呼ぶ（途中で失敗しても呼ぶ）。
    * 山が 1 ページを越えるとき、起こす側が最新の事実を選び直すために使う。
    */
   onPassEnd?: () => void;
   /** 今の PC の gh のユーザー名。 */
   me?: () => string;
   now?: () => number;
-  /** 失敗の知らせ。既定は例外の名前だけを console.error に出す。 */
+  /**
+   * 失敗の知らせ。
+   * 既定は例外の名前だけを console.error に出す。
+   */
   onError?: (e: unknown) => void;
-  /** CI の全スイートを見るための GitHub の口。既定は gh を探して呼ぶ。試験が差し替える。 */
+  /**
+   * CI の全スイートを見るための GitHub の口。
+   * 既定は gh を探して呼ぶ。
+   * 試験が差し替える。
+   */
   ghApi?: GhApi;
 };
 
 type Reason = 'bell' | 'start';
 
-/** 履歴の error 欄に入れる、機械が読む印。画面の文言は、画面を作る側が鍵から引く。 */
+/**
+ * 履歴の error 欄に入れる、機械が読む印。
+ * 画面の文言は、画面を作る側が鍵から引く。
+ */
 const REJECTED = (why: 'signature' | 'unparsable', n: number): string => `rejected:${why} x${n}`;
 const DROPPED = (count: number): string => `dropped:${count}`;
 
-/** gh api の失敗。メッセージに受け箱や秘密は入れない。 */
+/**
+ * gh api の失敗。
+ * メッセージに受け箱や秘密は入れない。
+ */
 class GhError extends Error {}
 
 const GH_TIMEOUT_MS = 20_000;
 type Capture = (file: string, args: string[], o: CaptureOptions) => Promise<Captured>;
 
-/** gh を呼ぶたびに探して、API を叩く。見つからない、失敗した、JSON でないときは投げる。 */
+/**
+ * gh を呼ぶたびに探して、API を叩く。
+ * 見つからない、失敗した、JSON でないときは投げる。
+ */
 export function ghApiRunner(env: NodeJS.ProcessEnv = process.env, capture: Capture = captureOutput): GhApi {
   return async (apiPath) => {
     const bin = findTool('gh', env);
@@ -103,7 +145,8 @@ type Verdict = { kind: 'pending' } | { kind: 'none' } | { kind: 'unknown' } | { 
 /**
  * head の SHA のスイートの一覧から、全部終わったかと成否を決める。
  * 一度も動かなかったスイート（latest_check_runs_count が 0）は数えない。
- * 終わっていないものが 1 つでもあれば pending。結論が stale のものは数えず、残りが無ければ none。
+ * 終わっていないものが 1 つでもあれば pending。
+ * 結論が stale のものは数えず、残りが無ければ none。
  * 失敗（failure、timed_out、知らない結論）が 1 つでもあれば failure、無くて cancelled があれば cancelled、それ以外は success（neutral と skipped は success）。
  * fingerprint は、数えたスイートの (id, conclusion, updated_at) を並べ順によらず固めたもの。
  * 一覧の形が読めないとき、動いたスイートが 1 つも無いときは unknown で、呼び手は完了したスイート 1 つの結果に戻る。
@@ -121,14 +164,18 @@ export function judgeSuites(listing: unknown): Verdict {
     const o = outcomeOf(s.conclusion);
     if (WORST[o] > WORST[outcome]) outcome = o;
   }
-  // 同じ結果をもう一度出さないための指紋。再実行すると、スイートの updated_at と結論が変わる。
+  // 同じ結果をもう一度出さないための指紋。
+  // 再実行すると、スイートの updated_at と結論が変わる。
   const fingerprint = JSON.stringify(counted.map((s) => [s.id, s.conclusion, s.updated_at]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
   return { kind: 'done', outcome, fingerprint };
 }
 
 /** 1 ページのあいだに集める、渡し終えてから行うこと。 */
 type Page = {
-  /** このページの中で見た配送（結び付け ID と配送の ID）。同じページに再送が並んでも 1 回だけ出す。 */
+  /**
+   * このページの中で見た配送（結び付け ID と配送の ID）。
+   * 同じページに再送が並んでも 1 回だけ出す。
+   */
   delivered: Set<string>;
   /** このページで出した CI の指紋（受け箱、repo、SHA ごと）と、gh を使えず 1 つで出したスイートの印。 */
   ci: Map<string, string>;
@@ -139,18 +186,25 @@ export class EventPuller {
   private current: Promise<PulledEvent[]> | null = null;
   private queued: { atStart: boolean; promise: Promise<PulledEvent[]> } | null = null;
   /**
-   * 出した CI の印。メモリだけで持ち、CI_MEMO_MS で忘れる。
-   * 受け箱、repo、SHA ごとに、最後に出したスイートの指紋を覚える。同じ指紋なら出さない（近くで 2 回完了しても 1 件）。再実行で指紋が変われば、また出す。
+   * 出した CI の印。
+   * メモリだけで持ち、CI_MEMO_MS で忘れる。
+   * 受け箱、repo、SHA ごとに、最後に出したスイートの指紋を覚える。
+   * 同じ指紋なら出さない（近くで 2 回完了しても 1 件）。
+   * 再実行で指紋が変われば、また出す。
    * gh を使えず 1 つで出したときは、受け箱、repo、SHA、スイートの ID ごとに覚える。
    */
   private readonly ciMemo = new Map<string, { fingerprint: string; at: number }>();
-  /** 1 巡のあいだに断った荷物の数（結び付けと理由ごと）。巡の終わりに履歴へ 1 件ずつ書く。 */
+  /**
+   * 1 巡のあいだに断った荷物の数（結び付けと理由ごと）。
+   * 巡の終わりに履歴へ 1 件ずつ書く。
+   */
   private rejected = new Map<string, { binding: BindingRow; why: 'signature' | 'unparsable'; count: number }>();
 
   constructor(private readonly deps: EventPullerDeps) {}
 
   /**
-   * 取りに行く。結果は、この巡で出した事実と断った印の全部（ページごとの分は onPulled にも渡している）。
+   * 取りに行く。
+   * 結果は、この巡で出した事実と断った印の全部（ページごとの分は onPulled にも渡している）。
    * 走っている巡があれば、その後ろに 1 巡だけ足し、同じ頼みはその 1 巡を分け合う。
    * reason が start の頼みが混ざった巡は、事実に atStart を付ける。
    */
@@ -178,14 +232,18 @@ export class EventPuller {
   private now(): number { return (this.deps.now ?? Date.now)(); }
 
   private fail(e: unknown): void {
-    // 版 12 より前の Worker は口を知らず 404 を返す。使えないだけなので、知らせない。
+    // 版 12 より前の Worker は口を知らず 404 を返す。
+    // 使えないだけなので、知らせない。
     if (e instanceof CloudError && e.status === 404) return;
     try {
       (this.deps.onError ?? ((x: unknown) => { console.error('[event] could not pull the inbox', x instanceof Error ? x.constructor.name : typeof x); }))(e);
     } catch { /* 知らせの失敗は捨てる */ }
   }
 
-  /** 結び付けが 1 つも無い PC は、Worker に問い合わせない。呼び鈴を張るかどうかの判断にも使う。 */
+  /**
+   * 結び付けが 1 つも無い PC は、Worker に問い合わせない。
+   * 呼び鈴を張るかどうかの判断にも使う。
+   */
   hasBindings(): boolean {
     return this.deps.db.prepare('select 1 from event_bindings limit 1').get() !== undefined;
   }
@@ -218,7 +276,8 @@ export class EventPuller {
           try {
             this.deps.onPulled?.(events);
           } catch (e) {
-            // 受け取れなかったページは、覚えも ack もしない。次の取得でやり直す。
+            // 受け取れなかったページは、覚えも ack もしない。
+            // 次の取得でやり直す。
             this.fail(e);
             return out;
           }
@@ -260,7 +319,10 @@ export class EventPuller {
     }
   }
 
-  /** 荷物を断る。履歴の数え上げは、ページを渡し終えてから。 */
+  /**
+   * 荷物を断る。
+   * 履歴の数え上げは、ページを渡し終えてから。
+   */
   private reject(b: BindingRow, why: 'signature' | 'unparsable', pg: Page): PulledEvent {
     pg.commits.push(() => {
       const key = `${b.id}|${why}`;
@@ -271,14 +333,18 @@ export class EventPuller {
     return { bindingId: b.id, rejected: why };
   }
 
-  /** 秘密鍵を 1 つずつ試して開く。受け箱の結び付けは同じ鍵の対を持つのが普通で、違っても全部試す。 */
+  /**
+   * 秘密鍵を 1 つずつ試して開く。
+   * 受け箱の結び付けは同じ鍵の対を持つのが普通で、違っても全部試す。
+   */
   private async open(bindings: BindingRow[], item: EventInboxItem): Promise<InboxParcel | null> {
     const keys = [...new Set(bindings.map((b) => b.inboxPrivateKey))];
     for (const key of keys) {
       try {
         return await openFromInbox(key, item.inboxId, item.sealed);
       } catch {
-        // この鍵では開けない。理由は残さない（鍵にも受け箱にも関わる）。
+        // この鍵では開けない。
+        // 理由は残さない（鍵にも受け箱にも関わる）。
       }
     }
     return null;
@@ -307,8 +373,10 @@ export class EventPuller {
     }
     if (signed.length === 0) return out;
 
-    // 配送の ID で再送を弾く。ID の無い荷物は、再送かどうか分からないので受けない。
-    // 覚えるのは、ページを渡し終えてから（commits）。ここでは見るだけにする。
+    // 配送の ID で再送を弾く。
+    // ID の無い荷物は、再送かどうか分からないので受けない。
+    // 覚えるのは、ページを渡し終えてから（commits）。
+    // ここでは見るだけにする。
     const delivery = parcel.headers['x-github-delivery'];
     if (!delivery) {
       for (const b of signed) out.push(this.reject(b, 'unparsable', pg));
@@ -350,7 +418,8 @@ export class EventPuller {
    * 出すのは、数えたスイートの指紋が、(受け箱, repo, SHA) で最後に出したものと違うときだけにする。
    * 近くで 2 回完了しても指紋は同じなので 1 件になり、失敗のあとの再実行は指紋が変わるので、また出る。
    * 印は CI_MEMO_MS のあいだメモリに持ち、渡し終えてから付ける。
-   * gh が無い、失敗した、一覧が読めないときは、完了したスイート 1 つの結果のまま出す。ログに出すのは例外の名前だけ。
+   * gh が無い、失敗した、一覧が読めないときは、完了したスイート 1 つの結果のまま出す。
+   * ログに出すのは例外の名前だけ。
    * そのときは (受け箱, repo, SHA, スイートの ID) ごとに 1 度だけ出す。
    */
   private async settleCi(inboxId: string, facts: EventFacts, payload: unknown, pg: Page): Promise<EventFacts | null> {
@@ -359,7 +428,10 @@ export class EventPuller {
     const key = `${inboxId}|${ref.repo}|${ref.sha}`;
     const now = this.now();
     for (const [k, m] of this.ciMemo) if (now - m.at > CI_MEMO_MS) this.ciMemo.delete(k);
-    /** 指紋が前に出したものと同じ（または同じページで出した）なら、出さない。出すなら、渡し終えてから覚える。 */
+    /**
+     * 指紋が前に出したものと同じ（または同じページで出した）なら、出さない。
+     * 出すなら、渡し終えてから覚える。
+     */
     const emit = (memoKey: string, fingerprint: string, out: EventFacts): EventFacts | null => {
       const last = pg.ci.get(memoKey) ?? this.ciMemo.get(memoKey)?.fingerprint;
       if (last === fingerprint) return null;

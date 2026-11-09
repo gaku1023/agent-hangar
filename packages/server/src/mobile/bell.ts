@@ -48,11 +48,15 @@ export type MobileBellDeps = {
   onPeer?: (kind: Exclude<PeerBellKind, 'event'>, id: string) => void;
   /**
    * `{t:'peer', kind:'event', id}` を受けた（外のできごとの受け箱に荷物が届いた、#563、版 12 の Worker から）。
-   * id は受け箱の ID なので、渡さない。取りに行くのは呼ぶ側（event/puller.ts）で、どの受け箱かは問わず全部を取る。
+   * id は受け箱の ID なので、渡さない。
+   * 取りに行くのは呼ぶ側（event/puller.ts）で、どの受け箱かは問わず全部を取る。
    * 無ければ捨てる（起動のときの取得が拾う）。
    */
   onEvent?: () => void;
-  /** 呼び鈴がつながった（張り直しも含む）。つながっていなかった間に届いた荷物を取りに行くのに使う。 */
+  /**
+   * 呼び鈴がつながった（張り直しも含む）。
+   * つながっていなかった間に届いた荷物を取りに行くのに使う。
+   */
   onOpen?: () => void;
   /** `{t:'ask', id, sealed, epoch}` を受けた。epoch は封じたスマホ用の鍵の世代。封じた答えを返す。開けないものは null で、答えない。 */
   onAsk: (id: string, sealed: string, epoch: number) => Promise<string | null>;

@@ -1,5 +1,7 @@
-// Paused のダイアログ（PauseDialog）の、起こす条件（#563 A4）を撮るための頁。`npm run dev -w @agent-hangar/ui` のあと /preview/pause.html
-// 本番の bundle には入らない。値はすべて作り物である。
+// Paused のダイアログ（PauseDialog）の、起こす条件（#563 A4）を撮るための頁。
+// `npm run dev -w @agent-hangar/ui` のあと /preview/pause.html
+// 本番の bundle には入らない。
+// 値はすべて作り物である。
 // ?case=suggested（既定。提案の文のカード）|empty（点線の「＋」）|picked（「＋」を押した形）|none（クラウド無し）|en
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';

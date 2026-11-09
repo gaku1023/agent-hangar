@@ -5,9 +5,15 @@ import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { useCopy } from './primitives/CommandLine.tsx';
 
-/** 予定の画面の webhook の部品（#563）。外の webhook の URL のカード（D1）と、GitHub の repo の札（D3）と、最初の結び付けの手順（D4）。 */
+/**
+ * 予定の画面の webhook の部品（#563）。
+ * 外の webhook の URL のカード（D1）と、GitHub の repo の札（D3）と、最初の結び付けの手順（D4）。
+ */
 
-/** 隠している間の URL の代わり。長さは本物の URL と関係を持たせない。 */
+/**
+ * 隠している間の URL の代わり。
+ * 長さは本物の URL と関係を持たせない。
+ */
 const MASK = '••••••••••••••••••••';
 /** 新しい URL を光らせておく長さ。 */
 const GLOW_MS = 1800;
@@ -15,8 +21,10 @@ const GLOW_MS = 1800;
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /**
- * 外の webhook の URL のカード。URL は秘密を含むので、表示かコピーを押したときだけ読み、この部品の state にだけ置く。
- * ストアにも UiAction にも通さない（コピーはクリップボードの道だけ）。行を閉じる（この部品が外れる）か、隠すを押すと捨てる。
+ * 外の webhook の URL のカード。
+ * URL は秘密を含むので、表示かコピーを押したときだけ読み、この部品の state にだけ置く。
+ * ストアにも UiAction にも通さない（コピーはクリップボードの道だけ）。
+ * 行を閉じる（この部品が外れる）か、隠すを押すと捨てる。
  */
 export function HookUrlCard(props: { id: string }) {
   const api = useContext(EventHookApiContext);
@@ -43,7 +51,10 @@ export function HookUrlCard(props: { id: string }) {
   }, [url, press]);
   if (!api) return null;
 
-  /** URL を読んで置く。読めなければ理由を出して null。 */
+  /**
+   * URL を読んで置く。
+   * 読めなければ理由を出して null。
+   */
   const load = async (): Promise<string | null> => {
     try {
       const u = await api.hookUrl(props.id);
@@ -104,15 +115,21 @@ export function HookUrlCard(props: { id: string }) {
 
 const CHIP_KEY = { registered: 'schedules.event.hook.registered', no_admin: 'schedules.event.hook.noAccess', failed: 'schedules.event.hook.failed' } as const;
 
-/** repo の webhook の札。権限なしには、必要な権限の吹き出しを付ける。 */
+/**
+ * repo の webhook の札。
+ * 権限なしには、必要な権限の吹き出しを付ける。
+ */
 export function HookChip(props: { status: 'registered' | 'no_admin' | 'failed' }) {
   const t = useT();
   return <span className="sch-hook-chip" data-state={props.status} title={props.status === 'no_admin' ? t('schedules.event.noAdmin') : undefined}>{t(CHIP_KEY[props.status])}</span>;
 }
 
 /**
- * GitHub の repo の札。表示したときと、rev が進むたび（一覧の読み直しや操作が済むたび）に状態を取り直す。
- * 再試行は onRetry を渡された行だけが持つ。失敗の札には決めた一文を添える。none（まだ何も無い）と読めなかったときは何も出さない。
+ * GitHub の repo の札。
+ * 表示したときと、rev が進むたび（一覧の読み直しや操作が済むたび）に状態を取り直す。
+ * 再試行は onRetry を渡された行だけが持つ。
+ * 失敗の札には決めた一文を添える。
+ * none（まだ何も無い）と読めなかったときは何も出さない。
  */
 export function RepoHookChip(props: { repo: string; rev: number; onRetry?: () => void }) {
   const api = useContext(EventHookApiContext);
@@ -136,7 +153,10 @@ export function RepoHookChip(props: { repo: string; rev: number; onRetry?: () =>
   );
 }
 
-/** 最初の結び付けの手順。送っている間は設定、webhook と進み、済んだら待機に着いて登録済みの札を出す。 */
+/**
+ * 最初の結び付けの手順。
+ * 送っている間は設定、webhook と進み、済んだら待機に着いて登録済みの札を出す。
+ */
 export function HookSteps(props: { stage: 'setup' | 'webhook' | 'settled' }) {
   const t = useT();
   const order = ['setup', 'webhook', 'waiting'] as const;

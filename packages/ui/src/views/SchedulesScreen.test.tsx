@@ -624,7 +624,8 @@ describe('イベントの節（#563）', () => {
     typePrompt();
     expect(screen.getByRole('button', { name: t('schedules.form.create') })).toBeDisabled();
     cleanup();
-    // 前に失敗して閉じたフォームを開き直したとき、古い理由は出さない。送ったあとの理由だけを出す。
+    // 前に失敗して閉じたフォームを開き直したとき、古い理由は出さない。
+    // 送ったあとの理由だけを出す。
     mountEvents([], [], { form: { error: { kind: 'no_admin' } } });
     openNew();
     pickKind('webhook');

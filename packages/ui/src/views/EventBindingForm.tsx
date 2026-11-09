@@ -8,18 +8,32 @@ import { HookSteps } from './HookParts.tsx';
 import { Grow } from './schedulesParts.tsx';
 import { scheduleTargetOf, useLaunchChoice, type LaunchBuilt } from './useLaunchChoice.tsx';
 
-/** 見るできごとの並び。選んだ順ではなく、この順で送る。 */
+/**
+ * 見るできごとの並び。
+ * 選んだ順ではなく、この順で送る。
+ */
 const WHENS: GithubWhen[] = ['ci_done', 'ci_failed', 'review', 'comment', 'merged', 'issue_opened'];
 type Dest = 'send' | 'send_pr_owner' | 'new';
 type Draft = { repo: string; when: GithubWhen[]; pr: string; labels: string; dest: Dest; sessionId: string; prompt: string; passBody: boolean; allow: string };
 
-/** PR の番号。1 から始まる 10 桁までの整数だけ。ほかの綴り（12a、0、空白入り）は「絞り込み無し」にせず、作れない入力にする。 */
+/**
+ * PR の番号。
+ * 1 から始まる 10 桁までの整数だけ。
+ * ほかの綴り（12a、0、空白入り）は「絞り込み無し」にせず、作れない入力にする。
+ */
 const PR_RE = /^[1-9]\d{0,9}$/;
 const LABEL_MAX = 50;
-/** ラベルの欄が正しいか。空の項目（コンマの連続）と 50 字を超える項目があれば誤り。何も書かなければ正しい（絞り込み無し）。 */
+/**
+ * ラベルの欄が正しいか。
+ * 空の項目（コンマの連続）と 50 字を超える項目があれば誤り。
+ * 何も書かなければ正しい（絞り込み無し）。
+ */
 const labelsOk = (s: string): boolean => s.trim() === '' || s.split(/[,、]/).every((x) => x.trim() !== '' && x.trim().length <= LABEL_MAX);
 
-/** 設定から webhook へ進めるまでの時間。サーバは受け箱を作ってから webhook を付けるので、送って少ししたら 2 つ目に進んだことにする。 */
+/**
+ * 設定から webhook へ進めるまでの時間。
+ * サーバは受け箱を作ってから webhook を付けるので、送って少ししたら 2 つ目に進んだことにする。
+ */
 const WEBHOOK_STEP_MS = 1200;
 /** 済んだあと、登録済みの札を見せてからフォームを閉じるまでの時間。 */
 const SETTLE_MS = 900;
@@ -27,7 +41,11 @@ const SETTLE_MS = 900;
 /** コンマ（全角の読点も）で分けて、前後の空白と空を捨てる。 */
 const listOf = (s: string, sep: RegExp): string[] => s.split(sep).map((x) => x.trim()).filter(Boolean);
 
-/** 入力から送る形を組む。足りなければ null で、作成のボタンが押せない。新しい会話は、プロジェクト（かクイックセッション）を選んだときだけ。 */
+/**
+ * 入力から送る形を組む。
+ * 足りなければ null で、作成のボタンが押せない。
+ * 新しい会話は、プロジェクト（かクイックセッション）を選んだときだけ。
+ */
 function inputOf(kind: 'github' | 'hook', d: Draft, built: LaunchBuilt | null, blocked: boolean): EventCreateInput | null {
   if (!d.prompt.trim() || d.prompt.length > SCHEDULE_PROMPT_MAX) return null;
   let action: EventCreateAction;
@@ -52,7 +70,8 @@ function inputOf(kind: 'github' | 'hook', d: Draft, built: LaunchBuilt | null, b
 /**
  * GitHub と外の webhook の結び付けを作るフォーム（#563）。
  * 新しい会話の起動の札は、予定のフォームと同じ部品（useLaunchChoice）で、前回値と下書きは持ち込まない。
- * webhook を付けられなかった理由は、送ったあとにフォームの下の一文に出す。作れたら events.form.done が増えて閉じる。
+ * webhook を付けられなかった理由は、送ったあとにフォームの下の一文に出す。
+ * 作れたら events.form.done が増えて閉じる。
  */
 export function EventBindingForm(props: SchedulesProps & { kind: 'github' | 'hook'; onClose: () => void }) {
   const emit = useEmit();
@@ -66,9 +85,11 @@ export function EventBindingForm(props: SchedulesProps & { kind: 'github' | 'hoo
   const built = d.dest === 'new' ? lc.build() : null;
   const input = inputOf(props.kind, d, built, lc.blocked);
   const bypass = d.dest === 'new' && lc.bypass;
-  // 作れた回数が増えたら閉じる。開いたときの値と比べるので、前に作った分では閉じない。
+  // 作れた回数が増えたら閉じる。
+  // 開いたときの値と比べるので、前に作った分では閉じない。
   const done0 = useRef(form.done);
-  // その repo の最初の結び付けを送ったとき（D4）。送っている間は手順を出し、済んだら札を見せてから閉じる。
+  // その repo の最初の結び付けを送ったとき（D4）。
+  // 送っている間は手順を出し、済んだら札を見せてから閉じる。
   const [firstRepo, setFirstRepo] = useState(false);
   const [settled, setSettled] = useState(false);
   const [stage, setStage] = useState<'setup' | 'webhook'>('setup');

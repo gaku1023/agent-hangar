@@ -8,16 +8,26 @@ import { useT } from './primitives/language.tsx';
 import { collapseOut, fadeIn, growIn, motionOn } from './primitives/motionKit.ts';
 import { usePresence } from './primitives/usePresence.ts';
 
-/** 起こす条件の 4 つ。札の順は w12 のとおり。 */
+/**
+ * 起こす条件の 4 つ。
+ * 札の順は w12 のとおり。
+ */
 const WAKE_WHENS: { when: WakeOn['when']; sentence: 'pause.wake.ciDone' | 'pause.wake.ciFailed' | 'pause.wake.review' | 'pause.wake.merged'; chip: 'pause.wake.when.ciDone' | 'pause.wake.when.ciFailed' | 'pause.wake.when.review' | 'pause.wake.when.merged' }[] = [
   { when: 'ci_done', sentence: 'pause.wake.ciDone', chip: 'pause.wake.when.ciDone' },
   { when: 'ci_failed', sentence: 'pause.wake.ciFailed', chip: 'pause.wake.when.ciFailed' },
   { when: 'review', sentence: 'pause.wake.review', chip: 'pause.wake.when.review' },
   { when: 'merged', sentence: 'pause.wake.merged', chip: 'pause.wake.when.merged' },
 ];
-/** PR の番号（先頭が 0 でない整数）。repo の形は shared の GITHUB_REPO_RE で、サーバと同じ。 */
+/**
+ * PR の番号（先頭が 0 でない整数）。
+ * repo の形は shared の GITHUB_REPO_RE で、サーバと同じ。
+ */
 const PR_RE = /^[1-9]\d{0,9}$/;
-/** 画面で編集中の条件。pr は打ちかけの文字で持つ。picked は自分で選んだ（欄を出す）か、提案のままか。 */
+/**
+ * 画面で編集中の条件。
+ * pr は打ちかけの文字で持つ。
+ * picked は自分で選んだ（欄を出す）か、提案のままか。
+ */
 type WakeDraft = { repo: string; pr: string; when: WakeOn['when']; picked: boolean };
 const wakeOf = (d: WakeDraft | null): WakeOn | null => (d && GITHUB_REPO_RE.test(d.repo.trim()) && PR_RE.test(d.pr.trim()) ? { repo: d.repo.trim(), pr: Number(d.pr.trim()), when: d.when } : null);
 
@@ -26,15 +36,19 @@ const BOLT = (
 );
 
 /**
- * 起こす条件の札（A4）。文の 1 枚に「外す」を添える。自分で選ぶときの repo と PR の欄は、点線の「＋」から出した札にだけ付く。
- * 入るときは高さを伸ばし（growIn）、外すときは畳む（collapseOut）。畳む間は外す前の文を出し続ける。
+ * 起こす条件の札（A4）。
+ * 文の 1 枚に「外す」を添える。
+ * 自分で選ぶときの repo と PR の欄は、点線の「＋」から出した札にだけ付く。
+ * 入るときは高さを伸ばし（growIn）、外すときは畳む（collapseOut）。
+ * 畳む間は外す前の文を出し続ける。
  */
 function WakeCard(props: { draft: WakeDraft | null; t: Translate; onChange: (d: WakeDraft) => void; onRemove: () => void; onFieldKey: (e: KeyboardEvent<HTMLInputElement>) => void }) {
   const { t } = props;
   const last = useRef(props.draft);
   if (props.draft) last.current = props.draft;
   const card = usePresence<HTMLDivElement>(props.draft !== null, (el) => (motionOn(el) ? collapseOut(el) : null));
-  // 開いたときから居る札は動かさない。あとから出たときだけ伸ばす。
+  // 開いたときから居る札は動かさない。
+  // あとから出たときだけ伸ばす。
   const first = useRef(true);
   useLayoutEffect(() => {
     if (first.current) { first.current = false; return; }
@@ -69,7 +83,10 @@ function WakeCard(props: { draft: WakeDraft | null; t: Translate; onChange: (d: 
   );
 }
 
-/** 点線の「＋ イベントで起こす」。札を外したあとに、薄れて戻ってくる（開いたときから居るものは動かさない）。 */
+/**
+ * 点線の「＋ イベントで起こす」。
+ * 札を外したあとに、薄れて戻ってくる（開いたときから居るものは動かさない）。
+ */
 function WakeAdd(props: { label: string; animate: boolean; onAdd: () => void }) {
   const ref = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => { if (props.animate && ref.current) fadeIn(ref.current, '--dur-fast'); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -101,12 +118,15 @@ export function PauseDialog(props: PauseProps) {
   const dated = props.choices.filter((c) => c.key !== 'none');
   const [note, setNote] = useState(props.draft);
   const [time, setTime] = useState(props.initialReturnTime);
-  // 起こす条件（#563）。提案があれば文のカードで見せ、無ければ点線の「＋」から選ぶ。props.wake が null（クラウド無し）なら出さない。
+  // 起こす条件（#563）。
+  // 提案があれば文のカードで見せ、無ければ点線の「＋」から選ぶ。
+  // props.wake が null（クラウド無し）なら出さない。
   const suggested = props.wake?.suggested ?? null;
   const [wake, setWake] = useState<WakeDraft | null>(suggested ? { repo: suggested.repo, pr: String(suggested.pr), when: suggested.when, picked: false } : null);
   const [removed, setRemoved] = useState(false);
   const wakeOn = wakeOf(wake);
-  // 送るのは、画面が見せた結果である。外したなら null、無ければ null（サーバは object のときだけ結び付けを作る）。
+  // 送るのは、画面が見せた結果である。
+  // 外したなら null、無ければ null（サーバは object のときだけ結び付けを作る）。
   const wakeExtra = props.wake ? { wakeOn } : {};
   // 空と、打ちかけで形になっていない時刻は、時刻なしとして送る。
   const returnTime = !none && isReturnTime(time) ? { returnTime: time } : {};
@@ -114,7 +134,8 @@ export function PauseDialog(props: PauseProps) {
   // 字数は文字単位で数える。サーバと同じ数え方にしないと、通るはずの理由が 400 で返る。
   const text = tidy(note);
   const length = Array.from(text).length;
-  // 札があるのに repo と PR の形が違うときは送れない。外せば送れる。
+  // 札があるのに repo と PR の形が違うときは送れない。
+  // 外せば送れる。
   const canSubmit = (none || returnOn !== null) && length <= STATE_NOTE_MAX && (wake === null || wakeOn !== null);
 
   const close = () => emit({ type: 'session.pause.close' });

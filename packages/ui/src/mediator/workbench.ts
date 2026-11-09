@@ -8,7 +8,10 @@ import type { Store } from '../store/store.ts';
 /** Paused の入力をそのセッションへ送ったら閉じる。別のセッションへの操作では閉じない。 */
 const closePause = (state: State, id: string): State => (state.overlay.kind === 'pause' && state.overlay.sessionId === id ? { ...state, overlay: { kind: 'none' } } : state);
 /** 状態の本文。渡されたものだけを載せる（省いた理由で、サーバの今の理由を消さないため）。 */
-/** wakeOn は、画面が見せた結果を明示で送る（外したなら null）。送らないと、サーバは起こす結び付けを作らない。 */
+/**
+ * wakeOn は、画面が見せた結果を明示で送る（外したなら null）。
+ * 送らないと、サーバは起こす結び付けを作らない。
+ */
 const wakeBody = (i: { wakeOn?: WakeOn | null }) => (i.wakeOn !== undefined ? { wakeOn: i.wakeOn } : {});
 const stateBody = (i: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string; wakeOn?: WakeOn | null }) => ({ status: i.status, ...(i.note !== undefined ? { note: i.note } : {}), ...(i.returnOn !== undefined ? { returnOn: i.returnOn } : {}), ...(i.returnTime !== undefined ? { returnTime: i.returnTime } : {}), ...wakeBody(i) });
 

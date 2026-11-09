@@ -224,7 +224,8 @@ describe('interop: 参加コード（本番の回数）', () => {
 });
 
 describe('interop: 受け箱の封', () => {
-  // 参照の実装で開く。`1.` の後ろは 使い捨ての公開鍵(32) || 版 0x02 || iv(12) || 暗号文 || tag(16)。
+  // 参照の実装で開く。
+  // `1.` の後ろは 使い捨ての公開鍵(32) || 版 0x02 || iv(12) || 暗号文 || tag(16)。
   // 鍵は HKDF(ECDH, salt = 使い捨ての公開鍵 || 受け箱の公開鍵, info = hangar-inbox-v1)。
   function refOpenInbox(priv: string, pub: string, inboxId: string, sealed: string): unknown {
     expect(sealed.startsWith('1.')).toBe(true);

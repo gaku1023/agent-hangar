@@ -24,7 +24,10 @@ const post = (token: string, path: string, body?: unknown) =>
 const get = (token: string, path: string) => send(path, { headers: auth(token) });
 const del = (token: string, path: string) => send(path, { method: 'DELETE', headers: auth(token) });
 
-/** 受け箱を作る。鍵の対は PC 側で作り、公開鍵だけを Worker に渡す。 */
+/**
+ * 受け箱を作る。
+ * 鍵の対は PC 側で作り、公開鍵だけを Worker に渡す。
+ */
 async function createInbox(token: string): Promise<{ inboxId: string; privateKey: string }> {
   const { publicKey, privateKey } = await generateInboxKeyPair();
   const r = await post(token, '/inboxes', { publicKey });
@@ -33,7 +36,10 @@ async function createInbox(token: string): Promise<{ inboxId: string; privateKey
   return { inboxId, privateKey };
 }
 
-/** 外から届く webhook の真似。認証も互換の版の見出しも付けない（GitHub は付けられない）。 */
+/**
+ * 外から届く webhook の真似。
+ * 認証も互換の版の見出しも付けない（GitHub は付けられない）。
+ */
 const hook = (inboxId: string, body: string, headers: Record<string, string> = {}) =>
   cloud.RAW.fetch(`https://x/hooks/${inboxId}`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body });
 
@@ -202,7 +208,8 @@ describe('webhook を受ける（POST /hooks/:inboxId）', () => {
     await db.batch(stmts);
     expect((await hook(inboxId, 'hundredth')).status).toBe(202);
     expect(await parcelCount(inboxId)).toBe(EVENT_INBOX_PENDING_MAX);
-    // 101 通目は 202 で返して捨て、数だけ残す。返り値は同じ形で、捨てたことを外へ教えない。
+    // 101 通目は 202 で返して捨て、数だけ残す。
+    // 返り値は同じ形で、捨てたことを外へ教えない。
     const r = await hook(inboxId, 'dropped-one');
     expect(r.status).toBe(202);
     expect(await parcelCount(inboxId)).toBe(EVENT_INBOX_PENDING_MAX);

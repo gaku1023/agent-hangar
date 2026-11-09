@@ -19,7 +19,8 @@ const HELD_MODES: readonly HeldChoice['mode'][] = ['latest', 'all', 'skip'];
  * 外のできごとで動く結び付けの経路（#563）。
  * 作る、承認する、消す、外の webhook の URL を見る、閉じている間に溜まったできごとを流す、repo の webhook の状態を見る。
  * webhook を付けられなかったとき（権限が無い、gh や Worker が使えない）は、HTTP 200 で `{ hook: { status, message? } }` を返し、何も作らない。
- * 秘密（webhook の秘密の値、受け箱の鍵）はどの応答にも載せない。外の webhook の URL は `GET /events/bindings/:id/hook-url` だけが返す。
+ * 秘密（webhook の秘密の値、受け箱の鍵）はどの応答にも載せない。
+ * 外の webhook の URL は `GET /events/bindings/:id/hook-url` だけが返す。
  * run に配る MCP の秘密は /api を開けないので、この経路は画面だけが使う。
  */
 export function eventRoutes(api: Hono, deps: EventRouteDeps): void {
@@ -30,7 +31,10 @@ export function eventRoutes(api: Hono, deps: EventRouteDeps): void {
   const fail = (e: unknown): { error: string } | null => (e instanceof MessageError ? { error: e.text ? render(lang(), e.text) : e.message } : null);
   const notFound = () => ({ error: tr('schedules.event.error.notFound') });
 
-  /** 動きを検査する。起こす（wake）は Paused の確定からだけ作るので、ここでは受けない。 */
+  /**
+   * 動きを検査する。
+   * 起こす（wake）は Paused の確定からだけ作るので、ここでは受けない。
+   */
   const actionOf = (v: unknown, source: EventSource): EventAction => {
     const o = (typeof v === 'object' && v !== null ? v : {}) as { kind?: unknown; sessionId?: unknown };
     if (o.kind === 'send' && typeof o.sessionId === 'string') {
@@ -98,7 +102,8 @@ export function eventRoutes(api: Hono, deps: EventRouteDeps): void {
     }
   });
 
-  // 外の webhook の URL には秘密が入っている。MCP の道具には繋がず、画面のこの道だけが返す。
+  // 外の webhook の URL には秘密が入っている。
+  // MCP の道具には繋がず、画面のこの道だけが返す。
   api.get('/events/bindings/:id/hook-url', (c) => {
     try {
       return c.json({ url: svc().hookUrl(c.req.param('id')) });
@@ -108,7 +113,8 @@ export function eventRoutes(api: Hono, deps: EventRouteDeps): void {
     }
   });
 
-  // 札に要る項目だけを返す。外から来た題名と本文は、画面の状態にも持たせない。
+  // 札に要る項目だけを返す。
+  // 外から来た題名と本文は、画面の状態にも持たせない。
   api.get('/events/held', (c) => c.json({ held: deps.events.dispatcher.heldForUser().map((h): HeldEventDto => ({ bindingId: h.bindingId, facts: h.facts.map((f) => ({ source: f.source, event: f.event, receivedAt: f.receivedAt, ...(f.repo !== undefined ? { repo: f.repo } : {}), ...(f.number !== undefined ? { number: f.number } : {}), ...(f.outcome !== undefined ? { outcome: f.outcome } : {}) })) })) }));
 
   api.post('/events/held/run', async (c) => {
@@ -126,7 +132,9 @@ export function eventRoutes(api: Hono, deps: EventRouteDeps): void {
     return c.json({ ok: true });
   });
 
-  // PR を持つ印の下書き（MCP の claim_pr が出す）。承認するまで、レビューやコメントの宛先には使われない。画面だけが答える。
+  // PR を持つ印の下書き（MCP の claim_pr が出す）。
+  // 承認するまで、レビューやコメントの宛先には使われない。
+  // 画面だけが答える。
   const claimOf = (v: unknown): { sessionId: string; repo: string; pr: number } | null => {
     const o = (typeof v === 'object' && v !== null ? v : {}) as { sessionId?: unknown; repo?: unknown; pr?: unknown };
     return typeof o.sessionId === 'string' && typeof o.repo === 'string' && REPO_RE.test(o.repo) && typeof o.pr === 'number' && Number.isSafeInteger(o.pr) && o.pr > 0 ? { sessionId: o.sessionId, repo: o.repo, pr: o.pr } : null;

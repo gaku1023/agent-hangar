@@ -155,13 +155,17 @@ export type UiAction =
   // place があるときは、先にそのフォルダをプロジェクトに登録し（新しいセッションの起動と同じ道筋）、その id を新しい会話の送り先の projectId にして送る。
   | { type: 'schedule.create'; input: ScheduleInput; place?: ProjectPlace } | { type: 'schedule.update'; id: string; patch: SchedulePatch; place?: ProjectPlace }
   | { type: 'schedule.delete'; id: string } | { type: 'schedule.run'; id: string }
-  // 予定の画面のイベント（#563）。一覧は開くときと一定の間隔で読み直す。作成、承認、削除、PR の印の承認と却下のあとも読み直す。
+  // 予定の画面のイベント（#563）。
+  // 一覧は開くときと一定の間隔で読み直す。
+  // 作成、承認、削除、PR の印の承認と却下のあとも読み直す。
   | { type: 'events.load' } | { type: 'events.create'; input: EventCreateInput }
   | { type: 'events.approve'; id: string } | { type: 'events.remove'; id: string }
   | { type: 'events.claim'; op: 'approve' | 'reject'; sessionId: string; repo: string; pr: number }
-  // 閉じている間に溜まったイベントの札（#563）。山の読み直しと、結び付けごとの選び（最新だけ、全部、動かさない）を送る。
+  // 閉じている間に溜まったイベントの札（#563）。
+  // 山の読み直しと、結び付けごとの選び（最新だけ、全部、動かさない）を送る。
   | { type: 'heldEvents.load' } | { type: 'heldEvents.run'; choices: HeldChoiceDto[] }
-  // Paused を起こした行を光らせ終えた（#563）。印を 1 度だけ使って下げる。
+  // Paused を起こした行を光らせ終えた（#563）。
+  // 印を 1 度だけ使って下げる。
   | { type: 'wakeGlow.seen'; id: string }
   | { type: 'deleteApproval.answer'; id: string; answer: 'approve' | 'reject' | 'dismiss' }
   | { type: 'peerApproval.answer'; id: string; answer: 'approve' | 'reject' }

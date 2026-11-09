@@ -782,7 +782,8 @@ export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args:
   if (args.return_on !== undefined && typeof args.return_on !== 'string') throw new ToolError(msg('mcp.sessionStatus.returnOnMustBeString'));
   if (args.return_time !== undefined && typeof args.return_time !== 'string') throw new ToolError(msg('mcp.sessionStatus.returnTimeMustBeString'));
   if (args.confirmed !== undefined && typeof args.confirmed !== 'boolean') throw new ToolError(msg('common.field.mustBeBoolean', { field: 'confirmed' }));
-  // 起こす条件は提案に添えるだけで、結び付けは作らない（利用者が Paused を確定したときに、画面が作る）。会話で確定する道には居場所が無いので断る。
+  // 起こす条件は提案に添えるだけで、結び付けは作らない（利用者が Paused を確定したときに、画面が作る）。
+  // 会話で確定する道には居場所が無いので断る。
   let wakeOn: WakeOn | undefined;
   if (args.wake_on !== undefined) {
     if (status !== 'paused') throw new ToolError(msg('mcp.sessionStatus.wakeOnOnlyPaused'));

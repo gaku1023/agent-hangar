@@ -634,7 +634,8 @@ export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 
  * 立っているときだけ true で載せ、それ以外は載せない（送らない古いサーバも偽とみなす）。
  */
 /**
- * workerCompat は、Worker が最後に名乗った互換の版（まだ話していなければ null）。イベントの種類を出せるかを画面が決めるのに使う（eventsAvailable）。
+ * workerCompat は、Worker が最後に名乗った互換の版（まだ話していなければ null）。
+ * イベントの種類を出せるかを画面が決めるのに使う（eventsAvailable）。
  * 送らない古いサーバは null とみなす。
  */
 export type SyncStatusDto = { state: SyncStateKind; paused: boolean; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; limitedUntil: number | null; revoked?: boolean; legacyConfig?: boolean; workerCompat?: number | null };

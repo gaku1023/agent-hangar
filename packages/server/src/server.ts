@@ -162,10 +162,14 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const peer = bootPeer({ home, runs, sync, delivery, ...(peerSsh ? { ssh: peerSsh } : {}) });
   // ほかの PC の会話の頼み（呼び鈴の chat の枠）。預かりと答えた記録はメモリだけに持つ。
   const peerChat = bootPeerChat({ home, runs, delivery, sync });
-  // 外のできごと（#563）。受け箱から取った荷物を、開いて確かめ、事実にする。
-  // 取った事実と断った印は dispatchEvents に渡り、結び付けに当てて動かす部品（EventDispatcher）が受ける。部品は予定の起動を使うので、下の scheduleTools の後に組む。
-  // まだ組まれていない間に届いたら投げる。puller はそのページを ack せず、次の取得でやり直す。
-  // 今の PC の gh のユーザー名。puller（同期で使う）と dispatcher（非同期で使う）が同じ引き手を分け合う。
+  // 外のできごと（#563）。
+  // 受け箱から取った荷物を、開いて確かめ、事実にする。
+  // 取った事実と断った印は dispatchEvents に渡り、結び付けに当てて動かす部品（EventDispatcher）が受ける。
+  // 部品は予定の起動を使うので、下の scheduleTools の後に組む。
+  // まだ組まれていない間に届いたら投げる。
+  // puller はそのページを ack せず、次の取得でやり直す。
+  // 今の PC の gh のユーザー名。
+  // puller（同期で使う）と dispatcher（非同期で使う）が同じ引き手を分け合う。
   const ghLogin = ghLoginResolver();
   let eventMe = '';
   let eventDispatcher: EventDispatcher | null = null;
@@ -175,7 +179,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     void eventDispatcher.handle(events, { more: true });
   };
   const eventPuller = new EventPuller({ db: home.db, api: () => inboxApiOf(sync.mobileLink()?.client), onPulled: (events) => { dispatchEvents(events); }, onPassEnd: () => { eventDispatcher?.flushWakes(); },
-    // puller の me は同期で読む。引き手が答えを持つまでは空で、聞いた答えは次の荷物から使う。
+    // puller の me は同期で読む。
+    // 引き手が答えを持つまでは空で、聞いた答えは次の荷物から使う。
     me: () => { void ghLogin().then((v) => { eventMe = v ?? ''; }, () => undefined); return eventMe; } });
   const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, chat: peerChat, trash: trash.trash, event: eventPuller, onPeer: (kind, id) => { peer.onBell(kind, id); }, peerApprovals: peer.approvals });
   peerRelayEnded = (id) => peer.relay.onEnded(id);
@@ -188,14 +193,17 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     launch: (s) => launchScheduled(scheduleTools, s),
     wait: (id) => waitScheduled(scheduleTools, id),
   });
-  // GitHub の webhook と受け箱の登録と解除。結び付けの道（画面と MCP）がこの組を使う。受け箱を作る、消すたびに、呼び鈴を組み直す（受け箱だけを使う利用者にも開けるため）。
+  // GitHub の webhook と受け箱の登録と解除。
+  // 結び付けの道（画面と MCP）がこの組を使う。
+  // 受け箱を作る、消すたびに、呼び鈴を組み直す（受け箱だけを使う利用者にも開けるため）。
   const eventHooks = new EventHooks({ db: home.db, api: () => inboxApiOf(sync.mobileLink()?.client), baseUrl: () => sync.mobileLink()?.url ?? null, onInboxChanged: () => { mobile.settingsChanged(); } });
   const notifyEvent = (message: string): void => { delivery.hub.broadcast({ type: 'toast', level: 'info', message }); };
   eventDispatcher = new EventDispatcher({
     db: home.db, deviceId: home.device.id, now: () => Date.now(), language: () => home.language(),
     launch: (s) => launchScheduled(scheduleTools, s), wait: (id) => waitScheduled(scheduleTools, id), me: ghLogin,
     notify: notifyEvent,
-    // 閉じている間に届いた分は、利用者が選ぶまで動かさない。トーストは出さず、画面の右下の札（HeldEventsCard）が /api/events/held から同じ文を出す。
+    // 閉じている間に届いた分は、利用者が選ぶまで動かさない。
+    // トーストは出さず、画面の右下の札（HeldEventsCard）が /api/events/held から同じ文を出す。
     onHeldForUser: (n) => { delivery.hub.broadcast({ type: 'events.held', n }); },
     onWoken: (id) => { delivery.hub.broadcast({ type: 'session.woken', id, at: Date.now() }); },
     onError: (e) => { console.error('[event] dispatch failed', e instanceof Error ? e.constructor.name : typeof e); },

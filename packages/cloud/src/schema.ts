@@ -59,11 +59,13 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   'create index if not exists peer_launches_at on peer_launches(updated_at)',
   // 頼まれた PC が書く、ターンが止まるたびの結果の行。request_id と seq で一意で、同じ seq の再送は入らない。
   'create table if not exists peer_results (request_id text not null, seq integer not null, sealed text not null, created_at integer not null, primary key (request_id, seq))',
-  // 受け箱（互換の版 12、#563）。外から来る webhook を、受け箱の公開鍵（public_key、X25519 の raw の base64url）で封じて預かる。
+  // 受け箱（互換の版 12、#563）。
+  // 外から来る webhook を、受け箱の公開鍵（public_key、X25519 の raw の base64url）で封じて預かる。
   // dropped は、預かりが上限で捨てた荷物の数で、PC が引き取りを確かめる（ack）と 0 に戻る。
   'create table if not exists event_inboxes (id text primary key, device_id text not null, public_key text not null, created_at integer not null, dropped integer not null default 0)',
   'create index if not exists event_inboxes_device on event_inboxes(device_id, created_at)',
-  // 預かっている荷物。sealed は封じた見出しと本文で、Worker は読まない。
+  // 預かっている荷物。
+  // sealed は封じた見出しと本文で、Worker は読まない。
   'create table if not exists event_parcels (id text primary key, inbox_id text not null, sealed text not null, received_at integer not null)',
   'create index if not exists event_parcels_inbox on event_parcels(inbox_id, received_at)',
   // 7 日より古い荷物を消す文（sweep.ts）が表を走査しないための索引。

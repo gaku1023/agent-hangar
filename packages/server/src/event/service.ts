@@ -7,14 +7,20 @@ import { deviceOfSession } from '../runs/handover.ts';
 import { bindingsForRepo, countBindings, createBinding, deleteBinding, getBinding, getBindingRow, listBindings, refreshWakeBinding, setBindingInbox, updateBinding, type BindingRow } from './store.ts';
 
 /**
- * 結び付けを作る、承認する、消す流れ（#563）。画面の道（http/routes/events.ts）と、Paused の確定（http/routes/sessions.ts）が使う。
- * GitHub の結び付けは、webhook と受け箱を付けてから行を作る。付けられなかったら、何も作らずに理由を返す。
+ * 結び付けを作る、承認する、消す流れ（#563）。
+ * 画面の道（http/routes/events.ts）と、Paused の確定（http/routes/sessions.ts）が使う。
+ * GitHub の結び付けは、webhook と受け箱を付けてから行を作る。
+ * 付けられなかったら、何も作らずに理由を返す。
  * 外の webhook の結び付けは、受け箱の無い行を先に作り、受け箱を作れたときだけ有効にする。
- * webhook の組（share）には秘密が入っている。createBinding と setBindingInbox にだけ渡し、返さず、ログにも出さない。
+ * webhook の組（share）には秘密が入っている。
+ * createBinding と setBindingInbox にだけ渡し、返さず、ログにも出さない。
  */
 
 export type HookState = { status: 'registered' | 'no_admin' | 'failed' | 'none'; message?: string };
-/** 付けられなかったときの理由。結び付けは作っていない。 */
+/**
+ * 付けられなかったときの理由。
+ * 結び付けは作っていない。
+ */
 export type HookFailure = { status: 'no_admin' | 'failed'; message?: string };
 export type CreateResult = { binding: EventBindingDto; hook?: { status: 'registered' } } | { hook: HookFailure };
 export type NewBinding = {
@@ -26,10 +32,16 @@ export type BindingPatchInput = { prompt?: string; passBody?: boolean; allowAuth
 
 export type EventServiceDeps = {
   db: Db;
-  /** この PC の ID。起こす結び付けは、会話を最後に動かした PC でだけ作る。 */
+  /**
+   * この PC の ID。
+   * 起こす結び付けは、会話を最後に動かした PC でだけ作る。
+   */
   deviceId: string;
   hooks: Pick<EventHooks, 'ensureRepoHook' | 'removeRepoHookIfUnused' | 'sweep' | 'ensureHookInbox' | 'rotateHookInbox' | 'hookUrlOf'>;
-  /** 結び付けが増えた、減った。スマホの呼び鈴を組み直させる（呼び鈴は結び付けがあるときだけ張る）。 */
+  /**
+   * 結び付けが増えた、減った。
+   * スマホの呼び鈴を組み直させる（呼び鈴は結び付けがあるときだけ張る）。
+   */
   changed: () => void;
   language: GetLanguage;
   now?: () => number;
@@ -39,7 +51,11 @@ const notFound = (): MessageError => new MessageError(msg('schedules.event.error
 const overCap = (): MessageError => new MessageError(msg('schedules.event.error.max', { max: EVENT_BINDINGS_MAX }));
 
 export class EventBindingService {
-  /** 最後に付けられなかった理由を repo ごとに覚える（画面の札の元）。付けられたら忘れる。メモリだけ。 */
+  /**
+   * 最後に付けられなかった理由を repo ごとに覚える（画面の札の元）。
+   * 付けられたら忘れる。
+   * メモリだけ。
+   */
   private readonly lastFailure = new Map<string, HookFailure>();
 
   constructor(private readonly d: EventServiceDeps) {}
@@ -53,14 +69,21 @@ export class EventBindingService {
     if (countBindings(this.d.db) >= EVENT_BINDINGS_MAX) throw overCap();
   }
 
-  /** repo の webhook の登録の状態。gh は呼ばない。結び付けが組を持っていれば registered、無ければ最後の失敗、それも無ければ none。 */
+  /**
+   * repo の webhook の登録の状態。
+   * gh は呼ばない。
+   * 結び付けが組を持っていれば registered、無ければ最後の失敗、それも無ければ none。
+   */
   repoHookState(repo: string): HookState {
     if (bindingsForRepo(this.d.db, repo).some((b) => b.webhookId !== null && b.inboxId && b.hookSecret)) return { status: 'registered' };
     const f = this.lastFailure.get(repo.toLowerCase());
     return f ? { status: f.status, ...(f.message ? { message: f.message } : {}) } : { status: 'none' };
   }
 
-  /** 利用者が作る。作ったら有効になる。 */
+  /**
+   * 利用者が作る。
+   * 作ったら有効になる。
+   */
   async create(input: NewBinding): Promise<CreateResult> {
     this.assertRoom();
     if (input.source.kind === 'hook') return this.createHook(input);
@@ -85,7 +108,11 @@ export class EventBindingService {
     return { hook: f };
   }
 
-  /** 外の webhook。受け箱の無い行を先に作り、受け箱ができたら有効にする。作れなければ行も消す。 */
+  /**
+   * 外の webhook。
+   * 受け箱の無い行を先に作り、受け箱ができたら有効にする。
+   * 作れなければ行も消す。
+   */
   private async createHook(input: NewBinding): Promise<CreateResult> {
     const draft = createBinding(this.d.db, { inboxId: '', inboxPublicKey: '', inboxPrivateKey: '', source: input.source, action: input.action, prompt: input.prompt, passBody: input.passBody, allowAuthors: input.allowAuthors, state: 'draft', fromSessionId: input.fromSessionId ?? null }, this.now());
     const inbox = await this.d.hooks.ensureHookInbox(draft.id);
@@ -99,7 +126,8 @@ export class EventBindingService {
   }
 
   /**
-   * 変える。指示、本文を渡すか、渡してよい人は、そのまま書く。
+   * 変える。
+   * 指示、本文を渡すか、渡してよい人は、そのまま書く。
    * state: 'active' は承認（下書きを有効にする）か、止まった結び付けの再開である。
    */
   async update(id: string, patch: BindingPatchInput): Promise<UpdateResult> {
@@ -112,7 +140,10 @@ export class EventBindingService {
     return hook ? { binding, hook: hook.hook } : { binding };
   }
 
-  /** 受け箱が要るのに無いときは、承認のこの時点で作る。作れなければ下書きのままにして理由を返す。 */
+  /**
+   * 受け箱が要るのに無いときは、承認のこの時点で作る。
+   * 作れなければ下書きのままにして理由を返す。
+   */
   private async activate(id: string): Promise<{ hook: HookFailure } | null> {
     const row = getBindingRow(this.d.db, id);
     if (!row) throw notFound();
@@ -143,14 +174,18 @@ export class EventBindingService {
         updateBinding(this.d.db, row.id, { webhookId: share.webhookId, hookSecret: share.hookSecret }, this.now());
       })();
     } catch (e) {
-      // 結び付けが先に消えた。付けた組を使う行が無ければ外す。
+      // 結び付けが先に消えた。
+      // 付けた組を使う行が無ければ外す。
       await this.d.hooks.removeRepoHookIfUnused(repo);
       throw e;
     }
     return null;
   }
 
-  /** 消す。webhook と受け箱の後片付けは、裏で進める。 */
+  /**
+   * 消す。
+   * webhook と受け箱の後片付けは、裏で進める。
+   */
   remove(id: string): boolean {
     const gone = deleteBinding(this.d.db, id, this.now());
     if (gone) {
@@ -168,7 +203,10 @@ export class EventBindingService {
     for (const b of this.list()) if (b.action.kind === 'wake' && b.action.sessionId === sessionId) refreshWakeBinding(this.d.db, b.id, this.now());
   }
 
-  /** 外の webhook の URL を作り直す。新しい URL は hookUrlOf で読む。 */
+  /**
+   * 外の webhook の URL を作り直す。
+   * 新しい URL は hookUrlOf で読む。
+   */
   async rotate(id: string): Promise<{ ok: true } | { hook: HookFailure }> {
     const row = getBindingRow(this.d.db, id);
     if (!row) throw notFound();
@@ -177,7 +215,10 @@ export class EventBindingService {
     return r.status === 'ready' ? { ok: true } : { hook: { status: 'failed', message: r.message } };
   }
 
-  /** 外の webhook の URL。画面の専用の道だけが呼ぶ。 */
+  /**
+   * 外の webhook の URL。
+   * 画面の専用の道だけが呼ぶ。
+   */
   hookUrl(id: string): string | null {
     if (!getBindingRow(this.d.db, id)) throw notFound();
     return this.d.hooks.hookUrlOf(id);
@@ -185,9 +226,12 @@ export class EventBindingService {
 
   /**
    * Paused の確定で、起こす結び付けを作る。
-   * 会話を最後に動かした PC でだけ作る（結び付けは作った PC のローカルにだけ置き、動かすのもこの PC だけなので）。ほかの PC の会話には 'other_pc' を返す。
-   * 同じ会話の前の起こす結び付けは、新しいものを作れてから消す。作れなかったときは前のものを残し、
-   * 同じ repo の webhook も付け直さずに済む。同じ条件がすでにあれば足さず、ほかの起こす結び付けだけを消す。
+   * 会話を最後に動かした PC でだけ作る（結び付けは作った PC のローカルにだけ置き、動かすのもこの PC だけなので）。
+   * ほかの PC の会話には 'other_pc' を返す。
+   * 同じ会話の前の起こす結び付けは、新しいものを作れてから消す。
+   * 作れなかったときは前のものを残し、
+   * 同じ repo の webhook も付け直さずに済む。
+   * 同じ条件がすでにあれば足さず、ほかの起こす結び付けだけを消す。
    * GitHub の webhook を付けられなかったときは、その理由を返す（Paused は確定したまま）。
    */
   async createWake(sessionId: string, wakeOn: WakeOn): Promise<{ status: 'created' } | HookFailure> {

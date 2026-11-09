@@ -31,7 +31,10 @@ beforeEach(() => {
 });
 afterEach(() => { db.close(); vi.restoreAllMocks(); });
 
-/** gh を呼ばない既定の口。呼ばれたら失敗して、完了したスイート 1 つの結果に戻る道を通る。 */
+/**
+ * gh を呼ばない既定の口。
+ * 呼ばれたら失敗して、完了したスイート 1 つの結果に戻る道を通る。
+ */
 const noGh: GhApi = () => Promise.reject(new Error('gh is not used in this test'));
 
 const puller = (api: () => InboxApi | null = () => inboxApiOf(client), o: { onPulled?: (e: PulledEvent[]) => void; ghApi?: GhApi } = {}) =>
@@ -39,7 +42,10 @@ const puller = (api: () => InboxApi | null = () => inboxApiOf(client), o: { onPu
 
 type Inbox = { inboxId: string; kp: { publicKey: string; privateKey: string }; bindingId: string };
 
-/** 受け箱を作り、結び付けを 1 つ置く。同じ受け箱に結び付けを足すときは inbox を渡す。 */
+/**
+ * 受け箱を作り、結び付けを 1 つ置く。
+ * 同じ受け箱に結び付けを足すときは inbox を渡す。
+ */
 async function addBinding(o: { source?: EventSource; secret?: string | null; inbox?: Inbox } = {}): Promise<Inbox> {
   const kp = o.inbox?.kp ?? (await generateInboxKeyPair());
   const inboxId = o.inbox?.inboxId ?? (await client.createInbox(kp.publicKey)).inboxId;
@@ -399,7 +405,8 @@ describe('EventPuller', () => {
     const third = p.pull('start');
     open();
     await Promise.all([first, second, third]);
-    // 1 回目と、待たせた分をまとめた 2 回目の、2 巡だけ。巡ごとに空のページを 1 回読む。
+    // 1 回目と、待たせた分をまとめた 2 回目の、2 巡だけ。
+    // 巡ごとに空のページを 1 回読む。
     expect(started).toBe(2);
     expect(overlap).toBe(false);
   });

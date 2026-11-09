@@ -10,7 +10,10 @@ export type SessionStatus = 'paused' | 'done' | 'archived';
 export type StateSetBy = 'user' | 'conversation' | 'import';
 /** 提案の出どころ。会話の中、事後の要約。exit は取りやめた claude.zsh の問いの名残で、いまは書き手がいない（v14 を切るときに CHECK ごと落とす）。 */
 export type CandidateSource = 'in_session' | 'exit' | 'post_hoc';
-/** wakeOn は、Paused の提案に添えた起こす条件（#563）。無ければ持たない。 */
+/**
+ * wakeOn は、Paused の提案に添えた起こす条件（#563）。
+ * 無ければ持たない。
+ */
 export type SessionCandidateDto = { status: 'paused' | 'done'; note: string | null; returnOn: string | null; returnTime: string | null; source: CandidateSource; at: number; wakeOn?: WakeOn };
 export type SessionStateDto = { status: SessionStatus | null; note: string | null; returnOn: string | null; returnTime: string | null; setBy: StateSetBy | null; setAt: number | null; candidate: SessionCandidateDto | null };
 /** 理由と根拠の上限。字数は文字単位（Array.from）で数える。 */

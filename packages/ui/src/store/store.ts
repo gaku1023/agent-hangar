@@ -97,9 +97,16 @@ export type Store = {
   /** ほかの PC の会話を見ている画面の状態（セッションごと。store/peerChat.ts）。 */
   peerChat: Record<string, PeerChatSlice>;
   schedules: ScheduleDto[];
-  /** 予定の画面のイベント。bootstrap は運ばない（画面を開くときに読む）。 */
+  /**
+   * 予定の画面のイベント。
+   * bootstrap は運ばない（画面を開くときに読む）。
+   */
   eventTrigger: EventTriggerState;
-  /** 閉じている間に溜まって、利用者の選びを待つイベント（#563）。bootstrap は運ばない。起動のあとと、サーバの events.held を受けたときに読む。 */
+  /**
+   * 閉じている間に溜まって、利用者の選びを待つイベント（#563）。
+   * bootstrap は運ばない。
+   * 起動のあとと、サーバの events.held を受けたときに読む。
+   */
   heldEvents: HeldEventDto[];
   /** 事後要約に失敗したセッションと、その理由。次に作り始めるか、作れたら消える。bootstrap は運ばないので、取り直しても残す。 */
   summaryFailed: Record<string, string>;
@@ -197,15 +204,20 @@ export type EditorOpenAction = Extract<UiAction, { type: 'project.openEditor' | 
 export const eventsKey = (sessionId: string, agentId: string | null): string => `${sessionId}:${agentId ?? ''}`;
 
 /**
- * 予定の画面のイベント（#563）。サーバに押し出す道が無いので、画面を開いたときと一定の間隔で読み直す。
- * ready は一度でも読めたこと。form は作成の送信の状態で、done は作れた回数（フォームが閉じる合図）。
+ * 予定の画面のイベント（#563）。
+ * サーバに押し出す道が無いので、画面を開いたときと一定の間隔で読み直す。
+ * ready は一度でも読めたこと。
+ * form は作成の送信の状態で、done は作れた回数（フォームが閉じる合図）。
  * error は承認と削除と PR の印の失敗の一文で、次の操作で消える。
  */
 /** hook_failed は、webhook を付けられなかったが理由の文が無いとき。 */
 export type EventNotice = { kind: 'no_admin' } | { kind: 'hook_failed' } | { kind: 'text'; text: string };
 export type EventTriggerState = {
   ready: boolean; bindings: EventBindingDto[]; claims: PrClaimDto[];
-  /** 一覧が変わった読み直しと、操作が済むたびに増える番号。repo の札が状態を取り直す合図に使う。 */
+  /**
+   * 一覧が変わった読み直しと、操作が済むたびに増える番号。
+   * repo の札が状態を取り直す合図に使う。
+   */
   rev: number;
   form: { busy: boolean; error: EventNotice | null; done: number };
   error: EventNotice | null;

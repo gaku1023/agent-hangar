@@ -5,9 +5,15 @@ import type { ScheduleRunRow } from '../presenters/schedules.ts';
 import { collapseOut, growIn, popMark } from './primitives/motionKit.ts';
 import { usePresence } from './primitives/usePresence.ts';
 
-/** 予定の画面の部品。時刻の予定とイベントの行が分け合う（SchedulesScreen と EventRows と EventBindingForm）。 */
+/**
+ * 予定の画面の部品。
+ * 時刻の予定とイベントの行が分け合う（SchedulesScreen と EventRows と EventBindingForm）。
+ */
 
-/** 開け閉めの枠。中身が出入りするときに高さを動かす。 */
+/**
+ * 開け閉めの枠。
+ * 中身が出入りするときに高さを動かす。
+ */
 export function Grow(props: { open: boolean; children: () => React.ReactNode }) {
   const { mounted, ref } = usePresence<HTMLDivElement>(props.open, (el) => collapseOut(el));
   useLayoutEffect(() => { if (props.open && ref.current) growIn(ref.current); }, [props.open, ref, mounted]);
@@ -15,7 +21,10 @@ export function Grow(props: { open: boolean; children: () => React.ReactNode }) 
   return <div ref={ref} className="sch-grow">{props.children()}</div>;
 }
 
-/** 直近の回の丸。新しい回が来たら、その丸だけ跳ねる。 */
+/**
+ * 直近の回の丸。
+ * 新しい回が来たら、その丸だけ跳ねる。
+ */
 export function RunDots(props: { runs: ScheduleRunRow[] }) {
   const box = useRef<HTMLSpanElement>(null);
   const seen = useRef<Set<string> | null>(null);

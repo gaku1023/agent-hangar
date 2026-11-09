@@ -5,8 +5,10 @@ import { MessageError, msg } from '../i18n/message.ts';
 import { sessionTitleOf } from '../mobile/feed.ts';
 
 /**
- * 外のできごとで動く結び付けと、その実行の履歴、PR の持ち主（#563）。手元だけの表で同期しない。
- * 秘密（受け箱の秘密鍵と GitHub の webhook の秘密の値）は表にだけ置く。DTO には出さず、引き取る側の行（BindingRow）でだけ読める。
+ * 外のできごとで動く結び付けと、その実行の履歴、PR の持ち主（#563）。
+ * 手元だけの表で同期しない。
+ * 秘密（受け箱の秘密鍵と GitHub の webhook の秘密の値）は表にだけ置く。
+ * DTO には出さず、引き取る側の行（BindingRow）でだけ読める。
  * 画面への配信（表の知らせ）は、画面の道を作る後続の作業でつなぐ。
  */
 
@@ -17,7 +19,10 @@ type BindingDbRow = {
 };
 type RunRow = { id: string; binding_id: string; planned_at: number; started_at: number; ended_at: number | null; result: ScheduleRunResult; session_id: string | null; error: string | null };
 
-/** 引き取る側が使う行。秘密を含むので、画面にも MCP にもログにも渡さない。 */
+/**
+ * 引き取る側が使う行。
+ * 秘密を含むので、画面にも MCP にもログにも渡さない。
+ */
 export type BindingRow = {
   id: string; inboxId: string; inboxPublicKey: string; inboxPrivateKey: string; webhookId: number | null; hookSecret: string | null;
   source: EventSource; action: EventAction; prompt: string; passBody: boolean; allowAuthors: string[]; state: EventBindingState;
@@ -30,7 +35,10 @@ export type BindingInput = {
   inboxPublicKey: string;
   /** generateInboxKeyPair の privateKey をそのまま置く。 */
   inboxPrivateKey: string;
-  /** GitHub の webhook の ID。外の webhook と、まだ付けていない GitHub では持たない。 */
+  /**
+   * GitHub の webhook の ID。
+   * 外の webhook と、まだ付けていない GitHub では持たない。
+   */
   webhookId?: number;
   hookSecret?: string;
   source: EventSource;
@@ -58,7 +66,10 @@ const runDto = (db: Db, r: RunRow): ScheduleRunDto => ({
   sessionTitle: r.session_id ? sessionTitleOf(db, r.session_id) : null, error: r.error,
 });
 
-/** DTO は列を選んで組む。BindingRow を広げて返さない（秘密が混ざるため）。 */
+/**
+ * DTO は列を選んで組む。
+ * BindingRow を広げて返さない（秘密が混ざるため）。
+ */
 function dto(db: Db, r: BindingDbRow): EventBindingDto {
   const b = rowOf(r);
   const runs = db.prepare('select * from event_runs where binding_id = ? order by started_at desc, rowid desc').all(r.id) as RunRow[];
@@ -80,20 +91,30 @@ export function getBinding(db: Db, id: string): EventBindingDto | null {
   return r ? dto(db, r) : null;
 }
 
-/** その repo を見る結び付け（秘密を含む行）。repo の大文字小文字は区別しない。作った古い順。 */
+/**
+ * その repo を見る結び付け（秘密を含む行）。
+ * repo の大文字小文字は区別しない。
+ * 作った古い順。
+ */
 export function bindingsForRepo(db: Db, repo: string): BindingRow[] {
   const want = repo.toLowerCase();
   return (db.prepare('select * from event_bindings order by created_at, rowid').all() as BindingDbRow[]).map(rowOf)
     .filter((b) => b.source.kind === 'github' && b.source.repo.toLowerCase() === want);
 }
 
-/** 結び付けの受け箱を置き換える。外の webhook の結び付けは、受け箱を後から作るので、空の ID で作ってからここで入れる。 */
+/**
+ * 結び付けの受け箱を置き換える。
+ * 外の webhook の結び付けは、受け箱を後から作るので、空の ID で作ってからここで入れる。
+ */
 export function setBindingInbox(db: Db, id: string, o: { inboxId: string; inboxPublicKey: string; inboxPrivateKey: string }): void {
   const n = db.prepare('update event_bindings set inbox_id = ?, inbox_public_key = ?, inbox_private_key = ? where id = ?').run(o.inboxId, o.inboxPublicKey, o.inboxPrivateKey, id).changes;
   if (n === 0) throw new MessageError(msg('schedules.event.error.notFound'));
 }
 
-/** 後片付けを預かっている受け箱。repo を渡すと、その repo の分だけ。 */
+/**
+ * 後片付けを預かっている受け箱。
+ * repo を渡すと、その repo の分だけ。
+ */
 export type HookOrphan = { inboxId: string; repo: string | null; webhookId: number | null };
 
 export function listHookOrphans(db: Db, repo?: string): HookOrphan[] {
@@ -110,18 +131,27 @@ export function dropHookOrphan(db: Db, inboxId: string): void {
   db.prepare('delete from event_hook_orphans where inbox_id = ?').run(inboxId);
 }
 
-/** 受け箱から引き取った荷物に当てる結び付け。秘密を含む行を返す。 */
+/**
+ * 受け箱から引き取った荷物に当てる結び付け。
+ * 秘密を含む行を返す。
+ */
 export function bindingsForInbox(db: Db, inboxId: string): BindingRow[] {
   return (db.prepare('select * from event_bindings where inbox_id = ? order by created_at, rowid').all(inboxId) as BindingDbRow[]).map(rowOf);
 }
 
-/** 秘密を含む 1 行。DTO の道には渡さない。 */
+/**
+ * 秘密を含む 1 行。
+ * DTO の道には渡さない。
+ */
 export function getBindingRow(db: Db, id: string): BindingRow | null {
   const r = bindingRow(db, id);
   return r ? rowOf(r) : null;
 }
 
-/** 下書きでない結び付けの数。上限 EVENT_BINDINGS_MAX が数えるのはこれだけ。 */
+/**
+ * 下書きでない結び付けの数。
+ * 上限 EVENT_BINDINGS_MAX が数えるのはこれだけ。
+ */
 export function countBindings(db: Db): number {
   return (db.prepare("select count(*) c from event_bindings where state != 'draft'").get() as { c: number }).c;
 }
@@ -131,9 +161,14 @@ export function countDrafts(db: Db): number {
   return (db.prepare("select count(*) c from event_bindings where state = 'draft'").get() as { c: number }).c;
 }
 
-/** 作る。下書きでない結び付けが上限を越えるときは断る。起こす結び付けには 30 日の期限を付ける。 */
+/**
+ * 作る。
+ * 下書きでない結び付けが上限を越えるときは断る。
+ * 起こす結び付けには 30 日の期限を付ける。
+ */
 export function createBinding(db: Db, input: BindingInput, now: number): EventBindingDto {
-  // 上限は下書きでない結び付けを数える。下書きは MCP の道具が別の上限で止める。
+  // 上限は下書きでない結び付けを数える。
+  // 下書きは MCP の道具が別の上限で止める。
   if ((input.state ?? 'draft') !== 'draft' && countBindings(db) >= EVENT_BINDINGS_MAX) throw new MessageError(msg('schedules.event.error.max', { max: EVENT_BINDINGS_MAX }));
   const id = randomUUID();
   const expiresAt = input.action.kind === 'wake' ? now + WAKE_BINDING_TTL_MS : null;
@@ -147,8 +182,12 @@ export function createBinding(db: Db, input: BindingInput, now: number): EventBi
 const STATES: readonly EventBindingState[] = ['draft', 'active', 'held', 'error'];
 
 /**
- * 変える。動きを変えたときは、期限も決め直す。起こす結び付けだけが 30 日の期限を持つ。
- * 送る・作るから起こすへ変えたら、いまから 30 日。起こすから別の動きへ変えたら期限を外す。起こすから起こすへは元の期限のまま。
+ * 変える。
+ * 動きを変えたときは、期限も決め直す。
+ * 起こす結び付けだけが 30 日の期限を持つ。
+ * 送る、作るから起こすへ変えたら、いまから 30 日。
+ * 起こすから別の動きへ変えたら期限を外す。
+ * 起こすから起こすへは元の期限のまま。
  */
 export function updateBinding(db: Db, id: string, p: BindingPatch, now: number = Date.now()): EventBindingDto {
   const r = bindingRow(db, id);
@@ -201,7 +240,10 @@ export function deleteBinding(db: Db, id: string, now: number = Date.now()): boo
   return db.transaction(() => remove(db, id, now))();
 }
 
-/** 期限が過ぎた結び付けを、履歴と覚えた荷物ごと消す。消した数を返す。 */
+/**
+ * 期限が過ぎた結び付けを、履歴と覚えた荷物ごと消す。
+ * 消した数を返す。
+ */
 export function expireBindings(db: Db, now: number): number {
   return db.transaction(() => {
     const ids = db.prepare('select id from event_bindings where expires_at is not null and expires_at <= ?').all(now) as { id: string }[];
@@ -210,7 +252,10 @@ export function expireBindings(db: Db, now: number): number {
   })();
 }
 
-/** 古い履歴を落とす。動いている回は残す。 */
+/**
+ * 古い履歴を落とす。
+ * 動いている回は残す。
+ */
 function prune(db: Db, bindingId: string): void {
   db.prepare(`delete from event_runs where binding_id = ? and result != 'running' and id not in (
     select id from event_runs where binding_id = ? order by started_at desc, rowid desc limit ?)`).run(bindingId, bindingId, SCHEDULE_RUNS_KEPT);
@@ -228,7 +273,8 @@ export function addEventRun(db: Db, o: { bindingId: string; plannedAt?: number; 
  * 動いたまま残った回を、失敗で閉じる。
  * hangar が終わったときに動いていた回は、もう待てない。
  * 閉じなければ、履歴に動いている回として残り続ける（prune は動いている回を落とさない）。
- * 起動のときに 1 度だけ呼ぶ。閉じた数を返す。
+ * 起動のときに 1 度だけ呼ぶ。
+ * 閉じた数を返す。
  */
 export function failStaleRuns(db: Db, now: number): number {
   return db.prepare("update event_runs set result = 'failed', ended_at = ? where result = 'running'").run(now).changes;
@@ -238,7 +284,10 @@ export function setEventRunSession(db: Db, runId: string, sessionId: string): vo
   db.prepare('update event_runs set session_id = ? where id = ?').run(sessionId, runId);
 }
 
-/** 回を閉じる。結び付けごと消されていれば何もしない。 */
+/**
+ * 回を閉じる。
+ * 結び付けごと消されていれば何もしない。
+ */
 export function finishEventRun(db: Db, runId: string, o: { now: number; result: ScheduleRunResult; error?: string }): void {
   const r = db.prepare('select binding_id from event_runs where id = ?').get(runId) as { binding_id: string } | undefined;
   if (!r) return;
@@ -247,7 +296,8 @@ export function finishEventRun(db: Db, runId: string, o: { now: number; result: 
 }
 
 /**
- * 届いた荷物の x-github-delivery を覚える。初めて見たなら true、再送なら false。
+ * 届いた荷物の x-github-delivery を覚える。
+ * 初めて見たなら true、再送なら false。
  * 受け箱は荷物を 7 日しか預からないので、それより古い覚えは落とす。
  */
 export function markDelivery(db: Db, bindingId: string, deliveryId: string, now: number): boolean {
@@ -257,12 +307,19 @@ export function markDelivery(db: Db, bindingId: string, deliveryId: string, now:
   })();
 }
 
-/** 届いた荷物の x-github-delivery を、覚えずに見る。覚えているなら true。覚えるのは markDelivery（渡し終えてから）。 */
+/**
+ * 届いた荷物の x-github-delivery を、覚えずに見る。
+ * 覚えているなら true。
+ * 覚えるのは markDelivery（渡し終えてから）。
+ */
 export function hasDelivery(db: Db, bindingId: string, deliveryId: string, now: number): boolean {
   return db.prepare('select 1 from event_deliveries where binding_id = ? and delivery_id = ? and seen_at >= ?').get(bindingId, deliveryId, now - EVENT_INBOX_KEEP_MS) !== undefined;
 }
 
-/** 会話が PR を持つ印を付ける。draft は利用者が承認するまでの下書きで、active を draft へ戻さない。 */
+/**
+ * 会話が PR を持つ印を付ける。
+ * draft は利用者が承認するまでの下書きで、active を draft へ戻さない。
+ */
 export function claimPr(db: Db, o: { sessionId: string; repo: string; pr: number; state: 'draft' | 'active'; now?: number }): void {
   const now = o.now ?? Date.now();
   db.prepare(`insert into session_prs (session_id, repo, pr, state, claimed_at) values (?, ?, ?, ?, ?)
@@ -274,7 +331,10 @@ export function claimPr(db: Db, o: { sessionId: string; repo: string; pr: number
 
 export type PrClaim = { sessionId: string; repo: string; pr: number; claimedAt: number };
 
-/** 利用者の承認を待つ PR の印。新しい順。 */
+/**
+ * 利用者の承認を待つ PR の印。
+ * 新しい順。
+ */
 export function listDraftClaims(db: Db): PrClaim[] {
   return (db.prepare("select session_id, repo, pr, claimed_at from session_prs where state = 'draft' order by claimed_at desc, rowid desc").all() as { session_id: string; repo: string; pr: number; claimed_at: number }[])
     .map((r) => ({ sessionId: r.session_id, repo: r.repo, pr: r.pr, claimedAt: r.claimed_at }));
@@ -290,17 +350,27 @@ export function hasClaim(db: Db, o: { sessionId: string; repo: string; pr: numbe
   return db.prepare('select 1 from session_prs where session_id = ? and repo = ? and pr = ?').get(o.sessionId, o.repo, o.pr) !== undefined;
 }
 
-/** 下書きの印を承認する。承認済みの印は、レビューやコメントの宛先になる。 */
+/**
+ * 下書きの印を承認する。
+ * 承認済みの印は、レビューやコメントの宛先になる。
+ */
 export function approveClaim(db: Db, o: { sessionId: string; repo: string; pr: number }): void {
   claimPr(db, { ...o, state: 'active' });
 }
 
-/** 下書きの印を取り下げる。承認済みの印は消さない。消したら true。 */
+/**
+ * 下書きの印を取り下げる。
+ * 承認済みの印は消さない。
+ * 消したら true。
+ */
 export function rejectClaim(db: Db, o: { sessionId: string; repo: string; pr: number }): boolean {
   return db.prepare("delete from session_prs where session_id = ? and repo = ? and pr = ? and state = 'draft'").run(o.sessionId, o.repo, o.pr).changes > 0;
 }
 
-/** PR を持つ会話。承認済み（active）の印だけを見て、複数あれば新しい印を採る。 */
+/**
+ * PR を持つ会話。
+ * 承認済み（active）の印だけを見て、複数あれば新しい印を採る。
+ */
 export function prOwner(db: Db, repo: string, pr: number): string | null {
   const r = db.prepare("select session_id from session_prs where lower(repo) = lower(?) and pr = ? and state = 'active' order by claimed_at desc, rowid desc limit 1").get(repo, pr) as { session_id: string } | undefined;
   return r?.session_id ?? null;
