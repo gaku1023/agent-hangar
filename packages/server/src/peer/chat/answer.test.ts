@@ -443,6 +443,24 @@ describe('interruptRun', () => {
     expect(t.pane.events).toEqual([]);
   });
 
+  it('案内に「esc to interrupt」が無くても、動いている間の行があれば Escape を打つ（2.1.319、statusline あり）', async () => {
+    const t = setup({ t: 'idle' });
+    const rule = '─'.repeat(60);
+    t.pane.capture = () => ['❯ 鉄道の歴史を書いて', '✢ Embellishing… (27s · ↓ 1.2k tokens)', '  ⎿  Tip: Use /permissions to pre-approve and pre-deny bash, edit, and MCP tools', rule + ' 確認用 ─', '❯', rule, '  ⎇ main | Sonnet 5.5 (medium)', '  ⏸ manual mode on'].join('
+');
+    expect(await t.interruptRun('r1')).toEqual({ ok: true, sent: true });
+    expect(t.pane.events).toEqual(['key:escape']);
+  });
+
+  it('終わったあとの行（✻ Brewed for 15s · done）では打たない', async () => {
+    const t = setup({ t: 'idle' });
+    const rule = '─'.repeat(60);
+    t.pane.capture = () => ['  るはずだ。', '✻ Brewed for 15s · done 17:46', rule, '❯', rule, '  ⏸ manual mode on'].join('
+');
+    expect(await t.interruptRun('r1')).toEqual({ ok: true, sent: false });
+    expect(t.pane.events).toEqual([]);
+  });
+
   it('止める相手がいなければ何も打たず sent: false を返す', async () => {
     const t = setup({ t: 'idle' });
     expect(await t.interruptRun('r1')).toEqual({ ok: true, sent: false });
