@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { isAlive, parseStartTime, probeStartTime, sameStartTime, spawnRun, startTimeOf, terminate, type ProcRun } from './proc.ts';
+import { bootedAt, isAlive, parseStartTime, probeStartTime, sameStartTime, spawnRun, startTimeOf, startTimesWin, terminate, type ProcRun } from './proc.ts';
 
 describe('parseStartTime', () => {
   it('ps の lstart を UTC として読む', () => {
@@ -160,4 +160,51 @@ describe('実物のプロセス', () => {
       if (child.exitCode === null && child.signalCode === null) child.kill();
     }
   }, 40_000);
+});
+
+describe('bootedAt', () => {
+  it('OS が起動した時刻を、いまから稼働時間を引いて返す', () => {
+    const at = bootedAt();
+    // このプロセスより前に起動しており、2000 年より後である。
+    expect(at).toBeLessThanOrEqual(Date.now() - process.uptime() * 1000 + 1000);
+    expect(at).toBeGreaterThan(Date.UTC(2000, 0, 1));
+  });
+});
+
+describe('startTimesWin（偽の実行）', () => {
+  it('pid をまとめて 1 回の PowerShell で聞き、pid ごとの 100 ナノ秒単位の整数を返す', async () => {
+    const calls: string[][] = [];
+    const run = async (file: string, args: string[]) => {
+      calls.push([file, ...args]);
+      return { status: 0, stdout: '12156 134386859555901470\r\n6440 134384395890722130\r\n\r\n' };
+    };
+    const got = await startTimesWin([12156, 6440], run);
+    expect([...got]).toEqual([[12156, '134386859555901470'], [6440, '134384395890722130']]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![0]).toBe('powershell.exe');
+    expect(calls[0]!.at(-1)).toContain('ProcessId=12156 OR ProcessId=6440');
+  });
+  it('読めない行と、聞いていない pid の行は捨てる', async () => {
+    const got = await startTimesWin([5], async () => ({ status: 0, stdout: '5 \r\n7 134386859555901470\r\nnoise\r\n' }));
+    expect(got.size).toBe(0);
+  });
+  it('整数でない pid は聞かない。聞くものが無ければ起こさない', async () => {
+    let n = 0;
+    const got = await startTimesWin([0, -1, 1.5], async () => { n++; return { status: 0, stdout: '' }; });
+    expect(got.size).toBe(0);
+    expect(n).toBe(0);
+  });
+  it('失敗したら投げる', async () => {
+    await expect(startTimesWin([5], async () => ({ status: 1, stdout: '' }))).rejects.toThrow();
+  });
+});
+
+describe.runIf(process.platform === 'win32')('startTimesWin（実物の実行）', () => {
+  // 権限の無いプロセス（svchost など）の起動時刻は Get-Process では読めない。CIM の CreationDate なら読める（2026-11-09 実測）。
+  it('このプロセスの起動時刻を、Get-Process で読んだものと秒まで同じに返す', async () => {
+    const got = await startTimesWin([process.pid]);
+    const mine = got.get(process.pid);
+    expect(mine).toBeDefined();
+    expect(parseStartTime(mine!)).toBe(parseStartTime(startTimeOf(process.pid)!));
+  }, 30_000);
 });

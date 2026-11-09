@@ -1,4 +1,5 @@
 import desktop from '../../../../apps/desktop/package.json' with { type: 'json' };
+import type { IsGone } from '../provider/claude-code/registry.ts';
 
 /**
  * サーバの版。WebSocket の ready と GET /health と MCP が名乗る。
@@ -20,7 +21,7 @@ export type StartOptions = {
    * Claude の登録のうち、消えたプロセスの残りと見る pid。既定は OS で決める（provider/claude-code/registry.ts の goneOn）。
    * テストの見本の登録は実在しない pid を持つので、テストは「残りは無い」を渡す。
    */
-  registryIsGone?: (pid: number) => boolean;
+  registryIsGone?: IsGone;
   /** Windows の殻の実行ファイル。外のアプリをジョブの外で起こす起こし役に使う（external/breakaway.ts）。 */
   launcher?: string;
 };

@@ -1,4 +1,5 @@
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
+import os from 'node:os';
 
 // hangar の外で動くプロセスの見分け方と止め方。
 // Claude Code は ~/.claude/sessions/<pid>.json に procStart を書く。PID は使い回されるので、起動時刻が合うことで同じプロセスだと確かめる。
@@ -91,6 +92,49 @@ export function parseStartTime(s: string): number | null {
   const at = Date.UTC(year, month, day, h, min, sec);
   // 2 月 30 日のような暦に無い日は、Date.UTC が翌月へ繰り越すので見分けられる。
   return new Date(at).getUTCDate() === day ? at : null;
+}
+
+/**
+ * OS が起動した時刻（epoch のミリ秒）。いまから稼働時間（os.uptime）を引いて求める。外のコマンドは起こさない。
+ * libuv の稼働時間は、Windows は GetTickCount64、macOS は kern.boottime、Linux は CLOCK_BOOTTIME から数える。
+ * どれもスリープの間を含むので、起動した時刻は動かない。Windows では LastBootUpTime と 1 秒以内で合った（2026-11-09 実測）。
+ */
+export function bootedAt(now: number = Date.now()): number {
+  return now - os.uptime() * 1000;
+}
+
+/** 外のコマンドを非同期で 1 回打つ。startTimesWin の試験で差し替える。 */
+export type ProcRunAsync = (file: string, args: string[]) => Promise<{ status: number | null; stdout: string }>;
+
+const realRunAsync: ProcRunAsync = (file, args) => new Promise((resolve) => {
+  execFile(file, args, { encoding: 'utf8', windowsHide: true, timeout: 15_000 }, (err, stdout) => {
+    const code = (err as (Error & { code?: unknown }) | null)?.code;
+    resolve({ status: err ? (typeof code === 'number' ? code : null) : 0, stdout: stdout ?? '' });
+  });
+});
+
+/**
+ * Windows で、いくつかの pid の起動時刻を 1 回の PowerShell でまとめて読む。待つ間もイベントループを止めない。
+ * 返すのは pid ごとの、Claude の procStart と同じ 1601 年からの 100 ナノ秒単位の整数。居ない pid と読めない pid は入れない。
+ * Get-Process の StartTime は、権限の無いプロセス（svchost など）では読めない。使い回しの相手はそういうプロセスが多いので、CIM の CreationDate で読む。
+ * CreationDate はマイクロ秒までなので、末尾の桁は procStart と違う。比べるときは秒で比べる（parseStartTime）。
+ * 読み取りそのものが失敗したら投げる。
+ */
+export async function startTimesWin(pids: number[], run: ProcRunAsync = realRunAsync): Promise<Map<number, string>> {
+  // pid はコマンドの文に埋めるので、整数であることを先に確かめる。
+  const want = [...new Set(pids.filter(validPid))];
+  const out = new Map<number, string>();
+  if (want.length === 0) return out;
+  const filter = want.map((p) => `ProcessId=${p}`).join(' OR ');
+  const r = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Get-CimInstance Win32_Process -Filter '${filter}' | ForEach-Object { try { '' + $_.ProcessId + ' ' + $_.CreationDate.ToFileTimeUtc() } catch {} }`]);
+  // 呼び手（platform/pidReuse.ts）は理由を見ずに捨てるので、画面に出す文にはしない。
+  if (r.status !== 0) throw new Error(`Get-CimInstance exited with ${r.status}`);
+  const asked = new Set(want);
+  for (const line of r.stdout.split(/\r?\n/)) {
+    const m = /^(\d+) (\d{17,19})$/.exec(line.trim());
+    if (m && asked.has(Number(m[1]))) out.set(Number(m[1]), m[2]!);
+  }
+  return out;
 }
 
 export function isAlive(pid: number): boolean {

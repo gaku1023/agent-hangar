@@ -685,3 +685,79 @@ describe('readRegistry（消えたプロセスの登録）', () => {
     expect(goneOn('win32')(0)).toBe(false);
   });
 });
+
+// OS を再起動すると、止めずに残った登録の pid が別のプロセス（svchost など）に使い回される（#592）。
+// pid が動いているかだけで見ると、止まっている会話を「外部ターミナルで実行中」と読み、取り込みも再開もできない。
+describe('readRegistry（使い回された pid の登録）', () => {
+  const BOOT = Date.UTC(2026, 10, 6, 11, 26, 37);
+  /** 起動より前と後の、Windows の procStart（1601 年からの 100 ナノ秒単位）。 */
+  const ft = (ms: number) => String((BigInt(ms) + 11_644_473_600_000n) * 10_000n);
+  const lstart = (ms: number) => new Date(ms).toUTCString().replace(/^(\w{3}), (\d{2}) (\w{3}) (\d{4}) (\S+) GMT$/, (_m, w: string, d: string, mo: string, y: string, t: string) => `${w} ${mo} ${d.replace(/^0/, ' ')} ${t} ${y}`);
+  const alive = () => true;
+  const noReuse = { reused: () => false };
+
+  it('OS の起動より前に始まった登録は、pid が動いていても消えたと見る。どの OS でも同じ', () => {
+    for (const p of ['win32', 'darwin', 'linux'] as const) {
+      const gone = goneOn(p, { bootedAt: () => BOOT, alive, reuse: noReuse });
+      const fmt = p === 'win32' ? ft : lstart;
+      expect(gone(42, { procStart: fmt(BOOT - 3_600_000) }), p).toBe(true);
+      expect(gone(42, { procStart: fmt(BOOT + 60_000) }), p).toBe(false);
+    }
+  });
+
+  it('起動の直前の数十秒は、稼働時間の誤差とみて消えたとは決めない', () => {
+    const gone = goneOn('win32', { bootedAt: () => BOOT, alive, reuse: noReuse });
+    expect(gone(42, { procStart: ft(BOOT - 5_000) })).toBe(false);
+  });
+
+  it('procStart が無いか読めなければ、最後に書かれた時刻で見る。どちらも無ければ決めない', () => {
+    const gone = goneOn('darwin', { bootedAt: () => BOOT, alive, reuse: noReuse });
+    expect(gone(42, { writtenAt: BOOT - 3_600_000 })).toBe(true);
+    expect(gone(42, { procStart: 'garbage', writtenAt: BOOT - 3_600_000 })).toBe(true);
+    expect(gone(42, { writtenAt: BOOT + 60_000 })).toBe(false);
+    expect(gone(42, {})).toBe(false);
+    expect(gone(42)).toBe(false);
+  });
+
+  it('Windows では、動いている pid でも、そのプロセスの起動時刻が procStart と違えば使い回しと見る', () => {
+    const asked: [number, string][] = [];
+    const reuse = { reused: (pid: number, s: string) => { asked.push([pid, s]); return pid === 12156; } };
+    const gone = goneOn('win32', { bootedAt: () => BOOT, alive, reuse });
+    expect(gone(12156, { procStart: ft(BOOT + 60_000) })).toBe(true);
+    expect(gone(39096, { procStart: ft(BOOT + 60_000) })).toBe(false);
+    // procStart が無ければ聞けない。
+    expect(gone(12156, {})).toBe(false);
+    expect(asked.map(([p]) => p)).toEqual([12156, 39096]);
+  });
+
+  it('macOS と Linux では、そのプロセスの起動時刻を聞かない（動いているかも見ない、いまの動きのまま）', () => {
+    let asked = 0;
+    const reuse = { reused: () => { asked++; return true; } };
+    for (const p of ['darwin', 'linux'] as const) {
+      const gone = goneOn(p, { bootedAt: () => BOOT, alive: () => false, reuse });
+      expect(gone(12156, { procStart: lstart(BOOT + 60_000) })).toBe(false);
+    }
+    expect(asked).toBe(0);
+  });
+
+  it('readRegistry は、isGone に procStart と最後に書かれた時刻を渡す。登録のファイルは消さない', () => {
+    const dir = copyFixtureClaudeDir();
+    try {
+      const sessions = path.join(dir, 'sessions');
+      for (const f of fs.readdirSync(sessions)) fs.rmSync(path.join(sessions, f));
+      const stale = { pid: 12156, sessionId: 'u-stale', cwd: '/x', status: 'idle', procStart: ft(BOOT - 3_600_000), startedAt: BOOT - 3_600_000, updatedAt: BOOT - 60_000, statusUpdatedAt: BOOT - 120_000 };
+      const fresh = { pid: 39096, sessionId: 'u-fresh', cwd: '/y', status: 'idle', startedAt: BOOT + 60_000 };
+      fs.writeFileSync(path.join(sessions, '12156.json'), JSON.stringify(stale));
+      fs.writeFileSync(path.join(sessions, '39096.json'), JSON.stringify(fresh));
+      const seen: unknown[] = [];
+      const isGone = (pid: number, stamp?: unknown) => { seen.push([pid, stamp]); return false; };
+      readRegistry(dir, isGone);
+      // 読む順は OS によって違うので、pid ごとに見る。
+      expect(new Map(seen as [number, unknown][])).toEqual(new Map([[12156, { procStart: stale.procStart, writtenAt: BOOT - 60_000 }], [39096, { writtenAt: BOOT + 60_000 }]]));
+      expect(readRegistry(dir, goneOn('win32', { bootedAt: () => BOOT, alive, reuse: noReuse })).map((l) => l.sessionId)).toEqual(['u-fresh']);
+      expect(fs.readdirSync(sessions).sort()).toEqual(['12156.json', '39096.json']);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

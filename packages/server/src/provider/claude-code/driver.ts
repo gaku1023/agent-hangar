@@ -6,7 +6,7 @@ import { buildClaudeArgs } from './launch/args.ts';
 import { writeHookSettings, type HookSettingsInput } from './launch/hookSettings.ts';
 import { writeMcpConfig } from './launch/mcpConfig.ts';
 import type { ProcOps } from './process/procs.ts';
-import { RegistryWatcher, watchDir } from './registry.ts';
+import { RegistryWatcher, watchDir, type IsGone } from './registry.ts';
 import type { CompatSink } from './compat/types.ts';
 import type { ClaudeTranscriptSource } from './transcript/source.ts';
 import type { LaunchMode, LiveSession } from './types.ts';
@@ -71,7 +71,7 @@ export type ClaudeLiveSource = LiveSource & {
  * isGone は消えたプロセスの残りと見る pid（省けば OS で決める）。enrich は読み直しのたびに通す足し付けで、LiveHub.enrich を渡す。
  * compat は形のずれを受け取る口。
  */
-export function claudeLiveSource(o: { claudeDir: string; pollMs: number; idleMs: number; isGone?: (pid: number) => boolean; enrich: (live: LiveSession[]) => LiveSession[]; compat: CompatSink }): ClaudeLiveSource {
+export function claudeLiveSource(o: { claudeDir: string; pollMs: number; idleMs: number; isGone?: IsGone; enrich: (live: LiveSession[]) => LiveSession[]; compat: CompatSink }): ClaudeLiveSource {
   const w = new RegistryWatcher(o.claudeDir, o.pollMs, o.isGone, o.enrich, o.compat, { idleMs: o.idleMs, watch: watchDir });
   return {
     start: () => w.start(),
