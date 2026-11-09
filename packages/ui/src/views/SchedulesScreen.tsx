@@ -219,6 +219,8 @@ export function SchedulesScreen(props: SchedulesProps) {
     return () => clearInterval(id);
   }, [available, emit]);
   const eventCount = ev ? ev.drafts.length + ev.claims.length + ev.rows.length : 0;
+  // 節は、行か失敗の一文があるときだけ出す。時刻の見出しは、イベントの節と並ぶときだけ出す。
+  const showEvents = ev !== null && (eventCount > 0 || ev.error !== null);
   const empty = props.rows.length === 0 && eventCount === 0;
   return (
     <div className="screen schedules-screen">
@@ -230,9 +232,9 @@ export function SchedulesScreen(props: SchedulesProps) {
       {(!empty || creating) && (
         <div className="sch-list">
           <Grow open={creating}>{() => <CreateFlow {...props} onClose={() => setCreating(false)} />}</Grow>
-          {ev && props.rows.length > 0 && <h2 className="sch-sec">{t('schedules.section.time')}</h2>}
+          {showEvents && props.rows.length > 0 && <h2 className="sch-sec">{t('schedules.section.time')}</h2>}
           {props.rows.map((row) => <ScheduleRowView key={row.id} {...props} row={row} open={open === row.id} onOpen={setOpen} rowRef={flip(row.id)} />)}
-          {ev && eventCount > 0 && (
+          {ev && showEvents && (
             <section className="sch-events" aria-label={t('schedules.section.event')}>
               <h2 className="sch-sec"><Icon name="bolt" />{t('schedules.section.event')}</h2>
               {ev.error && <div className="sch-ev-error" role="alert">{ev.error}</div>}

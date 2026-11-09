@@ -442,4 +442,17 @@ describe('予定の画面のイベント', () => {
     const bad = await runRow({ type: 'events.remove', id: 'x' }, apiWith({ deleteEventBinding: vi.fn(async () => { throw new Error('イベントの設定が見つかりません'); }) }));
     expect(bad.store.eventTrigger.error).toEqual({ kind: 'text', text: 'イベントの設定が見つかりません' });
   });
+  it('書き込みが済んで読み直しだけが失敗したときは、済んだことにする（作ったフォームは閉じ、打ち直しの二重を避ける）', async () => {
+    const down = { eventBindings: vi.fn(async () => { throw new Error('down'); }) };
+    const made = await runRow({ type: 'events.create', input }, apiWith({ ...down, createEventBinding: vi.fn(async () => ({ binding })) }));
+    expect(made.store.eventTrigger.form).toEqual({ busy: false, error: null, done: 1 });
+    const approved = await runRow({ type: 'events.approve', id: 'b1' }, apiWith({ ...down, approveEventBinding: vi.fn(async () => ({ binding })) }));
+    expect(approved.store.eventTrigger.error).toBeNull();
+    const removed = await runRow({ type: 'events.remove', id: 'b1' }, apiWith(down));
+    expect(removed.store.eventTrigger.error).toBeNull();
+  });
+  it('webhook を付けられず理由の文が無いときは、決めた一文の印にする', async () => {
+    const r = await runRow({ type: 'events.create', input }, apiWith({ createEventBinding: vi.fn(async () => ({ hook: { status: 'failed' as const } })) }));
+    expect(r.store.eventTrigger.form.error).toEqual({ kind: 'hook_failed' });
+  });
 });

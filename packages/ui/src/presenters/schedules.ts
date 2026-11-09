@@ -147,6 +147,18 @@ function actionLabel(t: Translate, store: Store, a: EventAction): string {
   return name ? `${t(key)} · ${name}` : t(key);
 }
 
+/**
+ * 新しい会話の動きの札。どこで何が動くかが承認の前に見えるよう、プロジェクト（クイックセッションはその名前）とエージェントを頭に置く。
+ * アカウントは、ストアに名前があればその名前、無ければ id のまま出す（launchChips）。
+ */
+function newActionChips(store: Store, t: Translate, a: Extract<EventAction, { kind: 'new' }>): ScheduleLaunchChip[] {
+  const project = a.projectId === null || a.scratch === true ? t('schedules.list.quick') : store.projects[a.projectId]?.name ?? a.projectId;
+  const agent = a.agent ?? 'claude-code';
+  const pool = agent === 'codex' ? store.accounts?.codex?.accounts : agent === 'claude-code' ? store.accounts?.accounts : undefined;
+  const accountName = a.account ? pool?.find((x) => x.id === a.account)?.name ?? null : null;
+  return [{ name: t('schedules.form.project'), value: project }, { name: t('launch.chip.agent'), value: agentLabel(agent) }, ...launchChips(t, a, accountName)];
+}
+
 function eventRow(store: Store, t: Translate, now: number, b: EventBindingDto): EventRow {
   const gh = b.source.kind === 'github' ? b.source : null;
   return {
@@ -156,7 +168,7 @@ function eventRow(store: Store, t: Translate, now: number, b: EventBindingDto): 
     when: gh ? gh.when.map((w) => githubWhenLabel(t, w)).join(t('schedules.event.when.sep')) : '',
     filters: gh ? [...(gh.pr !== undefined ? [`#${gh.pr}`] : []), ...(gh.labels ?? [])] : [],
     action: actionLabel(t, store, b.action),
-    chips: b.action.kind === 'new' ? launchChips(t, b.action, null) : [],
+    chips: b.action.kind === 'new' ? newActionChips(store, t, b.action) : [],
     passBody: b.passBody, allowAuthors: b.allowAuthors,
     note: b.state === 'held' ? t('schedules.event.heldHourly', { max: EVENT_HOURLY_MAX }) : null,
     runs: b.runs.map((r) => {
@@ -167,8 +179,8 @@ function eventRow(store: Store, t: Translate, now: number, b: EventBindingDto): 
   };
 }
 
-const noticeText = (t: Translate, n: EventNotice | null): string | null => (n === null ? null : n.kind === 'no_admin' ? t('schedules.event.noAdmin') : n.text);
-const claimRow = (t: Translate, c: PrClaimDto): PrClaimRow => ({ key: `${c.sessionId}#${c.repo}#${c.pr}`, sessionId: c.sessionId, repo: c.repo, pr: c.pr, text: t('schedules.event.claim', { title: c.sessionTitle ?? '', pr: c.pr }) });
+const noticeText = (t: Translate, n: EventNotice | null): string | null => (n === null ? null : n.kind === 'no_admin' ? t('schedules.event.noAdmin') : n.kind === 'hook_failed' ? t('schedules.event.hookFailed') : n.text);
+const claimRow = (t: Translate, c: PrClaimDto): PrClaimRow => ({ key: `${c.sessionId}#${c.repo}#${c.pr}`, sessionId: c.sessionId, repo: c.repo, pr: c.pr, text: t('schedules.event.claim', { title: c.sessionTitle || c.sessionId, repo: c.repo, pr: c.pr }) });
 
 function presentEvents(store: Store, t: Translate, now: number): EventsProps | null {
   if (!eventsAvailable(store.sync)) return null;

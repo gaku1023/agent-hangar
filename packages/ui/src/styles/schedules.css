@@ -86,6 +86,7 @@ a.sch-run-name:hover { text-decoration: underline; }
 .sch-repo { width: 320px; max-width: 100%; }
 .sch-repo[aria-invalid='true'] { box-shadow: inset 0 0 0 1.5px var(--error); }
 .sch-pr { width: 96px; }
+.sch-pr[aria-invalid='true'], .sch-labels[aria-invalid='true'] { box-shadow: inset 0 0 0 1.5px var(--error); }
 .sch-labels, .sch-allow { width: 240px; max-width: 100%; }
 .sch-sw-row { display: inline-flex; align-items: center; gap: calc(var(--u) * 2); cursor: pointer; }
 @media (max-width: 720px) {

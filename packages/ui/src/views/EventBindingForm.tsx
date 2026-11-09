@@ -12,6 +12,12 @@ const WHENS: GithubWhen[] = ['ci_done', 'ci_failed', 'review', 'comment', 'merge
 type Dest = 'send' | 'send_pr_owner' | 'new';
 type Draft = { repo: string; when: GithubWhen[]; pr: string; labels: string; dest: Dest; sessionId: string; prompt: string; passBody: boolean; allow: string };
 
+/** PR の番号。1 から始まる 10 桁までの整数だけ。ほかの綴り（12a、0、空白入り）は「絞り込み無し」にせず、作れない入力にする。 */
+const PR_RE = /^[1-9]\d{0,9}$/;
+const LABEL_MAX = 50;
+/** ラベルの欄が正しいか。空の項目（コンマの連続）と 50 字を超える項目があれば誤り。何も書かなければ正しい（絞り込み無し）。 */
+const labelsOk = (s: string): boolean => s.trim() === '' || s.split(/[,、]/).every((x) => x.trim() !== '' && x.trim().length <= LABEL_MAX);
+
 /** コンマ（全角の読点も）で分けて、前後の空白と空を捨てる。 */
 const listOf = (s: string, sep: RegExp): string[] => s.split(sep).map((x) => x.trim()).filter(Boolean);
 
@@ -30,8 +36,9 @@ function inputOf(kind: 'github' | 'hook', d: Draft, built: LaunchBuilt | null, b
   }
   const base = { action, prompt: d.prompt, passBody: d.passBody };
   if (kind === 'hook') return { ...base, source: { kind: 'hook' }, allowAuthors: [] };
-  const pr = d.pr.trim() === '' ? undefined : Number(d.pr);
-  if (!GITHUB_REPO_RE.test(d.repo) || d.when.length === 0 || (pr !== undefined && !(Number.isSafeInteger(pr) && pr > 0))) return null;
+  const prText = d.pr.trim();
+  if (!GITHUB_REPO_RE.test(d.repo) || d.when.length === 0 || (prText !== '' && !PR_RE.test(prText)) || !labelsOk(d.labels)) return null;
+  const pr = prText === '' ? undefined : Number(prText);
   const labels = listOf(d.labels, /[,、]/);
   return { ...base, source: { kind: 'github', repo: d.repo, when: WHENS.filter((w) => d.when.includes(w)), ...(pr !== undefined ? { pr } : {}), ...(labels.length > 0 ? { labels } : {}) }, allowAuthors: d.passBody ? listOf(d.allow, /[,\s、]+/) : [] };
 }
@@ -67,6 +74,8 @@ export function EventBindingForm(props: SchedulesProps & { kind: 'github' | 'hoo
     { value: 'new', label: t('schedules.event.action.new') },
   ];
   const repoBad = d.repo !== '' && !GITHUB_REPO_RE.test(d.repo);
+  const prBad = d.pr.trim() !== '' && !PR_RE.test(d.pr.trim());
+  const labelsBad = !labelsOk(d.labels);
   return (
     <div className="sch-form sch-ev-form">
       {props.kind === 'github' && (
@@ -79,8 +88,8 @@ export function EventBindingForm(props: SchedulesProps & { kind: 'github' | 'hoo
             })}
           </div>
           <div className="sch-line">
-            <input className="input sch-pr" type="number" min={1} aria-label={t('schedules.event.form.pr')} placeholder="#" value={d.pr} onChange={(e) => set({ pr: e.target.value })} />
-            <input className="input sch-labels" aria-label={t('schedules.event.form.labels')} placeholder={t('schedules.event.form.labels')} value={d.labels} onChange={(e) => set({ labels: e.target.value })} />
+            <input className="input sch-pr" inputMode="numeric" aria-label={t('schedules.event.form.pr')} placeholder="#" aria-invalid={prBad ? 'true' : undefined} value={d.pr} onChange={(e) => set({ pr: e.target.value })} />
+            <input className="input sch-labels" aria-label={t('schedules.event.form.labels')} placeholder={t('schedules.event.form.labels')} aria-invalid={labelsBad ? 'true' : undefined} value={d.labels} onChange={(e) => set({ labels: e.target.value })} />
           </div>
         </>
       )}

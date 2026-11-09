@@ -199,7 +199,8 @@ export const eventsKey = (sessionId: string, agentId: string | null): string => 
  * ready は一度でも読めたこと。form は作成の送信の状態で、done は作れた回数（フォームが閉じる合図）。
  * error は承認と削除と PR の印の失敗の一文で、次の操作で消える。
  */
-export type EventNotice = { kind: 'no_admin' } | { kind: 'text'; text: string };
+/** hook_failed は、webhook を付けられなかったが理由の文が無いとき。 */
+export type EventNotice = { kind: 'no_admin' } | { kind: 'hook_failed' } | { kind: 'text'; text: string };
 export type EventTriggerState = {
   ready: boolean; bindings: EventBindingDto[]; claims: PrClaimDto[];
   form: { busy: boolean; error: EventNotice | null; done: number };

@@ -93,19 +93,24 @@ function providerCall(id: string, op: OpencodeProviderOp, run: (api: ApiClient) 
 }
 
 /** webhook を付けられなかった理由の文。権限なしは画面が辞書で言い、それ以外はサーバの文をそのまま出す。 */
-const hookNotice = (h: EventHookFailureDto): EventNotice => (h.status === 'no_admin' ? { kind: 'no_admin' } : { kind: 'text', text: h.message ?? '' });
+const hookNotice = (h: EventHookFailureDto): EventNotice => (h.status === 'no_admin' ? { kind: 'no_admin' } : h.message ? { kind: 'text', text: h.message } : { kind: 'hook_failed' });
 const failureOf = (r: unknown): EventHookFailureDto | null => {
   const h = (r as { hook?: { status?: string } }).hook;
   return h && h.status !== 'registered' ? (h as EventHookFailureDto) : null;
 };
 const withEventTrigger = (store: Store, f: (e: EventTriggerState) => Partial<EventTriggerState>): Store => ({ ...store, eventTrigger: { ...store.eventTrigger, ...f(store.eventTrigger) } });
 const eventSnapshot = (api: ApiClient) => Promise.all([api.eventBindings(), api.prClaims()]).then(([b, c]) => ({ ready: true, bindings: b.bindings, claims: c.claims }));
+/**
+ * 書き込みが済んだあとの読み直し。読み直しだけが失敗しても、書き込みは済んでいるので null を返して前の一覧を残す。
+ * 失敗にすると、利用者が同じ操作を打ち直して二重に作る（次の間隔の読み直しが追いつく）。
+ */
+const reloadAfterWrite = (api: ApiClient) => eventSnapshot(api).catch(() => null);
 /** 一覧に影響する操作の共通の形。済んだら読み直す。失敗は、トーストにせず一覧の頭の一文にする。 */
 const eventOp = (run: (api: ApiClient) => Promise<unknown>): ApiCall => call(
-  (api) => run(api).then((r) => eventSnapshot(api).then((snap) => ({ snap, failure: failureOf(r) }))),
+  (api) => run(api).then((r) => reloadAfterWrite(api).then((snap) => ({ snap, failure: failureOf(r) }))),
   {
     before: (store) => withEventTrigger(store, () => ({ error: null })),
-    apply: (store, { snap, failure }) => withEventTrigger(store, () => ({ ...snap, error: failure ? hookNotice(failure) : null })),
+    apply: (store, { snap, failure }) => withEventTrigger(store, () => ({ ...(snap ?? {}), error: failure ? hookNotice(failure) : null })),
     failed: (store, e) => withEventTrigger(store, () => ({ error: { kind: 'text', text: errText(e) } })),
   },
 );
@@ -143,11 +148,11 @@ export const actionTable = {
   // イベント（#563）。読み直しの失敗は、間隔で何度も来るので黙って前の一覧を残す。
   'events.load': () => call(eventSnapshot, { apply: (store, snap) => withEventTrigger(store, () => snap), failed: (store) => store }),
   'events.create': (i) => call(
-    (api) => api.createEventBinding(i.input).then(async (r) => ({ failure: failureOf(r), snap: 'binding' in r ? await eventSnapshot(api) : null })),
+    (api) => api.createEventBinding(i.input).then(async (r) => ({ failure: failureOf(r), created: 'binding' in r, snap: 'binding' in r ? await reloadAfterWrite(api) : null })),
     {
       before: (store) => withEventTrigger(store, (e) => ({ form: { ...e.form, busy: true, error: null } })),
-      apply: (store, { failure, snap }) => withEventTrigger(store, (e) => (snap && !failure
-        ? { ...snap, form: { busy: false, error: null, done: e.form.done + 1 } }
+      apply: (store, { failure, created, snap }) => withEventTrigger(store, (e) => (created && !failure
+        ? { ...(snap ?? {}), form: { busy: false, error: null, done: e.form.done + 1 } }
         : { form: { ...e.form, busy: false, error: failure ? hookNotice(failure) : null } })),
       failed: (store, e) => withEventTrigger(store, (cur) => ({ form: { ...cur.form, busy: false, error: { kind: 'text', text: errText(e) } } })),
     },

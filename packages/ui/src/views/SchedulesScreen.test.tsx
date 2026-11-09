@@ -1,11 +1,11 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { translator, type CodexOptionsDto, type EventBindingDto, type ScheduleDto } from '@agent-hangar/shared';
+import { translator, type CodexOptionsDto, type EventBindingDto, type PrClaimDto, type ScheduleDto } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
 import type { LaunchChoiceData } from '../presenters/newSession.ts';
 import { eventMarker, nextLabel, presentSchedules, whenLabel, type SchedulesProps } from '../presenters/schedules.ts';
 import { initialStore } from '../store/store.ts';
-import { accountsFixture } from '../test/accounts.ts';
+import { accountsFixture, codexAccountsFixture } from '../test/accounts.ts';
 import { pick } from '../test/pick.ts';
 import { SchedulesScreen } from './SchedulesScreen.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
@@ -356,11 +356,11 @@ describe('イベントの節（#563）', () => {
     id: 'e1', source: { kind: 'github', repo: 'o/r', when: ['ci_failed', 'merged'], labels: ['ci-fix'] }, action: { kind: 'new', projectId: 'p' }, prompt: '落ちた CI を直す',
     passBody: false, allowAuthors: [], state: 'active', hookUrl: null, createdAt: 1, expiresAt: null, runs: [], ...o,
   });
-  const claim = { sessionId: 's', repo: 'o/r', pr: 9, claimedAt: 1, sessionTitle: '移植の会話' };
+  const claim: PrClaimDto = { sessionId: 's', repo: 'o/r', pr: 9, claimedAt: 1, sessionTitle: '移植の会話' };
   type Form = ReturnType<typeof initialStore>['eventTrigger']['form'];
-  const mountEvents = (bindings: EventBindingDto[] = [], claims: (typeof claim)[] = [], over: { sync?: unknown; form?: Partial<Form> } = {}) => {
+  const mountEvents = (bindings: EventBindingDto[] = [], claims: PrClaimDto[] = [], over: { sync?: unknown; form?: Partial<Form>; error?: { kind: 'no_admin' } | { kind: 'hook_failed' } | { kind: 'text'; text: string }; store?: Partial<ReturnType<typeof initialStore>> } = {}) => {
     const base = initialStore().eventTrigger;
-    return mount([dto()], { store: { sync: ('sync' in over ? over.sync : SYNC) as never, eventTrigger: { ...base, ready: true, bindings, claims, form: { ...base.form, ...over.form } } } });
+    return mount([dto()], { store: { sync: ('sync' in over ? over.sync : SYNC) as never, eventTrigger: { ...base, ready: true, bindings, claims, error: over.error ?? null, form: { ...base.form, ...over.form } }, ...over.store } });
   };
   const events = () => screen.getByRole('region', { name: t('schedules.section.event') });
   const items = () => within(events()).getAllByRole('listitem');
@@ -410,14 +410,52 @@ describe('イベントの節（#563）', () => {
   it('担当する PR の下書きは文と承認、却下を出し、押すと repo と PR を添えて答える', () => {
     const onAction = mountEvents([], [claim]);
     const row = items()[0]!;
-    expect(row).toHaveTextContent(t('schedules.event.claim', { title: '移植の会話', pr: 9 }));
+    expect(row).toHaveTextContent('「移植の会話」が o/r の PR #9 を担当');
     fireEvent.click(within(row).getByRole('button', { name: t('schedules.event.approve') }));
     expect(onAction).toHaveBeenCalledWith({ type: 'events.claim', op: 'approve', sessionId: 's', repo: 'o/r', pr: 9 });
     fireEvent.click(within(row).getByRole('button', { name: t('schedules.event.reject') }));
     expect(onAction).toHaveBeenCalledWith({ type: 'events.claim', op: 'reject', sessionId: 's', repo: 'o/r', pr: 9 });
   });
 
-  it('行を開くと動き、できごと、絞り込み、履歴を出し、削除は確かめてから頼む', () => {
+  it('承認待ちの新しい会話は、プロジェクトとエージェントとアカウントの名前を承認の前に見せる', () => {
+    mountEvents([bind({ id: 'd1', state: 'draft', action: { kind: 'new', projectId: 'p', agent: 'codex', account: 'cw' } }), bind({ id: 'd2', state: 'draft', action: { kind: 'new', projectId: null, scratch: true, account: 'a1' } }), bind({ id: 'd3', state: 'draft', action: { kind: 'new', projectId: 'p', account: 'gone' } })], [], { store: { accounts: codexAccountsFixture } });
+    const [codex, quick, gone] = items();
+    expect(codex).toHaveTextContent('プロジェクトalpha');
+    expect(codex).toHaveTextContent('Codex');
+    expect(codex).toHaveTextContent('会社用');
+    expect(quick).toHaveTextContent(t('schedules.list.quick'));
+    expect(quick).toHaveTextContent('Claude Code');
+    expect(quick).toHaveTextContent('大学');
+    expect(gone).toHaveTextContent('gone');
+  });
+
+  it('担当する PR の会話の題が無いときは、会話の id で言う', () => {
+    mountEvents([], [{ ...claim, sessionTitle: null }]);
+    expect(items()[0]).toHaveTextContent('「s」が o/r の PR #9 を担当');
+  });
+
+  it('webhook を付けられず理由の文も無いときは、決めた一文を出す', () => {
+    mountEvents([], [], { form: { error: { kind: 'hook_failed' } as never } });
+    openNew();
+    pickKind('GitHub');
+    typePrompt();
+    fireEvent.change(screen.getByRole('textbox', { name: t('schedules.event.form.repo') }), { target: { value: 'o/r' } });
+    fireEvent.click(within(whenGroup()).getByRole('button', { name: t('schedules.event.when.review') }));
+    fireEvent.click(screen.getByRole('button', { name: t('schedules.form.create') }));
+    expect(screen.getByRole('alert')).toHaveTextContent('webhook を登録できませんでした');
+  });
+
+  it('行が無くても、承認や削除の失敗の一文は節の頭に出す。時刻の見出しはイベントの節と並ぶときだけ', () => {
+    mountEvents([], [], { error: { kind: 'text', text: 'イベントの設定が見つかりません' } });
+    expect(events()).toHaveTextContent('イベントの設定が見つかりません');
+    expect(screen.getByRole('heading', { name: t('schedules.section.time') })).toBeInTheDocument();
+    cleanup();
+    mountEvents([]);
+    expect(screen.queryByRole('heading', { name: t('schedules.section.event') })).toBeNull();
+    expect(screen.queryByRole('heading', { name: t('schedules.section.time') })).toBeNull();
+  });
+
+  it('行を開くと動き、できごと、絞り込み、履歴を出し、削除は確かめてから頼む', async () => {
     const run = { id: 'x', plannedAt: 1, startedAt: NOW, endedAt: NOW, result: 'skipped' as const, sessionId: null, sessionTitle: null, error: 'held:hourly' };
     const onAction = mountEvents([bind({ state: 'held', runs: [run] })]);
     const row = items()[0]!;
@@ -431,6 +469,7 @@ describe('イベントの節（#563）', () => {
     fireEvent.click(within(row).getByRole('button', { name: t('schedules.action.delete') }));
     expect(onAction.mock.calls.map((c) => c[0]).some((a) => a.type === 'events.remove')).toBe(false);
     fireEvent.click(within(row).getByRole('button', { name: t('schedules.action.deleteConfirm') }));
+    await vi.waitFor(() => expect(onAction).toHaveBeenCalledWith({ type: 'events.remove', id: 'e1' }));
   });
 
   it('履歴の印を決めた言い方にする', () => {
@@ -472,7 +511,7 @@ describe('イベントの節（#563）', () => {
     expect(create).toBeDisabled();
     fireEvent.click(within(whenGroup()).getByRole('button', { name: t('schedules.event.when.ciFailed') }));
     fireEvent.click(within(whenGroup()).getByRole('button', { name: t('schedules.event.when.merged') }));
-    fireEvent.change(screen.getByRole('spinbutton', { name: t('schedules.event.form.pr') }), { target: { value: '12' } });
+    fireEvent.change(screen.getByRole('textbox', { name: t('schedules.event.form.pr') }), { target: { value: '12' } });
     fireEvent.change(screen.getByRole('textbox', { name: t('schedules.event.form.labels') }), { target: { value: 'ci-fix, bug' } });
     expect(create).toBeEnabled();
     fireEvent.click(create);
@@ -480,6 +519,34 @@ describe('イベントの節（#563）', () => {
       source: { kind: 'github', repo: 'o/r', when: ['ci_failed', 'merged'], pr: 12, labels: ['ci-fix', 'bug'] },
       action: { kind: 'new', projectId: 'p' }, prompt: '見て', passBody: false, allowAuthors: [],
     });
+  });
+
+  it('GitHub: PR の番号と札は、正しくない綴りを絞り込み無しにせず、作れない入力にする', () => {
+    mountEvents();
+    openNew();
+    pickKind('GitHub');
+    typePrompt();
+    fireEvent.change(screen.getByRole('textbox', { name: t('schedules.event.form.repo') }), { target: { value: 'o/r' } });
+    fireEvent.click(within(whenGroup()).getByRole('button', { name: t('schedules.event.when.review') }));
+    const create = screen.getByRole('button', { name: t('schedules.form.create') });
+    const pr = screen.getByRole('textbox', { name: t('schedules.event.form.pr') });
+    const labels = screen.getByRole('textbox', { name: t('schedules.event.form.labels') });
+    expect(create).toBeEnabled();
+    for (const bad of ['12a', '0', '012', '1 2', '12345678901']) {
+      fireEvent.change(pr, { target: { value: bad } });
+      expect(pr).toHaveAttribute('aria-invalid', 'true');
+      expect(create).toBeDisabled();
+    }
+    fireEvent.change(pr, { target: { value: '' } });
+    expect(pr).not.toHaveAttribute('aria-invalid', 'true');
+    for (const bad of ['a,,b', 'a,', 'x'.repeat(51)]) {
+      fireEvent.change(labels, { target: { value: bad } });
+      expect(labels).toHaveAttribute('aria-invalid', 'true');
+      expect(create).toBeDisabled();
+    }
+    fireEvent.change(labels, { target: { value: 'x'.repeat(50) } });
+    expect(labels).not.toHaveAttribute('aria-invalid', 'true');
+    expect(create).toBeEnabled();
   });
 
   it('GitHub: 動きは 3 つ（Paused を起こすは無い）。PR を出した会話と、会話に送る', () => {
