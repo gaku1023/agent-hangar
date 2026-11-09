@@ -74,7 +74,8 @@ for (const f of fixtures) {
       expect(parsed.every((p) => p.providerSessionId === f.sessionId && p.model !== null)).toBe(true);
       expect(parsed.some((p) => p.contextSize !== null && p.contextSize > 0)).toBe(true);
       // 戻る時刻が 1 つも読めないと、下のミリ秒の確かめが素通りする。
-      expect(parsed.some((p) => p.rateLimits?.fiveHour?.resetsAt != null)).toBe(true);
+      // 窓はアカウントとその時の使い方で出たり出なかったりする（2.1.319 の見本は seven_day だけ）ので、どちらかの窓で読めればよい。
+      expect(parsed.some((p) => p.rateLimits?.fiveHour?.resetsAt != null || p.rateLimits?.sevenDay?.resetsAt != null)).toBe(true);
       for (const p of parsed) {
         for (const w of [p.rateLimits?.fiveHour, p.rateLimits?.sevenDay]) if (w && w.resetsAt !== null) expect(w.resetsAt).toBeGreaterThan(1e12);
       }
