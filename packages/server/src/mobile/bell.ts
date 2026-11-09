@@ -46,6 +46,12 @@ export type MobileBellDeps = {
   onLaunch: () => void;
   /** `{t:'peer', kind, id}` を受けた。PC どうしの頼みの知らせで、kind は launch（頼みが来た）、answer（答えが来た）、result（結果が来た）。種類ごとの取得は呼ぶ側が分ける。無ければ捨てる（30 秒の取得が拾う）。 */
   onPeer?: (kind: PeerBellKind, id: string) => void;
+  /**
+   * `{t:'peer', kind:'event', id}` を受けた（外のできごとの受け箱に荷物が届いた、#563、版 12 の Worker から）。
+   * id は受け箱の ID なので、渡さない。取りに行くのは呼ぶ側（event/puller.ts）で、どの受け箱かは問わず全部を取る。
+   * 無ければ捨てる（起動のときの取得が拾う）。
+   */
+  onEvent?: () => void;
   /** `{t:'ask', id, sealed, epoch}` を受けた。epoch は封じたスマホ用の鍵の世代。封じた答えを返す。開けないものは null で、答えない。 */
   onAsk: (id: string, sealed: string, epoch: number) => Promise<string | null>;
   /**
@@ -208,8 +214,12 @@ export class MobileBell {
     }
     if (msg.t === 'peer') {
       const kind = (PEER_BELL_KINDS as readonly unknown[]).includes(msg.kind) ? (msg.kind as PeerBellKind) : null;
-      if (kind && typeof msg.id === 'string' && msg.id.length > 0 && msg.id.length <= MAX_ASK_ID && this.deps.onPeer) {
-        try { this.deps.onPeer(kind, msg.id); } catch (e) { console.error('[mobile] could not take the peer bell', describe(e)); }
+      if (kind && typeof msg.id === 'string' && msg.id.length > 0 && msg.id.length <= MAX_ASK_ID) {
+        if (kind === 'event') {
+          try { this.deps.onEvent?.(); } catch (e) { console.error('[mobile] could not take the event bell', describe(e)); }
+        } else if (this.deps.onPeer) {
+          try { this.deps.onPeer(kind, msg.id); } catch (e) { console.error('[mobile] could not take the peer bell', describe(e)); }
+        }
       }
       return;
     }

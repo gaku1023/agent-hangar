@@ -1,10 +1,11 @@
 import path from 'node:path';
 import type WebSocket from 'ws';
-import { codexEnabledOf, MOBILE_BELL_MIN_WORKER_COMPAT, opencodeEnabledOf, type PeerBellKind, type PeerChatBellAsk, type PeerChatBellReply, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
+import { codexEnabledOf, EVENT_INBOX_MIN_WORKER_COMPAT, MOBILE_BELL_MIN_WORKER_COMPAT, opencodeEnabledOf, type PeerBellKind, type PeerChatBellAsk, type PeerChatBellReply, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
 import type { AccountStore } from '../config/accounts.ts';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
+import type { EventPuller } from '../event/puller.ts';
 import { onIntent } from '../live/intents.ts';
 import { mobilePeerApprovals } from '../peer/approvals.ts';
 import { approveDeleteApproval, dismissDeleteApproval, listDeleteApprovals, rejectDeleteApproval } from '../sessions/deleteApprovals.ts';
@@ -107,6 +108,12 @@ export function bootMobile(p: {
   sync: Pick<SyncParts, 'canCarryMobile' | 'mobileLink' | 'cloudDevices' | 'onCloudDevices'> & { readonly engine: Pick<SyncEngine, 'on' | 'pullNow'>; /** 無ければ偽（PC どうしの呼び鈴を張らない）。 */ canCarryPeer?: () => boolean };
   /** 呼び鈴に PC どうしの答えと結果の知らせ（kind は answer か result）が鳴ったとき。呼ぶ側の取得（peer/outbox.ts）が受ける。頼みが来た知らせ（launch）は今の pull で受ける。 */
   onPeer?: (kind: PeerBellKind, id: string) => void;
+  /**
+   * 外のできごとの受け箱の取り手（event/puller.ts、#563）。呼び鈴の event の知らせで bell、リンクを組んだとき（起動と cloud.json が現れたとき）に start で取りに行く。
+   * 結び付けがあって Worker の版が EVENT_INBOX_MIN_WORKER_COMPAT に届くときは、スマホもほかの PC も居なくても呼び鈴を張る。
+   * 省けば、event の知らせを捨てる。取った事実の渡し先は、取り手の onPulled に渡す側（server.ts）で決める。
+   */
+  event?: Pick<EventPuller, 'pull' | 'hasBindings'>;
   /** 別の PC への起動の承認待ちへの答えの口（peer/approvals.ts）。省けば、スマホの答えを断る。 */
   peerApprovals?: { approve(id: string): Promise<'done' | 'failed' | 'missing'>; reject(id: string): boolean };
   timers?: Timers;
@@ -222,8 +229,10 @@ export function bootMobile(p: {
     const bell = new MobileBell({
       target: () => {
         if (!started || stopped) return null;
-        if (!(phones === true && p.sync.canCarryMobile()) && !(peers === true && canPeer())) return null;
-        if ((client.lastWorkerCompat?.() ?? 0) < MOBILE_BELL_MIN_WORKER_COMPAT) return null;
+        const compat = client.lastWorkerCompat?.() ?? 0;
+        const forEvents = !!p.event?.hasBindings() && compat >= EVENT_INBOX_MIN_WORKER_COMPAT;
+        if (!(phones === true && p.sync.canCarryMobile()) && !(peers === true && canPeer()) && !forEvents) return null;
+        if (compat < MOBILE_BELL_MIN_WORKER_COMPAT) return null;
         return client.bellTarget?.() ?? null;
       },
       onLaunch: () => {
@@ -234,6 +243,9 @@ export function bootMobile(p: {
         // 頼みが来た知らせは、今の pull で受け取りを前倒しする。答えと結果の知らせは呼ぶ側（T7）の取得が受ける。
         if (kind !== 'launch') { p.onPeer?.(kind, id); return; }
         void p.sync.engine.pullNow().catch((e: unknown) => console.error('[mobile] could not pull after the peer bell', e instanceof Error ? e.constructor.name : typeof e));
+      },
+      onEvent: () => {
+        void p.event?.pull('bell').catch((e: unknown) => console.error('[mobile] could not pull the event inbox after the bell', e instanceof Error ? e.constructor.name : typeof e));
       },
       onAsk: (id, sealed, epoch) => answerAsk({
         phoneKeys: link.phoneKeys,
@@ -250,6 +262,8 @@ export function bootMobile(p: {
       ...(p.bellConnect ? { connect: p.bellConnect } : {}),
     });
     cur = { pub, inbox, bell, link };
+    // リンクを組んだときに 1 度、閉じていた間に溜まった荷物を取りに行く。
+    void p.event?.pull('start').catch((e: unknown) => console.error('[mobile] could not pull the event inbox at start', e instanceof Error ? e.constructor.name : typeof e));
     pub.start();
     return pub;
   };

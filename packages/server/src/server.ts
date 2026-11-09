@@ -8,6 +8,8 @@ import { bootDelivery } from './boot/delivery.ts';
 import { bootHome } from './boot/home.ts';
 import { bootHttp, bootListen } from './boot/http.ts';
 import { bootTrash } from './boot/trash.ts';
+import { inboxApiOf } from './event/inboxClient.ts';
+import { EventPuller, type PulledEvent } from './event/puller.ts';
 import { bootIndexing } from './boot/indexing.ts';
 import { bootMobile } from './boot/mobile.ts';
 import { bootPeer } from './boot/peer.ts';
@@ -156,7 +158,11 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const peer = bootPeer({ home, runs, sync, delivery, ...(peerSsh ? { ssh: peerSsh } : {}) });
   // ほかの PC の会話の頼み（呼び鈴の chat の枠）。預かりと答えた記録はメモリだけに持つ。
   const peerChat = bootPeerChat({ home, runs, delivery, sync });
-  const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, chat: peerChat, trash: trash.trash, onPeer: (kind, id) => { peer.onBell(kind, id); }, peerApprovals: peer.approvals });
+  // 外のできごと（#563）。受け箱から取った荷物を、開いて確かめ、事実にする。
+  // 取った事実と断った印は dispatchEvents に渡る。結び付けに当てて動かす部品（Task 5）ができたら、ここを差し替える。
+  const dispatchEvents = (_events: PulledEvent[]): void => {};
+  const eventPuller = new EventPuller({ db: home.db, api: () => inboxApiOf(sync.mobileLink()?.client), onPulled: (events) => { dispatchEvents(events); } });
+  const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, chat: peerChat, trash: trash.trash, event: eventPuller, onPeer: (kind, id) => { peer.onBell(kind, id); }, peerApprovals: peer.approvals });
   peerRelayEnded = (id) => peer.relay.onEnded(id);
   // 定期の実行（#549）。予定はこの PC のものだけを流す。起こし方と待ち方は MCP の道具と同じ本体を通す。
   const scheduleTools: ToolDeps = { db: home.db, deviceId: home.device.id, port: listening.port, live: () => delivery.live.current(), runs: runs.runs, language: home.language, usage: () => runs.usage.current(),

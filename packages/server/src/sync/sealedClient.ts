@@ -169,6 +169,10 @@ export class SealedCloudClient implements CloudClient {
   deleteMobileFeed?: CloudClient['deleteMobileFeed'];
   postNotice?: CloudClient['postNotice'];
   deleteBlobs?: CloudClient['deleteBlobs'];
+  createInbox?: CloudClient['createInbox'];
+  deleteInbox?: CloudClient['deleteInbox'];
+  pendingParcels?: CloudClient['pendingParcels'];
+  ackParcels?: CloudClient['ackParcels'];
 
   constructor(
     readonly wire: WireCloudClient,
@@ -197,6 +201,10 @@ export class SealedCloudClient implements CloudClient {
     if (w.deleteMobileFeed) this.deleteMobileFeed = () => w.deleteMobileFeed!();
     if (w.postNotice) this.postNotice = (sealed, epoch) => w.postNotice!(sealed, epoch);
     if (w.deleteBlobs) this.deleteBlobs = (keys) => w.deleteBlobs!(keys);
+    if (w.createInbox) this.createInbox = (publicKey) => w.createInbox!(publicKey);
+    if (w.deleteInbox) this.deleteInbox = (inboxId) => w.deleteInbox!(inboxId);
+    if (w.pendingParcels) this.pendingParcels = () => w.pendingParcels!();
+    if (w.ackParcels) this.ackParcels = (ids) => w.ackParcels!(ids);
   }
 
   health(): Promise<{ ok: boolean; version: string }> { return this.wire.health(); }

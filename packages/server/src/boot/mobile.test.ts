@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
-import { PEER_LAUNCH_MIN_WORKER_COMPAT, aadAnswer, aadAsk, aadFeed, aadImage, aadLaunch, aadReply, COMPAT_HEADER, COMPAT_VERSION, MOBILE_BELL_MIN_WORKER_COMPAT, open, quotePath, seal, sealBytes, type MobileAsk, type AccountsDto, type CloudDevicesDto, type LaunchParams, type LiveSessionDto, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
+import { EVENT_INBOX_MIN_WORKER_COMPAT, PEER_LAUNCH_MIN_WORKER_COMPAT, aadAnswer, aadAsk, aadFeed, aadImage, aadLaunch, aadReply, COMPAT_HEADER, COMPAT_VERSION, MOBILE_BELL_MIN_WORKER_COMPAT, open, quotePath, seal, sealBytes, type MobileAsk, type AccountsDto, type CloudDevicesDto, type LaunchParams, type LiveSessionDto, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
 import { upsertShared } from '../db/shared.ts';
 import type { LaunchResult, RunListener } from '../runs/manager.ts';
 import type { SyncListener } from '../sync/engine.ts';
@@ -677,6 +677,59 @@ describe('bootMobile', () => {
       await settle(() => seen.length === 2);
       expect(seen).toEqual([['answer', 'r1'], ['result', 'r1']]);
       expect(s.engine().pullNow.mock.calls.length).toBe(1);
+    });
+
+    describe('外のできごとの受け箱（#563）', () => {
+      /** 取り手の偽物。結び付けの有無と、呼ばれた理由を持つ。 */
+      const fakePuller = (bindings: boolean) => {
+        const reasons: string[] = [];
+        return { reasons, puller: { pull: vi.fn(async (reason: 'bell' | 'start') => { reasons.push(reason); return []; }), hasBindings: () => bindings } };
+      };
+
+      it('リンクを組んだときに 1 度 start で取りに行き、event の知らせで bell で取りに行く。ID は渡さない', async () => {
+        const f = fakePuller(true);
+        const s = await bellSetup({ devices: noPhone(), workerCompat: EVENT_INBOX_MIN_WORKER_COMPAT, boot: { event: f.puller } });
+        cleanups.push(() => s.mobile.stop(), () => s.w.close());
+        s.mobile.start();
+        await settle(() => s.w.open().length === 1);
+        expect(f.reasons).toEqual(['start']);
+        s.w.open()[0]!.send(JSON.stringify({ t: 'peer', kind: 'event', id: 'inbox-1' }));
+        await settle(() => f.reasons.length === 2);
+        expect(f.reasons).toEqual(['start', 'bell']);
+        expect(f.puller.pull.mock.calls.every((c) => c.length === 1)).toBe(true);
+      });
+
+      it('結び付けがあり Worker の版が足りれば、スマホもほかの PC も居なくても呼び鈴を張る', async () => {
+        const s = await bellSetup({ devices: alone(), workerCompat: EVENT_INBOX_MIN_WORKER_COMPAT, boot: { event: fakePuller(true).puller } });
+        cleanups.push(() => s.mobile.stop(), () => s.w.close());
+        s.mobile.start();
+        await settle(() => s.w.open().length === 1);
+      });
+
+      it('結び付けが無いとき、または Worker の版が足りないときは、スマホもほかの PC も居なければ張らない', async () => {
+        const none = await bellSetup({ devices: alone(), workerCompat: EVENT_INBOX_MIN_WORKER_COMPAT, boot: { event: fakePuller(false).puller } });
+        cleanups.push(() => none.mobile.stop(), () => none.w.close());
+        none.mobile.start();
+        await quiet();
+        expect(none.w.attempts).toHaveLength(0);
+        const old = await bellSetup({ devices: alone(), workerCompat: EVENT_INBOX_MIN_WORKER_COMPAT - 1, boot: { event: fakePuller(true).puller } });
+        cleanups.push(() => old.mobile.stop(), () => old.w.close());
+        old.mobile.start();
+        await quiet();
+        expect(old.w.attempts).toHaveLength(0);
+      });
+
+      it('取り手が投げても呼び鈴は止まらない', async () => {
+        const puller = { pull: vi.fn(() => Promise.reject(new Error('boom'))), hasBindings: () => true };
+        const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const s = await bellSetup({ devices: noPhone(), workerCompat: EVENT_INBOX_MIN_WORKER_COMPAT, boot: { event: puller } });
+        cleanups.push(() => s.mobile.stop(), () => s.w.close(), () => { log.mockRestore(); });
+        s.mobile.start();
+        await settle(() => s.w.open().length === 1);
+        s.w.open()[0]!.send(JSON.stringify({ t: 'peer', kind: 'event', id: 'inbox-1' }));
+        await settle(() => puller.pull.mock.calls.length === 2);
+        expect(s.w.open()).toHaveLength(1);
+      });
     });
 
     it('問い合わせに、この PC のプロジェクトの根で答え、封じた答えを返す', async () => {

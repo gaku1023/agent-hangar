@@ -47,10 +47,11 @@ async function setup(o: { reject?: number | false; pong?: boolean; target?: Bell
   let target: BellTarget | null = o.target === undefined ? { url: w.url, headers: { authorization: 'Bearer pc-token', [COMPAT_HEADER]: String(COMPAT_VERSION) } } : o.target;
   const onLaunch = vi.fn();
   const onPeer = vi.fn();
+  const onEvent = vi.fn();
   const onAsk = vi.fn(async (id: string, sealed: string, _epoch: number): Promise<string | null> => (sealed === 'unopenable' ? null : `reply-for-${id}`));
-  const bell = new MobileBell({ target: () => target, onLaunch, onAsk, onPeer, timers });
+  const bell = new MobileBell({ target: () => target, onLaunch, onAsk, onPeer, onEvent, timers });
   cleanups.push(() => bell.stop(), () => w.close());
-  return { w, timers, bell, onLaunch, onAsk, onPeer, setTarget: (t: BellTarget | null) => { target = t; } };
+  return { w, timers, bell, onLaunch, onAsk, onPeer, onEvent, setTarget: (t: BellTarget | null) => { target = t; } };
 }
 
 describe('MobileBell', () => {
@@ -90,6 +91,19 @@ describe('MobileBell', () => {
     ws.send(JSON.stringify({ t: 'peer', kind: 'result', id: 'l2' }));
     await settle(() => s.onPeer.mock.calls.length === 2);
     expect(s.onPeer.mock.calls).toEqual([['answer', 'l1'], ['result', 'l2']]);
+  });
+
+  it('{t:peer, kind:event} は onEvent だけを呼び、受け箱の ID は渡さず、onPeer には回さない。形の違うものは呼ばない', async () => {
+    const s = await setup();
+    s.bell.check();
+    await settle(() => s.w.open().length === 1);
+    const ws = s.w.open()[0]!;
+    for (const bad of ['{"t":"peer","kind":"event"}', '{"t":"peer","kind":"event","id":""}', '{"t":"peer","kind":"event","id":5}']) ws.send(bad);
+    ws.send(JSON.stringify({ t: 'peer', kind: 'event', id: 'inbox-secret-id' }));
+    ws.send(JSON.stringify({ t: 'peer', kind: 'answer', id: 'l1' }));
+    await settle(() => s.onPeer.mock.calls.length === 1);
+    expect(s.onEvent.mock.calls).toEqual([[]]);
+    expect(s.onPeer.mock.calls).toEqual([['answer', 'l1']]);
   });
 
   it('{t:ask} を onAsk に渡し、答えを {t:reply} で返す。開けないもの（null）には答えない', async () => {

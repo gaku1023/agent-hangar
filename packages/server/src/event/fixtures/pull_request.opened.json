@@ -1,0 +1,7 @@
+{
+  "action": "opened",
+  "number": 44,
+  "pull_request": { "number": 44, "title": "Rename a helper", "html_url": "https://github.com/octo-org/demo-repo/pull/44", "merged": false, "state": "open", "user": { "login": "alice-dev" }, "body": "" },
+  "repository": { "full_name": "octo-org/demo-repo", "html_url": "https://github.com/octo-org/demo-repo" },
+  "sender": { "login": "alice-dev" }
+}

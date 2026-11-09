@@ -594,6 +594,34 @@ describe('PC の一覧と解除', () => {
     expect(f.calls).toHaveLength(1);
   });
 
+  it('受け箱の口は /inboxes を叩く。もう無い受け箱の削除は成功で、形の違う ID と 100 件を超える ack は送らない', async () => {
+    const f = fakeFetch((c) => {
+      if (c.url.endsWith('/inboxes') && c.init.method === 'POST') return json({ inboxId: 'in-1' }, 201);
+      if (c.url.endsWith('/inboxes/pending')) return json({ items: [{ id: 'p1', inboxId: 'in-1', sealed: '1.x', receivedAt: 5 }], dropped: [{ inboxId: 'in-1', count: 2 }] });
+      if (c.url.endsWith('/inboxes/ack')) return json({ ok: true });
+      if (c.url.endsWith('/inboxes/gone')) return json({ error: 'not found' }, 404);
+      return json({ ok: true });
+    });
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    expect(await c.createInbox('PUB')).toEqual({ inboxId: 'in-1' });
+    expect(JSON.parse(String(f.calls[0]!.init.body))).toEqual({ publicKey: 'PUB' });
+    expect(await c.pendingParcels()).toEqual({ items: [{ id: 'p1', inboxId: 'in-1', sealed: '1.x', receivedAt: 5 }], dropped: [{ inboxId: 'in-1', count: 2 }] });
+    expect(f.calls[1]!.url).toBe('https://w.example/inboxes/pending');
+    await c.ackParcels(['p1']);
+    expect(f.calls[2]!.url).toBe('https://w.example/inboxes/ack');
+    expect(f.calls[2]!.init.method).toBe('POST');
+    expect(JSON.parse(String(f.calls[2]!.init.body))).toEqual({ ids: ['p1'] });
+    await c.ackParcels([]);
+    await c.deleteInbox('in-1');
+    expect(f.calls.at(-1)!.url).toBe('https://w.example/inboxes/in-1');
+    expect(f.calls.at(-1)!.init.method).toBe('DELETE');
+    await c.deleteInbox('gone');
+    const n = f.calls.length;
+    await expect(c.deleteInbox('../x')).rejects.toMatchObject({ status: 400 });
+    await expect(c.ackParcels(Array.from({ length: 101 }, () => 'p'))).rejects.toMatchObject({ status: 400 });
+    expect(f.calls).toHaveLength(n);
+  });
+
   it('listDevices は GET /devices を Bearer 付きで叩いて一覧を返す', async () => {
     const f = fakeFetch(() => json({ devices: [device] }));
     const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });

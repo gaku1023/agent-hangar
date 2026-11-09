@@ -1,0 +1,7 @@
+{
+  "action": "closed",
+  "number": 42,
+  "pull_request": { "number": 42, "title": "Add retry to the sync loop", "html_url": "https://github.com/octo-org/demo-repo/pull/42", "merged": true, "state": "closed", "user": { "login": "alice-dev" }, "body": "Retries the pull twice." },
+  "repository": { "full_name": "octo-org/demo-repo", "html_url": "https://github.com/octo-org/demo-repo" },
+  "sender": { "login": "alice-dev" }
+}
