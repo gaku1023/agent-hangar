@@ -451,6 +451,15 @@ describe('予定の画面のイベント', () => {
     const removed = await runRow({ type: 'events.remove', id: 'b1' }, apiWith(down));
     expect(removed.store.eventTrigger.error).toBeNull();
   });
+  it('rev は読み直しと操作が済んだときに進み、始めたときには進めない（repo の札が取り直す合図）', async () => {
+    const r = await runRow({ type: 'events.load' }, apiWith());
+    expect(r.store.eventTrigger.rev).toBe(r.during.eventTrigger.rev + 1);
+    const a = await runRow({ type: 'events.approve', id: 'b1' }, apiWith({ approveEventBinding: vi.fn(async () => ({ binding })) }));
+    expect(a.during.eventTrigger.rev).toBe(0);
+    expect(a.store.eventTrigger.rev).toBe(1);
+    const bad = await runRow({ type: 'events.approve', id: 'b1' }, apiWith({ approveEventBinding: vi.fn(async () => { throw new Error('x'); }) }));
+    expect(bad.store.eventTrigger.rev).toBe(1);
+  });
   it('webhook を付けられず理由の文が無いときは、決めた一文の印にする', async () => {
     const r = await runRow({ type: 'events.create', input }, apiWith({ createEventBinding: vi.fn(async () => ({ hook: { status: 'failed' as const } })) }));
     expect(r.store.eventTrigger.form.error).toEqual({ kind: 'hook_failed' });

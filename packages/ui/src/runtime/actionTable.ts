@@ -98,7 +98,8 @@ const failureOf = (r: unknown): EventHookFailureDto | null => {
   const h = (r as { hook?: { status?: string } }).hook;
   return h && h.status !== 'registered' ? (h as EventHookFailureDto) : null;
 };
-const withEventTrigger = (store: Store, f: (e: EventTriggerState) => Partial<EventTriggerState>): Store => ({ ...store, eventTrigger: { ...store.eventTrigger, ...f(store.eventTrigger) } });
+/** quiet でないときは rev を進める。before（まだ何も済んでいない）だけ quiet にする。 */
+const withEventTrigger = (store: Store, f: (e: EventTriggerState) => Partial<EventTriggerState>, quiet = false): Store => ({ ...store, eventTrigger: { ...store.eventTrigger, ...f(store.eventTrigger), rev: store.eventTrigger.rev + (quiet ? 0 : 1) } });
 const eventSnapshot = (api: ApiClient) => Promise.all([api.eventBindings(), api.prClaims()]).then(([b, c]) => ({ ready: true, bindings: b.bindings, claims: c.claims }));
 /**
  * 書き込みが済んだあとの読み直し。読み直しだけが失敗しても、書き込みは済んでいるので null を返して前の一覧を残す。
@@ -109,7 +110,7 @@ const reloadAfterWrite = (api: ApiClient) => eventSnapshot(api).catch(() => null
 const eventOp = (run: (api: ApiClient) => Promise<unknown>): ApiCall => call(
   (api) => run(api).then((r) => reloadAfterWrite(api).then((snap) => ({ snap, failure: failureOf(r) }))),
   {
-    before: (store) => withEventTrigger(store, () => ({ error: null })),
+    before: (store) => withEventTrigger(store, () => ({ error: null }), true),
     apply: (store, { snap, failure }) => withEventTrigger(store, () => ({ ...(snap ?? {}), error: failure ? hookNotice(failure) : null })),
     failed: (store, e) => withEventTrigger(store, () => ({ error: { kind: 'text', text: errText(e) } })),
   },
@@ -150,7 +151,7 @@ export const actionTable = {
   'events.create': (i) => call(
     (api) => api.createEventBinding(i.input).then(async (r) => ({ failure: failureOf(r), created: 'binding' in r, snap: 'binding' in r ? await reloadAfterWrite(api) : null })),
     {
-      before: (store) => withEventTrigger(store, (e) => ({ form: { ...e.form, busy: true, error: null } })),
+      before: (store) => withEventTrigger(store, (e) => ({ form: { ...e.form, busy: true, error: null } }), true),
       apply: (store, { failure, created, snap }) => withEventTrigger(store, (e) => (created && !failure
         ? { ...(snap ?? {}), form: { busy: false, error: null, done: e.form.done + 1 } }
         : { form: { ...e.form, busy: false, error: failure ? hookNotice(failure) : null } })),

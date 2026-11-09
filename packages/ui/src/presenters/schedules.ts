@@ -47,6 +47,8 @@ export type EventsProps = {
   form: { busy: boolean; error: string | null; done: number };
   /** 承認や削除の失敗の一文。 */
   error: string | null;
+  /** 読み直しや操作が済むたびに増える番号（repo の札が状態を取り直す合図）。 */
+  rev: number;
 };
 export type SchedulesProps = {
   rows: ScheduleRow[];
@@ -188,7 +190,7 @@ function presentEvents(store: Store, t: Translate, now: number): EventsProps | n
   const rows = e.bindings.map((b) => eventRow(store, t, now, b));
   return {
     drafts: rows.filter((r) => r.pending), rows: rows.filter((r) => !r.pending), claims: e.claims.map((c) => claimRow(t, c)),
-    form: { busy: e.form.busy, error: noticeText(t, e.form.error), done: e.form.done }, error: noticeText(t, e.error),
+    form: { busy: e.form.busy, error: noticeText(t, e.form.error), done: e.form.done }, error: noticeText(t, e.error), rev: e.rev,
   };
 }
 

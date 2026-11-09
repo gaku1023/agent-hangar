@@ -203,10 +203,12 @@ export const eventsKey = (sessionId: string, agentId: string | null): string => 
 export type EventNotice = { kind: 'no_admin' } | { kind: 'hook_failed' } | { kind: 'text'; text: string };
 export type EventTriggerState = {
   ready: boolean; bindings: EventBindingDto[]; claims: PrClaimDto[];
+  /** 読み直しや操作が済むたびに増える番号。repo の札が状態を取り直す合図に使う。 */
+  rev: number;
   form: { busy: boolean; error: EventNotice | null; done: number };
   error: EventNotice | null;
 };
-export const EMPTY_EVENT_TRIGGER: EventTriggerState = { ready: false, bindings: [], claims: [], form: { busy: false, error: null, done: 0 }, error: null };
+export const EMPTY_EVENT_TRIGGER: EventTriggerState = { ready: false, bindings: [], claims: [], rev: 0, form: { busy: false, error: null, done: 0 }, error: null };
 
 export function initialStore(): Store {
   return {

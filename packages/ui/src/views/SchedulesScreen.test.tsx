@@ -646,3 +646,23 @@ describe('イベントの節（#563）', () => {
     return vi.waitFor(() => expect(screen.queryByRole('textbox', { name: t('schedules.form.prompt') })).toBeNull());
   });
 });
+
+describe('予定もイベントも無いときの読み込みの失敗（9a の見直し）', () => {
+  const SYNC = { state: 'ok', revoked: false, workerCompat: 12 } as never;
+  const withError = (error: { kind: 'text'; text: string } | null) => {
+    const base = initialStore().eventTrigger;
+    mount([], { store: { sync: SYNC, eventTrigger: { ...base, ready: true, error } } });
+  };
+
+  it('予定もイベントも無く、失敗の一文があるときは、空の案内で隠さずに一文を出す', () => {
+    withError({ kind: 'text', text: '読み込めませんでした' });
+    expect(screen.getByRole('alert')).toHaveTextContent('読み込めませんでした');
+    expect(screen.queryByText(t('schedules.list.empty'))).toBeNull();
+  });
+
+  it('失敗が無ければ、これまでどおり空の案内を出す', () => {
+    withError(null);
+    expect(screen.getByText(t('schedules.list.empty'))).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});

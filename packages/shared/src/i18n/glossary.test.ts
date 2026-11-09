@@ -32,6 +32,11 @@ const ALLOWED: Record<string, string> = {
   'pause.wake.remove': '外す（起こす条件の札を外す）',
   // イベントの結び付けのスイッチ（#563 の w14）。決めた文面は「本文を含める」で、外から来た文の本体（GitHub の issue や PR の本文）を指す。トランスクリプトの意味ではない。
   'schedules.event.passBody': '本文を含める（外から来た文の本体）',
+  // 外の webhook の URL のカード（#563 の w16 と w17）。決めた文面は「作り直す」と「いまの URL は使えなくなります。作り直しますか？」で、URL を新しく発行し直す操作の語である。再構築や再生成の意味ではない。
+  'schedules.event.url.rotate': '作り直す（URL を発行し直す）',
+  'schedules.event.url.rotateAsk': '作り直す、いま（URL を発行し直す確認）',
+  // 最初の結び付けの手順（#563 の w21）。決めた文面は「設定 → webhook → 待機」で、できごとが届くのを待つ状態の語である。入力待ちやアイドルの意味ではない。
+  'schedules.event.steps.waiting': '待機（できごとが届くのを待つ）',
 };
 
 /** 「本文」が HTTP やモデルの応答の本体（body）を指す鍵。トランスクリプトの意味では使わない。 */

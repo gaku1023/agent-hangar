@@ -69,6 +69,8 @@ export type EventCreateAction = Exclude<EventAction, { kind: 'wake' }>;
 export type EventCreateInput = { source: EventSource; action: EventCreateAction; prompt: string; passBody: boolean; allowAuthors: string[] };
 /** webhook を付けられなかった理由。 */
 export type EventHookFailureDto = { status: 'no_admin' | 'failed'; message?: string };
+/** repo の webhook の状態（GET /events/repo-hook/:owner/:repo）。none はまだ付けていない（付けようとした記録も無い）。 */
+export type EventRepoHookDto = { status: 'registered' | 'no_admin' | 'failed' | 'none'; message?: string };
 /** 作成と承認の応答。hook が失敗のときは、何も作らず（承認なら下書きのまま）理由だけ返る。 */
 export type EventSaveResultDto = { binding: EventBindingDto; hook?: { status: 'registered' } | EventHookFailureDto } | { hook: EventHookFailureDto };
 /** 担当する PR の印の下書き（GET /events/pr-claims）。承認するまで、レビューやコメントの宛先には使われない。 */

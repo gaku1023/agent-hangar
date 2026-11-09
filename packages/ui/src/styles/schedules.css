@@ -94,3 +94,34 @@ a.sch-run-name:hover { text-decoration: underline; }
   .sch-draft-body { grid-template-columns: auto minmax(0, 1fr); }
   .sch-draft-body > .sch-acts { grid-column: 1 / -1; justify-content: flex-end; }
 }
+/* 外の webhook の URL のカード（D1）。隠している間は伏せ字で、作り直したあとの新しい URL は少し光る。 */
+.sch-hook-card { display: grid; gap: calc(var(--u) * 2.5); }
+.sch-url { display: flex; align-items: center; padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--surface-2); font: var(--fs-sm) var(--font-mono); overflow: hidden; white-space: nowrap; }
+.sch-url span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sch-url[data-fresh='true'] { animation: sch-glow var(--dur-flash) var(--ease-out); }
+@keyframes sch-glow { from { background: var(--st-paused-soft); } }
+.sch-ask { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: calc(var(--u) * 1.5); }
+.sch-hook-card .sch-ev-error { padding: 0; }
+/* GitHub の repo の札（D3）。 */
+.sch-hook { display: flex; align-items: center; flex-wrap: wrap; gap: calc(var(--u) * 2); }
+.sch-hook-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; background: var(--surface-2); color: var(--ink-2); }
+.sch-hook-chip[data-state='registered'] { background: var(--st-done-soft); color: var(--st-done); }
+.sch-hook-chip[data-state='no_admin'] { background: var(--st-paused-soft); color: var(--st-paused); cursor: help; }
+.sch-hook-chip[data-state='failed'] { background: color-mix(in srgb, var(--error) 10%, var(--surface)); color: var(--error); }
+.sch-hook-note { font-size: var(--fs-sm); color: var(--error); }
+/* 最初の結び付けの手順（D4）。設定、webhook、待機の順に進み、済んだら札が出る。 */
+.sch-steps-row { display: flex; align-items: center; flex-wrap: wrap; gap: calc(var(--u) * 3); }
+.sch-steps { display: flex; align-items: center; gap: calc(var(--u) * 3.5); list-style: none; margin: 0; padding: 0; }
+.sch-step { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); color: var(--ink-3); transition: color var(--dur-fast) var(--ease-out); }
+.sch-step + .sch-step::before { content: '→'; margin-right: calc(var(--u) * 2); color: var(--ink-3); }
+.sch-step[data-state='active'] { color: var(--ink); font-weight: 600; }
+.sch-step[data-state='done'] { color: var(--st-done); }
+.sch-step-mark { position: relative; display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line-strong); }
+.sch-step[data-state='done'] .sch-step-mark { box-shadow: none; }
+.sch-step-mark .icon { width: 14px; height: 14px; }
+.sch-step[data-state='active'] .sch-step-mark { box-shadow: inset 0 0 0 2px var(--line-strong); }
+.sch-step[data-state='active'] .sch-step-mark::after { content: ''; position: absolute; inset: 0; box-sizing: border-box; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--accent); animation: sch-spin calc(var(--dur-flash) / 2) linear infinite; }
+.sch-steps[data-stage='settled'] .sch-step[data-state='active'] .sch-step-mark { box-shadow: none; background: var(--accent); transform: scale(0.55); }
+.sch-steps[data-stage='settled'] .sch-step[data-state='active'] .sch-step-mark::after { content: none; }
+@keyframes sch-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sch-url[data-fresh='true'], .sch-step[data-state='active'] .sch-step-mark::after { animation: none; } }

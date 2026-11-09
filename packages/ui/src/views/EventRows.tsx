@@ -4,14 +4,20 @@ import type { EventRow, PrClaimRow } from '../presenters/schedules.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { collapseOut } from './primitives/motionKit.ts';
+import { HookUrlCard, RepoHookChip } from './HookParts.tsx';
 import { Grow, RunDots, RunList } from './schedulesParts.tsx';
 
 /**
- * 行の中の、外の webhook の URL のカードと、GitHub の登録の札を置く場所（9b）。
- * 今は何も出さない。row.sourceKind が hook なら URL のカード、github なら repo の札がここに入る。
+ * 行の中の、外の webhook の URL のカード（D1）と、GitHub の repo の札（D3）。
+ * 承認待ちの外の webhook はまだ URL が無いので何も出さない。承認待ちの GitHub は、付けられなかった理由の札と、承認をやり直す再試行を持つ。
+ * 承認済みの行の失敗には再試行を出さない（サーバに付け直す道が、承認待ちの承認にしか無い）。
  */
-export function EventRowExtra(_props: { row: EventRow }) {
-  return null;
+export function EventRowExtra(props: { row: EventRow; rev: number }) {
+  const emit = useEmit();
+  const r = props.row;
+  if (r.sourceKind === 'hook') return r.pending ? null : <HookUrlCard id={r.id} />;
+  if (!r.repo) return null;
+  return <RepoHookChip repo={r.repo} rev={props.rev} {...(r.pending ? { onRetry: () => emit({ type: 'events.approve', id: r.id }) } : {})} />;
 }
 
 /** 起動設定の札と、できごとなどの読み取り専用の札の列。 */
@@ -36,7 +42,7 @@ function EventChips(props: { row: EventRow; detail: boolean }) {
 }
 
 /** 承認待ちの下書き（MCP から）。閉じずに、指示と元と動きと起動設定を全部見せてから、承認か却下を選ばせる。 */
-function DraftRow(props: { row: EventRow }) {
+function DraftRow(props: { row: EventRow; rev: number }) {
   const emit = useEmit();
   const t = useT();
   const r = props.row;
@@ -48,6 +54,7 @@ function DraftRow(props: { row: EventRow }) {
           <div className="sch-draft-head"><span className="sch-ev-chip" data-state="pending">{t('schedules.event.state.pending')}</span><span className="sch-when">{[r.source, r.when].filter(Boolean).join(' · ')}</span></div>
           <div className="sch-full">{r.prompt}</div>
           <EventChips row={r} detail />
+          <EventRowExtra row={r} rev={props.rev} />
         </div>
         <div className="sch-acts">
           <button type="button" className="btn btn-ghost" onClick={() => emit({ type: 'events.remove', id: r.id })}>{t('schedules.event.reject')}</button>
@@ -78,7 +85,7 @@ function ClaimRowView(props: { row: PrClaimRow }) {
   );
 }
 
-function EventRowView(props: { row: EventRow; open: boolean; onOpen: (id: string | null) => void }) {
+function EventRowView(props: { row: EventRow; rev: number; open: boolean; onOpen: (id: string | null) => void }) {
   const emit = useEmit();
   const t = useT();
   const r = props.row;
@@ -107,7 +114,7 @@ function EventRowView(props: { row: EventRow; open: boolean; onOpen: (id: string
             {r.note && <div className="faint">{r.note}</div>}
             <div className="sch-full">{r.prompt}</div>
             <RunList runs={r.runs} />
-            <EventRowExtra row={r} />
+            <EventRowExtra row={r} rev={props.rev} />
             <div className="sch-acts">
               <span className="spacer" />
               {askDelete
@@ -122,12 +129,12 @@ function EventRowView(props: { row: EventRow; open: boolean; onOpen: (id: string
 }
 
 /** イベントの節の中身。承認待ち（下書きと PR の印）を頭に、そのあとに有効な行。 */
-export function EventList(props: { drafts: EventRow[]; claims: PrClaimRow[]; rows: EventRow[]; open: string | null; onOpen: (id: string | null) => void }) {
+export function EventList(props: { drafts: EventRow[]; claims: PrClaimRow[]; rows: EventRow[]; rev: number; open: string | null; onOpen: (id: string | null) => void }) {
   return (
     <ul className="sch-evlist">
       {props.claims.map((c) => <ClaimRowView key={c.key} row={c} />)}
-      {props.drafts.map((r) => <DraftRow key={r.id} row={r} />)}
-      {props.rows.map((r) => <EventRowView key={r.id} row={r} open={props.open === r.id} onOpen={props.onOpen} />)}
+      {props.drafts.map((r) => <DraftRow key={r.id} row={r} rev={props.rev} />)}
+      {props.rows.map((r) => <EventRowView key={r.id} row={r} rev={props.rev} open={props.open === r.id} onOpen={props.onOpen} />)}
     </ul>
   );
 }

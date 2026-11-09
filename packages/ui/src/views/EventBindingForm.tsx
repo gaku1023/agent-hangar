@@ -4,6 +4,7 @@ import { useEmit } from '../action/chain.tsx';
 import { githubWhenLabel, type SchedulesProps } from '../presenters/schedules.ts';
 import { useT } from './primitives/language.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
+import { HookSteps } from './HookParts.tsx';
 import { Grow } from './schedulesParts.tsx';
 import { scheduleTargetOf, useLaunchChoice, type LaunchBuilt } from './useLaunchChoice.tsx';
 
@@ -17,6 +18,11 @@ const PR_RE = /^[1-9]\d{0,9}$/;
 const LABEL_MAX = 50;
 /** ラベルの欄が正しいか。空の項目（コンマの連続）と 50 字を超える項目があれば誤り。何も書かなければ正しい（絞り込み無し）。 */
 const labelsOk = (s: string): boolean => s.trim() === '' || s.split(/[,、]/).every((x) => x.trim() !== '' && x.trim().length <= LABEL_MAX);
+
+/** 設定から webhook へ進めるまでの時間。サーバは受け箱を作ってから webhook を付けるので、送って少ししたら 2 つ目に進んだことにする。 */
+const WEBHOOK_STEP_MS = 1200;
+/** 済んだあと、登録済みの札を見せてからフォームを閉じるまでの時間。 */
+const SETTLE_MS = 900;
 
 /** コンマ（全角の読点も）で分けて、前後の空白と空を捨てる。 */
 const listOf = (s: string, sep: RegExp): string[] => s.split(sep).map((x) => x.trim()).filter(Boolean);
@@ -62,9 +68,31 @@ export function EventBindingForm(props: SchedulesProps & { kind: 'github' | 'hoo
   const bypass = d.dest === 'new' && lc.bypass;
   // 作れた回数が増えたら閉じる。開いたときの値と比べるので、前に作った分では閉じない。
   const done0 = useRef(form.done);
-  useEffect(() => { if (form.done > done0.current) props.onClose(); }, [form.done, props.onClose]);
+  // その repo の最初の結び付けを送ったとき（D4）。送っている間は手順を出し、済んだら札を見せてから閉じる。
+  const [firstRepo, setFirstRepo] = useState(false);
+  const [settled, setSettled] = useState(false);
+  const [stage, setStage] = useState<'setup' | 'webhook'>('setup');
+  const closeRef = useRef(props.onClose);
+  closeRef.current = props.onClose;
+  const flying = firstRepo && form.busy;
+  useEffect(() => {
+    if (!flying) return;
+    setStage('setup');
+    const id = setTimeout(() => setStage('webhook'), WEBHOOK_STEP_MS);
+    return () => clearTimeout(id);
+  }, [flying]);
+  useEffect(() => {
+    if (form.done <= done0.current) return;
+    if (!firstRepo) { closeRef.current(); return; }
+    setSettled(true);
+    const id = setTimeout(() => closeRef.current(), SETTLE_MS);
+    return () => clearTimeout(id);
+  }, [form.done]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const known = new Set([...props.events!.rows, ...props.events!.drafts].flatMap((r) => (r.repo ? [r.repo.toLowerCase()] : [])));
   const save = () => {
     if (!input || form.busy) return;
+    setFirstRepo(props.kind === 'github' && !known.has(d.repo.toLowerCase()));
+    setSettled(false);
     setSent(true);
     emit({ type: 'events.create', input });
   };
@@ -106,6 +134,7 @@ export function EventBindingForm(props: SchedulesProps & { kind: 'github' | 'hoo
       <Grow open={props.kind === 'github' && d.passBody}>
         {() => <input className="input sch-allow" aria-label={t('schedules.event.allowAuthors')} placeholder={t('schedules.event.allowAuthors')} value={d.allow} onChange={(e) => set({ allow: e.target.value })} />}
       </Grow>
+      {(flying || settled) && <HookSteps stage={settled ? 'settled' : stage} />}
       {sent && form.error && <div className="sch-ev-error" role="alert">{form.error}</div>}
       <div className="sch-foot">
         <button type="button" className="btn btn-ghost" onClick={props.onClose}>{t('common.button.cancel')}</button>
