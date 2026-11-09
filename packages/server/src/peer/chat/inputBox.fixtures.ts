@@ -55,3 +55,11 @@ export const WIN_CHIP_IMAGE = ['\x1b[0m', RULE, `\x1b[0m❯${NB}[Image #2]\x1b[0
 
 /** 札が薄字で描かれる版が出たときの備え（実機にはまだ無い作り物）。[ で始まる薄字は、提案ではなく札とみなす。 */
 export const SYNTHETIC_FAINT_CHIP = ['\x1b[0m', RULE, `\x1b[0m❯${NB}\x1b[0;2m[Image\x1b[0m \x1b[0;2m#2]\x1b[0m`, RULE, FOOTER].join('\n');
+
+/**
+ * 名前の付いた会話（hangar が名前を付けて起動した会話）。箱の上の区切り線の右寄りに名前が入る。
+ * Claude Code 2.1.319、psmux 3.4.0（Windows）の実機。区切り線の長さだけ実機より縮めた。
+ */
+const NAMED_RULE = `\x1b[0;38;5;244m${'─'.repeat(90)} peer-chat 確認用（Windows） ─\x1b[0m`;
+export const WIN_NAMED_EMPTY = ['\x1b[0m', NAMED_RULE, '\x1b[0m❯\x1b[0m', RULE, FOOTER].join('\n');
+export const WIN_NAMED_DRAFT = ['\x1b[0m', NAMED_RULE, `\x1b[0m❯${NB}hello draft\x1b[0m`, RULE, FOOTER].join('\n');
