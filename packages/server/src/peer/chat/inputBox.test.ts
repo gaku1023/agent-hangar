@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { inputEmptyFromCapture } from './inputBox.ts';
-import { MAC_DRAFT, MAC_GHOST, SYNTHETIC_FAINT_CHIP, WIN_CHIP_IMAGE, WIN_CHIP_PASTE, WIN_BUSY_WITH_DRAFT, WIN_DRAFT, WIN_EMPTY_AFTER_TURN, WIN_GHOST_FRESH, WIN_MULTILINE } from './inputBox.fixtures.ts';
+import { MAC_DRAFT, MAC_GHOST, SYNTHETIC_FAINT_CHIP, WIN_CHIP_IMAGE, WIN_CHIP_PASTE, WIN_BUSY_WITH_DRAFT, WIN_DRAFT, WIN_EMPTY_AFTER_TURN, WIN_GHOST_FRESH, WIN_MULTILINE, WIN_NAMED_DRAFT, WIN_NAMED_EMPTY } from './inputBox.fixtures.ts';
 
 const RULE = '─'.repeat(40);
 
@@ -67,6 +67,11 @@ describe('inputEmptyFromCapture（作り込んだ場面）', () => {
 
   it('箱の中が空行だけで ❯ が無ければ空と言わない', () => {
     expect(inputEmptyFromCapture(`${RULE}\n\n${RULE}`)).toBe(false);
+  });
+
+  it('名前の付いた会話（上の区切り線に名前が入る）でも箱を見つける', () => {
+    expect(inputEmptyFromCapture(WIN_NAMED_EMPTY)).toBe(true);
+    expect(inputEmptyFromCapture(WIN_NAMED_DRAFT)).toBe(false);
   });
 
   it('箱より上に区切り線があっても、最後の 2 本を箱とする', () => {
