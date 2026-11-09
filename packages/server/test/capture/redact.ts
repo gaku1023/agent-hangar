@@ -182,6 +182,8 @@ export function redactTranscriptLine(rec: unknown, pairs: Pairs): unknown {
   if (r.type === 'user' && r.isMeta === true && isRec(r.message)) r = { ...r, message: { ...r.message, content: '(redacted)' } };
   r = redactThinking(r);
   r = redactCostState(r);
+  // 会話の持ち主の行（session-owner、2.1.319 から）のアカウントの識別子は、auth status に出ないので置き換えの組で当たらない。鍵で伏せる。
+  if (typeof r.accountUuid === 'string') r = { ...r, accountUuid: PLACEHOLDER.accountId };
   return redactDeep(mapStrings(r, (t) => t.replace(REMINDER, REMINDER_REDACTED)), pairs);
 }
 

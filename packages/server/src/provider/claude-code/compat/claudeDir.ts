@@ -9,12 +9,14 @@ import { splitDriftValue, type CompatSink, type Drift } from './types.ts';
  * remote-settings.json.synced-at は 2.1.300 で現れた、組織の設定を取りに行った時刻で、remote-settings.json と同じくアカウントごとに持つ。
  * *.signature.json と *.signature-iat.json は 2.1.308 で現れた、組織の設定の署名（jws と受け取った時刻、署名の宛先と発行時刻）である。
  * state も 2.1.308 で現れ、claude.ai のコネクタ（mcpsrv_ の ID）ごとの MCP の判定を持つ。どちらもアカウントに結びつく。
+ * teams と mcp-needs-auth-cache.json は 2.1.319 で現れた。teams はエージェントチームの設定で、会話ごとに親のプロセスの PID などを持ち、会話が終われば要らない。
+ * mcp-needs-auth-cache.json は認証が要る MCP の覚えで、アカウントに結びつく。どちらもアカウントごとのままにする。
  */
 export const KNOWN_PER_ACCOUNT_ENTRIES: ReadonlySet<string> = new Set([
   '.claude.json', '.credentials.json', '.last-cleanup', '.last-update-result.json', 'backups', 'cache', 'daemon', 'daemon.log',
-  'downloads', 'ide', 'policy-limits.json', 'policy-limits.json.signature.json', 'policy-limits.json.signature-iat.json', 'policy-limits.json.stamp.json',
+  'downloads', 'ide', 'mcp-needs-auth-cache.json', 'policy-limits.json', 'policy-limits.json.signature.json', 'policy-limits.json.signature-iat.json', 'policy-limits.json.stamp.json',
   'remote-settings.json', 'remote-settings.json.signature.json', 'remote-settings.json.signature-iat.json', 'remote-settings.json.synced-at',
-  'state', 'statsig', 'telemetry', 'todos',
+  'state', 'statsig', 'teams', 'telemetry', 'todos',
 ]);
 /** Claude Code が作るものではないので見ない名前。 */
 const IGNORED: ReadonlySet<string> = new Set(['.DS_Store']);

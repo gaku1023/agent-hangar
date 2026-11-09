@@ -128,6 +128,11 @@ describe('codex の id', () => {
       expect(parseItemId(codexTomlId(p))?.kind, p.join('.')).toBe('codex-config');
     }
   });
+  it('0.167.0 で足された鍵（memories.consolidation_service_tier と features の旗）も運ぶ', () => {
+    for (const p of [['memories', 'consolidation_service_tier'], ['features', 'interrupt_on_cancel'], ['features', 'mcp_connection_sharing']]) {
+      expect(parseItemId(codexTomlId(p))?.kind, p.join('.')).toBe('codex-config');
+    }
+  });
   it('プラグインの id に点があっても往復する', () => {
     const id = codexTomlId(['plugins', 'a.b@m', 'enabled']);
     expect(id).not.toContain('a.b');

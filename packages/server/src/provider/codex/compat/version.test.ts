@@ -14,11 +14,11 @@ describe('codexVersionOf と judgeCodexVersion', () => {
     expect(codexVersionOf('')).toBeNull();
     expect(codexVersionOf('error: unknown option')).toBeNull();
   });
-  it('0.165.x の中だけ検証済み', () => {
-    expect(judgeCodexVersion('0.165.0')).toBe('verified');
-    expect(judgeCodexVersion('0.165.7')).toBe('verified');
-    expect(judgeCodexVersion('0.164.9')).toBe('unverified');
-    expect(judgeCodexVersion('0.166.0')).toBe('unverified');
+  it('0.167.x の中だけ検証済み', () => {
+    expect(judgeCodexVersion('0.167.0')).toBe('verified');
+    expect(judgeCodexVersion('0.167.7')).toBe('verified');
+    expect(judgeCodexVersion('0.166.9')).toBe('unverified');
+    expect(judgeCodexVersion('0.168.0')).toBe('unverified');
     expect(judgeCodexVersion('1.164.0')).toBe('unverified');
   });
   it('読めない版は unknown', () => {
@@ -26,7 +26,7 @@ describe('codexVersionOf と judgeCodexVersion', () => {
     expect(judgeCodexVersion('latest')).toBe('unknown');
   });
   it('範囲は引数で替えられる', () => {
-    expect(judgeCodexVersion('0.165.2', '0.165.x')).toBe('verified');
+    expect(judgeCodexVersion('0.167.2', '0.167.x')).toBe('verified');
     expect(judgeCodexVersion('0.164.1', '0.164.0')).toBe('unverified');
   });
 });
@@ -60,8 +60,8 @@ describe('LocalCodex', () => {
     expect(await new LocalCodex({ bin: () => path.join(dir, 'nope') }).status()).toEqual({ found: false, version: null, verified: false, loggedIn: false });
   });
   it('版とログインを読む（login status が 0 ならログイン済み）', async () => {
-    const bin = writeFakeCodex(dir, { version: '0.165.2' });
-    expect(await new LocalCodex({ bin: () => bin, codexHome: dir }).status()).toEqual({ found: true, version: '0.165.2', verified: true, loggedIn: true });
+    const bin = writeFakeCodex(dir, { version: '0.167.2' });
+    expect(await new LocalCodex({ bin: () => bin, codexHome: dir }).status()).toEqual({ found: true, version: '0.167.2', verified: true, loggedIn: true });
   });
   it('ログインしていなければ loggedIn が偽。範囲の外なら verified が偽', async () => {
     const bin = writeFakeCodex(dir, { version: '0.170.0', loggedIn: false });
@@ -82,15 +82,15 @@ describe('LocalCodex', () => {
     }
   });
   it('login status が時間切れなら loggedIn は null（分からない）。版は読める', async () => {
-    const bin = writeFakeCodex(dir, { version: '0.165.2', loginHang: true });
-    expect(await new LocalCodex({ bin: () => bin, codexHome: dir, timeoutMs: 600 }).status()).toEqual({ found: true, version: '0.165.2', verified: true, loggedIn: null });
+    const bin = writeFakeCodex(dir, { version: '0.167.2', loginHang: true });
+    expect(await new LocalCodex({ bin: () => bin, codexHome: dir, timeoutMs: 600 }).status()).toEqual({ found: true, version: '0.167.2', verified: true, loggedIn: null });
   });
   it('版は一時の CODEX_HOME で読み、本物の置き場には何も作らせない。.codex が無ければ login status は起こさず未ログイン', async () => {
     const logFile = path.join(dir, 'log.jsonl');
     const bin = writeFakeCodex(dir, { logFile });
     const home = path.join(dir, 'nohome');
     const c = new LocalCodex({ bin: () => bin, codexHome: home });
-    expect(await c.status()).toEqual({ found: true, version: '0.165.0', verified: true, loggedIn: false });
+    expect(await c.status()).toEqual({ found: true, version: '0.167.0', verified: true, loggedIn: false });
     const lines = fs.readFileSync(logFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { argv: string[]; env: Record<string, string> });
     expect(lines.map((l) => l.argv[0])).toEqual(['--version']);
     expect(lines[0]!.env.CODEX_HOME).toBeTruthy();
