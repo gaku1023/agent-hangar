@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { translator } from '@agent-hangar/shared';
-import { ariaKeyShortcuts, bindingLabel, clientPlatform, displayKeys, isMacClient, keyLabel, KEYMAP, matchKey, terminalKeysLabel, type KeyEventLike } from './keys.ts';
+import { anywhereKeys, ariaKeyShortcuts, bindingLabel, clientPlatform, displayKeys, isMacClient, keyLabel, KEYMAP, matchKey, terminalKeysLabel, type KeyEventLike } from './keys.ts';
 import { LINUX_UA, MAC_UA, setClientUserAgent, WINDOWS_UA } from './test/client.ts';
 
 const ja = translator('ja');
@@ -204,6 +204,20 @@ describe('キーの表示', () => {
     expect(bindingLabel(ja, b, true)).toBe('タブを選択（⌃⌥1–⌃⌥9 でも）');
     expect(bindingLabel(ja, b, false)).toBe('タブを選択（Ctrl+Alt+1–Ctrl+Alt+9 でも）');
     expect(bindingLabel(en, b, false)).toBe('Select tab (also Ctrl+Alt+1–Ctrl+Alt+9)');
+  });
+
+  // 会話の画面（ターミナルの出ている画面）の Ctrl+B はターミナルへ送る（Root.tsx、#616）。
+  // macOS の ⌘B はどの画面でも効くので書き足さない。ほかの OS では、どの画面でも効く Ctrl+Shift+B を添えて見せる。
+  it('サイドバーの開閉は、macOS の外ではターミナルの出ている画面の打鍵を説明に添え、どこでも効く打鍵として Ctrl+Shift+B を見せる', () => {
+    const b = KEYMAP.find((k) => k.id === 'sidebar.toggle')!;
+    expect(bindingLabel(ja, b, true)).toBe('サイドバーの開閉');
+    expect(bindingLabel(ja, b, false)).toBe('サイドバーの開閉（ターミナルの出ている画面では Ctrl+Shift+B）');
+    expect(bindingLabel(en, b, false)).toBe('Toggle sidebar (Ctrl+Shift+B while a terminal is shown)');
+    expect(anywhereKeys(b, true)).toBe('⌘B');
+    expect(anywhereKeys(b, false)).toBe('Ctrl+Shift+B');
+    // ほかの行は表の打鍵のまま。
+    const k = KEYMAP.find((x) => x.id === 'palette.open')!;
+    expect(anywhereKeys(k, false)).toBe(displayKeys(k, false));
   });
 });
 

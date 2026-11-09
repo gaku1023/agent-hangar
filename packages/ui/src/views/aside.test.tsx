@@ -7,7 +7,7 @@ import type { TerminalHost } from '../runtime/terminals.ts';
 import { TerminalHostContext, TerminalPane } from './TerminalPane.tsx';
 
 function fakeHost(): TerminalHost {
-  return { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() } as unknown as TerminalHost;
+  return { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), input: vi.fn(), zoom: vi.fn(), fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() } as unknown as TerminalHost;
 }
 
 // 本体は入力を受け付けていて、裏の作業だけが動いているときの見せ方。

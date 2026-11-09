@@ -15,7 +15,7 @@ import { setClientUserAgent, WINDOWS_UA } from './test/client.ts';
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [{ id: 'p1', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: Date.now(), runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], deleteApprovals: [], peerApprovals: [], schedules: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null };
 
 // ターミナルの接続はこのテストの対象ではないので、何もしない偽物を渡す。
-const terminals: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() };
+const terminals: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), input: vi.fn(), zoom: vi.fn(), fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() };
 
 const session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'せっしょん', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: Date.now(), lastActivityAt: Date.now(), lastTurnAt: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null };
 
@@ -791,6 +791,133 @@ describe('キーの見直し', () => {
     expect(emit).toHaveBeenCalledWith({ type: 'sidebar.toggle' });
   });
 
+  // 会話の画面（ターミナルが出ている画面）の Ctrl+B は、サイドバーの開閉に使わない（#616）。
+  // Claude Code の「ctrl+b to run in background」と psmux の prefix を、ターミナルの外で打ってしまうことがあるからである。
+  const conversation = async () => {
+    const focus = vi.fn();
+    const input = vi.fn();
+    const m = await mounted({ terminals: { ...terminals, focus, input } });
+    act(() => m.setHash('#/session/s1'));
+    await flush();
+    act(() => m.wsHandlers[0]!.onEvent({ type: 'run.started', run: rootRun('r1', 's1'), tabs: [rootTab('r1', 'r1', 'agent'), rootTab('t2', 'r1', 'shell')] }));
+    await flush();
+    focus.mockClear();
+    return { ...m, focus, input };
+  };
+  const ctrlB = { key: 'b', code: 'KeyB', ctrlKey: true };
+
+  it('Windows の会話の画面の Ctrl+B は、サイドバーを開閉せず、ターミナルへフォーカスを戻して ^B を送る', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    const { rt, focus, input } = await conversation();
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key(ctrlB).defaultPrevented).toBe(true);
+    expect(emit).not.toHaveBeenCalledWith({ type: 'sidebar.toggle' });
+    expect(focus).toHaveBeenCalledWith('r1');
+    expect(input).toHaveBeenCalledWith('r1', '\x02');
+    expect(focus.mock.invocationCallOrder[0]!).toBeLessThan(input.mock.invocationCallOrder[0]!);
+    // 入力欄にフォーカスがあっても同じ。
+    input.mockClear();
+    expect(key(ctrlB, textField()).defaultPrevented).toBe(true);
+    expect(emit).not.toHaveBeenCalledWith({ type: 'sidebar.toggle' });
+    expect(input).toHaveBeenCalledWith('r1', '\x02');
+  });
+
+  it('Windows の会話の画面でも、Ctrl+Shift+B と帯のボタンとパレットはサイドバーを開閉する', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    const { rt, input } = await conversation();
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ key: 'B', code: 'KeyB', ctrlKey: true, shiftKey: true }).defaultPrevented).toBe(true);
+    expect(emit).toHaveBeenCalledWith({ type: 'sidebar.toggle' });
+    expect(input).not.toHaveBeenCalled();
+  });
+
+  it('macOS の会話の画面では、⌘B は開閉し、Ctrl+B はターミナルへ送る', async () => {
+    const { rt, input } = await conversation();
+    const emit = vi.spyOn(rt, 'emit');
+    key({ key: 'b', code: 'KeyB', metaKey: true });
+    expect(emit).toHaveBeenCalledWith({ type: 'sidebar.toggle' });
+    expect(input).not.toHaveBeenCalled();
+    emit.mockClear();
+    expect(key(ctrlB).defaultPrevented).toBe(true);
+    expect(emit).not.toHaveBeenCalledWith({ type: 'sidebar.toggle' });
+    expect(input).toHaveBeenCalledWith('r1', '\x02');
+  });
+
+  it('ターミナルの無いセッション画面（終わったセッションの本文だけ）では、Ctrl+B で今までどおり開閉する', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    const input = vi.fn();
+    const { rt, setHash } = await mounted({ terminals: { ...terminals, input } });
+    act(() => setHash('#/session/s1'));
+    await flush();
+    const emit = vi.spyOn(rt, 'emit');
+    key(ctrlB);
+    expect(emit).toHaveBeenCalledWith({ type: 'sidebar.toggle' });
+    expect(input).not.toHaveBeenCalled();
+  });
+
+  it('並べたターミナルでは、最後にフォーカスのあった枠へ送る。枠の中で打てばその枠へ送る', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    const { rt, focus, input } = await conversation();
+    act(() => rt.emit({ type: 'split.toggle' }));
+    await flush();
+    expect(paneHost('r1')).not.toBeNull();
+    expect(paneHost('t2')).not.toBeNull();
+    fireEvent.pointerDown(paneHost('t2'));
+    const outside = screen.getByRole('button', { name: 'VS Code で開く' });
+    fireEvent.focusIn(outside);
+    key(ctrlB, outside);
+    expect(focus).toHaveBeenLastCalledWith('t2');
+    expect(input).toHaveBeenLastCalledWith('t2', '\x02');
+    // 枠の帯（ターミナルの外）で打った Ctrl+B は、その枠のターミナルへ。
+    const band = paneHost('r1').closest('.term-pane')!;
+    key(ctrlB, band);
+    expect(focus).toHaveBeenLastCalledWith('r1');
+    expect(input).toHaveBeenLastCalledWith('r1', '\x02');
+  });
+
+  it('別のセッションを並べたペインでは、最後にターミナルを触ったペインより、操作中のペインへ送る', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    const focus = vi.fn();
+    const input = vi.fn();
+    const s2: SessionDto = { ...session, id: 's2', providerSessionId: 'u2', name: 'ふたつめ' };
+    const m = make({ boot: { ...boot, sessions: [session, s2] }, terminals: { ...terminals, focus, input } });
+    m.rt.start();
+    render(<Root runtime={m.rt} api={m.deps.api} terminals={m.terminals} />);
+    act(() => m.handlers[0]!.onOpen());
+    await flush();
+    act(() => m.setHash('#/session/s1'));
+    await flush();
+    act(() => m.handlers[0]!.onEvent({ type: 'run.started', run: rootRun('r1', 's1'), tabs: [rootTab('r1', 'r1', 'agent')] }));
+    act(() => m.handlers[0]!.onEvent({ type: 'run.started', run: rootRun('r2', 's2'), tabs: [{ ...rootTab('r2', 'r2', 'agent'), sessionId: 's2' }] }));
+    await flush();
+    act(() => m.rt.emit({ type: 'pane.openEmpty', side: 'right' }));
+    await flush();
+    const right = document.querySelector<HTMLElement>('[data-pane][data-empty="true"]')!.dataset.pane!;
+    act(() => m.rt.emit({ type: 'pane.fill', pane: right, sessionId: 's2' }));
+    await flush();
+    expect(paneHost('r1')).not.toBeNull();
+    expect(paneHost('r2')).not.toBeNull();
+    // 左のターミナルを触ってから、右のペインを操作中にする（見出しを押したときと同じ）。
+    fireEvent.focusIn(paneHost('r1'));
+    act(() => m.rt.emit({ type: 'pane.focus', pane: right }));
+    await flush();
+    input.mockClear();
+    key(ctrlB);
+    expect(input).toHaveBeenCalledWith('r2', '\x02');
+    expect(focus).toHaveBeenLastCalledWith('r2');
+  });
+
+  it('会話の画面でダイアログを開いている間の Ctrl+B は、裏のターミナルへ送らず、開閉もしない', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    const { rt, input } = await conversation();
+    act(() => rt.emit({ type: 'shortcuts.open' }));
+    await flush();
+    const emit = vi.spyOn(rt, 'emit');
+    key(ctrlB);
+    expect(emit).not.toHaveBeenCalledWith({ type: 'sidebar.toggle' });
+    expect(input).not.toHaveBeenCalled();
+  });
+
   it('Windows の入力欄の Ctrl+← と Ctrl+→ は単語の移動なので、戻ると進むに使わない', async () => {
     setClientUserAgent(WINDOWS_UA);
     const { go, setHash } = await mounted();
@@ -817,6 +944,8 @@ describe('キーの見直し', () => {
     expect(row('コマンドパレット（検索と移動）')).toHaveTextContent('Ctrl+Shift+K');
     expect(row('クイックセッションを開始')).toHaveTextContent('Ctrl+Alt+N');
     expect(row('クイックセッションを開始')).not.toHaveTextContent('Ctrl+Shift+N');
+    // 会話の画面の Ctrl+B はターミナルへ送るので、説明に添える（#616）。
+    expect(row('サイドバーの開閉（ターミナルの出ている画面では Ctrl+Shift+B）')).toHaveTextContent('Ctrl+B');
     expect(within(dialog).getByText('ターミナル内')).toBeInTheDocument();
     expect(within(dialog).getByText(/Ctrl\+Shift と組み合わせると/)).toBeInTheDocument();
   });

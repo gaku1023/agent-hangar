@@ -53,7 +53,7 @@ const LOG_EN = [
 
 /** 端末の代わり。本物の xterm は使わず、台本の行を面に書く。 */
 const host: TerminalHost = {
-  connect() {}, disconnect() {}, fit() {}, focus() {}, paste() {}, zoom() {}, fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose() {}, reconnect() {},
+  connect() {}, disconnect() {}, fit() {}, focus() {}, paste() {}, input() {}, zoom() {}, fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose() {}, reconnect() {},
   status: () => 'connected', link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }),
   mount(_tab: string, el: HTMLElement) {
     el.style.cssText = 'padding:12px 16px;font:13px/1.6 var(--font-mono);color:var(--term-fg);white-space:pre-wrap';

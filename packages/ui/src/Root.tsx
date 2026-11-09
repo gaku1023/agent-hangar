@@ -286,7 +286,25 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         case 'session.nextWaiting': if (overlayKind === 'none' || overlayKind === 'palette') { take(); rt.emit({ type: 'session.nextWaiting' }); } return;
         case 'settings.open': take(); rt.emit({ type: 'nav.go', to: { name: 'settings' } }); return;
         // macOS の入力欄の Ctrl+B（1 字戻る）は、上の入力欄の規則で渡している。
-        case 'sidebar.toggle': take(); rt.emit({ type: 'sidebar.toggle' }); return;
+        // 会話の画面（ターミナルが出ている画面）の Ctrl だけの B は、サイドバーの開閉に使わない（#616）。
+        // Claude Code の「ctrl+b to run in background」も psmux と tmux の prefix も Ctrl+B なので、
+        // ターミナルの外（ペインの枠や入力欄）にフォーカスがあるまま打つと、サイドバーが閉じて覚えられてしまう。
+        // そこで打たれた Ctrl+B は、ターミナルへフォーカスを戻して ^B を送る。利用者がターミナルで打ったのと同じ経路である。
+        // ⌘B（macOS）と Ctrl+Shift+B（ほかの OS）は今までどおり開閉する。ダイアログの裏のターミナルへは送らない。
+        case 'sidebar.toggle': {
+          take();
+          if (e.ctrlKey && !e.metaKey && !e.shiftKey && sessionId) {
+            const tab = terminalTargetOf(el, panesRef.current.focus, focusedPane.current, selectedTabId);
+            if (tab) {
+              if (overlayKind !== 'none') return;
+              props.terminals.focus(tab);
+              props.terminals.input(tab, CTRL_B);
+              return;
+            }
+          }
+          rt.emit({ type: 'sidebar.toggle' });
+          return;
+        }
         case 'shortcuts.open': take(); rt.emit({ type: 'shortcuts.open' }); return;
         case 'nav.back': take(); rt.emit({ type: 'nav.back' }); return;
         case 'nav.forward': take(); rt.emit({ type: 'nav.forward' }); return;
@@ -544,6 +562,29 @@ function paneTabOf(target: EventTarget | null): string | null {
   const el = target as HTMLElement | null;
   const pane = el?.closest?.('.term-pane');
   return pane?.querySelector<HTMLElement>('.term-host[data-tab]')?.dataset.tab ?? null;
+}
+
+/** Ctrl+B が端末へ送る文字（^B）。 */
+const CTRL_B = '\x02';
+
+/**
+ * 会話の画面で、ターミナルの外で打った打鍵を渡すターミナルのタブ。画面にターミナルが無ければ null。
+ * 打鍵を受けた枠、打鍵を受けたペイン、操作中のペイン（別のセッションを並べているとき）、最後にフォーカスのあった枠、選択中のタブ、画面の最初のターミナルの順に探す。
+ * 操作中のペインを最後にフォーカスのあった枠より先に見るのは、ペインの見出しを押すとペインは移るが、フォーカスはターミナルに入らないからである。
+ * ペインの中にターミナルが 2 つある（タブを並べた）ときは、最後にフォーカスのあった枠がそのペインの中にあればそれを選ぶ。
+ */
+function terminalTargetOf(target: EventTarget | null, focusPane: string | null, remembered: string | null, selected: string | null): string | null {
+  const hostOf = (root: ParentNode, tab: string | null) => (tab ? root.querySelector<HTMLElement>(`.term-host[data-tab="${CSS.escape(tab)}"]`) : null);
+  const inside = (root: ParentNode | null | undefined) => (root ? (hostOf(root, remembered) ? remembered : root.querySelector<HTMLElement>('.term-host[data-tab]')?.dataset.tab ?? null) : null);
+  const el = target as HTMLElement | null;
+  const pane = el?.closest?.('[data-pane]');
+  const focused = focusPane ? document.querySelector(`[data-pane="${CSS.escape(focusPane)}"]`) : null;
+  return paneTabOf(target)
+    ?? inside(pane)
+    ?? inside(focused)
+    ?? (hostOf(document, remembered) ? remembered : null)
+    ?? (hostOf(document, selected) ? selected : null)
+    ?? document.querySelector<HTMLElement>('.term-host[data-tab]')?.dataset.tab ?? null;
 }
 
 const apiCache = new WeakMap<Runtime, ApiClient>();

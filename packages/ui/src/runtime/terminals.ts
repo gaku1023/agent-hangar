@@ -4,6 +4,8 @@ export type TerminalLike = { cols: number; rows: number; element: HTMLElement | 
   setGpu(on: boolean): void;
   /** 貼り付けとして送る。xterm は括弧付き貼り付けが有効なら括弧で包む。 */
   paste(text: string): void;
+  /** 打鍵として送る（xterm の input）。利用者が打ったのと同じく onData へ流れる。 */
+  input(data: string): void;
   /** 文字の大きさ（px）を変える。合わせ直しは呼び手が fit で行う。 */
   setFontSize(px: number): void };
 /**
@@ -16,7 +18,13 @@ export type TerminalLike = { cols: number; rows: number; element: HTMLElement | 
  * 自動ではつながず、利用者のつなぎ直しを待つ。
  */
 export type TerminalLink = { retryAt: number | null; dropped: boolean; gaveUp: boolean; detached: boolean };
-export type TerminalHost = { connect(tabId: string): void; paste(tabId: string, text: string): void; disconnect(tabId: string): void; mount(tabId: string, el: HTMLElement): void; status(tabId: string): TerminalStatus | null; fit(tabId: string): void; focus(tabId: string): void;
+export type TerminalHost = { connect(tabId: string): void; paste(tabId: string, text: string): void;
+  /**
+   * 打鍵として送る。利用者がそのターミナルで打ったのと同じ経路（xterm の onData からサーバ）を通る。
+   * 会話の画面のターミナルの外で打った Ctrl+B を、ターミナルへ渡すのに使う（Root.tsx）。
+   */
+  input(tabId: string, data: string): void;
+  disconnect(tabId: string): void; mount(tabId: string, el: HTMLElement): void; status(tabId: string): TerminalStatus | null; fit(tabId: string): void; focus(tabId: string): void;
   /**
    * 切れたタブのつなぎ直しの様子。
    * 知らないタブは切れていない扱いにする。
@@ -286,6 +294,10 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     paste(tabId, text) {
       const e = entries.get(tabId);
       if (e?.opened) e.term.paste(text);
+    },
+    input(tabId, data) {
+      const e = entries.get(tabId);
+      if (e?.opened) e.term.input(data);
     },
     zoom(step) {
       const next = step === 'reset' ? FONT_SIZE.default : clampFontSize(fontSize + (step === 'in' ? 1 : -1));

@@ -307,7 +307,7 @@ describe('Shell', () => {
     expect(pill.querySelector('kbd')).toHaveTextContent('Ctrl+K');
     expect(pill).toHaveAttribute('title', '移動・操作（Ctrl+K または /）');
     const side = within(screen.getByRole('navigation', { name: 'メインナビゲーション' }));
-    expect(side.getByRole('button', { name: 'サイドバーを閉じる' }).querySelector('.toggle-tip')).toHaveTextContent('閉じるCtrl+B');
+    expect(side.getByRole('button', { name: 'サイドバーを閉じる' }).querySelector('.toggle-tip')).toHaveTextContent('閉じるCtrl+Shift+B');
     // 読み上げには、ターミナルの中の Ctrl+Shift の打鍵も添える。
     expect(pill).toHaveAttribute('aria-keyshortcuts', 'Control+K Control+Shift+K');
     expect(side.getByRole('button', { name: 'サイドバーを閉じる' })).toHaveAttribute('aria-keyshortcuts', 'Control+B Control+Shift+B');
