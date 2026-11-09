@@ -31,6 +31,12 @@ export const EVENT_INBOX_RATE_PER_MIN = 30;
 export const EVENT_INBOX_PULL_PAGE = 20;
 /** `POST /inboxes/ack` の ids の上限。 */
 export const EVENT_INBOX_ACK_MAX = 100;
+/**
+ * 受け箱の ID の形。
+ * Worker は 16 バイトの乱数を base64url にして作るので、先頭が `-` や `_` のこともある。
+ * 点を許さないので、`.` や `..` の道の断片にはならない。
+ */
+export const EVENT_INBOX_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
 
 /**
  * `POST /inboxes` の本文。
