@@ -76,8 +76,10 @@ describe('ダイアログ類（英語）', () => {
   it('Paused の入力：札、欄、字数', () => {
     const choices = pauseChoices(NOW, en);
     expect(choices.map((c) => c.label)).toEqual(['No date', 'This evening', 'Tomorrow', 'Monday', 'Next week', 'Pick a date…']);
-    inEnglish(<PauseDialog sessionId="s1" sessionName="Demo" from="candidate" draft="" candidateNote={null} initialReturnOn="2026-10-07" initialReturnTime="" candidateReturnTime={null} today="2026-10-06" choices={choices} />);
+    inEnglish(<PauseDialog sessionId="s1" sessionName="Demo" from="candidate" draft="" candidateNote={null} initialReturnOn="2026-10-07" initialReturnTime="" candidateReturnTime={null} wake={{ suggested: { repo: "acme/app", pr: 567, when: "ci_done" }, repo: "acme/app", pr: 567 }} today="2026-10-06" choices={choices} />);
     expect(screen.getByRole('dialog', { name: 'Mark as Paused' })).toBeInTheDocument();
+    expect(screen.getByText('When CI finishes on PR #567')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument();
     expect(screen.getByText('Suggestion')).toBeInTheDocument();
     expect(screen.getByLabelText('Reminder time (optional)')).toBeInTheDocument();
     expect(screen.getByLabelText('Reason')).toBeInTheDocument();

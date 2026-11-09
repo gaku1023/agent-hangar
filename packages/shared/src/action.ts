@@ -1,3 +1,4 @@
+import type { WakeOn } from './eventTrigger.ts';
 import type { ScheduleInput, SchedulePatch } from './schedule.ts';
 import type { AgentKind } from './agents.ts';
 import type { ConfigApplyOrderEntryIn, FolderRegisterItem, InstructionFileKind, PeerLaunchBody, ProjectPlace, ProjectStatus, ResolveAction, ResumeStray, RetentionFrom, SettingsDto, SharePreviewAgent } from './api.ts';
@@ -142,7 +143,7 @@ export type UiAction =
   // seq と q は検索の結果から開くときの跳び先（抜粋の seq と検索語）。
   | { type: 'session.open'; id: SessionId; focus?: 'terminal'; seq?: number; q?: string }
   // セッションの状態（Paused・Done・Archived）。status の null は Active に戻す。画面の正は後から届く session.upsert である。
-  | { type: 'session.state.set'; id: SessionId; status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string }
+  | { type: 'session.state.set'; id: SessionId; status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string; wakeOn?: WakeOn | null }
   // セッションを別のプロジェクトへ移す。動くのは hangar 上の所属だけで、本文と再開するフォルダは元のまま。画面の正は後から届く session.upsert である。
   | { type: 'session.move'; id: SessionId; projectId: ProjectId }
   // セッションを消す。本文を OS のゴミ箱へ移し、同期しているほかの PC からも消す。実行中は断られる。画面の正は後から届く session.removed である。
@@ -164,7 +165,7 @@ export type UiAction =
   | { type: 'session.unread.mark'; id: SessionId }
   | { type: 'session.pin'; id: SessionId; pinned: boolean }
   | { type: 'session.duplicate'; id: SessionId }
-  | { type: 'session.state.confirm'; id: SessionId; returnOn?: string; returnTime?: string } | { type: 'session.state.reject'; id: SessionId }
+  | { type: 'session.state.confirm'; id: SessionId; returnOn?: string; returnTime?: string; wakeOn?: WakeOn | null } | { type: 'session.state.reject'; id: SessionId }
   // 確認待ちの群の見出しの「すべて確定」「すべて却下」（2026-10-13 の決定、知らせの 9d）。いまある提案を、セッションの提案と TODO の完了の提案に分けて渡す。
   | { type: 'pending.resolve'; accept: boolean; sessionIds: SessionId[]; todoIds: TodoId[] }
   // Paused の入力（B1）。from は開いた入口で、提案の「日を変える」から開いたときは根拠を下書きに入れる。

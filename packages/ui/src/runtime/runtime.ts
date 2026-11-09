@@ -1,4 +1,4 @@
-import { codexEnabledOf, formatRoute, opencodeEnabledOf, parseRoute, permissionNoticeText, stopReasonOf, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ProjectPlace, type ScheduleTarget, type ServerEvent } from '@agent-hangar/shared';
+import { codexEnabledOf, formatRoute, opencodeEnabledOf, parseRoute, permissionNoticeText, stopReasonOf, type WakeResultDto, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ProjectPlace, type ScheduleTarget, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { duplicateOpenAction, LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
@@ -330,6 +330,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       setStore({ ...store, readiness: r });
       deps.api.compat().then((c) => { if (seq === readinessSeq) setStore({ ...store, compat: c }); }).catch(fail);
     } else setStore({ ...store, readiness: r, compat: null });
+  };
+  /** 起こす結び付けの結果。会話がほかの PC で動いているときは other_pc、webhook を付けられなかったときはその旨。 */
+  const wakeToast = (r: { wake?: WakeResultDto }) => {
+    if (!r.wake || r.wake.status === 'created') return;
+    dispatch({ kind: 'server', event: { type: 'toast', level: 'error', message: tr()(r.wake.message === 'other_pc' ? 'pause.wake.otherPc' : 'pause.wake.failed') } });
   };
   const toast = (message: string, holdMs?: number) => dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message, ...(holdMs !== undefined ? { holdMs } : {}) } });
   const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
@@ -868,8 +873,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.loadDuplicate':
         deps.api.launchSettings(e.id).then((settings) => { dispatch({ kind: 'action', action: duplicateOpenAction(store, e.id, settings) }); }).catch(fail);
         return;
-      case 'api.setSessionState': deps.api.setSessionState(e.id, e.body).catch(fail); return;
-      case 'api.confirmSessionState': deps.api.confirmSessionState(e.id, e.body).catch(fail); return;
+      // Paused は確定したまま、起こす結び付けを作れなかったときだけ、応答の wake を一文のトーストで知らせる（#563）。
+      case 'api.setSessionState': deps.api.setSessionState(e.id, e.body).then(wakeToast).catch(fail); return;
+      case 'api.confirmSessionState': deps.api.confirmSessionState(e.id, e.body).then(wakeToast).catch(fail); return;
       case 'api.rejectSessionState': deps.api.rejectSessionState(e.id).catch(fail); return;
       case 'api.loadMemo': deps.api.memo(e.projectId).then((m) => setStore({ ...store, memos: { ...store.memos, [m.projectId]: m } })).catch(fail); return;
       case 'api.loadInstructions': deps.api.instructions(e.projectId).then((d) => setStore({ ...store, instructions: { ...store.instructions, [d.projectId]: d } })).catch(fail); return;

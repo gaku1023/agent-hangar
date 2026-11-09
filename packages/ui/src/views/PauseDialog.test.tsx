@@ -5,7 +5,7 @@ import type { PauseProps } from '../presenters/pause.ts';
 import { PauseDialog } from './PauseDialog.tsx';
 
 const props = (over: Partial<PauseProps> = {}): PauseProps => ({
-  sessionId: 's1', sessionName: 'Worker の CPU 超過', from: 'menu', draft: '', candidateNote: null, initialReturnOn: '2026-10-02', initialReturnTime: '', candidateReturnTime: null, today: '2026-10-01',
+  sessionId: 's1', sessionName: 'Worker の CPU 超過', from: 'menu', draft: '', candidateNote: null, initialReturnOn: '2026-10-02', initialReturnTime: '', candidateReturnTime: null, today: '2026-10-01', wake: null,
   choices: [
     { key: 'none', label: '日付なし', returnOn: null },
     { key: 'today', label: '今日の夕方', returnOn: '2026-10-01' }, { key: 'tomorrow', label: '明日', returnOn: '2026-10-02' },
@@ -116,5 +116,84 @@ describe('PauseDialog（B1）', () => {
     expect(onAction).toHaveBeenLastCalledWith({ type: 'session.pause.close' });
     fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
     expect(onAction).toHaveBeenCalledTimes(2);
+  });
+
+  // #563 A4：提案は文のカードに「外す」。自分で選ぶときは点線の「＋」から。
+  describe('起こす条件（A4）', () => {
+    const SUGGESTED = { repo: 'acme/app', pr: 567, when: 'ci_done' } as const;
+    const wake = (over: Partial<NonNullable<PauseProps['wake']>> = {}) => ({ suggested: SUGGESTED, repo: 'acme/app', pr: 567, ...over });
+    const candidate = (w: PauseProps['wake']) => props({ from: 'candidate', draft: '直したら起こす', candidateNote: '直したら起こす', wake: w });
+
+    it('shows the suggested wake card with remove', () => {
+      mount(candidate(wake()));
+      expect(screen.getByText('PR #567 の CI が終わったら')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '外す' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '＋ イベントで起こす' })).toBeNull();
+    });
+    it('keeping the suggestion sends wakeOn explicitly (confirm)', () => {
+      const { onAction } = mount(candidate(wake()));
+      fireEvent.click(submit());
+      expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-02', wakeOn: SUGGESTED });
+    });
+    it('remove then confirm sends wakeOn null', () => {
+      const { onAction } = mount(candidate(wake()));
+      fireEvent.click(screen.getByRole('button', { name: '外す' }));
+      fireEvent.click(submit());
+      expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-02', wakeOn: null });
+    });
+    it('a removed card leaves the dashed add button behind', () => {
+      mount(candidate(wake()));
+      fireEvent.click(screen.getByRole('button', { name: '外す' }));
+      expect(screen.queryByText('PR #567 の CI が終わったら')).toBeNull();
+      expect(screen.getByRole('button', { name: '＋ イベントで起こす' })).toBeInTheDocument();
+    });
+    it('the card follows the condition chosen on it (w1 to w4)', () => {
+      const { onAction } = mount(candidate(wake()));
+      fireEvent.click(screen.getByRole('radio', { name: 'CI 失敗' }));
+      expect(screen.getByText('PR #567 の CI が失敗したら')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('radio', { name: 'レビュー' }));
+      expect(screen.getByText('PR #567 にレビューが付いたら')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('radio', { name: 'マージ' }));
+      expect(screen.getByText('PR #567 がマージされたら')).toBeInTheDocument();
+      fireEvent.click(submit());
+      expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ wakeOn: { ...SUGGESTED, when: 'merged' } }));
+    });
+    it('plus opens pr and condition picker when nothing suggested', () => {
+      const { onAction } = mount(props({ wake: wake({ suggested: null, repo: 'acme/app', pr: 570 }) }));
+      expect(screen.queryByRole('radio', { name: 'CI 失敗' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: '＋ イベントで起こす' }));
+      expect(screen.getByLabelText('repo')).toHaveValue('acme/app');
+      expect(screen.getByLabelText('PR')).toHaveValue('570');
+      expect(screen.getByText('PR #570 の CI が終わったら')).toBeInTheDocument();
+      fireEvent.change(screen.getByLabelText('PR'), { target: { value: '571' } });
+      fireEvent.click(screen.getByRole('radio', { name: 'マージ' }));
+      fireEvent.click(submit());
+      expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-02', wakeOn: { repo: 'acme/app', pr: 571, when: 'merged' } });
+    });
+    it('a picked card that is not a valid repo and PR blocks sending, and removing it unblocks', () => {
+      mount(props({ wake: wake({ suggested: null, repo: '', pr: null }) }));
+      fireEvent.click(screen.getByRole('button', { name: '＋ イベントで起こす' }));
+      expect(submit()).toBeDisabled();
+      fireEvent.change(screen.getByLabelText('repo'), { target: { value: 'acme/app' } });
+      fireEvent.change(screen.getByLabelText('PR'), { target: { value: '12' } });
+      expect(submit()).toBeEnabled();
+      fireEvent.change(screen.getByLabelText('PR'), { target: { value: '0' } });
+      expect(submit()).toBeDisabled();
+      fireEvent.click(screen.getByRole('button', { name: '外す' }));
+      expect(submit()).toBeEnabled();
+    });
+    it('sends wakeOn null on set when the suggestion was removed', () => {
+      const { onAction } = mount(props({ wake: wake() }));
+      fireEvent.click(screen.getByRole('button', { name: '外す' }));
+      fireEvent.click(submit());
+      expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-02', wakeOn: null });
+    });
+    it('hidden without cloud', () => {
+      const { onAction } = mount(candidate(null));
+      expect(screen.queryByRole('button', { name: '＋ イベントで起こす' })).toBeNull();
+      expect(screen.queryByRole('button', { name: '外す' })).toBeNull();
+      fireEvent.click(submit());
+      expect(onAction.mock.calls.at(-1)![0]).not.toHaveProperty('wakeOn');
+    });
   });
 });

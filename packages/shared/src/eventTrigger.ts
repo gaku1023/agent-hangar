@@ -44,6 +44,9 @@ export type EventBindingDto = {
 /** Paused を起こす条件。propose_session_status の wake_on が、利用者の承認で結び付けになる。 */
 export type WakeOn = { repo: string; pr: number; when: 'ci_done' | 'ci_failed' | 'review' | 'merged' };
 
+/** Paused の確定の応答に載る、起こす結び付けの結果。message が other_pc のときは、会話がほかの PC で動いている。 */
+export type WakeResultDto = { status: 'created' | 'no_admin' | 'failed'; message?: string };
+
 /** 結び付けに当てる、できごとの事実。本文は passBody のときだけ渡す。 */
 export type EventFacts = {
   source: 'github' | 'hook';

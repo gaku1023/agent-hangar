@@ -54,3 +54,26 @@ describe('presentPause', () => {
     expect(presentPause(open('menu'), initialStore(), THU)).toBeNull();
   });
 });
+
+describe('presentPause wake (#563)', () => {
+  const cand = (wakeOn?: { repo: string; pr: number; when: 'ci_done' }) => session({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: { status: 'paused', note: '直したら起こす', returnOn: '2026-10-02', returnTime: null, source: 'in_session', at: 1, ...(wakeOn ? { wakeOn } : {}) } });
+  const cloud = (s: SessionDto, state: 'idle' | 'off' | null = 'idle'): Store => ({ ...storeOf(s), sync: state === null ? null : ({ state } as Store['sync']) });
+  const withPr = (s: SessionDto): SessionDto => ({ ...s, stats: { ...s.stats!, prUrl: 'https://github.com/acme/app/pull/570' } });
+  it('is null without cloud (no sync status, or sync off)', () => {
+    expect(presentPause(open('candidate'), cloud(cand(), null), THU)!.wake).toBeNull();
+    expect(presentPause(open('candidate'), cloud(cand(), 'off'), THU)!.wake).toBeNull();
+    expect(presentPause(open('candidate'), storeOf(cand()), THU)!.wake).toBeNull();
+  });
+  it('carries the suggested wake_on of the candidate', () => {
+    const w = { repo: 'acme/app', pr: 567, when: 'ci_done' as const };
+    expect(presentPause(open('candidate'), cloud(cand(w)), THU)!.wake).toEqual({ suggested: w, repo: 'acme/app', pr: 567 });
+  });
+  it('prefills repo and PR from the session pull request when nothing is suggested', () => {
+    expect(presentPause(open('menu'), cloud(withPr(cand())), THU)!.wake).toEqual({ suggested: null, repo: 'acme/app', pr: 570 });
+    expect(presentPause(open('menu'), cloud(cand()), THU)!.wake).toEqual({ suggested: null, repo: '', pr: null });
+  });
+  it('does not offer the candidate wake_on when opened from the menu', () => {
+    const w = { repo: 'acme/app', pr: 567, when: 'ci_done' as const };
+    expect(presentPause(open('menu'), cloud(cand(w)), THU)!.wake!.suggested).toBeNull();
+  });
+});

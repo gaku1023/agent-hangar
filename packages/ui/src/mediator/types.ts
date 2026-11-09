@@ -1,4 +1,4 @@
-import type { InvestigateContext, NewSessionSeed, PeerLaunchBody, LinkConflictsDto, ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, NonDefaultAgentKind, ProjectPlace, ProjectRailSection, ResolveAction, PhoneLaunchDto, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto, ScheduleInput, SchedulePatch } from '@agent-hangar/shared';
+import type { WakeOn, InvestigateContext, NewSessionSeed, PeerLaunchBody, LinkConflictsDto, ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, NonDefaultAgentKind, ProjectPlace, ProjectRailSection, ResolveAction, PhoneLaunchDto, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto, ScheduleInput, SchedulePatch } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { PanesState } from './panes.ts';
 import type { CloudMemberCommand } from '../runtime/cloudMember.ts';
@@ -150,8 +150,8 @@ export type Effect =
   | { kind: 'api.markUnread'; id: string }
   // 元の会話の設定を読み、埋めた新規ダイアログを開く（mediator/launch.ts の duplicateOpenAction）。
   | { kind: 'api.loadDuplicate'; id: string }
-  | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string } }
-  | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string; returnTime?: string } }
+  | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string; wakeOn?: WakeOn | null } }
+  | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string; returnTime?: string; wakeOn?: WakeOn | null } }
   | { kind: 'api.rejectSessionState'; id: string }
   | { kind: 'api.loadMemo'; projectId: string }
   | { kind: 'api.loadInstructions'; projectId: string }
