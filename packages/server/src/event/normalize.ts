@@ -38,12 +38,14 @@ export function outcomeOf(conclusion: unknown): Outcome {
   }
 }
 
-/** check_suite の completed が指す repo と head の SHA。形が違えば null。 */
-export function checkSuiteRef(payload: unknown): { repo: string; sha: string } | null {
+/** check_suite の completed が指す repo、head の SHA、スイートの ID。形が違えば null。 */
+export function checkSuiteRef(payload: unknown): { repo: string; sha: string; suiteId: number } | null {
   const p = obj(payload);
   const repo = str(obj(p?.repository)?.full_name);
-  const sha = str(obj(p?.check_suite)?.head_sha);
-  return repo && sha ? { repo, sha } : null;
+  const suite = obj(p?.check_suite);
+  const sha = str(suite?.head_sha);
+  const suiteId = int(suite?.id);
+  return repo && sha && suiteId !== undefined ? { repo, sha, suiteId } : null;
 }
 
 export type NormalizeOptions = {

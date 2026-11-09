@@ -26,7 +26,7 @@ describe('normalizeGithub', () => {
   });
 
   it('names the repo and head sha a completed suite points at', () => {
-    expect(checkSuiteRef(fx('check_suite.completed.failure'))).toEqual({ repo: 'octo-org/demo-repo', sha: '3f2a9c0d41b7e85a6c1d2e3f405162738495a6b7' });
+    expect(checkSuiteRef(fx('check_suite.completed.failure'))).toEqual({ repo: 'octo-org/demo-repo', sha: '3f2a9c0d41b7e85a6c1d2e3f405162738495a6b7', suiteId: 1001 });
     expect(checkSuiteRef({ check_suite: {} })).toBeNull();
     expect(checkSuiteRef(null)).toBeNull();
   });

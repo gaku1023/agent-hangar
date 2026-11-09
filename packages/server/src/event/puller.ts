@@ -92,13 +92,14 @@ const WORST = { success: 0, cancelled: 1, failure: 2 } as const;
 /** CI を 1 件にまとめて出した印を覚える長さ。 */
 const CI_MEMO_MS = 24 * 60 * 60_000;
 
-type Verdict = { kind: 'pending' } | { kind: 'none' } | { kind: 'unknown' } | { kind: 'done'; outcome: NonNullable<EventFacts['outcome']> };
+type Verdict = { kind: 'pending' } | { kind: 'none' } | { kind: 'unknown' } | { kind: 'done'; outcome: NonNullable<EventFacts['outcome']>; fingerprint: string };
 
 /**
  * head の SHA のスイートの一覧から、全部終わったかと成否を決める。
  * 一度も動かなかったスイート（latest_check_runs_count が 0）は数えない。
  * 終わっていないものが 1 つでもあれば pending。結論が stale のものは数えず、残りが無ければ none。
  * 失敗（failure、timed_out、知らない結論）が 1 つでもあれば failure、無くて cancelled があれば cancelled、それ以外は success（neutral と skipped は success）。
+ * fingerprint は、数えたスイートの (id, conclusion, updated_at) を並べ順によらず固めたもの。
  * 一覧の形が読めないとき、動いたスイートが 1 つも無いときは unknown で、呼び手は完了したスイート 1 つの結果に戻る。
  */
 export function judgeSuites(listing: unknown): Verdict {
@@ -114,23 +115,29 @@ export function judgeSuites(listing: unknown): Verdict {
     const o = outcomeOf(s.conclusion);
     if (WORST[o] > WORST[outcome]) outcome = o;
   }
-  return { kind: 'done', outcome };
+  // 同じ結果をもう一度出さないための指紋。再実行すると、スイートの updated_at と結論が変わる。
+  const fingerprint = JSON.stringify(counted.map((s) => [s.id, s.conclusion, s.updated_at]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+  return { kind: 'done', outcome, fingerprint };
 }
 
 /** 1 ページのあいだに集める、渡し終えてから行うこと。 */
 type Page = {
   /** このページの中で見た配送（結び付け ID と配送の ID）。同じページに再送が並んでも 1 回だけ出す。 */
   delivered: Set<string>;
-  /** このページで 1 件にまとめて出す CI（受け箱、repo、SHA）。 */
-  ci: Set<string>;
+  /** このページで出した CI の指紋（受け箱、repo、SHA ごと）と、gh を使えず 1 つで出したスイートの印。 */
+  ci: Map<string, string>;
   commits: (() => void)[];
 };
 
 export class EventPuller {
   private current: Promise<PulledEvent[]> | null = null;
   private queued: { atStart: boolean; promise: Promise<PulledEvent[]> } | null = null;
-  /** 1 件にまとめて出した CI の印（受け箱、repo、SHA から時刻へ）。メモリだけで、同じ head の CI が近くで 2 回終わっても 2 回出さない。 */
-  private readonly ciMemo = new Map<string, number>();
+  /**
+   * 出した CI の印。メモリだけで持ち、CI_MEMO_MS で忘れる。
+   * 受け箱、repo、SHA ごとに、最後に出したスイートの指紋を覚える。同じ指紋なら出さない（近くで 2 回完了しても 1 件）。再実行で指紋が変われば、また出す。
+   * gh を使えず 1 つで出したときは、受け箱、repo、SHA、スイートの ID ごとに覚える。
+   */
+  private readonly ciMemo = new Map<string, { fingerprint: string; at: number }>();
   /** 1 巡のあいだに断った荷物の数（結び付けと理由ごと）。巡の終わりに履歴へ 1 件ずつ書く。 */
   private rejected = new Map<string, { binding: BindingRow; why: 'signature' | 'unparsable'; count: number }>();
 
@@ -198,7 +205,7 @@ export class EventPuller {
         // ack が効かず同じ荷物が戻り続けるときに、巡を終えられなくなるのを避ける。
         if (items.length === 0) break;
         for (const i of items) seen.add(i.id);
-        const pg: Page = { delivered: new Set(), ci: new Set(), commits: [] };
+        const pg: Page = { delivered: new Set(), ci: new Map(), commits: [] };
         const events: PulledEvent[] = [];
         for (const item of items) events.push(...(await this.handle(item, atStart, pg)));
         if (events.length > 0) {
@@ -333,27 +340,36 @@ export class EventPuller {
    * 完了したスイート 1 つの ci_done を、head の SHA の全スイートが終わったときの 1 件にする。
    * GitHub が repo の webhook に送る check_suite は completed だけなので、残りのスイートは gh api で問い合わせる。
    * まだ終わっていないものがあれば何も出さず（あとの completed が来る）、結論がすべて stale でも出さない。
-   * 出すのは (受け箱, repo, SHA) ごとに 1 度だけで、印は CI_MEMO_MS のあいだメモリに持つ（渡し終えてから付ける）。
+   * 出すのは、数えたスイートの指紋が、(受け箱, repo, SHA) で最後に出したものと違うときだけにする。
+   * 近くで 2 回完了しても指紋は同じなので 1 件になり、失敗のあとの再実行は指紋が変わるので、また出る。
+   * 印は CI_MEMO_MS のあいだメモリに持ち、渡し終えてから付ける。
    * gh が無い、失敗した、一覧が読めないときは、完了したスイート 1 つの結果のまま出す。ログに出すのは例外の名前だけ。
+   * そのときは (受け箱, repo, SHA, スイートの ID) ごとに 1 度だけ出す。
    */
   private async settleCi(inboxId: string, facts: EventFacts, payload: unknown, pg: Page): Promise<EventFacts | null> {
     const ref = checkSuiteRef(payload);
     if (!ref || !REPO_RE.test(ref.repo) || !SHA_RE.test(ref.sha)) return facts;
     const key = `${inboxId}|${ref.repo}|${ref.sha}`;
     const now = this.now();
-    for (const [k, at] of this.ciMemo) if (now - at > CI_MEMO_MS) this.ciMemo.delete(k);
-    if (this.ciMemo.has(key) || pg.ci.has(key)) return null;
+    for (const [k, m] of this.ciMemo) if (now - m.at > CI_MEMO_MS) this.ciMemo.delete(k);
+    /** 指紋が前に出したものと同じ（または同じページで出した）なら、出さない。出すなら、渡し終えてから覚える。 */
+    const emit = (memoKey: string, fingerprint: string, out: EventFacts): EventFacts | null => {
+      const last = pg.ci.get(memoKey) ?? this.ciMemo.get(memoKey)?.fingerprint;
+      if (last === fingerprint) return null;
+      pg.ci.set(memoKey, fingerprint);
+      pg.commits.push(() => { this.ciMemo.set(memoKey, { fingerprint, at: now }); });
+      return out;
+    };
+    const single = (): EventFacts | null => emit(`${key}|suite:${ref.suiteId}`, '', facts);
     let verdict: Verdict;
     try {
       verdict = judgeSuites(await (this.deps.ghApi ?? ghApiRunner())(`repos/${ref.repo}/commits/${ref.sha}/check-suites?per_page=100`));
     } catch (e) {
       console.error('[event] could not read the check suites', e instanceof Error ? e.constructor.name : typeof e);
-      return facts;
+      return single();
     }
     if (verdict.kind === 'pending' || verdict.kind === 'none') return null;
-    if (verdict.kind === 'unknown') return facts;
-    pg.ci.add(key);
-    pg.commits.push(() => { this.ciMemo.set(key, now); });
-    return { ...facts, outcome: verdict.outcome };
+    if (verdict.kind === 'unknown') return single();
+    return emit(key, verdict.fingerprint, { ...facts, outcome: verdict.outcome });
   }
 }

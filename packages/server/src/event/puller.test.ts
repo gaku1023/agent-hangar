@@ -157,7 +157,7 @@ describe('EventPuller', () => {
   });
 
   describe('check suites', () => {
-    const suite = (o: { status?: string; conclusion?: string | null; runs?: number } = {}) => ({ id: 1, status: o.status ?? 'completed', conclusion: o.conclusion === undefined ? 'success' : o.conclusion, latest_check_runs_count: o.runs ?? 3 });
+    const suite = (o: { id?: number; status?: string; conclusion?: string | null; runs?: number; at?: string } = {}) => ({ id: o.id ?? 1, status: o.status ?? 'completed', conclusion: o.conclusion === undefined ? 'success' : o.conclusion, latest_check_runs_count: o.runs ?? 3, updated_at: o.at ?? '2026-11-10T09:00:00Z' });
     const listing = (...suites: object[]) => ({ total_count: suites.length, check_suites: suites });
     /** 台本どおりに答える gh と、呼ばれた API の道。 */
     const scripted = (...answers: unknown[]) => {
@@ -194,7 +194,45 @@ describe('EventPuller', () => {
       expect(await p.pull('bell')).toEqual([expect.objectContaining({ facts: expect.objectContaining({ event: 'ci_done', outcome: 'failure' }) })]);
     });
 
-    it('emits at most once per inbox, repo and sha, within one page and across pulls', async () => {
+    it('emits again when a re-run on the same sha ends differently, and not for the same outcome', async () => {
+      const inbox = await addBinding();
+      const first = listing(suite({ id: 1, conclusion: 'failure', at: '2026-11-10T09:00:00Z' }), suite({ id: 2, conclusion: 'success', at: '2026-11-10T09:00:10Z' }));
+      const rerun = listing(suite({ id: 1, conclusion: 'success', at: '2026-11-10T09:30:00Z' }), suite({ id: 2, conclusion: 'success', at: '2026-11-10T09:00:10Z' }));
+      const p = puller(undefined, { ghApi: scripted(first, rerun, rerun).ghApi });
+      await post(inbox, 'check_suite', fx('check_suite.completed.failure'));
+      const a = await p.pull('bell');
+      expect(a).toEqual([expect.objectContaining({ facts: expect.objectContaining({ event: 'ci_done', outcome: 'failure' }) })]);
+      await post(inbox, 'check_suite', fx('check_suite.completed.success'));
+      const b = await p.pull('bell');
+      expect(b).toEqual([expect.objectContaining({ facts: expect.objectContaining({ event: 'ci_done', outcome: 'success' }) })]);
+      // 同じ結果をもう一度見ても出さない。
+      await post(inbox, 'check_suite', fx('check_suite.completed.success'));
+      expect(await p.pull('bell')).toEqual([]);
+    });
+
+    it('does not let a fingerprint seen on the same page emit twice, even when the memo is not written yet', async () => {
+      const inbox = await addBinding();
+      const all = listing(suite({ id: 1 }), suite({ id: 2 }));
+      await post(inbox, 'check_suite', fx('check_suite.completed.failure'));
+      await post(inbox, 'check_suite', fx('check_suite.completed.success'));
+      expect(await puller(undefined, { ghApi: scripted(all, all).ghApi }).pull('bell')).toHaveLength(1);
+    });
+
+    it('emits once per suite when gh is unavailable', async () => {
+      const inbox = await addBinding();
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const p = puller(undefined, { ghApi: noGh });
+      await post(inbox, 'check_suite', fx('check_suite.completed.failure'));
+      await post(inbox, 'check_suite', fx('check_suite.completed.failure'));
+      expect(await p.pull('bell')).toHaveLength(1);
+      await post(inbox, 'check_suite', fx('check_suite.completed.failure'));
+      expect(await p.pull('bell')).toEqual([]);
+      // 別のスイートは別に出す。
+      await post(inbox, 'check_suite', fx('check_suite.completed.success'));
+      expect(await p.pull('bell')).toHaveLength(1);
+    });
+
+    it('emits at most once per inbox, repo and sha for an unchanged result, within one page and across pulls', async () => {
       const inbox = await addBinding();
       const all = listing(suite(), suite());
       const gh = scripted(all, all, all);
@@ -202,11 +240,11 @@ describe('EventPuller', () => {
       await post(inbox, 'check_suite', fx('check_suite.completed.success'));
       await post(inbox, 'check_suite', fx('check_suite.completed.success'));
       expect(await p.pull('bell')).toHaveLength(1);
-      // 2 通目はメモで止まり、gh は 1 度しか呼ばない。
-      expect(gh.paths).toHaveLength(1);
+      // 2 通目も指紋を見るために gh を呼ぶが、同じ指紋なので出さない。
+      expect(gh.paths).toHaveLength(2);
       await post(inbox, 'check_suite', fx('check_suite.completed.success'));
       expect(await p.pull('bell')).toEqual([]);
-      expect(gh.paths).toHaveLength(1);
+      expect(gh.paths).toHaveLength(3);
     });
 
     it('forgets the memo after a day', async () => {
@@ -258,10 +296,18 @@ describe('EventPuller', () => {
       expect(gh.paths).toEqual([]);
     });
 
+    it('gives the same fingerprint whatever the order of the suites, and a new one after a re-run', () => {
+      const a = suite({ id: 1, conclusion: 'failure' });
+      const b = suite({ id: 2 });
+      const fp = (...l: object[]) => (judgeSuites({ check_suites: l }) as { fingerprint: string }).fingerprint;
+      expect(fp(a, b)).toBe(fp(b, a));
+      expect(fp(a, b)).not.toBe(fp(suite({ id: 1, conclusion: 'success', at: '2026-11-10T10:00:00Z' }), b));
+    });
+
     it('judges a listing', () => {
-      expect(judgeSuites({ check_suites: [suite({ conclusion: 'timed_out' })] })).toEqual({ kind: 'done', outcome: 'failure' });
-      expect(judgeSuites({ check_suites: [suite({ conclusion: 'neutral' }), suite({ conclusion: 'skipped' })] })).toEqual({ kind: 'done', outcome: 'success' });
-      expect(judgeSuites({ check_suites: [suite({ conclusion: 'success' }), suite({ conclusion: 'stale' })] })).toEqual({ kind: 'done', outcome: 'success' });
+      expect(judgeSuites({ check_suites: [suite({ conclusion: 'timed_out' })] })).toMatchObject({ kind: 'done', outcome: 'failure' });
+      expect(judgeSuites({ check_suites: [suite({ conclusion: 'neutral' }), suite({ conclusion: 'skipped' })] })).toMatchObject({ kind: 'done', outcome: 'success' });
+      expect(judgeSuites({ check_suites: [suite({ conclusion: 'success' }), suite({ conclusion: 'stale' })] })).toMatchObject({ kind: 'done', outcome: 'success' });
       expect(judgeSuites({ check_suites: [] })).toEqual({ kind: 'unknown' });
       expect(judgeSuites('x')).toEqual({ kind: 'unknown' });
     });
