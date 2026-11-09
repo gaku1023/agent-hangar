@@ -111,6 +111,8 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.device.needsSession': '別の PC への起動には、呼び出し元の会話が必要です。セッション別の MCP URL を使ってください',
   'mcp.device.unsupportedArg': '別の PC への起動では {arg} は使えません',
   'mcp.device.sendFailed': 'リクエストを送信できませんでした: {reason}',
+  'mcp.device.permissionModeUnsupported': '別の PC の {agent} は、permission_mode が「{mode}」のリクエストを受けられません。使えるのは: {values}',
+  'mcp.device.permissionModeNone': '別の PC の {agent} には permission_mode を渡せません。省いてもう一度試してください',
   'mcp.tool.setSessionSummary': 'このセッションの要約を更新する。依頼の完了、方針の変更、中断のときに呼ぶ。',
   'mcp.tool.setTurnIntent': 'このターンで何のために何をするかを 1〜2 文（200 字まで）で書く。ターンを始めたときと方針を変えたときに呼ぶ。hangar の右パネルに表示される。',
   'mcp.notify.badKind': "kind は 'done'、'ask'、'progress' のどれかで指定してください",

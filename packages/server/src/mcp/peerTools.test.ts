@@ -132,6 +132,23 @@ describe('create_session の device', () => {
     expect(r2.status).toBe('requested');
   });
 
+  it('permission_mode に default を渡せる（受け手が受ける値）', async () => {
+    putPeer();
+    const r = await call('create_session', { device: 'mac', prompt: 'やって', permission_mode: 'default' });
+    expect(r).toMatchObject({ status: 'requested' });
+    const req = await openPeerLaunch(ring, { requestId: 'req-1', from: ME, to: PEER }, a.wire.peerLaunches.get('req-1')!.sealed);
+    expect(req).toMatchObject({ permissionMode: 'default' });
+  });
+
+  it('受け手が受けない permission_mode は、置く前に ToolError で断る', async () => {
+    putPeer();
+    await expect(call('create_session', { device: 'mac', prompt: 'やって', permission_mode: 'rm -rf' })).rejects.toThrow(/default/);
+    await expect(call('create_session', { device: 'mac', prompt: 'やって', agent: 'opencode', permission_mode: 'default' })).rejects.toThrow();
+    await expect(call('create_session', { device: 'mac', prompt: 'やって', agent: 'codex', permission_mode: 'default' })).rejects.toThrow(/full-access/);
+    expect(a.wire.peerLaunches.size).toBe(0);
+    expect(getPeerRequest(db, 'req-1')).toBeNull();
+  });
+
   it('アカウントを省くと、呼び出し元の会話のアカウントの名前を callerAccount に入れる', async () => {
     putPeer();
     db.prepare('insert into runs (id, session_id, device_id, kind, tmux_name, started_at, heartbeat_at, launch_params, updated_at, origin_device) values (?,?,?,?,?,?,?,?,?,?)')

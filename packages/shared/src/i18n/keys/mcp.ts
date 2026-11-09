@@ -101,6 +101,8 @@ export const mcpKeys = {
   'mcp.device.needsSession': [],
   'mcp.device.unsupportedArg': ['arg'],
   'mcp.device.sendFailed': ['reason'],
+  'mcp.device.permissionModeUnsupported': ['mode', 'agent', 'values'],
+  'mcp.device.permissionModeNone': ['agent'],
   'mcp.stopSession.self': [],
   'mcp.stopSession.notRunning': [],
   'mcp.stopSession.otherDevice': ['device'],

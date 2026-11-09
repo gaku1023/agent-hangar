@@ -101,6 +101,13 @@ describe('PeerLaunchInbox', () => {
     expect(start.mock.calls[2]![0]).toEqual({ projectId: 'project-a', agent: 'codex', mode: 'full-access', prompt: 'TODO の先頭をやって' });
   });
 
+  it('Claude Code の permissionMode default は受けて、start に default を渡す', async () => {
+    const { inbox, post, start, answerOf } = await setup();
+    await inbox.receive(await post('d1', request({ permissionMode: 'default' })));
+    expect(await answerOf('d1')).toEqual({ ok: true, sessionId: 's-new', title: 'TODO の先頭をやって' });
+    expect(start.mock.calls[0]![0]).toMatchObject({ projectId: 'project-a', permissionMode: 'default' });
+  });
+
   it('断る理由（テスト 4）：project-missing、account-missing、account-logged-out、agent-missing、bad-payload、expired', async () => {
     const { inbox, post, start, answerOf, setNow } = await setup({ hasAgent: (a) => a === 'claude-code' });
     await inbox.receive(await post('p', request({ projectId: 'nowhere' })));
