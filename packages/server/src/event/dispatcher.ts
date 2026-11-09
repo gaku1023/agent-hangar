@@ -232,11 +232,12 @@ export class EventDispatcher {
    * 起こし終えた wake が、結果を履歴に書いてから自分で消す。
    */
   private dropWakeBindingsOf(repo: string, number: number): void {
+    let dropped = 0;
     for (const b of listBindings(this.d.db)) {
       if (this.waking.has(b.id)) continue;
-      if (b.action.kind === 'wake' && b.source.kind === 'github' && b.source.pr === number && sameName(b.source.repo, repo)) deleteBinding(this.d.db, b.id);
+      if (b.action.kind === 'wake' && b.source.kind === 'github' && b.source.pr === number && sameName(b.source.repo, repo) && deleteBinding(this.d.db, b.id, this.d.now())) dropped++;
     }
-    this.released();
+    if (dropped > 0) this.released();
   }
 
   /**
@@ -272,7 +273,7 @@ export class EventDispatcher {
       }
       // 起こした、または利用者が先に再開していた。
       // どちらも役目は終わり。
-      deleteBinding(db, b.id);
+      deleteBinding(db, b.id, this.d.now());
       this.released();
     } finally {
       this.waking.delete(b.id);
@@ -290,7 +291,7 @@ export class EventDispatcher {
     } catch (e) {
       this.d.onError?.(e);
     }
-    deleteBinding(this.d.db, b.id);
+    deleteBinding(this.d.db, b.id, this.d.now());
     this.released();
   }
 

@@ -27,6 +27,10 @@ type Rig = {
   /** gh の答えを決める。既定は作成が id 4242、削除が成功。 */
   gh: { create: () => Captured; remove: () => Captured };
   api: FakeApi | 'none';
+  /** 今の時刻。進めると、取り直しの間隔が過ぎる。 */
+  t: number;
+  /** 立てると、gh の呼びが開くまで待つ。 */
+  gate: Promise<void> | null;
 };
 
 const ok = (stdout = ''): Captured => ({ code: 0, stdout, stderr: '' });
@@ -47,6 +51,7 @@ function rig(over: { env?: NodeJS.ProcessEnv; base?: string | null } = {}): Rig 
     db, calls, created, deleted, changed,
     gh: { create: () => ok('{"id":4242,"active":true}'), remove: () => ok() },
     api: { create: async () => { const id = `inbox-${++seq}`; created.push(id); return { inboxId: id }; }, remove: async (id) => { deleted.push(id); } },
+    t: T0, gate: null,
     hooks: undefined as unknown as EventHooks,
   };
   r.hooks = new EventHooks({
@@ -58,9 +63,10 @@ function rig(over: { env?: NodeJS.ProcessEnv; base?: string | null } = {}): Rig 
     baseUrl: () => (over.base === undefined ? BASE : over.base),
     onInboxChanged: () => { changed.n++; },
     env: over.env ?? env,
-    now: () => T0,
+    now: () => r.t,
     capture: async (_file: string, args: string[], o: CaptureOptions) => {
       calls.push({ args, stdin: o.stdin });
+      if (r.gate) await r.gate;
       return args.includes('POST') ? r.gh.create() : r.gh.remove();
     },
   });
@@ -143,6 +149,13 @@ describe('ensureRepoHook', () => {
       expect(r.deleted).toEqual(r.created);
       expect(listHookOrphans(r.db)).toEqual([]);
     }
+  });
+
+  it('reports a rate limited 403 as failed, not no_admin', async () => {
+    const r = rig();
+    r.gh.create = () => ({ code: 1, stdout: '', stderr: 'gh: You have exceeded a secondary rate limit (HTTP 403)' });
+    expect(await r.hooks.ensureRepoHook('octo/demo')).toEqual({ status: 'failed', message: 'rate limited' });
+    expect(r.deleted).toEqual(['inbox-1']);
   });
 
   it('reports other failures as failed with a message that holds neither secret nor url', async () => {
@@ -249,7 +262,12 @@ describe('removeRepoHookIfUnused', () => {
     await r.hooks.removeRepoHookIfUnused('octo/demo');
     expect(r.deleted).toEqual([]);
     expect(listHookOrphans(r.db)).toHaveLength(1);
+    // 取り直しの間隔（1 分）が過ぎるまでは、sweep しても gh を呼ばない。
     r.gh.remove = () => ok();
+    const before = r.calls.length;
+    await r.hooks.sweep();
+    expect(r.calls).toHaveLength(before);
+    r.t += 61_000;
     await r.hooks.sweep();
     expect(r.deleted).toEqual([res.share.inboxId]);
     expect(listHookOrphans(r.db)).toEqual([]);
@@ -263,6 +281,81 @@ describe('removeRepoHookIfUnused', () => {
     await r.hooks.removeRepoHookIfUnused('octo/demo');
     expect(r.deleted).toEqual([res.share.inboxId]);
     expect(listHookOrphans(r.db)).toEqual([]);
+  });
+
+  it('backs off from 1 minute, doubling up to 1 hour, per orphan', async () => {
+    const r = rig();
+    const res = await registered(r);
+    deleteBinding(r.db, bind(r, 'octo/demo', res.share));
+    r.gh.remove = () => failed(502);
+    const deletes = () => r.calls.filter((c) => c.args.includes('DELETE')).length;
+    await r.hooks.sweep();
+    expect(deletes()).toBe(1);
+    const waits = [60_000, 120_000, 240_000, 480_000, 960_000, 1_920_000, 3_600_000, 3_600_000];
+    let n = 1;
+    for (const w of waits) {
+      r.t += w - 1;
+      await r.hooks.sweep();
+      expect(deletes()).toBe(n);
+      r.t += 1;
+      await r.hooks.sweep();
+      n++;
+      expect(deletes()).toBe(n);
+    }
+  });
+
+  it('coalesces sweeps that are queued behind a running one', async () => {
+    const r = rig();
+    const res = await registered(r);
+    deleteBinding(r.db, bind(r, 'octo/demo', res.share));
+    let open!: () => void;
+    r.gate = new Promise<void>((res2) => { open = res2; });
+    const first = r.hooks.sweep();
+    await new Promise((res2) => setTimeout(res2, 5));
+    const second = r.hooks.sweep();
+    const third = r.hooks.sweep();
+    expect(third).toBe(second);
+    r.gate = null;
+    open();
+    await Promise.all([first, second, third]);
+    expect(r.calls.filter((c) => c.args.includes('DELETE'))).toHaveLength(1);
+  });
+
+  it('does not delete an inbox that a binding took after it was orphaned', async () => {
+    const r = rig();
+    const res = await registered(r);
+    const b1 = bind(r, 'octo/demo', res.share);
+    // 呼び手が組を受け取ったあと、b1 が消え、後片付けが順番待ちになり、そのあとで結び付けが作られる。
+    const again = await r.hooks.ensureRepoHook('octo/demo');
+    expect(again.status).toBe('registered');
+    deleteBinding(r.db, b1);
+    expect(listHookOrphans(r.db)).toHaveLength(1);
+    let open!: () => void;
+    r.gate = new Promise<void>((res2) => { open = res2; });
+    const blocker = r.hooks.ensureRepoHook('octo/blocker');
+    await new Promise((res2) => setTimeout(res2, 5));
+    const cleanup = r.hooks.removeRepoHookIfUnused('octo/demo');
+    bind(r, 'octo/demo', res.share);
+    r.gate = null;
+    open();
+    await Promise.all([blocker, cleanup]);
+    expect(r.deleted).toEqual([]);
+    expect(r.calls.filter((c) => c.args.includes('DELETE'))).toEqual([]);
+    expect(listHookOrphans(r.db)).toEqual([]);
+  });
+
+  it('keeps the orphan on a rate limited 403 and retries later', async () => {
+    const r = rig();
+    const res = await registered(r);
+    deleteBinding(r.db, bind(r, 'octo/demo', res.share));
+    r.gh.remove = () => ({ code: 1, stdout: '', stderr: 'gh: API rate limit exceeded (HTTP 403)' });
+    await r.hooks.sweep();
+    expect(r.deleted).toEqual([]);
+    expect(listHookOrphans(r.db)).toHaveLength(1);
+    r.gh.remove = () => ok();
+    r.t += 61_000;
+    await r.hooks.sweep();
+    expect(r.deleted).toEqual([res.share.inboxId]);
   });
 
   it('keeps the orphan while the cloud is not available', async () => {

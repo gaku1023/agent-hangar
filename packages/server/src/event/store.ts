@@ -156,12 +156,12 @@ export function updateBinding(db: Db, id: string, p: BindingPatch, now: number =
   return dto(db, bindingRow(db, id)!);
 }
 
-function remove(db: Db, id: string): boolean {
+function remove(db: Db, id: string, now: number): boolean {
   const row = bindingRow(db, id);
   db.prepare('delete from event_runs where binding_id = ?').run(id);
   db.prepare('delete from event_deliveries where binding_id = ?').run(id);
   const gone = db.prepare('delete from event_bindings where id = ?').run(id).changes > 0;
-  if (gone && row) leaveOrphan(db, row);
+  if (gone && row) leaveOrphan(db, row, now);
   return gone;
 }
 
@@ -170,23 +170,23 @@ function remove(db: Db, id: string): boolean {
  * 同じ受け箱を使う結び付けがまだ残っていれば、何もしない。
  * まだ受け箱を持たない結び付け（inbox_id が空）にも預かるものは無い。
  */
-function leaveOrphan(db: Db, r: BindingDbRow): void {
+function leaveOrphan(db: Db, r: BindingDbRow, now: number): void {
   if (!r.inbox_id) return;
   if (db.prepare('select 1 from event_bindings where inbox_id = ? limit 1').get(r.inbox_id)) return;
   const source = JSON.parse(r.source) as EventSource;
   db.prepare('insert or ignore into event_hook_orphans (inbox_id, repo, webhook_id, created_at) values (?, ?, ?, ?)')
-    .run(r.inbox_id, source.kind === 'github' ? source.repo : null, r.webhook_id, Date.now());
+    .run(r.inbox_id, source.kind === 'github' ? source.repo : null, r.webhook_id, now);
 }
 
-export function deleteBinding(db: Db, id: string): boolean {
-  return db.transaction(() => remove(db, id))();
+export function deleteBinding(db: Db, id: string, now: number = Date.now()): boolean {
+  return db.transaction(() => remove(db, id, now))();
 }
 
 /** 期限が過ぎた結び付けを、履歴と覚えた荷物ごと消す。消した数を返す。 */
 export function expireBindings(db: Db, now: number): number {
   return db.transaction(() => {
     const ids = db.prepare('select id from event_bindings where expires_at is not null and expires_at <= ?').all(now) as { id: string }[];
-    for (const { id } of ids) remove(db, id);
+    for (const { id } of ids) remove(db, id, now);
     return ids.length;
   })();
 }

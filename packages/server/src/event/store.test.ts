@@ -220,7 +220,7 @@ describe('webhook と受け箱の後片付けの預かり', () => {
     createBinding(db, hookInput(), T0);
     expireBindings(db, T0 + WAKE_BINDING_TTL_MS);
     const h = createBinding(db, input({ inboxId: 'in-hook', source: { kind: 'hook' }, action: { kind: 'send_pr_owner' } }), T0);
-    deleteBinding(db, h.id);
+    deleteBinding(db, h.id, T0 + WAKE_BINDING_TTL_MS + 1);
     expect(listHookOrphans(db)).toEqual([
       { inboxId: 'in-shared', repo: 'octo/demo', webhookId: 11 },
       { inboxId: 'in-hook', repo: null, webhookId: null },
@@ -228,6 +228,16 @@ describe('webhook と受け箱の後片付けの預かり', () => {
     expect(listHookOrphans(db, 'OCTO/demo').map((o) => o.inboxId)).toEqual(['in-shared']);
     dropHookOrphan(db, 'in-shared');
     expect(listHookOrphans(db).map((o) => o.inboxId)).toEqual(['in-hook']);
+  });
+
+  it('stamps the orphan with the time it is given', () => {
+    const a = createBinding(db, hookInput(), T0);
+    deleteBinding(db, a.id, T0 + 5);
+    expect(db.prepare('select created_at from event_hook_orphans').get()).toEqual({ created_at: T0 + 5 });
+    const b = createBinding(db, hookInput({ inboxId: 'in-2' }), T0);
+    expireBindings(db, T0 + WAKE_BINDING_TTL_MS + 7);
+    expect(db.prepare('select created_at from event_hook_orphans where inbox_id = ?').get('in-2')).toEqual({ created_at: T0 + WAKE_BINDING_TTL_MS + 7 });
+    expect(b.id).toBeTruthy();
   });
 
   it('does not leave an orphan for a binding that has no inbox yet', () => {

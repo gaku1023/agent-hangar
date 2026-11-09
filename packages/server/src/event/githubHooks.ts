@@ -6,7 +6,7 @@ import { needsShell } from '../platform/exec.ts';
 import { findTool } from '../report/real.ts';
 import type { InboxApi } from './inboxClient.ts';
 import { REPO_RE } from './puller.ts';
-import { addHookOrphan, bindingsForRepo, dropHookOrphan, getBindingRow, listHookOrphans, setBindingInbox, type BindingInput, type HookOrphan } from './store.ts';
+import { addHookOrphan, bindingsForInbox, bindingsForRepo, dropHookOrphan, getBindingRow, listHookOrphans, setBindingInbox, type BindingInput, type HookOrphan } from './store.ts';
 
 /**
  * GitHub の webhook と、Worker の受け箱の登録と解除（#563）。
@@ -60,15 +60,23 @@ export type EventHooksDeps = {
   now?: () => number;
 };
 
-type GhResult = { ok: true; stdout: string } | { ok: false; status: number | null; code: number | null };
+type GhResult = { ok: true; stdout: string } | { ok: false; status: number | null; code: number | null; limited: boolean };
+
+/** 取り直しの間隔。1 分から倍にし、1 時間で止める。 */
+const RETRY_FIRST_MS = 60_000;
+const RETRY_MAX_MS = 60 * 60_000;
 
 /** gh の失敗の文。標準エラーは載せない（URL や秘密を含み得る）。 */
-const ghMessage = (r: Extract<GhResult, { ok: false }>): string => (r.status !== null ? `gh failed (HTTP ${r.status})` : r.code === null ? 'gh could not run' : `gh exited with ${r.code}`);
+const ghMessage = (r: Extract<GhResult, { ok: false }>): string => (r.limited ? 'rate limited' : r.status !== null ? `gh failed (HTTP ${r.status})` : r.code === null ? 'gh could not run' : `gh exited with ${r.code}`);
 
 export class EventHooks {
   /** 結び付けをまだ作っていない webhook の組。repo は小文字で引く。 */
   private readonly pending = new Map<string, RepoShare>();
   private chain: Promise<unknown> = Promise.resolve();
+  /** 順番待ちで、まだ始まっていない sweep。あれば新しく積まずに、これを返す。 */
+  private sweepWaiting: Promise<void> | null = null;
+  /** 外しきれなかった預かりの、次に試してよい時刻と、今の間隔。メモリだけで持ち、再起動で忘れる。 */
+  private readonly retry = new Map<string, { at: number; wait: number }>();
 
   constructor(private readonly d: EventHooksDeps) {}
 
@@ -88,10 +96,11 @@ export class EventHooks {
     try {
       r = await capture(bin, args, { timeoutMs: GH_TIMEOUT_MS, env: this.env, shell: needsShell(bin), stderr: true, ...(stdin !== undefined ? { stdin } : {}) });
     } catch {
-      return { ok: false, status: null, code: null };
+      return { ok: false, status: null, code: null, limited: false };
     }
     if (r.code === 0) return { ok: true, stdout: r.stdout };
-    return { ok: false, status: statusOf(r), code: r.code };
+    // 403 は権限が無いときと、呼びすぎのときの両方で返る。見分けて、呼びすぎは取り直せる失敗にする。
+    return { ok: false, status: statusOf(r), code: r.code, limited: /rate limit/i.test(r.stderr) || /rate limit/i.test(r.stdout) };
   }
 
   /** その repo の webhook を付ける。すでにあれば同じ組を返す。 */
@@ -134,7 +143,7 @@ export class EventHooks {
       addHookOrphan(this.d.db, { inboxId, repo, webhookId: null }, this.now());
       await this.drain([{ inboxId, repo, webhookId: null }]);
       if (r.ok) return { status: 'failed', message: 'gh printed no hook id' };
-      return r.status === 404 || r.status === 403 ? { status: 'no_admin' } : { status: 'failed', message: ghMessage(r) };
+      return !r.limited && (r.status === 404 || r.status === 403) ? { status: 'no_admin' } : { status: 'failed', message: ghMessage(r) };
     }
     const share: RepoShare = { inboxId, inboxPublicKey: keys.publicKey, inboxPrivateKey: keys.privateKey, webhookId: hookId, hookSecret: secret };
     this.pending.set(key, share);
@@ -161,29 +170,50 @@ export class EventHooks {
 
   /** 預かっている後片付けを全部進める。結び付けを消したあとと、起動のときに呼ぶ。 */
   sweep(): Promise<void> {
-    return this.locked(() => this.drain(listHookOrphans(this.d.db))).catch(() => undefined);
+    if (this.sweepWaiting) return this.sweepWaiting;
+    const p = this.locked(async () => {
+      this.sweepWaiting = null;
+      await this.drain(listHookOrphans(this.d.db));
+    }).catch(() => undefined);
+    this.sweepWaiting = p;
+    return p;
   }
 
   /** 預かりを 1 件ずつ片付ける。外しきれたものだけ預かりから消す。 */
   private async drain(orphans: HookOrphan[]): Promise<void> {
     for (const o of orphans) {
       try {
+        // 受け取った組で結び付けが作られていたら、使っているので外さない。
+        if (bindingsForInbox(this.d.db, o.inboxId).length > 0) {
+          dropHookOrphan(this.d.db, o.inboxId);
+          this.retry.delete(o.inboxId);
+          continue;
+        }
+        if ((this.retry.get(o.inboxId)?.at ?? 0) > this.now()) continue;
         if (o.webhookId !== null && o.repo !== null && REPO_RE.test(o.repo)) {
           const bin = findTool('gh', this.env);
-          if (!bin) continue;
+          if (!bin) { this.later(o.inboxId); continue; }
           const r = await this.gh(bin, ['api', '--method', 'DELETE', `repos/${o.repo}/hooks/${o.webhookId}`]);
-          // 404 はもう無い。403 は外す権限が無く、待っても変わらない。受け箱だけ消す。
-          if (!r.ok && r.status !== 404 && r.status !== 403) continue;
+          // 404 はもう無い。403 は外す権限が無く、待っても変わらない。受け箱だけ消す。呼びすぎの 403 は、あとで取り直す。
+          if (!r.ok && r.status !== 404 && !(r.status === 403 && !r.limited)) { this.later(o.inboxId); continue; }
         }
         const api = this.d.api();
-        if (!api) continue;
+        if (!api) { this.later(o.inboxId); continue; }
         await api.deleteInbox(o.inboxId);
         dropHookOrphan(this.d.db, o.inboxId);
+        this.retry.delete(o.inboxId);
         this.d.onInboxChanged?.();
       } catch {
-        // 続きは次の sweep。
+        // 続きは、間隔が過ぎてからの sweep。
+        this.later(o.inboxId);
       }
     }
+  }
+
+  /** 外しきれなかった預かりの次の試しを、間隔を倍にして遅らせる。 */
+  private later(inboxId: string): void {
+    const wait = Math.min((this.retry.get(inboxId)?.wait ?? RETRY_FIRST_MS / 2) * 2, RETRY_MAX_MS);
+    this.retry.set(inboxId, { at: this.now() + wait, wait });
   }
 
   /** 外の webhook の結び付けの受け箱を、まだ無ければ作る。 */

@@ -411,6 +411,15 @@ describe('send and new', () => {
 });
 
 describe('webhook の後片付け', () => {
+  it('does not ask to release hooks when a closed pr drops nothing', async () => {
+    let n = 0;
+    const { d } = make({ releaseHooks: () => { n++; } });
+    await d.handle([{ bindingId: 'none', atStart: false, facts: { source: 'github', event: 'closed', repo: 'octo/demo', number: 7, receivedAt: now } }]);
+    await d.idle();
+    // handle の頭の 1 回だけ。
+    expect(n).toBe(1);
+  });
+
   it('asks to release hooks at start, on each handle, and after a binding is removed', async () => {
     let n = 0;
     const { d } = make({ releaseHooks: () => { n++; } });
