@@ -4,7 +4,7 @@ import type { GetLanguage } from '../i18n/language.ts';
 import { MessageError, msg } from '../i18n/message.ts';
 import type { EventHooks } from './githubHooks.ts';
 import { deviceOfSession } from '../runs/handover.ts';
-import { bindingsForRepo, countBindings, createBinding, deleteBinding, getBinding, getBindingRow, listBindings, refreshWakeBinding, setBindingInbox, updateBinding, type BindingRow } from './store.ts';
+import { bindingsForRepo, countBindings, createBinding, deleteBinding, getBinding, getBindingRow, listBindings, setBindingInbox, updateBinding, type BindingRow } from './store.ts';
 
 /**
  * 結び付けを作る、承認する、消す流れ（#563）。
@@ -196,14 +196,6 @@ export class EventBindingService {
   }
 
   /**
-   * 同じ Paused のまま状態を書き直した（理由や戻る日を変えた）ときに、起こす結び付けを残す。
-   * Paused を付け直すと、結び付けは古い Paused のものに見えるので、作った時刻を付け直す。
-   */
-  keepWakes(sessionId: string): void {
-    for (const b of this.list()) if (b.action.kind === 'wake' && b.action.sessionId === sessionId) refreshWakeBinding(this.d.db, b.id, this.now());
-  }
-
-  /**
    * 外の webhook の URL を作り直す。
    * 新しい URL は hookUrlOf で読む。
    */
@@ -239,8 +231,6 @@ export class EventBindingService {
     const wakes = this.list().filter((b) => b.action.kind === 'wake' && b.action.sessionId === sessionId);
     const same = wakes.find((b) => b.source.kind === 'github' && b.source.repo.toLowerCase() === wakeOn.repo.toLowerCase() && b.source.pr === wakeOn.pr && b.source.when.length === 1 && b.source.when[0] === wakeOn.when);
     let keep = same?.id ?? null;
-    // 使い回す結び付けは、いまの Paused のものとして作った時刻を付け直す（古い Paused のものとは見なさせない）。
-    if (same) refreshWakeBinding(this.d.db, same.id, this.now());
     if (!same) {
       const r = await this.create({
         source: { kind: 'github', repo: wakeOn.repo, when: [wakeOn.when], pr: wakeOn.pr }, action: { kind: 'wake', sessionId },

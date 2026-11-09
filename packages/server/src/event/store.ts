@@ -205,15 +205,6 @@ export function updateBinding(db: Db, id: string, p: BindingPatch, now: number =
   return dto(db, bindingRow(db, id)!);
 }
 
-/**
- * 起こす結び付けを、いまの Paused のものとして作り直した扱いにする。
- * 作った時刻と期限を、いまから数え直す。
- * 同じ条件がすでにあるときに、新しい結び付けを足さずに使い回す道が使う。
- */
-export function refreshWakeBinding(db: Db, id: string, now: number): void {
-  db.prepare("update event_bindings set created_at = ?, expires_at = ? where id = ? and json_extract(action, '$.kind') = 'wake'").run(now, now + WAKE_BINDING_TTL_MS, id);
-}
-
 function remove(db: Db, id: string, now: number): boolean {
   const row = bindingRow(db, id);
   db.prepare('delete from event_runs where binding_id = ?').run(id);

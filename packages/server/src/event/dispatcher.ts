@@ -1,7 +1,6 @@
 import { EVENT_HOURLY_MAX, t, type EventFacts, type Language, type ScheduleTarget } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import type { ScheduleOutcome } from '../schedule/runner.ts';
-import { getSessionState } from '../sessions/states.ts';
 import { wakePaused } from '../sessions/wakePaused.ts';
 import { sessionTitleOf } from '../mobile/feed.ts';
 import { renderEventPrompt } from './prompt.ts';
@@ -272,7 +271,7 @@ export class EventDispatcher {
 
   /**
    * Paused を起こす。
-   * 起こせた、利用者が先に再開していた、結び付けより後の Paused だった、のどれかのときは、結び付けを消す。
+   * 起こせた、または利用者が先に再開していたときは、結び付けを消す。
    * 動いていて渡せなかったとき、渡すのに失敗したときは、履歴に書く。
    * 結び付けは、PR がまだ開いているときだけ残す。
    * final（merged か closed）のときは、もう次の事実が来ないので、履歴を書いてから消す。
@@ -283,14 +282,6 @@ export class EventDispatcher {
     const { db } = this.d;
     try {
       const sessionId = b.action.sessionId;
-      // 結び付けより後に付いた Paused は、別の理由のもの。
-      // この結び付けの役目は、その前の Paused で終わっている。
-      const paused = getSessionState(db, sessionId);
-      if (paused?.status === 'paused' && paused.setAt !== null && paused.setAt > b.createdAt) {
-        deleteBinding(db, b.id, this.d.now());
-        this.released();
-        return;
-      }
       const prompt = renderEventPrompt(b, [facts], this.d.language(), await this.me());
       const record = (result: 'skipped' | 'failed', error?: string): void => {
         const runId = addEventRun(db, { bindingId: b.id, now: this.d.now(), result: 'running' });

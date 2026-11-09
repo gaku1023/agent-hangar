@@ -3,6 +3,7 @@ import { EVENT_BINDINGS_MAX, type EventBindingDto, type EventSource, type Sessio
 import type { HeldEvent } from '../../event/dispatcher.ts';
 import { EventBindingService } from '../../event/service.ts';
 import { createBinding, getBindingRow, listBindings } from '../../event/store.ts';
+import { watchWakeScope } from '../../event/wakeScope.ts';
 import { callTool, TOOL_NAMES, type ToolDeps } from '../../mcp/tools.ts';
 import { issueMcpSecret } from '../../runs/secrets.ts';
 import { getSessionState } from '../../sessions/states.ts';
@@ -368,36 +369,25 @@ describe('wake_on on the pause flow', () => {
     expect(wakeBindings()).toHaveLength(1);
   });
 
-  describe('a wake binding belongs to the pause it was made for', () => {
-    const setAt = () => (getSessionState(t.db, sessionId) as SessionStateDto).setAt as number;
-    const old = (id: string) => { t.db.prepare('update event_bindings set created_at = 1 where id = ?').run(id); };
-    const createdAt = (id: string) => getBindingRow(t.db, id)!.createdAt;
+  describe('a wake binding belongs to the Paused it was made for', () => {
+    let off: () => void;
+    beforeEach(() => { off = watchWakeScope(t.db, () => {}); });
+    afterEach(() => { off(); });
 
-    it('pausing again with the same condition makes the reused binding current', async () => {
+    it('survives a dialog-style rewrite of the same Paused, whether wakeOn is null or absent', async () => {
       await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'a', wakeOn });
       const [b] = wakeBindings();
-      old(b!.id);
-      await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'b', wakeOn });
+      await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'b, edited', returnOn: '2026-11-12', wakeOn: null });
+      await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'c, edited again' });
       expect(wakeBindings().map((x) => x.id)).toEqual([b!.id]);
-      expect(createdAt(b!.id)).toBeGreaterThanOrEqual(setAt());
     });
 
-    it('rewriting the same pause without a wakeOn keeps the binding current', async () => {
+    it('is gone once the session is resumed, so a later Paused without a wake is not woken by it', async () => {
       await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'a', wakeOn });
-      const [b] = wakeBindings();
-      old(b!.id);
-      await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'a, edited' });
-      expect(createdAt(b!.id)).toBeGreaterThanOrEqual(setAt());
-    });
-
-    it('pausing again after a resume without a wakeOn leaves the old binding behind the pause', async () => {
-      await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'a', wakeOn });
-      const [b] = wakeBindings();
-      old(b!.id);
       await send('PUT', `/api/sessions/${sessionId}/state`, { status: null });
+      expect(wakeBindings()).toEqual([]);
       await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'unrelated' });
-      expect(createdAt(b!.id)).toBe(1);
-      expect(createdAt(b!.id)).toBeLessThan(setAt());
+      expect(wakeBindings()).toEqual([]);
     });
   });
 

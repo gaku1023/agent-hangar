@@ -192,15 +192,10 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     const status = body.status as SessionStatus | null;
     let wakeOn: WakeOn | null | undefined;
     try { wakeOn = wakeOnOf(body.wakeOn); } catch (e) { if (e instanceof MessageError) return c.json({ error: errorText(language(), e) }, 400); throw e; }
-    // Paused のまま書き直すときは、前の起こす結び付けを残す（Paused を付け直しても、同じ待ちである）。
-    const keepWakes = status === 'paused' && wakeOn === undefined && getSessionState(db, id)?.status === 'paused';
     // 手で Paused にするときに、利用者が自分で選んだ条件。
     // Paused のときだけ結び付けにする。
-    return settled(c, () => {
-      const state = setSessionState(db, deviceId, id, { status, note: body.note as string | undefined, returnOn: body.returnOn as string | undefined, returnTime: body.returnTime as string | undefined, setBy: 'user' });
-      if (keepWakes) deps.events.bindings.keepWakes(id);
-      return { state };
-    }, status === 'paused' ? wakeOn ?? null : null, id);
+    // Paused のまま書き直したときの前の結び付けは、wakeOn が object でなければそのまま残る（Paused を離れたときに消えるのは event/wakeScope.ts）。
+    return settled(c, () => ({ state: setSessionState(db, deviceId, id, { status, note: body.note as string | undefined, returnOn: body.returnOn as string | undefined, returnTime: body.returnTime as string | undefined, setBy: 'user' }) }), status === 'paused' ? wakeOn ?? null : null, id);
   };
   api.put('/sessions/:id/state', (c) => putSessionState(c, c.req.param('id')));
   api.post('/sessions/:id/state/confirm', async (c) => {

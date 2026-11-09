@@ -153,31 +153,6 @@ describe('wake', () => {
     expect(launched[0]!.prompt).toContain('ci_done');
   });
 
-  it('does not wake a later pause with a wake condition made for an earlier one', async () => {
-    const b = bind();
-    pause();
-    // 手で再開し、あとから別の理由で Paused にした（起こす条件は付けていない）。
-    now += 60_000;
-    setSessionState(db, 'dev', 's-1', { status: null, setBy: 'user', now });
-    now += 60_000;
-    pause();
-    const { d, launched } = make();
-    await d.handle([ev(b.id)]);
-    await d.idle();
-    expect(launched).toEqual([]);
-    expect(getSessionState(db, 's-1')?.status).toBe('paused');
-    expect(getBinding(db, b.id)).toBeNull();
-  });
-
-  it('still wakes a pause that was set before the binding was made in the same moment', async () => {
-    pause();
-    const b = bind();
-    const { d, launched } = make();
-    await d.handle([ev(b.id)]);
-    await d.idle();
-    expect(launched).toHaveLength(1);
-  });
-
   it('closes runs left running by a quit when it starts', () => {
     const b = sendTo('s-1');
     addEventRun(db, { bindingId: b.id, now, result: 'running' });
