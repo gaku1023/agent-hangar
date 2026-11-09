@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   deriveEpochKeys, PEER_LAUNCH_TTL_MS, randomEpochKey, sealPeerAnswer, sealPeerResult,
   type LiveSessionDto, type PeerKeyring, type PeerLaunchApi, type PeerLaunchResult, type PeerRoute,
@@ -8,7 +8,7 @@ import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { acceptsResultFrom, forgetSpawn, getSpawn } from '../sessions/spawns.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
-import { getPeerRequest, PeerOutbox, recordPeerRequest, SCREEN_CALLER } from './outbox.ts';
+import { getPeerRequest, PEER_DELIVERY_EXPIRE_MS, PEER_DELIVERY_MAX_PER_CALLER, PeerOutbox, recordPeerRequest, SCREEN_CALLER } from './outbox.ts';
 
 const ME = 'pc-a';
 const PEER = 'pc-b';
@@ -25,6 +25,10 @@ let live: LiveSessionDto[];
 let injected: { id: string; text: string }[];
 let notices: { id: string | null; text: string; anchor: string | null }[];
 let injectOk: boolean;
+/** 呼び出し元の画面が、知らせを打ってよい状態か（札が無く、入力欄が空）。 */
+let screen: boolean;
+/** 預かりの見直しの時計に積まれた処理（試験の中では自分で回す）。 */
+let later: (() => void)[];
 let caller: string;
 let ob: PeerOutbox;
 let api: PeerLaunchApi;
@@ -67,6 +71,8 @@ beforeEach(async () => {
   injected = [];
   notices = [];
   injectOk = true;
+  screen = true;
+  later = [];
   api = a.peerLaunch;
   ob = new PeerOutbox({
     db, deviceId: ME, api: () => api, ring: () => ring, live: () => live,
@@ -74,6 +80,12 @@ beforeEach(async () => {
     notify: (id, text, anchor) => { notices.push({ id, text, anchor: anchor ?? null }); },
     deviceName: (id) => (id === PEER ? 'Mac' : null),
     now: () => clock.t,
+    screenReady: async () => screen,
+    timers: {
+      setTimeout: ((fn: () => void) => { later.push(fn); return later.length as never; }) as unknown as typeof setTimeout,
+      clearTimeout: (() => {}) as unknown as typeof clearTimeout,
+      setInterval, clearInterval,
+    },
   });
 });
 afterEach(() => { db.close(); });
@@ -286,6 +298,127 @@ describe('PeerOutbox の結果の送り込み（D14）', () => {
     await ob.sync();
     expect(notices).toHaveLength(1);
     expect(injected).toEqual([]);
+  });
+});
+
+describe('PeerOutbox の札と打ちかけ（知らせが利用者の答えを奪わない）', () => {
+  beforeEach(async () => {
+    await place();
+    await started();
+  });
+
+  it('呼び出し元が質問の札を出している（登録の waiting）間は打たず、閉じたら 1 回だけ打つ', async () => {
+    live = [entry('u1', 'waiting', { waitingFor: 'question' })];
+    await result(1);
+    await ob.sync();
+    await ob.flush();
+    expect(injected).toEqual([]);
+    // 登録に名前の無い札（dialog open など）も同じ。
+    live = [entry('u1', 'waiting', { waitingFor: 'other' })];
+    await ob.flush();
+    expect(injected).toEqual([]);
+    live = [entry('u1', 'idle')];
+    await ob.flush();
+    await ob.flush();
+    expect(injected).toHaveLength(1);
+  });
+
+  it('登録が idle でも、画面に札が出ているか入力欄に打ちかけがあれば打たない。消えたら 1 回だけ打つ', async () => {
+    screen = false;
+    await result(1);
+    await ob.sync();
+    await ob.flush();
+    expect(injected).toEqual([]);
+    // 打てない間は、短い間隔で見直す。
+    expect(later.length).toBeGreaterThan(0);
+    screen = true;
+    later.shift()!();
+    await vi_waitFor(() => injected.length === 1);
+    await ob.flush();
+    expect(injected).toHaveLength(1);
+  });
+
+  it('預かった複数の知らせは、届いた順のまま 1 通で入る', async () => {
+    screen = false;
+    await result(1, { lastReply: '一つ目' });
+    await ob.sync();
+    await result(2, { lastReply: '二つ目' });
+    await ob.sync();
+    await result(3, { lastReply: '三つ目' });
+    await ob.sync();
+    expect(injected).toEqual([]);
+    screen = true;
+    await ob.flush();
+    expect(injected).toHaveLength(1);
+    const t = injected[0]!.text;
+    expect(t.indexOf('一つ目')).toBeLessThan(t.indexOf('二つ目'));
+    expect(t.indexOf('二つ目')).toBeLessThan(t.indexOf('三つ目'));
+  });
+
+  it('画面が読めなければ（投げたら）打たない', async () => {
+    const o = new PeerOutbox({
+      db, deviceId: ME, api: () => api, ring: () => ring, live: () => live, now: () => clock.t,
+      inject: async (id, text) => { injected.push({ id, text }); return true; },
+      notify: () => {},
+      screenReady: async () => { throw new Error('no pane'); },
+      timers: { setTimeout: (() => 0) as unknown as typeof setTimeout, clearTimeout, setInterval, clearInterval },
+    });
+    await result(1);
+    await o.sync();
+    expect(injected).toEqual([]);
+  });
+
+  it('打てないまま期限を過ぎた知らせは捨て、捨てた知らせをログに 1 行ずつ残す。作業中と札の間は数えない', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      screen = false;
+      await result(1, { lastReply: '一つ目' });
+      await ob.sync();
+      // 札が出ている間は数えない。
+      live = [entry('u1', 'waiting', { waitingFor: 'question' })];
+      clock.t += PEER_DELIVERY_EXPIRE_MS * 3;
+      await ob.flush();
+      live = [entry('u1', 'idle')];
+      await ob.flush();
+      clock.t += PEER_DELIVERY_EXPIRE_MS - 1;
+      await ob.flush();
+      expect(warn).not.toHaveBeenCalled();
+      clock.t += 1;
+      await ob.flush();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]!.join(' ')).toContain('一つ目');
+      screen = true;
+      await ob.flush();
+      expect(injected).toEqual([]);
+      // 後から届いた知らせは、改めて数える。
+      await result(2, { lastReply: '二つ目' });
+      await ob.sync();
+      expect(injected).toHaveLength(1);
+      expect(injected[0]!.text).toContain('二つ目');
+      expect(injected[0]!.text).not.toContain('一つ目');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('預かりが上限を超えたら、古いものから捨ててログに残す', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      screen = false;
+      const n = PEER_DELIVERY_MAX_PER_CALLER + 2;
+      for (let i = 1; i <= n; i++) await result(i, { lastReply: `返答-${i}-終` });
+      await ob.sync();
+      expect(warn).toHaveBeenCalledTimes(2);
+      screen = true;
+      for (let i = 0; i < 20; i++) await ob.flush();
+      const all = injected.map((x) => x.text).join('\n');
+      expect(all).not.toContain('返答-1-終');
+      expect(all).not.toContain('返答-2-終');
+      expect(all).toContain('返答-3-終');
+      expect(all).toContain(`返答-${n}-終`);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

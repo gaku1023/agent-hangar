@@ -12,13 +12,14 @@ import { PeerApprovals } from '../peer/approvals.ts';
 import { choosePeerRoute, resolvePeer } from '../peer/caller.ts';
 import { PeerLaunchInbox, type PeerAccount } from '../peer/launchInbox.ts';
 import { PeerOutbox, recordPeerRequest } from '../peer/outbox.ts';
+import { inputReadyFromCapture } from '../peer/chat/inputBox.ts';
 import { PeerRelay } from '../peer/relay.ts';
 import { aliveRunForSession } from '../runs/queries.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { SyncEngine } from '../sync/engine.ts';
 import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
-import type { RunsParts } from './runs.ts';
+import { panesOf, type RunsParts } from './runs.ts';
 import type { PeerSshParts } from './peerSsh.ts';
 import type { PeerLink, SyncParts } from './sync.ts';
 
@@ -48,7 +49,11 @@ export type PeerParts = {
  */
 export function bootPeer(p: {
   home: Pick<HomeParts, 'db' | 'device' | 'settings' | 'language'>;
-  runs: { runs: Pick<RunManager, 'start' | 'sendInput' | 'kill' | 'on'>; accounts: RunsParts['accounts']; claudeBin: RunsParts['claudeBin'] };
+  runs: {
+    runs: Pick<RunManager, 'start' | 'sendInput' | 'kill' | 'on'>; accounts: RunsParts['accounts']; claudeBin: RunsParts['claudeBin'];
+    /** 画面の裏（tmux、psmux）。渡せば、知らせを打つ前に呼び出し元の画面を読む（札と打ちかけの間は打たない）。 */
+    mux?: RunsParts['mux'];
+  };
   /** 実行中の一覧と、画面への知らせの口。呼ぶ側が使う。 */
   delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub: { broadcast(ev: Extract<ServerEvent, { type: 'toast' }>): void } };
   sync: Pick<SyncParts, 'engine' | 'peerLink' | 'canCarryPeer'>;
@@ -167,6 +172,21 @@ export function bootPeer(p: {
       await p.runs.runs.sendInput(run.tmuxName, sanitizeInput(text), true);
       return true;
     },
+    // 打つ直前に画面を読み、札（許可や AskUserQuestion）が出ているか入力欄に打ちかけがあれば打たない。
+    // 札の「その他」の自由入力に知らせが入り、利用者の答えの代わりに確定してしまうのを防ぐ。
+    // 入力欄の形を知っているのは Claude Code だけなので、ほかのエージェントは登録の状態だけで決める。
+    ...(p.runs.mux ? {
+      screenReady: async (sessionId: string): Promise<boolean> => {
+        const s = db.prepare('select provider from sessions where id = ?').get(sessionId) as { provider: string } | undefined;
+        if (s?.provider !== 'claude-code') return true;
+        const run = aliveRunForSession(db, sessionId, deviceId);
+        if (!run || run.deviceId !== deviceId) return false;
+        const panes = panesOf(p.runs.mux!());
+        if (!panes?.captureStyled) return false;
+        const cap = await panes.captureStyled(run.tmuxName);
+        return cap !== null && inputReadyFromCapture(cap);
+      },
+    } : {}),
     notify,
     // 画面から人が頼んだ起動の答えは、利用者が待っているので、知らせの出し先の決まりによらず画面の札で出す。
     toast: (level, message) => { p.delivery.hub.broadcast({ type: 'toast', level, message }); },
