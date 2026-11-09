@@ -4,6 +4,7 @@ import type { GetLanguage } from '../i18n/language.ts';
 import { MessageError, msg } from '../i18n/message.ts';
 import type { EventHooks } from './githubHooks.ts';
 import { deviceOfSession } from '../runs/handover.ts';
+import { dropStaleWakes } from './wakeScope.ts';
 import { bindingsForRepo, countBindings, createBinding, deleteBinding, getBinding, getBindingRow, listBindings, setBindingInbox, updateBinding, type BindingRow } from './store.ts';
 
 /**
@@ -240,6 +241,8 @@ export class EventBindingService {
       keep = r.binding.id;
     }
     for (const b of wakes) if (b.id !== keep) this.remove(b.id);
+    // 付けているあいだ（gh の待ち）に会話が Paused を離れていたら、見張りは消すものが無いまま通り過ぎている。ここで取り残しを消す。
+    if (dropStaleWakes(this.d.db, sessionId, this.now()) > 0) { void this.d.hooks.sweep(); this.changed(); }
     return { status: 'created' };
   }
 }

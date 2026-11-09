@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventFacts, EventSource, ScheduleTarget } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { noteApplied } from '../db/notify.ts';
-import { getSessionState, setSessionState } from '../sessions/states.ts';
+import { getSessionState, setSessionState, setSessionTrashed } from '../sessions/states.ts';
 import { EventDispatcher } from './dispatcher.ts';
 import type { PulledEvent } from './puller.ts';
 import { createBinding, getBinding } from './store.ts';
@@ -96,6 +96,58 @@ describe('a wake binding lives only while its session stays Paused', () => {
     expect(launched).toHaveLength(1);
     expect(getSessionState(db, 's-1')?.status ?? null).toBeNull();
     expect(getBinding(db, b.id)).toBeNull();
+  });
+
+  it('is deleted when the Paused session is trashed, and a new one survives its restore', () => {
+    pause();
+    const b = wakeBinding();
+    setSessionTrashed(db, 'dev', 's-1', now + 1, now + 1);
+    expect(getBinding(db, b.id)).toBeNull();
+    pause('s-2');
+    const kept = wakeBinding('s-2');
+    setSessionTrashed(db, 'dev', 's-2', now + 1, now + 1);
+    setSessionTrashed(db, 'dev', 's-2', null, now + 5);
+    expect(getBinding(db, kept.id)).toBeNull();
+    // 戻したあとに付けた結び付けは残る。
+    const fresh = wakeBinding('s-2');
+    setSessionState(db, 'dev', 's-2', { status: 'paused', note: 'again', setBy: 'user', now: now + 6 });
+    expect(getBinding(db, fresh.id)).not.toBeNull();
+    expect(dropStaleWakes(db)).toBe(0);
+  });
+
+  it('does not wake a binding that was deleted while the wake was being prepared, and writes no run for it', async () => {
+    pause();
+    const b = wakeBinding();
+    let release!: () => void;
+    const gate = new Promise<void>((res) => { release = res; });
+    const launched: ScheduleTarget[] = [];
+    const d = new EventDispatcher({
+      db, deviceId: 'dev', now: () => now, language: () => 'en', me: async () => { await gate; return 'alice'; },
+      launch: async (s) => { launched.push(s.target); return { sessionId: 's-1' }; },
+      wait: () => new Promise(() => undefined),
+    });
+    await d.handle([event(b.id)]);
+    // 準備の途中で利用者が再開し、別の理由でまた Paused にした（起こす条件は無い）。
+    setSessionState(db, 'dev', 's-1', { status: null, setBy: 'user', now: now + 1 });
+    pause();
+    release();
+    await d.idle();
+    expect(launched).toEqual([]);
+    expect(getSessionState(db, 's-1')?.status).toBe('paused');
+    expect((db.prepare('select count(*) c from event_runs').get() as { c: number }).c).toBe(0);
+  });
+
+  it('does not replay a deferred wake whose binding was deleted before the pass ended', async () => {
+    pause();
+    const b = wakeBinding();
+    const { d, launched } = dispatcher();
+    await d.handle([event(b.id)], { more: true });
+    setSessionState(db, 'dev', 's-1', { status: null, setBy: 'user', now: now + 1 });
+    pause();
+    d.flushWakes();
+    await d.idle();
+    expect(launched).toEqual([]);
+    expect(getSessionState(db, 's-1')?.status).toBe('paused');
   });
 
   it('only touches the wake bindings of the session that changed', () => {

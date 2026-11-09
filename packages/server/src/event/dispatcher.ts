@@ -283,6 +283,9 @@ export class EventDispatcher {
     try {
       const sessionId = b.action.sessionId;
       const prompt = renderEventPrompt(b, [facts], this.d.language(), await this.me());
+      // 準備のあいだや、巡の終わりを待つあいだに、会話が Paused を離れて結び付けが消えていることがある。
+      // 消えた結び付けでは、起こさず、履歴も書かない。
+      if (!getBindingRow(db, b.id)) return;
       const record = (result: 'skipped' | 'failed', error?: string): void => {
         const runId = addEventRun(db, { bindingId: b.id, now: this.d.now(), result: 'running' });
         finishEventRun(db, runId, { now: this.d.now(), result, ...(error ? { error } : {}) });

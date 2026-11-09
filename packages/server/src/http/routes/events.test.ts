@@ -382,6 +382,18 @@ describe('wake_on on the pause flow', () => {
       expect(wakeBindings().map((x) => x.id)).toEqual([b!.id]);
     });
 
+    it('leaves no binding when the session left Paused while the hook was being set up', async () => {
+      hooks.ensureRepoHook.mockImplementationOnce(async (repo: string) => {
+        await send('PUT', `/api/sessions/${sessionId}/state`, { status: null });
+        return { status: 'registered', hookId: 7, share: { inboxId: `inbox-${repo}`, inboxPublicKey: 'pub', inboxPrivateKey: 'priv', webhookId: 7, hookSecret: 'secret' } };
+      });
+      const r = await json<{ state: SessionStateDto; wake: { status: string } }>(await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'a', wakeOn }));
+      expect(r.wake).toEqual({ status: 'created' });
+      expect((getSessionState(t.db, sessionId) as SessionStateDto).status).toBeNull();
+      expect(wakeBindings()).toEqual([]);
+      expect(hooks.sweep).toHaveBeenCalled();
+    });
+
     it('is gone once the session is resumed, so a later Paused without a wake is not woken by it', async () => {
       await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'a', wakeOn });
       await send('PUT', `/api/sessions/${sessionId}/state`, { status: null });
