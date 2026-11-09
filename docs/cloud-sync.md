@@ -160,7 +160,7 @@ Worker をこの版で入れ直していないと、呼び鈴が無いので、`
 
 会話の中身は、スマホの画面には出ません。
 札をタップすると、Claude の Remote Control（claude.ai/code と Claude のスマホアプリ）で、その会話が開きます。
-これには、hangar が起こす claude に `--remote-control` を付ける設定が要ります（設定 › 連携 の「Remote Control を付けて起動する」。既定は入り）。
+これには、hangar が起こす claude に `--remote-control` を付ける設定が要ります（設定 › Claude Code › 新しいセッションのデフォルト の「Remote Control を付けて起動する」。既定は入り）。
 claude.ai のログインのアカウントだけで効き、API キーのアカウントと、`ANTHROPIC_BASE_URL` を設定した環境では付けません。
 その場合も会話は起こせますが、Remote Control では開けません。
 

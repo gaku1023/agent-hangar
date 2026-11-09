@@ -118,10 +118,12 @@ hangar が自分で通信するのは、次のところだけです。
 | 通信先 | いつ | 送るもの |
 | --- | --- | --- |
 | GitHub（このリポジトリの Releases の `latest.json`） | デスクトップアプリが、起動したときと、その後 6 時間ごとに、更新を確かめます。設定の更新の節で「更新を通知する」を切ると、自動の確認は止まります。起動に失敗したときにも 1 度だけ確かめます。 | 更新の目録を取りに行く要求だけです。更新物は署名を確かめてから入れます。 |
+| GitHub の検索 API（`api.github.com`） | 作者への報告の下書き（MCP の `draft_issue_report`）を作るとき。重なる issue が開いていないかを確かめます。 | 伏せた後の題名の語を最大 6 語です。ログインは使わず、issue は作りません。issue を作るのは、あなたが全文を確かめてから送る `submit_issue_report` で、`gh` かブラウザが通信します。 |
 | あなたの Cloudflare アカウントの Worker | クラウド同期を設定した PC と、接続したスマホ（Worker が配る画面）だけ。 | 「[クラウド同期](cloud-sync.md#クラウド同期上級者向けのベータ)」の節に書いたもの（本文もメタデータも暗号化。平文は鍵名、時刻、大きさなどだけ）。 |
 | Cloudflare の API（`api.cloudflare.com`） | 使用量の API トークンを入れた場合に、Worker が読み取り専用で使用量と費用を問い合わせます。`hangar setup cloud` も、Worker などを作るときに wrangler を通して使い、使用量のトークンの確かめでも呼びます。 | 使用量と費用の問い合わせ。会話の内容は送りません。 |
 | 要約の宛先（OpenAI 互換の URL） | 設定の要約エンジンで「OpenAI 互換の URL」を選んだときだけ、事後の要約を作るとき。既定の要約エンジンは「使わない」で、どこへも送りません。 | 会話の本文と、入れていれば API キー。次の 2 項を読んでください。 |
 | Claude Code（Anthropic） | 設定の要約エンジンで「Claude」を選んだとき、または「OpenAI 互換の URL」で「接続できないときは Claude を使う」を入れていて繋がらないとき（既定は切）、`claude -p --model <設定のモデル。既定 haiku>` を起こします。 | 会話の本文が、あなたの Claude Code の経路で Anthropic へ渡り、使用枠を消費します。1 時間に 20 件まで（設定で変えられます）で、7 日の使用率が 80% を超えると止めます。 |
+| Claude Code の Remote Control（Anthropic） | 既定で入りです。hangar が起こす claude に `--remote-control` を付け、スマホの Claude アプリや claude.ai/code から会話を続けられるようにします。付けるのは claude.ai でログインしたアカウントだけです。設定 › Claude Code の「Remote Control を付けて起動する」で切れます。 | 通信するのは hangar ではなく Claude Code です。会話のやり取りが、Remote Control の経路で Anthropic を通ります。 |
 
 要約の宛先は、既定で手元（`127.0.0.1`、`localhost`、`::1`）だけです。
 手元の外の URL を使うには、設定の「外部の要約エンジンを許可」を入れます。

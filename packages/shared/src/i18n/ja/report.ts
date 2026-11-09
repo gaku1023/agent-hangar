@@ -2,7 +2,7 @@ import type { reportKeys } from '../keys/report.ts';
 import type { AreaDictionary } from '../messageSpec.ts';
 
 export const reportJa: AreaDictionary<typeof reportKeys> = {
-  'report.tool.draft': 'hangar の不具合の報告か要望を、作者（公開リポジトリ gaku1023/agent-hangar の GitHub Issues）へ送るための下書きを作成する。これだけでは送らない。ユーザーが報告や要望を作者へ送りたいと言ったときだけ使う。kind が bug なら symptom（症状）と steps（再現手順）、request なら problem（課題）と proposal（提案）が必要。任意で bug は cause（推定される原因）と fix（修正案）、request は alternatives（代替案）、どちらも notes（補足）。ユーザーの言語で、作者が読んで修正できるよう具体的に書く。会話の中身、パス、プロジェクト名、私的な情報は書かない。環境の節はツールが埋め、私的な情報は機械でも伏せる。答えの指示に従い、全文をユーザーに見せて承認を得てから submit_issue_report を呼ぶ。',
+  'report.tool.draft': 'hangar の不具合の報告か要望を、作者（公開リポジトリ gaku1023/agent-hangar の GitHub Issues）へ送るための下書きを作成する。issue は作らないが、重なる issue の確認のため、伏せた後の題名の語を GitHub の検索に送る。ユーザーが報告や要望を作者へ送りたいと言ったときだけ使う。kind が bug なら symptom（症状）と steps（再現手順）、request なら problem（課題）と proposal（提案）が必要。任意で bug は cause（推定される原因）と fix（修正案）、request は alternatives（代替案）、どちらも notes（補足）。ユーザーの言語で、作者が読んで修正できるよう具体的に書く。会話の中身、パス、プロジェクト名、私的な情報は書かない。環境の節はツールが埋め、私的な情報は機械でも伏せる。答えの指示に従い、全文をユーザーに見せて承認を得てから submit_issue_report を呼ぶ。',
   'report.tool.submit': 'draft_issue_report で作成した下書きを、そのまま作者へ送る。gh でログイン済みなら issue を作成し、そうでなければ下書きを埋めた GitHub のページをブラウザで開く（送信はユーザーがクリックする）。伏せた後の題名と中身を全文そのままユーザーに見せ、送ってよいと言われたときだけ confirmed を true にして呼ぶ。ユーザーに聞かずに呼んではいけない。中身を修正するときは draft_issue_report を呼び直す。',
   'report.param.kind': 'bug（不具合）か request（要望）。',
   'report.param.confirmed': 'ユーザーが下書きの全文を読み、送ってよいと言ったときだけ true。',
