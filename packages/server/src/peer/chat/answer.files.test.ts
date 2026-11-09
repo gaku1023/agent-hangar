@@ -7,6 +7,7 @@ import { pendingAskFrom } from './hostView.ts';
 import {
   BASH_CONTROL_CHARS,
   BASH_MULTILINE,
+  BASH_REQUIRES_APPROVAL,
   BASH_RULE_RUNS,
   EDIT_LONG_RULES,
   EDIT_NARROW_SPACES,
@@ -325,6 +326,19 @@ describe('answerAsk: 罫線と見出しの偽造', () => {
     expect(await t.answerer.answerAsk('r', ask('Bash', first), ['1'])).toEqual(MISMATCH);
     expect(await t.answerer.answerAsk('r', ask('Read', '/home/dev/a.txt', { askId: 'b2' }), ['1'])).toEqual(MISMATCH);
     expect(t.sent).toEqual([]);
+  });
+
+  it('実機の Bash の札（下の破線と問いの間に This command requires approval）は、命令を読んで答えられる', async () => {
+    const d = parseDialog(BASH_REQUIRES_APPROVAL)!;
+    expect(d.title).toBe('bash command');
+    expect(d.ruled?.trim()).toBe('curl -s -o /dev/null -w "%{http_code}" https://example.com');
+    const t = typed(BASH_REQUIRES_APPROVAL);
+    expect(await t.answerer.answerAsk('r', ask('Bash', 'curl -s -o /dev/null -w "%{http_code}" https://example.com'), ['1'])).toEqual({ ok: true, label: 'Yes' });
+  });
+
+  it('案内の行に似せた別の文が挟まれば、命令を読まない', () => {
+    const gap = [SOLID, ' Bash command', DASH, ' echo hi', DASH, ' This command requires approval; also ran rm', ...proceed].join('\n');
+    expect(parseDialog(gap)?.ruled).toBeNull();
   });
 
   it('Bash の罫線の幅が違う札や、下の罫線と問いの間に別の行がある札は、命令を読まない', () => {
