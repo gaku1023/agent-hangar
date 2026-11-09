@@ -3,7 +3,7 @@ import type { PeerChatAsk } from '@agent-hangar/shared';
 import { createPeerAnswerer, type AnswerPane } from './answer.ts';
 import { EDIT_NARROW_SPACES, EDIT_OUTSIDE, EDIT_RELATIVE, EDIT_SUBDIR, NOTEBOOK_EDIT, READ_OUTSIDE, WRITE_NARROW_TRUNCATED, WRITE_NEW, WRITE_OVERWRITE } from './fileDialogs.fixtures.ts';
 import { readPermissionHook } from '../../provider/claude-code/hooks/permission.ts';
-import { ChatView, pendingAskFrom } from './hostView.ts';
+import { ChatView, pendingAskFrom, UNANSWERABLE_RECHECK_MS } from './hostView.ts';
 import type { HostSession } from './hostTypes.ts';
 import { currentPendingAsk } from './tail.ts';
 
@@ -257,5 +257,65 @@ describe('札の印は tail の ask まで運ばれる', () => {
     };
     expect(run(false)).toMatchObject({ answerable: false });
     expect('answerable' in run()!).toBe(false);
+  });
+});
+
+describe('ChatView: 答えられない印の取り直し', () => {
+  const SOLID = '─'.repeat(44);
+  const DASH = '╌'.repeat(44);
+  const proceed = [' Do you want to proceed?', ' ❯ 1. Yes', '   2. No', ' Esc to cancel'];
+  const full = [SOLID, ' Bash command', DASH, ' ls -la', DASH, ...proceed].join('\n');
+  // hook が先に届き、画面がまだ描き途中（罫線が 2 本そろっていない）。
+  const partial = [SOLID, ' Bash command', DASH, ' ls -la', ...proceed].join('\n');
+  const hook = { tool: 'Bash', input: 'ls -la', description: null };
+
+  function make() {
+    const w = { now: 1000, screen: partial, captures: 0 };
+    const view = new ChatView({
+      now: () => w.now, sleep: async () => undefined, recheckMs: 1000,
+      session: () => session({ permission: hook }),
+      run: () => ({ tmuxName: 't' }),
+      pane: () => ({ capture: () => { w.captures++; return w.screen; }, captureStyled: async () => null, sendKey: () => undefined, sendText: () => undefined }),
+      tail: { readTranscript: () => null },
+      queued: () => [], self: () => ({ deviceId: 'pc-a', deviceName: 'Win' }), hostId: 'h',
+    });
+    return { w, view };
+  }
+
+  it('描き途中で false になっても、画面が整えば 2 秒後の取得で取り消される', () => {
+    const { w, view } = make();
+    expect(view.pendingAsk('s1', false)!.answerable).toBe(false);
+    w.screen = full;
+    w.now += UNANSWERABLE_RECHECK_MS;
+    expect(view.pendingAsk('s1', false)!.answerable).toBeUndefined();
+    // 答えられる札は覚えに入り、画面を取り直さない。
+    const n = w.captures;
+    w.now += UNANSWERABLE_RECHECK_MS * 5;
+    view.pendingAsk('s1', false);
+    expect(w.captures).toBe(n);
+  });
+
+  it('false の札の取り直しは 2 秒に 1 回まで（何度取得しても capture は増えない）', () => {
+    const { w, view } = make();
+    view.pendingAsk('s1', false);
+    expect(w.captures).toBe(1);
+    for (let i = 0; i < 10; i++) { w.now += 100; view.pendingAsk('s1', false); }
+    expect(w.captures).toBe(1);
+    w.now += UNANSWERABLE_RECHECK_MS;
+    view.pendingAsk('s1', false);
+    expect(w.captures).toBe(2);
+  });
+
+  it('印が変わると札の uuid が変わり、after の続きとして流し直される', () => {
+    const { w, view } = make();
+    const first = view.build('s1', 'pc-b', null).state.items.at(-1)!;
+    expect(first.ask!.answerable).toBe(false);
+    const askId = first.ask!.askId;
+    w.screen = full;
+    w.now += UNANSWERABLE_RECHECK_MS;
+    const next = view.build('s1', 'pc-b', first.uuid).state.items;
+    expect(next).toHaveLength(1);
+    expect(next[0]!.ask).toMatchObject({ askId });
+    expect(next[0]!.ask!.answerable).toBeUndefined();
   });
 });

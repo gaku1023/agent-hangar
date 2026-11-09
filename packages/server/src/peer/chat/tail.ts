@@ -290,7 +290,8 @@ const ASK_MARK = '@ask:';
 
 function askItem(ask: PeerChatAsk, pending: PeerPendingAsk, base: string | null, at: number): PeerChatItem {
   const text = pending.kind === 'question' ? pending.question ?? '' : pending.description || pending.input || pending.tool || '';
-  return { uuid: `${base ?? ''}${ASK_MARK}${ask.askId}`, at, kind: ask.kind, text: clipBytes(text, PEER_CHAT_ITEM_TEXT_MAX_BYTES), ask };
+  // 答えられない札（answerable が false）の uuid には ! を付ける。印が変わると uuid が変わり、同じ札でも after の続きとして流し直される（askId は変えない）。
+  return { uuid: `${base ?? ''}${ASK_MARK}${ask.askId}${ask.answerable === false ? '!' : ''}`, at, kind: ask.kind, text: clipBytes(text, PEER_CHAT_ITEM_TEXT_MAX_BYTES), ask };
 }
 
 /**

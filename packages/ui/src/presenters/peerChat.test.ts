@@ -205,6 +205,9 @@ describe('チャットを出さない会話は、今までの読み取り専用�
     const unanswerable = { ...ask(), ask: { ...ask().ask!, answerable: false as const } };
     expect(view(store({ status: 'waiting', items: [unanswerable] }))!.rows[0]).toMatchObject({ hostOnly: 'Mac で答えてください' });
     expect(view(store({ status: 'waiting', items: [ask()] }))!.rows[0]).toMatchObject({ hostOnly: null });
+    // 閉じた札（入力待ちでなくなった、後ろに項目が続いた）にも案内は出さない。
+    expect(view(store({ status: 'idle', items: [unanswerable] }))!.rows[0]).toMatchObject({ hostOnly: null, answered: '確認は終わりました' });
+    expect(view(store({ status: 'waiting', items: [unanswerable, ai('a2', '続き')] }))!.rows[0]).toMatchObject({ hostOnly: null, answered: '確認は終わりました' });
     // 答えが付いた札は、答えの行を優先する（案内は出さない）。
     const answered = { ...unanswerable, ask: { ...unanswerable.ask, answered: { by: MAC, label: '', at: 9 } } };
     expect(view(store({ status: 'waiting', items: [answered] }))!.rows[0]).toMatchObject({ hostOnly: null, answered: 'Mac で答えました' });
