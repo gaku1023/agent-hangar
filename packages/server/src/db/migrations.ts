@@ -857,6 +857,21 @@ alter table session_states add column candidate_wake_on text;
 `;
 
 /**
+ * 版 56。GitHub の webhook と Worker の受け箱の後片付けの預かり（#563）。手元だけの表で、同期には載らない。
+ * 受け箱を使う最後の結び付けが消えたとき、その受け箱（と GitHub の webhook）を外す仕事をここに預ける。
+ * 外すのに失敗しても、結び付けの行はもう無いので、この行が次の試しの手がかりになる。
+ * 秘密の値は持たない。外すのに要るのは、受け箱の ID と webhook の ID だけである。
+ */
+const V56_EVENT_HOOK_ORPHANS_SQL = `
+create table event_hook_orphans (
+  inbox_id text primary key,
+  repo text,
+  webhook_id integer,
+  created_at integer not null
+);
+`;
+
+/**
  * MCP の delete_session の依頼を、利用者が答えるまで預かる表（#547）。手元だけの表で、同期しない。会話 1 つに 1 行。
  */
 const V44_DELETE_APPROVALS_SQL = `
@@ -1023,4 +1038,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 53, sql: V53_PEER_SSH_SQL },
   { version: 54, sql: V54_PEER_OUTBOX_OP_SQL },
   { version: 55, sql: V55_EVENT_BINDINGS_SQL },
+  { version: 56, sql: V56_EVENT_HOOK_ORPHANS_SQL },
 ];

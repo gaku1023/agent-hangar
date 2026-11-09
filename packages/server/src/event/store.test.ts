@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { MessageError } from '../i18n/message.ts';
 import type { Db } from '../db/open.ts';
-import { addEventRun, bindingsForInbox, claimPr, createBinding, deleteBinding, expireBindings, finishEventRun, getBinding, hasDelivery, listBindings, markDelivery, prOwner, updateBinding, type BindingInput } from './store.ts';
+import { addEventRun, bindingsForInbox, bindingsForRepo, claimPr, createBinding, deleteBinding, expireBindings, dropHookOrphan, finishEventRun, getBinding, getBindingRow, hasDelivery, listBindings, listHookOrphans, markDelivery, prOwner, setBindingInbox, updateBinding, type BindingInput } from './store.ts';
 
 let db: Db;
 const T0 = new Date(2026, 10, 10, 9, 0).getTime();
@@ -201,5 +201,52 @@ describe('PR の持ち主', () => {
     claimPr(db, { sessionId: 's-1', repo: 'octo/demo', pr: 7, state: 'active' });
     claimPr(db, { sessionId: 's-1', repo: 'octo/demo', pr: 7, state: 'draft' });
     expect(prOwner(db, 'octo/demo', 7)).toBe('s-1');
+  });
+});
+
+describe('webhook と受け箱の後片付けの預かり', () => {
+  const hookInput = (over: Partial<BindingInput> = {}): BindingInput => input({ inboxId: 'in-shared', webhookId: 11, hookSecret: 'S', ...over });
+
+  it('leaves an orphan only when the last binding of an inbox goes', () => {
+    const a = createBinding(db, hookInput(), T0);
+    const b = createBinding(db, hookInput(), T0);
+    deleteBinding(db, a.id);
+    expect(listHookOrphans(db)).toEqual([]);
+    deleteBinding(db, b.id);
+    expect(listHookOrphans(db)).toEqual([{ inboxId: 'in-shared', repo: 'octo/demo', webhookId: 11 }]);
+  });
+
+  it('leaves an orphan for an expired binding, and for a hook binding without a repo', () => {
+    createBinding(db, hookInput(), T0);
+    expireBindings(db, T0 + WAKE_BINDING_TTL_MS);
+    const h = createBinding(db, input({ inboxId: 'in-hook', source: { kind: 'hook' }, action: { kind: 'send_pr_owner' } }), T0);
+    deleteBinding(db, h.id);
+    expect(listHookOrphans(db)).toEqual([
+      { inboxId: 'in-shared', repo: 'octo/demo', webhookId: 11 },
+      { inboxId: 'in-hook', repo: null, webhookId: null },
+    ]);
+    expect(listHookOrphans(db, 'OCTO/demo').map((o) => o.inboxId)).toEqual(['in-shared']);
+    dropHookOrphan(db, 'in-shared');
+    expect(listHookOrphans(db).map((o) => o.inboxId)).toEqual(['in-hook']);
+  });
+
+  it('does not leave an orphan for a binding that has no inbox yet', () => {
+    const h = createBinding(db, input({ inboxId: '', source: { kind: 'hook' }, action: { kind: 'send_pr_owner' } }), T0);
+    deleteBinding(db, h.id);
+    expect(listHookOrphans(db)).toEqual([]);
+  });
+
+  it('finds the bindings of a repo regardless of case', () => {
+    const a = createBinding(db, hookInput(), T0);
+    createBinding(db, input({ source: { kind: 'github', repo: 'octo/other', when: ['review'] } }), T0);
+    createBinding(db, input({ source: { kind: 'hook' } }), T0);
+    expect(bindingsForRepo(db, 'Octo/Demo').map((r) => r.id)).toEqual([a.id]);
+  });
+
+  it('sets the inbox of a binding', () => {
+    const h = createBinding(db, input({ inboxId: '', source: { kind: 'hook' }, action: { kind: 'send_pr_owner' } }), T0);
+    setBindingInbox(db, h.id, { inboxId: 'in-new', inboxPublicKey: 'PUB2', inboxPrivateKey: 'PRIV2' });
+    expect(getBindingRow(db, h.id)).toMatchObject({ inboxId: 'in-new', inboxPublicKey: 'PUB2', inboxPrivateKey: 'PRIV2' });
+    expect(() => setBindingInbox(db, 'missing', { inboxId: 'x', inboxPublicKey: 'x', inboxPrivateKey: 'x' })).toThrow(MessageError);
   });
 });

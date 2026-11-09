@@ -10,6 +10,7 @@ import { bootHttp, bootListen } from './boot/http.ts';
 import { bootTrash } from './boot/trash.ts';
 import { inboxApiOf } from './event/inboxClient.ts';
 import { EventDispatcher } from './event/dispatcher.ts';
+import { EventHooks } from './event/githubHooks.ts';
 import { ghLoginResolver } from './event/ghLogin.ts';
 import { EventPuller, type PulledEvent } from './event/puller.ts';
 import { bootIndexing } from './boot/indexing.ts';
@@ -180,11 +181,14 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     launch: (s) => launchScheduled(scheduleTools, s),
     wait: (id) => waitScheduled(scheduleTools, id),
   });
+  // GitHub の webhook と受け箱の登録と解除。結び付けの道（画面と MCP）がこの組を使う。受け箱を作る、消すたびに、呼び鈴を組み直す（受け箱だけを使う利用者にも開けるため）。
+  const eventHooks = new EventHooks({ db: home.db, api: () => inboxApiOf(sync.mobileLink()?.client), baseUrl: () => sync.mobileLink()?.url ?? null, onInboxChanged: () => { mobile.settingsChanged(); } });
   eventDispatcher = new EventDispatcher({
     db: home.db, deviceId: home.device.id, now: () => Date.now(), language: () => home.language(),
     launch: (s) => launchScheduled(scheduleTools, s), wait: (id) => waitScheduled(scheduleTools, id), me: ghLoginResolver(),
     notify: (message) => { delivery.hub.broadcast({ type: 'toast', level: 'info', message }); },
     onError: (e) => { console.error('[event] dispatch failed', e instanceof Error ? e.constructor.name : typeof e); },
+    releaseHooks: () => { void eventHooks.sweep(); },
   });
   eventDispatcher.start();
   const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, peerChat, ...(peerSsh ? { peerSsh } : {}), peer, schedules: { runNow: (id) => schedules.runNow(id), deliver: (id, text) => launchScheduled(scheduleTools, { prompt: text, target: { kind: 'session', sessionId: id }, plannedAt: Date.now() }) }, opts, serverDir });

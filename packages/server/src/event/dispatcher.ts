@@ -63,6 +63,13 @@ export type DispatcherDeps = {
    */
   onHeldForUser?: (count: number) => void;
   onError?: (e: unknown) => void;
+  /**
+   * 結び付けが消えた、または期限で消えた。
+   * 受け箱を使う最後の結び付けが消えていれば、GitHub の webhook と受け箱を外す。
+   * 何が消えたかは store の預かりが持つので、引数は無い。
+   * 投げても、dispatcher は続ける。
+   */
+  releaseHooks?: () => void;
 };
 
 /**
@@ -118,6 +125,12 @@ export class EventDispatcher {
   /** 起動のときに、期限が過ぎた起こす結び付けを消す。 */
   start(): void {
     try { expireBindings(this.d.db, this.d.now()); } catch (e) { this.d.onError?.(e); }
+    this.released();
+  }
+
+  /** 結び付けを消したあとの webhook の後片付けを頼む。起動のときは、前の回の取り残しも進める。 */
+  private released(): void {
+    try { this.d.releaseHooks?.(); } catch (e) { this.d.onError?.(e); }
   }
 
   /**
@@ -128,6 +141,7 @@ export class EventDispatcher {
   async handle(events: PulledEvent[]): Promise<void> {
     const { db } = this.d;
     try { expireBindings(db, this.d.now()); } catch (e) { this.d.onError?.(e); }
+    this.released();
     const wakes = new Map<string, { b: BindingRow; facts: EventFacts }>();
     const closed: { repo: string; number: number }[] = [];
     let heldNow = 0;
@@ -222,6 +236,7 @@ export class EventDispatcher {
       if (this.waking.has(b.id)) continue;
       if (b.action.kind === 'wake' && b.source.kind === 'github' && b.source.pr === number && sameName(b.source.repo, repo)) deleteBinding(this.d.db, b.id);
     }
+    this.released();
   }
 
   /**
@@ -258,6 +273,7 @@ export class EventDispatcher {
       // 起こした、または利用者が先に再開していた。
       // どちらも役目は終わり。
       deleteBinding(db, b.id);
+      this.released();
     } finally {
       this.waking.delete(b.id);
     }
@@ -275,6 +291,7 @@ export class EventDispatcher {
       this.d.onError?.(e);
     }
     deleteBinding(this.d.db, b.id);
+    this.released();
   }
 
   /**

@@ -84,7 +84,7 @@ export function ghApiRunner(env: NodeJS.ProcessEnv = process.env, capture: Captu
   };
 }
 
-const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+export const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const SHA_RE = /^[0-9a-fA-F]{7,64}$/;
 /** まだ終わっていないスイートの status。 */
 const OPEN_STATUSES: ReadonlySet<string> = new Set(['queued', 'in_progress', 'requested', 'waiting', 'pending']);

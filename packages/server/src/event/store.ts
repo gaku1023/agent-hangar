@@ -80,6 +80,36 @@ export function getBinding(db: Db, id: string): EventBindingDto | null {
   return r ? dto(db, r) : null;
 }
 
+/** その repo を見る結び付け（秘密を含む行）。repo の大文字小文字は区別しない。作った古い順。 */
+export function bindingsForRepo(db: Db, repo: string): BindingRow[] {
+  const want = repo.toLowerCase();
+  return (db.prepare('select * from event_bindings order by created_at, rowid').all() as BindingDbRow[]).map(rowOf)
+    .filter((b) => b.source.kind === 'github' && b.source.repo.toLowerCase() === want);
+}
+
+/** 結び付けの受け箱を置き換える。外の webhook の結び付けは、受け箱を後から作るので、空の ID で作ってからここで入れる。 */
+export function setBindingInbox(db: Db, id: string, o: { inboxId: string; inboxPublicKey: string; inboxPrivateKey: string }): void {
+  const n = db.prepare('update event_bindings set inbox_id = ?, inbox_public_key = ?, inbox_private_key = ? where id = ?').run(o.inboxId, o.inboxPublicKey, o.inboxPrivateKey, id).changes;
+  if (n === 0) throw new MessageError(`結び付けが見つかりません: ${id}`);
+}
+
+/** 後片付けを預かっている受け箱。repo を渡すと、その repo の分だけ。 */
+export type HookOrphan = { inboxId: string; repo: string | null; webhookId: number | null };
+
+export function listHookOrphans(db: Db, repo?: string): HookOrphan[] {
+  const rows = db.prepare('select inbox_id, repo, webhook_id from event_hook_orphans order by created_at, rowid').all() as { inbox_id: string; repo: string | null; webhook_id: number | null }[];
+  const want = repo?.toLowerCase();
+  return rows.filter((r) => want === undefined || r.repo?.toLowerCase() === want).map((r) => ({ inboxId: r.inbox_id, repo: r.repo, webhookId: r.webhook_id }));
+}
+
+export function addHookOrphan(db: Db, o: HookOrphan, now: number): void {
+  db.prepare('insert or ignore into event_hook_orphans (inbox_id, repo, webhook_id, created_at) values (?, ?, ?, ?)').run(o.inboxId, o.repo, o.webhookId, now);
+}
+
+export function dropHookOrphan(db: Db, inboxId: string): void {
+  db.prepare('delete from event_hook_orphans where inbox_id = ?').run(inboxId);
+}
+
 /** 受け箱から引き取った荷物に当てる結び付け。秘密を含む行を返す。 */
 export function bindingsForInbox(db: Db, inboxId: string): BindingRow[] {
   return (db.prepare('select * from event_bindings where inbox_id = ? order by created_at, rowid').all(inboxId) as BindingDbRow[]).map(rowOf);
@@ -127,9 +157,25 @@ export function updateBinding(db: Db, id: string, p: BindingPatch, now: number =
 }
 
 function remove(db: Db, id: string): boolean {
+  const row = bindingRow(db, id);
   db.prepare('delete from event_runs where binding_id = ?').run(id);
   db.prepare('delete from event_deliveries where binding_id = ?').run(id);
-  return db.prepare('delete from event_bindings where id = ?').run(id).changes > 0;
+  const gone = db.prepare('delete from event_bindings where id = ?').run(id).changes > 0;
+  if (gone && row) leaveOrphan(db, row);
+  return gone;
+}
+
+/**
+ * 受け箱を使う最後の結び付けが消えたとき、その受け箱と webhook の後片付けを預かる。
+ * 同じ受け箱を使う結び付けがまだ残っていれば、何もしない。
+ * まだ受け箱を持たない結び付け（inbox_id が空）にも預かるものは無い。
+ */
+function leaveOrphan(db: Db, r: BindingDbRow): void {
+  if (!r.inbox_id) return;
+  if (db.prepare('select 1 from event_bindings where inbox_id = ? limit 1').get(r.inbox_id)) return;
+  const source = JSON.parse(r.source) as EventSource;
+  db.prepare('insert or ignore into event_hook_orphans (inbox_id, repo, webhook_id, created_at) values (?, ?, ?, ?)')
+    .run(r.inbox_id, source.kind === 'github' ? source.repo : null, r.webhook_id, Date.now());
 }
 
 export function deleteBinding(db: Db, id: string): boolean {

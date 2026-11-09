@@ -409,3 +409,28 @@ describe('send and new', () => {
     expect(getBinding(db, b.id)!.state).toBe('active');
   });
 });
+
+describe('webhook の後片付け', () => {
+  it('asks to release hooks at start, on each handle, and after a binding is removed', async () => {
+    let n = 0;
+    const { d } = make({ releaseHooks: () => { n++; } });
+    d.start();
+    expect(n).toBe(1);
+    const b = bind();
+    pause();
+    await d.handle([ev(b.id)]);
+    await d.idle();
+    // handle の頭の 1 回と、起こして結び付けを消した 1 回。
+    expect(n).toBe(3);
+  });
+
+  it('asks to release hooks after a closed pr drops its wake bindings, and survives a throwing release', async () => {
+    const closed = bind();
+    let n = 0;
+    const { d } = make({ releaseHooks: () => { n++; throw new Error('boom'); } });
+    await d.handle([ev(closed.id, { event: 'closed' })]);
+    await d.idle();
+    expect(getBinding(db, closed.id)).toBeNull();
+    expect(n).toBeGreaterThanOrEqual(2);
+  });
+});
