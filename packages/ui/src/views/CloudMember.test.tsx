@@ -329,7 +329,7 @@ describe('スマホの接続（試作 A1）', () => {
     expect(screen.getByText(/スマホで受信箱を見て/)).toBeInTheDocument();
     // 解除の確認を無くしたので、なくしたときの注意は表の下の説明に置く。
     expect(screen.getByText(/スマホで受信箱を見て/)).toHaveTextContent('スマホをなくしたときは、すぐに「解除」してください。');
-    expect(screen.getByText('「Remote Control を付けて起動する」の設定は「セッション」にあります。')).toBeInTheDocument();
+    expect(screen.getByText('「Remote Control を付けて起動する」の設定は「Claude Code」にあります。')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'スマホを接続' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.phone.pair' });
     rerender(ui(both(props({ phone: ready })), onAction));

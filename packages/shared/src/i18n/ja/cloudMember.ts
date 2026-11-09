@@ -160,7 +160,7 @@ export const cloudMemberJa: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.phone.heading': 'スマホ',
   'cloudMember.phone.pair': 'スマホを接続',
   'cloudMember.phone.lead': 'スマホで受信箱を見て、PC を選んで会話を始められます。会話の中は Claude アプリで開きます。スマホをなくしたときは、すぐに「解除」してください。',
-  'cloudMember.phone.rcPointer': '「Remote Control を付けて起動する」の設定は「セッション」にあります。',
+  'cloudMember.phone.rcPointer': '「Remote Control を付けて起動する」の設定は「Claude Code」にあります。',
   'cloudMember.phone.loading': 'QR を作成しています…',
   'cloudMember.phone.title': 'スマホで読み込んでください',
   'cloudMember.phone.step1': 'スマホのカメラで QR を読む',
