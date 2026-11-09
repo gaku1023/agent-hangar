@@ -69,6 +69,37 @@ export type PeerChatItem = {
   ask?: PeerChatAsk;
 };
 
+/** 許可と質問の札の uuid の目印（`<直前の項目の uuid>@ask:<askId>`）。 */
+const PEER_ASK_MARK = '@ask:';
+
+/** 札の uuid の、@ask: より前（札を呼んだ位置、transcript の直前の項目の uuid）。札でなければ uuid そのもの。 */
+export function peerAskBase(uuid: string): string {
+  const i = uuid.indexOf(PEER_ASK_MARK);
+  return i === -1 ? uuid : uuid.slice(0, i);
+}
+
+/**
+ * 項目の並びのどこに札を入れるか（札が呼んだ位置、直前の項目の直後）。
+ * 答えの記録は、札が閉じて transcript が伸びたあとに来る。
+ * 末尾に足すと、あとの返答より下に並んでしまう。
+ * 同じ位置に答え済みの札がすでにあれば、その後ろに入れる（答えた順を保つ）。
+ * 直前の項目が並びに無いときは末尾。
+ * front なら先頭（直前の項目が、この並びより前にあると分かっているとき）。
+ * 直前の項目が無い札（transcript が空だった）も先頭。
+ */
+export function peerAskInsertIndex(items: readonly { uuid: string; ask?: { answered?: unknown } }[], ask: { uuid: string }, front = false): number {
+  const base = peerAskBase(ask.uuid);
+  let i: number;
+  if (base === '' || front) i = 0;
+  else {
+    const at = items.findIndex((x) => x.uuid === base);
+    if (at < 0) return items.length;
+    i = at + 1;
+  }
+  while (i < items.length && items[i]!.ask?.answered !== undefined && peerAskBase(items[i]!.uuid) === base) i++;
+  return i;
+}
+
 /** 預かり（元の PC が、ターンが止まって入力欄が空くまで持っている、ほかの PC からの文）。 */
 export type PeerChatQueued = { queueId: string; from: PeerChatDevice; text: string; images: number; at: number; state: 'waiting' | 'delivering' };
 

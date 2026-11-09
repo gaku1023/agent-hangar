@@ -373,3 +373,142 @@ describe('ChatView: 答えられない印の取り直し', () => {
     });
   });
 });
+
+describe('ChatView.build: 答えの記録の札は、呼んだ位置に並ぶ（transcript の後ろに足さない）', () => {
+  const SELF = { deviceId: 'pc-a', deviceName: 'Win' };
+  const MAC = { deviceId: 'pc-b', deviceName: 'Mac' };
+  const permScreen = [' Bash command', ' mock desc', RULE, ' ls -la', RULE, ' Do you want to proceed?', ' ❯ 1. Yes', '   2. No', ' Esc to cancel'].join('\n');
+  const jl = (o: Record<string, unknown>): string => JSON.stringify({ isSidechain: false, timestamp: '2026-01-01T00:00:00.000Z', ...o });
+  const userL = jl({ type: 'user', uuid: 'u-user', message: { role: 'user', content: 'run it' } });
+  const asstL = jl({ type: 'assistant', uuid: 'u-asst', message: { role: 'assistant', model: 'm', content: [{ type: 'text', text: 'ok' }] } });
+  const useL = jl({ type: 'assistant', uuid: 'u-use', message: { role: 'assistant', model: 'm', content: [{ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'ls -la' } }] } });
+  const resultL = jl({ type: 'user', uuid: 'u-res', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok', is_error: false }] } });
+  const finalL = jl({ type: 'assistant', uuid: 'u-42', message: { role: 'assistant', model: 'm', content: [{ type: 'text', text: '42' }] } });
+
+  function make() {
+    const w = { lines: [userL, asstL], live: 'waiting' as 'waiting' | 'busy', screen: permScreen };
+    const view = new ChatView({
+      now: () => 1000, sleep: async () => undefined, recheckMs: 1000,
+      session: () => session({ live: w.live, permission: { tool: 'Bash', input: 'ls -la', description: 'd' } }),
+      run: () => ({ tmuxName: 't' }),
+      pane: () => ({ capture: () => w.screen, captureStyled: async () => null, sendKey: () => undefined, sendText: () => undefined }),
+      tail: { readTranscript: () => ({ key: String(w.lines.length), read: () => Buffer.from(w.lines.join('\n') + '\n') }) },
+      queued: () => [], self: () => SELF, hostId: 'h',
+    });
+    return { w, view };
+  }
+  type Rig = ReturnType<typeof make>;
+  const keys = (view: ChatView, after: string | null = null): string[] => view.build('s1', 'pc-b', after).state.items.map((i) => (i.ask ? `ask:${i.ask.answered ? 'answered' : 'open'}` : i.text));
+  const finish = (w: Rig['w'], view: Rig['view']): void => {
+    w.lines.push(useL, resultL, finalL);
+    w.live = 'busy';
+    w.screen = '● Bash(ls)\n  ⎿  Running…\n';
+    view.poke('s1');
+  };
+  const permItem = (uuid: string, askId: string, extra: Record<string, unknown> = {}) => ({ uuid, at: 1, kind: 'permission' as const, text: askId, ask: { askId, kind: 'permission' as const, options: [{ key: '1', label: 'Yes' }], multi: false, allowText: false, ...extra } });
+
+  it('手元で答えた札は、あとの返答（42）より前に並ぶ', () => {
+    const { w, view } = make();
+    expect(keys(view)).toEqual(['run it', 'ok', 'ask:open']);
+    finish(w, view);
+    const order = keys(view);
+    expect(order.indexOf('ask:answered')).toBe(2);
+    expect(order.indexOf('ask:answered')).toBeLessThan(order.indexOf('42'));
+    expect(order.filter((k) => k.startsWith('ask:'))).toHaveLength(1);
+  });
+
+  it('見る側がまだ札を受け取っていない続き（after が札の前）でも、札は続きの先頭に出る', () => {
+    const { w, view } = make();
+    keys(view);
+    finish(w, view);
+    const order = keys(view, 'u-asst');
+    expect(order[0]).toBe('ask:answered');
+    expect(order.indexOf('42')).toBeGreaterThan(0);
+  });
+
+  it('札を受け取った後の続き（after が札の uuid）でも、答えの付いた札は続きの先頭に出る（見る側が同じ位置に重ね書きする）', () => {
+    const { w, view } = make();
+    const cardUuid = view.build('s1', 'pc-b', null).state.items.at(-1)!.uuid;
+    finish(w, view);
+    const order = keys(view, cardUuid);
+    expect(order[0]).toBe('ask:answered');
+    expect(order.indexOf('42')).toBeGreaterThan(0);
+  });
+
+  it('askId が言い換わった札（tool_use が後から載った）も、答えの記録が後から来て、呼んだ位置に並ぶ', () => {
+    const { w, view } = make();
+    const oldId = view.build('s1', 'pc-b', null).state.items.at(-1)!.ask!.askId;
+    w.lines.push(useL);
+    view.poke('s1');
+    const mid = view.build('s1', 'pc-b', null).state.items;
+    expect(mid.at(-1)!.ask!.askId).not.toBe(oldId);
+    w.lines.push(resultL, finalL);
+    w.live = 'busy';
+    w.screen = '● done\n';
+    view.poke('s1');
+    const order = keys(view);
+    expect(order.filter((k) => k.startsWith('ask:'))).toEqual(['ask:answered']);
+    expect(order.indexOf('ask:answered')).toBeLessThan(order.indexOf('42'));
+  });
+
+  it('答えられない印（uuid の !）が付いた札の記録も、呼んだ位置に並ぶ', () => {
+    const { w, view } = make();
+    w.live = 'busy';
+    w.lines.push(useL, resultL, finalL);
+    view.recordAnswer('s1', permItem('u-asst@ask:A!', 'A', { answerable: false }), MAC, 'Yes');
+    const order = keys(view);
+    expect(order).toHaveLength(5);
+    expect(order.slice(0, 3)).toEqual(['run it', 'ok', 'ask:answered']);
+    expect(order.at(-1)).toBe('42');
+  });
+
+  it('同じ位置の札を 2 回答えたときは、答えた順のまま並ぶ', () => {
+    const { w, view } = make();
+    w.live = 'busy';
+    w.lines.push(useL, resultL, finalL);
+    view.recordAnswer('s1', permItem('u-asst@ask:A', 'A'), MAC, 'Yes');
+    view.recordAnswer('s1', permItem('u-asst@ask:B', 'B'), MAC, 'Yes');
+    const items = view.build('s1', 'pc-b', null).state.items;
+    expect(items.map((i) => i.ask?.askId ?? i.text).slice(0, 4)).toEqual(['run it', 'ok', 'A', 'B']);
+    expect(items.at(-1)!.text).toBe('42');
+  });
+
+  it('transcript に位置（直前の項目）が無い記録は、末尾に足す（続きの取得でも同じ）', () => {
+    const { w, view } = make();
+    w.live = 'busy';
+    view.recordAnswer('s1', permItem('gone-base@ask:Z', 'Z'), MAC, 'Yes');
+    expect(keys(view)).toEqual(['run it', 'ok', 'ask:answered']);
+    expect(keys(view, 'u-asst')).toEqual(['ask:answered']);
+  });
+
+  const many = (w: Rig['w']): void => {
+    for (let i = 0; i < 250; i++) w.lines.push(jl({ type: 'assistant', uuid: `u-x${i}`, message: { role: 'assistant', model: 'm', content: [{ type: 'text', text: `x${i}` }] } }));
+  };
+
+  it('頭からの取得で古い項目を落としたとき、落とした範囲にある札の記録は出さない。transcript に最初から無い位置の記録は末尾に出す', () => {
+    const { w, view } = make();
+    w.live = 'busy';
+    many(w);
+    view.recordAnswer('s1', permItem('u-asst@ask:A', 'A'), MAC, 'Yes');
+    view.recordAnswer('s1', permItem('never-there@ask:B', 'B'), MAC, 'Yes');
+    const st = view.build('s1', 'pc-b', null).state;
+    expect(st.truncated).toBe(true);
+    expect(st.items.filter((i) => i.ask).map((i) => i.ask!.askId)).toEqual(['B']);
+    expect(st.items.at(-1)!.ask!.askId).toBe('B');
+  });
+
+  it('after が非 null で truncated のとき、落とした範囲の記録は出さず、after の位置の記録は先頭に、見る側がすでに持つ位置の記録は末尾に出す', () => {
+    const { w, view } = make();
+    w.live = 'busy';
+    many(w);
+    view.recordAnswer('s1', permItem('u-x5@ask:D', 'D'), MAC, 'Yes');
+    view.recordAnswer('s1', permItem('u-asst@ask:A', 'A'), MAC, 'Yes');
+    view.recordAnswer('s1', permItem('u-user@ask:E', 'E'), MAC, 'Yes');
+    const st = view.build('s1', 'pc-b', 'u-asst').state;
+    expect(st.truncated).toBe(true);
+    const ids = st.items.filter((i) => i.ask).map((i) => i.ask!.askId);
+    expect(ids).toEqual(['A', 'E']);
+    expect(st.items[0]!.ask!.askId).toBe('A');
+    expect(st.items.at(-1)!.ask!.askId).toBe('E');
+  });
+});

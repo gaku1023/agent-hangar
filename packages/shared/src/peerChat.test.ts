@@ -350,3 +350,31 @@ describe('画面からの WebSocket の本文（parsePeerChatClientMsg）', () =
     }
   });
 });
+
+describe('peerAskBase と peerAskInsertIndex（札の並び）', () => {
+  const it0 = (uuid: string, answered = false): { uuid: string; ask?: { answered?: unknown } } => ({ uuid, ...(uuid.includes('@ask:') ? { ask: answered ? { answered: {} } : {} } : {}) });
+
+  it('peerAskBase は @ask: より前を返す（! つきの uuid も、札でない uuid も）', () => {
+    expect(shared.peerAskBase('u1@ask:A')).toBe('u1');
+    expect(shared.peerAskBase('u1@ask:A!')).toBe('u1');
+    expect(shared.peerAskBase('@ask:A')).toBe('');
+    expect(shared.peerAskBase('u1')).toBe('u1');
+  });
+
+  it('直前の項目の直後に入れる', () => {
+    expect(shared.peerAskInsertIndex([it0('u1'), it0('u2'), it0('u3')], { uuid: 'u1@ask:A' })).toBe(1);
+    expect(shared.peerAskInsertIndex([it0('u1'), it0('u2')], { uuid: 'u2@ask:A' })).toBe(2);
+  });
+
+  it('同じ位置に答え済みの札があれば、その後ろ。答えの無い札の前に入れる', () => {
+    expect(shared.peerAskInsertIndex([it0('u1'), it0('u1@ask:A', true), it0('u2')], { uuid: 'u1@ask:B' })).toBe(2);
+    expect(shared.peerAskInsertIndex([it0('u1'), it0('u1@ask:A'), it0('u2')], { uuid: 'u1@ask:B' })).toBe(1);
+  });
+
+  it('直前の項目が並びに無ければ末尾。front なら先頭。直前の項目が無い札（空）も先頭', () => {
+    expect(shared.peerAskInsertIndex([it0('u1'), it0('u2')], { uuid: 'zz@ask:A' })).toBe(2);
+    expect(shared.peerAskInsertIndex([it0('u1'), it0('u2')], { uuid: 'zz@ask:A' }, true)).toBe(0);
+    expect(shared.peerAskInsertIndex([it0('u1'), it0('u2')], { uuid: '@ask:A' })).toBe(0);
+    expect(shared.peerAskInsertIndex([], { uuid: 'zz@ask:A' })).toBe(0);
+  });
+});

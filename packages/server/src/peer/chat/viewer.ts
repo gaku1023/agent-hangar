@@ -6,6 +6,8 @@ import {
   PEER_CHAT_IMAGES_MAX,
   PEER_CHAT_TAIL_WAIT_MS,
   PEER_CHAT_TEXT_MAX_BYTES,
+  peerAskBase,
+  peerAskInsertIndex,
   peerChatExpiresAt,
   sealPeerChat,
   sealPeerChatBlob,
@@ -189,11 +191,7 @@ const viewerKey = (socket: number | null, id: string): string => (socket === nul
 const sigOf = (v: unknown): string => JSON.stringify(v);
 /** 札の変化の印。答えと、答えられるかの印（answerable）のどちらが変わっても項目を差し替える。 */
 const askSig = (a: NonNullable<PeerChatItem['ask']>): string => sigOf([a.answered ?? null, a.answerable ?? true]);
-/** 札の uuid の、@ask: より前（transcript の位置）。 */
-const askBase = (uuid: string): string => {
-  const i = uuid.indexOf('@ask:');
-  return i === -1 ? uuid : uuid.slice(0, i);
-};
+const askBase = peerAskBase;
 const statusOf = (e: unknown): number | null => {
   const s = (e as { status?: unknown } | null)?.status;
   return typeof s === 'number' ? s : null;
@@ -284,6 +282,20 @@ class Watch {
   }
 
   /**
+   * 初めて見る札を、貯めた項目に入れる。
+   * 札が呼んだ位置（直前の項目の直後）が末尾でなければ、そこへ差し込む。
+   * 答えの記録は、見る側が transcript の続きを受け取ったあとに来ることがあり、末尾に足すとあとの返答より下に並ぶ。
+   */
+  private putAsk(it: PeerChatItem): void {
+    const all = [...this.items.values()];
+    const at = peerAskInsertIndex(all, it);
+    if (at >= all.length) { this.items.set(it.uuid, it); return; }
+    all.splice(at, 0, it);
+    this.items.clear();
+    for (const x of all) this.items.set(x.uuid, x);
+  }
+
+  /**
    * 元の PC の状態を取り込む。
    * 変わったかと、流す項目を返す。
    */
@@ -324,7 +336,7 @@ class Watch {
           continue;
         }
         this.asks.set(it.ask.askId, { uuid: it.uuid, sig, answered: it.ask.answered !== undefined });
-        this.items.set(it.uuid, it);
+        this.putAsk(it);
         emit.push(it);
         changed = true;
         continue;
