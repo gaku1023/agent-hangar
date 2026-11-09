@@ -241,7 +241,8 @@ export class EventBindingService {
       keep = r.binding.id;
     }
     for (const b of wakes) if (b.id !== keep) this.remove(b.id);
-    // 付けているあいだ（gh の待ち）に会話が Paused を離れていたら、見張りは消すものが無いまま通り過ぎている。ここで取り残しを消す。
+    // 付けているあいだ（gh の待ち）に会話が Paused を離れていたら、見張りは消すものが無いまま通り過ぎている。
+    // ここで取り残しを消す。
     if (dropStaleWakes(this.d.db, sessionId, this.now()) > 0) { void this.d.hooks.sweep(); this.changed(); }
     return { status: 'created' };
   }
