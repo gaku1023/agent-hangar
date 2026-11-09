@@ -208,7 +208,10 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     // 同じ札に先に答えた PC があれば、画面を見るまでもなく断る（札が閉じた後に遅れて来た答えも）。
     if (view.answeredAsk(op.askId)) return refuse('already-answered');
     const current = view.currentAsk(sessionId);
-    if (!current || current.askId !== op.askId) return refuse('ask-mismatch');
+    if (!current) return refuse('ask-mismatch');
+    // 拠り所が決まって askId が言い換わった札には、言い換え前の askId で来た答えを、今の札のものとして受ける。
+    if (view.resolveAskId(op.askId, current.askId) !== current.askId) return refuse('ask-mismatch');
+    if (current.askId !== op.askId && view.answeredAsk(current.askId)) return refuse('already-answered');
     const asked = view.askItem(sessionId, current.askId);
     const r = await answerer.answerAsk(sessionId, current, op.keys, op.text);
     if (!r.ok) return refuse(r.reason);

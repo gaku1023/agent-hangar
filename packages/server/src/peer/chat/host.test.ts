@@ -663,6 +663,65 @@ describe('PeerChatHost: answer と interrupt', () => {
     expect(s.w.pane.events).toEqual([]);
   });
 
+  describe('拠り所のない札に tool_use が載って askId が変わったとき', () => {
+    const useLine = (): string => jl({ type: 'assistant', message: { role: 'assistant', model: 'm', content: [{ type: 'tool_use', id: 'toolu_x1', name: 'Bash', input: { command: 'rm -rf build' } }] } });
+
+    it('見る側の画面は札が 1 枚のまま、答えは付かない。言い換え前の askId の答えは、今の札への答えとして受ける', async () => {
+      const { s, ask } = await withPermission();
+      const first = s.state(await s.ask(tailOp()));
+      // tool_use が書かれ、拠り所が見つかって askId が変わる。
+      s.w.lines.push(useLine());
+      const second = s.state(await s.ask(tailOp(first.cursor)));
+      const renewed = second.items.at(-1)!.ask!;
+      expect(renewed.askId).not.toBe(ask.askId);
+      expect(second.items.filter((i) => i.ask?.answered)).toEqual([]);
+      // 見る側が、言い換え前の askId のまま答える。
+      expect((await s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] })).ok).toBe(true);
+      expect(s.w.pane.events).toEqual(['text:1']);
+      const done = s.state(await s.ask(tailOp()));
+      const cards = done.items.filter((i) => i.ask);
+      expect(cards).toHaveLength(1);
+      expect(cards[0]!.ask).toMatchObject({ askId: renewed.askId, answered: { by: { deviceId: 'pc-b' }, label: 'Yes' } });
+      expect(done.items.at(-1)!.ask?.askId).toBe(renewed.askId);
+    });
+
+    it('言い換えを見ていない askId は、今の札があっても ask-mismatch のまま', async () => {
+      const { s } = await withPermission();
+      const first = s.state(await s.ask(tailOp()));
+      s.w.lines.push(useLine());
+      await s.ask(tailOp(first.cursor));
+      expect(await s.ask({ t: 'answer', askId: 'not-an-old-ask', keys: ['1'] })).toEqual({ ok: false, reason: 'ask-mismatch' });
+      expect(s.w.pane.events).toEqual([]);
+    });
+
+    it('言い換え前の askId でも、札が出ている画面が照合に通らなければ（別の命令の札）打たずに ask-mismatch', async () => {
+      const { s, ask } = await withPermission();
+      const first = s.state(await s.ask(tailOp()));
+      s.w.lines.push(useLine());
+      await s.ask(tailOp(first.cursor));
+      // 画面にも札は出ているが、命令が登録の許可と違う。
+      s.w.pane.plain = PERMISSION_SCREEN.replace('rm -rf build', 'rm -rf other');
+      const before = s.w.pane.captures;
+      expect(await s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] })).toEqual({ ok: false, reason: 'ask-mismatch' });
+      expect(s.w.pane.captures).toBeGreaterThan(before);
+      expect(s.w.pane.events).toEqual([]);
+    });
+
+    it('同じ命令の 2 枚目が出る前に 1 枚目が手元で答えられたとき、1 枚目の askId の答えは 2 枚目に入らない', async () => {
+      const { s, ask } = await withPermission();
+      const first = s.state(await s.ask(tailOp()));
+      // 1 枚目の tool_use と結果、同じ命令の 2 回目の tool_use が、観察の間に載る（登録はずっと waiting のまま）。
+      s.w.lines.push(useLine());
+      s.w.lines.push(jl({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_x1', content: 'ok', is_error: false }] } }));
+      s.w.lines.push(jl({ type: 'assistant', message: { role: 'assistant', model: 'm', content: [{ type: 'tool_use', id: 'toolu_x2', name: 'Bash', input: { command: 'rm -rf build' } }] } }));
+      const second = s.state(await s.ask(tailOp(first.cursor)));
+      const next = second.items.find((i) => i.ask && !i.ask.answered)!.ask!;
+      expect(next.askId).not.toBe(ask.askId);
+      expect(await s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] })).toEqual({ ok: false, reason: 'already-answered' });
+      expect(s.w.pane.events).toEqual([]);
+    });
+  });
+
   it('札が出ていなければ ask-mismatch', async () => {
     const s = await setup();
     expect(await s.ask({ t: 'answer', askId: 'x', keys: ['1'] })).toEqual({ ok: false, reason: 'ask-mismatch' });

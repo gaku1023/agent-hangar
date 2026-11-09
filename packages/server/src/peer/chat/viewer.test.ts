@@ -248,6 +248,42 @@ describe('流れ（peerChat.update）', () => {
     ]);
   });
 
+  it('札の askId が言い換わったとき（同じ位置・同じ種類で、前の札に答えが無い）は、札を重ねず最初の uuid の札を置き換える', async () => {
+    answers.push(() => ok(state([item('u1'), askItem('u1@ask:A', 'A')])));
+    answers.push(() => ok(state([askItem('u1@ask:B', 'B')])));
+    answers.push(() => ok(state([askItem('u1@ask:B', 'B', true)])));
+    await viewer.open(SID, { viewer: 'v1' });
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    const flat = updates().map((u) => u.items.map((i) => [i.uuid, i.ask?.askId ?? i.kind, !!i.ask?.answered]));
+    expect(flat).toEqual([
+      [['u1', 'assistant', false], ['u1@ask:A', 'A', false]],
+      [['u1@ask:A', 'B', false]],
+      [['u1@ask:A', 'B', true]],
+    ]);
+  });
+
+  it('同じ状態に、置き換え元の札の答えと新しい札が並ぶときは、新しい札を残す（B が先、答え付きの A が後）', async () => {
+    answers.push(() => ok(state([askItem('u1@ask:A', 'A')])));
+    answers.push(() => ok(state([askItem('u1@ask:B', 'B'), askItem('u1@ask:A', 'A', true)])));
+    await viewer.open(SID, { viewer: 'v1' });
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    const flat = updates().map((u) => u.items.map((i) => [i.uuid, i.ask?.askId, !!i.ask?.answered]));
+    expect(flat).toEqual([
+      [['u1@ask:A', 'A', false]],
+      [['u1@ask:B', 'B', false], ['u1@ask:A', 'A', true]],
+    ]);
+  });
+
+  it('位置が違う札は、前の札に答えが無くても別の札として重ねる', async () => {
+    answers.push(() => ok(state([askItem('u1@ask:A', 'A')])));
+    answers.push(() => ok(state([item('u2'), askItem('u2@ask:B', 'B')])));
+    await viewer.open(SID, { viewer: 'v1' });
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    const flat = updates().map((u) => u.items.map((i) => i.ask?.askId ?? i.kind));
+    expect(flat).toEqual([['A'], ['assistant', 'B']]);
+  });
+
   it('答えの付いた札が同じ uuid のまま末尾に付け直されても、同じ uuid の重ね書きとして 1 度だけ流す', async () => {
     answers.push(() => ok(state([askItem('u1@ask:A', 'A'), item('u2')])));
     answers.push(() => ok(state([askItem('u1@ask:A', 'A', true)], { cursor: 'u2' })));
