@@ -6,7 +6,7 @@ import { onUnread } from '../live/unread.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { recordPeerRequest } from '../peer/outbox.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
-import { bootPeer } from './peer.ts';
+import { bootPeer, callerScreenReady } from './peer.ts';
 
 const ME = 'pc-a';
 const PEER = 'pc-b';
@@ -154,5 +154,41 @@ describe('bootPeer の承認（D8）', () => {
     expect(await parts.approvals.approve('ap-1')).toBe('failed');
     await vi.waitFor(() => { expect(sent).toHaveLength(1); });
     expect(sent[0]!.text).toContain('起動に失敗');
+  });
+});
+
+describe('callerScreenReady（知らせを打つ前に呼び出し元の画面を読む）', () => {
+  const RULE = '─'.repeat(40);
+  const EMPTY = [RULE, '❯ ', RULE, 'footer'].join('\n');
+  const DRAFT = [RULE, '❯ hello', RULE, 'footer'].join('\n');
+  const QUESTION = [' ☐ 向き', ' どちらにしますか', '❯ 1. 案 A', '  2. 案 B', '  3. Type something.', RULE, '  4. Chat about this', 'Enter to select · Esc to cancel'].join('\n');
+  const ready = (capture: (name: string) => Promise<string | null>, panes = true) =>
+    callerScreenReady({ db, deviceId: ME, now: () => NOW, panes: () => (panes ? { captureStyled: capture } : null) });
+
+  it('札が無く入力欄が空なら true、打ちかけか札があれば false', async () => {
+    const names: string[] = [];
+    expect(await ready(async (n) => { names.push(n); return EMPTY; })(caller)).toBe(true);
+    expect(names).toEqual(['hangar-run-1']);
+    expect(await ready(async () => DRAFT)(caller)).toBe(false);
+    expect(await ready(async () => QUESTION)(caller)).toBe(false);
+  });
+
+  it('Claude Code でない会話は画面を読まずに true（登録の状態だけで決める）', async () => {
+    db.prepare("update sessions set provider = 'codex' where id = ?").run(caller);
+    let read = 0;
+    expect(await ready(async () => { read += 1; return DRAFT; })(caller)).toBe(true);
+    expect(read).toBe(0);
+  });
+
+  it('この PC で動いていない、画面の裏が無い、画面が読めないときは false', async () => {
+    expect(await ready(async () => EMPTY, false)(caller)).toBe(false);
+    expect(await ready(async () => null)(caller)).toBe(false);
+    expect(await ready(async () => EMPTY)('no-such-session')).toBe(false);
+    db.prepare('delete from runs').run();
+    expect(await ready(async () => EMPTY)(caller)).toBe(false);
+  });
+
+  it('画面の読み出しが投げたら、そのまま投げる（PeerOutbox が預かったままにする）', async () => {
+    await expect(ready(async () => { throw new Error('pane gone'); })(caller)).rejects.toThrow('pane gone');
   });
 });

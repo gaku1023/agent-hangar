@@ -8,7 +8,7 @@ import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { acceptsResultFrom, forgetSpawn, getSpawn } from '../sessions/spawns.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
-import { getPeerRequest, PEER_DELIVERY_EXPIRE_MS, PEER_DELIVERY_MAX_PER_CALLER, PeerOutbox, recordPeerRequest, SCREEN_CALLER } from './outbox.ts';
+import { getPeerRequest, PEER_DELIVERY_MAX_PER_CALLER, PEER_DELIVERY_NOTICE_MS, PeerOutbox, recordPeerRequest, SCREEN_CALLER } from './outbox.ts';
 
 const ME = 'pc-a';
 const PEER = 'pc-b';
@@ -355,61 +355,74 @@ describe('PeerOutbox の札と打ちかけ（知らせが利用者の答えを�
     expect(t.indexOf('二つ目')).toBeLessThan(t.indexOf('三つ目'));
   });
 
-  it('画面が読めなければ（投げたら）打たない', async () => {
+  it('画面が読めなければ（投げたら）打たず、時間がたっても捨てない', async () => {
+    let throws = true;
+    const n: string[] = [];
     const o = new PeerOutbox({
       db, deviceId: ME, api: () => api, ring: () => ring, live: () => live, now: () => clock.t,
       inject: async (id, text) => { injected.push({ id, text }); return true; },
-      notify: () => {},
-      screenReady: async () => { throw new Error('no pane'); },
+      notify: (_id, text) => { n.push(text); },
+      screenReady: async () => { if (throws) throw new Error('no pane'); return true; },
       timers: { setTimeout: (() => 0) as unknown as typeof setTimeout, clearTimeout, setInterval, clearInterval },
     });
-    await result(1);
-    await o.sync();
-    expect(injected).toEqual([]);
-  });
-
-  it('打てないまま期限を過ぎた知らせは捨て、捨てた知らせをログに 1 行ずつ残す。作業中と札の間は数えない', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      screen = false;
-      await result(1, { lastReply: '一つ目' });
-      await ob.sync();
-      // 札が出ている間は数えない。
-      live = [entry('u1', 'waiting', { waitingFor: 'question' })];
-      clock.t += PEER_DELIVERY_EXPIRE_MS * 3;
-      await ob.flush();
-      live = [entry('u1', 'idle')];
-      await ob.flush();
-      clock.t += PEER_DELIVERY_EXPIRE_MS - 1;
-      await ob.flush();
-      expect(warn).not.toHaveBeenCalled();
-      clock.t += 1;
-      await ob.flush();
-      expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn.mock.calls[0]!.join(' ')).toContain('一つ目');
-      screen = true;
-      await ob.flush();
+      await result(1);
+      await o.sync();
+      clock.t += PEER_DELIVERY_NOTICE_MS * 5;
+      await o.flush();
       expect(injected).toEqual([]);
-      // 後から届いた知らせは、改めて数える。
-      await result(2, { lastReply: '二つ目' });
-      await ob.sync();
+      expect(n).toHaveLength(1);
+      throws = false;
+      await o.flush();
       expect(injected).toHaveLength(1);
-      expect(injected[0]!.text).toContain('二つ目');
-      expect(injected[0]!.text).not.toContain('一つ目');
     } finally {
       warn.mockRestore();
     }
   });
 
-  it('預かりが上限を超えたら、古いものから捨ててログに残す', async () => {
+  it('打てないまま長引いても捨てず、利用者に 1 度だけ知らせ、打てるようになったら渡す。作業中と札の間は数えない', async () => {
+    screen = false;
+    await result(1, { lastReply: '一つ目' });
+    await ob.sync();
+    // 札が出ている間は数えない。
+    live = [entry('u1', 'waiting', { waitingFor: 'question' })];
+    clock.t += PEER_DELIVERY_NOTICE_MS * 3;
+    await ob.flush();
+    live = [entry('u1', 'idle')];
+    await ob.flush();
+    clock.t += PEER_DELIVERY_NOTICE_MS - 1;
+    await ob.flush();
+    expect(notices).toEqual([]);
+    clock.t += 1;
+    await ob.flush();
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.id).toBe(caller);
+    expect(notices[0]!.text).toContain('Mac');
+    // 知らせたあとは短い間隔の読み直しをやめ、繰り返し知らせない。
+    const queued = later.length;
+    clock.t += PEER_DELIVERY_NOTICE_MS * 10;
+    await ob.flush();
+    expect(later.length).toBe(queued);
+    expect(notices).toHaveLength(1);
+    expect(injected).toEqual([]);
+    screen = true;
+    await ob.flush();
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.text).toContain('一つ目');
+  });
+
+  it('預かりが上限を超えたら、古いものは利用者に知らせてから外し、ログに残す。止められている間も同じ', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      screen = false;
+      live = [];
       const n = PEER_DELIVERY_MAX_PER_CALLER + 2;
       for (let i = 1; i <= n; i++) await result(i, { lastReply: `返答-${i}-終` });
       await ob.sync();
       expect(warn).toHaveBeenCalledTimes(2);
-      screen = true;
+      // 止められている間は 1 件ずつ知らせる。外した 2 件も知らせから漏れない。
+      expect(notices).toHaveLength(n);
+      live = [entry('u1', 'idle')];
       for (let i = 0; i < 20; i++) await ob.flush();
       const all = injected.map((x) => x.text).join('\n');
       expect(all).not.toContain('返答-1-終');
@@ -419,6 +432,62 @@ describe('PeerOutbox の札と打ちかけ（知らせが利用者の答えを�
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it('画面で止めている間だけ読み直しの時計を積み、預かりが空になったら積まない', async () => {
+    screen = false;
+    await result(1);
+    await ob.sync();
+    expect(later).toHaveLength(1);
+    // 時計は 1 本だけ持つ。
+    await ob.flush();
+    expect(later).toHaveLength(1);
+    screen = true;
+    later.shift()!();
+    await vi_waitFor(() => injected.length === 1);
+    await ob.flush();
+    expect(later).toEqual([]);
+  });
+
+  it('再起動を挟んでも、DB に預かった知らせは新しい送り込みから渡る', async () => {
+    screen = false;
+    await result(1, { lastReply: '再起動前' });
+    await ob.sync();
+    expect(injected).toEqual([]);
+    const next = new PeerOutbox({
+      db, deviceId: ME, api: () => api, ring: () => ring, live: () => live, now: () => clock.t,
+      inject: async (id, text) => { injected.push({ id, text }); return true; },
+      notify: () => {},
+      screenReady: async () => true,
+      timers: { setTimeout: (() => 0) as unknown as typeof setTimeout, clearTimeout, setInterval, clearInterval },
+    });
+    await next.flush();
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.text).toContain('再起動前');
+  });
+
+  it('呼び出し元ごとに独立して止める。一方が札の間も、もう一方には渡る', async () => {
+    const other = ensureSession(db, 'u2', '/w', ME);
+    live = [entry('u1', 'idle'), entry('u2', 'idle')];
+    const blocked = new Set([caller]);
+    const o = new PeerOutbox({
+      db, deviceId: ME, api: () => api, ring: () => ring, live: () => live, now: () => clock.t,
+      inject: async (id, text) => { injected.push({ id, text }); return true; },
+      notify: () => {},
+      screenReady: async (id) => !blocked.has(id),
+      timers: { setTimeout: (() => 0) as unknown as typeof setTimeout, clearTimeout, setInterval, clearInterval },
+    });
+    const id2 = 'req-2';
+    await a.peerLaunch.put({ id: id2, to: PEER, sealed: SEALED });
+    recordPeerRequest(db, { requestId: id2, to: PEER, callerSessionId: other, now: clock.t });
+    await started('child-2', id2);
+    await result(1);
+    await result(1, { sessionId: 'child-2', lastReply: '二つ目の会話' }, { ...route, requestId: id2 });
+    await o.sync();
+    expect(injected.map((x) => x.id)).toEqual([other]);
+    blocked.clear();
+    await o.flush();
+    expect(injected.map((x) => x.id)).toEqual([other, caller]);
   });
 });
 

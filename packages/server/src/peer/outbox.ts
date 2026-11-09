@@ -26,9 +26,11 @@ import { expiredText, goneNotice, heldNotice, PEER_TEXT_MAX, refusalText, result
  *
  * 札の間に打つと、札の「その他」の自由入力に入り、利用者の答えの代わりに確定してしまう（v0.20.0-rc で 3 回起きた）。
  * 登録の状態は遅れることがあるので、打つ直前に画面も読む（screenReady）。
- * 画面で止めている間は短い間隔で読み直し、打てないまま PEER_DELIVERY_EXPIRE_MS たった知らせは捨てる。
+ * 画面の都合で打てない知らせは捨てずに預かり続け、打てるようになったら渡す。
+ * 画面で止めている間は短い間隔で読み直し、PEER_DELIVERY_NOTICE_MS たっても打てなければ、止められているときと同じ文（notice_held）で 1 度だけ利用者に知らせ、以後は 30 秒ごとの取得と登録の変化で見直す。
  * 数えるのは、登録では入力を待っているのに画面で止めている間だけで、作業中、札の間、止められている間は数えない（peer/chat/queue.ts の PeerQueue と同じ考え方）。
- * 預かりは呼び出し元ごとに PEER_DELIVERY_MAX_PER_CALLER 件までで、超えたら古いものから捨てる。捨てた知らせは、ログに 1 行ずつ残す。
+ * 預かりは呼び出し元ごとに PEER_DELIVERY_MAX_PER_CALLER 件までで、超えた古いものは、同じ文で利用者に知らせてから預かりから外し、ログに 1 行ずつ残す。
+ * 画面を読んでから打つまでの間（capture と inject の間）に人が打ち始める余地は残る。仕様として受け入れる（PeerQueue も同じ）。
  */
 
 /** 取得の間隔。呼び鈴が無くても、頼みと結果はこの間隔で届く。 */
@@ -40,13 +42,13 @@ const OUTBOX_PAGES = 10;
 /** 1 件の頼みで、1 回の取得に続けて読む結果の頁の上限。 */
 const RESULT_PAGES = 50;
 const CURSOR_KEY = 'peerOutboxSince';
-/** 入力を待っている呼び出し元に、画面の都合（打ちかけ、登録に出ない札）で打てないまま、知らせを預かっておく長さ。 */
-export const PEER_DELIVERY_EXPIRE_MS = PEER_QUEUE_EXPIRE_MS;
-/** 呼び出し元 1 つに預かれる知らせの件数。超えたら古いものから捨てる。 */
+/** 入力を待っている呼び出し元に、画面の都合（打ちかけ、登録に出ない札）で打てないまま、この長さがたったら利用者に知らせる。 */
+export const PEER_DELIVERY_NOTICE_MS = PEER_QUEUE_EXPIRE_MS;
+/** 呼び出し元 1 つに預かれる知らせの件数。超えた古いものは、利用者への知らせに替えて預かりから外す。 */
 export const PEER_DELIVERY_MAX_PER_CALLER = 50;
 /** 画面の都合で打てなかったとき、読み直すまでの間隔。 */
 export const PEER_DELIVERY_RECHECK_MS = PEER_QUEUE_POLL_MS;
-/** 捨てた知らせをログに残すときの長さ。 */
+/** 預かりから外した知らせをログに残すときの長さ。 */
 const DROP_LOG_CHARS = 300;
 
 /** 画面から人が頼んだ起動の呼び出し元。会話が無いので空で、答えは画面の札で知らせ、結び付きも結果の預かりも作らない。 */
@@ -117,8 +119,8 @@ export type PeerOutboxDeps = {
   intervalMs?: number;
   /** 画面の都合で打てなかったときの読み直しの間隔。既定は PEER_DELIVERY_RECHECK_MS。 */
   recheckMs?: number;
-  /** 画面の都合で打てないまま預かる長さ。既定は PEER_DELIVERY_EXPIRE_MS。 */
-  expireMs?: number;
+  /** 画面の都合で打てないまま、利用者に知らせるまでの長さ。既定は PEER_DELIVERY_NOTICE_MS。 */
+  noticeMs?: number;
 };
 
 type Delivery = { id: number; request_id: string; seq: number; caller_session_id: string; text: string; notice_held: string; notice_gone: string; notified: number; created_at: number };
@@ -444,13 +446,22 @@ export class PeerOutbox {
     }
   }
 
-  /** 預かりから捨てる。捨てた知らせは、失われたと分かるようにログに 1 行ずつ残す。 */
-  private drop(rows: Delivery[], why: 'expired' | 'over-limit'): void {
+  /** 預かっている知らせを、利用者に 1 度だけ知らせる（未読と OS・スマホの通知）。知らせ済みの行には何もしない。 */
+  private noteHeld(caller: string, d: Delivery): void {
+    if (d.notified) return;
+    this.deps.db.prepare('update peer_deliveries set notified = 1 where id = ?').run(d.id);
+    d.notified = 1;
+    this.safeNotify(caller, d.notice_held);
+  }
+
+  /** 上限を超えた古い知らせを、利用者に知らせてから預かりから外す。外した知らせは、ログに 1 行ずつ残す。 */
+  private overflow(caller: string, rows: Delivery[]): void {
     const done = this.deps.db.prepare('update peer_deliveries set delivered_at = ? where id = ?');
     for (const d of rows) {
+      this.noteHeld(caller, d);
       done.run(this.now(), d.id);
       const head = [...d.text.replace(/\s+/g, ' ')].slice(0, DROP_LOG_CHARS).join('');
-      console.warn(`[peer] dropped a held notice (${why}) for session ${d.caller_session_id}, request ${d.request_id} seq ${d.seq}: ${head}`);
+      console.warn(`[peer] held notices over the limit; notified the user instead of injecting, session ${d.caller_session_id}, request ${d.request_id} seq ${d.seq}: ${head}`);
     }
   }
 
@@ -477,7 +488,7 @@ export class PeerOutbox {
       if (state !== 'ready') this.blockedSince.delete(caller);
       let rows = all;
       if (state !== 'gone' && rows.length > PEER_DELIVERY_MAX_PER_CALLER) {
-        this.drop(rows.slice(0, rows.length - PEER_DELIVERY_MAX_PER_CALLER), 'over-limit');
+        this.overflow(caller, rows.slice(0, rows.length - PEER_DELIVERY_MAX_PER_CALLER));
         rows = rows.slice(rows.length - PEER_DELIVERY_MAX_PER_CALLER);
       }
       if (state === 'gone') {
@@ -486,22 +497,17 @@ export class PeerOutbox {
           this.safeNotify(null, d.notice_gone, this.anchorOf(d.request_id));
         }
       } else if (state === 'stopped') {
-        for (const d of rows) {
-          if (d.notified) continue;
-          db.prepare('update peer_deliveries set notified = 1 where id = ?').run(d.id);
-          this.safeNotify(caller, d.notice_held);
-        }
+        for (const d of rows) this.noteHeld(caller, d);
       } else if (state === 'ready') {
-        // 札が出ているか打ちかけがあれば打たない。登録では入力を待っている間だけ数え、期限を過ぎた知らせは捨てる。
+        // 札が出ているか打ちかけがあれば打たない。捨てずに預かり、登録では入力を待っている間だけ数えて、長引いたら利用者に 1 度だけ知らせる。
         if (!(await this.screenOk(caller))) {
           const now = this.now();
           const since = this.blockedSince.get(caller) ?? now;
           this.blockedSince.set(caller, since);
-          const expireMs = this.deps.expireMs ?? PEER_DELIVERY_EXPIRE_MS;
-          const old = rows.filter((d) => now - Math.max(since, d.created_at) >= expireMs);
-          if (old.length > 0) this.drop(old, 'expired');
-          if (old.length < rows.length) this.scheduleRecheck();
-          else this.blockedSince.delete(caller);
+          const noticeMs = this.deps.noticeMs ?? PEER_DELIVERY_NOTICE_MS;
+          for (const d of rows) if (now - Math.max(since, d.created_at) >= noticeMs) this.noteHeld(caller, d);
+          // 知らせ終えたら短い間隔の読み直しはやめ、30 秒ごとの取得と登録の変化に任せる（打ちかけのまま離席した画面を読み続けない）。
+          if (now - since < noticeMs) this.scheduleRecheck();
           continue;
         }
         this.blockedSince.delete(caller);
