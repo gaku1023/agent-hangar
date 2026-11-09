@@ -1,4 +1,4 @@
-import { PEER_CHAT_REPLY_SEALED_MAX, type PeerChatAsk, type PeerChatDevice, type PeerChatGone, type PeerChatItem, type PeerChatQueued, type PeerChatState, type PeerChatStatus } from '@agent-hangar/shared';
+import { PEER_CHAT_REPLY_SEALED_MAX, peerAskBase, peerAskInsertIndex, type PeerChatAsk, type PeerChatDevice, type PeerChatGone, type PeerChatItem, type PeerChatQueued, type PeerChatState, type PeerChatStatus } from '@agent-hangar/shared';
 import { dialogMatches, isCommandTitle, parseDialog, type Dialog } from './answer.ts';
 import type { HostPane, HostSession } from './hostTypes.ts';
 import { currentPendingAsk, peerAskId, transcriptTail, type PeerPendingAsk, type TailDeps } from './tail.ts';
@@ -37,11 +37,7 @@ const RECORD_MAX = 64;
 /** answerable が false の札の画面を取り直す最短の間隔。 */
 export const UNANSWERABLE_RECHECK_MS = 2000;
 
-/** 札の uuid の、@ask: より前（transcript の位置）。 */
-const askBase = (uuid: string): string => {
-  const i = uuid.indexOf('@ask:');
-  return i === -1 ? uuid : uuid.slice(0, i);
-};
+const askBase = peerAskBase;
 const SIG_MAX = 256;
 /**
  * 答えの JSON の大きさの上限。
@@ -353,7 +349,17 @@ export class ChatView {
     this.observe(sessionId);
     const t = transcriptTail(sessionId, after, undefined, this.tailDeps);
     const extras = this.answers.filter((a) => a.sessionId === sessionId && !t.items.some((i) => i.uuid === a.item.uuid)).map((a) => a.item);
-    const items = [...this.annotate(t.items, sessionId), ...extras];
+    const items = this.annotate(t.items, sessionId);
+    // 答えの記録の札は、札が呼んだ位置（直前の項目の直後）に入れる。末尾に足すと、あとの返答より下に並ぶ。
+    // 直前の項目が今回の返す項目に無いとき。
+    // 頭からの取得で項目を落としたなら（truncated）、札は取得の範囲より前なので出さない。
+    // after の続きで、直前の項目が after の位置なら先頭、それ以外は末尾に足す（見る側がすでに持つ位置なので、見る側が位置を直す）。
+    for (const x of extras) {
+      const base = askBase(x.uuid);
+      if (base === '' || items.some((i) => i.uuid === base)) items.splice(peerAskInsertIndex(items, x), 0, x);
+      else if (after === null && t.truncated) continue;
+      else items.splice(peerAskInsertIndex(items, x, after !== null && base === askBase(after)), 0, x);
+    }
     const gone = this.gone.filter((g) => g.sessionId === sessionId && g.deviceId === deviceId).map((g) => g.gone);
     const status = this.status(sessionId);
     const queued = this.d.queued(sessionId).map((q) => ({ ...q, text: clipText(q.text, QUEUED_TEXT_MAX_BYTES) }));

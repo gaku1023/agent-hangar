@@ -1,3 +1,4 @@
+import { peerAskInsertIndex } from '@agent-hangar/shared';
 import type { PeerChatGone, PeerChatItem, PeerChatLink, PeerChatQueued, PeerChatReason, PeerChatState, PeerChatStatus, PeerChatTargetDto, PeerChatUpdate } from '@agent-hangar/shared';
 
 /**
@@ -39,13 +40,17 @@ export function emptySlice(viewer: string): PeerChatSlice {
   return { viewers: [viewer], phase: 'loading', fallback: null, device: null, link: 'online', status: null, items: [], queued: [], cursor: null, sending: false, answering: [], locked: false, restore: null, notice: null, mine: {} };
 }
 
-/** 項目を重ね書きする。同じ uuid は置き換え、札は askId が同じものも置き換え、新しいものは末尾に足す。 */
+/**
+ * 項目を重ね書きする。同じ uuid は置き換え、札は askId が同じものも置き換え、新しいものは末尾に足す。
+ * 初めて見る札は、札が呼んだ位置（直前の項目の直後）に入れる（答えの記録が、続きの返答のあとに届くことがある）。
+ */
 export function upsertItems(items: PeerChatItem[], incoming: PeerChatItem[]): PeerChatItem[] {
   const out = [...items];
   for (const it of incoming) {
     let at = out.findIndex((x) => x.uuid === it.uuid);
     if (at < 0 && it.ask) at = out.findIndex((x) => x.ask?.askId === it.ask!.askId);
     if (at >= 0) out[at] = it;
+    else if (it.ask) out.splice(peerAskInsertIndex(out, it), 0, it);
     else out.push(it);
   }
   return out;

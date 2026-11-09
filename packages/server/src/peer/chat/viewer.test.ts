@@ -450,6 +450,46 @@ describe('流れ（peerChat.update）', () => {
     expect(updates().map((u) => u.items.map((i) => [i.uuid, !!i.ask?.answered]))).toEqual([[['u1@ask:A', false], ['u2', false]], [['u1@ask:A', true]]]);
   });
 
+  it('見る側がまだ受け取っていない答え済みの札が後から来ても、貯めた項目の札の位置（直前の項目の直後）に入れる', async () => {
+    answers.push(() => ok(state([item('u1'), item('u2'), item('u3')])));
+    answers.push(() => ok(state([askItem('u1@ask:A', 'A', true)], { cursor: 'u3' })));
+    await viewer.open(SID, { viewer: 'v1' });
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    const second = await viewer.open(SID, { viewer: 'v2' });
+    expect(second.ok && second.update.items.map((i) => i.uuid)).toEqual(['u1', 'u1@ask:A', 'u2', 'u3']);
+  });
+
+  it('答えの記録が後から来る言い換え、答えられない印の変化、起点の巻き戻しが重なっても、札は呼んだ位置のまま', async () => {
+    const mk = (uuid: string, askId: string, answered: boolean, over: { answerable?: false } = {}): PeerChatItem => { const a = askItem(uuid, askId, answered); return { ...a, ask: { ...a.ask!, ...over } }; };
+    // 札が出る（答えられない印つき）。言い換わり、印が消え、答えられ、続きの返答が先に載る。
+    answers.push(() => ok(state([item('u1'), mk('u1@ask:A!', 'A', false, { answerable: false })])));
+    answers.push(() => ok(state([mk('u1@ask:B', 'B', false)])));
+    answers.push(() => ok(state([item('u2'), item('u3'), mk('u1@ask:B', 'B', true)], { cursor: 'u3' })));
+    await viewer.open(SID, { viewer: 'v1' });
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    const second = await viewer.open(SID, { viewer: 'v2' });
+    expect(second.ok && second.update.items.map((i) => [i.uuid, !!i.ask?.answered])).toEqual([['u1', false], ['u1@ask:A!', true], ['u2', false], ['u3', false]]);
+  });
+
+  it('同じ位置の答え済みの札が 2 枚あとから来ても、答えた順のまま並ぶ', async () => {
+    answers.push(() => ok(state([item('u1'), item('u2')])));
+    answers.push(() => ok(state([askItem('u1@ask:A', 'A', true), askItem('u1@ask:B', 'B', true)], { cursor: 'u2' })));
+    await viewer.open(SID, { viewer: 'v1' });
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    const second = await viewer.open(SID, { viewer: 'v2' });
+    expect(second.ok && second.update.items.map((i) => i.uuid)).toEqual(['u1', 'u1@ask:A', 'u1@ask:B', 'u2']);
+  });
+
+  it('いま出ている札（直前の項目が末尾）は、いつもどおり末尾に並ぶ', async () => {
+    answers.push(() => ok(state([item('u1')])));
+    answers.push(() => ok(state([item('u2'), askItem('u2@ask:A', 'A')])));
+    await viewer.open(SID, { viewer: 'v1' });
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    const second = await viewer.open(SID, { viewer: 'v2' });
+    expect(second.ok && second.update.items.map((i) => i.uuid)).toEqual(['u1', 'u2', 'u2@ask:A']);
+  });
+
   it('渡せずに消えた預かり（gone）は queueId ごとに 1 度だけ流し、5 分たったら覚えを捨てる。GET には数分以内の分が全部載る', async () => {
     const gone = [{ queueId: 'q1', reason: 'queue-expired' as const }];
     answers.push(() => ok(state([item('u1')], { gone })));
