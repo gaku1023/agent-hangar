@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   EVENT_BODY_MAX_BYTES,
   EVENT_INBOX_KEEP_MS,
@@ -9,6 +9,8 @@ import {
   type EventInboxPending,
   type PeerBellMessage,
 } from '@agent-hangar/shared';
+import { createApp, redactedPath } from '../src/app.ts';
+import type { Env } from '../src/env.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sweepOnce } from '../src/sweep.ts';
 import { addPcDevice, joinPhoneDevice, startCloud, type CloudHarness } from './harness.ts';
@@ -321,5 +323,41 @@ describe('呼び鈴', () => {
     const { inboxId } = await createInbox(a);
     expect((await hook(inboxId, 'quiet')).status).toBe(202);
     expect((await pending(a)).items).toHaveLength(1);
+  });
+});
+
+describe('記録に受け箱の ID を残さない', () => {
+  it('redacts the inbox id in logged paths but keeps fixed routes', () => {
+    expect(redactedPath('/hooks/secretid123')).toBe('/hooks/:id');
+    expect(redactedPath('/inboxes/secretid123')).toBe('/inboxes/:id');
+    expect(redactedPath('/inboxes/pending')).toBe('/inboxes/pending');
+    expect(redactedPath('/inboxes/ack')).toBe('/inboxes/ack');
+    expect(redactedPath('/inboxes')).toBe('/inboxes');
+    expect(redactedPath('/launches/l-1')).toBe('/launches/l-1');
+  });
+
+  it('does not write the inbox id to the log when a hook request throws', async () => {
+    const id = 'SecretInboxId0123456789abcdef';
+    // D1 が必ず投げる束縛で、/hooks/<id> に例外を起こさせる。
+    const boom = (): never => {
+      throw new Error('D1 is down');
+    };
+    const env = { DB: { prepare: boom, batch: boom } } as unknown as Env;
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      resetSchemaCache();
+      const app = createApp({ minDeviceCompat: 9 });
+      const hookRes = await app.fetch(new Request(`https://x/hooks/${id}`, { method: 'POST', body: '{}' }), env);
+      expect(hookRes.status).toBe(500);
+      const delRes = await app.fetch(new Request(`https://x/inboxes/${id}`, { method: 'DELETE', headers: { authorization: 'Bearer t', 'x-hangar-compat': '12' } }), env);
+      expect(delRes.status).toBe(500);
+      const lines = spy.mock.calls.map((a) => a.join(' '));
+      expect(lines.length).toBeGreaterThanOrEqual(2);
+      expect(lines.some((l) => l.includes('/hooks/:id'))).toBe(true);
+      for (const l of lines) expect(l).not.toContain(id);
+    } finally {
+      spy.mockRestore();
+      resetSchemaCache();
+    }
   });
 });

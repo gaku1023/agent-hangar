@@ -18,6 +18,15 @@ import { ensureSchema } from './schema.ts';
 import { collectUsage } from './usage.ts';
 import { VERSION } from './util.ts';
 
+/**
+ * 記録に残す経路から、資格になる ID を伏せる。
+ * 受け箱の URL（/hooks/<受け箱の ID>）は、知っているだけで荷物を置ける資格なので、記録に残さない。
+ * 管理の口（/inboxes/<受け箱の ID>）も同じ ID を運ぶ。/inboxes/pending と /inboxes/ack は ID ではないのでそのまま残す。
+ */
+export function redactedPath(pathname: string): string {
+  return pathname.replace(/^\/hooks\/[^/]+/, '/hooks/:id').replace(/^\/inboxes\/(?!pending$|ack$)[^/]+/, '/inboxes/:id');
+}
+
 /** 記録に残す文言の上限である。長い SQL や本文の断片を垂れ流さない。 */
 const MAX_LOG_LEN = 200;
 
@@ -93,12 +102,12 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
   app.onError((e, c) => {
     const limit = d1LimitOfError(e);
     if (limit) {
-      console.error('worker limit', c.req.method, new URL(c.req.url).pathname, limit);
+      console.error('worker limit', c.req.method, redactedPath(new URL(c.req.url).pathname), limit);
       return c.json(limitBody(limit, Date.now()), 429);
     }
     const name = e instanceof Error ? e.name : typeof e;
     const line = (e instanceof Error ? e.message : '').split('\n')[0]!.trim().slice(0, MAX_LOG_LEN);
-    console.error('worker error', c.req.method, new URL(c.req.url).pathname, name, line);
+    console.error('worker error', c.req.method, redactedPath(new URL(c.req.url).pathname), name, line);
     return c.json({ error: 'internal error' }, 500);
   });
 
