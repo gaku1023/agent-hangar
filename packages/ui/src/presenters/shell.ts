@@ -82,6 +82,11 @@ const peerInOf = (store: Store, id: string, t: Translate): { peerIn?: PeerOrigin
 export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; aside: boolean; reason: StopReason | null; waited: string | null; current: boolean; menu: SessionMenuProps;
   /** 未読の数（notify_user で知らせた数）。無いか、設定 unreadBadge が切なら 0。 */
   unread?: number;
+  /**
+   * できごとで Paused から起こしたばかりの会話。
+   * 真の行は、Active に入るときに 1 度だけ光る（#563 の E4、mediator/wakeGlow.ts）。
+   */
+  wake?: true;
   /** ほかの PC から来た文の預かりと、渡した直後の札（presenters/peerOrigin.ts）。無ければ null か無し。 */
   peerIn?: PeerOriginProps | null;
   /** 同じファイルを別のセッションと編集していること。行末の印に乗せたときの文（相手の名前）。無ければ null か無し。 */
@@ -100,6 +105,13 @@ export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; a
   nest?: { open: boolean; dots: NestDot[] } };
 /** 「実行中」のグループ。key はプロジェクトの id で、未分類は空の文字列。waiting は入力待ちの行の数（畳んだ見出しに出す）。 */
 export type SideLiveGroup = { key: string; name: string; open: boolean; waiting: number; rows: SideLiveRow[] };
+/**
+ * 起こした印を使う長さ。
+ * 行が出ないまま残った印で、あとの普通の再開が光らないようにする。
+ */
+const WAKE_GLOW_MS = 60_000;
+const wokenFresh = (state: State, id: string, now: number): boolean => state.wakeGlow.some((g) => g.id === id && now - g.at < WAKE_GLOW_MS);
+
 /**
  * サイドバーの「実行中」。
  * count は動いているセッションの全数、ids と rows は見えている順（グループをつないだ順）の全部の並びと行（ids は並べ替えの計算に使う）、groups はプロジェクトごとのグループである。
@@ -234,7 +246,7 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
     // 停止の確認（stop.working）は本当の動きで決める。答えを待つ会話は、止めると問いが消える。
     const shown = quietLive(liveWithLimit(s.live, s.limit), s.state?.status, s.woke);
     const reason = shownReason(s, shown);
-    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, waited: sideWaited(t, s, shown, reason, now), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null, ...(icons ? { agent: agentOfSession(store, s) } : {}), ...peerInOf(store, id, t), ...(s.spawnPeer?.child ? { peer: { name: s.spawnPeer.child, ended: s.spawnPeer.closed } } : {}) };
+    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, waited: sideWaited(t, s, shown, reason, now), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, ...(wokenFresh(state, id, now) ? { wake: true as const } : {}), overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null, ...(icons ? { agent: agentOfSession(store, s) } : {}), ...peerInOf(store, id, t), ...(s.spawnPeer?.child ? { peer: { name: s.spawnPeer.child, ended: s.spawnPeer.closed } } : {}) };
   };
   const folded = new Set(state.sidebarFolded);
   // 子が動いている起動元は、止まっていても薄い行として出す（子の列の根に要る）。起動元の連なりを上までたどる。

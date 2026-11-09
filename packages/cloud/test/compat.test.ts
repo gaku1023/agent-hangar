@@ -32,7 +32,7 @@ afterEach(async () => {
 describe('互換の版（本番の下限）', () => {
   it('本番の下限は 9 である（E2E の作り直しで上げた）', () => {
     expect(MIN_DEVICE_COMPAT).toBe(9);
-    expect(COMPAT_VERSION).toBe(11);
+    expect(COMPAT_VERSION).toBe(12);
     // この版の端末は通す。下限を、束ねて配る端末の版より先へ上げない。
     expect(MIN_DEVICE_COMPAT).toBeLessThanOrEqual(COMPAT_VERSION);
   });
@@ -43,7 +43,7 @@ describe('互換の版（本番の下限）', () => {
     for (const [method, url] of [['GET', 'https://x/changes?since=0'], ['POST', 'https://x/changes'], ['GET', 'https://x/devices'], ['POST', 'https://x/m/join']] as const) {
       const r = await c.RAW.fetch(url, { method, headers: v8 });
       expect(r.status, `${method} ${url}`).toBe(426);
-      expect(await r.json(), `${method} ${url}`).toEqual({ error: 'upgrade required', minCompat: 9, compat: 11 });
+      expect(await r.json(), `${method} ${url}`).toEqual({ error: 'upgrade required', minCompat: 9, compat: 12 });
     }
   });
 
@@ -60,14 +60,14 @@ describe('互換の版（本番の下限）', () => {
     expect(r.status).toBe(404);
   });
 
-  it('/health は compat 11 と cloudId を返し、版を名乗らない相手にも答える', async () => {
+  it('/health は compat 12 と cloudId を返し、版を名乗らない相手にも答える', async () => {
     const c = await boot();
     const r = await c.RAW.fetch('https://x/health');
     expect(r.status).toBe(200);
-    expect(r.headers.get(COMPAT_HEADER)).toBe('11');
+    expect(r.headers.get(COMPAT_HEADER)).toBe('12');
     const body = (await r.json()) as { ok: boolean; version: string; compat: number; cloudId: string };
     const stored = await c.env.DB.prepare("select value from meta where key = 'cloud_id'").first<{ value: string }>();
-    expect(body).toEqual({ ok: true, version: VERSION, compat: 11, cloudId: stored?.value });
+    expect(body).toEqual({ ok: true, version: VERSION, compat: 12, cloudId: stored?.value });
     expect(typeof body.cloudId).toBe('string');
     // 2 回目も同じ値である。
     expect(((await (await c.RAW.fetch('https://x/health')).json()) as { cloudId: string }).cloudId).toBe(body.cloudId);

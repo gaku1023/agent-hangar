@@ -29,3 +29,4 @@ export * from './joinCode.ts';
 export * from './phone.ts';
 export * from './recoveryKey.ts';
 export * from './peer.ts';
+export * from './inbox.ts';

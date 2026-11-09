@@ -45,7 +45,7 @@ describe('表の鍵', () => {
   it('表に載っているのは、API を 1 回呼ぶだけの UiAction である', () => {
     expect(Object.keys(actionTable).sort()).toEqual([
       'account.add.preview', 'account.choose', 'account.login', 'account.login.cancel', 'account.refresh', 'account.update', 'accounts.load',
-      'artifact.add', 'artifact.open', 'artifact.openEditor', 'codex.options', 'configSync.order.cancel', 'configSync.unsent.send', 'deleteApproval.answer', 'editor.test', 'editors.load', 'folder.inspect', 'git.changes.load', 'git.diff.load', 'git.edits.load', 'instructions.load', 'instructions.openEditor', 'launchPrep.cancel', 'memo.save',
+      'artifact.add', 'artifact.open', 'artifact.openEditor', 'codex.options', 'configSync.order.cancel', 'configSync.unsent.send', 'deleteApproval.answer', 'editor.test', 'editors.load', 'events.approve', 'events.claim', 'events.create', 'events.load', 'events.remove', 'folder.inspect', 'git.changes.load', 'git.diff.load', 'git.edits.load', 'heldEvents.load', 'heldEvents.run', 'instructions.load', 'instructions.openEditor', 'launchPrep.cancel', 'memo.save',
       'opencode.options', 'opencode.providers.custom', 'opencode.providers.disconnect', 'opencode.providers.key', 'opencode.providers.load', 'opencode.providers.login', 'opencode.providers.login.cancel', 'opencode.providers.login.code', 'opencode.providers.login.poll', 'opencode.providers.model',
       'overlap.dismiss', 'peerApproval.answer', 'project.git.load', 'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
       'schedule.delete', 'schedule.run', 'session.delete', 'session.move', 'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.state.reject', 'session.tryNow', 'setupGuide.openEditor', 'share.preview', 'summarizer.test', 'summary.regenerate',
@@ -392,5 +392,119 @@ describe('opencode のプロバイダー（設定）', () => {
     expect(done.apply!(restarted).opencodeProviders?.login?.status).toBe('pending');
     const cancelled = await runRow({ type: 'opencode.providers.login.cancel' }, fakeApi(), started.store);
     expect(cancelled.during.opencodeProviders?.login).toBeNull();
+  });
+});
+
+describe('閉じている間に溜まったイベントの札', () => {
+  const held = [{ bindingId: 'b1', facts: [{ source: 'github' as const, event: 'ci_done', repo: 'o/r', number: 3, receivedAt: 1 }] }];
+  const SYNC = { state: 'ok', revoked: false, workerCompat: 12 } as never;
+  const ready = (): Store => ({ ...initialStore(), sync: SYNC });
+  it('読み直すと山を Store に入れる。同じ山なら Store を動かさず、失敗は黙って残す', async () => {
+    const heldEvents = vi.fn(async () => ({ held }));
+    const r = await runRow({ type: 'heldEvents.load' }, fakeApi({ heldEvents }), ready());
+    expect(r.store.heldEvents).toEqual(held);
+    const again = await runRow({ type: 'heldEvents.load' }, fakeApi({ heldEvents }), r.store);
+    expect(again.store).toBe(r.store);
+    const f = await runRow({ type: 'heldEvents.load' }, fakeApi({ heldEvents: vi.fn(async () => { throw new Error('down'); }) }), r.store);
+    expect(f.store).toBe(f.during);
+    expect(f.toast).toBeNull();
+  });
+  it('イベントを使えない PC（クラウドなし、Worker が古い）では読みに行かない', async () => {
+    const heldEvents = vi.fn(async () => ({ held }));
+    for (const sync of [null, { state: 'off', revoked: false, workerCompat: 12 }, { state: 'ok', revoked: false, workerCompat: 11 }]) {
+      const r = await runRow({ type: 'heldEvents.load' }, fakeApi({ heldEvents }), { ...initialStore(), sync: sync as never });
+      expect(r.called).toBe(false);
+    }
+    expect(heldEvents).not.toHaveBeenCalled();
+  });
+  it('選びを送ったら山を読み直す。送れなかったときは、エラーのトーストにする（Runtime が出す）', async () => {
+    const runHeldEvents = vi.fn(async () => ({ ok: true }));
+    const heldEvents = vi.fn(async () => ({ held: [] }));
+    const choices = [{ bindingId: 'b1', mode: 'latest' as const }];
+    const r = await runRow({ type: 'heldEvents.run', choices }, fakeApi({ runHeldEvents, heldEvents }), { ...ready(), heldEvents: held });
+    expect(runHeldEvents.mock.calls).toEqual([[choices]]);
+    expect(r.store.heldEvents).toEqual([]);
+    await expect(runRow({ type: 'heldEvents.run', choices }, fakeApi({ runHeldEvents: vi.fn(async () => { throw new Error('busy'); }) }), ready())).rejects.toThrow('busy');
+  });
+  it('選びを送ったあとの読み直しだけが失敗しても、送った分は済んでいるので札は下げる', async () => {
+    const r = await runRow({ type: 'heldEvents.run', choices: [{ bindingId: 'b1', mode: 'skip' }] }, fakeApi({ runHeldEvents: vi.fn(async () => ({ ok: true })), heldEvents: vi.fn(async () => { throw new Error('down'); }) }), { ...ready(), heldEvents: held });
+    expect(r.store.heldEvents).toEqual([]);
+  });
+});
+
+describe('予定の画面のイベント', () => {
+  const binding = { id: 'b1', source: { kind: 'hook' }, action: { kind: 'new', projectId: null }, prompt: 'p', passBody: false, allowAuthors: [], state: 'active', hookUrl: null, createdAt: 1, expiresAt: null, runs: [] } as never;
+  const claim = { sessionId: 's1', repo: 'o/r', pr: 3, claimedAt: 1, sessionTitle: 'T' };
+  const apiWith = (over: Partial<ApiClient> = {}) => fakeApi({ eventBindings: vi.fn(async () => ({ bindings: [binding] })), prClaims: vi.fn(async () => ({ claims: [claim] })), ...over });
+  const input = { source: { kind: 'hook' }, action: { kind: 'new', projectId: null }, prompt: 'p', passBody: false, allowAuthors: [] } as never;
+
+  it('読み直すと結び付けと PR の印を入れる。失敗は黙って前の一覧を残す', async () => {
+    const r = await runRow({ type: 'events.load' }, apiWith());
+    expect(r.store.eventTrigger).toMatchObject({ ready: true, bindings: [binding], claims: [claim] });
+    const f = await runRow({ type: 'events.load' }, apiWith({ eventBindings: vi.fn(async () => { throw new Error('down'); }) }));
+    expect(f.store).toBe(f.during);
+    expect(f.toast).toBeNull();
+  });
+  it('作れたら読み直して、作れた回数を 1 つ進める', async () => {
+    const createEventBinding = vi.fn(async () => ({ binding }));
+    const r = await runRow({ type: 'events.create', input }, apiWith({ createEventBinding }));
+    expect(createEventBinding.mock.calls).toEqual([[input]]);
+    expect(r.during.eventTrigger.form.busy).toBe(true);
+    expect(r.store.eventTrigger).toMatchObject({ bindings: [binding], form: { busy: false, error: null, done: 1 } });
+  });
+  it('webhook を付けられなかったときは何も読み直さず、フォームの理由にする', async () => {
+    const noAdmin = await runRow({ type: 'events.create', input }, apiWith({ createEventBinding: vi.fn(async () => ({ hook: { status: 'no_admin' as const } })) }));
+    expect(noAdmin.store.eventTrigger.form).toEqual({ busy: false, error: { kind: 'no_admin' }, done: 0 });
+    expect(noAdmin.store.eventTrigger.bindings).toEqual([]);
+    const failed = await runRow({ type: 'events.create', input }, apiWith({ createEventBinding: vi.fn(async () => ({ hook: { status: 'failed' as const, message: 'gh が見つかりません' } })) }));
+    expect(failed.store.eventTrigger.form.error).toEqual({ kind: 'text', text: 'gh が見つかりません' });
+  });
+  it('作成の失敗はトーストにせず、フォームの理由にする', async () => {
+    const r = await runRow({ type: 'events.create', input }, apiWith({ createEventBinding: vi.fn(async () => { throw new Error('イベントの設定は 50 件までです'); }) }));
+    expect(r.store.eventTrigger.form).toEqual({ busy: false, error: { kind: 'text', text: 'イベントの設定は 50 件までです' }, done: 0 });
+  });
+  it('承認、削除、PR の印の答えは済んだら読み直し、承認の webhook の失敗は一覧の頭の理由にする', async () => {
+    const approve = vi.fn(async () => ({ binding }));
+    const a = await runRow({ type: 'events.approve', id: 'b1' }, apiWith({ approveEventBinding: approve }));
+    expect(approve.mock.calls).toEqual([['b1']]);
+    expect(a.store.eventTrigger).toMatchObject({ ready: true, bindings: [binding], error: null });
+    const held = await runRow({ type: 'events.approve', id: 'b1' }, apiWith({ approveEventBinding: vi.fn(async () => ({ hook: { status: 'no_admin' as const } })) }));
+    expect(held.store.eventTrigger.error).toEqual({ kind: 'no_admin' });
+    const del = vi.fn(async () => ({ ok: true }));
+    await runRow({ type: 'events.remove', id: 'b1' }, apiWith({ deleteEventBinding: del }));
+    expect(del.mock.calls).toEqual([['b1']]);
+    const ans = vi.fn(async () => ({ ok: true }));
+    await runRow({ type: 'events.claim', op: 'reject', sessionId: 's1', repo: 'o/r', pr: 3 }, apiWith({ answerPrClaim: ans }));
+    expect(ans.mock.calls).toEqual([['reject', { sessionId: 's1', repo: 'o/r', pr: 3 }]]);
+    const bad = await runRow({ type: 'events.remove', id: 'x' }, apiWith({ deleteEventBinding: vi.fn(async () => { throw new Error('イベントの設定が見つかりません'); }) }));
+    expect(bad.store.eventTrigger.error).toEqual({ kind: 'text', text: 'イベントの設定が見つかりません' });
+  });
+  it('書き込みが済んで読み直しだけが失敗したときは、済んだことにする（作ったフォームは閉じ、打ち直しの二重を避ける）', async () => {
+    const down = { eventBindings: vi.fn(async () => { throw new Error('down'); }) };
+    const made = await runRow({ type: 'events.create', input }, apiWith({ ...down, createEventBinding: vi.fn(async () => ({ binding })) }));
+    expect(made.store.eventTrigger.form).toEqual({ busy: false, error: null, done: 1 });
+    const approved = await runRow({ type: 'events.approve', id: 'b1' }, apiWith({ ...down, approveEventBinding: vi.fn(async () => ({ binding })) }));
+    expect(approved.store.eventTrigger.error).toBeNull();
+    const removed = await runRow({ type: 'events.remove', id: 'b1' }, apiWith(down));
+    expect(removed.store.eventTrigger.error).toBeNull();
+  });
+  it('rev は読み直しと操作が済んだときに進み、始めたときには進めない（repo の札が取り直す合図）', async () => {
+    const r = await runRow({ type: 'events.load' }, apiWith());
+    expect(r.store.eventTrigger.rev).toBe(r.during.eventTrigger.rev + 1);
+    // 一覧が同じままの読み直しでは、Store も rev も動かさない。
+    // 変わったときだけ進む。
+    const again = await runRow({ type: 'events.load' }, apiWith(), r.store);
+    expect(again.store).toBe(r.store);
+    const changed = await runRow({ type: 'events.load' }, apiWith({ eventBindings: vi.fn(async () => ({ bindings: [] })) }), r.store);
+    expect(changed.store.eventTrigger.rev).toBe(r.store.eventTrigger.rev + 1);
+    const a = await runRow({ type: 'events.approve', id: 'b1' }, apiWith({ approveEventBinding: vi.fn(async () => ({ binding })) }));
+    expect(a.during.eventTrigger.rev).toBe(0);
+    expect(a.store.eventTrigger.rev).toBe(1);
+    const bad = await runRow({ type: 'events.approve', id: 'b1' }, apiWith({ approveEventBinding: vi.fn(async () => { throw new Error('x'); }) }));
+    expect(bad.store.eventTrigger.rev).toBe(1);
+  });
+  it('webhook を付けられず理由の文が無いときは、決めた一文の印にする', async () => {
+    const r = await runRow({ type: 'events.create', input }, apiWith({ createEventBinding: vi.fn(async () => ({ hook: { status: 'failed' as const } })) }));
+    expect(r.store.eventTrigger.form.error).toEqual({ kind: 'hook_failed' });
   });
 });

@@ -15,7 +15,7 @@ type Extras = Pick<
   | 'renameProject' | 'live' | 'sessionFiles' | 'gitSessions' | 'sessionChanges' | 'sessionDiff' | 'sessionEdits' | 'projectGit' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'previewAccountDir' | 'sharePreview' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
   | 'codexAccounts' | 'setCurrentCodexAccount' | 'addCodexAccount' | 'previewCodexAccountDir' | 'updateCodexAccount' | 'removeCodexAccount' | 'loginCodexAccount' | 'cancelCodexAccountLogin' | 'refreshCodexAccount' | 'linkConflicts' | 'repairLinkConflicts'
-  | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen' | 'markUnread' | 'setPinned' | 'launchSettings' | 'answerPeerApproval' | 'peers' | 'peerLaunch' | 'peerChatOpen' | 'peerChatOp'
+  | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen' | 'markUnread' | 'setPinned' | 'launchSettings' | 'answerPeerApproval' | 'eventBindings' | 'prClaims' | 'createEventBinding' | 'approveEventBinding' | 'deleteEventBinding' | 'answerPrClaim' | 'heldEvents' | 'runHeldEvents' | 'eventHookUrl' | 'rotateEventUrl' | 'eventRepoHook' | 'peers' | 'peerLaunch' | 'peerChatOpen' | 'peerChatOp'
 >;
 
 /** フェーズ 2 からフェーズ 4 で増えた API の偽物。
@@ -27,6 +27,17 @@ export function fakeApiExtras(): Extras {
   return {
     renameProject: vi.fn(async () => unused()),
     answerPeerApproval: vi.fn(async () => ({})),
+    eventBindings: vi.fn(async () => ({ bindings: [] })),
+    prClaims: vi.fn(async () => ({ claims: [] })),
+    createEventBinding: vi.fn(async () => unused()),
+    approveEventBinding: vi.fn(async () => unused()),
+    deleteEventBinding: vi.fn(async () => ({ ok: true })),
+    answerPrClaim: vi.fn(async () => ({ ok: true })),
+    heldEvents: vi.fn(async () => ({ held: [] })),
+    runHeldEvents: vi.fn(async () => ({ ok: true })),
+    eventHookUrl: vi.fn(async () => ({ url: null })),
+    rotateEventUrl: vi.fn(async () => ({ ok: true as const })),
+    eventRepoHook: vi.fn(async () => ({ hook: { status: 'none' as const } })),
     peers: vi.fn(async () => ({ peers: [] })),
     peerChatOpen: vi.fn(async () => ({ ok: false as const, reason: 'not-remote' as const })),
     peerChatOp: vi.fn(async () => ({ ok: true as const })),

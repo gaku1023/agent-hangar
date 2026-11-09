@@ -1,5 +1,5 @@
-import type { AccountsDto, InvestigateContext, UiAction, SyncStatusBody, TerminalApp } from '@agent-hangar/shared';
-import { applyConfigDetail, CUSTOM_PROVIDER_ROW, gitFileKey, type EditorOpenAction, type OpencodeProviderOp, type OpencodeProvidersState, type Store } from '../store/store.ts';
+import { eventsAvailable, type AccountsDto, type EventHookFailureDto, type InvestigateContext, type UiAction, type SyncStatusBody, type TerminalApp } from '@agent-hangar/shared';
+import { applyConfigDetail, CUSTOM_PROVIDER_ROW, type EventNotice, type EventTriggerState, gitFileKey, type EditorOpenAction, type OpencodeProviderOp, type OpencodeProvidersState, type Store } from '../store/store.ts';
 import type { OpencodeProvidersDto } from '@agent-hangar/shared';
 import { EditorMissingApiError, type ApiClient } from './api.ts';
 import { sameInspect } from '../store/folderInspect.ts';
@@ -92,6 +92,42 @@ function providerCall(id: string, op: OpencodeProviderOp, run: (api: ApiClient) 
   });
 }
 
+/**
+ * webhook を付けられなかった理由の文。
+ * 権限なしは画面が辞書で言い、それ以外はサーバの文をそのまま出す。
+ */
+const hookNotice = (h: EventHookFailureDto): EventNotice => (h.status === 'no_admin' ? { kind: 'no_admin' } : h.message ? { kind: 'text', text: h.message } : { kind: 'hook_failed' });
+const failureOf = (r: unknown): EventHookFailureDto | null => {
+  const h = (r as { hook?: { status?: string } }).hook;
+  return h && h.status !== 'registered' ? (h as EventHookFailureDto) : null;
+};
+/**
+ * quiet でないときは rev を進める。
+ * before（まだ何も済んでいない）だけ quiet にする。
+ */
+const withEventTrigger = (store: Store, f: (e: EventTriggerState) => Partial<EventTriggerState>, quiet = false): Store => ({ ...store, eventTrigger: { ...store.eventTrigger, ...f(store.eventTrigger), rev: store.eventTrigger.rev + (quiet ? 0 : 1) } });
+const heldSnapshot = (api: ApiClient) => api.heldEvents().then((r) => r.held);
+const eventSnapshot = (api: ApiClient) => Promise.all([api.eventBindings(), api.prClaims()]).then(([b, c]) => ({ ready: true, bindings: b.bindings, claims: c.claims }));
+/**
+ * 書き込みが済んだあとの読み直し。
+ * 読み直しだけが失敗しても、書き込みは済んでいるので null を返して前の一覧を残す。
+ * 失敗にすると、利用者が同じ操作を打ち直して二重に作る（次の間隔の読み直しが追いつく）。
+ */
+const reloadAfterWrite = (api: ApiClient) => eventSnapshot(api).catch(() => null);
+/**
+ * 一覧に影響する操作の共通の形。
+ * 済んだら読み直す。
+ * 失敗は、トーストにせず一覧の頭の一文にする。
+ */
+const eventOp = (run: (api: ApiClient) => Promise<unknown>): ApiCall => call(
+  (api) => run(api).then((r) => reloadAfterWrite(api).then((snap) => ({ snap, failure: failureOf(r) }))),
+  {
+    before: (store) => withEventTrigger(store, () => ({ error: null }), true),
+    apply: (store, { snap, failure }) => withEventTrigger(store, () => ({ ...(snap ?? {}), error: failure ? hookNotice(failure) : null })),
+    failed: (store, e) => withEventTrigger(store, () => ({ error: { kind: 'text', text: errText(e) } })),
+  },
+);
+
 type Rows = { [K in UiAction['type']]?: (action: Extract<UiAction, { type: K }>, store: Store) => ApiCall | null };
 
 /**
@@ -122,6 +158,45 @@ export const actionTable = {
   'session.tryNow': (i) => call((api) => api.tryPausedSession(i.id)),
   'schedule.delete': (i) => call((api) => api.deleteSchedule(i.id)),
   'schedule.run': (i) => call((api) => api.runSchedule(i.id)),
+  // イベント（#563）。
+  // 読み直しの失敗は、間隔で何度も来るので黙って前の一覧を残す。
+  // 読み直しで一覧が変わっていなければ、Store も rev も動かさない（15 秒ごとの読み直しで repo の札が取り直さないように）。
+  'events.load': () => call(eventSnapshot, {
+    apply: (store, snap) => {
+      const e = store.eventTrigger;
+      if (e.ready && JSON.stringify([e.bindings, e.claims]) === JSON.stringify([snap.bindings, snap.claims])) return store;
+      return withEventTrigger(store, () => snap);
+    },
+    failed: (store) => store,
+  }),
+  'events.create': (i) => call(
+    (api) => api.createEventBinding(i.input).then(async (r) => ({ failure: failureOf(r), created: 'binding' in r, snap: 'binding' in r ? await reloadAfterWrite(api) : null })),
+    {
+      before: (store) => withEventTrigger(store, (e) => ({ form: { ...e.form, busy: true, error: null } }), true),
+      apply: (store, { failure, created, snap }) => withEventTrigger(store, (e) => (created && !failure
+        ? { ...(snap ?? {}), form: { busy: false, error: null, done: e.form.done + 1 } }
+        : { form: { ...e.form, busy: false, error: failure ? hookNotice(failure) : null } })),
+      failed: (store, e) => withEventTrigger(store, (cur) => ({ form: { ...cur.form, busy: false, error: { kind: 'text', text: errText(e) } } })),
+    },
+  ),
+  // 閉じている間に溜まったイベントの札（#563）。
+  // イベントを使えない PC では読まない。
+  // 読み直しの失敗は黙って前の山を残す。
+  'heldEvents.load': (_i, store) => (eventsAvailable(store.sync) ? call(heldSnapshot, {
+    apply: (cur, held) => (JSON.stringify(cur.heldEvents) === JSON.stringify(held) ? cur : { ...cur, heldEvents: held }),
+    failed: (cur) => cur,
+  }) : null),
+  // 選びを送る。
+  // 送れなかったときは、ふつうどおりエラーのトーストにして札は残す（サーバは 409 で選びを断ることがある）。
+  // 送れたら山を読み直す。
+  // 読み直しだけが失敗しても送った分は済んでいるので、選んだ結び付けの分を手元の山から外す。
+  'heldEvents.run': (i) => call(
+    (api) => api.runHeldEvents(i.choices).then(() => api.heldEvents().then((r) => r.held, () => null)),
+    { apply: (cur, held) => ({ ...cur, heldEvents: held ?? cur.heldEvents.filter((h) => !i.choices.some((c) => c.bindingId === h.bindingId)) }) },
+  ),
+  'events.approve': (i) => eventOp((api) => api.approveEventBinding(i.id)),
+  'events.remove': (i) => eventOp((api) => api.deleteEventBinding(i.id)),
+  'events.claim': (i) => eventOp((api) => api.answerPrClaim(i.op, { sessionId: i.sessionId, repo: i.repo, pr: i.pr })),
   'deleteApproval.answer': (i) => call((api) => api.answerDeleteApproval(i.id, i.answer)),
   // 別の PC への起動の承認への答え。画面の正は後から届く peerApprovals.update なので、返り値は Store に入れない。
   'peerApproval.answer': (i) => call((api) => api.answerPeerApproval(i.id, i.answer)),

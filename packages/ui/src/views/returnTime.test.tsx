@@ -49,7 +49,7 @@ describe('ホームの帯の今日戻るの行の時刻', () => {
 
 describe('PauseDialog の時刻', () => {
   const props = (over: Partial<PauseProps> = {}): PauseProps => ({
-    sessionId: 's1', sessionName: 'timer の確認', from: 'menu', draft: '', candidateNote: null, initialReturnOn: '2026-10-02', initialReturnTime: '', candidateReturnTime: null, today: '2026-10-01',
+    wake: null, sessionId: 's1', sessionName: 'timer の確認', from: 'menu', draft: '', candidateNote: null, initialReturnOn: '2026-10-02', initialReturnTime: '', candidateReturnTime: null, today: '2026-10-01',
     choices: [
       { key: 'today', label: '今日の夕方', returnOn: '2026-10-01' }, { key: 'tomorrow', label: '明日', returnOn: '2026-10-02' },
       { key: 'monday', label: '月曜', returnOn: '2026-10-05' }, { key: 'nextWeek', label: '来週', returnOn: '2026-10-08' },

@@ -1,0 +1,7 @@
+{
+  "action": "created",
+  "issue": { "number": 42, "title": "Add retry to the sync loop", "user": { "login": "alice-dev" }, "html_url": "https://github.com/octo-org/demo-repo/pull/42", "pull_request": { "url": "https://api.github.com/repos/octo-org/demo-repo/pulls/42" } },
+  "comment": { "body": "Looks good, ship it.", "html_url": "https://github.com/octo-org/demo-repo/pull/42#issuecomment-7001", "user": { "login": "bob-reviewer" } },
+  "repository": { "full_name": "octo-org/demo-repo", "html_url": "https://github.com/octo-org/demo-repo" },
+  "sender": { "login": "bob-reviewer" }
+}

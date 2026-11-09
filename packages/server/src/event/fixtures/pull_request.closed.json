@@ -1,0 +1,7 @@
+{
+  "action": "closed",
+  "number": 43,
+  "pull_request": { "number": 43, "title": "Try a different cache", "html_url": "https://github.com/octo-org/demo-repo/pull/43", "merged": false, "state": "closed", "user": { "login": "alice-dev" }, "body": "" },
+  "repository": { "full_name": "octo-org/demo-repo", "html_url": "https://github.com/octo-org/demo-repo" },
+  "sender": { "login": "alice-dev" }
+}

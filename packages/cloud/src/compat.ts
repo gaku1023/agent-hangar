@@ -24,11 +24,13 @@ export const MIN_DEVICE_COMPAT = 9;
  *
  * 下限より古い端末には 426 と下限を返し、スキーマの用意にも認証にも進まない。断った要求で D1 に触らないためである。
  * /health だけは版を問わずに通す。版を確かめに来る口だからである（CLI の status と、setup の反映待ち）。
+ * /hooks/ の下も通す。
+ * 外のサービス（GitHub など）が叩く口で、互換の見出しを付けられないからである（受け箱の ID が資格で、認証は inbox.ts が行う）。
  * どの応答にも、断ったものを含めて、Worker の版を見出しで載せる。
  */
 export function compatMiddleware(minDeviceCompat: number): MiddlewareHandler<{ Bindings: Env; Variables: Vars }> {
   return async (c, next) => {
-    if (c.req.path !== '/health' && parseCompat(c.req.header(COMPAT_HEADER)) < minDeviceCompat) {
+    if (c.req.path !== '/health' && !c.req.path.startsWith('/hooks/') && parseCompat(c.req.header(COMPAT_HEADER)) < minDeviceCompat) {
       c.header(COMPAT_HEADER, String(COMPAT_VERSION));
       return c.json(compatRefusalBody(minDeviceCompat), 426);
     }

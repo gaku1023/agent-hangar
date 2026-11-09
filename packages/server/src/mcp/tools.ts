@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { isAgentKind, isNotifyKind, isQuietStatus, notifyRulesOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
+import { isAgentKind, isNotifyKind, isQuietStatus, notifyRulesOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto, type WakeOn } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
@@ -21,6 +21,8 @@ import { deviceOfSession } from '../runs/handover.ts';
 import type { ReportService } from '../report/service.ts';
 import type { PeerCallDeps } from '../peer/caller.ts';
 import { createRemoteSessionTool, isThisDevice, listDevicesTool, remoteControlTool, remoteSpawnOf } from './peerTools.ts';
+import { parseWakeOn } from '../event/validate.ts';
+import { claimPrTool, draftEventBindingTool } from './eventTools.ts';
 import { createScheduleTool, listSchedulesTool, updateScheduleTool } from './scheduleTools.ts';
 import { readSessionScreenTool, sendToSessionTool } from './screenTools.ts';
 import { noteTurnStart, waitForSessionTool } from './waitTool.ts';
@@ -97,6 +99,7 @@ export const TOOL_NAMES = [
   'stop_session', 'resume_session', 'delete_session',
   'send_to_session', 'read_session_screen', 'wait_for_session', 'notify_user', 'set_notify_preference',
   'list_schedules', 'create_schedule', 'update_schedule',
+  'claim_pr', 'draft_event_binding',
 ] as const;
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
@@ -116,7 +119,7 @@ const strs = (v: unknown): string[] | undefined => (Array.isArray(v) ? v.filter(
  * セッション別 URL では、そのセッション以外の id を黙って無視せずに断る。
  * 黙って読み替えると、呼び手は別のセッションを触ったつもりのまま結果を受け取ってしまう。
  */
-function sessionIdOf(ctx: ToolContext, args: Record<string, unknown>): string {
+export function sessionIdOf(ctx: ToolContext, args: Record<string, unknown>): string {
   const given = str(args.session_id);
   if (ctx.sessionId) {
     if (given && given !== ctx.sessionId) throw new ToolError(msg('mcp.scope.sessionOnly', { sessionId: ctx.sessionId }));
@@ -253,7 +256,7 @@ function addsOf(v: unknown): { text: string; note: string | null }[] {
   });
 }
 
-function requireSession(deps: ToolDeps, id: string): SessionDto {
+export function requireSession(deps: ToolDeps, id: string): SessionDto {
   const s = getSession(deps.db, deps.live(), id, { deviceId: deps.deviceId });
   if (!s) throw new ToolError(msg('mcp.error.sessionNotFound', { id }));
   return s;
@@ -779,6 +782,14 @@ export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args:
   if (args.return_on !== undefined && typeof args.return_on !== 'string') throw new ToolError(msg('mcp.sessionStatus.returnOnMustBeString'));
   if (args.return_time !== undefined && typeof args.return_time !== 'string') throw new ToolError(msg('mcp.sessionStatus.returnTimeMustBeString'));
   if (args.confirmed !== undefined && typeof args.confirmed !== 'boolean') throw new ToolError(msg('common.field.mustBeBoolean', { field: 'confirmed' }));
+  // 起こす条件は提案に添えるだけで、結び付けは作らない（利用者が Paused を確定したときに、画面が作る）。
+  // 会話で確定する道には居場所が無いので断る。
+  let wakeOn: WakeOn | undefined;
+  if (args.wake_on !== undefined) {
+    if (status !== 'paused') throw new ToolError(msg('mcp.sessionStatus.wakeOnOnlyPaused'));
+    if (args.confirmed === true) throw new ToolError(msg('mcp.sessionStatus.wakeOnNotConfirmed'));
+    wakeOn = parseWakeOn(args.wake_on);
+  }
   try {
     const given = args.note ?? '';
     const { returnOn, returnTime } = validateStateInput(status, { note: given, returnOn: args.return_on, returnTime: args.return_time, requireNote: true });
@@ -790,7 +801,7 @@ export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args:
         ? { outcome: 'already_set', state: cur }
         : { outcome: 'set', state: setSessionState(deps.db, deps.deviceId, id, { status, note: given, returnOn, returnTime, setBy: 'conversation', requireNote: true, now }) };
     } else {
-      r = proposeSessionState(deps.db, deps.deviceId, id, { status, note: given, returnOn, returnTime, source: 'in_session', now });
+      r = proposeSessionState(deps.db, deps.deviceId, id, { status, note: given, returnOn, returnTime, source: 'in_session', ...(wakeOn ? { wakeOn } : {}), now });
     }
     return { outcome: r.outcome, state: withReturnAt(r.state) };
   } catch (e) {
@@ -866,6 +877,8 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'list_schedules': return listSchedulesTool(deps, ctx, args);
     case 'create_schedule': return createScheduleTool(deps, ctx, args);
     case 'update_schedule': return updateScheduleTool(deps, ctx, args);
+    case 'claim_pr': return claimPrTool(deps, ctx, args);
+    case 'draft_event_binding': return draftEventBindingTool(deps, ctx, args);
     default: throw new ToolError(msg('mcp.error.unknownTool', { name }));
   }
 }

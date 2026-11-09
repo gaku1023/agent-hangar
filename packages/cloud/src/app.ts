@@ -6,6 +6,7 @@ import { compatMiddleware } from './compat.ts';
 import { devicesApp } from './devices.ts';
 import type { AppType, Env, Vars } from './env.ts';
 import { blobsApp, filesApp } from './files.ts';
+import { hooksApp, inboxApp } from './inbox.ts';
 import { bootstrapHandler, joinApp, joinCodesApp } from './join.ts';
 import { keysApp } from './keys.ts';
 import { d1LimitOfError, limitBody } from './limits.ts';
@@ -16,6 +17,16 @@ import { noticesApp, pushApp } from './push.ts';
 import { ensureSchema } from './schema.ts';
 import { collectUsage } from './usage.ts';
 import { VERSION } from './util.ts';
+
+/**
+ * 記録に残す経路から、資格になる ID を伏せる。
+ * 受け箱の URL（/hooks/<受け箱の ID>）は、知っているだけで荷物を置ける資格なので、記録に残さない。
+ * 管理の口（/inboxes/<受け箱の ID>）も同じ ID を運ぶ。
+ * /inboxes/pending と /inboxes/ack は ID ではないのでそのまま残す。
+ */
+export function redactedPath(pathname: string): string {
+  return pathname.replace(/^\/hooks\/[^/]+/, '/hooks/:id').replace(/^\/inboxes\/(?!pending$|ack$)[^/]+/, '/inboxes/:id');
+}
 
 /** 記録に残す文言の上限である。長い SQL や本文の断片を垂れ流さない。 */
 const MAX_LOG_LEN = 200;
@@ -40,7 +51,7 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
 
   // ここから下は PC の端末トークンが要る。経路を足すときは必ずこの一覧にも足す。
   // スマホのトークン（kind = 'mobile'）は 403 で断る。スマホが通れるのは /m/ のスマホ用の口だけである（互換の版 7）。
-  for (const path of ['/changes', '/changes/*', '/rows', '/rows/*', '/files', '/files/*', '/blobs', '/usage', '/devices', '/devices/*', '/join-codes', '/join-codes/*', '/roster', '/keyboxes', '/phone-keyboxes', '/notices', '/launches', '/launches/*', '/peer', '/peer/*']) {
+  for (const path of ['/changes', '/changes/*', '/rows', '/rows/*', '/files', '/files/*', '/blobs', '/usage', '/devices', '/devices/*', '/join-codes', '/join-codes/*', '/roster', '/keyboxes', '/phone-keyboxes', '/notices', '/launches', '/launches/*', '/peer', '/peer/*', '/inboxes', '/inboxes/*']) {
     app.use(path, authMiddleware(), requireKind('pc'));
   }
 
@@ -66,6 +77,13 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
   app.route('/launches', peerApp);
   // PC から PC への会話の問い合わせと画像（互換の版 11）。PC の端末トークンが要る（上の一覧）。D1 には書かない。
   app.route('/peer', peerAskApp);
+  // 受け箱（互換の版 12）。
+  // 管理の口（/inboxes）は PC の端末トークンが要る（上の一覧）。
+  app.route('/inboxes', inboxApp);
+  // 外のサービスが webhook を置く口。
+  // 端末トークンも互換の版の見出しも求めない（compat.ts が通す）。
+  // 受け箱の ID が資格である。
+  app.route('/hooks', hooksApp);
 
   // 使用量と費用。トークンの secret が無ければ外へ出ずに configured: false を返す。D1 には書かない。
   app.get('/usage', async (c) => {
@@ -88,12 +106,12 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
   app.onError((e, c) => {
     const limit = d1LimitOfError(e);
     if (limit) {
-      console.error('worker limit', c.req.method, new URL(c.req.url).pathname, limit);
+      console.error('worker limit', c.req.method, redactedPath(new URL(c.req.url).pathname), limit);
       return c.json(limitBody(limit, Date.now()), 429);
     }
     const name = e instanceof Error ? e.name : typeof e;
     const line = (e instanceof Error ? e.message : '').split('\n')[0]!.trim().slice(0, MAX_LOG_LEN);
-    console.error('worker error', c.req.method, new URL(c.req.url).pathname, name, line);
+    console.error('worker error', c.req.method, redactedPath(new URL(c.req.url).pathname), name, line);
     return c.json({ error: 'internal error' }, 500);
   });
 

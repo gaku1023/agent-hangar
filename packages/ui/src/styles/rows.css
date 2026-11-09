@@ -203,6 +203,22 @@
 .pause-chip[data-none][aria-checked='true'] { background: var(--surface-2); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink-3); }
 .pause-chip[data-none][aria-checked='true'] kbd { color: var(--ink-2); }
 .pause-draft { font-size: var(--fs-xs); font-weight: 600; color: var(--cand); }
+/**
+ * 起こす条件（#563 A4）。
+ * 文の札は候補の色で囲み、点線の「＋」は枠だけにして札と見分ける。
+ */
+.pause-wake { display: grid; gap: calc(var(--u) * 2.5); padding: calc(var(--u) * 3) calc(var(--u) * 3.5); border-radius: var(--r-lg); background: var(--cand-soft); box-shadow: inset 0 0 0 1.5px var(--cand); }
+.pause-wake-line { display: flex; align-items: center; gap: calc(var(--u) * 2); }
+.pause-wake-bolt { flex: none; width: 12px; height: 12px; fill: var(--cand); }
+.pause-wake-sentence { flex: 1 1 auto; min-width: 0; font-weight: 600; color: var(--ink); }
+.pause-wake-repo { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-2); }
+.pause-wake-fields { display: flex; gap: calc(var(--u) * 2); }
+.pause-wake-fields .input { flex: 1; min-width: 0; }
+.pause-wake-fields .pause-wake-pr { flex: none; width: 96px; }
+.pause-wake-chip { background: var(--surface); }
+.pause-wake-chip[aria-checked='true'] { color: var(--cand); background: var(--surface); box-shadow: inset 0 0 0 1px var(--cand); }
+.pause-wake-add { justify-self: start; align-self: flex-start; height: 28px; padding: 0 calc(var(--u) * 3); border: 1px dashed var(--ink-3); border-radius: var(--r-pill); background: none; color: var(--ink-2); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+.pause-wake-add:hover { color: var(--ink); border-color: var(--ink-2); }
 
 /* プロジェクトの一覧（P1、行の表）。列の幅は --pcols に 1 つだけ持ち、列の見出し（.pcols）と行（.prow）が同じものを引く。
    幅は表の幅で決める（コンテナクエリ）。狭いときは、まず「セッション」の列を落とし、「いま」の列を細くする。 */

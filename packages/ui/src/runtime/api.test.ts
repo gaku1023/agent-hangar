@@ -27,6 +27,13 @@ describe('createApi（フェーズ 2）', () => {
     expect(calls[7]!.body).toBe('{}');
     expect(calls[9]!.body).toBe('{"kind":"dir","path":"/w/beta","name":"beta"}');
   });
+  it('外の webhook の URL と repo の状態の経路（owner と repo は別々に符号化する）', async () => {
+    const { api, calls } = harness(200, { url: 'https://h/x' });
+    expect(await api.eventHookUrl('b 1')).toEqual({ url: 'https://h/x' });
+    await api.rotateEventUrl('b1');
+    await api.eventRepoHook('o/r.js');
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(['GET /api/events/bindings/b%201/hook-url', 'POST /api/events/bindings/b1/rotate-url', 'GET /api/events/repo-hook/o/r.js']);
+  });
   it('プロジェクトの作成は place をそのまま送り、未登録の一覧は GET で取る', async () => {
     const { api, calls } = harness();
     const lastCall = () => { const c = calls.at(-1)!; return { ...c, body: c.body === undefined ? undefined : JSON.parse(c.body) as unknown }; };

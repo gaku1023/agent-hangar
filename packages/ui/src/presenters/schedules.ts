@@ -1,5 +1,5 @@
-import type { ScheduleDto, ScheduleRunResult, ScheduleSpec, ScheduleTarget, Translate } from '@agent-hangar/shared';
-import type { Store } from '../store/store.ts';
+import { eventsAvailable, EVENT_HOURLY_MAX, type EventAction, type EventBindingDto, type EventBindingState, type GithubWhen, type PrClaimDto, type ScheduleDto, type ScheduleRunResult, type ScheduleSpec, type ScheduleTarget, type Translate } from '@agent-hangar/shared';
+import type { EventNotice, Store } from '../store/store.ts';
 import { PERMISSION_BYPASS, permissionLabel } from '../views/primitives/permissionModel.ts';
 import { durationLabel } from './format.ts';
 import { presentLaunchChoice, type LaunchChoiceData } from './newSession.ts';
@@ -15,8 +15,69 @@ export type ScheduleRow = {
   /** 1 回だけの予定で、もう流れたものは再開できない。 */
   spent: boolean;
 };
+/**
+ * 外のできごとで動く結び付けの 1 行（#563）。
+ * 下書き（承認待ち）も同じ形で、pending が真。
+ */
+export type EventRow = {
+  id: string; prompt: string; state: EventBindingState; pending: boolean; held: boolean;
+  /** 元の言い方（GitHub と repo、または webhook）。 */
+  source: string;
+  sourceKind: 'github' | 'hook';
+  /**
+   * GitHub の repo。
+   * 外の webhook は null。
+   */
+  repo: string | null;
+  /**
+   * 見るできごと（CI 完了、マージなど）を読点でつないだもの。
+   * 外の webhook は空。
+   */
+  when: string;
+  /**
+   * PR の番号と札の絞り込み。
+   * 無ければ空。
+   */
+  filters: string[];
+  /**
+   * 動き。
+   * 送り先の会話が分かれば、その名前を添える。
+   */
+  action: string;
+  /**
+   * 新しい会話の起動設定。
+   * 承認の前に見えるよう、行が閉じていても出す（danger は確認なしに動く設定）。
+   */
+  chips: ScheduleLaunchChip[];
+  passBody: boolean; allowAuthors: string[];
+  /** 止めた理由の一文（held のとき）。 */
+  note: string | null;
+  runs: ScheduleRunRow[];
+};
+/** 担当する PR の印の下書きの 1 行。 */
+export type PrClaimRow = { key: string; sessionId: string; repo: string; pr: number; text: string };
+export type EventsProps = {
+  /** 承認待ちの下書き（MCP から）。 */
+  drafts: EventRow[];
+  claims: PrClaimRow[];
+  rows: EventRow[];
+  /**
+   * 作成の送信の状態。
+   * done は作れた回数で、増えたらフォームを閉じる。
+   */
+  form: { busy: boolean; error: string | null; done: number };
+  /** 承認や削除の失敗の一文。 */
+  error: string | null;
+  /** 一覧が変わった読み直しと、操作が済むたびに増える番号（repo の札が状態を取り直す合図）。 */
+  rev: number;
+};
 export type SchedulesProps = {
   rows: ScheduleRow[];
+  /**
+   * イベントの節。
+   * クラウドを設定していない、Worker の版が足りないなど、使えないときは null で、画面は節ごと出さない。
+   */
+  events: EventsProps | null;
   sessions: { id: string; name: string }[];
   /** プロジェクトの札とエージェント、アカウントの札の中身（新しいセッションのダイアログと同じ）。前回値は持ち込まない。 */
   launch: LaunchChoiceData;
@@ -89,6 +150,78 @@ function runRow(t: Translate, r: ScheduleDto['runs'][number], now: number): Sche
   };
 }
 
+const WHEN_KEY = { ci_done: 'schedules.event.when.ciDone', ci_failed: 'schedules.event.when.ciFailed', review: 'schedules.event.when.review', comment: 'schedules.event.when.comment', merged: 'schedules.event.when.merged', issue_opened: 'schedules.event.when.issueOpened' } as const satisfies Record<GithubWhen, string>;
+/** GitHub で見るできごとの言い方（決めた文面 w12）。 */
+export const githubWhenLabel = (t: Translate, w: GithubWhen): string => t(WHEN_KEY[w]);
+
+/**
+ * 履歴の error に入る印を、決めた言い方にする。
+ * 知らない印は null で、ふつうの結果の言い方のまま。
+ */
+export function eventMarker(t: Translate, error: string | null): string | null {
+  if (!error) return null;
+  const rejected = /^rejected:(signature|unparsable) x(\d+)$/.exec(error);
+  if (rejected) return t(rejected[1] === 'signature' ? 'schedules.event.history.badSignature' : 'schedules.event.history.unreadable', { n: Number(rejected[2]) });
+  const dropped = /^dropped:(\d+)$/.exec(error);
+  if (dropped) return t('schedules.event.history.overLimit', { n: Number(dropped[1]) });
+  if (error === 'no_destination') return t('schedules.event.history.noDestination');
+  if (error === 'held:hourly') return t('schedules.event.heldHourly', { max: EVENT_HOURLY_MAX });
+  return null;
+}
+
+function actionLabel(t: Translate, store: Store, a: EventAction): string {
+  const key = ({ wake: 'schedules.event.action.wake', send: 'schedules.event.action.send', send_pr_owner: 'schedules.event.action.sendPrOwner', new: 'schedules.event.action.new' } as const)[a.kind];
+  const session = a.kind === 'send' || a.kind === 'wake' ? store.sessions[a.sessionId] : undefined;
+  const name = session ? session.name || session.summary?.title || '' : '';
+  return name ? `${t(key)} · ${name}` : t(key);
+}
+
+/**
+ * 新しい会話の動きの札。
+ * どこで何が動くかが承認の前に見えるよう、プロジェクト（クイックセッションはその名前）とエージェントを頭に置く。
+ * アカウントは、ストアに名前があればその名前、無ければ id のまま出す（launchChips）。
+ */
+function newActionChips(store: Store, t: Translate, a: Extract<EventAction, { kind: 'new' }>): ScheduleLaunchChip[] {
+  const project = a.projectId === null || a.scratch === true ? t('schedules.list.quick') : store.projects[a.projectId]?.name ?? a.projectId;
+  const agent = a.agent ?? 'claude-code';
+  const pool = agent === 'codex' ? store.accounts?.codex?.accounts : agent === 'claude-code' ? store.accounts?.accounts : undefined;
+  const accountName = a.account ? pool?.find((x) => x.id === a.account)?.name ?? null : null;
+  return [{ name: t('schedules.form.project'), value: project }, { name: t('launch.chip.agent'), value: agentLabel(agent) }, ...launchChips(t, a, accountName)];
+}
+
+function eventRow(store: Store, t: Translate, now: number, b: EventBindingDto): EventRow {
+  const gh = b.source.kind === 'github' ? b.source : null;
+  return {
+    id: b.id, prompt: b.prompt, state: b.state, pending: b.state === 'draft', held: b.state === 'held',
+    source: gh ? `${t('schedules.event.kind.github')} · ${gh.repo}` : t('schedules.event.kind.hook'),
+    sourceKind: gh ? 'github' : 'hook', repo: gh ? gh.repo : null,
+    when: gh ? gh.when.map((w) => githubWhenLabel(t, w)).join(t('schedules.event.when.sep')) : '',
+    filters: gh ? [...(gh.pr !== undefined ? [`#${gh.pr}`] : []), ...(gh.labels ?? [])] : [],
+    action: actionLabel(t, store, b.action),
+    chips: b.action.kind === 'new' ? newActionChips(store, t, b.action) : [],
+    passBody: b.passBody, allowAuthors: b.allowAuthors,
+    note: b.state === 'held' ? t('schedules.event.heldHourly', { max: EVENT_HOURLY_MAX }) : null,
+    runs: b.runs.map((r) => {
+      const base = runRow(t, r, now);
+      const marker = eventMarker(t, r.error);
+      return marker ? { ...base, label: marker } : base;
+    }),
+  };
+}
+
+const noticeText = (t: Translate, n: EventNotice | null): string | null => (n === null ? null : n.kind === 'no_admin' ? t('schedules.event.noAdmin') : n.kind === 'hook_failed' ? t('schedules.event.hookFailed') : n.text);
+const claimRow = (t: Translate, c: PrClaimDto): PrClaimRow => ({ key: `${c.sessionId}#${c.repo}#${c.pr}`, sessionId: c.sessionId, repo: c.repo, pr: c.pr, text: t('schedules.event.claim', { title: c.sessionTitle || c.sessionId, repo: c.repo, pr: c.pr }) });
+
+function presentEvents(store: Store, t: Translate, now: number): EventsProps | null {
+  if (!eventsAvailable(store.sync)) return null;
+  const e = store.eventTrigger;
+  const rows = e.bindings.map((b) => eventRow(store, t, now, b));
+  return {
+    drafts: rows.filter((r) => r.pending), rows: rows.filter((r) => !r.pending), claims: e.claims.map((c) => claimRow(t, c)),
+    form: { busy: e.form.busy, error: noticeText(t, e.form.error), done: e.form.done }, error: noticeText(t, e.error), rev: e.rev,
+  };
+}
+
 export function presentSchedules(store: Store, t: Translate, now: number): SchedulesProps {
   const rows = store.schedules.map((s): ScheduleRow => ({
     id: s.id, prompt: s.prompt, when: whenLabel(t, s.spec), next: nextLabel(t, s.nextAt, now), enabled: s.enabled,
@@ -99,7 +232,7 @@ export function presentSchedules(store: Store, t: Translate, now: number): Sched
     spent: s.spec.kind === 'once' && s.spec.at <= now,
   }));
   return {
-    rows,
+    rows, events: presentEvents(store, t, now),
     sessions: Object.values(store.sessions).filter((s) => s.projectId !== null).sort((a, b) => (b.lastTurnAt ?? 0) - (a.lastTurnAt ?? 0)).slice(0, 50).map((s) => ({ id: s.id, name: s.name || s.summary?.title || s.id })),
     launch: presentLaunchChoice(store, now, {}, null),
   };

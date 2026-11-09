@@ -102,6 +102,8 @@ export function bootHttp(p: {
   mobile: Pick<MobileParts, 'settingsChanged'>;
   /** Codex の検出と選択肢。スマホの問い合わせと同じ一覧を使う（server.ts で 1 つ作る）。 */
   codex: { local: LocalCodex; options: CodexOptionsService };
+  /** 外のできごとで動く結び付けの流れと、閉じている間に溜まったできごとを流す部品（#563）。 */
+  events: AppDeps['events'];
   opts: Pick<StartOptions, 'uiDist'>; serverDir: string;
   /** SSH の予備の経路（boot/peerSsh.ts）。渡せば /peer と /api/peer-ssh を持つ。 */
   peerSsh?: PeerSshParts;
@@ -161,6 +163,7 @@ export function bootHttp(p: {
     // 同期は起動のあとに始まることがある（boot/sync.ts）。同期の部品は呼ぶたびに引く。
     cloudUsage: { current: () => sync.cloudUsage.current(), refresh: () => sync.cloudUsage.refresh() },
     accounts: runs.accounts,
+    events: p.events,
     db, deviceId: device.id, deviceName: device.name, token: home.token, home: home.home, port, version: VERSION,
     // 最初の索引づけと紐づけが済むまで偽。.app はこれを見て起動画面に残る。
     ready: () => home.life.started,

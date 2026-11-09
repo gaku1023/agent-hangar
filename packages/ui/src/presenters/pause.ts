@@ -1,4 +1,4 @@
-import { addDays, localDate, type Translate } from '@agent-hangar/shared';
+import { addDays, eventsAvailable, localDate, type SessionDto, type Translate, type WakeOn } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { translatorOf } from './i18n.ts';
@@ -11,9 +11,13 @@ export type PauseChoice = { key: 'none' | 'today' | 'tomorrow' | 'monday' | 'nex
 /**
  * Paused の入力。draft は理由の欄の下書き、candidateNote は提案から開いたときの Claude の根拠（変えたかを見るのに使う）。
  * today は暦の欄の下限で、initialReturnOn は開いたときに選んでおく日である（null は日付なし）。
+ * wake は起こす条件（#563、A4）。
+ * クラウドを設定していなければ null で、画面は条件の欄を出さない。
+ * suggested は提案の wake_on、repo と pr は自分で選ぶときの下書き（会話の PR から読む）である。
  * initialReturnTime は時刻の欄に入れておく時刻（HH:MM）で、無ければ空（その日のうち）。candidateReturnTime は提案の時刻で、変えたかを見るのに使う。
  */
-export type PauseProps = { sessionId: string; sessionName: string; from: 'menu' | 'candidate'; draft: string; candidateNote: string | null; initialReturnOn: string | null; initialReturnTime: string; candidateReturnTime: string | null; today: string; choices: PauseChoice[] };
+export type PauseWake = { suggested: WakeOn | null; repo: string; pr: number | null };
+export type PauseProps = { wake: PauseWake | null; sessionId: string; sessionName: string; from: 'menu' | 'candidate'; draft: string; candidateNote: string | null; initialReturnOn: string | null; initialReturnTime: string; candidateReturnTime: string | null; today: string; choices: PauseChoice[] };
 
 /**
  * 戻る日の札を今の手元の暦から作る。
@@ -34,6 +38,15 @@ export function pauseChoices(now: number, t: Translate): PauseChoice[] {
 }
 
 /**
+ * 会話の PR の URL（https://github.com/owner/repo/pull/N）から repo と番号を読む。
+ * 読めなければ空と null。
+ */
+function prefillOf(s: SessionDto): { repo: string; pr: number | null } {
+  const m = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/pull\/(\d+)(?:[/?#].*)?$/.exec(s.stats?.prUrl ?? '');
+  return m ? { repo: m[1]!, pr: Number(m[2]) } : { repo: '', pr: null };
+}
+
+/**
  * Paused の入力。overlay が pause のときだけ props を作る。
  * 提案から開いたときは根拠を下書きに入れ、提案の日を選んでおく。「⋯」から開いたときは、Paused なら今の理由と日を、ほかは空と明日を入れておく。
  * 提案や今の Paused が日付なしなら、日付なしを選んでおく。
@@ -48,7 +61,10 @@ export function presentPause(state: State, store: Store, now: number): PauseProp
   const own = st?.status === 'paused' ? st : null;
   const t = translatorOf(store);
   const choices = pauseChoices(now, t);
+  // クラウドを設定していない、解除された、Worker の版が足りない PC には、起こす条件を出さない（eventsAvailable）。
+  const cloud = eventsAvailable(store.sync);
   return {
+    wake: cloud ? { suggested: cand?.wakeOn ?? null, ...(cand?.wakeOn ? { repo: cand.wakeOn.repo, pr: cand.wakeOn.pr } : prefillOf(s)) } : null,
     sessionId, sessionName: s.name ?? t('pause.session.unnamed'), from,
     draft: cand ? cand.note ?? '' : own?.note ?? '',
     candidateNote: cand?.note ?? null,

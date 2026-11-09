@@ -74,8 +74,8 @@ const state: PeerChatState = {
 };
 
 describe('互換の版と呼び鈴の種類', () => {
-  it('互換の版は 11。会話の問い合わせは t が chat の枠で運ぶので、t が peer の知らせの種類には chat が無い', () => {
-    expect(COMPAT_VERSION).toBe(11);
+  it('互換の版は 12。会話の問い合わせは t が chat の枠で運ぶので、t が peer の知らせの種類には chat が無い', () => {
+    expect(COMPAT_VERSION).toBe(12);
     expect(PEER_BELL_KINDS).not.toContain('chat');
   });
   it('パッケージの入口から取れる', () => {

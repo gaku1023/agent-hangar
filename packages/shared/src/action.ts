@@ -1,3 +1,4 @@
+import type { EventCreateInput, HeldChoiceDto, WakeOn } from './eventTrigger.ts';
 import type { ScheduleInput, SchedulePatch } from './schedule.ts';
 import type { AgentKind } from './agents.ts';
 import type { ConfigApplyOrderEntryIn, FolderRegisterItem, InstructionFileKind, PeerLaunchBody, ProjectPlace, ProjectStatus, ResolveAction, ResumeStray, RetentionFrom, SettingsDto, SharePreviewAgent } from './api.ts';
@@ -142,7 +143,7 @@ export type UiAction =
   // seq と q は検索の結果から開くときの跳び先（抜粋の seq と検索語）。
   | { type: 'session.open'; id: SessionId; focus?: 'terminal'; seq?: number; q?: string }
   // セッションの状態（Paused・Done・Archived）。status の null は Active に戻す。画面の正は後から届く session.upsert である。
-  | { type: 'session.state.set'; id: SessionId; status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string }
+  | { type: 'session.state.set'; id: SessionId; status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string; wakeOn?: WakeOn | null }
   // セッションを別のプロジェクトへ移す。動くのは hangar 上の所属だけで、本文と再開するフォルダは元のまま。画面の正は後から届く session.upsert である。
   | { type: 'session.move'; id: SessionId; projectId: ProjectId }
   // セッションを消す。本文を OS のゴミ箱へ移し、同期しているほかの PC からも消す。実行中は断られる。画面の正は後から届く session.removed である。
@@ -154,6 +155,18 @@ export type UiAction =
   // place があるときは、先にそのフォルダをプロジェクトに登録し（新しいセッションの起動と同じ道筋）、その id を新しい会話の送り先の projectId にして送る。
   | { type: 'schedule.create'; input: ScheduleInput; place?: ProjectPlace } | { type: 'schedule.update'; id: string; patch: SchedulePatch; place?: ProjectPlace }
   | { type: 'schedule.delete'; id: string } | { type: 'schedule.run'; id: string }
+  // 予定の画面のイベント（#563）。
+  // 一覧は開くときと一定の間隔で読み直す。
+  // 作成、承認、削除、PR の印の承認と却下のあとも読み直す。
+  | { type: 'events.load' } | { type: 'events.create'; input: EventCreateInput }
+  | { type: 'events.approve'; id: string } | { type: 'events.remove'; id: string }
+  | { type: 'events.claim'; op: 'approve' | 'reject'; sessionId: string; repo: string; pr: number }
+  // 閉じている間に溜まったイベントの札（#563）。
+  // 山の読み直しと、結び付けごとの選び（最新だけ、全部、動かさない）を送る。
+  | { type: 'heldEvents.load' } | { type: 'heldEvents.run'; choices: HeldChoiceDto[] }
+  // Paused を起こした行を光らせ終えた（#563）。
+  // 印を 1 度だけ使って下げる。
+  | { type: 'wakeGlow.seen'; id: string }
   | { type: 'deleteApproval.answer'; id: string; answer: 'approve' | 'reject' | 'dismiss' }
   | { type: 'peerApproval.answer'; id: string; answer: 'approve' | 'reject' }
   // 移す先を選ぶダイアログと、削除の確認を開く（セッションのメニューの「プロジェクトを変更…」と「削除…」）。決めたら session.move と session.delete を送る。
@@ -164,7 +177,7 @@ export type UiAction =
   | { type: 'session.unread.mark'; id: SessionId }
   | { type: 'session.pin'; id: SessionId; pinned: boolean }
   | { type: 'session.duplicate'; id: SessionId }
-  | { type: 'session.state.confirm'; id: SessionId; returnOn?: string; returnTime?: string } | { type: 'session.state.reject'; id: SessionId }
+  | { type: 'session.state.confirm'; id: SessionId; returnOn?: string; returnTime?: string; wakeOn?: WakeOn | null } | { type: 'session.state.reject'; id: SessionId }
   // 確認待ちの群の見出しの「すべて確定」「すべて却下」（2026-10-13 の決定、知らせの 9d）。いまある提案を、セッションの提案と TODO の完了の提案に分けて渡す。
   | { type: 'pending.resolve'; accept: boolean; sessionIds: SessionId[]; todoIds: TodoId[] }
   // Paused の入力（B1）。from は開いた入口で、提案の「日を変える」から開いたときは根拠を下書きに入れる。

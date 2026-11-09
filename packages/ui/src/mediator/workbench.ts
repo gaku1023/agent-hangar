@@ -1,4 +1,4 @@
-import { SETTINGS_SECTIONS, type PaletteCommand, type SessionStatus, type SettingsSection } from '@agent-hangar/shared';
+import { SETTINGS_SECTIONS, type PaletteCommand, type SessionStatus, type SettingsSection, type WakeOn } from '@agent-hangar/shared';
 import { overlayReplaceable } from './overlay.ts';
 import { canMoveBehind, nextWaitingStep, searchQueryStep } from './screen.ts';
 import { sidebarStep } from './sidebar.ts';
@@ -8,7 +8,12 @@ import type { Store } from '../store/store.ts';
 /** Paused の入力をそのセッションへ送ったら閉じる。別のセッションへの操作では閉じない。 */
 const closePause = (state: State, id: string): State => (state.overlay.kind === 'pause' && state.overlay.sessionId === id ? { ...state, overlay: { kind: 'none' } } : state);
 /** 状態の本文。渡されたものだけを載せる（省いた理由で、サーバの今の理由を消さないため）。 */
-const stateBody = (i: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string }) => ({ status: i.status, ...(i.note !== undefined ? { note: i.note } : {}), ...(i.returnOn !== undefined ? { returnOn: i.returnOn } : {}), ...(i.returnTime !== undefined ? { returnTime: i.returnTime } : {}) });
+/**
+ * wakeOn は、画面が見せた結果を明示で送る（外したなら null）。
+ * 送らないと、サーバは起こす結び付けを作らない。
+ */
+const wakeBody = (i: { wakeOn?: WakeOn | null }) => (i.wakeOn !== undefined ? { wakeOn: i.wakeOn } : {});
+const stateBody = (i: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string; wakeOn?: WakeOn | null }) => ({ status: i.status, ...(i.note !== undefined ? { note: i.note } : {}), ...(i.returnOn !== undefined ? { returnOn: i.returnOn } : {}), ...(i.returnTime !== undefined ? { returnTime: i.returnTime } : {}), ...wakeBody(i) });
 
 /** `cmd:new-session` のような項目 ID を種類と残りに割る。 */
 function splitId(id: string): [string, string] {
@@ -69,7 +74,7 @@ export function workbenchStep(state: State, store: Store, input: Input): Step | 
     // 開いている会話を未読に戻したときは、戻した未読がすぐ既読にならないよう、離れるまで印を持つ（screen.ts の seenStep）。
     case 'session.unread.mark': return { state: { ...state, unreadKept: state.screen.name === 'session' && state.screen.id === i.id ? i.id : state.unreadKept }, effects: [{ kind: 'api.markUnread', id: i.id }] };
     case 'session.state.set': return { state: closePause(state, i.id), effects: [{ kind: 'api.setSessionState', id: i.id, body: stateBody(i) }] };
-    case 'session.state.confirm': return { state: closePause(state, i.id), effects: [{ kind: 'api.confirmSessionState', id: i.id, body: i.returnOn !== undefined ? { returnOn: i.returnOn, ...(i.returnTime !== undefined ? { returnTime: i.returnTime } : {}) } : {} }] };
+    case 'session.state.confirm': return { state: closePause(state, i.id), effects: [{ kind: 'api.confirmSessionState', id: i.id, body: { ...(i.returnOn !== undefined ? { returnOn: i.returnOn, ...(i.returnTime !== undefined ? { returnTime: i.returnTime } : {}) } : {}), ...wakeBody(i) } }] };
     // 確認待ちをまとめて片付ける。TODO の取り消し（⌘Z）の積みは作らない（1 件ずつの操作だけが積む）。
     case 'pending.resolve': return {
       state,

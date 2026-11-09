@@ -801,6 +801,83 @@ alter table peer_outbox add column op text not null default 'launch';
 `;
 
 /**
+ * 版 55。
+ * 外のできごとで動く結び付け（#563）。
+ * 手元だけの表で、同期には載らない。
+ * event_bindings の inbox_private_key と hook_secret は秘密で、DTO にも同期にもログにも出さない。
+ * event_deliveries は、GitHub の x-github-delivery を結び付けごとに覚え、再送された荷物を二度動かさないための表である。
+ * session_prs は、会話が持つ PR の印である。
+ * state が active のものだけが、レビューの宛先になる。
+ * session_states.candidate_wake_on は、Paused の提案に添えた起こす条件（WakeOn の JSON）である。
+ */
+const V55_EVENT_BINDINGS_SQL = `
+create table event_bindings (
+  id text primary key,
+  inbox_id text not null,
+  inbox_public_key text not null,
+  inbox_private_key text not null,
+  webhook_id integer,
+  hook_secret text,
+  source text not null,
+  action text not null,
+  prompt text not null,
+  pass_body integer not null default 0,
+  allow_authors text not null default '[]',
+  state text not null check (state in ('draft','active','held','error')),
+  from_session_id text,
+  created_at integer not null,
+  expires_at integer
+);
+create index event_bindings_inbox on event_bindings(inbox_id);
+create table event_runs (
+  id text primary key,
+  binding_id text not null,
+  planned_at integer not null,
+  started_at integer not null,
+  ended_at integer,
+  result text not null,
+  session_id text,
+  error text
+);
+create index event_runs_of on event_runs(binding_id, started_at);
+create table event_deliveries (
+  binding_id text not null,
+  delivery_id text not null,
+  seen_at integer not null,
+  primary key (binding_id, delivery_id)
+);
+create index event_deliveries_seen on event_deliveries(seen_at);
+create table session_prs (
+  session_id text not null,
+  repo text not null,
+  pr integer not null,
+  state text not null check (state in ('draft','active')),
+  claimed_at integer not null,
+  primary key (session_id, repo, pr)
+);
+create index session_prs_of on session_prs(repo, pr, state);
+alter table session_states add column candidate_wake_on text;
+`;
+
+/**
+ * 版 56。
+ * GitHub の webhook と Worker の受け箱の後片付けの預かり（#563）。
+ * 手元だけの表で、同期には載らない。
+ * 受け箱を使う最後の結び付けが消えたとき、その受け箱（と GitHub の webhook）を外す仕事をここに預ける。
+ * 外すのに失敗しても、結び付けの行はもう無いので、この行が次の試しの手がかりになる。
+ * 秘密の値は持たない。
+ * 外すのに要るのは、受け箱の ID と webhook の ID だけである。
+ */
+const V56_EVENT_HOOK_ORPHANS_SQL = `
+create table event_hook_orphans (
+  inbox_id text primary key,
+  repo text,
+  webhook_id integer,
+  created_at integer not null
+);
+`;
+
+/**
  * MCP の delete_session の依頼を、利用者が答えるまで預かる表（#547）。手元だけの表で、同期しない。会話 1 つに 1 行。
  */
 const V44_DELETE_APPROVALS_SQL = `
@@ -966,4 +1043,6 @@ export const MIGRATIONS: Migration[] = [
   { version: 52, sql: V52_PEER_APPROVALS_SQL },
   { version: 53, sql: V53_PEER_SSH_SQL },
   { version: 54, sql: V54_PEER_OUTBOX_OP_SQL },
+  { version: 55, sql: V55_EVENT_BINDINGS_SQL },
+  { version: 56, sql: V56_EVENT_HOOK_ORPHANS_SQL },
 ];

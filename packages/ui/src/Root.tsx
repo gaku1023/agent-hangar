@@ -76,6 +76,7 @@ import { EditorNameRoot } from './views/primitives/editorName.tsx';
 import { editorName, presentEditorMissing } from './presenters/editor.ts';
 import { EditorMissing } from './views/EditorMissing.tsx';
 import { PromptAssistContext, type PromptAssist } from './views/primitives/promptAssist.ts';
+import { EventHookApiContext, type EventHookApi } from './views/eventHookApi.ts';
 import { ToastStack } from './views/ToastStack.tsx';
 import { useNow } from './views/primitives/useNow.ts';
 
@@ -131,6 +132,17 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       existing: (paths) => api.existingDrops(paths),
       peerFiles: (sessionId, query) => api.peerChatOp(sessionId, { t: 'files', query }).then((r) => (r.ok ? (r.files ?? []).map((f) => f.path) : [])),
       notify: (message) => rt.dispatch({ kind: 'server', event: { type: 'toast', level: 'error', message } }),
+    };
+  }, [props.api, rt]);
+
+  // 予定の画面の webhook の URL と repo の状態。
+  // URL は秘密を含むので、ストアを通さず画面の部品へ直に返す。
+  const eventHookApi = useMemo<EventHookApi>(() => {
+    const api = props.api ?? apiFromRuntime(rt);
+    return {
+      hookUrl: (id) => api.eventHookUrl(id).then((r) => r.url),
+      rotateUrl: (id) => api.rotateEventUrl(id).then((r) => ('hook' in r ? { message: r.hook.message ?? '' } : null)),
+      repoHook: (repo) => api.eventRepoHook(repo).then((r) => r.hook),
     };
   }, [props.api, rt]);
 
@@ -547,11 +559,13 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         <CopiedContext.Provider value={state.copied}>
           <PaneOfContext.Provider value={paneOf}>
           <PromptAssistContext.Provider value={promptAssist}>
+           <EventHookApiContext.Provider value={eventHookApi}>
             <LanguageRoot language={storeLanguage(store)}>
               <EditorNameRoot name={editorName(store.settings)}>
                 <FindRoot store={finds}><Shell {...shell} overlays={overlays}>{body}</Shell></FindRoot>
               </EditorNameRoot>
             </LanguageRoot>
+           </EventHookApiContext.Provider>
           </PromptAssistContext.Provider>
           </PaneOfContext.Provider>
         </CopiedContext.Provider>

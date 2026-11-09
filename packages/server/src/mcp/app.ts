@@ -69,7 +69,7 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   reg('notify_user', D(tr('mcp.tool.notifyUser')), { session_id: z.string().optional(), text: z.string(), kind: z.string().optional().describe(tr('mcp.notify.kindParam')), to: z.array(z.string()).optional() });
   // 必須の欠けは SDK の型の失敗でなく、tools.ts の断りの文で返すため、いずれも任意にして検査は道具に任せる。
   reg('set_notify_preference', D(tr('mcp.tool.setNotifyPreference')), { session_id: z.string().optional(), text: z.string().optional().describe(tr('mcp.notifyPref.textParam')), unread: z.array(z.string()).optional().describe(tr('mcp.notifyPref.unreadParam')), os: z.array(z.string()).optional().describe(tr('mcp.notifyPref.osParam')), phone: z.array(z.string()).optional().describe(tr('mcp.notifyPref.phoneParam')), whileFocused: z.boolean().optional().describe(tr('mcp.notifyPref.whileFocusedParam')), merge: z.boolean().optional().describe(tr('mcp.notifyPref.mergeParam')) });
-  reg('propose_session_status', D(tr('mcp.tool.proposeSessionStatus')), { session_id: z.string().optional(), status: z.enum(['done', 'paused']), note: z.string().describe(tr('mcp.sessionStatus.noteParam')), return_on: z.string().optional().describe(tr('mcp.sessionStatus.returnOnParam')), return_time: z.string().optional().describe(tr('mcp.sessionStatus.returnTimeParam')), confirmed: z.boolean().optional().describe(tr('mcp.sessionStatus.confirmedParam')) });
+  reg('propose_session_status', D(tr('mcp.tool.proposeSessionStatus')), { session_id: z.string().optional(), status: z.enum(['done', 'paused']), note: z.string().describe(tr('mcp.sessionStatus.noteParam')), return_on: z.string().optional().describe(tr('mcp.sessionStatus.returnOnParam')), return_time: z.string().optional().describe(tr('mcp.sessionStatus.returnTimeParam')), confirmed: z.boolean().optional().describe(tr('mcp.sessionStatus.confirmedParam')), wake_on: z.object({ repo: z.string(), pr: z.number().int(), when: z.enum(['ci_done', 'ci_failed', 'review', 'merged']) }).optional().describe(tr('mcp.sessionStatus.wakeOnParam')) });
   reg('stop_session', D(tr('mcp.tool.stopSession')), { session_id: z.string() });
   reg('resume_session', D(tr('mcp.tool.resumeSession')), { session_id: z.string(), account: z.string().optional().describe(tr('mcp.resumeSession.accountParam')) });
   reg('delete_session', D(tr('mcp.tool.deleteSession')), { session_id: z.string() });
@@ -93,6 +93,13 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   reg('list_schedules', D(tr('mcp.tool.listSchedules')), { project_id: z.string().optional() });
   reg('create_schedule', D(tr('mcp.tool.createSchedule')), scheduleArgs);
   reg('update_schedule', D(tr('mcp.tool.updateSchedule')), { schedule_id: z.string(), enabled: z.boolean().optional().describe(tr('mcp.schedule.enabledParam')), ...scheduleArgs, kind: scheduleArgs.kind.optional(), prompt: z.string().optional() });
+  reg('claim_pr', D(tr('mcp.tool.claimPr')), { session_id: z.string().optional(), repo: z.string().describe(tr('mcp.event.repoParam')), pr: z.number().int().describe(tr('mcp.event.prParam')) });
+  // 元と動きの形の検査は道具に任せ、断りの文で足りない所を名指しする。
+  reg('draft_event_binding', D(tr('mcp.tool.draftEventBinding')), {
+    source: z.object({ kind: z.enum(['github', 'hook']), repo: z.string().optional(), when: z.array(z.string()).optional(), pr: z.number().int().optional(), labels: z.array(z.string()).optional() }).describe(tr('mcp.event.sourceParam')),
+    action: z.object({ kind: z.enum(['send', 'send_pr_owner', 'new']), session_id: z.string().optional(), project_id: z.string().optional(), scratch: z.boolean().optional(), agent: z.string().optional(), name: z.string().optional(), account: z.string().optional(), model: z.string().optional(), effort: z.string().optional(), permission_mode: z.string().optional(), worktree: z.string().optional(), add_dirs: z.array(z.string()).optional(), mode: z.string().optional(), auto_approve: z.boolean().optional() }).describe(tr('mcp.event.actionParam')),
+    prompt: z.string().describe(tr('mcp.event.promptParam')), pass_body: z.boolean().optional().describe(tr('mcp.event.passBodyParam')), allow_authors: z.array(z.string()).optional().describe(tr('mcp.event.allowAuthorsParam')),
+  });
   // 節は種類ごとに必須が違うので、ここでは全部を任意にし、検査は report/compose.ts に任せる。断りの文で足りない節を名指しできる。
   const section = z.string().optional();
   reg('draft_issue_report', D(tr('report.tool.draft')), {

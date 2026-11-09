@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import {
@@ -5,6 +6,10 @@ import {
   BLOB_DELETE_GRACE_MS,
   COMPAT_VERSION,
   encodeEpochList,
+  EVENT_INBOX_ACK_MAX,
+  EVENT_INBOX_MIN_WORKER_COMPAT,
+  EVENT_INBOX_PENDING_MAX,
+  EVENT_INBOX_PULL_PAGE,
   LAUNCH_TTL_MS,
   MAX_BLOB_DELETE_KEYS,
   MAX_PUSH_BATCH,
@@ -39,6 +44,8 @@ import {
   type CloudLimitKind,
   type CloudUsageBody,
   type DeviceOut,
+  type EventInboxCreated,
+  type EventInboxPending,
   type KeyboxesOut,
   type KeyboxesPutOut,
   type KeyboxIn,
@@ -156,8 +163,21 @@ export type FakeCloudStore = {
   peerResults: Map<string, PeerResultOut[]>;
   /** 呼び鈴で鳴らした記録。実物は WebSocket の知らせ（{ t: 'peer', kind, id }）を送るので、試験は何を誰に鳴らしたかをここで見る。 */
   peerRings: { to: string; kind: PeerBellKind; id: string }[];
+  /**
+   * 外のできごとの受け箱（実物の event_inboxes）。
+   * dropped は上限で捨てた荷物の数。
+   */
+  inboxes: Map<string, FakeInbox>;
+  /**
+   * 預かっている荷物（実物の event_parcels）。
+   * 届いた順。
+   */
+  parcels: FakeParcel[];
   now: () => number;
 };
+
+export type FakeInbox = { id: string; deviceId: string; publicKey: string; dropped: number };
+export type FakeParcel = { id: string; inboxId: string; sealed: string; receivedAt: number };
 
 /** 偽物の Worker が持つ PC どうしの頼みの 1 行（実物の peer_launches）。状態の進み方は実物（packages/cloud/src/peerLaunch.ts）と同じ。 */
 export type FakePeerLaunch = { id: string; to: string; from: string; sealed: string; status: PeerLaunchState; createdAt: number; updatedAt: number; sealedAnswer: string | null; resultSeq: number };
@@ -319,6 +339,8 @@ export class FakeWireClient implements WireCloudClient {
       peerLaunches: new Map(),
       peerResults: new Map(),
       peerRings: [],
+      inboxes: new Map(),
+      parcels: [],
       now: o.now ?? (() => Date.now()),
     };
     if (o.store && o.now) this.store.now = o.now;
@@ -350,6 +372,8 @@ export class FakeWireClient implements WireCloudClient {
   get peerLaunches(): Map<string, FakePeerLaunch> { return this.store.peerLaunches; }
   get peerResults(): Map<string, PeerResultOut[]> { return this.store.peerResults; }
   get peerRings(): { to: string; kind: PeerBellKind; id: string }[] { return this.store.peerRings; }
+  get inboxes(): Map<string, FakeInbox> { return this.store.inboxes; }
+  get parcels(): FakeParcel[] { return this.store.parcels; }
   /** 偽にすると、POST /notices を知らない Worker の真似になる。 */
   get noticeRoute(): boolean { return this.store.noticeRoute; }
   set noticeRoute(v: boolean) { this.store.noticeRoute = v; }
@@ -801,6 +825,85 @@ export class FakeWireClient implements WireCloudClient {
     return { files: page.map((e) => ({ ...e })), nextSeq, more };
   }
 
+  /** 版 12 より前の Worker は受け箱の口を知らず、404 で断る。 */
+  private inboxRoute(): void {
+    if (this.store.workerCompat < EVENT_INBOX_MIN_WORKER_COMPAT) throw new CloudError(404, errorBody('not found'));
+  }
+
+  /**
+   * POST /inboxes。
+   * 受け箱を作り、ID を返す。
+   * 公開鍵の形は実物と同じく、raw の 32 バイトの base64url（43 字）。
+   */
+  async createInbox(publicKey: string): Promise<EventInboxCreated> {
+    this.guard('createInbox', publicKey);
+    this.inboxRoute();
+    if (typeof publicKey !== 'string' || publicKey.length !== 43) throw new CloudError(400, errorBody('invalid body'));
+    const id = randomUUID().replace(/-/g, '');
+    this.store.inboxes.set(id, { id, deviceId: this.deviceId, publicKey, dropped: 0 });
+    return { inboxId: id };
+  }
+
+  /**
+   * DELETE /inboxes/:id。
+   * 自分の受け箱だけを、預かっている荷物ごと消す。
+   * ほかの PC の分と無い ID は、実物は 404 で、HttpCloudClient はそれを成功として返す。
+   */
+  async deleteInbox(inboxId: string): Promise<void> {
+    this.guard('deleteInbox', inboxId);
+    this.inboxRoute();
+    const inbox = this.store.inboxes.get(inboxId);
+    if (!inbox || inbox.deviceId !== this.deviceId) return;
+    this.store.inboxes.delete(inboxId);
+    this.store.parcels = this.store.parcels.filter((p) => p.inboxId !== inboxId);
+  }
+
+  /**
+   * GET /inboxes/pending。
+   * 自分の受け箱の荷物を古い順に EVENT_INBOX_PULL_PAGE 通。
+   * dropped は 1 以上の受け箱だけ。
+   */
+  async pendingParcels(): Promise<EventInboxPending> {
+    this.guard('pendingParcels');
+    this.inboxRoute();
+    const mine = new Set([...this.store.inboxes.values()].filter((i) => i.deviceId === this.deviceId).map((i) => i.id));
+    const items = this.store.parcels.filter((p) => mine.has(p.inboxId)).slice(0, EVENT_INBOX_PULL_PAGE).map((p) => ({ ...p }));
+    const dropped = [...this.store.inboxes.values()].filter((i) => i.deviceId === this.deviceId && i.dropped > 0).map((i) => ({ inboxId: i.id, count: i.dropped }));
+    return { items, dropped };
+  }
+
+  /**
+   * POST /inboxes/ack。
+   * 自分の受け箱の荷物だけを消し、自分の受け箱の dropped を全部 0 に戻す。
+   */
+  async ackParcels(ids: string[]): Promise<void> {
+    this.guard('ackParcels', ids);
+    this.inboxRoute();
+    if (!Array.isArray(ids) || ids.length > EVENT_INBOX_ACK_MAX || ids.some((i) => typeof i !== 'string' || i.length === 0 || i.length > 64)) throw new CloudError(400, errorBody('invalid body'));
+    const gone = new Set(ids);
+    const mine = new Set([...this.store.inboxes.values()].filter((i) => i.deviceId === this.deviceId).map((i) => i.id));
+    this.store.parcels = this.store.parcels.filter((p) => !(gone.has(p.id) && mine.has(p.inboxId)));
+    for (const i of this.store.inboxes.values()) if (i.deviceId === this.deviceId) i.dropped = 0;
+  }
+
+  /**
+   * 外から webhook が届いた真似（試験の口で、WireCloudClient には無い）。
+   * 受け箱が無ければ false（実物は 404）。
+   * EVENT_INBOX_PENDING_MAX を越えたら荷物を置かず dropped を 1 増やす。
+   * 置いたら、宛先の PC に呼び鈴（kind は event、id は受け箱の ID）を鳴らした記録を残す。
+   */
+  postParcel(inboxId: string, sealed: string): boolean {
+    const inbox = this.store.inboxes.get(inboxId);
+    if (!inbox) return false;
+    if (this.store.parcels.filter((p) => p.inboxId === inboxId).length >= EVENT_INBOX_PENDING_MAX) {
+      inbox.dropped++;
+      return true;
+    }
+    this.store.parcels.push({ id: randomUUID(), inboxId, sealed, receivedAt: this.store.now() });
+    this.store.peerRings.push({ to: inbox.deviceId, kind: 'event', id: inboxId });
+    return true;
+  }
+
   /**
    * DELETE /blobs。実物（packages/cloud/src/files.ts）と同じ規則で消す。
    * 自分の端末 ID の下だけ、置いてから 1 時間たったものだけ、1 日（UTC）500 件まで。
@@ -1169,6 +1272,13 @@ export class FakeCloudClient implements CloudClient {
   answerLaunch(id: string, ok: boolean, sealedAnswer: string): Promise<void> { return this.wire.answerLaunch(id, ok, sealedAnswer); }
   getMobileBlob(launchId: string, n: number): Promise<Uint8Array> { return this.wire.getMobileBlob(launchId, n); }
   deleteBlobs(keys: string[]): Promise<BlobsDeleteOut> { return this.wire.deleteBlobs(keys); }
+  createInbox(publicKey: string): Promise<EventInboxCreated> { return this.wire.createInbox(publicKey); }
+  deleteInbox(inboxId: string): Promise<void> { return this.wire.deleteInbox(inboxId); }
+  pendingParcels(): Promise<EventInboxPending> { return this.wire.pendingParcels(); }
+  ackParcels(ids: string[]): Promise<void> { return this.wire.ackParcels(ids); }
+  postParcel(inboxId: string, sealed: string): boolean { return this.wire.postParcel(inboxId, sealed); }
+  get inboxes(): Map<string, FakeInbox> { return this.wire.inboxes; }
+  get parcels(): FakeParcel[] { return this.wire.parcels; }
 }
 
 /** seedCloud に渡す 1 台の PC。鍵ペアは本物の X25519（keybox を開くため）。 */

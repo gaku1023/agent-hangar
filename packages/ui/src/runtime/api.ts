@@ -2,7 +2,7 @@ import type { PeerChatOpIn, PeerChatOpResult, PeerChatViewDto, ScheduleInput, Sc
 import { LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE } from '@agent-hangar/shared';
 import type { AccountLinkConflictDto, LinkConflictsDto, EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto, SessionLaunchSettingsDto } from '@agent-hangar/shared';
-import type { SharePreviewAgent, SharePreviewDto, AccountDirPreviewDto, AccountsDto, AgentAccountsDto, ArtifactDto, CodexOptionsDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MobilePairedDto, MobilePairingDto, MuxRecheckDto, OpencodeOptionsDto, OpencodeStatusDto, CodexStatusDto, OpencodeProvidersDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeCustomProviderBody, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
+import type { EventBindingDto, EventCreateInput, EventRepoHookDto, HeldChoiceDto, HeldEventDto, EventSaveResultDto, PrClaimDto, WakeOn, WakeResultDto, SharePreviewAgent, SharePreviewDto, AccountDirPreviewDto, AccountsDto, AgentAccountsDto, ArtifactDto, CodexOptionsDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MobilePairedDto, MobilePairingDto, MuxRecheckDto, OpencodeOptionsDto, OpencodeStatusDto, CodexStatusDto, OpencodeProvidersDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeCustomProviderBody, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -190,9 +190,9 @@ export type ApiClient = {
   restoreTodos(rows: TodoDto[]): Promise<TodoDto[]>;
   /** セッションの状態を手で変える。status の null は Active に戻す。返り値は使わない（画面の正は session.upsert）。 */
   detachSpawn(id: string): Promise<unknown>;
-  setSessionState(id: string, body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string }): Promise<{ state: SessionStateDto }>;
+  setSessionState(id: string, body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string; wakeOn?: WakeOn | null }): Promise<{ state: SessionStateDto; wake?: WakeResultDto }>;
   /** 提案を確定する。日を変えたときだけ returnOn を渡す。提案が無ければ 409 の一文で投げる。 */
-  confirmSessionState(id: string, body: { returnOn?: string; returnTime?: string }): Promise<{ state: SessionStateDto }>;
+  confirmSessionState(id: string, body: { returnOn?: string; returnTime?: string; wakeOn?: WakeOn | null }): Promise<{ state: SessionStateDto; wake?: WakeResultDto }>;
   rejectSessionState(id: string): Promise<{ state: SessionStateDto }>;
   /** セッションを別のプロジェクトへ移す。移した後のセッションを返す。返り値は使わない（画面の正は session.upsert）。 */
   moveSession(id: string, projectId: string): Promise<SessionDto>;
@@ -207,6 +207,40 @@ export type ApiClient = {
   updateSchedule(id: string, patch: SchedulePatch): Promise<unknown>;
   deleteSchedule(id: string): Promise<unknown>;
   runSchedule(id: string): Promise<unknown>;
+  /**
+   * 予定の画面のイベント（#563）。
+   * 結び付けの一覧（下書きを含む）と、担当する PR の印の下書き。
+   */
+  eventBindings(): Promise<{ bindings: EventBindingDto[] }>;
+  prClaims(): Promise<{ claims: PrClaimDto[] }>;
+  /**
+   * 作成。
+   * webhook を付けられなかったときは、200 で { hook: { status, message? } } が返り、何も作られない。
+   */
+  createEventBinding(input: EventCreateInput): Promise<EventSaveResultDto>;
+  approveEventBinding(id: string): Promise<EventSaveResultDto>;
+  deleteEventBinding(id: string): Promise<unknown>;
+  answerPrClaim(op: 'approve' | 'reject', claim: { sessionId: string; repo: string; pr: number }): Promise<unknown>;
+  /** 閉じている間に溜まって、選びを待つイベント（結び付けごと、古い順）。 */
+  heldEvents(): Promise<{ held: HeldEventDto[] }>;
+  /**
+   * 溜まったイベントの選びを送る。
+   * 流すのは裏で進み、始めたところで返る。
+   */
+  runHeldEvents(choices: HeldChoiceDto[]): Promise<unknown>;
+  /**
+   * 外の webhook の URL（秘密を含む）。
+   * 受け箱がまだ無いときは null。
+   * 持たずに、見せる間だけ画面の中に置く。
+   */
+  eventHookUrl(id: string): Promise<{ url: string | null }>;
+  /**
+   * 外の webhook の URL を作り直す。
+   * 付けられなかったときは 200 で { hook } が返る。
+   */
+  rotateEventUrl(id: string): Promise<{ ok: true } | { hook: { status: 'failed'; message?: string } }>;
+  /** repo の webhook の状態。 */
+  eventRepoHook(repo: string): Promise<{ hook: EventRepoHookDto }>;
   answerDeleteApproval(id: string, answer: 'approve' | 'reject' | 'dismiss'): Promise<unknown>;
   answerPeerApproval(id: string, answer: 'approve' | 'reject'): Promise<unknown>;
   /** 開いたセッションを既読にする（未読の数を 0 にする）。 */
@@ -440,6 +474,17 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     updateSchedule: (id, patch) => call(`/api/schedules/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
     deleteSchedule: (id) => call(`/api/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     runSchedule: (id) => post(`/api/schedules/${encodeURIComponent(id)}/run`),
+    eventBindings: () => call('/api/events/bindings'),
+    prClaims: () => call('/api/events/pr-claims'),
+    createEventBinding: (input) => post('/api/events/bindings', input),
+    approveEventBinding: (id) => call(`/api/events/bindings/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ state: 'active' }) }),
+    deleteEventBinding: (id) => call(`/api/events/bindings/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    answerPrClaim: (op, claim) => post(`/api/events/pr-claims/${op}`, claim),
+    heldEvents: () => call('/api/events/held'),
+    runHeldEvents: (choices) => post('/api/events/held/run', { choices }),
+    eventHookUrl: (id) => call(`/api/events/bindings/${encodeURIComponent(id)}/hook-url`),
+    rotateEventUrl: (id) => post(`/api/events/bindings/${encodeURIComponent(id)}/rotate-url`),
+    eventRepoHook: (repo) => call(`/api/events/repo-hook/${repo.split('/').map(encodeURIComponent).join('/')}`),
     answerDeleteApproval: (id, answer) => post(`/api/delete-approvals/${encodeURIComponent(id)}/${answer}`),
     answerPeerApproval: (id, answer) => post(`/api/peer-approvals/${encodeURIComponent(id)}/${answer}`),
     dismissOverlap: (sessionId, other, paths) => post(`/api/sessions/${sessionId}/overlap/dismiss`, { with: other, paths }),

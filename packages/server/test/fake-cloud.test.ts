@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
-import { COMPAT_VERSION, MAX_PUSH_BATCH, MAX_SEALED_META_CHARS, NOTICE_RATE, PEER_LAUNCH_MIN_WORKER_COMPAT, PEER_LAUNCH_TTL_MS, PEER_RESULTS_MAX, PHONE_NOTICE_SEALED_MAX, ROSTER_MARKER_K, toBase64Url, type SealedChangeIn, type SealedFileIn } from '@agent-hangar/shared';
+import { COMPAT_VERSION, EVENT_INBOX_ACK_MAX, EVENT_INBOX_PENDING_MAX, EVENT_INBOX_PULL_PAGE, MAX_PUSH_BATCH, MAX_SEALED_META_CHARS, NOTICE_RATE, PEER_LAUNCH_MIN_WORKER_COMPAT, PEER_LAUNCH_TTL_MS, PEER_RESULTS_MAX, PHONE_NOTICE_SEALED_MAX, ROSTER_MARKER_K, toBase64Url, type SealedChangeIn, type SealedFileIn } from '@agent-hangar/shared';
 import { CloudError, CompatError } from '../src/sync/client.ts';
 import { FakeCloudClient, FakeWireClient, MAX_BODY_BYTES, MAX_ANSWER_BODY_BYTES, MAX_FEED_BODY_BYTES, MAX_LAUNCH_BODY_BYTES, MAX_NOTICE_BODY_BYTES, MAX_PAGE_SEALED_CHARS, MAX_ROW_BYTES, MIN_DEVICE_COMPAT, PULL_LAUNCH_LIMIT, TOUCH_EVERY_MS } from './fake-cloud.ts';
 
@@ -485,6 +485,51 @@ describe('FakeCloudClient', () => {
     c.wire.noticeRoute = false;
     await expect(c.postNotice('3.c2VhbGVk', 3)).rejects.toMatchObject({ status: 404 });
     expect(c.notices).toHaveLength(NOTICE_RATE.max + 2);
+  });
+});
+
+describe('外のできごとの受け箱', () => {
+  const PUB = 'A'.repeat(43);
+
+  it('受け箱を作り、荷物を古い順に 1 ページずつ返し、ack で消す。呼び鈴は荷物が置けたときだけ鳴る', async () => {
+    const a = new FakeCloudClient({ deviceId: 'pc-a' });
+    const { inboxId } = await a.createInbox(PUB);
+    expect(a.postParcel('nope', 'x')).toBe(false);
+    for (let i = 0; i < EVENT_INBOX_PULL_PAGE + 5; i++) expect(a.postParcel(inboxId, `p${i}`)).toBe(true);
+    expect(a.wire.peerRings.at(-1)).toEqual({ to: 'pc-a', kind: 'event', id: inboxId });
+    const first = await a.pendingParcels();
+    expect(first.items.map((i) => i.sealed)).toEqual(Array.from({ length: EVENT_INBOX_PULL_PAGE }, (_, i) => `p${i}`));
+    expect(first.dropped).toEqual([]);
+    await a.ackParcels(first.items.map((i) => i.id));
+    expect((await a.pendingParcels()).items.map((i) => i.sealed)).toEqual(['p20', 'p21', 'p22', 'p23', 'p24']);
+    await expect(a.ackParcels(Array.from({ length: EVENT_INBOX_ACK_MAX + 1 }, () => 'x'))).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('上限を越えた荷物は捨てて数え、ack で数を 0 に戻す。ほかの PC の受け箱は見えず、消せない', async () => {
+    const a = new FakeCloudClient({ deviceId: 'pc-a' });
+    const b = a.asDevice('pc-b');
+    const { inboxId } = await a.createInbox(PUB);
+    for (let i = 0; i < EVENT_INBOX_PENDING_MAX + 3; i++) a.postParcel(inboxId, 'x');
+    expect(a.parcels).toHaveLength(EVENT_INBOX_PENDING_MAX);
+    expect((await a.pendingParcels()).dropped).toEqual([{ inboxId, count: 3 }]);
+    expect(await b.pendingParcels()).toEqual({ items: [], dropped: [] });
+    await b.ackParcels(a.parcels.slice(0, 5).map((p) => p.id));
+    await b.deleteInbox(inboxId);
+    expect(a.parcels).toHaveLength(EVENT_INBOX_PENDING_MAX);
+    expect(a.inboxes.has(inboxId)).toBe(true);
+    await a.ackParcels([]);
+    expect((await a.pendingParcels()).dropped).toEqual([]);
+    await a.deleteInbox(inboxId);
+    expect(a.parcels).toHaveLength(0);
+    expect(a.inboxes.size).toBe(0);
+  });
+
+  it('版 12 より前の Worker は口を知らず 404、形の違う公開鍵は 400', async () => {
+    const a = new FakeCloudClient({ deviceId: 'pc-a' });
+    await expect(a.createInbox('short')).rejects.toMatchObject({ status: 400 });
+    a.workerCompat = 11;
+    await expect(a.createInbox(PUB)).rejects.toMatchObject({ status: 404 });
+    await expect(a.pendingParcels()).rejects.toMatchObject({ status: 404 });
   });
 });
 

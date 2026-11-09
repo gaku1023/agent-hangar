@@ -51,10 +51,15 @@
  * 共有表にも MIN_DEVICE_COMPAT にも触れないので、版 10 の端末は今までどおり同期できる（MIN_DEVICE_COMPAT は 9 のまま）。
  * 端末は、相手の PC が版 11 以上を名乗るときだけチャットの画面を出し、それ未満の相手には読み取り専用のトランスクリプトのままにする。
  *
+ * 版 12（外からの webhook を受け箱で預かる、#563）：Worker が、受け箱の口（/inboxes、PC の端末トークンが要る）と、外から無認証で受ける口（POST /hooks/:inboxId）、専用の表（event_inboxes、event_parcels）、呼び鈴の知らせの種類 event を持つ。
+ * 荷物は受け箱の公開鍵で封じて置き、Worker は読まない（e2e/inbox.ts）。
+ * 共有表にも MIN_DEVICE_COMPAT にも触れないので、版 11 の端末は今までどおり同期できる（MIN_DEVICE_COMPAT は 9 のまま）。
+ * 端末は、Worker が名乗る版が EVENT_INBOX_MIN_WORKER_COMPAT に届くまで、イベントの種類を出さない。
+ *
  * 殻は同梱するサーバと同じ版を名乗る写しを持つ（apps/desktop/src-tauri/src/health.rs の COMPAT_VERSION）。apps/desktop/test/config.test.ts がこの値と突き合わせる。
  * 殻は 4177 の既存のサーバと下限ではなく一致で比べるので、この版を上げると、上げた殻は上げる前のサーバを採らず、上げる前の殻は上げた後のサーバを採らない。
  */
-export const COMPAT_VERSION = 11;
+export const COMPAT_VERSION = 12;
 
 /**
  * PC の一覧と解除の口（GET /devices、POST /devices/:id/revoke）を持つ Worker の版。
@@ -106,6 +111,14 @@ export const PEER_LAUNCH_MIN_WORKER_COMPAT = 10;
  * 端末に求める下限（MIN_DEVICE_COMPAT）は上げない。
  */
 export const PEER_CHAT_MIN_WORKER_COMPAT = 11;
+
+/**
+ * 受け箱の口（/inboxes、POST /hooks/:inboxId）を持つ Worker の版。
+ * 版 11 までの Worker はこの口を 404 で返す。
+ * 端末は、Worker が名乗る版がこの値に届くまで、イベントの種類を出さない。
+ * 端末に求める下限（MIN_DEVICE_COMPAT）は上げない。
+ */
+export const EVENT_INBOX_MIN_WORKER_COMPAT = 12;
 
 /**
  * ほかの PC の会話をチャットの形で見て続ける機能（ピア チャット）を持つ、最初の hangar の版。

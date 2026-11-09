@@ -396,6 +396,7 @@ export class SyncEngine {
       limitedUntil: shownLimit,
       // 解除されたことは error の文でも言うが、画面は節の先頭に専用の帯を出すので、印を別に載せる。
       revoked: this.revokedBlock,
+      workerCompat: this.deps.client?.lastWorkerCompat?.() ?? null,
       // 古い形式の cloud.json で止まっているときだけ載せる。未参加の off と見分けるためである。
       ...(state === 'off' && this.deps.legacyConfig === true ? { legacyConfig: true } : {}),
     };

@@ -1,4 +1,4 @@
-import type { InvestigateContext, NewSessionSeed, PeerLaunchBody, LinkConflictsDto, ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, NonDefaultAgentKind, ProjectPlace, ProjectRailSection, ResolveAction, PhoneLaunchDto, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto, ScheduleInput, SchedulePatch } from '@agent-hangar/shared';
+import type { WakeOn, InvestigateContext, NewSessionSeed, PeerLaunchBody, LinkConflictsDto, ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, NonDefaultAgentKind, ProjectPlace, ProjectRailSection, ResolveAction, PhoneLaunchDto, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto, ScheduleInput, SchedulePatch } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { PanesState } from './panes.ts';
 import type { CloudMemberCommand } from '../runtime/cloudMember.ts';
@@ -150,8 +150,8 @@ export type Effect =
   | { kind: 'api.markUnread'; id: string }
   // 元の会話の設定を読み、埋めた新規ダイアログを開く（mediator/launch.ts の duplicateOpenAction）。
   | { kind: 'api.loadDuplicate'; id: string }
-  | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string } }
-  | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string; returnTime?: string } }
+  | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string; wakeOn?: WakeOn | null } }
+  | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string; returnTime?: string; wakeOn?: WakeOn | null } }
   | { kind: 'api.rejectSessionState'; id: string }
   | { kind: 'api.loadMemo'; projectId: string }
   | { kind: 'api.loadInstructions'; projectId: string }
@@ -352,6 +352,12 @@ export type State = {
   contextShorts: ContextShort[];
   /** 起動した後にモデルが見つからなかった会話の右下の札（opencode.modelMissing）。同じ会話は 1 枚で、古いものが先。 */
   modelMissings: ModelMissing[];
+  /**
+   * できごとで起こした会話の印（session.woken）。
+   * 行が Active に入るときに 1 度だけ光らせ、光り終えたら下げる。
+   * 新しいものが後。
+   */
+  wakeGlow: { id: string; at: number }[];
   /**
    * 新しいセッションのモデルの小窓の「プロバイダーを管理…」で設定へ移ったときの、ダイアログの開き方。
    * 設定の opencode の面に「‹ 新しいセッションに戻る」を出し、押すと同じ開き方で開き直す。設定の外へ移ったら忘れる。持っていなければ null か無し。

@@ -10,6 +10,7 @@ import {
   COMPAT_VERSION,
   compatHeaders,
   encodeFileKeyPath,
+  EVENT_INBOX_ACK_MAX,
   isBlobKey,
   isSafeKeyId,
   isSafeRelPath,
@@ -28,6 +29,8 @@ import {
   type DeviceOut,
   type DeviceRevokeOut,
   type DevicesOut,
+  type EventInboxCreated,
+  type EventInboxPending,
   type FileMetaIn,
   type JoinCodeCreate,
   type JoinCodeMine,
@@ -344,6 +347,29 @@ export interface CloudClientBase {
    * 1 日の上限を使い切っていれば CloudError(429) で投げる。呼ぶのはゴミ箱の掃除（sync/trashSweep.ts）。偽物は実装しなくてよい。
    */
   deleteBlobs?(keys: string[]): Promise<BlobsDeleteOut>;
+  /**
+   * 外のできごとの受け箱を作る（POST /inboxes、互換の版 12 の Worker から）。
+   * publicKey は受け箱の X25519 公開鍵（raw の base64url）。
+   * 受け箱の ID は秘密に準ずるので、ログに出さない。
+   * 版 11 までの Worker は口を知らず 404 を返す。
+   */
+  createInbox?(publicKey: string): Promise<EventInboxCreated>;
+  /**
+   * 受け箱を預かっている荷物ごと消す（DELETE /inboxes/:id）。
+   * もう無い受け箱（404）は成功として扱う。
+   */
+  deleteInbox?(inboxId: string): Promise<void>;
+  /**
+   * 預かっている荷物を古い順に 1 ページ（EVENT_INBOX_PULL_PAGE 通）取る（GET /inboxes/pending）。
+   * 取り終えるまでは呼び手が ack してから続きを読む。
+   */
+  pendingParcels?(): Promise<EventInboxPending>;
+  /**
+   * 引き取った荷物を消す（POST /inboxes/ack）。
+   * ids は EVENT_INBOX_ACK_MAX 件まで。
+   * 空でもよく、そのときは溢れた数だけを 0 に戻す。
+   */
+  ackParcels?(ids: string[]): Promise<void>;
 }
 
 /**
@@ -781,6 +807,34 @@ export class HttpCloudClient implements WireCloudClient {
     if (keys.length === 0 || keys.length > MAX_BLOB_DELETE_KEYS || !keys.every(isBlobKey)) throw new CloudError(400, JSON.stringify({ error: 'invalid body' }));
     await this.ensureWorkerCompat();
     return this.json<BlobsDeleteOut>('/blobs', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ keys }) });
+  }
+
+  async createInbox(publicKey: string): Promise<EventInboxCreated> {
+    await this.ensureWorkerCompat();
+    return this.json<EventInboxCreated>('/inboxes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ publicKey }) });
+  }
+
+  async deleteInbox(inboxId: string): Promise<void> {
+    // ID は URL の断片に入る。
+    // Worker も入口で断るが、形の違うものは外へ出さない。
+    if (!isSafeKeyId(inboxId)) throw new CloudError(400, JSON.stringify({ error: 'invalid id' }));
+    await this.ensureWorkerCompat();
+    try {
+      await this.json<{ ok: boolean }>(`/inboxes/${encodeURIComponent(inboxId)}`, { method: 'DELETE' });
+    } catch (e) {
+      // もう無い受け箱は、消したのと同じ。
+      if (e instanceof CloudError && e.status === 404) return;
+      throw e;
+    }
+  }
+
+  pendingParcels(): Promise<EventInboxPending> {
+    return this.json<EventInboxPending>('/inboxes/pending');
+  }
+
+  async ackParcels(ids: string[]): Promise<void> {
+    if (ids.length > EVENT_INBOX_ACK_MAX) throw new CloudError(400, JSON.stringify({ error: 'invalid body' }));
+    await this.json<{ ok: boolean }>('/inboxes/ack', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids }) });
   }
 
   async getPeerBlob(askId: string, from: string, n: number): Promise<Uint8Array> {

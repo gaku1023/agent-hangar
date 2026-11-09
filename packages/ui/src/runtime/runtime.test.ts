@@ -2565,6 +2565,29 @@ describe('セッションの状態', () => {
     expect(rejectSessionState).toHaveBeenCalledWith('s1');
     expect(rt.getState().toasts.at(-1)).toMatchObject({ level: 'error', message: 'Paused にはリマインダーの日付が要ります' });
   });
+  // #563：起こす条件は明示で送り、結び付けを作れなかったときだけ、Paused は確定したまま一文で知らせる。
+  it('wakeOn を本文に載せて送り、wake の失敗は一文のトーストにする（作れたときは出さない）', async () => {
+    const wakeOn = { repo: 'acme/app', pr: 567, when: 'ci_done' as const };
+    const answers: ({ wake?: { status: 'created' | 'no_admin' | 'failed'; message?: string } })[] = [{ wake: { status: 'created' } }, { wake: { status: 'failed', message: 'other_pc' } }, { wake: { status: 'no_admin' } }, {}];
+    const confirmSessionState = vi.fn(async () => ({ state: NONE, ...answers.shift() }));
+    const setSessionState = vi.fn(async () => ({ state: NONE }));
+    const { rt, wsHandlers } = harness({ setSessionState, confirmSessionState });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    rt.emit({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-05', wakeOn });
+    rt.emit({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-05', wakeOn: null });
+    await flush();
+    expect(confirmSessionState).toHaveBeenLastCalledWith('s1', { returnOn: '2026-10-05', wakeOn });
+    expect(setSessionState).toHaveBeenLastCalledWith('s1', { status: 'paused', returnOn: '2026-10-05', wakeOn: null });
+    expect(rt.getState().toasts).toEqual([]);
+    rt.emit({ type: 'session.state.confirm', id: 's1', wakeOn });
+    await flush();
+    expect(rt.getState().toasts.at(-1)).toMatchObject({ level: 'error', message: '他の PC で実行中' });
+    rt.emit({ type: 'session.state.confirm', id: 's1', wakeOn });
+    await flush();
+    expect(rt.getState().toasts.at(-1)).toMatchObject({ level: 'error', message: '起こす設定を登録できませんでした' });
+  });
 });
 
 describe('サイドバーの「動いている」の並び（ランタイム）', () => {
@@ -3329,5 +3352,59 @@ describe('既読', () => {
     shown = true;
     for (const cb of visible) cb();
     expect(h.api.markSeen).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('閉じている間に溜まったイベントの札の読み込み（#563）', () => {
+  const held = [{ bindingId: 'b1', facts: [{ source: 'github' as const, event: 'ci_done', repo: 'o/r', number: 3, receivedAt: 1 }] }];
+  const cloud = { ...boot, sync: { ...syncStatus, workerCompat: 12 } } as BootstrapDto;
+  it('イベントを使える PC では、起動のたびに溜まった山を読む。使えない PC では読まない', async () => {
+    const heldEvents = vi.fn(async () => ({ held }));
+    const on = harness({ bootstrap: vi.fn(async () => cloud), heldEvents });
+    on.rt.start();
+    on.wsHandlers[0]!.onOpen();
+    await flush();
+    await flush();
+    expect(heldEvents).toHaveBeenCalledTimes(1);
+    expect(on.rt.getStore().heldEvents).toEqual(held);
+    const offApi = vi.fn(async () => ({ held }));
+    const off = harness({ heldEvents: offApi });
+    off.rt.start();
+    off.wsHandlers[0]!.onOpen();
+    await flush();
+    await flush();
+    expect(offApi).not.toHaveBeenCalled();
+    expect(off.rt.getStore().heldEvents).toEqual([]);
+  });
+  it('サーバの events.held を受けたら読み直す。起動のあとに積まれた分も札になる', async () => {
+    let now: typeof held = [];
+    const heldEvents = vi.fn(async () => ({ held: now }));
+    const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => cloud), heldEvents });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    await flush();
+    expect(rt.getStore().heldEvents).toEqual([]);
+    now = held;
+    wsHandlers[0]!.onEvent({ type: 'events.held', n: 1 });
+    await flush();
+    expect(heldEvents).toHaveBeenCalledTimes(2);
+    expect(rt.getStore().heldEvents).toEqual(held);
+  });
+  it('起動のときは Worker の版がまだ分からず、あとで sync.status で使えると分かったら読む', async () => {
+    const heldEvents = vi.fn(async () => ({ held }));
+    const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, sync: { ...syncStatus, workerCompat: null } }) as BootstrapDto), heldEvents });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    await flush();
+    expect(heldEvents).not.toHaveBeenCalled();
+    wsHandlers[0]!.onEvent({ type: 'sync.status', status: { ...syncStatus, workerCompat: 12 } });
+    await flush();
+    expect(heldEvents).toHaveBeenCalledTimes(1);
+    // すでに使える状態での sync.status では、読み直さない。
+    wsHandlers[0]!.onEvent({ type: 'sync.status', status: { ...syncStatus, workerCompat: 12, pending: 3 } });
+    await flush();
+    expect(heldEvents).toHaveBeenCalledTimes(1);
   });
 });
