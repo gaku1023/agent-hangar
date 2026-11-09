@@ -62,6 +62,12 @@ export type DispatcherDeps = {
    * 積んだ件数を渡す。
    */
   onHeldForUser?: (count: number) => void;
+  /**
+   * Paused の会話を、できごとで起こした。
+   * 利用者が先に再開していた会話と、渡せなかった会話では呼ばない。
+   * 画面が、その行が Active に入るときに 1 度だけ光らせるために使う。
+   */
+  onWoken?: (sessionId: string) => void;
   onError?: (e: unknown) => void;
   /**
    * 結び付けが消えた、または期限で消えた。
@@ -270,6 +276,9 @@ export class EventDispatcher {
         record('skipped');
         if (final) this.giveUpWake(b, sessionId);
         return;
+      }
+      if (got === 'woken') {
+        try { this.d.onWoken?.(sessionId); } catch (e) { this.d.onError?.(e); }
       }
       // 起こした、または利用者が先に再開していた。
       // どちらも役目は終わり。

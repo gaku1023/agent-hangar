@@ -1,4 +1,4 @@
-import type { EventCreateInput, WakeOn } from './eventTrigger.ts';
+import type { EventCreateInput, HeldChoiceDto, WakeOn } from './eventTrigger.ts';
 import type { ScheduleInput, SchedulePatch } from './schedule.ts';
 import type { AgentKind } from './agents.ts';
 import type { ConfigApplyOrderEntryIn, FolderRegisterItem, InstructionFileKind, PeerLaunchBody, ProjectPlace, ProjectStatus, ResolveAction, ResumeStray, RetentionFrom, SettingsDto, SharePreviewAgent } from './api.ts';
@@ -159,6 +159,10 @@ export type UiAction =
   | { type: 'events.load' } | { type: 'events.create'; input: EventCreateInput }
   | { type: 'events.approve'; id: string } | { type: 'events.remove'; id: string }
   | { type: 'events.claim'; op: 'approve' | 'reject'; sessionId: string; repo: string; pr: number }
+  // 閉じている間に溜まったイベントの札（#563）。山の読み直しと、結び付けごとの選び（最新だけ、全部、動かさない）を送る。
+  | { type: 'heldEvents.load' } | { type: 'heldEvents.run'; choices: HeldChoiceDto[] }
+  // Paused を起こした行を光らせ終えた（#563）。印を 1 度だけ使って下げる。
+  | { type: 'wakeGlow.seen'; id: string }
   | { type: 'deleteApproval.answer'; id: string; answer: 'approve' | 'reject' | 'dismiss' }
   | { type: 'peerApproval.answer'; id: string; answer: 'approve' | 'reject' }
   // 移す先を選ぶダイアログと、削除の確認を開く（セッションのメニューの「プロジェクトを変更…」と「削除…」）。決めたら session.move と session.delete を送る。

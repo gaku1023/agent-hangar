@@ -14,7 +14,7 @@ import { StatusDot } from './primitives/StatusDot.tsx';
 import { FoldBox } from './primitives/FoldBox.tsx';
 import { CountBubble } from './primitives/CountBubble.tsx';
 import { motionMs } from './primitives/motion.ts';
-import { hangIn, hangOut, motionOn } from './primitives/motionKit.ts';
+import { hangIn, hangOut, markHit, motionOn } from './primitives/motionKit.ts';
 import { useMotionList } from './primitives/useMotionList.ts';
 import { paneDrag } from './paneDrag.ts';
 import { measureRows, pinFlight, slideRows } from './pinSlide.ts';
@@ -197,6 +197,17 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
   // いまの行の並びでの席。描くたびに id から引き直す。
   const rowIds = shapedLive.ids;
   const at = sort ? sortAt(sort, rowIds) : null;
+  // できごとで起こした会話の行は、Active に入るときに 1 度だけ地を光らせる（#563 の E4）。
+  // 光らせたら印を下げる（wakeGlow.seen）。この一覧に行が無い印は、別の一覧が使うので触らない。印の集まりが変わったときだけ動く。
+  const wokeIds = props.rows.filter((r) => r.wake).map((r) => r.id).join('\n');
+  useEffect(() => {
+    for (const id of wokeIds === '' ? [] : wokeIds.split('\n')) {
+      const el = [...(list.current?.querySelectorAll<HTMLElement>('[data-id]') ?? [])].find((e) => e.dataset.id === id);
+      if (!el) continue;
+      markHit(el);
+      emit({ type: 'wakeGlow.seen', id });
+    }
+  }, [wokeIds]);
   // 並べ替えの途中で掴んだ行か指した行が消えたら、並べ替えごとやめる。
   const sortGone = sort !== null && at === null;
   useEffect(() => {

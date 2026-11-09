@@ -31,7 +31,7 @@ import { LocalCodex } from './provider/codex/compat/version.ts';
 import { CodexOptionsService } from './provider/codex/options.ts';
 import { translatorOf } from './i18n/message.ts';
 import { IdleUnloadWatch } from './provider/opencode/localModels/idleUnload.ts';
-import { idleUnloadOf, t } from '@agent-hangar/shared';
+import { idleUnloadOf } from '@agent-hangar/shared';
 import { uploadOnOpencodeTurnEnd } from './sync/opencodeTurnEnd.ts';
 import type { OpencodeExportSource } from './sync/uploader.ts';
 
@@ -194,8 +194,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     db: home.db, deviceId: home.device.id, now: () => Date.now(), language: () => home.language(),
     launch: (s) => launchScheduled(scheduleTools, s), wait: (id) => waitScheduled(scheduleTools, id), me: ghLogin,
     notify: notifyEvent,
-    // 閉じている間に届いた分は、利用者が選ぶまで動かさない。件数だけ知らせ、選ぶ札は画面が /api/events/held から出す。
-    onHeldForUser: (n) => { notifyEvent(t(home.language(), 'schedules.event.heldWhileClosed', { n })); },
+    // 閉じている間に届いた分は、利用者が選ぶまで動かさない。トーストは出さず、画面の右下の札（HeldEventsCard）が /api/events/held から同じ文を出す。
+    onHeldForUser: (n) => { delivery.hub.broadcast({ type: 'events.held', n }); },
+    onWoken: (id) => { delivery.hub.broadcast({ type: 'session.woken', id, at: Date.now() }); },
     onError: (e) => { console.error('[event] dispatch failed', e instanceof Error ? e.constructor.name : typeof e); },
     releaseHooks: () => { void eventHooks.sweep(); },
   });

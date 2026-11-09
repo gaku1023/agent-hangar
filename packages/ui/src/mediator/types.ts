@@ -352,6 +352,8 @@ export type State = {
   contextShorts: ContextShort[];
   /** 起動した後にモデルが見つからなかった会話の右下の札（opencode.modelMissing）。同じ会話は 1 枚で、古いものが先。 */
   modelMissings: ModelMissing[];
+  /** できごとで起こした会話の印（session.woken）。行が Active に入るときに 1 度だけ光らせ、光り終えたら下げる。新しいものが後。 */
+  wakeGlow: { id: string; at: number }[];
   /**
    * 新しいセッションのモデルの小窓の「プロバイダーを管理…」で設定へ移ったときの、ダイアログの開き方。
    * 設定の opencode の面に「‹ 新しいセッションに戻る」を出し、押すと同じ開き方で開き直す。設定の外へ移ったら忘れる。持っていなければ null か無し。

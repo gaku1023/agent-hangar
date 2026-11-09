@@ -81,5 +81,12 @@ export type ServerEvent =
   | { type: 'opencode.modelMissing'; sessionId: string; model: string | null }
   /** 起動前の準備の進み（launchPrep.ts）。段が動くたびに、鍵ごとの全体を配る。 */
   | { type: 'launch.prep'; prep: import('./launchPrep.ts').LaunchPrepDto }
+  /**
+   * 閉じている間に届いたできごとが、利用者の選びを待つ山に積まれた（#563）。n は今回積んだ件数。
+   * 画面は山の中身を GET /api/events/held で読み直し、右下の札を出す。起動の間に画面がつながっていなくても、つながったあとの読み込みで同じ札が出る。
+   */
+  | { type: 'events.held'; n: number }
+  /** できごとで Paused の会話を起こした（#563）。画面は、その行が Active に入るときに 1 度だけ光らせる。at は起こした時刻。 */
+  | { type: 'session.woken'; id: string; at: number }
   /** holdMs は info の出している長さ（ミリ秒）。省くと既定の長さ。読み切るのに時間がかかる知らせだけが付ける。 */
   | { type: 'toast'; level: 'info' | 'error'; message: string; holdMs?: number };

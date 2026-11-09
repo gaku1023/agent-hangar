@@ -76,6 +76,11 @@ export type EventSaveResultDto = { binding: EventBindingDto; hook?: { status: 'r
 /** 担当する PR の印の下書き（GET /events/pr-claims）。承認するまで、レビューやコメントの宛先には使われない。 */
 export type PrClaimDto = { sessionId: string; repo: string; pr: number; claimedAt: number; sessionTitle: string | null };
 
+/** 閉じている間に溜まって、利用者の選びを待つ事実（GET /events/held）。結び付けごとにまとめ、古い順。 */
+export type HeldEventDto = { bindingId: string; facts: EventFacts[] };
+/** 溜まった事実の選び（POST /events/held/run）。latest は最新の 1 件、all は全部を 1 回にまとめて、skip は捨てる。 */
+export type HeldChoiceDto = { bindingId: string; mode: 'latest' | 'all' | 'skip' };
+
 /** 結び付けに当てる、できごとの事実。本文は passBody のときだけ渡す。 */
 export type EventFacts = {
   source: 'github' | 'hook';

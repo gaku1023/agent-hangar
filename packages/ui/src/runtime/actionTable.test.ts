@@ -45,7 +45,7 @@ describe('表の鍵', () => {
   it('表に載っているのは、API を 1 回呼ぶだけの UiAction である', () => {
     expect(Object.keys(actionTable).sort()).toEqual([
       'account.add.preview', 'account.choose', 'account.login', 'account.login.cancel', 'account.refresh', 'account.update', 'accounts.load',
-      'artifact.add', 'artifact.open', 'artifact.openEditor', 'codex.options', 'configSync.order.cancel', 'configSync.unsent.send', 'deleteApproval.answer', 'editor.test', 'editors.load', 'events.approve', 'events.claim', 'events.create', 'events.load', 'events.remove', 'folder.inspect', 'git.changes.load', 'git.diff.load', 'git.edits.load', 'instructions.load', 'instructions.openEditor', 'launchPrep.cancel', 'memo.save',
+      'artifact.add', 'artifact.open', 'artifact.openEditor', 'codex.options', 'configSync.order.cancel', 'configSync.unsent.send', 'deleteApproval.answer', 'editor.test', 'editors.load', 'events.approve', 'events.claim', 'events.create', 'events.load', 'events.remove', 'folder.inspect', 'git.changes.load', 'git.diff.load', 'git.edits.load', 'heldEvents.load', 'heldEvents.run', 'instructions.load', 'instructions.openEditor', 'launchPrep.cancel', 'memo.save',
       'opencode.options', 'opencode.providers.custom', 'opencode.providers.disconnect', 'opencode.providers.key', 'opencode.providers.load', 'opencode.providers.login', 'opencode.providers.login.cancel', 'opencode.providers.login.code', 'opencode.providers.login.poll', 'opencode.providers.model',
       'overlap.dismiss', 'peerApproval.answer', 'project.git.load', 'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
       'schedule.delete', 'schedule.run', 'session.delete', 'session.move', 'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.state.reject', 'session.tryNow', 'setupGuide.openEditor', 'share.preview', 'summarizer.test', 'summary.regenerate',
@@ -392,6 +392,43 @@ describe('opencode のプロバイダー（設定）', () => {
     expect(done.apply!(restarted).opencodeProviders?.login?.status).toBe('pending');
     const cancelled = await runRow({ type: 'opencode.providers.login.cancel' }, fakeApi(), started.store);
     expect(cancelled.during.opencodeProviders?.login).toBeNull();
+  });
+});
+
+describe('閉じている間に溜まったイベントの札', () => {
+  const held = [{ bindingId: 'b1', facts: [{ source: 'github' as const, event: 'ci_done', repo: 'o/r', number: 3, receivedAt: 1 }] }];
+  const SYNC = { state: 'ok', revoked: false, workerCompat: 12 } as never;
+  const ready = (): Store => ({ ...initialStore(), sync: SYNC });
+  it('読み直すと山を Store に入れる。同じ山なら Store を動かさず、失敗は黙って残す', async () => {
+    const heldEvents = vi.fn(async () => ({ held }));
+    const r = await runRow({ type: 'heldEvents.load' }, fakeApi({ heldEvents }), ready());
+    expect(r.store.heldEvents).toEqual(held);
+    const again = await runRow({ type: 'heldEvents.load' }, fakeApi({ heldEvents }), r.store);
+    expect(again.store).toBe(r.store);
+    const f = await runRow({ type: 'heldEvents.load' }, fakeApi({ heldEvents: vi.fn(async () => { throw new Error('down'); }) }), r.store);
+    expect(f.store).toBe(f.during);
+    expect(f.toast).toBeNull();
+  });
+  it('イベントを使えない PC（クラウドなし、Worker が古い）では読みに行かない', async () => {
+    const heldEvents = vi.fn(async () => ({ held }));
+    for (const sync of [null, { state: 'off', revoked: false, workerCompat: 12 }, { state: 'ok', revoked: false, workerCompat: 11 }]) {
+      const r = await runRow({ type: 'heldEvents.load' }, fakeApi({ heldEvents }), { ...initialStore(), sync: sync as never });
+      expect(r.called).toBe(false);
+    }
+    expect(heldEvents).not.toHaveBeenCalled();
+  });
+  it('選びを送ったら山を読み直す。送れなかったときは、エラーのトーストにする（Runtime が出す）', async () => {
+    const runHeldEvents = vi.fn(async () => ({ ok: true }));
+    const heldEvents = vi.fn(async () => ({ held: [] }));
+    const choices = [{ bindingId: 'b1', mode: 'latest' as const }];
+    const r = await runRow({ type: 'heldEvents.run', choices }, fakeApi({ runHeldEvents, heldEvents }), { ...ready(), heldEvents: held });
+    expect(runHeldEvents.mock.calls).toEqual([[choices]]);
+    expect(r.store.heldEvents).toEqual([]);
+    await expect(runRow({ type: 'heldEvents.run', choices }, fakeApi({ runHeldEvents: vi.fn(async () => { throw new Error('busy'); }) }), ready())).rejects.toThrow('busy');
+  });
+  it('選びを送ったあとの読み直しだけが失敗しても、送った分は済んでいるので札は下げる', async () => {
+    const r = await runRow({ type: 'heldEvents.run', choices: [{ bindingId: 'b1', mode: 'skip' }] }, fakeApi({ runHeldEvents: vi.fn(async () => ({ ok: true })), heldEvents: vi.fn(async () => { throw new Error('down'); }) }), { ...ready(), heldEvents: held });
+    expect(r.store.heldEvents).toEqual([]);
   });
 });
 

@@ -1,4 +1,4 @@
-import type { AccountsDto, EventHookFailureDto, InvestigateContext, UiAction, SyncStatusBody, TerminalApp } from '@agent-hangar/shared';
+import { eventsAvailable, type AccountsDto, type EventHookFailureDto, type InvestigateContext, type UiAction, type SyncStatusBody, type TerminalApp } from '@agent-hangar/shared';
 import { applyConfigDetail, CUSTOM_PROVIDER_ROW, type EventNotice, type EventTriggerState, gitFileKey, type EditorOpenAction, type OpencodeProviderOp, type OpencodeProvidersState, type Store } from '../store/store.ts';
 import type { OpencodeProvidersDto } from '@agent-hangar/shared';
 import { EditorMissingApiError, type ApiClient } from './api.ts';
@@ -100,6 +100,7 @@ const failureOf = (r: unknown): EventHookFailureDto | null => {
 };
 /** quiet でないときは rev を進める。before（まだ何も済んでいない）だけ quiet にする。 */
 const withEventTrigger = (store: Store, f: (e: EventTriggerState) => Partial<EventTriggerState>, quiet = false): Store => ({ ...store, eventTrigger: { ...store.eventTrigger, ...f(store.eventTrigger), rev: store.eventTrigger.rev + (quiet ? 0 : 1) } });
+const heldSnapshot = (api: ApiClient) => api.heldEvents().then((r) => r.held);
 const eventSnapshot = (api: ApiClient) => Promise.all([api.eventBindings(), api.prClaims()]).then(([b, c]) => ({ ready: true, bindings: b.bindings, claims: c.claims }));
 /**
  * 書き込みが済んだあとの読み直し。読み直しだけが失敗しても、書き込みは済んでいるので null を返して前の一覧を残す。
@@ -165,6 +166,17 @@ export const actionTable = {
         : { form: { ...e.form, busy: false, error: failure ? hookNotice(failure) : null } })),
       failed: (store, e) => withEventTrigger(store, (cur) => ({ form: { ...cur.form, busy: false, error: { kind: 'text', text: errText(e) } } })),
     },
+  ),
+  // 閉じている間に溜まったイベントの札（#563）。イベントを使えない PC では読まない。読み直しの失敗は黙って前の山を残す。
+  'heldEvents.load': (_i, store) => (eventsAvailable(store.sync) ? call(heldSnapshot, {
+    apply: (cur, held) => (JSON.stringify(cur.heldEvents) === JSON.stringify(held) ? cur : { ...cur, heldEvents: held }),
+    failed: (cur) => cur,
+  }) : null),
+  // 選びを送る。送れなかったときは、ふつうどおりエラーのトーストにして札は残す（サーバは 409 で選びを断ることがある）。
+  // 送れたら山を読み直す。読み直しだけが失敗しても送った分は済んでいるので、選んだ結び付けの分を手元の山から外す。
+  'heldEvents.run': (i) => call(
+    (api) => api.runHeldEvents(i.choices).then(() => api.heldEvents().then((r) => r.held, () => null)),
+    { apply: (cur, held) => ({ ...cur, heldEvents: held ?? cur.heldEvents.filter((h) => !i.choices.some((c) => c.bindingId === h.bindingId)) }) },
   ),
   'events.approve': (i) => eventOp((api) => api.approveEventBinding(i.id)),
   'events.remove': (i) => eventOp((api) => api.deleteEventBinding(i.id)),

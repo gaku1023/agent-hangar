@@ -12,6 +12,8 @@ import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { collapseOut, slideAway } from './primitives/motionKit.ts';
 import { useMotionList } from './primitives/useMotionList.ts';
+import { HeldEventsCard } from './HeldEventsCard.tsx';
+import type { HeldEventsCardProps } from '../presenters/heldEvents.ts';
 
 /** info のトーストが出ている時間。 */
 export const INFO_TOAST_MS = 4000;
@@ -31,7 +33,7 @@ const CARD_MOTION = { enter: 'none', flip: false, exit: exitCard, exitWhenEmpty:
 type CardMotion = { ref: (el: HTMLElement | null) => void; leaving: boolean };
 const motionAttrs = (m: CardMotion) => ({ ref: m.ref, 'aria-hidden': m.leaving ? true : undefined, inert: m.leaving || undefined });
 
-type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'whatsNew'; card: WhatsNewCardProps } | { kind: 'opencodeVersion'; card: OpencodeVersionCardProps } | { kind: 'codexVersion'; card: CodexVersionCardProps } | { kind: 'arrived'; count: number } | { kind: 'join'; card: JoinCardProps } | { kind: 'phoneUndo'; name: string } | { kind: 'phoneLaunchMore'; n: number } | { kind: 'phoneLaunch'; card: PhoneLaunchCardProps } | { kind: 'prepProgress'; card: PrepProgressCardProps } | { kind: 'contextShort'; card: ContextShortCardProps } | { kind: 'modelMissing'; card: ModelMissingCardProps };
+type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'whatsNew'; card: WhatsNewCardProps } | { kind: 'opencodeVersion'; card: OpencodeVersionCardProps } | { kind: 'codexVersion'; card: CodexVersionCardProps } | { kind: 'arrived'; count: number } | { kind: 'join'; card: JoinCardProps } | { kind: 'phoneUndo'; name: string } | { kind: 'phoneLaunchMore'; n: number } | { kind: 'phoneLaunch'; card: PhoneLaunchCardProps } | { kind: 'prepProgress'; card: PrepProgressCardProps } | { kind: 'contextShort'; card: ContextShortCardProps } | { kind: 'modelMissing'; card: ModelMissingCardProps } | { kind: 'heldEvents'; card: HeldEventsCardProps };
 type WaitingItem = { kind: 'more'; n: number } | { kind: 'waiting'; card: WaitingCardProps };
 const topKey = (c: TopCard) => (c.kind === 'toast' ? `toast:${c.toast.id}` : c.kind === 'phoneLaunch' ? `phoneLaunch:${c.card.sessionId}` : c.kind === 'contextShort' ? `contextShort:${c.card.sessionId}` : c.kind === 'modelMissing' ? `modelMissing:${c.card.sessionId}` : c.kind);
 
@@ -67,6 +69,7 @@ export function ToastStack(props: ToastsProps) {
     ...(props.prepProgress ? [{ kind: 'prepProgress' as const, card: props.prepProgress }] : []),
     ...(props.contextShorts ?? []).map((card) => ({ kind: 'contextShort' as const, card })),
     ...(props.modelMissings ?? []).map((card) => ({ kind: 'modelMissing' as const, card })),
+    ...(props.heldEvents ? [{ kind: 'heldEvents' as const, card: props.heldEvents }] : []),
   ];
   const waits: WaitingItem[] = [
     ...(props.more > 0 ? [{ kind: 'more' as const, n: props.more }] : []),
@@ -89,6 +92,7 @@ export function ToastStack(props: ToastsProps) {
         if (item.kind === 'prepProgress') return <PrepProgressCard key={key} card={item.card} motion={m} />;
         if (item.kind === 'contextShort') return <ContextShortCard key={key} card={item.card} motion={m} />;
         if (item.kind === 'modelMissing') return <ModelMissingCard key={key} card={item.card} motion={m} />;
+        if (item.kind === 'heldEvents') return <HeldEventsCard key={key} card={item.card} attrs={motionAttrs(m)} />;
         // 並べきれないスマホからの通知の数。押す先は無いので、ボタンにせず文だけの 1 行にする。
         if (item.kind === 'phoneLaunchMore') return <div key={key} className="toast toast-pill" data-kind="phone-launch-more" {...motionAttrs(m)}>{t('phoneLaunch.notice.more', { n: item.n })}</div>;
         return <ArrivedCard key={key} count={item.count} blocked={props.blocked} motion={m} />;

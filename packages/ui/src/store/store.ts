@@ -1,4 +1,4 @@
-import type { EventBindingDto, PrClaimDto, ScheduleDto } from '@agent-hangar/shared';
+import type { EventBindingDto, HeldEventDto, PrClaimDto, ScheduleDto } from '@agent-hangar/shared';
 import type { DeleteApprovalDto, PeerApprovalDto, PeerChatDevice, PeerChatQueued, PeerDeviceDto } from '@agent-hangar/shared';
 import { liveFilterOf, liveWithLimit, quietLive, stopReasonOf, type LiveFilter, type PermissionAskDto, type StopReason } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
@@ -99,6 +99,8 @@ export type Store = {
   schedules: ScheduleDto[];
   /** 予定の画面のイベント。bootstrap は運ばない（画面を開くときに読む）。 */
   eventTrigger: EventTriggerState;
+  /** 閉じている間に溜まって、利用者の選びを待つイベント（#563）。bootstrap は運ばない。起動のあとと、サーバの events.held を受けたときに読む。 */
+  heldEvents: HeldEventDto[];
   /** 事後要約に失敗したセッションと、その理由。次に作り始めるか、作れたら消える。bootstrap は運ばないので、取り直しても残す。 */
   summaryFailed: Record<string, string>;
   // 設定画面に入ったときだけ読む値。
@@ -216,7 +218,7 @@ export function initialStore(): Store {
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     todos: {}, memos: {}, instructions: {}, artifacts: {}, artifactAddError: null, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
-    cloudUsage: null, sync: null, deleteApprovals: [], peerApprovals: [], peerQueued: {}, peerDelivered: {}, peerChat: {}, schedules: [], eventTrigger: EMPTY_EVENT_TRIGGER, devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
+    cloudUsage: null, sync: null, deleteApprovals: [], peerApprovals: [], peerQueued: {}, peerDelivered: {}, peerChat: {}, schedules: [], eventTrigger: EMPTY_EVENT_TRIGGER, heldEvents: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
     readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, peers: null, launchPreps: {}, opencodeProviders: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null, sharePreview: {},
     update: initialUpdate(),

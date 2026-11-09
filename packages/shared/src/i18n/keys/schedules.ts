@@ -117,4 +117,9 @@ export const schedulesKeys = {
   'schedules.event.steps.setup': [],
   'schedules.event.steps.webhook': [],
   'schedules.event.steps.waiting': [],
+  'schedules.event.held.runAll': [],
+  'schedules.event.held.choose': [],
+  'schedules.event.held.latest': [],
+  'schedules.event.held.all': [],
+  'schedules.event.held.skip': [],
 } as const satisfies MessageSpec;

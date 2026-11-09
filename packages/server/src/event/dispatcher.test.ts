@@ -63,6 +63,26 @@ describe('wake', () => {
     expect(launched).toHaveLength(1);
   });
 
+  it('reports the woken session once, and not for a session the user already resumed or a busy one', async () => {
+    const woken: string[] = [];
+    const b = bind();
+    pause();
+    const { d } = make({ onWoken: (id) => { woken.push(id); } });
+    await d.handle([ev(b.id)]);
+    await d.idle();
+    expect(woken).toEqual(['s-1']);
+    const b2 = bind({ action: { kind: 'wake', sessionId: 's-9' } });
+    await d.handle([ev(b2.id)]);
+    await d.idle();
+    expect(woken).toEqual(['s-1']);
+    const b3 = bind({ action: { kind: 'wake', sessionId: 's-2' } });
+    pause('s-2');
+    const busy = make({ onWoken: (id) => { woken.push(id); }, launch: async () => 'busy' });
+    await busy.d.handle([ev(b3.id)]);
+    await busy.d.idle();
+    expect(woken).toEqual(['s-1']);
+  });
+
   it('does not wake a session the user already resumed', async () => {
     const b = bind();
     const { d, launched } = make();

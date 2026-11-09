@@ -124,4 +124,9 @@ export const schedulesJa: AreaDictionary<typeof schedulesKeys> = {
   'schedules.event.steps.setup': '設定',
   'schedules.event.steps.webhook': 'webhook',
   'schedules.event.steps.waiting': '受信待ち',
+  'schedules.event.held.runAll': 'すべて実行',
+  'schedules.event.held.choose': '選ぶ',
+  'schedules.event.held.latest': '最新のみ',
+  'schedules.event.held.all': 'すべて',
+  'schedules.event.held.skip': '実行しない',
 };

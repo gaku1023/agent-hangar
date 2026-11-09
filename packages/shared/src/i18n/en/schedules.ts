@@ -124,4 +124,9 @@ export const schedulesEn: AreaDictionary<typeof schedulesKeys> = {
   'schedules.event.steps.setup': 'Set up',
   'schedules.event.steps.webhook': 'Webhook',
   'schedules.event.steps.waiting': 'Waiting',
+  'schedules.event.held.runAll': 'Run all',
+  'schedules.event.held.choose': 'Choose',
+  'schedules.event.held.latest': 'Latest only',
+  'schedules.event.held.all': 'All',
+  'schedules.event.held.skip': 'Skip',
 };
