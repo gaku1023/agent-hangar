@@ -32,5 +32,6 @@ export const pauseKeys = {
   'pause.wake.repo': [],
   'pause.wake.pr': [],
   'pause.wake.otherPc': [],
+  'pause.wake.when.aria': [],
   'pause.wake.failed': [],
 } as const satisfies MessageSpec;

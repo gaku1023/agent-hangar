@@ -32,6 +32,7 @@ export const pauseJa: AreaDictionary<typeof pauseKeys> = {
   'pause.wake.when.merged': 'マージ',
   'pause.wake.repo': 'repo',
   'pause.wake.pr': 'PR',
-  'pause.wake.otherPc': 'ほかの PC で実行中',
+  'pause.wake.otherPc': '他の PC で実行中',
+  'pause.wake.when.aria': '起こす条件',
   'pause.wake.failed': '起こす設定を登録できませんでした',
 };

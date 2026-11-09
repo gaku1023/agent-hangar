@@ -207,7 +207,8 @@
 .pause-wake { display: grid; gap: calc(var(--u) * 2.5); padding: calc(var(--u) * 3) calc(var(--u) * 3.5); border-radius: var(--r-lg); background: var(--cand-soft); box-shadow: inset 0 0 0 1.5px var(--cand); }
 .pause-wake-line { display: flex; align-items: center; gap: calc(var(--u) * 2); }
 .pause-wake-bolt { flex: none; width: 12px; height: 12px; fill: var(--cand); }
-.pause-wake-sentence { flex: 1; min-width: 0; font-weight: 600; color: var(--ink); }
+.pause-wake-sentence { flex: 1 1 auto; min-width: 0; font-weight: 600; color: var(--ink); }
+.pause-wake-repo { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-2); }
 .pause-wake-fields { display: flex; gap: calc(var(--u) * 2); }
 .pause-wake-fields .input { flex: 1; min-width: 0; }
 .pause-wake-fields .pause-wake-pr { flex: none; width: 96px; }

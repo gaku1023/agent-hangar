@@ -1,4 +1,4 @@
-import { addDays, localDate, type SessionDto, type Translate, type WakeOn } from '@agent-hangar/shared';
+import { addDays, eventsAvailable, localDate, type SessionDto, type Translate, type WakeOn } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { translatorOf } from './i18n.ts';
@@ -57,8 +57,8 @@ export function presentPause(state: State, store: Store, now: number): PauseProp
   const own = st?.status === 'paused' ? st : null;
   const t = translatorOf(store);
   const choices = pauseChoices(now, t);
-  // クラウドを設定していない（同期が無いか off）か、解除された PC には、起こす条件を出さない。Worker の版は画面が知らないので、足りないときはサーバの答え（wake の failed）を知らせる。
-  const cloud = store.sync !== null && store.sync.state !== 'off' && !store.sync.revoked;
+  // クラウドを設定していない、解除された、Worker の版が足りない PC には、起こす条件を出さない（eventsAvailable）。
+  const cloud = eventsAvailable(store.sync);
   return {
     wake: cloud ? { suggested: cand?.wakeOn ?? null, ...(cand?.wakeOn ? { repo: cand.wakeOn.repo, pr: cand.wakeOn.pr } : prefillOf(s)) } : null,
     sessionId, sessionName: s.name ?? t('pause.session.unnamed'), from,

@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { isReturnOn, isReturnTime, STATE_NOTE_MAX, type Translate, type WakeOn } from '@agent-hangar/shared';
+import { GITHUB_REPO_RE, isReturnOn, isReturnTime, STATE_NOTE_MAX, type Translate, type WakeOn } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { PauseChoice, PauseProps } from '../presenters/pause.ts';
 import { isComposing } from './ime.ts';
@@ -15,12 +15,11 @@ const WAKE_WHENS: { when: WakeOn['when']; sentence: 'pause.wake.ciDone' | 'pause
   { when: 'review', sentence: 'pause.wake.review', chip: 'pause.wake.when.review' },
   { when: 'merged', sentence: 'pause.wake.merged', chip: 'pause.wake.when.merged' },
 ];
-/** サーバ（event/validate.ts）と同じ形の repo。 */
-const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+/** PR の番号（先頭が 0 でない整数）。repo の形は shared の GITHUB_REPO_RE で、サーバと同じ。 */
 const PR_RE = /^[1-9]\d{0,9}$/;
 /** 画面で編集中の条件。pr は打ちかけの文字で持つ。picked は自分で選んだ（欄を出す）か、提案のままか。 */
 type WakeDraft = { repo: string; pr: string; when: WakeOn['when']; picked: boolean };
-const wakeOf = (d: WakeDraft | null): WakeOn | null => (d && REPO_RE.test(d.repo.trim()) && PR_RE.test(d.pr.trim()) ? { repo: d.repo.trim(), pr: Number(d.pr.trim()), when: d.when } : null);
+const wakeOf = (d: WakeDraft | null): WakeOn | null => (d && GITHUB_REPO_RE.test(d.repo.trim()) && PR_RE.test(d.pr.trim()) ? { repo: d.repo.trim(), pr: Number(d.pr.trim()), when: d.when } : null);
 
 const BOLT = (
   <svg className="pause-wake-bolt" viewBox="0 0 12 12" aria-hidden="true"><path d="M7 0 1.5 7H5.5L4.5 12 10.5 4.5H6.5z" /></svg>
@@ -52,6 +51,7 @@ function WakeCard(props: { draft: WakeDraft | null; t: Translate; onChange: (d: 
       <div className="pause-wake-line">
         {BOLT}
         <span className="pause-wake-sentence">{t(row.sentence, { pr: d.pr.trim() })}</span>
+        {!d.picked && <span className="pause-wake-repo">{d.repo}</span>}
         <button type="button" className="btn" disabled={card.leaving} onClick={props.onRemove}>{t('pause.wake.remove')}</button>
       </div>
       {d.picked && (
@@ -60,7 +60,7 @@ function WakeCard(props: { draft: WakeDraft | null; t: Translate; onChange: (d: 
           <input className="input pause-wake-pr" inputMode="numeric" aria-label={t('pause.wake.pr')} placeholder="#" value={d.pr} spellCheck={false} autoComplete="off" onChange={(e) => set({ pr: e.target.value })} onKeyDown={props.onFieldKey} />
         </div>
       )}
-      <div className="pause-chips" role="radiogroup" aria-label={t('pause.wake.add')}>
+      <div className="pause-chips" role="radiogroup" aria-label={t('pause.wake.when.aria')}>
         {WAKE_WHENS.map((w) => (
           <button key={w.when} type="button" role="radio" aria-checked={d.when === w.when} className="pause-chip pause-wake-chip" onClick={() => set({ when: w.when })}>{t(w.chip)}</button>
         ))}

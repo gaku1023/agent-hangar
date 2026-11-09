@@ -53,6 +53,15 @@ beforeEach(() => {
   timers = new FakeTimers();
 });
 
+describe('SyncEngine の status の workerCompat', () => {
+  it('クラウドの client が最後に見た Worker の版を載せ、知らなければ null、client が無ければ null', () => {
+    const seen = (v: number | null) => make({ client: Object.assign(Object.create(cloud) as FakeCloudClient, { lastWorkerCompat: () => v }) });
+    expect(seen(12).status().workerCompat).toBe(12);
+    expect(seen(null).status().workerCompat).toBeNull();
+    expect(make({ client: null }).status().workerCompat).toBeNull();
+  });
+});
+
 describe('SyncEngine の push', () => {
   it('書き込みの 1 秒後に未送信分をまとめて送り、pushed_at を書く', async () => {
     const e = make();

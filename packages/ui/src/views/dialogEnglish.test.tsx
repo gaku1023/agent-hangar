@@ -80,6 +80,7 @@ describe('ダイアログ類（英語）', () => {
     expect(screen.getByRole('dialog', { name: 'Mark as Paused' })).toBeInTheDocument();
     expect(screen.getByText('When CI finishes on PR #567')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: 'Wake condition' })).toBeInTheDocument();
     expect(screen.getByText('Suggestion')).toBeInTheDocument();
     expect(screen.getByLabelText('Reminder time (optional)')).toBeInTheDocument();
     expect(screen.getByLabelText('Reason')).toBeInTheDocument();

@@ -1,3 +1,5 @@
+import type { SyncStatusDto } from './api.ts';
+import { EVENT_INBOX_MIN_WORKER_COMPAT } from './compat.ts';
 import type { ScheduleRunDto, ScheduleTarget } from './schedule.ts';
 
 /**
@@ -43,6 +45,20 @@ export type EventBindingDto = {
 
 /** Paused を起こす条件。propose_session_status の wake_on が、利用者の承認で結び付けになる。 */
 export type WakeOn = { repo: string; pr: number; when: 'ci_done' | 'ci_failed' | 'review' | 'merged' };
+
+/**
+ * GitHub の repo（owner/repo）の形。文字は英数字と _ . - だけで、どちらの部分も点だけ（. や ..）にはできない。
+ * サーバの検査と画面の入力の検査が同じものを使う。
+ */
+export const GITHUB_REPO_RE = /^(?!\.+\/)[A-Za-z0-9_.-]+\/(?!\.+$)[A-Za-z0-9_.-]+$/;
+
+/**
+ * イベントの種類を出せるか。クラウドを設定していて（同期が off でない）、この PC が解除されておらず、
+ * Worker の版が EVENT_INBOX_MIN_WORKER_COMPAT に届いているとき真。版をまだ知らない（null）ときは偽。
+ */
+export function eventsAvailable(sync: Pick<SyncStatusDto, 'state' | 'revoked' | 'workerCompat'> | null | undefined): boolean {
+  return !!sync && sync.state !== 'off' && !sync.revoked && (sync.workerCompat ?? 0) >= EVENT_INBOX_MIN_WORKER_COMPAT;
+}
 
 /** Paused の確定の応答に載る、起こす結び付けの結果。message が other_pc のときは、会話がほかの PC で動いている。 */
 export type WakeResultDto = { status: 'created' | 'no_admin' | 'failed'; message?: string };

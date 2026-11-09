@@ -33,5 +33,6 @@ export const pauseEn: AreaDictionary<typeof pauseKeys> = {
   'pause.wake.repo': 'repo',
   'pause.wake.pr': 'PR',
   'pause.wake.otherPc': 'Running on another PC',
+  'pause.wake.when.aria': 'Wake condition',
   'pause.wake.failed': "Couldn't register the wake",
 };

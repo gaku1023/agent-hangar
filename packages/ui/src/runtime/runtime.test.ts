@@ -2583,7 +2583,7 @@ describe('セッションの状態', () => {
     expect(rt.getState().toasts).toEqual([]);
     rt.emit({ type: 'session.state.confirm', id: 's1', wakeOn });
     await flush();
-    expect(rt.getState().toasts.at(-1)).toMatchObject({ level: 'error', message: 'ほかの PC で実行中' });
+    expect(rt.getState().toasts.at(-1)).toMatchObject({ level: 'error', message: '他の PC で実行中' });
     rt.emit({ type: 'session.state.confirm', id: 's1', wakeOn });
     await flush();
     expect(rt.getState().toasts.at(-1)).toMatchObject({ level: 'error', message: '起こす設定を登録できませんでした' });

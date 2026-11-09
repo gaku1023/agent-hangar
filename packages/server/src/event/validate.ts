@@ -1,4 +1,4 @@
-import { SCHEDULE_PROMPT_MAX, type EventSource, type GithubWhen, type WakeOn } from '@agent-hangar/shared';
+import { GITHUB_REPO_RE, SCHEDULE_PROMPT_MAX, type EventSource, type GithubWhen, type WakeOn } from '@agent-hangar/shared';
 import { MessageError, msg } from '../i18n/message.ts';
 
 /**
@@ -7,7 +7,7 @@ import { MessageError, msg } from '../i18n/message.ts';
  */
 
 /** owner/name の形の repo。 */
-export const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+export const REPO_RE = GITHUB_REPO_RE;
 export const GITHUB_WHEN: readonly GithubWhen[] = ['ci_done', 'ci_failed', 'review', 'comment', 'merged', 'issue_opened'];
 export const WAKE_WHEN: readonly WakeOn['when'][] = ['ci_done', 'ci_failed', 'review', 'merged'];
 

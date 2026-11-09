@@ -130,6 +130,11 @@ describe('PauseDialog（B1）', () => {
       expect(screen.getByRole('button', { name: '外す' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: '＋ イベントで起こす' })).toBeNull();
     });
+    it('shows the repo of a suggested card so the user sees what they approve', () => {
+      mount(candidate(wake()));
+      expect(screen.getByText('acme/app')).toBeInTheDocument();
+      expect(screen.queryByLabelText('repo')).toBeNull();
+    });
     it('keeping the suggestion sends wakeOn explicitly (confirm)', () => {
       const { onAction } = mount(candidate(wake()));
       fireEvent.click(submit());
@@ -169,6 +174,21 @@ describe('PauseDialog（B1）', () => {
       fireEvent.click(screen.getByRole('radio', { name: 'マージ' }));
       fireEvent.click(submit());
       expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-02', wakeOn: { repo: 'acme/app', pr: 571, when: 'merged' } });
+    });
+    it('a repo made only of dots is not a valid pick', () => {
+      mount(props({ wake: wake({ suggested: null, repo: '', pr: null }) }));
+      fireEvent.click(screen.getByRole('button', { name: '＋ イベントで起こす' }));
+      fireEvent.change(screen.getByLabelText('PR'), { target: { value: '12' } });
+      for (const bad of ['../x', './x', 'x/..', 'x/.']) {
+        fireEvent.change(screen.getByLabelText('repo'), { target: { value: bad } });
+        expect(submit()).toBeDisabled();
+      }
+      fireEvent.change(screen.getByLabelText('repo'), { target: { value: 'x/.github' } });
+      expect(submit()).toBeEnabled();
+    });
+    it('the condition group has its own name', () => {
+      mount(candidate(wake()));
+      expect(screen.getByRole('radiogroup', { name: '起こす条件' })).toBeInTheDocument();
     });
     it('a picked card that is not a valid repo and PR blocks sending, and removing it unblocks', () => {
       mount(props({ wake: wake({ suggested: null, repo: '', pr: null }) }));
