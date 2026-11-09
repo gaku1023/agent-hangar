@@ -5,6 +5,7 @@ import { EDIT_NARROW_SPACES, EDIT_OUTSIDE, EDIT_RELATIVE, EDIT_SUBDIR, NOTEBOOK_
 import { readPermissionHook } from '../../provider/claude-code/hooks/permission.ts';
 import { ChatView, pendingAskFrom } from './hostView.ts';
 import type { HostSession } from './hostTypes.ts';
+import { currentPendingAsk } from './tail.ts';
 
 const session = (over: Partial<HostSession> = {}): HostSession => ({ provider: 'claude-code', live: 'waiting', waitingFor: 'permission', permission: null, activity: null, cwd: '/p', lock: false, newerElsewhere: false, remoteOnly: false, takenOver: false, ...over });
 const RULE = '╌'.repeat(44);
@@ -209,5 +210,52 @@ describe('ChatView.observe: 拠り所なしから tool_use ありへの askId �
     expect(view.resolveAskId('old0', 'new0')).toBe('old0');
     expect(view.resolveAskId('old1', 'new1')).toBe('new1');
     expect(view.resolveAskId('old64', 'new64')).toBe('new64');
+  });
+});
+
+describe('pendingAskFrom: 元の PC で答えられない札の印（answerable）', () => {
+  const SOLID = '─'.repeat(44);
+  const DASH = '╌'.repeat(44);
+  const proceed = [' Do you want to proceed?', ' ❯ 1. Yes', "   2. Yes, and don't ask again for hangar - notify_user commands", '   3. No', ' Esc to cancel'];
+  const mcp = [SOLID, ' Tool use', DASH, ' hangar - notify_user(title: "done") (MCP)', DASH, ...proceed].join('\n');
+  const bash = [SOLID, ' Bash command', DASH, ' ls -la', DASH, ...proceed].join('\n');
+  const hookBash = { tool: 'Bash', input: 'ls -la', description: null };
+  const hookMcp = { tool: 'mcp__hangar__notify_user', input: '{"title":"done"}', description: null };
+
+  it('MCP の道具の札は、hook の許可があっても false（画面の本体が input と合わない）', () => {
+    expect(pendingAskFrom(session({ permission: hookMcp }), mcp)!.answerable).toBe(false);
+  });
+
+  it('MCP の道具の札は、hook の許可が無くても false（題が Bash command でない）', () => {
+    expect(pendingAskFrom(session(), mcp)!.answerable).toBe(false);
+  });
+
+  it('Bash command の札は、hook の有無によらず印を付けない', () => {
+    expect(pendingAskFrom(session(), bash)!.answerable).toBeUndefined();
+    expect(pendingAskFrom(session({ permission: hookBash }), bash)!.answerable).toBeUndefined();
+  });
+
+  it('質問は印を付けない', () => {
+    const screen = [' ☐ Choice', 'Which one?', '❯ 1. Alpha', '  2. Beta', '  3. Type something.', '──────────', '  4. Chat about this', 'Enter to select · ↑/↓ to navigate · Esc to cancel'].join('\n');
+    const a = pendingAskFrom(session({ waitingFor: 'question', activity: { tool: 'AskUserQuestion', summary: '', question: 'Which one?' } }), screen)!;
+    expect(a.answerable).toBeUndefined();
+  });
+
+  it('hook のあるファイルの札は印を付けず、hook の無いファイルの札は false', () => {
+    const cwd = 'C:\\Users\\dev\\work\\proj';
+    const hook = { tool: 'Write', input: `${cwd}\\sub\\new1.txt`, description: null };
+    expect(pendingAskFrom(session({ cwd, permission: hook }), WRITE_NEW)!.answerable).toBeUndefined();
+    expect(pendingAskFrom(session({ cwd }), WRITE_NEW)!.answerable).toBe(false);
+  });
+});
+
+describe('札の印は tail の ask まで運ばれる', () => {
+  it('answerable が false の PeerPendingAsk は PeerChatAsk に false で載り、印の無い札には欄が出ない', () => {
+    const run = (answerable?: false) => {
+      const pending = { kind: 'permission' as const, tool: 'Bash', input: 'ls', options: [{ key: '1', label: 'Yes' }], multi: false, allowText: false, ...(answerable === undefined ? {} : { answerable }) };
+      return currentPendingAsk('s1', { readTranscript: () => null, pendingAsk: () => pending });
+    };
+    expect(run(false)).toMatchObject({ answerable: false });
+    expect('answerable' in run()!).toBe(false);
   });
 });

@@ -242,6 +242,18 @@ describe('答えの封', () => {
     for (const r of replies) expect(await openPeerChatReply(ring, route, await sealPeerChatReply(ring, route, r)), JSON.stringify(r)).toEqual(r);
   });
 
+  it('札の answerable は false だけが往復し、印の無い古い形はそのまま読め、型違いは断る', async () => {
+    const ring = await ringOf({ 1: randomEpochKey() }, 1);
+    const withAsk = (over: Record<string, unknown>) => ({ ok: true as const, state: { ...state, items: [{ ...state.items[2]!, ask: { ...state.items[2]!.ask!, ...over } }] } });
+    const marked = withAsk({ answerable: false });
+    expect(await openPeerChatReply(ring, route, await sealPeerChatReply(ring, route, marked as PeerChatReply))).toEqual(marked);
+    // 印の無い札（古い相手）は、印の欄を持たないまま読める。
+    const plain = shared.parsePeerChatReply(withAsk({}))!;
+    expect(plain).toEqual(withAsk({}));
+    expect('answerable' in (plain as { state: PeerChatState }).state.items[0]!.ask!).toBe(false);
+    expect(shared.parsePeerChatReply(withAsk({ answerable: 'no' }))).toBeNull();
+  });
+
   it('断りの理由は計画の 11 個', () => {
     expect([...PEER_CHAT_REFUSALS]).toEqual(['offline', 'refused-by-setting', 'not-claude', 'session-unknown', 'expired', 'already-answered', 'ask-mismatch', 'resume-failed', 'queue-expired', 'too-large', 'rate', 'host-error']);
   });

@@ -250,6 +250,16 @@ describe('札の再び押せる状態と、受け付けない設定', () => {
     expect(screen.getByText('Mac は、他の PC からの操作を受け付けない設定です')).toBeInTheDocument();
   });
 
+  it('元の PC が答えられないと印を付けた札は、番号の釦を出さず、元の PC で答える案内を出す', () => {
+    mount(viewOf({ status: 'waiting', items: [ask(false, { answerable: false })] }));
+    expect(screen.queryByRole('button', { name: /許可/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /拒否/ })).toBeNull();
+    expect(screen.getByText('Mac で答えてください')).toBeInTheDocument();
+    // 印の無い札は、これまでどおり押せる。
+    mount(viewOf({ status: 'waiting', items: [ask()] }));
+    expect(screen.getAllByRole('button', { name: '1. 許可' })).toHaveLength(1);
+  });
+
   it('取り消し（預かりが消えるだけ）では弾まない', () => {
     const { update, container } = mount(viewOf({ status: 'busy', items: [ai('a1', '見ます')], queued: [queued('q1', 'あとで')] }));
     update(viewOf({ status: 'busy', items: [ai('a1', '見ます')], queued: [] }));

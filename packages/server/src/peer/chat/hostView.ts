@@ -1,5 +1,5 @@
 import { PEER_CHAT_REPLY_SEALED_MAX, type PeerChatAsk, type PeerChatDevice, type PeerChatGone, type PeerChatItem, type PeerChatQueued, type PeerChatState, type PeerChatStatus } from '@agent-hangar/shared';
-import { isCommandTitle, parseDialog } from './answer.ts';
+import { dialogMatches, isCommandTitle, parseDialog, type Dialog } from './answer.ts';
 import type { HostPane, HostSession } from './hostTypes.ts';
 import { currentPendingAsk, peerAskId, transcriptTail, type PeerPendingAsk, type TailDeps } from './tail.ts';
 
@@ -103,7 +103,8 @@ export function pendingAskFrom(session: HostSession, screen: string): PeerPendin
   const allowText = rows.some((o) => OTHER_ROW.test(o.first));
   if (d.kind === 'question') {
     const q = session.activity?.question || d.question;
-    return { kind: 'question', tool: 'AskUserQuestion', input: q, question: q, options, multi: d.multi, allowText };
+    const asked: PeerPendingAsk = { kind: 'question', tool: 'AskUserQuestion', input: q, question: q, options, multi: d.multi, allowText };
+    return markUnanswerable(asked, d, session.cwd);
   }
   const p = session.permission;
   // ファイルの道具の札は、罫線の間が差分なので、画面からは組まない。
@@ -113,7 +114,20 @@ export function pendingAskFrom(session: HostSession, screen: string): PeerPendin
   const out: PeerPendingAsk = { kind: 'permission', description: p?.description ?? null, options, multi: false, allowText: false };
   if (p?.tool) out.tool = p.tool;
   if (input) out.input = input;
-  return out;
+  return markUnanswerable(out, d, session.cwd);
+}
+
+/**
+ * この PC が答えられない札には answerable: false を付ける。
+ * 判定は答えるとき（answer.ts の answerAsk）が使う dialogMatches そのものである。
+ * 規則を二重に持たないので、見る側の釦と、答えたときの ask-mismatch が食い違わない。
+ * 答えられる札には欄を付けない（印を知らない古い見る側と同じ形のまま）。
+ */
+function markUnanswerable(pending: PeerPendingAsk, d: Dialog, cwd: string): PeerPendingAsk {
+  const probe: PeerChatAsk = { askId: '', kind: pending.kind, options: pending.options, multi: pending.multi, allowText: pending.allowText };
+  if (pending.tool !== undefined) probe.tool = pending.tool;
+  if (pending.input !== undefined) probe.input = pending.input;
+  return dialogMatches(probe, d, cwd || null) ? pending : { ...pending, answerable: false };
 }
 
 type AnswerRec = { askId: string; sessionId: string; item: PeerChatItem; at: number };

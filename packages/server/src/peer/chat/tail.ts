@@ -76,6 +76,8 @@ export type PeerPendingAsk = {
   options: { key: string; label: string }[];
   multi: boolean;
   allowText: boolean;
+  /** この PC が画面の札を照合して答えられないとき false（PeerChatAsk.answerable）。答えられるときは付けない。 */
+  answerable?: false;
 };
 
 /**
@@ -280,6 +282,7 @@ function buildAsk(pending: PeerPendingAsk, waiting: { toolId: string; name: stri
   };
   if (pending.tool !== undefined) ask.tool = pending.tool;
   if (pending.input !== undefined) ask.input = clipBytes(pending.input, PEER_CHAT_ASK_INPUT_MAX_BYTES);
+  if (pending.answerable === false) ask.answerable = false;
   return ask;
 }
 

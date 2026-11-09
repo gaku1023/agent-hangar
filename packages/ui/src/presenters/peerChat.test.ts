@@ -200,4 +200,13 @@ describe('チャットを出さない会話は、今までの読み取り専用�
     expect(l.rows[0]).toMatchObject({ locked: true });
     expect(l.composer).toMatchObject({ kind: 'blocked', canInterrupt: false, offline: null, hint: 'Mac は、他の PC からの操作を受け付けない設定です' });
   });
+
+  it('元の PC が答えられないと印を付けた札（answerable が false）は、元の PC で答える案内を出す。印の無い札は出さない', () => {
+    const unanswerable = { ...ask(), ask: { ...ask().ask!, answerable: false as const } };
+    expect(view(store({ status: 'waiting', items: [unanswerable] }))!.rows[0]).toMatchObject({ hostOnly: 'Mac で答えてください' });
+    expect(view(store({ status: 'waiting', items: [ask()] }))!.rows[0]).toMatchObject({ hostOnly: null });
+    // 答えが付いた札は、答えの行を優先する（案内は出さない）。
+    const answered = { ...unanswerable, ask: { ...unanswerable.ask, answered: { by: MAC, label: '', at: 9 } } };
+    expect(view(store({ status: 'waiting', items: [answered] }))!.rows[0]).toMatchObject({ hostOnly: null, answered: 'Mac で答えました' });
+  });
 });

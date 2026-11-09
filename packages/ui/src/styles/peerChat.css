@@ -48,6 +48,7 @@
 .pchat-ask-text input:focus { outline: none; box-shadow: inset 0 0 0 1.5px var(--accent); }
 .pchat-ans { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); font-size: var(--fs-sm); font-weight: 600; color: var(--st-done); }
 .pchat-ans svg { width: 12px; height: 12px; }
+.pchat-ask-hostonly { margin: 0; font-size: var(--fs-sm); color: var(--ink-3); }
 
 /* 入力欄 */
 .pchat-comp { position: relative; display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-top: 1px solid var(--line); }

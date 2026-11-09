@@ -30,6 +30,7 @@ export const peerChatKeys = {
   'peerChat.ask.answeredPermission': ['device', 'label'],
   'peerChat.ask.answeredQuestion': ['device', 'label'],
   'peerChat.ask.answeredHere': ['device'],
+  'peerChat.ask.hostOnly': ['device'],
   'peerChat.ask.closed': [],
   'peerChat.composer.label': [],
   'peerChat.composer.placeholder': ['device'],
