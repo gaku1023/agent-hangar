@@ -13,8 +13,7 @@ import { bindingsForInbox, createBinding, deleteBinding, getBindingRow, listHook
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-gh-hooks-'));
 fs.writeFileSync(path.join(dir, process.platform === 'win32' ? 'gh.exe' : 'gh'), '', { mode: 0o755 });
 const env: NodeJS.ProcessEnv = { ...process.env, PATH: dir, Path: dir };
-const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-no-gh-'));
-afterAll(() => { fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(emptyDir, { recursive: true, force: true }); });
+afterAll(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
 const T0 = new Date(2026, 10, 10, 9, 0).getTime();
 const BASE = 'https://worker.example.test/';
@@ -41,7 +40,7 @@ let db: Db;
 beforeEach(() => { db = openDb(':memory:'); });
 afterEach(() => { db.close(); });
 
-function rig(over: { env?: NodeJS.ProcessEnv; base?: string | null } = {}): Rig {
+function rig(over: { env?: NodeJS.ProcessEnv; base?: string | null; findGh?: (env: NodeJS.ProcessEnv) => string | null } = {}): Rig {
   const calls: Call[] = [];
   const created: string[] = [];
   const deleted: string[] = [];
@@ -63,6 +62,7 @@ function rig(over: { env?: NodeJS.ProcessEnv; base?: string | null } = {}): Rig 
     baseUrl: () => (over.base === undefined ? BASE : over.base),
     onInboxChanged: () => { changed.n++; },
     env: over.env ?? env,
+    ...(over.findGh ? { findGh: over.findGh } : {}),
     now: () => r.t,
     capture: async (_file: string, args: string[], o: CaptureOptions) => {
       calls.push({ args, stdin: o.stdin });
@@ -196,7 +196,8 @@ describe('ensureRepoHook', () => {
   });
 
   it('fails without calling the Worker when gh is missing, the cloud is not set up or the Worker has no inbox', async () => {
-    const noGh = rig({ env: { ...process.env, PATH: emptyDir, Path: emptyDir, ProgramFiles: emptyDir } });
+    // 環境の gh（CI の Linux には入っている）に頼らず、探す口を差し替えて「見つからない」を作る。
+    const noGh = rig({ findGh: () => null });
     expect(await noGh.hooks.ensureRepoHook('octo/demo')).toEqual({ status: 'failed', message: 'gh not found' });
     expect(noGh.created).toEqual([]);
     const noCloud = rig();

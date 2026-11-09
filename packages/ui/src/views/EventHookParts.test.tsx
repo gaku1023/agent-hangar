@@ -233,6 +233,17 @@ describe('GitHub の repo の札（D3）', () => {
     expect(await screen.findByText(t('schedules.event.hook.registered'))).toBeInTheDocument();
   });
 
+  it('rev が変わらない描き直し（一覧が同じままの読み直し）では取り直さない', async () => {
+    const { api, rerender } = mount([bind()]);
+    open('落ちた CI を直す');
+    await screen.findByText(t('schedules.event.hook.registered'));
+    expect(api!.repoHook).toHaveBeenCalledTimes(1);
+    rerender({ rev: 0 });
+    rerender({ rev: 0, busy: false });
+    await Promise.resolve();
+    expect(api!.repoHook).toHaveBeenCalledTimes(1);
+  });
+
   it('外の webhook の行には repo の札を出さない', async () => {
     const { api } = mount([hook()]);
     open('デプロイ通知を見る');

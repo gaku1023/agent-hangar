@@ -111,7 +111,8 @@ function EventRowView(props: { row: EventRow; rev: number; open: boolean; onOpen
         {() => (
           <div className="sch-detail">
             <EventChips row={r} detail />
-            {r.note && <div className="faint">{r.note}</div>}
+            {/* 止めた理由が履歴の行に同じ文で出ているときは、二度言わない。履歴から消えたあとだけ、この一文で伝える。 */}
+            {r.note && !r.runs.some((x) => x.label === r.note) && <div className="faint">{r.note}</div>}
             <div className="sch-full">{r.prompt}</div>
             <RunList runs={r.runs} />
             <EventRowExtra row={r} rev={props.rev} />

@@ -472,6 +472,19 @@ describe('イベントの節（#563）', () => {
     await vi.waitFor(() => expect(onAction).toHaveBeenCalledWith({ type: 'events.remove', id: 'e1' }));
   });
 
+  it('止めた理由の文は、履歴の行にあるときは 1 度だけ出し、履歴に無いときは一文で伝える', () => {
+    const run = { id: 'x', plannedAt: 1, startedAt: NOW, endedAt: NOW, result: 'skipped' as const, sessionId: null, sessionTitle: null, error: 'held:hourly' };
+    const text = t('schedules.event.heldHourly', { max: 12 });
+    const count = (el: HTMLElement) => (el.textContent ?? '').split(text).length - 1;
+    mountEvents([bind({ state: 'held', runs: [run] })]);
+    fireEvent.click(within(items()[0]!).getByRole('button', { name: '落ちた CI を直す' }));
+    expect(count(items()[0]!)).toBe(1);
+    cleanup();
+    mountEvents([bind({ state: 'held', runs: [] })]);
+    fireEvent.click(within(items()[0]!).getByRole('button', { name: '落ちた CI を直す' }));
+    expect(count(items()[0]!)).toBe(1);
+  });
+
   it('履歴の印を決めた言い方にする', () => {
     expect(eventMarker(t, 'rejected:signature x3')).toBe('署名エラー 3 件');
     expect(eventMarker(t, 'rejected:unparsable x2')).toBe('解析エラー 2 件');

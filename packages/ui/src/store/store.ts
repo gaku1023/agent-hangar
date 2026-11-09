@@ -203,7 +203,7 @@ export const eventsKey = (sessionId: string, agentId: string | null): string => 
 export type EventNotice = { kind: 'no_admin' } | { kind: 'hook_failed' } | { kind: 'text'; text: string };
 export type EventTriggerState = {
   ready: boolean; bindings: EventBindingDto[]; claims: PrClaimDto[];
-  /** 読み直しや操作が済むたびに増える番号。repo の札が状態を取り直す合図に使う。 */
+  /** 一覧が変わった読み直しと、操作が済むたびに増える番号。repo の札が状態を取り直す合図に使う。 */
   rev: number;
   form: { busy: boolean; error: EventNotice | null; done: number };
   error: EventNotice | null;

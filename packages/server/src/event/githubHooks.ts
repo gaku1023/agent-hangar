@@ -56,6 +56,8 @@ export type EventHooksDeps = {
   /** 受け箱を作ったか消した。スマホの呼び鈴を、受け箱だけを使う利用者にも開けるために知らせる。 */
   onInboxChanged?: () => void;
   env?: NodeJS.ProcessEnv;
+  /** gh を探す口。試験が差し替える（既定は findTool で、PATH のほかに既知の置き場も見るので、環境に gh があると見つかる）。 */
+  findGh?: (env: NodeJS.ProcessEnv) => string | null;
   capture?: Capture;
   now?: () => number;
 };
@@ -81,6 +83,7 @@ export class EventHooks {
   constructor(private readonly d: EventHooksDeps) {}
 
   private get env(): NodeJS.ProcessEnv { return this.d.env ?? process.env; }
+  private ghPath(): string | null { return (this.d.findGh ?? ((e) => findTool('gh', e)))(this.env); }
   private now(): number { return (this.d.now ?? Date.now)(); }
 
   /** 登録と解除を 1 本ずつ流す。同じ repo の登録が二重にならず、解除と登録が行き違わない。 */
@@ -120,7 +123,7 @@ export class EventHooks {
     if (kept && !listHookOrphans(this.d.db).some((o) => o.inboxId === kept.inboxId)) return { status: 'registered', hookId: kept.webhookId, share: kept };
     this.pending.delete(key);
 
-    const bin = findTool('gh', this.env);
+    const bin = this.ghPath();
     if (!bin) return { status: 'failed', message: 'gh not found' };
     const api = this.d.api();
     const base = this.d.baseUrl();
@@ -191,7 +194,7 @@ export class EventHooks {
         }
         if ((this.retry.get(o.inboxId)?.at ?? 0) > this.now()) continue;
         if (o.webhookId !== null && o.repo !== null && REPO_RE.test(o.repo)) {
-          const bin = findTool('gh', this.env);
+          const bin = this.ghPath();
           if (!bin) { this.later(o.inboxId); continue; }
           const r = await this.gh(bin, ['api', '--method', 'DELETE', `repos/${o.repo}/hooks/${o.webhookId}`]);
           // 404 はもう無い。403 は外す権限が無く、待っても変わらない。受け箱だけ消す。呼びすぎの 403 は、あとで取り直す。

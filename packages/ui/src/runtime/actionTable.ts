@@ -147,7 +147,15 @@ export const actionTable = {
   'schedule.delete': (i) => call((api) => api.deleteSchedule(i.id)),
   'schedule.run': (i) => call((api) => api.runSchedule(i.id)),
   // イベント（#563）。読み直しの失敗は、間隔で何度も来るので黙って前の一覧を残す。
-  'events.load': () => call(eventSnapshot, { apply: (store, snap) => withEventTrigger(store, () => snap), failed: (store) => store }),
+  // 読み直しで一覧が変わっていなければ、Store も rev も動かさない（15 秒ごとの読み直しで repo の札が取り直さないように）。
+  'events.load': () => call(eventSnapshot, {
+    apply: (store, snap) => {
+      const e = store.eventTrigger;
+      if (e.ready && JSON.stringify([e.bindings, e.claims]) === JSON.stringify([snap.bindings, snap.claims])) return store;
+      return withEventTrigger(store, () => snap);
+    },
+    failed: (store) => store,
+  }),
   'events.create': (i) => call(
     (api) => api.createEventBinding(i.input).then(async (r) => ({ failure: failureOf(r), created: 'binding' in r, snap: 'binding' in r ? await reloadAfterWrite(api) : null })),
     {

@@ -47,7 +47,7 @@ export type EventsProps = {
   form: { busy: boolean; error: string | null; done: number };
   /** 承認や削除の失敗の一文。 */
   error: string | null;
-  /** 読み直しや操作が済むたびに増える番号（repo の札が状態を取り直す合図）。 */
+  /** 一覧が変わった読み直しと、操作が済むたびに増える番号（repo の札が状態を取り直す合図）。 */
   rev: number;
 };
 export type SchedulesProps = {
