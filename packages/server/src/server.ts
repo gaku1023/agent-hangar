@@ -169,11 +169,12 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const ghLogin = ghLoginResolver();
   let eventMe = '';
   let eventDispatcher: EventDispatcher | null = null;
+  // 起こすのは巡の終わり（onPassEnd）まで待たせ、山が何ページあっても、結び付けごとに最新の事実で起こす。
   const dispatchEvents = (events: PulledEvent[]): void => {
     if (!eventDispatcher) throw new Error('event dispatcher is not ready');
-    void eventDispatcher.handle(events);
+    void eventDispatcher.handle(events, { more: true });
   };
-  const eventPuller = new EventPuller({ db: home.db, api: () => inboxApiOf(sync.mobileLink()?.client), onPulled: (events) => { dispatchEvents(events); },
+  const eventPuller = new EventPuller({ db: home.db, api: () => inboxApiOf(sync.mobileLink()?.client), onPulled: (events) => { dispatchEvents(events); }, onPassEnd: () => { eventDispatcher?.flushWakes(); },
     // puller の me は同期で読む。引き手が答えを持つまでは空で、聞いた答えは次の荷物から使う。
     me: () => { void ghLogin().then((v) => { eventMe = v ?? ''; }, () => undefined); return eventMe; } });
   const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, chat: peerChat, trash: trash.trash, event: eventPuller, onPeer: (kind, id) => { peer.onBell(kind, id); }, peerApprovals: peer.approvals });

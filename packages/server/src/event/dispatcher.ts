@@ -1,11 +1,12 @@
 import { EVENT_HOURLY_MAX, t, type EventFacts, type Language, type ScheduleTarget } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import type { ScheduleOutcome } from '../schedule/runner.ts';
+import { getSessionState } from '../sessions/states.ts';
 import { wakePaused } from '../sessions/wakePaused.ts';
 import { sessionTitleOf } from '../mobile/feed.ts';
 import { renderEventPrompt } from './prompt.ts';
 import type { PulledEvent } from './puller.ts';
-import { addEventRun, deleteBinding, expireBindings, finishEventRun, getBindingRow, listBindings, prOwner, setEventRunSession, updateBinding, type BindingRow } from './store.ts';
+import { addEventRun, deleteBinding, expireBindings, failStaleRuns, finishEventRun, getBindingRow, listBindings, prOwner, setEventRunSession, updateBinding, type BindingRow } from './store.ts';
 
 /**
  * 取った事実を結び付けに当てて動かす（#563）。
@@ -122,15 +123,18 @@ export class EventDispatcher {
    */
   private readonly units = new Map<string, Unit>();
   private readonly waking = new Set<string>();
+  /** 巡の終わりまで待たせている起こす事実。結び付けごとに最新の 1 件だけを持つ。 */
+  private readonly deferred = new Map<string, { b: BindingRow; facts: EventFacts }>();
   private readonly held = new Map<string, EventFacts[]>();
   private readonly recent = new Map<string, number[]>();
   private readonly inflight = new Set<Promise<void>>();
 
   constructor(private readonly d: DispatcherDeps) {}
 
-  /** 起動のときに、期限が過ぎた起こす結び付けを消す。 */
+  /** 起動のときに、期限が過ぎた起こす結び付けを消し、前の回から動いたまま残った履歴を失敗で閉じる。 */
   start(): void {
     try { expireBindings(this.d.db, this.d.now()); } catch (e) { this.d.onError?.(e); }
+    try { failStaleRuns(this.d.db, this.d.now()); } catch (e) { this.d.onError?.(e); }
     this.released();
   }
 
@@ -143,8 +147,10 @@ export class EventDispatcher {
    * 取った事実を当てて動かす。
    * 投げない。
    * 動きは裏で進み、すぐ返る。
+   * more が真なら、巡がまだ続く。
+   * 起こすのは flushWakes まで待たせ、後のページにある新しい事実で上書きする。
    */
-  async handle(events: PulledEvent[]): Promise<void> {
+  async handle(events: PulledEvent[], opts: { more?: boolean } = {}): Promise<void> {
     const { db } = this.d;
     try { expireBindings(db, this.d.now()); } catch (e) { this.d.onError?.(e); }
     this.released();
@@ -158,7 +164,7 @@ export class EventDispatcher {
         if ((f.event === 'merged' || f.event === 'closed') && f.repo && f.number !== undefined) closed.push({ repo: f.repo, number: f.number });
         const b = getBindingRow(db, e.bindingId);
         if (!b || b.state !== 'active' || !matchesBinding(b, f)) continue;
-        if (b.action.kind === 'wake') wakes.set(b.id, { b, facts: f });
+        if (b.action.kind === 'wake') (opts.more ? this.deferred : wakes).set(b.id, { b, facts: f });
         else if (e.atStart) { this.hold(b.id, [f]); heldNow++; }
         else this.enqueue(b, [f]);
       } catch (err) {
@@ -172,6 +178,17 @@ export class EventDispatcher {
     if (heldNow > 0) {
       try { this.d.onHeldForUser?.(heldNow); } catch (err) { this.d.onError?.(err); }
     }
+  }
+
+  /**
+   * 巡の終わり。
+   * 待たせていた起こすを、結び付けごとに最新の 1 件で始める。
+   * 巡の途中で失敗しても呼ばれる。
+   */
+  flushWakes(): void {
+    const all = [...this.deferred.values()];
+    this.deferred.clear();
+    for (const { b, facts } of all) this.track(this.wake(b, facts, facts.event === 'merged' || facts.event === 'closed'));
   }
 
   /**
@@ -234,13 +251,13 @@ export class EventDispatcher {
 
   /**
    * merged か closed の PR を見ている起こす結び付けを消す。
-   * 起こしている最中のもの（waking）は消さない。
+   * 起こしている最中のもの（waking）と、巡の終わりを待たせているもの（deferred）は消さない。
    * 起こし終えた wake が、結果を履歴に書いてから自分で消す。
    */
   private dropWakeBindingsOf(repo: string, number: number): void {
     let dropped = 0;
     for (const b of listBindings(this.d.db)) {
-      if (this.waking.has(b.id)) continue;
+      if (this.waking.has(b.id) || this.deferred.has(b.id)) continue;
       if (b.action.kind === 'wake' && b.source.kind === 'github' && b.source.pr === number && sameName(b.source.repo, repo) && deleteBinding(this.d.db, b.id, this.d.now())) dropped++;
     }
     if (dropped > 0) this.released();
@@ -248,7 +265,7 @@ export class EventDispatcher {
 
   /**
    * Paused を起こす。
-   * 起こせた、または利用者が先に再開していたときは、結び付けを消す。
+   * 起こせた、利用者が先に再開していた、結び付けより後の Paused だった、のどれかのときは、結び付けを消す。
    * 動いていて渡せなかったとき、渡すのに失敗したときは、履歴に書く。
    * 結び付けは、PR がまだ開いているときだけ残す。
    * final（merged か closed）のときは、もう次の事実が来ないので、履歴を書いてから消す。
@@ -259,6 +276,13 @@ export class EventDispatcher {
     const { db } = this.d;
     try {
       const sessionId = b.action.sessionId;
+      // 結び付けより後に付いた Paused は、別の理由のもの。この結び付けの役目は、その前の Paused で終わっている。
+      const paused = getSessionState(db, sessionId);
+      if (paused?.status === 'paused' && paused.setAt !== null && paused.setAt > b.createdAt) {
+        deleteBinding(db, b.id, this.d.now());
+        this.released();
+        return;
+      }
       const prompt = renderEventPrompt(b, [facts], this.d.language(), await this.me());
       const record = (result: 'skipped' | 'failed', error?: string): void => {
         const runId = addEventRun(db, { bindingId: b.id, now: this.d.now(), result: 'running' });
@@ -349,7 +373,8 @@ export class EventDispatcher {
       this.recent.set(b.id, [...list, now]);
       return false;
     }
-    this.recent.set(b.id, list);
+    // 止めたら数えを空にする。利用者が再開したときに、同じ 1 時間の数えで、すぐ止め直されないようにする。
+    this.recent.delete(b.id);
     updateBinding(this.d.db, b.id, { state: 'held' }, now);
     const runId = addEventRun(this.d.db, { bindingId: b.id, now, result: 'running' });
     finishEventRun(this.d.db, runId, { now, result: 'skipped', error: 'held:hourly' });

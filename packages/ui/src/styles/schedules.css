@@ -128,7 +128,7 @@ a.sch-run-name:hover { text-decoration: underline; }
 
 /* 閉じている間に溜まったイベントの札（右下の知らせ、#563 の C4 と C6）。info と同じ青の見出しで、見出し全体が開閉の押す所になる。
    畳んだ形は 2 つのボタンだけ。広げると、結び付けごとの群が並ぶ。 */
-.notice[data-kind='held-events'] { --k: var(--accent); cursor: default; width: 360px; }
+.notice[data-kind='held-events'] { --k: var(--accent); cursor: default; width: min(360px, calc(100vw - 32px)); }
 .held-head { width: 100%; border: 0; font: inherit; font-size: var(--fs-xs); font-weight: 700; text-align: left; cursor: pointer; }
 .held-head .notice-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .held-groups { display: grid; gap: calc(var(--u) * 2); max-height: 40vh; overflow-y: auto; margin-bottom: calc(var(--u) * 1); }

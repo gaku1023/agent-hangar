@@ -1,5 +1,5 @@
 import type { Hono } from 'hono';
-import type { EventAction, EventSource } from '@agent-hangar/shared';
+import type { EventAction, EventSource, HeldEventDto } from '@agent-hangar/shared';
 import { getSession } from '../../db/queries.ts';
 import type { HeldChoice } from '../../event/dispatcher.ts';
 import type { BindingPatchInput } from '../../event/service.ts';
@@ -108,7 +108,8 @@ export function eventRoutes(api: Hono, deps: EventRouteDeps): void {
     }
   });
 
-  api.get('/events/held', (c) => c.json({ held: deps.events.dispatcher.heldForUser() }));
+  // 札に要る項目だけを返す。外から来た題名と本文は、画面の状態にも持たせない。
+  api.get('/events/held', (c) => c.json({ held: deps.events.dispatcher.heldForUser().map((h): HeldEventDto => ({ bindingId: h.bindingId, facts: h.facts.map((f) => ({ source: f.source, event: f.event, receivedAt: f.receivedAt, ...(f.repo !== undefined ? { repo: f.repo } : {}), ...(f.number !== undefined ? { number: f.number } : {}), ...(f.outcome !== undefined ? { outcome: f.outcome } : {}) })) })) }));
 
   api.post('/events/held/run', async (c) => {
     const b = await readJson(c, BODY_LIMIT);

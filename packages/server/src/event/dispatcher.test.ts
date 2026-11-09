@@ -5,7 +5,7 @@ import type { ScheduleOutcome } from '../schedule/runner.ts';
 import { getSessionState, setSessionState } from '../sessions/states.ts';
 import { EventDispatcher, type DispatcherDeps } from './dispatcher.ts';
 import type { PulledEvent } from './puller.ts';
-import { claimPr, createBinding, getBinding, getBindingRow, listBindings, updateBinding, type BindingInput } from './store.ts';
+import { addEventRun, claimPr, createBinding, getBinding, getBindingRow, listBindings, updateBinding, type BindingInput } from './store.ts';
 
 let db: Db;
 let now: number;
@@ -19,7 +19,7 @@ const bind = (over: Partial<BindingInput> = {}) => createBinding(db, {
 }, now);
 const facts = (over: Partial<EventFacts> = {}): EventFacts => ({ source: 'github', event: 'ci_done', repo: 'octo/demo', number: 7, outcome: 'success', receivedAt: now, ...over });
 const ev = (bindingId: string, over: Partial<EventFacts> = {}, atStart = false): PulledEvent => ({ bindingId, facts: facts(over), atStart });
-const pause = (id = 's-1') => { db.prepare("insert or ignore into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values (?, 'claude-code', ?, '/w', 'dev', 1, 'dev')").run(id, `u-${id}`); return setSessionState(db, 'dev', id, { status: 'paused', note: 'wait for CI', setBy: 'user' }); };
+const pause = (id = 's-1') => { db.prepare("insert or ignore into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values (?, 'claude-code', ?, '/w', 'dev', 1, 'dev')").run(id, `u-${id}`); return setSessionState(db, 'dev', id, { status: 'paused', note: 'wait for CI', setBy: 'user', now }); };
 const sendTo = (id: string, when: Extract<EventSource, { kind: 'github' }>['when'] = ['comment'], over: Partial<Extract<EventSource, { kind: 'github' }>> = {}) =>
   bind({ action: { kind: 'send', sessionId: id }, source: gh({ when, ...over }) });
 
@@ -124,6 +124,65 @@ describe('wake', () => {
     await d.idle();
     expect(getSessionState(db, 's-1')?.status).toBe('paused');
     expect(runs(b.id)[0]).toMatchObject({ result: 'failed', error: 'cannot resume' });
+  });
+
+  it('holds wakes back while the pass goes on, then wakes once with the latest event', async () => {
+    const b = bind();
+    pause();
+    const { d, launched } = make();
+    await d.handle([ev(b.id, { outcome: 'failure', url: 'https://example.test/old' }, true)], { more: true });
+    await d.handle([ev(b.id, { outcome: 'success', url: 'https://example.test/new' }, true)], { more: true });
+    await d.idle();
+    expect(launched).toEqual([]);
+    d.flushWakes();
+    await d.idle();
+    expect(launched).toHaveLength(1);
+    expect(launched[0]!.prompt).toContain('url=https://example.test/new');
+    expect(getBinding(db, b.id)).toBeNull();
+  });
+
+  it('does not let a merged event on a later page drop a wake that waits for the pass to end', async () => {
+    const b = bind();
+    pause();
+    const { d, launched } = make();
+    await d.handle([ev(b.id, { outcome: 'success' }, true)], { more: true });
+    await d.handle([ev(b.id, { event: 'merged', outcome: undefined }, true)], { more: true });
+    d.flushWakes();
+    await d.idle();
+    expect(launched).toHaveLength(1);
+    expect(launched[0]!.prompt).toContain('ci_done');
+  });
+
+  it('does not wake a later pause with a wake condition made for an earlier one', async () => {
+    const b = bind();
+    pause();
+    // 手で再開し、あとから別の理由で Paused にした（起こす条件は付けていない）。
+    now += 60_000;
+    setSessionState(db, 'dev', 's-1', { status: null, setBy: 'user', now });
+    now += 60_000;
+    pause();
+    const { d, launched } = make();
+    await d.handle([ev(b.id)]);
+    await d.idle();
+    expect(launched).toEqual([]);
+    expect(getSessionState(db, 's-1')?.status).toBe('paused');
+    expect(getBinding(db, b.id)).toBeNull();
+  });
+
+  it('still wakes a pause that was set before the binding was made in the same moment', async () => {
+    pause();
+    const b = bind();
+    const { d, launched } = make();
+    await d.handle([ev(b.id)]);
+    await d.idle();
+    expect(launched).toHaveLength(1);
+  });
+
+  it('closes runs left running by a quit when it starts', () => {
+    const b = sendTo('s-1');
+    addEventRun(db, { bindingId: b.id, now, result: 'running' });
+    make().d.start();
+    expect(runs(b.id)).toEqual([expect.objectContaining({ result: 'failed', endedAt: now })]);
   });
 
   it('closing a pr removes its wake bindings', async () => {
@@ -339,6 +398,25 @@ describe('send and new', () => {
     await d.handle([ev(b.id, { event: 'comment' })]);
     await d.idle();
     expect(launched).toHaveLength(EVENT_HOURLY_MAX);
+  });
+
+  it('runs again right after a held binding is resumed, without waiting out the hour', async () => {
+    const b = sendTo('s-1');
+    const { d, launched, waits } = make();
+    for (let i = 0; i < EVENT_HOURLY_MAX; i++) {
+      await d.handle([ev(b.id, { event: 'comment' })]);
+      await flush();
+      waits[i]!({ result: 'finished' });
+      await flush();
+    }
+    await d.handle([ev(b.id, { event: 'comment' })]);
+    await d.idle();
+    expect(getBinding(db, b.id)!.state).toBe('held');
+    updateBinding(db, b.id, { state: 'active' }, now);
+    await d.handle([ev(b.id, { event: 'comment' })]);
+    await flush();
+    expect(launched).toHaveLength(EVENT_HOURLY_MAX + 1);
+    expect(getBinding(db, b.id)!.state).toBe('active');
   });
 
   it('counts again after an hour', async () => {

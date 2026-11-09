@@ -118,6 +118,7 @@ function EventRowView(props: { row: EventRow; rev: number; open: boolean; onOpen
             <EventRowExtra row={r} rev={props.rev} />
             <div className="sch-acts">
               <span className="spacer" />
+              {r.held && <button type="button" className="btn btn-ghost" onClick={() => emit({ type: 'events.approve', id: r.id })}>{t('schedules.action.resume')}</button>}
               {askDelete
                 ? <><button type="button" className="btn btn-ghost" onClick={() => setAskDelete(false)}>{t('common.button.cancel')}</button><button type="button" className="btn btn-danger-fill" onClick={remove}>{t('schedules.action.deleteConfirm')}</button></>
                 : <button type="button" className="btn btn-ghost btn-danger" onClick={() => setAskDelete(true)}>{t('schedules.action.delete')}</button>}

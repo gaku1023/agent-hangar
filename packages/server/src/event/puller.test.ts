@@ -430,6 +430,19 @@ describe('EventPuller', () => {
     expect(client.parcels).toHaveLength(0);
   });
 
+  it('calls onPassEnd once after the last page, even when the pass fails midway', async () => {
+    const inbox = await addBinding();
+    for (let i = 0; i < EVENT_INBOX_PULL_PAGE + 3; i++) await post(inbox, 'issues', fx('issues.opened'));
+    const order: string[] = [];
+    const p = new EventPuller({ db, api: () => inboxApiOf(client), now: () => T0, me: () => 'alice-dev', ghApi: noGh, onPulled: () => { order.push('page'); }, onPassEnd: () => { order.push('end'); } });
+    await p.pull('bell');
+    expect(order).toEqual(['page', 'page', 'end']);
+    await post(inbox, 'issues', fx('issues.opened'));
+    const broken = new EventPuller({ db, api: () => ({ ...inboxApiOf(client)!, pendingParcels: () => Promise.reject(new Error('down')) }), now: () => T0, onPassEnd: () => { order.push('end2'); }, onError: () => undefined });
+    await broken.pull('bell');
+    expect(order.slice(-1)).toEqual(['end2']);
+  });
+
   it('survives a failing ack, keeps the parcel, and logs without ids or keys', async () => {
     const inbox = await addBinding();
     await post(inbox, 'issues', fx('issues.opened'));

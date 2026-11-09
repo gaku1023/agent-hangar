@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { MessageError } from '../i18n/message.ts';
 import type { Db } from '../db/open.ts';
-import { addEventRun, bindingsForInbox, bindingsForRepo, claimPr, createBinding, deleteBinding, expireBindings, dropHookOrphan, finishEventRun, getBinding, getBindingRow, hasDelivery, listBindings, listHookOrphans, markDelivery, prOwner, setBindingInbox, updateBinding, type BindingInput } from './store.ts';
+import { addEventRun, bindingsForInbox, bindingsForRepo, claimPr, createBinding, deleteBinding, expireBindings, dropHookOrphan, failStaleRuns, finishEventRun, getBinding, getBindingRow, hasDelivery, listBindings, listHookOrphans, markDelivery, prOwner, setBindingInbox, updateBinding, type BindingInput } from './store.ts';
 
 let db: Db;
 const T0 = new Date(2026, 10, 10, 9, 0).getTime();
@@ -182,6 +182,22 @@ describe('届いた荷物の重複', () => {
 });
 
 describe('PR の持ち主', () => {
+  it('prOwner matches the repo whatever its case', () => {
+    claimPr(db, { sessionId: 's-1', repo: 'Octo/Demo', pr: 7, state: 'active' });
+    expect(prOwner(db, 'octo/demo', 7)).toBe('s-1');
+  });
+
+  it('failStaleRuns closes the runs a quit left running, and only those', () => {
+    const b = createBinding(db, { inboxId: 'i', inboxPublicKey: 'p', inboxPrivateKey: 'k', source: { kind: 'hook' }, action: { kind: 'new', projectId: 'p' }, prompt: 'x', state: 'active' }, 1);
+    const stale = addEventRun(db, { bindingId: b.id, now: 10, result: 'running' });
+    const done = addEventRun(db, { bindingId: b.id, now: 20, result: 'running' });
+    finishEventRun(db, done, { now: 30, result: 'finished' });
+    expect(failStaleRuns(db, 99)).toBe(1);
+    const runs = getBinding(db, b.id)!.runs;
+    expect(runs.find((r) => r.id === stale)).toMatchObject({ result: 'failed', endedAt: 99 });
+    expect(runs.find((r) => r.id === done)).toMatchObject({ result: 'finished', endedAt: 30 });
+  });
+
   it('prOwner ignores draft claims', () => {
     claimPr(db, { sessionId: 's-1', repo: 'octo/demo', pr: 7, state: 'draft' });
     expect(prOwner(db, 'octo/demo', 7)).toBeNull();

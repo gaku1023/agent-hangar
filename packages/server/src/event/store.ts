@@ -166,6 +166,15 @@ export function updateBinding(db: Db, id: string, p: BindingPatch, now: number =
   return dto(db, bindingRow(db, id)!);
 }
 
+/**
+ * 起こす結び付けを、いまの Paused のものとして作り直した扱いにする。
+ * 作った時刻と期限を、いまから数え直す。
+ * 同じ条件がすでにあるときに、新しい結び付けを足さずに使い回す道が使う。
+ */
+export function refreshWakeBinding(db: Db, id: string, now: number): void {
+  db.prepare("update event_bindings set created_at = ?, expires_at = ? where id = ? and json_extract(action, '$.kind') = 'wake'").run(now, now + WAKE_BINDING_TTL_MS, id);
+}
+
 function remove(db: Db, id: string, now: number): boolean {
   const row = bindingRow(db, id);
   db.prepare('delete from event_runs where binding_id = ?').run(id);
@@ -213,6 +222,16 @@ export function addEventRun(db: Db, o: { bindingId: string; plannedAt?: number; 
     .run(id, o.bindingId, o.plannedAt ?? o.now, o.now, o.result === 'running' ? null : o.now, o.result);
   prune(db, o.bindingId);
   return id;
+}
+
+/**
+ * 動いたまま残った回を、失敗で閉じる。
+ * hangar が終わったときに動いていた回は、もう待てない。
+ * 閉じなければ、履歴に動いている回として残り続ける（prune は動いている回を落とさない）。
+ * 起動のときに 1 度だけ呼ぶ。閉じた数を返す。
+ */
+export function failStaleRuns(db: Db, now: number): number {
+  return db.prepare("update event_runs set result = 'failed', ended_at = ? where result = 'running'").run(now).changes;
 }
 
 export function setEventRunSession(db: Db, runId: string, sessionId: string): void {
@@ -283,6 +302,6 @@ export function rejectClaim(db: Db, o: { sessionId: string; repo: string; pr: nu
 
 /** PR を持つ会話。承認済み（active）の印だけを見て、複数あれば新しい印を採る。 */
 export function prOwner(db: Db, repo: string, pr: number): string | null {
-  const r = db.prepare("select session_id from session_prs where repo = ? and pr = ? and state = 'active' order by claimed_at desc, rowid desc limit 1").get(repo, pr) as { session_id: string } | undefined;
+  const r = db.prepare("select session_id from session_prs where lower(repo) = lower(?) and pr = ? and state = 'active' order by claimed_at desc, rowid desc limit 1").get(repo, pr) as { session_id: string } | undefined;
   return r?.session_id ?? null;
 }

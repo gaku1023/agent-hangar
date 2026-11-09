@@ -1,4 +1,4 @@
-import { eventsAvailable, type EventFacts, type Translate } from '@agent-hangar/shared';
+import { eventsAvailable, type HeldFactDto, type Translate } from '@agent-hangar/shared';
 import type { Store } from '../store/store.ts';
 import { absoluteTime } from './format.ts';
 
@@ -12,14 +12,14 @@ export type HeldEventsCardProps = { head: string; groups: HeldGroupProps[] };
 const WHEN_KEY = { ci_done: 'schedules.event.when.ciDone', review: 'schedules.event.when.review', comment: 'schedules.event.when.comment', merged: 'schedules.event.when.merged', issue_opened: 'schedules.event.when.issueOpened' } as const;
 
 /** 1 件の言い方。CI の失敗は ci_done の結果で見分け、知らない種類は名前のまま出す。外の webhook は種類を持たないので「webhook」と言う。 */
-function factText(t: Translate, f: EventFacts): string {
+function factText(t: Translate, f: HeldFactDto): string {
   if (f.source === 'hook') return t('schedules.event.kind.hook');
   if (f.event === 'ci_done' && f.outcome === 'failure') return t('schedules.event.when.ciFailed');
   return f.event in WHEN_KEY ? t(WHEN_KEY[f.event as keyof typeof WHEN_KEY]) : f.event;
 }
 
 /** 結び付けの名前。GitHub は repo と PR の番号、外の webhook は「webhook」。 */
-function groupLabel(t: Translate, facts: EventFacts[]): string {
+function groupLabel(t: Translate, facts: HeldFactDto[]): string {
   const f = facts.find((x) => x.source === 'github' && x.repo);
   if (!f) return t('schedules.event.kind.hook');
   return f.number !== undefined ? `${f.repo} #${f.number}` : f.repo!;

@@ -49,6 +49,11 @@ export type EventPullerDeps = {
    * 事実を結び付けに当てて動かす側（Task 5 の dispatcher）が受ける。
    */
   onPulled?: (events: PulledEvent[]) => void;
+  /**
+   * 巡が終わった。最後のページを渡した後に 1 度呼ぶ（途中で失敗しても呼ぶ）。
+   * 山が 1 ページを越えるとき、起こす側が最新の事実を選び直すために使う。
+   */
+  onPassEnd?: () => void;
   /** 今の PC の gh のユーザー名。 */
   me?: () => string;
   now?: () => number;
@@ -228,6 +233,7 @@ export class EventPuller {
       this.fail(e);
     } finally {
       this.flushRejected();
+      try { this.deps.onPassEnd?.(); } catch (e) { this.fail(e); }
     }
     return out;
   }

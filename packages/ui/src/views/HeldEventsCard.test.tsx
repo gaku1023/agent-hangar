@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
 import type { HeldEventsCardProps } from '../presenters/heldEvents.ts';
 import type { ToastsProps } from '../presenters/toasts.ts';
@@ -20,7 +20,22 @@ function mount(p: ToastsProps) {
   return { onAction, rerender: (q: ToastsProps) => r.rerender(<ActionRoot onAction={onAction}><ToastStack {...q} /></ActionRoot>) };
 }
 
+afterEach(() => { vi.useRealTimers(); });
+
 describe('溜まったイベントの札', () => {
+  it('does not send twice while the first send is in flight, and works again after a failed send', () => {
+    vi.useFakeTimers();
+    const { onAction } = mount(props({ heldEvents: card() }));
+    const runAll = screen.getByRole('button', { name: 'すべて実行' });
+    fireEvent.click(runAll);
+    fireEvent.click(runAll);
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(runAll).toBeDisabled();
+    expect(screen.getByRole('button', { name: '選ぶ' })).toBeDisabled();
+    // 送れずに札が残ったときは、もう一度押せる。
+    act(() => { vi.advanceTimersByTime(3000); });
+    expect(screen.getByRole('button', { name: 'すべて実行' })).toBeEnabled();
+  });
   it('card appears only when held events exist', () => {
     const { rerender } = mount(props({ heldEvents: null }));
     expect(screen.queryByText(/件のイベントが届きました/)).toBeNull();

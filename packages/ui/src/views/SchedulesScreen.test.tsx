@@ -472,6 +472,16 @@ describe('イベントの節（#563）', () => {
     await vi.waitFor(() => expect(onAction).toHaveBeenCalledWith({ type: 'events.remove', id: 'e1' }));
   });
 
+  it('上限で止まった行は再開でき、動いている行には再開を出さない', () => {
+    const onAction = mountEvents([bind({ state: 'held' }), bind({ id: 'e2', prompt: '動いている行' })]);
+    const [held, active] = items();
+    fireEvent.click(within(held!).getByRole('button', { name: '落ちた CI を直す' }));
+    fireEvent.click(within(held!).getByRole('button', { name: t('schedules.action.resume') }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'events.approve', id: 'e1' });
+    fireEvent.click(within(active!).getByRole('button', { name: '動いている行' }));
+    expect(within(active!).queryByRole('button', { name: t('schedules.action.resume') })).toBeNull();
+  });
+
   it('止めた理由の文は、履歴の行にあるときは 1 度だけ出し、履歴に無いときは一文で伝える', () => {
     const run = { id: 'x', plannedAt: 1, startedAt: NOW, endedAt: NOW, result: 'skipped' as const, sessionId: null, sessionTitle: null, error: 'held:hourly' };
     const text = t('schedules.event.heldHourly', { max: 12 });

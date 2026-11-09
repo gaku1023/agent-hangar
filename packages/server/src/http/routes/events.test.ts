@@ -234,6 +234,14 @@ describe('held events', () => {
     expect(dispatcher.runHeld).toHaveBeenCalledWith(choices);
   });
 
+  it('lists only what the card shows, never the title, body, author or url', async () => {
+    const full = { source: 'github' as const, event: 'comment', repo: 'o/r', number: 4, title: 'TITLE', authorLogin: 'someone', outcome: 'success' as const, url: 'https://example.test/x', actor: 'someone', body: 'BODY', labels: ['bug'], receivedAt: 5 };
+    dispatcher.heldForUser.mockReturnValue([{ bindingId: 'b1', facts: [full, { source: 'hook', event: 'hook', body: 'PAYLOAD', receivedAt: 6 }] }]);
+    const text = await (await send('GET', '/api/events/held')).text();
+    expect(text).not.toMatch(/TITLE|BODY|PAYLOAD|someone|example.test|bug/);
+    expect(JSON.parse(text)).toEqual({ held: [{ bindingId: 'b1', facts: [{ source: 'github', event: 'comment', repo: 'o/r', number: 4, outcome: 'success', receivedAt: 5 }, { source: 'hook', event: 'hook', receivedAt: 6 }] }] });
+  });
+
   it('answers 409 with a message when running the held events fails', async () => {
     dispatcher.runHeld.mockRejectedValueOnce(new Error('boom'));
     const r = await send('POST', '/api/events/held/run', { choices: [{ bindingId: 'b1', mode: 'all' }] });
@@ -358,6 +366,39 @@ describe('wake_on on the pause flow', () => {
     await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'a', wakeOn });
     await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'b', wakeOn });
     expect(wakeBindings()).toHaveLength(1);
+  });
+
+  describe('a wake binding belongs to the pause it was made for', () => {
+    const setAt = () => (getSessionState(t.db, sessionId) as SessionStateDto).setAt as number;
+    const old = (id: string) => { t.db.prepare('update event_bindings set created_at = 1 where id = ?').run(id); };
+    const createdAt = (id: string) => getBindingRow(t.db, id)!.createdAt;
+
+    it('pausing again with the same condition makes the reused binding current', async () => {
+      await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'a', wakeOn });
+      const [b] = wakeBindings();
+      old(b!.id);
+      await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'b', wakeOn });
+      expect(wakeBindings().map((x) => x.id)).toEqual([b!.id]);
+      expect(createdAt(b!.id)).toBeGreaterThanOrEqual(setAt());
+    });
+
+    it('rewriting the same pause without a wakeOn keeps the binding current', async () => {
+      await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'a', wakeOn });
+      const [b] = wakeBindings();
+      old(b!.id);
+      await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'a, edited' });
+      expect(createdAt(b!.id)).toBeGreaterThanOrEqual(setAt());
+    });
+
+    it('pausing again after a resume without a wakeOn leaves the old binding behind the pause', async () => {
+      await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'a', wakeOn });
+      const [b] = wakeBindings();
+      old(b!.id);
+      await send('PUT', `/api/sessions/${sessionId}/state`, { status: null });
+      await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'unrelated' });
+      expect(createdAt(b!.id)).toBe(1);
+      expect(createdAt(b!.id)).toBeLessThan(setAt());
+    });
   });
 
   it('refuses a malformed wakeOn without changing the state', async () => {
