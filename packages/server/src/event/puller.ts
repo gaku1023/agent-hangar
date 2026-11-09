@@ -5,6 +5,7 @@ import { needsShell } from '../platform/exec.ts';
 import { findTool } from '../report/real.ts';
 import { CloudError } from '../sync/client.ts';
 import type { InboxApi } from './inboxClient.ts';
+import { REPO_RE } from './validate.ts';
 import { checkSuiteRef, normalizeGithub, outcomeOf, verifyGithubSignature } from './normalize.ts';
 import { addEventRun, bindingsForInbox, finishEventRun, hasDelivery, markDelivery, type BindingRow } from './store.ts';
 
@@ -84,7 +85,7 @@ export function ghApiRunner(env: NodeJS.ProcessEnv = process.env, capture: Captu
   };
 }
 
-export const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+export { REPO_RE };
 const SHA_RE = /^[0-9a-fA-F]{7,64}$/;
 /** まだ終わっていないスイートの status。 */
 const OPEN_STATUSES: ReadonlySet<string> = new Set(['queued', 'in_progress', 'requested', 'waiting', 'pending']);

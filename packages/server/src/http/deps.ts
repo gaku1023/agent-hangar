@@ -24,6 +24,8 @@ import type { AccountsDeps } from './accounts.ts';
 import type { GitService } from '../git/service.ts';
 import type { OpencodeProvidersService } from '../provider/opencode/integration.ts';
 import type { PeerCallDeps } from '../peer/caller.ts';
+import type { EventDispatcher } from '../event/dispatcher.ts';
+import type { EventBindingService } from '../event/service.ts';
 import type { PeerEndpointDeps } from '../peer/endpoint.ts';
 import type { PeerChatViewer } from '../peer/chat/viewer.ts';
 import type { PeerSshStore } from '../peer/ssh/config.ts';
@@ -110,6 +112,8 @@ export type AppDeps = {
   runs: RunsApi;
   /** 定期の実行（schedule/runner.ts）。画面の「今すぐ実行」が呼ぶ。 */
   schedules: { runNow(id: string): 'started' | 'busy' | 'missing'; deliver(sessionId: string, text: string): Promise<{ sessionId: string } | 'busy'> };
+  /** 外のできごとで動く結び付け（#563）。結び付けを作る流れと、閉じている間に溜まったできごとを流す部品。 */
+  events: { bindings: Pick<EventBindingService, 'list' | 'create' | 'update' | 'remove' | 'rotate' | 'hookUrl' | 'repoHookState' | 'createWake'>; dispatcher: Pick<EventDispatcher, 'heldForUser' | 'runHeld'> };
   external: ExternalApi;
   /** git の表示。渡さなければ、ここで作る（試験は実物の git を使う）。組み立てる側は、本文の伸びで読み直す同じものを渡す。 */
   git?: GitApi;

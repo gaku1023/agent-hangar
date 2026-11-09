@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { EVENT_BINDINGS_MAX, EVENT_INBOX_KEEP_MS, SCHEDULE_RUNS_KEPT, WAKE_BINDING_TTL_MS, type EventAction, type EventBindingDto, type EventBindingState, type EventSource, type ScheduleRunDto, type ScheduleRunResult } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
-import { MessageError } from '../i18n/message.ts';
+import { MessageError, msg } from '../i18n/message.ts';
 import { sessionTitleOf } from '../mobile/feed.ts';
 
 /**
@@ -90,7 +90,7 @@ export function bindingsForRepo(db: Db, repo: string): BindingRow[] {
 /** 結び付けの受け箱を置き換える。外の webhook の結び付けは、受け箱を後から作るので、空の ID で作ってからここで入れる。 */
 export function setBindingInbox(db: Db, id: string, o: { inboxId: string; inboxPublicKey: string; inboxPrivateKey: string }): void {
   const n = db.prepare('update event_bindings set inbox_id = ?, inbox_public_key = ?, inbox_private_key = ? where id = ?').run(o.inboxId, o.inboxPublicKey, o.inboxPrivateKey, id).changes;
-  if (n === 0) throw new MessageError(`結び付けが見つかりません: ${id}`);
+  if (n === 0) throw new MessageError(msg('schedules.event.error.notFound'));
 }
 
 /** 後片付けを預かっている受け箱。repo を渡すと、その repo の分だけ。 */
@@ -124,7 +124,7 @@ export function getBindingRow(db: Db, id: string): BindingRow | null {
 /** 作る。上限を越えるときは断る。起こす結び付けには 30 日の期限を付ける。 */
 export function createBinding(db: Db, input: BindingInput, now: number): EventBindingDto {
   const count = (db.prepare('select count(*) c from event_bindings').get() as { c: number }).c;
-  if (count >= EVENT_BINDINGS_MAX) throw new MessageError(`結び付けは ${EVENT_BINDINGS_MAX} 件までです`);
+  if (count >= EVENT_BINDINGS_MAX) throw new MessageError(msg('schedules.event.error.max', { max: EVENT_BINDINGS_MAX }));
   const id = randomUUID();
   const expiresAt = input.action.kind === 'wake' ? now + WAKE_BINDING_TTL_MS : null;
   db.prepare(`insert into event_bindings (id, inbox_id, inbox_public_key, inbox_private_key, webhook_id, hook_secret, source, action, prompt, pass_body, allow_authors, state, from_session_id, created_at, expires_at)
@@ -142,8 +142,8 @@ const STATES: readonly EventBindingState[] = ['draft', 'active', 'held', 'error'
  */
 export function updateBinding(db: Db, id: string, p: BindingPatch, now: number = Date.now()): EventBindingDto {
   const r = bindingRow(db, id);
-  if (!r) throw new MessageError(`結び付けが見つかりません: ${id}`);
-  if (p.state !== undefined && !STATES.includes(p.state)) throw new MessageError(`結び付けの状態が正しくありません: ${String(p.state)}`);
+  if (!r) throw new MessageError(msg('schedules.event.error.notFound'));
+  if (p.state !== undefined && !STATES.includes(p.state)) throw new MessageError(msg('schedules.event.error.badState'));
   let expiresAt = r.expires_at;
   if (p.action) {
     const wasWake = (JSON.parse(r.action) as EventAction).kind === 'wake';

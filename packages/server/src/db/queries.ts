@@ -77,6 +77,7 @@ type SessionRow = {
   ss_c_return_time: string | null;
   ss_c_source: CandidateSource | null;
   ss_c_at: number | null;
+  ss_c_wake_on: string | null;
   // 最後に起こした run の終わり方と終わった時刻。run が無いか、まだ動いていれば null。
   last_end_reason: string | null;
   last_ended_at: number | null;
@@ -111,7 +112,7 @@ select s.*, (exists(select 1 from transcript_files t where t.session_id = s.id a
   lim.kind lim_kind, lim.resets_at lim_resets_at, lim.auto lim_auto,
   sn.name sn_name,
   ss.session_id ss_id, ss.status ss_status, ss.note ss_note, ss.return_on ss_return_on, ss.return_time ss_return_time, ss.set_by ss_set_by, ss.set_at ss_set_at,
-  ss.candidate_status ss_c_status, ss.candidate_note ss_c_note, ss.candidate_return_on ss_c_return_on, ss.candidate_return_time ss_c_return_time, ss.candidate_source ss_c_source, ss.candidate_at ss_c_at,
+  ss.candidate_status ss_c_status, ss.candidate_note ss_c_note, ss.candidate_return_on ss_c_return_on, ss.candidate_return_time ss_c_return_time, ss.candidate_source ss_c_source, ss.candidate_at ss_c_at, ss.candidate_wake_on ss_c_wake_on,
   (select r.end_reason from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1) last_end_reason,
   (select r.ended_at from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1) last_ended_at,
   (select i.cause from interrupted_runs i where i.run_id = (select r.id from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1)) last_interrupt_cause,
@@ -357,7 +358,7 @@ function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto
     // セッションの状態と提案。行が無ければ Active の null。rejected_at は載せない（toStateDto）。
     state: r.ss_id === null ? null : toStateDto({
       status: r.ss_status, note: r.ss_note, return_on: r.ss_return_on, return_time: r.ss_return_time, set_by: r.ss_set_by, set_at: r.ss_set_at,
-      candidate_status: r.ss_c_status, candidate_note: r.ss_c_note, candidate_return_on: r.ss_c_return_on, candidate_return_time: r.ss_c_return_time, candidate_source: r.ss_c_source, candidate_at: r.ss_c_at,
+      candidate_status: r.ss_c_status, candidate_note: r.ss_c_note, candidate_return_on: r.ss_c_return_on, candidate_return_time: r.ss_c_return_time, candidate_source: r.ss_c_source, candidate_at: r.ss_c_at, candidate_wake_on: r.ss_c_wake_on,
     }),
     // 使用制限でリセットを待っている間は、区切りを付けていても止めない（自動の続きの予約が消える）。
     // 自動の停止を切っている間は偽（setParkingSwitch）。

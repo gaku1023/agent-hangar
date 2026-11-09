@@ -11,6 +11,11 @@ describe('MCP の道具の分類', () => {
     expect(Object.entries(TOOL_CLASSES).filter(([, c]) => c.kind === 'irreversible').map(([n]) => n)).toEqual(['delete_session']);
     expect(toolsNeedingApproval()).toEqual(['delete_session']);
   });
+  it('下書きを置く道具は write で、承認に答える道具は無い（承認は画面だけが受ける）', () => {
+    expect(TOOL_CLASSES.claim_pr.kind).toBe('write');
+    expect(TOOL_CLASSES.draft_event_binding.kind).toBe('write');
+    expect(toolsNeedingApproval()).not.toContain('draft_event_binding');
+  });
   it('承認に答える道具は外に出さない。出すと、エージェントが自分で承認できてしまう', () => {
     expect(TOOL_NAMES.filter((n) => /approv|allow/i.test(n))).toEqual([]);
   });

@@ -29,6 +29,9 @@ import { SessionTrash } from '../sessions/trash.ts';
 import { TakeoverService } from '../sync/takeover.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
+import type { EnsureRepoHookResult, HookInboxResult } from '../event/githubHooks.ts';
+import { EventBindingService } from '../event/service.ts';
+import { setBindingInbox } from '../event/store.ts';
 import type { AccountsDeps } from './accounts.ts';
 import type { AppDeps, ExternalApi, RunsApi, SummaryApi, SummaryEnqueueOpts, SyncApi } from './app.ts';
 
@@ -177,6 +180,31 @@ export type TestWorld = {
 };
 
 /**
+ * 外のできごと（#563）の webhook の偽物。GitHub にも Worker にも触らず、呼び出しを記録する。
+ * 外の webhook の受け箱は、本物と同じく結び付けの行に書き込む。
+ */
+export function fakeEventHooks(db: Db) {
+  const share = (repo: string) => ({ inboxId: `inbox-${repo.toLowerCase()}`, inboxPublicKey: 'pub', inboxPrivateKey: 'priv', webhookId: 7, hookSecret: 'secret' });
+  const swap = (id: string, inboxId: string): HookInboxResult => { setBindingInbox(db, id, { inboxId, inboxPublicKey: 'pub', inboxPrivateKey: 'priv' }); return { status: 'ready' }; };
+  return {
+    ensureRepoHook: vi.fn(async (repo: string): Promise<EnsureRepoHookResult> => ({ status: 'registered', hookId: 7, share: share(repo) })),
+    removeRepoHookIfUnused: vi.fn(async (_repo: string) => {}),
+    sweep: vi.fn(async () => {}),
+    ensureHookInbox: vi.fn(async (id: string): Promise<HookInboxResult> => swap(id, `hook-inbox-${id}`)),
+    rotateHookInbox: vi.fn(async (id: string): Promise<HookInboxResult> => swap(id, `hook-inbox-rotated-${id}`)),
+    hookUrlOf: vi.fn((id: string): string | null => `https://worker.test/hooks/hook-inbox-${id}`),
+  };
+}
+
+/** 結び付けの流れに偽の webhook を渡し、溜まったできごとは空にした既定。 */
+function noEvents(db: Db, settings: () => Settings): AppDeps['events'] {
+  return {
+    bindings: new EventBindingService({ db, hooks: fakeEventHooks(db), changed: () => {}, language: languageReader(settings) }),
+    dispatcher: { heldForUser: () => [], runHeld: async () => {} },
+  };
+}
+
+/**
  * createApp に渡す依存を、試験用の既定で全部組む。
  * フィクスチャの索引を読み込み済みの DB と、alpha を 1 つ持つワークスペースが付く。
  * overrides に渡した項目は、既定の代わりにそのまま入る。
@@ -228,6 +256,8 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     hub: publisher,
     runs, external, usage, memos, summary,
     schedules: { runNow: () => 'missing', deliver: async (id) => ({ sessionId: id }) },
+    // 外のできごと（#563）。試験は本物の結び付けの流れに、付けない偽の webhook を渡す。
+    events: noEvents(db, () => settings),
     // 本物の削除に、偽のゴミ箱（ワークスペースの .test-trash へ移すだけ）を渡す。
     trash: new SessionTrash({
       db, deviceId: 'd', claudeDir, remoteRoot: path.join(ws, 'remote'),

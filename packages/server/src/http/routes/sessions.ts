@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Context, Hono } from 'hono';
-import { liveFilterOf, liveWithLimit, quietLive, type PromoteResultDto, type SearchParamsDto, type SessionStateDto, type SessionStatus } from '@agent-hangar/shared';
+import { liveFilterOf, liveWithLimit, quietLive, type PromoteResultDto, type SearchParamsDto, type SessionStateDto, type SessionStatus, type WakeOn } from '@agent-hangar/shared';
 import { touchRow } from '../../db/notify.ts';
 import { getProject, listSessions } from '../../db/queries.ts';
 import { EDIT_TOOLS } from '../../indexer/write.ts';
@@ -18,16 +18,17 @@ import { parkedSessionIds } from '../../sessions/park.ts';
 import { stopReasonsOf } from '../../sessions/stopReasons.ts';
 import { changedFilesOf } from '../../sessions/files.ts';
 import { DeleteError } from '../../sessions/trash.ts';
-import { confirmSessionState, rejectSessionState, setSessionPinned, setSessionState, StateInputError } from '../../sessions/states.ts';
+import { confirmSessionState, getSessionState, rejectSessionState, setSessionPinned, setSessionState, StateInputError } from '../../sessions/states.ts';
+import { parseWakeOn } from '../../event/validate.ts';
 import { readEvents, subagentIds } from '../../transcript/read.ts';
-import { errorText, render, translatorOf } from '../../i18n/message.ts';
+import { errorText, MessageError, render, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, editorOptsOf, externalOf, isEnoent, numberOr, readJson, sessionOf, tooLargeResult } from './common.ts';
 import { wokeSince } from '../../sessions/wake.ts';
 import { wakePaused } from '../../sessions/wakePaused.ts';
 
 /** セッションの経路が使う依存。 */
-export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh' | 'trash' | 'schedules' | 'peerApprovals'> & LanguageDeps;
+export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh' | 'trash' | 'schedules' | 'peerApprovals' | 'events'> & LanguageDeps;
 
 /** セッションの状態として受け付ける値。Active は null で表す。 */
 const SESSION_STATUSES = new Set(['paused', 'done', 'archived']);
@@ -151,17 +152,43 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
       throw e;
     }
   };
+  /**
+   * 状態を書いたあとで、Paused を起こす結び付けを作る（#563）。
+   * wakeOn は画面が持つ、起こす条件（外されていれば null）。Paused は確定したままで、結び付けを作れなかったときは wake にその理由を載せる。
+   */
+  const settled = async (c: Context, fn: () => { state: SessionStateDto; result?: string }, wakeOn: WakeOn | null, id: string) => {
+    let r: { state: SessionStateDto; result?: string };
+    try {
+      r = fn();
+    } catch (e) {
+      if (e instanceof StateInputError) return c.json({ error: errorText(language(), e) }, 400);
+      throw e;
+    }
+    if (r.result === 'not_candidate') return c.json({ error: noStateCandidate() }, 409);
+    if (!wakeOn) return c.json({ state: r.state });
+    try {
+      return c.json({ state: r.state, wake: await deps.events.bindings.createWake(id, wakeOn) });
+    } catch (e) {
+      if (e instanceof MessageError) return c.json({ state: r.state, wake: { status: 'failed', message: errorText(language(), e) } });
+      throw e;
+    }
+  };
+  /** 本文の wakeOn。無ければ undefined、外したなら null、形が違えば MessageError。 */
+  const wakeOnOf = (v: unknown): WakeOn | null | undefined => (v === undefined ? undefined : v === null ? null : parseWakeOn(v));
   const putSessionState = async (c: Context, id: string) => {
     if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
     const b = await readJson(c, BODY_LIMITS.todo);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo, tr);
-    const body = (b.value ?? {}) as { status?: unknown; note?: unknown; returnOn?: unknown; returnTime?: unknown };
+    const body = (b.value ?? {}) as { status?: unknown; note?: unknown; returnOn?: unknown; returnTime?: unknown; wakeOn?: unknown };
     if (body.status !== null && !(typeof body.status === 'string' && SESSION_STATUSES.has(body.status))) return c.json({ error: tr('session.status.invalid') }, 400);
     if (body.note !== undefined && typeof body.note !== 'string') return c.json({ error: tr('session.status.reasonMustBeString') }, 400);
     if (body.returnOn !== undefined && typeof body.returnOn !== 'string') return c.json({ error: tr('session.status.returnOnMustBeString') }, 400);
     if (body.returnTime !== undefined && typeof body.returnTime !== 'string') return c.json({ error: tr('session.status.returnTimeMustBeString') }, 400);
     const status = body.status as SessionStatus | null;
-    return stateResult(c, () => ({ state: setSessionState(db, deviceId, id, { status, note: body.note as string | undefined, returnOn: body.returnOn as string | undefined, returnTime: body.returnTime as string | undefined, setBy: 'user' }) }));
+    let wakeOn: WakeOn | null | undefined;
+    try { wakeOn = wakeOnOf(body.wakeOn); } catch (e) { if (e instanceof MessageError) return c.json({ error: errorText(language(), e) }, 400); throw e; }
+    // 手で Paused にするときに、利用者が自分で選んだ条件。Paused のときだけ結び付けにする。
+    return settled(c, () => ({ state: setSessionState(db, deviceId, id, { status, note: body.note as string | undefined, returnOn: body.returnOn as string | undefined, returnTime: body.returnTime as string | undefined, setBy: 'user' }) }), status === 'paused' ? wakeOn ?? null : null, id);
   };
   api.put('/sessions/:id/state', (c) => putSessionState(c, c.req.param('id')));
   api.post('/sessions/:id/state/confirm', async (c) => {
@@ -169,10 +196,15 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
-    const body = (b.value ?? {}) as { returnOn?: unknown; returnTime?: unknown };
+    const body = (b.value ?? {}) as { returnOn?: unknown; returnTime?: unknown; wakeOn?: unknown };
     if (body.returnOn !== undefined && typeof body.returnOn !== 'string') return c.json({ error: tr('session.status.returnOnMustBeString') }, 400);
     if (body.returnTime !== undefined && typeof body.returnTime !== 'string') return c.json({ error: tr('session.status.returnTimeMustBeString') }, 400);
-    return stateResult(c, () => confirmSessionState(db, deviceId, id, body.returnOn === undefined ? {} : { returnOn: body.returnOn as string, ...(body.returnTime !== undefined ? { returnTime: body.returnTime as string } : {}) }));
+    let given: WakeOn | null | undefined;
+    try { given = wakeOnOf(body.wakeOn); } catch (e) { if (e instanceof MessageError) return c.json({ error: errorText(language(), e) }, 400); throw e; }
+    // 提案に添えられた条件は、確定すると提案ごと消えるので、確定の前に読む。画面が null を送ったときは、利用者が外したので結び付けを作らない。
+    const cand = getSessionState(db, id)?.candidate ?? null;
+    const wakeOn = cand?.status === 'paused' ? (given === undefined ? cand.wakeOn ?? null : given) : null;
+    return settled(c, () => confirmSessionState(db, deviceId, id, body.returnOn === undefined ? {} : { returnOn: body.returnOn as string, ...(body.returnTime !== undefined ? { returnTime: body.returnTime as string } : {}) }), wakeOn, id);
   });
   api.delete('/sessions/:id/spawn', (c) => {
     const id = c.req.param('id');

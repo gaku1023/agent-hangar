@@ -39,6 +39,8 @@ export const TOOL_CLASSES: Record<(typeof TOOL_NAMES)[number], ToolClass> = {
   resume_session: { kind: 'launch', why: "Continues a stopped session." },
   send_to_session: { kind: 'drive', why: "Needed to orchestrate sessions. The input runs within the permissions of the receiving session." },
   stop_session: { kind: 'stop', why: "The session stays and can be resumed. The user decided no approval is needed." },
+  claim_pr: { kind: 'write', why: "Files a draft that this session owns a PR. Nothing is used as a destination until the user approves it on the screen." },
+  draft_event_binding: { kind: 'write', why: "Files a draft only. Nothing runs, no inbox or webhook exists, and no URL is returned until the user approves it on the screen. A wake setting cannot be drafted." },
   draft_issue_report: { kind: 'write', why: "Writes a draft and sends nothing." },
   submit_issue_report: { kind: 'outward', why: "Posts a public issue. The full text is shown to the user first, and private data is masked by machine." },
   delete_session: { kind: 'irreversible', why: "Deletes a session. The tool only files a request. hangar deletes after the user approves on the screen (sessions/deleteApprovals.ts)." },

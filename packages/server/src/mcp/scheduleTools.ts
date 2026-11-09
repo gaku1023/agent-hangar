@@ -34,7 +34,7 @@ const hasLaunchArgs = (args: Record<string, unknown>): boolean => LAUNCH_ARGS.so
  * base（変えるときの、いまの新しい会話の宛先）があれば、渡されなかった項目はそこから引き継ぐ。空の文字列は、その項目を既定に戻す。
  * エージェントに合わない項目は、保存の前に parseNewTarget が断る。
  */
-function targetArg(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, base?: NewTarget): { target: ScheduleTarget; projectId: string | null } {
+export function targetArg(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, base?: NewTarget): { target: ScheduleTarget; projectId: string | null } {
   const sid = str(args.session_id);
   if (sid) {
     const s = getSession(deps.db, deps.live(), sid, { deviceId: deps.deviceId });

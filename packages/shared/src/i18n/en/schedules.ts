@@ -74,4 +74,10 @@ export const schedulesEn: AreaDictionary<typeof schedulesKeys> = {
   'schedules.event.textEnd': 'EXTERNAL TEXT>>>',
   'schedules.event.heldHourly': 'Stopped after the hourly limit ({max})',
   'schedules.event.wakeFailed': "Couldn't wake \"{title}\"",
+  'schedules.event.error.invalid': 'Invalid event setting',
+  'schedules.event.error.max': 'Up to {max} event settings',
+  'schedules.event.error.notFound': 'Event setting not found',
+  'schedules.event.error.badState': 'Invalid event setting state',
+  'schedules.event.heldWhileClosed': '{n} events arrived while hangar was closed',
+  'schedules.event.wakePrompt': 'The event you were waiting for has happened. Resume the work you paused.',
 };

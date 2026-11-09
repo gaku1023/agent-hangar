@@ -11,6 +11,7 @@ import { bootTrash } from './boot/trash.ts';
 import { inboxApiOf } from './event/inboxClient.ts';
 import { EventDispatcher } from './event/dispatcher.ts';
 import { EventHooks } from './event/githubHooks.ts';
+import { EventBindingService } from './event/service.ts';
 import { ghLoginResolver } from './event/ghLogin.ts';
 import { EventPuller, type PulledEvent } from './event/puller.ts';
 import { bootIndexing } from './boot/indexing.ts';
@@ -30,7 +31,7 @@ import { LocalCodex } from './provider/codex/compat/version.ts';
 import { CodexOptionsService } from './provider/codex/options.ts';
 import { translatorOf } from './i18n/message.ts';
 import { IdleUnloadWatch } from './provider/opencode/localModels/idleUnload.ts';
-import { idleUnloadOf } from '@agent-hangar/shared';
+import { idleUnloadOf, t } from '@agent-hangar/shared';
 import { uploadOnOpencodeTurnEnd } from './sync/opencodeTurnEnd.ts';
 import type { OpencodeExportSource } from './sync/uploader.ts';
 
@@ -164,12 +165,17 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 外のできごと（#563）。受け箱から取った荷物を、開いて確かめ、事実にする。
   // 取った事実と断った印は dispatchEvents に渡り、結び付けに当てて動かす部品（EventDispatcher）が受ける。部品は予定の起動を使うので、下の scheduleTools の後に組む。
   // まだ組まれていない間に届いたら投げる。puller はそのページを ack せず、次の取得でやり直す。
+  // 今の PC の gh のユーザー名。puller（同期で使う）と dispatcher（非同期で使う）が同じ引き手を分け合う。
+  const ghLogin = ghLoginResolver();
+  let eventMe = '';
   let eventDispatcher: EventDispatcher | null = null;
   const dispatchEvents = (events: PulledEvent[]): void => {
     if (!eventDispatcher) throw new Error('event dispatcher is not ready');
     void eventDispatcher.handle(events);
   };
-  const eventPuller = new EventPuller({ db: home.db, api: () => inboxApiOf(sync.mobileLink()?.client), onPulled: (events) => { dispatchEvents(events); } });
+  const eventPuller = new EventPuller({ db: home.db, api: () => inboxApiOf(sync.mobileLink()?.client), onPulled: (events) => { dispatchEvents(events); },
+    // puller の me は同期で読む。引き手が答えを持つまでは空で、聞いた答えは次の荷物から使う。
+    me: () => { void ghLogin().then((v) => { eventMe = v ?? ''; }, () => undefined); return eventMe; } });
   const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, chat: peerChat, trash: trash.trash, event: eventPuller, onPeer: (kind, id) => { peer.onBell(kind, id); }, peerApprovals: peer.approvals });
   peerRelayEnded = (id) => peer.relay.onEnded(id);
   // 定期の実行（#549）。予定はこの PC のものだけを流す。起こし方と待ち方は MCP の道具と同じ本体を通す。
@@ -183,15 +189,19 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   });
   // GitHub の webhook と受け箱の登録と解除。結び付けの道（画面と MCP）がこの組を使う。受け箱を作る、消すたびに、呼び鈴を組み直す（受け箱だけを使う利用者にも開けるため）。
   const eventHooks = new EventHooks({ db: home.db, api: () => inboxApiOf(sync.mobileLink()?.client), baseUrl: () => sync.mobileLink()?.url ?? null, onInboxChanged: () => { mobile.settingsChanged(); } });
+  const notifyEvent = (message: string): void => { delivery.hub.broadcast({ type: 'toast', level: 'info', message }); };
   eventDispatcher = new EventDispatcher({
     db: home.db, deviceId: home.device.id, now: () => Date.now(), language: () => home.language(),
-    launch: (s) => launchScheduled(scheduleTools, s), wait: (id) => waitScheduled(scheduleTools, id), me: ghLoginResolver(),
-    notify: (message) => { delivery.hub.broadcast({ type: 'toast', level: 'info', message }); },
+    launch: (s) => launchScheduled(scheduleTools, s), wait: (id) => waitScheduled(scheduleTools, id), me: ghLogin,
+    notify: notifyEvent,
+    // 閉じている間に届いた分は、利用者が選ぶまで動かさない。件数だけ知らせ、選ぶ札は画面が /api/events/held から出す。
+    onHeldForUser: (n) => { notifyEvent(t(home.language(), 'schedules.event.heldWhileClosed', { n })); },
     onError: (e) => { console.error('[event] dispatch failed', e instanceof Error ? e.constructor.name : typeof e); },
     releaseHooks: () => { void eventHooks.sweep(); },
   });
   eventDispatcher.start();
-  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, peerChat, ...(peerSsh ? { peerSsh } : {}), peer, schedules: { runNow: (id) => schedules.runNow(id), deliver: (id, text) => launchScheduled(scheduleTools, { prompt: text, target: { kind: 'session', sessionId: id }, plannedAt: Date.now() }) }, opts, serverDir });
+  const eventBindings = new EventBindingService({ db: home.db, hooks: eventHooks, changed: () => { mobile.settingsChanged(); }, language: () => home.language() });
+  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, peerChat, ...(peerSsh ? { peerSsh } : {}), peer, events: { bindings: eventBindings, dispatcher: eventDispatcher }, schedules: { runNow: (id) => schedules.runNow(id), deliver: (id, text) => launchScheduled(scheduleTools, { prompt: text, target: { kind: 'session', sessionId: id }, plannedAt: Date.now() }) }, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。
   delivery.live.start();

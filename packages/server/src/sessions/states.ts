@@ -1,8 +1,9 @@
-import { candidateExpired, CANDIDATE_EXPIRE_DAYS, isQuietStatus, isReturnOn, isReturnTime, STATE_NOTE_MAX, type CandidateSource, type SessionCandidateDto, type SessionStateDto, type SessionStatus, type StateSetBy } from '@agent-hangar/shared';
+import { candidateExpired, CANDIDATE_EXPIRE_DAYS, isQuietStatus, isReturnOn, isReturnTime, STATE_NOTE_MAX, type CandidateSource, type SessionCandidateDto, type SessionStateDto, type SessionStatus, type StateSetBy, type WakeOn } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { markSeen } from '../live/unread.ts';
 import { MessageError, msg, type Message } from '../i18n/message.ts';
+import { readWakeOn } from '../event/validate.ts';
 
 /**
  * セッションの状態の移り方。設計は docs/superpowers/specs/2026-10-01-session-status-design.md の「状態の移り方」。
@@ -23,6 +24,8 @@ type StateRow = {
   session_id: string;
   status: SessionStatus | null; note: string | null; return_on: string | null; return_time: string | null; set_by: StateSetBy | null; set_at: number | null;
   candidate_status: 'paused' | 'done' | null; candidate_note: string | null; candidate_return_on: string | null; candidate_return_time: string | null; candidate_source: CandidateSource | null; candidate_at: number | null;
+  /** Paused の提案に添えた起こす条件（版 55、WakeOn の JSON）。提案と一緒に消える。 */
+  candidate_wake_on: string | null;
   rejected_at: number | null;
   /** 利用者が移した先（版 25）。null なら cwd からの自動の振り分けに従う。状態の書き込みでは触らない（sessions/move.ts）。 */
   project_id: string | null;
@@ -35,9 +38,9 @@ type StateRow = {
   updated_at: number; deleted_at: number | null; origin_device: string;
 };
 /** DTO に写すのに要る列。db/queries.ts の左結合の行も、この形に詰め直して渡す。 */
-export type StateCols = Pick<StateRow, 'status' | 'note' | 'return_on' | 'return_time' | 'set_by' | 'set_at' | 'candidate_status' | 'candidate_note' | 'candidate_return_on' | 'candidate_return_time' | 'candidate_source' | 'candidate_at'>;
+export type StateCols = Pick<StateRow, 'status' | 'note' | 'return_on' | 'return_time' | 'set_by' | 'set_at' | 'candidate_status' | 'candidate_note' | 'candidate_return_on' | 'candidate_return_time' | 'candidate_source' | 'candidate_at'> & { candidate_wake_on?: string | null };
 
-const NO_CANDIDATE = { candidate_status: null, candidate_note: null, candidate_return_on: null, candidate_return_time: null, candidate_source: null, candidate_at: null } as const;
+const NO_CANDIDATE = { candidate_status: null, candidate_note: null, candidate_return_on: null, candidate_return_time: null, candidate_source: null, candidate_at: null, candidate_wake_on: null } as const;
 const NO_STATUS = { status: null, note: null, return_on: null, return_time: null, set_by: null, set_at: null } as const;
 const CLEARED = { ...NO_STATUS, ...NO_CANDIDATE, rejected_at: null } as const;
 
@@ -50,7 +53,8 @@ export const NO_STATE: SessionStateDto = { status: null, note: null, returnOn: n
  */
 function visibleCandidate(r: StateCols): SessionCandidateDto | null {
   if (r.status !== null || r.candidate_at === null || r.candidate_status === null || r.candidate_source === null) return null;
-  return { status: r.candidate_status, note: r.candidate_note, returnOn: r.candidate_return_on, returnTime: r.candidate_return_time ?? null, source: r.candidate_source, at: r.candidate_at };
+  const wakeOn = readWakeOn(r.candidate_wake_on ?? null);
+  return { status: r.candidate_status, note: r.candidate_note, returnOn: r.candidate_return_on, returnTime: r.candidate_return_time ?? null, source: r.candidate_source, at: r.candidate_at, ...(wakeOn && r.candidate_status === 'paused' ? { wakeOn } : {}) };
 }
 
 /** 行の列を DTO に写す。rejected_at は載せない（判定はサーバの中だけで行う）。 */
@@ -232,12 +236,12 @@ export type ProposeStateOutcome = 'proposed' | 'set' | 'rejected_before' | 'alre
  * 状態が付いていれば、同じでも違っても書かずに already_set を返す。読むときに状態を正とするので、書いても見えない提案になる。
  * 却下されていれば rejected_before を返す。提案があるところへの提案は上書きする（新しい発言の時点で前の提案は消えているので、残るのは同じターンの出し直しだけである）。
  */
-export function proposeSessionState(db: Db, deviceId: string, sessionId: string, o: { status: 'paused' | 'done'; note: string; returnOn: string | null; returnTime?: string | null; source: CandidateSource; now?: number }): { state: SessionStateDto; outcome: Exclude<ProposeStateOutcome, 'set'> } {
+export function proposeSessionState(db: Db, deviceId: string, sessionId: string, o: { status: 'paused' | 'done'; note: string; returnOn: string | null; returnTime?: string | null; source: CandidateSource; wakeOn?: WakeOn | null; now?: number }): { state: SessionStateDto; outcome: Exclude<ProposeStateOutcome, 'set'> } {
   const { note, returnOn, returnTime } = validateStateInput(o.status, { note: o.note, returnOn: o.returnOn, returnTime: o.returnTime, requireNote: true });
   const cur = liveRow(db, sessionId);
   if (cur && cur.status !== null) return { state: toStateDto(cur), outcome: 'already_set' };
   if (cur && cur.rejected_at !== null) return { state: toStateDto(cur), outcome: 'rejected_before' };
-  const state = write(db, deviceId, sessionId, { candidate_status: o.status, candidate_note: note, candidate_return_on: returnOn, candidate_return_time: returnTime, candidate_source: o.source, candidate_at: o.now ?? Date.now() });
+  const state = write(db, deviceId, sessionId, { candidate_status: o.status, candidate_note: note, candidate_return_on: returnOn, candidate_return_time: returnTime, candidate_source: o.source, candidate_at: o.now ?? Date.now(), candidate_wake_on: o.status === 'paused' && o.wakeOn ? JSON.stringify(o.wakeOn) : null });
   return { state, outcome: 'proposed' };
 }
 
