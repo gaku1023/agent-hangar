@@ -187,6 +187,11 @@ type Viewer = { id: string; socket: number | null; cancelLease: (() => void) | n
 const viewerKey = (socket: number | null, id: string): string => (socket === null ? `h:${id}` : `s${socket}:${id}`);
 
 const sigOf = (v: unknown): string => JSON.stringify(v);
+/** 札の uuid の、@ask: より前（transcript の位置）。 */
+const askBase = (uuid: string): string => {
+  const i = uuid.indexOf('@ask:');
+  return i === -1 ? uuid : uuid.slice(0, i);
+};
 const statusOf = (e: unknown): number | null => {
   const s = (e as { status?: unknown } | null)?.status;
   return typeof s === 'number' ? s : null;
@@ -260,7 +265,17 @@ class Watch {
     for (const it of s.items) {
       if (it.ask) {
         const sig = sigOf(it.ask.answered ?? null);
-        const known = this.asks.get(it.ask.askId);
+        let known = this.asks.get(it.ask.askId);
+        if (!known && !replaced) {
+          // 元の PC が札の askId を言い換えたとき（拠り所が決まった）は、同じ位置・同じ種類で答えの無い前の札を、この札で置き換える。
+          const base = askBase(it.uuid);
+          for (const [oldId, k] of this.asks) {
+            if (k.sig !== sigOf(null) || askBase(k.uuid) !== base || this.items.get(k.uuid)?.kind !== it.kind) continue;
+            this.asks.delete(oldId);
+            known = { uuid: k.uuid, sig: '' };
+            break;
+          }
+        }
         if (known && !replaced) {
           if (known.sig === sig) continue;
           const next = { ...it, uuid: known.uuid };

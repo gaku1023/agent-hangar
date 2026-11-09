@@ -1,7 +1,7 @@
 import { PEER_CHAT_REPLY_SEALED_MAX, type PeerChatAsk, type PeerChatDevice, type PeerChatGone, type PeerChatItem, type PeerChatQueued, type PeerChatState, type PeerChatStatus } from '@agent-hangar/shared';
 import { isCommandTitle, parseDialog } from './answer.ts';
 import type { HostPane, HostSession } from './hostTypes.ts';
-import { currentPendingAsk, transcriptTail, type PeerPendingAsk, type TailDeps } from './tail.ts';
+import { currentPendingAsk, peerAskId, transcriptTail, type PeerPendingAsk, type TailDeps } from './tail.ts';
 
 /**
  * 見る側へ返す会話の状態を作り、長いポーリング（tail）を待たせる。
@@ -122,6 +122,8 @@ export class ChatView {
   private readonly fromByUuid = new Map<string, PeerChatDevice>();
   /** 会話ごとに、最後に出ていた札の項目。札が消えたとき、ほかの PC の答えが無ければ、この PC の手元で答えたと記録する。 */
   private readonly lastAsk = new Map<string, PeerChatItem>();
+  /** askId が言い換わった札の、言い換え前から言い換え後への対応。言い換え前の askId で来た答えを、今の札へ読み替えるのに使う。 */
+  private readonly rekeys = new Map<string, string>();
   private readonly lastSig = new Map<string, string>();
   private readonly waiters = new Set<Waiter>();
   private disposed = false;
@@ -218,7 +220,11 @@ export class ChatView {
     const now = cur?.ask ? cur : null;
     const prev = this.lastAsk.get(sessionId);
     if (now) {
-      if (prev && prev.ask!.askId !== now.ask!.askId) this.settleAsk(sessionId, prev);
+      if (prev && prev.ask!.askId !== now.ask!.askId) {
+        // 同じ札の askId が言い換わっただけ（hook が先に届き、tool_use が後から載った）なら、答えたとは記録せず、置き換える。
+        if (this.rekeyed(sessionId, prev, now)) this.rememberRekey(prev.ask!.askId, now.ask!.askId);
+        else this.settleAsk(sessionId, prev);
+      }
       this.lastAsk.delete(sessionId);
       this.lastAsk.set(sessionId, now);
       if (this.lastAsk.size > RECORD_MAX) this.lastAsk.delete(this.lastAsk.keys().next().value!);
@@ -229,6 +235,32 @@ export class ChatView {
     if (this.d.session(sessionId)?.live === 'waiting') return;
     this.settleAsk(sessionId, prev);
     this.lastAsk.delete(sessionId);
+  }
+
+  /**
+   * prev が、今出ている札の、拠り所が決まる前の姿か。
+   * 拠り所なしの askId で計算し直した値が prev の askId と一致し、種類も同じなら、同じ札である。
+   * 内容が違う札や、拠り所が付いていた札の入れ替わりは、別の札として扱う。
+   */
+  private rekeyed(sessionId: string, prev: PeerChatItem, now: PeerChatItem): boolean {
+    if (prev.kind !== now.kind || prev.ask!.kind !== now.ask!.kind) return false;
+    const pending = this.pendingAsk(sessionId, false);
+    return pending !== null && peerAskId(pending, '') === prev.ask!.askId;
+  }
+
+  private rememberRekey(from: string, to: string): void {
+    this.rekeys.delete(from);
+    this.rekeys.set(from, to);
+    if (this.rekeys.size > RECORD_MAX) this.rekeys.delete(this.rekeys.keys().next().value!);
+  }
+
+  /**
+   * 見る側が持つ askId を、今の札の askId に読み替える。
+   * 言い換えを見たことのある askId で、その言い換え先が今の札のときだけ読み替える。それ以外は、そのまま返す。
+   * 読み替えても、画面の照合（answer.ts の dialogMatches）は答える側で必ず通る。
+   */
+  resolveAskId(askId: string, currentAskId: string): string {
+    return this.rekeys.get(askId) === currentAskId ? currentAskId : askId;
   }
 
   private settleAsk(sessionId: string, prev: PeerChatItem): void {

@@ -663,6 +663,49 @@ describe('PeerChatHost: answer と interrupt', () => {
     expect(s.w.pane.events).toEqual([]);
   });
 
+  describe('拠り所のない札に tool_use が載って askId が変わったとき', () => {
+    const useLine = (): string => jl({ type: 'assistant', message: { role: 'assistant', model: 'm', content: [{ type: 'tool_use', id: 'toolu_x1', name: 'Bash', input: { command: 'rm -rf build' } }] } });
+
+    it('見る側の画面は札が 1 枚のまま、答えは付かない。言い換え前の askId の答えは、今の札への答えとして受ける', async () => {
+      const { s, ask } = await withPermission();
+      const first = s.state(await s.ask(tailOp()));
+      // tool_use が書かれ、拠り所が見つかって askId が変わる。
+      s.w.lines.push(useLine());
+      const second = s.state(await s.ask(tailOp(first.cursor)));
+      const renewed = second.items.at(-1)!.ask!;
+      expect(renewed.askId).not.toBe(ask.askId);
+      expect(second.items.filter((i) => i.ask?.answered)).toEqual([]);
+      // 見る側が、言い換え前の askId のまま答える。
+      expect((await s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] })).ok).toBe(true);
+      expect(s.w.pane.events).toEqual(['text:1']);
+      const done = s.state(await s.ask(tailOp()));
+      const cards = done.items.filter((i) => i.ask);
+      expect(cards).toHaveLength(1);
+      expect(cards[0]!.ask).toMatchObject({ askId: renewed.askId, answered: { by: { deviceId: 'pc-b' }, label: 'Yes' } });
+      expect(done.items.at(-1)!.ask?.askId).toBe(renewed.askId);
+    });
+
+    it('言い換えを見ていない askId は、今の札があっても ask-mismatch のまま', async () => {
+      const { s } = await withPermission();
+      const first = s.state(await s.ask(tailOp()));
+      s.w.lines.push(useLine());
+      await s.ask(tailOp(first.cursor));
+      expect(await s.ask({ t: 'answer', askId: 'not-an-old-ask', keys: ['1'] })).toEqual({ ok: false, reason: 'ask-mismatch' });
+      expect(s.w.pane.events).toEqual([]);
+    });
+
+    it('言い換え前の askId でも、画面の札が替わっていれば（照合に通らなければ）打たずに断る', async () => {
+      const { s, ask } = await withPermission();
+      const first = s.state(await s.ask(tailOp()));
+      s.w.lines.push(useLine());
+      await s.ask(tailOp(first.cursor));
+      s.w.pane.plain = RUNNING_SCREEN;
+      const r = await s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] });
+      expect(r.ok).toBe(false);
+      expect(s.w.pane.events).toEqual([]);
+    });
+  });
+
   it('札が出ていなければ ask-mismatch', async () => {
     const s = await setup();
     expect(await s.ask({ t: 'answer', askId: 'x', keys: ['1'] })).toEqual({ ok: false, reason: 'ask-mismatch' });
