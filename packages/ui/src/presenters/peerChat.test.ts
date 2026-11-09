@@ -63,6 +63,38 @@ describe('ほかの PC の会話の画面の描き分け（presenters/peerChat�
     expect(v.rows).toHaveLength(1);
   });
 
+  describe('相手の PC の名前（見張りが一度も返事を得ていないとき）', () => {
+    const peerRun = (over: Record<string, unknown> = {}) => ({ id: 'r1', sessionId: 's1', deviceId: 'd-mac', kind: 'resume', tmuxName: 't', pid: null, startedAt: 10, endedAt: null, endReason: null, heartbeatAt: 10, ...over }) as never;
+    const device = (id: string, name: string) => ({ id, name, platform: 'darwin', lastSeenAt: null, self: false, shell: null });
+
+    it('見張りの答えに名前が無くても、会話のロックの PC の名前を出す（案内にも使う）', () => {
+      const v = view(store({ link: 'offline', device: null, status: null }))!;
+      expect(v.device).toBe('Mac');
+      expect(v.composer.offline).toBe('Mac に接続できません');
+    });
+
+    it('ロックが無くても（ほかの PC にだけ本文がある会話）、run の PC を同期の名簿で引いて名前を出す', () => {
+      const st = store({ link: 'offline', device: null, status: null }, session({ lock: null, remoteOnly: true }));
+      st.devices = [device('d-mac', 'MacBook-Pro.local')];
+      st.runs = { r1: peerRun({ endedAt: 20, endReason: 'exit' }) };
+      const v = presentPeerChat(st, 's1', ja)!;
+      expect(v.device).toBe('MacBook-Pro.local');
+      expect(v.composer.offline).toBe('MacBook-Pro.local に接続できません');
+    });
+
+    it('名前が空の答えでも、id を名簿で引いて補う。この PC の run は数えない', () => {
+      const st = store({ link: 'offline', device: { deviceId: 'd-mac', deviceName: '' }, status: null }, session({ lock: null, remoteOnly: true }));
+      st.devices = [device('d-mac', 'Mac'), device('me', 'Win')];
+      st.runs = { r1: peerRun({ deviceId: 'me', startedAt: 99 }) };
+      expect(presentPeerChat(st, 's1', ja)!.device).toBe('Mac');
+    });
+
+    it('どの出どころにも無ければ空のまま（落ちない）', () => {
+      const st = store({ link: 'offline', device: null, status: null }, session({ lock: null, remoteOnly: true }));
+      expect(presentPeerChat(st, 's1', ja)!.device).toBe('');
+    });
+  });
+
   it('元の PC の中の失敗（host-error）は、接続なしとは言わず、再試行を伝える。引き継ぎは出さない', () => {
     const v = view(store({ link: 'host-error', status: 'busy' }))!;
     expect(v).toMatchObject({ statusLabel: '再試行中', composer: { kind: 'blocked', offline: null, canTakeOver: false, canInterrupt: false, hint: '今は送れません。再試行しています' } });

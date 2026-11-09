@@ -198,6 +198,41 @@ describe('見張りを始める（GET）', () => {
     expect(second.ok && second.startedAfter).toBe('local-9');
     expect(second.ok && second.update.items.map((i) => i.uuid)).toEqual(['u1', 'u2']);
   });
+
+  it('動いている見張りに、頭から（after が空）を求める人が加わったら、起点を頭へ広げて同じ見張りで取り直し、全体を replace で流す', async () => {
+    localCursor = 'local-9';
+    answers.push(() => ok(state([item('u10')])));
+    const first = await viewer.open(SID, { viewer: 'v1' });
+    expect(first.ok && first.startedAfter).toBe('local-9');
+    // 2 回目の問い合わせは長いポーリングで待たされたままにする（中止されたら例外で戻る）。
+    answers.push((_req, signal) => new Promise<HostAnswer>((resolve) => { signal?.addEventListener('abort', () => resolve(new Error('aborted'))); }));
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    expect(tails()).toHaveLength(2);
+    answers.push(() => ok(state([item('u1'), item('u2'), item('u10')])));
+    const second = await viewer.open(SID, { viewer: 'v2', after: null });
+    // 待たされていた問い合わせは捨て、頭からの 1 本だけを頼み直す（人数ぶんには増やさない）。
+    expect(tails()).toHaveLength(3);
+    expect(tails()[2]!.req.op).toMatchObject({ t: 'tail', after: null });
+    expect(second.ok && second.startedAfter).toBeNull();
+    expect(second.ok && second.update.items.map((i) => i.uuid)).toEqual(['u1', 'u2', 'u10']);
+    // 先に見ていた人にも、全体を replace で流す。
+    expect(updates().at(-1)).toMatchObject({ replace: true, items: [item('u1'), item('u2'), item('u10')], cursor: 'u10' });
+    // 取り直したあとの問い合わせは、貯めた分の続きから 1 本だけ。
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    expect(tails()).toHaveLength(4);
+    expect(tails()[3]!.req.op).toMatchObject({ after: 'u10' });
+  });
+
+  it('すでに頭から貯めている見張りには、頭からを求める人が加わっても取り直さない', async () => {
+    answers.push(() => ok(state([item('u1')])));
+    await viewer.open(SID, { viewer: 'v1' });
+    answers.push((_req, signal) => new Promise<HostAnswer>((resolve) => { signal?.addEventListener('abort', () => resolve(new Error('aborted'))); }));
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    expect(tails()).toHaveLength(2);
+    const second = await viewer.open(SID, { viewer: 'v2', after: null });
+    expect(tails()).toHaveLength(2);
+    expect(second.ok && second.update.items.map((i) => i.uuid)).toEqual(['u1']);
+  });
 });
 
 describe('流れ（peerChat.update）', () => {
