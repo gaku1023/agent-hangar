@@ -1653,14 +1653,18 @@ async fn find_update(app: &AppHandle) -> Result<updater::Found, updater::Failure
         return Ok(updater::Found {
             version: Some(version),
             notes: None,
+            failed: None,
         });
     }
     let handle = app.clone();
     // Windows ではインストーラへ渡すとき、updater が std::process::exit で抜ける。終了の手続きを通らないので、ここで子のサーバを止める。
+    // 止めたことは覚えておき、インストーラを起こせずに戻ってきたら起こし直す（`update_install`、#617）。
+    // updater はこの合図の後で ShellExecuteW を呼び、起こせたらその場で抜けるので、起こせたと分かってから止める道は無い。
     let found = app
         .updater_builder()
         .on_before_exit(move || {
             log("update: handing over to the installer");
+            handle.state::<updater::UpdateSlot>().handing_over();
             stop_server(&handle);
             handle.cleanup_before_exit();
         })
@@ -1670,18 +1674,23 @@ async fn find_update(app: &AppHandle) -> Result<updater::Found, updater::Failure
         .await
         .map_err(|e| update_failed("check", &e))?;
     let seen = found.as_ref().map(|u| u.version.clone());
+    let failed = updater::remembered_failure(&paths::hangar_home(), seen.as_deref());
     let notes = found
         .as_ref()
         .and_then(|u| u.body.clone())
         .filter(|b| !b.trim().is_empty());
     let checked = slot.flow.lock().unwrap().checked(found);
-    let (version, notes) = match checked {
+    let (version, notes, failed) = match checked {
         updater::Checked::Kept(version) => {
             log(&format!(
-                "update: checked, found {}",
-                version.as_deref().unwrap_or("none")
+                "update: checked, found {}{}",
+                version.as_deref().unwrap_or("none"),
+                failed
+                    .as_deref()
+                    .map(|k| format!(" (its install failed before: {k})"))
+                    .unwrap_or_default()
             ));
-            (version, notes)
+            (version, notes, failed)
         }
         // 目録を引いている間に、別の頁が取得を始めていた。見つけた版は捨て、途中の版を答える。
         updater::Checked::Busy(version) => {
@@ -1689,10 +1698,14 @@ async fn find_update(app: &AppHandle) -> Result<updater::Found, updater::Failure
                 "update: checked, found {} but kept {version} in progress",
                 seen.as_deref().unwrap_or("none")
             ));
-            (Some(version), None)
+            (Some(version), None, None)
         }
     };
-    Ok(updater::Found { version, notes })
+    Ok(updater::Found {
+        version,
+        notes,
+        failed,
+    })
 }
 
 /// 見つけた版を取得し、公開鍵で署名を確かめて持っておく。進みは update_status で読める。
@@ -1748,18 +1761,66 @@ async fn update_install(app: AppHandle) -> Result<(), updater::Failure> {
     // 版と中身は取得済みの段から一緒に受け取るので、取得した版と入れる版は必ず同じである。
     let (update, bytes) = begin.map_err(|e| update_refused("install", e))?;
     log(&format!("update: installing {}", update.version));
+    let version = update.version.clone();
     // 入れ替えは管理者の許可を尋ねることがあり、答えを待つので、窓の描画を止めないよう別のスレッドで行う。
     let result = tauri::async_runtime::spawn_blocking(move || update.install(bytes))
         .await
         .map_err(|e| updater::Failure::other(e.to_string()))
-        .and_then(|r| r.map_err(|e| update_failed("install", &e)));
+        .and_then(|r| r.map_err(|e| install_failed(&e)));
     if let Err(e) = result {
         slot.flow.lock().unwrap().install_failed();
+        // 同じ版を次の自動の確認で勧め直さないよう、失敗した版と種類を覚える（`updater::remembered_failure`）。
+        updater::remember_install_failure(&paths::hangar_home(), &version, e.kind);
+        if slot.take_handover() {
+            resume_after_failed_handover(&app);
+        }
         return Err(e);
     }
     log("update: installed, restarting");
     app.request_restart();
     Ok(())
+}
+
+/// インストーラを起こせずに updater が戻ってきたとき、渡す直前に止めたものを戻す（#617）。
+/// `cleanup_before_exit` が Windows で隠した窓を出し直し、止めた子のサーバを起こし直す。
+/// 起こし直しは応答まで待つので別のスレッドで行う。頁はサーバが戻れば自分でつなぎ直す。
+/// 起こせなければログに残すだけにする。頁の切断の帯の「再起動」でアプリごと起こし直せる。
+fn resume_after_failed_handover(app: &AppHandle) {
+    log("update: the installer did not start, bringing the server back");
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let home = paths::hangar_home();
+        let addr: SocketAddr = ([127, 0, 0, 1], server::PORT).into();
+        match start_server(&app, &home, addr) {
+            Ok(()) => {
+                log("update: server is back");
+                watch_server(app);
+            }
+            Err(f) => log(&format!(
+                "update: could not bring the server back ({})",
+                failure_log_line(&f)
+            )),
+        }
+    });
+}
+
+/// インストールの失敗をログに 1 行残し、頁へ返す形にする。
+/// Smart App Control がオンの PC の拒否（os error 5）は blocked に分ける（`updater::install_failure_kind`）。
+fn install_failed(e: &tauri_plugin_updater::Error) -> updater::Failure {
+    let f = updater::Failure {
+        kind: updater::install_failure_kind(e, updater::SmartAppControl::current()),
+        detail: e.to_string(),
+    };
+    log(&format!(
+        "update: install failed ({}): {}",
+        f.kind, f.detail
+    ));
+    f
 }
 
 /// 段が合わずに断った命令をログに 1 行残し、頁へ返す形にする。

@@ -66,3 +66,21 @@ describe('リリースノートの開き閉じの動き', () => {
     } finally { h.mockRestore(); }
   });
 });
+
+describe('見つけた版の行の操作', () => {
+  // リリースページは外へのリンクとして置き、殻が既定のブラウザで開く（runtime/anchorLinks.ts、#617）。
+  it('外へのページはリンクにし、ほかの操作はボタンで送る', () => {
+    const href = 'https://github.com/gaku1023/agent-hangar/releases/tag/v1.5.0';
+    const onAction = vi.fn();
+    const update: UpdateSectionProps = {
+      ...props([]),
+      pending: { title: 'インストールできませんでした', detail: null, progress: null, actions: [{ label: 'リリースページを開く', href, primary: true }, { label: 'もう一度試す', action: { type: 'update.download' }, primary: false }] },
+    };
+    render(<LanguageRoot language="ja"><ActionRoot onAction={onAction}><UpdateSection update={update} /></ActionRoot></LanguageRoot>);
+    const link = screen.getByRole('link', { name: 'リリースページを開く' });
+    expect(link).toHaveAttribute('href', href);
+    expect(link).toHaveAttribute('target', '_blank');
+    fireEvent.click(screen.getByRole('button', { name: 'もう一度試す' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'update.download' });
+  });
+});

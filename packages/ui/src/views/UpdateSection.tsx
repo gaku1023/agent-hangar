@@ -39,7 +39,13 @@ export function UpdateSection(props: { update: UpdateSectionProps }) {
                 </span>
               )}
             </>}
-            control={<>{p.actions.map((a) => <button key={a.label} type="button" className={`btn btn-sm${a.primary ? ' btn-primary' : ''}`} onClick={() => emit(a.action)}>{a.label}</button>)}</>} />
+            control={<>{p.actions.map((a) => {
+              const cls = `btn btn-sm${a.primary ? ' btn-primary' : ''}`;
+              // 外へのページ（リリースページ）はリンクにし、殻が既定のブラウザで開く（runtime/anchorLinks.ts）。
+              if (a.href !== undefined) return <a key={a.label} className={cls} href={a.href} target="_blank" rel="noreferrer">{a.label}</a>;
+              const action = a.action;
+              return <button key={a.label} type="button" className={cls} onClick={() => emit(action)}>{a.label}</button>;
+            })}</>} />
         )}
         <SetRow title={t('update.settings.notifyTitle')} info={u.notify.info}
           control={<Switch label={t('update.settings.notifyTitle')} checked={u.notify.on} onChange={(on) => emit({ type: 'update.notify', on })} />} />

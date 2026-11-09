@@ -10455,8 +10455,11 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   取得した中身は取得済みの段に版と一緒に持ち、取得を始めた版と同じ版のときだけ受け取るので、入れる中身と版は食い違わない。
   取得済みで `update_download` が呼ばれたら取りに行かずに済んだと答え、取得の最中のもう 1 本は断る（other）。
   取得かインストールに失敗したら、見つけた版の待ちに戻る（インストールの失敗は中身を渡した後なので、取り直してから入れる）。
-  失敗は殻が network、signature、permission、other の 4 つに分けて返し（`src/updater.rs` の `failure_kind`）、英語の 1 行は `desktop.log` に残す。
+  失敗は殻が network、signature、permission、blocked、other に分けて返し（`src/updater.rs` の `failure_kind`）、英語の 1 行は `desktop.log` に残す。
+  blocked は、Windows のアプリの制御（Smart App Control など）がインストーラを止めたときである（#617）。os error 4551 など「An Application Control policy has blocked this file」の誤りはどの段でも blocked にする。今の updater は ShellExecuteW の SE_ERR_ACCESSDENIED を os error 5 にするので、Smart App Control がオン（`HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy` の `VerifiedAndReputablePolicyState` が 1）の PC のインストールの 5 も blocked にする（`install_failure_kind`）。5 だけでは管理者の許可の確認で断ったのと見分けられないので、頁の文は「可能性があります」に留め、リリースページからセットアップを手で実行するよう言う。札と設定の節は、そのときリリースページ（`releases/tag/v<版>`）のリンクを主の操作にし、「もう一度試す」を並に置く。
+  インストールに失敗したら、殻はその版と種類を hangar の置き場の `update-install-failed.json` に覚え、`update_check` は同じ版を見つけたとき `failed` にその種類を添える（`remembered_failure`）。頁は自動の確認（起動時と 6 時間おき）でこれを見たら、新しい版の札ではなく失敗の札を出し、同じ版を勧め直さない。起動し直すたびに同じ版を入れようとして、同じ失敗と Windows セキュリティの知らせを繰り返していたからである。手動の確認と「もう一度試す」では、そのまま入れようとしてよい。
   再起動しても、tmux（Windows は psmux）の中のセッションは止まらない。macOS は `.app` を入れ替えてから終了の手続きを通って起き直し（子のサーバも止まる）、Windows は updater がインストーラを起こしてそのまま抜けるので、その直前（`on_before_exit`）に子のサーバを止める。
+  updater はこの合図の後で ShellExecuteW を呼び、起こせたらその場で抜けるので、起こせたと分かってから止める道は無い。代わりに止めたことを覚えておき（`UpdateSlot::handing_over`）、インストーラを起こせずに戻ってきたら、`cleanup_before_exit` が隠した窓を出し直し、子のサーバを起こし直す（`resume_after_failed_handover`）。以前は止めたまま戻さず、サーバの無いアプリが隠れて残っていた（#617）。
   Windows の updater は、取得したインストーラを `%TEMP%\<アプリ名>-<版>-updater-<英数字 6 字>` に置いたまま抜けるので、置き場が更新のたびに 1 つずつ残る。殻は起動のたびに別の糸で、名前の形が完全に合い、版が今の版より新しくなく、中身がふつうのファイルだけの置き場を消す（`src/tempclean.rs`）。今の版の置き場は、今の版を入れたインストーラのものである。まだ動いていて消せなければ、次の起動に任せる。
   頁の側は、状態の移り方が `store/update.ts` の `reduceUpdate`（まだ確認していない、確認中、最新、新しい版あり、取得中、準備完了、インストール中、失敗）で、Runtime が `runtime/updater.ts` で殻を呼んで Store の `update` に置く。
   確かめるのは起動したときに 1 度と、その後 6 時間おき（`UPDATE_CHECK_INTERVAL_MS`）である。取得からインストールまでの途中は確かめない。

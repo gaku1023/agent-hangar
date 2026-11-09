@@ -27,6 +27,8 @@ export const updateEn: AreaDictionary<typeof updateKeys> = {
   'update.reason.network': "Couldn't reach the network or the download server.",
   'update.reason.signature': "The signature couldn't be verified.",
   'update.reason.permission': 'Permission to install was not granted.',
+  'update.reason.blocked': 'Windows Smart App Control or a similar policy may have blocked the installer. Run the setup from the release page yourself.',
+  'update.card.releasePage': 'Open the release page',
   'update.reason.other': 'See the log for details.',
   'update.settings.badgeLatest': 'Up to date',
   'update.settings.badgeOff': 'Notifications off',

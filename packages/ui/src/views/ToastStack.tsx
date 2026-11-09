@@ -432,7 +432,13 @@ function NoticeActs(props: { actions: UpdateAct[] }) {
   if (props.actions.length === 0) return null;
   return (
     <div className="notice-acts">
-      {props.actions.map((a) => <button key={a.label} type="button" className={a.link ? 'btn-link notice-link' : `btn btn-sm ${a.primary ? 'btn-primary' : 'btn-ghost'}`} onClick={() => emit(a.action)}>{a.label}</button>)}
+      {props.actions.map((a) => {
+        const cls = a.link ? 'btn-link notice-link' : `btn btn-sm ${a.primary ? 'btn-primary' : 'btn-ghost'}`;
+        // 外へのページは target="_blank" のリンクにする。殻の中では文書の捕捉が既定のブラウザで開く（runtime/anchorLinks.ts）。
+        if (a.href !== undefined) return <a key={a.label} className={cls} href={a.href} target="_blank" rel="noreferrer">{a.label}</a>;
+        const action = a.action;
+        return <button key={a.label} type="button" className={cls} onClick={() => emit(action)}>{a.label}</button>;
+      })}
     </div>
   );
 }

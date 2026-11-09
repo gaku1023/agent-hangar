@@ -56,6 +56,13 @@ describe('更新の確認の頻度', () => {
     expect(s.bridge.check).toHaveBeenCalledTimes(1);
   });
 
+  it('起動の確認で、前にインストールに失敗した版が見つかったら、失敗の札にする', async () => {
+    const s = setup({ bridge: { check: vi.fn(async () => ({ version: '1.5.0', notes: null, failed: 'blocked' as const })) } });
+    s.runner.start();
+    await flush();
+    expect(s.state().phase).toEqual({ kind: 'failed', step: 'install', version: '1.5.0', reason: 'blocked' });
+  });
+
   it('その後は数時間おきに確認する', async () => {
     const s = setup();
     s.runner.start();

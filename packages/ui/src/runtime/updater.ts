@@ -45,7 +45,7 @@ export function createUpdateRunner(d: UpdateRunnerDeps) {
     if (!s.supported || s.phase.kind === 'checking' || updateBusy(s.phase)) return;
     apply({ type: 'check.start', manual });
     d.bridge.check().then(
-      (r) => apply({ type: 'check.done', version: r.version, notes: r.notes, at: d.now() }),
+      (r) => apply({ type: 'check.done', version: r.version, notes: r.notes, failed: r.failed ?? null, at: d.now() }),
       (e: unknown) => apply({ type: 'check.failed', reason: reasonOf(e) }),
     );
   }

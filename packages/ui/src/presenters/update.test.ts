@@ -60,6 +60,19 @@ describe('presentUpdateCard：右下の札', () => {
     expect(presentUpdateCard(storeOf(up({ kind: 'failed', step: 'download', version: '1.5.0', reason: 'network' }))))!.toMatchObject({ title: 'ダウンロードできませんでした' });
   });
 
+  // Smart App Control などに止められたら、手で入れる道としてリリースページを先に置く（#617）。
+  it('アプリの制御に止められたら、手で入れるよう言い、リリースページを開くを先に置く', () => {
+    const c = presentUpdateCard(storeOf(up({ kind: 'failed', step: 'install', version: '1.5.0', reason: 'blocked' })))!;
+    expect(c.detail).toBe('現在のバージョン 1.4.2 は変わりません。Windows の Smart App Control などにブロックされた可能性があります。リリースページからセットアップを手で実行してください。');
+    expect(c.actions).toEqual([
+      { label: 'リリースページを開く', href: 'https://github.com/gaku1023/agent-hangar/releases/tag/v1.5.0', primary: true },
+      { label: 'もう一度試す', action: { type: 'update.download' }, primary: false },
+      { label: '閉じる', action: { type: 'update.dismiss' }, primary: false },
+    ]);
+    const e = presentUpdateCard(storeOf(up({ kind: 'failed', step: 'install', version: '1.5.0', reason: 'blocked' }), { settings: en }))!;
+    expect(e.actions[0]).toMatchObject({ label: 'Open the release page', href: 'https://github.com/gaku1023/agent-hangar/releases/tag/v1.5.0' });
+  });
+
   it('閉じた版の札は出さない', () => {
     expect(presentUpdateCard(storeOf(up({ kind: 'available', version: '1.5.0' }, { dismissed: '1.5.0' })))).toBeNull();
   });
@@ -114,6 +127,14 @@ describe('presentUpdateSection：設定の「Hangar について」の更新の�
     const p = presentUpdateSection(storeOf(up({ kind: 'ready', version: '1.5.0' })), NOW);
     expect(p.badge).toEqual({ text: '再起動待ち', tone: 'warn' });
     expect(p.pending?.actions).toEqual([{ label: '再起動して更新', action: { type: 'update.install' }, primary: true }]);
+  });
+
+  it('アプリの制御に止められたら、節にもリリースページを開くを先に出す', () => {
+    const p = presentUpdateSection(storeOf(up({ kind: 'failed', step: 'install', version: '1.5.0', reason: 'blocked' })), NOW);
+    expect(p.pending?.actions).toEqual([
+      { label: 'リリースページを開く', href: 'https://github.com/gaku1023/agent-hangar/releases/tag/v1.5.0', primary: true },
+      { label: 'もう一度試す', action: { type: 'update.download' }, primary: false },
+    ]);
   });
 
   it('取得の失敗は失敗の札にし、もう一度試すを出す', () => {

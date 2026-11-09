@@ -351,7 +351,7 @@ const UPDATE = {
     failedDownload: 'ダウンロードできませんでした',
     failedInstall: 'インストールできませんでした',
     failedDetail: (cur, reason) => `現在のバージョン ${cur} は変わりません。${reason}`,
-    reason: { network: 'ネットワークまたは配布元に接続できませんでした。', signature: '署名を確認できませんでした。', permission: 'インストールの権限を取得できませんでした。', other: '詳しくはログを確認してください。' },
+    reason: { network: 'ネットワークまたは配布元に接続できませんでした。', signature: '署名を確認できませんでした。', permission: 'インストールの権限を取得できませんでした。', blocked: 'Windows の Smart App Control などにブロックされた可能性があります。リリースページからセットアップを手で実行してください。', other: '詳しくはログを確認してください。' },
   },
   en: {
     check: 'Check for updates',
@@ -370,14 +370,14 @@ const UPDATE = {
     failedDownload: "Couldn't download the update",
     failedInstall: "Couldn't install the update",
     failedDetail: (cur, reason) => `You're still on ${cur}. ${reason}`,
-    reason: { network: "Couldn't reach the network or the download server.", signature: "The signature couldn't be verified.", permission: 'Permission to install was not granted.', other: 'See the log for details.' },
+    reason: { network: "Couldn't reach the network or the download server.", signature: "The signature couldn't be verified.", permission: 'Permission to install was not granted.', blocked: 'Windows Smart App Control or a similar policy may have blocked the installer. Run the setup from the release page yourself.', other: 'See the log for details.' },
   },
 };
 
 /**
  * 札の中の更新の見せ方。u は頁が持つ更新の様子で、phase は次のどれか。
  * idle（まだ確かめていない）、checking（確かめている）、latest（新しいバージョンが無い）、available（version がある）、
- * downloading（version、done、total）、installing（version）、failed（step は check、download、install のどれか。reason は殻の分けた 4 つ）。
+ * downloading（version、done、total）、installing（version）、failed（step は check、download、install のどれか。reason は殻の分けた種類で、network、signature、permission、blocked、other のどれか）。
  * 返すのは、下端の「更新を確認」の釦（check）、版の横の添え書き（note）、札の中の帯（band）、「もう一度試す」を主の釦から外すか（demote）。
  * 帯が主の釦を持つ間（ダウンロードしてインストール）は、主の釦を 2 つにしないよう「もう一度試す」を外す。
  * kind は札の種類。Node の札では新しいバージョンを入れても Node は入らないので、直るとは言わない。

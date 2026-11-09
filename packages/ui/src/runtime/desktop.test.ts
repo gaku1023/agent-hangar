@@ -69,7 +69,7 @@ describe('createDesktopBridge', () => {
     });
     const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
     expect(await b.update.status()).toEqual({ current: '1.4.2', done: 10, total: 40 });
-    expect(await b.update.check()).toEqual({ version: '1.5.0', notes: '## 直したこと' });
+    expect(await b.update.check()).toEqual({ version: '1.5.0', notes: '## 直したこと', failed: null });
     await b.update.download();
     await b.update.install();
     expect(invoke.mock.calls).toEqual([['update_status'], ['update_check'], ['update_download'], ['update_install']]);
@@ -78,7 +78,7 @@ describe('createDesktopBridge', () => {
     const invoke = vi.fn(async (cmd: string): Promise<unknown> => (cmd === 'update_status' ? { current: 5, done: 'x', total: -1 } : { version: 7 }));
     const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
     await expect(b.update.status()).rejects.toThrow();
-    expect(await b.update.check()).toEqual({ version: null, notes: null });
+    expect(await b.update.check()).toEqual({ version: null, notes: null, failed: null });
     invoke.mockResolvedValueOnce({ current: '1.4.2', done: 'x', total: null });
     expect(await b.update.status()).toEqual({ current: '1.4.2', done: 0, total: null });
   });
@@ -88,6 +88,21 @@ describe('createDesktopBridge', () => {
     await expect(b.update.download()).rejects.toMatchObject({ reason: 'signature' });
     invoke.mockRejectedValueOnce('command update_check not allowed');
     await expect(b.update.check()).rejects.toMatchObject({ reason: 'other' });
+  });
+  // Smart App Control などに止められた失敗は、専用の理由のまま受け取る（#617）。
+  it('アプリの制御に止められた失敗と、前に失敗した版の印を受け取る', async () => {
+    const invoke = vi.fn(async (cmd: string): Promise<unknown> => {
+      if (cmd === 'update_check') return { version: '1.5.0', notes: null, failed: 'blocked' };
+      throw { kind: 'blocked', detail: 'Access is denied. (os error 5)' };
+    });
+    const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
+    expect(await b.update.check()).toEqual({ version: '1.5.0', notes: null, failed: 'blocked' });
+    await expect(b.update.install()).rejects.toMatchObject({ reason: 'blocked' });
+    // 知らない種類は other、文字でなければ印は無いとして扱う。
+    invoke.mockResolvedValueOnce({ version: '1.5.0', notes: null, failed: 'gremlins' });
+    expect((await b.update.check()).failed).toBe('other');
+    invoke.mockResolvedValueOnce({ version: '1.5.0', notes: null, failed: 3 });
+    expect((await b.update.check()).failed).toBeNull();
   });
 });
 

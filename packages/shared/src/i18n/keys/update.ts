@@ -27,6 +27,8 @@ export const updateKeys = {
   'update.reason.network': [],
   'update.reason.signature': [],
   'update.reason.permission': [],
+  'update.reason.blocked': [],
+  'update.card.releasePage': [],
   'update.reason.other': [],
   'update.settings.badgeLatest': [],
   'update.settings.badgeOff': [],

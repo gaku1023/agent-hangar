@@ -539,10 +539,12 @@ describe('札の中の更新', () => {
       expect(u({ phase: 'installing', version: '9.9.9' }).band!.detail.startsWith(d['update.card.installingDetail'])).toBe(true);
       expect(u({ phase: 'failed', step: 'download', version: '9.9.9', reason: 'network' }).band!.title).toBe(d['update.card.failedDownload']);
       expect(u({ phase: 'failed', step: 'install', version: '9.9.9', reason: 'other' }).band!.detail).toBe(fill(d['update.card.failedDetail'], { current: cur, reason: d['update.reason.other'] }));
+      // Smart App Control などに止められたときの文も UI と同じにする（#617）。
+      expect(u({ phase: 'failed', step: 'install', version: '9.9.9', reason: 'blocked' }).band!.detail).toBe(fill(d['update.card.failedDetail'], { current: cur, reason: d['update.reason.blocked'] }));
     }
   });
   it('英語の帯と釦には日本語が混ざらない', () => {
-    const all: Upd[] = [{ phase: 'idle' }, { phase: 'checking' }, { phase: 'latest' }, { phase: 'available', version: '1' }, { phase: 'downloading', version: '1', done: 1, total: 2 }, { phase: 'installing', version: '1' }, { phase: 'failed', step: 'check', version: null, reason: 'network' }, { phase: 'failed', step: 'download', version: '1', reason: 'signature' }];
+    const all: Upd[] = [{ phase: 'idle' }, { phase: 'checking' }, { phase: 'latest' }, { phase: 'available', version: '1' }, { phase: 'downloading', version: '1', done: 1, total: 2 }, { phase: 'installing', version: '1' }, { phase: 'failed', step: 'check', version: null, reason: 'network' }, { phase: 'failed', step: 'download', version: '1', reason: 'signature' }, { phase: 'failed', step: 'install', version: '1', reason: 'blocked' }];
     for (const u of all) {
       const v = en(u);
       const text = [v.check.label, v.note ?? '', v.band?.title ?? '', v.band?.detail ?? '', v.band?.action ?? '', v.band?.progressLabel ?? ''].join('\n');
