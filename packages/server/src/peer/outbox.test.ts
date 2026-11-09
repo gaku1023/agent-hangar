@@ -8,6 +8,7 @@ import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { acceptsResultFrom, forgetSpawn, getSpawn } from '../sessions/spawns.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
+import { heldNotice } from './text.ts';
 import { getPeerRequest, PEER_DELIVERY_MAX_PER_CALLER, PEER_DELIVERY_NOTICE_MS, PeerOutbox, recordPeerRequest, SCREEN_CALLER } from './outbox.ts';
 
 const ME = 'pc-a';
@@ -398,7 +399,7 @@ describe('PeerOutbox の札と打ちかけ（知らせが利用者の答えを�
     await ob.flush();
     expect(notices).toHaveLength(1);
     expect(notices[0]!.id).toBe(caller);
-    expect(notices[0]!.text).toContain('Mac');
+    expect(notices[0]!.text).toBe('Mac の「worker」からの報告を預かっています。質問に答えるか入力欄を空にすると渡します。');
     // 知らせたあとは短い間隔の読み直しをやめ、繰り返し知らせない。
     const queued = later.length;
     clock.t += PEER_DELIVERY_NOTICE_MS * 10;
@@ -420,8 +421,11 @@ describe('PeerOutbox の札と打ちかけ（知らせが利用者の答えを�
       for (let i = 1; i <= n; i++) await result(i, { lastReply: `返答-${i}-終` });
       await ob.sync();
       expect(warn).toHaveBeenCalledTimes(2);
-      // 止められている間は 1 件ずつ知らせる。外した 2 件も知らせから漏れない。
+      // 止められている間は 1 件ずつ知らせる。外した 2 件は、外したと知らせる。
       expect(notices).toHaveLength(n);
+      const dropped = notices.filter((x) => x.text === '預かりが上限を超えたため、Mac の「worker」からの古い報告を取り除きました。');
+      expect(dropped).toHaveLength(2);
+      expect(notices.filter((x) => x.text.includes('再開すると渡します'))).toHaveLength(n - 2);
       live = [entry('u1', 'idle')];
       for (let i = 0; i < 20; i++) await ob.flush();
       const all = injected.map((x) => x.text).join('\n');
@@ -601,6 +605,14 @@ describe('PeerOutbox の終わりと二重の防ぎ', () => {
       live = [entry('u1', 'idle')];
       await ob.flush();
       expect(injected).toHaveLength(1);
+    });
+    it('札か打ちかけで止めて長引いたら、起動の答えの文で知らせる', async () => {
+      screen = false;
+      await ob.refuseLocal({ requestId: 'ap-1', to: PEER, callerSessionId: caller, reason: 'approval-denied' });
+      clock.t += PEER_DELIVERY_NOTICE_MS;
+      await ob.flush();
+      expect(notices.map((x) => x.text)).toEqual(['Mac への起動のリクエストの答えを預かっています。質問に答えるか入力欄を空にすると渡します。']);
+      expect(heldNotice('en', { device: 'Mac', title: null, scene: 'dropped' })).toBe('Too many held notices: dropped an old answer to the launch request on Mac.');
     });
   });
 });

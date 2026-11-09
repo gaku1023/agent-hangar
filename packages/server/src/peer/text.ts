@@ -69,10 +69,19 @@ export function expiredText(lang: Language, o: { device: string }): string {
   return render(lang, msg('mcp.peer.expired', { device: oneLine(o.device, 80) }));
 }
 
-/** 呼び出し元が止まっているときに、未読と通知へ出す短い文。 */
-export function heldNotice(lang: Language, o: { device: string; title: string | null }): string {
+/**
+ * 預かっている知らせについて、未読と通知へ出す短い文。title が null なら起動の答え、あれば報告の文にする。
+ * scene は場面で、stopped は呼び出し元が止まっている（再開で渡る）、blocked は札か打ちかけで止めて長引いた、dropped は上限を超えて外した。
+ */
+export function heldNotice(lang: Language, o: { device: string; title: string | null; scene?: 'stopped' | 'blocked' | 'dropped' }): string {
   const device = oneLine(o.device, 80);
-  return o.title === null ? render(lang, msg('mcp.peer.notice.heldRefused', { device })) : render(lang, msg('mcp.peer.notice.held', { device, title: oneLine(o.title, 80) }));
+  const scene = o.scene ?? 'stopped';
+  if (o.title === null) {
+    const key = scene === 'blocked' ? 'mcp.peer.notice.heldBlockedRefused' : scene === 'dropped' ? 'mcp.peer.notice.heldDroppedRefused' : 'mcp.peer.notice.heldRefused';
+    return render(lang, msg(key, { device }));
+  }
+  const key = scene === 'blocked' ? 'mcp.peer.notice.heldBlocked' : scene === 'dropped' ? 'mcp.peer.notice.heldDropped' : 'mcp.peer.notice.held';
+  return render(lang, msg(key, { device, title: oneLine(o.title, 80) }));
 }
 
 /** 画面から人が頼んだ起動が、相手で起きたときの札の文。 */

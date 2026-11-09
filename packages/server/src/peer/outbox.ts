@@ -27,9 +27,9 @@ import { expiredText, goneNotice, heldNotice, PEER_TEXT_MAX, refusalText, result
  * 札の間に打つと、札の「その他」の自由入力に入り、利用者の答えの代わりに確定してしまう（v0.20.0-rc で 3 回起きた）。
  * 登録の状態は遅れることがあるので、打つ直前に画面も読む（screenReady）。
  * 画面の都合で打てない知らせは捨てずに預かり続け、打てるようになったら渡す。
- * 画面で止めている間は短い間隔で読み直し、PEER_DELIVERY_NOTICE_MS たっても打てなければ、止められているときと同じ文（notice_held）で 1 度だけ利用者に知らせ、以後は 30 秒ごとの取得と登録の変化で見直す。
+ * 画面で止めている間は短い間隔で読み直し、PEER_DELIVERY_NOTICE_MS たっても打てなければ、「質問に答えるか入力欄を空にすると渡す」と 1 度だけ利用者に知らせ、以後は 30 秒ごとの取得と登録の変化で見直す。
  * 数えるのは、登録では入力を待っているのに画面で止めている間だけで、作業中、札の間、止められている間は数えない（peer/chat/queue.ts の PeerQueue と同じ考え方）。
- * 預かりは呼び出し元ごとに PEER_DELIVERY_MAX_PER_CALLER 件までで、超えた古いものは、同じ文で利用者に知らせてから預かりから外し、ログに 1 行ずつ残す。
+ * 預かりは呼び出し元ごとに PEER_DELIVERY_MAX_PER_CALLER 件までで、超えた古いものは、外したと利用者に知らせてから預かりから外し、ログに 1 行ずつ残す。
  * 画面を読んでから打つまでの間（capture と inject の間）に人が打ち始める余地は残る。仕様として受け入れる（PeerQueue も同じ）。
  */
 
@@ -446,19 +446,33 @@ export class PeerOutbox {
     }
   }
 
-  /** 預かっている知らせを、利用者に 1 度だけ知らせる（未読と OS・スマホの通知）。知らせ済みの行には何もしない。 */
-  private noteHeld(caller: string, d: Delivery): void {
+  /**
+   * 預かっている知らせを、利用者に 1 度だけ知らせる（未読と OS・スマホの通知）。知らせ済みの行には何もしない。
+   * stopped は積んだときの文（再開で渡す）、blocked は札か打ちかけで止めて長引いたときの文にする。
+   */
+  private noteHeld(caller: string, d: Delivery, scene: 'stopped' | 'blocked'): void {
     if (d.notified) return;
     this.deps.db.prepare('update peer_deliveries set notified = 1 where id = ?').run(d.id);
     d.notified = 1;
-    this.safeNotify(caller, d.notice_held);
+    this.safeNotify(caller, scene === 'stopped' ? d.notice_held : this.sceneNotice(d, scene));
   }
 
-  /** 上限を超えた古い知らせを、利用者に知らせてから預かりから外す。外した知らせは、ログに 1 行ずつ残す。 */
+  /**
+   * 積んだ後の場面の文。報告（seq が 1 以上）は頼みの記録の会話の名前で、起動の答え（seq 0）は名前なしで書く。
+   * 名前は答えのときのもので、報告の時点の名前とは違うことがある。
+   */
+  private sceneNotice(d: Delivery, scene: 'blocked' | 'dropped'): string {
+    const r = this.deps.db.prepare('select to_device, title, child_session_id from peer_outbox where request_id = ?').get(d.request_id) as { to_device: string; title: string | null; child_session_id: string | null } | undefined;
+    const device = r ? this.nameOf(r.to_device) : '?';
+    const title = d.seq > 0 ? (r?.title ?? r?.child_session_id ?? null) : null;
+    return heldNotice(this.language(), { device, title, scene });
+  }
+
+  /** 上限を超えた古い知らせを、外したと利用者に知らせてから預かりから外す。外した知らせは、ログに 1 行ずつ残す。 */
   private overflow(caller: string, rows: Delivery[]): void {
     const done = this.deps.db.prepare('update peer_deliveries set delivered_at = ? where id = ?');
     for (const d of rows) {
-      this.noteHeld(caller, d);
+      this.safeNotify(caller, this.sceneNotice(d, 'dropped'));
       done.run(this.now(), d.id);
       const head = [...d.text.replace(/\s+/g, ' ')].slice(0, DROP_LOG_CHARS).join('');
       console.warn(`[peer] held notices over the limit; notified the user instead of injecting, session ${d.caller_session_id}, request ${d.request_id} seq ${d.seq}: ${head}`);
@@ -497,7 +511,7 @@ export class PeerOutbox {
           this.safeNotify(null, d.notice_gone, this.anchorOf(d.request_id));
         }
       } else if (state === 'stopped') {
-        for (const d of rows) this.noteHeld(caller, d);
+        for (const d of rows) this.noteHeld(caller, d, 'stopped');
       } else if (state === 'ready') {
         // 札が出ているか打ちかけがあれば打たない。捨てずに預かり、登録では入力を待っている間だけ数えて、長引いたら利用者に 1 度だけ知らせる。
         if (!(await this.screenOk(caller))) {
@@ -505,7 +519,7 @@ export class PeerOutbox {
           const since = this.blockedSince.get(caller) ?? now;
           this.blockedSince.set(caller, since);
           const noticeMs = this.deps.noticeMs ?? PEER_DELIVERY_NOTICE_MS;
-          for (const d of rows) if (now - Math.max(since, d.created_at) >= noticeMs) this.noteHeld(caller, d);
+          for (const d of rows) if (now - Math.max(since, d.created_at) >= noticeMs) this.noteHeld(caller, d, 'blocked');
           // 知らせ終えたら短い間隔の読み直しはやめ、30 秒ごとの取得と登録の変化に任せる（打ちかけのまま離席した画面を読み続けない）。
           if (now - since < noticeMs) this.scheduleRecheck();
           continue;
