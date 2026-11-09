@@ -4,17 +4,73 @@
 //! 目録（latest.json）は GitHub の Release の最新から引き、更新物は tauri.conf.json の公開鍵（minisign）で確かめる。
 //! ここには、命令の間で持ち回る状態（段の移り方の `Flow`）と、頁へ返す形と、失敗の分け方だけを置く。命令そのものは lib.rs にある。
 
-use serde::Serialize;
-use std::sync::atomic::{AtomicU64, Ordering};
+use serde::{Deserialize, Serialize};
+use std::path::Path;
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::Mutex;
 use tauri_plugin_updater::{Error, Update};
 
 /// 命令の間で持ち回る状態。
 /// flow は見つけた版と取得した更新物の段（`Flow`）、progress は取得の進みである。
+/// handed_over は、インストーラへ渡す直前（`on_before_exit`）にしたこと（`Handover`）である。
 #[derive(Default)]
 pub struct UpdateSlot {
     pub flow: Mutex<Flow<Update>>,
     pub progress: Progress,
+    handed_over: AtomicU8,
+}
+
+/// インストーラへ渡す直前（`on_before_exit`）にしたこと。
+/// 合図が来れば、`cleanup_before_exit` が Windows で窓を隠している。止めた子のサーバがいたときだけ ServerStopped になる。
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Handover {
+    None,
+    WindowHidden,
+    ServerStopped,
+}
+
+impl UpdateSlot {
+    /// インストーラへ渡す直前にしたことを覚える。stopped_server は、止めた子のサーバがいたか（`stop_server` の答え）。
+    pub fn handing_over(&self, stopped_server: bool) {
+        self.handed_over
+            .store(if stopped_server { 2 } else { 1 }, Ordering::SeqCst);
+    }
+
+    /// 覚えていたことを返し、忘れる。
+    /// Windows の updater は、合図の後でインストーラを起こせないと誤りを返して戻ってくる（Smart App Control に止められたときなど）。
+    /// そのとき隠した窓と止めたサーバを 1 度だけ戻すために読む（#617）。
+    pub fn take_handover(&self) -> Handover {
+        match self.handed_over.swap(0, Ordering::SeqCst) {
+            1 => Handover::WindowHidden,
+            2 => Handover::ServerStopped,
+            _ => Handover::None,
+        }
+    }
+}
+
+/// インストールに失敗したあとに戻すもの（`after_failed_install`）。
+#[derive(Debug, PartialEq)]
+pub struct Resume {
+    pub show_window: bool,
+    pub restart_server: bool,
+}
+
+/// インストールに失敗したあとに戻すものを決める。
+/// 窓は合図が来ていれば出し直す。サーバは、止めた子がいて、起動の本体（`boot`）が走っておらず、頁がサーバの頁へ移っていたときだけ起こし直す。
+/// 起動画面からの更新の失敗では、起動画面の「もう一度試す」（`retry_boot`）がサーバを起こすので、ここで二重に起こさない。
+pub fn after_failed_install(h: Handover, booting: bool, on_server_page: bool) -> Resume {
+    Resume {
+        show_window: h != Handover::None,
+        restart_server: h == Handover::ServerStopped && !booting && on_server_page,
+    }
+}
+
+/// 起動画面の札に出す版。前にインストールに失敗した版（`Found::failed`）は、自動では勧め直さない（#617）。
+pub fn boot_offer(found: &Found) -> Option<&str> {
+    match (&found.version, &found.failed) {
+        (Some(v), None) => Some(v),
+        _ => None,
+    }
 }
 
 /// 版の名前を持つもの。`Flow` が試験で updater の Update の代わりを受け取れるように、版を読む口だけを切り出す。
@@ -192,13 +248,73 @@ pub struct Status {
 /// `update_check` の答え。新しい版が無ければ version は None。
 /// notes は目録（latest.json）の notes で、正式な版ならリリースノートの md が入る。頁が新しい版の札と設定の「更新」の節に出す。
 /// 試しの版の空の notes と、取得の途中で途中の版だけを答えるときは None にする。
+/// failed は、見つけた版を前に入れようとして失敗していたら、その失敗の種類（`remembered_failure`）。
+/// 頁は自動の確認でこれを見たら、新しい版の札ではなく失敗の札を出し、同じ版を勧め直さない。
 #[derive(Serialize, Debug, PartialEq)]
 pub struct Found {
     pub version: Option<String>,
     pub notes: Option<String>,
+    pub failed: Option<String>,
 }
 
-/// 命令の失敗。kind は頁が文を選ぶための 4 つの分類（network、signature、permission、other）、detail はログ向けの英語の 1 行である。
+/// インストールに失敗した版を覚えるファイル（hangar の置き場の下）。中身は `{"version":"0.19.0","kind":"blocked"}` の形である。
+pub const INSTALL_FAILED_FILE: &str = "update-install-failed.json";
+
+/// at は失敗した時刻（UNIX の秒）。
+#[derive(Serialize, Deserialize)]
+struct InstallFailed {
+    version: String,
+    kind: String,
+    at: u64,
+}
+
+/// 記録を効かせる長さ（秒）。過ぎたら、その版をまた自動で勧める。
+/// Smart App Control などに止められたとき（blocked）は、すぐ試しても同じく止められやすいので 24 時間にする。
+/// ほか（管理者の許可の確認を 1 度断った、など）は一時のことが多いので 1 時間にする。
+fn remembered_for(kind: &str) -> u64 {
+    if kind == "blocked" {
+        24 * 3600
+    } else {
+        3600
+    }
+}
+
+/// インストールに失敗した版と種類と時刻（now、UNIX の秒）を覚える。前の記録は上書きする。
+/// 書けなかったら誤りを返す。呼び手はログに残すだけで、更新の流れは止めない。
+pub fn remember_install_failure(
+    home: &Path,
+    version: &str,
+    kind: &str,
+    now: u64,
+) -> std::io::Result<()> {
+    let body = InstallFailed {
+        version: version.to_string(),
+        kind: kind.to_string(),
+        at: now,
+    };
+    let text = serde_json::to_string(&body).map_err(std::io::Error::other)?;
+    std::fs::write(home.join(INSTALL_FAILED_FILE), text)
+}
+
+/// 見つけた版を前に入れようとして失敗していたら、その種類。
+/// 記録が無い、読めない、別の版のもの、効く長さ（`remembered_for`）を過ぎたものなら None である。
+pub fn remembered_failure(home: &Path, found: Option<&str>, now: u64) -> Option<String> {
+    let found = found?;
+    let text = std::fs::read_to_string(home.join(INSTALL_FAILED_FILE)).ok()?;
+    let r: InstallFailed = serde_json::from_str(&text).ok()?;
+    let fresh = now.saturating_sub(r.at) < remembered_for(&r.kind);
+    (r.version == found && fresh).then_some(r.kind)
+}
+
+/// いまの時刻（UNIX の秒）。
+pub fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// 命令の失敗。kind は頁が文を選ぶための分類（network、signature、permission、blocked、other）、detail はログ向けの英語の 1 行である。
 #[derive(Serialize, Debug, PartialEq)]
 pub struct Failure {
     pub kind: &'static str,
@@ -223,11 +339,97 @@ impl From<&Error> for Failure {
     }
 }
 
-/// updater の誤りを、頁が利用者に言える 4 つに分ける。
+/// Windows のアプリの制御（Smart App Control、App Control for Business）がファイルを止めたときの誤りの番号。
+/// どれも「An Application Control policy has blocked this file」の文を持つ（ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION と、評判で止めた系）。
+/// 方針そのものの誤り（4550、4552 から 4555）は、ファイルを止めたのではないので含めない。
+/// 名前は windows-sys（Win32 のメタデータ）の ERROR_SYSTEM_INTEGRITY_ の POLICY_VIOLATION（4551）、REPUTATION_MALICIOUS（4556）、
+/// REPUTATION_PUA（4557）、REPUTATION_DANGEROUS_EXT（4558）、REPUTATION_OFFLINE（4559）、REPUTATION_UNFRIENDLY_FILE（4580）、
+/// REPUTATION_UNATTAINABLE（4581）、REPUTATION_EXPLICIT_DENY_FILE（4582）である。
+/// 4583 は windows-sys 0.61 に名前が無いが、Windows 11 の FormatMessage の文は同じく「has blocked this file」（WHQL の要件）である。
+const APP_CONTROL_BLOCKS: [i32; 9] = [4551, 4556, 4557, 4558, 4559, 4580, 4581, 4582, 4583];
+
+/// Smart App Control の状態。`HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy` の `VerifiedAndReputablePolicyState`（0 がオフ、1 がオン、2 が評価）で読む。
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum SmartAppControl {
+    Off,
+    On,
+    Evaluation,
+}
+
+impl SmartAppControl {
+    /// 値から読む。値が無い（Smart App Control の無い Windows、macOS）か知らない値なら、オフとして扱う。
+    pub fn from_policy(value: Option<u32>) -> Self {
+        match value {
+            Some(1) => SmartAppControl::On,
+            Some(2) => SmartAppControl::Evaluation,
+            _ => SmartAppControl::Off,
+        }
+    }
+
+    /// この PC の状態。Windows のほかでは常にオフである。
+    pub fn current() -> Self {
+        Self::from_policy(policy_state())
+    }
+}
+
+#[cfg(windows)]
+fn policy_state() -> Option<u32> {
+    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+    use windows_sys::Win32::System::Registry::{
+        RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD,
+    };
+    let wide = |s: &str| {
+        s.encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<u16>>()
+    };
+    let key = wide("SYSTEM\\CurrentControlSet\\Control\\CI\\Policy");
+    let value = wide("VerifiedAndReputablePolicyState");
+    let mut data: u32 = 0;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    let r = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            key.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_DWORD,
+            std::ptr::null_mut(),
+            &mut data as *mut u32 as *mut core::ffi::c_void,
+            &mut size,
+        )
+    };
+    (r == ERROR_SUCCESS).then_some(data)
+}
+
+#[cfg(not(windows))]
+fn policy_state() -> Option<u32> {
+    None
+}
+
+/// インストールの失敗を分ける。`failure_kind` に加えて、Smart App Control がオンのときの拒否（os error 5）を blocked にする。
+/// 今の updater は ShellExecuteW の戻り値の SE_ERR_ACCESSDENIED を os error 5 にするので、
+/// Smart App Control に止められたのか、管理者の許可の確認で断ったのかを、誤りだけでは見分けられない。
+/// オンの PC では止められたことの方が多いと見て blocked にし、頁の文でもそう言い切らない（#617）。
+pub fn install_failure_kind(e: &Error, sac: SmartAppControl) -> &'static str {
+    match e {
+        Error::Io(io) if sac == SmartAppControl::On && io.raw_os_error() == Some(5) => "blocked",
+        _ => failure_kind(e),
+    }
+}
+
+/// updater の誤りを、頁が利用者に言える種類に分ける。
 /// 目録や更新物を取れない（接続できない、目録が無い、この OS の更新物が無い）は network、
-/// 署名が合わない、読めないは signature、管理者の許可を断られた、書けないは permission、ほかは other である。
+/// 署名が合わない、読めないは signature、管理者の許可を断られた、書けないは permission、
+/// Windows のアプリの制御がインストーラを止めた（os error 4551 など）は blocked、ほかは other である。
 pub fn failure_kind(e: &Error) -> &'static str {
     match e {
+        Error::Io(io)
+            if io
+                .raw_os_error()
+                .is_some_and(|c| APP_CONTROL_BLOCKS.contains(&c)) =>
+        {
+            "blocked"
+        }
         Error::Reqwest(_)
         | Error::Network(_)
         | Error::Http(_)
@@ -360,7 +562,7 @@ mod tests {
     }
 
     #[test]
-    fn errors_are_sorted_into_four_kinds_the_page_can_explain() {
+    fn errors_are_sorted_into_kinds_the_page_can_explain() {
         assert_eq!(failure_kind(&Error::Network("503".into())), "network");
         assert_eq!(failure_kind(&Error::ReleaseNotFound), "network");
         assert_eq!(
@@ -374,6 +576,181 @@ mod tests {
         let other = std::io::Error::from(std::io::ErrorKind::NotFound);
         assert_eq!(failure_kind(&Error::Io(other)), "other");
         assert_eq!(failure_kind(&Error::EmptyEndpoints), "other");
+    }
+
+    // Windows のアプリの制御（Smart App Control、App Control for Business）がインストーラを止めた誤り（4551 系）は、
+    // どの段でも blocked にする（#617）。古い updater は ShellExecuteW の後の GetLastError をそのまま返していた。
+    #[test]
+    fn an_application_control_block_is_its_own_kind() {
+        for code in [4551, 4556, 4557, 4558, 4559, 4580, 4581, 4582, 4583] {
+            let e = Error::Io(std::io::Error::from_raw_os_error(code));
+            assert_eq!(failure_kind(&e), "blocked", "os error {code}");
+            assert_eq!(install_failure_kind(&e, SmartAppControl::Off), "blocked");
+        }
+        // 方針の不正や仮想化の誤りは、ファイルを止めたのではないので blocked にしない。
+        let e = Error::Io(std::io::Error::from_raw_os_error(4552));
+        assert_eq!(failure_kind(&e), "other");
+    }
+
+    // 今の updater は、ShellExecuteW の戻り値の SE_ERR_ACCESSDENIED（5）を os error 5 にする。
+    // Smart App Control が止めたときもこれになるので、オンのときのインストールの 5 だけを blocked にする。
+    // 評価のモードは止めないので、権限のままにする。確認と取得の 5 も、ファイルを書けないだけなので権限のままにする。
+    #[test]
+    fn access_denied_while_installing_is_blocked_only_when_smart_app_control_is_on() {
+        let denied = || Error::Io(std::io::Error::from_raw_os_error(5));
+        assert_eq!(
+            install_failure_kind(&denied(), SmartAppControl::On),
+            "blocked"
+        );
+        let plain = failure_kind(&denied());
+        assert_eq!(install_failure_kind(&denied(), SmartAppControl::Off), plain);
+        assert_eq!(
+            install_failure_kind(&denied(), SmartAppControl::Evaluation),
+            plain
+        );
+        // 5 が ERROR_ACCESS_DENIED なのは Windows だけである（macOS では EIO）。
+        #[cfg(windows)]
+        assert_eq!(plain, "permission");
+        // 5 でない失敗は、オンでもそのままの分類にする。
+        assert_eq!(
+            install_failure_kind(&Error::Network("503".into()), SmartAppControl::On),
+            "network"
+        );
+    }
+
+    #[test]
+    fn the_smart_app_control_state_is_read_from_the_policy_value() {
+        assert_eq!(SmartAppControl::from_policy(Some(0)), SmartAppControl::Off);
+        assert_eq!(SmartAppControl::from_policy(Some(1)), SmartAppControl::On);
+        assert_eq!(
+            SmartAppControl::from_policy(Some(2)),
+            SmartAppControl::Evaluation
+        );
+        // 値が無い（Smart App Control の無い Windows、macOS）か知らない値なら、オフとして扱う。
+        assert_eq!(SmartAppControl::from_policy(None), SmartAppControl::Off);
+        assert_eq!(SmartAppControl::from_policy(Some(7)), SmartAppControl::Off);
+    }
+
+    // インストールに失敗した版を覚え、同じ版を見つけた確認に失敗の種類を添える（#617）。
+    // 起動し直すたびに同じ版を勧めて、同じ失敗と Windows セキュリティの知らせを繰り返さないためである。
+    #[test]
+    fn a_failed_install_is_remembered_for_the_same_version_only() {
+        let dir = std::env::temp_dir().join(format!(
+            "hangar-update-failed-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let t0 = 1_800_000_000;
+        assert_eq!(remembered_failure(&dir, Some("0.19.0"), t0), None);
+        remember_install_failure(&dir, "0.19.0", "blocked", t0).unwrap();
+        assert_eq!(
+            remembered_failure(&dir, Some("0.19.0"), t0),
+            Some("blocked".into())
+        );
+        assert_eq!(remembered_failure(&dir, Some("0.19.1"), t0), None);
+        assert_eq!(remembered_failure(&dir, None, t0), None);
+        // 後の失敗で上書きする。
+        remember_install_failure(&dir, "0.19.1", "permission", t0).unwrap();
+        assert_eq!(remembered_failure(&dir, Some("0.19.0"), t0), None);
+        assert_eq!(
+            remembered_failure(&dir, Some("0.19.1"), t0),
+            Some("permission".into())
+        );
+        // 壊れたファイル、時刻の無い記録は無いものとして扱う。
+        std::fs::write(dir.join(INSTALL_FAILED_FILE), "{").unwrap();
+        assert_eq!(remembered_failure(&dir, Some("0.19.1"), t0), None);
+        std::fs::write(
+            dir.join(INSTALL_FAILED_FILE),
+            r#"{"version":"0.19.1","kind":"blocked"}"#,
+        )
+        .unwrap();
+        assert_eq!(remembered_failure(&dir, Some("0.19.1"), t0), None);
+        // 置き場が無ければ、書けなかったと返す（呼び手がログに残す）。
+        assert!(remember_install_failure(&dir.join("missing"), "0.19.1", "other", t0).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // 記録は時間で失効させる（#617 の見直し）。
+    // UAC を 1 度断っただけのような一時の失敗で、その版をずっと勧めなくならないためである。
+    // Smart App Control に止められたときは同じく止められやすいので 24 時間、ほかは 1 時間で勧め直す。
+    #[test]
+    fn a_remembered_failure_expires() {
+        let dir = std::env::temp_dir().join(format!(
+            "hangar-update-expiry-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let t0 = 1_800_000_000;
+        const H: u64 = 3600;
+        remember_install_failure(&dir, "0.19.0", "blocked", t0).unwrap();
+        assert!(remembered_failure(&dir, Some("0.19.0"), t0 + 24 * H - 1).is_some());
+        assert_eq!(remembered_failure(&dir, Some("0.19.0"), t0 + 24 * H), None);
+        for kind in ["permission", "network", "signature", "other"] {
+            remember_install_failure(&dir, "0.19.0", kind, t0).unwrap();
+            assert!(remembered_failure(&dir, Some("0.19.0"), t0 + H - 1).is_some());
+            assert_eq!(
+                remembered_failure(&dir, Some("0.19.0"), t0 + H),
+                None,
+                "{kind}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // インストーラへ渡す直前にしたことを覚え、1 度だけ取り出す（#617）。
+    // 合図が来れば窓は隠れている（cleanup_before_exit）。止めた子のサーバがいたときだけ、サーバも止めたと覚える。
+    #[test]
+    fn the_handover_is_taken_once() {
+        let slot = UpdateSlot::default();
+        assert_eq!(slot.take_handover(), Handover::None);
+        slot.handing_over(false);
+        assert_eq!(slot.take_handover(), Handover::WindowHidden);
+        assert_eq!(slot.take_handover(), Handover::None);
+        slot.handing_over(true);
+        assert_eq!(slot.take_handover(), Handover::ServerStopped);
+        assert_eq!(slot.take_handover(), Handover::None);
+    }
+
+    // インストールに失敗したあとに戻すもの（#617 の見直し）。
+    // 窓は合図が来ていれば出し直す。サーバは、止めた子がいて、起動の本体が走っておらず、頁がサーバの頁へ移っていたときだけ起こし直す。
+    // 起動画面からの更新の失敗では、起動画面の「もう一度試す」（retry_boot）がサーバを起こすので、二重に起こさない。
+    #[test]
+    fn what_to_bring_back_after_a_failed_install() {
+        let r = |h, booting, on_server_page| after_failed_install(h, booting, on_server_page);
+        let nothing = Resume {
+            show_window: false,
+            restart_server: false,
+        };
+        let window = Resume {
+            show_window: true,
+            restart_server: false,
+        };
+        let both = Resume {
+            show_window: true,
+            restart_server: true,
+        };
+        assert_eq!(r(Handover::None, false, true), nothing);
+        assert_eq!(r(Handover::WindowHidden, false, true), window);
+        assert_eq!(r(Handover::ServerStopped, false, true), both);
+        assert_eq!(r(Handover::ServerStopped, true, true), window);
+        assert_eq!(r(Handover::ServerStopped, false, false), window);
+    }
+
+    // 起動画面の札に出すのは、前にインストールに失敗していない版だけである（#617 の見直し）。
+    #[test]
+    fn the_boot_screen_is_offered_only_versions_without_a_remembered_failure() {
+        let found = |version: Option<&str>, failed: Option<&str>| Found {
+            version: version.map(Into::into),
+            notes: None,
+            failed: failed.map(Into::into),
+        };
+        assert_eq!(boot_offer(&found(Some("0.20.0"), None)), Some("0.20.0"));
+        assert_eq!(boot_offer(&found(Some("0.20.0"), Some("blocked"))), None);
+        assert_eq!(boot_offer(&found(None, None)), None);
     }
 
     #[test]
@@ -409,10 +786,20 @@ mod tests {
         let f = Found {
             version: Some("1.5.0".into()),
             notes: Some("## 直したこと".into()),
+            failed: None,
         };
         assert_eq!(
             serde_json::to_value(&f).unwrap(),
-            serde_json::json!({ "version": "1.5.0", "notes": "## 直したこと" })
+            serde_json::json!({ "version": "1.5.0", "notes": "## 直したこと", "failed": null })
+        );
+        let f = Found {
+            version: Some("1.5.0".into()),
+            notes: None,
+            failed: Some("blocked".into()),
+        };
+        assert_eq!(
+            serde_json::to_value(&f).unwrap()["failed"],
+            serde_json::json!("blocked")
         );
         assert_eq!(
             serde_json::to_value(Failure::other("x")).unwrap(),

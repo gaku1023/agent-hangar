@@ -87,12 +87,13 @@ function pollReplyOf(r: unknown): CloudReply<{ status: JoinPollStatus }> {
  * 殻の updater に頼む口（src-tauri/src/updater.rs）。
  * status は動いている版と取得の進み（total は大きさが分からなければ null）を返す。取得の最中に繰り返し読む。
  * check は GitHub の Release の目録を引き、新しい版があればその版とノート（目録の notes、無ければ null）を、無ければ版も null を返す。
+ * failed は、見つけた版を前に入れようとして失敗していたら、その理由（殻が覚えている。updater.rs の remembered_failure）。無ければ null。
  * download は check で見つけた版を取得し、署名を確かめて殻の中に持つ。install はそれを入れて再起動する（戻らないことがある）。
  * 失敗は UpdateFailure で投げる。
  */
 export type UpdateBridge = {
   status(): Promise<{ current: string; done: number; total: number | null }>;
-  check(): Promise<{ version: string | null; notes: string | null }>;
+  check(): Promise<{ version: string | null; notes: string | null; failed?: UpdateFailReason | null }>;
   download(): Promise<void>;
   install(): Promise<void>;
 };
@@ -102,11 +103,13 @@ export class UpdateFailure extends Error {
   constructor(readonly reason: UpdateFailReason, detail?: string) { super(detail ?? reason); this.name = 'UpdateFailure'; }
 }
 
+/** 殻の分けた理由。知らない形は other にする。 */
+const failReasonOf = (kind: unknown): UpdateFailReason => (typeof kind === 'string' && (UPDATE_FAIL_REASONS as readonly string[]).includes(kind) ? (kind as UpdateFailReason) : 'other');
+
 function updateFailureOf(e: unknown): UpdateFailure {
   const kind = (e as { kind?: unknown } | null)?.kind;
   const detail = (e as { detail?: unknown } | null)?.detail;
-  const reason = typeof kind === 'string' && (UPDATE_FAIL_REASONS as readonly string[]).includes(kind) ? (kind as UpdateFailReason) : 'other';
-  return new UpdateFailure(reason, typeof detail === 'string' ? detail : String(e));
+  return new UpdateFailure(failReasonOf(kind), typeof detail === 'string' ? detail : String(e));
 }
 
 /**
@@ -183,8 +186,8 @@ export function createDesktopBridge(win: unknown): DesktopBridge | null {
         return { current: r.current, done: count(r.done), total: typeof r.total === 'number' && r.total > 0 ? r.total : null };
       },
       check: async () => {
-        const r = await invoke(UPDATE_COMMANDS.check).catch((e: unknown) => { throw updateFailureOf(e); }) as { version?: unknown; notes?: unknown } | null;
-        return { version: typeof r?.version === 'string' ? r.version : null, notes: typeof r?.notes === 'string' ? r.notes : null };
+        const r = await invoke(UPDATE_COMMANDS.check).catch((e: unknown) => { throw updateFailureOf(e); }) as { version?: unknown; notes?: unknown; failed?: unknown } | null;
+        return { version: typeof r?.version === 'string' ? r.version : null, notes: typeof r?.notes === 'string' ? r.notes : null, failed: typeof r?.failed === 'string' ? failReasonOf(r.failed) : null };
       },
       download: async () => { await invoke(UPDATE_COMMANDS.download).catch((e: unknown) => { throw updateFailureOf(e); }); },
       install: async () => { await invoke(UPDATE_COMMANDS.install).catch((e: unknown) => { throw updateFailureOf(e); }); },

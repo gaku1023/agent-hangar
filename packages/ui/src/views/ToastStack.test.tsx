@@ -322,6 +322,18 @@ describe('更新の札', () => {
     fireEvent.click(within(c).getByRole('button', { name: 'あとで' }));
     expect(onAction.mock.calls).toEqual([[{ type: 'update.download' }], [{ type: 'update.dismiss' }]]);
   });
+  // リリースページは外へのリンクとして置き、殻が既定のブラウザで開く（runtime/anchorLinks.ts、#617）。
+  it('外へのページの操作はリンクにし、押しても操作を送らない', () => {
+    const href = 'https://github.com/gaku1023/agent-hangar/releases/tag/v1.5.0';
+    const { onAction } = mount(props({ update: upd({ kind: 'failed', tone: 'err', actions: [{ label: 'リリースページを開く', href, primary: true }, { label: '閉じる', action: { type: 'update.dismiss' }, primary: false }] }) }));
+    const c = document.querySelector<HTMLElement>('.notice[data-kind="update"]')!;
+    const link = within(c).getByRole('link', { name: 'リリースページを開く' });
+    expect(link).toHaveAttribute('href', href);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveClass('btn', 'btn-primary');
+    fireEvent.click(link);
+    expect(onAction).not.toHaveBeenCalled();
+  });
   it('取得中は進みの棒と割合を出す', () => {
     mount(props({ update: upd({ kind: 'downloading', head: 'ダウンロード中', title: 'Hangar 1.5.0', detail: null, progress: { percent: 62, label: '62%' }, actions: [] }) }));
     const bar = screen.getByRole('progressbar', { name: 'ダウンロードの進行状況' });

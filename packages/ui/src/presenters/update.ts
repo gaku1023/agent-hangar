@@ -5,8 +5,14 @@ import { compareVersions, parseNote, releaseOf, type ReleaseNote } from '../lib/
 import { relativeTime } from './format.ts';
 import { translatorOf } from './i18n.ts';
 
-/** 札と節の操作 1 つ。primary は主の操作（青いボタン）、link は枠の無い文字だけのボタン（ノートを読む）。 */
-export type UpdateAct = { label: string; action: UiAction; primary: boolean; link?: true };
+/**
+ * 札と節の操作 1 つ。primary は主の操作（青いボタン）、link は枠の無い文字だけのボタン（ノートを読む）。
+ * action の代わりに href を持つものは外へのページ（リリースページ）で、ボタンの見た目のリンクにし、殻が既定のブラウザで開く（runtime/anchorLinks.ts）。
+ */
+export type UpdateAct = { label: string; primary: boolean; link?: true } & ({ action: UiAction; href?: undefined } | { href: string; action?: undefined });
+
+/** その版のリリースページ。Smart App Control などに止められたとき、セットアップを手で落として入れる先である（#617）。 */
+export const releasePageUrl = (version: string): string => `https://github.com/gaku1023/agent-hangar/releases/tag/v${encodeURIComponent(version)}`;
 
 /** 札に載せる要点の数。残りは設定の節で読む。 */
 const CARD_POINTS = 3;
@@ -91,6 +97,16 @@ function pendingText(t: Translate, store: Store, u: UpdateState, p: UpdatePhase)
   }
 }
 
+/**
+ * 取得かインストールの失敗に置く操作。ふつうは「もう一度試す」だけである。
+ * アプリの制御に止められたときは、同じ形で試しても同じく止められやすいので、手で入れる先のリリースページを主に置き、もう一度試すは並にする。
+ */
+function failedActs(t: Translate, p: Extract<UpdatePhase, { kind: 'failed' }>): UpdateAct[] {
+  const retry = (primary: boolean): UpdateAct => ({ label: t('update.card.retry'), action: DOWNLOAD, primary });
+  if (p.reason !== 'blocked' || p.version === null) return [retry(true)];
+  return [{ label: t('update.card.releasePage'), href: releasePageUrl(p.version), primary: true }, retry(false)];
+}
+
 export function presentUpdateCard(store: Store): UpdateCardProps | null {
   const u = store.update;
   const p = cardPhase(u);
@@ -114,7 +130,7 @@ export function presentUpdateCard(store: Store): UpdateCardProps | null {
     case 'ready':
       return { kind: 'ready', tone: 'ok', head: t('update.card.headReady'), ...text, ...none, actions: [{ label: t('update.card.restart'), action: INSTALL, primary: true }, { label: t('update.card.later'), action: DISMISS, primary: false }] };
     case 'failed':
-      return { kind: 'failed', tone: 'err', head: t('update.card.headFailed'), ...text, ...none, actions: [{ label: t('update.card.retry'), action: DOWNLOAD, primary: true }, { label: t('common.button.close'), action: DISMISS, primary: false }] };
+      return { kind: 'failed', tone: 'err', head: t('update.card.headFailed'), ...text, ...none, actions: [...failedActs(t, p), { label: t('common.button.close'), action: DISMISS, primary: false }] };
     default: return null;
   }
 }
@@ -188,7 +204,7 @@ export function presentUpdateSection(store: Store, now: number): UpdateSectionPr
   const text = phaseVersion(p) !== null ? pendingText(t, store, u, p) : null;
   const acts: UpdateAct[] = p.kind === 'available' ? [{ label: t('update.card.download'), action: DOWNLOAD, primary: true }]
     : p.kind === 'ready' ? [{ label: t('update.card.restart'), action: INSTALL, primary: true }]
-      : p.kind === 'failed' && p.step !== 'check' ? [{ label: t('update.card.retry'), action: DOWNLOAD, primary: true }]
+      : p.kind === 'failed' && p.step !== 'check' ? failedActs(t, p)
         : [];
   const badge = badgeOf(t, u);
   return {

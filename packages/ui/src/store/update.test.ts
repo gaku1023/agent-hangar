@@ -67,6 +67,20 @@ describe('更新の状態の移り変わり', () => {
     expect(cardPhase(failed)?.kind).toBe('failed');
   });
 
+  // 前にインストールに失敗した版（殻が覚えている、#617）を自動の確認で見つけたら、新しい版として勧め直さない。
+  // 失敗の札（理由と、手で入れる道）にし、もう一度試すかは利用者が決める。手動の確認なら新しい版として出す。
+  it('自動の確認で前にインストールに失敗した版が見つかったら、失敗の札にする', () => {
+    const auto = run(ready(), { type: 'check.start', manual: false }, { type: 'check.done', version: '1.5.0', failed: 'blocked', at: 1 });
+    expect(auto.phase).toEqual({ kind: 'failed', step: 'install', version: '1.5.0', reason: 'blocked' });
+    expect(auto.checkedAt).toBe(1);
+    expect(cardPhase(auto)?.kind).toBe('failed');
+    expect(run(auto, { type: 'download.start' }).phase).toEqual({ kind: 'downloading', version: '1.5.0', done: 0, total: null });
+    const manual = run(ready(), { type: 'check.start', manual: true }, { type: 'check.done', version: '1.5.0', failed: 'blocked', at: 1 });
+    expect(manual.phase).toEqual({ kind: 'available', version: '1.5.0' });
+    const none = run(ready(), { type: 'check.start', manual: false }, { type: 'check.done', version: '1.5.0', failed: null, at: 1 });
+    expect(none.phase).toEqual({ kind: 'available', version: '1.5.0' });
+  });
+
   it('失敗からもう一度取得できる', () => {
     const failed = run(ready(), { type: 'check.start', manual: false }, { type: 'check.done', version: '1.5.0', at: 1 }, { type: 'download.start' }, { type: 'download.failed', reason: 'network' });
     expect(run(failed, { type: 'download.start' }).phase).toEqual({ kind: 'downloading', version: '1.5.0', done: 0, total: null });

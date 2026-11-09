@@ -329,6 +329,10 @@ a:hover { text-decoration: underline; }
 /* ボタンと入力。ボタンは錠剤の形で、主ボタンだけ上から下へ淡いグラデーションを持つ。 */
 /* 高さの決まった錠剤なので、文字は折り返さない。折り返すと 2 行目が箱の外へ出る。長い名前は .btn-label に入れて省略する。 */
 .btn { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); max-width: 100%; height: var(--row-h); padding: 0 calc(var(--u) * 3); white-space: nowrap; border: 0; border-radius: var(--r-pill); font-weight: 600; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+/* 外へのページへのリンクをボタンの見た目で置くとき（更新の札のリリースページ）。リンクの色と下線を持ち込まない。
+   色は a の既定（var(--accent)）と同じ強さ（:where で .btn を数えない）にして後に置き、.btn-primary、.btn-ghost などの種類の色が勝つようにする。 */
+a.btn, a.btn:hover { text-decoration: none; }
+a:where(.btn) { color: inherit; }
 .btn > .btn-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .btn > svg { flex: none; }
 .btn:hover { background: var(--surface); box-shadow: inset 0 1px 0 #ffffff, 0 3px 10px -2px rgba(30, 40, 90, 0.2); }

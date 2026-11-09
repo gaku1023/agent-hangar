@@ -8,9 +8,12 @@
 
 import { notesBetween, type ReleaseNote } from '../lib/releaseNotes.ts';
 
-/** 失敗の理由。殻が updater の誤りを 4 つに分けて返す（src-tauri/src/updater.rs の failure_kind）。 */
-export type UpdateFailReason = 'network' | 'signature' | 'permission' | 'other';
-export const UPDATE_FAIL_REASONS: readonly UpdateFailReason[] = ['network', 'signature', 'permission', 'other'];
+/**
+ * 失敗の理由。殻が updater の誤りを分けて返す（src-tauri/src/updater.rs の failure_kind と install_failure_kind）。
+ * blocked は、Windows の Smart App Control などのアプリの制御がインストーラを止めた（止めた見込みが高い）ときである。
+ */
+export type UpdateFailReason = 'network' | 'signature' | 'permission' | 'blocked' | 'other';
+export const UPDATE_FAIL_REASONS: readonly UpdateFailReason[] = ['network', 'signature', 'permission', 'blocked', 'other'];
 
 /**
  * 更新の段階。
@@ -45,7 +48,7 @@ export type UpdateEvent =
   | { type: 'notes.bundled'; notes: ReleaseNote[] }
   | { type: 'notes.seen'; open: string[] }
   | { type: 'check.start'; manual: boolean }
-  | { type: 'check.done'; version: string | null; notes?: string | null; at: number }
+  | { type: 'check.done'; version: string | null; notes?: string | null; failed?: UpdateFailReason | null; at: number }
   | { type: 'check.failed'; reason: UpdateFailReason }
   | { type: 'download.start' }
   | { type: 'download.progress'; done: number; total: number | null }
@@ -93,7 +96,12 @@ export function reduceUpdate(s: UpdateState, e: UpdateEvent): UpdateState {
       const foundNotes = e.version === null ? null
         : typeof e.notes === 'string' && e.notes.trim() !== '' ? { version: e.version, text: e.notes }
           : s.foundNotes?.version === e.version ? s.foundNotes : null;
-      return { ...s, phase: e.version === null ? { kind: 'latest' } : { kind: 'available', version: e.version }, checkedAt: e.at, foundNotes };
+      // 前にインストールに失敗した版を自動の確認で見つけたら、新しい版として勧め直さず、その失敗を出す（#617）。
+      // 起動し直すたびに同じ版を勧め、同じ失敗と Windows セキュリティの知らせを繰り返さないためである。手動の確認なら勧める。
+      const phase: UpdatePhase = e.version === null ? { kind: 'latest' }
+        : e.failed && !s.manual ? { kind: 'failed', step: 'install', version: e.version, reason: e.failed }
+          : { kind: 'available', version: e.version };
+      return { ...s, phase, checkedAt: e.at, foundNotes };
     }
     case 'check.failed':
       return { ...s, phase: { kind: 'failed', step: 'check', version: null, reason: e.reason } };

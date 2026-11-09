@@ -27,6 +27,8 @@ export const updateJa: AreaDictionary<typeof updateKeys> = {
   'update.reason.network': 'ネットワークまたは配布元に接続できませんでした。',
   'update.reason.signature': '署名を確認できませんでした。',
   'update.reason.permission': 'インストールの権限を取得できませんでした。',
+  'update.reason.blocked': 'Smart App Control などにブロックされた可能性があります。手動で更新してください。',
+  'update.card.releasePage': 'リリースページを開く',
   'update.reason.other': '詳しくはログを確認してください。',
   'update.settings.badgeLatest': '最新',
   'update.settings.badgeOff': '通知オフ',
