@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { isAlive, parseStartTime, probeStartTime, sameStartTime, spawnRun, startTimeOf, terminate, type ProcRun } from './proc.ts';
+import { bootedAt, isAlive, parseStartTime, probeStartTime, sameStartTime, spawnRun, startTimeOf, startTimesWin, terminate, type ProcRun } from './proc.ts';
 
 describe('parseStartTime', () => {
   it('ps の lstart を UTC として読む', () => {
@@ -160,4 +160,70 @@ describe('実物のプロセス', () => {
       if (child.exitCode === null && child.signalCode === null) child.kill();
     }
   }, 40_000);
+});
+
+describe('bootedAt', () => {
+  it('OS が起動した時刻を、いまから稼働時間を引いて返す', () => {
+    const at = bootedAt();
+    // このプロセスより前に起動しており、2000 年より後である。
+    expect(at).toBeLessThanOrEqual(Date.now() - process.uptime() * 1000 + 1000);
+    expect(at).toBeGreaterThan(Date.UTC(2000, 0, 1));
+  });
+});
+
+describe('startTimesWin（偽の実行）', () => {
+  // WMI の CreationDate は、手元の時刻と UTC からの分の差を書いた DMTF の文字列で返る（2026-11-09 実測）。
+  it('pid をまとめて 1 回の PowerShell で聞き、DMTF の文字列を UTC の 100 ナノ秒単位の整数に読む', async () => {
+    const calls: string[][] = [];
+    const run = async (file: string, args: string[]) => {
+      calls.push([file, ...args]);
+      return { status: 0, stdout: '12156 20261109171915.590147+540\r\n6440 20261106115309.072213+000\r\n\r\n' };
+    };
+    const got = await startTimesWin([12156, 6440], run);
+    // 12156 は Get-Process で 134386859555901477（2026-11-09T08:19:15.5901477Z）。DMTF はマイクロ秒までなので末尾が 0 になる。
+    expect([...got]).toEqual([[12156, '134386859555901470'], [6440, '134384395890722130']]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![0]).toBe('powershell.exe');
+    expect(calls[0]!.at(-1)).toContain('ProcessId=12156 OR ProcessId=6440');
+  });
+  it('UTC より遅れた時刻帯（負の差）も読む', async () => {
+    const got = await startTimesWin([7], async () => ({ status: 0, stdout: '7 20261109031915.590147-300\r\n' }));
+    expect(got.get(7)).toBe('134386859555901470');
+  });
+  it('読めない行と、聞いていない pid の行は捨てる', async () => {
+    const got = await startTimesWin([5], async () => ({ status: 0, stdout: '5 \r\n7 20261109171915.590147+540\r\n5 20261109171915.590147\r\nnoise\r\n' }));
+    expect(got.size).toBe(0);
+  });
+  it('整数でない pid は聞かない。聞くものが無ければ起こさない', async () => {
+    let n = 0;
+    const got = await startTimesWin([0, -1, 1.5], async () => { n++; return { status: 0, stdout: '' }; });
+    expect(got.size).toBe(0);
+    expect(n).toBe(0);
+  });
+  it('1 回の PowerShell で聞く pid は 100 までに区切る。失敗した区切りは飛ばす', async () => {
+    const asked: number[] = [];
+    const pids = Array.from({ length: 250 }, (_, i) => i + 1);
+    const got = await startTimesWin(pids, async (_f, args) => {
+      const ids = [...args.at(-1)!.matchAll(/ProcessId=(\d+)/g)].map((m) => Number(m[1]));
+      asked.push(ids.length);
+      if (ids[0] === 101) return { status: 1, stdout: '' };
+      return { status: 0, stdout: ids.map((p) => `${p} 20261109171915.590147+540`).join('\r\n') };
+    });
+    expect(asked).toEqual([100, 100, 50]);
+    expect(got.size).toBe(150);
+    expect(got.has(150)).toBe(false);
+  });
+  it('全部の区切りで失敗したら投げる', async () => {
+    await expect(startTimesWin([5], async () => ({ status: 1, stdout: '' }))).rejects.toThrow();
+  });
+});
+
+describe.runIf(process.platform === 'win32')('startTimesWin（実物の実行）', () => {
+  // 権限の無いプロセス（svchost など）の起動時刻は Get-Process では読めない。WMI の CreationDate なら読める（2026-11-09 実測）。
+  it('このプロセスの起動時刻を、Get-Process で読んだものと秒まで同じに返す', async () => {
+    const got = await startTimesWin([process.pid]);
+    const mine = got.get(process.pid);
+    expect(mine).toBeDefined();
+    expect(parseStartTime(mine!)).toBe(parseStartTime(startTimeOf(process.pid)!));
+  }, 30_000);
 });

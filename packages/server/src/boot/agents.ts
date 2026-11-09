@@ -5,6 +5,7 @@ import { RUN_DROPPED_ENV, AGENT_RUN_DROPPED_ENV } from '../launch/env.ts';
 import { ensureHookScript } from '../launch/hookScript.ts';
 import { remoteRoot } from '../config/cloud.ts';
 import type { CompatLog } from '../provider/claude-code/compat/log.ts';
+import type { IsGone } from '../provider/claude-code/registry.ts';
 import { claudeBinOf } from '../provider/claude-code/compat/localClaude.ts';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { claudeLiveSource, createClaudeDriver, type ClaudeDriver, type ClaudeLiveSource } from '../provider/claude-code/driver.ts';
@@ -70,7 +71,7 @@ export type AgentParts = {
  */
 export function bootAgents(
   home: Pick<HomeParts, 'home' | 'token' | 'claudeDir' | 'settings' | 'language'>,
-  o: { compatLog: CompatLog; claudeVersion: { current: string | null }; enrich: (live: LiveSessionDto[]) => LiveSessionDto[]; registryIsGone?: (pid: number) => boolean },
+  o: { compatLog: CompatLog; claudeVersion: { current: string | null }; enrich: (live: LiveSessionDto[]) => LiveSessionDto[]; registryIsGone?: IsGone },
 ): AgentParts {
   const procs = realProcOpsWith(o.compatLog);
   const claude = claudeDriverFor({

@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { waitKindOf, type LiveStatus } from '@agent-hangar/shared';
 import { Pacer } from '../../platform/pacer.ts';
-import { isAlive } from '../../platform/proc.ts';
+import { PidReuseCheck } from '../../platform/pidReuse.ts';
+import { bootedAt, isAlive, parseStartTime, startTimesWin } from '../../platform/proc.ts';
 import type { LiveSession } from './types.ts';
 import { RegistryMissGate, registryDrifts, registryKey, registryRef, registryStartedAt } from './compat/registry.ts';
 import { isRec, NO_COMPAT, type CompatSink, type Drift } from './compat/types.ts';
@@ -10,13 +11,66 @@ import { isRec, NO_COMPAT, type CompatSink, type Drift } from './compat/types.ts
 const STATUSES = new Set<LiveStatus>(['busy', 'idle', 'waiting']);
 
 /**
+ * 登録 1 件の、プロセスを見分ける手がかり。
+ * procStart はプロセスの起動時刻（platform/proc.ts の書式）、writtenAt は登録が最後に書かれた時刻（updatedAt、statusUpdatedAt、startedAt の最も新しいもの）である。
+ */
+export type RegistryStamp = { procStart?: string; writtenAt?: number };
+
+/** 登録 1 件を消えたプロセスの残りと見るか。stamp を渡さなければ、pid だけで見る。 */
+export type IsGone = (pid: number, stamp?: RegistryStamp) => boolean;
+
+/**
+ * procStart と OS の起動の時刻の差がこれより小さいときは、起動より前とは決めない。
+ * 稼働時間から求めた起動の時刻は、時計の合わせ直しで少しずれうる。
+ */
+export const BOOT_SLACK_MS = 30_000;
+/**
+ * procStart が無く、最後に書かれた時刻で見るときの余裕。
+ * 書かれた時刻は claude が壁時計で書くので、起動の後に時計が合わせ直されると大きく飛びうる。procStart より広く取る。
+ */
+export const BOOT_SLACK_WRITTEN_MS = 10 * 60_000;
+
+/** goneOn の差し替え口。試験で、起動の時刻、生きているか、使い回しの答えを決めるために使う。 */
+export type GoneDeps = { bootedAt?: () => number; alive?: (pid: number) => boolean; reuse?: { reused(pid: number, procStart: string): boolean } };
+
+/**
  * その OS で、pid の登録を「消えたプロセスの残り」と見るかを返す。
  * macOS と Linux の claude は、止められると自分の登録を消すので、残りは見ない（いまの動きを変えない）。
- * Windows には穏やかに止める手段が無く、止められた claude は登録を消せない。動いていない pid の登録は残りと見る。
- * pid が別のプロセスに使い回されると残りを見逃すが、そのときは「動いている」と読むだけで、何も止めない。
+ * そこでは稼働時間が VM の一時停止や WSL2 のホストのスリープで止まり、起動の時刻が後ろへずれうるので、起動の時刻でも見ない。
+ * Windows には穏やかに止める手段が無く、止められた claude は登録を消せない。次のどれかに当たる登録は残りと見る。
+ * 1. OS の起動より前に始まった。再起動の前に止めずに残った登録である（#592）。
+ *    procStart で見る。procStart が無いか読めなければ、最後に書かれた時刻で、余裕を広く取って見る。どちらも無ければ決めない。
+ * 2. pid が動いていない。
+ * 3. 動いている pid でも、そのプロセスの起動時刻が procStart と違う。別のプロセスに使い回されている。
+ *    起動時刻は外のプロセスで読むので、裏でまとめて読んで覚える（platform/pidReuse.ts）。読み終わるまでは「動いている」と読む。
  */
-export function goneOn(platform: NodeJS.Platform): (pid: number) => boolean {
-  return (pid) => platform === 'win32' && pid > 0 && !isAlive(pid);
+export function goneOn(platform: NodeJS.Platform, deps: GoneDeps = {}): IsGone {
+  if (platform !== 'win32') return () => false;
+  const booted = deps.bootedAt ?? (() => bootedAt());
+  const alive = deps.alive ?? isAlive;
+  const reuse = deps.reuse ?? new PidReuseCheck((pids) => startTimesWin(pids));
+  return (pid, stamp = {}) => {
+    if (pid <= 0) return false;
+    const started = stamp.procStart ? parseStartTime(stamp.procStart) : null;
+    if (started !== null ? started < booted() - BOOT_SLACK_MS : stamp.writtenAt !== undefined && stamp.writtenAt < booted() - BOOT_SLACK_WRITTEN_MS) return true;
+    if (!alive(pid)) return true;
+    return started !== null && reuse.reused(pid, stamp.procStart!);
+  };
+}
+
+/**
+ * 登録の時刻の欄を読む。epoch のミリ秒らしい数（1e12 以上、2001 年より後）でなければ undefined。
+ * 秒の単位で書かれたようなおかしな値を、起動より前の時刻と読み違えないためである。
+ */
+const numOf = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) && v >= 1e12 ? v : undefined);
+
+/** 登録から、プロセスを見分ける手がかりを取り出す。 */
+function stampOf(rec: Record<string, unknown>): RegistryStamp {
+  const s: RegistryStamp = {};
+  if (typeof rec.procStart === 'string' && rec.procStart !== '') s.procStart = rec.procStart;
+  const times = [rec.updatedAt, rec.statusUpdatedAt, rec.startedAt].map(numOf).filter((t): t is number => t !== undefined);
+  if (times.length > 0) s.writtenAt = Math.max(...times);
+  return s;
 }
 
 /**
@@ -64,7 +118,7 @@ function readEntry(file: string, name: string, carry: RegistryCarry | undefined,
  * オブジェクトでない登録（配列や null）は読まない。1 件の形が崩れても、ほかのセッションの状態は出し続ける。
  * carry を渡すと、書きかけで読めなかった登録を、前に読めた中身のまま続ける（RegistryCarry）。now はその長さを数える時刻である。
  */
-export function readRegistry(claudeDir: string, isGone: (pid: number) => boolean = () => false, onEntry?: (key: string, startedAt: number | null, drifts: Drift[]) => void, carry?: RegistryCarry, now: number = Date.now()): LiveSession[] {
+export function readRegistry(claudeDir: string, isGone: IsGone = () => false, onEntry?: (key: string, startedAt: number | null, drifts: Drift[]) => void, carry?: RegistryCarry, now: number = Date.now()): LiveSession[] {
   const dir = path.join(claudeDir, 'sessions');
   if (!fs.existsSync(dir)) { carry?.clear(); return []; }
   const out: LiveSession[] = [];
@@ -82,7 +136,7 @@ export function readRegistry(claudeDir: string, isGone: (pid: number) => boolean
     if (!isRec(raw)) continue;
     const rec = raw;
     if (typeof rec.sessionId !== 'string') continue;
-    if (typeof rec.pid === 'number' && isGone(rec.pid)) continue;
+    if (typeof rec.pid === 'number' && isGone(rec.pid, stampOf(rec))) continue;
     // shell は、本体が休みで裏の Bash だけが動いていること。作業中のまま、裏だけの印を付ける（LiveAsideDto）。
     // 知らない値は作業中と読む。止めてよいかを誤るより、待たせるほうが害が小さい。
     const status = STATUSES.has(rec.status as LiveStatus) ? (rec.status as LiveStatus) : 'busy';
@@ -155,7 +209,7 @@ export class RegistryWatcher {
    * 変化は見張りの知らせで拾う。作業中があれば、裏だけの印のために intervalMs ごとに読む。見張れない間も intervalMs ごとに読む。
    * pace を省けば、いままでどおり intervalMs ごとに読む。
    */
-  constructor(private readonly claudeDir: string, private readonly intervalMs = 500, private readonly isGone: (pid: number) => boolean = goneOn(process.platform), private readonly enrich: (live: LiveSession[]) => LiveSession[] = (l) => l, private readonly compat: CompatSink = NO_COMPAT, private readonly pace?: RegistryPace) {}
+  constructor(private readonly claudeDir: string, private readonly intervalMs = 500, private readonly isGone: IsGone = goneOn(process.platform), private readonly enrich: (live: LiveSession[]) => LiveSession[] = (l) => l, private readonly compat: CompatSink = NO_COMPAT, private readonly pace?: RegistryPace) {}
 
   start(): void {
     if (this.pacer) return;
@@ -176,6 +230,11 @@ export class RegistryWatcher {
     this.detach();
   }
   current(): LiveSession[] { return this.last; }
+  /**
+   * 写しを使わず、その場で登録を読み直す。見張りと同じ isGone を通す（足し付けもずれの記録もしない）。
+   * 止める候補を決めるときのように、打ったばかりの変化を古い写しで見誤りたくない呼び手が使う。
+   */
+  readNow(): LiveSession[] { return readRegistry(this.claudeDir, this.isGone); }
   onChange(cb: (live: LiveSession[]) => void): () => void { this.listeners.add(cb); return () => this.listeners.delete(cb); }
   /** 最後に数えた登録を忘れる。ずれの記録が空になったとき、次の読み直しで残っている登録のずれを 1 回だけ数え直す。 */
   renoteDrifts(): void { this.lastRegKey = ''; }

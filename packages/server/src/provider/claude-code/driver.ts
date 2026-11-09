@@ -6,7 +6,7 @@ import { buildClaudeArgs } from './launch/args.ts';
 import { writeHookSettings, type HookSettingsInput } from './launch/hookSettings.ts';
 import { writeMcpConfig } from './launch/mcpConfig.ts';
 import type { ProcOps } from './process/procs.ts';
-import { RegistryWatcher, watchDir } from './registry.ts';
+import { RegistryWatcher, watchDir, type IsGone } from './registry.ts';
 import type { CompatSink } from './compat/types.ts';
 import type { ClaudeTranscriptSource } from './transcript/source.ts';
 import type { LaunchMode, LiveSession } from './types.ts';
@@ -63,6 +63,8 @@ function unsetFor(droppedEnv: readonly string[], env: Record<string, string>): r
 export type ClaudeLiveSource = LiveSource & {
   /** 最後に数えた登録を忘れ、次の読み直しで残っている登録のずれを 1 回だけ数え直す（RegistryWatcher.renoteDrifts）。 */
   renoteDrifts(): void;
+  /** その場で登録を読み直す。見張りと同じ判定で、消えたプロセスの残りを外す（RegistryWatcher.readNow）。 */
+  readNow(): LiveSession[];
 };
 
 /**
@@ -71,7 +73,7 @@ export type ClaudeLiveSource = LiveSource & {
  * isGone は消えたプロセスの残りと見る pid（省けば OS で決める）。enrich は読み直しのたびに通す足し付けで、LiveHub.enrich を渡す。
  * compat は形のずれを受け取る口。
  */
-export function claudeLiveSource(o: { claudeDir: string; pollMs: number; idleMs: number; isGone?: (pid: number) => boolean; enrich: (live: LiveSession[]) => LiveSession[]; compat: CompatSink }): ClaudeLiveSource {
+export function claudeLiveSource(o: { claudeDir: string; pollMs: number; idleMs: number; isGone?: IsGone; enrich: (live: LiveSession[]) => LiveSession[]; compat: CompatSink }): ClaudeLiveSource {
   const w = new RegistryWatcher(o.claudeDir, o.pollMs, o.isGone, o.enrich, o.compat, { idleMs: o.idleMs, watch: watchDir });
   return {
     start: () => w.start(),
@@ -81,6 +83,7 @@ export function claudeLiveSource(o: { claudeDir: string; pollMs: number; idleMs:
     kick: (ms) => w.kick(ms),
     isRunning: (providerSessionId, pid) => w.current().some((l) => l.sessionId === providerSessionId && l.pid === pid),
     renoteDrifts: () => w.renoteDrifts(),
+    readNow: () => w.readNow(),
   };
 }
 

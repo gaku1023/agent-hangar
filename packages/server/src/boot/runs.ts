@@ -19,7 +19,6 @@ import type { ExternalApi } from '../http/deps.ts';
 import { ClaudeDirWatch } from '../provider/claude-code/compat/claudeDir.ts';
 import { remoteControlRefusal } from '../provider/claude-code/launch/remoteControl.ts';
 import { claudeBinOf, LocalClaude } from '../provider/claude-code/compat/localClaude.ts';
-import { readRegistry } from '../provider/claude-code/registry.ts';
 import { RunAccounts } from '../runs/accounts.ts';
 import { LaunchPreps } from '../runs/launchPrep.ts';
 import { RunManager } from '../runs/manager.ts';
@@ -197,8 +196,8 @@ export function bootRuns(
   // 読めなかったときは、何も止めない。
   const parkWatch = new ParkWatch({
     // 写しに候補（Done か Archived の付いた休みの会話）が無ければ、登録を読み直さない。待機中に 2 秒ごとに読まないためである。
-    // Claude は登録を読み直し、opencode は状態の面の写し（serve の出来事の流れで持つので、読み直すものが無い）を足す。
-    parkedIds: () => { try { return hasMarkedIdle(db, live.current()) ? parkedSessionIds(db, [...readRegistry(claudeDir), ...delivery.agents.of('opencode').live.current()], device.id) : []; } catch { return []; } },
+    // Claude は登録を見張りと同じ判定（消えたプロセスの残りを外す）で読み直し、opencode は状態の面の写し（serve の出来事の流れで持つので、読み直すものが無い）を足す。
+    parkedIds: () => { try { return hasMarkedIdle(db, live.current()) ? parkedSessionIds(db, [...delivery.claude.live.readNow(), ...delivery.agents.of('opencode').live.current()], device.id) : []; } catch { return []; } },
     stop: (id) => runs.park(id),
     // 設定の「Done と Archived にした会話を止める」。切っている間は止めず、一覧でも実行中として見せる（setParkingSwitch）。
     enabled: () => settings.current.autoPark !== false,

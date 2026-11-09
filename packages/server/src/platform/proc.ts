@@ -1,4 +1,5 @@
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
+import os from 'node:os';
 
 // hangar の外で動くプロセスの見分け方と止め方。
 // Claude Code は ~/.claude/sessions/<pid>.json に procStart を書く。PID は使い回されるので、起動時刻が合うことで同じプロセスだと確かめる。
@@ -91,6 +92,76 @@ export function parseStartTime(s: string): number | null {
   const at = Date.UTC(year, month, day, h, min, sec);
   // 2 月 30 日のような暦に無い日は、Date.UTC が翌月へ繰り越すので見分けられる。
   return new Date(at).getUTCDate() === day ? at : null;
+}
+
+/**
+ * OS が起動した時刻（epoch のミリ秒）。いまから稼働時間（os.uptime）を引いて求める。外のコマンドは起こさない。
+ * libuv の稼働時間は、Windows は GetTickCount64、macOS は kern.boottime、Linux は CLOCK_BOOTTIME から数える。
+ * どれもスリープの間を含むので、起動した時刻は動かない。Windows では LastBootUpTime と 1 秒以内で合った（2026-11-09 実測）。
+ */
+export function bootedAt(now: number = Date.now()): number {
+  return now - os.uptime() * 1000;
+}
+
+/** 外のコマンドを非同期で 1 回打つ。startTimesWin の試験で差し替える。 */
+export type ProcRunAsync = (file: string, args: string[]) => Promise<{ status: number | null; stdout: string }>;
+
+const realRunAsync: ProcRunAsync = (file, args) => new Promise((resolve) => {
+  execFile(file, args, { encoding: 'utf8', windowsHide: true, timeout: 15_000 }, (err, stdout) => {
+    const code = (err as (Error & { code?: unknown }) | null)?.code;
+    resolve({ status: err ? (typeof code === 'number' ? code : null) : 0, stdout: stdout ?? '' });
+  });
+});
+
+/** 1 回の PowerShell で聞く pid の数の上限。フィルタの文が長くなりすぎないためである。 */
+const START_TIMES_CHUNK = 100;
+
+/**
+ * WMI の DMTF の時刻（yyyymmddHHMMSS.ffffff±UUU、UUU は UTC からの分の差）を、1601 年からの 100 ナノ秒単位の整数の文字列に読む。
+ * 差を文字列から読むので、夏時間が戻る重複の 1 時間でも、手元の時刻の読み違いが起きない。読めなければ null。
+ */
+export function dmtfToFileTime(s: string): string | null {
+  const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\.(\d{6})([+-])(\d{3})$/.exec(s.trim());
+  if (!m) return null;
+  const [y, mo, d, h, mi, sec, micro] = m.slice(1, 8).map(Number) as [number, number, number, number, number, number, number];
+  const offsetMin = (m[8] === '-' ? -1 : 1) * Number(m[9]);
+  const local = Date.UTC(y, mo - 1, d, h, mi, sec);
+  if (new Date(local).getUTCDate() !== d) return null;
+  const ms = BigInt(local - offsetMin * 60_000);
+  return String((ms + FILETIME_EPOCH_MS) * 10_000n + BigInt(micro) * 10n);
+}
+
+/**
+ * Windows で、いくつかの pid の起動時刻を PowerShell でまとめて読む。待つ間もイベントループを止めない。
+ * 返すのは pid ごとの、Claude の procStart と同じ 1601 年からの 100 ナノ秒単位の整数。居ない pid と読めない pid は入れない。
+ * Get-Process の StartTime は、権限の無いプロセス（svchost など）では読めない。使い回しの相手はそういうプロセスが多いので、WMI の CreationDate で読む。
+ * Get-CimInstance は CreationDate を手元の時刻に直してしまい、夏時間が戻る 1 時間で UTC が 1 時間ずれうる。
+ * Get-WmiObject なら UTC からの差つきの DMTF の文字列のまま受け取れるので、差は自分で読む（dmtfToFileTime）。
+ * CreationDate はマイクロ秒までなので、末尾の桁は procStart と違う。比べるときは秒で比べる（parseStartTime）。
+ * pid は START_TIMES_CHUNK ずつに区切って聞く。失敗した区切りの pid は入れない。全部の区切りで失敗したら投げる。
+ */
+export async function startTimesWin(pids: number[], run: ProcRunAsync = realRunAsync): Promise<Map<number, string>> {
+  // pid はコマンドの文に埋めるので、整数であることを先に確かめる。
+  const want = [...new Set(pids.filter(validPid))];
+  const out = new Map<number, string>();
+  let failed = 0;
+  let chunks = 0;
+  for (let i = 0; i < want.length; i += START_TIMES_CHUNK) {
+    const chunk = want.slice(i, i + START_TIMES_CHUNK);
+    chunks++;
+    const filter = chunk.map((p) => `ProcessId=${p}`).join(' OR ');
+    const r = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Get-WmiObject Win32_Process -Filter '${filter}' | ForEach-Object { '' + $_.ProcessId + ' ' + $_.CreationDate }`]);
+    if (r.status !== 0) { failed++; continue; }
+    const asked = new Set(chunk);
+    for (const line of r.stdout.split(/\r?\n/)) {
+      const m = /^(\d+) (\S+)$/.exec(line.trim());
+      const ft = m ? dmtfToFileTime(m[2]!) : null;
+      if (m && ft && asked.has(Number(m[1]))) out.set(Number(m[1]), ft);
+    }
+  }
+  // 呼び手（platform/pidReuse.ts）は理由を見ずに捨てるので、画面に出す文にはしない。
+  if (chunks > 0 && failed === chunks) throw new Error('Get-WmiObject failed');
+  return out;
 }
 
 export function isAlive(pid: number): boolean {
