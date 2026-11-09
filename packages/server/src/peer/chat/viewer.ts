@@ -386,6 +386,8 @@ class Watch {
     this.items.clear();
     this.asks.clear();
     this.cursor = null;
+    // 別の PC へ移ったので、貯めた項目は頭から。起点も頭に戻す（GET の startedAfter が、写しの続きと取り違えられないように）。
+    this.startedAfter = null;
     this.status = null;
     this.queued = [];
     this.hostId = null;

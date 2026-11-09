@@ -223,6 +223,104 @@ describe('見張りを始める（GET）', () => {
     expect(tails()[3]!.req.op).toMatchObject({ after: 'u10' });
   });
 
+  describe('起点を広げて取り直す（rewind）の周辺', () => {
+    const hang = (): ((req: PeerChatRequest, signal: AbortSignal | undefined) => Promise<HostAnswer>) => (_req, signal) => new Promise<HostAnswer>((resolve) => { signal?.addEventListener('abort', () => resolve(new Error('aborted'))); });
+    const q1 = { queueId: 'q1', from: { deviceId: 'pc-c', deviceName: 'Linux' }, text: 'hi', images: 0, at: 5, state: 'waiting' as const };
+
+    it('中止した問い合わせの返事（state 付き）が遅れて届いても、cursor と項目を汚さない', async () => {
+      localCursor = 'local-9';
+      answers.push(() => ok(state([item('u10')])));
+      await viewer.open(SID, { viewer: 'v1' });
+      // 2 回目の問い合わせは、中止されても返事を止めておき、あとで返す。
+      let late: (a: HostAnswer) => void = () => {};
+      answers.push(() => new Promise<HostAnswer>((resolve) => { late = resolve; }));
+      await clock.advance(PEER_CHAT_MIN_GAP_MS);
+      expect(tails()).toHaveLength(2);
+      answers.push(() => ok(state([item('u1'), item('u10')])));
+      const second = await viewer.open(SID, { viewer: 'v2', after: null });
+      expect(second.ok && second.update.items.map((i) => i.uuid)).toEqual(['u1', 'u10']);
+      // 古い起点への返事が、いまさら届く。
+      late(ok(state([item('zz')], { status: 'idle', queued: [q1], cursor: 'zz' })));
+      await clock.settle();
+      const third = await viewer.open(SID, { viewer: 'v3', after: null });
+      expect(third.ok && third.update).toMatchObject({ items: [item('u1'), item('u10')], cursor: 'u10', status: 'busy', queued: [] });
+      expect(updates().some((u) => u.items.some((i) => i.uuid === 'zz'))).toBe(false);
+      await clock.advance(PEER_CHAT_MIN_GAP_MS);
+      expect(tails().at(-1)!.req.op).toMatchObject({ after: 'u10' });
+    });
+
+    it('広げて取り直したあとも、預かり（queued）と、答えの付いた札の記録が残る', async () => {
+      localCursor = 'local-9';
+      answers.push(() => ok(state([askItem('k1', 'A')], { status: 'waiting', queued: [q1] })));
+      await viewer.open(SID, { viewer: 'v1' });
+      answers.push(hang());
+      await clock.advance(PEER_CHAT_MIN_GAP_MS);
+      answers.push(() => ok(state([item('u1'), askItem('k1', 'A', true)], { status: 'idle', queued: [q1] })));
+      const second = await viewer.open(SID, { viewer: 'v2', after: null });
+      expect(second.ok && second.update).toMatchObject({ replace: true, status: 'idle', queued: [q1], cursor: 'k1' });
+      const items = second.ok ? second.update.items : [];
+      expect(items.map((i) => i.uuid)).toEqual(['u1', 'k1']);
+      expect(items[1]!.ask?.answered).toMatchObject({ label: 'Yes' });
+      expect(updates().at(-1)).toMatchObject({ replace: true, queued: [q1] });
+    });
+
+    it('取り直しの間に全員が unwatch したら、そこで止まる（問い合わせを出さない）', async () => {
+      localCursor = 'local-9';
+      answers.push(() => ok(state([item('u10')])));
+      await viewer.open(SID, { viewer: 'v1' });
+      answers.push(hang());
+      await clock.advance(PEER_CHAT_MIN_GAP_MS);
+      // 取り直しの問い合わせも止めておく。
+      answers.push(hang());
+      const p = viewer.open(SID, { viewer: 'v2', after: null });
+      await clock.settle();
+      expect(tails()).toHaveLength(3);
+      viewer.unwatch(SID, 'v1');
+      viewer.unwatch(SID, 'v2');
+      expect(viewer.watching(SID)).toBe(false);
+      await p;
+      const n = asks.length;
+      await clock.advance(5 * 60_000);
+      expect(asks).toHaveLength(n);
+    });
+
+    it('相手が offline のときの取り直しは、待ちを飛ばして頼み直し、そのあとの間は 15 秒、30 秒の順を崩さない', async () => {
+      answers.push(() => ({ status: 409, reason: 'offline' }));
+      answers.push(() => ({ status: 409, reason: 'offline' }));
+      localCursor = 'local-9';
+      await viewer.open(SID, { viewer: 'v1' });
+      expect(tails()).toHaveLength(1);
+      // 15 秒の待ちの途中で、頭からを求める人が加わる。
+      await clock.advance(5_000);
+      const p = viewer.open(SID, { viewer: 'v2', after: null });
+      await clock.settle();
+      expect(tails()).toHaveLength(2);
+      expect(tails()[1]!.req.op).toMatchObject({ after: null });
+      await p;
+      // 2 回目の offline のあとは 30 秒空ける（取り直しで間を数え直さない）。
+      await clock.advance(PEER_CHAT_OFFLINE_RETRY_MS[1] - 1);
+      expect(tails()).toHaveLength(2);
+      await clock.advance(1);
+      expect(tails()).toHaveLength(3);
+      expect(updates().filter((u) => u.link === 'offline')).toHaveLength(1);
+    });
+
+    it('会話が別の PC へ移ったら、起点も頭に戻す（GET の startedAfter が前の写しの続きのままにならない）', async () => {
+      localCursor = 'local-9';
+      answers.push(() => ok(state([item('u10')])));
+      await viewer.open(SID, { viewer: 'v1' });
+      target = { ok: true, ...peerTarget({ deviceId: 'pc-c', deviceName: 'Linux' }) } as never;
+      // 入口の確かめは周の頭なので、移ったことは次の周で分かる（その前の 1 本は古い宛先に出る）。
+      answers.push(() => ok(state([])));
+      answers.push(() => ok(state([item('c1')])));
+      await clock.advance(PEER_CHAT_MIN_GAP_MS * 2);
+      const r = await viewer.open(SID, { viewer: 'v2' });
+      expect(tails().at(-1)!.body.to).toBe('pc-c');
+      expect(r.ok && r.startedAfter).toBeNull();
+      expect(r.ok && r.update.items.map((i) => i.uuid)).toEqual(['c1']);
+    });
+  });
+
   it('すでに頭から貯めている見張りには、頭からを求める人が加わっても取り直さない', async () => {
     answers.push(() => ok(state([item('u1')])));
     await viewer.open(SID, { viewer: 'v1' });
