@@ -63,6 +63,8 @@ function unsetFor(droppedEnv: readonly string[], env: Record<string, string>): r
 export type ClaudeLiveSource = LiveSource & {
   /** 最後に数えた登録を忘れ、次の読み直しで残っている登録のずれを 1 回だけ数え直す（RegistryWatcher.renoteDrifts）。 */
   renoteDrifts(): void;
+  /** その場で登録を読み直す。見張りと同じ判定で、消えたプロセスの残りを外す（RegistryWatcher.readNow）。 */
+  readNow(): LiveSession[];
 };
 
 /**
@@ -81,6 +83,7 @@ export function claudeLiveSource(o: { claudeDir: string; pollMs: number; idleMs:
     kick: (ms) => w.kick(ms),
     isRunning: (providerSessionId, pid) => w.current().some((l) => l.sessionId === providerSessionId && l.pid === pid),
     renoteDrifts: () => w.renoteDrifts(),
+    readNow: () => w.readNow(),
   };
 }
 

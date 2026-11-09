@@ -696,12 +696,20 @@ describe('readRegistry（使い回された pid の登録）', () => {
   const alive = () => true;
   const noReuse = { reused: () => false };
 
-  it('OS の起動より前に始まった登録は、pid が動いていても消えたと見る。どの OS でも同じ', () => {
-    for (const p of ['win32', 'darwin', 'linux'] as const) {
+  it('Windows では、OS の起動より前に始まった登録は、pid が動いていても消えたと見る', () => {
+    const gone = goneOn('win32', { bootedAt: () => BOOT, alive, reuse: noReuse });
+    expect(gone(42, { procStart: ft(BOOT - 3_600_000) })).toBe(true);
+    expect(gone(42, { procStart: ft(BOOT - 60_000) })).toBe(true);
+    expect(gone(42, { procStart: ft(BOOT + 60_000) })).toBe(false);
+  });
+
+  // macOS と Linux の稼働時間は、VM の一時停止や WSL2 のホストのスリープで止まり、起動の時刻が後ろへずれうる。
+  // ずれると動いている会話を丸ごと外すので、起動の時刻では見ない。ここの claude は止まるときに登録を自分で消す。
+  it('macOS と Linux では、OS の起動より前の登録でも消えたとは見ない', () => {
+    for (const p of ['darwin', 'linux'] as const) {
       const gone = goneOn(p, { bootedAt: () => BOOT, alive, reuse: noReuse });
-      const fmt = p === 'win32' ? ft : lstart;
-      expect(gone(42, { procStart: fmt(BOOT - 3_600_000) }), p).toBe(true);
-      expect(gone(42, { procStart: fmt(BOOT + 60_000) }), p).toBe(false);
+      expect(gone(42, { procStart: lstart(BOOT - 3_600_000) }), p).toBe(false);
+      expect(gone(42, { writtenAt: BOOT - 3_600_000 }), p).toBe(false);
     }
   });
 
@@ -710,10 +718,12 @@ describe('readRegistry（使い回された pid の登録）', () => {
     expect(gone(42, { procStart: ft(BOOT - 5_000) })).toBe(false);
   });
 
-  it('procStart が無いか読めなければ、最後に書かれた時刻で見る。どちらも無ければ決めない', () => {
-    const gone = goneOn('darwin', { bootedAt: () => BOOT, alive, reuse: noReuse });
+  it('procStart が無いか読めなければ、最後に書かれた時刻で見る。時計の飛びに備えて余裕を 10 分取る。どちらも無ければ決めない', () => {
+    const gone = goneOn('win32', { bootedAt: () => BOOT, alive, reuse: noReuse });
     expect(gone(42, { writtenAt: BOOT - 3_600_000 })).toBe(true);
     expect(gone(42, { procStart: 'garbage', writtenAt: BOOT - 3_600_000 })).toBe(true);
+    expect(gone(42, { writtenAt: BOOT - 11 * 60_000 })).toBe(true);
+    expect(gone(42, { writtenAt: BOOT - 9 * 60_000 })).toBe(false);
     expect(gone(42, { writtenAt: BOOT + 60_000 })).toBe(false);
     expect(gone(42, {})).toBe(false);
     expect(gone(42)).toBe(false);
@@ -736,6 +746,7 @@ describe('readRegistry（使い回された pid の登録）', () => {
     for (const p of ['darwin', 'linux'] as const) {
       const gone = goneOn(p, { bootedAt: () => BOOT, alive: () => false, reuse });
       expect(gone(12156, { procStart: lstart(BOOT + 60_000) })).toBe(false);
+      expect(gone(12156, { procStart: lstart(BOOT - 3_600_000) })).toBe(false);
     }
     expect(asked).toBe(0);
   });
@@ -747,15 +758,33 @@ describe('readRegistry（使い回された pid の登録）', () => {
       for (const f of fs.readdirSync(sessions)) fs.rmSync(path.join(sessions, f));
       const stale = { pid: 12156, sessionId: 'u-stale', cwd: '/x', status: 'idle', procStart: ft(BOOT - 3_600_000), startedAt: BOOT - 3_600_000, updatedAt: BOOT - 60_000, statusUpdatedAt: BOOT - 120_000 };
       const fresh = { pid: 39096, sessionId: 'u-fresh', cwd: '/y', status: 'idle', startedAt: BOOT + 60_000 };
+      // 秒の単位で書かれたようなおかしな時刻（1e12 未満）は、最後に書かれた時刻に数えない。
+      const odd = { pid: 777, sessionId: 'u-odd', cwd: '/z', status: 'idle', startedAt: Math.floor(BOOT / 1000), updatedAt: BOOT + 60_000 };
       fs.writeFileSync(path.join(sessions, '12156.json'), JSON.stringify(stale));
       fs.writeFileSync(path.join(sessions, '39096.json'), JSON.stringify(fresh));
+      fs.writeFileSync(path.join(sessions, '777.json'), JSON.stringify({ ...odd, updatedAt: undefined }));
       const seen: unknown[] = [];
       const isGone = (pid: number, stamp?: unknown) => { seen.push([pid, stamp]); return false; };
       readRegistry(dir, isGone);
       // 読む順は OS によって違うので、pid ごとに見る。
-      expect(new Map(seen as [number, unknown][])).toEqual(new Map([[12156, { procStart: stale.procStart, writtenAt: BOOT - 60_000 }], [39096, { writtenAt: BOOT + 60_000 }]]));
-      expect(readRegistry(dir, goneOn('win32', { bootedAt: () => BOOT, alive, reuse: noReuse })).map((l) => l.sessionId)).toEqual(['u-fresh']);
-      expect(fs.readdirSync(sessions).sort()).toEqual(['12156.json', '39096.json']);
+      expect(new Map(seen as [number, unknown][])).toEqual(new Map([[12156, { procStart: stale.procStart, writtenAt: BOOT - 60_000 }], [39096, { writtenAt: BOOT + 60_000 }], [777, {}]]));
+      expect(readRegistry(dir, goneOn('win32', { bootedAt: () => BOOT, alive, reuse: noReuse })).map((l) => l.sessionId)).toEqual(['u-fresh', 'u-odd']);
+      expect(fs.readdirSync(sessions).sort()).toEqual(['12156.json', '39096.json', '777.json']);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // 止める候補を決めるとき（boot/runs.ts の parkedIds）も、見張りと同じ判定で読む。
+  it('RegistryWatcher.readNow は、その場で読み直し、見張りと同じ isGone を通す', () => {
+    const dir = copyFixtureClaudeDir();
+    try {
+      const sessions = path.join(dir, 'sessions');
+      for (const f of fs.readdirSync(sessions)) fs.rmSync(path.join(sessions, f));
+      fs.writeFileSync(path.join(sessions, '7.json'), JSON.stringify({ pid: 7, sessionId: 'u-dead', cwd: '/x', status: 'idle' }));
+      fs.writeFileSync(path.join(sessions, '8.json'), JSON.stringify({ pid: 8, sessionId: 'u-alive', cwd: '/y', status: 'idle' }));
+      const w = new RegistryWatcher(dir, 1_000_000, (pid) => pid === 7);
+      expect(w.readNow().map((l) => l.sessionId)).toEqual(['u-alive']);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

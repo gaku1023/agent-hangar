@@ -14,5 +14,6 @@ export function liveSourceOf(read?: () => LiveSessionDto[]): ClaudeLiveSource {
     kick: () => {},
     isRunning: (providerSessionId, pid) => !read || read().some((l) => l.sessionId === providerSessionId && l.pid === pid),
     renoteDrifts: () => {},
+    readNow: () => read?.() ?? [],
   };
 }

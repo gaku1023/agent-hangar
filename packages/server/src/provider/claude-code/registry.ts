@@ -20,40 +20,49 @@ export type RegistryStamp = { procStart?: string; writtenAt?: number };
 export type IsGone = (pid: number, stamp?: RegistryStamp) => boolean;
 
 /**
- * OS の起動の時刻と、登録の時刻の差がこれより小さいときは、起動より前とは決めない。
- * 稼働時間から求めた起動の時刻は、時計の合わせ直しで少しずれうる。ps の lstart も壁時計と数秒ずれることがある。
+ * procStart と OS の起動の時刻の差がこれより小さいときは、起動より前とは決めない。
+ * 稼働時間から求めた起動の時刻は、時計の合わせ直しで少しずれうる。
  */
 export const BOOT_SLACK_MS = 30_000;
+/**
+ * procStart が無く、最後に書かれた時刻で見るときの余裕。
+ * 書かれた時刻は claude が壁時計で書くので、起動の後に時計が合わせ直されると大きく飛びうる。procStart より広く取る。
+ */
+export const BOOT_SLACK_WRITTEN_MS = 10 * 60_000;
 
 /** goneOn の差し替え口。試験で、起動の時刻、生きているか、使い回しの答えを決めるために使う。 */
 export type GoneDeps = { bootedAt?: () => number; alive?: (pid: number) => boolean; reuse?: { reused(pid: number, procStart: string): boolean } };
 
 /**
  * その OS で、pid の登録を「消えたプロセスの残り」と見るかを返す。
- * どの OS でも、OS の起動より前に始まったプロセスの登録は残りと見る。再起動の前に止めずに残った登録である（#592）。
- * 起動の時刻は procStart で見る。procStart が無いか読めなければ、最後に書かれた時刻で見る。どちらも無ければ決めない。
- * macOS と Linux の claude は、止められると自分の登録を消すので、ほかの残りは見ない（いまの動きを変えない）。
- * Windows には穏やかに止める手段が無く、止められた claude は登録を消せない。動いていない pid の登録は残りと見る。
- * Windows では、動いている pid でも、そのプロセスの起動時刻が procStart と違えば、別のプロセスに使い回された残りと見る。
- * 起動時刻は外のプロセスで読むので、裏でまとめて読んで覚える（platform/pidReuse.ts）。読み終わるまでは「動いている」と読む。
+ * macOS と Linux の claude は、止められると自分の登録を消すので、残りは見ない（いまの動きを変えない）。
+ * そこでは稼働時間が VM の一時停止や WSL2 のホストのスリープで止まり、起動の時刻が後ろへずれうるので、起動の時刻でも見ない。
+ * Windows には穏やかに止める手段が無く、止められた claude は登録を消せない。次のどれかに当たる登録は残りと見る。
+ * 1. OS の起動より前に始まった。再起動の前に止めずに残った登録である（#592）。
+ *    procStart で見る。procStart が無いか読めなければ、最後に書かれた時刻で、余裕を広く取って見る。どちらも無ければ決めない。
+ * 2. pid が動いていない。
+ * 3. 動いている pid でも、そのプロセスの起動時刻が procStart と違う。別のプロセスに使い回されている。
+ *    起動時刻は外のプロセスで読むので、裏でまとめて読んで覚える（platform/pidReuse.ts）。読み終わるまでは「動いている」と読む。
  */
 export function goneOn(platform: NodeJS.Platform, deps: GoneDeps = {}): IsGone {
+  if (platform !== 'win32') return () => false;
   const booted = deps.bootedAt ?? (() => bootedAt());
   const alive = deps.alive ?? isAlive;
-  const reuse = deps.reuse ?? (platform === 'win32' ? new PidReuseCheck((pids) => startTimesWin(pids)) : null);
+  const reuse = deps.reuse ?? new PidReuseCheck((pids) => startTimesWin(pids));
   return (pid, stamp = {}) => {
     if (pid <= 0) return false;
     const started = stamp.procStart ? parseStartTime(stamp.procStart) : null;
-    const at = started ?? stamp.writtenAt ?? null;
-    if (at !== null && at < booted() - BOOT_SLACK_MS) return true;
-    if (platform !== 'win32') return false;
+    if (started !== null ? started < booted() - BOOT_SLACK_MS : stamp.writtenAt !== undefined && stamp.writtenAt < booted() - BOOT_SLACK_WRITTEN_MS) return true;
     if (!alive(pid)) return true;
-    return started !== null && reuse !== null && reuse.reused(pid, stamp.procStart!);
+    return started !== null && reuse.reused(pid, stamp.procStart!);
   };
 }
 
-/** 登録の数の欄を読む。有限の数でなければ undefined。 */
-const numOf = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+/**
+ * 登録の時刻の欄を読む。epoch のミリ秒らしい数（1e12 以上、2001 年より後）でなければ undefined。
+ * 秒の単位で書かれたようなおかしな値を、起動より前の時刻と読み違えないためである。
+ */
+const numOf = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) && v >= 1e12 ? v : undefined);
 
 /** 登録から、プロセスを見分ける手がかりを取り出す。 */
 function stampOf(rec: Record<string, unknown>): RegistryStamp {
@@ -221,6 +230,11 @@ export class RegistryWatcher {
     this.detach();
   }
   current(): LiveSession[] { return this.last; }
+  /**
+   * 写しを使わず、その場で登録を読み直す。見張りと同じ isGone を通す（足し付けもずれの記録もしない）。
+   * 止める候補を決めるときのように、打ったばかりの変化を古い写しで見誤りたくない呼び手が使う。
+   */
+  readNow(): LiveSession[] { return readRegistry(this.claudeDir, this.isGone); }
   onChange(cb: (live: LiveSession[]) => void): () => void { this.listeners.add(cb); return () => this.listeners.delete(cb); }
   /** 最後に数えた登録を忘れる。ずれの記録が空になったとき、次の読み直しで残っている登録のずれを 1 回だけ数え直す。 */
   renoteDrifts(): void { this.lastRegKey = ''; }
