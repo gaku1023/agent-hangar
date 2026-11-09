@@ -178,7 +178,16 @@ Windows のインストーラは署名していないので、SmartScreen が止
 - [docs/verification.md](docs/verification.md)：実物で確かめた範囲の記録。
 - [docs/release.md](docs/release.md)：リリースの手順。
 - [docs/signing.md](docs/signing.md)：署名の仕組み。
+- [docs/code-signing-policy.md](docs/code-signing-policy.md)：Code signing policy（Windows の署名の決まりとプライバシー、英語）。
 - [docs/design.md](docs/design.md)：設計。実装計画は `docs/plans/` にあります。
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+Windows のリリースは、SignPath Foundation の無料のコード署名に申請しています。
+署名を始めるまでは、Windows のインストーラは署名していません。
+署名する物、ビルドの方法、役割（Committers and reviewers と Approvers は、どちらも [gaku1023](https://github.com/gaku1023)）、プライバシーの方針は、[Code signing policy](docs/code-signing-policy.md) にあります。
 
 ## 商標
 

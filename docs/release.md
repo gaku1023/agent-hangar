@@ -183,6 +183,10 @@ GitHub の自動生成の変更の一覧は付けない。
 ## 直したこと
 
 - 何が起きていたかを、最初の 1 文で言い切る。続けて、いまはどうなるか。
+
+---
+
+[Code signing policy](https://github.com/gaku1023/agent-hangar/blob/main/docs/code-signing-policy.md): Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
 ```
 
 - 1 行目は `# Hangar <版>`。アプリはこの行を外して出す。
@@ -192,6 +196,10 @@ GitHub の自動生成の変更の一覧は付けない。
   見出しが文になっている節（「〜できるようになりました」）は、見出しそのものが要点になる。
 - 最初の見出しより前の段落（前書き）は、要点にも注意にも使わない。前書きは 1〜2 行にとどめる。
 - ファイルの頭に、作業のための書き込み（「これは下書きです」など）を残さない。そのまま公開される。
+- 末尾に、区切りの線と [Code signing policy](code-signing-policy.md) の 1 行を置く。
+  SignPath Foundation の条件で、配布の頁にもこの語と謝辞が要るためである。
+  Release の本文はリポジトリの外で読まれるので、リンクは絶対の URL で書く。
+  Windows の署名を SignPath で始めた版から付ける。それまでの版には付けない。
 
 ### 「更新の前に」を書くとき
 
