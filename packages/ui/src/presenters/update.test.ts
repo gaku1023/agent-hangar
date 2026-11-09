@@ -63,14 +63,15 @@ describe('presentUpdateCard：右下の札', () => {
   // Smart App Control などに止められたら、手で入れる道としてリリースページを先に置く（#617）。
   it('アプリの制御に止められたら、手で入れるよう言い、リリースページを開くを先に置く', () => {
     const c = presentUpdateCard(storeOf(up({ kind: 'failed', step: 'install', version: '1.5.0', reason: 'blocked' })))!;
-    expect(c.detail).toBe('現在のバージョン 1.4.2 は変わりません。Windows の Smart App Control などにブロックされた可能性があります。リリースページからセットアップを手で実行してください。');
+    expect(c.detail).toBe('現在のバージョン 1.4.2 は変わりません。Smart App Control などにブロックされた可能性があります。手動で更新してください。');
     expect(c.actions).toEqual([
       { label: 'リリースページを開く', href: 'https://github.com/gaku1023/agent-hangar/releases/tag/v1.5.0', primary: true },
       { label: 'もう一度試す', action: { type: 'update.download' }, primary: false },
       { label: '閉じる', action: { type: 'update.dismiss' }, primary: false },
     ]);
     const e = presentUpdateCard(storeOf(up({ kind: 'failed', step: 'install', version: '1.5.0', reason: 'blocked' }), { settings: en }))!;
-    expect(e.actions[0]).toMatchObject({ label: 'Open the release page', href: 'https://github.com/gaku1023/agent-hangar/releases/tag/v1.5.0' });
+    expect(e.detail).toBe("You're still on 1.4.2. Smart App Control or a similar policy may have blocked the update. Run the installer manually.");
+    expect(e.actions[0]).toMatchObject({ label: 'Open release page', href: 'https://github.com/gaku1023/agent-hangar/releases/tag/v1.5.0' });
   });
 
   it('閉じた版の札は出さない', () => {

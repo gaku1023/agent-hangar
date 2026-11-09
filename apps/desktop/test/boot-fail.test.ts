@@ -539,9 +539,14 @@ describe('札の中の更新', () => {
       expect(u({ phase: 'installing', version: '9.9.9' }).band!.detail.startsWith(d['update.card.installingDetail'])).toBe(true);
       expect(u({ phase: 'failed', step: 'download', version: '9.9.9', reason: 'network' }).band!.title).toBe(d['update.card.failedDownload']);
       expect(u({ phase: 'failed', step: 'install', version: '9.9.9', reason: 'other' }).band!.detail).toBe(fill(d['update.card.failedDetail'], { current: cur, reason: d['update.reason.other'] }));
-      // Smart App Control などに止められたときの文も UI と同じにする（#617）。
-      expect(u({ phase: 'failed', step: 'install', version: '9.9.9', reason: 'blocked' }).band!.detail).toBe(fill(d['update.card.failedDetail'], { current: cur, reason: d['update.reason.blocked'] }));
     }
+  });
+  // Smart App Control などにブロックされたときだけは、UI と文を変える（#617）。
+  // 起動画面の札にはリリースページの釦が無いので、行き先も文に書く。
+  it('アプリの制御にブロックされたら、リリースページから手動で入れるよう言う', () => {
+    const blocked: Upd = { phase: 'failed', step: 'install', version: '9.9.9', reason: 'blocked' };
+    expect(ja(blocked).band!.detail).toBe('現在のバージョン 0.2.0-rc.5 は変わりません。Smart App Control などにブロックされた可能性があります。リリースページから手動でインストールしてください。');
+    expect(en(blocked).band!.detail).toBe("You're still on 0.2.0-rc.5. Smart App Control or a similar policy may have blocked the update. Install it manually from the release page.");
   });
   it('英語の帯と釦には日本語が混ざらない', () => {
     const all: Upd[] = [{ phase: 'idle' }, { phase: 'checking' }, { phase: 'latest' }, { phase: 'available', version: '1' }, { phase: 'downloading', version: '1', done: 1, total: 2 }, { phase: 'installing', version: '1' }, { phase: 'failed', step: 'check', version: null, reason: 'network' }, { phase: 'failed', step: 'download', version: '1', reason: 'signature' }, { phase: 'failed', step: 'install', version: '1', reason: 'blocked' }];

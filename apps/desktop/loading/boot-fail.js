@@ -333,6 +333,7 @@ export function failView(info) {
 
 // 札の中の更新の文。起動に失敗する版を入れた人が、UI まで届かなくても新しいバージョンを受け取れるようにする。
 // 語は UI の辞書（packages/shared の update.*）と同じものを使う（boot-fail.test.ts が突き合わせる）。
+// reason.blocked だけは UI と変える。この札にはリリースページの釦が無いので、行き先も文に書く（#617）。
 const UPDATE = {
   ja: {
     check: '更新を確認',
@@ -351,7 +352,7 @@ const UPDATE = {
     failedDownload: 'ダウンロードできませんでした',
     failedInstall: 'インストールできませんでした',
     failedDetail: (cur, reason) => `現在のバージョン ${cur} は変わりません。${reason}`,
-    reason: { network: 'ネットワークまたは配布元に接続できませんでした。', signature: '署名を確認できませんでした。', permission: 'インストールの権限を取得できませんでした。', blocked: 'Windows の Smart App Control などにブロックされた可能性があります。リリースページからセットアップを手で実行してください。', other: '詳しくはログを確認してください。' },
+    reason: { network: 'ネットワークまたは配布元に接続できませんでした。', signature: '署名を確認できませんでした。', permission: 'インストールの権限を取得できませんでした。', blocked: 'Smart App Control などにブロックされた可能性があります。リリースページから手動でインストールしてください。', other: '詳しくはログを確認してください。' },
   },
   en: {
     check: 'Check for updates',
@@ -370,7 +371,7 @@ const UPDATE = {
     failedDownload: "Couldn't download the update",
     failedInstall: "Couldn't install the update",
     failedDetail: (cur, reason) => `You're still on ${cur}. ${reason}`,
-    reason: { network: "Couldn't reach the network or the download server.", signature: "The signature couldn't be verified.", permission: 'Permission to install was not granted.', blocked: 'Windows Smart App Control or a similar policy may have blocked the installer. Run the setup from the release page yourself.', other: 'See the log for details.' },
+    reason: { network: "Couldn't reach the network or the download server.", signature: "The signature couldn't be verified.", permission: 'Permission to install was not granted.', blocked: 'Smart App Control or a similar policy may have blocked the update. Install it manually from the release page.', other: 'See the log for details.' },
   },
 };
 
