@@ -18,7 +18,7 @@ import { parkedSessionIds } from '../../sessions/park.ts';
 import { stopReasonsOf } from '../../sessions/stopReasons.ts';
 import { changedFilesOf } from '../../sessions/files.ts';
 import { DeleteError } from '../../sessions/trash.ts';
-import { confirmSessionState, getSessionState, rejectSessionState, setSessionPinned, setSessionState, StateInputError } from '../../sessions/states.ts';
+import { confirmSessionState, rejectSessionState, setSessionPinned, setSessionState, StateInputError } from '../../sessions/states.ts';
 import { readEvents, subagentIds } from '../../transcript/read.ts';
 import { errorText, render, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';

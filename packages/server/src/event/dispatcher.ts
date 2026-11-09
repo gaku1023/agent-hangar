@@ -9,20 +9,31 @@ import { addEventRun, deleteBinding, expireBindings, finishEventRun, getBindingR
 /**
  * 取った事実を結び付けに当てて動かす（#563）。
  *
- * 当てる：state が active の結び付けだけが動く。puller は state も source.pr も source.labels も見ないので、ここで当てる。
- * - when：ci_done はどの結果にも、ci_failed は ci_done の failure にだけ当たる。そのほかは同じ名前のものに当たる。hook は外の webhook の結び付けに当たる。
+ * 当てる：state が active の結び付けだけが動く。
+ * puller は state も source.pr も source.labels も見ないので、ここで当てる。
+ * - when：ci_done はどの結果にも、ci_failed は ci_done の failure にだけ当たる。
+ *   そのほかは同じ名前のものに当たる。
+ *   hook は外の webhook の結び付けに当たる。
+ * - repo：GitHub の事実が repo を持たないときは、どの結び付けにも当てない。
  * - pr：結び付けが pr を持つなら、事実の number と同じものだけ。
- * - labels：結び付けが札を持つなら、事実の札のどれかと重なるものだけ。
+ * - labels：結び付けが札を持つなら、事実の札のどれかと重なるものだけ。大文字小文字は区別しない。
  *
  * 動き：
- * - 起こす：会話が Paused のときだけ起こし、起こしたら結び付けを消す。Paused でなければ起こさずに消す。
- *   atStart の山でも、1 回の山でも、結び付けごとに最新の 1 件だけで起こす。動いていて渡せなかったときと、渡すのに失敗したときは、結び付けを残して履歴に書く。
- * - 送る・作る・PR の持ち主へ送る：前の回が動いている間に届いた分は溜め、終わった後に 1 回にまとめて流す。
- *   1 時間に EVENT_HOURLY_MAX 回を超えて流そうとしたら、結び付けを held にして知らせる（履歴の error は held:hourly）。回数は手元の覚えで、起こし直すと数え直す。
+ * - 起こす：会話が Paused のときだけ起こし、起こしたら結び付けを消す。
+ *   Paused でなければ起こさずに消す。
+ *   atStart の山でも、1 回の山でも、結び付けごとに最新の 1 件だけで起こす。
+ *   動いていて渡せなかったときと、渡すのに失敗したときは、履歴に書く。
+ *   結び付けは PR がまだ開いているときだけ残し、merged か closed のときは履歴を書いてから消す。
+ * - 送る、作る、PR の持ち主へ送る：前の回が動いている間に届いた分は溜め、終わった後に 1 回にまとめて流す。
+ *   1 時間に EVENT_HOURLY_MAX 回を超えて流そうとしたら、結び付けを held にして知らせる（履歴の error は held:hourly）。
+ *   回数は手元の覚えで、起こし直すと数え直す。
  *   atStart の山（hangar を閉じていた間に溜まった荷物）は、利用者が選ぶまで動かさず heldForUser に置く。
- * - merged か closed が来たら、その PR を見ている起こす結び付けを消す。merged を待つ結び付けは、先に起こす。
+ * - merged か closed が来たら、その PR を見ている起こす結び付けを消す。
+ *   merged を待つ結び付けは、先に起こす。
  *
- * handle は投げない。事実ごとの失敗は履歴に残す。長い待ち（会話の終わりを待つ）は待たずに裏へ回し、すぐ返る。
+ * handle は投げない。
+ * 事実ごとの失敗は履歴に残す。
+ * 長い待ち（会話の終わりを待つ）は待たずに裏へ回し、すぐ返る。
  * 利用者が選ぶのを待つ事実は、メモリだけに持つ（Worker からは ack 済みなので、hangar を落とすと失われる）。
  */
 
@@ -31,24 +42,39 @@ export type DispatcherDeps = {
   deviceId: string;
   now(): number;
   language(): Language;
-  /** 会話を起こす、または既存の会話へ送る。既存の会話が動いていて送れなければ 'busy'。 */
+  /**
+   * 会話を起こす、または既存の会話へ送る。
+   * 既存の会話が動いていて送れなければ 'busy'。
+   */
   launch(s: { prompt: string; target: ScheduleTarget; plannedAt: number }): Promise<{ sessionId: string } | 'busy'>;
   /** その会話のターンが終わるか、入力待ちになるまで待つ。 */
   wait(sessionId: string): Promise<ScheduleOutcome>;
-  /** 今の PC の gh のユーザー名。分からなければ null（誰も自分とみなさない）。 */
+  /**
+   * 今の PC の gh のユーザー名。
+   * 分からなければ null（誰も自分とみなさない）。
+   */
   me?: () => Promise<string | null>;
   /** 利用者への知らせ（画面の札）。 */
   notify?: (message: string) => void;
-  /** 利用者が選ぶのを待つ事実を積んだ。積んだ件数を渡す。 */
+  /**
+   * 利用者が選ぶのを待つ事実を積んだ。
+   * 積んだ件数を渡す。
+   */
   onHeldForUser?: (count: number) => void;
   onError?: (e: unknown) => void;
 };
 
-/** 利用者が選ぶのを待つ事実。結び付けごとにまとめ、古い順に並べる。 */
+/**
+ * 利用者が選ぶのを待つ事実。
+ * 結び付けごとにまとめ、古い順に並べる。
+ */
 export type HeldEvent = { bindingId: string; facts: EventFacts[] };
 export type HeldChoice = { bindingId: string; mode: 'latest' | 'all' | 'skip' };
 
-/** 結び付けごとに積む事実の上限。溢れたら古いものから捨てる。 */
+/**
+ * 結び付けごとに積む事実の上限。
+ * 溢れたら古いものから捨てる。
+ */
 const HELD_PER_BINDING_MAX = 100;
 const HOUR_MS = 60 * 60_000;
 
@@ -56,23 +82,30 @@ const errText = (e: unknown): string => (e instanceof Error ? e.message : String
 
 const sameName = (a: string | undefined, b: string | undefined): boolean => a !== undefined && b !== undefined && a.toLowerCase() === b.toLowerCase();
 
-/** 事実がこの結び付けの条件に当たるか。state は見ない。 */
+/**
+ * 事実がこの結び付けの条件に当たるか。
+ * state は見ない。
+ */
 export function matchesBinding(b: Pick<BindingRow, 'source'>, f: EventFacts): boolean {
   const s = b.source;
   if (s.kind === 'hook') return f.source === 'hook';
   if (f.source !== 'github') return false;
-  if (f.repo !== undefined && !sameName(s.repo, f.repo)) return false;
+  // repo を持たない事実は、どの repo のものか分からないので当てない。
+  if (!sameName(s.repo, f.repo)) return false;
   const when = s.when.some((w) => (w === 'ci_failed' ? f.event === 'ci_done' && f.outcome === 'failure' : w === f.event));
   if (!when) return false;
   if (s.pr !== undefined && f.number !== s.pr) return false;
-  if (s.labels && s.labels.length > 0 && !(f.labels ?? []).some((l) => s.labels!.includes(l))) return false;
+  if (s.labels && s.labels.length > 0 && !(f.labels ?? []).some((l) => s.labels!.some((w) => w.toLowerCase() === l.toLowerCase()))) return false;
   return true;
 }
 
 type Unit = { pending: EventFacts[] };
 
 export class EventDispatcher {
-  /** 動いている送る・作る（PR の持ち主へ送るは PR ごと）の単位。溜めた事実はここに置く。 */
+  /**
+   * 動いている送る、作る（PR の持ち主へ送るは PR ごと）の単位。
+   * 溜めた事実はここに置く。
+   */
   private readonly units = new Map<string, Unit>();
   private readonly waking = new Set<string>();
   private readonly held = new Map<string, EventFacts[]>();
@@ -86,7 +119,11 @@ export class EventDispatcher {
     try { expireBindings(this.d.db, this.d.now()); } catch (e) { this.d.onError?.(e); }
   }
 
-  /** 取った事実を当てて動かす。投げない。動きは裏で進み、すぐ返る。 */
+  /**
+   * 取った事実を当てて動かす。
+   * 投げない。
+   * 動きは裏で進み、すぐ返る。
+   */
   async handle(events: PulledEvent[]): Promise<void> {
     const { db } = this.d;
     try { expireBindings(db, this.d.now()); } catch (e) { this.d.onError?.(e); }
@@ -107,7 +144,7 @@ export class EventDispatcher {
         this.d.onError?.(err);
       }
     }
-    for (const { b, facts } of wakes.values()) this.track(this.wake(b, facts));
+    for (const { b, facts } of wakes.values()) this.track(this.wake(b, facts, facts.event === 'merged' || facts.event === 'closed'));
     for (const c of closed) {
       try { this.dropWakeBindingsOf(c.repo, c.number); } catch (err) { this.d.onError?.(err); }
     }
@@ -116,7 +153,10 @@ export class EventDispatcher {
     }
   }
 
-  /** 利用者が選ぶのを待つ事実。結び付けが無くなったか active でなくなったものは落とす。 */
+  /**
+   * 利用者が選ぶのを待つ事実。
+   * 結び付けが無くなったか active でなくなったものは落とす。
+   */
   heldForUser(): HeldEvent[] {
     const out: HeldEvent[] = [];
     for (const [id, facts] of [...this.held]) {
@@ -128,7 +168,9 @@ export class EventDispatcher {
   }
 
   /**
-   * 利用者の選びを流す。latest は最新の 1 件、all は全部を 1 回にまとめて、skip は捨てる。選ばれなかったものは残す。
+   * 利用者の選びを流す。
+   * latest は最新の 1 件、all は全部を 1 回にまとめて、skip は捨てる。
+   * 選ばれなかったものは残す。
    * 流すのは裏で進め、始めたところで返る。
    */
   async runHeld(choices: HeldChoice[]): Promise<void> {
@@ -147,7 +189,10 @@ export class EventDispatcher {
     }
   }
 
-  /** 裏で進んでいる動きが全部終わるまで待つ。試験と、終了のときに使う。 */
+  /**
+   * 裏で進んでいる動きが全部終わるまで待つ。
+   * 試験と、終了のときに使う。
+   */
   async idle(): Promise<void> {
     while (this.inflight.size > 0) await Promise.allSettled([...this.inflight]);
   }
@@ -166,42 +211,61 @@ export class EventDispatcher {
     try { return (await this.d.me?.()) ?? null; } catch { return null; }
   }
 
-  /** merged か closed の PR を見ている起こす結び付けを消す。 */
+  /**
+   * merged か closed の PR を見ている起こす結び付けを消す。
+   * 起こしている最中のもの（waking）は消さない。
+   * 起こし終えた wake が、結果を履歴に書いてから自分で消す。
+   */
   private dropWakeBindingsOf(repo: string, number: number): void {
     for (const b of listBindings(this.d.db)) {
+      if (this.waking.has(b.id)) continue;
       if (b.action.kind === 'wake' && b.source.kind === 'github' && b.source.pr === number && sameName(b.source.repo, repo)) deleteBinding(this.d.db, b.id);
     }
   }
 
-  private async wake(b: BindingRow, facts: EventFacts): Promise<void> {
+  /**
+   * Paused を起こす。
+   * 起こせた、または利用者が先に再開していたときは、結び付けを消す。
+   * 動いていて渡せなかったとき、渡すのに失敗したときは、履歴に書く。
+   * 結び付けは、PR がまだ開いているときだけ残す。
+   * final（merged か closed）のときは、もう次の事実が来ないので、履歴を書いてから消す。
+   */
+  private async wake(b: BindingRow, facts: EventFacts, final: boolean): Promise<void> {
     if (b.action.kind !== 'wake' || this.waking.has(b.id)) return;
     this.waking.add(b.id);
     const { db } = this.d;
     try {
       const sessionId = b.action.sessionId;
       const prompt = renderEventPrompt(b, [facts], this.d.language(), await this.me());
+      const record = (result: 'skipped' | 'failed', error?: string): void => {
+        const runId = addEventRun(db, { bindingId: b.id, now: this.d.now(), result: 'running' });
+        finishEventRun(db, runId, { now: this.d.now(), result, ...(error ? { error } : {}) });
+      };
       let got: Awaited<ReturnType<typeof wakePaused>>;
       try {
         got = await wakePaused({ db, deviceId: this.d.deviceId, deliver: (id, text) => this.d.launch({ prompt: text, target: { kind: 'session', sessionId: id }, plannedAt: this.d.now() }) }, sessionId, () => prompt);
       } catch (e) {
-        // merged や closed で結び付けごと消えていたら、履歴を書く先が無い。
-        if (!getBindingRow(db, b.id)) return;
-        const runId = addEventRun(db, { bindingId: b.id, now: this.d.now(), result: 'running' });
-        finishEventRun(db, runId, { now: this.d.now(), result: 'failed', error: errText(e) });
+        record('failed', errText(e));
+        if (final) deleteBinding(db, b.id);
         return;
       }
       if (got === 'busy') {
-        if (getBindingRow(db, b.id)) addEventRun(db, { bindingId: b.id, now: this.d.now(), result: 'skipped' });
+        record('skipped');
+        if (final) deleteBinding(db, b.id);
         return;
       }
-      // 起こした、または利用者が先に再開していた。どちらも役目は終わり。
+      // 起こした、または利用者が先に再開していた。
+      // どちらも役目は終わり。
       deleteBinding(db, b.id);
     } finally {
       this.waking.delete(b.id);
     }
   }
 
-  /** 送る・作る系の事実を、動いている回があれば溜め、無ければ新しく流す。PR の持ち主へ送るは PR ごとに分ける。 */
+  /**
+   * 送る、作る系の事実を、動いている回があれば溜め、無ければ新しく流す。
+   * PR の持ち主へ送るは PR ごとに分ける。
+   */
   private enqueue(b: BindingRow, facts: EventFacts[]): void {
     const groups = new Map<string, EventFacts[]>();
     for (const f of facts) {
@@ -232,7 +296,10 @@ export class EventDispatcher {
     }
   }
 
-  /** 1 時間の回数を数え、上限に達していたら結び付けを held にして知らせる。流してよいときは回数を 1 つ足して false。 */
+  /**
+   * 1 時間の回数を数え、上限に達していたら結び付けを held にして知らせる。
+   * 流してよいときは回数を 1 つ足して false。
+   */
   private overCap(b: BindingRow): boolean {
     const now = this.d.now();
     const list = (this.recent.get(b.id) ?? []).filter((at) => at > now - HOUR_MS);
@@ -258,7 +325,10 @@ export class EventDispatcher {
     return owner ? { kind: 'session', sessionId: owner } : null;
   }
 
-  /** 1 回を流す。runner.fire と同じ順で履歴に書く。 */
+  /**
+   * 1 回を流す。
+   * runner.fire と同じ順で履歴に書く。
+   */
   private async runOnce(b: BindingRow, batch: EventFacts[]): Promise<void> {
     const { db } = this.d;
     const now = this.d.now();

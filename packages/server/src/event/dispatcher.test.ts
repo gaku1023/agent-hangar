@@ -141,6 +141,53 @@ describe('wake', () => {
   });
 });
 
+describe('merged wake that fails', () => {
+  const slowLaunch = (result: () => Promise<'busy' | { sessionId: string }>) => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    return { release, launch: async () => { await gate; return result(); } };
+  };
+
+  it('does not delete a wake binding that is still waking, and removes it once the wake ends busy', async () => {
+    const b = bind({ source: gh({ when: ['merged'] }) });
+    pause();
+    const slow = slowLaunch(async () => 'busy');
+    const { d } = make({ launch: slow.launch });
+    await d.handle([ev(b.id, { event: 'merged' })]);
+    await flush();
+    // 起こしている最中は、後始末で消されない。
+    expect(getBindingRow(db, b.id)).not.toBeNull();
+    slow.release();
+    await d.idle();
+    expect(getSessionState(db, 's-1')?.status).toBe('paused');
+    // 閉じた PR にはもう事実が来ないので、履歴を書いたあとで消える。
+    expect(getBindingRow(db, b.id)).toBeNull();
+  });
+
+  it('removes the binding after a merged wake that throws, without reporting a dispatcher error', async () => {
+    const b = bind({ source: gh({ when: ['merged'] }) });
+    pause();
+    const errors: unknown[] = [];
+    const slow = slowLaunch(async () => { throw new Error('cannot resume'); });
+    const { d } = make({ launch: slow.launch, onError: (e) => { errors.push(e); } });
+    await d.handle([ev(b.id, { event: 'merged' })]);
+    slow.release();
+    await d.idle();
+    expect(errors).toEqual([]);
+    expect(getSessionState(db, 's-1')?.status).toBe('paused');
+    expect(getBindingRow(db, b.id)).toBeNull();
+  });
+
+  it('keeps the binding for a busy wake while the pr is still open', async () => {
+    const b = bind({ source: gh({ when: ['ci_done'] }) });
+    pause();
+    const { d } = make({ launch: async () => 'busy' });
+    await d.handle([ev(b.id)]);
+    await d.idle();
+    expect(getBinding(db, b.id)!.runs[0]).toMatchObject({ result: 'skipped' });
+  });
+});
+
 describe('matching', () => {
   it('acts only on active bindings and ignores rejected entries', async () => {
     const draft = bind({ state: 'draft' });
@@ -155,15 +202,23 @@ describe('matching', () => {
 
   it('matches ci_failed only on a failure of the same pr', async () => {
     const b = sendTo('s-1', ['ci_failed']);
-    const { d, launched } = make({ launch: async (s) => { seen.push(s.target); return 'busy'; } });
     const seen: ScheduleTarget[] = [];
+    const { d } = make({ launch: async (s) => { seen.push(s.target); return 'busy'; } });
     await d.handle([ev(b.id, { outcome: 'success' }), ev(b.id, { outcome: 'cancelled' }), ev(b.id, { outcome: 'failure', number: 9 }), ev(b.id, { event: 'review' })]);
     await d.idle();
     expect(seen).toEqual([]);
     await d.handle([ev(b.id, { outcome: 'failure' })]);
     await d.idle();
     expect(seen).toEqual([{ kind: 'session', sessionId: 's-1' }]);
-    expect(launched).toEqual([]);
+  });
+
+  it('does not match a github fact that has no repo', async () => {
+    const b = sendTo('s-1', ['ci_done']);
+    const seen: ScheduleTarget[] = [];
+    const { d } = make({ launch: async (s) => { seen.push(s.target); return 'busy'; } });
+    await d.handle([ev(b.id, { repo: undefined })]);
+    await d.idle();
+    expect(seen).toEqual([]);
   });
 
   it('matches any ci_done outcome for ci_done', async () => {
@@ -185,6 +240,10 @@ describe('matching', () => {
     await d.handle([ev(b.id, { event: 'issue_opened', number: 5, labels: ['docs', 'bug'] })]);
     await d.idle();
     expect(seen).toHaveLength(1);
+    // 札の大文字小文字は区別しない。
+    await d.handle([ev(b.id, { event: 'issue_opened', number: 6, labels: ['BUG'] })]);
+    await d.idle();
+    expect(seen).toHaveLength(2);
   });
 
   it('matches hook events without a repo', async () => {

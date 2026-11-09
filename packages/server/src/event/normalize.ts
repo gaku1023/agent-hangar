@@ -63,7 +63,7 @@ function labelsOf(v: unknown): string[] | undefined {
 /** 値のあるものだけを残す。 */
 function facts(f: Omit<EventFacts, 'source'>): EventFacts {
   const out: EventFacts = { source: 'github', event: f.event, receivedAt: f.receivedAt };
-  for (const k of ['repo', 'number', 'title', 'outcome', 'url', 'actor', 'body', 'labels'] as const) {
+  for (const k of ['repo', 'number', 'title', 'authorLogin', 'outcome', 'url', 'actor', 'body', 'labels'] as const) {
     if (f[k] !== undefined) (out as Obj)[k] = f[k];
   }
   return out;
@@ -103,30 +103,30 @@ export function normalizeGithub(eventName: string, payload: unknown, _me: string
     case 'pull_request': {
       const pr = obj(p.pull_request);
       if (action !== 'closed' || !pr) return null;
-      return facts({ event: pr.merged === true ? 'merged' : 'closed', repo, number: int(pr.number), title: str(pr.title), url: str(pr.html_url), actor: sender, labels: labelsOf(pr.labels), receivedAt });
+      return facts({ event: pr.merged === true ? 'merged' : 'closed', repo, number: int(pr.number), title: str(pr.title), authorLogin: str(obj(pr.user)?.login), url: str(pr.html_url), actor: sender, labels: labelsOf(pr.labels), receivedAt });
     }
     case 'pull_request_review': {
       const review = obj(p.review);
       const pr = obj(p.pull_request);
       if (action !== 'submitted' || !review || !pr) return null;
-      return facts({ event: 'review', repo, number: int(pr.number), title: str(pr.title), url: str(review.html_url) ?? str(pr.html_url), actor: str(obj(review.user)?.login) ?? sender, body: str(review.body), labels: labelsOf(pr.labels), receivedAt });
+      return facts({ event: 'review', repo, number: int(pr.number), title: str(pr.title), authorLogin: str(obj(pr.user)?.login), url: str(review.html_url) ?? str(pr.html_url), actor: str(obj(review.user)?.login) ?? sender, body: str(review.body), labels: labelsOf(pr.labels), receivedAt });
     }
     case 'issue_comment': {
       const issue = obj(p.issue);
       const comment = obj(p.comment);
       if (action !== 'created' || !issue || !comment) return null;
-      return facts({ event: 'comment', repo, number: int(issue.number), title: str(issue.title), url: str(comment.html_url) ?? str(issue.html_url), actor: str(obj(comment.user)?.login) ?? sender, body: str(comment.body), labels: labelsOf(issue.labels), receivedAt });
+      return facts({ event: 'comment', repo, number: int(issue.number), title: str(issue.title), authorLogin: str(obj(issue.user)?.login), url: str(comment.html_url) ?? str(issue.html_url), actor: str(obj(comment.user)?.login) ?? sender, body: str(comment.body), labels: labelsOf(issue.labels), receivedAt });
     }
     case 'pull_request_review_comment': {
       const pr = obj(p.pull_request);
       const comment = obj(p.comment);
       if (action !== 'created' || !pr || !comment) return null;
-      return facts({ event: 'comment', repo, number: int(pr.number), title: str(pr.title), url: str(comment.html_url) ?? str(pr.html_url), actor: str(obj(comment.user)?.login) ?? sender, body: str(comment.body), labels: labelsOf(pr.labels), receivedAt });
+      return facts({ event: 'comment', repo, number: int(pr.number), title: str(pr.title), authorLogin: str(obj(pr.user)?.login), url: str(comment.html_url) ?? str(pr.html_url), actor: str(obj(comment.user)?.login) ?? sender, body: str(comment.body), labels: labelsOf(pr.labels), receivedAt });
     }
     case 'issues': {
       const issue = obj(p.issue);
       if (action !== 'opened' || !issue) return null;
-      return facts({ event: 'issue_opened', repo, number: int(issue.number), title: str(issue.title), url: str(issue.html_url), actor: str(obj(issue.user)?.login) ?? sender, body: str(issue.body), labels: labelsOf(issue.labels), receivedAt });
+      return facts({ event: 'issue_opened', repo, number: int(issue.number), title: str(issue.title), authorLogin: str(obj(issue.user)?.login), url: str(issue.html_url), actor: str(obj(issue.user)?.login) ?? sender, body: str(issue.body), labels: labelsOf(issue.labels), receivedAt });
     }
     default:
       return null;

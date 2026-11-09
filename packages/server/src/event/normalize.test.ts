@@ -48,7 +48,7 @@ describe('normalizeGithub', () => {
 
   it('normalizes merged pull_request', () => {
     expect(normalizeGithub('pull_request', fx('pull_request.merged'), ME, at)).toEqual({
-      source: 'github', event: 'merged', repo: 'octo-org/demo-repo', number: 42, title: 'Add retry to the sync loop',
+      source: 'github', event: 'merged', repo: 'octo-org/demo-repo', number: 42, title: 'Add retry to the sync loop', authorLogin: 'alice-dev',
       url: 'https://github.com/octo-org/demo-repo/pull/42', actor: 'alice-dev', labels: ['ready'], receivedAt: AT,
     });
   });
@@ -59,17 +59,17 @@ describe('normalizeGithub', () => {
 
   it('normalizes a submitted review with its body', () => {
     expect(normalizeGithub('pull_request_review', fx('pull_request_review.submitted'), ME, at)).toEqual({
-      source: 'github', event: 'review', repo: 'octo-org/demo-repo', number: 42, title: 'Add retry to the sync loop',
+      source: 'github', event: 'review', repo: 'octo-org/demo-repo', number: 42, title: 'Add retry to the sync loop', authorLogin: 'alice-dev',
       url: 'https://github.com/octo-org/demo-repo/pull/42#pullrequestreview-9001', actor: 'bob-reviewer', body: 'Please add a test for the empty case.', receivedAt: AT,
     });
   });
 
   it('normalizes issue_comment and pull_request_review_comment', () => {
     expect(normalizeGithub('issue_comment', fx('issue_comment.created'), ME, at)).toMatchObject({
-      event: 'comment', number: 42, actor: 'bob-reviewer', body: 'Looks good, ship it.', url: 'https://github.com/octo-org/demo-repo/pull/42#issuecomment-7001',
+      event: 'comment', number: 42, actor: 'bob-reviewer', authorLogin: 'alice-dev', body: 'Looks good, ship it.', url: 'https://github.com/octo-org/demo-repo/pull/42#issuecomment-7001',
     });
     expect(normalizeGithub('pull_request_review_comment', fx('pull_request_review_comment.created'), ME, at)).toMatchObject({
-      event: 'comment', number: 42, actor: 'bob-reviewer', body: 'Nit: rename this variable.', title: 'Add retry to the sync loop',
+      event: 'comment', number: 42, actor: 'bob-reviewer', authorLogin: 'alice-dev', body: 'Nit: rename this variable.', title: 'Add retry to the sync loop',
     });
   });
 
@@ -79,7 +79,7 @@ describe('normalizeGithub', () => {
 
   it('normalizes an opened issue', () => {
     expect(normalizeGithub('issues', fx('issues.opened'), ME, at)).toEqual({
-      source: 'github', event: 'issue_opened', repo: 'octo-org/demo-repo', number: 51, title: 'Sync stalls after wake',
+      source: 'github', event: 'issue_opened', repo: 'octo-org/demo-repo', number: 51, title: 'Sync stalls after wake', authorLogin: 'carol-user',
       url: 'https://github.com/octo-org/demo-repo/issues/51', actor: 'carol-user', body: 'It stalls after the laptop wakes.', labels: ['bug', 'needs-triage'], receivedAt: AT,
     });
   });

@@ -51,6 +51,8 @@ export type EventFacts = {
   repo?: string;
   number?: number;
   title?: string;
+  /** 題名を書いた人（PR か issue の作者）。actor は今回の書き込みの人で、別のことがある。題名を渡してよいかは、こちらで決める。 */
+  authorLogin?: string;
   outcome?: 'success' | 'failure' | 'cancelled';
   url?: string;
   actor?: string;
