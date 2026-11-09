@@ -55,6 +55,8 @@ export type EventFacts = {
   url?: string;
   actor?: string;
   body?: string;
+  /** issue か PR の札の名前。結び付けの札の絞り込みに使う。札が無ければ持たない。 */
+  labels?: string[];
   receivedAt: number;
 };
 

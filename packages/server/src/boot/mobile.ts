@@ -46,6 +46,8 @@ export const ANSWER_RESEND_TICK_MS = 10_000;
  * この PC の設定の画面で QR を出している間は、画面が 3 秒ごとに読むので、つながったことはすぐ届く。
  */
 export const PHONE_RECHECK_MS = 5 * 60_000;
+/** 呼び鈴がつながっていないあいだに、外のできごとの受け箱を取りに行く最小の間隔（見回りの中で測る）。 */
+export const EVENT_FALLBACK_PULL_MS = 5 * 60_000;
 /** 起動の依頼の送り手が名簿に無いとき、同じ ID で一覧を読み直す最小の間隔。 */
 export const PHONE_NAME_REREAD_MS = 10_000;
 
@@ -107,7 +109,7 @@ export function bootMobile(p: {
   /** engine は組み直すと変わる（boot/sync.ts の getter）。毎回引き直す。 */
   sync: Pick<SyncParts, 'canCarryMobile' | 'mobileLink' | 'cloudDevices' | 'onCloudDevices'> & { readonly engine: Pick<SyncEngine, 'on' | 'pullNow'>; /** 無ければ偽（PC どうしの呼び鈴を張らない）。 */ canCarryPeer?: () => boolean };
   /** 呼び鈴に PC どうしの答えと結果の知らせ（kind は answer か result）が鳴ったとき。呼ぶ側の取得（peer/outbox.ts）が受ける。頼みが来た知らせ（launch）は今の pull で受ける。 */
-  onPeer?: (kind: PeerBellKind, id: string) => void;
+  onPeer?: (kind: Exclude<PeerBellKind, 'event'>, id: string) => void;
   /**
    * 外のできごとの受け箱の取り手（event/puller.ts、#563）。呼び鈴の event の知らせで bell、リンクを組んだとき（起動と cloud.json が現れたとき）に start で取りに行く。
    * 結び付けがあって Worker の版が EVENT_INBOX_MIN_WORKER_COMPAT に届くときは、スマホもほかの PC も居なくても呼び鈴を張る。
@@ -167,7 +169,15 @@ export function bootMobile(p: {
   let phonesAt: number | null = null;
   /** 外していないほかの PC があるか。null は分からない。phones と同じ一覧から読む。 */
   let peers: boolean | null = null;
+  /** 外のできごとの受け箱を最後に取りに行った時刻。呼び鈴がつながらないあいだの見回りの間隔を測る。 */
+  let eventPulledAt = 0;
   const canPeer = (): boolean => p.sync.canCarryPeer?.() ?? false;
+  /** 外のできごとの受け箱を取りに行く。投げない。 */
+  const pullEvents = (reason: 'bell' | 'start'): void => {
+    if (!p.event) return;
+    eventPulledAt = now();
+    void p.event.pull(reason).catch((e: unknown) => console.error(`[mobile] could not pull the event inbox (${reason})`, e instanceof Error ? e.constructor.name : typeof e));
+  };
   /** 外していないスマホが居るのを見たあとで、受信箱の素をまだ Worker から消していないか。真のあいだは、スマホが居なくなったと分かるたびに消しに行く。 */
   let hadPhones = false;
   let checking = false;
@@ -244,9 +254,9 @@ export function bootMobile(p: {
         if (kind !== 'launch') { p.onPeer?.(kind, id); return; }
         void p.sync.engine.pullNow().catch((e: unknown) => console.error('[mobile] could not pull after the peer bell', e instanceof Error ? e.constructor.name : typeof e));
       },
-      onEvent: () => {
-        void p.event?.pull('bell').catch((e: unknown) => console.error('[mobile] could not pull the event inbox after the bell', e instanceof Error ? e.constructor.name : typeof e));
-      },
+      onEvent: () => { pullEvents('bell'); },
+      // つなぎ直したときも取りに行く。つながっていなかった間の荷物には、呼び鈴が鳴らなかった。
+      onOpen: () => { pullEvents('bell'); },
       onAsk: (id, sealed, epoch) => answerAsk({
         phoneKeys: link.phoneKeys,
         deviceId,
@@ -263,7 +273,7 @@ export function bootMobile(p: {
     });
     cur = { pub, inbox, bell, link };
     // リンクを組んだときに 1 度、閉じていた間に溜まった荷物を取りに行く。
-    void p.event?.pull('start').catch((e: unknown) => console.error('[mobile] could not pull the event inbox at start', e instanceof Error ? e.constructor.name : typeof e));
+    pullEvents('start');
     pub.start();
     return pub;
   };
@@ -384,6 +394,10 @@ export function bootMobile(p: {
         // Worker の版は pull の応答で後から分かるので、見回りでも呼び鈴を読み直す。
         ringCheck();
         checkPhones();
+        // 呼び鈴がつながっていないあいだは鳴らないので、結び付けがあれば EVENT_FALLBACK_PULL_MS ごとに取りに行く。
+        try {
+          if (cur && p.event?.hasBindings() && cur.bell.state() !== 'open' && now() - eventPulledAt >= EVENT_FALLBACK_PULL_MS && (cur.link.client.lastWorkerCompat?.() ?? 0) >= EVENT_INBOX_MIN_WORKER_COMPAT) pullEvents('bell');
+        } catch (e) { console.error('[mobile] could not check the event inbox', e instanceof Error ? e.constructor.name : typeof e); }
       }, FEED_SAFETY_MS);
       sweep.unref?.();
       resend = timers.setInterval(() => {

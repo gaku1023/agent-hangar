@@ -182,6 +182,11 @@ export function markDelivery(db: Db, bindingId: string, deliveryId: string, now:
   })();
 }
 
+/** 届いた荷物の x-github-delivery を、覚えずに見る。覚えているなら true。覚えるのは markDelivery（渡し終えてから）。 */
+export function hasDelivery(db: Db, bindingId: string, deliveryId: string, now: number): boolean {
+  return db.prepare('select 1 from event_deliveries where binding_id = ? and delivery_id = ? and seen_at >= ?').get(bindingId, deliveryId, now - EVENT_INBOX_KEEP_MS) !== undefined;
+}
+
 /** 会話が PR を持つ印を付ける。draft は利用者が承認するまでの下書きで、active を draft へ戻さない。 */
 export function claimPr(db: Db, o: { sessionId: string; repo: string; pr: number; state: 'draft' | 'active'; now?: number }): void {
   const now = o.now ?? Date.now();

@@ -11,8 +11,8 @@ const obj = (v: unknown): Obj | null => (typeof v === 'object' && v !== null && 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined);
 const int = (v: unknown): number | undefined => (typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? v : undefined);
 
-/** `sha256=<hex 64 字>` の形。 */
-const SIGNATURE = /^sha256=([0-9a-f]{64})$/i;
+/** `sha256=<hex 64 字>` の形。接頭辞は小文字の sha256= だけを受け、16 進の部分は大小どちらでもよい。 */
+const SIGNATURE = /^sha256=([0-9a-fA-F]{64})$/;
 
 /**
  * x-hub-signature-256 を確かめる。本文（届いたままの文字列）の HMAC-SHA256 を、定数時間で比べる。
@@ -28,10 +28,9 @@ export function verifyGithubSignature(secret: string, body: string, header: stri
 }
 
 type Outcome = NonNullable<EventFacts['outcome']>;
-const WORST: Record<Outcome, number> = { success: 0, cancelled: 1, failure: 2 };
 
-/** スイートの結論を、成否の 3 通りに寄せる。知らない結論は失敗として数える。 */
-function outcomeOf(conclusion: unknown): Outcome {
+/** スイートの結論を、成否の 3 通りに寄せる。知らない結論（action_required、startup_failure など）は失敗として数える。 */
+export function outcomeOf(conclusion: unknown): Outcome {
   switch (conclusion) {
     case 'success': case 'neutral': case 'skipped': return 'success';
     case 'cancelled': return 'cancelled';
@@ -39,70 +38,30 @@ function outcomeOf(conclusion: unknown): Outcome {
   }
 }
 
-type Entry = { at: number; suites: Map<number, Outcome | null> };
-
-/**
- * 同じ head の SHA にあるチェックスイートが全部終わったかを数える。
- * requested と rerequested で終わっていない印を付け、completed で結論を入れる。
- * 全部の結論が入ったところで 1 つの成否にまとめて返し、その head の覚えは捨てる。
- * 終わらないスイートが残っても溜まり続けないよう、ttlMs を過ぎた覚えと、max 件を超えた古い覚えは落とす。
- * 覚えはメモリだけで、再起動で消える。消えたあとの completed は、そのスイートだけで数える。
- */
-export class CheckSuiteTracker {
-  private readonly entries = new Map<string, Entry>();
-  private readonly ttlMs: number;
-  private readonly max: number;
-
-  constructor(o: { ttlMs?: number; max?: number } = {}) {
-    this.ttlMs = o.ttlMs ?? 24 * 60 * 60_000;
-    this.max = o.max ?? 200;
-  }
-
-  /** 終わっていないスイートを覚える。 */
-  pending(key: string, suiteId: number, now: number): void {
-    const e = this.entry(key, now);
-    e.suites.set(suiteId, null);
-    e.at = now;
-  }
-
-  /** スイートの結論を入れる。全部終わったら成否を返し、まだなら null。 */
-  complete(key: string, suiteId: number, conclusion: unknown, now: number): Outcome | null {
-    const e = this.entry(key, now);
-    e.suites.set(suiteId, outcomeOf(conclusion));
-    e.at = now;
-    let worst: Outcome = 'success';
-    for (const o of e.suites.values()) {
-      if (o === null) return null;
-      if (WORST[o] > WORST[worst]) worst = o;
-    }
-    this.entries.delete(key);
-    return worst;
-  }
-
-  private entry(key: string, now: number): Entry {
-    for (const [k, e] of this.entries) if (now - e.at > this.ttlMs) this.entries.delete(k);
-    let e = this.entries.get(key);
-    if (!e) {
-      e = { at: now, suites: new Map() };
-      this.entries.set(key, e);
-      // Map は入れた順なので、先頭が最も古い。
-      while (this.entries.size > this.max) this.entries.delete(this.entries.keys().next().value as string);
-    }
-    return e;
-  }
+/** check_suite の completed が指す repo と head の SHA。形が違えば null。 */
+export function checkSuiteRef(payload: unknown): { repo: string; sha: string } | null {
+  const p = obj(payload);
+  const repo = str(obj(p?.repository)?.full_name);
+  const sha = str(obj(p?.check_suite)?.head_sha);
+  return repo && sha ? { repo, sha } : null;
 }
 
 export type NormalizeOptions = {
   /** Worker が荷物を受けた時刻。既定は今。 */
   receivedAt?: number;
-  /** チェックスイートを数える入れ物。省くと、完了したスイートごとに 1 件の ci_done にする。 */
-  suites?: CheckSuiteTracker;
 };
+
+/** payload の labels（{ name } の並び）から名前を取る。無い、空のときは undefined。 */
+function labelsOf(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const names = v.map((l) => str(obj(l)?.name)).filter((n): n is string => n !== undefined);
+  return names.length > 0 ? names : undefined;
+}
 
 /** 値のあるものだけを残す。 */
 function facts(f: Omit<EventFacts, 'source'>): EventFacts {
   const out: EventFacts = { source: 'github', event: f.event, receivedAt: f.receivedAt };
-  for (const k of ['repo', 'number', 'title', 'outcome', 'url', 'actor', 'body'] as const) {
+  for (const k of ['repo', 'number', 'title', 'outcome', 'url', 'actor', 'body', 'labels'] as const) {
     if (f[k] !== undefined) (out as Obj)[k] = f[k];
   }
   return out;
@@ -111,6 +70,8 @@ function facts(f: Omit<EventFacts, 'source'>): EventFacts {
 /**
  * GitHub の荷物（見出しの x-github-event と本文の JSON）を事実に直す。扱わない種類と動きは null。
  * 形の違う本文は投げずに null にする。
+ * check_suite の completed は、そのスイート 1 つの成否の ci_done にする。同じ head の残りのスイートを見て 1 件にまとめるのは puller の仕事で、GitHub への問い合わせが要るのでここでは行わない。
+ * labels は issue か PR の札の名前で、結び付けの札の絞り込みに使う。
  * 本文（body）は切らずに入れる。渡すかどうかと長さは、指示を組む側（Task 5）が決める。
  * me は今の PC の gh のユーザー名。誰の書き込みかは actor に入れて、自分かどうかの判断は指示を組む側に任せる。
  */
@@ -127,17 +88,11 @@ export function normalizeGithub(eventName: string, payload: unknown, _me: string
   switch (eventName) {
     case 'check_suite': {
       const s = obj(p.check_suite);
-      const id = int(s?.id);
       const sha = str(s?.head_sha);
-      if (!s || id === undefined || !sha || !repo) return null;
-      const key = `${repo}@${sha}`;
-      if (action === 'requested' || action === 'rerequested') {
-        opts.suites?.pending(key, id, receivedAt);
-        return null;
-      }
+      if (!s || !sha || !repo) return null;
+      // リポジトリの webhook に届く check_suite は completed だけである（requested と rerequested は持ち主の App にだけ届く）。
       if (action !== 'completed') return null;
-      const outcome = opts.suites ? opts.suites.complete(key, id, s.conclusion, receivedAt) : outcomeOf(s.conclusion);
-      if (outcome === null) return null;
+      const outcome = outcomeOf(s.conclusion);
       const prs = Array.isArray(s.pull_requests) ? s.pull_requests : [];
       const number = prs.map((x) => int(obj(x)?.number)).find((n) => n !== undefined);
       const url = repoUrl ? (number !== undefined ? `${repoUrl}/pull/${number}` : `${repoUrl}/commit/${sha}`) : undefined;
@@ -146,30 +101,30 @@ export function normalizeGithub(eventName: string, payload: unknown, _me: string
     case 'pull_request': {
       const pr = obj(p.pull_request);
       if (action !== 'closed' || !pr) return null;
-      return facts({ event: pr.merged === true ? 'merged' : 'closed', repo, number: int(pr.number), title: str(pr.title), url: str(pr.html_url), actor: sender, receivedAt });
+      return facts({ event: pr.merged === true ? 'merged' : 'closed', repo, number: int(pr.number), title: str(pr.title), url: str(pr.html_url), actor: sender, labels: labelsOf(pr.labels), receivedAt });
     }
     case 'pull_request_review': {
       const review = obj(p.review);
       const pr = obj(p.pull_request);
       if (action !== 'submitted' || !review || !pr) return null;
-      return facts({ event: 'review', repo, number: int(pr.number), title: str(pr.title), url: str(review.html_url) ?? str(pr.html_url), actor: str(obj(review.user)?.login) ?? sender, body: str(review.body), receivedAt });
+      return facts({ event: 'review', repo, number: int(pr.number), title: str(pr.title), url: str(review.html_url) ?? str(pr.html_url), actor: str(obj(review.user)?.login) ?? sender, body: str(review.body), labels: labelsOf(pr.labels), receivedAt });
     }
     case 'issue_comment': {
       const issue = obj(p.issue);
       const comment = obj(p.comment);
       if (action !== 'created' || !issue || !comment) return null;
-      return facts({ event: 'comment', repo, number: int(issue.number), title: str(issue.title), url: str(comment.html_url) ?? str(issue.html_url), actor: str(obj(comment.user)?.login) ?? sender, body: str(comment.body), receivedAt });
+      return facts({ event: 'comment', repo, number: int(issue.number), title: str(issue.title), url: str(comment.html_url) ?? str(issue.html_url), actor: str(obj(comment.user)?.login) ?? sender, body: str(comment.body), labels: labelsOf(issue.labels), receivedAt });
     }
     case 'pull_request_review_comment': {
       const pr = obj(p.pull_request);
       const comment = obj(p.comment);
       if (action !== 'created' || !pr || !comment) return null;
-      return facts({ event: 'comment', repo, number: int(pr.number), title: str(pr.title), url: str(comment.html_url) ?? str(pr.html_url), actor: str(obj(comment.user)?.login) ?? sender, body: str(comment.body), receivedAt });
+      return facts({ event: 'comment', repo, number: int(pr.number), title: str(pr.title), url: str(comment.html_url) ?? str(pr.html_url), actor: str(obj(comment.user)?.login) ?? sender, body: str(comment.body), labels: labelsOf(pr.labels), receivedAt });
     }
     case 'issues': {
       const issue = obj(p.issue);
       if (action !== 'opened' || !issue) return null;
-      return facts({ event: 'issue_opened', repo, number: int(issue.number), title: str(issue.title), url: str(issue.html_url), actor: str(obj(issue.user)?.login) ?? sender, body: str(issue.body), receivedAt });
+      return facts({ event: 'issue_opened', repo, number: int(issue.number), title: str(issue.title), url: str(issue.html_url), actor: str(obj(issue.user)?.login) ?? sender, body: str(issue.body), labels: labelsOf(issue.labels), receivedAt });
     }
     default:
       return null;

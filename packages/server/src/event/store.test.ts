@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { MessageError } from '../i18n/message.ts';
 import type { Db } from '../db/open.ts';
-import { addEventRun, bindingsForInbox, claimPr, createBinding, deleteBinding, expireBindings, finishEventRun, getBinding, listBindings, markDelivery, prOwner, updateBinding, type BindingInput } from './store.ts';
+import { addEventRun, bindingsForInbox, claimPr, createBinding, deleteBinding, expireBindings, finishEventRun, getBinding, hasDelivery, listBindings, markDelivery, prOwner, updateBinding, type BindingInput } from './store.ts';
 
 let db: Db;
 const T0 = new Date(2026, 10, 10, 9, 0).getTime();
@@ -151,6 +151,16 @@ describe('実行の履歴', () => {
 });
 
 describe('届いた荷物の重複', () => {
+  it('hasDelivery reads without remembering, and forgets what markDelivery would prune', () => {
+    const a = createBinding(db, input(), T0);
+    expect(hasDelivery(db, a.id, 'd-1', T0)).toBe(false);
+    expect(hasDelivery(db, a.id, 'd-1', T0)).toBe(false);
+    markDelivery(db, a.id, 'd-1', T0);
+    expect(hasDelivery(db, a.id, 'd-1', T0 + 1)).toBe(true);
+    expect(hasDelivery(db, 'other-binding', 'd-1', T0 + 1)).toBe(false);
+    expect(hasDelivery(db, a.id, 'd-1', T0 + 8 * DAY)).toBe(false);
+  });
+
   it('markDelivery is true once per binding and delivery id', () => {
     const a = createBinding(db, input(), T0);
     const b = createBinding(db, input(), T0);

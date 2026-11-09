@@ -1,6 +1,6 @@
 {
   "action": "opened",
-  "issue": { "number": 51, "title": "Sync stalls after wake", "html_url": "https://github.com/octo-org/demo-repo/issues/51", "body": "It stalls after the laptop wakes.", "user": { "login": "carol-user" } },
+  "issue": { "number": 51, "title": "Sync stalls after wake", "html_url": "https://github.com/octo-org/demo-repo/issues/51", "body": "It stalls after the laptop wakes.", "user": { "login": "carol-user" }, "labels": [{ "name": "bug" }, { "name": "needs-triage" }] },
   "repository": { "full_name": "octo-org/demo-repo", "html_url": "https://github.com/octo-org/demo-repo" },
   "sender": { "login": "carol-user" }
 }

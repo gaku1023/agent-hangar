@@ -8,8 +8,8 @@ import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import type { Db } from '../db/open.ts';
 import { openDb } from '../db/open.ts';
 import { inboxApiOf, type InboxApi } from './inboxClient.ts';
-import { EventPuller, type PulledEvent } from './puller.ts';
-import { createBinding, deleteBinding, getBinding } from './store.ts';
+import { EventPuller, judgeSuites, type GhApi, type PulledEvent } from './puller.ts';
+import { createBinding, deleteBinding, getBinding, hasDelivery } from './store.ts';
 
 const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const fx = (name: string): unknown => JSON.parse(fs.readFileSync(path.join(DIR, `${name}.json`), 'utf8'));
@@ -31,8 +31,11 @@ beforeEach(() => {
 });
 afterEach(() => { db.close(); vi.restoreAllMocks(); });
 
-const puller = (api: () => InboxApi | null = () => inboxApiOf(client), o: { onPulled?: (e: PulledEvent[]) => void } = {}) =>
-  new EventPuller({ db, api, now: () => T0, me: () => 'alice-dev', onPulled: o.onPulled ?? ((e) => { delivered.push(e); }) });
+/** gh を呼ばない既定の口。呼ばれたら失敗して、完了したスイート 1 つの結果に戻る道を通る。 */
+const noGh: GhApi = () => Promise.reject(new Error('gh is not used in this test'));
+
+const puller = (api: () => InboxApi | null = () => inboxApiOf(client), o: { onPulled?: (e: PulledEvent[]) => void; ghApi?: GhApi } = {}) =>
+  new EventPuller({ db, api, now: () => T0, me: () => 'alice-dev', onPulled: o.onPulled ?? ((e) => { delivered.push(e); }), ghApi: o.ghApi ?? noGh });
 
 type Inbox = { inboxId: string; kp: { publicKey: string; privateKey: string }; bindingId: string };
 
@@ -98,7 +101,7 @@ describe('EventPuller', () => {
     expect(client.parcels).toHaveLength(0);
     const r = runsOf(inbox.bindingId);
     expect(r).toHaveLength(1);
-    expect(r[0]).toMatchObject({ result: 'failed', error: 'rejected:signature' });
+    expect(r[0]).toMatchObject({ result: 'failed', error: 'rejected:signature x1' });
   });
 
   it('rejects a github binding that has no secret yet', async () => {
@@ -153,16 +156,115 @@ describe('EventPuller', () => {
     expect(runsOf(inbox.bindingId)).toHaveLength(0);
   });
 
-  it('counts check suites across parcels and emits one ci_done', async () => {
-    const inbox = await addBinding();
-    await post(inbox, 'check_suite', fx('check_suite.requested'));
-    await post(inbox, 'check_suite', fx('check_suite.requested.second'));
-    await post(inbox, 'check_suite', fx('check_suite.completed.failure'));
-    const p = puller();
-    expect(await p.pull('bell')).toEqual([]);
-    await post(inbox, 'check_suite', fx('check_suite.completed.success'));
-    const out = await p.pull('bell');
-    expect(out).toEqual([expect.objectContaining({ facts: expect.objectContaining({ event: 'ci_done', outcome: 'failure', number: 42 }) })]);
+  describe('check suites', () => {
+    const suite = (o: { status?: string; conclusion?: string | null; runs?: number } = {}) => ({ id: 1, status: o.status ?? 'completed', conclusion: o.conclusion === undefined ? 'success' : o.conclusion, latest_check_runs_count: o.runs ?? 3 });
+    const listing = (...suites: object[]) => ({ total_count: suites.length, check_suites: suites });
+    /** 台本どおりに答える gh と、呼ばれた API の道。 */
+    const scripted = (...answers: unknown[]) => {
+      const paths: string[] = [];
+      const ghApi: GhApi = async (path) => {
+        paths.push(path);
+        const a = answers.shift();
+        if (a instanceof Error) throw a;
+        return a;
+      };
+      return { ghApi, paths };
+    };
+
+    it('asks GitHub for the suites on the head sha and emits one ci_done when all are finished', async () => {
+      const inbox = await addBinding();
+      await post(inbox, 'check_suite', fx('check_suite.completed.failure'));
+      const gh = scripted(listing(suite({ conclusion: 'success' }), suite({ conclusion: 'failure' })));
+      const out = await puller(undefined, { ghApi: gh.ghApi }).pull('bell');
+      expect(gh.paths).toEqual(['repos/octo-org/demo-repo/commits/3f2a9c0d41b7e85a6c1d2e3f405162738495a6b7/check-suites?per_page=100']);
+      expect(out).toEqual([expect.objectContaining({ facts: expect.objectContaining({ event: 'ci_done', outcome: 'failure', number: 42 }) })]);
+    });
+
+    it('waits while another suite is queued or in progress, then emits once at the last completion', async () => {
+      const inbox = await addBinding();
+      const p = puller(undefined, { ghApi: scripted(
+        listing(suite({ conclusion: 'failure' }), suite({ status: 'in_progress', conclusion: null })),
+        listing(suite({ conclusion: 'failure' }), suite({ status: 'queued', conclusion: null })),
+        listing(suite({ conclusion: 'failure' }), suite({ conclusion: 'success' })),
+      ).ghApi });
+      await post(inbox, 'check_suite', fx('check_suite.completed.failure'));
+      await post(inbox, 'check_suite', fx('check_suite.completed.success'));
+      expect(await p.pull('bell')).toEqual([]);
+      await post(inbox, 'check_suite', fx('check_suite.completed.success'));
+      expect(await p.pull('bell')).toEqual([expect.objectContaining({ facts: expect.objectContaining({ event: 'ci_done', outcome: 'failure' }) })]);
+    });
+
+    it('emits at most once per inbox, repo and sha, within one page and across pulls', async () => {
+      const inbox = await addBinding();
+      const all = listing(suite(), suite());
+      const gh = scripted(all, all, all);
+      const p = puller(undefined, { ghApi: gh.ghApi });
+      await post(inbox, 'check_suite', fx('check_suite.completed.success'));
+      await post(inbox, 'check_suite', fx('check_suite.completed.success'));
+      expect(await p.pull('bell')).toHaveLength(1);
+      // 2 通目はメモで止まり、gh は 1 度しか呼ばない。
+      expect(gh.paths).toHaveLength(1);
+      await post(inbox, 'check_suite', fx('check_suite.completed.success'));
+      expect(await p.pull('bell')).toEqual([]);
+      expect(gh.paths).toHaveLength(1);
+    });
+
+    it('forgets the memo after a day', async () => {
+      const inbox = await addBinding();
+      let now = T0;
+      const all = listing(suite());
+      const p = new EventPuller({ db, api: () => inboxApiOf(client), now: () => now, onPulled: (e) => { delivered.push(e); }, ghApi: scripted(all, all).ghApi });
+      await post(inbox, 'check_suite', fx('check_suite.completed.success'));
+      expect(await p.pull('bell')).toHaveLength(1);
+      now += 25 * 60 * 60_000;
+      await post(inbox, 'check_suite', fx('check_suite.completed.success'));
+      expect(await p.pull('bell')).toHaveLength(1);
+    });
+
+    it('ignores suites that never ran, and reports cancelled when nothing failed', async () => {
+      const inbox = await addBinding();
+      await post(inbox, 'check_suite', fx('check_suite.completed.success'));
+      const gh = scripted(listing(suite({ conclusion: 'cancelled' }), suite({ conclusion: 'success' }), suite({ status: 'queued', conclusion: null, runs: 0 })));
+      expect(await puller(undefined, { ghApi: gh.ghApi }).pull('bell')).toEqual([expect.objectContaining({ facts: expect.objectContaining({ outcome: 'cancelled' }) })]);
+    });
+
+    it('emits nothing when every conclusion is stale', async () => {
+      const inbox = await addBinding();
+      await post(inbox, 'check_suite', fx('check_suite.completed.success'));
+      const gh = scripted(listing(suite({ conclusion: 'stale' })));
+      expect(await puller(undefined, { ghApi: gh.ghApi }).pull('bell')).toEqual([]);
+    });
+
+    it('falls back to the single suite when gh fails, logging only the error name', async () => {
+      const inbox = await addBinding();
+      await post(inbox, 'check_suite', fx('check_suite.completed.failure'));
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const out = await puller(undefined, { ghApi: scripted(new Error(`boom ${inbox.inboxId} token-123`)).ghApi }).pull('bell');
+      expect(out).toEqual([expect.objectContaining({ facts: expect.objectContaining({ event: 'ci_done', outcome: 'failure' }) })]);
+      expect(log).toHaveBeenCalled();
+      expect(JSON.stringify(log.mock.calls)).not.toContain('token-123');
+      expect(JSON.stringify(log.mock.calls)).not.toContain(inbox.inboxId);
+    });
+
+    it('falls back when the listing has no suite that ran, and never calls gh with an odd sha', async () => {
+      const inbox = await addBinding();
+      await post(inbox, 'check_suite', fx('check_suite.completed.failure'));
+      expect(await puller(undefined, { ghApi: scripted(listing(suite({ runs: 0 }))).ghApi }).pull('bell')).toHaveLength(1);
+      const odd = JSON.parse(JSON.stringify(fx('check_suite.completed.failure'))) as { check_suite: { head_sha: string } };
+      odd.check_suite.head_sha = '../../user';
+      await post(inbox, 'check_suite', odd);
+      const gh = scripted();
+      expect(await puller(undefined, { ghApi: gh.ghApi }).pull('bell')).toHaveLength(1);
+      expect(gh.paths).toEqual([]);
+    });
+
+    it('judges a listing', () => {
+      expect(judgeSuites({ check_suites: [suite({ conclusion: 'timed_out' })] })).toEqual({ kind: 'done', outcome: 'failure' });
+      expect(judgeSuites({ check_suites: [suite({ conclusion: 'neutral' }), suite({ conclusion: 'skipped' })] })).toEqual({ kind: 'done', outcome: 'success' });
+      expect(judgeSuites({ check_suites: [suite({ conclusion: 'success' }), suite({ conclusion: 'stale' })] })).toEqual({ kind: 'done', outcome: 'success' });
+      expect(judgeSuites({ check_suites: [] })).toEqual({ kind: 'unknown' });
+      expect(judgeSuites('x')).toEqual({ kind: 'unknown' });
+    });
   });
 
   it('records unparsable parcels and acks them', async () => {
@@ -181,7 +283,8 @@ describe('EventPuller', () => {
       { bindingId: inbox.bindingId, rejected: 'unparsable' },
     ]);
     expect(client.parcels).toHaveLength(0);
-    expect(runsOf(inbox.bindingId).map((r) => r.error)).toEqual(['rejected:unparsable', 'rejected:unparsable', 'rejected:unparsable']);
+    // 3 通は 1 巡のうちに 1 件の履歴にまとめる。
+    expect(runsOf(inbox.bindingId).map((r) => r.error)).toEqual(['rejected:unparsable x3']);
   });
 
   it('acks a parcel whose inbox has no binding, without an event or a record', async () => {
@@ -298,13 +401,53 @@ describe('EventPuller', () => {
     expect(client.parcels).toHaveLength(0);
   });
 
-  it('survives a failing callback', async () => {
+  it('keeps the page, marks nothing and records nothing when the callback throws, then retries it', async () => {
+    const inbox = await addBinding();
+    await post(inbox, 'issues', fx('issues.opened'), { delivery: 'keep-1' });
+    await post(inbox, 'issues', fx('issues.opened'), { secret: 'forged', delivery: 'keep-2' });
+    client.inboxes.get(inbox.inboxId)!.dropped = 4;
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const out = await puller(undefined, { onPulled: () => { throw new Error('consumer broke'); } }).pull('bell');
+    expect(out).toEqual([]);
+    expect(log).toHaveBeenCalled();
+    // ack していないので荷物は残り、配送は覚えておらず、履歴も書いていない。
+    expect(client.parcels).toHaveLength(2);
+    expect(calls('ackParcels')).toHaveLength(0);
+    expect(hasDelivery(db, inbox.bindingId, 'keep-1', T0)).toBe(false);
+    expect(runsOf(inbox.bindingId)).toHaveLength(0);
+    // 受け手が直ったら、同じページを取り直して 1 度だけ出す。
+    const again = await puller().pull('bell');
+    expect(again).toHaveLength(2);
+    expect(again.filter((e) => 'facts' in e)).toHaveLength(1);
+    expect(client.parcels).toHaveLength(0);
+    expect(hasDelivery(db, inbox.bindingId, 'keep-1', T0)).toBe(true);
+    expect(runsOf(inbox.bindingId).map((r) => r.error).sort()).toEqual(['dropped:4', 'rejected:signature x1']);
+    expect(await puller().pull('bell')).toEqual([]);
+  });
+
+  it('counts every forged parcel of one pull as a single history run', async () => {
+    const inbox = await addBinding();
+    for (let i = 0; i < EVENT_INBOX_PULL_PAGE + 5; i++) await post(inbox, 'issues', fx('issues.opened'), { secret: 'forged' });
+    await post(inbox, 'issues', fx('issues.opened'));
+    const out = await puller().pull('bell');
+    expect(out.filter((e) => 'rejected' in e)).toHaveLength(EVENT_INBOX_PULL_PAGE + 5);
+    const runs = runsOf(inbox.bindingId);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ result: 'failed', error: `rejected:signature x${EVENT_INBOX_PULL_PAGE + 5}` });
+  });
+
+  it('dedupes a redelivery that sits in the same page as the original', async () => {
+    const inbox = await addBinding();
+    await post(inbox, 'issues', fx('issues.opened'), { delivery: 'twin' });
+    await post(inbox, 'issues', fx('issues.opened'), { delivery: 'twin' });
+    expect(await puller().pull('bell')).toHaveLength(1);
+  });
+
+  it('gives events the labels of the issue', async () => {
     const inbox = await addBinding();
     await post(inbox, 'issues', fx('issues.opened'));
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    const out = await puller(undefined, { onPulled: () => { throw new Error('consumer broke'); } }).pull('bell');
-    expect(out).toHaveLength(1);
-    expect(client.parcels).toHaveLength(0);
+    const out = await puller().pull('bell');
+    expect(out[0]).toMatchObject({ facts: { labels: ['bug', 'needs-triage'] } });
   });
 
   it('stays quiet on an old Worker that has no inbox route', async () => {

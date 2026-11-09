@@ -19,7 +19,7 @@ import type { BellTarget, CloudClient } from '../sync/client.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { fixedPhoneKeys, PHONE_KEY_1, phoneCryptoKey } from '../../test/phoneKeys.ts';
-import { ANSWER_RESEND_TICK_MS, bootMobile, PHONE_RECHECK_MS } from './mobile.ts';
+import { ANSWER_RESEND_TICK_MS, bootMobile, EVENT_FALLBACK_PULL_MS, PHONE_RECHECK_MS } from './mobile.ts';
 
 /** スマホ用の鍵 M[1]。どの試験でも同じ引き口を渡す（引き口が同じなら書き手を組み直さない）。 */
 const PHONE_KEYS = fixedPhoneKeys();
@@ -692,10 +692,12 @@ describe('bootMobile', () => {
         cleanups.push(() => s.mobile.stop(), () => s.w.close());
         s.mobile.start();
         await settle(() => s.w.open().length === 1);
-        expect(f.reasons).toEqual(['start']);
-        s.w.open()[0]!.send(JSON.stringify({ t: 'peer', kind: 'event', id: 'inbox-1' }));
+        // つながったときにも 1 度取りに行く（つながっていなかった間の荷物のため）。
         await settle(() => f.reasons.length === 2);
         expect(f.reasons).toEqual(['start', 'bell']);
+        s.w.open()[0]!.send(JSON.stringify({ t: 'peer', kind: 'event', id: 'inbox-1' }));
+        await settle(() => f.reasons.length === 3);
+        expect(f.reasons).toEqual(['start', 'bell', 'bell']);
         expect(f.puller.pull.mock.calls.every((c) => c.length === 1)).toBe(true);
       });
 
@@ -719,6 +721,34 @@ describe('bootMobile', () => {
         expect(old.w.attempts).toHaveLength(0);
       });
 
+      it('呼び鈴がつながらないあいだは、見回りの中で 5 分おきに取りに行く。結び付けが無ければ行かない', async () => {
+        const f = fakePuller(true);
+        const s = await bellSetup({ devices: alone(), workerCompat: EVENT_INBOX_MIN_WORKER_COMPAT, boot: { event: f.puller } });
+        cleanups.push(() => s.mobile.stop(), () => s.w.close());
+        s.bellTarget.mockReturnValue(null as never);
+        s.mobile.start();
+        await quiet();
+        expect(f.reasons).toEqual(['start']);
+        await s.timers.advance(EVENT_FALLBACK_PULL_MS - 60_000);
+        await quiet();
+        expect(f.reasons).toEqual(['start']);
+        await s.timers.advance(60_000);
+        await quiet();
+        expect(f.reasons).toEqual(['start', 'bell']);
+        await s.timers.advance(EVENT_FALLBACK_PULL_MS);
+        await quiet();
+        expect(f.reasons).toEqual(['start', 'bell', 'bell']);
+        expect(s.w.attempts).toHaveLength(0);
+        const none = fakePuller(false);
+        const t = await bellSetup({ devices: alone(), workerCompat: EVENT_INBOX_MIN_WORKER_COMPAT, boot: { event: none.puller } });
+        cleanups.push(() => t.mobile.stop(), () => t.w.close());
+        t.bellTarget.mockReturnValue(null as never);
+        t.mobile.start();
+        await t.timers.advance(EVENT_FALLBACK_PULL_MS * 2);
+        await quiet();
+        expect(none.reasons.filter((r) => r === 'bell')).toEqual([]);
+      });
+
       it('取り手が投げても呼び鈴は止まらない', async () => {
         const puller = { pull: vi.fn(() => Promise.reject(new Error('boom'))), hasBindings: () => true };
         const log = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -727,7 +757,7 @@ describe('bootMobile', () => {
         s.mobile.start();
         await settle(() => s.w.open().length === 1);
         s.w.open()[0]!.send(JSON.stringify({ t: 'peer', kind: 'event', id: 'inbox-1' }));
-        await settle(() => puller.pull.mock.calls.length === 2);
+        await settle(() => puller.pull.mock.calls.length === 3);
         expect(s.w.open()).toHaveLength(1);
       });
     });
