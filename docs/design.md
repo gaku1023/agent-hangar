@@ -1233,7 +1233,7 @@ Claude Code の保存先と、その読み方を定める。
 
 - 本文は `~/.claude/projects/<変換名>/<sessionId>.jsonl` にある。変換名は cwd の英数字以外を `-` に置き換えたもので、日本語を含むパスは不可逆になる。cwd は行内の `cwd` か `~/.claude/history.jsonl` の `project` から読む。
 - `~/.claude/history.jsonl` は利用者の発言だけの軽い索引で、初回列挙に使う。
-- ファイルの末尾には `last-prompt`、`mode`、`permission-mode`、`ai-title`、`pr-link` などのメタ行が混ざる。ほかにも `bridge-session`、`isolation-latch`、`agent-name`、`custom-title`、`file-history-snapshot`、`file-history-delta`、`frame-link`、`cost-state`、`relocated`、`worktree-state`、`queue-operation`、`attachment` などがある。行の `type` で振り分け、知らない種別は `meta` として保持する。
+- ファイルの末尾には `last-prompt`、`mode`、`permission-mode`、`ai-title`、`pr-link` などのメタ行が混ざる。ほかにも `bridge-session`、`isolation-latch`、`session-owner`、`agent-name`、`custom-title`、`file-history-snapshot`、`file-history-delta`、`frame-link`、`cost-state`、`relocated`、`worktree-state`、`queue-operation`、`attachment` などがある。行の `type` で振り分け、知らない種別は `meta` として保持する。
 - 2.1.300 からは、API に送った要求の記録（`api-request`、`api-request-blob`、`api-request-shape`）が呼び出しごとに書かれる。1 行が 10〜90KB あり、会話の本文は別の行にあるので、正規化でイベントを作らずに捨てる（`DROPPED_LINE_TYPES`）。この変更より前に索引へ入った行は、読み出すときに正規化し直すので、何も返さない。
 - `user` 行の `message.content` は配列ではなく文字列のことがある。抽出は両方を受ける。
 - サブエージェントの本文は `<sessionId>/subagents/agent-<hex>.jsonl` にあり、`isSidechain: true` で親に紐づく。件数はセッション本体の 3 倍以上あり、インデクサは両方を読む。

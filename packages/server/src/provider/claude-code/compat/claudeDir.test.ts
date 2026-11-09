@@ -55,6 +55,15 @@ describe('claudeDirDrifts', () => {
     expect(isClaudeDirDrift('entry=remote-settings.json.signature-iat.json.lock')).toBe(false);
     expect(isClaudeDirDrift('entry=.lock')).toBe(true);
   });
+  it('teams と mcp-needs-auth-cache.json（2.1.319 で現れた）はアカウントごとに持つ項目として知っている', () => {
+    const dir = path.join(tmp, 'second');
+    fs.mkdirSync(dir);
+    fs.mkdirSync(path.join(dir, 'teams'));
+    fs.writeFileSync(path.join(dir, 'mcp-needs-auth-cache.json'), '{}');
+    expect(claudeDirDrifts(dir)).toEqual([]);
+    expect(isClaudeDirDrift('entry=teams')).toBe(false);
+    expect(isClaudeDirDrift('entry=mcp-needs-auth-cache.json')).toBe(false);
+  });
   it('共有の項目やアカウントごとの項目を手で退避した写し（<名前>.bak…）は見ない', () => {
     const dir = path.join(tmp, 'second');
     fs.mkdirSync(dir);

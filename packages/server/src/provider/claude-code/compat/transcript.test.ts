@@ -39,6 +39,10 @@ describe('transcriptDrifts', () => {
     expect(transcriptDrifts({ type: 'tools-used', tools: ['ToolSearch', 'Bash'], sessionId: 's' })).toEqual([]);
     expect(isTranscriptDrift('type=tools-used')).toBe(false);
   });
+  it('session-owner（2.1.319 で現れた、accountUuid・organizationUuid・sessionId だけの行）は meta として知っている', () => {
+    expect(transcriptDrifts({ type: 'session-owner', accountUuid: 'a', organizationUuid: 'o', sessionId: 's' })).toEqual([]);
+    expect(isTranscriptDrift('type=session-owner')).toBe(false);
+  });
   it('api-request 系の行（2.1.300 で現れた、API の要求の記録）は捨てる種類として知っている', () => {
     for (const type of ['api-request', 'api-request-blob', 'api-request-shape']) {
       expect(transcriptDrifts({ type, sessionId: 's' }), type).toEqual([]);

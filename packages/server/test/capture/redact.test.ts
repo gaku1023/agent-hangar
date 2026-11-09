@@ -111,6 +111,10 @@ describe('redactTranscriptLine', () => {
     const queued = { type: 'attachment', attachment: { type: 'queued_command', prompt: 'next', commandMode: 'prompt' } };
     expect(redactTranscriptLine(queued, P)).toEqual(queued);
   });
+  it('会話の持ち主の行（session-owner、2.1.319 から）は、アカウントの識別子を決まった値にする', () => {
+    expect(redactTranscriptLine({ type: 'session-owner', accountUuid: 'e0e0e0e0-1111-4222-8333-444444444444', organizationUuid: S.orgId, sessionId: 's' }, P))
+      .toEqual({ type: 'session-owner', accountUuid: '00000000-0000-4000-8000-000000000001', organizationUuid: '00000000-0000-4000-8000-000000000000', sessionId: 's' });
+  });
   it('利用者の発言でない user の行（isMeta）は、本文を伏せる', () => {
     expect(redactTranscriptLine({ type: 'user', isMeta: true, message: { role: 'user', content: 'Contents of /Users/someone/CLAUDE.md' } }, P)).toEqual({ type: 'user', isMeta: true, message: { role: 'user', content: '(redacted)' } });
   });

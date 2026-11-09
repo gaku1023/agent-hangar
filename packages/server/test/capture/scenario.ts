@@ -28,6 +28,8 @@ export const PLACEHOLDER = {
   email: 'user@example.com',
   orgName: 'Example Org',
   orgId: '00000000-0000-4000-8000-000000000000',
+  /** アカウントの識別子（会話の持ち主の行の accountUuid）。 */
+  accountId: '00000000-0000-4000-8000-000000000001',
   pidDomain: 'fixture',
   subscriptionType: 'max',
   costUsd: 0.01,
