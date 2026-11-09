@@ -459,17 +459,23 @@ describe('流れ（peerChat.update）', () => {
     expect(second.ok && second.update.items.map((i) => i.uuid)).toEqual(['u1', 'u1@ask:A', 'u2', 'u3']);
   });
 
-  it('答えの記録が後から来る言い換え、答えられない印の変化、起点の巻き戻しが重なっても、札は呼んだ位置のまま', async () => {
+  it('答えの記録が後から来る言い換え、答えられない印の変化、truncated の差し替え（起点の巻き戻しも同じ replace）が重なっても、札は呼んだ位置のまま', async () => {
     const mk = (uuid: string, askId: string, answered: boolean, over: { answerable?: false } = {}): PeerChatItem => { const a = askItem(uuid, askId, answered); return { ...a, ask: { ...a.ask!, ...over } }; };
     // 札が出る（答えられない印つき）。言い換わり、印が消え、答えられ、続きの返答が先に載る。
     answers.push(() => ok(state([item('u1'), mk('u1@ask:A!', 'A', false, { answerable: false })])));
     answers.push(() => ok(state([mk('u1@ask:B', 'B', false)])));
     answers.push(() => ok(state([item('u2'), item('u3'), mk('u1@ask:B', 'B', true)], { cursor: 'u3' })));
+    // 元の PC が項目を落として返した（truncated）。貯めた分と札の覚えを捨てて、host の並びで差し替える。
+    answers.push(() => ok(state([item('u1'), mk('u1@ask:B', 'B', true), item('u2'), item('u3')], { cursor: 'u3', truncated: true })));
     await viewer.open(SID, { viewer: 'v1' });
     await clock.advance(PEER_CHAT_MIN_GAP_MS);
     await clock.advance(PEER_CHAT_MIN_GAP_MS);
-    const second = await viewer.open(SID, { viewer: 'v2' });
-    expect(second.ok && second.update.items.map((i) => [i.uuid, !!i.ask?.answered])).toEqual([['u1', false], ['u1@ask:A!', true], ['u2', false], ['u3', false]]);
+    const mid = await viewer.open(SID, { viewer: 'v2' });
+    expect(mid.ok && mid.update.items.map((i) => [i.uuid, !!i.ask?.answered])).toEqual([['u1', false], ['u1@ask:A!', true], ['u2', false], ['u3', false]]);
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    const second = await viewer.open(SID, { viewer: 'v3' });
+    expect(second.ok && second.update.replace).toBe(true);
+    expect(second.ok && second.update.items.map((i) => [i.uuid, !!i.ask?.answered])).toEqual([['u1', false], ['u1@ask:B', true], ['u2', false], ['u3', false]]);
   });
 
   it('同じ位置の答え済みの札が 2 枚あとから来ても、答えた順のまま並ぶ', async () => {
@@ -756,6 +762,17 @@ describe('見張りの上限と見ている人', () => {
     await clock.advance(1);
     await p;
     expect(tails()).toHaveLength(before + 1);
+  });
+
+  it('札の直前の項目が溢れて落ちたあとに来た答えの記録は、位置が無いので末尾に足す', async () => {
+    const filler = Array.from({ length: PEER_CHAT_ITEMS_KEEP }, (_, i) => item(`f${i}`));
+    answers.push(() => ok(state([item('b0'), ...filler])));
+    answers.push(() => ok(state([askItem('b0@ask:A', 'A', true)], { cursor: `f${PEER_CHAT_ITEMS_KEEP - 1}` })));
+    const first = await viewer.open(SID, { viewer: 'v1' });
+    expect(first.ok && first.update.items.some((i) => i.uuid === 'b0')).toBe(false);
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    const second = await viewer.open(SID, { viewer: 'v2' });
+    expect(second.ok && second.update.items.at(-1)!.uuid).toBe('b0@ask:A');
   });
 
   it('溢れて捨てた項目の札の覚えも捨てる（あとで同じ札が来ても、無い項目の重ね書きにならない）', async () => {

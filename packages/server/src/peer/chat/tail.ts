@@ -306,6 +306,15 @@ export function currentPendingAsk(sessionId: string, deps: TailDeps): PeerChatAs
 }
 
 /**
+ * transcript の項目（札を除く）の中での uuid の位置。無ければ -1。
+ * 答えの記録の札が呼んだ位置が、返した範囲から落ちたのか、transcript に最初から無いのかを分けるのに使う（解析は覚えを使う）。
+ */
+export function transcriptPosition(sessionId: string, uuid: string, deps: TailDeps): number {
+  if (uuid === '') return -1;
+  return settle(scanOf(sessionId, deps)).items.findIndex((i) => i.uuid === uuid);
+}
+
+/**
  * 会話の解析の結果。deps.cache があり、手がかりの key が前と同じなら、読まず解析せずに前の結果を返す。
  * 覚えは PEER_CHAT_TAIL_CACHE_MAX 会話までで、一番長く使われていないものから捨てる。
  */

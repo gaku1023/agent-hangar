@@ -481,13 +481,34 @@ describe('ChatView.build: 答えの記録の札は、呼んだ位置に並ぶ（
     expect(keys(view, 'u-asst')).toEqual(['ask:answered']);
   });
 
-  it('頭からの取得で古い項目を落としたとき、落とした範囲にある札の記録は出さない', () => {
+  const many = (w: Rig['w']): void => {
+    for (let i = 0; i < 250; i++) w.lines.push(jl({ type: 'assistant', uuid: `u-x${i}`, message: { role: 'assistant', model: 'm', content: [{ type: 'text', text: `x${i}` }] } }));
+  };
+
+  it('頭からの取得で古い項目を落としたとき、落とした範囲にある札の記録は出さない。transcript に最初から無い位置の記録は末尾に出す', () => {
     const { w, view } = make();
     w.live = 'busy';
-    for (let i = 0; i < 250; i++) w.lines.push(jl({ type: 'assistant', uuid: `u-x${i}`, message: { role: 'assistant', model: 'm', content: [{ type: 'text', text: `x${i}` }] } }));
+    many(w);
     view.recordAnswer('s1', permItem('u-asst@ask:A', 'A'), MAC, 'Yes');
+    view.recordAnswer('s1', permItem('never-there@ask:B', 'B'), MAC, 'Yes');
     const st = view.build('s1', 'pc-b', null).state;
     expect(st.truncated).toBe(true);
-    expect(st.items.some((i) => i.ask)).toBe(false);
+    expect(st.items.filter((i) => i.ask).map((i) => i.ask!.askId)).toEqual(['B']);
+    expect(st.items.at(-1)!.ask!.askId).toBe('B');
+  });
+
+  it('after が非 null で truncated のとき、落とした範囲の記録は出さず、after の位置の記録は先頭に、見る側がすでに持つ位置の記録は末尾に出す', () => {
+    const { w, view } = make();
+    w.live = 'busy';
+    many(w);
+    view.recordAnswer('s1', permItem('u-x5@ask:D', 'D'), MAC, 'Yes');
+    view.recordAnswer('s1', permItem('u-asst@ask:A', 'A'), MAC, 'Yes');
+    view.recordAnswer('s1', permItem('u-user@ask:E', 'E'), MAC, 'Yes');
+    const st = view.build('s1', 'pc-b', 'u-asst').state;
+    expect(st.truncated).toBe(true);
+    const ids = st.items.filter((i) => i.ask).map((i) => i.ask!.askId);
+    expect(ids).toEqual(['A', 'E']);
+    expect(st.items[0]!.ask!.askId).toBe('A');
+    expect(st.items.at(-1)!.ask!.askId).toBe('E');
   });
 });
