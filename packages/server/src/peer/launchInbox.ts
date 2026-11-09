@@ -1,16 +1,15 @@
 import {
   clampText,
   E2eOpenError,
-  isCodexPermission,
   isEffort,
   isMobileMode,
+  isPeerLaunchPermission,
   isModelName,
   MOBILE_LAUNCH_ID_MAX,
   MOBILE_PROMPT_MAX,
   openPeerLaunch,
   PEER_LAUNCH_TTL_MS,
   PeerUnknownEpochError,
-  PERMISSION_MODE_VALUES,
   peerSealEpoch,
   sealPeerAnswer,
   type LaunchParams,
@@ -74,7 +73,6 @@ export type PeerLaunchInboxDeps = {
 /** 頼みで起こした会話。from は頼んだ PC の ID、parentSessionId は頼んだ PC の会話。 */
 export type PeerLaunchStarted = { requestId: string; from: string; parentSessionId: string; sessionId: string; title: string; hasPrompt: boolean };
 
-const PERMISSION_MODES: ReadonlySet<string> = new Set(PERMISSION_MODE_VALUES);
 const isCodexEffort = (v: unknown): v is string => typeof v === 'string' && /^[a-z0-9][a-z0-9_-]{0,23}$/.test(v);
 
 const firstLine = (prompt: string): string => [...(prompt.split(/\r?\n/).find((x) => x.trim()) ?? '').trim()].slice(0, 40).join('');
@@ -85,7 +83,7 @@ const kindOf = (e: unknown): string => {
 
 /**
  * 開けた頼みの意味を検査する（開く関数は型の形しか見ない）。
- * 文字数、権限モードとモデルと effort の値（PC の新規セッションのダイアログと同じ値だけ）、エージェントごとの欄の組み合わせを見る。
+ * 文字数、権限モード（送る側と同じ isPeerLaunchPermission。新規ダイアログの値と default）とモデルと effort の値、エージェントごとの欄の組み合わせを見る。
  * Codex の権限は mode か permissionMode のどちらかに入っていればよい。opencode にはアカウントと権限モードと effort が無く、Claude には mode と autoApprove が無い。
  */
 function isMeaningful(r: PeerLaunchRequest): boolean {
@@ -102,13 +100,12 @@ function isMeaningful(r: PeerLaunchRequest): boolean {
   if (r.scratch ? r.projectId !== null : r.projectId === null) return false;
   if (r.model !== '' && !isModelName(r.model)) return false;
   if ((r.name?.length ?? 0) > 200) return false;
-  if (r.agent === 'codex') {
-    const perm = r.mode || r.permissionMode;
-    return (perm === '' || isCodexPermission(perm)) && (r.effort === undefined || isCodexEffort(r.effort)) && r.autoApprove === undefined;
-  }
-  if (!PERMISSION_MODES.has(r.permissionMode) || !(r.effort === undefined || isEffort(r.effort))) return false;
+  // 権限の値の検査は送る側（peerTools）と同じ関数を使う。
+  if (!isPeerLaunchPermission(r)) return false;
+  if (r.agent === 'codex') return (r.effort === undefined || isCodexEffort(r.effort)) && r.autoApprove === undefined;
+  if (!(r.effort === undefined || isEffort(r.effort))) return false;
   if (r.agent === 'opencode') {
-    return r.account === '' && r.permissionMode === '' && r.effort === undefined && (r.mode === undefined || isMobileMode(r.mode));
+    return r.account === '' && r.effort === undefined && (r.mode === undefined || isMobileMode(r.mode));
   }
   return r.mode === undefined && r.autoApprove === undefined;
 }

@@ -111,6 +111,8 @@ export const mcpEn: AreaDictionary<typeof mcpKeys> = {
   'mcp.device.needsSession': 'Starting a session on another computer needs a calling session. Use the per-session MCP URL',
   'mcp.device.unsupportedArg': '{arg} cannot be used when starting on another computer',
   'mcp.device.sendFailed': 'Could not send the request: {reason}',
+  'mcp.device.permissionModeUnsupported': '{agent} on another computer cannot accept a request with permission_mode "{mode}". Available: {values}',
+  'mcp.device.permissionModeNone': 'permission_mode cannot be passed to {agent} on another computer. Omit it and try again',
   'mcp.tool.setSessionSummary': "Updates this session's summary. Call it when a request is completed, when the approach changes, or when work is interrupted.",
   'mcp.tool.setTurnIntent': 'Writes what you will do in this turn and why, in one or two sentences (up to 200 characters). Call it when you start a turn and when you change approach. It appears in the right panel of Hangar.',
   'mcp.notify.badKind': "kind must be one of 'done', 'ask', and 'progress'",

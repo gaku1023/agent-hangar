@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { isAgentKind, sealPeerLaunch, type AgentKind, type PeerLaunchRequest } from '@agent-hangar/shared';
+import { isAgentKind, isPeerLaunchPermission, peerLaunchPermissionChoices, sealPeerLaunch, type AgentKind, type PeerLaunchRequest } from '@agent-hangar/shared';
 import { accountOfSession, getSession } from '../db/queries.ts';
 import { defaultLanguage } from '../i18n/language.ts';
 import { msg, render, type Message } from '../i18n/message.ts';
@@ -74,6 +74,13 @@ export async function createRemoteSessionTool(deps: ToolDeps, ctx: ToolContext, 
   const agent = args.agent;
   if (agent !== undefined && !isAgentKind(agent)) throw new ToolError(msg('run.agent.unknown', { agent: String(agent).slice(0, 40) }));
   const kind: AgentKind = agent ?? 'claude-code';
+  // 受け手が bad-payload で断る値は、封をする前に断る（利用者に「読めませんでした」が後から届くのを避ける）。
+  const permissionMode = str(args.permission_mode) ?? '';
+  const modeArg = str(args.mode);
+  if (!isPeerLaunchPermission({ agent: kind, permissionMode, ...(modeArg ? { mode: modeArg } : {}) })) {
+    const values = peerLaunchPermissionChoices(kind);
+    throw new ToolError(values.length === 0 ? msg('mcp.device.permissionModeNone', { agent: kind }) : msg('mcp.device.permissionModeUnsupported', { mode: permissionMode.slice(0, 40), agent: kind, values }));
+  }
   const route = choosePeerRoute(peer, peerDeps!, now);
   if ('refuse' in route) return refused(deps, route.refuse, peer.name, msg(route.refuse === 'device-outdated' ? 'mcp.device.outdated' : 'mcp.device.offline', { device: peer.name }));
   // 深さは 1 まで（D11）。受ける側でも断るが、送る前に断れば無駄な往復を避けられる。
@@ -87,8 +94,8 @@ export async function createRemoteSessionTool(deps: ToolDeps, ctx: ToolContext, 
   const requestId = newId();
   const req: PeerLaunchRequest = {
     v: 1, createdAt: now, parentSessionId: ctx.sessionId, projectId, scratch, agent: kind,
-    account: str(args.account) ?? '', permissionMode: str(args.permission_mode) ?? '', model: str(args.model) ?? '', prompt: str(args.prompt) ?? '',
-    ...(str(args.effort) ? { effort: str(args.effort)! } : {}), ...(str(args.mode) ? { mode: str(args.mode)! } : {}),
+    account: str(args.account) ?? '', permissionMode, model: str(args.model) ?? '', prompt: str(args.prompt) ?? '',
+    ...(str(args.effort) ? { effort: str(args.effort)! } : {}), ...(modeArg ? { mode: modeArg } : {}),
     ...(bool(args.auto_approve) === true ? { autoApprove: true } : {}), ...(str(args.name) ? { name: str(args.name)! } : {}),
     callerAccount: callerAccountName(deps, ctx.sessionId, kind),
   };
