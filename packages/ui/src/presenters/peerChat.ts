@@ -14,7 +14,7 @@ export type PeerChatRow =
   | { kind: 'assistant'; key: string; text: string }
   | { kind: 'tool'; key: string; name: string; summary: string; ok: boolean }
   | { kind: 'system'; key: string; text: string }
-  | { kind: 'ask'; key: string; askId: string; askKind: 'permission' | 'question'; title: string; input: string | null; options: { key: string; label: string }[]; multi: boolean; allowText: boolean; answered: string | null; /** 答えを送って結果を待っている。 */ pending: boolean; /** 受け付けない設定の PC。押せない。 */ locked: boolean }
+  | { kind: 'ask'; key: string; askId: string; askKind: 'permission' | 'question'; title: string; input: string | null; options: { key: string; label: string }[]; multi: boolean; allowText: boolean; answered: string | null; /** 元の PC で答える札（この PC からは答えられない）。案内の文。答えられる札と、答えが付いた札は null。 */ hostOnly: string | null; /** 答えを送って結果を待っている。 */ pending: boolean; /** 受け付けない設定の PC。押せない。 */ locked: boolean }
   | { kind: 'queued'; key: string; queueId: string; text: string; images: number; tag: string; from: string | null; mine: boolean; delivering: boolean };
 
 /** 送る口の形。send は今すぐ渡る、queue はターンが止まるまで預かる、resume は止まっている会話を再開して渡す、blocked は送れない。 */
@@ -103,10 +103,10 @@ function staleAsk(slice: PeerChatSlice, index: number): boolean {
   return slice.status !== 'waiting' || index < slice.items.length - 1;
 }
 
-function rowOf(t: Translate, it: PeerChatItem, slice: PeerChatSlice, index: number): PeerChatRow {
+function rowOf(t: Translate, it: PeerChatItem, slice: PeerChatSlice, index: number, device: string): PeerChatRow {
   if (it.ask) {
     const answered = answerLine(t, it) ?? (staleAsk(slice, index) ? t('peerChat.ask.closed') : null);
-    return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, answered, pending: slice.answering.includes(it.ask.askId), locked: slice.locked };
+    return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, answered, hostOnly: answered === null && it.ask.answerable === false ? t('peerChat.ask.hostOnly', { device }) : null, pending: slice.answering.includes(it.ask.askId), locked: slice.locked };
   }
   switch (it.kind) {
     case 'user': return { kind: 'user', key: it.uuid, text: it.text, from: it.from ? t('peerChat.log.sentFrom', { device: it.from.deviceName }) : null };
@@ -130,7 +130,7 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
   const device = slice.device?.deviceName ?? s!.lock?.deviceName ?? '';
   const myId = store.device?.id ?? null;
   const status = slice.status;
-  const rows: PeerChatRow[] = slice.items.map((it, i) => rowOf(t, it, slice, i));
+  const rows: PeerChatRow[] = slice.items.map((it, i) => rowOf(t, it, slice, i, device));
   for (const q of slice.queued) {
     const mine = myId !== null && q.from.deviceId === myId;
     rows.push({ kind: 'queued', key: `queued:${q.queueId}`, queueId: q.queueId, text: q.text, images: q.images, tag: t(q.state === 'delivering' ? 'peerChat.queued.delivering' : 'peerChat.queued.tag'), from: mine ? null : t('peerChat.queued.from', { device: q.from.deviceName }), mine, delivering: q.state === 'delivering' });

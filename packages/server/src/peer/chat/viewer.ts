@@ -187,6 +187,8 @@ type Viewer = { id: string; socket: number | null; cancelLease: (() => void) | n
 const viewerKey = (socket: number | null, id: string): string => (socket === null ? `h:${id}` : `s${socket}:${id}`);
 
 const sigOf = (v: unknown): string => JSON.stringify(v);
+/** 札の変化の印。答えと、答えられるかの印（answerable）のどちらが変わっても項目を差し替える。 */
+const askSig = (a: NonNullable<PeerChatItem['ask']>): string => sigOf([a.answered ?? null, a.answerable ?? true]);
 /** 札の uuid の、@ask: より前（transcript の位置）。 */
 const askBase = (uuid: string): string => {
   const i = uuid.indexOf('@ask:');
@@ -210,7 +212,7 @@ class Watch {
    */
   readonly items = new Map<string, PeerChatItem>();
   /** 札の askId から、最初に載せた uuid と、答えの有無の印。 */
-  readonly asks = new Map<string, { uuid: string; sig: string }>();
+  readonly asks = new Map<string, { uuid: string; sig: string; answered: boolean }>();
   cursor: string | null;
   readonly startedAfter: string | null;
   status: PeerChatStatus | null = null;
@@ -264,17 +266,17 @@ class Watch {
     }
     for (const it of s.items) {
       if (it.ask) {
-        const sig = sigOf(it.ask.answered ?? null);
+        const sig = askSig(it.ask);
         let known = this.asks.get(it.ask.askId);
         if (!known && !replaced) {
           // 元の PC が札の askId を言い換えたとき（拠り所が決まった）は、同じ位置・同じ種類で答えの無い前の札を、この札で置き換える。
           const base = askBase(it.uuid);
           for (const [oldId, k] of this.asks) {
-            if (k.sig !== sigOf(null) || askBase(k.uuid) !== base || this.items.get(k.uuid)?.kind !== it.kind) continue;
+            if (k.answered || askBase(k.uuid) !== base || this.items.get(k.uuid)?.kind !== it.kind) continue;
             // 置き換え元の札が同じ状態にも載っている（答えの記録が後に来る）ときは、別の札として扱う。奪い合いで新しい札が消えるのを避ける。
             if (s.items.some((x) => x.ask?.askId === oldId)) continue;
             this.asks.delete(oldId);
-            known = { uuid: k.uuid, sig: '' };
+            known = { uuid: k.uuid, sig: '', answered: false };
             break;
           }
         }
@@ -282,12 +284,12 @@ class Watch {
           if (known.sig === sig) continue;
           const next = { ...it, uuid: known.uuid };
           this.items.set(known.uuid, next);
-          this.asks.set(it.ask.askId, { uuid: known.uuid, sig });
+          this.asks.set(it.ask.askId, { uuid: known.uuid, sig, answered: it.ask.answered !== undefined });
           emit.push(next);
           changed = true;
           continue;
         }
-        this.asks.set(it.ask.askId, { uuid: it.uuid, sig });
+        this.asks.set(it.ask.askId, { uuid: it.uuid, sig, answered: it.ask.answered !== undefined });
         this.items.set(it.uuid, it);
         emit.push(it);
         changed = true;

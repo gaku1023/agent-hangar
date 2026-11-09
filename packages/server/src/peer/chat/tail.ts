@@ -76,6 +76,8 @@ export type PeerPendingAsk = {
   options: { key: string; label: string }[];
   multi: boolean;
   allowText: boolean;
+  /** この PC が画面の札を照合して答えられないとき false（PeerChatAsk.answerable）。答えられるときは付けない。 */
+  answerable?: false;
 };
 
 /**
@@ -280,6 +282,7 @@ function buildAsk(pending: PeerPendingAsk, waiting: { toolId: string; name: stri
   };
   if (pending.tool !== undefined) ask.tool = pending.tool;
   if (pending.input !== undefined) ask.input = clipBytes(pending.input, PEER_CHAT_ASK_INPUT_MAX_BYTES);
+  if (pending.answerable === false) ask.answerable = false;
   return ask;
 }
 
@@ -287,7 +290,8 @@ const ASK_MARK = '@ask:';
 
 function askItem(ask: PeerChatAsk, pending: PeerPendingAsk, base: string | null, at: number): PeerChatItem {
   const text = pending.kind === 'question' ? pending.question ?? '' : pending.description || pending.input || pending.tool || '';
-  return { uuid: `${base ?? ''}${ASK_MARK}${ask.askId}`, at, kind: ask.kind, text: clipBytes(text, PEER_CHAT_ITEM_TEXT_MAX_BYTES), ask };
+  // 答えられない札（answerable が false）の uuid には ! を付ける。印が変わると uuid が変わり、同じ札でも after の続きとして流し直される（askId は変えない）。
+  return { uuid: `${base ?? ''}${ASK_MARK}${ask.askId}${ask.answerable === false ? '!' : ''}`, at, kind: ask.kind, text: clipBytes(text, PEER_CHAT_ITEM_TEXT_MAX_BYTES), ask };
 }
 
 /**

@@ -13,6 +13,7 @@ type AskRow = Extract<PeerChatRow, { kind: 'ask' }>;
  * どちらかの PC で答えると answered が付き、札は閉じて答えの行（「Mac で許可」）に変わる。
  * 答えを送ってから札が閉じるまでの間（row.pending）は、同じ札へ 2 度送らない。断られたら store が pending を外すので、また押せる。
  * 受け付けない設定の PC（row.locked）では、選択肢を押せない。
+ * 元の PC が答えられない札（row.hostOnly、MCP の道具の札など）は、釦を出さず、元の PC で答える案内の一行にする。
  */
 export function PeerChatCard(props: { row: AskRow; onAnswer: (askId: string, keys: string[], text?: string) => void }) {
   const t = useT();
@@ -29,6 +30,8 @@ export function PeerChatCard(props: { row: AskRow; onAnswer: (askId: string, key
       {row.input && <pre className="pchat-ask-input">{row.input}</pre>}
       {done ? (
         <span className="pchat-ans pchat-in"><Icon name="check" />{row.answered}</span>
+      ) : row.hostOnly ? (
+        <p className="pchat-ask-hostonly">{row.hostOnly}</p>
       ) : (
         <>
           <div className="pchat-ask-acts" role="group" aria-label={t('peerChat.ask.answerLabel')}>

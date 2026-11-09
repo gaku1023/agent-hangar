@@ -1,5 +1,5 @@
 import { PEER_CHAT_REPLY_SEALED_MAX, type PeerChatAsk, type PeerChatDevice, type PeerChatGone, type PeerChatItem, type PeerChatQueued, type PeerChatState, type PeerChatStatus } from '@agent-hangar/shared';
-import { isCommandTitle, parseDialog } from './answer.ts';
+import { dialogMatches, isCommandTitle, parseDialog, type Dialog } from './answer.ts';
 import type { HostPane, HostSession } from './hostTypes.ts';
 import { currentPendingAsk, peerAskId, transcriptTail, type PeerPendingAsk, type TailDeps } from './tail.ts';
 
@@ -34,6 +34,8 @@ export const RECORD_KEEP_MS = 10 * 60_000;
  */
 export const GONE_KEEP_MS = 5 * 60_000;
 const RECORD_MAX = 64;
+/** answerable が false の札の画面を取り直す最短の間隔。 */
+export const UNANSWERABLE_RECHECK_MS = 2000;
 
 /** 札の uuid の、@ask: より前（transcript の位置）。 */
 const askBase = (uuid: string): string => {
@@ -103,7 +105,8 @@ export function pendingAskFrom(session: HostSession, screen: string): PeerPendin
   const allowText = rows.some((o) => OTHER_ROW.test(o.first));
   if (d.kind === 'question') {
     const q = session.activity?.question || d.question;
-    return { kind: 'question', tool: 'AskUserQuestion', input: q, question: q, options, multi: d.multi, allowText };
+    const asked: PeerPendingAsk = { kind: 'question', tool: 'AskUserQuestion', input: q, question: q, options, multi: d.multi, allowText };
+    return markUnanswerable(asked, d, session.cwd);
   }
   const p = session.permission;
   // ファイルの道具の札は、罫線の間が差分なので、画面からは組まない。
@@ -113,7 +116,20 @@ export function pendingAskFrom(session: HostSession, screen: string): PeerPendin
   const out: PeerPendingAsk = { kind: 'permission', description: p?.description ?? null, options, multi: false, allowText: false };
   if (p?.tool) out.tool = p.tool;
   if (input) out.input = input;
-  return out;
+  return markUnanswerable(out, d, session.cwd);
+}
+
+/**
+ * この PC が答えられない札には answerable: false を付ける。
+ * 判定は答えるとき（answer.ts の answerAsk）が使う dialogMatches そのものである。
+ * 規則を二重に持たないので、見る側の釦と、答えたときの ask-mismatch が食い違わない。
+ * 答えられる札には欄を付けない（印を知らない古い見る側と同じ形のまま）。
+ */
+function markUnanswerable(pending: PeerPendingAsk, d: Dialog, cwd: string): PeerPendingAsk {
+  const probe: PeerChatAsk = { askId: '', kind: pending.kind, options: pending.options, multi: pending.multi, allowText: pending.allowText };
+  if (pending.tool !== undefined) probe.tool = pending.tool;
+  if (pending.input !== undefined) probe.input = pending.input;
+  return dialogMatches(probe, d, cwd || null) ? pending : { ...pending, answerable: false };
 }
 
 type AnswerRec = { askId: string; sessionId: string; item: PeerChatItem; at: number };
@@ -160,7 +176,10 @@ export class ChatView {
     const t = this.d.now();
     const hit = this.captured.get(sessionId);
     // 取り込みの覚えは、登録の状態が変わるか、poke（実行中の一覧の変化、預かりの変化、答え）が消すまで使い続ける。
-    if (!fresh && hit && hit.sig === sig) return hit.ask;
+    // 答えられないと印を付けた結果は、描き途中の画面（hook が先に届いた）の読み違いかもしれない。
+    // 覚えを使い続けず、同じ札について UNANSWERABLE_RECHECK_MS に 1 回だけ取り直す（見る人数ぶん capture が増えないように）。
+    const stale = hit?.ask?.answerable === false && t - hit.at >= UNANSWERABLE_RECHECK_MS;
+    if (!fresh && hit && hit.sig === sig && !stale) return hit.ask;
     const run = this.d.run(sessionId);
     const pane = run ? this.d.pane(run.tmuxName) : null;
     let ask: PeerPendingAsk | null = null;
@@ -338,7 +357,7 @@ export class ChatView {
     const gone = this.gone.filter((g) => g.sessionId === sessionId && g.deviceId === deviceId).map((g) => g.gone);
     const status = this.status(sessionId);
     const queued = this.d.queued(sessionId).map((q) => ({ ...q, text: clipText(q.text, QUEUED_TEXT_MAX_BYTES) }));
-    const sig = JSON.stringify([status, queued.map((q) => [q.queueId, q.state]), this.answers.filter((a) => a.sessionId === sessionId).map((a) => a.askId), gone.map((g) => g.queueId)]);
+    const sig = JSON.stringify([status, queued.map((q) => [q.queueId, q.state]), this.answers.filter((a) => a.sessionId === sessionId).map((a) => a.askId), gone.map((g) => g.queueId), this.pendingAsk(sessionId, false)?.answerable === false]);
     const state: PeerChatState = { sessionId, status, items, queued, cursor: t.cursor, truncated: t.truncated, hostId: this.d.hostId };
     if (gone.length > 0) state.gone = gone;
     return { state: fit(state), hasNew: t.items.length > 0, sig };

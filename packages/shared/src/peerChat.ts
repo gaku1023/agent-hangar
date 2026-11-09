@@ -39,6 +39,8 @@ export type PeerChatItemKind = (typeof PEER_CHAT_ITEM_KINDS)[number];
  * 許可や質問の札。
  * options は番号の選択肢（key は画面に打つキー）。
  * answered は、どの PC がどの選択肢で答えたか。
+ * answerable は、元の PC が画面の札を照合して答えられるか。
+ * 答えられない札（MCP の道具の札など）にだけ false が付く。無ければ答えられる（印を知らない古い相手の札も同じ）。
  */
 export type PeerChatAsk = {
   askId: string;
@@ -48,6 +50,7 @@ export type PeerChatAsk = {
   options: { key: string; label: string }[];
   multi: boolean;
   allowText: boolean;
+  answerable?: false;
   answered?: { by: PeerChatDevice; label: string; at: number };
 };
 
@@ -307,11 +310,14 @@ function readAsk(v: unknown): PeerChatAsk | null {
   if (!isObj(v) || !isStr(v.askId) || (v.kind !== 'permission' && v.kind !== 'question') || !optStr(v.tool) || !optStr(v.input)) return null;
   if (!Array.isArray(v.options) || !v.options.every((o) => isObj(o) && isStr(o.key) && isStr(o.label))) return null;
   if (typeof v.multi !== 'boolean' || typeof v.allowText !== 'boolean') return null;
+  // 印は false のときだけ意味を持つ。true は印の無いのと同じ（読み捨てる）。型の違うものは断る。
+  if (v.answerable !== undefined && typeof v.answerable !== 'boolean') return null;
   const a = v.answered;
   if (a !== undefined && !(isObj(a) && isDevice(a.by) && isStr(a.label) && isTime(a.at))) return null;
   const out: PeerChatAsk = { askId: v.askId, kind: v.kind, options: (v.options as { key: string; label: string }[]).map((o) => ({ key: o.key, label: o.label })), multi: v.multi, allowText: v.allowText };
   if (v.tool !== undefined) out.tool = v.tool as string;
   if (v.input !== undefined) out.input = v.input as string;
+  if (v.answerable === false) out.answerable = false;
   if (a !== undefined) {
     const x = a as { by: PeerChatDevice; label: string; at: number };
     out.answered = { by: { deviceId: x.by.deviceId, deviceName: x.by.deviceName }, label: x.label, at: x.at };
