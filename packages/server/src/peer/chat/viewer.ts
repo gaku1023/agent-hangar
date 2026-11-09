@@ -214,11 +214,16 @@ class Watch {
   /** 札の askId から、最初に載せた uuid と、答えの有無の印。 */
   readonly asks = new Map<string, { uuid: string; sig: string; answered: boolean }>();
   cursor: string | null;
-  readonly startedAfter: string | null;
+  /** 貯めた項目の起点（この uuid の後ろから貯めている。null は頭から）。起点を前へ広げたら（rewind）、その値になる。 */
+  startedAfter: string | null;
+  /** 見張りの周に割り込む口（起点を広げたとき、待っている問い合わせと待ちを捨てて、新しい起点から頼み直す）。 */
+  private kicker = new AbortController();
   status: PeerChatStatus | null = null;
   queued: PeerChatQueued[] = [];
   link: PeerChatLink = 'online';
   replace = false;
+  /** 起点を広げて取り直した直後の最初の結果で、全体を replace で流すための印。 */
+  rewound = false;
   /** 元の PC の起動ごとの印（state.hostId）。替われば再起動である。 */
   private hostId: string | null = null;
   /** この PC が預けて、まだ預かりにあると知っている（または send の答えで知った）文の queueId。再起動で消えた文を見つけるために持つ。 */
@@ -232,7 +237,7 @@ class Watch {
   firstDone = false;
   refused: PeerChatReason | null = null;
   private resolveFirst: () => void = () => {};
-  readonly first = new Promise<void>((r) => { this.resolveFirst = r; });
+  first = new Promise<void>((r) => { this.resolveFirst = r; });
 
   constructor(readonly sessionId: string, public target: ViewTarget, after: string | null, private readonly selfId: string) {
     this.cursor = after;
@@ -247,6 +252,35 @@ class Watch {
   settleFirst(): void {
     this.firstDone = true;
     this.resolveFirst();
+  }
+
+  /** いまの周に割り込む信号。周の頭で取り、起点を広げたら中止される。 */
+  get kickSignal(): AbortSignal { return this.kicker.signal; }
+
+  /**
+   * 後から加わった人が、いまの起点より前（頭から）を求めた。
+   * 貯めた項目を捨てて起点を替え、周に割り込んで同じ見張りで取り直す（問い合わせを人数ぶん増やさない）。
+   * 取り直しの結果は、先に見ていた人にも replace で流す（前へ足すので、重ね書きでは順が崩れる）。
+   * GET は取り直しの最初の結果まで待つ。
+   */
+  rewind(after: string | null): void {
+    this.items.clear();
+    this.asks.clear();
+    this.cursor = after;
+    this.startedAfter = after;
+    this.replace = true;
+    this.rewound = true;
+    if (this.firstDone) {
+      this.firstDone = false;
+      this.first = new Promise<void>((r) => { this.resolveFirst = r; });
+    }
+    this.kicker.abort();
+    this.kicker = new AbortController();
+  }
+
+  /** 貯めた項目が、from の後ろから全部を含むか。頭から（null）を求められたら、頭から貯めているときだけ真。 */
+  covers(from: string | null): boolean {
+    return this.startedAfter === null || from !== null;
   }
 
   /**
@@ -352,6 +386,8 @@ class Watch {
     this.items.clear();
     this.asks.clear();
     this.cursor = null;
+    // 別の PC へ移ったので、貯めた項目は頭から。起点も頭に戻す（GET の startedAfter が、写しの続きと取り違えられないように）。
+    this.startedAfter = null;
     this.status = null;
     this.queued = [];
     this.hostId = null;
@@ -413,7 +449,7 @@ export class PeerChatViewer {
    * 見張りを始める（動いていれば加わる）。
    * 最初の結果が出るまで待って、いまの状態を返す。
    * after は手元の写しの続きから取る位置で、省くと手元の写しの最後の uuid、null なら頭から。
-   * 動いている見張りには効かない。
+   * 動いている見張りには、頭から（null）を求められて起点がそれより後ろのときだけ効く（起点を頭へ広げて取り直す）。
    */
   async open(sessionId: string, o: { viewer: string; after?: string | null }): Promise<PeerChatViewDto> {
     const got = this.acquire(sessionId, o.viewer, null, o.after);
@@ -470,11 +506,14 @@ export class PeerChatViewer {
     const key = viewerKey(socket, viewer);
     if (!w?.viewers.has(key) && this.viewersOf(socket) >= PEER_CHAT_VIEWERS_PER_SOCKET) return { ok: false, reason: 'too-many', device: g.device };
     if (!w && this.watches.size >= PEER_CHAT_WATCHES_MAX) return { ok: false, reason: 'too-many', device: g.device };
+    const from = after === undefined ? this.deps.localCursor(sessionId) : after;
     if (!w) {
-      const from = after === undefined ? this.deps.localCursor(sessionId) : after;
       w = new Watch(sessionId, g.target, from, this.deps.selfId);
       this.watches.set(sessionId, w);
       void this.run(w);
+    } else if (!w.covers(from)) {
+      // 動いている見張りの起点より前（頭から）を求める人が加わった。起点を広げて、同じ見張りで取り直す。
+      w.rewind(from);
     }
     this.addViewer(w, viewer, socket);
     return { ok: true, watch: w };
@@ -544,14 +583,17 @@ export class PeerChatViewer {
     let errors = 0;
     let offlineStep = 0;
     let lastAt = Number.NEGATIVE_INFINITY;
-    const wait = (ms: number) => this.clock.sleep(ms, signal);
     // 同じ会話を止めてすぐ開き直したときは、前の待ちが片付くまで空ける。
     const ended = this.endedAt.get(w.sessionId);
     if (ended !== undefined) {
       const rest = ended + PEER_CHAT_REWATCH_GAP_MS - this.clock.now();
-      if (rest > 0) await wait(rest);
+      if (rest > 0) await this.clock.sleep(rest, signal);
     }
     while (!signal.aborted) {
+      // 周ごとの信号。見張りを止めたときに加え、起点を前へ広げられたとき（rewind）も、待ちと問い合わせを捨てて新しい起点から頼み直す。
+      const kick = w.kickSignal;
+      const iter = AbortSignal.any([signal, kick]);
+      const wait = (ms: number) => this.clock.sleep(ms, iter);
       // 相手と入口を毎周確かめる。
       // 会話が別の PC へ移ったら、写しを捨てて取り直す。
       const g = this.gate(w.sessionId);
@@ -561,10 +603,13 @@ export class PeerChatViewer {
       const gap = lastAt + PEER_CHAT_MIN_GAP_MS - this.clock.now();
       if (gap > 0) await wait(gap);
       if (signal.aborted) break;
+      if (kick.aborted) { lastAt = Number.NEGATIVE_INFINITY; continue; }
       lastAt = this.clock.now();
       const waitMs = w.firstDone ? PEER_CHAT_TAIL_WAIT_MS : 0;
-      const out = await this.call(w.sessionId, w.target, { t: 'tail', after: w.cursor, waitMs }, { waitMs, signal });
+      const out = await this.call(w.sessionId, w.target, { t: 'tail', after: w.cursor, waitMs }, { waitMs, signal: iter });
       if (signal.aborted) break;
+      // 起点を広げられた。この返事は古い起点のものなので捨て、すぐ頼み直す。
+      if (kick.aborted) { lastAt = Number.NEGATIVE_INFINITY; continue; }
       let delay = 0;
       switch (out.kind) {
         case 'reply': {
@@ -591,7 +636,10 @@ export class PeerChatViewer {
           const wasOffline = w.link !== 'online';
           w.link = 'online';
           const m = r.state ? w.merge(r.state, this.clock.now()) : { emit: [], replaced: false, changed: false };
-          if (m.changed || wasOffline || !w.firstDone) this.publish(w, m.replaced ? [...w.items.values()] : m.emit, m.replaced);
+          // 起点を広げた直後の最初の結果は、全体を replace で流す（先に見ていた人の列の前に、前の項目を入れられるように）。
+          const full = m.replaced || w.rewound;
+          w.rewound = false;
+          if (m.changed || wasOffline || !w.firstDone || full) this.publish(w, full ? [...w.items.values()] : m.emit, full);
           break;
         }
         case 'offline':

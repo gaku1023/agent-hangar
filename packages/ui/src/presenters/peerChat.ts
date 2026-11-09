@@ -2,6 +2,7 @@ import type { PeerChatItem, PeerChatReason, PeerChatStatus, SessionDto } from '@
 import type { Translate } from '@agent-hangar/shared';
 import type { Store } from '../store/store.ts';
 import { emptySlice, type PeerChatSlice } from '../store/peerChat.ts';
+import { peerChatDeviceName } from './peerChatDevice.ts';
 
 /**
  * ほかの PC の Claude Code の会話をチャットの形で見る画面（views/PeerChatPane.tsx）の描き分け。
@@ -127,7 +128,7 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
   // 見張りの頼みが済む前も、読み込み中の殻を出す（読み取り専用の画面が 1 コマ見えてしまうのを避ける）。
   const slice = store.peerChat[sessionId] ?? emptySlice('');
   if (!isPeerChatCandidate(s) || slice.phase === 'fallback') return null;
-  const device = slice.device?.deviceName ?? s!.lock?.deviceName ?? '';
+  const device = peerChatDeviceName(store, s!, slice);
   const myId = store.device?.id ?? null;
   const status = slice.status;
   const rows: PeerChatRow[] = slice.items.map((it, i) => rowOf(t, it, slice, i, device));

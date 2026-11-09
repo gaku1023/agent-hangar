@@ -63,6 +63,77 @@ describe('ほかの PC の会話の画面の描き分け（presenters/peerChat�
     expect(v.rows).toHaveLength(1);
   });
 
+  describe('相手の PC の名前（見張りが一度も返事を得ていないとき）', () => {
+    const peerRun = (over: Record<string, unknown> = {}) => ({ id: 'r1', sessionId: 's1', deviceId: 'd-mac', kind: 'resume', tmuxName: 't', pid: null, startedAt: 10, endedAt: null, endReason: null, heartbeatAt: 10, ...over }) as never;
+    const device = (id: string, name: string) => ({ id, name, platform: 'darwin', lastSeenAt: null, self: false, shell: null });
+
+    it('見張りの答えに名前が無くても、会話のロックの PC の名前を出す（案内にも使う）', () => {
+      const v = view(store({ link: 'offline', device: null, status: null }))!;
+      expect(v.device).toBe('Mac');
+      expect(v.composer.offline).toBe('Mac に接続できません');
+    });
+
+    it('ロックが無くても（ほかの PC にだけ本文がある会話）、run の PC を同期の名簿で引いて名前を出す', () => {
+      const st = store({ link: 'offline', device: null, status: null }, session({ lock: null, remoteOnly: true }));
+      st.devices = [device('d-mac', 'MacBook-Pro.local')];
+      st.runs = { r1: peerRun({ endedAt: 20, endReason: 'exit' }) };
+      const v = presentPeerChat(st, 's1', ja)!;
+      expect(v.device).toBe('MacBook-Pro.local');
+      expect(v.composer.offline).toBe('MacBook-Pro.local に接続できません');
+    });
+
+    it('名前が空の答えでも、id を名簿で引いて補う。この PC の run は数えない', () => {
+      const st = store({ link: 'offline', device: { deviceId: 'd-mac', deviceName: '' }, status: null }, session({ lock: null, remoteOnly: true }));
+      st.devices = [device('d-mac', 'Mac'), device('me', 'Win')];
+      st.runs = { r1: peerRun({ deviceId: 'me', startedAt: 99 }) };
+      expect(presentPeerChat(st, 's1', ja)!.device).toBe('Mac');
+    });
+
+    const lockOf = (over: Record<string, unknown> = {}) => ({ deviceId: 'd-mac', deviceName: 'Mac', runId: 'r9', heartbeatAt: NOW, stale: false, ...over }) as never;
+
+    it('複数の PC に run があって、ロックも無いときは、取り違えるので名前を出さない', () => {
+      const st = store({ link: 'offline', device: null, status: null }, session({ lock: null, remoteOnly: true }));
+      st.devices = [device('d-mac', 'Mac'), device('d-lin', 'Linux')];
+      st.runs = { r1: peerRun({ endedAt: 20 }), r2: peerRun({ id: 'r2', deviceId: 'd-lin', startedAt: 30, endedAt: 40 }) };
+      expect(presentPeerChat(st, 's1', ja)!.device).toBe('');
+    });
+
+    it('古い未終了の run が別の PC にあっても、複数の PC の run なら使わない', () => {
+      const st = store({ link: 'offline', device: null, status: null }, session({ lock: null, remoteOnly: true }));
+      st.devices = [device('d-mac', 'Mac'), device('d-lin', 'Linux')];
+      st.runs = { r1: peerRun({ endedAt: null, startedAt: 1 }), r2: peerRun({ id: 'r2', deviceId: 'd-lin', startedAt: 30, endedAt: 40 }) };
+      expect(presentPeerChat(st, 's1', ja)!.device).toBe('');
+    });
+
+    it('応答のあるロックは、run が別の PC にあっても優先する（サーバが応答のある run を先に採る）', () => {
+      const st = store({ link: 'offline', device: null, status: null }, session({ lock: lockOf(), remoteOnly: true }));
+      st.devices = [device('d-mac', 'Mac'), device('d-lin', 'Linux')];
+      st.runs = { r2: peerRun({ id: 'r2', deviceId: 'd-lin', startedAt: 30, endedAt: 40 }) };
+      expect(presentPeerChat(st, 's1', ja)!.device).toBe('Mac');
+    });
+
+    it('応答が途絶えたロックは、run が 1 台の別の PC にあればその PC を採る（サーバは古い PC の run を数えず最後の run を採る）', () => {
+      const st = store({ link: 'offline', device: null, status: null }, session({ lock: lockOf({ stale: true }), remoteOnly: true }));
+      st.devices = [device('d-mac', 'Mac'), device('d-lin', 'Linux')];
+      st.runs = { r2: peerRun({ id: 'r2', deviceId: 'd-lin', startedAt: 30, endedAt: 40 }) };
+      expect(presentPeerChat(st, 's1', ja)!.device).toBe('Linux');
+    });
+
+    it('応答が途絶えたロックだけで run が分からなければロックの名前、複数の PC の run と食い違えば出さない', () => {
+      const alone = store({ link: 'offline', device: null, status: null }, session({ lock: lockOf({ stale: true }), remoteOnly: true }));
+      expect(presentPeerChat(alone, 's1', ja)!.device).toBe('Mac');
+      const mixed = store({ link: 'offline', device: null, status: null }, session({ lock: lockOf({ stale: true }), remoteOnly: true }));
+      mixed.devices = [device('d-mac', 'Mac'), device('d-lin', 'Linux')];
+      mixed.runs = { r1: peerRun(), r2: peerRun({ id: 'r2', deviceId: 'd-lin', startedAt: 30 }) };
+      expect(presentPeerChat(mixed, 's1', ja)!.device).toBe('');
+    });
+
+    it('どの出どころにも無ければ空のまま（落ちない）', () => {
+      const st = store({ link: 'offline', device: null, status: null }, session({ lock: null, remoteOnly: true }));
+      expect(presentPeerChat(st, 's1', ja)!.device).toBe('');
+    });
+  });
+
   it('元の PC の中の失敗（host-error）は、接続なしとは言わず、再試行を伝える。引き継ぎは出さない', () => {
     const v = view(store({ link: 'host-error', status: 'busy' }))!;
     expect(v).toMatchObject({ statusLabel: '再試行中', composer: { kind: 'blocked', offline: null, canTakeOver: false, canInterrupt: false, hint: '今は送れません。再試行しています' } });
