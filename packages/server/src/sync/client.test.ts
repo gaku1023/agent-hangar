@@ -599,7 +599,7 @@ describe('PC の一覧と解除', () => {
       if (c.url.endsWith('/inboxes') && c.init.method === 'POST') return json({ inboxId: 'in-1' }, 201);
       if (c.url.endsWith('/inboxes/pending')) return json({ items: [{ id: 'p1', inboxId: 'in-1', sealed: '1.x', receivedAt: 5 }], dropped: [{ inboxId: 'in-1', count: 2 }] });
       if (c.url.endsWith('/inboxes/ack')) return json({ ok: true });
-      if (c.url.endsWith('/inboxes/gone')) return json({ error: 'not found' }, 404);
+      if (c.url.endsWith('/inboxes/goneGoneGoneGoneGone00')) return json({ error: 'not found' }, 404);
       return json({ ok: true });
     });
     const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
@@ -612,12 +612,19 @@ describe('PC の一覧と解除', () => {
     expect(f.calls[2]!.init.method).toBe('POST');
     expect(JSON.parse(String(f.calls[2]!.init.body))).toEqual({ ids: ['p1'] });
     await c.ackParcels([]);
-    await c.deleteInbox('in-1');
-    expect(f.calls.at(-1)!.url).toBe('https://w.example/inboxes/in-1');
+    await c.deleteInbox('Ab3dEf6hIj9kLm2nOp5qRs');
+    expect(f.calls.at(-1)!.url).toBe('https://w.example/inboxes/Ab3dEf6hIj9kLm2nOp5qRs');
     expect(f.calls.at(-1)!.init.method).toBe('DELETE');
-    await c.deleteInbox('gone');
+    // Worker の ID は base64url なので、先頭が - や _ のこともある。
+    await c.deleteInbox('-b3dEf6hIj9kLm2nOp5qRs');
+    expect(f.calls.at(-1)!.url).toBe('https://w.example/inboxes/-b3dEf6hIj9kLm2nOp5qRs');
+    await c.deleteInbox('_b3dEf6hIj9kLm2nOp5qRs');
+    expect(f.calls.at(-1)!.url).toBe('https://w.example/inboxes/_b3dEf6hIj9kLm2nOp5qRs');
+    await c.deleteInbox('goneGoneGoneGoneGone00');
     const n = f.calls.length;
     await expect(c.deleteInbox('../x')).rejects.toMatchObject({ status: 400 });
+    await expect(c.deleteInbox('..')).rejects.toMatchObject({ status: 400 });
+    await expect(c.deleteInbox('a.b3dEf6hIj9kLm2nOp5qRs')).rejects.toMatchObject({ status: 400 });
     await expect(c.ackParcels(Array.from({ length: 101 }, () => 'p'))).rejects.toMatchObject({ status: 400 });
     expect(f.calls).toHaveLength(n);
   });

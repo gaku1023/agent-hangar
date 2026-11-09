@@ -11,6 +11,7 @@ import {
   compatHeaders,
   encodeFileKeyPath,
   EVENT_INBOX_ACK_MAX,
+  EVENT_INBOX_ID_RE,
   isBlobKey,
   isSafeKeyId,
   isSafeRelPath,
@@ -817,7 +818,8 @@ export class HttpCloudClient implements WireCloudClient {
   async deleteInbox(inboxId: string): Promise<void> {
     // ID は URL の断片に入る。
     // Worker も入口で断るが、形の違うものは外へ出さない。
-    if (!isSafeKeyId(inboxId)) throw new CloudError(400, JSON.stringify({ error: 'invalid id' }));
+    // 先頭が `-` や `_` の ID もあるので、isSafeKeyId ではなく受け箱の ID の形で確かめる。
+    if (!EVENT_INBOX_ID_RE.test(inboxId)) throw new CloudError(400, JSON.stringify({ error: 'invalid id' }));
     await this.ensureWorkerCompat();
     try {
       await this.json<{ ok: boolean }>(`/inboxes/${encodeURIComponent(inboxId)}`, { method: 'DELETE' });
