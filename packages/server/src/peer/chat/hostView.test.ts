@@ -185,4 +185,29 @@ describe('ChatView.observe: 拠り所なしから tool_use ありへの askId �
     expect(view.resolveAskId(cur.askId, cur.askId)).toBe(cur.askId);
     expect(view.resolveAskId('unrelated', cur.askId)).toBe('unrelated');
   });
+
+  it('同じ命令の 2 回目の札は言い換えにしない。1 枚目は手元の記録になり、1 枚目の askId は 2 枚目に読み替えない', () => {
+    const { w, view } = make();
+    const a0 = asks(view)[0]!.ask!.askId;
+    // 1 枚目は手元で答えられ（結果が載る）、同じ命令の 2 枚目が観察の間に出た（登録はずっと waiting のまま）。
+    const resultL = jl({ type: 'user', uuid: 'u-res', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok', is_error: false }] } });
+    const use2L = jl({ type: 'assistant', uuid: 'u-use2', message: { role: 'assistant', model: 'm', content: [{ type: 'tool_use', id: 'toolu_2', name: 'Bash', input: { command: 'ls -la' } }] } });
+    w.lines.push(useL, resultL, use2L);
+    view.poke('s1');
+    const cards = asks(view);
+    const a2 = cards.find((c) => !c.ask!.answered)!.ask!.askId;
+    expect(a2).not.toBe(a0);
+    expect(cards.find((c) => c.ask!.askId === a0)?.ask?.answered).toMatchObject({ by: SELF, label: '' });
+    expect(view.answeredAsk(a0)).toBe(true);
+    expect(view.resolveAskId(a0, a2)).toBe(a0);
+  });
+
+  it('言い換えの覚えは 64 件まで。古いものから忘れる', () => {
+    const { view } = make();
+    const remember = (view as unknown as { rememberRekey(a: string, b: string): void }).rememberRekey.bind(view);
+    for (let i = 0; i < 65; i++) remember(`old${i}`, `new${i}`);
+    expect(view.resolveAskId('old0', 'new0')).toBe('old0');
+    expect(view.resolveAskId('old1', 'new1')).toBe('new1');
+    expect(view.resolveAskId('old64', 'new64')).toBe('new64');
+  });
 });

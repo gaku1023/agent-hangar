@@ -263,6 +263,18 @@ describe('流れ（peerChat.update）', () => {
     ]);
   });
 
+  it('同じ状態に、置き換え元の札の答えと新しい札が並ぶときは、新しい札を残す（B が先、答え付きの A が後）', async () => {
+    answers.push(() => ok(state([askItem('u1@ask:A', 'A')])));
+    answers.push(() => ok(state([askItem('u1@ask:B', 'B'), askItem('u1@ask:A', 'A', true)])));
+    await viewer.open(SID, { viewer: 'v1' });
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    const flat = updates().map((u) => u.items.map((i) => [i.uuid, i.ask?.askId, !!i.ask?.answered]));
+    expect(flat).toEqual([
+      [['u1@ask:A', 'A', false]],
+      [['u1@ask:B', 'B', false], ['u1@ask:A', 'A', true]],
+    ]);
+  });
+
   it('位置が違う札は、前の札に答えが無くても別の札として重ねる', async () => {
     answers.push(() => ok(state([askItem('u1@ask:A', 'A')])));
     answers.push(() => ok(state([item('u2'), askItem('u2@ask:B', 'B')])));

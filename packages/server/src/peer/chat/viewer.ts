@@ -271,6 +271,8 @@ class Watch {
           const base = askBase(it.uuid);
           for (const [oldId, k] of this.asks) {
             if (k.sig !== sigOf(null) || askBase(k.uuid) !== base || this.items.get(k.uuid)?.kind !== it.kind) continue;
+            // 置き換え元の札が同じ状態にも載っている（答えの記録が後に来る）ときは、別の札として扱う。奪い合いで新しい札が消えるのを避ける。
+            if (s.items.some((x) => x.ask?.askId === oldId)) continue;
             this.asks.delete(oldId);
             known = { uuid: k.uuid, sig: '' };
             break;

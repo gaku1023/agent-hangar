@@ -34,6 +34,12 @@ export const RECORD_KEEP_MS = 10 * 60_000;
  */
 export const GONE_KEEP_MS = 5 * 60_000;
 const RECORD_MAX = 64;
+
+/** 札の uuid の、@ask: より前（transcript の位置）。 */
+const askBase = (uuid: string): string => {
+  const i = uuid.indexOf('@ask:');
+  return i === -1 ? uuid : uuid.slice(0, i);
+};
 const SIG_MAX = 256;
 /**
  * 答えの JSON の大きさの上限。
@@ -240,10 +246,14 @@ export class ChatView {
   /**
    * prev が、今出ている札の、拠り所が決まる前の姿か。
    * 拠り所なしの askId で計算し直した値が prev の askId と一致し、種類も同じなら、同じ札である。
-   * 内容が違う札や、拠り所が付いていた札の入れ替わりは、別の札として扱う。
+   * 位置（uuid の @ask: より前）も同じでなければならない。
+   * 同じ命令の 2 回目の札は、内容が同じで askId だけ違うので、位置まで見ないと言い換えと取り違える（1 枚目は手元で答えられている）。
+   * text の行が先に載って位置が変わったときは、言い換えと見なさず settle する（札が重なっても、取り違えるよりよい）。
+   * 内容が違う札や、拠り所が付いていた札の入れ替わりも、別の札として扱う。
    */
   private rekeyed(sessionId: string, prev: PeerChatItem, now: PeerChatItem): boolean {
     if (prev.kind !== now.kind || prev.ask!.kind !== now.ask!.kind) return false;
+    if (askBase(prev.uuid) !== askBase(now.uuid)) return false;
     const pending = this.pendingAsk(sessionId, false);
     return pending !== null && peerAskId(pending, '') === prev.ask!.askId;
   }

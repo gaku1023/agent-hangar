@@ -694,14 +694,30 @@ describe('PeerChatHost: answer と interrupt', () => {
       expect(s.w.pane.events).toEqual([]);
     });
 
-    it('言い換え前の askId でも、画面の札が替わっていれば（照合に通らなければ）打たずに断る', async () => {
+    it('言い換え前の askId でも、札が出ている画面が照合に通らなければ（別の命令の札）打たずに ask-mismatch', async () => {
       const { s, ask } = await withPermission();
       const first = s.state(await s.ask(tailOp()));
       s.w.lines.push(useLine());
       await s.ask(tailOp(first.cursor));
-      s.w.pane.plain = RUNNING_SCREEN;
-      const r = await s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] });
-      expect(r.ok).toBe(false);
+      // 画面にも札は出ているが、命令が登録の許可と違う。
+      s.w.pane.plain = PERMISSION_SCREEN.replace('rm -rf build', 'rm -rf other');
+      const before = s.w.pane.captures;
+      expect(await s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] })).toEqual({ ok: false, reason: 'ask-mismatch' });
+      expect(s.w.pane.captures).toBeGreaterThan(before);
+      expect(s.w.pane.events).toEqual([]);
+    });
+
+    it('同じ命令の 2 枚目が出る前に 1 枚目が手元で答えられたとき、1 枚目の askId の答えは 2 枚目に入らない', async () => {
+      const { s, ask } = await withPermission();
+      const first = s.state(await s.ask(tailOp()));
+      // 1 枚目の tool_use と結果、同じ命令の 2 回目の tool_use が、観察の間に載る（登録はずっと waiting のまま）。
+      s.w.lines.push(useLine());
+      s.w.lines.push(jl({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_x1', content: 'ok', is_error: false }] } }));
+      s.w.lines.push(jl({ type: 'assistant', message: { role: 'assistant', model: 'm', content: [{ type: 'tool_use', id: 'toolu_x2', name: 'Bash', input: { command: 'rm -rf build' } }] } }));
+      const second = s.state(await s.ask(tailOp(first.cursor)));
+      const next = second.items.find((i) => i.ask && !i.ask.answered)!.ask!;
+      expect(next.askId).not.toBe(ask.askId);
+      expect(await s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] })).toEqual({ ok: false, reason: 'already-answered' });
       expect(s.w.pane.events).toEqual([]);
     });
   });
