@@ -24,6 +24,7 @@ import { errorText, render, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, editorOptsOf, externalOf, isEnoent, numberOr, readJson, sessionOf, tooLargeResult } from './common.ts';
 import { wokeSince } from '../../sessions/wake.ts';
+import { wakePaused } from '../../sessions/wakePaused.ts';
 
 /** セッションの経路が使う依存。 */
 export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh' | 'trash' | 'schedules' | 'peerApprovals'> & LanguageDeps;
@@ -229,16 +230,13 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   // Paused の会話を今すぐ起こす（#549）。渡せてから Active にする。渡せなければ Paused のまま残し、理由を返す。
   api.post('/sessions/:id/try-now', async (c) => {
     const id = c.req.param('id');
-    const state = getSessionState(db, id);
-    if (state?.status !== 'paused') return c.json({ error: tr('home.tryNow.notPaused') }, 409);
-    const text = state.note ? tr('home.tryNow.prompt', { note: state.note }) : tr('home.tryNow.promptNoReason');
     try {
-      const got = await deps.schedules.deliver(id, text);
+      const got = await wakePaused({ db, deviceId, deliver: deps.schedules.deliver }, id, (state) => (state.note ? tr('home.tryNow.prompt', { note: state.note }) : tr('home.tryNow.promptNoReason')));
+      if (got === 'not_paused') return c.json({ error: tr('home.tryNow.notPaused') }, 409);
       if (got === 'busy') return c.json({ error: tr('home.tryNow.busy') }, 409);
     } catch (e) {
       return c.json({ error: errorText(deps.language(), e) }, 400);
     }
-    setSessionState(db, deviceId, id, { status: null, setBy: 'user' });
     return c.json({ ok: true });
   });
   // MCP の削除の依頼への答え（#547）。答えられるのは画面（とスマホの問い合わせ）だけで、MCP の道具には出さない。

@@ -61,4 +61,9 @@ export const schedulesKeys = {
   'schedules.result.waiting': [],
   'schedules.result.failed': [],
   'schedules.result.skipped': [],
+  'schedules.event.header': [],
+  'schedules.event.external': [],
+  'schedules.event.textBegin': [],
+  'schedules.event.textEnd': [],
+  'schedules.event.heldHourly': ['max'],
 } as const satisfies MessageSpec;
