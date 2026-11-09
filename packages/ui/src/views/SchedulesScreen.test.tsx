@@ -603,7 +603,7 @@ describe('イベントの節（#563）', () => {
     expect(createdEvent(onAction).input).toMatchObject({ passBody: true, allowAuthors: ['alice', 'bob'] });
   });
 
-  it('webhook: できごとの欄は無く、指示と動きと本文だけで作れる。動きに PR を出した会話は無い', () => {
+  it('webhook: できごとの欄は無く、指示と動きと本文だけで作れる。本文は最初から渡す。動きに PR を出した会話は無い', () => {
     const onAction = mountEvents();
     openNew();
     pickKind('webhook');
@@ -612,7 +612,7 @@ describe('イベントの節（#563）', () => {
     expect(within(dest).getAllByRole('radio').map((r) => r.textContent)).toEqual(['会話に送る', '新しい会話']);
     expect(screen.queryByRole('textbox', { name: t('schedules.event.allowAuthors') })).toBeNull();
     typePrompt();
-    fireEvent.click(screen.getByRole('switch', { name: t('schedules.event.passBody') }));
+    expect(screen.getByRole('switch', { name: t('schedules.event.passBody') })).toHaveAttribute('aria-checked', 'true');
     fireEvent.click(screen.getByRole('button', { name: t('schedules.form.create') }));
     expect(createdEvent(onAction).input).toEqual({ source: { kind: 'hook' }, action: { kind: 'new', projectId: 'p' }, prompt: '見て', passBody: true, allowAuthors: [] });
   });

@@ -77,7 +77,7 @@ export function EventBindingForm(props: SchedulesProps & { kind: 'github' | 'hoo
   const emit = useEmit();
   const t = useT();
   const form = props.events!.form;
-  const [d, setD] = useState<Draft>(() => ({ repo: '', when: [], pr: '', labels: '', dest: 'new', sessionId: props.sessions[0]?.id ?? '', prompt: '', passBody: false, allow: '' }));
+  const [d, setD] = useState<Draft>(() => ({ repo: '', when: [], pr: '', labels: '', dest: 'new', sessionId: props.sessions[0]?.id ?? '', prompt: '', passBody: props.kind === 'hook', allow: '' }));
   const set = (p: Partial<Draft>) => setD((cur) => ({ ...cur, ...p }));
   const [sent, setSent] = useState(false);
   const first = props.launch.projects.find((p) => p.status !== 'archived')?.id ?? null;
