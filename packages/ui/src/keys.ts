@@ -256,6 +256,8 @@ export function ariaKeyShortcuts(id: KeyId, mac: boolean = isMacClient()): strin
   const c = b.chords.find((x) => x.mod && x.shift !== true && x.os === undefined)!;
   const k = ariaKey(c.key);
   if (mac) return `Meta+${k}`;
+  // 会話の画面で Ctrl の打鍵がターミナルへ渡る行は、どこでも効く Control+Shift だけを書く（吹き出しの anywhereKeys と同じ）。
+  if (b.ctrlToTerminal && b.terminal !== undefined) return `Control+Shift+${k}`;
   return b.terminal === undefined ? `Control+${k}` : `Control+${k} Control+Shift+${k}`;
 }
 

@@ -17,7 +17,7 @@ const mac = { deviceId: 'pc-mac', deviceName: 'Mac' };
 const q = (id: string): PeerChatQueued => ({ queueId: id, from: mac, text: 'x', images: 0, at: 1, state: 'waiting' });
 const origin = (events: Parameters<typeof applyServerEvent>[1][]): PeerOriginProps | null => presentPeerOrigin(events.reduce(applyServerEvent, initialStore()), 's1', t);
 
-const host = { connect() {}, disconnect() {}, mount() {}, status: () => null, fit() {}, focus() {}, paste() {}, input() {}, zoom() {}, fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose() {}, link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect() {} } as never;
+const host = { connect() {}, disconnect() {}, mount() {}, status: () => null, fit() {}, focus() {}, paste() {}, input: () => false, zoom() {}, fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose() {}, link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect() {} } as never;
 const pane = (peer: PeerOriginProps | null) => (
   <LanguageRoot language="ja"><TerminalHostContext.Provider value={host}><TerminalPane tabId="t1" hint={null} live="busy" agent peer={peer} /></TerminalHostContext.Provider></LanguageRoot>
 );

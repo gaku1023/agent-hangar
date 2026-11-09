@@ -22,8 +22,9 @@ export type TerminalHost = { connect(tabId: string): void; paste(tabId: string, 
   /**
    * 打鍵として送る。利用者がそのターミナルで打ったのと同じ経路（xterm の onData からサーバ）を通る。
    * 会話の画面のターミナルの外で打った Ctrl+B を、ターミナルへ渡すのに使う（Root.tsx）。
+   * 開いてつながっている端末に渡せたときだけ true を返す。false なら呼び手は打鍵を別の用に戻す。
    */
-  input(tabId: string, data: string): void;
+  input(tabId: string, data: string): boolean;
   disconnect(tabId: string): void; mount(tabId: string, el: HTMLElement): void; status(tabId: string): TerminalStatus | null; fit(tabId: string): void; focus(tabId: string): void;
   /**
    * 切れたタブのつなぎ直しの様子。
@@ -297,7 +298,10 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     },
     input(tabId, data) {
       const e = entries.get(tabId);
-      if (e?.opened) e.term.input(data);
+      // 開いていない端末や、つなぐ途中と切れている端末へは渡さない。渡しても onData の先で捨てられるだけである。
+      if (!e?.opened || !e.ws || e.ws.readyState !== 1) return false;
+      e.term.input(data);
+      return true;
     },
     zoom(step) {
       const next = step === 'reset' ? FONT_SIZE.default : clampFontSize(fontSize + (step === 'in' ? 1 : -1));

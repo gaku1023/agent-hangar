@@ -340,7 +340,9 @@ describe('ターミナルの中の打鍵の表示', () => {
     expect(ariaKeyShortcuts('palette.open', false)).toBe('Control+K Control+Shift+K');
     expect(ariaKeyShortcuts('split.toggle', false)).toBe('Control+\\ Control+Shift+\\');
     expect(ariaKeyShortcuts('transcript.toggle', true)).toBe('Meta+J');
-    expect(ariaKeyShortcuts('sidebar.toggle', false)).toBe('Control+B Control+Shift+B');
+    // 会話の画面の Ctrl+B はターミナルへ送るので、macOS の外のサイドバーの開閉は、どこでも効く Control+Shift+B だけにする（吹き出しと同じ、#616）。
+    expect(ariaKeyShortcuts('sidebar.toggle', false)).toBe('Control+Shift+B');
+    expect(ariaKeyShortcuts('sidebar.toggle', true)).toBe('Meta+B');
   });
 });
 

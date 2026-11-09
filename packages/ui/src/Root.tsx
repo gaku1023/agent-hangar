@@ -291,17 +291,17 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         // ターミナルの外（ペインの枠や見出し）にフォーカスがあるまま打つと、サイドバーが閉じて覚えられてしまう。
         // そこで打たれた Ctrl+B は、ターミナルへフォーカスを戻して ^B を送る。利用者がターミナルで打ったのと同じ経路である。
         // ⌘B（macOS）と Ctrl+Shift+B（ほかの OS）は今までどおり開閉する。ダイアログの裏のターミナルへは送らない。
-        // 入力欄の中で打った Ctrl+B では、何もしない（字を書いている途中でフォーカスを移さない）。欄の既定の動きも止めない。
+        // 入力欄の中で打った Ctrl+B と、変換中の Ctrl+B では、何もしない（字を書いている途中でフォーカスを移さない）。欄の既定の動きも止めない。
+        // 送り先が決まらないときと、送り先の端末が開いていないか切れていて送れないときは、打鍵を捨てずに今までどおり開閉する。
         case 'sidebar.toggle': {
           if (e.ctrlKey && !e.metaKey && !e.shiftKey && sessionId) {
+            if (composing) return;
             const tab = terminalTargetOf(el, panesRef.current.focus, focusedPane.current, selectedTabId);
             if (tab) {
               if (editing) return;
               take();
               if (overlayKind !== 'none') return;
-              props.terminals.focus(tab);
-              props.terminals.input(tab, CTRL_B);
-              return;
+              if (props.terminals.input(tab, CTRL_B)) { props.terminals.focus(tab); return; }
             }
           }
           take();
@@ -571,8 +571,9 @@ function paneTabOf(target: EventTarget | null): string | null {
 const CTRL_B = '\x02';
 
 /**
- * 会話の画面で、ターミナルの外で打った打鍵を渡すターミナルのタブ。画面にターミナルが無ければ null。
- * 打鍵を受けた枠、打鍵を受けたペイン、操作中のペイン（別のセッションを並べているとき）、最後にフォーカスのあった枠、選択中のタブ、画面の最初のターミナルの順に探す。
+ * 会話の画面で、ターミナルの外で打った打鍵を渡すターミナルのタブ。決まらなければ null。
+ * 打鍵を受けた枠、打鍵を受けたペイン、操作中のペイン（別のセッションを並べているとき）、最後にフォーカスのあった枠、選択中のタブの順に探す。
+ * 文書にある最初の枠を当てずっぽうには選ばない。ペインが消えた直後やタブの切り替えの途中に、別の会話へ送らないためである。
  * 操作中のペインを最後にフォーカスのあった枠より先に見るのは、ペインの見出しを押すとペインは移るが、フォーカスはターミナルに入らないからである。
  * ペインの中にターミナルが 2 つある（タブを並べた）ときは、最後にフォーカスのあった枠がそのペインの中にあればそれを選ぶ。
  */
@@ -586,8 +587,7 @@ function terminalTargetOf(target: EventTarget | null, focusPane: string | null, 
     ?? inside(pane)
     ?? inside(focused)
     ?? (hostOf(document, remembered) ? remembered : null)
-    ?? (hostOf(document, selected) ? selected : null)
-    ?? document.querySelector<HTMLElement>('.term-host[data-tab]')?.dataset.tab ?? null;
+    ?? (hostOf(document, selected) ? selected : null);
 }
 
 const apiCache = new WeakMap<Runtime, ApiClient>();

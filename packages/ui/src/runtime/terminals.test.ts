@@ -169,16 +169,30 @@ describe('createTerminalHost', () => {
     host.paste('nope', '/b.png ');
     expect(terms[0]!.pasted).toEqual(['/a.png ']);
   });
-  it('input は開いた端末に打鍵として渡し、つながっていればサーバへ送る', () => {
-    // 会話の画面の Ctrl+B（Root.tsx）は、この口でターミナルへ ^B を送る。
+  it('input は開いてつながっている端末にだけ打鍵として渡してサーバへ送り、送れたかを返す', () => {
+    // 会話の画面の Ctrl+B（Root.tsx）は、この口でターミナルへ ^B を送る。送れなければ開閉に戻す。
     const { host } = make();
+    const sentData = () => FakeWs.all[0]!.sent.map((m) => JSON.parse(m) as { t: string }).filter((m) => m.t === 'data');
     host.connect('t1');
     FakeWs.all[0]!.open();
-    host.input('t1', '\x02');
+    expect(host.input('t1', '\x02')).toBe(false);
     host.mount('t1', { appendChild: vi.fn() } as unknown as HTMLElement);
-    host.input('t1', '\x02');
-    host.input('nope', '\x02');
-    expect(FakeWs.all[0]!.sent.map((m) => JSON.parse(m) as { t: string }).filter((m) => m.t === 'data')).toEqual([{ t: 'data', d: '\x02' }]);
+    expect(host.input('t1', '\x02')).toBe(true);
+    expect(host.input('nope', '\x02')).toBe(false);
+    expect(sentData()).toEqual([{ t: 'data', d: '\x02' }]);
+    // 切れている間は渡さない。
+    FakeWs.all[0]!.close(1006);
+    expect(host.input('t1', '\x02')).toBe(false);
+    expect(sentData()).toEqual([{ t: 'data', d: '\x02' }]);
+  });
+  it('input はつなぐ途中の端末には渡さない', () => {
+    const { host, terms } = make();
+    host.connect('t1');
+    host.mount('t1', { appendChild: vi.fn() } as unknown as HTMLElement);
+    const typed = vi.fn();
+    terms[0]!.onData(typed);
+    expect(host.input('t1', '\x02')).toBe(false);
+    expect(typed).not.toHaveBeenCalled();
   });
   it('open の前に来た focus は mount のあとに当てる', () => {
     const { host, terms } = make();

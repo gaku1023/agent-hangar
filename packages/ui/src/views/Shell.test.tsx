@@ -310,7 +310,7 @@ describe('Shell', () => {
     expect(side.getByRole('button', { name: 'サイドバーを閉じる' }).querySelector('.toggle-tip')).toHaveTextContent('閉じるCtrl+Shift+B');
     // 読み上げには、ターミナルの中の Ctrl+Shift の打鍵も添える。
     expect(pill).toHaveAttribute('aria-keyshortcuts', 'Control+K Control+Shift+K');
-    expect(side.getByRole('button', { name: 'サイドバーを閉じる' })).toHaveAttribute('aria-keyshortcuts', 'Control+B Control+Shift+B');
+    expect(side.getByRole('button', { name: 'サイドバーを閉じる' })).toHaveAttribute('aria-keyshortcuts', 'Control+Shift+B');
   });
 
   it('macOS の読み上げの打鍵は Meta', () => {

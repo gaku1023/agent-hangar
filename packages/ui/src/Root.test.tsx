@@ -795,7 +795,7 @@ describe('キーの見直し', () => {
   // Claude Code の「ctrl+b to run in background」と psmux の prefix を、ターミナルの外で打ってしまうことがあるからである。
   const conversation = async () => {
     const focus = vi.fn();
-    const input = vi.fn();
+    const input = vi.fn((_tab: string, _data: string) => true);
     const m = await mounted({ terminals: { ...terminals, focus, input } });
     act(() => m.setHash('#/session/s1'));
     await flush();
@@ -814,7 +814,6 @@ describe('キーの見直し', () => {
     expect(emit).not.toHaveBeenCalledWith({ type: 'sidebar.toggle' });
     expect(focus).toHaveBeenCalledWith('r1');
     expect(input).toHaveBeenCalledWith('r1', '\x02');
-    expect(focus.mock.invocationCallOrder[0]!).toBeLessThan(input.mock.invocationCallOrder[0]!);
   });
 
   // 字を書いている途中でフォーカスがターミナルへ移ると驚くので、入力欄の中の Ctrl+B では何もしない。
@@ -900,10 +899,68 @@ describe('キーの見直し', () => {
     expect(input).toHaveBeenLastCalledWith('r1', '\x02');
   });
 
+  it('決まった送り先が無ければ、文書に残った別の枠へは送らず、今までどおり開閉する', async () => {
+    // ペインが消えた直後やタブを切り替えている途中に、DOM の最初の枠（別の会話かもしれない）へ ^B を送らない。
+    setClientUserAgent(WINDOWS_UA);
+    const input = vi.fn(() => true);
+    const { rt, setHash } = await mounted({ terminals: { ...terminals, input } });
+    act(() => setHash('#/session/s1'));
+    await flush();
+    const stray = document.createElement('div');
+    stray.className = 'term-host';
+    stray.dataset.tab = 'other';
+    document.body.append(stray);
+    const emit = vi.spyOn(rt, 'emit');
+    key(ctrlB);
+    stray.remove();
+    expect(input).not.toHaveBeenCalled();
+    expect(emit).toHaveBeenCalledWith({ type: 'sidebar.toggle' });
+  });
+
+  it('送り先の端末がまだ開いていないか切れていて送れなければ、打鍵を捨てずに開閉に戻す', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    const { rt, focus, input } = await conversation();
+    input.mockImplementation(() => false);
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key(ctrlB).defaultPrevented).toBe(true);
+    expect(input).toHaveBeenCalledWith('r1', '\x02');
+    expect(emit).toHaveBeenCalledWith({ type: 'sidebar.toggle' });
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  it('会話の画面の Ctrl+Alt+B は、開閉も送信もしない', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    const { rt, input } = await conversation();
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ ...ctrlB, altKey: true }).defaultPrevented).toBe(false);
+    expect(emit).not.toHaveBeenCalledWith({ type: 'sidebar.toggle' });
+    expect(input).not.toHaveBeenCalled();
+  });
+
+  it('押し続けた Ctrl+B（repeat）も、ターミナルで直に押したときと同じく ^B を送る', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    const { rt, input } = await conversation();
+    const emit = vi.spyOn(rt, 'emit');
+    key({ ...ctrlB, repeat: true });
+    key({ ...ctrlB, repeat: true });
+    expect(input.mock.calls).toEqual([['r1', '\x02'], ['r1', '\x02']]);
+    expect(emit).not.toHaveBeenCalledWith({ type: 'sidebar.toggle' });
+  });
+
+  it('変換中（isComposing）の Ctrl+B は、何もしない', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    const { rt, focus, input } = await conversation();
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ ...ctrlB, isComposing: true }).defaultPrevented).toBe(false);
+    expect(emit).not.toHaveBeenCalledWith({ type: 'sidebar.toggle' });
+    expect(input).not.toHaveBeenCalled();
+    expect(focus).not.toHaveBeenCalled();
+  });
+
   it('別のセッションを並べたペインでは、最後にターミナルを触ったペインより、操作中のペインへ送る', async () => {
     setClientUserAgent(WINDOWS_UA);
     const focus = vi.fn();
-    const input = vi.fn();
+    const input = vi.fn((_tab: string, _data: string) => true);
     const s2: SessionDto = { ...session, id: 's2', providerSessionId: 'u2', name: 'ふたつめ' };
     const m = make({ boot: { ...boot, sessions: [session, s2] }, terminals: { ...terminals, focus, input } });
     m.rt.start();
