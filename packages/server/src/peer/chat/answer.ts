@@ -571,6 +571,12 @@ function otherRow(d: Dialog): DialogOption | null {
  * 走っているターンの印（案内に「esc to interrupt」が出る）。
  */
 const RUNNING_RE = /esc to interrupt/i;
+/**
+ * 走っているターンのもう一つの印（動いている間の行。`✢ Roosting… (9s · ↓ 451 tokens)`）。
+ * 案内の行を自前の表示（statusline や mode の行）が占めると、「esc to interrupt」は出ない（2.1.319 の実機）。
+ * 終わったあとの行（`✻ Brewed for 15s · done 17:46`）は … と括弧を持たないので当たらない。
+ */
+const SPINNER_RE = /^[·✢✳✶✻✽*]\s+\S[^(\n]*…\s+\(\d/m;
 
 // ---- 答える ----
 
@@ -716,7 +722,7 @@ export function createPeerAnswerer(deps: PeerAnswererDeps): PeerAnswerer {
     // 印は画面の末尾（案内の行）に出る。
     // 本文やアシスタントの出力に同じ語があっても、走っているとは見なさない。
     const tail = screen.replace(/\r/g, '').split('\n').filter((l) => l.trim() !== '').slice(-RUNNING_TAIL_LINES).join('\n');
-    if (!RUNNING_RE.test(tail)) return { ok: true, sent: false };
+    if (!RUNNING_RE.test(tail) && !SPINNER_RE.test(tail)) return { ok: true, sent: false };
     pane.sendKey('escape');
     return { ok: true, sent: true };
   }
