@@ -914,6 +914,7 @@ MCP の道具は hub を持たない。
 | `run.started`、`run.upsert`、`run.ended`、`tab.upsert` | `runs/announce.ts`（RunManager の通知） |
 | `index.progress`、`transcript.appended` | `boot/indexing.ts`（索引の進み）、`projects/onSessionChanged.ts`（本文の伸び） |
 | `live.update` | `sessions/liveChange.ts`（実行中の一覧） |
+| `events.held`、`session.woken` | `server.ts` の EventDispatcher の結び（「外のできごとで動かす」の節）。閉じている間の荷物が選びを待つ山に積まれた、できごとで Paused の会話を起こした |
 | `interrupted.update` | `runs/announce.ts`（中断の束を記録したとき）、`POST /api/interrupted/dismiss`（再開しない、元に戻す） |
 | `sync.status`、`sync.usage` | `sync/statusFeed.ts`（同期の状態）、`boot/sync.ts`（使用量の見張りの結び） |
 | `accounts.update` | `http/accounts.ts`、statusline の受け口 |
@@ -10144,7 +10145,83 @@ wrangler を同梱していないので、リポジトリを clone した場所�
 - **待ち方：** `waitForSessionTool` を上限ごとに呼び直す。実行の時間に上限は掛けない。起こし直した後は running の行を待ち直す。入力待ちになった回は waiting で閉じる。
 - **履歴：** 予定ごとに直近の 5 件。
 - **MCP：** `list_schedules`、`create_schedule`、`update_schedule`。消す道具は無く、消すのは画面だけである。セッション別の URL では、そのプロジェクトの予定と会話にだけ届く。予定は 50 件まで、N 分おきは 5 分以上である。
-- **今すぐ試す：** 今日のリマインダーの行のボタン。`POST /api/sessions/:id/try-now` が、止まっていれば再開し、Paused の理由を入力として渡してから Active にする。渡せなければ Paused のまま残す。画面は押した直後にその会話を開く。イベントで Paused の会話を起こす部分は #563 に分けた。
+- **今すぐ試す：** 今日のリマインダーの行のボタン。`POST /api/sessions/:id/try-now` が、止まっていれば再開し、Paused の理由を入力として渡してから Active にする。渡せなければ Paused のまま残す。画面は押した直後にその会話を開く。イベントで Paused の会話を起こす部分は、「外のできごとで動かす」の節に書いた。
+
+## 外のできごとで動かす
+
+PR、CI、レビュー、コメント、外の webhook のできごとで、会話を起こしたり、会話へ指示を流したりする（#563）。
+本体は `packages/server/src/event/`、Worker の口は `packages/cloud/src/inbox.ts`、画面は予定の画面の「イベント」の節である。
+Worker の互換の版は 12 から（shared の `EVENT_INBOX_MIN_WORKER_COMPAT`）で、これ未満の Worker では画面に出さず、道具も動かさない。
+
+### 流れ
+
+1. 外のサービス（GitHub の repo の webhook、または外の webhook の URL）が、Worker の `/hooks/<受け箱の ID>` に POST する。
+2. Worker は見出しと本文を、PC が持つ受け箱の公開鍵で封じて D1 に置き、持ち主の PC の呼び鈴を鳴らす。Worker は平文を持たず、署名の秘密の値も知らない。
+3. PC は `/inboxes/pending` で荷物を取り、受け箱の秘密鍵で開く。GitHub の荷物は結び付けごとの秘密の値で署名（`X-Hub-Signature-256`）を確かめ、配送の ID（`X-GitHub-Delivery`）で再送を弾く。
+4. 荷物を事実（`EventFacts`）に直し、ページごとに動かす側へ渡してから ack する。動かす側が受け取れなかったページは ack せず、次の取得でやり直す。
+
+封じ方は、荷物ごとの X25519 の一時鍵、HKDF、AES-GCM である（`packages/shared/src/e2e/inbox.ts`）。
+外のサービスが付けた見出しのうち、読む見出しだけを封じる。
+受け箱の ID は 128 ビットの乱数で、URL を知っていることが送る資格になる。ログには ID を出さない（`/hooks/:id`、`/inboxes/:id` に伏せる）。
+
+### Worker の口
+
+| 口 | 認証 | 内容 |
+| --- | --- | --- |
+| `POST /hooks/:inboxId` | 無し（互換の版の見出しも要らない） | 外から荷物を置く。本文は JSON とは限らず、64 KiB まで（超えれば 413）。受け箱ごとに 1 分 30 通まで（超えれば 429、isolate ごとの数え）。知らない ID と解除された PC の受け箱は 404。預かりが 100 通を越えたら捨てて 202 を返し、捨てた数だけ受け箱に残す。返すのは `{ ok: true }` だけで、中身も捨てたかどうかも言わない |
+| `POST /inboxes` | PC の端末トークン | 受け箱を作る。本文は `{ publicKey }`（X25519 の公開鍵、43 字）。201 で `{ inboxId }` を返す |
+| `GET /inboxes/pending` | 同上 | 自分の受け箱の荷物を古い順に 20 通まで返す。捨てた数がある受け箱は `dropped` に並べる |
+| `POST /inboxes/ack` | 同上 | 引き取った荷物を消し、`dropped` を 0 に戻す。`{ ids }` は 100 個まで。ほかの PC の荷物の ID は無視する |
+| `DELETE /inboxes/:id` | 同上 | 受け箱と荷物を消す。自分のものだけで、ほかの PC のものと無い ID は 404 |
+
+荷物は ack されるまで預かり、引き取られなければ `sweep.ts` が 7 日で消す。
+`/inboxes` は PC の端末トークンだけが通り、スマホの端末は断る。
+
+### サーバの HTTP の道（画面だけが呼ぶ）
+
+どれも `/api/events/` の下で、MCP の道具からは繋がない。
+
+| 道 | 内容 |
+| --- | --- |
+| `GET /events/bindings` | 結び付けの一覧。webhook の URL は載せない（`hookUrl` は常に null） |
+| `POST /events/bindings` | 作る。GitHub は repo の webhook と受け箱を付けてから行を作り、付けられなければ何も作らず `hook` に理由（`no_admin` か `failed`）を返す。外の webhook は受け箱を作れたときだけ有効にする |
+| `PATCH /events/bindings/:id` | 指示、本文を渡すか、渡してよい人を変える。`state: 'active'` は下書きの承認と、止まった（`held`）結び付けの再開である |
+| `DELETE /events/bindings/:id` | 消す。webhook と受け箱の後片付けは裏で進める |
+| `POST /events/bindings/:id/rotate-url` | 外の webhook の URL を作り直す。古い URL は使えなくなる |
+| `GET /events/bindings/:id/hook-url` | 外の webhook の URL を返す。URL を返す道はここだけである |
+| `GET /events/held` | 閉じている間に溜まって、選びを待つ事実。札が見せる項目（種類、repo、PR の番号、CI の結果、時刻）だけを返し、題名と本文は返さない |
+| `POST /events/held/run` | 選び（`latest`、`all`、`skip`）を流す。流せなかったら 409 |
+| `GET /events/pr-claims` | 承認待ちの PR の担当の印 |
+| `POST /events/pr-claims/approve`、`POST /events/pr-claims/reject` | 印を承認する、取り下げる。承認した印だけが、レビューやコメントの宛先になる |
+| `GET /events/repo-hook/:owner/:repo` | repo の webhook の登録の状態。gh は呼ばず、結び付けと最後の失敗の記録から答える |
+
+Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state/confirm`）は、本文に `wakeOn` を持つ。
+画面が `wakeOn` の object を送ったときだけ、起こす結び付けを作る。送らないか null なら作らない。
+起こす結び付けは、会話を最後に動かした PC でだけ作る。
+作れなかったときも Paused は確定したままで、応答の `wake` に理由を載せる。
+
+### 動き方
+
+- 結び付けは `state` が `active` のものだけが動く。条件は種類（`when`）、repo、PR の番号、札で絞る。
+- **起こす（`wake`）：** 会話が Paused のときだけ起こし、起こしたら結び付けを消す。結び付けは、作った時刻より後に付いた Paused には効かない（前の Paused のための条件を、別の理由の Paused で使わないため）。同じ Paused のまま状態を書き直したときは、作った時刻を付け直して残す。寿命は 30 日である。
+- **送る、作る、PR の持ち主へ送る：** 前の回が動いている間に届いた分は溜め、終わってから 1 回にまとめて流す。1 時間に 12 回を超えそうなら結び付けを `held` にして知らせる。`held` は画面の「再開」で `active` に戻せ、戻したときに数えは 0 から始まる。
+- 巡の山が 1 ページ（20 通）を越えても、起こすのは結び付けごとに最新の 1 件で、巡の終わりに始める。
+- hangar を閉じていた間に溜まった荷物のうち、送る、作る系は、利用者が選ぶまで動かさずメモリに置く。選びの札は `events.held` の知らせで出る。
+- 起動のときに、期限の過ぎた結び付けと、前の回から動いたまま残った履歴の行（失敗で閉じる）を片付ける。
+- 外から来た題名と本文は、渡してよい書き手（自分か許可した人）のものだけを、囲んで渡す。
+
+### MCP の道具
+
+- `claim_pr({ session_id?, repo, pr })`：この会話が PR を持つ印を、下書きとして置く。承認済みの印は下書きに戻さない。会話ごとの下書きは 5 件まで。
+- `draft_event_binding({ source, action, prompt, pass_body?, allow_authors? })`：結び付けを下書きとして置く。`action.kind` は `send`、`send_pr_owner`、`new` で、`wake` は受けない。承認するまで受け箱も webhook も作らず、応答に URL や秘密は載せない。下書きは全部で 10 件まで（結び付けの上限 50 件には数えない）。
+- `propose_session_status` の `wake_on`（`{ repo, pr, when }`、`when` は `ci_done`、`ci_failed`、`review`、`merged`）：Paused の提案に添える。提案の一部として行に残り（`candidate_wake_on`）、利用者が Paused を確定して、画面で外されていなければ、起こす結び付けになる。`confirmed: true` とは一緒に渡せず、Paused 以外には付けられない。
+
+### 画面へ配る知らせ
+
+`ServerEvents` の次の 2 つが、この機能の知らせである（表の変化に対応しない知らせの表にも載せた）。
+
+- `events.held`（`{ n }`）：閉じている間の荷物が、選びを待つ山に積まれた。画面は `GET /api/events/held` を読み直して右下の札を出す。
+- `session.woken`（`{ id, at }`）：できごとで Paused の会話を起こした。画面は、その行が Active に入るときに 1 度だけ光らせる。
 
 ## 会話の保持期間
 
