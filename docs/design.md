@@ -1425,7 +1425,7 @@ Codex を足す作業の段 B の 1 つ目（計画の B1）で、設定のス�
 
 場所は `config/tools.ts` の `findCodex` が、PATH と既知の置き場から探す。
 ChatGPT.app に同梱の codex は使わない。版が利用者の入れたものと別で、確かめた版を持てないためである。
-確かめた版の範囲は `@agent-hangar/shared` の `CODEX_VERIFIED_RANGE`（`0.165.x`）の 1 か所に持つ。
+確かめた版の範囲は `@agent-hangar/shared` の `CODEX_VERIFIED_RANGE`（`0.167.x`）の 1 か所に持つ。
 範囲の外でも起動は止めず、知らせの種を出すだけにする（決定 8）。
 版の読みは `provider/codex/compat/version.ts` の `LocalCodex` が行い、`codex --version` を空の環境で打つ。
 codex は起動するだけで `CODEX_HOME`（既定は `~/.codex`、Windows は環境変数でなく既知のフォルダから引く）の下に `tmp/arg0-*` を作るので、版は一時の `CODEX_HOME` を渡して打ち、打ったあとに一時の置き場ごと消す（利用者の置き場が確認だけで生えない。Mac でも同じ挙動を確かめた）。
@@ -1548,7 +1548,7 @@ Codex の見張りは、既存の 5 ジョブとは別の仕事 `.github/workflo
 
 #### 版を持つ場所
 
-確かめた範囲は `CODEX_VERIFIED_RANGE`（`0.165.x`）の 1 か所だけに持つ。
+確かめた範囲は `CODEX_VERIFIED_RANGE`（`0.167.x`）の 1 か所だけに持つ。
 CI が入れる版は、`scripts/codex-compat-version.mjs` がこの範囲から作る（`0.164.x` なら npm の指定は `0.164`、つまり 0.164 のうちいちばん新しい版）。
 ワークフローに版は書かない。
 範囲を広げるときは、新しい版で見本を採り直し、差分を読んでから範囲を上げる。
@@ -8086,7 +8086,7 @@ id は 2 種類ある。
 `codex:toml:<鍵の道>` は `config.toml` の鍵 1 つで、道の各段は URL の形に符号化し、段の間は `.` でつなぐ（プラグインの id に点があっても往復する）。値は JSON にして運ぶ。
 `default.rules` は Codex が承認のたびに足す状態なので運ばない。`installation_id`、`tmp/`、Windows 固有の `.sandbox/`、`.sandbox_migration`、`auth.json`、`sessions/` は、運ぶ形の外なので集めない。
 `[mcp_servers.*]`（`codex:mcp:`）は別の PR の持ち分で、ここでは読まない。
-`config.toml` の鍵の仕分けは `targets/codexKeys.ts` の表で、`codex-rs/core/config.schema.json`（確かめた版 0.165.0、トップレベル 103 鍵）から鍵の名前だけを写した。
+`config.toml` の鍵の仕分けは `targets/codexKeys.ts` の表で、`codex-rs/core/config.schema.json`（確かめた版 0.167.0、トップレベル 103 鍵）から鍵の名前だけを写した。
 運ぶのはモデルと推論、`approval_policy`、`sandbox_mode`、指示、`[tui]`、`[features]`（真偽の旗）、`[memories]`、`[desktop]`、`[agents]`、`[hooks]` のイベント、`[plugins.<id>].enabled` など。
 運ばないのは、この PC の事情（`notify`、`[projects.*]`、`[marketplaces.*]`、`[model_providers.*]`、`sandbox_workspace_write.writable_roots`、`shell_environment_policy`、ログや DB の置き場、接続先、認証の設定）と、Codex が書く状態（`[notice.*]`、`hooks.state`、`tui.model_availability_nux`、`tui.screen_reader_detection_done`、プラグインの `enabled` 以外）。
 絶対パスを値に持つ鍵（`/x`、`~/x`、`C:\x`）は運ばず、理由 `path` で一覧に出す。

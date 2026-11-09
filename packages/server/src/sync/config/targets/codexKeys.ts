@@ -1,6 +1,6 @@
 /**
  * Codex の config.toml の鍵の仕分け（設計書 3 章）。
- * 鍵の名前は codex-rs の config.schema.json（確かめた版 0.165.0、トップレベル 103 鍵）から写した。値は写していない。
+ * 鍵の名前は codex-rs の config.schema.json（確かめた版 0.167.0、トップレベル 103 鍵）から写した。値は写していない。
  * 表に無い鍵は「知らない鍵」で、運ばない。
  *
  * 項目の単位は、トップレベルの鍵、または表の 1 段下の鍵（`tui.theme`）。
@@ -51,7 +51,7 @@ const TABLES: Readonly<Record<string, Table>> = {
     'status_line', 'status_line_use_colors', 'terminal_resize_reflow_max_rows', 'terminal_title', 'theme', 'vim_mode_default',
   ), model_availability_nux: 'state', screen_reader_detection_done: 'state' } },
   features: { sub: {}, open: 'boolean' },
-  memories: { sub: carry('consolidation_model', 'dedicated_tools', 'disable_on_external_context', 'dual_write', 'extract_model', 'generate_memories', 'max_raw_memories_for_consolidation', 'max_rollout_age_days', 'max_rollouts_per_startup', 'max_unused_days', 'min_rate_limit_remaining_percent', 'min_rollout_idle_hours', 'use_memories', 'version') },
+  memories: { sub: carry('consolidation_model', 'consolidation_service_tier', 'dedicated_tools', 'disable_on_external_context', 'dual_write', 'extract_model', 'generate_memories', 'max_raw_memories_for_consolidation', 'max_rollout_age_days', 'max_rollouts_per_startup', 'max_unused_days', 'min_rate_limit_remaining_percent', 'min_rollout_idle_hours', 'use_memories', 'version') },
   desktop: { sub: {}, open: 'any' },
   apps: { sub: {}, open: 'any' },
   agents: { sub: carry('default_subagent_model', 'default_subagent_reasoning_effort', 'enabled', 'interrupt_message', 'max_concurrent_threads_per_session', 'max_depth') },
