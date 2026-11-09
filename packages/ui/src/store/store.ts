@@ -1,4 +1,4 @@
-import type { ScheduleDto } from '@agent-hangar/shared';
+import type { EventBindingDto, PrClaimDto, ScheduleDto } from '@agent-hangar/shared';
 import type { DeleteApprovalDto, PeerApprovalDto, PeerChatDevice, PeerChatQueued, PeerDeviceDto } from '@agent-hangar/shared';
 import { liveFilterOf, liveWithLimit, quietLive, stopReasonOf, type LiveFilter, type PermissionAskDto, type StopReason } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
@@ -97,6 +97,8 @@ export type Store = {
   /** ほかの PC の会話を見ている画面の状態（セッションごと。store/peerChat.ts）。 */
   peerChat: Record<string, PeerChatSlice>;
   schedules: ScheduleDto[];
+  /** 予定の画面のイベント。bootstrap は運ばない（画面を開くときに読む）。 */
+  eventTrigger: EventTriggerState;
   /** 事後要約に失敗したセッションと、その理由。次に作り始めるか、作れたら消える。bootstrap は運ばないので、取り直しても残す。 */
   summaryFailed: Record<string, string>;
   // 設定画面に入ったときだけ読む値。
@@ -192,13 +194,26 @@ export type EditorOpenAction = Extract<UiAction, { type: 'project.openEditor' | 
 
 export const eventsKey = (sessionId: string, agentId: string | null): string => `${sessionId}:${agentId ?? ''}`;
 
+/**
+ * 予定の画面のイベント（#563）。サーバに押し出す道が無いので、画面を開いたときと一定の間隔で読み直す。
+ * ready は一度でも読めたこと。form は作成の送信の状態で、done は作れた回数（フォームが閉じる合図）。
+ * error は承認と削除と PR の印の失敗の一文で、次の操作で消える。
+ */
+export type EventNotice = { kind: 'no_admin' } | { kind: 'text'; text: string };
+export type EventTriggerState = {
+  ready: boolean; bindings: EventBindingDto[]; claims: PrClaimDto[];
+  form: { busy: boolean; error: EventNotice | null; done: number };
+  error: EventNotice | null;
+};
+export const EMPTY_EVENT_TRIGGER: EventTriggerState = { ready: false, bindings: [], claims: [], form: { busy: false, error: null, done: 0 }, error: null };
+
 export function initialStore(): Store {
   return {
     bootstrapped: false, version: '', device: null, settings: null, home: null, projects: {}, sessions: {}, live: [], runs: {}, tabs: {}, events: {}, subagents: {}, liveDigests: {}, sessionFiles: {},
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     todos: {}, memos: {}, instructions: {}, artifacts: {}, artifactAddError: null, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
-    cloudUsage: null, sync: null, deleteApprovals: [], peerApprovals: [], peerQueued: {}, peerDelivered: {}, peerChat: {}, schedules: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
+    cloudUsage: null, sync: null, deleteApprovals: [], peerApprovals: [], peerQueued: {}, peerDelivered: {}, peerChat: {}, schedules: [], eventTrigger: EMPTY_EVENT_TRIGGER, devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
     readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, peers: null, launchPreps: {}, opencodeProviders: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null, sharePreview: {},
     update: initialUpdate(),

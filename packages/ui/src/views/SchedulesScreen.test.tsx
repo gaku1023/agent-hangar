@@ -1,9 +1,9 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { translator, type CodexOptionsDto, type ScheduleDto } from '@agent-hangar/shared';
+import { translator, type CodexOptionsDto, type EventBindingDto, type ScheduleDto } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
 import type { LaunchChoiceData } from '../presenters/newSession.ts';
-import { nextLabel, presentSchedules, whenLabel, type SchedulesProps } from '../presenters/schedules.ts';
+import { eventMarker, nextLabel, presentSchedules, whenLabel, type SchedulesProps } from '../presenters/schedules.ts';
 import { initialStore } from '../store/store.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { pick } from '../test/pick.ts';
@@ -347,5 +347,235 @@ describe('予定の起動設定（新しいセッションと同じ札）', () =
     expect(chip('モデル、opus')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: t('schedules.form.create') }));
     expect(lastInput(onAction).input.target).toEqual({ kind: 'new', projectId: 'p', model: 'opus' });
+  });
+});
+
+describe('イベントの節（#563）', () => {
+  const SYNC = { state: 'ok', revoked: false, workerCompat: 12 } as never;
+  const bind = (o: Partial<EventBindingDto> = {}): EventBindingDto => ({
+    id: 'e1', source: { kind: 'github', repo: 'o/r', when: ['ci_failed', 'merged'], labels: ['ci-fix'] }, action: { kind: 'new', projectId: 'p' }, prompt: '落ちた CI を直す',
+    passBody: false, allowAuthors: [], state: 'active', hookUrl: null, createdAt: 1, expiresAt: null, runs: [], ...o,
+  });
+  const claim = { sessionId: 's', repo: 'o/r', pr: 9, claimedAt: 1, sessionTitle: '移植の会話' };
+  type Form = ReturnType<typeof initialStore>['eventTrigger']['form'];
+  const mountEvents = (bindings: EventBindingDto[] = [], claims: (typeof claim)[] = [], over: { sync?: unknown; form?: Partial<Form> } = {}) => {
+    const base = initialStore().eventTrigger;
+    return mount([dto()], { store: { sync: ('sync' in over ? over.sync : SYNC) as never, eventTrigger: { ...base, ready: true, bindings, claims, form: { ...base.form, ...over.form } } } });
+  };
+  const events = () => screen.getByRole('region', { name: t('schedules.section.event') });
+  const items = () => within(events()).getAllByRole('listitem');
+
+  it('時刻とイベントを 2 つの見出しで分け、開いたときにイベントを読みに行く', () => {
+    const onAction = mountEvents([bind()]);
+    expect(screen.getByRole('heading', { name: t('schedules.section.time') })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: t('schedules.section.event') })).toBeInTheDocument();
+    expect(within(events()).getByRole('button', { name: '落ちた CI を直す' })).toBeInTheDocument();
+    expect(within(events()).queryByRole('button', { name: '依存を点検して' })).toBeNull();
+    expect(screen.getByRole('button', { name: '依存を点検して' })).toBeInTheDocument();
+    expect(onAction.mock.calls.map((c) => c[0])).toContainEqual({ type: 'events.load' });
+  });
+
+  it('Worker の版が 12 に届かない、または同期を設定していないときは、節も種類のカードも出さず、読みにも行かない', () => {
+    for (const sync of [{ state: 'ok', revoked: false, workerCompat: 11 }, { state: 'off', revoked: false, workerCompat: 12 }, null]) {
+      const onAction = mountEvents([bind()], [], { sync });
+      expect(screen.queryByRole('heading', { name: t('schedules.section.event') })).toBeNull();
+      expect(screen.queryByRole('heading', { name: t('schedules.section.time') })).toBeNull();
+      expect(onAction.mock.calls.map((c) => c[0]).some((a) => a.type === 'events.load')).toBe(false);
+      openNew();
+      expect(screen.queryByRole('radio', { name: t('schedules.event.kind.github') })).toBeNull();
+      expect(screen.getByRole('textbox', { name: t('schedules.form.prompt') })).toBeInTheDocument();
+      cleanup();
+    }
+  });
+
+  it('承認待ちの下書きをイベントの頭に置き、承認で state を active にする依頼を出す', () => {
+    const onAction = mountEvents([bind(), bind({ id: 'd1', state: 'draft', prompt: '下書きの指示' })]);
+    const rows = items();
+    expect(rows[0]).toHaveTextContent('下書きの指示');
+    expect(within(rows[0]!).getByText(t('schedules.event.state.pending'))).toBeInTheDocument();
+    fireEvent.click(within(rows[0]!).getByRole('button', { name: t('schedules.event.approve') }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'events.approve', id: 'd1' });
+    fireEvent.click(within(rows[0]!).getByRole('button', { name: t('schedules.event.reject') }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'events.remove', id: 'd1' });
+  });
+
+  it('新しい会話の下書きは、承認の前に自動承認と権限モードを閉じたままで見せる', () => {
+    mountEvents([bind({ id: 'd1', state: 'draft', action: { kind: 'new', projectId: 'p', autoApprove: true, permissionMode: 'bypassPermissions' } })]);
+    const row = items()[0]!;
+    expect(within(row).getByText(t('launch.chip.autoApprove'))).toBeInTheDocument();
+    expect(within(row).getByText(t('launch.permission.label'))).toBeInTheDocument();
+    expect(row.querySelector('.sch-chip[data-tone="danger"]')).not.toBeNull();
+  });
+
+  it('担当する PR の下書きは文と承認、却下を出し、押すと repo と PR を添えて答える', () => {
+    const onAction = mountEvents([], [claim]);
+    const row = items()[0]!;
+    expect(row).toHaveTextContent(t('schedules.event.claim', { title: '移植の会話', pr: 9 }));
+    fireEvent.click(within(row).getByRole('button', { name: t('schedules.event.approve') }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'events.claim', op: 'approve', sessionId: 's', repo: 'o/r', pr: 9 });
+    fireEvent.click(within(row).getByRole('button', { name: t('schedules.event.reject') }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'events.claim', op: 'reject', sessionId: 's', repo: 'o/r', pr: 9 });
+  });
+
+  it('行を開くと動き、できごと、絞り込み、履歴を出し、削除は確かめてから頼む', () => {
+    const run = { id: 'x', plannedAt: 1, startedAt: NOW, endedAt: NOW, result: 'skipped' as const, sessionId: null, sessionTitle: null, error: 'held:hourly' };
+    const onAction = mountEvents([bind({ state: 'held', runs: [run] })]);
+    const row = items()[0]!;
+    expect(within(row).getByText(t('schedules.event.state.held'))).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole('button', { name: '落ちた CI を直す' }));
+    expect(row).toHaveTextContent('GitHub · o/r');
+    expect(row).toHaveTextContent(`${t('schedules.event.when.ciFailed')}、${t('schedules.event.when.merged')}`);
+    expect(row).toHaveTextContent('ci-fix');
+    expect(row).toHaveTextContent(t('schedules.event.action.new'));
+    expect(row).toHaveTextContent(t('schedules.event.heldHourly', { max: 12 }));
+    fireEvent.click(within(row).getByRole('button', { name: t('schedules.action.delete') }));
+    expect(onAction.mock.calls.map((c) => c[0]).some((a) => a.type === 'events.remove')).toBe(false);
+    fireEvent.click(within(row).getByRole('button', { name: t('schedules.action.deleteConfirm') }));
+  });
+
+  it('履歴の印を決めた言い方にする', () => {
+    expect(eventMarker(t, 'rejected:signature x3')).toBe('署名エラー 3 件');
+    expect(eventMarker(t, 'rejected:unparsable x2')).toBe('解析エラー 2 件');
+    expect(eventMarker(t, 'dropped:5')).toBe('上限超過 5 件');
+    expect(eventMarker(t, 'no_destination')).toBe('宛先なし');
+    expect(eventMarker(t, 'held:hourly')).toBe('1 時間の上限（12 回）を超えたので止めました');
+    expect(eventMarker(t, 'boom')).toBeNull();
+    expect(eventMarker(t, null)).toBeNull();
+  });
+
+  it('作るときは先に種類のカードを選ぶ。時刻は今までの予定のフォームを開く', () => {
+    mountEvents();
+    openNew();
+    const group = screen.getByRole('radiogroup', { name: t('schedules.action.new') });
+    const cards = within(group).getAllByRole('radio');
+    expect(cards.map((c) => c.textContent)).toEqual(['時刻', 'GitHub', 'webhook']);
+    expect(cards[0]).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radiogroup', { name: t('schedules.form.kind') })).toBeInTheDocument();
+  });
+
+  const pickKind = (name: string) => fireEvent.click(screen.getByRole('radio', { name }));
+  const createdEvent = (onAction: ReturnType<typeof vi.fn>) => onAction.mock.calls.map((c) => c[0]).filter((a) => a.type === 'events.create').at(-1);
+  const whenGroup = () => screen.getByRole('group', { name: t('schedules.event.form.when') });
+
+  it('GitHub: repo の形が正しく、できごとを選び、指示があるときだけ作れる。送る形は結び付けの入力になる', () => {
+    const onAction = mountEvents();
+    openNew();
+    pickKind('GitHub');
+    const create = screen.getByRole('button', { name: t('schedules.form.create') });
+    typePrompt();
+    expect(create).toBeDisabled();
+    const repo = screen.getByRole('textbox', { name: t('schedules.event.form.repo') });
+    fireEvent.change(repo, { target: { value: 'not a repo' } });
+    expect(repo).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.change(repo, { target: { value: 'o/r' } });
+    expect(repo).not.toHaveAttribute('aria-invalid', 'true');
+    expect(create).toBeDisabled();
+    fireEvent.click(within(whenGroup()).getByRole('button', { name: t('schedules.event.when.ciFailed') }));
+    fireEvent.click(within(whenGroup()).getByRole('button', { name: t('schedules.event.when.merged') }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: t('schedules.event.form.pr') }), { target: { value: '12' } });
+    fireEvent.change(screen.getByRole('textbox', { name: t('schedules.event.form.labels') }), { target: { value: 'ci-fix, bug' } });
+    expect(create).toBeEnabled();
+    fireEvent.click(create);
+    expect(createdEvent(onAction).input).toEqual({
+      source: { kind: 'github', repo: 'o/r', when: ['ci_failed', 'merged'], pr: 12, labels: ['ci-fix', 'bug'] },
+      action: { kind: 'new', projectId: 'p' }, prompt: '見て', passBody: false, allowAuthors: [],
+    });
+  });
+
+  it('GitHub: 動きは 3 つ（Paused を起こすは無い）。PR を出した会話と、会話に送る', () => {
+    const onAction = mountEvents();
+    openNew();
+    pickKind('GitHub');
+    const dest = screen.getByRole('radiogroup', { name: t('schedules.form.dest') });
+    expect(within(dest).getAllByRole('radio').map((r) => r.textContent)).toEqual(['会話に送る', 'PR を出した会話', '新しい会話']);
+    typePrompt();
+    fireEvent.change(screen.getByRole('textbox', { name: t('schedules.event.form.repo') }), { target: { value: 'o/r' } });
+    fireEvent.click(within(whenGroup()).getByRole('button', { name: t('schedules.event.when.review') }));
+    fireEvent.click(within(dest).getByRole('radio', { name: t('schedules.event.action.sendPrOwner') }));
+    fireEvent.click(screen.getByRole('button', { name: t('schedules.form.create') }));
+    expect(createdEvent(onAction).input.action).toEqual({ kind: 'send_pr_owner' });
+    fireEvent.click(within(dest).getByRole('radio', { name: t('schedules.event.action.send') }));
+    fireEvent.click(screen.getByRole('button', { name: t('schedules.form.create') }));
+    expect(createdEvent(onAction).input.action).toEqual({ kind: 'send', sessionId: 's' });
+  });
+
+  it('GitHub: 本文を含めると、ほかに含める人の欄が出て、入力が送る形に入る', () => {
+    const onAction = mountEvents();
+    openNew();
+    pickKind('GitHub');
+    expect(screen.queryByRole('textbox', { name: t('schedules.event.allowAuthors') })).toBeNull();
+    fireEvent.click(screen.getByRole('switch', { name: t('schedules.event.passBody') }));
+    fireEvent.change(screen.getByRole('textbox', { name: t('schedules.event.allowAuthors') }), { target: { value: 'alice, bob' } });
+    typePrompt();
+    fireEvent.change(screen.getByRole('textbox', { name: t('schedules.event.form.repo') }), { target: { value: 'o/r' } });
+    fireEvent.click(within(whenGroup()).getByRole('button', { name: t('schedules.event.when.comment') }));
+    fireEvent.click(screen.getByRole('button', { name: t('schedules.form.create') }));
+    expect(createdEvent(onAction).input).toMatchObject({ passBody: true, allowAuthors: ['alice', 'bob'] });
+  });
+
+  it('webhook: できごとの欄は無く、指示と動きと本文だけで作れる。動きに PR を出した会話は無い', () => {
+    const onAction = mountEvents();
+    openNew();
+    pickKind('webhook');
+    expect(screen.queryByRole('textbox', { name: t('schedules.event.form.repo') })).toBeNull();
+    const dest = screen.getByRole('radiogroup', { name: t('schedules.form.dest') });
+    expect(within(dest).getAllByRole('radio').map((r) => r.textContent)).toEqual(['会話に送る', '新しい会話']);
+    expect(screen.queryByRole('textbox', { name: t('schedules.event.allowAuthors') })).toBeNull();
+    typePrompt();
+    fireEvent.click(screen.getByRole('switch', { name: t('schedules.event.passBody') }));
+    fireEvent.click(screen.getByRole('button', { name: t('schedules.form.create') }));
+    expect(createdEvent(onAction).input).toEqual({ source: { kind: 'hook' }, action: { kind: 'new', projectId: 'p' }, prompt: '見て', passBody: true, allowAuthors: [] });
+  });
+
+  it('作れなかった理由はフォームの中に出し、権限なしは決めた一文、失敗はサーバの文にする。送る間は押せない', () => {
+    mountEvents([], [], { form: { error: null, busy: true } });
+    openNew();
+    pickKind('webhook');
+    typePrompt();
+    expect(screen.getByRole('button', { name: t('schedules.form.create') })).toBeDisabled();
+    cleanup();
+    // 前に失敗して閉じたフォームを開き直したとき、古い理由は出さない。送ったあとの理由だけを出す。
+    mountEvents([], [], { form: { error: { kind: 'no_admin' } } });
+    openNew();
+    pickKind('webhook');
+    expect(screen.queryByRole('alert')).toBeNull();
+    typePrompt();
+    fireEvent.click(screen.getByRole('button', { name: t('schedules.form.create') }));
+    expect(screen.getByRole('alert')).toHaveTextContent(t('schedules.event.noAdmin'));
+    cleanup();
+    mountEvents([], [], { form: { error: { kind: 'text', text: 'gh が見つかりません' } } });
+    openNew();
+    pickKind('webhook');
+    typePrompt();
+    fireEvent.click(screen.getByRole('button', { name: t('schedules.form.create') }));
+    expect(screen.getByRole('alert')).toHaveTextContent('gh が見つかりません');
+  });
+
+  it('開いている間は一定の間隔でイベントを読み直し、閉じたら止める', () => {
+    vi.useFakeTimers();
+    try {
+      const onAction = mountEvents([bind()]);
+      const loads = () => onAction.mock.calls.filter((c) => c[0].type === 'events.load').length;
+      expect(loads()).toBe(1);
+      vi.advanceTimersByTime(15_000);
+      expect(loads()).toBe(2);
+      cleanup();
+      vi.advanceTimersByTime(60_000);
+      expect(loads()).toBe(2);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('作れた回数が増えたらフォームを閉じる。前に作った分では閉じない', () => {
+    const onAction = vi.fn();
+    const base = initialStore().eventTrigger;
+    const props = (done: number): SchedulesProps => presentSchedules({ ...initialStore(), sync: SYNC, schedules: [dto()], projects: { p: proj('p', 'alpha') } as never, eventTrigger: { ...base, ready: true, form: { ...base.form, done } } }, t, NOW);
+    const ui = (done: number) => <LanguageRoot language="ja"><ActionRoot onAction={onAction}><SchedulesScreen {...props(done)} /></ActionRoot></LanguageRoot>;
+    const { rerender } = render(ui(3));
+    openNew();
+    pickKind('webhook');
+    rerender(ui(3));
+    expect(screen.getByRole('textbox', { name: t('schedules.form.prompt') })).toBeInTheDocument();
+    rerender(ui(4));
+    return vi.waitFor(() => expect(screen.queryByRole('textbox', { name: t('schedules.form.prompt') })).toBeNull());
   });
 });

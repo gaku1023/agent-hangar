@@ -63,6 +63,17 @@ export function eventsAvailable(sync: Pick<SyncStatusDto, 'state' | 'revoked' | 
 /** Paused の確定の応答に載る、起こす結び付けの結果。message が other_pc のときは、会話がほかの PC で動いている。 */
 export type WakeResultDto = { status: 'created' | 'no_admin' | 'failed'; message?: string };
 
+/** 画面から作れる動き。起こす（wake）は Paused の確定からだけ作るので含めない。 */
+export type EventCreateAction = Exclude<EventAction, { kind: 'wake' }>;
+/** 画面が送る結び付けの入力（POST /events/bindings）。 */
+export type EventCreateInput = { source: EventSource; action: EventCreateAction; prompt: string; passBody: boolean; allowAuthors: string[] };
+/** webhook を付けられなかった理由。 */
+export type EventHookFailureDto = { status: 'no_admin' | 'failed'; message?: string };
+/** 作成と承認の応答。hook が失敗のときは、何も作らず（承認なら下書きのまま）理由だけ返る。 */
+export type EventSaveResultDto = { binding: EventBindingDto; hook?: { status: 'registered' } | EventHookFailureDto } | { hook: EventHookFailureDto };
+/** 担当する PR の印の下書き（GET /events/pr-claims）。承認するまで、レビューやコメントの宛先には使われない。 */
+export type PrClaimDto = { sessionId: string; repo: string; pr: number; claimedAt: number; sessionTitle: string | null };
+
 /** 結び付けに当てる、できごとの事実。本文は passBody のときだけ渡す。 */
 export type EventFacts = {
   source: 'github' | 'hook';

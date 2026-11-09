@@ -1,5 +1,5 @@
-import type { AccountsDto, InvestigateContext, UiAction, SyncStatusBody, TerminalApp } from '@agent-hangar/shared';
-import { applyConfigDetail, CUSTOM_PROVIDER_ROW, gitFileKey, type EditorOpenAction, type OpencodeProviderOp, type OpencodeProvidersState, type Store } from '../store/store.ts';
+import type { AccountsDto, EventHookFailureDto, InvestigateContext, UiAction, SyncStatusBody, TerminalApp } from '@agent-hangar/shared';
+import { applyConfigDetail, CUSTOM_PROVIDER_ROW, type EventNotice, type EventTriggerState, gitFileKey, type EditorOpenAction, type OpencodeProviderOp, type OpencodeProvidersState, type Store } from '../store/store.ts';
 import type { OpencodeProvidersDto } from '@agent-hangar/shared';
 import { EditorMissingApiError, type ApiClient } from './api.ts';
 import { sameInspect } from '../store/folderInspect.ts';
@@ -92,6 +92,24 @@ function providerCall(id: string, op: OpencodeProviderOp, run: (api: ApiClient) 
   });
 }
 
+/** webhook を付けられなかった理由の文。権限なしは画面が辞書で言い、それ以外はサーバの文をそのまま出す。 */
+const hookNotice = (h: EventHookFailureDto): EventNotice => (h.status === 'no_admin' ? { kind: 'no_admin' } : { kind: 'text', text: h.message ?? '' });
+const failureOf = (r: unknown): EventHookFailureDto | null => {
+  const h = (r as { hook?: { status?: string } }).hook;
+  return h && h.status !== 'registered' ? (h as EventHookFailureDto) : null;
+};
+const withEventTrigger = (store: Store, f: (e: EventTriggerState) => Partial<EventTriggerState>): Store => ({ ...store, eventTrigger: { ...store.eventTrigger, ...f(store.eventTrigger) } });
+const eventSnapshot = (api: ApiClient) => Promise.all([api.eventBindings(), api.prClaims()]).then(([b, c]) => ({ ready: true, bindings: b.bindings, claims: c.claims }));
+/** 一覧に影響する操作の共通の形。済んだら読み直す。失敗は、トーストにせず一覧の頭の一文にする。 */
+const eventOp = (run: (api: ApiClient) => Promise<unknown>): ApiCall => call(
+  (api) => run(api).then((r) => eventSnapshot(api).then((snap) => ({ snap, failure: failureOf(r) }))),
+  {
+    before: (store) => withEventTrigger(store, () => ({ error: null })),
+    apply: (store, { snap, failure }) => withEventTrigger(store, () => ({ ...snap, error: failure ? hookNotice(failure) : null })),
+    failed: (store, e) => withEventTrigger(store, () => ({ error: { kind: 'text', text: errText(e) } })),
+  },
+);
+
 type Rows = { [K in UiAction['type']]?: (action: Extract<UiAction, { type: K }>, store: Store) => ApiCall | null };
 
 /**
@@ -122,6 +140,21 @@ export const actionTable = {
   'session.tryNow': (i) => call((api) => api.tryPausedSession(i.id)),
   'schedule.delete': (i) => call((api) => api.deleteSchedule(i.id)),
   'schedule.run': (i) => call((api) => api.runSchedule(i.id)),
+  // イベント（#563）。読み直しの失敗は、間隔で何度も来るので黙って前の一覧を残す。
+  'events.load': () => call(eventSnapshot, { apply: (store, snap) => withEventTrigger(store, () => snap), failed: (store) => store }),
+  'events.create': (i) => call(
+    (api) => api.createEventBinding(i.input).then(async (r) => ({ failure: failureOf(r), snap: 'binding' in r ? await eventSnapshot(api) : null })),
+    {
+      before: (store) => withEventTrigger(store, (e) => ({ form: { ...e.form, busy: true, error: null } })),
+      apply: (store, { failure, snap }) => withEventTrigger(store, (e) => (snap && !failure
+        ? { ...snap, form: { busy: false, error: null, done: e.form.done + 1 } }
+        : { form: { ...e.form, busy: false, error: failure ? hookNotice(failure) : null } })),
+      failed: (store, e) => withEventTrigger(store, (cur) => ({ form: { ...cur.form, busy: false, error: { kind: 'text', text: errText(e) } } })),
+    },
+  ),
+  'events.approve': (i) => eventOp((api) => api.approveEventBinding(i.id)),
+  'events.remove': (i) => eventOp((api) => api.deleteEventBinding(i.id)),
+  'events.claim': (i) => eventOp((api) => api.answerPrClaim(i.op, { sessionId: i.sessionId, repo: i.repo, pr: i.pr })),
   'deleteApproval.answer': (i) => call((api) => api.answerDeleteApproval(i.id, i.answer)),
   // 別の PC への起動の承認への答え。画面の正は後から届く peerApprovals.update なので、返り値は Store に入れない。
   'peerApproval.answer': (i) => call((api) => api.answerPeerApproval(i.id, i.answer)),

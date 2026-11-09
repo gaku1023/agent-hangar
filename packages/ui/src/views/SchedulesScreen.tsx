@@ -1,14 +1,16 @@
-import { formatRoute, SCHEDULE_MAX_EVERY_MINUTES, SCHEDULE_MIN_EVERY_MINUTES, SCHEDULE_PROMPT_MAX, SCHEDULE_RUNS_KEPT, type ScheduleInput, type ScheduleSpec, type ScheduleTarget } from '@agent-hangar/shared';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { SCHEDULE_MAX_EVERY_MINUTES, SCHEDULE_MIN_EVERY_MINUTES, SCHEDULE_PROMPT_MAX, type ScheduleInput, type ScheduleSpec, type ScheduleTarget } from '@agent-hangar/shared';
+import { useEffect, useRef, useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
-import type { ScheduleRow, ScheduleRunRow, SchedulesProps } from '../presenters/schedules.ts';
+import type { ScheduleRow, SchedulesProps } from '../presenters/schedules.ts';
+import { EventBindingForm } from './EventBindingForm.tsx';
+import { EventList } from './EventRows.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { useFlip } from './primitives/flip.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
-import { collapseOut, growIn, popMark } from './primitives/motionKit.ts';
+import { collapseOut } from './primitives/motionKit.ts';
 import { Segmented } from './primitives/Segmented.tsx';
-import { usePresence } from './primitives/usePresence.ts';
+import { Grow, RunDots, RunList } from './schedulesParts.tsx';
 import { scheduleTargetOf, useLaunchChoice, type LaunchBuilt } from './useLaunchChoice.tsx';
 
 /** 月曜を頭にした曜日の並び。値は Date.getDay()。 */
@@ -124,51 +126,6 @@ function ScheduleForm(props: SchedulesProps & { row: ScheduleRow | null; onClose
   );
 }
 
-/** 開け閉めの枠。中身が出入りするときに高さを動かす。 */
-function Grow(props: { open: boolean; children: () => React.ReactNode }) {
-  const { mounted, ref } = usePresence<HTMLDivElement>(props.open, (el) => collapseOut(el));
-  useLayoutEffect(() => { if (props.open && ref.current) growIn(ref.current); }, [props.open, ref, mounted]);
-  if (!mounted) return null;
-  return <div ref={ref} className="sch-grow">{props.children()}</div>;
-}
-
-/** 直近の回の丸。新しい回が来たら、その丸だけ跳ねる。 */
-function RunDots(props: { runs: ScheduleRunRow[] }) {
-  const box = useRef<HTMLSpanElement>(null);
-  const seen = useRef<Set<string> | null>(null);
-  useEffect(() => {
-    if (seen.current) {
-      for (const r of props.runs) {
-        if (seen.current.has(r.id)) continue;
-        const el = box.current?.querySelector<HTMLElement>(`[data-run="${r.id}"]`);
-        if (el) popMark(el);
-      }
-    }
-    seen.current = new Set(props.runs.map((r) => r.id));
-  }, [props.runs]);
-  // 古い回を左に、新しい回を右に置く。
-  return <span className="sch-dots" ref={box}>{[...props.runs].slice(0, SCHEDULE_RUNS_KEPT).reverse().map((r) => <i key={r.id} data-run={r.id} className="sch-dot" data-result={r.result} role="img" aria-label={`${r.at} ${r.label}`} title={`${r.at} ${r.label}`} />)}</span>;
-}
-
-function RunList(props: { runs: ScheduleRunRow[] }) {
-  const emit = useEmit();
-  if (props.runs.length === 0) return null;
-  return (
-    <ul className="sch-runs">
-      {props.runs.map((r) => (
-        <li key={r.id} className="sch-run">
-          <i className="sch-dot" data-result={r.result} aria-hidden="true" />
-          {r.sessionId
-            ? <a className="sch-run-name" href={formatRoute({ name: 'session', id: r.sessionId })} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: { name: 'session', id: r.sessionId! } }); }}>{r.title || r.label}</a>
-            : <span className="sch-run-name faint">{r.label}</span>}
-          <span className="faint num">{r.took ?? ''}</span>
-          <span className="num">{r.at}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 function ScheduleRowView(props: SchedulesProps & { row: ScheduleRow; open: boolean; onOpen: (id: string | null) => void; rowRef: (el: HTMLElement | null) => void }) {
   const emit = useEmit();
   const t = useT();
@@ -221,23 +178,67 @@ function ScheduleRowView(props: SchedulesProps & { row: ScheduleRow; open: boole
   );
 }
 
+/** イベントを読み直す間隔。サーバに押し出す道が無いので、画面を開いている間だけ、この間隔で読む。 */
+const EVENTS_POLL_MS = 15_000;
+const KINDS = ['time', 'github', 'hook'] as const;
+type Kind = (typeof KINDS)[number];
+
+/** 作成の入口。イベントが使えるときは、先に種類のカード（時刻、GitHub、webhook）を選ぶ。時刻は今までの予定のフォームのまま。 */
+function CreateFlow(props: SchedulesProps & { onClose: () => void }) {
+  const t = useT();
+  const [kind, setKind] = useState<Kind>('time');
+  if (!props.events) return <ScheduleForm {...props} row={null} onClose={props.onClose} />;
+  return (
+    <div className="sch-create">
+      <div className="sch-kinds" role="radiogroup" aria-label={t('schedules.action.new')}>
+        {KINDS.map((k) => (
+          <button key={k} type="button" role="radio" className="sch-kind" aria-checked={kind === k} onClick={() => setKind(k)}>
+            {k !== 'time' && <Icon name="bolt" />}<span>{t(`schedules.event.kind.${k}` as 'schedules.event.kind.time')}</span>
+          </button>
+        ))}
+      </div>
+      {kind === 'time' ? <ScheduleForm {...props} row={null} onClose={props.onClose} /> : <EventBindingForm key={kind} {...props} kind={kind} onClose={props.onClose} />}
+    </div>
+  );
+}
+
 /** 予定の画面（#549）。1 列で、行を押すとその場で開く。作成は一覧の頭に垂れて開く。入力は送るまで外へ出ないので、ここに持つ。 */
 export function SchedulesScreen(props: SchedulesProps) {
   const t = useT();
+  const emit = useEmit();
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const flip = useFlip(props.rows.map((r) => r.id));
+  const ev = props.events;
+  // イベントは開いたときに読み、開いている間は一定の間隔で読み直す。使えない PC では読みに行かない。
+  const available = ev !== null;
+  useEffect(() => {
+    if (!available) return;
+    emit({ type: 'events.load' });
+    const id = setInterval(() => emit({ type: 'events.load' }), EVENTS_POLL_MS);
+    return () => clearInterval(id);
+  }, [available, emit]);
+  const eventCount = ev ? ev.drafts.length + ev.claims.length + ev.rows.length : 0;
+  const empty = props.rows.length === 0 && eventCount === 0;
   return (
     <div className="screen schedules-screen">
       <PageHeading title={t('schedules.heading.title')}>
         <span className="spacer" />
         <button type="button" className="btn btn-primary" onClick={() => { setCreating(true); setOpen(null); }}><Icon name="add" /><span className="btn-label">{t('schedules.action.new')}</span></button>
       </PageHeading>
-      {props.rows.length === 0 && !creating && <div className="empty">{t('schedules.list.empty')}</div>}
-      {(props.rows.length > 0 || creating) && (
+      {empty && !creating && <div className="empty">{t('schedules.list.empty')}</div>}
+      {(!empty || creating) && (
         <div className="sch-list">
-          <Grow open={creating}>{() => <ScheduleForm {...props} row={null} onClose={() => setCreating(false)} />}</Grow>
+          <Grow open={creating}>{() => <CreateFlow {...props} onClose={() => setCreating(false)} />}</Grow>
+          {ev && props.rows.length > 0 && <h2 className="sch-sec">{t('schedules.section.time')}</h2>}
           {props.rows.map((row) => <ScheduleRowView key={row.id} {...props} row={row} open={open === row.id} onOpen={setOpen} rowRef={flip(row.id)} />)}
+          {ev && eventCount > 0 && (
+            <section className="sch-events" aria-label={t('schedules.section.event')}>
+              <h2 className="sch-sec"><Icon name="bolt" />{t('schedules.section.event')}</h2>
+              {ev.error && <div className="sch-ev-error" role="alert">{ev.error}</div>}
+              <EventList drafts={ev.drafts} claims={ev.claims} rows={ev.rows} open={open} onOpen={setOpen} />
+            </section>
+          )}
         </div>
       )}
     </div>

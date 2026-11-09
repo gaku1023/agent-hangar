@@ -50,3 +50,46 @@ a.sch-run-name:hover { text-decoration: underline; }
   .sch-detail { padding-left: calc(var(--u) * 3.5); }
 }
 .sch-acts .btn-danger { color: var(--error); }
+
+/* イベント（#563）。時刻の行と同じ 1 枚の面に、見出しで分けて並べる。 */
+.sch-sec { display: flex; align-items: center; gap: calc(var(--u) * 2); margin: 0; padding: calc(var(--u) * 2.5) calc(var(--u) * 3.5) calc(var(--u) * 1.5); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.sch-sec .icon { color: var(--accent); }
+.sch-events { border-top: 1px solid var(--line); }
+.sch-list > .sch-sec:first-child { padding-top: calc(var(--u) * 3); }
+.sch-evlist { list-style: none; margin: 0; padding: 0; }
+.sch-mark { display: inline-grid; place-items: center; width: 22px; color: var(--accent); }
+.sch-head > .sch-mark + .sch-title { min-width: 0; }
+.sch-row[data-held='true'] :is(.sch-title, .sch-when) { opacity: 0.55; }
+.sch-ev-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; background: var(--accent-soft); color: var(--accent); }
+.sch-ev-chip[data-state='held'] { background: var(--surface-2); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.sch-next:has(.sch-ev-chip) { display: flex; justify-content: flex-end; }
+.sch-draft-body { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: calc(var(--u) * 3); padding: calc(var(--u) * 3) calc(var(--u) * 3.5); background: var(--accent-soft); }
+.sch-draft-main { display: grid; gap: calc(var(--u) * 2); min-width: 0; }
+.sch-draft-head { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; }
+.sch-draft-head .sch-when { flex: 1; }
+.sch-claim { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sch-draft .sch-full { background: var(--surface); }
+.sch-draft .sch-ev-chip { background: var(--surface); }
+.sch-chip[data-tone='danger'] { color: var(--error); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 35%, transparent); background: color-mix(in srgb, var(--error) 6%, var(--surface)); }
+.sch-ev-error { padding: calc(var(--u) * 2) calc(var(--u) * 3.5); font-size: var(--fs-sm); color: var(--error); }
+.sch-form > .sch-ev-error { justify-self: stretch; padding: 0; }
+/* 作成の入口。種類のカードを 3 枚並べ、選んだものの下にフォームが続く。 */
+.sch-create { border-bottom: 1px solid var(--line); }
+.sch-create > .sch-form { border-bottom: 0; padding-top: calc(var(--u) * 2.5); }
+.sch-kinds { display: flex; gap: calc(var(--u) * 2.5); padding: calc(var(--u) * 3.5) calc(var(--u) * 3.5) 0; }
+.sch-kind { display: inline-flex; align-items: center; gap: calc(var(--u) * 2); flex: 1; justify-content: center; height: 40px; border: 0; border-radius: var(--r); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); font: inherit; font-weight: 600; color: var(--ink); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.sch-kind .icon { color: var(--accent); }
+.sch-kind[aria-checked='true'] { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.sch-whens { flex-wrap: wrap; gap: calc(var(--u) * 1.5); }
+.sch-opt { height: 26px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: var(--surface-2); color: var(--ink-2); font: inherit; font-size: var(--fs-sm); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.sch-opt[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); }
+.sch-repo { width: 320px; max-width: 100%; }
+.sch-repo[aria-invalid='true'] { box-shadow: inset 0 0 0 1.5px var(--error); }
+.sch-pr { width: 96px; }
+.sch-labels, .sch-allow { width: 240px; max-width: 100%; }
+.sch-sw-row { display: inline-flex; align-items: center; gap: calc(var(--u) * 2); cursor: pointer; }
+@media (max-width: 720px) {
+  .sch-kinds { flex-wrap: wrap; }
+  .sch-draft-body { grid-template-columns: auto minmax(0, 1fr); }
+  .sch-draft-body > .sch-acts { grid-column: 1 / -1; justify-content: flex-end; }
+}

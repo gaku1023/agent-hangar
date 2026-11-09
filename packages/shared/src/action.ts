@@ -1,4 +1,4 @@
-import type { WakeOn } from './eventTrigger.ts';
+import type { EventCreateInput, WakeOn } from './eventTrigger.ts';
 import type { ScheduleInput, SchedulePatch } from './schedule.ts';
 import type { AgentKind } from './agents.ts';
 import type { ConfigApplyOrderEntryIn, FolderRegisterItem, InstructionFileKind, PeerLaunchBody, ProjectPlace, ProjectStatus, ResolveAction, ResumeStray, RetentionFrom, SettingsDto, SharePreviewAgent } from './api.ts';
@@ -155,6 +155,10 @@ export type UiAction =
   // place があるときは、先にそのフォルダをプロジェクトに登録し（新しいセッションの起動と同じ道筋）、その id を新しい会話の送り先の projectId にして送る。
   | { type: 'schedule.create'; input: ScheduleInput; place?: ProjectPlace } | { type: 'schedule.update'; id: string; patch: SchedulePatch; place?: ProjectPlace }
   | { type: 'schedule.delete'; id: string } | { type: 'schedule.run'; id: string }
+  // 予定の画面のイベント（#563）。一覧は開くときと一定の間隔で読み直す。作成、承認、削除、PR の印の承認と却下のあとも読み直す。
+  | { type: 'events.load' } | { type: 'events.create'; input: EventCreateInput }
+  | { type: 'events.approve'; id: string } | { type: 'events.remove'; id: string }
+  | { type: 'events.claim'; op: 'approve' | 'reject'; sessionId: string; repo: string; pr: number }
   | { type: 'deleteApproval.answer'; id: string; answer: 'approve' | 'reject' | 'dismiss' }
   | { type: 'peerApproval.answer'; id: string; answer: 'approve' | 'reject' }
   // 移す先を選ぶダイアログと、削除の確認を開く（セッションのメニューの「プロジェクトを変更…」と「削除…」）。決めたら session.move と session.delete を送る。
