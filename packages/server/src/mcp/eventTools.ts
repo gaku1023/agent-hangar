@@ -1,5 +1,5 @@
-import type { EventAction, EventSource } from '@agent-hangar/shared';
-import { claimPr, createBinding } from '../event/store.ts';
+import { EVENT_DRAFTS_MAX, PR_CLAIM_DRAFTS_MAX, type EventAction, type EventSource } from '@agent-hangar/shared';
+import { claimPr, countDrafts, countSessionDraftClaims, createBinding, hasClaim } from '../event/store.ts';
 import { parseAllowAuthors, parsePassBody, parsePrompt, parseSource, REPO_RE } from '../event/validate.ts';
 import { msg } from '../i18n/message.ts';
 import { targetArg } from './scheduleTools.ts';
@@ -20,6 +20,8 @@ export function claimPrTool(deps: ToolDeps, ctx: ToolContext, args: Record<strin
   const repo = str(args.repo);
   const pr = args.pr;
   if (!repo || !REPO_RE.test(repo) || typeof pr !== 'number' || !Number.isSafeInteger(pr) || pr <= 0) throw new ToolError(msg('schedules.event.error.invalid'));
+  // 下書きは会話ごとに上限がある。すでにある印の出し直しは数えない。
+  if (!hasClaim(deps.db, { sessionId, repo, pr }) && countSessionDraftClaims(deps.db, sessionId) >= PR_CLAIM_DRAFTS_MAX) throw new ToolError(msg('mcp.event.tooManyClaims', { max: PR_CLAIM_DRAFTS_MAX }));
   claimPr(deps.db, { sessionId, repo, pr, state: 'draft' });
   const row = deps.db.prepare('select state from session_prs where session_id = ? and repo = ? and pr = ?').get(sessionId, repo, pr) as { state: 'draft' | 'active' };
   return { repo, pr, state: row.state };
@@ -56,6 +58,8 @@ function actionOf(deps: ToolDeps, ctx: ToolContext, v: unknown, source: EventSou
  */
 export function draftEventBindingTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, now = Date.now()) {
   const source = parseSource(args.source);
+  // 下書きは全部で EVENT_DRAFTS_MAX 件まで。利用者が作る結び付けの上限（50 件）には数えない。
+  if (countDrafts(deps.db) >= EVENT_DRAFTS_MAX) throw new ToolError(msg('mcp.event.tooManyDrafts', { max: EVENT_DRAFTS_MAX }));
   const action = actionOf(deps, ctx, args.action, source);
   const binding = createBinding(deps.db, {
     inboxId: '', inboxPublicKey: '', inboxPrivateKey: '',

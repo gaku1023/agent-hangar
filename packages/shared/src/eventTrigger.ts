@@ -64,6 +64,10 @@ export type EventFacts = {
 
 /** 持てる結び付けの上限。インジェクションされたエージェントが作り続けても、ここで止まる。 */
 export const EVENT_BINDINGS_MAX = 50;
+/** MCP で出せる下書きの数の上限（全部で）。下書きは EVENT_BINDINGS_MAX に数えない。 */
+export const EVENT_DRAFTS_MAX = 10;
+/** 1 つの会話が出せる PR の下書きの上限。 */
+export const PR_CLAIM_DRAFTS_MAX = 5;
 /** 結び付け 1 つが 1 時間に動ける回数。超えたら止めて知らせる。 */
 export const EVENT_HOURLY_MAX = 12;
 /** Paused を起こす結び付けの寿命。どのできごとも来なくても、これで消す。 */

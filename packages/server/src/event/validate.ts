@@ -24,11 +24,21 @@ export function parseWakeOn(v: unknown): WakeOn {
   return { repo, pr, when: when as WakeOn['when'] };
 }
 
-/** 保存してある条件を読む。壊れていれば null（無いものとして読む）。 */
-export function readWakeOn(json: string | null): WakeOn | null {
-  if (!json) return null;
+/** 提案に添えて保存する形。candidateAt は、その提案の candidate_at である。 */
+export function wakeOnJson(wakeOn: WakeOn, candidateAt: number): string {
+  return JSON.stringify({ repo: wakeOn.repo, pr: wakeOn.pr, when: wakeOn.when, candidateAt });
+}
+
+/**
+ * 保存してある条件を読む。壊れていれば null（無いものとして読む）。
+ * 古い版の PC は candidate_wake_on を知らないまま行を同期するので、あとの提案が前の提案の条件を引き継ぐことがある。
+ * 条件の中の candidateAt が、行の candidate_at と同じものだけを、その提案の条件として読む。
+ */
+export function readWakeOn(json: string | null, candidateAt: number | null): WakeOn | null {
+  if (!json || candidateAt === null) return null;
   try {
-    return parseWakeOn(JSON.parse(json));
+    const v = JSON.parse(json) as { candidateAt?: unknown };
+    return v.candidateAt === candidateAt ? parseWakeOn(v) : null;
   } catch {
     return null;
   }

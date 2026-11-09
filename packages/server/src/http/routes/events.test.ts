@@ -30,7 +30,7 @@ beforeEach(async () => {
   hooks = fakeEventHooks(t.db);
   changed = vi.fn<() => void>();
   dispatcher = { heldForUser: vi.fn<() => HeldEvent[]>(() => []), runHeld: vi.fn(async () => {}) };
-  t.deps.events = { bindings: new EventBindingService({ db: t.db, hooks, changed, language: t.deps.language }), dispatcher };
+  t.deps.events = { bindings: new EventBindingService({ db: t.db, deviceId: 'd', hooks, changed, language: t.deps.language }), dispatcher };
   app = createApp(t.deps);
   sessionId = (t.db.prepare('select id from sessions where project_id is not null limit 1').get() as { id: string }).id;
 });
@@ -68,7 +68,7 @@ describe('POST /api/events/bindings', () => {
   it('removes the hook again when creating the binding fails after the hook was registered', async () => {
     // 付けている間に枠が埋まった。
     hooks.ensureRepoHook.mockImplementationOnce(async (repo: string) => {
-      for (let i = 0; i < EVENT_BINDINGS_MAX; i++) createBinding(t.db, { inboxId: 'x', inboxPublicKey: 'x', inboxPrivateKey: 'x', source: { kind: 'hook' }, action: { kind: 'send_pr_owner' }, prompt: 'p' }, 1);
+      for (let i = 0; i < EVENT_BINDINGS_MAX; i++) createBinding(t.db, { inboxId: 'x', inboxPublicKey: 'x', inboxPrivateKey: 'x', source: { kind: 'hook' }, action: { kind: 'send_pr_owner' }, prompt: 'p', state: 'active' }, 1);
       return { status: 'registered', hookId: 7, share: { inboxId: `inbox-${repo}`, inboxPublicKey: 'pub', inboxPrivateKey: 'priv', webhookId: 7, hookSecret: 'secret' } };
     });
     const r = await send('POST', '/api/events/bindings', input());
@@ -78,7 +78,7 @@ describe('POST /api/events/bindings', () => {
   });
 
   it('refuses at the cap before touching GitHub', async () => {
-    for (let i = 0; i < EVENT_BINDINGS_MAX; i++) createBinding(t.db, { inboxId: 'x', inboxPublicKey: 'x', inboxPrivateKey: 'x', source: { kind: 'hook' }, action: { kind: 'send_pr_owner' }, prompt: 'p' }, 1);
+    for (let i = 0; i < EVENT_BINDINGS_MAX; i++) createBinding(t.db, { inboxId: 'x', inboxPublicKey: 'x', inboxPrivateKey: 'x', source: { kind: 'hook' }, action: { kind: 'send_pr_owner' }, prompt: 'p', state: 'active' }, 1);
     expect((await send('POST', '/api/events/bindings', input())).status).toBe(400);
     expect(hooks.ensureRepoHook).not.toHaveBeenCalled();
   });
@@ -137,7 +137,7 @@ describe('PATCH and DELETE /api/events/bindings/:id', () => {
     const made = callTool(tools(), { sessionId }, 'draft_event_binding', { source: { kind: 'hook' }, action: { kind: 'send', session_id: sessionId }, prompt: 'p' }) as { binding: { id: string } };
     expect(hooks.ensureHookInbox).not.toHaveBeenCalled();
     hooks.ensureHookInbox.mockResolvedValueOnce({ status: 'failed', message: 'cloud not set up' });
-    expect(await json(await send('PATCH', `/api/events/bindings/${made.binding.id}`, { state: 'active' }))).toEqual({ hook: { status: 'failed', message: 'cloud not set up' } });
+    expect(await json(await send('PATCH', `/api/events/bindings/${made.binding.id}`, { state: 'active' }))).toMatchObject({ hook: { status: 'failed', message: 'cloud not set up' }, binding: { id: made.binding.id, state: 'draft' } });
     expect(getBindingRow(t.db, made.binding.id)).toMatchObject({ state: 'draft', inboxId: '' });
     expect(((await json<{ binding: EventBindingDto }>(await send('PATCH', `/api/events/bindings/${made.binding.id}`, { state: 'active' }))).binding.state)).toBe('active');
     expect(getBindingRow(t.db, made.binding.id)!.inboxId).toBe(`hook-inbox-${made.binding.id}`);
@@ -146,7 +146,7 @@ describe('PATCH and DELETE /api/events/bindings/:id', () => {
   it('approving a github draft with no admin access keeps it a draft', async () => {
     const b = createBinding(t.db, { ...draftIn }, 1);
     hooks.ensureRepoHook.mockResolvedValueOnce({ status: 'no_admin' });
-    expect(await json(await send('PATCH', `/api/events/bindings/${b.id}`, { state: 'active' }))).toEqual({ hook: { status: 'no_admin' } });
+    expect(await json(await send('PATCH', `/api/events/bindings/${b.id}`, { state: 'active' }))).toMatchObject({ hook: { status: 'no_admin' }, binding: { id: b.id, state: 'draft' } });
     expect(getBindingRow(t.db, b.id)!.state).toBe('draft');
   });
 
@@ -160,6 +160,23 @@ describe('PATCH and DELETE /api/events/bindings/:id', () => {
     }
     const missing = await send('PATCH', '/api/events/bindings/nope', { prompt: 'q' });
     expect([missing.status, (await json<{ error: string }>(missing)).error]).toEqual([404, 'イベントの設定が見つかりません']);
+  });
+
+  it('approving a draft over the cap is refused, and drafts do not count toward the cap', async () => {
+    const b = createBinding(t.db, { ...draftIn }, 1);
+    for (let i = 0; i < 12; i++) createBinding(t.db, { ...draftIn }, 1);
+    for (let i = 0; i < EVENT_BINDINGS_MAX; i++) createBinding(t.db, { ...draftIn, state: 'active' }, 1);
+    const r = await send('PATCH', `/api/events/bindings/${b.id}`, { state: 'active' });
+    expect([r.status, (await json<{ error: string }>(r)).error]).toEqual([400, `イベントの設定は ${EVENT_BINDINGS_MAX} 件までです`]);
+    expect(hooks.ensureRepoHook).not.toHaveBeenCalled();
+  });
+
+  it('on a failed activation the response still carries the binding', async () => {
+    const b = createBinding(t.db, { ...draftIn }, 1);
+    hooks.ensureRepoHook.mockResolvedValueOnce({ status: 'failed', message: 'gh not found' });
+    const r = await json<{ binding: EventBindingDto; hook: unknown }>(await send('PATCH', `/api/events/bindings/${b.id}`, { state: 'active' }));
+    expect(r.hook).toEqual({ status: 'failed', message: 'gh not found' });
+    expect(r.binding).toMatchObject({ id: b.id, state: 'draft' });
   });
 
   it('delete removes the binding then sweeps the hooks and the bell', async () => {
@@ -217,6 +234,12 @@ describe('held events', () => {
     expect(dispatcher.runHeld).toHaveBeenCalledWith(choices);
   });
 
+  it('answers 409 with a message when running the held events fails', async () => {
+    dispatcher.runHeld.mockRejectedValueOnce(new Error('boom'));
+    const r = await send('POST', '/api/events/held/run', { choices: [{ bindingId: 'b1', mode: 'all' }] });
+    expect([r.status, (await json<{ error: string }>(r)).error]).toEqual([409, 'boom']);
+  });
+
   it('rejects choices with an unknown mode', async () => {
     expect((await send('POST', '/api/events/held/run', { choices: [{ bindingId: 'b1', mode: 'nope' }] })).status).toBe(400);
     expect((await send('POST', '/api/events/held/run', {})).status).toBe(400);
@@ -257,10 +280,48 @@ describe('wake_on on the pause flow', () => {
     expect(changed).toHaveBeenCalled();
   });
 
-  it('uses the suggested wake_on when the screen sends no wakeOn field', async () => {
+  it('confirming without a wakeOn field creates none, even when a wake_on was suggested', async () => {
     propose();
-    await send('POST', `/api/sessions/${sessionId}/state/confirm`);
-    expect(wakeBindings()).toHaveLength(1);
+    const r = await json<{ state: SessionStateDto; wake?: unknown }>(await send('POST', `/api/sessions/${sessionId}/state/confirm`));
+    expect(r.state.status).toBe('paused');
+    expect(r.wake).toBeUndefined();
+    expect(wakeBindings()).toEqual([]);
+    expect(hooks.ensureRepoHook).not.toHaveBeenCalled();
+  });
+
+  it('propose with wake_on then a conversation-confirmed Paused without it creates no binding', async () => {
+    propose();
+    const r = propose({ wake_on: undefined, confirmed: true }) as { outcome: string };
+    expect(r.outcome).toBe('set');
+    expect(wakeBindings()).toEqual([]);
+    expect(hooks.ensureRepoHook).not.toHaveBeenCalled();
+    expect(t.db.prepare('select candidate_wake_on w from session_states where session_id = ?').get(sessionId)).toEqual({ w: null });
+  });
+
+  it('a menu Paused without a wakeOn field creates none', async () => {
+    await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'x' });
+    expect(wakeBindings()).toEqual([]);
+  });
+
+  it('creates no wake for a session that last ran on another PC and keeps Paused', async () => {
+    t.db.prepare('update sessions set home_device = ? where id = ?').run('other-pc', sessionId);
+    const body = await json<{ state: SessionStateDto; wake: unknown }>(await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'x', wakeOn }));
+    expect(body.state.status).toBe('paused');
+    expect(body.wake).toEqual({ status: 'failed', message: 'other_pc' });
+    expect(wakeBindings()).toEqual([]);
+    expect(hooks.ensureRepoHook).not.toHaveBeenCalled();
+  });
+
+  it('a new wake replaces the earlier wake bindings of the same session, and only after it was created', async () => {
+    await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'a', wakeOn });
+    const [first] = wakeBindings();
+    // 付けられなかったときは、前のものを残す。
+    hooks.ensureRepoHook.mockResolvedValueOnce({ status: 'no_admin' });
+    await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'b', wakeOn: { ...wakeOn, pr: 10 } });
+    expect(wakeBindings().map((b) => b.id)).toEqual([first!.id]);
+    await send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: 'c', wakeOn: { ...wakeOn, pr: 11, when: 'review' } });
+    expect(wakeBindings().map((b) => b.source)).toEqual([expect.objectContaining({ pr: 11, when: ['review'] })]);
+    expect(hooks.sweep).toHaveBeenCalled();
   });
 
   it('removing the suggestion before confirming creates none', async () => {
@@ -287,7 +348,7 @@ describe('wake_on on the pause flow', () => {
   it('keeps Paused and reports the reason when the hook cannot be registered', async () => {
     propose();
     hooks.ensureRepoHook.mockResolvedValueOnce({ status: 'no_admin' });
-    const body = await json<{ state: SessionStateDto; wake: unknown }>(await send('POST', `/api/sessions/${sessionId}/state/confirm`));
+    const body = await json<{ state: SessionStateDto; wake: unknown }>(await send('POST', `/api/sessions/${sessionId}/state/confirm`, { wakeOn }));
     expect(body.state.status).toBe('paused');
     expect(body.wake).toEqual({ status: 'no_admin' });
     expect(wakeBindings()).toEqual([]);
@@ -311,5 +372,38 @@ describe('wake_on on the pause flow', () => {
     propose();
     await send('POST', `/api/sessions/${sessionId}/state/reject`);
     expect(t.db.prepare('select candidate_wake_on w from session_states where session_id = ?').get(sessionId)).toEqual({ w: null });
+  });
+});
+
+describe('PR claim approval', () => {
+  const claim = (over: Record<string, unknown> = {}) => callTool(tools(), { sessionId }, 'claim_pr', { repo: 'octo/repo', pr: 5, ...over });
+  const owner = () => t.db.prepare("select session_id s from session_prs where state = 'active' and repo = 'octo/repo' and pr = 5").get() as { s: string } | undefined;
+
+  it('lists the drafts with the session title, and approving makes the session the owner', async () => {
+    claim();
+    const list = await json<{ claims: { sessionId: string; sessionTitle: string | null; repo: string; pr: number }[] }>(await send('GET', '/api/events/pr-claims'));
+    expect(list.claims).toEqual([expect.objectContaining({ sessionId, repo: 'octo/repo', pr: 5 })]);
+    expect(typeof list.claims[0]!.sessionTitle === 'string' || list.claims[0]!.sessionTitle === null).toBe(true);
+    expect(owner()).toBeUndefined();
+    expect(await json(await send('POST', '/api/events/pr-claims/approve', { sessionId, repo: 'octo/repo', pr: 5 }))).toEqual({ ok: true });
+    expect(owner()).toEqual({ s: sessionId });
+    expect((await json<{ claims: unknown[] }>(await send('GET', '/api/events/pr-claims'))).claims).toEqual([]);
+  });
+
+  it('rejecting removes the draft, and an unknown claim is 404', async () => {
+    claim();
+    expect(await json(await send('POST', '/api/events/pr-claims/reject', { sessionId, repo: 'octo/repo', pr: 5 }))).toEqual({ ok: true });
+    expect((await json<{ claims: unknown[] }>(await send('GET', '/api/events/pr-claims'))).claims).toEqual([]);
+    expect((await send('POST', '/api/events/pr-claims/approve', { sessionId, repo: 'octo/repo', pr: 5 })).status).toBe(404);
+    expect((await send('POST', '/api/events/pr-claims/approve', { sessionId, repo: 'bad', pr: 5 })).status).toBe(400);
+  });
+
+  it('is not reachable with an MCP secret', async () => {
+    claim();
+    const auth = { authorization: `Bearer ${issueMcpSecret(t.db, sessionId, 1)}` };
+    expect((await send('GET', '/api/events/pr-claims', undefined, auth)).status).toBe(401);
+    expect((await send('POST', '/api/events/pr-claims/approve', { sessionId, repo: 'octo/repo', pr: 5 }, auth)).status).toBe(401);
+    expect((await send('POST', '/api/events/pr-claims/reject', { sessionId, repo: 'octo/repo', pr: 5 }, auth)).status).toBe(401);
+    expect(owner()).toBeUndefined();
   });
 });

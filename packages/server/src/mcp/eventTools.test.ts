@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { EVENT_BINDINGS_MAX } from '@agent-hangar/shared';
+import { EVENT_BINDINGS_MAX, EVENT_DRAFTS_MAX, PR_CLAIM_DRAFTS_MAX } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { createBinding, getBindingRow, listBindings, prOwner } from '../event/store.ts';
@@ -21,7 +21,7 @@ const github = { kind: 'github', repo: 'octo/repo', when: ['ci_done', 'review'],
 const call = (name: string, args: Record<string, unknown> = {}, ctx = { sessionId: null as string | null }) => callTool(deps, ctx, name, args) as Record<string, unknown>;
 const draft = (over: Record<string, unknown> = {}, ctx?: { sessionId: string | null }) => call('draft_event_binding', { source: github, action: { kind: 'send_pr_owner' }, prompt: 'review it', ...over }, ctx);
 const SECRETISH = /secret|priv|inbox|worker|https?:\/\//i;
-const fill = (n: number) => { for (let i = 0; i < n; i++) createBinding(db, { inboxId: 'x', inboxPublicKey: 'x', inboxPrivateKey: 'x', source: { kind: 'hook' }, action: { kind: 'send_pr_owner' }, prompt: 'p' }, 1); };
+const fill = (n: number, state: 'draft' | 'active' = 'draft') => { for (let i = 0; i < n; i++) createBinding(db, { inboxId: 'x', inboxPublicKey: 'x', inboxPrivateKey: 'x', source: { kind: 'hook' }, action: { kind: 'send_pr_owner' }, prompt: 'p', state }, 1); };
 
 beforeEach(async () => {
   dir = copyFixtureClaudeDir(); db = openDb(':memory:');
@@ -43,6 +43,12 @@ describe('claim_pr', () => {
   it('never turns an approved claim back into a draft', () => {
     db.prepare("insert into session_prs (session_id, repo, pr, state, claimed_at) values (?, 'octo/repo', 5, 'active', 1)").run(alphaId);
     expect(call('claim_pr', { repo: 'octo/repo', pr: 5 }, { sessionId: alphaId }).state).toBe('active');
+  });
+
+  it('stops at 5 drafts per session, but re-filing an existing claim still works', () => {
+    for (let i = 1; i <= PR_CLAIM_DRAFTS_MAX; i++) call('claim_pr', { repo: 'octo/repo', pr: i }, { sessionId: alphaId });
+    expect(() => call('claim_pr', { repo: 'octo/repo', pr: 99 }, { sessionId: alphaId })).toThrow(`${PR_CLAIM_DRAFTS_MAX}`);
+    expect(call('claim_pr', { repo: 'octo/repo', pr: 1 }, { sessionId: alphaId }).state).toBe('draft');
   });
 
   it('needs a session, a repo, and a positive PR number', () => {
@@ -94,9 +100,20 @@ describe('draft_event_binding', () => {
     expect(draft({ action: { kind: 'new' } }, { sessionId: alphaId }).binding).toMatchObject({ action: { projectId: 'p1' } });
   });
 
-  it('stops at the binding cap', () => {
-    fill(EVENT_BINDINGS_MAX);
-    expect(() => draft()).toThrow(`${EVENT_BINDINGS_MAX}`);
+  it('stops at the draft cap, and the 50 active bindings do not use it up', () => {
+    for (let i = 0; i < EVENT_DRAFTS_MAX; i++) draft();
+    expect(() => draft()).toThrow(`${EVENT_DRAFTS_MAX}`);
+    expect(listBindings(db)).toHaveLength(EVENT_DRAFTS_MAX);
+  });
+
+  it('active bindings do not count toward the draft cap', () => {
+    fill(EVENT_BINDINGS_MAX, 'active');
+    expect(() => draft()).not.toThrow();
+  });
+
+  it('filling the drafts does not block the user from creating bindings', () => {
+    fill(EVENT_DRAFTS_MAX);
+    expect(() => createBinding(db, { inboxId: 'x', inboxPublicKey: 'x', inboxPrivateKey: 'x', source: { kind: 'hook' }, action: { kind: 'send_pr_owner' }, prompt: 'p', state: 'active' }, 1)).not.toThrow();
   });
 });
 
@@ -108,7 +125,7 @@ describe('propose_session_status with wake_on', () => {
     const r = propose() as { outcome: string; state: { candidate: { wakeOn: unknown } } };
     expect(r.outcome).toBe('proposed');
     expect(r.state.candidate.wakeOn).toEqual(wakeOn);
-    expect(db.prepare('select candidate_wake_on w from session_states where session_id = ?').get(alphaId)).toEqual({ w: JSON.stringify(wakeOn) });
+    expect(db.prepare('select candidate_wake_on w from session_states where session_id = ?').get(alphaId)).toEqual({ w: JSON.stringify({ ...wakeOn, candidateAt: getSessionState(db, alphaId)!.candidate!.at }) });
     expect(listBindings(db)).toEqual([]);
   });
 
@@ -125,6 +142,17 @@ describe('propose_session_status with wake_on', () => {
       expect(() => propose({ wake_on: bad }), JSON.stringify(bad)).toThrow();
     }
     expect(getSessionState(db, alphaId)).toBeNull();
+  });
+
+  it('ignores a wake_on left by an older PC when a later suggestion does not carry it', () => {
+    propose();
+    // 古い版の PC が、あとの提案の行を candidate_wake_on を知らないまま書き戻す。条件は前の提案のまま残り、candidate_at だけが進む。
+    db.prepare('update session_states set candidate_at = candidate_at + 5 where session_id = ?').run(alphaId);
+    expect(getSessionState(db, alphaId)!.candidate).not.toBeNull();
+    expect(getSessionState(db, alphaId)!.candidate!.wakeOn).toBeUndefined();
+    // 条件の candidateAt と行の candidate_at が揃っている提案だけが、条件を持つ。
+    propose();
+    expect(getSessionState(db, alphaId)!.candidate!.wakeOn).toEqual(wakeOn);
   });
 
   it('does not store wake_on when the status is already set', () => {

@@ -173,7 +173,7 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
       throw e;
     }
   };
-  /** 本文の wakeOn。無ければ undefined、外したなら null、形が違えば MessageError。 */
+  /** 本文の wakeOn。無ければ undefined、外したなら null、形が違えば MessageError。結び付けを作るのは object のときだけ。 */
   const wakeOnOf = (v: unknown): WakeOn | null | undefined => (v === undefined ? undefined : v === null ? null : parseWakeOn(v));
   const putSessionState = async (c: Context, id: string) => {
     if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
@@ -201,9 +201,9 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     if (body.returnTime !== undefined && typeof body.returnTime !== 'string') return c.json({ error: tr('session.status.returnTimeMustBeString') }, 400);
     let given: WakeOn | null | undefined;
     try { given = wakeOnOf(body.wakeOn); } catch (e) { if (e instanceof MessageError) return c.json({ error: errorText(language(), e) }, 400); throw e; }
-    // 提案に添えられた条件は、確定すると提案ごと消えるので、確定の前に読む。画面が null を送ったときは、利用者が外したので結び付けを作らない。
-    const cand = getSessionState(db, id)?.candidate ?? null;
-    const wakeOn = cand?.status === 'paused' ? (given === undefined ? cand.wakeOn ?? null : given) : null;
+    // 結び付けを作るのは、画面が wakeOn の object を送ったときだけ。送らない（今の画面、スマホ、古い画面）と null は、どちらも作らない。
+    // 利用者が見ていない webhook を、確定のたびに付けないためである。提案の wake_on は、画面が見せて、利用者が外さなければこの本文で送り返す。
+    const wakeOn = getSessionState(db, id)?.candidate?.status === 'paused' ? given ?? null : null;
     return settled(c, () => confirmSessionState(db, deviceId, id, body.returnOn === undefined ? {} : { returnOn: body.returnOn as string, ...(body.returnTime !== undefined ? { returnTime: body.returnTime as string } : {}) }), wakeOn, id);
   });
   api.delete('/sessions/:id/spawn', (c) => {

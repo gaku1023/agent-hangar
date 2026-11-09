@@ -121,10 +121,20 @@ export function getBindingRow(db: Db, id: string): BindingRow | null {
   return r ? rowOf(r) : null;
 }
 
-/** 作る。上限を越えるときは断る。起こす結び付けには 30 日の期限を付ける。 */
+/** 下書きでない結び付けの数。上限 EVENT_BINDINGS_MAX が数えるのはこれだけ。 */
+export function countBindings(db: Db): number {
+  return (db.prepare("select count(*) c from event_bindings where state != 'draft'").get() as { c: number }).c;
+}
+
+/** 下書きの数。 */
+export function countDrafts(db: Db): number {
+  return (db.prepare("select count(*) c from event_bindings where state = 'draft'").get() as { c: number }).c;
+}
+
+/** 作る。下書きでない結び付けが上限を越えるときは断る。起こす結び付けには 30 日の期限を付ける。 */
 export function createBinding(db: Db, input: BindingInput, now: number): EventBindingDto {
-  const count = (db.prepare('select count(*) c from event_bindings').get() as { c: number }).c;
-  if (count >= EVENT_BINDINGS_MAX) throw new MessageError(msg('schedules.event.error.max', { max: EVENT_BINDINGS_MAX }));
+  // 上限は下書きでない結び付けを数える。下書きは MCP の道具が別の上限で止める。
+  if ((input.state ?? 'draft') !== 'draft' && countBindings(db) >= EVENT_BINDINGS_MAX) throw new MessageError(msg('schedules.event.error.max', { max: EVENT_BINDINGS_MAX }));
   const id = randomUUID();
   const expiresAt = input.action.kind === 'wake' ? now + WAKE_BINDING_TTL_MS : null;
   db.prepare(`insert into event_bindings (id, inbox_id, inbox_public_key, inbox_private_key, webhook_id, hook_secret, source, action, prompt, pass_body, allow_authors, state, from_session_id, created_at, expires_at)
@@ -241,6 +251,34 @@ export function claimPr(db: Db, o: { sessionId: string; repo: string; pr: number
       state = case when excluded.state = 'active' then 'active' else session_prs.state end,
       claimed_at = case when excluded.state = 'active' then excluded.claimed_at else session_prs.claimed_at end`)
     .run(o.sessionId, o.repo, o.pr, o.state, now);
+}
+
+export type PrClaim = { sessionId: string; repo: string; pr: number; claimedAt: number };
+
+/** 利用者の承認を待つ PR の印。新しい順。 */
+export function listDraftClaims(db: Db): PrClaim[] {
+  return (db.prepare("select session_id, repo, pr, claimed_at from session_prs where state = 'draft' order by claimed_at desc, rowid desc").all() as { session_id: string; repo: string; pr: number; claimed_at: number }[])
+    .map((r) => ({ sessionId: r.session_id, repo: r.repo, pr: r.pr, claimedAt: r.claimed_at }));
+}
+
+/** 会話の下書きの印の数。 */
+export function countSessionDraftClaims(db: Db, sessionId: string): number {
+  return (db.prepare("select count(*) c from session_prs where session_id = ? and state = 'draft'").get(sessionId) as { c: number }).c;
+}
+
+/** その印があるか。 */
+export function hasClaim(db: Db, o: { sessionId: string; repo: string; pr: number }): boolean {
+  return db.prepare('select 1 from session_prs where session_id = ? and repo = ? and pr = ?').get(o.sessionId, o.repo, o.pr) !== undefined;
+}
+
+/** 下書きの印を承認する。承認済みの印は、レビューやコメントの宛先になる。 */
+export function approveClaim(db: Db, o: { sessionId: string; repo: string; pr: number }): void {
+  claimPr(db, { ...o, state: 'active' });
+}
+
+/** 下書きの印を取り下げる。承認済みの印は消さない。消したら true。 */
+export function rejectClaim(db: Db, o: { sessionId: string; repo: string; pr: number }): boolean {
+  return db.prepare("delete from session_prs where session_id = ? and repo = ? and pr = ? and state = 'draft'").run(o.sessionId, o.repo, o.pr).changes > 0;
 }
 
 /** PR を持つ会話。承認済み（active）の印だけを見て、複数あれば新しい印を採る。 */

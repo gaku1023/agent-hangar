@@ -3,7 +3,8 @@ import type { Db } from '../db/open.ts';
 import type { GetLanguage } from '../i18n/language.ts';
 import { MessageError, msg } from '../i18n/message.ts';
 import type { EventHooks } from './githubHooks.ts';
-import { bindingsForRepo, createBinding, deleteBinding, getBinding, getBindingRow, listBindings, setBindingInbox, updateBinding, type BindingInput, type BindingRow } from './store.ts';
+import { deviceOfSession } from '../runs/handover.ts';
+import { bindingsForRepo, countBindings, createBinding, deleteBinding, getBinding, getBindingRow, listBindings, setBindingInbox, updateBinding, type BindingRow } from './store.ts';
 
 /**
  * 結び付けを作る、承認する、消す流れ（#563）。画面の道（http/routes/events.ts）と、Paused の確定（http/routes/sessions.ts）が使う。
@@ -19,10 +20,14 @@ export type CreateResult = { binding: EventBindingDto; hook?: { status: 'registe
 export type NewBinding = {
   source: EventSource; action: EventAction; prompt: string; passBody: boolean; allowAuthors: string[]; fromSessionId?: string | null;
 };
+/** state が active のとき、受け箱を作れなかったら hook に理由を載せ、binding は下書きのまま返す。 */
+export type UpdateResult = { binding: EventBindingDto; hook?: HookFailure };
 export type BindingPatchInput = { prompt?: string; passBody?: boolean; allowAuthors?: string[]; state?: 'active' };
 
 export type EventServiceDeps = {
   db: Db;
+  /** この PC の ID。起こす結び付けは、会話を最後に動かした PC でだけ作る。 */
+  deviceId: string;
   hooks: Pick<EventHooks, 'ensureRepoHook' | 'removeRepoHookIfUnused' | 'sweep' | 'ensureHookInbox' | 'rotateHookInbox' | 'hookUrlOf'>;
   /** 結び付けが増えた、減った。スマホの呼び鈴を組み直させる（呼び鈴は結び付けがあるときだけ張る）。 */
   changed: () => void;
@@ -45,7 +50,7 @@ export class EventBindingService {
   list(): EventBindingDto[] { return listBindings(this.d.db); }
 
   private assertRoom(): void {
-    if ((this.d.db.prepare('select count(*) c from event_bindings').get() as { c: number }).c >= EVENT_BINDINGS_MAX) throw overCap();
+    if (countBindings(this.d.db) >= EVENT_BINDINGS_MAX) throw overCap();
   }
 
   /** repo の webhook の登録の状態。gh は呼ばない。結び付けが組を持っていれば registered、無ければ最後の失敗、それも無ければ none。 */
@@ -97,15 +102,14 @@ export class EventBindingService {
    * 変える。指示、本文を渡すか、渡してよい人は、そのまま書く。
    * state: 'active' は承認（下書きを有効にする）か、止まった結び付けの再開である。
    */
-  async update(id: string, patch: BindingPatchInput): Promise<{ binding: EventBindingDto } | { hook: HookFailure }> {
+  async update(id: string, patch: BindingPatchInput): Promise<UpdateResult> {
     if (!getBindingRow(this.d.db, id)) throw notFound();
     const fields = { ...(patch.prompt !== undefined ? { prompt: patch.prompt } : {}), ...(patch.passBody !== undefined ? { passBody: patch.passBody } : {}), ...(patch.allowAuthors !== undefined ? { allowAuthors: patch.allowAuthors } : {}) };
     if (Object.keys(fields).length > 0) updateBinding(this.d.db, id, fields, this.now());
-    if (patch.state === 'active') {
-      const r = await this.activate(id);
-      if (r) return r;
-    }
-    return { binding: getBinding(this.d.db, id) ?? (() => { throw notFound(); })() };
+    const hook = patch.state === 'active' ? await this.activate(id) : null;
+    const binding = getBinding(this.d.db, id);
+    if (!binding) throw notFound();
+    return hook ? { binding, hook: hook.hook } : { binding };
   }
 
   /** 受け箱が要るのに無いときは、承認のこの時点で作る。作れなければ下書きのままにして理由を返す。 */
@@ -113,6 +117,8 @@ export class EventBindingService {
     const row = getBindingRow(this.d.db, id);
     if (!row) throw notFound();
     if (row.state === 'active') return null;
+    // 下書きを有効にすると、上限に数えられる。
+    if (row.state === 'draft') this.assertRoom();
     const failure = await this.ensureInbox(row);
     if (failure) return failure;
     updateBinding(this.d.db, id, { state: 'active' }, this.now());
@@ -170,17 +176,26 @@ export class EventBindingService {
   }
 
   /**
-   * Paused の確定で、起こす結び付けを作る。同じ会話に同じ条件がすでにあれば、足さない。
+   * Paused の確定で、起こす結び付けを作る。
+   * 会話を最後に動かした PC でだけ作る（結び付けは作った PC のローカルにだけ置き、動かすのもこの PC だけなので）。ほかの PC の会話には 'other_pc' を返す。
+   * 同じ会話の前の起こす結び付けは、新しいものを作れてから消す。作れなかったときは前のものを残し、
+   * 同じ repo の webhook も付け直さずに済む。同じ条件がすでにあれば足さず、ほかの起こす結び付けだけを消す。
    * GitHub の webhook を付けられなかったときは、その理由を返す（Paused は確定したまま）。
    */
   async createWake(sessionId: string, wakeOn: WakeOn): Promise<{ status: 'created' } | HookFailure> {
-    const same = this.list().some((b) => b.action.kind === 'wake' && b.action.sessionId === sessionId && b.source.kind === 'github'
-      && b.source.repo.toLowerCase() === wakeOn.repo.toLowerCase() && b.source.pr === wakeOn.pr && b.source.when.length === 1 && b.source.when[0] === wakeOn.when);
-    if (same) return { status: 'created' };
-    const r = await this.create({
-      source: { kind: 'github', repo: wakeOn.repo, when: [wakeOn.when], pr: wakeOn.pr }, action: { kind: 'wake', sessionId },
-      prompt: t(this.d.language(), 'schedules.event.wakePrompt'), passBody: false, allowAuthors: [], fromSessionId: sessionId,
-    });
-    return 'binding' in r ? { status: 'created' } : r.hook;
+    if (deviceOfSession(this.d.db, sessionId)?.id !== this.d.deviceId) return { status: 'failed', message: 'other_pc' };
+    const wakes = this.list().filter((b) => b.action.kind === 'wake' && b.action.sessionId === sessionId);
+    const same = wakes.find((b) => b.source.kind === 'github' && b.source.repo.toLowerCase() === wakeOn.repo.toLowerCase() && b.source.pr === wakeOn.pr && b.source.when.length === 1 && b.source.when[0] === wakeOn.when);
+    let keep = same?.id ?? null;
+    if (!same) {
+      const r = await this.create({
+        source: { kind: 'github', repo: wakeOn.repo, when: [wakeOn.when], pr: wakeOn.pr }, action: { kind: 'wake', sessionId },
+        prompt: t(this.d.language(), 'schedules.event.wakePrompt'), passBody: false, allowAuthors: [], fromSessionId: sessionId,
+      });
+      if (!('binding' in r)) return r.hook;
+      keep = r.binding.id;
+    }
+    for (const b of wakes) if (b.id !== keep) this.remove(b.id);
+    return { status: 'created' };
   }
 }

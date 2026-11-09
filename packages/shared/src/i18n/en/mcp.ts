@@ -185,4 +185,6 @@ export const mcpEn: AreaDictionary<typeof mcpKeys> = {
   'mcp.event.repoParam': 'GitHub repo in owner/name form',
   'mcp.event.prParam': 'PR number',
   'mcp.event.noWakeDraft': 'A wake setting cannot be drafted. Attach wake_on to a Paused suggestion instead',
+  'mcp.event.tooManyDrafts': 'There are already {max} drafts waiting for approval. No new draft can be filed until the user approves or removes one',
+  'mcp.event.tooManyClaims': 'This session already has {max} PR drafts waiting for approval. No new draft can be filed until the user approves or removes one',
 };

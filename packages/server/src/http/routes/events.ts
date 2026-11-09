@@ -3,8 +3,10 @@ import type { EventAction, EventSource } from '@agent-hangar/shared';
 import { getSession } from '../../db/queries.ts';
 import type { HeldChoice } from '../../event/dispatcher.ts';
 import type { BindingPatchInput } from '../../event/service.ts';
+import { approveClaim, hasClaim, listDraftClaims, rejectClaim } from '../../event/store.ts';
+import { sessionTitleOf } from '../../mobile/feed.ts';
 import { parseAllowAuthors, parsePassBody, parsePrompt, parseSource, REPO_RE } from '../../event/validate.ts';
-import { MessageError, msg, render, translatorOf } from '../../i18n/message.ts';
+import { errorText, MessageError, msg, render, translatorOf } from '../../i18n/message.ts';
 import { parseNewTarget } from '../../schedule/target.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { readJson, tooLargeResult } from './common.ts';
@@ -115,9 +117,31 @@ export function eventRoutes(api: Hono, deps: EventRouteDeps): void {
     const ok = Array.isArray(raw) && raw.every((x) => typeof x === 'object' && x !== null && typeof (x as HeldChoice).bindingId === 'string' && HELD_MODES.includes((x as HeldChoice).mode));
     if (!ok) return c.json({ error: tr('schedules.event.error.invalid') }, 400);
     const choices = (raw as HeldChoice[]).map((x) => ({ bindingId: x.bindingId, mode: x.mode }));
-    await deps.events.dispatcher.runHeld(choices);
+    try {
+      await deps.events.dispatcher.runHeld(choices);
+    } catch (e) {
+      return c.json({ error: errorText(lang(), e) }, 409);
+    }
     return c.json({ ok: true });
   });
+
+  // PR を持つ印の下書き（MCP の claim_pr が出す）。承認するまで、レビューやコメントの宛先には使われない。画面だけが答える。
+  const claimOf = (v: unknown): { sessionId: string; repo: string; pr: number } | null => {
+    const o = (typeof v === 'object' && v !== null ? v : {}) as { sessionId?: unknown; repo?: unknown; pr?: unknown };
+    return typeof o.sessionId === 'string' && typeof o.repo === 'string' && REPO_RE.test(o.repo) && typeof o.pr === 'number' && Number.isSafeInteger(o.pr) && o.pr > 0 ? { sessionId: o.sessionId, repo: o.repo, pr: o.pr } : null;
+  };
+  api.get('/events/pr-claims', (c) => c.json({ claims: listDraftClaims(db).map((x) => ({ ...x, sessionTitle: sessionTitleOf(db, x.sessionId) })) }));
+  for (const [path, act] of [['approve', approveClaim], ['reject', rejectClaim]] as const) {
+    api.post(`/events/pr-claims/${path}`, async (c) => {
+      const b = await readJson(c, BODY_LIMIT);
+      if (b.tooLarge) return tooLargeResult(c, BODY_LIMIT, tr);
+      const claim = claimOf(b.value);
+      if (!claim) return c.json({ error: tr('schedules.event.error.invalid') }, 400);
+      if (!hasClaim(db, claim)) return c.json(notFound(), 404);
+      act(db, claim);
+      return c.json({ ok: true });
+    });
+  }
 
   api.get('/events/repo-hook/:owner/:repo', (c) => {
     const repo = `${c.req.param('owner')}/${c.req.param('repo')}`;

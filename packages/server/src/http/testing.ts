@@ -199,7 +199,7 @@ export function fakeEventHooks(db: Db) {
 /** 結び付けの流れに偽の webhook を渡し、溜まったできごとは空にした既定。 */
 function noEvents(db: Db, settings: () => Settings): AppDeps['events'] {
   return {
-    bindings: new EventBindingService({ db, hooks: fakeEventHooks(db), changed: () => {}, language: languageReader(settings) }),
+    bindings: new EventBindingService({ db, deviceId: 'd', hooks: fakeEventHooks(db), changed: () => {}, language: languageReader(settings) }),
     dispatcher: { heldForUser: () => [], runHeld: async () => {} },
   };
 }

@@ -3,7 +3,7 @@ import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { markSeen } from '../live/unread.ts';
 import { MessageError, msg, type Message } from '../i18n/message.ts';
-import { readWakeOn } from '../event/validate.ts';
+import { readWakeOn, wakeOnJson } from '../event/validate.ts';
 
 /**
  * セッションの状態の移り方。設計は docs/superpowers/specs/2026-10-01-session-status-design.md の「状態の移り方」。
@@ -53,7 +53,7 @@ export const NO_STATE: SessionStateDto = { status: null, note: null, returnOn: n
  */
 function visibleCandidate(r: StateCols): SessionCandidateDto | null {
   if (r.status !== null || r.candidate_at === null || r.candidate_status === null || r.candidate_source === null) return null;
-  const wakeOn = readWakeOn(r.candidate_wake_on ?? null);
+  const wakeOn = readWakeOn(r.candidate_wake_on ?? null, r.candidate_at);
   return { status: r.candidate_status, note: r.candidate_note, returnOn: r.candidate_return_on, returnTime: r.candidate_return_time ?? null, source: r.candidate_source, at: r.candidate_at, ...(wakeOn && r.candidate_status === 'paused' ? { wakeOn } : {}) };
 }
 
@@ -241,7 +241,8 @@ export function proposeSessionState(db: Db, deviceId: string, sessionId: string,
   const cur = liveRow(db, sessionId);
   if (cur && cur.status !== null) return { state: toStateDto(cur), outcome: 'already_set' };
   if (cur && cur.rejected_at !== null) return { state: toStateDto(cur), outcome: 'rejected_before' };
-  const state = write(db, deviceId, sessionId, { candidate_status: o.status, candidate_note: note, candidate_return_on: returnOn, candidate_return_time: returnTime, candidate_source: o.source, candidate_at: o.now ?? Date.now(), candidate_wake_on: o.status === 'paused' && o.wakeOn ? JSON.stringify(o.wakeOn) : null });
+  const at = o.now ?? Date.now();
+  const state = write(db, deviceId, sessionId, { candidate_status: o.status, candidate_note: note, candidate_return_on: returnOn, candidate_return_time: returnTime, candidate_source: o.source, candidate_at: at, candidate_wake_on: o.status === 'paused' && o.wakeOn ? wakeOnJson(o.wakeOn, at) : null });
   return { state, outcome: 'proposed' };
 }
 

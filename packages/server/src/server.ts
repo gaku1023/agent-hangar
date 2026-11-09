@@ -200,7 +200,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     releaseHooks: () => { void eventHooks.sweep(); },
   });
   eventDispatcher.start();
-  const eventBindings = new EventBindingService({ db: home.db, hooks: eventHooks, changed: () => { mobile.settingsChanged(); }, language: () => home.language() });
+  const eventBindings = new EventBindingService({ db: home.db, deviceId: home.device.id, hooks: eventHooks, changed: () => { mobile.settingsChanged(); }, language: () => home.language() });
   const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, peerChat, ...(peerSsh ? { peerSsh } : {}), peer, events: { bindings: eventBindings, dispatcher: eventDispatcher }, schedules: { runNow: (id) => schedules.runNow(id), deliver: (id, text) => launchScheduled(scheduleTools, { prompt: text, target: { kind: 'session', sessionId: id }, plannedAt: Date.now() }) }, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。

@@ -185,4 +185,6 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.event.repoParam': 'owner/name の形の GitHub の repo',
   'mcp.event.prParam': 'PR の番号',
   'mcp.event.noWakeDraft': 'Paused を起こす設定は下書きにできません。Paused の提案に wake_on を添えてください',
+  'mcp.event.tooManyDrafts': '承認待ちの下書きが {max} 件に達しています。ユーザーが承認するか取り下げるまで、新しい下書きは出せません',
+  'mcp.event.tooManyClaims': 'この会話の PR の下書きが {max} 件に達しています。ユーザーが承認するか取り下げるまで、新しい下書きは出せません',
 };

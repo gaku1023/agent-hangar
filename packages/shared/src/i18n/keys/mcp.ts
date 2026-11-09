@@ -184,4 +184,6 @@ export const mcpKeys = {
   'mcp.event.repoParam': [],
   'mcp.event.prParam': [],
   'mcp.event.noWakeDraft': [],
+  'mcp.event.tooManyDrafts': ['max'],
+  'mcp.event.tooManyClaims': ['max'],
 } as const satisfies MessageSpec;

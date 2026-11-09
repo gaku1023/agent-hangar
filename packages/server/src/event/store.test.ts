@@ -57,10 +57,12 @@ describe('結び付けの保存', () => {
   });
 
   it('refuses the 51st binding', () => {
-    for (let i = 0; i < EVENT_BINDINGS_MAX; i++) createBinding(db, input(), T0);
-    expect(() => createBinding(db, input(), T0)).toThrow(MessageError);
-    expect(() => createBinding(db, input(), T0)).toThrow(`${EVENT_BINDINGS_MAX}`);
+    for (let i = 0; i < EVENT_BINDINGS_MAX; i++) createBinding(db, input({ state: 'active' }), T0);
+    expect(() => createBinding(db, input({ state: 'active' }), T0)).toThrow(MessageError);
+    expect(() => createBinding(db, input({ state: 'active' }), T0)).toThrow(`${EVENT_BINDINGS_MAX}`);
     expect(listBindings(db)).toHaveLength(EVENT_BINDINGS_MAX);
+    // 下書きは数えない（MCP の道具が別の上限で止める）。
+    expect(() => createBinding(db, input(), T0)).not.toThrow();
   });
 
   it('finds bindings by inbox id', () => {
