@@ -10,6 +10,7 @@ import { createCipheriv, createDecipheriv, createHmac, createPrivateKey, createP
 import { gunzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { fromBase64Url, fromBase64UrlLen, toBase64Url, utf8 } from './bytes.ts';
+import { openFromInbox, sealToInbox } from './inbox.ts';
 import { deriveJoinSecrets, deriveSas, openJoinRequest, sealJoinRequest } from './joinCode.ts';
 import { PURPOSE_INFO, deriveEpochKeys, deriveSubkeyBytes, ecdhBits, generateKeyPair, importPrivate, randomEpochKey, type Purpose } from './keys.ts';
 import { openKeybox, sealKeybox } from './keybox.ts';
@@ -219,5 +220,32 @@ describe('interop: 参加コード（本番の回数）', () => {
     c.setAAD(aad);
     const ct = Buffer.concat([c.update(Buffer.from(JSON.stringify(body), 'utf8')), c.final(), c.getAuthTag()]);
     expect(await openJoinRequest(s, toBase64Url(Buffer.concat([iv, ct])))).toEqual(body);
+  });
+});
+
+describe('interop: 受け箱の封', () => {
+  // 参照の実装で開く。`1.` の後ろは 使い捨ての公開鍵(32) || 版 0x02 || iv(12) || 暗号文 || tag(16)。
+  // 鍵は HKDF(ECDH, salt = 使い捨ての公開鍵 || 受け箱の公開鍵, info = hangar-inbox-v1)。
+  function refOpenInbox(priv: string, pub: string, inboxId: string, sealed: string): unknown {
+    expect(sealed.startsWith('1.')).toBe(true);
+    const b = Buffer.from(fromBase64Url(sealed.slice(2))!);
+    const ephPub = b.subarray(0, 32);
+    expect(b[32]).toBe(0x02);
+    const key = Buffer.from(hkdfSync('sha256', nodeEcdh(priv, toBase64Url(ephPub)), Buffer.concat([ephPub, raw32(pub)]), 'hangar-inbox-v1', 32));
+    const d = createDecipheriv('aes-256-gcm', key, b.subarray(33, 45));
+    d.setAAD(Buffer.from(JSON.stringify(['inbox', inboxId]), 'utf8'));
+    d.setAuthTag(b.subarray(b.length - 16));
+    const plain = Buffer.concat([d.update(b.subarray(45, b.length - 16)), d.final()]);
+    const body = plain[0] === 0x01 ? gunzipSync(plain.subarray(1)) : plain.subarray(1);
+    return JSON.parse(body.toString('utf8'));
+  }
+
+  it('sealToInbox の封を node:crypto だけで書いた参照の実装で開け、openFromInbox でも同じものが返る', async () => {
+    const k = await generateKeyPair();
+    const parcel = { receivedAt: 1762740000000, headers: { 'x-github-event': 'push', 'content-type': 'application/json' }, body: 'x'.repeat(1000) };
+    const sealed = await sealToInbox(k.pub, 'inbox-a', parcel);
+    expect(refOpenInbox(k.priv, k.pub, 'inbox-a', sealed)).toEqual(parcel);
+    expect(await openFromInbox(k.priv, 'inbox-a', sealed)).toEqual(parcel);
+    expect(() => refOpenInbox(k.priv, k.pub, 'inbox-b', sealed)).toThrow();
   });
 });
