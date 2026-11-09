@@ -73,4 +73,5 @@ export const schedulesEn: AreaDictionary<typeof schedulesKeys> = {
   'schedules.event.textBegin': '<<<EXTERNAL TEXT',
   'schedules.event.textEnd': 'EXTERNAL TEXT>>>',
   'schedules.event.heldHourly': 'Stopped after the hourly limit ({max})',
+  'schedules.event.wakeFailed': "Couldn't wake \"{title}\"",
 };

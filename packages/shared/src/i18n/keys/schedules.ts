@@ -66,4 +66,5 @@ export const schedulesKeys = {
   'schedules.event.textBegin': [],
   'schedules.event.textEnd': [],
   'schedules.event.heldHourly': ['max'],
+  'schedules.event.wakeFailed': ['title'],
 } as const satisfies MessageSpec;

@@ -2,6 +2,7 @@ import { EVENT_HOURLY_MAX, t, type EventFacts, type Language, type ScheduleTarge
 import type { Db } from '../db/open.ts';
 import type { ScheduleOutcome } from '../schedule/runner.ts';
 import { wakePaused } from '../sessions/wakePaused.ts';
+import { sessionTitleOf } from '../mobile/feed.ts';
 import { renderEventPrompt } from './prompt.ts';
 import type { PulledEvent } from './puller.ts';
 import { addEventRun, deleteBinding, expireBindings, finishEventRun, getBindingRow, listBindings, prOwner, setEventRunSession, updateBinding, type BindingRow } from './store.ts';
@@ -246,12 +247,12 @@ export class EventDispatcher {
         got = await wakePaused({ db, deviceId: this.d.deviceId, deliver: (id, text) => this.d.launch({ prompt: text, target: { kind: 'session', sessionId: id }, plannedAt: this.d.now() }) }, sessionId, () => prompt);
       } catch (e) {
         record('failed', errText(e));
-        if (final) deleteBinding(db, b.id);
+        if (final) this.giveUpWake(b, sessionId);
         return;
       }
       if (got === 'busy') {
         record('skipped');
-        if (final) deleteBinding(db, b.id);
+        if (final) this.giveUpWake(b, sessionId);
         return;
       }
       // 起こした、または利用者が先に再開していた。
@@ -260,6 +261,20 @@ export class EventDispatcher {
     } finally {
       this.waking.delete(b.id);
     }
+  }
+
+  /**
+   * 閉じた PR の起こすが失敗した。
+   * もう次の事実が来ないので、会話の名前を添えて知らせ、結び付けを消す。
+   */
+  private giveUpWake(b: BindingRow, sessionId: string): void {
+    try {
+      const title = sessionTitleOf(this.d.db, sessionId) || sessionId;
+      this.d.notify?.(t(this.d.language(), 'schedules.event.wakeFailed', { title }));
+    } catch (e) {
+      this.d.onError?.(e);
+    }
+    deleteBinding(this.d.db, b.id);
   }
 
   /**

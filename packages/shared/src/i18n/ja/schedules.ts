@@ -73,4 +73,5 @@ export const schedulesJa: AreaDictionary<typeof schedulesKeys> = {
   'schedules.event.textBegin': '<<<外から来た文',
   'schedules.event.textEnd': '外から来た文>>>',
   'schedules.event.heldHourly': '1 時間の上限（{max} 回）を超えたので止めました',
+  'schedules.event.wakeFailed': '「{title}」を起こせませんでした',
 };

@@ -151,8 +151,10 @@ describe('merged wake that fails', () => {
   it('does not delete a wake binding that is still waking, and removes it once the wake ends busy', async () => {
     const b = bind({ source: gh({ when: ['merged'] }) });
     pause();
+    db.prepare('insert or ignore into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values (?, ?, ?, ?, ?, 1, ?)').run('s-1', 'claude-code', 'u-s-1', '/w', 'dev', 'dev');
+    db.prepare('update sessions set custom_title = ? where id = ?').run('Retry work', 's-1');
     const slow = slowLaunch(async () => 'busy');
-    const { d } = make({ launch: slow.launch });
+    const { d, notices } = make({ launch: slow.launch });
     await d.handle([ev(b.id, { event: 'merged' })]);
     await flush();
     // 起こしている最中は、後始末で消されない。
@@ -160,7 +162,9 @@ describe('merged wake that fails', () => {
     slow.release();
     await d.idle();
     expect(getSessionState(db, 's-1')?.status).toBe('paused');
-    // 閉じた PR にはもう事実が来ないので、履歴を書いたあとで消える。
+    // 起こせなかったことを、会話の名前を添えて知らせる。
+    expect(notices).toEqual([`Couldn't wake "Retry work"`]);
+    // 閉じた PR にはもう事実が来ないので、知らせたあとで消える。
     expect(getBindingRow(db, b.id)).toBeNull();
   });
 
@@ -169,11 +173,13 @@ describe('merged wake that fails', () => {
     pause();
     const errors: unknown[] = [];
     const slow = slowLaunch(async () => { throw new Error('cannot resume'); });
-    const { d } = make({ launch: slow.launch, onError: (e) => { errors.push(e); } });
+    const { d, notices } = make({ launch: slow.launch, onError: (e) => { errors.push(e); } });
     await d.handle([ev(b.id, { event: 'merged' })]);
     slow.release();
     await d.idle();
     expect(errors).toEqual([]);
+    // 会話に名前が無いときは ID で知らせる。
+    expect(notices).toEqual([`Couldn't wake "s-1"`]);
     expect(getSessionState(db, 's-1')?.status).toBe('paused');
     expect(getBindingRow(db, b.id)).toBeNull();
   });
@@ -181,10 +187,12 @@ describe('merged wake that fails', () => {
   it('keeps the binding for a busy wake while the pr is still open', async () => {
     const b = bind({ source: gh({ when: ['ci_done'] }) });
     pause();
-    const { d } = make({ launch: async () => 'busy' });
+    const { d, notices } = make({ launch: async () => 'busy' });
     await d.handle([ev(b.id)]);
     await d.idle();
     expect(getBinding(db, b.id)!.runs[0]).toMatchObject({ result: 'skipped' });
+    // PR がまだ開いているので、次の事実を待つ。知らせない。
+    expect(notices).toEqual([]);
   });
 });
 
