@@ -208,6 +208,11 @@ const CHIP_RE = /[☐☒☑✔✓]/g;
 const CHIP_ONE_RE = /[☐☒☑✔✓]/;
 const DO_YOU_WANT_RE = /^\s*do you want\b/i;
 /**
+ * 下の破線と問いの間に出る、決まった案内の行（2.1.319 の命令の札）。
+ * 決まった文だけを許し、ほかの行が挟まれば本体を読まない。
+ */
+const GAP_NOTICE_RE = /^\s*this command requires approval\s*$/i;
+/**
  * 札の見出しは、画面いっぱいの実線（─）の下に始まり、差分や引数を挟む破線（╌）の上で終わる。
  * 3 本の罫線は左端から始まり、同じ幅である。
  */
@@ -371,7 +376,7 @@ export function parseDialog(screen: string): Dialog | null {
   // 札の最初の罫線（許可の札は命令を 2 本の罫線で挟む）の上の数行を、見出しの窓にする。
   const rules = aboveLines.map((l, i) => (RULE_RE.test(l) ? i : -1)).filter((i) => i >= 0);
   const top = rules.length >= 2 ? rules[rules.length - 2]! : aboveLines.length;
-  // 罫線で挟んだ本体は、2 本が同じ幅で、下の罫線のすぐ下が問いの行のときだけ読む。
+  // 罫線で挟んだ本体は、2 本が同じ幅で、下の罫線のすぐ下が問いの行（間は空行か決まった案内の行だけ）のときだけ読む。
   // 命令の本文に罫線の文字を並べても、本文の行は左端から始まらないので罫線にならない。
   let ruled: string | null = null;
   if (rules.length >= 2) {
@@ -379,7 +384,7 @@ export function parseDialog(screen: string): Dialog | null {
     const rb = rules[rules.length - 1]!;
     const base = Math.max(0, first.i - ABOVE_LINES);
     const gap = lines.slice(base + rb + 1, qTop);
-    if (ruleWidth(aboveLines[rt]!) === ruleWidth(aboveLines[rb]!) && gap.every((l) => l.trim() === '')) {
+    if (ruleWidth(aboveLines[rt]!) === ruleWidth(aboveLines[rb]!) && gap.every((l) => l.trim() === '' || GAP_NOTICE_RE.test(l))) {
       ruled = aboveLines.slice(rt + 1, rb).join('\n');
     }
   }
