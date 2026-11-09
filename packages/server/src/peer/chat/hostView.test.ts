@@ -318,4 +318,58 @@ describe('ChatView: 答えられない印の取り直し', () => {
     expect(next[0]!.ask).toMatchObject({ askId });
     expect(next[0]!.ask!.answerable).toBeUndefined();
   });
+
+  describe('transcript の base がある形', () => {
+    const userL = JSON.stringify({ type: 'user', uuid: 'b1', timestamp: '2026-01-01T00:00:00Z', message: { role: 'user', content: 'go' } });
+    function makeBase() {
+      const w = { now: 1000, screen: partial, live: 'waiting' as 'waiting' | 'busy' };
+      const view = new ChatView({
+        now: () => w.now, sleep: async () => undefined, recheckMs: 1000,
+        session: () => session({ live: w.live, permission: hook }),
+        run: () => ({ tmuxName: 't' }),
+        pane: () => ({ capture: () => w.screen, captureStyled: async () => null, sendKey: () => undefined, sendText: () => undefined }),
+        tail: { readTranscript: () => ({ key: 'k', read: () => Buffer.from(userL + '\n') }) },
+        queued: () => [], self: () => ({ deviceId: 'pc-a', deviceName: 'Win' }), hostId: 'h',
+      });
+      return { w, view };
+    }
+    const lastAsk = (view: ChatView, after: string | null) => view.build('s1', 'pc-b', after).state.items.filter((i) => i.ask);
+
+    it('false から true へ、after に ! 付きの uuid を渡しても取りこぼさず 1 件流れ直す', () => {
+      const { w, view } = makeBase();
+      const first = lastAsk(view, null);
+      expect(first).toHaveLength(1);
+      expect(first[0]!.uuid).toMatch(/^b1@ask:.+!$/);
+      w.screen = full;
+      w.now += UNANSWERABLE_RECHECK_MS;
+      const next = lastAsk(view, first[0]!.uuid);
+      expect(next).toHaveLength(1);
+      expect(next[0]!.uuid).toBe(first[0]!.uuid.slice(0, -1));
+      // 受け取った後の after には繰り返さない。
+      expect(lastAsk(view, next[0]!.uuid)).toHaveLength(0);
+    });
+
+    it('true から false へも 1 件流れ直す', () => {
+      const { w, view } = makeBase();
+      w.screen = full;
+      const first = lastAsk(view, null);
+      expect(first[0]!.ask!.answerable).toBeUndefined();
+      w.screen = partial;
+      w.now += UNANSWERABLE_RECHECK_MS;
+      view.poke('s1');
+      const next = lastAsk(view, first[0]!.uuid);
+      expect(next).toHaveLength(1);
+      expect(next[0]!.ask!.answerable).toBe(false);
+    });
+
+    it('札が閉じた後に ! 付きの after が来ても、本文の位置は保たれ札は出ない', () => {
+      const { w, view } = makeBase();
+      const first = lastAsk(view, null);
+      w.live = 'busy';
+      const st = view.build('s1', 'pc-b', first[0]!.uuid).state;
+      expect(st.truncated).toBe(false);
+      expect(st.items.filter((i) => i.ask && !i.ask.answered)).toHaveLength(0);
+      expect(st.items.filter((i) => !i.ask)).toHaveLength(0);
+    });
+  });
 });

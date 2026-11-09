@@ -246,6 +246,16 @@ describe('流れ（peerChat.update）', () => {
     expect(flat).toEqual([[['u1@ask:A', false]], [['u1@ask:A', undefined]]]);
   });
 
+  it('host の uuid が u1@ask:A! から u1@ask:A に変わっても askId で 1 枚に畳まれ、uuid は最初のまま印だけ差し替わる', async () => {
+    const mk = (uuid: string, over: { answerable?: false }): PeerChatItem => { const a = askItem(uuid, 'A'); return { ...a, ask: { ...a.ask!, ...over } }; };
+    answers.push(() => ok(state([mk('u1@ask:A!', { answerable: false })])));
+    answers.push(() => ok(state([mk('u1@ask:A', {})])));
+    await viewer.open(SID, { viewer: 'v1' });
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    const flat = updates().map((u) => u.items.map((i) => [i.uuid, i.ask?.answerable]));
+    expect(flat).toEqual([[['u1@ask:A!', false]], [['u1@ask:A!', undefined]]]);
+  });
+
   it('許可の札は askId で畳む。uuid が変わっても重ねず、答えが付いたときだけ最初の uuid で流し直す', async () => {
     answers.push(() => ok(state([item('u1'), askItem('u1@ask:A', 'A')])));
     answers.push(() => ok(state([item('u2'), askItem('u2@ask:A', 'A')])));
