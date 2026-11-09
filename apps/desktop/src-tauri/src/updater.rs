@@ -6,31 +6,70 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::Mutex;
 use tauri_plugin_updater::{Error, Update};
 
 /// 命令の間で持ち回る状態。
 /// flow は見つけた版と取得した更新物の段（`Flow`）、progress は取得の進みである。
-/// handed_over は、インストーラへ渡す直前（`on_before_exit`）に子のサーバを止めたかである。
+/// handed_over は、インストーラへ渡す直前（`on_before_exit`）にしたこと（`Handover`）である。
 #[derive(Default)]
 pub struct UpdateSlot {
     pub flow: Mutex<Flow<Update>>,
     pub progress: Progress,
-    handed_over: AtomicBool,
+    handed_over: AtomicU8,
+}
+
+/// インストーラへ渡す直前（`on_before_exit`）にしたこと。
+/// 合図が来れば、`cleanup_before_exit` が Windows で窓を隠している。止めた子のサーバがいたときだけ ServerStopped になる。
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Handover {
+    None,
+    WindowHidden,
+    ServerStopped,
 }
 
 impl UpdateSlot {
-    /// インストーラへ渡す直前に、子のサーバを止めたと覚える。
-    pub fn handing_over(&self) {
-        self.handed_over.store(true, Ordering::SeqCst);
+    /// インストーラへ渡す直前にしたことを覚える。stopped_server は、止めた子のサーバがいたか（`stop_server` の答え）。
+    pub fn handing_over(&self, stopped_server: bool) {
+        self.handed_over
+            .store(if stopped_server { 2 } else { 1 }, Ordering::SeqCst);
     }
 
-    /// 止めたと覚えていれば真を返し、忘れる。
-    /// Windows の updater は、止めた後でインストーラを起こせないと誤りを返して戻ってくる（Smart App Control に止められたときなど）。
-    /// そのときサーバを 1 度だけ起こし直すために読む（#617）。
-    pub fn take_handover(&self) -> bool {
-        self.handed_over.swap(false, Ordering::SeqCst)
+    /// 覚えていたことを返し、忘れる。
+    /// Windows の updater は、合図の後でインストーラを起こせないと誤りを返して戻ってくる（Smart App Control に止められたときなど）。
+    /// そのとき隠した窓と止めたサーバを 1 度だけ戻すために読む（#617）。
+    pub fn take_handover(&self) -> Handover {
+        match self.handed_over.swap(0, Ordering::SeqCst) {
+            1 => Handover::WindowHidden,
+            2 => Handover::ServerStopped,
+            _ => Handover::None,
+        }
+    }
+}
+
+/// インストールに失敗したあとに戻すもの（`after_failed_install`）。
+#[derive(Debug, PartialEq)]
+pub struct Resume {
+    pub show_window: bool,
+    pub restart_server: bool,
+}
+
+/// インストールに失敗したあとに戻すものを決める。
+/// 窓は合図が来ていれば出し直す。サーバは、止めた子がいて、起動の本体（`boot`）が走っておらず、頁がサーバの頁へ移っていたときだけ起こし直す。
+/// 起動画面からの更新の失敗では、起動画面の「もう一度試す」（`retry_boot`）がサーバを起こすので、ここで二重に起こさない。
+pub fn after_failed_install(h: Handover, booting: bool, on_server_page: bool) -> Resume {
+    Resume {
+        show_window: h != Handover::None,
+        restart_server: h == Handover::ServerStopped && !booting && on_server_page,
+    }
+}
+
+/// 起動画面の札に出す版。前にインストールに失敗した版（`Found::failed`）は、自動では勧め直さない（#617）。
+pub fn boot_offer(found: &Found) -> Option<&str> {
+    match (&found.version, &found.failed) {
+        (Some(v), None) => Some(v),
+        _ => None,
     }
 }
 
@@ -221,30 +260,58 @@ pub struct Found {
 /// インストールに失敗した版を覚えるファイル（hangar の置き場の下）。中身は `{"version":"0.19.0","kind":"blocked"}` の形である。
 pub const INSTALL_FAILED_FILE: &str = "update-install-failed.json";
 
+/// at は失敗した時刻（UNIX の秒）。
 #[derive(Serialize, Deserialize)]
 struct InstallFailed {
     version: String,
     kind: String,
+    at: u64,
 }
 
-/// インストールに失敗した版と種類を覚える。前の記録は上書きする。書けなくても更新の流れは止めない。
-pub fn remember_install_failure(home: &Path, version: &str, kind: &str) {
-    let body = InstallFailed {
-        version: version.to_string(),
-        kind: kind.to_string(),
-    };
-    if let Ok(text) = serde_json::to_string(&body) {
-        let _ = std::fs::write(home.join(INSTALL_FAILED_FILE), text);
+/// 記録を効かせる長さ（秒）。過ぎたら、その版をまた自動で勧める。
+/// Smart App Control などに止められたとき（blocked）は、すぐ試しても同じく止められやすいので 24 時間にする。
+/// ほか（管理者の許可の確認を 1 度断った、など）は一時のことが多いので 1 時間にする。
+fn remembered_for(kind: &str) -> u64 {
+    if kind == "blocked" {
+        24 * 3600
+    } else {
+        3600
     }
 }
 
+/// インストールに失敗した版と種類と時刻（now、UNIX の秒）を覚える。前の記録は上書きする。
+/// 書けなかったら誤りを返す。呼び手はログに残すだけで、更新の流れは止めない。
+pub fn remember_install_failure(
+    home: &Path,
+    version: &str,
+    kind: &str,
+    now: u64,
+) -> std::io::Result<()> {
+    let body = InstallFailed {
+        version: version.to_string(),
+        kind: kind.to_string(),
+        at: now,
+    };
+    let text = serde_json::to_string(&body).map_err(std::io::Error::other)?;
+    std::fs::write(home.join(INSTALL_FAILED_FILE), text)
+}
+
 /// 見つけた版を前に入れようとして失敗していたら、その種類。
-/// 記録が無い、読めない、別の版のものなら None である。
-pub fn remembered_failure(home: &Path, found: Option<&str>) -> Option<String> {
+/// 記録が無い、読めない、別の版のもの、効く長さ（`remembered_for`）を過ぎたものなら None である。
+pub fn remembered_failure(home: &Path, found: Option<&str>, now: u64) -> Option<String> {
     let found = found?;
     let text = std::fs::read_to_string(home.join(INSTALL_FAILED_FILE)).ok()?;
     let r: InstallFailed = serde_json::from_str(&text).ok()?;
-    (r.version == found).then_some(r.kind)
+    let fresh = now.saturating_sub(r.at) < remembered_for(&r.kind);
+    (r.version == found && fresh).then_some(r.kind)
+}
+
+/// いまの時刻（UNIX の秒）。
+pub fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// 命令の失敗。kind は頁が文を選ぶための分類（network、signature、permission、blocked、other）、detail はログ向けの英語の 1 行である。
@@ -275,6 +342,10 @@ impl From<&Error> for Failure {
 /// Windows のアプリの制御（Smart App Control、App Control for Business）がファイルを止めたときの誤りの番号。
 /// どれも「An Application Control policy has blocked this file」の文を持つ（ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION と、評判で止めた系）。
 /// 方針そのものの誤り（4550、4552 から 4555）は、ファイルを止めたのではないので含めない。
+/// 名前は windows-sys（Win32 のメタデータ）の ERROR_SYSTEM_INTEGRITY_ の POLICY_VIOLATION（4551）、REPUTATION_MALICIOUS（4556）、
+/// REPUTATION_PUA（4557）、REPUTATION_DANGEROUS_EXT（4558）、REPUTATION_OFFLINE（4559）、REPUTATION_UNFRIENDLY_FILE（4580）、
+/// REPUTATION_UNATTAINABLE（4581）、REPUTATION_EXPLICIT_DENY_FILE（4582）である。
+/// 4583 は windows-sys 0.61 に名前が無いが、Windows 11 の FormatMessage の文は同じく「has blocked this file」（WHQL の要件）である。
 const APP_CONTROL_BLOCKS: [i32; 9] = [4551, 4556, 4557, 4558, 4559, 4580, 4581, 4582, 4583];
 
 /// Smart App Control の状態。`HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy` の `VerifiedAndReputablePolicyState`（0 がオフ、1 がオン、2 が評価）で読む。
@@ -571,37 +642,115 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        assert_eq!(remembered_failure(&dir, Some("0.19.0")), None);
-        remember_install_failure(&dir, "0.19.0", "blocked");
+        let t0 = 1_800_000_000;
+        assert_eq!(remembered_failure(&dir, Some("0.19.0"), t0), None);
+        remember_install_failure(&dir, "0.19.0", "blocked", t0).unwrap();
         assert_eq!(
-            remembered_failure(&dir, Some("0.19.0")),
+            remembered_failure(&dir, Some("0.19.0"), t0),
             Some("blocked".into())
         );
-        assert_eq!(remembered_failure(&dir, Some("0.19.1")), None);
-        assert_eq!(remembered_failure(&dir, None), None);
+        assert_eq!(remembered_failure(&dir, Some("0.19.1"), t0), None);
+        assert_eq!(remembered_failure(&dir, None, t0), None);
         // 後の失敗で上書きする。
-        remember_install_failure(&dir, "0.19.1", "permission");
-        assert_eq!(remembered_failure(&dir, Some("0.19.0")), None);
+        remember_install_failure(&dir, "0.19.1", "permission", t0).unwrap();
+        assert_eq!(remembered_failure(&dir, Some("0.19.0"), t0), None);
         assert_eq!(
-            remembered_failure(&dir, Some("0.19.1")),
+            remembered_failure(&dir, Some("0.19.1"), t0),
             Some("permission".into())
         );
-        // 壊れたファイルは無いものとして扱う。
+        // 壊れたファイル、時刻の無い記録は無いものとして扱う。
         std::fs::write(dir.join(INSTALL_FAILED_FILE), "{").unwrap();
-        assert_eq!(remembered_failure(&dir, Some("0.19.1")), None);
-        // 置き場が無くても落ちない。
-        remember_install_failure(&dir.join("missing"), "0.19.1", "other");
+        assert_eq!(remembered_failure(&dir, Some("0.19.1"), t0), None);
+        std::fs::write(
+            dir.join(INSTALL_FAILED_FILE),
+            r#"{"version":"0.19.1","kind":"blocked"}"#,
+        )
+        .unwrap();
+        assert_eq!(remembered_failure(&dir, Some("0.19.1"), t0), None);
+        // 置き場が無ければ、書けなかったと返す（呼び手がログに残す）。
+        assert!(remember_install_failure(&dir.join("missing"), "0.19.1", "other", t0).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // インストーラへ渡す直前にサーバを止めたことを覚え、失敗したら 1 度だけ起こし直す（#617）。
+    // 記録は時間で失効させる（#617 の見直し）。
+    // UAC を 1 度断っただけのような一時の失敗で、その版をずっと勧めなくならないためである。
+    // Smart App Control に止められたときは同じく止められやすいので 24 時間、ほかは 1 時間で勧め直す。
+    #[test]
+    fn a_remembered_failure_expires() {
+        let dir = std::env::temp_dir().join(format!(
+            "hangar-update-expiry-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let t0 = 1_800_000_000;
+        const H: u64 = 3600;
+        remember_install_failure(&dir, "0.19.0", "blocked", t0).unwrap();
+        assert!(remembered_failure(&dir, Some("0.19.0"), t0 + 24 * H - 1).is_some());
+        assert_eq!(remembered_failure(&dir, Some("0.19.0"), t0 + 24 * H), None);
+        for kind in ["permission", "network", "signature", "other"] {
+            remember_install_failure(&dir, "0.19.0", kind, t0).unwrap();
+            assert!(remembered_failure(&dir, Some("0.19.0"), t0 + H - 1).is_some());
+            assert_eq!(
+                remembered_failure(&dir, Some("0.19.0"), t0 + H),
+                None,
+                "{kind}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // インストーラへ渡す直前にしたことを覚え、1 度だけ取り出す（#617）。
+    // 合図が来れば窓は隠れている（cleanup_before_exit）。止めた子のサーバがいたときだけ、サーバも止めたと覚える。
     #[test]
     fn the_handover_is_taken_once() {
         let slot = UpdateSlot::default();
-        assert!(!slot.take_handover());
-        slot.handing_over();
-        assert!(slot.take_handover());
-        assert!(!slot.take_handover());
+        assert_eq!(slot.take_handover(), Handover::None);
+        slot.handing_over(false);
+        assert_eq!(slot.take_handover(), Handover::WindowHidden);
+        assert_eq!(slot.take_handover(), Handover::None);
+        slot.handing_over(true);
+        assert_eq!(slot.take_handover(), Handover::ServerStopped);
+        assert_eq!(slot.take_handover(), Handover::None);
+    }
+
+    // インストールに失敗したあとに戻すもの（#617 の見直し）。
+    // 窓は合図が来ていれば出し直す。サーバは、止めた子がいて、起動の本体が走っておらず、頁がサーバの頁へ移っていたときだけ起こし直す。
+    // 起動画面からの更新の失敗では、起動画面の「もう一度試す」（retry_boot）がサーバを起こすので、二重に起こさない。
+    #[test]
+    fn what_to_bring_back_after_a_failed_install() {
+        let r = |h, booting, on_server_page| after_failed_install(h, booting, on_server_page);
+        let nothing = Resume {
+            show_window: false,
+            restart_server: false,
+        };
+        let window = Resume {
+            show_window: true,
+            restart_server: false,
+        };
+        let both = Resume {
+            show_window: true,
+            restart_server: true,
+        };
+        assert_eq!(r(Handover::None, false, true), nothing);
+        assert_eq!(r(Handover::WindowHidden, false, true), window);
+        assert_eq!(r(Handover::ServerStopped, false, true), both);
+        assert_eq!(r(Handover::ServerStopped, true, true), window);
+        assert_eq!(r(Handover::ServerStopped, false, false), window);
+    }
+
+    // 起動画面の札に出すのは、前にインストールに失敗していない版だけである（#617 の見直し）。
+    #[test]
+    fn the_boot_screen_is_offered_only_versions_without_a_remembered_failure() {
+        let found = |version: Option<&str>, failed: Option<&str>| Found {
+            version: version.map(Into::into),
+            notes: None,
+            failed: failed.map(Into::into),
+        };
+        assert_eq!(boot_offer(&found(Some("0.20.0"), None)), Some("0.20.0"));
+        assert_eq!(boot_offer(&found(Some("0.20.0"), Some("blocked"))), None);
+        assert_eq!(boot_offer(&found(None, None)), None);
     }
 
     #[test]

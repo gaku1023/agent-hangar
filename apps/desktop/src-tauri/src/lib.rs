@@ -43,6 +43,8 @@ struct AppState {
     ui: Mutex<Ui>,
     /// 起動の本体（`boot`）が走っているか。「もう一度試す」を連打しても、二つ目の起動を重ねない。
     booting: AtomicBool,
+    /// 子のサーバの見張り（`watch_server`）が回っているか。2 本目を張らない。
+    watching: AtomicBool,
     /// 今の子を起こす直前の時刻。子が死んだとき、`boot-error.json` がこの子のものかを更新の時刻で見分ける。
     /// 子を起こさずに既存のサーバを採ったときは、前の値のまま使わない（その経路では子の死を見ない）。
     child_started: Mutex<Option<SystemTime>>,
@@ -342,17 +344,28 @@ fn wait_for_ready(
 /// 画面を移した後も子の生死を見て、勝手に終わったらその終わり方をログに残す。
 /// アプリが起動から数秒で終わる件を、アプリが閉じたのかサーバが落ちたのかで切り分けるためである。
 /// 終了の手続きで止めた子は、先に状態から外されるので、ここでは拾わない。
+/// 見張りは 1 本だけにする（`AppState::watching`）。更新の失敗の後で子を起こし直したとき（`resume_after_failed_handover`）、
+/// 前の見張りがまだ回っていれば、それが新しい子をそのまま見る。降ろすのは子の枠を握ったまま行うので、見張りが居なくなる隙は無い。
 fn watch_server(app: AppHandle) {
+    if app
+        .state::<AppState>()
+        .watching
+        .swap(true, Ordering::SeqCst)
+    {
+        return;
+    }
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(2));
         let state = app.state::<AppState>();
         let mut slot = state.server.lock().unwrap();
         let Some(p) = slot.as_mut() else {
+            state.watching.store(false, Ordering::SeqCst);
             return;
         };
         if let Some(status) = p.exit_status() {
             log(&format!("server exited on its own ({status})"));
             *slot = None;
+            state.watching.store(false, Ordering::SeqCst);
             return;
         }
     });
@@ -483,11 +496,11 @@ fn boot_update_js(version: &str) -> String {
 fn check_update_after_failure(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let Ok(updater::Found {
-            version: Some(version),
-            ..
-        }) = find_update(&app).await
-        else {
+        let Ok(found) = find_update(&app).await else {
+            return;
+        };
+        // 前にインストールに失敗した版は、起動画面でも自動では勧め直さない（#617）。札の「更新を確認」からなら試せる。
+        let Some(version) = updater::boot_offer(&found).map(str::to_string) else {
             return;
         };
         let now = app
@@ -1617,11 +1630,14 @@ fn restart_app(app: AppHandle) {
 /// 子のサーバを止める。終了の手続き（`RunEvent::Exit`）と、Windows で更新のインストーラへ渡す直前に呼ぶ。
 /// 止めても、tmux（Windows は psmux）の中のセッションは動き続ける。
 /// 止め方は `ServerProcess::stop` にある。Windows は標準入力の管を閉じて待ち、残ればジョブごと止める（server.rs、winjob.rs）。
-fn stop_server(app: &AppHandle) {
-    if let Some(mut p) = app.state::<AppState>().server.lock().unwrap().take() {
-        p.stop();
-        log("server stopped");
-    }
+/// 止めた子がいたら真を返す。既に動いていたサーバを採ったときと、子が先に終わっていたときは偽である。
+fn stop_server(app: &AppHandle) -> bool {
+    let Some(mut p) = app.state::<AppState>().server.lock().unwrap().take() else {
+        return false;
+    };
+    p.stop();
+    log("server stopped");
+    true
 }
 
 /// 動いている版と、取得の進みを返す。頁は起動したときに版を読み、取得の最中は繰り返し呼ぶ。
@@ -1664,8 +1680,8 @@ async fn find_update(app: &AppHandle) -> Result<updater::Found, updater::Failure
         .updater_builder()
         .on_before_exit(move || {
             log("update: handing over to the installer");
-            handle.state::<updater::UpdateSlot>().handing_over();
-            stop_server(&handle);
+            let stopped = stop_server(&handle);
+            handle.state::<updater::UpdateSlot>().handing_over(stopped);
             handle.cleanup_before_exit();
         })
         .build()
@@ -1674,7 +1690,8 @@ async fn find_update(app: &AppHandle) -> Result<updater::Found, updater::Failure
         .await
         .map_err(|e| update_failed("check", &e))?;
     let seen = found.as_ref().map(|u| u.version.clone());
-    let failed = updater::remembered_failure(&paths::hangar_home(), seen.as_deref());
+    let failed =
+        updater::remembered_failure(&paths::hangar_home(), seen.as_deref(), updater::now_secs());
     let notes = found
         .as_ref()
         .and_then(|u| u.body.clone())
@@ -1770,10 +1787,23 @@ async fn update_install(app: AppHandle) -> Result<(), updater::Failure> {
     if let Err(e) = result {
         slot.flow.lock().unwrap().install_failed();
         // 同じ版を次の自動の確認で勧め直さないよう、失敗した版と種類を覚える（`updater::remembered_failure`）。
-        updater::remember_install_failure(&paths::hangar_home(), &version, e.kind);
-        if slot.take_handover() {
-            resume_after_failed_handover(&app);
+        if let Err(w) = updater::remember_install_failure(
+            &paths::hangar_home(),
+            &version,
+            e.kind,
+            updater::now_secs(),
+        ) {
+            log(&format!(
+                "update: could not remember the failed install: {w}"
+            ));
         }
+        let handover = slot.take_handover();
+        let booting = app.state::<AppState>().booting.load(Ordering::SeqCst);
+        let on_server_page = app.state::<AppState>().ui.lock().unwrap().ready;
+        resume_after_failed_handover(
+            &app,
+            updater::after_failed_install(handover, booting, on_server_page),
+        );
         return Err(e);
     }
     log("update: installed, restarting");
@@ -1781,17 +1811,23 @@ async fn update_install(app: AppHandle) -> Result<(), updater::Failure> {
     Ok(())
 }
 
-/// インストーラを起こせずに updater が戻ってきたとき、渡す直前に止めたものを戻す（#617）。
-/// `cleanup_before_exit` が Windows で隠した窓を出し直し、止めた子のサーバを起こし直す。
+/// インストーラを起こせずに updater が戻ってきたとき、渡す直前にしたことを戻す（#617）。
+/// 何を戻すかは `updater::after_failed_install` が決める。`cleanup_before_exit` が Windows で隠した窓を出し直し、止めた子のサーバを起こし直す。
 /// 起こし直しは応答まで待つので別のスレッドで行う。頁はサーバが戻れば自分でつなぎ直す。
 /// 起こせなければログに残すだけにする。頁の切断の帯の「再起動」でアプリごと起こし直せる。
-fn resume_after_failed_handover(app: &AppHandle) {
-    log("update: the installer did not start, bringing the server back");
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
+fn resume_after_failed_handover(app: &AppHandle, resume: updater::Resume) {
+    if resume.show_window {
+        log("update: the installer did not start, showing the window again");
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.show();
+            let _ = w.unminimize();
+            let _ = w.set_focus();
+        }
     }
+    if !resume.restart_server {
+        return;
+    }
+    log("update: bringing the server back");
     let app = app.clone();
     std::thread::spawn(move || {
         let home = paths::hangar_home();
@@ -2286,6 +2322,7 @@ pub fn run() {
             server: Mutex::new(None),
             ui: Mutex::new(Ui::default()),
             booting: AtomicBool::new(false),
+            watching: AtomicBool::new(false),
             child_started: Mutex::new(None),
             config_busy: AtomicBool::new(false),
             approve: Mutex::new(None),
@@ -2396,7 +2433,9 @@ pub fn run() {
                 None => "exit requested by the user".to_string(),
                 Some(c) => format!("exit requested with code {c}"),
             }),
-            RunEvent::Exit => stop_server(app),
+            RunEvent::Exit => {
+                stop_server(app);
+            }
             _ => {}
         });
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ReleaseNote } from '../lib/releaseNotes.ts';
-import { initialUpdate, type UpdateState } from '../store/update.ts';
+import { cardPhase, initialUpdate, type UpdateState } from '../store/update.ts';
 import type { UpdateBridge } from './desktop.ts';
 import { UpdateFailure } from './desktop.ts';
 import { createUpdateRunner, UPDATE_CHECK_INTERVAL_MS, UPDATE_DISMISSED_KEY, UPDATE_NOTIFY_KEY, UPDATE_PROGRESS_POLL_MS, UPDATE_SEEN_NOTES_KEY } from './updater.ts';
@@ -61,6 +61,24 @@ describe('更新の確認の頻度', () => {
     s.runner.start();
     await flush();
     expect(s.state().phase).toEqual({ kind: 'failed', step: 'install', version: '1.5.0', reason: 'blocked' });
+  });
+
+  it('手動の確認なら、前にインストールに失敗した版でも新しい版として出す', async () => {
+    const s = setup({ stored: { 'update.notify': false }, bridge: { check: vi.fn(async () => ({ version: '1.5.0', notes: null, failed: 'blocked' as const })) } });
+    s.runner.start();
+    await flush();
+    s.runner.run({ op: 'check' });
+    await flush();
+    expect(s.state().phase).toEqual({ kind: 'available', version: '1.5.0' });
+  });
+
+  it('知らせを切っていれば、前にインストールに失敗した版でも自動では失敗の札を出さない', async () => {
+    const s = setup({ stored: { 'update.notify': false }, bridge: { check: vi.fn(async () => ({ version: '1.5.0', notes: null, failed: 'blocked' as const })) } });
+    s.runner.start();
+    await flush();
+    await s.c.advance(UPDATE_CHECK_INTERVAL_MS);
+    expect(s.bridge.check).not.toHaveBeenCalled();
+    expect(cardPhase(s.state())).toBeNull();
   });
 
   it('その後は数時間おきに確認する', async () => {
