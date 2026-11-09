@@ -104,13 +104,25 @@ export function createBinding(db: Db, input: BindingInput, now: number): EventBi
   return dto(db, bindingRow(db, id)!);
 }
 
-export function updateBinding(db: Db, id: string, p: BindingPatch): EventBindingDto {
+const STATES: readonly EventBindingState[] = ['draft', 'active', 'held', 'error'];
+
+/**
+ * 変える。動きを変えたときは、期限も決め直す。起こす結び付けだけが 30 日の期限を持つ。
+ * 送る・作るから起こすへ変えたら、いまから 30 日。起こすから別の動きへ変えたら期限を外す。起こすから起こすへは元の期限のまま。
+ */
+export function updateBinding(db: Db, id: string, p: BindingPatch, now: number = Date.now()): EventBindingDto {
   const r = bindingRow(db, id);
   if (!r) throw new MessageError(`結び付けが見つかりません: ${id}`);
-  db.prepare('update event_bindings set source = ?, action = ?, prompt = ?, pass_body = ?, allow_authors = ?, state = ?, webhook_id = ?, hook_secret = ? where id = ?')
+  if (p.state !== undefined && !STATES.includes(p.state)) throw new MessageError(`結び付けの状態が正しくありません: ${String(p.state)}`);
+  let expiresAt = r.expires_at;
+  if (p.action) {
+    const wasWake = (JSON.parse(r.action) as EventAction).kind === 'wake';
+    expiresAt = p.action.kind !== 'wake' ? null : wasWake && r.expires_at !== null ? r.expires_at : now + WAKE_BINDING_TTL_MS;
+  }
+  db.prepare('update event_bindings set source = ?, action = ?, prompt = ?, pass_body = ?, allow_authors = ?, state = ?, webhook_id = ?, hook_secret = ?, expires_at = ? where id = ?')
     .run(p.source ? JSON.stringify(p.source) : r.source, p.action ? JSON.stringify(p.action) : r.action, p.prompt ?? r.prompt,
       p.passBody === undefined ? r.pass_body : p.passBody ? 1 : 0, p.allowAuthors ? JSON.stringify(p.allowAuthors) : r.allow_authors, p.state ?? r.state,
-      p.webhookId === undefined ? r.webhook_id : p.webhookId, p.hookSecret === undefined ? r.hook_secret : p.hookSecret, id);
+      p.webhookId === undefined ? r.webhook_id : p.webhookId, p.hookSecret === undefined ? r.hook_secret : p.hookSecret, expiresAt, id);
   return dto(db, bindingRow(db, id)!);
 }
 

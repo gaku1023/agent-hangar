@@ -43,7 +43,7 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'db/backup.ts': { lines: 1, why: LOG },
   'db/migrations.ts': { lines: 1, why: SQL_NOTE },
   'db/notify.ts': { lines: 3, why: LOG },
-  'event/store.ts': { lines: 2, why: LEFT },
+  'event/store.ts': { lines: 3, why: LEFT },
   'http/testing.ts': { lines: 9, why: TEST_SUPPORT },
   'indexer/baseline.ts': { lines: 11, why: BASELINE },
   'launch/wrapper.ts': { lines: 3, why: FILE_BODY },

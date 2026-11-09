@@ -1,6 +1,7 @@
 import { EVENT_BINDINGS_MAX, SCHEDULE_RUNS_KEPT, WAKE_BINDING_TTL_MS, generateInboxKeyPair, type EventAction, type EventSource } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb } from '../db/open.ts';
+import { MessageError } from '../i18n/message.ts';
 import type { Db } from '../db/open.ts';
 import { addEventRun, bindingsForInbox, claimPr, createBinding, deleteBinding, expireBindings, finishEventRun, getBinding, listBindings, markDelivery, prOwner, updateBinding, type BindingInput } from './store.ts';
 
@@ -57,7 +58,8 @@ describe('結び付けの保存', () => {
 
   it('refuses the 51st binding', () => {
     for (let i = 0; i < EVENT_BINDINGS_MAX; i++) createBinding(db, input(), T0);
-    expect(() => createBinding(db, input(), T0)).toThrow();
+    expect(() => createBinding(db, input(), T0)).toThrow(MessageError);
+    expect(() => createBinding(db, input(), T0)).toThrow(`${EVENT_BINDINGS_MAX}`);
     expect(listBindings(db)).toHaveLength(EVENT_BINDINGS_MAX);
   });
 
@@ -86,6 +88,38 @@ describe('結び付けの保存', () => {
     expect(getBinding(db, fresh.id)).not.toBeNull();
     expect(getBinding(db, send.id)).not.toBeNull();
     expect(db.prepare('select count(*) c from event_runs').get()).toEqual({ c: 0 });
+  });
+});
+
+describe('結び付けの変更と期限', () => {
+  it('send to wake starts the 30 day expiry from the change', () => {
+    const b = createBinding(db, input({ action: { kind: 'send', sessionId: 's-1' } }), T0);
+    expect(b.expiresAt).toBeNull();
+    const u = updateBinding(db, b.id, { action: wake }, T0 + DAY);
+    expect(u.expiresAt).toBe(T0 + DAY + WAKE_BINDING_TTL_MS);
+    expect(expireBindings(db, T0 + 30 * DAY)).toBe(0);
+    expect(expireBindings(db, T0 + 32 * DAY)).toBe(1);
+  });
+
+  it('wake to send clears the expiry so it is never expired', () => {
+    const b = createBinding(db, input(), T0);
+    expect(b.expiresAt).toBe(T0 + WAKE_BINDING_TTL_MS);
+    const u = updateBinding(db, b.id, { action: { kind: 'send', sessionId: 's-2' } }, T0 + DAY);
+    expect(u.expiresAt).toBeNull();
+    expect(expireBindings(db, T0 + 90 * DAY)).toBe(0);
+    expect(getBinding(db, b.id)).not.toBeNull();
+  });
+
+  it('wake to another wake keeps the original expiry, and a patch without action leaves it alone', () => {
+    const b = createBinding(db, input(), T0);
+    expect(updateBinding(db, b.id, { action: { kind: 'wake', sessionId: 's-9' } }, T0 + 5 * DAY).expiresAt).toBe(T0 + WAKE_BINDING_TTL_MS);
+    expect(updateBinding(db, b.id, { prompt: 'x' }, T0 + 6 * DAY).expiresAt).toBe(T0 + WAKE_BINDING_TTL_MS);
+  });
+
+  it('rejects an unknown state with a MessageError and changes nothing', () => {
+    const b = createBinding(db, input(), T0);
+    expect(() => updateBinding(db, b.id, { state: 'bogus' as never })).toThrow(MessageError);
+    expect(getBinding(db, b.id)!.state).toBe('draft');
   });
 });
 
