@@ -6,6 +6,7 @@ import { compatMiddleware } from './compat.ts';
 import { devicesApp } from './devices.ts';
 import type { AppType, Env, Vars } from './env.ts';
 import { blobsApp, filesApp } from './files.ts';
+import { hooksApp, inboxApp } from './inbox.ts';
 import { bootstrapHandler, joinApp, joinCodesApp } from './join.ts';
 import { keysApp } from './keys.ts';
 import { d1LimitOfError, limitBody } from './limits.ts';
@@ -40,7 +41,7 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
 
   // ここから下は PC の端末トークンが要る。経路を足すときは必ずこの一覧にも足す。
   // スマホのトークン（kind = 'mobile'）は 403 で断る。スマホが通れるのは /m/ のスマホ用の口だけである（互換の版 7）。
-  for (const path of ['/changes', '/changes/*', '/rows', '/rows/*', '/files', '/files/*', '/blobs', '/usage', '/devices', '/devices/*', '/join-codes', '/join-codes/*', '/roster', '/keyboxes', '/phone-keyboxes', '/notices', '/launches', '/launches/*', '/peer', '/peer/*']) {
+  for (const path of ['/changes', '/changes/*', '/rows', '/rows/*', '/files', '/files/*', '/blobs', '/usage', '/devices', '/devices/*', '/join-codes', '/join-codes/*', '/roster', '/keyboxes', '/phone-keyboxes', '/notices', '/launches', '/launches/*', '/peer', '/peer/*', '/inboxes', '/inboxes/*']) {
     app.use(path, authMiddleware(), requireKind('pc'));
   }
 
@@ -66,6 +67,10 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
   app.route('/launches', peerApp);
   // PC から PC への会話の問い合わせと画像（互換の版 11）。PC の端末トークンが要る（上の一覧）。D1 には書かない。
   app.route('/peer', peerAskApp);
+  // 受け箱（互換の版 12）。管理の口（/inboxes）は PC の端末トークンが要る（上の一覧）。
+  app.route('/inboxes', inboxApp);
+  // 外のサービスが webhook を置く口。端末トークンも互換の版の見出しも求めない（compat.ts が通す）。受け箱の ID が資格である。
+  app.route('/hooks', hooksApp);
 
   // 使用量と費用。トークンの secret が無ければ外へ出ずに configured: false を返す。D1 には書かない。
   app.get('/usage', async (c) => {

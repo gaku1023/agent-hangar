@@ -1,15 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { COMPAT_HEADER, COMPAT_VERSION, CONFIG_BUNDLE_MIN_WORKER_COMPAT, DEVICE_ADMIN_MIN_WORKER_COMPAT, MOBILE_BELL_MIN_WORKER_COMPAT, MOBILE_MIN_WORKER_COMPAT, PEER_CHAT_MIN_WORKER_COMPAT, PEER_LAUNCH_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, compatHeaders, compatRefusalBody, parseCompat, readCompatRefusal } from './compat.ts';
+import { COMPAT_HEADER, COMPAT_VERSION, CONFIG_BUNDLE_MIN_WORKER_COMPAT, DEVICE_ADMIN_MIN_WORKER_COMPAT, EVENT_INBOX_MIN_WORKER_COMPAT, MOBILE_BELL_MIN_WORKER_COMPAT, MOBILE_MIN_WORKER_COMPAT, PEER_CHAT_MIN_WORKER_COMPAT, PEER_LAUNCH_MIN_WORKER_COMPAT, TAKEOVER_MIN_WORKER_COMPAT, compatHeaders, compatRefusalBody, parseCompat, readCompatRefusal } from './compat.ts';
 import * as shared from './index.ts';
 
 describe('互換の版番号', () => {
-  it('版は整数で（いまは 11。ほかの PC の会話をチャットで見て続ける版）、見出しは小文字の x-hangar-compat で運ぶ', () => {
-    expect(COMPAT_VERSION).toBe(11);
+  it('版は整数で（いまは 12。外からの webhook を受け箱で預かる版）、見出しは小文字の x-hangar-compat で運ぶ', () => {
+    expect(COMPAT_VERSION).toBe(12);
     expect(COMPAT_VERSION).toBeGreaterThanOrEqual(DEVICE_ADMIN_MIN_WORKER_COMPAT);
     expect(Number.isSafeInteger(COMPAT_VERSION)).toBe(true);
     expect(COMPAT_VERSION).toBeGreaterThanOrEqual(CONFIG_BUNDLE_MIN_WORKER_COMPAT);
     expect(COMPAT_HEADER).toBe('x-hangar-compat');
-    expect(compatHeaders()).toEqual({ 'x-hangar-compat': '11' });
+    expect(compatHeaders()).toEqual({ 'x-hangar-compat': '12' });
+  });
+
+  it('版 12 は受け箱の口を知る Worker の版', () => {
+    expect(COMPAT_VERSION).toBeGreaterThanOrEqual(12);
+    expect(EVENT_INBOX_MIN_WORKER_COMPAT).toBe(12);
+    expect(shared.EVENT_INBOX_MIN_WORKER_COMPAT).toBe(12);
   });
 
   it('版 10 は PC どうしの頼みの口を知る Worker の版', () => {

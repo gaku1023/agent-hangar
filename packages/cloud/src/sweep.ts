@@ -1,3 +1,4 @@
+import { EVENT_INBOX_KEEP_MS } from '@agent-hangar/shared';
 import type { Env } from './env.ts';
 import { IMAGE_KEEP_MS } from './mobileBlobs.ts';
 
@@ -110,6 +111,7 @@ export async function sweepOnce(env: Env, now: number): Promise<SweepResult> {
   const bodies = await sweepBodies(env, now);
   const images = await sweepPhoneImages(env, now);
   const entries = await sweepEntries(env, now);
+  await sweepEventParcels(env, now);
   await db.batch([putMeta(db, META_SWEEP_CURSOR, bodies.cursor), putMeta(db, META_SWEEP_IMAGE_CURSOR, images.cursor), putMeta(db, META_SWEEP_SEQ, String(entries.seq))]);
   return { bodies: [...bodies.deleted, ...images.deleted], entries: entries.deleted };
 }
@@ -164,6 +166,14 @@ async function sweepPhoneImages(env: Env, now: number): Promise<{ deleted: strin
   });
   if (safe.length) await env.BUCKET.delete(safe);
   return { deleted: safe, cursor: next };
+}
+
+/**
+ * 引き取られないまま EVENT_INBOX_KEEP_MS（7 日）を過ぎた受け箱の荷物を消す（互換の版 12）。
+ * 受け箱そのものは消さない（消すのは PC の DELETE /inboxes/:id だけである）。索引 event_parcels_at で引くので、表を走査しない。
+ */
+export async function sweepEventParcels(env: Env, now: number): Promise<void> {
+  await env.DB.prepare('delete from event_parcels where received_at < ?').bind(now - EVENT_INBOX_KEEP_MS).run();
 }
 
 /** 索引に無い鍵だけを残す。 */

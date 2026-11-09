@@ -46,9 +46,10 @@ export type PeerResultsResponse = { results: PeerResultOut[]; more: boolean };
 
 /**
  * 呼び鈴で PC に届く知らせ（{ t: 'peer', kind, id }）。launch は頼みが来た、answer は答えが来た、result は結果が来た。id は頼みの ID。
+ * event は受け箱に荷物が届いた（互換の版 12）。id は受け箱の ID である。
  * 会話の問い合わせ（peerChat.ts）はこの知らせではなく、中身を載せた { t: 'chat', id, from, epoch, sealed } の枠で届く（PeerChatBellAsk）。
  */
-export const PEER_BELL_KINDS = ['launch', 'answer', 'result'] as const;
+export const PEER_BELL_KINDS = ['launch', 'answer', 'result', 'event'] as const;
 export type PeerBellKind = (typeof PEER_BELL_KINDS)[number];
 export type PeerBellMessage = { t: 'peer'; kind: PeerBellKind; id: string };
 
