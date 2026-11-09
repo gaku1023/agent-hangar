@@ -815,11 +815,36 @@ describe('キーの見直し', () => {
     expect(focus).toHaveBeenCalledWith('r1');
     expect(input).toHaveBeenCalledWith('r1', '\x02');
     expect(focus.mock.invocationCallOrder[0]!).toBeLessThan(input.mock.invocationCallOrder[0]!);
-    // 入力欄にフォーカスがあっても同じ。
-    input.mockClear();
-    expect(key(ctrlB, textField()).defaultPrevented).toBe(true);
+  });
+
+  // 字を書いている途中でフォーカスがターミナルへ移ると驚くので、入力欄の中の Ctrl+B では何もしない。
+  // 既定の動き（macOS の 1 字戻る）も止めない。
+  const ctrlBInFields = async () => {
+    const { rt, focus, input } = await conversation();
+    const emit = vi.spyOn(rt, 'emit');
+    const field = textField();
+    field.focus();
+    const area = document.createElement('textarea');
+    const editable = document.createElement('div');
+    editable.contentEditable = 'true';
+    Object.defineProperty(editable, 'isContentEditable', { value: true });
+    document.body.append(area, editable);
+    for (const target of [field, area, editable]) expect(key(ctrlB, target).defaultPrevented, target.tagName).toBe(false);
+    area.remove();
+    editable.remove();
     expect(emit).not.toHaveBeenCalledWith({ type: 'sidebar.toggle' });
-    expect(input).toHaveBeenCalledWith('r1', '\x02');
+    expect(input).not.toHaveBeenCalled();
+    expect(focus).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(field);
+  };
+
+  it('Windows の会話の画面の入力欄で打った Ctrl+B は、フォーカスを移さず、送らず、開閉もしない', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    await ctrlBInFields();
+  });
+
+  it('macOS の会話の画面の入力欄で打った Ctrl+B も、欄の 1 字戻るに任せる', async () => {
+    await ctrlBInFields();
   });
 
   it('Windows の会話の画面でも、Ctrl+Shift+B と帯のボタンとパレットはサイドバーを開閉する', async () => {
@@ -944,8 +969,8 @@ describe('キーの見直し', () => {
     expect(row('コマンドパレット（検索と移動）')).toHaveTextContent('Ctrl+Shift+K');
     expect(row('クイックセッションを開始')).toHaveTextContent('Ctrl+Alt+N');
     expect(row('クイックセッションを開始')).not.toHaveTextContent('Ctrl+Shift+N');
-    // 会話の画面の Ctrl+B はターミナルへ送るので、説明に添える（#616）。
-    expect(row('サイドバーの開閉（ターミナルの出ている画面では Ctrl+Shift+B）')).toHaveTextContent('Ctrl+B');
+    // サイドバーの開閉は、「キー」の列に Ctrl+B、「ターミナル内」の列に Ctrl+Shift+B を出し、説明は書き足さない（#616）。
+    expect(row('サイドバーの開閉')).toHaveTextContent('Ctrl+BCtrl+Shift+Bサイドバーの開閉');
     expect(within(dialog).getByText('ターミナル内')).toBeInTheDocument();
     expect(within(dialog).getByText(/Ctrl\+Shift と組み合わせると/)).toBeInTheDocument();
   });

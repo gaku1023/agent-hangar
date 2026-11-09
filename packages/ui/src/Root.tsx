@@ -288,20 +288,23 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         // macOS の入力欄の Ctrl+B（1 字戻る）は、上の入力欄の規則で渡している。
         // 会話の画面（ターミナルが出ている画面）の Ctrl だけの B は、サイドバーの開閉に使わない（#616）。
         // Claude Code の「ctrl+b to run in background」も psmux と tmux の prefix も Ctrl+B なので、
-        // ターミナルの外（ペインの枠や入力欄）にフォーカスがあるまま打つと、サイドバーが閉じて覚えられてしまう。
+        // ターミナルの外（ペインの枠や見出し）にフォーカスがあるまま打つと、サイドバーが閉じて覚えられてしまう。
         // そこで打たれた Ctrl+B は、ターミナルへフォーカスを戻して ^B を送る。利用者がターミナルで打ったのと同じ経路である。
         // ⌘B（macOS）と Ctrl+Shift+B（ほかの OS）は今までどおり開閉する。ダイアログの裏のターミナルへは送らない。
+        // 入力欄の中で打った Ctrl+B では、何もしない（字を書いている途中でフォーカスを移さない）。欄の既定の動きも止めない。
         case 'sidebar.toggle': {
-          take();
           if (e.ctrlKey && !e.metaKey && !e.shiftKey && sessionId) {
             const tab = terminalTargetOf(el, panesRef.current.focus, focusedPane.current, selectedTabId);
             if (tab) {
+              if (editing) return;
+              take();
               if (overlayKind !== 'none') return;
               props.terminals.focus(tab);
               props.terminals.input(tab, CTRL_B);
               return;
             }
           }
+          take();
           rt.emit({ type: 'sidebar.toggle' });
           return;
         }

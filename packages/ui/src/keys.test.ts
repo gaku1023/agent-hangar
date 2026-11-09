@@ -207,12 +207,13 @@ describe('キーの表示', () => {
   });
 
   // 会話の画面（ターミナルの出ている画面）の Ctrl+B はターミナルへ送る（Root.tsx、#616）。
-  // macOS の ⌘B はどの画面でも効くので書き足さない。ほかの OS では、どの画面でも効く Ctrl+Shift+B を添えて見せる。
-  it('サイドバーの開閉は、macOS の外ではターミナルの出ている画面の打鍵を説明に添え、どこでも効く打鍵として Ctrl+Shift+B を見せる', () => {
+  // 一覧の説明は書き足さない（「キー」と「ターミナル内」の列で区別がつく）。
+  // 吹き出しとパレットには、macOS の外ではどの画面でも効く Ctrl+Shift+B を見せる。macOS の ⌘B はどの画面でも効く。
+  it('サイドバーの開閉は、一覧の説明はそのままで、どこでも効く打鍵として macOS の外では Ctrl+Shift+B を見せる', () => {
     const b = KEYMAP.find((k) => k.id === 'sidebar.toggle')!;
     expect(bindingLabel(ja, b, true)).toBe('サイドバーの開閉');
-    expect(bindingLabel(ja, b, false)).toBe('サイドバーの開閉（ターミナルの出ている画面では Ctrl+Shift+B）');
-    expect(bindingLabel(en, b, false)).toBe('Toggle sidebar (Ctrl+Shift+B while a terminal is shown)');
+    expect(bindingLabel(ja, b, false)).toBe('サイドバーの開閉');
+    expect(bindingLabel(en, b, false)).toBe('Toggle sidebar');
     expect(anywhereKeys(b, true)).toBe('⌘B');
     expect(anywhereKeys(b, false)).toBe('Ctrl+Shift+B');
     // ほかの行は表の打鍵のまま。

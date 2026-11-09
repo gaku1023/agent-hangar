@@ -22,7 +22,6 @@ export const shortcutsJa: AreaDictionary<typeof shortcutsKeys> = {
   'shortcuts.key.navForward': '進む',
   'shortcuts.key.appReload': '画面を再読み込み',
   'shortcuts.key.sidebarToggle': 'サイドバーの開閉',
-  'shortcuts.key.sidebarToggleShownTerminal': 'サイドバーの開閉（ターミナルの出ている画面では {keys}）',
   'shortcuts.key.shortcutsOpen': 'キーボードショートカット',
   'shortcuts.key.overlayClose': '開いているものを閉じる（無い場合は入力欄のフォーカスを解除）',
   'shortcuts.key.tabSelect': 'タブを選択（{keys} でも）',
