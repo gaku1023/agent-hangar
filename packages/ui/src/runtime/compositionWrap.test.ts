@@ -262,7 +262,7 @@ describe('wrapComposition（取っておいたターミナルを付け直す流�
         get element() { return x?.root ?? null; },
         open(el) { x = fakeXterm(924, 200); xs.push(x); el.appendChild(x.root); stopWrap(); stopWrap = wrapComposition(x.root); },
         write() {}, onData: () => ({ dispose() {} }), onResize: () => ({ dispose() {} }),
-        fit() {}, focus() {}, dispose() { stopWrap(); }, setGpu() {}, paste() {}, setFontSize() {},
+        fit() {}, focus() {}, dispose() { stopWrap(); }, setGpu() {}, paste() {}, input() {}, setFontSize() {},
       };
     };
     const host = createTerminalHost({ wsUrl: (id) => `ws://x/${id}`, createTerminal, wsFactory: () => ({ close() {} }) as unknown as WebSocket, held: () => false });

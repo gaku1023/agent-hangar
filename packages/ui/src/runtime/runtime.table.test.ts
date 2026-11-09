@@ -23,7 +23,7 @@ function harness(over: Partial<ApiClient> = {}) {
     location: { getHash: () => '#/', setHash: () => {}, onHashChange: () => () => {}, go: () => {}, depth: () => 0 },
     storage: { get: (k) => kept.get(k), set: (k, v) => kept.set(k, v), keys: () => [...kept.keys()] },
     setTimeout: () => 0,
-    terminals: { connect: () => {}, disconnect: () => {}, mount: () => {}, status: () => null, fit: () => {}, focus: () => {}, paste: () => {}, zoom: () => {}, fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose: () => {}, link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: () => {} },
+    terminals: { connect: () => {}, disconnect: () => {}, mount: () => {}, status: () => null, fit: () => {}, focus: () => {}, paste: () => {}, input: () => false, zoom: () => {}, fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose: () => {}, link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: () => {} },
   };
   return { rt: createRuntime(deps), api };
 }

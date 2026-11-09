@@ -46,7 +46,13 @@ export type KeyChord = {
  * keysOther は macOS の外で keys の代わりに見せる打鍵である（割り当てが OS で違う行だけ）。
  * terminal は macOS の外で、ターミナルにフォーカスがある間に使う打鍵（⌃⇧K など）。書いた行だけが Ctrl+Shift の層で当たる。
  */
-export type KeyBinding = { id: KeyId; group: KeyGroup; keys: string; keysOther?: string; terminal?: string; chords: KeyChord[] } & ({ labelKey: PlainKey; also?: undefined } | { labelKey: KeysKey; also: string });
+export type KeyBinding = { id: KeyId; group: KeyGroup; keys: string; keysOther?: string; terminal?: string; chords: KeyChord[];
+  /**
+   * macOS の外で、ターミナルの出ている画面（会話の画面）では keys の Ctrl の打鍵が効かず、terminal の打鍵だけが効く行。
+   * いまはサイドバーの開閉（Ctrl+B）だけで、Root.tsx がその Ctrl+B をターミナルへ送る（#616）。
+   * 吹き出しとパレットには、どの画面でも効く terminal の打鍵を出す（anywhereKeys）。
+   */
+  ctrlToTerminal?: true } & ({ labelKey: PlainKey; also?: undefined } | { labelKey: KeysKey; also: string });
 
 /** 照合に使う打鍵の形。KeyboardEvent をそのまま渡せる。code は物理のキーで、⇧ で変わる前の文字を読むのに使う。 */
 export type KeyEventLike = { key: string; code?: string; metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean; shiftKey?: boolean };
@@ -67,7 +73,10 @@ export const KEYMAP: KeyBinding[] = [
   { id: 'settings.open', group: 'global', keys: '⌘,', terminal: '⌃⇧,', labelKey: 'shortcuts.key.settingsOpen', chords: [{ key: ',', mod: true, shift: false }] },
   { id: 'nav.back', group: 'global', keys: '⌘[ / ⌘←', terminal: '⌃⇧[', labelKey: 'shortcuts.key.navBack', chords: [{ key: '[', mod: true, shift: false }, { key: 'ArrowLeft', mod: true, shift: false }] },
   { id: 'nav.forward', group: 'global', keys: '⌘] / ⌘→', terminal: '⌃⇧]', labelKey: 'shortcuts.key.navForward', chords: [{ key: ']', mod: true, shift: false }, { key: 'ArrowRight', mod: true, shift: false }] },
-  { id: 'sidebar.toggle', group: 'global', keys: '⌘B', terminal: '⌃⇧B', labelKey: 'shortcuts.key.sidebarToggle', chords: [{ key: 'b', mod: true, shift: false }] },
+  // 会話の画面（ターミナルの出ている画面）の Ctrl+B は、開閉せずにターミナルへ送る（Root.tsx、#616）。
+  // Claude Code の「ctrl+b to run in background」と psmux・tmux の prefix を、ターミナルの外で打ったときにサイドバーが閉じないようにするためである。
+  // ⌘B（macOS）と Ctrl+Shift+B（ほかの OS）は、どの画面でも開閉する。
+  { id: 'sidebar.toggle', group: 'global', keys: '⌘B', terminal: '⌃⇧B', labelKey: 'shortcuts.key.sidebarToggle', ctrlToTerminal: true, chords: [{ key: 'b', mod: true, shift: false }] },
   { id: 'shortcuts.open', group: 'global', keys: '? / ⌘/', terminal: '⌃⇧/', labelKey: 'shortcuts.key.shortcutsOpen', chords: [{ key: '?' }, { key: '/', mod: true }] },
   // 画面全体を読み直す。動いている Claude と tmux は止まらず、ターミナルはつなぎ直すだけである（サーバの pty/relay.ts は attach の口だけを閉じる）。
   // macOS は ⌘R。ほかは F5 と Ctrl+Shift+R で、Ctrl+R はターミナルの履歴検索（readline と Claude Code）なので取らない。
@@ -223,6 +232,14 @@ export function displayKeys(b: KeyBinding, mac: boolean = isMacClient()): string
   return mac ? b.keys : keyLabel(b.keysOther ?? b.keys, false);
 }
 
+/**
+ * どの画面でも効く打鍵。パレットの行とボタンの吹き出しに出す。
+ * macOS の外で、ターミナルの出ている画面では Ctrl の打鍵が効かない行（ctrlToTerminal）は、terminal の打鍵を出す。
+ */
+export function anywhereKeys(b: KeyBinding, mac: boolean = isMacClient()): string {
+  return !mac && b.ctrlToTerminal && b.terminal ? keyLabel(b.terminal, false) : displayKeys(b, mac);
+}
+
 /** macOS の外で、ターミナルの中で使う打鍵。macOS は同じ ⌘ の打鍵なので null、ターミナルへ渡す行も null。 */
 export function terminalKeysLabel(b: KeyBinding, mac: boolean = isMacClient()): string | null {
   return mac || b.terminal === undefined ? null : keyLabel(b.terminal, false);
@@ -239,6 +256,8 @@ export function ariaKeyShortcuts(id: KeyId, mac: boolean = isMacClient()): strin
   const c = b.chords.find((x) => x.mod && x.shift !== true && x.os === undefined)!;
   const k = ariaKey(c.key);
   if (mac) return `Meta+${k}`;
+  // 会話の画面で Ctrl の打鍵がターミナルへ渡る行は、どこでも効く Control+Shift だけを書く（吹き出しの anywhereKeys と同じ）。
+  if (b.ctrlToTerminal && b.terminal !== undefined) return `Control+Shift+${k}`;
   return b.terminal === undefined ? `Control+${k}` : `Control+${k} Control+Shift+${k}`;
 }
 

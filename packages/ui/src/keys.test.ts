@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { translator } from '@agent-hangar/shared';
-import { ariaKeyShortcuts, bindingLabel, clientPlatform, displayKeys, isMacClient, keyLabel, KEYMAP, matchKey, terminalKeysLabel, type KeyEventLike } from './keys.ts';
+import { anywhereKeys, ariaKeyShortcuts, bindingLabel, clientPlatform, displayKeys, isMacClient, keyLabel, KEYMAP, matchKey, terminalKeysLabel, type KeyEventLike } from './keys.ts';
 import { LINUX_UA, MAC_UA, setClientUserAgent, WINDOWS_UA } from './test/client.ts';
 
 const ja = translator('ja');
@@ -205,6 +205,21 @@ describe('キーの表示', () => {
     expect(bindingLabel(ja, b, false)).toBe('タブを選択（Ctrl+Alt+1–Ctrl+Alt+9 でも）');
     expect(bindingLabel(en, b, false)).toBe('Select tab (also Ctrl+Alt+1–Ctrl+Alt+9)');
   });
+
+  // 会話の画面（ターミナルの出ている画面）の Ctrl+B はターミナルへ送る（Root.tsx、#616）。
+  // 一覧の説明は書き足さない（「キー」と「ターミナル内」の列で区別がつく）。
+  // 吹き出しとパレットには、macOS の外ではどの画面でも効く Ctrl+Shift+B を見せる。macOS の ⌘B はどの画面でも効く。
+  it('サイドバーの開閉は、一覧の説明はそのままで、どこでも効く打鍵として macOS の外では Ctrl+Shift+B を見せる', () => {
+    const b = KEYMAP.find((k) => k.id === 'sidebar.toggle')!;
+    expect(bindingLabel(ja, b, true)).toBe('サイドバーの開閉');
+    expect(bindingLabel(ja, b, false)).toBe('サイドバーの開閉');
+    expect(bindingLabel(en, b, false)).toBe('Toggle sidebar');
+    expect(anywhereKeys(b, true)).toBe('⌘B');
+    expect(anywhereKeys(b, false)).toBe('Ctrl+Shift+B');
+    // ほかの行は表の打鍵のまま。
+    const k = KEYMAP.find((x) => x.id === 'palette.open')!;
+    expect(anywhereKeys(k, false)).toBe(displayKeys(k, false));
+  });
 });
 
 /** Ctrl+Shift の打鍵。key は ⇧ で変わった後の文字、code は物理のキーである（US 配列）。 */
@@ -325,7 +340,9 @@ describe('ターミナルの中の打鍵の表示', () => {
     expect(ariaKeyShortcuts('palette.open', false)).toBe('Control+K Control+Shift+K');
     expect(ariaKeyShortcuts('split.toggle', false)).toBe('Control+\\ Control+Shift+\\');
     expect(ariaKeyShortcuts('transcript.toggle', true)).toBe('Meta+J');
-    expect(ariaKeyShortcuts('sidebar.toggle', false)).toBe('Control+B Control+Shift+B');
+    // 会話の画面の Ctrl+B はターミナルへ送るので、macOS の外のサイドバーの開閉は、どこでも効く Control+Shift+B だけにする（吹き出しと同じ、#616）。
+    expect(ariaKeyShortcuts('sidebar.toggle', false)).toBe('Control+Shift+B');
+    expect(ariaKeyShortcuts('sidebar.toggle', true)).toBe('Meta+B');
   });
 });
 

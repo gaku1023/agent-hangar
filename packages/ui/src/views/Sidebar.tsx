@@ -7,7 +7,7 @@ import { AgentIcon } from './primitives/AgentIcon.tsx';
 import { pillName } from '../lib/pcName.ts';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
-import { ariaKeyShortcuts, keyLabel } from '../keys.ts';
+import { anywhereKeys, ariaKeyShortcuts, KEYMAP } from '../keys.ts';
 import type { MenuAnchor, MenuCloseHow } from './primitives/MenuButton.tsx';
 import { SessionMenuPop } from './sessionMenu.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
@@ -634,6 +634,9 @@ function LiveSection(props: { live: SideLiveProps }) {
   );
 }
 
+/** 開閉の吹き出しに出す打鍵の行。会話の画面でも効く打鍵を出す（keys.ts の anywhereKeys）。 */
+const SIDEBAR_KEYS = KEYMAP.find((k) => k.id === 'sidebar.toggle')!;
+
 /**
  * サイドバー。上から「ホーム」「プロジェクト」の 2 項目、「実行中」の節、下端の「設定」の順に置く（設計書 2.1）。
  * 設定は foot で受け取り、残りの高さの底に寄せる。
@@ -645,7 +648,7 @@ export function Sidebar(props: { nav: NavItem[]; foot: NavItem[]; collapsed: boo
     <a key={n.label} className="nav-item" href={formatRoute(n.route)} aria-current={n.current ? 'page' : undefined} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: n.route }); }}>{NAV_ICON[n.route.name] && <Icon name={NAV_ICON[n.route.name]!} />}<span className="nav-label">{n.label}</span><NavCount n={n.count} waiting={n.waiting} unread={n.unread} /></a>
   );
   const toggle = (
-    <button className="btn sidebar-toggle" aria-controls="sidebar" aria-expanded={!props.collapsed} aria-keyshortcuts={ariaKeyShortcuts('sidebar.toggle')} aria-label={props.collapsed ? t('sidebar.toggle.open') : t('sidebar.toggle.close')} onClick={() => emit({ type: 'sidebar.toggle' })}><Icon name="sidebar" /><span className="toggle-tip" aria-hidden="true">{props.collapsed ? t('sidebar.toggle.tipOpen') : t('sidebar.toggle.tipClose')}<kbd>{keyLabel('⌘B')}</kbd></span></button>
+    <button className="btn sidebar-toggle" aria-controls="sidebar" aria-expanded={!props.collapsed} aria-keyshortcuts={ariaKeyShortcuts('sidebar.toggle')} aria-label={props.collapsed ? t('sidebar.toggle.open') : t('sidebar.toggle.close')} onClick={() => emit({ type: 'sidebar.toggle' })}><Icon name="sidebar" /><span className="toggle-tip" aria-hidden="true">{props.collapsed ? t('sidebar.toggle.tipOpen') : t('sidebar.toggle.tipClose')}<kbd>{anywhereKeys(SIDEBAR_KEYS)}</kbd></span></button>
   );
   const [first, ...rest] = props.nav;
   return (

@@ -193,7 +193,10 @@ describe('presentPalette（打ち始めた後）', () => {
     expect(item(p, 'cmd:new-session').keys).toBe('Ctrl+N');
     expect(item(p, 'cmd:new-scratch').keys).toBe('Ctrl+Alt+N');
     expect(item(p, 'cmd:shortcuts').keys).toBe('? / Ctrl+/');
-    const q = presentPalette(withPalette(), store(), '索引', NOW)!;
+    // 会話の画面の Ctrl+B はターミナルへ送るので、どの画面でも効く Ctrl+Shift+B を見せる（#616）。
+    const side = presentPalette(withPalette(), busy(), 'サイドバー', NOW)!;
+    expect(item(side, 'cmd:sidebar').keys).toBe('Ctrl+Shift+B');
+    const q =presentPalette(withPalette(), store(), '索引', NOW)!;
     expect(q.sections.at(-1)!.items[0]!.keys).toBe('Ctrl+Enter');
   });
   it('最後の行は、ホームの欄へ渡す行。語を ID に持ち、トランスクリプトから検索すると書く', () => {

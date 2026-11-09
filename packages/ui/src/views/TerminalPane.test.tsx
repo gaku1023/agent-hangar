@@ -8,7 +8,7 @@ import { LAYOUT_MOVING_ATTR, LAYOUT_SETTLED } from './primitives/layoutMotion.ts
 type FakeHost = TerminalHost & { mount: ReturnType<typeof vi.fn> };
 
 function fakeHost(): FakeHost {
-  return { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() } as FakeHost;
+  return { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), input: vi.fn(), zoom: vi.fn(), fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() } as FakeHost;
 }
 
 describe('TerminalPane', () => {
@@ -267,7 +267,7 @@ function domHost(): TerminalHost {
         cols: 80, rows: 24, element: null,
         open(el) { el.appendChild(node); t.element = node; },
         write() {}, onData: () => ({ dispose() {} }), onResize: () => ({ dispose() {} }),
-        fit() {}, focus() {}, dispose() {}, setGpu() {}, paste() {}, setFontSize() {},
+        fit() {}, focus() {}, dispose() {}, setGpu() {}, paste() {}, input() {}, setFontSize() {},
       };
       return t;
     },

@@ -25,6 +25,8 @@ function fakeTerm(): FakeTerm {
     onResize(cb) { resize.push(cb); return { dispose() {} }; },
     fit() { t.fitted++; }, focus() { t.focused++; }, dispose() { t.disposed = true; },
     paste(d) { t.pasted.push(d); },
+    // xterm の input と同じく、打ったものとして onData へ流す。
+    input(d) { for (const cb of data) cb(d); },
     setFontSize(px) { t.fontSize = px; },
     setGpu(on) { if (on && !t.opened) t.gpuBeforeOpen = true; t.gpu = on; },
     type(d) { for (const cb of data) cb(d); }, resizeTo(c, r) { for (const cb of resize) cb({ cols: c, rows: r }); },
@@ -166,6 +168,31 @@ describe('createTerminalHost', () => {
     host.paste('t1', '/a.png ');
     host.paste('nope', '/b.png ');
     expect(terms[0]!.pasted).toEqual(['/a.png ']);
+  });
+  it('input は開いてつながっている端末にだけ打鍵として渡してサーバへ送り、送れたかを返す', () => {
+    // 会話の画面の Ctrl+B（Root.tsx）は、この口でターミナルへ ^B を送る。送れなければ開閉に戻す。
+    const { host } = make();
+    const sentData = () => FakeWs.all[0]!.sent.map((m) => JSON.parse(m) as { t: string }).filter((m) => m.t === 'data');
+    host.connect('t1');
+    FakeWs.all[0]!.open();
+    expect(host.input('t1', '\x02')).toBe(false);
+    host.mount('t1', { appendChild: vi.fn() } as unknown as HTMLElement);
+    expect(host.input('t1', '\x02')).toBe(true);
+    expect(host.input('nope', '\x02')).toBe(false);
+    expect(sentData()).toEqual([{ t: 'data', d: '\x02' }]);
+    // 切れている間は渡さない。
+    FakeWs.all[0]!.close(1006);
+    expect(host.input('t1', '\x02')).toBe(false);
+    expect(sentData()).toEqual([{ t: 'data', d: '\x02' }]);
+  });
+  it('input はつなぐ途中の端末には渡さない', () => {
+    const { host, terms } = make();
+    host.connect('t1');
+    host.mount('t1', { appendChild: vi.fn() } as unknown as HTMLElement);
+    const typed = vi.fn();
+    terms[0]!.onData(typed);
+    expect(host.input('t1', '\x02')).toBe(false);
+    expect(typed).not.toHaveBeenCalled();
   });
   it('open の前に来た focus は mount のあとに当てる', () => {
     const { host, terms } = make();
