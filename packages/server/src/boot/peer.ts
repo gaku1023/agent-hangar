@@ -12,13 +12,16 @@ import { PeerApprovals } from '../peer/approvals.ts';
 import { choosePeerRoute, resolvePeer } from '../peer/caller.ts';
 import { PeerLaunchInbox, type PeerAccount } from '../peer/launchInbox.ts';
 import { PeerOutbox, recordPeerRequest } from '../peer/outbox.ts';
+import type { Db } from '../db/open.ts';
+import { inputReadyFromCapture } from '../peer/chat/inputBox.ts';
+import type { PaneOps } from '../tmux/pane.ts';
 import { PeerRelay } from '../peer/relay.ts';
 import { aliveRunForSession } from '../runs/queries.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { SyncEngine } from '../sync/engine.ts';
 import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
-import type { RunsParts } from './runs.ts';
+import { panesOf, type RunsParts } from './runs.ts';
 import type { PeerSshParts } from './peerSsh.ts';
 import type { PeerLink, SyncParts } from './sync.ts';
 
@@ -37,6 +40,26 @@ export type PeerParts = {
 };
 
 /**
+ * 呼び出し元の会話の画面が、hangar の知らせを打ってよい状態か（PeerOutbox の screenReady）。
+ * Claude Code の会話だけ画面を読み、札が出ておらず入力欄が空なら true にする（peer/chat/inputBox.ts の inputReadyFromCapture）。
+ * 入力欄の形を知らないほかのエージェントは true で、登録の状態だけで決める。
+ * この PC で動いていない、画面の裏が無い、画面が読めないときは false で、知らせは捨てずに預かったままにする。
+ */
+export function callerScreenReady(o: { db: Db; deviceId: string; now: () => number; panes: () => Pick<PaneOps, 'captureStyled'> | null }): (sessionId: string) => Promise<boolean> {
+  return async (sessionId) => {
+    const s = o.db.prepare('select provider from sessions where id = ?').get(sessionId) as { provider: string } | undefined;
+    if (!s) return false;
+    if (s.provider !== 'claude-code') return true;
+    const run = aliveRunForSession(o.db, sessionId, o.deviceId, o.now());
+    if (!run || run.deviceId !== o.deviceId) return false;
+    const panes = o.panes();
+    if (!panes?.captureStyled) return false;
+    const cap = await panes.captureStyled(run.tmuxName);
+    return cap !== null && inputReadyFromCapture(cap);
+  };
+}
+
+/**
  * 別の PC からの起動の頼みを受ける持ち場（peer/launchInbox.ts）を組む。
  * 頼みは同期の engine の pull（peerLaunches）で届く。呼び鈴の知らせも pull を前倒しするだけである（boot/mobile.ts）。
  * 同期を設定していない、または Worker の版が足りないあいだは何もしない（canCarryPeer）。
@@ -48,7 +71,11 @@ export type PeerParts = {
  */
 export function bootPeer(p: {
   home: Pick<HomeParts, 'db' | 'device' | 'settings' | 'language'>;
-  runs: { runs: Pick<RunManager, 'start' | 'sendInput' | 'kill' | 'on'>; accounts: RunsParts['accounts']; claudeBin: RunsParts['claudeBin'] };
+  runs: {
+    runs: Pick<RunManager, 'start' | 'sendInput' | 'kill' | 'on'>; accounts: RunsParts['accounts']; claudeBin: RunsParts['claudeBin'];
+    /** 画面の裏（tmux、psmux）。渡せば、知らせを打つ前に呼び出し元の画面を読む（札と打ちかけの間は打たない）。 */
+    mux?: RunsParts['mux'];
+  };
   /** 実行中の一覧と、画面への知らせの口。呼ぶ側が使う。 */
   delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub: { broadcast(ev: Extract<ServerEvent, { type: 'toast' }>): void } };
   sync: Pick<SyncParts, 'engine' | 'peerLink' | 'canCarryPeer'>;
@@ -167,6 +194,10 @@ export function bootPeer(p: {
       await p.runs.runs.sendInput(run.tmuxName, sanitizeInput(text), true);
       return true;
     },
+    // 打つ直前に画面を読み、札（許可や AskUserQuestion）が出ているか入力欄に打ちかけがあれば打たない。
+    // 札の「その他」の自由入力に知らせが入り、利用者の答えの代わりに確定してしまうのを防ぐ。
+    // 入力欄の形を知っているのは Claude Code だけなので、ほかのエージェントは登録の状態だけで決める。
+    ...(p.runs.mux ? { screenReady: callerScreenReady({ db, deviceId, now, panes: () => panesOf(p.runs.mux!()) }) } : {}),
     notify,
     // 画面から人が頼んだ起動の答えは、利用者が待っているので、知らせの出し先の決まりによらず画面の札で出す。
     toast: (level, message) => { p.delivery.hub.broadcast({ type: 'toast', level, message }); },

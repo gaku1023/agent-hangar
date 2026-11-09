@@ -4,9 +4,9 @@ import {
 } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
-import { turnRunning } from '../live/unreadHold.ts';
 import { acceptsResultFrom, closeSpawn, recordSpawn } from '../sessions/spawns.ts';
 import type { Timers } from '../sync/engine.ts';
+import { PEER_QUEUE_EXPIRE_MS, PEER_QUEUE_POLL_MS } from './chat/queue.ts';
 import { expiredText, goneNotice, heldNotice, PEER_TEXT_MAX, refusalText, resultText, screenExpiredText, screenRefusalText, screenStartedText, sshGaveUpText, stopReasonText, type PeerLocalRefusal } from './text.ts';
 
 /**
@@ -20,9 +20,17 @@ import { expiredText, goneNotice, heldNotice, PEER_TEXT_MAX, refusalText, result
  * 流れは、答え（started なら結び付きを残す、断りと期限切れは文にする）、結果（開いて、受けてよいものだけを預かりに積む）、
  * 送り込み（flush）の順である。送り込みは、呼び出し元の状態で分ける（D14）。
  * - 消されている：入力にせず、利用者への通知だけを出す。
- * - ターンの最中（作業中、許可待ち）：預かる。止まったら渡す。notify_user の預かり（live/unreadHold.ts）と同じ見方である。
+ * - ターンの最中（作業中）と、札（許可、AskUserQuestion などの質問）が出ている間：預かる。止まって札が閉じたら渡す。
  * - 止められている（実行中の一覧に居ない）：預かったまま、未読と通知で 1 度だけ知らせる。再開して入力を待つようになったら渡す。
- * - 入力を待っている：預かっている分を 1 通にまとめて入れる。
+ * - 入力を待っている：画面を読み、札が無く入力欄が空なら、預かっている分を 1 通にまとめて入れる。
+ *
+ * 札の間に打つと、札の「その他」の自由入力に入り、利用者の答えの代わりに確定してしまう（v0.20.0-rc で 3 回起きた）。
+ * 登録の状態は遅れることがあるので、打つ直前に画面も読む（screenReady）。
+ * 画面の都合で打てない知らせは捨てずに預かり続け、打てるようになったら渡す。
+ * 画面で止めている間は短い間隔で読み直し、PEER_DELIVERY_NOTICE_MS たっても打てなければ、「質問に答えるか入力欄を空にすると渡す」と 1 度だけ利用者に知らせ、以後は 30 秒ごとの取得と登録の変化で見直す。
+ * 数えるのは、登録では入力を待っているのに画面で止めている間だけで、作業中、札の間、止められている間は数えない（peer/chat/queue.ts の PeerQueue と同じ考え方）。
+ * 預かりは呼び出し元ごとに PEER_DELIVERY_MAX_PER_CALLER 件までで、超えた古いものは、外したと利用者に知らせてから預かりから外し、ログに 1 行ずつ残す。
+ * 画面を読んでから打つまでの間（capture と inject の間）に人が打ち始める余地は残る。仕様として受け入れる（PeerQueue も同じ）。
  */
 
 /** 取得の間隔。呼び鈴が無くても、頼みと結果はこの間隔で届く。 */
@@ -34,6 +42,14 @@ const OUTBOX_PAGES = 10;
 /** 1 件の頼みで、1 回の取得に続けて読む結果の頁の上限。 */
 const RESULT_PAGES = 50;
 const CURSOR_KEY = 'peerOutboxSince';
+/** 入力を待っている呼び出し元に、画面の都合（打ちかけ、登録に出ない札）で打てないまま、この長さがたったら利用者に知らせる。 */
+export const PEER_DELIVERY_NOTICE_MS = PEER_QUEUE_EXPIRE_MS;
+/** 呼び出し元 1 つに預かれる知らせの件数。超えた古いものは、利用者への知らせに替えて預かりから外す。 */
+export const PEER_DELIVERY_MAX_PER_CALLER = 50;
+/** 画面の都合で打てなかったとき、読み直すまでの間隔。 */
+export const PEER_DELIVERY_RECHECK_MS = PEER_QUEUE_POLL_MS;
+/** 預かりから外した知らせをログに残すときの長さ。 */
+const DROP_LOG_CHARS = 300;
 
 /** 画面から人が頼んだ起動の呼び出し元。会話が無いので空で、答えは画面の札で知らせ、結び付きも結果の預かりも作らない。 */
 export const SCREEN_CALLER = '';
@@ -84,6 +100,11 @@ export type PeerOutboxDeps = {
    */
   inject: (sessionId: string, text: string) => Promise<boolean>;
   /**
+   * 呼び出し元の画面が、知らせを打ってよい状態か（札が出ていない、かつ入力欄が空。peer/chat/inputBox.ts の inputReadyFromCapture）。
+   * 読めなければ false を返すか投げる（打たずに預かる）。inject の直前に呼ぶ。渡さなければ画面は読まず、登録の状態だけで決める。
+   */
+  screenReady?: (sessionId: string) => Promise<boolean>;
+  /**
    * 利用者への知らせ。sessionId があれば、その会話の未読と OS・スマホの通知（ターンの終わりを待たない ask）にする。
    * null なら、会話が消えているので、OS とスマホの通知だけにする。そのとき anchorSessionId は、通知が開く先（起こした相手の会話）で、無ければ null である。
    */
@@ -96,9 +117,13 @@ export type PeerOutboxDeps = {
   now?: () => number;
   timers?: Timers;
   intervalMs?: number;
+  /** 画面の都合で打てなかったときの読み直しの間隔。既定は PEER_DELIVERY_RECHECK_MS。 */
+  recheckMs?: number;
+  /** 画面の都合で打てないまま、利用者に知らせるまでの長さ。既定は PEER_DELIVERY_NOTICE_MS。 */
+  noticeMs?: number;
 };
 
-type Delivery = { id: number; request_id: string; seq: number; caller_session_id: string; text: string; notice_held: string; notice_gone: string; notified: number };
+type Delivery = { id: number; request_id: string; seq: number; caller_session_id: string; text: string; notice_held: string; notice_gone: string; notified: number; created_at: number };
 
 export class PeerOutbox {
   private readonly language: GetLanguage;
@@ -106,6 +131,10 @@ export class PeerOutbox {
   private readonly timers: Timers;
   private chain: Promise<void> = Promise.resolve();
   private queuedSync: Promise<void> | null = null;
+  /** 呼び出し元ごとの、入力を待っているのに画面の都合で打てなくなった時刻。打てたか、ほかの状態になれば消す。メモリだけに持つ。 */
+  private readonly blockedSince = new Map<string, number>();
+  /** 画面の都合で打てなかったときの、読み直しの時計。 */
+  private recheck: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly deps: PeerOutboxDeps) {
     this.language = deps.language ?? defaultLanguage;
@@ -116,7 +145,11 @@ export class PeerOutbox {
   /** 30 秒ごとの取得を始める。戻り値を呼ぶと止める。 */
   start(): () => void {
     const h = this.timers.setInterval(() => { void this.tick(); }, this.deps.intervalMs ?? PEER_TICK_MS);
-    return () => { this.timers.clearInterval(h); };
+    return () => {
+      this.timers.clearInterval(h);
+      if (this.recheck !== null) this.timers.clearTimeout(this.recheck);
+      this.recheck = null;
+    };
   }
 
   /** 取得と送り込みを 1 回。どの道も投げない。 */
@@ -389,36 +422,109 @@ export class PeerOutbox {
 
   // ---- 送り込み ----
 
-  /** 呼び出し元の会話の状態。gone は消されている、running はターンの途中、stopped は実行中の一覧に居ない、ready は入力を待っている。 */
+  /**
+   * 呼び出し元の会話の状態。gone は消されている、running はターンの途中か札が出ている、stopped は実行中の一覧に居ない、ready は入力を待っている。
+   * 札は、許可に限らず質問（AskUserQuestion）も名前の無いものも、登録の waiting をすべて running に数える。
+   * notify_user の預かり（live/unreadHold.ts の turnRunning）は質問を返答の終わりとみなすが、入力を打つこちらは札の間は打てないので、見方を分ける。
+   */
   private callerState(sessionId: string): 'gone' | 'running' | 'stopped' | 'ready' {
     const r = this.deps.db.prepare('select provider, provider_session_id, deleted_at from sessions where id = ?').get(sessionId) as { provider: string; provider_session_id: string; deleted_at: number | null } | undefined;
     if (!r || r.deleted_at !== null) return 'gone';
     const l = this.deps.live().find((x) => x.sessionId === r.provider_session_id && (x.agent ?? 'claude-code') === r.provider);
     if (!l) return 'stopped';
-    return turnRunning(l) ? 'running' : 'ready';
+    return l.status === 'idle' ? 'ready' : 'running';
+  }
+
+  /** 画面が打ってよい状態か。口が無ければ見ない（true）。読めなければ false（打たずに預かる）。 */
+  private async screenOk(caller: string): Promise<boolean> {
+    if (!this.deps.screenReady) return true;
+    try {
+      return (await this.deps.screenReady(caller)) === true;
+    } catch (e) {
+      console.warn('[peer] could not read the caller screen; holding the notice', e instanceof Error ? e.constructor.name : typeof e);
+      return false;
+    }
+  }
+
+  /**
+   * 預かっている知らせを、利用者に 1 度だけ知らせる（未読と OS・スマホの通知）。知らせ済みの行には何もしない。
+   * stopped は積んだときの文（再開で渡す）、blocked は札か打ちかけで止めて長引いたときの文にする。
+   */
+  private noteHeld(caller: string, d: Delivery, scene: 'stopped' | 'blocked'): void {
+    if (d.notified) return;
+    this.deps.db.prepare('update peer_deliveries set notified = 1 where id = ?').run(d.id);
+    d.notified = 1;
+    this.safeNotify(caller, scene === 'stopped' ? d.notice_held : this.sceneNotice(d, scene));
+  }
+
+  /**
+   * 積んだ後の場面の文。報告（seq が 1 以上）は頼みの記録の会話の名前で、起動の答え（seq 0）は名前なしで書く。
+   * 名前は答えのときのもので、報告の時点の名前とは違うことがある。
+   */
+  private sceneNotice(d: Delivery, scene: 'blocked' | 'dropped'): string {
+    const r = this.deps.db.prepare('select to_device, title, child_session_id from peer_outbox where request_id = ?').get(d.request_id) as { to_device: string; title: string | null; child_session_id: string | null } | undefined;
+    const device = r ? this.nameOf(r.to_device) : '?';
+    const title = d.seq > 0 ? (r?.title ?? r?.child_session_id ?? null) : null;
+    return heldNotice(this.language(), { device, title, scene });
+  }
+
+  /** 上限を超えた古い知らせを、外したと利用者に知らせてから預かりから外す。外した知らせは、ログに 1 行ずつ残す。 */
+  private overflow(caller: string, rows: Delivery[]): void {
+    const done = this.deps.db.prepare('update peer_deliveries set delivered_at = ? where id = ?');
+    for (const d of rows) {
+      this.safeNotify(caller, this.sceneNotice(d, 'dropped'));
+      done.run(this.now(), d.id);
+      const head = [...d.text.replace(/\s+/g, ' ')].slice(0, DROP_LOG_CHARS).join('');
+      console.warn(`[peer] held notices over the limit; notified the user instead of injecting, session ${d.caller_session_id}, request ${d.request_id} seq ${d.seq}: ${head}`);
+    }
+  }
+
+  /** 画面の都合で打てなかったので、少し後に読み直す。1 本だけ持つ。 */
+  private scheduleRecheck(): void {
+    if (this.recheck !== null) return;
+    const h = this.timers.setTimeout(() => {
+      this.recheck = null;
+      this.flush().catch(() => {});
+    }, this.deps.recheckMs ?? PEER_DELIVERY_RECHECK_MS);
+    (h as { unref?: () => void } | undefined)?.unref?.();
+    this.recheck = h;
   }
 
   private async flushOnce(): Promise<void> {
     const db = this.deps.db;
-    const open = db.prepare('select id, request_id, seq, caller_session_id, text, notice_held, notice_gone, notified from peer_deliveries where delivered_at is null order by id').all() as Delivery[];
+    const open = db.prepare('select id, request_id, seq, caller_session_id, text, notice_held, notice_gone, notified, created_at from peer_deliveries where delivered_at is null order by id').all() as Delivery[];
     if (open.length === 0) return;
     const by = new Map<string, Delivery[]>();
     for (const d of open) by.set(d.caller_session_id, [...(by.get(d.caller_session_id) ?? []), d]);
     const done = db.prepare('update peer_deliveries set delivered_at = ? where id = ?');
-    for (const [caller, rows] of by) {
+    for (const [caller, all] of by) {
       const state = this.callerState(caller);
+      if (state !== 'ready') this.blockedSince.delete(caller);
+      let rows = all;
+      if (state !== 'gone' && rows.length > PEER_DELIVERY_MAX_PER_CALLER) {
+        this.overflow(caller, rows.slice(0, rows.length - PEER_DELIVERY_MAX_PER_CALLER));
+        rows = rows.slice(rows.length - PEER_DELIVERY_MAX_PER_CALLER);
+      }
       if (state === 'gone') {
         for (const d of rows) {
           done.run(this.now(), d.id);
           this.safeNotify(null, d.notice_gone, this.anchorOf(d.request_id));
         }
       } else if (state === 'stopped') {
-        for (const d of rows) {
-          if (d.notified) continue;
-          db.prepare('update peer_deliveries set notified = 1 where id = ?').run(d.id);
-          this.safeNotify(caller, d.notice_held);
-        }
+        for (const d of rows) this.noteHeld(caller, d, 'stopped');
       } else if (state === 'ready') {
+        // 札が出ているか打ちかけがあれば打たない。捨てずに預かり、登録では入力を待っている間だけ数えて、長引いたら利用者に 1 度だけ知らせる。
+        if (!(await this.screenOk(caller))) {
+          const now = this.now();
+          const since = this.blockedSince.get(caller) ?? now;
+          this.blockedSince.set(caller, since);
+          const noticeMs = this.deps.noticeMs ?? PEER_DELIVERY_NOTICE_MS;
+          for (const d of rows) if (now - Math.max(since, d.created_at) >= noticeMs) this.noteHeld(caller, d, 'blocked');
+          // 知らせ終えたら短い間隔の読み直しはやめ、30 秒ごとの取得と登録の変化に任せる（打ちかけのまま離席した画面を読み続けない）。
+          if (now - since < noticeMs) this.scheduleRecheck();
+          continue;
+        }
+        this.blockedSince.delete(caller);
         // 1 通に収まる分だけまとめる。残りは次の入力待ちで渡す。
         const batch: Delivery[] = [];
         let len = 0;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inputEmptyFromCapture } from './inputBox.ts';
+import { inputEmptyFromCapture, inputReadyFromCapture } from './inputBox.ts';
 import { MAC_DRAFT, MAC_GHOST, SYNTHETIC_FAINT_CHIP, WIN_CHIP_IMAGE, WIN_CHIP_PASTE, WIN_BUSY_WITH_DRAFT, WIN_DRAFT, WIN_EMPTY_AFTER_TURN, WIN_GHOST_FRESH, WIN_MULTILINE, WIN_NAMED_DRAFT, WIN_NAMED_EMPTY } from './inputBox.fixtures.ts';
 
 const RULE = '─'.repeat(40);
@@ -77,5 +77,35 @@ describe('inputEmptyFromCapture（作り込んだ場面）', () => {
   it('箱より上に区切り線があっても、最後の 2 本を箱とする', () => {
     expect(inputEmptyFromCapture(`${RULE}\nsome text\n${RULE}\n❯ typed\n${RULE}\nfooter`)).toBe(false);
     expect(inputEmptyFromCapture(`${RULE}\nsome text\n${RULE}\n❯\n${RULE}\nfooter`)).toBe(true);
+  });
+});
+
+describe('inputReadyFromCapture（hangar の知らせを打ってよい画面か）', () => {
+  /** AskUserQuestion の札。「その他」の自由入力の行がある。 */
+  const QUESTION = [RULE, ' ☐ 向き', ' どちらにしますか', '❯ 1. 案 A', '  2. 案 B', '  3. Type something.', RULE, '  4. Chat about this', 'Enter to select · ↑/↓ to navigate · Esc to cancel'].join('\n');
+
+  it('札が無く、入力欄が空なら打ってよい', () => {
+    expect(inputReadyFromCapture(WIN_EMPTY_AFTER_TURN)).toBe(true);
+    expect(inputReadyFromCapture(MAC_GHOST)).toBe(true);
+  });
+
+  it('入力欄に打ちかけがあれば打たない', () => {
+    expect(inputReadyFromCapture(WIN_DRAFT)).toBe(false);
+    expect(inputReadyFromCapture(MAC_DRAFT)).toBe(false);
+  });
+
+  it('質問の札が出ていれば打たない', () => {
+    expect(inputReadyFromCapture(QUESTION)).toBe(false);
+  });
+
+  it('札の下に空の入力欄が見えていても、札が出ていれば打たない', () => {
+    const screen = [' Do you want to proceed?', '❯ 1. Yes', '  2. No', ' Esc to cancel · Tab to amend', RULE, '❯', RULE, 'footer'].join('\n');
+    expect(inputEmptyFromCapture(screen)).toBe(true);
+    expect(inputReadyFromCapture(screen)).toBe(false);
+  });
+
+  it('色付きの画面でも札を読む', () => {
+    const styled = QUESTION.split('\n').map((l) => `\x1b[0m${l}\x1b[0m`).join('\n');
+    expect(inputReadyFromCapture(styled)).toBe(false);
   });
 });

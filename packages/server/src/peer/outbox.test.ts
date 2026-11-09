@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   deriveEpochKeys, PEER_LAUNCH_TTL_MS, randomEpochKey, sealPeerAnswer, sealPeerResult,
   type LiveSessionDto, type PeerKeyring, type PeerLaunchApi, type PeerLaunchResult, type PeerRoute,
@@ -8,7 +8,8 @@ import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { acceptsResultFrom, forgetSpawn, getSpawn } from '../sessions/spawns.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
-import { getPeerRequest, PeerOutbox, recordPeerRequest, SCREEN_CALLER } from './outbox.ts';
+import { heldNotice } from './text.ts';
+import { getPeerRequest, PEER_DELIVERY_MAX_PER_CALLER, PEER_DELIVERY_NOTICE_MS, PeerOutbox, recordPeerRequest, SCREEN_CALLER } from './outbox.ts';
 
 const ME = 'pc-a';
 const PEER = 'pc-b';
@@ -25,6 +26,10 @@ let live: LiveSessionDto[];
 let injected: { id: string; text: string }[];
 let notices: { id: string | null; text: string; anchor: string | null }[];
 let injectOk: boolean;
+/** 呼び出し元の画面が、知らせを打ってよい状態か（札が無く、入力欄が空）。 */
+let screen: boolean;
+/** 預かりの見直しの時計に積まれた処理（試験の中では自分で回す）。 */
+let later: (() => void)[];
 let caller: string;
 let ob: PeerOutbox;
 let api: PeerLaunchApi;
@@ -67,6 +72,8 @@ beforeEach(async () => {
   injected = [];
   notices = [];
   injectOk = true;
+  screen = true;
+  later = [];
   api = a.peerLaunch;
   ob = new PeerOutbox({
     db, deviceId: ME, api: () => api, ring: () => ring, live: () => live,
@@ -74,6 +81,12 @@ beforeEach(async () => {
     notify: (id, text, anchor) => { notices.push({ id, text, anchor: anchor ?? null }); },
     deviceName: (id) => (id === PEER ? 'Mac' : null),
     now: () => clock.t,
+    screenReady: async () => screen,
+    timers: {
+      setTimeout: ((fn: () => void) => { later.push(fn); return later.length as never; }) as unknown as typeof setTimeout,
+      clearTimeout: (() => {}) as unknown as typeof clearTimeout,
+      setInterval, clearInterval,
+    },
   });
 });
 afterEach(() => { db.close(); });
@@ -289,6 +302,199 @@ describe('PeerOutbox の結果の送り込み（D14）', () => {
   });
 });
 
+describe('PeerOutbox の札と打ちかけ（知らせが利用者の答えを奪わない）', () => {
+  beforeEach(async () => {
+    await place();
+    await started();
+  });
+
+  it('呼び出し元が質問の札を出している（登録の waiting）間は打たず、閉じたら 1 回だけ打つ', async () => {
+    live = [entry('u1', 'waiting', { waitingFor: 'question' })];
+    await result(1);
+    await ob.sync();
+    await ob.flush();
+    expect(injected).toEqual([]);
+    // 登録に名前の無い札（dialog open など）も同じ。
+    live = [entry('u1', 'waiting', { waitingFor: 'other' })];
+    await ob.flush();
+    expect(injected).toEqual([]);
+    live = [entry('u1', 'idle')];
+    await ob.flush();
+    await ob.flush();
+    expect(injected).toHaveLength(1);
+  });
+
+  it('登録が idle でも、画面に札が出ているか入力欄に打ちかけがあれば打たない。消えたら 1 回だけ打つ', async () => {
+    screen = false;
+    await result(1);
+    await ob.sync();
+    await ob.flush();
+    expect(injected).toEqual([]);
+    // 打てない間は、短い間隔で見直す。
+    expect(later.length).toBeGreaterThan(0);
+    screen = true;
+    later.shift()!();
+    await vi_waitFor(() => injected.length === 1);
+    await ob.flush();
+    expect(injected).toHaveLength(1);
+  });
+
+  it('預かった複数の知らせは、届いた順のまま 1 通で入る', async () => {
+    screen = false;
+    await result(1, { lastReply: '一つ目' });
+    await ob.sync();
+    await result(2, { lastReply: '二つ目' });
+    await ob.sync();
+    await result(3, { lastReply: '三つ目' });
+    await ob.sync();
+    expect(injected).toEqual([]);
+    screen = true;
+    await ob.flush();
+    expect(injected).toHaveLength(1);
+    const t = injected[0]!.text;
+    expect(t.indexOf('一つ目')).toBeLessThan(t.indexOf('二つ目'));
+    expect(t.indexOf('二つ目')).toBeLessThan(t.indexOf('三つ目'));
+  });
+
+  it('画面が読めなければ（投げたら）打たず、時間がたっても捨てない', async () => {
+    let throws = true;
+    const n: string[] = [];
+    const o = new PeerOutbox({
+      db, deviceId: ME, api: () => api, ring: () => ring, live: () => live, now: () => clock.t,
+      inject: async (id, text) => { injected.push({ id, text }); return true; },
+      notify: (_id, text) => { n.push(text); },
+      screenReady: async () => { if (throws) throw new Error('no pane'); return true; },
+      timers: { setTimeout: (() => 0) as unknown as typeof setTimeout, clearTimeout, setInterval, clearInterval },
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await result(1);
+      await o.sync();
+      clock.t += PEER_DELIVERY_NOTICE_MS * 5;
+      await o.flush();
+      expect(injected).toEqual([]);
+      expect(n).toHaveLength(1);
+      throws = false;
+      await o.flush();
+      expect(injected).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('打てないまま長引いても捨てず、利用者に 1 度だけ知らせ、打てるようになったら渡す。作業中と札の間は数えない', async () => {
+    screen = false;
+    await result(1, { lastReply: '一つ目' });
+    await ob.sync();
+    // 札が出ている間は数えない。
+    live = [entry('u1', 'waiting', { waitingFor: 'question' })];
+    clock.t += PEER_DELIVERY_NOTICE_MS * 3;
+    await ob.flush();
+    live = [entry('u1', 'idle')];
+    await ob.flush();
+    clock.t += PEER_DELIVERY_NOTICE_MS - 1;
+    await ob.flush();
+    expect(notices).toEqual([]);
+    clock.t += 1;
+    await ob.flush();
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.id).toBe(caller);
+    expect(notices[0]!.text).toBe('Mac の「worker」からの報告を預かっています。質問に答えるか入力欄を空にすると渡します。');
+    // 知らせたあとは短い間隔の読み直しをやめ、繰り返し知らせない。
+    const queued = later.length;
+    clock.t += PEER_DELIVERY_NOTICE_MS * 10;
+    await ob.flush();
+    expect(later.length).toBe(queued);
+    expect(notices).toHaveLength(1);
+    expect(injected).toEqual([]);
+    screen = true;
+    await ob.flush();
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.text).toContain('一つ目');
+  });
+
+  it('預かりが上限を超えたら、古いものは利用者に知らせてから外し、ログに残す。止められている間も同じ', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      live = [];
+      const n = PEER_DELIVERY_MAX_PER_CALLER + 2;
+      for (let i = 1; i <= n; i++) await result(i, { lastReply: `返答-${i}-終` });
+      await ob.sync();
+      expect(warn).toHaveBeenCalledTimes(2);
+      // 止められている間は 1 件ずつ知らせる。外した 2 件は、外したと知らせる。
+      expect(notices).toHaveLength(n);
+      const dropped = notices.filter((x) => x.text === '預かりが上限を超えたため、Mac の「worker」からの古い報告を取り除きました。');
+      expect(dropped).toHaveLength(2);
+      expect(notices.filter((x) => x.text.includes('再開すると渡します'))).toHaveLength(n - 2);
+      live = [entry('u1', 'idle')];
+      for (let i = 0; i < 20; i++) await ob.flush();
+      const all = injected.map((x) => x.text).join('\n');
+      expect(all).not.toContain('返答-1-終');
+      expect(all).not.toContain('返答-2-終');
+      expect(all).toContain('返答-3-終');
+      expect(all).toContain(`返答-${n}-終`);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('画面で止めている間だけ読み直しの時計を積み、預かりが空になったら積まない', async () => {
+    screen = false;
+    await result(1);
+    await ob.sync();
+    expect(later).toHaveLength(1);
+    // 時計は 1 本だけ持つ。
+    await ob.flush();
+    expect(later).toHaveLength(1);
+    screen = true;
+    later.shift()!();
+    await vi_waitFor(() => injected.length === 1);
+    await ob.flush();
+    expect(later).toEqual([]);
+  });
+
+  it('再起動を挟んでも、DB に預かった知らせは新しい送り込みから渡る', async () => {
+    screen = false;
+    await result(1, { lastReply: '再起動前' });
+    await ob.sync();
+    expect(injected).toEqual([]);
+    const next = new PeerOutbox({
+      db, deviceId: ME, api: () => api, ring: () => ring, live: () => live, now: () => clock.t,
+      inject: async (id, text) => { injected.push({ id, text }); return true; },
+      notify: () => {},
+      screenReady: async () => true,
+      timers: { setTimeout: (() => 0) as unknown as typeof setTimeout, clearTimeout, setInterval, clearInterval },
+    });
+    await next.flush();
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.text).toContain('再起動前');
+  });
+
+  it('呼び出し元ごとに独立して止める。一方が札の間も、もう一方には渡る', async () => {
+    const other = ensureSession(db, 'u2', '/w', ME);
+    live = [entry('u1', 'idle'), entry('u2', 'idle')];
+    const blocked = new Set([caller]);
+    const o = new PeerOutbox({
+      db, deviceId: ME, api: () => api, ring: () => ring, live: () => live, now: () => clock.t,
+      inject: async (id, text) => { injected.push({ id, text }); return true; },
+      notify: () => {},
+      screenReady: async (id) => !blocked.has(id),
+      timers: { setTimeout: (() => 0) as unknown as typeof setTimeout, clearTimeout, setInterval, clearInterval },
+    });
+    const id2 = 'req-2';
+    await a.peerLaunch.put({ id: id2, to: PEER, sealed: SEALED });
+    recordPeerRequest(db, { requestId: id2, to: PEER, callerSessionId: other, now: clock.t });
+    await started('child-2', id2);
+    await result(1);
+    await result(1, { sessionId: 'child-2', lastReply: '二つ目の会話' }, { ...route, requestId: id2 });
+    await o.sync();
+    expect(injected.map((x) => x.id)).toEqual([other]);
+    blocked.clear();
+    await o.flush();
+    expect(injected.map((x) => x.id)).toEqual([other, caller]);
+  });
+});
+
 describe('PeerOutbox の終わりと二重の防ぎ', () => {
   beforeEach(async () => {
     await place();
@@ -399,6 +605,14 @@ describe('PeerOutbox の終わりと二重の防ぎ', () => {
       live = [entry('u1', 'idle')];
       await ob.flush();
       expect(injected).toHaveLength(1);
+    });
+    it('札か打ちかけで止めて長引いたら、起動の答えの文で知らせる', async () => {
+      screen = false;
+      await ob.refuseLocal({ requestId: 'ap-1', to: PEER, callerSessionId: caller, reason: 'approval-denied' });
+      clock.t += PEER_DELIVERY_NOTICE_MS;
+      await ob.flush();
+      expect(notices.map((x) => x.text)).toEqual(['Mac への起動のリクエストの答えを預かっています。質問に答えるか入力欄を空にすると渡します。']);
+      expect(heldNotice('en', { device: 'Mac', title: null, scene: 'dropped' })).toBe('Too many held notices: dropped an old answer to the launch request on Mac.');
     });
   });
 });

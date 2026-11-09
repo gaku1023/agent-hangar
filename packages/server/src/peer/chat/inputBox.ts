@@ -15,6 +15,8 @@
  * 迷ったら空でないと答える。誤って渡すより、渡さずに待つほうが安全だからである。
  */
 
+import { parseDialog } from './answer.ts';
+
 /**
  * 区切り線。名前の付いた会話では、箱の上の線の右寄りに名前が入る（`──── 名前 ─`）。
  * 名前は空白で挟まれ、線は ─ で終わる。
@@ -83,4 +85,17 @@ export function inputEmptyFromCapture(capture: string): boolean {
     }
   }
   return true;
+}
+
+/**
+ * hangar が会話へ知らせ（別の PC の起動の答えや、子の会話の報告）を打ってよい画面か。capture は capture-pane -p -e の出力。
+ *
+ * 札（許可や AskUserQuestion）が出ている間に打つと、札の「その他」の自由入力に入り、利用者の答えの代わりに確定してしまう。
+ * だから、札が読めず（parseDialog が null）、かつ入力欄が空（inputEmptyFromCapture）のときだけ true にする。
+ * 札の判定は、ほかの PC からの答え（answer.ts）と同じ parseDialog を使い、規則を二重に持たない。
+ * 迷ったら false にする。打たずに待つほうが安全だからである。
+ */
+export function inputReadyFromCapture(capture: string): boolean {
+  if (!inputEmptyFromCapture(capture)) return false;
+  return parseDialog(capture.replace(/\r\n/g, '\n').split('\n').map(plain).join('\n')) === null;
 }
