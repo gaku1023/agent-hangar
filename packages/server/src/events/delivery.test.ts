@@ -42,10 +42,10 @@ afterEach(() => {
 const tokenOf = () => fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
 const settle = () => new Promise((r) => setTimeout(r, SETTLE_MS));
 
-function writeTranscript(cwd: string, sessionId: string, text: string): void {
+function writeTranscript(cwd: string, sessionId: string, text: string, timestamp = '2026-09-01T10:00:00.000Z'): void {
   const dir = path.join(claudeDir, 'projects', mangleCwd(cwd));
   fs.mkdirSync(dir, { recursive: true });
-  const rec = { type: 'user', message: { role: 'user', content: text }, uuid: 'u1', parentUuid: null, isSidechain: false, timestamp: '2026-09-01T10:00:00.000Z', cwd, sessionId };
+  const rec = { type: 'user', message: { role: 'user', content: text }, uuid: 'u1', parentUuid: null, isSidechain: false, timestamp, cwd, sessionId };
   fs.writeFileSync(path.join(dir, `${sessionId}.jsonl`), JSON.stringify(rec) + '\n');
 }
 
@@ -115,7 +115,9 @@ describe('届くイベントの数と中身', () => {
     const t = await boot();
     try {
       const uuid = 'bbbbbbbb-0000-4000-8000-000000000002';
-      writeTranscript(t.dir, uuid, 'second');
+      // 前のセッションより新しい時刻にして、プロジェクトの最後の動きを進める。
+      // 中身が変わらない project.upsert は送らない（ws/hub.ts）ので、同じ時刻だと 1 つも届かない。
+      writeTranscript(t.dir, uuid, 'second', '2026-09-02T10:00:00.000Z');
       const ev = await t.c.waitFor((e): e is Upsert => e.type === 'session.upsert' && e.session.providerSessionId === uuid);
       await settle();
       const all = t.since();
