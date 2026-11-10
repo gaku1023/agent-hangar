@@ -14,7 +14,19 @@ import { MessageError, msg } from '../i18n/message.ts';
  * untilExit は、子が終わったら返す指定である。子が起こして残すもの（start が開いた窓など）が出力の管を握っていても待たない。
  */
 export type ExecOpts = { timeoutMs?: number; shell?: boolean; verbatim?: boolean; untilExit?: boolean };
-export type Exec = (cmd: string, args: string[], opts?: ExecOpts) => Promise<{ code: number; stdout: string; stderr: string }>;
+/**
+ * spawnError は、子を起こせなかったとき（無い、OS の方針に止められたなど）の理由（ENOENT、EACCES、UNKNOWN など）である。
+ * 起きた子が 0 以外で終わっただけのときは付かない。
+ */
+export type ExecResult = { code: number; stdout: string; stderr: string; spawnError?: string };
+export type Exec = (cmd: string, args: string[], opts?: ExecOpts) => Promise<ExecResult>;
+
+/** 子を起こせなかった誤りなら、その理由を返す。Node は起こせなかった誤りに syscall（spawn …）と文字の code を付ける。 */
+function spawnErrorOf(err: unknown): string | undefined {
+  const e = err as { code?: unknown; syscall?: unknown } | null;
+  if (!e || typeof e.code !== 'string' || typeof e.syscall !== 'string' || !e.syscall.startsWith('spawn')) return undefined;
+  return e.code;
+}
 
 const EXEC_TIMEOUT_MS = 30_000;
 
@@ -24,7 +36,8 @@ export const execFile: Exec = (cmd, args, opts) => {
   return new Promise((resolve) => {
     execFileCb(cmd, args, { timeout: opts?.timeoutMs ?? EXEC_TIMEOUT_MS, encoding: 'utf8', shell: opts?.shell ?? false, windowsHide: true, windowsVerbatimArguments: opts?.verbatim ?? false }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) : 0;
-      resolve({ code, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') });
+      const spawnError = spawnErrorOf(err);
+      resolve({ code, stdout: String(stdout ?? ''), stderr: String(stderr ?? ''), ...(spawnError ? { spawnError } : {}) });
     });
   });
 };
@@ -41,26 +54,26 @@ const EXIT_DRAIN_MS = 100;
  * 管を握る孫がいなければ close が先に来るので、出力は execFile と同じに読み切る。
  * 返したら管を閉じ、サーバの側に読み口を残さない。
  */
-function execUntilExit(cmd: string, args: string[], opts: ExecOpts): Promise<{ code: number; stdout: string; stderr: string }> {
+function execUntilExit(cmd: string, args: string[], opts: ExecOpts): Promise<ExecResult> {
   return new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
     let done = false;
     let drain: ReturnType<typeof setTimeout> | undefined;
     const child = spawn(cmd, args, { shell: opts.shell ?? false, windowsHide: true, windowsVerbatimArguments: opts.verbatim ?? false, stdio: ['ignore', 'pipe', 'pipe'] });
-    const finish = (code: number) => {
+    const finish = (code: number, spawnError?: string) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
       clearTimeout(drain);
       child.stdout?.destroy();
       child.stderr?.destroy();
-      resolve({ code, stdout, stderr });
+      resolve({ code, stdout, stderr, ...(spawnError ? { spawnError } : {}) });
     };
     const timer = setTimeout(() => { child.kill(); finish(1); }, opts.timeoutMs ?? EXEC_TIMEOUT_MS);
     child.stdout?.setEncoding('utf8').on('data', (d: string) => { stdout += d; });
     child.stderr?.setEncoding('utf8').on('data', (d: string) => { stderr += d; });
-    child.on('error', () => finish(1));
+    child.on('error', (e) => finish(1, spawnErrorOf(e)));
     child.on('exit', (code) => { drain = setTimeout(() => finish(code ?? 1), EXIT_DRAIN_MS); });
     child.on('close', (code) => finish(code ?? 1));
   });

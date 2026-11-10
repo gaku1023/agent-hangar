@@ -54,6 +54,52 @@ describe('breakawayExec', () => {
     await breakawayExec(inner, launcher, { comspec: 'C:\\Windows\\system32\\cmd.exe' })('"C:\\VS Code\\bin\\code.cmd"', ['"D:\\a b"'], { shell: true });
     expect(seen[0]!.args).toEqual([BREAKAWAY_FLAG, 'C:\\Windows\\system32\\cmd.exe', '/d /s /c ""C:\\VS Code\\bin\\code.cmd" "D:\\a b""']);
   });
+
+  // Smart App Control は署名の無い殻を起こさせないことがある（#615）。起こし役を起こせなければ、ジョブの中でも開けるよう直に起こす。
+  // 止められるたびに Windows セキュリティの通知が出るので、一度起こせなかった起こし役は、それ以降は試さない。
+  it('起こし役を起こせなかったら、同じ呼び出しを直に起こし、それ以降は起こし役を試さない', async () => {
+    const calls: { cmd: string; args: string[]; opts: unknown }[] = [];
+    const blocked: Exec = async (cmd, args, opts) => {
+      calls.push({ cmd, args, opts });
+      return cmd === launcher ? { code: 1, stdout: '', stderr: '', spawnError: 'UNKNOWN' } : { code: 0, stdout: 'ok', stderr: '' };
+    };
+    const failed: string[] = [];
+    const exec = breakawayExec(blocked, launcher, { onLauncherFailed: (code) => failed.push(code) });
+    expect(await exec('wt.exe', ['-w', '0'], { timeoutMs: 5000, untilExit: true })).toEqual({ code: 0, stdout: 'ok', stderr: '' });
+    expect(await exec('code.cmd', ['D:\\a'], { shell: true })).toEqual({ code: 0, stdout: 'ok', stderr: '' });
+    expect(calls).toEqual([
+      { cmd: launcher, args: [BREAKAWAY_FLAG, 'wt.exe', '-w 0'], opts: { timeoutMs: 5000, untilExit: true } },
+      { cmd: 'wt.exe', args: ['-w', '0'], opts: { timeoutMs: 5000, untilExit: true } },
+      { cmd: 'code.cmd', args: ['D:\\a'], opts: { shell: true } },
+    ]);
+    expect(failed).toEqual(['UNKNOWN']);
+  });
+
+  it('起こし役が起きて子が失敗しただけなら、直に起こし直さない', async () => {
+    const calls: string[] = [];
+    const childFails: Exec = async (cmd) => { calls.push(cmd); return { code: 1, stdout: '', stderr: 'no' }; };
+    const exec = breakawayExec(childFails, launcher);
+    expect(await exec('wt.exe', [])).toEqual({ code: 1, stdout: '', stderr: 'no' });
+    expect(await exec('wt.exe', [])).toEqual({ code: 1, stdout: '', stderr: 'no' });
+    expect(calls).toEqual([launcher, launcher]);
+  });
+});
+
+// 起こし役を起こせなかったことは、子の終了コードと分けて返す。
+describe('execFile の起こせなかった印', () => {
+  const missing = path.join(os.tmpdir(), 'hangar-no-such-program-615.exe');
+  it('無いものを起こすと spawnError に理由を返す', async () => {
+    expect((await execFile(missing, [])).spawnError).toBe('ENOENT');
+    expect((await execFile(missing, [], { untilExit: true })).spawnError).toBe('ENOENT');
+  });
+  it('起きた子が 0 以外で終わっただけなら spawnError は無い', async () => {
+    const r = await execFile(process.execPath, ['-e', 'process.exit(3)']);
+    expect(r.code).toBe(3);
+    expect(r.spawnError).toBeUndefined();
+    const u = await execFile(process.execPath, ['-e', 'process.exit(3)'], { untilExit: true });
+    expect(u.code).toBe(3);
+    expect(u.spawnError).toBeUndefined();
+  });
 });
 
 // 引用の組み立てを、実物の Windows の規則で読み戻して確かめる。殻の起こし役（Rust）は、受け取った 1 行をそのまま子のコマンド行の後ろに付ける。
