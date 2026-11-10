@@ -253,6 +253,22 @@ describe('removeRepoHookIfUnused', () => {
     expect(r.calls).toHaveLength(1);
   });
 
+  it('registers a fresh hook after the sweep removed the last one', async () => {
+    const r = rig();
+    const first = await registered(r);
+    const a = bind(r, 'octo/demo', first.share);
+    // 起こす結び付けが働いて消え、起動の後の sweep が webhook と受け箱を外した。
+    deleteBinding(r.db, a);
+    await r.hooks.sweep();
+    expect(r.deleted).toEqual([first.share.inboxId]);
+    // 同じ repo にまた結び付けを作るときは、外した組を使い回さず、新しく付ける。
+    r.gh.create = () => ok('{"id":5151,"active":true}');
+    const second = await registered(r);
+    expect(second.share.inboxId).not.toBe(first.share.inboxId);
+    expect(second.hookId).toBe(5151);
+    expect(r.calls.filter((c) => c.args.includes('POST'))).toHaveLength(2);
+  });
+
   it('treats 404 from gh as success', async () => {
     const r = rig();
     const res = await registered(r);
