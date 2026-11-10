@@ -86,6 +86,11 @@ export type RuntimeDeps = {
   visible?: () => boolean;
   /** クリップボードに書く。無ければ navigator.clipboard を使う。テストが差し替える口である。 */
   clipboard?: (text: string) => Promise<void>;
+  /**
+   * サーバの配信を溜めて、まとめて当てる区切りを予約する（2026-11-10）。
+   * 渡した fn を次の区切りで 1 回呼ぶこと。無ければ溜めずに 1 件ずつ当てる。
+   */
+  batchServerEvents?: (fn: () => void) => void;
 };
 
 export type Runtime = {
@@ -164,7 +169,42 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   // ストアが変わったら、そのことだけを Mediator へ知らせる。
   // ストアから決まる状態（入力待ちの知らせ、サイドバーの「動いている」の並び）は、Mediator がストアを読んで合わせる。
   // 戻る時刻だけは時計が要るので、ここで見て届ける（syncReturns）。
-  const setStore = (next: Store) => { if (next !== store) { store = next; notifyStore(); dispatch({ kind: 'store' }); syncReturns(); syncPrune(); syncFeed(); } };
+  //
+  // 配信をまとめて当てている間（batching > 0）は、ストアだけを替えて、知らせと見直しは当て終わりの 1 回にする。
+  // 画面の描き直しと Mediator の見直しは、どちらも全セッションをなめるので、1 件ごとに走らせると重い（5,000 セッションで 1 件 60〜90ms）。
+  let batching = 0;
+  let storeDirty = false;
+  const storeChanged = () => { notifyStore(); dispatch({ kind: 'store' }); syncReturns(); syncPrune(); syncFeed(); };
+  const setStore = (next: Store) => {
+    if (next === store) return;
+    store = next;
+    if (batching > 0) { storeDirty = true; return; }
+    storeChanged();
+  };
+  /** fn の中のストアの変化を、終わりに 1 回だけ知らせる。 */
+  const inBatch = (fn: () => void) => {
+    batching++;
+    try { fn(); } finally {
+      batching--;
+      if (batching === 0 && storeDirty) { storeDirty = false; storeChanged(); }
+    }
+  };
+  /**
+   * 溜めているサーバの配信。
+   * プロジェクトの配り直しのように、続けて何十件も届くことがある。
+   * 区切り（deps.batchServerEvents）が来たら、届いた順にまとめて当てる。
+   */
+  let queued: ServerEvent[] = [];
+  const flushQueued = () => {
+    const evs = queued;
+    queued = [];
+    inBatch(() => { for (const ev of evs) dispatch({ kind: 'server', event: ev }); });
+  };
+  const receive = (ev: ServerEvent) => {
+    if (!deps.batchServerEvents) { dispatch({ kind: 'server', event: ev }); return; }
+    queued.push(ev);
+    if (queued.length === 1) deps.batchServerEvents(flushQueued);
+  };
   /**
    * 時刻つきの Paused が、その時刻を過ぎたら Mediator へ届ける（mediator/returnDue.ts）。
    * ストアが変わるたびと、次の戻る時点に入れた予約と、窓が前面に戻ったときに見直す。
@@ -1207,7 +1247,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         onOpen: () => { dispatch({ kind: 'runtime', event: { type: 'ws.open' } }); peerChat.rewatch(); },
         // 切れた時刻を添える。Mediator は純粋な遷移なので、画面がいつから古いかを自分では測れない。
         onClose: () => dispatch({ kind: 'runtime', event: { type: 'ws.close', at: (deps.now ?? Date.now)() } }),
-        onEvent: (ev) => dispatch({ kind: 'server', event: ev }),
+        onEvent: receive,
       });
       lastDepth = deps.location.depth();
       unsubHash = deps.location.onHashChange(() => {
@@ -1226,6 +1266,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       unsubHide = deps.onPageHide?.(() => cloudMember.flushPending()) ?? null;
       ws.connect();
     },
-    stop() { unsubHidden?.(); unsubHidden = null; ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubHide?.(); unsubHide = null; unsubNotify?.(); unsubNotify = null; unsubJoin?.(); unsubJoin = null; deps.terminals.dispose(); },
+    stop() { queued = []; unsubHidden?.(); unsubHidden = null; ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubHide?.(); unsubHide = null; unsubNotify?.(); unsubNotify = null; unsubJoin?.(); unsubJoin = null; deps.terminals.dispose(); },
   };
 }

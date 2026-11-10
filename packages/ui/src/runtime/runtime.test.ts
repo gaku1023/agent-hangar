@@ -632,6 +632,50 @@ describe('createRuntime', () => {
   });
 });
 
+describe('配信のまとめ', () => {
+  const project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0, unresolved: null });
+  const setup = async () => {
+    const batches: (() => void)[] = [];
+    const h = harness({}, { batchServerEvents: (fn) => { batches.push(fn); } });
+    h.rt.start();
+    h.wsHandlers[0]!.onOpen();
+    await flush();
+    let renders = 0;
+    h.rt.subscribe(() => { renders++; });
+    return { ...h, batches, renders: () => renders };
+  };
+
+  it('続けて届いた配信は溜めて、区切りで当てる。画面へは 1 回だけ知らせる', async () => {
+    const { rt, wsHandlers, batches, renders } = await setup();
+    for (const id of ['a', 'b', 'c']) wsHandlers[0]!.onEvent({ type: 'project.upsert', project: project(id) });
+    // 区切りの予約は 1 つだけで、まだ当てていない。
+    expect(batches).toHaveLength(1);
+    expect(rt.getStore().projects.a).toBeUndefined();
+    expect(renders()).toBe(0);
+    batches[0]!();
+    expect(Object.keys(rt.getStore().projects).sort()).toEqual(['a', 'b', 'c']);
+    expect(renders()).toBe(1);
+  });
+
+  it('当て終わったら、次の配信で区切りを予約し直す', async () => {
+    const { rt, wsHandlers, batches } = await setup();
+    wsHandlers[0]!.onEvent({ type: 'project.upsert', project: project('a') });
+    batches[0]!();
+    wsHandlers[0]!.onEvent({ type: 'project.upsert', project: project('b') });
+    expect(batches).toHaveLength(2);
+    batches[1]!();
+    expect(rt.getStore().projects.b).toBeDefined();
+  });
+
+  it('同期で降りたプロジェクトは、まとめて当てても 1 つの札にまとまる', async () => {
+    const { rt, wsHandlers, batches } = await setup();
+    const arrived = (id: string): ProjectDto => ({ ...project(id), path: null, resolved: false, unresolved: { kind: 'elsewhere', previousPath: `/o/${id}`, deviceName: 'Mac mini' } });
+    for (const id of ['a', 'b']) wsHandlers[0]!.onEvent({ type: 'project.upsert', project: arrived(id) });
+    batches[0]!();
+    expect(rt.getState().arrivedProjects).toEqual(['a', 'b']);
+  });
+});
+
 const launched: LaunchResultDto = { run: { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 's1', tabs: [{ id: 'r1', runId: 'r1', sessionId: 's1', kind: 'agent', title: 'Claude', tmuxName: 'hangar-r1', createdAt: 1, closedAt: null }] };
 
 describe('起動とターミナル', () => {

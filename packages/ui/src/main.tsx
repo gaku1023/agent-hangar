@@ -115,6 +115,9 @@ const runtime = createRuntime({
   location: createHashLocation(history, location, (cb) => { window.addEventListener('hashchange', cb); return () => window.removeEventListener('hashchange', cb); }),
   storage: createSafeStorage(() => localStorage),
   setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+  // サーバの配信は 1 コマ（約 16ms）ぶん溜めてまとめて当てる。プロジェクトの配り直しのように何十件も続けて届いても、描き直しは 1 回で済む。
+  // requestAnimationFrame は隠れた窓で止まり、入力待ちの知らせが遅れるので使わない。
+  batchServerEvents: (fn) => { window.setTimeout(fn, 16); },
   terminals,
   // ダイアログは状態が変わった次の描画で現れる。画面の移り変わりで包むと描き替えがさらに遅れるので、現れるまで次の描画ごとに探す。
   focus: (t) => focusSoon(() => document.getElementById(FOCUS_IDS[t]), (cb) => { requestAnimationFrame(cb); }),

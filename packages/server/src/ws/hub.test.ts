@@ -84,3 +84,33 @@ describe('EventHub の受信', () => {
     expect(a.readyState).toBe(WebSocket.OPEN);
   });
 });
+
+describe('EventHub の送り直しの間引き', () => {
+  const project = (id: string, over: Record<string, unknown> = {}) => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0, ...over }) as never;
+  const types = (got: string[]) => got.map((g) => { const e = JSON.parse(g) as { type: string; project?: { id: string; runningCount: number } }; return e.project ? `${e.type}:${e.project.id}:${e.project.runningCount}` : e.type; });
+
+  it('前に送ったものと同じ project.upsert は送らない。中身が変わったものと別のプロジェクトは送る', async () => {
+    const a = await connect();
+    const got: string[] = [];
+    a.on('message', (d) => got.push(String(d)));
+    hub.broadcast({ type: 'project.upsert', project: project('p1') });
+    hub.broadcast({ type: 'project.upsert', project: project('p1') });
+    hub.broadcast({ type: 'project.upsert', project: project('p2') });
+    hub.broadcast({ type: 'project.upsert', project: project('p1', { runningCount: 1 }) });
+    hub.broadcast({ type: 'project.upsert', project: project('p1', { runningCount: 1 }) });
+    // 区切りに、間引かない知らせを送る。これが届けば、前のものは全部届いている。
+    hub.broadcast({ type: 'index.progress' } as never);
+    await until(() => got.length === 4);
+    expect(types(got)).toEqual(['project.upsert:p1:0', 'project.upsert:p2:0', 'project.upsert:p1:1', 'index.progress']);
+  });
+
+  it('project.upsert のほかの知らせは、同じ中身でも毎回送る', async () => {
+    const a = await connect();
+    const got: string[] = [];
+    a.on('message', (d) => got.push(String(d)));
+    hub.broadcast({ type: 'index.progress' } as never);
+    hub.broadcast({ type: 'index.progress' } as never);
+    await until(() => got.length === 2);
+    expect(types(got)).toEqual(['index.progress', 'index.progress']);
+  });
+});
