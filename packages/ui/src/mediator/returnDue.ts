@@ -1,4 +1,5 @@
 import { isReturnOn, isReturnTime, localDate, returnAtMs, type SessionDto } from '@agent-hangar/shared';
+import { hotSessions } from '../store/store.ts';
 import type { Effect, Input, State, Step } from './types.ts';
 
 /**
@@ -24,7 +25,7 @@ export const sessionIdOfReturnKey = (key: string): string => key.slice(0, key.la
 /** 時刻つきの Paused と、その戻る時点。形の違う日付と時刻は除く。 */
 function timed(sessions: Record<string, SessionDto>): { id: string; returnOn: string; returnTime: string; at: number }[] {
   const out: { id: string; returnOn: string; returnTime: string; at: number }[] = [];
-  for (const s of Object.values(sessions)) {
+  for (const s of hotSessions(sessions)) {
     const st = s.state;
     if (st?.status !== 'paused' || typeof st.returnOn !== 'string' || typeof st.returnTime !== 'string') continue;
     if (!isReturnOn(st.returnOn) || !isReturnTime(st.returnTime)) continue;
