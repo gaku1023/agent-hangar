@@ -71,8 +71,21 @@ export class EventHub {
     });
   }
 
+  /**
+   * プロジェクトごとに、最後に送った project.upsert の本文。
+   * live が変わるたびに全プロジェクトを配り直す経路がある（server.ts の registry の見張りなど）。
+   * 変わっていないものまで送ると、画面は 1 件ごとに描き直すので、まとめて数秒固まる（2026-11-10、5,000 セッションで 1 件 60〜90ms）。
+   * 前に送ったものと同じなら送らない。
+   * 後からつないだ画面は、つないだ直後に bootstrap を取り直すので、ここで送らなかった分も持っている。
+   */
+  private readonly lastProject = new Map<string, string>();
+
   broadcast(ev: ServerEvent): void {
     const data = JSON.stringify(ev);
+    if (ev.type === 'project.upsert') {
+      if (this.lastProject.get(ev.project.id) === data) return;
+      this.lastProject.set(ev.project.id, data);
+    }
     for (const c of this.clients) if (c.readyState === c.OPEN) c.send(data);
   }
 
