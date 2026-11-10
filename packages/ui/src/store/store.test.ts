@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ArtifactDto, BootstrapDto, CloudUsageDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { accountsFixture } from '../test/accounts.ts';
-import { accountList, accountOfSession, aliveRunOf, appendSearchResult, applyBootstrap, applyEventsPage, applyGit, gitFileKey, applyLaunch, applyPickedFolder, applySearch, applyServerEvent, applyWorkspaceDirs, artifactsOf, currentAccount, indexFinishedBy, currentRunOf, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
+import { accountList, accountOfSession, aliveRunOf, appendSearchResult, applyBootstrap, applyEventsPage, applyGit, gitFileKey, applyLaunch, applyPickedFolder, applySearch, applyServerEvent, applyWorkspaceDirs, artifactsOf, currentAccount, indexFinishedBy, currentRunOf, eventsKey, hasMultipleAccounts, hotSessions, initialStore, liveSessionIds, unreadSessionIds, waitingSessionIds, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, lastTurnAt: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null });
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], deleteApprovals: [], peerApprovals: [], schedules: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null };
@@ -536,5 +536,37 @@ describe('別の PC への起動の承認待ち', () => {
     expect(applyServerEvent(s, { type: 'peerApprovals.update', approvals: [{ ...a }] })).toBe(s);
     s = applyServerEvent(s, { type: 'peerApprovals.update', approvals: [{ ...a, state: 'approved' }] });
     expect(s.peerApprovals[0]!.state).toBe('approved');
+  });
+});
+
+describe('hotSessions（集計が見る会話だけの並び）', () => {
+  const at = (s: SessionDto, patch: Partial<SessionDto>): SessionDto => ({ ...s, ...patch });
+  const quiet = session('q', 'uq');
+  const table = (...list: SessionDto[]) => Object.fromEntries(list.map((s) => [s.id, s]));
+  it('live、未読、Paused、提案、留め、ほかの PC の子のどれかを持つ会話だけを、表の順で拾う', () => {
+    const list = [
+      quiet,
+      at(session('w', 'uw'), { live: 'waiting' }),
+      at(session('u', 'uu'), { unread: { count: 1, latest: null, at: 1 } }),
+      at(session('p', 'up'), { state: { status: 'paused', returnOn: null, note: null, setBy: 'user', setAt: 1 } as SessionDto['state'] }),
+      at(session('c', 'uc'), { state: { status: null, candidate: { status: 'done', note: null, returnOn: null, source: 'exit', at: 1 } } as unknown as SessionDto['state'] }),
+      at(session('n', 'un'), { pinnedAt: 5 }),
+      at(session('k', 'uk'), { spawnPeer: { child: 'mac', closed: false } as SessionDto['spawnPeer'] }),
+      at(session('z', 'uz'), { unread: { count: 0, latest: null, at: 1 } }),
+    ];
+    expect(hotSessions(table(...list)).map((s) => s.id)).toEqual(['w', 'u', 'p', 'c', 'n', 'k']);
+  });
+  it('同じ表には同じ並びを返し、表を替えたら拾い直す', () => {
+    const t1 = table(quiet, at(session('w', 'uw'), { live: 'waiting' }));
+    expect(hotSessions(t1)).toBe(hotSessions(t1));
+    const t2 = { ...t1, q: at(quiet, { live: 'busy' }) };
+    expect(hotSessions(t2).map((s) => s.id)).toEqual(['q', 'w']);
+  });
+  it('集計は全件をなめたときと同じ答えになる。live の無い会話も run が生きていれば実行中に数える', () => {
+    let store = applyBootstrap(initialStore(), { ...boot, sessions: [session('a', 'ua'), at(session('b', 'ub'), { live: 'waiting', lastActivityAt: 3 }), at(session('c', 'uc'), { unread: { count: 2, latest: null, at: 4 } }), session('d', 'ud')], runs: [run('r1', 'a')] });
+    store = { ...store, sessions: { ...store.sessions } };
+    expect(liveSessionIds(store)).toEqual(['a', 'b']);
+    expect(waitingSessionIds(store)).toEqual(['b']);
+    expect(unreadSessionIds(store)).toEqual(['c']);
   });
 });

@@ -3,7 +3,7 @@ import { agentIconsOn, agentOfSession } from './agentIcon.ts';
 import { presentSessionMenu, type SessionMenuProps } from './sessionMenu.ts';
 import { type AgentIconKind, type AgentUsageDto, type IndexProgressDto, type LiveStatus, type Route, type SessionDto, type StopReason, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, liveWithLimit, quietLive, resetAtText, stopReasonOf, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
-import { accountList, accountOfSession, currentAccount, liveSessionIds, shownReason, unreadOf, unreadTotal, waitingSessionIds, type Store } from '../store/store.ts';
+import { accountList, accountOfSession, currentAccount, hotSessions, liveSessionIds, shownReason, unreadOf, unreadTotal, waitingSessionIds, type Store } from '../store/store.ts';
 import { codexAccountIdOfSession, presentAccounts, presentAgentUsage, presentCodexAccounts, type AccountGauge, type AccountView, type AgentUsageView } from './accounts.ts';
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
 import { translatorOf, storeLanguage } from './i18n.ts';
@@ -220,14 +220,14 @@ const footDefs = (t: Translate): NavDef[] => [
  */
 function sideLive(state: State, store: Store, now: number): SideLiveProps {
   const t = translatorOf(store);
-  const pinned = Object.values(store.sessions).filter((s) => (s.pinnedAt ?? null) !== null).sort((a, b) => a.pinnedAt! - b.pinnedAt! || a.id.localeCompare(b.id)).map((s) => s.id);
+  const pinned = hotSessions(store.sessions).filter((s) => (s.pinnedAt ?? null) !== null).sort((a, b) => a.pinnedAt! - b.pinnedAt! || a.id.localeCompare(b.id)).map((s) => s.id);
   const pinnedSet = new Set(pinned);
   const live = liveSessionIds(store).filter((id) => !pinnedSet.has(id));
   const here = new Set([...live, ...pinned]);
   // 別の PC で動かしている子は、この PC の run も live も持たない。親がここで動いている間だけ、親の下に出す。
   // 子の動きは分からないので動きの印は持たせず、PC の札で示す。結び付きが終わった子も、切り離していなければ出す。
   // 子だけが動いていても、止まった親は引き出さない（動いているかを、この PC は知らないため）。
-  const remoteKids = Object.values(store.sessions).filter((s) => {
+  const remoteKids = hotSessions(store.sessions).filter((s) => {
     const parent = spawnParentOf(store.sessions, s.id);
     return s.spawnPeer?.child && parent !== null && here.has(parent) && !here.has(s.id) && s.state?.status !== 'done' && s.state?.status !== 'archived' && s.state?.status !== 'paused';
   }).sort((a, b) => (a.startedAt ?? Infinity) - (b.startedAt ?? Infinity) || a.id.localeCompare(b.id)).map((s) => s.id);
@@ -307,7 +307,7 @@ function sideWaited(t: Translate, s: SessionDto, shown: LiveStatus | null, reaso
  * accountId を渡せば、そのアカウントのものだけにする（アカウントが 2 つ以上あるとき、計器は 1 つのアカウントのものだから）。
  */
 function limitedSessions(store: Store, accountId: string | null): SessionDto[] {
-  return Object.values(store.sessions).filter((s) => stopReasonOf(s) === 'limit' && (accountId === null || accountOfSession(store, s.id)?.id === accountId));
+  return hotSessions(store.sessions).filter((s) => stopReasonOf(s) === 'limit' && (accountId === null || accountOfSession(store, s.id)?.id === accountId));
 }
 
 /** 止まっている枠ごとの、いちばん早いリセットの時刻の文。止まっていない枠は持たない。 */

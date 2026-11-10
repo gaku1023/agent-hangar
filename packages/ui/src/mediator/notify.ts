@@ -1,5 +1,5 @@
 import { stopReasonOf } from '@agent-hangar/shared';
-import { waitingSessionIds, type Store } from '../store/store.ts';
+import { hotSessions, waitingSessionIds, type Store } from '../store/store.ts';
 import { dueReturnKeys, sessionIdOfReturnKey } from './returnDue.ts';
 import type { Input, State, Step } from './types.ts';
 
@@ -36,6 +36,6 @@ export function notifyKeep(store: Store, now: number): { waiting: string[]; retu
     waiting: sorted(waitingSessionIds(store)),
     returning: sorted(dueReturnKeys(store.sessions, now).map(sessionIdOfReturnKey)),
     // 使用制限の知らせ（デスクトップの殻だけが出す）は、そのセッションがまだリセットを待っている間だけ残す。
-    limited: sorted(Object.values(store.sessions).filter((s) => stopReasonOf(s) === 'limit').map((s) => s.id)),
+    limited: sorted(hotSessions(store.sessions).filter((s) => stopReasonOf(s) === 'limit').map((s) => s.id)),
   };
 }

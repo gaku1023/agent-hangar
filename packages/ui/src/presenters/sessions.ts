@@ -1,4 +1,4 @@
-import { matchesStopFilter, type LiveFilter, type SearchFilter, type StatusFilter, type Translate } from '@agent-hangar/shared';
+import { matchesStopFilter, type SessionDto, type LiveFilter, type SearchFilter, type StatusFilter, type Translate } from '@agent-hangar/shared';
 import { badTokens, queryTokens, type QueryToken } from '../lib/searchTokens.ts';
 import { periodStart, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
@@ -31,10 +31,13 @@ export type StatusTabProps = { tab: StatusTab; label: string; count: string; hot
  */
 export type SessionListProps = { text: string; filter: SearchFilter; projects: { id: string; name: string }[]; rows: SessionRowProps[]; total: number; loading: boolean; mode: 'all' | 'search'; conditions: string[]; tabs: StatusTabProps[]; tab: StatusTab; pager: PagerProps | null; statusColumn: boolean; tokens: QueryToken[]; hints: string[]; allCount: number; items?: ListItem[] | null };
 
+/** 一覧の全件の軽い札。絞り込みとタブの件数に要る状態だけを持つ（candidate は提案があれば true）。 */
+type Facet = { s: SessionDto; id: string; state: SessionRowProps['state']; candidate: true | null };
+
 /** 状態がどれも同じになるタブ。行の状態の列を畳む。 */
 const UNIFORM_TABS: StatusTab[] = ['done', 'paused', 'archived'];
 /** 状態の列を出すか。Active の行は札を持たないので、Active のタブでは提案の札があるときだけ出す。 */
-const statusColumnOf = (tab: StatusTab, rows: SessionRowProps[]): boolean => (tab === 'active' ? rows.some((r) => r.candidate !== null) : !UNIFORM_TABS.includes(tab));
+const statusColumnOf = (tab: StatusTab, rows: { candidate: unknown }[]): boolean => (tab === 'active' ? rows.some((r) => r.candidate !== null) : !UNIFORM_TABS.includes(tab));
 
 /** タブの並び。ステータスの札（Active、Paused、Done、Archived）は、日本語でも英語のまま出す定数である。 */
 const TAB_ORDER: StatusTab[] = ['all', 'proposed', 'active', 'paused', 'done', 'archived'];
@@ -70,7 +73,7 @@ const liveWord = (t: Translate, live: LiveFilter): string => (live === 'waiting'
  * 提案のある Active は確認待ちにも Active にも入る。
  * 「すべて」は Archived を除いた数で、条件を入れたときに並ぶ行の数え方と同じにする。
  */
-export function presentTabs(rows: SessionRowProps[], t: Translate): StatusTabProps[] {
+export function presentTabs(rows: (Pick<SessionRowProps, 'state'> & { candidate: unknown })[], t: Translate): StatusTabProps[] {
   return TAB_ORDER.map((tab) => {
     const n = tab === 'all' ? rows.filter((r) => r.state !== 'archived').length : rows.filter((r) => matchesStatus(r, tab)).length;
     return { tab, label: tabLabel(t, tab), count: n.toLocaleString('en-US'), hot: tab === 'proposed' && n > 0 };
@@ -98,11 +101,15 @@ export function presentSessionList(state: State, store: Store, now: number, inPr
   const conditions = conditionsOf(t, state.search.text, f, store);
   // 並びの元は row.ts の sortForList（生きているものを先に、残りは新しい順）。タブの件数もこの全件から数える。
   const mine = inProject === undefined ? Object.values(store.sessions) : Object.values(store.sessions).filter((s) => s.projectId === inProject);
-  const all = sortForList(mine).map((s) => ({ s, row: presentSessionRow(s, store, now) }));
+  // 全件については、絞り込みとタブの件数に要る状態だけを持つ軽い札を作る。行そのもの（メニュー、git の札、時刻の語）は、並べる行だけ組む。
+  // 5,000 セッションの全部の行を配信のたびに組むと、1 回の描画に数十 ms かかる。札の state と candidate は presentSessionRow と同じ読み方である。
+  const all: Facet[] = sortForList(mine).map((s) => ({ s, id: s.id, state: s.state?.status ?? null, candidate: s.state?.candidate ? true : null }));
+  const built = new Map<string, SessionRowProps>();
+  const rowOf = (x: Facet): SessionRowProps => { let r = built.get(x.id); if (!r) { r = presentSessionRow(x.s, store, now); built.set(x.id, r); } return r; };
   // 見出しの件数は条件に関わらず手元の全件で、「すべて」のタブと同じく Archived を除く。絞った結果の件数は条件の行が言う。
-  const allCount = all.filter((x) => x.row.state !== 'archived').length;
+  const allCount = all.filter((x) => x.state !== 'archived').length;
   const tab = f.status ?? 'all';
-  const common: Pick<SessionListProps, 'tabs' | 'tab' | 'tokens' | 'hints' | 'allCount' | 'projects' | 'filter' | 'conditions'> = { tabs: presentTabs(all.map((x) => x.row), t), tab, tokens: queryTokens(f, projects), hints: badTokens(state.search.text, projects).map((h) => hintOf(t, h)), allCount, projects, filter: f, conditions };
+  const common: Pick<SessionListProps, 'tabs' | 'tab' | 'tokens' | 'hints' | 'allCount' | 'projects' | 'filter' | 'conditions'> = { tabs: presentTabs(all, t), tab, tokens: queryTokens(f, projects), hints: badTokens(state.search.text, projects).map((h) => hintOf(t, h)), allCount, projects, filter: f, conditions };
   if (!usesServerSearch(state.search)) {
     let list = all;
     if (f.projectId) list = list.filter(({ s }) => s.projectId === f.projectId);
@@ -112,7 +119,7 @@ export function presentSessionList(state: State, store: Store, now: number, inPr
     const { days, until } = f;
     if (days) { const since = periodStart(days, now); list = list.filter(({ s }) => (s.lastActivityAt ?? 0) >= since); }
     if (until !== undefined) list = list.filter(({ s }) => (s.lastActivityAt ?? 0) < until);
-    let rows = list.map((x) => x.row);
+    let rows = list;
     // タブを選べばその状態だけに、「すべて」のまま条件を入れたら Archived を除く（サーバの hideArchived と同じ）。
     // 条件が無いときも「すべて」は Archived を除く（タブの件数と同じ）。
     const status = f.status;
@@ -121,10 +128,10 @@ export function presentSessionList(state: State, store: Store, now: number, inPr
     // 平らな一覧だけをいまのページの分に切り出す。
     // 起動元の下に子を入れ子で並べる。ページ送りは根の行で数え、子は根に付いて同じページに出る（行の高さは変えない）。
     // 子は状態の絞り込み前の全部から引くので、状態が起動元と違う子も起動元の下に出る。
-    const pool = status ? list.map((x) => x.row) : rows;
+    const pool = status ? list : rows;
     const tops = nestTops(rows, store);
     const pager = pagerOf(state.search.page, state.pageSize, tops.length);
-    const shown = nestRows(pageSlice(tops, pager), pool, store, new Set(state.sidebarFolded));
+    const shown = nestRows(pageSlice(tops, pager), pool, store, new Set(state.sidebarFolded), rowOf);
     // 状態の列は、ページではなく条件に合う全件で決める。ページを送るたびに列が出入りしないように。
     return { text: '', rows: shown, total: rows.length, loading: false, mode: 'all', pager, statusColumn: statusColumnOf(tab, rows), items: null, ...common };
   }

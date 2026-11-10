@@ -499,6 +499,33 @@ export function hasRunOf(store: Store, sessionId: string): boolean {
   return Object.values(store.runs).some((r) => r.sessionId === sessionId);
 }
 
+/**
+ * 入力待ち、実行中、未読、戻る時刻、提案、留めた行、ほかの PC の子を数える集計が見るかもしれない会話だけの並び。
+ * どれも live が無く、未読も Paused も提案も留めも無い会話では偽になる（実行中は run が生きていても真になるので、それは呼ぶ側で足す）。
+ * 会話は何千件にもなり、配信が 1 件届くたびにこれらの集計が全件をなめると、1 件 60〜90ms 固まる。
+ * 当たる会話はふつう数十件なので、会話の表ごとに 1 回だけ拾い、集計はその中だけを見る。並びは Object.values と同じである。
+ */
+const hotMemo = new WeakMap<Record<string, SessionDto>, readonly SessionDto[]>();
+export function hotSessions(sessions: Record<string, SessionDto>): readonly SessionDto[] {
+  let v = hotMemo.get(sessions);
+  if (v === undefined) {
+    v = Object.values(sessions).filter((s) => s.live !== null || (s.unread?.count ?? 0) > 0 || s.state?.status === 'paused' || !!s.state?.candidate || (s.pinnedAt ?? null) !== null || !!s.spawnPeer?.child);
+    hotMemo.set(sessions, v);
+  }
+  return v;
+}
+
+/**
+ * 集計の並び（hotSessions）に、run が生きている会話を足したもの。実行中を数えるときに使う。
+ * live の無い会話も、run が生きていれば実行中になる（liveFilterOf）。
+ */
+export function hotOrAlive(store: Store, alive: Set<string>): SessionDto[] {
+  const hot = hotSessions(store.sessions);
+  const seen = new Set(hot.map((s) => s.id));
+  const more = [...alive].filter((id) => !seen.has(id)).map((id) => store.sessions[id]).filter((s): s is SessionDto => s !== undefined);
+  return [...hot, ...more];
+}
+
 /** 終わっていない run があるセッションの id。 */
 export function runningSessionIds(store: Store): Set<string> {
   return new Set(Object.values(store.runs).filter((r) => r.endedAt === null).map((r) => r.sessionId));
@@ -579,7 +606,7 @@ function tucked(s: SessionDto): boolean {
 export function liveSessionIds(store: Store): string[] {
   const alive = runningSessionIds(store);
   const at = (s: SessionDto) => s.startedAt ?? Number.POSITIVE_INFINITY;
-  return Object.values(store.sessions).filter((s) => liveFilterOfSession(store, s, alive) !== 'ended' && !tucked(s))
+  return hotOrAlive(store, alive).filter((s) => liveFilterOfSession(store, s, alive) !== 'ended' && !tucked(s))
     .sort((a, b) => (at(a) === at(b) ? 0 : at(a) < at(b) ? -1 : 1) || a.id.localeCompare(b.id))
     .map((s) => s.id);
 }
@@ -601,7 +628,7 @@ export function awaitsAnswer(s: SessionDto): boolean {
  */
 export function waitingSessionIds(store: Store): string[] {
   const at = (s: SessionDto) => s.lastActivityAt ?? Number.POSITIVE_INFINITY;
-  return Object.values(store.sessions).filter(awaitsAnswer)
+  return hotSessions(store.sessions).filter(awaitsAnswer)
     .sort((a, b) => (at(a) === at(b) ? 0 : at(a) < at(b) ? -1 : 1) || a.id.localeCompare(b.id))
     .map((s) => s.id);
 }
@@ -615,7 +642,7 @@ export const unreadOf = (store: Store, id: string): NonNullable<SessionDto['unre
 /** 未読のあるセッションの id。知らせの新しいものが先。 */
 export function unreadSessionIds(store: Store): string[] {
   if (!unreadBadgeOn(store)) return [];
-  return Object.values(store.sessions).filter((s) => (s.unread?.count ?? 0) > 0)
+  return hotSessions(store.sessions).filter((s) => (s.unread?.count ?? 0) > 0)
     .sort((a, b) => b.unread!.at - a.unread!.at || a.id.localeCompare(b.id))
     .map((s) => s.id);
 }

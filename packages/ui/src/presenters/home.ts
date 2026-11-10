@@ -6,7 +6,7 @@ import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
 import type { OverlapProps } from './overlap.ts';
 import { rowAgent } from './agentIcon.ts';
-import { aliveRunOf, awaitsAnswer, liveFilterOfSession, outsideOpenOf, runningSessionIds, shownAside, unreadSessionIds, type Store } from '../store/store.ts';
+import { aliveRunOf, awaitsAnswer, hotOrAlive, hotSessions, liveFilterOfSession, outsideOpenOf, runningSessionIds, shownAside, unreadSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortenPaths } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
@@ -119,7 +119,8 @@ export function returningCards(store: Store, now: number, alive: Set<string> = r
   // 今日戻る（C1）。戻る日の古い順で、壊れた日を先頭に、同じ日の中は時刻の早い順（時刻なしは最後）、同じ時点は新しい順にする。
   // 「今日」は手元の暦で、期間の「今日」（mediator/screen.ts の periodStart(1, now)）と同じ境にする。
   const keyOf = (s: SessionDto) => returnKey({ returnOn: s.state?.returnOn ?? null, returnTime: s.state?.returnTime ?? null });
-  return Object.values(store.sessions)
+  // 戻る札は Paused だけなので、集計の並び（hotSessions）から拾う。
+  return hotSessions(store.sessions)
     .filter((s) => returnsNow(store, s, now, alive))
     .sort((a, b) => keyOf(a).localeCompare(keyOf(b)) || (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0))
     .map((s): ReturnCard => {
@@ -132,13 +133,14 @@ export function returningCards(store: Store, now: number, alive: Set<string> = r
 }
 
 export function presentHome(_state: State, store: Store, now: number): HomeCards {
-  const sessions = Object.values(store.sessions);
   const t = translatorOf(store);
   const projectName = (s: SessionDto) => (s.projectId && store.projects[s.projectId] ? projectDisplayName(store.projects[s.projectId]!, t) : null);
   const name = (s: SessionDto) => s.name ?? t('common.label.noName');
   // Claude のレジストリに載る前の run も実行中に数える。
   // 信頼確認のダイアログ待ちの run が Home のどこにも出ないと、セッション画面への戻り道がなくなる。
   const alive = runningSessionIds(store);
+  // 入力待ち、提案、実行中だけを拾うので、全件ではなく集計の並び（hotOrAlive）を見る。
+  const sessions = hotOrAlive(store, alive);
 
   // 長く待っているものほど先に答えたいので、最後に動いた時刻の古い順に並べる。
   // Done と Archived にしたものは、live が waiting のままでも出さない（store.ts の awaitsAnswer）。

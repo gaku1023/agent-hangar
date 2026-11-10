@@ -178,13 +178,14 @@ export function sortSessions(list: SessionDto[]): SessionDto[] {
  * 導入時の一括 Done は同じ時刻を持つので、その中は最後に動いた時刻の新しい順になる。
  */
 export function sortForList(list: SessionDto[]): SessionDto[] {
-  const key = (s: SessionDto) => (shownLive(s) === null && s.state?.status === 'done' ? s.state.setAt ?? 0 : s.lastActivityAt ?? 0);
-  return [...list].sort((a, b) => {
-    const la = liveRank(a);
-    const lb = liveRank(b);
-    if (la !== lb) return la - lb;
-    return key(b) - key(a) || (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0);
+  // 何千件も並べるので、順位と鍵は 1 件につき 1 回だけ求めてから並べる（比べるたびに shownLive を通すと重い）。
+  const keyed = list.map((s) => {
+    const rank = liveRank(s);
+    const last = s.lastActivityAt ?? 0;
+    return { s, rank, key: rank === ENDED_ORDER && s.state?.status === 'done' ? s.state.setAt ?? 0 : last, last };
   });
+  keyed.sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : b.key - a.key || b.last - a.last));
+  return keyed.map((x) => x.s);
 }
 
 /**
@@ -200,7 +201,7 @@ export function returnHasCome(returnOn: string | null | undefined, returnTime: s
 }
 
 /** タブの絞り込み。行の持ち物だけで決める。Active は状態が無いもので、動いているかも提案の有無も問わない（確認待ちと重なる）。 */
-export function matchesStatus(r: SessionRowProps, f: StatusFilter): boolean {
+export function matchesStatus(r: Pick<SessionRowProps, 'state'> & { candidate: unknown }, f: StatusFilter): boolean {
   switch (f) {
     case 'active': return r.state === null;
     case 'proposed': return r.candidate !== null;

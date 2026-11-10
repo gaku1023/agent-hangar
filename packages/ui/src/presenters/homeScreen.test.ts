@@ -58,13 +58,11 @@ describe('presentHomeScreen の帯', () => {
 
   it('朝は要対応の引き出しが開いている。要対応が無ければ実行中、それも無ければ確認待ち', () => {
     expect(presentHomeScreen(initialState(), busyMorning(), NOW).band.morning).toBe('attention');
-    const noWaiting = busyMorning();
-    delete noWaiting.sessions.w1;
-    expect(presentHomeScreen(initialState(), noWaiting, NOW).band.morning).toBe('running');
-    delete noWaiting.sessions.r1;
-    expect(presentHomeScreen(initialState(), noWaiting, NOW).band.morning).toBe('pending');
-    delete noWaiting.sessions.c1;
-    expect(presentHomeScreen(initialState(), noWaiting, NOW).band.morning).toBeNull();
+    // ストアは替えるもので、その場では書き換えない（集計の並びは会話の表ごとに覚える。store.ts の hotSessions）。
+    const without = (store: Store, ...ids: string[]): Store => ({ ...store, sessions: Object.fromEntries(Object.entries(store.sessions).filter(([id]) => !ids.includes(id))) });
+    expect(presentHomeScreen(initialState(), without(busyMorning(), 'w1'), NOW).band.morning).toBe('running');
+    expect(presentHomeScreen(initialState(), without(busyMorning(), 'w1', 'r1'), NOW).band.morning).toBe('pending');
+    expect(presentHomeScreen(initialState(), without(busyMorning(), 'w1', 'r1', 'c1'), NOW).band.morning).toBeNull();
   });
 
   it('語は用語集のとおり、言語の設定で替わる', () => {
