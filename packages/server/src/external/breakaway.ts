@@ -44,9 +44,15 @@ export function quoteWindowsArg(arg: string): string {
  * - shell：Node と同じく `cmd.exe /d /s /c "<コマンドと引数を空白でつないだもの>"` に組み直す。
  * 起こし役の終了コードは子の終了コードなので、結果はそのまま返す。
  * 起こし役へは timeoutMs と untilExit だけを渡す（verbatim と shell は 1 行に組み込み済み）。
+ *
+ * 起こし役そのものを起こせなかったら（Smart App Control が署名の無い殻を止めたときなど、#615）、同じ呼び出しを直に起こす。
+ * 直に起こしたアプリはジョブの中にいるので、Hangar を閉じると一緒に止まるが、開けないよりはよい。
+ * 止められるたびに Windows セキュリティの通知が出るので、一度起こせなかった起こし役は、このサーバが動いている間はもう試さない。
  */
-export function breakawayExec(inner: Exec, launcher: string, o: { comspec?: string } = {}): Exec {
-  return (cmd, args, opts) => {
+export function breakawayExec(inner: Exec, launcher: string, o: { comspec?: string; onLauncherFailed?: (reason: string) => void } = {}): Exec {
+  let usable = true;
+  return async (cmd, args, opts) => {
+    if (!usable) return inner(cmd, args, opts);
     let file = cmd;
     let line: string;
     if (opts?.shell) {
@@ -59,6 +65,10 @@ export function breakawayExec(inner: Exec, launcher: string, o: { comspec?: stri
     }
     // 起こし役は子の終わりを待って降りるが、子が起こした窓は起こし役の管も受け継ぐ。untilExit も起こし役の呼び出しへ渡す。
     const outer = { ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}), ...(opts?.untilExit ? { untilExit: true } : {}) };
-    return inner(launcher, [BREAKAWAY_FLAG, file, line], Object.keys(outer).length === 0 ? undefined : outer);
+    const r = await inner(launcher, [BREAKAWAY_FLAG, file, line], Object.keys(outer).length === 0 ? undefined : outer);
+    if (r.spawnError === undefined) return r;
+    usable = false;
+    o.onLauncherFailed?.(r.spawnError);
+    return inner(cmd, args, opts);
   };
 }

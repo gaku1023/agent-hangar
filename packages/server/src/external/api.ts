@@ -50,7 +50,9 @@ export function createExternalApi(o: {
 }): ExternalApi {
   const platform = o.platform ?? process.platform;
   const direct = o.exec ?? execFile;
-  const exec = platform === 'win32' && o.launcher ? breakawayExec(direct, o.launcher) : direct;
+  const exec = platform === 'win32' && o.launcher
+    ? breakawayExec(direct, o.launcher, { onLauncherFailed: (reason) => { console.warn(`[external] could not start the launcher (${reason}); opening apps directly from now on`); } })
+    : direct;
   const host = () => o.host ?? defaultEditorHost();
   const versions = new ToolVersions(3000);
   const version = o.version ?? ((file: string) => versions.get(file, ['--version']));
