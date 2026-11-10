@@ -244,6 +244,9 @@ export class EventHooks {
           this.retry.delete(o.inboxId);
           continue;
         }
+        // 外すと決めた組は、付けたばかりの組の控えからも捨てる。
+        // 残すと、次の ensureRepoHook が外した後の組を返し、結び付けが何も届かない受け箱を指す。
+        this.forgetPending(o.inboxId);
         if ((this.retry.get(o.inboxId)?.at ?? 0) > this.now()) continue;
         if (o.webhookId !== null && o.repo !== null && REPO_RE.test(o.repo)) {
           const bin = this.ghPath();
@@ -265,6 +268,13 @@ export class EventHooks {
         // 続きは、間隔が過ぎてからの sweep。
         this.later(o.inboxId);
       }
+    }
+  }
+
+  /** その受け箱の組を、付けたばかりの組の控えから捨てる。 */
+  private forgetPending(inboxId: string): void {
+    for (const [key, share] of this.pending) {
+      if (share.inboxId === inboxId) this.pending.delete(key);
     }
   }
 
