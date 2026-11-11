@@ -46,8 +46,9 @@ export type NotifyTarget = (typeof NOTIFY_TARGETS)[number];
 /**
  * 知らせの添え書き。kind は場面（done、ask、progress）。
  * immediate は、ターンの終わりを待たずに出す印である。エージェントの notify_user ではなく、hangar が代わりに知らせるもの（承認待ち、起動の失敗）に付ける。
+ * unreadHeld は、未読の数をまだ積んでいない印である。積むのは預かり（live/unreadHold.ts）で、ターンを抜けたときに積む（2026-11-11）。
  */
-export type UnreadMeta = { kind: NotifyKind; immediate?: boolean };
+export type UnreadMeta = { kind: NotifyKind; immediate?: boolean; unreadHeld?: boolean };
 type UnreadListener = (sessionId: string, text: string, count: number, sent: NotifyTarget[], meta: UnreadMeta) => void;
 const unreadListeners = new Set<UnreadListener>();
 const readyListeners = new Set<UnreadListener>();

@@ -812,6 +812,24 @@ describe('MCP tools', () => {
       off();
     }
   });
+  it('holdUnread のとき、作業中の done と ask は未読の数を積まず、unreadHeld の印を付けて預かりへ渡す。progress と作業中でないときはその場で積む', () => {
+    const seen: [string, number, boolean][] = [];
+    const off = onUnread((_id, text, count, _sent, meta) => seen.push([text, count, meta.unreadHeld === true]));
+    const was = live[0]!;
+    deps = { ...deps, holdUnread: true };
+    try {
+      expect(call('notify_user', { text: '済んだ' }, { sessionId: alphaId })).toMatchObject({ ok: true, unread: 0, sent: ['unread', 'os', 'phone'] });
+      expect(call('notify_user', { text: '聞きたい', kind: 'ask' }, { sessionId: alphaId })).toMatchObject({ unread: 0 });
+      expect(getSession(db, live, alphaId)!.unread).toBeNull();
+      expect(call('notify_user', { text: '途中', kind: 'progress' }, { sessionId: alphaId })).toMatchObject({ unread: 1 });
+      live[0] = { ...was, status: 'idle' };
+      expect(call('notify_user', { text: '待ち' }, { sessionId: alphaId })).toMatchObject({ unread: 2 });
+      expect(seen).toEqual([['済んだ', 0, true], ['聞きたい', 0, true], ['途中', 1, false], ['待ち', 2, false]]);
+    } finally {
+      live[0] = was;
+      off();
+    }
+  });
   it('propose_session_status で Done か Paused に確定すると、残っていた未読を消す', () => {
     call('notify_user', { text: '前の知らせ' }, { sessionId: alphaId });
     expect(getSession(db, live, alphaId)!.unread).toMatchObject({ count: 1 });

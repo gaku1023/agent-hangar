@@ -7,6 +7,7 @@ import { accountOfSession, getProject, getSession, listProjects, listSessions } 
 import { upsertShared } from '../db/shared.ts';
 import { addIntent, INTENT_MAX, noteIntent } from '../live/intents.ts';
 import { addUnread, noteUnread, NOTIFY_TARGETS, type NotifyTarget } from '../live/unread.ts';
+import { sessionTurnRunning } from '../live/unreadHold.ts';
 import { touchRow } from '../db/notify.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
@@ -61,6 +62,8 @@ export type ToolDeps = {
   settings?: () => { notifyPreference?: NotifyPreference | null; unreadBadge?: boolean; unreadOs?: boolean; unreadPhone?: boolean };
   /** 設定の保存（PATCH /api/settings と同じ道）。保存して、変えた欄を全部の画面へ配る。無ければ set_notify_preference は知らない道具として断る。 */
   saveNotifyPreference?: (p: NotifyPreference) => void;
+  /** notify_user の未読の数を、作業中ならターンの終わりまで預かりに任せるか（live/unreadHold.ts）。預かりが動いているサーバだけが立てる。無ければその場で積む。 */
+  holdUnread?: boolean;
   /** hook から届いた許可の確認の預け先（sessions/permissionAsks.ts）。無ければ許可の確認は読まない。 */
   permissionAsks?: { put(providerSessionId: string, ask: PermissionAskDto, now: number): void };
   /** 作者への問い合わせの口（report/service.ts）。無ければ draft_issue_report と submit_issue_report は断る。 */
@@ -706,12 +709,14 @@ export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
   if (isQuietStatus(session.state?.status) && !session.woke) sent = [];
   let unread = session.unread?.count ?? 0;
   if (sent.length > 0) {
-    if (sent.includes('unread')) {
+    // 未読の数も、done と ask で作業中なら預かりが積む（holdUnread のとき）。返答を書き終える前に数が増えないようにするためである。
+    const unreadHeld = sent.includes('unread') && deps.holdUnread === true && kind !== 'progress' && !o.immediate && sessionTurnRunning(deps.db, deps.live(), id);
+    if (sent.includes('unread') && !unreadHeld) {
       unread = addUnread(deps.db, id, text, now);
       touchRow(deps.db, 'sessions', id);
     }
     // OS とスマホへの通知は、done と ask ならこのターンが終わるまで預かってから出る（live/unreadHold.ts）。
-    noteUnread(id, text, unread, sent, { kind, ...(o.immediate ? { immediate: true } : {}) });
+    noteUnread(id, text, unread, sent, { kind, ...(o.immediate ? { immediate: true } : {}), ...(unreadHeld ? { unreadHeld: true } : {}) });
   }
   return { ok: true, session_id: id, at: now, unread, sent };
 }
