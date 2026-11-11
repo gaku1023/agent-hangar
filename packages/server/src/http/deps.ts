@@ -105,6 +105,8 @@ export type AppDeps = {
   permissionAsks?: Pick<PermissionAsks, 'put'>;
   /** hook の受け口（/mcp/s/<id>/hook）が本文を読む口。sessions.provider の値から driver の許可と質問の面を返す。無ければ hook の本文は読まない。 */
   asksOf?: AsksOf;
+  /** notify_user の預かり（live/unreadHold.ts）が動いているか。立っていれば、作業中の未読の数も預かりがターンの終わりに積む。 */
+  holdUnread?: boolean;
   /** デスクトップ通知の並び（sessions/stopNotices.ts）。殻が `GET /api/notify/feed` で読む。無ければ経路を持たない。 */
   osNotices?: Pick<OsNoticeFeed, 'wait'>;
   /** 表の変化に対応しない知らせ（トースト）を渡す先。行のイベントは渡さない。行を書けば、配る層（events/publisher.ts）が配る。 */

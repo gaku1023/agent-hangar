@@ -172,6 +172,8 @@ export function bootHttp(p: {
     language: home.language,
     updateSettings,
     live: () => delivery.live.current(), indexer: indexing.indexer, git: indexing.git, hub: delivery.hub, runs: runs.runs, schedules: p.schedules, external: runs.external, usage: runs.usage, memos: indexing.memos, digester: delivery.digester, permissionAsks: delivery.permissionAsks, asksOf: (provider) => delivery.agents.of(provider).asks, osNotices: delivery.osNotices,
+    // 預かり（UnreadHold）は boot/runs.ts が必ず起こすので、未読の数も預ける。
+    holdUnread: true,
     summary: summary.api,
     trash: trash.trash,
     trustWorkspace: runs.trustWorkspace,

@@ -109,3 +109,51 @@ describe('UnreadHold', () => {
     expect(ready).toEqual([]);
   });
 });
+
+describe('UnreadHold の未読の数と裏だけの印', () => {
+  const unreadRow = (id: string) => db.prepare('select count, latest_text as latest from session_unread where session_id = ?').get(id) as { count: number; latest: string } | undefined;
+
+  it('作業中でも本体が入力を受け付けていて裏だけが動く（aside）なら、ターンを抜けたとみなして出す', () => {
+    const h = hold();
+    noteUnread(s1, '返答を書き終えました', 1, ['os'], { kind: 'done' });
+    live = [entry('u1', 'busy', { aside: { shell: true, agents: 0 } })];
+    h.check();
+    expect(ready.map((r) => r.text)).toEqual(['返答を書き終えました']);
+  });
+
+  it('裏だけ（aside）の間に呼ばれた done は、預からずにすぐ出す', () => {
+    hold();
+    live = [entry('u1', 'busy', { aside: { shell: false, agents: 1 } })];
+    noteUnread(s1, 'すぐ', 1, ['os'], { kind: 'done' });
+    expect(ready).toHaveLength(1);
+  });
+
+  it('unreadHeld の知らせは、未読の数もターンを抜けるまで積まず、抜けたら 1 つ積んでから流す', () => {
+    const h = hold();
+    noteUnread(s1, '1 回目', 0, ['unread', 'os'], { kind: 'done', unreadHeld: true });
+    noteUnread(s1, '2 回目', 0, ['unread', 'os'], { kind: 'done', unreadHeld: true });
+    expect(unreadRow(s1)).toBeUndefined();
+    live = [entry('u1', 'idle'), entry('u2', 'busy')];
+    h.check();
+    expect(unreadRow(s1)).toEqual({ count: 1, latest: '2 回目' });
+    expect(ready).toEqual([{ id: s1, text: '2 回目', count: 1, sent: ['os'], meta: { kind: 'done' } }]);
+  });
+
+  it('出し先が未読の数だけでも、unreadHeld なら預かって、抜けたら積む（流すものは無い）', () => {
+    const h = hold();
+    noteUnread(s1, '数だけ', 0, ['unread'], { kind: 'ask', unreadHeld: true });
+    expect(h.pending()).toBe(true);
+    live = [];
+    h.check();
+    expect(unreadRow(s1)).toEqual({ count: 1, latest: '数だけ' });
+    expect(ready).toEqual([]);
+  });
+
+  it('unreadHeld でも、作業中でなければその場で積んで流す', () => {
+    hold();
+    live = [entry('u1', 'idle')];
+    noteUnread(s1, '入力待ち', 0, ['unread', 'phone'], { kind: 'done', unreadHeld: true });
+    expect(unreadRow(s1)).toEqual({ count: 1, latest: '入力待ち' });
+    expect(ready).toEqual([{ id: s1, text: '入力待ち', count: 1, sent: ['phone'], meta: { kind: 'done' } }]);
+  });
+});
