@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isCodexInjection, type CodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isAutoDoneIdleDays, isIdleUnload, isLanguage, isLocalContext, isModelName, isOpencodeInjection, isSummaryEngine, newId, notifyPreferenceOf, type NotifyPreference, providerPrepsOf, terminalAppFor, type AutoDoneIdleDays, type ConfigApproval, isConfigKindsPatch, type ConfigKinds, type EditorSetting, type Language, type OpencodeInjection, type ProviderPrep, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
+import { isCodexInjection, orchestratorOf, type OrchestratorSetting, type CodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isAutoDoneIdleDays, isIdleUnload, isLanguage, isLocalContext, isModelName, isOpencodeInjection, isSummaryEngine, newId, notifyPreferenceOf, type NotifyPreference, providerPrepsOf, terminalAppFor, type AutoDoneIdleDays, type ConfigApproval, isConfigKindsPatch, type ConfigKinds, type EditorSetting, type Language, type OpencodeInjection, type ProviderPrep, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
 import { isLoose } from '../platform/secure.ts';
 import { decideLanguage, osDisplayLanguage } from '../i18n/osLanguage.ts';
 import { migrateConfigKinds } from '../sync/config/kindMigration.ts';
@@ -176,6 +176,8 @@ export type Settings = {
   opencodeProviderPrep?: Record<string, ProviderPrep | null>;
   /** ほかの PC の画面からの送信（peer chat）を受けるか。この PC だけの設定で、同期しない。項目が無いうちは入りとして読む（peerChatAcceptOf）。 */
   peerChatAcceptFromPeers?: boolean;
+  /** 統括（全セッションを統括する常駐の会話）の設定。この PC だけで、同期しない。項目が無いうちは切（orchestratorOf）。 */
+  orchestrator?: OrchestratorSetting;
 };
 
 /** 要約器の宛先に既定で許すホスト。 */
@@ -294,6 +296,11 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   if (s.opencodeIdleUnload !== undefined && !isIdleUnload(s.opencodeIdleUnload)) delete s.opencodeIdleUnload;
   if (s.opencodeProviderPrep !== undefined) s.opencodeProviderPrep = providerPrepsOf(s.opencodeProviderPrep);
   if (s.peerChatAcceptFromPeers !== undefined && typeof s.peerChatAcceptFromPeers !== 'boolean') delete s.peerChatAcceptFromPeers;
+  // 統括の設定は形を検査する。オブジェクトでなければ項目ごと捨て、あれば取れない値だけ既定に寄せる。
+  if (s.orchestrator !== undefined) {
+    if (s.orchestrator !== null && typeof s.orchestrator === 'object' && !Array.isArray(s.orchestrator)) s.orchestrator = orchestratorOf(s.orchestrator);
+    else delete s.orchestrator;
+  }
   // 項目が無い設定と知らない言語は、OS に合わせる前の日本語にする。手で書き換えた値を、画面とサーバの辞書引きへそのまま流さない。
   if (!isLanguage(s.language)) s.language = decideLanguage(text, osLanguage).language;
   return s;

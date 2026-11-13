@@ -11,6 +11,7 @@ export const launchKeys = {
   'launch.injection.notify': [],
   'launch.injection.notifySave': ['os', 'rules'],
   'launch.injection.notifyAsk': ['os'],
+  'launch.injection.orchestrator': [],
   'launch.injection.handover': ['prevDevice', 'prevOs', 'lastAt', 'prevPath', 'device', 'os', 'path', 'branch', 'editedCount', 'missing'],
   'launch.injection.missing': ['n', 'files'],
   'launch.injection.multiDevice': ['deviceCount'],

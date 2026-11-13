@@ -12,7 +12,7 @@ import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA, SESSION_OTHER } from
 import { setSessionName } from '../sessions/notes.ts';
 import { PEER_STALE_MS, PEERS_FRESH_MS, recordPeers } from '../sync/peers.ts';
 import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
-import { displayName, getProject, getSession, listDevices, listProjects, listSessions, sessionLock, setParkingSwitch } from './queries.ts';
+import { displayName, getProject, getSession, listDevices, listProjects, listSessions, sessionLock, setOrchestratorSource, setParkingSwitch } from './queries.ts';
 
 let dir: string;
 let db: Db;
@@ -30,6 +30,24 @@ beforeEach(async () => {
 });
 afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+describe('統括の印（role）', () => {
+  it('設定の sessionId と同じ会話にだけ role が付き、ほかの会話は鍵ごと持たない。一覧と 1 件で同じ', () => {
+    const all = listSessions(db, []);
+    const target = all.find((s) => s.providerSessionId === SESSION_ALPHA)!;
+    expect(all.every((s) => !('role' in s))).toBe(true);
+    let id: string | null = target.id;
+    setOrchestratorSource(db, () => id);
+    const withRole = listSessions(db, []);
+    expect(withRole.filter((s) => 'role' in s).map((s) => s.id)).toEqual([target.id]);
+    expect(withRole.find((s) => s.id === target.id)!.role).toBe('orchestrator');
+    expect(getSession(db, [], target.id)!.role).toBe('orchestrator');
+    expect('role' in getSession(db, [], withRole.find((s) => s.id !== target.id)!.id)!).toBe(false);
+    // 設定が変われば、次に組むときから変わる（DB の列は持たない）。
+    id = null;
+    expect(listSessions(db, []).every((s) => !('role' in s))).toBe(true);
+  });
 });
 
 describe('listSessions', () => {

@@ -3,6 +3,7 @@ import type { LiveSessionDto } from '@agent-hangar/shared';
 import { agentsOf } from '../../agent/agents.ts';
 import type { AgentDriver, AgentLauncher, LaunchPlan, LaunchSpec, SessionMode } from '../../agent/types.ts';
 import { createClaudeDriver, type ClaudeDriverDeps } from './driver.ts';
+import type { HookSettingsInput } from './launch/hookSettings.ts';
 import { claudeTranscriptSource } from './transcript/source.ts';
 import { liveSourceOf } from '../../../test/fake-live.ts';
 
@@ -96,6 +97,15 @@ describe('Claude の driver が AgentDriver の起動の型を満たす', () => 
     expect(p.env).toEqual({});
     expect(p.unset).toEqual(['CLAUDECODE', 'HANGAR_PORT', 'CLAUDE_CONFIG_DIR']);
     expect(d.launch.plan(BIN, { kind: 'start', id: 'u1' }, { ...base, env: { CLAUDE_CONFIG_DIR: '/acct' } }).unset).toEqual(['CLAUDECODE', 'HANGAR_PORT']);
+  });
+  it('LaunchSpec の permissions は、hook の設定を書く入力へそのまま渡す。無いときは入力に鍵を足さない', () => {
+    const hookSettings = vi.fn((_home: string, _id: string, _input: HookSettingsInput) => '/home/.agent-hangar/hooks/s1.json');
+    const d = driverWith({ files: { mcpConfig: () => mcpConfigPath, hookSettings } });
+    const permissions = { allow: ['mcp__hangar'], deny: ['Bash'] };
+    d.launch.plan(BIN, { kind: 'start', id: 'u1' }, { ...base, permissions });
+    expect(hookSettings).toHaveBeenLastCalledWith('/home/.agent-hangar', 's1', expect.objectContaining({ permissions }));
+    d.launch.plan(BIN, { kind: 'start', id: 'u1' }, base);
+    expect(Object.keys(hookSettings.mock.lastCall![2]).sort()).toEqual(['mcpConfigPath', 'node', 'script']);
   });
   it('hook の設定を書けなくても起こす。--settings を省き、失敗を知らせる', () => {
     const report = vi.fn();

@@ -19,6 +19,18 @@ describe('hookSettingsJson', () => {
     expect(JSON.parse(hookSettingsJson(o))).toEqual({ hooks: { PreToolUse: entry, PostToolUse: entry, PostToolUseFailure: entry, PermissionRequest: [{ matcher: '*', hooks: [hook] }] } });
   });
 
+  it('permissions を渡さなければ、鍵ごと足さない（統括でない会話の設定は変わらない）', () => {
+    expect(hookSettingsJson(o)).toBe(hookSettingsJson({ ...o, permissions: undefined }));
+    expect(JSON.parse(hookSettingsJson(o))).not.toHaveProperty('permissions');
+  });
+
+  it('permissions を渡すと、hook に加えて allow と deny を同じファイルに書く', () => {
+    const permissions = { allow: ['mcp__hangar'], deny: ['Bash', 'Edit'] };
+    const json = JSON.parse(hookSettingsJson({ ...o, permissions })) as { hooks: unknown; permissions: unknown };
+    expect(json.permissions).toEqual(permissions);
+    expect(json.hooks).toEqual((JSON.parse(hookSettingsJson(o)) as { hooks: unknown }).hooks);
+  });
+
   it('鍵を書かない（鍵は MCP の設定ファイルにだけある）', () => {
     expect(hookSettingsJson(o)).not.toMatch(/Bearer|Authorization/);
   });

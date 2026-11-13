@@ -20,6 +20,11 @@ export type HookSettingsInput = {
   script: string;
   /** この run の MCP の設定ファイル。 */
   mcpConfigPath: string;
+  /**
+   * 統括の会話（docs/design.md「統括」）にだけ渡す、道具の許可と禁止。hook と同じファイルに `permissions` として書く。
+   * 渡さなければ鍵ごと足さない（統括でない会話の設定は変わらない）。
+   */
+  permissions?: { allow: string[]; deny: string[] };
 };
 
 /** hook を待つ秒数。裏で走るので claude は待たないが、残り続けないよう区切る。 */
@@ -34,7 +39,8 @@ const HOOK_TIMEOUT_SECONDS = 10;
 export function hookSettingsJson(o: HookSettingsInput): string {
   const hook = { type: 'command', command: o.node, args: [o.script, o.mcpConfigPath], async: true, timeout: HOOK_TIMEOUT_SECONDS };
   const entry = [{ matcher: 'AskUserQuestion', hooks: [hook] }];
-  return JSON.stringify({ hooks: { PreToolUse: entry, PostToolUse: entry, PostToolUseFailure: entry, PermissionRequest: [{ matcher: '*', hooks: [hook] }] } });
+  const hooks = { PreToolUse: entry, PostToolUse: entry, PostToolUseFailure: entry, PermissionRequest: [{ matcher: '*', hooks: [hook] }] };
+  return JSON.stringify(o.permissions ? { hooks, permissions: { allow: o.permissions.allow, deny: o.permissions.deny } } : { hooks });
 }
 
 /** 0600 で書いて、そのパスを返す。消すのは MCP の設定と同じ後始末（removeMcpConfig、pruneMcpConfigs）である。 */

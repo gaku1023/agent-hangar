@@ -1,6 +1,8 @@
 import type { NoticeEvent } from '../events/publisher.ts';
 import { Publisher } from '../events/publisher.ts';
 import { AsideReader } from '../live/aside.ts';
+import { markOrchestrator } from '../live/orchestratorRole.ts';
+import { setOrchestratorSource } from '../db/queries.ts';
 import { LiveDigester } from '../live/digest.ts';
 import { LiveHub } from '../agent/liveHub.ts';
 import { CompatLog, compatPath } from '../provider/claude-code/compat/log.ts';
@@ -65,7 +67,11 @@ export function bootDelivery(home: Pick<HomeParts, 'home' | 'db' | 'device' | 'c
   const permissionAsks = new PermissionAsks(() => live.kick(0));
   const osNotices = new OsNoticeFeed();
   // 実行中の一覧。足し付けの鎖（裏だけの印、許可の中身の順）は束ねる側が持ち、各 driver の写しが読み直しのたびに通す。
-  const live = new LiveHub({ enrich: [(l, now) => aside.apply(l, now), (l, now) => permissionAsks.apply(l, now)] });
+  // 統括の会話には role を足す（live/orchestratorRole.ts）。role は設定の orchestrator.sessionId から導き、一覧の DTO（db/queries.ts）も同じ設定を見る。
+  const orchestratorId = (): string | null => home.settings.current.orchestrator?.sessionId ?? null;
+  setOrchestratorSource(db, orchestratorId);
+  const markRole = markOrchestrator(db, orchestratorId);
+  const live = new LiveHub({ enrich: [(l, now) => aside.apply(l, now), (l, now) => permissionAsks.apply(l, now), (l) => markRole(l)] });
   const agents = bootAgents(home, { compatLog, claudeVersion, enrich: (l) => live.enrich(l), registryIsGone: opts.registryIsGone });
   live.add(agents.claude.live);
   // opencode の写し（serve の出来事の流れ）。会話を起こすまで行は無い。

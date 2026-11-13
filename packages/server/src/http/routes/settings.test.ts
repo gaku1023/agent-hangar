@@ -155,7 +155,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, orchestrator: { enabled: false, sessionId: null, model: 'sonnet', effort: 'medium' } });
   });
   // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
   it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
@@ -466,8 +466,9 @@ describe('設定の往復', () => {
       expect('summaryApiKey' in keyedBody).toBe(false);
       // 受け口の項目が DTO の項目とそろっていることを、抜けが出たら落ちる形で見る。
       const dto = (await json(await get('/api/settings'))).body as SettingsDto;
+      // 統括（orchestrator）は届いた項目を足して返す形なので、往復の表ではなく専用の試験で見る。
       // フォルダの信頼の同意（trustedWorkspaceRoot）は読むだけで、POST /api/workspace/trust だけが書く。
-      expect([...cases.map(([k]) => k), 'summaryApiKeySet', 'trustedWorkspaceRoot'].sort()).toEqual(Object.keys(dto).sort());
+      expect([...cases.map(([k]) => k), 'orchestrator', 'summaryApiKeySet', 'trustedWorkspaceRoot'].sort()).toEqual(Object.keys(dto).sort());
     } finally {
       fs.rmSync(ws2, { recursive: true, force: true });
       fs.rmSync(dir2, { recursive: true, force: true });
@@ -554,6 +555,22 @@ describe('設定の往復', () => {
       expect((await r.json()).error).toBe('「コマンド実行前に確認」の値の形式が正しくありません');
     }
     expect((await json(await get('/api/settings'))).body.opencodePermissionPreset).toBe(false);
+  });
+  it('統括の設定は、既定が切で、入り切りとモデルと effort だけを保存でき、会話の id と形の違う値は断る', async () => {
+    expect((await json(await get('/api/settings'))).body.orchestrator).toEqual({ enabled: false, sessionId: null, model: 'sonnet', effort: 'medium' });
+    t.deps.updateSettings({ orchestrator: { enabled: false, sessionId: 'keep-me', model: 'sonnet', effort: 'medium' } });
+    sent.length = 0;
+    const r = await patch({ orchestrator: { enabled: true, model: 'opus' } });
+    expect(r.status).toBe(200);
+    // 届いた項目だけを替え、見張りが書く sessionId は残す。
+    expect((await r.json()).orchestrator).toEqual({ enabled: true, sessionId: 'keep-me', model: 'opus', effort: 'medium' });
+    expect(sent.find((e) => e.type === 'settings.changed')).toMatchObject({ keys: ['orchestrator'], settings: { orchestrator: { enabled: true } } });
+    for (const v of [{ sessionId: 'x' }, { enabled: 'true' }, { model: '--evil' }, { effort: 'turbo' }, { extra: 1 }, {}, null, 'on']) {
+      const bad = await patch({ orchestrator: v });
+      expect([JSON.stringify(v), bad.status]).toEqual([JSON.stringify(v), 400]);
+      expect((await bad.json()).error).toBe('「統括」の値の形式が正しくありません');
+    }
+    expect((await json(await get('/api/settings'))).body.orchestrator).toEqual({ enabled: true, sessionId: 'keep-me', model: 'opus', effort: 'medium' });
   });
   it('他の PC からの送信を受ける設定は、既定が入で、切を保存でき、真偽値でない値は断る', async () => {
     expect((await json(await get('/api/settings'))).body.peerChatAcceptFromPeers).toBe(true);
