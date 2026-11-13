@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb } from '../../db/open.ts';
 import { FakeCloudClient } from '../../../test/fake-cloud.ts';
 import { ConfigSyncService } from './service.ts';
+import { kindsOf } from '../../../test/configKinds.ts';
 
 let tmp: string;
 beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'svc-ph-')); });
@@ -21,8 +22,8 @@ function make(o: { codex: boolean; opencode: boolean; switches?: Record<string, 
   const targetPaths = { codexHome: path.join(root, 'codex'), opencodeDir: path.join(root, 'opencode'), agentsSkillsDir: path.join(root, 'agents-skills'), claudeJsonPath: path.join(root, 'claude.json') };
   const svc = new ConfigSyncService({
     db: openDb(':memory:'), deviceId: 'd', deviceName: 'n', claudeDir, home, cloud, keyring: cloud.keyring,
-    enabled: () => true, switchedOn: () => true, approval: () => 'each', now: () => 1_000_000,
-    targetSwitches: () => o.switches ?? {}, agentsEnabled: () => ({ codex: o.codex, opencode: o.opencode }), targetPaths,
+    enabled: () => true, switchedOn: () => true, now: () => 1_000_000,
+    configKinds: () => kindsOf(o.switches ?? {}, 'each'), agentsEnabled: () => ({ codex: o.codex, opencode: o.opencode }), targetPaths,
   });
   return { svc, claudeDir, targetPaths };
 }

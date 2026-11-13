@@ -20,6 +20,7 @@ import { enabledTargetNames, collectAll, targetNameOfId, type TargetContext } fr
 import { holdOfMcp, isHangarEntry, mcpIdOf, mcpSecret, CLAUDE_MCP_PREFIX, CODEX_MCP_PREFIX, OPENCODE_MCP_PREFIX } from './mcpCommon.ts';
 import { opencodeMcpNotes, opencodeMcpTarget, writeOpencodeMcp } from './opencodeMcp.ts';
 import { opencodeTarget, writeOpencode } from './opencode.ts';
+import { kindsOf } from '../../../../test/configKinds.ts';
 
 const sha = (s: string | Buffer): string => createHash('sha256').update(s).digest('hex');
 const NOW = new Date(2026, 9, 27, 12, 0, 0).getTime();
@@ -74,7 +75,7 @@ const ctx = (o: Partial<TargetContext> = {}): TargetContext => ({
   db, deviceId: 'dev-a', home: tmp, claudeDir: path.join(tmp, 'claude'), allowedUnsent: new Map(),
   codexHome, codexEnabled: true, opencodeDir, opencodeEnabled: true,
   agentsSkillsDir: path.join(tmp, 'agents'), claudeJsonPath: claudeJson, hangarSettingsPath: path.join(tmp, 'settings.json'),
-  switches: { 'claude-mcp': true, 'codex-mcp': true, 'opencode-mcp': true }, ...o,
+  kinds: kindsOf({ 'claude-mcp': true, 'codex-mcp': true, 'opencode-mcp': true }), ...o,
 });
 const rd = (f: string): string => fs.readFileSync(f, 'utf8');
 
@@ -106,7 +107,7 @@ describe('MCP の id と持ち主', () => {
   });
   it('codex の好みの鍵の道に mcp_servers は出ない（codex の対象は読み飛ばし、MCP の対象が別に集める）', () => {
     fs.writeFileSync(path.join(codexHome, 'config.toml'), CODEX_TOML);
-    const c = codexTarget.collect(ctx({ switches: { codex: true } }));
+    const c = codexTarget.collect(ctx({ kinds: kindsOf({ codex: true }) }));
     expect(c.items.map((i) => i.id).filter((i) => i.includes('mcp'))).toEqual([]);
     expect(c.items.map((i) => i.id)).toContain(codexTomlId(['model']));
   });
@@ -132,7 +133,7 @@ describe('集める：Claude の ~/.claude.json', () => {
     expect(isHangarEntry('opencode', 'x', { type: 'local', command: ['hangar', 'mcp'] })).toBe(true);
   });
   it('入切の既定は切。入れても、その PC の入れ物が無ければ何も集めない', () => {
-    expect(claudeMcpTarget.enabled(ctx({ switches: {} }))).toBe(false);
+    expect(claudeMcpTarget.enabled(ctx({ kinds: kindsOf({}) }))).toBe(false);
     expect(claudeMcpTarget.enabled(ctx())).toBe(true);
     expect(enabledTargetNames(ctx())).toEqual(expect.arrayContaining(['claude-mcp', 'codex-mcp', 'opencode-mcp']));
     fs.rmSync(claudeJson);
@@ -157,7 +158,7 @@ describe('集める：Codex と opencode', () => {
     expect(c.items.map((i) => i.id)).toEqual(['codex:mcp:docs', 'codex:mcp:files']);
     expect(JSON.parse(c.items[1]!.content.toString())).toEqual({ args: ['-y', '@example/files'], command: 'npx', env: { ROOT: '/data' } });
     expect(codexMcpTarget.enabled(ctx({ codexEnabled: false }))).toBe(false);
-    expect(codexMcpTarget.enabled(ctx({ switches: {} }))).toBe(false);
+    expect(codexMcpTarget.enabled(ctx({ kinds: kindsOf({}) }))).toBe(false);
   });
   it('opencode の mcp を集める。jsonc が正。その PC で opencode が無効なら集めない', () => {
     fs.writeFileSync(path.join(opencodeDir, 'opencode.jsonc'), OPENCODE_JSONC);
@@ -170,7 +171,7 @@ describe('集める：Codex と opencode', () => {
     fs.writeFileSync(claudeJson, CLAUDE_JSON);
     fs.writeFileSync(path.join(codexHome, 'config.toml'), CODEX_TOML);
     fs.writeFileSync(path.join(opencodeDir, 'opencode.jsonc'), OPENCODE_JSONC);
-    const ids = collectAll(ctx({ switches: { 'claude-mcp': true, 'codex-mcp': true, 'opencode-mcp': true, codex: true, opencode: true } })).items.map((i) => i.id);
+    const ids = collectAll(ctx({ kinds: kindsOf({ 'claude-mcp': true, 'codex-mcp': true, 'opencode-mcp': true, codex: true, opencode: true }) })).items.map((i) => i.id);
     expect(ids.filter((i) => i.includes('mcp'))).toEqual(['claude-mcp:docs', 'claude-mcp:files', 'codex:mcp:docs', 'codex:mcp:files', 'opencode:mcp:docs', 'opencode:mcp:files']);
     expect(ids.filter((i) => i.startsWith('opencode:json:') && i.includes('mcp'))).toEqual([]);
   });
@@ -239,17 +240,6 @@ describe('受け手の保留', () => {
     const item = { id: 'opencode:mcp:a', content: Buffer.from(JSON.stringify({ type: 'remote', url: 'https://x', headers: { Authorization: 'Bearer {env:MCP_TOKEN_X}' } })) };
     expect(opencodeMcpNotes(item, {})).toEqual({ missingEnv: ['MCP_TOKEN_X'] });
     expect(opencodeMcpNotes(item, { MCP_TOKEN_X: '1' })).toEqual({ missingEnv: [] });
-  });
-});
-
-describe('承認', () => {
-  it('設定が each のあいだは、作る・上書き・消去のどれも承認が要る。auto なら要らない', () => {
-    for (const t of [claudeMcpTarget, codexMcpTarget, opencodeMcpTarget]) {
-      for (const op of ['create', 'overwrite', 'delete', 'conflict'] as const) {
-        expect(t.needsApproval({ id: 'x:y', kind: 'claude-mcp', op }, 'each'), `${t.name} ${op}`).toBe(true);
-        expect(t.needsApproval({ id: 'x:y', kind: 'claude-mcp', op }, 'auto')).toBe(false);
-      }
-    }
   });
 });
 

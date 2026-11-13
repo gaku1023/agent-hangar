@@ -4,7 +4,7 @@ import type { Collected, LocalItem } from '../collect.ts';
 import { CLAUDE_PLUGIN_KEYS, canonicalJson, valueFits } from '../settingsSort.ts';
 import { planItemOps, planItems, readSettingsForCollect, writeItems, type ItemSpec } from './settingsItemWriter.ts';
 import { CLAUDE_STORE } from './stores.ts';
-import type { ConfigTarget } from './types.ts';
+import { anyKindOn, type ConfigTarget } from './types.ts';
 
 /**
  * Claude の enabledPlugins と extraKnownMarketplaces（SPEC 2 章、6 章）。今は運ばない鍵を、承認つきで運ぶ。
@@ -106,13 +106,13 @@ export function createClaudePluginsTarget(): ConfigTarget {
     name: CLAUDE_PLUGINS_NAME,
     owns: (id) => id.startsWith('settings:') && CLAUDE_PLUGIN_KEYS.has(id.slice('settings:'.length)),
     parseId: (id) => (id.startsWith('settings:') && CLAUDE_PLUGIN_KEYS.has(id.slice('settings:'.length)) ? { kind: 'plugins', ref: { type: 'settings', key: id.slice('settings:'.length) } } : null),
-    enabled: (t) => t.switches?.[CLAUDE_PLUGINS_NAME] === true,
+    kinds: ['plugins'],
+    enabled: (t) => anyKindOn(t, ['plugins']),
     collect,
     planWrite: (w) => planItems(w, specs()),
     write: (w) => writeItems(w, specs()),
     planOps: (w, read) => planItemOps(w, specs(), read),
     store: CLAUDE_STORE,
-    needsApproval: (_item, approval) => approval === 'each',
     isMachineBound: () => false,
   };
 }

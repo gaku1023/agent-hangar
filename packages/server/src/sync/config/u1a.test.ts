@@ -9,6 +9,7 @@ import { upsertShared } from '../../db/shared.ts';
 import { applyRemoteChange } from '../apply.ts';
 import { configBackupsDir } from './paths.ts';
 import { ConfigSyncService } from './service.ts';
+import { kindsOf } from '../../../test/configKinds.ts';
 
 // U1a：画面が使うサーバと shared の型の足し（missingEnv、世代の target、notices、知らないキーの数）。
 let tmp: string;
@@ -28,8 +29,8 @@ function pc(id: string, name: string) {
   cloud.calls.length = 0;
   const service = new ConfigSyncService({
     db, deviceId: id, deviceName: name, claudeDir, home, cloud, keyring: cloud.keyring,
-    enabled: () => true, switchedOn: () => true, approval: () => 'each', now: () => 1_700_000_000_000,
-    targetSwitches: () => ({ opencode: true, 'opencode-mcp': true }),
+    enabled: () => true, switchedOn: () => true, now: () => 1_700_000_000_000,
+    configKinds: () => kindsOf(({ opencode: true, 'opencode-mcp': true }), 'each'),
     agentsEnabled: () => ({ codex: false, opencode: true }),
     targetPaths: { opencodeDir },
   });

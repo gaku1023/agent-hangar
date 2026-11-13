@@ -12,6 +12,7 @@ import { createApp, type RunsApi } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
 import { isWindows } from '../../../test/platform.ts';
 import { terminalAppsFor } from '@agent-hangar/shared';
+import { configKindsOf } from '@agent-hangar/shared';
 
 /** 動いている OS の、既定でないほうの外部ターミナル。macOS は iTerm2、Windows は既定のターミナル。 */
 const OTHER_TERMINAL = terminalAppsFor(process.platform)[1]!;
@@ -154,7 +155,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true });
   });
   // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
   it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
@@ -409,6 +410,7 @@ describe('設定の往復', () => {
         ['configApproval', 'auto'],
         ['configBundleSync', true],
         ['configTargets', { codex: true }],
+        ['configKinds', { ...configKindsOf({}), skills: 'off', 'claude-hooks': 'auto', transcript: 'off' }],
         ['askStatusAtEnd', false],
         ['liveHints', false],
         ['notifyUser', false],
@@ -499,13 +501,30 @@ describe('設定の往復', () => {
     expect((await (await patch({ configTargets: { codex: true, 'claude-keys2': false, nope: true, hangar: 'yes' } })).json()).configTargets).toEqual({ codex: true, 'claude-keys2': false });
     expect((await json(await get('/api/settings'))).body.configTargets).toEqual({ codex: true, 'claude-keys2': false });
     expect((await json(await get('/api/bootstrap'))).body.settings.configTargets).toEqual({ codex: true, 'claude-keys2': false });
-    // サーバが同期の入切として読む設定（boot/sync.ts の targetSwitches）にも入る。
+    // 受け口だけ残している（サーバの振る舞いは読まない。configKinds への移行が読む）。
     expect(t.deps.settings().configTargets).toEqual({ codex: true, 'claude-keys2': false });
     // 全体の置き換え：送らなかった対象は消える。
     expect((await (await patch({ configTargets: { hangar: true } })).json()).configTargets).toEqual({ hangar: true });
     expect((await patch({ configTargets: [] })).status).toBe(400);
     expect((await patch({ configTargets: null })).status).toBe(400);
     expect((await json(await get('/api/settings'))).body.configTargets).toEqual({ hangar: true });
+  });
+  it('設定の同期の種類ごとの状態は、21 鍵を埋めて返し、届いた鍵だけを替え、知らない鍵と取れない値は断る', async () => {
+    const all = (await json(await get('/api/settings'))).body.configKinds as Record<string, string>;
+    expect(Object.keys(all)).toHaveLength(21);
+    expect(all.skills).toBe('auto');
+    expect(all['claude-hooks']).toBe('confirm');
+    expect((await (await patch({ configKinds: { skills: 'off' } })).json()).configKinds.skills).toBe('off');
+    const next = (await (await patch({ configKinds: { 'claude-hooks': 'auto' } })).json()).configKinds;
+    expect([next.skills, next['claude-hooks']]).toEqual(['off', 'auto']);
+    expect((await json(await get('/api/bootstrap'))).body.settings.configKinds.skills).toBe('off');
+    // サーバが同期の振る舞いとして読む設定（boot/sync.ts の configKinds）にも入る。
+    expect(t.deps.settings().configKinds?.skills).toBe('off');
+    for (const v of [{ transcript: 'confirm' }, { nope: 'off' }, { skills: true }, null, [], 'auto']) {
+      const r = await patch({ configKinds: v });
+      expect([v, r.status]).toEqual([v, 400]);
+    }
+    expect((await json(await get('/api/settings'))).body.configKinds.skills).toBe('off');
   });
   it('設定の同期（作り直した実装）のスイッチは、既定が切で、保存でき、真偽値でない値は断る', async () => {
     expect((await json(await get('/api/settings'))).body.configBundleSync).toBe(false);

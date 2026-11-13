@@ -13,6 +13,7 @@ import { writeInbox } from '../inbox.ts';
 import { judge, type RemoteSnapshot } from '../threeWay.ts';
 import { agentsSkillsTarget, planAgentsSkills, runAgentsSkillsApply } from './agentsSkills.ts';
 import { allTargets, collectAll, enabledTargetNames, parseTargetItemId, targetNameOfId, type TargetContext } from './index.ts';
+import { kindsOf } from '../../../../test/configKinds.ts';
 
 const sha = (s: string | Buffer): string => createHash('sha256').update(s).digest('hex');
 const NOW = new Date(2026, 9, 10, 12, 0, 0).getTime();
@@ -25,7 +26,7 @@ const ctx = (o: Partial<TargetContext> = {}): TargetContext => ({
   db, deviceId: 'd', home, claudeDir: path.join(tmp, 'claude'), allowedUnsent: new Map(),
   codexHome: path.join(tmp, 'codex'), codexEnabled: true, opencodeDir: path.join(tmp, 'opencode'), opencodeEnabled: false,
   agentsSkillsDir: skills, claudeJsonPath: path.join(tmp, 'claude.json'), hangarSettingsPath: path.join(tmp, 'settings.json'),
-  switches: { 'agents-skills': true }, ...o,
+  kinds: kindsOf({ 'agents-skills': true }), ...o,
 });
 const put = (rel: string, text: string | Buffer): void => { const f = path.join(skills, ...rel.split('/')); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text); };
 const read = (rel: string): string | null => { try { return fs.readFileSync(path.join(skills, ...rel.split('/')), 'utf8'); } catch { return null; } };
@@ -103,16 +104,12 @@ describe('agents-skills: 入切と承認', () => {
     expect(on({ codexEnabled: true, opencodeEnabled: false })).toBe(true);
     expect(on({ codexEnabled: false, opencodeEnabled: true })).toBe(true);
     expect(on({ codexEnabled: false, opencodeEnabled: false })).toBe(false);
-    expect(on({ switches: {} })).toBe(false);
+    expect(on({ kinds: kindsOf({}) })).toBe(false);
     expect(ids(collectAll(ctx({ codexEnabled: false, opencodeEnabled: false })))).toEqual([]);
     expect(allTargets().find((t) => t.name === 'agents-skills')!.enabled(ctx({ codexEnabled: false, opencodeEnabled: false }))).toBe(false);
   });
 
-  it('承認は、消去も含めて全部。自動なら要らない', () => {
-    for (const op of ['create', 'overwrite', 'delete', 'conflict'] as ConfigInboxOp[]) {
-      expect(agentsSkillsTarget.needsApproval({ id: 'agents-skills:a', kind: 'agents-skills', op }, 'each')).toBe(true);
-      expect(agentsSkillsTarget.needsApproval({ id: 'agents-skills:a', kind: 'agents-skills', op }, 'auto')).toBe(false);
-    }
+  it('PC に依る項目は無い', () => {
     expect(agentsSkillsTarget.isMachineBound({ id: 'agents-skills:a', kind: 'agents-skills', content: Buffer.from('') })).toBe(false);
   });
 

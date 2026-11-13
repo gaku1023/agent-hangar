@@ -48,6 +48,7 @@ pub struct Words {
     pub busy: &'static str,
     pub bad_generation: &'static str,
     pub bad_target: &'static str,
+    pub bad_history: &'static str,
     pub apply_stopped: &'static str,
     pub restore_stopped: &'static str,
 }
@@ -78,6 +79,7 @@ const JA: Words = Words {
     busy: "設定の確認がすでに表示されています。",
     bad_generation: "世代の名前が正しくありません。",
     bad_target: "対象の名前が正しくありません。",
+    bad_history: "履歴の指定が正しくありません。",
     apply_stopped: "設定の適用の処理が停止しました。",
     restore_stopped: "設定の復元の処理が停止しました。",
 };
@@ -107,6 +109,7 @@ const EN: Words = Words {
     busy: "A settings confirmation is already open.",
     bad_generation: "The generation name is not valid.",
     bad_target: "The target name is not valid.",
+    bad_history: "The history entry is not valid.",
     apply_stopped: "Applying the settings stopped.",
     restore_stopped: "Restoring the settings stopped.",
 };

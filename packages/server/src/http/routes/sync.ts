@@ -186,4 +186,6 @@ export function syncRoutes(api: Hono, deps: SyncRouteDeps): void {
     return bundle(c, (api) => api.putApplyOrder(items as Parameters<typeof api.putApplyOrder>[0]));
   });
   api.delete('/config-sync/apply-order', (c) => bundle(c, (b) => b.deleteApplyOrder(), true));
+  // 履歴の既読。書くのは DB の既読の印だけで、~/.claude には触れないので HTTP に載せてよい。
+  api.post('/config-sync/history/seen', (c) => bundle(c, (b) => b.markHistorySeen(), true));
 }
