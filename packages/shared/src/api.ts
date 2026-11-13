@@ -77,6 +77,11 @@ export type SessionLimitDto = { kind: LimitKind; resetsAt: number; auto: boolean
 export type OsNoticeKind = 'waiting' | 'limit' | 'join' | 'unread';
 /** 参加リクエストの OS の通知が sessionId に載せる値。セッションの ID（UUID）とは重ならない。 */
 export const JOIN_NOTICE_ID = 'join-request';
+/**
+ * セッションに紐づかない知らせ（server の live/appNotice.ts）の OS の通知が sessionId に載せる値。kind は unread である。
+ * 設定の同期の確認と競合、自動の適用の失敗が使う。セッションの ID（UUID）とは重ならない。
+ */
+export const APP_NOTICE_ID = 'app-notice';
 /** 参加リクエストの中身のうち、発行した PC の画面に出すもの。sas は区切りの無い 6 桁である。 */
 export type JoinRequestView = { name: string; os: string; sas: string };
 /**
