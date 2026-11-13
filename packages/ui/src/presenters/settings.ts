@@ -309,6 +309,8 @@ export type SettingsProps = {
   notify: { available: boolean; on: boolean; blocked: boolean; ask?: boolean };
   /** 知らせ方の欄（読むだけ。変えるのはエージェント）。 */
   notifyRules: NotifyRulesProps;
+  /** ほかの PC で動いている会話をサイドバーに出すか。無ければ入りとして読む。 */
+  sidebarOtherPcs?: boolean;
   /** ツールの節の先頭の psmux（tmux）の状態の行（段 6 の B3）。準備の確かめが届く前は null。 */
   mux?: MuxStatus | null;
   /**
@@ -606,6 +608,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     focus: at === 'accounts' || at === 'unsent' || isSettingsField(at) ? at : null,
     notify: { available: store.notify.available, on: store.notify.on, blocked: store.notify.blocked, ...(store.notify.ask ? { ask: true } : {}) },
     notifyRules: presentNotifyRules(t, s ?? null, platform),
+    sidebarOtherPcs: s?.sidebarOtherPcs !== false,
     self: { autoDone: s?.autoDone !== false, autoDoneIdleDays: isAutoDoneIdleDays(s?.autoDoneIdleDays) ? s.autoDoneIdleDays : DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: s?.autoPark !== false },
     setupGuide: store.setupGuide ? { prompt: setupGuidePrompt(t, store.setupGuide), version: store.setupGuide.version, launch: canLaunchGuide(store) } : null,
   };

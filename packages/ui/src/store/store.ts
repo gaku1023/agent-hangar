@@ -656,6 +656,8 @@ export function waitingSessionIds(store: Store): string[] {
  * 既読にする側（seenWanted）は設定に関わらず生のデータを見る。
  */
 export const unreadBadgeOn = (store: Store): boolean => store.settings?.unreadBadge !== false;
+/** ほかの PC で動いている会話をサイドバーの「実行中」に出すか。設定 sidebarOtherPcs が無ければ入り。 */
+export const sidebarOtherPcsOn = (store: Store): boolean => store.settings?.sidebarOtherPcs !== false;
 export const unreadOf = (store: Store, id: string): NonNullable<SessionDto['unread']> | null => (unreadBadgeOn(store) ? store.sessions[id]?.unread ?? null : null);
 /** 未読のあるセッションの id。知らせの新しいものが先。 */
 export function unreadSessionIds(store: Store): string[] {

@@ -230,7 +230,7 @@ describe('設定の一般', () => {
   });
   it('一般には、言語、通知、ターミナルアプリ、エディタだけを置く（保持とステータスの自動処理はセッションの節にある）', () => {
     render(ui(at('general', { retention: { days: 365, options: [{ value: '365', label: '1 年' }], writable: true, reason: null, valueLabel: '1 年', bar: null, syncNote: false } })));
-    expect([...document.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['言語', '通知を有効にする', '知らせ方', 'ターミナルアプリ', 'エディタ']);
+    expect([...document.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['言語', '通知を有効にする', '知らせ方', '他の PC の会話もサイドバーに出す', 'ターミナルアプリ', 'エディタ']);
     expect(screen.queryByRole('heading', { level: 3, name: 'ステータスの自動処理' })).toBeNull();
   });
   it('帯のエディタの行から来たとき（focus が editor）は、エディタの欄を目立たせ、他のエディタを開いて始める', () => {

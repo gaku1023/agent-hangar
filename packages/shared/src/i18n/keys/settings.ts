@@ -295,6 +295,7 @@ export const settingsKeys = {
   'settings.label.configApproval': [],
   'settings.label.configBundleSync': [],
   'settings.label.askStatusAtEnd': [],
+  'settings.label.sidebarOtherPcs': [],
   'settings.label.liveHints': [],
   'settings.label.notifyUser': [],
   'settings.label.notifyPreference': [],

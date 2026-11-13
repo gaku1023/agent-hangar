@@ -3,7 +3,7 @@ import { agentIconsOn, agentOfSession } from './agentIcon.ts';
 import { presentSessionMenu, type SessionMenuProps } from './sessionMenu.ts';
 import { type AgentIconKind, type AgentUsageDto, type IndexProgressDto, type LiveStatus, type Route, type SessionDto, type StopReason, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, liveWithLimit, quietLive, resetAtText, stopReasonOf, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
-import { accountList, accountOfSession, currentAccount, hotSessions, liveSessionIds, remoteLockOf, runningSessionIds, shownReason, unreadOf, unreadTotal, waitingSessionIds, type Store } from '../store/store.ts';
+import { accountList, accountOfSession, currentAccount, hotSessions, liveSessionIds, remoteLockOf, runningSessionIds, sidebarOtherPcsOn, shownReason, unreadOf, unreadTotal, waitingSessionIds, type Store } from '../store/store.ts';
 import { codexAccountIdOfSession, presentAccounts, presentAgentUsage, presentCodexAccounts, type AccountGauge, type AccountView, type AgentUsageView } from './accounts.ts';
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
 import { translatorOf, storeLanguage } from './i18n.ts';
@@ -227,7 +227,10 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
   const t = translatorOf(store);
   const pinned = hotSessions(store.sessions).filter((s) => (s.pinnedAt ?? null) !== null).sort((a, b) => a.pinnedAt! - b.pinnedAt! || a.id.localeCompare(b.id)).map((s) => s.id);
   const pinnedSet = new Set(pinned);
-  const live = liveSessionIds(store).filter((id) => !pinnedSet.has(id));
+  // 設定が切なら、ロックで足したほかの PC の行を出さない（この PC の親の下の別 PC の子は、下の remoteKids が今のまま出す）。
+  const otherPcs = sidebarOtherPcsOn(store);
+  const localRuns = runningSessionIds(store);
+  const live = liveSessionIds(store).filter((id) => !pinnedSet.has(id) && (otherPcs || remoteLockOf(store.sessions[id]!, localRuns) === null));
   const here = new Set([...live, ...pinned]);
   // 別の PC で動かしている子は、この PC の run も live も持たない。親がここで動いている間だけ、親の下に出す。
   // 子の動きは分からないので動きの印は持たせず、PC の札で示す。結び付きが終わった子も、切り離していなければ出す。

@@ -68,6 +68,25 @@ describe('サイドバーの実行中に、ほかの PC の会話が混ざる', 
   });
 });
 
+describe('設定 sidebarOtherPcs', () => {
+  const withSetting = (v: boolean | undefined) => {
+    const store = storeOf([session('a', { live: 'busy', startedAt: 1 }), session('b', { lock: lock(), startedAt: 2 }), session('p', { live: 'busy', startedAt: 3 }), session('c', { live: null, spawnedBy: 'p', startedAt: 4, spawnPeer: { parent: null, child: 'Mac', closed: false } })]);
+    return v === undefined ? store : { ...store, settings: { sidebarOtherPcs: v } as never };
+  };
+  it('切なら、ロックで足した行は出さない。親の下の別の PC の子は出す', () => {
+    expect(rowsOf(withSetting(false)).map((r) => r.id)).toEqual(['a', 'p', 'c']);
+  });
+  it('入りでも、未設定でも、出る', () => {
+    expect(rowsOf(withSetting(true)).map((r) => r.id)).toEqual(['a', 'b', 'p', 'c']);
+    expect(rowsOf(withSetting(undefined)).map((r) => r.id)).toEqual(['a', 'b', 'p', 'c']);
+  });
+  it('切でも、Home とプロジェクトの数には数える', () => {
+    const store = withSetting(false);
+    expect(liveCountsOf(store, 'alpha').running).toBeGreaterThanOrEqual(1);
+    expect(presentHome(initialState(), store, NOW).running.map((c) => c.id)).toContain('b');
+  });
+});
+
 describe('数をそろえる', () => {
   it('プロジェクトの実行中と、一覧の live の絞り込みと、Home の実行中に数える', () => {
     const store = storeOf([session('b', { lock: lock() }), session('x')]);
