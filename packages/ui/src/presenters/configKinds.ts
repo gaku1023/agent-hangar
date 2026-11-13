@@ -66,7 +66,6 @@ export type KindsProps = { left: KindBundleProps[]; right: KindBundleProps[] };
 export function presentKinds(store: Store, t: Translate): KindsProps {
   const s = store.settings;
   const c = store.configSync;
-  const out = store.configDetail.outgoing?.items ?? null;
   const tt = t as (key: string) => string;
   const bundles = BUNDLES.map((b): KindBundleProps => {
     const rows = b.kinds.filter((k) => shown(k, s)).map((key): KindRowProps => {
@@ -74,7 +73,7 @@ export function presentKinds(store: Store, t: Translate): KindsProps {
       return {
         key,
         name: key === 'transcript' ? tt('configKindsUi.kind.transcript') : tt(`configSyncUi.kind.${kindKey(key as ConfigItemKind)}`),
-        count: isItem && out !== null ? out.filter((i) => i.kind === key).length : null,
+        count: isItem ? (c?.kindCounts?.[key as ConfigItemKind] ?? null) : null,
         mode: configKindModeOf(s, key),
         two: key === 'transcript',
         exec: b.id === 'exec',

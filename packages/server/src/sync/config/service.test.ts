@@ -131,6 +131,16 @@ describe('束を送る', () => {
     expect(a.service.dto().linkSkipped).toEqual({ skills: ['skills/benkyo'] });
   });
 
+  it('dto の kindCounts は、最後に集めた結果から種類ごとの項目の数を返す（集め直さない）', async () => {
+    const a = pc('dev-a', 'mac');
+    expect(a.service.dto().kindCounts).toEqual({});
+    a.write('skills/plain/SKILL.md', 'x');
+    await a.service.send();
+    const counts = a.service.dto().kindCounts!;
+    expect(counts.skills).toBe(1);
+    expect(Object.values(counts).every((n) => n > 0)).toBe(true);
+  });
+
   it('設定のファイルの鍵名に相対パスが無い', async () => {
     const a = pc('dev-a', 'mac');
     a.write('CLAUDE.md', '# rules');
@@ -664,7 +674,7 @@ describe('控えの世代と状態', () => {
 
   it('状態は、切入り、承認の仕方、届いた数、競合、保留、送らなかった数、最後に送った時刻を持つ', async () => {
     const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
-    expect(a.service.dto()).toEqual({ enabled: true, approval: 'each', workerPending: false, incoming: 0, conflicts: 0, held: 0, unsent: 0, unknownKeyCount: 0, backups: 0, applyOrder: null, lastSentAt: null, linkSkipped: {}, askCount: 0, autoUnseen: 0, history: [], lastAutoError: null });
+    expect(a.service.dto()).toEqual({ enabled: true, approval: 'each', workerPending: false, incoming: 0, conflicts: 0, held: 0, unsent: 0, unknownKeyCount: 0, backups: 0, applyOrder: null, lastSentAt: null, linkSkipped: {}, kindCounts: {}, askCount: 0, autoUnseen: 0, history: [], lastAutoError: null });
     a.write('CLAUDE.md', 'a'); a.write('commands/x.md', 'a');
     b.write('commands/x.md', 'b');
     await sync(a, b);

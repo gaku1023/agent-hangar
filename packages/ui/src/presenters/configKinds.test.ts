@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ConfigHistoryDto, ConfigOutgoingItemDto, ConfigSyncDto, SettingsDto } from '@agent-hangar/shared';
+import type { ConfigHistoryDto, ConfigSyncDto, SettingsDto } from '@agent-hangar/shared';
 import { translatorOf } from './i18n.ts';
 import { presentInbox, presentKinds, presentSyncBadges } from './configKinds.ts';
 import { EMPTY_CONFIG_DETAIL, initialStore, type ConfigDetail, type Store } from '../store/store.ts';
@@ -46,15 +46,14 @@ describe('種類の行の束ね方（C 性質ごと）', () => {
     expect(bundle(mixed, 'mem').mode).toBeNull();
     expect(bundle(mixed, 'conf').mode).toBe('auto');
   });
-  it('項目の数は送るものの一覧から数え、一覧が無ければ数を出さない。リンクで外した名前は行に添える', () => {
+  it('項目の数は kindCounts から読み、数が無い種類は数を出さない。リンクで外した名前は行に添える', () => {
     const t = translatorOf(initialStore());
     expect(rowsOf(presentKinds(storeOf(dto(), settings()), t)).every((r) => r.count === null)).toBe(true);
-    const items: ConfigOutgoingItemDto[] = ['a', 'b', 'c'].map((x) => ({ id: `file:skills/${x}`, kind: 'skills', label: `skills/${x}`, size: 1, marks: [], value: null }));
-    const p = presentKinds(storeOf(dto({ linkSkipped: { skills: ['skills/benkyo', 'skills/zentei'] } }), settings(), { outgoing: { enabled: true, items, droppedKeys: [], unsentCount: 0, lastSentAt: null } }), t);
+    const p = presentKinds(storeOf(dto({ kindCounts: { skills: 3 }, linkSkipped: { skills: ['skills/benkyo', 'skills/zentei'] } }), settings()), t);
     const skills = rowsOf(p).find((r) => r.key === 'skills')!;
     expect(skills.count).toBe(3);
     expect(skills.links).toEqual(['skills/benkyo', 'skills/zentei']);
-    expect(rowsOf(p).find((r) => r.key === 'memory')!.count).toBe(0);
+    expect(rowsOf(p).find((r) => r.key === 'memory')!.count).toBeNull();
   });
 });
 

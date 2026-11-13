@@ -819,6 +819,8 @@ export type ConfigSyncDto = {
   notices?: ConfigNoticeDto[];
   /** リンクだったので運ばなかった項目の相対パス（種類ごと。`skills/benkyo` など）。最後に集めた結果で、無ければ空。この項目を知らない古いサーバは返さないので、読む側は空として読む。 */
   linkSkipped?: Partial<Record<ConfigItemKind, string[]>>;
+  /** 種類ごとの項目の数（送らない保留の項目は除く）。最後に集めた結果から数え、集め直さない。まだ集めていなければ空。数が 0 の種類は含めない。この項目を知らない古いサーバは返さないので、読む側は空として読む。 */
+  kindCounts?: Partial<Record<ConfigItemKind, number>>;
   /** 確認で待つ件数（種類の状態が確認か権限の鍵で、競合と保留を除く）。ヘッダの札は askCount と conflicts を足して出す。この項目を知らない古いサーバは返さない。 */
   askCount?: number;
   /** 自動で入って、まだ見ていない適用の回数。この項目を知らない古いサーバは返さない。 */

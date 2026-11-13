@@ -499,9 +499,9 @@ describe('設定の同期（作り直した実装）の状態', () => {
     expect(withInbox.configDetail).toEqual({ ...EMPTY_CONFIG_DETAIL, inbox: { items: [], approval: 'each' } });
     expect(base.configDetail).toBe(EMPTY_CONFIG_DETAIL);
     expect(configPartsToLoad(null)).toEqual([]);
-    expect(configPartsToLoad(c())).toEqual(['outgoing']);
-    expect(configPartsToLoad(c({ held: 1, backups: 2 }))).toEqual(['outgoing', 'inbox', 'backups']);
-    expect(configPartsToLoad(c({ incoming: 1, conflicts: 1, unsent: 1, backups: 1 }))).toEqual(['outgoing', 'inbox', 'conflicts', 'unsent', 'backups']);
+    expect(configPartsToLoad(c())).toEqual([]);
+    expect(configPartsToLoad(c({ held: 1, backups: 2 }))).toEqual(['inbox', 'backups']);
+    expect(configPartsToLoad(c({ incoming: 1, conflicts: 1, unsent: 1, backups: 1 }))).toEqual(['inbox', 'conflicts', 'unsent', 'backups']);
   });
 });
 

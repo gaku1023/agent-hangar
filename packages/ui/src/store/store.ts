@@ -869,8 +869,6 @@ export function applyConfigDetail<P extends ConfigDetailPart>(store: Store, part
 export function configPartsToLoad(c: ConfigSyncDto | null): ConfigDetailPart[] {
   if (!c) return [];
   const parts: ConfigDetailPart[] = [];
-  // 種類の行の項目の数は送るものの一覧から数える。
-  if (c.enabled) parts.push('outgoing');
   if (c.incoming + c.conflicts + c.held > 0 || (c.askCount ?? 0) > 0) parts.push('inbox');
   if (c.conflicts > 0) parts.push('conflicts');
   // 未対応のキー（unknownKeyCount）は unsent に入らないが、設定の画面では別の群として見せるので一覧を取る。
