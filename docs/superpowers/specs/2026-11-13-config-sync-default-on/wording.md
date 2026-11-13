@@ -39,3 +39,8 @@
 | `sync.configNotice.ask` | 確認が必要な設定が {count} 件届きました | {count} settings changes need your confirmation | OS とスマホの通知の本文（T6 の仮の文言） |
 | `sync.configNotice.conflict` | 設定の競合が {count} 件あります | {count} settings conflicts need your decision | 同上 |
 | `sync.configNotice.autoFailed` | 設定の自動の適用に失敗しました | Automatic settings sync failed to apply | 同上 |
+
+## 校閲のあと（2026-11-13）
+
+Gemini の校閲で直した最終の文言は、`packages/shared/src/i18n/{ja,en}/configKindsUi.ts` と `sync.ts` にある。
+札の数は「件」にそろえ、英語の Mine と Theirs は This PC と Other PCs にした。

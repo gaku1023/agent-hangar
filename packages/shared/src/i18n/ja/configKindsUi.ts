@@ -27,7 +27,7 @@ export const configKindsUiJa: AreaDictionary<typeof configKindsUiKeys> = {
   'configKindsUi.history.undoBatch': 'まとめて戻す',
   'configKindsUi.history.undoItem': '{name} を戻す',
   'configKindsUi.badge.ask': '確認が必要な設定が {n} 件あります',
-  'configKindsUi.badge.quiet': '自動で入った設定が {n} 回あります',
+  'configKindsUi.badge.quiet': '自動で入った設定が {n} 件あります',
   'configKindsUi.first.write': 'この PC に追加する',
   'configKindsUi.first.links': 'リンクのため同期しない',
   'configKindsUi.first.allMine': 'すべてこの PC',

@@ -7,7 +7,7 @@ import { SyncStatus } from './SyncStatus.tsx';
 
 const show = (badge: { ask?: number; quiet?: number }, onAction: (i: UiAction) => void = () => {}) => render(
   <ActionRoot onAction={onAction}>
-    <SyncStatus {...syncFixture({ badge: { ask: badge.ask ? { n: badge.ask, label: `確認が必要な設定が ${badge.ask} 件あります` } : null, quiet: badge.quiet ? { n: badge.quiet, label: `自動で入った設定が ${badge.quiet} 回あります` } : null } })} />
+    <SyncStatus {...syncFixture({ badge: { ask: badge.ask ? { n: badge.ask, label: `確認が必要な設定が ${badge.ask} 件あります` } : null, quiet: badge.quiet ? { n: badge.quiet, label: `自動で入った設定が ${badge.quiet} 件あります` } : null } })} />
   </ActionRoot>,
 );
 
@@ -18,7 +18,7 @@ describe('ヘッダの設定の同期の札（P1）', () => {
     expect(screen.queryByRole('button', { name: /自動で入った/ })).toBeNull();
     unmount();
     show({ ask: 1, quiet: 2 });
-    expect(screen.getByRole('button', { name: '自動で入った設定が 2 回あります' })).toHaveAttribute('data-kind', 'quiet');
+    expect(screen.getByRole('button', { name: '自動で入った設定が 2 件あります' })).toHaveAttribute('data-kind', 'quiet');
   });
   it('札が無い props では何も足さない', () => {
     render(<ActionRoot onAction={() => {}}><SyncStatus {...syncFixture()} /></ActionRoot>);
