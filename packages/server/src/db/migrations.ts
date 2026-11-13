@@ -1053,6 +1053,17 @@ create table peer_ssh_results (
 `;
 
 /**
+ * 版 60：event_index に、対応する event_fts の行の rowid（fts_rowid）を持たせる。
+ * 作り直しと削除で event_fts を消すとき、位置（session_id、agent_id）で引くと、FTS5 の unindexed の列には索引が無いので中身の表を全部なめる。
+ * rowid で引けば、消す行の数だけで済む（docs/design.md の「索引」）。
+ * 0 は検索の行を持たないイベント（meta、本文の無い発言など）、null はこの版より前に積んだ行で、どの行を指すか分からない。
+ * 今ある行は埋め戻さない。null の行がある位置は、次の作り直しで今までどおり位置ごとに消し、積み直した後は rowid で引けるようになる。
+ */
+const V60_EVENT_FTS_ROWID_SQL = `
+alter table event_index add column fts_rowid integer;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -1101,4 +1112,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 57, sql: V57_RUN_LIVE_SQL },
   { version: 58, sql: V58_CONFIG_HISTORY_SQL },
   { version: 59, sql: V59_AUTO_APPROVALS_SQL },
+  { version: 60, sql: V60_EVENT_FTS_ROWID_SQL },
 ];
