@@ -90,7 +90,14 @@ export type ConfigSyncDeps = {
   now?: () => number;
   /** 取りに行って失敗した理由など、利用者に急ぎで見せないものの出し先。 */
   onError?: (message: string) => void;
+  /**
+   * 受け取りのあと、人の目が要るものが新しく出たときに呼ぶ（asks は新しい confirm の項目、conflicts は新しい競合、autoFailed は自動の適用の失敗が新しくなったこと）。
+   * 前に知らせた集合に入っているものは数えず、自動で入ったものは数えない。集合は起こし直すと忘れる。
+   */
+  onAttention?: (e: ConfigAttention) => void;
 };
+
+export type ConfigAttention = { asks: number; conflicts: number; autoFailed: boolean };
 
 /** 経路が status を付けて返す、利用者に見せる失敗。 */
 export class ConfigSyncError extends MessageError {
@@ -343,6 +350,7 @@ export class ConfigSyncService {
       }
     }
     this.autoApply(this.resolved());
+    this.watchAttention();
     if (fetched > 0) this.touch();
     return { fetched, failed };
   }
@@ -692,6 +700,28 @@ export class ConfigSyncService {
       this.deps.onError?.(`設定の自動の適用に失敗しました: ${e instanceof Error ? e.name : 'Error'}`);
     }
     this.touch();
+  }
+
+  /** 前に知らせた、確認の項目と競合の集合（項目の id と相手の中身の指紋）と、前に知らせた自動の失敗の時刻。 */
+  private notified: { ask: Set<string>; conflict: Set<string>; errorAt: number | null } = { ask: new Set(), conflict: new Set(), errorAt: null };
+
+  /** 人の目が要るものが増えたときだけ onAttention を呼ぶ。数える集合は、いま残っているものに置き換える（解けた後にまた出れば新しい）。投げない。 */
+  private watchAttention(): void {
+    if (!this.deps.onAttention) return;
+    try {
+      const rs = this.resolved();
+      const key = (r: Resolved): string => `${r.action.id}\0${r.action.op}\0${r.action.remoteSha256 ?? ''}`;
+      const ask = new Set(rs.filter((r) => r.action.op !== 'conflict' && !r.held && itemNeedsConfirm({ id: r.action.id, kind: r.kind, op: r.action.op }, this.kindMode(r.kind))).map(key));
+      const conflict = new Set(rs.filter((r) => r.action.op === 'conflict').map(key));
+      const asks = [...ask].filter((k) => !this.notified.ask.has(k)).length;
+      const conflicts = [...conflict].filter((k) => !this.notified.conflict.has(k)).length;
+      const errorAt = this.lastAutoError?.at ?? null;
+      const autoFailed = errorAt !== null && errorAt !== this.notified.errorAt;
+      this.notified = { ask, conflict, errorAt };
+      if (asks > 0 || conflicts > 0 || autoFailed) this.deps.onAttention({ asks, conflicts, autoFailed });
+    } catch (e) {
+      this.deps.onError?.(`設定の同期の知らせを組めませんでした: ${e instanceof Error ? e.name : 'Error'}`);
+    }
   }
 
   /** 履歴を全部既読にする（ヘッダの「自動で入った」の札を消す）。書くのは DB の既読の印だけ。 */

@@ -5,6 +5,9 @@ import { defaultCodexHome } from '../provider/codex/transcript/discover.ts';
 import { cloudConfigPath, readCloudConfig, saveCloudConfig, type CloudConfig } from '../config/cloud.ts';
 import { defaultManagedDir, RetentionService } from '../provider/claude-code/config/retention.ts';
 import { ConfigSyncService } from '../sync/config/service.ts';
+import { configAttentionText } from '../sync/config/attentionText.ts';
+import { notifyApp } from '../live/appNotice.ts';
+import { translatorOf } from '../i18n/message.ts';
 import { defaultTargetPaths } from '../sync/config/targets/paths.ts';
 import { HttpCloudClient, type CloudClient } from '../sync/client.ts';
 import { leftPhoneSweeper, loadCloudDevices, sharedDeviceOf } from '../sync/devices.ts';
@@ -385,6 +388,8 @@ export function bootSync(
           targetPaths: defaultTargetPaths(),
           hangarSettingsPath: path.join(home.home, 'settings.json'),
           onError: (m) => console.error('[config-sync]', m),
+          // 確認の項目、競合、自動の適用の失敗が新しく出たら、会話に紐づかない知らせ（ask）を出す。自動で入ったものは出さない。
+          onAttention: (e) => notifyApp({ text: configAttentionText(translatorOf(home.language), e), kind: 'ask' }, settings.current),
         })
       : null;
     const puller = client

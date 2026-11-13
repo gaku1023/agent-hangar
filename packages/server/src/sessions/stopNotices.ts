@@ -1,9 +1,10 @@
-import { limitKindText, notifyRulesOf, limitReset, limitResetGrace, newId, permissionNoticeText, quietLive, resetAtText, stopReasonOf, type LimitKind, type LiveSessionDto, type OsNoticeDto, type OsNoticeFeedDto, type SessionDto, type Translate } from '@agent-hangar/shared';
+import { APP_NOTICE_ID, limitKindText, notifyRulesOf, limitReset, limitResetGrace, newId, permissionNoticeText, quietLive, resetAtText, stopReasonOf, type LimitKind, type LiveSessionDto, type OsNoticeDto, type OsNoticeFeedDto, type SessionDto, type Translate } from '@agent-hangar/shared';
 import { touchRow } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
 import { getSession } from '../db/queries.ts';
 import type { GetLanguage } from '../i18n/language.ts';
 import { translatorOf } from '../i18n/message.ts';
+import { onAppNotice } from '../live/appNotice.ts';
 import { onUnreadReady } from '../live/unread.ts';
 import { Pacer } from '../platform/pacer.ts';
 
@@ -163,6 +164,18 @@ export class StopNoticeWatch {
       this.unreadAt.set(s.id, now);
       // evenInFront は、窓が前でも出す印。知らない古い殻は読み捨てるので、付けても壊れない。
       this.deps.feed.push({ kind: 'unread', sessionId: s.id, title: this.titleOf(s), body: text, bare: false, evenInFront: rules.whileFocused });
+    });
+  }
+
+  /**
+   * セッションに紐づかない知らせ（live/appNotice.ts の notifyApp）のうち、出し先に os があるものを OS の通知の並びへ積む。
+   * kind は unread で、sessionId は APP_NOTICE_ID である。押したときに開くのは、今の殻ではアプリの前面までである。戻り値を呼ぶと外す。
+   */
+  subscribeAppNotice(): () => void {
+    return onAppNotice((n) => {
+      if (!n.sent.includes('os')) return;
+      const rules = notifyRulesOf(this.deps.settings?.() ?? {});
+      this.deps.feed.push({ kind: 'unread', sessionId: APP_NOTICE_ID, title: this.tr('sync.configNotice.title'), body: n.text, bare: false, evenInFront: rules.whileFocused });
     });
   }
 
