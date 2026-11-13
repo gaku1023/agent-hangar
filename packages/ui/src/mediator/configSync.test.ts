@@ -80,11 +80,11 @@ describe('設定の同期の中身の取り直し', () => {
   it('設定の画面に入ったとき、件数のある中身だけを取りに行く', () => {
     const store = storeOf(dto({ incoming: 2, unsent: 1, backups: 3 }));
     const r = run([runtime({ type: 'hash.changed', route: { name: 'settings', at: 'cloud' } })], initialState(), store);
-    expect(r.effects).toContainEqual({ kind: 'api.configSyncLoad', parts: ['inbox', 'unsent', 'backups'] });
+    expect(r.effects).toContainEqual({ kind: 'api.configSyncLoad', parts: ['outgoing', 'inbox', 'unsent', 'backups'] });
   });
   it('件数が全部 0 のとき、同期を組んでいないとき、設定でない画面では取りに行かない', () => {
     const none = (store: Store, route: Extract<Input, { kind: 'runtime' }>['event']) => run([runtime(route)], initialState(), store).effects.filter((e) => (e as { kind: string }).kind === 'api.configSyncLoad');
-    expect(none(storeOf(dto()), { type: 'hash.changed', route: { name: 'settings' } })).toEqual([]);
+    expect(none(storeOf(dto()), { type: 'hash.changed', route: { name: 'settings' } })).toEqual([{ kind: 'api.configSyncLoad', parts: ['outgoing'] }]);
     expect(none(storeOf(null), { type: 'hash.changed', route: { name: 'settings' } })).toEqual([]);
     expect(none(storeOf(dto({ incoming: 2 })), { type: 'hash.changed', route: { name: 'home' } })).toEqual([]);
   });
@@ -92,7 +92,7 @@ describe('設定の同期の中身の取り直し', () => {
     const store = storeOf(dto({ conflicts: 1, incoming: 1 }));
     const update = server({ type: 'config.update', configSync: dto({ conflicts: 1, incoming: 1 }) });
     const onSettings = run([runtime({ type: 'hash.changed', route: { name: 'settings', at: 'cloud' } })], initialState(), store).state;
-    expect(run([update], onSettings, store).effects).toEqual([{ kind: 'api.configSyncLoad', parts: ['inbox', 'conflicts'] }]);
+    expect(run([update], onSettings, store).effects).toEqual([{ kind: 'api.configSyncLoad', parts: ['outgoing', 'inbox', 'conflicts'] }]);
     expect(run([update], initialState(), store).effects).toEqual([]);
   });
   it('ダイアログを開いているときは、そのダイアログの中身を取り直す', () => {

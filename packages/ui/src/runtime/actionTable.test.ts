@@ -321,6 +321,12 @@ describe('設定の同期（作り直した実装）', () => {
     expect(configDeleteOrder).toHaveBeenCalledTimes(1);
     expect(r.store).toBe(r.during);
   });
+  it('履歴を開いたときの既読は、POST を呼ぶだけで、応答は Store に入れない', async () => {
+    const configHistorySeen = vi.fn(async () => {});
+    const r = await runRow({ type: 'configSync.history.seen' }, fakeApi({ configHistorySeen }));
+    expect(configHistorySeen).toHaveBeenCalledTimes(1);
+    expect(r.store).toBe(r.during);
+  });
   it('それでも送るは、更新後の送らなかった項目の一覧を Store に入れる', async () => {
     const list = { items: [{ id: 'u', kind: 'secret' as const, itemId: 'i', label: 'x', reason: 'secret:ghp_', allowed: true }] };
     const configSendUnsent = vi.fn(async () => list);

@@ -186,6 +186,7 @@ export type Effect =
   | { kind: 'api.configSyncLoad'; parts: ConfigDetailPart[] }
   | { kind: 'api.configSyncApply'; entries: ConfigApplyOrderEntryIn[] | null }
   | { kind: 'api.configSyncRestore'; name: string; target: string }
+  | { kind: 'api.configSyncRestoreHistory'; history: number; item: string | null }
   | { kind: 'api.retentionPreview'; days: number } | { kind: 'api.writeRetention'; days: number }
   // Claude Code のアカウント。
   | { kind: 'api.accounts.switchSession'; sessionId: string; accountId: string }

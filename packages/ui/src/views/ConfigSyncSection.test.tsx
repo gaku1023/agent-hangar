@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { ConfigSyncDto, UiAction } from '@agent-hangar/shared';
+import type { ConfigHistoryDto, ConfigSyncDto, SettingsDto, UiAction } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
 import { presentConfigSection, type ConfigSyncSectionProps } from '../presenters/configSync.ts';
 import { EMPTY_CONFIG_DETAIL, initialStore, type ConfigDetail } from '../store/store.ts';
@@ -46,50 +46,14 @@ describe('Claude Code の設定の同期の節', () => {
     rerender(ui(propsOf(dto({ enabled: false, workerPending: true }))));
     expect(screen.queryByRole('status')).toBeNull();
   });
-  it('受信した変更、承認待ち、競合は、押すとそれぞれのダイアログを開く。0 件のものは押せない', () => {
+  it('受信した変更は、押すと適用内容の確認のダイアログを開く。0 件のものは押せない', () => {
     const onAction = vi.fn();
-    const inbox = { items: [{ id: 'a', kind: 'skills' as const, label: 'skills/a/SKILL.md', op: 'create' as const, fromDeviceId: 'x', fromDevice: 'Studio', size: 1, marks: [], head: '', held: null, needsApproval: true }], approval: 'each' as const };
-    render(ui(propsOf(dto({ incoming: 1, conflicts: 2 }), { inbox }), onAction));
-    expect(screen.getByText('1 件、Studio から')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '適用内容を確認' }));
-    fireEvent.click(screen.getByRole('button', { name: '選択して承認…' }));
-    fireEvent.click(screen.getByRole('button', { name: '差分を表示' }));
-    expect(onAction.mock.calls.map((c) => (c[0] as { part?: string }).part)).toEqual(['review', 'approve', 'conflicts']);
-    expect(screen.getByText('競合 2 件')).toBeInTheDocument();
-  });
-  it('何も届いていないとき、確認の入口は押せない', () => {
-    render(ui(propsOf(dto())));
-    // 競合は見出しの「競合 0 件」で読めるので、行には「ありません」を添えない。
-    expect(screen.getAllByText('ありません', { selector: '.set-row-d' })).toHaveLength(1);
-    expect(screen.getByText('競合 0 件')).toBeInTheDocument();
+    const { unmount } = render(ui(propsOf(dto()), onAction));
     expect(screen.getByRole('button', { name: '適用内容を確認' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '差分を表示' })).toBeDisabled();
-    expect(screen.queryByRole('button', { name: '選択して承認…' })).toBeNull();
-  });
-  it('自動で適用に切り替えるときは、注意の文と、キャンセル、自動にする、を出し、押すまで保存しない', () => {
-    const onAction = vi.fn();
-    render(ui(propsOf(dto()), onAction));
-    const seg = screen.getByRole('radiogroup', { name: '受信したスキル、コマンド、エージェント' });
-    expect(within(seg).getByRole('radio', { name: '毎回承認する' })).toHaveAttribute('aria-checked', 'true');
-    fireEvent.click(within(seg).getByRole('radio', { name: '自動で適用' }));
-    const strip = screen.getByRole('group', { name: '自動で適用にする前の確認' });
-    expect(strip).toHaveTextContent('乗っ取られたとき');
-    expect(onAction).not.toHaveBeenCalled();
-    // やめれば帯が消え、何も保存しない。
-    fireEvent.click(within(strip).getByRole('button', { name: 'キャンセル' }));
-    expect(screen.queryByRole('group', { name: '自動で適用にする前の確認' })).toBeNull();
-    expect(onAction).not.toHaveBeenCalled();
-    fireEvent.click(within(seg).getByRole('radio', { name: '自動で適用' }));
-    fireEvent.click(within(screen.getByRole('group', { name: '自動で適用にする前の確認' })).getByRole('button', { name: '自動にする' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { configApproval: 'auto' } });
-  });
-  it('自動のときは承認待ちの行を出さず、毎回に戻すのは注意なしにその場で保存する', () => {
-    const onAction = vi.fn();
-    render(ui(propsOf(dto({ approval: 'auto' })), onAction));
-    fireEvent.click(screen.getByRole('button', { name: '受信したスキル、コマンド、エージェントの説明' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent('承認の一覧は表示せず、受信したものを適用内容の確認に含めます');
-    fireEvent.click(screen.getByRole('radio', { name: '毎回承認する' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { configApproval: 'each' } });
+    unmount();
+    render(ui(propsOf(dto({ incoming: 1 })), onAction));
+    fireEvent.click(screen.getByRole('button', { name: '適用内容を確認' }));
+    expect(onAction.mock.calls.map((c) => (c[0] as { part?: string }).part)).toEqual(['review']);
   });
   it('送らなかった項目は、0 件でも行を残し、開くと理由と「それでも送信」を出す', () => {
     const onAction = vi.fn();
@@ -144,5 +108,103 @@ describe('Claude Code の設定の同期の節', () => {
     expect(screen.queryByRole('button', { name: '適用…' })).toBeNull();
     expect(screen.getByText('hangar config apply')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '取り消す' })).toBeInTheDocument();
+  });
+
+  describe('種類ごとの行（C 性質ごと）', () => {
+    const kindsProps = (kinds: Partial<Record<string, string>> = {}, c: ConfigSyncDto = dto()) =>
+      presentConfigSection({ ...initialStore(), configSync: c, settings: { configKinds: kinds } as unknown as SettingsDto, configDetail: EMPTY_CONFIG_DETAIL, desktop: true, canRestoreHistory: true }, NOW);
+    const row = (name: string) => within(screen.getByRole('group', { name }));
+    it('会話の本文は切と自動の 2 つだけ。変えると、その鍵だけを保存する', () => {
+      const onAction = vi.fn();
+      render(ui(kindsProps(), onAction));
+      const g = row('会話の本文');
+      expect(g.queryByRole('button', { name: '確認' })).toBeNull();
+      fireEvent.click(g.getByRole('button', { name: '切' }));
+      expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { configKinds: { transcript: 'off' } } });
+    });
+    it('指示・スキルなどの種類は、その場で保存する（帯は出さない）', () => {
+      const onAction = vi.fn();
+      render(ui(kindsProps(), onAction));
+      fireEvent.click(row('スキル').getByRole('button', { name: '確認' }));
+      expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { configKinds: { skills: 'confirm' } } });
+      expect(screen.queryByRole('group', { name: '自動にする' })).toBeNull();
+    });
+    it('自動で走るコードを自動にするときだけ、行の下に帯を開き、「自動にする」を押すまで保存しない', () => {
+      const onAction = vi.fn();
+      render(ui(kindsProps(), onAction));
+      fireEvent.click(row('Claude のフック').getByRole('button', { name: '自動' }));
+      const strip = screen.getByRole('group', { name: '自動にする' });
+      expect(strip).toHaveTextContent('Claude のフック');
+      expect(onAction).not.toHaveBeenCalled();
+      fireEvent.click(within(strip).getByRole('button', { name: 'やめる' }));
+      expect(onAction).not.toHaveBeenCalled();
+      fireEvent.click(row('Claude のフック').getByRole('button', { name: '自動' }));
+      fireEvent.click(within(screen.getByRole('group', { name: '自動にする' })).getByRole('button', { name: '自動にする' }));
+      expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { configKinds: { 'claude-hooks': 'auto' } } });
+    });
+    it('自動で走るコードを確認や切に替えるときは、帯なしですぐ保存する', () => {
+      const onAction = vi.fn();
+      render(ui(kindsProps({ 'claude-hooks': 'auto' }), onAction));
+      fireEvent.click(row('Claude のフック').getByRole('button', { name: '切' }));
+      expect(screen.queryByRole('group', { name: '自動にする' })).toBeNull();
+      expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { configKinds: { 'claude-hooks': 'off' } } });
+    });
+    it('束の見出しの切り替えで、束の中の鍵をまとめて替える。自動で走るコードの束を自動にするときは帯を挟む', () => {
+      const onAction = vi.fn();
+      render(ui(kindsProps(), onAction));
+      fireEvent.click(row('設定').getByRole('button', { name: '切' }));
+      expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { configKinds: { settings: 'off', keybindings: 'off', 'hangar-pref': 'off' } } });
+      onAction.mockClear();
+      fireEvent.click(row('自動で走るコード').getByRole('button', { name: '自動' }));
+      expect(onAction).not.toHaveBeenCalled();
+      fireEvent.click(within(screen.getByRole('group', { name: '自動にする' })).getByRole('button', { name: '自動にする' }));
+      expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { configKinds: { 'claude-mcp': 'auto', 'claude-hooks': 'auto', 'claude-statusline': 'auto', plugins: 'auto' } } });
+    });
+    it('リンクで外した件数を行にチップで出し、押すと名前が開く', () => {
+      render(ui(kindsProps({}, dto({ linkSkipped: { skills: ['skills/benkyo'] } }))));
+      expect(screen.queryByText('skills/benkyo')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'リンクで外した 1 件' }));
+      expect(screen.getByText('skills/benkyo')).toBeInTheDocument();
+    });
+  });
+
+  describe('届いたもの', () => {
+    const batch = (): ConfigHistoryDto => ({
+      id: 7, at: NOW - 60_000, mode: 'auto', fromDeviceId: 'm', fromDevice: 'MacBook', generations: [], undone: ['file:skills/b'], seen: false,
+      items: [
+        { id: 'file:skills/a', kind: 'skills', label: 'skills/a', op: 'create', restorable: true },
+        { id: 'file:skills/b', kind: 'skills', label: 'skills/b', op: 'overwrite', restorable: true },
+        { id: 'file:CLAUDE.md', kind: 'claude-md', label: 'CLAUDE.md', op: 'overwrite', restorable: false },
+      ],
+    });
+    const inboxProps = (canRestoreHistory: boolean) => presentConfigSection({ ...initialStore(), configSync: dto({ autoUnseen: 1, history: [batch()] }), configDetail: EMPTY_CONFIG_DETAIL, desktop: true, canRestoreHistory }, NOW);
+    it('履歴を開くと既読の口を呼ぶ。開いていない間は呼ばない', () => {
+      const onAction = vi.fn();
+      render(ui(inboxProps(true), onAction));
+      expect(onAction).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: /MacBook/ }));
+      expect(onAction).toHaveBeenCalledWith({ type: 'configSync.history.seen' });
+    });
+    it('まとめて戻すと 1 項目ずつの戻しを出す。戻したものと restorable が偽の項目には 1 項目の戻しを出さない', () => {
+      const onAction = vi.fn();
+      render(ui(inboxProps(true), onAction));
+      fireEvent.click(screen.getByRole('button', { name: /MacBook/ }));
+      fireEvent.click(screen.getByRole('button', { name: 'skills/a を戻す' }));
+      expect(onAction).toHaveBeenCalledWith({ type: 'configSync.history.restore', history: 7, item: 'file:skills/a' });
+      expect(screen.queryByRole('button', { name: 'skills/b を戻す' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'CLAUDE.md を戻す' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'まとめて戻す' }));
+      expect(onAction).toHaveBeenCalledWith({ type: 'configSync.history.restore', history: 7 });
+    });
+    it('殻が履歴の戻しを持たないときは、戻す入口を出さない', () => {
+      render(ui(inboxProps(false)));
+      fireEvent.click(screen.getByRole('button', { name: /MacBook/ }));
+      expect(screen.queryByRole('button', { name: 'まとめて戻す' })).toBeNull();
+      expect(screen.queryByRole('button', { name: /を戻す$/ })).toBeNull();
+    });
+    it('自動の適用の失敗があれば、その行を出す', () => {
+      render(ui(presentConfigSection({ ...initialStore(), configSync: dto({ lastAutoError: { at: NOW - 5000, message: 'EACCES' } }), configDetail: EMPTY_CONFIG_DETAIL, desktop: true }, NOW)));
+      expect(screen.getByText(/EACCES/)).toBeInTheDocument();
+    });
   });
 });

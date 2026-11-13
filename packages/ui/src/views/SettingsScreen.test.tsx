@@ -23,8 +23,8 @@ const tocOf = (): SettingsProps['toc'] => IDS.map((id) => ({ id, title: TITLES[i
 
 /** 設定の同期（作り直した実装）の節の既定。クラウドに参加していない形で、使う試験が必要な分だけ上書きする。節の中身の試験は ConfigSyncSection.test.tsx が見る。 */
 const configSyncProps = (over: Partial<SettingsProps['configSync']> = {}): SettingsProps['configSync'] => ({
-  needsCloud: true, enabled: false, workerPending: false, lastSent: null, approval: 'each', native: true, order: null,
-  incoming: { count: 0, held: 0, from: null }, awaiting: 0, conflicts: 0, unsent: { count: 0, unknown: 0, rows: [], groups: [] }, targets: { rows: [], showNew: false, switches: {} }, backups: { count: 0, rows: [] }, focusUnsent: false,
+  needsCloud: true, enabled: false, workerPending: false, lastSent: null, native: true, order: null,
+  incoming: { count: 0, held: 0, from: null }, unsent: { count: 0, unknown: 0, rows: [], groups: [] }, kinds: { left: [], right: [] }, inbox: { ask: [], conflicts: [], history: [], autoError: null, canRestore: false, unseen: 0 }, backups: { count: 0, rows: [] }, focusUnsent: false,
   ...over,
 });
 

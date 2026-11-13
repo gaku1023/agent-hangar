@@ -92,16 +92,6 @@
 /* 適用内容の確認のバックアップ先は、パスが 2 つ並ぶことがあるので切らずに折り返す。 */
 .dialog-config .dialog-foot > .cfg-backup { white-space: normal; overflow-wrap: anywhere; }
 
-/* 対象ごとの入切（v0.12 の U0 の 1A、2A、2a）。親の行の下に、左の線で入れ子にして並べる。 */
-.cfg-kids { margin: 0 0 calc(var(--u) * 1); padding-left: calc(var(--u) * 3.5); border-left: 2px solid var(--line); }
-.cfg-kids-h { padding: calc(var(--u) * 2) 0 calc(var(--u) * 0.5); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
-.cfg-cr + .cfg-cr { border-top: 1px solid var(--line); }
-.cfg-cr-main { display: flex; align-items: center; gap: calc(var(--u) * 3.5); min-height: 44px; padding: calc(var(--u) * 1.5) 0; }
-.cfg-cr-l { flex: 1; min-width: 0; }
-.cfg-cr-t { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 1.5); font-weight: 600; }
-.cfg-cr-d { font-size: var(--fs-xs); color: var(--ink-3); line-height: 1.45; }
-.cfg-cr-warn { color: var(--st-paused); }
-.cfg-cr-slot { padding-bottom: calc(var(--u) * 2); }
 .cfg-strip[data-tone='info'] { color: var(--ink); background: var(--accent-soft); }
 .cfg-strip[data-tone='info'] .icon { color: var(--accent); }
 .cfg-strip-acts { display: inline-flex; flex: none; gap: calc(var(--u) * 2); }
@@ -116,3 +106,72 @@
 .cfg-grp[data-tone='warn'] > .cfg-grp-h .cfg-n { color: var(--st-paused); }
 .cfg-review-body { display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
 .cfg-chip-n { margin-left: calc(var(--u) * 1.5); font-weight: 500; opacity: 0.7; font-variant-numeric: tabular-nums; }
+
+/* 種類ごとの行（C 性質ごと）と、右の「届いたもの」。値の正本は試作 docs/superpowers/specs/2026-11-13-config-sync-default-on/options.html。 */
+.cfg-cols { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: calc(var(--u) * 4); align-items: start; margin: calc(var(--u) * 2) 0; }
+@media (max-width: 1000px) { .cfg-cols { grid-template-columns: minmax(0, 1fr); } }
+.klist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 calc(var(--u) * 4.5); align-items: start; }
+@media (max-width: 760px) { .klist { grid-template-columns: minmax(0, 1fr); } }
+.kgroup { margin-top: calc(var(--u) * 2.5); }
+.kcol > .kgroup:first-child { margin-top: 0; }
+.kgroup[data-exec] { padding: 0 calc(var(--u) * 2.5) calc(var(--u) * 0.5); border-radius: var(--r); background: color-mix(in srgb, var(--st-paused-soft) 55%, transparent); }
+.kh { display: flex; align-items: center; gap: calc(var(--u) * 2.5); height: 30px; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.02em; color: var(--ink-3); }
+.kh .icon { width: 14px; height: 14px; flex: none; }
+.kh .tri { margin-left: auto; }
+.kgroup[data-exec] .kh { color: var(--st-paused); }
+.kr { display: flex; align-items: center; gap: calc(var(--u) * 2.5); height: 32px; transition: color var(--dur-fast) var(--ease-out); }
+.kr-wrap + .kr-wrap, .kh + .kr-wrap { border-top: 1px solid var(--line); }
+.kh + .kr-wrap { border-top: 0; }
+.kr-t { flex: 1; min-width: 0; display: flex; align-items: center; gap: calc(var(--u) * 1.5); font-weight: 600; white-space: nowrap; }
+.kr-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.kr[data-s='off'] .kr-t { color: var(--ink-3); font-weight: 500; }
+.kr-n { font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; font-weight: 500; }
+.kr-link { display: inline-flex; align-items: center; gap: calc(var(--u) * 0.75); height: 18px; padding: 0 calc(var(--u) * 1.5); border: 0; border-radius: var(--r-pill); background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-xs); font-weight: 600; cursor: pointer; }
+.kr-link .icon { width: 11px; height: 11px; stroke-width: 2; }
+.kr-links { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); padding: 0 0 calc(var(--u) * 1.5) calc(var(--u) * 0.5); font-size: var(--fs-xs); color: var(--ink-2); }
+
+/* 切・確認・自動の切り替え。つまみは transform で滑らせる（長さと曲線はトークン）。 */
+.tri { --tri-w: 42px; position: relative; display: inline-grid; grid-auto-flow: column; grid-auto-columns: var(--tri-w); flex: none; height: 24px; padding: 2px; border-radius: var(--r-pill); background: rgba(30, 40, 90, 0.06); }
+.tri button { position: relative; z-index: 1; border: 0; background: none; padding: 0; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); cursor: pointer; border-radius: var(--r-pill); transition: color var(--dur-fast) var(--ease-out); }
+.tri button[aria-pressed='true'] { color: var(--ink); }
+.tri[data-s='confirm'] button[aria-pressed='true'] { color: var(--st-paused); }
+.tri[data-s='auto'] button[aria-pressed='true'] { color: var(--accent); }
+.tri-thumb { position: absolute; top: 2px; left: 2px; width: var(--tri-w); height: 20px; border-radius: var(--r-pill); background: var(--surface); box-shadow: 0 1px 2px rgba(30, 40, 90, 0.16); transform: translateX(calc(var(--i, 0) * var(--tri-w))); transition: transform var(--dur) var(--ease-out), background var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out); }
+.tri[data-s='confirm'] .tri-thumb { background: var(--st-paused-soft); }
+.tri[data-s='auto'] .tri-thumb { background: var(--accent-soft); }
+.tri[data-mixed] .tri-thumb { opacity: 0; }
+
+/* 右の「届いたもの」。確認と競合は waiting の色でまとめ、履歴は 1 回ごとに開く。 */
+.cfg-inbox { min-width: 0; }
+.cfg-inbox .h2 { margin: 0 0 calc(var(--u) * 1.5); }
+.ib-ask { display: flex; flex-direction: column; gap: calc(var(--u) * 1); padding: calc(var(--u) * 0.5) calc(var(--u) * 2.5) calc(var(--u) * 1.5); margin-bottom: calc(var(--u) * 2); border-radius: var(--r); background: color-mix(in srgb, var(--waiting-soft) 60%, var(--surface)); }
+.ib-h { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 28px; font-size: var(--fs-xs); font-weight: 700; color: var(--waiting); }
+.ib-h .icon { width: 14px; height: 14px; }
+.ib-end { margin-left: auto; display: inline-flex; gap: calc(var(--u) * 1); }
+.ib-it { display: flex; align-items: center; gap: calc(var(--u) * 2); min-height: 30px; border-top: 1px solid var(--line); font-size: var(--fs-sm); }
+.ib-ask .ib-it { border-top-color: color-mix(in srgb, var(--waiting) 14%, transparent); }
+.ib-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ib-k { font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
+.ib-batch { border-top: 1px solid var(--line); }
+.ib-bh { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; height: 36px; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; font-size: var(--fs-sm); color: inherit; }
+.ib-bh .icon { width: 14px; height: 14px; color: var(--ink-3); transition: transform var(--dur) var(--ease-out); }
+.ib-batch[data-open] .ib-bh .icon { transform: rotate(90deg); }
+.ib-batch[data-unseen] .ib-when { color: var(--accent); }
+.ib-when { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.ib-from { color: var(--ink-2); white-space: nowrap; }
+.ib-kinds { margin-left: auto; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
+.ib-body .ib-it { padding-left: calc(var(--u) * 5.5); }
+.ib-acts { display: flex; justify-content: flex-end; padding: calc(var(--u) * 1) 0 calc(var(--u) * 2); }
+.ib-op { width: 14px; text-align: center; font: 700 11px var(--font-mono); }
+.ib-op[data-op='create'] { color: var(--st-done); }
+.ib-op[data-op='overwrite'] { color: var(--st-active); }
+.ib-op[data-op='delete'] { color: var(--waiting); }
+.ib-it[data-undone] .ib-t { color: var(--ink-3); text-decoration: line-through; }
+.ib-it[data-undone] .btn { visibility: hidden; }
+
+/* 初回の突き合わせ（競合のダイアログ）。左に件数、右に行ごとの手元か相手。 */
+.cfg-first { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: calc(var(--u) * 4); align-items: start; }
+@media (max-width: 700px) { .cfg-first { grid-template-columns: minmax(0, 1fr); } }
+.cfg-first-sum { display: grid; gap: calc(var(--u) * 2); align-content: start; }
+.cfg-first-s { padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r); background: var(--surface-2); font-size: var(--fs-sm); color: var(--ink-2); }
+.cfg-first-n { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }

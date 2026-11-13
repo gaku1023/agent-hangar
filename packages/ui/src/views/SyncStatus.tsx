@@ -2,6 +2,7 @@ import { formatRoute } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { SyncProps } from '../presenters/shell.ts';
 import { foldAt } from './headerFold.ts';
+import { CountBadge } from './SyncBadge.tsx';
 
 /**
  * ヘッダーの同期の一行。
@@ -34,6 +35,9 @@ export function SyncStatus(props: SyncProps) {
       {/* 送信に失敗したトランスクリプトは放っておけば 30 分ごとに送り直すが、そのあいだ気付く手立てがここしか無い。
           誤りなので、狭いヘッダでも畳まない。 */}
       {props.skipped !== null && <span className="sync-error sync-skipped">{props.skipped}</span>}
+      {/* 設定の同期の札（P1）。確認の件数は waiting の色、自動で入った件数は静かな色。押すと設定の同期の節を開く。 */}
+      <CountBadge n={props.badge?.ask?.n ?? 0} label={props.badge?.ask?.label ?? ''} kind="ask" icon="alert" />
+      <CountBadge n={props.badge?.quiet?.n ?? 0} label={props.badge?.quiet?.label ?? ''} kind="quiet" icon="download" />
     </span>
   );
 }

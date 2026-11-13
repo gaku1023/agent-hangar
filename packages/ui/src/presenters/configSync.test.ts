@@ -170,11 +170,9 @@ describe('設定の節の常設の行', () => {
     const p = presentConfigSection(store, NOW);
     expect(p).toMatchObject({ workerPending: true, lastSent: '2 分前', order: { count: 5, when: '1 分前', command: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar config apply' } });
   });
-  it('承認待ちは承認の仕方が毎回のときだけ数え、受信した変更の送り主を並べる', () => {
+  it('受信した変更の送り主を並べる', () => {
     const inbox = { items: [inb('a', 'skills', 'skills/a/SKILL.md', 'create', { needsApproval: true }), inb('b', 'memory', 'memory/b.md', 'create', { fromDevice: 'Mini' })], approval: 'each' as const };
-    const each = presentConfigSection(storeOf(dto({ incoming: 2 }), { inbox }), NOW);
-    expect(each).toMatchObject({ awaiting: 1, incoming: { count: 2, from: 'Studio、Mini' } });
-    expect(presentConfigSection(storeOf(dto({ incoming: 2, approval: 'auto' }), { inbox }), NOW).awaiting).toBe(0);
+    expect(presentConfigSection(storeOf(dto({ incoming: 2 }), { inbox }), NOW)).toMatchObject({ incoming: { count: 2, from: 'Studio、Mini' } });
   });
   it('大きさの言い方（Windows は 1024、ほかは 1000 で割る）', () => {
     expect([sizeLabel(83, 'darwin'), sizeLabel(2150, 'darwin'), sizeLabel(3e6, 'darwin')]).toEqual(['83 B', '2.1 KB', '3.0 MB']);
