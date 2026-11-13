@@ -84,6 +84,29 @@ describe('急ぐ push', () => {
     e.stop();
   });
 
+  it('run の live_status が waiting に変わったときは急ぐ。busy や idle への変化は急がない', async () => {
+    const e = make();
+    await e.start();
+    session('s1');
+    run('r1', 's1');
+    await timers.advance(1000);
+    rings.length = 0;
+    run('r1', 's1', { live_status: 'busy', live_at: 2 });
+    await timers.advance(1000);
+    expect(rings).toEqual([]);
+    expect(unpushed()).toBe(1);
+    await timers.advance(10_000);
+    expect(rings).toEqual([false]);
+    run('r1', 's1', { live_status: 'waiting', live_at: 3 });
+    await timers.advance(1000);
+    expect(rings).toEqual([false, true]);
+    // 同じ waiting の書き直し（理由だけの変化）は急がない。
+    run('r1', 's1', { live_status: 'waiting', live_reason: 'permission', live_at: 3 });
+    await timers.advance(1000);
+    expect(rings).toEqual([false, true]);
+    e.stop();
+  });
+
   it('既にある会話の更新（本文の伸びなど）と、会話以外の変更は急がず、10 秒の最小間隔を守る', async () => {
     const e = make();
     await e.start();

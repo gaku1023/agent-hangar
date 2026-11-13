@@ -304,8 +304,8 @@ describe('ロックと remoteOnly と端末一覧', () => {
     upsertShared(d2, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd: '/w/a', home_device: 'dev-b' }, 'dev-b');
     return d2;
   };
-  const addRun = (d2: Db, o: { id: string; device: string; heartbeat: number; ended?: number | null; startedAt?: number }) =>
-    upsertShared(d2, 'runs', { id: o.id, session_id: 's1', device_id: o.device, kind: 'start', tmux_name: `hangar-${o.id}`, pid: null, launch_params: '{}', started_at: o.startedAt ?? NOW - 60_000, ended_at: o.ended ?? null, end_reason: o.ended ? 'exited' : null, heartbeat_at: o.heartbeat }, o.device);
+  const addRun = (d2: Db, o: { id: string; device: string; heartbeat: number; ended?: number | null; startedAt?: number; live?: Record<string, unknown> }) =>
+    upsertShared(d2, 'runs', { id: o.id, session_id: 's1', device_id: o.device, kind: 'start', tmux_name: `hangar-${o.id}`, pid: null, launch_params: '{}', started_at: o.startedAt ?? NOW - 60_000, ended_at: o.ended ?? null, end_reason: o.ended ? 'exited' : null, heartbeat_at: o.heartbeat, ...o.live }, o.device);
   const one = (d2: Db) => listSessions(d2, [], { deviceId: 'dev-a', now: () => NOW })[0]!;
 
   /** dev-b を、Worker が ageMs 前に見た PC として覚える（pull の応答の peers）。 */
@@ -321,8 +321,16 @@ describe('ロックと remoteOnly と端末一覧', () => {
     addRun(d2, { id: 'r-self', device: 'dev-a', heartbeat: NOW });
     expect(one(d2).lock).toBeNull();
     addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: 1 });
-    expect(one(d2).lock).toEqual({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r-b', heartbeatAt: NOW - 30_000, stale: false });
+    expect(one(d2).lock).toEqual({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r-b', heartbeatAt: NOW - 30_000, stale: false, live: null, liveAt: null, reason: null });
     expect(getSession(d2, [], 's1', { deviceId: 'dev-a', now: () => NOW })!.lock!.runId).toBe('r-b');
+  });
+
+  it('run の行の live_status・live_reason・live_at をロックに載せる（lockMap と sessionLock の両方）', () => {
+    const d2 = setup();
+    seen(d2, [{ id: 'dev-b', age: 0 }]);
+    addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: 1, live: { live_status: 'waiting', live_reason: 'permission', live_at: NOW - 5000 } });
+    expect(one(d2).lock).toMatchObject({ live: 'waiting', liveAt: NOW - 5000, reason: 'permission' });
+    expect(getSession(d2, [], 's1', { deviceId: 'dev-a', now: () => NOW })!.lock).toMatchObject({ live: 'waiting', liveAt: NOW - 5000, reason: 'permission' });
   });
 
   it('同じ端末に生きた run が複数あれば、後から起きた 1 件を採る', () => {
@@ -386,7 +394,7 @@ describe('ロックと remoteOnly と端末一覧', () => {
     const d2 = setup();
     seen(d2, [{ id: 'dev-b', age: 10_000 }]);
     addRun(d2, { id: 'r1', device: 'dev-b', heartbeat: NOW - 10_000 });
-    expect(sessionLock(d2, 'dev-a', 's1', NOW)).toEqual({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 10_000, stale: false });
+    expect(sessionLock(d2, 'dev-a', 's1', NOW)).toEqual({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 10_000, stale: false, live: null, liveAt: null, reason: null });
     expect(sessionLock(d2, 'dev-a', 's1', NOW)).toEqual(one(d2).lock);
   });
 
@@ -410,6 +418,19 @@ describe('ロックと remoteOnly と端末一覧', () => {
     expect(one(d2).lock).toMatchObject({ runId: 'r-b' });
     expect(getSession(d2, [], 's1', { deviceId: 'dev-a', now: () => NOW })!.parked).toBe(true);
     setSessionState(d2, 'dev-a', 's1', { status: 'archived', setBy: 'conversation', now: NOW - 500 });
+    expect(one(d2).parked).toBe(true);
+  });
+
+  it('届いた動き（runs.live_status）が作業中か入力待ちなら、印があっても parked にしない。休みなら parked', () => {
+    const d2 = setup();
+    addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: NOW, startedAt: NOW - 60_000 });
+    setSessionState(d2, 'dev-a', 's1', { status: 'done', setBy: 'conversation', now: NOW - 1000 });
+    const liveAs = (v: string) => d2.prepare('update runs set live_status = ?, live_at = ? where id = ?').run(v, NOW, 'r-b');
+    liveAs('busy');
+    expect(one(d2).parked).toBe(false);
+    liveAs('waiting');
+    expect(one(d2).parked).toBe(false);
+    liveAs('idle');
     expect(one(d2).parked).toBe(true);
   });
 

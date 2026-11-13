@@ -22,7 +22,7 @@ export function onSharedWrite(cb: (table: string, rowId: string, db: Db) => void
 
 /**
  * ほかの PC に早く見せたい書き込みか。
- * run の新規と、ended_at が空から入った書き込み、会話（sessions）の新規だけである。
+ * run の新規と、ended_at が空から入った書き込み、run の live_status が waiting に変わった書き込み、会話（sessions）の新規だけである。
  * 会話の更新（本文の伸びで sessions は何度も書かれる）や run の pid と heartbeat の更新は含めない。
  * 書く前の行を読んで決める。
  */
@@ -30,7 +30,10 @@ function isUrgentWrite(db: Db, table: string, row: Record<string, unknown>, pk: 
   if (table !== 'runs' && table !== 'sessions') return false;
   const before = db.prepare(`select * from ${table} where ${pk} = ?`).get(row[pk]) as Record<string, unknown> | undefined;
   if (!before) return true;
-  return table === 'runs' && before.ended_at == null && row.ended_at != null;
+  if (table !== 'runs') return false;
+  // 入力待ちに変わったこと（live_status、runs/liveShare.ts）も急ぐ。作業中や休みへの変化は普段の送りに相乗りする。
+  if (row.live_status === 'waiting' && before.live_status !== 'waiting') return true;
+  return before.ended_at == null && row.ended_at != null;
 }
 
 /**

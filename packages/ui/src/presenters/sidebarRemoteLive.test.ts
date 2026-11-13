@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionDto, SessionLockDto } from '@agent-hangar/shared';
 import { initialState } from '../mediator/transition.ts';
-import { aliveAnywhere, initialStore, runningSessionIds, type Store } from '../store/store.ts';
+import { aliveAnywhere, initialStore, runningSessionIds, waitingSessionIds, type Store } from '../store/store.ts';
 import { presentHome } from './home.ts';
 import { liveCountsOf } from './projects.ts';
 import { presentSessionList } from './sessions.ts';
@@ -110,5 +110,64 @@ describe('ほかの PC の会話に Done を付けた（parked）', () => {
     const state = initialState();
     const list = presentSessionList({ ...state, search: { ...state.search, filter: { live: 'running' } } }, store, NOW);
     expect(list.rows.map((r) => r.id)).toEqual(['a']);
+  });
+});
+
+describe('ほかの PC の本当の状態（lock.live）', () => {
+  const waitingLock = (over: Partial<SessionLockDto> = {}) => lock({ live: 'waiting', liveAt: NOW - 5 * 60_000, reason: null, ...over });
+
+  it('作業中は busy の点、休みは idle、未知（null）は今までの灰', () => {
+    expect(rowsOf(storeOf([session('b', { lock: lock({ live: 'busy', liveAt: NOW - 1000 }) })]))[0]!.live).toBe('busy');
+    expect(rowsOf(storeOf([session('b', { lock: lock({ live: 'idle', liveAt: NOW - 1000 }) })]))[0]!.live).toBe('idle');
+    const unknown = rowsOf(storeOf([session('b', { lock: lock({ live: null, liveAt: null }) })]))[0]!;
+    expect(unknown.live).toBe('idle');
+    expect(unknown.waited).toBeNull();
+  });
+
+  it('入力待ちは waiting の点と「待ち N 分」を live_at から出す。この PC の行と同じ文言', () => {
+    const b = rowsOf(storeOf([session('b', { lock: waitingLock() })]))[0]!;
+    expect(b.live).toBe('waiting');
+    expect(b.reason).toBeNull();
+    expect(b.waited).toBe(rowsOf(storeOf([session('x', { live: 'waiting', lastActivityAt: NOW - 5 * 60_000 })]))[0]!.waited);
+    expect(b.waited).not.toBeNull();
+    expect(b.peer).toEqual({ name: 'Office', ended: false });
+  });
+
+  it('許可待ちは permission の印と、この PC の許可待ちと同じ文言', () => {
+    const b = rowsOf(storeOf([session('b', { lock: waitingLock({ reason: 'permission' }) })]))[0]!;
+    expect(b.live).toBe('waiting');
+    expect(b.reason).toBe('permission');
+    expect(b.waited).toBe(rowsOf(storeOf([session('x', { live: 'waiting', waitingFor: 'permission', lastActivityAt: NOW - 5 * 60_000 })]))[0]!.waited);
+  });
+
+  it('使用制限は idle の点に limit の印。リセット済みは waiting に数え、reset の語を出す', () => {
+    const lim = rowsOf(storeOf([session('b', { lock: lock({ live: 'idle', liveAt: NOW - 1000, reason: 'limit' }) })]))[0]!;
+    expect([lim.live, lim.reason, lim.waited]).toEqual(['idle', 'limit', null]);
+    const rst = rowsOf(storeOf([session('b', { lock: lock({ live: 'idle', liveAt: NOW - 1000, reason: 'reset' }) })]))[0]!;
+    expect([rst.live, rst.reason]).toEqual(['waiting', 'reset']);
+    expect(rst.waited).not.toBeNull();
+  });
+
+  it('黙った PC（stale）は状態にかかわらず今の輪のまま。待ちの時間も印も出さない', () => {
+    const b = rowsOf(storeOf([session('b', { lock: waitingLock({ stale: true, reason: 'permission' }) })]))[0]!;
+    expect([b.live, b.reason, b.waited, b.stale]).toEqual(['idle', null, null, true]);
+  });
+
+  it('Home の要対応と、プロジェクトと一覧の入力待ちに数える。OS の通知とバッジの元（waitingSessionIds）は変えない', () => {
+    const store = storeOf([session('b', { lock: waitingLock({ reason: 'permission' }) }), session('c', { lock: lock({ live: 'busy', liveAt: NOW }) })]);
+    const home = presentHome(initialState(), store, NOW);
+    expect(home.attention.map((c) => [c.id, c.reason])).toEqual([['b', 'permission']]);
+    expect(home.running.map((c) => [c.id, c.live])).toEqual([['c', 'busy']]);
+    expect(liveCountsOf(store, 'alpha')).toEqual({ running: 1, waiting: 1 });
+    expect(presentShell(initialState(), store, NOW).nav.find((n) => n.route.name === 'home')!.waiting).toBe(1);
+    expect(waitingSessionIds(store)).toEqual([]);
+    const state = initialState();
+    expect(presentSessionList({ ...state, search: { ...state.search, filter: { live: 'waiting' } } }, store, NOW).rows.map((r) => r.id)).toEqual(['b']);
+  });
+
+  it('黙った PC の入力待ちは数えない', () => {
+    const store = storeOf([session('b', { lock: waitingLock({ stale: true }) })]);
+    expect(presentHome(initialState(), store, NOW).attention).toEqual([]);
+    expect(liveCountsOf(store, 'alpha').waiting).toBe(0);
   });
 });

@@ -1,5 +1,5 @@
 import { isParked, limitReset, PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
-import type { CandidateSource, DeviceDto, InterruptCause, LimitKind, LiveSessionDto, SessionLimitDto, SessionOverlapDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionStatus, SessionSummaryDto, StateSetBy } from '@agent-hangar/shared';
+import type { CandidateSource, DeviceDto, InterruptCause, LimitKind, LiveSessionDto, LiveStatus, StopReason, SessionLimitDto, SessionOverlapDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionStatus, SessionSummaryDto, StateSetBy } from '@agent-hangar/shared';
 import { isStrictlyUnder } from '../platform/paths.ts';
 import { parseStartTime as parseProcStart } from '../platform/proc.ts';
 import { sameFolderPairs } from '../projects/registry.ts';
@@ -176,12 +176,12 @@ export function contextPercent(used: number | null, size: number | null): number
 
 export type SessionQueryOptions = { projectId?: string; ids?: string[]; deviceId?: string; now?: () => number };
 
-type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number; started_at: number };
+type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number; live_status: LiveStatus | null; live_reason: StopReason | null; live_at: number | null; started_at: number };
 /** 一覧が組むロックと、その run の始まり。始まりは区切りの判定（parked）にだけ使い、DTO には載せない。 */
 type LockEntry = { dto: SessionLockDto; startedAt: number };
 
 const LOCK_SELECT = `
-    select r.session_id, r.id run_id, r.device_id, d.name device_name, r.heartbeat_at, r.started_at
+    select r.session_id, r.id run_id, r.device_id, d.name device_name, r.heartbeat_at, r.live_status, r.live_reason, r.live_at, r.started_at
     from runs r left join devices d on d.id = r.device_id and d.deleted_at is null
     where r.ended_at is null and r.deleted_at is null and r.device_id <> ?`;
 
@@ -193,6 +193,9 @@ function toLock(r: LockRow, peers: PeerBook | null, now: number): SessionLockDto
     runId: r.run_id,
     heartbeatAt: peerSeenAt(peers, r.device_id) ?? r.heartbeat_at,
     stale: peerStale(peers, r.device_id, now),
+    live: r.live_status,
+    liveAt: r.live_at,
+    reason: r.live_reason,
   };
 }
 
@@ -278,9 +281,12 @@ export function processStartedAt(live: { procStart?: string } | undefined, alive
   return t ?? aliveRunStartedAt;
 }
 
-/** ほかの PC のロックだけがある会話に、その run の始まりより後で Done か Archived を付けたか（isParked の休みとみなす）。 */
+/**
+ * ほかの PC のロックだけがある会話に、その run の始まりより後で Done か Archived を付けたか（isParked）。
+ * 動きは届いたもの（lock.live）を使い、まだ届いていなければ休みとみなす。作業中と入力待ちは手元と同じく外さない。
+ */
 function remoteParked(r: SessionRow, lock: LockEntry | undefined): boolean {
-  return lock !== undefined && isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: 'idle', processStartedAt: lock.startedAt });
+  return lock !== undefined && isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: lock.dto.live ?? 'idle', processStartedAt: lock.startedAt });
 }
 
 /**
@@ -370,7 +376,7 @@ function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto
     // 使用制限でリセットを待っている間は、区切りを付けていても止めない（自動の続きの予約が消える）。
     // 自動の停止を切っている間は偽（setParkingSwitch）。
     // ほかの PC でだけ動いている会話（この PC の登録が無く、ロックだけがある）は、その run の始まりより後に印を付けたら、
-    // 向こうの PC が止めるのを待たずに parked にする。動きは届かないので休みとみなす。向こうの見張り（ParkWatch）も休みになってから止める。
+    // 向こうの PC が止めるのを待たずに parked にする。向こうの見張り（ParkWatch）は休みが 10 秒続いてから止める。
     parked: parking && (live
       ? isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: live.status, processStartedAt: processStartedAt(live, runStarts.get(r.id) ?? null), limited: limit !== null && !limit.reset })
       : remoteParked(r, locks.get(r.id))),

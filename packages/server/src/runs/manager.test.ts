@@ -418,6 +418,29 @@ describe('RunManager の回復と結びつけ（tmux 不要）', () => {
     expect(rm.recoverAtStartup()).toEqual([]);
   });
 
+  it('noteLastLive は、この PC の run の状態が変わったときだけ共有の行に載せる（waiting はすぐ、busy は保留の後）', () => {
+    vi.useFakeTimers();
+    try {
+      upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd, home_device: 'd' }, 'd');
+      upsertShared(db, 'runs', { id: 'r1', session_id: 's1', device_id: 'd', kind: 'resume', tmux_name: 'hangar-x', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
+      const rm = make({ tmux: null, liveShareHoldMs: 100 });
+      const entry = (status: 'busy' | 'waiting' | 'idle', over: Record<string, unknown> = {}) => [{ sessionId: 'u1', status, name: null, nameSource: null, cwd, pid: 1, ...over }];
+      const col = () => db.prepare('select live_status s, live_reason r from runs where id = ?').get('r1');
+      rm.noteLastLive(entry('busy'));
+      expect(col()).toEqual({ s: null, r: null });
+      vi.advanceTimersByTime(100);
+      expect(col()).toEqual({ s: 'busy', r: null });
+      rm.noteLastLive(entry('waiting', { waitingFor: 'permission', permission: { tool: 'Bash', input: 'ls' } }));
+      expect(col()).toEqual({ s: 'waiting', r: 'permission' });
+      const n = () => (db.prepare("select count(*) c from changes where table_name = 'runs'").get() as { c: number }).c;
+      const before = n();
+      rm.noteLastLive(entry('waiting', { waitingFor: 'permission', permission: { tool: 'Bash', input: 'ls' } }));
+      expect(n()).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('tick は tmux が無ければ何も閉じない。観測できないことと動いていないことは違う', () => {
     upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd, home_device: 'd' }, 'd');
     upsertShared(db, 'runs', { id: 'r1', session_id: 's1', device_id: 'd', kind: 'start', tmux_name: 'hangar-nope', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
