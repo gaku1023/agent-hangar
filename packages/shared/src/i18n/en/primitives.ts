@@ -10,6 +10,7 @@ export const primitivesEn: AreaDictionary<typeof primitivesKeys> = {
   'primitives.listbox.search': 'Search {label}',
   'primitives.listbox.hintMove': 'Navigate',
   'primitives.listbox.hintChoose': 'Select',
+  'primitives.micButton.label': 'Voice input',
   'primitives.rollingNumber.unavailable': 'Not available',
   'primitives.stepper.decrease': 'Decrease {label}',
   'primitives.stepper.increase': 'Increase {label}',
