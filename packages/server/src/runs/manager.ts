@@ -41,6 +41,8 @@ import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types
 import { jumpToPrompt, leaveTranscript, type JumpFrom, type JumpResult, type PaneIo } from '../provider/claude-code/screen/promptJump.ts';
 import { issueMcpSecret, pruneMcpSecrets, revokeMcpSecret } from './secrets.ts';
 import { forgetInterruption, interruptedGroup, noteLastLive, pruneLastLive, recordInterruption } from './interrupted.ts';
+import { LiveShare } from './liveShare.ts';
+import { stopReasonsOf } from '../sessions/stopReasons.ts';
 import { isAlive } from '../platform/proc.ts';
 import { splitCodexTerminalArgs, splitOpencodeTerminalArgs, splitTerminalArgs, terminalEnv, type TerminalRequest } from './terminal.ts';
 import { handoverFacts, projectDeviceCount, resumeTarget, type ResumeTarget } from './handover.ts';
@@ -146,7 +148,7 @@ export function agentEnabledLabel(agent: AgentKind): Message {
   return msg(AGENT_ENTRY[agent].enabledLabelKey ?? 'settings.label.opencodeEnabled');
 }
 
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りと、包みの見張り（watchWrappers）の時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'>; /** そのエージェントを起こしてよいか（opencode は設定の opencodeEnabled）。渡さなければ Claude Code だけ。 */ agentEnabled?: (kind: AgentKind) => boolean; /** Claude Code 以外のエージェントの実行ファイル。見つからなければ null。Claude は claudeBin を使う。 */ agentBin?: (kind: AgentKind) => string | null; /** 外のターミナルで打ったそのエージェントのコマンドを受けるか（opencode は設定の opencodeIntercept）。渡さなければ受けない。Claude の包みはこれを見ない。 */ terminalIntercept?: (kind: AgentKind) => boolean; /** 起動前の準備の進みを配る口（runs/launchPrep.ts）。渡さなければ準備をしない。 */ preps?: LaunchPreps };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りと、包みの見張り（watchWrappers）の時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'>; /** そのエージェントを起こしてよいか（opencode は設定の opencodeEnabled）。渡さなければ Claude Code だけ。 */ agentEnabled?: (kind: AgentKind) => boolean; /** Claude Code 以外のエージェントの実行ファイル。見つからなければ null。Claude は claudeBin を使う。 */ agentBin?: (kind: AgentKind) => string | null; /** 外のターミナルで打ったそのエージェントのコマンドを受けるか（opencode は設定の opencodeIntercept）。渡さなければ受けない。Claude の包みはこれを見ない。 */ terminalIntercept?: (kind: AgentKind) => boolean; /** 起動前の準備の進みを配る口（runs/launchPrep.ts）。渡さなければ準備をしない。 */ preps?: LaunchPreps; /** 手元の状態を共有の行へ書くまで、idle と busy を保留する長さ（ms）。試験で差し替える。 */ liveShareHoldMs?: number };
 
 /** 起動の途中を知らせる口。onPending は ID を後で決める driver（opencode）が仮の行を作った直後に呼ぶ（準備の前）。 */
 export type LaunchHooks = { onPending?: (sessionId: string) => void };
@@ -215,7 +217,11 @@ export class RunManager {
   /** sessions.provider の値から driver を引く（agent/agents.ts）。 */
   private readonly agents: Agents;
 
+  /** この PC の run の状態を、ほかの PC に見せる列へ載せる（liveShare.ts）。 */
+  private liveShare: LiveShare;
+
   constructor(private deps: RunManagerDeps) {
+    this.liveShare = new LiveShare({ db: deps.db, deviceId: deps.deviceId, holdMs: deps.liveShareHoldMs, now: deps.now });
     this.tr = translatorOf(deps.language);
     this.accounts = deps.accounts ?? new RunAccounts({ db: deps.db, claudeDir: deps.claudeDir, deviceId: deps.deviceId });
     this.claude = deps.claude;
@@ -618,6 +624,7 @@ export class RunManager {
     const row = this.db.prepare('select * from runs where id = ? and deleted_at is null').get(runId) as Record<string, unknown> | undefined;
     if (!row || row.ended_at !== null) return null;
     upsertShared(this.db, 'runs', { ...row, ended_at: this.now(), end_reason: reason }, this.deps.deviceId);
+    this.liveShare.forget(runId);
     this.parking.delete(runId);
     this.misses.delete(runId);
     this.wrapperPids.delete(runId);
@@ -1513,6 +1520,19 @@ export class RunManager {
       const s = this.db.prepare('select provider_session_id from sessions where id = ?').get(run.sessionId) as { provider_session_id: string } | undefined;
       const l = s ? byUuid.get(s.provider_session_id) : undefined;
       if (l) noteLastLive(this.db, run.id, l.status, now);
+    }
+    this.shareLive(live, byUuid, now);
+  }
+
+  /** 生きた run の状態と止まっている理由を、共有の行へ載せる（変わったときだけ、liveShare.ts）。 */
+  private shareLive(live: LiveSessionDto[], byUuid: Map<string, LiveSessionDto>, now: number): void {
+    const alive = listAliveRuns(this.db, this.deviceId);
+    if (alive.length === 0) return;
+    const reasons = stopReasonsOf(this.db, live, now);
+    for (const run of alive) {
+      const s = this.db.prepare('select provider_session_id from sessions where id = ?').get(run.sessionId) as { provider_session_id: string } | undefined;
+      const l = s ? byUuid.get(s.provider_session_id) : undefined;
+      if (l) this.liveShare.observe(run.id, l.status, reasons.reason(l.sessionId));
     }
   }
 

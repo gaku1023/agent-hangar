@@ -1,5 +1,5 @@
 import { isParked, limitReset, PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
-import type { CandidateSource, DeviceDto, InterruptCause, LimitKind, LiveSessionDto, SessionLimitDto, SessionOverlapDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionStatus, SessionSummaryDto, StateSetBy } from '@agent-hangar/shared';
+import type { CandidateSource, DeviceDto, InterruptCause, LimitKind, LiveSessionDto, LiveStatus, StopReason, SessionLimitDto, SessionOverlapDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionStatus, SessionSummaryDto, StateSetBy } from '@agent-hangar/shared';
 import { isStrictlyUnder } from '../platform/paths.ts';
 import { parseStartTime as parseProcStart } from '../platform/proc.ts';
 import { sameFolderPairs } from '../projects/registry.ts';
@@ -176,10 +176,10 @@ export function contextPercent(used: number | null, size: number | null): number
 
 export type SessionQueryOptions = { projectId?: string; ids?: string[]; deviceId?: string; now?: () => number };
 
-type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number };
+type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number; live_status: LiveStatus | null; live_reason: StopReason | null; live_at: number | null };
 
 const LOCK_SELECT = `
-    select r.session_id, r.id run_id, r.device_id, d.name device_name, r.heartbeat_at
+    select r.session_id, r.id run_id, r.device_id, d.name device_name, r.heartbeat_at, r.live_status, r.live_reason, r.live_at
     from runs r left join devices d on d.id = r.device_id and d.deleted_at is null
     where r.ended_at is null and r.deleted_at is null and r.device_id <> ?`;
 
@@ -191,6 +191,9 @@ function toLock(r: LockRow, peers: PeerBook | null, now: number): SessionLockDto
     runId: r.run_id,
     heartbeatAt: peerSeenAt(peers, r.device_id) ?? r.heartbeat_at,
     stale: peerStale(peers, r.device_id, now),
+    live: r.live_status,
+    liveAt: r.live_at,
+    reason: r.live_reason,
   };
 }
 
