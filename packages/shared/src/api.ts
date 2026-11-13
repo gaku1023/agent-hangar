@@ -5,6 +5,7 @@ import type { LiveFilter } from './liveFilter.ts';
 import type { StepKind } from './steps.ts';
 import type { TranscriptEvent } from './transcript.ts';
 import type { SessionStateDto, SessionStatus } from './sessionState.ts';
+import type { StopReason } from './stopReason.ts';
 
 export type ProjectStatus = 'active' | 'paused' | 'done' | 'archived';
 export type LiveStatus = 'busy' | 'idle' | 'waiting';
@@ -609,8 +610,10 @@ export type SummarizerTestDto = { ok: true; id: SummarizerId; ms: number; summar
  * 他端末がそのセッションを実行中であることの印。
  * stale は、その PC を Worker が 3 分より前から見ていないこと（または一度も見ていないこと）を示す。
  * heartbeatAt は、同期の版 6 からその PC の最終接続（この PC の時計）で、知らなければ run の行の heartbeat_at である。名前は版 5 までのまま。
+ * live・liveAt・reason は、その run の PC が見ている状態（作業中、入力待ち、休み）と、その状態になった時刻（その PC の時計）、止まっている理由である。
+ * run の行の live_status・live_at・live_reason を写したもので、未知なら null。古いサーバは返さないので、読む側は null として読む。
  */
-export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean };
+export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean; live?: LiveStatus | null; liveAt?: number | null; reason?: StopReason | null };
 /**
  * 「この PC で再開」が、ほかの PC で動いている会話を止めて引き継ぐ流れ（server/src/sync/takeover.ts）。
  * asking は頼みを書いて送っている間、waiting は相手の応答を待っている間、receiving は相手が止まったあと本文が降りきるのを待っている間である。
