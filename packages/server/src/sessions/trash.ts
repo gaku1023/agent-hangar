@@ -5,6 +5,7 @@ import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { MessageError, msg, type Message } from '../i18n/message.ts';
 import { forgetTranscriptFile } from '../indexer/indexFile.ts';
+import { deleteIndexed } from '../indexer/write.ts';
 import { stmt } from '../indexer/statements.ts';
 import { isStrictlyUnder } from '../platform/paths.ts';
 import type { TrashFn } from '../platform/trash.ts';
@@ -326,8 +327,9 @@ export class SessionTrash {
     // 本文を DB に持つ会話（opencode）は、ファイルの行が無いので会話ごと片付ける。
     const p = this.db.prepare('select provider from sessions where id = ?').get(sessionId) as { provider: string } | undefined;
     if (isExportAgent(p?.provider)) {
+      deleteIndexed(this.db, sessionId);
       for (const sql of [
-        'delete from event_index where session_id = ?', 'delete from event_fts where session_id = ?', 'delete from agent_events where session_id = ?',
+        'delete from agent_events where session_id = ?',
         'delete from session_activity where session_id = ?', 'delete from session_limits where session_id = ?',
       ]) this.db.prepare(sql).run(sessionId);
     }

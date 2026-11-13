@@ -990,7 +990,8 @@ create table event_index (
   ts integer, byte_offset integer not null, byte_length integer not null,
   file_path_ref text not null,                     -- 位置が指すファイル
   parent_agent text,                               -- サブエージェントの ID。null は主線
-  tool_name text, file_path text                   -- tool_call のときだけ
+  tool_name text, file_path text,                  -- tool_call のときだけ
+  fts_rowid integer                                -- 対応する event_fts の rowid（版 60）。0 は検索の行が無い、null は版 60 より前に積んだ行
 );
 -- 主線とサブエージェントで seq の空間を分ける。
 create unique index event_index_pos on event_index(session_id, ifnull(parent_agent, ''), seq);
@@ -1249,6 +1250,9 @@ Claude Code の保存先と、その読み方を定める。
 サブエージェントの本文は主線と別のファイルで独立に伸びるので、`event_index` の一意制約は `(session_id, ifnull(parent_agent, ''), seq)` とし、主線とサブエージェントで `seq` の空間を分ける。
 主線を絞る問い合わせは、この索引の式に合わせて `ifnull(parent_agent, '') = ''` と書く。
 `parent_agent is null` と書くと索引に乗らず、長いセッションでは 1 回でそのセッションの全行を表まで見に行く。
+作り直しと削除で検索の行（`event_fts`）を消すときは、位置で引かずに `event_index.fts_rowid` の rowid で引く（`indexer/write.ts` の `deleteIndexed`）。
+FTS5 の `unindexed` の列には索引が無く、`session_id` で消すと中身の表を全部なめるためである（2026-11-14 の実測で、Windows の 30.7 万行で 1 回 0.29〜1.67 秒、冷えていると 4 秒、Mac の 29 万行で 0.07 秒。実行中の会話の作り直しが重なり、イベントループが 15 秒止まった）。
+検索の行はイベントごとに高々 1 つなので、積むときの rowid をそのイベントの行に持たせる。版 60 より前に積んだ行（`fts_rowid` が null）が残る位置だけは、次の作り直しで今までどおり位置で消し、積み直した後は rowid で引ける。
 Claude の本文を読むとき（`provider/claude-code/transcript/page.ts`）は、索引のバイト位置からファイルを読み、正規化し直す。
 1 つの記録から出た行は `seq` が続いているので、ページの中の 2 つ目からの記録は、ページに入った最初の行が記録の先頭である。
 記録の途中から始まりうるのはページの最初の記録だけで、その先頭は索引を 1 行ずつ遡って確かめる。

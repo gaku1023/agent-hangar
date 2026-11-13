@@ -120,6 +120,26 @@ export function skipWrite(known: SessionRow | undefined, remote: boolean): Write
 }
 
 /**
+ * 本文の索引（event_index と、検索の event_fts）を消す。agentKey を渡せばその位置（主線は空、サブエージェントは agentId）だけ、渡さなければ会話ごと消す。
+ * event_fts は位置の列（unindexed）に索引が無く、位置で引くと中身の表を全部なめる（Windows の 30 万行で 1 回 0.3〜1.7 秒）。
+ * 積むときに event_index に持たせた rowid（fts_rowid）で引き、消す行の数だけで済ませる。
+ * fts_rowid が null の行（版 60 より前に積んだ行）が対象にあるときだけ、今までどおり位置で消す。消す行が無い新しい会話の最初の索引では、なめない。
+ */
+export function deleteIndexed(db: Db, sessionId: string, agentKey?: string): void {
+  if (agentKey === undefined) {
+    const legacy = stmt(db, 'select 1 from event_index where session_id = ? and fts_rowid is null limit 1').get(sessionId);
+    if (legacy) stmt(db, 'delete from event_fts where session_id = ?').run(sessionId);
+    else stmt(db, 'delete from event_fts where rowid in (select fts_rowid from event_index where session_id = ? and fts_rowid > 0)').run(sessionId);
+    stmt(db, 'delete from event_index where session_id = ?').run(sessionId);
+    return;
+  }
+  const legacy = stmt(db, "select 1 from event_index where session_id = ? and ifnull(parent_agent, '') = ? and fts_rowid is null limit 1").get(sessionId, agentKey);
+  if (legacy) stmt(db, "delete from event_fts where session_id = ? and ifnull(agent_id, '') = ?").run(sessionId, agentKey);
+  else stmt(db, "delete from event_fts where rowid in (select fts_rowid from event_index where session_id = ? and ifnull(parent_agent, '') = ? and fts_rowid > 0)").run(sessionId, agentKey);
+  stmt(db, "delete from event_index where session_id = ? and ifnull(parent_agent, '') = ?").run(sessionId, agentKey);
+}
+
+/**
  * 束を索引の表に書く。1 つの取引で書く（呼び手の取引の中で呼べば、その中の区切りになる）。
  * reset なら、この位置（主線かサブエージェント）の本文の索引、検索、日別の使用量を消してから先頭として積む。
  * ファイルの束は本文を書かず、バイト位置を event_index に残す。本文を DB に持つ束は、出どころの名前を event_index に残し、イベントそのものを agent_events に写す。
@@ -136,7 +156,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
   // 「いま何をしているか」は手元の主線だけから取る。サブエージェントと他端末の写しは見ない。
   const mainLocal = b.agentId === null && !remote;
 
-  const insEv = stmt(db, 'insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, file_path_ref, parent_agent, tool_name, file_path) values (?,?,?,?,?,?,?,?,?,?)');
+  const insEv = stmt(db, 'insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, file_path_ref, parent_agent, tool_name, file_path, fts_rowid) values (?,?,?,?,?,?,?,?,?,?,?)');
   const insFts = stmt(db, 'insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)');
   // 本文を DB に持つ束（stored）は、イベントそのものを agent_events に写す（読むのは transcript/stored.ts）。
   const insBody = stmt(db, 'insert or replace into agent_events (session_id, agent_key, seq, body) values (?,?,?,?)');
@@ -146,8 +166,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
     const cwd = b.cwd ?? b.records.find((r) => r.facts.cwd)?.facts.cwd ?? opts.cwdFallback ?? '';
     const sessionId = opts.sessionId ?? (remote ? findSession(db, b.providerSessionId, b.agent)! : ensureSession(db, b.providerSessionId, cwd, opts.deviceId, b.agent));
     if (reset) {
-      stmt(db, "delete from event_index where session_id = ? and ifnull(parent_agent, '') = ?").run(sessionId, agentKey);
-      stmt(db, "delete from event_fts where session_id = ? and ifnull(agent_id, '') = ?").run(sessionId, agentKey);
+      deleteIndexed(db, sessionId, agentKey);
       stmt(db, 'delete from agent_events where session_id = ? and agent_key = ?').run(sessionId, agentKey);
     }
     // 作り直しでも artifact_versions は消さない。
@@ -181,10 +200,14 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
       const length = r.locator.kind === 'file' ? r.locator.length : 0;
       const ref = r.locator.kind === 'file' ? r.locator.path : origin;
       if (r.endsTurn) acc.turnEnded = true;
+      // 検索の行はイベントごとに高々 1 つで、同じ seq を持つ。積んだ rowid を event_index に持たせ、消すときに rowid で引く（deleteIndexed）。
+      const texts = new Map(indexTexts(events).map((t) => [t.seq, t]));
       for (const ev of events) {
         const toolName = ev.kind === 'tool_call' ? ev.name : null;
         const filePath = ev.kind === 'tool_call' ? ev.filePath ?? null : null;
-        insEv.run(sessionId, ev.seq, ev.kind, ev.ts ?? null, offset, length, ref, b.agentId, toolName, filePath);
+        const t = texts.get(ev.seq);
+        const ftsRowid = t ? Number(insFts.run(sessionId, b.agentId, t.seq, t.role, t.text.slice(0, FTS_MAX_CHARS)).lastInsertRowid) : 0;
+        insEv.run(sessionId, ev.seq, ev.kind, ev.ts ?? null, offset, length, ref, b.agentId, toolName, filePath, ftsRowid);
         if ((ev.kind === 'user' || ev.kind === 'assistant') && ev.ts !== undefined) acc.lastTurnTs = Math.max(acc.lastTurnTs ?? ev.ts, ev.ts);
         if (r.locator.kind === 'stored') insBody.run(sessionId, agentKey, ev.seq, JSON.stringify(ev));
         if (ev.kind === 'tool_call' && ev.name === 'Artifact' && isArtifactPublish(ev.input)) {
@@ -196,7 +219,6 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
           if (url && call) artifactIds.add(recordArtifactPublish(db, opts.deviceId, { sessionId, projectId: projectOf(), url, publishedAt: ev.ts ?? Date.now(), call: { filePath: call.file_path, description: call.description, icon: call.favicon } }));
         }
       }
-      for (const t of indexTexts(events)) insFts.run(sessionId, b.agentId, t.seq, t.role, t.text.slice(0, FTS_MAX_CHARS));
       appended += events.length;
       const f = r.facts;
       if (f.cwd && !acc.cwd) acc.cwd = f.cwd;

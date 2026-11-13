@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import type { Db } from '../db/open.ts';
 import type { TranscriptFile, TranscriptFiles } from '../agent/types.ts';
 import { stmt } from './statements.ts';
-import { sessionRow, skipWrite, writeBatch, type ProcessStartOf, type SessionRow } from './write.ts';
+import { deleteIndexed, sessionRow, skipWrite, writeBatch, type ProcessStartOf, type SessionRow } from './write.ts';
 
 // 本文をファイルに持つエージェント（Claude）の索引。どこまで読んだか（transcript_files）を持ち、続きを driver に読ませて indexer/write.ts で書く。
 // ファイルを読んで束にするのは driver の側（TranscriptFiles.read、Claude は provider/claude-code/transcript/batch.ts）である。
@@ -46,8 +46,7 @@ export function forgetTranscriptFile(db: Db, filePath: string, o: { keepUsage?: 
   if (!row) return;
   const agentKey = row.agent_id ?? '';
   const run = db.transaction(() => {
-    stmt(db, "delete from event_index where session_id = ? and ifnull(parent_agent, '') = ?").run(row.session_id, agentKey);
-    stmt(db, "delete from event_fts where session_id = ? and ifnull(agent_id, '') = ?").run(row.session_id, agentKey);
+    deleteIndexed(db, row.session_id, agentKey);
     // 日別の集計はこのファイル由来のぶんを鍵に持っている。
     // 残すと、同じ会話を別のパス（写しから手元へ切り替わったとき）で積み直したぶんと足し合わさり、
     // event_index が正しいのに使用量のゲージだけが静かに倍になる。indexFile の reset 側と同じ 1 文である。
@@ -59,7 +58,7 @@ export function forgetTranscriptFile(db: Db, filePath: string, o: { keepUsage?: 
     // 使用制限の行も主線のものである。
     if (row.agent_id === null) stmt(db, 'delete from session_limits where session_id = ?').run(row.session_id);
     stmt(db, 'delete from transcript_files where path = ?').run(filePath);
-    // 上の 2 つの delete は位置ごとに消すので、同じ位置を別のパスで読んでいたぶんも消える。
+    // 上の deleteIndexed は位置ごとに消すので、同じ位置を別のパスで読んでいたぶんも消える。
     // EnterWorktree は本文を worktree 用の projects の下へ移すので、移った先を読み終えた後に元のパスを手放す順がありうる。
     // そのパスの読み進めた位置だけが残ると、続きしか積まれず、最初の依頼が目次から抜ける。版を 0 にして先頭から読み直させる。
     stmt(db, "update transcript_files set indexer_version = 0 where session_id = ? and ifnull(agent_id, '') = ?").run(row.session_id, agentKey);
