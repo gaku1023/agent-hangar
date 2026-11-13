@@ -878,6 +878,19 @@ create table event_hook_orphans (
 `;
 
 /**
+ * 版 57。
+ * run の行に、その run の PC が見ている状態を載せる列を足す。
+ * ほかの PC のサイドバーが、点（作業中・入力待ち・休み）と待ちの時間に使う。
+ * live_status は busy、waiting、idle（null は未知）、live_reason は permission、limit、reset（null は理由なし）、live_at はその状態になった時刻である。
+ * 書き手はその run の PC だけで、変わったときだけ書く（runs/liveShare.ts）。
+ */
+const V57_RUN_LIVE_SQL = `
+alter table runs add column live_status text;
+alter table runs add column live_reason text;
+alter table runs add column live_at integer;
+`;
+
+/**
  * MCP の delete_session の依頼を、利用者が答えるまで預かる表（#547）。手元だけの表で、同期しない。会話 1 つに 1 行。
  */
 const V44_DELETE_APPROVALS_SQL = `
@@ -1045,4 +1058,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 54, sql: V54_PEER_OUTBOX_OP_SQL },
   { version: 55, sql: V55_EVENT_BINDINGS_SQL },
   { version: 56, sql: V56_EVENT_HOOK_ORPHANS_SQL },
+  { version: 57, sql: V57_RUN_LIVE_SQL },
 ];

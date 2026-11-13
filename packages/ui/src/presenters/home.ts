@@ -6,7 +6,7 @@ import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
 import type { OverlapProps } from './overlap.ts';
 import { rowAgent } from './agentIcon.ts';
-import { aliveRunOf, awaitsAnswer, hotOrAlive, hotSessions, liveFilterOfSession, outsideOpenOf, runningSessionIds, aliveAnywhere, remoteLockOf, shownAside, unreadSessionIds, type Store } from '../store/store.ts';
+import { aliveRunOf, awaitsAnswerAnywhere, hotOrAlive, hotSessions, liveFilterOfSession, outsideOpenOf, runningSessionIds, aliveAnywhere, remoteLockOf, remoteLiveOf, remoteReasonOf, shownAside, unreadSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortenPaths } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
@@ -146,12 +146,14 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
 
   // 長く待っているものほど先に答えたいので、最後に動いた時刻の古い順に並べる。
   // Done と Archived にしたものは、live が waiting のままでも出さない（store.ts の awaitsAnswer）。
-  const waiting = sessions.filter(awaitsAnswer).sort((a, b) => (a.lastActivityAt ?? now) - (b.lastActivityAt ?? now));
+  // ほかの PC で入力待ちの会話も出す（awaitsAnswerAnywhere）。待った時間は、その PC が入力待ちになった時刻から数える。
+  const waiting = sessions.filter(awaitsAnswerAnywhere).sort((a, b) => (a.lastActivityAt ?? now) - (b.lastActivityAt ?? now));
   const attention = waiting.map((s): AttentionCard => {
     // 許可待ちとリセット済みは、理由を添える（試作の B1）。リセット済みの経過は、リセットの時刻から数える。
-    const reason = stopReasonOf(s);
+    const remoteLock = remoteLockOf(s, local);
+    const reason = remoteLock ? remoteReasonOf(remoteLock, 'waiting') : stopReasonOf(s);
     const shown = reason === 'permission' || reason === 'reset' ? reason : null;
-    const since = shown === 'reset' && s.limit ? s.limit.resetsAt : s.lastActivityAt ?? now;
+    const since = remoteLock && typeof remoteLock.liveAt === 'number' ? remoteLock.liveAt : shown === 'reset' && s.limit ? s.limit.resetsAt : s.lastActivityAt ?? now;
     const agent = rowAgent(store, s);
     return { id: s.id, name: name(s), projectName: projectName(s), waited: durationLabel(t, Math.max(0, now - since)), question: s.activity?.question ?? noQuestionText(t), answer: aliveRunOf(store, s.id) ? 'terminal' as const : outsideOpenOf(store, s), reason: shown, permission: shown === 'permission' ? s.permission : null, ...(agent !== undefined ? { agent } : {}) };
   });
@@ -182,9 +184,10 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
     // summary の先頭に「ツール名+半角空白」が付くこともある（サーバの toolSummary が付けた分）。カードはツール名を <i> で先に出すので、その重なりを削る。
     // 裏だけ動いているときは、本体の手も意図も今のものではないので出さず、裏のものと指揮役が空いていることを言う。
     // 動きは、入力待ちの数え方と同じ規則を通す。Done と Archived にした入力待ちは休みとして出す（store.ts の shownLive と同じ quietLive）。
-    // ほかの PC のものは動きが分からないので、灰の点（idle）にして、待ちの時間も開始中の語も出さない。
-    const remote = remoteLockOf(s, local) !== null;
-    const live = remote ? 'idle' : quietLive(liveWithLimit(s.live, s.limit), s.state?.status, s.woke);
+    // ほかの PC のものは、その PC が載せた状態の点（busy か idle。入力待ちは要対応に出る）で、待ちの時間も開始中の語も出さない。
+    const remoteLock = remoteLockOf(s, local);
+    const remote = remoteLock !== null;
+    const live = remoteLock ? quietLive(remoteLiveOf(remoteLock), s.state?.status, s.woke) : quietLive(liveWithLimit(s.live, s.limit), s.state?.status, s.woke);
     const aside = asideOf(live, s.liveAside);
     // 使用制限でリセットを待っているものは、実行中のまま理由と時刻を言う（試作の B1）。
     const limit = live === 'idle' && stopReasonOf(s) === 'limit' && s.limit ? limitCardOf(t, s.limit, now) : null;

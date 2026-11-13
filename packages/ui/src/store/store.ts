@@ -550,13 +550,38 @@ export function remoteLockOf(s: SessionDto, local: Set<string>): SessionLockDto 
 }
 
 /**
+ * ほかの PC の run の状態を、この PC の画面での動き（点）に読む（SessionLockDto の live・reason）。
+ * 未知（null、古いサーバ）と、黙った PC（stale）は、状態が分からないので灰の点（idle）のままにする。
+ * リセット済み（reset）の休みは、この PC の liveWithLimit と同じく入力待ちに数える。
+ */
+export function remoteLiveOf(lock: SessionLockDto): LiveStatus {
+  if (lock.stale || !lock.live) return 'idle';
+  return lock.live === 'idle' && lock.reason === 'reset' ? 'waiting' : lock.live;
+}
+
+/**
+ * ほかの PC の run の止まっている理由の印。shown は点の動き（quietLive を通したもの）である。
+ * この PC の shownReason と同じく、許可待ちとリセット済みは入力待ちに、使用制限は休みに見えているときだけ付ける。黙った PC には付けない。
+ */
+export function remoteReasonOf(lock: SessionLockDto, shown: LiveStatus | null): StopReason | null {
+  const r = lock.stale ? null : lock.reason ?? null;
+  if (r === 'permission' || r === 'reset') return shown === 'waiting' ? r : null;
+  return r === 'limit' && shown === 'idle' ? r : null;
+}
+
+/** 画面で数えるときの live。この PC の live が無く、ほかの PC のロックがあるときは、そのロックの状態に読む。 */
+function countedLive(s: SessionDto): LiveStatus | null {
+  return s.live ?? (s.lock ? remoteLiveOf(s.lock) : null);
+}
+
+/**
  * 画面で数えるときのセッションの状態（実行中、入力待ち、終了）。
  * Claude の一覧に載る前の run も実行中に数える。
  * 区切り（Done・Archived）を付けて休みのまま残っているもの（parked）は、プロセスが残っていても終了に数える。
  * alive を渡せば、何件も数えるときに run の集合を作り直さずに済む。
  */
 export function liveFilterOfSession(store: Store, session: SessionDto, alive: Set<string> = runningSessionIds(store)): LiveFilter {
-  return liveFilterOf(quietLive(liveWithLimit(session.live, session.limit), session.state?.status, session.woke), alive.has(session.id), session.parked);
+  return liveFilterOf(quietLive(liveWithLimit(countedLive(session), session.limit), session.state?.status, session.woke), alive.has(session.id), session.parked);
 }
 
 /**
@@ -637,6 +662,22 @@ export function liveSessionIds(store: Store): string[] {
  */
 export function awaitsAnswer(s: SessionDto): boolean {
   return liveFilterOf(quietLive(liveWithLimit(s.live, s.limit), s.state?.status, s.woke), false) === 'waiting';
+}
+
+/**
+ * 画面で数える入力待ち。awaitsAnswer に、ほかの PC で入力待ちの会話（remoteLiveOf）を足したもの。
+ * Home の要対応と、ホームの項目の数が使う。OS の通知と Dock のバッジは、動いている PC が出すので、awaitsAnswer（この PC の live）のままにする。
+ */
+export function awaitsAnswerAnywhere(s: SessionDto): boolean {
+  return liveFilterOf(quietLive(liveWithLimit(countedLive(s), s.limit), s.state?.status, s.woke), false) === 'waiting';
+}
+
+/** 画面で数える入力待ちの id（awaitsAnswerAnywhere）。並びは waitingSessionIds と同じ。 */
+export function waitingAnywhereIds(store: Store): string[] {
+  const at = (s: SessionDto) => s.lastActivityAt ?? Number.POSITIVE_INFINITY;
+  return hotSessions(store.sessions).filter(awaitsAnswerAnywhere)
+    .sort((a, b) => (at(a) === at(b) ? 0 : at(a) < at(b) ? -1 : 1) || a.id.localeCompare(b.id))
+    .map((s) => s.id);
 }
 
 /**
