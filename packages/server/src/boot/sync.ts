@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { codexEnabledOf, MOBILE_MIN_WORKER_COMPAT, opencodeEnabledOf, PEER_CHAT_MIN_WORKER_COMPAT, PEER_LAUNCH_MIN_WORKER_COMPAT, type PeerChatApi, type PeerKeyring, type PeerLaunchApi, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto, type DeviceOut } from '@agent-hangar/shared';
+import { codexEnabledOf, configKindModeOf, MOBILE_MIN_WORKER_COMPAT, opencodeEnabledOf, PEER_CHAT_MIN_WORKER_COMPAT, PEER_LAUNCH_MIN_WORKER_COMPAT, type PeerChatApi, type PeerKeyring, type PeerLaunchApi, TAKEOVER_MIN_WORKER_COMPAT, type CloudDevicesDto, type DeviceOut } from '@agent-hangar/shared';
 import { defaultCodexHome } from '../provider/codex/transcript/discover.ts';
 import { cloudConfigPath, readCloudConfig, saveCloudConfig, type CloudConfig } from '../config/cloud.ts';
 import { defaultManagedDir, RetentionService } from '../provider/claude-code/config/retention.ts';
@@ -368,6 +368,7 @@ export function bootSync(
       ? new TranscriptUploader({
           db, deviceId, claudeDir, home: home.home, client, keyring, state: syncState, roster: roster ?? undefined,
           isPaused,
+          isEnabled: () => configKindModeOf(settings.current, 'transcript') !== 'off',
           ...(o.opencodeExport ? { opencode: o.opencodeExport } : {}),
           // Codex（ベータ）の本文は、設定の codexEnabled が入のときだけ上げる。置き場は索引と同じ $CODEX_HOME（無ければ ~/.codex）。
           codex: () => (codexEnabledOf(settings.current) ? { home: defaultCodexHome() } : null),
@@ -392,6 +393,7 @@ export function bootSync(
           db, deviceId, home: home.home, client, state: syncState, language: home.language,
           // ほかの PC の Codex の本文は、この PC で Codex を有効にしているときだけ降ろす。
           codexEnabled: () => codexEnabledOf(settings.current),
+          transcriptEnabled: () => configKindModeOf(settings.current, 'transcript') !== 'off',
           // 画面へは toast を流さない（トーストは操作の結果だけにした）。
           // 諦めた項目は同期の状態（skipped）に残り、画面のベルの一覧が事実からその行を組む。
           onError: (k, m) => { console.error('[pull]', k, m); },

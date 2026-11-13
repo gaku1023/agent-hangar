@@ -84,6 +84,28 @@ beforeEach(() => {
 });
 
 describe('TranscriptUploader', () => {
+  it('本文の入切が切の間は、noteChanged・uploadFile・flushSession・flushAll・sweep のどれも上げず、入に戻すと次の走査で拾う', async () => {
+    let on = false;
+    const up = new TranscriptUploader({ db, deviceId: 'dev-a', claudeDir, client: cloud, keyring: cloud.keyring, state, now: () => timers.now, timers, isPaused: () => paused, isEnabled: () => on, onError: (p, m) => errors.push({ path: p, message: m }) });
+    const t = { path: mainFile(), sessionId: UUID, agentId: null };
+    up.noteChanged(t);
+    await timers.advance(60_000);
+    await up.idle();
+    expect(await up.uploadFile(t)).toBe('skipped');
+    await up.flushSession(UUID);
+    await up.flushAll();
+    expect(up.sweep(Infinity)).toBe(0);
+    await up.idle();
+    expect(cloud.files.size).toBe(0);
+    // 入に戻すと、止めている間に動いた本文は次の呼びで上がる。
+    on = true;
+    up.noteChanged(t);
+    await timers.advance(30_000);
+    await up.idle();
+    expect(await storedKeys()).toEqual([MAIN_KEY]);
+    up.stop();
+  });
+
   it('変化の 30 秒後に gzip と暗号化で上げ、file_sync に記録する', async () => {
     const up = make();
     up.noteChanged({ path: mainFile(), sessionId: UUID, agentId: null });

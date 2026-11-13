@@ -76,6 +76,8 @@ export type UploaderDeps = {
    */
   roster?: Pick<RosterStore, 'cached'>;
   now?: () => number; debounceMs?: number; timers?: Timers; isPaused: () => boolean;
+  /** 会話の本文の入切（configKinds.transcript）。偽なら送りを全部止める。isPaused とは別で、メタの行の同期は続く。省くと入。 */
+  isEnabled?: () => boolean;
   onError?: (path: string, message: string) => void;
 };
 
@@ -227,9 +229,13 @@ export class TranscriptUploader {
 
   private liveOpencodeStmt: ReturnType<Db['prepare']> | null = null;
 
+  private transcriptOn(): boolean { return this.deps.isEnabled?.() !== false; }
+
   /** 索引化が変化を見たファイルを待ち行列に入れる。1 件目から 30 秒後にまとめて上げる。 */
   noteChanged(f: UploadTarget): void {
     if (this.stopped) return;
+    // 本文の同期が切の間は積まない。止めている間に動いた分は、入に戻したあとの走査（sweep）が台帳から拾う。
+    if (!this.transcriptOn()) return;
     // Codex を有効にしていない間は積まない。
     if (f.provider === 'codex' && this.codexSource() === null) return;
     this.pending.set(f.path, f);
@@ -318,7 +324,7 @@ export class TranscriptUploader {
    * 一時停止中の「今すぐ同期」の 1 巡がそう呼ぶ（次の走査が来ないので、ここで上げきる）。
    */
   sweep(limit: number = SWEEP_BATCH): number {
-    if (this.stopped || limit <= 0) return 0;
+    if (this.stopped || limit <= 0 || !this.transcriptOn()) return 0;
     // 止まっているあいだは外と話さない。走査で積んでも上げずに捨てるだけなので、そもそも引かない。
     if (this.deps.isPaused()) return 0;
     if (!isSafeKeyId(this.deps.deviceId)) return 0;
@@ -569,6 +575,7 @@ export class TranscriptUploader {
    */
   flushAll(): Promise<void> {
     return this.enqueue(async () => {
+      if (!this.transcriptOn()) return;
       let wait = Infinity;
       for (const f of [...this.pending.values()]) {
         const w = this.reuploadWait(f);
@@ -585,6 +592,7 @@ export class TranscriptUploader {
    */
   flushSession(sessionUuid: string): Promise<void> {
     return this.enqueue(async () => {
+      if (!this.transcriptOn()) return;
       const targets = new Map<string, UploadTarget>();
       for (const f of this.pending.values()) if (f.sessionId === sessionUuid) targets.set(f.path, f);
       for (const f of this.knownTargets(sessionUuid)) if (!targets.has(f.path)) targets.set(f.path, f);
@@ -699,6 +707,7 @@ export class TranscriptUploader {
 
   async uploadFile(f: UploadTarget): Promise<'uploaded' | 'unchanged' | 'skipped'> {
     return this.enqueue(async () => {
+      if (!this.transcriptOn()) return 'skipped' as const;
       try {
         const r = await this.upload(f);
         this.pending.delete(f.path);

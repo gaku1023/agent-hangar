@@ -59,6 +59,18 @@ describe('remoteTranscriptPath', () => {
 });
 
 describe('RemotePuller', () => {
+  it('本文の入切が切の間は降ろさず区切りも進めず、入に戻すと取り残しを降ろす', async () => {
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, '{"a":1}\n');
+    let on = false;
+    const p = make({ transcriptEnabled: () => on });
+    expect(await p.pullNow()).toEqual({ downloaded: 0 });
+    expect(fs.existsSync(path.join(home, 'remote'))).toBe(false);
+    expect(state.getNumber('filesSeq', 0)).toBe(0);
+    on = true;
+    expect(await p.pullNow()).toEqual({ downloaded: 1 });
+    expect(fs.readFileSync(remoteTranscriptPath(home, 'dev-b', `projects/-w-alpha/${UUID}.jsonl`), 'utf8')).toBe('{"a":1}\n');
+  });
+
   it('他端末の本文を復号して展開し、file_sync と mtime を揃える', async () => {
     await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, '{"a":1}\n');
     const p = make();
