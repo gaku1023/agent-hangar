@@ -19,10 +19,25 @@ afterEach(() => {
 });
 
 describe('trustedPlaces', () => {
-  it('クイックセッションの 2 つの置き場はいつも、作業フォルダは同意したときだけ', () => {
-    const quick = [path.join(home, 'quick-sessions'), path.join(home, 'scratch')];
+  it('クイックセッションの 2 つの置き場と統括の置き場はいつも、作業フォルダは同意したときだけ', () => {
+    const quick = [path.join(home, 'quick-sessions'), path.join(home, 'scratch'), path.join(home, 'orchestrator')];
     expect(trustedPlaces({ hangarHome: home, trustedWorkspace: null })).toEqual(quick);
     expect(trustedPlaces({ hangarHome: home, trustedWorkspace: '/w' })).toEqual([...quick, '/w']);
+  });
+});
+
+describe('trustBeforeLaunch（統括）', () => {
+  it('統括の置き場で起こす前に、その置き場を信頼済みにする', () => {
+    const userHome = path.join(root, 'user');
+    fs.mkdirSync(userHome);
+    const file = path.join(userHome, '.claude.json');
+    fs.writeFileSync(file, JSON.stringify({ projects: {} }));
+    const cwd = path.join(home, 'orchestrator');
+    fs.mkdirSync(cwd);
+    const added = trustBeforeLaunch({ hangarHome: home, homeDir: userHome, trustedWorkspace: () => null }, null, cwd);
+    expect(added).toHaveLength(1);
+    const projects = (JSON.parse(fs.readFileSync(file, 'utf8')) as { projects: Record<string, { hasTrustDialogAccepted?: boolean }> }).projects;
+    expect(projects[added[0]!]).toEqual({ hasTrustDialogAccepted: true });
   });
 });
 

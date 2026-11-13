@@ -10360,6 +10360,8 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   ほかの会話は鍵ごと送らない。
 - **起動：** `RunManager.startOrchestrator()`。
   cwd は hangar の置き場の下の `orchestrator/` で、プロジェクトには属さない（`project_id` は null）。
+  起こす前に、この置き場を `.claude.json` で信頼済みにする（`projects/folderTrust.ts` の `trustedPlaces`）。
+  信頼の確認が出ると統括が起きたまま止まり、誰も答えられないためである。
   起動の指定は `baseInput` が統括の会話に足す。
   新しい起動も再開も同じで、設定の `sessionId` の会話か、起こしている最中の会話が対象である。
   足すものは、設定のモデルと effort、`--permission-mode default`、役の文だけの指示（プロジェクトの段は足さない）、Remote Control なし、`permissions` である。

@@ -5,6 +5,7 @@ import { claudeJsonFor, trustFolders, untrustedFolders } from '../provider/claud
 import { isUnder, samePath } from '../platform/paths.ts';
 import { hasWorkspaceRoot, normalizeDir } from './registry.ts';
 import { legacyScratchRoot, quickSessionsRoot } from './scratch.ts';
+import { orchestratorCwd } from '../orchestrator/role.ts';
 
 /**
  * フォルダの信頼（Claude Code の「このフォルダを信頼しますか」）を、hangar が前もって答えておく場所を決める。
@@ -19,9 +20,12 @@ import { legacyScratchRoot, quickSessionsRoot } from './scratch.ts';
 
 export type TrustPlacesInput = { hangarHome: string; trustedWorkspace: string | null };
 
-/** 信頼する置き場。クイックセッションの置き場（quick-sessions と前の scratch）はいつも、作業フォルダは同意したときだけ。 */
+/**
+ * 信頼する置き場。クイックセッションの置き場（quick-sessions と前の scratch）と統括の置き場はいつも、作業フォルダは同意したときだけ。
+ * 統括の置き場は hangar が作る空のフォルダで、信頼の確認が出ると統括が起きたまま止まり、誰も答えられないため。
+ */
 export function trustedPlaces(o: TrustPlacesInput): string[] {
-  const quick = [quickSessionsRoot(o.hangarHome), legacyScratchRoot(o.hangarHome)];
+  const quick = [quickSessionsRoot(o.hangarHome), legacyScratchRoot(o.hangarHome), orchestratorCwd(o.hangarHome)];
   return o.trustedWorkspace ? [...quick, o.trustedWorkspace] : quick;
 }
 
