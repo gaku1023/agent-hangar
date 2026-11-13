@@ -9,6 +9,7 @@ export const primitivesKeys = {
   'primitives.listbox.search': ['label'],
   'primitives.listbox.hintMove': [],
   'primitives.listbox.hintChoose': [],
+  'primitives.micButton.label': [],
   'primitives.rollingNumber.unavailable': [],
   'primitives.stepper.decrease': ['label'],
   'primitives.stepper.increase': ['label'],
