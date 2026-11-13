@@ -102,9 +102,9 @@ export function createClaudeDriver(deps: ClaudeDriverDeps): ClaudeDriver {
    * AskUserQuestion の問いの文を本文より先に受け取る hook の設定を書く（launch/hookSettings.ts）。
    * 書けなくても起動は止めない。問いの文は今までどおり本文から取る。
    */
-  const hookSettings = (sessionId: string, mcpConfigPath: string): string | undefined => {
+  const hookSettings = (sessionId: string, mcpConfigPath: string, permissions?: { allow: string[]; deny: string[] }): string | undefined => {
     try {
-      return files.hookSettings(deps.home, sessionId, { node: deps.nodeBin(), script: deps.hookScript(), mcpConfigPath });
+      return files.hookSettings(deps.home, sessionId, { node: deps.nodeBin(), script: deps.hookScript(), mcpConfigPath, ...(permissions ? { permissions } : {}) });
     } catch (e) {
       deps.report('hook-settings', e);
       return undefined;
@@ -128,7 +128,7 @@ export function createClaudeDriver(deps: ClaudeDriverDeps): ClaudeDriver {
           // 段の文は末尾の改行まで含むので、区切りを足さずにつなぐ（launch/injection.ts の renderInjection と同じ文になる）。
           systemPrompt: spec.instructions.map((e) => e.text).join(''),
           mcpConfigPath,
-          settingsPath: hookSettings(spec.hangarSessionId, mcpConfigPath),
+          settingsPath: hookSettings(spec.hangarSessionId, mcpConfigPath, spec.permissions),
           name: spec.name,
           prompt: spec.prompt,
           model: spec.model,

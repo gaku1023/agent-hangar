@@ -22,6 +22,8 @@ export type SettingsUpdateDeps = {
   publishConfigSync: (s: Settings) => void;
   /** opencodeEnabled の欄が来たとき。スマホの一覧（受信箱の素）は opencode の入り切りで中身が変わるので、組み直させる。 */
   onOpencodeEnabled?: () => void;
+  /** orchestrator の欄が来たとき。統括の見張りが、入り切りとモデルの変更を受けて起こす・止まる。 */
+  onOrchestrator?: () => void;
 };
 
 /**
@@ -39,6 +41,7 @@ export function applySettingsPatch(deps: SettingsUpdateDeps, patch: Partial<Sett
   if (patch.codexPath !== undefined || patch.opencodePath !== undefined) setAgentBinPaths(settings);
   if (patch.summaryHourlyCap !== undefined) deps.onSummaryCap();
   if (ENABLED_KEYS.some((k) => patch[k] !== undefined)) deps.onOpencodeEnabled?.();
+  if (patch.orchestrator !== undefined) deps.onOrchestrator?.();
   deps.publishConfigSync(settings);
   return settings;
 }

@@ -2,7 +2,9 @@ import type { AppDeps } from '../http/deps.ts';
 import { serve } from '@hono/node-server';
 import type http from 'node:http';
 import path from 'node:path';
-import { PEER_CHAT_MIN_HANGAR_VERSION, type SettingsDto } from '@agent-hangar/shared';
+import { orchestratorOf, PEER_CHAT_MIN_HANGAR_VERSION, type SettingsDto } from '@agent-hangar/shared';
+import { OrchestratorKeeper } from '../orchestrator/keeper.ts';
+import { toSettingsDto } from '../http/routes/settings.ts';
 import { attachPeerChatSocket } from '../peer/chat/wire.ts';
 import { readDropImage } from '../peer/chat/viewImage.ts';
 import { resolveViewTarget, localCursorOf } from '../peer/chat/viewTarget.ts';
@@ -88,6 +90,8 @@ export type HttpParts = {
   stopRelay(): void;
   /** ほかの PC の会話の見張りを全部止める（長いポーリングを出し切らない）。 */
   stopPeerChat(): void;
+  /** 統括の会話の見張り。起動の手続きの最後に start() を呼び、閉じるときに stop() を呼ぶ。 */
+  orchestrator: OrchestratorKeeper;
 };
 
 /**
@@ -142,7 +146,20 @@ export function bootHttp(p: {
     onSummaryCap: summary.rebuildClaude,
     publishConfigSync: sync.publishConfigSync,
     onOpencodeEnabled: () => { p.mobile.settingsChanged(); indexing.onSettingsChanged(); runs.agentUsage.refresh(); },
+    // 統括の入り切りとモデルの変更を、見張りが受けて起こす・止まる。
+    onOrchestrator: () => { orchestrator.apply(); },
   }, patch);
+  // 統括の会話の見張り（orchestrator/keeper.ts）。会話の id と、利用者が止めたときの入り切りは、ここから設定へ書き、全部の画面へ配る。
+  const orchestrator: OrchestratorKeeper = new OrchestratorKeeper({
+    settings: () => orchestratorOf(settings.current.orchestrator),
+    save: (patch) => {
+      updateSettings({ orchestrator: { ...orchestratorOf(settings.current.orchestrator), ...patch } });
+      delivery.hub.broadcast({ type: 'settings.changed', settings: toSettingsDto(settings.current), keys: ['orchestrator'] });
+    },
+    runs: { on: (l) => runs.runs.on(l), aliveRun: (id) => runs.runs.aliveRun(id), resumeWith: (id) => runs.runs.resumeWith(id), startOrchestrator: () => runs.runs.startOrchestrator() },
+    // 行が消えていなくて、本文がある会話だけを再開できる（run が早く終わって本文の無いまま行が消えた会話は、新しく起こす）。
+    resumable: (id) => !!db.prepare('select 1 from sessions s where s.id = ? and s.deleted_at is null and exists (select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null)').get(id),
+  });
   setHangarPrefsApplier((_home, patch) => { updateSettings(patch as Partial<SettingsDto>); });
   // ほかの PC の会話の見張り。
   // 画面の WebSocket の peerChat.watch と peerChat.unwatch、切断で見ている人を数え、いなくなれば止める。
@@ -257,5 +274,5 @@ export function bootHttp(p: {
   relay.attach(server, '/ws/pty');
   // 経路を握る側は path が違えば黙って返すので、最後に未知の経路を切る番人を置く。
   guardUpgrades(server);
-  return { stopRelay: () => relay.close(), stopPeerChat: () => peerChat.stop() };
+  return { stopRelay: () => relay.close(), stopPeerChat: () => peerChat.stop(), orchestrator };
 }

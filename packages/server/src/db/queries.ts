@@ -399,6 +399,8 @@ function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto
     pinnedAt: r.ss_pinned_at,
     spawnedBy: r.spawned_by,
     spawnPeer: spawnPeerOf(r, self),
+    // 統括の会話にだけ付ける。ほかは鍵ごと送らない。
+    ...(orchestratorId(db) === r.id ? { role: 'orchestrator' as const } : {}),
     // ほかの PC の続きの方が新しい（A → B → A）。手元に本文が無いものは remoteOnly の側で扱う。
     newerElsewhere: r.has_local === 1 && newer.has(r.id),
     takenOver: taken.get(r.id) ?? null,
@@ -443,6 +445,14 @@ const liveMapOf = (live: LiveSessionDto[]) => new Map(live.map((l) => [l.session
 const parkingSwitches = new WeakMap<Db, () => boolean>();
 export function setParkingSwitch(db: Db, on: () => boolean): void { parkingSwitches.set(db, on); }
 const parkingOn = (db: Db): boolean => parkingSwitches.get(db)?.() ?? true;
+
+/**
+ * 統括の会話の id（設定の orchestrator.sessionId）。role は DB の列を持たず、ここから導く。
+ * セッションを組む全ての経路（一覧、配信、MCP）に通すため、parkingSwitches と同じく DB に結ぶ。渡していない DB には role を付けない。
+ */
+const orchestratorSources = new WeakMap<Db, () => string | null>();
+export function setOrchestratorSource(db: Db, id: () => string | null): void { orchestratorSources.set(db, id); }
+const orchestratorId = (db: Db): string | null => orchestratorSources.get(db)?.() ?? null;
 
 /**
  * セッション一覧。

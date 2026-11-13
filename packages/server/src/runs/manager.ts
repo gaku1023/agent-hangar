@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { isAgentKind, prepChoiceOf, LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE, newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
+import { isAgentKind, prepChoiceOf, type OrchestratorSetting, LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE, newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
 import type { Account } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
@@ -31,6 +31,7 @@ import { AGENT_ENTRY } from '../agent/entry.ts';
 import type { LiveHub } from '../agent/liveHub.ts';
 import type { AgentDriver, AgentKind, InjectionEntry, LaunchPlan, LaunchSpec } from '../agent/types.ts';
 import type { PaneOps } from '../tmux/pane.ts';
+import { ORCHESTRATOR_NAME, ORCHESTRATOR_PERMISSIONS, orchestratorCwd, orchestratorInstructions } from '../orchestrator/role.ts';
 import { RunAccounts, switchAccount } from './accounts.ts';
 import { RunError } from './errors.ts';
 import { LaunchPrepAsked, LaunchPrepCancelled, type LaunchPreps } from './launchPrep.ts';
@@ -148,7 +149,7 @@ export function agentEnabledLabel(agent: AgentKind): Message {
   return msg(AGENT_ENTRY[agent].enabledLabelKey ?? 'settings.label.opencodeEnabled');
 }
 
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りと、包みの見張り（watchWrappers）の時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'>; /** そのエージェントを起こしてよいか（opencode は設定の opencodeEnabled）。渡さなければ Claude Code だけ。 */ agentEnabled?: (kind: AgentKind) => boolean; /** Claude Code 以外のエージェントの実行ファイル。見つからなければ null。Claude は claudeBin を使う。 */ agentBin?: (kind: AgentKind) => string | null; /** 外のターミナルで打ったそのエージェントのコマンドを受けるか（opencode は設定の opencodeIntercept）。渡さなければ受けない。Claude の包みはこれを見ない。 */ terminalIntercept?: (kind: AgentKind) => boolean; /** 起動前の準備の進みを配る口（runs/launchPrep.ts）。渡さなければ準備をしない。 */ preps?: LaunchPreps; /** 手元の状態を共有の行へ書くまで、idle と busy を保留する長さ（ms）。試験で差し替える。 */ liveShareHoldMs?: number };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りと、包みの見張り（watchWrappers）の時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'>; /** そのエージェントを起こしてよいか（opencode は設定の opencodeEnabled）。渡さなければ Claude Code だけ。 */ agentEnabled?: (kind: AgentKind) => boolean; /** Claude Code 以外のエージェントの実行ファイル。見つからなければ null。Claude は claudeBin を使う。 */ agentBin?: (kind: AgentKind) => string | null; /** 外のターミナルで打ったそのエージェントのコマンドを受けるか（opencode は設定の opencodeIntercept）。渡さなければ受けない。Claude の包みはこれを見ない。 */ terminalIntercept?: (kind: AgentKind) => boolean; /** 起動前の準備の進みを配る口（runs/launchPrep.ts）。渡さなければ準備をしない。 */ preps?: LaunchPreps; /** 手元の状態を共有の行へ書くまで、idle と busy を保留する長さ（ms）。試験で差し替える。 */ liveShareHoldMs?: number; /** 統括（docs/design.md「統括」）の今の設定。渡せば、その会話の起動に専用の cwd、モデル、effort、役の文、permissions を足せる。渡さなければ統括を起こせない。 */ orchestrator?: () => OrchestratorSetting };
 
 /** 起動の途中を知らせる口。onPending は ID を後で決める driver（opencode）が仮の行を作った直後に呼ぶ（準備の前）。 */
 export type LaunchHooks = { onPending?: (sessionId: string) => void };
@@ -185,6 +186,8 @@ export class RunManager {
   private adopting = new Set<string>();
   /** 区切りを付けたので落としにいった run。tmux から消えたのを見たときに、終わり方を parked と書くために持つ。 */
   private parking = new Set<string>();
+  /** startOrchestrator が起こしている会話の id。設定の sessionId に書かれるまでの間も、baseInput が統括として扱うため。 */
+  private orchestrating = new Set<string>();
   /**
    * 一覧に無かった生きた run ごとの、続けて抜けた見回りの回数と、最初に抜けたときに tmux のサーバごと消えて見えたか（mux）。
    * 一覧に出たら消す。メモリだけに持ち、サーバを起こし直したら数え直す。
@@ -474,6 +477,22 @@ export class RunManager {
     const s = (v: string | undefined) => (v && v.trim() ? v.trim() : undefined);
     const secret = issueMcpSecret(this.db, sessionId, this.now());
     const claude = agent === DEFAULT_AGENT;
+    const orch = claude ? this.orchestratorOf(sessionId) : null;
+    if (orch) {
+      // 統括は、起こすたび（新しい起動も再開も）に同じ指定にする。プロジェクトの段は足さず、手を動かす道具は禁じ、Remote Control は付けない。
+      return {
+        cwd,
+        hangarSessionId: sessionId,
+        mcp: { url: this.mcpUrl(sessionId), secret },
+        instructions: orchestratorInstructions(this.language()),
+        name: s(params.name),
+        model: s(orch.model),
+        effort: s(orch.effort),
+        mode: 'default',
+        remoteControl: null,
+        permissions: { allow: [...ORCHESTRATOR_PERMISSIONS.allow], deny: [...ORCHESTRATOR_PERMISSIONS.deny] },
+      };
+    }
     return {
       cwd,
       hangarSessionId: sessionId,
@@ -490,6 +509,39 @@ export class RunManager {
       addDirs: this.addDirs(params),
       remoteControl: this.remoteControlFor(rc, { projectId, name: s(params.name), prompt: s(params.prompt), handoverFrom }),
     };
+  }
+
+  /** 統括として起こす会話か。起こしている最中の会話と、設定の sessionId の会話。 */
+  private orchestratorOf(sessionId: string): OrchestratorSetting | null {
+    const o = this.deps.orchestrator?.();
+    if (!o) return null;
+    return this.orchestrating.has(sessionId) || o.sessionId === sessionId ? o : null;
+  }
+
+  /**
+   * 統括の会話を新しく起こす（docs/design.md「統括」）。
+   * cwd は hangar の置き場の下の専用のディレクトリで、プロジェクトには属さない。
+   * 起動の指定（モデル、effort、役の文、permissions）は baseInput が統括として足す。設定の sessionId に書くのは呼び手（OrchestratorKeeper）である。
+   */
+  startOrchestrator(): LaunchResult {
+    if (!this.deps.orchestrator) throw new Error('orchestrator is not configured');
+    const account = this.accounts.resolve(undefined);
+    this.accounts.envFor(account);
+    const cwd = orchestratorCwd(this.deps.home);
+    fs.mkdirSync(cwd, { recursive: true });
+    this.precheck(cwd);
+    const driver = this.agents.of(DEFAULT_AGENT);
+    const sessionUuid = this.newSessionId(driver);
+    const sessionId = ensureSession(this.db, sessionUuid, cwd, this.deps.deviceId);
+    const now = this.now();
+    const cur = this.db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
+    upsertShared(this.db, 'sessions', { ...cur, project_id: null, started_at: now, last_activity_at: now }, this.deps.deviceId);
+    setSessionName(this.db, this.deps.deviceId, sessionId, ORCHESTRATOR_NAME);
+    this.orchestrating.add(sessionId);
+    const params: LaunchParams = { name: ORCHESTRATOR_NAME };
+    const base = this.baseInput(sessionId, null, cwd, params, undefined, { account });
+    const bin = this.claudeBin();
+    return this.launch({ sessionId, cwd, kind: 'start', plan: (env) => driver.launch.plan(bin, { kind: 'start', id: sessionUuid }, { ...base, env }), params, account });
   }
 
   /** そのセッションの driver。sessions.provider の値で引く。 */

@@ -250,6 +250,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   trash.start();
   // 閉じていた間の回は、ここで最新の 1 回だけ流す。索引と紐づけが済んでから回す。
   schedules.start();
+  // 統括の会話。有効な PC では、前の回の会話を再開する（無ければ新しく起こす）。run の回復（runs.start）が済んでから回す。
+  web.orchestrator.start();
 
   // 起動の手続き（最初の索引づけと紐づけ）が済んだ。.app はここまで起動画面に残る。
   console.log(`agent-hangar ready in ${((performance.now() - bootAt) / 1000).toFixed(1)}s (index ${indexing.indexer.progress().total} files)`);
@@ -273,6 +275,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       peerChat.stop();
       peer.stop();
       schedules.stop();
+      web.orchestrator.stop();
       // 自分が起こした ssh のトンネルだけを止める。
       peerSsh?.stop();
       // 本文をゴミ箱へ移している最中の回は、DB を閉じる前に待ち切る。

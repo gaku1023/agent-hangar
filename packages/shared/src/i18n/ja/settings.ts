@@ -356,6 +356,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.label.opencodeIdleUnload': '使っていないモデルのアンロード',
   'settings.label.opencodeProviderPrep': '接続先の準備',
   'settings.label.peerChatAcceptFromPeers': '他の PC からの送信を受ける',
+  'settings.label.orchestrator': '統括',
   'settings.opencode.title': 'opencode',
   'settings.codex.title': 'Codex',
   'settings.codex.enabledDesc': '新しいセッションで Codex を選べるようにします。',

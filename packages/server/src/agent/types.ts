@@ -62,6 +62,8 @@ export type LaunchSpec = {
   env: Record<string, string>;
   /** Remote Control の名前。Claude だけが読み、ほかのエージェントは捨てる。null と未指定は付けない。 */
   remoteControl?: string | null;
+  /** 道具の許可と禁止（統括の会話だけ。docs/design.md「統括」）。Claude だけが読み、run の --settings の permissions に書く。ほかのエージェントは捨てる。 */
+  permissions?: { allow: string[]; deny: string[] };
   /**
    * 起動前の準備（runs/launchPrep.ts）。進みを配る口と、利用者の答え（問いのあとに送り直したとき）。
    * 準備を持つ driver（opencode の LM Studio）だけが読み、ほかは捨てる。
@@ -345,7 +347,7 @@ export interface AskSource {
  * システムプロンプトに足す段の 1 つ。text は末尾の改行まで含み、区切りを足さずにつなげば 1 つの指示になる。
  * 段の組み立ては launch/injection.ts の renderInjectionEntries で、どのエージェントにも同じ形で渡す。
  */
-export type InjectionEntry = { key: 'body' | 'handover' | 'multiDevice' | 'status' | 'live' | 'notify' | 'notifySave' | 'notifyAsk' | 'share'; text: string };
+export type InjectionEntry = { key: 'body' | 'handover' | 'multiDevice' | 'status' | 'live' | 'notify' | 'notifySave' | 'notifyAsk' | 'share' | 'orchestrator'; text: string };
 
 export interface InstructionChannel {
   /** 起動の引数でだけ渡せるか（Claude）、途中でも差し替えられるか。 */

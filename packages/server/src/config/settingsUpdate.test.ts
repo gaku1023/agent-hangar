@@ -24,6 +24,7 @@ describe('設定の書き替えを部品へ行き渡らせる', () => {
     onSummaryCap: () => { calls.push('cap'); },
     publishConfigSync: (s) => { calls.push(`publish ${s.configBundleSync}`); },
     onOpencodeEnabled: () => { calls.push('opencode'); },
+    onOrchestrator: () => { calls.push('orchestrator'); },
   }, p);
 
   it('書き替えた値を返し、置き場と settings.json の両方に残す', () => {
@@ -31,6 +32,14 @@ describe('設定の書き替えを部品へ行き渡らせる', () => {
     expect(s.lmStudioModel).toBe('m1');
     expect(box.current).toBe(s);
     expect(loadSettings(home).lmStudioModel).toBe('m1');
+  });
+
+  it('orchestrator の欄が来たときだけ、統括の見張りに知らせる', () => {
+    patch({ lmStudioModel: 'm1' });
+    expect(calls).not.toContain('orchestrator');
+    patch({ orchestrator: { enabled: true, sessionId: null, model: 'sonnet', effort: 'medium' } });
+    expect(calls.filter((c) => c === 'orchestrator')).toHaveLength(1);
+    expect(loadSettings(home).orchestrator).toEqual({ enabled: true, sessionId: null, model: 'sonnet', effort: 'medium' });
   });
 
   it('tmux の口は毎回渡し直し、包みの本体は tmuxPath の欄が来たときだけ書き直す', () => {
