@@ -873,3 +873,56 @@ describe('PeerChatHost: 答えの大きさ', () => {
     expect(st.truncated).toBe(true);
   });
 });
+
+describe('PeerChatHost: この PC の中からの答え（統括の answer_ask の口）', () => {
+  const permSession = (): HostSession => idleSession({ live: 'waiting', waitingFor: 'permission', permission: { tool: 'Bash', input: 'rm -rf build', description: 'd' } });
+  async function withPermission() {
+    const s = await setup({ session: permSession() });
+    s.w.pane.plain = PERMISSION_SCREEN;
+    s.w.pane.onText = (t) => {
+      if (t === '1' && s.w.pane.plain === PERMISSION_SCREEN) { s.w.pane.plain = RUNNING_SCREEN; s.w.session!.live = 'busy'; }
+    };
+    return s;
+  }
+
+  it('いまの札を、ほかの PC に見せるのと同じ askId と選択肢で返す', async () => {
+    const s = await withPermission();
+    const local = s.host.local.currentAsk('s1');
+    const peer = s.state(await s.ask(tailOp())).items.at(-1)!.ask!;
+    expect(local).toMatchObject({ askId: peer.askId, kind: 'permission', tool: 'Bash', input: 'rm -rf build' });
+    expect(local!.options.map((o) => o.label)).toEqual(peer.options.map((o) => o.label));
+  });
+
+  it('札が合えばキーを 1 回打ち、押した行を返す。同じ札に後から来たほかの PC の答えは already-answered', async () => {
+    const s = await withPermission();
+    const ask = s.host.local.currentAsk('s1')!;
+    expect(await s.host.local.answer('s1', ask.askId, ['1'])).toEqual({ ok: true, label: 'Yes' });
+    expect(s.w.pane.events).toEqual(['text:1']);
+    expect(await s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] })).toEqual({ ok: false, reason: 'already-answered' });
+    expect(await s.host.local.answer('s1', ask.askId, ['1'])).toEqual({ ok: false, reason: 'already-answered' });
+    expect(s.w.pane.events).toEqual(['text:1']);
+  });
+
+  it('札と askId が違えば ask-mismatch で、何も打たない', async () => {
+    const s = await withPermission();
+    expect(await s.host.local.answer('s1', 'old-ask', ['1'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(s.w.pane.events).toEqual([]);
+  });
+
+  it('ほかの PC からの頼みの入り切り（peerChatAcceptFromPeers）には縛られない', async () => {
+    const s = await withPermission();
+    s.w.acceptFromPeers = false;
+    const ask = s.host.local.currentAsk('s1')!;
+    expect((await s.host.local.answer('s1', ask.askId, ['1'])).ok).toBe(true);
+  });
+
+  it('この PC の会話でない、Claude Code でない会話には、札を返さず答えない', async () => {
+    for (const over of [{ lock: true }, { provider: 'codex' as const }]) {
+      const s = await setup({ session: { ...permSession(), ...over } });
+      s.w.pane.plain = PERMISSION_SCREEN;
+      expect(s.host.local.currentAsk('s1')).toBeNull();
+      expect(await s.host.local.answer('s1', 'x', ['1'])).toEqual({ ok: false, reason: 'session-unknown' });
+      expect(s.w.pane.events).toEqual([]);
+    }
+  });
+});

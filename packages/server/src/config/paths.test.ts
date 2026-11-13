@@ -230,6 +230,15 @@ describe('paths', () => {
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', orchestrator: 7 }));
     expect('orchestrator' in loadSettings(tmp)).toBe(false);
   });
+  it('許可の方針は、無ければ持たず、保存した値を読め、形の違う値は捨てて既定（読み取りと検索だけ）に戻す', () => {
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));
+    expect(loadSettings(tmp).permissionPolicy).toBeUndefined();
+    saveSettings(tmp, { ...loadSettings(tmp), permissionPolicy: { text: '読むのは許して', autoTools: ['Read'], updatedAt: 3 } });
+    expect(loadSettings(tmp).permissionPolicy).toEqual({ text: '読むのは許して', autoTools: ['Read'], updatedAt: 3 });
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', permissionPolicy: { text: 'x', autoTools: ['Bash(*)'] } }));
+    expect('permissionPolicy' in loadSettings(tmp)).toBe(false);
+  });
   it('要約器の設定は既定値で埋まる', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));

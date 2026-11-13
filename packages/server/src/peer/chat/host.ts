@@ -6,6 +6,7 @@ import {
   openPeerChat,
   sealPeerChatReply,
   type PeerChatBellAsk,
+  type PeerChatAsk,
   type PeerChatBellReply,
   type PeerChatDevice,
   type PeerChatQueued,
@@ -13,7 +14,7 @@ import {
   type PeerChatRequest,
   type PeerKeyring,
 } from '@agent-hangar/shared';
-import { createPeerAnswerer, type AnswerPane } from './answer.ts';
+import { createPeerAnswerer, type AnswerPane, type AnswerResult } from './answer.ts';
 import { inputEmptyFromCapture } from './inputBox.ts';
 import { resumeSendOp, sendOp, type SendDeps } from './hostSend.ts';
 import type { PeerChatHostDeps } from './hostTypes.ts';
@@ -90,7 +91,20 @@ export type PeerChatHost = {
   dropSession(sessionId: string): void;
   /** 全部の会話の、いまの預かり（会話の id ごと）。画面を開き直したときの最初の状態に使う。 */
   queued(): Record<string, PeerChatQueued[]>;
+  /**
+   * この PC の中から、この PC の会話の札に答える口（統括の answer_ask、docs/design.md「統括」）。
+   * ほかの PC の答えと同じ答え手と記録を通すので、同じ札に 2 度は打たず、先に答えた方が勝つ。
+   * ほかの PC からの頼みの入り切り（peerChatAcceptFromPeers）には縛られない。答えてよいかの判断は呼び手が持つ。
+   */
+  local: PeerChatLocal;
   dispose(): void;
+};
+
+export type PeerChatLocal = {
+  /** いま出ている札（ほかの PC に見せるのと同じ askId）。この PC の Claude Code の会話でなければ、または札が無ければ null。 */
+  currentAsk(sessionId: string): PeerChatAsk | null;
+  /** 札が askId と同じと確かめてから keys と text で答える。答えた PC はこの PC として記録する。 */
+  answer(sessionId: string, askId: string, keys: string[], text?: string): Promise<AnswerResult>;
 };
 
 const refuse = (reason: Extract<PeerChatReply, { ok: false }>['reason']): PeerChatReply => ({ ok: false, reason });
@@ -202,23 +216,47 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
 
   const sendDeps: SendDeps = { deps, queue, view, staged, pathsByQueue };
 
-  async function answerOp(sessionId: string, from: PeerChatDevice, op: Extract<PeerChatRequest['op'], { t: 'answer' }>): Promise<PeerChatReply> {
+  /** ほかの PC からの答えと、この PC の中からの答え（local.answer）が通る道。 */
+  async function answerCurrent(sessionId: string, from: PeerChatDevice, askId: string, keys: string[], text: string | undefined): Promise<AnswerResult> {
     // 手元で答えた札が、まだ tail に見られていなくても、記録にしてから見る。
     view.observe(sessionId);
     // 同じ札に先に答えた PC があれば、画面を見るまでもなく断る（札が閉じた後に遅れて来た答えも）。
-    if (view.answeredAsk(op.askId)) return refuse('already-answered');
+    if (view.answeredAsk(askId)) return { ok: false, reason: 'already-answered' };
     const current = view.currentAsk(sessionId);
-    if (!current) return refuse('ask-mismatch');
+    if (!current) return { ok: false, reason: 'ask-mismatch' };
     // 拠り所が決まって askId が言い換わった札には、言い換え前の askId で来た答えを、今の札のものとして受ける。
-    if (view.resolveAskId(op.askId, current.askId) !== current.askId) return refuse('ask-mismatch');
-    if (current.askId !== op.askId && view.answeredAsk(current.askId)) return refuse('already-answered');
+    if (view.resolveAskId(askId, current.askId) !== current.askId) return { ok: false, reason: 'ask-mismatch' };
+    if (current.askId !== askId && view.answeredAsk(current.askId)) return { ok: false, reason: 'already-answered' };
     const asked = view.askItem(sessionId, current.askId);
-    const r = await answerer.answerAsk(sessionId, current, op.keys, op.text);
-    if (!r.ok) return refuse(r.reason);
+    const r = await answerer.answerAsk(sessionId, current, keys, text);
+    if (!r.ok) return r;
     if (asked) view.recordAnswer(sessionId, asked, from, r.label);
     view.poke(sessionId);
-    return { ok: true };
+    return r;
   }
+
+  async function answerOp(sessionId: string, from: PeerChatDevice, op: Extract<PeerChatRequest['op'], { t: 'answer' }>): Promise<PeerChatReply> {
+    const r = await answerCurrent(sessionId, from, op.askId, op.keys, op.text);
+    return r.ok ? { ok: true } : refuse(r.reason);
+  }
+
+  /** この PC が持ち主の Claude Code の会話か（dispatch の断りと同じ条件。入り切りの設定は見ない）。 */
+  const ownedHere = (sessionId: string): boolean => {
+    const session = deps.session(sessionId);
+    return !!session && session.provider === 'claude-code' && !session.lock && !session.newerElsewhere && !session.remoteOnly && !session.takenOver;
+  };
+
+  const local: PeerChatLocal = {
+    currentAsk(sessionId) {
+      if (!ownedHere(sessionId)) return null;
+      view.observe(sessionId);
+      return view.currentAsk(sessionId);
+    },
+    answer(sessionId, askId, keys, text) {
+      if (!ownedHere(sessionId)) return Promise.resolve({ ok: false, reason: 'session-unknown' });
+      return answerCurrent(sessionId, { deviceId: deps.deviceId, deviceName: deps.deviceName(deps.deviceId) }, askId, keys, text);
+    },
+  };
 
   async function dispatch(ring: PeerKeyring, req: PeerChatRequest, fromId: string): Promise<PeerChatReply> {
     const { sessionId, op } = req;
@@ -348,6 +386,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
       view.poke(sessionId);
     },
     queued: () => queue.listAll(),
+    local,
     dispose() {
       offQueue();
       queue.dispose();

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { isAgentKind, isNotifyKind, isQuietStatus, notifyRulesOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto, type WakeOn } from '@agent-hangar/shared';
+import { isAgentKind, isNotifyKind, isQuietStatus, notifyRulesOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type PermissionPolicy, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto, type WakeOn } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
@@ -24,6 +24,9 @@ import type { PeerCallDeps } from '../peer/caller.ts';
 import { createRemoteSessionTool, isThisDevice, listDevicesTool, remoteControlTool, remoteSpawnOf } from './peerTools.ts';
 import { parseWakeOn } from '../event/validate.ts';
 import { claimPrTool, draftEventBindingTool } from './eventTools.ts';
+import { callOrchestratorTool, isOrchestratorToolName } from './orchestratorTools.ts';
+import type { OrchestratorAsks } from '../orchestrator/asks.ts';
+import type { PeerChatLocal } from '../peer/chat/host.ts';
 import { createScheduleTool, listSchedulesTool, updateScheduleTool } from './scheduleTools.ts';
 import { readSessionScreenTool, sendToSessionTool } from './screenTools.ts';
 import { noteTurnStart, waitForSessionTool } from './waitTool.ts';
@@ -59,9 +62,15 @@ export type ToolDeps = {
   /** 道具の説明と結果の文の言語。渡さなければ日本語で出す。 */
   language?: GetLanguage;
   /** notify_user の出し先の設定（notifyPreference と、古いスイッチの unreadBadge、unreadOs、unreadPhone）。無ければ既定（全部入り）として読む。 */
-  settings?: () => { notifyPreference?: NotifyPreference | null; unreadBadge?: boolean; unreadOs?: boolean; unreadPhone?: boolean };
+  settings?: () => { notifyPreference?: NotifyPreference | null; unreadBadge?: boolean; unreadOs?: boolean; unreadPhone?: boolean; orchestrator?: unknown; permissionPolicy?: unknown };
   /** 設定の保存（PATCH /api/settings と同じ道）。保存して、変えた欄を全部の画面へ配る。無ければ set_notify_preference は知らない道具として断る。 */
   saveNotifyPreference?: (p: NotifyPreference) => void;
+  /** 統括の許可の道具の芯（orchestrator/asks.ts）。無ければ createMcpApp が askLocal から作る。統括の URL 以外からは使わない。 */
+  orchestratorAsks?: OrchestratorAsks;
+  /** この PC の Claude Code の会話の札に答える口（peer/chat/host.ts の local）。無ければ統括はどの札にも答えられない（answerable: false）。 */
+  askLocal?: Pick<PeerChatLocal, 'currentAsk' | 'answer'>;
+  /** 許可の方針の保存（orchestratorTools.ts の permissionPolicySaver）。無ければ set_permission_policy は知らない道具として断る。 */
+  savePermissionPolicy?: (p: PermissionPolicy) => void;
   /** notify_user の未読の数を、作業中ならターンの終わりまで預かりに任せるか（live/unreadHold.ts）。預かりが動いているサーバだけが立てる。無ければその場で積む。 */
   holdUnread?: boolean;
   /** hook から届いた許可の確認の預け先（sessions/permissionAsks.ts）。無ければ許可の確認は読まない。 */
@@ -77,8 +86,11 @@ export type ToolDeps = {
   /** wait_for_session が進みを流す間隔（ミリ秒）。渡さなければ WAIT_PROGRESS_MS。 */
   waitProgressMs?: number;
 };
-/** セッション別 URL では、そのセッションに固定される。共通 URL では null。 */
-export type ToolContext = { sessionId: string | null };
+/**
+ * セッション別 URL では、そのセッションに固定される。共通 URL では null。
+ * sessionSecret は、セッション別 URL をそのセッションの秘密（hangar が起こした run にだけ配る）で開けたこと。本体のトークンで開けたときは偽。
+ */
+export type ToolContext = { sessionId: string | null; sessionSecret?: boolean };
 
 /** ツールの呼び出しが失敗したこと。MCP の層はこれを、いまの言語の文にして isError の応答に変える。 */
 export class ToolError extends MessageError {
@@ -884,6 +896,9 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'update_schedule': return updateScheduleTool(deps, ctx, args);
     case 'claim_pr': return claimPrTool(deps, ctx, args);
     case 'draft_event_binding': return draftEventBindingTool(deps, ctx, args);
-    default: throw new ToolError(msg('mcp.error.unknownTool', { name }));
+    default:
+      // 統括だけの道具。統括の URL でなければ、知らない道具と同じ断りを返す（orchestratorTools.ts）。
+      if (isOrchestratorToolName(name)) return callOrchestratorTool(deps, ctx, name, args);
+      throw new ToolError(msg('mcp.error.unknownTool', { name }));
   }
 }

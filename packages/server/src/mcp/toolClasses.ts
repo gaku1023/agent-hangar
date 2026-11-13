@@ -1,3 +1,4 @@
+import type { ORCHESTRATOR_TOOL_NAMES } from './orchestratorTools.ts';
 import type { TOOL_NAMES } from './tools.ts';
 
 /**
@@ -15,7 +16,7 @@ import type { TOOL_NAMES } from './tools.ts';
 export type ToolKind = 'irreversible' | 'stop' | 'launch' | 'drive' | 'outward' | 'write' | 'read';
 export type ToolClass = { kind: ToolKind; why: string };
 
-export const TOOL_CLASSES: Record<(typeof TOOL_NAMES)[number], ToolClass> = {
+export const TOOL_CLASSES: Record<(typeof TOOL_NAMES)[number] | (typeof ORCHESTRATOR_TOOL_NAMES)[number], ToolClass> = {
   list_projects: { kind: 'read', why: "Reads a list only. A per-session URL narrows it to that project." },
   get_project: { kind: 'read', why: "Reads one project only." },
   list_sessions: { kind: 'read', why: "Reads session briefs only." },
@@ -43,6 +44,11 @@ export const TOOL_CLASSES: Record<(typeof TOOL_NAMES)[number], ToolClass> = {
   draft_event_binding: { kind: 'write', why: "Files a draft only. Nothing runs, no inbox or webhook exists, and no URL is returned until the user approves it on the screen. A wake setting cannot be drafted." },
   draft_issue_report: { kind: 'write', why: "Writes a draft and sends nothing." },
   submit_issue_report: { kind: 'outward', why: "Posts a public issue. The full text is shown to the user first, and private data is masked by machine." },
+  // 統括だけの道具（orchestratorTools.ts）。統括のセッション別 URL のほかには出さない。
+  list_pending_asks: { kind: 'read', why: "Reads the pending permission and question prompts of other sessions on this computer. Only the orchestrator's own URL has it, and its own prompts are left out." },
+  answer_ask: { kind: 'drive', why: "Presses a row of another session's prompt after matching the screen. With by policy, hangar only lets it press the one-time allow row for a tool in the user's policy (read and search by default), records it first, and caps it at 20 a minute. Questions and its own prompts are refused. Only the orchestrator's own URL has it." },
+  set_permission_policy: { kind: 'write', why: "Saves the user's own words about what the orchestrator may allow. It is refused in a turn that hangar started, every change is shown on the screen, and only the orchestrator's own URL has it." },
+  list_auto_approvals: { kind: 'read', why: "Reads the record of what the orchestrator allowed by itself. Only the orchestrator's own URL has it." },
   delete_session: { kind: 'irreversible', why: "Deletes a session. The tool only files a request. hangar deletes after the user approves on the screen (sessions/deleteApprovals.ts)." },
 };
 
