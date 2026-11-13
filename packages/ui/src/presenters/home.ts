@@ -6,7 +6,7 @@ import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
 import type { OverlapProps } from './overlap.ts';
 import { rowAgent } from './agentIcon.ts';
-import { aliveRunOf, awaitsAnswer, hotOrAlive, hotSessions, liveFilterOfSession, outsideOpenOf, runningSessionIds, shownAside, unreadSessionIds, type Store } from '../store/store.ts';
+import { aliveRunOf, awaitsAnswer, hotOrAlive, hotSessions, liveFilterOfSession, outsideOpenOf, runningSessionIds, aliveAnywhere, remoteLockOf, shownAside, unreadSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortenPaths } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
@@ -138,7 +138,9 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
   const name = (s: SessionDto) => s.name ?? t('common.label.noName');
   // Claude のレジストリに載る前の run も実行中に数える。
   // 信頼確認のダイアログ待ちの run が Home のどこにも出ないと、セッション画面への戻り道がなくなる。
-  const alive = runningSessionIds(store);
+  // ほかの PC で動いている会話（ロックのあるもの）も実行中に出す。
+  const local = runningSessionIds(store);
+  const alive = aliveAnywhere(store);
   // 入力待ち、提案、実行中だけを拾うので、全件ではなく集計の並び（hotOrAlive）を見る。
   const sessions = hotOrAlive(store, alive);
 
@@ -180,14 +182,16 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
     // summary の先頭に「ツール名+半角空白」が付くこともある（サーバの toolSummary が付けた分）。カードはツール名を <i> で先に出すので、その重なりを削る。
     // 裏だけ動いているときは、本体の手も意図も今のものではないので出さず、裏のものと指揮役が空いていることを言う。
     // 動きは、入力待ちの数え方と同じ規則を通す。Done と Archived にした入力待ちは休みとして出す（store.ts の shownLive と同じ quietLive）。
-    const live = quietLive(liveWithLimit(s.live, s.limit), s.state?.status, s.woke);
+    // ほかの PC のものは動きが分からないので、灰の点（idle）にして、待ちの時間も開始中の語も出さない。
+    const remote = remoteLockOf(s, local) !== null;
+    const live = remote ? 'idle' : quietLive(liveWithLimit(s.live, s.limit), s.state?.status, s.woke);
     const aside = asideOf(live, s.liveAside);
     // 使用制限でリセットを待っているものは、実行中のまま理由と時刻を言う（試作の B1）。
     const limit = live === 'idle' && stopReasonOf(s) === 'limit' && s.limit ? limitCardOf(t, s.limit, now) : null;
     const working = live === 'busy' && aside === null;
     const activity = working && s.activity ? { tool: s.activity.tool, summary: shortenPaths(stripLeadingTool(s.activity.tool, s.activity.summary)) } : null;
-    const idle = live === 'idle' && aside === null;
-    const note = activity || idle ? null : aside ? t('home.card.asideNote', { head: asideHead(t, aside), free: asideFree(t) }) : live === 'busy' ? t('home.card.workingNote') : t('home.card.startingNote');
+    const idle = live === 'idle' && aside === null && !remote;
+    const note = activity || idle || remote ? null : aside ? t('home.card.asideNote', { head: asideHead(t, aside), free: asideFree(t) }) : live === 'busy' ? t('home.card.workingNote') : t('home.card.startingNote');
     const idleFor = idle ? durationLabel(t, now - (s.lastActivityAt ?? now)) : null;
     const meta = projectName(s) ?? t('common.label.uncategorized');
     // 意図は作業中の間だけ出す。前のターンの意図は、いまの作業を言っていないので出さない。

@@ -3,7 +3,7 @@ import { agentIconsOn, agentOfSession } from './agentIcon.ts';
 import { presentSessionMenu, type SessionMenuProps } from './sessionMenu.ts';
 import { type AgentIconKind, type AgentUsageDto, type IndexProgressDto, type LiveStatus, type Route, type SessionDto, type StopReason, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, liveWithLimit, quietLive, resetAtText, stopReasonOf, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
-import { accountList, accountOfSession, currentAccount, hotSessions, liveSessionIds, shownReason, unreadOf, unreadTotal, waitingSessionIds, type Store } from '../store/store.ts';
+import { accountList, accountOfSession, currentAccount, hotSessions, liveSessionIds, remoteLockOf, runningSessionIds, shownReason, unreadOf, unreadTotal, waitingSessionIds, type Store } from '../store/store.ts';
 import { codexAccountIdOfSession, presentAccounts, presentAgentUsage, presentCodexAccounts, type AccountGauge, type AccountView, type AgentUsageView } from './accounts.ts';
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
 import { translatorOf, storeLanguage } from './i18n.ts';
@@ -79,7 +79,12 @@ const peerInOf = (store: Store, id: string, t: Translate): { peerIn?: PeerOrigin
  * aside は裏だけ動いていること。丸を薄いオレンジにするだけで、名前の横に語は添えない（利用者の決定）。
  * menu は行の右クリックと . で開くセッションのメニュー（1A）。一覧とホームの帯と同じものである。
  */
-export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; aside: boolean; reason: StopReason | null; waited: string | null; current: boolean; menu: SessionMenuProps;
+export type SideLiveRow = {
+  /** ほかの PC で動いている会話で、その PC が黙っている（lock.stale）。点を輪にする。 */
+  stale?: true;
+  /** ほかの PC で動いている会話の行の title。「<PC 名> で実行中」か「<PC 名> から応答がありません」。 */
+  lockTitle?: string;
+  id: string; name: string; live: LiveStatus | null; aside: boolean; reason: StopReason | null; waited: string | null; current: boolean; menu: SessionMenuProps;
   /** 未読の数（notify_user で知らせた数）。無いか、設定 unreadBadge が切なら 0。 */
   unread?: number;
   /**
@@ -239,8 +244,14 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
   const order = [...state.sidebarOrder.filter((id) => on.has(id)), ...live.filter((id) => !known.has(id))];
   const current = state.screen.name === 'session' ? state.screen.id : null;
   const icons = agentIconsOn(store);
+  const local = runningSessionIds(store);
   const rowOf = (id: string): SideLiveRow => {
     const s = store.sessions[id]!;
+    // ほかの PC で動いている会話。状態はまだ届かないので、動いているが状態は分からない灰の点（idle）にし、待ちの時間は出さない。
+    const lock = remoteLockOf(s, local);
+    if (lock) {
+      return { id, name: s.name ?? t('common.label.noName'), live: 'idle', aside: false, reason: null, waited: null, current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, lockTitle: t(lock.stale ? 'session.lock.stale' : 'session.lock.running', { device: lock.deviceName }), ...(lock.stale ? { stale: true as const } : {}), ...(icons ? { agent: agentOfSession(store, s) } : {}), ...peerInOf(store, id, t), peer: { name: lock.deviceName, ended: lock.stale } };
+    }
     const aside = asideOf(s.live, s.liveAside);
     // 点と「待ち N 分」は、入力待ちの数え方と同じ規則（shownLive）で決める。Done と Archived にした入力待ちは、行は残すが休みとして出す。
     // 停止の確認（stop.working）は本当の動きで決める。答えを待つ会話は、止めると問いが消える。

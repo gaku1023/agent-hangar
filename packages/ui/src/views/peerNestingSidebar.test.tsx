@@ -33,3 +33,15 @@ describe('別の PC の子の行', () => {
     expect(document.querySelector('.side-live-kids')).not.toHaveClass('peer-ended');
   });
 });
+
+describe('ほかの PC で動く会話の行（ロック）', () => {
+  it('札を持ち、title は PC の文言。黙った PC は stale と ended の印で、輪の点と薄い札になる', () => {
+    mount([row('a', { live: 'idle', peer: { name: 'Office', ended: false }, lockTitle: 'Office で実行中' }), row('b', { live: 'idle', peer: { name: 'Home', ended: true }, stale: true, lockTitle: 'Home から応答がありません' })]);
+    expect(document.querySelector('[data-id="a"]')).toHaveAttribute('title', 'Office で実行中');
+    expect(document.querySelector('[data-id="a"]')).not.toHaveAttribute('data-stale');
+    expect(document.querySelector('[data-id="a"] .pc-pill')).toHaveAttribute('title', 'Office');
+    expect(document.querySelector('[data-id="b"]')).toHaveAttribute('data-stale', 'true');
+    expect(document.querySelector('[data-id="b"]')).toHaveAttribute('data-peer-ended', 'true');
+    expect(document.querySelector('[data-id="b"]')).toHaveAttribute('title', 'Home から応答がありません');
+  });
+});
