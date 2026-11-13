@@ -53,6 +53,14 @@ describe('PeerChatPane の状態ごとの描き分け', () => {
     expect(box().value).toBe('');
   });
 
+  it('返答の本文は Markdown として描く（太字・箇条書き）', () => {
+    const { container } = mount(viewOf({ status: 'idle', items: [ai('a1', '**根本の直し**\n- 署名を付ける\n- 申請を出す')] }));
+    const reply = container.querySelector('.pchat-ai')!;
+    expect(reply.querySelector('strong')?.textContent).toBe('根本の直し');
+    expect([...reply.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['署名を付ける', '申請を出す']);
+    expect(reply.textContent).not.toContain('**');
+  });
+
   it('変換中の Enter では送らない', () => {
     const { actions } = mount(viewOf({ status: 'idle' }));
     type('えんたー');

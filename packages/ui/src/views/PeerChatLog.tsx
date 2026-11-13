@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { PeerChatRow } from '../presenters/peerChat.ts';
 import { PeerChatCard } from './PeerChatCard.tsx';
 import { Icon } from './primitives/Icon.tsx';
+import { Markdown } from './primitives/Markdown.tsx';
 import { useT } from './primitives/language.tsx';
 
 /** 末尾からこの距離（px）以内なら、新しい項目が来たとき末尾へ追う。読み返している間は動かさない。 */
@@ -38,6 +39,7 @@ export function nextTrack(prev: Track, rows: PeerChatRow[], loading: boolean): T
  * 新しい項目は下から 6px とぼかしで入る（--dur と --ease-out）。開いた直後の項目は動かさない。
  * 預かり（2A）は列の末尾の点線の吹き出しで、渡ると、同じ文が会話に入り、小さく弾む。
  * 札（3A）は列の中に置き、答えが付くと答えの行に変わる。
+ * 返答は手元の会話の画面と同じ Markdown の部品で描く。
  */
 export function PeerChatLog(props: { rows: PeerChatRow[]; loading: boolean; onCancel: (queueId: string) => void; onAnswer: (askId: string, keys: string[], text?: string) => void }) {
   const t = useT();
@@ -70,7 +72,7 @@ export function PeerChatLog(props: { rows: PeerChatRow[]; loading: boolean; onCa
           case 'user':
             return <div key={r.key} className={cls(r.key, 'pchat-user')}>{r.from && <span className="pchat-from">{r.from}</span>}{r.text}</div>;
           case 'assistant':
-            return <div key={r.key} className={cls(r.key, 'pchat-ai')}>{r.text}</div>;
+            return <div key={r.key} className={cls(r.key, 'pchat-ai')}><Markdown text={r.text} /></div>;
           case 'tool':
             return <div key={r.key} className={cls(r.key, 'pchat-tool')} data-ok={r.ok ? 'true' : 'false'}><Icon name={r.ok ? 'check' : 'close'} /><span className="pchat-tool-text"><b>{r.name}</b> {r.summary}</span></div>;
           case 'system':
