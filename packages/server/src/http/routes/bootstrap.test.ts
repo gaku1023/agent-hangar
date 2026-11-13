@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp, type RunsApi } from '../app.ts';
 import { H, run, testDeps, type TestWorld } from '../testing.ts';
+import { configKindsOf } from '@agent-hangar/shared';
 
 // 起動時の取得（routes/bootstrap.ts）の試験。依存は testDeps() で組み、createApp を通して /api の下から叩く。
 
@@ -41,6 +42,6 @@ describe('routes', () => {
     const { body } = await json(await get('/api/bootstrap'));
     expect(body.runs).toEqual([run]);
     expect(body.tabs).toHaveLength(2);
-    expect(body.settings).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true });
+    expect(body.settings).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true });
   });
 });

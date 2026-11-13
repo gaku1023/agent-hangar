@@ -6,7 +6,7 @@ import { Readable } from 'node:stream';
 import {
   CONFIG_BUNDLE_MIN_WORKER_COMPAT, configBlobKey, isSafeKeyId,
   type ConfigApplyOrderDto, type ConfigApplyOrderEntryIn, type ConfigApplyOrderItemDto, type ConfigApproval, type ConfigBackupsDto, type ConfigHeldReason, type ConfigConflictDto, type ConfigNoticeDto, type ConfigVcsDto,
-  type ConfigInboxDto, type ConfigInboxItemDto, type ConfigItemKind, type ConfigStoreDto, type ConfigOutgoingDto, type ConfigSyncDto, type ConfigUnsentDto, type ConfigUnsentItemDto, type ConfigUnsentKind, type FileMetaIn,
+  type ConfigInboxDto, type ConfigInboxItemDto, type ConfigItemKind, type ConfigKindMode, type ConfigKinds, type ConfigStoreDto, type ConfigOutgoingDto, type ConfigSyncDto, type ConfigUnsentDto, type ConfigUnsentItemDto, type ConfigUnsentKind, type FileMetaIn,
 } from '@agent-hangar/shared';
 import { diffLines } from '../../config/jsonTextEdit.ts';
 import { touchRow } from '../../db/notify.ts';
@@ -24,10 +24,10 @@ import { isBlocked, type Blocked, type Collected, type LocalItem, type UnsentCan
 import { otherRefLabelTarget, parseItemId } from './ids.ts';
 import { pruneInbox, readInbox, readInboxBlob, readInboxMeta, writeInbox, type InboxEntry } from './inbox.ts';
 import { applyOrderPath, BUNDLE_PATH } from './paths.ts';
-import { collectAll, enabledTargetNames, targetNameOfId, targetOfId, type TargetContext } from './targets/index.ts';
+import { collectAll, enabledTargetNames, offKindsOf, targetNameOfId, type TargetContext } from './targets/index.ts';
 import { defaultTargetPaths, type TargetPaths } from './targets/paths.ts';
 import { AGENTS_SKILLS_STORE, CLAUDE_MCP_STORE, CLAUDE_STORE, CODEX_MCP_STORE, CODEX_STORE, OPENCODE_MCP_STORE, OPENCODE_STORE } from './targets/stores.ts';
-import type { TargetStore } from './targets/types.ts';
+import { kindModeIn, type TargetStore } from './targets/types.ts';
 import { backupsRoot } from '../../config/cloud.ts';
 import { CLAUDE_TARGET_NAME } from './targets/claude.ts';
 import { CLAUDE_HOOKS_NAME, holdOfHooks } from './targets/claudeHooks.ts';
@@ -70,9 +70,11 @@ export type ConfigSyncDeps = {
   enabled: () => boolean;
   /** スイッチが入っているか（一時停止などは含まない）。状態の表示に使う。 */
   switchedOn: () => boolean;
-  approval: () => ConfigApproval;
-  /** 対象ごとの入切（設定の configTargets）。省くと、入切のある対象は全部切。 */
-  targetSwitches?: () => Readonly<Record<string, boolean>>;
+  /**
+   * 種類ごとの状態（設定の configKinds）。省くか undefined なら既定（自動で走るコードは確認、ほかは自動）。
+   * 切の種類は送らず、受けても判定に載せない。確認の種類は承認が要る（needsApproval）。
+   */
+  configKinds?: () => ConfigKinds | undefined;
   /** Codex・opencode の対象が見る、その PC で有効かの判定（設定の codexEnabled・opencodeEnabled）。省くと切。 */
   agentsEnabled?: () => { codex: boolean; opencode: boolean };
   /** Claude 以外の入れ物のパス。省くと、環境変数とホームの既定（targets/paths.ts）。試験は一時のディレクトリに向ける。 */
@@ -184,7 +186,7 @@ export class ConfigSyncService {
     const paths = { ...defaultTargetPaths(), ...this.deps.targetPaths };
     const on = this.deps.agentsEnabled?.() ?? { codex: false, opencode: false };
     return {
-      db: this.deps.db, deviceId: this.deps.deviceId, home: this.deps.home, claudeDir: this.deps.claudeDir, allowedUnsent: this.allowedUnsent(), switches: this.deps.targetSwitches?.() ?? {},
+      db: this.deps.db, deviceId: this.deps.deviceId, home: this.deps.home, claudeDir: this.deps.claudeDir, allowedUnsent: this.allowedUnsent(), kinds: this.deps.configKinds?.() ?? {},
       ...paths, codexEnabled: on.codex, opencodeEnabled: on.opencode, hangarSettingsPath: this.deps.hangarSettingsPath ?? path.join(this.deps.home, 'settings.json'),
     };
   }
@@ -269,13 +271,17 @@ export class ConfigSyncService {
     const items = (retried ? this.collect() : this.sharedCollected() ?? this.collect()).items.filter((i) => !i.withheld);
     const own = this.ownRow();
     if (items.length === 0 && !own) return { sent: false, items: 0 };
-    const contentKey = sha256(items.map((i) => `${i.id}\0${i.sha256}`).join('\n'));
+    // 切の種類が変わったら、項目が同じでも上げ直す（受け手が消去と読まないよう、offKinds を届ける）。切が無いときは前と同じ鍵になる。
+    const off = offKindsOf(this.targetCtx());
+    const contentKey = sha256(items.map((i) => `${i.id}\0${i.sha256}`).join('\n') + (off.length ? `\noff\0${off.join(',')}` : ''));
     const last = db.prepare('select value from sync_state where key = ?').get(SENT_KEY) as { value: string } | undefined;
     if (own && last?.value === contentKey) return { sent: false, items: items.length };
 
     const now = this.now();
+    const ctx = this.targetCtx();
+    const offKinds = offKindsOf(ctx);
     const manifest: BundleManifest = { version: 1, deviceId, createdAt: now, items: items.map((i) => ({ id: i.id, kind: i.kind, sha256: i.sha256, size: i.size, marks: i.marks })),
-      targets: enabledTargetNames(this.targetCtx()), os: process.platform === 'darwin' || process.platform === 'win32' ? (process.platform as BundleOs) : 'linux',
+      targets: enabledTargetNames(ctx), ...(offKinds.length ? { offKinds } : {}), os: process.platform === 'darwin' || process.platform === 'win32' ? (process.platform as BundleOs) : 'linux',
     };
     // 中身はここで読む。集めた後に変わっていたら（StaleContentError）、集め直して 1 度だけやり直す。
     let blobs: Map<string, Buffer>;
@@ -318,7 +324,7 @@ export class ConfigSyncService {
       try {
         const bundle = await this.fetchBundle(row.device_id, row.bundle_sha256);
         if (bundle.manifest.deviceId !== row.device_id) throw new Error('束の中の端末 ID が行の端末と違います');
-        writeInbox(home, row.device_id, bundle.opened, { bundleSha256: bundle.sha, forRowSha256: row.bundle_sha256, at: row.updated_at, itemCount: bundle.manifest.items.length, skipped: bundle.opened.skipped, targets: bundleTargetsOf(bundle.manifest), ...(bundle.manifest.os ? { os: bundle.manifest.os } : {}) });
+        writeInbox(home, row.device_id, bundle.opened, { bundleSha256: bundle.sha, forRowSha256: row.bundle_sha256, at: row.updated_at, itemCount: bundle.manifest.items.length, skipped: bundle.opened.skipped, targets: bundleTargetsOf(bundle.manifest), ...(bundle.manifest.os ? { os: bundle.manifest.os } : {}), ...(bundle.manifest.offKinds ? { offKinds: bundle.manifest.offKinds } : {}) });
         this.failed.delete(row.device_id);
         fetched++;
       } catch (e) {
@@ -396,7 +402,7 @@ export class ConfigSyncService {
   // ---- 判定 ----
 
   private snapshots(): RemoteSnapshot[] {
-    return readInbox(this.deps.home).map((e: InboxEntry) => ({ deviceId: e.deviceId, at: e.meta.at, items: new Map(e.items.map((i) => [i.id, { sha256: i.sha256 }])), targets: new Set(e.meta.targets ?? ['claude']) }));
+    return readInbox(this.deps.home).map((e: InboxEntry) => ({ deviceId: e.deviceId, at: e.meta.at, items: new Map(e.items.map((i) => [i.id, { sha256: i.sha256 }])), targets: new Set(e.meta.targets ?? ['claude']), offKinds: new Set(e.meta.offKinds ?? []) }));
   }
 
   /** 3 方向の判定を回し、手元と相手が同じだった項目を基準に書き、どこにも無くなった項目の基準を消す。 */
@@ -404,7 +410,8 @@ export class ConfigSyncService {
     const collected = this.collect();
     const items = new Map(collected.items.map((i) => [i.id, i]));
     const base = this.base.all();
-    const j = judge({ local: new Map([...items].map(([id, i]) => [id, i.sha256])), base, remotes: this.snapshots(), localTargets: new Set(enabledTargetNames(this.targetCtx())) });
+    const ctx = this.targetCtx();
+    const j = judge({ local: new Map([...items].map(([id, i]) => [id, i.sha256])), base, remotes: this.snapshots(), localTargets: new Set(enabledTargetNames(ctx)), localOffKinds: new Set(offKindsOf(ctx)) });
     const now = this.now();
     for (const [id, sha] of j.agreed) if (base.get(id) !== sha) this.base.set(id, sha, now);
     for (const id of j.forget) this.base.remove(id);
@@ -470,12 +477,21 @@ export class ConfigSyncService {
     return out;
   }
 
+  /** 種類の状態。settings は対象をまたぐので、対象ではなく id の種類（parseItemId(id).kind）で引く。 */
+  private kindMode(kind: ConfigItemKind): ConfigKindMode { return kindModeIn({ kinds: this.deps.configKinds?.() }, kind); }
+
+  /**
+   * 旧い承認の仕方の欄（ConfigInboxDto.approval、ConfigSyncDto.approval）。画面を作り替える（T7）までの間だけ、skills の状態から読み替えて返す。
+   * サーバの振る舞いはこの値を読まない。
+   */
+  private legacyApproval(): ConfigApproval { return this.kindMode('skills') === 'confirm' ? 'each' : 'auto'; }
+
   inbox(): ConfigInboxDto {
-    const approval = this.deps.approval();
+    const approval = this.legacyApproval();
     const items: ConfigInboxItemDto[] = this.resolved().map((r) => ({
       id: r.action.id, kind: r.kind, label: r.label, op: r.action.op,
       fromDeviceId: r.action.fromDeviceId, fromDevice: r.fromDevice, size: r.size, marks: r.marks, head: r.head, held: r.held,
-      needsApproval: targetOfId(r.action.id)?.needsApproval({ id: r.action.id, kind: r.kind, op: r.action.op }, approval) ?? false,
+      needsApproval: this.kindMode(r.kind) === 'confirm',
       ...(r.missingEnv.length ? { missingEnv: r.missingEnv } : {}),
     }));
     return { items, approval, ...this.storesDto() };
@@ -639,7 +655,7 @@ export class ConfigSyncService {
     const notices = this.notices();
     return {
       enabled: this.deps.switchedOn(),
-      approval: this.deps.approval(),
+      approval: this.legacyApproval(),
       workerPending: this.workerPending(),
       incoming: r.filter((x) => x.action.op !== 'conflict' && !x.held).length,
       conflicts: r.filter((x) => x.action.op === 'conflict').length,

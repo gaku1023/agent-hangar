@@ -15,6 +15,7 @@ import { ocPathId, OC_CLI_PREFIX, OC_JSON_PREFIX } from './opencodeKeys.ts';
 import { allTargets, enabledTargetNames, targetNameOfId, type TargetContext } from './index.ts';
 import { judge, type RemoteSnapshot } from '../threeWay.ts';
 import { opencodeItemNotes, opencodeNotices, opencodeTarget, planOpencodeWrite, writeOpencode } from './opencode.ts';
+import { kindsOf } from '../../../../test/configKinds.ts';
 
 const sha = (s: string | Buffer): string => createHash('sha256').update(s).digest('hex');
 const NOW = new Date(2026, 9, 27, 12, 0, 0).getTime();
@@ -27,7 +28,7 @@ const ctx = (o: Partial<TargetContext> = {}): TargetContext => ({
   db, deviceId: 'dev-a', home, claudeDir: path.join(tmp, 'claude'), allowedUnsent: new Map(),
   codexHome: path.join(tmp, 'codex'), codexEnabled: false, opencodeDir: dir, opencodeEnabled: true,
   agentsSkillsDir: path.join(tmp, 'agents'), claudeJsonPath: path.join(tmp, 'claude.json'), hangarSettingsPath: path.join(tmp, 'settings.json'),
-  switches: { opencode: true }, ...o,
+  kinds: kindsOf({ opencode: true }), ...o,
 });
 const put = (rel: string, text: string): void => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), text); };
 const get = (rel: string): string | null => { try { return fs.readFileSync(path.join(dir, rel), 'utf8'); } catch { return null; } };
@@ -52,7 +53,7 @@ describe('対象 opencode の登録', () => {
     expect(allTargets().find((t) => t.name === 'opencode')!.placeholder).toBeUndefined();
     expect(enabledTargetNames(ctx())).toContain('opencode');
     expect(enabledTargetNames(ctx({ opencodeEnabled: false }))).not.toContain('opencode');
-    expect(enabledTargetNames(ctx({ switches: {} }))).not.toContain('opencode');
+    expect(enabledTargetNames(ctx({ kinds: kindsOf({}) }))).not.toContain('opencode');
   });
   it('id の持ち主。opencode:mcp: は S7 のもので、この対象は持たない', () => {
     expect(targetNameOfId('opencode:file:AGENTS.md')).toBe('opencode');
@@ -257,27 +258,6 @@ describe('id の検査', () => {
       jid('provider'), jid('agent', 'a', 'model'), jid('agent', 'a'), jid('skills', 'paths'), 'opencode:json:', 'opencode:json:agent..x', 'opencode:json:agent.a%zz.mode', 'opencode:json:agent.a.mo%64e'])
       expect(opencodeTarget.parseId(id), id).toBeNull();
     expect(opencodeTarget.parseId('opencode:file:agents/a.md')!.kind).toBe('opencode-file');
-  });
-});
-
-describe('承認（SPEC 4 章）', () => {
-  const need = (id: string, kind: ConfigItemKind, op: ConfigInboxOp = 'overwrite', a: 'each' | 'auto' = 'each') => opencodeTarget.needsApproval({ id, kind, op }, a);
-  it('agents・commands・skills・plugins は each で承認が要る。AGENTS.md と themes は要らない', () => {
-    for (const r of ['agents/a.md', 'agent/a.md', 'commands/c.md', 'command/c.md', 'skills/s/SKILL.md', 'skill/s/SKILL.md', 'plugins/p.ts', 'plugin/p.ts', 'prompts/x.md']) expect(need(`opencode:file:${r}`, 'opencode-file'), r).toBe(true);
-    expect(need('opencode:file:AGENTS.md', 'opencode-file')).toBe(false);
-    expect(need('opencode:file:themes/t.json', 'opencode-file')).toBe(false);
-    expect(need('opencode:file:agents/a.md', 'opencode-file', 'delete')).toBe(false);
-    expect(need('opencode:file:agents/a.md', 'opencode-file', 'create', 'auto')).toBe(false);
-  });
-  it('permission と agent(s).*.permission は each で要る（消去も）。ほかの鍵は要らない', () => {
-    expect(need(jid('permission'), 'opencode-config')).toBe(true);
-    expect(need(jid('permission'), 'opencode-config', 'delete')).toBe(true);
-    expect(need(jid('agent', 'a', 'permission'), 'opencode-config')).toBe(true);
-    expect(need(jid('agents', 'a', 'permission'), 'opencode-config')).toBe(true);
-    expect(need(jid('permission'), 'opencode-config', 'overwrite', 'auto')).toBe(false);
-    expect(need(jid('model'), 'opencode-config')).toBe(false);
-    expect(need(jid('agent', 'a', 'prompt'), 'opencode-config')).toBe(false);
-    expect(need(cid('theme'), 'opencode-cli')).toBe(false);
   });
 });
 

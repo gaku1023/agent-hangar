@@ -20,7 +20,7 @@ import {
   decodePathId, envRefsOf, fileRefRel, fileRefsOf, isAbsolutePathLike, isCarriedCliPath, isCarriedJsonPath, isCarriedRel, isExecRel, isPermissionPath,
   jsonValueFits, OC_CLI_PREFIX, OC_DIRS, OC_FILE_PREFIX, OC_JSON_PREFIX, ocPathId, sortOpencodeCli, sortOpencodeJson,
 } from './opencodeKeys.ts';
-import type { ConfigTarget, ParsedId, TargetContext } from './types.ts';
+import { anyKindOn, type ConfigTarget, type ParsedId, type TargetContext } from './types.ts';
 
 /**
  * opencode（`$XDG_CONFIG_HOME/opencode`、既定 `~/.config/opencode`）。設計書 2・3 章。
@@ -468,28 +468,20 @@ export function planOpencodeOps(o: WritePaths, read?: PlanReader): PlannedOp[] {
 
 // ---- 対象 ----
 
-/** 権限に関わる鍵は、消去も承認に掛ける（拒否を外して権限を広げうる）。 */
-function needsApprovalOf(item: { id: string; kind: ConfigItemKind; op: string }, approval: string): boolean {
-  if (approval !== 'each') return false;
-  const parsed = parseOpencodeId(item.id);
-  if (!parsed) return false;
-  if (parsed.ref.type === 'opencode-file') return item.op !== 'delete' && isExecRel(parsed.ref.rel);
-  if (parsed.ref.type === 'opencode-json') return isPermissionPath(parsed.ref.path);
-  return false;
-}
+const OPENCODE_KINDS: readonly ConfigItemKind[] = ['opencode-file', 'opencode-config', 'opencode-cli'];
 
 export const opencodeTarget: ConfigTarget = {
   name: OPENCODE_TARGET_NAME,
   owns: isOwn,
   parseId: parseOpencodeId,
   // 設定の opencodeEnabled（その PC で opencode を使っているか）と、対象ごとの入切の両方が要る。
-  enabled: (ctx) => ctx.opencodeEnabled && ctx.switches?.['opencode'] === true,
+  kinds: OPENCODE_KINDS,
+  enabled: (ctx) => ctx.opencodeEnabled && anyKindOn(ctx, OPENCODE_KINDS),
   collect: collectOpencode,
   planWrite: (o: { home: string }) => planOpencodeWrite(o),
   write: (o: ApplyOptions) => writeOpencode(o),
   planOps: (o, read) => planOpencodeOps(o, read),
   store: OPENCODE_STORE,
-  needsApproval: needsApprovalOf,
   isMachineBound: (item) => {
     const parsed = parseOpencodeId(item.id);
     if (!parsed || parsed.ref.type !== 'opencode-json') return false;

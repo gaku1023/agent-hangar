@@ -12,7 +12,8 @@ import { codexTarget } from './codex.ts';
 import { hangarTarget } from './hangar.ts';
 import { opencodeMcpTarget } from './opencodeMcp.ts';
 import { opencodeTarget } from './opencode.ts';
-import type { ConfigTarget, ParsedId, TargetContext } from './types.ts';
+import { CONFIG_ITEM_KINDS, type ConfigItemKind } from '@agent-hangar/shared';
+import { kindModeIn, type ConfigTarget, type ParsedId, type TargetContext } from './types.ts';
 
 /**
  * 対象の登録。後の対象は、ここの配列に足す（順は id の持ち主を決める順で、先に当たった対象が持ち主）。
@@ -46,7 +47,14 @@ export function parseTargetItemId(id: string): ParsedId | null {
 /** この PC が集める対象の名前。枠だけの対象（placeholder）は、何も運べないので載せない。束の `targets` と 3 方向の判定の「こちらが扱える対象」に使う。 */
 export const enabledTargetNames = (ctx: TargetContext): string[] => registry.filter((t) => !t.placeholder && t.enabled(ctx)).map((t) => t.name);
 
-/** 集める対象の項目を全部集めて 1 つにする。 */
+/** この PC で切の種類（configKinds が off）。束の目録の offKinds に載せ、3 方向の判定で読み飛ばす。 */
+export const offKindsOf = (ctx: Pick<TargetContext, 'kinds'>): ConfigItemKind[] => CONFIG_ITEM_KINDS.filter((k) => kindModeIn(ctx, k) === 'off');
+
+/**
+ * 集める対象の項目を全部集めて 1 つにする。
+ * 切の種類の項目は束に入れない。対象は有効でも、その種類だけ切のことがある（claude-hooks の statusline だけ切など）。
+ * 送らなかった項目の候補も、指す項目の種類が切なら外す。
+ */
 export function collectAll(ctx: TargetContext): Collected {
   const out: Collected = { items: [], dropped: [], unsent: [], blocked: { ids: new Set(), prefixes: [] }, linkSkipped: {} };
   const seen = new Set<string>();
@@ -55,9 +63,9 @@ export function collectAll(ctx: TargetContext): Collected {
   for (const t of registry) {
     if (!t.enabled(ctx)) continue;
     const c = t.collect(ctx);
-    for (const i of c.items) if (!seen.has(i.id)) { seen.add(i.id); out.items.push(i); }
+    for (const i of c.items) if (!seen.has(i.id) && kindModeIn(ctx, i.kind) !== 'off') { seen.add(i.id); out.items.push(i); }
     out.dropped.push(...c.dropped);
-    out.unsent.push(...c.unsent);
+    for (const u of c.unsent) { const k = parseTargetItemId(u.itemId)?.kind; if (!k || kindModeIn(ctx, k) !== 'off') out.unsent.push(u); }
     for (const id of c.blocked.ids) out.blocked.ids.add(id);
     out.blocked.prefixes.push(...c.blocked.prefixes);
     for (const [k, v] of Object.entries(c.linkSkipped ?? {})) { const kind = k as ConfigItemKind; out.linkSkipped![kind] = [...(out.linkSkipped![kind] ?? []), ...(v ?? [])]; }

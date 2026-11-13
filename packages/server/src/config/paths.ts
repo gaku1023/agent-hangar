@@ -2,9 +2,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isCodexInjection, type CodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isAutoDoneIdleDays, isIdleUnload, isLanguage, isLocalContext, isModelName, isOpencodeInjection, isSummaryEngine, newId, notifyPreferenceOf, type NotifyPreference, providerPrepsOf, terminalAppFor, type AutoDoneIdleDays, type ConfigApproval, type EditorSetting, type Language, type OpencodeInjection, type ProviderPrep, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
+import { isCodexInjection, type CodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isAutoDoneIdleDays, isIdleUnload, isLanguage, isLocalContext, isModelName, isOpencodeInjection, isSummaryEngine, newId, notifyPreferenceOf, type NotifyPreference, providerPrepsOf, terminalAppFor, type AutoDoneIdleDays, type ConfigApproval, isConfigKindsPatch, type ConfigKinds, type EditorSetting, type Language, type OpencodeInjection, type ProviderPrep, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
 import { isLoose } from '../platform/secure.ts';
 import { decideLanguage, osDisplayLanguage } from '../i18n/osLanguage.ts';
+import { migrateConfigKinds } from '../sync/config/kindMigration.ts';
 
 export type DeviceInfo = { id: string; name: string; platform: string };
 export type Settings = {
@@ -56,9 +57,7 @@ export type Settings = {
    */
   allowExternalSummarizer: boolean;
   /**
-   * 他の PC から届いた skills、commands、agents の承認の仕方（作り直した設定の同期。sync/config/）。
-   * each は項目ごとに毎回承認し、auto は自動で適用する。項目が無いうちは each として読む。
-   * 実行される指示なので、既定では自動にしない。
+   * 旧い承認の仕方（each か auto）。今は読まず、configKinds への移行（loadSettings）だけが読む。
    */
   configApproval?: ConfigApproval;
   /**
@@ -67,10 +66,15 @@ export type Settings = {
    */
   configBundleSync?: boolean;
   /**
-   * 設定の同期の、対象ごとの入切（対象名→真偽）。無い対象は切。新しい対象（claude-keys2 など）はここが入でないと集めない。
-   * 入れる画面は U1 で作る。それまでは settings.json を直接書く。
+   * 旧い対象ごとの入切（対象名→真偽）。今は読まず、configKinds への移行（loadSettings）だけが読む。
    */
   configTargets?: Record<string, boolean>;
+  /**
+   * 設定の同期の種類ごとの状態（off・confirm・auto。shared の configKinds.ts）。無い鍵は既定で読む（configKindModeOf）。
+   * hangar の好み（hangar:configKinds）に乗って、全部の PC で共通になる。
+   * 無く、configBundleSync が入りの旧い設定は、loadSettings が configApproval と configTargets から 1 回だけ作る（決定 11）。
+   */
+  configKinds?: ConfigKinds;
   /**
    * hangar が起動する claude に足す指示（launch/injection.ts）のうち、区切りで Done か Paused を聞く段を足すか。既定は入り。
    * 切ると問いの段を足さず、状態は事後の要約の提案と自動の Done だけで付く。
@@ -231,12 +235,14 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   // 新しい利用者の作成場所は空（決めていない）にする。初日はホームの帯から、Claude Code と会話したフォルダを選んでもらう（2026-10-13）。
   // 項目の無い古い settings.json は、今までどおり ~/workspace として読む（既存の利用者の振る舞いを変えない）。
   // ただし言語だけのファイル（殻が先に書いたもの）は新しい利用者として読む（isNewcomerFile）。
-  if (!fs.existsSync(file)) return { ...defaultSettings(platform), workspaceRoot: '', language: decideLanguage(undefined, osLanguage).language };
+  // 新しく作る設定だけ、設定の同期を入りで始める（2026-11-13 の決定）。既にある設定の configBundleSync は変えない。
+  if (!fs.existsSync(file)) return { ...defaultSettings(platform), workspaceRoot: '', language: decideLanguage(undefined, osLanguage).language, configBundleSync: true };
   const text = fs.readFileSync(file, 'utf8');
   const s = { ...defaultSettings(platform), ...(JSON.parse(text) as Partial<Settings>) };
   // 殻（bootfail.rs の ensure_language）は、初めての起動でサーバより先に言語だけのファイルを書く。
   // 言語のほかに何も持たないファイルは利用者の選んだ値を含まないので、無いときと同じく新しい利用者として作成場所を空にする。
-  if (isNewcomerFile(text)) s.workspaceRoot = '';
+  const newcomer = isNewcomerFile(text);
+  if (newcomer) { s.workspaceRoot = ''; s.configBundleSync = true; }
   // 別の OS で保存した外部ターミナル（macOS の iTerm2 を Windows で読んだときなど）は、この OS の既定に読み替える。
   s.terminalApp = terminalAppFor(s.terminalApp, platform);
   // 0.4.0 までの codePath は、エディタの設定（VS Code、その場所）に読み替える。読み替えたら古い鍵は持たない（保存し直すと消える）。
@@ -246,6 +252,10 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   // 旧実装の設定の同期のスイッチ（syncClaudeConfig）は、設定の同期を作り直したときに消した。
   // 入れていた人の settings.json にはまだ残っているので、未知の鍵として読み捨てる（保存し直すと消える）。
   delete (s as Record<string, unknown>).syncClaudeConfig;
+  // 設定の同期の種類ごとの状態。形の悪い値は捨てて既定として読む。
+  // 無く、設定の同期を入れていた旧い設定は、旧い承認の仕方と対象の入切から 1 回だけ作る（書き戻しは起動が通ってから）。
+  if (s.configKinds !== undefined && !isConfigKindsPatch(s.configKinds)) delete s.configKinds;
+  if (s.configKinds === undefined && s.configBundleSync === true && !newcomer) s.configKinds = migrateConfigKinds(s);
   // 許しの無い外部の宛先は、読み込みのときに既定へ戻す。
   // 手で書き換えた settings.json や、この制限より前に保存された設定から、会話の本文が外へ出ていかないようにする。
   if (!s.allowExternalSummarizer && !isLoopbackSummarizerUrl(s.lmStudioUrl)) s.lmStudioUrl = defaultSettings().lmStudioUrl;

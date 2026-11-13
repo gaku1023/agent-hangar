@@ -32,6 +32,8 @@ let claudeDir: string;
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-home-'));
   claudeDir = copyFixtureClaudeDir();
+  // 既に使っている利用者の設定（configBundleSync が無い）。新しく作る設定は設定の同期が入りで始まるので、ここでは使わない。
+  fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: path.join(home, 'ws') }));
 });
 afterEach(() => {
   fs.rmSync(home, { recursive: true, force: true });
@@ -731,22 +733,25 @@ describe('設定の同期の組み立て', () => {
     const b = boot({ start: true });
     const bundle = b.sync.configBundle!;
     expect(bundle).not.toBeNull();
-    expect(bundle.dto()).toMatchObject({ enabled: false, approval: 'each', incoming: 0 });
+    expect(bundle.dto()).toMatchObject({ enabled: false, incoming: 0 });
     expect(await bundle.send()).toEqual({ sent: false, items: 0 });
     expect(await bundle.receive()).toEqual({ fetched: 0, failed: 0 });
     await bundle.tick();
     expect(b.h.db.prepare('select count(*) n from config_snapshots').get()).toEqual({ n: 0 });
     // 手元の項目は読めるので、入れる前に何が出るかは見せられる。
-    expect(bundle.outgoing().items.map((i) => i.id)).toEqual(['file:CLAUDE.md']);
+    // 種類は既定で切でないので、MCP（~/.claude.json）など、試験の外の入れ物の項目も並ぶ。ここでは ~/.claude の分だけを見る。
+    expect(bundle.outgoing().items.map((i) => i.id).filter((id) => id.startsWith('file:'))).toEqual(['file:CLAUDE.md']);
   });
 
-  it('スイッチは configBundleSync だけで、旧い syncClaudeConfig が残っていても読まない。承認の仕方は設定から読む', () => {
+  it('スイッチは configBundleSync だけで、旧い syncClaudeConfig が残っていても読まない。種類の状態は設定から読む', () => {
     joinTo(NOWHERE);
     const b = boot();
     const bundle = b.sync.configBundle!;
     b.h.settings.current = { ...b.h.settings.current, syncClaudeConfig: true } as typeof b.h.settings.current;
     expect(bundle.dto().enabled).toBe(false);
-    b.h.settings.current = { ...b.h.settings.current, configBundleSync: true, configApproval: 'auto' };
+    b.h.settings.current = { ...b.h.settings.current, configBundleSync: true, configKinds: { skills: 'confirm' } };
+    expect(bundle.dto()).toMatchObject({ enabled: true, approval: 'each' });
+    b.h.settings.current = { ...b.h.settings.current, configKinds: {} };
     expect(bundle.dto()).toMatchObject({ enabled: true, approval: 'auto' });
   });
 
@@ -779,7 +784,7 @@ describe('設定の同期の組み立て', () => {
     const sync = bootSync(h, { hub, toast: toastVia(hub), publisher: { setConfigSync } as never }, { memoPath: (id) => path.join(home, 'projects', id, 'memo.md') });
     expect(setConfigSync).toHaveBeenCalledTimes(1);
     const read = setConfigSync.mock.calls[0]![0] as () => unknown;
-    expect(read()).toMatchObject({ enabled: false, approval: 'each' });
+    expect(read()).toMatchObject({ enabled: false });
     sync.stopTimers();
     h.stop();
   });

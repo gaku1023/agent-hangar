@@ -7,10 +7,10 @@ import { execMarksOfLazy, type Blocked, type Collected, type LocalItem, type Uns
 import { CODEX_CONFIG_FILE, CODEX_FILE_PREFIX, CODEX_TOML_PREFIX, codexFileId, codexTomlId, kindOfCodexRel, parseCodexItemId } from '../ids.ts';
 import { findSecret } from '../secrets.ts';
 import { canonicalJson, type DroppedKey } from '../settingsSort.ts';
-import { needsApprovalPath, profileIsClean, sortCodexToml, hasAbsolutePath } from './codexKeys.ts';
+import { profileIsClean, sortCodexToml, hasAbsolutePath } from './codexKeys.ts';
 import { planCodex, planCodexOps, writeCodex } from './codexWrite.ts';
 import { CODEX_STORE } from './stores.ts';
-import type { ConfigTarget, TargetContext } from './types.ts';
+import { anyKindOn, type ConfigTarget, type TargetContext } from './types.ts';
 
 export { planCodexFiles, writeCodex, type CodexApplyOptions } from './codexWrite.ts';
 
@@ -130,30 +130,19 @@ function collectCodex(ctx: TargetContext): Collected {
   return { items: [...items.values()].sort(byId), dropped, unsent, blocked };
 }
 
-/** 承認が要る Codex のファイル：rules、skills、hooks.json、profile の設定（SPEC 4 章）。 */
-function fileNeedsApproval(rel: string): boolean {
-  const top = rel.split('/')[0]!;
-  return rel === 'hooks.json' || top === 'rules' || top === 'skills' || rel.endsWith('.config.toml');
-}
+const CODEX_KINDS: readonly ConfigItemKind[] = ['codex-file', 'codex-config'];
 
 export const codexTarget: ConfigTarget = {
   name: CODEX_TARGET_NAME,
   owns: (id) => id.startsWith(CODEX_FILE_PREFIX) || id.startsWith(CODEX_TOML_PREFIX),
   parseId: (id) => parseCodexItemId(id),
-  enabled: (ctx) => ctx.codexEnabled && ctx.switches?.[CODEX_TARGET_NAME] === true,
+  kinds: CODEX_KINDS,
+  enabled: (ctx) => ctx.codexEnabled && anyKindOn(ctx, CODEX_KINDS),
   collect: collectCodex,
   planWrite: (o) => planCodex(o),
   write: (o) => writeCodex(o),
   planOps: (o, read) => planCodexOps(o, read),
   store: CODEX_STORE,
-  // 承認の仕方の設定（each か auto）に従う。権限を広げうる設定は、消去も承認に掛ける。
-  needsApproval: (item, approval) => {
-    if (approval !== 'each') return false;
-    const parsed = parseCodexItemId(item.id);
-    if (!parsed) return false;
-    if (parsed.ref.type === 'codex-file') return fileNeedsApproval(parsed.ref.rel);
-    return parsed.ref.type === 'codex-toml' && needsApprovalPath(parsed.ref.path);
-  },
   // 絶対パスを値に持つ鍵と、運べない鍵を持つ profile は、この PC では使えない。届いても適用しない。
   isMachineBound: (item) => {
     const parsed = parseCodexItemId(item.id);

@@ -12,6 +12,7 @@ import { writeInbox } from '../inbox.ts';
 import { judge, type RemoteSnapshot } from '../threeWay.ts';
 import { allTargets, collectAll, enabledTargetNames, targetNameOfId, type TargetContext } from './index.ts';
 import { HANGAR_PREF_KEYS, hangarTarget, setHangarPrefsApplier } from './hangar.ts';
+import { kindsOf } from '../../../../test/configKinds.ts';
 
 let tmp: string;
 let db: Db;
@@ -20,7 +21,7 @@ const settingsFile = (): string => path.join(tmp, 'settings.json');
 const ctx = (o: Partial<TargetContext> = {}): TargetContext => ({
   db, deviceId: 'd', home: tmp, claudeDir: path.join(tmp, 'claude'), allowedUnsent: new Map(),
   codexHome: path.join(tmp, 'codex'), codexEnabled: true, opencodeDir: path.join(tmp, 'opencode'), opencodeEnabled: true,
-  agentsSkillsDir: path.join(tmp, 'agents'), claudeJsonPath: path.join(tmp, 'claude.json'), hangarSettingsPath: settingsFile(), switches: { hangar: true }, ...o,
+  agentsSkillsDir: path.join(tmp, 'agents'), claudeJsonPath: path.join(tmp, 'claude.json'), hangarSettingsPath: settingsFile(), kinds: kindsOf({ hangar: true }), ...o,
 });
 const put = (o: Record<string, unknown>): void => { fs.writeFileSync(settingsFile(), JSON.stringify(o)); };
 
@@ -31,11 +32,11 @@ describe('hangar の好み：集める', () => {
   it('運ぶ鍵だけを hangar:<鍵> で集める。PC ごとの鍵は集めない', () => {
     put({
       language: 'en', askStatusAtEnd: false, liveHints: false, notifyUser: false, unreadBadge: false, unreadOs: false, unreadPhone: false, notifyPreference: { text: '済んだら', unread: ['done'], os: ['ask'], phone: [] }, defaultModel: 'opus', autoDone: false, autoDoneIdleDays: 14, autoPark: false, remoteControl: false,
-      summaryEngine: 'claude', summaryClaudeModel: 'sonnet', configApproval: 'auto', opencodeInjection: 'none', opencodePermissionPreset: false, opencodeLocalContext: 65536, codexInjection: 'none',
+      summaryEngine: 'claude', summaryClaudeModel: 'sonnet', configKinds: { skills: 'off' }, opencodeInjection: 'none', opencodePermissionPreset: false, opencodeLocalContext: 65536, codexInjection: 'none',
       // PC ごと
       codexEnabled: true, codexIntercept: true, opencodeEnabled: true, opencodeIntercept: true, claudeDir: '/x', tmuxPath: '/t', nodePath: '/n', claudePath: '/c', workspaceRoot: '/w',
       editor: { id: 'vscode', path: null }, terminalApp: 'terminal', summaryApiKey: 'sk-secret', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'm',
-      opencodeProviderPrep: { a: { command: 'x' } }, opencodeIdleUnload: 5, peerChatAcceptFromPeers: false, configTargets: { hangar: true }, configBundleSync: true, toolsResolved: true,
+      opencodeProviderPrep: { a: { command: 'x' } }, opencodeIdleUnload: 5, peerChatAcceptFromPeers: false, configTargets: { hangar: true }, configApproval: 'auto', configBundleSync: true, toolsResolved: true,
     });
     const ids = collectAll(ctx()).items.map((i) => i.id).sort();
     expect(ids).toEqual([...HANGAR_PREF_KEYS].map((k) => `hangar:${k}`).sort());
@@ -60,35 +61,24 @@ describe('hangar の好み：集める', () => {
     fs.writeFileSync(settingsFile(), '{ broken');
     expect(collectAll(ctx()).blocked.prefixes).toContain('hangar:');
     put({ language: 'en' });
-    expect(collectAll(ctx({ switches: {} })).items).toEqual([]);
+    expect(collectAll(ctx({ kinds: kindsOf({}) })).items).toEqual([]);
   });
 
   it('本物の対象になり、束の targets に載る。項目の持ち主は hangar', () => {
     expect(hangarTarget.placeholder).toBeUndefined();
     expect(allTargets().map((t) => t.name)).toContain('hangar');
     expect(enabledTargetNames(ctx())).toContain('hangar');
-    expect(enabledTargetNames(ctx({ switches: {} }))).not.toContain('hangar');
+    expect(enabledTargetNames(ctx({ kinds: kindsOf({}) }))).not.toContain('hangar');
     expect(targetNameOfId('hangar:language')).toBe('hangar');
   });
 
   it('id を解く。運ばない鍵と形の悪い id は null', () => {
     expect(hangarTarget.parseId('hangar:language')).toEqual({ kind: 'hangar-pref', ref: { type: 'hangar', key: 'language' } });
-    for (const bad of ['hangar:codexEnabled', 'hangar:opencodeEnabled', 'hangar:codexIntercept', 'hangar:editor', 'hangar:configTargets', 'hangar:summaryApiKey', 'hangar:', 'hangar:../x', 'settings:language']) expect(hangarTarget.parseId(bad)).toBeNull();
+    for (const bad of ['hangar:codexEnabled', 'hangar:opencodeEnabled', 'hangar:codexIntercept', 'hangar:editor', 'hangar:configTargets', 'hangar:configApproval', 'hangar:summaryApiKey', 'hangar:', 'hangar:../x', 'settings:language']) expect(hangarTarget.parseId(bad)).toBeNull();
   });
 });
 
-describe('hangar の好み：承認', () => {
-  it('configApproval の変更だけ承認になる。ほかの鍵は設定が each でも要らない', () => {
-    const n = (id: string, approval: 'each' | 'auto', op: 'create' | 'overwrite' | 'delete' | 'conflict' = 'overwrite') => hangarTarget.needsApproval({ id, kind: 'hangar-pref', op }, approval);
-    expect(n('hangar:configApproval', 'each')).toBe(true);
-    // 今の設定が auto でも、承認の仕方そのものを変える項目は黙って通さない。
-    expect(n('hangar:configApproval', 'auto')).toBe(true);
-    expect(n('hangar:configApproval', 'each', 'delete')).toBe(false);
-    for (const k of HANGAR_PREF_KEYS.filter((x) => x !== 'configApproval')) {
-      expect(n(`hangar:${k}`, 'each')).toBe(false);
-      expect(n(`hangar:${k}`, 'auto')).toBe(false);
-    }
-  });
+describe('hangar の好み：PC に依る項目', () => {
   it('PC に依る項目は無い', () => {
     expect(hangarTarget.isMachineBound({ id: 'hangar:language', kind: 'hangar-pref', content: Buffer.from('"ja"') })).toBe(false);
   });

@@ -1,4 +1,4 @@
-import type { ConfigApproval, ConfigInboxOp, ConfigItemKind } from '@agent-hangar/shared';
+import { configKindModeOf, type ConfigItemKind, type ConfigKindMode, type ConfigKinds } from '@agent-hangar/shared';
 import type { Db } from '../../../db/open.ts';
 import type { ApplyOptions, ApplyPlan, ApplyResult, PlannedOp, PlanPaths, PlanReader, WritePaths } from '../apply.ts';
 import type { Collected } from '../collect.ts';
@@ -33,8 +33,8 @@ export type TargetContext = {
   hangarSettingsPath: string;
   /** 項目の数の上限。試験が小さくするために使う。 */
   maxItems?: number;
-  /** 対象ごとの入切（設定の configTargets）。無い対象は切。 */
-  switches?: Readonly<Record<string, boolean>>;
+  /** 種類ごとの状態（設定の configKinds）。無い鍵は既定（configKindModeOf）。切の種類は集めず、受けても判定に載せない。 */
+  kinds?: Readonly<ConfigKinds>;
 };
 
 /**
@@ -66,6 +66,8 @@ export interface ConfigTarget {
   owns(id: string): boolean;
   /** id を解く。形が悪い、運ばない場所を指す、のどれかなら null。 */
   parseId(id: string): ParsedId | null;
+  /** この対象が運ぶ種類。対象は、このうちどれかが切でなければ有効（anyKindOn）。 */
+  readonly kinds: readonly ConfigItemKind[];
   /** この PC がこの対象を集めて送るか。切なら束の `targets` に入れず、この対象の項目は create もしない。 */
   enabled(ctx: TargetContext): boolean;
   /** 手元の項目を集める。読むだけで、何も書かない。 */
@@ -84,8 +86,11 @@ export interface ConfigTarget {
   readonly store?: TargetStore;
   /** 指示書のとおりに書く。 */
   write(o: ApplyOptions): ApplyResult;
-  /** 他の PC から届いた項目の適用に、承認が要るか。 */
-  needsApproval(item: { id: string; kind: ConfigItemKind; op: ConfigInboxOp }, approval: ConfigApproval): boolean;
   /** その PC でしか意味を持たない項目か（絶対パスなど）。そうなら送らず、受けても適用しない。 */
   isMachineBound(item: { id: string; kind: ConfigItemKind; content: Buffer }): boolean;
 }
+
+/** その種類の状態。承認が要るか（confirm）もここから決める（対象ごとの needsApproval はやめた）。 */
+export const kindModeIn = (ctx: Pick<TargetContext, 'kinds'>, kind: ConfigItemKind): ConfigKindMode => configKindModeOf({ configKinds: ctx.kinds }, kind);
+/** 種類のどれかが切でないか。対象の有効の判定に使う。 */
+export const anyKindOn = (ctx: Pick<TargetContext, 'kinds'>, kinds: readonly ConfigItemKind[]): boolean => kinds.some((k) => kindModeIn(ctx, k) !== 'off');
