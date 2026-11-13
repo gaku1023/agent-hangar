@@ -39,6 +39,12 @@ export type MobileFeedPublisherDeps = {
    * 偽のあいだは、要対応に新しく入った会話があってもスマホへの通知（POST /notices）を送らない。
    */
   hasPhones: () => boolean;
+  /**
+   * その会話の許可待ちの通知を、統括が預かっているか（orchestrator/feed.ts の held、15 秒の猶予）。
+   * 真の間は、要対応に入った会話として数えず、通知を送らない。明けたあとに書いた素（中身が同じでも）で、まだ待っていれば送る。
+   * 省けば預からない。
+   */
+  held?: (sessionId: string) => boolean;
   /** 今の時刻。既定は Date.now。 */
   now?: () => number;
   /** 書き込みの失敗の受け手。既定はログに 1 行。 */
@@ -101,6 +107,8 @@ export class MobileFeedPublisher {
   private deleted = false;
   /** 前に書けた素で要対応だった会話の ID。起動の後でまだ 1 回も書けていなければ null。 */
   private lastWaiting: Set<string> | null = null;
+  /** 統括が預かっていて、まだ知らせていない要対応の会話。素が変わらなくても、明けたら確かめる。 */
+  private heldBack = new Set<string>();
   private chain: Promise<unknown> = Promise.resolve();
   /** まとめを待っている未読の知らせ。会話の ID ごとに、題、最後の文、回数。 */
   private pendingUnread = new Map<string, { title: string; text: string; n: number }>();
@@ -250,7 +258,11 @@ export class MobileFeedPublisher {
     this.pcName = feed.deviceName;
     const hash = createHash('sha256').update(JSON.stringify([key.epoch, feed])).digest('hex');
     const now = (this.deps.now ?? Date.now)();
-    if (hash === this.lastHash && now - this.lastWrittenAt < FEED_REFRESH_MS) return 'unchanged';
+    if (hash === this.lastHash && now - this.lastWrittenAt < FEED_REFRESH_MS) {
+      // 預かっていた会話の猶予が明けたかもしれない。素は同じでも、要対応の比べだけはやり直す。
+      if (this.heldBack.size > 0) await this.noticeNew(feed, key);
+      return 'unchanged';
+    }
     const sealed = await seal(key.key, aadFeed(this.deps.deviceId), feed);
     if (this.stopped) return 'skipped';
     // 通っても倒れても、Worker に要求を 1 本出したら間を空ける。
@@ -264,8 +276,12 @@ export class MobileFeedPublisher {
 
   /** 書けた素の要対応の会話を覚え直し、新しく入った会話があればスマホへ通知を 1 回送る。投げない。 */
   private async noticeNew(feed: MobileFeed, key: PhoneKey): Promise<void> {
-    const waiting = waitingOf(feed);
+    const all = waitingOf(feed);
     const prev = this.lastWaiting;
+    // 統括が預かっている会話は、まだ要対応に入っていないものとして扱う（覚えないので、明けたあとの比べで新しく入ったと数える）。
+    const heldNow = (id: string): boolean => { try { return this.deps.held?.(id) === true; } catch { return false; } };
+    const waiting = prev === null ? all : all.filter((l) => !heldNow(l.sessionId));
+    this.heldBack = new Set(all.filter((l) => !waiting.includes(l)).map((l) => l.sessionId));
     this.lastWaiting = new Set(waiting.map((l) => l.sessionId));
     if (prev === null) return;
     const fresh = waiting.filter((l) => !prev.has(l.sessionId)).sort((a, b) => a.statusAt - b.statusAt || a.sessionId.localeCompare(b.sessionId));

@@ -67,7 +67,7 @@ export type OrchestratorAsksDeps = {
   local: Pick<PeerChatLocal, 'currentAsk' | 'answer'> | null;
   /** 設定の permissionPolicy（無ければ null、既定として読む）。 */
   policy(): PermissionPolicy | null;
-  /** 統括の今のターンが利用者の入力で始まったか（userTurnOf）。偽なら by: 'user' を断る。 */
+  /** 統括の今のターンが利用者の入力で始まったか（orchestrator/turnMark.ts の userTurnOf）。偽なら by: 'user' を断る。 */
   userTurn(orchestratorSessionId: string): boolean;
   /** 方針の答えが上限に当たったとき（1 分に 1 度まで）。 */
   onRateLimited?(): void;
@@ -80,14 +80,6 @@ export type OrchestratorAsks = {
   /** 統括の今のターンが利用者の入力で始まったか（set_permission_policy も同じ条件で断る）。 */
   userTurn(selfSessionId: string): boolean;
 };
-
-/**
- * 統括の今のターンが利用者の入力で始まったか。
- * この PR では常に真として扱い、口だけを用意する（PR-3 で、hangar が送り込んだ [hangar] の文で始まったターンを偽にする）。
- */
-export function userTurnOf(_orchestratorSessionId: string): boolean {
-  return true;
-}
 
 type Located = PendingAsk & { peerAskId: string | null };
 

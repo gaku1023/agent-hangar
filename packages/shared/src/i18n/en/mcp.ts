@@ -200,4 +200,6 @@ export const mcpEn: AreaDictionary<typeof mcpKeys> = {
   'mcp.orchestrator.badField': "{field} is missing or has the wrong shape",
   'mcp.orchestrator.userOnly': "Only the user's own words can change the permission policy. It cannot be changed in a turn that started from an event hangar sent",
   'mcp.orchestrator.rateLimited': "The orchestrator stopped allowing prompts by itself because it passed {max} in a minute. It now waits for your decision",
+  'mcp.orchestrator.feedHead': "[hangar] {n} events",
+  'mcp.orchestrator.feedLine': "- {kind} {id} \"{title}\" {tool}",
 };

@@ -200,4 +200,6 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.orchestrator.badField': "{field} が足りないか、形が違います",
   'mcp.orchestrator.userOnly': "許可の方針はユーザーの言葉でだけ変えられます。hangar が送った出来事で始まったターンでは変えられません",
   'mcp.orchestrator.rateLimited': "統括が自分で許す答えが 1 分に {max} 回を超えたので停止しました。続きはユーザーの判断を待ちます",
+  'mcp.orchestrator.feedHead': "[hangar] 出来事 {n} 件",
+  'mcp.orchestrator.feedLine': "- {kind} {id} 「{title}」 {tool}",
 };

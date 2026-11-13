@@ -84,6 +84,11 @@ export type StopNoticeDeps = {
   permissionWaitMs?: number;
   /** 問いの文の無いまま知らせてから、問いの文を待つ長さ。殻の預け（notify::hold の 2 秒）より長くする。 */
   bareSettleMs?: number;
+  /**
+   * その会話の許可待ちの知らせを、統括が預かっているか（orchestrator/feed.ts の held、15 秒の猶予）。
+   * 真の間は知らせず、知らせる前のまま残す。猶予の間に待ちが消えれば知らせない。省けば預からない。
+   */
+  held?: (sessionId: string) => boolean;
 };
 
 /**
@@ -225,6 +230,7 @@ export class StopNoticeWatch {
         continue;
       }
       if (stopReasonOf(s) === 'permission') {
+        if (this.heldNow(s.id)) continue;
         if (!s.permission && now - ep.since < permissionWait) continue;
         push(permissionNoticeText(this.tr, s.permission ?? null), false);
         ep.phase = 'done';
@@ -236,6 +242,11 @@ export class StopNoticeWatch {
       if (question) { push(question, false); ep.phase = 'done'; } else { push(this.tr('home.card.noQuestion'), true); ep.phase = 'bare'; }
     }
     for (const id of [...this.episodes.keys()]) if (!waiting.has(id)) this.episodes.delete(id);
+  }
+
+  /** 統括が預かっているか。読めなければ預からない（知らせる側に倒す）。 */
+  private heldNow(sessionId: string): boolean {
+    try { return this.deps.held?.(sessionId) === true; } catch { return false; }
   }
 
   private merged(sessionId: string, now: number): boolean {

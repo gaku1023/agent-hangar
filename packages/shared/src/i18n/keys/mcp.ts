@@ -199,4 +199,6 @@ export const mcpKeys = {
   'mcp.orchestrator.badField': ['field'],
   'mcp.orchestrator.userOnly': [],
   'mcp.orchestrator.rateLimited': ['max'],
+  'mcp.orchestrator.feedHead': ['n'],
+  'mcp.orchestrator.feedLine': ['kind', 'id', 'title', 'tool'],
 } as const satisfies MessageSpec;
