@@ -108,14 +108,16 @@
 .cfg-chip-n { margin-left: calc(var(--u) * 1.5); font-weight: 500; opacity: 0.7; font-variant-numeric: tabular-nums; }
 
 /* 種類ごとの行（C 性質ごと）と、右の「届いたもの」。値の正本は試作 docs/superpowers/specs/2026-11-13-config-sync-default-on/options.html。 */
-.cfg-cols { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: calc(var(--u) * 4); align-items: start; margin: calc(var(--u) * 2) 0; }
-@media (max-width: 1000px) { .cfg-cols { grid-template-columns: minmax(0, 1fr); } }
-.klist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 calc(var(--u) * 4.5); align-items: start; }
-@media (max-width: 760px) { .klist { grid-template-columns: minmax(0, 1fr); } }
+/* 設定の頁は左に節の一覧を持つので、画面の幅ではなく入れ物の幅で折り返す。
+   種類の一覧が 680px を取れないときは「受信したもの」を下へ回し、種類の 2 段は 1 段が 320px を取れるときだけ並べる。 */
+.cfg-cols { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 4); align-items: flex-start; margin: calc(var(--u) * 2) 0; }
+.cfg-cols > :first-child { flex: 1 1 680px; min-width: 0; }
+.cfg-cols > .cfg-inbox { flex: 1 1 300px; }
+.klist { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0 calc(var(--u) * 4.5); align-items: start; }
 .kgroup { margin-top: calc(var(--u) * 2.5); }
 .kcol > .kgroup:first-child { margin-top: 0; }
 .kgroup[data-exec] { padding: 0 calc(var(--u) * 2.5) calc(var(--u) * 0.5); border-radius: var(--r); background: color-mix(in srgb, var(--st-paused-soft) 55%, transparent); }
-.kh { display: flex; align-items: center; gap: calc(var(--u) * 2.5); height: 30px; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.02em; color: var(--ink-3); }
+.kh { display: flex; align-items: center; gap: calc(var(--u) * 2.5); height: 30px; white-space: nowrap; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.02em; color: var(--ink-3); }
 .kh .icon { width: 14px; height: 14px; flex: none; }
 .kh .tri { margin-left: auto; }
 .kgroup[data-exec] .kh { color: var(--st-paused); }
@@ -175,3 +177,8 @@
 .cfg-first-sum { display: grid; gap: calc(var(--u) * 2); align-content: start; }
 .cfg-first-s { padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r); background: var(--surface-2); font-size: var(--fs-sm); color: var(--ink-2); }
 .cfg-first-n { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }
+
+/* 行の下に開く注意の帯は、段が狭いと文が 1 字ずつ折れるので、ボタンを次の行へ回す。 */
+.klist .cfg-strip { flex-wrap: wrap; }
+.klist .cfg-strip > span:not(.spacer):not(.cfg-strip-acts) { flex: 1 1 200px; min-width: 0; }
+.klist .cfg-strip .cfg-strip-acts { margin-left: auto; }
