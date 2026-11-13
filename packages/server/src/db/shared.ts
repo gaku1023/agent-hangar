@@ -21,10 +21,24 @@ export function onSharedWrite(cb: (table: string, rowId: string, db: Db) => void
 }
 
 /**
+ * ほかの PC に早く見せたい書き込みか。
+ * run の新規と、ended_at が空から入った書き込み、会話（sessions）の新規だけである。
+ * 会話の更新（本文の伸びで sessions は何度も書かれる）や run の pid と heartbeat の更新は含めない。
+ * 書く前の行を読んで決める。
+ */
+function isUrgentWrite(db: Db, table: string, row: Record<string, unknown>, pk: string): boolean {
+  if (table !== 'runs' && table !== 'sessions') return false;
+  const before = db.prepare(`select * from ${table} where ${pk} = ?`).get(row[pk]) as Record<string, unknown> | undefined;
+  if (!before) return true;
+  return table === 'runs' && before.ended_at == null && row.ended_at != null;
+}
+
+/**
  * 共有テーブルへの書き込み。updated_at と origin_device を補い、changes に追記する。
  * at は updated_at に使う時刻で、省けば今の時刻である。同期で届いた行より確実に新しく書き直したいとき（sync/apply.ts）だけ渡す。
  */
 export function upsertShared(db: Db, table: string, row: Record<string, unknown>, deviceId: string, pk = 'id', at = Date.now()): void {
+  const urgent = isUrgentWrite(db, table, row, pk);
   const full: Record<string, unknown> = { ...row, updated_at: at, origin_device: deviceId };
   const cols = Object.keys(full);
   const sets = cols.filter((c) => c !== pk).map((c) => `${c} = excluded.${c}`).join(', ');
@@ -37,7 +51,7 @@ export function upsertShared(db: Db, table: string, row: Record<string, unknown>
       .run(table, String(full[pk]), 'upsert', JSON.stringify(stored), full.updated_at, deviceId);
     return Number(info.lastInsertRowid);
   });
-  noteWrite(db, table, String(full[pk]), 'upsert', write());
+  noteWrite(db, table, String(full[pk]), 'upsert', write(), urgent);
 }
 
 /** 共有テーブルの行を論理削除し、changes に delete を追記する。 */

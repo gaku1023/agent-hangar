@@ -13,6 +13,8 @@ export const BELL_DEVICE_HEADER = 'x-hangar-device';
 /** 鳴らすときに、PC どうしの頼みの知らせの種類と頼みの ID を渡す見出し（無ければ従来の { t: 'launch' }）。 */
 export const BELL_RING_KIND_HEADER = 'x-hangar-ring-kind';
 export const BELL_RING_ID_HEADER = 'x-hangar-ring-id';
+/** BELL_RING_KIND_HEADER にこの値を載せると、{ t: 'changes' }（同じクラウドの別の PC が変更を push した。pull を早める）を送る。頼みの ID は要らない。 */
+export const BELL_CHANGES_KIND = 'changes';
 /** スマホ 1 台からの問い合わせの回数の上限。 */
 export const ASK_RATE = { max: 20, windowMs: 10_000 } as const;
 /** PC 1 台からの会話の問い合わせ（POST /peer/ask）の回数の上限（互換の版 11）。 */

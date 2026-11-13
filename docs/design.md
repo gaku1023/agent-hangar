@@ -8523,6 +8523,15 @@ Worker は D1 の上限の失敗を 429 で返す（「構成と setup」）。
 
 メタデータは、ローカルで変更した 1 秒後に `changes` の未送信分をまとめて push する。
 ただし push には最小間隔 10 秒があり、実行中のセッション 1 本で 2 秒ごとに送り続けることはしない。
+例外は「急ぐ変更」で、`runs` の行が新しくできたとき、`ended_at` が空から入ったとき、`sessions` の行が新しくできたときだけである（`db/shared.ts` の `upsertShared` が書く前の行を読んで決め、行の変化の口の `urgent` で engine に渡す）。
+急ぐ変更は 150ms のデバウンスで push し、最小間隔 10 秒は見ない（急ぐ push どうしは 1 秒空ける。最初の取り込みで会話が一度に増えても、鳴らす回数を抑えるため）。
+急ぐ push は `POST /changes?ring=1` で送り、Worker は書き込みが通った（新しく採った行がある）ときだけ、同じクラウドの送り主以外の解除していない PC を `waitUntil` で鳴らす（`{"t":"changes"}`、スマホには鳴らさない）。
+鳴らされた PC は `engine.pullNow()` で、30 秒の pull を待たずに取る。
+急ぐ push が失敗したら、印は次の push に持ち越す。
+会話の更新や本文の伸び（`sessions` の更新）は、これまでどおり 1 秒のデバウンスと 10 秒の最小間隔である。
+30 秒の pull は保険として残す。
+印は URL の問い合わせ文字列で、古い Worker は読み捨てるだけなので、互換の版は上げない。
+`changes` の枠を知らない古い PC は、知らない種類の文面として読み捨てる（`mobile/bell.ts`）。
 送る変更そのものも、時刻の刻みは間引く（同期の版 6）。
 `runs.heartbeat_at` の 30 秒ごとの書き直しは共有の行に書かない（「他端末セッションのロック」）。
 `sessions.last_activity_at` は、索引（`indexer/write.ts` の `applySessionFacts`）が、ほかの事実が変わらず進みが 5 分（`ACTIVITY_SHARE_MS`）未満なら書かない。
@@ -9751,6 +9760,11 @@ SQLite 型で作る（無料プランで使えるのはこれだけ）。
   スマホの起動の依頼（`POST /m/launches`）が行を新しく入れたときだけ、Worker は `waitUntil` で Durable Object に宛先の PC を鳴らさせる（`{"t":"launch"}`。再送では鳴らさない）。
   PC は鳴ったら `engine.pullNow()` を呼び、今の pull の道で依頼を受け取る。
   鳴らすのに失敗しても、呼び鈴が無い Worker でも、依頼は 201 のまま通り、PC は 30 秒の pull で拾う。
+- **変更の知らせ。**
+  PC の急ぐ push（`POST /changes?ring=1`、「タイミングと競合」）が通ったとき、Worker は送り主以外の解除していない PC を鳴らす（`{"t":"changes"}`、Durable Object の `POST /ring` の見出し `x-hangar-ring-kind: changes`）。
+  PC は `engine.pullNow()` を呼ぶだけで、知らせは中身を運ばない。
+  スマホには鳴らさない。
+  鳴らすのに失敗しても push は 200 のままで、相手は 30 秒の pull で拾う。
 - **問い合わせ。**
   スマホは `POST /m/ask`（スマホのトークン、本文は `{ id, targetDevice, sealed }`）を送る。
   Worker は宛先が解除していない PC であることを D1 で 1 行読んで確かめ、Durable Object に渡す。
@@ -10033,6 +10047,7 @@ R2 の無料枠は、Class A（置く、一覧）が月 100 万、Class B（読�
 | --- | --- | --- | --- |
 | Durable Object のリクエスト | 問い合わせ 200、鳴らす 10、PC のつなぎ直し 数十、WebSocket の受信（20 通で 1 回に数える）20 ほどで、約 300 | 10 万（約 0.3%） | （未実測） |
 | Durable Object の時間 | 問い合わせを待つ間だけ（最大 5 秒 × 200 回）。眠っている間と ping の自動応答は数えない | 13,000 GB-s | （未実測） |
+| Worker のリクエストと Durable Object の `ring`（急ぐ push） | 急ぐ push 1 回につき、Worker 1（`POST /changes` が元からある分に加えて、ほかの PC を調べる D1 の読み取りが数行）と、Durable Object の `ring` が送り主以外の PC の数。run の出入りと新しい会話の回数だけで、PC 2 台なら 1 日に数十回ほど。鳴らされた PC の pull は Worker 1 を増やす | 10 万（増分は 1% 未満の見込み） | （未実測） |
 | D1 の書き込み | 増えない（問い合わせは D1 に書かない） | 10 万行 | （未実測） |
 | D1 の読み取り | 問い合わせのたびに宛先の `devices` を 1 行読む（200 行）。画像の読みで依頼の行を 1 行読む | 500 万行 | （未実測） |
 | R2 の Class A | 画像を置く 10、置く前の一覧 10、依頼を出すときの一覧 10、答えのときの一覧 10 で、約 40 | 月 100 万 | （未実測） |
@@ -10061,6 +10076,7 @@ rc.2 で足した割り切りは次のとおりである。
   つながっていない PC は、今までどおり 30 秒の pull で拾う。
 - 呼び鈴は、受信箱の即時の更新には使わない。
   受信箱は 30 秒ごとの読み直しのままである。
+  別の PC の急ぎの変更の知らせ（`changes`）も pull を早めるだけで、受信箱は動かさない。
 - 画像のほかのファイルは添付できない。
 - 宛先でない PC には、問い合わせも画像も渡らない。
   問い合わせは AAD に宛先を入れ、Durable Object も宛先の WebSocket にだけ渡す。
@@ -10440,7 +10456,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - Worker のテストは `@cloudflare/vitest-pool-workers` を使わず、miniflare 4 の使い捨てハーネスで行う。pool の最新版が peer に vitest 4 を要求し、vitest 5 を許す版が 1 つも無いためである。実物の Cloudflare に触らない要件は、ローカルの workerd で満たしている。
 - R2 の覚え書き（`customMetadata`）の上限（2048 バイト）を超えたら、断らずに `path` を落として通す。正本は D1 の `files` なので、冗長な写しのために深い日本語の道にある本文を永久に同期できなくする方が筋が悪い。
 - ファイルのパスは見出し（`x-hangar-path`）に符号化して載せる。URL に載せると、利用者のホームの構造が Cloudflare の要求ログに残る。素のまま見出しに載せる道は、非 ASCII のときに Node の fetch が送る前に落ちるので使えない。
-- 1 回の push は 40 行まで、1 回の pull は 500 行まで、push の最小間隔は 10 秒。ローカルの `changes` は push 済みで 7 日で刈る。Worker は変更ログを持たず、`rows` の連番で差分を引く（同期の版 6）。
+- 1 回の push は 40 行まで、1 回の pull は 500 行まで、push の最小間隔は 10 秒（run の出入りと新しい会話は例外で、150ms で push して他の PC を鳴らす）。ローカルの `changes` は push 済みで 7 日で刈る。Worker は変更ログを持たず、`rows` の連番で差分を引く（同期の版 6）。
 - 降ろせない本文が 1 件あっても後ろを止めない。3 回続けて失敗したら飛ばし、中身が入れ替わったとき、起こし直したとき、30 分ごとに試し直す。
 - 諦めた本文とまだ上げていない本文の件数は `SyncDetailDto` に載せ、HTTP の応答と websocket の `sync.status` の両方で配る。
   どちらの値も `SyncEngine` は持っていない（諦めた本文を覚えているのは `RemotePuller`、取り残しを数えられるのは `TranscriptUploader` である）ので、配るところで添える。

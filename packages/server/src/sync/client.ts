@@ -373,12 +373,16 @@ export interface CloudClientBase {
   ackParcels?(ids: string[]): Promise<void>;
 }
 
+/** push の付け足し。ring は、急ぐ変更なのでほかの PC を鳴らしてほしい印。 */
+export type PushOptions = { ring?: boolean };
+
 /**
  * 線の上の Worker（互換の版 9）。行は封じたまま（SealedChangeIn と SealedChangeOut）で運び、開けない。
  * HttpCloudClient が本物、FakeWireClient（test/fake-cloud.ts）がメモリ上の偽物。
  */
 export interface WireCloudClient extends CloudClientBase {
-  pushChanges(changes: SealedChangeIn[]): Promise<PushChangesResponse>;
+  /** ring が立っていれば、書き込みが通ったあと Worker がほかの PC を鳴らす（急ぐ変更。古い Worker は印を読み捨てる）。 */
+  pushChanges(changes: SealedChangeIn[], opts?: PushOptions): Promise<PushChangesResponse>;
   pullChanges(since: number, limit: number): Promise<SealedPullChangesResponse>;
   snapshot(after: string | null, limit: number): Promise<SealedSnapshotResponse>;
   /** 封じたメタと、暗号化済みの本文を置く（PUT /files/:key）。鍵名は自端末の下（`b/<自分>/`）だけ。 */
@@ -404,7 +408,7 @@ export type RosterPutResult = { ok: boolean } & RosterPutOut;
  * FakeCloudClient（test/fake-cloud.ts）は偽の Worker を同じ SealedCloudClient で包んだもの。
  */
 export interface CloudClient extends CloudClientBase {
-  pushChanges(changes: ChangeIn[]): Promise<PushChangesResponse>;
+  pushChanges(changes: ChangeIn[], opts?: PushOptions): Promise<PushChangesResponse>;
   pullChanges(since: number, limit: number): Promise<OpenedPullResponse>;
   snapshot(after: string | null, limit: number): Promise<OpenedSnapshotResponse>;
   /**
@@ -697,9 +701,9 @@ export class HttpCloudClient implements WireCloudClient {
     return { url: `${this.base.replace(/^http/i, 'ws')}/m/bell`, headers: { ...compatHeaders(), authorization: this.authorization() } };
   }
   health() { return this.json<{ ok: boolean; version: string }>('/health'); }
-  async pushChanges(changes: SealedChangeIn[]): Promise<PushChangesResponse> {
+  async pushChanges(changes: SealedChangeIn[], opts?: PushOptions): Promise<PushChangesResponse> {
     await this.ensureWorkerCompat();
-    return this.json<PushChangesResponse>('/changes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ changes }) });
+    return this.json<PushChangesResponse>(opts?.ring ? '/changes?ring=1' : '/changes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ changes }) });
   }
   pullChanges(since: number, limit: number) { return this.json<SealedPullChangesResponse>(`/changes?since=${since}&limit=${limit}`); }
   snapshot(after: string | null, limit: number) { return this.json<SealedSnapshotResponse>(`/rows?after=${encodeURIComponent(after ?? '')}&limit=${limit}`); }

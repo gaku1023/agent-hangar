@@ -14,7 +14,9 @@ import {
   type SealedPullChangesResponse,
   type SealedSnapshotResponse,
 } from '@agent-hangar/shared';
+import { BELL_CHANGES_KIND } from './bellWire.ts';
 import type { Env, Vars } from './env.ts';
+import { ringBell } from './mobile.ts';
 import { touchIfDue } from './seen.ts';
 import { blobToSealed, isSealedText, sealedToBlob } from './util.ts';
 
@@ -165,6 +167,16 @@ const writeRow = (db: D1Database, c: SealedChangeIn, deviceId: string): [D1Prepa
     .bind(c.k, c.op, c.updatedAt, deviceId, c.epoch, sealedToBlob(c.sealed), c.k),
 ];
 
+/** 解除していない、送り主以外の PC に changes の呼び鈴を鳴らす。どこで失敗しても投げない。 */
+async function ringPeersOf(env: Env, from: string): Promise<void> {
+  try {
+    const { results } = await env.DB.prepare("select id from devices where revoked_at is null and kind = 'pc' and id != ?").bind(from).all<{ id: string }>();
+    await Promise.all(results.map((r) => ringBell(env, r.id, { kind: BELL_CHANGES_KIND })));
+  } catch (e) {
+    console.error('changes ring failed', e instanceof Error ? e.name : typeof e);
+  }
+}
+
 export const changesApp = new Hono<{ Bindings: Env; Variables: Vars }>();
 
 /** 端末から届いた封じた行を受ける。行ごとに `updated_at` の新しい方を採り、採った行には表の末尾の連番が付く。 */
@@ -221,6 +233,16 @@ changesApp.post('/', async (c) => {
   const accepted = inserts.filter((i) => Number(results[i]?.meta?.changes ?? 0) > 0).length;
   skipped += latest.size - accepted;
   const res: PushChangesResponse = { seq: firstNum(results[maxAt] as D1Result<{ s: number }> | undefined), accepted, skipped };
+  // 急ぎの印（?ring=1）。書き込みが通ったので、同じクラウドの送り主以外の PC を鳴らして pull を早めさせる。
+  // 応答は待たず、失敗しても push は成功のまま返す（相手は 30 秒の pull で拾う）。スマホには鳴らさない。
+  if (c.req.query('ring') === '1' && accepted > 0) {
+    const wake = ringPeersOf(c.env, device.id);
+    try {
+      c.executionCtx.waitUntil(wake);
+    } catch {
+      // 実行の文脈が無い（Worker の外で app を叩いた）。鳴らすのは捨ててよい。
+    }
+  }
   return c.json(res);
 });
 
