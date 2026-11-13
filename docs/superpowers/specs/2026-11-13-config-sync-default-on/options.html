@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>設定の同期 試作</title>
+<style>
+:root {
+  /* packages/ui/src/styles/tokens.css から写した値（2026-10-09 の設定の画面の試作と同じ）。 */
+  --bg: #eef1f7; --aura-1: #cfe0ff;
+  --surface: #ffffff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88;
+  --accent: #4a63e8; --accent-hi: #6b8cff; --accent-ink: #ffffff; --accent-soft: #eef2ff;
+  --idle: #3a8f5c; --waiting: #a2452f; --waiting-soft: #f8e6e1; --error: #b3261e;
+  --st-active: #2a57b8; --st-active-soft: #e8eefc; --st-paused: #8a5a0b; --st-paused-soft: #faefd9;
+  --st-done: #2b7048; --st-done-soft: #e3f1e8;
+  --cand: #6a4fd0; --cand-soft: #f1edff;
+  --surface-shadow: 0 1px 2px rgba(30, 40, 90, 0.06);
+  --font-sans: 'Inter Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs: 13px; --fs-md: 15px; --fs-lg: 20px;
+  --row-h: 28px; --header-h: 44px; --lights-end: 81px;
+  --r: 8px; --r-lg: 14px; --r-pill: 99px;
+  /* 動きのトークン（tokens.css と同じ値。アプリの motionKit の growIn・collapseOut・resizeFrom・fadeIn に当たる）。 */
+  --dur-fast: 200ms; --dur: 420ms; --dur-exit: 250ms; --dur-swap: 150ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.4, 0, 1, 1);
+}
+@media (prefers-reduced-motion: reduce) { :root { --dur-fast: 0ms; --dur: 0ms; --dur-exit: 0ms; --dur-swap: 0ms; } }
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: radial-gradient(900px 640px at 0 0, var(--aura-1), transparent 70%), var(--bg); background-attachment: fixed; color: var(--ink); font-family: var(--font-sans); font-size: var(--fs); line-height: 1.45; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; }
+code { font: 500 11px var(--font-mono); background: var(--surface-2); padding: 0 4px; border-radius: 4px; }
+.icon { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ===== 試作の頁 ===== */
+.pg { max-width: 1320px; margin: 0 auto; padding: 28px 20px 120px; }
+.pg h1 { margin: 0 0 6px; font-size: var(--fs-lg); letter-spacing: -0.015em; }
+.lead { margin: 0; max-width: 1000px; color: var(--ink-2); line-height: 1.65; }
+.top { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; margin-top: 20px; align-items: start; }
+.box { padding: 16px 20px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.box h2 { margin: 0 0 8px; font-size: var(--fs); }
+.box ol { margin: 0; padding-left: 20px; color: var(--ink-2); }
+.box li + li { margin-top: 3px; }
+.box li b { color: var(--ink); }
+.box.rec-box { box-shadow: var(--surface-shadow), inset 0 0 0 1.5px color-mix(in srgb, var(--st-done) 45%, transparent); }
+.sum { width: 100%; border-collapse: collapse; }
+.sum td { padding: 6px 8px 6px 0; border-top: 1px solid var(--line); vertical-align: baseline; color: var(--ink-2); }
+.sum tr:first-child td { border-top: 0; }
+.sum td:first-child { width: 40px; }
+.sum td:last-child { width: 52px; text-align: right; }
+.sum td b { display: block; color: var(--ink); }
+.opt-id { display: inline-block; font: 700 12px var(--font-mono); color: #fff; background: var(--ink); border-radius: 6px; padding: 1px 7px; white-space: nowrap; }
+.opt-id.place { background: var(--cand); }
+.rec { font-size: var(--fs-xs); font-weight: 700; color: var(--st-done); background: var(--st-done-soft); border-radius: var(--r-pill); padding: 1px 8px; white-space: nowrap; }
+
+.switch { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 24px -20px 0; padding: 10px 20px; background: color-mix(in srgb, var(--bg) 88%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line-strong); }
+.sw { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 0; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--line-strong); font-weight: 600; cursor: pointer; }
+.sw[aria-pressed='true'] { background: var(--ink); color: #fff; box-shadow: none; }
+.sw[aria-pressed='true'] .opt-id { background: #fff; color: var(--ink); }
+.sw.act { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent); }
+.sw-sep { width: 1px; height: 20px; margin: 0 6px; background: var(--line-strong); }
+.sw-label { font-size: var(--fs-xs); color: var(--ink-3); margin-right: 2px; }
+
+.opt-h { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; margin: 26px 0 6px; }
+.opt-h h2 { margin: 0; font-size: 17px; }
+.opt-d { margin: 0 0 14px; max-width: 1040px; color: var(--ink-2); line-height: 1.65; }
+.opt-d b { color: var(--ink); }
+.frame-wrap { position: relative; width: 100%; max-width: 1280px; overflow: hidden; border-radius: 12px; }
+.motion { margin-top: 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 20px; max-width: 1100px; }
+.motion > div { padding: 10px 14px; border-radius: var(--r); background: var(--surface); box-shadow: var(--surface-shadow); font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.6; }
+.motion b { display: block; margin-bottom: 2px; color: var(--ink); font-size: var(--fs-xs); }
+@media (max-width: 1000px) { .top, .motion { grid-template-columns: minmax(0, 1fr); } }
+
+/* ===== 画面（.frame の中だけ） ===== */
+.frame { position: relative; width: 1280px; height: 800px; overflow: hidden; border-radius: 12px; background: var(--bg); transform-origin: 0 0; box-shadow: 0 0 0 1px rgba(30, 40, 90, 0.14), 0 24px 50px -22px rgba(30, 40, 90, 0.4); }
+.shell { position: relative; display: grid; grid-template-columns: 216px minmax(0, 1fr); height: 100%; background: radial-gradient(60% 70% at 18% 8%, var(--aura-1), transparent 72%), var(--bg); }
+.header { position: absolute; inset: 0 0 auto 0; z-index: 3; display: flex; align-items: center; height: var(--header-h); padding-left: var(--lights-end); background: rgba(255, 255, 255, 0.4); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px -12px rgba(30, 40, 90, 0.3); }
+.lights { position: absolute; left: 11px; top: 50%; translate: 0 -50%; display: flex; gap: 8px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+.lights i:nth-child(2) { background: #febc2e; } .lights i:nth-child(3) { background: #28c840; }
+.brand { width: 119px; font-size: 16px; font-weight: 700; letter-spacing: -0.03em; }
+.brand::after { content: ''; display: inline-block; width: 8px; height: 2.5px; margin-left: 2px; border-radius: 1.25px; background: #ffb86b; }
+.search-pill { display: inline-flex; align-items: center; gap: 8px; height: var(--row-h); padding: 0 11px; border-radius: var(--r-pill); color: var(--ink-2); font-weight: 600; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(30, 40, 90, 0.14); }
+.header-end { margin-left: auto; margin-right: 14px; display: flex; align-items: center; gap: 14px; }
+.hsync { position: relative; display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 4px 0 10px; border-radius: var(--r-pill); font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; }
+.hsync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+.gauges { display: flex; gap: 10px; padding-left: 14px; border-left: 1px solid rgba(30, 40, 90, 0.14); font-size: var(--fs-xs); color: var(--ink-3); }
+.gauge-bar { display: inline-block; width: 48px; height: 6px; margin: 0 4px; border-radius: 3px; background: rgba(30, 40, 90, 0.1); vertical-align: middle; overflow: hidden; }
+.gauge-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); }
+
+/* 件数の札。ask の件数は waiting の色、自動で入った件数は静かな色。 */
+.cnt { display: inline-flex; align-items: center; gap: 3px; height: 20px; padding: 0 7px; border-radius: var(--r-pill); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; transform-origin: 50% 50%; }
+.cnt .icon { width: 12px; height: 12px; stroke-width: 2; }
+.cnt[data-k='ask'] { background: var(--waiting); color: #fff; }
+.cnt[data-k='quiet'] { background: var(--accent-soft); color: var(--accent); }
+.cnt-n { display: inline-block; }
+
+.sidebar { grid-column: 1; display: flex; flex-direction: column; margin: 52px 0 8px 8px; padding: 10px 8px; }
+.nav-item { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px 0 12px; margin-bottom: 2px; font-size: 14px; color: var(--ink-2); border-radius: var(--r-pill); }
+.nav-item .icon { width: 18px; height: 18px; }
+.nav-item[aria-current] { color: var(--ink); font-weight: 600; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #fff, 0 2px 6px rgba(30, 40, 90, 0.1); }
+.nav-end { margin-left: auto; display: inline-flex; gap: 4px; }
+.side-live { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(30, 40, 90, 0.1); }
+.side-live-h { height: 24px; padding: 0 12px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.side-live-row { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; color: var(--ink); }
+.side-live-row i { width: 8px; height: 8px; border-radius: 50%; background: #c77a1a; }
+.side-foot { margin-top: auto; padding-top: 8px; border-top: 1px solid rgba(30, 40, 90, 0.1); }
+
+.main { grid-column: 2; min-height: 0; overflow: auto; padding: 60px 20px 24px 16px; }
+.page-title { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; }
+.page-title h1 { margin: 0; font-size: 20px; letter-spacing: -0.015em; }
+.subnav { display: flex; gap: 2px; margin-left: 10px; }
+.subnav span { height: 26px; padding: 0 10px; border-radius: var(--r-pill); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); display: inline-flex; align-items: center; }
+.subnav span[aria-current] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.cols { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 14px; align-items: start; }
+.card { padding: 14px 18px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.card + .card { margin-top: 14px; }
+.card-h { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; font-size: var(--fs-md); font-weight: 700; letter-spacing: -0.01em; }
+.card-h .end { margin-left: auto; display: inline-flex; gap: 6px; font-size: var(--fs-sm); font-weight: 500; }
+.set-row { display: flex; align-items: center; gap: 14px; min-height: 40px; border-bottom: 1px solid var(--line); }
+.set-row-t { flex: 1; font-weight: 600; }
+.tog { position: relative; width: 34px; height: 20px; border-radius: 10px; background: var(--accent); }
+.tog::after { content: ''; position: absolute; top: 2px; left: 16px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2); }
+.pcs { display: inline-flex; gap: 6px; font-size: var(--fs-sm); color: var(--ink-2); }
+.pcs span { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: var(--r-pill); background: var(--surface-2); }
+.pcs span i { width: 6px; height: 6px; border-radius: 50%; background: var(--idle); }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border: 0; border-radius: var(--r-pill); font-size: var(--fs-sm); font-weight: 600; background: rgba(255, 255, 255, 0.85); box-shadow: inset 0 0 0 1px var(--line-strong); cursor: pointer; white-space: nowrap; }
+.btn-primary { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: #fff; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 3px 10px -4px rgba(70, 90, 230, 0.6); }
+.btn-ghost { background: none; box-shadow: none; color: var(--ink-2); }
+.btn .icon { width: 13px; height: 13px; }
+
+/* 切・確認・自動の 3 つの切り替え。つまみは transform で滑らせる（resizeFrom に当たる）。 */
+.tri { position: relative; display: inline-grid; grid-auto-flow: column; grid-auto-columns: 42px; height: 24px; padding: 2px; border-radius: var(--r-pill); background: rgba(30, 40, 90, 0.06); flex: none; }
+.tri button { position: relative; z-index: 1; border: 0; background: none; padding: 0; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); cursor: pointer; border-radius: var(--r-pill); transition: color var(--dur-fast) var(--ease-out); }
+.tri button[aria-pressed='true'] { color: var(--ink); }
+.tri[data-s='confirm'] button[aria-pressed='true'] { color: var(--st-paused); }
+.tri[data-s='auto'] button[aria-pressed='true'] { color: var(--accent); }
+.tri-thumb { position: absolute; top: 2px; left: 2px; width: 42px; height: 20px; border-radius: var(--r-pill); background: var(--surface); box-shadow: 0 1px 2px rgba(30, 40, 90, 0.16); transition: transform var(--dur) var(--ease-out), background var(--dur-fast) var(--ease-out); }
+.tri[data-s='confirm'] .tri-thumb { background: var(--st-paused-soft); }
+.tri[data-s='auto'] .tri-thumb { background: var(--accent-soft); }
+.tri[data-mixed] .tri-thumb { opacity: 0; }
+
+/* 種類の行。A と C は 2 段に組む。 */
+.klist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; align-items: start; }
+.kgroup:first-child > .kh, .kcol > .kgroup:first-child > .kh { margin-top: 0; }
+.kh { display: flex; align-items: center; gap: 10px; height: 30px; margin-top: 10px; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.02em; color: var(--ink-3); }
+.kh:first-of-type { margin-top: 0; }
+.kh .tri { margin-left: auto; }
+.kh .icon { width: 14px; height: 14px; }
+.kgroup[data-exec] { margin-top: 10px; padding: 0 10px 2px; border-radius: var(--r); background: color-mix(in srgb, var(--st-paused-soft) 55%, transparent); }
+.kgroup[data-exec] .kh { margin-top: 0; color: var(--st-paused); }
+.kr { display: flex; align-items: center; gap: 10px; height: 32px; border-top: 1px solid var(--line); transition: color var(--dur-fast) var(--ease-out); }
+.kh + .kr { border-top: 0; }
+.kr-t { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; }
+.kr-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.kr[data-s='off'] .kr-t { color: var(--ink-3); font-weight: 500; }
+.kr-n { font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; font-weight: 500; }
+.kr-exec { color: var(--st-paused); }
+.kr-exec .icon { width: 13px; height: 13px; }
+.link { display: inline-flex; align-items: center; gap: 3px; height: 18px; padding: 0 6px; border: 0; border-radius: var(--r-pill); background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-xs); font-weight: 600; cursor: pointer; }
+.link .icon { width: 11px; height: 11px; stroke-width: 2; }
+.link-pop { font-size: var(--fs-xs); color: var(--ink-2); padding: 0 0 6px 2px; display: flex; gap: 6px; }
+.link-pop code { font-size: 10.5px; }
+
+/* 開き閉じの入れ物（growIn と collapseOut に当たる）。高さを grid の 0fr から 1fr へ。 */
+.reveal { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows var(--dur-exit) var(--ease-in), opacity var(--dur-exit) var(--ease-in); }
+.reveal > * { min-height: 0; overflow: hidden; }
+.reveal[data-open] { grid-template-rows: 1fr; opacity: 1; transition: grid-template-rows var(--dur) var(--ease-out), opacity var(--dur) var(--ease-out); }
+.strip { display: flex; align-items: center; gap: 10px; margin: 2px 0 8px; padding: 8px 10px; border-radius: var(--r); background: var(--waiting-soft); color: var(--ink); font-size: var(--fs-sm); }
+.strip .icon { color: var(--waiting); }
+.strip .sp { flex: 1; }
+
+/* 案 B：状態の列 */
+.board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.bcol { min-height: 520px; padding: 8px; border-radius: var(--r); background: var(--surface-2); transition: background var(--dur-fast) var(--ease-out); }
+.bcol[data-s='confirm'] { background: color-mix(in srgb, var(--st-paused-soft) 70%, #fff); }
+.bcol[data-s='auto'] { background: color-mix(in srgb, var(--accent-soft) 80%, #fff); }
+.bcol[data-over] { box-shadow: inset 0 0 0 2px var(--accent); }
+.bcol-h { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px; font-weight: 700; font-size: var(--fs-sm); }
+.bcol[data-s='off'] .bcol-h { color: var(--ink-3); }
+.bcol[data-s='confirm'] .bcol-h { color: var(--st-paused); }
+.bcol[data-s='auto'] .bcol-h { color: var(--accent); }
+.bcol-h .n { margin-left: auto; font-weight: 600; color: var(--ink-3); font-size: var(--fs-xs); }
+.bsub { margin: 8px 4px 4px; font-size: 10.5px; font-weight: 700; color: var(--ink-3); letter-spacing: 0.02em; }
+.chip { display: flex; align-items: center; gap: 6px; height: 28px; margin-top: 4px; padding: 0 4px 0 9px; border-radius: 7px; background: var(--surface); box-shadow: 0 1px 2px rgba(30, 40, 90, 0.1); font-weight: 600; font-size: var(--fs-sm); cursor: grab; user-select: none; }
+.chip .kr-n { margin-left: auto; }
+.chip .kr-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip .mv { display: inline-flex; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.chip:hover .mv { opacity: 1; }
+.chip .mv button { width: 20px; height: 20px; border: 0; border-radius: 5px; background: none; color: var(--ink-2); cursor: pointer; display: grid; place-items: center; }
+.chip .mv button:hover { background: var(--surface-2); }
+.chip .mv button:disabled { visibility: hidden; }
+.chip .mv .icon { width: 12px; height: 12px; stroke-width: 2; }
+
+/* 右の列：届いたもの */
+.inbox-g { margin-top: 4px; }
+.ig-h { display: flex; align-items: center; gap: 8px; height: 28px; font-size: var(--fs-xs); font-weight: 700; color: var(--ink-3); }
+.ig-h .end { margin-left: auto; display: inline-flex; gap: 4px; }
+.it { display: flex; align-items: center; gap: 8px; min-height: 30px; border-top: 1px solid var(--line); font-size: var(--fs-sm); }
+.it-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.it-k { color: var(--ink-3); font-size: var(--fs-xs); }
+.ask-g { padding: 2px 10px 6px; margin: 0 -10px; border-radius: var(--r); background: color-mix(in srgb, var(--waiting-soft) 60%, #fff); }
+.ask-g .ig-h { color: var(--waiting); }
+.ask-g .it { border-top-color: color-mix(in srgb, var(--waiting) 14%, transparent); }
+.batch { border-top: 1px solid var(--line); }
+.batch-h { display: flex; align-items: center; gap: 8px; width: 100%; height: 36px; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; font-size: var(--fs-sm); }
+.batch-h .chev { transition: transform var(--dur) var(--ease-out); color: var(--ink-3); width: 14px; height: 14px; }
+.batch[data-open] .batch-h .chev { transform: rotate(90deg); }
+.batch-when { font-variant-numeric: tabular-nums; font-weight: 600; width: 84px; white-space: nowrap; }
+.batch-from { color: var(--ink-2); }
+.batch-kinds { margin-left: auto; color: var(--ink-3); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
+.batch-body .it { padding-left: 22px; }
+.batch-body .acts { display: flex; justify-content: flex-end; padding: 4px 0 8px; }
+.op { width: 14px; text-align: center; font: 700 11px var(--font-mono); }
+.op[data-op='create'] { color: var(--st-done); } .op[data-op='overwrite'] { color: var(--st-active); } .op[data-op='delete'] { color: var(--waiting); }
+.it[data-undone] .it-t { color: var(--ink-3); text-decoration: line-through; }
+.it[data-undone] .btn { visibility: hidden; }
+.fail { color: var(--error); }
+
+/* 初回の突き合わせ（ダイアログ） */
+.scrim { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; background: rgba(28, 27, 46, 0.28); }
+.dlg { width: 760px; max-height: 680px; display: flex; flex-direction: column; border-radius: 16px; background: var(--surface); box-shadow: 0 30px 80px -20px rgba(30, 40, 90, 0.5); overflow: hidden; }
+.dlg-h { display: flex; align-items: center; gap: 10px; padding: 16px 20px 10px; font-size: var(--fs-md); font-weight: 700; }
+.dlg-h .end { margin-left: auto; display: inline-flex; gap: 6px; }
+.dlg-b { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 16px; padding: 4px 20px 16px; min-height: 0; overflow: hidden; }
+.side-sum { display: grid; gap: 8px; align-content: start; }
+.ss { padding: 10px 12px; border-radius: var(--r); background: var(--surface-2); font-size: var(--fs-sm); }
+.ss-n { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ss-row { display: flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.ss-row .icon { width: 14px; height: 14px; }
+.diff-list { overflow: auto; max-height: 520px; }
+.dr { display: flex; align-items: center; gap: 10px; min-height: 36px; border-top: 1px solid var(--line); font-size: var(--fs-sm); }
+.dr:first-child { border-top: 0; }
+.dr-t { flex: 1; min-width: 0; font-weight: 600; }
+.dr-t small { display: block; font-weight: 500; color: var(--ink-3); font-size: var(--fs-xs); }
+.dlg-f { display: flex; align-items: center; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); }
+.dlg-f .sp { flex: 1; }
+
+/* 出入りの動き */
+@keyframes popIn { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: none; } }
+@keyframes popOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(0.6); } }
+@keyframes riseIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes swapIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes flash { 0% { background: var(--accent-soft); } 100% { background: transparent; } }
+.pop-in { animation: popIn var(--dur) var(--ease-out) both; }
+.pop-out { animation: popOut var(--dur-exit) var(--ease-in) both; }
+.rise-in { animation: riseIn var(--dur) var(--ease-out) both; }
+.swap-in { animation: swapIn var(--dur-swap) var(--ease-out) both; }
+.scrim.in { animation: fade var(--dur-fast) var(--ease-out) both; }
+.scrim.in .dlg { animation: riseIn var(--dur) var(--ease-out) both; }
+.flash { animation: flash 1.8s var(--ease-out); }
+</style>
+</head>
+<body>
+<div class="pg">
+  <h1>設定の同期 試作</h1>
+  <p class="lead">届いた設定を確認なしで書く形に変えたときの、種類の選び方と、届いたものの見え方。上の切り替えで、一覧の並べ方（A・B・C）と件数の札の置き場（P1・P2）を替えて見比べる。「届く」を押すと、Mac から束が届いたときの動きが流れる。</p>
+
+  <div class="top">
+    <div class="box">
+      <h2>決めたこと（grilling、2026-11-13）</h2>
+      <ol>
+        <li><b>自動</b>は届いたら確認なしで書く。書く前に backups へ控えを取る</li>
+        <li>種類は今の 20 種類のまま。<b>会話の本文</b>も並べ、既定は入</li>
+        <li>行ごとに<b>切・確認・自動</b>。全体の承認の切り替えはやめる</li>
+        <li>自動で走るコード（フック、ステータス行、プラグイン、3 つの MCP）は既定で<b>確認</b>。ほかは自動</li>
+        <li>選んだ内容は<b>全部の PC で共通</b></li>
+        <li>競合は手元を残して確認へ。削除は控えを取って自動で消す</li>
+        <li>初回は片方にしか無いものは自動、違うものはまとめて選ぶ</li>
+        <li>リンクの skill は送らず、行に件数を出す</li>
+        <li>確認・競合・失敗は ask の知らせ。自動で入ったものは札と履歴だけ</li>
+        <li>戻しは 1 回の適用ごとにも、1 項目ごとにも</li>
+      </ol>
+    </div>
+    <div class="box rec-box">
+      <h2>案</h2>
+      <table class="sum">
+        <tr><td><span class="opt-id">A</span></td><td><b>エージェントごと</b>Claude Code・Codex・opencode・共通の束に、行ごとの切り替え</td><td></td></tr>
+        <tr><td><span class="opt-id">B</span></td><td><b>状態の列</b>切・確認・自動の 3 列に種類を置き、列を移して変える</td><td></td></tr>
+        <tr><td><span class="opt-id">C</span></td><td><b>性質ごと</b>指示・スキル・記憶・設定・自動で走るコードの束に、束ごとの切り替えも置く</td><td><span class="rec">推す</span></td></tr>
+        <tr><td><span class="opt-id place">P1</span></td><td><b>ヘッダ</b>同期の表示の横に、確認の件数と自動で入った件数</td><td><span class="rec">推す</span></td></tr>
+        <tr><td><span class="opt-id place">P2</span></td><td><b>サイドバー</b>「設定」の行の端に同じ 2 つ</td><td></td></tr>
+      </table>
+      <p class="lead" style="margin-top:10px;font-size:12px">C を推すのは、確認が既定の種類が 1 つの束にまとまり、危ないものが配置で分かるため。21 行を束の切り替え 6 つで済ませられる。P1 を推すのは、どの画面からも見え、サイドバーを畳んでも消えないため。</p>
+    </div>
+  </div>
+
+  <nav class="switch" aria-label="案の切り替え">
+    <span class="sw-label">一覧</span>
+    <button class="sw" data-set="layout" data-v="A"><span class="opt-id">A</span>エージェントごと</button>
+    <button class="sw" data-set="layout" data-v="B"><span class="opt-id">B</span>状態の列</button>
+    <button class="sw" data-set="layout" data-v="C"><span class="opt-id">C</span>性質ごと</button>
+    <span class="sw-sep"></span>
+    <span class="sw-label">札</span>
+    <button class="sw" data-set="place" data-v="P1"><span class="opt-id place">P1</span>ヘッダ</button>
+    <button class="sw" data-set="place" data-v="P2"><span class="opt-id place">P2</span>サイドバー</button>
+    <span class="sw-sep"></span>
+    <span class="sw-label">場面</span>
+    <button class="sw" data-set="scene" data-v="settings">設定の節</button>
+    <button class="sw" data-set="scene" data-v="first">初回の突き合わせ</button>
+    <span class="sw-sep"></span>
+    <button class="sw act" id="arrive">届く</button>
+    <button class="sw" id="reset">はじめから</button>
+  </nav>
+
+  <div class="opt-h"><h2 id="cap-h"></h2></div>
+  <p class="opt-d" id="cap-d"></p>
+  <div class="frame-wrap" id="wrap"><div class="frame" id="frame"></div></div>
+
+  <div class="motion">
+    <div><b>切・確認・自動</b>つまみが横に滑り、色が替わる（resizeFrom の長さ <code>--dur</code>）。切にした行は名前が薄くなる。</div>
+    <div><b>自動で走るコードを自動にするとき</b>行の下に 1 文の帯が開く（growIn）。「やめる」で閉じる（collapseOut）。</div>
+    <div><b>束が届いたとき</b>札が膨らんで出る。数が変わるときは数字だけ下から差し替わる（<code>--dur-swap</code>）。右の履歴の先頭に 1 回分が立ち上がる。</div>
+    <div><b>履歴を開く・戻す</b>1 回分を開くと高さが伸びる。戻した項目は線が引かれ、残りが無くなると札が縮んで消える。</div>
+    <div><b>B の列を移す</b>チップを引きずるか ‹ › で、新しい位置へ滑って動く（FLIP）。</div>
+    <div><b>初回の突き合わせ</b>背景が薄く暗くなり、ダイアログが下から立ち上がる。「全部手元」「全部相手」は各行のつまみがそろって動く。</div>
+  </div>
+</div>
+
+<script>
+const ICONS = {
+  home: '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+  folder: '<path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+  alert: '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+  down: '<path d="M12 4v12M6 11l6 6 6-6M5 20h14"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  bolt: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
+  chev: '<path d="M9 6l6 6-6 6"/>',
+  left: '<path d="M15 6l-6 6 6 6"/>',
+  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
+  chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
+  doc: '<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/>',
+  spark: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',
+  brain: '<path d="M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 6 1V5a3 3 0 0 0-3-1z"/><path d="M15 4a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-6 1"/>',
+  sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  up: '<path d="M12 20V8M6 13l6-6 6 6M5 4h14"/>',
+};
+const ic = (n, cls = 'icon') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n]}</svg>`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/* 種類。名前は packages/shared/src/i18n/ja/configSyncUi.ts の kind.* から。n は手元の項目の数の例。 */
+const KINDS = [
+  { id: 'transcript', name: '会話の本文', agent: 'conv', nature: 'conv', n: 1284, two: true },
+  { id: 'claude-md', name: 'CLAUDE.md', agent: 'claude', nature: 'instr', n: 1 },
+  { id: 'settings', name: 'settings.json のキー', agent: 'claude', nature: 'conf', n: 18 },
+  { id: 'keybindings', name: 'keybindings.json', agent: 'claude', nature: 'conf', n: 1 },
+  { id: 'skills', name: 'スキル', agent: 'claude', nature: 'skill', n: 42, links: ['benkyo'] },
+  { id: 'commands', name: 'コマンド', agent: 'claude', nature: 'skill', n: 9 },
+  { id: 'agents', name: 'エージェント', agent: 'claude', nature: 'skill', n: 4 },
+  { id: 'memory', name: 'メモリ', agent: 'claude', nature: 'mem', n: 311 },
+  { id: 'claude-mcp', name: 'Claude の MCP サーバー', agent: 'claude', nature: 'exec', n: 6, exec: true },
+  { id: 'claude-hooks', name: 'Claude のフック', agent: 'claude', nature: 'exec', n: 5, exec: true },
+  { id: 'claude-statusline', name: 'Claude のステータス行', agent: 'claude', nature: 'exec', n: 1, exec: true },
+  { id: 'plugins', name: 'プラグイン', agent: 'claude', nature: 'exec', n: 3, exec: true },
+  { id: 'codex-file', name: 'Codex のファイル', agent: 'codex', nature: 'instr', n: 7 },
+  { id: 'codex-config', name: 'Codex の設定', agent: 'codex', nature: 'conf', n: 4 },
+  { id: 'codex-mcp', name: 'Codex の MCP サーバー', agent: 'codex', nature: 'exec', n: 2, exec: true },
+  { id: 'opencode-file', name: 'opencode のファイル', agent: 'opencode', nature: 'instr', n: 3 },
+  { id: 'opencode-config', name: 'opencode の設定', agent: 'opencode', nature: 'conf', n: 5 },
+  { id: 'opencode-cli', name: 'opencode の CLI 設定', agent: 'opencode', nature: 'conf', n: 1 },
+  { id: 'opencode-mcp', name: 'opencode の MCP サーバー', agent: 'opencode', nature: 'exec', n: 2, exec: true },
+  { id: 'agents-skills', name: '共通のスキル', agent: 'shared', nature: 'skill', n: 6 },
+  { id: 'hangar-pref', name: 'Hangar の好み', agent: 'shared', nature: 'conf', n: 3 },
+];
+const BY_AGENT = [['conv', null, 'chat'], ['claude', 'Claude Code'], ['codex', 'Codex'], ['opencode', 'opencode'], ['shared', '共通']];
+const BY_NATURE = [['conv', null, 'chat'], ['instr', '指示', 'doc'], ['skill', 'スキルとコマンド', 'spark'], ['mem', '記憶', 'brain'], ['conf', '設定', 'sliders'], ['exec', '自動で走るコード', 'bolt']];
+const W = 42;
+const STATES = [['off', '切'], ['confirm', '確認'], ['auto', '自動']];
+const defaults = () => Object.fromEntries(KINDS.map((k) => [k.id, k.exec ? 'confirm' : 'auto']));
+
+/* 届く束の例。11/13 21:07 に Mac から届いた束（zentei を含む）と、その前の回。 */
+const seedHistory = () => [
+  { id: 'b0', when: '11/12 09:41', from: 'MacBook', items: [
+    { kind: 'メモリ', name: 'project-sidebar-row-hang.md', op: 'create' },
+    { kind: 'メモリ', name: 'MEMORY.md', op: 'overwrite' },
+    { kind: 'settings.json のキー', name: 'permissions.allow', op: 'overwrite' },
+  ] },
+  { id: 'b1', when: '11/10 22:15', from: 'MacBook', items: [
+    { kind: 'コマンド', name: 'ship.md', op: 'delete' },
+    { kind: 'CLAUDE.md', name: 'CLAUDE.md', op: 'overwrite' },
+  ] },
+];
+const ARRIVAL = { id: 'b2', when: '11/13 21:07', from: 'MacBook', items: [
+  { kind: 'スキル', name: 'zentei', op: 'create' },
+  { kind: 'スキル', name: 'gemini-consult', op: 'overwrite' },
+  { kind: 'CLAUDE.md', name: 'CLAUDE.md', op: 'overwrite' },
+  { kind: 'メモリ', name: 'MEMORY.md', op: 'overwrite' },
+], ask: [{ kind: 'Claude のフック', name: 'PreToolUse · context-guard' }], conflict: [{ kind: 'keybindings.json', name: 'keybindings.json' }] };
+
+const DIFFS = [
+  { name: 'CLAUDE.md', kind: 'CLAUDE.md', mine: '11/02 更新', theirs: '11/13 更新' },
+  { name: 'settings.json · model', kind: 'settings.json のキー', mine: 'opus', theirs: 'sonnet' },
+  { name: 'skills/playwright', kind: 'スキル', mine: '3 ファイル', theirs: '4 ファイル' },
+  { name: 'commands/review.md', kind: 'コマンド', mine: '10/20 更新', theirs: '10/28 更新' },
+  { name: 'keybindings.json', kind: 'keybindings.json', mine: '2 個', theirs: '5 個' },
+  { name: 'memory/MEMORY.md', kind: 'メモリ', mine: '148 行', theirs: '154 行' },
+];
+
+const S = { layout: 'C', place: 'P1', scene: 'settings', kinds: defaults(), pendingExec: null, linkOpen: null, history: seedHistory(), ask: [], conflict: [], quiet: 0, openBatch: null, take: {} };
+const params = new URLSearchParams(location.search);
+for (const k of ['layout', 'place', 'scene']) if (params.get(k)) S[k] = params.get(k);
+
+const CAP = {
+  A: ['A エージェントごと', '会話の本文を先頭に置き、その下を Claude Code・Codex・opencode・共通に分ける。自動で走るコードは各束の中に混ざり、行の名前の前の <b>稲妻</b>だけが目印になる。'],
+  B: ['B 状態の列', '切・確認・自動の 3 列に種類のチップを置く。どこに置いたかがそのまま状態。チップを引きずるか ‹ › で列を移す。既定では「確認」の列に自動で走るコードだけが並ぶ。'],
+  C: ['C 性質ごと', '中身の性質で束ね、束の見出しにも切り替えを置く（束の中が揃っていないとつまみが消える）。<b>自動で走るコード</b>は色の付いた束にまとまり、ここだけ既定が確認。'],
+  first: ['初回の突き合わせ', '設定の同期を初めて入れた PC で開く。片方にしか無いものは左に件数だけ出し、自動で書き足す・送る。中身の違うものだけ右に並べ、行ごとに手元か相手かを選ぶ。'],
+};
+
+const tri = (id, state, two, extra = '') => {
+  const opts = two ? [STATES[0], STATES[2]] : STATES;
+  const idx = Math.max(0, opts.findIndex(([v]) => v === state));
+  const mixed = state === 'mixed';
+  return `<span class="tri" data-n="${opts.length}" data-s="${state}" ${mixed ? 'data-mixed' : ''} ${extra}><span class="tri-thumb" style="transform:translateX(${idx * W}px)"></span>${opts.map(([v, l]) => `<button type="button" data-tri="${id}" data-v="${v}" aria-pressed="${v === state}">${l}</button>`).join('')}</span>`;
+};
+const kindRow = (k) => {
+  const s = S.kinds[k.id];
+  const link = k.links ? `<button class="link" data-link="${k.id}" title="リンク">${ic('link')}${k.links.length}</button>` : '';
+  const execMark = k.exec && S.layout === 'A' ? `<span class="kr-exec">${ic('bolt')}</span>` : '';
+  return `<div class="kr" data-s="${s}" data-k="${k.id}"><span class="kr-t">${execMark}<span class="kr-name">${esc(k.name)}</span><span class="kr-n">${k.n.toLocaleString()}</span>${link}</span>${tri(k.id, s, k.two)}</div>
+    <div class="reveal" ${S.linkOpen === k.id ? 'data-open' : ''} data-reveal-link="${k.id}"><div><div class="link-pop">${(k.links || []).map((n) => `<code>skills/${n}</code>`).join('')}</div></div></div>
+    <div class="reveal" ${S.pendingExec === k.id ? 'data-open' : ''} data-reveal-exec="${k.id}"><div><div class="strip">${ic('alert')}<span>ほかの PC から届いた${esc(S.pendingGroup ? '自動で走るコード' : k.name)}が、確認なしでこの PC で動きます。</span><span class="sp"></span><button class="btn" data-exec-cancel>やめる</button><button class="btn btn-primary" data-exec-ok="${k.id}">自動にする</button></div></div></div>`;
+};
+const groupState = (ks) => { const v = new Set(ks.map((k) => S.kinds[k.id])); return v.size === 1 ? [...v][0] : 'mixed'; };
+
+const cols = (groups, split, fn) => `<div class="klist"><div class="kcol">${groups.slice(0, split).map(fn).join('')}</div><div class="kcol">${groups.slice(split).map(fn).join('')}</div></div>`;
+function listA() {
+  return cols(BY_AGENT, 2, ([g, label]) => {
+    const ks = KINDS.filter((k) => k.agent === g);
+    return `<div class="kgroup">${label ? `<div class="kh">${label}</div>` : ''}${ks.map(kindRow).join('')}</div>`;
+  });
+}
+function listC() {
+  return cols(BY_NATURE, 4, ([g, label, icon]) => {
+    const ks = KINDS.filter((k) => k.nature === g);
+    const head = label ? `<div class="kh">${ic(icon)}${label}${ks.length > 1 ? tri('group:' + g, groupState(ks), false) : ''}</div>` : '';
+    return `<div class="kgroup" ${g === 'exec' ? 'data-exec' : ''}>${head}${ks.map(kindRow).join('')}</div>`;
+  });
+}
+function listB() {
+  const col = ([s, l]) => {
+    const ks = KINDS.filter((k) => S.kinds[k.id] === s);
+    const sub = BY_AGENT.map(([g, label]) => {
+      const gk = ks.filter((k) => k.agent === g);
+      if (!gk.length) return '';
+      return (label ? `<div class="bsub">${label}</div>` : '') + gk.map((k) => {
+        const i = STATES.findIndex(([v]) => v === s);
+        const canL = k.two ? s === 'auto' : i > 0, canR = k.two ? s === 'off' : i < 2;
+        return `<div class="chip" draggable="true" data-chip="${k.id}">${k.exec ? `<span class="kr-exec">${ic('bolt')}</span>` : ''}<span class="kr-name">${esc(k.name)}</span>${k.links ? `<button class="link" data-link="${k.id}">${ic('link')}${k.links.length}</button>` : ''}<span class="kr-n">${k.n.toLocaleString()}</span><span class="mv"><button data-move="${k.id}" data-d="-1" ${canL ? '' : 'disabled'}>${ic('left')}</button><button data-move="${k.id}" data-d="1" ${canR ? '' : 'disabled'}>${ic('chev')}</button></span></div>`;
+      }).join('');
+    }).join('');
+    return `<div class="bcol" data-s="${s}" data-col="${s}"><div class="bcol-h">${l}<span class="n">${ks.length}</span></div>${sub}</div>`;
+  };
+  const pending = S.pendingExec ? KINDS.find((k) => k.id === S.pendingExec) : null;
+  return `<div class="reveal" ${pending ? 'data-open' : ''}><div><div class="strip">${ic('alert')}<span>ほかの PC から届いた${esc(pending ? pending.name : '')}が、確認なしでこの PC で動きます。</span><span class="sp"></span><button class="btn" data-exec-cancel>やめる</button><button class="btn btn-primary" data-exec-ok="${pending ? pending.id : ''}">自動にする</button></div></div></div>`
+    + `<div class="reveal" ${S.linkOpen ? 'data-open' : ''}><div><div class="link-pop">${(KINDS.find((k) => k.id === S.linkOpen)?.links || []).map((n) => `<code>skills/${n}</code>`).join('')}</div></div></div>`
+    + `<div class="board">${STATES.map(col).join('')}</div>`;
+}
+
+const counts = (placeAttr) => {
+  const ask = S.ask.length + S.conflict.length;
+  return `<span class="nav-end" data-counts>${ask ? `<span class="cnt" data-k="ask" data-cnt="ask">${ic('alert')}<span class="cnt-n">${ask}</span></span>` : ''}${S.quiet ? `<span class="cnt" data-k="quiet" data-cnt="quiet">${ic('down')}<span class="cnt-n">${S.quiet}</span></span>` : ''}</span>`;
+};
+
+function inboxCard() {
+  const ask = S.ask.length || S.conflict.length ? `<div class="inbox-g ask-g rise-in">
+      ${S.ask.length ? `<div class="ig-h">${ic('alert')}確認<span class="end"><button class="btn" data-ask-skip>見送る</button><button class="btn btn-primary" data-ask-ok>適用</button></span></div>${S.ask.map((a) => `<div class="it"><span class="it-t">${esc(a.name)}</span><span class="it-k">${esc(a.kind)}</span></div>`).join('')}` : ''}
+      ${S.conflict.length ? `<div class="ig-h">競合</div>${S.conflict.map((c, i) => `<div class="it"><span class="it-t">${esc(c.name)}</span>${tri2('take:' + i, S.take['c' + i] || 'off')}<button class="btn btn-primary" data-conflict-ok="${i}">決める</button></div>`).join('')}` : ''}
+    </div>` : '';
+  const batches = S.history.map((b, bi) => {
+    const kinds = [...new Set(b.items.map((x) => x.kind))];
+    const open = S.openBatch === b.id;
+    const left = b.items.filter((x) => !x.undone).length;
+    return `<div class="batch ${b.fresh ? 'rise-in flash' : ''}" ${open ? 'data-open' : ''} data-batch="${b.id}">
+      <button class="batch-h" data-toggle-batch="${b.id}">${ic('chev', 'icon chev')}<span class="batch-when">${b.when}</span><span class="batch-from">${b.from}</span><span class="batch-kinds">${kinds.map(esc).join('、')}</span></button>
+      <div class="reveal" ${open ? 'data-open' : ''}><div class="batch-body">${b.items.map((x, i) => `<div class="it" ${x.undone ? 'data-undone' : ''}><span class="op" data-op="${x.op}">${{ create: '+', overwrite: '~', delete: '−' }[x.op]}</span><span class="it-t">${esc(x.name)}</span><span class="it-k">${esc(x.kind)}</span><button class="btn btn-ghost" data-undo="${b.id}:${i}" title="戻す">${ic('undo')}</button></div>`).join('')}
+        <div class="acts">${left ? `<button class="btn" data-undo-batch="${b.id}">${ic('undo')}まとめて戻す</button>` : ''}</div></div></div>
+    </div>`;
+  }).join('');
+  return `<section class="card"><h3 class="card-h">届いたもの</h3>${ask}<div class="inbox-g">${batches}</div></section>`;
+}
+
+function firstDialog() {
+  const rows = DIFFS.map((d, i) => `<div class="dr"><span class="dr-t">${esc(d.name)}<small>${esc(d.kind)}</small></span><span class="it-k" style="width:70px;text-align:right">${esc(d.mine)}</span>${tri2('first:' + i, S.take['f' + i] || 'mine')}<span class="it-k" style="width:70px">${esc(d.theirs)}</span></div>`).join('');
+  return `<div class="scrim in"><div class="dlg" role="dialog">
+    <div class="dlg-h">MacBook と合わせる<span class="end"><button class="btn" data-first-all="mine">全部手元</button><button class="btn" data-first-all="theirs">全部相手</button></span></div>
+    <div class="dlg-b">
+      <div class="side-sum">
+        <div class="ss"><div class="ss-row">${ic('down')}この PC に書き足す</div><div class="ss-n">27</div></div>
+        <div class="ss"><div class="ss-row">${ic('up')}MacBook へ送る</div><div class="ss-n">4</div></div>
+        <div class="ss"><div class="ss-row">${ic('link')}リンクで外した</div><div class="ss-n">1</div></div>
+      </div>
+      <div class="diff-list">${rows}</div>
+    </div>
+    <div class="dlg-f"><span class="sp"></span><button class="btn" data-first-close>あとで</button><button class="btn btn-primary" data-first-close>合わせる</button></div>
+  </div></div>`;
+}
+
+function render(anim = {}) {
+  for (const b of document.querySelectorAll('.sw[data-set]')) b.setAttribute('aria-pressed', String(S[b.dataset.set] === b.dataset.v));
+  const cap = S.scene === 'first' ? CAP.first : CAP[S.layout];
+  document.getElementById('cap-h').textContent = cap[0] + ' · ' + (S.place === 'P1' ? 'P1 ヘッダ' : 'P2 サイドバー');
+  document.getElementById('cap-d').innerHTML = cap[1];
+  // 3 つの切り替えの横幅を残すため、書き直す前に今のつまみの位置を覚え、書き直した後にそこから滑らせる。
+  const before = {};
+  for (const t of document.querySelectorAll('#frame .tri-thumb')) { const b = t.parentElement.querySelector('button'); if (b) before[b.dataset.tri] = t.style.transform; }
+  const chipsBefore = {};
+  for (const c of document.querySelectorAll('#frame [data-chip]')) chipsBefore[c.dataset.chip] = c.getBoundingClientRect();
+  const list = S.layout === 'A' ? listA() : S.layout === 'B' ? listB() : listC();
+  const f = document.getElementById('frame');
+  f.innerHTML = `<div class="shell">
+    <header class="header"><span class="lights"><i></i><i></i><i></i></span><span class="brand">Hangar</span><span class="search-pill">${ic('search')}検索</span>
+      <span class="header-end"><span class="hsync"><span class="hsync-dot"></span>同期済み${S.place === 'P1' ? counts() : ''}</span><span class="gauges">5h<span class="gauge-bar"><i style="width:34%"></i></span>週<span class="gauge-bar"><i style="width:58%"></i></span></span></span></header>
+    <nav class="sidebar">
+      <div class="nav-item">${ic('home')}ホーム</div><div class="nav-item">${ic('folder')}プロジェクト</div>
+      <section class="side-live"><div class="side-live-h">実行中</div><div class="side-live-row"><i></i>設定の同期の試作</div><div class="side-live-row"><i></i>README の撮り直し</div></section>
+      <div class="side-foot"><div class="nav-item" aria-current="page">${ic('gear')}設定${S.place === 'P2' ? counts() : ''}</div></div>
+    </nav>
+    <main class="main">
+      <div class="page-title"><h1>設定</h1><span class="subnav"><span>一般</span><span>エージェント</span><span aria-current="true">同期</span><span>通知</span><span>アカウント</span></span></div>
+      <div class="cols">
+        <div>
+          <section class="card"><div class="set-row"><span class="set-row-t">クラウド同期</span><span class="pcs"><span><i></i>この Windows</span><span><i></i>MacBook</span></span><span class="tog"></span></div>
+            <div style="margin-top:10px">${list}</div></section>
+        </div>
+        <div>${inboxCard()}</div>
+      </div>
+    </main>
+    ${S.scene === 'first' ? firstDialog() : ''}
+  </div>`;
+  for (const t of f.querySelectorAll('.tri-thumb')) {
+    const b = t.parentElement.querySelector('button'); const key = b && b.dataset.tri;
+    if (key && before[key] !== undefined && before[key] !== t.style.transform) { const to = t.style.transform; t.style.transition = 'none'; t.style.transform = before[key]; t.getBoundingClientRect(); t.style.transition = ''; t.style.transform = to; }
+  }
+  for (const c of f.querySelectorAll('[data-chip]')) {
+    const a = chipsBefore[c.dataset.chip]; if (!a) continue; const b = c.getBoundingClientRect(); const scale = currentScale();
+    const dx = (a.left - b.left) / scale, dy = (a.top - b.top) / scale; if (!dx && !dy) continue;
+    c.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 420, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+  }
+  if (anim.counts) for (const [k, kind] of Object.entries(anim.counts)) { const el = f.querySelector(`[data-cnt="${k}"]`); if (el) el.classList.add(kind === 'in' ? 'pop-in' : 'swap-num'); if (el && kind === 'swap') el.querySelector('.cnt-n').classList.add('swap-in'); }
+  for (const b of S.history) b.fresh = false;
+  fit();
+}
+const currentScale = () => { const f = document.getElementById('frame'); const m = /scale\(([\d.]+)\)/.exec(f.style.transform); return m ? Number(m[1]) : 1; };
+function fit() {
+  const w = document.getElementById('wrap'), f = document.getElementById('frame');
+  const s = Math.min(1, w.clientWidth / 1280); f.style.transform = `scale(${s})`; w.style.height = 800 * s + 'px';
+}
+addEventListener('resize', fit);
+
+/* 札を縮めて消してから書き直す。消える札だけに collapseOut を当てる。 */
+function withExit(sel, then) {
+  const els = [...document.querySelectorAll(sel)];
+  if (!els.length) return then();
+  els.forEach((e) => e.classList.add('pop-out'));
+  setTimeout(then, 250);
+}
+const setKind = (id, v) => {
+  const k = KINDS.find((x) => x.id === id);
+  if (k && k.exec && v === 'auto' && S.kinds[id] !== 'auto') { S.pendingExec = id; render(); return; }
+  S.pendingExec = null; S.pendingGroup = null; S.kinds[id] = v; render();
+};
+const countsBefore = () => ({ ask: S.ask.length + S.conflict.length, quiet: S.quiet });
+const countAnim = (b) => { const a = countsBefore(); const o = {}; for (const k of ['ask', 'quiet']) { if (!b[k] && a[k]) o[k] = 'in'; else if (b[k] && a[k] && b[k] !== a[k]) o[k] = 'swap'; } return o; };
+function afterChange(b) {
+  const a = countsBefore();
+  const exits = ['ask', 'quiet'].filter((k) => b[k] && !a[k]).map((k) => `#frame [data-cnt="${k}"]`).join(',');
+  if (exits) withExit(exits, () => render({ counts: countAnim(b) })); else render({ counts: countAnim(b) });
+}
+
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button'); if (!t) return;
+  if (t.dataset.set) { S[t.dataset.set] = t.dataset.v; S.pendingExec = null; render(); return; }
+  if (t.id === 'reset') { Object.assign(S, { kinds: defaults(), pendingExec: null, linkOpen: null, history: seedHistory(), ask: [], conflict: [], quiet: 0, openBatch: null, take: {} }); render(); return; }
+  if (t.id === 'arrive') {
+    if (S.history.some((b) => b.id === 'b2')) return;
+    const b = countsBefore();
+    const batch = JSON.parse(JSON.stringify(ARRIVAL)); batch.fresh = true;
+    S.history.unshift({ id: batch.id, when: batch.when, from: batch.from, items: batch.items, fresh: true });
+    S.ask = batch.ask; S.conflict = batch.conflict; S.quiet += batch.items.length;
+    afterChange(b); return;
+  }
+  if (t.dataset.tri) {
+    const key = t.dataset.tri, v = t.dataset.v;
+    if (key.startsWith('group:')) { const g = key.slice(6); const ks = KINDS.filter((k) => k.nature === g); if (g === 'exec' && v === 'auto' && ks.some((k) => S.kinds[k.id] !== 'auto')) { S.pendingExec = ks[0].id; S.pendingGroup = g; render(); return; } ks.forEach((k) => (S.kinds[k.id] = v)); S.pendingExec = null; render(); return; }
+    if (key.startsWith('take:')) { S.take['c' + key.slice(5)] = v; render(); return; }
+    if (key.startsWith('first:')) { S.take['f' + key.slice(6)] = v; render(); return; }
+    setKind(key, v); return;
+  }
+  if (t.dataset.execOk !== undefined) { const id = t.dataset.execOk; if (S.pendingGroup) { KINDS.filter((k) => k.nature === S.pendingGroup).forEach((k) => (S.kinds[k.id] = 'auto')); S.pendingGroup = null; } else S.kinds[id] = 'auto'; S.pendingExec = null; render(); return; }
+  if (t.dataset.execCancel !== undefined) { S.pendingExec = null; S.pendingGroup = null; render(); return; }
+  if (t.dataset.link) { S.linkOpen = S.linkOpen === t.dataset.link ? null : t.dataset.link; render(); return; }
+  if (t.dataset.move) { const k = KINDS.find((x) => x.id === t.dataset.move); const order = k.two ? ['off', 'auto'] : STATES.map(([v]) => v); const i = order.indexOf(S.kinds[k.id]) + Number(t.dataset.d); if (order[i]) setKind(k.id, order[i]); return; }
+  if (t.dataset.toggleBatch) {
+    const id = t.dataset.toggleBatch; const b = countsBefore();
+    S.openBatch = S.openBatch === id ? null : id;
+    if (S.openBatch && S.quiet) { S.quiet = 0; afterChange(b); return; }
+    // 開き閉じは書き直さず、その場の reveal だけを切り替えて動かす。
+    const el = document.querySelector(`#frame [data-batch="${id}"]`);
+    document.querySelectorAll('#frame .batch').forEach((x) => { const open = x === el && S.openBatch === id; x.toggleAttribute('data-open', open); x.querySelector('.reveal').toggleAttribute('data-open', open); });
+    return;
+  }
+  if (t.dataset.undo) { const [bid, i] = t.dataset.undo.split(':'); S.history.find((b) => b.id === bid).items[Number(i)].undone = true; render(); return; }
+  if (t.dataset.undoBatch) { S.history.find((b) => b.id === t.dataset.undoBatch).items.forEach((x) => (x.undone = true)); render(); return; }
+  if (t.dataset.askOk !== undefined || t.dataset.askSkip !== undefined) { const b = countsBefore(); S.ask = []; afterChange(b); return; }
+  if (t.dataset.conflictOk !== undefined) { const b = countsBefore(); S.conflict.splice(Number(t.dataset.conflictOk), 1); afterChange(b); return; }
+  if (t.dataset.firstAll) { DIFFS.forEach((_, i) => (S.take['f' + i] = t.dataset.firstAll)); render(); return; }
+  if (t.dataset.firstClose !== undefined) { const s = document.querySelector('#frame .scrim'); s.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 250, easing: 'cubic-bezier(0.4, 0, 1, 1)' }).onfinish = () => { S.scene = 'settings'; render(); }; return; }
+});
+
+/* 初回と競合のつまみは「手元・相手」の 2 つ。3 つの切り替えの部品を借り、文字だけ替える。 */
+const tri2 = (id, state) => {
+  const opts = [['mine', '手元'], ['theirs', '相手']]; const idx = Math.max(0, opts.findIndex(([v]) => v === state));
+  return `<span class="tri" data-n="2" data-s="${state === 'theirs' ? 'auto' : 'off'}" ${state === 'off' ? 'data-mixed' : ''}><span class="tri-thumb" style="transform:translateX(${idx * W}px)"></span>${opts.map(([v, l]) => `<button type="button" data-tri="${id}" data-v="${v}" aria-pressed="${v === state}">${l}</button>`).join('')}</span>`;
+};
+
+/* B の列：引きずって移す。 */
+let dragId = null;
+document.addEventListener('dragstart', (e) => { const c = e.target.closest('[data-chip]'); if (c) { dragId = c.dataset.chip; e.dataTransfer.effectAllowed = 'move'; } });
+document.addEventListener('dragover', (e) => { const col = e.target.closest('[data-col]'); if (col && dragId) { e.preventDefault(); document.querySelectorAll('#frame [data-col]').forEach((x) => x.toggleAttribute('data-over', x === col)); } });
+document.addEventListener('drop', (e) => { const col = e.target.closest('[data-col]'); if (col && dragId) { e.preventDefault(); const k = KINDS.find((x) => x.id === dragId); const v = col.dataset.col; if (!(k.two && v === 'confirm')) setKind(dragId, v); } dragId = null; });
+document.addEventListener('dragend', () => { dragId = null; document.querySelectorAll('#frame [data-col]').forEach((x) => x.removeAttribute('data-over')); });
+
+render();
+if (params.get('arrive')) document.getElementById('arrive').click();
+if (params.get('open')) setTimeout(() => document.querySelector(`[data-toggle-batch="${params.get('open')}"]`)?.click(), 400);
+</script>
+</body>
+</html>
