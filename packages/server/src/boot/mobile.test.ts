@@ -30,6 +30,7 @@ const linkOf = (client: CloudClient, url = 'https://w.example'): MobileLink => (
 class FakeEngine {
   readonly listeners = new Set<SyncListener>();
   readonly pullNow = vi.fn(async () => ({ applied: 0 }));
+  readonly pullAfterBell = vi.fn(async () => ({ applied: 0 }));
   on(l: SyncListener): () => void { this.listeners.add(l); return () => { this.listeners.delete(l); }; }
   emitLaunches(l: MobileLaunchOut[]): void { for (const x of [...this.listeners]) x.launches?.(l); }
 }
@@ -608,7 +609,7 @@ describe('bootMobile', () => {
     const cleanups: (() => Promise<void> | void)[] = [];
     afterEach(async () => { for (const c of cleanups.splice(0)) await c(); });
 
-    it('Worker の版が 8 以上でスマホが 1 台以上あれば、Bearer と互換の版でつなぐ。鳴ったら今の engine の pullNow を呼ぶ', async () => {
+    it('Worker の版が 8 以上でスマホが 1 台以上あれば、Bearer と互換の版でつなぐ。鳴ったら今の engine の pullAfterBell を呼ぶ', async () => {
       const s = await bellSetup();
       cleanups.push(() => s.mobile.stop(), () => s.w.close());
       s.mobile.start();
@@ -616,7 +617,7 @@ describe('bootMobile', () => {
       expect(s.w.attempts[0]!.authorization).toBe('Bearer pc-token');
       expect(s.w.attempts[0]![COMPAT_HEADER]).toBe(String(COMPAT_VERSION));
       s.w.open()[0]!.send(JSON.stringify({ t: 'launch' }));
-      await settle(() => s.engine().pullNow.mock.calls.length === 1);
+      await settle(() => s.engine().pullAfterBell.mock.calls.length === 1);
     });
 
     it(`Worker の版が ${MOBILE_BELL_MIN_WORKER_COMPAT} 未満ならつながない`, async () => {
@@ -671,12 +672,12 @@ describe('bootMobile', () => {
       await settle(() => s.w.open().length === 1);
       const ws = s.w.open()[0]!;
       ws.send(JSON.stringify({ t: 'peer', kind: 'launch', id: 'r1' }));
-      await settle(() => s.engine().pullNow.mock.calls.length === 1);
+      await settle(() => s.engine().pullAfterBell.mock.calls.length === 1);
       ws.send(JSON.stringify({ t: 'peer', kind: 'answer', id: 'r1' }));
       ws.send(JSON.stringify({ t: 'peer', kind: 'result', id: 'r1' }));
       await settle(() => seen.length === 2);
       expect(seen).toEqual([['answer', 'r1'], ['result', 'r1']]);
-      expect(s.engine().pullNow.mock.calls.length).toBe(1);
+      expect(s.engine().pullAfterBell.mock.calls.length).toBe(1);
     });
 
     describe('外のできごとの受け箱（#563）', () => {
