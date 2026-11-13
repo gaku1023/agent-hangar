@@ -121,6 +121,15 @@ describe('束を送る', () => {
     expect(a.db.prepare('select count(*) n from config_snapshots').get()).toEqual({ n: 0 });
   });
 
+  it('dto の linkSkipped は、最後に集めた結果のリンクで外した項目を返す', async () => {
+    const a = pc('dev-a', 'mac');
+    expect(a.service.dto().linkSkipped).toEqual({});
+    a.write('skills/plain/SKILL.md', 'x');
+    fs.symlinkSync(a.home, path.join(a.claudeDir, 'skills', 'benkyo'));
+    await a.service.send();
+    expect(a.service.dto().linkSkipped).toEqual({ skills: ['skills/benkyo'] });
+  });
+
   it('設定のファイルの鍵名に相対パスが無い', async () => {
     const a = pc('dev-a', 'mac');
     a.write('CLAUDE.md', '# rules');
@@ -653,7 +662,7 @@ describe('控えの世代と状態', () => {
 
   it('状態は、切入り、承認の仕方、届いた数、競合、保留、送らなかった数、最後に送った時刻を持つ', async () => {
     const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
-    expect(a.service.dto()).toEqual({ enabled: true, approval: 'each', workerPending: false, incoming: 0, conflicts: 0, held: 0, unsent: 0, unknownKeyCount: 0, backups: 0, applyOrder: null, lastSentAt: null });
+    expect(a.service.dto()).toEqual({ enabled: true, approval: 'each', workerPending: false, incoming: 0, conflicts: 0, held: 0, unsent: 0, unknownKeyCount: 0, backups: 0, applyOrder: null, lastSentAt: null, linkSkipped: {} });
     a.write('CLAUDE.md', 'a'); a.write('commands/x.md', 'a');
     b.write('commands/x.md', 'b');
     await sync(a, b);
