@@ -1,9 +1,9 @@
 import { asideOf } from '../lib/aside.ts';
 import { agentIconsOn, agentOfSession } from './agentIcon.ts';
 import { presentSessionMenu, type SessionMenuProps } from './sessionMenu.ts';
-import { type AgentIconKind, type AgentUsageDto, type IndexProgressDto, type LiveStatus, type Route, type SessionDto, type StopReason, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, liveWithLimit, quietLive, resetAtText, stopReasonOf, usageAt } from '@agent-hangar/shared';
+import { type AgentIconKind, type AgentUsageDto, type IndexProgressDto, type LiveStatus, type Route, type SessionDto, type SessionLockDto, type StopReason, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, liveWithLimit, quietLive, resetAtText, stopReasonOf, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
-import { accountList, accountOfSession, currentAccount, hotSessions, liveSessionIds, remoteLockOf, runningSessionIds, sidebarOtherPcsOn, shownReason, unreadOf, unreadTotal, waitingSessionIds, type Store } from '../store/store.ts';
+import { accountList, accountOfSession, currentAccount, hotSessions, liveSessionIds, remoteLockOf, runningSessionIds, sidebarOtherPcsOn, remoteLiveOf, remoteReasonOf, shownReason, unreadOf, unreadTotal, waitingAnywhereIds, type Store } from '../store/store.ts';
 import { codexAccountIdOfSession, presentAccounts, presentAgentUsage, presentCodexAccounts, type AccountGauge, type AccountView, type AgentUsageView } from './accounts.ts';
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
 import { translatorOf, storeLanguage } from './i18n.ts';
@@ -261,10 +261,13 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
   const local = runningSessionIds(store);
   const rowOf = (id: string): SideLiveRow => {
     const s = store.sessions[id]!;
-    // ほかの PC で動いている会話。状態はまだ届かないので、動いているが状態は分からない灰の点（idle）にし、待ちの時間は出さない。
+    // ほかの PC で動いている会話。点と待ちの時間は、その PC が共有の行に載せた状態（lock.live）で決める。
+    // 未知（null）と黙った PC（stale）は、状態が分からない灰の点（idle）にして、待ちの時間も出さない。
     const lock = remoteLockOf(s, local);
     if (lock) {
-      return { id, name: s.name ?? t('common.label.noName'), live: 'idle', aside: false, reason: null, waited: null, current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, lockTitle: t(lock.stale ? 'session.lock.stale' : 'session.lock.running', { device: lock.deviceName }), ...(lock.stale ? { stale: true as const } : {}), ...(icons ? { agent: agentOfSession(store, s) } : {}), ...peerInOf(store, id, t), peer: { name: lock.deviceName, ended: lock.stale } };
+      const shown = quietLive(remoteLiveOf(lock), s.state?.status, s.woke);
+      const reason = remoteReasonOf(lock, shown);
+      return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: false, reason, waited: remoteWaited(t, lock, shown, reason, now), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, lockTitle: t(lock.stale ? 'session.lock.stale' : 'session.lock.running', { device: lock.deviceName }), ...(lock.stale ? { stale: true as const } : {}), ...(icons ? { agent: agentOfSession(store, s) } : {}), ...peerInOf(store, id, t), peer: { name: lock.deviceName, ended: lock.stale } };
     }
     const aside = asideOf(s.live, s.liveAside);
     // 点と「待ち N 分」は、入力待ちの数え方と同じ規則（shownLive）で決める。Done と Archived にした入力待ちは、行は残すが休みとして出す。
@@ -324,6 +327,18 @@ function sideWaited(t: Translate, s: SessionDto, shown: LiveStatus | null, reaso
   if (reason === 'reset') return t('stop.state.reset');
   if (shown !== 'waiting') return null;
   const time = durationLabel(t, now - (s.lastActivityAt ?? now));
+  return reason === 'permission' ? t('stop.waited.permission', { time }) : t('sidebar.live.waited', { time });
+}
+
+/**
+ * ほかの PC の行の右端の語。sideWaited と同じ文言で、待った時間はその PC が入力待ちになった時刻（lock.liveAt）から数える。
+ * 使用制限は、リセットの時刻がこの PC に届かないので出さない。黙った PC には出さない。
+ */
+function remoteWaited(t: Translate, lock: SessionLockDto, shown: LiveStatus | null, reason: StopReason | null, now: number): string | null {
+  if (lock.stale) return null;
+  if (reason === 'reset') return t('stop.state.reset');
+  if (shown !== 'waiting' || typeof lock.liveAt !== 'number') return null;
+  const time = durationLabel(t, Math.max(0, now - lock.liveAt));
   return reason === 'permission' ? t('stop.waited.permission', { time }) : t('sidebar.live.waited', { time });
 }
 
@@ -409,8 +424,8 @@ export function presentShell(state: State, store: Store, now: number, tz?: strin
   // 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。
   const { account, usage } = headerAccount(state, store, now);
   // ホームに入力待ちの数を添える。
-  // 数え方は shared の liveFilterOf に従う（waitingSessionIds）。
-  const waiting = waitingSessionIds(store).length;
+  // 数え方は shared の liveFilterOf に従う（waitingAnywhereIds。ほかの PC で入力待ちの会話も数える。Dock のバッジは別で、この PC の入力待ちだけ）。
+  const waiting = waitingAnywhereIds(store).length;
   const unread = unreadTotal(store);
   const item = (n: NavDef): NavItem => {
     const home = n.route.name === 'home';

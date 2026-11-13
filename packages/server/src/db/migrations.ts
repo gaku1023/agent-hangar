@@ -878,12 +878,25 @@ create table event_hook_orphans (
 `;
 
 /**
- * 版 57。設定の同期の適用の履歴（2026-11-13 の決定 12、13）。手元だけの表で、同期しない。適用 1 回に 1 行。
+ * 版 57。
+ * run の行に、その run の PC が見ている状態を載せる列を足す。
+ * ほかの PC のサイドバーが、点（作業中・入力待ち・休み）と待ちの時間に使う。
+ * live_status は busy、waiting、idle（null は未知）、live_reason は permission、limit、reset（null は理由なし）、live_at はその状態になった時刻である。
+ * 書き手はその run の PC だけで、変わったときだけ書く（runs/liveShare.ts）。
+ */
+const V57_RUN_LIVE_SQL = `
+alter table runs add column live_status text;
+alter table runs add column live_reason text;
+alter table runs add column live_at integer;
+`;
+
+/**
+ * 版 58。設定の同期の適用の履歴（2026-11-13 の決定 12、13）。手元だけの表で、同期しない。適用 1 回に 1 行。
  * mode は auto（届いた束をサーバが自分で適用した）か manual（殻の命令や hangar config apply で人が適用した）。
  * items は適用した項目（id、kind、label、op）の JSON、generations は対象ごとの控えの世代名（target、name）の JSON、undone は戻した項目の id の JSON。
  * seen は既読の印で、自動の適用だけ 0 で始まる（ヘッダの札の数）。from_device は届いた元の端末で、項目の元が 1 つでなければ null。
  */
-const V57_CONFIG_HISTORY_SQL = `
+const V58_CONFIG_HISTORY_SQL = `
 create table config_history (
   id integer primary key autoincrement,
   at integer not null,
@@ -1065,5 +1078,6 @@ export const MIGRATIONS: Migration[] = [
   { version: 54, sql: V54_PEER_OUTBOX_OP_SQL },
   { version: 55, sql: V55_EVENT_BINDINGS_SQL },
   { version: 56, sql: V56_EVENT_HOOK_ORPHANS_SQL },
-  { version: 57, sql: V57_CONFIG_HISTORY_SQL },
+  { version: 57, sql: V57_RUN_LIVE_SQL },
+  { version: 58, sql: V58_CONFIG_HISTORY_SQL },
 ];

@@ -195,6 +195,16 @@ describe('2 台の通し（偽のクラウド）', () => {
     expect((await wire.listDevices()).map((d) => d.id).sort()).toEqual(['dev-a', 'dev-b']);
   });
 
+  it('run の live_status・live_reason・live_at の列が、ほかの PC のロックまで往復する', async () => {
+    await a.engine.start();
+    await b.engine.start();
+    addSession(a, UUID_A);
+    upsertShared(a.db, 'runs', { id: 'r-live', session_id: `s-${UUID_A}`, device_id: 'dev-a', kind: 'start', tmux_name: 't', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1, live_status: 'waiting', live_reason: 'permission', live_at: 77 }, 'dev-a');
+    await a.engine.pushNow();
+    await b.engine.pullNow();
+    expect(b.db.prepare('select live_status, live_reason, live_at from runs where id = ?').get('r-live')).toEqual({ live_status: 'waiting', live_reason: 'permission', live_at: 77 });
+  });
+
   it('参加 → 同期で行とファイルが往復し、偽のクラウドの保存値に表名、行 ID、パス、PC の名前、題の平文が無い', async () => {
     await a.engine.start();
     await b.engine.start();
