@@ -114,7 +114,7 @@ export function bootHttp(p: {
   /** 別の PC への起動の承認待ち（boot/peer.ts）。渡せば、承認の口と、MCP からの承認待ちの預け口を持つ。 */
   peer?: Pick<PeerParts, 'approvals'>;
   /** ほかの PC の会話の頼みを受ける部品（boot/peerChat.ts）。渡せば、bootstrap が預かりを運ぶ。 */
-  peerChat?: { host: Pick<PeerChatHost, 'queued'> };
+  peerChat?: { host: Pick<PeerChatHost, 'queued' | 'local'> };
 }): HttpParts {
   const { home, delivery, sync, indexing, listening, runs, summary, trash, takeover } = p;
   const { db, settings, device } = home;
@@ -262,6 +262,8 @@ export function bootHttp(p: {
     },
     ...(p.peer ? { peerApprovals: p.peer.approvals } : {}),
     ...(p.peerChat ? { peerQueued: () => p.peerChat!.host.queued() } : {}),
+    // 統括がこの PC の会話の札に答える口。ほかの PC の答えと同じ答え手と記録を通す（同じ札に 2 度打たない）。
+    ...(p.peerChat ? { askLocal: p.peerChat.host.local } : {}),
     codexStatus: () => codex.status(),
     opencodeOptions: (dir, o) => p.opencode.options.get(dir, o),
     opencodeProviders: p.opencode.providers,

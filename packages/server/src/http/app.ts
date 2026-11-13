@@ -3,6 +3,7 @@ import path from 'node:path';
 import { Hono } from 'hono';
 import { COMPAT_VERSION, t, type Language, type SyncSkippedDto, type SyncStatusBody } from '@agent-hangar/shared';
 import { createMcpApp } from '../mcp/app.ts';
+import { permissionPolicySaver } from '../mcp/orchestratorTools.ts';
 import { accountsRoutes, type AccountsDeps } from './accounts.ts';
 import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
 import type { AppDeps } from './deps.ts';
@@ -162,7 +163,7 @@ export function createApp(deps: AppDeps): Hono {
   // 別の PC から SSH のトンネル越しに来る入口。PC どうしの token だけを受け、/api の認証は通さない（peer/endpoint.ts）。
   if (deps.peerSsh) app.route('/peer', peerRoutes(deps.peerSsh.endpoint));
   // MCP は自前の認証と Origin の検査を持つので、/api の認証を通さずに直接 mount する。
-  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, trash: deps.trash, usage: () => deps.usage.current(), accounts: deps.accounts, ...(deps.peerCall ? { peer: deps.peerCall } : {}), ...(deps.accounts.codex ? { codexAccounts: deps.accounts.codex.store } : {}), language, settings: deps.settings, saveNotifyPreference: (p) => { const s = deps.updateSettings({ notifyPreference: p }); deps.hub.broadcast({ type: 'settings.changed', settings: toSettingsDto(s), keys: ['notifyPreference'] }); }, openUrl: (u) => deps.external.openUrl(u), ...(deps.permissionAsks ? { permissionAsks: deps.permissionAsks } : {}), ...(deps.asksOf ? { asksOf: deps.asksOf } : {}), ...(deps.holdUnread ? { holdUnread: true } : {}) }));
+  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, trash: deps.trash, usage: () => deps.usage.current(), accounts: deps.accounts, ...(deps.peerCall ? { peer: deps.peerCall } : {}), ...(deps.accounts.codex ? { codexAccounts: deps.accounts.codex.store } : {}), language, settings: deps.settings, saveNotifyPreference: (p) => { const s = deps.updateSettings({ notifyPreference: p }); deps.hub.broadcast({ type: 'settings.changed', settings: toSettingsDto(s), keys: ['notifyPreference'] }); }, savePermissionPolicy: permissionPolicySaver({ updateSettings: deps.updateSettings, broadcast: (ev) => { deps.hub.broadcast(ev); }, toDto: toSettingsDto }), ...(deps.askLocal ? { askLocal: deps.askLocal } : {}), openUrl: (u) => deps.external.openUrl(u), ...(deps.permissionAsks ? { permissionAsks: deps.permissionAsks } : {}), ...(deps.asksOf ? { asksOf: deps.asksOf } : {}), ...(deps.holdUnread ? { holdUnread: true } : {}) }));
 
   if (deps.uiDist) {
     const dist = path.resolve(deps.uiDist);

@@ -50,3 +50,4 @@ export * from './providerPrep.ts';
 export * from './notifyPreference.ts';
 export * from './notifyInjection.ts';
 export * from './orchestrator.ts';
+export * from './permissionPolicy.ts';

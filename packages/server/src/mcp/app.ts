@@ -1,5 +1,6 @@
 import { SCHEDULE_MIN_EVERY_MINUTES } from '@agent-hangar/shared';
-import { AGENT_KINDS } from '@agent-hangar/shared';
+import { AGENT_KINDS, orchestratorOf, permissionPolicyOf } from '@agent-hangar/shared';
+import { createOrchestratorAsks, ORCHESTRATOR_POLICY_RATE, userTurnOf, type OrchestratorAsks } from '../orchestrator/asks.ts';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { Hono, type Context } from 'hono';
@@ -17,7 +18,8 @@ import { execFile } from '../external/open.ts';
 import { realReportDeps } from '../report/real.ts';
 import { ReportService } from '../report/service.ts';
 import { MAX_SCREEN_LINES, MAX_SEND_CHARS } from './screenTools.ts';
-import { callTool,type ToolContext, type ToolDeps } from './tools.ts';
+import { isOrchestratorCtx } from './orchestratorTools.ts';
+import { callTool, notifyUserTool, type ToolContext, type ToolDeps } from './tools.ts';
 import { DEFAULT_WAIT_SECONDS, MAX_WAIT_SECONDS, WAIT_PROGRESS_MS } from './waitTool.ts';
 
 /**
@@ -108,6 +110,14 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   });
   // confirmed を任意にするのは、渡し忘れを SDK の型の失敗でなく、承認を求める断りの文で返すためである。
   reg('submit_issue_report', D(tr('report.tool.submit')), { draft_id: z.string(), confirmed: z.boolean().optional().describe(tr('report.param.confirmed')) });
+  // 統括だけの道具（orchestratorTools.ts）。統括のセッション別 URL のほかには一覧にも出さない。
+  // 引数の検査は道具に任せ、断りの文で足りない所を名指しする。
+  if (isOrchestratorCtx(deps, ctx)) {
+    reg('list_pending_asks', D(tr('mcp.tool.listPendingAsks')), {});
+    reg('answer_ask', D(tr('mcp.tool.answerAsk')), { ask_id: z.string(), option: z.union([z.string(), z.array(z.string())]).describe(tr('mcp.orchestrator.optionParam')), by: z.string().describe(tr('mcp.orchestrator.byParam')), reason: z.string().optional().describe(tr('mcp.orchestrator.reasonParam')), text: z.string().optional().describe(tr('mcp.orchestrator.textParam')) });
+    reg('set_permission_policy', D(tr('mcp.tool.setPermissionPolicy')), { text: z.string().describe(tr('mcp.orchestrator.policyTextParam')), auto_tools: z.array(z.string()).describe(tr('mcp.orchestrator.autoToolsParam')) });
+    reg('list_auto_approvals', D(tr('mcp.tool.listAutoApprovals')), { limit: z.number().int().positive().optional(), since: z.number().optional() });
+  }
   return server;
 }
 
@@ -166,20 +176,46 @@ async function isLongCall(req: Request): Promise<boolean> {
   }
 }
 
+/**
+ * 統括の許可の芯を MCP の依存から組む。方針は呼ぶたびに設定から読む。
+ * 方針の答えが回数の上限に当たったら、統括の会話から利用者へ知らせる（notify_user と同じ道、すぐに出す）。
+ */
+function orchestratorAsksFor(deps: ToolDeps): OrchestratorAsks {
+  const tr = translatorOf(deps.language ?? defaultLanguage);
+  return createOrchestratorAsks({
+    db: deps.db,
+    live: deps.live,
+    local: deps.askLocal ?? null,
+    policy: () => permissionPolicyOf(deps.settings?.().permissionPolicy),
+    userTurn: userTurnOf,
+    onRateLimited: () => {
+      const id = orchestratorOf(deps.settings?.().orchestrator).sessionId;
+      if (id === null) return;
+      try {
+        notifyUserTool(deps, { sessionId: id }, { text: tr('mcp.orchestrator.rateLimited', { max: ORCHESTRATOR_POLICY_RATE }), kind: 'ask' }, Date.now(), { immediate: true });
+      } catch (e) {
+        console.error('[orchestrator] could not notify the rate limit', e instanceof Error ? e.message : e);
+      }
+    },
+  });
+}
+
 /** asksOf を渡さなければ、hook の本文は読まずに 204 を返す。 */
 export function createMcpApp(given: ToolDeps & { token: string; asksOf?: AsksOf }): Hono {
   // 問い合わせの下書きは要求をまたいで残すので、口はアプリに 1 つだけ作る（MCP のサーバは要求ごとに作り直す）。
-  const deps = given.report ? given : {
+  const withReport = given.report ? given : {
     ...given,
     report: new ReportService(realReportDeps({ db: given.db, deviceId: given.deviceId, language: given.language ?? defaultLanguage, openUrl: given.openUrl ?? openWithOs })),
   };
+  // 統括の許可の芯も、答えた札と回数の上限を要求をまたいで覚えるので、アプリに 1 つだけ作る。
+  const deps: typeof withReport = withReport.orchestratorAsks ? withReport : { ...withReport, orchestratorAsks: orchestratorAsksFor(withReport) };
   const app = new Hono();
-  const handle = async (req: Request, sessionId: string | null) => {
+  const handle = async (req: Request, sessionId: string | null, sessionSecret = false) => {
     if (req.method === 'GET') return new Response(null, { status: 405, headers: { allow: 'POST, DELETE' } });
     // 長く待つ道具だけ SSE で返す。Claude Code は POST の応答の見出しを 60 秒しか待たないので、JSON で答えると待っている間に切られる（2.1.316 で実測）。
     const stream = req.method === 'POST' && await isLongCall(req.clone());
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: !stream });
-    await buildMcpServer(deps, { sessionId }).connect(transport);
+    await buildMcpServer(deps, { sessionId, sessionSecret }).connect(transport);
     return transport.handleRequest(req);
   };
   app.all('/', (c) => mcpGuard(c, deps, null) ?? handle(c.req.raw, null));
@@ -189,7 +225,9 @@ export function createMcpApp(given: ToolDeps & { token: string; asksOf?: AsksOf 
     const denied = mcpGuard(c, deps, id);
     if (denied) return denied;
     if (!deps.db.prepare('select 1 from sessions where id = ? and deleted_at is null').get(id)) return c.json({ error: 'session not found' }, 404);
-    return handle(c.req.raw, id);
+    // そのセッションの秘密で開けたか（本体のトークンでないか）。統括だけの道具は、統括の秘密で開けたときだけ出す（orchestratorTools.ts）。
+    const viaSecret = mcpSecretMatches(deps.db, id, tokenFromRequest(c.req.raw.headers, c.req.header('cookie')));
+    return handle(c.req.raw, id, viaSecret);
   });
   /**
    * hook の受け口。hangar が起こしたエージェントの hook（Claude は provider/claude-code/launch/hookSettings.ts）が、台本を通して入力を送ってくる。

@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isCodexInjection, orchestratorOf, type OrchestratorSetting, type CodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isAutoDoneIdleDays, isIdleUnload, isLanguage, isLocalContext, isModelName, isOpencodeInjection, isSummaryEngine, newId, notifyPreferenceOf, type NotifyPreference, providerPrepsOf, terminalAppFor, type AutoDoneIdleDays, type ConfigApproval, isConfigKindsPatch, type ConfigKinds, type EditorSetting, type Language, type OpencodeInjection, type ProviderPrep, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
+import { isCodexInjection, orchestratorOf, permissionPolicyOf, type PermissionPolicy, type OrchestratorSetting, type CodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isAutoDoneIdleDays, isIdleUnload, isLanguage, isLocalContext, isModelName, isOpencodeInjection, isSummaryEngine, newId, notifyPreferenceOf, type NotifyPreference, providerPrepsOf, terminalAppFor, type AutoDoneIdleDays, type ConfigApproval, isConfigKindsPatch, type ConfigKinds, type EditorSetting, type Language, type OpencodeInjection, type ProviderPrep, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
 import { isLoose } from '../platform/secure.ts';
 import { decideLanguage, osDisplayLanguage } from '../i18n/osLanguage.ts';
 import { migrateConfigKinds } from '../sync/config/kindMigration.ts';
@@ -178,6 +178,8 @@ export type Settings = {
   peerChatAcceptFromPeers?: boolean;
   /** 統括（全セッションを統括する常駐の会話）の設定。この PC だけで、同期しない。項目が無いうちは切（orchestratorOf）。 */
   orchestrator?: OrchestratorSetting;
+  /** 統括が自分で許可してよい範囲。この PC だけで、同期しない。無いか null は既定（読み取りと検索だけ、permissionAutoToolsOf）。 */
+  permissionPolicy?: PermissionPolicy | null;
 };
 
 /** 要約器の宛先に既定で許すホスト。 */
@@ -300,6 +302,11 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   if (s.orchestrator !== undefined) {
     if (s.orchestrator !== null && typeof s.orchestrator === 'object' && !Array.isArray(s.orchestrator)) s.orchestrator = orchestratorOf(s.orchestrator);
     else delete s.orchestrator;
+  }
+  // 許可の方針も形を検査する。形の合わないものは項目ごと捨てて既定（読み取りと検索だけ）として読む。広い方へは倒さない。
+  if (s.permissionPolicy !== undefined && s.permissionPolicy !== null) {
+    const pp = permissionPolicyOf(s.permissionPolicy);
+    if (pp) s.permissionPolicy = pp; else delete s.permissionPolicy;
   }
   // 項目が無い設定と知らない言語は、OS に合わせる前の日本語にする。手で書き換えた値を、画面とサーバの辞書引きへそのまま流さない。
   if (!isLanguage(s.language)) s.language = decideLanguage(text, osLanguage).language;

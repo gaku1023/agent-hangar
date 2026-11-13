@@ -911,6 +911,26 @@ create index idx_config_history_at on config_history (at);
 `;
 
 /**
+ * 版 59。統括が許可の方針に沿って自分で出した許可の記録（docs/design.md「統括」）。手元だけの表で、同期しない。答え 1 回に 1 行。
+ * 書いてからキーを打ち、打てなければ消す（記録の無い自動の許可を残さない）。90 日より古い行は書くときに捨てる。
+ * title はその時点の会話の題名、input は道具の主な引数（2000 字まで）、label は押した行、reason は統括が書いた 1 行、policy_text はその時点の方針の言葉（既定のときは null）。
+ */
+const V59_AUTO_APPROVALS_SQL = `
+create table auto_approvals (
+  id text primary key,
+  at integer not null,
+  session_id text not null,
+  title text not null,
+  tool text not null,
+  input text not null,
+  label text not null,
+  reason text not null,
+  policy_text text
+);
+create index idx_auto_approvals_at on auto_approvals (at);
+`;
+
+/**
  * MCP の delete_session の依頼を、利用者が答えるまで預かる表（#547）。手元だけの表で、同期しない。会話 1 つに 1 行。
  */
 const V44_DELETE_APPROVALS_SQL = `
@@ -1080,4 +1100,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 56, sql: V56_EVENT_HOOK_ORPHANS_SQL },
   { version: 57, sql: V57_RUN_LIVE_SQL },
   { version: 58, sql: V58_CONFIG_HISTORY_SQL },
+  { version: 59, sql: V59_AUTO_APPROVALS_SQL },
 ];

@@ -10344,7 +10344,7 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
 全セッションを統括する、常駐の Claude Code の会話である。
 全体の設計は `docs/plans/2026-11-14-orchestrator.md` にある。
 ここには入った分だけを書く。
-今は会話の印、起動、見張りまでで、画面、出来事の送り込み、許可の道具は後の PR で入る。
+今は会話の印、起動、見張り、許可の道具までで、画面と出来事の送り込みは後の PR で入る。
 
 - **設定：** 設定の `orchestrator`（`{ enabled, sessionId, model, effort }`）。
   この PC だけの設定で、同期しない（同期の許可リスト `HANGAR_PREF_KEYS` に入れない）。
@@ -10378,6 +10378,33 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   利用者が止めたとき（`killed`）は起こし直さず、`enabled` を false にする。
   引き継ぎで止められたとき（`taken_over`）と休みで止まったとき（`parked`）は、起こし直さずに止まった状態（理由は `user`）で残す。
   状態は `state()` と `onState` で読める（画面の柱は後の PR）。
+- **許可の道具：** 統括がほかの会話の許可待ちに答える MCP の道具 4 本（`mcp/orchestratorTools.ts`、芯は `orchestrator/asks.ts`）。
+  `list_pending_asks`（読む）、`answer_ask`（押す）、`set_permission_policy`（方針を書く）、`list_auto_approvals`（記録を読む）。
+  統括のセッション別 URL を、統括の会話の秘密で開けたときだけ道具の一覧に出し、呼べる。
+  ほかの URL と、本体のトークンで開けた統括の URL では一覧に出さず、呼ばれても「知らない道具」と同じ断りを返す。
+  統括を切っていれば、会話の id が残っていても出さない。
+  道具の分類（`mcp/toolClasses.ts`）は、読む 2 本が `read`、`answer_ask` が `drive`、`set_permission_policy` が `write` である。
+- **答え方：** ペインへのキー入力で、peer chat の宿主の答え手（`peer/chat/host.ts` の `local`）を通す。
+  ほかの PC からの答えと同じ照合（札の道具と主な引数）と記録を通るので、同じ札に 2 度は打たず、利用者やスマホが先に答えれば打たずに断る。
+  ほかの PC からの頼みの入り切り（`peerChatAcceptFromPeers`）には縛られない。
+  答えられるのはこの PC の Claude Code の会話だけで、Codex と opencode と画面で読めない札は `answerable: false` で載せ、統括は伝えるだけにする。
+  `ask_id` は hangar の会話の id と、答え手の askId（札の道具の呼び出しから決まる）から作る。
+  答え手の無い札は、会話の id、種類、道具、主な引数、待ちに入った時刻から作る。
+- **方針：** 設定の `permissionPolicy`（`{ text, autoTools, updatedAt }`、この PC だけで同期しない）。
+  `null` のときは、ファイルの読み取りと検索（`Read`、`Glob`、`Grep`、`LS`）だけを許すものとして読む（`permissionAutoToolsOf`）。
+  空の `autoTools` は何も許さない（既定には戻さない）。
+  書くのは `set_permission_policy` だけで、`PATCH /api/settings` は受けない。
+  保存すると `settings.changed`（`keys: ['permissionPolicy']`）を配る。
+  手で書き換えた形の違う値は、項目ごと捨てて既定として読む（広い方へは倒さない）。
+- **安全の境界（hangar が機械で守る）：**
+  統括自身の札は一覧に載せず、答えない。
+  `by: 'policy'` は、方針の道具の、許可の札の、「今回だけ許す」の行（ラベルが `Yes`）だけを押せる。
+  質問、「今後は聞かない」やモードを替える行、断る行、方針に無い道具は `not-allowed` で、キーを打たない。
+  `by: 'policy'` は理由の 1 行が要り、押す前に表 `auto_approvals`（版 59、手元だけ）に書き、書けなければ打たず、何も打てなかったら消す。
+  1 分に 20 回を超えたら `rate-limited` で断り、統括の会話から利用者へ知らせる。
+  `by: 'user'` と `set_permission_policy` は、統括の今のターンが利用者の入力で始まったときだけ通す。
+  この判定は今は口（`userTurnOf`）だけで常に真であり、出来事の送り込みの PR で中身が入る。
+  記録は 90 日より古い行を書くときに捨てる。
 
 ## 会話の保持期間
 

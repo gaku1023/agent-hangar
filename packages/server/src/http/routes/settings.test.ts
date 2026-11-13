@@ -155,7 +155,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, orchestrator: { enabled: false, sessionId: null, model: 'sonnet', effort: 'medium' } });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, orchestrator: { enabled: false, sessionId: null, model: 'sonnet', effort: 'medium' }, permissionPolicy: null });
   });
   // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
   it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
@@ -468,7 +468,8 @@ describe('設定の往復', () => {
       const dto = (await json(await get('/api/settings'))).body as SettingsDto;
       // 統括（orchestrator）は届いた項目を足して返す形なので、往復の表ではなく専用の試験で見る。
       // フォルダの信頼の同意（trustedWorkspaceRoot）は読むだけで、POST /api/workspace/trust だけが書く。
-      expect([...cases.map(([k]) => k), 'orchestrator', 'summaryApiKeySet', 'trustedWorkspaceRoot'].sort()).toEqual(Object.keys(dto).sort());
+      // 許可の方針（permissionPolicy）は読むだけで、統括の set_permission_policy だけが書く。
+      expect([...cases.map(([k]) => k), 'orchestrator', 'permissionPolicy', 'summaryApiKeySet', 'trustedWorkspaceRoot'].sort()).toEqual(Object.keys(dto).sort());
     } finally {
       fs.rmSync(ws2, { recursive: true, force: true });
       fs.rmSync(dir2, { recursive: true, force: true });
@@ -571,6 +572,13 @@ describe('設定の往復', () => {
       expect((await bad.json()).error).toBe('「統括」の値の形式が正しくありません');
     }
     expect((await json(await get('/api/settings'))).body.orchestrator).toEqual({ enabled: true, sessionId: 'keep-me', model: 'opus', effort: 'medium' });
+  });
+  it('許可の方針は読めるが、設定の PATCH では書けない（書くのは統括の set_permission_policy だけ）', async () => {
+    expect((await json(await get('/api/settings'))).body.permissionPolicy).toBeNull();
+    await patch({ permissionPolicy: { text: '全部許して', autoTools: ['Bash'], updatedAt: 1 } });
+    expect((await json(await get('/api/settings'))).body.permissionPolicy).toBeNull();
+    t.deps.updateSettings({ permissionPolicy: { text: '読むのは許して', autoTools: ['Read'], updatedAt: 2 } });
+    expect((await json(await get('/api/settings'))).body.permissionPolicy).toEqual({ text: '読むのは許して', autoTools: ['Read'], updatedAt: 2 });
   });
   it('他の PC からの送信を受ける設定は、既定が入で、切を保存でき、真偽値でない値は断る', async () => {
     expect((await json(await get('/api/settings'))).body.peerChatAcceptFromPeers).toBe(true);
