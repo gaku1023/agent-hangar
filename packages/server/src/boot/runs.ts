@@ -91,6 +91,11 @@ export type RunsParts = {
   external: ExternalApi;
   readiness(): Promise<ReadinessDto>;
   compat(): Promise<CompatDto>;
+  /**
+   * 許可待ちの通知を統括が預かっているかを答える口を差し込む（orchestrator/feed.ts の held、15 秒の猶予）。
+   * 統括の出来事の見張りは後で組むので、組んだところで差し込む。差し込むまでは預からない。
+   */
+  setNoticeHold(held: (sessionId: string) => boolean): void;
   /** 実行中の一覧の最初の読み取りを覚える。最初の読み取りは onChange を通らない。通知の見張りも、このときの入力待ちと使用制限を知らせ終えたものとして覚える。 */
   primeLive(): void;
   /** 前回の終了時に生きていた run の回復と、run の終了の見張り、休みの見張りを始める。 */
@@ -252,8 +257,10 @@ export function bootRuns(
   const overlaps = new OverlapWatch({ db, live: () => live.current() });
   live.onChange((l) => overlaps.noteLive(l));
   // デスクトップ通知のきっかけ（入力待ち、許可待ち、使用制限、リセット済み）。殻が GET /api/notify/feed で読む。
+  let noticeHold: (sessionId: string) => boolean = () => false;
   const stopNotices = new StopNoticeWatch({
     db, deviceId: device.id, live: () => live.current(), language: home.language, feed: delivery.osNotices, settings: () => home.settings.current,
+    held: (id) => noticeHold(id),
     accountOf: (providerSessionId) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id), deviceId: device.id }, providerSessionId),
   });
   // 待っているもの（問いの文、許可の中身）がある間だけ短い周期で見る。登録が変わったときはその場で見る（paceNotices）。
@@ -314,6 +321,7 @@ export function bootRuns(
       candidateCount: () => folderCandidates(db, device.id, { hangarHome: home.home, workspaceRoot: settings.current.workspaceRoot }).candidates.length,
     }),
     compat: localClaude.compat,
+    setNoticeHold: (held) => { noticeHold = held; },
     primeLive: () => {
       liveChange.prime(live.current());
       // 最初の読み取りは onChange を通らないので、生きた run の最後の状態と、状態の移り変わりもここで覚える。

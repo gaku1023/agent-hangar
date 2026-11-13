@@ -130,6 +130,8 @@ export function bootMobile(p: {
    * 省けば、スマホの opencode の問い合わせと起動の依頼を断る（agent-missing）。
    */
   opencode?: { options: Pick<OpencodeOptionsService, 'last' | 'lastCommands'> };
+  /** 許可待ちのスマホの通知を統括が預かっているか（orchestrator/feed.ts の held）。省けば預からない。 */
+  noticeHold?: (sessionId: string) => boolean;
   /** opencode の置き場を探す口。既定は config/tools.ts の findOpencode。試験が差し替える。 */
   findOpencode?: () => string | null;
   /**
@@ -228,7 +230,7 @@ export function bootMobile(p: {
     cur?.bell.stop();
     cur = null;
     if (!link) return null;
-    const pub = new MobileFeedPublisher({ build, client: link.client, phoneKeys: link.phoneKeys, deviceId, timers, now, canWrite: () => phones === true && p.sync.canCarryMobile(), hasPhones: () => phones === true });
+    const pub = new MobileFeedPublisher({ build, client: link.client, phoneKeys: link.phoneKeys, deviceId, timers, now, canWrite: () => phones === true && p.sync.canCarryMobile(), hasPhones: () => phones === true, ...(p.noticeHold ? { held: p.noticeHold } : {}) });
     const inbox = new MobileLaunchInbox({
       db, client: link.client, phoneKeys: link.phoneKeys, deviceId,
       dropsDir: path.join(p.home.home, 'drops'),

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import type { AnswerAskArgs, OrchestratorAsks } from '../orchestrator/asks.ts';
 import { insertAutoApproval } from '../orchestrator/autoApprovals.ts';
+import { noteFedTurn } from '../orchestrator/turnMark.ts';
 import { issueMcpSecret } from '../runs/secrets.ts';
 import { createMcpApp } from './app.ts';
 import { ORCHESTRATOR_TOOL_NAMES, permissionPolicySaver } from './orchestratorTools.ts';
@@ -149,5 +150,28 @@ describe('list_auto_approvals', () => {
     expect(r.approvals[0]!.reason).toBe('r24');
     expect((call('list_auto_approvals', { limit: 2, since: 1023 }) as { approvals: unknown[] }).approvals).toHaveLength(2);
     expect(() => call('list_auto_approvals', { limit: 'x' })).toThrow(ToolError);
+  });
+});
+
+describe('送り込みの印（MCP のアプリが組む芯）', () => {
+  const stats = (turns: number, text: string) => db.prepare('insert into session_stats (session_id, turns, last_prompt) values (?, ?, ?) on conflict(session_id) do update set turns = excluded.turns, last_prompt = excluded.last_prompt').run('orch', turns, text);
+  const failed = (r: { result?: Record<string, unknown>; error?: unknown }) => r.error !== undefined || r.result?.isError === true;
+
+  it('出来事で始まったターンでは answer_ask(by: user) と set_permission_policy を断り、利用者の入力の後は通す', async () => {
+    const { orchestratorAsks: _a, ...rest } = deps;
+    deps = rest;
+    stats(1, '方針を決めたい');
+    noteFedTurn(db, 'orch');
+    // 索引がまだ [hangar] の文を読んでいない間も、出来事のターンとして断る。
+    expect(failed(await rpc('/s/orch', 'tools/call', { name: 'set_permission_policy', arguments: { text: '全部許して', auto_tools: ['Bash'] } }))).toBe(true);
+    stats(2, '[hangar] 出来事 1 件\n- ask.permission other 「x」 Bash');
+    expect(failed(await rpc('/s/orch', 'tools/call', { name: 'set_permission_policy', arguments: { text: '全部許して', auto_tools: ['Bash'] } }))).toBe(true);
+    const ans = await rpc('/s/orch', 'tools/call', { name: 'answer_ask', arguments: { ask_id: 'a', option: '1', by: 'user' } });
+    expect(JSON.parse((ans.result!.content as { text: string }[])[0]!.text)).toMatchObject({ ok: false, reason: expect.stringMatching(/not-allowed|ask-mismatch/) });
+    expect(saved).toEqual([]);
+    // 利用者が打った。
+    stats(3, '読むのは許していいよ');
+    expect(failed(await rpc('/s/orch', 'tools/call', { name: 'set_permission_policy', arguments: { text: '読むのは許していいよ', auto_tools: ['Read'] } }))).toBe(false);
+    expect(saved).toHaveLength(1);
   });
 });

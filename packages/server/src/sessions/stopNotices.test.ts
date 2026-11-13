@@ -84,6 +84,26 @@ describe('StopNoticeWatch：入力待ち', () => {
     expect(pushed).toEqual([{ kind: 'waiting', sessionId: s1, title: '請求書の書き出し', body: '許可待ち：Bash rm -rf ./build/cache', bare: false }]);
   });
 
+  it('統括が預かっている間（held）は許可待ちを知らせず、明けても待っていれば 1 回知らせ、消えれば知らせない', () => {
+    let held = new Set([s1, s2]);
+    const w = new StopNoticeWatch({
+      settings: () => settings, db, deviceId: 'd', live: () => live, language: () => 'ja', feed: { push: (n) => { pushed.push(n); } },
+      accountOf: () => 'primary', now: () => now, permissionWaitMs: 800, held: (id) => held.has(id),
+    });
+    w.tick();
+    const perm = { tool: 'Bash', input: 'rm -rf ./build/cache', description: null };
+    live = [entry('u1', 'waiting', { waitingFor: 'permission', permission: perm }), entry('u2', 'waiting', { waitingFor: 'permission', permission: perm })];
+    w.tick();
+    expect(pushed).toEqual([]);
+    expect(w.pending()).toBe(true);
+    // u2 は猶予の間に統括が答えた。u1 は猶予が明けても待っている。
+    live = [entry('u1', 'waiting', { waitingFor: 'permission', permission: perm }), entry('u2', 'busy')];
+    held = new Set();
+    w.tick();
+    w.tick();
+    expect(pushed).toEqual([{ kind: 'waiting', sessionId: s1, title: '請求書の書き出し', body: '許可待ち：Bash rm -rf ./build/cache', bare: false }]);
+  });
+
   it('opencode の会話（agent の付いた行）の許可待ちも、許可の中身で知らせる', () => {
     const oc = ensureSession(db, 'ses_oc1', '/w', 'd', 'opencode');
     setSessionName(db, 'd', oc, 'opencode の作業');

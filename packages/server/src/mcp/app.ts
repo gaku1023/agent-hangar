@@ -1,6 +1,7 @@
 import { SCHEDULE_MIN_EVERY_MINUTES } from '@agent-hangar/shared';
 import { AGENT_KINDS, orchestratorOf, permissionPolicyOf } from '@agent-hangar/shared';
-import { createOrchestratorAsks, ORCHESTRATOR_POLICY_RATE, userTurnOf, type OrchestratorAsks } from '../orchestrator/asks.ts';
+import { createOrchestratorAsks, ORCHESTRATOR_POLICY_RATE, type OrchestratorAsks } from '../orchestrator/asks.ts';
+import { userTurnOf } from '../orchestrator/turnMark.ts';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { Hono, type Context } from 'hono';
@@ -187,7 +188,8 @@ function orchestratorAsksFor(deps: ToolDeps): OrchestratorAsks {
     live: deps.live,
     local: deps.askLocal ?? null,
     policy: () => permissionPolicyOf(deps.settings?.().permissionPolicy),
-    userTurn: userTurnOf,
+    // 送り込みの印（orchestrator/turnMark.ts）。出来事の文で始まったターンでは、利用者の答えと方針の変更を断る。
+    userTurn: (id) => userTurnOf(deps.db, id),
     onRateLimited: () => {
       const id = orchestratorOf(deps.settings?.().orchestrator).sessionId;
       if (id === null) return;

@@ -22,7 +22,7 @@ const feedOf = (title: string): MobileFeed => ({
   done: [{ sessionId: 's1', projectName: 'project-a', title, oneLiner: null, doneAt: 1 }],
 });
 
-function setup(o: { canWrite?: () => boolean; minWorkerCompat?: number; phoneKeys?: Pick<PhoneKeySource, 'current'>; hasPhones?: () => boolean } = {}) {
+function setup(o: { canWrite?: () => boolean; minWorkerCompat?: number; phoneKeys?: Pick<PhoneKeySource, 'current'>; hasPhones?: () => boolean; held?: (sessionId: string) => boolean } = {}) {
   const timers = new FakeTimers();
   const client = new FakeCloudClient({ deviceId: 'pc-a', now: () => timers.now, ...(o.minWorkerCompat !== undefined ? { minWorkerCompat: o.minWorkerCompat } : {}) });
   let feed = feedOf('会話 1');
@@ -36,6 +36,7 @@ function setup(o: { canWrite?: () => boolean; minWorkerCompat?: number; phoneKey
     now: () => timers.now,
     canWrite: o.canWrite ?? (() => true),
     hasPhones: o.hasPhones ?? (() => true),
+    ...(o.held ? { held: o.held } : {}),
     onError: (e) => errors.push(e),
   });
   const writes = (): number => client.calls.filter((c) => c.method === 'putMobileFeed').length;
@@ -322,6 +323,27 @@ describe('MobileFeedPublisher のスマホへの通知', () => {
     s.setFeed(withLive([liveOf('s1', 'waiting')], 4));
     await s.pub.flushNow();
     expect(notices(s)).toHaveLength(2);
+  });
+
+  it('統括が預かっている会話（held）は送らず、明けても待っていれば素が同じでも 1 回送り、消えていれば送らない', async () => {
+    let held = new Set(['s1', 's2']);
+    const s = setup({ held: (id) => held.has(id) });
+    s.setFeed(withLive([liveOf('s1', 'busy'), liveOf('s2', 'busy')]));
+    await s.pub.flushNow();
+    s.setFeed(withLive([liveOf('s1', 'waiting'), liveOf('s2', 'waiting')], 1));
+    expect(await s.pub.flushNow()).toBe('written');
+    expect(notices(s)).toHaveLength(0);
+    // s2 は猶予の間に統括が答えた。
+    s.setFeed(withLive([liveOf('s1', 'waiting'), liveOf('s2', 'busy')], 2));
+    await s.pub.flushNow();
+    expect(notices(s)).toHaveLength(0);
+    // 猶予が明けた。素は前と同じでも、待っている s1 を 1 回だけ知らせる。
+    held = new Set();
+    expect(await s.pub.flushNow()).toBe('unchanged');
+    expect(notices(s)).toHaveLength(1);
+    expect(await openPhoneNotice(await mKey(), notices(s)[0]!.sealed)).toMatchObject({ sessionId: 's1', count: 1 });
+    await s.pub.flushNow();
+    expect(notices(s)).toHaveLength(1);
   });
 
   it('新しく入った会話が複数なら、1 回の通知に件数を入れ、題は先に待ち始めた会話のもの', async () => {

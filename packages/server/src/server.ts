@@ -19,6 +19,7 @@ import { bootIndexing } from './boot/indexing.ts';
 import { bootMobile } from './boot/mobile.ts';
 import { bootPeer } from './boot/peer.ts';
 import { bootPeerChat } from './boot/peerChat.ts';
+import { bootOrchestratorFeed } from './boot/orchestratorFeed.ts';
 import { bootOpencode } from './boot/opencode.ts';
 import type { StartOptions } from './boot/options.ts';
 import { bootRuns, panesOf } from './boot/runs.ts';
@@ -183,7 +184,11 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     // puller の me は同期で読む。
     // 引き手が答えを持つまでは空で、聞いた答えは次の荷物から使う。
     me: () => { void ghLogin().then((v) => { eventMe = v ?? ''; }, () => undefined); return eventMe; } });
-  const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, chat: peerChat, trash: trash.trash, event: eventPuller, onPeer: (kind, id) => { peer.onBell(kind, id); }, peerApprovals: peer.approvals });
+  // 統括への出来事の送り込みと、許可待ちの通知の猶予（orchestrator/feed.ts）。猶予が明けたら、スマホの書き手を急がせる。
+  let mobileForGrace: { publisher(): { nudge(): void } | null } | null = null;
+  const orchestratorFeed = bootOrchestratorFeed({ home, delivery, runs, onGraceEnd: () => { mobileForGrace?.publisher()?.nudge(); } });
+  const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, chat: peerChat, trash: trash.trash, event: eventPuller, onPeer: (kind, id) => { peer.onBell(kind, id); }, peerApprovals: peer.approvals, noticeHold: (id) => orchestratorFeed.feed.held(id) });
+  mobileForGrace = mobile;
   peerRelayEnded = (id) => peer.relay.onEnded(id);
   // 定期の実行（#549）。予定はこの PC のものだけを流す。起こし方と待ち方は MCP の道具と同じ本体を通す。
   const scheduleTools: ToolDeps = { db: home.db, deviceId: home.device.id, port: listening.port, live: () => delivery.live.current(), runs: runs.runs, language: home.language, usage: () => runs.usage.current(),
@@ -252,6 +257,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   schedules.start();
   // 統括の会話。有効な PC では、前の回の会話を再開する（無ければ新しく起こす）。run の回復（runs.start）が済んでから回す。
   web.orchestrator.start();
+  orchestratorFeed.start();
 
   // 起動の手続き（最初の索引づけと紐づけ）が済んだ。.app はここまで起動画面に残る。
   console.log(`agent-hangar ready in ${((performance.now() - bootAt) / 1000).toFixed(1)}s (index ${indexing.indexer.progress().total} files)`);
@@ -276,6 +282,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       peer.stop();
       schedules.stop();
       web.orchestrator.stop();
+      orchestratorFeed.stop();
       // 自分が起こした ssh のトンネルだけを止める。
       peerSsh?.stop();
       // 本文をゴミ箱へ移している最中の回は、DB を閉じる前に待ち切る。

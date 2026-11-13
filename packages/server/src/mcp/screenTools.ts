@@ -1,5 +1,6 @@
 import { getSession } from '../db/queries.ts';
 import { msg } from '../i18n/message.ts';
+import { noteSessionSend } from '../orchestrator/involved.ts';
 import { aliveRunForSession } from '../runs/queries.ts';
 import { remoteControlTool, remoteSpawnOf } from './peerTools.ts';
 import { ToolError, type ToolContext, type ToolDeps } from './tools.ts';
@@ -77,6 +78,8 @@ export async function sendToSessionTool(deps: ToolDeps, ctx: ToolContext, args: 
   if (!deps.runs.sendInput) throw new ToolError(msg('mcp.screen.noPanes'));
   // 届ける前に残す。届いた直後に待ち始めた wait_for_session が、前のターンの idle を終わりと読まないためである。
   if (submit) noteTurnStart(deps.db, id, { at: Date.now() });
+  // 統括が送った会話は、その終わりを統括へ出来事として伝える（orchestrator/involved.ts）。
+  if (ctx.sessionId) noteSessionSend(deps.db, ctx.sessionId, id, Date.now());
   try {
     await deps.runs.sendInput(name, text, submit);
   } catch (e) {
