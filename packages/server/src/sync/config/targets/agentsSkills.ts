@@ -12,7 +12,7 @@ import { execMarksOf, execMarksOfLazy, type Blocked, type Collected, type LocalI
 import { kindOfRel } from '../ids.ts';
 import { readInbox, readInboxBlob } from '../inbox.ts';
 import { backupsRoot } from '../../../config/cloud.ts';
-import type { ConfigTarget } from './types.ts';
+import { anyKindOn, type ConfigTarget } from './types.ts';
 
 /**
  * 共通の skills（`~/.agents/skills`、Codex と opencode が読む）。中身全部を `agents-skills:<相対>` で運ぶ。
@@ -302,14 +302,14 @@ export const agentsSkillsTarget: ConfigTarget = {
     const rel = id.slice(PREFIX.length);
     return carriedRel(rel) ? { kind: 'agents-skills', ref: { type: 'file', rel } } : null;
   },
-  // Codex か opencode のどちらかがその PC で有効で、設定の configTargets が入のときだけ。
-  enabled: (ctx) => (ctx.codexEnabled || ctx.opencodeEnabled) && ctx.switches?.[AGENTS_SKILLS_NAME] === true,
+  // Codex か opencode のどちらかがその PC で有効で、種類 agents-skills が切でないときだけ。
+  kinds: ['agents-skills'],
+  enabled: (ctx) => (ctx.codexEnabled || ctx.opencodeEnabled) && anyKindOn(ctx, ['agents-skills']),
   collect: (ctx) => collectSkills(ctx.agentsSkillsDir, ctx.allowedUnsent, ctx.maxItems ?? MAX_ITEMS),
   planWrite: (o) => planAgentsSkills(o),
   write: (o) => runAgentsSkillsApply(o),
   planOps: (o) => planAgentsSkillsOps(o),
   store: AGENTS_SKILLS_STORE,
   // 読まれて実行される指示なので、消去も含めて全部。承認の仕方が自動なら要らない。
-  needsApproval: (_item, approval) => approval === 'each',
   isMachineBound: () => false,
 };

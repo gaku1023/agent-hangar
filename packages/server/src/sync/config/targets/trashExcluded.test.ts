@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../../../db/open.ts';
 import { collectAll, type TargetContext } from './index.ts';
+import { kindsOf } from '../../../../test/configKinds.ts';
 
 let tmp: string;
 let db: Db;
@@ -22,7 +23,7 @@ describe('.trash の下は、どの対象でも集めない', () => {
       db, deviceId: 'd', home: path.join(tmp, 'hangar'), claudeDir: path.join(tmp, 'claude'), allowedUnsent: new Map(),
       codexHome: path.join(tmp, 'codex'), codexEnabled: true, opencodeDir: path.join(tmp, 'opencode'), opencodeEnabled: true,
       agentsSkillsDir: path.join(tmp, 'agents', 'skills'), claudeJsonPath: path.join(tmp, 'claude.json'), hangarSettingsPath: path.join(tmp, 'settings.json'),
-      switches: { 'agents-skills': true },
+      kinds: kindsOf({ 'agents-skills': true }),
     };
     const ids = collectAll(ctx).items.map((i) => i.id);
     expect(ids.filter((i) => i.includes('.trash'))).toEqual([]);

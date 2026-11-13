@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { ConfigExecMark, ConfigItemKind } from '@agent-hangar/shared';
+import { CONFIG_ITEM_KINDS, type ConfigExecMark, type ConfigItemKind } from '@agent-hangar/shared';
 import { parseItemId } from './ids.ts';
 
 /**
@@ -104,7 +104,14 @@ const MAX_TARGETS = 64;
  * 目録。`targets` は、その束で実際に集めた対象（入切が切の対象は入れない）、`os` は送り手の OS。
  * どちらも任意で、`version` は 1 のまま。古い版は知らない欄を捨てるので、受けても壊れない。
  */
-export type BundleManifest = { version: 1; deviceId: string; createdAt: number; items: ManifestItem[]; targets?: string[]; os?: BundleOs };
+export type BundleManifest = {
+  version: 1; deviceId: string; createdAt: number; items: ManifestItem[]; targets?: string[]; os?: BundleOs;
+  /**
+   * 送り手で切の種類（configKinds が off）。束にその種類の項目が無くても、受け手は消去と読まない。
+   * 空なら欄ごと省く。古い版は知らない欄を捨てる。
+   */
+  offKinds?: ConfigItemKind[];
+};
 
 /** 欄の無い目録（古い版の束）は、Claude だけを扱う相手と読む。 */
 export const bundleTargetsOf = (m: Pick<BundleManifest, 'targets'>): string[] => m.targets ?? ['claude'];
@@ -118,6 +125,12 @@ function readTargets(v: unknown): string[] | undefined {
     if (!out.includes(t)) out.push(t);
   }
   return out;
+}
+/** 目録の offKinds を読む。知らない種類（新しい版の種類）は捨てる。配列でなければ undefined。 */
+function readOffKinds(v: unknown): ConfigItemKind[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = CONFIG_ITEM_KINDS.filter((k) => v.includes(k));
+  return out.length ? out : undefined;
 }
 const readOs = (v: unknown): BundleOs | undefined => ((OS_VALUES as readonly unknown[]).includes(v) ? (v as BundleOs) : undefined);
 
@@ -183,5 +196,6 @@ export function unpackBundle(tar: Buffer, o: { maxBlobBytes?: number; maxEntries
   // 壊れた targets と os は、束ごとは断らずにその欄だけ捨てる（古い版の束として読む。対象を扱う相手と見なさないので、安全な側に倒れる）。
   const targets = readTargets(m.targets);
   const os = readOs(m.os);
-  return { manifest: { version: 1, deviceId: m.deviceId, createdAt: m.createdAt, items, ...(targets ? { targets } : {}), ...(os ? { os } : {}) }, blobs, skipped };
+  const offKinds = readOffKinds(m.offKinds);
+  return { manifest: { version: 1, deviceId: m.deviceId, createdAt: m.createdAt, items, ...(targets ? { targets } : {}), ...(os ? { os } : {}), ...(offKinds ? { offKinds } : {}) }, blobs, skipped };
 }

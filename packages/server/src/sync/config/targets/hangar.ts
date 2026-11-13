@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { isAutoDoneIdleDays, isCodexInjection, isLanguage, isLocalContext, isModelName, isNotifyPreference, isOpencodeInjection, isSummaryEngine, type ConfigExecMark } from '@agent-hangar/shared';
+import { isConfigKindsPatch, isAutoDoneIdleDays, isCodexInjection, isLanguage, isLocalContext, isModelName, isNotifyPreference, isOpencodeInjection, isSummaryEngine, type ConfigExecMark } from '@agent-hangar/shared';
 import { loadSettings } from '../../../config/paths.ts';
 import { applyHangarPrefs } from './hangarApplier.ts';
 import { ApplyError, type ApplyPlan, type ApplyPlanItem, type ApplyResult, type PlannedOp } from '../apply.ts';
@@ -9,14 +9,14 @@ import { ConfigBase } from '../base.ts';
 import { readApplyOrder } from '../applyOrder.ts';
 import type { Collected, LocalItem } from '../collect.ts';
 import { readInbox, readInboxBlob } from '../inbox.ts';
-import type { ConfigTarget } from './types.ts';
+import { anyKindOn, type ConfigTarget } from './types.ts';
 
 /**
  * hangar の好み（設計書 7 章）。hangar の settings.json の鍵のうち、PC をまたいで同じでよいものを `hangar:<鍵>` で運ぶ。
  * 運ばないもの（PC ごと）：Codex・opencode の有効と横取り、パス（claudeDir、tmuxPath、nodePath、claudePath、workspaceRoot）、エディタ、
- * 端末アプリ、秘密（summaryApiKey）、要約器の宛先（lmStudio*）、接続先の準備、対象ごとの入切（configTargets）。
- * configTargets は「この PC で何を同期するか」の選びなので PC ごととして運ばない。
- * サーバが settings.json を書くので、殻の承認の窓は通さない。承認が要るのは configApproval の変更だけ（needsApproval）。
+ * 端末アプリ、秘密（summaryApiKey）、要約器の宛先（lmStudio*）、接続先の準備、使わなくなった旧い入切（configTargets、configApproval）。
+ * 種類ごとの状態（configKinds）は運び、全部の PC で共通にする。
+ * サーバが settings.json を書くので、殻の承認の窓は通さない。承認が要るかは種類 hangar-pref の状態で決まる。
  */
 export const HANGAR_TARGET_NAME = 'hangar';
 
@@ -38,7 +38,8 @@ const FITS: Record<string, (v: unknown) => boolean> = {
   remoteControl: bool,
   summaryEngine: isSummaryEngine,
   summaryClaudeModel: isModelName,
-  configApproval: (v) => v === 'each' || v === 'auto',
+  // 種類ごとの状態。全部の PC で共通にする（決定 5）。緩める変更にも守りを置かない。
+  configKinds: isConfigKindsPatch,
   opencodeInjection: isOpencodeInjection,
   opencodePermissionPreset: bool,
   opencodeLocalContext: isLocalContext,
@@ -118,7 +119,8 @@ export const hangarTarget: ConfigTarget = {
   name: HANGAR_TARGET_NAME,
   owns: (id) => id.startsWith(PREFIX),
   parseId: (id) => { const key = keyOf(id); return key ? { kind: 'hangar-pref', ref: { type: 'hangar', key } } : null; },
-  enabled: (ctx) => ctx.switches?.[HANGAR_TARGET_NAME] === true,
+  kinds: ['hangar-pref'],
+  enabled: (ctx) => anyKindOn(ctx, ['hangar-pref']),
   collect: (ctx) => collect(ctx.hangarSettingsPath),
   planWrite: (o) => {
     const entries = prepare(o.home);
@@ -153,8 +155,5 @@ export const hangarTarget: ConfigTarget = {
     })();
     return { generation: null, written, removed: 0, keptMine: entries.filter((e) => e.act !== 'write').length, files: written > 0 ? ['settings.json'] : [] };
   },
-  // 承認の仕方そのものを変える項目だけ、承認の仕方の設定に関わらず承認に掛ける（自動への切り替えを他の PC から黙って通さない）。
-  // この口は値を受け取らないので、each へ戻す変更も承認になる（厳しい側へ倒す）。
-  needsApproval: (item) => item.op !== 'delete' && item.id === idOf('configApproval'),
   isMachineBound: () => false,
 };
