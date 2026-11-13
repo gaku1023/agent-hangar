@@ -415,8 +415,14 @@ impl Session {
             Job::Restore { name, target } => (Some(name.clone()), Some(*target)),
             // 履歴からの戻しは、CLI の見立てが返す世代の名前と対象（置き場が複数なら 1 つ目）を窓に渡す。
             Job::RestoreItems { .. } => (
-                self.plan.get("name").and_then(Value::as_str).map(String::from),
-                self.plan.get("target").and_then(Value::as_str).and_then(restore_target),
+                self.plan
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(String::from),
+                self.plan
+                    .get("target")
+                    .and_then(Value::as_str)
+                    .and_then(restore_target),
             ),
             _ => (None, None),
         };
@@ -592,7 +598,16 @@ mod tests {
         };
         assert_eq!(
             plan_args(&one, 4177),
-            ["config", "restore", "--history", "7", "--item", "file:commands/a.md", "--plan", "--json"]
+            [
+                "config",
+                "restore",
+                "--history",
+                "7",
+                "--item",
+                "file:commands/a.md",
+                "--plan",
+                "--json"
+            ]
         );
         let whole = Job::RestoreItems {
             history: 7,
@@ -605,7 +620,18 @@ mod tests {
         let plan = json!({ "fingerprint": FP });
         assert_eq!(
             write_args(&one, &plan, 4177).unwrap(),
-            ["config", "restore", "--history", "7", "--item", "file:commands/a.md", "--yes", "--json", "--expect", FP]
+            [
+                "config",
+                "restore",
+                "--history",
+                "7",
+                "--item",
+                "file:commands/a.md",
+                "--yes",
+                "--json",
+                "--expect",
+                FP
+            ]
         );
         assert_eq!(whole.target(), "restore");
         assert!(write_args(&whole, &json!({}), 4177).is_none());
