@@ -8,6 +8,8 @@ let seq = 0;
 const user = (text: string): TranscriptEvent => ({ kind: 'user', seq: ++seq, text });
 const ai = (text: string): TranscriptEvent => ({ kind: 'assistant', seq: ++seq, text });
 const notify = (text: string): TranscriptEvent => ({ kind: 'tool_call', seq: ++seq, toolId: `t${seq}`, name: 'mcp__hangar__notify_user', input: { text }, summary: '' });
+const result = (toolId: string, isError = false): TranscriptEvent => ({ kind: 'tool_result', seq: ++seq, toolId, text: '', isError });
+const notifyOk = (text: string): TranscriptEvent[] => { const c = notify(text); return [c, result((c as { toolId: string }).toolId)]; };
 const other = (): TranscriptEvent => ({ kind: 'tool_call', seq: ++seq, toolId: `t${seq}`, name: 'mcp__hangar__list_sessions', input: {}, summary: '' });
 
 describe('orchestratorRows', () => {
@@ -20,9 +22,20 @@ describe('orchestratorRows', () => {
     expect(r.rows[0]).toMatchObject({ kind: 'user', text: '進み具合を教えて' });
   });
   it('出来事で始まったターンでも、notify_user の文は統括の発言として描く。ほかの道具は描かない', () => {
-    const r = orchestratorRows([user('[hangar] 許可待ちが 1 件'), other(), notify('判断をお願いします'), ai('伝えました')]);
+    const r = orchestratorRows([user('[hangar] 許可待ちが 1 件'), other(), ...notifyOk('判断をお願いします'), ai('伝えました')]);
     expect(r.rows).toHaveLength(1);
     expect(r.rows[0]).toMatchObject({ kind: 'assistant', text: '判断をお願いします' });
+  });
+  it('失敗した notify_user の呼び出しは描かず、読み上げにも入れない（再試行で同じ文が重ならない）', () => {
+    const bad = notify('判断をお願いします');
+    const good = notify('判断をお願いします');
+    const r = orchestratorRows([user('[hangar] 許可待ち'), bad, result((bad as { toolId: string }).toolId, true), good, result((good as { toolId: string }).toolId)]);
+    expect(r.rows).toHaveLength(1);
+    expect(r.speak.notices).toHaveLength(1);
+  });
+  it('結果がまだ来ない notify_user は、来るまで描かない', () => {
+    const r = orchestratorRows([user('[hangar] 許可待ち'), notify('判断をお願いします')]);
+    expect(r.rows).toHaveLength(0);
   });
   it('読むのは、音声で始まったターンの最後の返答と、出来事で始まったターンの notify_user の文だけ', () => {
     const voice = orchestratorRows([user('[voice] 状況は'), ai('途中です'), ai('順調です')]);
@@ -30,7 +43,7 @@ describe('orchestratorRows', () => {
     expect(voice.speak.notices).toEqual([]);
     const typed = orchestratorRows([user('状況は'), ai('順調です')]);
     expect(typed.speak.reply).toBeNull();
-    const event = orchestratorRows([user('[hangar] 許可待ち'), ai('片付けました'), notify('判断をお願いします')]);
+    const event = orchestratorRows([user('[hangar] 許可待ち'), ai('片付けました'), ...notifyOk('判断をお願いします')]);
     expect(event.speak.reply).toBeNull();
     expect(event.speak.notices.map((n) => n.text)).toEqual(['判断をお願いします']);
   });

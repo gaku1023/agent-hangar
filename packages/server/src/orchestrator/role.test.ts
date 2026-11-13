@@ -15,6 +15,13 @@ describe('役の文', () => {
       expect(e!.text.endsWith('\n')).toBe(true);
     }
   });
+  it('自分で片付けた許可と、前のターンで伝えた待ちは黙る。伝えることが無ければ何も書かずに終える', () => {
+    const [ja, en] = [orchestratorInstructions('ja')[0]!.text, orchestratorInstructions('en')[0]!.text];
+    expect(ja).toContain('返答は書かず');
+    expect(ja).toContain('前のターンで伝えた');
+    expect(en).toContain('write no reply');
+    expect(en).toContain('already told the user');
+  });
   it('日本語と英語は別の文で、日本語はやめた語を含まない', () => {
     const [ja, en] = [orchestratorInstructions('ja')[0]!.text, orchestratorInstructions('en')[0]!.text];
     expect(ja).not.toBe(en);

@@ -156,7 +156,7 @@ export function bootHttp(p: {
       updateSettings({ orchestrator: { ...orchestratorOf(settings.current.orchestrator), ...patch } });
       delivery.hub.broadcast({ type: 'settings.changed', settings: toSettingsDto(settings.current), keys: ['orchestrator'] });
     },
-    runs: { on: (l) => runs.runs.on(l), aliveRun: (id) => runs.runs.aliveRun(id), resumeWith: (id) => runs.runs.resumeWith(id), startOrchestrator: () => runs.runs.startOrchestrator() },
+    runs: { on: (l) => runs.runs.on(l), aliveRun: (id) => runs.runs.aliveRun(id), kill: (runId) => runs.runs.kill(runId), resumeWith: (id) => runs.runs.resumeWith(id), startOrchestrator: () => runs.runs.startOrchestrator() },
     // 行が消えていなくて、本文がある会話だけを再開できる（run が早く終わって本文の無いまま行が消えた会話は、新しく起こす）。
     resumable: (id) => !!db.prepare('select 1 from sessions s where s.id = ? and s.deleted_at is null and exists (select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null)').get(id),
   });

@@ -15,6 +15,7 @@ function rig(initial: Partial<OrchestratorSetting> = {}, o: { resumable?: boolea
   const runs: KeeperRuns = {
     on(l) { listener = l; return () => { listener = {}; }; },
     aliveRun: (id) => (alive.has(id) ? ({ id: `run-${id}`, sessionId: id } as RunDto) : null),
+    kill: vi.fn((runId: string) => { calls.push(`kill:${runId}`); const id = runId.replace('run-', ''); alive.delete(id); listener.runEnded?.({ id: runId, sessionId: id, endReason: 'killed', endedAt: clock } as RunDto); }),
     resumeWith: vi.fn(async (id: string) => { calls.push(`resume:${id}`); alive.add(id); return {}; }),
     startOrchestrator: vi.fn(() => {
       if (startFails > 0) { startFails -= 1; calls.push('start:fail'); throw new Error('tmux'); }
@@ -168,12 +169,38 @@ describe('OrchestratorKeeper', () => {
     t.keeper.apply();
     t.end('orch-1', 'lost');
     await t.settle();
-    expect(t.calls).toEqual(['start:orch-1']);
+    expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1']);
     t.keeper.stop();
     t.set({ enabled: true });
     t.end('orch-1', 'lost');
     await t.settle();
-    expect(t.calls).toEqual(['start:orch-1']);
+    expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1']);
+  });
+
+  it('設定を切にすると、動いている統括の run を止める。止めた終わり（killed）で起こし直さず、入れ直せば同じ会話を再開する', async () => {
+    const t = rig({ enabled: true });
+    t.keeper.start();
+    await t.settle();
+    t.set({ enabled: false });
+    t.keeper.apply();
+    await t.settle();
+    expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1']);
+    expect(t.alive.has('orch-1')).toBe(false);
+    expect(t.setting()).toMatchObject({ enabled: false, sessionId: 'orch-1' });
+    expect(t.keeper.state()).toEqual({ status: 'off' });
+    t.set({ enabled: true });
+    t.keeper.apply();
+    await t.settle();
+    expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1', 'resume:orch-1']);
+    expect(t.keeper.state()).toEqual({ status: 'running' });
+  });
+
+  it('切のまま apply しても、止める run が無ければ何もしない', async () => {
+    const t = rig();
+    t.keeper.start();
+    t.keeper.apply();
+    await t.settle();
+    expect(t.calls).toEqual([]);
   });
 
   it('状態が変わるたびに知らせる', async () => {

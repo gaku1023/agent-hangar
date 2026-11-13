@@ -10,6 +10,8 @@ export type KeeperState = { status: 'off' } | { status: 'running' } | { status: 
 export type KeeperRuns = {
   on(l: { runEnded?(run: RunDto): void }): () => void;
   aliveRun(sessionId: string): RunDto | null;
+  /** 画面の停止と同じ止め方（RunManager.kill）。 */
+  kill(runId: string): unknown;
   resumeWith(sessionId: string): Promise<unknown>;
   startOrchestrator(): { sessionId: string };
 };
@@ -32,7 +34,7 @@ export const KEEPER_MAX_FAILURES = 3;
  * 統括の会話を生かし続ける（docs/design.md「統括」）。
  * enabled の PC で、起動時と run が消えたときに、設定の sessionId の会話を再開する。sessionId が無い、または会話が消えているときは、新しく起こして設定に書く。
  * 10 分に 3 回失敗したら止まり、自動では再試行しない（設定を入れ直すと、また始める）。
- * 利用者が止めたとき（killed）は起こし直さず、enabled を false にする。
+ * 利用者が止めたとき（killed）は起こし直さず、enabled を false にする。設定で切にしたときは、動いている run を止める（sessionId は残し、入れ直せば再開する）。
  */
 export class OrchestratorKeeper {
   private off: (() => void) | null = null;
@@ -71,6 +73,7 @@ export class OrchestratorKeeper {
       this.halted = false;
       this.failures = [];
       this.set({ status: 'off' });
+      this.stopAlive();
       return;
     }
     if (!this.wasEnabled) {
@@ -79,6 +82,14 @@ export class OrchestratorKeeper {
       this.failures = [];
     }
     this.schedule();
+  }
+
+  /** 切にしたとき、動いている統括の run を止める。設定はもう切なので、終わりの知らせでは起こし直さず、sessionId も残る。 */
+  private stopAlive(): void {
+    const id = this.deps.settings().sessionId;
+    const run = id === null ? null : this.deps.runs.aliveRun(id);
+    if (!run) return;
+    try { this.deps.runs.kill(run.id); } catch (e) { console.error('[orchestrator] could not stop', e instanceof Error ? e.message : e); }
   }
 
   private set(s: KeeperState): void {

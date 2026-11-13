@@ -39,6 +39,9 @@ export function orchestratorRows(events: readonly TranscriptEvent[]): { rows: Pe
   let turn: Turn = 'typed';
   let last: Speak | null = null;
   let voiceOn = false;
+  // notify_user は、成功の結果が付いた呼び出しだけを描く（失敗の再試行で同じ文が重なるため）。
+  const ok = new Set<string>();
+  for (const e of events) if (e.kind === 'tool_result' && !e.isError) ok.add(e.toolId);
   for (const e of events) {
     if (e.kind === 'user') {
       turn = turnOf(e.text);
@@ -53,7 +56,7 @@ export function orchestratorRows(events: readonly TranscriptEvent[]): { rows: Pe
       last = { key: String(e.seq), text: e.text };
     } else if (isNotify(e)) {
       const text = notifyText(e);
-      if (text === '') continue;
+      if (text === '' || !ok.has(e.toolId)) continue;
       rows.push({ kind: 'assistant', key: `n${e.seq}`, text });
       if (turn === 'hangar') notices.push({ key: `n${e.seq}`, text });
     }
