@@ -1184,7 +1184,6 @@ fn restore_config_flow(
     lang: &'static str,
 ) -> configapply::Outcome {
     let w = configapply::words(lang);
-    let title = w.restore_flow_title;
     // 頁から来る値は、世代の名前の形と、決まった対象の名前だけを受け取る。
     if !configapply::valid_generation_name(name) {
         return configapply::Outcome::simple("failed", w.bad_generation);
@@ -1196,6 +1195,31 @@ fn restore_config_flow(
         name: name.to_string(),
         target,
     };
+    restore_job_flow(app, job, lang)
+}
+
+/// 履歴の 1 回分、または 1 項目を戻す流れ。頁から来る値は、履歴の番号（正の整数）と項目の id（形を確かめる）だけを受け取る。
+fn restore_history_flow(
+    app: &AppHandle,
+    history: i64,
+    item: Option<String>,
+    lang: &'static str,
+) -> configapply::Outcome {
+    let w = configapply::words(lang);
+    if history <= 0 || item.as_deref().is_some_and(|i| !approve::valid_item_id(i)) {
+        return configapply::Outcome::simple("failed", w.bad_history);
+    }
+    restore_job_flow(app, approve::Job::RestoreItems { history, item }, lang)
+}
+
+/// 見立てを CLI に出させ、承認の窓に見せ、承認されたときだけ戻す。世代まるごとも、履歴からの戻しも同じ流れ。
+fn restore_job_flow(
+    app: &AppHandle,
+    job: approve::Job,
+    lang: &'static str,
+) -> configapply::Outcome {
+    let w = configapply::words(lang);
+    let title = w.restore_flow_title;
     let (node, dir, home) = match config_runtime(app) {
         Ok(v) => v,
         Err(e) => return config_runtime_failure(app, title, e),
@@ -1220,6 +1244,23 @@ fn restore_config_flow(
     let outcome = approval_flow(app, job, plan, lang);
     log(&format!("config sync: restore {}", outcome.status));
     outcome
+}
+
+/// 設定の同期の適用の履歴から、1 回分（item を省く）または 1 項目を戻す。UI の履歴の「戻す…」が呼ぶ。
+/// 受け取るのは履歴の番号と項目の id だけで、どちらも形を確かめる。戻し方は世代の戻しと同じに、殻の承認の窓に見せてから CLI の `config restore --history` を走らせる。
+#[tauri::command]
+async fn restore_config_history(
+    app: AppHandle,
+    history: i64,
+    item: Option<String>,
+) -> configapply::Outcome {
+    let lang = config_language();
+    let w = configapply::words(lang);
+    tauri::async_runtime::spawn_blocking(move || {
+        with_config_guard(&app, w, || restore_history_flow(&app, history, item, lang))
+    })
+    .await
+    .unwrap_or_else(|_| configapply::Outcome::simple("failed", w.restore_stopped))
 }
 
 /// 他の PC から届いて、承認した設定を適用する。UI の設定の「適用…」が呼ぶ。引数は受け取らない。
@@ -2348,6 +2389,7 @@ pub fn run() {
             notify_status,
             apply_config_sync,
             restore_config_sync,
+            restore_config_history,
             setup_integration,
             approve_view,
             approve_answer,

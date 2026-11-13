@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LIMIT_RESET_AUTO_GRACE_MS, LIMIT_RESET_GRACE_MS, notifyRulesOf, type LiveSessionDto, type OsNoticeDto } from '@agent-hangar/shared';
+import { APP_NOTICE_ID, LIMIT_RESET_AUTO_GRACE_MS, LIMIT_RESET_GRACE_MS, notifyRulesOf, type LiveSessionDto, type OsNoticeDto } from '@agent-hangar/shared';
 import { onRowChange } from '../db/notify.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { setSessionName } from './notes.ts';
 import { setSessionState } from './states.ts';
+import { notifyApp } from '../live/appNotice.ts';
 import { noteUnread, noteUnreadReady } from '../live/unread.ts';
 import { UnreadHold } from '../live/unreadHold.ts';
 import { NOTICE_IDLE_MS, NOTICE_POLL_MS, OsNoticeFeed, paceNotices, StopNoticeWatch } from './stopNotices.ts';
@@ -382,6 +383,18 @@ describe('StopNoticeWatch：未読の知らせ（notify_user）', () => {
     noteUnreadReady('nope', 'x', 1, ['os']);
     off2();
     expect(pushed).toEqual([]);
+  });
+});
+
+describe('StopNoticeWatch：セッションに紐づかない知らせ', () => {
+  it('出し先に os があれば、会話の無い印（APP_NOTICE_ID）で kind unread に積む。os が無ければ積まない', () => {
+    const off2 = watch().subscribeAppNotice();
+    notifyApp({ text: '確認が 1 件あります', kind: 'ask' }, settings);
+    settings = { notifyPreference: { text: '', unread: ['ask'], os: ['done'], phone: ['ask'], whileFocused: false } };
+    notifyApp({ text: '外れ', kind: 'ask' }, settings);
+    off2();
+    notifyApp({ text: '外した後', kind: 'ask' }, settings);
+    expect(pushed).toEqual([{ kind: 'unread', sessionId: APP_NOTICE_ID, title: 'Hangar', body: '確認が 1 件あります', bare: false, evenInFront: false }]);
   });
 });
 

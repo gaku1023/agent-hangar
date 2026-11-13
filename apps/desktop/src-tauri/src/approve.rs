@@ -36,6 +36,15 @@ pub const SETUP_TARGETS: [&str; 6] = [
     "statusline-uninstall",
 ];
 
+/// 頁から来た項目の id として受け取れる形か。CLI の引数に渡すので、小文字で始まり、制御文字を含まず、長すぎないものだけにする
+/// （`file:commands/a.md`、`settings:model`、`claude-mcp:name` のような形。形の本当の検査は CLI の側で、この関数は引数に見える形を通さないための門である）。
+pub fn valid_item_id(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 600
+        && s.starts_with(|c: char| c.is_ascii_lowercase())
+        && !s.chars().any(char::is_control)
+}
+
 /// 頁から来た対象の名前を、決まった一覧の中の名前に直す。一覧に無ければ None。
 pub fn setup_target(s: &str) -> Option<&'static str> {
     SETUP_TARGETS.iter().copied().find(|t| *t == s)
@@ -51,6 +60,9 @@ pub enum Job {
     /// 設定の同期の、バックアップの世代へ戻す。name は世代の名前（`configapply::valid_generation_name` で確かめたもの）、
     /// target は戻す先の対象（`restore_target` で確かめたもの）。
     Restore { name: String, target: &'static str },
+    /// 設定の同期の、適用の履歴からの戻し。history は config_history の行の番号、item はその行の 1 項目の id（省くと行の全項目）。
+    /// 戻す世代は CLI が履歴から決める。item は `valid_item_id` で確かめたもの。
+    RestoreItems { history: i64, item: Option<String> },
 }
 
 impl Job {
@@ -59,7 +71,7 @@ impl Job {
         match self {
             Job::Setup(t) => t,
             Job::Apply => "apply",
-            Job::Restore { .. } => "restore",
+            Job::Restore { .. } | Job::RestoreItems { .. } => "restore",
         }
     }
 }
@@ -122,6 +134,19 @@ pub fn plan_args(job: &Job, port: u16) -> Vec<String> {
             "--plan".into(),
             "--json".into(),
         ],
+        Job::RestoreItems { history, item } => {
+            let mut v = vec![
+                "config".to_string(),
+                "restore".into(),
+                "--history".into(),
+                history.to_string(),
+            ];
+            if let Some(i) = item {
+                v.extend(["--item".to_string(), i.clone()]);
+            }
+            v.extend(["--plan".to_string(), "--json".into()]);
+            v
+        }
     };
     v.shrink_to_fit();
     v
@@ -172,6 +197,19 @@ pub fn write_args(job: &Job, plan: &Value, port: u16) -> Option<Vec<String>> {
                 "--target".into(),
                 target.to_string(),
             ];
+            v.extend(tail);
+            v
+        }
+        Job::RestoreItems { history, item } => {
+            let mut v = vec![
+                "config".to_string(),
+                "restore".into(),
+                "--history".into(),
+                history.to_string(),
+            ];
+            if let Some(i) = item {
+                v.extend(["--item".to_string(), i.clone()]);
+            }
             v.extend(tail);
             v
         }
@@ -355,7 +393,11 @@ impl Session {
                     });
                 Outcome::applied(&r, self.lang)
             }
-            Job::Restore { target, .. } => {
+            Job::Restore { .. } | Job::RestoreItems { .. } => {
+                let target = match &self.job {
+                    Job::Restore { target, .. } => *target,
+                    _ => "claude",
+                };
                 let r: RestoreResult =
                     serde_json::from_value(result.clone()).unwrap_or(RestoreResult {
                         restored: vec![],
@@ -371,11 +413,22 @@ impl Session {
     pub fn view(&self, home: &str, hangar_home: &str, windows: bool) -> Value {
         let (name, config_target) = match &self.job {
             Job::Restore { name, target } => (Some(name.clone()), Some(*target)),
+            // 履歴からの戻しは、CLI の見立てが返す世代の名前と対象（置き場が複数なら 1 つ目）を窓に渡す。
+            Job::RestoreItems { .. } => (
+                self.plan
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(String::from),
+                self.plan
+                    .get("target")
+                    .and_then(Value::as_str)
+                    .and_then(restore_target),
+            ),
             _ => (None, None),
         };
         json!({
             "lang": self.lang,
-            "job": match self.job { Job::Setup(_) => "setup", Job::Apply => "apply", Job::Restore { .. } => "restore" },
+            "job": match self.job { Job::Setup(_) => "setup", Job::Apply => "apply", Job::Restore { .. } | Job::RestoreItems { .. } => "restore" },
             "target": self.job.target(),
             "name": name,
             "configTarget": config_target,
@@ -533,6 +586,64 @@ mod tests {
         );
         for job in [Job::Setup("statusline-install"), Job::Apply] {
             assert!(!plan_args(&job, 4177).iter().any(|a| a == "--yes"));
+        }
+    }
+
+    // 履歴からの戻しは、履歴の番号と項目の id を CLI に渡す。項目は省ける（行の全項目）。
+    #[test]
+    fn history_restore_args_carry_the_history_and_the_item() {
+        let one = Job::RestoreItems {
+            history: 7,
+            item: Some("file:commands/a.md".into()),
+        };
+        assert_eq!(
+            plan_args(&one, 4177),
+            [
+                "config",
+                "restore",
+                "--history",
+                "7",
+                "--item",
+                "file:commands/a.md",
+                "--plan",
+                "--json"
+            ]
+        );
+        let whole = Job::RestoreItems {
+            history: 7,
+            item: None,
+        };
+        assert_eq!(
+            plan_args(&whole, 4177),
+            ["config", "restore", "--history", "7", "--plan", "--json"]
+        );
+        let plan = json!({ "fingerprint": FP });
+        assert_eq!(
+            write_args(&one, &plan, 4177).unwrap(),
+            [
+                "config",
+                "restore",
+                "--history",
+                "7",
+                "--item",
+                "file:commands/a.md",
+                "--yes",
+                "--json",
+                "--expect",
+                FP
+            ]
+        );
+        assert_eq!(whole.target(), "restore");
+        assert!(write_args(&whole, &json!({}), 4177).is_none());
+    }
+
+    #[test]
+    fn only_item_ids_that_cannot_look_like_options_are_accepted() {
+        for ok in ["file:commands/a.md", "settings:model", "claude-mcp:x y"] {
+            assert!(valid_item_id(ok), "{ok}");
+        }
+        for bad in ["", "--yes", "-x", "File:a", "file:a\nb", &"f".repeat(601)] {
+            assert!(!valid_item_id(bad), "{bad:?}");
         }
     }
 

@@ -905,7 +905,7 @@ MCP の道具は hub を持たない。
 | 同じファイルの編集の見張り（`sessions/overlap.ts`） | 写しが変わったセッション | 重なりは手元だけの表（`session_overlaps`）にある |
 | run の起動（`runs/announce.ts`） | そのセッション | run が付いた。`run.started` の後に届く |
 | statusline の受け口（`POST /api/ingest/statusline`） | そのセッション | モデルと文脈の量は手元だけの表（`session_live_stats`）にある |
-| 設定の同期（`sync/config/service.ts`）。`config_state` の `self` を名指しする | 設定の同期の状態 | 基準（`config_base`）、送らなかった項目（`config_unsent`）、inbox、適用の指示書、スイッチと承認の仕方は、行のイベントになる共有の表ではない |
+| 設定の同期（`sync/config/service.ts`）。`config_state` の `self` を名指しする | 設定の同期の状態 | 基準（`config_base`）、送らなかった項目（`config_unsent`）、適用の履歴（`config_history`）、inbox、適用の指示書、スイッチと承認の仕方は、行のイベントになる共有の表ではない |
 | 昇格（`POST /api/sessions/:id/promote`） | 昇格元のプロジェクト | セッションが 1 件減る |
 
 呼び手が `broadcast` で渡す、表の変化に対応しない知らせは次のとおりである。
@@ -4059,6 +4059,13 @@ OS とスマホの通知と未読の数は、`done` と `ask` ならそのター
 `progress` は途中の報告なので、未読の数も通知も預からずにすぐ出す。
 hangar が代わりに知らせるもの（削除の承認待ち、準備の後の起動の失敗）も、エージェントの返答を待つ意味が無いので預からない。
 
+会話に紐づかない知らせは `notifyApp({ text, kind }, settings?)`（`live/appNotice.ts`）で出す。
+`notify_user` はセッションの ID が前提で、未読の数も OS もスマホも会話ごとに積むので、別の口にした。
+出し先は `notifyRulesOf` の `os` と `phone` だけで、`kind` を含む先に振り分ける（`unread` は使わない。画面のヘッダの札が代わる）。決まりで `os` と `phone` の両方が `kind` を含まなければ何も配らない。預かり（`UnreadHold`）は通さず、すぐ配る。
+聞き手は 2 つで、OS は `StopNoticeWatch.subscribeAppNotice` が `kind` を `unread`、`sessionId` を `APP_NOTICE_ID`（`app-notice`）にして feed へ積み、スマホは `boot/mobile.ts` が `sessionId` を空にして `noticeUnread` に渡す（受信箱を開く汎用の知らせになる）。題は `Hangar` である。
+押したときに開くのは、いまの殻では、OS はアプリの前面までで（`APP_NOTICE_ID` を設定の同期へ向けるには殻の `open_js` と `Keep` の変更が要る）、スマホは受信箱である。
+使うのは設定の同期（確認、競合、自動の適用の失敗。「設定の同期の作り直し」の節）で、文言は `sync.configNotice.*` にある。
+
 `whileFocused` と `merge` は、OS の通知の出し方を変える（殻とサーバ）。
 `whileFocused` が真なら、未読の通知を窓が前にあっても出す。サーバは未読の項目に `evenInFront` を付けて OS の通知の並び（feed）へ積み、殻は窓が前でもこの印があれば出す（`skip_in_front`）。印の無い古いサーバの項目は偽として読む。
 `merge` が真なら、返答と入力待ちを 1 通にまとめる。`notify_user` で OS の通知を積んだあと、同じ会話の入力待ちの通知は、`MERGE_WINDOW_MS`（10 秒）のあいだ積まない。
@@ -5225,7 +5232,7 @@ Windows の窓は標準の枠（タイトルバーと最小化、最大化、閉
 入力待ちの知らせの 5 つ（`notify_waiting`、`notify_prune`、`notify_feed`、`notify_request`、`notify_status`）は上に書いたとおりで、フォルダ選択の `pick_folder` は新しいプロジェクトのために頁へ許し、残りの 3 つは障害のときの操作である。
 殻は命令を `invoke_handler` の 1 か所でまとめて登録する。
 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなるからである。
-UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻が承認の窓で見せてから CLI を走らせる。「設定の同期の作り直し」の節）、連携の書き込みの `setup_integration` だけを別に与え（`capabilities/remote-setup.json`）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動の様子を引き取る `boot_state`、札を描いた知らせの `boot_card_shown`（殻はこれを受けてから 1 度だけ更新を確かめる）、試験のための書き出しの `boot_probe`（殻が `HANGAR_BOOT_PROBE` を持って起きたときだけ書く）、起動をやり直す `retry_boot`、`open_log`、札の中の更新の `update_status`、`update_check`、`update_download`、`update_install` だけを与える（`capabilities/boot-screen.json`）。
+UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` と履歴から戻す `restore_config_history` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻が承認の窓で見せてから CLI を走らせる。「設定の同期の作り直し」の節）、連携の書き込みの `setup_integration` だけを別に与え（`capabilities/remote-setup.json`）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動の様子を引き取る `boot_state`、札を描いた知らせの `boot_card_shown`（殻はこれを受けてから 1 度だけ更新を確かめる）、試験のための書き出しの `boot_probe`（殻が `HANGAR_BOOT_PROBE` を持って起きたときだけ書く）、起動をやり直す `retry_boot`、`open_log`、札の中の更新の `update_status`、`update_check`、`update_download`、`update_install` だけを与える（`capabilities/boot-screen.json`）。
 `open_log` は決まったファイル `~/.agent-hangar/desktop.log`（無ければ空で作る）を `open`（Windows は `rundll32.exe url.dll,FileProtocolHandler`、サーバが URL を開く形と同じ）に渡すだけで、呼び手からパスは受け取らない。
 `desktop.log` には殻の行（`<ミリ秒> [desktop] …`）とサーバの標準出力と標準エラーが入る。
 サーバは子の起動のときに追記で開いたファイルへ書く。
@@ -6557,7 +6564,7 @@ Claude Code だけに書くときは、パスで足りるので出さない（�
 命令の権限は次のように分ける。
 
 - 承認の窓の 2 つの命令（`approve_view`、`approve_answer`）は、`approve` の窓の、殻に同梱した頁にだけ与える（`capabilities/approve.json`。`remote` を持たない）。殻の側でも、呼んだ窓の名前を確かめる。
-- サーバの頁（main の窓、`127.0.0.1:4177`）には、頼む命令（`setup_integration`、`apply_config_sync`、`restore_config_sync`）だけを与え、承認の命令は与えない。
+- サーバの頁（main の窓、`127.0.0.1:4177`）には、頼む命令（`setup_integration`、`apply_config_sync`、`restore_config_sync`、`restore_config_history`）だけを与え、承認の命令は与えない。
   画面のダイアログから殻の書く命令を直接呼ぶ形にすると、HTTP の API に穴が開いたとき、押されずに書かれうる。承認を殻の窓に置けば、その窓のボタンを人が押さない限り書かれない。
 - 承認の窓は、殻に同梱した頁から移らない（`on_navigation` で、macOS の `tauri://` と Windows の `http://tauri.localhost` だけを通す）。窓に落とされたファイルも受け取らない。
 
@@ -7684,9 +7691,10 @@ Claude の入れ物（skills、commands、agents、memory、プロジェクト�
 絶対パスを含む権限の規則は、落として「送らなかったもの」に出し、利用者が選んだときだけ送る。
 消えたファイルは、手元、相手の束、前回の共通の 3 方向の判定で扱い、どの相手の束にも無くなった項目だけを消えたと見なす（「3 方向の判定」）。
 消した PC から送られるのは束だけで、相手の `~/.claude` を直接消すことはない。
-受け手がファイルを消すのは承認を経て適用するときだけで、消すファイルの元の中身は世代の控えに残る。
+受け手がファイルを消すのは、承認を経て適用するときか、種類の状態が自動の項目をサーバが適用するときだけで、消すファイルの元の中身は世代の控えに残る。
 設定の同期は Settings で明示的に有効にしたときだけ動く。
-受け取った項目は hangar の置き場（`~/.agent-hangar/claude-config/inbox/`）に置くだけで、`~/.claude` に書くのは、見せて承認を取ったあとの `hangar config apply` と殻の命令だけである（「承認と適用の指示書」）。
+受け取った項目は hangar の置き場（`~/.agent-hangar/claude-config/inbox/`）に置く。
+`~/.claude` に書くのは、見せて承認を取ったあとの `hangar config apply` と殻の命令（「承認と適用の指示書」）と、種類の状態が自動の項目を受け取りのあとにサーバが適用するとき（「自動の適用」）である。
 `~/.claude` を上書きする前には必ず `~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ 1 バイトも書かない。
 控えは 20 世代を残し、古いものから消す。
 端末ローカルの `file_sync`（本文の台帳）は設定の束には使わない。
@@ -8252,8 +8260,13 @@ MCP サーバーの設定は、名前ごとに 1 項目で運ぶ。URL も stdio
 読むのは共通の `configKindModeOf(settings, kind)` で、書かれていない鍵と形の悪い値は既定に寄せる。`GET /api/settings` は 21 鍵を全部埋めて返し、`PATCH /api/settings` は届いた鍵だけを替える（知らない鍵と取れない値は 400）。
 - 切：その種類の項目は束に入れず（`collectAll` が落とす）、届いても 3 方向の判定に載せない。対象（target）は、その対象の種類のどれかが切でなければ有効とみなす（`ConfigTarget.kinds` と `anyKindOn`）。旧い対象ごとの入切（`configTargets`）は読まない。
 - 確認：届いた項目の `needsApproval` が真になり、画面の確認から適用する。消去も確認に掛ける。
-- 自動：`needsApproval` は偽。サーバが自分で適用するのは T2 で足す。
+- 自動：`needsApproval` は偽。届いた束の判定のあと、サーバが自分で適用する（下の「自動の適用」）。
 `settings` の種類は複数の対象（`claude`、`claude-keys2`）にまたがるので、状態は対象でなく id の種類（`parseItemId(id).kind`）で引く。
+会話の本文（`transcript`）が切のときは、`TranscriptUploader` の送り（`noteChanged`、`sweep`、`flushSession`、`flushAll`、`uploadFile`。deps の `isEnabled`）と、`RemotePuller.pullNowInner`（deps の `transcriptEnabled`）を止める。
+どちらも `boot/sync.ts` が `configKindModeOf(settings.current, 'transcript') !== 'off'` で組む。
+`isPaused`（`syncHalted`）には混ぜない。メタの行の同期と設定の同期は続く。
+切の間は `noteChanged` が積まず、降ろしは `filesSeq` を進めない。入に戻すと、送りは次の `sweep` が台帳から拾い、降ろしは区切りの続きから降ろすので、止めていた間の分が漏れない。
+1 巡（`oncePass`）は `uploader.sweep` と `puller.pullNow` を通るので、切のときは本文を送受信しない。作り直し（`rebuild`）は file_sync の行の印を替えるだけで、上げるのは `sweep` なので、切の間は上がらない。
 権限の鍵（`settings` の `permissions.*`、`claude-keys2` の `autoMode`・`skipAutoPermissionPrompt`・`deniedMcpServers`、Codex の `rules/`・`hooks.json`・`<名前>.config.toml`・`approval_policy` などの鍵、opencode の `permission`）は、種類が自動でも消去も含めていつも確認に回す（対象の `alwaysConfirm` と `itemNeedsConfirm`。種類が切なら送受信しない）。
 旧い承認の仕方（`configApproval`）は読まない。`ConfigSyncDto.approval` と `ConfigInboxDto.approval` は、画面を作り替えるまでの間だけ、`skills` の状態から読み替えて返す（確認なら `each`）。
 
@@ -8265,7 +8278,38 @@ MCP サーバーの設定は、名前ごとに 1 項目で運ぶ。URL も stdio
 承認した項目は、`PUT /api/config-sync/apply-order`（`{ items: [{ id, take? }] }`）で「適用の指示書」として hangar の置き場（`~/.agent-hangar/claude-config/apply-order.json`、0600）に書く。
 競合は `take` で、相手を採る（`remote`）か、手元を採る（`mine`。手元は書き換えず、基準だけを進める）かを選べる。
 前の指示書は置き換える。`DELETE` で取り消せる。
-サーバは `~/.claude` に書かない（全体計画の D9）。指示書を読んで承認の窓で見せ、控えを取って書き、基準を更新し、指示書を消すのは、殻の命令と `hangar config apply` の役目である。
+人が承認した項目について、指示書を読んで承認の窓で見せ、控えを取って書き、基準を更新し、指示書を消すのは、殻の命令と `hangar config apply` の役目である。
+サーバが自分で書くのは、hangar の好みと、次の自動の適用だけである。
+
+**自動の適用（2026-11-13 の決定 1、7、8）。**
+受け取り（`ConfigSyncService.receiveNow`）は、3 方向の判定のあとに `autoApply` を呼ぶ。受け取りは送受信の 1 本の列（`enqueue`）に載っているので、送ると重ならない。
+- 載せるのは、種類の状態が自動で、`itemNeedsConfirm` が偽（権限の鍵でない）で、競合でも保留でもない項目である。競合は手元を残して確認に回し（決定 7）、消去は控えを取って消す（決定 8）。
+- 人の承認を待つ指示書がすでにあるときは、その回は飛ばす。指示書は 1 つしか置けないためで、次の受け取りでやり直す。
+- 載せる項目で指示書を書き、hangar の好みは `PUT /api/config-sync/apply-order` と同じ口（`hangarTarget.write`）で書いて指示書から外す。残りを `runApplyAll`（`source: { mode: 'auto' }`）で書く。控え、`config_base` の更新、指示書の削除、履歴の 1 行まで、人の適用と同じ道を通る。
+- どこかで失敗したら、`runApplyAll` が先に書いた対象を世代から戻し、基準も戻す。サーバは指示書を消し、時刻と理由を `ConfigSyncDto.lastAutoError` に出す。同じ組（項目の id、操作、相手の指紋）は 10 分たつまで試し直さない（受け取りのたびに控えを取っては戻さないため）。次に成功するか、載せるものが無くなると `lastAutoError` は null に戻る。
+- HTTP の適用の口は増やさない（決定 3 の例外は、サーバの中から起こす自動の適用だけ）。
+- `ConfigSyncDto.askCount` は確認で待つ件数（`needsApproval` が真で、競合と保留を除く）。ヘッダの札は `askCount` と `conflicts` を足して出す。
+- 人の目が要るものが新しく出たときは、会話に紐づかない知らせ（`notifyApp`、「知らせ方の決まり（案 S）」の節）を `ask` で出す。新しい確認の項目、新しい競合、自動の適用の失敗（`lastAutoError.at` が変わったとき）の 3 つで、自動で入ったものは出さない。受け取りの最後に `watchAttention` が、前に知らせた集合（確認の項目と競合は「項目の id、操作、相手の指紋」、失敗は `at`）と比べ、増えた分だけを `onAttention` へ渡す（`ConfigAttention`：`asks`、`conflicts`、`autoFailed`）。集合はメモリだけに持ち、起こし直すと忘れる。文は `sync/config/attentionText.ts` が `sync.configNotice.*` の鍵から組む（仮の文言で、Gemini に当てて直す）。
+
+**適用の履歴（`config_history`、版 58）。**
+手元だけの表で、適用 1 回に 1 行を書く（`sync/config/history.ts`）。列は `id`、`at`、`from_device`（項目の元の端末。元が 1 つでなければ null）、`mode`（`auto` か `manual`）、`items`（JSON：`id`、`kind`、`label`、`op`）、`generations`（JSON：対象ごとの控えの世代名）、`undone`（JSON：あとから戻した項目の id）、`seen`（既読）である。
+- 書くのは `runApplyAll` が成功したときで、`source` を省くと `manual`（殻の命令と `hangar config apply`）として既読で書く。自動の適用は `auto` で未読から始め、hangar の好みの分も同じ行に入れる（好みだけのときは控えの世代が無い行になる）。
+- 書けなくても適用は失敗にしない（版 58 の前の DB を開いた古い CLI もここに来る）。
+- `ConfigSyncDto.history` は新しい順に 20 件、`autoUnseen` は自動で入って未読の行の数である。
+- `POST /api/config-sync/history/seen` は全部を既読にする（204）。書くのは DB の既読の印だけなので、HTTP に置く。
+- 人が `PUT /api/config-sync/apply-order` で選んだ hangar の好みは、その場でサーバが書いて指示書から外すので、履歴には残らない。
+
+**1 項目の戻しと、履歴の 1 回分の戻し（`sync/config/restoreItem.ts`）。**
+世代の戻し（`runRestore`）は世代の中身を丸ごと書き戻すが、こちらは履歴の項目に当たる分だけを、その行の `generations` の控えから戻す。
+- 呼び口は `restoreItem`（`{ historyId, itemId }`、または `{ generation, target, itemId }`）と `restoreHistory`（`{ historyId }`。行のうち、まだ戻していない戻せる項目を全部）。`planRestoreItem` は何も書かずに、書く先ごとの差分と指紋（`expect` に渡す）を返す。
+- 戻し方は項目の指す先で決まる。ファイルの項目（`file:`、`codex:file:`、`opencode:file:`、`~/.agents/skills`、メモリ）は、そのファイルを世代の中身へ戻し、世代の時点で無かった（create だった）ファイルは消す。
+  消したファイルの上の、その世代の時点で無かったディレクトリは、空なら消す。
+  settings.json の鍵の項目（`settings:`、`hooks`、`statusLine`、`enabledPlugins` など）は、世代の settings.json のその鍵の値だけを今の settings.json へ書く。世代の時点で無かった鍵は消す。ほかの鍵と、手元で足した中身は触らない。フックが伴う台本のファイルは戻さない。
+- 戻せない項目（`restorableItem` が偽）：hangar の好み（控えの世代を取らない）、Codex の config.toml の鍵、opencode の JSON の鍵、MCP のサーバー。単独の戻しは `unsupported` で断り、履歴の 1 回分の戻しでは飛ばす。
+- 戻す前の今の状態は、置き場ごとに `kind: 'restore'` の世代として控える（まとめて戻しても置き場ごとに 1 つ）。失敗したら、その世代から元へ戻す。`config_base` のその項目は、世代が控えた適用前の値へ戻す。
+- 履歴から戻したら、`config_history.undone` に項目の id を足す。戻し済みの項目は、もう一度は戻せない（`already-undone`）。
+- `ConfigHistoryItemDto.restorable` は、いま 1 項目だけ戻せるか（戻し方があり、世代の控えが残っていて、戻し済みでない）。サーバが dto を作るときに `withRestorable` で足す。
+- 呼び口は世代の戻しと同じく CLI（`hangar config restore --history <id> [--item <項目の id>]`。`--plan`、`--yes`、`--json`、`--expect` は同じ）と殻の命令 `restore_config_history(history, item?)`（承認の窓に見せ、承認されたときだけ CLI を走らせる。頁から渡せるのは履歴の番号と項目の id だけで、殻が形を確かめる）。頁の側は `runtime/desktop.ts` の `restoreConfigHistory(history, item?)`（古い殻は持たない）。HTTP の書き込みの口は足さない。
 
 **適用と世代へ戻す（PR 16）。**
 書く処理の本体は `sync/config/apply.ts` にあり、CLI（`packages/cli/src/config.ts`）と殻の命令（`apps/desktop/src-tauri/src/configapply.rs` と `lib.rs`）が同じものを走らせる。
@@ -8285,7 +8329,7 @@ MCP サーバーの設定は、名前ごとに 1 項目で運ぶ。URL も stdio
   結果は `{ status, message, generation, code }`（`status` は `applied`、`restored`、`cancelled`、`none`、`failed`、`busy`）で頁へ返す。
   書けなかったときは、承認の窓が失敗の段で知らせ、窓を閉じたときに `failed` を返す。
   頁から渡せるのは世代の名前だけで、`yyyyMMdd-HHmmss` の形を殻が確かめる。
-  権限は `capabilities/remote-config-apply.json` の 2 つだけである。頁の側の呼び出しは PR 17 で足した（`runtime/desktop.ts` の `applyConfigSync()`、`restoreConfigSync(name)`。結果は上の `{ status, message, generation }` で、形の違う返事は失敗として扱う）。
+  権限は `capabilities/remote-config-apply.json` の 3 つだけである（`restore_config_history` は履歴からの戻しで、上の「1 項目の戻し」）。頁の側の呼び出しは PR 17 で足した（`runtime/desktop.ts` の `applyConfigSync()`、`restoreConfigSync(name)`。結果は上の `{ status, message, generation }` で、形の違う返事は失敗として扱う）。
 - 指示書は項目の持ち主の対象ごとに分けて書く（0.12、`sync/config/applyAll.ts`）。
   `targetOfId` で項目を対象に振り分け、同じ書き方を持つ対象（`claude` と `claude-keys2`。`writesWith`）は 1 回だけ呼ぶ。
   持ち主のいない項目は指示書ごと読めないものとして断り（`broken-order`）、枠だけの対象や書き方（`planOps`）を持たない対象の項目があれば、何も書かずに `unknown-target` で断る。

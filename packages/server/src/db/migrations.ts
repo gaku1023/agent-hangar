@@ -891,6 +891,26 @@ alter table runs add column live_at integer;
 `;
 
 /**
+ * 版 58。設定の同期の適用の履歴（2026-11-13 の決定 12、13）。手元だけの表で、同期しない。適用 1 回に 1 行。
+ * mode は auto（届いた束をサーバが自分で適用した）か manual（殻の命令や hangar config apply で人が適用した）。
+ * items は適用した項目（id、kind、label、op）の JSON、generations は対象ごとの控えの世代名（target、name）の JSON、undone は戻した項目の id の JSON。
+ * seen は既読の印で、自動の適用だけ 0 で始まる（ヘッダの札の数）。from_device は届いた元の端末で、項目の元が 1 つでなければ null。
+ */
+const V58_CONFIG_HISTORY_SQL = `
+create table config_history (
+  id integer primary key autoincrement,
+  at integer not null,
+  from_device text,
+  mode text not null check (mode in ('auto', 'manual')),
+  items text not null,
+  generations text not null,
+  undone text not null default '[]',
+  seen integer not null default 0
+);
+create index idx_config_history_at on config_history (at);
+`;
+
+/**
  * MCP の delete_session の依頼を、利用者が答えるまで預かる表（#547）。手元だけの表で、同期しない。会話 1 つに 1 行。
  */
 const V44_DELETE_APPROVALS_SQL = `
@@ -1059,4 +1079,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 55, sql: V55_EVENT_BINDINGS_SQL },
   { version: 56, sql: V56_EVENT_HOOK_ORPHANS_SQL },
   { version: 57, sql: V57_RUN_LIVE_SQL },
+  { version: 58, sql: V58_CONFIG_HISTORY_SQL },
 ];

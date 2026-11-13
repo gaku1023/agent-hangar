@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ConfigBackupGenerationDto, ConfigItemKind } from '@agent-hangar/shared';
+import type { ConfigApplyOrderItemDto, ConfigBackupGenerationDto, ConfigHistoryItemDto, ConfigItemKind } from '@agent-hangar/shared';
 import { backupsRoot } from '../../config/cloud.ts';
 import {
   ApplyError, changedError, errText, loadOrder, plannedFile, planRestore, planRestoreFiles, readBuf, runRestore, undoGeneration,
@@ -10,6 +10,7 @@ import {
 import { deleteApplyOrder } from './applyOrder.ts';
 import { listBackupsIn } from './backups.ts';
 import { ConfigBase } from './base.ts';
+import { fromDeviceOf, historyItemsOf, recordHistory, type HistorySource } from './history.ts';
 import type { Db } from '../../db/open.ts';
 import { allTargets, targetOfId, type ConfigTarget } from './targets/index.ts';
 import type { TargetStore } from './targets/types.ts';
@@ -26,17 +27,24 @@ import type { TargetStore } from './targets/types.ts';
  * 5. 対象ごとに write を呼ぶ（各対象が自分の控えを取り、失敗したら自分を戻す）。
  *    途中の対象が失敗したら、先に書いた対象を、その世代から戻し、基準も適用の前へ戻す（どこか 1 つが書けなければ、全部書かない）。
  * 6. 全部書けたら、指示書を消す（指示書を消すのはここだけ。各対象の write は消さない）。
+ * 7. 適用の履歴（config_history）に 1 行を書く。source を省くと manual（殻の命令と hangar config apply）として既読で書く。
  */
 
 /** 承認の窓の見立て。どの対象に書くかを添える。 */
 export type ApplyAllPlan = ApplyPlan & { targets: string[] };
 export type ApplyAllResult = ApplyResult & { generations: { target: string; name: string }[] };
 
+/**
+ * 履歴に書く、適用の起こり。サーバの自動の適用は mode auto で、見せる名前（labels）と、
+ * 指示書の外で先に書いた hangar の好み（also）を添える。
+ */
+export type ApplySource = HistorySource & { labels?: ReadonlyMap<string, string>; also?: ConfigHistoryItemDto[] };
+
 type Writer = { key: string; target: ConfigTarget; names: string[] };
 
 const writerKey = (t: ConfigTarget): string => t.writesWith ?? t.name;
 
-function writersOf(home: string): { createdAt: number; writers: Writer[]; ids: string[] } {
+function writersOf(home: string): { createdAt: number; writers: Writer[]; ids: string[]; items: ConfigApplyOrderItemDto[] } {
   const order = loadOrder(home);
   const used = new Set<ConfigTarget>();
   for (const item of order.items) {
@@ -56,7 +64,7 @@ function writersOf(home: string): { createdAt: number; writers: Writer[]; ids: s
   }
   // 控えを取らない対象（hangar の好み）は最後に書く。途中で失敗しても、先に書いた対象は控えから戻せる。
   writers.sort((a, b) => Number(!a.target.store) - Number(!b.target.store));
-  return { createdAt: order.createdAt, writers, ids: order.items.map((i) => i.id) };
+  return { createdAt: order.createdAt, writers, ids: order.items.map((i) => i.id), items: order.items };
 }
 
 /** 確認に出す見立て。何も書かない。指示書が適用できる状態でなければ ApplyError。 */
@@ -130,8 +138,8 @@ function assertBackupsWritable(home: string, stores: TargetStore[]): void {
 }
 
 /** 指示書のとおりに、対象ごとの入れ物へ書く。どこか 1 つが書けなければ、先に書いた分も戻して ApplyError を投げる。 */
-export function runApplyAll(o: ApplyOptions): ApplyAllResult {
-  const { writers, ids } = writersOf(o.home);
+export function runApplyAll(o: ApplyOptions & { source?: ApplySource }): ApplyAllResult {
+  const { writers, ids, items } = writersOf(o.home);
   for (const w of writers) w.target.planWrite(o);
   const c = compose(o, writers);
   if (o.expect !== undefined && c.fingerprint !== o.expect) throw changedError();
@@ -157,6 +165,10 @@ export function runApplyAll(o: ApplyOptions): ApplyAllResult {
   }
   deleteApplyOrder(o.home);
   const generations = done.flatMap(({ w, r }) => (r.generation && w.target.store ? [{ target: w.target.store.name, name: r.generation }] : []));
+  const source = o.source ?? { mode: 'manual' };
+  try {
+    recordHistory(o.db, { at: o.now ? o.now() : Date.now(), source, items: [...(source.also ?? []), ...historyItemsOf(items, source.labels)], generations, fromDevice: fromDeviceOf(items) });
+  } catch { /* 履歴が書けなくても、適用は済んでいる。古い DB（版 57 の前）を開いた CLI もここに来る */ }
   return {
     generation: generations[0]?.name ?? null,
     generations,
