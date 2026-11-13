@@ -110,7 +110,7 @@ describe('指示書を持ち主の対象ごとに分けて書く', () => {
   it('書き方を持たない対象の項目があれば、何も書かずに断る', () => {
     const off = registerTarget(fakeTarget('fake'));
     try {
-      deliver([claudeFile('commands/a.md', 'A'), { id: 'fake:x', kind: 'codex-file', op: 'create', content: '1', target: 'x' }]);
+      deliver([claudeFile('commands/a.md', 'A'), { id: 'fake:x', kind: 'claude-md', op: 'create', content: '1', target: 'x' }]);
       expect(failOf(() => runApply(opts())).code).toBe('unknown-target');
       expect(failOf(() => planApplyFiles(opts())).code).toBe('unknown-target');
       expect(read('claudeDir', 'commands/a.md')).toBe('a0');

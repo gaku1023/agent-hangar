@@ -12,6 +12,7 @@ import { allTargets, collectAll, enabledTargetNames, targetNameOfId, targetOfId,
 import { sortSettings } from './settingsSort.ts';
 import { judge, type RemoteSnapshot } from './threeWay.ts';
 import { ConfigSyncService } from './service.ts';
+import { kindsOf } from '../../../test/configKinds.ts';
 
 /**
  * SPEC 5 章の鍵（S3）。見本は実物の settings.json の鍵の名前だけを写した形で、値は型に合う作り物にしてある。
@@ -77,28 +78,20 @@ describe('対象 claude-keys2', () => {
     expect(judge({ local: new Map(), base: new Map(), remotes: [has], localTargets: new Set(['claude']) }).actions).toEqual([]);
   });
 
-  it('承認が要るのは skipAutoPermissionPrompt・deniedMcpServers・autoMode だけ（設定が each のとき）', () => {
-    const need = (id: string, op: 'create' | 'overwrite' | 'delete', a: 'each' | 'auto' = 'each') => claudeKeys2Target.needsApproval({ id, kind: 'settings', op }, a);
-    expect(need('settings:deniedMcpServers', 'create')).toBe(true);
-    expect(need('settings:skipAutoPermissionPrompt', 'overwrite')).toBe(true);
-    expect(need('settings:autoMode', 'create')).toBe(true);
-    expect(need('settings:deniedMcpServers', 'create', 'auto')).toBe(false);
-    expect(need('settings:tui', 'create')).toBe(false);
-    expect(need('settings:voice', 'overwrite')).toBe(false);
-  });
 });
 
 describe('集める', () => {
   let tmp: string; let claudeDir: string; let db: Db;
   beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-keys2-')); claudeDir = path.join(tmp, 'c'); fs.mkdirSync(claudeDir); db = openDb(':memory:'); });
   afterEach(() => { db.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
-  const ctx = (switches: Record<string, boolean>): TargetContext => ({ db, deviceId: 'd', home: tmp, claudeDir, allowedUnsent: new Map(), switches, ...defaultTargetPaths({}, tmp), codexEnabled: false, opencodeEnabled: false, hangarSettingsPath: path.join(tmp, 'settings.json') });
+  const ctx = (switches: Record<string, boolean>): TargetContext => ({ db, deviceId: 'd', home: tmp, claudeDir, allowedUnsent: new Map(), kinds: kindsOf(switches), ...defaultTargetPaths({}, tmp), codexEnabled: false, opencodeEnabled: false, hangarSettingsPath: path.join(tmp, 'settings.json') });
   const put = (o: unknown) => fs.writeFileSync(path.join(claudeDir, 'settings.json'), JSON.stringify(o));
 
-  it('既定は切。切のあいだ、新しい鍵は項目にも知らない鍵にも出ない', () => {
+  it('種類 settings が切なら、新しい鍵は項目にも知らない鍵にも出ない（claude-keys2 も claude の settings も止まる）', () => {
     put(MAC_SHAPE);
-    expect(enabledTargetNames(ctx({}))).toEqual(['claude']);
-    const c = collectAll(ctx({}));
+    const off = { ...ctx({}), kinds: { ...kindsOf({}), settings: 'off' as const } };
+    expect(enabledTargetNames(off)).toEqual(['claude']);
+    const c = collectAll(off);
     expect(c.items.map((i) => i.id).filter((id) => id.slice(9) in { tui: 1, voice: 1, autoMode: 1 })).toEqual([]);
     expect(c.unsent).toEqual([]);
   });
@@ -107,6 +100,8 @@ describe('集める', () => {
     put(MAC_SHAPE);
     const on = collectAll(ctx({ [CLAUDE_KEYS2_NAME]: true }));
     expect(enabledTargetNames(ctx({ [CLAUDE_KEYS2_NAME]: true }))).toEqual([CLAUDE_KEYS2_NAME, 'claude']);
+    // 種類 settings は claude にもまたがるので、claude-keys2 の入切は settings の状態に従う（対象ごとの入切は読まない）。
+    expect(enabledTargetNames(ctx({}))).toEqual([CLAUDE_KEYS2_NAME, 'claude']);
     const got = on.items.map((i) => i.id);
     for (const k of KEYS2.filter((k) => k in MAC_SHAPE)) expect(got).toContain(`settings:${k}`);
     expect(new Set(got).size).toBe(got.length);
@@ -133,7 +128,7 @@ describe('画面の DTO に知らない鍵が出る', () => {
     fs.writeFileSync(path.join(claudeDir, 'settings.json'), JSON.stringify({ model: 'm', futureKey: 1 }));
     const db = openDb(':memory:');
     const cloud = new FakeCloudClient().asDevice('a');
-    const svc = new ConfigSyncService({ db, deviceId: 'a', deviceName: 'A', claudeDir, home, cloud, keyring: cloud.keyring, enabled: () => true, switchedOn: () => true, approval: () => 'each' });
+    const svc = new ConfigSyncService({ db, deviceId: 'a', deviceName: 'A', claudeDir, home, cloud, keyring: cloud.keyring, enabled: () => true, switchedOn: () => true, configKinds: () => kindsOf({}, 'each')});
     svc.outgoing();
     const u = svc.unsent();
     expect(u.items).toEqual([{ id: 'unknown-key:futureKey', kind: 'unknown-key', itemId: 'settings:futureKey', label: 'futureKey', reason: 'unknown-key', allowed: false }]);

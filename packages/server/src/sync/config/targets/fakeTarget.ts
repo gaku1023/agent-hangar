@@ -5,12 +5,12 @@ export function fakeTarget(name: string, o: { enabled?: boolean } = {}): ConfigT
   return {
     name,
     owns: (id) => id.startsWith(`${name}:`),
-    parseId: (id) => (id.startsWith(`${name}:`) ? { kind: 'codex-file', ref: { type: 'file', rel: id.slice(name.length + 1) } } : null),
+    parseId: (id) => (id.startsWith(`${name}:`) ? { kind: 'claude-md', ref: { type: 'file', rel: id.slice(name.length + 1) } } : null),
     enabled: () => o.enabled ?? true,
     collect: () => ({ items: [], dropped: [], unsent: [], blocked: { ids: new Set(), prefixes: [] } }),
     planWrite: () => { throw new Error('fake target does not plan'); },
     write: () => { throw new Error('fake target does not write'); },
-    needsApproval: () => false,
+    kinds: ['claude-md'],
     isMachineBound: () => false,
   };
 }

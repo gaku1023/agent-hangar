@@ -14,6 +14,7 @@ import { RELAY_HOLD_MS, rebuildIfCloudChanged } from './rebuild.ts';
 import type { RosterRead } from './roster.ts';
 import { SyncStateStore } from './state.ts';
 import { TranscriptUploader } from './uploader.ts';
+import { kindsOf } from '../../test/configKinds.ts';
 
 /**
  * 作り直しの 3 つの道（設計書「作り直しの手順」）。
@@ -210,7 +211,7 @@ describe('rebuildIfCloudChanged', () => {
     fs.writeFileSync(path.join(claudeDir, 'CLAUDE.md'), '# rules');
     const service = new ConfigSyncService({
       db, deviceId: 'dev-a', deviceName: 'pc-a', claudeDir, home, cloud, keyring: cloud.keyring,
-      enabled: () => true, switchedOn: () => true, approval: () => 'each', now: () => timers.now,
+      enabled: () => true, switchedOn: () => true, configKinds: () => kindsOf({}, 'each'), now: () => timers.now,
     });
     state.set('cloudId', 'cloud-old');
     expect((await service.send()).sent).toBe(true);

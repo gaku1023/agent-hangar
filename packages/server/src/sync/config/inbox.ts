@@ -23,6 +23,8 @@ export type InboxMeta = {
   targets?: string[];
   /** 送り手の OS。 */
   os?: 'darwin' | 'win32' | 'linux';
+  /** 送り手で切の種類（束の目録の offKinds）。その種類は、相手の束に無くても消去と読まない。 */
+  offKinds?: string[];
 };
 
 export type InboxEntry = { deviceId: string; meta: InboxMeta; items: ManifestItem[] };
@@ -35,7 +37,8 @@ function readJson<T>(file: string): T | null {
 
 const isMeta = (v: unknown): v is InboxMeta => {
   const m = v as Partial<InboxMeta> | null;
-  return !!m && typeof m.bundleSha256 === 'string' && typeof m.forRowSha256 === 'string' && typeof m.at === 'number' && typeof m.itemCount === 'number' && typeof m.skipped === 'number' && (m.targets === undefined || (Array.isArray(m.targets) && m.targets.every((t) => typeof t === 'string')));
+  return !!m && typeof m.bundleSha256 === 'string' && typeof m.forRowSha256 === 'string' && typeof m.at === 'number' && typeof m.itemCount === 'number' && typeof m.skipped === 'number' && (m.targets === undefined || (Array.isArray(m.targets) && m.targets.every((t) => typeof t === 'string')))
+    && (m.offKinds === undefined || (Array.isArray(m.offKinds) && m.offKinds.every((t) => typeof t === 'string')));
 };
 
 export function writeInbox(home: string, deviceId: string, bundle: UnpackedBundle, meta: InboxMeta): void {

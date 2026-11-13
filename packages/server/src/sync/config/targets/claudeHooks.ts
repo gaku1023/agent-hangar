@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ConfigExecMark } from '@agent-hangar/shared';
+import type { ConfigExecMark, ConfigItemKind } from '@agent-hangar/shared';
 import { ApplyError } from '../apply.ts';
 import { MAX_ITEM_BYTES } from '../bundle.ts';
 import type { Collected, LocalItem, UnsentCandidate } from '../collect.ts';
@@ -11,7 +11,7 @@ import { canonicalJson } from '../settingsSort.ts';
 import { analyzeCommand, fromPortable, hostOs, isCarriedHookFile, toPortable, type CommandRefs, type HostOs } from './hookCommands.ts';
 import { planItemOps, planItems, readSettingsForCollect, writeItems, type FileWrite, type ItemSpec } from './settingsItemWriter.ts';
 import { CLAUDE_STORE } from './stores.ts';
-import type { ConfigTarget, TargetContext } from './types.ts';
+import { anyKindOn, type ConfigTarget, type TargetContext } from './types.ts';
 
 /**
  * Claude の hooks と statusLine（SPEC 6 章、決定 D6）。settings.json の鍵と、command が指す `~/.claude` の下の台本を 1 つの項目で運ぶ。
@@ -29,6 +29,7 @@ import type { ConfigTarget, TargetContext } from './types.ts';
  */
 export const CLAUDE_HOOKS_NAME = 'claude-hooks';
 export const HOOKS_ID = 'claude-hooks:hooks';
+const HOOK_KINDS: readonly ConfigItemKind[] = ['claude-hooks', 'claude-statusline'];
 export const STATUSLINE_ID = 'claude-hooks:statusline';
 
 const KEY_OF: Readonly<Record<string, 'hooks' | 'statusLine'>> = { [HOOKS_ID]: 'hooks', [STATUSLINE_ID]: 'statusLine' };
@@ -225,14 +226,14 @@ export function createClaudeHooksTarget(o: { userHome?: () => string; os?: HostO
     name: CLAUDE_HOOKS_NAME,
     owns: (id) => id === HOOKS_ID || id === STATUSLINE_ID,
     parseId: (id) => (id === HOOKS_ID ? { kind: 'claude-hooks', ref: { type: 'settings', key: 'hooks' } } : id === STATUSLINE_ID ? { kind: 'claude-statusline', ref: { type: 'settings', key: 'statusLine' } } : null),
-    enabled: (t) => t.switches?.[CLAUDE_HOOKS_NAME] === true,
+    kinds: HOOK_KINDS,
+    enabled: (t) => anyKindOn(t, HOOK_KINDS),
     collect: (t) => collectHooks(t, ctx()),
     planWrite: (w) => planItems(w, specs(w)),
     write: (w) => writeItems(w, specs(w)),
     planOps: (w, read) => planItemOps(w, specs(w), read),
     store: CLAUDE_STORE,
     // 実行されるものなので、設定が each のあいだは消去も承認に掛ける。
-    needsApproval: (_item, approval) => approval === 'each',
     isMachineBound: () => false,
   };
 }
