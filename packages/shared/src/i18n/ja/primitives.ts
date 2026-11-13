@@ -10,6 +10,7 @@ export const primitivesJa: AreaDictionary<typeof primitivesKeys> = {
   'primitives.listbox.search': '{label}を検索',
   'primitives.listbox.hintMove': '移動',
   'primitives.listbox.hintChoose': '決定',
+  'primitives.micButton.label': '音声で入力',
   'primitives.rollingNumber.unavailable': '未取得',
   'primitives.stepper.decrease': '{label}を減らす',
   'primitives.stepper.increase': '{label}を増やす',

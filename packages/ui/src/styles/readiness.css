@@ -52,3 +52,8 @@
 .cp-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: var(--u); font-size: var(--fs-xs); }
 .cp-foot > .faint { flex: 1; min-width: 0; }
 .cp-foot code { font: 500 11px var(--font-mono); }
+.mic-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; border: 0; border-radius: 50%; background: none; color: var(--ink-2); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.mic-btn:hover { background: var(--surface); color: var(--ink); }
+.mic-btn[data-on='true'] { background: var(--accent); color: var(--surface); }
+.mic-btn[data-on='true']::after { content: ''; position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--accent); animation: mic-listen calc(var(--dur) * 3) var(--ease-out) infinite; pointer-events: none; }
+@keyframes mic-listen { from { opacity: 0.6; transform: scale(1); } to { opacity: 0; transform: scale(1.6); } }

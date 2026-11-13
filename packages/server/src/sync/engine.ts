@@ -692,6 +692,22 @@ export class SyncEngine {
     return this.pulling;
   }
 
+  /** 走っている pull の後に予約した、もう 1 回の pull（pullAfterBell）。何度鳴っても 1 回にまとめる。 */
+  private repull: Promise<{ applied: number }> | null = null;
+
+  /**
+   * 呼び鈴で始める pull。
+   * 走っている pull は鳴る前に始まっていて、鳴らした変更をまだ見ていないことがある。分け合うと次の機会まで取れないので、終わった後にもう 1 回取る。
+   * 2026-11-13 に 2 台で実測したとき、相乗りした 1 本が 0.6 秒でなく 2.5 秒かかった。
+   */
+  pullAfterBell(): Promise<{ applied: number }> {
+    if (!this.deps.client || this.halted) return Promise.resolve({ applied: 0 });
+    const running = this.pulling;
+    if (!running) return this.pullNow();
+    this.repull ??= running.catch(() => undefined).then(() => { this.repull = null; return this.pullNow(); });
+    return this.repull;
+  }
+
   /**
    * 世代の鍵が無くて飛ばした行まで、差分の区切り（lastSeq）を巻き戻す。
    * 名簿の読み直しで新しい世代の鍵が届いたときに呼ぶ（sync/roster.ts の rosterRefresh）。
