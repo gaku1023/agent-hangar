@@ -6,6 +6,7 @@ import { commonEn } from './en/common.ts';
 import { configEn } from './en/config.ts';
 import { configSyncEn } from './en/configSync.ts';
 import { configSyncUiEn } from './en/configSyncUi.ts';
+import { configKindsUiEn } from './en/configKindsUi.ts';
 import { configTargetsUiEn } from './en/configTargetsUi.ts';
 import { confirmEn } from './en/confirm.ts';
 import { externalEn } from './en/external.ts';
@@ -81,6 +82,7 @@ export const en: Dictionary = {
   ...configEn,
   ...configSyncEn,
   ...configSyncUiEn,
+  ...configKindsUiEn,
   ...configTargetsUiEn,
   ...confirmEn,
   ...gitEn,

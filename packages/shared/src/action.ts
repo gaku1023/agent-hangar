@@ -277,6 +277,10 @@ export type UiAction =
   | { type: 'configSync.unsent.send'; id: string }
   // 控えの世代へ戻す。name は yyyyMMdd-HHmmss。
   | { type: 'configSync.restore'; name: string; /** 戻す先の対象（claude、codex、opencode、agents-skills）。省くと claude。 */ target?: string }
+  // 届いたものの右の列。resolve は競合の採る側（と、確認の適用）を、ダイアログを開かずにそのまま書く。history.seen は履歴を開いたときの既読、history.restore は 1 回分（item を省く）または 1 項目の戻し。
+  | { type: 'configSync.resolve'; entries: ConfigApplyOrderEntryIn[] }
+  | { type: 'configSync.history.seen' }
+  | { type: 'configSync.history.restore'; history: number; item?: string }
   | { type: 'summary.regenerate'; sessionId: SessionId }
   | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
   | { type: 'split.toggle' } | { type: 'split.resize'; ratio: number } | { type: 'transcript.toggle' }

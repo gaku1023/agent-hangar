@@ -206,6 +206,9 @@ export class ConfigSyncService {
     const c = collectAll(this.targetCtx());
     if (this.refreshUnsent(c.unsent)) this.touch();
     this.lastLinkSkipped = c.linkSkipped ?? {};
+    const counts: Partial<Record<ConfigItemKind, number>> = {};
+    for (const i of c.items) if (!i.withheld) counts[i.kind] = (counts[i.kind] ?? 0) + 1;
+    this.lastKindCounts = counts;
     // 定期の 1 回（tick）の中では、受け取りで集めた結果を、続く送るでも使う（sharedCollected）。
     if (this.tickRound) this.tickRound.collected = c;
     return c;
@@ -213,6 +216,7 @@ export class ConfigSyncService {
 
   /** 定期の 1 回の中で、受け取りが集めた結果を送るへ渡す。集め直すと新しいほうに替わる。tick の外では使わない。 */
   /** 最後に集めた結果の、リンクで外した項目（dto で返す）。 */
+  private lastKindCounts: Partial<Record<ConfigItemKind, number>> = {};
   private lastLinkSkipped: NonNullable<Collected['linkSkipped']> = {};
   private tickRound: { collected: Collected | null } | null = null;
   private sharedCollected(): Collected | null { return this.tickRound?.collected ?? null; }
@@ -778,6 +782,7 @@ export class ConfigSyncService {
       ...(vcs.length ? { vcs } : {}),
       ...(notices.length ? { notices } : {}),
       linkSkipped: this.lastLinkSkipped,
+      kindCounts: this.lastKindCounts,
       askCount: r.filter((x) => x.action.op !== 'conflict' && !x.held && itemNeedsConfirm({ id: x.action.id, kind: x.kind, op: x.action.op }, this.kindMode(x.kind))).length,
       autoUnseen: autoUnseenCount(this.deps.db),
       history: withRestorable(listHistory(this.deps.db, (id) => this.deviceNameOrNull(id)), this.deps.home),

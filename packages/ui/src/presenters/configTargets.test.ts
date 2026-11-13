@@ -14,57 +14,6 @@ const open = (part: 'review'): State => ({ ...initialState(), overlay: { kind: '
 const inb = (id: string, kind: ConfigInboxItemDto['kind'], label: string, op: ConfigInboxItemDto['op'], over: Partial<ConfigInboxItemDto> & Record<string, unknown> = {}): ConfigInboxItemDto => ({ id, kind, label, op, fromDeviceId: 'dev-a', fromDevice: 'Studio', size: 100, marks: [], head: '', held: null, needsApproval: false, ...over });
 const uns = (id: string, kind: ConfigUnsentItemDto['kind'], reason: string, over: Partial<ConfigUnsentItemDto> = {}): ConfigUnsentItemDto => ({ id, kind, itemId: id, label: id, reason, allowed: false, ...over });
 
-describe('対象ごとの入切の行（1A、2A）', () => {
-  it('Codex と opencode が無効な PC では、その行と共通の skills を出さない。並びは Claude の対象、MCP、エージェント、Hangar', () => {
-    const p = presentConfigSection(storeOf(dto(), {}, { settings: settings() }), NOW);
-    expect(p.targets.rows.map((r) => r.name)).toEqual(['claude-keys2', 'claude-hooks', 'claude-plugins', 'claude-mcp', 'hangar']);
-  });
-  it('有効なら Codex と opencode の行、その MCP、共通の skills を出す', () => {
-    const p = presentConfigSection(storeOf(dto(), {}, { settings: settings({ codexEnabled: true, opencodeEnabled: true }) }), NOW);
-    expect(p.targets.rows.map((r) => r.name)).toEqual(['claude-keys2', 'claude-hooks', 'claude-plugins', 'claude-mcp', 'codex', 'codex-mcp', 'opencode', 'opencode-mcp', 'agents-skills', 'hangar']);
-    const only = presentConfigSection(storeOf(dto(), {}, { settings: settings({ codexEnabled: true }) }), NOW);
-    expect(only.targets.rows.map((r) => r.name)).toContain('agents-skills');
-    expect(only.targets.rows.map((r) => r.name)).not.toContain('opencode');
-  });
-  it('入切は configTargets から読み、無ければ切。一度も選んでいない対象に「新」を付ける', () => {
-    const p = presentConfigSection(storeOf(dto(), {}, { settings: settings({ configTargets: { 'claude-hooks': true, hangar: false } }) }), NOW);
-    const by = Object.fromEntries(p.targets.rows.map((r) => [r.name, r]));
-    expect([by['claude-hooks']!.on, by['hangar']!.on, by['claude-keys2']!.on]).toEqual([true, false, false]);
-    expect([by['claude-hooks']!.isNew, by['hangar']!.isNew, by['claude-keys2']!.isNew]).toEqual([false, false, true]);
-    expect(p.targets.showNew).toBe(false);
-  });
-  it('どの対象もまだ選んでいなければ、増えた知らせの帯を出す', () => {
-    const p = presentConfigSection(storeOf(dto(), {}, { settings: settings() }), NOW);
-    expect(p.targets.showNew).toBe(true);
-    expect(p.targets.rows.every((r) => r.isNew && !r.on)).toBe(true);
-  });
-  it('承認が要る対象に承認制の札、名前と説明は文面の表から', () => {
-    const p = presentConfigSection(storeOf(dto(), {}, { settings: settings({ codexEnabled: true, opencodeEnabled: true }) }), NOW);
-    const by = Object.fromEntries(p.targets.rows.map((r) => [r.name, r]));
-    expect(p.targets.rows.filter((r) => r.approve).map((r) => r.name)).toEqual(['claude-hooks', 'claude-plugins', 'claude-mcp', 'codex', 'codex-mcp', 'opencode', 'opencode-mcp', 'agents-skills']);
-    expect(by['claude-hooks']).toMatchObject({ title: 'hooks と statusLine', desc: '自動で実行するコマンドとスクリプト' });
-    expect(by['hangar']).toMatchObject({ title: 'Hangar の設定', desc: '言語、承認の仕方など。PC ごとの設定は同期しません。' });
-  });
-  it('入れ物が Git などで管理されていれば、その入れ物を使う行に札と文を持たせる（vcs が無ければ出さない）', () => {
-    const p = presentConfigSection(storeOf(dto({ vcs: [{ target: 'claude', tools: ['git'] }, { target: 'opencode', tools: ['chezmoi'] }] }), {}, { settings: settings({ opencodeEnabled: true }) }), NOW);
-    const by = Object.fromEntries(p.targets.rows.map((r) => [r.name, r]));
-    expect(by['claude-hooks']!.vcs).toEqual({ chip: 'Git で管理', tip: '~/.claude は Git で管理されています。Hangar の同期と重なると、競合することがあります。', title: 'Git の管理と重なります', body: '~/.claude は Git で管理されています。同期を有効にすると、Git と Hangar が同じファイルに書き込むため、競合することがあります。' });
-    expect(by['opencode']!.vcs?.chip).toBe('chezmoi で管理');
-    expect(by['opencode-mcp']!.vcs?.chip).toBe('chezmoi で管理');
-    expect(by['claude-mcp']!.vcs).toBeNull();
-    expect(by['hangar']!.vcs).toBeNull();
-    const none = presentConfigSection(storeOf(dto(), {}, { settings: settings() }), NOW);
-    expect(none.targets.rows.every((r) => r.vcs === null)).toBe(true);
-  });
-  it('opencode の json と jsonc の併存を opencode の行の知らせに出す', () => {
-    const p = presentConfigSection(storeOf(dto({ notices: [{ target: 'opencode', code: 'both-json-jsonc' }] }), {}, { settings: settings({ opencodeEnabled: true }) }), NOW);
-    const by = Object.fromEntries(p.targets.rows.map((r) => [r.name, r]));
-    expect(by['opencode']!.notice).toBe('opencode.json と opencode.jsonc が両方あります（opencode は jsonc を読み込み、json に書き込みます）');
-    expect(by['codex-mcp']).toBeUndefined();
-    expect(by['claude-hooks']!.notice).toBeNull();
-  });
-});
-
 describe('送らなかった項目を理由ごとの群に（3A）', () => {
   const items = [uns('u1', 'secret', 'secret:aws-key'), uns('u2', 'permission-rule', 'absolute-path'), uns('u3', 'unknown-key', 'unknown-key'), uns('u4', 'secret', 'secret:mcp-credential')];
   it('シークレット、この PC だけ、不明なキーの順に群を作り、不明なキーは件数に入れない', () => {

@@ -79,3 +79,9 @@
   .rh-cards { grid-template-columns: minmax(0, 1fr); }
   .rh-arrow { transform: rotate(90deg); justify-self: center; }
 }
+
+/* 設定の同期の札（P1）。確認の件数は waiting の色、自動で入った件数は静かな色。出入りは growIn と collapseOut、数の差し替えは RollingText。 */
+.sync > .sync-badge { display: inline-flex; align-items: center; gap: calc(var(--u) * 0.75); flex: none; height: 20px; padding: 0 calc(var(--u) * 1.75); border: 0; border-radius: var(--r-pill); font: inherit; font-size: var(--fs-xs); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; cursor: pointer; }
+.sync-badge .icon { width: 12px; height: 12px; stroke-width: 2; }
+.sync-badge[data-kind='ask'] { background: var(--waiting); color: #fff; }
+.sync-badge[data-kind='quiet'] { background: var(--accent-soft); color: var(--accent); }

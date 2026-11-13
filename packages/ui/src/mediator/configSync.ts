@@ -45,6 +45,9 @@ export function configSyncStep(state: State, store: Store, input: Input): Step |
       if (o.kind !== 'configSync' || o.working || i.entries.length === 0) return { state, effects: [] };
       return { state: { ...state, overlay: { ...o, working: true } }, effects: [{ kind: 'api.configSyncApply', entries: i.entries }] };
     case 'configSync.order.apply': return { state, effects: [{ kind: 'api.configSyncApply', entries: null }] };
+    // 右の列の競合と確認は、ダイアログを開かずに指示書へして適用へ進む。
+    case 'configSync.resolve': return i.entries.length === 0 ? { state, effects: [] } : { state, effects: [{ kind: 'api.configSyncApply', entries: i.entries }] };
+    case 'configSync.history.restore': return { state, effects: [{ kind: 'api.configSyncRestoreHistory', history: i.history, item: i.item ?? null }] };
     case 'configSync.restore': return { state, effects: [{ kind: 'api.configSyncRestore', name: i.name, target: i.target ?? 'claude' }] };
     // 書き込んでいる（指示書を書いて、ネイティブの確認を待っている）あいだは閉じさせない。閉じても適用は止まらず、結果だけが見えなくなる。
     case 'overlay.close': return o.kind === 'configSync' && o.working ? { state, effects: [] } : null;

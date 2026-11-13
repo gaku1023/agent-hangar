@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { ConfigSyncSectionProps } from '../presenters/configSync.ts';
 import { ConfigGroup, Reveal } from './ConfigSyncParts.tsx';
-import { ConfigTargetRows } from './ConfigTargetRows.tsx';
+import { ConfigInbox } from './ConfigInbox.tsx';
+import { ConfigKindsList } from './ConfigKindsList.tsx';
 import { CommandLine } from './primitives/CommandLine.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
-import { Segmented } from './primitives/Segmented.tsx';
 import { SetRow } from './primitives/SetRow.tsx';
 import { revealWithin } from './primitives/revealWithin.ts';
 import { Switch } from './primitives/Switch.tsx';
@@ -17,7 +17,7 @@ import { Switch } from './primitives/Switch.tsx';
  *
  * - 有効にする：入れるときは、送るものの一覧を見せて承認を取る。切るのはその場で保存する。
  * - 届いている変更、承認待ち、競合：押すとそれぞれのダイアログを開く。
- * - 承認の仕方：自動に切り替えるときは、その場に注意の文と、やめる、自動にする、を出す。
+ * - 種類ごとの行と届いたもの：ConfigKindsList と ConfigInbox（自動で走るコードを自動にするときだけ、行の下に注意の帯を開く）。
  * - 送らなかった項目：件数が 0 でも行を残し、開くと理由と「それでも送る」を出す（e2）。
  * - バックアップ：書き込みの前の世代。戻す操作は殻のネイティブの確認を経る（殻が無ければコマンドを案内する）。
  */
@@ -25,8 +25,6 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
   const t = useT();
   const emit = useEmit();
   const c = props.cfg;
-  // 自動に切り替える前の注意の帯。承認の仕方は、利用者が「自動にする」を押すまで変えない。
-  const [askAuto, setAskAuto] = useState(false);
   const [unsentOpen, setUnsentOpen] = useState(c.focusUnsent);
   // 「それでも送る」の確認を出している行（3a）。
   const [sendAsk, setSendAsk] = useState<string | null>(null);
@@ -68,9 +66,12 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
             <span><b>{t('configSyncUi.worker.title')}</b>{' '}{t('configSyncUi.worker.body')}</span>
           </div>
         ) : undefined} />
-      {/* 対象ごとの入切は親の下に並べ、親を切ると畳む（1A、1a）。 */}
+      {/* 種類ごとの行（C 性質ごと）と、右の「届いたもの」。親を切ると畳む。 */}
       <Reveal open={on}>
-        <ConfigTargetRows rows={c.targets.rows} showNew={c.targets.showNew} switches={c.targets.switches} />
+        <div className="cfg-cols">
+          <ConfigKindsList kinds={c.kinds} />
+          <ConfigInbox inbox={c.inbox} />
+        </div>
       </Reveal>
       {on && (
         <>
@@ -97,30 +98,6 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
                 c.incoming.held > 0 ? t('configSyncUi.incoming.held', { n: c.incoming.held }) : null,
               ].filter((x) => x !== null).join(t('configSyncUi.incoming.sep'))}
             control={<button type="button" className="btn btn-sm btn-primary" disabled={c.incoming.count + c.incoming.held === 0} onClick={() => emit({ type: 'configSync.open', part: 'review' })}>{t('configSyncUi.incoming.review')}</button>} />
-          {c.awaiting > 0 && (
-            <SetRow title={t('configSyncUi.awaiting.title', { n: c.awaiting })}
-              control={<button type="button" className="btn btn-sm" onClick={() => emit({ type: 'configSync.open', part: 'approve' })}>{t('configSyncUi.awaiting.open')}</button>} />
-          )}
-          <SetRow title={t('configSyncUi.approval.title')} info={c.approval === 'auto' ? t('configSyncUi.approval.descAuto') : t('configSyncUi.approval.desc')}
-            control={(
-              <Segmented label={t('configSyncUi.approval.title')} value={c.approval}
-                options={[{ value: 'each', label: t('configSyncUi.approval.each') }, { value: 'auto', label: t('configSyncUi.approval.auto') }]}
-                onChange={(v) => {
-                  if (v === 'auto') setAskAuto(true);
-                  else { setAskAuto(false); emit({ type: 'settings.update', patch: { configApproval: 'each' } }); }
-                }} />
-            )}
-            below={askAuto && c.approval !== 'auto' ? (
-              <div className="cfg-strip" data-tone="danger" role="group" aria-label={t('configSyncUi.approval.confirmLabel')}>
-                <Icon name="alert" />
-                <span>{t('configSyncUi.approval.warn')}</span>
-                <span className="spacer" />
-                <button type="button" className="btn btn-sm" onClick={() => setAskAuto(false)}>{t('common.button.cancel')}</button>
-                <button type="button" className="btn btn-sm btn-primary" onClick={() => { setAskAuto(false); emit({ type: 'settings.update', patch: { configApproval: 'auto' } }); }}>{t('configSyncUi.approval.makeAuto')}</button>
-              </div>
-            ) : undefined} />
-          <SetRow title={t('configSyncUi.conflicts.title', { n: c.conflicts })} info={t('configSyncUi.conflicts.desc')}
-            control={<button type="button" className="btn btn-sm" disabled={c.conflicts === 0} onClick={() => emit({ type: 'configSync.open', part: 'conflicts' })}>{t('configSyncUi.conflicts.open')}</button>} />
           {/* 送らなかった項目は、0 件でも行を残す（e2）。送った直後の知らせはベルの一覧に入る（段 4 の PR 19）。 */}
           <SetRow id="settings-config-unsent" title={t('configSyncUi.unsent.title', { n: unsentAll })} info={t('configSyncUi.unsent.desc')}
             control={<button type="button" className="btn btn-sm" aria-expanded={unsentOpen && unsentAll > 0} disabled={unsentAll === 0} onClick={() => setUnsentOpen(!unsentOpen)}>{unsentOpen && unsentAll > 0 ? t('configSyncUi.word.fold') : t('configSyncUi.word.show')}</button>}

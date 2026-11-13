@@ -1,10 +1,11 @@
-import { codexEnabledOf, opencodeEnabledOf, type ConfigApplyOrderEntryIn, type ConfigApproval, type ConfigBackupGenerationDto, type ConfigConflictDto, type ConfigExecMark, type ConfigHeldReason, type ConfigInboxItemDto, type ConfigInboxOp, type ConfigItemKind, type ConfigStoreDto, type ConfigSyncDto, type ConfigUnsentItemDto, type ConfigVcsTool, type RetentionPreviewLine, type SettingsDto, type Translate } from '@agent-hangar/shared';
+import { type ConfigApplyOrderEntryIn, type ConfigBackupGenerationDto, type ConfigConflictDto, type ConfigExecMark, type ConfigHeldReason, type ConfigInboxItemDto, type ConfigInboxOp, type ConfigItemKind, type ConfigStoreDto, type ConfigSyncDto, type ConfigUnsentItemDto, type ConfigVcsTool, type RetentionPreviewLine, type SettingsDto, type Translate } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { clientPlatform } from '../keys.ts';
 import { byteBase } from './bytes.ts';
 import { absoluteTime, relativeTime } from './format.ts';
 import { translatorOf } from './i18n.ts';
+import { kindKey, needsPick, presentInbox, presentKinds, type InboxProps, type KindsProps } from './configKinds.ts';
 
 /**
  * 設定の同期（作り直した実装）の画面の形。
@@ -38,16 +39,6 @@ export function sizeLabel(n: number, platform: string = clientPlatform()): strin
   if (n < k * k) return `${(n / k).toFixed(1)} KB`;
   return `${(n / k / k).toFixed(1)} MB`;
 }
-
-/** 種類の見出しの鍵。鍵にハイフンは使えないので、claude-md を claudeMd のように読み替える。 */
-const KIND_KEYS = {
-  'claude-md': 'claudeMd', settings: 'settings', keybindings: 'keybindings', skills: 'skills', commands: 'commands', agents: 'agents', memory: 'memory',
-  'claude-mcp': 'claudeMcp', 'claude-hooks': 'claudeHooks', 'claude-statusline': 'claudeStatusline', plugins: 'plugins',
-  'codex-file': 'codexFile', 'codex-config': 'codexConfig', 'codex-mcp': 'codexMcp',
-  'opencode-file': 'opencodeFile', 'opencode-config': 'opencodeConfig', 'opencode-cli': 'opencodeCli', 'opencode-mcp': 'opencodeMcp',
-  'agents-skills': 'agentsSkills', 'hangar-pref': 'hangarPref',
-} as const satisfies Record<ConfigItemKind, string>;
-const kindKey = <K extends ConfigItemKind>(kind: K): (typeof KIND_KEYS)[K] => KIND_KEYS[kind];
 
 const markLabels = (t: Translate, marks: ConfigExecMark[]): string[] => marks.map((m) => t(`configSyncUi.mark.${m}`));
 
@@ -188,7 +179,7 @@ function inboxRow(t: Translate, i: ConfigInboxItemDto): ConfigRowProps {
 }
 
 /** 承認の表で選ぶ項目か。競合は、採る側を競合の札で選ぶので、承認の表には入れない。 */
-export const needsPick = (i: ConfigInboxItemDto): boolean => i.held === null && i.needsApproval && i.op !== 'conflict';
+export { needsPick };
 
 /** 適用の指示書へ入れられる項目か。競合は採る側を選ぶので別、保留は書けない、承認の要るものは承認の表で選ぶ。 */
 export const appliesNow = (i: ConfigInboxItemDto): boolean => i.held === null && i.op !== 'conflict' && !i.needsApproval;
@@ -367,7 +358,8 @@ export type ConfigConflictCardProps = {
   remoteName: string;
   lines: RetentionPreviewLine[];
 };
-export type ConfigConflictsDialogProps = { part: 'conflicts'; loading: boolean; cards: ConfigConflictCardProps[]; working: boolean; native: boolean };
+/** write は片方にしか無く、この PC へ自動で書き足す件数。links はリンクで外した件数。中身の違うものだけが cards に並ぶ。 */
+export type ConfigConflictsDialogProps = { part: 'conflicts'; loading: boolean; cards: ConfigConflictCardProps[]; working: boolean; native: boolean; oneSided: { write: number; links: number } };
 
 /** 片側の「いつ」。時刻だけを言い、名前は札の文が言う。消えていれば「消えています」。 */
 function sideWhen(t: Translate, side: ConfigConflictDto['local']): string {
@@ -383,7 +375,8 @@ function presentConflicts(state: State, store: Store, t: Translate): ConfigConfl
     remoteWhen: sideWhen(t, c.remote), localWhen: sideWhen(t, c.local), remoteName: c.remote?.deviceName ?? t('configSyncUi.conflict.other'),
     lines: c.diff,
   }));
-  return { part: 'conflicts', loading: list === null, cards, working: o.kind === 'configSync' && o.working, native: store.desktop };
+  const links = Object.values(store.configSync?.linkSkipped ?? {}).reduce((n, xs) => n + (xs?.length ?? 0), 0);
+  return { part: 'conflicts', loading: list === null, cards, working: o.kind === 'configSync' && o.working, native: store.desktop, oneSided: { write: store.configSync?.incoming ?? 0, links } };
 }
 
 export type ConfigDialogProps = ConfigSendDialogProps | ConfigReviewDialogProps | ConfigApproveDialogProps | ConfigConflictsDialogProps;
@@ -411,21 +404,19 @@ export type ConfigSyncSectionProps = {
   /** Worker がまだ束の行を知る版に届いていない。スイッチは入っているが、送っていない。 */
   workerPending: boolean;
   lastSent: string | null;
-  approval: ConfigApproval;
   native: boolean;
   /** 適用の待ち（指示書がある）。殻が無いときに打つコマンドと、いつ書かれたか。 */
   order: { count: number; when: string; command: string } | null;
   incoming: { count: number; held: number; from: string | null };
-  /** 承認の表で選ぶスキルなどの数（承認の仕方が毎回のとき）。 */
-  awaiting: number;
-  conflicts: number;
   /**
    * 送らなかった項目（3A）。count は送れるかどうかを選べるものの件数で、未対応のキーは数えない（unknown に別に持つ）。
    * groups は理由ごとの群（シークレット、この PC だけ、未対応のキー）。
    */
   unsent: { count: number; unknown: number; rows: ConfigRowProps[]; groups: ConfigGroupProps[] };
-  /** 対象ごとの入切の行（1A）と、0.12 で増えた対象の知らせ（1α）。 */
-  targets: { rows: ConfigTargetRowProps[]; showNew: boolean; /** 設定の configTargets そのもの。行のスイッチは全体を、その対象だけ替えて保存する。 */ switches: Record<string, boolean> };
+  /** 種類ごとの行（C 性質ごとの束）。 */
+  kinds: KindsProps;
+  /** 右の「届いたもの」（確認、競合、履歴）。 */
+  inbox: InboxProps;
   /** ベルの一覧の行から来た（at=unsent）。送らなかった項目の行を開き、見える所へ移る。 */
   focusUnsent: boolean;
   backups: { count: number; rows: ConfigBackupRowProps[] };
@@ -444,79 +435,6 @@ function backupTargetLabel(t: Translate, target: string): string {
 function backupRow(t: Translate, store: Store, g: ConfigBackupGenerationDto): ConfigBackupRowProps {
   const target = g.target ?? 'claude';
   return { name: g.name, target, targetLabel: backupTargetLabel(t, target), when: g.at === null ? g.name : absoluteTime(t, g.at), files: t('configSyncUi.word.count', { n: g.files }), command: hangarCommand(store, `config restore ${target === 'claude' ? '' : `--target ${target} `}${g.name}`) };
-}
-
-// ---- 対象ごとの入切（1A、1α、2A） ----
-
-/** 入切の行の対象。name は設定の configTargets の鍵（サーバの対象名）で、変えない。 */
-type TargetSpec = {
-  name: string; key: string;
-  /** 項目が承認制か（SPEC 4 章）。 */
-  approve: boolean;
-  /** その PC で出すか。Codex と opencode の行は、そのエージェントが有効なときだけ。 */
-  shown: (s: SettingsDto | null) => boolean;
-  /** 書き込む入れ物（vcs の対象名と、画面に出すパス）。入れ物の検出が無いものは null。 */
-  store: { vcs: string; path: string } | null;
-  /** 説明の鍵（MCP の 3 行は同じ説明）。 */
-  desc: string;
-};
-const always = () => true;
-const codexOn = (s: SettingsDto | null) => s !== null && codexEnabledOf(s);
-const opencodeOn = (s: SettingsDto | null) => s !== null && opencodeEnabledOf(s);
-const CLAUDE_STORE = { vcs: 'claude', path: '~/.claude' };
-const CODEX_STORE = { vcs: 'codex', path: '~/.codex' };
-const OPENCODE_STORE = { vcs: 'opencode', path: '~/.config/opencode' };
-export const TARGET_SPECS: readonly TargetSpec[] = [
-  { name: 'claude-keys2', key: 'claudeKeys2', approve: false, shown: always, store: CLAUDE_STORE, desc: 'claudeKeys2' },
-  { name: 'claude-hooks', key: 'claudeHooks', approve: true, shown: always, store: CLAUDE_STORE, desc: 'claudeHooks' },
-  { name: 'claude-plugins', key: 'claudePlugins', approve: true, shown: always, store: CLAUDE_STORE, desc: 'claudePlugins' },
-  { name: 'claude-mcp', key: 'claudeMcp', approve: true, shown: always, store: null, desc: 'mcp' },
-  { name: 'codex', key: 'codex', approve: true, shown: codexOn, store: CODEX_STORE, desc: 'codex' },
-  { name: 'codex-mcp', key: 'codexMcp', approve: true, shown: codexOn, store: CODEX_STORE, desc: 'mcp' },
-  { name: 'opencode', key: 'opencode', approve: true, shown: opencodeOn, store: OPENCODE_STORE, desc: 'opencode' },
-  { name: 'opencode-mcp', key: 'opencodeMcp', approve: true, shown: opencodeOn, store: OPENCODE_STORE, desc: 'mcp' },
-  { name: 'agents-skills', key: 'agentsSkills', approve: true, shown: (s) => codexOn(s) || opencodeOn(s), store: { vcs: 'agents-skills', path: '~/.agents/skills' }, desc: 'agentsSkills' },
-  { name: 'hangar', key: 'hangar', approve: false, shown: always, store: null, desc: 'hangar' },
-];
-
-export type ConfigTargetRowProps = {
-  name: string; title: string; desc: string;
-  on: boolean;
-  /** まだ一度も選んでいない（configTargets に鍵が無い）。「新」の札を出す。 */
-  isNew: boolean;
-  approve: boolean;
-  /** 入れ物が Git などで管理されているときの札と、有効にする前の確認の帯の文。無ければ null。 */
-  vcs: { chip: string; tip: string; title: string; body: string } | null;
-  /** 対象の知らせ（opencode の json と jsonc の併存）。無ければ null。 */
-  notice: string | null;
-};
-
-const VCS_NAMES: Record<ConfigVcsTool, string> = { git: 'Git', chezmoi: 'chezmoi', yadm: 'yadm', stow: 'stow' };
-
-/** 設定の configTargets（対象名→入切）。shared の SettingsDto に入るまでは任意の欄として読む。 */
-export const configTargetsOf = (s: SettingsDto | null): Record<string, boolean> => {
-  const v = (s as (SettingsDto & { configTargets?: unknown }) | null)?.configTargets;
-  if (!v || typeof v !== 'object') return {};
-  return Object.fromEntries(Object.entries(v as Record<string, unknown>).filter((e): e is [string, boolean] => typeof e[1] === 'boolean'));
-};
-
-function presentTargets(t: Translate, s: SettingsDto | null, c: ConfigSyncDto | null): ConfigSyncSectionProps['targets'] {
-  const sw = configTargetsOf(s);
-  const rows = TARGET_SPECS.filter((x) => x.shown(s)).map((x): ConfigTargetRowProps => {
-    const tools = x.store ? (c?.vcs ?? []).find((v) => v.target === x.store!.vcs)?.tools ?? [] : [];
-    const tool = tools.map((k) => VCS_NAMES[k] ?? k).join(t('configTargetsUi.git.sep'));
-    const path = x.store?.path ?? '';
-    const notice = x.name === 'opencode' && (c?.notices ?? []).some((n) => n.target === 'opencode' && n.code === 'both-json-jsonc') ? t('configTargetsUi.notice.bothJsonJsonc') : null;
-    return {
-      name: x.name,
-      title: (t as (key: string) => string)(`configTargetsUi.target.${x.key}.name`),
-      desc: (t as (key: string) => string)(`configTargetsUi.target.${x.desc}.desc`),
-      on: sw[x.name] === true, isNew: !(x.name in sw), approve: x.approve,
-      vcs: tool === '' ? null : { chip: t('configTargetsUi.git.chip', { tool }), tip: t('configTargetsUi.git.tip', { path, tool }), title: t('configTargetsUi.git.confirmTitle', { tool }), body: t('configTargetsUi.git.confirmBody', { path, tool }) },
-      notice,
-    };
-  });
-  return { rows, showNew: rows.length > 0 && rows.every((r) => r.isNew), switches: sw };
 }
 
 /** U1a が足す、未対応のキーの件数。shared の型に入るまでは任意の欄として読む。サーバの unsent はこれを含まない。 */
@@ -548,12 +466,9 @@ export function presentConfigSection(store: Store, now: number, focusUnsent = fa
     enabled: c?.enabled ?? false,
     workerPending: c?.workerPending ?? false,
     lastSent: c?.lastSentAt != null ? relativeTime(t, c.lastSentAt, now) : null,
-    approval: c?.approval ?? 'each',
     native: store.desktop,
     order: c?.applyOrder ? { count: c.applyOrder.count, when: relativeTime(t, c.applyOrder.createdAt, now), command: hangarCommand(store, 'config apply') } : null,
     incoming: { count: c?.incoming ?? 0, held: c?.held ?? 0, from: from.length === 0 ? null : from.join(t('configSyncUi.peek.sep')) },
-    awaiting: c?.approval === 'each' ? inbox.filter(needsPick).length : 0,
-    conflicts: c?.conflicts ?? 0,
     unsent: (() => {
       const rows = sendableUnsentOf(c) + unknownKeyCountOf(c) === 0 ? [] : (d.unsent?.items ?? []).map((u) => ({ u, row: rowOfUnsent(u) }));
       const groups = UNSENT_GROUPS.flatMap((g): ConfigGroupProps[] => {
@@ -562,7 +477,8 @@ export function presentConfigSection(store: Store, now: number, focusUnsent = fa
       });
       return { count: sendableUnsentOf(c), unknown: unknownKeyCountOf(c), rows: rows.map((r) => r.row), groups };
     })(),
-    targets: presentTargets(t, store.settings, c),
+    kinds: presentKinds(store, t),
+    inbox: presentInbox(store, now, t),
     focusUnsent,
     backups: { count: c?.backups ?? 0, rows: (c?.backups ?? 0) === 0 ? [] : (d.backups?.generations ?? []).map((g) => backupRow(t, store, g)) },
   };

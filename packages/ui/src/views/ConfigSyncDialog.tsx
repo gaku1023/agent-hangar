@@ -203,11 +203,19 @@ function ConflictsDialog(props: ConfigConflictsDialogProps) {
   const [take, setTake] = useState<Readonly<Record<string, 'remote' | 'mine'>>>({});
   const entries: ConfigApplyOrderEntryIn[] = props.cards.filter((c) => take[c.id] !== undefined).map((c) => ({ id: c.id, take: take[c.id]! }));
   const close = () => { if (!props.working) emit({ type: 'overlay.close' }); };
+  // 全部手元、全部相手：どの行も同じ側にそろえる（片方にしか無いものは自動で書き足すので、ここには並ばない）。
+  const setAll = (side: 'remote' | 'mine') => setTake(Object.fromEntries(props.cards.map((c) => [c.id, side])));
   const pick = (id: string, side: 'remote' | 'mine') => setTake((s) => (s[id] === side ? Object.fromEntries(Object.entries(s).filter(([k]) => k !== id)) : { ...s, [id]: side }));
   return (
     <Dialog title={t('configSyncUi.conflicts.dialog.title', { n: props.cards.length })} icon="sync" className="dialog-config" onClose={close}
       footer={(
         <>
+          {props.cards.length > 0 && (
+            <>
+              <button type="button" className="btn" disabled={props.working} onClick={() => setAll('mine')}>{t('configKindsUi.first.allMine')}</button>
+              <button type="button" className="btn" disabled={props.working} onClick={() => setAll('remote')}>{t('configKindsUi.first.allRemote')}</button>
+            </>
+          )}
           <span className="faint">{t('configSyncUi.conflicts.dialog.selected', { n: entries.length, total: props.cards.length })}</span>
           <span className="spacer" />
           <button type="button" className="btn" disabled={props.working} onClick={close}>{t('configSyncUi.word.close')}</button>
@@ -216,6 +224,12 @@ function ConflictsDialog(props: ConfigConflictsDialogProps) {
       )}>
       <div className="muted">{props.loading ? t('settings.common.loading') : t('configSyncUi.conflicts.dialog.lead')}</div>
       <NativeNote native={props.native} />
+      {(props.oneSided.write > 0 || props.oneSided.links > 0) && (
+        <div className="cfg-first-sum">
+          {props.oneSided.write > 0 && <div className="cfg-first-s"><Icon name="download" />{t('configKindsUi.first.write')}<div className="cfg-first-n">{props.oneSided.write}</div></div>}
+          {props.oneSided.links > 0 && <div className="cfg-first-s"><Icon name="unlink" />{t('configKindsUi.first.links')}<div className="cfg-first-n">{props.oneSided.links}</div></div>}
+        </div>
+      )}
       {!props.loading && props.cards.length === 0 && <div className="faint">{t('configSyncUi.conflicts.none')}</div>}
       {props.cards.map((c) => (
         <div key={c.id} className="cfg-card">

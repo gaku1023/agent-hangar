@@ -15,6 +15,7 @@ import { presentDeleteApprovals, type DeleteApprovalRow } from './deleteApproval
 import { presentPeerApprovals, type PeerApprovalRow } from './peerApprovals.ts';
 import { presentPeerOrigin, type PeerOriginProps } from './peerOrigin.ts';
 import { presentNotices, type NoticesProps } from './notices.ts';
+import { presentSyncBadges } from './configKinds.ts';
 import { limitedWord, syncStateWord } from './syncLabel.ts';
 
 /**
@@ -53,7 +54,7 @@ export type HeaderAccountProps = { shown: AccountView; list: AccountView[]; sess
  * pending は未送信の変更、sweepPending はまだ上げていないトランスクリプト、skipped は送信に失敗したトランスクリプトである。
  * visible が偽なのは、状態がまだ届いていない間だけである。同期を使っていない端末は、state が off で「同期オフ」と言う。
  */
-export type SyncProps = { visible: boolean; state: SyncStateKind; label: string; title: string; pending: string | null; sweepPending: string | null; skipped: string | null; /** quota は Cloudflare の上限で退いている、user は利用者が止めた。 */ reason: 'quota' | 'user' | null; /** 一時停止のまま、押した 1 回の同期が進んでいる最中。 */ once?: boolean };
+export type SyncProps = { visible: boolean; state: SyncStateKind; label: string; title: string; pending: string | null; sweepPending: string | null; skipped: string | null; /** quota は Cloudflare の上限で退いている、user は利用者が止めた。 */ reason: 'quota' | 'user' | null; /** 一時停止のまま、押した 1 回の同期が進んでいる最中。 */ once?: boolean; /** 設定の同期の札（確認の件数と、自動で入った件数）。0 件の札は null。 */ badge?: SyncBadgeProps };
 /** 切れているあいだだけ出す帯。つながっている間は visible が false で、文言も空である。 */
 /**
  * 切断の帯。
@@ -173,10 +174,20 @@ function toSyncView(s: SyncStatusDto | null): SyncView {
   }
 }
 
+export type SyncBadgeProps = { ask: { n: number; label: string } | null; quiet: { n: number; label: string } | null };
+/** ヘッダの札。設定の同期が入っているときだけ出す。確認の件数は askCount と競合の和、自動で入った件数は autoUnseen（P1）。 */
+export function syncBadgeOf(store: Store, t: Translate): SyncBadgeProps {
+  const c = store.configSync;
+  if (!c || !c.enabled) return { ask: null, quiet: null };
+  const b = presentSyncBadges(c);
+  return { ask: b.ask === null ? null : { n: b.ask, label: t('configKindsUi.badge.ask', { n: b.ask }) }, quiet: b.quiet === null ? null : { n: b.quiet, label: t('configKindsUi.badge.quiet', { n: b.quiet }) } };
+}
+
 function syncProps(store: Store, now: number, tz?: string): SyncProps {
   // 同期の状態と未送信の数は、Store の sync だけから読む。
   const t = translatorOf(store);
   const language = storeLanguage(store);
+  const badge = syncBadgeOf(store, t);
   const s = toSyncView(store.sync);
   const limitedUntil = s.kind === 'paused' ? (store.sync?.limitedUntil ?? null) : null;
   const reason = s.kind === 'paused' ? (limitedUntil !== null ? 'quota' : 'user') : null;
@@ -198,7 +209,7 @@ function syncProps(store: Store, now: number, tz?: string): SyncProps {
   const sweepPending = count(store.sync?.sweepPending ?? undefined, 'header.sync.sweepPending');
   const skipped = count(store.sync?.skipped.length, 'header.sync.skipped');
   const text = [label, pending, sweepPending, skipped].filter((x): x is string => x !== null && x !== '').join(t('header.sync.separator'));
-  return { visible: store.sync !== null, state: s.kind, label, title: store.sync === null ? '' : t('header.sync.title', { text }), pending, sweepPending, skipped, reason, once };
+  return { visible: store.sync !== null, state: s.kind, label, title: store.sync === null ? '' : t('header.sync.title', { text }), pending, sweepPending, skipped, reason, once, ...(badge.ask || badge.quiet ? { badge } : {}) };
 }
 
 type NavDef = { route: Route; label: string; matches: string[] };
