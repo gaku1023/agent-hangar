@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@agent-hangar/shared": "*",
-    "hono": "^4.13.8"
+    "hono": "^4.13.18"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260918.1",
