@@ -88,7 +88,7 @@ describe('自動の適用（受け入れの試験 1）', () => {
     expect(dto.incoming).toBe(0);
     expect(dto.autoUnseen).toBe(1);
     expect(dto.askCount).toBe(0);
-    expect(dto.history).toEqual([expect.objectContaining({ mode: 'auto', fromDeviceId: 'dev-a', fromDevice: 'dev-a-name', seen: false, undone: [], items: [{ id: 'file:skills/demo/SKILL.md', kind: 'skills', label: 'skills/demo/SKILL.md', op: 'create' }] })]);
+    expect(dto.history).toEqual([expect.objectContaining({ mode: 'auto', fromDeviceId: 'dev-a', fromDevice: 'dev-a-name', seen: false, undone: [], items: [{ id: 'file:skills/demo/SKILL.md', kind: 'skills', label: 'skills/demo/SKILL.md', op: 'create', restorable: true }] })]);
     // 既読にすると未読の数が消える。
     b.service.markHistorySeen();
     expect(b.service.dto().autoUnseen).toBe(0);

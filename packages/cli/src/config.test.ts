@@ -283,3 +283,53 @@ describe('対象ごとの適用と世代へ戻す', () => {
     expect(fs.existsSync(skills())).toBe(false);
   });
 });
+
+describe('hangar config restore --history', () => {
+  it('--item で 1 項目だけ戻し、ほかはそのまま。--json は殻が読む結果を返し、履歴の undone に入る', async () => {
+    arrive();
+    await runConfigApply({ ...opts(), yes: true });
+    out = [];
+    expect(await runConfigRestore({ ...opts(), history: 1, item: 'file:commands/hello.md', yes: true, json: true })).toBe(0);
+    expect(JSON.parse(out.join(''))).toMatchObject({ ok: true, result: { items: ['file:commands/hello.md'], restored: ['commands/hello.md'], removed: [], safety: expect.stringMatching(/^\d{8}-\d{6}$/) } });
+    expect(read('commands/hello.md')).toBe('old hello');
+    expect(read('skills/demo/SKILL.md')).toContain('body');
+    expect(JSON.parse(read('settings.json')!)).toEqual({ model: 'opus' });
+    const db = openDb(dbPath(home));
+    try { expect(JSON.parse((db.prepare('select undone from config_history where id = 1').get() as { undone: string }).undone)).toEqual(['file:commands/hello.md']); } finally { db.close(); }
+  });
+
+  it('--plan は何も戻さず、書く先ごとの差分と指紋を返す。指紋が違えば戻さない。--item なしは行の全項目', async () => {
+    arrive();
+    await runConfigApply({ ...opts(), yes: true });
+    out = [];
+    expect(await runConfigRestore({ ...opts(), history: 1, plan: true, json: true })).toBe(0);
+    const plan = (JSON.parse(out.join('')) as { plan: { restore: string[]; remove: string[]; files: { rel: string }[]; fingerprint: string } }).plan;
+    expect([...plan.restore].sort()).toEqual(['commands/hello.md', 'settings.json']);
+    expect(plan.remove).toEqual(['skills/demo/SKILL.md']);
+    expect(plan.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(read('commands/hello.md')).toBe('say hello');
+    out = [];
+    expect(await runConfigRestore({ ...opts(), history: 1, yes: true, json: true, expect: 'f'.repeat(64) })).toBe(1);
+    expect(JSON.parse(out.join(''))).toMatchObject({ ok: false, code: 'changed' });
+    out = [];
+    expect(await runConfigRestore({ ...opts(), history: 1, yes: true, json: true, expect: plan.fingerprint })).toBe(0);
+    expect(read('commands/hello.md')).toBe('old hello');
+    expect(read('skills/demo/SKILL.md')).toBeNull();
+  });
+
+  it('--item だけ、無い履歴、2 度目は失敗で終わる', async () => {
+    arrive();
+    await runConfigApply({ ...opts(), yes: true });
+    out = [];
+    expect(await runConfigRestore({ ...opts(), item: 'file:commands/hello.md', yes: true, json: true })).toBe(1);
+    expect(JSON.parse(out.join(''))).toMatchObject({ ok: false });
+    out = [];
+    expect(await runConfigRestore({ ...opts(), history: 99, yes: true, json: true })).toBe(1);
+    expect(JSON.parse(out.join(''))).toMatchObject({ ok: false, code: 'no-history' });
+    out = [];
+    expect(await runConfigRestore({ ...opts(), history: 1, yes: true, json: true })).toBe(0);
+    out = [];
+    expect(await runConfigRestore({ ...opts(), history: 1, yes: true, json: true })).toBe(1);
+    expect(JSON.parse(out.join(''))).toMatchObject({ ok: false, code: 'already-undone' });
+  });
+});

@@ -65,6 +65,7 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'sync/apply.ts': { lines: 4, why: LOG_AND_FILE },
   'sync/config/apply.ts': { lines: 27, why: CLI },
   'sync/config/applyAll.ts': { lines: 7, why: CLI },
+  'sync/config/restoreItem.ts': { lines: 13, why: CLI },
   'sync/config/targets/agentsSkills.ts': { lines: 17, why: CLI },
   'sync/config/bundle.ts': { lines: 17, why: INTERNAL },
   'sync/config/edit/errors.ts': { lines: 1, why: INTERNAL },

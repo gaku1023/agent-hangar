@@ -26,6 +26,7 @@ const COMMANDS: &[&str] = &[
     "pick_folder",
     "pick_node",
     "restart_app",
+    "restore_config_history",
     "restore_config_sync",
     "retry_boot",
     "save_recovery_key",

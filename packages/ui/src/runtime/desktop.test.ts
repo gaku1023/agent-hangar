@@ -46,6 +46,13 @@ describe('createDesktopBridge', () => {
     expect(await b.restoreConfigSync('20261010-120001', 'agents-skills')).toMatchObject({ status: 'cancelled' });
     expect(invoke.mock.calls).toEqual([['apply_config_sync'], ['restore_config_sync', { name: '20261010-120000', target: 'claude' }], ['restore_config_sync', { name: '20261010-120001', target: 'agents-skills' }]]);
   });
+  it('履歴からの戻しは、履歴の番号と項目の id だけを渡す（項目を省くと null）', async () => {
+    const invoke = vi.fn(async (): Promise<unknown> => ({ status: 'restored', message: '復元しました。', generation: '20261010-120100' }));
+    const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
+    expect(await b.restoreConfigHistory!(7, 'file:commands/a.md')).toEqual({ status: 'restored', message: '復元しました。', generation: '20261010-120100' });
+    expect((await b.restoreConfigHistory!(7)).status).toBe('restored');
+    expect(invoke.mock.calls).toEqual([['restore_config_history', { history: 7, item: 'file:commands/a.md' }], ['restore_config_history', { history: 7, item: null }]]);
+  });
   it('連携の書き込みは、対象の名前だけを渡し、結果を決まった形で返す。知らない形は失敗にする', async () => {
     const invoke = vi.fn(async (): Promise<unknown> => ({ status: 'none', message: '登録済みです。', generation: null, code: 'already' }));
     const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;

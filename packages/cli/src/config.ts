@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import type { ConfigExecMark, ConfigItemKind } from '@agent-hangar/shared';
 import {
-  ApplyError, dbPath, defaultClaudeDir, defaultTargetPaths, hangarHome, listAllBackups, loadSettings, openDb, planApply, planApplyFiles, planRestoreTarget, planRestoreTargetFiles, runApply, runRestoreTarget,
+  ApplyError, dbPath, defaultClaudeDir, defaultTargetPaths, hangarHome, listAllBackups, loadSettings, openDb, planApply, planApplyFiles, planRestoreItem, planRestoreTarget, planRestoreTargetFiles, restoreItem, runApply, runRestoreTarget,
   type ApplyAllPlan, type ApplyPlan, type ApplyPlanItem, type Db,
 } from '@agent-hangar/server/src/cliEntry.ts';
 import { promptYesNo, type Ask } from './statusline.ts';
@@ -50,6 +50,10 @@ export type ConfigRestoreOpts = Common & {
   target?: string;
   /** 戻す先と消す先を出すだけで、何も戻さない。 */
   plan?: boolean;
+  /** 適用の履歴（config_history）の行の id。その行の、まだ戻していない項目を世代の控えから戻す（`--item` で 1 項目に絞る）。世代の名前とは一緒に使わない。 */
+  history?: number;
+  /** `--history` の行のうち、戻す 1 項目の id。 */
+  item?: string;
   /** 承認の窓で見せた書く先の指紋。見せた後に手元が変わっていたら戻さない。殻が使う。 */
   expect?: string;
 };
@@ -187,6 +191,57 @@ export async function runConfigApply(o: ConfigApplyOpts = {}): Promise<number> {
   }
 }
 
+/**
+ * 履歴の 1 回分、または 1 項目を、世代の控えから戻す（--history、--item）。
+ * 見立ての plan は、世代の戻しと同じ形（name、restore、remove、files、fingerprint）に、戻す項目（items）を添える。
+ * 履歴は DB にあるので、DB が無い PC では戻せない。
+ */
+async function runRestoreHistory(o: ConfigRestoreOpts, log: (s: string) => void, home: string): Promise<number> {
+  if (o.name) return fail(o, new ApplyError('bad-name', '世代の名前と --history は一緒に指定できません。'), log);
+  if (!fs.existsSync(dbPath(home))) return fail(o, new ApplyError('no-history', '適用の履歴がありません。'), log);
+  const db = openDbFor(home);
+  try {
+    const req = { ...pathsOf(o, home), db, historyId: o.history!, itemId: o.item };
+    let plan: ReturnType<typeof planRestoreItem>;
+    try { plan = planRestoreItem(req); } catch (e) { return fail(o, e, log); }
+    if (o.plan) {
+      if (o.json) log(JSON.stringify({ ok: true, plan }));
+      else {
+        log(`履歴 ${o.history} の ${plan.items.length} 件を、バックアップの世代の時点に戻すと、次のようになります。`);
+        for (const f of plan.restore.slice(0, MAX_LISTED)) log(`  書き戻す  ${f}`);
+        for (const f of plan.remove.slice(0, MAX_LISTED)) log(`  削除する  ${f}`);
+      }
+      return 0;
+    }
+    if (!o.yes) {
+      const interactive = o.interactive ?? !!process.stdin.isTTY;
+      if (o.json || !interactive) {
+        log(o.json ? JSON.stringify({ ok: false, code: 'confirm-required', message: '確認できないため、何も戻していません。--yes を指定してください' }) : '標準入力が対話型ではないため、確認できません。ターミナルから実行するか、--yes を指定してください');
+        return 1;
+      }
+      log(`履歴 ${o.history} の ${plan.items.length} 件を戻します。`);
+      for (const f of plan.restore.slice(0, MAX_LISTED)) log(`  書き戻す  ${f}`);
+      for (const f of plan.remove.slice(0, MAX_LISTED)) log(`  削除する  ${f}`);
+      log('戻す前の状態は、新しい世代としてバックアップに保存します。');
+      if (!(await (o.ask ?? promptYesNo)('戻しますか？'))) { log('戻しませんでした'); return 1; }
+    }
+    try {
+      const r = restoreItem({ ...req, now: o.now, expect: o.expect });
+      if (o.json) log(JSON.stringify({ ok: true, result: r }));
+      else {
+        log(`戻しました（${r.items.length} 件。書き戻し ${r.restored.length} 件、削除 ${r.removed.length} 件）`);
+        for (const s of r.safeties) {
+          const cmd = s.target === 'claude' ? `hangar config restore ${s.name}` : `hangar config restore --target ${s.target} ${s.name}`;
+          log(`戻す前の状態は世代 ${s.name} にバックアップしました。世代ごと取り消すには ${cmd} を実行してください`);
+        }
+      }
+      return 0;
+    } catch (e) { return fail(o, e, log); }
+  } finally {
+    db.close();
+  }
+}
+
 const atLabel = (at: number | null): string => (at === null ? '' : new Date(at).toLocaleString());
 
 /**
@@ -195,6 +250,8 @@ const atLabel = (at: number | null): string => (at === null ? '' : new Date(at).
 export async function runConfigRestore(o: ConfigRestoreOpts = {}): Promise<number> {
   const log = o.log ?? ((s: string) => console.log(s));
   const home = o.home ?? hangarHome();
+  if (o.history !== undefined) return runRestoreHistory(o, log, home);
+  if (o.item !== undefined) return fail(o, new ApplyError('no-history', '--item は --history と一緒に指定してください（hangar config restore --history <履歴の番号> --item <項目の id>）。'), log);
   if (!o.name) {
     const gens = listAllBackups(home);
     if (o.json) log(JSON.stringify({ ok: true, generations: gens }));

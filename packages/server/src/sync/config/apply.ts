@@ -33,7 +33,8 @@ import { targetNameOfId } from './targets/index.ts';
 
 export type ApplyErrorCode =
   | 'no-order' | 'broken-order' | 'stale' | 'unsafe' | 'bad-content' | 'settings-unreadable' | 'write-failed'
-  | 'bad-name' | 'no-generation' | 'changed' | 'unknown-target';
+  | 'bad-name' | 'no-generation' | 'changed' | 'unknown-target'
+  | 'unsupported' | 'no-history' | 'not-in-history' | 'already-undone' | 'not-in-generation';
 
 /** 利用者に見せる失敗。message は日本語の 1 文で、そのまま端末や殻のダイアログに出す。 */
 export class ApplyError extends Error {
@@ -563,7 +564,7 @@ export type RestorePlan = {
 /** 世代へ戻す口。claudeDir は戻す先の入れ物（対象ごとに違う）、backups は世代の置き場（省くと Claude の置き場）。 */
 export type RestoreOptions = { home: string; claudeDir: string; name: string; backups?: string };
 
-function openGeneration(home: string, name: string, backups?: string): { dir: string; meta: GenerationMeta | null; files: string[] } {
+export function openGeneration(home: string, name: string, backups?: string): { dir: string; meta: GenerationMeta | null; files: string[] } {
   if (!STAMP_RE.test(name)) throw new ApplyError('bad-name', `世代の名前が正しくありません（${name}）。hangar config restore で一覧を確認してください。`);
   const dir = path.join(backups ?? configBackupsDir(home), name);
   let isDir = false;

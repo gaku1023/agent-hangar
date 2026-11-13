@@ -19,6 +19,7 @@ import { deleteApplyOrder, readApplyOrder, writeApplyOrder } from './applyOrder.
 import { listAllBackups, runApplyAll } from './applyAll.ts';
 import { autoUnseenCount, fromDeviceOf, historyItemsOf, listHistory, markHistorySeen, recordHistory } from './history.ts';
 import { ConfigBase } from './base.ts';
+import { withRestorable } from './restoreItem.ts';
 import { bundleTargetsOf, packBundle, unpackBundle, type BundleManifest, type BundleOs, type ManifestItem } from './bundle.ts';
 import { StaleContentError } from './fileMemo.ts';
 import { isBlocked, type Blocked, type Collected, type LocalItem, type UnsentCandidate } from './collect.ts';
@@ -749,7 +750,7 @@ export class ConfigSyncService {
       linkSkipped: this.lastLinkSkipped,
       askCount: r.filter((x) => x.action.op !== 'conflict' && !x.held && itemNeedsConfirm({ id: x.action.id, kind: x.kind, op: x.action.op }, this.kindMode(x.kind))).length,
       autoUnseen: autoUnseenCount(this.deps.db),
-      history: listHistory(this.deps.db, (id) => this.deviceNameOrNull(id)),
+      history: withRestorable(listHistory(this.deps.db, (id) => this.deviceNameOrNull(id)), this.deps.home),
       lastAutoError: this.lastAutoError,
     };
   }

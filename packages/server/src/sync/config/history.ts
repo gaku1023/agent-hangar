@@ -65,3 +65,20 @@ export function autoUnseenCount(db: Db): number {
 export function markHistorySeen(db: Db): boolean {
   return db.prepare('update config_history set seen = 1 where seen = 0').run().changes > 0;
 }
+
+type RawRow = { id: number; items: string; generations: string; undone: string };
+
+/** 戻す対象の 1 行。無ければ null。 */
+export function readHistoryRow(db: Db, id: number): { items: ConfigHistoryItemDto[]; generations: { target: string; name: string }[]; undone: string[] } | null {
+  const r = db.prepare('select id, items, generations, undone from config_history where id = ?').get(id) as RawRow | undefined;
+  if (!r) return null;
+  return { items: parse<ConfigHistoryItemDto[]>(r.items, []), generations: parse<{ target: string; name: string }[]>(r.generations, []), undone: parse<string[]>(r.undone, []) };
+}
+
+/** 戻した項目の id を undone に足す（重ねない）。 */
+export function markUndone(db: Db, id: number, itemIds: readonly string[]): void {
+  const row = readHistoryRow(db, id);
+  if (!row) return;
+  const next = [...new Set([...row.undone, ...itemIds])];
+  db.prepare('update config_history set undone = ? where id = ?').run(JSON.stringify(next), id);
+}
