@@ -85,6 +85,23 @@ describe('RemoteOpencodeTranscripts', () => {
     expect(changed).toHaveLength(1);
   });
 
+  it('本文の無い写し（まだ何も話していない会話）は、写しが変わらなければ入れ直さない', async () => {
+    // 入れ直しの作り直しは event_fts を全部なめる。2026-11-14 に Windows で、本文の無い写し 7 本が、
+    // 他の PC の会話の行が届くたびに入れ直され、サーバが 9 秒止まった。
+    const id = syncedRow();
+    place('dev-b', exportOf([]));
+    await svc.start();
+    expect(readEvents(db, id, {}).total).toBe(0);
+    const before = changed.length;
+    expect(source.refresh()).toBe(0);
+    expect(source.refresh()).toBe(0);
+    expect(changed).toHaveLength(before);
+    // 写しが伸びたら入れる。
+    place('dev-b', exportOf(ALL, undefined, 200), 1_700_000_100);
+    expect(source.refresh()).toBe(1);
+    expect(readEvents(db, id, {}).events).toEqual(events(ALL));
+  });
+
   it('写しが伸びたら作り直しで読み直す', async () => {
     const id = syncedRow();
     place('dev-b', exportOf(ALL.slice(0, FIRST_TURN)));
