@@ -41,7 +41,7 @@ export function nextTrack(prev: Track, rows: PeerChatRow[], loading: boolean): T
  * 札（3A）は列の中に置き、答えが付くと答えの行に変わる。
  * 返答は手元の会話の画面と同じ Markdown の部品で描く。
  */
-export function PeerChatLog(props: { rows: PeerChatRow[]; loading: boolean; onCancel: (queueId: string) => void; onAnswer: (askId: string, keys: string[], text?: string) => void }) {
+export function PeerChatLog(props: { rows: PeerChatRow[]; loading: boolean; onCancel: (queueId: string) => void; onAnswer: (askId: string, keys: string[], text?: string) => void; /** 列の名前。省くと「他の PC の会話」。 */ label?: string; /** 会話が空のときの 1 行を出さない（統括の柱）。 */ quietEmpty?: boolean }) {
   const t = useT();
   const box = useRef<HTMLDivElement>(null);
   // 最初の描画（読み込みが済んだ最初の列）に居た項目は動かさず、あとから増えた項目だけ入れる。
@@ -64,15 +64,15 @@ export function PeerChatLog(props: { rows: PeerChatRow[]; loading: boolean; onCa
 
   const cls = (key: string, base: string) => `${base}${next.entering.has(key) ? ' pchat-in' : ''}${next.delivered.has(key) ? ' pchat-deliver' : ''}`;
   return (
-    <div ref={box} className="pchat-log" role="log" aria-label={t('peerChat.log.label')} aria-busy={props.loading ? 'true' : undefined} onScroll={onScroll}>
-      {props.loading && <div className="pchat-empty">{t('peerChat.log.loading')}</div>}
-      {!props.loading && props.rows.length === 0 && <div className="pchat-empty">{t('peerChat.log.empty')}</div>}
+    <div ref={box} className="pchat-log" role="log" aria-label={props.label ?? t('peerChat.log.label')} aria-busy={props.loading ? 'true' : undefined} onScroll={onScroll}>
+      {props.loading && !props.quietEmpty && <div className="pchat-empty">{t('peerChat.log.loading')}</div>}
+      {!props.loading && !props.quietEmpty && props.rows.length === 0 && <div className="pchat-empty">{t('peerChat.log.empty')}</div>}
       {props.rows.map((r) => {
         switch (r.kind) {
           case 'user':
             return <div key={r.key} className={cls(r.key, 'pchat-user')}>{r.from && <span className="pchat-from">{r.from}</span>}{r.text}</div>;
           case 'assistant':
-            return <div key={r.key} className={cls(r.key, 'pchat-ai')}><Markdown text={r.text} /></div>;
+            return <div key={r.key} className={cls(r.key, 'pchat-ai')} data-speaking={r.speaking ? 'true' : undefined}><Markdown text={r.text} /></div>;
           case 'tool':
             return <div key={r.key} className={cls(r.key, 'pchat-tool')} data-ok={r.ok ? 'true' : 'false'}><Icon name={r.ok ? 'check' : 'close'} /><span className="pchat-tool-text"><b>{r.name}</b> {r.summary}</span></div>;
           case 'system':

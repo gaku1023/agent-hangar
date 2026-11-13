@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { AUTO_DONE_IDLE_DAYS, type AutoDoneIdleDays, type Language, type SettingsDto, type SettingsField, type SettingsSection, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
+import { AUTO_DONE_IDLE_DAYS, type AutoDoneIdleDays, type Language, type OrchestratorSetting, type SettingsDto, type SettingsField, type SettingsSection, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { SaveMark } from '../mediator/types.ts';
 import { costLabel, tokensLabel } from '../presenters/format.ts';
@@ -541,6 +541,13 @@ export function SettingsScreen(props: SettingsProps) {
       {showAccounts && <AccountSettings {...props.accounts} />}
       {claudeDefaults}
       <InjectionSettings injection={props.injection} />
+      {props.orchestratorOn !== undefined && (
+        <section aria-label={t('settings.label.orchestrator')}>
+          {/* 統括のモデルと effort は既定のまま。入り切りだけを置く。 */}
+          <SetRow title={t('settings.label.orchestrator')}
+            control={<Switch label={t('settings.label.orchestrator')} checked={props.orchestratorOn} onChange={(next) => setNow({ orchestrator: { enabled: next } as OrchestratorSetting })} />} />
+        </section>
+      )}
       {retention}
       {/* 互換のずれは利用者が直せるものではないので、todo には数えない（目次の状態も要修正にしない）。 */}
       <CompatSection compat={props.compat} />

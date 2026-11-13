@@ -75,6 +75,7 @@ export function fakeRuns(): RunsApi {
     openTab: vi.fn((): TabDto => shellTab),
     closeTab: vi.fn((): TabDto => ({ ...shellTab, closedAt: 3 })),
     listAlive: vi.fn((): { runs: RunDto[]; tabs: TabDto[] } => ({ runs: [run], tabs: [agentTab, shellTab] })),
+    sendInput: vi.fn(async () => {}),
     getRun: vi.fn((id: string): RunDto | null => (id === 'r1' ? run : id === 'dead' ? endedRun : null)),
     getTab: vi.fn((id: string): TabDto | null => (id === 't1' ? shellTab : id === 'r1' ? agentTab : id === 'dead' ? deadAgentTab : id === 'dead-t1' ? deadShellTab : null)),
     // 終了した run の Claude のタブだけは繋がせない。繋ぎ先の tmux セッションがもう無い。

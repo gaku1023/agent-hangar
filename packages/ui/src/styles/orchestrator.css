@@ -1,0 +1,31 @@
+/* 統括の柱（views/OrchestratorPillar.tsx、docs/design.md「統括」の案 A）。
+   窓の右端にいつも同じ場所にある。畳むと丸 1 つ（統括の状態の色）で、開くと右の列に柱が入る。
+   色と動きの値は tokens.css のトークンを通す。開き閉じの幅の動きは motionKit の growIn と collapseOut が持つ。 */
+.shell[data-orch] { grid-template-columns: var(--col1) minmax(0, 1fr) auto; }
+.shell[data-orch] .header-row { grid-column: 2 / -1; }
+.orch { position: relative; grid-column: 3; grid-row: 1 / -1; z-index: 2; display: flex; min-height: 0; margin: calc(var(--header-h) + var(--float-gap)) var(--float-gap) var(--float-gap) 0; }
+.orch-panel { width: var(--orch-w, 340px); max-width: 44vw; min-height: 0; display: flex; flex-direction: column; border-radius: var(--r-xl); background: var(--surface); box-shadow: var(--glass-drop), inset 0 0 0 1px var(--line); overflow: hidden; }
+.orch-top { flex: none; display: flex; align-items: center; gap: calc(var(--u) * 2); min-height: 40px; padding: calc(var(--u) * 2) calc(var(--u) * 3) calc(var(--u) * 2) calc(var(--u) * 4); }
+.orch-policy { flex: 1; min-width: 0; font-size: var(--fs-sm); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.orch-dot { flex: none; width: 14px; height: 14px; padding: 0; border: 0; border-radius: 50%; cursor: pointer; background: var(--ended); box-shadow: 0 0 0 3px var(--surface), var(--glass-drop); transition: background var(--dur) var(--ease-out), scale var(--dur-fast) var(--ease-out); }
+.orch-dot:hover, .orch-dot:focus-visible { scale: 1.25; outline: none; }
+.orch-dot[data-tone='busy'] { background: var(--busy); }
+.orch-dot[data-tone='idle'] { background: var(--idle); }
+.orch-dot[data-tone='waiting'] { background: var(--waiting); }
+.orch > .orch-dot { position: absolute; right: calc(var(--u) * 5); bottom: calc(var(--u) * 5); }
+.orch-dot-close { margin-left: auto; box-shadow: none; }
+
+/* 自動許可の記録。方針の下に新しい順で並ぶ。行は 会話の題名 / 道具 / 中身の先頭。 */
+.orch-approvals { flex: none; list-style: none; margin: 0; padding: 0 calc(var(--u) * 2) calc(var(--u) * 2); max-height: 28%; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; border-bottom: 1px solid var(--line); }
+.orch-approval { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'title tool' 'head head'; column-gap: calc(var(--u) * 2); width: 100%; padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border: 0; border-radius: var(--r); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.orch-approval:hover, .orch-approval:focus-visible { background: var(--surface-2); outline: none; }
+.orch-approval-title { grid-area: title; font-size: var(--fs-sm); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.orch-approval-tool { grid-area: tool; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); }
+.orch-approval-head { grid-area: head; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 読み上げている発言の左の印。入りは base.css の @keyframes enter をそのまま使う。 */
+.orch .pchat-ai { position: relative; }
+.orch .pchat-ai[data-speaking='true']::before { content: ''; position: absolute; left: calc(var(--u) * -2.5); top: 0.55em; width: 4px; height: calc(100% - 1.1em); min-height: 8px; border-radius: 2px; background: var(--accent); animation: enter var(--dur) var(--ease-out) both; }
+.orch .pchat-log { padding: calc(var(--u) * 3) calc(var(--u) * 4); }
+.orch-comp .pchat-box textarea { min-width: 0; }
+.orch-comp .pchat-send { padding: 0 calc(var(--u) * 2); }

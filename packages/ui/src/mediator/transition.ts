@@ -20,6 +20,7 @@ import { codexVersionStep } from './codexVersion.ts';
 import { opencodeVersionStep } from './opencodeVersion.ts';
 import { cloudMemberStep } from './cloudMember.ts';
 import { peerChatStep } from './peerChat.ts';
+import { orchestratorStep } from './orchestrator.ts';
 import { overlayStep } from './overlay.ts';
 import { projectCandidatesStep } from './projectCandidates.ts';
 import { projectCreateStep } from './projectCreate.ts';
@@ -88,7 +89,7 @@ export function transition(state: State, store: Store, input: Input): Step {
   const projectCandidates = (s: State, i: Input) => projectCandidatesStep(s, store, i);
   const settings = (s: State, i: Input) => settingsStep(s, store, i);
   const pane = (s: State, i: Input) => paneStep(s, store, i);
-  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, linkRepair, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, pane, sidebarStep, sidebarOrderStep, sidebarFoldStep, sidebarWidthStep, projectRailStep, returnStep, arrived, phoneLaunch, contextShort, modelMissing, wakeGlow, noticesStep, notifyStep, update, opencodeVersion, codexVersion, cloudMemberStep, peerChatStep, todos, workbench]) {
+  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, linkRepair, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, pane, sidebarStep, sidebarOrderStep, sidebarFoldStep, sidebarWidthStep, projectRailStep, returnStep, arrived, phoneLaunch, contextShort, modelMissing, wakeGlow, noticesStep, notifyStep, update, opencodeVersion, codexVersion, cloudMemberStep, peerChatStep, orchestratorStep, todos, workbench]) {
     const r = step(state, input);
     if (r) return settled(state, r, store);
   }

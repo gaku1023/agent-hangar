@@ -61,6 +61,7 @@ import { transcriptKeys } from './keys/transcript.ts';
 import { terminalKeys } from './keys/terminal.ts';
 import { pagerKeys } from './keys/pager.ts';
 import { paneKeys } from './keys/pane.ts';
+import { orchestratorPaneKeys } from './keys/orchestratorPane.ts';
 import { paletteKeys } from './keys/palette.ts';
 import { connKeys } from './keys/conn.ts';
 import { toastsKeys } from './keys/toasts.ts';
@@ -149,6 +150,7 @@ export const MESSAGES = {
   ...terminalKeys,
   ...pagerKeys,
   ...paneKeys,
+  ...orchestratorPaneKeys,
   ...paletteKeys,
   ...connKeys,
   ...toastsKeys,

@@ -1,4 +1,4 @@
-import type { PeerChatOpIn, PeerChatOpResult, PeerChatViewDto, ScheduleInput, SchedulePatch, PeerDeviceDto, PeerLaunchBody, PeerLaunchOutcomeDto } from '@agent-hangar/shared';
+import type { AutoApprovalDto, PeerChatOpIn, PeerChatOpResult, PeerChatViewDto, ScheduleInput, SchedulePatch, PeerDeviceDto, PeerLaunchBody, PeerLaunchOutcomeDto } from '@agent-hangar/shared';
 import { LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE } from '@agent-hangar/shared';
 import type { AccountLinkConflictDto, LinkConflictsDto, EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto, SessionLaunchSettingsDto } from '@agent-hangar/shared';
@@ -167,6 +167,10 @@ export type ApiClient = {
   peerChatOpen(sessionId: string, viewer: string, after: string): Promise<PeerChatViewDto>;
   /** ほかの PC の会話への操作（POST /api/sessions/:id/peer-chat/ops）。断りは 200 の本文で返る。 */
   peerChatOp(sessionId: string, body: PeerChatOpIn): Promise<PeerChatOpResult>;
+  /** 統括の柱の自動許可の記録（新しい順）。 */
+  orchestratorApprovals(): Promise<{ approvals: AutoApprovalDto[] }>;
+  /** 統括の柱の入力欄の文を、統括の窓へ送る。統括が動いていなければ 409 の一文で投げる。 */
+  orchestratorSend(text: string): Promise<unknown>;
   /** 選んだ PC へ起動を頼む（承認は要らない）。置いたら requested、置く前に断れるものは refused と文を返す。 */
   peerLaunch(body: PeerLaunchBody): Promise<PeerLaunchOutcomeDto>;
   /** 設定のプロバイダー（ベータ）。API キーは本文で送るだけで、応答には載らない。 */
@@ -444,6 +448,8 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     peers: () => call('/api/peers'),
     peerChatOpen: (sessionId, viewer, after) => call(`/api/sessions/${encodeURIComponent(sessionId)}/peer-chat?viewer=${encodeURIComponent(viewer)}&after=${encodeURIComponent(after)}`),
     peerChatOp: (sessionId, body) => post(`/api/sessions/${encodeURIComponent(sessionId)}/peer-chat/ops`, body),
+    orchestratorApprovals: () => call('/api/orchestrator/approvals'),
+    orchestratorSend: (text) => post('/api/orchestrator/send', { text }),
     peerLaunch: (body) => post('/api/peer-launch', body),
     opencodeOptions: (dir, refresh) => call(`/api/opencode/options${qs({ dir, refresh: refresh ? '1' : null })}`),
     opencodeProviders: () => call('/api/opencode/providers'),

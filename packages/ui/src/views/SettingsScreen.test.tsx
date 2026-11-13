@@ -1009,6 +1009,18 @@ describe('設定のセッションの「Claude Code に渡す設定」と「新�
     fireEvent.click(screen.getByRole('option', { name: '「claude-opus-4-1」を使う' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { defaultModel: 'claude-opus-4-1' } });
   });
+  it('統括のスイッチは、押した時点で orchestrator の enabled だけを保存する', () => {
+    const onAction = vi.fn();
+    render(ui(at('agentClaude', { orchestratorOn: false }), onAction));
+    const sw = screen.getByRole('switch', { name: '統括' });
+    expect(sw).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(sw);
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { orchestrator: { enabled: true } } });
+  });
+  it('統括のスイッチは、サーバが知らない古い版では出さない', () => {
+    render(ui(at('agentClaude')));
+    expect(screen.queryByRole('switch', { name: '統括' })).toBeNull();
+  });
   it('全文の畳みは、段落の名前を添え、切った段落は打ち消し線で残し、差し込む値は印にする', () => {
     const full = presentInjection(translator('ja'), { askStatusAtEnd: true, liveHints: false, notifyUser: true });
     render(ui(at('agentClaude', { injection: { askStatusAtEnd: true, liveHints: false, remoteControl: true, defaultModel: null, full } })));
