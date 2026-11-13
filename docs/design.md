@@ -10350,6 +10350,17 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - 設定の同期の取り込みは、降ろした後に手元の状態を判断し直す。通信の最中に書かれた保持期間を巻き戻さない。
 - 索引器は、手元の本文ファイルが消えた行を片付ける（DB の行だけで、ファイルには触れない）。`projects` そのものが見えないときは片付けない。
 
+## 机の音声
+
+統括の会話へ音声で話しかける入口の部品。柱への配線とは切り離してある。
+
+- `VoicePort`（`packages/ui/src/voice/voicePort.ts`）が聞く側（`listen`）と話す側（`speak`、`cancel`）を別々に使えるか答える。使えない側のボタンや読み上げは出さない。
+- 実装は Web Speech API（`webVoicePort`）。言語は UI の言語に合わせ、ja は ja-JP、en は en-US で聞き、話す。
+- `MicButton` は押して話す切り替え式。確定の文のあと 1.2 秒黙ると、`[voice]` を前に付けて `onSend` へ渡す。もう一度押すとそこまでを送り、Esc は捨てる。
+- 読み上げ中に押すと `cancel` して聞く。読み上げの間と直後 1.5 秒に届いた認識は捨てる（自分の声を拾わないため）。
+- `createSpeaker` は返答の文を渡すと `speak` する口。どの返答を読むかは呼び手が決める。
+- `Info.plist` に `NSMicrophoneUsageDescription` と `NSSpeechRecognitionUsageDescription` を置く。WKWebView で認識が動くかは実物で測る。
+
 ## 決めた前提と未決事項
 
 インタビューで問わず、筆者が埋めた前提を列挙する。

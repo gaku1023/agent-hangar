@@ -4,5 +4,9 @@
 <dict>
   <key>NSAppleEventsUsageDescription</key>
   <string>iTerm2 でセッションのターミナルを開くために、iTerm2 を AppleScript で制御します。</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>統括の会話へ音声で話しかけるために、マイクを使います。</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>話した内容を文字にして統括の会話へ送るために、音声認識を使います。</string>
 </dict>
 </plist>
