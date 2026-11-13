@@ -1184,7 +1184,6 @@ fn restore_config_flow(
     lang: &'static str,
 ) -> configapply::Outcome {
     let w = configapply::words(lang);
-    let title = w.restore_flow_title;
     // 頁から来る値は、世代の名前の形と、決まった対象の名前だけを受け取る。
     if !configapply::valid_generation_name(name) {
         return configapply::Outcome::simple("failed", w.bad_generation);
