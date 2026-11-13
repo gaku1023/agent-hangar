@@ -905,7 +905,7 @@ MCP の道具は hub を持たない。
 | 同じファイルの編集の見張り（`sessions/overlap.ts`） | 写しが変わったセッション | 重なりは手元だけの表（`session_overlaps`）にある |
 | run の起動（`runs/announce.ts`） | そのセッション | run が付いた。`run.started` の後に届く |
 | statusline の受け口（`POST /api/ingest/statusline`） | そのセッション | モデルと文脈の量は手元だけの表（`session_live_stats`）にある |
-| 設定の同期（`sync/config/service.ts`）。`config_state` の `self` を名指しする | 設定の同期の状態 | 基準（`config_base`）、送らなかった項目（`config_unsent`）、inbox、適用の指示書、スイッチと承認の仕方は、行のイベントになる共有の表ではない |
+| 設定の同期（`sync/config/service.ts`）。`config_state` の `self` を名指しする | 設定の同期の状態 | 基準（`config_base`）、送らなかった項目（`config_unsent`）、適用の履歴（`config_history`）、inbox、適用の指示書、スイッチと承認の仕方は、行のイベントになる共有の表ではない |
 | 昇格（`POST /api/sessions/:id/promote`） | 昇格元のプロジェクト | セッションが 1 件減る |
 
 呼び手が `broadcast` で渡す、表の変化に対応しない知らせは次のとおりである。
@@ -7671,9 +7671,10 @@ Claude の入れ物（skills、commands、agents、memory、プロジェクト�
 絶対パスを含む権限の規則は、落として「送らなかったもの」に出し、利用者が選んだときだけ送る。
 消えたファイルは、手元、相手の束、前回の共通の 3 方向の判定で扱い、どの相手の束にも無くなった項目だけを消えたと見なす（「3 方向の判定」）。
 消した PC から送られるのは束だけで、相手の `~/.claude` を直接消すことはない。
-受け手がファイルを消すのは承認を経て適用するときだけで、消すファイルの元の中身は世代の控えに残る。
+受け手がファイルを消すのは、承認を経て適用するときか、種類の状態が自動の項目をサーバが適用するときだけで、消すファイルの元の中身は世代の控えに残る。
 設定の同期は Settings で明示的に有効にしたときだけ動く。
-受け取った項目は hangar の置き場（`~/.agent-hangar/claude-config/inbox/`）に置くだけで、`~/.claude` に書くのは、見せて承認を取ったあとの `hangar config apply` と殻の命令だけである（「承認と適用の指示書」）。
+受け取った項目は hangar の置き場（`~/.agent-hangar/claude-config/inbox/`）に置く。
+`~/.claude` に書くのは、見せて承認を取ったあとの `hangar config apply` と殻の命令（「承認と適用の指示書」）と、種類の状態が自動の項目を受け取りのあとにサーバが適用するとき（「自動の適用」）である。
 `~/.claude` を上書きする前には必ず `~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ 1 バイトも書かない。
 控えは 20 世代を残し、古いものから消す。
 端末ローカルの `file_sync`（本文の台帳）は設定の束には使わない。
@@ -8239,7 +8240,7 @@ MCP サーバーの設定は、名前ごとに 1 項目で運ぶ。URL も stdio
 読むのは共通の `configKindModeOf(settings, kind)` で、書かれていない鍵と形の悪い値は既定に寄せる。`GET /api/settings` は 21 鍵を全部埋めて返し、`PATCH /api/settings` は届いた鍵だけを替える（知らない鍵と取れない値は 400）。
 - 切：その種類の項目は束に入れず（`collectAll` が落とす）、届いても 3 方向の判定に載せない。対象（target）は、その対象の種類のどれかが切でなければ有効とみなす（`ConfigTarget.kinds` と `anyKindOn`）。旧い対象ごとの入切（`configTargets`）は読まない。
 - 確認：届いた項目の `needsApproval` が真になり、画面の確認から適用する。消去も確認に掛ける。
-- 自動：`needsApproval` は偽。サーバが自分で適用するのは T2 で足す。
+- 自動：`needsApproval` は偽。届いた束の判定のあと、サーバが自分で適用する（下の「自動の適用」）。
 `settings` の種類は複数の対象（`claude`、`claude-keys2`）にまたがるので、状態は対象でなく id の種類（`parseItemId(id).kind`）で引く。
 権限の鍵（`settings` の `permissions.*`、`claude-keys2` の `autoMode`・`skipAutoPermissionPrompt`・`deniedMcpServers`、Codex の `rules/`・`hooks.json`・`<名前>.config.toml`・`approval_policy` などの鍵、opencode の `permission`）は、種類が自動でも消去も含めていつも確認に回す（対象の `alwaysConfirm` と `itemNeedsConfirm`。種類が切なら送受信しない）。
 旧い承認の仕方（`configApproval`）は読まない。`ConfigSyncDto.approval` と `ConfigInboxDto.approval` は、画面を作り替えるまでの間だけ、`skills` の状態から読み替えて返す（確認なら `each`）。
@@ -8252,7 +8253,25 @@ MCP サーバーの設定は、名前ごとに 1 項目で運ぶ。URL も stdio
 承認した項目は、`PUT /api/config-sync/apply-order`（`{ items: [{ id, take? }] }`）で「適用の指示書」として hangar の置き場（`~/.agent-hangar/claude-config/apply-order.json`、0600）に書く。
 競合は `take` で、相手を採る（`remote`）か、手元を採る（`mine`。手元は書き換えず、基準だけを進める）かを選べる。
 前の指示書は置き換える。`DELETE` で取り消せる。
-サーバは `~/.claude` に書かない（全体計画の D9）。指示書を読んで承認の窓で見せ、控えを取って書き、基準を更新し、指示書を消すのは、殻の命令と `hangar config apply` の役目である。
+人が承認した項目について、指示書を読んで承認の窓で見せ、控えを取って書き、基準を更新し、指示書を消すのは、殻の命令と `hangar config apply` の役目である。
+サーバが自分で書くのは、hangar の好みと、次の自動の適用だけである。
+
+**自動の適用（2026-11-13 の決定 1、7、8）。**
+受け取り（`ConfigSyncService.receiveNow`）は、3 方向の判定のあとに `autoApply` を呼ぶ。受け取りは送受信の 1 本の列（`enqueue`）に載っているので、送ると重ならない。
+- 載せるのは、種類の状態が自動で、`itemNeedsConfirm` が偽（権限の鍵でない）で、競合でも保留でもない項目である。競合は手元を残して確認に回し（決定 7）、消去は控えを取って消す（決定 8）。
+- 人の承認を待つ指示書がすでにあるときは、その回は飛ばす。指示書は 1 つしか置けないためで、次の受け取りでやり直す。
+- 載せる項目で指示書を書き、hangar の好みは `PUT /api/config-sync/apply-order` と同じ口（`hangarTarget.write`）で書いて指示書から外す。残りを `runApplyAll`（`source: { mode: 'auto' }`）で書く。控え、`config_base` の更新、指示書の削除、履歴の 1 行まで、人の適用と同じ道を通る。
+- どこかで失敗したら、`runApplyAll` が先に書いた対象を世代から戻し、基準も戻す。サーバは指示書を消し、時刻と理由を `ConfigSyncDto.lastAutoError` に出す。同じ組（項目の id、操作、相手の指紋）は 10 分たつまで試し直さない（受け取りのたびに控えを取っては戻さないため）。次に成功するか、載せるものが無くなると `lastAutoError` は null に戻る。
+- HTTP の適用の口は増やさない（決定 3 の例外は、サーバの中から起こす自動の適用だけ）。
+- `ConfigSyncDto.askCount` は確認で待つ件数（`needsApproval` が真で、競合と保留を除く）。ヘッダの札は `askCount` と `conflicts` を足して出す。
+
+**適用の履歴（`config_history`、版 57）。**
+手元だけの表で、適用 1 回に 1 行を書く（`sync/config/history.ts`）。列は `id`、`at`、`from_device`（項目の元の端末。元が 1 つでなければ null）、`mode`（`auto` か `manual`）、`items`（JSON：`id`、`kind`、`label`、`op`）、`generations`（JSON：対象ごとの控えの世代名）、`undone`（JSON：あとから戻した項目の id）、`seen`（既読）である。
+- 書くのは `runApplyAll` が成功したときで、`source` を省くと `manual`（殻の命令と `hangar config apply`）として既読で書く。自動の適用は `auto` で未読から始め、hangar の好みの分も同じ行に入れる（好みだけのときは控えの世代が無い行になる）。
+- 書けなくても適用は失敗にしない（版 57 の前の DB を開いた古い CLI もここに来る）。
+- `ConfigSyncDto.history` は新しい順に 20 件、`autoUnseen` は自動で入って未読の行の数である。
+- `POST /api/config-sync/history/seen` は全部を既読にする（204）。書くのは DB の既読の印だけなので、HTTP に置く。
+- 人が `PUT /api/config-sync/apply-order` で選んだ hangar の好みは、その場でサーバが書いて指示書から外すので、履歴には残らない。
 
 **適用と世代へ戻す（PR 16）。**
 書く処理の本体は `sync/config/apply.ts` にあり、CLI（`packages/cli/src/config.ts`）と殻の命令（`apps/desktop/src-tauri/src/configapply.rs` と `lib.rs`）が同じものを走らせる。

@@ -16,7 +16,8 @@ import { msg, MessageError, type Message } from '../../i18n/message.ts';
 import { CloudError, type CloudClient } from '../client.ts';
 import type { RowKeyring } from '../sealedClient.ts';
 import { deleteApplyOrder, readApplyOrder, writeApplyOrder } from './applyOrder.ts';
-import { listAllBackups } from './applyAll.ts';
+import { listAllBackups, runApplyAll } from './applyAll.ts';
+import { autoUnseenCount, fromDeviceOf, historyItemsOf, listHistory, markHistorySeen, recordHistory } from './history.ts';
 import { ConfigBase } from './base.ts';
 import { bundleTargetsOf, packBundle, unpackBundle, type BundleManifest, type BundleOs, type ManifestItem } from './bundle.ts';
 import { StaleContentError } from './fileMemo.ts';
@@ -53,7 +54,8 @@ import { judge, type Action, type RemoteSnapshot } from './threeWay.ts';
  * - DB：config_snapshots（共有。PC ごとに 1 行）、config_base、config_unsent。
  * - hangar の置き場：inbox、適用の指示書（sync/config/paths.ts）。
  * - クラウド：束の 1 オブジェクト。R2 の鍵名は `configBlobKey(/index, 端末, 端末, .hangar/config-bundle.hgr)` の HMAC で、相対パスは Worker に見えない。
- * 適用（~/.claude への書き込み、控え、基準の更新、競合の採り直し、世代へ戻す）は、指示書を読む殻の命令と hangar config apply の役目である。
+ * 人が確認して適用する分（~/.claude への書き込み、控え、基準の更新、競合の採り直し、世代へ戻す）は、指示書を読む殻の命令と hangar config apply の役目である。
+ * ただし種類の状態が自動の項目は、受け取りのあとにこのクラスが自分で指示書を書き、runApplyAll で控えを取って書く（autoApply、2026-11-13 の決定 1）。
  *
  * 既定は切である（settings.json の configBundleSync）。
  */
@@ -232,6 +234,11 @@ export class ConfigSyncService {
     return this.deps.db.prepare('select updated_at, bundle_sha256 from config_snapshots where device_id = ? and deleted_at is null').get(this.deps.deviceId) as { updated_at: number; bundle_sha256: string } | undefined;
   }
 
+  private deviceNameOrNull(id: string): string | null {
+    const r = this.deps.db.prepare('select name from devices where id = ?').get(id) as { name: string } | undefined;
+    return r?.name ?? null;
+  }
+
   private deviceName(id: string): string {
     const r = this.deps.db.prepare('select name from devices where id = ?').get(id) as { name: string } | undefined;
     return r?.name ?? id;
@@ -334,7 +341,7 @@ export class ConfigSyncService {
         this.deps.onError?.(`設定の束を開けませんでした（端末 ${row.device_id.slice(0, 8)}）: ${e instanceof Error ? e.name : 'Error'}`);
       }
     }
-    this.reconcile();
+    this.autoApply(this.resolved());
     if (fetched > 0) this.touch();
     return { fetched, failed };
   }
@@ -620,6 +627,77 @@ export class ConfigSyncService {
     if (deleteApplyOrder(this.deps.home)) this.touch();
   }
 
+  // ---- 自動の適用 ----
+
+  /** 最後の自動の適用の失敗。成功するか、適用するものが無くなると null。 */
+  private lastAutoError: { at: number; message: string } | null = null;
+  /** 失敗した組の指紋と時刻。同じ組は RETRY_AFTER_FAILURE_MS まで試し直さない（受け取りのたびに控えを取っては戻すのを避ける）。 */
+  private autoFailed: { key: string; at: number } | null = null;
+
+  /** 確認なしで書いてよい項目か。種類が自動で、権限の鍵でなく、競合でも保留でもないもの。 */
+  private autoApplicable(r: Resolved): boolean {
+    if (r.action.op === 'conflict' || r.held || r.target === null) return false;
+    const mode = this.kindMode(r.kind);
+    return mode === 'auto' && !itemNeedsConfirm({ id: r.action.id, kind: r.kind, op: r.action.op }, mode);
+  }
+
+  /**
+   * 届いた束の判定のあと、種類の状態が自動の項目を書く（受け取りの中で呼ぶので、送受信の chain に載っている）。
+   * 1. 人の承認を待つ指示書があれば、その回は飛ばす（指示書は 1 つしか置けない。次の受け取りでやり直す）。
+   * 2. 載せる項目で指示書を書き、hangar の好みはサーバの中で書いて指示書から外す（applyHangarPrefs と同じ口で、二重には書かない）。
+   * 3. 残りを runApplyAll で書く。控え、基準の更新、指示書の削除、履歴の 1 行まで済む。どこかで失敗したら、runApplyAll が先に書いた分を戻す。
+   * 4. 失敗したら指示書を消し、lastAutoError に残す（dto で見える）。
+   */
+  private autoApply(rs: Resolved[]): void {
+    const { home, deviceId, db } = this.deps;
+    const picked = rs.filter((r) => this.autoApplicable(r));
+    if (picked.length === 0) { this.autoFailed = null; if (this.lastAutoError) { this.lastAutoError = null; this.touch(); } return; }
+    if (readApplyOrder(home)) return;
+    const now = this.now();
+    const key = sha256(picked.map((r) => `${r.action.id}\0${r.action.op}\0${r.action.remoteSha256 ?? ''}`).sort().join('\n'));
+    if (this.autoFailed && this.autoFailed.key === key && now - this.autoFailed.at < RETRY_AFTER_FAILURE_MS) return;
+    const items: ConfigApplyOrderItemDto[] = picked.map((r) => ({ id: r.action.id, kind: r.kind, op: r.action.op, take: 'remote', fromDeviceId: r.action.fromDeviceId, sha256: r.action.remoteSha256 ?? '', target: r.target! }));
+    const labels = new Map(picked.map((r) => [r.action.id, r.label]));
+    const prefs = items.filter((i) => targetNameOfId(i.id) === HANGAR_TARGET_NAME);
+    const rest = items.filter((i) => targetNameOfId(i.id) !== HANGAR_TARGET_NAME);
+    const also = historyItemsOf(prefs, labels);
+    let prefsWritten = false;
+    try {
+      writeApplyOrder(home, deviceId, items, now);
+      if (prefs.length) {
+        hangarTarget.write({ home, claudeDir: this.deps.claudeDir, db, now: () => this.now() });
+        prefsWritten = true;
+        if (rest.length) writeApplyOrder(home, deviceId, rest, now); else deleteApplyOrder(home);
+      }
+      if (rest.length) {
+        const ctx = this.targetCtx();
+        runApplyAll({
+          home, claudeDir: this.deps.claudeDir, codexHome: ctx.codexHome, opencodeDir: ctx.opencodeDir, agentsSkillsDir: ctx.agentsSkillsDir, claudeJsonPath: ctx.claudeJsonPath,
+          ...(this.deps.userHome ? { userHome: this.deps.userHome } : {}), ...(this.deps.hostOs ? { hostOs: this.deps.hostOs } : {}),
+          db, now: () => this.now(), source: { mode: 'auto', labels, also },
+        });
+      } else {
+        recordHistory(db, { at: now, source: { mode: 'auto' }, items: also, generations: [], fromDevice: fromDeviceOf(prefs) });
+      }
+      this.lastAutoError = null;
+      this.autoFailed = null;
+    } catch (e) {
+      deleteApplyOrder(home);
+      // 好みだけは先に書けている。戻す控えは無いので、履歴にはその分だけ残す。
+      if (prefsWritten) { try { recordHistory(db, { at: now, source: { mode: 'auto' }, items: also, generations: [], fromDevice: fromDeviceOf(prefs) }); } catch { /* 履歴が書けなくても続ける */ } }
+      const message = e instanceof Error ? e.message : String(e);
+      this.lastAutoError = { at: now, message };
+      this.autoFailed = { key, at: now };
+      this.deps.onError?.(`設定の自動の適用に失敗しました: ${e instanceof Error ? e.name : 'Error'}`);
+    }
+    this.touch();
+  }
+
+  /** 履歴を全部既読にする（ヘッダの「自動で入った」の札を消す）。書くのは DB の既読の印だけ。 */
+  markHistorySeen(): void {
+    if (markHistorySeen(this.deps.db)) this.touch();
+  }
+
   // ---- 控えと状態 ----
 
   /** 全部の対象の控えの世代。Claude 以外の世代は target を持つ。 */
@@ -669,6 +747,10 @@ export class ConfigSyncService {
       ...(vcs.length ? { vcs } : {}),
       ...(notices.length ? { notices } : {}),
       linkSkipped: this.lastLinkSkipped,
+      askCount: r.filter((x) => x.action.op !== 'conflict' && !x.held && itemNeedsConfirm({ id: x.action.id, kind: x.kind, op: x.action.op }, this.kindMode(x.kind))).length,
+      autoUnseen: autoUnseenCount(this.deps.db),
+      history: listHistory(this.deps.db, (id) => this.deviceNameOrNull(id)),
+      lastAutoError: this.lastAutoError,
     };
   }
 }
