@@ -8257,6 +8257,11 @@ MCP サーバーの設定は、名前ごとに 1 項目で運ぶ。URL も stdio
 - 確認：届いた項目の `needsApproval` が真になり、画面の確認から適用する。消去も確認に掛ける。
 - 自動：`needsApproval` は偽。届いた束の判定のあと、サーバが自分で適用する（下の「自動の適用」）。
 `settings` の種類は複数の対象（`claude`、`claude-keys2`）にまたがるので、状態は対象でなく id の種類（`parseItemId(id).kind`）で引く。
+会話の本文（`transcript`）が切のときは、`TranscriptUploader` の送り（`noteChanged`、`sweep`、`flushSession`、`flushAll`、`uploadFile`。deps の `isEnabled`）と、`RemotePuller.pullNowInner`（deps の `transcriptEnabled`）を止める。
+どちらも `boot/sync.ts` が `configKindModeOf(settings.current, 'transcript') !== 'off'` で組む。
+`isPaused`（`syncHalted`）には混ぜない。メタの行の同期と設定の同期は続く。
+切の間は `noteChanged` が積まず、降ろしは `filesSeq` を進めない。入に戻すと、送りは次の `sweep` が台帳から拾い、降ろしは区切りの続きから降ろすので、止めていた間の分が漏れない。
+1 巡（`oncePass`）は `uploader.sweep` と `puller.pullNow` を通るので、切のときは本文を送受信しない。作り直し（`rebuild`）は file_sync の行の印を替えるだけで、上げるのは `sweep` なので、切の間は上がらない。
 権限の鍵（`settings` の `permissions.*`、`claude-keys2` の `autoMode`・`skipAutoPermissionPrompt`・`deniedMcpServers`、Codex の `rules/`・`hooks.json`・`<名前>.config.toml`・`approval_policy` などの鍵、opencode の `permission`）は、種類が自動でも消去も含めていつも確認に回す（対象の `alwaysConfirm` と `itemNeedsConfirm`。種類が切なら送受信しない）。
 旧い承認の仕方（`configApproval`）は読まない。`ConfigSyncDto.approval` と `ConfigInboxDto.approval` は、画面を作り替えるまでの間だけ、`skills` の状態から読み替えて返す（確認なら `each`）。
 
