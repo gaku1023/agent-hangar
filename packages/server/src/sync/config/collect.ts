@@ -59,7 +59,9 @@ export type UnsentCandidate = {
 export type Blocked = { ids: Set<string>; prefixes: string[] };
 export const isBlocked = (b: Blocked, id: string): boolean => b.ids.has(id) || b.prefixes.some((p) => id.startsWith(p));
 
-export type Collected = { items: LocalItem[]; dropped: DroppedKey[]; unsent: UnsentCandidate[]; blocked: Blocked };
+/** リンクだったので運ばなかった項目の相対パス（`skills/benkyo` など）。種類ごと。読めないディレクトリは入れない。 */
+export type LinkSkipped = Partial<Record<ConfigItemKind, string[]>>;
+export type Collected = { items: LocalItem[]; dropped: DroppedKey[]; unsent: UnsentCandidate[]; blocked: Blocked; linkSkipped?: LinkSkipped };
 
 const sha256 = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 const EXCLUDE_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv', '.trash']);
@@ -87,9 +89,11 @@ export function execMarksOfLazy(rel: string, getContent: () => Buffer): ConfigEx
   return marks;
 }
 
-const walk = (dir: string, onLink: (abs: string) => void): string[] => walkFiles(dir, onLink, EXCLUDE_DIRS);
+const walk = (dir: string, onLink: (abs: string, unreadable?: true) => void): string[] => walkFiles(dir, onLink, EXCLUDE_DIRS);
 const isBinary = (b: Buffer): boolean => b.includes(0);
 const toPosix = (p: string): string => p.split(path.sep).join('/');
+
+const sortLinks = (m: Record<string, string[]>): LinkSkipped => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, [...new Set(v)].sort()])) as LinkSkipped;
 
 export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; allowedUnsent: ReadonlyMap<string, string>; /** 項目の数の上限。試験が小さくするために使う。 */ maxItems?: number; /** 'keys2' は settings.json の新しい鍵だけを集める（対象 claude-keys2）。 */ scope?: 'claude' | 'keys2' }): Collected {
   const { claudeDir } = o;
@@ -98,6 +102,8 @@ export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; a
   const blocked: Blocked = { ids: new Set(), prefixes: [] };
   /** 設定の入れ物の中のパス（ファイルかディレクトリか分からない）を塞ぐ。 */
   const blockRel = (rel: string): void => { blocked.ids.add(fileId(rel)); blocked.prefixes.push(`${fileId(rel)}/`); };
+  const linkSkipped: Record<string, string[]> = {};
+  const noteLink = (kind: ConfigItemKind | null, rel: string): void => { if (kind) (linkSkipped[kind] ??= []).push(rel); };
   const items = new Map<string, LocalItem>();
   const unsent: UnsentCandidate[] = [];
   const dropped: DroppedKey[] = [];
@@ -142,8 +148,8 @@ export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; a
     // 入れ物の途中がリンクなら、その先は読まない。ただし、そこに同名の項目が届いて上書きされないよう、塞ぎに入れる。
     let st: fs.Stats;
     try { st = fs.lstatSync(path.join(claudeDir, top)); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') blockRel(top); continue; }
-    if (st.isSymbolicLink() || !st.isDirectory()) { blockRel(top); continue; }
-    for (const abs of walk(path.join(claudeDir, top), (link) => blockRel(relOf(link))).sort()) addFile(relOf(abs), abs);
+    if (st.isSymbolicLink() || !st.isDirectory()) { blockRel(top); if (st.isSymbolicLink()) noteLink(kindOfRel(`${top}/x`), top); continue; }
+    for (const abs of walk(path.join(claudeDir, top), (link, unreadable) => { blockRel(relOf(link)); if (!unreadable) noteLink(kindOfRel(relOf(link)), relOf(link)); }).sort()) addFile(relOf(abs), abs);
   }
 
   // プロジェクトのメモリ。この PC のルートのパスから slug を作り、projects/<slug>/memory/ に当てる。
@@ -156,10 +162,10 @@ export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; a
     const blockProject = (): void => { blocked.prefixes.push(memoryId(projectId, '')); };
     let st: fs.Stats;
     try { st = fs.lstatSync(path.join(claudeDir, 'projects', slug)); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') blockProject(); continue; }
-    if (st.isSymbolicLink() || !st.isDirectory()) { blockProject(); continue; }
-    try { if (fs.lstatSync(memDir).isSymbolicLink()) { blockProject(); continue; } } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') blockProject(); continue; }
+    if (st.isSymbolicLink() || !st.isDirectory()) { blockProject(); if (st.isSymbolicLink()) noteLink('memory', `projects/${slug}/memory`); continue; }
+    try { if (fs.lstatSync(memDir).isSymbolicLink()) { blockProject(); noteLink('memory', `projects/${slug}/memory`); continue; } } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') blockProject(); continue; }
     // メモリの下のリンクは、そのプロジェクトのメモリ全部を塞ぐ（相対パスの対応が取れない）。
-    const memLink = (link: string): void => { const id = memoryId(projectId, toPosix(path.relative(memDir, link))); blocked.ids.add(id); blocked.prefixes.push(`${id}/`); };
+    const memLink = (link: string, unreadable?: true): void => { if (!unreadable) noteLink('memory', `projects/${slug}/memory/${toPosix(path.relative(memDir, link))}`); const id = memoryId(projectId, toPosix(path.relative(memDir, link))); blocked.ids.add(id); blocked.prefixes.push(`${id}/`); };
     for (const abs of walk(memDir, memLink).sort()) {
       const rel = toPosix(path.relative(memDir, abs));
       // 名前の検査は、ids.ts の物差し（memory:<id>/<rel>）に通す。通らない名前は運ばない。
@@ -199,5 +205,5 @@ export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; a
   }
 
   unsent.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return { items: [...items.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)), dropped, unsent, blocked };
+  return { items: [...items.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)), dropped, unsent, blocked, linkSkipped: sortLinks(linkSkipped) };
 }

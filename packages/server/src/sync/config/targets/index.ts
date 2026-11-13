@@ -1,3 +1,4 @@
+import type { ConfigItemKind } from '@agent-hangar/shared';
 import type { Collected, LocalItem } from '../collect.ts';
 import { endRound, startRound } from '../fileMemo.ts';
 import { claudeTarget, CLAUDE_TARGET_NAME } from './claude.ts';
@@ -47,7 +48,7 @@ export const enabledTargetNames = (ctx: TargetContext): string[] => registry.fil
 
 /** 集める対象の項目を全部集めて 1 つにする。 */
 export function collectAll(ctx: TargetContext): Collected {
-  const out: Collected = { items: [], dropped: [], unsent: [], blocked: { ids: new Set(), prefixes: [] } };
+  const out: Collected = { items: [], dropped: [], unsent: [], blocked: { ids: new Set(), prefixes: [] }, linkSkipped: {} };
   const seen = new Set<string>();
   // ファイルの読みの記憶（fileMemo.ts）は、この 1 周で見なかったパスを最後に落とす。途中で投げたときは落とさない。
   startRound();
@@ -59,6 +60,7 @@ export function collectAll(ctx: TargetContext): Collected {
     out.unsent.push(...c.unsent);
     for (const id of c.blocked.ids) out.blocked.ids.add(id);
     out.blocked.prefixes.push(...c.blocked.prefixes);
+    for (const [k, v] of Object.entries(c.linkSkipped ?? {})) { const kind = k as ConfigItemKind; out.linkSkipped![kind] = [...(out.linkSkipped![kind] ?? []), ...(v ?? [])]; }
   }
   endRound();
   out.items.sort((a: LocalItem, b: LocalItem) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

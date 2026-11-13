@@ -193,12 +193,15 @@ export class ConfigSyncService {
   private collect(): Collected {
     const c = collectAll(this.targetCtx());
     if (this.refreshUnsent(c.unsent)) this.touch();
+    this.lastLinkSkipped = c.linkSkipped ?? {};
     // 定期の 1 回（tick）の中では、受け取りで集めた結果を、続く送るでも使う（sharedCollected）。
     if (this.tickRound) this.tickRound.collected = c;
     return c;
   }
 
   /** 定期の 1 回の中で、受け取りが集めた結果を送るへ渡す。集め直すと新しいほうに替わる。tick の外では使わない。 */
+  /** 最後に集めた結果の、リンクで外した項目（dto で返す）。 */
+  private lastLinkSkipped: NonNullable<Collected['linkSkipped']> = {};
   private tickRound: { collected: Collected | null } | null = null;
   private sharedCollected(): Collected | null { return this.tickRound?.collected ?? null; }
 
@@ -649,6 +652,7 @@ export class ConfigSyncService {
       // 印が無いときは欄ごと省く（古い版の読み手と、既存の形を変えない）。
       ...(vcs.length ? { vcs } : {}),
       ...(notices.length ? { notices } : {}),
+      linkSkipped: this.lastLinkSkipped,
     };
   }
 }

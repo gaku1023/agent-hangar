@@ -7662,6 +7662,7 @@ R2 は部分更新を持たないので、末尾だけを足す道が無いた�
 同じ中身を二度上げないために、端末ローカルの `file_sync` に前回の指紋（平文の SHA-256）と大きさと更新時刻を残す。
 
 設定の同期が拾わないものは、`node_modules` と `.git` と `__pycache__` と `.venv` と `.trash`（hangar がスキルを消したときのごみ箱）の各段、シンボリックリンク、1 MiB を超えるファイル、`.DS_Store`、そして同期自身が作る写し（`*.conflict-*`、`*.hangar-tmp-*`、`*.part`）である。
+Claude の入れ物（skills、commands、agents、memory、プロジェクトのメモリ）でリンクのために拾わなかったものは、集めた結果の `linkSkipped` に種類ごとの相対パス（`skills/benkyo` など）で残し、`ConfigSyncDto.linkSkipped` で最後に集めた分を返す（読めないディレクトリは入れない。送る項目は変えない）。
 写しを対象に戻すと、競合のファイルが端末間で無限に増える。
 `claude` の対象は、`statusLine`、`hooks`、`env` などの実行にかかわる鍵と、`statusLine.command` が指すスクリプトは運ばない。
 ほかの PC のコマンドが自動で走る道にしないためである。

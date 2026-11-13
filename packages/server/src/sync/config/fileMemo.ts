@@ -121,11 +121,11 @@ export function fileItem(f: RegularFile, o: { id: string; kind: ConfigItemKind; 
 /**
  * dir の下のファイルの絶対パスを、リンクを辿らず、除外の名前を降りずに集める。
  * リンクは辿らずに onLink へ渡す（ファイルかディレクトリかは辿らないと分からないので、どちらの id も塞げるように呼び手へ任せる）。
- * 読めないディレクトリも onLink へ渡す（中に何があるか分からない）。
+ * 読めないディレクトリも onLink へ渡す（中に何があるか分からない）。そのときは第 2 引数が true で、リンクと分けて数えたい呼び手が見分ける。
  */
-export function walk(dir: string, onLink: (abs: string) => void, exclude: ReadonlySet<string>, out: string[] = []): string[] {
+export function walk(dir: string, onLink: (abs: string, unreadable?: true) => void, exclude: ReadonlySet<string>, out: string[] = []): string[] {
   let entries: fs.Dirent[];
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') onLink(dir); return out; }
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') onLink(dir, true); return out; }
   for (const e of entries) {
     const abs = path.join(dir, e.name);
     if (e.isSymbolicLink()) { onLink(abs); continue; }

@@ -252,4 +252,35 @@ describe('手元にあるが運ばないもの（相手の同名の項目に上�
     expect(isBlocked(c.blocked, 'memory:proj1/MEMORY.md')).toBe(true);
     expect(isBlocked(c.blocked, 'memory:proj2/MEMORY.md')).toBe(false);
   });
+
+  it('linkSkipped: skills の下のリンクを種類ごとの相対パスで返し、通常のファイルと読めないものは入れない', () => {
+    write('skills/plain/SKILL.md', 'x');
+    fs.mkdirSync(path.join(tmp, 'elsewhere'));
+    fs.symlinkSync(path.join(tmp, 'elsewhere'), path.join(claudeDir, 'skills', 'benkyo'));
+    write('commands/ok.md', 'x');
+    fs.symlinkSync(outside(), path.join(claudeDir, 'commands', 'ln.md'));
+    const c = collect();
+    expect(c.linkSkipped).toEqual({ skills: ['skills/benkyo'], commands: ['commands/ln.md'] });
+    // 運ぶ項目は変わらない。
+    expect(ids(c)).toEqual(['file:commands/ok.md', 'file:skills/plain/SKILL.md']);
+  });
+
+  it('linkSkipped: リンクが無ければ空、入れ物そのものがリンクなら入れ物のパスを返す', () => {
+    write('skills/plain/SKILL.md', 'x');
+    expect(collect().linkSkipped ?? {}).toEqual({});
+    fs.mkdirSync(path.join(tmp, 'elsewhere'));
+    fs.symlinkSync(path.join(tmp, 'elsewhere'), path.join(claudeDir, 'agents'));
+    expect(collect().linkSkipped).toEqual({ agents: ['agents'] });
+  });
+
+  it('linkSkipped: メモリの中のリンクも出す', () => {
+    upsertShared(db, 'projects', { id: 'proj1', name: 'app', status: 'active', is_scratch: 0 }, 'dev-a');
+    upsertShared(db, 'project_roots', { id: 'r1', project_id: 'proj1', device_id: 'dev-a', path: '/Users/me/app', resolved: 1 }, 'dev-a');
+    const slug = slugOfPath('/Users/me/app');
+    write(`projects/${slug}/memory/MEMORY.md`, 'x');
+    fs.symlinkSync(outside(), path.join(claudeDir, 'projects', slug, 'memory', 'ln.md'));
+    write('memory/a.md', 'x');
+    fs.symlinkSync(outside(), path.join(claudeDir, 'memory', 'b.md'));
+    expect(collect().linkSkipped).toEqual({ memory: [`memory/b.md`, `projects/${slug}/memory/ln.md`] });
+  });
 });

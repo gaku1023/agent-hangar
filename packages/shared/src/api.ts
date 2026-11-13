@@ -809,6 +809,8 @@ export type ConfigSyncDto = {
   vcs?: ConfigVcsDto[];
   /** 対象ごとの知らせ。無ければ欄ごと省く。 */
   notices?: ConfigNoticeDto[];
+  /** リンクだったので運ばなかった項目の相対パス（種類ごと。`skills/benkyo` など）。最後に集めた結果で、無ければ空。この項目を知らない古いサーバは返さないので、読む側は空として読む。 */
+  linkSkipped?: Partial<Record<ConfigItemKind, string[]>>;
 };
 /**
  * 「場所を再指定」で選んだフォルダが、この PC で別のプロジェクトの場所になっているときの 409。
