@@ -108,7 +108,7 @@ export function bootMobile(p: {
   delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub?: { broadcast(ev: Extract<ServerEvent, { type: 'phone.launch' }>): void } };
   runs: { runs: Pick<RunManager, 'start' | 'on'>; accounts: { store: Pick<AccountStore, 'list'>; usage: Pick<UsageTracker, 'of'>; broadcast: (accounts: AccountsDto) => void } };
   /** engine は組み直すと変わる（boot/sync.ts の getter）。毎回引き直す。 */
-  sync: Pick<SyncParts, 'canCarryMobile' | 'mobileLink' | 'cloudDevices' | 'onCloudDevices'> & { readonly engine: Pick<SyncEngine, 'on' | 'pullNow'>; /** 無ければ偽（PC どうしの呼び鈴を張らない）。 */ canCarryPeer?: () => boolean };
+  sync: Pick<SyncParts, 'canCarryMobile' | 'mobileLink' | 'cloudDevices' | 'onCloudDevices'> & { readonly engine: Pick<SyncEngine, 'on' | 'pullNow' | 'pullAfterBell'>; /** 無ければ偽（PC どうしの呼び鈴を張らない）。 */ canCarryPeer?: () => boolean };
   /** 呼び鈴に PC どうしの答えと結果の知らせ（kind は answer か result）が鳴ったとき。呼ぶ側の取得（peer/outbox.ts）が受ける。頼みが来た知らせ（launch）は今の pull で受ける。 */
   onPeer?: (kind: Exclude<PeerBellKind, 'event'>, id: string) => void;
   /**
@@ -256,16 +256,16 @@ export function bootMobile(p: {
       },
       onLaunch: () => {
         // 今の engine の pull で依頼を受け取る。走っている pull があれば、それを分け合う。
-        void p.sync.engine.pullNow().catch((e: unknown) => console.error('[mobile] could not pull after the bell', e instanceof Error ? e.constructor.name : typeof e));
+        void p.sync.engine.pullAfterBell().catch((e: unknown) => console.error('[mobile] could not pull after the bell', e instanceof Error ? e.constructor.name : typeof e));
       },
       onPeer: (kind, id) => {
         // 頼みが来た知らせは、今の pull で受け取りを前倒しする。答えと結果の知らせは呼ぶ側（T7）の取得が受ける。
         if (kind !== 'launch') { p.onPeer?.(kind, id); return; }
-        void p.sync.engine.pullNow().catch((e: unknown) => console.error('[mobile] could not pull after the peer bell', e instanceof Error ? e.constructor.name : typeof e));
+        void p.sync.engine.pullAfterBell().catch((e: unknown) => console.error('[mobile] could not pull after the peer bell', e instanceof Error ? e.constructor.name : typeof e));
       },
       // 同じクラウドの別の PC の、急ぎの変更（run の出入り、新しい会話）。30 秒の pull を待たずに取る。
       onChanges: () => {
-        void p.sync.engine.pullNow().catch((e: unknown) => console.error('[mobile] could not pull after the changes bell', e instanceof Error ? e.constructor.name : typeof e));
+        void p.sync.engine.pullAfterBell().catch((e: unknown) => console.error('[mobile] could not pull after the changes bell', e instanceof Error ? e.constructor.name : typeof e));
       },
       onEvent: () => { pullEvents('bell'); },
       // つなぎ直したときも取りに行く。
