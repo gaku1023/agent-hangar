@@ -409,6 +409,45 @@ describe('ロックと remoteOnly と端末一覧', () => {
     expect(sessionLock(d2, 'dev-a', 's1', NOW)).toBeNull();
   });
 
+  it('ほかの PC の run の始まりより後に Done か Archived を付けたら、止まるのを待たずに parked にする。ロックは残す', () => {
+    const d2 = setup();
+    addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: NOW, startedAt: NOW - 60_000 });
+    expect(one(d2).parked).toBe(false);
+    setSessionState(d2, 'dev-a', 's1', { status: 'done', setBy: 'user', now: NOW - 1000 });
+    expect(one(d2).parked).toBe(true);
+    expect(one(d2).lock).toMatchObject({ runId: 'r-b' });
+    expect(getSession(d2, [], 's1', { deviceId: 'dev-a', now: () => NOW })!.parked).toBe(true);
+    setSessionState(d2, 'dev-a', 's1', { status: 'archived', setBy: 'conversation', now: NOW - 500 });
+    expect(one(d2).parked).toBe(true);
+  });
+
+  it('届いた動き（runs.live_status）が作業中か入力待ちなら、印があっても parked にしない。休みなら parked', () => {
+    const d2 = setup();
+    addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: NOW, startedAt: NOW - 60_000 });
+    setSessionState(d2, 'dev-a', 's1', { status: 'done', setBy: 'conversation', now: NOW - 1000 });
+    const liveAs = (v: string) => d2.prepare('update runs set live_status = ?, live_at = ? where id = ?').run(v, NOW, 'r-b');
+    liveAs('busy');
+    expect(one(d2).parked).toBe(false);
+    liveAs('waiting');
+    expect(one(d2).parked).toBe(false);
+    liveAs('idle');
+    expect(one(d2).parked).toBe(true);
+  });
+
+  it('ほかの PC の run が印より後に起きた（再開した）、Paused、自動の停止が切、なら parked にしない', () => {
+    const d2 = setup();
+    setSessionState(d2, 'dev-a', 's1', { status: 'done', setBy: 'user', now: NOW - 60_000 });
+    addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: NOW, startedAt: NOW - 10_000 });
+    expect(one(d2).parked).toBe(false);
+    const d3 = setup();
+    addRun(d3, { id: 'r-b', device: 'dev-b', heartbeat: NOW, startedAt: NOW - 60_000 });
+    setSessionState(d3, 'dev-a', 's1', { status: 'paused', setBy: 'user', now: NOW - 1000 });
+    expect(one(d3).parked).toBe(false);
+    setSessionState(d3, 'dev-a', 's1', { status: 'done', setBy: 'user', now: NOW - 1000 });
+    setParkingSwitch(d3, () => false);
+    expect(one(d3).parked).toBe(false);
+  });
+
   it('deviceId を渡さなければロックを計算しない', () => {
     const d2 = setup();
     addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: NOW });

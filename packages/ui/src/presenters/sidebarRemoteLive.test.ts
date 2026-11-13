@@ -101,6 +101,18 @@ describe('数をそろえる', () => {
   });
 });
 
+describe('ほかの PC の会話に Done を付けた（parked）', () => {
+  it('向こうが止まるのを待たずに、サイドバー、Home、プロジェクト、一覧の実行中から外す', () => {
+    const store = storeOf([session('b', { lock: lock(), parked: true, state: { status: 'done', note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: NOW - 1000, candidate: null } as never }), session('a', { live: 'busy' })]);
+    expect(rowsOf(store).map((r) => r.id)).toEqual(['a']);
+    expect(liveCountsOf(store, 'alpha')).toEqual({ running: 1, waiting: 0 });
+    expect(presentHome(initialState(), store, NOW).running.map((c) => c.id)).toEqual(['a']);
+    const state = initialState();
+    const list = presentSessionList({ ...state, search: { ...state.search, filter: { live: 'running' } } }, store, NOW);
+    expect(list.rows.map((r) => r.id)).toEqual(['a']);
+  });
+});
+
 describe('ほかの PC の本当の状態（lock.live）', () => {
   const waitingLock = (over: Partial<SessionLockDto> = {}) => lock({ live: 'waiting', liveAt: NOW - 5 * 60_000, reason: null, ...over });
 

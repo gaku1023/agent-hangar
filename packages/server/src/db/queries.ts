@@ -176,10 +176,12 @@ export function contextPercent(used: number | null, size: number | null): number
 
 export type SessionQueryOptions = { projectId?: string; ids?: string[]; deviceId?: string; now?: () => number };
 
-type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number; live_status: LiveStatus | null; live_reason: StopReason | null; live_at: number | null };
+type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number; live_status: LiveStatus | null; live_reason: StopReason | null; live_at: number | null; started_at: number };
+/** 一覧が組むロックと、その run の始まり。始まりは区切りの判定（parked）にだけ使い、DTO には載せない。 */
+type LockEntry = { dto: SessionLockDto; startedAt: number };
 
 const LOCK_SELECT = `
-    select r.session_id, r.id run_id, r.device_id, d.name device_name, r.heartbeat_at, r.live_status, r.live_reason, r.live_at
+    select r.session_id, r.id run_id, r.device_id, d.name device_name, r.heartbeat_at, r.live_status, r.live_reason, r.live_at, r.started_at
     from runs r left join devices d on d.id = r.device_id and d.deleted_at is null
     where r.ended_at is null and r.deleted_at is null and r.device_id <> ?`;
 
@@ -204,14 +206,14 @@ function toLock(r: LockRow, peers: PeerBook | null, now: number): SessionLockDto
  * 年齢が PEER_STALE_MS を超えた PC、peers に居ない PC、まだ peers を受け取っていないときは、ロックのまま stale を立てて「応答がありません」と見せる。
  * heartbeatAt はその PC の最終接続（この PC の時計）で、知らなければ run の行の heartbeat_at（起動か生き返った時刻）を見せる。
  */
-function lockMap(db: Db, selfDeviceId: string | undefined, now: number): Map<string, SessionLockDto> {
-  const out = new Map<string, SessionLockDto>();
+function lockMap(db: Db, selfDeviceId: string | undefined, now: number): Map<string, LockEntry> {
+  const out = new Map<string, LockEntry>();
   if (!selfDeviceId) return out;
   const rows = db.prepare(`${LOCK_SELECT} order by r.started_at, r.id`).all(selfDeviceId) as LockRow[];
   if (rows.length === 0) return out;
   const peers = readPeers(db);
   // 起動の昇順なので、同じセッションでは後から起きた行が残る。
-  for (const r of rows) out.set(r.session_id, toLock(r, peers, now));
+  for (const r of rows) out.set(r.session_id, { dto: toLock(r, peers, now), startedAt: r.started_at });
   return out;
 }
 
@@ -280,6 +282,14 @@ export function processStartedAt(live: { procStart?: string } | undefined, alive
 }
 
 /**
+ * ほかの PC のロックだけがある会話に、その run の始まりより後で Done か Archived を付けたか（isParked）。
+ * 動きは届いたもの（lock.live）を使い、まだ届いていなければ休みとみなす。作業中と入力待ちは手元と同じく外さない。
+ */
+function remoteParked(r: SessionRow, lock: LockEntry | undefined): boolean {
+  return lock !== undefined && isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: lock.dto.live ?? 'idle', processStartedAt: lock.startedAt });
+}
+
+/**
  * 生きた run の始まり（セッションごとに最新のもの）。
  * deviceId を渡せば、この端末の run だけを見る。動いているプロセスはこの端末のものなので、他の端末に残った行と比べない。
  */
@@ -299,7 +309,7 @@ function limitOf(r: SessionRow, live: LiveSessionDto | undefined, now: number): 
   return { kind: r.lim_kind, resetsAt: r.lim_resets_at, auto: r.lim_auto === 1, reset: limitReset(r.lim_resets_at, now, r.lim_auto === 1) };
 }
 
-function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, SessionLockDto>, runStarts: Map<string, number>, now: number, parking: boolean, newer: Set<string>, taken: Map<string, { deviceName: string; at: number }>, self?: string): SessionDto {
+function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, LockEntry>, runStarts: Map<string, number>, now: number, parking: boolean, newer: Set<string>, taken: Map<string, { deviceName: string; at: number }>, self?: string): SessionDto {
   const live = liveMap.get(r.provider_session_id);
   const limit = limitOf(r, live, now);
   const summary: SessionSummaryDto | null = r.sum_title !== null
@@ -353,7 +363,7 @@ function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto
     liveAside: live?.aside ?? null,
     summary,
     stats,
-    lock: locks.get(r.id) ?? null,
+    lock: locks.get(r.id)?.dto ?? null,
     // 本文はあるが手元の主線が無いとき、閲覧の前に本文を降ろす必要がある。
     remoteOnly: r.has_transcript === 1 && r.has_local === 0,
     // 保持期間の期限を UI が数えるための、この PC の本文の更新時刻。Claude Code もこれで古さを測るとみなす。
@@ -365,7 +375,11 @@ function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto
     }),
     // 使用制限でリセットを待っている間は、区切りを付けていても止めない（自動の続きの予約が消える）。
     // 自動の停止を切っている間は偽（setParkingSwitch）。
-    parked: parking && isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: live?.status ?? null, processStartedAt: processStartedAt(live, runStarts.get(r.id) ?? null), limited: limit !== null && !limit.reset }),
+    // ほかの PC でだけ動いている会話（この PC の登録が無く、ロックだけがある）は、その run の始まりより後に印を付けたら、
+    // 向こうの PC が止めるのを待たずに parked にする。向こうの見張り（ParkWatch）は休みが 10 秒続いてから止める。
+    parked: parking && (live
+      ? isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: live.status, processStartedAt: processStartedAt(live, runStarts.get(r.id) ?? null), limited: limit !== null && !limit.reset })
+      : remoteParked(r, locks.get(r.id))),
     // 止めた後に起こした run があれば、last_end_reason はその run のもの（動いている間は null）になるので偽に戻る。
     // 止めた後に付け直した印でも偽にする。その印のために止めたのではない。
     // 状態を付けた後に休みから動き出したか（sessions/wake.ts）。状態の無いものは偽。
