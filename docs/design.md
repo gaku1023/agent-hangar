@@ -4059,6 +4059,13 @@ OS とスマホの通知と未読の数は、`done` と `ask` ならそのター
 `progress` は途中の報告なので、未読の数も通知も預からずにすぐ出す。
 hangar が代わりに知らせるもの（削除の承認待ち、準備の後の起動の失敗）も、エージェントの返答を待つ意味が無いので預からない。
 
+会話に紐づかない知らせは `notifyApp({ text, kind }, settings?)`（`live/appNotice.ts`）で出す。
+`notify_user` はセッションの ID が前提で、未読の数も OS もスマホも会話ごとに積むので、別の口にした。
+出し先は `notifyRulesOf` の `os` と `phone` だけで、`kind` を含む先に振り分ける（`unread` は使わない。画面のヘッダの札が代わる）。決まりで `os` と `phone` の両方が `kind` を含まなければ何も配らない。預かり（`UnreadHold`）は通さず、すぐ配る。
+聞き手は 2 つで、OS は `StopNoticeWatch.subscribeAppNotice` が `kind` を `unread`、`sessionId` を `APP_NOTICE_ID`（`app-notice`）にして feed へ積み、スマホは `boot/mobile.ts` が `sessionId` を空にして `noticeUnread` に渡す（受信箱を開く汎用の知らせになる）。題は `Hangar` である。
+押したときに開くのは、いまの殻では、OS はアプリの前面までで（`APP_NOTICE_ID` を設定の同期へ向けるには殻の `open_js` と `Keep` の変更が要る）、スマホは受信箱である。
+使うのは設定の同期（確認、競合、自動の適用の失敗。「設定の同期の作り直し」の節）で、文言は `sync.configNotice.*` にある。
+
 `whileFocused` と `merge` は、OS の通知の出し方を変える（殻とサーバ）。
 `whileFocused` が真なら、未読の通知を窓が前にあっても出す。サーバは未読の項目に `evenInFront` を付けて OS の通知の並び（feed）へ積み、殻は窓が前でもこの印があれば出す（`skip_in_front`）。印の無い古いサーバの項目は偽として読む。
 `merge` が真なら、返答と入力待ちを 1 通にまとめる。`notify_user` で OS の通知を積んだあと、同じ会話の入力待ちの通知は、`MERGE_WINDOW_MS`（10 秒）のあいだ積まない。
@@ -8272,6 +8279,7 @@ MCP サーバーの設定は、名前ごとに 1 項目で運ぶ。URL も stdio
 - どこかで失敗したら、`runApplyAll` が先に書いた対象を世代から戻し、基準も戻す。サーバは指示書を消し、時刻と理由を `ConfigSyncDto.lastAutoError` に出す。同じ組（項目の id、操作、相手の指紋）は 10 分たつまで試し直さない（受け取りのたびに控えを取っては戻さないため）。次に成功するか、載せるものが無くなると `lastAutoError` は null に戻る。
 - HTTP の適用の口は増やさない（決定 3 の例外は、サーバの中から起こす自動の適用だけ）。
 - `ConfigSyncDto.askCount` は確認で待つ件数（`needsApproval` が真で、競合と保留を除く）。ヘッダの札は `askCount` と `conflicts` を足して出す。
+- 人の目が要るものが新しく出たときは、会話に紐づかない知らせ（`notifyApp`、「知らせ方の決まり（案 S）」の節）を `ask` で出す。新しい確認の項目、新しい競合、自動の適用の失敗（`lastAutoError.at` が変わったとき）の 3 つで、自動で入ったものは出さない。受け取りの最後に `watchAttention` が、前に知らせた集合（確認の項目と競合は「項目の id、操作、相手の指紋」、失敗は `at`）と比べ、増えた分だけを `onAttention` へ渡す（`ConfigAttention`：`asks`、`conflicts`、`autoFailed`）。集合はメモリだけに持ち、起こし直すと忘れる。文は `sync/config/attentionText.ts` が `sync.configNotice.*` の鍵から組む（仮の文言で、Gemini に当てて直す）。
 
 **適用の履歴（`config_history`、版 57）。**
 手元だけの表で、適用 1 回に 1 行を書く（`sync/config/history.ts`）。列は `id`、`at`、`from_device`（項目の元の端末。元が 1 つでなければ null）、`mode`（`auto` か `manual`）、`items`（JSON：`id`、`kind`、`label`、`op`）、`generations`（JSON：対象ごとの控えの世代名）、`undone`（JSON：あとから戻した項目の id）、`seen`（既読）である。

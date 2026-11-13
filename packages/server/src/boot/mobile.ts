@@ -12,6 +12,7 @@ import { approveDeleteApproval, dismissDeleteApproval, listDeleteApprovals, reje
 import type { SessionTrash } from '../sessions/trash.ts';
 import { answerAsk } from '../mobile/asks.ts';
 import { MobileBell } from '../mobile/bell.ts';
+import { onAppNotice } from '../live/appNotice.ts';
 import { onUnreadReady } from '../live/unread.ts';
 import { buildMobileFeed, sessionTitleOf } from '../mobile/feed.ts';
 import { MobileLaunchInbox, type PhoneLaunchStarted } from '../mobile/launchInbox.ts';
@@ -395,6 +396,11 @@ export function bootMobile(p: {
         const title = sessionTitleOf(db, sessionId);
         if (title === null) return;
         try { ensure()?.noticeUnread({ sessionId, title, text }); } catch (e) { console.error('[mobile] could not schedule the unread notice', e instanceof Error ? e.constructor.name : typeof e); }
+      }));
+      // セッションに紐づかない知らせ（設定の同期など）のうち、出し先に phone を含むものも送る。sessionId は空で、スマホでは汎用の知らせとして開く。
+      offs.push(onAppNotice((n) => {
+        if (!n.sent.includes('phone')) return;
+        try { ensure()?.noticeUnread({ sessionId: '', title: 'Hangar', text: n.text }); } catch (e) { console.error('[mobile] could not schedule the app notice', e instanceof Error ? e.constructor.name : typeof e); }
       }));
       offs.push(p.runs.runs.on({ remoteUrl: () => kick() }));
       offs.push(onRowChange((c) => { if (c.db === db && FEED_TABLES.has(c.table)) kick(); }));
