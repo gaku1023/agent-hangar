@@ -153,16 +153,16 @@ describe('競合の札（d1）', () => {
     fireEvent.click(b);
     expect(b).toHaveAttribute('aria-pressed', 'false');
   });
-  it('初回の突き合わせ：全部手元、全部相手で、どの行も同じ側にそろえる。片方にしか無いものは件数だけ出す', () => {
+  it('初回の突き合わせ：すべてこの PC、すべて他の PCで、どの行も同じ側にそろえる。片方にしか無いものは件数だけ出す', () => {
     const onAction = vi.fn();
     show(open('conflicts'), store({ conflicts: [c('file:CLAUDE.md', 'CLAUDE.md'), c('settings:model', 'model')] }, dto({ conflicts: 2, incoming: 27, linkSkipped: { skills: ['skills/benkyo'] } })), onAction);
-    expect(screen.getByText('この PC に書き足す')).toBeInTheDocument();
+    expect(screen.getByText('この PC に追加する')).toBeInTheDocument();
     expect(screen.getByText('27')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '全部相手' }));
+    fireEvent.click(screen.getByRole('button', { name: 'すべて他の PC' }));
     expect(screen.getByText('選択 2 / 2 件')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '選択した 2 件を適用…' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'configSync.apply', entries: [{ id: 'file:CLAUDE.md', take: 'remote' }, { id: 'settings:model', take: 'remote' }] });
-    fireEvent.click(screen.getByRole('button', { name: '全部手元' }));
+    fireEvent.click(screen.getByRole('button', { name: 'すべてこの PC' }));
     fireEvent.click(screen.getByRole('button', { name: '選択した 2 件を適用…' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'configSync.apply', entries: [{ id: 'file:CLAUDE.md', take: 'mine' }, { id: 'settings:model', take: 'mine' }] });
   });

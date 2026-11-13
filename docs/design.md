@@ -4063,7 +4063,7 @@ hangar が代わりに知らせるもの（削除の承認待ち、準備の後�
 `notify_user` はセッションの ID が前提で、未読の数も OS もスマホも会話ごとに積むので、別の口にした。
 出し先は `notifyRulesOf` の `os` と `phone` だけで、`kind` を含む先に振り分ける（`unread` は使わない。画面のヘッダの札が代わる）。決まりで `os` と `phone` の両方が `kind` を含まなければ何も配らない。預かり（`UnreadHold`）は通さず、すぐ配る。
 聞き手は 2 つで、OS は `StopNoticeWatch.subscribeAppNotice` が `kind` を `unread`、`sessionId` を `APP_NOTICE_ID`（`app-notice`）にして feed へ積み、スマホは `boot/mobile.ts` が `sessionId` を空にして `noticeUnread` に渡す（受信箱を開く汎用の知らせになる）。題は `Hangar` である。
-押したときに開くのは、いまの殻では、OS はアプリの前面までで（`APP_NOTICE_ID` を設定の同期へ向けるには殻の `open_js` と `Keep` の変更が要る）、スマホは受信箱である。
+押したときに開くのは、OS は設定の同期の節（殻の `open_js` と `open_hash` が `APP_NOTICE_ID` を `#/settings?at=sync` へ向ける。`Keep` は `unread` として残す）、スマホは受信箱である。
 使うのは設定の同期（確認、競合、自動の適用の失敗。「設定の同期の作り直し」の節）で、文言は `sync.configNotice.*` にある。
 
 `whileFocused` と `merge` は、OS の通知の出し方を変える（殻とサーバ）。
@@ -6474,10 +6474,14 @@ Worker の入れ替えを促す文（`sync.compat.worker`、`configSyncUi.worker
 ただし、Worker の互換の版が 8 以下（0.8.x までのクラウド）のときは入れ替えでは直らないので、`sync.compat.workerRebuild` で `docs/cloud-sync.md` の再構築の手順へ案内する（`sync/client.ts` の `compatMessage`）。
 月の予算の行は置かない（Cloudflare の月の予算で止める仕組みは段 5 で作る）。
 Claude Code の設定の同期は、常設の行で、スイッチと、届いている変更、競合、送らなかった項目、バックアップを出す。中身はダイアログで見せる（「設定の同期の作り直し」の節）。
-親のスイッチの下に、対象ごとの入切の行（`claude-keys2`、`claude-hooks`、`claude-plugins`、`claude-mcp`、`codex-mcp`、`opencode-mcp`、`codex`、`opencode`、`agents-skills`、`hangar`）を入れ子で並べ、親を切ると畳む（v0.12 の U0 の 1A、1a）。
-Codex と opencode の行（その MCP を含む）は、その PC でそのエージェントが有効なときだけ出し、共通の skills はどちらかが有効なときだけ出す。
-行のスイッチは設定の `configTargets` 全体を、その対象だけ替えて保存する。どれもまだ選んでいなければ「新」の札と、増えた知らせの帯（すべて有効にする、あとで）を出す。「あとで」は見る人ごとの便利さなのでブラウザの保存先に置く。
-入れ物が Git などで管理されていれば（`ConfigSyncDto.vcs`）、名前の横に札を出し、有効にするときは行の下の確認の帯を経る（2A、2a）。opencode の json と jsonc の併存（`notices`）は opencode の行に添える。
+親のスイッチの下に、種類ごとの行を性質ごとの束で 2 段に並べ、親を切ると畳む（2026-11-13 の試作の C 性質ごと。`views/ConfigKindsList.tsx`、`presenters/configKinds.ts`）。
+先頭に会話の本文の行を置き、左の段に指示、スキルとコマンド、記憶、右の段に設定、自動で走るコードを置く。
+行は名前、項目の数（送るものの一覧から数える）、リンクで外した件数のチップ（押すと名前が開く）、切、確認、自動のつまみである。会話の本文だけは切と自動の 2 つ。
+束の見出しにも同じつまみを置き、束の中が揃っていなければつまみを消す（`mixed`）。自動で走るコード（Claude の MCP、フック、ステータス行、プラグイン、Codex と opencode の MCP）の束は色を付ける。
+Codex と opencode の種類は、その PC でそのエージェントが有効なときだけ出し、共通のスキルはどちらかが有効なときだけ出す。
+つまみは設定の `configKinds` に、変えた鍵だけを `settings.update` で保存する。
+自動で走るコードの種類（または束）を自動にするときだけ、行の下に 1 文の帯を開き、「自動にする」を押すまで保存しない。ほかの種類と、確認や切への変更は、その場で保存する。
+Git などで管理された入れ物の札と、有効にする前の確認の帯、増えた対象の知らせは、対象ごとの入切（`configTargets`）をやめたので出さない。
 送らなかった項目は理由ごとの群（シークレット、この PC だけ、未対応のキー）に分け、「それでも送る」は行の下の帯で確かめてから送る（3A、3a）。未対応のキーは送れないので、行の件数とベルの件数に入れない（`unknownKeyCount`）。
 適用内容の確認は、対象の札（Claude Code、Codex、opencode、共通の skills、Hangar の設定）で絞り込める 1 つの一覧にし、競合、承認が必要なもの、そのまま適用するもの、保留（畳む）の順に群を置く（4B、4a、4α）。絞り込みは見せる行だけを変え、適用するものは変えない。
 説明文の件数と内訳は、そのまま書き込む項目（競合と承認が必要なものを除く）だけで数え、札ごとに作る。札がその対象なら書き込み先とバックアップ先（`backups/<入れ物>-config/`）を言い、「すべて」で対象が 2 つ以上なら対象ごとの書き込み先を並べる。畳んだ群の抜粋も、その札の項目だけから作る。Hangar の設定はバックアップを取らないので、そう言わない。
@@ -8372,8 +8376,18 @@ MCP サーバーの設定は、名前ごとに 1 項目で運ぶ。URL も stdio
 切るのは確認なしにその場で保存する。
 入れた直後は、サーバが次の周期を待たずに送受信を 1 回回す（`boot/sync.ts` の `publishConfigSync`）。
 `ConfigSyncDto.workerPending` が真のあいだは、行の下に「Worker の更新待ち」の帯を出し、`hangar setup cloud` をもう一度実行して Worker を入れ替えるよう案内する。
-行は、適用の待ち（指示書があるとき）、届いている変更、承認待ち（承認の仕方が毎回で、承認の要る項目があるとき）、承認の仕方、競合、送らなかった項目（0 件でも残す）、バックアップの順である。
-承認の仕方を自動に切り替えるときは、その場に注意の文と、キャンセル、自動にする、を出し、押すまで保存しない。
+行は、種類ごとの行と右の「届いたもの」、適用の待ち（指示書があるとき）、届いている変更、送らなかった項目（0 件でも残す）、バックアップの順である。
+全体の承認の仕方（`configApproval`）の切り替えと、承認待ち、競合の行はやめた（種類ごとの状態と、右の「届いたもの」に移した）。
+右の「届いたもの」（`views/ConfigInbox.tsx`）は、確認（適用は承認のダイアログを開く）、競合（手元か相手を選んで「決める」。`configSync.resolve` で、ダイアログを開かずに指示書にして適用へ進む）、履歴の順に並べる。
+履歴は 1 回ごとに開き、まとめて戻す（`configSync.history.restore { history }`）、1 項目ずつ戻す（`{ history, item }`）。戻したものには線を引く。
+戻す入口は、殻が `restoreConfigHistory` を持つとき（`Store.canRestoreHistory`）だけ出し、`restorable` が偽の項目と戻し済みの項目には 1 項目の戻しを出さない。
+履歴を開いたとき、自動で入った回が未読なら既読の口（`POST /config-sync/history/seen`、`configSync.history.seen`）を呼ぶ。`lastAutoError` があれば、右の列の上にその行を出す。
+確認の「見送る」は置いていない（サーバに見送りの口が無く、種類を確認以外に変えるか適用するまで確認は残る）。
+ヘッダの `SyncStatus` の横に札（P1。`views/SyncBadge.tsx`）を出す。確認の件数（`askCount` と競合の和）は waiting の色、自動で入った件数（`autoUnseen`）は静かな色で、0 件の札は出さない。押すと設定の同期の節（`#/settings?at=sync`）を開く。
+動きは `motionKit` にそろえる。つまみは `--dur` と `--ease-out` の transform で滑らせ、帯と履歴の開き閉じは `Reveal`（growIn と collapseOut）、札の出入りは growIn と collapseOut、数の差し替えは `RollingText` である。
+OS の通知（`APP_NOTICE_ID`）を押したときは、殻（`notify.rs` の `open_js` と `open_hash`）が同じ節を開く。
+競合のダイアログ（`conflicts`）は、初回の突き合わせを兼ね、「すべてこの PC」「すべて他の PC」と、片方にしか無いもの（この PC に書き足す件数）とリンクで外した件数の欄を持つ。片方にしか無いものは自動で書き足すか送るので、一覧には中身の違うものだけが並ぶ。
+種類の項目の数を数えるため、設定の画面を見ているあいだは送るものの一覧（`outgoing`）も取り直す（`configPartsToLoad`）。
 
 ダイアログは 1 つの overlay（`configSync`）で、`part` が 4 つの顔を決める。
 

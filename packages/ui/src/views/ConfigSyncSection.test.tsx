@@ -117,7 +117,7 @@ describe('Claude Code の設定の同期の節', () => {
     it('会話の本文は切と自動の 2 つだけ。変えると、その鍵だけを保存する', () => {
       const onAction = vi.fn();
       render(ui(kindsProps(), onAction));
-      const g = row('会話の本文');
+      const g = row('トランスクリプト');
       expect(g.queryByRole('button', { name: '確認' })).toBeNull();
       fireEvent.click(g.getByRole('button', { name: '切' }));
       expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { configKinds: { transcript: 'off' } } });
@@ -136,7 +136,7 @@ describe('Claude Code の設定の同期の節', () => {
       const strip = screen.getByRole('group', { name: '自動にする' });
       expect(strip).toHaveTextContent('Claude のフック');
       expect(onAction).not.toHaveBeenCalled();
-      fireEvent.click(within(strip).getByRole('button', { name: 'やめる' }));
+      fireEvent.click(within(strip).getByRole('button', { name: 'キャンセル' }));
       expect(onAction).not.toHaveBeenCalled();
       fireEvent.click(row('Claude のフック').getByRole('button', { name: '自動' }));
       fireEvent.click(within(screen.getByRole('group', { name: '自動にする' })).getByRole('button', { name: '自動にする' }));
@@ -163,7 +163,7 @@ describe('Claude Code の設定の同期の節', () => {
     it('リンクで外した件数を行にチップで出し、押すと名前が開く', () => {
       render(ui(kindsProps({}, dto({ linkSkipped: { skills: ['skills/benkyo'] } }))));
       expect(screen.queryByText('skills/benkyo')).toBeNull();
-      fireEvent.click(screen.getByRole('button', { name: 'リンクで外した 1 件' }));
+      fireEvent.click(screen.getByRole('button', { name: 'リンクのため同期しない 1 件' }));
       expect(screen.getByText('skills/benkyo')).toBeInTheDocument();
     });
   });
