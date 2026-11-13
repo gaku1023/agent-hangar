@@ -365,6 +365,8 @@ export function SettingsScreen(props: SettingsProps) {
             ) : undefined}
         control={<Switch label={t('settings.general.notify.title')} checked={props.notify.on} disabled={!props.notify.available} onChange={(next) => emit({ type: 'notify.set', on: next })} />} />
       <NotifyRulesRow rules={props.notifyRules} />
+      <SetRow title={t('settings.label.sidebarOtherPcs')}
+        control={<Switch label={t('settings.label.sidebarOtherPcs')} checked={props.sidebarOtherPcs !== false} onChange={(next) => setNow({ sidebarOtherPcs: next })} />} />
       {/* 切り替えた時点で保存する。iTerm2 は初回に macOS の自動化の許可ダイアログが出るので、その案内は行に常に出す。選択肢は画面を開いている OS のものだけ。 */}
       <SetRow title={t('settings.general.terminal.title')} desc={props.terminalDescAlways ? props.terminalDesc : undefined} info={props.terminalDescAlways ? undefined : props.terminalDesc}
         control={<Segmented label={t('settings.general.terminal.title')} value={props.terminalApp} options={props.terminalOptions.map((o) => ({ ...o, lead: <Icon name={TERMINAL_ICON[o.value]} /> }))} onChange={(v) => setNow({ terminalApp: v as TerminalApp })} />} />

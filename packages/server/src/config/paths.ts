@@ -86,6 +86,8 @@ export type Settings = {
   /** 同じく、利用者に見てほしい出力を出したとき notify_user で知らせる段を足すか。既定は入り。読み方は askStatusAtEnd と同じ。 */
   notifyUser?: boolean;
   /** 未読の数（サイドバー、ホーム、Dock のバッジ）を出すか。既定は入り。false のときだけ切りとして読む。 */
+  /** ほかの PC で動いている会話をサイドバーに出すか。書かれていなければ入りとして読む。 */
+  sidebarOtherPcs?: boolean;
   unreadBadge?: boolean;
   /** 未読が増えたとき、窓が裏なら OS の通知を出すか。既定は入り。false のときだけ切りとして読む。 */
   unreadOs?: boolean;
@@ -263,7 +265,7 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   if (typeof s.askStatusAtEnd !== 'boolean') s.askStatusAtEnd = true;
   if (typeof s.liveHints !== 'boolean') s.liveHints = true;
   // 未読の 4 つは既定の設定に持たない（書かれていなければ入りとして読む）。真偽値でない手書きの値は捨てる。
-  for (const k of ['notifyUser', 'unreadBadge', 'unreadOs', 'unreadPhone'] as const) if (s[k] !== undefined && typeof s[k] !== 'boolean') delete s[k];
+  for (const k of ['notifyUser', 'unreadBadge', 'unreadOs', 'unreadPhone', 'sidebarOtherPcs'] as const) if (s[k] !== undefined && typeof s[k] !== 'boolean') delete s[k];
   // 知らせ方の決まりは形を検査する。kind でない要素は捨て、形の合わないものは項目ごと捨てて既定として読む。
   if (s.notifyPreference !== undefined && s.notifyPreference !== null) {
     const np = notifyPreferenceOf(s.notifyPreference);

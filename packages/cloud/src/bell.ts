@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { MOBILE_REPLY_MAX_BYTES, PEER_BELL_KINDS, PEER_CHAT_REPLY_SEALED_MAX, type PeerAskIn, type PeerBellKind, type PeerChatBellAsk } from '@agent-hangar/shared';
-import { ASK_RATE, askTimeoutMs, BELL_DEVICE_HEADER, BELL_RING_ID_HEADER, BELL_RING_KIND_HEADER, PEER_ASK_RATE, peerAskGraceMs, REPLACED_CLOSE_CODE } from './bellWire.ts';
+import { ASK_RATE, askTimeoutMs, BELL_CHANGES_KIND, BELL_DEVICE_HEADER, BELL_RING_ID_HEADER, BELL_RING_KIND_HEADER, PEER_ASK_RATE, peerAskGraceMs, REPLACED_CLOSE_CODE } from './bellWire.ts';
 import type { Env } from './env.ts';
 
 /**
@@ -155,6 +155,11 @@ export class HangarBell extends DurableObject<Env> {
     if (ws) {
       try {
         // PC どうしの頼みの知らせ（頼みが来た、答えが来た、結果が来た）は種類と頼みの ID を添える。スマホの依頼は従来どおり。
+        if (kind === BELL_CHANGES_KIND) {
+          // 同じクラウドの別の PC が、急ぎの変更（run の出入り、新しい会話）を push した。受けた PC は pull を早める。
+          ws.send(JSON.stringify({ t: 'changes' }));
+          return new Response(null, { status: 204 });
+        }
         const peer = kind !== null && id !== null && (PEER_BELL_KINDS as readonly string[]).includes(kind);
         ws.send(JSON.stringify(peer ? { t: 'peer', kind: kind as PeerBellKind, id } : { t: 'launch' }));
       } catch {

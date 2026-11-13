@@ -49,10 +49,11 @@ async function setup(o: { reject?: number | false; pong?: boolean; target?: Bell
   const onPeer = vi.fn();
   const onEvent = vi.fn();
   const onOpen = vi.fn();
+  const onChanges = vi.fn();
   const onAsk = vi.fn(async (id: string, sealed: string, _epoch: number): Promise<string | null> => (sealed === 'unopenable' ? null : `reply-for-${id}`));
-  const bell = new MobileBell({ target: () => target, onLaunch, onAsk, onPeer, onEvent, onOpen, timers });
+  const bell = new MobileBell({ target: () => target, onLaunch, onAsk, onPeer, onEvent, onOpen, onChanges, timers });
   cleanups.push(() => bell.stop(), () => w.close());
-  return { w, timers, bell, onLaunch, onAsk, onPeer, onEvent, onOpen, setTarget: (t: BellTarget | null) => { target = t; } };
+  return { w, timers, bell, onLaunch, onAsk, onPeer, onEvent, onOpen, onChanges, setTarget: (t: BellTarget | null) => { target = t; } };
 }
 
 describe('MobileBell', () => {
@@ -80,6 +81,29 @@ describe('MobileBell', () => {
     await settle(() => s.w.open().length === 1);
     s.w.open()[0]!.send(JSON.stringify({ t: 'launch' }));
     await settle(() => s.onLaunch.mock.calls.length === 1);
+  });
+
+  it('{t:changes} で onChanges を呼ぶ（ほかの PC の急ぎの変更）。onChanges が無い古い使い手は、知らない種類として読み捨てて壊れない', async () => {
+    const s = await setup();
+    s.bell.check();
+    await settle(() => s.w.open().length === 1);
+    const ws = s.w.open()[0]!;
+    ws.send(JSON.stringify({ t: 'changes' }));
+    await settle(() => s.onChanges.mock.calls.length === 1);
+    // 続けて別の知らせが届く（壊れず読み続ける）。
+    ws.send(JSON.stringify({ t: 'launch' }));
+    await settle(() => s.onLaunch.mock.calls.length === 1);
+    expect(s.bell.state()).toBe('open');
+    // 本物の使い手は onChanges を持たなくても落ちない。
+    const w2 = await fakeWorker({});
+    const old = new MobileBell({ target: () => ({ url: w2.url, headers: {} }), onLaunch: vi.fn(), onAsk: vi.fn(async () => null), timers: new FakeTimers() });
+    cleanups.push(() => old.stop(), () => w2.close());
+    old.check();
+    await settle(() => w2.open().length === 1);
+    w2.open()[0]!.send(JSON.stringify({ t: 'changes' }));
+    w2.open()[0]!.send(JSON.stringify({ t: 'something-new', x: 1 }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(old.state()).toBe('open');
   });
 
   it('{t:peer} の kind と id を onPeer に渡す。知らない kind と形の違うものは渡さない', async () => {

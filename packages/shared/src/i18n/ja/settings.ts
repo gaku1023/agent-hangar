@@ -296,6 +296,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.label.configApproval': '受信した設定の承認方法',
   'settings.label.configBundleSync': 'Claude Code の設定の同期',
   'settings.label.askStatusAtEnd': '作業の区切りで Done／Paused を確認する',
+  'settings.label.sidebarOtherPcs': '他の PC の会話もサイドバーに出す',
   'settings.label.liveHints': 'ターンの意図と操作の短い説明を送る',
   'settings.label.notifyUser': '見てほしい出力を notify_user で知らせる',
   'settings.label.notifyPreference': '知らせ方',

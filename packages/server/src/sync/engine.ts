@@ -18,7 +18,7 @@ export type SyncEngineDeps = {
   now?: () => number; timers?: Timers;
   /** 持ち越して覚えておく行の上限。既定は MAX_CARRIED_ROWS。試験が下げるために使う。 */
   maxCarriedRows?: number;
-  pushDebounceMs?: number; pushMinGapMs?: number; pullIntervalMs?: number; focusMinGapMs?: number;
+  pushDebounceMs?: number; pushMinGapMs?: number; pushUrgentDebounceMs?: number; pushUrgentGapMs?: number; pullIntervalMs?: number; focusMinGapMs?: number;
   /**
    * 他端末の新しいメモで手元のメモを上書きする直前に呼ばれる。
    * 呼び手は負けた本文を memo.conflict-<端末名>-<時刻>.md として隣に残す。
@@ -105,6 +105,10 @@ const PUSH_DEBOUNCE_MS = 1_000;
  * 索引器は本文が伸びるたびに sessions を書くので、これが無いと 2 秒ごとに push が出て無料枠を使い切る。
  */
 const PUSH_MIN_GAP_MS = 10_000;
+/** 急ぐ変更（run の出入り、新しい会話）を push するまでの待ち。続けて起きる分をまとめる。 */
+const URGENT_DEBOUNCE_MS = 150;
+/** 急ぐ push（ほかの PC を鳴らす印つき）の最小の間隔。最初の取り込みで会話が一気に増えても、鳴らす回数を抑える。 */
+const URGENT_MIN_GAP_MS = 1_000;
 const PULL_INTERVAL_MS = 30_000;
 /**
  * 一時停止中に Worker へ生存だけを知らせる間隔（同期の版 6）。
@@ -442,7 +446,7 @@ export class SyncEngine {
     this.started = true;
     // 行の変化の口の購読者の 1 つである。この端末の書き込み（write）だけを push の契機にする。
     // 同期で降りた行（apply）は changes に積まれないので、拾っても送るものが無い。拾えば、降りるたびに空の push を予約してしまう。
-    this.offWrite = onRowChange((c) => { if (c.db === this.deps.db && c.origin === 'write') this.noteLocalChange(); });
+    this.offWrite = onRowChange((c) => { if (c.db === this.deps.db && c.origin === 'write') { if (c.urgent) this.noteUrgentChange(); else this.noteLocalChange(); } });
     if (!this.deps.client) { this.emitStatus(); return; }
     // 接続先が変わっていれば、最初の push と pull の前に記録を戻す。
     // 待たずに済む比べ（cloud.json の印）にしてあるので、同じ起動で走り出す本文の上げ下ろし（boot/sync.ts）より必ず先に済む。
@@ -563,6 +567,20 @@ export class SyncEngine {
   }
 
   /**
+   * 急ぐ変更（run の新規と終了、会話の新規）。
+   * 最小間隔（10 秒）を飛ばし、短い待ちで push して、ほかの PC を鳴らす印を付ける。
+   * ほかの PC がこれを 30 秒の pull より早く見られるようにするためである。
+   */
+  noteUrgentChange(): void {
+    if (!this.started || !this.deps.client) return;
+    this.urgentPending = true;
+    this.schedulePush(Math.min(this.deps.pushDebounceMs ?? PUSH_DEBOUNCE_MS, this.deps.pushUrgentDebounceMs ?? URGENT_DEBOUNCE_MS));
+  }
+
+  /** 急ぐ印の付いた変更が、まだ呼び鈴つきで送られていない。 */
+  private urgentPending = false;
+
+  /**
    * delayMs 後の push を予約し直す。
    * 期限が来ても前回の push から最小間隔が空いていなければ、残りの時間だけ引き直す。
    */
@@ -570,7 +588,7 @@ export class SyncEngine {
     if (this.pushTimer) this.timers.clearTimeout(this.pushTimer);
     this.pushTimer = this.timers.setTimeout(() => {
       this.pushTimer = null;
-      const wait = this.pushGapRemaining();
+      const wait = this.pushGapRemaining(this.urgentPending ? this.deps.pushUrgentGapMs ?? URGENT_MIN_GAP_MS : undefined);
       if (wait > 0) { this.schedulePush(wait); return; }
       this.enqueueWhileStarted(() => this.pushNow());
     }, delayMs);
@@ -578,8 +596,8 @@ export class SyncEngine {
   }
 
   /** 前回 push を終えてから最小間隔が空くまでの残り。空いていれば 0。 */
-  private pushGapRemaining(): number {
-    const gap = this.deps.pushMinGapMs ?? PUSH_MIN_GAP_MS;
+  private pushGapRemaining(urgentGap?: number): number {
+    const gap = urgentGap ?? this.deps.pushMinGapMs ?? PUSH_MIN_GAP_MS;
     const v = this.state.get('lastPushAt');
     const last = v === null ? NaN : Number(v);
     if (!Number.isFinite(last)) return 0;
@@ -600,14 +618,18 @@ export class SyncEngine {
     let pushed = 0;
     for (;;) {
       const rows = db.prepare('select * from changes where pushed_at is null order by seq limit ?').all(MAX_PUSH_BATCH) as ChangeRow[];
-      if (rows.length === 0) break;
+      if (rows.length === 0) { this.urgentPending = false; break; }
+      // 急ぐ印は、この塊を送る前に取り出す。失敗したら戻す。送っている間に起きた急ぐ変更は、次の塊か次の push が受ける。
+      const ring = this.urgentPending;
+      this.urgentPending = false;
       const batch: ChangeIn[] = rows.map((r) => ({
         tableName: r.table_name, rowId: r.row_id, op: r.op,
         payload: JSON.parse(r.payload) as Record<string, unknown>, updatedAt: r.updated_at,
       }));
       try {
-        await client.pushChanges(batch);
+        await (ring ? client.pushChanges(batch, { ring: true }) : client.pushChanges(batch));
       } catch (e) {
+        if (ring) this.urgentPending = true;
         // 大きすぎる行は何度送っても同じ答えが返る。諦めて先へ進まないと、この塊で push が永久に止まる。
         if (this.dropOversize(e, rows)) continue;
         this.failPush(e);

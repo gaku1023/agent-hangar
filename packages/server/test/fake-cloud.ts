@@ -82,7 +82,7 @@ import {
   type SealedPullChangesResponse,
   type SealedSnapshotResponse,
 } from '@agent-hangar/shared';
-import { CloudError, CompatError, LimitError, MIN_WORKER_COMPAT, RevokedError, type CloudClient, type KeyRefresh, type OpenedPullResponse, type OpenedSnapshotResponse, type RosterPutResult, type WireCloudClient } from '../src/sync/client.ts';
+import { CloudError, CompatError, LimitError, MIN_WORKER_COMPAT, RevokedError, type CloudClient, type KeyRefresh, type OpenedPullResponse, type OpenedSnapshotResponse, type PushOptions, type RosterPutResult, type WireCloudClient } from '../src/sync/client.ts';
 import { decryptBuffer, encryptBuffer, fileKeyFrom, sha256Hex } from '../src/sync/crypto.ts';
 import { Keyring } from '../src/sync/keyring.ts';
 import { blobKeyFor, openSealedFile, openSealedRow, SealedCloudClient } from '../src/sync/sealedClient.ts';
@@ -525,7 +525,7 @@ export class FakeWireClient implements WireCloudClient {
     return { ok: true, version: 'fake' };
   }
 
-  async pushChanges(changes: SealedChangeIn[]): Promise<PushChangesResponse> {
+  async pushChanges(changes: SealedChangeIn[], _opts?: PushOptions): Promise<PushChangesResponse> {
     this.guard('pushChanges', changes);
     // 1 行でも形が違えば塊ごと断る。ストアには何も入れない。
     if (!Array.isArray(changes) || changes.length > MAX_PUSH_BATCH || !changes.every(isChange)) throw new CloudError(400, errorBody('invalid body'));
@@ -1252,7 +1252,7 @@ export class FakeCloudClient implements CloudClient {
   seedUnchecked(meta: SealedFileIn, body: Buffer): { seq: number } { return this.wire.seedUnchecked(meta, body); }
 
   health(): Promise<{ ok: boolean; version: string }> { return this.wire.health(); }
-  pushChanges(changes: ChangeIn[]): Promise<PushChangesResponse> { return this.sealed.pushChanges(changes); }
+  pushChanges(changes: ChangeIn[], opts?: PushOptions): Promise<PushChangesResponse> { return this.sealed.pushChanges(changes, opts); }
   pullChanges(since: number, limit: number): Promise<OpenedPullResponse> { return this.sealed.pullChanges(since, limit); }
   snapshot(after: string | null, limit: number): Promise<OpenedSnapshotResponse> { return this.sealed.snapshot(after, limit); }
   refreshKeys(epochs: number[]): Promise<KeyRefresh> { return this.sealed.refreshKeys(epochs); }

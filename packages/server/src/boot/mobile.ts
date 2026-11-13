@@ -262,6 +262,10 @@ export function bootMobile(p: {
         if (kind !== 'launch') { p.onPeer?.(kind, id); return; }
         void p.sync.engine.pullNow().catch((e: unknown) => console.error('[mobile] could not pull after the peer bell', e instanceof Error ? e.constructor.name : typeof e));
       },
+      // 同じクラウドの別の PC の、急ぎの変更（run の出入り、新しい会話）。30 秒の pull を待たずに取る。
+      onChanges: () => {
+        void p.sync.engine.pullNow().catch((e: unknown) => console.error('[mobile] could not pull after the changes bell', e instanceof Error ? e.constructor.name : typeof e));
+      },
       onEvent: () => { pullEvents('bell'); },
       // つなぎ直したときも取りに行く。
       // つながっていなかった間の荷物には、呼び鈴が鳴らなかった。

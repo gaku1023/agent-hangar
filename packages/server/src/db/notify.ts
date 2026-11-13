@@ -13,7 +13,10 @@ import type { Db } from './open.ts';
  */
 export type RowOrigin = 'write' | 'apply' | 'touch';
 export type RowOp = 'upsert' | 'delete';
-export type RowChange = { db: Db; table: string; rowId: string; op: RowOp; origin: RowOrigin };
+/**
+ * urgent は write のときだけ立つ。ほかの PC に早く見せたい変更（run の新規と終了、会話の新規）で、同期が最小間隔を飛ばして push し、ほかの PC を鳴らす。
+ */
+export type RowChange = { db: Db; table: string; rowId: string; op: RowOp; origin: RowOrigin; urgent?: boolean };
 
 type RowChangeListener = (c: RowChange) => void;
 
@@ -23,7 +26,7 @@ const listeners = new Set<RowChangeListener>();
  * 外側のトランザクションの中で起きた変化。確定を待ってから配る。
  * seq は changes の連番で、write のときだけ持つ（巻き戻ったかを見分けるのに使う）。
  */
-type PendingNotice = { table: string; rowId: string; op: RowOp; origin: RowOrigin; seq: number | null };
+type PendingNotice = { table: string; rowId: string; op: RowOp; origin: RowOrigin; seq: number | null; urgent?: boolean };
 const pending = new Map<Db, PendingNotice[]>();
 
 /**
@@ -105,8 +108,10 @@ function drain(db: Db): void {
       if (p.seq !== null && alive.get(p.seq, p.table, p.rowId) === undefined) continue;
       const key = `${p.origin}\u0000${p.table}\u0000${p.rowId}`;
       const cur = merged.get(key);
-      if (cur) cur.op = p.op;
-      else merged.set(key, { db, table: p.table, rowId: p.rowId, op: p.op, origin: p.origin });
+      if (cur) {
+        cur.op = p.op;
+        if (p.urgent) cur.urgent = true;
+      } else merged.set(key, { db, table: p.table, rowId: p.rowId, op: p.op, origin: p.origin, ...(p.urgent ? { urgent: true } : {}) });
     }
     for (const c of merged.values()) deliver(c);
   } catch (e) {
@@ -130,15 +135,15 @@ function note(db: Db, n: PendingNotice): void {
     return;
   }
   drain(db);
-  deliver({ db, table: n.table, rowId: n.rowId, op: n.op, origin: n.origin });
+  deliver({ db, table: n.table, rowId: n.rowId, op: n.op, origin: n.origin, ...(n.urgent ? { urgent: true } : {}) });
 }
 
 /**
  * この端末が共有の表に書いた。呼ぶのは db/shared.ts だけである。
  * seq には、その書き込みが changes に積んだ行の連番を渡す。
  */
-export function noteWrite(db: Db, table: string, rowId: string, op: RowOp, seq: number): void {
-  note(db, { table, rowId, op, origin: 'write', seq });
+export function noteWrite(db: Db, table: string, rowId: string, op: RowOp, seq: number, urgent = false): void {
+  note(db, { table, rowId, op, origin: 'write', seq, ...(urgent ? { urgent: true } : {}) });
 }
 
 /** 同期で降りてきた行を当てた。呼ぶのは sync/apply.ts だけである。 */

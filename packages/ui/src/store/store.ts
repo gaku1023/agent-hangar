@@ -1,3 +1,4 @@
+import type { SessionLockDto } from '@agent-hangar/shared';
 import type { EventBindingDto, HeldEventDto, PrClaimDto, ScheduleDto } from '@agent-hangar/shared';
 import type { DeleteApprovalDto, PeerApprovalDto, PeerChatDevice, PeerChatQueued, PeerDeviceDto } from '@agent-hangar/shared';
 import { liveFilterOf, liveWithLimit, quietLive, stopReasonOf, type LiveFilter, type PermissionAskDto, type StopReason } from '@agent-hangar/shared';
@@ -500,7 +501,7 @@ export function hasRunOf(store: Store, sessionId: string): boolean {
 }
 
 /**
- * 入力待ち、実行中、未読、戻る時刻、提案、留めた行、ほかの PC の子を数える集計が見るかもしれない会話だけの並び。
+ * 入力待ち、実行中、未読、戻る時刻、提案、留めた行、ほかの PC の子、ほかの PC のロックを数える集計が見るかもしれない会話だけの並び。
  * どれも live が無く、未読も Paused も提案も留めも無い会話では偽になる（実行中は run が生きていても真になるので、それは呼ぶ側で足す）。
  * 会話は何千件にもなり、配信が 1 件届くたびにこれらの集計が全件をなめると、1 件 60〜90ms 固まる。
  * 当たる会話はふつう数十件なので、会話の表ごとに 1 回だけ拾い、集計はその中だけを見る。並びは Object.values と同じである。
@@ -509,7 +510,7 @@ const hotMemo = new WeakMap<Record<string, SessionDto>, readonly SessionDto[]>()
 export function hotSessions(sessions: Record<string, SessionDto>): readonly SessionDto[] {
   let v = hotMemo.get(sessions);
   if (v === undefined) {
-    v = Object.values(sessions).filter((s) => s.live !== null || (s.unread?.count ?? 0) > 0 || s.state?.status === 'paused' || !!s.state?.candidate || (s.pinnedAt ?? null) !== null || !!s.spawnPeer?.child);
+    v = Object.values(sessions).filter((s) => s.live !== null || (s.unread?.count ?? 0) > 0 || s.state?.status === 'paused' || !!s.state?.candidate || (s.pinnedAt ?? null) !== null || !!s.spawnPeer?.child || (s.lock ?? null) !== null);
     hotMemo.set(sessions, v);
   }
   return v;
@@ -529,6 +530,23 @@ export function hotOrAlive(store: Store, alive: Set<string>): SessionDto[] {
 /** 終わっていない run があるセッションの id。 */
 export function runningSessionIds(store: Store): Set<string> {
   return new Set(Object.values(store.runs).filter((r) => r.endedAt === null).map((r) => r.sessionId));
+}
+
+/**
+ * どこかの PC で終わっていない run があるセッションの id。
+ * この PC の生きた run（runningSessionIds）に、ほかの PC のロック（SessionDto.lock）のある会話を足したもの。
+ * 実行中として数え、並べる所（サイドバー、Home、プロジェクト、パレット、一覧、ペインのピッカー）が使う。
+ * 停止や再開などの操作、更新前の注意、中断の数は、この PC の run で決めるので、runningSessionIds を使う。
+ */
+export function aliveAnywhere(store: Store): Set<string> {
+  const out = runningSessionIds(store);
+  for (const s of hotSessions(store.sessions)) if ((s.lock ?? null) !== null) out.add(s.id);
+  return out;
+}
+
+/** ほかの PC で動いている会話か。この PC の run も、この PC の live も無く、ほかの PC のロックだけがある。local は runningSessionIds。 */
+export function remoteLockOf(s: SessionDto, local: Set<string>): SessionLockDto | null {
+  return s.lock && s.live === null && !local.has(s.id) ? s.lock : null;
 }
 
 /**
@@ -604,7 +622,7 @@ function tucked(s: SessionDto): boolean {
  * Paused にして休んでいるもの（tucked）も載せない。
  */
 export function liveSessionIds(store: Store): string[] {
-  const alive = runningSessionIds(store);
+  const alive = aliveAnywhere(store);
   const at = (s: SessionDto) => s.startedAt ?? Number.POSITIVE_INFINITY;
   return hotOrAlive(store, alive).filter((s) => liveFilterOfSession(store, s, alive) !== 'ended' && !tucked(s))
     .sort((a, b) => (at(a) === at(b) ? 0 : at(a) < at(b) ? -1 : 1) || a.id.localeCompare(b.id))
@@ -638,6 +656,8 @@ export function waitingSessionIds(store: Store): string[] {
  * 既読にする側（seenWanted）は設定に関わらず生のデータを見る。
  */
 export const unreadBadgeOn = (store: Store): boolean => store.settings?.unreadBadge !== false;
+/** ほかの PC で動いている会話をサイドバーの「実行中」に出すか。設定 sidebarOtherPcs が無ければ入り。 */
+export const sidebarOtherPcsOn = (store: Store): boolean => store.settings?.sidebarOtherPcs !== false;
 export const unreadOf = (store: Store, id: string): NonNullable<SessionDto['unread']> | null => (unreadBadgeOn(store) ? store.sessions[id]?.unread ?? null : null);
 /** 未読のあるセッションの id。知らせの新しいものが先。 */
 export function unreadSessionIds(store: Store): string[] {

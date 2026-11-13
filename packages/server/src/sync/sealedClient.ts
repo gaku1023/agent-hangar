@@ -28,7 +28,7 @@ import {
   type SharedTable,
 } from '@agent-hangar/shared';
 import { agentOfSyncPath, AGENT_SYNC } from './agentSync.ts';
-import { CloudError, type CloudClient, type KeyRefresh, type OpenedPullResponse, type OpenedSnapshotResponse, type Unreadable, type WireCloudClient } from './client.ts';
+import { CloudError, type CloudClient, type KeyRefresh, type OpenedPullResponse, type OpenedSnapshotResponse, type PushOptions, type Unreadable, type WireCloudClient } from './client.ts';
 import { decryptStream, encryptStream, fileKeyFrom } from './crypto.ts';
 
 /**
@@ -278,7 +278,7 @@ export class SealedCloudClient implements CloudClient {
     return { files, unreadable, nextSeq: page.nextSeq, more: page.more };
   }
 
-  async pushChanges(changes: ChangeIn[]): Promise<PushChangesResponse> {
+  async pushChanges(changes: ChangeIn[], opts?: PushOptions): Promise<PushChangesResponse> {
     if (!Array.isArray(changes) || !changes.every(isPlainChange)) throw new CloudError(400, errorBody('invalid body'));
     const cur = (await this.ring).current();
     const byK = new Map<string, ChangeIn>();
@@ -291,7 +291,7 @@ export class SealedCloudClient implements CloudClient {
       }),
     );
     try {
-      return await this.wire.pushChanges(sealed);
+      return await this.wire.pushChanges(sealed, opts);
     } catch (e) {
       throw nameOversize(e, byK);
     }

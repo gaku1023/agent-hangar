@@ -16,7 +16,7 @@ import {
   type PeerBellKind,
 } from '@agent-hangar/shared';
 import { authMiddleware, LIVE_PHONE_SQL, requireKind } from './auth.ts';
-import { BELL_DEVICE_HEADER, BELL_NAME, BELL_RING_ID_HEADER, BELL_RING_KIND_HEADER } from './bellWire.ts';
+import { BELL_CHANGES_KIND, BELL_DEVICE_HEADER, BELL_NAME, BELL_RING_ID_HEADER, BELL_RING_KIND_HEADER } from './bellWire.ts';
 import { revokeDevice } from './devices.ts';
 import type { Env, Vars } from './env.ts';
 import { isDeviceId, issueDeviceToken } from './join.ts';
@@ -450,15 +450,15 @@ export function bellOf(env: Env): DurableObjectStub | null {
   return ns ? ns.get(ns.idFromName(BELL_NAME)) : null;
 }
 
-/** 宛先の PC を鳴らす。束縛が無いときと失敗したときは何もしない。 */
-export async function ringBell(env: Env, target: string, peer?: { kind: PeerBellKind; id: string }): Promise<void> {
+/** 宛先の PC を鳴らす。束縛が無いときと失敗したときは何もしない。changes は、別の PC の急ぎの変更を知らせる（頼みの ID は無い）。 */
+export async function ringBell(env: Env, target: string, peer?: { kind: PeerBellKind; id: string } | { kind: typeof BELL_CHANGES_KIND }): Promise<void> {
   try {
     const bell = bellOf(env);
     if (!bell) return;
     const headers: Record<string, string> = { [BELL_DEVICE_HEADER]: target };
     if (peer) {
       headers[BELL_RING_KIND_HEADER] = peer.kind;
-      headers[BELL_RING_ID_HEADER] = peer.id;
+      if ('id' in peer) headers[BELL_RING_ID_HEADER] = peer.id;
     }
     const r = await bell.fetch('https://bell/ring', { method: 'POST', headers });
     await r.body?.cancel();
