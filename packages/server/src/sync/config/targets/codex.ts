@@ -132,10 +132,10 @@ function collectCodex(ctx: TargetContext): Collected {
 
 const CODEX_KINDS: readonly ConfigItemKind[] = ['codex-file', 'codex-config'];
 
-/** いつも確認に回す Codex のファイル：rules、skills、hooks.json、profile の設定（SPEC 4 章）。 */
+/** いつも確認に回す Codex のファイル：rules、hooks.json、profile の設定（SPEC 4 章）。skills は Claude と同じく種類の状態のとおり。 */
 function fileAlwaysConfirm(rel: string): boolean {
   const top = rel.split('/')[0]!;
-  return rel === 'hooks.json' || top === 'rules' || top === 'skills' || rel.endsWith('.config.toml');
+  return rel === 'hooks.json' || top === 'rules' || rel.endsWith('.config.toml');
 }
 
 export const codexTarget: ConfigTarget = {

@@ -28,8 +28,10 @@ describe('権限の鍵はいつも確認', () => {
     expect(need('settings:voice', 'settings', 'auto')).toBe(false);
   });
 
-  it('Codex の rules、skills、hooks.json、設定の profile、権限の鍵は、自動でも、消去も含めて確認', () => {
-    for (const r of ['rules/a.rules', 'skills/s/SKILL.md', 'hooks.json', 'w.config.toml']) {
+  it('Codex の rules、hooks.json、設定の profile、権限の鍵は、自動でも、消去も含めて確認。skills は種類のとおり', () => {
+    expect(need('codex:file:skills/s/SKILL.md', 'codex-file', 'auto')).toBe(false);
+    expect(need('codex:file:skills/s/SKILL.md', 'codex-file', 'confirm')).toBe(true);
+    for (const r of ['rules/a.rules', 'hooks.json', 'w.config.toml']) {
       for (const op of OPS) expect(need(`codex:file:${r}`, 'codex-file', 'auto', op), `${r} ${op}`).toBe(true);
     }
     expect(need('codex:file:AGENTS.md', 'codex-file', 'auto')).toBe(false);
