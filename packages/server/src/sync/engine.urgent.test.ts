@@ -159,4 +159,36 @@ describe('急ぐ push', () => {
     expect(rings).toEqual([true, true]);
     e.stop();
   });
+
+  // 実測（2026-11-13、Mac と Windows）：run を作った直後に pid や会話の更新が 0.4 秒、1.0 秒と続き、
+  // そのたびに普通の 1 秒のデバウンスで予約を張り直したため、急ぐ push が最後の書き込みの 1 秒後（約 2 秒）まで延びていた。
+  it('急ぐ予約があるあいだは、あとから来た普通の書き込みで予約を後ろへ延ばさない', async () => {
+    const e = make();
+    await e.start();
+    session('s1');
+    run('r1', 's1');
+    await timers.advance(100);
+    run('r1', 's1', { pid: 42 });
+    await timers.advance(49);
+    expect(rings).toEqual([]);
+    await timers.advance(1);
+    expect(rings).toEqual([true]);
+    expect(unpushed()).toBe(0);
+    e.stop();
+  });
+
+  it('急ぐ push の後の普通の書き込みは、今までどおり 1 秒のデバウンスと 10 秒の間隔に戻る', async () => {
+    const e = make();
+    await e.start();
+    session('s1');
+    await timers.advance(150);
+    expect(rings).toEqual([true]);
+    rings.length = 0;
+    session('s1', { cwd: '/w2' });
+    await timers.advance(1000);
+    expect(rings).toEqual([]);
+    await timers.advance(10_000);
+    expect(rings).toEqual([false]);
+    e.stop();
+  });
 });
