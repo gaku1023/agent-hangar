@@ -314,6 +314,8 @@ export type ApiClient = {
   /** 承認した項目を適用の指示書にする。前の指示書は置き換わる。 */
   configPutOrder(entries: ConfigApplyOrderEntryIn[]): Promise<ConfigApplyOrderDto>;
   configDeleteOrder(): Promise<void>;
+  /** 自動で入った適用の履歴を、見たことにする（POST /api/config-sync/history/seen）。 */
+  configHistorySeen(): Promise<void>;
   // 会話の保持期間。書き込みは下見の指紋を添え、ほかで変わっていたら 409 で断られる。
   retention(): Promise<RetentionDto>;
   retentionPreview(days: number): Promise<RetentionPreviewDto>;
@@ -533,6 +535,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     configSendUnsent: (id) => post(`/api/config-sync/unsent/${encodeURIComponent(id)}/send`),
     configPutOrder: (items) => call('/api/config-sync/apply-order', { method: 'PUT', body: JSON.stringify({ items }) }),
     configDeleteOrder: () => call('/api/config-sync/apply-order', { method: 'DELETE' }),
+    configHistorySeen: () => call('/api/config-sync/history/seen', { method: 'POST' }),
     retention: () => call('/api/retention'),
     retentionPreview: (days) => post('/api/retention/preview', { days }),
     writeRetention: (days, baseSha256) => call('/api/retention', { method: 'PUT', body: JSON.stringify({ days, baseSha256 }) }),

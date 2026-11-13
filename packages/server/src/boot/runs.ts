@@ -258,6 +258,8 @@ export function bootRuns(
   const notices = paceNotices(stopNotices);
   // notify_user の知らせのうち、出し先に OS の通知を含むものを同じ並びへ積む。
   stopNotices.subscribeUnread();
+  // 設定の同期などの、セッションに紐づかない知らせのうち、出し先に OS の通知を含むものも同じ並びへ積む。
+  stopNotices.subscribeAppNotice();
   // notify_user の OS とスマホの通知は、done と ask ならターンを抜けるまで預かる。返答を書き終えてから届くようにするためである。
   // 入力待ちの見張りより先に出し、merge（返答と入力待ちを 1 通に）が同じ変わり目で重なりを見られるようにする。
   const unreadHold = new UnreadHold({ db, live: () => live.current() });

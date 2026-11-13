@@ -17,6 +17,11 @@ export type DesktopBridge = {
   applyConfigSync(): Promise<ConfigShellOutcome>;
   /** バックアップの世代（yyyyMMdd-HHmmss）を、対象（claude、codex、opencode、agents-skills）の置き場へ戻す。 */
   restoreConfigSync(name: string, target: string): Promise<ConfigShellOutcome>;
+  /**
+   * 適用の履歴（ConfigHistoryDto.id）の 1 回分、または item（ConfigHistoryItemDto.id）の 1 項目を、控えの世代から戻す。item を省くと、その行のまだ戻していない全項目。
+   * 殻が見立てを承認の窓に見せ、承認されたときだけ戻す。戻したら、サーバの履歴の undone に入る。この命令を知らない古い殻は持たない（画面は戻す入口を出さない）。
+   */
+  restoreConfigHistory?(history: number, item?: string): Promise<ConfigShellOutcome>;
   /** 連携を書き込む（MCP、シェル連携、ステータスライン）。殻が見立てを承認の窓に見せ、承認されたときだけ CLI が書く。 */
   setupIntegration(target: SetupTarget): Promise<SetupShellOutcome>;
   /** アプリの自動更新（段 5-4）。 */
@@ -125,7 +130,7 @@ export type ConfigShellOutcome = { status: 'applied' | 'restored' | 'cancelled' 
 export type SetupShellOutcome = { status: 'written' | 'none' | 'cancelled' | 'failed' | 'busy'; message: string | null; code: string | null };
 
 /** 殻の命令の名前。lib.rs の #[tauri::command] と build.rs の一覧にそろえる。 */
-export const DESKTOP_COMMANDS = { openLog: 'open_log', openLink: 'open_link', restart: 'restart_app', pickFolder: 'pick_folder', applyConfigSync: 'apply_config_sync', restoreConfigSync: 'restore_config_sync', setupIntegration: 'setup_integration', saveRecoveryKey: 'save_recovery_key' } as const;
+export const DESKTOP_COMMANDS = { openLog: 'open_log', openLink: 'open_link', restart: 'restart_app', pickFolder: 'pick_folder', applyConfigSync: 'apply_config_sync', restoreConfigSync: 'restore_config_sync', restoreConfigHistory: 'restore_config_history', setupIntegration: 'setup_integration', saveRecoveryKey: 'save_recovery_key' } as const;
 
 const SETUP_STATUSES: ReadonlySet<string> = new Set(['written', 'none', 'cancelled', 'failed', 'busy']);
 
@@ -166,6 +171,7 @@ export function createDesktopBridge(win: unknown): DesktopBridge | null {
     pickFolder: async (defaultPath) => { const r = await invoke(DESKTOP_COMMANDS.pickFolder, { defaultPath }); return typeof r === 'string' ? r : null; },
     applyConfigSync: async () => outcomeOf(await invoke(DESKTOP_COMMANDS.applyConfigSync)),
     restoreConfigSync: async (name, target) => outcomeOf(await invoke(DESKTOP_COMMANDS.restoreConfigSync, { name, target })),
+    restoreConfigHistory: async (history, item) => outcomeOf(await invoke(DESKTOP_COMMANDS.restoreConfigHistory, { history, item: item ?? null })),
     setupIntegration: async (target) => setupOutcomeOf(await invoke(DESKTOP_COMMANDS.setupIntegration, { target })),
     // 殻は書いたら true、取り消したら false を返す。true のときだけ書いたと言う。
     saveRecoveryKey: async (text) => ((await invoke(DESKTOP_COMMANDS.saveRecoveryKey, { text })) === true ? 'saved' : 'cancelled'),

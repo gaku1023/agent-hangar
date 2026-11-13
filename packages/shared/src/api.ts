@@ -78,6 +78,11 @@ export type SessionLimitDto = { kind: LimitKind; resetsAt: number; auto: boolean
 export type OsNoticeKind = 'waiting' | 'limit' | 'join' | 'unread';
 /** 参加リクエストの OS の通知が sessionId に載せる値。セッションの ID（UUID）とは重ならない。 */
 export const JOIN_NOTICE_ID = 'join-request';
+/**
+ * セッションに紐づかない知らせ（server の live/appNotice.ts）の OS の通知が sessionId に載せる値。kind は unread である。
+ * 設定の同期の確認と競合、自動の適用の失敗が使う。セッションの ID（UUID）とは重ならない。
+ */
+export const APP_NOTICE_ID = 'app-notice';
 /** 参加リクエストの中身のうち、発行した PC の画面に出すもの。sas は区切りの無い 6 桁である。 */
 export type JoinRequestView = { name: string; os: string; sas: string };
 /**
@@ -814,6 +819,28 @@ export type ConfigSyncDto = {
   notices?: ConfigNoticeDto[];
   /** リンクだったので運ばなかった項目の相対パス（種類ごと。`skills/benkyo` など）。最後に集めた結果で、無ければ空。この項目を知らない古いサーバは返さないので、読む側は空として読む。 */
   linkSkipped?: Partial<Record<ConfigItemKind, string[]>>;
+  /** 確認で待つ件数（種類の状態が確認か権限の鍵で、競合と保留を除く）。ヘッダの札は askCount と conflicts を足して出す。この項目を知らない古いサーバは返さない。 */
+  askCount?: number;
+  /** 自動で入って、まだ見ていない適用の回数。この項目を知らない古いサーバは返さない。 */
+  autoUnseen?: number;
+  /** 適用の履歴（新しい順に 20 件）。この項目を知らない古いサーバは返さない。 */
+  history?: ConfigHistoryDto[];
+  /** 最後の自動の適用が失敗したときの時刻と理由。次に成功するか、適用するものが無くなると null。この項目を知らない古いサーバは返さない。 */
+  lastAutoError?: { at: number; message: string } | null;
+};
+/** 適用の履歴の 1 項目。 */
+export type ConfigHistoryItemDto = { id: string; kind: ConfigItemKind; label: string; op: ConfigInboxOp; /** いま 1 項目だけ戻せるか（控えの世代が残っていて、戻し済みでなく、戻し方がある項目）。hangar の好みは控えが無いので偽。サーバが dto を作るときに足す。この項目を知らない古いサーバは返さない。 */ restorable?: boolean };
+/**
+ * 適用の履歴の 1 回（config_history の 1 行）。mode は auto（届いた束をサーバが適用した）か manual（人が殻の命令や hangar config apply で適用した）。
+ * generations は対象ごとの控えの世代名で、undone はあとから戻した項目の id。fromDeviceId は項目の元の端末で、元が 1 つでなければ null。
+ */
+export type ConfigHistoryDto = {
+  id: number; at: number; mode: 'auto' | 'manual';
+  fromDeviceId: string | null; fromDevice: string | null;
+  items: ConfigHistoryItemDto[];
+  generations: { target: string; name: string }[];
+  undone: string[];
+  seen: boolean;
 };
 /**
  * 「場所を再指定」で選んだフォルダが、この PC で別のプロジェクトの場所になっているときの 409。

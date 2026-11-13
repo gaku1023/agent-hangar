@@ -77,7 +77,7 @@ export type SyncApi = Pick<SyncEngine, 'status' | 'syncNow' | 'setPaused' | 'onF
  * 読む操作と、hangar の置き場の適用の指示書を書く操作だけで、~/.claude に書く操作（適用、競合の採り直し、世代へ戻す）は持たない。
  * それは指示書を読む殻の命令と hangar config apply の役目である（D9）。
  */
-export type ConfigBundleApi = Pick<ConfigSyncService, 'dto' | 'outgoing' | 'inbox' | 'conflicts' | 'unsent' | 'sendUnsent' | 'backups' | 'putApplyOrder' | 'applyOrder' | 'deleteApplyOrder'>;
+export type ConfigBundleApi = Pick<ConfigSyncService, 'dto' | 'outgoing' | 'inbox' | 'conflicts' | 'unsent' | 'sendUnsent' | 'backups' | 'putApplyOrder' | 'applyOrder' | 'deleteApplyOrder' | 'markHistorySeen'>;
 /**
  * いまの言語を返す関数。経路のファイルは、これを受け取って文を引く。
  * createApp が AppDeps の language を、どの経路にも渡す。

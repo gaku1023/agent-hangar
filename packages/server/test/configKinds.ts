@@ -8,3 +8,10 @@ import { migrateConfigKinds } from '../src/sync/config/kindMigration.ts';
  */
 export const kindsOf = (switches: Readonly<Record<string, boolean>> = {}, approval: ConfigApproval = 'auto'): ConfigKinds =>
   migrateConfigKinds({ configApproval: approval, configTargets: { ...switches } });
+
+/**
+ * 試験用。自動の種類を全部確認にする（切はそのまま）。
+ * 受け取りのあとの自動の適用（ConfigSyncService.autoApply）を起こさずに、届いた一覧と指示書を見る試験が使う。
+ */
+export const confirmAll = (kinds: ConfigKinds): ConfigKinds =>
+  Object.fromEntries(Object.entries(kinds).map(([k, v]) => [k, k !== 'transcript' && v === 'auto' ? 'confirm' : v])) as ConfigKinds;

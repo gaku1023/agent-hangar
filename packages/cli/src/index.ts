@@ -459,8 +459,12 @@ config
   .option('--dry-run', '--plan と同じ（戻さずに、書き込み先と差分だけを表示する）')
   .option('--expect <fingerprint>', 'プレビューのフィンガープリント。表示した後に書き込み先が変わっていたら戻さない（デスクトップアプリが使う）')
   .option('--target <target>', '世代の対象（claude、codex、opencode、agents-skills）。省略時は claude')
-  .action(async (generation: string | undefined, o: { yes?: boolean; plan?: boolean; dryRun?: boolean; json?: boolean; expect?: string; target?: string }) => {
-    process.exitCode = await runConfigRestore({ name: generation, target: o.target, yes: o.yes, plan: o.plan || o.dryRun, json: o.json, expect: o.expect });
+  .option('--history <id>', '適用の履歴の行の番号。その行の、まだ戻していない項目を、バックアップの世代から戻す（世代の名前は付けない）')
+  .option('--item <id>', '--history の行のうち、戻す 1 項目の id（例 file:commands/a.md、settings:model）。省くと行の全項目')
+  .action(async (generation: string | undefined, o: { yes?: boolean; plan?: boolean; dryRun?: boolean; json?: boolean; expect?: string; target?: string; history?: string; item?: string }) => {
+    const history = o.history === undefined ? undefined : Number(o.history);
+    if (history !== undefined && !Number.isInteger(history)) throw new Error('--history には履歴の番号（整数）を指定してください');
+    process.exitCode = await runConfigRestore({ name: generation, target: o.target, history, item: o.item, yes: o.yes, plan: o.plan || o.dryRun, json: o.json, expect: o.expect });
   });
 
 const statusline = program.command('statusline').description('ステータスラインのスクリプトへの追記');

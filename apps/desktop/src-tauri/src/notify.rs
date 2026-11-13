@@ -24,6 +24,9 @@ const UNREAD_PREFIX: &str = "hangar-unread:";
 /// セッションの id（UUID）とは重ならない。
 /// 押されたら、セッションではなく設定のクラウド同期を開く（`open_js`）。
 pub const JOIN_SESSION: &str = "join-request";
+/// セッションに紐づかない知らせ（設定の同期の確認、競合、自動の適用の失敗。shared の APP_NOTICE_ID）。押すと設定の同期の節を開く。
+pub const APP_NOTICE: &str = "app-notice";
+const APP_NOTICE_HASH: &str = "#/settings?at=sync";
 /// 参加リクエストの知らせを押したときに移る頁の場所（設定のクラウド同期の節。shared の route.ts の `settings` と `at=cloud`）。
 const JOIN_HASH: &str = "#/settings?at=cloud";
 /// 題と本文の長さの上限（文字数）。
@@ -307,6 +310,10 @@ pub fn open_js(session_id: &str) -> String {
              else{{location.hash={lit};}}}})();"
         );
     }
+    if session_id == APP_NOTICE {
+        let lit = serde_json::to_string(APP_NOTICE_HASH).unwrap_or_else(|_| "\"\"".to_string());
+        return format!("(function(){{location.hash={lit};}})();");
+    }
     let lit = serde_json::to_string(session_id).unwrap_or_else(|_| "\"\"".to_string());
     format!(
         "(function(){{var id={lit};\
@@ -320,6 +327,8 @@ pub fn open_js(session_id: &str) -> String {
 pub fn open_hash(session_id: &str) -> String {
     if session_id == JOIN_SESSION {
         JOIN_HASH.to_string()
+    } else if session_id == APP_NOTICE {
+        APP_NOTICE_HASH.to_string()
     } else {
         format!("#/session/{session_id}")
     }
@@ -1171,6 +1180,13 @@ mod mac {
 mod tests {
     use super::toast::*;
     use super::*;
+
+    #[test]
+    fn app_notice_opens_config_sync_section() {
+        assert_eq!(open_hash(APP_NOTICE), "#/settings?at=sync");
+        assert!(open_js(APP_NOTICE).contains("#/settings?at=sync"));
+        assert!(!open_js(APP_NOTICE).contains("__hangarOpenWaiting"));
+    }
 
     #[test]
     fn a_grant_written_after_the_refusal_counts_as_granted() {

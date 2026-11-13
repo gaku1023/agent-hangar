@@ -45,6 +45,8 @@ export type PullerDeps = {
    * 有効にしていない PC の振る舞い（置くファイル、使う空き）を変えないためである。越えた行は、有効にしたあとの最初の降ろしで会話ごとの最新を取り直す。
    */
   codexEnabled?: () => boolean;
+  /** 会話の本文の入切（configKinds.transcript）。偽なら降ろさず、filesSeq も進めない（入に戻したとき、止めている間の分を降ろす）。省くと入。 */
+  transcriptEnabled?: () => boolean;
   /** 写しを 1 つ以上置いた回の終わりに、置いた数を知らせる。索引が全件走査を予約する（boot/sync.ts）。 */
   onDownloaded?: (count: number) => void;
   now?: () => number;
@@ -414,6 +416,7 @@ export class RemotePuller {
   }
 
   private async pullNowInner(): Promise<{ downloaded: number }> {
+    if (this.deps.transcriptEnabled?.() === false) return { downloaded: 0 };
     let downloaded = 0;
     const startedAt = this.now();
     // 空きが足りずに止めている間は、一覧も読みに行かない。

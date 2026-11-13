@@ -537,11 +537,11 @@ describe('capabilities', () => {
   });
   // 設定の同期の適用と世代へ戻す操作は、どちらも殻がネイティブの確認を出し、承認されたときだけ CLI（hangar config）を走らせる。
   // 頁から渡せるのは、戻す世代の名前だけで、殻が形を確かめる。サーバは `~/.claude` に書かない（D9）。
-  it('UI の出どころには、設定の同期の適用と世代へ戻す 2 つだけを別に与える', () => {
+  it('UI の出どころには、設定の同期の適用と世代へ戻す 3 つだけを別に与える', () => {
     const c = cap('remote-config-apply.json');
     expect(c.windows).toEqual(['main']);
     expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
-    expect(c.permissions).toEqual(['allow-apply-config-sync', 'allow-restore-config-sync']);
+    expect(c.permissions).toEqual(['allow-apply-config-sync', 'allow-restore-config-sync', 'allow-restore-config-history']);
   });
   // 更新は殻の 4 つの命令だけで行う。プラグインの JS の権限（updater:default）は与えず、目録の URL も頁からは変えられない。
   it('UI の出どころには、更新の確認、進み、取得、インストールの 4 つだけを別に与える', () => {
@@ -597,7 +597,7 @@ describe('capabilities', () => {
   // 入力待ちの知らせの 4 つは、上の notifier.ts との突き合わせでも確かめる。
   it('殻の命令の名前は、build.rs と lib.rs と UI と起動画面でそろっている', () => {
     const listed = [...(read('src-tauri/build.rs').match(/const COMMANDS: &\[&str\] = &\[([^\]]*)\]/)?.[1] ?? '').matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
-    expect(listed).toEqual(['apply_config_sync', 'approve_answer', 'approve_view', 'boot_card_shown', 'boot_probe', 'boot_state', 'cloud_join_check', 'cloud_join_poll', 'cloud_join_request', 'cloud_leave', 'cloud_revoke', 'notify_feed', 'notify_prune', 'notify_request', 'notify_status', 'notify_waiting', 'open_link', 'open_log', 'pick_folder', 'pick_node', 'restart_app', 'restore_config_sync', 'retry_boot', 'save_recovery_key', 'setup_integration', 'update_check', 'update_download', 'update_install', 'update_status']);
+    expect(listed).toEqual(['apply_config_sync', 'approve_answer', 'approve_view', 'boot_card_shown', 'boot_probe', 'boot_state', 'cloud_join_check', 'cloud_join_poll', 'cloud_join_request', 'cloud_leave', 'cloud_revoke', 'notify_feed', 'notify_prune', 'notify_request', 'notify_status', 'notify_waiting', 'open_link', 'open_log', 'pick_folder', 'pick_node', 'restart_app', 'restore_config_history', 'restore_config_sync', 'retry_boot', 'save_recovery_key', 'setup_integration', 'update_check', 'update_download', 'update_install', 'update_status']);
     const defined = [...read('src-tauri/src/lib.rs').matchAll(/#\[tauri::command\]\s*(?:pub )?(?:async )?fn ([a-z_]+)/g)].map((m) => m[1]).sort();
     expect(defined).toEqual(listed);
     const ui = fs.readFileSync(path.resolve(app, '../../packages/ui/src/runtime/desktop.ts'), 'utf8');

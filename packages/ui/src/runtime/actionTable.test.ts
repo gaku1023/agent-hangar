@@ -45,7 +45,7 @@ describe('表の鍵', () => {
   it('表に載っているのは、API を 1 回呼ぶだけの UiAction である', () => {
     expect(Object.keys(actionTable).sort()).toEqual([
       'account.add.preview', 'account.choose', 'account.login', 'account.login.cancel', 'account.refresh', 'account.update', 'accounts.load',
-      'artifact.add', 'artifact.open', 'artifact.openEditor', 'codex.options', 'configSync.order.cancel', 'configSync.unsent.send', 'deleteApproval.answer', 'editor.test', 'editors.load', 'events.approve', 'events.claim', 'events.create', 'events.load', 'events.remove', 'folder.inspect', 'git.changes.load', 'git.diff.load', 'git.edits.load', 'heldEvents.load', 'heldEvents.run', 'instructions.load', 'instructions.openEditor', 'launchPrep.cancel', 'memo.save',
+      'artifact.add', 'artifact.open', 'artifact.openEditor', 'codex.options', 'configSync.history.seen', 'configSync.order.cancel', 'configSync.unsent.send', 'deleteApproval.answer', 'editor.test', 'editors.load', 'events.approve', 'events.claim', 'events.create', 'events.load', 'events.remove', 'folder.inspect', 'git.changes.load', 'git.diff.load', 'git.edits.load', 'heldEvents.load', 'heldEvents.run', 'instructions.load', 'instructions.openEditor', 'launchPrep.cancel', 'memo.save',
       'opencode.options', 'opencode.providers.custom', 'opencode.providers.disconnect', 'opencode.providers.key', 'opencode.providers.load', 'opencode.providers.login', 'opencode.providers.login.cancel', 'opencode.providers.login.code', 'opencode.providers.login.poll', 'opencode.providers.model',
       'overlap.dismiss', 'peerApproval.answer', 'project.git.load', 'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
       'schedule.delete', 'schedule.run', 'session.delete', 'session.move', 'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.state.reject', 'session.tryNow', 'setupGuide.openEditor', 'share.preview', 'summarizer.test', 'summary.regenerate',
@@ -319,6 +319,12 @@ describe('設定の同期（作り直した実装）', () => {
     const configDeleteOrder = vi.fn(async () => {});
     const r = await runRow({ type: 'configSync.order.cancel' }, fakeApi({ configDeleteOrder }));
     expect(configDeleteOrder).toHaveBeenCalledTimes(1);
+    expect(r.store).toBe(r.during);
+  });
+  it('履歴を開いたときの既読は、POST を呼ぶだけで、応答は Store に入れない', async () => {
+    const configHistorySeen = vi.fn(async () => {});
+    const r = await runRow({ type: 'configSync.history.seen' }, fakeApi({ configHistorySeen }));
+    expect(configHistorySeen).toHaveBeenCalledTimes(1);
     expect(r.store).toBe(r.during);
   });
   it('それでも送るは、更新後の送らなかった項目の一覧を Store に入れる', async () => {

@@ -142,7 +142,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   // 遷移の計算は常に最新の state で行い、描く側だけを遅らせる。
   let shown = state;
   // 殻の有無は起動の時に決まり、あとで変わらない。
-  let store: Store = { ...initialStore(), desktop: deps.desktop != null };
+  let store: Store = { ...initialStore(), desktop: deps.desktop != null, canRestoreHistory: typeof deps.desktop?.restoreConfigHistory === 'function' };
   const listeners = new Set<() => void>();
   const notify = () => { heldStore = false; for (const l of listeners) l(); };
   const commit = () => { if (shown !== state) { shown = state; notify(); } };
@@ -990,6 +990,13 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const shell = deps.desktop;
         if (!shell) return;
         shell.restoreConfigSync(e.name, e.target).then((r) => shellOutcome(r, false)).catch((err: unknown) => failWith(tr()('runtime.shell.restoreFailed'), err));
+        return;
+      }
+      case 'api.configSyncRestoreHistory': {
+        // 殻が履歴の戻しを持たないとき、画面は戻す入口を出さないので、ここへは来ない。
+        const restore = deps.desktop?.restoreConfigHistory;
+        if (!restore) return;
+        restore.call(deps.desktop, e.history, e.item ?? undefined).then((r) => shellOutcome(r, false)).catch((err: unknown) => failWith(tr()('runtime.shell.restoreFailed'), err));
         return;
       }
       case 'api.retentionPreview':

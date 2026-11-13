@@ -256,6 +256,7 @@ export const actionTable = {
 
   // 設定の同期（作り直した実装）。件数と状態は config.update で届くので、応答は中身の一覧だけを Store に入れる。
   'configSync.order.cancel': () => call((api) => api.configDeleteOrder()),
+  'configSync.history.seen': () => call((api) => api.configHistorySeen()),
   'configSync.unsent.send': (i) => call((api) => api.configSendUnsent(i.id), { apply: (store, u) => applyConfigDetail(store, 'unsent', u) }),
 
   // Claude Code のアカウント。一覧を返すものは、応答をそのまま Store に入れる（サーバの accounts.update と同じ形）。
