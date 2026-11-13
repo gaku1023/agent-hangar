@@ -563,6 +563,9 @@ export class SyncEngine {
   /** ローカルの書き込みの 1 秒後に push する。連続する書き込みは 1 回にまとめる。 */
   noteLocalChange(): void {
     if (!this.started || !this.deps.client) return;
+    // 急ぐ予約が待っているあいだは張り直さない。張り直すと、run を作った直後に続く pid や会話の更新のたびに
+    // 1 秒ずつ延び、急ぐ push が約 2 秒まで遅れた（2026-11-13 に 2 台で実測）。この書き込みも急ぐ push の塊に乗る。
+    if (this.urgentPending && this.pushTimer) return;
     this.schedulePush(this.deps.pushDebounceMs ?? PUSH_DEBOUNCE_MS);
   }
 
