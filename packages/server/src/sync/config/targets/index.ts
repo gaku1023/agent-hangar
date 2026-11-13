@@ -1,4 +1,3 @@
-import type { ConfigItemKind } from '@agent-hangar/shared';
 import type { Collected, LocalItem } from '../collect.ts';
 import { endRound, startRound } from '../fileMemo.ts';
 import { claudeTarget, CLAUDE_TARGET_NAME } from './claude.ts';
@@ -12,7 +11,7 @@ import { codexTarget } from './codex.ts';
 import { hangarTarget } from './hangar.ts';
 import { opencodeMcpTarget } from './opencodeMcp.ts';
 import { opencodeTarget } from './opencode.ts';
-import { CONFIG_ITEM_KINDS, type ConfigItemKind } from '@agent-hangar/shared';
+import { CONFIG_ITEM_KINDS, type ConfigInboxOp, type ConfigItemKind, type ConfigKindMode } from '@agent-hangar/shared';
 import { kindModeIn, type ConfigTarget, type ParsedId, type TargetContext } from './types.ts';
 
 /**
@@ -47,6 +46,13 @@ export function parseTargetItemId(id: string): ParsedId | null {
 /** この PC が集める対象の名前。枠だけの対象（placeholder）は、何も運べないので載せない。束の `targets` と 3 方向の判定の「こちらが扱える対象」に使う。 */
 export const enabledTargetNames = (ctx: TargetContext): string[] => registry.filter((t) => !t.placeholder && t.enabled(ctx)).map((t) => t.name);
 
+/**
+ * 届いた項目に承認（確認）が要るか。種類が確認なら要る。種類が自動でも、権限の鍵（対象の alwaysConfirm）は要る。
+ * 種類が切の項目は判定に載らないので、ここには来ない。自動の適用（T2）もこの判定で外す。
+ */
+export const itemNeedsConfirm = (item: { id: string; kind: ConfigItemKind; op: ConfigInboxOp }, mode: ConfigKindMode): boolean =>
+  mode === 'confirm' || (mode === 'auto' && (targetOfId(item.id)?.alwaysConfirm?.(item) ?? false));
+
 /** この PC で切の種類（configKinds が off）。束の目録の offKinds に載せ、3 方向の判定で読み飛ばす。 */
 export const offKindsOf = (ctx: Pick<TargetContext, 'kinds'>): ConfigItemKind[] => CONFIG_ITEM_KINDS.filter((k) => kindModeIn(ctx, k) === 'off');
 
@@ -68,7 +74,7 @@ export function collectAll(ctx: TargetContext): Collected {
     for (const u of c.unsent) { const k = parseTargetItemId(u.itemId)?.kind; if (!k || kindModeIn(ctx, k) !== 'off') out.unsent.push(u); }
     for (const id of c.blocked.ids) out.blocked.ids.add(id);
     out.blocked.prefixes.push(...c.blocked.prefixes);
-    for (const [k, v] of Object.entries(c.linkSkipped ?? {})) { const kind = k as ConfigItemKind; out.linkSkipped![kind] = [...(out.linkSkipped![kind] ?? []), ...(v ?? [])]; }
+    for (const [k, v] of Object.entries(c.linkSkipped ?? {})) { const kind = k as ConfigItemKind; if (kindModeIn(ctx, kind) === 'off') continue; out.linkSkipped![kind] = [...(out.linkSkipped![kind] ?? []), ...(v ?? [])]; }
   }
   endRound();
   out.items.sort((a: LocalItem, b: LocalItem) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

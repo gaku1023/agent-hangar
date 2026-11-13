@@ -2,7 +2,7 @@ import { collectLocal } from '../collect.ts';
 import { parseClaudeItemId } from '../ids.ts';
 import { planClaude, planClaudeOps, writeClaude } from '../apply.ts';
 import { CLAUDE_STORE } from './stores.ts';
-import { CLAUDE_KEYS2_KEYS } from '../settingsSort.ts';
+import { CLAUDE_KEYS2_APPROVAL, CLAUDE_KEYS2_KEYS } from '../settingsSort.ts';
 import { anyKindOn, type ConfigTarget } from './types.ts';
 
 /**
@@ -30,5 +30,7 @@ export const claudeKeys2Target: ConfigTarget = {
   write: (o) => writeClaude(o),
   planOps: (o, read) => planClaudeOps(o, read),
   store: CLAUDE_STORE,
+  // 権限を広げうる鍵は、消去（deniedMcpServers を外すなど）も確認に掛ける。
+  alwaysConfirm: (item) => { const k = keyOf(item.id); return k !== null && CLAUDE_KEYS2_APPROVAL.has(k); },
   isMachineBound: () => false,
 };

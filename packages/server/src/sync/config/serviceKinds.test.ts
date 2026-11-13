@@ -87,6 +87,28 @@ describe('承認は種類の状態から決まる（試験 2）', () => {
   });
 });
 
+describe('権限の鍵は、種類が自動でもいつも確認', () => {
+  it('settings が自動でも、permissions.* と deniedMcpServers だけ承認が要る', () => {
+    const { svc, home } = make({ kinds: { settings: 'auto' } });
+    arrive(home, [
+      { id: 'settings:model', kind: 'settings', content: '"opus"' },
+      { id: 'settings:permissions.allow', kind: 'settings', content: '["Bash(ls)"]' },
+      { id: 'settings:deniedMcpServers', kind: 'settings', content: '[]' },
+    ], { targets: ['claude', 'claude-keys2'] });
+    expect(Object.fromEntries(svc.inbox().items.map((i) => [i.id, i.needsApproval]))).toEqual({
+      'settings:model': false, 'settings:permissions.allow': true, 'settings:deniedMcpServers': true,
+    });
+  });
+
+  it('settings が切なら、権限の鍵も送らず、届いても判定に載せない', () => {
+    const { svc, home } = make({ kinds: { settings: 'off' } });
+    fs.writeFileSync(path.join(tmp, 'claude', 'settings.json'), JSON.stringify({ permissions: { allow: ['Bash(ls)'] } }));
+    expect(svc.outgoing().items.map((i) => i.id).filter((id) => id.startsWith('settings:'))).toEqual([]);
+    arrive(home, [{ id: 'settings:permissions.deny', kind: 'settings', content: '["Bash(rm)"]' }], { targets: ['claude', 'claude-keys2'] });
+    expect(svc.inbox().items).toEqual([]);
+  });
+});
+
 describe('切の種類は送らず、受けても判定に載せない（試験 5）', () => {
   it('skills を切にすると、送る一覧にも束にも skills が入らず、束に切の種類を書く', async () => {
     const { svc, bundle, write } = make({ kinds: { skills: 'off' } });

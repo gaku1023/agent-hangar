@@ -7,7 +7,7 @@ import { execMarksOfLazy, type Blocked, type Collected, type LocalItem, type Uns
 import { CODEX_CONFIG_FILE, CODEX_FILE_PREFIX, CODEX_TOML_PREFIX, codexFileId, codexTomlId, kindOfCodexRel, parseCodexItemId } from '../ids.ts';
 import { findSecret } from '../secrets.ts';
 import { canonicalJson, type DroppedKey } from '../settingsSort.ts';
-import { profileIsClean, sortCodexToml, hasAbsolutePath } from './codexKeys.ts';
+import { needsApprovalPath, profileIsClean, sortCodexToml, hasAbsolutePath } from './codexKeys.ts';
 import { planCodex, planCodexOps, writeCodex } from './codexWrite.ts';
 import { CODEX_STORE } from './stores.ts';
 import { anyKindOn, type ConfigTarget, type TargetContext } from './types.ts';
@@ -132,6 +132,12 @@ function collectCodex(ctx: TargetContext): Collected {
 
 const CODEX_KINDS: readonly ConfigItemKind[] = ['codex-file', 'codex-config'];
 
+/** いつも確認に回す Codex のファイル：rules、skills、hooks.json、profile の設定（SPEC 4 章）。 */
+function fileAlwaysConfirm(rel: string): boolean {
+  const top = rel.split('/')[0]!;
+  return rel === 'hooks.json' || top === 'rules' || top === 'skills' || rel.endsWith('.config.toml');
+}
+
 export const codexTarget: ConfigTarget = {
   name: CODEX_TARGET_NAME,
   owns: (id) => id.startsWith(CODEX_FILE_PREFIX) || id.startsWith(CODEX_TOML_PREFIX),
@@ -143,6 +149,13 @@ export const codexTarget: ConfigTarget = {
   write: (o) => writeCodex(o),
   planOps: (o, read) => planCodexOps(o, read),
   store: CODEX_STORE,
+  // 権限を広げうる設定（approval_policy、sandbox_mode、[hooks]、[plugins.*] など）とファイルは、消去も確認に掛ける。
+  alwaysConfirm: (item) => {
+    const parsed = parseCodexItemId(item.id);
+    if (!parsed) return false;
+    if (parsed.ref.type === 'codex-file') return fileAlwaysConfirm(parsed.ref.rel);
+    return parsed.ref.type === 'codex-toml' && needsApprovalPath(parsed.ref.path);
+  },
   // 絶対パスを値に持つ鍵と、運べない鍵を持つ profile は、この PC では使えない。届いても適用しない。
   isMachineBound: (item) => {
     const parsed = parseCodexItemId(item.id);

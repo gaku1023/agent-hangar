@@ -1,6 +1,6 @@
 import { collectLocal } from '../collect.ts';
 import { parseClaudeItemId } from '../ids.ts';
-import { CLAUDE_KEYS2_KEYS, CLAUDE_PLUGIN_KEYS } from '../settingsSort.ts';
+import { CLAUDE_KEYS2_KEYS, CLAUDE_PLUGIN_KEYS, isPermissionKey } from '../settingsSort.ts';
 import { planClaude, planClaudeOps, writeClaude } from '../apply.ts';
 import type { ConfigItemKind } from '@agent-hangar/shared';
 import { CLAUDE_STORE } from './stores.ts';
@@ -27,6 +27,8 @@ export const claudeTarget: ConfigTarget = {
   write: (o) => writeClaude(o),
   planOps: (o, read) => planClaudeOps(o, read),
   store: CLAUDE_STORE,
+  // 権限の鍵は、消去も確認に掛ける（deny を外すと許可が広がる。SPEC 4 章）。
+  alwaysConfirm: (item) => item.id.startsWith('settings:') && isPermissionKey(item.id.slice('settings:'.length)),
   // 今の Claude の項目は、PC に依るものを collect の仕分け（settingsSort）の段で落としている。
   isMachineBound: () => false,
 };

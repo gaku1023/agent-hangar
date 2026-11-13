@@ -8241,7 +8241,7 @@ MCP サーバーの設定は、名前ごとに 1 項目で運ぶ。URL も stdio
 - 確認：届いた項目の `needsApproval` が真になり、画面の確認から適用する。消去も確認に掛ける。
 - 自動：`needsApproval` は偽。サーバが自分で適用するのは T2 で足す。
 `settings` の種類は複数の対象（`claude`、`claude-keys2`）にまたがるので、状態は対象でなく id の種類（`parseItemId(id).kind`）で引く。
-項目の一部だけを承認に掛けていた旧い決まり（`settings` の `permissions.*`、`claude-keys2` の権限の鍵、Codex の `approval_policy` など、opencode の `permission`）は、種類の状態に置き換えた。
+権限の鍵（`settings` の `permissions.*`、`claude-keys2` の `autoMode`・`skipAutoPermissionPrompt`・`deniedMcpServers`、Codex の `rules/`・`skills/`・`hooks.json`・`<名前>.config.toml`・`approval_policy` などの鍵、opencode の `permission`）は、種類が自動でも消去も含めていつも確認に回す（対象の `alwaysConfirm` と `itemNeedsConfirm`。種類が切なら送受信しない）。
 旧い承認の仕方（`configApproval`）は読まない。`ConfigSyncDto.approval` と `ConfigInboxDto.approval` は、画面を作り替えるまでの間だけ、`skills` の状態から読み替えて返す（確認なら `each`）。
 
 移行（決定 11）：`configKinds` が無く `configBundleSync` が入りの `settings.json` を読んだとき、`loadSettings` が 1 回だけ作る（書き戻しは起動が通ってから）。

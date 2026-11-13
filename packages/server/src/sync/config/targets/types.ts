@@ -1,4 +1,4 @@
-import { configKindModeOf, type ConfigItemKind, type ConfigKindMode, type ConfigKinds } from '@agent-hangar/shared';
+import { configKindModeOf, type ConfigInboxOp, type ConfigItemKind, type ConfigKindMode, type ConfigKinds } from '@agent-hangar/shared';
 import type { Db } from '../../../db/open.ts';
 import type { ApplyOptions, ApplyPlan, ApplyResult, PlannedOp, PlanPaths, PlanReader, WritePaths } from '../apply.ts';
 import type { Collected } from '../collect.ts';
@@ -86,6 +86,11 @@ export interface ConfigTarget {
   readonly store?: TargetStore;
   /** 指示書のとおりに書く。 */
   write(o: ApplyOptions): ApplyResult;
+  /**
+   * 種類の状態が自動でも、いつも確認に回す項目か（権限の鍵。2026-11-13 の利用者の決定）。
+   * 前に対象ごとの needsApproval が項目単位で承認に掛けていたものを持つ。持たない対象は、種類の状態だけで決まる。
+   */
+  alwaysConfirm?(item: { id: string; kind: ConfigItemKind; op: ConfigInboxOp }): boolean;
   /** その PC でしか意味を持たない項目か（絶対パスなど）。そうなら送らず、受けても適用しない。 */
   isMachineBound(item: { id: string; kind: ConfigItemKind; content: Buffer }): boolean;
 }

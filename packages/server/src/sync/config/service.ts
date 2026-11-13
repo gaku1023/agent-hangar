@@ -24,7 +24,7 @@ import { isBlocked, type Blocked, type Collected, type LocalItem, type UnsentCan
 import { otherRefLabelTarget, parseItemId } from './ids.ts';
 import { pruneInbox, readInbox, readInboxBlob, readInboxMeta, writeInbox, type InboxEntry } from './inbox.ts';
 import { applyOrderPath, BUNDLE_PATH } from './paths.ts';
-import { collectAll, enabledTargetNames, offKindsOf, targetNameOfId, type TargetContext } from './targets/index.ts';
+import { collectAll, enabledTargetNames, itemNeedsConfirm, offKindsOf, targetNameOfId, type TargetContext } from './targets/index.ts';
 import { defaultTargetPaths, type TargetPaths } from './targets/paths.ts';
 import { AGENTS_SKILLS_STORE, CLAUDE_MCP_STORE, CLAUDE_STORE, CODEX_MCP_STORE, CODEX_STORE, OPENCODE_MCP_STORE, OPENCODE_STORE } from './targets/stores.ts';
 import { kindModeIn, type TargetStore } from './targets/types.ts';
@@ -72,7 +72,7 @@ export type ConfigSyncDeps = {
   switchedOn: () => boolean;
   /**
    * 種類ごとの状態（設定の configKinds）。省くか undefined なら既定（自動で走るコードは確認、ほかは自動）。
-   * 切の種類は送らず、受けても判定に載せない。確認の種類は承認が要る（needsApproval）。
+   * 切の種類は送らず、受けても判定に載せない。確認の種類と権限の鍵は承認が要る（needsApproval、itemNeedsConfirm）。
    */
   configKinds?: () => ConfigKinds | undefined;
   /** Codex・opencode の対象が見る、その PC で有効かの判定（設定の codexEnabled・opencodeEnabled）。省くと切。 */
@@ -491,7 +491,7 @@ export class ConfigSyncService {
     const items: ConfigInboxItemDto[] = this.resolved().map((r) => ({
       id: r.action.id, kind: r.kind, label: r.label, op: r.action.op,
       fromDeviceId: r.action.fromDeviceId, fromDevice: r.fromDevice, size: r.size, marks: r.marks, head: r.head, held: r.held,
-      needsApproval: this.kindMode(r.kind) === 'confirm',
+      needsApproval: itemNeedsConfirm({ id: r.action.id, kind: r.kind, op: r.action.op }, this.kindMode(r.kind)),
       ...(r.missingEnv.length ? { missingEnv: r.missingEnv } : {}),
     }));
     return { items, approval, ...this.storesDto() };

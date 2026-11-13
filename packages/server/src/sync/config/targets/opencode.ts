@@ -482,6 +482,8 @@ export const opencodeTarget: ConfigTarget = {
   write: (o: ApplyOptions) => writeOpencode(o),
   planOps: (o, read) => planOpencodeOps(o, read),
   store: OPENCODE_STORE,
+  // permission と agent(s).*.permission は、消去も確認に掛ける（拒否の規則を外すと権限が広がるため）。
+  alwaysConfirm: (item) => { const p = parseOpencodeId(item.id); return p?.ref.type === 'opencode-json' && isPermissionPath(p.ref.path); },
   isMachineBound: (item) => {
     const parsed = parseOpencodeId(item.id);
     if (!parsed || parsed.ref.type !== 'opencode-json') return false;
