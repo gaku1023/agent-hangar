@@ -264,6 +264,8 @@ export const ACCOUNT_COLORS = ['#2a57b8', '#7a4a9e', '#2b7048', '#c77a1a', '#a24
 export type AccountSettingsProps = { list: AccountView[]; colors: string[] };
 
 export type SettingsProps = {
+  /** 統括（全セッションを統括する会話）を使うか。サーバが設定を返さない古い版では省かれ、スイッチを出さない。 */
+  orchestratorOn?: boolean;
   workspaceRoot: string; claudeDir: string; device: { id: string; name: string } | null; version: string; index: IndexProgressDto; indexLabel: string; sessionCount: number; projectCount: number;
   tmuxPath: string | null; terminalApp: TerminalApp;
   /** エディタの欄（一般の節）。 */
@@ -565,6 +567,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
   const opencode = presentOpencode(t, s ?? {}, store.opencodeStatus, platform, store.shellHook?.state ?? null, store.sharePreview.opencode, store.home);
   const integrations = presentIntegrations(t, state, store, { mcp: r?.commands.mcp ?? 'hangar mcp install', statusline: r?.commands.statusline ?? 'hangar statusline install', shell: command });
   return {
+    ...(s?.orchestrator !== undefined ? { orchestratorOn: s.orchestrator.enabled } : {}),
     cloud,
     integrations,
     configSync: presentConfigSection(store, now, at === 'unsent'),

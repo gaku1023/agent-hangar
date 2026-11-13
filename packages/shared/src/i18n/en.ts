@@ -61,6 +61,7 @@ import { transcriptEn } from './en/transcript.ts';
 import { terminalEn } from './en/terminal.ts';
 import { pagerEn } from './en/pager.ts';
 import { paneEn } from './en/pane.ts';
+import { orchestratorPaneEn } from './en/orchestratorPane.ts';
 import { paletteEn } from './en/palette.ts';
 import { connEn } from './en/conn.ts';
 import { toastsEn } from './en/toasts.ts';
@@ -137,6 +138,7 @@ export const en: Dictionary = {
   ...terminalEn,
   ...pagerEn,
   ...paneEn,
+  ...orchestratorPaneEn,
   ...paletteEn,
   ...connEn,
   ...toastsEn,

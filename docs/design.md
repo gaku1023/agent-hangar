@@ -10430,6 +10430,20 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   猶予が明けたらスマホの書き手を急がせ、素が前と同じでも要対応の比べだけはやり直す。画面の札は預からない。
 - **太り：** 統括の文脈（`stats.contextTokens`）が 15 万を超え、idle が 2 分続き、預かりが空のとき、`/compact` を 1 回だけ送る。閾値を下回れば、また送れるようにする。
 
+### 統括の柱（文字）
+
+窓の右端の柱が、統括との会話と自動許可の記録を見せる（`views/OrchestratorPillar.tsx`、`presenters/orchestrator.ts`）。
+設定の `orchestrator.enabled` が入りで、会話の id が決まっているときだけ出る。
+設定の「Claude Code」の節に入り切りのスイッチがあり、押すと `PATCH /api/settings` の `orchestrator.enabled` だけを送る。
+
+- **置き場所：** `Shell` の右の列（`.shell[data-orch]` が 3 列目を足す）。畳んだ姿は丸 1 つで、色は統括の状態（作業中、待機、入力待ち、止まっている）。開閉は `localStorage` に残し、既定は畳む。
+- **開くと：** 上に方針の 1 行（利用者の言葉そのまま。無ければ行ごと出さない）、その下に自動許可の記録（新しい順。行は「会話の題名、道具、中身の先頭」で、押すとその会話へ移る）、下に会話と入力欄。入力欄の右にマイク。見出しも説明も付けない。方針の下に並ぶことで「方針で通したもの」と分かる。
+- **動き：** 柱の開閉は `growIn` と `collapseOut`（横）で、丸と柱の入れ替えは `usePresence`。記録の行の出入りは `useMotionList`（`growIn` と `collapseOut`）。読み上げている発言の左の印は `enter`。新しい動きは足さない。
+- **会話の取り方：** 統括の会話の本文の末尾の頁（`GET /api/sessions/:id/events?latest`）を、`transcript.appended` のたびに読み直して `Store.orchestrator` に置く（`runtime/orchestrator.ts`）。記録は `GET /api/orchestrator/approvals`（新しい順、`limit` と `since`）。送信は `POST /api/orchestrator/send`（`{ text }`）で、宛先は設定の `orchestrator.sessionId` の run だけ。統括が動いていなければ 409。柱は送れない入力欄を閉じる。
+- **描き分け：** 会話は `PeerChatLog` と同じ行にして、ほかの PC の会話の表示の部品をそのまま使う。`[hangar]` で始まる入力は発言として描かず、そのターンの返答も描かない（`notify_user` の文だけは統括の発言として描く）。`[voice]` の印は描かない。ほかの道具の呼び出しは描かない。
+- **読み上げ：** 読むのは、最後のターンが音声（`[voice]`）で始まったときの最後の返答と、出来事で始まったターンの `notify_user` の文だけ。返答は作業中でなくなってから 1 度だけ読む。`notify_user` の文は、利用者の最後の入力が音声だったか、この画面でマイクを使ったあとだけ読む。柱を出した時点で既にある分は読まない。新しい文を送る、Esc、マイクを押す、のどれでも止まる。
+- **許可の札：** 利用者の判断が要る札は、統括が `notify_user` で伝える文として会話に出る。札そのものを柱から押す形は今夜は入れていない。
+
 ## 会話の保持期間
 
 Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過ぎた本文を、セッションを始めたあとの掃除で通知なしに消す。消えた本文は hangar でも読めなくなる。

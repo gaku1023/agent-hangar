@@ -6,6 +6,7 @@ import { PeerApprovalStrip } from './PeerApprovalStrip.tsx';
 import { DeleteApprovalStrip } from './DeleteApprovalStrip.tsx';
 import { Header } from './Header.tsx';
 import { playSidebarMotion, playSidebarWidth } from './primitives/sidebarMotion.ts';
+import { OrchestratorPillar } from './OrchestratorPillar.tsx';
 import { Sidebar } from './Sidebar.tsx';
 import { SidebarGrip } from './SidebarGrip.tsx';
 
@@ -31,13 +32,14 @@ export function Shell(props: ShellProps & { children: ReactNode; overlays: React
   }, [props.sidebarWidth]);
   const style = { '--sidebar-w': sidebarWidthCss(props.sidebarWidth) } as CSSProperties;
   return (
-    <div ref={ref} className="shell" data-sidebar={props.sidebarCollapsed ? 'collapsed' : undefined} data-wide={props.wide ? 'true' : undefined} style={style}>
+    <div ref={ref} className="shell" data-sidebar={props.sidebarCollapsed ? 'collapsed' : undefined} data-wide={props.wide ? 'true' : undefined} data-orch={props.orchestrator ? 'true' : undefined} style={style}>
       <Sidebar nav={props.nav} foot={props.foot} collapsed={props.sidebarCollapsed} live={props.live} />
       {!props.sidebarCollapsed && <SidebarGrip width={props.sidebarWidth} />}
       <Header indexLabel={props.indexLabel} usage={props.usage} account={props.account} sync={props.sync} notices={props.notices} newSession={props.newSession} />
       {/* 帯は 2 行目に置く。切断の帯だけで、無いときは箱が空になり、:empty で潰れる。保持期間は帯でなくベルの一覧の行になった。 */}
       <div className="banners"><ConnectionBanner {...props.conn} /></div>
       <main className="main"><div className="approval-stack"><DeleteApprovalStrip rows={props.approvals} /><PeerApprovalStrip rows={props.peerApprovals ?? []} /></div><div className="main-inner">{props.children}</div></main>
+      {props.orchestrator && <OrchestratorPillar orch={props.orchestrator} />}
       {props.overlays}
     </div>
   );

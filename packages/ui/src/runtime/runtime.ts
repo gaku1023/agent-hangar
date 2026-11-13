@@ -32,6 +32,7 @@ import { createUpdateRunner } from './updater.ts';
 import type { ReleaseNote } from '../lib/releaseNotes.ts';
 import { createCloudMemberRunner } from './cloudMember.ts';
 import { createPeerChatRunner } from './peerChat.ts';
+import { createOrchestratorRunner } from './orchestrator.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
 import { keyLabel } from '../keys.ts';
@@ -292,6 +293,16 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     send: (msg) => ws?.send?.(msg),
     get: () => store.peerChat,
     set: (next) => setStore({ ...store, peerChat: next }),
+  });
+  /** 統括の柱の読み込みと送信（runtime/orchestrator.ts）。本文が伸びたら、下の applyServerEvent のあとで読み直す。 */
+  const orchestrator = createOrchestratorRunner({
+    sessionId: () => store.settings?.orchestrator?.sessionId ?? null,
+    events: (id, q) => deps.api.events(id, q),
+    approvals: () => deps.api.orchestratorApprovals(),
+    send: (text) => deps.api.orchestratorSend(text),
+    get: () => store.orchestrator,
+    set: (o) => setStore({ ...store, orchestrator: o }),
+    fail: (e) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: errMsg(e) } }),
   });
   const updater = deps.desktop ? createUpdateRunner({
     bridge: deps.desktop.update, storage: deps.storage, setTimeout: deps.setTimeout, now: () => clock(), bundled: deps.releaseNotes ?? [],
@@ -910,6 +921,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'update': updater?.run(e.command); return;
       case 'cloudMember': cloudMember.run(e.command); return;
       case 'peerChat': peerChat.run(e.command); return;
+      case 'orchestrator': void orchestrator.run(e.command); return;
       case 'api.addTodo': deps.api.addTodo(e.projectId, e.text).catch(fail); return;
       case 'api.todo': todoCall(deps.api, e.call).catch(fail); return;
       // セッションの状態。画面の正は後から届く session.upsert なので、返り値はストアに入れない。失敗の一文はトーストに出す。
@@ -1155,6 +1167,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       if (input.event.type === 'events.held' || (input.event.type === 'sync.status' && !couldHold && eventsAvailable(store.sync))) emit({ type: 'heldEvents.load' });
       // 見張りの途中で Worker の版が足りなくなった（reason が worker-outdated）会話は、間を空けて開き直す。
       if (input.event.type === 'peerChat.update' && input.event.reason === 'worker-outdated') peerChat.noteUpdate(input.event.sessionId);
+      // 統括の本文が伸びた。柱が見せる会話と記録を読み直す（柱を開いたことがある間だけ。load は会話が無ければ何もしない）。
+      if (input.event.type === 'transcript.appended' && input.event.sessionId === store.settings?.orchestrator?.sessionId && store.orchestrator.loaded) void orchestrator.run({ op: 'load' });
       // 本文が伸びたセッションは、サブエージェントが増えているかもしれない。
       // ここでは取りに行かず、次に本文を読むときに取り直させる。
       // 本文を読むのは画面に出ているセッションだけなので、見ていないセッションの分は無駄に取らない。

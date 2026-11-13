@@ -38,7 +38,7 @@ import type { HostKeyState } from '../peer/ssh/connector.ts';
  */
 
 /** RunManager のうち HTTP から触る部分だけ。テストは偽物を渡せる。 */
-export type RunsApi = Pick<RunManager, 'start' | 'startFromTerminal' | 'startOpencodeFromTerminal' | 'startCodexFromTerminal' | 'resume' | 'resumeWith' | 'fork' | 'forkMaterialized' | 'forksMaterialized' | 'attach' | 'adopt' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget' | 'jumpToPrompt' | 'leaveTranscript' | 'assertCanStart' | 'agentEnabled' | 'cancelPrep' | 'prepareModels' | 'prepRunning'>;
+export type RunsApi = Pick<RunManager, 'start' | 'startFromTerminal' | 'startOpencodeFromTerminal' | 'startCodexFromTerminal' | 'resume' | 'resumeWith' | 'fork' | 'forkMaterialized' | 'forksMaterialized' | 'attach' | 'adopt' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'sendInput' | 'getRun' | 'getTab' | 'attachTarget' | 'jumpToPrompt' | 'leaveTranscript' | 'assertCanStart' | 'agentEnabled' | 'cancelPrep' | 'prepareModels' | 'prepRunning'>;
 /** git の表示（git/service.ts）のうち HTTP から触る部分だけ。 */
 export type GitApi = Pick<GitService, 'sessions' | 'changes' | 'diff' | 'edits' | 'project'>;
 /** ターミナルとエディタへの受け渡し。設定を読むのは呼び手の役目にして、ここでは結果だけを扱う。 */
