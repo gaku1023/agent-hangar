@@ -2,7 +2,7 @@ import { matchesStopFilter, type SessionDto, type LiveFilter, type SearchFilter,
 import { badTokens, queryTokens, type QueryToken } from '../lib/searchTokens.ts';
 import { periodStart, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
-import { liveFilterOfSession, runningSessionIds, shownLive, shownReason, type Store } from '../store/store.ts';
+import { aliveAnywhere, liveFilterOfSession, shownLive, shownReason, type Store } from '../store/store.ts';
 import { absoluteTime } from './format.ts';
 import { markTerms } from './highlight.ts';
 import { translatorOf } from './i18n.ts';
@@ -113,7 +113,7 @@ export function presentSessionList(state: State, store: Store, now: number, inPr
   if (!usesServerSearch(state.search)) {
     let list = all;
     if (f.projectId) list = list.filter(({ s }) => s.projectId === f.projectId);
-    if (f.live !== undefined) { const alive = runningSessionIds(store); list = list.filter(({ s }) => liveFilterOfSession(store, s, alive) === f.live); }
+    if (f.live !== undefined) { const alive = aliveAnywhere(store); list = list.filter(({ s }) => liveFilterOfSession(store, s, alive) === f.live); }
     // 止まっている理由（is:permission、is:limited）。数え方は一覧の印と同じ（store.ts の shownReason）。
     if (f.stop !== undefined) { const stop = f.stop; list = list.filter(({ s }) => matchesStopFilter(shownReason(s, shownLive(s)), stop)); }
     const { days, until } = f;

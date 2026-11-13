@@ -562,6 +562,11 @@ describe('hotSessions（集計が見る会話だけの並び）', () => {
     const t2 = { ...t1, q: at(quiet, { live: 'busy' }) };
     expect(hotSessions(t2).map((s) => s.id)).toEqual(['q', 'w']);
   });
+  it('ほかの PC のロックのある会話も、liveSessionIds に入る（run の有無とは別に）', () => {
+    const lock = { deviceId: 'd2', deviceName: 'Office', runId: 'r9', heartbeatAt: 1, stale: false };
+    const store = applyBootstrap(initialStore(), { ...boot, sessions: [session('a', 'ua'), at(session('b', 'ub'), { lock })] });
+    expect(liveSessionIds(store)).toEqual(['b']);
+  });
   it('集計は全件をなめたときと同じ答えになる。live の無い会話も run が生きていれば実行中に数える', () => {
     let store = applyBootstrap(initialStore(), { ...boot, sessions: [session('a', 'ua'), at(session('b', 'ub'), { live: 'waiting', lastActivityAt: 3 }), at(session('c', 'uc'), { unread: { count: 2, latest: null, at: 4 } }), session('d', 'ud')], runs: [run('r1', 'a')] });
     store = { ...store, sessions: { ...store.sessions } };

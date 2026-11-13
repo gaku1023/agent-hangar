@@ -127,6 +127,7 @@ a:hover { text-decoration: underline; }
 .side-live-row:has(.pc-pill) .side-live-name { min-width: 3em; }
 .side-live-row[data-peer-ended='true'] .side-live-name { color: var(--ink-3); }
 .side-live-row[data-peer-ended='true'] .pc-pill { background: var(--surface-2); color: var(--ink-3); }
+.side-live-row[data-stale='true'] .dot { background: none; box-shadow: inset 0 0 0 1.5px var(--ended); }
 .spawned-from .pc-pill, .spawned-pill .pc-pill { min-width: 0; }
 .spawned-from[data-ended='true'] span:not(.pc-pill) { text-decoration: line-through; }
 .pc-pill[data-ended='true'], .spawned-from[data-ended='true'] .pc-pill { background: var(--surface-2); color: var(--ink-3); }

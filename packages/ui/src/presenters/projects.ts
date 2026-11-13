@@ -1,7 +1,7 @@
 import { isReturnOn, isReturnTime, overdueDays, returnPastMinutes, type ProjectStatus, type SessionDto } from '@agent-hangar/shared';
 import { isUnder } from '../lib/paths.ts';
 import type { State } from '../mediator/types.ts';
-import { liveFilterOfSession, runningSessionIds, type Store } from '../store/store.ts';
+import { aliveAnywhere, liveFilterOfSession, type Store } from '../store/store.ts';
 import { relativeTime, STATUS_LABEL } from './format.ts';
 import { translatorOf } from './i18n.ts';
 import { returnOnLabel } from './row.ts';
@@ -45,7 +45,7 @@ const SHOWN_STATUSES = ['active', 'paused', 'done'] as const;
  * プロジェクトの実行中と入力待ちの数。
  * ホームと同じ数え方にするため、サーバの runningCount（入力待ちを含み、起動中を含まない）は使わず、手元のセッションから数える。
  */
-export function liveCountsOf(store: Store, projectId: string, alive: Set<string> = runningSessionIds(store)): { running: number; waiting: number } {
+export function liveCountsOf(store: Store, projectId: string, alive: Set<string> = aliveAnywhere(store)): { running: number; waiting: number } {
   let running = 0;
   let waiting = 0;
   for (const s of Object.values(store.sessions)) {
@@ -104,7 +104,7 @@ function suggestedCount(store: Store, projectId: string): number {
 export function presentProjects(_state: State, store: Store, now: number, filter: string, showArchived: boolean): ProjectsProps {
   const t = translatorOf(store);
   const workspaceRoot = store.settings?.workspaceRoot ?? '';
-  const alive = runningSessionIds(store);
+  const alive = aliveAnywhere(store);
   const sessionsOf = new Map<string, SessionDto[]>();
   for (const s of Object.values(store.sessions)) {
     if (s.projectId === null) continue;

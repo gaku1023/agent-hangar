@@ -296,6 +296,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.label.configApproval': 'How to approve incoming settings',
   'settings.label.configBundleSync': 'Syncing Claude Code settings',
   'settings.label.askStatusAtEnd': 'Ask Done or Paused at a stopping point',
+  'settings.label.sidebarOtherPcs': 'Show sessions from other PCs in the sidebar',
   'settings.label.liveHints': 'Send turn intents and short step descriptions',
   'settings.label.notifyUser': 'Report output to look at with notify_user',
   'settings.label.notifyPreference': 'Notification rules',

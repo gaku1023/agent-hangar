@@ -2,7 +2,7 @@ import { resetAtText, type LiveStatus, type SessionDto, type StopReason, type Tr
 import { asideWord } from '../lib/aside.ts';
 import { anywhereKeys, keyLabel, KEYMAP, type KeyId } from '../keys.ts';
 import type { State } from '../mediator/types.ts';
-import { liveFilterOfSession, nextWaitingSession, runningSessionIds, shownAside, shownLive, shownReason, type Store } from '../store/store.ts';
+import { liveFilterOfSession, nextWaitingSession, aliveAnywhere, shownAside, shownLive, shownReason, type Store } from '../store/store.ts';
 import { durationLabel, relativeTime } from './format.ts';
 import { translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
@@ -113,7 +113,7 @@ export function presentPalette(state: State, store: Store, query: string, now: n
   if (state.overlay.kind !== 'palette') return null;
   const q = query.trim();
   const t = translatorOf(store);
-  const alive = runningSessionIds(store);
+  const alive = aliveAnywhere(store);
   const projectName = (s: SessionDto) => (s.projectId && store.projects[s.projectId] ? projectDisplayName(store.projects[s.projectId]!, t) : '');
 
   // セッションは状態で 3 つに分ける。入力待ちは実行中に含めない（用語の D1）。
