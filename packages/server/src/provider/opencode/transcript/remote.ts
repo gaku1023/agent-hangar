@@ -37,6 +37,8 @@ type Parsed = { directory: string | null; messages: unknown[]; last: number };
 
 const NAME_RE = /^(.+)\.json$/;
 const SAFE_DEVICE = /^[A-Za-z0-9._-]+$/;
+/** 入れても本文が無かった写しの印に添える。 */
+const EMPTY = '#empty';
 
 /** export の JSON を読む。本文のいちばん新しい時刻（info.time.updated とメッセージの時刻の最大）も求める。読めなければ null。 */
 function parseExport(file: string): Parsed | null {
@@ -115,7 +117,11 @@ export class RemoteOpencodeTranscripts implements TranscriptSource {
     const row = this.o.db.prepare("select id from sessions where provider = 'opencode' and provider_session_id = ? and deleted_at is null").get(id) as { id: string } | undefined;
     if (!row) return false;
     // 同じ写しを入れてあれば読み直さない。ただし索引の本文が消えていれば（ゴミ箱から戻した会話など）入れ直す。
-    if (this.o.marks.get(id) === mark && this.o.db.prepare("select 1 from agent_events where session_id = ? and agent_key = '' limit 1").get(row.id)) return false;
+    // 入れても本文が無かった写し（まだ何も話していない会話）は、印に EMPTY を添えて覚え、写しが変わるまで飛ばす。
+    // 本文が無いのを「消えた」と取り違えると、他の PC の会話の行が届くたびに作り直し、作り直しが event_fts を全部なめる（2026-11-14、Windows で 9 秒止まった）。
+    const saved = this.o.marks.get(id);
+    if (saved === `${mark}${EMPTY}`) return false;
+    if (saved === mark && this.hasBody(row.id)) return false;
     // この PC で動いている会話は、手元の写しの面が受け持つ。止まった後に見直せるよう、印は付けない。
     if (this.o.isRunningHere(id)) return false;
     let best: { copy: Copy; parsed: Parsed } | null = null;
@@ -138,7 +144,11 @@ export class RemoteOpencodeTranscripts implements TranscriptSource {
       records: convertMessages(take),
       remoteDevice: best.copy.device,
     });
-    this.o.marks.set(id, mark);
+    this.o.marks.set(id, this.hasBody(row.id) ? mark : `${mark}${EMPTY}`);
     return true;
+  }
+
+  private hasBody(sessionId: string): boolean {
+    return this.o.db.prepare("select 1 from agent_events where session_id = ? and agent_key = '' limit 1").get(sessionId) !== undefined;
   }
 }
