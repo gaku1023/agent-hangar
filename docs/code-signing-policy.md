@@ -87,6 +87,16 @@ Phone notifications can be turned off separately in the notification rules in Se
 Other PCs are reached only through your Worker.
 A direct SSH connection between PCs exists in the code but is disabled (`packages/server/src/peer/ssh/enabled.ts`).
 
+**Event triggers.**
+Nothing is registered until you create an event on the Schedules screen, or approve one that your agent drafted.
+Events need cloud sync, and their inbox URLs point to your own Worker.
+For a GitHub event, agent-hangar uses your GitHub CLI (`gh api`) to add a webhook to the repository you choose, and removes it when you delete the event.
+When a CI run of that repository finishes, it also uses `gh api` to read the check suites of the commit.
+GitHub, or an outside service you give an inbox URL to, posts deliveries to your Worker.
+The Worker encrypts each delivery with your PC's inbox key before storing it, so it cannot read the content.
+To stop, delete the events on the Schedules screen; leaving cloud sync also stops them.
+(`packages/server/src/event/githubHooks.ts`, `packages/server/src/event/puller.ts`, `packages/cloud/src/inbox.ts`)
+
 **Summaries.**
 The summary engine is off by default.
 If you choose **Claude**, agent-hangar runs `claude -p`, and the transcript goes to Anthropic through your own Claude Code.
