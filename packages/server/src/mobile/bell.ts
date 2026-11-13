@@ -54,6 +54,12 @@ export type MobileBellDeps = {
    */
   onEvent?: () => void;
   /**
+   * `{t:'changes'}` を受けた（同じクラウドの別の PC が、run の出入りか新しい会話を push した）。
+   * 呼ぶ側は今の pull を早める（engine.pullNow）。無ければ捨てる（30 秒の pull が拾う）。
+   * 古い端末はこの種類を知らず、読み捨てるだけである（互換の版は上げない）。
+   */
+  onChanges?: () => void;
+  /**
    * 呼び鈴がつながった（張り直しも含む）。
    * つながっていなかった間に届いた荷物を取りに行くのに使う。
    */
@@ -217,6 +223,10 @@ export class MobileBell {
     const msg = m as { t?: unknown; id?: unknown; sealed?: unknown; epoch?: unknown; kind?: unknown };
     if (msg.t === 'launch') {
       try { this.deps.onLaunch(); } catch (e) { console.error('[mobile] could not take the launch bell', describe(e)); }
+      return;
+    }
+    if (msg.t === 'changes') {
+      try { this.deps.onChanges?.(); } catch (e) { console.error('[mobile] could not take the changes bell', describe(e)); }
       return;
     }
     if (msg.t === 'peer') {
