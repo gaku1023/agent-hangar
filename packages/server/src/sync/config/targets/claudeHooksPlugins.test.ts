@@ -20,6 +20,7 @@ import { claudePluginsTarget, createClaudePluginsTarget, holdOfPlugins } from '.
 import { allTargets, collectAll, enabledTargetNames, targetNameOfId, type TargetContext } from './index.ts';
 import type { HostOs } from './hookCommands.ts';
 import { defaultTargetPaths } from './paths.ts';
+import { kindsOf } from '../../../../test/configKinds.ts';
 
 const sha = (b: string | Buffer): string => createHash('sha256').update(b).digest('hex');
 const NOW = new Date(2026, 9, 27, 12, 0, 0).getTime();
@@ -49,7 +50,7 @@ function pc(name: string) {
 type Pc = ReturnType<typeof pc>;
 
 const ctxOf = (p: Pc, switches: Record<string, boolean> = { 'claude-hooks': true, 'claude-plugins': true }): TargetContext => ({
-  db, deviceId: 'd', home: p.hangar, claudeDir: p.claudeDir, allowedUnsent: new Map(), switches,
+  db, deviceId: 'd', home: p.hangar, claudeDir: p.claudeDir, allowedUnsent: new Map(), kinds: kindsOf(switches),
   ...defaultTargetPaths({}, p.userHome), codexEnabled: false, opencodeEnabled: false, hangarSettingsPath: path.join(p.hangar, 'settings.json'),
 });
 const collectHooks = (p: Pc, os: HostOs = 'darwin', sw?: Record<string, boolean>) => createClaudeHooksTarget({ userHome: () => p.userHome, os }).collect(ctxOf(p, sw));
@@ -79,10 +80,10 @@ describe('対象の登録', () => {
     expect(parseItemId('claude-hooks:other')).toBeNull();
   });
 
-  it('既定は切。入れると束の targets に載る', () => {
+  it('種類が切なら載らず、切でなければ束の targets に載る', () => {
     const a = pc('a');
-    expect(enabledTargetNames(ctxOf(a, {}))).toEqual(['claude']);
-    expect(enabledTargetNames(ctxOf(a))).toEqual(['claude-hooks', 'claude-plugins', 'claude']);
+    expect(enabledTargetNames(ctxOf(a, {}))).toEqual(['claude-keys2', 'claude']);
+    expect(enabledTargetNames(ctxOf(a))).toEqual(['claude-keys2', 'claude-hooks', 'claude-plugins', 'claude']);
   });
 });
 
@@ -365,16 +366,6 @@ describe('claude-hooks：書き戻し', () => {
     expect(b.read('hooks/fmt.sh')).toBeNull();
   });
 
-  it('承認：設定が each のあいだは、消去も含めて全部。auto なら要らない', () => {
-    for (const op of ['create', 'overwrite', 'delete'] as const) {
-      expect(claudeHooksTarget.needsApproval({ id: HOOKS_ID, kind: 'claude-hooks', op }, 'each')).toBe(true);
-      expect(claudeHooksTarget.needsApproval({ id: STATUSLINE_ID, kind: 'claude-statusline', op }, 'each')).toBe(true);
-      expect(claudePluginsTarget.needsApproval({ id: 'settings:enabledPlugins', kind: 'plugins', op }, 'each')).toBe(true);
-      expect(claudePluginsTarget.needsApproval({ id: 'settings:extraKnownMarketplaces', kind: 'plugins', op }, 'each')).toBe(true);
-    }
-    expect(claudeHooksTarget.needsApproval({ id: HOOKS_ID, kind: 'claude-hooks', op: 'create' }, 'auto')).toBe(false);
-    expect(claudePluginsTarget.needsApproval({ id: 'settings:enabledPlugins', kind: 'plugins', op: 'create' }, 'auto')).toBe(false);
-  });
 });
 
 describe('claude-plugins', () => {
@@ -453,18 +444,3 @@ describe('collectAll に載る', () => {
 });
 const MK_GH = { source: { source: 'github', repo: 'o/m' } };
 
-describe('permissions.* の承認（SPEC 4 章）', () => {
-  const need = (id: string, op: 'create' | 'overwrite' | 'delete', a: 'each' | 'auto' = 'each') => claudeTarget.needsApproval({ id, kind: 'settings', op }, a);
-  it('設定が each のあいだ、権限の鍵は消去も含めて承認が要る。auto なら要らない', () => {
-    for (const k of ['allow', 'ask', 'deny', 'defaultMode']) {
-      for (const op of ['create', 'overwrite', 'delete'] as const) expect([k, op, need(`settings:permissions.${k}`, op)]).toEqual([k, op, true]);
-      expect(need(`settings:permissions.${k}`, 'create', 'auto')).toBe(false);
-    }
-  });
-  it('ほかの好みの鍵と、今までの承認（skills など）は変わらない', () => {
-    expect(need('settings:model', 'overwrite')).toBe(false);
-    expect(need('file:CLAUDE.md', 'create')).toBe(false);
-    expect(claudeTarget.needsApproval({ id: 'file:skills/a/SKILL.md', kind: 'skills', op: 'create' }, 'each')).toBe(true);
-    expect(claudeTarget.needsApproval({ id: 'file:skills/a/SKILL.md', kind: 'skills', op: 'delete' }, 'each')).toBe(false);
-  });
-});

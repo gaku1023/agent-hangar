@@ -14,6 +14,7 @@ import { codexFileId, codexTomlId, parseItemId } from '../ids.ts';
 import { judge, type RemoteSnapshot } from '../threeWay.ts';
 import { codexTarget, planCodexFiles, writeCodex, type CodexApplyOptions } from './codex.ts';
 import { allTargets, collectAll, enabledTargetNames, targetNameOfId, type TargetContext } from './index.ts';
+import { kindsOf } from '../../../../test/configKinds.ts';
 
 const sha = (s: string | Buffer): string => createHash('sha256').update(s).digest('hex');
 const NOW = new Date(2026, 9, 27, 12, 0, 0).getTime();
@@ -79,7 +80,7 @@ const ctx = (o: Partial<TargetContext> = {}): TargetContext => ({
   db, deviceId: 'dev-a', home: tmp, claudeDir: path.join(tmp, 'claude'), allowedUnsent: new Map(),
   codexHome, codexEnabled: true, opencodeDir: path.join(tmp, 'opencode'), opencodeEnabled: false,
   agentsSkillsDir: path.join(tmp, 'agents'), claudeJsonPath: path.join(tmp, 'claude.json'), hangarSettingsPath: path.join(tmp, 'settings.json'),
-  switches: { codex: true }, ...o,
+  kinds: kindsOf({ codex: true }), ...o,
 });
 const abs = (rel: string): string => path.join(codexHome, ...rel.split('/'));
 const put = (rel: string, text: string): void => { fs.mkdirSync(path.dirname(abs(rel)), { recursive: true }); fs.writeFileSync(abs(rel), text); };
@@ -246,8 +247,8 @@ describe('有効でない PC では集めない', () => {
     expect(enabledTargetNames(ctx({ codexEnabled: false }))).not.toContain('codex');
   });
   it('設定で入にしていなければ集めない', () => {
-    expect(collectAll(ctx({ switches: {} })).items.filter((i) => i.id.startsWith('codex:'))).toEqual([]);
-    expect(enabledTargetNames(ctx({ switches: {} }))).not.toContain('codex');
+    expect(collectAll(ctx({ kinds: kindsOf({}) })).items.filter((i) => i.id.startsWith('codex:'))).toEqual([]);
+    expect(enabledTargetNames(ctx({ kinds: kindsOf({}) }))).not.toContain('codex');
   });
   it('有効で入なら、束の対象に載り、全体の集めにも入る', () => {
     expect(enabledTargetNames(ctx())).toContain('codex');
@@ -279,28 +280,7 @@ describe('古い版の束との互換（SPEC 12 章）', () => {
   });
 });
 
-describe('承認と PC に依る項目', () => {
-  const need = (id: string, kind: ConfigItemKind, op: ConfigInboxOp, ap: 'each' | 'auto') => codexTarget.needsApproval({ id, kind, op }, ap);
-  it('rules、skills、hooks.json、設定の profile は承認が要る。AGENTS.md は要らない', () => {
-    expect(need('codex:file:rules/a.rules', 'codex-file', 'create', 'each')).toBe(true);
-    expect(need('codex:file:skills/s/SKILL.md', 'codex-file', 'overwrite', 'each')).toBe(true);
-    expect(need('codex:file:hooks.json', 'codex-file', 'create', 'each')).toBe(true);
-    expect(need('codex:file:w.config.toml', 'codex-file', 'create', 'each')).toBe(true);
-    expect(need('codex:file:AGENTS.md', 'codex-file', 'create', 'each')).toBe(false);
-    expect(need('codex:file:AGENTS.override.md', 'codex-file', 'create', 'each')).toBe(false);
-  });
-  it('承認が要る鍵：approval_policy、sandbox_mode、[hooks]、[plugins.*]。消去も承認に掛ける', () => {
-    for (const p of [['approval_policy'], ['sandbox_mode'], ['hooks', 'PreToolUse'], ['plugins', 'p', 'enabled'], ['sandbox_workspace_write', 'network_access']]) {
-      expect(need(codexTomlId(p), 'codex-config', 'overwrite', 'each'), p.join('.')).toBe(true);
-      expect(need(codexTomlId(p), 'codex-config', 'delete', 'each'), p.join('.')).toBe(true);
-    }
-    expect(need(codexTomlId(['model']), 'codex-config', 'overwrite', 'each')).toBe(false);
-    expect(need(codexTomlId(['tui', 'theme']), 'codex-config', 'create', 'each')).toBe(false);
-  });
-  it('承認の仕方が auto なら要らない', () => {
-    expect(need('codex:file:rules/a.rules', 'codex-file', 'create', 'auto')).toBe(false);
-    expect(need(codexTomlId(['approval_policy']), 'codex-config', 'create', 'auto')).toBe(false);
-  });
+describe('PC に依る項目', () => {
   it('絶対パスを値に持つ届いた項目は、その PC では適用しない', () => {
     const mb = (id: string, kind: ConfigItemKind, s: string) => codexTarget.isMachineBound({ id, kind, content: Buffer.from(s) });
     expect(mb(codexTomlId(['instructions']), 'codex-config', '"/Users/x/a.md"')).toBe(true);

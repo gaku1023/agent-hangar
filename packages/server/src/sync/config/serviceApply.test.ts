@@ -10,6 +10,7 @@ import { readApplyOrder } from './applyOrder.ts';
 import { writeInbox } from './inbox.ts';
 import { ConfigSyncError, ConfigSyncService } from './service.ts';
 import { setHangarPrefsApplier } from './targets/hangar.ts';
+import { kindsOf } from '../../../test/configKinds.ts';
 
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 const NOW = 1_000_000;
@@ -26,8 +27,8 @@ function make(o: { switches?: Record<string, boolean>; opencode?: boolean } = {}
   const targetPaths = { codexHome: path.join(tmp, 'codex'), opencodeDir: path.join(tmp, 'opencode'), agentsSkillsDir: path.join(tmp, 'agents-skills'), claudeJsonPath: path.join(tmp, 'claude.json') };
   const svc = new ConfigSyncService({
     db: openDb(':memory:'), deviceId: 'd', deviceName: 'n', claudeDir, home, cloud, keyring: cloud.keyring,
-    enabled: () => true, switchedOn: () => true, approval: () => 'each', now: () => NOW,
-    targetSwitches: () => o.switches ?? {}, agentsEnabled: () => ({ codex: false, opencode: o.opencode ?? false }), targetPaths,
+    enabled: () => true, switchedOn: () => true, now: () => NOW,
+    configKinds: () => kindsOf(o.switches ?? {}, 'each'), agentsEnabled: () => ({ codex: false, opencode: o.opencode ?? false }), targetPaths,
     userHome: tmp, hostOs: 'darwin',
   });
   return { svc, home, targetPaths };

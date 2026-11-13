@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Hono } from 'hono';
-import { peerChatAcceptOf, codexEnabledOf, codexInjectionOf, codexInterceptOf, codexShareOf, opencodeShareOf, isCodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_TERMINALS, isAutoDoneIdleDays, isEditorId, isLanguage, isModelName, isNotifyPreference, notifyPreferenceOf, isIdleUnload, isLocalContext, isOpencodeInjection, isProviderPrepId, isSummaryEngine, idleUnloadOf, localContextOf, providerPrepOf, providerPrepsOf, languageOf, LANGUAGES, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, terminalAppsFor, type EditorSetting, type EditorTerminal, type MessageKey, type SettingsDto, type TerminalApp, type WorkspaceRootPreviewDto } from '@agent-hangar/shared';
+import { configKindsOf, isConfigKindsPatch, peerChatAcceptOf, codexEnabledOf, codexInjectionOf, codexInterceptOf, codexShareOf, opencodeShareOf, isCodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_TERMINALS, isAutoDoneIdleDays, isEditorId, isLanguage, isModelName, isNotifyPreference, notifyPreferenceOf, isIdleUnload, isLocalContext, isOpencodeInjection, isProviderPrepId, isSummaryEngine, idleUnloadOf, localContextOf, providerPrepOf, providerPrepsOf, languageOf, LANGUAGES, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, terminalAppsFor, type EditorSetting, type EditorTerminal, type MessageKey, type SettingsDto, type TerminalApp, type WorkspaceRootPreviewDto } from '@agent-hangar/shared';
 import { isLoopbackSummarizerUrl, type Settings } from '../../config/paths.ts';
 import { createNodeCheck, isFullPath, nodeBuildIssue } from '../../config/node.ts';
 import { checkToolPath, expandHome, isCommandName, toolPathIssue } from '../../config/readiness.ts';
@@ -54,7 +54,7 @@ export const configTargetsOf = (v: unknown): Record<string, boolean> => {
   return out;
 };
 
-export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, trustedWorkspaceRoot: s.trustedWorkspaceRoot ?? null, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, summaryEngine: s.summaryEngine ?? 'off', summaryClaudeModel: s.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryApiKeySet: typeof s.summaryApiKey === 'string' && s.summaryApiKey !== '', summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, configTargets: configTargetsOf(s.configTargets), askStatusAtEnd: s.askStatusAtEnd !== false, liveHints: s.liveHints !== false, notifyUser: s.notifyUser !== false, unreadBadge: s.unreadBadge !== false, sidebarOtherPcs: s.sidebarOtherPcs !== false, unreadOs: s.unreadOs !== false, unreadPhone: s.unreadPhone !== false, notifyPreference: s.notifyPreference ?? null, autoDone: s.autoDone !== false, autoDoneIdleDays: isAutoDoneIdleDays(s.autoDoneIdleDays) ? s.autoDoneIdleDays : DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: s.autoPark !== false, remoteControl: s.remoteControl !== false, defaultModel: s.defaultModel ?? null, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, codexPath: s.codexPath ?? null, opencodePath: s.opencodePath ?? null, language: languageOf(s.language), ...codexSettingsDto(s), codexShareInstructions: codexShareOf(s).instructions, codexShareMcp: codexShareOf(s).mcp, opencodeShareInstructions: opencodeShareOf(s).instructions, opencodeShareMcp: opencodeShareOf(s).mcp, opencodeEnabled: opencodeEnabledOf(s), opencodeInjection: opencodeInjectionOf(s), opencodeIntercept: opencodeInterceptOf(s), opencodePermissionPreset: opencodePermissionPresetOf(s), opencodeLocalContext: localContextOf(s), opencodeIdleUnload: idleUnloadOf(s), opencodeProviderPrep: providerPrepsOf(s.opencodeProviderPrep), peerChatAcceptFromPeers: peerChatAcceptOf(s) });
+export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, trustedWorkspaceRoot: s.trustedWorkspaceRoot ?? null, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, summaryEngine: s.summaryEngine ?? 'off', summaryClaudeModel: s.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryApiKeySet: typeof s.summaryApiKey === 'string' && s.summaryApiKey !== '', summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, configTargets: configTargetsOf(s.configTargets), configKinds: configKindsOf(s), askStatusAtEnd: s.askStatusAtEnd !== false, liveHints: s.liveHints !== false, notifyUser: s.notifyUser !== false, unreadBadge: s.unreadBadge !== false, sidebarOtherPcs: s.sidebarOtherPcs !== false, unreadOs: s.unreadOs !== false, unreadPhone: s.unreadPhone !== false, notifyPreference: s.notifyPreference ?? null, autoDone: s.autoDone !== false, autoDoneIdleDays: isAutoDoneIdleDays(s.autoDoneIdleDays) ? s.autoDoneIdleDays : DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: s.autoPark !== false, remoteControl: s.remoteControl !== false, defaultModel: s.defaultModel ?? null, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, codexPath: s.codexPath ?? null, opencodePath: s.opencodePath ?? null, language: languageOf(s.language), ...codexSettingsDto(s), codexShareInstructions: codexShareOf(s).instructions, codexShareMcp: codexShareOf(s).mcp, opencodeShareInstructions: opencodeShareOf(s).instructions, opencodeShareMcp: opencodeShareOf(s).mcp, opencodeEnabled: opencodeEnabledOf(s), opencodeInjection: opencodeInjectionOf(s), opencodeIntercept: opencodeInterceptOf(s), opencodePermissionPreset: opencodePermissionPresetOf(s), opencodeLocalContext: localContextOf(s), opencodeIdleUnload: idleUnloadOf(s), opencodeProviderPrep: providerPrepsOf(s.opencodeProviderPrep), peerChatAcceptFromPeers: peerChatAcceptOf(s) });
 
 /** http か https で、host のある URL だけを通す。`http://` のような繋ぎ先にならない文字列を弾く。 */
 function parseHttpUrl(v: string): URL | null {
@@ -239,7 +239,7 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.allowExternalSummarizer') }) }, 400);
       patch.allowExternalSummarizer = v;
     }
-    // 届いた skills、commands、agents の承認の仕方。実行される指示なので、既定は毎回で、auto は明示で選ぶ。
+    // 使わなくなった承認の仕方（configKinds の確認に移した）。受け口だけ残す。
     if ('configApproval' in body) {
       const v = body.configApproval;
       if (v !== 'each' && v !== 'auto') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.configApproval') }) }, 400);
@@ -251,7 +251,13 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.configBundleSync') }) }, 400);
       patch.configBundleSync = v;
     }
-    // 設定の同期の対象ごとの入切。全体の置き換えで、登録済みの対象名と真偽値だけを残す。
+    // 設定の同期の種類ごとの状態。届いた鍵だけを替える。知らない鍵と取れない値（会話の本文の確認など）は断る。
+    if ('configKinds' in body) {
+      const v = body.configKinds;
+      if (!isConfigKindsPatch(v)) return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.configBundleSync') }) }, 400);
+      patch.configKinds = { ...deps.settings().configKinds, ...v } as SettingsDto['configKinds'];
+    }
+    // 使わなくなった対象ごとの入切（configKinds に移した）。受け口だけ残す。全体の置き換えで、登録済みの対象名と真偽値だけを残す。
     if ('configTargets' in body) {
       const v = body.configTargets;
       if (typeof v !== 'object' || v === null || Array.isArray(v)) return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.configBundleSync') }) }, 400);

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../../../db/open.ts';
 import { allTargets, collectAll, enabledTargetNames, targetNameOfId, type TargetContext } from './index.ts';
 import { defaultTargetPaths } from './paths.ts';
+import { kindsOf } from '../../../../test/configKinds.ts';
 
 let tmp: string;
 let db: Db;
@@ -27,14 +28,14 @@ describe('枠だけの対象', () => {
     expect(collectAll(ctx()).items.map((i) => i.id)).toContain('file:CLAUDE.md');
     expect(enabledTargetNames(ctx())).toContain('claude');
   });
-  it('codex と opencode は、その PC で有効でなければ入にしても切', () => {
+  it('codex と opencode は、その PC で有効でなければ種類が切でなくても切', () => {
     const find = (n: string) => allTargets().find((t) => t.name === n)!;
     const sw = { codex: true, opencode: true };
-    expect(find('codex').enabled(ctx({ switches: sw }))).toBe(true);
-    expect(find('codex').enabled(ctx({ switches: sw, codexEnabled: false }))).toBe(false);
-    expect(find('codex').enabled(ctx({ codexEnabled: true }))).toBe(false);
-    expect(find('opencode').enabled(ctx({ switches: sw }))).toBe(true);
-    expect(find('opencode').enabled(ctx({ switches: sw, opencodeEnabled: false }))).toBe(false);
+    expect(find('codex').enabled(ctx({ kinds: kindsOf(sw) }))).toBe(true);
+    expect(find('codex').enabled(ctx({ kinds: kindsOf(sw), codexEnabled: false }))).toBe(false);
+    expect(find('codex').enabled(ctx({ kinds: kindsOf({}), codexEnabled: true }))).toBe(false);
+    expect(find('opencode').enabled(ctx({ kinds: kindsOf(sw) }))).toBe(true);
+    expect(find('opencode').enabled(ctx({ kinds: kindsOf(sw), opencodeEnabled: false }))).toBe(false);
   });
 });
 

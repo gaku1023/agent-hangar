@@ -9,6 +9,7 @@ import { applyRemoteChange } from '../../sync/apply.ts';
 import { ConfigSyncService } from '../../sync/config/service.ts';
 import { createApp } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
+import { confirmAll, kindsOf } from '../../../test/configKinds.ts';
 
 // 設定の同期（作り直した実装）の経路の試験。経路は routes/sync.ts にある。
 // 相手の PC は、別の DB と別の ~/.claude を持つもう 1 つのサービスで作り、偽のクラウドで束を渡す。
@@ -41,7 +42,7 @@ beforeEach(async () => {
   cloud.workerCompat = CONFIG_BUNDLE_MIN_WORKER_COMPAT;
   const talk = (c: FakeCloudClient): FakeCloudClient => { void c.health(); c.calls.length = 0; return c; };
   const mine = talk(cloud.asDevice('d'));
-  service = new ConfigSyncService({ db: t.db, deviceId: 'd', deviceName: 'mac', claudeDir: myClaude, home: myHome, cloud: mine, keyring: mine.keyring, enabled: () => true, switchedOn: () => true, approval: () => state.approval });
+  service = new ConfigSyncService({ db: t.db, deviceId: 'd', deviceName: 'mac', claudeDir: myClaude, home: myHome, cloud: mine, keyring: mine.keyring, enabled: () => true, switchedOn: () => true, configKinds: () => (state.approval === 'each' ? confirmAll(kindsOf({}, 'each')) : kindsOf({}, 'auto'))});
   state.approval = 'each';
   const peerDb = openDb(':memory:');
   const peerClaude = path.join(tmp, 'peer-claude');
@@ -49,7 +50,7 @@ beforeEach(async () => {
   const theirs = talk(cloud.asDevice('peer'));
   peer = {
     db: peerDb, claudeDir: peerClaude,
-    service: new ConfigSyncService({ db: peerDb, deviceId: 'peer', deviceName: 'mini', claudeDir: peerClaude, home: path.join(tmp, 'peer-home'), cloud: theirs, keyring: theirs.keyring, enabled: () => true, switchedOn: () => true, approval: () => 'each' }),
+    service: new ConfigSyncService({ db: peerDb, deviceId: 'peer', deviceName: 'mini', claudeDir: peerClaude, home: path.join(tmp, 'peer-home'), cloud: theirs, keyring: theirs.keyring, enabled: () => true, switchedOn: () => true, configKinds: () => confirmAll(kindsOf({}, 'each'))}),
   };
   app = createApp({ ...t.deps, configBundle: service });
 });
@@ -73,7 +74,7 @@ describe('設定の同期の経路（作り直した実装）', () => {
       expect([p, (await get(p, {})).status]).toEqual([p, 401]);
       expect([p, (await get(p, { ...H, origin: 'https://evil.example' })).status]).toEqual([p, 403]);
     }
-    for (const [m, p] of [['POST', '/api/config-sync/unsent/x/send'], ['PUT', '/api/config-sync/apply-order'], ['DELETE', '/api/config-sync/apply-order']] as const) {
+    for (const [m, p] of [['POST', '/api/config-sync/unsent/x/send'], ['PUT', '/api/config-sync/apply-order'], ['DELETE', '/api/config-sync/apply-order'], ['POST', '/api/config-sync/history/seen']] as const) {
       expect([p, (await app.request(p, { method: m })).status]).toEqual([p, 401]);
     }
   });
@@ -122,7 +123,7 @@ describe('設定の同期の経路（作り直した実装）', () => {
     await peerSends();
     const inbox = (await json(await get('/api/config-sync/inbox'))).body;
     expect(inbox.approval).toBe('each');
-    expect(inbox.items.map((i: { op: string; id: string; needsApproval: boolean }) => [i.op, i.id, i.needsApproval])).toEqual([['conflict', 'file:CLAUDE.md', false], ['create', 'file:skills/s/SKILL.md', true]]);
+    expect(inbox.items.map((i: { op: string; id: string; needsApproval: boolean }) => [i.op, i.id, i.needsApproval])).toEqual([['conflict', 'file:CLAUDE.md', true], ['create', 'file:skills/s/SKILL.md', true]]);
     const conflicts = (await json(await get('/api/config-sync/conflicts'))).body;
     expect(conflicts).toHaveLength(1);
     expect(conflicts[0].diff).toEqual([{ kind: 'ctx', text: 'a' }, { kind: 'del', text: 'from me' }, { kind: 'add', text: 'from peer' }]);
@@ -148,6 +149,13 @@ describe('設定の同期の経路（作り直した実装）', () => {
     expect((await json(await get('/api/config-sync/apply-order'))).body).toBeNull();
     // 無いものを取り消しても 204。
     expect((await send('DELETE', '/api/config-sync/apply-order')).status).toBe(204);
+  });
+
+  it('履歴の既読の口は、DB の既読の印だけを変え、204 を返す', async () => {
+    t.db.prepare("insert into config_history (at, from_device, mode, items, generations) values (1, 'peer', 'auto', '[]', '[]')").run();
+    expect((await json(await get('/api/config-sync'))).body).toMatchObject({ autoUnseen: 1 });
+    expect((await send('POST', '/api/config-sync/history/seen')).status).toBe(204);
+    expect((await json(await get('/api/config-sync'))).body).toMatchObject({ autoUnseen: 0 });
   });
 
   it('指示書の入力を検査する', async () => {

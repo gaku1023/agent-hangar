@@ -1,5 +1,5 @@
 import type { ConfigInboxOp } from '@agent-hangar/shared';
-import { CLAUDE_TARGET_NAME, targetNameOfId } from './targets/index.ts';
+import { CLAUDE_TARGET_NAME, parseTargetItemId, targetNameOfId } from './targets/index.ts';
 
 /**
  * 3 方向の判定（設定の同期の設計書の 3 章）。
@@ -29,6 +29,9 @@ import { CLAUDE_TARGET_NAME, targetNameOfId } from './targets/index.ts';
  * 古い版の束は、新しい対象を知らず、自分の束に新しい項目を入れない。それを「消した」と読まないための決まりである。
  * - その対象を扱う相手が 1 台もいない id は、何もしない（delete も forget もしない。基準の行は残す）。
  * - 手元でその対象が切（localTargets に無い）の id は、何もしない（create もしない）。
+ * 種類（configKinds）でも同じに扱う。対象は有効でも、その中の種類だけ切のことがあるためである。
+ * - 手元でその種類が切（localOffKinds にある）の id は、何もしない。
+ * - 送り手でその種類が切（束の offKinds にある）なら、その束はその id を扱う相手に数えない。
  */
 
 export type RemoteSnapshot = {
@@ -38,6 +41,8 @@ export type RemoteSnapshot = {
   items: ReadonlyMap<string, { sha256: string }>;
   /** その束で集めた対象の名前。省くと古い版の束と同じに、Claude だけを扱う相手と読む。 */
   targets?: ReadonlySet<string>;
+  /** その束で切だった種類。省くと切の種類は無い。 */
+  offKinds?: ReadonlySet<string>;
 };
 
 export type Action = {
@@ -68,6 +73,8 @@ export function judge(i: {
   local: ReadonlyMap<string, string>; base: ReadonlyMap<string, string>; remotes: readonly RemoteSnapshot[];
   /** 手元で集める対象。省くと、全部の対象が入りとして扱う。 */
   localTargets?: ReadonlySet<string>;
+  /** 手元で切の種類。省くと、切の種類は無い。 */
+  localOffKinds?: ReadonlySet<string>;
 }): Judgement {
   const out: Judgement = { actions: [], agreed: new Map(), forget: [] };
   if (i.remotes.length === 0) return out;
@@ -80,7 +87,9 @@ export function judge(i: {
     const b = i.base.get(id) ?? null;
     const target = targetNameOfId(id);
     if (i.localTargets && !i.localTargets.has(target)) continue; // 手元で切の対象
-    const handlers = remotes.filter((r) => (r.targets ?? OLD_BUNDLE_TARGETS).has(target));
+    const kind = parseTargetItemId(id)?.kind ?? null;
+    if (kind && i.localOffKinds?.has(kind)) continue; // 手元で切の種類
+    const handlers = remotes.filter((r) => (r.targets ?? OLD_BUNDLE_TARGETS).has(target) && !(kind && r.offKinds?.has(kind)));
     if (handlers.length === 0) continue; // その対象を扱う相手がいない。消去と見なさない
     const holder = handlers.find((r) => r.items.has(id));
     const rsha = holder ? holder.items.get(id)!.sha256 : null;

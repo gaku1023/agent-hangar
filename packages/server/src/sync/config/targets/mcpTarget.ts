@@ -5,7 +5,7 @@ import type { Collected, LocalItem, UnsentCandidate } from '../collect.ts';
 import { canonicalJson } from '../settingsSort.ts';
 import { commandOf, holdOfMcp, isHangarEntry, mcpIdOf, mcpSecret, mcpValueFits, parseMcpName, type McpHold, type McpHoldEnv } from './mcpCommon.ts';
 import { planMcp, planMcpFiles, planMcpOps, writeMcp, type McpFlavor } from './mcpWrite.ts';
-import type { ConfigTarget, TargetContext, TargetStore } from './types.ts';
+import { anyKindOn, type ConfigTarget, type TargetContext, type TargetStore } from './types.ts';
 
 /**
  * MCP の対象（claude-mcp、codex-mcp、opencode-mcp）に共通の、集め方と対象の組み立て。
@@ -114,14 +114,14 @@ export function createMcpTarget(spec: McpTargetSpec): ConfigTarget {
       const name = parseMcpName(f.idPrefix, id);
       return name === null ? null : { kind: f.itemKind, ref: { type: f.name as 'claude-mcp' | 'codex-mcp' | 'opencode-mcp', name } };
     },
-    // その PC で扱える（Codex・opencode が有効）ときだけ、対象ごとの入切を見る。既定は切。
-    enabled: (ctx) => spec.available(ctx) && ctx.switches?.[f.name] === true,
+    kinds: [f.itemKind],
+    // その PC で扱える（Codex・opencode が有効）ときだけ、種類の状態を見る。
+    enabled: (ctx) => spec.available(ctx) && anyKindOn(ctx, [f.itemKind]),
     collect: (ctx) => collectMcp(spec, ctx),
     planWrite: (o) => planMcpWith(spec, o),
     write: (o) => writeMcpWith(spec, o),
     planOps: (o, read) => planMcpOpsWith(spec, o, read),
     store: spec.store,
-    needsApproval: (_item, approval) => approval === 'each',
     isMachineBound: () => false,
   };
 }

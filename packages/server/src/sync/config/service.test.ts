@@ -19,6 +19,7 @@ import { writeApplyOrder } from './applyOrder.ts';
 import { applyOrderPath, BUNDLE_PATH, configBackupsDir } from './paths.ts';
 import { ConfigBase } from './base.ts';
 import { ConfigSyncError, ConfigSyncService } from './service.ts';
+import { confirmAll, kindsOf } from '../../../test/configKinds.ts';
 
 const NOW = 1_700_000_000_000;
 const SECRET = 'key = sk-ant-api03-AbCdEfGhIjKlMnOpQrSt0123456789';
@@ -44,7 +45,7 @@ function pc(id: string, name: string, extra: Partial<ConstructorParameters<typeo
   const on = { enabled: true, approval: 'each' as 'each' | 'auto' };
   const service = new ConfigSyncService({
     db, deviceId: id, deviceName: name, claudeDir, home, cloud, keyring: cloud.keyring,
-    enabled: () => on.enabled, switchedOn: () => on.enabled, approval: () => on.approval, now: () => clock, ...extra,
+    enabled: () => on.enabled, switchedOn: () => on.enabled, configKinds: () => (on.approval === 'each' ? confirmAll(kindsOf({}, 'each')) : kindsOf({}, 'auto')), now: () => clock, ...extra,
   });
   const p: Pc = {
     id, name, db, claudeDir, home, cloud, service, on,
@@ -157,7 +158,7 @@ describe('束を送る', () => {
     fs.mkdirSync(path.join(dir, 'claude'), { recursive: true });
     const cloud = shared.asDevice('dev-n', { keyring: ring });
     void cloud.health();
-    const newer = new ConfigSyncService({ db, deviceId: 'dev-n', deviceName: 'new', claudeDir: path.join(dir, 'claude'), home: path.join(dir, 'home'), cloud, keyring: ring, enabled: () => true, switchedOn: () => true, approval: () => 'each', now: () => clock });
+    const newer = new ConfigSyncService({ db, deviceId: 'dev-n', deviceName: 'new', claudeDir: path.join(dir, 'claude'), home: path.join(dir, 'home'), cloud, keyring: ring, enabled: () => true, switchedOn: () => true, configKinds: () => confirmAll(kindsOf({}, 'each')), now: () => clock });
     for (const row of a.db.prepare('select * from config_snapshots').all() as Record<string, unknown>[]) {
       applyRemoteChange(db, { tableName: 'config_snapshots', rowId: String(row.device_id), op: 'upsert', payload: row, updatedAt: Number(row.updated_at), seq: 1, deviceId: 'dev-a' }, { ownDeviceId: 'dev-n', skipOwn: true });
     }
@@ -433,7 +434,8 @@ describe('3 方向の判定と受け取りの一覧', () => {
     a.write('commands/c.md', 'plain');
     await sync(a, b);
     const by = Object.fromEntries(b.service.inbox().items.map((i) => [i.id, i]));
-    expect(by['file:CLAUDE.md']).toMatchObject({ needsApproval: false, marks: [], head: '# hello' });
+    // 自動で書かれないよう、この試験では自動の種類も確認にしてある（confirmAll）。
+    expect(by['file:CLAUDE.md']).toMatchObject({ needsApproval: true, marks: [], head: '# hello' });
     expect(by['file:skills/s/SKILL.md']).toMatchObject({ needsApproval: true, marks: ['hooks'] });
     expect(by['file:commands/c.md']).toMatchObject({ needsApproval: true, marks: [] });
     expect(b.service.inbox().approval).toBe('each');
@@ -454,7 +456,7 @@ describe('3 方向の判定と受け取りの一覧', () => {
   it('MCP サーバーの絶対パスの起動コマンドがこの PC に無ければ command-missing で保留する', async () => {
     const mcpPc = (id: string, name: string): Pc & { jsonPath: string } => {
       const jsonPath = path.join(tmp, id, 'claude.json');
-      return Object.assign(pc(id, name, { targetSwitches: () => ({ 'claude-mcp': true }), targetPaths: { claudeJsonPath: jsonPath } }), { jsonPath });
+      return Object.assign(pc(id, name, { configKinds: () => confirmAll(kindsOf({ 'claude-mcp': true })), targetPaths: { claudeJsonPath: jsonPath } }), { jsonPath });
     };
     const a = mcpPc('dev-a', 'mac'); const b = mcpPc('dev-b', 'mini');
     fs.writeFileSync(a.jsonPath, JSON.stringify({ mcpServers: { gone: { type: 'stdio', command: '/nowhere/bin/gone', args: [] }, fine: { type: 'stdio', command: 'npx', args: [] } } }));
@@ -662,7 +664,7 @@ describe('控えの世代と状態', () => {
 
   it('状態は、切入り、承認の仕方、届いた数、競合、保留、送らなかった数、最後に送った時刻を持つ', async () => {
     const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
-    expect(a.service.dto()).toEqual({ enabled: true, approval: 'each', workerPending: false, incoming: 0, conflicts: 0, held: 0, unsent: 0, unknownKeyCount: 0, backups: 0, applyOrder: null, lastSentAt: null, linkSkipped: {} });
+    expect(a.service.dto()).toEqual({ enabled: true, approval: 'each', workerPending: false, incoming: 0, conflicts: 0, held: 0, unsent: 0, unknownKeyCount: 0, backups: 0, applyOrder: null, lastSentAt: null, linkSkipped: {}, askCount: 0, autoUnseen: 0, history: [], lastAutoError: null });
     a.write('CLAUDE.md', 'a'); a.write('commands/x.md', 'a');
     b.write('commands/x.md', 'b');
     await sync(a, b);
@@ -692,7 +694,7 @@ describe('定期の呼び出しと止め方', () => {
     const errors: string[] = [];
     const flaky = new ConfigSyncService({
       db: b.db, deviceId: 'dev-b', deviceName: 'mini', claudeDir: b.claudeDir, home: b.home, cloud: b.cloud, keyring: b.cloud.keyring,
-      enabled: () => true, switchedOn: () => true, approval: () => 'each', now: () => clock, onError: (m) => errors.push(m),
+      enabled: () => true, switchedOn: () => true, configKinds: () => confirmAll(kindsOf({}, 'each')), now: () => clock, onError: (m) => errors.push(m),
     });
     a.write('CLAUDE.md', 'x'); b.write('commands/c.md', 'y');
     await a.service.send();
@@ -771,7 +773,7 @@ describe('古い Worker のあいだは束の行を書かない', () => {
     const blind = new ConfigSyncService({
       db: a.db, deviceId: 'dev-a', deviceName: 'mac', claudeDir: a.claudeDir, home: a.home, keyring: a.cloud.keyring, now: () => clock,
       cloud: { putFile: (...args) => a.cloud.putFile(...args), getFile: (k, e) => a.cloud.getFile(k, e), lastWorkerCompat: () => null },
-      enabled: () => true, switchedOn: () => true, approval: () => 'each',
+      enabled: () => true, switchedOn: () => true, configKinds: () => kindsOf({}, 'each'),
     });
     expect(await blind.send()).toEqual({ sent: false, items: 0 });
     expect(blind.dto().workerPending).toBe(false);
@@ -912,14 +914,14 @@ describe('束の対象と OS の配線（SPEC 12 章）', () => {
     await shared.asDevice('dev-c').putText({ path: BUNDLE_PATH, kind: 'config', sha256: sha256Hex(tar), mtime: 1 }, tar);
     expect(await b.service.receive()).toEqual({ fetched: 1, failed: 0 });
   }
-  const item = (id: string, kind: 'claude-md' | 'codex-file', text: string) => ({ id, kind, sha256: sha256Hex(text), size: text.length, marks: [] });
+  const item = (id: string, kind: 'claude-md', text: string) => ({ id, kind, sha256: sha256Hex(text), size: text.length, marks: [] });
 
   it('上げた束の目録に、集めた対象と OS が入る', async () => {
     const a = pc('dev-a', 'mac');
     a.write('CLAUDE.md', 'x');
     await a.service.send();
     const m = unpackBundle((await shared.openedFile(await bundleKey(a)))!.body).manifest;
-    expect(m.targets).toEqual(['claude', 'fake']);
+    expect(m.targets).toEqual(['claude-keys2', 'claude', 'fake']);
     expect(['darwin', 'win32', 'linux']).toContain(m.os);
   });
 
@@ -938,7 +940,7 @@ describe('束の対象と OS の配線（SPEC 12 章）', () => {
     a.write('CLAUDE.md', 'x');
     await a.service.send();
     new ConfigBase(b.db).set('fake:old.txt', sha256Hex('o'), NOW);
-    await receiveCrafted(b, { version: 1, deviceId: 'dev-c', createdAt: NOW, items: [item('fake:new.txt', 'codex-file', 'n')], targets: ['claude', 'fake'], os: 'darwin' }, new Map([[sha256Hex('n'), Buffer.from('n')]]));
+    await receiveCrafted(b, { version: 1, deviceId: 'dev-c', createdAt: NOW, items: [item('fake:new.txt', 'claude-md', 'n')], targets: ['claude', 'fake'], os: 'darwin' }, new Map([[sha256Hex('n'), Buffer.from('n')]]));
     expect(ids(b)).toEqual(['create:fake:new.txt']);
     // 相手が持たなくなった項目の基準は、今までどおり消える。
     expect(new ConfigBase(b.db).all().has('fake:old.txt')).toBe(false);
