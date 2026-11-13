@@ -10370,6 +10370,7 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   `[voice]` で始まる入力には短い話し言葉で返すこと。
   許可は方針に照らして答え、迷えば利用者に伝えること。
   出来事のうち利用者へ伝えるのは、判断が必要なもの（方針で答えられない許可、質問）と、終わったもの（`turn.done`、`session.ended`）の結果だけで、自分で片付けた許可は黙ること。
+  出来事のターンで自分で片付けたときは、返答も書かずに終える。前のターンで伝えた待ちは繰り返さない。
   状態は覚えず、道具で引くこと。
 - **手を動かせなくする：** その run の `--settings`（hook を書いているファイル）に `permissions` を足す。
   `deny` は `Bash`、`Edit`、`Write`、`NotebookEdit`、`WebFetch`、`allow` は hangar の MCP（`mcp__hangar`）。
@@ -10381,6 +10382,7 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   `sessionId` があり、行が消えておらず本文があれば `resumeWith`、無ければ新しく起こして設定に書く。
   10 分に 3 回失敗したら止まり、自動では再試行しない（状態は `stopped`、理由は `failures`）。
   設定を切にして入れ直すと、失敗の数を捨てて始める。
+  設定で切にしたときは、動いている統括の run を画面の停止と同じ `kill` で止める（終わりの知らせでは起こし直さず、`sessionId` は残る）。入れ直せば、その会話を再開する。
   利用者が止めたとき（`killed`）は起こし直さず、`enabled` を false にする。
   引き継ぎで止められたとき（`taken_over`）と休みで止まったとき（`parked`）は、起こし直さずに止まった状態（理由は `user`）で残す。
   状態は `state()` と `onState` で読める（画面の柱は後の PR）。
@@ -10442,7 +10444,7 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
 - **開くと：** 上に方針の 1 行（利用者の言葉そのまま。無ければ行ごと出さない）、その下に自動許可の記録（新しい順。行は「会話の題名、道具、中身の先頭」で、押すとその会話へ移る）、下に会話と入力欄。入力欄の右にマイク。見出しも説明も付けない。方針の下に並ぶことで「方針で通したもの」と分かる。
 - **動き：** 柱の開閉は `growIn` と `collapseOut`（横）で、丸と柱の入れ替えは `usePresence`。記録の行の出入りは `useMotionList`（`growIn` と `collapseOut`）。読み上げている発言の左の印は `enter`。新しい動きは足さない。
 - **会話の取り方：** 統括の会話の本文の末尾の頁（`GET /api/sessions/:id/events?latest`）を、`transcript.appended` のたびに読み直して `Store.orchestrator` に置く（`runtime/orchestrator.ts`）。記録は `GET /api/orchestrator/approvals`（新しい順、`limit` と `since`）。送信は `POST /api/orchestrator/send`（`{ text }`）で、宛先は設定の `orchestrator.sessionId` の run だけ。統括が動いていなければ 409。柱は送れない入力欄を閉じる。
-- **描き分け：** 会話は `PeerChatLog` と同じ行にして、ほかの PC の会話の表示の部品をそのまま使う。`[hangar]` で始まる入力は発言として描かず、そのターンの返答も描かない（`notify_user` の文だけは統括の発言として描く）。`[voice]` の印は描かない。ほかの道具の呼び出しは描かない。
+- **描き分け：** 会話は `PeerChatLog` と同じ行にして、ほかの PC の会話の表示の部品をそのまま使う。`[hangar]` で始まる入力は発言として描かず、そのターンの返答も描かない（`notify_user` の文だけは統括の発言として描く。成功の結果が付いた呼び出しだけで、検証や宛先の誤りで失敗した再試行は描かず、読み上げにも入れない）。`[voice]` の印は描かない。ほかの道具の呼び出しは描かない。
 - **読み上げ：** 読むのは、最後のターンが音声（`[voice]`）で始まったときの最後の返答と、出来事で始まったターンの `notify_user` の文だけ。返答は作業中でなくなってから 1 度だけ読む。`notify_user` の文は、利用者の最後の入力が音声だったか、この画面でマイクを使ったあとだけ読む。柱を出した時点で既にある分は読まない。新しい文を送る、Esc、マイクを押す、のどれでも止まる。
 - **許可の札：** 利用者の判断が要る札は、統括が `notify_user` で伝える文として会話に出る。札そのものを柱から押す形は今夜は入れていない。
 
