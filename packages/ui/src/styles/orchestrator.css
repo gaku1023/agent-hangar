@@ -16,9 +16,10 @@
 .orch-dot-close { margin-left: auto; box-shadow: none; }
 
 /* 自動許可の記録。方針の下に新しい順で並ぶ。行は 会話の題名 / 道具 / 中身の先頭。 */
-.orch-approvals { flex: none; list-style: none; margin: 0; padding: 0 calc(var(--u) * 2) calc(var(--u) * 2); max-height: 28%; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; border-bottom: 1px solid var(--line); }
+.orch-approvals { flex: none; list-style: none; margin: 0 calc(var(--u) * 2) calc(var(--u) * 1); padding: calc(var(--u) * 1); max-height: 28%; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; border-radius: var(--r-lg, var(--r)); background: var(--surface-2); }
+.orch-approval:hover, .orch-approval:focus-visible { background: var(--surface); }
 .orch-approval { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'title tool' 'head head'; column-gap: calc(var(--u) * 2); width: 100%; padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border: 0; border-radius: var(--r); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.orch-approval:hover, .orch-approval:focus-visible { background: var(--surface-2); outline: none; }
+.orch-approval:focus-visible { outline: none; }
 .orch-approval-title { grid-area: title; font-size: var(--fs-sm); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .orch-approval-tool { grid-area: tool; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); }
 .orch-approval-head { grid-area: head; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
