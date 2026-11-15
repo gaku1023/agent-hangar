@@ -4,6 +4,11 @@ import PackageDescription
 let package = Package(
     name: "voice-mac",
     platforms: [.macOS(.v14)],
+    // 製品を書いておくと、xcodebuild に hangar-voice の scheme ができる（scripts/build.sh が使う）。
+    products: [
+        .executable(name: "hangar-voice", targets: ["hangar-voice"]),
+        .library(name: "VoiceCore", targets: ["VoiceCore"]),
+    ],
     dependencies: [
         .package(url: "https://github.com/Neywa-Labs/mlx-audio-swift.git", exact: "0.1.9"),
     ],
