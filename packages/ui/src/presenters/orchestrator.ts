@@ -81,6 +81,8 @@ export type OrchestratorPillarProps = {
   canSend: boolean;
   sending: boolean;
   speak: SpeakPlan;
+  /** 机の音声の状態。補助が使えるとき（available）だけ丸が VoicePill になる。 */
+  voice?: import('@agent-hangar/shared').VoiceStateDto | null;
 };
 
 const STATUS_KEY = { busy: 'peerChat.status.busy', idle: 'peerChat.status.idle', waiting: 'peerChat.status.waiting', ended: 'peerChat.status.stopped' } as const;
@@ -100,7 +102,7 @@ export function presentOrchestrator(store: Store, t: Translate): OrchestratorPil
     sessionId, tone, statusLabel: t(STATUS_KEY[tone]),
     policy: store.settings?.permissionPolicy?.text ?? null,
     approvals: store.orchestrator.approvals.map((a) => ({ id: a.id, sessionId: a.sessionId, title: a.title, tool: a.tool, head: headOf(a.input) })),
-    rows, loading: !store.orchestrator.loaded, canSend: live !== null, sending: store.orchestrator.sending, speak,
+    rows, loading: !store.orchestrator.loaded, canSend: live !== null, sending: store.orchestrator.sending, speak, voice: store.voice,
   };
 }
 

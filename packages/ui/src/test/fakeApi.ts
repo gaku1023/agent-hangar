@@ -15,7 +15,7 @@ type Extras = Pick<
   | 'renameProject' | 'live' | 'sessionFiles' | 'gitSessions' | 'sessionChanges' | 'sessionDiff' | 'sessionEdits' | 'projectGit' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'previewAccountDir' | 'sharePreview' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
   | 'codexAccounts' | 'setCurrentCodexAccount' | 'addCodexAccount' | 'previewCodexAccountDir' | 'updateCodexAccount' | 'removeCodexAccount' | 'loginCodexAccount' | 'cancelCodexAccountLogin' | 'refreshCodexAccount' | 'linkConflicts' | 'repairLinkConflicts'
-  | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen' | 'markUnread' | 'setPinned' | 'launchSettings' | 'answerPeerApproval' | 'rushPeerQueue' | 'eventBindings' | 'prClaims' | 'createEventBinding' | 'approveEventBinding' | 'deleteEventBinding' | 'answerPrClaim' | 'heldEvents' | 'runHeldEvents' | 'eventHookUrl' | 'rotateEventUrl' | 'eventRepoHook' | 'peers' | 'peerLaunch' | 'peerStop' | 'peerChatOpen' | 'peerChatOp' | 'orchestratorApprovals' | 'orchestratorSend'
+  | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen' | 'markUnread' | 'setPinned' | 'launchSettings' | 'answerPeerApproval' | 'rushPeerQueue' | 'eventBindings' | 'prClaims' | 'createEventBinding' | 'approveEventBinding' | 'deleteEventBinding' | 'answerPrClaim' | 'heldEvents' | 'runHeldEvents' | 'eventHookUrl' | 'rotateEventUrl' | 'eventRepoHook' | 'peers' | 'peerLaunch' | 'peerStop' | 'peerChatOpen' | 'peerChatOp' | 'orchestratorApprovals' | 'orchestratorSend' | 'voice' | 'voiceHold' | 'voiceToggle' | 'voiceSpeak' | 'voiceStop'
 >;
 
 /** フェーズ 2 からフェーズ 4 で増えた API の偽物。
@@ -43,6 +43,11 @@ export function fakeApiExtras(): Extras {
     peerChatOpen: vi.fn(async () => ({ ok: false as const, reason: 'not-remote' as const })),
     peerChatOp: vi.fn(async () => ({ ok: true as const })),
     orchestratorApprovals: vi.fn(async () => ({ approvals: [] })),
+    voice: vi.fn(async () => ({ available: false, models: { state: 'missing' as const, progress: 0 }, mode: 'off' as const, phase: 'off' as const, caption: null, speakingId: null, meeting: false, callable: true })),
+    voiceHold: vi.fn(async () => ({ ok: true })),
+    voiceToggle: vi.fn(async () => ({ ok: true })),
+    voiceSpeak: vi.fn(async () => ({ ok: true })),
+    voiceStop: vi.fn(async () => ({ ok: true })),
     orchestratorSend: vi.fn(async () => ({ ok: true })),
     peerLaunch: vi.fn(async () => ({ status: 'requested' as const, requestId: 'r1', device: 'Mac' })),
     peerStop: vi.fn(async () => ({ status: 'requested' as const, requestId: 'r2', device: 'Mac' })),

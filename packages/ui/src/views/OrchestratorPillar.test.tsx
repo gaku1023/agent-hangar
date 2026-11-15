@@ -150,3 +150,21 @@ describe('統括の柱の音声', () => {
     expect(port.calls).toContain('cancel');
   });
 });
+
+describe('統括の柱のマイク（補助）', () => {
+  const voice = (o: Partial<import('@agent-hangar/shared').VoiceStateDto> = {}): import('@agent-hangar/shared').VoiceStateDto => ({ available: true, models: { state: 'ready', progress: 1 }, mode: 'off', phase: 'ambient', caption: null, speakingId: null, meeting: false, callable: true, ...o });
+  it('available が偽なら今の MicButton が出る', () => {
+    mount(base({ voice: voice({ available: false }) }));
+    expect(screen.getByRole('button', { name: '音声で入力' })).toHaveClass('mic-btn');
+  });
+  it('voice が無い（読めていない）ときも今の MicButton', () => {
+    mount(base());
+    expect(screen.getByRole('button', { name: '音声で入力' })).toHaveClass('mic-btn');
+  });
+  it('available が真なら VoicePill に替わる', () => {
+    mount(base({ voice: voice() }));
+    const b = screen.getByRole('button', { name: '音声で入力' });
+    expect(b).not.toHaveClass('mic-btn');
+    expect(b).toHaveAttribute('data-phase', 'ambient');
+  });
+});

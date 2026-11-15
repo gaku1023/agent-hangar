@@ -171,6 +171,12 @@ export type ApiClient = {
   orchestratorApprovals(): Promise<{ approvals: AutoApprovalDto[] }>;
   /** 統括の柱の入力欄の文を、統括の窓へ送る。origin は由来で、省けば打鍵（印はサーバが付ける）。統括が動いていなければ 409 の一文で投げる。 */
   orchestratorSend(text: string, origin?: OrchestratorOrigin): Promise<unknown>;
+  /** 机の音声（補助 hangar-voice）。補助が使えないとき、動かす口は 409 で投げる。 */
+  voice(): Promise<import('@agent-hangar/shared').VoiceStateDto>;
+  voiceHold(on: boolean): Promise<unknown>;
+  voiceToggle(on: boolean): Promise<unknown>;
+  voiceSpeak(id: string, text: string): Promise<unknown>;
+  voiceStop(): Promise<unknown>;
   /** 選んだ PC へ起動を頼む（承認は要らない）。置いたら requested、置く前に断れるものは refused と文を返す。 */
   peerLaunch(body: PeerLaunchBody): Promise<PeerLaunchOutcomeDto>;
   /** ほかの PC で動いている会話の停止を、その PC に頼む。置いたら requested、置く前に断れるものは refused と文を返す。 */
@@ -454,6 +460,11 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     peerChatOp: (sessionId, body) => post(`/api/sessions/${encodeURIComponent(sessionId)}/peer-chat/ops`, body),
     orchestratorApprovals: () => call('/api/orchestrator/approvals'),
     orchestratorSend: (text, origin) => post('/api/orchestrator/send', { text, ...(origin !== undefined ? { origin } : {}) }),
+    voice: () => call('/api/voice'),
+    voiceHold: (on) => post('/api/voice/hold', { on }),
+    voiceToggle: (on) => post('/api/voice/toggle', { on }),
+    voiceSpeak: (id, text) => post('/api/voice/speak', { id, text }),
+    voiceStop: () => post('/api/voice/stop'),
     peerLaunch: (body) => post('/api/peer-launch', body),
     peerStop: (sessionId) => post('/api/peer-stop', { sessionId }),
     opencodeOptions: (dir, refresh) => call(`/api/opencode/options${qs({ dir, refresh: refresh ? '1' : null })}`),
