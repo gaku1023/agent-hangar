@@ -824,3 +824,10 @@ a:where(.btn) { color: inherit; }
 .swipe-hint[data-dir='forward'] { right: 0; transform: translate(calc(50% - var(--swipe-ratio, 0) * 44px), -50%); }
 .swipe-hint[data-armed='true'] { border-color: var(--accent); color: var(--accent); }
 .swipe-hint[data-done='true'] { opacity: 0; transition: opacity var(--dur-exit) var(--ease-in); }
+/* 予定の下の「統括」の行（views/Sidebar.tsx）。状態の丸は柱の丸（orchestrator.css の .orch-dot）と同じ色で、色の切り替えも同じ transition。 */
+.nav-orch-dot { flex: none; width: 8px; height: 8px; margin-left: auto; border-radius: 50%; background: var(--ended); transition: background var(--dur) var(--ease-out); }
+.nav-orch-dot[data-tone='busy'] { background: var(--busy); }
+.nav-orch-dot[data-tone='idle'] { background: var(--idle); }
+.nav-orch-dot[data-tone='waiting'] { background: var(--waiting); }
+.nav-orch .nav-count { margin-left: 0; }
+.shell[data-sidebar='collapsed'] .nav-orch-dot { position: absolute; right: 6px; bottom: 6px; margin: 0; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9); }

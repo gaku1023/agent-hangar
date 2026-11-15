@@ -10459,6 +10459,8 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
 設定の「Claude Code」の節に入り切りのスイッチがあり、押すと `PATCH /api/settings` の `orchestrator.enabled` だけを送る。
 
 - **置き場所：** `Shell` の右の列（`.shell[data-orch]` が 3 列目を足す）。畳んだ姿は丸 1 つで、色は統括の状態（作業中、待機、入力待ち、止まっている）。開閉は `localStorage` に残し、既定は畳む。
+- **サイドバーの行：** サイドバーの上のナビ（ホーム、プロジェクト、予定）の予定の下に「統括」の行を 1 つ固定で置く（`views/Sidebar.tsx` の `OrchestratorNavRow`、中身は `presentOrchestratorNav`）。アイコンは Headset、右に状態の丸（柱の丸と同じ色）と、判断待ち（入力待ちなら 1）に統括の会話の未読を足した数の札（ホームの行の数と同じ組み方と見た目）。押すと柱を開閉し、右下の丸と同じ値（`views/orchestratorOpen.ts`）を読み書きする。右下の丸も残る。統括が無効か会話が無ければ行を出さない。畳んだ帯ではアイコンだけで、丸は右下、数の札は右上に付く。動きは、丸の色の切り替えが既存の `--dur` の transition、札の出入りは既存の `CountBubble`。新しい動きは足さない。
+- **一覧から外す：** 統括の会話（`role: 'orchestrator'`）は、サイドバーの「動いている」のまとまり（「未分類」を含む）とピンの段、ホームの一覧（入力待ち、実行中、未読）に出さない（`store.ts` の `hotOrAlive` と `isOrchestratorSession`）。検索と、会話の画面への直接の移動は今までどおり。
 - **開くと：** 上に方針の 1 行（利用者の言葉そのまま。無ければ行ごと出さない）、その下に自動許可の記録（新しい順。行は「会話の題名、道具、中身の先頭」で、押すとその会話へ移る）、下に会話と入力欄。入力欄の右にマイク。見出しも説明も付けない。方針の下に並ぶことで「方針で通したもの」と分かる。
 - **動き：** 柱の開閉は `growIn` と `collapseOut`（横）で、丸と柱の入れ替えは `usePresence`。記録の行の出入りは `useMotionList`（`growIn` と `collapseOut`）。読み上げている発言の左の印は `enter`。新しい動きは足さない。
 - **会話の取り方：** 統括の会話の本文の末尾の頁（`GET /api/sessions/:id/events?latest`）を、`transcript.appended` のたびに読み直して `Store.orchestrator` に置く（`runtime/orchestrator.ts`）。記録は `GET /api/orchestrator/approvals`（新しい順、`limit` と `since`）。送信は `POST /api/orchestrator/send`（`{ text }`）で、宛先は設定の `orchestrator.sessionId` の run だけ。統括が動いていなければ 409。柱は送れない入力欄を閉じる。

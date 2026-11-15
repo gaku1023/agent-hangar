@@ -3,7 +3,7 @@ import { agentIconsOn, agentOfSession } from './agentIcon.ts';
 import { presentSessionMenu, type SessionMenuProps } from './sessionMenu.ts';
 import { type AgentIconKind, type AgentUsageDto, type IndexProgressDto, type LiveStatus, type Route, type SessionDto, type SessionLockDto, type StopReason, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, liveWithLimit, quietLive, resetAtText, stopReasonOf, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
-import { accountList, accountOfSession, currentAccount, hotSessions, liveSessionIds, remoteLockOf, runningSessionIds, sidebarOtherPcsOn, remoteLiveOf, remoteReasonOf, shownReason, unreadOf, unreadTotal, waitingAnywhereIds, type Store } from '../store/store.ts';
+import { accountList, accountOfSession, currentAccount, hotSessions, isOrchestratorSession, liveSessionIds, remoteLockOf, runningSessionIds, sidebarOtherPcsOn, remoteLiveOf, remoteReasonOf, shownReason, unreadOf, unreadSessionIds, waitingAnywhereIds, type Store } from '../store/store.ts';
 import { codexAccountIdOfSession, presentAccounts, presentAgentUsage, presentCodexAccounts, type AccountGauge, type AccountView, type AgentUsageView } from './accounts.ts';
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
 import { translatorOf, storeLanguage } from './i18n.ts';
@@ -12,7 +12,7 @@ import { descendantsEnd, nestOrder, spawnFoldKey, spawnParentOf, type NestDot } 
 import { projectDisplayName } from './projectName.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 import { presentDeleteApprovals, type DeleteApprovalRow } from './deleteApprovals.ts';
-import { presentOrchestrator, type OrchestratorPillarProps } from './orchestrator.ts';
+import { presentOrchestrator, presentOrchestratorNav, type OrchestratorNavProps, type OrchestratorPillarProps } from './orchestrator.ts';
 import { presentPeerApprovals, type PeerApprovalRow } from './peerApprovals.ts';
 import { presentPeerOrigin, type PeerOriginProps } from './peerOrigin.ts';
 import { presentNotices, type NoticesProps } from './notices.ts';
@@ -126,7 +126,7 @@ const wokenFresh = (state: State, id: string, now: number): boolean => state.wak
 export type SideLiveProps = { count: number; ids: string[]; rows: SideLiveRow[]; groups: SideLiveGroup[];
   /** ピン留めした会話（留めた順）。止まっていても並べ、グループと count と ids には入れない。一覧の上の固定の段に置く。 */
   pins: SideLiveRow[] };
-export type ShellProps = { approvals: DeleteApprovalRow[]; peerApprovals?: PeerApprovalRow[]; /** 統括の柱。統括が無効か、会話がまだ無ければ null か無し。 */ orchestrator?: OrchestratorPillarProps | null; live: SideLiveProps; sidebarCollapsed: boolean; sidebarWidth: number; wide: boolean; nav: NavItem[]; foot: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; notices: NoticesProps; newSession: NewSessionTarget };
+export type ShellProps = { approvals: DeleteApprovalRow[]; peerApprovals?: PeerApprovalRow[]; /** 統括の柱。統括が無効か、会話がまだ無ければ null か無し。 */ orchestrator?: OrchestratorPillarProps | null; /** サイドバーの上の「統括」の行。無効か会話がまだ無ければ null。 */ orchNav?: OrchestratorNavProps | null; live: SideLiveProps; sidebarCollapsed: boolean; sidebarWidth: number; wide: boolean; nav: NavItem[]; foot: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; notices: NoticesProps; newSession: NewSessionTarget };
 
 /**
  * 切れているあいだの帯。
@@ -237,7 +237,7 @@ const footDefs = (t: Translate): NavDef[] => [
  */
 function sideLive(state: State, store: Store, now: number): SideLiveProps {
   const t = translatorOf(store);
-  const pinned = hotSessions(store.sessions).filter((s) => (s.pinnedAt ?? null) !== null).sort((a, b) => a.pinnedAt! - b.pinnedAt! || a.id.localeCompare(b.id)).map((s) => s.id);
+  const pinned = hotSessions(store.sessions).filter((s) => (s.pinnedAt ?? null) !== null && !isOrchestratorSession(s)).sort((a, b) => a.pinnedAt! - b.pinnedAt! || a.id.localeCompare(b.id)).map((s) => s.id);
   const pinnedSet = new Set(pinned);
   // 設定が切なら、ロックで足したほかの PC の行を出さない（この PC の親の下の別 PC の子は、下の remoteKids が今のまま出す）。
   const otherPcs = sidebarOtherPcsOn(store);
@@ -426,11 +426,13 @@ export function presentShell(state: State, store: Store, now: number, tz?: strin
   const { account, usage } = headerAccount(state, store, now);
   // ホームに入力待ちの数を添える。
   // 数え方は shared の liveFilterOf に従う（waitingAnywhereIds。ほかの PC で入力待ちの会話も数える。Dock のバッジは別で、この PC の入力待ちだけ）。
-  const waiting = waitingAnywhereIds(store).length;
-  const unread = unreadTotal(store);
+  // 統括の会話は、統括の行（orchNav）で数えるので、ホームの数からは引く（Dock のバッジは別で、引かない）。
+  const notOrch = (id: string) => { const x = store.sessions[id]; return x === undefined || !isOrchestratorSession(x); };
+  const waiting = waitingAnywhereIds(store).filter(notOrch).length;
+  const unread = unreadSessionIds(store).filter(notOrch).reduce((n, id) => n + store.sessions[id]!.unread!.count, 0);
   const item = (n: NavDef): NavItem => {
     const home = n.route.name === 'home';
     return { route: n.route, label: n.label, current: n.matches.includes(s.name), count: home ? waiting + unread : 0, waiting: home ? waiting : 0, unread: home ? unread : 0 };
   };
-  return { approvals: presentDeleteApprovals(store, t), peerApprovals: presentPeerApprovals(store, t), orchestrator: presentOrchestrator(store, t), sidebarCollapsed: state.sidebarCollapsed, sidebarWidth: state.sidebarWidth, wide: s.name === 'session', nav: navDefs(t).map(item), foot: footDefs(t).map(item), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), notices: presentNotices(state, store, now, tz), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
+  return { approvals: presentDeleteApprovals(store, t), peerApprovals: presentPeerApprovals(store, t), orchestrator: presentOrchestrator(store, t), orchNav: presentOrchestratorNav(store, t), sidebarCollapsed: state.sidebarCollapsed, sidebarWidth: state.sidebarWidth, wide: s.name === 'session', nav: navDefs(t).map(item), foot: footDefs(t).map(item), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), notices: presentNotices(state, store, now, tz), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
 }

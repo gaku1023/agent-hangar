@@ -1,5 +1,5 @@
 import type { Translate, TranscriptEvent } from '@agent-hangar/shared';
-import type { Store } from '../store/store.ts';
+import { unreadOf, type Store } from '../store/store.ts';
 import type { PeerChatRow } from './peerChat.ts';
 
 /**
@@ -101,4 +101,20 @@ export function presentOrchestrator(store: Store, t: Translate): OrchestratorPil
     approvals: store.orchestrator.approvals.map((a) => ({ id: a.id, sessionId: a.sessionId, title: a.title, tool: a.tool, head: headOf(a.input) })),
     rows, loading: !store.orchestrator.loaded, canSend: live !== null, sending: store.orchestrator.sending, speak,
   };
+}
+
+/**
+ * サイドバーの上の「統括」の行（views/Sidebar.tsx）。無効か会話がまだ無ければ null（行ごと出さない）。
+ * 色は柱の丸と同じ tone。数は、判断待ちの 1 に統括の会話の未読の数を足したもの（ホームの行の数と同じ組み方）。
+ */
+export type OrchestratorNavProps = { label: string; tone: OrchestratorPillarProps['tone']; statusLabel: string; count: number; waiting: number; unread: number };
+
+export function presentOrchestratorNav(store: Store, t: Translate): OrchestratorNavProps | null {
+  const o = store.settings?.orchestrator;
+  if (!o?.enabled || !o.sessionId) return null;
+  const live = store.live.find((l) => l.sessionId === o.sessionId)?.status ?? store.sessions[o.sessionId]?.live ?? null;
+  const tone = live ?? 'ended';
+  const waiting = tone === 'waiting' ? 1 : 0;
+  const unread = unreadOf(store, o.sessionId)?.count ?? 0;
+  return { label: t('orchestratorPane.pillar.region'), tone, statusLabel: t(STATUS_KEY[tone]), count: waiting + unread, waiting, unread };
 }

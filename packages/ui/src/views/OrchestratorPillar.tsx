@@ -12,10 +12,8 @@ import { useLanguage, useT } from './primitives/language.tsx';
 import { collapseOut, fadeIn, growIn } from './primitives/motionKit.ts';
 import { useMotionList } from './primitives/useMotionList.ts';
 import { usePresence } from './primitives/usePresence.ts';
+import { setOrchestratorOpen, useOrchestratorOpen } from './orchestratorOpen.ts';
 
-const OPEN_KEY = 'hangar.orchestrator.open';
-const readOpen = (): boolean => { try { return localStorage.getItem(OPEN_KEY) === '1'; } catch { return false; } };
-const writeOpen = (open: boolean): void => { try { localStorage.setItem(OPEN_KEY, open ? '1' : '0'); } catch { /* 保存できなくても動く */ } };
 
 /** 画面で 1 つ使い回す音声の口。 */
 let sharedPort: VoicePort | null = null;
@@ -36,7 +34,9 @@ export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?
   const speaker = useMemo(() => createSpeaker(port, () => language), [port, language]);
   const langRef = useRef(language);
   langRef.current = language;
-  const [open, setOpen] = useState(() => props.defaultOpen ?? readOpen());
+  // 開閉はサイドバーの「統括」の行と共有する（orchestratorOpen.ts）。defaultOpen は最初の描画で 1 度だけ効く（覚えない）。
+  useState(() => { if (props.defaultOpen !== undefined) setOrchestratorOpen(props.defaultOpen, false); });
+  const open = useOrchestratorOpen();
   const presence = usePresence<HTMLElement>(open, (el) => collapseOut(el, 'x'));
   const dot = useRef<HTMLButtonElement>(null);
   const [speakingKey, setSpeakingKey] = useState<string | null>(null);
@@ -44,7 +44,7 @@ export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?
 
   // 会話と記録の読み込み。柱が出たとき（読み上げは畳んでいても要る）と、開くたびに頼む。
   useEffect(() => { emit({ type: 'orchestrator.open' }); }, [emit, open]);
-  const toggle = (next: boolean) => { setOpen(next); writeOpen(next); };
+  const toggle = (next: boolean) => setOrchestratorOpen(next);
 
   // 丸が戻るときは薄れて現れる。
   const wasMounted = useRef(presence.mounted);
