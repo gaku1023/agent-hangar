@@ -10,7 +10,7 @@ dist="$root/dist"
 
 cd "$root"
 xcodebuild -scheme hangar-voice -destination platform=macOS -configuration Release \
-  -derivedDataPath "$derived" build
+  -derivedDataPath "$derived" CLANG_ENABLE_CODE_COVERAGE=NO CLANG_COVERAGE_MAPPING=NO build
 
 products="$derived/Build/Products/Release"
 rm -rf "$dist"

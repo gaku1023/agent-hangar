@@ -10508,6 +10508,9 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 
 Mac では、聞き取り・区切り・読み上げを端末の中の補助 `hangar-voice` が持ち、サーバとは標準入出力の 1 行 1 JSON で話す（型は `packages/shared/src/voice.ts`）。
 補助が無い環境（Windows、古い Mac、補助の無い build、落ちて戻らないとき）では、`GET /api/voice` は `available: false`、動かす口は 409 で、画面は今の Web Speech の動きのまま。
+補助は Mac の .app の `Contents/Resources/voice/` に、隣に要る束（`*.bundle`）と一緒に入る（`tauri.macos.conf.json`、作るのは beforeBuildCommand の `apps/desktop/scripts/build-voice.sh`）。
+殻は `voice/hangar-voice` が在るときだけ、その場所を `HANGAR_VOICE_BIN` でサーバへ渡す。サーバはそれが無ければ開発用の `apps/voice-mac/dist/hangar-voice` を探す。
+`HANGAR_SKIP_VOICE=1` の build（CI の .app の試験）は補助を入れない。
 サーバ側は `packages/server/src/voice/` にあり、次の部品でできている。
 
 - `helper.ts`：補助の起動と見張り。落ちたら 1 秒から 30 秒のバックオフで起こし直し、5 回続けて落ちたら止める。

@@ -93,6 +93,22 @@ describe('NSIS のアンインストールの後片付け', () => {
   });
 });
 
+// tauri.macos.conf.json も同じく、macOS のビルドのときだけ重なる。オブジェクトは鍵ごとにまざる。
+// 補助 hangar-voice（apps/voice-mac）は Mac でしか動かないので、Mac の .app の Resources/voice にだけ入れる。
+describe('tauri.macos.conf.json', () => {
+  const mac = JSON.parse(read('src-tauri/tauri.macos.conf.json'));
+  const conf = JSON.parse(read('src-tauri/tauri.conf.json'));
+  it('補助の束を voice/ に足す。同梱サーバの置き場は共通の設定に残し、Windows には足さない', () => {
+    expect(mac.bundle.resources).toEqual({ '../voice-dist': 'voice' });
+    expect(conf.bundle.resources['../voice-dist']).toBeUndefined();
+    expect(JSON.parse(read('src-tauri/tauri.windows.conf.json')).bundle.resources).toBeUndefined();
+  });
+  it('build の前に、同梱サーバに続けて補助の束を作る', () => {
+    expect(mac.build.beforeBuildCommand).toBe(`${conf.build.beforeBuildCommand} && npm run build-voice`);
+    expect(JSON.parse(read('package.json')).scripts['build-voice']).toBe('bash scripts/build-voice.sh');
+  });
+});
+
 describe('tauri.conf.json', () => {
   const conf = JSON.parse(read('src-tauri/tauri.conf.json'));
   it('hangar スキームを登録し、同梱サーバを server/ に置き、読み込み画面から始める', () => {

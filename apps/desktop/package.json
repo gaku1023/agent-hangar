@@ -6,6 +6,7 @@
   "scripts": {
     "typecheck": "tsc -p .",
     "bundle-server": "node --import tsx scripts/bundle-server.ts",
+    "build-voice": "bash scripts/build-voice.sh",
     "sign-macos": "node --import tsx scripts/sign-macos.ts",
     "build-mac-local": "tauri build && node --import tsx scripts/sign-macos.ts src-tauri/target/release/bundle/macos/Hangar.app --local",
     "tauri": "tauri",

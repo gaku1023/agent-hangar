@@ -17,6 +17,15 @@ apps/voice-mac/scripts/build.sh
 MLX の Metal のシェーダは xcodebuild でしか束に入らないので、`swift build` の実行ファイルでは動きません。
 束は実行ファイルと同じフォルダに置いたまま動かします。
 
+## .app への同梱
+
+Mac の .app では `Contents/Resources/voice/` に入ります（`apps/desktop/src-tauri/tauri.macos.conf.json`）。
+tauri build の前に `apps/desktop/scripts/build-voice.sh` が `scripts/build.sh` を呼び、`dist/` の中身を `apps/desktop/voice-dist/` へ写します。
+そのため、手元で .app を作るときも Metal Toolchain が要ります。
+`HANGAR_SKIP_VOICE=1` を立てると補助を作らず、補助の無い .app になります（CI の .app の試験はこれで作ります）。
+殻は `voice/hangar-voice` が在るときだけ、その場所を `HANGAR_VOICE_BIN` でサーバへ渡します。
+署名の台本（`apps/desktop/scripts/sign-macos.ts`）は、補助と束も .app と同じ身元で署名します。
+
 芯の試験はモデルなしで回ります。
 
 ```bash
