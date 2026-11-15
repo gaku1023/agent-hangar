@@ -3,7 +3,7 @@ import { agentIconsOn, agentOfSession } from './agentIcon.ts';
 import { presentSessionMenu, type SessionMenuProps } from './sessionMenu.ts';
 import { type AgentIconKind, type AgentUsageDto, type IndexProgressDto, type LiveStatus, type Route, type SessionDto, type SessionLockDto, type StopReason, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, liveWithLimit, quietLive, resetAtText, stopReasonOf, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
-import { accountList, accountOfSession, currentAccount, hotSessions, isOrchestratorSession, liveSessionIds, remoteLockOf, runningSessionIds, sidebarOtherPcsOn, remoteLiveOf, remoteReasonOf, shownReason, unreadOf, unreadTotal, waitingAnywhereIds, type Store } from '../store/store.ts';
+import { accountList, accountOfSession, currentAccount, hotSessions, isOrchestratorSession, liveSessionIds, remoteLockOf, runningSessionIds, sidebarOtherPcsOn, remoteLiveOf, remoteReasonOf, shownReason, unreadOf, unreadSessionIds, waitingAnywhereIds, type Store } from '../store/store.ts';
 import { codexAccountIdOfSession, presentAccounts, presentAgentUsage, presentCodexAccounts, type AccountGauge, type AccountView, type AgentUsageView } from './accounts.ts';
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
 import { translatorOf, storeLanguage } from './i18n.ts';
@@ -426,8 +426,10 @@ export function presentShell(state: State, store: Store, now: number, tz?: strin
   const { account, usage } = headerAccount(state, store, now);
   // ホームに入力待ちの数を添える。
   // 数え方は shared の liveFilterOf に従う（waitingAnywhereIds。ほかの PC で入力待ちの会話も数える。Dock のバッジは別で、この PC の入力待ちだけ）。
-  const waiting = waitingAnywhereIds(store).length;
-  const unread = unreadTotal(store);
+  // 統括の会話は、統括の行（orchNav）で数えるので、ホームの数からは引く（Dock のバッジは別で、引かない）。
+  const notOrch = (id: string) => { const x = store.sessions[id]; return x === undefined || !isOrchestratorSession(x); };
+  const waiting = waitingAnywhereIds(store).filter(notOrch).length;
+  const unread = unreadSessionIds(store).filter(notOrch).reduce((n, id) => n + store.sessions[id]!.unread!.count, 0);
   const item = (n: NavDef): NavItem => {
     const home = n.route.name === 'home';
     return { route: n.route, label: n.label, current: n.matches.includes(s.name), count: home ? waiting + unread : 0, waiting: home ? waiting : 0, unread: home ? unread : 0 };

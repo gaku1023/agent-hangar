@@ -50,6 +50,12 @@ describe('統括の会話を一覧から外す', () => {
     pinned.sessions.o1!.pinnedAt = 5;
     expect(presentShell(state, pinned, NOW).live.pins).toEqual([]);
   });
+  it('ホームのナビの数に統括の判断待ちと未読を数えない（統括の行で数える）', () => {
+    const s = store({ status: 'waiting', unread: 2 });
+    s.sessions.a = sess('a', { unread: { count: 1, at: 1 } } as Partial<SessionDto>);
+    const home = presentShell(initialState(), s, NOW).nav.find((n) => n.route.name === 'home')!;
+    expect(home).toMatchObject({ waiting: 0, unread: 1, count: 1 });
+  });
   it('ホームの一覧に出さない', () => {
     const h = JSON.stringify(presentHome(initialState(), store({ status: 'waiting', unread: 1 }), NOW));
     expect(h).not.toContain('name-o1');
