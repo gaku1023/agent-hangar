@@ -27,3 +27,6 @@ scripts/readme-shots/.out/
 # 補助 hangar-voice の作る物
 apps/voice-mac/.build
 apps/voice-mac/dist
+# .app に入る補助の束（apps/desktop/scripts/build-voice.sh が作る）。README だけはチェックアウトに置く。
+apps/desktop/voice-dist/*
+!apps/desktop/voice-dist/README.md

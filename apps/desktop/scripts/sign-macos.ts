@@ -20,6 +20,9 @@ import { fileURLToPath } from 'node:url';
  *   パスワードが環境変数に無ければ、ログインのキーチェーンの項目（KEYCHAIN_PASSWORD_SERVICE）を読み、無人で開ける。
  *
  * 内側の Mach-O から外側へ署名し、`--deep` には頼らない。ハードンドランタイムは付けない（公証をしないので要らず、Node の JIT の entitlement も要らない）。
+ * 声の補助（Resources/voice/hangar-voice）も内側の Mach-O として同じ身元で署名し、隣の束（*.bundle。Mach-O は無い）は資源として封じる。
+ * 補助にもハードンドランタイムを付けないので、マイクの entitlement（com.apple.security.device.audio-input）は要らない。
+ * マイクの許可は起こした元の Hangar に付き、尋ねる文は Info.plist の NSMicrophoneUsageDescription である。
  * 秘密（キーチェーンのパスワード）は引数に取らず、環境変数か、端末の対話で受け取る。
  */
 
@@ -147,7 +150,7 @@ function isMachO(file: string): boolean {
 }
 
 /**
- * .app の中の Mach-O（.node、.dylib、spawn-helper、主の実行ファイル）を、深いところから先に並べる。
+ * .app の中の Mach-O（.node、.dylib、spawn-helper、声の補助、主の実行ファイル）を、深いところから先に並べる。
  * 外側の署名はこれらの内容のハッシュを封じるので、内側を先に署名する。シンボリックリンクはたどらない。
  */
 export function findMachOs(app: string): string[] {

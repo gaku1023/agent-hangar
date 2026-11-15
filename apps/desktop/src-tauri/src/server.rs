@@ -21,6 +21,15 @@ pub fn server_dir(resource_dir: &Path) -> Option<PathBuf> {
     p.join("server.mjs").is_file().then_some(p)
 }
 
+/// 同梱の声の補助 `hangar-voice`（macOS だけ）。置き場はサーバの隣の `voice/` で、
+/// `tauri.macos.conf.json` の `bundle.resources`（`"../voice-dist": "voice"`）で決めてある。
+/// 補助の無い build（`HANGAR_SKIP_VOICE=1`）では None で、サーバは声の口を「使えない」と答える。
+#[cfg(target_os = "macos")]
+fn voice_bin(server_dir: &Path) -> Option<PathBuf> {
+    let p = server_dir.parent()?.join("voice").join("hangar-voice");
+    p.is_file().then_some(p)
+}
+
 pub struct ServerProcess {
     child: Child,
     /// 止める合図に閉じる、サーバの標準入力の管（Windows だけ）。
@@ -164,6 +173,10 @@ fn server_command(node: &Path, dir: &Path, hangar_home: &Path) -> Command {
         .env("HANGAR_PORT", PORT.to_string())
         .env("HANGAR_UI_DIST", dir.join("ui"))
         .env("HANGAR_HOME", plain(hangar_home));
+    #[cfg(target_os = "macos")]
+    if let Some(bin) = voice_bin(&dir) {
+        cmd.env("HANGAR_VOICE_BIN", bin);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -368,6 +381,39 @@ mod tests {
         let conf: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         assert_eq!(conf["bundle"]["resources"]["../server-dist"], "server");
+    }
+
+    // 声の補助の在りかと、バンドルが置く場所を 1 か所でつなぐ。
+    #[test]
+    fn the_mac_bundle_puts_the_voice_helper_where_voice_bin_looks() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.macos.conf.json")).unwrap();
+        assert_eq!(conf["bundle"]["resources"]["../voice-dist"], "voice");
+    }
+
+    // 補助が在るときだけ HANGAR_VOICE_BIN を渡す。無ければ触らない（開発の手元で外から渡した値はそのまま届く）。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn server_command_passes_the_voice_helper_only_when_bundled() {
+        let res = tempfile::tempdir().unwrap();
+        let dir = res.path().join("server");
+        std::fs::create_dir_all(&dir).unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let get = |cmd: &Command| {
+            cmd.get_envs()
+                .find(|(k, _)| *k == std::ffi::OsStr::new("HANGAR_VOICE_BIN"))
+                .map(|(_, v)| v.map(|v| v.to_owned()))
+        };
+        let cmd = server_command(Path::new("/bin/sh"), &dir, home.path());
+        assert_eq!(get(&cmd), None);
+        // 束（voice/ のフォルダ）だけで実行ファイルが無いときも渡さない。
+        std::fs::create_dir_all(res.path().join("voice")).unwrap();
+        let cmd = server_command(Path::new("/bin/sh"), &dir, home.path());
+        assert_eq!(get(&cmd), None);
+        let bin = res.path().join("voice/hangar-voice");
+        std::fs::write(&bin, "").unwrap();
+        let cmd = server_command(Path::new("/bin/sh"), &dir, home.path());
+        assert_eq!(get(&cmd), Some(Some(bin.into_os_string())));
     }
 
     // 外す一覧のどの名前も、子へは「消す」として渡る。殻が入れ直す 3 つだけは、殻の値になる。

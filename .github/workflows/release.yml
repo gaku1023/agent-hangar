@@ -114,6 +114,9 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri
           save-if: false
+      # 声の補助 hangar-voice（apps/voice-mac）を .app に入れる。MLX の Metal のシェーダを作るのに Metal Toolchain が要る。
+      # 補助は tauri build の beforeBuildCommand（tauri.macos.conf.json の npm run build-voice）が作る。
+      - run: xcodebuild -downloadComponent MetalToolchain
       - run: npm ci
       # 型の確かめと試験は macos-test ジョブが並べて回す。publish はそちらも待つ。
       - run: npm run build

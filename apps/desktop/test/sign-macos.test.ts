@@ -335,6 +335,24 @@ describe.skipIf(!onMac)('実際の ad-hoc 署名（一時ディレクトリの�
     expect(parseDisplay(codesign('-dvv', a).out).identifier).toBe(ID);
     expect(parseDisplay(codesign('-dvv', b).out).identifier).toBe(ID);
   });
+  // 声の補助（Resources/voice/hangar-voice）と、隣の束（Mach-O の無い *.bundle。MLX の Metal のシェーダが入る）。
+  // 補助は内側の Mach-O として先に署名し、束は .app の資源として封じる。
+  it('声の補助を署名し、隣の束は資源として封じて、verify --deep --strict が通る', () => {
+    const d = tmp('hangar-sign-voice-');
+    dirs.push(d);
+    const app = makeApp(d);
+    const voice = path.join(app, 'Contents/Resources/voice');
+    fs.mkdirSync(path.join(voice, 'mlx-swift_Cmlx.bundle/Contents/Resources'), { recursive: true });
+    fs.copyFileSync(MACHO_SRC, path.join(voice, 'hangar-voice'));
+    fs.writeFileSync(path.join(voice, 'mlx-swift_Cmlx.bundle/Contents/Info.plist'), '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>mlx-swift.Cmlx.resources</string></dict></plist>\n');
+    fs.writeFileSync(path.join(voice, 'mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib'), 'metal');
+    expect(findMachOs(app).map((f) => path.relative(app, f))).toContain('Contents/Resources/voice/hangar-voice');
+    signApp({ app, mode: 'adhoc', identifier: ID }, undefined);
+    expect(codesign('-dvv', path.join(voice, 'hangar-voice')).out).toContain('Signature=adhoc');
+    expect(codesign('--verify', '--deep', '--strict', app).status).toBe(0);
+    fs.appendFileSync(path.join(voice, 'mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib'), 'x');
+    expect(codesign('--verify', '--deep', '--strict', app).status).not.toBe(0);
+  });
 });
 
 describe('キーチェーンを開ける', () => {
