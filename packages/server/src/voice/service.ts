@@ -185,7 +185,16 @@ export class VoiceService {
     if (orch) this.baseline = { sessionId: orch, seq: this.deps.latestAssistantSeq(orch) };
   }
 
+  /** 補助の出来事の受け手。ここで投げると、補助の行を読む readline の中で捕まらない例外になり、サーバごと落ちる。 */
   private onEvent(e: VoiceEvent): void {
+    try {
+      this.handleEvent(e);
+    } catch (err) {
+      console.error('[voice] could not handle a helper event', err instanceof Error ? err.message : err);
+    }
+  }
+
+  private handleEvent(e: VoiceEvent): void {
     const at = this.now();
     switch (e.ev) {
       case 'ready':

@@ -65,6 +65,15 @@ describe('VoiceHelper（偽の補助）', () => {
     expect(events).toEqual([{ ev: 'ready', version: 'fake-1' }]);
   });
 
+  it('ev を持っていても形の合わない行は捨てて流さない', async () => {
+    h = new VoiceHelper({ bin: '/fake', spawn: fixtureSpawn('malformed') });
+    const events: VoiceEvent[] = [];
+    h.on('event', (e: VoiceEvent) => events.push(e));
+    h.start();
+    await until(() => h!.status === 'ready');
+    expect(events).toEqual([{ ev: 'ready', version: 'fake-1' }]);
+  });
+
   it('stop で quit を送って止まり、unavailable になる', async () => {
     h = new VoiceHelper({ bin: '/fake', spawn: fixtureSpawn('ok') });
     h.start();

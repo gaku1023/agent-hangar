@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import readline from 'node:readline';
-import type { VoiceCommand, VoiceEvent } from '@agent-hangar/shared';
+import { isVoiceEvent, type VoiceCommand } from '@agent-hangar/shared';
 
 export type VoiceHelperStatus = 'unavailable' | 'starting' | 'ready' | 'crashed';
 
@@ -94,9 +94,10 @@ export class VoiceHelper extends EventEmitter {
   private onLine(line: string): void {
     let ev: unknown;
     try { ev = JSON.parse(line); } catch { return; }
-    if (typeof ev !== 'object' || ev === null || typeof (ev as { ev?: unknown }).ev !== 'string') return;
-    if ((ev as VoiceEvent).ev === 'ready') this.state = 'ready';
-    this.emit('event', ev as VoiceEvent);
+    // 形の合わない行は捨てる。受け手が読み違えて、readline の中で投げないため。
+    if (!isVoiceEvent(ev)) return;
+    if (ev.ev === 'ready') this.state = 'ready';
+    this.emit('event', ev);
   }
 
   private onExit(): void {

@@ -1,11 +1,15 @@
 // 補助 hangar-voice の偽物。約束（1 行 1 JSON）どおりに台本で返す。
-// FAKE_VOICE_MODE: ok（既定。ready を出し、命令に答える）、crash（起動してすぐ落ちる）、garbage（壊れた行を挟んでから ready）。
+// FAKE_VOICE_MODE: ok（既定。ready を出し、命令に答える）、crash（起動してすぐ落ちる）、garbage（壊れた行を挟んでから ready）、
+// malformed（ev を持つが形の合わない行を挟んでから ready）。
 const mode = process.env.FAKE_VOICE_MODE ?? 'ok';
 const out = (o) => process.stdout.write(`${JSON.stringify(o)}\n`);
 
 if (mode === 'crash') process.exit(1);
 if (mode === 'garbage') {
   process.stdout.write('not json\n{"ev":\n[1,2]\n{"nope":1}\n');
+}
+if (mode === 'malformed') {
+  process.stdout.write('{"ev":"micUsers"}\n{"ev":"segment"}\n{"ev":"segment","id":"s","text":3,"dbfs":-30,"ms":1}\n{"ev":"speaking","id":"x","state":"odd"}\n{"ev":"ready"}\n');
 }
 out({ ev: 'ready', version: 'fake-1' });
 

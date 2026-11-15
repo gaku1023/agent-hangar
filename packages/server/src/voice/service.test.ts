@@ -226,6 +226,18 @@ describe('声のサービス', () => {
     expect(broadcasts.some((e) => (e as { type: string }).type === 'voice.state')).toBe(true);
   });
 
+  it('形の合わない出来事が届いても投げず、ログに出して続ける', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const svc = make();
+    expect(() => helper.emit('event', { ev: 'micUsers' })).not.toThrow();
+    expect(() => helper.emit('event', { ev: 'segment', id: 's', text: 3, dbfs: -30, ms: 1 })).not.toThrow();
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
+    seg('ねえハンガー、進み具合は');
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(svc.state().available).toBe(true);
+  });
+
   it('モデルの状態を state に載せる', () => {
     const svc = make();
     helper.ev({ ev: 'models', state: 'downloading', progress: 0.4 });

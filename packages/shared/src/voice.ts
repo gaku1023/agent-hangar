@@ -32,6 +32,31 @@ export type VoiceEvent =
   | { ev: 'micUsers'; bundles: string[] }
   | { ev: 'error'; code: string; message: string };
 
+const MODEL_STATES: readonly VoiceModelState[] = ['missing', 'downloading', 'loading', 'ready', 'failed'];
+const SPEAKING_STATES = ['start', 'end', 'stopped'];
+const isStr = (v: unknown): v is string => typeof v === 'string';
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * 補助の 1 行が約束（VoiceEvent）の形か。ev ごとに中身の型まで見る。
+ * 補助は別のプロセスで、壊れた行や古い版の行を出しうる。形の合わない行は捨て、サーバが読み違えて落ちないようにする。
+ */
+export function isVoiceEvent(v: unknown): v is VoiceEvent {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  switch (o.ev) {
+    case 'ready': return isStr(o.version);
+    case 'models': return isStr(o.state) && (MODEL_STATES as readonly string[]).includes(o.state) && isNum(o.progress) && (o.message === undefined || isStr(o.message));
+    case 'vad': return typeof o.speech === 'boolean';
+    case 'segment': return isStr(o.id) && isStr(o.text) && isNum(o.dbfs) && isNum(o.ms);
+    case 'flushed': return true;
+    case 'speaking': return isStr(o.id) && isStr(o.state) && SPEAKING_STATES.includes(o.state);
+    case 'micUsers': return Array.isArray(o.bundles) && o.bundles.every(isStr);
+    case 'error': return isStr(o.code) && isStr(o.message);
+    default: return false;
+  }
+}
+
 /** 人格。呼びかけ語の名前と読み、統括の口調、読み上げの声と速さ。声は `os:<識別子>` か `kokoro:<声>`。 */
 export type VoicePersona = { id: string; name: string; reading: string; tone: string; voice: string; speed: number };
 
