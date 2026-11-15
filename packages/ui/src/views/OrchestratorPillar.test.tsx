@@ -74,7 +74,7 @@ describe('統括の柱の中身', () => {
 });
 
 describe('統括の柱の音声', () => {
-  it('マイクの確定の文は [voice] を付けて送る。途中の文は入力欄に出る', () => {
+  it('マイクの確定の文は印を付けずに、由来 voice-held で送る。途中の文は入力欄に出る', () => {
     vi.useFakeTimers();
     mount(base());
     fireEvent.click(screen.getByRole('button', { name: '音声で入力' }));
@@ -82,7 +82,7 @@ describe('統括の柱の音声', () => {
     expect(screen.getByRole('textbox', { name: '統括へのメッセージ' })).toHaveValue('進み');
     act(() => port.handlers!.onFinal('進み具合は'));
     act(() => { vi.advanceTimersByTime(1300); });
-    expect(actions).toContainEqual({ type: 'orchestrator.send', text: '[voice] 進み具合は' });
+    expect(actions).toContainEqual({ type: 'orchestrator.send', text: '進み具合は', origin: 'voice-held' });
     vi.useRealTimers();
   });
   it('打ちかけの文字は、聞いている間は認識の文の前に残り、送っても捨てても戻る', () => {
@@ -96,7 +96,7 @@ describe('統括の柱の音声', () => {
     act(() => port.handlers!.onFinal('進み具合は'));
     expect(box).toHaveValue('下書き 進み具合は');
     act(() => { vi.advanceTimersByTime(1300); });
-    expect(actions).toContainEqual({ type: 'orchestrator.send', text: '[voice] 進み具合は' });
+    expect(actions).toContainEqual({ type: 'orchestrator.send', text: '進み具合は', origin: 'voice-held' });
     expect(box).toHaveValue('下書き');
     fireEvent.click(screen.getByRole('button', { name: '音声で入力' }));
     act(() => port.handlers!.onInterim('捨てる'));

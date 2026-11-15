@@ -32,9 +32,6 @@ export interface VoicePort {
   lastSpokenEnd(): number;
 }
 
-/** 確定した文に付ける印。統括は出来事（`[hangar]`）と区別する。 */
-export const VOICE_TAG = '[voice]';
-
 /** 読み上げの後に聞く側を閉じておく長さ。自分の声の余韻を拾わないため（spike 15 の実測）。 */
 export const ECHO_GUARD_MS = 1500;
 

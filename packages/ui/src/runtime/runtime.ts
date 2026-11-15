@@ -299,7 +299,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     sessionId: () => store.settings?.orchestrator?.sessionId ?? null,
     events: (id, q) => deps.api.events(id, q),
     approvals: () => deps.api.orchestratorApprovals(),
-    send: (text) => deps.api.orchestratorSend(text),
+    send: (text, origin) => deps.api.orchestratorSend(text, origin),
     get: () => store.orchestrator,
     set: (o) => setStore({ ...store, orchestrator: o }),
     fail: (e) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: errMsg(e) } }),

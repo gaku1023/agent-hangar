@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ECHO_GUARD_MS, SILENCE_MS, VOICE_TAG, type ListenSession, type VoicePort } from '../../voice/voicePort.ts';
+import { ECHO_GUARD_MS, SILENCE_MS, type ListenSession, type VoicePort } from '../../voice/voicePort.ts';
 import { Icon } from './Icon.tsx';
 import { useLanguage, useT } from './language.tsx';
 
@@ -35,7 +35,7 @@ export function MicButton(props: { port: VoicePort; onSend: (text: string) => vo
     interim.current = '';
     setOn(false);
     propsRef.current.onInterim?.('');
-    if (send && out !== '') propsRef.current.onSend(`${VOICE_TAG} ${out}`);
+    if (send && out !== '') propsRef.current.onSend(out);
   };
   const guarded = () => port.speaking() || Date.now() - port.lastSpokenEnd() < ECHO_GUARD_MS;
   const arm = () => {

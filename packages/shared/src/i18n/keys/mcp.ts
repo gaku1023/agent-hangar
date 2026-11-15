@@ -200,6 +200,7 @@ export const mcpKeys = {
   'mcp.orchestrator.autoToolsParam': [],
   'mcp.orchestrator.badField': ['field'],
   'mcp.orchestrator.userOnly': [],
+  'mcp.orchestrator.weakTurn': [],
   'mcp.orchestrator.rateLimited': ['max'],
   'mcp.orchestrator.feedHead': ['n'],
   'mcp.orchestrator.feedLine': ['kind', 'id', 'title', 'tool'],

@@ -24,7 +24,7 @@ import type { PeerCallDeps } from '../peer/caller.ts';
 import { createRemoteSessionTool, isThisDevice, listDevicesTool, remoteControlTool, remoteSpawnOf } from './peerTools.ts';
 import { parseWakeOn } from '../event/validate.ts';
 import { claimPrTool, draftEventBindingTool } from './eventTools.ts';
-import { callOrchestratorTool, isOrchestratorToolName } from './orchestratorTools.ts';
+import { callOrchestratorTool, guardWeakTurn, isOrchestratorToolName } from './orchestratorTools.ts';
 import type { OrchestratorAsks } from '../orchestrator/asks.ts';
 import type { PeerChatLocal } from '../peer/chat/host.ts';
 import { createScheduleTool, listSchedulesTool, updateScheduleTool } from './scheduleTools.ts';
@@ -867,6 +867,8 @@ function reportOf(deps: ToolDeps, name: string): NonNullable<ToolDeps['report']>
  * 問い合わせの 2 つと create_session は待つので Promise を返す。MCP の層は await してから包む。
  */
 export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: Record<string, unknown>): unknown {
+  // 統括の弱い声のターンは、読むことと自分の記録だけにする（orchestratorTools.ts）。どの道具より先に見る。
+  guardWeakTurn(deps, ctx, name, args);
   switch (name) {
     case 'list_projects': return listProjectsTool(deps, ctx);
     case 'get_project': return getProjectTool(deps, ctx, args);

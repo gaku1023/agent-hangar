@@ -1,4 +1,4 @@
-import type { Translate, TranscriptEvent } from '@agent-hangar/shared';
+import { VOICE_MARK, VOICE_WINDOW_MARK, type Translate, type TranscriptEvent } from '@agent-hangar/shared';
 import { unreadOf, type Store } from '../store/store.ts';
 import type { PeerChatRow } from './peerChat.ts';
 
@@ -10,8 +10,9 @@ import type { PeerChatRow } from './peerChat.ts';
 
 /** 出来事（hangar が送り込む文）の印。この印で始まる入力は利用者の言葉ではない。 */
 export const HANGAR_TAG = '[hangar]';
-/** 音声入力の印。利用者が話した入力で、返答を読み上げる。 */
-export const VOICE_TAG = '[voice]';
+/** 音声入力の印（強い声と弱い声）。サーバが由来から付ける（shared の markOrchestratorText）。利用者が話した入力で、返答を読み上げる。 */
+const VOICE_TAGS = [VOICE_WINDOW_MARK, VOICE_MARK] as const;
+const voiceTagOf = (text: string): string | undefined => VOICE_TAGS.find((m) => text.startsWith(m));
 
 export type Speak = { key: string; text: string };
 
@@ -25,7 +26,7 @@ export type SpeakPlan = { reply: Speak | null; notices: Speak[]; voiceOn: boolea
 
 type Turn = 'typed' | 'voice' | 'hangar';
 
-const turnOf = (text: string): Turn => (text.startsWith(HANGAR_TAG) ? 'hangar' : text.startsWith(VOICE_TAG) ? 'voice' : 'typed');
+const turnOf = (text: string): Turn => (text.startsWith(HANGAR_TAG) ? 'hangar' : voiceTagOf(text) !== undefined ? 'voice' : 'typed');
 const isNotify = (e: TranscriptEvent): e is Extract<TranscriptEvent, { kind: 'tool_call' }> => e.kind === 'tool_call' && /(^|__)notify_user$/.test(e.name);
 const notifyText = (e: Extract<TranscriptEvent, { kind: 'tool_call' }>): string => {
   const t = (e.input as { text?: unknown } | null)?.text;
@@ -48,7 +49,7 @@ export function orchestratorRows(events: readonly TranscriptEvent[]): { rows: Pe
       last = null;
       if (turn !== 'hangar') voiceOn = turn === 'voice';
       if (turn === 'hangar') continue;
-      const text = (turn === 'voice' ? e.text.slice(VOICE_TAG.length) : e.text).trim();
+      const text = (turn === 'voice' ? e.text.slice(voiceTagOf(e.text)!.length) : e.text).trim();
       if (text !== '') rows.push({ kind: 'user', key: String(e.seq), text, from: null });
     } else if (e.kind === 'assistant') {
       if (turn === 'hangar' || e.text.trim() === '') continue;

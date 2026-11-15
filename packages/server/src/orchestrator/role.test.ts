@@ -15,6 +15,19 @@ describe('役の文', () => {
       expect(e!.text.endsWith('\n')).toBe(true);
     }
   });
+  it('声の印の意味、聞き違いの扱い、弱いターンで断られたときの返し方を書く', () => {
+    const [ja, en] = [orchestratorInstructions('ja')[0]!.text, orchestratorInstructions('en')[0]!.text];
+    for (const t of [ja, en]) {
+      expect(t).toContain('`[voice:window]`');
+      expect(t).toContain('list_sessions');
+    }
+    expect(ja).toContain('聞き違い');
+    expect(ja).toContain('聞き返');
+    expect(ja).toContain('キーを使って');
+    expect(en).toContain('mishear');
+    expect(en).toContain('ask back');
+    expect(en).toContain('pressing the key');
+  });
   it('自分で片付けた許可と、前のターンで伝えた待ちは黙る。伝えることが無ければ何も書かずに終える', () => {
     const [ja, en] = [orchestratorInstructions('ja')[0]!.text, orchestratorInstructions('en')[0]!.text];
     expect(ja).toContain('返答は書かず');
