@@ -63,7 +63,7 @@ export type VoicePersona = { id: string; name: string; reading: string; tone: st
 /** 設定の voice。この PC だけで、同期しない。 */
 export type VoiceSetting = { mode: VoiceMode; personaId: string; personas: VoicePersona[]; asrModel?: string };
 
-export const DEFAULT_VOICE_PERSONA: VoicePersona = { id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'os:com.apple.voice.compact.ja-JP.Kyoko', speed: 1.2 };
+export const DEFAULT_VOICE_PERSONA: VoicePersona = { id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'kokoro:jf_alpha', speed: 1.2 };
 export const DEFAULT_VOICE: VoiceSetting = { mode: 'off', personaId: DEFAULT_VOICE_PERSONA.id, personas: [DEFAULT_VOICE_PERSONA] };
 
 const MODES: readonly VoiceMode[] = ['off', 'toggle', 'always'];
