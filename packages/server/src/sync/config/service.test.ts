@@ -491,6 +491,9 @@ describe('3 方向の判定と受け取りの一覧', () => {
       expect(item).toMatchObject({ id: 'memory:proj1/MEMORY.md', op: 'create', held: null, label: 'app/MEMORY.md' });
       await sync(a, c);
       expect(c.service.inbox().items[0]).toMatchObject({ id: 'memory:proj1/MEMORY.md', held: 'no-project' });
+      // プロジェクトの行はあるがこの PC のパスが無いとき、保留のままで、表示は id でなく名前にする。
+      upsertShared(c.db, 'projects', { id: 'proj1', name: 'app', status: 'active', is_scratch: 0 }, a.id);
+      expect(c.service.inbox().items[0]).toMatchObject({ id: 'memory:proj1/MEMORY.md', held: 'no-project', label: 'app/MEMORY.md' });
       expect(c.service.dto()).toMatchObject({ incoming: 0, held: 1 });
       expect(b.service.dto()).toMatchObject({ incoming: 1, held: 0 });
     });

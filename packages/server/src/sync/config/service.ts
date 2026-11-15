@@ -258,6 +258,12 @@ export class ConfigSyncService {
   }
 
   /** この PC にあるプロジェクトの、メモリの置き場の slug と名前。 */
+  /** この PC にパスが無いプロジェクトの名前（保留の表示に使う）。行が無ければ null。 */
+  private projectName(id: string): string | null {
+    const r = this.deps.db.prepare('select name from projects where id = ? and deleted_at is null').get(id) as { name: string } | undefined;
+    return r?.name ?? null;
+  }
+
   private projectsHere(): Map<string, { slug: string; name: string }> {
     const rows = this.deps.db.prepare(`select r.project_id id, r.path path, p.name name from project_roots r join projects p on p.id = r.project_id
       where r.device_id = ? and r.deleted_at is null and p.deleted_at is null order by r.project_id`).all(this.deps.deviceId) as { id: string; path: string; name: string }[];
@@ -460,7 +466,7 @@ export class ConfigSyncService {
       else if (ref.type !== 'memory') { ({ label, target } = otherRefLabelTarget(ref)); }
       else {
         const p = projects.get(ref.projectId);
-        label = `${p?.name ?? ref.projectId}/${ref.rel}`;
+        label = `${p?.name ?? this.projectName(ref.projectId) ?? ref.projectId}/${ref.rel}`;
         target = p ? `projects/${p.slug}/memory/${ref.rel}` : null;
         if (!p) held = 'no-project';
       }
