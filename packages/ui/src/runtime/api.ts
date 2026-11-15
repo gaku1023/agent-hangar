@@ -173,6 +173,8 @@ export type ApiClient = {
   orchestratorSend(text: string): Promise<unknown>;
   /** 選んだ PC へ起動を頼む（承認は要らない）。置いたら requested、置く前に断れるものは refused と文を返す。 */
   peerLaunch(body: PeerLaunchBody): Promise<PeerLaunchOutcomeDto>;
+  /** ほかの PC で動いている会話の停止を、その PC に頼む。置いたら requested、置く前に断れるものは refused と文を返す。 */
+  peerStop(sessionId: string): Promise<PeerLaunchOutcomeDto>;
   /** 設定のプロバイダー（ベータ）。API キーは本文で送るだけで、応答には載らない。 */
   opencodeProviders(): Promise<OpencodeProvidersDto>;
   opencodeProviderKey(id: string, key: string): Promise<OpencodeProvidersDto>;
@@ -453,6 +455,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     orchestratorApprovals: () => call('/api/orchestrator/approvals'),
     orchestratorSend: (text) => post('/api/orchestrator/send', { text }),
     peerLaunch: (body) => post('/api/peer-launch', body),
+    peerStop: (sessionId) => post('/api/peer-stop', { sessionId }),
     opencodeOptions: (dir, refresh) => call(`/api/opencode/options${qs({ dir, refresh: refresh ? '1' : null })}`),
     opencodeProviders: () => call('/api/opencode/providers'),
     opencodeProviderKey: (id, key) => post(`/api/opencode/providers/${encodeURIComponent(id)}/key`, { key }),

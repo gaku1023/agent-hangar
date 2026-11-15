@@ -108,7 +108,7 @@ function presentPhoneLaunches(state: State, store: Store, t: Translate): PhoneLa
     const mode = permissionLabel(l.permissionMode, t);
     const title = l.phone ? t('phoneLaunch.notice.title', { phone: l.phone, project, mode }) : t('phoneLaunch.notice.titleUnknown', { project, mode });
     const menu = s ? presentSessionMenu(store, s, t).stop : null;
-    return [{ sessionId: l.sessionId, title, name: s?.name ?? l.title, bypass: l.permissionMode === PERMISSION_BYPASS, stop: menu && menu !== 'external' ? menu : null }];
+    return [{ sessionId: l.sessionId, title, name: s?.name ?? l.title, bypass: l.permissionMode === PERMISSION_BYPASS, stop: menu && menu !== 'external' && !('peer' in menu) ? menu : null }];
   });
 }
 

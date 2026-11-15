@@ -171,6 +171,8 @@ export const mcpKeys = {
   'mcp.peer.screenStartedPlain': ['device'],
   'mcp.peer.screenRefused': ['device', 'reason'],
   'mcp.peer.screenExpired': ['device'],
+  'mcp.peer.screenStopAsked': ['device'],
+  'mcp.peer.screenStopRefused': ['device', 'reason'],
   'mcp.tool.claimPr': [],
   'mcp.tool.draftEventBinding': [],
   'mcp.sessionStatus.wakeOnParam': [],

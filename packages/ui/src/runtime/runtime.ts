@@ -689,6 +689,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       case 'api.rebuildIndex': deps.api.rebuildIndex().catch(fail); return;
       case 'api.launch': deps.api.launch(e.params).then(launched).catch(launchFailed); return;
+      // ほかの PC で動いている会話の停止。置けたら頼んだことを札で知らせる。止まったことはロックが外れてサイドバーに出て、相手の断りは後からサーバが札で知らせる。
+      case 'api.peerStop':
+        deps.api.peerStop(e.sessionId)
+          .then((r) => { if (r.status === 'requested') toast(tr()('mcp.peer.screenStopAsked', { device: r.device })); else fail(new Error(r.message)); })
+          .catch(fail);
+        return;
       // 選んだ PC への起動。置けたらダイアログを閉じ、置く前に断られたらダイアログの中に理由を出す（launch.failed）。
       case 'api.peerLaunch':
         deps.api.peerLaunch(e.body)

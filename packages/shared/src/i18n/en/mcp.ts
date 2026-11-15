@@ -172,6 +172,8 @@ export const mcpEn: AreaDictionary<typeof mcpKeys> = {
   'mcp.peer.screenStartedPlain': 'Started a session on {device}.',
   'mcp.peer.screenRefused': '{device} could not start it. {reason}',
   'mcp.peer.screenExpired': '{device} did not receive the request in time.',
+  'mcp.peer.screenStopAsked': 'Requested {device} to stop it.',
+  'mcp.peer.screenStopRefused': '{device} could not stop it. {reason}',
   'mcp.tool.claimPr': 'Records, as a draft, that this session owns a GitHub PR. It is not used as the destination for reviews or comments until the user approves it on the hangar screen. Call it after you open a PR yourself.',
   'mcp.tool.draftEventBinding': 'Creates, as a draft, a setting that drives a session from an outside event (GitHub CI or reviews, or an outside webhook). Nothing runs until the user approves it on the hangar screen, and no webhook URL is returned here. It cannot create a wake setting (waking a Paused session). Use wake_on in propose_session_status for that.',
   'mcp.sessionStatus.wakeOnParam': 'Condition for waking the Paused session. repo is owner/name, pr is the PR number, when is one of ci_done, ci_failed, review, merged. It only rides along with the suggestion and becomes active when the user confirms Paused without removing it on the screen. Allowed only on a paused suggestion, and not together with confirmed',

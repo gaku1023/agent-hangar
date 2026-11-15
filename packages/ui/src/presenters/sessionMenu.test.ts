@@ -52,6 +52,20 @@ describe('セッションのメニューの中身（presentSessionMenu）', () =
     expect(entry(m, 'stop')).toMatchObject({ disabled: '外部ターミナルで実行中', danger: true, send: null });
     expect(keys(m)).not.toContain('delete');
   });
+  it('ほかの PC で動いている会話は、その PC に頼む停止を出し、削除は出さない。黙った PC の会話は今までどおり削除', () => {
+    const lock = (over: Partial<NonNullable<SessionDto['lock']>> = {}): SessionDto['lock'] => ({ deviceId: 'd2', deviceName: 'Mac', runId: 'r9', heartbeatAt: NOW, stale: false, live: 'busy', ...over });
+    const busy = session({ lock: lock() });
+    const m = presentSessionMenu(storeWith(busy), busy, ja);
+    expect(m.stop).toEqual({ peer: true, working: true });
+    expect(keys(m)).not.toContain('delete');
+    expect(entry(m, 'stop')).toMatchObject({ label: '停止', danger: true, disabled: null, send: { type: 'session.peerStop', id: 's1', working: true } });
+    const idle = session({ lock: lock({ live: 'idle' }) });
+    expect(presentSessionMenu(storeWith(idle), idle, ja).stop).toEqual({ peer: true, working: false });
+    const stale = session({ lock: lock({ stale: true }) });
+    const ms = presentSessionMenu(storeWith(stale), stale, ja);
+    expect(ms.stop).toBeNull();
+    expect(keys(ms)).toContain('delete');
+  });
   it('本文の消えた会話も、移動と削除は押せる（消すのは hangar の行と印だけになる）', () => {
     const s = session({ hasTranscript: false });
     const m = presentSessionMenu(storeWith(s), s, ja);

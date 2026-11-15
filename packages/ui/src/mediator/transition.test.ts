@@ -1371,6 +1371,17 @@ describe('同じフォルダのプロジェクトをまとめる確認', () => {
 });
 
 describe('停止の確認', () => {
+  it('ほかの PC の会話は、休みならすぐ頼み、作業中なら確認してから頼む', () => {
+    const r = run([action({ type: 'session.peerStop', id: 's1', working: false })]);
+    expect(r.state.overlay).toEqual({ kind: 'none' });
+    expect(r.effects).toEqual([{ kind: 'api.peerStop', sessionId: 's1' }]);
+    const a = run([action({ type: 'session.peerStop', id: 's1', working: true })]);
+    expect(a.effects).toEqual([]);
+    expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'peerStop', sessionId: 's1', working: true } });
+    const b = run([action({ type: 'session.peerStop', id: 's1', working: true, confirmed: true })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'none' });
+    expect(b.effects).toEqual([{ kind: 'api.peerStop', sessionId: 's1' }]);
+  });
   it('休みでシェルタブが無ければ、確認せずにすぐ止める', () => {
     const r = run([action({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 })]);
     expect(r.state.overlay).toEqual({ kind: 'none' });

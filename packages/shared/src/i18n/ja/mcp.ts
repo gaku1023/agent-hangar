@@ -172,6 +172,8 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.peer.screenStartedPlain': '{device} でセッションを起動しました。',
   'mcp.peer.screenRefused': '{device} では起動できませんでした。{reason}',
   'mcp.peer.screenExpired': '{device} が受け取らないまま、タイムアウトしました。',
+  'mcp.peer.screenStopAsked': '{device} に停止を依頼しました。',
+  'mcp.peer.screenStopRefused': '{device} では停止できませんでした。{reason}',
   'mcp.tool.claimPr': 'この会話が GitHub の PR を持っていることを、下書きとして記録する。ユーザーが hangar の画面で承認するまで、レビューやコメントの宛先には使われない。自分で PR を出したときに呼ぶ。',
   'mcp.tool.draftEventBinding': '外のできごと（GitHub の CI やレビューなど、または外の webhook）で会話を動かす設定を、下書きとして作る。ユーザーが hangar の画面で承認するまで何も動かず、webhook の URL もここには返らない。Paused を起こす設定は作れない。それは propose_session_status の wake_on で出す。',
   'mcp.sessionStatus.wakeOnParam': 'Paused を起こす条件。repo は owner/name、pr は PR の番号、when は ci_done、ci_failed、review、merged のどれか。提案に添えるだけで、ユーザーが Paused を確定したときに画面で外されていなければ有効になる。status が paused の提案にだけ付けられ、confirmed と一緒には渡せない',

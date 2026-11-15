@@ -89,7 +89,8 @@ const kindOf = (e: unknown): string => {
 function isMeaningful(r: PeerLaunchRequest): boolean {
   if (r.op === 'send' || r.op === 'stop') {
     // 起動の欄は使わない。対象と、send の本文だけを見る。
-    if (r.parentSessionId.length === 0 || r.parentSessionId.length > MOBILE_LAUNCH_ID_MAX) return false;
+    // 親の会話が空なのは、人が画面から頼んだ停止（ほかの PC のサイドバーの「停止」）で、stop だけに許す。
+    if (r.parentSessionId.length > MOBILE_LAUNCH_ID_MAX || (r.parentSessionId.length === 0 && r.op !== 'stop')) return false;
     if (!r.targetSessionId || r.targetSessionId.length > MOBILE_LAUNCH_ID_MAX) return false;
     return r.op === 'send' ? r.prompt.trim().length > 0 && r.prompt.length <= MOBILE_PROMPT_MAX : r.prompt === '';
   }
@@ -302,8 +303,11 @@ export class PeerLaunchInbox {
    */
   private async control(r: PeerLaunchRequest, from: string, fail: (reason: PeerLaunchRefusal, detail?: string) => PeerLaunchAnswer): Promise<PeerLaunchAnswer> {
     const target = r.targetSessionId!;
-    const link = getSpawn(this.deps.db, this.deps.deviceId, target);
-    if (!link || link.childDeviceId !== this.deps.deviceId || link.parentDeviceId !== from || link.parentId !== r.parentSessionId) return fail('not-spawned-by-caller');
+    // 人が画面から頼んだ停止（親の会話が空）は、結び付きを問わない。人が別の PC への起動を承認なしに頼めるのと同じ扱いである（D8）。
+    // それ以外（会話が頼んだ send と stop）は、その会話が起こした会話にだけ効く（D16）。
+    const fromScreen = r.parentSessionId === '' && r.op === 'stop';
+    const link = fromScreen ? null : getSpawn(this.deps.db, this.deps.deviceId, target);
+    if (!fromScreen && (!link || link.childDeviceId !== this.deps.deviceId || link.parentDeviceId !== from || link.parentId !== r.parentSessionId)) return fail('not-spawned-by-caller');
     const c = this.deps.control;
     if (!c) return fail('launch-failed', 'unsupported');
     try {

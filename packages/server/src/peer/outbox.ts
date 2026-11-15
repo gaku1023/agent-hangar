@@ -333,7 +333,7 @@ export class PeerOutbox {
     // 画面から人が頼んだ起動の断りは、入力にせず画面の札で知らせる。
     if (row.caller_session_id === SCREEN_CALLER) {
       this.deps.db.prepare('update peer_outbox set state = ?, reason = ?, updated_at = ? where request_id = ?').run(expired ? 'expired' : 'refused', expired ? 'expired' : reason, this.now(), row.request_id);
-      this.safeToast('error', expired ? screenExpiredText(lang, { device }) : screenRefusalText(lang, { device, reason, ...(detail ? { detail } : {}) }));
+      this.safeToast('error', expired ? screenExpiredText(lang, { device }) : screenRefusalText(lang, { device, reason, op: row.op, ...(detail ? { detail } : {}) }));
       return;
     }
     const text = expired ? expiredText(lang, { device }) : refusalText(lang, { device, reason, op: row.op, ...(detail ? { detail } : {}) });
