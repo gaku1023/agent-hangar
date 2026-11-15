@@ -19,7 +19,7 @@ const REPLY_SPEAK_MAX_MS = 60_000;
 const HINTS_EVERY_MS = 10_000;
 
 export type VoiceServiceDeps = {
-  helper: Pick<VoiceHelper, 'start' | 'send' | 'stop' | 'status' | 'on'>;
+  helper: Pick<VoiceHelper, 'start' | 'send' | 'stop' | 'status' | 'on' | 'off'>;
   /** 補助の実行ファイルがあるか（resolveVoiceBin が null でないか）。無ければ available は偽のまま。 */
   hasHelper: boolean;
   settings: () => { voice: VoiceSetting; orchestratorSessionId: string | null };
@@ -73,6 +73,7 @@ export class VoiceService {
   private timer: NodeJS.Timeout | null = null;
   private lastPublished = '';
   private readonly now: () => number;
+  private readonly onHelperEvent = (e: VoiceEvent) => { this.onEvent(e); };
   private readonly timers: NonNullable<VoiceServiceDeps['timers']>;
 
   constructor(private readonly deps: VoiceServiceDeps) {
@@ -84,7 +85,7 @@ export class VoiceService {
   start(): void {
     if (this.started) return;
     this.started = true;
-    this.deps.helper.on('event', (e: VoiceEvent) => { this.onEvent(e); });
+    this.deps.helper.on('event', this.onHelperEvent);
     this.timer = this.timers.setInterval(() => { this.onTick(); }, TICK_MS);
     this.timer.unref?.();
     if (this.cfg().mode === 'always') this.ensureHelper();
@@ -94,6 +95,7 @@ export class VoiceService {
   async stop(): Promise<void> {
     if (this.timer) { this.timers.clearInterval(this.timer); this.timer = null; }
     this.started = false;
+    this.deps.helper.off('event', this.onHelperEvent);
     await this.deps.helper.stop();
   }
 

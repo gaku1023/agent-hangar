@@ -11,7 +11,10 @@ const BACKOFF_MAX_MS = 30_000;
 const MAX_CONSECUTIVE_CRASHES = 5;
 /** これだけ動き続けてから落ちたときは、続けて落ちたとは数えない。 */
 const STABLE_MS = 60_000;
-const STOP_GRACE_MS = 2000;
+/** stop で quit を送ってから SIGTERM までの長さ、SIGTERM から SIGKILL までの長さ、待つ全体の上限。 */
+const STOP_TERM_MS = 2000;
+const STOP_KILL_MS = 4000;
+const STOP_GIVE_UP_MS = 5000;
 
 /** 補助 hangar-voice の場所。darwin 以外と、見つからないときは null（画面は今のマイクの動きに戻る）。 */
 export function resolveVoiceBin(env: NodeJS.ProcessEnv, platform: NodeJS.Platform, exists: (p: string) => boolean): string | null {
@@ -64,10 +67,18 @@ export class VoiceHelper extends EventEmitter {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     const child = this.child;
     this.state = 'unavailable';
-    if (!child) return;
+    if (!child || child.exitCode != null || child.signalCode != null) return;
+    // quit に応じなければ SIGTERM、それにも応じなければ SIGKILL を送る。それでも終わらなければ待たずに戻る（サーバの終了を止めない）。
     await new Promise<void>((resolve) => {
-      const kill = setTimeout(() => { try { child.kill(); } catch { /* 既に終わっている */ } }, STOP_GRACE_MS);
-      child.once('exit', () => { clearTimeout(kill); resolve(); });
+      const timers: NodeJS.Timeout[] = [];
+      const finish = () => {
+        for (const t of timers) clearTimeout(t);
+        child.off('exit', finish);
+        resolve();
+      };
+      const kill = (sig: NodeJS.Signals) => () => { try { child.kill(sig); } catch { /* 既に終わっている */ } };
+      child.once('exit', finish);
+      timers.push(setTimeout(kill('SIGTERM'), STOP_TERM_MS), setTimeout(kill('SIGKILL'), STOP_KILL_MS), setTimeout(finish, STOP_GIVE_UP_MS));
       this.send({ cmd: 'quit' });
     });
   }

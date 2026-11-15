@@ -350,6 +350,15 @@ describe('声のサービス', () => {
     expect(svc.state().available).toBe(true);
   });
 
+  it('stop で補助の出来事の受け手を外す', async () => {
+    const svc = make();
+    expect(helper.listenerCount('event')).toBe(1);
+    await svc.stop();
+    expect(helper.listenerCount('event')).toBe(0);
+    svc.start();
+    expect(helper.listenerCount('event')).toBe(1);
+  });
+
   it('モデルの状態を state に載せる', () => {
     const svc = make();
     helper.ev({ ev: 'models', state: 'downloading', progress: 0.4 });
