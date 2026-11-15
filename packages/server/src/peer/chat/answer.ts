@@ -208,6 +208,11 @@ const CHIP_RE = /[☐☒☑✔✓]/g;
 const CHIP_ONE_RE = /[☐☒☑✔✓]/;
 const DO_YOU_WANT_RE = /^\s*do you want\b/i;
 /**
+ * 質問の札で、折り返す長い問いの各行の頭に付く縦線（2.1.325 の実機、questionDialogs.fixtures.ts）。
+ * 左端（列 0）から始まるものだけにする。命令の札の本文の縦線（ │ cd …）は頭に空白があるので当たらない。
+ */
+const QUOTE_BAR_RE = /^│ ?/;
+/**
  * 下の破線と問いの間に出る、決まった案内の行（2.1.319 の命令の札）。
  * 決まった文だけを許し、ほかの行が挟まれば本体を読まない。
  */
@@ -359,8 +364,15 @@ export function parseDialog(screen: string): Dialog | null {
   // 最後の行は文の続きなので、すぐ上に続く行に Do you want… の頭があるときは、つないで 1 つの問いとして読む。
   // つなぐのは、その問いがファイルの札として読めるときだけにする（質問の札を許可の札に変えない）。
   let qTop = q;
-  let file = fileDialogOf(lines, q);
-  if (q >= 0 && !DO_YOU_WANT_RE.test(lines[q]!)) {
+  // 折り返す長い質問の問いは、各行の頭に縦線（│ ）が付く（2.1.325）。
+  // 左端から続く縦線の行を 1 つの問いとして読み、縦線を外す（見出しの窓の照合にも外した文を使う）。
+  const barred = q >= 0 && QUOTE_BAR_RE.test(lines[q]!);
+  if (barred) {
+    while (qTop > 0 && QUOTE_BAR_RE.test(lines[qTop - 1]!)) qTop--;
+    for (let k = qTop; k <= q; k++) lines[k] = lines[k]!.replace(QUOTE_BAR_RE, '');
+  }
+  let file = barred ? null : fileDialogOf(lines, q);
+  if (!barred && q >= 0 && !DO_YOU_WANT_RE.test(lines[q]!)) {
     for (let k = q - 1; k >= 0 && q - k <= WRAP_LINES; k--) {
       const l = lines[k]!;
       if (l.trim() === '' || RULE_RE.test(l) || CHIP_ONE_RE.test(l)) break;
