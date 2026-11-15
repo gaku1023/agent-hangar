@@ -25,8 +25,10 @@ describe('resolveVoiceBin', () => {
   });
   it('HANGAR_VOICE_BIN があり実在すればそれ、無ければ開発用のパス、どちらも無ければ null', () => {
     expect(resolveVoiceBin({ HANGAR_VOICE_BIN: '/x/hv' }, 'darwin', (p) => p === '/x/hv')).toBe('/x/hv');
-    const dev = resolveVoiceBin({}, 'darwin', (p) => p.endsWith('apps/voice-mac/dist/hangar-voice'));
-    expect(dev).toMatch(/apps\/voice-mac\/dist\/hangar-voice$/);
+    // 開発用のパスは動いている OS の区切りで組まれる（Windows の CI でも platform を darwin と渡して試す）。
+    const tail = path.join('apps', 'voice-mac', 'dist', 'hangar-voice');
+    const dev = resolveVoiceBin({}, 'darwin', (p) => p.endsWith(tail));
+    expect(dev?.endsWith(tail)).toBe(true);
     expect(resolveVoiceBin({}, 'darwin', () => false)).toBeNull();
   });
 });
