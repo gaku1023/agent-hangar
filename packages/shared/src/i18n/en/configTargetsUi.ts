@@ -38,6 +38,7 @@ export const configTargetsUiEn: AreaDictionary<typeof configTargetsUiKeys> = {
   'configTargetsUi.held.outsideClaude': 'Not applied because a hooks command points outside ~/.claude.',
   'configTargetsUi.held.hangarWrapper': 'Not applied because a hooks command points to the Hangar wrapper.',
   'configTargetsUi.held.localMarketplace': 'Not applied because the marketplace points to a local path.',
+  'configTargetsUi.held.marketplaceMissing': 'No source',
   'configTargetsUi.held.commandMissing': 'Not applied because the command that starts this MCP server is not on this PC.',
   'configTargetsUi.item.missingEnv': '{name} is not set on this PC',
   'configTargetsUi.review.grpApprove': 'Needs approval',

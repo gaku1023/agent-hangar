@@ -6,6 +6,7 @@ import type { ConfigItemKind } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb } from '../../db/open.ts';
 import { FakeCloudClient } from '../../../test/fake-cloud.ts';
+import { codexTomlId } from './ids.ts';
 import { readApplyOrder } from './applyOrder.ts';
 import { writeInbox } from './inbox.ts';
 import { ConfigSyncError, ConfigSyncService } from './service.ts';
@@ -19,7 +20,7 @@ let tmp: string;
 beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'svc-apply-')); });
 afterEach(() => { setHangarPrefsApplier(null); fs.rmSync(tmp, { recursive: true, force: true }); });
 
-function make(o: { switches?: Record<string, boolean>; opencode?: boolean } = {}) {
+function make(o: { switches?: Record<string, boolean>; opencode?: boolean; codex?: boolean } = {}) {
   const claudeDir = path.join(tmp, 'claude'); const home = path.join(tmp, 'home');
   fs.mkdirSync(claudeDir, { recursive: true }); fs.mkdirSync(home, { recursive: true });
   const shared = new FakeCloudClient({ deviceId: 'shared', now: () => NOW, minWorkerCompat: 1 });
@@ -28,7 +29,7 @@ function make(o: { switches?: Record<string, boolean>; opencode?: boolean } = {}
   const svc = new ConfigSyncService({
     db: openDb(':memory:'), deviceId: 'd', deviceName: 'n', claudeDir, home, cloud, keyring: cloud.keyring,
     enabled: () => true, switchedOn: () => true, now: () => NOW,
-    configKinds: () => kindsOf(o.switches ?? {}, 'each'), agentsEnabled: () => ({ codex: false, opencode: o.opencode ?? false }), targetPaths,
+    configKinds: () => kindsOf(o.switches ?? {}, 'each'), agentsEnabled: () => ({ codex: o.codex ?? false, opencode: o.opencode ?? false }), targetPaths,
     userHome: tmp, hostOs: 'darwin',
   });
   return { svc, home, targetPaths };
@@ -103,5 +104,16 @@ describe('知らせと控え', () => {
     for (const b of ['claude-config', 'codex-config']) fs.mkdirSync(path.join(home, 'backups', b, '20261027-120000'), { recursive: true });
     expect(svc.backups().generations.map((g) => g.target ?? 'claude').sort()).toEqual(['claude', 'codex']);
     expect(svc.dto().backups).toBe(2);
+  });
+});
+
+describe('保留の理由（Codex のプラグインの配布元）', () => {
+  it('配布元がこの PC に無い plugins.* は marketplace-missing で held、あれば保留しない', () => {
+    const { svc, home, targetPaths } = make({ switches: { codex: true }, codex: true });
+    const mk = (m: string) => ({ id: codexTomlId(['plugins', `browser@${m}`, 'enabled']), kind: 'codex-config' as ConfigItemKind, content: 'true' });
+    arrive(home, [mk('openai-bundled'), mk('here')], { targets: ['codex'] });
+    fs.mkdirSync(path.join(targetPaths.codexHome, 'plugins', 'cache', 'here'), { recursive: true });
+    const held = Object.fromEntries(svc.inbox().items.map((i) => [i.id, i.held]));
+    expect(held).toEqual({ [mk('openai-bundled').id]: 'marketplace-missing', [mk('here').id]: null });
   });
 });

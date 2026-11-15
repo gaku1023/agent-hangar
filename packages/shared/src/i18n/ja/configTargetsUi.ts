@@ -38,6 +38,7 @@ export const configTargetsUiJa: AreaDictionary<typeof configTargetsUiKeys> = {
   'configTargetsUi.held.outsideClaude': 'hooks のコマンドが ~/.claude の外を指しているため適用していません。',
   'configTargetsUi.held.hangarWrapper': 'hooks のコマンドが Hangar 自身のラッパーを指しているため適用していません。',
   'configTargetsUi.held.localMarketplace': 'marketplace がローカルのパスを指しているため適用していません。',
+  'configTargetsUi.held.marketplaceMissing': '配布元なし',
   'configTargetsUi.held.commandMissing': 'この PC に MCP サーバーの起動コマンドがないため適用していません。',
   'configTargetsUi.item.missingEnv': 'この PC に {name} がありません',
   'configTargetsUi.review.grpApprove': '承認が必要なもの',
