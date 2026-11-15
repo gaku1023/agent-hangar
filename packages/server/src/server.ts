@@ -282,6 +282,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       peer.stop();
       schedules.stop();
       web.orchestrator.stop();
+      await web.voice.stop();
       orchestratorFeed.stop();
       // 自分が起こした ssh のトンネルだけを止める。
       peerSsh?.stop();

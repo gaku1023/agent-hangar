@@ -219,6 +219,15 @@ describe('paths', () => {
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', peerChatAcceptFromPeers: 'no' }));
     expect('peerChatAcceptFromPeers' in loadSettings(tmp)).toBe(false);
   });
+  it('机の音声の設定は、無ければ持たず、保存した値を読め、知らない値は既定に戻す', () => {
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));
+    expect(loadSettings(tmp).voice).toBeUndefined();
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', voice: { mode: 'loud', personaId: 'x', personas: [{ id: 'a', name: 'ミナ', voice: 'bad', speed: 9 }] } }));
+    expect(loadSettings(tmp).voice).toEqual({ mode: 'off', personaId: 'a', personas: [{ id: 'a', name: 'ミナ', reading: '', tone: '', voice: 'os:com.apple.voice.compact.ja-JP.Kyoko', speed: 1.2 }] });
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', voice: 7 }));
+    expect('voice' in loadSettings(tmp)).toBe(false);
+  });
   it('統括の設定は、無ければ持たず、保存した値を読め、手で書き換えた形の違う値は既定に寄せる', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));

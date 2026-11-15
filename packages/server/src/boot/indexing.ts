@@ -47,6 +47,8 @@ export type IndexingParts = {
   bindCodexRateLimits(on: (value: unknown, ts: unknown, creatorAccountId: string | null) => void): void;
   /** 設定の「Codex を有効にする」が変わったとき。Codex の本文の見張りを付け外しして、全件の見比べを頼む。 */
   onSettingsChanged(): void;
+  /** 本文が伸びた会話の知らせを、もう 1 つ受ける（声のサービスが統括の返答の到着を見る）。 */
+  onAppended(listener: (sessionId: string) => void): void;
 };
 
 /**
@@ -102,6 +104,7 @@ export function bootIndexing(
     processStartOf: (q) => processStartOfPrompt(db, deviceId, live.current(), q),
   });
   // git の表示。値は端末ローカルで、変わったときだけ git.upsert を配る。
+  const appendedListeners: ((sessionId: string) => void)[] = [];
   const git = new GitService({
     db, deviceId, live: () => live.current(),
     broadcast: (g) => hub.broadcast({ type: 'git.upsert', git: g }),
@@ -115,7 +118,7 @@ export function bootIndexing(
       started: () => life.started,
       workspaceRoot: () => settings.current.workspaceRoot,
       onLocalTranscript: (f) => sync.uploader?.noteChanged(f),
-      onAppended: (id) => { void git.noteAppended(id); },
+      onAppended: (id) => { void git.noteAppended(id); for (const l of appendedListeners) l(id); },
     }),
     error: (e) => console.error('[indexer]', e.path, e.message),
   });
@@ -129,6 +132,7 @@ export function bootIndexing(
   let stopMemoWatch: () => void = () => undefined;
   let rootTimer: ReturnType<typeof setInterval> | null = null;
   return {
+    onAppended: (listener) => { appendedListeners.push(listener); },
     indexer, memos, git,
     bindContextSize(of) { contextSize = of; },
     bindCodexRateLimits(on) { rateLimits = on; },

@@ -51,3 +51,5 @@ export * from './notifyPreference.ts';
 export * from './notifyInjection.ts';
 export * from './orchestrator.ts';
 export * from './permissionPolicy.ts';
+export * from './voice.ts';
+export * from './speechText.ts';

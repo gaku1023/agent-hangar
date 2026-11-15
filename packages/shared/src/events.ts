@@ -11,6 +11,8 @@ export type ServerEvent =
   | { type: 'session.removed'; id: string }
   | { type: 'live.update'; live: LiveSessionDto[] }
   | { type: 'transcript.appended'; sessionId: string; count: number }
+  /** 机の音声のいまの状態（補助の有無、聞き取りの段、字幕、読み上げ中）。サーバの声のサービスが変わるたびに配る。 */
+  | { type: 'voice.state'; state: import('./voice.ts').VoiceStateDto }
   | { type: 'index.progress'; progress: IndexProgressDto }
   | { type: 'run.started'; run: RunDto; tabs: TabDto[] }
   | { type: 'run.upsert'; run: RunDto }

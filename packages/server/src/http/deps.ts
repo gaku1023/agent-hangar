@@ -14,6 +14,7 @@ import type { OsNoticeFeed } from '../sessions/stopNotices.ts';
 import type { PeerApprovals } from '../peer/approvals.ts';
 import type { SessionTrash } from '../sessions/trash.ts';
 import type { RunManager } from '../runs/manager.ts';
+import type { VoiceService } from '../voice/service.ts';
 import type { MobileLink } from '../mobile/pairer.ts';
 import type { ConfigSyncService } from '../sync/config/service.ts';
 import type { SyncEngine } from '../sync/engine.ts';
@@ -112,6 +113,8 @@ export type AppDeps = {
   /** 表の変化に対応しない知らせ（トースト）を渡す先。行のイベントは渡さない。行を書けば、配る層（events/publisher.ts）が配る。 */
   hub: { broadcast(ev: NoticeEvent): void };
   runs: RunsApi;
+  /** 机の音声のサービス（voice/service.ts）。補助が無い build や環境では渡さず、GET /api/voice は available が偽、動かす口は 409。 */
+  voice?: Pick<VoiceService, 'state' | 'hold' | 'toggle' | 'speak' | 'stopSpeaking' | 'prepare'>;
   /** 定期の実行（schedule/runner.ts）。画面の「今すぐ実行」が呼ぶ。 */
   schedules: { runNow(id: string): 'started' | 'busy' | 'missing'; deliver(sessionId: string, text: string): Promise<{ sessionId: string } | 'busy'> };
   /**

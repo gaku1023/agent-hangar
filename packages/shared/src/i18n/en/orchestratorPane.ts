@@ -11,5 +11,6 @@ export const orchestratorPaneEn: AreaDictionary<typeof orchestratorPaneKeys> = {
   'orchestratorPane.composer.placeholder': 'Talk to the orchestrator',
   'orchestratorPane.composer.send': 'Send',
   'orchestratorPane.error.notRunning': 'The orchestrator is not running',
+  'orchestratorPane.error.voiceUnavailable': 'Voice is not available on this PC',
   'orchestratorPane.error.sendFailed': 'Could not send to the orchestrator: {reason}',
 };

@@ -1,9 +1,13 @@
 import type { AppDeps } from '../http/deps.ts';
 import { serve } from '@hono/node-server';
 import type http from 'node:http';
+import fs from 'node:fs';
 import path from 'node:path';
-import { orchestratorOf, PEER_CHAT_MIN_HANGAR_VERSION, type SettingsDto } from '@agent-hangar/shared';
+import { orchestratorOf, voiceOf, PEER_CHAT_MIN_HANGAR_VERSION, type SettingsDto } from '@agent-hangar/shared';
 import { OrchestratorKeeper } from '../orchestrator/keeper.ts';
+import { sendToOrchestrator } from '../http/routes/orchestrator.ts';
+import { VoiceHelper, resolveVoiceBin } from '../voice/helper.ts';
+import { VoiceService } from '../voice/service.ts';
 import { toSettingsDto } from '../http/routes/settings.ts';
 import { attachPeerChatSocket } from '../peer/chat/wire.ts';
 import { readDropImage } from '../peer/chat/viewImage.ts';
@@ -92,6 +96,8 @@ export type HttpParts = {
   stopPeerChat(): void;
   /** 統括の会話の見張り。起動の手続きの最後に start() を呼び、閉じるときに stop() を呼ぶ。 */
   orchestrator: OrchestratorKeeper;
+  /** 机の音声のサービス。閉じるときに stop() を呼ぶ。補助が無い環境では何も起こさない。 */
+  voice: VoiceService;
 };
 
 /**
@@ -148,6 +154,7 @@ export function bootHttp(p: {
     onOpencodeEnabled: () => { p.mobile.settingsChanged(); indexing.onSettingsChanged(); runs.agentUsage.refresh(); },
     // 統括の入り切りとモデルの変更を、見張りが受けて起こす・止まる。
     onOrchestrator: () => { orchestrator.apply(); },
+    onVoice: () => { voice.onSettingsChanged(); },
   }, patch);
   // 統括の会話の見張り（orchestrator/keeper.ts）。会話の id と、利用者が止めたときの入り切りは、ここから設定へ書き、全部の画面へ配る。
   const orchestrator: OrchestratorKeeper = new OrchestratorKeeper({
@@ -160,6 +167,31 @@ export function bootHttp(p: {
     // 行が消えていなくて、本文がある会話だけを再開できる（run が早く終わって本文の無いまま行が消えた会話は、新しく起こす）。
     resumable: (id) => !!db.prepare('select 1 from sessions s where s.id = ? and s.deleted_at is null and exists (select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null)').get(id),
   });
+  // 机の音声（voice/service.ts）。補助は常に聞くのときと、押す・切り替え・読み上げ・準備が来たときだけ起こす。
+  const voiceBin = resolveVoiceBin(process.env, process.platform, fs.existsSync);
+  const providerIdOf = db.prepare('select provider, provider_session_id psid from sessions where id = ? and deleted_at is null');
+  const titles = db.prepare('select coalesce(n.name, s.custom_title, s.ai_title, s.first_prompt) t from sessions s left join session_notes n on n.session_id = s.id where s.deleted_at is null order by s.last_activity_at desc limit 100');
+  const projectNames = db.prepare('select name from projects where deleted_at is null');
+  const voice = new VoiceService({
+    helper: new VoiceHelper({ bin: voiceBin }),
+    hasHelper: voiceBin !== null,
+    settings: () => ({ voice: voiceOf(settings.current.voice), orchestratorSessionId: orchestratorOf(settings.current.orchestrator).sessionId }),
+    send: (text, origin) => sendToOrchestrator({ db, settings: () => settings.current, runs: runs.runs, language: home.language }, text, origin),
+    broadcast: (ev) => { delivery.hub.broadcast(ev); },
+    hintSource: () => ({
+      sessionTitles: (titles.all() as { t: string | null }[]).map((r) => r.t ?? '').filter((x) => x !== ''),
+      projectNames: (projectNames.all() as { name: string }[]).map((r) => r.name),
+    }),
+    orchestratorStatus: () => {
+      const id = orchestratorOf(settings.current.orchestrator).sessionId;
+      const r = id ? (providerIdOf.get(id) as { provider: string; psid: string | null } | undefined) : undefined;
+      if (!r?.psid) return null;
+      return delivery.live.current().find((l) => (l.agent ?? 'claude-code') === r.provider && l.sessionId === r.psid)?.status ?? null;
+    },
+  });
+  voice.start();
+  // 強い声のターンの終わり（統括が入力待ちに戻った）を、実行中の一覧の変化で見る。
+  delivery.live.onChange(() => { voice.onLiveChange(); });
   setHangarPrefsApplier((_home, patch) => { updateSettings(patch as Partial<SettingsDto>); });
   // ほかの PC の会話の見張り。
   // 画面の WebSocket の peerChat.watch と peerChat.unwatch、切断で見ている人を数え、いなくなれば止める。
@@ -176,6 +208,7 @@ export function bootHttp(p: {
   });
   attachPeerChatSocket(delivery.sockets, peerChat);
   const app = createApp({
+    voice,
     peerChat,
     // 同期は起動のあとに始まることがある（boot/sync.ts）。同期の部品は呼ぶたびに引く。
     cloudUsage: { current: () => sync.cloudUsage.current(), refresh: () => sync.cloudUsage.refresh() },
@@ -276,5 +309,5 @@ export function bootHttp(p: {
   relay.attach(server, '/ws/pty');
   // 経路を握る側は path が違えば黙って返すので、最後に未知の経路を切る番人を置く。
   guardUpgrades(server);
-  return { stopRelay: () => relay.close(), stopPeerChat: () => peerChat.stop(), orchestrator };
+  return { stopRelay: () => relay.close(), stopPeerChat: () => peerChat.stop(), orchestrator, voice };
 }
