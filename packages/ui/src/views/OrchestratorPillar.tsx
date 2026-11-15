@@ -1,7 +1,9 @@
-import type { OrchestratorOrigin } from '@agent-hangar/shared';
+import type { OrchestratorOrigin, VoiceStateDto } from '@agent-hangar/shared';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { ApprovalRowView, OrchestratorPillarProps } from '../presenters/orchestrator.ts';
+import { createApi } from '../runtime/api.ts';
+import { hangarVoicePort } from '../voice/hangarVoicePort.ts';
 import { createSpeaker } from '../voice/speaker.ts';
 import type { VoicePort } from '../voice/voicePort.ts';
 import { webVoicePort } from '../voice/webVoicePort.ts';
@@ -9,6 +11,7 @@ import { isComposing } from './ime.ts';
 import { PeerChatLog } from './PeerChatLog.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { MicButton } from './primitives/MicButton.tsx';
+import { VoicePill } from './primitives/VoicePill.tsx';
 import { useLanguage, useT } from './primitives/language.tsx';
 import { collapseOut, fadeIn, growIn } from './primitives/motionKit.ts';
 import { useMotionList } from './primitives/useMotionList.ts';
@@ -20,19 +23,30 @@ import { setOrchestratorOpen, useOrchestratorOpen } from './orchestratorOpen.ts'
 let sharedPort: VoicePort | null = null;
 const defaultPort = (): VoicePort => (sharedPort ??= webVoicePort());
 
+/** 補助（hangar-voice）の口。補助が使えるとき（voice.available）だけ、Web Speech の代わりに使う。 */
+type VoiceApi = Parameters<typeof hangarVoicePort>[0] & Parameters<typeof VoicePill>[0]['api'];
+let sharedVoiceApi: VoiceApi | null = null;
+const defaultVoiceApi = (): VoiceApi => (sharedVoiceApi ??= createApi());
+
 /**
  * 統括の柱（案 A、docs/design.md「統括」）。窓の右端に、いつも同じ場所にある。
  * 畳むと丸 1 つ（統括の状態の色）。開くと、上に方針の 1 行と自動許可の記録、下に統括との会話と入力欄を置く。入力欄の右にマイク。
  * 開き閉じは幅の伸び縮み（growIn と collapseOut の x）で、丸と柱の入れ替えは usePresence を通る。
  * 見出しや説明の文は置かない。方針の下に並ぶ記録が「方針で通したもの」で、会話の列が「聞かれたもの」である。
  */
-export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?: VoicePort; defaultOpen?: boolean }) {
+export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?: VoicePort; voiceApi?: VoiceApi; defaultOpen?: boolean }) {
   const { orch } = props;
   const t = useT();
   const emit = useEmit();
   const language = useLanguage();
   const port = useMemo(() => props.port ?? defaultPort(), [props.port]);
-  const speaker = useMemo(() => createSpeaker(port, () => language), [port, language]);
+  const voiceApi = useMemo(() => props.voiceApi ?? defaultVoiceApi(), [props.voiceApi]);
+  const hangarPort = useMemo(() => hangarVoicePort(voiceApi), [voiceApi]);
+  hangarPort.update(orch.voice ?? null);
+  // 補助が使えるときは読み上げも補助へ（POST /api/voice/speak）。使えないときは今の Web Speech のまま。
+  const helper = orch.voice?.available === true;
+  const livePort = helper ? hangarPort : port;
+  const speaker = useMemo(() => createSpeaker(livePort, () => language), [livePort, language]);
   const langRef = useRef(language);
   langRef.current = language;
   // 開閉はサイドバーの「統括」の行と共有する（orchestratorOpen.ts）。defaultOpen は最初の描画で 1 度だけ効く（覚えない）。
@@ -42,6 +56,8 @@ export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?
   const dot = useRef<HTMLButtonElement>(null);
   const [speakingKey, setSpeakingKey] = useState<string | null>(null);
   const micUsed = useRef(false);
+  // 補助で聞いている間も、マイクを使ったとみなす（返答のあとの知らせを読む）。
+  if (orch.voice?.phase === 'listening') micUsed.current = true;
 
   // 会話と記録の読み込み。柱が出たとき（読み上げは畳んでいても要る）と、開くたびに頼む。
   useEffect(() => { emit({ type: 'orchestrator.open' }); }, [emit, open]);
@@ -79,9 +95,9 @@ export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?
   // 読み終えたら印を消す。
   useEffect(() => {
     if (speakingKey === null) return;
-    const id = setInterval(() => { if (!port.speaking()) setSpeakingKey(null); }, 300);
+    const id = setInterval(() => { if (!livePort.speaking()) setSpeakingKey(null); }, 300);
     return () => clearInterval(id);
-  }, [speakingKey, port]);
+  }, [speakingKey, livePort]);
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape') { speaker.stop(); setSpeakingKey(null); } };
     window.addEventListener('keydown', onKey);
@@ -94,7 +110,7 @@ export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?
   return (
     <aside className="orch" data-open={open ? 'true' : undefined}>
       {!presence.mounted && (
-        <button ref={dot} type="button" className="orch-dot" data-tone={orch.tone} aria-label={t('orchestratorPane.pillar.open')} title={orch.statusLabel} onClick={() => toggle(true)} />
+        <button ref={dot} type="button" className="orch-dot" data-tone={orch.tone} data-phase={helper ? orch.voice?.phase : undefined} aria-label={t('orchestratorPane.pillar.open')} title={orch.statusLabel} onClick={() => toggle(true)} />
       )}
       {presence.mounted && (
         <section ref={presence.ref} className="orch-panel" aria-label={t('orchestratorPane.pillar.region')} data-leaving={presence.leaving ? 'true' : undefined}>
@@ -104,7 +120,7 @@ export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?
           </div>
           <Approvals rows={orch.approvals} />
           <PeerChatLog rows={rows} loading={orch.loading} quietEmpty label={t('orchestratorPane.log.label')} onCancel={() => {}} onAnswer={() => {}} />
-          <Composer canSend={orch.canSend} sending={orch.sending} port={port} onSend={send} onMic={() => { micUsed.current = true; }} />
+          <Composer canSend={orch.canSend} sending={orch.sending} port={port} voice={helper ? orch.voice! : null} voiceApi={voiceApi} onSend={send} onMic={() => { micUsed.current = true; }} />
         </section>
       )}
     </aside>
@@ -133,7 +149,7 @@ function Approvals({ rows }: { rows: ApprovalRowView[] }) {
 }
 
 /** 入力欄。右端にマイクと送るボタン。聞いている間は途中の文が欄に流れ、確定すると由来 voice-held で送る（印はサーバが由来から付ける）。 */
-function Composer(props: { canSend: boolean; sending: boolean; port: VoicePort; onSend: (text: string, origin?: OrchestratorOrigin) => void; onMic: () => void }) {
+function Composer(props: { canSend: boolean; sending: boolean; port: VoicePort; voice: VoiceStateDto | null; voiceApi: VoiceApi; onSend: (text: string, origin?: OrchestratorOrigin) => void; onMic: () => void }) {
   const t = useT();
   const [text, setText] = useState('');
   const ta = useRef<HTMLTextAreaElement>(null);
@@ -165,7 +181,8 @@ function Composer(props: { canSend: boolean; sending: boolean; port: VoicePort; 
       <div className="pchat-box" data-blocked={props.canSend ? undefined : 'true'}>
         <textarea ref={ta} rows={1} value={text} aria-label={t('orchestratorPane.composer.label')} placeholder={t('orchestratorPane.composer.placeholder')} disabled={!props.canSend}
           onChange={(e) => setText(e.target.value)} onKeyDown={onKeyDown} />
-        {props.canSend && <MicButton port={props.port} onInterim={onInterim} onSend={(s) => { props.onMic(); props.onSend(s, 'voice-held'); }} />}
+        {props.canSend && props.voice && <VoicePill state={props.voice} api={props.voiceApi} />}
+        {props.canSend && !props.voice && <MicButton port={props.port} onInterim={onInterim} onSend={(s) => { props.onMic(); props.onSend(s, 'voice-held'); }} />}
         <button type="button" className="pchat-send" disabled={!ready} aria-label={t('orchestratorPane.composer.send')} onClick={submit}><Icon name="seeAll" /></button>
       </div>
     </div>

@@ -1271,7 +1271,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // 更新の確認（起動したときに 1 度、その後は数時間おき）。殻が updater を持たなければ何もしない。
       updater?.start();
       ws = deps.ws({
-        onOpen: () => { dispatch({ kind: 'runtime', event: { type: 'ws.open' } }); peerChat.rewatch(); },
+        onOpen: () => {
+          dispatch({ kind: 'runtime', event: { type: 'ws.open' } });
+          peerChat.rewatch();
+          // 机の音声の今の状態。補助が無い・古いサーバで読めなければ null のまま（今のマイクの動き）。
+          deps.api.voice().then((v) => { if (v) setStore({ ...store, voice: v }); }, () => {});
+        },
         // 切れた時刻を添える。Mediator は純粋な遷移なので、画面がいつから古いかを自分では測れない。
         onClose: () => dispatch({ kind: 'runtime', event: { type: 'ws.close', at: (deps.now ?? Date.now)() } }),
         onEvent: receive,
