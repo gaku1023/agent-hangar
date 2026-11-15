@@ -20,6 +20,8 @@ import { paneDrag } from './paneDrag.ts';
 import { measureRows, pinFlight, slideRows } from './pinSlide.ts';
 import { spawnFoldKey } from '../presenters/spawnTree.ts';
 import { PeerMark } from './PeerOrigin.tsx';
+import { setOrchestratorOpen, useOrchestratorOpen } from './orchestratorOpen.ts';
+import type { OrchestratorNavProps } from '../presenters/orchestrator.ts';
 
 /** 画面の名前からナビのアイコンへの対応。見た目の話なので Presenter ではなくここに置く。 */
 const NAV_ICON: Record<string, IconName> = { home: 'home', projects: 'projects', schedules: 'calendar', settings: 'settings' };
@@ -37,6 +39,22 @@ function NavCount(props: { n: number; waiting?: number; unread?: number }) {
   const unread = props.unread ?? 0;
   const sr = `${waiting > 0 ? t('sidebar.count.waiting', { n: waiting }) : ''}${unread > 0 ? t('sidebar.count.unread', { n: unread }) : ''}`;
   return <CountBubble n={props.n} sr={sr} className="nav-count" />;
+}
+
+/**
+ * 予定の下の「統括」の行。押すと統括の柱を開閉する（右下の丸と同じ動き）。
+ * 右に統括の状態の丸（色は柱の丸と同じ tone）と、判断待ちと未読の数の札。畳んだ帯ではアイコンだけになる（base.css）。
+ */
+function OrchestratorNavRow(props: { orch: OrchestratorNavProps }) {
+  const { orch } = props;
+  const open = useOrchestratorOpen();
+  return (
+    <button type="button" className="nav-item nav-orch" aria-pressed={open} title={orch.statusLabel} onClick={() => setOrchestratorOpen(!open)}>
+      <Icon name="orchestrator" /><span className="nav-label">{orch.label}</span>
+      <span className="nav-orch-dot" data-tone={orch.tone} aria-hidden="true" />
+      <NavCount n={orch.count} waiting={orch.waiting} unread={orch.unread} />
+    </button>
+  );
 }
 
 /** 行を別の行の前か後ろへ移した後の並び。移す先が無ければ元のまま返す。 */
@@ -654,7 +672,7 @@ const SIDEBAR_KEYS = KEYMAP.find((k) => k.id === 'sidebar.toggle')!;
  * サイドバー。上から「ホーム」「プロジェクト」の 2 項目、「実行中」の節、下端の「設定」の順に置く（設計書 2.1）。
  * 設定は foot で受け取り、残りの高さの底に寄せる。
  */
-export function Sidebar(props: { nav: NavItem[]; foot: NavItem[]; collapsed: boolean; live: SideLiveProps }) {
+export function Sidebar(props: { nav: NavItem[]; foot: NavItem[]; collapsed: boolean; live: SideLiveProps; orch?: OrchestratorNavProps | null }) {
   const emit = useEmit();
   const t = useT();
   const item = (n: NavItem) => (
@@ -670,6 +688,7 @@ export function Sidebar(props: { nav: NavItem[]; foot: NavItem[]; collapsed: boo
           2 つの形は CSS だけで作り、DOM の組み立ては変えない。開閉の動きは、開閉の印だけを一瞬戻して前の形を測るからである（sidebarMotion.ts）。 */}
       <div className="nav-row">{first && item(first)}{toggle}</div>
       {rest.map(item)}
+      {props.orch && <OrchestratorNavRow orch={props.orch} />}
       <LiveSection live={props.live} />
       {props.foot.length > 0 && <div className="side-foot">{props.foot.map(item)}</div>}
     </nav>

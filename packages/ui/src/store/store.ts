@@ -529,8 +529,12 @@ export function hotOrAlive(store: Store, alive: Set<string>): SessionDto[] {
   const hot = hotSessions(store.sessions);
   const seen = new Set(hot.map((s) => s.id));
   const more = [...alive].filter((id) => !seen.has(id)).map((id) => store.sessions[id]).filter((s): s is SessionDto => s !== undefined);
-  return [...hot, ...more];
+  // 統括の会話は、サイドバーの一覧とホームの一覧に出さない（サイドバーの上の「統括」の行が代わる）。
+  return [...hot, ...more].filter((s) => !isOrchestratorSession(s));
 }
+
+/** 統括の会話か（role の印）。一覧から外す判定に使う。検索と、会話の画面への直接の移動には使わない。 */
+export const isOrchestratorSession = (s: SessionDto): boolean => s.role === 'orchestrator';
 
 /** 終わっていない run があるセッションの id。 */
 export function runningSessionIds(store: Store): Set<string> {

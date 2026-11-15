@@ -6,7 +6,7 @@ import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
 import type { OverlapProps } from './overlap.ts';
 import { rowAgent } from './agentIcon.ts';
-import { aliveRunOf, awaitsAnswerAnywhere, hotOrAlive, hotSessions, liveFilterOfSession, outsideOpenOf, runningSessionIds, aliveAnywhere, remoteLockOf, remoteLiveOf, remoteReasonOf, shownAside, unreadSessionIds, type Store } from '../store/store.ts';
+import { aliveRunOf, awaitsAnswerAnywhere, hotOrAlive, hotSessions, isOrchestratorSession, liveFilterOfSession, outsideOpenOf, runningSessionIds, aliveAnywhere, remoteLockOf, remoteLiveOf, remoteReasonOf, shownAside, unreadSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortenPaths } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
@@ -206,7 +206,7 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
   });
 
   // 未読のある会話。知らせの新しいものが先。設定 unreadBadge が切なら出さない（store.ts の unreadSessionIds）。
-  const unread = unreadSessionIds(store).map((id): UnreadCard => {
+  const unread = unreadSessionIds(store).filter((id) => !isOrchestratorSession(store.sessions[id]!)).map((id): UnreadCard => {
     const s = store.sessions[id]!;
     const u = s.unread!;
     const live = quietLive(liveWithLimit(s.live, s.limit), s.state?.status, s.woke);
