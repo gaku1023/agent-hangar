@@ -241,7 +241,7 @@ function presentReview(state: State, store: Store, t: Translate): ConfigReviewDi
   const o = state.overlay;
   const stores = new Map((inbox?.stores ?? FALLBACK_STORES).map((x) => [x.name, x]));
   const sep = t('configSyncUi.review.summarySep');
-  // 競合、承認が必要なもの（4a）、そのまま適用するもの、保留（4α、畳む）の順。群の中は操作の危ない順に並べる。
+  // 競合、承認が必要なもの（4a）、そのまま適用するものの順。保留は確認に出さず、設定の行の下の「適用外の変更」に出す。群の中は操作の危ない順に並べる。
   const byOp = (a: ConfigInboxItemDto, b: ConfigInboxItemDto) => OP_ORDER.indexOf(a.op) - OP_ORDER.indexOf(b.op);
   const opRow = (x: ConfigInboxItemDto): ConfigRowProps => {
     const r = inboxRow(t, x);
@@ -253,7 +253,6 @@ function presentReview(state: State, store: Store, t: Translate): ConfigReviewDi
     const conflicts = live.filter((i) => i.op === 'conflict');
     const approve = live.filter(needsPick).sort(byOp);
     const auto = live.filter((i) => i.op !== 'conflict' && !needsPick(i)).sort(byOp);
-    const held = xs.filter((i) => i.held !== null);
     const groups: ConfigGroupProps[] = [];
     if (conflicts.length > 0) groups.push({ id: 'conflict', title: t('configSyncUi.op.conflict'), count: conflicts.length, peek: null, note: t('configSyncUi.opNote.conflict'), open: true, rows: conflicts.map((x) => inboxRow(t, x)) });
     if (approve.length > 0) groups.push({ id: 'approve', title: t('configTargetsUi.review.grpApprove'), count: approve.length, peek: null, note: t('configTargetsUi.review.grpApproveNote'), open: true, rows: approve.map(opRow) });
@@ -261,7 +260,6 @@ function presentReview(state: State, store: Store, t: Translate): ConfigReviewDi
       const closed = xs.length > BIG;
       groups.push({ id: 'auto', title: t('configTargetsUi.review.grpAuto'), count: auto.length, peek: closed ? peekOf(t, auto.map((x) => x.label)) : null, note: null, open: !closed, rows: auto.map(opRow) });
     }
-    if (held.length > 0) groups.push({ id: 'held', title: t('configSyncUi.op.held'), count: held.length, peek: peekOf(t, held.map((x) => x.label)), note: t('configTargetsUi.held.note'), open: false, rows: held.map((x) => inboxRow(t, x)) });
     return groups;
   };
   const writes = items.filter(appliesNow);
@@ -398,6 +396,7 @@ export function presentConfigDialog(state: State, store: Store): ConfigDialogPro
 // ---- 設定の節の「設定を同期」 ----
 
 export type ConfigBackupRowProps = { name: string; /** 世代の対象（claude、codex、opencode、agents-skills）。Claude の世代は claude。 */ target: string; /** 対象の名前（同じ時刻の世代が対象ごとにあるので、行に出す）。 */ targetLabel: string; when: string; files: string; /** 殻が無いときに、ターミナルで戻すコマンド。 */ command: string };
+export type ConfigHeldRowProps = { id: string; label: string; /** memory をプロジェクトごとにまとめた行の件数。ほかは null。 */ count: number | null; reason: string };
 export type ConfigSyncSectionProps = {
   /** クラウドに参加していない（または、新しい実装を知らない古いサーバ）。スイッチを押せない。 */
   needsCloud: boolean;
@@ -408,7 +407,9 @@ export type ConfigSyncSectionProps = {
   native: boolean;
   /** 適用の待ち（指示書がある）。殻が無いときに打つコマンドと、いつ書かれたか。 */
   order: { count: number; when: string; command: string } | null;
-  incoming: { count: number; held: number; from: string | null };
+  incoming: { count: number; from: string | null };
+  /** 適用外の変更（保留）。count は行の下のリンクの件数、rows は開いたときの一覧（memory はプロジェクトごとに 1 行）。 */
+  held: { count: number; rows: ConfigHeldRowProps[] };
   /**
    * 送らなかった項目（3A）。count は送れるかどうかを選べるものの件数で、未対応のキーは数えない（unknown に別に持つ）。
    * groups は理由ごとの群（シークレット、この PC だけ、未対応のキー）。
@@ -452,6 +453,23 @@ const UNSENT_GROUPS = [
   { id: 'unknown', kinds: ['unknown-key'], title: 'configTargetsUi.unsent.g.unknown', note: 'configTargetsUi.unsent.g.unknownNote' },
 ] as const;
 
+/** 保留の一覧。memory は `<プロジェクト>/<ファイル>` の先頭でまとめて 1 行、ほかは項目の名前で 1 行。 */
+function heldRows(t: Translate, inbox: ConfigInboxItemDto[]): ConfigHeldRowProps[] {
+  const rows: ConfigHeldRowProps[] = [];
+  const byProject = new Map<string, ConfigHeldRowProps>();
+  for (const i of inbox) {
+    if (i.held === null) continue;
+    if (i.kind !== 'memory') { rows.push({ id: i.id, label: i.label, count: null, reason: heldNote(t, i.held) }); continue; }
+    const project = i.label.split('/')[0] ?? i.label;
+    const hit = byProject.get(project);
+    if (hit) { hit.count = (hit.count ?? 0) + 1; continue; }
+    const row = { id: `memory:${project}`, label: project, count: 1, reason: heldNote(t, i.held) };
+    byProject.set(project, row);
+    rows.push(row);
+  }
+  return rows;
+}
+
 export function presentConfigSection(store: Store, now: number, focusUnsent = false): ConfigSyncSectionProps {
   const t = translatorOf(store);
   const c = store.configSync;
@@ -469,7 +487,8 @@ export function presentConfigSection(store: Store, now: number, focusUnsent = fa
     lastSent: c?.lastSentAt != null ? relativeTime(t, c.lastSentAt, now) : null,
     native: store.desktop,
     order: c?.applyOrder ? { count: c.applyOrder.count, when: relativeTime(t, c.applyOrder.createdAt, now), command: hangarCommand(store, 'config apply') } : null,
-    incoming: { count: c?.incoming ?? 0, held: c?.held ?? 0, from: from.length === 0 ? null : from.join(t('configSyncUi.peek.sep')) },
+    incoming: { count: c?.incoming ?? 0, from: from.length === 0 ? null : from.join(t('configSyncUi.peek.sep')) },
+    held: { count: c?.held ?? 0, rows: heldRows(t, inbox) },
     unsent: (() => {
       const rows = sendableUnsentOf(c) + unknownKeyCountOf(c) === 0 ? [] : (d.unsent?.items ?? []).map((u) => ({ u, row: rowOfUnsent(u) }));
       const groups = UNSENT_GROUPS.flatMap((g): ConfigGroupProps[] => {

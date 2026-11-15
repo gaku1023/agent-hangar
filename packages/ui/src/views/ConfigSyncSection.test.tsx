@@ -207,4 +207,34 @@ describe('Claude Code の設定の同期の節', () => {
       expect(screen.getByText(/EACCES/)).toBeInTheDocument();
     });
   });
+  describe('適用外の変更（行の下の 1 行）', () => {
+    const held = [
+      { id: 'memory:p9/memory/a.md', kind: 'memory' as const, label: 'proj/a.md', op: 'create' as const, fromDeviceId: 'd', fromDevice: 'Studio', size: 1, marks: [], head: '', held: 'no-project' as const, needsApproval: false },
+      { id: 'claude-hooks:hooks', kind: 'claude-hooks' as const, label: 'hooks', op: 'overwrite' as const, fromDeviceId: 'd', fromDevice: 'Studio', size: 1, marks: [], head: '', held: 'other-os' as const, needsApproval: false },
+    ];
+    const withHeld = (n = 2) => propsOf(dto({ held: n }), { inbox: { items: held, approval: 'each' } });
+    it('保留だけのとき、受信の行は「ありません」で確認は押せず、リンクが出る', () => {
+      render(ui(withHeld()));
+      expect(screen.getByRole('button', { name: '適用内容を確認' })).toBeDisabled();
+      expect(screen.queryByText(/保留/)).toBeNull();
+      expect(screen.getByRole('button', { name: '適用外の変更 2 件' })).toHaveAttribute('aria-expanded', 'false');
+    });
+    it('保留が 0 ならリンクを出さない', () => {
+      render(ui(propsOf(dto())));
+      expect(screen.queryByRole('button', { name: /適用外の変更/ })).toBeNull();
+    });
+    it('押すと一覧が開き、行ごとに名前と短い理由が出る。もう一度押すと閉じる', async () => {
+      render(ui(withHeld()));
+      const link = screen.getByRole('button', { name: '適用外の変更 2 件' });
+      fireEvent.click(link);
+      expect(link).toHaveAttribute('aria-expanded', 'true');
+      const list = screen.getByRole('list', { name: '適用外の変更 2 件' });
+      expect(within(list).getByText('proj')).toBeInTheDocument();
+      expect(within(list).getByText('プロジェクトなし')).toBeInTheDocument();
+      expect(within(list).getByText('hooks')).toBeInTheDocument();
+      expect(within(list).getByText('他の OS 用')).toBeInTheDocument();
+      fireEvent.click(link);
+      expect(link).toHaveAttribute('aria-expanded', 'false');
+    });
+  });
 });

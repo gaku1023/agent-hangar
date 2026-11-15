@@ -33,7 +33,6 @@ export const configTargetsUiKeys = {
   'configTargetsUi.unsent.anyway.title': [],
   'configTargetsUi.unsent.anyway.body': [],
   'configTargetsUi.unsent.anyway.ok': [],
-  'configTargetsUi.held.note': [],
   'configTargetsUi.held.otherOs': [],
   'configTargetsUi.held.outsideClaude': [],
   'configTargetsUi.held.hangarWrapper': [],
