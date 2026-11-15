@@ -39,6 +39,7 @@ export const configTargetsUiKeys = {
   'configTargetsUi.held.hangarWrapper': [],
   'configTargetsUi.held.localMarketplace': [],
   'configTargetsUi.held.commandMissing': [],
+  'configTargetsUi.held.marketplaceMissing': [],
   'configTargetsUi.item.missingEnv': ['name'],
   'configTargetsUi.review.grpApprove': [],
   'configTargetsUi.review.grpApproveNote': [],

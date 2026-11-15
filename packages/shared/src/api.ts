@@ -759,9 +759,10 @@ export type ConfigInboxOp = 'create' | 'overwrite' | 'delete' | 'conflict';
 /**
  * 届いた項目をこの PC に書けない理由。no-project は対応するプロジェクトが無い、local-blocked は手元の同名のものが運べない。
  * other-os は送り手と OS が違う（フックとステータス行）、outside-claude はフックが `~/.claude` の外を指す、hangar-wrapper は Hangar の包みを指す、
- * local-marketplace はプラグインの配布元が送り手の PC のフォルダを指す、command-missing は MCP の起動するコマンドがこの PC に無い。
+ * local-marketplace はプラグインの配布元が送り手の PC のフォルダを指す、command-missing は MCP の起動するコマンドがこの PC に無い、
+ * marketplace-missing は Codex のプラグインの配布元（`[marketplaces.*]` と plugins/cache）がこの PC に無い。
  */
-export type ConfigHeldReason = 'no-project' | 'local-blocked' | 'other-os' | 'outside-claude' | 'hangar-wrapper' | 'local-marketplace' | 'command-missing';
+export type ConfigHeldReason = 'no-project' | 'local-blocked' | 'other-os' | 'outside-claude' | 'hangar-wrapper' | 'local-marketplace' | 'command-missing' | 'marketplace-missing';
 export type ConfigInboxItemDto = {
   id: string; kind: ConfigItemKind; label: string; op: ConfigInboxOp;
   fromDeviceId: string; fromDevice: string; size: number; marks: ConfigExecMark[];

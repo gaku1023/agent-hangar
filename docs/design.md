@@ -8256,6 +8256,7 @@ MCP サーバーの設定は、名前ごとに 1 項目で運ぶ。URL も stdio
   3 対象とも適用の口（`applyAll.ts`）に `planOps` と `store` を持つ。`planOps` は書く先の中身を `read` で読み、同じファイルを先に書く対象（`config.toml` は `codex`、opencode.json(c) は `opencode`）の書いた後の中身の上に自分の鍵を重ねる。`~/.claude.json` を書くのは `claude-mcp` だけである。
   控えの置き場は `claude-mcp-config`（`~/.claude.json` の入れ物の下に戻す）、`codex-mcp-config`、`opencode-mcp-config`。好みの鍵の対象の置き場（`codex-config`、`opencode-config`）とは別にして、古い版の世代の数え方を変えない。`hangar config restore --target claude-mcp|codex-mcp|opencode-mcp` で戻せる。
   受け手の保留（`command-missing`）は、service の `resolved()` が `held` に載せる（`holdOfMcpItem`）。保留の項目は選ばせず、適用でも断る。
+  Codex の `plugins.<名前>@<配布元>.enabled` は、この PC の config.toml に `[marketplaces.<配布元>]` も `<CODEX_HOME>/plugins/cache/<配布元>` も無ければ `marketplace-missing` で保留する（`holdOfCodexPlugin`）。`marketplaces` の鍵そのものは運ばない（machine の鍵）。
 
 消去の条件は対象ごとに数える。
 - id の持ち主の対象を `owns` で決め、その対象を扱う相手（束の `targets` に入れている相手）の束だけで、holder と「どの束にも無い」を決める。

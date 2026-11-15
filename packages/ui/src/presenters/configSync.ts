@@ -142,6 +142,7 @@ function heldNote(t: Translate, h: ConfigHeldReason): string {
     case 'hangar-wrapper': return t('configTargetsUi.held.hangarWrapper');
     case 'local-marketplace': return t('configTargetsUi.held.localMarketplace');
     case 'command-missing': return t('configTargetsUi.held.commandMissing');
+    case 'marketplace-missing': return t('configTargetsUi.held.marketplaceMissing');
   }
 }
 
