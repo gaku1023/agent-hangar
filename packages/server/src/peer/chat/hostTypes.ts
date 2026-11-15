@@ -10,6 +10,8 @@ export type HostSession = {
    * 動いていなければ null。
    */
   live: LiveStatus | null;
+  /** 本体は入力を受け付けていて、裏の作業（シェル、サブエージェント）だけが動いている（登録の aside）。預かりは止まっているときと同じに渡す。 */
+  aside: boolean;
   waitingFor: WaitKind | null;
   permission: PermissionAskDto | null;
   activity: SessionActivityDto | null;

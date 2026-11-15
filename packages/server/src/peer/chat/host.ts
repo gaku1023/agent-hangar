@@ -92,6 +92,11 @@ export type PeerChatHost = {
   /** 全部の会話の、いまの預かり（会話の id ごと）。画面を開き直したときの最初の状態に使う。 */
   queued(): Record<string, PeerChatQueued[]>;
   /**
+   * この PC の帯の「中断して渡す」。走っているターンに Escape を打ち、先頭の預かりをターンを待たずに渡す。
+   * 預かりが無ければ queue-expired、札が出ていれば ask-mismatch で断る。
+   */
+  rush(sessionId: string): Promise<PeerChatReply>;
+  /**
    * この PC の中から、この PC の会話の札に答える口（統括の answer_ask、docs/design.md「統括」）。
    * ほかの PC の答えと同じ答え手と記録を通すので、同じ札に 2 度は打たず、先に答えた方が勝つ。
    * ほかの PC からの頼みの入り切り（peerChatAcceptFromPeers）には縛られない。答えてよいかの判断は呼び手が持つ。
@@ -113,7 +118,9 @@ const refuse = (reason: Extract<PeerChatReply, { ok: false }>['reason']): PeerCh
  * cancel は入れない（送り主が自分の預かりを取り戻すだけで、この PC の入力には触れない。
  * 設定を切ったあとも、預けた文を取り戻せるようにする）。
  */
-const SENDING: ReadonlySet<PeerChatRequest['op']['t']> = new Set(['send', 'answer', 'interrupt', 'resume-send']);
+const SENDING: ReadonlySet<PeerChatRequest['op']['t']> = new Set(['send', 'answer', 'interrupt', 'resume-send', 'rush']);
+/** 中断（Escape）を打ってから、急がせを始めるまでの間。Claude が中断を受けて入力欄を空けるのを待つ。 */
+const RUSH_AFTER_ESCAPE_MS = 300;
 
 export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -124,6 +131,8 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
   const turnState = (sessionId: string): TurnState => {
     const s = deps.session(sessionId);
     if (!s || s.live === null || !deps.run(sessionId)) return 'stopped';
+    // 裏の作業だけが動いている間は、本体は入力を受け付けているので、止まっているのと同じに扱う。
+    if (s.live === 'busy' && s.aside) return 'idle';
     return s.live;
   };
   const pathsByQueue = new Map<string, string[]>();
@@ -216,6 +225,23 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
 
   const sendDeps: SendDeps = { deps, queue, view, staged, pathsByQueue };
 
+  /**
+   * 中断して渡す。by を渡せばその預かり（送った PC だけ）、省けば先頭（この PC の帯）。
+   * 預かりを確かめてから Escape を打ち、少し待ってから急がせる。先に急がせると、Escape の前に文を貼ってしまう。
+   * 札が出ているとき（Escape が断りになる）は ask-mismatch で断り、何も打たない。
+   */
+  async function rush(sessionId: string, by?: { queueId: string; byDeviceId: string }): Promise<PeerChatReply> {
+    const list = queue.list(sessionId);
+    const item = by ? list.find((q) => q.queueId === by.queueId) : list[0];
+    if (!item || item.state !== 'waiting' || (by && item.from.deviceId !== by.byDeviceId)) return refuse('queue-expired');
+    const r = await answerer.interruptRun(sessionId);
+    if (!r.ok) return refuse(r.reason);
+    if (r.sent) await sleep(RUSH_AFTER_ESCAPE_MS);
+    const q = queue.rush(sessionId, by);
+    view.poke(sessionId);
+    return q.ok ? { ok: true } : refuse('queue-expired');
+  }
+
   /** ほかの PC からの答えと、この PC の中からの答え（local.answer）が通る道。 */
   async function answerCurrent(sessionId: string, from: PeerChatDevice, askId: string, keys: string[], text: string | undefined): Promise<AnswerResult> {
     // 手元で答えた札が、まだ tail に見られていなくても、記録にしてから見る。
@@ -288,6 +314,8 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
         // どれも queue-expired で返す（もう渡した、または預かりに無い）。already-answered は札の答えの断りで、取り消しには合わない。
         return r.ok ? { ok: true } : refuse('queue-expired');
       }
+      case 'rush':
+        return rush(sessionId, { queueId: op.queueId, byDeviceId: fromId });
       case 'files': {
         if (!session.cwd) return refuse('session-unknown');
         return { ok: true, files: await deps.files(session.cwd, op.query) };
@@ -386,6 +414,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
       view.poke(sessionId);
     },
     queued: () => queue.listAll(),
+    rush: (sessionId) => (ownedHere(sessionId) ? rush(sessionId) : Promise.resolve(refuse('session-unknown'))),
     local,
     dispose() {
       offQueue();

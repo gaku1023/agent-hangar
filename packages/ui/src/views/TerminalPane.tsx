@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useRef } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { LiveStatus, StopReason } from '@agent-hangar/shared';
 import type { TerminalHost } from '../runtime/terminals.ts';
 import { Icon } from './primitives/Icon.tsx';
@@ -11,6 +11,9 @@ import type { PeerOriginProps } from '../presenters/peerOrigin.ts';
 import { PeerBadge, usePeerFlash } from './PeerOrigin.tsx';
 
 export const TerminalHostContext = createContext<TerminalHost | null>(null);
+
+/** 「中断して渡す」を押したあと、何も動かなければ帯を元に戻すまでの長さ（サーバの急がせの PEER_QUEUE_RUSH_MS に少し足す）。 */
+const PEER_RUSH_SHOW_MS = 12_000;
 
 /**
  * 次に自動でつなぐ時刻までの秒数を、1 秒ごとに数え直す。
@@ -42,7 +45,7 @@ export function liveEdge(live: LiveStatus | null, aside: boolean, reason: StopRe
  * transcript は、目次から跳ばした Claude が transcript を見せている間の帯（Claude の枠にだけ渡す）。
  * peer は、ほかの PC から来た文の知らせ（Claude の枠にだけ渡す）。預かっている間は端末の下に帯を出し、渡した直後は右上に札を数秒出す。
  */
-export function TerminalPane(props: { tabId: string; hint: string | null; live: LiveStatus | null; aside?: boolean; reason?: StopReason | null; agent?: boolean; transcript?: { when: string; onLatest: () => void } | null; peer?: PeerOriginProps | null }) {
+export function TerminalPane(props: { tabId: string; hint: string | null; live: LiveStatus | null; aside?: boolean; reason?: StopReason | null; agent?: boolean; transcript?: { when: string; onLatest: () => void } | null; peer?: PeerOriginProps | null; /** 預かりの帯の「中断して渡す」。省くとボタンを出さない。 */ onPeerRush?: () => void }) {
   const host = useContext(TerminalHostContext);
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
@@ -66,6 +69,16 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
   if (props.peer?.band) lastPeer.current = props.peer.band;
   const peerBand = usePresence<HTMLDivElement>(!!props.peer?.band, (el) => withLayout(() => collapseOut(el)));
   const flash = usePeerFlash(props.peer?.flash ?? null);
+  // 「中断して渡す」を押してから、預かりが動く（帯の文が変わる、帯が畳まれる）までの間。
+  // 断られて何も動かないときのために、PEER_RUSH_SHOW_MS で元に戻す。
+  const [rushing, setRushing] = useState(false);
+  const peerText = props.peer?.band ?? null;
+  useEffect(() => { setRushing(false); }, [peerText]);
+  useEffect(() => {
+    if (!rushing) return;
+    const timer = setTimeout(() => setRushing(false), PEER_RUSH_SHOW_MS);
+    return () => clearTimeout(timer);
+  }, [rushing]);
   // 入るときは伸ばして、下の端末の面を押し下げる。最初の描画では動かさない。
   const shown = useRef({ hint: props.hint !== null, band: !!props.transcript, peer: !!props.peer?.band });
   useLayoutEffect(() => {
@@ -133,8 +146,11 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
       <div key={props.tabId} ref={ref} className="term-host" data-tab={props.tabId} data-painted={host?.painted(props.tabId) === false ? 'false' : undefined} onClick={() => host?.focus(props.tabId)} />
       {peerBand.mounted && lastPeer.current && (
         <div ref={peerBand.ref} className="term-peer-band" data-testid="peer-band" role={peerBand.leaving ? undefined : 'status'} aria-hidden={peerBand.leaving ? 'true' : undefined}>
-          <Icon name="reminder" />
-          <span>{props.peer?.band ?? lastPeer.current}</span>
+          {rushing ? <span className="term-peer-spin" aria-hidden="true" /> : <Icon name="reminder" />}
+          <span>{rushing ? t('terminal.peer.rushing') : props.peer?.band ?? lastPeer.current}</span>
+          {!rushing && !peerBand.leaving && props.onPeerRush && (
+            <button type="button" className="term-peer-rush" onClick={() => { setRushing(true); props.onPeerRush!(); }}>{t('terminal.peer.rush')}</button>
+          )}
         </div>
       )}
       <PeerBadge flash={flash} />

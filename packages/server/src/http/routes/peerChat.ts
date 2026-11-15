@@ -16,7 +16,7 @@ import { readJson } from './common.ts';
  * /api の認証の下にあるので、MCP の秘密では呼べない。
  * 見る側の部品を持たない組み立て（同期を持たない試験など）では、どちらも出さない。
  */
-export type PeerChatRouteDeps = Pick<AppDeps, 'peerChat'>;
+export type PeerChatRouteDeps = Pick<AppDeps, 'peerChat' | 'peerRush'>;
 
 /**
  * ops の本文の上限。
@@ -51,6 +51,8 @@ export function parseOpIn(v: unknown): PeerChatOpIn | null {
       return { t: 'interrupt' };
     case 'cancel':
       return idLike(v.queueId) ? { t: 'cancel', queueId: v.queueId } : null;
+    case 'rush':
+      return idLike(v.queueId) ? { t: 'rush', queueId: v.queueId } : null;
     case 'files':
       return isStr(v.query) && v.query.length <= PEER_CHAT_QUERY_MAX_CHARS ? { t: 'files', query: v.query } : null;
     default:
@@ -59,6 +61,9 @@ export function parseOpIn(v: unknown): PeerChatOpIn | null {
 }
 
 export function peerChatRoutes(api: Hono, deps: PeerChatRouteDeps): void {
+  // 元の PC の側。ほかの PC から預かった文の先頭を、ターンを中断して渡す（端末の下の帯）。断りは 200 の本文で返す。
+  const rush = deps.peerRush;
+  if (rush) api.post('/sessions/:id/peer-queue/rush', async (c) => c.json(await rush(c.req.param('id'))));
   const chat = deps.peerChat;
   if (!chat) return;
   api.get('/sessions/:id/peer-chat', async (c) => {

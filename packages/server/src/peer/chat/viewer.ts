@@ -792,6 +792,7 @@ export class PeerChatViewer {
       if (op.text !== undefined && Buffer.byteLength(op.text) > PEER_CHAT_TEXT_MAX_BYTES) return { ok: false, reason: 'too-large' };
       wire = { t: 'answer', askId: op.askId, keys: op.keys, ...(op.text !== undefined ? { text: op.text } : {}) };
     } else if (op.t === 'cancel') wire = { t: 'cancel', queueId: op.queueId };
+    else if (op.t === 'rush') wire = { t: 'rush', queueId: op.queueId };
     else if (op.t === 'files') wire = { t: 'files', query: op.query };
     else wire = { t: 'interrupt' };
     const out = await this.call(sessionId, g.target, wire, { waitMs, ...(blobs ? { blobs } : {}) });

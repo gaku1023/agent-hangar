@@ -174,6 +174,12 @@ describe('ほかの PC の会話の画面の描き分け（presenters/peerChat�
     expect(v.rows[0]).toMatchObject({ delivering: true, tag: '渡しています' });
   });
 
+  it('中断して渡すを押した預かりは、その旨を出し、もう押せない', () => {
+    const v = view(store({ status: 'busy', queued: [queued('q1', 'me', 'あとで'), queued('q2', 'me', 'つぎ')], rushing: ['q1'] }))!;
+    expect(v.rows[0]).toMatchObject({ rushing: true, tag: '中断して渡しています' });
+    expect(v.rows[1]).toMatchObject({ rushing: false, tag: '止まったら渡す' });
+  });
+
   it('入力欄へ戻す文と、断りの理由の一言を運ぶ', () => {
     const v = view(store({ restore: { n: 2, text: '戻す文', images: [] }, notice: { n: 1, reason: 'resume-failed' } }))!;
     expect(v.restore).toEqual({ n: 2, text: '戻す文', images: [] });

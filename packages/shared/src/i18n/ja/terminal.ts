@@ -26,4 +26,6 @@ export const terminalJa: AreaDictionary<typeof terminalKeys> = {
   'terminal.off.then': '{first}{next}',
   'terminal.peer.queued': '{devices} から {n} 件を預かっています。止まったら渡します',
   'terminal.peer.delivered': '{device} から送信しました',
+  'terminal.peer.rush': '中断して渡す',
+  'terminal.peer.rushing': '中断して渡しています',
 };

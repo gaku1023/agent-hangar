@@ -17,6 +17,8 @@ export const peerChatKeys = {
   'peerChat.queued.tag': [],
   'peerChat.queued.delivering': [],
   'peerChat.queued.cancel': [],
+  'peerChat.queued.rush': [],
+  'peerChat.queued.rushing': [],
   'peerChat.queued.from': ['device'],
   'peerChat.ask.permission': [],
   'peerChat.ask.question': [],

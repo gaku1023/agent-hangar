@@ -153,6 +153,8 @@ export type PeerChatOp =
   | { t: 'interrupt' }
   | { t: 'resume-send'; text: string; images: PeerBlobRef[]; waitMs?: number }
   | { t: 'cancel'; queueId: string }
+  /** 預けた文を、走っているターンを中断（Escape）してから渡す。送った PC だけができる。 */
+  | { t: 'rush'; queueId: string }
   | { t: 'files'; query: string };
 
 /**
@@ -298,6 +300,8 @@ function readOp(v: unknown): PeerChatOp | null {
       return { t: 'interrupt' };
     case 'cancel':
       return isId(v.queueId) ? { t: 'cancel', queueId: v.queueId } : null;
+    case 'rush':
+      return isId(v.queueId) ? { t: 'rush', queueId: v.queueId } : null;
     case 'files':
       return isStr(v.query) && v.query.length <= PEER_CHAT_QUERY_MAX_CHARS ? { t: 'files', query: v.query } : null;
     default:
@@ -646,6 +650,7 @@ export type PeerChatOpIn =
   | { t: 'answer'; askId: string; keys: string[]; text?: string }
   | { t: 'interrupt' }
   | { t: 'cancel'; queueId: string }
+  | { t: 'rush'; queueId: string }
   | { t: 'files'; query: string };
 
 /**

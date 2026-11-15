@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PeerBlobRef } from '@agent-hangar/shared';
-import { PEER_QUEUE_EXPIRE_MS, PEER_QUEUE_MAX_PER_RUN, PeerQueue, type PeerQueueEvent, type TurnState } from './queue.ts';
+import { PEER_QUEUE_EXPIRE_MS, PEER_QUEUE_MAX_PER_RUN, PEER_QUEUE_RUSH_MS, PeerQueue, type PeerQueueEvent, type TurnState } from './queue.ts';
 
 const MAC = { deviceId: 'dev-mac', deviceName: 'Mac' };
 const WIN = { deviceId: 'dev-win', deviceName: 'Win' };
@@ -517,6 +517,72 @@ describe('PeerQueue：後始末のあと・上限・会話の消去', () => {
     await advance(0);
     expect(st.delivered.map((d) => d.text)).toEqual(['one']);
     expect(events.filter((e) => e.type === 'dropped').map((e) => (e as { item: { text: string } }).item.text)).toEqual(['two']);
+    q.dispose();
+  });
+});
+
+describe('PeerQueue：中断して渡す（rush）', () => {
+  it('作業中でも、急がせた預かりを先頭へ移し、ターンを待たずに渡す', async () => {
+    const { q, st } = setup({ turn: 'busy' });
+    q.add(RUN, MAC, 'one', []);
+    const id = q.add(RUN, WIN, 'two', [])!;
+    expect(q.rush(RUN, { queueId: id, byDeviceId: WIN.deviceId })).toEqual({ ok: true });
+    expect(q.list(RUN).map((i) => i.text)).toEqual(['two', 'one']);
+    await advance(1000);
+    expect(st.delivered.map((d) => d.text)).toEqual(['two']);
+    // 残りは、いつもどおりターンが止まるのを待つ。
+    await advance(5000);
+    expect(st.delivered.map((d) => d.text)).toEqual(['two']);
+    q.dispose();
+  });
+
+  it('queueId を省けば先頭を急がせる（元の PC の帯）', async () => {
+    const { q, st } = setup({ turn: 'busy' });
+    q.add(RUN, MAC, 'one', []);
+    expect(q.rush(RUN)).toEqual({ ok: true });
+    await advance(1000);
+    expect(st.delivered.map((d) => d.text)).toEqual(['one']);
+    q.dispose();
+  });
+
+  it('入力欄に打ちかけがあれば、急がせても渡さない', async () => {
+    const { q, st } = setup({ turn: 'busy', empty: false });
+    q.add(RUN, MAC, 'one', []);
+    q.rush(RUN);
+    await advance(3000);
+    expect(st.delivered).toEqual([]);
+    q.dispose();
+  });
+
+  it('札が出ている（waiting）間は、急がせても渡さない', async () => {
+    const { q, st } = setup({ turn: 'waiting' });
+    q.add(RUN, MAC, 'one', []);
+    q.rush(RUN);
+    await advance(3000);
+    expect(st.delivered).toEqual([]);
+    q.dispose();
+  });
+
+  it('急がせが切れたら、いつもどおりターンが止まるのを待つ', async () => {
+    const { q, st } = setup({ turn: 'busy', empty: false });
+    q.add(RUN, MAC, 'one', []);
+    q.rush(RUN);
+    await advance(PEER_QUEUE_RUSH_MS + 1000);
+    st.empty = true;
+    await advance(3000);
+    expect(st.delivered).toEqual([]);
+    st.turn = 'idle';
+    await advance(1000);
+    expect(st.delivered.map((d) => d.text)).toEqual(['one']);
+    q.dispose();
+  });
+
+  it('ほかの PC の預かりは急がせられない。無い預かりは not-found', () => {
+    const { q } = setup({ turn: 'busy' });
+    const id = q.add(RUN, MAC, 'one', [])!;
+    expect(q.rush(RUN, { queueId: id, byDeviceId: WIN.deviceId })).toEqual({ ok: false, reason: 'not-sender' });
+    expect(q.rush(RUN, { queueId: 'nope', byDeviceId: MAC.deviceId })).toEqual({ ok: false, reason: 'not-found' });
+    expect(q.rush('run-x')).toEqual({ ok: false, reason: 'not-found' });
     q.dispose();
   });
 });

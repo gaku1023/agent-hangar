@@ -26,4 +26,6 @@ export const terminalEn: AreaDictionary<typeof terminalKeys> = {
   'terminal.off.then': '{first} {next}',
   'terminal.peer.queued': 'Holding {n} from {devices}. Delivered when Claude stops',
   'terminal.peer.delivered': 'Sent from {device}',
+  'terminal.peer.rush': 'Interrupt and send',
+  'terminal.peer.rushing': 'Interrupting and sending',
 };

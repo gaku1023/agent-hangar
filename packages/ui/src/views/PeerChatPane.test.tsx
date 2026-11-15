@@ -94,6 +94,18 @@ describe('PeerChatPane の状態ごとの描き分け', () => {
     expect(actions).toEqual([{ type: 'peerChat.send', sessionId: 's1', body: { t: 'cancel', queueId: 'q1' } }]);
   });
 
+  it('自分の預かりには「中断して渡す」があり、rush を送る。押した後は取り消しもボタンも消える', () => {
+    const { actions, container } = mount(viewOf({ status: 'busy', queued: [queued('q1', 'あとで'), queued('q2', 'ほかの文', 'phone')] }));
+    expect(container.querySelectorAll('.pchat-qbtn')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: '中断して渡す' }));
+    expect(actions).toEqual([{ type: 'peerChat.send', sessionId: 's1', body: { t: 'rush', queueId: 'q1' } }]);
+    mount(viewOf({ status: 'busy', queued: [queued('q3', 'つぎ')], rushing: ['q3'] }));
+    const last = [...document.querySelectorAll('.pchat-queued')].at(-1)!;
+    expect(last).toHaveTextContent('中断して渡しています');
+    expect(last.querySelector('.pchat-qbtn')).toBeNull();
+    expect(last.querySelector('.pchat-link')).toBeNull();
+  });
+
   it('停止中は「Mac で再開して送る」で、resume-send を送る', () => {
     const { actions } = mount(viewOf({ status: 'stopped' }));
     expect(screen.getByText('停止中')).toBeInTheDocument();

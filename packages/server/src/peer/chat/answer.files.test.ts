@@ -228,7 +228,7 @@ const W = 60;
 const SOLID = '─'.repeat(W);
 const DASH = '╌'.repeat(W);
 const proceed = [' Do you want to proceed?', ' ❯ 1. Yes', '   2. No', ' Esc to cancel · Tab to amend'];
-const hostSession = (over: Partial<HostSession> = {}): HostSession => ({ provider: 'claude-code', live: 'waiting', waitingFor: 'permission', permission: null, activity: null, cwd: '/home/dev', lock: false, newerElsewhere: false, remoteOnly: false, takenOver: false, ...over });
+const hostSession = (over: Partial<HostSession> = {}): HostSession => ({ provider: 'claude-code', live: 'waiting', aside: false, waitingFor: 'permission', permission: null, activity: null, cwd: '/home/dev', lock: false, newerElsewhere: false, remoteOnly: false, takenOver: false, ...over });
 
 /** 画面を返し、打たれた文字を記録する。 */
 function typed(screen: string) {
