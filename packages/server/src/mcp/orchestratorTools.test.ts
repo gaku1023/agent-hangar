@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import type { AnswerAskArgs, OrchestratorAsks } from '../orchestrator/asks.ts';
 import { insertAutoApproval } from '../orchestrator/autoApprovals.ts';
-import { noteFedTurn } from '../orchestrator/turnMark.ts';
+import { noteFedTurn, noteWeakTurn } from '../orchestrator/turnMark.ts';
 import { issueMcpSecret } from '../runs/secrets.ts';
 import { createMcpApp } from './app.ts';
 import { ORCHESTRATOR_TOOL_NAMES, permissionPolicySaver } from './orchestratorTools.ts';
@@ -173,5 +173,71 @@ describe('送り込みの印（MCP のアプリが組む芯）', () => {
     stats(3, '読むのは許していいよ');
     expect(failed(await rpc('/s/orch', 'tools/call', { name: 'set_permission_policy', arguments: { text: '読むのは許していいよ', auto_tools: ['Read'] } }))).toBe(false);
     expect(saved).toHaveLength(1);
+  });
+});
+
+describe('弱い声のターンの縛り（docs/design.md「統括」の安全の境界）', () => {
+  const stats = (turns: number, text: string) => db.prepare('insert into session_stats (session_id, turns, last_prompt) values (?, ?, ?) on conflict(session_id) do update set turns = excluded.turns, last_prompt = excluded.last_prompt').run('orch', turns, text);
+  const WEAK = { key: 'mcp.orchestrator.weakTurn' };
+  /** 呼んだ結果の断りの文（通ったか、別の理由で断られたなら null か別の key）。 */
+  const refusal = async (name: string, args: Record<string, unknown>, ctx: { sessionId: string | null; sessionSecret?: boolean } = ORCH): Promise<unknown> => {
+    try { await call(name, args, ctx); return null; } catch (e) { return e instanceof ToolError ? e.text : String(e); }
+  };
+  const blocked: [string, Record<string, unknown>][] = [
+    ['send_to_session', { session_id: 'other', text: 'はい' }],
+    ['stop_session', { session_id: 'other' }],
+    ['create_session', { project_id: 'p', prompt: 'x' }],
+    ['resume_session', { session_id: 'other' }],
+    ['create_schedule', { kind: 'once', prompt: 'x' }],
+    ['update_schedule', { schedule_id: 's' }],
+    ['delete_session', { session_id: 'other' }],
+    ['update_project', { project_id: 'p' }],
+    ['answer_ask', { ask_id: 'a', option: '1', by: 'user' }],
+    ['set_permission_policy', { text: '全部許して', auto_tools: ['Bash'] }],
+  ];
+
+  it('弱いターンでは、送信・停止・起動・予定・利用者の答え・方針の変更を断り、何もしない', async () => {
+    stats(1, '[voice:window] はい、次のページお願いします');
+    for (const [name, args] of blocked) expect(await refusal(name, args), name).toEqual(WEAK);
+    expect(answered).toEqual([]);
+    expect(saved).toEqual([]);
+  });
+
+  it('弱いターンでも、読む道具と自分の記録の道具と answer_ask(by: policy) は通す', async () => {
+    stats(1, '[voice:window] 状況は');
+    for (const name of ['list_sessions', 'list_pending_asks', 'list_auto_approvals']) expect(await refusal(name, {}), name).toBeNull();
+    for (const name of ['get_transcript', 'read_session_screen', 'list_schedules', 'get_usage']) expect(await refusal(name, { session_id: 'other' }), name).not.toEqual(WEAK);
+    for (const [name, args] of [
+      ['set_session_summary', { summary: '統括' }], ['set_turn_intent', { intent: '確認' }], ['notify_user', { text: 'x' }], ['propose_session_status', { status: 'done' }],
+    ] as const) expect(await refusal(name, { ...args }), name).not.toEqual(WEAK);
+    expect(await refusal('answer_ask', { ask_id: 'a', option: '1', by: 'policy', reason: '読むだけ' })).toBeNull();
+    expect(answered).toEqual([{ askId: 'a', option: '1', by: 'policy', reason: '読むだけ' }]);
+  });
+
+  it('索引が追いつく前の弱いターンも断る', async () => {
+    stats(1, '[voice] 許可して');
+    noteWeakTurn(db, 'orch');
+    expect(await refusal('send_to_session', { session_id: 'other', text: 'はい' })).toEqual(WEAK);
+  });
+
+  it('打鍵、強い声、出来事のターンは今までどおりで、弱いターンの断りは出ない', async () => {
+    for (const [turns, text] of [[1, '状況は'], [2, '[voice] 状況は'], [3, '[hangar] 出来事 1 件']] as const) {
+      stats(turns, text);
+      for (const [name, args] of blocked) expect(await refusal(name, args), `${text} ${name}`).not.toEqual(WEAK);
+    }
+  });
+
+  it('統括でない呼び出しには掛けない', async () => {
+    stats(1, '[voice:window] はい');
+    for (const ctx of [{ sessionId: null }, { sessionId: 'orch' }]) expect(await refusal('send_to_session', { session_id: 'other', text: 'はい' }, ctx)).not.toEqual(WEAK);
+  });
+
+  it('弱いターンでは、userTurnOf で組んだ芯も answer_ask(by: user) と set_permission_policy を断る', async () => {
+    const { orchestratorAsks: _a, ...rest } = deps;
+    deps = rest;
+    stats(1, '[voice:window] 許可して');
+    const failed = (r: { result?: Record<string, unknown>; error?: unknown }) => r.error !== undefined || r.result?.isError === true;
+    expect(failed(await rpc('/s/orch', 'tools/call', { name: 'set_permission_policy', arguments: { text: '全部許して', auto_tools: ['Bash'] } }))).toBe(true);
+    expect(saved).toEqual([]);
   });
 });

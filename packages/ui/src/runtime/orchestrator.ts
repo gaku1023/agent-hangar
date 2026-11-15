@@ -1,16 +1,16 @@
-import type { AutoApprovalDto, EventsPageDto } from '@agent-hangar/shared';
+import type { AutoApprovalDto, EventsPageDto, OrchestratorOrigin } from '@agent-hangar/shared';
 import type { OrchestratorSlice } from '../store/orchestrator.ts';
 import type { EventsQuery } from './api.ts';
 
 /** 画面からの操作。Mediator が orchestrator の効果にして渡す（mediator/orchestrator.ts）。 */
-export type OrchestratorCommand = { op: 'load' } | { op: 'send'; text: string };
+export type OrchestratorCommand = { op: 'load' } | { op: 'send'; text: string; origin?: OrchestratorOrigin };
 
 export type OrchestratorRunnerDeps = {
   /** 統括の会話の id（設定の orchestrator.sessionId）。無ければ読まない。 */
   sessionId: () => string | null;
   events: (sessionId: string, q: EventsQuery) => Promise<EventsPageDto>;
   approvals: () => Promise<{ approvals: AutoApprovalDto[] }>;
-  send: (text: string) => Promise<unknown>;
+  send: (text: string, origin?: OrchestratorOrigin) => Promise<unknown>;
   get: () => OrchestratorSlice;
   set: (next: OrchestratorSlice) => void;
   fail: (e: unknown) => void;
@@ -35,10 +35,10 @@ export function createOrchestratorRunner(deps: OrchestratorRunnerDeps) {
       if (mine === generation) deps.fail(e);
     }
   }
-  async function send(text: string): Promise<void> {
+  async function send(text: string, origin?: OrchestratorOrigin): Promise<void> {
     deps.set({ ...deps.get(), sending: true });
     try {
-      await deps.send(text);
+      await deps.send(text, origin);
     } catch (e) {
       deps.fail(e);
     } finally {
@@ -46,7 +46,7 @@ export function createOrchestratorRunner(deps: OrchestratorRunnerDeps) {
     }
   }
   return {
-    run(cmd: OrchestratorCommand): Promise<void> { return cmd.op === 'load' ? load() : send(cmd.text); },
+    run(cmd: OrchestratorCommand): Promise<void> { return cmd.op === 'load' ? load() : send(cmd.text, cmd.origin); },
   };
 }
 export type OrchestratorRunner = ReturnType<typeof createOrchestratorRunner>;

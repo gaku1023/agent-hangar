@@ -1,3 +1,4 @@
+import type { OrchestratorOrigin } from '@agent-hangar/shared';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { ApprovalRowView, OrchestratorPillarProps } from '../presenters/orchestrator.ts';
@@ -87,7 +88,7 @@ export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?
     return () => window.removeEventListener('keydown', onKey);
   }, [speaker]);
 
-  const send = (text: string) => { speaker.stop(); setSpeakingKey(null); emit({ type: 'orchestrator.send', text }); };
+  const send = (text: string, origin?: OrchestratorOrigin) => { speaker.stop(); setSpeakingKey(null); emit({ type: 'orchestrator.send', text, ...(origin !== undefined ? { origin } : {}) }); };
   const rows = speakingKey === null ? orch.rows : orch.rows.map((r) => (r.kind === 'assistant' && r.key === speakingKey ? { ...r, speaking: true } : r));
 
   return (
@@ -131,8 +132,8 @@ function Approvals({ rows }: { rows: ApprovalRowView[] }) {
   );
 }
 
-/** 入力欄。右端にマイクと送るボタン。聞いている間は途中の文が欄に流れ、確定すると [voice] を付けて送る。 */
-function Composer(props: { canSend: boolean; sending: boolean; port: VoicePort; onSend: (text: string) => void; onMic: () => void }) {
+/** 入力欄。右端にマイクと送るボタン。聞いている間は途中の文が欄に流れ、確定すると由来 voice-held で送る（印はサーバが由来から付ける）。 */
+function Composer(props: { canSend: boolean; sending: boolean; port: VoicePort; onSend: (text: string, origin?: OrchestratorOrigin) => void; onMic: () => void }) {
   const t = useT();
   const [text, setText] = useState('');
   const ta = useRef<HTMLTextAreaElement>(null);
@@ -164,7 +165,7 @@ function Composer(props: { canSend: boolean; sending: boolean; port: VoicePort; 
       <div className="pchat-box" data-blocked={props.canSend ? undefined : 'true'}>
         <textarea ref={ta} rows={1} value={text} aria-label={t('orchestratorPane.composer.label')} placeholder={t('orchestratorPane.composer.placeholder')} disabled={!props.canSend}
           onChange={(e) => setText(e.target.value)} onKeyDown={onKeyDown} />
-        {props.canSend && <MicButton port={props.port} onInterim={onInterim} onSend={(s) => { props.onMic(); props.onSend(s); }} />}
+        {props.canSend && <MicButton port={props.port} onInterim={onInterim} onSend={(s) => { props.onMic(); props.onSend(s, 'voice-held'); }} />}
         <button type="button" className="pchat-send" disabled={!ready} aria-label={t('orchestratorPane.composer.send')} onClick={submit}><Icon name="seeAll" /></button>
       </div>
     </div>

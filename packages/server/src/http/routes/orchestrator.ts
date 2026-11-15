@@ -1,4 +1,6 @@
+import { isOrchestratorOrigin, markOrchestratorText, VOICE_WINDOW_MARK } from '@agent-hangar/shared';
 import type { Hono } from 'hono';
+import { noteWeakTurn } from '../../orchestrator/turnMark.ts';
 import { translatorOf } from '../../i18n/message.ts';
 import { sanitizeInput } from '../../mcp/screenTools.ts';
 import { noteTurnStart } from '../../mcp/waitTool.ts';
@@ -26,16 +28,24 @@ export function orchestratorRoutes(api: Hono, deps: OrchestratorRouteDeps): void
   api.post('/orchestrator/send', async (c) => {
     const b = await readJson(c, BODY_LIMITS.memo);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.memo, tr);
-    const text = (b.value as { text?: unknown } | null | undefined)?.text;
+    const body = b.value as { text?: unknown; origin?: unknown } | null | undefined;
+    const text = body?.text;
     if (typeof text !== 'string') return c.json({ error: tr('common.field.mustBeString', { field: 'text' }) }, 400);
-    if (text.trim() === '') return c.json({ error: tr('common.field.required', { field: 'text' }) }, 400);
+    // 由来（docs/design.md「統括」の安全の境界）。省けば打鍵とみなし、知らない値は断る。
+    const origin = body?.origin === undefined ? 'typed' : body.origin;
+    if (!isOrchestratorOrigin(origin)) return c.json({ error: tr('settings.error.badValue', { label: 'origin' }) }, 400);
+    // 頭の印は端末から受けず、由来からサーバが付け直す。出来事や強い声を名乗らせないためである。
+    const marked = markOrchestratorText(text, origin);
+    if (marked === '') return c.json({ error: tr('common.field.required', { field: 'text' }) }, 400);
     const sessionId = deps.settings().orchestrator?.sessionId ?? null;
     const run = sessionId ? deps.runs.listAlive().runs.find((r) => r.sessionId === sessionId) : undefined;
     if (!sessionId || !run) return c.json({ error: tr('orchestratorPane.error.notRunning') }, 409);
     // 届ける前に残す。mcp の send_to_session と同じで、wait_for_session が前のターンの idle を終わりと読まないためである。
     noteTurnStart(deps.db, sessionId, { at: Date.now() });
+    // 弱い声は、索引がこの文を読む前から弱いターンと読ませる（orchestrator/turnMark.ts）。
+    if (marked.startsWith(VOICE_WINDOW_MARK)) noteWeakTurn(deps.db, sessionId);
     try {
-      await deps.runs.sendInput(run.tmuxName, sanitizeInput(text), true);
+      await deps.runs.sendInput(run.tmuxName, sanitizeInput(marked), true);
     } catch (e) {
       return c.json({ error: tr('orchestratorPane.error.sendFailed', { reason: e instanceof Error ? e.message : String(e) }) }, 500);
     }

@@ -2,6 +2,8 @@ import { isAutoToolName, orchestratorOf, PERMISSION_POLICY_TEXT_MAX, PERMISSION_
 import type { Settings } from '../config/paths.ts';
 import { msg } from '../i18n/message.ts';
 import { listAutoApprovals, AUTO_APPROVAL_LIST_MAX } from '../orchestrator/autoApprovals.ts';
+import { turnStrengthOf } from '../orchestrator/turnMark.ts';
+import { TOOL_CLASSES } from './toolClasses.ts';
 import { ToolError, type ToolContext, type ToolDeps } from './tools.ts';
 
 /**
@@ -22,6 +24,23 @@ export function isOrchestratorCtx(deps: Pick<ToolDeps, 'settings'>, ctx: ToolCon
   if (ctx.sessionId === null || ctx.sessionSecret !== true) return false;
   const o = orchestratorOf(deps.settings?.().orchestrator);
   return o.enabled && o.sessionId === ctx.sessionId;
+}
+
+/** 弱い声のターンでも通す、自分の記録の道具（kind が write のうち、自分の会話のことだけを書くもの）。 */
+const SELF_RECORD_TOOLS: ReadonlySet<string> = new Set(['set_session_summary', 'set_turn_intent', 'notify_user', 'propose_session_status']);
+
+/**
+ * 弱い声のターンの縛り（docs/design.md「統括」の安全の境界）。道具の振り分け（tools.ts の callTool）の入口で、どの道具より先に呼ぶ。
+ * 統括の会話からの呼び出しで、今のターンが弱い声で始まっていれば（orchestrator/turnMark.ts）、
+ * kind が read の道具、自分の記録の道具、answer_ask の by: 'policy' だけを通し、ほかは断る。
+ * 出来事のターン（fed）と利用者のターン（user）には掛けない。
+ */
+export function guardWeakTurn(deps: Pick<ToolDeps, 'settings' | 'db'>, ctx: ToolContext, name: string, args: Record<string, unknown>): void {
+  if (!isOrchestratorCtx(deps, ctx)) return;
+  if (TOOL_CLASSES[name as keyof typeof TOOL_CLASSES]?.kind === 'read' || SELF_RECORD_TOOLS.has(name)) return;
+  if (name === 'answer_ask' && args.by === 'policy') return;
+  if (turnStrengthOf(deps.db, ctx.sessionId!) !== 'weak') return;
+  throw new ToolError(msg('mcp.orchestrator.weakTurn'));
 }
 
 /** by: 'policy' の理由の 1 行の上限（文字）。 */

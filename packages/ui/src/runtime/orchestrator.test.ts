@@ -30,14 +30,14 @@ describe('createOrchestratorRunner', () => {
     await w.r.run({ op: 'load' });
     expect(w.events).not.toHaveBeenCalled();
   });
-  it('send は文を渡し、終わるまで sending を立てる', async () => {
+  it('send は文と由来を渡し、終わるまで sending を立てる', async () => {
     let release!: () => void;
     const w = setup({ send: () => new Promise((r) => { release = () => r({ ok: true }); }) });
-    const p = w.r.run({ op: 'send', text: '[voice] こんにちは' });
+    const p = w.r.run({ op: 'send', text: 'こんにちは', origin: 'voice-held' });
     expect(w.slice().sending).toBe(true);
     release();
     await p;
-    expect(w.send).toHaveBeenCalledWith('[voice] こんにちは');
+    expect(w.send).toHaveBeenCalledWith('こんにちは', 'voice-held');
     expect(w.slice().sending).toBe(false);
   });
   it('send が失敗したら sending を戻して失敗を知らせる', async () => {

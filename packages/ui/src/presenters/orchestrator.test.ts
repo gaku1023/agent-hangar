@@ -21,6 +21,12 @@ describe('orchestratorRows', () => {
     const r = orchestratorRows([user('[voice] 進み具合を教えて'), ai('順調です')]);
     expect(r.rows[0]).toMatchObject({ kind: 'user', text: '進み具合を教えて' });
   });
+  it('[voice:window] の印も描かず、声のターンとして返答を読む', () => {
+    const r = orchestratorRows([user('[voice:window] 状況は'), ai('順調です')]);
+    expect(r.rows[0]).toMatchObject({ kind: 'user', text: '状況は' });
+    expect(r.speak.voiceOn).toBe(true);
+    expect(r.speak.reply).toMatchObject({ text: '順調です' });
+  });
   it('出来事で始まったターンでも、notify_user の文は統括の発言として描く。ほかの道具は描かない', () => {
     const r = orchestratorRows([user('[hangar] 許可待ちが 1 件'), other(), ...notifyOk('判断をお願いします'), ai('伝えました')]);
     expect(r.rows).toHaveLength(1);

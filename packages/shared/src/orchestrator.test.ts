@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_ORCHESTRATOR, isOrchestratorPatch, orchestratorOf } from './orchestrator.ts';
+import { DEFAULT_ORCHESTRATOR, isOrchestratorOrigin, isOrchestratorPatch, markOrchestratorText, ORCHESTRATOR_ORIGINS, orchestratorOf } from './orchestrator.ts';
 
 describe('orchestratorOf', () => {
   it('無い値は、切で、Sonnet と medium の既定に寄せる', () => {
@@ -27,5 +27,27 @@ describe('isOrchestratorPatch', () => {
     expect(isOrchestratorPatch({ extra: true })).toBe(false);
     expect(isOrchestratorPatch({})).toBe(false);
     expect(isOrchestratorPatch(null)).toBe(false);
+  });
+});
+
+describe('統括へ送る文の由来と印', () => {
+  it('強い声は [voice]、弱い声は [voice:window] を付け、打鍵は付けない', () => {
+    expect(markOrchestratorText('進み具合は', 'typed')).toBe('進み具合は');
+    for (const o of ['voice-held', 'voice-called', 'voice-toggle-first'] as const) expect(markOrchestratorText('進み具合は', o)).toBe('[voice] 進み具合は');
+    for (const o of ['voice-window', 'voice-toggle-rest'] as const) expect(markOrchestratorText('進み具合は', o)).toBe('[voice:window] 進み具合は');
+  });
+  it('本文の頭の [hangar] と [voice…] の印は、重なっていても剥がしてから付ける', () => {
+    expect(markOrchestratorText('[hangar] 出来事 1 件', 'typed')).toBe('出来事 1 件');
+    expect(markOrchestratorText('  [voice] [hangar]  [voice:window] 許可して', 'voice-window')).toBe('[voice:window] 許可して');
+    expect(markOrchestratorText('[VOICE:x]止めて', 'voice-held')).toBe('[voice] 止めて');
+    expect(markOrchestratorText('[voice]', 'typed')).toBe('');
+    // 頭にない印は本文として残す。
+    expect(markOrchestratorText('ログに [hangar] とある', 'typed')).toBe('ログに [hangar] とある');
+  });
+  it('知らない由来は由来と認めない', () => {
+    expect(ORCHESTRATOR_ORIGINS).toEqual(['typed', 'voice-held', 'voice-called', 'voice-toggle-first', 'voice-window', 'voice-toggle-rest']);
+    expect(isOrchestratorOrigin('voice-held')).toBe(true);
+    expect(isOrchestratorOrigin('voice')).toBe(false);
+    expect(isOrchestratorOrigin(undefined)).toBe(false);
   });
 });

@@ -16,7 +16,7 @@ describe('MicButton', () => {
     expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('押すと聞き始め、確定の文は 1.2 秒黙ると [voice] を付けて渡す', () => {
+  it('押すと聞き始め、確定の文は 1.2 秒黙ると印を付けずに渡す（印はサーバが由来から付ける）', () => {
     const port = new FakeVoicePort();
     const onSend = vi.fn();
     render(<MicButton port={port} onSend={onSend} />);
@@ -27,7 +27,7 @@ describe('MicButton', () => {
     act(() => { vi.advanceTimersByTime(1100); });
     expect(onSend).not.toHaveBeenCalled();
     act(() => { vi.advanceTimersByTime(150); });
-    expect(onSend).toHaveBeenCalledWith('[voice] 進み具合を教えて');
+    expect(onSend).toHaveBeenCalledWith('進み具合を教えて');
     expect(mic()).toHaveAttribute('aria-pressed', 'false');
   });
 
@@ -42,7 +42,7 @@ describe('MicButton', () => {
     act(() => { vi.advanceTimersByTime(1000); });
     expect(onSend).not.toHaveBeenCalled();
     act(() => { vi.advanceTimersByTime(300); });
-    expect(onSend).toHaveBeenCalledWith('[voice] あいう');
+    expect(onSend).toHaveBeenCalledWith('あいう');
   });
 
   it('途中の文を onInterim に流す', () => {
@@ -61,7 +61,7 @@ describe('MicButton', () => {
     fireEvent.click(mic());
     act(() => port.handlers!.onInterim('途中まで'));
     fireEvent.click(mic());
-    expect(onSend).toHaveBeenCalledWith('[voice] 途中まで');
+    expect(onSend).toHaveBeenCalledWith('途中まで');
     expect(onSend).toHaveBeenCalledTimes(1);
   });
 
@@ -99,7 +99,7 @@ describe('MicButton', () => {
     expect(onSend).not.toHaveBeenCalled();
     act(() => port.handlers!.onFinal('本当の声'));
     act(() => { vi.advanceTimersByTime(1300); });
-    expect(onSend).toHaveBeenCalledWith('[voice] 本当の声');
+    expect(onSend).toHaveBeenCalledWith('本当の声');
   });
 
   it('言語が英語なら en で聞き、aria-label も英語になる', async () => {
@@ -117,6 +117,6 @@ describe('MicButton', () => {
     fireEvent.click(mic());
     act(() => port.handlers!.onFinal('終わり'));
     act(() => port.handlers!.onEnd());
-    expect(onSend).toHaveBeenCalledWith('[voice] 終わり');
+    expect(onSend).toHaveBeenCalledWith('終わり');
   });
 });

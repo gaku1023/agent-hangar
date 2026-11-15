@@ -9,7 +9,7 @@ export function orchestratorStep(state: State, input: Input): Step | null {
   const a = input.action;
   switch (a.type) {
     case 'orchestrator.open': return { state, effects: [{ kind: 'orchestrator', command: { op: 'load' } }] };
-    case 'orchestrator.send': return { state, effects: [{ kind: 'orchestrator', command: { op: 'send', text: a.text } }] };
+    case 'orchestrator.send': return { state, effects: [{ kind: 'orchestrator', command: { op: 'send', text: a.text, ...(a.origin !== undefined ? { origin: a.origin } : {}) } }] };
     default: return null;
   }
 }
