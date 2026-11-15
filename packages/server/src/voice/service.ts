@@ -51,6 +51,13 @@ export class VoiceService {
   private hints: string[] = [];
   private hintsAt = 0;
   private flushAt: number | null = null;
+  /**
+   * 補助へ出した flush の数と、受けた flushed の数。補助は命令を順に処理するので、flushed は flush の順に返る。
+   * flushTarget は待っている（最後に出した）flush の番号で、その番の flushed が来たときだけ離した扱いにする。
+   */
+  private flushesSent = 0;
+  private flushesSeen = 0;
+  private flushTarget: number | null = null;
   /** 強い声のターンが終わって、まだ replied を入れていないもの。読み上げの依頼が付けば、その終わりで入れる。 */
   private pendingReply: { at: number; speakId: string | null } | null = null;
   /**
@@ -111,10 +118,16 @@ export class VoiceService {
 
   hold(on: boolean): boolean {
     if (!this.ensureHelper()) return false;
-    if (on) { this.flushAt = null; this.feed({ kind: 'holdStart', at: this.now() }); return true; }
-    if (!this.addr.held) return true;
+    if (on) {
+      // flushed を待つ間に押し直したら、前の押している間の文をその場で 1 回送ってから始める（消さない）。
+      if (this.flushTarget !== null) this.finishHold(this.now());
+      this.feed({ kind: 'holdStart', at: this.now() });
+      return true;
+    }
+    if (!this.addr.held || this.flushTarget !== null) return true;
     // 離したら、いまの区間を閉じさせ、flushed が来てから 1 本にまとめて渡す（段 2 の申し送り）。
     this.flushAt = this.now();
+    this.flushTarget = ++this.flushesSent;
     this.deps.helper.send({ cmd: 'flush' });
     return true;
   }
@@ -196,6 +209,8 @@ export class VoiceService {
     const at = this.now();
     switch (e.ev) {
       case 'ready':
+        // 起こし直した補助は、前の補助に出した flush に答えない。
+        this.flushesSeen = this.flushesSent;
         this.listening = false;
         this.refreshHints(true);
         this.syncListen();
@@ -210,7 +225,8 @@ export class VoiceService {
         this.onSegment(e.text, e.dbfs, at);
         return;
       case 'flushed':
-        this.finishHold(at);
+        this.flushesSeen++;
+        if (this.flushTarget !== null && this.flushesSeen >= this.flushTarget) this.finishHold(at);
         return;
       case 'speaking':
         if (e.state === 'start') this.speakingId = e.id;
@@ -235,8 +251,9 @@ export class VoiceService {
   }
 
   private finishHold(at: number): void {
-    if (this.flushAt === null) return;
+    if (this.flushTarget === null) return;
     this.flushAt = null;
+    this.flushTarget = null;
     this.feed({ kind: 'holdEnd', at });
   }
 

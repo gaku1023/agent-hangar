@@ -103,6 +103,45 @@ describe('声のサービス', () => {
     expect(helper.cmdsOf('listen').at(-1)).toEqual({ cmd: 'listen', on: false });
   });
 
+  it('離して flushed を待つ間に押し直しても、前の押している間の文はその場で 1 回送られる', async () => {
+    voice = voiceOf({ mode: 'off' });
+    const svc = make();
+    svc.hold(true);
+    seg('前の文');
+    svc.hold(false);
+    tick(500);
+    svc.hold(true);
+    await vi.waitFor(() => expect(sent).toEqual([{ text: '前の文', origin: 'voice-held' }]));
+    seg('次の文');
+    svc.hold(false);
+    helper.ev({ ev: 'flushed' });
+    helper.ev({ ev: 'flushed' });
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toEqual({ text: '次の文', origin: 'voice-held' });
+  });
+
+  it('遅れて来た前の flushed で、次の押している間の区間を外へ出さない', async () => {
+    voice = voiceOf({ mode: 'off' });
+    const svc = make();
+    svc.hold(true);
+    seg('前の文');
+    svc.hold(false);
+    svc.hold(true);
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    seg('押している途中');
+    // 1 回目の flush への遅れた答え。押している間は終わらない。
+    helper.ev({ ev: 'flushed' });
+    await Promise.resolve();
+    expect(sent).toHaveLength(1);
+    expect(svc.state().phase).toBe('listening');
+    svc.hold(false);
+    tick(500);
+    expect(sent).toHaveLength(1);
+    helper.ev({ ev: 'flushed' });
+    await vi.waitFor(() => expect(sent.at(-1)).toEqual({ text: '押している途中', origin: 'voice-held' }));
+    expect(sent).toHaveLength(2);
+  });
+
   it('flushed が来なくても 3 秒で離した扱いにする', async () => {
     voice = voiceOf({ mode: 'off' });
     const svc = make();
