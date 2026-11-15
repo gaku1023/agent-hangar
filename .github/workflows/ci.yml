@@ -81,6 +81,15 @@ jobs:
       - run: node --version
       - name: サーバの試験（Node 24）
         run: npm test -- --project server
+  # 補助 hangar-voice の芯（約束の読み書きと声の区切り）の試験。MLX に依らない VoiceCore だけを回す。
+  voice-mac:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      # swift test は hangar-voice と MLX まで作る。MLX の Metal のシェーダを作るのに Metal Toolchain が要る。
+      - run: xcodebuild -downloadComponent MetalToolchain
+      - run: swift test --package-path apps/voice-mac --filter VoiceCoreTests
   # Windows の試験は、Rust とインストーラのジョブ（windows）から分けて並列に回す。
   # 1 本のジョブで続けて回すと、試験の 7 分ほどが CI 全体の長さにそのまま乗っていた（2026-10-16 の実測）。
   windows-test:
