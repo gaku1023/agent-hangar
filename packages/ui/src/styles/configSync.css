@@ -168,6 +168,7 @@
 .ib-op[data-op='create'] { color: var(--st-done); }
 .ib-op[data-op='overwrite'] { color: var(--st-active); }
 .ib-op[data-op='delete'] { color: var(--waiting); }
+.ib-op[data-op='merge'] { color: var(--st-active); }
 .ib-it[data-undone] .ib-t { color: var(--ink-3); text-decoration: line-through; }
 .ib-it[data-undone] .btn { visibility: hidden; }
 

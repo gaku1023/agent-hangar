@@ -44,6 +44,7 @@ export function readApplyOrder(home: string): ConfigApplyOrderDto | null {
     if (!raw || typeof raw.id !== 'string' || typeof raw.target !== 'string' || typeof raw.sha256 !== 'string' || typeof raw.fromDeviceId !== 'string') return null;
     const parsed = parseItemId(raw.id);
     if (!parsed || parsed.kind !== raw.kind || !KINDS.has(String(raw.op)) || !TAKES.has(String(raw.take))) return null;
+    if (raw.merged !== undefined && (typeof raw.merged !== 'string' || !/^[0-9a-f]{64}$/.test(raw.merged))) return null;
     items.push(raw as ConfigApplyOrderItemDto);
   }
   return { createdAt: v.createdAt, items };

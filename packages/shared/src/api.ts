@@ -791,7 +791,14 @@ export type ConfigBackupGenerationDto = { name: string; at: number | null; files
 export type ConfigBackupsDto = { generations: ConfigBackupGenerationDto[] };
 /** 承認の選択 1 件。take が remote なら相手の中身を採り、mine なら手元を採る（手元は書き換えず、基準だけを進める）。 */
 export type ConfigApplyOrderEntryIn = { id: string; take?: 'remote' | 'mine' };
-export type ConfigApplyOrderItemDto = { id: string; kind: ConfigItemKind; op: ConfigInboxOp; take: 'remote' | 'mine'; fromDeviceId: string; sha256: string; /** 書き込み先。ファイルは設定の入れ物からの相対パス、settings は `settings.json#<鍵>`。 */ target: string };
+export type ConfigApplyOrderItemDto = {
+  id: string; kind: ConfigItemKind; op: ConfigInboxOp; take: 'remote' | 'mine'; fromDeviceId: string; sha256: string; /** 書き込み先。ファイルは設定の入れ物からの相対パス、settings は `settings.json#<鍵>`。 */ target: string;
+  /**
+   * 手元と相手を合わせた中身の指紋（メモリの索引 MEMORY.md の競合を、サーバが自動で行の和にしたときだけ）。
+   * 中身は hangar の置き場（claude-config/merged/<指紋>）にあり、書くのはこの中身で、基準は相手の指紋（sha256）へ進める。
+   */
+  merged?: string;
+};
 /** 適用の指示書。サーバは ~/.claude に書かず、殻の命令と hangar config apply が読む。 */
 export type ConfigApplyOrderDto = { createdAt: number; items: ConfigApplyOrderItemDto[] };
 /** 設定の入れ物を管理している道具（SPEC 8 章）。表示のためだけで、同期は止めない。 */
@@ -834,7 +841,9 @@ export type ConfigSyncDto = {
   lastAutoError?: { at: number; message: string } | null;
 };
 /** 適用の履歴の 1 項目。 */
-export type ConfigHistoryItemDto = { id: string; kind: ConfigItemKind; label: string; op: ConfigInboxOp; /** いま 1 項目だけ戻せるか（控えの世代が残っていて、戻し済みでなく、戻し方がある項目）。hangar の好みは控えが無いので偽。サーバが dto を作るときに足す。この項目を知らない古いサーバは返さない。 */ restorable?: boolean };
+/** 履歴の項目の操作。merge は、競合を手元と相手の行の和で解いたもの（メモリの索引）。 */
+export type ConfigHistoryOp = ConfigInboxOp | 'merge';
+export type ConfigHistoryItemDto = { id: string; kind: ConfigItemKind; label: string; op: ConfigHistoryOp; /** いま 1 項目だけ戻せるか（控えの世代が残っていて、戻し済みでなく、戻し方がある項目）。hangar の好みは控えが無いので偽。サーバが dto を作るときに足す。この項目を知らない古いサーバは返さない。 */ restorable?: boolean };
 /**
  * 適用の履歴の 1 回（config_history の 1 行）。mode は auto（届いた束をサーバが適用した）か manual（人が殻の命令や hangar config apply で適用した）。
  * generations は対象ごとの控えの世代名で、undone はあとから戻した項目の id。fromDeviceId は項目の元の端末で、元が 1 つでなければ null。

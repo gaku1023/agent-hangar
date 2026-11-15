@@ -29,6 +29,7 @@ export const configSyncUiJa: AreaDictionary<typeof configSyncUiKeys> = {
   'configSyncUi.op.delete': '削除',
   'configSyncUi.op.overwrite': '上書き',
   'configSyncUi.op.create': '新規',
+  'configSyncUi.op.merge': '統合',
   'configSyncUi.opNote.conflict': '両方の PC で変更されています。差分を確認して、どちらを採用するかを選択します。ここでは書き込みません',
   'configSyncUi.opNote.delete': '他の PC で削除されています。この PC でも削除し、削除前の内容はバックアップに保存します',
   'configSyncUi.opNote.overwrite': 'この PC にもあります。変更前にバックアップを作成します',

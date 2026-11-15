@@ -1,8 +1,9 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isSafeKeyId } from '@agent-hangar/shared';
 import type { ManifestItem, UnpackedBundle } from './bundle.ts';
-import { inboxDir } from './paths.ts';
+import { inboxDir, mergedDir } from './paths.ts';
 
 /**
  * 他の PC の束を開いた写し（inbox）。~/.claude には触れない。
@@ -94,3 +95,27 @@ export function pruneInbox(home: string, keep: ReadonlySet<string>): void {
   try { names = fs.readdirSync(inboxDir(home)); } catch { return; }
   for (const n of names) if (n.startsWith('.tmp-') || !keep.has(n)) fs.rmSync(path.join(inboxDir(home), n), { recursive: true, force: true });
 }
+
+// ---- 自動で合わせた中身 ----
+
+/** 合わせた中身を置き、指紋を返す。前に置いたものは消す（指示書は 1 つなので、要るのは 1 回分だけ）。 */
+export function writeMergedBlobs(home: string, blobs: readonly Buffer[]): string[] {
+  const dir = mergedDir(home);
+  fs.rmSync(dir, { recursive: true, force: true });
+  if (blobs.length === 0) return [];
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return blobs.map((b) => {
+    const sha = crypto.createHash('sha256').update(b).digest('hex');
+    fs.writeFileSync(path.join(dir, sha), b, { mode: 0o600 });
+    return sha;
+  });
+}
+
+/** 合わせた中身。指紋の形を見てから開く。 */
+export function readMergedBlob(home: string, sha256: string): Buffer | null {
+  if (!/^[0-9a-f]{64}$/.test(sha256)) return null;
+  try { return fs.readFileSync(path.join(mergedDir(home), sha256)); } catch { return null; }
+}
+
+/** 合わせた中身を全部消す。 */
+export function clearMergedBlobs(home: string): void { fs.rmSync(mergedDir(home), { recursive: true, force: true }); }

@@ -23,8 +23,9 @@ import { withRestorable } from './restoreItem.ts';
 import { bundleTargetsOf, packBundle, unpackBundle, type BundleManifest, type BundleOs, type ManifestItem } from './bundle.ts';
 import { StaleContentError } from './fileMemo.ts';
 import { isBlocked, type Blocked, type Collected, type LocalItem, type UnsentCandidate } from './collect.ts';
-import { otherRefLabelTarget, parseItemId } from './ids.ts';
-import { pruneInbox, readInbox, readInboxBlob, readInboxMeta, writeInbox, type InboxEntry } from './inbox.ts';
+import { memoryId, otherRefLabelTarget, parseItemId } from './ids.ts';
+import { clearMergedBlobs, pruneInbox, readInbox, readInboxBlob, readInboxMeta, writeInbox, writeMergedBlobs, type InboxEntry } from './inbox.ts';
+import { mergeMemoryIndex } from './memoryIndex.ts';
 import { applyOrderPath, BUNDLE_PATH } from './paths.ts';
 import { collectAll, enabledTargetNames, itemNeedsConfirm, offKindsOf, targetNameOfId, type TargetContext } from './targets/index.ts';
 import { defaultTargetPaths, type TargetPaths } from './targets/paths.ts';
@@ -360,7 +361,7 @@ export class ConfigSyncService {
         this.deps.onError?.(`設定の束を開けませんでした（端末 ${row.device_id.slice(0, 8)}）: ${e instanceof Error ? e.name : 'Error'}`);
       }
     }
-    this.autoApply(this.resolved());
+    this.autoApply(this.resolvedWith());
     this.watchAttention();
     if (fetched > 0) this.touch();
     return { fetched, failed };
@@ -445,7 +446,10 @@ export class ConfigSyncService {
     return { actions: j.actions, local: items, blocked: collected.blocked };
   }
 
-  private resolved(): Resolved[] {
+  private resolved(): Resolved[] { return this.resolvedWith().rs; }
+
+  /** resolved に、判定に使った手元の項目を添えたもの（自動の統合が、本文のどちらが新しいかを見るのに使う）。 */
+  private resolvedWith(): { rs: Resolved[]; local: Map<string, LocalItem> } {
     const { home } = this.deps;
     const { actions, local, blocked } = this.reconcile();
     const inbox = new Map(readInbox(home).map((e) => [e.deviceId, e]));
@@ -502,7 +506,7 @@ export class ConfigSyncService {
         remote: remoteItem && snap ? { item: remoteItem, at: snap.meta.at } : null,
       });
     }
-    return out;
+    return { rs: out, local };
   }
 
   /** 種類の状態。settings は対象をまたぐので、対象ではなく id の種類（parseItemId(id).kind）で引く。 */
@@ -668,22 +672,30 @@ export class ConfigSyncService {
    * 2. 載せる項目で指示書を書き、hangar の好みはサーバの中で書いて指示書から外す（applyHangarPrefs と同じ口で、二重には書かない）。
    * 3. 残りを runApplyAll で書く。控え、基準の更新、指示書の削除、履歴の 1 行まで済む。どこかで失敗したら、runApplyAll が先に書いた分を戻す。
    * 4. 失敗したら指示書を消し、lastAutoError に残す（dto で見える）。
+   * 競合は載せないが、メモリの索引（MEMORY.md）の競合だけは行の和にして、合わせた中身（merged）を書く項目として載せる（autoMergeable、mergeIndex）。
    */
-  private autoApply(rs: Resolved[]): void {
+  private autoApply({ rs, local }: { rs: Resolved[]; local: Map<string, LocalItem> }): void {
     const { home, deviceId, db } = this.deps;
-    const picked = rs.filter((r) => this.autoApplicable(r));
+    const plain = rs.filter((r) => this.autoApplicable(r));
+    const merges = rs.filter((r) => this.autoMergeable(r)).flatMap((r) => { const m = this.mergeIndex(r, rs, plain, local); return m ? [{ r, content: m }] : []; });
+    const picked = [...plain, ...merges.map((m) => m.r)];
     if (picked.length === 0) { this.autoFailed = null; if (this.lastAutoError) { this.lastAutoError = null; this.touch(); } return; }
     if (readApplyOrder(home)) return;
     const now = this.now();
-    const key = sha256(picked.map((r) => `${r.action.id}\0${r.action.op}\0${r.action.remoteSha256 ?? ''}`).sort().join('\n'));
+    const mergedSha = new Map(merges.map((m) => [m.r.action.id, sha256(m.content)]));
+    const key = sha256(picked.map((r) => `${r.action.id}\0${r.action.op}\0${r.action.remoteSha256 ?? ''}\0${mergedSha.get(r.action.id) ?? ''}`).sort().join('\n'));
     if (this.autoFailed && this.autoFailed.key === key && now - this.autoFailed.at < RETRY_AFTER_FAILURE_MS) return;
-    const items: ConfigApplyOrderItemDto[] = picked.map((r) => ({ id: r.action.id, kind: r.kind, op: r.action.op, take: 'remote', fromDeviceId: r.action.fromDeviceId, sha256: r.action.remoteSha256 ?? '', target: r.target! }));
+    const items: ConfigApplyOrderItemDto[] = picked.map((r) => {
+      const merged = mergedSha.get(r.action.id);
+      return { id: r.action.id, kind: r.kind, op: r.action.op, take: 'remote', fromDeviceId: r.action.fromDeviceId, sha256: r.action.remoteSha256 ?? '', target: r.target!, ...(merged ? { merged } : {}) };
+    });
     const labels = new Map(picked.map((r) => [r.action.id, r.label]));
     const prefs = items.filter((i) => targetNameOfId(i.id) === HANGAR_TARGET_NAME);
     const rest = items.filter((i) => targetNameOfId(i.id) !== HANGAR_TARGET_NAME);
     const also = historyItemsOf(prefs, labels);
     let prefsWritten = false;
     try {
+      writeMergedBlobs(home, merges.map((m) => m.content));
       writeApplyOrder(home, deviceId, items, now);
       if (prefs.length) {
         hangarTarget.write({ home, claudeDir: this.deps.claudeDir, db, now: () => this.now() });
@@ -710,8 +722,59 @@ export class ConfigSyncService {
       this.lastAutoError = { at: now, message };
       this.autoFailed = { key, at: now };
       this.deps.onError?.(`設定の自動の適用に失敗しました: ${e instanceof Error ? e.name : 'Error'}`);
+    } finally {
+      if (merges.length) clearMergedBlobs(home);
     }
     this.touch();
+  }
+
+  /**
+   * サーバが自分で行の和にしてよい競合か（メモリの索引の統合）。
+   * プロジェクトのメモリの MEMORY.md だけで、両側に中身があり、保留でなく、メモリの種類が自動のとき。
+   * 確認の種類では人が選ぶ（競合は、承認の要らない種類でも人に選ばせてきた。合わせるのはその例外なので、自動のときだけに絞る）。
+   */
+  private autoMergeable(r: Resolved): boolean {
+    if (r.action.op !== 'conflict' || r.held || r.target === null || !r.local || !r.remote || r.kind !== 'memory') return false;
+    const ref = parseItemId(r.action.id)?.ref;
+    if (ref?.type !== 'memory' || ref.rel !== 'MEMORY.md') return false;
+    const mode = this.kindMode('memory');
+    return mode === 'auto' && !itemNeedsConfirm({ id: r.action.id, kind: r.kind, op: 'overwrite' }, mode);
+  }
+
+  /**
+   * 手元と相手の MEMORY.md を行の和にした中身（memoryIndex.ts）。合わせられなければ null（競合のまま残す）。
+   * - 本文のファイルが合わせた後にあるか：この回に書く項目（plain）で消すなら無い、新規か上書きで書くならある。ほかはディスクを見る。
+   * - 本文のどちらが新しいか：その本文の判定で見る。相手が上書き・新規なら相手、判定が何も出さず手元と相手の指紋が違えば手元（手元だけが変えた）。
+   *   両方が変えた（競合）か同じなら決めない。本文の更新時刻は束に載らず、適用で書き直されるので、2 台で同じ答えにならない。
+   */
+  private mergeIndex(r: Resolved, rs: Resolved[], plain: Resolved[], local: Map<string, LocalItem>): Buffer | null {
+    const ref = parseItemId(r.action.id)?.ref;
+    if (ref?.type !== 'memory' || !r.local || !r.remote || r.target === null) return null;
+    const mine = readLocalContent(r.local);
+    const theirs = readInboxBlob(this.deps.home, r.action.fromDeviceId, r.remote.item.sha256);
+    if (!mine || !theirs || mine.includes(0) || theirs.includes(0)) return null;
+    const dir = path.join(this.deps.claudeDir, ...path.posix.dirname(r.target).split('/'));
+    const writing = new Map(plain.map((x) => [x.action.id, x.action.op]));
+    const actions = new Map(rs.map((x) => [x.action.id, x.action.op]));
+    const snapItems = new Map((readInbox(this.deps.home).find((e) => e.deviceId === r.action.fromDeviceId)?.items ?? []).map((i) => [i.id, i.sha256]));
+    const merged = mergeMemoryIndex(mine.toString('utf8'), theirs.toString('utf8'), {
+      present: (file) => {
+        const op = writing.get(memoryId(ref.projectId, file));
+        if (op === 'delete') return false;
+        if (op === 'create' || op === 'overwrite') return true;
+        try { return fs.statSync(path.join(dir, ...file.split('/'))).isFile(); } catch { return false; }
+      },
+      newer: (file) => {
+        const id = memoryId(ref.projectId, file);
+        const op = actions.get(id);
+        if (op === 'overwrite' || op === 'create') return 'b';
+        if (op !== undefined) return null;
+        const l = local.get(id)?.sha256;
+        const rsha = snapItems.get(id);
+        return l && rsha && l !== rsha ? 'a' : null;
+      },
+    });
+    return Buffer.from(merged, 'utf8');
   }
 
   /** 前に知らせた、確認の項目と競合の集合（項目の id と相手の中身の指紋）と、前に知らせた自動の失敗の時刻。 */

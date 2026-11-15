@@ -64,7 +64,7 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'share/codex.ts': { lines: 2, why: 'Codex の追記に入れる、Claude Code の指示の見出しと「このファイルも読んで従う」の 1 行。Codex に渡す指示文で、画面には出さない' },
   'summary/job.ts': { lines: 2, why: LOG },
   'sync/apply.ts': { lines: 4, why: LOG_AND_FILE },
-  'sync/config/apply.ts': { lines: 27, why: CLI },
+  'sync/config/apply.ts': { lines: 28, why: CLI },
   'sync/config/applyAll.ts': { lines: 7, why: CLI },
   'sync/config/restoreItem.ts': { lines: 13, why: CLI },
   'sync/config/targets/agentsSkills.ts': { lines: 17, why: CLI },
