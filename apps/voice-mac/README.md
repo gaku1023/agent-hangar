@@ -58,4 +58,5 @@ printf '%s\n' '{"cmd":"speak","id":"a1","text":"了解しました。","voice":"
 - 区切りの値（Silero の 512 サンプルの枠、0.5 以上が 2 枠で始まり、前の 300 ms、無音 700 ms、30 秒まで）は `Sources/VoiceCore/Segmenter.swift` の既定です。
 - マイクの取り込みは AVAudioEngine の voice processing を通し、他のアプリの音の絞りは最小にします。読み上げも同じエンジンから鳴らし、回り込み消しの参照に入れます。
 - `micUsers` は、自分と `com.apple.CoreSpeech` を除いたマイクを使っているプロセスの束の識別子です（無ければ `pid:<番号>`）。1 秒ごとに見て、変わったときだけ出します。
-- Kokoro に渡す文の処理は `Models.kokoroTextProcessor` で差し替えます（日本語の読みは別の作業で入れます）。
+- Kokoro に渡す文の処理は `Models.kokoroTextProcessor` です。既定は `JapaneseKokoroProcessor` で、CFStringTokenizer で語に分けて読みを取り、かなの表（`Sources/VoiceCore/KanaPhonemes.swift`、misaki の表を移したもの）で音素にします。
+- 英字の語は、大文字だけで 4 字までの語を文字の名前で読み（PR → ピーアール）、ほかは英語の G2P（`beshkenadze/kitten-tts-g2p`、Kokoro の読み込みのときに落とす）に回します。落とせないときは英字をそのまま渡します。

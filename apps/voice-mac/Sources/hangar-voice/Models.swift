@@ -58,8 +58,8 @@ final class Models {
     private(set) var vad: SileroVAD?
     private(set) var asr: Qwen3ASRModel?
     private(set) var tts: SpeechGenerationModel?
-    /// Kokoro に渡す文の処理。nil なら mlx-audio-swift の既定。Task 2b で日本語の読みに差し替える。
-    var kokoroTextProcessor: TextProcessor? = nil
+    /// Kokoro に渡す文の処理。日本語の読み（JapaneseKokoroProcessor）。nil なら mlx-audio-swift の既定。
+    var kokoroTextProcessor: TextProcessor? = JapaneseKokoroProcessor()
 
     /// 起動時に、キャッシュに無いモデルがあれば missing を出す。
     func announce() {
