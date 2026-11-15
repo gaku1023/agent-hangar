@@ -24,6 +24,8 @@ export type SettingsUpdateDeps = {
   onOpencodeEnabled?: () => void;
   /** orchestrator の欄が来たとき。統括の見張りが、入り切りとモデルの変更を受けて起こす・止まる。 */
   onOrchestrator?: () => void;
+  /** voice の欄が来たとき。声のサービスが、聞く状態と語彙のヒントを合わせる。 */
+  onVoice?: () => void;
 };
 
 /**
@@ -42,6 +44,7 @@ export function applySettingsPatch(deps: SettingsUpdateDeps, patch: Partial<Sett
   if (patch.summaryHourlyCap !== undefined) deps.onSummaryCap();
   if (ENABLED_KEYS.some((k) => patch[k] !== undefined)) deps.onOpencodeEnabled?.();
   if (patch.orchestrator !== undefined) deps.onOrchestrator?.();
+  if (patch.voice !== undefined) deps.onVoice?.();
   deps.publishConfigSync(settings);
   return settings;
 }

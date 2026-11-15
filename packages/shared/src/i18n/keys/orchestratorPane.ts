@@ -10,5 +10,6 @@ export const orchestratorPaneKeys = {
   'orchestratorPane.composer.placeholder': [],
   'orchestratorPane.composer.send': [],
   'orchestratorPane.error.notRunning': [],
+  'orchestratorPane.error.voiceUnavailable': [],
   'orchestratorPane.error.sendFailed': ['reason'],
 } as const satisfies MessageSpec;

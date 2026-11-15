@@ -24,6 +24,7 @@ const FIRST_NAME = '最初に保存するときの名前。書いたあとは利
 const INTERNAL = '呼び手の誤りを弾く内部の検査の文。利用者には届かない（受け取った側は例外の名前だけを記録し、文は捨てる）';
 const TEST_SUPPORT = '試験用の偽物の中身。製品では使わない';
 const CLI = 'hangar config apply と restore の CLI が端末に出す文。packages/cli は日本語だけで、鍵へ移すのは CLI の多言語化と一緒にする';
+const VOICE_WORDS = '認識の結果と照合する日本語の語（呼びかけの頭、止める語、定番の作り話、相づち）。画面には出さない';
 const LEFT = '利用者に見える文で、まだ鍵へ移していない。次に画面の文を鍵へ移すときに一緒に移す';
 
 /** ファイル（server/src からの相対）ごとの、直書きの日本語の行の数と、残す理由。 */
@@ -91,6 +92,8 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'sync/uploader.ts': { lines: 2, why: LOG },
   'sync/usage.ts': { lines: 1, why: PROTOCOL },
   'tmux/tmux.ts': { lines: 1, why: INTERNAL },
+  'voice/addressee.ts': { lines: 2, why: VOICE_WORDS },
+  'voice/filters.ts': { lines: 2, why: VOICE_WORDS },
 };
 
 function sourceFiles(dir: string): string[] {

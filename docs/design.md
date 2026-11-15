@@ -10504,6 +10504,21 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - `createSpeaker` は返答の文を渡すと `speak` する口。どの返答を読むかは呼び手が決める。
 - `Info.plist` に `NSMicrophoneUsageDescription` と `NSSpeechRecognitionUsageDescription` を置く。WKWebView で認識が動くかは実物で測る。
 
+### 端末の音声の口（段 2、macOS 14 以上）
+
+Mac では、聞き取り・区切り・読み上げを端末の中の補助 `hangar-voice` が持ち、サーバとは標準入出力の 1 行 1 JSON で話す（型は `packages/shared/src/voice.ts`）。
+補助が無い環境（Windows、古い Mac、補助の無い build、落ちて戻らないとき）では、`GET /api/voice` は `available: false`、動かす口は 409 で、画面は今の Web Speech の動きのまま。
+サーバ側は `packages/server/src/voice/` にあり、次の部品でできている。
+
+- `helper.ts`：補助の起動と見張り。落ちたら 1 秒から 30 秒のバックオフで起こし直し、5 回続けて落ちたら止める。
+- `filters.ts`：捨てる決まり。小さすぎる音量、定番の作り話、窓の中の「はい」だけ、語彙のヒントの丸写しは統括へ送らない。
+- `addressee.ts`：誰宛てかの状態機械（純粋）。押している間、切り替え、呼びかけ語（「ねえ」と人格の読み）、返答の直後の窓、会議中の休みを持ち、由来を決める。迷うときは弱い側か送らない側に倒す。
+- `service.ts`：上の部品をつなぐ。補助は常に聞くのとき、または押す・切り替え・読み上げ・準備が来たときだけ起こす。離したときは補助へ `flush` を送り、`flushed` を受けてから 1 本にまとめて 1 回だけ送る。窓と呼ばれた後の待ちは 1 秒ごとの tick で期限を見る。
+- 統括の返答の到着は、統括の会話の `transcript.appended` のあとに assistant の行が増えたかで見る。窓の起点は、読み上げが終わった時刻（読まなければ届いた時刻）である。
+- 統括への送りは `sendToOrchestrator`（`http/routes/orchestrator.ts`）を、柱の入力欄の経路と共有する。印は由来からサーバが付け、補助も画面も本文の印を名乗れない。
+- 画面へは事象 `voice.state`（`VoiceStateDto`：補助の有無、モデルの用意、聞き方、段、字幕、読み上げ中、会議中）を配る。字幕は送ってから 2 秒で消える。
+- 設定 `voice`（この PC だけ、同期しない）は聞き方（`off`、`toggle`、`always`）と人格の一覧を持つ。人格は名前、読み、口調、声（`os:<識別子>` か `kokoro:<声>`）、速さで、取れない値は既定に戻す。名前は呼びかけ語になり、口調は統括の指示文に足す（空なら何も足さない）。権限と安全の文は人格で変わらない。
+
 ## 決めた前提と未決事項
 
 インタビューで問わず、筆者が埋めた前提を列挙する。

@@ -28,6 +28,18 @@ describe('役の文', () => {
     expect(en).toContain('ask back');
     expect(en).toContain('pressing the key');
   });
+  it('人格の名前と口調を足せる。口調が空なら何も足さず、権限と安全の文は変わらない', () => {
+    for (const lang of LANGUAGES) {
+      const base = orchestratorInstructions(lang)[0]!.text;
+      expect(orchestratorInstructions(lang, { name: 'ミナ', tone: '' })[0]!.text).toBe(base);
+      expect(orchestratorInstructions(lang, null)[0]!.text).toBe(base);
+      const withTone = orchestratorInstructions(lang, { name: 'ミナ', tone: 'ていねい' })[0]!.text;
+      expect(withTone.startsWith(base)).toBe(true);
+      expect(withTone).toContain('ミナ');
+      expect(withTone).toContain('ていねい');
+      expect(withTone.endsWith('\n')).toBe(true);
+    }
+  });
   it('自分で片付けた許可と、前のターンで伝えた待ちは黙る。伝えることが無ければ何も書かずに終える', () => {
     const [ja, en] = [orchestratorInstructions('ja')[0]!.text, orchestratorInstructions('en')[0]!.text];
     expect(ja).toContain('返答は書かず');

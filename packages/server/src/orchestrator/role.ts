@@ -21,6 +21,10 @@ export const ORCHESTRATOR_PERMISSIONS: { allow: readonly string[]; deny: readonl
 };
 
 /** 役の文（システムプロンプトへの追記）。プロジェクトの段は足さず、これだけを渡す。 */
-export function orchestratorInstructions(language: Language): InjectionEntry[] {
-  return [{ key: 'orchestrator', text: t(language, 'launch.injection.orchestrator') }];
+export function orchestratorInstructions(language: Language, persona?: { name: string; tone: string } | null): InjectionEntry[] {
+  const base = t(language, 'launch.injection.orchestrator');
+  // 人格は名前と口調だけを足す。口調が空なら何も足さない。権限と安全の文は人格で変えない（base の後ろに足すだけ）。
+  const tone = persona?.tone.trim() ?? '';
+  const extra = persona && tone !== '' ? t(language, 'launch.injection.orchestratorPersona', { name: persona.name, tone }) : '';
+  return [{ key: 'orchestrator', text: base + extra }];
 }

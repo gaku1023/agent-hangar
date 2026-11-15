@@ -155,7 +155,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, orchestrator: { enabled: false, sessionId: null, model: 'sonnet', effort: 'medium' }, permissionPolicy: null });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, orchestrator: { enabled: false, sessionId: null, model: 'sonnet', effort: 'medium' }, voice: { mode: 'off', personaId: 'default', personas: [{ id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'os:com.apple.voice.compact.ja-JP.Kyoko', speed: 1.2 }] }, permissionPolicy: null });
   });
   // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
   it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
@@ -469,7 +469,7 @@ describe('設定の往復', () => {
       // 統括（orchestrator）は届いた項目を足して返す形なので、往復の表ではなく専用の試験で見る。
       // フォルダの信頼の同意（trustedWorkspaceRoot）は読むだけで、POST /api/workspace/trust だけが書く。
       // 許可の方針（permissionPolicy）は読むだけで、統括の set_permission_policy だけが書く。
-      expect([...cases.map(([k]) => k), 'orchestrator', 'permissionPolicy', 'summaryApiKeySet', 'trustedWorkspaceRoot'].sort()).toEqual(Object.keys(dto).sort());
+      expect([...cases.map(([k]) => k), 'orchestrator', 'voice', 'permissionPolicy', 'summaryApiKeySet', 'trustedWorkspaceRoot'].sort()).toEqual(Object.keys(dto).sort());
     } finally {
       fs.rmSync(ws2, { recursive: true, force: true });
       fs.rmSync(dir2, { recursive: true, force: true });
@@ -556,6 +556,15 @@ describe('設定の往復', () => {
       expect((await r.json()).error).toBe('「コマンド実行前に確認」の値の形式が正しくありません');
     }
     expect((await json(await get('/api/settings'))).body.opencodePermissionPreset).toBe(false);
+  });
+  it('机の音声の設定は届いた項目だけを替え、取れない値は 400', async () => {
+    expect((await json(await get('/api/settings'))).body.voice.mode).toBe('off');
+    const r = await patch({ voice: { mode: 'always' } });
+    expect(r.status).toBe(200);
+    expect((await r.json()).voice).toMatchObject({ mode: 'always', personaId: 'default' });
+    const p = await patch({ voice: { personas: [{ id: 'm', name: 'ミナ', reading: 'みな', tone: 'ていねい', voice: 'kokoro:jf_alpha', speed: 1.1 }], personaId: 'm' } });
+    expect((await p.json()).voice).toMatchObject({ mode: 'always', personaId: 'm' });
+    for (const bad of [{ mode: 'loud' }, {}, { personas: [] }, { personas: [{ id: '', name: 'x' }] }, { extra: 1 }, 'x']) expect((await patch({ voice: bad })).status, JSON.stringify(bad)).toBe(400);
   });
   it('統括の設定は、既定が切で、入り切りとモデルと effort だけを保存でき、会話の id と形の違う値は断る', async () => {
     expect((await json(await get('/api/settings'))).body.orchestrator).toEqual({ enabled: false, sessionId: null, model: 'sonnet', effort: 'medium' });

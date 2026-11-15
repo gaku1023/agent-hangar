@@ -31,3 +31,79 @@ export type VoiceEvent =
   | { ev: 'speaking'; id: string; state: 'start' | 'end' | 'stopped' }
   | { ev: 'micUsers'; bundles: string[] }
   | { ev: 'error'; code: string; message: string };
+
+/** 人格。呼びかけ語の名前と読み、統括の口調、読み上げの声と速さ。声は `os:<識別子>` か `kokoro:<声>`。 */
+export type VoicePersona = { id: string; name: string; reading: string; tone: string; voice: string; speed: number };
+
+/** 設定の voice。この PC だけで、同期しない。 */
+export type VoiceSetting = { mode: VoiceMode; personaId: string; personas: VoicePersona[]; asrModel?: string };
+
+export const DEFAULT_VOICE_PERSONA: VoicePersona = { id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'os:com.apple.voice.compact.ja-JP.Kyoko', speed: 1.2 };
+export const DEFAULT_VOICE: VoiceSetting = { mode: 'off', personaId: DEFAULT_VOICE_PERSONA.id, personas: [DEFAULT_VOICE_PERSONA] };
+
+const MODES: readonly VoiceMode[] = ['off', 'toggle', 'always'];
+export const isVoiceMode = (v: unknown): v is VoiceMode => typeof v === 'string' && (MODES as readonly string[]).includes(v);
+const isVoiceId = (v: unknown): v is string => typeof v === 'string' && /^(os|kokoro):\S+$/.test(v);
+const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+
+function personaOf(raw: unknown): VoicePersona | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const id = str(o.id)?.trim();
+  const name = str(o.name)?.trim();
+  if (!id || !name) return null;
+  const speed = typeof o.speed === 'number' && Number.isFinite(o.speed) && o.speed >= 0.5 && o.speed <= 2 ? o.speed : DEFAULT_VOICE_PERSONA.speed;
+  return {
+    id, name,
+    reading: str(o.reading)?.trim() ?? '',
+    tone: str(o.tone)?.trim() ?? '',
+    voice: isVoiceId(o.voice) ? o.voice : DEFAULT_VOICE_PERSONA.voice,
+    speed,
+  };
+}
+
+/** 手で書き換えた値と古い設定を、既定に寄せて読む。知らない値は既定に戻す。 */
+export function voiceOf(raw: unknown): VoiceSetting {
+  const o = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const seen = new Set<string>();
+  const personas: VoicePersona[] = [];
+  for (const p of Array.isArray(o.personas) ? o.personas : []) {
+    const v = personaOf(p);
+    if (v && !seen.has(v.id)) { seen.add(v.id); personas.push(v); }
+  }
+  if (personas.length === 0) personas.push({ ...DEFAULT_VOICE_PERSONA });
+  const personaId = typeof o.personaId === 'string' && seen.has(o.personaId) ? o.personaId : personas[0]!.id;
+  const asr = typeof o.asrModel === 'string' && o.asrModel.trim() !== '' ? o.asrModel.trim() : null;
+  return { mode: isVoiceMode(o.mode) ? o.mode : DEFAULT_VOICE.mode, personaId, personas, ...(asr ? { asrModel: asr } : {}) };
+}
+
+/** 使っている人格。 */
+export function activePersona(v: VoiceSetting): VoicePersona {
+  return v.personas.find((p) => p.id === v.personaId) ?? v.personas[0] ?? DEFAULT_VOICE_PERSONA;
+}
+
+/** 設定の API が受ける voice。形が合わなければ偽（知らない値を黙って既定に戻さず、書く側には断る）。 */
+export function isVoicePatch(v: unknown): v is Partial<VoiceSetting> {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  const keys = Object.keys(o);
+  if (keys.length === 0 || keys.some((k) => !['mode', 'personaId', 'personas', 'asrModel'].includes(k))) return false;
+  if ('mode' in o && !isVoiceMode(o.mode)) return false;
+  if ('personaId' in o && typeof o.personaId !== 'string') return false;
+  if ('asrModel' in o && typeof o.asrModel !== 'string') return false;
+  if ('personas' in o) {
+    if (!Array.isArray(o.personas) || o.personas.length === 0 || o.personas.some((p) => personaOf(p) === null)) return false;
+  }
+  return true;
+}
+
+/** 画面が受ける、声のいまの状態（GET /api/voice と事象 voice.state）。 */
+export type VoiceStateDto = {
+  available: boolean;
+  models: { state: VoiceModelState; progress: number };
+  mode: VoiceMode;
+  phase: VoicePhase;
+  caption: string | null;
+  speakingId: string | null;
+  meeting: boolean;
+};

@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { AGENT_KINDS, orchestratorOf, codexInjectionOf, notifyRulesOf, opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type AgentKind, type CompatDto, type DeviceStatus, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
+import { AGENT_KINDS, orchestratorOf, activePersona, voiceOf, codexInjectionOf, notifyRulesOf, opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type AgentKind, type CompatDto, type DeviceStatus, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
 import { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { claudeJsonFor, claudeJsonPath } from '../provider/claude-code/config/claudeJson.ts';
@@ -196,6 +196,7 @@ export function bootRuns(
     preps: new LaunchPreps({ broadcast: (ev) => { hub.broadcast(ev); } }),
     // 統括の会話の起動の指定（専用の cwd、モデル、effort、役の文、permissions）は、起こすたびに今の設定を読む。
     orchestrator: () => orchestratorOf(settings.current.orchestrator),
+    orchestratorPersona: () => activePersona(voiceOf(settings.current.voice)),
     trustFolder: (configDir, cwd) => { trustBeforeLaunch({ hangarHome: home.home, homeDir: os.homedir(), trustedWorkspace: () => trustedWorkspaceOf(settings.current) }, configDir, cwd); },
   });
   // 区切り（Done、Archived）を付けたセッションが休みになったら、Claude を止める。Paused は戻ってくる会話なので止めない。
