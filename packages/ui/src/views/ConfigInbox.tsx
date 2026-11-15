@@ -8,7 +8,7 @@ import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 
 /** 項目の操作の記号。 */
-const OP_MARK = { create: '+', overwrite: '~', delete: '−', conflict: '!' } as const;
+const OP_MARK = { create: '+', overwrite: '~', delete: '−', conflict: '!', merge: '∪' } as const;
 
 /**
  * 設定の同期の右の列「届いたもの」。確認、競合、履歴を縦に並べる。
@@ -75,7 +75,7 @@ export function ConfigInbox(props: { inbox: InboxProps }) {
               <div className="ib-body">
                 {h.items.map((i) => (
                   <div key={i.id} className="ib-it" data-undone={i.undone ? '' : undefined}>
-                    <span className="ib-op" data-op={i.op} aria-hidden="true">{OP_MARK[i.op]}</span>
+                    <span className="ib-op" data-op={i.op} aria-hidden="true" title={t(`configSyncUi.op.${i.op}`)}>{OP_MARK[i.op]}</span>
                     <span className="ib-t">{i.label}</span>
                     <span className="ib-k">{i.kind}</span>
                     {i.canUndo && <button type="button" className="btn btn-sm btn-ghost" aria-label={t('configKindsUi.history.undoItem', { name: i.label })} onClick={() => emit({ type: 'configSync.history.restore', history: h.id, item: i.id })}><Icon name="reset" /></button>}

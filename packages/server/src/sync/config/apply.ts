@@ -8,7 +8,7 @@ import { readApplyOrder } from './applyOrder.ts';
 import { GENERATION_META, STAMP_RE, stampLabel } from './backups.ts';
 import { ConfigBase } from './base.ts';
 import { otherRefLabelTarget, parseItemId, type ItemRef } from './ids.ts';
-import { readInbox, readInboxBlob } from './inbox.ts';
+import { readInbox, readInboxBlob, readMergedBlob } from './inbox.ts';
 import { applyOrderPath, configBackupsDir } from './paths.ts';
 import { isAbsolutePathRule, valueFits } from './settingsSort.ts';
 import type { HostOs } from './targets/hookCommands.ts';
@@ -123,6 +123,10 @@ function prepare(home: string): { createdAt: number; items: Prepared[] } {
     const remoteGone = item.sha256 === '';
     if (item.take === 'mine' && item.op !== 'conflict') throw new ApplyError('broken-order', '適用内容が壊れています（競合でない項目でこの PC の内容を採用する指定があります）。');
     if (item.take === 'remote' && (item.op === 'delete') !== remoteGone && item.op !== 'conflict') throw new ApplyError('broken-order', '適用内容が壊れています（操作と指紋が合いません）。');
+    // 合わせた中身を書くのは、メモリの索引の競合で相手を採る形のときだけ（サーバの自動の統合が書く）。
+    if (item.merged !== undefined && (item.take !== 'remote' || item.op !== 'conflict' || remoteGone || parsed.ref.type !== 'memory' || parsed.ref.rel !== 'MEMORY.md')) {
+      throw new ApplyError('broken-order', '適用内容が壊れています（統合した中身を書けない項目です）。');
+    }
     const act: ApplyAct = item.take === 'mine' ? 'keep' : remoteGone ? 'remove' : 'write';
     let marks: ConfigExecMark[] = [];
     let content: Buffer | null = null;
@@ -135,8 +139,9 @@ function prepare(home: string): { createdAt: number; items: Prepared[] } {
       if (!mi) throw stale(item.id);
       marks = mi.marks;
       if (act === 'write') {
-        const blob = readInboxBlob(home, item.fromDeviceId, item.sha256);
-        if (!blob || crypto.createHash('sha256').update(blob).digest('hex') !== item.sha256) throw stale(item.id);
+        const want = item.merged ?? item.sha256;
+        const blob = item.merged ? readMergedBlob(home, item.merged) : readInboxBlob(home, item.fromDeviceId, item.sha256);
+        if (!blob || crypto.createHash('sha256').update(blob).digest('hex') !== want) throw stale(item.id);
         content = blob;
         if (parsed.ref.type === 'settings') {
           try { value = JSON.parse(blob.toString('utf8')); } catch { throw new ApplyError('bad-content', `受信した設定の値を読み込めません（${item.id}）。`); }

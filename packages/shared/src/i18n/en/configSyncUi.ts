@@ -29,6 +29,7 @@ export const configSyncUiEn: AreaDictionary<typeof configSyncUiKeys> = {
   'configSyncUi.op.delete': 'Delete',
   'configSyncUi.op.overwrite': 'Overwrite',
   'configSyncUi.op.create': 'New',
+  'configSyncUi.op.merge': 'Merged',
   'configSyncUi.opNote.conflict': 'Changed on both computers. You pick which side to keep after seeing the diff. Nothing is written from here',
   'configSyncUi.opNote.delete': 'Deleted on the other computer. It is deleted here too, and its content is kept in the backup',
   'configSyncUi.opNote.overwrite': 'Also exists on this computer. A backup is taken before writing',

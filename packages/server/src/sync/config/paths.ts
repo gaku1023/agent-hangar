@@ -6,6 +6,7 @@ import { backupsRoot } from '../../config/cloud.ts';
  * `~/.claude` には何も置かない。サーバが書くのは、ここと DB だけである。
  *
  * - `<home>/claude-config/inbox/<端末の ID>/`：他の PC の束を開いた写し（目録と中身）。
+ * - `<home>/claude-config/merged/<指紋>`：メモリの索引（MEMORY.md）の競合を自動で合わせた中身。指示書の merged が指す。
  * - `<home>/claude-config/apply-order.json`：承認した項目の「適用の指示書」。殻の命令と hangar config apply が読み、適用が済むか取り消されたら消す。
  * - `<home>/backups/claude-config/<時刻>/`：適用の前に取る控えの世代。書くのは適用する側で、サーバは数えるだけである。旧実装が使っていた場所と同じである。
  */
@@ -15,5 +16,7 @@ export const BUNDLE_PATH = '.hangar/config-bundle.hgr';
 
 export const configSyncDir = (home: string): string => path.join(home, 'claude-config');
 export const inboxDir = (home: string): string => path.join(configSyncDir(home), 'inbox');
+/** 自動で合わせたメモリの索引の中身（指紋の名前）。指示書の merged が指し、適用が済んだら消す。 */
+export const mergedDir = (home: string): string => path.join(configSyncDir(home), 'merged');
 export const applyOrderPath = (home: string): string => path.join(configSyncDir(home), 'apply-order.json');
 export const configBackupsDir = (home: string): string => path.join(backupsRoot(home), 'claude-config');

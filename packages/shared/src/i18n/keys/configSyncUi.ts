@@ -28,6 +28,7 @@ export const configSyncUiKeys = {
   'configSyncUi.op.delete': [],
   'configSyncUi.op.overwrite': [],
   'configSyncUi.op.create': [],
+  'configSyncUi.op.merge': [],
   'configSyncUi.opNote.conflict': [],
   'configSyncUi.opNote.delete': [],
   'configSyncUi.opNote.overwrite': [],

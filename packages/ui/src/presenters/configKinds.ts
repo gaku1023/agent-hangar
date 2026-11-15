@@ -1,4 +1,4 @@
-import { codexEnabledOf, configKindModeOf, opencodeEnabledOf, type ConfigConflictDto, type ConfigHistoryDto, type ConfigInboxItemDto, type ConfigItemKind, type ConfigKindKey, type ConfigKindMode, type ConfigSyncDto, type SettingsDto, type Translate } from '@agent-hangar/shared';
+import { codexEnabledOf, configKindModeOf, opencodeEnabledOf, type ConfigConflictDto, type ConfigHistoryDto, type ConfigHistoryOp, type ConfigInboxItemDto, type ConfigItemKind, type ConfigKindKey, type ConfigKindMode, type ConfigSyncDto, type SettingsDto, type Translate } from '@agent-hangar/shared';
 import type { IconName } from '../views/primitives/Icon.tsx';
 import type { Store } from '../store/store.ts';
 import { absoluteTime, relativeTime } from './format.ts';
@@ -95,7 +95,7 @@ export function presentSyncBadges(c: ConfigSyncDto | null): { ask: number | null
 }
 
 export type InboxItemProps = { id: string; label: string; kind: string };
-export type HistoryItemProps = { id: string; label: string; kind: string; op: 'create' | 'overwrite' | 'delete' | 'conflict'; undone: boolean; canUndo: boolean };
+export type HistoryItemProps = { id: string; label: string; kind: string; op: ConfigHistoryOp; undone: boolean; canUndo: boolean };
 export type HistoryBatchProps = { id: number; when: string; from: string | null; kinds: string; unseen: boolean; items: HistoryItemProps[]; canUndoBatch: boolean };
 export type InboxProps = {
   ask: InboxItemProps[]; conflicts: InboxItemProps[]; history: HistoryBatchProps[];

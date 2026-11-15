@@ -24,7 +24,7 @@ export function labelOfId(id: string): string {
 }
 
 export function historyItemsOf(items: readonly ConfigApplyOrderItemDto[], labels?: ReadonlyMap<string, string>): ConfigHistoryItemDto[] {
-  return items.map((i) => ({ id: i.id, kind: i.kind, label: labels?.get(i.id) ?? labelOfId(i.id), op: i.op }));
+  return items.map((i) => ({ id: i.id, kind: i.kind, label: labels?.get(i.id) ?? labelOfId(i.id), op: i.merged ? 'merge' : i.op }));
 }
 
 /** 項目の元の端末。元が 1 つなら、その端末。 */
