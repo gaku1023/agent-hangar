@@ -10486,6 +10486,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - `VoicePort`（`packages/ui/src/voice/voicePort.ts`）が聞く側（`listen`）と話す側（`speak`、`cancel`）を別々に使えるか答える。使えない側のボタンや読み上げは出さない。
 - 実装は Web Speech API（`webVoicePort`）。言語は UI の言語に合わせ、ja は ja-JP、en は en-US で聞き、話す。
 - `MicButton` は押して話す切り替え式。確定の文のあと 1.2 秒黙ると、`[voice]` を前に付けて `onSend` へ渡す。もう一度押すとそこまでを送り、Esc は捨てる。
+- 入力欄に打ちかけの文字があるときは残る。認識の文はその後ろに流れ、聞き終えたら（送っても捨てても）欄は打ちかけに戻る。送る文は認識の文だけである。
 - 読み上げ中に押すと `cancel` して聞く。読み上げの間と直後 1.5 秒に届いた認識は捨てる（自分の声を拾わないため）。
 - `createSpeaker` は返答の文を渡すと `speak` する口。どの返答を読むかは呼び手が決める。
 - `Info.plist` に `NSMicrophoneUsageDescription` と `NSSpeechRecognitionUsageDescription` を置く。WKWebView で認識が動くかは実物で測る。

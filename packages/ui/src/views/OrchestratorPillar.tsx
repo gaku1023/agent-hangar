@@ -136,6 +136,20 @@ function Composer(props: { canSend: boolean; sending: boolean; port: VoicePort; 
   const t = useT();
   const [text, setText] = useState('');
   const ta = useRef<HTMLTextAreaElement>(null);
+  const textRef = useRef(text);
+  textRef.current = text;
+  // マイクを押した時点の打ちかけ。聞いている間だけ持ち、聞き終えたら欄をこれに戻す。
+  const draft = useRef<string | null>(null);
+  const onInterim = (s: string) => {
+    if (s === '') {
+      if (draft.current !== null) setText(draft.current);
+      draft.current = null;
+      return;
+    }
+    draft.current ??= textRef.current;
+    const d = draft.current;
+    setText(d === '' || /\s$/.test(d) ? `${d}${s}` : `${d} ${s}`);
+  };
   const ready = props.canSend && !props.sending && text.trim() !== '';
   const submit = () => {
     if (!ready) return;
@@ -150,7 +164,7 @@ function Composer(props: { canSend: boolean; sending: boolean; port: VoicePort; 
       <div className="pchat-box" data-blocked={props.canSend ? undefined : 'true'}>
         <textarea ref={ta} rows={1} value={text} aria-label={t('orchestratorPane.composer.label')} placeholder={t('orchestratorPane.composer.placeholder')} disabled={!props.canSend}
           onChange={(e) => setText(e.target.value)} onKeyDown={onKeyDown} />
-        {props.canSend && <MicButton port={props.port} onInterim={setText} onSend={(s) => { props.onMic(); props.onSend(s); }} />}
+        {props.canSend && <MicButton port={props.port} onInterim={onInterim} onSend={(s) => { props.onMic(); props.onSend(s); }} />}
         <button type="button" className="pchat-send" disabled={!ready} aria-label={t('orchestratorPane.composer.send')} onClick={submit}><Icon name="seeAll" /></button>
       </div>
     </div>
