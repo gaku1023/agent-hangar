@@ -10,6 +10,12 @@ describe('buildHints', () => {
     expect(h).not.toContain('ハンガー');
     expect(h).not.toContain('はんがー');
   });
+  it('呼びかけ語の読みも除く（名前と読みが違う人格）', () => {
+    const h = buildHints({ sessionTitles: ['ミナ', 'みな', 'Mina'], projectNames: [], callName: 'Mina', callReading: 'みな' });
+    expect(h).not.toContain('ミナ');
+    expect(h).not.toContain('みな');
+    expect(h).not.toContain('Mina');
+  });
   it('重複を除き 60 語まで', () => {
     const titles = Array.from({ length: 100 }, (_, i) => `題${i}`).concat(['題1', '題1']);
     const h = buildHints({ sessionTitles: titles, projectNames: [], callName: 'ハンガー' });

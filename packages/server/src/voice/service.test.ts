@@ -359,6 +359,17 @@ describe('声のサービス', () => {
     expect(helper.listenerCount('event')).toBe(1);
   });
 
+  it('読みの無い人格では呼びかけ語が効かず、状態の callable が偽になる', async () => {
+    voice = voiceOf({ mode: 'always', personas: [{ id: 'p', name: 'ミナ', reading: '', tone: '', voice: 'kokoro:jf_alpha', speed: 1 }] });
+    const svc = make();
+    expect(svc.state().callable).toBe(false);
+    seg('ねえミナ、進み具合は');
+    await Promise.resolve();
+    expect(sent).toEqual([]);
+    voice = voiceOf({ mode: 'always' });
+    expect(svc.state().callable).toBe(true);
+  });
+
   it('モデルの状態を state に載せる', () => {
     const svc = make();
     helper.ev({ ev: 'models', state: 'downloading', progress: 0.4 });

@@ -70,18 +70,38 @@ const MODES: readonly VoiceMode[] = ['off', 'toggle', 'always'];
 export const isVoiceMode = (v: unknown): v is VoiceMode => typeof v === 'string' && (MODES as readonly string[]).includes(v);
 const isVoiceId = (v: unknown): v is string => typeof v === 'string' && /^(os|kokoro):\S+$/.test(v);
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+const charLen = (s: string): number => Array.from(s).length;
+const CONTROL = /\p{Cc}/u;
 
-function personaOf(raw: unknown): VoicePersona | null {
+/**
+ * 人格の値の決まり。名前と読みは呼びかけ語と統括の指示文に、口調は統括の指示文に入るので、改行や制御文字で指示文の形を崩させない。
+ * 名前は 1〜20 文字、読みはひらがな（ー を含む）2〜20 文字か空（空なら呼びかけ語は効かない）、どちらも改行と制御文字は不可。
+ * 口調は 300 文字まで、改行は 3 つまでで、ほかの制御文字は不可。
+ */
+const isPersonaName = (s: string): boolean => charLen(s) >= 1 && charLen(s) <= 20 && !CONTROL.test(s);
+const isPersonaReading = (s: string): boolean => s === '' || /^[\u3041-\u3096\u309d\u309eー]{2,20}$/u.test(s);
+const isPersonaTone = (s: string): boolean => charLen(s) <= 300 && !CONTROL.test(s.replace(/\n/g, '')) && (s.match(/\n/g)?.length ?? 0) <= 3;
+
+/**
+ * 人格を読む。strict（設定の API）は決まりに合わない値があれば null を返す。
+ * strict でない（設定のファイルを読むとき）は、合わない読みと口調を空に戻し、名前が合わなければその人格を捨てる。
+ */
+function personaOf(raw: unknown, strict = false): VoicePersona | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const o = raw as Record<string, unknown>;
   const id = str(o.id)?.trim();
   const name = str(o.name)?.trim();
-  if (!id || !name) return null;
+  if (!id || name === undefined || !isPersonaName(name)) return null;
+  const reading = 'reading' in o && o.reading !== undefined ? str(o.reading)?.trim() ?? null : '';
+  const tone = 'tone' in o && o.tone !== undefined ? str(o.tone)?.trim() ?? null : '';
+  const readingOk = reading !== null && isPersonaReading(reading);
+  const toneOk = tone !== null && isPersonaTone(tone);
+  if (strict && (!readingOk || !toneOk)) return null;
   const speed = typeof o.speed === 'number' && Number.isFinite(o.speed) && o.speed >= 0.5 && o.speed <= 2 ? o.speed : DEFAULT_VOICE_PERSONA.speed;
   return {
     id, name,
-    reading: str(o.reading)?.trim() ?? '',
-    tone: str(o.tone)?.trim() ?? '',
+    reading: readingOk ? reading : '',
+    tone: toneOk ? tone : '',
     voice: isVoiceId(o.voice) ? o.voice : DEFAULT_VOICE_PERSONA.voice,
     speed,
   };
@@ -117,7 +137,7 @@ export function isVoicePatch(v: unknown): v is Partial<VoiceSetting> {
   if ('personaId' in o && typeof o.personaId !== 'string') return false;
   if ('asrModel' in o && typeof o.asrModel !== 'string') return false;
   if ('personas' in o) {
-    if (!Array.isArray(o.personas) || o.personas.length === 0 || o.personas.some((p) => personaOf(p) === null)) return false;
+    if (!Array.isArray(o.personas) || o.personas.length === 0 || o.personas.some((p) => personaOf(p, true) === null)) return false;
   }
   return true;
 }
@@ -131,4 +151,6 @@ export type VoiceStateDto = {
   caption: string | null;
   speakingId: string | null;
   meeting: boolean;
+  /** 使っている人格に読みがあり、呼びかけ語で呼べるか。読みが空の人格では、常に聞くにしても呼べない。 */
+  callable: boolean;
 };

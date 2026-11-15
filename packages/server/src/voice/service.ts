@@ -115,6 +115,7 @@ export class VoiceService {
       caption: this.caption,
       speakingId: this.speakingId,
       meeting: this.addr.meeting,
+      callable: activePersona(this.cfg()).reading !== '',
     };
   }
 
@@ -173,7 +174,7 @@ export class VoiceService {
   /** 語彙のヒントを作り直し、変わっていれば補助へ送る。 */
   refreshHints(force = false): void {
     const p = activePersona(this.cfg());
-    const next = buildHints({ ...this.deps.hintSource(), callName: p.name });
+    const next = buildHints({ ...this.deps.hintSource(), callName: p.name, callReading: p.reading });
     this.hintsAt = this.now();
     if (!force && next.join('\n') === this.hints.join('\n')) return;
     this.hints = next;

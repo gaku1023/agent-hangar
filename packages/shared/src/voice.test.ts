@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isVoiceEvent } from './voice.ts';
+import { DEFAULT_VOICE_PERSONA, isVoiceEvent, isVoicePatch, voiceOf } from './voice.ts';
 
 describe('isVoiceEvent', () => {
   it('約束どおりの形の行を受ける', () => {
@@ -33,5 +33,46 @@ describe('isVoiceEvent', () => {
       { ev: 'micUsers', bundles: 'zoom' },
       { ev: 'error', code: 1, message: 'y' },
     ]) expect(isVoiceEvent(e), JSON.stringify(e)).toBe(false);
+  });
+});
+
+const persona = (o: Record<string, unknown>) => ({ id: 'm', name: 'ミナ', reading: 'みな', tone: 'ていねい', voice: 'kokoro:jf_alpha', speed: 1.1, ...o });
+
+describe('人格の値の検証', () => {
+  it('PATCH は決まりに合う人格を受ける', () => {
+    for (const p of [
+      persona({}),
+      persona({ reading: '' }),
+      persona({ name: 'あ'.repeat(20), reading: 'あ'.repeat(20) }),
+      persona({ reading: 'はんがー' }),
+      persona({ tone: 'ていねいに。\n短く。\n明るく。\n落ち着いて。' }),
+      persona({ tone: 'x'.repeat(300) }),
+    ]) expect(isVoicePatch({ personas: [p] }), JSON.stringify(p)).toBe(true);
+  });
+
+  it('PATCH は決まりに合わない名前、読み、口調を断る', () => {
+    for (const p of [
+      persona({ name: '' }),
+      persona({ name: 'あ'.repeat(21) }),
+      persona({ name: 'ミ\nナ' }),
+      persona({ name: 'ミ\u0007ナ' }),
+      persona({ reading: 'み' }),
+      persona({ reading: 'あ'.repeat(21) }),
+      persona({ reading: 'ミナ' }),
+      persona({ reading: 'mina' }),
+      persona({ reading: 'み\nな' }),
+      persona({ reading: 7 }),
+      persona({ tone: 'x'.repeat(301) }),
+      persona({ tone: 'a\nb\nc\nd\ne' }),
+      persona({ tone: 'a\u0000b' }),
+      persona({ tone: 'a\rb' }),
+    ]) expect(isVoicePatch({ personas: [p] }), JSON.stringify(p)).toBe(false);
+  });
+
+  it('読み込みでは合わない値を既定に戻す', () => {
+    const v = voiceOf({ personas: [persona({ reading: 'ミナ', tone: 'x'.repeat(301) })] });
+    expect(v.personas[0]).toMatchObject({ name: 'ミナ', reading: '', tone: '' });
+    const bad = voiceOf({ personas: [persona({ name: 'ミ\nナ' })] });
+    expect(bad.personas).toEqual([DEFAULT_VOICE_PERSONA]);
   });
 });
