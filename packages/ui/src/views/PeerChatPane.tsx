@@ -40,6 +40,7 @@ export function PeerChatPane(props: { view: PeerChatView }) {
       </div>
       <PeerChatLog rows={view.rows} loading={view.loading}
         onCancel={(queueId) => emit({ type: 'peerChat.send', sessionId: id, body: { t: 'cancel', queueId } })}
+        onRush={(queueId) => emit({ type: 'peerChat.send', sessionId: id, body: { t: 'rush', queueId } })}
         onAnswer={(askId, keys, text) => emit({ type: 'peerChat.send', sessionId: id, body: { t: 'answer', askId, keys, ...(text ? { text } : {}) } })} />
       <PeerChatComposer view={view} onSend={(body) => emit({ type: 'peerChat.send', sessionId: id, body })} onTakeOver={() => emit({ type: 'session.resumeHere.open', id })} />
     </div>

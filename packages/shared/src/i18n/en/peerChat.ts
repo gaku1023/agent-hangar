@@ -18,6 +18,8 @@ export const peerChatEn: AreaDictionary<typeof peerChatKeys> = {
   'peerChat.queued.tag': 'Sent when it stops',
   'peerChat.queued.delivering': 'Sending',
   'peerChat.queued.cancel': 'Cancel',
+  'peerChat.queued.rush': 'Interrupt and send',
+  'peerChat.queued.rushing': 'Interrupting and sending',
   'peerChat.queued.from': 'Held for {device}',
   'peerChat.ask.permission': 'Permission to run',
   'peerChat.ask.question': 'Question',

@@ -71,7 +71,7 @@ export function bootPeerChat(p: {
     deviceName: (id) => (deviceName.get(id) as { name: string } | undefined)?.name ?? id.slice(0, 8),
     session: (sessionId): HostSession | null => {
       const s = sessionOf(sessionId);
-      return s ? { provider: s.provider, live: s.live, waitingFor: s.waitingFor, permission: s.permission, activity: s.activity, cwd: s.cwd, lock: s.lock !== null, newerElsewhere: s.newerElsewhere, remoteOnly: s.remoteOnly, takenOver: s.takenOver !== null } : null;
+      return s ? { provider: s.provider, live: s.live, aside: s.liveAside !== null, waitingFor: s.waitingFor, permission: s.permission, activity: s.activity, cwd: s.cwd, lock: s.lock !== null, newerElsewhere: s.newerElsewhere, remoteOnly: s.remoteOnly, takenOver: s.takenOver !== null } : null;
     },
     run: (sessionId) => {
       const run = aliveRunForSession(db, sessionId, deviceId, now());

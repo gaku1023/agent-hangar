@@ -131,6 +131,8 @@ export type AppDeps = {
   peerApprovals?: Pick<PeerApprovals, 'approve' | 'reject'>;
   /** ほかの PC から来た文の、まだ渡していない預かり（peer/chat/host.ts の queued）。bootstrap が最初の状態として運ぶ。無ければ運ばない。 */
   peerQueued?: () => Record<string, import('@agent-hangar/shared').PeerChatQueued[]>;
+  /** 預かりの先頭を、走っているターンを中断して渡す（peer/chat/host.ts の rush）。端末の下の帯のボタンが使う。無ければ経路を出さない。 */
+  peerRush?: (sessionId: string) => Promise<import('@agent-hangar/shared').PeerChatReply>;
   /** この PC の Claude Code の会話の札に、この PC の中から答える口（peer/chat/host.ts の local）。統括の answer_ask が使う。無ければ統括はどの札にも答えない。 */
   askLocal?: Pick<import('../peer/chat/host.ts').PeerChatLocal, 'currentAsk' | 'answer'>;
   /**

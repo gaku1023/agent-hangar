@@ -46,6 +46,29 @@ describe('端末の下の預かりの帯', () => {
     rerender(pane(origin([{ type: 'peerChat.queue', sessionId: 's1', queued: [q('a'), q('b'), q('c')] }])));
     expect(screen.getByTestId('peer-band')).toHaveTextContent('3 件');
   });
+
+  it('「中断して渡す」を押すと、進みの文に替わり、何も動かなければ戻る。件数が変われば戻る', () => {
+    const onRush = vi.fn();
+    const one = origin([{ type: 'peerChat.queue', sessionId: 's1', queued: [q('a'), q('b')] }]);
+    const view = (p: PeerOriginProps | null) => (
+      <LanguageRoot language="ja"><TerminalHostContext.Provider value={host}><TerminalPane tabId="t1" hint={null} live="busy" agent peer={p} onPeerRush={onRush} /></TerminalHostContext.Provider></LanguageRoot>
+    );
+    const { rerender } = render(view(one));
+    fireEvent.click(screen.getByRole('button', { name: '中断して渡す' }));
+    expect(onRush).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('peer-band')).toHaveTextContent('中断して渡しています');
+    expect(screen.queryByRole('button', { name: '中断して渡す' })).toBeNull();
+    act(() => { vi.advanceTimersByTime(12_000); });
+    expect(screen.getByTestId('peer-band')).toHaveTextContent('2 件');
+    fireEvent.click(screen.getByRole('button', { name: '中断して渡す' }));
+    rerender(view(origin([{ type: 'peerChat.queue', sessionId: 's1', queued: [q('b')] }])));
+    expect(screen.getByTestId('peer-band')).toHaveTextContent('1 件');
+  });
+
+  it('呼び手が onPeerRush を渡さなければ、ボタンを出さない', () => {
+    render(pane(origin([{ type: 'peerChat.queue', sessionId: 's1', queued: [q('a')] }])));
+    expect(screen.queryByRole('button', { name: '中断して渡す' })).toBeNull();
+  });
 });
 
 describe('「{device} から送信しました」の札', () => {

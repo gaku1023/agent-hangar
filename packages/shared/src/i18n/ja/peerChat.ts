@@ -18,6 +18,8 @@ export const peerChatJa: AreaDictionary<typeof peerChatKeys> = {
   'peerChat.queued.tag': '止まったら渡す',
   'peerChat.queued.delivering': '渡しています',
   'peerChat.queued.cancel': '取り消す',
+  'peerChat.queued.rush': '中断して渡す',
+  'peerChat.queued.rushing': '中断して渡しています',
   'peerChat.queued.from': '{device} が預けた文',
   'peerChat.ask.permission': '実行の許可',
   'peerChat.ask.question': '質問',

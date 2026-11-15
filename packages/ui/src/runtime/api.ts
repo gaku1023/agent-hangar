@@ -247,6 +247,8 @@ export type ApiClient = {
   eventRepoHook(repo: string): Promise<{ hook: EventRepoHookDto }>;
   answerDeleteApproval(id: string, answer: 'approve' | 'reject' | 'dismiss'): Promise<unknown>;
   answerPeerApproval(id: string, answer: 'approve' | 'reject'): Promise<unknown>;
+  /** ほかの PC から預かった文の先頭を、ターンを中断して渡す。断り（預かりが無い、札が出ている）は ok: false で返る。 */
+  rushPeerQueue(sessionId: string): Promise<unknown>;
   /** 開いたセッションを既読にする（未読の数を 0 にする）。 */
   markSeen(sessionId: string): Promise<void>;
   markUnread(sessionId: string): Promise<void>;
@@ -495,6 +497,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     eventRepoHook: (repo) => call(`/api/events/repo-hook/${repo.split('/').map(encodeURIComponent).join('/')}`),
     answerDeleteApproval: (id, answer) => post(`/api/delete-approvals/${encodeURIComponent(id)}/${answer}`),
     answerPeerApproval: (id, answer) => post(`/api/peer-approvals/${encodeURIComponent(id)}/${answer}`),
+    rushPeerQueue: (sessionId) => post(`/api/sessions/${encodeURIComponent(sessionId)}/peer-queue/rush`),
     dismissOverlap: (sessionId, other, paths) => post(`/api/sessions/${sessionId}/overlap/dismiss`, { with: other, paths }),
     markSeen: (sessionId) => post(`/api/sessions/${sessionId}/seen`, {}),
     markUnread: (sessionId) => post(`/api/sessions/${sessionId}/unread`, {}),

@@ -408,6 +408,12 @@ describe('受け付けない設定と、断られた答え', () => {
     release();
     await t.tick();
     expect(t.slice()).toMatchObject({ answering: [], notice: { reason: 'ask-mismatch' }, locked: false });
+    fail = 'refuse';
+    t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'rush', queueId: 'q1' } });
+    expect(t.slice().rushing).toEqual(['q1']);
+    release();
+    await t.tick();
+    expect(t.slice()).toMatchObject({ rushing: [], notice: { reason: 'ask-mismatch' } });
     fail = 'throw';
     t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['1'] } });
     release();

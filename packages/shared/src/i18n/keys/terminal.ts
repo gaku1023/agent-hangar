@@ -25,4 +25,6 @@ export const terminalKeys = {
   'terminal.off.then': ['first', 'next'],
   'terminal.peer.queued': ['devices', 'n'],
   'terminal.peer.delivered': ['device'],
+  'terminal.peer.rush': [],
+  'terminal.peer.rushing': [],
 } as const satisfies MessageSpec;

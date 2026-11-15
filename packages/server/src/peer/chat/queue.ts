@@ -4,6 +4,8 @@ import type { PeerBlobRef, PeerChatDevice, PeerChatQueued } from '@agent-hangar/
  * ほかの PC から来た文の預かり（U4、U11）。
  *
  * 作業中の会話に送られた文は、ターンが止まり、この PC の入力欄が空になるまで預かる。
+ * 裏の作業（シェル、サブエージェント）だけが動いている間は、本体が入力を受け付けているので止まっているのと同じに扱う（host.ts の turnState が idle を返す）。
+ * 待たずに渡したいときは rush を使う。呼び手（host.ts）が Escape でターンを中断してから呼び、PEER_QUEUE_RUSH_MS の間は作業中でも渡す。
  * 入力欄に打ちかけがあれば渡さない（人が打っている最中に、ほかの PC の文が混ざらないように）。
  * ターンが止まってから 10 分たっても渡せなければ、預かりを捨てて送り主に知らせる（queue-expired）。
  * 預かりはメモリだけに持ち、再起動では残さない。
@@ -31,6 +33,12 @@ export const PEER_QUEUE_EXPIRE_MS = 10 * 60_000;
 export const PEER_QUEUE_POLL_MS = 1500;
 /** 1 つの会話に預かれる件数の上限。超えた add は null を返す（T5b は rate で断る）。 */
 export const PEER_QUEUE_MAX_PER_RUN = 20;
+/**
+ * 急がせ（rush）が効く長さ。
+ * 中断（Escape）の直後は登録の状態が遅れて busy に見えるので、この間はターンが止まるのを待たずに渡す。
+ * 入力欄に打ちかけがあるなどで、この間に渡せなければ、いつもの待ちに戻る。
+ */
+export const PEER_QUEUE_RUSH_MS = 10_000;
 /** 渡したあと、ターンが動き出すのを待つ長さ。動き出さない指示（スラッシュコマンドなど）のあとに、次を渡せなくならないための上限。 */
 export const PEER_QUEUE_SETTLE_MS = 20_000;
 
@@ -61,6 +69,7 @@ export type PeerQueueDeps = {
   pollMs?: number;
   expireMs?: number;
   settleMs?: number;
+  rushMs?: number;
 };
 
 /**
@@ -82,6 +91,7 @@ export type PeerQueueEvent =
   | { type: 'dropped'; runId: string; item: PeerChatQueued };
 
 export type PeerQueueCancel = { ok: true; text: string } | { ok: false; reason: 'not-found' | 'not-sender' | 'delivering' };
+export type PeerQueueRush = { ok: true } | { ok: false; reason: 'not-found' | 'not-sender' | 'delivering' };
 
 type Item = { queueId: string; from: PeerChatDevice; text: string; images: PeerBlobRef[]; at: number; state: 'waiting' | 'delivering' };
 type RunState = {
@@ -90,6 +100,8 @@ type RunState = {
   idleSince: number | null;
   /** 渡した直後の見張り。ターンが動くのを見るまでは次を渡さない。 */
   settle: { at: number; sawNonIdle: boolean } | null;
+  /** 急がせた時刻。PEER_QUEUE_RUSH_MS の間は、作業中でも先頭を渡す。渡したら消す。 */
+  rushAt: number | null;
   /** 確認の最中。重ならないようにする。 */
   ticking: boolean;
 };
@@ -119,7 +131,7 @@ export class PeerQueue {
     let rs = this.runs.get(runId);
     if (rs && rs.items.length >= PEER_QUEUE_MAX_PER_RUN) return null;
     const item: Item = { queueId: this.deps.newId(), from, text, images, at: this.now(), state: 'waiting' };
-    if (!rs) this.runs.set(runId, (rs = { items: [], idleSince: null, settle: null, ticking: false }));
+    if (!rs) this.runs.set(runId, (rs = { items: [], idleSince: null, settle: null, rushAt: null, ticking: false }));
     rs.items.push(item);
     this.emit({ type: 'queued', runId, item: snap(item) });
     this.startTimer();
@@ -170,6 +182,32 @@ export class PeerQueue {
       return { ok: true, text: item.text };
     }
     return { ok: false, reason: 'not-found' };
+  }
+
+  /**
+   * 中断して渡す（呼び手が Escape を打ったあとに呼ぶ）。
+   * by を渡せば、その預かりを先頭へ移す。送った PC（deviceId が同じ）だけができる。省けば先頭（元の PC の帯）。
+   * PEER_QUEUE_RUSH_MS の間は、作業中（busy）でも先頭を渡す。札が出ている間（waiting）と、入力欄に打ちかけがあるときは渡さない。
+   */
+  rush(runId: string, by?: { queueId: string; byDeviceId: string }): PeerQueueRush {
+    const rs = this.runs.get(runId);
+    if (!rs || rs.items.length === 0) return { ok: false, reason: 'not-found' };
+    if (by) {
+      const i = rs.items.findIndex((x) => x.queueId === by.queueId);
+      if (i < 0) return { ok: false, reason: 'not-found' };
+      const item = rs.items[i]!;
+      if (item.from.deviceId !== by.byDeviceId) return { ok: false, reason: 'not-sender' };
+      if (item.state === 'delivering') return { ok: false, reason: 'delivering' };
+      // 渡している最中の先頭は動かさない。その次へ入れる。
+      if (i > 0) {
+        rs.items.splice(i, 1);
+        rs.items.splice(rs.items[0]!.state === 'delivering' ? 1 : 0, 0, item);
+      }
+    } else if (rs.items[0]!.state === 'delivering') return { ok: false, reason: 'delivering' };
+    rs.rushAt = this.now();
+    rs.settle = null;
+    this.kick(runId);
+    return { ok: true };
   }
 
   /** ターンの状態が変わった知らせ（Stop の hook など）。次の確認を待たずに渡せるか確かめる。 */
@@ -242,8 +280,10 @@ export class PeerQueue {
       if (turn !== 'idle' && rs.settle) rs.settle.sawNonIdle = true;
       if (rs.settle && (rs.settle.sawNonIdle || t0 - rs.settle.at >= (deps.settleMs ?? PEER_QUEUE_SETTLE_MS))) rs.settle = null;
 
+      if (rs.rushAt !== null && t0 - rs.rushAt >= (deps.rushMs ?? PEER_QUEUE_RUSH_MS)) rs.rushAt = null;
+
       const head = rs.items[0];
-      if (turn === 'idle' && head && head.state === 'waiting' && !rs.settle) {
+      if (this.canDeliver(turn, rs) && head && head.state === 'waiting' && !rs.settle) {
         const empty = await this.emptyOf(runId);
         // 読んでいる間に、取り消しや dispose があるかもしれない
         if (this.disposed || this.runs.get(runId) !== rs || rs.items[0] !== head) return;
@@ -265,7 +305,7 @@ export class PeerQueue {
   private async deliverHead(runId: string, rs: RunState, item: Item): Promise<void> {
     const stillEmpty = await this.emptyOf(runId);
     if (this.disposed || this.runs.get(runId) !== rs || rs.items[0] !== item || item.state !== 'waiting') return;
-    if (!stillEmpty || this.turnOf(runId) !== 'idle') return;
+    if (!stillEmpty || !this.canDeliver(this.turnOf(runId), rs)) return;
     item.state = 'delivering';
     this.emit({ type: 'delivering', runId, item: snap(item) });
     let ok = false;
@@ -278,7 +318,13 @@ export class PeerQueue {
     const i = rs.items.indexOf(item);
     if (i >= 0) rs.items.splice(i, 1);
     rs.settle = { at: this.now(), sawNonIdle: false };
+    rs.rushAt = null;
     this.emit({ type: 'delivered', runId, item: snap(item), from: item.from });
+  }
+
+  /** 渡してよいターンか。止まっていれば渡す。急がせている間は、札が出ていなければ作業中でも渡す。 */
+  private canDeliver(turn: TurnState, rs: RunState): boolean {
+    return turn === 'idle' || (rs.rushAt !== null && turn === 'busy');
   }
 
   /** 受ける設定を読む。読めなければ（投げたら）受けるとみなす（設定の読み出しの失敗で、預かりを捨てない）。 */

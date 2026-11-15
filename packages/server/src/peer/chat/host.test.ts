@@ -64,7 +64,7 @@ type World = {
   blobs: Map<string, Uint8Array>;
 };
 
-const idleSession = (over: Partial<HostSession> = {}): HostSession => ({ provider: 'claude-code', live: 'idle', waitingFor: null, permission: null, activity: null, cwd: '/proj', lock: false, newerElsewhere: false, remoteOnly: false, takenOver: false, ...over });
+const idleSession = (over: Partial<HostSession> = {}): HostSession => ({ provider: 'claude-code', live: 'idle', aside: false, waitingFor: null, permission: null, activity: null, cwd: '/proj', lock: false, newerElsewhere: false, remoteOnly: false, takenOver: false, ...over });
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
@@ -783,6 +783,51 @@ describe('PeerChatHost: answer と interrupt', () => {
     const { s } = await withPermission();
     expect(await s.ask({ t: 'interrupt' })).toEqual({ ok: false, reason: 'ask-mismatch' });
     expect(s.w.pane.events).toEqual([]);
+  });
+});
+
+describe('PeerChatHost: 裏の作業の間と、中断して渡す', () => {
+  it('裏の作業だけが動いている（busy で aside）間は、止まっているときと同じに渡す', async () => {
+    const s = await setup({ session: idleSession({ live: 'busy', aside: true }) });
+    await s.ask(send('while the shell runs'));
+    await settle(() => s.w.sent.length === 1);
+    expect(s.w.sent).toEqual(['while the shell runs']);
+  });
+
+  it('rush は Escape を打ってから、ターンを待たずに渡す', async () => {
+    const s = await setup({ session: idleSession({ live: 'busy' }) });
+    s.w.pane.plain = RUNNING_SCREEN;
+    const r = await s.ask(send('now please'));
+    const queueId = (r as { queueId: string }).queueId;
+    await new Promise((x) => setTimeout(x, 40));
+    expect(s.w.sent).toEqual([]);
+    expect(await s.ask({ t: 'rush', queueId })).toEqual({ ok: true });
+    expect(s.w.pane.events).toEqual(['key:escape']);
+    await settle(() => s.w.sent.length === 1);
+    expect(s.w.sent).toEqual(['now please']);
+  });
+
+  it('ほかの PC の預かりの rush は断り、Escape も打たない', async () => {
+    const s = await setup({ session: idleSession({ live: 'busy' }) });
+    s.w.pane.plain = RUNNING_SCREEN;
+    const r = await s.ask(send('mine'));
+    const queueId = (r as { queueId: string }).queueId;
+    expect(await s.ask({ t: 'rush', queueId }, { from: 'pc-c' })).toEqual({ ok: false, reason: 'queue-expired' });
+    expect(s.w.pane.events).toEqual([]);
+    expect(s.w.sent).toEqual([]);
+  });
+
+  it('この PC の帯からの rush は、先頭を中断して渡す', async () => {
+    const s = await setup({ session: idleSession({ live: 'busy' }) });
+    s.w.pane.plain = RUNNING_SCREEN;
+    await s.ask(send('first'));
+    await s.ask(send('second'));
+    expect(await s.host.rush('s1')).toEqual({ ok: true });
+    expect(s.w.pane.events).toEqual(['key:escape']);
+    await settle(() => s.w.sent.length === 1);
+    await new Promise((x) => setTimeout(x, 60));
+    expect(s.w.sent).toEqual(['first']);
+    expect(await s.host.rush('nope')).toEqual({ ok: false, reason: 'queue-expired' });
   });
 });
 

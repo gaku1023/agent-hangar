@@ -93,6 +93,12 @@ describe('POST /api/sessions/:id/peer-chat/ops', () => {
     expect(ops).toHaveLength(5);
   });
 
+  it('rush（預けた文を中断して渡す）を queueId 付きで受ける。queueId が無ければ 400', async () => {
+    expect((await post({ t: 'rush', queueId: 'q1' })).status).toBe(200);
+    expect(ops.at(-1)).toEqual({ id: 's1', op: { t: 'rush', queueId: 'q1' } });
+    expect((await post({ t: 'rush' })).status).toBe(400);
+  });
+
   it('大きすぎる本文は 413', async () => {
     const r = await app.request('/api/sessions/s1/peer-chat/ops', { method: 'POST', headers: json, body: JSON.stringify({ t: 'send', text: 'x'.repeat(200 * 1024) }) });
     expect(r.status).toBe(413);
@@ -109,5 +115,27 @@ describe('見る側の部品を持たない組み立て', () => {
     const bare = createApp(t.deps);
     expect((await bare.request('/api/sessions/s1/peer-chat?viewer=v', { headers: H })).status).toBe(404);
     expect((await bare.request('/api/sessions/s1/peer-chat/ops', { method: 'POST', headers: json, body: '{"t":"interrupt"}' })).status).toBe(404);
+  });
+});
+
+describe('POST /api/sessions/:id/peer-queue/rush（元の PC の帯）', () => {
+  it('会話の id で rush を呼び、断りも 200 の本文で返す。認証が要る', async () => {
+    const calls: string[] = [];
+    let reply: { ok: true } | { ok: false; reason: 'queue-expired' } = { ok: true };
+    t.deps.peerRush = async (id) => { calls.push(id); return reply; };
+    const a = createApp(t.deps);
+    const rush = (headers: Record<string, string> = H) => a.request('/api/sessions/s1/peer-queue/rush', { method: 'POST', headers });
+    expect(await (await rush()).json()).toEqual({ ok: true });
+    reply = { ok: false, reason: 'queue-expired' };
+    const r = await rush();
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ ok: false, reason: 'queue-expired' });
+    expect(calls).toEqual(['s1', 's1']);
+    expect((await rush({})).status).toBe(401);
+  });
+
+  it('rush を持たない組み立てでは経路を出さない', async () => {
+    delete t.deps.peerRush;
+    expect((await createApp(t.deps).request('/api/sessions/s1/peer-queue/rush', { method: 'POST', headers: H })).status).toBe(404);
   });
 });

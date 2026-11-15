@@ -25,6 +25,8 @@ export type PeerChatSlice = {
   sending: boolean;
   /** 答えを送って、結果を待っている札の askId。断られたら外す（札がまた押せるように）。 */
   answering: string[];
+  /** 「中断して渡す」を送った預かりの queueId。断られたら外す。渡し終えた預かりは一覧から消えるので、残っても表示には出ない。 */
+  rushing: string[];
   /** 元の PC が他の PC からの操作を受け付けない設定だと分かった。入力欄と札を閉じる（会話は読める）。 */
   locked: boolean;
   restore: { n: number; text: string; images: string[] } | null;
@@ -37,7 +39,7 @@ export type PeerChatSlice = {
 const MINE_MAX = 20;
 
 export function emptySlice(viewer: string): PeerChatSlice {
-  return { viewers: [viewer], phase: 'loading', fallback: null, device: null, link: 'online', status: null, items: [], queued: [], cursor: null, sending: false, answering: [], locked: false, restore: null, notice: null, mine: {} };
+  return { viewers: [viewer], phase: 'loading', fallback: null, device: null, link: 'online', status: null, items: [], queued: [], cursor: null, sending: false, answering: [], rushing: [], locked: false, restore: null, notice: null, mine: {} };
 }
 
 /**

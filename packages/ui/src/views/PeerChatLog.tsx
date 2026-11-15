@@ -41,7 +41,7 @@ export function nextTrack(prev: Track, rows: PeerChatRow[], loading: boolean): T
  * 札（3A）は列の中に置き、答えが付くと答えの行に変わる。
  * 返答は手元の会話の画面と同じ Markdown の部品で描く。
  */
-export function PeerChatLog(props: { rows: PeerChatRow[]; loading: boolean; onCancel: (queueId: string) => void; onAnswer: (askId: string, keys: string[], text?: string) => void; /** 列の名前。省くと「他の PC の会話」。 */ label?: string; /** 会話が空のときの 1 行を出さない（統括の柱）。 */ quietEmpty?: boolean }) {
+export function PeerChatLog(props: { rows: PeerChatRow[]; loading: boolean; onCancel: (queueId: string) => void; /** 自分の預かりを、ターンを中断して渡す。省くとボタンを出さない。 */ onRush?: (queueId: string) => void; onAnswer: (askId: string, keys: string[], text?: string) => void; /** 列の名前。省くと「他の PC の会話」。 */ label?: string; /** 会話が空のときの 1 行を出さない（統括の柱）。 */ quietEmpty?: boolean }) {
   const t = useT();
   const box = useRef<HTMLDivElement>(null);
   // 最初の描画（読み込みが済んだ最初の列）に居た項目は動かさず、あとから増えた項目だけ入れる。
@@ -83,7 +83,11 @@ export function PeerChatLog(props: { rows: PeerChatRow[]; loading: boolean; onCa
             return (
               <div key={r.key} className={cls(r.key, 'pchat-user pchat-queued')} data-delivering={r.delivering ? 'true' : undefined}>
                 {r.from && <span className="pchat-from">{r.from}</span>}{r.text}
-                <div className="pchat-qtag"><Icon name="reminder" />{r.tag}{r.mine && !r.delivering && <> · <button type="button" className="pchat-link" onClick={() => props.onCancel(r.queueId)}>{t('peerChat.queued.cancel')}</button></>}</div>
+                <div className="pchat-qtag">
+                  <Icon name="reminder" />{r.tag}
+                  {r.mine && !r.delivering && !r.rushing && <> · <button type="button" className="pchat-link" onClick={() => props.onCancel(r.queueId)}>{t('peerChat.queued.cancel')}</button></>}
+                  {r.mine && !r.delivering && !r.rushing && props.onRush && <button type="button" className="pchat-qbtn" onClick={() => props.onRush!(r.queueId)}>{t('peerChat.queued.rush')}</button>}
+                </div>
               </div>
             );
         }
