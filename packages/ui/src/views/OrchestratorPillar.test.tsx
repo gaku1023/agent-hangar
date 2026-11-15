@@ -85,6 +85,26 @@ describe('統括の柱の音声', () => {
     expect(actions).toContainEqual({ type: 'orchestrator.send', text: '[voice] 進み具合は' });
     vi.useRealTimers();
   });
+  it('打ちかけの文字は、聞いている間は認識の文の前に残り、送っても捨てても戻る', () => {
+    vi.useFakeTimers();
+    mount(base());
+    const box = screen.getByRole('textbox', { name: '統括へのメッセージ' });
+    fireEvent.change(box, { target: { value: '下書き' } });
+    fireEvent.click(screen.getByRole('button', { name: '音声で入力' }));
+    act(() => port.handlers!.onInterim('進み'));
+    expect(box).toHaveValue('下書き 進み');
+    act(() => port.handlers!.onFinal('進み具合は'));
+    expect(box).toHaveValue('下書き 進み具合は');
+    act(() => { vi.advanceTimersByTime(1300); });
+    expect(actions).toContainEqual({ type: 'orchestrator.send', text: '[voice] 進み具合は' });
+    expect(box).toHaveValue('下書き');
+    fireEvent.click(screen.getByRole('button', { name: '音声で入力' }));
+    act(() => port.handlers!.onInterim('捨てる'));
+    expect(box).toHaveValue('下書き 捨てる');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(box).toHaveValue('下書き');
+    vi.useRealTimers();
+  });
   it('listen が使えない環境ではマイクを出さない', () => {
     port.canListenNow = false;
     mount(base());
