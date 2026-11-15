@@ -1,6 +1,6 @@
-import type { OrchestratorOrigin, VoiceEvent, VoiceMode, VoiceModelState, VoicePhase, VoiceSetting, VoiceStateDto } from '@agent-hangar/shared';
+import type { LiveStatus, OrchestratorOrigin, VoiceEvent, VoiceMode, VoiceModelState, VoicePhase, VoiceSetting, VoiceStateDto } from '@agent-hangar/shared';
 import { activePersona, speechText } from '@agent-hangar/shared';
-import { addressee, initialAddrState, isWindowOpen, type AddrInput, type AddrState } from './addressee.ts';
+import { addressee, initialAddrState, isStrongOrigin, isWindowOpen, type AddrInput, type AddrState } from './addressee.ts';
 import { dropReason } from './filters.ts';
 import type { VoiceHelper } from './helper.ts';
 import { buildHints, hintContext } from './hints.ts';
@@ -11,7 +11,7 @@ const TICK_MS = 1000;
 const FLUSH_WAIT_MS = 3000;
 /** 送ったあと、字幕を残す長さ。 */
 const CAPTION_MS = 2000;
-/** 統括の返答が届いてから、読み上げの依頼（POST /api/voice/speak）を待つ長さ。来なければ読まない返答として扱う。 */
+/** 統括のターンが終わってから、読み上げの依頼（POST /api/voice/speak）を待つ長さ。来なければ読まない返答として扱う。 */
 const REPLY_SPEAK_WAIT_MS = 1500;
 /** 読み上げを頼まれた返答が、読み上げの終わりを知らせないまま残る上限。 */
 const REPLY_SPEAK_MAX_MS = 60_000;
@@ -23,12 +23,12 @@ export type VoiceServiceDeps = {
   /** 補助の実行ファイルがあるか（resolveVoiceBin が null でないか）。無ければ available は偽のまま。 */
   hasHelper: boolean;
   settings: () => { voice: VoiceSetting; orchestratorSessionId: string | null };
-  /** 統括へ 1 本の文を送る（sendToOrchestrator）。 */
-  send: (text: string, origin: OrchestratorOrigin) => Promise<unknown>;
+  /** 統括へ 1 本の文を送る（sendToOrchestrator）。ok が偽なら届いていない。 */
+  send: (text: string, origin: OrchestratorOrigin) => Promise<{ ok: boolean }>;
   broadcast: (ev: { type: 'voice.state'; state: VoiceStateDto }) => void;
   hintSource: () => { sessionTitles: string[]; projectNames: string[] };
-  /** その会話の、assistant の行のいちばん大きい seq。無ければ null。 */
-  latestAssistantSeq: (sessionId: string) => number | null;
+  /** 統括の会話のいまの様子（実行中の一覧の status）。動いていなければ null。 */
+  orchestratorStatus: () => LiveStatus | null;
   now?: () => number;
   timers?: { setInterval: (f: () => void, ms: number) => NodeJS.Timeout; clearInterval: (t: NodeJS.Timeout) => void };
 };
@@ -51,9 +51,18 @@ export class VoiceService {
   private hints: string[] = [];
   private hintsAt = 0;
   private flushAt: number | null = null;
-  /** 統括の返答が届いて、まだ replied を入れていないもの。読み上げの依頼が付けば、その終わりで入れる。 */
+  /** 強い声のターンが終わって、まだ replied を入れていないもの。読み上げの依頼が付けば、その終わりで入れる。 */
   private pendingReply: { at: number; speakId: string | null } | null = null;
-  private baseline: { sessionId: string; seq: number | null } | null = null;
+  /**
+   * 強い声を送った後の、統括のターンの終わりの待ち。
+   * endsLeft は数えるターンの終わりの残り（送った時点でターンが走っていれば、その終わりの分を足して 2）、
+   * active はいま見ているターンが走っているか、confirmed は送れたと分かったか。
+   */
+  private turn: { endsLeft: number; active: boolean; confirmed: boolean } | null = null;
+  /** 頼まれて、まだ終わりの知らせが来ていない読み上げ。 */
+  private lastSpeak: string | null = null;
+  /** 送った数。送れなかった知らせが、後から送った文の待ちを消さないために数える。 */
+  private sends = 0;
   private timer: NodeJS.Timeout | null = null;
   private lastPublished = '';
   private readonly now: () => number;
@@ -71,7 +80,6 @@ export class VoiceService {
     this.deps.helper.on('event', (e: VoiceEvent) => { this.onEvent(e); });
     this.timer = this.timers.setInterval(() => { this.onTick(); }, TICK_MS);
     this.timer.unref?.();
-    this.takeBaseline();
     if (this.cfg().mode === 'always') this.ensureHelper();
     this.publish();
   }
@@ -123,7 +131,8 @@ export class VoiceService {
     if (spoken === '') return true;
     const p = activePersona(this.cfg());
     this.deps.helper.send({ cmd: 'speak', id, text: spoken, voice: p.voice, speed: p.speed });
-    // 返答が届いた直後の依頼なら、窓はその読み上げが終わった時刻から数える。
+    this.lastSpeak = id;
+    // ターンが終わった直後の依頼なら、窓はその読み上げが終わった時刻から数える。
     if (this.pendingReply && this.pendingReply.speakId === null) this.pendingReply.speakId = id;
     return true;
   }
@@ -140,16 +149,10 @@ export class VoiceService {
     return true;
   }
 
-  /** transcript.appended を見て、統括の会話に assistant の行が増えていれば、返答が届いたとする。 */
-  onTranscriptAppended(sessionId: string): void {
-    const orch = this.deps.settings().orchestratorSessionId;
-    if (!orch || sessionId !== orch) return;
-    const cur = this.deps.latestAssistantSeq(orch);
-    if (this.baseline?.sessionId !== orch) { this.baseline = { sessionId: orch, seq: cur }; return; }
-    if (cur === null || (this.baseline.seq !== null && cur <= this.baseline.seq)) return;
-    this.baseline.seq = cur;
-    // 最初の 1 通だけを覚える。続きの返答で窓の起点を後ろへずらさない。
-    this.pendingReply ??= { at: this.now(), speakId: null };
+  /** 実行中の一覧が変わった。統括のターンの終わりを見る。 */
+  onLiveChange(): void {
+    this.observeTurn();
+    this.publish();
   }
 
   /** 語彙のヒントを作り直し、変わっていれば補助へ送る。 */
@@ -178,11 +181,6 @@ export class VoiceService {
       this.syncListen();
     }
     return this.deps.helper.status !== 'unavailable';
-  }
-
-  private takeBaseline(): void {
-    const orch = this.deps.settings().orchestratorSessionId;
-    if (orch) this.baseline = { sessionId: orch, seq: this.deps.latestAssistantSeq(orch) };
   }
 
   /** 補助の出来事の受け手。ここで投げると、補助の行を読む readline の中で捕まらない例外になり、サーバごと落ちる。 */
@@ -218,6 +216,7 @@ export class VoiceService {
         if (e.state === 'start') this.speakingId = e.id;
         else {
           if (this.speakingId === e.id) this.speakingId = null;
+          if (this.lastSpeak === e.id) this.lastSpeak = null;
           // 読み上げが終わった時刻が、窓の起点になる。
           if (this.pendingReply?.speakId === e.id) this.fireReplied(at);
         }
@@ -247,8 +246,33 @@ export class VoiceService {
     this.feed({ kind: 'replied', at: r ? Math.max(r.at, at) : at });
   }
 
+  /**
+   * 強い声のターンが終わったかを、統括の様子（busy・waiting と idle の行き来）で見る。
+   * 送った時点で走っていたターンの途中の文や、その終わりでは開かない（そのターンは送った文への返答ではない）。
+   * 送れたと分かる前の終わりは、送った文のターンではないので数えない。統括が止まったら待ちを捨てる。迷う場合は窓を開かない側に倒す。
+   */
+  private observeTurn(): void {
+    const t = this.turn;
+    if (!t) return;
+    const st = this.deps.orchestratorStatus();
+    if (st === null) { this.turn = null; return; }
+    if (st !== 'idle') { t.active = true; return; }
+    if (!t.active) return;
+    t.active = false;
+    if (t.endsLeft > 1) { t.endsLeft--; return; }
+    if (!t.confirmed) return;
+    this.turn = null;
+    this.onTurnEnded(this.now());
+  }
+
+  /** 強い声のターンが終わった。読み上げ中か、頼まれたばかりの読み上げがあれば、その終わりから窓を数える。 */
+  private onTurnEnded(at: number): void {
+    this.pendingReply = { at, speakId: this.speakingId ?? this.lastSpeak };
+  }
+
   private onTick(): void {
     const at = this.now();
+    this.observeTurn();
     if (this.flushAt !== null && at - this.flushAt >= FLUSH_WAIT_MS) this.finishHold(at);
     const r = this.pendingReply;
     if (r) {
@@ -269,17 +293,38 @@ export class VoiceService {
     this.addr = next;
     this.phase = out.phase;
     if (out.stopSpeaking) this.deps.helper.send({ cmd: 'stopSpeaking' });
-    if (out.send) {
-      this.caption = out.send.text;
-      this.captionUntil = this.now() + CAPTION_MS;
-      this.takeBaseline();
-      void this.deps.send(out.send.text, out.send.origin).catch(() => undefined);
-    } else if (this.addr.held && input.kind === 'segment') {
+    if (out.send) this.dispatch(out.send.text, out.send.origin);
+    else if (this.addr.held && input.kind === 'segment') {
       this.caption = this.addr.heldTexts.join(' ');
       this.captionUntil = null;
     }
     this.syncListen();
     this.publish();
+  }
+
+  /**
+   * 統括へ送り、送れたときだけ送った扱い（字幕、強い声のターンの終わりの待ち）にする。
+   * ターンの始まりを取りこぼさないよう、待ちは送る前に作っておき、送れなければ捨てる。
+   */
+  private dispatch(text: string, origin: OrchestratorOrigin): void {
+    this.pendingReply = null;
+    const st = this.deps.orchestratorStatus();
+    const running = st === 'busy' || st === 'waiting';
+    const t = isStrongOrigin(origin) ? { endsLeft: running ? 2 : 1, active: running, confirmed: false } : null;
+    this.turn = t;
+    const seq = ++this.sends;
+    const failed = () => {
+      if (t && this.turn === t) this.turn = null;
+      // 後から別の文を送っていれば、その文の待ちは消さない。
+      if (seq === this.sends) this.feed({ kind: 'sendFailed', at: this.now() });
+    };
+    void this.deps.send(text, origin).then((r) => {
+      if (!r?.ok) { failed(); return; }
+      if (t && this.turn === t) t.confirmed = true;
+      this.caption = text;
+      this.captionUntil = this.now() + CAPTION_MS;
+      this.publish();
+    }, failed);
   }
 
   private syncListen(): void {

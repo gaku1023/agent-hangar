@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { voiceOf, type OrchestratorOrigin, type VoiceCommand, type VoiceEvent, type VoiceSetting } from '@agent-hangar/shared';
+import { voiceOf, type LiveStatus, type OrchestratorOrigin, type VoiceCommand, type VoiceEvent, type VoiceSetting } from '@agent-hangar/shared';
 import { VoiceService, type VoiceServiceDeps } from './service.ts';
 
 class FakeHelper extends EventEmitter {
@@ -20,7 +20,8 @@ let helper: FakeHelper;
 let sent: { text: string; origin: OrchestratorOrigin }[];
 let broadcasts: unknown[];
 let voice: VoiceSetting;
-let assistantSeq: number | null;
+let status: LiveStatus | null;
+let sendResult: { ok: boolean };
 
 const tick = (ms: number) => { now += ms; tickFn(); };
 function make(over: Partial<VoiceServiceDeps> = {}): VoiceService {
@@ -28,10 +29,10 @@ function make(over: Partial<VoiceServiceDeps> = {}): VoiceService {
     helper: helper as unknown as VoiceServiceDeps['helper'],
     hasHelper: true,
     settings: () => ({ voice, orchestratorSessionId: 'orch-1' }),
-    send: async (text, origin) => { sent.push({ text, origin }); return true; },
+    send: async (text, origin) => { sent.push({ text, origin }); return sendResult; },
     broadcast: (e) => { broadcasts.push(e); },
     hintSource: () => ({ sessionTitles: ['調べもの'], projectNames: ['alpha'] }),
-    latestAssistantSeq: () => assistantSeq,
+    orchestratorStatus: () => status,
     now: () => now,
     timers: { setInterval: (f) => { tickFn = f; return 1 as unknown as NodeJS.Timeout; }, clearInterval: () => {} },
     ...over,
@@ -46,7 +47,8 @@ beforeEach(() => {
   helper = new FakeHelper();
   sent = [];
   broadcasts = [];
-  assistantSeq = 0;
+  status = 'idle';
+  sendResult = { ok: true };
   voice = voiceOf({ mode: 'always' });
 });
 
@@ -111,15 +113,19 @@ describe('声のサービス', () => {
     await vi.waitFor(() => expect(sent).toHaveLength(1));
   });
 
-  it('返答の到着で窓が開き、読み上げが終わった時刻から 10 秒の間の区間が voice-window で送られる', async () => {
+  /** 統括の様子を変えて、サービスに知らせる。 */
+  const live = (svc: VoiceService, st: LiveStatus | null) => { status = st; svc.onLiveChange(); };
+
+  it('強い声の後に始まったターンが終わると窓が開き、読み上げが終わった時刻から 10 秒の間の区間が voice-window で送られる', async () => {
     const svc = make();
     seg('ねえハンガー、調べて');
     await vi.waitFor(() => expect(sent).toHaveLength(1));
-    assistantSeq = 6;
-    svc.onTranscriptAppended('orch-1');
+    live(svc, 'busy');
     svc.speak('r1', '調べました');
     helper.ev({ ev: 'speaking', id: 'r1', state: 'start' });
     expect(svc.state().speakingId).toBe('r1');
+    live(svc, 'idle');
+    expect(svc.state().phase).toBe('ambient');
     tick(4000);
     helper.ev({ ev: 'speaking', id: 'r1', state: 'end' });
     expect(svc.state().phase).toBe('window');
@@ -128,26 +134,94 @@ describe('声のサービス', () => {
     await vi.waitFor(() => expect(sent.at(-1)).toEqual({ text: '続きをお願い', origin: 'voice-window' }));
   });
 
-  it('読み上げが来なければ返答の到着の時刻から窓が数える', async () => {
+  it('読み上げが来なければターンの終わりの時刻から窓が数える', async () => {
     const svc = make();
     seg('ねえハンガー、調べて');
     await vi.waitFor(() => expect(sent).toHaveLength(1));
-    assistantSeq = 2;
-    svc.onTranscriptAppended('orch-1');
+    live(svc, 'busy');
+    live(svc, 'idle');
     tick(2000);
     expect(svc.state().phase).toBe('window');
     tick(9000);
     expect(svc.state().phase).toBe('ambient');
   });
 
-  it('統括の会話以外の追記と、assistant でない追記は返答にしない', async () => {
+  it('送った時点で走っていた前のターンの途中と終わりでは窓を開かず、次のターンの終わりで開く', async () => {
+    const svc = make();
+    status = 'busy';
+    seg('ねえハンガー、調べて');
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    // 前のターンの途中（許可待ちを挟んで続く）。
+    live(svc, 'waiting');
+    live(svc, 'busy');
+    // 前のターンの終わり。
+    live(svc, 'idle');
+    tick(2000);
+    expect(svc.state().phase).toBe('ambient');
+    // 送った文のターン。
+    live(svc, 'busy');
+    tick(2000);
+    expect(svc.state().phase).toBe('ambient');
+    live(svc, 'idle');
+    tick(2000);
+    expect(svc.state().phase).toBe('window');
+  });
+
+  it('ターンが始まらないまま idle が続いても窓は開かない', async () => {
     const svc = make();
     seg('ねえハンガー、調べて');
     await vi.waitFor(() => expect(sent).toHaveLength(1));
-    // assistant の行は増えていない（利用者や道具の行だけが追記された）。
-    svc.onTranscriptAppended('orch-1');
-    assistantSeq = 3;
-    svc.onTranscriptAppended('other');
+    live(svc, 'idle');
+    tick(2000);
+    tick(2000);
+    expect(svc.state().phase).toBe('ambient');
+  });
+
+  it('統括が止まったら待ちを捨て、窓は開かない', async () => {
+    const svc = make();
+    seg('ねえハンガー、調べて');
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    live(svc, 'busy');
+    live(svc, null);
+    live(svc, 'busy');
+    live(svc, 'idle');
+    tick(2000);
+    expect(svc.state().phase).toBe('ambient');
+  });
+
+  it('統括へ送れなかった強い声は、送った扱いにしない（字幕を出さず、後のターンの終わりで窓を開かない）', async () => {
+    sendResult = { ok: false };
+    const svc = make();
+    seg('ねえハンガー、調べて');
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    await Promise.resolve();
+    expect(svc.state().caption).toBeNull();
+    live(svc, 'busy');
+    live(svc, 'idle');
+    tick(2000);
+    expect(svc.state().phase).toBe('ambient');
+  });
+
+  it('送れなかった後に送れた強い声は、いつもどおり窓を開く', async () => {
+    sendResult = { ok: false };
+    const svc = make();
+    seg('ねえハンガー、調べて');
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    sendResult = { ok: true };
+    seg('ねえハンガー、もう一度');
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    await vi.waitFor(() => expect(svc.state().caption).toBe('もう一度'));
+    live(svc, 'busy');
+    live(svc, 'idle');
+    tick(2000);
+    expect(svc.state().phase).toBe('window');
+  });
+
+  it('統括の様子が変わらなければ（他の会話の動きだけ）窓は開かない', async () => {
+    const svc = make();
+    seg('ねえハンガー、調べて');
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    svc.onLiveChange();
     tick(2000);
     tick(2000);
     expect(svc.state().phase).toBe('ambient');
@@ -189,8 +263,7 @@ describe('声のサービス', () => {
   it('字幕は送った 2 秒後に消える', async () => {
     const svc = make();
     seg('ねえハンガー、進み具合は');
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    expect(svc.state().caption).toBe('進み具合は');
+    await vi.waitFor(() => expect(svc.state().caption).toBe('進み具合は'));
     tick(2100);
     expect(svc.state().caption).toBeNull();
   });
@@ -199,8 +272,8 @@ describe('声のサービス', () => {
     const svc = new VoiceService({
       helper: helper as unknown as VoiceServiceDeps['helper'], hasHelper: false,
       settings: () => ({ voice, orchestratorSessionId: null }),
-      send: async () => true, broadcast: () => {}, hintSource: () => ({ sessionTitles: [], projectNames: [] }),
-      latestAssistantSeq: () => null,
+      send: async () => ({ ok: true }), broadcast: () => {}, hintSource: () => ({ sessionTitles: [], projectNames: [] }),
+      orchestratorStatus: () => null,
     });
     svc.start();
     expect(svc.state().available).toBe(false);

@@ -169,7 +169,7 @@ export function bootHttp(p: {
   });
   // 机の音声（voice/service.ts）。補助は常に聞くのときと、押す・切り替え・読み上げ・準備が来たときだけ起こす。
   const voiceBin = resolveVoiceBin(process.env, process.platform, fs.existsSync);
-  const latestAssistant = db.prepare("select max(cast(seq as integer)) s from event_fts where session_id = ? and role = 'assistant'");
+  const providerIdOf = db.prepare('select provider, provider_session_id psid from sessions where id = ? and deleted_at is null');
   const titles = db.prepare('select coalesce(n.name, s.custom_title, s.ai_title, s.first_prompt) t from sessions s left join session_notes n on n.session_id = s.id where s.deleted_at is null order by s.last_activity_at desc limit 100');
   const projectNames = db.prepare('select name from projects where deleted_at is null');
   const voice = new VoiceService({
@@ -182,10 +182,16 @@ export function bootHttp(p: {
       sessionTitles: (titles.all() as { t: string | null }[]).map((r) => r.t ?? '').filter((x) => x !== ''),
       projectNames: (projectNames.all() as { name: string }[]).map((r) => r.name),
     }),
-    latestAssistantSeq: (id) => (latestAssistant.get(id) as { s: number | null } | undefined)?.s ?? null,
+    orchestratorStatus: () => {
+      const id = orchestratorOf(settings.current.orchestrator).sessionId;
+      const r = id ? (providerIdOf.get(id) as { provider: string; psid: string | null } | undefined) : undefined;
+      if (!r?.psid) return null;
+      return delivery.live.current().find((l) => (l.agent ?? 'claude-code') === r.provider && l.sessionId === r.psid)?.status ?? null;
+    },
   });
   voice.start();
-  indexing.onAppended((id) => { voice.onTranscriptAppended(id); });
+  // 強い声のターンの終わり（統括が入力待ちに戻った）を、実行中の一覧の変化で見る。
+  delivery.live.onChange(() => { voice.onLiveChange(); });
   setHangarPrefsApplier((_home, patch) => { updateSettings(patch as Partial<SettingsDto>); });
   // ほかの PC の会話の見張り。
   // 画面の WebSocket の peerChat.watch と peerChat.unwatch、切断で見ている人を数え、いなくなれば止める。

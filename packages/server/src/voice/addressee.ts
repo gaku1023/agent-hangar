@@ -21,6 +21,8 @@ export type AddrInput =
   | { kind: 'segment'; text: string; at: number }
   | { kind: 'holdStart' | 'holdEnd' | 'toggleOn' | 'toggleOff'; at: number }
   | { kind: 'replied'; at: number }
+  /** 送った文が統括へ届かなかった。送った扱いを取り消す（返答の待ちを立てない）。 */
+  | { kind: 'sendFailed'; at: number }
   | { kind: 'meeting'; on: boolean; at: number }
   | { kind: 'tick'; at: number };
 
@@ -112,6 +114,9 @@ export function addressee(state: AddrState, input: AddrInput, cfg: Cfg): [AddrSt
       if (s.awaitingStrongReply && cfg.mode === 'always' && !s.meeting) s.windowUntil = input.at + WINDOW_MS;
       s.awaitingStrongReply = false;
       break;
+    case 'sendFailed':
+      s.awaitingStrongReply = false;
+      break;
     case 'tick':
       break;
     case 'segment': {
@@ -152,7 +157,7 @@ export function addressee(state: AddrState, input: AddrInput, cfg: Cfg): [AddrSt
     }
   }
 
-  if (send) s.awaitingStrongReply = isStrong(send.origin);
+  if (send) s.awaitingStrongReply = isStrongOrigin(send.origin);
   if (cfg.mode !== 'toggle') {
     s.toggled = false;
     s.toggleFirst = false;
@@ -165,7 +170,8 @@ export function addressee(state: AddrState, input: AddrInput, cfg: Cfg): [AddrSt
   return [s, { ...(send ? { send } : {}), ...(stopSpeaking ? { stopSpeaking } : {}), phase: phaseOf(s, cfg.mode) }];
 }
 
-function isStrong(origin: OrchestratorOrigin): boolean {
+/** 強い由来か。強い由来の返答の後だけ窓を開く。 */
+export function isStrongOrigin(origin: OrchestratorOrigin): boolean {
   return origin === 'voice-held' || origin === 'voice-called' || origin === 'voice-toggle-first';
 }
 
