@@ -87,6 +87,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+      # swift test は hangar-voice と MLX まで作る。MLX の Metal のシェーダを作るのに Metal Toolchain が要る。
+      - run: xcodebuild -downloadComponent MetalToolchain
       - run: swift test --package-path apps/voice-mac --filter VoiceCoreTests
   # Windows の試験は、Rust とインストーラのジョブ（windows）から分けて並列に回す。
   # 1 本のジョブで続けて回すと、試験の 7 分ほどが CI 全体の長さにそのまま乗っていた（2026-10-16 の実測）。
