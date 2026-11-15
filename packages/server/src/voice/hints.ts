@@ -5,7 +5,7 @@ const MAX_HINTS = 60;
 const MAX_TITLE = 40;
 
 /** カタカナをひらがなに寄せる。呼びかけ語の名前と読みを同じ形で比べるため。 */
-function fold(s: string): string {
+export function fold(s: string): string {
   return normalize(s).replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
 }
 
