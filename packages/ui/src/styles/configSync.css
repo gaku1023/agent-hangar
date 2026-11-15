@@ -182,3 +182,9 @@
 .klist .cfg-strip { flex-wrap: wrap; }
 .klist .cfg-strip > span:not(.spacer):not(.cfg-strip-acts) { flex: 1 1 200px; min-width: 0; }
 .klist .cfg-strip .cfg-strip-acts { margin-left: auto; }
+
+/* 適用外の変更（保留）。行の下の控えめなリンクと、開いたときの一覧。 */
+.cfg-held-link { margin-top: calc(var(--u) * 1); font-size: var(--fs-sm); color: var(--ink-3); }
+.cfg-held-link:hover { color: var(--accent); }
+.cfg-held { list-style: none; padding: 0; }
+.cfg-held > .cfg-it:first-child { border-top: 0; }

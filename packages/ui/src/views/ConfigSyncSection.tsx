@@ -40,6 +40,7 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
     if (row && box) revealWithin(box, row);
   }, [c.focusUnsent, showUnsent]);
   const [backupsOpen, setBackupsOpen] = useState(false);
+  const [heldOpen, setHeldOpen] = useState(false);
   const off = props.cloudOff || c.needsCloud;
   const on = c.enabled && !off;
 
@@ -92,12 +93,25 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
               )} />
           )}
           <SetRow title={t('configSyncUi.incoming.title')}
-            desc={c.incoming.count + c.incoming.held === 0 ? t('configSyncUi.incoming.none')
-              : [
-                c.incoming.count > 0 ? (c.incoming.from ? t('configSyncUi.incoming.from', { n: c.incoming.count, from: c.incoming.from }) : t('configSyncUi.word.count', { n: c.incoming.count })) : null,
-                c.incoming.held > 0 ? t('configSyncUi.incoming.held', { n: c.incoming.held }) : null,
-              ].filter((x) => x !== null).join(t('configSyncUi.incoming.sep'))}
-            control={<button type="button" className="btn btn-sm btn-primary" disabled={c.incoming.count + c.incoming.held === 0} onClick={() => emit({ type: 'configSync.open', part: 'review' })}>{t('configSyncUi.incoming.review')}</button>} />
+            desc={c.incoming.count === 0 ? t('configSyncUi.incoming.none')
+              : c.incoming.from ? t('configSyncUi.incoming.from', { n: c.incoming.count, from: c.incoming.from }) : t('configSyncUi.word.count', { n: c.incoming.count })}
+            control={<button type="button" className="btn btn-sm btn-primary" disabled={c.incoming.count === 0} onClick={() => emit({ type: 'configSync.open', part: 'review' })}>{t('configSyncUi.incoming.review')}</button>}
+            below={c.held.count > 0 ? (
+              <>
+                <button type="button" className="btn-link cfg-held-link" aria-expanded={heldOpen} onClick={() => setHeldOpen(!heldOpen)}>{t('configSyncUi.held.link', { n: c.held.count })}</button>
+                <Reveal open={heldOpen}>
+                  <ul className="cfg-list cfg-held" aria-label={t('configSyncUi.held.link', { n: c.held.count })}>
+                    {c.held.rows.map((r) => (
+                      <li key={r.id} className="cfg-it">
+                        <span className="cfg-k mono" title={r.label}>{r.label}</span>
+                        <span>{r.count !== null ? t('configSyncUi.word.count', { n: r.count }) : null}</span>
+                        <span className="cfg-r"><span className="cfg-side">{r.reason}</span></span>
+                      </li>
+                    ))}
+                  </ul>
+                </Reveal>
+              </>
+            ) : undefined} />
           {/* 送らなかった項目は、0 件でも行を残す（e2）。送った直後の知らせはベルの一覧に入る（段 4 の PR 19）。 */}
           <SetRow id="settings-config-unsent" title={t('configSyncUi.unsent.title', { n: unsentAll })} info={t('configSyncUi.unsent.desc')}
             control={<button type="button" className="btn btn-sm" aria-expanded={unsentOpen && unsentAll > 0} disabled={unsentAll === 0} onClick={() => setUnsentOpen(!unsentOpen)}>{unsentOpen && unsentAll > 0 ? t('configSyncUi.word.fold') : t('configSyncUi.word.show')}</button>}

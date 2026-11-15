@@ -57,9 +57,8 @@ describe('適用内容の確認を対象の札で 1 つに（4B、4a、4α）', 
     return p;
   };
   it('競合、承認が必要なもの、そのまま適用するもの、保留（畳む）の順に群を作る', () => {
-    expect(r().groups.map((g) => [g.id, g.count, g.open])).toEqual([['conflict', 1, true], ['approve', 1, true], ['auto', 3, true], ['held', 2, false]]);
+    expect(r().groups.map((g) => [g.id, g.count, g.open])).toEqual([['conflict', 1, true], ['approve', 1, true], ['auto', 3, true]]);
     expect(r().groups[1]!.title).toBe('承認が必要なもの');
-    expect(r().groups[3]!.note).toBe('この PC の条件に合わないため、保留しています。条件が揃うと適用します。');
   });
   it('対象の札は、項目のある対象だけを件数つきで並べる（保留は数えない）', () => {
     expect(r().targets).toEqual([{ id: 'claude', label: 'Claude Code', count: 2 }, { id: 'codex', label: 'Codex', count: 1 }, { id: 'opencode', label: 'opencode', count: 1 }, { id: 'hangar', label: 'Hangar の設定', count: 1 }]);
@@ -67,10 +66,10 @@ describe('適用内容の確認を対象の札で 1 つに（4B、4a、4α）', 
     expect(row('codex:file:rules/a.rules').target).toBe('codex');
     expect(row('codex:file:rules/a.rules').targetLabel).toBe('Codex');
   });
-  it('保留の新しい理由と、この PC に無い環境変数の添え書き', () => {
+  it('保留は確認に出さず、この PC に無い環境変数の添え書きは行に付く', () => {
+    expect(r().groups.some((g) => g.id === 'held')).toBe(false);
     const row = (id: string) => r().groups.flatMap((g) => g.rows).find((x) => x.id === id)!;
-    expect(row('claude-hooks:hooks').tag).toEqual({ tone: 'off', text: '送信元の PC と OS が違うため適用していません。' });
-    expect(row('claude-mcp:y').tag?.text).toBe('この PC に MCP サーバーの起動コマンドがないため適用していません。');
+    expect(row('claude-hooks:hooks')).toBeUndefined();
     expect(row('opencode:mcp:x').note).toBe('この PC に API_KEY、TOKEN がありません');
     expect(row('settings:model').note).toBeNull();
   });

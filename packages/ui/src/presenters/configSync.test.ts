@@ -62,10 +62,10 @@ describe('適用内容の確認（b1）', () => {
     inb('memory:p9/memory/MEMORY.md', 'memory', 'proj/MEMORY.md', 'create', { held: 'no-project' }),
   ];
   const p = () => presentConfigDialog(open('review'), storeOf(dto({ incoming: 4, conflicts: 1, held: 1 }), { inbox: { items, approval: 'each' } }, { desktop: true }));
-  it('競合、承認が必要なもの、そのまま適用するもの、保留の順に群を作る（U0 の 4a、4α）。群の中は操作の危ない順', () => {
+  it('競合、承認が必要なもの、そのまま適用するものの順に群を作る。保留は確認に出さない（U0 の 4a）。群の中は操作の危ない順', () => {
     const r = p();
     if (r?.part !== 'review') throw new Error('part');
-    expect(r.groups.map((g) => [g.id, g.count])).toEqual([['conflict', 1], ['approve', 1], ['auto', 3], ['held', 1]]);
+    expect(r.groups.map((g) => [g.id, g.count])).toEqual([['conflict', 1], ['approve', 1], ['auto', 3]]);
     expect(r.groups[2]!.rows.map((x) => x.id)).toEqual(['file:skills/old/SKILL.md', 'file:memory/m.md', 'settings:model']);
     expect(r.groups.filter((g) => g.id !== 'auto').every((g) => g.note !== null)).toBe(true);
     expect(r.summary).toBe('削除 1、上書き 1、新規 1');
@@ -80,13 +80,12 @@ describe('適用内容の確認（b1）', () => {
     expect(r.native).toBe(true);
     expect(items.filter(appliesNow).length).toBe(3);
   });
-  it('承認が必要な行と保留の行に札を付ける。競合の行には承認の札を付けない', () => {
+  it('承認が必要な行に札を付ける。競合の行には承認の札を付けない', () => {
     const r = presentConfigDialog(open('review'), storeOf(dto(), { inbox: { items: [...items, inb('file:skills/c/SKILL.md', 'skills', 'skills/c/SKILL.md', 'conflict', { needsApproval: true })], approval: 'each' } }));
     if (r?.part !== 'review') throw new Error('part');
     const row = (id: string) => r.groups.flatMap((g) => g.rows).find((x) => x.id === id)!;
     expect(row('file:skills/a/SKILL.md').tag).toEqual({ tone: 'warn', text: '承認が必要' });
     expect(row('file:skills/c/SKILL.md').tag).toBeNull();
-    expect(row('memory:p9/memory/MEMORY.md')).toMatchObject({ dim: true, tag: { tone: 'off', text: 'この PC にそのプロジェクトがありません' } });
   });
   it('承認の仕方が自動なら、承認の要るものも指示書に入る（needsApproval が偽）', () => {
     const r = presentConfigDialog(open('review'), storeOf(dto({ approval: 'auto' }), { inbox: { items: [inb('file:skills/a/SKILL.md', 'skills', 'skills/a/SKILL.md', 'create')], approval: 'auto' } }));
@@ -147,7 +146,7 @@ describe('ダイアログの有無', () => {
 describe('設定の節の常設の行', () => {
   it('同期を組んでいない端末は needsCloud で、中身は空', () => {
     const p = presentConfigSection(storeOf(null), NOW);
-    expect(p).toMatchObject({ needsCloud: true, enabled: false, order: null, incoming: { count: 0, held: 0, from: null }, unsent: { count: 0, unknown: 0, rows: [], groups: [] }, backups: { count: 0, rows: [] } });
+    expect(p).toMatchObject({ needsCloud: true, enabled: false, order: null, incoming: { count: 0, from: null }, held: { count: 0, rows: [] }, unsent: { count: 0, unknown: 0, rows: [], groups: [] }, backups: { count: 0, rows: [] } });
   });
   it('件数は ConfigSyncDto が正で、件数が 0 なら取ってあった中身は出さない', () => {
     const detail: Partial<ConfigDetail> = { unsent: { items: [{ id: 'u', kind: 'secret', itemId: 'i', label: 'x', reason: 'secret:ghp_', allowed: false }] }, backups: { generations: [{ name: '20261010-110000', at: NOW, files: 3 }] } };
@@ -177,5 +176,31 @@ describe('設定の節の常設の行', () => {
   it('大きさの言い方（Windows は 1024、ほかは 1000 で割る）', () => {
     expect([sizeLabel(83, 'darwin'), sizeLabel(2150, 'darwin'), sizeLabel(3e6, 'darwin')]).toEqual(['83 B', '2.1 KB', '3.0 MB']);
     expect([sizeLabel(83, 'win32'), sizeLabel(2150, 'win32'), sizeLabel(3 * 1024 * 1024, 'win32')]).toEqual(['83 B', '2.1 KB', '3.0 MB']);
+  });
+});
+
+describe('適用外の変更の一覧（設定の行の下）', () => {
+  const items = [
+    inb('memory:p9/memory/a.md', 'memory', 'proj/a.md', 'create', { held: 'no-project' }),
+    inb('memory:p9/memory/b.md', 'memory', 'proj/b.md', 'create', { held: 'no-project' }),
+    inb('memory:p8/memory/c.md', 'memory', 'other/c.md', 'create', { held: 'no-project' }),
+    inb('claude-hooks:hooks', 'claude-hooks', 'hooks', 'overwrite', { held: 'other-os' }),
+    inb('claude-mcp:y', 'claude-mcp', 'y', 'create', { held: 'command-missing' }),
+    inb('file:skills/s/SKILL.md', 'skills', 'skills/s/SKILL.md', 'create'),
+  ];
+  const sec = (over: Partial<ConfigSyncDto> = {}) => presentConfigSection({ ...initialStore(), configSync: dto({ incoming: 1, held: 5, ...over }), configDetail: { ...EMPTY_CONFIG_DETAIL, inbox: { items, approval: 'each' } }, desktop: true }, 0);
+  it('memory はプロジェクトごとに 1 行（件数つき）、ほかは項目の名前で 1 行。理由は短い語', () => {
+    const h = sec().held;
+    expect(h.count).toBe(5);
+    expect(h.rows).toEqual([
+      { id: 'memory:proj', label: 'proj', count: 2, reason: 'プロジェクトなし' },
+      { id: 'memory:other', label: 'other', count: 1, reason: 'プロジェクトなし' },
+      { id: 'claude-hooks:hooks', label: 'hooks', count: null, reason: '他の OS 用' },
+      { id: 'claude-mcp:y', label: 'y', count: null, reason: '起動コマンドなし' },
+    ]);
+  });
+  it('設定の行の件数は保留を数えない。保留 0 なら一覧も空', () => {
+    expect(sec().incoming).toEqual({ count: 1, from: 'Studio' });
+    expect(sec({ held: 0 }).held.count).toBe(0);
   });
 });
