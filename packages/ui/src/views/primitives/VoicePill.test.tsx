@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VoicePill } from './VoicePill.tsx';
 
-const st = (o: Partial<VoiceStateDto> = {}): VoiceStateDto => ({ available: true, models: { state: 'ready', progress: 1 }, mode: 'off', phase: 'off', caption: null, speakingId: null, meeting: false, ...o });
+const st = (o: Partial<VoiceStateDto> = {}): VoiceStateDto => ({ available: true, models: { state: 'ready', progress: 1 }, mode: 'off', phase: 'off', caption: null, speakingId: null, meeting: false, callable: true, ...o });
 const mkApi = () => ({ voiceHold: vi.fn(async () => ({})), voiceToggle: vi.fn(async () => ({})) });
 const pill = () => screen.getByRole('button', { name: '音声で入力' });
 

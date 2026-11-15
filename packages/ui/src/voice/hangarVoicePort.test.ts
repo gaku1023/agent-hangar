@@ -2,7 +2,7 @@ import type { VoiceStateDto } from '@agent-hangar/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { hangarVoicePort } from './hangarVoicePort.ts';
 
-const st = (o: Partial<VoiceStateDto> = {}): VoiceStateDto => ({ available: true, models: { state: 'ready', progress: 1 }, mode: 'off', phase: 'off', caption: null, speakingId: null, meeting: false, ...o });
+const st = (o: Partial<VoiceStateDto> = {}): VoiceStateDto => ({ available: true, models: { state: 'ready', progress: 1 }, mode: 'off', phase: 'off', caption: null, speakingId: null, meeting: false, callable: true, ...o });
 const api = () => ({ voiceSpeak: vi.fn(async () => ({})), voiceStop: vi.fn(async () => ({})) });
 
 describe('hangarVoicePort', () => {
