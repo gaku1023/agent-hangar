@@ -104,7 +104,7 @@ export type Effect =
   | { kind: 'api.recheckMux' }
   | { kind: 'shell.openLog' } | { kind: 'shell.restart' } | { kind: 'clipboard.copy'; text: string; done?: string }
   | { kind: 'api.rebuildIndex' }
-  | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.peerLaunch'; body: PeerLaunchBody } | { kind: 'api.resume'; sessionId: string; stray?: ResumeStray; prepKey?: string } | { kind: 'api.fork'; sessionId: string }
+  | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.peerLaunch'; body: PeerLaunchBody } | { kind: 'api.peerStop'; sessionId: string } | { kind: 'api.resume'; sessionId: string; stray?: ResumeStray; prepKey?: string } | { kind: 'api.fork'; sessionId: string }
   // 起動した後にコンテキストが足りなかった会話のローカルのモデルを整え直す。進みは prepKey の鍵の launch.prep で届き、結果は contextShort.done か contextShort.failed で返る。
   | { kind: 'api.fixContextShort'; sessionId: string; prepKey: string }
   | { kind: 'api.attach'; sessionId: string } | { kind: 'api.adopt'; sessionId: string }
@@ -217,6 +217,8 @@ export type ConfirmRequest =
   // hangar では終わった扱いの run の claude（pid）が動き続けているときの再開（issue #258）。queued はまとめて再開の 1 本で、選んだら順番待ちに入れ直す。
   | { kind: 'strayProcess'; sessionId: string; pid: number; queued?: true }
   | { kind: 'killRun'; runId: string; working: boolean; aside?: boolean; shellTabs: number }
+  // ほかの PC で動いている会話の停止（作業中のときだけ確認する）。
+  | { kind: 'peerStop'; sessionId: string; working: boolean }
   // fromDialog は、未解決のプロジェクトのダイアログから来たこと。やめるとそのダイアログへ戻る。
   | { kind: 'unlinkProject'; projectId: string; fromDialog?: true }
   // 別のアカウントで再開する場面と、アカウントを一覧から外す場面。

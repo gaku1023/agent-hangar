@@ -91,11 +91,11 @@ export function screenStartedText(lang: Language, o: { device: string; title: st
   return title === '' ? render(lang, msg('mcp.peer.screenStartedPlain', { device })) : render(lang, msg('mcp.peer.screenStarted', { device, title }));
 }
 
-/** 画面から人が頼んだ起動が断られた（相手の答え、置く前の検査）ときの札の文。 */
-export function screenRefusalText(lang: Language, o: { device: string; reason: PeerLaunchRefusal | PeerLocalRefusal; detail?: string }): string {
+/** 画面から人が頼んだ起動か停止（op が stop）が断られた（相手の答え、置く前の検査）ときの札の文。 */
+export function screenRefusalText(lang: Language, o: { device: string; reason: PeerLaunchRefusal | PeerLocalRefusal; detail?: string; op?: 'launch' | 'send' | 'stop' }): string {
   const why = render(lang, msg(o.reason === 'approval-denied' || o.reason === 'approval-timeout' ? LOCAL_REFUSAL_KEY[o.reason] : REFUSAL_KEY[o.reason]));
   const detail = o.detail ? ` (${oneLine(o.detail, 200)})` : '';
-  return render(lang, msg('mcp.peer.screenRefused', { device: oneLine(o.device, 80), reason: why + detail }));
+  return render(lang, msg(o.op === 'stop' ? 'mcp.peer.screenStopRefused' : 'mcp.peer.screenRefused', { device: oneLine(o.device, 80), reason: why + detail }));
 }
 
 /** 画面から人が頼んだ起動が、受け取られないまま期限を過ぎたときの札の文。 */

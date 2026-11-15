@@ -310,6 +310,14 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
       const overlay = i.confirmed && state.overlay.kind === 'confirm' ? { kind: 'none' as const } : state.overlay;
       return { state: { ...state, overlay }, effects: [{ kind: 'api.killRun', runId: i.runId }] };
     }
+    case 'session.peerStop': {
+      // ほかの PC の会話。作業中なら先に確認を出す（session.kill と同じ）。シェルタブは相手の PC のものなので数えない。
+      if (!i.confirmed && i.working) {
+        return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'peerStop', sessionId: i.id, working: i.working } } }, effects: [] };
+      }
+      const overlay = i.confirmed && state.overlay.kind === 'confirm' ? { kind: 'none' as const } : state.overlay;
+      return { state: { ...state, overlay }, effects: [{ kind: 'api.peerStop', sessionId: i.id }] };
+    }
     default: return null;
   }
 }

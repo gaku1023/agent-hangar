@@ -198,6 +198,8 @@ export type UiAction =
   | { type: 'session.resume'; id: SessionId; stray?: ResumeStray; /** 起動前の準備の進みの鍵（opencode の接続先の準備）。画面が再開を押すたびに作る。 */ prepKey?: string } | { type: 'session.fork'; id: SessionId }
   // 停止は作業中か、そのランにシェルタブがあるときだけ先に確認を出す。どちらなのかは View が添え、確認を出すかは Mediator が決める。
   | { type: 'session.kill'; runId: RunId; working: boolean; aside?: boolean; shellTabs: number; confirmed?: boolean }
+  // ほかの PC で動いている会話の停止。その PC に頼む。確認の要否は session.kill と同じく作業中かで決める（シェルタブは相手の PC のものなので数えない）。
+  | { type: 'session.peerStop'; id: SessionId; working: boolean; aside?: boolean; confirmed?: boolean }
   // attach はバックグラウンドのサービスが持つセッションに hangar からつなぐ。adopt は外のターミナルの claude を引き取る。confirmed が無ければ先に確認を出す。
   | { type: 'session.attach'; id: SessionId } | { type: 'session.adopt'; id: SessionId; confirmed?: boolean }
   | { type: 'session.openTerminalApp'; runId: RunId; tabId?: TabId } | { type: 'session.openEditor'; sessionId: SessionId; once?: KnownEditorId }

@@ -1,6 +1,7 @@
 import type { Hono } from 'hono';
-import type { PeerLaunchBody } from '@agent-hangar/shared';
+import type { PeerLaunchBody, PeerStopBody } from '@agent-hangar/shared';
 import { listPeersForScreen, launchFromScreen } from '../../peer/screenLaunch.ts';
+import { stopFromScreen } from '../../peer/screenStop.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, readJson } from './common.ts';
 
@@ -23,6 +24,17 @@ export function peerLaunchRoutes(api: Hono, deps: PeerLaunchRouteDeps): void {
     if (got.tooLarge) return c.json({ error: 'too large' }, 413);
     try {
       return c.json(await launchFromScreen({ db: deps.db, deviceId: deps.deviceId, peer, language: deps.language }, got.value as PeerLaunchBody));
+    } catch (e) {
+      if (e instanceof TypeError) return c.json({ error: 'invalid' }, 400);
+      throw e;
+    }
+  });
+  // ほかの PC で動いている会話の停止（サイドバーのメニューの「停止」）。止める先は会話のロックの PC。
+  api.post('/peer-stop', async (c) => {
+    const got = await readJson(c, BODY_LIMITS.default);
+    if (got.tooLarge) return c.json({ error: 'too large' }, 413);
+    try {
+      return c.json(await stopFromScreen({ db: deps.db, deviceId: deps.deviceId, peer, language: deps.language }, got.value as PeerStopBody));
     } catch (e) {
       if (e instanceof TypeError) return c.json({ error: 'invalid' }, 400);
       throw e;

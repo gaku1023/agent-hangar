@@ -248,6 +248,8 @@ export type PeerLaunchBody = {
 };
 /** 画面からの起動の答え。requested は頼みを置いた（起きたかどうかは後から toast で知らせる）、refused は置く前に断った。message は断りの文。 */
 export type PeerLaunchOutcomeDto = { status: 'requested'; requestId: string; device: string } | { status: 'refused'; reason: string; message: string };
+/** 画面から、ほかの PC で動いている会話の停止を頼む本体（POST /api/peer-stop）。止める先の PC は会話のロックで決める。答えは PeerLaunchOutcomeDto と同じ形。 */
+export type PeerStopBody = { sessionId: string };
 export type BootstrapDto = { /** ほかの PC から来た文の、まだ渡していない預かり（会話の id ごと、古い順）。この項目を知らない古いサーバは返さないので、読む側は空として読む。 */ peerQueued?: Record<string, import('./peerChat.ts').PeerChatQueued[]>; schedules: ScheduleDto[]; device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; /** MCP の削除の依頼のうち、利用者の答えを待っているもの。 */ deleteApprovals: DeleteApprovalDto[]; /** 別の PC への起動の承認待ち。 */ peerApprovals: PeerApprovalDto[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto; /** サーバのホーム（os.homedir()）。画面はホームの下の置き場を ~ に縮めるときにだけ使う。 */ home: string; /** 中断の群（InterruptedDto）。 */ interrupted: InterruptedDto | null };
 export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; total: number; nextSeq: number | null };
 /**

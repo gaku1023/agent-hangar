@@ -280,6 +280,25 @@ describe('PeerLaunchInbox', () => {
       expect(control.stop).not.toHaveBeenCalled();
     });
 
+    it('人が画面から頼んだ停止（親の会話が空）は、結び付きが無くても止める。親の空の send は bad-payload で断る', async () => {
+      const control = { send: vi.fn(async () => {}), stop: vi.fn(async () => {}) };
+      const { inbox, post, start, answerOf } = await setup({ control });
+      await inbox.receive(await post('t1', stopReq({ parentSessionId: '', targetSessionId: 's-any' })));
+      await inbox.receive(await post('s1', sendReq({ parentSessionId: '', targetSessionId: 's-any' })));
+      expect(control.stop).toHaveBeenCalledWith('s-any');
+      expect(control.send).not.toHaveBeenCalled();
+      expect(start).not.toHaveBeenCalled();
+      expect(await answerOf('t1')).toMatchObject({ ok: true, sessionId: 's-any' });
+      expect(await answerOf('s1')).toEqual({ ok: false, reason: 'bad-payload' });
+    });
+
+    it('画面からの停止でも、この PC で動いていなければ launch-failed と理由を答える', async () => {
+      const control = { send: vi.fn(async () => {}), stop: vi.fn(async () => { throw new Error('the session is not running on this device'); }) };
+      const { inbox, post, answerOf } = await setup({ control });
+      await inbox.receive(await post('t1', stopReq({ parentSessionId: '', targetSessionId: 's-gone' })));
+      expect(await answerOf('t1')).toEqual({ ok: false, reason: 'launch-failed', detail: 'the session is not running on this device' });
+    });
+
     it('入力を入れられなければ launch-failed と理由を答える。bad-payload の形も断る', async () => {
       const control = { send: vi.fn(async () => { throw new Error('no pane'); }), stop: vi.fn(async () => {}) };
       const { inbox, post, answerOf } = await setup({ control });

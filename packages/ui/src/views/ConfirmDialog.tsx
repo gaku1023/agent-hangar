@@ -93,6 +93,21 @@ export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: Confir
       </Dialog>
     );
   }
+  if (c.kind === 'peerStop') {
+    // ほかの PC の会話。文は停止の確認（killRun）と同じものを使う。相手の PC のシェルタブは数えない。
+    return (
+      <Dialog
+        title={t('confirm.killRun.title')}
+        danger
+        icon="stop"
+        lead={t('confirm.killRun.working')}
+        onClose={close}
+        footer={<><span className="spacer" />{cancel}<button type="button" className="btn btn-danger btn-danger-fill" onClick={() => emit({ type: 'session.peerStop', id: c.sessionId, working: c.working, confirmed: true })}>{t('confirm.killRun.action')}</button></>}
+      >
+        <div className="faint">{t('confirm.killRun.transcriptKept')}</div>
+      </Dialog>
+    );
+  }
   if (c.kind === 'killRun') {
     return (
       <Dialog

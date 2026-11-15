@@ -1,25 +1,27 @@
 import type { PaneId, SessionDto, SessionStatus, Translate, UiAction } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
-import { aliveRunOf, tabsOf, unreadBadgeOn, type Store } from '../store/store.ts';
+import { aliveRunOf, remoteLiveOf, tabsOf, unreadBadgeOn, type Store } from '../store/store.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
 import { resumeHereOf } from './resumeHere.ts';
 import { ACTIVE_LABEL, STATUS_LABEL } from './row.ts';
 
 /** 停止に要るもの。止めるときの確認（作業中、裏の作業、シェルタブ）はセッション画面の「停止」と同じに数える。 */
 export type SessionMenuStop = { runId: string; working: boolean; aside: boolean; shellTabs: number };
+/** ほかの PC で動いている会話の停止に要るもの。その PC に頼む（POST /api/peer-stop）。working は相手の PC の動きで決める。 */
+export type SessionMenuPeerStop = { peer: true; working: boolean };
 
 /**
  * セッションのメニュー（1A）の中身。ホームとプロジェクト画面の一覧、ホームの帯、サイドバーで同じものを出す。
  * status は状態で、Active は null。
  * resumeHere はほかの PC の会話の「この PC で再開」で、disabled は押せない理由。ほかの PC の会話でなければ null。
- * stop は動いている会話の停止。hangar の run があればその中身、hangar の外で動いていれば external、動いていなければ null。
+ * stop は動いている会話の停止。hangar の run があればその中身、ほかの PC で動いていれば peer、hangar の外で動いていれば external、動いていなければ null。
  * moveBlocked は、移動を押せない理由。押せるなら null。
  * 削除は動いていない（stop が null の）ときだけ出す。動いている間は停止を出し、止めると削除に入れ替わる。
  */
 export type SessionMenuProps = { id: string; name: string; status: SessionStatus | null; resumeHere: { disabled: string | null } | null;
   /** 起動元（SessionDto.spawnedBy）が store にあるか。あれば「起動元から外す」を出す。 */
   spawned?: boolean;
-  stop: SessionMenuStop | 'external' | null; moveBlocked: string | null;
+  stop: SessionMenuStop | SessionMenuPeerStop | 'external' | null; moveBlocked: string | null;
   /** そのセッションが分割の木にあるときのペイン。あれば分割のまとまりの先頭に「表示中のペインへ移動」を出す。木に無ければ null か省く。 */
   pane?: PaneId | null;
   /** ピン留めしているか。真なら「ピン留めを外す」を出す。 */
@@ -54,13 +56,17 @@ export function moveTargetIds(store: Store, current: string | null): string[] {
  * 動いているかは、Claude が見えているか（live）か、hangar の run が生きているかで決める。
  * サーバの削除は、この PC で run が生きているか Claude が見えていれば 409 で断るので、削除を出すかどうかも同じ見方（stop の有無）にする。
  * 区切りを付けて休みのまま残っているもの（parked）も、プロセスが残っている間は動いているものとして扱う。
+ * ほかの PC で動いている（この PC の run も live も無く、黙っていないロックがある）会話は、その PC に停止を頼む。
+ * 黙った PC（stale）には頼みが届かないので、今までどおり削除を出す。
  */
 export function presentSessionMenu(store: Store, s: SessionDto, t: Translate): SessionMenuProps {
   const run = aliveRunOf(store, s.id);
   const running = run !== null || s.live !== null;
   const stop: SessionMenuProps['stop'] = run
     ? { runId: run.id, working: s.live === 'busy' || s.live === 'waiting', aside: asideOf(s.live, s.liveAside) !== null, shellTabs: tabsOf(store, run.id).filter((tab) => tab.kind === 'shell').length }
-    : running ? 'external' : null;
+    : running ? 'external'
+    : s.lock && !s.lock.stale ? { peer: true, working: ['busy', 'waiting'].includes(remoteLiveOf(s.lock)) }
+    : null;
   const here = resumeHereOf(store, s, t);
   return {
     id: s.id,
@@ -115,7 +121,7 @@ export function sessionMenuEntries(t: Translate, m: SessionMenuProps): SessionMe
     { key: 'move', label: t('row.menu.move'), icon: 'moveSession', kbd: 'm', separatorBefore: !m.spawned, disabled: m.moveBlocked, send: { type: 'session.move.open', id: m.id } },
     { key: 'copyId', label: t('session.action.copyId'), icon: 'copy', disabled: null, send: { type: 'session.copyId', id: m.id } },
     stop
-      ? { key: 'stop', label: t('sidebar.live.stop'), icon: 'stop', danger: true, separatorBefore: true, disabled: stop === 'external' ? t('sidebar.live.stopExternal') : null, send: stop === 'external' ? null : { type: 'session.kill', ...stop } }
+      ? { key: 'stop', label: t('sidebar.live.stop'), icon: 'stop', danger: true, separatorBefore: true, disabled: stop === 'external' ? t('sidebar.live.stopExternal') : null, send: stop === 'external' ? null : 'peer' in stop ? { type: 'session.peerStop', id: m.id, working: stop.working } : { type: 'session.kill', ...stop } }
       : { key: 'delete', label: t('row.menu.delete'), icon: 'trash', danger: true, separatorBefore: true, disabled: null, send: { type: 'session.delete.open', id: m.id } },
   ];
 }
