@@ -48,10 +48,10 @@
 .vp-btn[data-preparing='true']::before { content: ''; position: absolute; inset: 0; border-radius: 50%; pointer-events: none; padding: 2px; background: conic-gradient(var(--accent) calc(var(--vp-progress, 0) * 360deg), transparent 0); -webkit-mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); mask-composite: exclude; }
 @keyframes vp-ambient { from { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); } to { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 36%, transparent); } }
 /* 字幕の丸薬。丸の上に重ね、右端を支点に左へ伸びる。押すのは丸で、丸薬は押せない。 */
-.vp-pill { position: absolute; right: 0; bottom: 0; z-index: 1; height: 28px; max-width: calc(var(--orch-w, 340px) - 72px); display: flex; align-items: center; gap: calc(var(--u) * 2); padding: 0 40px 0 calc(var(--u) * 3.5); border-radius: var(--r-pill); background: var(--surface); box-shadow: var(--glass-drop), inset 0 0 0 1px var(--line); transform-origin: right center; white-space: nowrap; overflow: hidden; pointer-events: none; font-size: var(--fs-sm); color: var(--ink); }
+.vp-pill { position: absolute; right: 0; bottom: 0; z-index: 1; height: 28px; max-width: calc(var(--orch-w, 340px) - 72px); display: flex; align-items: center; gap: calc(var(--u) * 2); padding: 0 40px 0 0; border-radius: var(--r-pill); background: var(--surface); box-shadow: var(--glass-drop), inset 0 0 0 1px var(--line); transform-origin: right center; white-space: nowrap; overflow: hidden; pointer-events: none; font-size: var(--fs-sm); color: var(--ink); }
 .vp-pill + .vp-btn { z-index: 2; }
-.vp-txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
-.vp-txt > span { direction: ltr; unicode-bidi: plaintext; }
+.vp-txt { min-width: 0; overflow: hidden; display: flex; justify-content: flex-end; padding-left: calc(var(--u) * 4); -webkit-mask-image: linear-gradient(to right, transparent, #000 calc(var(--u) * 4)); mask-image: linear-gradient(to right, transparent, #000 calc(var(--u) * 4)); }
+.vp-txt > span { flex: none; white-space: nowrap; }
 .vp-bar { flex: none; width: 30px; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
 .vp-bar b { display: block; height: 100%; background: var(--accent); transform-origin: left; animation: vp-bar calc(var(--dur) * 4) linear forwards; }
 @keyframes vp-bar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
