@@ -62,7 +62,13 @@ export type InvestigateContext = { op: InvestigateOp; message: string; agent?: A
 export type NewSessionSeed = { request: string; quote: string; accounts?: { 'claude-code'?: string; codex?: string }; /** info は引用を中立の色で見せる（注意とセットアップの状況）。無ければエラーの色。 */ tone?: 'info';
   /** 「同じ設定で新しいセッション…」で入れる元の会話の値。あれば札の前回値より先に使う。 */
   settings?: { agent: AgentKind; model: string | null; effort: string | null; permissionMode: string | null; mode: string | null; addDirs: string[] } };
-export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string; agent?: AgentKind; mode?: string; autoApprove?: boolean; prepKey?: string; prepChoice?: import('./launchPrep.ts').LaunchPrepChoice };
+/**
+ * 人のいない起動元。schedule は予定や出来事による自動の実行、session は別の会話（MCP の create_session、ほかの PC の会話からの頼み）。
+ * 人が起こしたときは付けない。起動の指示（server の launch/injection.ts）で、問いで止まらない段に替える。
+ */
+export type LaunchedBy = 'schedule' | 'session';
+export const isLaunchedBy = (v: unknown): v is LaunchedBy => v === 'schedule' || v === 'session';
+export type LaunchParams = { /** 人のいない起動元。人が起こしたときは省く。 */ launchedBy?: LaunchedBy; projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string; agent?: AgentKind; mode?: string; autoApprove?: boolean; prepKey?: string; prepChoice?: import('./launchPrep.ts').LaunchPrepChoice };
 /** 設定の同期（作り直した実装）のダイアログ。send は送るものの一覧、review は適用内容の確認、approve は届いたスキルなどの承認、conflicts は競合。 */
 export type ConfigSyncPart = 'send' | 'review' | 'approve' | 'conflicts';
 export type PaletteCommand = { id: string; label: string };

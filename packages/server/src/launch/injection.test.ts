@@ -17,11 +17,13 @@ const BODY_JA = [
   'TODO を片付けたと判断したら、update_project の propose_done に TODO の ID と根拠の一文を渡してください。',
   '完了にするのはユーザーです。確認できていないものは出さないでください。',
 ];
-/** 区切りの問いの段（launch.injection.status）。明確に終わったときだけ聞く。 */
+/** 区切りの問いの段（launch.injection.status）。フォームで聞くのは、利用者が終わりを告げたときと外の待ちを言ったときだけ。 */
 const STATUS_JA = [
-  '頼まれたことが明確に終わったときだけ、そのターンの終わりに AskUserQuestion で「このセッションをどうしますか」と聞いてください。選択肢は「Done にする」「Paused · <リマインダーの日付。時刻に意味があれば時刻も>（理由。何を確認しに戻るか）」「まだ続ける」です。',
-  '明確に終わったときとは、ユーザーが終わりを告げたとき（「ありがとう」「ここまで」「マージした」「今日はここまで」など）、頼まれたことが全部済んで次のステップが残っていないとき、ユーザーが外の出来事（CI、レビュー、明日の確認など）を待つと言ったときです。',
-  '一手が済んだだけのとき、質問に答えただけのとき、修正のやりとりの途中、ユーザーが次の指示を続けているとき、次のステップが残っているときは聞かないでください。迷ったら聞かないでください。',
+  'ユーザーが終わりを告げたときと、ユーザーが外の出来事を待つと言ったときだけ、そのターンの終わりに AskUserQuestion で「このセッションをどうしますか」と聞いてください。選択肢は「Done にする」「Paused · <リマインダーの日付。時刻に意味があれば時刻も>（理由。何を確認しに戻るか）」「まだ続ける」です。',
+  '終わりを告げたときとは「ありがとう」「ここまで」「マージした」「今日はここまで」などと言ったとき、外の出来事とは CI、レビュー、明日の確認などです。',
+  '頼まれたことが全部済んだと自分で判断しただけのときは聞かないでください。propose_session_status に confirmed なしで提案だけ出してください。',
+  '一手が済んだだけのとき、質問に答えただけのとき、修正のやりとりの途中、ユーザーが次の指示を続けているときも聞かないでください。迷ったら聞かないでください。',
+  '「まだ続ける」を選ばれたあとは、ユーザーがもう一度終わりを告げるか、外の出来事を待つと言うまで、聞き直さないでください。',
   '聞かないときは、set_session_summary の進捗を正直に書いてください。待ちが明らかなら、propose_session_status に confirmed なしで提案だけ出してください。',
   'ユーザーが Done か Paused を選んだら、propose_session_status に confirmed: true で渡してください。答えずに次の指示へ進んだら、confirmed なしで提案だけ出してください。',
   'Paused のリマインダーの日付は return_on（YYYY-MM-DD）に、確認する時刻が決まっているときは return_time（HH:MM、この PC の時刻）にも渡してください。時刻を note の文だけに書かないでください。',
@@ -34,9 +36,9 @@ const LIVE_JA = [
 /** notify_user で知らせる段（launch.injection.notify）。 */
 const NOTIFY_JA = [
   'ユーザーは複数のセッションを並べて使っており、このセッションの画面を見ていないことが多いです。返答したことは notify_user でしか伝わりません。',
-  'ターンを終えてユーザーに返すたびに（依頼の結果、途中経過の報告、サブエージェントの結果がまとまったとき、ユーザーの判断が必要なときを含む）、最後の返答の前に notify_user を呼び、何が起きたかを 1 文で text に、場面を kind に書いてください。',
+  'ターンを終えてユーザーに返すたびに（依頼の結果、途中経過の報告、サブエージェントの結果がまとまったとき、ユーザーの判断が必要なときを含む）、最後の返答を書く直前に 1 回 notify_user を呼び、何が起きたかを 1 文で text に、場面を kind に書いてください。',
   'kind は、頼まれたことが済んだら "done"、ユーザーの判断や答えが必要なら "ask"、まだ途中の報告なら "progress" です。どこに知らせるかは hangar がユーザーの設定で決めるので、to は渡さないでください。',
-  'AskUserQuestion で聞くときは呼ばなくて構いません（入力待ちとして別に知らせます）。',
+  'AskUserQuestion で聞いて終えるときも、聞く直前に kind を "ask" にして 1 回呼んでください。',
   'ターンの途中の細かい手順のたびには呼ばないでください。',
 ];
 /** 知らせ方を保存する段（launch.injection.notifySave）。os は Mac か Windows、rules は今の決まり。 */
@@ -51,7 +53,7 @@ const RULES_DEFAULT_JA = 'unread は done・ask・progress、os は done・ask�
 const ASK_JA = (os: string) => [
   '知らせ方がまだ決まっていません。このセッションの最初の返答の終わりには、依頼が済んだかどうか、区切りかどうかに関係なく、必ず AskUserQuestion で、どんなときに知らせてほしいかを 1 度だけ聞いてください。'
   + `選択肢は「返答のたびに未読、${os} とスマホは済んだときと判断が必要なとき（デフォルト）」「${os} とスマホにも毎回」「${os} とスマホは判断が必要なときだけ」の 3 つにし、ユーザーは Other で自由に答えられます。答えたら set_notify_preference で保存してください。`
-  + 'この問いは、下の「このセッションをどうしますか」の決まり（明確に終わったときだけ聞く、迷ったら聞かない）とは別のもので、その決まりは当てはまりません。',
+  + 'この問いは、下の「このセッションをどうしますか」の決まり（終わりを告げたときと外の出来事を待つと言ったときだけ聞く、迷ったら聞かない）とは別のもので、その決まりは当てはまりません。',
 ];
 /** Mac で、知らせ方が未設定の既定の入り（Windows の CI でも同じ文になるよう、OS を指す）。 */
 const MAC: InjectionParts = { askStatusAtEnd: true, liveHints: true, notifyUser: true, notify: { platform: 'darwin' } };
@@ -136,8 +138,9 @@ describe('renderInjection', () => {
     expect(en).toContain('Only the user marks a to-do as done. Do not suggest anything that has not been verified.');
     expect(en).toContain('Do not write the time only in the note text.');
     expect(en).toContain('When in doubt, do not ask.');
-    // 明確に終わったときだけ聞く。
-    expect(en).toContain('Only when the work is clearly finished');
+    // フォームで聞くのは、終わりを告げたときと外の待ちを言ったときだけ。自分で済んだと判断しただけなら提案だけ。
+    expect(en).toContain('Only when the user signals the end, or says they are waiting for something outside');
+    expect(en).toContain('Do not ask when you have only judged by yourself that everything asked is done.');
     // 選択肢は用語集の語にする。
     expect(en).toContain('"Mark as Done", "Paused · <reminder date, plus the time if the time matters> (what to come back and check)", and "Keep going"');
     // 手の説明は短く。字数の上限ではなく目安で言う。
@@ -176,7 +179,7 @@ describe('renderInjection の PC をまたぐ段', () => {
     expect(t).toContain('ssh、scp、rsync は自分で実行しないでください。1 度合っていると確認したものは、その後は疑わないでください。\n');
     const at = (s: string) => t.indexOf(s);
     expect(at('あなたは agent-hangar')).toBeLessThan(at('この会話は work-pc'));
-    expect(at('この会話は work-pc')).toBeLessThan(at('頼まれたことが明確に終わったとき'));
+    expect(at('この会話は work-pc')).toBeLessThan(at('ユーザーが終わりを告げたときと、'));
   });
   it('分からない値は（なし）にし、無いファイルが 10 件を越えたら件数を言って末尾を省く', () => {
     const t = renderInjection({ ...BASE, handover: { ...FACTS, prevDevice: null, prevPlatform: null, lastAt: null, branch: null, missing: [], missingCount: 0 } });
@@ -193,7 +196,7 @@ describe('renderInjection の PC をまたぐ段', () => {
   it('プロジェクトを 2 台以上で使っていれば弱い 1 文を足し、1 台なら足さない', () => {
     const two = renderInjection({ ...BASE, deviceCount: 2 });
     expect(two).toContain('このプロジェクトは 2 台の PC で使っています。過去の会話のパスやファイルの状態は、この PC と違うことがあります。\n');
-    expect(two.indexOf('このプロジェクトは')).toBeLessThan(two.indexOf('頼まれたことが明確に終わったとき'));
+    expect(two.indexOf('このプロジェクトは')).toBeLessThan(two.indexOf('ユーザーが終わりを告げたときと、'));
     expect(renderInjection({ ...BASE, deviceCount: 1 })).not.toContain('台の PC');
     expect(renderInjection(BASE)).not.toContain('台の PC');
   });
@@ -402,13 +405,99 @@ describe('notify_user の段', () => {
       expect(es.find((e) => e.key === 'notifySave')!.text).toContain('the Windows notification');
     }
   });
-  it('どの節も、画面を見ていないことを前置きし、ターンを返すたびに最後の返答の前に呼ばせる', () => {
+  it('どの節も、画面を見ていないことを前置きし、ターンを返すたびに最後の返答を書く直前に 1 回呼ばせる。質問で終えるときも ask で呼ぶ', () => {
     for (const k of ['launch.injection.notify', 'launch.injection.opencode.notify', 'launch.injection.codex.notify'] as const) {
       expect(tt('ja', k), k).toMatch(/^ユーザーは複数のセッションを並べて使っており、このセッションの画面を見ていないことが多いです。/);
       expect(tt('ja', k), k).toContain('ターンを終えてユーザーに返すたびに');
-      expect(tt('ja', k), k).toContain('最後の返答の前に');
+      expect(tt('ja', k), k).toContain('最後の返答を書く直前に 1 回');
+      expect(tt('ja', k), k).toContain('聞く直前に kind を "ask" にして 1 回呼んでください。');
+      expect(tt('ja', k), k).not.toContain('呼ばなくて構いません');
       expect(tt('en', k), k).toMatch(/^The user runs several sessions side by side/);
-      expect(tt('en', k), k).toContain('before your final reply');
+      expect(tt('en', k), k).toContain('right before you write your final reply');
+      expect(tt('en', k), k).toContain('with kind set to "ask"');
+      expect(tt('en', k), k).not.toContain('You do not need to call it');
     }
+  });
+});
+
+/** 無人の起動（予定や出来事、別の会話）の段（launch.injection.unattended）。Claude 向け。 */
+const UNATTENDED_JA = (origin: string) => [
+  `このセッションは${origin}から起動されました。画面を見て答える人はいません。`,
+  'AskUserQuestion で聞いたり、ユーザーの答えを待つ問いでターンを終えたりしないでください。答える人がいないので、そこで止まります。',
+  '決めかねることは、妥当な方を選んで進め、選んだことと理由を返答に書いてください。進められないときは、何が足りないかを書いて終えてください。',
+  '区切りでは、set_session_summary を更新し、propose_session_status に confirmed なしで提案だけ出して、要約の返答でターンを終えてください。',
+];
+
+describe('無人の起動（予定や出来事、別の会話から起こした会話）', () => {
+  const input: InjectionInput = { projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 'ta', text: 'a' }] };
+
+  it('人が起こした会話は今までどおりで、無人の段を足さない', () => {
+    const keys = renderInjectionEntries(input, 'ja', MAC).map((e) => e.key);
+    expect(keys).toEqual(['body', 'notify', 'notifySave', 'notifyAsk', 'status', 'live']);
+  });
+
+  it('予定から起こした会話は、区切りの問いと知らせ方の問いを外し、無人の段を区切りの問いの場所に置く', () => {
+    const t = renderInjection({ ...input, launchedBy: 'schedule' }, 'ja', MAC);
+    expect(t).toBe(joined(BODY_JA, [...NOTIFY_JA, ...SAVE_JA('Mac', RULES_DEFAULT_JA)], UNATTENDED_JA('予定や出来事による自動の実行'), LIVE_JA));
+    expect(t).not.toContain('このセッションをどうしますか');
+    expect(t).not.toContain('知らせ方がまだ決まっていません');
+  });
+
+  it('別の会話から起こした会話も同じで、起動元の語だけが変わる', () => {
+    const entries = renderInjectionEntries({ ...input, launchedBy: 'session' }, 'ja', MAC);
+    expect(entries.map((e) => e.key)).toEqual(['body', 'notify', 'notifySave', 'unattended', 'live']);
+    expect(entries.find((e) => e.key === 'unattended')!.text).toBe(joined(UNATTENDED_JA('別の会話')));
+  });
+
+  it('区切りの問いを切っていても、無人の段は足す。止まらないための段だからである', () => {
+    const keys = renderInjectionEntries({ ...input, launchedBy: 'schedule' }, 'ja', { askStatusAtEnd: false, liveHints: false, notifyUser: false }).map((e) => e.key);
+    expect(keys).toEqual(['body', 'unattended']);
+  });
+
+  it('英語でも同じ段になり、行の数は日本語と同じで、日本語を含まない', () => {
+    for (const launchedBy of ['schedule', 'session'] as const) {
+      const ja = renderInjection({ ...input, launchedBy }, 'ja', MAC);
+      const en = renderInjection({ ...input, launchedBy }, 'en', MAC);
+      expect(en.split('\n').length, launchedBy).toBe(ja.split('\n').length);
+      expect(en).not.toMatch(/[぀-ヿ一-鿿＀-￯]/);
+      expect(en).not.toContain('What do you want to do with this session?');
+      for (const name of ['AskUserQuestion', 'set_session_summary', 'propose_session_status', 'without confirmed']) expect(en, name).toContain(name);
+    }
+    expect(renderInjection({ ...input, launchedBy: 'schedule' }, 'en', MAC)).toContain('This session was started by an automatic run (a schedule or an event).');
+    expect(renderInjection({ ...input, launchedBy: 'session' }, 'en', MAC)).toContain('This session was started by another conversation.');
+  });
+
+  it('opencode と Codex の最小限も、状態の段と知らせ方の問いを外して、無人の段を置く。AskUserQuestion の語は使わない', () => {
+    for (const es of [
+      renderOpencodeInjectionEntries({ ...input, launchedBy: 'schedule' }, 'ja', MAC, 'minimal'),
+      renderCodexInjectionEntries({ ...input, launchedBy: 'schedule' }, 'ja', MAC, 'minimal'),
+    ]) {
+      expect(es.map((e) => e.key)).toEqual(['body', 'notify', 'notifySave', 'unattended']);
+      const u = es.find((e) => e.key === 'unattended')!.text;
+      expect(u).toContain('このセッションは予定や出来事による自動の実行から起動されました。');
+      expect(u).toContain('ユーザーの答えを待つ問いでターンを終えないでください。');
+      expect(u).toContain('propose_session_status');
+      expect(u).not.toContain('AskUserQuestion');
+    }
+    for (const es of [
+      renderOpencodeInjectionEntries({ ...input, launchedBy: 'session' }, 'en', MAC, 'minimal'),
+      renderCodexInjectionEntries({ ...input, launchedBy: 'session' }, 'en', MAC, 'minimal'),
+    ]) {
+      expect(es.map((e) => e.key)).toEqual(['body', 'notify', 'notifySave', 'unattended']);
+      expect(es.find((e) => e.key === 'unattended')!.text).not.toContain('AskUserQuestion');
+    }
+  });
+
+  it('Codex を Claude と同じ段にしたときは、Claude の無人の段をそのまま使う', () => {
+    expect(renderCodexInjectionEntries({ ...input, launchedBy: 'session' }, 'ja', MAC, 'claude')).toEqual(renderInjectionEntries({ ...input, launchedBy: 'session' }, 'ja', MAC));
+  });
+});
+
+describe('notify_user の時機は、指示文と道具の説明で同じ言い方にする', () => {
+  it('道具の説明も、最後の返答を書く直前に 1 回呼び、質問で終えるときも ask で呼ぶと言う', () => {
+    expect(tt('ja', 'mcp.tool.notifyUser')).toContain('最後の返答を書く直前に 1 回呼び');
+    expect(tt('ja', 'mcp.tool.notifyUser')).toContain('質問で終えるときも kind を ask にして呼ぶ');
+    expect(tt('en', 'mcp.tool.notifyUser')).toContain('right before you write your final reply');
+    expect(tt('en', 'mcp.tool.notifyUser')).toContain('also when you end with a question, with kind ask');
   });
 });
