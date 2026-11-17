@@ -1,5 +1,5 @@
 import { eventsAvailable, type AccountsDto, type EventHookFailureDto, type InvestigateContext, type UiAction, type SyncStatusBody, type TerminalApp } from '@agent-hangar/shared';
-import { applyConfigDetail, CUSTOM_PROVIDER_ROW, type EventNotice, type EventTriggerState, gitFileKey, type EditorOpenAction, type OpencodeProviderOp, type OpencodeProvidersState, type Store } from '../store/store.ts';
+import { applyConfigDetail, applyHeadlessPage, HEADLESS_PAGE, CUSTOM_PROVIDER_ROW, type EventNotice, type EventTriggerState, gitFileKey, type EditorOpenAction, type OpencodeProviderOp, type OpencodeProvidersState, type Store } from '../store/store.ts';
 import type { OpencodeProvidersDto } from '@agent-hangar/shared';
 import { EditorMissingApiError, type ApiClient } from './api.ts';
 import { sameInspect } from '../store/folderInspect.ts';
@@ -232,6 +232,7 @@ export const actionTable = {
     failed: (store, e) => ({ ...store, gitEdits: { ...store.gitEdits, [gitFileKey(i.sessionId, i.file)]: { error: e instanceof Error ? e.message : String(e) } } }),
   }),
   'project.git.load': (i) => call((api) => api.projectGit(i.projectId), { apply: (store, d) => ({ ...store, projectGit: { ...store.projectGit, [i.projectId]: d } }) }),
+  'project.headless.load': (i) => call((api) => api.headless(i.projectId, i.offset === undefined ? undefined : HEADLESS_PAGE, i.offset), { apply: (store, d) => applyHeadlessPage(store, i.projectId, i.offset, d) }),
   'artifact.openEditor': (i) => editorOpen(i, (api) => api.openArtifactEditor(i.id, i.once)),
   'artifact.add': (i) => {
     const url = i.url.trim();

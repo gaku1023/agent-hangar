@@ -28,6 +28,40 @@ const mount = (p: ProjectProps = props(), onAction = vi.fn()) => ({ ...render(<A
 const iconOf = (el: Element | null) => el?.querySelector('svg')?.getAttribute('data-icon') ?? null;
 const openInfo = () => { fireEvent.click(screen.getByRole('button', { name: '詳細' })); return screen.getByRole('dialog', { name: '詳細' }); };
 
+describe('一覧の末尾に畳んだ非対話の会話', () => {
+  const hl = (over: Partial<NonNullable<ProjectProps['headless']>> = {}) => ({ total: 3214, rows: [row('h1', { name: 'claude -p "list todo"' })], remaining: 3213, ...over });
+  it('開くまで行を描かず、開くとき（まだ読んでいなければ）先頭の頁を読む。件数は画面を開いたときに読む', () => {
+    const onAction = vi.fn();
+    const background = vi.fn();
+    const { container } = render(<ActionRoot onAction={onAction} background={background}><ProjectScreen {...props({ headless: hl({ rows: [], remaining: 3214 }) })} /></ActionRoot>);
+    expect(background).toHaveBeenCalledWith({ type: 'project.headless.load', projectId: 'alpha' });
+    const fold = screen.getByRole('button', { name: '非対話の会話 3,214 件' });
+    expect(fold).toHaveAttribute('aria-expanded', 'false');
+    expect(container.querySelector('.headless-row')).toBeNull();
+    fireEvent.click(fold);
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.headless.load', projectId: 'alpha', offset: 0 });
+    expect(fold).toHaveAttribute('aria-expanded', 'true');
+  });
+  it('開くと低い行が並び、押すと会話を開き、末尾の 1 行で続きを読む。畳むと行は外れる', async () => {
+    const onAction = vi.fn();
+    const { container } = mount(props({ headless: hl() }), onAction);
+    fireEvent.click(screen.getByRole('button', { name: '非対話の会話 3,214 件' }));
+    const r = container.querySelector('.headless-row')!;
+    expect(r.textContent).toContain('claude -p "list todo"');
+    fireEvent.click(r);
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.open', id: 'h1' });
+    fireEvent.click(screen.getByRole('button', { name: '非対話の会話の残り 3,213 件' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'project.headless.load', projectId: 'alpha', offset: 1 });
+    fireEvent.click(screen.getByRole('button', { name: '非対話の会話 3,214 件' }));
+    await act(async () => { await Promise.resolve(); });
+    expect(container.querySelector('.headless-row')).toBeNull();
+  });
+  it('1 件も無ければ出さない', () => {
+    mount(props({ headless: null }));
+    expect(screen.queryByRole('button', { name: /非対話の会話/ })).toBeNull();
+  });
+});
+
 describe('ProjectScreen の左の一覧（ホームと同じ部品）', () => {
   it('状態のタブ、欄、行を並べ、見出しの「セッション N 件」は置かない。絞り込みにプロジェクトの選択は出さない', () => {
     const { container } = mount();

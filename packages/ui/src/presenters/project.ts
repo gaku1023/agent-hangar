@@ -8,6 +8,7 @@ import type { ParentLink } from './heading.ts';
 import { translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
 import { byteBase, bytesLabel } from './bytes.ts';
+import { presentSessionRow, type SessionRowProps } from './row.ts';
 import { presentSessionList, type SessionListProps } from './sessions.ts';
 import { artifactIconOf, type ArtifactIconName } from './artifactIcon.ts';
 
@@ -37,6 +38,11 @@ export type ProjectProps = {
   railFolded: ProjectRailSection[];
   /** git の表示（0.5.0）。パスの行の札と、右パネルの「ブランチと worktree」の行。 */
   git?: ProjectGitProps;
+  /**
+   * 一覧の末尾に畳む非対話の会話（claude -p など）。total は全件、rows は読み込んだ頁までの行（新しい順）、remaining は未読の件数。
+   * 1 件も無いときと、語で検索しているときは無い。
+   */
+  headless?: { total: number; rows: SessionRowProps[]; remaining: number } | null;
   /** この PC で同じフォルダを場所にしている、残す方のプロジェクト（ProjectDto の sameFolder）。あればパスの行に、まとめる確認へ進む札を出す。 */
   sameFolder?: { name: string } | null;
 };
@@ -120,6 +126,13 @@ const NO_PATH_GIT: ProjectGitDto = { root: null, worktrees: [], blocked: { kind:
 /** プロジェクト詳細の見出しの上には、一覧へ戻るリンクを出す。 */
 const parentOf = (t: Translate): ParentLink => ({ label: t('projects.heading.title'), route: { name: 'projects' } });
 
+function headlessOf(state: State, store: Store, now: number, id: string): ProjectProps['headless'] {
+  const h = store.headless[id];
+  if (!h || h.total === 0 || state.search.text !== '') return null;
+  const rows = h.ids.flatMap((sid) => { const s = store.sessions[sid]; return s ? [presentSessionRow(s, store, now)] : []; });
+  return { total: h.total, rows, remaining: Math.max(0, h.total - rows.length) };
+}
+
 export function presentProject(state: State, store: Store, now: number, id: string): ProjectProps {
   const p = store.projects[id];
   const t = translatorOf(store);
@@ -138,6 +151,7 @@ export function presentProject(state: State, store: Store, now: number, id: stri
     id, name: projectDisplayName(p, translatorOf(store)), parent: PARENT, path: p.path, resolved: p.resolved, status: p.status, notFound: false, isScratch: p.isScratch,
     sameFolder: p.sameFolder ? { name: p.sameFolder.name } : null,
     list,
+    headless: headlessOf(state, store, now, id),
     loadMore: list.mode === 'search' && remaining > 0 ? { remaining, step: SEARCH_STEP, loading: list.loading } : null,
     // セッションの数は、Archived も含めた全部（タブの「すべて」は Archived を除く）。
     info: { sessionsText: t('projects.row.sessions', { n: Object.values(store.sessions).filter((s) => s.projectId === id).length }), lastActivity: relativeTime(t, p.lastActivityAt, now) },

@@ -282,6 +282,8 @@ export type SearchParamsDto = { q: string; projectId?: string; since?: number; u
  * 語の無いファイルだけの検索の行には付かない。古いサーバも送らないので、受け取る側は無いものとして読む。
  */
 export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { seq: number; role: string; text: string; agentId: string | null }[]; matched?: ('name' | 'summary' | 'transcript')[] };
+/** 非対話の会話の頁（GET /api/sessions/headless）。total は条件に合う全件で、sessions は新しい順の頁である。 */
+export type HeadlessPageDto = { sessions: SessionDto[]; total: number };
 /**
  * 検索の結果。total は条件に合う全件の数で、hits は offset から limit 件だけを持つ。
  * sessions は rows=1 で求めたときだけ持ち、hits（と一覧の形の rows）の会話の行そのもの。手元に無い会話の行を出すために使う。
