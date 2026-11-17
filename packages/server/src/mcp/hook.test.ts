@@ -6,6 +6,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { claudeAsks } from '../provider/claude-code/hooks/asks.ts';
 import { issueMcpSecret } from '../runs/secrets.ts';
+import { HookDecisions } from '../sessions/hookDecisions.ts';
 import { PermissionAsks } from '../sessions/permissionAsks.ts';
 import { createMcpApp } from './app.ts';
 import { agentsOf } from '../agent/agents.ts';
@@ -21,6 +22,7 @@ let db: Db;
 let sid: string;
 let app: ReturnType<typeof createMcpApp>;
 let asks: PermissionAsks;
+let decisions: HookDecisions;
 const TOKEN = 'main-token';
 const pre = { session_id: 'u1', hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: '色は？' }] }, tool_use_id: 't1' };
 const post = (secret: string, body: unknown, id = sid) => app.request(`/s/${id}/hook`, { method: 'POST', headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body) });
@@ -31,8 +33,9 @@ beforeEach(() => {
   db = openDb(':memory:');
   sid = ensureSession(db, 'u1', '/w', 'd');
   asks = new PermissionAsks();
+  decisions = new HookDecisions();
   app = createMcpApp({ db, deviceId: 'd', port: 4177, token: TOKEN, live: () => [], runs: { start: () => { throw new Error('not in this test'); } },
-    usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), permissionAsks: asks, asksOf: () => claudeAsks });
+    usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), permissionAsks: asks, hookDecisions: decisions, asksOf: () => claudeAsks });
 });
 afterEach(() => { db.close(); fs.rmSync(home, { recursive: true, force: true }); });
 
@@ -46,10 +49,10 @@ describe('hook の受け口', () => {
     expect(question()).toBeNull();
   });
 
-  it('許可の確認（PermissionRequest）は、許可待ちの中身として預けて 204 を返す', async () => {
+  it('許可の確認（PermissionRequest）は、許可待ちの中身として預け、待ちの id を 200 で返す（待ちの表が無ければ 204）', async () => {
     const secret = issueMcpSecret(db, sid, 1);
     const r = await post(secret, { session_id: 'u1', hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'npm test', description: '試験' } });
-    expect(r.status).toBe(204);
+    expect(r.status).toBe(200);
     const l = asks.apply([{ sessionId: 'u1', status: 'waiting', name: null, nameSource: null, cwd: '/w', pid: 1 }], Date.now())[0];
     expect(l?.permission).toEqual({ tool: 'Bash', input: 'npm test', description: '試験' });
   });
@@ -94,5 +97,48 @@ describe('hook の受け口', () => {
     expect((await post(secret, { ...pre, hook_event_name: 'PostToolUse' })).status).toBe(204);
     expect(seen).toEqual(['claude-code', 'opencode']);
     expect(question()).toBe('色は？');
+  });
+});
+
+describe('hook の受け口：答えの待ち（PermissionRequest の同期の hook）', () => {
+  const perm = { session_id: 'u1', hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'npm test' } };
+  const decision = (secret: string, body: unknown, id = sid) => app.request(`/s/${id}/decision`, { method: 'POST', headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+  it('許可の確認は待ちを開け、id を 200 で返す。/decision が、決めた答えを返す', async () => {
+    const secret = issueMcpSecret(db, sid, 1);
+    const r = await post(secret, perm);
+    expect(r.status).toBe(200);
+    const { id } = (await r.json()) as { id: string };
+    expect(await (await decision(secret, { id, waitMs: 20 })).json()).toEqual({ t: 'pending' });
+    decisions.decide(sid, { kind: 'permission', tool: 'Bash', input: 'npm test' }, { kind: 'permission', behavior: 'allow' });
+    expect(await (await decision(secret, { id, waitMs: 20 })).json()).toEqual({ t: 'answer', output: { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } } });
+  });
+
+  it('許可待ちの中身の預けは今までどおり行う', async () => {
+    const secret = issueMcpSecret(db, sid, 1);
+    await post(secret, perm);
+    expect(asks.apply([{ sessionId: 'u1', status: 'waiting', name: null, nameSource: null, cwd: '/w', pid: 1 }], Date.now())[0]?.permission).toMatchObject({ tool: 'Bash', input: 'npm test' });
+  });
+
+  it('画面で先に問いに答えられたら（PostToolUse）、待ちが閉じて gone を返す', async () => {
+    const secret = issueMcpSecret(db, sid, 1);
+    const uq = { session_id: 'u1', hook_event_name: 'PermissionRequest', tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: '色は？' }] } };
+    const { id } = (await (await post(secret, uq)).json()) as { id: string };
+    await post(secret, { ...pre, hook_event_name: 'PostToolUse' });
+    expect(await (await decision(secret, { id, waitMs: 20 })).json()).toEqual({ t: 'gone' });
+  });
+
+  it('hook の会話がそのセッションのものでなければ待ちを開けない（204）', async () => {
+    const secret = issueMcpSecret(db, sid, 1);
+    expect((await post(secret, { ...perm, session_id: 'other' })).status).toBe(204);
+  });
+
+  it('/decision は鍵が違えば 401、別のセッションの待ちは gone', async () => {
+    const secret = issueMcpSecret(db, sid, 1);
+    const { id } = (await (await post(secret, perm)).json()) as { id: string };
+    expect((await decision('wrong', { id })).status).toBe(401);
+    const other = ensureSession(db, 'u2', '/w', 'd');
+    const secret2 = issueMcpSecret(db, other, 1);
+    expect(await (await decision(secret2, { id, waitMs: 10 }, other)).json()).toEqual({ t: 'gone' });
   });
 });

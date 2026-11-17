@@ -81,4 +81,58 @@ describe('hangar-hook.mjs', () => {
     expect(await runScript(script, [path.join(home, 'missing.json')], '{}')).toEqual({ code: 0, out: '', err: '' });
     expect(await runScript(script, [], '{}')).toEqual({ code: 0, out: '', err: '' });
   });
+
+  describe('PermissionRequest（答えを待つ）', () => {
+    const perm = JSON.stringify({ hook_event_name: 'PermissionRequest', session_id: 'u1', tool_name: 'Bash', tool_input: { command: 'ls' } });
+    const answer = { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } };
+
+    /** /hook は hookReply を返し、/decision は replies を順に返す（尽きたら最後を繰り返す）。 */
+    async function withServer(hookReply: { status: number; json?: unknown }, replies: unknown[], run: (url: string, seen: string[]) => Promise<void>): Promise<void> {
+      const seen: string[] = [];
+      let n = 0;
+      const server = http.createServer((req, res) => {
+        let body = '';
+        req.on('data', (c) => { body += c; });
+        req.on('end', () => {
+          seen.push(`${req.url} ${body}`);
+          if (req.url?.endsWith('/hook')) return void (hookReply.json === undefined ? res.writeHead(hookReply.status).end() : res.writeHead(hookReply.status, { 'content-type': 'application/json' }).end(JSON.stringify(hookReply.json)));
+          const r = replies[Math.min(n++, replies.length - 1)];
+          res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(r));
+        });
+      });
+      await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+      try { await run(`http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp/s/abc`, seen); } finally { server.close(); }
+    }
+
+    it('待ちの id をもらい、/decision を繰り返して、答えを標準出力に書いて 0 で抜ける', async () => {
+      await withServer({ status: 200, json: { id: 'w1' } }, [{ t: 'pending' }, { t: 'answer', output: answer }], async (url, seen) => {
+        const r = await runScript(ensureHookScript(home), [config(url)], perm);
+        expect(r).toEqual({ code: 0, out: JSON.stringify(answer), err: '' });
+        expect(seen[0]).toBe(`/mcp/s/abc/hook ${perm}`);
+        expect(seen.slice(1).map((x) => x.split(' ')[0])).toEqual(['/mcp/s/abc/decision', '/mcp/s/abc/decision']);
+        expect(JSON.parse(seen[1]!.slice(seen[1]!.indexOf(' ') + 1))).toMatchObject({ id: 'w1' });
+      });
+    });
+
+    it('gone なら、何も書かずに 0 で抜ける（画面で先に答えられた）', async () => {
+      await withServer({ status: 200, json: { id: 'w1' } }, [{ t: 'gone' }], async (url) => {
+        expect(await runScript(ensureHookScript(home), [config(url)], perm)).toEqual({ code: 0, out: '', err: '' });
+      });
+    });
+
+    it('/hook が待ちを開けなかった（204）なら、待たずに抜ける', async () => {
+      await withServer({ status: 204 }, [{ t: 'pending' }], async (url, seen) => {
+        expect(await runScript(ensureHookScript(home), [config(url)], perm)).toEqual({ code: 0, out: '', err: '' });
+        expect(seen).toHaveLength(1);
+      });
+    });
+
+    it('PermissionRequest 以外は、200 が返っても待たない', async () => {
+      await withServer({ status: 200, json: { id: 'w1' } }, [{ t: 'pending' }], async (url, seen) => {
+        const pre = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion' });
+        expect(await runScript(ensureHookScript(home), [config(url)], pre)).toEqual({ code: 0, out: '', err: '' });
+        expect(seen).toHaveLength(1);
+      });
+    });
+  });
 });

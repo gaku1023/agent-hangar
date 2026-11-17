@@ -7,7 +7,7 @@ import { listFilesIn } from '../mobile/asks.ts';
 import { sanitizeInput } from '../mcp/screenTools.ts';
 import { noteTurnStart } from '../mcp/waitTool.ts';
 import { createPeerChatHost, type PeerChatHost } from '../peer/chat/host.ts';
-import type { HostPane, HostSession, PeerChatHostEvent } from '../peer/chat/hostTypes.ts';
+import type { HostPane, HostSession, PeerChatHostDeps, PeerChatHostEvent } from '../peer/chat/hostTypes.ts';
 import { createTailCache, dbTranscriptReader } from '../peer/chat/tail.ts';
 import { aliveRunForSession } from '../runs/queries.ts';
 import type { RunManager } from '../runs/manager.ts';
@@ -43,7 +43,7 @@ export type PeerChatParts = {
 export function bootPeerChat(p: {
   home: Pick<HomeParts, 'db' | 'device' | 'settings' | 'home'>;
   runs: { runs: Pick<RunManager, 'sendInput' | 'resumeWith'>; mux: RunsParts['mux'] };
-  delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub: { broadcast(ev: PeerChatHostEvent): void } };
+  delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub: { broadcast(ev: PeerChatHostEvent): void }; hookDecisions?: PeerChatHostDeps['hookDecisions'] };
   sync: Pick<SyncParts, 'peerLink'>;
   now?: () => number;
 }): PeerChatParts {
@@ -103,6 +103,7 @@ export function bootPeerChat(p: {
     dropsDir: path.join(p.home.home, 'drops'),
     files: (root, q) => listFilesIn(root, q),
     emit: (ev) => { p.delivery.hub.broadcast(ev); },
+    ...(p.delivery.hookDecisions ? { hookDecisions: p.delivery.hookDecisions } : {}),
   });
 
   let offs: (() => void)[] = [];

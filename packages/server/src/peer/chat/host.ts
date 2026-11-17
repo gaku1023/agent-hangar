@@ -14,6 +14,7 @@ import {
   type PeerChatRequest,
   type PeerKeyring,
 } from '@agent-hangar/shared';
+import type { HookChoice } from '../../sessions/hookDecisions.ts';
 import { createPeerAnswerer, type AnswerPane, type AnswerResult } from './answer.ts';
 import { inputEmptyFromCapture } from './inputBox.ts';
 import { resumeSendOp, sendOp, type SendDeps } from './hostSend.ts';
@@ -192,6 +193,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     // ファイルの道具の札は cwd からの相対のパスを出すので、cwd で絶対にして突き合わせる。
     cwd: (sessionId) => deps.session(sessionId)?.cwd || null,
     now: deps.now,
+    ...(deps.hookDecisions ? { hook: { decide: (runId: string, ask: PeerChatAsk, choice: HookChoice) => deps.hookDecisions!.decide(runId, ask, choice), delivered: (id: string) => deps.hookDecisions!.isDelivered(id), withdraw: (id: string) => { deps.hookDecisions!.withdraw(id); } } } : {}),
   });
 
   const forget = (queueId: string, remove: boolean): void => {

@@ -1,4 +1,5 @@
 import type { AgentKind, LiveStatus, PeerChatFile, PermissionAskDto, PeerKeyring, ServerEvent, SessionActivityDto, WaitKind } from '@agent-hangar/shared';
+import type { HookDecisions } from '../../sessions/hookDecisions.ts';
 import type { AnswerPane } from './answer.ts';
 import type { TailDeps } from './tail.ts';
 
@@ -114,6 +115,11 @@ export type PeerChatHostDeps = {
    * 省けば配らない。
    */
   emit?(ev: PeerChatHostEvent): void;
+  /**
+   * PermissionRequest の hook の待ちの表（sessions/hookDecisions.ts）。
+   * あれば、札への答えは、待ちがあり hook で言えるとき（hookAnswer.ts）に、画面にキーを打たずにここへ決める。
+   */
+  hookDecisions?: Pick<HookDecisions, 'decide' | 'isDelivered' | 'withdraw'>;
   newId?(): string;
   /** 預かりの時計（試験で縮める）。 */
   queue?: { pollMs?: number; expireMs?: number; settleMs?: number };
