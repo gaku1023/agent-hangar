@@ -172,7 +172,7 @@ describe.runIf(onWindows)('hangar.cmd を Windows で動かす', () => {
     'param([string]$Bat, [int]$TimeoutMs)',
     "$p = Start-Process -FilePath $env:ComSpec -ArgumentList @('/d', '/c', $Bat) -WindowStyle Hidden -PassThru",
     '$null = $p.Handle',
-    'if ($p.WaitForExit($TimeoutMs)) { "exited $($p.ExitCode)" } else { & taskkill.exe /T /F /PID $p.Id | Out-Null; "hung" }',
+    'if ($p.WaitForExit($TimeoutMs)) { "exited $($p.ExitCode)" } else { & taskkill.exe /T /F /PID $p.Id 2>$null | Out-Null; "hung" }',
     '',
   ].join('\r\n');
 
@@ -187,7 +187,10 @@ describe.runIf(onWindows)('hangar.cmd を Windows で動かす', () => {
       windowsHide: true,
       timeout: 60_000,
     });
-    return `${r.stdout}`.trim() + (r.stderr ? `\n${r.stderr}` : '');
+    // 答えは標準出力の 1 行だけ。taskkill が「もう終わっていた子」を止めようとして出す ERROR は答えではない
+    // （2026-11-17 に、その 1 行が混ざって 'hung' と一致せず落ちた）。標準出力が空のときだけ、原因のために stderr を返す。
+    const out = `${r.stdout}`.trim();
+    return out === '' && r.stderr ? `${r.stderr}`.trim() : out;
   };
 
   it('Ctrl+C で node が終わると、cmd も問わずに終わる', { timeout: 120_000 }, () => {
