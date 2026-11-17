@@ -72,6 +72,8 @@ const UNKNOWN_SPEC: Spec = { account: null, model: '\0', effort: '\0' };
 /** 失敗を数える窓と、止まる回数。 */
 export const KEEPER_WINDOW_MS = 10 * 60_000;
 export const KEEPER_MAX_FAILURES = 3;
+/** 指定の変更で止めた claude が一覧から消えるのを待つ長さ。過ぎたら再開を試みる。 */
+export const RESPEC_GONE_MS = 15_000;
 
 /**
  * 統括の会話を生かし続ける（docs/design.md「統括」）。
@@ -351,6 +353,20 @@ export class OrchestratorKeeper {
     this.schedule();
   }
 
+  /**
+   * 止めた claude が実行中の一覧から消えるのを待つ（RESPEC_GONE_MS まで）。
+   * 一覧に残っている間の再開は、止めた run が killed で終わっているため「hangar の外部で実行中」で断られる（runs/accounts.ts の付け替えと同じ待ち方）。
+   */
+  private waitGone(sessionId: string): Promise<void> {
+    if (this.deps.liveStatus(sessionId) === null) return Promise.resolve();
+    return new Promise((resolve) => {
+      let off: () => void = () => {};
+      const done = () => { clearTimeout(timer); off(); resolve(); };
+      const timer = setTimeout(done, RESPEC_GONE_MS);
+      off = this.deps.onLiveChange(() => { if (this.deps.liveStatus(sessionId) === null) done(); });
+    });
+  }
+
   /** 失敗を 1 回数える。止まる回数に届いたら止めて真を返す。 */
   private fail(): boolean {
     const now = this.now();
@@ -373,6 +389,7 @@ export class OrchestratorKeeper {
       try {
         const o = s.account === null ? {} : { account: s.account };
         if (s.sessionId !== null && this.deps.resumable(s.sessionId)) {
+          if (this.restarting) await this.waitGone(s.sessionId);
           await this.deps.runs.resumeWith(s.sessionId, this.restarting ? { ...o, stray: 'stop' } : o);
         } else {
           const r = this.deps.runs.startOrchestrator(o);
