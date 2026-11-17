@@ -121,7 +121,7 @@ jobs:
       # 鍵と場所は ci.yml と同じにする。タグの run は main のキャッシュを読めるが、保存しても次のタグから読めないので、戻すだけにする。
       - name: 声の補助のキャッシュの鍵
         id: voice-key
-        run: echo "key=voice-mac-xcode-$(xcodebuild -version | shasum | cut -c1-12)-${{ hashFiles('apps/voice-mac/Package.resolved') }}" >> "$GITHUB_OUTPUT"
+        run: echo "key=voice-mac-cas-$(xcodebuild -version | shasum | cut -c1-12)-${{ hashFiles('apps/voice-mac/Package.resolved') }}" >> "$GITHUB_OUTPUT"
       - uses: actions/cache/restore@v6
         with:
           path: ~/Library/Caches/agent-hangar/voice-mac-xcode

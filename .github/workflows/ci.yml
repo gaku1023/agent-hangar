@@ -107,11 +107,12 @@ jobs:
             echo "build=true" >> "$GITHUB_OUTPUT"
           fi
       # 鍵は Xcode の版と Package.resolved の指紋。release.yml の macos ジョブも同じ鍵と場所で戻す。
+      # 頭の cas は build.sh の compilation caching を入れた作り方。作り方を変えたら頭を替え、古い中間物に当たらないようにする。
       # 場所は build.sh の既定（HANGAR_VOICE_DERIVED が無いとき）なので、env は渡さない。
       - name: キャッシュの鍵
         if: steps.changed.outputs.build == 'true'
         id: key
-        run: echo "key=voice-mac-xcode-$(xcodebuild -version | shasum | cut -c1-12)-${{ hashFiles('apps/voice-mac/Package.resolved') }}" >> "$GITHUB_OUTPUT"
+        run: echo "key=voice-mac-cas-$(xcodebuild -version | shasum | cut -c1-12)-${{ hashFiles('apps/voice-mac/Package.resolved') }}" >> "$GITHUB_OUTPUT"
       - uses: actions/cache/restore@v6
         if: steps.changed.outputs.build == 'true'
         id: cache

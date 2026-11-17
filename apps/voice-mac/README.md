@@ -21,6 +21,7 @@ build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/voice-mac-
 MLX をゼロから作ると数分かかるためです。置き場は `HANGAR_VOICE_DERIVED` で変えられます。
 xcodebuild はソースの場所が変わると Swift のモジュールを作り直すので、`build.sh` はソースも同じ置き場の `src/` へ写してから作ります。
 2 つの build が重なったときは、後の方が先の終わりを待ちます。
+Xcode の compilation caching（`COMPILATION_CACHE_ENABLE_CACHING=YES`）も入れています。CI がキャッシュから戻した中間物は inode が変わり、それだけで Swift のモジュールが作り直しになるためです。compilation caching は中身の指紋で引くので、戻した後でも当たります。
 CI は、main の push で作った中間物を Actions のキャッシュに保存し、PR とリリースはそれを戻して使います（`.github/workflows/ci.yml` の voice-mac ジョブ）。
 PR では、`apps/voice-mac` が変わったときだけ Release の build を回します。
 
