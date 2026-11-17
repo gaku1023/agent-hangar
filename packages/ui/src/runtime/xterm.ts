@@ -65,7 +65,7 @@ export function createXterm(): TerminalLike {
       // 変換中の文字をターミナルの右端で折り返し、下端を超える分は上へずらす（compositionWrap.ts）。捨てるときに止める。
       if (term.element) { stopWrap(); stopWrap = wrapComposition(term.element); }
     },
-    write: (d) => term.write(d),
+    write: (d, cb) => term.write(d, cb),
     onData: (cb) => term.onData(cb),
     onResize: (cb) => term.onResize(cb),
     fit: () => { try { fit.fit(); } catch { /* 非表示のときは寸法が取れない */ } },

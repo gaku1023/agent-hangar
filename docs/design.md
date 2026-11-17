@@ -10761,6 +10761,22 @@ MLX の build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/vo
   答えは送った順に受け手へ渡す。tmux は 3.0 から、つないだ直後に attach そのものの答えを `%begin` の flags 0 で返し、標準入力から送ったコマンドの答えは flags 1 で返すので、flags 0 の答えは数えない。
   Windows の psmux（3.4.0）は、シェルタブも擬似端末の attach のままである。psmux の `-C` は attach の答えを返さず、`send-keys` には打鍵を届けたうえで毎回 `%error` を返す。
   さらに、離れている間の出力を次に出力が出たときにまとめて流し直すので、最初の写しの後に同じ履歴が重なる（issue #534）。
+- シェルタブの出力は、画面が描き終えた量を返す（ack）ことで流しすぎないようにする。VS Code の端末と同じ形である。
+  コントロールモードの tmux は、attach の 80 倍ほどの速さ（1 秒に 50MB 近く）で `yes` や大きな `cat` の出力を流せる。
+  画面が追いつかないと、サーバと WebSocket に溜まり続ける。
+  画面は、`term.write` が終わった文字数を `ACK_CHARS`（4096）ごとに `{ t: 'ack', n }` で返す（`runtime/terminals.ts`）。
+  サーバは、送った量から返された量を引いた分が `FLOW_HIGH_CHARS`（128K）を超えたら `PtyProcess.pause()` し、`FLOW_LOW_CHARS`（16K）を切ったら `resume()` する（`pty/relay.ts`）。
+  画面が一度も ack を返さない間は数えない。古い画面は止められない。
+  コントロールモードの `pause()` は、tmux の子の標準出力の読みを止める。
+  tmux は読まれない間、pane の読みを自分で止めるので、溜まるのは tmux の中に限られ、打鍵のコマンドは通る。
+  加えて、つないだ直後に `refresh-client -f pause-after=2`（tmux 3.2 から）を頼む。
+  同じ pane を別のクライアントが読み続けていて、こちらだけが 2 秒より遅れたときは、tmux が溜めを捨てて `%pause %<pane>` を返す（読みを止めても tmux は自分で止まらない場合）。
+  出力は `%extended-output %<pane> <遅れ> : <中身>` で届くので、`%output` と同じに読む。
+  読みが追いついた（`resume()`）ら `refresh-client -A '%<pane>:continue'` で続きを頼み、その答えが返ったら、止まっていた間の出力が届かないので、最初と同じ写し（履歴と今の画面とカーソル）を頼み直して描き直す。
+  `%continue` の行は、tmux 3.4 では答えの `%begin` と `%end` の間に来て答えの中身に読まれるので、合図には使わない。
+  `%` で始まる語は、引用符で包まないと tmux の構文の誤りになる。
+  `pause-after` を断る tmux（3.2 より前、psmux）では、%output のまま、読みの止めだけで抑える。
+  擬似端末の attach（エージェントのタブ）は `pause` を持たず、これまでどおりである。
 - 起動ダイアログの model、effort、permission mode、worktree、追加ディレクトリは空欄を既定にし、空欄の項目は起動引数に含めない。
 
 以下はフェーズ 3 の実装で決めた前提である。

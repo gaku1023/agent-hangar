@@ -36,6 +36,10 @@ type StreamHandlers = {
    */
   block(lines: string[], ok: boolean, fromClient: boolean): void;
   exit(): void;
+  /** `%pause`：pause-after の時間より遅れた pane の出力を tmux が止めた。止まっている間の出力は届かない。 */
+  pause?(pane: string): void;
+  /** `%continue`：止めていた pane の出力がまた流れ出した。 */
+  resume?(pane: string): void;
 };
 
 /** コントロールモードの出力を行に分けて読む。塊が行の途中で切れていても、次の塊とつないでから読む。 */
@@ -71,6 +75,15 @@ export class ControlStream {
       if (sp > 0) this.h.output(line.slice(8, sp), unescapeOutput(line.slice(sp + 1)));
       return;
     }
+    // pause-after を頼んだ後は、%output の代わりに %extended-output %<pane> <遅れ> ... : <中身> で届く。
+    if (line.startsWith('%extended-output ')) {
+      const sp = line.indexOf(' ', 17);
+      const colon = line.indexOf(' : ', sp);
+      if (sp > 0 && colon > 0) this.h.output(line.slice(17, sp), unescapeOutput(line.slice(colon + 3)));
+      return;
+    }
+    if (line.startsWith('%pause ')) { this.h.pause?.(line.slice(7).trim()); return; }
+    if (line.startsWith('%continue ')) { this.h.resume?.(line.slice(10).trim()); return; }
     if (line === '%exit' || line.startsWith('%exit ')) this.h.exit();
   }
 }
@@ -144,7 +157,13 @@ const latin1ToUtf8 = (s: string): string => Buffer.from(s, 'latin1').toString('u
  * 最初の resize で、同じ制御の経路に履歴と今の画面の写しを頼む。tmux は答えと出力を起きた順に流すので、
  * 今の画面の答えより前の出力は写しに含まれていて捨ててよく、後の出力だけを通せばよい。
  */
-export function controlSpawn(tmux: Tmux, name: string, spawn: Spawn = defaultSpawn): PtyProcess {
+/**
+ * tmux が pane の出力を止めるまでの遅れ（秒）。tmux の pause-after で、3.2 から使える。
+ * 画面が読み切れずに溜めた分が、これより古くなったら、tmux は溜めを捨てて %pause を返す。
+ */
+export const PAUSE_AFTER_SEC = 2;
+
+export function controlSpawn(tmux: Tmux, name: string, spawn: Spawn = defaultSpawn, opts: { pauseAfterSec?: number } = {}): PtyProcess {
   const pane = tmux.run('display-message', '-p', '-t', `=${name}:`, '#{pane_id}').stdout.trim();
   const child = spawn(tmux.tmuxPath, tmux.controlAttachArgs(name), tmux.env);
   // 終わった子へ書くと EPIPE になる。終わりは exit で知らせるので、ここでは捨てる。
@@ -159,6 +178,14 @@ export function controlSpawn(tmux: Tmux, name: string, spawn: Spawn = defaultSpa
   /** 'wait' は今の画面の写しが届くまで（出力は写しに含まれるので捨てる）、'capture' はカーソルの位置を待つ間（溜める）、'live' は出力を通す。 */
   let phase: 'wait' | 'capture' | 'live' = 'wait';
   let painting = false;
+  /** paint の世代。止められて描き直すとき、前の描きの答えが後から届いても状態を触らない。 */
+  let gen = 0;
+  /** pause-after を受け付けた tmux か。受け付けなければ %output のまま、読みを止めるだけで流量を抑える。 */
+  let flow = false;
+  /** 中継が溜めすぎて読みを止めている間は真。 */
+  let backed = false;
+  /** tmux が pane を止めて、続きを頼むのを待っている。 */
+  let tmuxPaused = false;
   const held: Buffer[] = [];
   let ended = false;
 
@@ -173,6 +200,15 @@ export function controlSpawn(tmux: Tmux, name: string, spawn: Spawn = defaultSpa
     output: (p, bytes) => {
       if (p !== pane || phase === 'wait') return;
       if (phase === 'capture') held.push(bytes); else emit(bytes);
+    },
+    pause: (p) => {
+      if (p !== pane || !flow) return;
+      // 止まっていた間の出力は届かないので、今までの出力も描き直しに任せて捨てる。
+      tmuxPaused = true;
+      phase = 'wait';
+      held.length = 0;
+      gen++;
+      tryContinue();
     },
     block: (lines, ok, fromClient) => { if (fromClient) replies.shift()?.(lines, ok); },
     exit: () => { /* 子の exit で知らせる */ },
@@ -189,16 +225,29 @@ export function controlSpawn(tmux: Tmux, name: string, spawn: Spawn = defaultSpa
     onExit({ exitCode: 1 });
   });
 
+  const tryContinue = (): void => {
+    if (!tmuxPaused || backed) return;
+    tmuxPaused = false;
+    // tmux の書式では % の始まる語を引用符で包む（包まないと構文の誤りになる）。
+    // %continue は、tmux 3.4 では答えの %begin と %end の間に来て、答えの中身に読まれる。続きの頼みの答えで描き直す。
+    command(`refresh-client -A '${pane}:continue'`, (_l, ok) => { if (ok && painting) paint(); });
+  };
+
   const paint = (): void => {
+    const g = ++gen;
+    phase = 'wait';
+    held.length = 0;
     let history: string[] = [];
     let screen: string[] = [];
     command(`capture-pane -p -e -J -S - -E -1 -t ${pane}`, (lines, ok) => { history = ok ? lines.map(latin1ToUtf8) : []; });
     command(`capture-pane -p -e -t ${pane}`, (lines, ok) => {
+      if (g !== gen) return;
       screen = ok ? lines.map(latin1ToUtf8) : [];
       // ここから後の出力は写しに含まれない。カーソルの位置が届くまで溜める。
       phase = 'capture';
     });
     command(`display-message -p -t ${pane} '#{history_size} #{cursor_x} #{cursor_y} #{alternate_on} ${MODE_FORMAT}'`, (lines) => {
+      if (g !== gen) return;
       const parts = (lines[0] ?? '').trim().split(' ');
       const [hs, cx, cy, alt] = parts.slice(0, 4).map(Number);
       onData(initialPaint({ history: hs ? history : [], screen, cursorX: cx || 0, cursorY: cy || 0, alternate: alt === 1, modes: modeSequences(parts.slice(4)) }));
@@ -206,6 +255,10 @@ export function controlSpawn(tmux: Tmux, name: string, spawn: Spawn = defaultSpa
       for (const b of held.splice(0)) emit(b);
     });
   };
+
+  // 画面が読み切れないほど出力が多いとき、tmux は 1 秒に 50MB 近く流す（attach の 80 倍）。
+  // 先に pause-after を頼む。受け付けなければ（3.2 より前の tmux、psmux）%output のまま。
+  command(`refresh-client -f pause-after=${opts.pauseAfterSec ?? PAUSE_AFTER_SEC}`, (_l, ok) => { flow = ok; });
 
   return {
     pid: child.pid ?? 0,
@@ -216,6 +269,9 @@ export function controlSpawn(tmux: Tmux, name: string, spawn: Spawn = defaultSpa
       command(`refresh-client -C ${cols}x${rows}`);
       if (!painting) { painting = true; paint(); }
     },
+    /** 画面が読み切れていない間、子の読みを止める。tmux の書き込みが詰まり、pause-after で tmux が自分で止める。 */
+    pause() { backed = true; child.stdout.pause(); },
+    resume() { backed = false; child.stdout.resume(); tryContinue(); },
     kill() { if (!ended) child.kill(); },
   };
 }
