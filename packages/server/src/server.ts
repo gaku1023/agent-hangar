@@ -14,6 +14,7 @@ import { dropStaleWakes, watchWakeScope } from './event/wakeScope.ts';
 import { EventHooks } from './event/githubHooks.ts';
 import { EventBindingService } from './event/service.ts';
 import { ghLoginResolver } from './event/ghLogin.ts';
+import { migrateEventTrigger } from './event/migrateTrigger.ts';
 import { EventPuller, type PulledEvent } from './event/puller.ts';
 import { bootIndexing } from './boot/indexing.ts';
 import { bootMobile } from './boot/mobile.ts';
@@ -31,7 +32,7 @@ import { LocalCodex } from './provider/codex/compat/version.ts';
 import { CodexOptionsService } from './provider/codex/options.ts';
 import { translatorOf } from './i18n/message.ts';
 import { IdleUnloadWatch } from './provider/opencode/localModels/idleUnload.ts';
-import { idleUnloadOf } from '@agent-hangar/shared';
+import { eventTriggerOf, idleUnloadOf } from '@agent-hangar/shared';
 import { uploadOnOpencodeTurnEnd } from './sync/opencodeTurnEnd.ts';
 import type { OpencodeExportSource } from './sync/uploader.ts';
 
@@ -175,7 +176,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     if (!eventDispatcher) throw new Error('event dispatcher is not ready');
     void eventDispatcher.handle(events, { more: true });
   };
-  const eventPuller = new EventPuller({ db: home.db, api: () => inboxApiOf(sync.mobileLink()?.client), onPulled: (events) => { dispatchEvents(events); }, onPassEnd: () => { eventDispatcher?.flushWakes(); },
+  if (migrateEventTrigger(home.db, home.settings.current)) home.persistSettings();
+  const eventPuller = new EventPuller({ db: home.db, enabled: () => eventTriggerOf(home.settings.current), api: () => inboxApiOf(sync.mobileLink()?.client), onPulled: (events) => { dispatchEvents(events); }, onPassEnd: () => { eventDispatcher?.flushWakes(); },
     // puller の me は同期で読む。
     // 引き手が答えを持つまでは空で、聞いた答えは次の荷物から使う。
     me: () => { void ghLogin().then((v) => { eventMe = v ?? ''; }, () => undefined); return eventMe; } });
@@ -215,7 +217,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 起こす結び付けは、作った Paused のあいだだけ生きる。会話が Paused を離れたら（同期で届いた状態も含む）消す。起動のときに、前の回から残ったものも片付ける。
   try { if (dropStaleWakes(home.db) > 0) void eventHooks.sweep(); } catch (e) { console.error('[event] could not sweep stale wakes', e instanceof Error ? e.constructor.name : typeof e); }
   watchWakeScope(home.db, () => { void eventHooks.sweep(); }, (e) => { console.error('[event] could not drop wakes', e instanceof Error ? e.constructor.name : typeof e); });
-  const eventBindings = new EventBindingService({ db: home.db, deviceId: home.device.id, hooks: eventHooks, changed: () => { mobile.settingsChanged(); }, language: () => home.language() });
+  const eventBindings = new EventBindingService({ db: home.db, deviceId: home.device.id, hooks: eventHooks, enabled: () => eventTriggerOf(home.settings.current), changed: () => { mobile.settingsChanged(); }, language: () => home.language() });
   const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, peerChat, orchestratorFeed, peer, events: { bindings: eventBindings, dispatcher: eventDispatcher }, schedules: { runNow: (id) => schedules.runNow(id), deliver: (id, text) => launchScheduled(scheduleTools, { prompt: text, target: { kind: 'session', sessionId: id }, plannedAt: Date.now() }) }, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。

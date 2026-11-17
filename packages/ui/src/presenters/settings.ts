@@ -1,5 +1,5 @@
 import { presentOpencodeProviders, type OpencodeProvidersProps } from './opencodeProviders.ts';
-import { orchestratorOf, type AgentKind, type CodexEffortOption, type CodexModelOption, type OpencodeModelOption, type OpencodeProviderOption, type OrchestratorSetting, peerChatAcceptOf, phoneChatAcceptOf, CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SharePreviewDto, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
+import { eventTriggerOf, orchestratorOf, type AgentKind, type CodexEffortOption, type CodexModelOption, type OpencodeModelOption, type OpencodeProviderOption, type OrchestratorSetting, peerChatAcceptOf, phoneChatAcceptOf, CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SharePreviewDto, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
 import { canLaunchGuide } from './investigate.ts';
 import { presentNotifyRules, type NotifyRulesProps } from './notifyRules.ts';
 import type { SaveMark, State } from '../mediator/types.ts';
@@ -171,7 +171,9 @@ export type CloudSettingsProps = { configured: boolean; url: string | null; stat
   /** ほかの PC の画面からの送信（文・答え・止める・再開して送る）を受けるか（設定 peerChatAcceptFromPeers、この PC だけの設定）。省くと入りとして読む。 */
   peerChatAccept?: boolean;
   /** スマホの会話の頁からの送信を受けるか（設定 phoneChatAccept、この PC だけの設定）。省くと入りとして読む。 */
-  phoneChatAccept?: boolean };
+  phoneChatAccept?: boolean;
+  /** 外のできごと（設定 eventTrigger、この PC だけの設定）を使うか。省くと切として読む。 */
+  eventTrigger?: boolean };
 
 /** 0.9.0 への再構築の手順（docs/cloud-sync.md の節）。公開リポジトリの main を指す。節の名前の部分は、UI の直書きの見張りに掛からないよう % で包んで書く。 */
 export const CLOUD_REBUILD_DOC_URL = 'https://github.com/gaku1023/agent-hangar/blob/main/docs/cloud-sync.md#090-%E3%81%B8%E3%81%AE%E4%BD%9C%E3%82%8A%E7%9B%B4%E3%81%97';
@@ -587,6 +589,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     legacy: legacy ? { statusCommand: cloudJoinCommand(store).replace(/ cloud join <URL>$/, ' cloud status'), docUrl: CLOUD_REBUILD_DOC_URL } : null,
     peerChatAccept: peerChatAcceptOf(store.settings ?? {}),
     phoneChatAccept: phoneChatAcceptOf(store.settings ?? {}),
+    eventTrigger: eventTriggerOf(store.settings ?? {}),
   };
   const at = state.screen.name === 'settings' ? state.screen.at : undefined;
   const h = store.shellHook;

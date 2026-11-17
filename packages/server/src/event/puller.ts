@@ -82,6 +82,12 @@ export type EventPullerDeps = {
   onPassEnd?: () => void;
   /** 今の PC の gh のユーザー名。 */
   me?: () => string;
+  /**
+   * 外のできごとを使う設定が入っているか（eventTriggerOf）。
+   * 切の間は、Worker に問い合わせず、結び付けがあっても無いものとして答える。
+   * 省けば入りとして動く。
+   */
+  enabled?: () => boolean;
   now?: () => number;
   /**
    * 失敗の知らせ。
@@ -209,6 +215,7 @@ export class EventPuller {
    * reason が start の頼みが混ざった巡は、事実に atStart を付ける。
    */
   pull(reason: Reason): Promise<PulledEvent[]> {
+    if (this.deps.enabled && !this.deps.enabled()) return Promise.resolve([]);
     if (this.queued) {
       if (reason === 'start') this.queued.atStart = true;
       return this.queued.promise;
@@ -245,6 +252,7 @@ export class EventPuller {
    * 呼び鈴を張るかどうかの判断にも使う。
    */
   hasBindings(): boolean {
+    if (this.deps.enabled && !this.deps.enabled()) return false;
     return this.deps.db.prepare('select 1 from event_bindings limit 1').get() !== undefined;
   }
 

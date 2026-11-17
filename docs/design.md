@@ -10495,6 +10495,11 @@ wrangler を同梱していないので、リポジトリを clone した場所�
 ## 外のできごとで動かす
 
 PR、CI、レビュー、コメント、外の webhook のできごとで、会話を起こしたり、会話へ指示を流したりする（#563）。
+
+**既定は切である。** 設定 `eventTrigger`（この PC だけで、同期しない）を入れた PC だけが動く。
+切の間は、puller が受け箱に問い合わせず（結び付けがあっても無いものとして答え、呼び鈴も張らない）、結び付けの作成（画面、MCP の `draft_event_binding` と `claim_pr`、Paused の `wake_on`）を断り、予定の画面にイベントの節を出さない。
+コードと既存の結び付けは残すので、入れ直せばそのまま動く。
+切が既定になる前から使っていた PC のために、起動のとき `eventTrigger` が無く、承認済みの結び付けが 1 件でもあれば、入りに書き替える（`event/migrateTrigger.ts`）。
 本体は `packages/server/src/event/`、Worker の口は `packages/cloud/src/inbox.ts`、画面は予定の画面の「イベント」の節である。
 Worker の互換の版は 12 から（shared の `EVENT_INBOX_MIN_WORKER_COMPAT`）で、これ未満の Worker では画面に出さず、道具も動かさない。
 

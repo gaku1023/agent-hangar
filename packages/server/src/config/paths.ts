@@ -178,6 +178,8 @@ export type Settings = {
   peerChatAcceptFromPeers?: boolean;
   /** スマホの会話の頁からの送信を受けるか。この PC だけの設定で、同期しない。項目が無いうちは入りとして読む（phoneChatAcceptOf）。 */
   phoneChatAccept?: boolean;
+  /** 外のできごと（#563）を使うか。この PC だけの設定で、同期しない。項目が無いうちは切として読む（eventTriggerOf）。 */
+  eventTrigger?: boolean;
   /** 統括（全セッションを統括する常駐の会話）の設定。この PC だけで、同期しない。項目が無いうちは切（orchestratorOf）。 */
   orchestrator?: OrchestratorSetting;
   /** 机の音声の設定（聞き方、人格）。この PC だけで、同期しない。項目が無いうちは既定（voiceOf）。 */
@@ -303,6 +305,7 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   if (s.opencodeProviderPrep !== undefined) s.opencodeProviderPrep = providerPrepsOf(s.opencodeProviderPrep);
   if (s.peerChatAcceptFromPeers !== undefined && typeof s.peerChatAcceptFromPeers !== 'boolean') delete s.peerChatAcceptFromPeers;
   if (s.phoneChatAccept !== undefined && typeof s.phoneChatAccept !== 'boolean') delete s.phoneChatAccept;
+  if (s.eventTrigger !== undefined && typeof s.eventTrigger !== 'boolean') delete s.eventTrigger;
   // 統括の設定は形を検査する。オブジェクトでなければ項目ごと捨て、あれば取れない値だけ既定に寄せる。
   if (s.orchestrator !== undefined) {
     if (s.orchestrator !== null && typeof s.orchestrator === 'object' && !Array.isArray(s.orchestrator)) s.orchestrator = orchestratorOf(s.orchestrator);

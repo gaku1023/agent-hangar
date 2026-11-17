@@ -64,7 +64,7 @@ export type ToolDeps = {
   /** 道具の説明と結果の文の言語。渡さなければ日本語で出す。 */
   language?: GetLanguage;
   /** notify_user の出し先の設定（notifyPreference と、古いスイッチの unreadBadge、unreadOs、unreadPhone）。無ければ既定（全部入り）として読む。 */
-  settings?: () => { notifyPreference?: NotifyPreference | null; unreadBadge?: boolean; unreadOs?: boolean; unreadPhone?: boolean; orchestrator?: unknown; permissionPolicy?: unknown };
+  settings?: () => { notifyPreference?: NotifyPreference | null; unreadBadge?: boolean; unreadOs?: boolean; unreadPhone?: boolean; orchestrator?: unknown; eventTrigger?: boolean; permissionPolicy?: unknown };
   /** 設定の保存（PATCH /api/settings と同じ道）。保存して、変えた欄を全部の画面へ配る。無ければ set_notify_preference は知らない道具として断る。 */
   saveNotifyPreference?: (p: NotifyPreference) => void;
   /** 統括の許可の道具の芯（orchestrator/asks.ts）。無ければ createMcpApp が askLocal から作る。統括の URL 以外からは使わない。 */
@@ -831,6 +831,7 @@ export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args:
   if (args.wake_on !== undefined) {
     if (status !== 'paused') throw new ToolError(msg('mcp.sessionStatus.wakeOnOnlyPaused'));
     if (args.confirmed === true) throw new ToolError(msg('mcp.sessionStatus.wakeOnNotConfirmed'));
+    if (deps.settings && !deps.settings().eventTrigger) throw new ToolError(msg('schedules.event.error.off'));
     wakeOn = parseWakeOn(args.wake_on);
   }
   try {
