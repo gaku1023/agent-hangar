@@ -1064,6 +1064,23 @@ alter table event_index add column fts_rowid integer;
 `;
 
 /**
+ * 版 62。別の PC から起こされた会話の、結果の返却の行に、終わった時刻を足す（peer/relay.ts）。
+ * 掃除は終わった時刻から数え、届いていない控えがある行は消さない。前は作った時刻から数えたので、起動から 7 日を過ぎて終えると、控えより先に行が消えて ended が届かなかった。
+ * 終わっている行は、作った時刻を終わった時刻とみなす。
+ * 行が先に消えて送れなくなった控えは、受けた頼みの記録（peer_launches）から頼んだ PC が分かれば、終わった行を作り直して送れるようにする。分からなければ外す。
+ */
+const V62_PEER_RELAY_ENDED_AT_SQL = `
+alter table peer_relay add column ended_at integer;
+update peer_relay set ended_at = created_at where ended = 1;
+insert or ignore into peer_relay (session_id, request_id, from_device, seq, armed_at, ended, ended_at, title, created_at)
+  select l.session_id, o.request_id, l.from_device, max(o.seq), null, 1, max(o.created_at), '', min(o.created_at)
+  from peer_relay_out o join peer_launches l on l.id = o.request_id
+  where l.session_id is not null and not exists (select 1 from peer_relay r where r.request_id = o.request_id)
+  group by o.request_id;
+delete from peer_relay_out where not exists (select 1 from peer_relay r where r.request_id = peer_relay_out.request_id);
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -1113,4 +1130,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 58, sql: V58_CONFIG_HISTORY_SQL },
   { version: 59, sql: V59_AUTO_APPROVALS_SQL },
   { version: 60, sql: V60_EVENT_FTS_ROWID_SQL },
+  { version: 62, sql: V62_PEER_RELAY_ENDED_AT_SQL },
 ];

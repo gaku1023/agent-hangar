@@ -31,6 +31,12 @@ import { expiredText, goneNotice, heldNotice, PEER_TEXT_MAX, refusalText, result
  * 数えるのは、登録では入力を待っているのに画面で止めている間だけで、作業中、札の間、止められている間は数えない（peer/chat/queue.ts の PeerQueue と同じ考え方）。
  * 預かりは呼び出し元ごとに PEER_DELIVERY_MAX_PER_CALLER 件までで、超えた古いものは、外したと利用者に知らせてから預かりから外し、ログに 1 行ずつ残す。
  * 画面を読んでから打つまでの間（capture と inject の間）に人が打ち始める余地は残る。仕様として受け入れる（PeerQueue も同じ）。
+ *
+ * 頼みの記録（peer_outbox.state）は requested から started を経て done へ、または refused、expired へ、一方向にだけ進む。
+ * 期限と掃除は tick ごとの sweep が受け持つ（peer/approvals.ts の承認待ちと同じ形）。
+ * - requested のまま PEER_REQUEST_ANSWER_MS を過ぎた頼みは expired にし、呼び出し元に返す。
+ * - started のまま結び付きが消えた頼み（子が消された、切り離した）は done にする。呼び出し元が消えたときは最初の報告を待ち、PEER_OUTBOX_KEEP_MS を過ぎたら done にする。
+ * - 終わった頼みの記録と渡し終えた預かりは PEER_OUTBOX_KEEP_MS の後に消す。渡せないまま過ぎた預かりも、ログに残して外す。
  */
 
 /** 取得の間隔。呼び鈴が無くても、頼みと結果はこの間隔で届く。 */
@@ -48,6 +54,14 @@ export const PEER_DELIVERY_NOTICE_MS = PEER_QUEUE_EXPIRE_MS;
 export const PEER_DELIVERY_MAX_PER_CALLER = 50;
 /** 画面の都合で打てなかったとき、読み直すまでの間隔。 */
 export const PEER_DELIVERY_RECHECK_MS = PEER_QUEUE_POLL_MS;
+/**
+ * 受け取られた頼みの答えを待てる長さ。過ぎたら expired として呼び出し元に返す。
+ * Worker は受け取られない頼みだけを期限切れにするので、受け取ったまま答えない相手（落ちた、古い版）を待ち続けないためである。
+ * 期限は置いた時刻から決まるので、再起動をまたいでも同じである。
+ */
+export const PEER_REQUEST_ANSWER_MS = 24 * 60 * 60_000;
+/** 終わった頼みの記録と、渡し終えた預かりを残す長さ。Worker の行の保持（7 日）に揃える。渡せないまま過ぎた預かりも外す。 */
+export const PEER_OUTBOX_KEEP_MS = 7 * 24 * 60 * 60_000;
 /** 預かりから外した知らせをログに残すときの長さ。 */
 const DROP_LOG_CHARS = 300;
 
@@ -154,6 +168,7 @@ export class PeerOutbox {
 
   /** 取得と送り込みを 1 回。どの道も投げない。 */
   async tick(): Promise<void> {
+    await this.serial(async () => { this.sweep(); });
     await this.sync();
     await this.flush();
   }
@@ -182,6 +197,36 @@ export class PeerOutbox {
     const run = this.chain.then(fn, fn);
     this.chain = run.catch(() => {});
     return run;
+  }
+
+  // ---- 期限と掃除 ----
+
+  /** 答えの期限を過ぎた頼み、結び付きが消えた頼み、古い記録と預かりを片付ける。投げない。 */
+  private sweep(): void {
+    const db = this.deps.db;
+    const now = this.now();
+    const cutoff = now - PEER_OUTBOX_KEEP_MS;
+    try {
+      const late = db.prepare("select * from peer_outbox where state = 'requested' and created_at < ?").all(now - PEER_REQUEST_ANSWER_MS) as PeerRequestRow[];
+      for (const row of late) this.refuse(row, 'expired', undefined, true);
+      const loose = db.prepare(`select request_id, caller_session_id, updated_at from peer_outbox o where state = 'started'
+        and not exists (select 1 from session_spawns sp where sp.session_id = o.child_session_id and sp.deleted_at is null and sp.relay = 'on')`).all() as { request_id: string; caller_session_id: string; updated_at: number }[];
+      const finish = db.prepare("update peer_outbox set state = 'done', updated_at = ? where request_id = ? and state = 'started'");
+      for (const r of loose) {
+        if (this.callerState(r.caller_session_id) === 'gone' && r.updated_at >= cutoff) continue;
+        finish.run(now, r.request_id);
+      }
+      const stale = db.prepare('select id, request_id, seq, caller_session_id, text from peer_deliveries where delivered_at is null and created_at < ?').all(cutoff) as Pick<Delivery, 'id' | 'request_id' | 'seq' | 'caller_session_id' | 'text'>[];
+      for (const d of stale) {
+        const head = [...d.text.replace(/\s+/g, ' ')].slice(0, DROP_LOG_CHARS).join('');
+        console.warn(`[peer] held notice expired before it could be injected, session ${d.caller_session_id}, request ${d.request_id} seq ${d.seq}: ${head}`);
+      }
+      db.prepare('delete from peer_deliveries where (delivered_at is null and created_at < ?) or delivered_at < ?').run(cutoff, cutoff);
+      db.prepare(`delete from peer_outbox where state in ('done', 'refused', 'expired') and updated_at < ?
+        and not exists (select 1 from peer_deliveries d where d.request_id = peer_outbox.request_id and d.delivered_at is null)`).run(cutoff);
+    } catch (e) {
+      console.error('[peer] could not sweep the outbox', e instanceof Error ? e.constructor.name : typeof e);
+    }
   }
 
   // ---- 取得 ----
@@ -332,13 +377,18 @@ export class PeerOutbox {
     const device = this.nameOf(row.to_device);
     // 画面から人が頼んだ起動の断りは、入力にせず画面の札で知らせる。
     if (row.caller_session_id === SCREEN_CALLER) {
-      this.deps.db.prepare('update peer_outbox set state = ?, reason = ?, updated_at = ? where request_id = ?').run(expired ? 'expired' : 'refused', expired ? 'expired' : reason, this.now(), row.request_id);
+      if (!this.settle(row, expired ? 'expired' : 'refused', expired ? 'expired' : reason)) return;
       this.safeToast('error', expired ? screenExpiredText(lang, { device }) : screenRefusalText(lang, { device, reason, op: row.op, ...(detail ? { detail } : {}) }));
       return;
     }
     const text = expired ? expiredText(lang, { device }) : refusalText(lang, { device, reason, op: row.op, ...(detail ? { detail } : {}) });
-    this.deps.db.prepare('update peer_outbox set state = ?, reason = ?, updated_at = ? where request_id = ?').run(expired ? 'expired' : 'refused', expired ? 'expired' : reason, this.now(), row.request_id);
+    if (!this.settle(row, expired ? 'expired' : 'refused', expired ? 'expired' : reason)) return;
     this.enqueue(row, 0, text, heldNotice(lang, { device, title: null }), text);
+  }
+
+  /** requested の頼みを断りで終える。ほかの状態に進んでいれば何もせず false。 */
+  private settle(row: PeerRequestRow, state: 'refused' | 'expired', reason: string): boolean {
+    return this.deps.db.prepare("update peer_outbox set state = ?, reason = ?, updated_at = ? where request_id = ? and state = 'requested'").run(state, reason, this.now(), row.request_id).changes > 0;
   }
 
   /**
