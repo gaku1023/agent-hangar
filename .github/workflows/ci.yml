@@ -26,7 +26,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
       # tmux を入れないと、tmux に依存する試験 33 件が describe.skipIf で黙って飛ぶ。
       # 飛んでいたのは起動、寿命、resume と fork、トークンを argv に載せない、run ごとの秘密といった要所である。
       # tmux -V を出すのは、入ったことを実行の記録に残して skipIf が解けたと言い切れるようにするためである。
@@ -50,7 +49,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
       # check と同じく、tmux を入れないと tmux に依存する試験が黙って飛ぶ。
       - name: tmux を入れる
         run: |
@@ -70,7 +68,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: npm
       # check と同じく、tmux を入れないと tmux に依存する試験が黙って飛ぶ。
       - name: tmux を入れる
         run: |
@@ -142,7 +139,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
       # better-sqlite3 は入れるたびに node-gyp でビルドを始める。ネイティブモジュールは Windows 向けの prebuild を同梱しているので、
       # スクリプト無しで入れる。Linux の node-pty には prebuild が無くビルドが要るので、これは Windows のジョブでだけ行う。
       - run: npm ci --ignore-scripts
@@ -200,7 +196,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
       # better-sqlite3 は入れるたびに node-gyp でビルドを始める。ネイティブモジュールは Windows 向けの prebuild を同梱しているので、
       # スクリプト無しで入れる。Linux の node-pty には prebuild が無くビルドが要るので、これは Windows のジョブでだけ行う。
       - run: npm ci --ignore-scripts
@@ -277,7 +272,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
       # better-sqlite3 は入れるたびに node-gyp でビルドを始める。ネイティブモジュールは Windows 向けの prebuild を同梱しているので、
       # スクリプト無しで入れる。Linux の node-pty には prebuild が無くビルドが要るので、これは Windows のジョブでだけ行う。
       - run: npm ci --ignore-scripts
@@ -340,7 +334,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -440,7 +433,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
