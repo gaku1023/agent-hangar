@@ -7,6 +7,7 @@ import { dbVersionOf, seedDbAt } from '../../test/oldDb.ts';
 import { openDb, type Db } from '../db/open.ts';
 import type { IndexBatch, IndexRecord } from '../agent/types.ts';
 import { deleteIndexed, writeBatch } from './write.ts';
+import { stripFtsTail } from '../search/ftsTail.ts';
 
 // 索引の作り直しで event_fts を消すとき、全件をなめずに rowid で引く（2026-11-14、Windows で 30 万行を 1 回 0.3〜1.7 秒なめていた）。
 // なめていないことは、消す対象の外にある行（event_index から指されていない行）が残ることで見る。
@@ -27,7 +28,7 @@ const turn = (text: string): IndexRecord => stored([
 const batch = (records: IndexRecord[], reset: boolean, agentId: string | null = null): IndexBatch =>
   ({ agent: 'opencode', providerSessionId: OC, agentId, reset, records });
 
-const ftsTexts = (sid: string) => (db.prepare('select text from event_fts where session_id = ? order by rowid').all(sid) as { text: string }[]).map((r) => r.text);
+const ftsTexts = (sid: string) => (db.prepare('select text from event_fts where session_id = ? order by rowid').all(sid) as { text: string }[]).map((r) => stripFtsTail(r.text));
 const plantOrphan = (sid: string, agentId: string | null, text: string) =>
   db.prepare('insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)').run(sid, agentId, 999, 'user', text);
 

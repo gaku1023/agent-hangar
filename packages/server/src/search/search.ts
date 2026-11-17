@@ -1,5 +1,6 @@
 import { matchesStopFilter, splitFtsTokens, toFtsQuery, type LiveFilter, type StopReason, type SearchHitDto, type SearchParamsDto, type SearchResultDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
+import { stripFtsTail } from './ftsTail.ts';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -14,11 +15,9 @@ const LIKE_SNIPPET_CHARS = 60;
 
 /**
  * 2 文字の語を、event_fts の語彙（fts5vocab）から引いた trigram の OR にして、text の列の MATCH 式にする。
- * 2 文字を含む行は、その 2 文字で始まる trigram を必ず 1 つ持つ（本文の最後の 2 文字だけは持たない。下の限界）。
+ * 2 文字を含む行は、その 2 文字で始まる trigram を必ず 1 つ持つ。本文の最後の 2 文字も、末尾に足した区切り（ftsTail.ts）との trigram を持つ。
  * 語彙は並んでいるので、範囲で引けばミリ秒で済む。like の全走査は数秒かかり、主スレッドを止める。
  * 当たる trigram が 1 つも無ければ null（どの行にも当たらない）。
- * 限界：その 2 文字が本文の最後にだけ現れる行は、前に 1 文字ある trigram でしか索引に無い。
- * 引くには語彙の全件（実データで 170 万語、1.5 秒）をなめることになるので、引かない。
  */
 const vocabReady = new WeakSet<Db>();
 function bigramMatch(db: Db, token: string): string | null {
@@ -194,7 +193,9 @@ export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (session
       ? `select f.session_id sid, seq, role, agent_id agentId, ${column} from event_fts f where f.text match ? and f.rowid in (select rowid from (${win('f.rowid rowid')}) where rn <= ${SNIPPETS_PER_HIT}) order by f.session_id, (f.agent_id is not null), cast(f.seq as integer)`
       : `select sid, seq, role, agentId, text from (${win('f.session_id sid, f.seq seq, f.role role, f.agent_id agentId, f.text text')}) where rn <= ${SNIPPETS_PER_HIT} order by sid, rn`;
     const snipRows = db.prepare(sql).all(...(useSnippet ? [match] : []), JSON.stringify(withText), ...textArgs) as ((SearchHitDto['snippets'][number] & { body?: string }) & { sid: string })[];
-    for (const { sid, ...s } of snipRows) {
+    for (const { sid, ...raw } of snipRows) {
+      // 索引の末尾の区切りは、画面に出さない。
+      const s = { ...raw, text: stripFtsTail(raw.text), ...(raw.body !== undefined ? { body: stripFtsTail(raw.body) } : {}) };
       const list = bySession.get(sid) ?? [];
       list.push(s);
       bySession.set(sid, list);

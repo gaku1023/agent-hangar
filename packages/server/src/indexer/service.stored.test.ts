@@ -96,7 +96,7 @@ describe('IndexerService（本文を DB に持つエージェント）', () => {
     await until(() => changed.length === 1);
     const id = sessionId()!;
     expect(count("select count(*) c from event_fts where session_id = ? and text like '%hangar-capture%'", id)).toBeGreaterThan(0);
-    expect(count("select count(*) c from event_fts where session_id = ? and role = 'user' and text = 'Sleep please.'", id)).toBe(1);
+    expect(count("select count(*) c from event_fts where session_id = ? and role = 'user' and text = 'Sleep please.' || char(31)", id)).toBe(1);
     expect(db.prepare('select tool, summary from session_activity where session_id = ?').get(id)).toEqual({ tool: 'Bash', summary: 'Bash sleep 20' });
     expect(db.prepare('select turns, model, files_changed, input_tokens, output_tokens from session_stats where session_id = ?').get(id))
       .toEqual({ turns: 3, model: 'mock/mock', files_changed: 1, input_tokens: 8 * 10 + 2 * 12, output_tokens: 8 * 3 + 2 * 5 });

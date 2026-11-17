@@ -1079,6 +1079,17 @@ alter table event_index add column fts_rowid integer;
 `;
 
 /**
+ * 版 66：event_fts の text の末尾に区切りの文字（search/ftsTail.ts の FTS_TAIL）を足す。
+ * 積むときは writeBatch が足すので、ここでは今ある行だけを直す。
+ * 足すと本文の最後の 2 文字が「2 文字と区切り」の trigram として索引に入り、2 文字の検索で引ける。
+ * 列を書き換えるので FTS5 が索引を作り直す。実行時間は行数と本文の長さに比例する（docs/design.md の「索引」）。
+ * 版 62 から 65 は別の変更が使う。
+ */
+const V66_FTS_TAIL_SQL = `
+update event_fts set text = text || char(31);
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -1129,4 +1140,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 59, sql: V59_AUTO_APPROVALS_SQL },
   { version: 60, sql: V60_EVENT_FTS_ROWID_SQL },
   { version: 61, sql: V61_UNREAD_HOLD_SQL },
+  { version: 66, sql: V66_FTS_TAIL_SQL },
 ];
