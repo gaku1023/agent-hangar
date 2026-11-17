@@ -114,8 +114,12 @@ export function parseToml(src: string): TomlDoc {
       i++;
       return ESC[c] as string;
     }
-    if (c === 'u' || c === 'U') {
-      const len = c === 'u' ? 4 : 8;
+    if (c === 'e') {
+      i++;
+      return '\u001b';
+    }
+    if (c === 'u' || c === 'U' || c === 'x') {
+      const len = c === 'u' ? 4 : c === 'U' ? 8 : 2;
       const hex = src.slice(i + 1, i + 1 + len);
       if (hex.length !== len || !/^[0-9a-fA-F]+$/.test(hex)) fail('\\u の後ろが 16 進数ではありません');
       const cp = Number.parseInt(hex, 16);
@@ -282,10 +286,10 @@ export function parseToml(src: string): TomlDoc {
       const entries: NonNullable<VNode['entries']> = [];
       const status = new Map<string, string>();
       for (;;) {
-        skipWs();
-        if (i >= n || src[i] === '\n' || src[i] === '\r') return fail('インライン表が閉じていません', start);
+        // 1.1 の書き方（改行、コメント、末尾のカンマ）も受ける。Codex の config.toml に手で書かれていても読めるように。
+        skipBlank();
+        if (i >= n) return fail('インライン表が閉じていません', start);
         if (src[i] === '}') {
-          if (entries.length > 0) return fail('インライン表の末尾にカンマは置けません');
           i++;
           break;
         }
@@ -309,7 +313,7 @@ export function parseToml(src: string): TomlDoc {
         if (Object.hasOwn(t, last)) return fail(`インライン表の鍵 ${last} が重複しています`, es);
         t[last] = node.value;
         entries.push({ key: parts[0] as string, dotted: parts.length > 1, start: es, node });
-        skipWs();
+        skipBlank();
         if (src[i] === ',') i++;
         else if (src[i] === '}') {
           i++;

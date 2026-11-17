@@ -8538,7 +8538,7 @@ Codex の config.toml と opencode の opencode.json(c)、cli.json へ書き戻�
 どれも「文字列を受けて文字列を返す」だけの関数で、ファイルには触れない（控えと書き込みは呼ぶ側）。
 
 - TOML は `setToml`・`removeToml`・`getToml`。自前で書いた（`tomlParse.ts` が文と行の位置を読み、`toml.ts` が行と値の範囲だけを書き換える）。
-  toml-test の TOML 1.0 の試験集（valid 208 件、invalid 509 件）を `sync/config/edit/tomlSuite.test.ts` で当てる（`packages/server/test/fixtures/toml-test-1.0.0.json` に束ねてあり、MIT、`scripts/vendor-toml-test.mjs` で作り直す）。valid は全部読める。invalid も全部断る（日付の範囲、制御文字、壊れた UTF-8、0x_ の形、インライン表の改行と末尾のカンマ、秒の省略）。1.1 の `\e` と `\xHH` は断る（対応しない）。
+  toml-test の TOML 1.0 の試験集（valid 208 件、invalid 509 件）を `sync/config/edit/tomlSuite.test.ts` で当てる（`packages/server/test/fixtures/toml-test-1.0.0.json` に束ねてあり、MIT、`scripts/vendor-toml-test.mjs` で作り直す）。valid は全部読める。invalid は、値として壊れているもの（日付の範囲、制御文字、壊れた UTF-8、0x_ の形、秒の省略）を断る。1.1 で正しくなった書き方（インライン表の改行と末尾のカンマ、\e と \xHH）は受ける（`ACCEPTED_1_1`）。利用者が Codex の config.toml に手で書いた設定を読めなくするほうが害が大きいため。
   コメント、空行、鍵の並び、引用の形（基本・リテラル・複数行）、配列の折り返しを保つ。
   鍵の道は `['mcp_servers', 'x', 'env', 'KEY']` のような文字列の並びで、点のついた鍵、インライン表の中、`[a.b]` の見出しのどれでも同じ道で指せる。
   値が表（オブジェクト）なら表ごとの差し替えで、無い鍵は消え、変わらない鍵の体裁は残る。表が無ければ、近い表の後ろに節を作る。
