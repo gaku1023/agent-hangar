@@ -121,6 +121,8 @@ const ICONS = {
   // 一覧の行の、ノートがあることを示す印。
   // 設定の目次の「一般」。
   general: SlidersHorizontal,
+  // 設定の目次の「スマホ」。
+  phone: Smartphone,
   // 設定の目次の「使用量」。
   usage: ChartColumn,
   // ヘッダーのベルと、知らせの一覧の種類の印。

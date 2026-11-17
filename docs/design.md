@@ -386,7 +386,7 @@ Root
 │     ├─ ProjectsScreen     節 × n → ProjectRow（行の表）
 │     ├─ ProjectScreen      見出し / SessionList / 右パネル（TodoList、InstructionsPanel、ArtifactCards）
 │     ├─ SessionScreen      見出しの段（SessionBadges、(i) の詳細） / TabStrip / TerminalPane または Transcript（ToolGroup＝続けて呼んだツールのまとめ） / 見出しの下の 1 行（EndedFacts） / 右の列（NowCard＝現在の札、SummaryCard＝要約の札、TocPane（TurnIndex））
-│     └─ SettingsScreen     目次 / 選んだ節（一般、セッション、要約、クラウド同期、環境、使用量、エージェントの 3 節、Hangar について）
+│     └─ SettingsScreen     目次 / 選んだ節（一般、スマホ、セッション、要約、クラウド同期、環境、使用量、エージェントの 3 節、Hangar について）
 └─ Overlays
    ├─ CommandPalette
    ├─ NewSessionDialog / NewProjectDialog / PromoteDialog / ResolveProjectDialog / ConfigSyncDialog
@@ -9569,7 +9569,10 @@ QR の中身は `<Worker の URL>/app/#pair=<base64url(JSON)>` で、JSON は `P
 互換の版 8 までの `key`（スマホ用の鍵）は消した。
 `pcName` と `expiresAt` は秘密ではなく、画面の表示に使う。
 `#` 以降はサーバへ送られず、スマホの画面は読んだらすぐ `history.replaceState` で消す。
-PC 側の接続の画面は、設定 › クラウド同期 の「スマホ」にある。
+PC 側の接続の画面は、設定の節「スマホ」にある（目次は「一般」の次、URL は `#/settings?at=phone`）。
+節には、スマホからの送信を受けるスイッチ（`phoneChatAccept`、既定は入り）、スマホの表、「スマホを接続」を置く。
+クラウドに参加していない間は、クラウド同期の節へ移るボタンだけを置く。
+クラウド同期の節にはスマホを出さない。
 
 **スマホの接続（互換の版 9）。**
 
@@ -9657,7 +9660,7 @@ PC は、復号できた依頼だけを起こす。
 スマホの Worker 用トークンだけが漏れても、鍵が無いので、有効な依頼は作れない。
 
 **スマホの解除。**
-設定 › クラウド同期 のスマホの行の「解除」は、確認なしの 1 クリックである。
+設定 › スマホ のスマホの行の「解除」は、確認なしの 1 クリックである。
 押すと行を `collapseOut` で畳み、右下に 5 秒の「元に戻す」の通知を出す。
 5 秒の間は Worker に何も送らない（取り消しのための口を Worker に作らないため）。
 「元に戻す」で行は `growIn` で戻り、5 秒たつと解除を送る。

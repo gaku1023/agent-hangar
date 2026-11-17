@@ -7,6 +7,7 @@ import { presentAccounts, presentCodexAccounts } from '../presenters/accounts.ts
 import { presentCompat } from '../presenters/compat.ts';
 import { presentInjection } from '../presenters/injection.ts';
 import { ACCOUNT_COLORS, presentSettings, type CloudSettingsProps, type SettingsProps } from '../presenters/settings.ts';
+import { presentCloudMember } from '../presenters/cloudMember.ts';
 import { initialStore } from '../store/store.ts';
 import { accountsFixture, codexAccountsFixture } from '../test/accounts.ts';
 import { pick } from '../test/pick.ts';
@@ -15,7 +16,7 @@ import { SettingsScreen } from './SettingsScreen.tsx';
 import { CopiedContext } from './primitives/CommandLine.tsx';
 import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
-const TITLES: Record<SettingsSection, string> = { general: '一般', sessions: 'セッション', orchestrator: '統括', summary: '要約', cloud: 'クラウド同期', environment: '環境', usage: '使用量', agentClaude: 'Claude Code', agentCodex: 'Codex', agentOpencode: 'opencode', about: 'Hangar について' };
+const TITLES: Record<SettingsSection, string> = { general: '一般', phone: 'スマホ', sessions: 'セッション', orchestrator: '統括', summary: '要約', cloud: 'クラウド同期', environment: '環境', usage: '使用量', agentClaude: 'Claude Code', agentCodex: 'Codex', agentOpencode: 'opencode', about: 'Hangar について' };
 const IDS = (Object.keys(TITLES) as SettingsSection[]).filter((id) => id !== 'orchestrator');
 
 /** 目次の 8 行。状態の文は presenter の試験（settingsToc.test.ts）が見るので、ここでは決まった文を置く。 */
@@ -122,12 +123,12 @@ const typeAndLeave = (label: string, value: string) => {
 };
 
 describe('設定の目次（S1）', () => {
-  it('左の目次に 8 つの節を並べ、各行に今の状態を 1 行添える', () => {
+  it('左の目次に 11 の節を並べ、各行に今の状態を 1 行添える', () => {
     render(ui(settingsProps()));
-    expect(toc().getAllByRole('button').map((b) => b.querySelector('.settings-toc-t')!.textContent)).toEqual(['一般', 'セッション', '要約', 'クラウド同期ベータ', '環境', '使用量', 'Claude Code', 'Codexベータ', 'opencodeベータ', 'Hangar について']);
-    expect(toc().getAllByRole('button').map((b) => b.querySelector('.settings-toc-s')!.textContent)).toEqual(['確認中', '確認中', '確認中', '同期オフ', '確認中', '確認中', '要修正 2', '確認中', '確認中', '確認中']);
+    expect(toc().getAllByRole('button').map((b) => b.querySelector('.settings-toc-t')!.textContent)).toEqual(['一般', 'スマホ', 'セッション', '要約', 'クラウド同期ベータ', '環境', '使用量', 'Claude Code', 'Codexベータ', 'opencodeベータ', 'Hangar について']);
+    expect(toc().getAllByRole('button').map((b) => b.querySelector('.settings-toc-s')!.textContent)).toEqual(['確認中', '確認中', '確認中', '確認中', '同期オフ', '確認中', '確認中', '要修正 2', '確認中', '確認中', '確認中']);
     // ベータの小札はクラウド同期の名前の横だけで、状態の段は潰さない。
-    expect(toc().getAllByRole('button').map((b) => b.querySelector('.tag-beta')?.textContent ?? null)).toEqual([null, null, null, 'ベータ', null, null, null, 'ベータ', 'ベータ', null]);
+    expect(toc().getAllByRole('button').map((b) => b.querySelector('.tag-beta')?.textContent ?? null)).toEqual([null, null, null, null, 'ベータ', null, null, null, 'ベータ', 'ベータ', null]);
     // 要修正は注意の色で言う。
     expect(toc().getByRole('button', { name: 'Claude Code、要修正 2' }).querySelector('.settings-toc-s')).toHaveAttribute('data-tone', 'warn');
   });
@@ -177,10 +178,11 @@ describe('設定の目次（S1）', () => {
   it('目次は上下の矢印で行を移り、開いている行だけが Tab の道に入る', () => {
     render(ui(at('sessions')));
     const rows = toc().getAllByRole('button');
-    expect(rows.map((b) => b.getAttribute('tabindex'))).toEqual(['-1', '0', '-1', '-1', '-1', '-1', '-1', '-1', '-1', '-1']);
-    rows[1]!.focus();
-    fireEvent.keyDown(rows[1]!, { key: 'ArrowDown' });
-    expect(rows[2]).toHaveFocus();
+    expect(rows.map((b) => b.getAttribute('tabindex'))).toEqual(['-1', '-1', '0', '-1', '-1', '-1', '-1', '-1', '-1', '-1', '-1']);
+    rows[2]!.focus();
+    fireEvent.keyDown(rows[2]!, { key: 'ArrowDown' });
+    expect(rows[3]).toHaveFocus();
+    fireEvent.keyDown(rows[3]!, { key: 'ArrowUp' });
     fireEvent.keyDown(rows[2]!, { key: 'ArrowUp' });
     fireEvent.keyDown(rows[1]!, { key: 'ArrowUp' });
     expect(rows[0]).toHaveFocus();
@@ -188,7 +190,7 @@ describe('設定の目次（S1）', () => {
     fireEvent.keyDown(rows[0]!, { key: 'ArrowUp' });
     expect(rows[0]).toHaveFocus();
     fireEvent.keyDown(rows[0]!, { key: 'End' });
-    expect(rows[9]).toHaveFocus();
+    expect(rows[10]).toHaveFocus();
   });
   it('節を切り替えたら、頁をスクロールする枠の先頭へ戻す', () => {
     const scrollTo = vi.fn();
@@ -394,6 +396,30 @@ describe('設定のセッション', () => {
       expect(screen.queryByRole('radio', { name: '1 年' })).toBeNull();
       expect(screen.getByText(/組織の設定で管理されています/)).toBeInTheDocument();
     });
+  });
+});
+
+describe('設定のスマホの節', () => {
+  const joined = (over: Partial<CloudSettingsProps> = {}) => cloudProps({ member: presentCloudMember({ ...initialStore(), desktop: true, device: { id: 'a', name: 'a' } }), ...over });
+  it('クラウドに未参加の間は、クラウド同期の節へ移るボタンだけを置く', () => {
+    const onAction = vi.fn();
+    render(ui(at('phone', { cloud: cloudProps({ configured: false, url: null, state: 'off', devices: [] }) }), onAction));
+    expect(screen.queryByRole('switch')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'クラウド同期を開く' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'nav.go', to: { name: 'settings', at: 'cloud' } });
+  });
+  it('参加していれば「スマホからの送信を受ける」のスイッチと、スマホの小見出しを出し、クラウド同期の節にはスマホを出さない', () => {
+    const onAction = vi.fn();
+    const { unmount } = render(ui(at('phone', { cloud: joined({ phoneChatAccept: true }) }), onAction));
+    const sw = screen.getByRole('switch', { name: 'スマホからの送信を受ける' });
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(sw);
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { phoneChatAccept: false } });
+    expect(screen.getByRole('button', { name: 'スマホを接続' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'クラウド同期を開く' })).toBeNull();
+    unmount();
+    render(ui(at('cloud', { cloud: joined() })));
+    expect(screen.queryByRole('button', { name: 'スマホを接続' })).toBeNull();
   });
 });
 
