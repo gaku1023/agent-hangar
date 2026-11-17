@@ -274,6 +274,14 @@ export class OrchestratorKeeper {
     return p !== null && p !== s.agent;
   }
 
+  /**
+   * opencode の統括のモデルが、起こしたときと違うか。opencode の会話は作ったときのモデルのまま続き、
+   * 再開しても会話のモデルを替えられない（2.2.0 の PATCH /api/session/{id} は model を 204 で受けて捨てる、実物で確かめた）。
+   */
+  private modelFixed(s: OrchestratorSetting): boolean {
+    return s.agent === 'opencode' && this.launched !== null && this.launched !== UNKNOWN_SPEC && this.launched.agent === 'opencode' && this.launched.model !== s.model;
+  }
+
   /** 系譜に old を足した値。 */
   private pushed(old: string, reason: OrchestratorSwitchReason): OrchestratorSetting['history'] {
     let startedAt: number | null = null;
@@ -326,8 +334,8 @@ export class OrchestratorKeeper {
     if (this.launched === null || sameSpec(this.launched, specOf(s))) { this.rerole(s.sessionId); return; }
     const run = this.deps.runs.aliveRun(s.sessionId);
     if (!run || this.respecs.has(run.id) || this.deps.liveStatus(s.sessionId) !== 'idle') return;
-    // アプリが変わったときは、同じ会話を起こし直せない。新しい会話に切り替える（前の会話は系譜に残る）。
-    if (this.agentChanged(s, s.sessionId)) { void this.fresh('agent'); return; }
+    // アプリが変わったとき、opencode のモデルが変わったときは、同じ会話を起こし直せない。新しい会話に切り替える（前の会話は系譜に agent で残る）。
+    if (this.agentChanged(s, s.sessionId) || this.modelFixed(s)) { void this.fresh('agent'); return; }
     this.respecs.add(run.id);
     try { this.deps.runs.kill(run.id); } catch (e) {
       this.respecs.delete(run.id);
