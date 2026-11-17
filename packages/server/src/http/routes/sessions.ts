@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { Context, Hono } from 'hono';
 import { liveFilterOf, liveWithLimit, quietLive, splitFtsTokens, type PromoteResultDto, type SearchParamsDto, type SessionStateDto, type SessionStatus, type WakeOn } from '@agent-hangar/shared';
 import { touchRow } from '../../db/notify.ts';
-import { getProject, listSessions } from '../../db/queries.ts';
+import { getProject, isHeadlessSql, listSessions } from '../../db/queries.ts';
 import { EDIT_TOOLS } from '../../indexer/write.ts';
 import { LiveDigester } from '../../live/digest.ts';
 import { PromoteError } from '../../projects/promote.ts';
@@ -45,12 +45,13 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   const tr = translatorOf(deps.language);
   const { db, deviceId } = deps;
   const session = sessionOf(deps);
-  const sessions = (opts: { projectId?: string } = {}) => listSessions(db, deps.live(), { ...opts, deviceId });
+  const sessions = (opts: { projectId?: string; includeHeadless?: boolean } = {}) => listSessions(db, deps.live(), { ...opts, deviceId });
   const digester = deps.digester ?? new LiveDigester(db);
   const external = externalOf(deps);
   const liveSessionRow = (id: string) => db.prepare('select 1 from sessions where id = ? and deleted_at is null').get(id) !== undefined;
   const deletedSessionRow = (id: string) => db.prepare('select 1 from sessions where id = ? and deleted_at is not null').get(id) !== undefined;
 
+  // headless=1 で、既定では外す非対話の会話（claude -p などのバッチ）も返す。プロジェクトの画面の絞り込みが使う。
   /** 数として読めない値（NaN）は渡されなかったものとする。 */
   const finite = (v: string | undefined): number | undefined => { const n = numberOr(v); return n !== undefined && Number.isFinite(n) ? n : undefined; };
   /** ids で一度に取れる会話の数の上限。 */
@@ -58,6 +59,7 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   // ids（カンマ区切り）で行をまとめて取る。開いたペイン、URL で開いた会話、起動元、知らせから跳んだ先が手元に無いときに画面が使う。
   // spawnedBy で、その会話を起動元に持つ子を取る。どちらも無ければ今までどおり全件（projectId で絞れる）を返す。
   api.get('/sessions', (c) => {
+    const includeHeadless = c.req.query('headless') === '1';
     const ids = c.req.query('ids');
     const spawnedBy = c.req.query('spawnedBy');
     if (ids !== undefined) {
@@ -65,8 +67,8 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
       if (list.length > IDS_LIMIT) return c.json({ error: `too many ids (max ${IDS_LIMIT})` }, 400);
       return c.json(listSessions(db, deps.live(), { deviceId, ids: list, ...(spawnedBy ? { spawnedBy } : {}) }));
     }
-    if (spawnedBy) return c.json(listSessions(db, deps.live(), { deviceId, spawnedBy }));
-    return c.json(sessions({ projectId: c.req.query('projectId') }));
+    if (spawnedBy) return c.json(listSessions(db, deps.live(), { deviceId, spawnedBy, includeHeadless }));
+    return c.json(sessions({ projectId: c.req.query('projectId'), includeHeadless }));
   });
   // 会話の件数の集計。days を渡すと、その保存期間で消える数を数える（保存期間を変える確認が使う）。省けば今の保存期間で数える。
   api.get('/session-counts', (c) => {
@@ -147,10 +149,16 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     const stops = stopReasonsOf(db, deps.live(), Date.now());
     const liveOf = (sid: string, psid: string) => liveFilterOf(quietLive(liveWithLimit(liveStatus.get(psid) ?? null, stops.limit(psid)), settled.get(sid)?.status, wokeSince(db, sid, settled.get(sid)?.at ?? null)), alive.has(sid), parked.has(sid));
     const result = searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), live, stop, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset), status, hideArchived }, liveOf, (_sid, psid) => stops.reason(psid));
-    // rows=1 なら当たった会話の行を添える。手元に無い会話の行も出せるようにするため。
-    if (!withRows) return c.json(result);
+    // rows=1 なら当たった会話の行を添える。手元に無い会話の行も、非対話の会話も出せる（ids で名指しするので外されない）。
+    if (withRows) {
     const byId = new Map(listSessions(db, deps.live(), { deviceId, ids: result.hits.map((h) => h.sessionId) }).map((s) => [s.id, s]));
     return c.json({ ...result, sessions: result.hits.map((h) => byId.get(h.sessionId)).filter((s) => s !== undefined) });
+    }
+    // 一覧（bootstrap）に載らない非対話の会話は、画面が行を組めるように DTO を添える。当たりが無ければ鍵ごと送らない。
+    const hitIds = result.hits.map((h) => h.sessionId);
+    const ids = hitIds.length === 0 ? [] : (db.prepare(`select s.id from sessions s where s.id in (${hitIds.map(() => '?').join(',')}) and ${isHeadlessSql('s')}`).all(...hitIds) as { id: string }[]).map((r) => r.id);
+    const extra = ids.length === 0 ? [] : listSessions(db, deps.live(), { ids, deviceId });
+    return c.json(extra.length > 0 ? { ...result, sessions: extra } : result);
   });
 
   // 本文を送らなければ作業ディレクトリを開く。

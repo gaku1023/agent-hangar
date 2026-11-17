@@ -463,7 +463,11 @@ export function applyEventsPage(store: Store, key: string, page: EventsPageDto, 
 }
 
 export function applySearch(store: Store, params: SearchParamsDto, result: SearchResultDto | null, loading: boolean): Store {
-  return { ...store, search: { params, result, loading } };
+  // 一覧（bootstrap）に載らない非対話の会話は、検索の結果が DTO を添えてくる。行を組み、開けるように Store に入れる。
+  // ふだんの一覧と「最近」は headless の印を見て外す（presenters の sessions.ts と palette.ts）。
+  const extra = result?.sessions ?? [];
+  const sessions = extra.length === 0 ? store.sessions : { ...store.sessions, ...Object.fromEntries(extra.map((s) => [s.id, s])) };
+  return { ...store, sessions, search: { params, result, loading } };
 }
 
 /**
@@ -474,7 +478,8 @@ export function applySearch(store: Store, params: SearchParamsDto, result: Searc
 export function appendSearchResult(prev: SearchResultDto | null, next: SearchResultDto): SearchResultDto {
   if (!prev) return next;
   const seen = new Set(prev.hits.map((h) => h.sessionId));
-  return { hits: [...prev.hits, ...next.hits.filter((h) => !seen.has(h.sessionId))], total: next.total };
+  const sessions = [...(prev.sessions ?? []), ...(next.sessions ?? [])];
+  return { hits: [...prev.hits, ...next.hits.filter((h) => !seen.has(h.sessionId))], total: next.total, ...(sessions.length > 0 ? { sessions } : {}) };
 }
 
 export function applySubagents(store: Store, sessionId: string, ids: string[]): Store {

@@ -100,7 +100,8 @@ export function presentSessionList(state: State, store: Store, now: number, inPr
   const f = state.search.filter;
   const conditions = conditionsOf(t, state.search.text, f, store);
   // 並びの元は row.ts の sortForList（生きているものを先に、残りは新しい順）。タブの件数もこの全件から数える。
-  const mine = inProject === undefined ? Object.values(store.sessions) : Object.values(store.sessions).filter((s) => s.projectId === inProject);
+  // 非対話の会話（claude -p などのバッチ。SessionDto.headless）は、検索で当たったときだけ出す。Store には検索の結果が入れる。
+  const mine = Object.values(store.sessions).filter((s) => !s.headless && (inProject === undefined || s.projectId === inProject));
   // 全件については、絞り込みとタブの件数に要る状態だけを持つ軽い札を作る。行そのもの（メニュー、git の札、時刻の語）は、並べる行だけ組む。
   // 5,000 セッションの全部の行を配信のたびに組むと、1 回の描画に数十 ms かかる。札の state と candidate は presentSessionRow と同じ読み方である。
   const all: Facet[] = sortForList(mine).map((s) => ({ s, id: s.id, state: s.state?.status ?? null, candidate: s.state?.candidate ? true : null }));

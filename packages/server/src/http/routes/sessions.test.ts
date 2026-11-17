@@ -90,6 +90,18 @@ describe('routes', () => {
     expect((await json(await get(`/api/sessions/${id}/live`))).body).toEqual({ sessionId: id, turnStartSeq: 42, intent: null, agents: [] });
     expect(asked).toEqual([id]);
   });
+  it('非対話の会話は一覧と bootstrap に載らず、?headless=1 の一覧と検索の結果（sessions）で引ける', async () => {
+    const hit = (await json(await get('/api/search?q=' + encodeURIComponent('チャンネル')))).body.hits[0].sessionId as string;
+    db.prepare('update session_stats set headless = 1 where session_id = ?').run(hit);
+    const ids = async (p: string) => ((await json(await get(p))).body as { id: string }[]).map((s) => s.id);
+    expect(await ids('/api/sessions')).not.toContain(hit);
+    expect((await json(await get('/api/bootstrap'))).body.sessions.map((s: { id: string }) => s.id)).not.toContain(hit);
+    expect(await ids('/api/sessions?headless=1')).toContain(hit);
+    expect(await ids(`/api/sessions?headless=1&projectId=${list0ProjectId()}`)).toContain(hit);
+    const { body } = await json(await get('/api/search?q=' + encodeURIComponent('チャンネル')));
+    expect(body.hits.map((h: { sessionId: string }) => h.sessionId)).toEqual([hit]);
+    expect(body.sessions.map((s: { id: string; headless?: boolean }) => [s.id, s.headless])).toEqual([[hit, true]]);
+  });
   it('検索', async () => {
     const { body } = await json(await get('/api/search?q=' + encodeURIComponent('チャンネル')));
     expect(body.total).toBe(1);

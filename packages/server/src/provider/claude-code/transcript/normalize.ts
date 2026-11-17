@@ -154,6 +154,7 @@ export function recordFacts(raw: unknown): RecordFacts {
   if (!isRec(raw)) return facts;
   const cwd = str(raw.cwd); if (cwd) facts.cwd = cwd;
   const ts = parseTs(raw); if (ts !== undefined) facts.ts = ts;
+  const entrypoint = str(raw.entrypoint); if (entrypoint) facts.entrypoint = entrypoint;
   const msg = isRec(raw.message) ? raw.message : null;
   switch (raw.type) {
     case 'assistant': {

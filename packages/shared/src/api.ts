@@ -164,6 +164,11 @@ export type SessionDto = { id: string; provider: AgentKind; providerSessionId: s
   /** 統括の会話にだけ付く印（設定の orchestrator.sessionId と同じ id）。DB の列は持たず、設定から導く。ほかの会話は鍵ごと送らない。 */
   role?: import('./orchestrator.ts').SessionRole;
   /**
+   * 非対話の会話（claude -p などのバッチ。本文の entrypoint が sdk- だけで、hangar の run が付いていない）にだけ付く印。ほかは鍵ごと送らない。
+   * 一覧と bootstrap は既定でこの会話を返さない。検索の結果（SearchResultDto.sessions）と、`/api/sessions?headless=1` が返す。
+   */
+  headless?: true;
+  /**
    * ほかの PC に引き継がれたこの PC の会話。この PC の最後の run が taken_over で終わっているときだけ値を持ち、ほかは null である。
    * deviceName は引き継いだ PC の名前、at はこの PC の run が終わった時刻。この PC で後から run を起こせば null に戻る。
    */
@@ -280,6 +285,7 @@ export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { 
 /**
  * 検索の結果。total は条件に合う全件の数で、hits は offset から limit 件だけを持つ。
  * sessions は rows=1 で求めたときだけ持ち、hits（と一覧の形の rows）の会話の行そのもの。手元に無い会話の行を出すために使う。
+ * 当たった会話のうち一覧（bootstrap）に載らない非対話の会話（SessionDto.headless）の DTO も、ここに入る。画面は行を組むのにこれを使う。
  * 語も触ったファイルも無いときは一覧の形になる。hits は頁の根の会話で、rows は根の下に子を深さ優先で並べた頁の行（shared の ListPageDto）、
  * total は条件に合う行の数（子も 1 件）、roots は根の数（頁送りはこの数で数える）である。一覧の形でないときは rows と roots を持たない。
  */

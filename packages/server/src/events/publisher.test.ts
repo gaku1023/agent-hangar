@@ -290,6 +290,16 @@ describe('表から DTO とイベントへ', () => {
     expect(t.sent).toEqual([{ type: 'session.removed', id: 's1' }]);
   });
 
+  it('非対話の会話（session_stats.headless）は session.upsert を配らない。画面の一覧に入れないため', () => {
+    const t = setup();
+    seedSession(t.db);
+    t.reset();
+    t.db.prepare('insert into session_stats (session_id, headless) values (?, 1)').run('s1');
+    touchRow(t.db, 'sessions', 's1');
+    t.publisher.flush();
+    expect(t.sent).toEqual([]);
+  });
+
   it('別の DB の知らせは拾わない', () => {
     const t = setup();
     const other = openDb(':memory:');

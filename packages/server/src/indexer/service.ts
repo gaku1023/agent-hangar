@@ -6,6 +6,7 @@ import { upsertShared } from '../db/shared.ts';
 import type { AgentKind, FileTranscriptSource, IndexBatch, PromptHistory, PromptHistoryEntry, TranscriptFile, TranscriptSink, TranscriptSource } from '../agent/types.ts';
 import type { Timers } from '../sync/engine.ts';
 import { writeBaselineIfNeeded } from './baseline.ts';
+import { backfillHeadless } from './headless.ts';
 import { forgetTranscriptFile, indexFile, isUnchanged, markTruncatedForReindex, type FileStat } from './indexFile.ts';
 import { ensureSession, storedOrigin, writeBatch, type ProcessStartOf } from './write.ts';
 import { stmt } from './statements.ts';
@@ -87,6 +88,8 @@ const POLL_FALLBACK_MS = 10_000;
 const DEBOUNCE_MS = 300;
 const RESCAN_DELAY_MS = 1000;
 const LIVE_MS = 2000;
+/** 非対話の印の埋め戻しで、1 回に読む会話の数。読み終えるたびにイベントループへ返す。 */
+const HEADLESS_BACKFILL_CHUNK = 50;
 const REAL_TIMERS: Timers = { setTimeout, clearTimeout, setInterval, clearInterval };
 
 const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -683,6 +686,19 @@ export class IndexerService {
     await this.fullScan();
     this.armSweep();
     this.noteLiveChanged();
+    // 版 61 より前に索引した会話の、非対話の印を埋める。本文を読むので、全走査の後に少しずつ回し、ほかの処理を止めない。
+    this.headlessBackfill = this.fillHeadless();
+  }
+
+  /** 非対話の印の埋め戻し（start が走らせる）。試験が待つために持つ。 */
+  headlessBackfill: Promise<void> = Promise.resolve();
+
+  private async fillHeadless(): Promise<void> {
+    try {
+      while (this.running && backfillHeadless(this.opts.db, HEADLESS_BACKFILL_CHUNK) > 0) await yieldToLoop();
+    } catch (e) {
+      console.error('[indexer] headless backfill failed', errorMessage(e));
+    }
   }
 
   stop(): void {

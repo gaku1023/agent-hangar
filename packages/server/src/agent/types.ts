@@ -175,6 +175,11 @@ export type RecordFacts = {
   modelSelected?: boolean;
   aiTitle?: string; customTitle?: string; agentName?: string; prUrl?: string;
   contextSize?: number;
+  /**
+   * 記録を書いたクライアントの入口（Claude の行の entrypoint。cli、sdk-cli など）。
+   * 非対話の会話（claude -p などのバッチ）を見分けるのに使う（indexer/headless.ts）。持たない記録とエージェントでは undefined。
+   */
+  entrypoint?: string;
   isUserTurn: boolean;
 };
 
