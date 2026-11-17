@@ -668,6 +668,24 @@ describe('タブと接続', () => {
     const many: Store = { ...st, sessions: { s1: { ...few, stats: { turns: 3 } } as SessionDto } };
     expect(run([action({ type: 'transcript.toggle' })], onSession(), many).state.sessionView.s1).toMatchObject({ transcriptOpen: false, tocPeek: false });
   });
+  it('統括の柱が開いている間は、どの会話も右の欄を畳み、⌘J はその場だけ開閉する。保存した開閉は替えない', () => {
+    const many = { id: 's1', hasTranscript: true, live: null, summary: null, stats: { turns: 5 } } as SessionDto;
+    const st: Store = { ...initialStore(), sessions: { s1: many } };
+    const opened = run([action({ type: 'orchestrator.pillar', open: true })], onSession(), st);
+    expect(opened.state.orchestratorOpen).toBe(true);
+    const a = run([action({ type: 'transcript.toggle' })], opened.state, st);
+    expect(a.state.sessionView.s1).toMatchObject({ transcriptOpen: true, tocPeek: true });
+    expect(a.effects).toEqual([]);
+    // 柱を閉じると、覗いていた分は戻り、保存した開閉に従う。
+    const closed = run([action({ type: 'orchestrator.pillar', open: false })], a.state, st);
+    expect(closed.state.orchestratorOpen).toBe(false);
+    expect(closed.state.sessionView.s1).toMatchObject({ transcriptOpen: true, tocPeek: false });
+    // 柱が閉じていれば、⌘J は今までどおり保存する開閉を替える。
+    expect(run([action({ type: 'transcript.toggle' })], closed.state, st).state.sessionView.s1).toMatchObject({ transcriptOpen: false });
+    // 自分で閉じていた会話は、柱を閉じても閉じたまま。
+    const shut = run([action({ type: 'transcript.toggle' }), action({ type: 'orchestrator.pillar', open: true }), action({ type: 'orchestrator.pillar', open: false })], onSession(), st);
+    expect(shut.state.sessionView.s1?.transcriptOpen).toBe(false);
+  });
   it('トランスクリプトの折りたたみ', () => {
     const a = run([action({ type: 'transcript.toggle' })], onSession());
     expect(a.state.sessionView.s1?.transcriptOpen).toBe(false);

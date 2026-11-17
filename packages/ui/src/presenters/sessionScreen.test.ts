@@ -94,6 +94,12 @@ describe('セッション画面の C の構成（帯、冒頭の 1 枚、見出�
       pending.summaryPending = { s1: true };
       expect(present(pending).transcriptOpen).toBe(true);
     });
+    it('統括の柱が開いている間は、実行中でもターンが多くても畳み、その画面で開いた間だけ開く', () => {
+      const pillar = (tocPeek = false) => ({ ...initialState(), orchestratorOpen: true, sessionView: { s1: { ...defaultSessionView(), tocPeek } } });
+      expect(presentSession(pillar(), store(session({ stats: { ...stats, turns: 9 } })), NOW, 's1').transcriptOpen).toBe(false);
+      expect(presentSession(pillar(), store(few({ live: 'busy' }), run()), NOW, 's1').transcriptOpen).toBe(false);
+      expect(presentSession(pillar(true), store(session({ stats: { ...stats, turns: 9 } })), NOW, 's1').transcriptOpen).toBe(true);
+    });
     it('実行中の画面は畳まない', () => {
       expect(present(store(few({ live: 'busy' }), run())).transcriptOpen).toBe(true);
     });

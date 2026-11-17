@@ -343,6 +343,11 @@ export type State = {
   nextRetryAt: number | null;
   sessionView: Record<string, SessionViewState>;
   /**
+   * 統括の柱が開いているか。柱（views/orchestratorOpen.ts が localStorage に持つ）が変わるたびに orchestrator.pillar で写す。
+   * 開いている間は、どの会話も右の欄を畳む（presenters の tocFolds と、ペインの右パネル）。保存した開閉は替えない。
+   */
+  orchestratorOpen: boolean;
+  /**
    * 一覧の語と絞り込み、平らな一覧のいまのページ（1 から）。ページは条件を変えるか画面に入り直すと 1 に戻る。
    * ホームと 1 つのプロジェクトの画面が同じものを使う。プロジェクトの画面では、そのプロジェクトに絞る（絞り込みには projectId を入れない。mediator/screen.ts の listProjectId）。
    * 別の画面から入ると、持ち込まずに空から始める。

@@ -19,8 +19,11 @@ export const FEW_TURNS = 2;
  * そのときの開閉は保存する transcriptOpen を使わず、その画面だけの tocPeek で持つ。
  * presentSession と mediator の transcript.toggle が同じ判定を使う（⌘J の行き先を揃えるため）。
  * 実行中（run がある）、サブエージェントを見ている間、本文の無い会話は畳まない。
+ * ただし統括の柱が開いている間は、これらも含めてどの会話も畳む（pillarOpen。State の orchestratorOpen）。
  */
-export function tocFolds(store: Store, view: SessionViewState, id: string): boolean {
+export function tocFolds(store: Store, view: SessionViewState, id: string, pillarOpen: boolean): boolean {
+  // 統括の柱が開いている間は、どの会話も畳む（柱を閉じれば保存した開閉に戻る）。
+  if (pillarOpen) return true;
   const s = store.sessions[id];
   if (!s || !s.hasTranscript || view.agentId !== null || currentRunOf(store, id) !== null) return false;
   if (hasSummaryCard(s, store.summaryPending[id] === true, store.summaryFailed[id] ?? null)) return false;

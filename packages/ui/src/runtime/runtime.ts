@@ -1224,7 +1224,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。
       state = {
         ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, sidebarOrder: cleanSidebarOrder(deps.storage.get(SIDEBAR_ORDER_KEY)),
-        panes: { ...cleanPaneLayout(deps.storage.get(PANES_KEY)), zoom: null, flash: null },
+        panes: { ...cleanPaneLayout(deps.storage.get(PANES_KEY)), zoom: null, flash: null, tocPeek: [] },
         sidebarFolded: cleanSidebarFolded(deps.storage.get(SIDEBAR_FOLDED_KEY)), sidebarWidth: cleanSidebarWidth(deps.storage.get(SIDEBAR_WIDTH_KEY)),
         pageSize: readPageSize(deps.storage.get(PAGE_SIZE_KEY)),
         // プロジェクト画面の右パネルで折りたたんだ節。形の違う値は捨てる。
