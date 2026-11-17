@@ -100,7 +100,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
       # dtolnay/rust-toolchain は --profile minimal で入るため rustfmt と clippy を含まない。
       # このワークフローは cargo fmt も cargo clippy も使わないので components は指定しない。
       # どちらも ci の desktop ジョブが見ている。
@@ -244,7 +243,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
@@ -272,16 +270,18 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
       # ネイティブモジュールは Windows 向けの prebuild を同梱しているので、スクリプト無しで入れる（ci の windows ジョブと同じ）。
       - run: npm ci --ignore-scripts
-      - run: npm run typecheck
+      # 型の確かめは macos-test ジョブが回し、publish がそれを待つので、ここでは回さない（重複の 70 秒ほど）。
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable (2026-10-09)
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: apps/desktop/src-tauri
+          # タグの run が保存したキャッシュは次のタグから読めず、ci.yml の windows ジョブの鍵とも合わない。
+          # 保存しても使われないまま 460MB を食うので、保存しない。
+          save-if: false
       # 署名鍵があれば、インストーラと同じ名前の署名（.sig）も作る。Windows の更新物はインストーラそのものである。
       # 鍵は action の中で、build の後の署名の段だけに渡る。
       - id: installer
