@@ -36,6 +36,9 @@ type Spec = { account: string | null; model: string; effort: string };
 const specOf = (s: OrchestratorSetting): Spec => ({ account: s.account, model: s.model, effort: s.effort });
 const sameSpec = (a: Spec, b: Spec): boolean => a.account === b.account && a.model === b.model && a.effort === b.effort;
 
+/** 引き継いだ run の指定は分からない。どの設定とも一致しない印にして、変更を当てる。 */
+const UNKNOWN_SPEC: Spec = { account: null, model: '\0', effort: '\0' };
+
 /** 失敗を数える窓と、止まる回数。 */
 export const KEEPER_WINDOW_MS = 10 * 60_000;
 export const KEEPER_MAX_FAILURES = 3;
@@ -67,7 +70,7 @@ export class OrchestratorKeeper {
   start(): void {
     this.off ??= this.deps.runs.on({ runEnded: (run) => { this.onRunEnded(run); } });
     this.offLive ??= this.deps.onLiveChange(() => { this.respec(); });
-    this.apply();
+    this.apply(false);
   }
 
   stop(): void {
@@ -85,8 +88,11 @@ export class OrchestratorKeeper {
     return () => { this.listeners.delete(cb); };
   }
 
-  /** 設定が変わった（入り切り、モデル、effort）。切になれば止まる状態を忘れ、入れ直したときだけ失敗の数を捨てて始める。 */
-  apply(): void {
+  /**
+   * 設定が変わった（入り切り、モデル、effort、アカウント）。切になれば止まる状態を忘れ、入れ直したときだけ失敗の数を捨てて始める。
+   * 前の hangar から引き継いだ run（launched が null）は、設定の変更で呼ばれたときだけ「指定が変わった」とみなして起こし直す（起動時は触らない）。
+   */
+  apply(changed = true): void {
     if (!this.deps.settings().enabled) {
       this.wasEnabled = false;
       this.halted = false;
@@ -100,6 +106,8 @@ export class OrchestratorKeeper {
       this.halted = false;
       this.failures = [];
     }
+    const id = this.deps.settings().sessionId;
+    if (changed && this.launched === null && id !== null && this.deps.runs.aliveRun(id)) this.launched = UNKNOWN_SPEC;
     this.schedule();
     this.respec();
   }

@@ -8,7 +8,7 @@ import type { IntegrationCard, SettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
 import { MuxSection } from './MuxSection.tsx';
 import { EditorSettings } from './EditorSettings.tsx';
-import { VoiceSettings } from './VoiceSettings.tsx';
+import { OrchestratorSettings } from './OrchestratorSettings.tsx';
 import { InjectionSettings } from './InjectionSettings.tsx';
 import { ModelPicker } from './ModelPicker.tsx';
 import { PageHeading } from './PageHeading.tsx';
@@ -43,7 +43,7 @@ import type { NotifyRulesProps } from '../presenters/notifyRules.ts';
 export const SAVED_TICK_MS = 2000;
 
 /** 目次の各行のアイコン。 */
-const SECTION_ICON: Record<SettingsSection, IconName> = { general: 'general', sessions: 'sessions', summary: 'permissionAuto', environment: 'tool', cloud: 'cloud', usage: 'usage', agentClaude: 'agent', agentCodex: 'agent', agentOpencode: 'agent', about: 'info' };
+const SECTION_ICON: Record<SettingsSection, IconName> = { general: 'general', sessions: 'sessions', orchestrator: 'orchestrator', summary: 'permissionAuto', environment: 'tool', cloud: 'cloud', usage: 'usage', agentClaude: 'agent', agentCodex: 'agent', agentOpencode: 'agent', about: 'info' };
 
 /** 欄の横に「✓ 保存しました」を 2 秒出す。n が進むたびに出し直す（設定の C1）。 */
 /** 外部ターミナルの選択肢の印。製品のアプリは窓の印、OS の素のターミナルはターミナルの印にする。 */
@@ -542,15 +542,6 @@ export function SettingsScreen(props: SettingsProps) {
       {showAccounts && <AccountSettings {...props.accounts} />}
       {claudeDefaults}
       <InjectionSettings injection={props.injection} />
-      {props.orchestratorOn !== undefined && (
-        <section aria-label={t('settings.label.orchestrator')}>
-          {/* 統括のモデルと effort は既定のまま。入り切りだけを置く。 */}
-          <SetRow title={t('settings.label.orchestrator')}
-            control={<Switch label={t('settings.label.orchestrator')} checked={props.orchestratorOn} onChange={(next) => setNow({ orchestrator: { enabled: next } as OrchestratorSetting })} />} />
-        </section>
-      )}
-      {/* 統括の声。聞き方と人格（名前・読み・口調・声・速さ）。設定の voice を返さない古いサーバでは出さない。 */}
-      {props.voice !== undefined && <VoiceSettings {...props.voice} mark={props.save.voice} />}
       {retention}
       {/* 互換のずれは利用者が直せるものではないので、todo には数えない（目次の状態も要修正にしない）。 */}
       <CompatSection compat={props.compat} />
@@ -832,6 +823,7 @@ export function SettingsScreen(props: SettingsProps) {
   const body: Record<SettingsSection, ReactNode> = {
     general,
     sessions: <>{newSession}{self}</>,
+    orchestrator: props.orchestrator !== undefined ? <OrchestratorSettings orchestrator={props.orchestrator} voice={props.voice} voiceMark={props.save.voice} /> : null,
     summary, environment, cloud, usage, agentClaude, agentCodex, agentOpencode, about,
   };
 

@@ -300,5 +300,20 @@ describe('OrchestratorKeeper', () => {
       await t.settle();
       expect(t.calls).toEqual(['start:orch-1']);
     });
+
+    it('前の hangar から引き継いだ run は、起動時は触らず、設定の変更で idle なら起こし直す', async () => {
+      const t = rig({ enabled: true, sessionId: 'old-1' });
+      t.alive.add('old-1');
+      t.keeper.start();
+      await t.settle();
+      t.live('old-1', 'idle');
+      await t.settle();
+      expect(t.calls).toEqual([]);
+      t.set({ model: 'opus' });
+      t.keeper.apply();
+      await t.settle();
+      expect(t.calls).toEqual(['kill:run-old-1', 'resume:old-1']);
+      expect(t.setting().enabled).toBe(true);
+    });
   });
 });

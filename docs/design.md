@@ -10583,7 +10583,8 @@ MLX の build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/vo
   - `POST /api/voice/preview { voice, speed, text? }` は、人格の声ではなく渡された声と速さで 1 度鳴らす（補助へ `speak`、id は `preview-<連番>`）。`text` が無ければ、使っている人格の名前を入れた決まった一文（`orchestratorPane.preview.sample`）。`voice` は声の id の形、`speed` は 0.5〜2、`text` は空でない 200 字まで、合わなければ 400。
   - `POST /api/voice/engine { source: 'voicevox' | 'aivis' }` は `open -a VOICEVOX` か `open -a AivisSpeech` を子プロセスで起こす（シェルを通さない）。`source` が合わなければ 400、macOS 以外は 409、開けなければ 502。
   統括の指示文では、人格の文を権限と安全の決まりの後ろに置き、口調と名前だけの希望で決まりは変えないと枠付けする。
-- 設定の「統括の声」（`views/VoiceSettings.tsx`、エージェント別の節の Claude Code の統括の入り切りの下）。設定が `voice` を返すときだけ出す。
+- 設定の「統括の声」（`views/VoiceSettings.tsx`、設定の独立した節「統括」の中、起動の札の行の下）。設定が `voice` を返すときだけ出す。
+- 設定の節「統括」（`views/OrchestratorSettings.tsx`、`sessions` の次）。入り切りの行、札の行（アカウント、モデル、effort。新しいセッションのダイアログと同じ `ChipPopover`・`PickList`・`ModelEditor`）、声の順に並べる。切ると札の行と声は `collapseOut` で畳まれ、入れると `growIn` で出る。選ぶたびに `orchestrator` の変えた項目だけを PATCH する。アカウントは 2 件以上あるときだけ札を出し、設定のアカウントが一覧に無ければ既定の表示に寄せる。設定が `orchestrator` を返さない古いサーバでは、目次にも出さない。
   - 聞き方（`off`＝押している間だけ、`toggle`＝押して切り替え、`always`＝常に聞く）の切り替えと、人格の行、「+ 足す」だけを置く。見出しの下に補助のラベルや説明は足さない。`always` のときだけ、切り替えの左に「ねえ、<読み>」が伸びて出る（読みが空なら出さない）。
   - 人格の行は、丸（使う人格を選ぶ）、名前、一言（`Kokoro jf_alpha` のように、VOICEVOX と AivisSpeech は `voiceLabel`、Mac の声は名前）、後ろに ` · 1.2` の速さ。行を押すと選んで開き、開くのは 1 つだけ。開閉は `FoldBox`、足した行は `growIn`、消す行は `collapseOut`。
   - 中身は名前、読み、口調、声、速さ、試し聞き、消す。人格は 8 人まで。最後の 1 人は消せない。使っている人格を消すと前の人格（先頭なら次）が選ばれる。

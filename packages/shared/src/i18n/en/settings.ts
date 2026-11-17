@@ -71,6 +71,8 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.toc.usage': 'Last 30 days · {n} {n|session|sessions}',
   'settings.toc.version': 'Version {version}',
   'settings.section.general': 'General',
+  'settings.section.orchestrator': 'Orchestrator',
+  'settings.toc.orchestratorOn': 'On',
   'settings.section.sessions': 'Sessions',
   'settings.section.summary': 'Summary',
   'settings.section.agentClaude': 'Claude Code',

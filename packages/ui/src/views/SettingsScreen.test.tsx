@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { translator, type CompatDto, type SettingsDto, type UiAction, type SettingsSection } from '@agent-hangar/shared';
+import { translator, type CompatDto, type SettingsDto, type UiAction, type SettingsSection, DEFAULT_VOICE } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
 import { initialState } from '../mediator/transition.ts';
 import { presentAccounts, presentCodexAccounts } from '../presenters/accounts.ts';
@@ -15,8 +15,8 @@ import { SettingsScreen } from './SettingsScreen.tsx';
 import { CopiedContext } from './primitives/CommandLine.tsx';
 import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
-const TITLES: Record<SettingsSection, string> = { general: '一般', sessions: 'セッション', summary: '要約', cloud: 'クラウド同期', environment: '環境', usage: '使用量', agentClaude: 'Claude Code', agentCodex: 'Codex', agentOpencode: 'opencode', about: 'Hangar について' };
-const IDS = Object.keys(TITLES) as SettingsSection[];
+const TITLES: Record<SettingsSection, string> = { general: '一般', sessions: 'セッション', orchestrator: '統括', summary: '要約', cloud: 'クラウド同期', environment: '環境', usage: '使用量', agentClaude: 'Claude Code', agentCodex: 'Codex', agentOpencode: 'opencode', about: 'Hangar について' };
+const IDS = (Object.keys(TITLES) as SettingsSection[]).filter((id) => id !== 'orchestrator');
 
 /** 目次の 8 行。状態の文は presenter の試験（settingsToc.test.ts）が見るので、ここでは決まった文を置く。 */
 const tocOf = (): SettingsProps['toc'] => IDS.map((id) => ({ id, title: TITLES[id], state: id === 'cloud' ? '同期オフ' : id === 'agentClaude' ? '要修正 2' : '確認中', tone: id === 'agentClaude' ? 'warn' : 'default', label: `${TITLES[id]}、${id === 'cloud' ? '同期オフ' : id === 'agentClaude' ? '要修正 2' : '確認中'}`, ...(id === 'cloud' || id === 'agentCodex' || id === 'agentOpencode' ? { beta: true } : {}), ...(id === 'agentClaude' ? { agent: 'claude-code' as const } : id === 'agentCodex' ? { agent: 'codex' as const } : id === 'agentOpencode' ? { agent: 'opencode' as const } : {}) }));
@@ -1009,17 +1009,48 @@ describe('設定のセッションの「Claude Code に渡す設定」と「新�
     fireEvent.click(screen.getByRole('option', { name: '「claude-opus-4-1」を使う' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { defaultModel: 'claude-opus-4-1' } });
   });
-  it('統括のスイッチは、押した時点で orchestrator の enabled だけを保存する', () => {
+  const atOrch = (over: Partial<SettingsProps>): SettingsProps => at('orchestrator', { toc: [...tocOf(), { id: 'orchestrator', title: '統括', state: 'オフ', tone: 'default', label: '統括、オフ' }], ...over });
+  const orch = (over: Partial<NonNullable<SettingsProps['orchestrator']>> = {}): NonNullable<SettingsProps['orchestrator']> => ({
+    on: true, account: null, model: 'sonnet', effort: 'medium',
+    accounts: [{ value: 'a1', label: 'メイン', color: '#c96', disabled: false }, { value: 'a2', label: 'サブ', color: '#69c', disabled: false }], ...over,
+  });
+  it('統括の節は、目次に出て、入り切りは押した時点で orchestrator の enabled だけを保存する', () => {
     const onAction = vi.fn();
-    render(ui(at('agentClaude', { orchestratorOn: false }), onAction));
+    render(ui(atOrch({ orchestrator: orch({ on: false }), toc: [...tocOf(), { id: 'orchestrator', title: '統括', state: 'オフ', tone: 'default', label: '統括、オフ' }] }), onAction));
+    expect(toc().getByRole('button', { name: '統括、オフ' })).toBeInTheDocument();
     const sw = screen.getByRole('switch', { name: '統括' });
     expect(sw).toHaveAttribute('aria-checked', 'false');
     fireEvent.click(sw);
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { orchestrator: { enabled: true } } });
   });
-  it('統括のスイッチは、サーバが知らない古い版では出さない', () => {
-    render(ui(at('agentClaude')));
+  it('統括の札で、アカウント、モデル、effort を選ぶと、その項目だけを保存する', () => {
+    const onAction = vi.fn();
+    render(ui(atOrch({ orchestrator: orch() }), onAction));
+    // 設定のアカウントが null のときは、既定の表示（先頭の選べるアカウント）に寄せる。
+    fireEvent.click(screen.getByRole('button', { name: /アカウント/ }));
+    fireEvent.click(screen.getByRole('option', { name: /サブ/ }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { orchestrator: { account: 'a2' } } });
+    fireEvent.click(screen.getByRole('button', { name: /^モデル/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'opus' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { orchestrator: { model: 'opus' } } });
+    fireEvent.click(screen.getByRole('button', { name: /effort/i }));
+    fireEvent.click(screen.getByRole('option', { name: 'high' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { orchestrator: { effort: 'high' } } });
+  });
+  it('アカウントが 1 つの PC では、アカウントの札を出さない', () => {
+    render(ui(atOrch({ orchestrator: orch({ accounts: [{ value: 'a1', label: 'メイン', color: '#c96', disabled: false }] }) })));
+    expect(screen.queryByRole('button', { name: /アカウント/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /^モデル/ })).toBeInTheDocument();
+  });
+  it('統括を切ると、札の行と声が畳まれて消える（モーションを切った環境では即座に）', () => {
+    render(ui(atOrch({ orchestrator: orch({ on: false }), voice: { voice: DEFAULT_VOICE, available: true, speakingId: null, catalog: null } })));
+    expect(screen.queryByRole('button', { name: /^モデル/ })).toBeNull();
+    expect(screen.queryByRole('group', { name: '統括の声' })).toBeNull();
+  });
+  it('Claude Code の節に、統括の欄と声は無い。サーバが統括を知らない古い版では節の中身も出ない', () => {
+    render(ui(at('agentClaude', { orchestrator: orch(), voice: { voice: DEFAULT_VOICE, available: true, speakingId: null, catalog: null } })));
     expect(screen.queryByRole('switch', { name: '統括' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^モデル/ })).toBeNull();
   });
   it('全文の畳みは、段落の名前を添え、切った段落は打ち消し線で残し、差し込む値は印にする', () => {
     const full = presentInjection(translator('ja'), { askStatusAtEnd: true, liveHints: false, notifyUser: true });
