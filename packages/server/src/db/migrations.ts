@@ -1,8 +1,4 @@
-/**
- * vacuumAfter は、当てたあとに VACUUM でファイルを縮めるか。表を丸ごと書き直す版だけが付ける。
- * 書き直しで縮んだ行は、VACUUM しないとファイルの大きさに現れないからである（openDb が、ファイルが小さくないときだけ実行する）。
- */
-export type Migration = { version: number; sql: string; vacuumAfter?: boolean };
+export type Migration = { version: number; sql: string };
 
 /**
  * 起点の版。
@@ -1070,18 +1066,16 @@ alter table event_index add column fts_rowid integer;
 /**
  * 版 65：event_index が行ごとに持っていたファイルのパス（file_path_ref、平均 135 字）を、別の表 event_paths の番号（path_id）で指す。
  * 同じファイルの行は 1 つのパスを指すので、パスの文字は索引が何百万行になっても、ファイルの数（数千）だけになる。
- * 元の列は落とす。表を一度書き直すので、開くときに行数に比例した時間がかかり、空いた頁を縮めるために VACUUM もする（所要は docs/design.md の「索引」）。
- * 控えは当てる前に取り、そこでは索引を抜いてある（db/backup.ts）ので、書き直すのは手元の DB だけである。
+ * 開くときは表と列を足すだけにする。行を書き直すと、大きな DB（行が百万単位）で起動が十数秒止まるので、行への番号振りは起動後に背面で数千行ずつ進める（db/pathRef.ts の startPathRefFill）。
+ * 旧い列（file_path_ref）は NOT NULL で後から外せず、落とすと表の書き直しと VACUUM が要る。新しい行は空の文字を入れ、番号を振った行も空にする。埋め終えるまでは、番号が null の行を旧い列で読む。
+ * 控えは当てる前に取り、そこでは索引を抜いてある（db/backup.ts）。
  */
 const V65_EVENT_PATH_REF_SQL = `
 create table event_paths (
   id integer primary key,
   path text not null unique
 );
-insert into event_paths (path) select distinct file_path_ref from event_index;
 alter table event_index add column path_id integer;
-update event_index set path_id = (select p.id from event_paths p where p.path = event_index.file_path_ref);
-alter table event_index drop column file_path_ref;
 `;
 
 /**
@@ -1134,5 +1128,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 58, sql: V58_CONFIG_HISTORY_SQL },
   { version: 59, sql: V59_AUTO_APPROVALS_SQL },
   { version: 60, sql: V60_EVENT_FTS_ROWID_SQL },
-  { version: 65, sql: V65_EVENT_PATH_REF_SQL, vacuumAfter: true },
+  { version: 65, sql: V65_EVENT_PATH_REF_SQL },
 ];

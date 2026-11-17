@@ -988,7 +988,8 @@ create table event_index (
   session_id text not null, seq integer not null,
   kind text not null,                              -- 正規化イベントの種別
   ts integer, byte_offset integer not null, byte_length integer not null,
-  path_id integer,                                 -- 位置が指すファイル。event_paths の番号（版 65）
+  path_id integer,                                 -- 位置が指すファイル。event_paths の番号（版 65）。null は番号を振る前の行で、file_path_ref を読む
+  file_path_ref text not null,                     -- 旧い列。番号を振った行と版 65 以降の新しい行は空
   parent_agent text,                               -- サブエージェントの ID。null は主線
   tool_name text, file_path text,                  -- tool_call のときだけ
   fts_rowid integer                                -- 対応する event_fts の rowid（版 60）。0 は検索の行が無い、null は版 60 より前に積んだ行
@@ -1261,12 +1262,14 @@ FTS5 の `unindexed` の列には索引が無く、`session_id` で消すと中�
 索引の行は、ファイルのパスの文字を持たず、`event_paths` の番号（`path_id`）で指す（版 65）。
 パスは平均 135 字で、行ごとに持つと、行が百万単位の索引では DB の大きな部分（147 万行で 200MB 前後）を占めていた。
 番号なら、パスの文字は索引の行数によらずファイルの数だけである。
-書く側（`indexer/write.ts`）は、束の中で引いた番号を覚え、読む側（`transcript/filePage.ts`）は、同じ記録かの比べを番号でし、開くときだけ表からパスを引く。
-控え（`db/backup.ts`）は、抜く行を番号で選び、行が無くなったパスの行も抜く。
+書く側（`indexer/write.ts`）は、束の中で引いた番号を覚え、読む側（`transcript/filePage.ts`）は、番号か旧い列からパスを引いて開く。
+控え（`db/backup.ts`）は、抜く行を番号と旧い列の両方で選び、行が無くなったパスの行も抜く。
 控えは当てる前の DB の写しなので、版 65 より前の形（`file_path_ref`）の DB でも抜ける。
-版 65 は、パスの表を作り、行の番号を埋め、元の列を落とす。
-行数に比例した時間がかかり（行が 100 万の DB で、控えを含めて開くのに数秒）、列を落とすだけではファイルが縮まないので、そのあと一度だけ VACUUM する（8MB 未満の DB では省く。失敗しても DB は開く）。
-マイグレーションは 1 つの取引なので、途中で止まっても戻り、次の起動でやり直せる。
+版 65 は、パスの表と `path_id` の列を足すだけで、行を書き直さない。
+行を書き直すと、大きな DB では開くときに十数秒止まり、列を落とすだけではファイルが縮まない（VACUUM も同じだけかかる）ので、どちらもしない。
+旧い列（`file_path_ref`）は NOT NULL で後から外せないので残し、新しい行は空の文字を入れる。
+旧い行への番号振りは、起動の後ろで背面（`db/pathRef.ts` の `startPathRefFill`）が数千行ずつ進める。1 回は 1 つの取引で、間に待ちを挟み、振った行は旧い列を空にする（空いた頁は後の書き込みが使い回す）。
+埋め終えるまでは、`path_id` が null の行を旧い列で読む（`EVENT_PATH_SQL`）。途中でサーバが止まっても、次の起動が残りから続ける。
 Claude の本文を読むとき（`provider/claude-code/transcript/page.ts`）は、索引のバイト位置からファイルを読み、正規化し直す。
 1 つの記録から出た行は `seq` が続いているので、ページの中の 2 つ目からの記録は、ページに入った最初の行が記録の先頭である。
 記録の途中から始まりうるのはページの最初の記録だけで、その先頭は索引を 1 行ずつ遡って確かめる。

@@ -39,25 +39,6 @@ function peekVersion(file: string): number | null {
   }
 }
 
-/** ファイルがこの大きさ（バイト）以上のときだけ、VACUUM で縮める。小さな DB では、縮める時間のほうが高くつく。 */
-const SHRINK_MIN_BYTES = 8 * 1024 * 1024;
-
-/**
- * 表の行を書き直したあと、ファイルを縮める。
- * 列を落とす書き直しは、行を同じ頁の中で縮めるだけで、頁を空き頁には戻さない（freelist_count は 0 のまま）。ので空きの大きさでは決められず、ファイルの大きさで決める。
- * 縮めるのに失敗しても（空きのディスクが足りないなど）、DB は開く。縮まないだけで、中身は変わらない。
- */
-function shrinkIfLarge(db: Db): void {
-  try {
-    const bytes = (db.pragma('page_count', { simple: true }) as number) * (db.pragma('page_size', { simple: true }) as number);
-    if (bytes < SHRINK_MIN_BYTES) return;
-    db.exec('vacuum');
-    db.pragma('wal_checkpoint(TRUNCATE)');
-  } catch (e) {
-    console.error('[db] vacuum after migration failed', e instanceof Error ? e.message : e);
-  }
-}
-
 /**
  * データベースを開き、WAL と外部キーを有効にして、未適用のマイグレーションを順に当てる。
  * 起点（BASELINE_VERSION）より古い版の DB は、書き込み用に開く前に DbTooOldError を投げる（版は peekVersion が読み取り専用で読む）。控えも取らない（DB の中身を変えないので要らない）。
@@ -88,6 +69,5 @@ export function openDb(file: string, opts: OpenDbOptions = {}): Db {
     db.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(m.version, Date.now());
   });
   for (const m of pending) apply(m);
-  if (file !== ':memory:' && pending.some((m) => m.vacuumAfter)) shrinkIfLarge(db);
   return db;
 }

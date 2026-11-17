@@ -207,7 +207,7 @@ describe('routes', () => {
     expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: 'a.md' })).status).toBe(400);
     expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: 3 })).status).toBe(400);
     // 別のセッションが編集したパスと、このセッションが読んだだけのパスは開かない。
-    const indexRow = db.prepare("insert into event_index (session_id, seq, kind, byte_offset, byte_length, path_id, tool_name, file_path) values (?, ?, 'tool_call', 0, 0, ?, ?, ?)");
+    const indexRow = db.prepare("insert into event_index (session_id, seq, kind, byte_offset, byte_length, path_id, tool_name, file_path, file_path_ref) values (?, ?, 'tool_call', 0, 0, ?, ?, ?, '')");
     indexRow.run('another-session', 900_001, pathRefId(db, 'x'), 'Edit', `${ws}/alpha/other.md`);
     expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/other.md` })).status).toBe(404);
     fs.writeFileSync(`${ws}/alpha/read.md`, 'r');

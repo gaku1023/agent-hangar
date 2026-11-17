@@ -173,7 +173,7 @@ describe('routes', () => {
     const at = '/Users/me/workspace/alpha/channels/a.md';
     // 索引にあるのは、メイン会話の Edit 1 回だけ。
     expect(await json(await get(`/api/sessions/${id}/files`))).toEqual({ status: 200, body: { files: [{ path: at, edits: 1, agentId: null }] } });
-    const row = db.prepare("insert into event_index (session_id, seq, kind, byte_offset, byte_length, path_id, parent_agent, tool_name, file_path) values (?, ?, 'tool_call', 0, 0, ?, ?, ?, ?)");
+    const row = db.prepare("insert into event_index (session_id, seq, kind, byte_offset, byte_length, path_id, parent_agent, tool_name, file_path, file_path_ref) values (?, ?, 'tool_call', 0, 0, ?, ?, ?, ?, '')");
     row.run(id, 900_001, pathRefId(db, 'x'), null, 'Edit', at);
     row.run(id, 900_002, pathRefId(db, 'x'), null, 'MultiEdit', at);
     // サブエージェントだけが触ったファイルは、そのサブエージェントの id を添える。

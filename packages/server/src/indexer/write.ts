@@ -157,7 +157,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
   // 「いま何をしているか」は手元の主線だけから取る。サブエージェントと他端末の写しは見ない。
   const mainLocal = b.agentId === null && !remote;
 
-  const insEv = stmt(db, 'insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, path_id, parent_agent, tool_name, file_path, fts_rowid) values (?,?,?,?,?,?,?,?,?,?,?)');
+  const insEv = stmt(db, 'insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, path_id, file_path_ref, parent_agent, tool_name, file_path, fts_rowid) values (?,?,?,?,?,?,?,\'\',?,?,?,?)');
   const insFts = stmt(db, 'insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)');
   // 本文を DB に持つ束（stored）は、イベントそのものを agent_events に写す（読むのは transcript/stored.ts）。
   const insBody = stmt(db, 'insert or replace into agent_events (session_id, agent_key, seq, body) values (?,?,?,?)');

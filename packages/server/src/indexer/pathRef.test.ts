@@ -20,7 +20,7 @@ describe('索引はパスを番号で指す', () => {
       expect(rows).toBeGreaterThan(1);
       expect(n('select count(*) c from event_paths')).toBe(1);
       expect(n('select count(*) c from event_index e join event_paths p on p.id = e.path_id and p.path = ' + `'${main.path.replaceAll("'", "''")}'`)).toBe(rows);
-      expect((db.prepare("select name from pragma_table_info('event_index')").all() as { name: string }[]).map((c) => c.name)).not.toContain('file_path_ref');
+      expect(((db.prepare("select ref from (select ifnull(max(file_path_ref), '') ref from event_index)").get() as { ref: string }).ref)).toBe('');
       expect(searchSessions(db, { q: 'channels' }).total).toBe(1);
       const opened: string[] = [];
       const id = (db.prepare('select id from sessions').get() as { id: string }).id;

@@ -13,7 +13,7 @@ let dir: string;
 let db: Db;
 const idOf = (p: string) => (db.prepare('select id from sessions where provider_session_id = ?').get(p) as { id: string }).id;
 /** そのセッションがファイルを触ったことにする。索引の行を 1 つ足すだけで、本文は要らない。 */
-const touchFile = (sessionId: string, file: string) => db.prepare("insert into event_index (session_id, seq, kind, path_id, byte_offset, byte_length, file_path) values (?, 9999, 'tool', ?, 0, 0, ?)").run(sessionId, pathRefId(db, 'x'), file);
+const touchFile = (sessionId: string, file: string) => db.prepare("insert into event_index (session_id, seq, kind, path_id, byte_offset, byte_length, file_path, file_path_ref) values (?, 9999, 'tool', ?, 0, 0, ?, '')").run(sessionId, pathRefId(db, 'x'), file);
 beforeEach(async () => {
   dir = copyFixtureClaudeDir(); db = openDb(':memory:');
   await new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir: dir }), isRunning: () => false }).fullScan();

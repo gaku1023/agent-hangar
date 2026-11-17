@@ -28,7 +28,7 @@ describe('版 35：本文を DB に持つエージェントの本文の表', () 
     const db = openDb(file, { backupDir: path.join(tmp, 'backups') });
     expect(dbVersionOf(file)).toBeGreaterThanOrEqual(AFTER);
     expect(db.prepare('select count(*) c from agent_events').get()).toEqual({ c: 0 });
-    expect(db.prepare("select e.seq, e.kind, p.path file_path_ref from event_index e join event_paths p on p.id = e.path_id where e.session_id = 's1'").all()).toEqual([{ seq: 0, kind: 'user', file_path_ref: '/w/u1.jsonl' }]);
+    expect(db.prepare("select seq, kind, file_path_ref from event_index where session_id = 's1'").all()).toEqual([{ seq: 0, kind: 'user', file_path_ref: '/w/u1.jsonl' }]);
     db.close();
   });
 

@@ -715,7 +715,7 @@ describe('opencode の会話', () => {
     db.prepare("insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?, 'transcript', ?, ?, 'x', 1, 1, 1, 1)")
       .run(`opencode/${OTHER}/${SES}.json.gz`, `opencode/${SES}.json`, OTHER);
     // 索引に写した本文（agent_events）と、検索と、いまの手。
-    db.prepare("insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, path_id) values ('s-oc', 0, 'user', 1, 0, 0, ?)").run(pathRefId(db, `opencode:${SES}`));
+    db.prepare("insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, path_id, file_path_ref) values ('s-oc', 0, 'user', 1, 0, 0, ?, '')").run(pathRefId(db, `opencode:${SES}`));
     db.prepare("insert into event_fts (session_id, agent_id, seq, role, text) values ('s-oc', null, 0, 'user', 'hello')").run();
     db.prepare("insert into agent_events (session_id, agent_key, seq, body) values ('s-oc', '', 0, '{}')").run();
     db.prepare("insert into session_activity (session_id, tool, summary, tool_id, updated_at) values ('s-oc', 'Bash', 'x', 't', 1)").run();
