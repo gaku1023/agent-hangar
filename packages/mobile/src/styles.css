@@ -269,18 +269,11 @@ details.p-more summary { font-size: 12.5px; color: var(--accent); cursor: pointe
 .ns-actions { display: flex; gap: 8px; }
 .ns-actions > .ns-start { flex: 1; }
 
-/* プロジェクトの選び方（B1）。クイックセッション、最近の札、検索、すべて。 */
-.pp-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.pp-chip { max-width: 100%; min-height: 44px; padding: 8px 14px; border: 0; border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--card-line); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; transition: box-shadow var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
-.pp-chip:active { transform: scale(0.98); }
-.pp-chip.on { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); font-weight: 700; }
-.pp-chip.all { color: var(--accent); font-weight: 700; }
-.ns-form:disabled .pp-chip { cursor: default; opacity: 0.6; }
-.ns-form:disabled .pp-chip.on { opacity: 1; }
-.pp-search { margin-top: 12px; }
+/* プロジェクトの一覧（札を押したシートの中身）。 */
+.ns-form:disabled .ns-form:disabled .pp-search { margin-top: 4px; }
 .pp-results { margin-top: 10px; }
 .pp-note { padding: 2px 4px; }
-.pp-all { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.pp-all { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; padding-bottom: 16px; }
 .prow { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 10px 14px; border: 0; border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--card-line); text-align: left; font-size: 14px; cursor: pointer; transition: background-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
 .prow:active, .prow.on { background: var(--accent-soft); }
 .prow.on { box-shadow: inset 0 0 0 1.5px var(--accent); font-weight: 700; }
@@ -288,20 +281,7 @@ details.p-more summary { font-size: 12.5px; color: var(--accent); cursor: pointe
 .prow-pcs { flex: none; display: flex; gap: 4px; }
 .pcb { font-style: normal; font-size: 10.5px; font-weight: 700; color: var(--ink-3); background: var(--surface-2); border-radius: 6px; padding: 1px 6px; }
 
-/* 詳しい設定（C3）。閉じて 1 行の要約。開くと 3 列で並ぶ。 */
-.sumrow { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 12px 14px; border: 0; border-radius: 14px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--card-line); text-align: left; cursor: pointer; }
-.sumrow-text { flex: 1; min-width: 0; }
-.sumrow b { font-size: 14px; }
-.sumrow small { display: block; color: var(--ink-3); font-size: 12px; overflow-wrap: anywhere; }
-.sumrow .chev { margin-left: auto; color: var(--ink-3); transition: transform var(--dur) var(--ease-out); }
-.sumrow.open .chev { transform: rotate(90deg); }
-.ns-form:disabled .sumrow { cursor: default; opacity: 0.6; }
-.adv { padding-top: 2px; }
-.adv-note { margin-top: 10px; }
-.ns-grid.c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.choice.sm { justify-content: center; padding: 8px 6px; font-size: 13px; text-align: center; }
-.choice.sm .choice-title { flex: none; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
-/* エージェントの札（opencode の「ベータ」）と、題名の下に説明を置くモデルの札。 */
+.ns-form:disabled /* エージェントの札（opencode の「ベータ」）と、題名の下に説明を置くモデルの札。 */
 .choice > [aria-hidden] > .agent-icon { vertical-align: middle; }
 .beta { display: inline-block; margin-left: 6px; border-radius: 99px; padding: 0 7px; background: var(--st-paused-soft); color: var(--st-paused); font-size: 10.5px; font-weight: 700; line-height: 1.5; vertical-align: 1px; }
 .choice.stack { flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding: 8px 12px; text-align: left; }
@@ -569,3 +549,28 @@ button.set-it:active { background: var(--surface-2); }
 .wait-card[role="button"] { cursor: pointer; }
 .input[aria-invalid="true"] { box-shadow: inset 0 0 0 1.5px var(--error); }
 .ns-start.danger { background: var(--error); }
+
+/* 起動の画面の札の列（試作 4A）。大きな入力欄の下に、PC の新規ダイアログと同じ順に並べる。押すと下からシートで選ぶ。 */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 36px; padding: 6px 12px; border: 0; border-radius: 18px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); font-size: 13.5px; color: var(--ink); white-space: nowrap; cursor: pointer; transition: box-shadow var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.chip:active { transform: scale(0.98); }
+.chip.dim { color: var(--ink-3); }
+.chip.danger { color: var(--error); box-shadow: inset 0 0 0 1.5px var(--error); font-weight: 700; }
+.chip.danger::before { content: '⚠'; }
+.chip.plus { width: 36px; justify-content: center; padding: 0; font-size: 18px; color: var(--ink-2); }
+.chip:disabled { opacity: 0.45; cursor: default; }
+.ns-form:disabled .chip { cursor: default; opacity: 0.6; }
+.ns-form > .fold { margin-top: 10px; }
+.ns-form > .fold .fold-pad { padding-bottom: 0; }
+/* シートの選択肢。罫と地の無い行で、選んだ行は右に ✓。 */
+.pick-list { display: flex; flex-direction: column; padding: 0 0 18px; }
+.pick-list > .choice { min-height: 48px; padding: 12px 20px; border-radius: 0; background: none; box-shadow: none; font-weight: 400; font-size: 15px; }
+.pick-list > .choice.on { color: var(--accent); font-weight: 700; background: none; box-shadow: none; }
+.pick-list > .choice.on::after { content: '✓'; margin-left: auto; }
+.pick-list > .choice.danger { border-top: 1px solid var(--line-strong); }
+.pick-list > .choice.danger.on { color: var(--error); }
+.pick-list + .ns-hint, .ns-hint + .pick-list { margin-top: 4px; }
+.bs-body > .ns-hint { padding: 0 20px 4px; }
+.pick-list > .prow { border-radius: 0; background: none; box-shadow: none; padding: 12px 20px; }
+.pick-list > .prow.on { color: var(--accent); background: none; box-shadow: none; }
+.pick-list > .prow.on::after { content: '✓'; }
