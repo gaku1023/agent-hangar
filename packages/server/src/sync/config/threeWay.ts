@@ -29,6 +29,13 @@ import { CLAUDE_TARGET_NAME, parseTargetItemId, targetNameOfId } from './targets
  * 古い版の束は、新しい対象を知らず、自分の束に新しい項目を入れない。それを「消した」と読まないための決まりである。
  * - その対象を扱う相手が 1 台もいない id は、何もしない（delete も forget もしない。基準の行は残す）。
  * - 手元でその対象が切（localTargets に無い）の id は、何もしない（create もしない）。
+ * 競合で手元を採った PC は、基準を相手の指紋に付け替える（apply.ts の updateBase）。
+ * その PC は束の項目に、付け替えた基準の指紋（base）と決めた時刻（baseAt）を添えて上げ直す。
+ * 受け手は、相手の base が手元の指紋と同じなら、相手は手元の値を見たうえで自分の値を採ったと読み、overwrite にする。
+ * 両方が手元を採り合った（自分の基準も相手の指紋になっている）ときは、後に決めた側の値にそろえる。
+ * 時刻が同じなら端末 ID の大きい側にそろえ、両方が同時に動いて値が入れ替わり続けることを防ぐ。
+ * base を知らない古い版の束は、これまでどおりに判定する。
+ *
  * 種類（configKinds）でも同じに扱う。対象は有効でも、その中の種類だけ切のことがあるためである。
  * - 手元でその種類が切（localOffKinds にある）の id は、何もしない。
  * - 送り手でその種類が切（束の offKinds にある）なら、その束はその id を扱う相手に数えない。
@@ -38,7 +45,8 @@ export type RemoteSnapshot = {
   deviceId: string;
   /** 束を上げた時刻（config_snapshots.updated_at）。新しい方を採る。 */
   at: number;
-  items: ReadonlyMap<string, { sha256: string }>;
+  /** base と baseAt は、送り手が競合で手元を採ったときの基準の指紋と、その時刻。 */
+  items: ReadonlyMap<string, { sha256: string; base?: string; baseAt?: number }>;
   /** その束で集めた対象の名前。省くと古い版の束と同じに、Claude だけを扱う相手と読む。 */
   targets?: ReadonlySet<string>;
   /** その束で切だった種類。省くと切の種類は無い。 */
@@ -75,6 +83,10 @@ export function judge(i: {
   localTargets?: ReadonlySet<string>;
   /** 手元で切の種類。省くと、切の種類は無い。 */
   localOffKinds?: ReadonlySet<string>;
+  /** 手元の基準を書いた時刻（config_base.synced_at）。手元を採り合ったときに、後に決めた側を選ぶのに使う。 */
+  baseAt?: ReadonlyMap<string, number>;
+  /** 手元の端末 ID。手元を採り合った時刻が同じときの決め手に使う。 */
+  localDeviceId?: string;
 }): Judgement {
   const out: Judgement = { actions: [], agreed: new Map(), forget: [] };
   if (i.remotes.length === 0) return out;
@@ -92,7 +104,8 @@ export function judge(i: {
     const handlers = remotes.filter((r) => (r.targets ?? OLD_BUNDLE_TARGETS).has(target) && !(kind && r.offKinds?.has(kind)));
     if (handlers.length === 0) continue; // その対象を扱う相手がいない。消去と見なさない
     const holder = handlers.find((r) => r.items.has(id));
-    const rsha = holder ? holder.items.get(id)!.sha256 : null;
+    const held = holder ? holder.items.get(id)! : null;
+    const rsha = held ? held.sha256 : null;
 
     if (!holder) {
       if (l === null) { if (b !== null) out.forget.push(id); continue; }
@@ -107,9 +120,20 @@ export function judge(i: {
       else if (b !== rsha) out.actions.push({ id, op: 'conflict', fromDeviceId: from, remoteSha256: rsha, localSha256: null });
       continue; // b === rsha は、手元で消したもの
     }
-    if (b === l) out.actions.push({ id, op: 'overwrite', fromDeviceId: from, remoteSha256: rsha, localSha256: l });
-    else if (b !== rsha) out.actions.push({ id, op: 'conflict', fromDeviceId: from, remoteSha256: rsha, localSha256: l });
+    if (b === l || (held!.base === l && !localWinsMutual(b === rsha, i.baseAt?.get(id) ?? 0, held!.baseAt ?? 0, i.localDeviceId ?? '', from))) {
+      out.actions.push({ id, op: 'overwrite', fromDeviceId: from, remoteSha256: rsha, localSha256: l });
+    } else if (b !== rsha) out.actions.push({ id, op: 'conflict', fromDeviceId: from, remoteSha256: rsha, localSha256: l });
     // b === rsha で l が違うときは、手元が新しい。
   }
   return out;
+}
+
+/**
+ * 相手が手元の値を超えて採った値を持つとき、手元の値を保つか。
+ * 手元も相手の値を超えて採っていた（mutual）ときだけ、後に決めた側、同時なら端末 ID の大きい側を残す。
+ */
+function localWinsMutual(mutual: boolean, localAt: number, remoteAt: number, localId: string, remoteId: string): boolean {
+  if (!mutual) return false;
+  if (localAt !== remoteAt) return localAt > remoteAt;
+  return localId > remoteId;
 }

@@ -105,3 +105,34 @@ describe('3 方向の判定（自分、相手、前回の共通）', () => {
     expect(j.actions.map((a) => a.id)).toEqual(['a', 'b', 'c']);
   });
 });
+
+describe('競合で手元を採った値を、相手にそろえさせる（SM6）', () => {
+  /** 相手の束の項目に、送り手が上書きして採った値の指紋（base）と、その決めた時刻（baseAt）を添える。 */
+  const snapB = (deviceId: string, at: number, items: Record<string, { sha256: string; base?: string; baseAt?: number }>): RemoteSnapshot => ({ deviceId, at, items: new Map(Object.entries(items)) });
+
+  it('相手が手元の値を超えて採った値なら、手元が変わっていても overwrite（conflict にしない）', () => {
+    // 手元 W、前回の共通 X。相手は W を見たうえで M を採った（相手の基準が W）。
+    const j = judge({ local: m({ a: 'W' }), base: m({ a: 'X' }), remotes: [snapB('B', 10, { a: { sha256: 'M', base: 'W', baseAt: 5 } })] });
+    expect(j.actions).toEqual([{ id: 'a', op: 'overwrite', fromDeviceId: 'B', remoteSha256: 'M', localSha256: 'W' }]);
+  });
+
+  it('相手の基準が手元と違えば、これまでどおり conflict', () => {
+    const j = judge({ local: m({ a: 'W' }), base: m({ a: 'X' }), remotes: [snapB('B', 10, { a: { sha256: 'M', base: 'Y', baseAt: 5 } })] });
+    expect(ops(j)).toEqual({ a: 'conflict' });
+  });
+
+  it('両方が手元を採り合ったら、後に決めた側の値に 1 方向だけそろう', () => {
+    // Mac（dev-a）は M を採り、基準を W にした（時刻 200）。Windows（dev-b）は W を採り、基準を M にした（時刻 100）。
+    const mac = judge({ local: m({ a: 'M' }), base: m({ a: 'W' }), baseAt: new Map([['a', 200]]), localDeviceId: 'dev-a', remotes: [snapB('dev-b', 10, { a: { sha256: 'W', base: 'M', baseAt: 100 } })] });
+    const win = judge({ local: m({ a: 'W' }), base: m({ a: 'M' }), baseAt: new Map([['a', 100]]), localDeviceId: 'dev-b', remotes: [snapB('dev-a', 10, { a: { sha256: 'M', base: 'W', baseAt: 200 } })] });
+    expect(mac.actions).toEqual([]);
+    expect(win.actions).toEqual([{ id: 'a', op: 'overwrite', fromDeviceId: 'dev-a', remoteSha256: 'M', localSha256: 'W' }]);
+  });
+
+  it('決めた時刻が同じなら、端末 ID の大きい側にそろう（両方が動いて入れ替わらない）', () => {
+    const a = judge({ local: m({ a: 'M' }), base: m({ a: 'W' }), baseAt: new Map([['a', 100]]), localDeviceId: 'dev-a', remotes: [snapB('dev-b', 10, { a: { sha256: 'W', base: 'M', baseAt: 100 } })] });
+    const b = judge({ local: m({ a: 'W' }), base: m({ a: 'M' }), baseAt: new Map([['a', 100]]), localDeviceId: 'dev-b', remotes: [snapB('dev-a', 10, { a: { sha256: 'M', base: 'W', baseAt: 100 } })] });
+    expect(ops(a)).toEqual({ a: 'overwrite' });
+    expect(b.actions).toEqual([]);
+  });
+});

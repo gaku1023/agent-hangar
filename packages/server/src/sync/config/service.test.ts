@@ -500,6 +500,45 @@ describe('3 方向の判定と受け取りの一覧', () => {
   });
 });
 
+describe('競合で手元を採ったら、相手もその値にそろう（SM6）', () => {
+  /** 2 台が同じ中身から別々に変え、両方に conflict が出た状態を作る。 */
+  async function diverged(): Promise<{ a: Pc; b: Pc }> {
+    const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
+    addDevices();
+    a.write('commands/x.md', 'v1'); b.write('commands/x.md', 'v1');
+    await sync(a, b); await sync(b, a);
+    advance(1000);
+    a.write('commands/x.md', 'from a'); b.write('commands/x.md', 'from b');
+    await sync(a, b); await sync(b, a);
+    expect(ids(a)).toEqual(['conflict:file:commands/x.md']);
+    expect(ids(b)).toEqual(['conflict:file:commands/x.md']);
+    return { a, b };
+  }
+  /** 競合で手元を採ったときの基準の付け替え（apply.ts の updateBase と同じ）。 */
+  const takeMine = (p: Pc, remote: string): void => new ConfigBase(p.db).set('file:commands/x.md', sha256Hex(remote), clock);
+
+  it('手元を採ると、中身が同じでも束を上げ直し、相手には overwrite が出る', async () => {
+    const { a, b } = await diverged();
+    advance(1000);
+    takeMine(b, 'from a');
+    expect(ids(b)).toEqual([]);
+    expect((await b.service.send()).sent).toBe(true);
+    deliver(b, a); await a.service.receive();
+    expect(ids(a)).toEqual(['overwrite:file:commands/x.md']);
+  });
+
+  it('両方が手元を採り合っても、値が違うまま黙らず、後に決めた側へ 1 方向だけそろう', async () => {
+    const { a, b } = await diverged();
+    advance(1000);
+    takeMine(a, 'from b');
+    advance(1000);
+    takeMine(b, 'from a');
+    await sync(a, b); await sync(b, a);
+    expect(ids(b)).toEqual([]);
+    expect(ids(a)).toEqual(['overwrite:file:commands/x.md']);
+  });
+});
+
 describe('送らなかった項目', () => {
   it('絶対パスの規則と秘密らしい項目を記録し、送らず、本文は載せない', () => {
     const a = pc('dev-a', 'mac');
