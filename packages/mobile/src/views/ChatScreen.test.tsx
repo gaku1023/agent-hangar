@@ -96,8 +96,10 @@ describe('ChatScreen', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'メッセージ' }), { target: { value: '続けて' } });
     await act(async () => fireEvent.click(screen.getByRole('button', { name: '送る' })));
     items = [as('a1', 'x'), user('u2', '続けて')];
-    await waitFor(() => expect(document.querySelector('.it-user:not(.pending)')).toBeTruthy());
-    expect(document.querySelectorAll('.it-user')).toHaveLength(1);
+    await waitFor(() => {
+      expect(document.querySelectorAll('.it-user')).toHaveLength(1);
+      expect(document.querySelector('.it-user:not(.pending)')).toBeTruthy();
+    });
   });
 
   it('許可の札の選択肢を押すと answer を送り、選択肢が畳まれて答えが残る', async () => {
