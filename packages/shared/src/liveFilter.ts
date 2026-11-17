@@ -79,3 +79,25 @@ export function sessionPhaseOf(o: { live: LiveStatus | null; status: SessionStat
   if (live === 'waiting') return 'waiting';
   return settled ?? 'running';
 }
+
+/**
+ * ターンの段階。登録の busy・waiting・idle と、裏だけの印（aside）を 1 か所で読み分ける。
+ * running は本体が動いている。aside は本体が入力を受け付けていて、裏の作業だけが動いている（登録の status は busy のまま）。
+ * waiting は入力待ち、idle は休み、none は登録に居ない。
+ * server がターンの始まりと終わりを推すときは、status を直に見ず、この関数を通す。
+ */
+export type TurnPhase = 'running' | 'aside' | 'waiting' | 'idle' | 'none';
+
+export function turnPhaseOf(o: { status: LiveStatus | null | undefined; aside?: unknown }): TurnPhase {
+  if (o.status === 'busy') return o.aside ? 'aside' : 'running';
+  if (o.status === 'waiting') return 'waiting';
+  if (o.status === 'idle') return 'idle';
+  return 'none';
+}
+
+/** 動いている事実があるか。裏だけの作業も含む（止める、引き取る、の判断で見失わない）。 */
+export const isTurnWorking = (p: TurnPhase): boolean => p === 'running' || p === 'aside';
+/** 本体が返答を書いている最中か。裏だけの間は含まない（ターンの終わりを待つ側が使う）。 */
+export const isTurnRunning = (p: TurnPhase): boolean => p === 'running';
+/** 本体が入力を受け付けているか。休みと、裏だけの間。 */
+export const acceptsInput = (p: TurnPhase): boolean => p === 'idle' || p === 'aside';

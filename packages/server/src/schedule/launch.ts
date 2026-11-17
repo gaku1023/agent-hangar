@@ -1,4 +1,4 @@
-import type { AgentKind, ScheduleTarget } from '@agent-hangar/shared';
+import { turnPhaseOf, type AgentKind, type ScheduleTarget } from '@agent-hangar/shared';
 import { getSession } from '../db/queries.ts';
 import { MessageError, msg } from '../i18n/message.ts';
 import { sendToSessionTool } from '../mcp/screenTools.ts';
@@ -57,7 +57,7 @@ export async function launchScheduled(deps: ToolDeps, s: { prompt: string; targe
   if (!cur) throw new MessageError(msg('mcp.error.sessionNotFound', { id }));
   if (deps.runs.aliveRun?.(id)) {
     // 考えている途中や、許可の問いで止まっている会話に入力を流し込まない。
-    if (cur.live !== 'idle') return 'busy';
+    if (turnPhaseOf({ status: cur.live, aside: cur.liveAside }) !== 'idle') return 'busy';
   } else {
     await resumeSessionTool(deps, CTX, { session_id: id });
     const until = clock.now() + RESUME_READY_MS;

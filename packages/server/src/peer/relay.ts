@@ -1,4 +1,6 @@
 import {
+  isTurnRunning,
+  turnPhaseOf,
   E2eOpenError,
   sealPeerResult,
   type LiveSessionDto,
@@ -148,7 +150,8 @@ export class PeerRelay {
     };
     const l = this.liveOf(row.session_id, live);
     if (!l) return expire();
-    if (l.status === 'busy') {
+    // 裏だけが動く間（aside）は、本体が返答を終えて入力を受け付けているので、終わりとして読む。
+    if (isTurnRunning(turnPhaseOf(l))) {
       w.seenBusy = true;
       w.emitted = null;
       w.stop = null;

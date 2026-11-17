@@ -102,6 +102,19 @@ describe('PeerRelay', () => {
     expect(await t.results()).toMatchObject([{ reason: 'idle', lastReply: '' }]);
   });
 
+  it('裏だけが動く間は本体が入力を受け付けているので、idle として終わりを書く（SM1）', async () => {
+    const t = await setup();
+    t.start();
+    t.setReply({ text: '済み', ts: T0 + 1000 });
+    t.setLive([entry('u-child', 'busy')]);
+    t.relay.check();
+    t.setNow(T0 + 2000);
+    t.setLive([entry('u-child', 'busy', { aside: { shell: false, agents: 1 } })]);
+    t.relay.check();
+    await t.flush();
+    expect(await t.results()).toMatchObject([{ reason: 'idle', lastReply: '済み' }]);
+  });
+
   it('質問と許可で止まると理由つきで書き、そのあと idle でもう 1 件（テスト 9）', async () => {
     const t = await setup();
     t.start();

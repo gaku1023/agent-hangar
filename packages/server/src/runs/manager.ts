@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { isAgentKind, type CodexPermission, prepChoiceOf, type OrchestratorSetting, LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE, newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
+import { isAgentKind, isTurnWorking, turnPhaseOf, type CodexPermission, prepChoiceOf, type OrchestratorSetting, LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE, newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
 import type { Account } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
@@ -1444,7 +1444,8 @@ export class RunManager {
     const l = this.liveOf(s.provider_session_id);
     if (!l) throw new RunError(409, msg('run.adopt.notRunning'));
     if (l.background) return this.attach(s.id);
-    if (l.status === 'busy') throw new RunError(409, msg('run.adopt.busy'));
+    // 裏だけが動く間も、動いている事実として引き取りを断る。
+    if (isTurnWorking(turnPhaseOf(l))) throw new RunError(409, msg('run.adopt.busy'));
     if (l.entrypoint !== 'cli') throw new RunError(409, msg('run.adopt.notCli'));
     if (this.adopting.has(s.id)) throw new RunError(409, msg('run.adopt.inProgress'));
     this.precheck(s.cwd);

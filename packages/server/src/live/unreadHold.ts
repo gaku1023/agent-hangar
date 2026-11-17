@@ -1,4 +1,4 @@
-import type { LiveSessionDto } from '@agent-hangar/shared';
+import { isTurnRunning, turnPhaseOf, type LiveSessionDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
 import { addUnread, noteUnreadReady, onUnread, type NotifyTarget, type UnreadMeta } from './unread.ts';
@@ -31,7 +31,7 @@ export type UnreadHoldDeps = {
  * 作業中でも裏だけの印（aside）があれば、本体は返答を書き終えて入力を受け付けているので途中とみなさない。
  */
 export const turnRunning = (l: Pick<LiveSessionDto, 'status' | 'waitingFor' | 'aside'>): boolean =>
-  (l.status === 'busy' && !l.aside) || (l.status === 'waiting' && l.waitingFor === 'permission');
+  isTurnRunning(turnPhaseOf(l)) || (l.status === 'waiting' && l.waitingFor === 'permission');
 
 /** 会話（hangar の id）の run が、いまターンの途中か。登録に居なければ途中ではない。 */
 export function sessionTurnRunning(db: Db, live: LiveSessionDto[], sessionId: string): boolean {
