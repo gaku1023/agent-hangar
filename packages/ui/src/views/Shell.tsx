@@ -35,7 +35,7 @@ export function Shell(props: ShellProps & { children: ReactNode; overlays: React
   const orchW = orchWidthCss(props.orchestratorWidth ?? ORCH_WIDTH_DEFAULT);
   useLayoutEffect(() => {
     document.documentElement.style.setProperty('--orch-w', orchW);
-    return () => document.documentElement.style.removeProperty('--orch-w');
+    return () => { document.documentElement.style.removeProperty('--orch-w'); };
   }, [orchW]);
   const style = { '--sidebar-w': sidebarWidthCss(props.sidebarWidth), '--orch-w': orchWidthCss(props.orchestratorWidth ?? ORCH_WIDTH_DEFAULT) } as CSSProperties;
   return (
