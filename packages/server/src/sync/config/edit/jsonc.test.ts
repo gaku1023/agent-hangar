@@ -32,7 +32,6 @@ describe('jsonc の書き戻し（形を保つ）', () => {
     expect(setJsonc(SAMPLE, ['agent', 'build', 'prompt'], 'q')).toBe(SAMPLE.replace('"prompt": "p"', '"prompt": "q"'));
   });
   it('配列の要素を替える', () => {
-    expect(setJsonc(SAMPLE, ['instructions', 0], 'z.md')).toBe(SAMPLE.replace('"one.md"', '"z.md"'));
     expect(getJsonc(setJsonc(SAMPLE, ['instructions'], ['a.md']), ['instructions'])).toEqual(['a.md']);
   });
   it('鍵を足す（コメントは残る）', () => {
@@ -66,6 +65,40 @@ describe('jsonc の書き戻し（形を保つ）', () => {
   it('CRLF を保つ', () => {
     const out = setJsonc(SAMPLE.replace(/\n/g, '\r\n'), ['agent', 'plan', 'steps'], 1);
     expect(out.replace(/\r\n/g, '').includes('\n')).toBe(false);
+  });
+});
+
+describe('jsonc の書き手は 1 つで、元の字下げを保つ', () => {
+  const TAB = '{\n\t// c\n\t"a": [1,\n\t\t2],\n\t"b": { "x": 1, },\n\t"instructions": ["p"]\n}\n';
+  const FOUR = '{\n    "a": [1, 2],\n    "b": {\n        "x": 1,\n    },\n    "m": "x"\n}\n';
+  it('タブの文書に足してもタブのまま、触っていない行は変わらない', () => {
+    const out = setJsonc(TAB, ['mcp', 's'], { type: 'local', command: ['x'] });
+    expect(out.startsWith(TAB.slice(0, TAB.lastIndexOf('\n}')))).toBe(true);
+    expect(out).not.toMatch(/^ +"/m);
+    expect(out).toContain('\t"mcp": {\n\t\t"s": {');
+    expect(out).toContain('"b": { "x": 1, },');
+  });
+  it('触っていない配列を組み直さない', () => {
+    const out = setJsonc(TAB, ['b', 'y'], 2);
+    expect(out).toContain('"a": [1,\n\t\t2],');
+    expect(out).toContain('"instructions": ["p"]');
+  });
+  it('空白 4 つの幅を読んで合わせる', () => {
+    const out = setJsonc(FOUR, ['mcp', 's'], { type: 'local' });
+    expect(out).toContain('    "mcp": {\n        "s": {\n            "type": "local"');
+    expect(out).toContain('"a": [1, 2],');
+  });
+  it('値を替えても、コメントと末尾のカンマは残る', () => {
+    const out = setJsonc(TAB, ['b', 'x'], 5);
+    expect(out).toBe(TAB.replace('"x": 1,', '"x": 5,'));
+    expect(removeJsonc(TAB, ['instructions'])).toContain('// c');
+  });
+  it('同じ値なら何も変えない', () => {
+    expect(setJsonc(TAB, ['instructions'], ['p'])).toBe(TAB);
+  });
+  it('配列の中の要素へは書けない', () => {
+    expect(() => setJsonc(TAB, ['a', 0], 9)).toThrow(ConfigEditError);
+    expect(() => removeJsonc(TAB, ['a', 0])).toThrow(ConfigEditError);
   });
 });
 
