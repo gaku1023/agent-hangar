@@ -16,6 +16,7 @@ function inline(nodes: Inline[]): ReactNode[] {
       case 'code': return <code key={i}><Hl text={n.text} /></code>;
       case 'strong': return <strong key={i}>{inline(n.children)}</strong>;
       case 'em': return <em key={i}>{inline(n.children)}</em>;
+      case 'br': return <br key={i} />;
       case 'del': return <del key={i}>{inline(n.children)}</del>;
       // 宛先は http と https だけが来る（safeHref）。外で開く既存の経路（PR のリンクと同じ）に乗せる。
       case 'link': return <a key={i} href={n.href} target="_blank" rel="noreferrer noopener" title={n.href}>{inline(n.children)}<Icon name="externalLink" /></a>;
