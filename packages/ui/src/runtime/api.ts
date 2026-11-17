@@ -177,6 +177,10 @@ export type ApiClient = {
   voiceToggle(on: boolean): Promise<unknown>;
   voiceSpeak(id: string, text: string): Promise<unknown>;
   voiceStop(): Promise<unknown>;
+  /** 声の一覧（出どころごとの話者）。補助が無ければ 409 で投げる。 */
+  voiceVoices(): Promise<import('@agent-hangar/shared').VoiceCatalog>;
+  voicePreview(voice: string, speed: number): Promise<unknown>;
+  voiceEngine(source: 'voicevox' | 'aivis'): Promise<unknown>;
   /** 選んだ PC へ起動を頼む（承認は要らない）。置いたら requested、置く前に断れるものは refused と文を返す。 */
   peerLaunch(body: PeerLaunchBody): Promise<PeerLaunchOutcomeDto>;
   /** ほかの PC で動いている会話の停止を、その PC に頼む。置いたら requested、置く前に断れるものは refused と文を返す。 */
@@ -465,6 +469,9 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     voiceToggle: (on) => post('/api/voice/toggle', { on }),
     voiceSpeak: (id, text) => post('/api/voice/speak', { id, text }),
     voiceStop: () => post('/api/voice/stop'),
+    voiceVoices: () => call('/api/voice/voices'),
+    voicePreview: (voice, speed) => post('/api/voice/preview', { voice, speed }),
+    voiceEngine: (source) => post('/api/voice/engine', { source }),
     peerLaunch: (body) => post('/api/peer-launch', body),
     peerStop: (sessionId) => post('/api/peer-stop', { sessionId }),
     opencodeOptions: (dir, refresh) => call(`/api/opencode/options${qs({ dir, refresh: refresh ? '1' : null })}`),

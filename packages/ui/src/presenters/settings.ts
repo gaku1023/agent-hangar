@@ -263,7 +263,15 @@ export const ACCOUNT_COLORS = ['#2a57b8', '#7a4a9e', '#2b7048', '#c77a1a', '#a24
 /** アカウントの節。一覧が空なのは、まだ届いていないときだけ（1 件でもあれば出す）。 */
 export type AccountSettingsProps = { list: AccountView[]; colors: string[] };
 
+/**
+ * 設定の「統括の声」。聞き方と人格は設定の voice、声の一覧は補助に聞いた答え、鳴っているかは机の音声の状態から読む。
+ * available が偽（補助が使えない環境、Windows）のときは、声の欄と試し聞きを出さない。
+ */
+export type VoiceSettingsProps = { voice: import('@agent-hangar/shared').VoiceSetting; available: boolean; speakingId: string | null; catalog: import('@agent-hangar/shared').VoiceCatalog | null };
+
 export type SettingsProps = {
+  /** 統括の声。サーバが設定の voice を返さない古い版では省かれ、節を出さない。 */
+  voice?: VoiceSettingsProps;
   /** 統括（全セッションを統括する会話）を使うか。サーバが設定を返さない古い版では省かれ、スイッチを出さない。 */
   orchestratorOn?: boolean;
   workspaceRoot: string; claudeDir: string; device: { id: string; name: string } | null; version: string; index: IndexProgressDto; indexLabel: string; sessionCount: number; projectCount: number;
@@ -568,6 +576,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
   const integrations = presentIntegrations(t, state, store, { mcp: r?.commands.mcp ?? 'hangar mcp install', statusline: r?.commands.statusline ?? 'hangar statusline install', shell: command });
   return {
     ...(s?.orchestrator !== undefined ? { orchestratorOn: s.orchestrator.enabled } : {}),
+    ...(s?.voice !== undefined ? { voice: { voice: s.voice, available: store.voice?.available === true, speakingId: store.voice?.speakingId ?? null, catalog: store.voiceCatalog } } : {}),
     cloud,
     integrations,
     configSync: presentConfigSection(store, now, at === 'unsent'),

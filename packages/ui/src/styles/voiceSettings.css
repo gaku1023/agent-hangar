@@ -1,0 +1,44 @@
+/* 設定の「統括の声」（試作 C「行が垂れて開く」と声の欄 X「出どころを切り替える」）。 */
+.voice-wake { display: inline-block; overflow: hidden; white-space: nowrap; max-width: 0; opacity: 0; color: var(--accent); font-weight: 600; transition: max-width var(--dur) var(--ease-out), opacity var(--dur) var(--ease-out); }
+.voice-wake[data-on='true'] { max-width: 220px; opacity: 1; }
+.voice-sec-h { margin: calc(var(--u) * 3.5) 0 calc(var(--u) * 2); padding-top: calc(var(--u) * 3); border-top: 1px solid var(--line); font-weight: 600; }
+.voice-row { border-top: 1px solid var(--line); }
+.voice-row:first-child { border-top: 0; }
+.voice-row-h { display: flex; align-items: center; gap: calc(var(--u) * 3); min-height: 44px; }
+.voice-radio { flex: none; position: relative; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: none; box-shadow: inset 0 0 0 1.5px var(--line-strong); cursor: pointer; transition: box-shadow var(--dur-fast) var(--ease-out); }
+.voice-radio::after { content: ''; position: absolute; inset: 4px; border-radius: 50%; background: var(--accent); transform: scale(0); transition: transform var(--dur) var(--ease-out); }
+.voice-row[data-sel='true'] .voice-radio { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.voice-row[data-sel='true'] .voice-radio::after { transform: scale(1); }
+.voice-row-t { flex: 1; min-width: 0; display: flex; align-items: center; gap: calc(var(--u) * 3); min-height: 44px; padding: 0; border: 0; background: none; font: inherit; color: var(--ink); text-align: left; cursor: pointer; }
+.voice-n { font-weight: 600; }
+.voice-s { flex: 1; min-width: 0; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.voice-row-t > svg { flex: none; margin-right: var(--u); color: var(--ink-3); transition: rotate var(--dur) var(--ease-out); }
+.voice-row[data-open='true'] .voice-row-t > svg { rotate: 180deg; }
+.voice-fold { padding: var(--u) 0 calc(var(--u) * 3.5) calc(var(--u) * 7.5); }
+.voice-body { display: grid; gap: calc(var(--u) * 2.5); }
+.voice-f { display: grid; grid-template-columns: 64px 1fr; gap: calc(var(--u) * 2.5); align-items: center; }
+.voice-f.top { align-items: start; }
+.voice-f > b { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); }
+.voice-f.top > b { padding-top: calc(var(--u) * 1.5); }
+.voice-f > .input, .voice-f > textarea.input { width: 100%; min-width: 0; }
+.voice-f textarea.input { height: auto; min-height: 58px; padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); resize: vertical; font: inherit; }
+.voice-field { display: grid; gap: calc(var(--u) * 2); min-width: 0; justify-items: start; }
+.voice-pick { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2); align-items: center; animation: voice-swap var(--dur) var(--ease-out); }
+.voice-open { color: var(--accent); }
+.voice-speed { display: flex; align-items: center; gap: calc(var(--u) * 2.5); }
+.voice-speed input[type='range'] { appearance: none; width: 150px; height: 4px; border-radius: 2px; background: var(--line-strong); outline: none; }
+.voice-speed input[type='range']::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 3px rgba(30, 40, 90, 0.4); cursor: pointer; }
+.voice-val { min-width: 30px; color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+.voice-acts { display: flex; justify-content: space-between; gap: calc(var(--u) * 2); padding-top: var(--u); }
+.voice-play[data-playing='true'] { background: var(--accent-soft); color: var(--accent); }
+.voice-tri { width: 0; height: 0; border-left: 8px solid currentColor; border-top: 5px solid transparent; border-bottom: 5px solid transparent; margin-right: 2px; }
+.voice-bars { display: inline-flex; align-items: center; gap: 2px; height: 12px; }
+.voice-bars i { width: 2px; height: 3px; border-radius: 1px; background: currentColor; }
+.voice-play[data-playing='true'] .voice-tri { display: none; }
+.voice-play:not([data-playing='true']) .voice-bars { display: none; }
+.voice-play[data-playing='true'] .voice-bars i { animation: voice-bar var(--dur-spin) ease-in-out infinite; }
+.voice-play[data-playing='true'] .voice-bars i:nth-child(2) { animation-delay: calc(var(--dur-spin) * -0.6); }
+.voice-play[data-playing='true'] .voice-bars i:nth-child(3) { animation-delay: calc(var(--dur-spin) * -0.3); }
+.voice-add { margin-top: calc(var(--u) * 2); }
+@keyframes voice-bar { 0%, 100% { height: 3px; } 50% { height: 12px; } }
+@keyframes voice-swap { from { opacity: 0; } to { opacity: 1; } }

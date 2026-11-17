@@ -49,7 +49,7 @@ describe('表の鍵', () => {
       'opencode.options', 'opencode.providers.custom', 'opencode.providers.disconnect', 'opencode.providers.key', 'opencode.providers.load', 'opencode.providers.login', 'opencode.providers.login.cancel', 'opencode.providers.login.code', 'opencode.providers.login.poll', 'opencode.providers.model',
       'overlap.dismiss', 'peerApproval.answer', 'peerQueue.rush', 'project.git.load', 'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
       'schedule.delete', 'schedule.run', 'session.delete', 'session.move', 'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.state.reject', 'session.tryNow', 'setupGuide.openEditor', 'share.preview', 'summarizer.test', 'summary.regenerate',
-      'sync.now', 'sync.pause',
+      'sync.now', 'sync.pause', 'voice.catalog.load', 'voice.engine', 'voice.preview',
     ]);
   });
 });

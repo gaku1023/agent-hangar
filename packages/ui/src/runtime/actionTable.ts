@@ -249,6 +249,10 @@ export const actionTable = {
   'editors.load': () => call((api) => api.editors(), { apply: (store, editors) => ({ ...store, editors, editorTest: null }) }),
   // テストは、答えが届くまで「起こしています」を出す。答えは開けなかった理由も含めて欄の下に出す（トーストにしない）。
   'editor.test': () => call((api) => api.testEditor(), { before: (store) => ({ ...store, editorTest: 'running' }), apply: (store, editorTest) => ({ ...store, editorTest }), failed: (store) => ({ ...store, editorTest: null }) }),
+  // 統括の声。一覧は補助が無いと 409 で返るので、読めなかったときは一覧を空に戻し、画面は声の欄を出さない（トーストにしない）。
+  'voice.catalog.load': () => call((api) => api.voiceVoices(), { apply: (store, voiceCatalog) => ({ ...store, voiceCatalog }), failed: (store) => ({ ...store, voiceCatalog: null }) }),
+  'voice.preview': (i) => call((api) => api.voicePreview(i.voice, i.speed)),
+  'voice.engine': (i) => call((api) => api.voiceEngine(i.source)),
   // 前回の結果を先に消して、試している最中だと分かるようにする。
   'summarizer.test': () => call((api) => api.testSummarizer(), { before: (store) => ({ ...store, summarizerTest: null }), apply: (store, r) => ({ ...store, summarizerTest: r }) }),
 

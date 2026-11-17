@@ -71,6 +71,11 @@ export type VoiceSourceId = 'kokoro' | 'voicevox' | 'aivis' | 'os';
 /** 声の一覧（GET /api/voice/voices）。並びは kokoro・voicevox・aivis・os。running が偽の出どころは speakers が空。 */
 export type VoiceCatalog = { sources: Array<{ id: VoiceSourceId; running: boolean; speakers: Array<{ name: string; styles: Array<{ name: string; voice: string }> }> }> };
 
+/** 足した人格の読みの既定（呼びかけ語になる。画面の言語が日本語のときだけ入れる）。 */
+export const NEW_PERSONA_READING = 'あたらしい';
+/** VOICEVOX と AivisSpeech の、既定のスタイルの名前。声の一言には、これだけ括弧を付けない。 */
+export const VOICE_STYLE_NORMAL = 'ノーマル';
+
 /** Kokoro の声（同梱の固定の一覧）。 */
 export const KOKORO_VOICES = ['jf_alpha', 'jf_gongitsune', 'jf_nezumi', 'jf_tebukuro', 'jm_kumo'] as const;
 

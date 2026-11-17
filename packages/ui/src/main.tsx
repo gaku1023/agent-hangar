@@ -25,6 +25,7 @@ import './styles/git.css';
 import './styles/schedules.css';
 import './styles/peerChat.css';
 import './styles/orchestrator.css';
+import './styles/voiceSettings.css';
 import { Root } from './Root.tsx';
 import { createApi } from './runtime/api.ts';
 import { stripEntryToken } from './runtime/entryToken.ts';
