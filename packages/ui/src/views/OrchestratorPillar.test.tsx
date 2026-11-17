@@ -44,6 +44,15 @@ describe('統括の柱の開き閉じ', () => {
   });
 });
 
+describe('統括の柱の開閉を mediator へ知らせる', () => {
+  it('開いたまま始めれば open: true を、閉じれば open: false を出す', () => {
+    mount(base());
+    expect(actions).toContainEqual({ type: 'orchestrator.pillar', open: true });
+    fireEvent.click(screen.getByRole('button', { name: '統括を閉じる' }));
+    expect(actions).toContainEqual({ type: 'orchestrator.pillar', open: false });
+  });
+});
+
 describe('統括の柱の中身', () => {
   it('上に方針の 1 行、その下に自動許可の記録を並べ、記録の行を押すとその会話へ移る', () => {
     mount(base({ policy: '読むだけなら通す', approvals: [{ id: 'a1', sessionId: 's9', title: '調べもの', tool: 'Read', head: '/a/b.ts' }] }));

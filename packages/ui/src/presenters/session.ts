@@ -563,7 +563,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const t = translatorOf(store);
   const view = state.sessionView[id] ?? defaultSessionView();
   // ターンの少ない終わった会話は、右の欄をはじめ畳み、その画面だけの開閉（tocPeek）に従う。
-  const transcriptOpen = tocFolds(store, view, id) ? view.tocPeek : view.transcriptOpen;
+  const transcriptOpen = tocFolds(store, view, id, state.orchestratorOpen) ? view.tocPeek : view.transcriptOpen;
   const base = { id, parent: null, live: null, aside: false, oneLiner: null, hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen, trustHint: false, canResume: false, canFork: false, summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, turnRows: [], turnsComplete: true, turnsPending: false, turnCount: null, loadingOlder: false, openTurnItems: [], turnJump: null, promptJump: false, strip: null, lead: null, badges: [], details: [], git: null, account: null, gone: null, jump: null, hasNewer: false, actions: { primary: openEditor(openLabel(t, store.settings)), menu: [] }, transcriptBand: null };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。

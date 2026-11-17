@@ -371,3 +371,26 @@ describe('ペインの木：右欄と本文の取り直し', () => {
     expect(loads(back.effects).sort()).toEqual(['s1:0', 's2:0']);
   });
 });
+
+describe('ペインの右パネルと統括の柱', () => {
+  const two = () => open(one(), 's2', 'right');
+  const tocOf = (s: State) => paneLeaves(s.panes.root).map((l) => l.toc);
+  it('柱が開いている間の pane.toc は、保存した toc を替えず、その場の開閉（tocPeek）だけを替える', () => {
+    const base = two();
+    const pane = base.panes.focus!;
+    const pillar = run(base, [act({ type: 'orchestrator.pillar', open: true })]).state;
+    const peeked = run(pillar, [act({ type: 'pane.toc', pane: pane })]);
+    expect(tocOf(peeked.state)).toEqual(tocOf(base));
+    expect(peeked.state.panes.tocPeek).toEqual([pane]);
+    expect(saves(peeked.effects)).toEqual([]);
+    expect(run(peeked.state, [act({ type: 'pane.toc', pane })]).state.panes.tocPeek).toEqual([]);
+    // 柱を閉じると覗いていた分は戻る。
+    expect(run(peeked.state, [act({ type: 'orchestrator.pillar', open: false })]).state.panes.tocPeek).toEqual([]);
+  });
+  it('柱が閉じていれば、今までどおり toc を替える', () => {
+    const base = two();
+    const next = run(base, [act({ type: 'pane.toc', pane: base.panes.focus! })]).state;
+    expect(tocOf(next)).not.toEqual(tocOf(base));
+    expect(next.panes.tocPeek).toEqual([]);
+  });
+});

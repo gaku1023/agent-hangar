@@ -61,6 +61,8 @@ export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?
 
   // 会話と記録の読み込み。柱が出たとき（読み上げは畳んでいても要る）と、開くたびに頼む。
   useEffect(() => { emit({ type: 'orchestrator.open' }); }, [emit, open]);
+  // 柱の開閉を mediator へ写す（開いている間は、どの会話も右の欄を畳む）。
+  useEffect(() => { emit({ type: 'orchestrator.pillar', open }); }, [emit, open]);
   const toggle = (next: boolean) => setOrchestratorOpen(next);
 
   // 丸が戻るときは薄れて現れる。

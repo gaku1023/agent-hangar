@@ -207,7 +207,7 @@ export function sessionViewStep(state: State, store: Store, input: Input): Step 
       // ターンの少ない終わった会話では、右の欄ははじめ畳んである（presenters の tocFolds）。
       // そのときは保存する開閉を替えず、その画面だけの開閉を替える。
       const v = viewOf(state, sid);
-      if (tocFolds(store, v, sid)) return local(state, sid, { tocPeek: !v.tocPeek });
+      if (tocFolds(store, v, sid, state.orchestratorOpen)) return local(state, sid, { tocPeek: !v.tocPeek });
       return patch(state, sid, { transcriptOpen: !v.transcriptOpen });
     }
     case 'tab.open': {

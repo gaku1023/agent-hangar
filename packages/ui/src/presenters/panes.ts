@@ -20,6 +20,8 @@ export type PanesProps = {
   zoom: PaneId | null;
   flash: { pane: PaneId; n: number } | null;
   screens: Record<PaneId, SessionProps>;
+  /** ペインごとの右パネルの開閉。統括の柱が開いている間は、全部畳み、その場で開いたもの（tocPeek）だけ開く。 */
+  toc: Record<PaneId, boolean>;
   picker: PickerRow[];
 };
 
@@ -31,6 +33,8 @@ export function presentPanes(state: State, store: Store, now: number): PanesProp
   if (leaves.length < 2) return null;
   const screens: Record<PaneId, SessionProps> = {};
   for (const l of leaves) if (l.sessionId !== null) screens[l.id] = presentSession(state, store, now, l.sessionId);
+  const toc: Record<PaneId, boolean> = {};
+  for (const l of leaves) toc[l.id] = state.orchestratorOpen ? state.panes.tocPeek.includes(l.id) : l.toc;
   const inTree = new Set(leaves.map((l) => l.sessionId));
   const t = translatorOf(store);
   const picker = liveSessionIds(store).filter((id) => !inTree.has(id)).map((id): PickerRow => {
@@ -38,5 +42,5 @@ export function presentPanes(state: State, store: Store, now: number): PanesProp
     const live = shownLive(s);
     return { id, name: s.name ?? t('common.label.noName'), live, aside: asideOf(s.live, s.liveAside) !== null, reason: shownReason(s, live) };
   });
-  return { root, focus, zoom: zoom && leaves.some((l) => l.id === zoom) ? zoom : null, flash, screens, picker };
+  return { root, focus, zoom: zoom && leaves.some((l) => l.id === zoom) ? zoom : null, flash, screens, toc, picker };
 }
