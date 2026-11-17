@@ -6,9 +6,10 @@ import type { OrchestratorPillarProps } from '../presenters/orchestrator.ts';
 import { FakeVoicePort } from '../voice/fakeVoicePort.ts';
 import { OrchestratorPillar } from './OrchestratorPillar.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
-import * as kit from './primitives/motionKit.ts';
+import * as kit from './primitives/pillarMotion.ts';
 
-vi.mock('./primitives/motionKit.ts', async (orig) => ({ ...(await orig<typeof import('./primitives/motionKit.ts')>()), growIn: vi.fn(() => null), collapseOut: vi.fn(() => Promise.resolve()), fadeIn: vi.fn(() => null) }));
+vi.mock('./primitives/motionKit.ts', async (orig) => ({ ...(await orig<typeof import('./primitives/motionKit.ts')>()), fadeIn: vi.fn(() => null) }));
+vi.mock('./primitives/pillarMotion.ts', () => ({ pillarOpen: vi.fn(() => null), pillarClose: vi.fn(() => Promise.resolve()) }));
 
 const base = (o: Partial<OrchestratorPillarProps> = {}): OrchestratorPillarProps => ({
   sessionId: 'o1', tone: 'idle', statusLabel: '待機中', policy: null, approvals: [], rows: [], loading: false, canSend: true, sending: false,
@@ -24,17 +25,17 @@ function mount(p: OrchestratorPillarProps, open = true) {
 beforeEach(() => { port = new FakeVoicePort(); actions = []; vi.clearAllMocks(); });
 
 describe('統括の柱の開き閉じ', () => {
-  it('畳んでいるときは丸 1 つで、押すと柱が growIn で開く', () => {
+  it('畳んでいるときは丸 1 つで、押すと柱が pillarOpen で開く', () => {
     mount(base(), false);
     expect(screen.queryByRole('region', { name: '統括' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '統括を開く' }));
     expect(screen.getByRole('region', { name: '統括' })).toBeInTheDocument();
-    expect(kit.growIn).toHaveBeenCalledWith(expect.any(HTMLElement), 'x');
+    expect(kit.pillarOpen).toHaveBeenCalledWith(expect.any(HTMLElement), expect.any(HTMLElement));
   });
-  it('閉じると collapseOut を通ってから外れ、丸に戻る', async () => {
+  it('閉じると pillarClose を通ってから外れ、丸に戻る', async () => {
     mount(base());
     fireEvent.click(screen.getByRole('button', { name: '統括を閉じる' }));
-    expect(kit.collapseOut).toHaveBeenCalledWith(expect.any(HTMLElement), 'x');
+    expect(kit.pillarClose).toHaveBeenCalledWith(expect.any(HTMLElement), expect.any(HTMLElement));
     await waitFor(() => expect(screen.queryByRole('region', { name: '統括' })).toBeNull());
     expect(screen.getByRole('button', { name: '統括を開く' })).toBeInTheDocument();
   });

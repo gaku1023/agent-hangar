@@ -13,7 +13,8 @@ import { Icon } from './primitives/Icon.tsx';
 import { MicButton } from './primitives/MicButton.tsx';
 import { VoicePill } from './primitives/VoicePill.tsx';
 import { useLanguage, useT } from './primitives/language.tsx';
-import { collapseOut, fadeIn, growIn } from './primitives/motionKit.ts';
+import { fadeIn } from './primitives/motionKit.ts';
+import { pillarClose, pillarOpen } from './primitives/pillarMotion.ts';
 import { useMotionList } from './primitives/useMotionList.ts';
 import { usePresence } from './primitives/usePresence.ts';
 import { setOrchestratorOpen, useOrchestratorOpen } from './orchestratorOpen.ts';
@@ -31,7 +32,7 @@ const defaultVoiceApi = (): VoiceApi => (sharedVoiceApi ??= createApi());
 /**
  * 統括の柱（案 A、docs/design.md「統括」）。窓の右端に、いつも同じ場所にある。
  * 畳むと丸 1 つ（統括の状態の色）。開くと、上に方針の 1 行と自動許可の記録、下に統括との会話と入力欄を置く。入力欄の右にマイク。
- * 開き閉じは幅の伸び縮み（growIn と collapseOut の x）で、丸と柱の入れ替えは usePresence を通る。
+ * 開き閉じは外側の箱だけの幅の伸び縮み（pillarMotion.ts。中身は開いたときの幅のまま切り抜く）で、丸と柱の入れ替えは usePresence を通る。
  * 見出しや説明の文は置かない。方針の下に並ぶ記録が「方針で通したもの」で、会話の列が「聞かれたもの」である。
  */
 export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?: VoicePort; voiceApi?: VoiceApi; defaultOpen?: boolean }) {
@@ -52,7 +53,7 @@ export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?
   // 開閉はサイドバーの「統括」の行と共有する（orchestratorOpen.ts）。defaultOpen は最初の描画で 1 度だけ効く（覚えない）。
   useState(() => { if (props.defaultOpen !== undefined) setOrchestratorOpen(props.defaultOpen, false); });
   const open = useOrchestratorOpen();
-  const presence = usePresence<HTMLElement>(open, (el) => collapseOut(el, 'x'));
+  const presence = usePresence<HTMLElement>(open, (el) => pillarClose(el, el.firstElementChild as HTMLElement | null));
   const dot = useRef<HTMLButtonElement>(null);
   const [speakingKey, setSpeakingKey] = useState<string | null>(null);
   const micUsed = useRef(false);
@@ -71,11 +72,11 @@ export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?
     if (wasMounted.current && !presence.mounted && dot.current) fadeIn(dot.current);
     wasMounted.current = presence.mounted;
   }, [presence.mounted]);
-  // 柱は幅を伸ばして入る。最初の描画（開いたまま始まる）は動かさない。
+  // 柱は外側の箱の幅を伸ばして入る。最初の描画（開いたまま始まる）は動かさない。
   const first = useRef(true);
   useLayoutEffect(() => {
     if (first.current) { first.current = false; return; }
-    if (open && presence.ref.current) growIn(presence.ref.current, 'x');
+    if (open && presence.ref.current) void pillarOpen(presence.ref.current, presence.ref.current.firstElementChild as HTMLElement | null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -116,6 +117,7 @@ export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?
       )}
       {presence.mounted && (
         <section ref={presence.ref} className="orch-panel" aria-label={t('orchestratorPane.pillar.region')} data-leaving={presence.leaving ? 'true' : undefined}>
+          <div className="orch-panel-in">
           <div className="orch-top">
             {orch.policy !== null && <span className="orch-policy">{orch.policy}</span>}
             <button type="button" className="orch-dot orch-dot-close" data-tone={orch.tone} aria-label={t('orchestratorPane.pillar.close')} title={orch.statusLabel} onClick={() => toggle(false)} />
@@ -123,6 +125,7 @@ export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?
           <Approvals rows={orch.approvals} />
           <PeerChatLog rows={rows} loading={orch.loading} quietEmpty label={t('orchestratorPane.log.label')} onCancel={() => {}} onAnswer={() => {}} />
           <Composer canSend={orch.canSend} sending={orch.sending} port={port} voice={helper ? orch.voice! : null} voiceApi={voiceApi} onSend={send} onMic={() => { micUsed.current = true; }} />
+          </div>
         </section>
       )}
     </aside>
