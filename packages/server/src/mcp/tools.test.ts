@@ -79,6 +79,11 @@ const SESSION_TOOL_CALLS: [string, Record<string, unknown>][] = [
 ];
 
 describe('MCP tools', () => {
+  it('list_sessions は Paused の会話を phase: paused で返す（live は残す）', () => {
+    setSessionState(db, 'd', alphaId, { status: 'paused', note: 'x', setBy: 'user' });
+    const row = (call('list_sessions') as unknown as Record<string, unknown>[]).find((s) => s.id === alphaId)!;
+    expect(row).toMatchObject({ phase: 'running', status: 'paused', live: 'busy' });
+  });
   it('list_projects と get_project', () => {
     const list = call('list_projects') as unknown as Record<string, unknown>[];
     expect(list).toHaveLength(1);
@@ -88,6 +93,8 @@ describe('MCP tools', () => {
     // プロジェクトのノートはやめたので返さない。
     expect(p).not.toHaveProperty('memo');
     expect((p.recent_sessions as { id: string }[]).map((s) => s.id)).toEqual([alphaId]);
+    // 生の live に加えて、画面と同じ見分けの phase と、付けた状態の status を返す。
+    expect((p.recent_sessions as Record<string, unknown>[])[0]).toMatchObject({ live: 'busy', phase: 'running', status: null });
     expect(() => call('get_project', { project_id: 'nope' })).toThrow(ToolError);
     call('update_project', { project_id: 'p1', add_todos: ['a'] });
     recordArtifactPublish(db, 'd', { sessionId: alphaId, projectId: 'p1', url: 'https://claude.ai/code/artifact/z', publishedAt: 7, call: { filePath: null, description: 'Z', icon: 'flask' } });

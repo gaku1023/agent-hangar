@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { isAgentKind, isNotifyKind, isQuietStatus, notifyRulesOf, orchestratorLineage, orchestratorOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type PermissionPolicy, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto, type WakeOn } from '@agent-hangar/shared';
+import { isAgentKind, isNotifyKind, isQuietStatus, sessionPhaseOf, notifyRulesOf, orchestratorLineage, orchestratorOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type PermissionPolicy, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionPhase, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto, type WakeOn } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
@@ -226,6 +226,10 @@ function resumeOf(deps: ToolDeps, s: SessionDto): { resume_command: string | nul
  * セッション 1 件の要点。
  * resume_command だけは Claude の UUID を使う。ほかの項目の id は hangar の sessions.id である。
  */
+function phaseOf(s: SessionDto): SessionPhase {
+  return sessionPhaseOf({ live: s.live, status: s.state?.status, parked: s.parked, woke: s.woke, providerSessionId: s.providerSessionId });
+}
+
 function sessionBrief(deps: ToolDeps, s: SessionDto) {
   return {
     id: s.id,
@@ -233,6 +237,8 @@ function sessionBrief(deps: ToolDeps, s: SessionDto) {
     project_id: s.projectId,
     cwd: s.cwd,
     live: s.live,
+    phase: phaseOf(s),
+    status: s.state?.status ?? null,
     started_at: s.startedAt,
     last_activity_at: s.lastActivityAt,
     summary: s.summary ? { title: s.summary.title, one_liner: s.summary.oneLiner, state: s.summary.state, source: s.summary.source } : null,

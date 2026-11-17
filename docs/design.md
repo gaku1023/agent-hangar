@@ -3803,6 +3803,7 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   開ける会話では `resume_hint` は `null` である。
   以前は手元に本文が無い会話にも `claude -r <id>` を返しており、それを打った Claude が失敗していた。
 - `list_sessions`、`search_sessions`、`get_project` の直近のセッションには、会話を最後に動かした PC を `device: { name, platform, here }` で添える（0.6.1）。最後の run の PC で、run が無ければ作った PC（`home_device`）である。`here` はこの PC か。ほかの PC の会話は、パスやファイルの状態がこの PC と違うことがあるので、Claude が読み分けられるようにする（`runs/handover.ts` の `deviceOfSession`）。
+- `list_sessions` と `get_project` の直近のセッションには、生の `live` に加えて、画面と同じ見分けの `phase`（`preparing`、`running`、`waiting`、`paused`、`done`、`ended`）と、付けた状態の `status`（`paused`、`done`、`archived`、無ければ null）を返す。`wait_for_session` も `phase` を返す（`status` は従来どおり live）。決め方は shared の `sessionPhaseOf`（`liveFilter.ts`）で、会話の ID が決まっていない起動中の行は `preparing`、Paused と Done を付けて休んでいれば、プロセスが残っていても `paused` と `done`、作業中は状態が付いていても `running` とする。`create_session` の準備中の案内はこの `phase` を見るよう指す。既存の欄は消さない。
 - `get_transcript(session_id, { from_seq?, limit?, include_tools? })`：正規化イベントを返す。
 - `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch?, agent?, mode?, handoff?, worktree?, add_dirs?, account? })`：tmux で起動して run を返す。agent、mode、worktree、add_dirs は `POST /api/runs` と同じく `RunManager.start` にそのまま渡す。agent を省けば Claude Code で、mode は opencode のときだけ読む（Claude Code と Codex では捨てる）。
   Codex の権限（read-only、auto、full-access。省くと auto）は `permission_mode` で渡し、model はモデル名、effort は推論の段階である。
