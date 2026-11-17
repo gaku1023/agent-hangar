@@ -169,7 +169,7 @@ describe('listProjects', () => {
     expect(p).toMatchObject({
       id: 'p1', name: 'alpha', status: 'active', isScratch: false,
       path: '/Users/me/workspace/alpha', resolved: true,
-      runningCount: 1, openTodoCount: 0, memoHead: null,
+      runningCount: 1, openTodoCount: 0,
       lastActivityAt: Date.parse('2026-09-01T10:04:00.000Z'),
     });
   });
@@ -244,18 +244,16 @@ describe('getProject', () => {
 });
 
 describe('フェーズ 3 の項目', () => {
-  it('openTodoCount と memoHead はプロジェクトに付く', () => {
+  it('openTodoCount はプロジェクトに付く', () => {
     upsertShared(db, 'todos', { id: 't1', project_id: 'p1', text: 'a', done: 0, position: 1, session_id: null }, 'd');
     upsertShared(db, 'todos', { id: 't2', project_id: 'p1', text: 'b', done: 1, position: 2, session_id: null }, 'd');
     upsertShared(db, 'todos', { id: 't3', project_id: 'p1', text: 'c', done: 0, position: 3, session_id: null }, 'd');
     db.prepare('update todos set deleted_at = 1 where id = ?').run('t3');
     // Claude の提案は、利用者が受け入れるまで未完に数えない。
     upsertShared(db, 'todos', { id: 't4', project_id: 'p1', text: 'd', done: 0, position: 4, session_id: null, suggested_at: 1, suggested_note: null }, 'd');
-    upsertShared(db, 'project_memos', { project_id: 'p1', markdown: '\n\n# 見出し\n本文' }, 'd', 'project_id');
     const p = getProject(db, 'd', live, 'p1')!;
     expect(p.openTodoCount).toBe(1);
-    expect(p.memoHead).toBe('# 見出し');
-    expect(listProjects(db, 'd', live)[0]).toMatchObject({ openTodoCount: 1, memoHead: '# 見出し' });
+    expect(listProjects(db, 'd', live)[0]).toMatchObject({ openTodoCount: 1 });
   });
   it('statusline の値が stats に乗り、無ければ索引の値', () => {
     const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;

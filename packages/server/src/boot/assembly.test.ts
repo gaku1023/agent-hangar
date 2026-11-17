@@ -91,13 +91,12 @@ describe('索引とプロジェクトの組み立て', () => {
     const d = bootDelivery(h, { registryIsGone: ALL_ALIVE });
     const sent: NoticeEvent[] = [];
     const hub = { broadcast: (ev: NoticeEvent) => { sent.push(ev); } };
-    const sync = bootSync(h, { hub, toast: toastVia(hub) }, { memoPath: (id) => indexing.memos.memoPath(id) });
+    const sync = bootSync(h, { hub, toast: toastVia(hub) }, {});
     const indexing = bootIndexing(h, { ...d, hub }, sync);
     cleanups.push(async () => {
       indexing.stopTimers();
       sync.stopTimers();
       await sync.drain(() => 1000);
-      indexing.stopMemoWatch();
       indexing.indexer.stop();
       await d.stopPublishing();
       d.compatLog.stop();
@@ -134,11 +133,6 @@ describe('索引とプロジェクトの組み立て', () => {
     await indexing.start();
     expect(h.db.prepare("select git_remote from projects where id = 'pb'").get()).toEqual({ git_remote: 'github.com/me/beta' });
   }, 20_000);
-
-  it('メモの置き場は、置き場の下のプロジェクトごとのファイルである', () => {
-    const { indexing } = boot();
-    expect(indexing.memos.memoPath('p1')).toBe(path.join(home, 'projects', 'p1', 'memo.md'));
-  });
 });
 
 describe('要約と、run の出来事の受け手の組み立て', () => {

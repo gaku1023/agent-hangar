@@ -1,6 +1,6 @@
 import type { PeerChatDevice, PeerChatQueued, PeerChatUpdate } from './peerChat.ts';
 import type { ScheduleDto } from './schedule.ts';
-import type { TakeoverDto, DeleteApprovalDto, PeerApprovalDto, AccountsDto, ArtifactDto, CloudUsageDto, ConfigSyncDto, DeviceDto, IndexProgressDto, InterruptedDto, JoinApproverState, JoinRequestView, LiveSessionDto, MemoDto, PhoneLaunchDto, ProjectDto, RetentionDto, RunDto, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
+import type { TakeoverDto, DeleteApprovalDto, PeerApprovalDto, AccountsDto, ArtifactDto, CloudUsageDto, ConfigSyncDto, DeviceDto, IndexProgressDto, InterruptedDto, JoinApproverState, JoinRequestView, LiveSessionDto, PhoneLaunchDto, ProjectDto, RetentionDto, RunDto, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
 
 export type ServerEvent =
   | { type: 'ready'; version: string }
@@ -20,7 +20,6 @@ export type ServerEvent =
   | { type: 'tab.upsert'; tab: TabDto }
   | { type: 'accounts.update'; accounts: AccountsDto }
   | { type: 'todos.update'; projectId: string; todos: TodoDto[] }
-  | { type: 'memo.update'; memo: MemoDto }
   | { type: 'artifact.upsert'; artifact: ArtifactDto }
   | { type: 'summary.pending'; sessionId: string }
   | { type: 'summary.updated'; sessionId: string }

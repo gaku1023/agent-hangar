@@ -73,10 +73,8 @@ function collector(port: number, token: string) {
 
 type Upsert = Extract<ServerEvent, { type: 'session.upsert' }>;
 type ProjectUpsert = Extract<ServerEvent, { type: 'project.upsert' }>;
-type MemoUpdate = Extract<ServerEvent, { type: 'memo.update' }>;
 const sessionUpserts = (evs: readonly ServerEvent[], id: string) => evs.filter((e): e is Upsert => e.type === 'session.upsert' && e.session.id === id);
 const projectUpserts = (evs: readonly ServerEvent[], id: string) => evs.filter((e): e is ProjectUpsert => e.type === 'project.upsert' && e.project.id === id);
-const memoUpdates = (evs: readonly ServerEvent[], id: string) => evs.filter((e): e is MemoUpdate => e.type === 'memo.update' && e.memo.projectId === id);
 
 /** ワークスペースにプロジェクト alpha があり、そこにセッションが 1 つある状態でサーバを起こす。 */
 async function boot() {
@@ -148,15 +146,6 @@ describe('届くイベントの数と中身', () => {
       expect(ups[0]!.session).toEqual((await t.sessions()).find((x) => x.id === t.first.id));
       expect(projectUpserts(t.since(), t.alpha.id)).toHaveLength(0);
 
-      const from = t.c.all().length;
-      expect((await t.api(`/api/projects/${t.alpha.id}/memo`, { method: 'PUT', body: JSON.stringify({ markdown: '# 見出し\n本文' }) })).status).toBe(200);
-      await t.c.waitFor((e): e is MemoUpdate => e.type === 'memo.update' && e.memo.projectId === t.alpha.id);
-      await settle();
-      const afterMemo = t.c.all().slice(from);
-      expect(memoUpdates(afterMemo, t.alpha.id).map((e) => e.memo.markdown)).toEqual(['# 見出し\n本文']);
-      expect(projectUpserts(afterMemo, t.alpha.id).map((e) => e.project.memoHead)).toEqual(['# 見出し']);
-      expect(afterMemo.filter((e) => e.type === 'memo.update' || e.type === 'project.upsert').map((e) => e.type)).toEqual(['memo.update', 'project.upsert']);
-
       const from2 = t.c.all().length;
       const st = await t.api(`/api/projects/${t.alpha.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'paused' }) });
       expect(st.status).toBe(200);
@@ -185,7 +174,7 @@ describe('届くイベントの数と中身', () => {
       await t.tool('update_project', { project_id: t.alpha.id, status: 'paused', add_todos: ['やること'] });
       await t.c.waitFor((e): e is ProjectUpsert => e.type === 'project.upsert' && e.project.id === t.alpha.id && e.project.status === 'paused');
       await settle();
-      const after = t.c.all().slice(from).filter((e) => e.type === 'project.upsert' || e.type === 'todos.update' || e.type === 'memo.update');
+      const after = t.c.all().slice(from).filter((e) => e.type === 'project.upsert' || e.type === 'todos.update');
       expect(after.map((e) => e.type)).toEqual(['todos.update', 'project.upsert']);
       const last = after[1] as ProjectUpsert;
       // MCP から足した TODO は提案なので、未完の数には入らない。

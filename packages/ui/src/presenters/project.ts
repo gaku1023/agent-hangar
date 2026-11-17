@@ -75,9 +75,8 @@ export function presentArtifactCard(t: Translate, a: ArtifactDto, now: number): 
 export type InstructionRowProps = { kind: InstructionFileKind; name: string; desc: string; meta: string; off: boolean; markdown: string | null; truncated: boolean };
 /**
  * 右パネルの「指示とメモリ」。state は読み込む前（loading）、この PC にフォルダが無い（missing）、読み込んだ（ready）。
- * legacyNote は、やめたプロジェクトのノートに中身が残っているときの本文で、空なら null。
  */
-export type InstructionsProps = { state: 'loading' | 'missing' | 'ready'; rows: InstructionRowProps[]; legacyNote: string | null };
+export type InstructionsProps = { state: 'loading' | 'missing' | 'ready'; rows: InstructionRowProps[] };
 
 /** ファイルの大きさ。1 KB 未満はバイト、10 KB 未満は小数 1 桁の KB、それより上は bytesLabel に任せる。割る単位は bytes.ts の byteBase。 */
 function sizeLabel(bytes: number): string {
@@ -102,16 +101,14 @@ function descOf(t: Translate, f: InstructionFileDto, files: InstructionFileDto[]
 }
 
 export function presentInstructions(t: Translate, store: Store, id: string, now: number): InstructionsProps {
-  const memo = store.memos[id]?.markdown ?? '';
-  const legacyNote = memo.trim() !== '' ? memo : null;
   const dto = store.instructions[id];
-  if (!dto) return { state: 'loading', rows: [], legacyNote };
-  if (!dto.available) return { state: 'missing', rows: [], legacyNote };
+  if (!dto) return { state: 'loading', rows: [] };
+  if (!dto.available) return { state: 'missing', rows: [] };
   const rows = dto.files.map((f) => ({
     kind: f.kind, name: f.name, desc: descOf(t, f, dto.files), meta: t('projectScreen.instructions.meta', { size: sizeLabel(f.size), ago: relativeTime(t, f.updatedAt, now) }),
     off: !f.read, markdown: f.markdown, truncated: f.truncated,
   }));
-  return { state: 'ready', rows, legacyNote };
+  return { state: 'ready', rows };
 }
 
 /** この PC にパスの無いプロジェクトの git（サーバの GET /api/projects/:id/git も同じものを返す）。 */
@@ -126,7 +123,7 @@ export function presentProject(state: State, store: Store, now: number, id: stri
   const PARENT = parentOf(t);
   // 一覧はホームと同じ部品で、このプロジェクトのセッションだけを出す。見つからないプロジェクトは行が 0 になる。
   const list = presentSessionList(state, store, now, id);
-  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', notFound: true, isScratch: false, list, loadMore: null, info: { sessionsText: '', lastActivity: '' }, todos: [], doneTodos: [], suggestions: [], pendingTodos: 0, instructions: { state: 'loading', rows: [], legacyNote: null }, artifacts: [], artifactAddError: null, railFolded: [], git: { state: 'nogit', root: null, rows: [], fix: null } };
+  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', notFound: true, isScratch: false, list, loadMore: null, info: { sessionsText: '', lastActivity: '' }, todos: [], doneTodos: [], suggestions: [], pendingTodos: 0, instructions: { state: 'loading', rows: [] }, artifacts: [], artifactAddError: null, railFolded: [], git: { state: 'nogit', root: null, rows: [], fix: null } };
   const remaining = list.total - list.rows.length;
   const all = todosOf(store, id);
   const item = (x: TodoDto): TodoItemProps => ({ id: x.id, text: x.text, done: x.done, position: x.position, candidate: presentTodoCandidate(x, store, now) });

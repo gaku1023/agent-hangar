@@ -605,16 +605,12 @@ describe('起動と停止の手続きの配線', () => {
     }
   }, 30_000);
 
-  it('閉じた後にメモのファイルが書かれても、DB のメモは変わらない', async () => {
+  it('閉じた後に、ファイルの見張りが 1 つも残らない', async () => {
     const dir = path.join(d.ws, 'alpha');
     fs.mkdirSync(dir);
     writeTranscript(d.claudeDir, dir, 'bbbbbbbb-0000-4000-8000-000000000031', 'first');
     fs.writeFileSync(path.join(d.home, 'settings.json'), JSON.stringify({ workspaceRoot: d.ws, claudeDir: d.claudeDir }));
-    const memoOf = (projectId: string): string | undefined => {
-      const db = openDb(dbPath(d.home));
-      try { return (db.prepare('select markdown m from project_memos where project_id = ?').get(projectId) as { m: string } | undefined)?.m; } finally { db.close(); }
-    };
-    // 止め忘れた監視は、取り込みの失敗を黙って飲むので、DB を見るだけでは分からない。開いたままのファイルの監視の数でも見る。
+    // 止め忘れた監視は黙って残るので、開いたままのファイルの監視の数で見る。
     const fileWatches = (): number => process.getActiveResourcesInfo().filter((n) => /fsevent|fswatch/i.test(n)).length;
     // 前の試験が閉じた監視は、少し遅れて数から消える。数が落ち着いてから数える。
     const settled = async (): Promise<number> => {
@@ -629,29 +625,8 @@ describe('起動と停止の手続きの配線', () => {
     const watchesBefore = await settled();
     const s = await start(d);
     expect(fileWatches()).toBeGreaterThan(watchesBefore);
-    let projectId = '';
-    let file = '';
-    try {
-      const headers = { authorization: `Bearer ${tokenIn(d.home)}`, 'content-type': 'application/json', origin: `http://127.0.0.1:${s.port}` };
-      const projects = (await (await fetch(`http://127.0.0.1:${s.port}/api/projects`, { headers })).json()) as { id: string; name: string }[];
-      projectId = projects.find((p) => p.name === 'alpha')!.id;
-      const put = await fetch(`http://127.0.0.1:${s.port}/api/projects/${projectId}/memo`, { method: 'PUT', headers, body: JSON.stringify({ markdown: 'one' }) });
-      expect(put.status).toBe(200);
-      file = path.join(d.home, 'projects', projectId, 'memo.md');
-      expect(fs.readFileSync(file, 'utf8')).toBe('one');
-      // 動いている間は、ファイルの外部編集を監視で取り込む。この確かめ方で取り込みが見えることを、先に固定しておく。
-      await new Promise((r) => setTimeout(r, 50));
-      fs.writeFileSync(file, 'two');
-      await until(async () => (memoOf(projectId) === 'two' ? true : null));
-    } finally {
-      await s.close();
-    }
-    // 閉じた後の書き込み。監視が残っていると、閉じた DB へ取り込みに行く。
-    await new Promise((r) => setTimeout(r, 50));
-    fs.writeFileSync(file, 'three');
-    await new Promise((r) => setTimeout(r, 800));
-    expect(memoOf(projectId)).toBe('two');
-    // メモの監視も、索引と設定の監視も、1 つも残っていない。
+    await s.close();
+    // 索引と設定の監視が、1 つも残っていない。
     expect(await settled()).toBe(watchesBefore);
   }, 20_000);
 

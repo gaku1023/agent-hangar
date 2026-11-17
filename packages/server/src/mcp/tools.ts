@@ -105,8 +105,6 @@ export class ToolError extends MessageError {
 /**
  * 道具の名前。
  * セッションのノートを書く set_session_memo は 0.4.0 で道具ごと外した（要約の set_session_summary と Paused の戻る日が役を担う）。
- * update_project の append_memo のように notice で答える形にしないのは、あちらは同じ呼び出しのほかの項目を書くためにエラーにしなかったのに対し、
- * こちらは道具が 1 つの仕事しか持たず、外した後の一覧に無い道具を呼ばれても、MCP の層が書かずに isError（道具が無い）で返すからである。
  * モデルにこの道具を使うよう指示したことも無いので、古い指示を覚えた Claude が呼び続けることもない。
  */
 export const TOOL_NAMES = [
@@ -323,8 +321,7 @@ export function getProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
 }
 
 /**
- * status、add_todos、toggle_todos、propose_done を受けて書く。プロジェクトのノートは書かない（append_memo はやめた）。
- * 古い指示を覚えた Claude が append_memo を渡したときは、黙って捨てずに、やめたことと書く場所を notice で返す。エラーにはしないので、いっしょに渡したほかの項目は書く。
+ * status、add_todos、toggle_todos、propose_done を受けて書く。
  * 画面へのイベントは、書いた行から配る層（events/publisher.ts）が配る。道具は hub を持たない。
  */
 export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
@@ -375,7 +372,6 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
     project: { id: p.id, name: p.name, status: p.status, open_todo_count: p.openTodoCount },
     todos: todoBriefs(deps, id),
     todo_results: results,
-    ...(args.append_memo !== undefined ? { notice: render((deps.language ?? defaultLanguage)(), msg('mcp.updateProject.memoRetired')) } : {}),
   };
 }
 

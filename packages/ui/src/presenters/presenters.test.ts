@@ -25,7 +25,7 @@ import { presentToasts } from './toasts.ts';
 const ja = translator('ja');
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
-const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
+const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, updatedAt: 1 });
 const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, lastTurnAt: null, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over });
 const runDto = (id: string, sessionId: string, endedAt: number | null = null): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: NOW - 60_000, endedAt, endReason: endedAt ? 'exited' : null, heartbeatAt: 1 });
 const tabDto = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null): TabDto => ({ id, runId, sessionId: 's1', kind, title: kind === 'agent' ? 'Claude' : `シェル ${id}`, tmuxName: `hangar-${runId}-${id}`, createdAt: 2, closedAt });
@@ -1280,18 +1280,16 @@ describe('ヘッダの使用量の切り替え（Codex の枠）', () => {
 });
 
 describe('presentProject の右レール', () => {
-  it('TODO とメモとアーティファクトを並べ、クイックセッションは印を付ける', () => {
+  it('TODO とアーティファクトを並べ、クイックセッションは印を付ける', () => {
     const store: Store = {
       ...initialStore(),
-      projects: { p1: { ...project('p1'), name: 'alpha', path: '/w/alpha', lastActivityAt: NOW, openTodoCount: 1, memoHead: '# alpha' } },
+      projects: { p1: { ...project('p1'), name: 'alpha', path: '/w/alpha', lastActivityAt: NOW, openTodoCount: 1 } },
       todos: { t2: todoDto('t2', 2, true), t1: todoDto('t1', 1) },
-      memos: { p1: { projectId: 'p1', markdown: '# alpha\n本文', updatedAt: 5 } },
       artifacts: { a1: artDto('a1'), a2: artDto('a2', { projectId: 'p2' }) },
     };
     const p = presentProject(initialState(), store, NOW, 'p1');
     expect(p.todos).toEqual([{ id: 't1', text: 'やる t1', done: false, position: 1, candidate: null }]);
     expect(p.doneTodos).toEqual([{ id: 't2', text: 'やる t2', done: true, position: 2, candidate: null }]);
-    expect(p.instructions.legacyNote).toBe('# alpha\n本文');
     expect(p.artifacts.map((a) => a.id)).toEqual(['a1']);
     expect(p.isScratch).toBe(false);
   });
@@ -1491,7 +1489,7 @@ describe('presentProject の右レール（端）', () => {
   it('クイックセッションには印が付く。無いプロジェクトの右レールは空', () => {
     const store: Store = { ...initialStore(), projects: { sc: scratchProject() } };
     expect(presentProject(initialState(), store, NOW, 'sc').isScratch).toBe(true);
-    expect(presentProject(initialState(), store, NOW, 'nope')).toMatchObject({ notFound: true, isScratch: false, todos: [], instructions: { state: 'loading', rows: [], legacyNote: null }, artifacts: [] });
+    expect(presentProject(initialState(), store, NOW, 'nope')).toMatchObject({ notFound: true, isScratch: false, todos: [], instructions: { state: 'loading', rows: [] }, artifacts: [] });
   });
 });
 

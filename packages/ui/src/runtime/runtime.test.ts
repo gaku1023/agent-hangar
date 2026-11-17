@@ -1,6 +1,6 @@
 import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
-import type { BootstrapDto, CloudUsageDto, EventsPageDto, FolderRegisterItem, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, WorkspaceChildrenDto } from '@agent-hangar/shared';
+import type { BootstrapDto, CloudUsageDto, EventsPageDto, FolderRegisterItem, LaunchResultDto, ProjectDto, RunDto, ServerEvent, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, WorkspaceChildrenDto } from '@agent-hangar/shared';
 import { AccountLinkConflictApiError, ApiConflictError, ApiNotFoundError, LaunchPrepAskApiError, LaunchPrepCancelledApiError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient } from './api.ts';
 import { LONG_TOAST_MS } from './actionTable.ts';
 import { GIT_POLL_MS } from './gitWatch.ts';
@@ -373,7 +373,7 @@ describe('createRuntime', () => {
     expect(api.subagents).toHaveBeenCalledTimes(2);
   });
   describe('未解決のプロジェクト（2.11.5）', () => {
-    const project = (id: string, over: Partial<ProjectDto> = {}): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0, unresolved: null, ...over });
+    const project = (id: string, over: Partial<ProjectDto> = {}): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 0, unresolved: null, ...over });
     const lost = (id: string) => project(id, { resolved: false, unresolved: { kind: 'missing', previousPath: `/w/${id}`, deviceName: null } });
     const arrived = (id: string) => project(id, { path: null, resolved: false, unresolved: { kind: 'elsewhere', previousPath: `/o/${id}`, deviceName: 'Mac mini' } });
     const upsert = (p: ProjectDto): ServerEvent => ({ type: 'project.upsert', project: p });
@@ -633,7 +633,7 @@ describe('createRuntime', () => {
 });
 
 describe('配信のまとめ', () => {
-  const project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0, unresolved: null });
+  const project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 0, unresolved: null });
   const setup = async () => {
     const batches: (() => void)[] = [];
     const h = harness({}, { batchServerEvents: (fn) => { batches.push(fn); } });
@@ -679,7 +679,7 @@ describe('配信のまとめ', () => {
 const launched: LaunchResultDto = { run: { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 's1', tabs: [{ id: 'r1', runId: 'r1', sessionId: 's1', kind: 'agent', title: 'Claude', tmuxName: 'hangar-r1', createdAt: 1, closedAt: null }] };
 
 describe('起動とターミナル', () => {
-  const created = { id: 'p9', name: 'fresh', status: 'active' as const, isScratch: false, path: '/w/fresh', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 };
+  const created = { id: 'p9', name: 'fresh', status: 'active' as const, isScratch: false, path: '/w/fresh', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 1 };
   it('place 付きの起動は、作ってから、作ったプロジェクトで起動する', async () => {
     const createProject = vi.fn(async () => created);
     const launch = vi.fn(async () => launched);
@@ -1179,7 +1179,7 @@ describe('起動とターミナル', () => {
   });
 });
 
-const p3Project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: '/w/' + id, resolved: true, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
+const p3Project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: '/w/' + id, resolved: true, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, updatedAt: 1 });
 const p3Session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p9', name: 's1', cwd: '/w/newp', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, lastTurnAt: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null };
 const p3Todo = (id: string, done: boolean): TodoDto => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null });
 const p3Run = (id: string, sessionId: string): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: 1, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 });
@@ -1258,22 +1258,6 @@ describe('フェーズ 3 の効果', () => {
     await flush();
     expect(setTodoDone).toHaveBeenCalledWith('t1', false);
     expect(confirmTodo).not.toHaveBeenCalled();
-  });
-  it('メモは読み込みと保存の両方でストアに入る', async () => {
-    const memo = vi.fn(async (projectId: string): Promise<MemoDto> => ({ projectId, markdown: '# 読んだ', updatedAt: 5 }));
-    const saveMemo = vi.fn(async (projectId: string, markdown: string): Promise<MemoDto> => ({ projectId, markdown, updatedAt: 6 }));
-    const { rt, wsHandlers, setHash } = harness({ memo, saveMemo });
-    rt.start();
-    wsHandlers[0]!.onOpen();
-    await flush();
-    setHash('#/project/p1');
-    await flush();
-    expect(memo).toHaveBeenCalledWith('p1');
-    expect(rt.getStore().memos.p1?.markdown).toBe('# 読んだ');
-    rt.emit({ type: 'memo.save', projectId: 'p1', markdown: '# 書いた' });
-    await flush();
-    expect(saveMemo).toHaveBeenCalledWith('p1', '# 書いた');
-    expect(rt.getStore().memos.p1).toEqual({ projectId: 'p1', markdown: '# 書いた', updatedAt: 6 });
   });
   it('昇格は成功でストアを更新して promote.done、失敗で promote.failed になる', async () => {
     const promote = vi.fn(async () => ({ project: p3Project('p9'), session: p3Session, moved: true, reason: null }));
@@ -3208,7 +3192,7 @@ describe('git の表示（ランタイム）', () => {
   it('開いたままのプロジェクト画面のブランチと worktree は、周期と、窓が前に戻ったときに読み直す', async () => {
     const projectGit = vi.fn(async () => ({ root: null, worktrees: [] }));
     const visible = new Set<() => void>();
-    const p1: ProjectDto = { id: 'p1', name: 'p1', status: 'active', isScratch: false, path: '/w/p1', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0, unresolved: null };
+    const p1: ProjectDto = { id: 'p1', name: 'p1', status: 'active', isScratch: false, path: '/w/p1', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 0, unresolved: null };
     const { rt, wsHandlers, setHash, timers } = harness({ projectGit, bootstrap: vi.fn(async () => ({ ...boot, projects: [p1] })) }, { visible: () => true, onWindowVisible: (cb) => { visible.add(cb); return () => visible.delete(cb); } });
     rt.start();
     wsHandlers[0]!.onOpen();
@@ -3237,7 +3221,7 @@ describe('git の表示（ランタイム）', () => {
   /** プロジェクト画面を開いた状態まで進める。読み直しの周期と、窓が前に戻ったときの合図も返す。 */
   async function projectOpen(projectGit: ApiClient['projectGit']) {
     const visible = new Set<() => void>();
-    const p1: ProjectDto = { id: 'p1', name: 'p1', status: 'active', isScratch: false, path: '/w/p1', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0, unresolved: null };
+    const p1: ProjectDto = { id: 'p1', name: 'p1', status: 'active', isScratch: false, path: '/w/p1', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 0, unresolved: null };
     const h = harness({ projectGit, bootstrap: vi.fn(async () => ({ ...boot, projects: [p1] })) }, { visible: () => true, onWindowVisible: (cb) => { visible.add(cb); return () => visible.delete(cb); } });
     h.rt.start();
     h.wsHandlers[0]!.onOpen();

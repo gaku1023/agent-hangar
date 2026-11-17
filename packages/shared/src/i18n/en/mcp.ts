@@ -49,7 +49,6 @@ export const mcpEn: AreaDictionary<typeof mcpKeys> = {
   'mcp.sendToSession.askOpen': 'This session is waiting on a permission or question prompt. The text would be submitted as the answer to that prompt, so it was not sent. Fetch the prompt with list_pending_asks and answer it with answer_ask (if you do not have answer_ask, ask the user to answer it)',
   'mcp.sendToSession.failedWindows': 'In this Windows environment, multiple lines could not be pasted as a single input: {reason}. Put it on one line, or write the content to a file and send its path',
   'mcp.resumeHint.stale':'{device} is not responding, so claude -r on this computer cannot resume it. Open this session in Hangar with open_in_hangar and ask the user to click “Resume on this computer”.',
-  'mcp.updateProject.memoRetired': 'Project notes have been retired, so append_memo was not written. Write anything you want to keep in an instruction file such as CLAUDE.md.',
   'mcp.error.sessionNotFound': 'Session not found: {id}',
   'mcp.error.projectNotFound': 'Project not found: {id}',
   'mcp.error.todoNotFound': 'To-do not found: {id}',

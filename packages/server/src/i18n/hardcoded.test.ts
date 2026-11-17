@@ -51,7 +51,6 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'peer/chat/questionDialogs.fixtures.ts': { lines: 12, why: '実機の画面から切り出したものと、それに合わせて作ったものの、質問の札の見本（試験だけが読む）。文言ではない' },
   'peer/chat/questionDialogs.real.fixtures.ts': { lines: 3, why: 'Claude Code 2.1.326 の実機で写した、問いが複数ある質問の札（試験だけが読む）。文言ではない' },
   'platform/proc.ts': { lines: 1, why: LOG },
-  'projects/memo.ts': { lines: 1, why: LOG },
   'projects/scratch.ts': { lines: 1, why: FIRST_NAME },
   'provider/claude-code/compat/localClaude.ts': { lines: 1, why: LOG },
   'provider/claude-code/compat/log.ts': { lines: 1, why: LOG },

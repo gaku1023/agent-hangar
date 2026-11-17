@@ -160,7 +160,7 @@ describe('hangar project add', () => {
   });
 });
 
-const project = (over: Partial<ProjectDto>): ProjectDto => ({ id: 'p', name: 'n', status: 'active', isScratch: false, path: null, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1, ...over });
+const project = (over: Partial<ProjectDto>): ProjectDto => ({ id: 'p', name: 'n', status: 'active', isScratch: false, path: null, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 1, ...over });
 
 describe('hangar project remove', () => {
   // 一覧のパスは、試験機の形の絶対パスにする。
