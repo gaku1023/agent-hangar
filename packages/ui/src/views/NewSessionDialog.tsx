@@ -12,7 +12,9 @@ import { CancelPrepButton, LaunchPrepAsk, LaunchPrepBox, LaunchPrepFailed } from
 import { PromptComposer } from './primitives/PromptComposer.tsx';
 import { composePrompt, type Attachment } from './primitives/promptComposerModel.ts';
 import { InvestigateButton } from './InvestigateButton.tsx';
-import { fadeIn } from './primitives/motionKit.ts';
+import { collapseOut, fadeIn, growIn, motionOn } from './primitives/motionKit.ts';
+import { Segmented } from './primitives/Segmented.tsx';
+import { usePresence } from './primitives/usePresence.ts';
 import { useLaunchChoice } from './useLaunchChoice.tsx';
 import { PcMenu } from './PcMenu.tsx';
 
@@ -52,12 +54,19 @@ export function NewSessionDialog(props: NewSessionProps) {
   // 選んだ別の PC（案 1C）。毎回この PC から始める（覚えない）。ほかの PC が無いときは、メニューごと出さない。
   const peers: PeerDeviceDto[] = props.peers ?? [];
   const [peerId, setPeerId] = useState<string | null>(null);
-  const peer = peers.find((p) => p.id === peerId) ?? null;
+  // 「この会話の続きから」。元の会話から分岐して始める。別の PC には頼めないので、続きからにする間はこの PC に戻す。
+  const forkSeed = seed?.fork ?? null;
+  const [continuing, setContinuing] = useState(false);
+  const peer = continuing ? null : peers.find((p) => p.id === peerId) ?? null;
   const lc = useLaunchChoice({
     peer,
     data: props, projectId: props.projectId, scratch: props.scratch, dir: props.dir ?? null, freshWorktree: props.worktree === true,
     agent: props.agent, pickModel: props.pickModel === true, seed, name: draft?.name ?? '', onChoose: () => setStaleError(props.error),
+    fork: forkSeed && continuing ? { sessionId: forkSeed.sessionId } : null,
   });
+  // 続きからは Claude Code だけ。ほかのエージェントを選んだら、見出しの切り替えごと外す。
+  const forkOffered = forkSeed !== null && lc.agent === 'claude-code';
+  const forking = forkOffered && continuing;
   const { name, setName, blocked } = lc;
   const [prompt, setPrompt] = useState(seed?.request ?? draft?.prompt ?? '');
   const [attachments, setAttachments] = useState<Attachment[]>(draft?.attachments ?? []);
@@ -156,9 +165,10 @@ export function NewSessionDialog(props: NewSessionProps) {
   return (
     <Dialog
       title={t(lc.titleKey)}
-      titleAside={(peers.length > 0 || restored) && (
+      titleAside={(peers.length > 0 || restored || forkOffered) && (
         <>
-          {peers.length > 0 && <PcMenu peers={peers} value={peerId} onChange={setPeerId} />}
+          {forkOffered && <Segmented label={t('newSession.fork.label')} value={continuing ? 'continue' : 'fresh'} onChange={(v) => setContinuing(v === 'continue')} options={[{ value: 'fresh', label: t('newSession.fork.fresh') }, { value: 'continue', label: t('newSession.fork.continue') }]} />}
+          {peers.length > 0 && !forking && <PcMenu peers={peers} value={peerId} onChange={setPeerId} />}
           {restored && <>
           <span className="draft-tag"><Icon name="edit" />{t('newSession.draft.tag')}</span>
           <button type="button" className="linkish" aria-label={t('newSession.draft.discard')} onClick={discardDraft}><Icon name="discard" />{t('newSession.draft.discardShort')}</button>
@@ -181,7 +191,7 @@ export function NewSessionDialog(props: NewSessionProps) {
       {/* 欄は箱（枠と道具の段）を持つので、label は欄の外に置く。見える文字の代わりは案内（placeholder）が言う。 */}
       <div className="field">
         <label className="sr-only" htmlFor={PROMPT_ID}>{t('newSession.prompt.label')}</label>
-        <PromptComposer id={PROMPT_ID} remote={peer !== null} hero placeholder={t(peer !== null ? 'newSession.prompt.placeholderPeer' : 'newSession.prompt.placeholder')} value={prompt} onChange={setPrompt} projectId={lc.assistProject} attachments={attachments} onAttachmentsChange={changeAttachments} onPendingChange={setUploading} {...(seed ? { quote: seed.quote, quoteTone: seed.tone } : {})} />
+        <PromptComposer id={PROMPT_ID} remote={peer !== null} hero placeholder={t(peer !== null ? 'newSession.prompt.placeholderPeer' : 'newSession.prompt.placeholder')} value={prompt} onChange={setPrompt} projectId={lc.assistProject} attachments={attachments} onAttachmentsChange={changeAttachments} onPendingChange={setUploading} {...(seed ? { quote: seed.quote, quoteTone: seed.tone } : {})} band={forkSeed && <ForkOrigin open={forking} name={forkSeed.name} last={forkSeed.last} />} />
       </div>
       {lc.chips}
       {lc.notes}
@@ -197,5 +207,30 @@ export function NewSessionDialog(props: NewSessionProps) {
       <LaunchPrepFailed reason={failure} title={failure !== null ? prep?.failureTitle ?? null : null} />
       <LaunchPrepBox open={preparing} view={prep} />
     </Dialog>
+  );
+}
+
+/**
+ * 続きからの、元の会話の札（名前と直近の発言）。入力欄の上に伸びて入り、新規に戻すと畳んで出る。
+ * 開いた直後は動かさず、切り替えたときだけ動かす。
+ */
+function ForkOrigin(props: { open: boolean; name: string; last: string | null }) {
+  const panel = usePresence<HTMLDivElement>(props.open, (el) => (motionOn(el) ? collapseOut(el) : null));
+  const live = useRef(false);
+  const was = useRef(props.open);
+  useLayoutEffect(() => {
+    if (props.open && !was.current && live.current && panel.ref.current) growIn(panel.ref.current);
+    was.current = props.open;
+    live.current = true;
+  }, [props.open, panel.ref]);
+  if (!panel.mounted) return null;
+  return (
+    <div ref={panel.ref} className="pc-origin" data-testid="fork-origin">
+      <Icon name="sessions" />
+      <span className="pc-origin-text">
+        <b className="pc-origin-name">{props.name}</b>
+        {props.last && <span className="pc-origin-last">{props.last}</span>}
+      </span>
+    </div>
   );
 }

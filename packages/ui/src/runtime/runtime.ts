@@ -817,7 +817,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           else launchFailed(err);
         });
         return;
-      case 'api.fork': deps.api.fork(e.sessionId).then(launched).catch(launchFailed); return;
       // まとめて再開の 1 本。画面は移さない。起きた run は Store に入れ、順番待ちを進めるのは Mediator である。
       case 'api.resumeQueued': {
         const id = e.sessionId;

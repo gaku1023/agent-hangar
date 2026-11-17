@@ -56,3 +56,47 @@ describe('NewSessionDialog の設定を入れた種', () => {
     expect(sent(out)?.agent).toBeUndefined();
   });
 });
+
+describe('NewSessionDialog の「この会話の続きから」', () => {
+  const fork = { sessionId: 's9', name: 'ログイン画面の直し', last: '次の PR で直します' };
+  const seed = (): NewSessionSeed => ({ ...seedOf({ ...none, agent: 'claude-code', model: 'opus', effort: 'high' }), fork });
+  const pick = (name: string) => fireEvent.click(screen.getByRole('radio', { name }));
+
+  it('既定は新規。元の会話の札は出さず、送っても fork を付けない', () => {
+    const out = mount({ seed: seed() });
+    expect(screen.getByRole('radio', { name: '新規' }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.queryByTestId('fork-origin')).toBeNull();
+    start();
+    expect(sent(out)?.fork).toBeUndefined();
+  });
+  it('続きからにすると、入力欄の上に元の会話の名前と直近の発言が出て、fork を付けて送る。worktree は送らない', () => {
+    const out = mount({ seed: seed() });
+    pick('この会話の続きから');
+    expect(screen.getByTestId('fork-origin').textContent).toContain('ログイン画面の直し');
+    expect(screen.getByTestId('fork-origin').textContent).toContain('次の PR で直します');
+    start();
+    const p = sent(out);
+    expect(p).toMatchObject({ fork: 's9', projectId: 'p1', model: 'opus', effort: 'high' });
+    expect(p?.worktree).toBeUndefined();
+  });
+  it('続きからの間、プロジェクトと worktree の札は固定で押せない。モデルは変えられる', () => {
+    mount({ seed: seed() });
+    pick('この会話の続きから');
+    expect((screen.getByRole('button', { name: /プロジェクト/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: /worktree/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: /モデル/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+  it('新規に戻すと、札を畳み、固定を外し、fork を付けない', () => {
+    const out = mount({ seed: seed() });
+    pick('この会話の続きから');
+    pick('新規');
+    expect((screen.getByRole('button', { name: /worktree/ }) as HTMLButtonElement).disabled).toBe(false);
+    start();
+    expect(sent(out)?.fork).toBeUndefined();
+  });
+  it('種に fork が無い（Codex など続きから始められない会話）なら、切り替えを出さない', () => {
+    mount({ seed: seedOf({ ...none, agent: 'claude-code' }) });
+    expect(screen.queryByRole('radio', { name: 'この会話の続きから' })).toBeNull();
+  });
+});
+

@@ -1134,6 +1134,32 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
     expect(JSON.parse(fs.readFileSync(args[1]!, 'utf8')).mcpServers.hangar.url).toBe(`http://127.0.0.1:4177/mcp/s/${f.sessionId}`);
   });
 
+  it('新規の起動に fork を添えると、元の会話から分岐して起動し、モデル・effort・権限・名前・本文を渡す。worktree は渡さない', async () => {
+    const id = seedOldSession();
+    const rm = make();
+    const f = await rm.start({ fork: id, projectId: 'p1', name: '続き', prompt: '次はテスト', model: 'opus', effort: 'high', permissionMode: 'plan', worktree: 'wt-x' });
+    expect(f.sessionId).not.toBe(id);
+    expect(f.run).toMatchObject({ kind: 'fork', sessionId: f.sessionId });
+    const args = await launchedArgs(f.run.id);
+    const i = args.indexOf('--fork-session');
+    expect(args.slice(i - 2, i + 3)).toEqual(['-r', 'u-old', '--fork-session', '--session-id', args[i + 2]]);
+    expect(args.slice(args.indexOf('--model'), args.indexOf('--model') + 2)).toEqual(['--model', 'opus']);
+    expect(args).toContain('--effort');
+    expect(args).toContain('--permission-mode');
+    expect(args).not.toContain('-w');
+    expect(args[args.indexOf('-n') + 1]).toBe('続き');
+    expect(args).toContain("次はテスト");
+    expect(args.indexOf("次はテスト")).toBeGreaterThan(args.indexOf("--permission-mode"));
+    expect(db.prepare('select project_id from sessions where id = ?').get(f.sessionId)).toMatchObject({ project_id: 'p1' });
+  });
+
+  it('fork を添えた起動は、元の会話が無ければ 404、本文が無ければ 400', async () => {
+    const rm = make();
+    await expect(rm.start({ fork: 'nope', projectId: 'p1' })).rejects.toMatchObject({ status: 404 });
+    const noBody = seedOldSession(false);
+    await expect(rm.start({ fork: noBody, projectId: 'p1' })).rejects.toMatchObject({ status: 400 });
+  });
+
   // プロジェクトに属する会話は、cwd が無ければプロジェクトの場所に読み替える（runs/handover.ts）。読み替えられないのは、属さない会話である。
   it('cwd が無ければ 400', () => {
     const id = seedOldSession();

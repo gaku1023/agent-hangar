@@ -80,10 +80,6 @@ describe('失敗のトーストに「エージェントで調査…」', () => {
     expect(r.state.toasts.at(-1)?.message).toBe('再開できませんでした');
     expect(toastSend(r.state)).toEqual({ label: 'エージェントで調査…', title: 'エラーの内容を入れた新しいセッションのダイアログを開きます。', send: { type: 'investigate.open', op: 'resume', message: '再開できませんでした', sessionId: 's1' } });
   });
-  it('フォークの失敗', () => {
-    const sent = transition(base(), store, action({ type: 'session.fork', id: 's1' })).state;
-    expect(toastSend(transition(sent, store, runtime({ type: 'launch.failed', message: 'x' })).state)?.send).toEqual({ type: 'investigate.open', op: 'fork', message: 'x', sessionId: 's1' });
-  });
   it('ダイアログを閉じた後の起動の失敗は、送ったエージェントとアカウントを添える', () => {
     const opened = transition(base(), store, action({ type: 'session.new.open' })).state;
     const sent = transition(opened, store, action({ type: 'session.new.submit', params: { scratch: true, agent: 'codex', account: 'cw' } })).state;

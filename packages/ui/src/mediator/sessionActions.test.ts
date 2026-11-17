@@ -53,6 +53,21 @@ describe('同じ設定で新しいセッション', () => {
   it('プロジェクトと設定を種に入れたダイアログを開く。本文は空', () => {
     expect(duplicateOpenAction(storeOf([sess('a')]), 'a', settings)).toEqual({ type: 'session.new.open', projectId: 'p1', seed: { request: '', quote: '', accounts: { 'claude-code': 'a1' }, settings: { agent: 'claude-code', model: 'opus', effort: 'high', permissionMode: 'plan', mode: null, addDirs: ['/x'] } } });
   });
+  it('本文があり止まっている Claude Code の会話は、続きからの札（名前と直近の発言）を種に持つ', () => {
+    const base = { hasTranscript: true, lock: null, remoteOnly: false, name: 'ログイン画面の直し', summary: { oneLiner: '次の PR で直します' } } as Partial<SessionDto>;
+    expect(duplicateOpenAction(storeOf([sess('a', base)]), 'a', settings).seed?.fork).toEqual({ sessionId: 'a', name: 'ログイン画面の直し', last: '次の PR で直します' });
+    expect(duplicateOpenAction(storeOf([sess('a', { ...base, summary: null })]), 'a', settings).seed?.fork).toEqual({ sessionId: 'a', name: 'ログイン画面の直し', last: null });
+  });
+  it('本文が無い、動いている、ロックされている、ほかの PC だけにある、Claude Code でない会話には持たない', () => {
+    const base = { hasTranscript: true, lock: null, remoteOnly: false, name: 'x' } as Partial<SessionDto>;
+    const seedFork = (over: Partial<SessionDto>, st = settings) => duplicateOpenAction(storeOf([sess('a', { ...base, ...over })]), 'a', st).seed?.fork;
+    expect(seedFork({ hasTranscript: false })).toBeUndefined();
+    expect(seedFork({ live: 'busy' })).toBeUndefined();
+    expect(seedFork({ lock: { deviceName: 'pc' } as SessionDto['lock'] })).toBeUndefined();
+    expect(seedFork({ remoteOnly: true })).toBeUndefined();
+    expect(seedFork({}, { ...settings, agent: 'codex' })).toBeUndefined();
+    expect(seedFork({}, { ...settings, agent: 'opencode' })).toBeUndefined();
+  });
   it('クイックセッションと未分類はクイックセッションで開く。Codex のアカウントは Codex の札へ', () => {
     const codex = { ...settings, agent: 'codex' as const };
     expect(duplicateOpenAction(storeOf([sess('a', { projectId: 'q' })]), 'a', codex)).toMatchObject({ scratch: true, seed: { accounts: { codex: 'a1' } } });
