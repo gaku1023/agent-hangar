@@ -595,7 +595,7 @@ describe('設定の往復', () => {
     // 最初のアカウントの id も受ける。
     expect((await patch({ orchestrator: { account: 'primary' } })).status).toBe(200);
   });
-  it('統括のアプリは、設定で有効な Claude Code と Codex だけを受け、opencode と無効なアプリは 400。アカウントはそのアプリの組で引く', async () => {
+  it('統括のアプリは、Claude Code と設定で有効な Codex と opencode だけを受け、無効なアプリは 400。アカウントはそのアプリの組で引く', async () => {
     const orch = async () => (await json(await get('/api/settings'))).body.orchestrator;
     // Codex は設定で有効にするまで選べない。
     expect((await patch({ orchestrator: { agent: 'codex' } })).status).toBe(400);
@@ -612,14 +612,23 @@ describe('設定の往復', () => {
     expect((await patch({ orchestrator: { account: a.id } })).status).toBe(400);
     expect((await patch({ orchestrator: { agent: 'claude-code', model: 'sonnet', effort: 'medium', account: a.id } })).status).toBe(200);
     expect((await patch({ orchestrator: { effort: 'minimal' } })).status).toBe(400);
-    // opencode は段 3 まで受けない。
-    expect((await patch({ codexEnabled: true, opencodeEnabled: true })).status).toBe(200);
+    // opencode は設定で有効にするまで選べない。
     expect((await patch({ orchestrator: { agent: 'opencode' } })).status).toBe(400);
+    expect((await patch({ codexEnabled: true, opencodeEnabled: true })).status).toBe(200);
     expect((await patch({ orchestrator: { agent: 'gemini' } })).status).toBe(400);
     expect(await orch()).toMatchObject({ agent: 'claude-code', account: a.id });
     // アプリだけを替えると、前のアプリのアカウントは持ち越さない。
     expect((await patch({ orchestrator: { agent: 'codex' } })).status).toBe(200);
     expect(await orch()).toMatchObject({ agent: 'codex', account: null });
+    // opencode は有効なら受ける。effort は空だけ、アカウントは無いので null だけを受ける。
+    expect((await patch({ orchestrator: { agent: 'opencode', model: 'lmstudio/qwen3.5-9b', effort: '', account: null } })).status).toBe(200);
+    expect(await orch()).toMatchObject({ agent: 'opencode', model: 'lmstudio/qwen3.5-9b', effort: '', account: null });
+    expect((await patch({ orchestrator: { effort: 'high' } })).status).toBe(400);
+    expect((await patch({ orchestrator: { account: a.id } })).status).toBe(400);
+    // 設定で opencode を切ったら、ほかから opencode へは替えられない。
+    expect((await patch({ orchestrator: { agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null } })).status).toBe(200);
+    expect((await patch({ opencodeEnabled: false })).status).toBe(200);
+    expect((await patch({ orchestrator: { agent: 'opencode', model: '', effort: '', account: null } })).status).toBe(400);
   });
   it('許可の方針は読めるが、設定の PATCH では書けない（書くのは統括の set_permission_policy だけ）', async () => {
     expect((await json(await get('/api/settings'))).body.permissionPolicy).toBeNull();

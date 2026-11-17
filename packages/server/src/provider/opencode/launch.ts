@@ -2,7 +2,7 @@ import type { LaunchPrepChoice } from '@agent-hangar/shared';
 import type { InjectionEntry, LaunchPlan, LaunchSpec, MaterializeMode } from '../../agent/types.ts';
 import type { LaunchPrep } from '../../runs/launchPrep.ts';
 import { OpencodeClient, type OpencodeModelRef, type OpencodeProviderRow } from './client.ts';
-import type { OpencodePermissionRule } from './permissionPreset.ts';
+import { ORCHESTRATOR_OPENCODE_RULES, type OpencodePermissionRule } from './permissionPreset.ts';
 import type { ServeEnsureOptions, ServeInfo } from './serve/manager.ts';
 import { msg, MessageError } from '../../i18n/message.ts';
 import type { LocalModelListing } from './localModels/available.ts';
@@ -97,6 +97,15 @@ export type MaterializeDeps = {
   deviceName?: () => string;
 };
 
+/**
+ * serve の設定に重ねる規則。統括（spec.handsOff）は、ひな形の設定や利用者の規則の有無にかかわらず統括の規則にする。
+ * ほかの会話は許可のひな形（deps.permissions）で、null なら重ねない。
+ */
+function serveRulesOf(deps: Pick<MaterializeDeps, 'permissions'>, spec: LaunchSpec): readonly OpencodePermissionRule[] | null {
+  if (spec.handsOff) return ORCHESTRATOR_OPENCODE_RULES;
+  return deps.permissions?.(spec.cwd) ?? null;
+}
+
 /** 断る文に並べる、使えるモデルの数。残りは件数だけ言う。 */
 const AVAILABLE_SHOWN = 5;
 
@@ -118,7 +127,7 @@ const AVAILABLE_SHOWN = 5;
 export async function materializeOpencode(deps: MaterializeDeps, mode: MaterializeMode, spec: LaunchSpec): Promise<{ providerSessionId: string; serve: ServeInfo }> {
   if (mode.kind !== 'start' && mode.kind !== 'resume') throw new Error(`opencode cannot ${mode.kind} a session`);
   if (mode.kind === 'resume') await deps.serves.stop(spec.hangarSessionId);
-  let serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarServeConfig(spec.mcp, deps.permissions?.(spec.cwd) ?? null, {}, deps.share?.(spec) ?? null), directory: spec.cwd });
+  let serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarServeConfig(spec.mcp, serveRulesOf(deps, spec), {}, deps.share?.(spec) ?? null), directory: spec.cwd });
   let providerSessionId: string;
   try {
     // 再開には起動の指定のモデルが無い。準備は設定の既定ではなく、会話が最後に使ったモデル（途中の /models の切り替えも含む）について走らせる。
@@ -132,10 +141,14 @@ export async function materializeOpencode(deps: MaterializeDeps, mode: Materiali
     if (spec.prep && deps.localListing && mode.kind === 'start') await checkSessionModel(deps, deps.localListing, serve, spec);
     // LM Studio の段は新しい会話だけ（問いに答える画面が新しいセッションのダイアログにしか無い）。再開は接続先の準備だけを走らせる。
     if (spec.prep && deps.localModels && !spec.prep.choice.skip && mode.kind === 'start') ({ serve, model } = await prepareModels(deps, deps.localModels, serve, spec));
+    // 統括の規則は会話の permissions にも載せる。opencode は会話の規則を agent の規則（利用者の agent ごとの規則を含む）より後に照らすので、利用者の規則に勝つ。
+    // 再開では当て直す（前の版の hangar が作った会話や、途中で書き換えられた会話でも、統括の規則にそろえる）。当て直せなければ起こさない。
+    const lock = spec.handsOff ? [...ORCHESTRATOR_OPENCODE_RULES] : undefined;
     if (mode.kind === 'resume') {
       providerSessionId = mode.id;
+      if (lock) await new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs }).setSessionPermissions(providerSessionId, lock);
     } else {
-      providerSessionId = await new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs }).createSession({ directory: spec.cwd, title: spec.name, agent: spec.mode, model: modelRefOf(model) });
+      providerSessionId = await new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs }).createSession({ directory: spec.cwd, title: spec.name, agent: spec.mode, model: modelRefOf(model), ...(lock ? { permissions: lock } : {}) });
     }
   } catch (e) {
     await deps.serves.stop(spec.hangarSessionId).catch(() => undefined);
@@ -235,7 +248,7 @@ export async function prepareModels(deps: MaterializeDeps, local: LocalModelsDep
   const override: Record<string, unknown> = { ...(Object.keys(agent).length ? { agent } : {}), ...(conf.small && conf.small !== single ? { small_model: single } : {}) };
   if (Object.keys(override).length) {
     await deps.serves.stop(spec.hangarSessionId);
-    serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarServeConfig(spec.mcp, deps.permissions?.(spec.cwd) ?? null, override, deps.share?.(spec) ?? null), directory: spec.cwd });
+    serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarServeConfig(spec.mcp, serveRulesOf(deps, spec), override, deps.share?.(spec) ?? null), directory: spec.cwd });
   }
   const uses = [{ ref: single, uses: ['$session', ...(conf.small ? ['$small'] : []), ...conf.agents.map((a) => a.id)] }];
   await prepareWith(local, new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs }), { hangarSessionId: spec.hangarSessionId, cwd: spec.cwd, uses, prep: prep.run, choice: prep.choice, sleep: deps.sleep });

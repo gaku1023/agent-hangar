@@ -70,6 +70,11 @@ export type LaunchSpec = {
    */
   noEscalation?: boolean;
   /**
+   * 手を動かす道具を全部断り、hangar の MCP の道具だけを通す（統括の会話だけ。docs/design.md「統括」）。
+   * opencode だけが読み、統括の規則（permissionPreset.ts の ORCHESTRATOR_OPENCODE_RULES）を、許可のひな形と利用者の規則の有無にかかわらず、serve の設定と会話の permissions に重ねる。
+   */
+  handsOff?: boolean;
+  /**
    * 起動前の準備（runs/launchPrep.ts）。進みを配る口と、利用者の答え（問いのあとに送り直したとき）。
    * 準備を持つ driver（opencode の LM Studio）だけが読み、ほかは捨てる。
    */

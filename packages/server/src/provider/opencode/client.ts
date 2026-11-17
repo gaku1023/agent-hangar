@@ -20,7 +20,11 @@ export class OpencodeApiError extends Error {
 export type OpencodeModelRef = { providerID: string; id: string };
 
 /** `POST /api/session` の本文。ID は付けない（hangar が決めた ID は OpenCode Zen の無料枠が 403 で断るため）。 */
-export type CreateSessionBody = { directory: string; title?: string; agent?: string; model?: OpencodeModelRef };
+export type CreateSessionBody = {
+  directory: string; title?: string; agent?: string; model?: OpencodeModelRef;
+  /** 会話の許可の規則（2.x の `permissions`）。agent の規則より後に照らされる。統括だけが渡す。 */
+  permissions?: readonly { action: string; resource: string; effect: string }[];
+};
 
 /** `GET /api/mcp` の 1 行。status は pending、connected、failed など。 */
 export type McpServerStatus = { name: string; status: string };
@@ -146,10 +150,16 @@ export class OpencodeClient {
     if (b.title) body.title = b.title;
     if (b.agent) body.agent = b.agent;
     if (b.model) body.model = b.model;
+    if (b.permissions) body.permissions = b.permissions;
     const r = await this.request('POST', '/api/session', body) as { data?: { id?: unknown } } | null;
     const id = r?.data?.id;
     if (typeof id !== 'string' || id === '') throw new OpencodeApiError(200, '/api/session', 'the answer has no session id');
     return id;
+  }
+
+  /** 会話の permissions を置き換える（`PATCH /api/session/{id}`）。opencode は会話の規則を agent の規則より後に照らす。 */
+  async setSessionPermissions(sessionId: string, rules: readonly { action: string; resource: string; effect: string }[]): Promise<void> {
+    await this.request('PATCH', `/api/session/${encodeURIComponent(sessionId)}`, { permissions: rules });
   }
 
   /** システムプロンプトへの追記を 1 つ差し込む（置き換える）。opencode は `<context key="{key}">` の形で system prompt の末尾近くに入れる。 */

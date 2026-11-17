@@ -166,6 +166,7 @@ export type FakeOpencodeEvent =
   | { ev: 'import'; pid: number; via: 'server' | 'standalone'; id: string; directory: string | null; result: 'imported' | 'exists' | 'location' | 'unreadable'; t: number }
   | { ev: 'delete'; pid: number; via: 'server' | 'standalone'; id: string; result: 'deleted' | 'not-found'; t: number }
   | { ev: 'session'; pid: number; id: string; t: number }
+  | { ev: 'patch'; pid: number; id: string; body: Record<string, unknown>; t: number }
   | { ev: 'term'; pid: number; t: number }
   | { ev: 'exit'; pid: number; reason: string; t: number };
 
@@ -384,6 +385,12 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   const one = /^\\/api\\/session\\/([^/]+)$/.exec(url.pathname);
+  if (req.method === 'PATCH' && one) {
+    const body = await readBody(req);
+    log({ ev: 'patch', id: decodeURIComponent(one[1]), body });
+    json(res, 200, {});
+    return;
+  }
   if (req.method === 'GET' && one && one[1] !== 'active') {
     const id = decodeURIComponent(one[1]);
     log({ ev: 'session', id });

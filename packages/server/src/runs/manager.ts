@@ -477,10 +477,12 @@ export class RunManager {
     const s = (v: string | undefined) => (v && v.trim() ? v.trim() : undefined);
     const secret = issueMcpSecret(this.db, sessionId, this.now());
     const claude = agent === DEFAULT_AGENT;
-    const orch = claude || agent === 'codex' ? this.orchestratorOf(sessionId) : null;
+    const orch = this.orchestratorOf(sessionId);
     if (orch) {
       // 統括は、起こすたび（新しい起動も再開も）に同じ指定にする。プロジェクトの段は足さず、手を動かす道具は禁じ、Remote Control は付けない。
       // 手を動かす道具の禁じ方はエージェントで違う。Claude は run の settings の permissions、Codex は sandbox を read-only にし、承認を never にして昇格も求められなくする（hangar の MCP の道具は承認なしで通る）。
+      // opencode は、全部を断って hangar の MCP の道具だけを通す規則を、serve の設定と会話の permissions に重ねる（handsOff）。effort と agent（mode）は渡さない。
+      const opencode = agent === 'opencode';
       return {
         cwd,
         hangarSessionId: sessionId,
@@ -488,11 +490,13 @@ export class RunManager {
         instructions: orchestratorInstructions(this.language(), this.deps.orchestratorPersona?.() ?? null),
         name: s(params.name),
         model: s(orch.model),
-        effort: s(orch.effort),
+        effort: opencode ? undefined : s(orch.effort),
         remoteControl: null,
         ...(claude
           ? { mode: 'default', permissions: { allow: [...ORCHESTRATOR_PERMISSIONS.allow], deny: [...ORCHESTRATOR_PERMISSIONS.deny] } }
-          : { mode: 'read-only' satisfies CodexPermission, autoApprove: false, noEscalation: true }),
+          : opencode
+            ? { autoApprove: false, handsOff: true }
+            : { mode: 'read-only' satisfies CodexPermission, autoApprove: false, noEscalation: true }),
       };
     }
     return {
@@ -534,9 +538,11 @@ export class RunManager {
     if (!this.deps.orchestrator) throw new Error('orchestrator is not configured');
     const agent = o.agent ?? DEFAULT_AGENT;
     if (agent !== DEFAULT_AGENT) {
-      if (agent !== 'codex') return Promise.reject(new RunError(400, agentMsg.actionUnsupported(agent)));
+      if (agent !== 'codex' && agent !== 'opencode') return Promise.reject(new RunError(400, agentMsg.actionUnsupported(agent)));
       const cwd = orchestratorCwd(this.deps.home);
-      return this.startMaterialized(agent, { name: ORCHESTRATOR_NAME, ...(o.account !== undefined ? { account: o.account } : {}) }, { cwd, orchestrator: true });
+      // opencode にはアカウントが無いので、渡されても捨てる（startMaterialized は Claude だけの指定として断るため）。
+      const account = agent === 'codex' && o.account !== undefined ? { account: o.account } : {};
+      return this.startMaterialized(agent, { name: ORCHESTRATOR_NAME, ...account }, { cwd, orchestrator: true });
     }
     const account = this.accounts.resolve(o.account);
     this.accounts.envFor(account);
