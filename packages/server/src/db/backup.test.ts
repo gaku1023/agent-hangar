@@ -7,6 +7,11 @@ import { expectMode, posixIt } from '../../test/platform.ts';
 import { backupStamp, DbBackupError, pruneDbBackups } from './backup.ts';
 import { MIGRATIONS } from './migrations.ts';
 import { openDb } from './open.ts';
+import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
+import { indexFile } from '../../test/claudeIndex.ts';
+import { listTranscriptFiles } from '../provider/claude-code/transcript/discover.ts';
+import { searchSessions } from '../search/search.ts';
+import Database from 'better-sqlite3';
 
 // 製品の一覧が起点だけのあいだは、既存の DB に当てるものが無い。
 // 控えは「当てていないものがある既存の DB」で取るので、試験用の仮の次の版を足した一覧で開く。
@@ -109,6 +114,73 @@ describe('openDb の控え', () => {
     pruneDbBackups(dir, 1);
     expect(fs.readdirSync(dir).sort()).toEqual(['hangar-v3-20260101T000000000Z.db', 'hangar-v3-20260104T000000000Z.db']);
     expect(fs.readFileSync(outside, 'utf8')).toBe('keep');
+  });
+});
+
+describe('控えの索引', () => {
+  const n = (db: Database.Database, sql: string) => (db.prepare(sql).get() as { c: number }).c;
+  it('控えには索引の表の中身を入れず、元の DB はそのまま。控えから戻して読み直すと検索が引ける', () => {
+    const claude = copyFixtureClaudeDir();
+    try {
+      const file = path.join(tmp, 'hangar.db');
+      const main = listTranscriptFiles(claude).find((f) => f.sessionId === SESSION_ALPHA && f.agentId === null)!;
+      const live = openDb(file);
+      indexFile(live, main, { deviceId: 'dev-1' });
+      const before = { idx: n(live, 'select count(*) c from event_index'), fts: n(live, 'select count(*) c from event_fts') };
+      expect(before.idx).toBeGreaterThan(0);
+      expect(before.fts).toBeGreaterThan(0);
+      live.close();
+      const again = openDb(file, { now: () => AT, migrations: WITH_NEXT });
+      // 元の DB は触られない。
+      expect(n(again, 'select count(*) c from event_index')).toBe(before.idx);
+      expect(n(again, 'select count(*) c from event_fts')).toBe(before.fts);
+      again.close();
+
+      const bak = path.join(tmp, 'backups', 'db', `hangar-v${LATEST - 1}-${STAMP}.db`);
+      const raw = new Database(bak, { readonly: true });
+      expect(n(raw, 'select count(*) c from event_index')).toBe(0);
+      expect(n(raw, 'select count(*) c from event_fts')).toBe(0);
+      // 元から作り直せない表と、作り直しの印は残る。
+      expect(n(raw, 'select count(*) c from sessions')).toBe(1);
+      expect(n(raw, 'select count(*) c from transcript_files where indexer_version = 0')).toBe(1);
+      raw.close();
+
+      // 戻す：控えを DB の場所に置き、読み直す。
+      const restored = path.join(tmp, 'restored.db');
+      fs.copyFileSync(bak, restored);
+      const r = openDb(restored);
+      indexFile(r, main, { deviceId: 'dev-1' });
+      expect(n(r, 'select count(*) c from event_index')).toBe(before.idx);
+      expect(searchSessions(r, { q: 'channels' }).total).toBe(1);
+      r.close();
+    } finally { fs.rmSync(claude, { recursive: true, force: true }); }
+  });
+});
+
+describe('控えの索引（元の jsonl が無い会話）', () => {
+  it('jsonl が消えた会話の索引は控えに残り、戻したあとも検索で引ける。抜いた分の印だけが付く', () => {
+    const claude = copyFixtureClaudeDir();
+    try {
+      const file = path.join(tmp, 'hangar.db');
+      const main = listTranscriptFiles(claude).find((f) => f.sessionId === SESSION_ALPHA && f.agentId === null)!;
+      const live = openDb(file);
+      indexFile(live, main, { deviceId: 'dev-1' });
+      live.close();
+      fs.rmSync(main.path);
+      openDb(file, { now: () => AT, migrations: WITH_NEXT }).close();
+      const bak = path.join(tmp, 'backups', 'db', `hangar-v${LATEST - 1}-${STAMP}.db`);
+      const raw = new Database(bak, { readonly: true });
+      const n = (sql: string) => (raw.prepare(sql).get() as { c: number }).c;
+      expect(n('select count(*) c from event_index')).toBe(17);
+      expect(n("select count(*) c from event_fts where text match '\"channels\"'")).toBe(3);
+      expect(n('select count(*) c from transcript_files where indexer_version = 0')).toBe(0);
+      raw.close();
+      const restored = path.join(tmp, 'restored.db');
+      fs.copyFileSync(bak, restored);
+      const r = openDb(restored);
+      expect(searchSessions(r, { q: 'channels' }).total).toBe(1);
+      r.close();
+    } finally { fs.rmSync(claude, { recursive: true, force: true }); }
   });
 });
 
