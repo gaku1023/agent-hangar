@@ -32,6 +32,14 @@ export function mcpAllowedOrigins(port: number): string[] {
   return [`http://127.0.0.1:${port}`, `http://localhost:${port}`, 'tauri://localhost'];
 }
 
+/**
+ * 遅延させずに最初から読み込ませる道具（Claude Code の道具の _meta の `anthropic/alwaysLoad`、2.1.326 で確かめた）。
+ * 起動時の指示が毎ターン呼ぶよう頼む 4 本だけにする。遅延のままだと、呼ぶたびに先に ToolSearch で定義を引く 1 往復が要る。
+ * 全部を載せると、使わない道具の定義で毎回の要求が太るので、ほかは遅延のまま検索で引かせる。
+ * Codex と opencode は知らない印なので読み飛ばす。
+ */
+export const ALWAYS_LOADED_TOOLS: readonly string[] = ['notify_user', 'set_turn_intent', 'set_session_summary', 'propose_session_status'];
+
 /** 説明文に「agent-hangar」を含める。Claude Code はツール定義を遅延して読むので、検索で当たる語が要る。 */
 const D = (s: string) => `agent-hangar: ${s}`;
 const STATUS = z.enum(['active', 'paused', 'done', 'archived']);
@@ -43,7 +51,8 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   const language = deps.language ?? defaultLanguage;
   const tr = translatorOf(language);
   const reg = (name: string, description: string, inputSchema: Record<string, z.ZodTypeAny>) => {
-    server.registerTool(name, { description, inputSchema }, async (args: Record<string, unknown>, extra) => {
+    const meta = ALWAYS_LOADED_TOOLS.includes(name) ? { _meta: { 'anthropic/alwaysLoad': true } } : {};
+    server.registerTool(name, { description, inputSchema, ...meta }, async (args: Record<string, unknown>, extra) => {
       // 長く待つ間は進みを流す。Claude Code は応答も進みも 300 秒無い呼び出しを切る（2.1.316 で実測）。進みの札は呼び手が付けたときだけ送れる。
       const token = extra._meta?.progressToken;
       let progress = 0;
