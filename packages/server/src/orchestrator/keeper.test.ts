@@ -10,7 +10,7 @@ type Sw = {
   onSend?: (id: string, text: string, keeper: OrchestratorKeeper) => boolean;
 };
 
-function rig(initial: Partial<OrchestratorSetting> = {}, o: { resumable?: boolean; failStart?: number; sw?: Sw } = {}) {
+function rig(initial: Partial<OrchestratorSetting> = {}, o: { resumable?: boolean; failStart?: number; sw?: Sw; /** 役の文の版。渡すと起こした run に今の版を記録する。 */ role?: { now: string; record?: boolean } } = {}) {
   let setting: OrchestratorSetting = { ...DEFAULT_ORCHESTRATOR, ...initial };
   let clock = 1_000_000;
   let listener: { runEnded?(r: RunDto): void } = {};
@@ -24,23 +24,29 @@ function rig(initial: Partial<OrchestratorSetting> = {}, o: { resumable?: boolea
   // 会話ごとのアプリ。見張りが起こしたものは起こしたアプリ、ほかは Claude Code。
   const providers = new Map<string, AgentKind>();
   let n = 0;
+  // run ごとに記録した役の文の版（runs.launch_params の roleHash）。
+  const roles = new Map<string, string | null>();
+  const record = (id: string) => { if (o.role) roles.set(`run-${id}`, o.role.record === false ? null : o.role.now); };
   const runs: KeeperRuns = {
     on(l) { listener = l; return () => { listener = {}; }; },
     aliveRun: (id) => (alive.has(id) ? ({ id: `run-${id}`, sessionId: id } as RunDto) : null),
     kill: vi.fn((runId: string) => { calls.push(`kill:${runId}`); const id = runId.replace('run-', ''); alive.delete(id); listener.runEnded?.({ id: runId, sessionId: id, endReason: 'killed', endedAt: clock } as RunDto); }),
-    resumeWith: vi.fn(async (id: string, o?: { account?: string; stray?: string }) => { calls.push(`resume:${id}${o?.account ? `@${o.account}` : ''}${o?.stray ? `!${o.stray}` : ''}`); alive.add(id); return {}; }),
+    resumeWith: vi.fn(async (id: string, o?: { account?: string; stray?: string }) => { calls.push(`resume:${id}${o?.account ? `@${o.account}` : ''}${o?.stray ? `!${o.stray}` : ''}`); alive.add(id); record(id); return {}; }),
     startOrchestrator: vi.fn((o?: { account?: string; agent?: AgentKind }) => {
       if (startFails > 0) { startFails -= 1; calls.push('start:fail'); throw new Error('tmux'); }
       const id = `orch-${++n}`;
       const agent = o?.agent ?? 'claude-code';
       calls.push(`start:${id}${o?.account ? `@${o.account}` : ''}${agent === 'claude-code' ? '' : `#${agent}`}`);
       alive.add(id);
+      record(id);
       providers.set(id, agent);
       // Codex は会話の id を先に決めないので、下ごしらえを待つ Promise で返る。
       return agent === 'codex' ? new Promise<{ sessionId: string }>((r) => { setTimeout(() => { r({ sessionId: id }); }, 0); }) : { sessionId: id };
     }),
+    ...(o.role ? { roleHash: (runId: string) => roles.get(runId) ?? null } : {}),
   };
   const keeper: OrchestratorKeeper = new OrchestratorKeeper({
+    ...(o.role ? { role: () => o.role!.now } : {}),
     settings: () => setting,
     save: (patch) => { setting = { ...setting, ...patch }; },
     runs,
@@ -65,7 +71,7 @@ function rig(initial: Partial<OrchestratorSetting> = {}, o: { resumable?: boolea
   const live = (id: string, st: LiveStatus) => { status.set(id, st); for (const cb of [...liveListeners]) cb(); };
   // 実行中の一覧から消える（claude が終わりきった）。止めた直後はまだ一覧に残っている。
   const gone = (id: string) => { status.delete(id); for (const cb of [...liveListeners]) cb(); };
-  return { keeper, runs, providers, calls, sent, tokens, clock: () => clock, end, settle, live, gone, setting: () => setting, set: (p: Partial<OrchestratorSetting>) => { setting = { ...setting, ...p }; }, advance: (ms: number) => { clock += ms; }, alive };
+  return { keeper, runs, providers, calls, sent, tokens, clock: () => clock, end, settle, live, gone, setting: () => setting, set: (p: Partial<OrchestratorSetting>) => { setting = { ...setting, ...p }; }, advance: (ms: number) => { clock += ms; }, alive, roles };
 }
 
 describe('OrchestratorKeeper', () => {
@@ -584,5 +590,91 @@ describe('OrchestratorKeeper の止める・起こす', () => {
     t.keeper.start();
     await t.settle();
     expect(t.keeper.state()).toEqual({ status: 'running', contextTokens: 120_000 });
+  });
+});
+
+describe('OrchestratorKeeper の役の文の版', () => {
+  /** 前の hangar から引き継いだ統括の run。版 had を記録してある。 */
+  const inherited = async (had: string | null, o: { quiet?: (id: string) => boolean; record?: boolean } = {}) => {
+    const role = { now: 'v2', record: o.record };
+    const t = rig({ enabled: true, sessionId: 'old-1' }, { role, sw: { quiet: o.quiet } });
+    t.alive.add('old-1');
+    t.roles.set('run-old-1', had);
+    t.keeper.start();
+    await t.settle();
+    return { t, role };
+  };
+
+  it('役の文が変わっていれば、作業中は待ち、idle になったら同じ会話を再開し直す。会話の id は変わらない', async () => {
+    const { t } = await inherited('v1');
+    t.live('old-1', 'busy');
+    await t.settle();
+    expect(t.calls).toEqual([]);
+    t.live('old-1', 'idle');
+    await t.settle();
+    expect(t.calls).toEqual(['kill:run-old-1']);
+    t.gone('old-1');
+    await t.settle();
+    expect(t.calls).toEqual(['kill:run-old-1', 'resume:old-1!stop']);
+    expect(t.setting()).toMatchObject({ enabled: true, sessionId: 'old-1', history: [] });
+    expect(t.keeper.state()).toEqual({ status: 'running' });
+    // 新しい版で起こし直したので、もう止めない。
+    t.live('old-1', 'idle');
+    await t.settle();
+    expect(t.calls).toHaveLength(2);
+  });
+
+  it('役の文が同じなら、idle でも止めない', async () => {
+    const { t } = await inherited('v2');
+    t.live('old-1', 'idle');
+    await t.settle();
+    expect(t.calls).toEqual([]);
+  });
+
+  it('版の記録が無い（この仕組みより前の）run も、1 回だけ再開し直す。起こし直した後も記録が無ければ繰り返さない', async () => {
+    const { t } = await inherited(null, { record: false });
+    t.live('old-1', 'idle');
+    await t.settle();
+    t.gone('old-1');
+    await t.settle();
+    expect(t.calls).toEqual(['kill:run-old-1', 'resume:old-1!stop']);
+    t.live('old-1', 'idle');
+    await t.settle();
+    expect(t.calls).toHaveLength(2);
+  });
+
+  it('預かりがある、入力欄が空でないなど手すきでなければ待ち、手すきになった次の idle で再開し直す', async () => {
+    let quiet = false;
+    const { t } = await inherited('v1', { quiet: () => quiet });
+    t.live('old-1', 'idle');
+    await t.settle();
+    expect(t.calls).toEqual([]);
+    quiet = true;
+    t.live('old-1', 'idle');
+    await t.settle();
+    expect(t.calls).toEqual(['kill:run-old-1']);
+  });
+
+  it('動いている間に役の文が変わっても（口調の変更など）、次の idle で再開し直す', async () => {
+    const { t, role } = await inherited('v2');
+    t.live('old-1', 'idle');
+    await t.settle();
+    expect(t.calls).toEqual([]);
+    role.now = 'v3';
+    t.live('old-1', 'idle');
+    await t.settle();
+    t.gone('old-1');
+    await t.settle();
+    expect(t.calls).toEqual(['kill:run-old-1', 'resume:old-1!stop']);
+  });
+
+  it('切り替え中、利用者が止めた後は、版が違っても触らない', async () => {
+    const { t } = await inherited('v1');
+    t.keeper.stopByUser();
+    await t.settle();
+    t.live('old-1', 'idle');
+    await t.settle();
+    expect(t.calls).toEqual(['kill:run-old-1']);
+    expect(t.keeper.state()).toEqual({ status: 'stopped', reason: 'user' });
   });
 });

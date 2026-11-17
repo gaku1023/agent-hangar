@@ -46,13 +46,14 @@ afterEach(async () => {
   await removeDirsWhenIdle([home, cwd, claudeDir]);
 });
 
-function make(o: { orchestrator?: boolean; accounts?: AccountStore } = {}): RunManager {
+function make(o: { orchestrator?: boolean; accounts?: AccountStore; persona?: () => { name: string; tone: string } } = {}): RunManager {
   const claude = claudeDriverFor({ home, token: 'tok', language: () => 'ja', claudeBin: () => fake.bin, live: liveSourceOf(), transcript: claudeTranscriptSource({ claudeDir: home }), procs: () => noJobs });
   return new RunManager({
     db, deviceId: 'd', home, panes: tmux ? tmuxPaneOps(tmux) : null, claudeBin: fake.bin, claudeDir, port: 4177, token: 'tok', shell: 'sh', procs: noJobs, language: () => 'ja',
     agents: agentsOf([claude]), claude,
     ...(o.orchestrator === false ? {} : { orchestrator: () => setting }),
     ...(o.accounts ? { accounts: new RunAccounts({ db, claudeDir, store: o.accounts }) } : {}),
+    ...(o.persona ? { orchestratorPersona: o.persona } : {}),
   });
 }
 
@@ -109,6 +110,35 @@ describe.skipIf(!TMUX)('RunManager.startOrchestrator', () => {
     expect(valueOf(args, '--model')).toBe('sonnet');
     expect(valueOf(args, '--effort')).toBe('medium');
     expect(settingsOf(args).permissions?.deny).toContain('Bash');
+  });
+
+  it('起動にも再開にも、そのとき渡した役の文の版を run に記録する。統括でない会話には記録しない', async () => {
+    const rm = make();
+    const first = rm.startOrchestrator();
+    await launchedArgs(first.run.id);
+    const want = rm.orchestratorRoleHash();
+    expect(want).toMatch(/^[0-9a-f]{16}$/);
+    expect(rm.roleHashOf(first.run.id)).toBe(want);
+    setting = { ...setting, sessionId: first.sessionId };
+    db.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)').run('/x/o.jsonl', first.sessionId, null, 10, 1, 10, 1);
+    rm.kill(first.run.id);
+    const again = rm.resume(first.sessionId);
+    await launchedArgs(again.run.id);
+    expect(rm.roleHashOf(again.run.id)).toBe(want);
+    const plain = await rm.start({ projectId: 'p1', name: 'plain' });
+    await launchedArgs(plain.run.id);
+    expect(rm.roleHashOf(plain.run.id)).toBeNull();
+    expect(rm.roleHashOf('no-such-run')).toBeNull();
+  });
+
+  it('役の文の版は、渡す役の文（言語、口調）が変われば変わる', () => {
+    let tone = '';
+    const rm = make({ persona: () => ({ name: 'ハル', tone }) });
+    const a = rm.orchestratorRoleHash();
+    tone = 'やわらかく';
+    expect(rm.orchestratorRoleHash()).not.toBe(a);
+    tone = '';
+    expect(rm.orchestratorRoleHash()).toBe(a);
   });
 
   it('統括でない会話の settings は permissions を持たず、モデルや役の文も足さない', async () => {

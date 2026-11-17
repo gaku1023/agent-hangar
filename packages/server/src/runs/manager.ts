@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { isAgentKind, type CodexPermission, prepChoiceOf, type OrchestratorSetting, LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE, newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
 import type { Account } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
@@ -487,7 +488,7 @@ export class RunManager {
         cwd,
         hangarSessionId: sessionId,
         mcp: { url: this.mcpUrl(sessionId), secret },
-        instructions: orchestratorInstructions(this.language(), this.deps.orchestratorPersona?.() ?? null),
+        instructions: this.orchestratorRole(),
         name: s(params.name),
         model: s(orch.model),
         effort: opencode ? undefined : s(orch.effort),
@@ -515,6 +516,29 @@ export class RunManager {
       addDirs: this.addDirs(params),
       remoteControl: this.remoteControlFor(rc, { projectId, name: s(params.name), prompt: s(params.prompt), handoverFrom }),
     };
+  }
+
+  /** 統括に渡す役の文（言語と、設定の口調を足したもの）。 */
+  private orchestratorRole(): InjectionEntry[] {
+    return orchestratorInstructions(this.language(), this.deps.orchestratorPersona?.() ?? null);
+  }
+
+  /**
+   * 今の役の文の版（文の sha256 の先頭 16 桁）。統括の run を起こすたびに runs.launch_params の roleHash に記録する。
+   * 見張り（orchestrator/keeper.ts）は、動いている統括の版がこれと違えば、手すきのときに同じ会話を再開し直す（docs/design.md「統括」の役の文）。
+   */
+  orchestratorRoleHash(): string {
+    const text = this.orchestratorRole().map((e) => `${e.key}\n${e.text}`).join('\n');
+    return createHash('sha256').update(text).digest('hex').slice(0, 16);
+  }
+
+  /** その run を起こしたときの役の文の版。統括でない run と、この記録より前の run は null。 */
+  roleHashOf(runId: string): string | null {
+    const row = this.db.prepare('select launch_params from runs where id = ?').get(runId) as { launch_params: string | null } | undefined;
+    try {
+      const h = (JSON.parse(row?.launch_params ?? 'null') as { roleHash?: unknown } | null)?.roleHash;
+      return typeof h === 'string' && h !== '' ? h : null;
+    } catch { return null; }
   }
 
   /** 統括として起こす会話か。起こしている最中の会話と、設定の sessionId の会話。 */
@@ -639,7 +663,9 @@ export class RunManager {
       console.error('[runs] フォルダの信頼を書けませんでした', e instanceof Error ? e.message : e);
     }
     const now = this.now();
-    upsertShared(this.db, 'runs', { id: runId, session_id: o.sessionId, device_id: this.deps.deviceId, kind: o.kind, tmux_name: tmuxName, pid: null, launch_params: JSON.stringify(params), started_at: now, ended_at: null, end_reason: null, heartbeat_at: now }, this.deps.deviceId);
+    // 統括の run には、渡した役の文の版を添える（見張りが古い役の文のまま動いている統括を見分ける）。
+    const stored = this.orchestratorOf(o.sessionId) ? { ...params, roleHash: this.orchestratorRoleHash() } : params;
+    upsertShared(this.db, 'runs', { id: runId, session_id: o.sessionId, device_id: this.deps.deviceId, kind: o.kind, tmux_name: tmuxName, pid: null, launch_params: JSON.stringify(stored), started_at: now, ended_at: null, end_reason: null, heartbeat_at: now }, this.deps.deviceId);
     try {
       if (secretEnvFile) writeSecretEnv(this.deps.home, runId, plan.secretEnv!, this.deps.platform);
       panes.open({ name: tmuxName, cwd: o.cwd, command: wrapped.command, env: withUtf8Locale({ ...env, ...plan.env, ...wrapped.env }) });

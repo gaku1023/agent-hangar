@@ -1,9 +1,9 @@
 import { translatorOf } from '../i18n/message.ts';
-import type { LiveSessionDto } from '@agent-hangar/shared';
+import { ORCHESTRATOR_CONTEXT_LIMIT, type LiveSessionDto } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { recordSpawn } from '../sessions/spawns.ts';
-import { COMPACT_IDLE_MS, COMPACT_TOKENS, feedText, NOTICE_GRACE_MS, OrchestratorFeed, type FeedLine } from './feed.ts';
+import { AUTO_FRESH_IDLE_MS, AUTO_FRESH_TOKENS, feedText, NOTICE_GRACE_MS, OrchestratorFeed, type FeedLine } from './feed.ts';
 import { lineageInvolvement } from './involved.ts';
 
 /**
@@ -298,30 +298,67 @@ describe('許可待ちの通知の猶予', () => {
 });
 
 describe('文脈の太り', () => {
-  it('閾値を超えて idle が 2 分続くと、/compact を 1 回だけ送る', async () => {
-    w.tokens = COMPACT_TOKENS + 1;
-    feed.onLiveChange();
-    await tick(COMPACT_IDLE_MS - 1);
-    expect(w.delivered).toEqual([]);
-    await tick(1);
-    expect(w.delivered).toEqual(['/compact']);
-    // 縮んで idle に戻る前に、また見直しても送らない。
-    orchIdle();
-    await tick(COMPACT_IDLE_MS * 2);
-    feed.onLiveChange();
-    expect(w.delivered).toEqual(['/compact']);
+  let fresh: number;
+  let freshOk: boolean;
+  beforeEach(() => {
+    fresh = 0;
+    freshOk = true;
+    feed.bindFresh(() => { fresh++; return freshOk; });
   });
 
-  it('閾値の内では送らず、預かりがある間も送らない', async () => {
-    feed.onLiveChange();
-    await tick(COMPACT_IDLE_MS * 2);
-    expect(w.delivered).toEqual([]);
+  it('閾値は柱の文脈の量の線と同じ値', () => {
+    expect(AUTO_FRESH_TOKENS).toBe(ORCHESTRATOR_CONTEXT_LIMIT);
+  });
 
-    w.tokens = COMPACT_TOKENS + 1;
+  it('閾値を超えて idle が 2 分続くと、新しい会話への切り替えを 1 回だけ頼む。/compact は送らない', async () => {
+    w.tokens = AUTO_FRESH_TOKENS + 1;
+    feed.onLiveChange();
+    await tick(AUTO_FRESH_IDLE_MS - 1);
+    expect(fresh).toBe(0);
+    await tick(1);
+    expect(fresh).toBe(1);
+    // 切り替わる前に、また idle を見直しても頼まない。
+    orchIdle();
+    await tick(AUTO_FRESH_IDLE_MS * 2);
+    feed.onLiveChange();
+    expect(fresh).toBe(1);
+    expect(w.delivered).toEqual([]);
+  });
+
+  it('閾値の内では頼まず、預かりがある間も頼まない', async () => {
+    feed.onLiveChange();
+    await tick(AUTO_FRESH_IDLE_MS * 2);
+    expect(fresh).toBe(0);
+
+    w.tokens = AUTO_FRESH_TOKENS + 1;
     w.inputEmpty = false;
     waitPerm('s1');
-    await tick(COMPACT_IDLE_MS * 2);
+    await tick(AUTO_FRESH_IDLE_MS * 2);
     feed.onLiveChange();
+    expect(fresh).toBe(0);
+  });
+
+  it('切り替えが断られたら（切り替え中など）、次の idle でまた頼む', async () => {
+    freshOk = false;
+    w.tokens = AUTO_FRESH_TOKENS + 1;
+    feed.onLiveChange();
+    await tick(AUTO_FRESH_IDLE_MS);
+    expect(fresh).toBe(1);
+    freshOk = true;
+    orchIdle();
+    await tick(AUTO_FRESH_IDLE_MS);
+    expect(fresh).toBe(2);
+    orchIdle();
+    await tick(AUTO_FRESH_IDLE_MS * 2);
+    expect(fresh).toBe(2);
+  });
+
+  it('切り替えの口が無ければ何もしない', async () => {
+    feed.bindFresh(null);
+    w.tokens = AUTO_FRESH_TOKENS + 1;
+    feed.onLiveChange();
+    await tick(AUTO_FRESH_IDLE_MS * 2);
+    expect(fresh).toBe(0);
     expect(w.delivered).toEqual([]);
   });
 });

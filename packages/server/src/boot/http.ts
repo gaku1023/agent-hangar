@@ -187,7 +187,9 @@ export function bootHttp(p: {
       updateSettings({ orchestrator: { ...orchestratorOf(settings.current.orchestrator), ...patch } });
       delivery.hub.broadcast({ type: 'settings.changed', settings: toSettingsDto(settings.current), keys: ['orchestrator'] });
     },
-    runs: { on: (l) => runs.runs.on(l), aliveRun: (id) => runs.runs.aliveRun(id), kill: (runId) => runs.runs.kill(runId), resumeWith: (id, o) => runs.runs.resumeWith(id, o), startOrchestrator: (o) => runs.runs.startOrchestrator(o ?? {}) },
+    runs: { on: (l) => runs.runs.on(l), aliveRun: (id) => runs.runs.aliveRun(id), kill: (runId) => runs.runs.kill(runId), resumeWith: (id, o) => runs.runs.resumeWith(id, o), startOrchestrator: (o) => runs.runs.startOrchestrator(o ?? {}), roleHash: (runId) => runs.runs.roleHashOf(runId) },
+    // 役の文の版。動いている統括の版と違えば、手すきのときに同じ会話を再開し直す（アプリの入れ替え、口調の変更）。
+    role: () => runs.runs.orchestratorRoleHash(),
     providerOf: (id) => { const r = providerIdOf.get(id) as { provider: string } | undefined; return r && isAgentKind(r.provider) ? r.provider : null; },
     liveStatus: (id) => liveStatusOf(id),
     onLiveChange: (cb) => delivery.live.onChange(cb),
@@ -200,6 +202,8 @@ export function bootHttp(p: {
   });
   // 見張りの状態（止まった、切り替え中）が変わったら、全部の画面へ配る。柱のメニューと上端の棒が読む。
   orchestrator.onState((state) => { delivery.hub.broadcast({ type: 'orchestrator.state', state }); });
+  // 統括の文脈が太ったら、送り込みの側が idle を見て、新しい会話への切り替え（reason auto）を頼む（docs/design.md「統括」の太ったとき）。
+  p.orchestratorFeed?.feed.bindFresh(() => orchestrator.fresh('auto').ok);
   // 机の音声（voice/service.ts）。補助は常に聞くのときと、押す・切り替え・読み上げ・準備が来たときだけ起こす。
   const voiceBin = resolveVoiceBin(process.env, process.platform, fs.existsSync);
   const titles = db.prepare('select coalesce(n.name, s.custom_title, s.ai_title, s.first_prompt) t from sessions s left join session_notes n on n.session_id = s.id where s.deleted_at is null order by s.last_activity_at desc limit 100');

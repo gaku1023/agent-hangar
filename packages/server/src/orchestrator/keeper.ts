@@ -29,10 +29,14 @@ export type KeeperRuns = {
   resumeWith(sessionId: string, o?: { account?: string; stray?: 'stop' }): Promise<unknown>;
   /** agent は設定のアプリ。Claude Code は同期で、Codex は下ごしらえを待つ Promise で返る。 */
   startOrchestrator(o?: { account?: string; agent?: AgentKind }): { sessionId: string } | Promise<{ sessionId: string }>;
+  /** その run を起こしたときの役の文の版（runs.launch_params の roleHash）。記録が無ければ null。渡さなければ版を見ない。 */
+  roleHash?(runId: string): string | null;
 };
 
 export type KeeperDeps = {
   settings: () => OrchestratorSetting;
+  /** 今の役の文の版（文のハッシュ）。動いている統括の版と違えば、手すきのときに同じ会話を再開し直す。渡さなければ版を見ない。 */
+  role?: () => string;
   /** 見張りが書く設定の項目（sessionId と、利用者が止めたときの enabled）。保存と配信は呼び手が持つ。 */
   save: (patch: Partial<OrchestratorSetting>) => void;
   runs: KeeperRuns;
@@ -83,6 +87,7 @@ export const RESPEC_GONE_MS = 15_000;
  * enabled の PC で、起動時と run が消えたときに、設定の sessionId の会話を再開する。sessionId が無い、または会話が消えているときは、新しく起こして設定に書く。
  * 10 分に 3 回失敗したら止まり、自動では再試行しない（設定を入れ直すと、また始める）。
  * 指定（アカウント、モデル、effort）が変わったときは、統括が動いていれば、入力待ち（idle）になったときに止めて同じ会話を再開する（作業中は待つ）。この止め方は利用者の停止でも失敗でもない。
+ * 役の文が変わったとき（アプリの入れ替え、口調の変更）も、手すきになったときに止めて同じ会話を再開する。
  * 利用者が止めたとき（killed）は起こし直さず、enabled を false にする。設定で切にしたときは、動いている run を止める（sessionId は残し、入れ直せば再開する）。
  */
 export class OrchestratorKeeper {
@@ -104,6 +109,10 @@ export class OrchestratorKeeper {
   private readonly ownKills = new Set<string>();
   /** 切り替えの最中の印。memoFrom はメモを受ける古い統括の id で、頼んでいなければ null。 */
   private switching: { memoFrom: string | null; memo: string | null } | null = null;
+  /** 役の文の版のために再開し直した会話と版（`会話の id\0版`）。起こし直した後も版が合わない（記録できない）ときに繰り返さない。 */
+  private readonly roleTried = new Set<string>();
+  /** 役の文の版のための手すきの確かめの最中。 */
+  private roleChecking = false;
 
   constructor(private readonly deps: KeeperDeps) {}
 
@@ -313,7 +322,8 @@ export class OrchestratorKeeper {
    */
   private respec(): void {
     const s = this.deps.settings();
-    if (this.switching || !s.enabled || this.halted || s.sessionId === null || this.launched === null || sameSpec(this.launched, specOf(s))) return;
+    if (this.switching || !s.enabled || this.halted || s.sessionId === null) return;
+    if (this.launched === null || sameSpec(this.launched, specOf(s))) { this.rerole(s.sessionId); return; }
     const run = this.deps.runs.aliveRun(s.sessionId);
     if (!run || this.respecs.has(run.id) || this.deps.liveStatus(s.sessionId) !== 'idle') return;
     // アプリが変わったときは、同じ会話を起こし直せない。新しい会話に切り替える（前の会話は系譜に残る）。
@@ -323,6 +333,41 @@ export class OrchestratorKeeper {
       this.respecs.delete(run.id);
       console.error('[orchestrator] could not restart with the new launch settings', e instanceof Error ? e.message : e);
     }
+  }
+
+  /**
+   * 動いている統括の役の文の版が今の版と違えば、手すき（idle で、預かりが空で、入力欄が空）のときに止めて、同じ会話を再開し直す（docs/design.md「統括」の役の文）。
+   * アプリの入れ替えで役の文が変わっても、tmux の統括は古い役の文のまま動き続けるため。会話は切り替えず、id も変わらない。
+   * 止めた後の再開は、指定の変更と同じ道（respecs → onRunEnded → ensure の resumeWith）を通る。
+   */
+  private rerole(id: string): void {
+    const want = this.deps.role?.();
+    const read = this.deps.runs.roleHash;
+    if (want === undefined || !read || this.roleChecking) return;
+    const run = this.deps.runs.aliveRun(id);
+    if (!run || this.respecs.has(run.id)) return;
+    let have: string | null;
+    try { have = read.call(this.deps.runs, run.id); } catch { return; }
+    const key = `${id}\0${want}`;
+    if (have === want || this.roleTried.has(key) || this.deps.liveStatus(id) !== 'idle') return;
+    this.roleChecking = true;
+    void (async () => {
+      try {
+        let quiet = true;
+        if (this.deps.quiet) { try { quiet = await this.deps.quiet(id); } catch { quiet = false; } }
+        const s = this.deps.settings();
+        const cur = this.deps.runs.aliveRun(id);
+        if (!quiet || this.switching || !s.enabled || this.halted || s.sessionId !== id || cur?.id !== run.id || this.deps.liveStatus(id) !== 'idle') return;
+        this.roleTried.add(key);
+        this.respecs.add(run.id);
+        try { this.deps.runs.kill(run.id); } catch (e) {
+          this.respecs.delete(run.id);
+          console.error('[orchestrator] could not restart with the new role', e instanceof Error ? e.message : e);
+        }
+      } finally {
+        this.roleChecking = false;
+      }
+    })();
   }
 
   /** 切にしたとき、動いている統括の run を止める。設定はもう切なので、終わりの知らせでは起こし直さず、sessionId も残る。 */
