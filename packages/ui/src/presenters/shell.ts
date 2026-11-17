@@ -87,6 +87,8 @@ export type SideLiveRow = {
   /** ほかの PC で動いている会話の行の title。「<PC 名> で実行中」か「<PC 名> から応答がありません」。 */
   lockTitle?: string;
   id: string; name: string; live: LiveStatus | null; aside: boolean; reason: StopReason | null; waited: string | null; current: boolean; menu: SessionMenuProps;
+  /** waited のうち待った時間だけ（「2分」）。狭い行は語を外してこれだけを出す。時間を持たない語（リセットの時刻、リセット済み）には無い。 */
+  waitedTime?: string;
   /** 未読の数（notify_user で知らせた数）。無いか、設定 unreadBadge が切なら 0。 */
   unread?: number;
   /**
@@ -268,14 +270,14 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
     if (lock) {
       const shown = quietLive(remoteLiveOf(lock), s.state?.status, s.woke);
       const reason = remoteReasonOf(lock, shown);
-      return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: false, reason, waited: remoteWaited(t, lock, shown, reason, now), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, lockTitle: t(lock.stale ? 'session.lock.stale' : 'session.lock.running', { device: lock.deviceName }), ...(lock.stale ? { stale: true as const } : {}), ...(icons ? { agent: agentOfSession(store, s) } : {}), ...peerInOf(store, id, t), peer: { name: lock.deviceName, ended: lock.stale } };
+      return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: false, reason, ...waitedOf(remoteWaited(t, lock, shown, reason, now)), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, lockTitle: t(lock.stale ? 'session.lock.stale' : 'session.lock.running', { device: lock.deviceName }), ...(lock.stale ? { stale: true as const } : {}), ...(icons ? { agent: agentOfSession(store, s) } : {}), ...peerInOf(store, id, t), peer: { name: lock.deviceName, ended: lock.stale } };
     }
     const aside = asideOf(s.live, s.liveAside);
     // 点と「待ち N 分」は、入力待ちの数え方と同じ規則（shownLive）で決める。Done と Archived にした入力待ちは、行は残すが休みとして出す。
     // 停止の確認（stop.working）は本当の動きで決める。答えを待つ会話は、止めると問いが消える。
     const shown = quietLive(liveWithLimit(s.live, s.limit), s.state?.status, s.woke);
     const reason = shownReason(s, shown);
-    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, waited: sideWaited(t, s, shown, reason, now), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, ...(wokenFresh(state, id, now) ? { wake: true as const } : {}), overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null, ...(icons ? { agent: agentOfSession(store, s) } : {}), ...peerInOf(store, id, t), ...(s.spawnPeer?.child ? { peer: { name: s.spawnPeer.child, ended: s.spawnPeer.closed } } : {}) };
+    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, ...waitedOf(sideWaited(t, s, shown, reason, now)), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, ...(wokenFresh(state, id, now) ? { wake: true as const } : {}), overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null, ...(icons ? { agent: agentOfSession(store, s) } : {}), ...peerInOf(store, id, t), ...(s.spawnPeer?.child ? { peer: { name: s.spawnPeer.child, ended: s.spawnPeer.closed } } : {}) };
   };
   const folded = new Set(state.sidebarFolded);
   // 子が動いている起動元は、止まっていても薄い行として出す（子の列の根に要る）。起動元の連なりを上までたどる。
@@ -323,24 +325,33 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
 }
 
 /** サイドバーの行の右端の語。入力待ちと許可待ちは待った時間、使用制限はリセットの時刻、リセット済みはその語。 */
-function sideWaited(t: Translate, s: SessionDto, shown: LiveStatus | null, reason: StopReason | null, now: number): string | null {
-  if (reason === 'limit' && s.limit) return resetAtText(t, s.limit.resetsAt, now);
-  if (reason === 'reset') return t('stop.state.reset');
+function sideWaited(t: Translate, s: SessionDto, shown: LiveStatus | null, reason: StopReason | null, now: number): Waited {
+  if (reason === 'limit' && s.limit) return { text: resetAtText(t, s.limit.resetsAt, now) };
+  if (reason === 'reset') return { text: t('stop.state.reset') };
   if (shown !== 'waiting') return null;
-  const time = durationLabel(t, now - (s.lastActivityAt ?? now));
-  return reason === 'permission' ? t('stop.waited.permission', { time }) : t('sidebar.live.waited', { time });
+  return waitedWord(t, reason, durationLabel(t, now - (s.lastActivityAt ?? now)));
+}
+
+/** 右端の語と、そのうちの待った時間。 */
+type Waited = { text: string; time?: string } | null;
+
+function waitedWord(t: Translate, reason: StopReason | null, time: string): Waited {
+  return { text: reason === 'permission' ? t('stop.waited.permission', { time }) : t('sidebar.live.waited', { time }), time };
+}
+
+function waitedOf(w: Waited): { waited: string | null; waitedTime?: string } {
+  return w?.time !== undefined ? { waited: w.text, waitedTime: w.time } : { waited: w?.text ?? null };
 }
 
 /**
  * ほかの PC の行の右端の語。sideWaited と同じ文言で、待った時間はその PC が入力待ちになった時刻（lock.liveAt）から数える。
  * 使用制限は、リセットの時刻がこの PC に届かないので出さない。黙った PC には出さない。
  */
-function remoteWaited(t: Translate, lock: SessionLockDto, shown: LiveStatus | null, reason: StopReason | null, now: number): string | null {
+function remoteWaited(t: Translate, lock: SessionLockDto, shown: LiveStatus | null, reason: StopReason | null, now: number): Waited {
   if (lock.stale) return null;
-  if (reason === 'reset') return t('stop.state.reset');
+  if (reason === 'reset') return { text: t('stop.state.reset') };
   if (shown !== 'waiting' || typeof lock.liveAt !== 'number') return null;
-  const time = durationLabel(t, Math.max(0, now - lock.liveAt));
-  return reason === 'permission' ? t('stop.waited.permission', { time }) : t('sidebar.live.waited', { time });
+  return waitedWord(t, reason, durationLabel(t, Math.max(0, now - lock.liveAt)));
 }
 
 /**
