@@ -34,6 +34,18 @@ describe('キーマップ', () => {
     expect(matchKey({ key: 'N', metaKey: true, shiftKey: true })).toBe('session.newScratch');
   });
 
+  it('⌘⇧J は統括の柱を開け閉めする。⌘J の右パネルとは別で、一覧に載る', () => {
+    expect(matchKey({ key: 'J', metaKey: true, shiftKey: true }, { mac: true, terminal: false })).toBe('orchestrator.toggle');
+    expect(matchKey({ key: 'J', code: 'KeyJ', metaKey: true, shiftKey: true }, MAC_TERM)).toBe('orchestrator.toggle');
+    expect(matchKey({ key: 'j', metaKey: true })).toBe('transcript.toggle');
+    expect(KEYMAP.find((b) => b.id === 'orchestrator.toggle')).toMatchObject({ group: 'global', keys: '⌘⇧J', keysOther: '⌃⌥J' });
+    expect(labelOf('orchestrator.toggle')).toBe('統括を開く・閉じる');
+    expect(bindingLabel(en, KEYMAP.find((b) => b.id === 'orchestrator.toggle')!)).toBe('Toggle orchestrator');
+    // ⌃⇧J（端末の中の右パネル）とは重ならない。
+    expect(matchKey({ key: 'J', code: 'KeyJ', ctrlKey: true, shiftKey: true }, WIN_TERM)).toBe('transcript.toggle');
+    expect(matchKey({ key: 'j', code: 'KeyJ', ctrlKey: true, altKey: true }, WIN_TERM)).toBe('orchestrator.toggle');
+  });
+
   it('⌘W の説明は、閉じるのがフォーカスのあるペインのシェルタブだけだと書く', () => {
     expect(labelOf('tab.close')).toBe('操作中のペインのシェルタブを閉じる（無ければペインを分割から外す）');
   });

@@ -9,6 +9,7 @@ export const orchestratorPaneKeys = {
   'orchestratorPane.composer.label': [],
   'orchestratorPane.composer.placeholder': [],
   'orchestratorPane.composer.send': [],
+  'orchestratorPane.width.label': [],
   'orchestratorPane.error.notRunning': [],
   'orchestratorPane.error.voiceUnavailable': [],
   'orchestratorPane.error.sendFailed': ['reason'],

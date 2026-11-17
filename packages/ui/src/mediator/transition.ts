@@ -20,7 +20,7 @@ import { codexVersionStep } from './codexVersion.ts';
 import { opencodeVersionStep } from './opencodeVersion.ts';
 import { cloudMemberStep } from './cloudMember.ts';
 import { peerChatStep } from './peerChat.ts';
-import { orchestratorStep } from './orchestrator.ts';
+import { ORCH_WIDTH_DEFAULT, orchestratorSeenStep, orchestratorStep } from './orchestrator.ts';
 import { overlayStep } from './overlay.ts';
 import { projectCandidatesStep } from './projectCandidates.ts';
 import { projectCreateStep } from './projectCreate.ts';
@@ -45,7 +45,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, launchPrep: null, contextShorts: [], modelMissings: [], wakeGlow: [], waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], unreadSeen: 0, seenAsked: null, unreadKept: null, returnSeen: [], promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, accountAdd: { kind: 'idle' }, linkRepair: { detail: null, working: false, error: null }, toasts: [], arrivedProjects: [], phoneLaunches: [], sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH_DEFAULT, sidebarOrder: [], panes: emptyPanes(), orchestratorOpen: false, sidebarFolded: [], projectRailFolded: {}, noticesRead: [], diskShortToasted: false, opencodeVersionSeen: null, codexVersionSeen: null, newSessionDraft: null, newSessionSent: false, launchSent: null, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, launchPrep: null, contextShorts: [], modelMissings: [], wakeGlow: [], waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], unreadSeen: 0, seenAsked: null, unreadKept: null, returnSeen: [], promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, accountAdd: { kind: 'idle' }, linkRepair: { detail: null, working: false, error: null }, toasts: [], arrivedProjects: [], phoneLaunches: [], sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH_DEFAULT, sidebarOrder: [], panes: emptyPanes(), orchestratorOpen: false, orchestratorWidth: ORCH_WIDTH_DEFAULT, orchSeenAsked: null, sidebarFolded: [], projectRailFolded: {}, noticesRead: [], diskShortToasted: false, opencodeVersionSeen: null, codexVersionSeen: null, newSessionDraft: null, newSessionSent: false, launchSent: null, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string, holdMs?: number): State {
@@ -89,7 +89,8 @@ export function transition(state: State, store: Store, input: Input): Step {
   const projectCandidates = (s: State, i: Input) => projectCandidatesStep(s, store, i);
   const settings = (s: State, i: Input) => settingsStep(s, store, i);
   const pane = (s: State, i: Input) => paneStep(s, store, i);
-  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, linkRepair, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, pane, sidebarStep, sidebarOrderStep, sidebarFoldStep, sidebarWidthStep, projectRailStep, returnStep, arrived, phoneLaunch, contextShort, modelMissing, wakeGlow, noticesStep, notifyStep, update, opencodeVersion, codexVersion, cloudMemberStep, peerChatStep, orchestratorStep, todos, workbench]) {
+  const orch = (s: State, i: Input) => orchestratorStep(s, i, store);
+  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, linkRepair, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, pane, sidebarStep, sidebarOrderStep, sidebarFoldStep, sidebarWidthStep, projectRailStep, returnStep, arrived, phoneLaunch, contextShort, modelMissing, wakeGlow, noticesStep, notifyStep, update, opencodeVersion, codexVersion, cloudMemberStep, peerChatStep, orch, todos, workbench]) {
     const r = step(state, input);
     if (r) return settled(state, r, store);
   }
@@ -126,12 +127,14 @@ function storeChanged(prev: State, store: Store): Step {
   const live = sidebarLiveStep(waiting.state, store);
   // 開いて見ているセッションに未読が増えたら、すぐ既読にする。
   const seen = seenStep(live.state, store, true);
+  // 統括の柱を開いている間は、統括の会話の未読も同じく既読にする。
+  const orchSeen = orchestratorSeenStep(seen.state, store, true);
   // Store から消えたセッションのペインは外す。
-  const pruned = prunePanes(seen.state, store);
+  const pruned = prunePanes(orchSeen.state, store);
   // どちらも動かなかったら、整え（settled）を通さずそのまま返す。
   // ストアは本文が伸びるたびに変わるので、そのたびに札を触ると、無関係な更新で札が動いてしまう。
-  if (pruned === state && waiting.effects.length === 0 && live.effects.length === 0 && seen.effects.length === 0) return { state, effects: [] };
-  return settled(state, { state: pruned, effects: [...waiting.effects, ...live.effects, ...seen.effects] }, store);
+  if (pruned === state && waiting.effects.length === 0 && live.effects.length === 0 && seen.effects.length === 0 && orchSeen.effects.length === 0) return { state, effects: [] };
+  return settled(state, { state: pruned, effects: [...waiting.effects, ...live.effects, ...seen.effects, ...orchSeen.effects] }, store);
 }
 
 /**

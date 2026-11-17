@@ -13,7 +13,7 @@ type KeysKey = { [K in MessageKey]: [MessageParamName<K>] extends ['keys'] ? K :
  */
 
 export type KeyId =
-  | 'palette.open' | 'app.reload' | 'session.new' | 'session.newScratch' | 'session.nextWaiting' | 'settings.open' | 'shortcuts.open' | 'sidebar.toggle'
+  | 'palette.open' | 'app.reload' | 'session.new' | 'session.newScratch' | 'orchestrator.toggle' | 'session.nextWaiting' | 'settings.open' | 'shortcuts.open' | 'sidebar.toggle'
   | 'nav.back' | 'nav.forward' | 'overlay.close'
   | 'tab.select' | 'tab.close' | 'split.toggle' | 'transcript.toggle' | 'transcript.find' | 'session.copyAddress' | 'session.copyId' | 'tab.move' | 'turn.move'
   | 'pane.splitRight' | 'pane.splitDown' | 'pane.remove' | 'pane.focusDir' | 'pane.zoom' | 'pane.openRight'
@@ -67,6 +67,8 @@ export const KEYMAP: KeyBinding[] = [
   // macOS の外では Ctrl+Shift+N がターミナルの中の新しいセッション（Ctrl+N と同じ）になるので、クイックセッションは Ctrl+Alt+N にする。
   // Ctrl+Alt+N は xterm が ESC と ^N を送るだけで、Claude Code も readline も使っていないので、ターミナルの中でも受ける。
   { id: 'session.newScratch', group: 'global', keys: '⌘⇧N', keysOther: '⌃⌥N', terminal: '⌃⌥N', labelKey: 'shortcuts.key.sessionNewQuick', chords: [{ key: 'n', mod: true, shift: true, os: 'mac' }, { key: 'n', ctrlAlt: true, os: 'other', inTerminal: true }] },
+  // 統括の柱の開閉。⌘J（右パネル）に ⇧ を足した形で、macOS の外では Ctrl+Shift+J が端末の中の右パネルなので、Ctrl+Alt+J にする（ターミナルの中でも受ける）。
+  { id: 'orchestrator.toggle', group: 'global', keys: '⌘⇧J', keysOther: '⌃⌥J', terminal: '⌃⌥J', labelKey: 'shortcuts.key.orchestratorToggle', chords: [{ key: 'j', mod: true, shift: true, os: 'mac' }, { key: 'j', ctrlAlt: true, os: 'other', inTerminal: true }] },
   // ⌘I は、macOS の既定、Chrome（⌥⌘I や ⇧⌘I とは別）、Tauri の既定のメニュー、xterm、Claude Code のどれも使っていない。
   // ⌘ 付きなので、ターミナルにフォーカスがあっても Root に届く。I は「入力（input）待ち」の頭文字である。
   { id: 'session.nextWaiting', group: 'global', keys: '⌘I', terminal: '⌃⇧I', labelKey: 'shortcuts.key.sessionNextWaiting', chords: [{ key: 'i', mod: true, shift: false }] },

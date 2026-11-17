@@ -23,6 +23,7 @@ import { presentPromote, presentPromoted } from './presenters/promote.ts';
 import { presentRetentionDialog } from './presenters/retentionDialog.ts';
 import { presentDiffDialog } from './presenters/git.ts';
 import { presentSession } from './presenters/session.ts';
+import { toggleOrchestratorOpen } from './views/orchestratorOpen.ts';
 import { presentSettings } from './presenters/settings.ts';
 import { presentShell } from './presenters/shell.ts';
 import { presentToasts } from './presenters/toasts.ts';
@@ -166,6 +167,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const selectedTabId = shortcutView?.selectedTab ?? shortcutTabs[0]?.id ?? null;
   // TabStrip の分割ボタンと同じ条件で、タブが 2 つ無いときは ⌘\ を出さない。
   const canSplit = shortcutTabs.length >= 2;
+  // 統括の柱があるか（有効で、会話がある）。⌘⇧J はあるときだけ開け閉めする。
+  const orchAvailable = store.settings?.orchestrator?.enabled === true && !!store.settings.orchestrator.sessionId;
   // 分割のキーが読む、いまの木。キーの耳は rt だけで組むので、最新の値は ref で渡す。
   const panesRef = useRef(state.panes);
   panesRef.current = state.panes;
@@ -296,6 +299,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         case 'session.newScratch': take(); rt.emit({ type: 'session.new.open', scratch: true }); return;
         // 次の入力待ちへ。ダイアログを開いている間は、その裏で画面を移さない。
         case 'session.nextWaiting': if (overlayKind === 'none' || overlayKind === 'palette') { take(); rt.emit({ type: 'session.nextWaiting' }); } return;
+        // 統括の柱の開閉。統括が無効（柱が無い）なら何もしない。
+        case 'orchestrator.toggle': if (orchAvailable) { take(); toggleOrchestratorOpen(); } return;
         case 'settings.open': take(); rt.emit({ type: 'nav.go', to: { name: 'settings' } }); return;
         // macOS の入力欄の Ctrl+B（1 字戻る）は、上の入力欄の規則で渡している。
         // 会話の画面（ターミナルが出ている画面）の Ctrl だけの B は、サイドバーの開閉に使わない（#616）。
@@ -336,7 +341,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rt, overlayKind, sessionId, shortcutRun, shortcutTabs, selectedTabId, canSplit, newProjectId, newScratch, props.terminals, transcriptShown, finds, reload]);
+  }, [rt, overlayKind, sessionId, shortcutRun, shortcutTabs, selectedTabId, canSplit, orchAvailable, newProjectId, newScratch, props.terminals, transcriptShown, finds, reload]);
 
   // 確認や入力のあるダイアログの裏では、スワイプで画面を移さない（Mediator の canMoveBehind と同じ規則）。
   // Mediator も nav.back を捨てるが、それだけだと矢印が出て「動いた」と見えてしまうので、手勢そのものを受けない。

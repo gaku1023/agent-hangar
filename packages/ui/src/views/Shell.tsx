@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import { ORCH_WIDTH_DEFAULT, orchWidthCss } from '../mediator/orchestrator.ts';
 import { sidebarWidthCss } from '../mediator/sidebar.ts';
 import type { ShellProps } from '../presenters/shell.ts';
 import { ConnectionBanner } from './ConnectionBanner.tsx';
@@ -30,7 +31,7 @@ export function Shell(props: ShellProps & { children: ReactNode; overlays: React
     if (shell.dataset.sidebarDropped) { delete shell.dataset.sidebarDropped; return; }
     playSidebarWidth(shell, from);
   }, [props.sidebarWidth]);
-  const style = { '--sidebar-w': sidebarWidthCss(props.sidebarWidth) } as CSSProperties;
+  const style = { '--sidebar-w': sidebarWidthCss(props.sidebarWidth), '--orch-w': orchWidthCss(props.orchestratorWidth ?? ORCH_WIDTH_DEFAULT) } as CSSProperties;
   return (
     <div ref={ref} className="shell" data-sidebar={props.sidebarCollapsed ? 'collapsed' : undefined} data-wide={props.wide ? 'true' : undefined} data-orch={props.orchestrator ? 'true' : undefined} style={style}>
       <Sidebar nav={props.nav} foot={props.foot} collapsed={props.sidebarCollapsed} live={props.live} orch={props.orchNav} />
@@ -39,7 +40,7 @@ export function Shell(props: ShellProps & { children: ReactNode; overlays: React
       {/* 帯は 2 行目に置く。切断の帯だけで、無いときは箱が空になり、:empty で潰れる。保持期間は帯でなくベルの一覧の行になった。 */}
       <div className="banners"><ConnectionBanner {...props.conn} /></div>
       <main className="main"><div className="approval-stack"><DeleteApprovalStrip rows={props.approvals} /><PeerApprovalStrip rows={props.peerApprovals ?? []} /></div><div className="main-inner">{props.children}</div></main>
-      {props.orchestrator && <OrchestratorPillar orch={props.orchestrator} />}
+      {props.orchestrator && <OrchestratorPillar orch={props.orchestrator} width={props.orchestratorWidth ?? ORCH_WIDTH_DEFAULT} />}
       {props.overlays}
     </div>
   );

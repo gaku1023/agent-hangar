@@ -7,7 +7,10 @@ import { hangarVoicePort } from '../voice/hangarVoicePort.ts';
 import { createSpeaker } from '../voice/speaker.ts';
 import type { VoicePort } from '../voice/voicePort.ts';
 import { webVoicePort } from '../voice/webVoicePort.ts';
+import { anywhereKeys, KEYMAP } from '../keys.ts';
 import { isComposing } from './ime.ts';
+import { ORCH_WIDTH_DEFAULT } from '../mediator/orchestrator.ts';
+import { OrchestratorGrip } from './OrchestratorGrip.tsx';
 import { PeerChatLog } from './PeerChatLog.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { MicButton } from './primitives/MicButton.tsx';
@@ -19,6 +22,8 @@ import { useMotionList } from './primitives/useMotionList.ts';
 import { usePresence } from './primitives/usePresence.ts';
 import { setOrchestratorOpen, useOrchestratorOpen } from './orchestratorOpen.ts';
 
+
+const ORCH_KEYS = KEYMAP.find((k) => k.id === 'orchestrator.toggle')!;
 
 /** 画面で 1 つ使い回す音声の口。 */
 let sharedPort: VoicePort | null = null;
@@ -35,7 +40,7 @@ const defaultVoiceApi = (): VoiceApi => (sharedVoiceApi ??= createApi());
  * 開き閉じは外側の箱だけの幅の伸び縮み（pillarMotion.ts。中身は開いたときの幅のまま切り抜く）で、丸と柱の入れ替えは usePresence を通る。
  * 見出しや説明の文は置かない。方針の下に並ぶ記録が「方針で通したもの」で、会話の列が「聞かれたもの」である。
  */
-export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?: VoicePort; voiceApi?: VoiceApi; defaultOpen?: boolean }) {
+export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?: VoicePort; voiceApi?: VoiceApi; defaultOpen?: boolean; width?: number }) {
   const { orch } = props;
   const t = useT();
   const emit = useEmit();
@@ -113,13 +118,14 @@ export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?
   return (
     <aside className="orch" data-open={open ? 'true' : undefined}>
       {!presence.mounted && (
-        <button ref={dot} type="button" className="orch-dot" data-tone={orch.tone} data-phase={helper ? orch.voice?.phase : undefined} aria-label={t('orchestratorPane.pillar.open')} title={orch.statusLabel} onClick={() => toggle(true)} />
+        <button ref={dot} type="button" className="orch-dot" data-tone={orch.tone} data-phase={helper ? orch.voice?.phase : undefined} aria-label={t('orchestratorPane.pillar.open')} title={`${orch.statusLabel} ${anywhereKeys(ORCH_KEYS)}`} onClick={() => toggle(true)} />
       )}
       {presence.mounted && (
         <section ref={presence.ref} className="orch-panel" aria-label={t('orchestratorPane.pillar.region')} data-leaving={presence.leaving ? 'true' : undefined}>
           <div className="orch-panel-in">
           <div className="orch-top">
             {orch.policy !== null && <span className="orch-policy">{orch.policy}</span>}
+            <kbd className="mono orch-keys">{anywhereKeys(ORCH_KEYS)}</kbd>
             <button type="button" className="orch-dot orch-dot-close" data-tone={orch.tone} aria-label={t('orchestratorPane.pillar.close')} title={orch.statusLabel} onClick={() => toggle(false)} />
           </div>
           <Approvals rows={orch.approvals} />
@@ -128,6 +134,7 @@ export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?
           </div>
         </section>
       )}
+      {open && <OrchestratorGrip width={props.width ?? ORCH_WIDTH_DEFAULT} />}
     </aside>
   );
 }

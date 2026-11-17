@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UiAction } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
@@ -38,6 +38,15 @@ describe('統括の柱の開き閉じ', () => {
     expect(kit.pillarClose).toHaveBeenCalledWith(expect.any(HTMLElement), expect.any(HTMLElement));
     await waitFor(() => expect(screen.queryByRole('region', { name: '統括' })).toBeNull());
     expect(screen.getByRole('button', { name: '統括を開く' })).toBeInTheDocument();
+  });
+  it('閉じる丸の横に ⌘⇧J の札を置き、閉じた丸のホバーにも出す', () => {
+    const { container } = mount(base());
+    const kbd = container.querySelector('.orch-top kbd');
+    expect(kbd?.textContent).toMatch(/⌘⇧J|Ctrl/);
+    expect(kbd?.nextElementSibling).toBe(screen.getByRole('button', { name: '統括を閉じる' }));
+    cleanup();
+    mount(base({ statusLabel: '待機中' }), false);
+    expect(screen.getByRole('button', { name: '統括を開く' }).getAttribute('title')).toMatch(/^待機中 .*(⌘⇧J|Ctrl)/);
   });
   it('柱を開いたら、会話の読み込みを頼む', () => {
     mount(base());

@@ -9,6 +9,7 @@ import { accountsFixture } from './test/accounts.ts';
 import { fakeApiExtras } from './test/fakeApi.ts';
 import { FOCUS_IDS, focusSoon } from './runtime/focusSoon.ts';
 import { SWIPE_RELEASE_GAP_MS, SWIPE_STALE_HIDE_MS } from './swipe.ts';
+import { resetOrchestratorOpen } from './views/orchestratorOpen.ts';
 import { fakeMotionTokens } from './test/motion.ts';
 import { setClientUserAgent, WINDOWS_UA } from './test/client.ts';
 
@@ -271,6 +272,25 @@ describe('Root', () => {
 
 describe('フェーズ 3 のショートカットとオーバーレイ', () => {
   const key = (init: KeyboardEventInit) => fireEvent.keyDown(window, init);
+
+  describe('⌘⇧J で統括の柱を開け閉めする', () => {
+    const withOrch = (enabled: boolean): BootstrapDto => ({ ...boot, settings: { ...boot.settings, orchestrator: { enabled, sessionId: enabled ? 'o1' : null } } as BootstrapDto['settings'] });
+    const stored = () => localStorage.getItem('hangar.orchestrator.open');
+    it('統括があれば開閉が替わる', async () => {
+      localStorage.clear(); resetOrchestratorOpen();
+      await mounted({ boot: withOrch(true) });
+      key({ key: 'J', code: 'KeyJ', metaKey: true, shiftKey: true });
+      expect(stored()).toBe('1');
+      key({ key: 'J', code: 'KeyJ', metaKey: true, shiftKey: true });
+      expect(stored()).toBe('0');
+    });
+    it('統括が無効なら何もしない', async () => {
+      localStorage.clear(); resetOrchestratorOpen();
+      await mounted({ boot: withOrch(false) });
+      key({ key: 'J', code: 'KeyJ', metaKey: true, shiftKey: true });
+      expect(stored()).toBeNull();
+    });
+  });
 
   it('グローバルのキーが UiAction になる', async () => {
     const { rt } = await mounted();

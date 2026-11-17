@@ -21,6 +21,9 @@ export function setOrchestratorOpen(open: boolean, persist = true): void {
   for (const l of [...listeners]) l();
 }
 
+/** 開閉を逆にする（⌘⇧J）。 */
+export const toggleOrchestratorOpen = (): void => setOrchestratorOpen(!get());
+
 /** 開いているか。 */
 export const useOrchestratorOpen = (): boolean => useSyncExternalStore(subscribe, get, get);
 /** 試験用。覚えた値を捨てて、保存された値から読み直す。 */
