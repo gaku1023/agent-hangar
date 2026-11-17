@@ -371,7 +371,13 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     case 'retention.changed': return sameValue(store.retention, ev.retention) ? store : { ...store, retention: ev.retention };
     case 'interrupted.update': return sameValue(store.interrupted, ev.interrupted) ? store : { ...store, interrupted: ev.interrupted };
     case 'git.upsert': return applyGit(store, ev.git);
-    case 'settings.changed': return sameValue(store.settings, ev.settings) ? store : { ...store, settings: ev.settings };
+    case 'settings.changed': {
+      if (sameValue(store.settings, ev.settings)) return store;
+      // 統括が新しい会話に切り替わったら、前の会話の本文を捨てる（読み直しは Runtime が頼む）。見張りの状態は残す。
+      const switched = (store.settings?.orchestrator?.sessionId ?? null) !== (ev.settings.orchestrator?.sessionId ?? null);
+      return { ...store, settings: ev.settings, ...(switched ? { orchestrator: { ...store.orchestrator, events: [], loaded: false } } : {}) };
+    }
+    case 'orchestrator.state': return { ...store, orchestrator: { ...store.orchestrator, keeper: ev.state } };
     case 'summary.pending': return { ...store, summaryPending: { ...store.summaryPending, [ev.sessionId]: true }, summaryFailed: without(store.summaryFailed, ev.sessionId) };
     // 本文の差し替えは session.upsert が行う。ここは待ちの印を消し、失敗の理由を入れ替えるだけである。
     case 'summary.updated': {

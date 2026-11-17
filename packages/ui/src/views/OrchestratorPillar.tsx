@@ -16,7 +16,9 @@ import { Icon } from './primitives/Icon.tsx';
 import { MicButton } from './primitives/MicButton.tsx';
 import { VoicePill } from './primitives/VoicePill.tsx';
 import { useLanguage, useT } from './primitives/language.tsx';
-import { fadeIn } from './primitives/motionKit.ts';
+import { collapseOut, fadeIn } from './primitives/motionKit.ts';
+import { MenuButton, type MenuItem } from './primitives/MenuButton.tsx';
+import type { PeerChatRow } from '../presenters/peerChat.ts';
 import { pillarClose, pillarOpen } from './primitives/pillarMotion.ts';
 import { useMotionList } from './primitives/useMotionList.ts';
 import { usePresence } from './primitives/usePresence.ts';
@@ -115,6 +117,35 @@ export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?
   const send = (text: string, origin?: OrchestratorOrigin) => { speaker.stop(); setSpeakingKey(null); emit({ type: 'orchestrator.send', text, ...(origin !== undefined ? { origin } : {}) }); };
   const rows = speakingKey === null ? orch.rows : orch.rows.map((r) => (r.kind === 'assistant' && r.key === speakingKey ? { ...r, speaking: true } : r));
 
+  // 柱のメニュー（右上の丸、試作 A）。頭に状態の行、項目は 会話を新しくする・停止か再開・統括を閉じる。
+  const menuHead = <span className="orch-menu-status"><span className="orch-dot" data-tone={orch.tone} aria-hidden="true" />{orch.statusLabel}</span>;
+  const busyNote = orch.keeper.switching ? orch.statusLabel : null;
+  const menuItems: MenuItem[] = [
+    { key: 'fresh', label: t('orchestratorPane.menu.fresh'), icon: 'restart', disabled: busyNote, quietReason: true, onSelect: () => emit({ type: 'orchestrator.control', op: 'fresh' }) },
+    orch.keeper.stopped
+      ? { key: 'wake', label: t('orchestratorPane.menu.wake'), icon: 'play', disabled: busyNote, quietReason: true, onSelect: () => emit({ type: 'orchestrator.control', op: 'wake' }) }
+      : { key: 'stop', label: t('orchestratorPane.menu.stop'), icon: 'stop', disabled: busyNote, quietReason: true, onSelect: () => emit({ type: 'orchestrator.control', op: 'stop' }) },
+    { key: 'close', label: t('orchestratorPane.pillar.close'), icon: 'paneClose', separatorBefore: true, onSelect: () => toggle(false) },
+  ];
+
+  // 新しい会話に切り替わったら、前の会話の行を畳み（collapseOut）、区切りの線（fadeIn）の下に新しい会話を積む。
+  // 柱を開いている間だけの見せ方で、開き直せば区切りは無い（前の話は検索とその会話を開く操作で読む）。
+  const [retired, setRetired] = useState<{ key: string; rows: PeerChatRow[] } | null>(null);
+  const [switched, setSwitched] = useState(false);
+  const lastId = useRef(orch.sessionId);
+  const lastRows = useRef(orch.rows);
+  useLayoutEffect(() => {
+    if (lastId.current !== orch.sessionId) {
+      if (presence.mounted && lastRows.current.length > 0) setRetired({ key: lastId.current, rows: lastRows.current });
+      if (presence.mounted) setSwitched(true);
+      lastId.current = orch.sessionId;
+    }
+    lastRows.current = orch.rows;
+  }, [orch.sessionId, orch.rows, presence.mounted]);
+  useEffect(() => { if (!presence.mounted) { setSwitched(false); setRetired(null); } }, [presence.mounted]);
+  const divider = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => { if (switched && divider.current) fadeIn(divider.current); }, [switched]);
+
   return (
     <aside className="orch" data-open={open ? 'true' : undefined}>
       {!presence.mounted && (
@@ -126,10 +157,20 @@ export function OrchestratorPillar(props: { orch: OrchestratorPillarProps; port?
           <div className="orch-top">
             {orch.policy !== null && <span className="orch-policy">{orch.policy}</span>}
             <kbd className="mono orch-keys">{anywhereKeys(ORCH_KEYS)}</kbd>
-            <button type="button" className="orch-dot orch-dot-close" data-tone={orch.tone} aria-label={t('orchestratorPane.pillar.close')} title={orch.statusLabel} onClick={() => toggle(false)} />
+            <MenuButton label={t('orchestratorPane.menu.label')} faceClassName="orch-dot-close" title={orch.statusLabel} head={menuHead} items={menuItems}
+              face={<><span className="orch-dot" data-tone={orch.tone} data-switching={orch.keeper.switching ? 'true' : undefined} aria-hidden="true" /><span className="sr-only">{t('orchestratorPane.menu.label')}</span></>} />
+            {orch.context && (
+              <div className="orch-context" role="img" aria-label={orch.context.label} title={orch.context.label} data-over={orch.context.over ? 'true' : undefined}>
+                <i style={{ width: `${Math.round(orch.context.ratio * 1000) / 10}%` }} />
+              </div>
+            )}
           </div>
           <Approvals rows={orch.approvals} />
-          <PeerChatLog rows={rows} loading={orch.loading} quietEmpty label={t('orchestratorPane.log.label')} onCancel={() => {}} onAnswer={() => {}} />
+          <div className="orch-log">
+            {retired && <Retired key={retired.key} rows={retired.rows} label={t('orchestratorPane.log.label')} onGone={() => setRetired(null)} />}
+            {switched && <div ref={divider} role="separator" className="orch-divider" />}
+            <PeerChatLog rows={rows} loading={orch.loading} quietEmpty label={t('orchestratorPane.log.label')} onCancel={() => {}} onAnswer={() => {}} />
+          </div>
           <Composer canSend={orch.canSend} sending={orch.sending} port={port} voice={helper ? orch.voice! : null} voiceApi={voiceApi} onSend={send} onMic={() => { micUsed.current = true; }} />
           </div>
         </section>
@@ -197,6 +238,22 @@ function Composer(props: { canSend: boolean; sending: boolean; port: VoicePort; 
         {props.canSend && !props.voice && <MicButton port={props.port} onInterim={onInterim} onSend={(s) => { props.onMic(); props.onSend(s, 'voice-held'); }} />}
         <button type="button" className="pchat-send" disabled={!ready} aria-label={t('orchestratorPane.composer.send')} onClick={submit}><Icon name="seeAll" /></button>
       </div>
+    </div>
+  );
+}
+
+/** 前の会話の行。出たとたんに高さを畳み（collapseOut）、畳み終えたら外れる。 */
+function Retired(props: { rows: PeerChatRow[]; label: string; onGone: () => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  const gone = useRef(props.onGone);
+  gone.current = props.onGone;
+  useLayoutEffect(() => {
+    if (!box.current) return;
+    void collapseOut(box.current).then(() => gone.current());
+  }, []);
+  return (
+    <div ref={box} className="orch-retired" aria-hidden="true">
+      <PeerChatLog rows={props.rows} loading={false} quietEmpty label={props.label} onCancel={() => {}} onAnswer={() => {}} />
     </div>
   );
 }

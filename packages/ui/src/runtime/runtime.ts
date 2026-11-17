@@ -301,6 +301,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     events: (id, q) => deps.api.events(id, q),
     approvals: () => deps.api.orchestratorApprovals(),
     send: (text, origin) => deps.api.orchestratorSend(text, origin),
+    state: () => deps.api.orchestratorState(),
+    control: (op) => deps.api.orchestratorControl(op),
     get: () => store.orchestrator,
     set: (o) => setStore({ ...store, orchestrator: o }),
     fail: (e) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: errMsg(e) } }),
@@ -1164,6 +1166,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     const indexDone = input.kind === 'server' && indexFinishedBy(store, input.event);
     // 同期で降りた、この PC に場所を持ったことが無いプロジェクトか。これも、当てる前の Store でしか分からない（初めて見る id かどうか）。
     // 起動の読み込み（bootstrap）で入るものは project.upsert では届かないので、ここには来ない。読み込みが済む前に届いたものも数えない。
+    // 統括が新しい会話に切り替わったか。Store は前の会話の本文を捨てるので、柱を開いたことがあれば新しい会話を読み直す。
+    const orchReload = input.kind === 'server' && input.event.type === 'settings.changed' && store.orchestrator.loaded && (store.settings?.orchestrator?.sessionId ?? null) !== (input.event.settings.orchestrator?.sessionId ?? null);
     const arrivedId = input.kind === 'server' && input.event.type === 'project.upsert' && arrivedFromSync(store, input.event.project) ? input.event.project.id : null;
     if (input.kind === 'server') {
       const couldHold = eventsAvailable(store.sync);
@@ -1176,6 +1180,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       if (input.event.type === 'peerChat.update' && input.event.reason === 'worker-outdated') peerChat.noteUpdate(input.event.sessionId);
       // 統括の本文が伸びた。柱が見せる会話と記録を読み直す（柱を開いたことがある間だけ。load は会話が無ければ何もしない）。
       if (input.event.type === 'transcript.appended' && input.event.sessionId === store.settings?.orchestrator?.sessionId && store.orchestrator.loaded) void orchestrator.run({ op: 'load' });
+      if (orchReload) void orchestrator.run({ op: 'load' });
       // 本文が伸びたセッションは、サブエージェントが増えているかもしれない。
       // ここでは取りに行かず、次に本文を読むときに取り直させる。
       // 本文を読むのは画面に出ているセッションだけなので、見ていないセッションの分は無駄に取らない。

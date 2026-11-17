@@ -198,6 +198,8 @@ export function bootHttp(p: {
     // 行が消えていなくて、本文がある会話だけを再開できる（run が早く終わって本文の無いまま行が消えた会話は、新しく起こす）。
     resumable: (id) => !!db.prepare('select 1 from sessions s where s.id = ? and s.deleted_at is null and exists (select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null)').get(id),
   });
+  // 見張りの状態（止まった、切り替え中）が変わったら、全部の画面へ配る。柱のメニューと上端の棒が読む。
+  orchestrator.onState((state) => { delivery.hub.broadcast({ type: 'orchestrator.state', state }); });
   // 机の音声（voice/service.ts）。補助は常に聞くのときと、押す・切り替え・読み上げ・準備が来たときだけ起こす。
   const voiceBin = resolveVoiceBin(process.env, process.platform, fs.existsSync);
   const titles = db.prepare('select coalesce(n.name, s.custom_title, s.ai_title, s.first_prompt) t from sessions s left join session_notes n on n.session_id = s.id where s.deleted_at is null order by s.last_activity_at desc limit 100');

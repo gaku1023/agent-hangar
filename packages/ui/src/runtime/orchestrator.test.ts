@@ -6,14 +6,16 @@ import { createOrchestratorRunner } from './orchestrator.ts';
 const ev = (seq: number): TranscriptEvent => ({ kind: 'assistant', seq, text: `t${seq}` });
 const appr = (id: string): AutoApprovalDto => ({ id, at: 1, sessionId: 's', title: 'x', tool: 'Read', input: '/a', label: 'Yes', reason: 'r', policyText: null });
 
-function setup(over: { sessionId?: string | null; send?: (t: string) => Promise<unknown> } = {}) {
+function setup(over: { sessionId?: string | null; send?: (t: string) => Promise<unknown>; control?: (op: 'fresh' | 'stop' | 'wake') => Promise<unknown> } = {}) {
   let slice: OrchestratorSlice = emptyOrchestrator();
   const events = vi.fn(async () => ({ sessionId: 'o1', events: [ev(1), ev(2)], total: 2, nextSeq: null }));
   const approvals = vi.fn(async () => ({ approvals: [appr('a1')] }));
   const send = vi.fn(over.send ?? (async () => ({ ok: true })));
   const fail = vi.fn();
-  const r = createOrchestratorRunner({ sessionId: () => (over.sessionId === undefined ? 'o1' : over.sessionId), events, approvals, send, get: () => slice, set: (s) => { slice = s; }, fail });
-  return { r, events, approvals, send, fail, slice: () => slice };
+  const state = vi.fn(async () => ({ status: 'running' as const, contextTokens: 5 }));
+  const control = vi.fn(over.control ?? (async () => ({ ok: true })));
+  const r = createOrchestratorRunner({ sessionId: () => (over.sessionId === undefined ? 'o1' : over.sessionId), events, approvals, send, state, control, get: () => slice, set: (s) => { slice = s; }, fail });
+  return { r, events, approvals, send, state, control, fail, slice: () => slice };
 }
 
 describe('createOrchestratorRunner', () => {
@@ -45,5 +47,27 @@ describe('createOrchestratorRunner', () => {
     await w.r.run({ op: 'send', text: 'a' });
     expect(w.slice().sending).toBe(false);
     expect(w.fail).toHaveBeenCalled();
+  });
+});
+
+describe('createOrchestratorRunner の見張りの状態と操作', () => {
+  it('load は見張りの状態も読む', async () => {
+    const w = setup();
+    await w.r.run({ op: 'load' });
+    expect(w.slice().keeper).toEqual({ status: 'running', contextTokens: 5 });
+  });
+  it('fresh・stop・wake は口を呼び、終わったら状態を読み直す', async () => {
+    for (const op of ['fresh', 'stop', 'wake'] as const) {
+      const w = setup();
+      await w.r.run({ op });
+      expect(w.control).toHaveBeenCalledWith(op);
+      expect(w.state).toHaveBeenCalled();
+    }
+  });
+  it('断られたら fail に渡し、状態は読み直す', async () => {
+    const w = setup({ control: async () => { throw new Error('新しい会話に切り替え中です'); } });
+    await w.r.run({ op: 'stop' });
+    expect(w.fail).toHaveBeenCalled();
+    expect(w.state).toHaveBeenCalled();
   });
 });

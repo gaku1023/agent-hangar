@@ -54,6 +54,8 @@ export function orchestratorStep(state: State, input: Input, store?: Store): Ste
       return { state: { ...state, orchestratorWidth: width }, effects: [{ kind: 'storage.save', key: ORCH_WIDTH_KEY, value: width }] };
     }
     case 'orchestrator.send': return { state, effects: [{ kind: 'orchestrator', command: { op: 'send', text: a.text, ...(a.origin !== undefined ? { origin: a.origin } : {}) } }] };
+    // 柱のメニュー：会話を新しくする（POST /fresh）、停止（/stop）、再開（/wake）。
+    case 'orchestrator.control': return { state, effects: [{ kind: 'orchestrator', command: { op: a.op } }] };
     default: return null;
   }
 }
