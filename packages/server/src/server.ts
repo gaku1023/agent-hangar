@@ -1,4 +1,5 @@
 import type { ToolDeps } from './mcp/tools.ts';
+import { startPathRefFill } from './db/pathRef.ts';
 import { launchScheduled, waitScheduled } from './schedule/launch.ts';
 import { ScheduleRunner } from './schedule/runner.ts';
 import path from 'node:path';
@@ -222,6 +223,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   delivery.live.start();
   runs.primeLive();
   await indexing.start();
+  // 版 65 で足した索引のパスの番号は、起動を止めないよう、起動後に背面で数千行ずつ振る。
+  startPathRefFill(home.db);
   runs.start();
   summary.startAutoDone();
   // 使っていない LM Studio のモデルを外す見張り（provider/opencode/localModels/idleUnload.ts）。

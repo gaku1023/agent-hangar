@@ -990,10 +990,16 @@ create table event_index (
   session_id text not null, seq integer not null,
   kind text not null,                              -- 正規化イベントの種別
   ts integer, byte_offset integer not null, byte_length integer not null,
-  file_path_ref text not null,                     -- 位置が指すファイル
+  path_id integer,                                 -- 位置が指すファイル。event_paths の番号（版 65）。null は番号を振る前の行で、file_path_ref を読む
+  file_path_ref text not null,                     -- 旧い列。番号を振った行と版 65 以降の新しい行は空
   parent_agent text,                               -- サブエージェントの ID。null は主線
   tool_name text, file_path text,                  -- tool_call のときだけ
   fts_rowid integer                                -- 対応する event_fts の rowid（版 60）。0 は検索の行が無い、null は版 60 より前に積んだ行
+);
+-- 索引が指すファイルのパス。1 ファイル 1 行で、event_index は行ごとに文字を持たず番号で指す。
+create table event_paths (
+  id integer primary key,
+  path text not null unique
 );
 -- 主線とサブエージェントで seq の空間を分ける。
 create unique index event_index_pos on event_index(session_id, ifnull(parent_agent, ''), seq);
@@ -1175,7 +1181,7 @@ DB に書くのは hangar の側（`indexer/write.ts` の `writeBatch`）で、�
 索引は、見張りが名指ししたファイルと全件の見比べで変わったファイルについて、どこまで読んだか（`transcript_files`、`indexer/indexFile.ts`）を見て、driver の読み出しの口（`TranscriptFiles.read`、Claude は `provider/claude-code/transcript/batch.ts`）に続きを束にさせ、`writeBatch` で書く。
 互換の見張り（`compat/transcript.ts`）は、この読み出しの口が手元の本文の行にだけかける。
 本文を DB に持つエージェントは、作った束を `start` に渡した受け口の `batch` へ押し込み、索引はそれをそのまま `writeBatch` で書く。
-押し込んだ束の出どころの名前（`storedOrigin`）は、日別の使用量の鍵と `event_index.file_path_ref` に入る。
+押し込んだ束の出どころの名前（`storedOrigin`）は、日別の使用量の鍵と `event_paths.path`（`event_index.path_id` が指す）に入る。
 本文そのものは、`writeBatch` が同じ取引で `agent_events` に 1 行 1 イベントで写す。作り直しの束では、その位置の行を消してから積む。
 読む側は `transcript/stored.ts` の `readStoredPage` で、ページの切り方は Claude の読み手と同じにする。
 ファイル型の読み手は、ページの切り方を `transcript/filePage.ts` の `readFilePage` に共通にし、記録の正規化と、論理パスから本文を開く口だけを面ごとに渡す。
@@ -1255,6 +1261,17 @@ Claude Code の保存先と、その読み方を定める。
 作り直しと削除で検索の行（`event_fts`）を消すときは、位置で引かずに `event_index.fts_rowid` の rowid で引く（`indexer/write.ts` の `deleteIndexed`）。
 FTS5 の `unindexed` の列には索引が無く、`session_id` で消すと中身の表を全部なめるためである（2026-11-14 の実測で、Windows の 30.7 万行で 1 回 0.29〜1.67 秒、冷えていると 4 秒、Mac の 29 万行で 0.07 秒。実行中の会話の作り直しが重なり、イベントループが 15 秒止まった）。
 検索の行はイベントごとに高々 1 つなので、積むときの rowid をそのイベントの行に持たせる。版 60 より前に積んだ行（`fts_rowid` が null）が残る位置だけは、次の作り直しで今までどおり位置で消し、積み直した後は rowid で引ける。
+索引の行は、ファイルのパスの文字を持たず、`event_paths` の番号（`path_id`）で指す（版 65）。
+パスは平均 135 字で、行ごとに持つと、行が百万単位の索引では DB の大きな部分（147 万行で 200MB 前後）を占めていた。
+番号なら、パスの文字は索引の行数によらずファイルの数だけである。
+書く側（`indexer/write.ts`）は、束の中で引いた番号を覚え、読む側（`transcript/filePage.ts`）は、番号か旧い列からパスを引いて開く。
+控え（`db/backup.ts`）は、抜く行を番号と旧い列の両方で選び、行が無くなったパスの行も抜く。
+控えは当てる前の DB の写しなので、版 65 より前の形（`file_path_ref`）の DB でも抜ける。
+版 65 は、パスの表と `path_id` の列を足すだけで、行を書き直さない。
+行を書き直すと、大きな DB では開くときに十数秒止まり、列を落とすだけではファイルが縮まない（VACUUM も同じだけかかる）ので、どちらもしない。
+旧い列（`file_path_ref`）は NOT NULL で後から外せないので残し、新しい行は空の文字を入れる。
+旧い行への番号振りは、起動の後ろで背面（`db/pathRef.ts` の `startPathRefFill`）が数千行ずつ進める。1 回は 1 つの取引で、間に待ちを挟み、振った行は旧い列を空にする（空いた頁は後の書き込みが使い回す）。
+埋め終えるまでは、`path_id` が null の行を旧い列で読む（`EVENT_PATH_SQL`）。途中でサーバが止まっても、次の起動が残りから続ける。
 Claude の本文を読むとき（`provider/claude-code/transcript/page.ts`）は、索引のバイト位置からファイルを読み、正規化し直す。
 1 つの記録から出た行は `seq` が続いているので、ページの中の 2 つ目からの記録は、ページに入った最初の行が記録の先頭である。
 記録の途中から始まりうるのはページの最初の記録だけで、その先頭は索引を 1 行ずつ遡って確かめる。
@@ -8004,7 +8021,7 @@ puller は opencode の行を Claude の本文と同じ道で降ろす。
 置き場は `provider/opencode/transcript/remote.ts`（`RemoteOpencodeTranscripts`）で、索引の stored の面の 1 つとして組む（`boot/indexing.ts`）。
 見直すのは、索引が始まったときと、写しが降りたときと、会話の行が届いたとき（`onRemoteChange`）である。
 束には元の PC（`IndexBatch.remoteDevice`）を付け、索引は他端末の写しとして書く（会話の行と要約には書かず、行がまだ届いていなければ書かない）。
-出どころの名前（`event_index.file_path_ref` と日別の使用量の鍵）は `opencode:<ID>@<元の PC>` にし、手元の束（`opencode:<ID>`）と分ける。
+出どころの名前（`event_paths.path` と日別の使用量の鍵）は `opencode:<ID>@<元の PC>` にし、手元の束（`opencode:<ID>`）と分ける。
 手元の本文があるか（`SessionDto.remoteOnly` の元）は、主線の先頭のイベントの出どころが手元の束かで見る。
 手元の束と写しの束は互いに作り直しで置き換え、作り直しはどちらの出どころの日別も消してから積む（二重に数えない）。
 写しが何台分もあれば本文の新しい方を選び、この PC で動いている会話と、この PC の書き出しの方が新しい会話には入れない。

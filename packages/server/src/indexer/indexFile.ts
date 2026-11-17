@@ -32,8 +32,8 @@ type TfRow = { path: string; session_id: string; agent_id: string | null; size: 
 export function markTruncatedForReindex(db: Db): number {
   return stmt(db, `update transcript_files set indexer_version = 0
     where indexer_version <> 0
-      and exists (select 1 from event_index e where e.session_id = transcript_files.session_id and ifnull(e.parent_agent, '') = ifnull(transcript_files.agent_id, '') and e.file_path_ref = transcript_files.path)
-      and not exists (select 1 from event_index e where e.session_id = transcript_files.session_id and ifnull(e.parent_agent, '') = ifnull(transcript_files.agent_id, '') and e.file_path_ref = transcript_files.path and e.byte_offset = 0)`).run().changes;
+      and exists (select 1 from event_index e where e.session_id = transcript_files.session_id and ifnull(e.parent_agent, '') = ifnull(transcript_files.agent_id, '') and (e.path_id = (select p.id from event_paths p where p.path = transcript_files.path) or e.file_path_ref = transcript_files.path))
+      and not exists (select 1 from event_index e where e.session_id = transcript_files.session_id and ifnull(e.parent_agent, '') = ifnull(transcript_files.agent_id, '') and (e.path_id = (select p.id from event_paths p where p.path = transcript_files.path) or e.file_path_ref = transcript_files.path) and e.byte_offset = 0)`).run().changes;
 }
 
 /**

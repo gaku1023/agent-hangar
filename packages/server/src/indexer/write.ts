@@ -1,6 +1,7 @@
 import { newId } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
+import { pathRefId } from '../db/pathRef.ts';
 import { upsertShared } from '../db/shared.ts';
 import type { Activity, AgentKind, IndexBatch, Limit } from '../agent/types.ts';
 import { artifactCallOf, isArtifactPublish, parsePublishedUrl, recordArtifactPublish } from '../artifacts/extract.ts';
@@ -33,7 +34,7 @@ export type ProcessStartOf = (q: { sessionId: string; providerSessionId: string;
 
 /**
  * remote が真なら他端末から降ろした写しである。sessions と session_summaries には書かない。
- * origin は束の出どころで、日別の使用量の鍵（usage_daily.file_path）と、本文を DB に持つ束の event_index.file_path_ref に入る。
+ * origin は束の出どころで、日別の使用量の鍵（usage_daily.file_path）と、本文を DB に持つ束の event_paths.path（event_index.path_id が指す）に入る。
  * ファイルの束ではファイルのパスを渡す。省けば storedOrigin で決める。
  * sessionId は、呼び手が既に引いた hangar の会話の id である（transcript_files の行など）。渡せば、削除と写しの見送りの確かめを省く。
  */
@@ -156,7 +157,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
   // 「いま何をしているか」は手元の主線だけから取る。サブエージェントと他端末の写しは見ない。
   const mainLocal = b.agentId === null && !remote;
 
-  const insEv = stmt(db, 'insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, file_path_ref, parent_agent, tool_name, file_path, fts_rowid) values (?,?,?,?,?,?,?,?,?,?,?)');
+  const insEv = stmt(db, 'insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, path_id, file_path_ref, parent_agent, tool_name, file_path, fts_rowid) values (?,?,?,?,?,?,?,\'\',?,?,?,?)');
   const insFts = stmt(db, 'insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)');
   // 本文を DB に持つ束（stored）は、イベントそのものを agent_events に写す（読むのは transcript/stored.ts）。
   const insBody = stmt(db, 'insert or replace into agent_events (session_id, agent_key, seq, body) values (?,?,?,?)');
@@ -191,6 +192,8 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
     let project: { id: string | null } | null = null;
     const projectOf = () => (project ??= { id: (stmt(db, 'select project_id from sessions where id = ?').get(sessionId) as { project_id: string | null }).project_id }).id;
     // seq は主線とサブエージェントで別々に振り、続きは既存の最大値の次から始める。束の中の seq はその上に乗せる。
+    // 束の中は同じファイルが続くので、パスの番号は引いたものを覚える。
+    const refIds = new Map<string, number>();
     const base = reset ? 0 : ((stmt(db, "select max(seq) m from event_index where session_id = ? and ifnull(parent_agent, '') = ?").get(sessionId, agentKey) as { m: number | null }).m ?? -1) + 1;
     const acc: Acc = { userTurns: 0, input: 0, output: 0, daily: new Map() };
     let appended = 0;
@@ -199,6 +202,8 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
       const offset = r.locator.kind === 'file' ? r.locator.offset : 0;
       const length = r.locator.kind === 'file' ? r.locator.length : 0;
       const ref = r.locator.kind === 'file' ? r.locator.path : origin;
+      let refId = refIds.get(ref);
+      if (refId === undefined) { refId = pathRefId(db, ref); refIds.set(ref, refId); }
       if (r.endsTurn) acc.turnEnded = true;
       // 検索の行はイベントごとに高々 1 つで、同じ seq を持つ。積んだ rowid を event_index に持たせ、消すときに rowid で引く（deleteIndexed）。
       const texts = new Map(indexTexts(events).map((t) => [t.seq, t]));
@@ -207,7 +212,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
         const filePath = ev.kind === 'tool_call' ? ev.filePath ?? null : null;
         const t = texts.get(ev.seq);
         const ftsRowid = t ? Number(insFts.run(sessionId, b.agentId, t.seq, t.role, t.text.slice(0, FTS_MAX_CHARS)).lastInsertRowid) : 0;
-        insEv.run(sessionId, ev.seq, ev.kind, ev.ts ?? null, offset, length, ref, b.agentId, toolName, filePath, ftsRowid);
+        insEv.run(sessionId, ev.seq, ev.kind, ev.ts ?? null, offset, length, refId, b.agentId, toolName, filePath, ftsRowid);
         if ((ev.kind === 'user' || ev.kind === 'assistant') && ev.ts !== undefined) acc.lastTurnTs = Math.max(acc.lastTurnTs ?? ev.ts, ev.ts);
         if (r.locator.kind === 'stored') insBody.run(sessionId, agentKey, ev.seq, JSON.stringify(ev));
         if (ev.kind === 'tool_call' && ev.name === 'Artifact' && isArtifactPublish(ev.input)) {

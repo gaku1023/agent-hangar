@@ -34,7 +34,7 @@ describe('writeBatch', () => {
     const s = one('select * from sessions where id = ?', r.sessionId)!;
     expect(s).toMatchObject({ provider: 'opencode', provider_session_id: OC, cwd: '/Users/me/workspace/oc', first_prompt: 'はじめの依頼', started_at: TS, last_activity_at: TS + 1000 });
     const origin = storedOrigin(batch([]));
-    expect(all('select seq, kind, byte_offset, byte_length, file_path_ref, tool_name, file_path from event_index where session_id = ? order by seq', r.sessionId)).toEqual([
+    expect(all('select seq, kind, byte_offset, byte_length, (select p.path from event_paths p where p.id = path_id) file_path_ref, tool_name, file_path from event_index where session_id = ? order by seq', r.sessionId)).toEqual([
       { seq: 0, kind: 'user', byte_offset: 0, byte_length: 0, file_path_ref: origin, tool_name: null, file_path: null },
       { seq: 1, kind: 'assistant', byte_offset: 0, byte_length: 0, file_path_ref: origin, tool_name: null, file_path: null },
       { seq: 2, kind: 'tool_call', byte_offset: 0, byte_length: 0, file_path_ref: origin, tool_name: 'edit', file_path: '/Users/me/workspace/oc/a.ts' },
@@ -92,6 +92,6 @@ describe('writeBatch', () => {
     const rec: IndexRecord = { events: [{ kind: 'user', seq: 0, ts: TS, text: 'hi' }], facts: { isUserTurn: true, ts: TS }, locator: { kind: 'file', path: '/x/a.jsonl', offset: 120, length: 42 } };
     const r = writeBatch(db, { agent: 'claude-code', providerSessionId: 'aaaaaaaa-0000-4000-8000-000000000001', agentId: null, reset: true, records: [rec] }, { deviceId: DEV, origin: '/x/a.jsonl' });
     expect(one('select provider from sessions where id = ?', r.sessionId)).toEqual({ provider: 'claude-code' });
-    expect(all('select byte_offset, byte_length, file_path_ref from event_index where session_id = ?', r.sessionId)).toEqual([{ byte_offset: 120, byte_length: 42, file_path_ref: '/x/a.jsonl' }]);
+    expect(all('select byte_offset, byte_length, (select p.path from event_paths p where p.id = path_id) file_path_ref from event_index where session_id = ?', r.sessionId)).toEqual([{ byte_offset: 120, byte_length: 42, file_path_ref: '/x/a.jsonl' }]);
   });
 });

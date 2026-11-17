@@ -10,6 +10,7 @@ import { recordPeers } from '../../sync/peers.ts';
 import { writeAnswer, writeAsk } from '../../sync/takeoverRows.ts';
 import { createApp, type AppDeps, type ExternalApi, type RunsApi } from '../app.ts';
 import { H, launched, run, testDeps, type TestWorld } from '../testing.ts';
+import { pathRefId } from '../../db/pathRef.ts';
 
 // run の経路（routes/runs.ts）の試験。依存は testDeps() で組み、createApp を通して /api の下から叩く。
 
@@ -206,15 +207,15 @@ describe('routes', () => {
     expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: 'a.md' })).status).toBe(400);
     expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: 3 })).status).toBe(400);
     // 別のセッションが編集したパスと、このセッションが読んだだけのパスは開かない。
-    const indexRow = db.prepare("insert into event_index (session_id, seq, kind, byte_offset, byte_length, file_path_ref, tool_name, file_path) values (?, ?, 'tool_call', 0, 0, 'x', ?, ?)");
-    indexRow.run('another-session', 900_001, 'Edit', `${ws}/alpha/other.md`);
+    const indexRow = db.prepare("insert into event_index (session_id, seq, kind, byte_offset, byte_length, path_id, tool_name, file_path, file_path_ref) values (?, ?, 'tool_call', 0, 0, ?, ?, ?, '')");
+    indexRow.run('another-session', 900_001, pathRefId(db, 'x'), 'Edit', `${ws}/alpha/other.md`);
     expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/other.md` })).status).toBe(404);
     fs.writeFileSync(`${ws}/alpha/read.md`, 'r');
-    indexRow.run(alpha.id, 900_002, 'Read', `${ws}/alpha/read.md`);
+    indexRow.run(alpha.id, 900_002, pathRefId(db, 'x'), 'Read', `${ws}/alpha/read.md`);
     expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/read.md` })).status).toBe(404);
     // 変えたファイルが、その後ディレクトリに替わっていたら開かない。
     fs.mkdirSync(`${ws}/alpha/became-dir`);
-    indexRow.run(alpha.id, 900_003, 'Write', `${ws}/alpha/became-dir`);
+    indexRow.run(alpha.id, 900_003, pathRefId(db, 'x'), 'Write', `${ws}/alpha/became-dir`);
     expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/became-dir` })).status).toBe(404);
     expect(external.openEditor).toHaveBeenCalledTimes(2);
     (external.openEditor as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('code が無い'));

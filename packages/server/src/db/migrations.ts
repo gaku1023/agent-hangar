@@ -1111,6 +1111,21 @@ delete from peer_relay_out where not exists (select 1 from peer_relay r where r.
 `;
 
 /**
+ * 版 65：event_index が行ごとに持っていたファイルのパス（file_path_ref、平均 135 字）を、別の表 event_paths の番号（path_id）で指す。
+ * 同じファイルの行は 1 つのパスを指すので、パスの文字は索引が何百万行になっても、ファイルの数（数千）だけになる。
+ * 開くときは表と列を足すだけにする。行を書き直すと、大きな DB（行が百万単位）で起動が十数秒止まるので、行への番号振りは起動後に背面で数千行ずつ進める（db/pathRef.ts の startPathRefFill）。
+ * 旧い列（file_path_ref）は NOT NULL で後から外せず、落とすと表の書き直しと VACUUM が要る。新しい行は空の文字を入れ、番号を振った行も空にする。埋め終えるまでは、番号が null の行を旧い列で読む。
+ * 控えは当てる前に取り、そこでは索引を抜いてある（db/backup.ts）。
+ */
+const V65_EVENT_PATH_REF_SQL = `
+create table event_paths (
+  id integer primary key,
+  path text not null unique
+);
+alter table event_index add column path_id integer;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -1163,4 +1178,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 61, sql: V61_UNREAD_HOLD_SQL },
   { version: 62, sql: V62_SESSION_STATE_FACT_AT_SQL },
   { version: 63, sql: V63_PEER_RELAY_ENDED_AT_SQL },
+  { version: 65, sql: V65_EVENT_PATH_REF_SQL },
 ];

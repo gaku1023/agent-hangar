@@ -4,6 +4,7 @@ import { onRowChange } from '../db/notify.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { computeOverlaps, dismissOverlap, OVERLAP_WINDOW_MS, OverlapWatch, type OverlapEdit } from './overlap.ts';
+import { pathRefId } from '../db/pathRef.ts';
 
 const MIN = 60_000;
 const N = OVERLAP_WINDOW_MS;
@@ -68,8 +69,8 @@ describe('OverlapWatch（見張り）', () => {
   const addSession = (id: string) => upsertShared(db, 'sessions', { id, provider: 'claude-code', provider_session_id: `u-${id}`, cwd: '/w', home_device: 'd' }, 'd');
   let seq = 0;
   const edit = (sessionId: string, at: number, filePath = '/w/rank.ts', agent: string | null = null) =>
-    db.prepare("insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, file_path_ref, parent_agent, tool_name, file_path) values (?, ?, 'tool_call', ?, 0, 1, '/t.jsonl', ?, 'Edit', ?)")
-      .run(sessionId, seq++, at, agent, filePath);
+    db.prepare("insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, path_id, parent_agent, tool_name, file_path, file_path_ref) values (?, ?, 'tool_call', ?, 0, 1, ?, ?, 'Edit', ?, '')")
+      .run(sessionId, seq++, at, pathRefId(db, '/t.jsonl'), agent, filePath);
   const liveOf = (id: string, status: LiveSessionDto['status']): LiveSessionDto => ({ sessionId: `u-${id}`, status, name: null, nameSource: null, cwd: '/w', pid: 1 });
 
   beforeEach(() => {
