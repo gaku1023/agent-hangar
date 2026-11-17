@@ -284,6 +284,21 @@ describe('OrchestratorKeeper', () => {
       expect(t.keeper.state()).toEqual({ status: 'running' });
     });
 
+    it('opencode の統括のモデルを変えたら、同じ会話の起こし直しではなく新しい会話へ切り替える（opencode は会話のモデルを途中で替えられない）', async () => {
+      const t = rig({ enabled: true, agent: 'opencode', model: 'lmstudio/a', effort: '' });
+      t.keeper.start();
+      await t.settle();
+      await t.settle();
+      t.live('orch-1', 'idle');
+      t.set({ model: 'lmstudio/b' });
+      t.keeper.apply();
+      await t.settle();
+      await t.settle();
+      expect(t.calls).toEqual(['start:orch-1#opencode', 'kill:run-orch-1', 'start:orch-2#opencode']);
+      expect(t.setting()).toMatchObject({ sessionId: 'orch-2', model: 'lmstudio/b' });
+      expect(t.setting().history.at(-1)).toMatchObject({ sessionId: 'orch-1', reason: 'agent' });
+    });
+
     it('アプリが変わっても busy の間は待ち、idle になってから切り替える', async () => {
       const t = rig({ enabled: true });
       t.keeper.start();
