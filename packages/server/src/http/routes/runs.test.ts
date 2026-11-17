@@ -215,7 +215,7 @@ describe('routes', () => {
     expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/read.md` })).status).toBe(404);
     // 変えたファイルが、その後ディレクトリに替わっていたら開かない。
     fs.mkdirSync(`${ws}/alpha/became-dir`);
-    indexRow.run(alpha.id, 900_003, 'Write', `${ws}/alpha/became-dir`);
+    indexRow.run(alpha.id, 900_003, pathRefId(db, 'x'), 'Write', `${ws}/alpha/became-dir`);
     expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/became-dir` })).status).toBe(404);
     expect(external.openEditor).toHaveBeenCalledTimes(2);
     (external.openEditor as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('code が無い'));

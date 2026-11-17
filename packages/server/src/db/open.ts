@@ -54,7 +54,7 @@ function shrinkIfLarge(db: Db): void {
     db.exec('vacuum');
     db.pragma('wal_checkpoint(TRUNCATE)');
   } catch (e) {
-    console.error('[db] マイグレーションのあとの VACUUM に失敗しました', e instanceof Error ? e.message : e);
+    console.error('[db] vacuum after migration failed', e instanceof Error ? e.message : e);
   }
 }
 
