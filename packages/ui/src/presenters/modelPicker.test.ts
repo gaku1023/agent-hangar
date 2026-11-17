@@ -121,14 +121,22 @@ describe('presentModelPicker', () => {
     expect(rows.filter((r) => r.disabled).map((r) => r.id)).toEqual(['lmstudio/laguna-xs']);
   });
 
-  it('この PC に無いモデルは、選べない行にして「未ダウンロード」と説明を添える', () => {
+  it('この PC でいま動かせないモデル（missing）は出さない（#698）', () => {
     const models = MODELS.map((x) => (x.id === 'lmstudio/qwen3.6-35b-a3b' ? { ...x, missing: true } : x));
     const rows = presentModelPicker(ja, input({ models })).groups.flatMap((g) => g.rows);
-    const off = rows.find((r) => r.id === 'lmstudio/qwen3.6-35b-a3b')!;
-    expect(off.disabled).toBe(true);
-    expect(off.note).toBe('この PC にダウンロードされていないため、使えません');
-    expect(off.tags).toContainEqual({ label: '未ダウンロード', tone: 'muted' });
-    expect(rows.filter((r) => r.disabled).map((r) => r.id).sort()).toEqual(['lmstudio/laguna-xs', 'lmstudio/qwen3.6-35b-a3b']);
+    expect(rows.map((r) => r.id)).not.toContain('lmstudio/qwen3.6-35b-a3b');
+    expect(rows.filter((r) => r.disabled).map((r) => r.id)).toEqual(['lmstudio/laguna-xs']);
+  });
+
+  it('opencode.json の既定がその PC で動かせなければ、デフォルトの行を出さない（#698）', () => {
+    expect(presentModelPicker(ja, input({ defaultModel: 'lmstudio/gone' })).def).toBeNull();
+    const models = MODELS.map((x) => (x.id === 'lmstudio/qwen3.6-35b-a3b' ? { ...x, missing: true } : x));
+    expect(presentModelPicker(ja, input({ models })).def).toBeNull();
+    expect(presentModelPicker(ja, input({ defaultModel: null })).def).toEqual({ selected: true, sub: null });
+  });
+
+  it('ほかの PC の一覧なら、下端はその PC の名前（#698）', () => {
+    expect(presentModelPicker(ja, input({ device: 'DESKTOP-J81OMQO' })).footer).toBe('DESKTOP-J81OMQO のモデル一覧');
   });
 
   it('LM Studio のまとまりにだけ再読み込みを置く', () => {

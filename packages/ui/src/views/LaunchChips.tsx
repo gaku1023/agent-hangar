@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
 import { AGENT_KINDS, AGENT_UI_CAPS, CODEX_PERMISSIONS, EFFORT_VALUES, type AgentUiCap, type AgentValue, type CodexEffortOption, type CodexModelOption, type CodexPermission, type OpencodeModeOption, type OpencodeModelOption, type OpencodeProviderOption } from '@agent-hangar/shared';
 import { agentOnlyAttr } from './agentSwap.ts';
 import { AGENT_TEXT } from '../presenters/agentText.ts';
@@ -14,6 +14,8 @@ import { PERMISSION_BYPASS, PERMISSION_DEFAULT, permissionLabel } from './primit
 import { PickList, type PickItem } from './primitives/PickList.tsx';
 import { Popover } from './primitives/Popover.tsx';
 import { splitCodexModels } from './codexModelGroups.ts';
+import { collapseOut, growIn, motionOn } from './primitives/motionKit.ts';
+import { usePresence } from './primitives/usePresence.ts';
 
 /** 札の列が持つ値。空は「既定」で、起動の params に含めない。addDirs は 1 行に 1 つの文字で持つ（起動ダイアログと同じ）。 */
 export type LaunchChipValues = { model: string; effort: string; permissionMode: string; worktree: string; name: string; addDirs: string };
@@ -61,6 +63,10 @@ const CODEX_PERMISSION_TEXT: Record<CodexPermission, { label: 'launch.codexPermi
 export type LaunchOpencodeChips = {
   mode: string; modes: OpencodeModeOption[]; onMode: (value: string) => void;
   model: string; models: OpencodeModelOption[]; defaultModel: string | null; modelReset: boolean; onModel: (value: string) => void;
+  /** モデルの札を出さない（一覧を持たない古い版の PC を選んだとき、#698）。幅を畳んで抜け、戻すと伸びて入る。 */
+  modelHidden?: boolean;
+  /** 一覧がほかの PC のものなら、その PC の名前（小窓の下端に出す）。 */
+  device?: string | null;
   providers: OpencodeProviderOption[]; pricesAt: number | null; fetchedAt: number; reloading: boolean; onReload: () => void; onManage: () => void;
   autoApprove: boolean; onAutoApprove: (value: boolean) => void;
   /** モデルの小窓を開いた状態で出す（起動後にモデルが無かった札から開いたとき）。 */
@@ -277,9 +283,11 @@ function OpencodeChips(props: LaunchOpencodeChips) {
             onPick={(v) => { props.onMode(v); close(); }} />
         )}
       </ChipPopover>
-      <OpencodeModelPicker label={modelName} value={props.model} models={props.models} providers={props.providers} defaultModel={props.defaultModel}
-        pricesAt={props.pricesAt} fetchedAt={props.fetchedAt} reset={props.modelReset} reloading={props.reloading}
-        onChange={props.onModel} onReload={props.onReload} onManage={props.onManage} defaultOpen={props.pickModel} faceProps={agentOnlyAttr('modes')} />
+      <ChipSlot open={props.modelHidden !== true}>
+        <OpencodeModelPicker label={modelName} value={props.model} models={props.models} providers={props.providers} defaultModel={props.defaultModel}
+          pricesAt={props.pricesAt} fetchedAt={props.fetchedAt} reset={props.modelReset} reloading={props.reloading} device={props.device ?? null}
+          onChange={props.onModel} onReload={props.onReload} onManage={props.onManage} defaultOpen={props.pickModel} faceProps={agentOnlyAttr('modes')} />
+      </ChipSlot>
       <ChipPopover name={autoName} value={t(props.autoApprove ? 'launch.autoApprove.on' : 'launch.autoApprove.off')} tone={props.autoApprove ? 'danger' : 'muted'} width={280} agentOnly="modes">
         {(close) => (
           <PickList label={autoName} value={props.autoApprove ? 'on' : 'off'}
@@ -340,4 +348,21 @@ function CodexChips(props: LaunchCodexChips) {
 /** effort の強さを 5 段の棒で添える。 */
 function EffortBars(props: { level: number }) {
   return <span className="effort-bars" aria-hidden="true">{[1, 2, 3, 4, 5].map((i) => <i key={i} data-on={i <= props.level ? 'true' : undefined} />)}</span>;
+}
+
+/**
+ * 出したり引っ込めたりする札の入れ物（#698 の、古い版の PC を選んだときのモデルの札）。
+ * 引っ込めるときは幅を畳んで薄れ（collapseOut）、右の札が詰まる。戻すときは幅を伸ばして入る（growIn）。初めの描画では動かさない。
+ */
+function ChipSlot(props: { open: boolean; children: ReactNode }) {
+  const slot = usePresence<HTMLSpanElement>(props.open, (el) => (motionOn(el) ? collapseOut(el, 'x', { fade: true }) : null));
+  const first = useRef(true);
+  useLayoutEffect(() => {
+    if (first.current) { first.current = false; return; }
+    if (props.open && slot.ref.current) growIn(slot.ref.current, 'x');
+    // 出る向きの変わり目だけで動かす。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.open]);
+  if (!slot.mounted) return null;
+  return <span ref={slot.ref} className="chip-slot" aria-hidden={slot.leaving ? 'true' : undefined}>{props.children}</span>;
 }

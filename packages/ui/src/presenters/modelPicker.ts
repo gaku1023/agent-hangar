@@ -15,7 +15,7 @@ export type ModelTagTone = ModelCostKind | 'ok' | 'muted' | 'warn' | 'outline';
 export type ModelTag = { label: string; tone: ModelTagTone };
 /** 右端の値段。sub は従量のときの単位の行。 */
 export type ModelPrice = { main: string; sub: string | null };
-/** 1 行。disabled は選べない行（ツール呼び出しに対応しない、この PC に無い）で、note はその理由。 */
+/** 1 行。disabled は選べない行（ツール呼び出しに対応しない）で、note はその理由。 */
 export type ModelRow = { id: string; name: string; tags: ModelTag[]; price: ModelPrice; disabled: boolean; note: string | null; selected: boolean };
 /** 1 つのまとまり。key は畳んだ状態を覚える鍵、name は件数つきの名前、kind は見出しの費用の型の札、status は接続の状態、reload は再読み込みを置くか。 */
 export type ModelGroup = { key: string; name: string; kind: ModelTag; status: string; rows: ModelRow[]; reload: boolean };
@@ -35,6 +35,8 @@ export type ModelPickerInput = {
   selected: string;
   query: string;
   now: number;
+  /** ほかの PC の一覧なら、その PC の名前（#698）。下端に出す。 */
+  device?: string | null;
 };
 
 const KIND_ORDER: readonly ModelCostKind[] = ['local', 'free', 'metered', 'plan'];
@@ -99,7 +101,9 @@ export function presentModelPicker(t: Translate, i: ModelPickerInput): ModelPick
   // まとまりは、プロバイダーと費用の型の組。1 つのプロバイダーが 2 つの型を持つときだけ鍵に型を足す。
   type Bucket = { provider: string; kind: ModelCostKind; where: OpencodeProviderWhere; models: OpencodeModelOption[] };
   const buckets: Bucket[] = [];
-  for (const m of i.models) {
+  // いま動かせないモデル（ローカルのサーバーに無い）は出さない（#698）。opencode.json はほかの PC と共有なので出てくる。
+  const runnable = i.models.filter((m) => m.missing !== true);
+  for (const m of runnable) {
     const where = whereOf.get(m.provider) ?? 'remote';
     const kind = costKindOf(m, where);
     const b = buckets.find((x) => x.provider === m.provider && x.kind === kind);
@@ -119,12 +123,9 @@ export function presentModelPicker(t: Translate, i: ModelPickerInput): ModelPick
       if (m.context !== null) tags.push({ label: contextLabel(m.context), tone: 'muted' });
       if (b.kind === 'free' && fact.limitedFree) tags.push({ label: t('launch.model.limited'), tone: 'outline' });
       if (!m.tools) tags.push({ label: t('launch.model.noTools'), tone: 'warn' });
-      // この PC の LM Studio などに無いモデル（opencode.json はほかの PC と共有なので出てくる）。起こしても最初の発言で落ちるので選ばせない。
-      if (m.missing) tags.push({ label: t('launch.model.missing'), tone: 'muted' });
-      const note = m.missing ? t('launch.model.missingNote') : m.tools ? null : t('launch.model.noToolsNote');
       return {
         id: m.id, name: m.label, tags, price: priceLabel(t, b.kind, m.cost),
-        disabled: !m.tools || m.missing === true, note, selected: m.id === i.selected,
+        disabled: !m.tools, note: m.tools ? null : t('launch.model.noToolsNote'), selected: m.id === i.selected,
       };
     });
     const status = b.provider === 'lmstudio' ? t('launch.model.status.lmstudio')
@@ -134,15 +135,17 @@ export function presentModelPicker(t: Translate, i: ModelPickerInput): ModelPick
       key: kindsOf(b.provider) > 1 ? `${b.provider}:${b.kind}` : b.provider,
       name: t('launch.model.group', { name, n: rows.length }),
       kind: { label: t(KIND_KEY[b.kind]), tone: b.kind },
-      status, rows, reload: b.provider === 'lmstudio',
+      status, rows, reload: b.provider === 'lmstudio' && !i.device,
     }];
   });
 
   const at = new Date(i.pricesAt ?? i.fetchedAt);
+  // opencode.json の既定がその PC で動かせなければ、デフォルトの行は出さない。札は代わりのモデルになっている（opencodeFallbackModel）。
+  const defaultRunnable = i.defaultModel === null || runnable.some((m) => m.id === i.defaultModel);
   return {
-    def: q ? null : { selected: i.selected === '', sub: i.defaultModel },
+    def: q || !defaultRunnable ? null : { selected: i.selected === '', sub: i.defaultModel },
     groups,
     empty: q !== '' && groups.length === 0,
-    footer: t('launch.model.footer', { date: `${at.getMonth() + 1}/${at.getDate()}` }),
+    footer: i.device ? t('launch.model.footerPeer', { device: i.device }) : t('launch.model.footer', { date: `${at.getMonth() + 1}/${at.getDate()}` }),
   };
 }

@@ -2037,8 +2037,9 @@ LM Studio の段の前に、会話のモデルがこの PC にあるかを確か
 - 無ければ「{model} はこの PC にありません。使えるのは: …」、どちらの口にもつながらなければ「{接続先} の API サーバー（{origin}）に接続できません。…」で起動を 400 で断る（`MessageError`、MCP の `create_session` も同じ文を返す）。一覧の形でない答えは確かめられないので通す。
 - 取れた一覧は 30 秒使い回す。つながらなかった答えは覚えない（LM Studio を起こした直後に送り直せるように）。
 - 外のターミナルからの起動と再開では確かめない（選び直す画面が無く、TUI の `/models` で替えられる）。
+- LM Studio に聞く前に、モデルの接続先がこの PC の opencode にあるか（`/api/provider` の行か、設定の層の providers）を見る（#698）。無ければ「{model} は {PC の名前} の opencode にありません。使えるのは: …」で断る。使えるのは、つないだ接続先のツールに対応したモデルで、先頭の 5 件と残りの件数だけを並べる（別の PC からの頼みでは、断りの文が 200 字で切られるため）。起きたばかりの serve は接続先の行を空で答えることがあるので、行が空のときは決めずに通す。
 
-新しいセッションのモデルの小窓（`GET /api/opencode/options`）も同じ口で聞き、無いモデルに `missing` を立てる。小窓はその行を選べない灰色の行にし、「未ダウンロード」の札と説明を添える。つながらないときは立てない（起動の口が断る）。小窓の「再読み込み」は LM Studio にも聞き直す。
+新しいセッションのモデルの小窓（`GET /api/opencode/options`）も同じ口で聞き、無いモデルに `missing` を立てる。小窓はその行を出さない（#698。いま動かせるモデルだけを並べる）。つながらないときは立てない（起動の口が断る）。小窓の「再読み込み」は LM Studio にも聞き直す。
 
 起動の後に、短く載ったモデルで断られたとき（`session.execution.failed` の文が「コンテキスト長を超えた」もの、`live.ts` の `isContextShortError`）は、`opencode.contextShort` を配って右下の札を出す。
 札の「再ロードして再開」は `POST /api/sessions/:id/local-models` で、動いている会話の serve のまま同じ段を走らせる。利用者が頼んだので、使うモデルが短く載っていれば手動でロードされたものでもロードし直す（ほかのモデルはアンロードしない）。
@@ -2539,6 +2540,15 @@ hangar の外の会話（状態を持たない）も、本文があれば同じ 
 - 開くときは面が `listbox-in` で現れ、上の 10 行が `--stagger` ずつ浮き上がる（`staggerIn`）。
 - 下端に「料金は models.dev と各社の公開情報（{日付} 取得）。」を出す。
   日付は models.dev から取った日で、まだ取れていなければ opencode から一覧を取った日である。
+- 一番上の「デフォルト」の行には opencode.json の `model` を添える。その PC でいま動かせない（一覧に無い、ローカルのサーバーに無い）ときは、行を出さず、札の値を代わりのモデルにする（#698、`opencodeFallbackModel`）。
+  代わりは OpenCode Zen の無料で `deepseek` を含むもの、Zen の無料の先頭、使える先頭の順に選ぶ。Zen の無料のモデルは入れ替わるので、名前ではなく決まりで選ぶ。起動ではそのモデルを指定する。
+
+**起動先の PC の一覧（#698）。**
+各 PC は、手元に持った opencode の選択肢（ホームの一覧。`OpencodeOptionsService.last`）を、いま動かせるモデルだけにして自分の様子（`devices.status` の `opencode`、`DeviceOpencodeStatus`）に載せる。
+様子は 5 分おきに調べ直し、変わったときだけ書く。一覧が無いか 30 分より古ければ裏で取り直し（serve を起こすことがある）、取れたら書き直す。モデルは 300 件で切る（同期の 1 行は封じた後で 180KB まで）。
+新しいセッションのダイアログで別の PC を選ぶと、モードとモデルの札はその PC の一覧（`PeerDeviceDto.opencode`）から出し、既定の代わりも同じ決まりで選ぶ。小窓の下端は「{PC の名前} のモデル一覧」にし、LM Studio の「再読み込み」は置かない。
+PC を替えて札の値が変わると、値を `--dur-swap` の fadeIn で現す。
+一覧を持たない PC（この欄を知らない古い版、opencode の一覧をまだ取れていない PC）を選ぶと、モデルの札を出さず（幅を collapseOut で畳み、戻すと growIn で伸ばす）、モデルを指定せずに頼む。
 
 費用の型は、手書きの表の定額のプロバイダー、宛先がこの PC か内側の網（`where` が `device` か `lan`）、料金のあるもの（従量）、0 円のもの（無料）の順に決める（`presenters/modelPicker.ts` の `costKindOf`）。
 料金の分からないものは、opencode.json で足した自前のサーバーとしてローカルにする。
@@ -8221,8 +8231,8 @@ Claude、Codex、opencode のように設定の入れ物ごとに「対象」（
 id は 3 種類。`opencode:file:<相対パス>`、`opencode:json:<鍵の道>`、`opencode:cli:<鍵の道>`。鍵の道は `.` で区切り、各段は URL 符号化に `.` も加えた形にする（agent の名前に `.` があってよい）。符号化が正規の形でない id は読まない。
 `opencode:mcp:` はこの対象のものではない（MCP の PR が持つ）。
 - ファイル：`AGENTS.md`、`agents/`・`agent/`、`commands/`・`command/`、`skills/`・`skill/`、`plugins/`・`plugin/`、`themes/`。v1 形と v2 形のディレクトリは名前を変えずに運ぶ。`opencode.json(c)`、`cli.json`、`tui.json`、`service.json`、`package.json`、`bun.lock*` は、ファイルとしては運ばない。
-- opencode.json(c) の鍵：運ぶのは `model`、`small_model`、`compaction`、`permission`、`share`、`autoupdate`、`theme`、`instructions`、`agent(s).<名前>.{prompt,description,mode,temperature,top_p,steps,permission}`。1 つの鍵が 1 項目である。
-  運ばないのは `provider(s)`、`skills`、`plugin(s)`、`agent(s).<名前>.model`（理由は `machine`）、絶対パスの `instructions` の要素（理由は `path`。`~/…` と URL と相対は運ぶ）。`$schema` は黙って外す。`mcp` は MCP の対象（`opencode-mcp`）が運ぶので、ここでは黙って外す。それ以外の鍵と、型の合わない値は「知らない鍵」で、`config_unsent` の `unknown-key`（id は `unknown-key:opencode:json:…`）に出し、値は持たない。
+- opencode.json(c) の鍵：運ぶのは `compaction`、`permission`、`share`、`autoupdate`、`theme`、`instructions`、`agent(s).<名前>.{prompt,description,mode,temperature,top_p,steps,permission}`。1 つの鍵が 1 項目である。
+  運ばないのは `provider(s)`、`skills`、`plugin(s)`、`model`、`small_model`、`agent(s).<名前>.model`（理由は `machine`。既定のモデルは PC ごとに使える接続先が違うので、#698 で運ばないことにした。古い版の PC から届いた `model` も受けない）、絶対パスの `instructions` の要素（理由は `path`。`~/…` と URL と相対は運ぶ）。`$schema` は黙って外す。`mcp` は MCP の対象（`opencode-mcp`）が運ぶので、ここでは黙って外す。それ以外の鍵と、型の合わない値は「知らない鍵」で、`config_unsent` の `unknown-key`（id は `unknown-key:opencode:json:…`）に出し、値は持たない。
   `instructions` を書くとき、手元の絶対パスの要素は残す（他の PC に運ばれていないので、届いた値で消さない）。
 - 両方あるとき：`opencode.json` と `opencode.jsonc` の両方があれば jsonc を正として読み、書くのも jsonc にする（opencode は両方読んで jsonc を優先し、自分が書くときは json に書くので、画面で「両方あります」と知らせる。`opencodeNotices` と `ConfigNoticeDto`）。
 - `{env:X}`：そのまま運ぶ。受け手の環境に X が無いと opencode は空文字にして黙って壊れるので、項目に添えて知らせる（`opencodeItemNotes`）。
