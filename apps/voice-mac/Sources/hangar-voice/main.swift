@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import VoiceCore
 
@@ -60,6 +61,11 @@ func handle(_ cmd: Command) {
         speaker.speak(id: id, text: text, voice: voice, speed: speed)
     case .stopSpeaking: speaker.stop()
     case .prepare: models.prepare()
+    case .voices:
+        let os = AVSpeechSynthesisVoice.speechVoices()
+            .filter { $0.language == "ja-JP" }
+            .map { VoiceInfo(id: $0.identifier, name: $0.name) }
+        emit(.voices(os: os))
     case .quit: shutdown()
     }
 }

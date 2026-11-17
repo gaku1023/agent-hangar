@@ -5,7 +5,7 @@ import MLXAudioCore
 import MLXAudioTTS
 import VoiceCore
 
-/// 読み上げ。声は `os:<識別子>`（AVSpeechSynthesizer）か `kokoro:<声>`（Kokoro）。
+/// 読み上げ。声は `os:<識別子>`（AVSpeechSynthesizer）、`kokoro:<声>`（Kokoro）、`voicevox:<style>`・`aivis:<style>`（エンジンへ HTTP）。
 /// 新しい speak か stopSpeaking が来たら、前の読み上げを止めて stopped を出す。
 final class Speaker {
     private let models: Models
@@ -41,6 +41,8 @@ final class Speaker {
             switch spec {
             case .os(let identifier): self.synthesizeOS(text: text, identifier: identifier, speed: speed, gen: gen, id: id, deliver: deliver)
             case .kokoro(let v): self.synthesizeKokoro(text: text, voice: v, speed: speed, gen: gen, id: id, deliver: deliver)
+            case .voicevox(let style): self.synthesizeEngine(.voicevox, style: style, text: text, speed: speed, deliver: deliver)
+            case .aivis(let style): self.synthesizeEngine(.aivis, style: style, text: text, speed: speed, deliver: deliver)
             }
         }
     }
@@ -122,6 +124,32 @@ final class Speaker {
         }
     }
 
+    /// VOICEVOX 互換のエンジンに合成を頼む（audio_query → 速さを上書き → synthesis）。
+    /// 失敗は error（code engine）を出して空の音を返す。output が end で閉じる。
+    private func synthesizeEngine(
+        _ kind: EngineKind, style: Int, text: String, speed: Double,
+        deliver: @escaping ([Float], Int) -> Void
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let base = engineBaseURL(kind, env: ProcessInfo.processInfo.environment)
+                guard let qReq = audioQueryRequest(base: base, speaker: style, text: text) else {
+                    throw EngineError.message("bad request")
+                }
+                let query = try httpBody(qReq)
+                guard let body = rewriteSpeedScale(query, speed: speed),
+                    let sReq = synthesisRequest(base: base, speaker: style, body: body)
+                else { throw EngineError.message("bad audio_query response") }
+                let wav = try httpBody(sReq)
+                guard let decoded = decodeWav(wav) else { throw EngineError.message("unreadable wav") }
+                deliver(decoded.samples, decoded.sampleRate)
+            } catch {
+                emit(.error(code: "engine", message: "\(kind): \(error)"))
+                deliver([], 0)
+            }
+        }
+    }
+
     private func synthesizeKokoro(
         text: String, voice: String, speed: Double, gen: Int, id: String,
         deliver: @escaping ([Float], Int) -> Void
@@ -140,4 +168,28 @@ final class Speaker {
             }
         }
     }
+}
+
+enum EngineError: Error { case message(String) }
+
+/// 同期の HTTP。10 秒（要求の timeoutInterval）で諦める。2xx 以外は失敗。
+private func httpBody(_ req: URLRequest) throws -> Data {
+    var result: Result<Data, Error> = .failure(EngineError.message("no response"))
+    let sem = DispatchSemaphore(value: 0)
+    let task = URLSession.shared.dataTask(with: req) { data, resp, err in
+        if let err {
+            result = .failure(err)
+        } else if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            result = .failure(EngineError.message("HTTP \(http.statusCode)"))
+        } else {
+            result = .success(data ?? Data())
+        }
+        sem.signal()
+    }
+    task.resume()
+    if sem.wait(timeout: .now() + engineTimeout + 2) == .timedOut {
+        task.cancel()
+        throw EngineError.message("timeout")
+    }
+    return try result.get()
 }

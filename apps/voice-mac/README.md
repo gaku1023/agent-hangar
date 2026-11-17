@@ -43,6 +43,32 @@ swift test --package-path apps/voice-mac --filter VoiceCoreTests
 
 起動したとき、キャッシュに無いモデルがあれば `{"ev":"models","state":"missing"}` を出します。
 
+## 読み上げの声
+
+`speak` の `voice` は次の 4 つの形です（style は非負の整数）。
+
+| voice | 鳴らし方 |
+| --- | --- |
+| `kokoro:<声>` | Kokoro（モデルは同梱せず初回に落とす） |
+| `os:<識別子>` | この Mac の AVSpeechSynthesizer |
+| `voicevox:<style>` | VOICEVOX のエンジンへ HTTP で合成を頼む（既定 `http://127.0.0.1:50021`） |
+| `aivis:<style>` | AivisSpeech のエンジンへ同じく（既定 `http://127.0.0.1:10101`） |
+
+エンジンの口は環境変数 `HANGAR_VOICEVOX_URL`・`HANGAR_AIVIS_URL` で替えられます。
+ホストが 127.0.0.1 か localhost 以外なら使わず、既定へ戻します。
+エンジンは同梱しません。
+合成は `POST /audio_query` の応答の `speedScale` を速さで上書きし、`POST /synthesis` で WAV を受けます。
+HTTP は 10 秒で諦めます。
+鳴らすのは Kokoro と同じ出力の経路なので、ダッキングと `speaking` の start・end・stopped は同じ形で出ます。
+エンジンが落ちている、遅い、壊れた応答のときは `{"ev":"error","code":"engine","message":"…"}` を出し、`speaking` を end で閉じます。
+補助は落ちません。
+
+`{"cmd":"voices"}` を送ると、この Mac の ja-JP の声が返ります。
+
+```json
+{"ev":"voices","os":[{"id":"com.apple.voice.compact.ja-JP.Kyoko","name":"Kyoko"}]}
+```
+
 ## ファイルを渡して試す
 
 マイクとスピーカーを使わずに確かめられます。
