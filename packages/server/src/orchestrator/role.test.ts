@@ -57,6 +57,18 @@ describe('役の文', () => {
     expect(en).toContain('write no reply');
     expect(en).toContain('already told the user');
   });
+  it('今の会話に無いことを指されたら、答える前に search_sessions で調べ、見つからなければそう言う', () => {
+    const [ja, en] = [orchestratorInstructions('ja')[0]!.text, orchestratorInstructions('en')[0]!.text];
+    for (const t of [ja, en]) {
+      expect(t).toContain('search_sessions');
+      expect(t).toContain('get_transcript');
+      expect(t).toContain('`orchestrator: true`');
+    }
+    expect(ja).toContain('答える前に');
+    expect(ja).toContain('見つからなかった');
+    expect(en).toContain('before you answer');
+    expect(en).toContain('could not find');
+  });
   it('日本語と英語は別の文で、日本語はやめた語を含まない', () => {
     const [ja, en] = [orchestratorInstructions('ja')[0]!.text, orchestratorInstructions('en')[0]!.text];
     expect(ja).not.toBe(en);

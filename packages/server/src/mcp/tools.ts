@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { isAgentKind, isNotifyKind, isQuietStatus, notifyRulesOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type PermissionPolicy, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto, type WakeOn } from '@agent-hangar/shared';
+import { isAgentKind, isNotifyKind, isQuietStatus, notifyRulesOf, orchestratorOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type PermissionPolicy, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto, type WakeOn } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
@@ -24,7 +24,7 @@ import type { PeerCallDeps } from '../peer/caller.ts';
 import { createRemoteSessionTool, isThisDevice, listDevicesTool, remoteControlTool, remoteSpawnOf } from './peerTools.ts';
 import { parseWakeOn } from '../event/validate.ts';
 import { claimPrTool, draftEventBindingTool } from './eventTools.ts';
-import { callOrchestratorTool, guardWeakTurn, isOrchestratorToolName } from './orchestratorTools.ts';
+import { callOrchestratorTool, guardWeakTurn, isOrchestratorCtx, isOrchestratorToolName } from './orchestratorTools.ts';
 import type { OrchestratorAsks } from '../orchestrator/asks.ts';
 import type { PeerChatLocal } from '../peer/chat/host.ts';
 import { createScheduleTool, listSchedulesTool, updateScheduleTool } from './scheduleTools.ts';
@@ -165,6 +165,21 @@ export function projectScope(deps: ToolDeps, ctx: ToolContext, args: Record<stri
   return scope;
 }
 
+/**
+ * 読む道具（search_sessions、list_sessions、get_transcript、list_projects、get_project）の枠。
+ * 統括の URL では共通 URL と同じく全プロジェクト（undefined）にし、ほかは projectScope と同じ。
+ * 統括は過去の話とほかの会話を引いて答えるためで、書く道具の枠（projectScope）は統括でも今のまま（docs/design.md「統括」）。
+ */
+function readScope(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>): string | null | undefined {
+  return isOrchestratorCtx(deps, ctx) ? undefined : projectScope(deps, ctx, args);
+}
+
+/** 今の統括の会話か。検索の結果と一覧の項目に印を付け、統括が自分の過去の話とほかの会話を見分けられるようにする。 */
+function isOrchestratorSession(deps: ToolDeps, sessionId: string): boolean {
+  const id = orchestratorOf(deps.settings?.().orchestrator).sessionId;
+  return id !== null && id === sessionId;
+}
+
 /** プロジェクトを 1 件に決める道具のための project_id。 */
 export function projectIdOf(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>): string {
   const scope = projectScope(deps, ctx, args);
@@ -222,6 +237,7 @@ function sessionBrief(deps: ToolDeps, s: SessionDto) {
     summary: s.summary ? { title: s.summary.title, one_liner: s.summary.oneLiner, state: s.summary.state, source: s.summary.source } : null,
     ...resumeOf(deps, s),
     device: deviceBrief(deps, s.id),
+    orchestrator: isOrchestratorSession(deps, s.id),
   };
 }
 
@@ -286,7 +302,7 @@ function requireProject(deps: ToolDeps, id: string): ProjectDto {
 const url = (deps: ToolDeps, route: string) => `http://127.0.0.1:${deps.port}/#/${route}`;
 
 export function listProjectsTool(deps: ToolDeps, ctx: ToolContext) {
-  const scope = scopeProjectId(deps, ctx);
+  const scope = readScope(deps, ctx, {});
   return listProjects(deps.db, deps.deviceId, deps.live()).filter((p) => scope === undefined || p.id === scope).map((p) => ({
     id: p.id, name: p.name, status: p.status, path: p.path, resolved: p.resolved,
     open_todo_count: p.openTodoCount, running_count: p.runningCount, last_activity_at: p.lastActivityAt,
@@ -294,7 +310,9 @@ export function listProjectsTool(deps: ToolDeps, ctx: ToolContext) {
 }
 
 export function getProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
-  const id = projectIdOf(deps, ctx, args);
+  // 統括の URL では、どのプロジェクトも読める（readScope）。project_id は必ず渡させる。
+  const id = isOrchestratorCtx(deps, ctx) ? str(args.project_id) : projectIdOf(deps, ctx, args);
+  if (!id) throw new ToolError(msg('mcp.args.projectIdRequired'));
   const p = requireProject(deps, id);
   const todos = todoBriefs(deps, id);
   const recent = listSessions(deps.db, deps.live(), { projectId: id, deviceId: deps.deviceId }).slice(0, RECENT_SESSIONS).map((s) => sessionBrief(deps, s));
@@ -361,7 +379,7 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
 }
 
 export function listSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
-  const scope = projectScope(deps, ctx, args);
+  const scope = readScope(deps, ctx, args);
   let list = listSessions(deps.db, deps.live(), { projectId: scope === undefined ? str(args.project_id) : (scope ?? undefined), deviceId: deps.deviceId });
   // プロジェクトに属していないセッションの URL では、そのセッション自身だけを見せる。
   if (scope === null) list = list.filter((s) => s.id === ctx.sessionId);
@@ -374,8 +392,8 @@ export function listSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Record<
 
 export function searchSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const q = str(args.query) ?? '';
-  const scope = projectScope(deps, ctx, args);
-  // プロジェクトに属していないセッションの URL では、横断の検索を渡さない。
+  const scope = readScope(deps, ctx, args);
+  // プロジェクトに属していないセッションの URL では、横断の検索を渡さない（統括の URL は readScope が全プロジェクトにする）。
   if (scope === null) throw new ToolError(NO_PROJECT);
   // 状態では絞らないので、状態を返す関数は渡さない。
   const r = searchSessions(deps.db, { q, projectId: scope ?? str(args.project_id), since: num(args.since), until: num(args.until), file: str(args.file), limit: num(args.limit) });
@@ -391,6 +409,7 @@ export function searchSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Recor
       snippets: h.snippets,
       ...(s ? resumeOf(deps, s) : { resume_command: null, resume_hint: null }),
       device: deviceBrief(deps, h.sessionId),
+      orchestrator: isOrchestratorSession(deps, h.sessionId),
     };
   });
   return { total: r.total, hits };
