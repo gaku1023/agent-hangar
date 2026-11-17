@@ -15,6 +15,7 @@ import {
   type PeerKeyring,
 } from '@agent-hangar/shared';
 import type { HookChoice } from '../../sessions/hookDecisions.ts';
+import { pendingAskFromHook } from './hookCard.ts';
 import { createPeerAnswerer, type AnswerPane, type AnswerResult } from './answer.ts';
 import { inputEmptyFromCapture } from './inputBox.ts';
 import { resumeSendOp, sendOp, type SendDeps } from './hostSend.ts';
@@ -186,6 +187,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     self: () => ({ deviceId: deps.deviceId, deviceName: deps.deviceName(deps.deviceId) }),
     // 起動ごとに替わる印。預かりはメモリだけなので、再起動を見る側に知らせる。
     hostId: randomUUID(),
+    ...(deps.hookDecisions ? { hookAsk: (sessionId: string) => { const d = deps.hookDecisions!.peek(sessionId); return d ? pendingAskFromHook(d, deps.session(sessionId)?.permission?.description ?? null) : null; } } : {}),
   });
 
   const answerer = createPeerAnswerer({

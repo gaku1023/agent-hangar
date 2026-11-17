@@ -107,10 +107,32 @@ describe('answerAsk: hook で答える', () => {
     expect(pane.keys).toEqual([]);
   });
 
-  it('画面の札が頼みと違えば、hook に頼まずに断る', async () => {
+  it('画面の札が頼みと違い、hook の待ちも合わなければ、断ってキーを打たない', async () => {
     const pane = new Pane('permission');
-    const t = setup(pane, { decide: () => true });
+    const t = setup(pane, { decide: () => false });
     expect(await t.answerAsk('r1', { ...perm, input: 'rm -rf /' }, ['1'])).toEqual({ ok: false, reason: 'ask-mismatch' });
-    expect(t.decided).toEqual([]);
+    expect(pane.keys).toEqual([]);
+  });
+
+  it('画面から読めない札（照合できない）でも、hook の待ちが合えば hook で答える。待ちが無ければ断る', async () => {
+    const pane = new Pane('permission');
+    pane.open = false; // 読める札が出ていない画面（ファイルの道具や、読めない形の札）を真似る
+    const t = setup(pane, { decide: () => true, closeOnDecide: false });
+    expect(await t.answerAsk('r1', perm, ['1'])).toEqual({ ok: true, label: 'Yes' });
+    expect(t.decided).toEqual([{ kind: 'permission', behavior: 'allow' }]);
+    expect(pane.keys).toEqual([]);
+    const closed = new Pane('permission');
+    closed.open = false;
+    const v = setup(closed, { decide: () => false });
+    expect(await v.answerAsk('r1', perm, ['1'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+  });
+
+  it('読めない札で、台本が答えを受け取らなければ、取り下げて断る（キーは打たない）', async () => {
+    const pane = new Pane('permission');
+    pane.open = false;
+    const t = setup(pane, { decide: () => true, delivered: false, closeOnDecide: false });
+    expect(await t.answerAsk('r1', perm, ['1'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(t.withdrawn).toEqual(['h1']);
+    expect(pane.keys).toEqual([]);
   });
 });

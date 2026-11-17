@@ -146,6 +146,20 @@ export class HookDecisions {
     return outOf({ behavior: 'allow', updatedInput: { questions, answers: { [q]: choice.value } } });
   }
 
+  /** そのセッションの、開いていて、まだ答えが決まっていない最新の待ちの入力（札の代わりを作る）。無ければ null。 */
+  peek(sessionId: string): HookDecisionInput | null {
+    let found: HookDecisionInput | null = null;
+    for (const e of this.entries.values()) if (e.sessionId === sessionId && !e.closed && e.output === null) found = e.d;
+    return found;
+  }
+
+  /** そのセッションの、開いている待ちの数。 */
+  pending(sessionId: string): number {
+    let n = 0;
+    for (const e of this.entries.values()) if (e.sessionId === sessionId && !e.closed) n++;
+    return n;
+  }
+
   /** 決めた答えが、台本に渡ったか（渡した後は待ちが消えるので、覚えている）。 */
   isDelivered(id: string): boolean {
     return this.delivered.has(id);

@@ -119,7 +119,7 @@ export type PeerChatHostDeps = {
    * PermissionRequest の hook の待ちの表（sessions/hookDecisions.ts）。
    * あれば、札への答えは、待ちがあり hook で言えるとき（hookAnswer.ts）に、画面にキーを打たずにここへ決める。
    */
-  hookDecisions?: Pick<HookDecisions, 'decide' | 'isDelivered' | 'withdraw'>;
+  hookDecisions?: Pick<HookDecisions, 'decide' | 'isDelivered' | 'withdraw' | 'peek'>;
   newId?(): string;
   /** 預かりの時計（試験で縮める）。 */
   queue?: { pollMs?: number; expireMs?: number; settleMs?: number };

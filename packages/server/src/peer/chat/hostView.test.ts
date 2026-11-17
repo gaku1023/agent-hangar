@@ -554,3 +554,31 @@ describe('ChatView.build: 答えの記録の札は、呼んだ位置に並ぶ（
     expect(st.items.at(-1)!.ask!.askId).toBe('E');
   });
 });
+
+describe('ChatView: 画面から読めない札の代わりに hook の札', () => {
+  const SELF = { deviceId: 'pc-a', deviceName: 'Win' };
+  const card = { kind: 'permission' as const, tool: 'Write', input: '/w/a.txt', description: null, options: [{ key: 'allow', label: 'Yes' }, { key: 'deny', label: 'No' }], multi: false, allowText: false };
+  const view = (screen: string, hookAsk: () => typeof card | null, permission = { tool: 'Write', input: '/w/a.txt', description: null as string | null }) => new ChatView({
+    now: () => 1000, sleep: async () => undefined, recheckMs: 1000,
+    session: () => session({ permission }), run: () => ({ tmuxName: 't' }),
+    pane: () => ({ capture: () => screen, captureStyled: async () => screen, sendKey: () => {}, sendText: () => {} }),
+    tail: { readTranscript: () => null }, queued: () => [], self: () => SELF, hostId: 'h', hookAsk,
+  });
+
+  it('画面が札として読めないとき、hook の札を出す（答えられる札で、askId は同じ入力から決まる）', () => {
+    const a = view('● done\n\n❯ \n', () => card).currentAsk('s1')!;
+    expect(a).toMatchObject({ kind: 'permission', tool: 'Write', input: '/w/a.txt', options: [{ key: 'allow', label: 'Yes' }, { key: 'deny', label: 'No' }] });
+    expect(a.answerable).toBeUndefined();
+    expect(a.askId).toBe(peerAskId(card, ''));
+  });
+
+  it('画面の札が読めて答えられるなら、画面の札を使う（hook の札は使わない）', () => {
+    const screen = [' Bash command', ' d', RULE, ' ls', RULE, ' Do you want to proceed?', ' ❯ 1. Yes', '   2. No', ' Esc to cancel'].join('\n') + '\n';
+    const v = view(screen, () => card, { tool: 'Bash', input: 'ls', description: null });
+    expect(v.currentAsk('s1')).toMatchObject({ options: [{ key: '1', label: 'Yes' }, { key: '2', label: 'No' }] });
+  });
+
+  it('hook の待ちが無ければ、札を出さない', () => {
+    expect(view('● done\n\n❯ \n', () => null).currentAsk('s1')).toBeNull();
+  });
+});

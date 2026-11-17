@@ -730,10 +730,13 @@ export function createPeerAnswerer(deps: PeerAnswererDeps): PeerAnswerer {
     return d === null || !dialogMatches(ask, d, cwd);
   };
 
-  /** hook に決めた答えを台本が受け取る（または、札がもう閉じた）のを待つ。受け取らなければ false。 */
-  async function waitHookDelivered(pane: AnswerPane, ask: PeerChatAsk, cwd: string | null, id: string): Promise<boolean> {
+  /**
+   * hook に決めた答えを台本が受け取る（または、札がもう閉じた）のを待つ。受け取らなければ false。
+   * pane が null は、画面から札が読めないとき（閉じたかどうかを画面では見られない）で、受け取りだけを見る。
+   */
+  async function waitHookDelivered(pane: AnswerPane | null, ask: PeerChatAsk, cwd: string | null, id: string): Promise<boolean> {
     for (let waited = 0; ; waited += CLOSE_STEP_MS) {
-      if (deps.hook!.delivered(id) || closed(ask, cwd)(pane.capture())) return true;
+      if (deps.hook!.delivered(id) || (pane !== null && closed(ask, cwd)(pane.capture()))) return true;
       if (waited >= HOOK_DELIVER_MS) return false;
       await sleep(CLOSE_STEP_MS);
     }
@@ -763,7 +766,19 @@ export function createPeerAnswerer(deps: PeerAnswererDeps): PeerAnswerer {
 
     const dialog = parseDialog(pane.capture());
     const cwd = deps.cwd?.(runId) ?? null;
-    if (!dialog || !dialogMatches(ask, dialog, cwd)) return refuse('ask-mismatch');
+    if (!dialog || !dialogMatches(ask, dialog, cwd)) {
+      // 画面から読めない札（ファイルの道具の札など）は、hook の待ちが同じ札なら、hook で答える。待ちが無ければ断る。
+      // 待ちは道具と主な引数（質問は問いの文）で札と突き合わせる。待ちは登録が許可の待ちを抜けたら閉じるので、古い札には合わない。
+      const choice = deps.hook ? hookChoiceOf(ask, labels, hasText ? text : undefined) : null;
+      const hooked = choice ? deps.hook!.decide(runId, ask, choice) : null;
+      if (!hooked) return refuse('ask-mismatch');
+      if (!(await waitHookDelivered(null, ask, cwd, hooked.id))) {
+        deps.hook!.withdraw(hooked.id);
+        return refuse('ask-mismatch');
+      }
+      remember(ask.askId);
+      return { ok: true, label: [...labels, ...(hasText ? [text!] : [])].join(', ') };
+    }
     // 質問の札は、ask が見せた選択肢がすべて画面にあるときだけ通す（別の質問に取り違えない）。
     if (ask.kind === 'question' && ask.options.some((o) => !rowByLabel(dialog, o.label))) return refuse('ask-mismatch');
     const rows = labels.map((l) => rowByLabel(dialog, l));
