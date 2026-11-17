@@ -114,7 +114,6 @@ export type ApiClient = {
   /** stray は、残った claude の確認で選んだもの。付けなければ、残っていれば StrayProcessApiError で投げる。 */
   /** prepKey は起動前の準備（opencode の接続先の準備）の進みの鍵。 */
   resume(sessionId: string, stray?: ResumeStray, prepKey?: string): Promise<LaunchResultDto>;
-  fork(sessionId: string): Promise<LaunchResultDto>;
   attach(sessionId: string): Promise<LaunchResultDto>;
   adopt(sessionId: string): Promise<LaunchResultDto>;
   killRun(runId: string): Promise<RunDto>;
@@ -434,7 +433,6 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     cancelPrep: (key) => call(`/api/runs/prep/${encodeURIComponent(key)}`, { method: 'DELETE' }),
     prepareModels: (sessionId, prepKey) => post(`/api/sessions/${sessionId}/local-models`, { prepKey }),
     resume: (sessionId, stray, prepKey) => post(`/api/sessions/${sessionId}/resume`, stray || prepKey ? { ...(stray ? { stray } : {}), ...(prepKey ? { prepKey } : {}) } : undefined),
-    fork: (sessionId) => post(`/api/sessions/${sessionId}/fork`),
     attach: (sessionId) => post(`/api/sessions/${sessionId}/attach`),
     adopt: (sessionId) => post(`/api/sessions/${sessionId}/adopt`),
     killRun: (runId) => call(`/api/runs/${runId}`, { method: 'DELETE' }),

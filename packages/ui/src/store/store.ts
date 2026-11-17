@@ -1,7 +1,7 @@
 import type { SessionLockDto } from '@agent-hangar/shared';
 import type { EventBindingDto, HeldEventDto, PrClaimDto, ScheduleDto } from '@agent-hangar/shared';
 import type { DeleteApprovalDto, PeerApprovalDto, PeerChatDevice, PeerChatQueued, PeerDeviceDto } from '@agent-hangar/shared';
-import { liveFilterOf, liveWithLimit, quietLive, stopReasonOf, type LiveFilter, type PermissionAskDto, type StopReason } from '@agent-hangar/shared';
+import { liveFilterOf, liveWithLimit, quietLive, remoteLiveOf, sessionLiveFilter, shownLive, shownReason, type LiveFilter, type PermissionAskDto, type StopReason } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
 import { sameValue } from '../lib/same.ts';
 import { initialCloudMember, reduceCloudMember, type CloudMemberState } from './cloudMember.ts';
@@ -569,14 +569,12 @@ export function remoteLockOf(s: SessionDto, local: Set<string>): SessionLockDto 
   return s.lock && s.live === null && !local.has(s.id) ? s.lock : null;
 }
 
-/**
- * ほかの PC の run の状態を、この PC の画面での動き（点）に読む（SessionLockDto の live・reason）。
- * 未知（null、古いサーバ）と、黙った PC（stale）は、状態が分からないので灰の点（idle）のままにする。
- * リセット済み（reset）の休みは、この PC の liveWithLimit と同じく入力待ちに数える。
- */
-export function remoteLiveOf(lock: SessionLockDto): LiveStatus {
-  if (lock.stale || !lock.live) return 'idle';
-  return lock.live === 'idle' && lock.reason === 'reset' ? 'waiting' : lock.live;
+// ほかの PC の run の動きの読み方（remoteLiveOf）は shared の sessionList.ts にある。
+export { remoteLiveOf };
+
+/** 画面で数えるときの live。この PC の live が無く、ほかの PC のロックがあるときは、そのロックの状態に読む。 */
+function countedLive(s: SessionDto): LiveStatus | null {
+  return s.live ?? (s.lock ? remoteLiveOf(s.lock) : null);
 }
 
 /**
@@ -589,10 +587,6 @@ export function remoteReasonOf(lock: SessionLockDto, shown: LiveStatus | null): 
   return r === 'limit' && shown === 'idle' ? r : null;
 }
 
-/** 画面で数えるときの live。この PC の live が無く、ほかの PC のロックがあるときは、そのロックの状態に読む。 */
-function countedLive(s: SessionDto): LiveStatus | null {
-  return s.live ?? (s.lock ? remoteLiveOf(s.lock) : null);
-}
 
 /**
  * 画面で数えるときのセッションの状態（実行中、入力待ち、終了）。
@@ -601,28 +595,11 @@ function countedLive(s: SessionDto): LiveStatus | null {
  * alive を渡せば、何件も数えるときに run の集合を作り直さずに済む。
  */
 export function liveFilterOfSession(store: Store, session: SessionDto, alive: Set<string> = runningSessionIds(store)): LiveFilter {
-  return liveFilterOf(quietLive(liveWithLimit(countedLive(session), session.limit), session.state?.status, session.woke), alive.has(session.id), session.parked);
+  return sessionLiveFilter(session, alive);
 }
 
-/**
- * 一覧で見せる動き。区切りを付けて休みのまま残っているもの（parked）は、終わったものと同じに見せる。
- * Done と Archived にした入力待ちは、入力待ちの印を付けないよう休みに見せる（shared の quietLive）。
- * セッション画面は本当の動き（session.live）を出すので、これを使わない。
- */
-export function shownLive(session: SessionDto): LiveStatus | null {
-  return session.parked ? null : quietLive(liveWithLimit(session.live, session.limit), session.state?.status, session.woke);
-}
-
-/**
- * 一覧で見せる止まっている理由（shared の stopReasonOf）。shown は一覧で見せる動き（shownLive など）である。
- * Done と Archived にした入力待ち（quietLive で休みに見せるもの）には付けない。
- * 許可待ちとリセット済みは入力待ちに、使用制限は休みに見えているときだけ付ける。
- */
-export function shownReason(s: SessionDto, shown: LiveStatus | null): StopReason | null {
-  const reason = stopReasonOf(s);
-  if (reason === 'permission' || reason === 'reset') return shown === 'waiting' ? reason : null;
-  return reason === 'limit' && shown === 'idle' ? reason : null;
-}
+// 一覧で見せる動きと止まっている理由（shownLive、shownReason）は、サーバの一覧の形の検索と同じものを使う（shared の sessionList.ts）。
+export { shownLive, shownReason };
 
 /** 本体は入力を受け付けていて、裏の作業だけが動いているか（lib/aside.ts の asideOf）。一覧の見せ方は shownLive にそろえる。 */
 export function shownAside(session: SessionDto): LiveAsideDto | null {

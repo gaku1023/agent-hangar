@@ -183,3 +183,36 @@ describe('mdLeaves', () => {
     expect(mdLeaves(blocks)).toEqual(['見出し', '太字', ' と ', '名前', 'a', 'b', 'code']);
   });
 });
+
+describe('CommonMark の逃がし、重ね、画像、表の改行', () => {
+  const t = (s: string) => ({ t: 'text', text: s });
+  it('バックスラッシュで逃がした記号は、記号そのものの文字にする', () => {
+    expect(parseInline('\\*not em\\*')).toEqual([t('*not em*')]);
+    expect(parseInline('\\*\\*x\\*\\*')).toEqual([t('**x**')]);
+    expect(parseInline('a \\_b\\_ \\` \\[c\\] \\\\ d')).toEqual([t('a _b_ ` [c] \\ d')]);
+    expect(parseInline('\\a \\あ')).toEqual([t('\\a \\あ')]);
+    expect(parseInline('`\\*`')).toEqual([{ t: 'code', text: '\\*' }]);
+    expect(parseInline('\\[x](https://a.example)')[0]).toEqual(t('[x]('));
+  });
+  it('*** は斜体の中に太字を重ねる', () => {
+    expect(parseInline('***強調***')).toEqual([{ t: 'em', children: [{ t: 'strong', children: [t('強調')] }] }]);
+    expect(parseInline('前***x***後')).toEqual([t('前'), { t: 'em', children: [{ t: 'strong', children: [t('x')] }] }, t('後')]);
+  });
+  it('画像は読み込まず、http と https だけ代替の文字のリンクにする', () => {
+    expect(parseInline('![図](https://a.example/x.png)')).toEqual([{ t: 'link', href: 'https://a.example/x.png', children: [t('図')] }]);
+    expect(parseInline('![](https://a.example/x.png)')).toEqual([{ t: 'link', href: 'https://a.example/x.png', children: [t('https://a.example/x.png')] }]);
+    expect(parseInline('![図](javascript:alert(1))')).toEqual([t('図')]);
+    expect(parseInline('![図](data:image/png;base64,AAAA)')).toEqual([t('図')]);
+  });
+  it('表の欄の <br> は改行にし、欄の外では文字のまま残す', () => {
+    const [tb] = parseMarkdown('| a | b |\n|---|---|\n| x<br>y<br/>z | p<BR />q |');
+    expect(tb).toMatchObject({ t: 'table' });
+    const rows = (tb as { rows: unknown[][][] }).rows;
+    expect(rows[0]![0]).toEqual([t('x'), { t: 'br' }, t('y'), { t: 'br' }, t('z')]);
+    expect(rows[0]![1]).toEqual([t('p'), { t: 'br' }, t('q')]);
+    expect(parseInline('a<br>b')).toEqual([t('a<br>b')]);
+  });
+  it('mdLeaves は br を葉にしない', () => {
+    expect(mdLeaves(parseMarkdown('| a |\n|---|\n| x<br>y |'))).toEqual(['a', 'x', 'y']);
+  });
+});

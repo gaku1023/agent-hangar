@@ -1,4 +1,4 @@
-import { DEFAULT_LANGUAGE, MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type CloudPeer, type Language, type ChangeOut, type MobileLaunchOut, type PeerLaunchIncoming, type SharedTable, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
+import { DEFAULT_LANGUAGE, MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type CloudPeer, type Language, type ChangeOut, type MobileLaunchOut, type OpenedPushResponse, type PeerLaunchIncoming, type SharedTable, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
@@ -229,6 +229,8 @@ export class SyncEngine {
   private started = false;
   /** 413 で諦めた行。同じ行で何度も知らせない。 */
   private readonly oversizeTold = new Set<string>();
+  /** 時計が進んでいて断られたことを、このエンジンの間に知らせたか（noteDropped）。 */
+  private clockAheadTold = false;
   /**
    * タイマーから始めた仕事を並べる 1 本の鎖。
    *
@@ -629,8 +631,9 @@ export class SyncEngine {
         tableName: r.table_name, rowId: r.row_id, op: r.op,
         payload: JSON.parse(r.payload) as Record<string, unknown>, updatedAt: r.updated_at,
       }));
+      let res: OpenedPushResponse;
       try {
-        await (ring ? client.pushChanges(batch, { ring: true }) : client.pushChanges(batch));
+        res = await (ring ? client.pushChanges(batch, { ring: true }) : client.pushChanges(batch));
       } catch (e) {
         if (ring) this.urgentPending = true;
         // 大きすぎる行は何度送っても同じ答えが返る。諦めて先へ進まないと、この塊で push が永久に止まる。
@@ -643,6 +646,7 @@ export class SyncEngine {
       this.state.set('lastPushAt', now);
       this.clearPushError();
       this.noteBack();
+      this.noteDropped(res.dropped ?? []);
       pushed += rows.length;
     }
     // 未送信が 1 行も残っていないのだから、push は通っている。
@@ -674,6 +678,26 @@ export class SyncEngine {
     const kib = (n: number) => Math.round(n / 1024);
     this.emit('toast', 'error', render(this.language(), msg('sync.oversize.row', { table: named.tableName, id: named.rowId, size: kib(named.bytes), limit: kib(named.limit) })));
     return true;
+  }
+
+  /**
+   * Worker が捨てた行（push の応答の dropped）を受ける。
+   *
+   * `future` は、この PC の時計が Worker より 5 分以上進んでいて断られた行である。
+   * 送り直しても同じ時刻なので通らない。利用者が時計を合わせるまで続くので、知らせるのはこのエンジンの間に 1 度だけにする。
+   * `stale` は、クラウドにある行の方が新しかった（ほかの PC が後から書いた）ので捨てた行である。
+   * 勝った方を早く取り込んで手元を合わせるため、次の定期の pull を待たずに pull する。
+   */
+  private noteDropped(dropped: NonNullable<OpenedPushResponse['dropped']>): void {
+    if (dropped.length === 0) return;
+    const future = dropped.filter((d) => d.reason === 'future');
+    const stale = dropped.length - future.length;
+    console.warn(`sync: cloud dropped ${dropped.length} rows (stale ${stale}, clock ahead ${future.length})`);
+    if (future.length > 0 && !this.clockAheadTold) {
+      this.clockAheadTold = true;
+      this.emit('toast', 'error', render(this.language(), msg('sync.clock.ahead', { count: future.length })));
+    }
+    if (stale > 0) this.enqueueWhileStarted(() => this.pullNow());
   }
 
   /** 利用者が止める、再開する（UI と CLI から）。上限で退いた印には触らない。上限は日が変われば自分で戻る。 */

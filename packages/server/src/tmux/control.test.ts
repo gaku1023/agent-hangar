@@ -129,7 +129,8 @@ describe.skipIf(!TMUX)('controlSpawn（実物の tmux）', () => {
     const name = 'hangar-ctl-t1';
     tmux.run('new-session', '-d', '-s', name, '-x', '80', '-y', '10', 'sh');
     tmux.run('send-keys', '-t', `=${name}:`, 'seq 1 40', 'Enter');
-    await waitFor(() => tmux.capturePane(name).includes('40'));
+    // 打ったコマンドの文字の「40」ではなく、seq の出力の 40 の行を待つ
+    await waitFor(() => /^40$/m.test(tmux.capturePane(name)));
 
     const p = controlSpawn(tmux, name);
     let got = '';
@@ -138,7 +139,7 @@ describe.skipIf(!TMUX)('controlSpawn（実物の tmux）', () => {
     p.onExit(() => { exited = true; });
     p.resize(80, 10);
     // 画面の外へ流れた 1 行目も、履歴として届く
-    await waitFor(() => got.includes('40'));
+    await waitFor(() => /\r\n40\r\n/.test(got));
     expect(got.startsWith('\x1b[H\x1b[2J\x1b[3J')).toBe(true);
     expect(got).toMatch(/\b1\r\n2\r\n3\r\n/);
 

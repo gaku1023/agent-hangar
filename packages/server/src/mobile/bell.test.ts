@@ -171,6 +171,25 @@ describe('MobileBell', () => {
     expect(w.received.map((x) => JSON.parse(x) as unknown)).toEqual([{ t: 'chat-reply', id: 'c1', from: 'pc-a', sealed: 'reply-c1' }]);
   });
 
+  it('{t:phone-chat} を onPhoneChat に渡し、答えを {t:phone-chat-reply} で返す。chat の口には渡さない。形の違うものと開けないものには答えない', async () => {
+    const onChat = vi.fn(async () => null);
+    const onPhoneChat = vi.fn(async (f: { id: string; from: string }) => (f.id === 'p0' ? null : { t: 'phone-chat-reply' as const, id: f.id, from: f.from, sealed: `reply-${f.id}` }));
+    const w = await fakeWorker();
+    const bell = new MobileBell({ target: () => ({ url: w.url, headers: {} }), onLaunch: vi.fn(), onAsk: vi.fn(async () => null), onChat, onPhoneChat, timers: new FakeTimers() });
+    cleanups.push(() => bell.stop(), () => w.close());
+    bell.check();
+    await settle(() => w.open().length === 1);
+    const ws = w.open()[0]!;
+    for (const bad of ['{"t":"phone-chat"}', '{"t":"phone-chat","id":"c","from":"p","epoch":0,"sealed":"x"}', '{"t":"phone-chat","id":"c","epoch":1,"sealed":"x"}']) ws.send(bad);
+    ws.send(JSON.stringify({ t: 'phone-chat', id: 'p0', from: 'phone-1', epoch: 2, sealed: 'unopenable' }));
+    ws.send(JSON.stringify({ t: 'phone-chat', id: 'p1', from: 'phone-1', epoch: 2, sealed: 'sealed-body' }));
+    await settle(() => w.received.some((x) => x.includes('p1')));
+    expect(onPhoneChat).toHaveBeenCalledTimes(2);
+    expect(onPhoneChat).toHaveBeenCalledWith({ t: 'phone-chat', id: 'p1', from: 'phone-1', epoch: 2, sealed: 'sealed-body' });
+    expect(onChat).not.toHaveBeenCalled();
+    expect(w.received.map((x) => JSON.parse(x) as unknown)).toEqual([{ t: 'phone-chat-reply', id: 'p1', from: 'phone-1', sealed: 'reply-p1' }]);
+  });
+
   it('形の違う {t:chat} は onChat に渡さない（id、from、epoch、sealed の欠け）', async () => {
     const onChat = vi.fn(async () => null);
     const w = await fakeWorker();

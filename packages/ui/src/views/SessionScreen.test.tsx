@@ -36,8 +36,7 @@ const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', r
     toolItem(1, 'Agent', { description: 'x' }, { text: 'done', isError: false }, { when: '10:01', subagent: { agentId: 'abc', label: 'Agent x' } }),
     toolItem(2, 'Edit', { file_path: '/a', old_string: 'a', new_string: 'b' }, { text: 'File not found', isError: true }, { when: '10:02' }),
     { kind: 'assistant', seq: 3, text: 'bye', when: '10:03' },
-  ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
-  summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null,
+  ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true,   summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null,
   turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, turnsPending: false, turnCount: { n: 104, plus: false }, loadingOlder: false, openTurnItems: [], turnJump: null, strip: null, lead: leadOf(), badges: [], details: [], gone: null, jump: null, hasNewer: false, promptJump: true,
   actions: { primary: { id: 'resume', label: '再開', disabled: null, note: null }, menu: [] }, transcriptBand: null, account: null };
 
@@ -192,15 +191,12 @@ describe('見出しの段（A1、C1）', () => {
     expect(screen.queryByText('T')).toBeNull();
     expect(screen.getAllByText('name')).toHaveLength(1);
   });
-  it('実行中は VS Code で開くを主にし、ターミナルで開く、フォーク、要約を作り直す、停止は「…」に入れる', () => {
+  it('実行中は VS Code で開くを主にし、ターミナルで開く、要約を作り直す、停止は「…」に入れる', () => {
     const onAction = withHost(<SS {...running} />);
     fireEvent.click(screen.getByRole('button', { name: 'VS Code で開く' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.openEditor', sessionId: 's1' });
     const m = menu();
-    expect(m.getAllByRole('menuitem').map((i) => i.querySelector('.menu-item-text > span')!.textContent)).toEqual(['ターミナルで開く', 'フォーク', '要約を再生成', '宛先をコピー', 'セッション ID をコピー', '停止']);
-    // 押せない項目は理由を 1 行添える。
-    expect(m.getByRole('menuitem', { name: /フォーク/ })).toHaveAttribute('aria-disabled', 'true');
-    expect(m.getByRole('menuitem', { name: /フォーク/ })).toHaveTextContent('実行中は使えません。停止すると使えます');
+    expect(m.getAllByRole('menuitem').map((i) => i.querySelector('.menu-item-text > span')!.textContent)).toEqual(['ターミナルで開く', '要約を再生成', '宛先をコピー', 'セッション ID をコピー', '停止']);
     fireEvent.click(m.getByRole('menuitem', { name: /ターミナルで開く/ }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.openTerminalApp', runId: 'r1', tabId: 'r1' });
     fireEvent.click(menu().getByRole('menuitem', { name: /要約を再生成/ }));
@@ -221,13 +217,11 @@ describe('見出しの段（A1、C1）', () => {
     fireEvent.click(menu().getByRole('menuitem', { name: /^停止/ }));
     expect(idle).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r1', working: false, aside: false, shellTabs: 0 });
   });
-  it('終わったセッションは再開を主にし、フォークと VS Code で開くは「…」から', () => {
+  it('終わったセッションは再開を主にし、VS Code で開くは「…」から', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><SS {...base} /></ActionRoot>);
     fireEvent.click(screen.getByRole('button', { name: '再開' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.resume', id: 's1', prepKey: expect.stringMatching(/^[A-Za-z0-9_-]{8,64}$/) });
-    fireEvent.click(menu().getByRole('menuitem', { name: /フォーク/ }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'session.fork', id: 's1' });
     fireEvent.click(menu().getByRole('menuitem', { name: /VS Code で開く/ }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.openEditor', sessionId: 's1' });
   });
@@ -235,7 +229,7 @@ describe('見出しの段（A1、C1）', () => {
   // aria-disabled にして、押しても何もしないようにする。
   it('主の操作が押せないときは、理由を title と読み上げに持たせ、押しても何もしない', () => {
     const onAction = vi.fn();
-    render(<ActionRoot onAction={onAction}><SS {...base} hasTranscript={false} canResume={false} canFork={false} items={[]} total={0} loaded={0} hasMore={false} /></ActionRoot>);
+    render(<ActionRoot onAction={onAction}><SS {...base} hasTranscript={false} canResume={false} items={[]} total={0} loaded={0} hasMore={false} /></ActionRoot>);
     const resume = screen.getByRole('button', { name: '再開' });
     expect(resume).toHaveAttribute('aria-disabled', 'true');
     fireEvent.click(resume);
@@ -409,7 +403,7 @@ describe('見出しの下の 1 行、要約の札、目次（終わった画面�
   });
   it('トランスクリプトの無いセッションは、目次を持たず、見出しの下の 1 行でそう言う。書かれた要約は本文の欄の上に置く', () => {
     const lead = leadOf({ hasTranscript: false, summary: written });
-    const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} hasTranscript={false} canResume={false} canFork={false} items={[]} total={0} loaded={0} hasMore={false} turnRows={[]} lead={lead} /></ActionRoot>);
+    const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} hasTranscript={false} canResume={false} items={[]} total={0} loaded={0} hasMore={false} turnRows={[]} lead={lead} /></ActionRoot>);
     expect(container.querySelector('.toc-pane')).toBeNull();
     expect(screen.getByText('トランスクリプトがありません', { selector: '.ef-line span' })).toBeInTheDocument();
     expect(container.querySelector('.c-body')).toHaveAttribute('data-toc', 'none');
@@ -418,7 +412,7 @@ describe('見出しの下の 1 行、要約の札、目次（終わった画面�
 });
 
 const host: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => 'connected', fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), input: vi.fn(), zoom: vi.fn(), fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() };
-const running: SessionProps = { ...base, live: 'busy', run: { id: 'r1', kind: 'start', alive: true, started: '1 分前' }, selectedTab: 'r1', canResume: false, canFork: false, lead: null, strip: stripOf(),
+const running: SessionProps = { ...base, live: 'busy', run: { id: 'r1', kind: 'start', alive: true, started: '1 分前' }, selectedTab: 'r1', canResume: false, lead: null, strip: stripOf(),
   tabs: [{ id: 'r1', title: 'Claude', kind: 'agent', selected: true, closable: false }, { id: 't1', title: 'シェル 1', kind: 'shell', selected: false, closable: true }] };
 const withHost = (ui: ReactElement, onAction = vi.fn(), h: TerminalHost = host) => { render(<ActionRoot onAction={onAction}><TerminalHostContext.Provider value={h}>{ui}</TerminalHostContext.Provider></ActionRoot>); return onAction; };
 
@@ -751,7 +745,7 @@ describe('SessionScreen のアイコン', () => {
     const m = menu();
     expect(iconOf(m.getByRole('menuitem', { name: /ターミナルで開く/ }))).toBe('openTerminal');
     expect(iconOf(m.getByRole('menuitem', { name: /^停止/ }))).toBe('stop');
-    expect(iconOf(m.getByRole('menuitem', { name: /フォーク/ }))).toBe('fork');
+    expect(m.queryByRole('menuitem', { name: /フォーク/ })).toBeNull();
   });
   it('タブは種類ごとのアイコンを持ち、閉じると追加は読み上げ名を保つ', () => {
     withHost(<SS {...running} />);
@@ -777,15 +771,14 @@ describe('SessionScreen のアイコン', () => {
 });
 
 describe('フェーズ 4 のセッション画面', () => {
-  it('他の PC で実行中なら、この PC で再開を主にして押せるまま、再開とフォークはメニューで止める', () => {
+  it('他の PC で実行中なら、この PC で再開を主にして押せるまま、再開はメニューで止める', () => {
     const lock = { deviceName: 'mini', stale: false, heartbeat: '1 分前', label: 'mini で実行中' };
-    render(<ActionRoot onAction={() => {}}><SS {...base} canResume={false} canFork={false} lock={lock} badges={[{ kind: 'lock', label: 'mini で実行中', title: '最終確認 1 分前' }]} /></ActionRoot>);
+    render(<ActionRoot onAction={() => {}}><SS {...base} canResume={false} lock={lock} badges={[{ kind: 'lock', label: 'mini で実行中', title: '最終確認 1 分前' }]} /></ActionRoot>);
     expect(screen.getByText('mini で実行中')).toBeInTheDocument();
     // 生きたロックでも「この PC で再開」は押せる（確認の 1 枚で停止して引き継ぐ）。
     expect(screen.getByRole('button', { name: 'この PC で再開' })).not.toHaveAttribute('aria-disabled', 'true');
     const m = menu();
     expect(m.getByRole('menuitem', { name: /再開/ })).toHaveAttribute('aria-disabled', 'true');
-    expect(m.getByRole('menuitem', { name: /フォーク/ })).toHaveAttribute('aria-disabled', 'true');
   });
   it('応答が無いロックの札は、別の種類（色）で出る', () => {
     render(<ActionRoot onAction={() => {}}><SS {...base} badges={[{ kind: 'stale', label: 'mini から応答がありません', title: '最終確認 5 分前' }]} /></ActionRoot>);
@@ -793,20 +786,20 @@ describe('フェーズ 4 のセッション画面', () => {
   });
   it('外で動くセッションには、引き取りと attach を「…」に出す', () => {
     const onAction = vi.fn();
-    const { rerender } = render(<ActionRoot onAction={onAction}><SS {...base} live="waiting" canResume={false} canFork={false} outsideOpen="adopt" /></ActionRoot>);
+    const { rerender } = render(<ActionRoot onAction={onAction}><SS {...base} live="waiting" canResume={false} outsideOpen="adopt" /></ActionRoot>);
     fireEvent.click(menu().getByRole('menuitem', { name: /hangar に移動/ }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'session.adopt', id: 's1' });
-    rerender(<ActionRoot onAction={onAction}><SS {...base} live="waiting" canResume={false} canFork={false} outsideOpen="attach" /></ActionRoot>);
+    rerender(<ActionRoot onAction={onAction}><SS {...base} live="waiting" canResume={false} outsideOpen="attach" /></ActionRoot>);
     fireEvent.click(menu().getByRole('menuitem', { name: /hangar で接続/ }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'session.attach', id: 's1' });
-    rerender(<ActionRoot onAction={onAction}><SS {...base} live="waiting" canResume={false} canFork={false} /></ActionRoot>);
+    rerender(<ActionRoot onAction={onAction}><SS {...base} live="waiting" canResume={false} /></ActionRoot>);
     const m = menu();
     expect(m.queryByRole('menuitem', { name: /hangar に移動/ })).toBeNull();
     expect(m.queryByRole('menuitem', { name: /hangar で接続/ })).toBeNull();
   });
   it('写しだけのセッションはこの PC で再開を主にする', () => {
     const onAction = vi.fn();
-    render(<ActionRoot onAction={onAction}><SS {...base} canResume={false} canFork={false} remoteOnly canResumeHere badges={[{ kind: 'remote', label: 'トランスクリプトは他の PC にあります', title: null }]} /></ActionRoot>);
+    render(<ActionRoot onAction={onAction}><SS {...base} canResume={false} remoteOnly canResumeHere badges={[{ kind: 'remote', label: 'トランスクリプトは他の PC にあります', title: null }]} /></ActionRoot>);
     fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere.open', id: 's1' });
     expect(screen.getByText('トランスクリプトは他の PC にあります')).toBeInTheDocument();
@@ -815,14 +808,14 @@ describe('フェーズ 4 のセッション画面', () => {
   it('応答の無いロックからもこの PC で再開に逃げられる', () => {
     const onAction = vi.fn();
     const staleLock = { deviceName: 'mini', stale: true, heartbeat: '5 分前', label: 'mini から応答がありません' };
-    render(<ActionRoot onAction={onAction}><SS {...base} canResume={false} canFork={false} lock={staleLock} canResumeHere /></ActionRoot>);
+    render(<ActionRoot onAction={onAction}><SS {...base} canResume={false} lock={staleLock} canResumeHere /></ActionRoot>);
     fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere.open', id: 's1' });
   });
   it('この PC にプロジェクトのフォルダが無ければ、この PC で再開を押せなくし、見出しの下に理由と場所の指定を常に出す', () => {
     const onAction = vi.fn();
     const reason = 'この PC にこのプロジェクトのディレクトリがありません。先にパスを指定してください。';
-    render(<ActionRoot onAction={onAction}><SS {...base} canResume={false} canFork={false} remoteOnly canResumeHere noRoot={{ reason, projectId: 'p1' }} /></ActionRoot>);
+    render(<ActionRoot onAction={onAction}><SS {...base} canResume={false} remoteOnly canResumeHere noRoot={{ reason, projectId: 'p1' }} /></ActionRoot>);
     const button = screen.getByRole('button', { name: 'この PC で再開' });
     expect(button).toHaveAttribute('aria-disabled', 'true');
     fireEvent.click(button);
@@ -833,7 +826,7 @@ describe('フェーズ 4 のセッション画面', () => {
     expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'p1' });
   });
   it('フォルダがあれば理由の行は出さない', () => {
-    render(<ActionRoot onAction={() => {}}><SS {...base} canResume={false} canFork={false} remoteOnly canResumeHere /></ActionRoot>);
+    render(<ActionRoot onAction={() => {}}><SS {...base} canResume={false} remoteOnly canResumeHere /></ActionRoot>);
     expect(document.querySelector('.session-reason')).toBeNull();
   });
   it('ロックが無ければこの PC で再開は出ない', () => {
@@ -845,7 +838,7 @@ describe('フェーズ 4 のセッション画面', () => {
   // 引き継ぎはこのフェーズでは作らない（利用者の決定 1）。
   it('引き継ぎの操作は出さない', () => {
     const lock = { deviceName: 'mini', stale: false, heartbeat: '1 分前', label: 'mini で実行中' };
-    render(<ActionRoot onAction={() => {}}><SS {...base} canResume={false} canFork={false} lock={lock} /></ActionRoot>);
+    render(<ActionRoot onAction={() => {}}><SS {...base} canResume={false} lock={lock} /></ActionRoot>);
     expect(screen.queryByRole('button', { name: /引き継/ })).toBeNull();
     expect(menu().queryByRole('menuitem', { name: /引き継/ })).toBeNull();
   });
@@ -1019,7 +1012,7 @@ describe('SessionScreen の読む面の印', () => {
 
 describe('SessionScreen（本文が消えた会話）', () => {
   const gone = { note: 'トランスクリプトは、Claude Code の保持期間（30 日）を過ぎて削除された可能性があります。表示できるのは要約のみです。', canExtend: true, extendTo: 365 };
-  const props = { ...base, hasTranscript: false, items: [], total: 0, loaded: 0, hasMore: false, turnRows: [], canResume: false, canFork: false, gone, lead: leadOf({ hasTranscript: false }, { gone: true }) };
+  const props = { ...base, hasTranscript: false, items: [], total: 0, loaded: 0, hasMore: false, turnRows: [], canResume: false, gone, lead: leadOf({ hasTranscript: false }, { gone: true }) };
   it('注記と要約のみの印を出し、延ばす手を添え、本文の欄と目次は出さない', () => {
     const onAction = vi.fn();
     const { container } = render(<ActionRoot onAction={onAction}><SS {...props} /></ActionRoot>);
@@ -1057,7 +1050,7 @@ describe('SessionScreen（英語）', () => {
   it('終わった画面：操作、切り替え、続きの読み込み、ツールの行が英語で出る', () => {
     render(<ActionRoot onAction={() => {}}><LanguageRoot language="en"><SessionScreen {...enProps()} /></LanguageRoot></ActionRoot>);
     expect(screen.getByRole('button', { name: 'Resume' })).toBeInTheDocument();
-    expect(menuOf('More actions').getByRole('menuitem', { name: /Fork/ })).toBeInTheDocument();
+    expect(menuOf('More actions').queryByRole('menuitem', { name: /Fork/ })).toBeNull();
     expect(screen.getByRole('button', { name: 'Show thinking' })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'Main conversation' })).toBeInTheDocument();
     expect(screen.getByText('Load older lines (6 left)')).toBeInTheDocument();
@@ -1069,7 +1062,7 @@ describe('SessionScreen（英語）', () => {
   });
   it('押せない再開の理由と、本文が消えた会話の注記が英語で出る', () => {
     const reason = en('session.action.resumeHereNoRoot');
-    const blocked = enProps({ canResume: false, canFork: false, remoteOnly: true, canResumeHere: true, hasTranscript: false, noRoot: { reason, projectId: 'p1' } });
+    const blocked = enProps({ canResume: false, remoteOnly: true, canResumeHere: true, hasTranscript: false, noRoot: { reason, projectId: 'p1' } });
     const { unmount } = render(<ActionRoot onAction={() => {}}><LanguageRoot language="en"><SessionScreen {...blocked} /></LanguageRoot></ActionRoot>);
     expect(screen.getAllByText(reason).length).toBeGreaterThan(0);
     unmount();

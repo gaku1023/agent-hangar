@@ -5,7 +5,7 @@ import { opencodeConfigPath } from '../provider/opencode/configFile.ts';
 import { HANGAR_MCP_NAME, readShareSources, type ShareFile, type ShareMcp, type ShareSkipReason } from './sources.ts';
 
 /**
- * Claude Code の指示と MCP を、opencode の設定（serve の OPENCODE_CONFIG_CONTENT に重ねる分）へ変える（docs/superpowers/plans/2026-10-28-agent-share.md の S1、S4、変換の表）。
+ * Claude Code の指示と MCP を、opencode の設定（serve の OPENCODE_CONFIG_CONTENT に重ねる分）へ変える（docs/superpowers/plans/done/2026-10-28-agent-share.md の S1、S4、変換の表）。
  * 指示は `instructions` にファイルの絶対パスを並べる（opencode が自分で読む）。MCP は v2 の `mcp.servers.<名前>` である。
  * opencodeShareConfig は純粋な変換、opencodeShareFor はファイルを読む薄い包みである。どちらも何も書かない。
  */

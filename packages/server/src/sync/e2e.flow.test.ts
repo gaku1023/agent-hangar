@@ -259,7 +259,8 @@ describe('2 台の通し（偽のクラウド）', () => {
 
 describe('PC の解除と世代の回し（偽のクラウドで 2 台から 3 台）', () => {
   it('参加 → 同期 → 解除と世代の回し → 解除した PC は新しい行を開けない → 新しい PC の参加 → 過去の世代の行とファイルを開ける', async () => {
-    let clock = 1_000 * BLOB_DELETE_GRACE_MS;
+    // 偽の Worker の時計は、行の時刻（upsertShared の今の時刻）より前に置かない。Worker は 5 分以上先の行を断るからである。
+    let clock = Date.now();
     const recovery = await generateKeyPair();
     const seeded = await seedCloud(
       [

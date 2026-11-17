@@ -100,6 +100,14 @@
 .pc-quote { margin: 0 calc(var(--u) * 2) calc(var(--u) * 2); padding: calc(var(--u) * 2) calc(var(--u) * 3); max-height: 160px; overflow: auto; border-left: 3px solid color-mix(in srgb, var(--error) 55%, transparent); border-radius: 0 8px 8px 0; background: color-mix(in srgb, var(--error) 5%, transparent); color: var(--ink-2); font-size: var(--fs-sm); line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* 注意とセットアップの状況の引用は、エラーではないので中立の色にする。 */
 .pc-quote[data-tone="info"] { border-left-color: color-mix(in srgb, var(--ink) 22%, transparent); background: var(--surface-2); }
+/* 続きからの元の会話の札。打つ欄の上に置き、伸びて入る。 */
+.pc-origin { display: flex; align-items: flex-start; gap: calc(var(--u) * 2.5); margin: calc(var(--u) * 2) calc(var(--u) * 2) 0; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-left: 3px solid color-mix(in srgb, var(--ink) 22%, transparent); border-radius: 0 8px 8px 0; background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-sm); }
+.pc-origin > .icon { flex: none; width: 13px; height: 13px; margin-top: 3px; color: var(--ink-3); }
+.pc-origin-text { display: flex; flex-direction: column; min-width: 0; }
+.pc-origin-name { color: var(--ink); font-weight: 600; }
+.pc-origin-name, .pc-origin-last { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 固定された札。薄くして、矢印を錠に替える。 */
+.set-chip[data-locked='true'] { color: var(--ink-3); background: rgba(255, 255, 255, 0.4); }
 .pc-tools { display: flex; align-items: center; gap: var(--u); padding: var(--u) calc(var(--u) * 1.5); border-top: 1px solid var(--line); }
 .pc-tool { display: inline-flex; align-items: center; gap: var(--u); height: 24px; padding: 0 calc(var(--u) * 2); border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); font: 600 var(--fs-xs) var(--font-sans); cursor: pointer; }
 .pc-tool:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }

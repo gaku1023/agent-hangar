@@ -7,7 +7,7 @@ import { opencodeShareConfig, userOpencodeConfig } from './opencode.ts';
 import { claudeMcpServers, instructionSources } from './sources.ts';
 
 /**
- * 設定の画面向けの、入にしたら何を渡すかの一覧（docs/superpowers/plans/2026-10-28-agent-share.md の T5）。
+ * 設定の画面向けの、入にしたら何を渡すかの一覧（docs/superpowers/plans/done/2026-10-28-agent-share.md の T5）。
  * 作業フォルダは決まらないので、利用者の CLAUDE.md（Claude のいまのアカウントの置き場）と、利用者の MCP の登録（.claude.json の mcpServers）だけで作る。
  * 名前のぶつかりは、Codex はいまの Codex アカウントの config.toml、opencode は利用者のグローバルの opencode.json(c) で見る。
  * 読むだけで、何も書かない。秘密（env、headers の値）は返さない。

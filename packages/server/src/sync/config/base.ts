@@ -10,6 +10,10 @@ export class ConfigBase {
   all(): Map<string, string> {
     return new Map((this.db.prepare('select item_id, sha256 from config_base').all() as { item_id: string; sha256: string }[]).map((r) => [r.item_id, r.sha256]));
   }
+  /** 項目ごとの基準の指紋と、それを書いた時刻。 */
+  allWithAt(): Map<string, { sha256: string; at: number }> {
+    return new Map((this.db.prepare('select item_id, sha256, synced_at from config_base').all() as { item_id: string; sha256: string; synced_at: number }[]).map((r) => [r.item_id, { sha256: r.sha256, at: r.synced_at }]));
+  }
   set(itemId: string, sha: string, now: number): void {
     this.db.prepare('insert into config_base (item_id, sha256, synced_at) values (?,?,?) on conflict(item_id) do update set sha256 = excluded.sha256, synced_at = excluded.synced_at').run(itemId, sha, now);
   }

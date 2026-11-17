@@ -45,6 +45,7 @@ export const syncKeys = {
   'sync.limit.stopped': ['time'],
   'sync.limit.stoppedPaused': [],
   'sync.oversize.row': ['table', 'id', 'size', 'limit'],
+  'sync.clock.ahead': ['count'],
   'sync.unreadable.rows': ['count'],
   'sync.crypto.badMagic': [],
   'sync.crypto.dataAfterFinal': [],
@@ -61,7 +62,4 @@ export const syncKeys = {
   'sync.copy.noFreeName': [],
   'sync.copy.badSessionId': [],
   'sync.copy.backupFailed': ['cause'],
-  'sync.peerSsh.hostKeyMismatch': ['name'],
-  'sync.peerSsh.tunnelClosed': ['name'],
-  'sync.peerSsh.gaveUp': ['name'],
 } as const satisfies MessageSpec;

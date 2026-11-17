@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ROSTER_MARKER_K, type SealedChangeIn, type SealedChangeOut, type SealedPullChangesResponse, type SealedSnapshotResponse } from '@agent-hangar/shared';
+import { MAX_FUTURE_SKEW_MS, ROSTER_MARKER_K, type SealedChangeIn, type SealedChangeOut, type SealedPullChangesResponse, type SealedSnapshotResponse, type PushChangesResponse } from '@agent-hangar/shared';
 import { MAX_PAGE_SEALED_CHARS, MAX_ROW_BYTES } from '../src/changes.ts';
 import { TOUCH_EVERY_MS } from '../src/seen.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
@@ -19,7 +19,7 @@ const push = (tok: string, changes: unknown): Promise<Response> =>
     body: JSON.stringify({ changes }),
   });
 
-const pushed = async (tok: string, changes: unknown): Promise<{ seq: number; accepted: number; skipped: number }> =>
+const pushed = async (tok: string, changes: unknown): Promise<PushChangesResponse> =>
   (await (await push(tok, changes)).json()) as { seq: number; accepted: number; skipped: number };
 
 /** pull の応答のうち、変更の頁の部分。生存の知らせ（peers と now）は別の試験で見る。 */
@@ -99,7 +99,7 @@ describe('POST /changes（封じた行）', () => {
 
   it('k が同じ行は上書きし、updatedAt の新しい方を採る。古い行は skipped', async () => {
     expect(await pushed(tokA, [ch('p1', 100), ch('p2', 100)])).toEqual({ seq: 2, accepted: 2, skipped: 0 });
-    expect(await pushed(tokB, [ch('p1', 50, 'old'), ch('p2', 200, 'new')])).toEqual({ seq: 3, accepted: 1, skipped: 1 });
+    expect(await pushed(tokB, [ch('p1', 50, 'old'), ch('p2', 200, 'new')])).toEqual({ seq: 3, accepted: 1, skipped: 1, dropped: [{ k: K('p1'), reason: 'stale' }] });
     expect(await sealedOf(K('p2'))).toBe('new');
     expect(await sealedOf(K('p1'))).toBe('p1');
     const row = await cloud.env.DB.prepare('select device_id from rows where k = ?').bind(K('p2')).first<{ device_id: string }>();
@@ -137,6 +137,36 @@ describe('POST /changes（封じた行）', () => {
     const d = await cloud.env.DB.prepare('select id, last_seen_at from devices order by id').all<{ id: string; last_seen_at: number | null }>();
     expect(d.results[0]!.last_seen_at).toBeGreaterThan(Date.now() - 60_000);
     expect(d.results[1]!.last_seen_at).toBe(0); // 他の端末は触らない
+  });
+});
+
+describe('時計のずれ（捨てた行を名指しする）', () => {
+  it('新しくなかったので捨てた行は、dropped に k と stale で返す', async () => {
+    // 時計の進んだ PC（A）が先に書き、時計の合った PC（B）がその後に書いた形。B の行は黙って捨てられていた。
+    const now = Date.now();
+    expect(await pushed(tokA, [ch('p1', now + 60_000, 'ahead')])).toEqual({ seq: 1, accepted: 1, skipped: 0 });
+    expect(await pushed(tokB, [ch('p1', now, 'later'), ch('p2', now)])).toEqual({ seq: 2, accepted: 1, skipped: 1, dropped: [{ k: K('p1'), reason: 'stale' }] });
+    expect(await sealedOf(K('p1'))).toBe('ahead');
+  });
+
+  it('同じ塊の中の重複で畳んだ古い版は、名指ししない', async () => {
+    expect(await pushed(tokA, [ch('p1', 100, 'a'), ch('p1', 200, 'b')])).toEqual({ seq: 1, accepted: 1, skipped: 1 });
+  });
+
+  it('Worker の時刻より 5 分以上先の行は断り、dropped に future で返す。5 分未満は採る', async () => {
+    const now = Date.now();
+    const res = await pushed(tokA, [ch('far', now + MAX_FUTURE_SKEW_MS + 60_000), ch('near', now + MAX_FUTURE_SKEW_MS - 60_000)]);
+    expect(res).toMatchObject({ accepted: 1, skipped: 1, dropped: [{ k: K('far'), reason: 'future' }] });
+    expect(await seqOf(K('far'))).toBeUndefined();
+    expect(await seqOf(K('near'))).toBeDefined();
+    expect(MAX_FUTURE_SKEW_MS).toBe(5 * 60_000);
+  });
+
+  it('断った先の行は表に入らないので、後から時計の合った PC が書けば採られる', async () => {
+    const now = Date.now();
+    await pushed(tokA, [ch('p1', now + 3_600_000, 'ahead')]);
+    expect(await pushed(tokB, [ch('p1', now, 'later')])).toMatchObject({ accepted: 1, skipped: 0 });
+    expect(await sealedOf(K('p1'))).toBe('later');
   });
 });
 
@@ -305,7 +335,7 @@ describe('行の書き込み（rows）', () => {
   it('古い書き込みが後から届いても、新しい方が残り、連番も動かない', async () => {
     await pushed(tokA, [ch('p1', 200, 'new')]);
     const before = await seqOf(K('p1'));
-    expect(await pushed(tokB, [ch('p1', 100, 'old')])).toEqual({ seq: before!, accepted: 0, skipped: 1 });
+    expect(await pushed(tokB, [ch('p1', 100, 'old')])).toEqual({ seq: before!, accepted: 0, skipped: 1, dropped: [{ k: K('p1'), reason: 'stale' }] });
     const row = await cloud.env.DB.prepare('select updated_at, device_id from rows where k = ?').bind(K('p1')).first<{ updated_at: number; device_id: string }>();
     expect(await sealedOf(K('p1'))).toBe('new');
     expect(row).toEqual({ updated_at: 200, device_id: 'dev-a' });
@@ -314,7 +344,7 @@ describe('行の書き込み（rows）', () => {
 
   it('同着（updated_at が等しい）は書き換えず、先に着いた方を残す', async () => {
     await pushed(tokA, [ch('p1', 200, 'first')]);
-    expect(await pushed(tokB, [ch('p1', 200, 'second')])).toEqual({ seq: 1, accepted: 0, skipped: 1 });
+    expect(await pushed(tokB, [ch('p1', 200, 'second')])).toEqual({ seq: 1, accepted: 0, skipped: 1, dropped: [{ k: K('p1'), reason: 'stale' }] });
     expect(await sealedOf(K('p1'))).toBe('first');
     expect(await seqOf(K('p1'))).toBe(1);
   });

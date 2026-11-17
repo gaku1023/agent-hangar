@@ -20,11 +20,21 @@ const store = (over: Partial<Store> = {}): Store => ({ ...initialStore(), settin
 const present = (s: Store, screen: State['screen'] = { name: 'settings' }) => presentSettings({ ...initialState(), screen }, s, NOW);
 const row = (rows: SettingsTocRow[], id: string) => rows.find((r) => r.id === id)!;
 
+describe('設定の目次の「スマホ」', () => {
+  it('クラウドに参加していなければ「クラウド同期が必要」、参加していて接続が無ければ「未接続」と言う', () => {
+    expect(row(present(store()).toc, 'phone')).toMatchObject({ title: 'スマホ', state: 'クラウド同期が必要' });
+    expect(row(present(store({ sync: SYNC })).toc, 'phone').state).toBe('未接続');
+  });
+  it('スマホの札（at=phone）は、その節を開く。クラウド同期の節の別名ではない', () => {
+    expect(present(store(), { name: 'settings', at: 'phone' }).section).toBe('phone');
+  });
+});
+
 describe('設定の目次（S1）', () => {
-  it('節は 10 で、一般、セッション、要約、クラウド同期、環境、使用量、エージェントの 3 節（Claude Code、Codex、opencode）、Hangar についての順。クラウド同期と Codex と opencode にベータの印', () => {
+  it('節は 11 で、一般、スマホ、セッション、要約、クラウド同期、環境、使用量、エージェントの 3 節（Claude Code、Codex、opencode）、Hangar についての順。クラウド同期と Codex と opencode にベータの印', () => {
     const p = present(store());
-    expect(p.toc.map((r) => r.id)).toEqual(['general', 'sessions', 'summary', 'cloud', 'environment', 'usage', 'agentClaude', 'agentCodex', 'agentOpencode', 'about']);
-    expect(p.toc.map((r) => r.title)).toEqual(['一般', 'セッション', '要約', 'クラウド同期', '環境', '使用量', 'Claude Code', 'Codex', 'opencode', 'Hangar について']);
+    expect(p.toc.map((r) => r.id)).toEqual(['general', 'phone', 'sessions', 'summary', 'cloud', 'environment', 'usage', 'agentClaude', 'agentCodex', 'agentOpencode', 'about']);
+    expect(p.toc.map((r) => r.title)).toEqual(['一般', 'スマホ', 'セッション', '要約', 'クラウド同期', '環境', '使用量', 'Claude Code', 'Codex', 'opencode', 'Hangar について']);
     expect(p.toc.filter((r) => r.beta).map((r) => r.id)).toEqual(['cloud', 'agentCodex', 'agentOpencode']);
     // エージェントの 3 節は「エージェント」の群に入り、行の絵はエージェントの絵になる。
     expect(p.toc.filter((r) => r.group === 'agents').map((r) => [r.id, r.agent])).toEqual([['agentClaude', 'claude-code'], ['agentCodex', 'codex'], ['agentOpencode', 'opencode']]);
@@ -34,7 +44,7 @@ describe('設定の目次（S1）', () => {
   });
   it('統括の節は、サーバが設定を返すときだけ、セッションの次に出る。古いサーバでは出さない', () => {
     const on = present(store({ settings: { ...SETTINGS, orchestrator: { enabled: true, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] } } }));
-    expect(on.toc.map((r) => r.id).slice(0, 4)).toEqual(['general', 'sessions', 'orchestrator', 'summary']);
+    expect(on.toc.map((r) => r.id).slice(0, 5)).toEqual(['general', 'phone', 'sessions', 'orchestrator', 'summary']);
     expect(row(on.toc, 'orchestrator')).toMatchObject({ title: '統括', state: 'オン' });
     expect(on.orchestrator).toMatchObject({ on: true, account: null, model: 'sonnet', effort: 'medium', accounts: [] });
     expect(present(store()).toc.map((r) => r.id)).not.toContain('orchestrator');
@@ -68,7 +78,7 @@ describe('設定の目次（S1）', () => {
   it('殻の中では、「Hangar について」が更新の状態を言う。節の並びはブラウザと同じ', () => {
     const update = { ...initialUpdate(), supported: true, current: '1.4.2', phase: { kind: 'latest' as const }, checkedAt: NOW };
     const p = present(store({ desktop: true, update }));
-    expect(p.toc.map((r) => r.id)).toEqual(['general', 'sessions', 'summary', 'cloud', 'environment', 'usage', 'agentClaude', 'agentCodex', 'agentOpencode', 'about']);
+    expect(p.toc.map((r) => r.id)).toEqual(['general', 'phone', 'sessions', 'summary', 'cloud', 'environment', 'usage', 'agentClaude', 'agentCodex', 'agentOpencode', 'about']);
     expect(row(p.toc, 'about')).toMatchObject({ title: 'Hangar について', state: '最新', tone: 'default', label: 'Hangar について、最新' });
     expect(row(present(store({ desktop: true, update: { ...update, phase: { kind: 'ready', version: '1.5.0' } } })).toc, 'about')).toMatchObject({ state: '再起動待ち', tone: 'warn' });
     expect(row(present(store({ desktop: true, update: { ...update, phase: { kind: 'failed', step: 'download', version: '1.5.0', reason: 'network' } } })).toc, 'about')).toMatchObject({ state: '失敗', tone: 'warn' });
@@ -155,7 +165,7 @@ describe('設定の目次（S1）', () => {
   });
   it('言語が English なら、節の名前と状態も English で言う', () => {
     const p = present(store({ settings: { ...SETTINGS, language: 'en' } }));
-    expect(p.toc.map((r) => r.title)).toEqual(['General', 'Sessions', 'Summary', 'Cloud sync', 'Environment', 'Usage', 'Claude Code', 'Codex', 'opencode', 'About Hangar']);
+    expect(p.toc.map((r) => r.title)).toEqual(['General', 'Phones', 'Sessions', 'Summary', 'Cloud sync', 'Environment', 'Usage', 'Claude Code', 'Codex', 'opencode', 'About Hangar']);
     expect(row(p.toc, 'cloud').label).toBe('Cloud sync Beta: Sync off');
     expect(row(p.toc, 'agentClaude').state).toBe('Checking');
     expect(row(p.toc, 'agentCodex').state).toBe('Off');

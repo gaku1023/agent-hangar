@@ -12,8 +12,6 @@ import { artifactRoutes } from './routes/artifacts.ts';
 import { notifyRoutes } from './routes/notify.ts';
 import { peerChatRoutes } from './routes/peerChat.ts';
 import { peerLaunchRoutes } from './routes/peerLaunch.ts';
-import { peerSshRoutes } from './routes/peerSsh.ts';
-import { peerRoutes } from '../peer/endpoint.ts';
 import { bootstrapRoutes } from './routes/bootstrap.ts';
 import { beforeLaunchOf } from './routes/common.ts';
 import { instructionRoutes } from './routes/instructions.ts';
@@ -159,16 +157,13 @@ export function createApp(deps: AppDeps): Hono {
   setupGuideRoutes(api, deps);
   artifactRoutes(api, deps);
   notifyRoutes(api, deps);
-  peerSshRoutes(api, deps);
   peerLaunchRoutes(api, { ...deps, language });
   peerChatRoutes(api, deps);
   gitRoutes(api, { ...deps, git: deps.git ?? new GitService({ db, deviceId, live: deps.live, broadcast: (git) => deps.hub.broadcast({ type: 'git.upsert', git }), exec: () => { const f = gitPath(); return f ? spawnGit(f) : null; } }) });
 
   app.route('/api', api);
-  // 別の PC から SSH のトンネル越しに来る入口。PC どうしの token だけを受け、/api の認証は通さない（peer/endpoint.ts）。
-  if (deps.peerSsh) app.route('/peer', peerRoutes(deps.peerSsh.endpoint));
   // MCP は自前の認証と Origin の検査を持つので、/api の認証を通さずに直接 mount する。
-  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, trash: deps.trash, usage: () => deps.usage.current(), accounts: deps.accounts, ...(deps.peerCall ? { peer: deps.peerCall } : {}), ...(deps.accounts.codex ? { codexAccounts: deps.accounts.codex.store } : {}), language, settings: deps.settings, saveNotifyPreference: (p) => { const s = deps.updateSettings({ notifyPreference: p }); deps.hub.broadcast({ type: 'settings.changed', settings: toSettingsDto(s), keys: ['notifyPreference'] }); }, settingsAccess: settingsAccessOf(deps), savePermissionPolicy: permissionPolicySaver({ updateSettings: deps.updateSettings, broadcast: (ev) => { deps.hub.broadcast(ev); }, toDto: toSettingsDto }), ...(deps.askLocal ? { askLocal: deps.askLocal } : {}), openUrl: (u) => deps.external.openUrl(u), ...(deps.permissionAsks ? { permissionAsks: deps.permissionAsks } : {}), ...(deps.asksOf ? { asksOf: deps.asksOf } : {}), ...(deps.holdUnread ? { holdUnread: true } : {}), ...(deps.orchestratorKeeper ? { orchestratorHandoff: (id: string, text: string) => deps.orchestratorKeeper!.receiveHandoff(id, text) } : {}) }));
+  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, trash: deps.trash, usage: () => deps.usage.current(), accounts: deps.accounts, ...(deps.peerCall ? { peer: deps.peerCall } : {}), ...(deps.accounts.codex ? { codexAccounts: deps.accounts.codex.store } : {}), language, settings: deps.settings, saveNotifyPreference: (p) => { const s = deps.updateSettings({ notifyPreference: p }); deps.hub.broadcast({ type: 'settings.changed', settings: toSettingsDto(s), keys: ['notifyPreference'] }); }, settingsAccess: settingsAccessOf(deps), savePermissionPolicy: permissionPolicySaver({ updateSettings: deps.updateSettings, broadcast: (ev) => { deps.hub.broadcast(ev); }, toDto: toSettingsDto }), ...(deps.askLocal ? { askLocal: deps.askLocal } : {}), openUrl: (u) => deps.external.openUrl(u), ...(deps.permissionAsks ? { permissionAsks: deps.permissionAsks } : {}), ...(deps.hookDecisions ? { hookDecisions: deps.hookDecisions } : {}), ...(deps.asksOf ? { asksOf: deps.asksOf } : {}), ...(deps.holdUnread ? { holdUnread: true } : {}), ...(deps.orchestratorKeeper ? { orchestratorHandoff: (id: string, text: string) => deps.orchestratorKeeper!.receiveHandoff(id, text) } : {}) }));
 
   if (deps.uiDist) {
     const dist = path.resolve(deps.uiDist);

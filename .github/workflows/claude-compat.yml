@@ -21,7 +21,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
       # 最新の Claude Code を npm から入れる。postinstall が Linux の本体を置く。
       # --version と --help に認証は要らない。自動更新は止める。
       - name: 最新の Claude Code を入れる

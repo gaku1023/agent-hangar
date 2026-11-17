@@ -12,6 +12,7 @@ export const runJa: AreaDictionary<typeof runKeys> = {
   'run.launch.projectRequired': 'プロジェクトを選択してください',
   'run.launch.cwdOutside': '作業ディレクトリは、プロジェクトのディレクトリ配下にしてください: {path}',
   'run.agent.unknown': '知らないエージェントです: {agent}',
+  'run.agent.forkClaudeOnly': '会話の続きから始められるのは Claude Code だけです',
   'run.agent.disabled': 'opencode は有効になっていません。設定の「{label}」をオンにしてください',
   'run.agent.notFound': 'opencode が見つかりません（PATH を確認してください）',
   'run.agent.isCmd': '{file} は .cmd のため使えません。opencode.exe が PATH から見つかるようにしてください',

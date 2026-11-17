@@ -883,6 +883,43 @@ describe('SyncEngine の失敗の見せ方', () => {
   });
 });
 
+describe('SyncEngine の捨てられた行（時計のずれ）', () => {
+  it('Worker が先の時刻で断った行は、時計が進んでいると 1 度だけ知らせ、塊は先へ進む', async () => {
+    cloud = new FakeCloudClient({ deviceId: 'a', now: () => Date.now() - 3_600_000 });
+    const e = make();
+    await e.start();
+    const toasts: { level: string; message: string }[] = [];
+    e.on({ toast: (level, message) => toasts.push({ level, message }) });
+    project('p1');
+    await e.pushNow();
+    expect(unpushed()).toBe(0);
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]?.level).toBe('error');
+    expect(toasts[0]?.message).toContain('時計');
+    project('p2');
+    await e.pushNow();
+    expect(toasts).toHaveLength(1);
+    e.stop();
+  });
+
+  it('新しくなかったので捨てられた行があれば、すぐ pull して勝った方を取り込む。知らせは出さない', async () => {
+    const e = make();
+    await e.start();
+    const toasts: string[] = [];
+    e.on({ toast: (_l, m) => toasts.push(m) });
+    const ahead = Date.now() + 60_000;
+    await cloud.asDevice('b').pushChanges([{ tableName: 'projects', rowId: 'p1', op: 'upsert', payload: { id: 'p1', name: 'ahead', status: 'active', is_scratch: 0, updated_at: ahead, origin_device: 'b' }, updatedAt: ahead }]);
+    project('p1', 'mine');
+    const pullsBefore = cloud.calls.filter((c) => c.method === 'pullChanges').length;
+    await e.pushNow();
+    await e.idle();
+    expect(cloud.calls.filter((c) => c.method === 'pullChanges').length).toBeGreaterThan(pullsBefore);
+    expect((db.prepare('select name from projects where id = ?').get('p1') as { name: string }).name).toBe('ahead');
+    expect(toasts).toEqual([]);
+    e.stop();
+  });
+});
+
 describe('SyncEngine の 413（大きすぎる行）', () => {
   it('名指しされた行を諦めて先へ進み、1 度だけ知らせる', async () => {
     const e = make();

@@ -702,6 +702,13 @@ fn start_server(
     hangar_home: &std::path::Path,
     addr: SocketAddr,
 ) -> Result<(), bootfail::BootFailure> {
+    // やり直しで、前の子がまだ生きて起動中なら、起こし直さずその子を待ち直す。
+    if take_dead_server(app) {
+        log("the previous server had already exited");
+    } else if app.state::<AppState>().server.lock().unwrap().is_some() {
+        log("the previous server is still starting; waiting for it again");
+        return wait_for_server(app, addr, hangar_home, SERVER_START_WAIT);
+    }
     match health::probe_existing(addr, health::COMPAT_VERSION) {
         health::Existing::Adopt => {
             // hangar start などで既にサーバがいる。子は起こさず、そのサーバを使う。
@@ -752,7 +759,31 @@ fn start_server(
     })?;
     log(&format!("server pid {}", child.pid()));
     *app.state::<AppState>().server.lock().unwrap() = Some(child);
-    wait_for_server(app, addr, hangar_home, Duration::from_secs(20))
+    wait_for_server(app, addr, hangar_home, SERVER_START_WAIT)
+}
+
+/// 子を起こしてから応えるまで待つ上限。
+/// 子が生きている間は待ち続ける。Windows では起動に 20 秒を超えることがあり、
+/// そこで失敗の札を出すと、やり直しが起動中の子を殺して振り出しに戻っていた。
+/// 子が死んだときはこの上限を待たずに理由を返す（`wait_for_server`）。
+/// 上限は、生きたまま応えない子で札が永久に出ないのを避ける歯止めである。
+const SERVER_START_WAIT: Duration = Duration::from_secs(180);
+
+/// やり直しのとき、前の子をどうするか。
+#[derive(Debug, PartialEq, Eq)]
+enum PreviousServer {
+    /// 生きている。止めずに、そのまま待ち直す。
+    Keep,
+    /// 死んでいる。外して、新しく起こす。
+    Drop,
+}
+
+fn previous_server(alive: bool) -> PreviousServer {
+    if alive {
+        PreviousServer::Keep
+    } else {
+        PreviousServer::Drop
+    }
 }
 
 /// 子が死んでいたら、状態から外して真を返す。
@@ -1914,8 +1945,8 @@ fn update_failed(step: &str, e: &tauri_plugin_updater::Error) -> updater::Failur
 }
 
 /// 起動をやり直す。起動画面の「もう一度試す」が呼ぶ。
-/// 残っている子のサーバを止めてから、読み込み画面を読み込み直し、起動の本体をもう一度走らせる。
-/// 応答しないまま生きている子がポートを握っていると、やり直しても同じところで止まるからである。
+/// 読み込み画面を読み込み直し、起動の本体をもう一度走らせる。
+/// 生きている子は止めず、その子を待ち直す（起動が遅いだけの子を殺すと最初からになる）。死んだ子は外して新しく起こす。
 #[tauri::command]
 async fn retry_boot(app: AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
@@ -1925,10 +1956,20 @@ async fn retry_boot(app: AppHandle) -> Result<(), String> {
     if !state.ui.lock().unwrap().retry() {
         return Err("すでに起動しています".to_string());
     }
-    let previous = state.server.lock().unwrap().take();
-    if let Some(mut p) = previous {
-        p.stop();
-        log("stopped the previous server before retrying");
+    // 生きている子は止めない。起動に時間がかかっているだけのことがあり、殺すと最初からになる。
+    // 待ち直しは `start_server` が行う。死んでいる子はそこで外される。
+    {
+        let mut slot = state.server.lock().unwrap();
+        let alive = slot.as_mut().map(|p| p.is_running());
+        if let Some(alive) = alive {
+            match previous_server(alive) {
+                PreviousServer::Keep => log("keeping the previous server that is still alive"),
+                PreviousServer::Drop => {
+                    *slot = None;
+                    log("dropped the previous server that had exited");
+                }
+            }
+        }
     }
     log("retrying the boot");
     eval_main(&app, "location.reload()");
@@ -2717,6 +2758,17 @@ mod tests {
         assert_eq!(ui.page_loaded(false), None);
         // サーバの頁の合図でだけ流れる。
         assert_eq!(ui.page_loaded(true), Some("#/session/5".to_string()));
+    }
+
+    #[test]
+    fn a_retry_keeps_a_live_server_and_drops_a_dead_one() {
+        assert_eq!(previous_server(true), PreviousServer::Keep);
+        assert_eq!(previous_server(false), PreviousServer::Drop);
+    }
+
+    #[test]
+    fn the_server_start_wait_outlasts_a_slow_windows_boot() {
+        assert!(SERVER_START_WAIT > Duration::from_secs(20));
     }
 
     #[test]

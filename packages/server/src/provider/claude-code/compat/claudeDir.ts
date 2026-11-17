@@ -39,9 +39,17 @@ const isBackupOfKnown = (name: string): boolean => {
   const base = name.slice(0, i);
   return LINKED_ENTRIES.includes(base) || KNOWN_PER_ACCOUNT_ENTRIES.has(base);
 };
+/**
+ * Claude Code が書き換えの途中に作る一時ファイル（<名前>.tmp.<pid>.<hex>。完了すれば消える）か。
+ * 名前が知っている項目のものだけを見ない。
+ */
+const isTmpOfKnown = (name: string): boolean => {
+  const m = /^(.+)\.tmp\.\d+\.[0-9a-f]+$/.exec(name);
+  return m !== null && (LINKED_ENTRIES.includes(m[1]!) || KNOWN_PER_ACCOUNT_ENTRIES.has(m[1]!));
+};
 /** 共有のリンクでも、アカウントごとに持つと知っている項目でも、見ない名前でもない名前か。 */
 const isUnknownEntry = (name: string): boolean =>
-  !LINKED_ENTRIES.includes(name) && !isPerAccount(name) && !IGNORED.has(name) && !isBackupOfKnown(name);
+  !LINKED_ENTRIES.includes(name) && !isPerAccount(name) && !IGNORED.has(name) && !isBackupOfKnown(name) && !isTmpOfKnown(name);
 
 /**
  * 記録に残った置き場の項目の値が、今の一覧でもずれかを返す。

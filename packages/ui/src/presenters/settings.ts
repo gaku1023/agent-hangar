@@ -1,5 +1,5 @@
 import { presentOpencodeProviders, type OpencodeProvidersProps } from './opencodeProviders.ts';
-import { orchestratorOf, type AgentKind, type CodexEffortOption, type CodexModelOption, type OpencodeModelOption, type OpencodeProviderOption, type OrchestratorSetting, peerChatAcceptOf, CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SharePreviewDto, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
+import { orchestratorOf, type AgentKind, type CodexEffortOption, type CodexModelOption, type OpencodeModelOption, type OpencodeProviderOption, type OrchestratorSetting, peerChatAcceptOf, phoneChatAcceptOf, CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SharePreviewDto, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
 import { canLaunchGuide } from './investigate.ts';
 import { presentNotifyRules, type NotifyRulesProps } from './notifyRules.ts';
 import type { SaveMark, State } from '../mediator/types.ts';
@@ -169,7 +169,9 @@ export type CloudSettingsProps = { configured: boolean; url: string | null; stat
   /** cloud.json が古い形式で同期を止めているときの案内（再構築の手順の行き先と、状態を確かめるコマンド）。それ以外は null。試験の固定値は省ける。 */
   legacy?: { statusCommand: string; docUrl: string } | null;
   /** ほかの PC の画面からの送信（文・答え・止める・再開して送る）を受けるか（設定 peerChatAcceptFromPeers、この PC だけの設定）。省くと入りとして読む。 */
-  peerChatAccept?: boolean };
+  peerChatAccept?: boolean;
+  /** スマホの会話の頁からの送信を受けるか（設定 phoneChatAccept、この PC だけの設定）。省くと入りとして読む。 */
+  phoneChatAccept?: boolean };
 
 /** 0.9.0 への再構築の手順（docs/cloud-sync.md の節）。公開リポジトリの main を指す。節の名前の部分は、UI の直書きの見張りに掛からないよう % で包んで書く。 */
 export const CLOUD_REBUILD_DOC_URL = 'https://github.com/gaku1023/agent-hangar/blob/main/docs/cloud-sync.md#090-%E3%81%B8%E3%81%AE%E4%BD%9C%E3%82%8A%E7%9B%B4%E3%81%97';
@@ -496,6 +498,7 @@ function presentToc(a: {
   const checking: St = { state: t('settings.toc.checking'), tone: 'default' };
   const state: Record<SettingsSection, St> = {
     general: { state: !a.notify.available ? t('settings.toc.notifyUnavailable') : a.notify.on ? t('settings.toc.notifyOn') : t('settings.toc.notifyOff'), tone: 'default' },
+    phone: a.cloud.configured ? (a.cloud.member?.phones.length ? { state: t('settings.toc.phoneCount', { n: a.cloud.member.phones.length }), tone: 'default' } : { state: t('settings.toc.phoneNone'), tone: 'default' }) : { state: t('settings.toc.phoneNeedsCloud'), tone: 'default' },
     cloud: {
       state: a.cloud.state === 'idle' && a.sync?.lastPullAt != null ? t('settings.toc.cloudReceived', { state: a.cloudWord, time: relativeTime(t, a.sync.lastPullAt, a.now) }) : a.cloudWord,
       tone: a.cloudTone === 'warn' || a.cloudTone === 'stop' ? 'warn' : 'default',
@@ -583,6 +586,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     // 状態のコマンドは、参加のコマンドと同じ hangar の呼び方（同梱の hangar の絶対パスなど）を使う。
     legacy: legacy ? { statusCommand: cloudJoinCommand(store).replace(/ cloud join <URL>$/, ' cloud status'), docUrl: CLOUD_REBUILD_DOC_URL } : null,
     peerChatAccept: peerChatAcceptOf(store.settings ?? {}),
+    phoneChatAccept: phoneChatAcceptOf(store.settings ?? {}),
   };
   const at = state.screen.name === 'settings' ? state.screen.at : undefined;
   const h = store.shellHook;

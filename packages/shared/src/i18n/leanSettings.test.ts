@@ -3,7 +3,7 @@ import { en } from './en.ts';
 import { ja } from './ja.ts';
 
 /**
- * 設定とダイアログの補助ラベルを削った分（docs/plans/lean-labels.md の組 2）。
+ * 設定とダイアログの補助ラベルを削った分（docs/plans/done/lean-labels.md の組 2）。
  * 配置、見出し、ボタンで足りる文と、同じ文の重複は辞書から消す。
  * 消した鍵が辞書に戻ってこないことを見る。
  */

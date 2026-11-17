@@ -18,7 +18,7 @@ const muxMissing = (store: Store): boolean => store.readiness !== null && !store
  */
 function pendingOf(a: Extract<Input, { kind: 'action' }>['action']): MuxPending | null {
   switch (a.type) {
-    case 'session.new.submit': case 'session.resume': case 'session.fork': case 'session.resumeHere': case 'session.adopt': case 'session.attach': case 'interrupted.resume': case 'session.takeover.start': return a;
+    case 'session.new.submit': case 'session.resume': case 'session.resumeHere': case 'session.adopt': case 'session.attach': case 'interrupted.resume': case 'session.takeover.start': return a;
     default: return null;
   }
 }

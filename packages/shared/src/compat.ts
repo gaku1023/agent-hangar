@@ -56,10 +56,15 @@
  * 共有表にも MIN_DEVICE_COMPAT にも触れないので、版 11 の端末は今までどおり同期できる（MIN_DEVICE_COMPAT は 9 のまま）。
  * 端末は、Worker が名乗る版が EVENT_INBOX_MIN_WORKER_COMPAT に届くまで、イベントの種類を出さない。
  *
+ * 版 13（スマホから会話を見て続ける、RB-35）：Worker が、スマホから PC の会話への問い合わせの口（POST /m/chat、スマホのトークンが要る）を持ち、呼び鈴の知らせに { t: 'phone-chat', id, from, epoch, sealed } の枠と、その答えの { t: 'phone-chat-reply', id, from, sealed } の枠が増える。
+ * 中身はスマホ用の鍵で封じ、Worker は読まない。D1 にも書かない。
+ * 共有表にも MIN_DEVICE_COMPAT にも触れないので、版 12 の端末は今までどおり同期できる（MIN_DEVICE_COMPAT は 9 のまま）。
+ * PC は、Worker が名乗る版が PHONE_CHAT_MIN_WORKER_COMPAT に届くまで、受信箱の素の caps に chat を載せない。スマホは chat の無い PC の会話を今までどおり Remote Control で開く。
+ *
  * 殻は同梱するサーバと同じ版を名乗る写しを持つ（apps/desktop/src-tauri/src/health.rs の COMPAT_VERSION）。apps/desktop/test/config.test.ts がこの値と突き合わせる。
  * 殻は 4177 の既存のサーバと下限ではなく一致で比べるので、この版を上げると、上げた殻は上げる前のサーバを採らず、上げる前の殻は上げた後のサーバを採らない。
  */
-export const COMPAT_VERSION = 12;
+export const COMPAT_VERSION = 13;
 
 /**
  * PC の一覧と解除の口（GET /devices、POST /devices/:id/revoke）を持つ Worker の版。
@@ -119,6 +124,14 @@ export const PEER_CHAT_MIN_WORKER_COMPAT = 11;
  * 端末に求める下限（MIN_DEVICE_COMPAT）は上げない。
  */
 export const EVENT_INBOX_MIN_WORKER_COMPAT = 12;
+
+/**
+ * スマホから PC の会話への問い合わせの口（POST /m/chat）を持つ Worker の版。
+ * 版 12 までの Worker はこの口を 404 で返す。
+ * PC は、Worker が名乗る版がこの値に届くまで、スマホに会話の頁を出させない（受信箱の素の caps.chat を載せない）。
+ * 端末に求める下限（MIN_DEVICE_COMPAT）は上げない。
+ */
+export const PHONE_CHAT_MIN_WORKER_COMPAT = 13;
 
 /**
  * ほかの PC の会話をチャットの形で見て続ける機能（ピア チャット）を持つ、最初の hangar の版。

@@ -300,14 +300,20 @@ export class ConfigSyncService {
     if (items.length === 0 && !own) return { sent: false, items: 0 };
     // 切の種類が変わったら、項目が同じでも上げ直す（受け手が消去と読まないよう、offKinds を届ける）。切が無いときは前と同じ鍵になる。
     const off = offKindsOf(this.targetCtx());
-    const contentKey = sha256(items.map((i) => `${i.id}\0${i.sha256}`).join('\n') + (off.length ? `\noff\0${off.join(',')}` : ''));
+    // 競合で手元を採った項目は、基準の指紋を添える（threeWay.ts の冒頭）。中身が同じでも基準が変われば上げ直す。
+    const baseRows = this.base.allWithAt();
+    const overOf = (i: { id: string; sha256: string }): { base: string; baseAt: number } | null => {
+      const r = baseRows.get(i.id);
+      return r && r.sha256 !== i.sha256 ? { base: r.sha256, baseAt: r.at } : null;
+    };
+    const contentKey = sha256(items.map((i) => { const o = overOf(i); return `${i.id}\0${i.sha256}${o ? `\0${o.base}` : ''}`; }).join('\n') + (off.length ? `\noff\0${off.join(',')}` : ''));
     const last = db.prepare('select value from sync_state where key = ?').get(SENT_KEY) as { value: string } | undefined;
     if (own && last?.value === contentKey) return { sent: false, items: items.length };
 
     const now = this.now();
     const ctx = this.targetCtx();
     const offKinds = offKindsOf(ctx);
-    const manifest: BundleManifest = { version: 1, deviceId, createdAt: now, items: items.map((i) => ({ id: i.id, kind: i.kind, sha256: i.sha256, size: i.size, marks: i.marks })),
+    const manifest: BundleManifest = { version: 1, deviceId, createdAt: now, items: items.map((i) => ({ id: i.id, kind: i.kind, sha256: i.sha256, size: i.size, marks: i.marks, ...overOf(i) })),
       targets: enabledTargetNames(ctx), ...(offKinds.length ? { offKinds } : {}), os: process.platform === 'darwin' || process.platform === 'win32' ? (process.platform as BundleOs) : 'linux',
     };
     // 中身はここで読む。集めた後に変わっていたら（StaleContentError）、集め直して 1 度だけやり直す。
@@ -430,16 +436,18 @@ export class ConfigSyncService {
   // ---- 判定 ----
 
   private snapshots(): RemoteSnapshot[] {
-    return readInbox(this.deps.home).map((e: InboxEntry) => ({ deviceId: e.deviceId, at: e.meta.at, items: new Map(e.items.map((i) => [i.id, { sha256: i.sha256 }])), targets: new Set(e.meta.targets ?? ['claude']), offKinds: new Set(e.meta.offKinds ?? []) }));
+    return readInbox(this.deps.home).map((e: InboxEntry) => ({ deviceId: e.deviceId, at: e.meta.at, items: new Map(e.items.map((i) => [i.id, { sha256: i.sha256, ...(i.base !== undefined ? { base: i.base, baseAt: i.baseAt ?? 0 } : {}) }])), targets: new Set(e.meta.targets ?? ['claude']), offKinds: new Set(e.meta.offKinds ?? []) }));
   }
 
   /** 3 方向の判定を回し、手元と相手が同じだった項目を基準に書き、どこにも無くなった項目の基準を消す。 */
   private reconcile(): { actions: Action[]; local: Map<string, LocalItem>; blocked: Blocked } {
     const collected = this.collect();
     const items = new Map(collected.items.map((i) => [i.id, i]));
-    const base = this.base.all();
+    const baseRows = this.base.allWithAt();
+    const base = new Map([...baseRows].map(([id, r]) => [id, r.sha256]));
+    const baseAt = new Map([...baseRows].map(([id, r]) => [id, r.at]));
     const ctx = this.targetCtx();
-    const j = judge({ local: new Map([...items].map(([id, i]) => [id, i.sha256])), base, remotes: this.snapshots(), localTargets: new Set(enabledTargetNames(ctx)), localOffKinds: new Set(offKindsOf(ctx)) });
+    const j = judge({ local: new Map([...items].map(([id, i]) => [id, i.sha256])), base, baseAt, localDeviceId: this.deps.deviceId, remotes: this.snapshots(), localTargets: new Set(enabledTargetNames(ctx)), localOffKinds: new Set(offKindsOf(ctx)) });
     const now = this.now();
     for (const [id, sha] of j.agreed) if (base.get(id) !== sha) this.base.set(id, sha, now);
     for (const id of j.forget) this.base.remove(id);

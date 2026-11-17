@@ -46,6 +46,7 @@ export const syncEn: AreaDictionary<typeof syncKeys> = {
   'sync.limit.stopped': 'The Cloudflare free tier limit was reached, so sync is paused until {time}. It resumes automatically after the limit resets',
   'sync.limit.stoppedPaused': 'Could not sync because the Cloudflare free tier limit was reached. Sync is still paused',
   'sync.oversize.row': 'One row of {table} ({id}) is too large to sync ({size} KiB, limit {limit} KiB). It stays on this computer but will not reach other computers',
+  'sync.clock.ahead': "This computer's clock is more than 5 minutes ahead, so the cloud rejected {count} changes. Once the clock is corrected, new changes will sync",
   'sync.unreadable.rows': 'Skipped {count} rows that could not be decrypted. They were encrypted with a key this computer does not have yet, or they were altered in the cloud',
   'sync.crypto.badMagic': 'Not an encrypted file (unrecognized format)',
   'sync.crypto.dataAfterFinal': 'There is data after the final chunk',
@@ -62,7 +63,4 @@ export const syncEn: AreaDictionary<typeof syncKeys> = {
   'sync.copy.noFreeName': 'No free file name is left for the backup',
   'sync.copy.badSessionId': 'The session ID is not valid as a file name',
   'sync.copy.backupFailed': 'The transcript was not replaced because a backup could not be made: {cause}',
-  'sync.peerSsh.hostKeyMismatch': 'Did not connect to {name} over SSH because its host key does not match the one {name} reported. Check the SSH server on {name}',
-  'sync.peerSsh.tunnelClosed': 'The SSH connection to {name} was lost',
-  'sync.peerSsh.gaveUp': 'Could not reconnect to {name} over SSH for a while, so it stopped trying. Check that hangar is running on {name}, then send the request again',
 };

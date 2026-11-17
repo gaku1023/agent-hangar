@@ -6,7 +6,7 @@ const EMPTY_OC_PROVIDERS = { connected: [], catalog: [], configPath: '/Users/me/
 
 type Extras = Pick<
   ApiClient,
-  | 'launch' | 'cancelPrep' | 'prepareModels' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs' | 'folderCandidates' | 'workspaceChildren' | 'inspectFolder' | 'registerFolders'
+  | 'launch' | 'cancelPrep' | 'prepareModels' | 'resume' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs' | 'folderCandidates' | 'workspaceChildren' | 'inspectFolder' | 'registerFolders'
   | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'opencodeStatus' | 'codexStatus' | 'codexOptions' | 'opencodeOptions' | 'opencodeProviders' | 'opencodeProviderKey' | 'opencodeProviderDisconnect' | 'opencodeProviderModel' | 'opencodeCustomProvider' | 'opencodeLogin' | 'opencodeLoginStatus' | 'opencodeLoginComplete' | 'opencodeLoginCancel' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'moveSession' | 'deleteSession' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction' | 'setupGuide' | 'openSetupGuide'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'resumeHerePlan' | 'takeoverStart' | 'takeoverExtend' | 'takeoverCancel' | 'joinCodeCurrent' | 'joinCodeIssue' | 'joinCodeApprove' | 'joinCodeReject' | 'joinCodeClose' | 'recoveryKeyReissue' | 'recoveryKeyConfirm' | 'cloudDevices' | 'mobilePairing' | 'mobilePaired'
@@ -66,7 +66,6 @@ export function fakeApiExtras(): Extras {
     cancelPrep: vi.fn(async () => unused()),
     prepareModels: vi.fn(async () => unused()),
     resume: vi.fn(async () => unused()),
-    fork: vi.fn(async () => unused()),
     attach: vi.fn(async () => unused()),
     adopt: vi.fn(async () => unused()),
     killRun: vi.fn(async () => unused()),

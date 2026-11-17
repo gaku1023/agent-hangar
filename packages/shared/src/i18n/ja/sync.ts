@@ -46,6 +46,7 @@ export const syncJa: AreaDictionary<typeof syncKeys> = {
   'sync.limit.stopped': 'Cloudflare の無料枠の上限に達したため、{time} まで同期を停止します。無料枠がリセットされると自動で再開します',
   'sync.limit.stoppedPaused': 'Cloudflare の無料枠の上限に達したため、同期できませんでした。同期は一時停止のままです',
   'sync.oversize.row': '{table} の 1 行（{id}）が大きすぎるため同期できません（{size} KiB、上限 {limit} KiB）。この PC では保持されますが、他の PC には同期されません',
+  'sync.clock.ahead': 'この PC の時計が 5 分以上進んでいるため、{count} 件の変更をクラウドが受け付けませんでした。時計を合わせると、次の変更から同期されます',
   'sync.unreadable.rows': '{count} 件の行を復号できなかったため、飛ばしました。この PC がまだ受信していない暗号鍵で暗号化されているか、クラウドで書き換えられています',
   'sync.crypto.badMagic': '暗号化ファイルの形式が正しくありません',
   'sync.crypto.dataAfterFinal': '最終チャンクの後にデータがあります',
@@ -62,7 +63,4 @@ export const syncJa: AreaDictionary<typeof syncKeys> = {
   'sync.copy.noFreeName': '使用できるバックアップのファイル名がありません',
   'sync.copy.badSessionId': 'セッション ID がファイル名として不正です',
   'sync.copy.backupFailed': 'バックアップを作成できなかったため、トランスクリプトを置き換えませんでした: {cause}',
-  'sync.peerSsh.hostKeyMismatch': '{name} のホストキーが、{name} が同期で知らせた指紋と違うため、SSH で接続しませんでした。{name} の SSH サーバーを確認してください',
-  'sync.peerSsh.tunnelClosed': '{name} との SSH の接続が切れました',
-  'sync.peerSsh.gaveUp': '{name} に SSH でしばらく接続できなかったため、接続し直すのをやめました。{name} で hangar が実行中か確認して、もう一度リクエストしてください',
 };

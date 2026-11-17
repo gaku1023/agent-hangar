@@ -10,6 +10,8 @@ export type ServerEvent =
   // セッションが一覧から消えた（削除した、本文の無いまま片付けた）。画面は Store から外す。
   | { type: 'session.removed'; id: string }
   | { type: 'live.update'; live: LiveSessionDto[] }
+  // 会話の件数の集計。会話の行が変わったあと、間引いて 1 秒に 1 回まで配る（events/publisher.ts）。画面は件数を足し引きせず、これで置き換える。
+  | { type: 'sessionCounts.update'; counts: import('./sessionList.ts').SessionCountsDto }
   | { type: 'transcript.appended'; sessionId: string; count: number }
   /** 机の音声のいまの状態（補助の有無、聞き取りの段、字幕、読み上げ中）。サーバの声のサービスが変わるたびに配る。 */
   | { type: 'voice.state'; state: import('./voice.ts').VoiceStateDto }

@@ -29,7 +29,7 @@ export const SETTING_TIERS: Record<keyof SettingsDto | WriteOnlyKey, SettingTier
   askStatusAtEnd: 'confirm', liveHints: 'confirm', notifyUser: 'confirm',
   summaryEngine: 'confirm', summaryClaudeModel: 'confirm', summaryHourlyCap: 'confirm', summaryFallback: 'confirm', lmStudioModel: 'confirm',
   opencodeLocalContext: 'confirm', opencodeIdleUnload: 'confirm', codexEnabled: 'confirm', opencodeEnabled: 'confirm', voice: 'confirm',
-  remoteControl: 'confirm', peerChatAcceptFromPeers: 'confirm', configBundleSync: 'confirm', configKinds: 'confirm',
+  remoteControl: 'confirm', peerChatAcceptFromPeers: 'confirm', phoneChatAccept: 'confirm',configBundleSync: 'confirm', configKinds: 'confirm',
   codexShareInstructions: 'confirm', codexShareMcp: 'confirm', opencodeShareInstructions: 'confirm', opencodeShareMcp: 'confirm',
   codexInjection: 'confirm', opencodeInjection: 'confirm', codexIntercept: 'confirm', opencodeIntercept: 'confirm', opencodePermissionPreset: 'confirm',
   workspaceRoot: 'confirm', orchestrator: 'confirm',

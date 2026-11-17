@@ -21,7 +21,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
       # 最新の 2.x の opencode を npm から入れる（npm の名前は @opencode/cli。opencode-ai は 1.x で、API がまったく別物）。
       # postinstall が Linux の本体を置く。--version と --help と、模擬のプロバイダーで動かす serve に認証は要らない。
       - name: 最新の 2.x の opencode を入れる

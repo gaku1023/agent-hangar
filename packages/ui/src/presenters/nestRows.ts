@@ -1,29 +1,15 @@
 import type { Store } from '../store/store.ts';
 import type { SessionRowProps } from './row.ts';
-import { spawnFoldKey, spawnParentOf, type NestDot } from './spawnTree.ts';
+import { nestForest, nestTopsOf, type NestNode } from '@agent-hangar/shared';
+import { spawnFoldKey, type NestDot } from './spawnTree.ts';
 
 /**
  * 一覧の根の行。起動元が見えている行（visible）の中に無い行である。ページ送りはこの数で数える。
  * 起動元をたどって輪になるものは、先に出てきた方を根にする。
  */
 export function nestTops<T extends { id: string }>(visible: T[], store: Store): T[] {
-  const ids = new Set(visible.map((r) => r.id));
-  const tops: T[] = [];
-  const reach = (id: string): boolean => {
-    // 起動元の連なりが、自分に戻らずに見えている行へ着くか。着かなければ根。
-    const seen = new Set<string>([id]);
-    for (let p = spawnParentOf(store.sessions, id); p !== null; p = spawnParentOf(store.sessions, p)) {
-      if (seen.has(p)) return false;
-      if (ids.has(p)) return true;
-      seen.add(p);
-    }
-    return false;
-  };
-  for (const r of visible) {
-    const p = spawnParentOf(store.sessions, r.id);
-    if (p === null || !ids.has(p) || !reach(r.id)) tops.push(r);
-  }
-  return tops;
+  // サーバの一覧の形の検索と同じ数え方にする（shared の sessionList.ts）。
+  return nestTopsOf(visible, store.sessions);
 }
 
 /**
@@ -34,20 +20,9 @@ export function nestTops<T extends { id: string }>(visible: T[], store: Store): 
  * tops と pool は id を持つ軽い札で、並べる行だけを rowOf で組む（全件の行を組むと重いため）。
  */
 export function nestRows<T extends { id: string }>(tops: T[], pool: T[], store: Store, folded: ReadonlySet<string>, rowOf: (x: T) => SessionRowProps): SessionRowProps[] {
-  const kids = new Map<string, T[]>();
-  for (const r of pool) {
-    const p = spawnParentOf(store.sessions, r.id);
-    if (p !== null) kids.set(p, [...kids.get(p) ?? [], r]);
-  }
-  const topIds = new Set(tops.map((r) => r.id));
-  // 1 度並べた行は、別の起動元の下にも輪の先にも並べない。
-  const seen = new Set<string>(topIds);
+  // 木の組み方（どの子をどの起動元の下に置くか）は、サーバの一覧の形の検索と同じものを使う（shared の sessionList.ts）。
   type Node = { row: SessionRowProps; kids: Node[] };
-  const build = (x: T): Node => {
-    const ks = (kids.get(x.id) ?? []).filter((k) => !seen.has(k.id));
-    for (const k of ks) seen.add(k.id);
-    return { row: rowOf(x), kids: ks.map(build) };
-  };
+  const toNode = (n: NestNode<T>): Node => ({ row: rowOf(n.item), kids: n.kids.map(toNode) });
   const flat = (n: Node): SessionRowProps[] => [n.row, ...n.kids.flatMap(flat)];
   const out: SessionRowProps[] = [];
   const emit = (n: Node, depth: number) => {
@@ -57,6 +32,6 @@ export function nestRows<T extends { id: string }>(tops: T[], pool: T[], store: 
     out.push({ ...n.row, nest: { depth, toggle: sub.length > 0 ? { open, dots } : null } });
     if (open) for (const k of n.kids) emit(k, depth + 1);
   };
-  for (const r of tops) emit(build(r), 0);
+  for (const n of nestForest(tops, pool, store.sessions)) emit(toNode(n), 0);
   return out;
 }

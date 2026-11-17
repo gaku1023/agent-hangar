@@ -7,6 +7,7 @@ import type { PutImage, Shrink } from '../images.ts';
 import { openInbox, type InboxView } from '../inbox.ts';
 import type { LaunchSpec } from '../launchRun.ts';
 import { at1, feedOf, inboxOf, liveItem, makeKey, MIN, ring } from '../test/fixtures.ts';
+import { chipOf, group, pick } from '../test/launchScreen.ts';
 import { WORKER } from '../test/pairText.ts';
 import type { PhoneKey } from '../store.ts';
 import { clearLaunchDefaults, saveLaunchDefaults } from '../launchDefaults.ts';
@@ -53,10 +54,7 @@ async function setup(feeds: MobileFeed[] = twoPcs(), opts?: Parameters<typeof in
   return { onLaunch, onClose };
 }
 
-const group = (name: string) => screen.getByRole('radiogroup', { name });
-const pick = (groupName: string, option: RegExp | string) => fireEvent.click(within(group(groupName)).getByRole('radio', { name: option }));
 const prompt = () => screen.getByRole('textbox', { name: '初期プロンプト' });
-const advanced = () => screen.getByRole('button', { name: /詳しい設定/ });
 const specOf = (fn: ReturnType<typeof vi.fn<(s: LaunchSpec) => void>>): LaunchSpec => fn.mock.calls[0]![0];
 
 describe('NewSessionScreen', () => {
@@ -65,7 +63,6 @@ describe('NewSessionScreen', () => {
     pick('プロジェクト', /project-a/);
     pick('PC', /Mini/);
     pick('アカウント', /アカウント 3/);
-    fireEvent.click(advanced());
     pick('権限モード', 'Plan');
     pick('モデル', 'opus');
     fireEvent.change(prompt(), { target: { value: 'テストを足して' } });
@@ -134,7 +131,7 @@ describe('NewSessionScreen', () => {
     const feeds = [...twoPcs(), feedOf('pc-3', 'Old')];
     const { onLaunch } = await setup(feeds, { lastSeen: { 'pc-3': Date.now() - 4 * MIN } });
     const projects = within(group('プロジェクト')).getAllByRole('radio');
-    expect(projects.map((r) => r.textContent)).toEqual([expect.stringContaining('クイックセッション'), 'project-b', 'project-a']);
+    expect(projects.map((r) => r.textContent)).toEqual([expect.stringContaining('クイックセッション'), expect.stringContaining('project-b'), expect.stringContaining('project-a')]);
     pick('プロジェクト', /クイックセッション/);
     const pcs = within(group('PC')).getAllByRole('radio');
     expect(pcs.map((r) => r.textContent)).toEqual([expect.stringContaining('Mac'), expect.stringContaining('Mini')]);
@@ -148,22 +145,39 @@ describe('NewSessionScreen', () => {
     expect(specOf(onLaunch).payload).toMatchObject({ projectId: null, scratch: true, accountId: 'acc-1', permissionMode: '', model: '' });
   });
 
-  it('PC とアカウントの段は、前の段を選ぶまで出さず、選ぶと伸びて現れる', async () => {
+  it('PC とアカウントの札は、前を選ぶまで押せず、選ぶと押せる', async () => {
     await setup();
-    expect(screen.queryByRole('radiogroup', { name: 'PC' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('radiogroup', { name: 'アカウント' })).not.toBeInTheDocument();
-    expect(screen.queryByText(/選ぶと表示されます/)).not.toBeInTheDocument();
+    expect(chipOf('PC')).toBeDisabled();
+    expect(chipOf('PC')).toHaveTextContent('PC');
+    expect(chipOf('アカウント')).toBeDisabled();
     pick('プロジェクト', /project-a/);
-    expect(group('PC').closest('.fold')).toHaveClass('m-grow');
-    expect(screen.queryByRole('radiogroup', { name: 'アカウント' })).not.toBeInTheDocument();
+    expect(chipOf('PC')).toBeEnabled();
+    expect(chipOf('アカウント')).toBeDisabled();
     pick('PC', /Mini/);
-    expect(group('アカウント').closest('.fold')).toHaveClass('m-grow');
-    expect(screen.queryByText(/選ぶと表示されます/)).not.toBeInTheDocument();
+    expect(chipOf('PC')).toHaveTextContent('Mini');
+    expect(chipOf('アカウント')).toBeEnabled();
+  });
+
+  it('札の列は PC、プロジェクト、アカウント、モデル、effort、権限、worktree の順で、押すとシートが開く', async () => {
+    await setup();
+    const keys = [...document.querySelectorAll('.chips [data-chip]')].map((c) => c.getAttribute('data-chip'));
+    expect(keys).toEqual(['pc', 'project', 'account', 'model', 'effort', 'perm']);
+    expect(screen.queryByRole('dialog', { name: 'プロジェクト' })).not.toBeInTheDocument();
+    fireEvent.click(chipOf('プロジェクト')!);
+    expect(screen.getByRole('dialog', { name: 'プロジェクト' })).toBeInTheDocument();
+  });
+
+  it('選ぶとシートは閉じ、札の文字が選んだものに替わる', async () => {
+    await setup();
+    pick('プロジェクト', /project-a/);
+    expect(screen.queryByRole('dialog', { name: 'プロジェクト' })).not.toBeInTheDocument();
+    expect(chipOf('プロジェクト')).toHaveTextContent('project-a');
   });
 
   it('PC にアカウントが無ければ「この PC にアカウントがありません」は残す', async () => {
     await setup([feedOf('pc-1', 'Mac', { accounts: [], projects: [{ id: 'p-a', name: 'project-a', lastUsedAt: Date.now() }] })]);
     pick('プロジェクト', /project-a/);
+    fireEvent.click(chipOf('アカウント')!);
     expect(screen.getByText('この PC にアカウントがありません')).toBeInTheDocument();
   });
 
@@ -183,26 +197,26 @@ describe('NewSessionScreen', () => {
     expect(within(group('PC')).getAllByRole('radio').map((r) => r.textContent)).toEqual([expect.stringContaining('Mini')]);
   });
 
-  it('プロジェクトが 5 件を超えると、最近の 5 件の札、検索、すべてのシートから選べる', async () => {
+  it('プロジェクトが 5 件を超えると、シートに検索欄が出て、絞って選べる', async () => {
     const many: MobileFeed = feedOf('pc-1', 'Mac', { projects: Array.from({ length: 9 }, (_, i) => ({ id: `p-${i}`, name: `proj-${i}`, lastUsedAt: Date.now() - i * MIN })) });
     const { onLaunch } = await setup([many]);
-    expect(within(group('プロジェクト')).getAllByRole('radio')).toHaveLength(6);
+    expect(within(group('プロジェクト')).getAllByRole('radio')).toHaveLength(10);
     fireEvent.change(screen.getByRole('textbox', { name: 'プロジェクトを検索' }), { target: { value: 'proj-8' } });
-    fireEvent.click(within(screen.getByRole('radiogroup', { name: '検索結果' })).getByRole('radio', { name: /proj-8/ }));
+    fireEvent.click(within(group('プロジェクト')).getByRole('radio', { name: /proj-8/ }));
     fireEvent.change(prompt(), { target: { value: 'a' } });
     fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
     expect(specOf(onLaunch)).toMatchObject({ projectName: 'proj-8' });
   });
 
-  describe('詳しい設定（C3）', () => {
-    it('閉じていて要約 1 行。開くと権限モード、モデル、effort が出る', async () => {
+  describe('権限モード、モデル、effort の札', () => {
+    it('「詳しい設定」の畳みは無く、札が既定の値を薄く出す。押すとシートに選択肢が並ぶ', async () => {
       await setup();
-      expect(advanced()).toHaveAttribute('aria-expanded', 'false');
-      expect(advanced()).not.toHaveTextContent('デフォルト');
+      expect(screen.queryByRole('button', { name: /詳しい設定/ })).not.toBeInTheDocument();
+      expect(chipOf('権限モード')).toHaveTextContent('権限 デフォルト');
+      expect(chipOf('モデル')).toHaveTextContent('モデル デフォルト');
+      expect(chipOf('effort')).toHaveTextContent('effort デフォルト');
+      for (const n of ['権限モード', 'モデル', 'effort']) expect(chipOf(n)).toHaveClass('dim');
       expect(screen.queryByRole('radiogroup', { name: '権限モード' })).not.toBeInTheDocument();
-      expect(screen.queryByRole('radiogroup', { name: 'effort' })).not.toBeInTheDocument();
-      fireEvent.click(advanced());
-      expect(advanced()).toHaveAttribute('aria-expanded', 'true');
       const perms = within(group('権限モード')).getAllByRole('radio');
       expect(perms.map((r) => r.getAttribute('data-value'))).toEqual([...PERMISSION_MODE_VALUES]);
       expect(perms.map((r) => r.textContent)).toEqual(['デフォルト', 'Plan', 'Manual', 'Accept edits', 'Auto', "Don't ask", 'Bypass permissions']);
@@ -212,18 +226,17 @@ describe('NewSessionScreen', () => {
       expect(efforts.map((r) => r.getAttribute('data-value'))).toEqual([...EFFORT_VALUES]);
       expect(efforts.map((r) => r.textContent)).toEqual(['デフォルト', 'low', 'medium', 'high', 'xhigh', 'max']);
       for (const g of [perms, models, efforts]) expect(g[0]).toHaveAttribute('aria-checked', 'true');
-      fireEvent.click(advanced());
-      expect(screen.queryByRole('radiogroup', { name: 'effort' })).not.toBeInTheDocument();
     });
 
-    it('選んだものは、閉じても要約に出る', async () => {
+    it('選んだものは、札の文字に出る', async () => {
       await setup();
-      fireEvent.click(advanced());
       pick('権限モード', 'Plan');
       pick('モデル', 'opus');
       pick('effort', 'high');
-      fireEvent.click(advanced());
-      expect(advanced()).toHaveTextContent('権限 Plan · モデル opus · effort high');
+      expect(chipOf('権限モード')).toHaveTextContent('Plan');
+      expect(chipOf('モデル')).toHaveTextContent('opus');
+      expect(chipOf('effort')).toHaveTextContent('effort high');
+      expect(chipOf('effort')).not.toHaveClass('dim');
     });
 
     it('選んだ effort が依頼に入る。デフォルトは入れない', async () => {
@@ -240,7 +253,6 @@ describe('NewSessionScreen', () => {
       pick('プロジェクト', /project-b/);
       pick('アカウント', /アカウント 2/);
       fireEvent.change(prompt(), { target: { value: 'a' } });
-      fireEvent.click(advanced());
       pick('effort', 'high');
       pick('effort', 'デフォルト');
       pick('effort', 'xhigh');
@@ -250,7 +262,6 @@ describe('NewSessionScreen', () => {
 
     it('xhigh と max には使用量の注意が出る', async () => {
       await setup();
-      fireEvent.click(advanced());
       expect(screen.queryByText(/使用量が増えます/)).not.toBeInTheDocument();
       pick('effort', 'xhigh');
       expect(screen.getByText('xhigh と max は考える時間が長く、使用量が増えます。')).toBeInTheDocument();
@@ -261,7 +272,7 @@ describe('NewSessionScreen', () => {
     });
   });
 
-  it('動きの長さがあっても（実機の CSS）StrictMode で開いて選べ、詳しい設定を畳める', async () => {
+  it('動きの長さがあっても（実機の CSS）StrictMode で開いて選べる', async () => {
     document.documentElement.style.setProperty('--dur-exit', '250ms');
     document.documentElement.style.setProperty('--dur-fast', '200ms');
     try {
@@ -275,9 +286,7 @@ describe('NewSessionScreen', () => {
       pick('PC', /Mac/);
       pick('プロジェクト', /project-b/);
       expect(within(group('PC')).getByRole('radio', { name: /Mini/ })).toHaveAttribute('aria-checked', 'true');
-      fireEvent.click(advanced());
       pick('effort', 'high');
-      fireEvent.click(advanced());
     } finally {
       document.documentElement.style.removeProperty('--dur-exit');
       document.documentElement.style.removeProperty('--dur-fast');
@@ -392,15 +401,13 @@ describe('NewSessionScreen と古い PC、古い Worker', () => {
 
   it('caps の無い（rc.1 の）PC を選ぶと「＋」と effort の欄を出さず、依頼に effort を入れない', async () => {
     const { onLaunch } = await setup([feedOf('pc-1', 'Mac', { caps: undefined })]);
-    fireEvent.click(advanced());
-    // PC を選ぶ前は、どちらも出る。
+    // PC を選ぶ前は、どちらも出る（effort の札は「＋」の代わりに画像の添付と並べて確かめる）。
     expect(screen.getByRole('button', { name: '画像を添付' })).toBeInTheDocument();
     pick('effort', 'high');
     // PC は 1 台なので、プロジェクトを選ぶと決まる。
     pick('プロジェクト', /project-a/);
-    expect(screen.queryByRole('radiogroup', { name: 'effort' })).not.toBeInTheDocument();
+    expect(chipOf('effort')).toBeNull();
     expect(screen.queryByRole('button', { name: '画像を添付' })).not.toBeInTheDocument();
-    expect(advanced()).not.toHaveTextContent('effort');
     fireEvent.change(prompt(), { target: { value: 'a' } });
     fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
     expect(specOf(onLaunch).payload).not.toHaveProperty('effort');
@@ -446,8 +453,7 @@ describe('NewSessionScreen と古い PC、古い Worker', () => {
     await waitFor(() => expect(screen.getByText('この PC は候補を返せません')).toBeInTheDocument());
     expect(a.commands).not.toHaveBeenCalled();
     // effort は PC が効かせるので、Worker が古くても出す。
-    fireEvent.click(advanced());
-    expect(group('effort')).toBeInTheDocument();
+    expect(chipOf('effort')).not.toBeNull();
   });
 });
 
@@ -459,7 +465,9 @@ describe('NewSessionScreen と新しい会話のデフォルト（設定）', ()
   it('既定の PC、アカウント、権限、モデル、effort を最初から選んでおく', async () => {
     saveLaunchDefaults({ pc: 'pc-2', account: 'acc-3', permissionMode: 'plan', model: 'opus', effort: 'high' });
     const { onLaunch } = await setup();
-    expect(advanced()).toHaveTextContent('権限 Plan · モデル opus · effort high');
+    expect(chipOf('権限モード')).toHaveTextContent('Plan');
+    expect(chipOf('モデル')).toHaveTextContent('opus');
+    expect(chipOf('effort')).toHaveTextContent('effort high');
     pick('プロジェクト', /project-a/);
     expect(within(group('PC')).getByRole('radio', { name: /Mini/ })).toHaveAttribute('aria-checked', 'true');
     expect(within(group('アカウント')).getByRole('radio', { name: /アカウント 3/ })).toHaveAttribute('aria-checked', 'true');

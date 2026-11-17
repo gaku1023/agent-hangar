@@ -7,6 +7,7 @@ import { accountOfSession, getProject, getSession, listProjects, listSessions } 
 import { upsertShared } from '../db/shared.ts';
 import { addIntent, INTENT_MAX, noteIntent } from '../live/intents.ts';
 import { addUnread, noteUnread, NOTIFY_TARGETS, type NotifyTarget } from '../live/unread.ts';
+import { noteNotifyKind } from '../live/notifyKind.ts';
 import { sessionTurnRunning } from '../live/unreadHold.ts';
 import { touchRow } from '../db/notify.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
@@ -27,6 +28,7 @@ import { claimPrTool, draftEventBindingTool } from './eventTools.ts';
 import { callOrchestratorTool, guardWeakTurn, isOrchestratorCtx, isOrchestratorToolName } from './orchestratorTools.ts';
 import type { OrchestratorAsks } from '../orchestrator/asks.ts';
 import type { PeerChatLocal } from '../peer/chat/host.ts';
+import type { HookDecisions } from '../sessions/hookDecisions.ts';
 import { createScheduleTool, listSchedulesTool, updateScheduleTool } from './scheduleTools.ts';
 import { getSettingsTool, updateSettingsTool, type SettingsToolDeps } from './settingsTools.ts';
 import { readSessionScreenTool, sendToSessionTool } from './screenTools.ts';
@@ -80,6 +82,8 @@ export type ToolDeps = {
   holdUnread?: boolean;
   /** hook から届いた許可の確認の預け先（sessions/permissionAsks.ts）。無ければ許可の確認は読まない。 */
   permissionAsks?: { put(providerSessionId: string, ask: PermissionAskDto, now: number): void };
+  /** 許可の確認の同期の hook が答えを待つ表（sessions/hookDecisions.ts）。無ければ待ちを開けず、台本はすぐ抜ける。 */
+  hookDecisions?: Pick<HookDecisions, 'open' | 'wait' | 'closeTool'>;
   /** 作者への問い合わせの口（report/service.ts）。無ければ draft_issue_report と submit_issue_report は断る。 */
   report?: Pick<ReportService, 'draft' | 'submit'>;
   /** URL を既定のブラウザで開く口。問い合わせの送信で gh が使えないときに使う。 */
@@ -742,6 +746,8 @@ export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
     sent = NOTIFY_TARGETS.filter((x) => rules[x].includes(kind));
   }
   if (isQuietStatus(session.state?.status) && !session.woke) sent = [];
+  // 出し先が空でも、呼んだことは統括の出来事の側へ知らせる（orchestrator/feed.ts の turn.done）。
+  noteNotifyKind(id, kind, o.immediate === true);
   let unread = session.unread?.count ?? 0;
   if (sent.length > 0) {
     // 未読の数も、done と ask で作業中なら預かりが積む（holdUnread のとき）。返答を書き終える前に数が増えないようにするためである。

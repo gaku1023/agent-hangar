@@ -23,6 +23,21 @@ async function twoPcs(o: { ringA?: Keyring; ringB?: Keyring; onRosterB?: () => P
 }
 
 describe('SealedCloudClient', () => {
+  it('Worker が捨てた行を、k から表名と行 ID に引き直して返す', async () => {
+    const { a, b } = await twoPcs();
+    const now = Date.now();
+    await a.pushChanges([session('s1', now + 60_000)]);
+    const res = await b.pushChanges([session('s1', now), session('s2', now), session('s3', now + 3_600_000)]);
+    expect(res).toMatchObject({ accepted: 1, skipped: 2 });
+    expect(res.dropped).toEqual(expect.arrayContaining([
+      { tableName: 'sessions', rowId: 's1', reason: 'stale' },
+      { tableName: 'sessions', rowId: 's3', reason: 'future' },
+    ]));
+    expect(res.dropped).toHaveLength(2);
+    // 1 件も捨てなければ載らない。
+    expect(await b.pushChanges([session('s4', now)])).not.toHaveProperty('dropped');
+  });
+
   it('push した行を別の PC が pull すると元の ChangeOut になる', async () => {
     const { a, b } = await twoPcs();
     const rows = [session('s1', 100), { tableName: 'projects', rowId: 'p1', op: 'delete', payload: {}, updatedAt: 200 } satisfies ChangeIn];

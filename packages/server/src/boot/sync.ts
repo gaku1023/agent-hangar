@@ -37,7 +37,6 @@ import { stopAfterIdle, stopUploader } from './stopping.ts';
 import { t } from '@agent-hangar/shared';
 import { touchRow } from '../db/notify.ts';
 import { followRemoteScratch } from '../projects/scratch.ts';
-import { keyringPeerTokenKeys, type PeerTokenKeys } from '../peer/ssh/token.ts';
 
 /**
  * 上がっていない本文を拾い直す走査の間隔。
@@ -75,8 +74,6 @@ export type SyncParts = {
   retention: RetentionService;
   /** 同期の状態に添える付録と、状態の配り。HTTP の応答と websocket の通知の両方がこれを通る。 */
   feed: SyncFeed;
-  /** SSH の予備の経路の、PC どうしの token の鍵（peer/ssh/token.ts）。同期を設定していなければ null。 */
-  peerTokenKeys(): PeerTokenKeys | null;
   /** 利用者が押した「今すぐ同期」。 */
   syncNow(): Promise<void>;
   /** 本文とメモの控えの世代を刈る。 */
@@ -496,6 +493,8 @@ export function bootSync(
   // 画面へ配る層に、状態の組み方を教える。表の変化（束の行が降りた、基準を書いた）のたびに config.update が出る。
   // 組み直しても同じ口で足りるよう、そのときの core を引く。
   delivery.publisher?.setConfigSync(() => core.configBundle?.dto() ?? null);
+  // 件数の集計の「近く消える数」は、今の保存期間で数える。
+  delivery.publisher?.setRetentionDays(() => retention.current().days);
 
   // 設定の同期のスイッチが切から入に変わった瞬間に、次の周期を待たず 1 回回す。
   // 送る一覧を承認した人が、承認したあとの 1 分近くを黙って待たないようにする。
@@ -625,7 +624,6 @@ export function bootSync(
     get cloudUsage() { return core.cloudUsage; },
     retention,
     get feed() { return core.feed; },
-    peerTokenKeys: () => (core.keyring ? keyringPeerTokenKeys(core.keyring) : null),
     pruneBackups,
     get configBundle() { return core.configBundle; },
     syncNow: () => core.once.syncNow(),
