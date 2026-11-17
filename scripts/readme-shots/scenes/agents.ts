@@ -67,6 +67,7 @@ const scene: Scene = {
       started.push(cx.id ?? '');
       const oc = await api<{ sessionId?: string; id?: string }>(c.e, 'POST', '/runs', { projectId, name: OPENCODE, agent: 'opencode', prompt: '分量を大さじと g で換算する関数に、テストを足してください。' });
       started.push(oc.id ?? '');
+      await c.sleep(1500);
       await c.sidebarItem(page, CODEX);
       await c.sidebarItem(page, OPENCODE);
       const rec = await c.record(page);

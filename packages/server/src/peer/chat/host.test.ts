@@ -654,17 +654,26 @@ describe('PeerChatHost: answer と interrupt', () => {
     expect(s.w.pane.events).toEqual([]);
   });
 
-  it('二重の答え: 2 台から同じ許可に答えても、キーは 1 回だけ。2 台目は already-answered', async () => {
+  // 2 台の頼みが着く順は、暗号の開封の速さで入れ替わる（負荷の高い CI で起きる）。どちらが先でも、打つキーは 1 回だけになる。
+  it.each([
+    ['pc-b の頼みが先に着く', false],
+    ['pc-c の頼みが先に着く', true],
+  ])('二重の答え（%s）: 2 台から同じ許可に答えても、キーは 1 回だけ。後の 1 台は already-answered', async (_name, cFirst) => {
     const { s, ask } = await withPermission();
-    const [a, b] = await Promise.all([s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] }), s.ask({ t: 'answer', askId: ask.askId, keys: ['3'] }, { from: 'pc-c' })]);
+    // どのキーでも札が閉じる（先に着いた方の答えが通る）。
+    s.w.pane.onText = (t) => { if ((t === '1' || t === '3') && s.w.pane.plain === PERMISSION_SCREEN) { s.w.pane.plain = RUNNING_SCREEN; s.w.session!.live = 'busy'; } };
+    const fromB = (): Promise<PeerChatReply> => s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] });
+    const fromC = (): Promise<PeerChatReply> => s.ask({ t: 'answer', askId: ask.askId, keys: ['3'] }, { from: 'pc-c' });
+    const [a, b] = cFirst ? await Promise.all([fromC(), fromB()]).then(([c, bb]) => [bb, c] as const) : await Promise.all([fromB(), fromC()]);
     const oks = [a, b].filter((r) => r.ok);
     const lost = [a, b].find((r) => !r.ok);
     expect(oks).toHaveLength(1);
     expect(lost).toEqual({ ok: false, reason: 'already-answered' });
-    expect(s.w.pane.events).toEqual(['text:1']);
+    expect(s.w.pane.events).toEqual([a.ok ? 'text:1' : 'text:3']);
+    const typed = [...s.w.pane.events];
     // 後から来た 3 台目も同じ。
     expect(await s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] }, { from: 'pc-c' })).toEqual({ ok: false, reason: 'already-answered' });
-    expect(s.w.pane.events).toEqual(['text:1']);
+    expect(s.w.pane.events).toEqual(typed);
   });
 
   it('出ている札と askId が違えば ask-mismatch で、何も打たない', async () => {

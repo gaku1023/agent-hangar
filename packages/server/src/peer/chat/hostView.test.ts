@@ -30,6 +30,24 @@ describe('ChatView.recordAnswer', () => {
   });
 });
 
+describe('ChatView.answeredAsk は会話ごと', () => {
+  it('同じ askId の札でも、別の会話で答えた記録は、この会話では答え済みにならない', () => {
+    const MAC = { deviceId: 'pc-b', deviceName: 'Mac' };
+    const view = new ChatView({
+      now: () => 1000, sleep: async () => undefined, recheckMs: 1000,
+      session: () => null, run: () => null, pane: () => null,
+      tail: { readTranscript: () => null }, queued: () => [], self: () => MAC, hostId: 'h',
+    });
+    const item = { uuid: 'u1@ask:A', at: 1, kind: 'permission' as const, text: 'run', ask: { askId: 'A', kind: 'permission' as const, options: [{ key: '1', label: 'Yes' }], multi: false, allowText: false } };
+    view.recordAnswer('s1', item, MAC, 'Yes');
+    expect(view.answeredAsk('s1', 'A')).toBe(true);
+    expect(view.answeredAsk('s2', 'A')).toBe(false);
+    view.recordAnswer('s2', item, MAC, 'Yes');
+    expect(view.answeredAsk('s1', 'A')).toBe(true);
+    expect(view.answeredAsk('s2', 'A')).toBe(true);
+  });
+});
+
 describe('pendingAskFrom', () => {
   const perm = [' Bash command', ' mock desc', RULE, ' ls -la', RULE, ' Do you want to proceed?', ' ❯ 1. Yes', '   2. No', ' Esc to cancel'].join('\n');
 
@@ -241,7 +259,7 @@ describe('ChatView.observe: 拠り所なしから tool_use ありへの askId �
     const a2 = cards.find((c) => !c.ask!.answered)!.ask!.askId;
     expect(a2).not.toBe(a0);
     expect(cards.find((c) => c.ask!.askId === a0)?.ask?.answered).toMatchObject({ by: SELF, label: '' });
-    expect(view.answeredAsk(a0)).toBe(true);
+    expect(view.answeredAsk('s1', a0)).toBe(true);
     expect(view.resolveAskId(a0, a2)).toBe(a0);
   });
 
