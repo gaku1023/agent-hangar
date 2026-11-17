@@ -12,4 +12,6 @@ export const orchestratorPaneKeys = {
   'orchestratorPane.error.notRunning': [],
   'orchestratorPane.error.voiceUnavailable': [],
   'orchestratorPane.error.sendFailed': ['reason'],
+  'orchestratorPane.error.engineOpen': ['reason'],
+  'orchestratorPane.preview.sample': ['name'],
 } as const satisfies MessageSpec;

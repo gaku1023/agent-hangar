@@ -387,3 +387,43 @@ describe('声のサービス', () => {
     expect(svc.state().models).toEqual({ state: 'downloading', progress: 0.4 });
   });
 });
+
+describe('声の一覧と試し聞き', () => {
+  const OS = [{ id: 'com.apple.voice.Kyoko', name: 'Kyoko' }];
+  it('osVoices は補助へ voices を送り、voices の事象で答える。複数の呼びを 1 つの事象で返す', async () => {
+    voice = voiceOf({ mode: 'off' });
+    const svc = make({ voicesWaitMs: 500 });
+    const a = svc.osVoices();
+    const b = svc.osVoices();
+    expect(helper.cmdsOf('voices').length).toBeGreaterThanOrEqual(1);
+    helper.ev({ ev: 'voices', os: OS });
+    expect(await a).toEqual({ running: true, voices: OS });
+    expect(await b).toEqual({ running: true, voices: OS });
+  });
+  it('答えが来なければ待たず、空で running:true。前に受けた値があればそれを返す', async () => {
+    voice = voiceOf({ mode: 'off' });
+    const svc = make({ voicesWaitMs: 20 });
+    expect(await svc.osVoices()).toEqual({ running: true, voices: [] });
+    const p = svc.osVoices();
+    helper.ev({ ev: 'voices', os: OS });
+    await p;
+    expect(await svc.osVoices()).toEqual({ running: true, voices: OS });
+  });
+  it('補助が無ければ null', async () => {
+    expect(await make({ hasHelper: false }).osVoices()).toBeNull();
+  });
+  it('preview は preview-<連番> の id で、渡された声と速さのまま speak を補助へ出す（人格の声ではない）', () => {
+    voice = voiceOf({ mode: 'off' });
+    const svc = make();
+    expect(svc.preview('voicevox:3', 1.3, 'ミナです')).toBe(true);
+    expect(svc.preview('aivis:5', 0.8, 'もう一度')).toBe(true);
+    const [a, b] = helper.cmdsOf('speak');
+    expect(a).toEqual({ cmd: 'speak', id: 'preview-1', text: 'ミナです', voice: 'voicevox:3', speed: 1.3 });
+    expect(b).toMatchObject({ id: 'preview-2', voice: 'aivis:5', speed: 0.8 });
+  });
+  it('preview は補助が無ければ false。personaName は使っている人格の名前', () => {
+    expect(make({ hasHelper: false }).preview('kokoro:jf_alpha', 1, 'x')).toBe(false);
+    voice = voiceOf({ mode: 'off', personas: [{ id: 'p', name: 'ミナ', reading: 'みな', tone: '', voice: 'kokoro:jf_alpha', speed: 1 }] });
+    expect(make().personaName()).toBe('ミナ');
+  });
+});

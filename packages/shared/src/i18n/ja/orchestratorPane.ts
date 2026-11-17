@@ -13,4 +13,6 @@ export const orchestratorPaneJa: AreaDictionary<typeof orchestratorPaneKeys> = {
   'orchestratorPane.error.notRunning': '統括は実行中ではありません',
   'orchestratorPane.error.voiceUnavailable': 'この PC では声を使えません',
   'orchestratorPane.error.sendFailed': '統括へ送れませんでした: {reason}',
+  'orchestratorPane.error.engineOpen': '声のエンジンを開けませんでした: {reason}',
+  'orchestratorPane.preview.sample': '{name} です。この声で読み上げます。',
 };

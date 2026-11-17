@@ -224,7 +224,7 @@ describe('paths', () => {
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));
     expect(loadSettings(tmp).voice).toBeUndefined();
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', voice: { mode: 'loud', personaId: 'x', personas: [{ id: 'a', name: 'ミナ', voice: 'bad', speed: 9 }] } }));
-    expect(loadSettings(tmp).voice).toEqual({ mode: 'off', personaId: 'a', personas: [{ id: 'a', name: 'ミナ', reading: '', tone: '', voice: 'kokoro:jf_alpha', speed: 1.2 }] });
+    expect(loadSettings(tmp).voice).toEqual({ mode: 'off', personaId: 'a', personas: [{ id: 'a', name: 'ミナ', reading: '', tone: '', voice: 'kokoro:jf_alpha', voiceLabel: '', speed: 1.2 }] });
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', voice: 7 }));
     expect('voice' in loadSettings(tmp)).toBe(false);
   });
