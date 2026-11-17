@@ -94,7 +94,19 @@ type SessionRow = {
   sp_parent_dev: string | null; sp_child_dev: string | null; sp_relay: string | null; sp_parent_name: string | null; sp_child_name: string | null;
   /** この PC がスマホの依頼で起こした会話なら、その依頼の権限モード（既定は空）。それ以外は null。 */
   ml_mode: string | null;
+  /** 非対話の会話（isHeadlessSql）なら 1。 */
+  headless: number;
 };
+
+/**
+ * 非対話の会話（claude -p などのバッチ）かを言う SQL の条件。alias は sessions の別名である。
+ * 索引が本文の entrypoint から付けた印（session_stats.headless、indexer/headless.ts）が 1 で、hangar の run が 1 つも付いていない会話を指す。
+ * hangar で起こしたか再開した会話は、本文が sdk の入口でも隠さない。
+ * 一覧・未読・サイドバー・「最近」（listSessions の既定）はこれを外す。件数の集計も `not ${isHeadlessSql('s')}` を足せば同じ数え方になる。
+ */
+export function isHeadlessSql(alias: string): string {
+  return `(exists(select 1 from session_stats hst where hst.session_id = ${alias}.id and hst.headless = 1) and not exists(select 1 from runs hr where hr.session_id = ${alias}.id))`;
+}
 
 const SESSION_SELECT = `
 select s.*, (exists(select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null)
@@ -120,7 +132,8 @@ select s.*, (exists(select 1 from transcript_files t where t.session_id = s.id a
   ss.pinned_at ss_pinned_at, un.count unread_count, un.latest_text unread_text, un.latest_at unread_at,
   sp.parent_id spawned_by, sp.parent_device_id sp_parent_dev, sp.child_device_id sp_child_dev, sp.relay sp_relay,
   (select d.name from devices d where d.id = sp.parent_device_id) sp_parent_name, (select d.name from devices d where d.id = sp.child_device_id) sp_child_name,
-  (select ifnull(ml.permission_mode, '') from mobile_launches ml where ml.session_id = s.id order by ml.handled_at limit 1) ml_mode
+  (select ifnull(ml.permission_mode, '') from mobile_launches ml where ml.session_id = s.id order by ml.handled_at limit 1) ml_mode,
+  ${isHeadlessSql('s')} headless
 from sessions s
 left join projects p on p.id = s.project_id
 left join session_summaries m on m.session_id = s.id and m.deleted_at is null
@@ -174,7 +187,11 @@ export function contextPercent(used: number | null, size: number | null): number
   return Math.round((used / size) * 1000) / 10;
 }
 
-export type SessionQueryOptions = { projectId?: string; ids?: string[]; deviceId?: string; now?: () => number };
+/**
+ * includeHeadless を立てると、非対話の会話（isHeadlessSql）も返す。既定では外す（一覧・未読・サイドバー・「最近」に出さない）。
+ * ids で名指ししたときは、立てなくても返す。
+ */
+export type SessionQueryOptions = { projectId?: string; ids?: string[]; deviceId?: string; now?: () => number; includeHeadless?: boolean };
 
 type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number; live_status: LiveStatus | null; live_reason: StopReason | null; live_at: number | null; started_at: number };
 /** 一覧が組むロックと、その run の始まり。始まりは区切りの判定（parked）にだけ使い、DTO には載せない。 */
@@ -401,6 +418,8 @@ function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto
     spawnPeer: spawnPeerOf(r, self),
     // 統括の系譜の会話にだけ付ける。ほかは鍵ごと送らない。
     ...(isOrchestratorId(db, r.id) ? { role: 'orchestrator' as const } : {}),
+    // 非対話の会話（isHeadlessSql）にだけ付ける。ほかは鍵ごと送らない。
+    ...(r.headless === 1 ? { headless: true as const } : {}),
     // ほかの PC の続きの方が新しい（A → B → A）。手元に本文が無いものは remoteOnly の側で扱う。
     newerElsewhere: r.has_local === 1 && newer.has(r.id),
     takenOver: taken.get(r.id) ?? null,
@@ -476,6 +495,7 @@ export function listSessions(db: Db, live: LiveSessionDto[], opts: SessionQueryO
     where.push(`s.id in (${opts.ids.map(() => '?').join(',')})`);
     args.push(...opts.ids);
   }
+  if (!opts.includeHeadless && !opts.ids) where.push(`not ${isHeadlessSql('s')}`);
   const sql = `${SESSION_SELECT}${where.length ? ' and ' + where.join(' and ') : ''} order by activity_at desc nulls last, s.started_at desc nulls last, s.id`;
   const rows = db.prepare(sql).all(...args) as SessionRow[];
   const lm = liveMapOf(live);

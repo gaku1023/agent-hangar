@@ -10726,6 +10726,16 @@ MLX の build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/vo
 - 意味検索は持たないが、LM Studio に埋め込みモデルがあるので、将来ローカルで追加できる。
 - `event_index` の一意制約は `(session_id, ifnull(parent_agent, ''), seq)`。サブエージェントの本文は別ファイルで独立に伸びるので、主線と `seq` の空間を分ける。
 - 端末ローカルのテーブル `session_stats` を持つ。ターン数、モデル、effort、変更ファイル数、PR の URL、トークン数、最後の発言、最後の入力・返答の時刻（`last_turn_ts`）を索引から導出して置き、共有しない。
+- 非対話の会話（`claude -p` や Agent SDK で走ったバッチ）の印を、`session_stats.headless` に持つ（版 61）。
+  Claude Code は本文の行ごとに `entrypoint` を書き、対話の端末は `cli`、`claude -p` は `sdk-cli`、SDK は `sdk-ts` や `sdk-py` になる。
+  索引（`indexer/headless.ts`）は、`sdk-` で始まる入口だけを見た会話に 1 を、対話の入口を一度でも見た会話に 0 を付ける。
+  一度 0 になった会話は、後から `sdk-` の行が来ても 0 のままにする（対話で使った会話を隠さない）。
+  版 61 より前に索引した行は null で、索引の起動のあと、主線の本文の先頭と末尾を読んで少しずつ埋める（`backfillHeadless`）。
+  他の PC の会話も、手元に降ろした本文の写しを同じ規則で読んで印を付ける。印は同期しない。写しの無い会話は印が付かず、一覧に出る。
+- 印が 1 で、hangar の run が 1 つも付いていない会話を非対話とみなす（`db/queries.ts` の `isHeadlessSql`）。
+  一覧（`listSessions` の既定、`/api/sessions`、`/api/bootstrap`）は返さず、画面への `session.upsert` も配らない。サイドバー、未読、「最近」は bootstrap と配信から組むので、ここから外れる。
+  検索（`/api/search`）は今までどおり当て、当たった非対話の会話の DTO を `sessions` に添える。画面はそれを Store に入れて行を組み、ふだんの一覧と「最近」では `SessionDto.headless` を見て外す。
+  プロジェクトの絞り込みは `/api/sessions?headless=1&projectId=…` で含めて引ける。件数を数える集計は `not isHeadlessSql('s')` を条件に足せば一覧と同じ数え方になる。
 - 土台の要約の `state` は、レジストリに生きた項目があれば `in_progress`、無ければ `done`。UI は `source = 'baseline'` の状態を控えめに描く。
 - サブエージェントは、そのファイルの先頭の記録から `subagent` イベントを作り、親の時系列でその直前にある `Agent` か `Task` のツール呼び出しの下にネストする。該当が無ければ独立した項目として出す。
 - セッションの表示名は、レジストリの `name`（`nameSource` が `user`）、本文の `custom-title`、`agent-name`（索引が `sessions.custom_title` に拾う）、hangar で付けた名前（`session_notes.name`）、`ai-title`、最初の発言の先頭 40 字の順で決める。

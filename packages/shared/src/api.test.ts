@@ -113,8 +113,8 @@ describe('使用率の二重配信をやめた後', () => {
 
 describe('セッションと TODO の任意をやめた後', () => {
   it('SessionDto と TodoDto は、どの項目も必ず届く', () => {
-    // role は統括の会話にだけ付くので、鍵ごと無いことを許す。
-    expectTypeOf<Omit<SessionDto, 'role'>>().toEqualTypeOf<Required<Omit<SessionDto, 'role'>>>();
+    // role は統括の会話に、headless は非対話の会話にだけ付くので、鍵ごと無いことを許す。
+    expectTypeOf<Omit<SessionDto, 'role' | 'headless'>>().toEqualTypeOf<Required<Omit<SessionDto, 'role' | 'headless'>>>();
     expectTypeOf<TodoDto>().toEqualTypeOf<Required<TodoDto>>();
   });
 });

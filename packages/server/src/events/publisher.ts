@@ -45,6 +45,8 @@ const KINDS = {
   // 論理削除した行は session.removed にする。画面が Store から外せるようにするためである。行が無いときは何も配らない。
   session: (ctx, id) => {
     const s = getSession(ctx.db, ctx.live(), id, { deviceId: ctx.deviceId });
+    // 非対話の会話（claude -p などのバッチ）は、bootstrap と同じく画面の一覧に入れない。検索の結果が DTO ごと運ぶ。
+    if (s?.headless) return null;
     if (s) return { type: 'session.upsert', session: s };
     return ctx.db.prepare('select 1 from sessions where id = ? and deleted_at is not null').get(id) ? { type: 'session.removed', id } : null;
   },

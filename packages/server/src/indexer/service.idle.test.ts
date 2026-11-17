@@ -86,6 +86,8 @@ async function boot(extra: Partial<IndexerServiceOptions> & { remoteRoot?: strin
   const gone: string[] = [];
   s.on({ error: (e) => errors.push(e.message), sessionChanged: (e) => changed.push(e.path!), transcriptGone: (e) => gone.push(e.sessionId) });
   await s.start();
+  // 起動の後に回る非対話の印の埋め戻し（本文を開く）も、数える前に済ませる。
+  await s.headlessBackfill;
   vi.mocked(indexFile).mockClear();
   changed.length = 0;
   const statSync = vi.spyOn(fs, 'statSync');

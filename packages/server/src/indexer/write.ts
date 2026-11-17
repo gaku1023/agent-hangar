@@ -8,6 +8,7 @@ import { indexTexts } from '../provider/claude-code/transcript/normalize.ts';
 import { pinnedProjectOf } from '../sessions/move.ts';
 import { clearOnNewPrompt } from '../sessions/states.ts';
 import { localDay } from '../usage/aggregate.ts';
+import { entrypointKind, nextHeadless } from './headless.ts';
 import { stmt } from './statements.ts';
 
 // 索引の DB に書く側。どのエージェントの束（agent/types.ts の IndexBatch）も、ここで同じ表に書く。
@@ -71,6 +72,8 @@ type Acc = {
   daily: Map<string, { input: number; output: number }>;
   /** ターンの終わりの印か、入力待ちの問いが新しく出たか。last_activity_at の共有の間引きを外す合図である。 */
   turnEnded?: boolean;
+  /** 束の行の entrypoint に、非対話（sdk-）と対話の入口が現れたか。session_stats.headless を決める（indexer/headless.ts）。 */
+  entry: { headless: boolean; interactive: boolean };
 };
 
 export type SessionRow = { id: string; deleted_at: number | null };
@@ -192,7 +195,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
     const projectOf = () => (project ??= { id: (stmt(db, 'select project_id from sessions where id = ?').get(sessionId) as { project_id: string | null }).project_id }).id;
     // seq は主線とサブエージェントで別々に振り、続きは既存の最大値の次から始める。束の中の seq はその上に乗せる。
     const base = reset ? 0 : ((stmt(db, "select max(seq) m from event_index where session_id = ? and ifnull(parent_agent, '') = ?").get(sessionId, agentKey) as { m: number | null }).m ?? -1) + 1;
-    const acc: Acc = { userTurns: 0, input: 0, output: 0, daily: new Map() };
+    const acc: Acc = { userTurns: 0, input: 0, output: 0, daily: new Map(), entry: { headless: false, interactive: false } };
     let appended = 0;
     for (const r of b.records) {
       const events = r.events.map((e) => ({ ...e, seq: e.seq + base }));
@@ -238,6 +241,8 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
       if (f.model) acc.model = f.model;
       if (f.modelSelected) acc.modelSelected = true;
       if (f.effort) acc.effort = f.effort;
+      const entry = entrypointKind(f.entrypoint);
+      if (entry !== null) acc.entry[entry] = true;
       if (f.costUsd !== undefined) acc.cost = (acc.cost ?? 0) + f.costUsd;
       if (f.contextTokens !== undefined) acc.contextTokens = f.contextTokens;
       if (f.contextSize !== undefined) acc.contextSize = f.contextSize;
@@ -372,12 +377,13 @@ function onlyActivityCreeps(base: Record<string, unknown>, next: Record<string, 
 function writeSessionStats(db: Db, sessionId: string, acc: Acc, reset: boolean): void {
   const st = stmt(db, 'select * from session_stats where session_id = ?').get(sessionId) as Record<string, unknown> | undefined;
   const base = reset || !st ? { turns: 0, input_tokens: 0, output_tokens: 0 } : { turns: st.turns as number, input_tokens: st.input_tokens as number, output_tokens: st.output_tokens as number };
-  stmt(db, `insert into session_stats (session_id, turns, model, effort, pr_url, input_tokens, output_tokens, first_ts, last_ts, last_prompt, last_turn_ts) values (?,?,?,?,?,?,?,?,?,?,?)
-    on conflict(session_id) do update set turns = excluded.turns, model = excluded.model, effort = excluded.effort, pr_url = excluded.pr_url, input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens, first_ts = excluded.first_ts, last_ts = excluded.last_ts, last_prompt = excluded.last_prompt, last_turn_ts = excluded.last_turn_ts`)
+  const headless = nextHeadless((st?.headless as number | null | undefined) ?? null, acc.entry, reset || !st);
+  stmt(db, `insert into session_stats (session_id, turns, model, effort, pr_url, input_tokens, output_tokens, first_ts, last_ts, last_prompt, last_turn_ts, headless) values (?,?,?,?,?,?,?,?,?,?,?,?)
+    on conflict(session_id) do update set turns = excluded.turns, model = excluded.model, effort = excluded.effort, pr_url = excluded.pr_url, input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens, first_ts = excluded.first_ts, last_ts = excluded.last_ts, last_prompt = excluded.last_prompt, last_turn_ts = excluded.last_turn_ts, headless = excluded.headless`)
     .run(sessionId, base.turns + acc.userTurns, acc.model ?? (reset ? null : st?.model ?? null), acc.effort ?? (reset ? null : st?.effort ?? null), acc.prUrl ?? (reset ? null : st?.pr_url ?? null),
       base.input_tokens + acc.input, base.output_tokens + acc.output,
       acc.firstTs ?? (reset ? null : st?.first_ts ?? null), acc.lastTs ?? (reset ? null : st?.last_ts ?? null),
       acc.lastPrompt ?? (reset ? null : st?.last_prompt ?? null),
-      acc.lastTurnTs ?? (reset ? null : st?.last_turn_ts ?? null));
+      acc.lastTurnTs ?? (reset ? null : st?.last_turn_ts ?? null), headless);
   refreshFilesChanged(db, sessionId);
 }

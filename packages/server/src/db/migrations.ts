@@ -1064,6 +1064,15 @@ alter table event_index add column fts_rowid integer;
 `;
 
 /**
+ * 非対話の会話（claude -p などのバッチ）の印。端末ローカルの session_stats に持ち、同期しない。
+ * 1 は本文の entrypoint が sdk- で始まるものだけの会話、0 はそれ以外、null はまだ決めていない会話である。
+ * 今ある行は null のまま残し、索引の埋め戻し（indexer/headless.ts の backfillHeadless）が本文の先頭と末尾を読んで埋める。
+ */
+const V61_SESSION_HEADLESS_SQL = `
+alter table session_stats add column headless integer;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -1113,4 +1122,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 58, sql: V58_CONFIG_HISTORY_SQL },
   { version: 59, sql: V59_AUTO_APPROVALS_SQL },
   { version: 60, sql: V60_EVENT_FTS_ROWID_SQL },
+  { version: 61, sql: V61_SESSION_HEADLESS_SQL },
 ];

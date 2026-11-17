@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { Context, Hono } from 'hono';
 import { liveFilterOf, liveWithLimit, quietLive, type PromoteResultDto, type SearchParamsDto, type SessionStateDto, type SessionStatus, type WakeOn } from '@agent-hangar/shared';
 import { touchRow } from '../../db/notify.ts';
-import { getProject, listSessions } from '../../db/queries.ts';
+import { getProject, isHeadlessSql, listSessions } from '../../db/queries.ts';
 import { EDIT_TOOLS } from '../../indexer/write.ts';
 import { LiveDigester } from '../../live/digest.ts';
 import { PromoteError } from '../../projects/promote.ts';
@@ -43,13 +43,14 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   const tr = translatorOf(deps.language);
   const { db, deviceId } = deps;
   const session = sessionOf(deps);
-  const sessions = (opts: { projectId?: string } = {}) => listSessions(db, deps.live(), { ...opts, deviceId });
+  const sessions = (opts: { projectId?: string; includeHeadless?: boolean } = {}) => listSessions(db, deps.live(), { ...opts, deviceId });
   const digester = deps.digester ?? new LiveDigester(db);
   const external = externalOf(deps);
   const liveSessionRow = (id: string) => db.prepare('select 1 from sessions where id = ? and deleted_at is null').get(id) !== undefined;
   const deletedSessionRow = (id: string) => db.prepare('select 1 from sessions where id = ? and deleted_at is not null').get(id) !== undefined;
 
-  api.get('/sessions', (c) => c.json(sessions({ projectId: c.req.query('projectId') })));
+  // headless=1 で、既定では外す非対話の会話（claude -p などのバッチ）も返す。プロジェクトの画面の絞り込みが使う。
+  api.get('/sessions', (c) => c.json(sessions({ projectId: c.req.query('projectId'), includeHeadless: c.req.query('headless') === '1' })));
   api.get('/sessions/:id', (c) => {
     const s = session(c.req.param('id'));
     return s ? c.json(s) : c.json({ error: tr('session.error.notFound') }, 404);
@@ -112,7 +113,12 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     // 自動で続かずにリセットを過ぎたもの（リセット済み）は、入力待ちに数える（shared の liveWithLimit。UI の数え方と同じ）。
     const stops = stopReasonsOf(db, deps.live(), Date.now());
     const liveOf = (sid: string, psid: string) => liveFilterOf(quietLive(liveWithLimit(liveStatus.get(psid) ?? null, stops.limit(psid)), settled.get(sid)?.status, wokeSince(db, sid, settled.get(sid)?.at ?? null)), alive.has(sid), parked.has(sid));
-    return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), live, stop, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset), status, hideArchived }, liveOf, (_sid, psid) => stops.reason(psid)));
+    const result = searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), live, stop, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset), status, hideArchived }, liveOf, (_sid, psid) => stops.reason(psid));
+    // 一覧（bootstrap）に載らない非対話の会話は、画面が行を組めるように DTO を添える。当たりが無ければ鍵ごと送らない。
+    const hitIds = result.hits.map((h) => h.sessionId);
+    const ids = hitIds.length === 0 ? [] : (db.prepare(`select s.id from sessions s where s.id in (${hitIds.map(() => '?').join(',')}) and ${isHeadlessSql('s')}`).all(...hitIds) as { id: string }[]).map((r) => r.id);
+    const extra = ids.length === 0 ? [] : listSessions(db, deps.live(), { ids, deviceId });
+    return c.json(extra.length > 0 ? { ...result, sessions: extra } : result);
   });
 
   // 本文を送らなければ作業ディレクトリを開く。

@@ -164,6 +164,11 @@ export type SessionDto = { id: string; provider: AgentKind; providerSessionId: s
   /** 統括の会話にだけ付く印（設定の orchestrator.sessionId と同じ id）。DB の列は持たず、設定から導く。ほかの会話は鍵ごと送らない。 */
   role?: import('./orchestrator.ts').SessionRole;
   /**
+   * 非対話の会話（claude -p などのバッチ。本文の entrypoint が sdk- だけで、hangar の run が付いていない）にだけ付く印。ほかは鍵ごと送らない。
+   * 一覧と bootstrap は既定でこの会話を返さない。検索の結果（SearchResultDto.sessions）と、`/api/sessions?headless=1` が返す。
+   */
+  headless?: true;
+  /**
    * ほかの PC に引き継がれたこの PC の会話。この PC の最後の run が taken_over で終わっているときだけ値を持ち、ほかは null である。
    * deviceName は引き継いだ PC の名前、at はこの PC の run が終わった時刻。この PC で後から run を起こせば null に戻る。
    */
@@ -277,7 +282,11 @@ export type SearchParamsDto = { q: string; projectId?: string; since?: number; u
  * 語の無いファイルだけの検索の行には付かない。古いサーバも送らないので、受け取る側は無いものとして読む。
  */
 export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { seq: number; role: string; text: string; agentId: string | null }[]; matched?: ('name' | 'summary' | 'transcript')[] };
-export type SearchResultDto = { hits: SearchHitDto[]; total: number };
+/**
+ * sessions は、当たった会話のうち一覧（bootstrap）に載らない非対話の会話（SessionDto.headless）の DTO である。画面は行を組むのにこれを使う。
+ * 無ければ空として読む。
+ */
+export type SearchResultDto = { hits: SearchHitDto[]; total: number; sessions?: SessionDto[] };
 /**
  * 場所の無いプロジェクトの扱い。
  * repoint の merge は、選んだフォルダがこの PC で別のプロジェクトの置き場になっているときに、そのプロジェクトへまとめること。
