@@ -3,14 +3,21 @@ import { DEFAULT_ORCHESTRATOR, isOrchestratorOrigin, isOrchestratorPatch, markOr
 
 describe('orchestratorOf', () => {
   it('無い値は、切で、Sonnet と medium の既定に寄せる', () => {
-    expect(orchestratorOf(undefined)).toEqual({ enabled: false, sessionId: null, model: 'sonnet', effort: 'medium' });
+    expect(orchestratorOf(undefined)).toEqual({ enabled: false, sessionId: null, model: 'sonnet', effort: 'medium', account: null });
     expect(orchestratorOf(null)).toEqual(DEFAULT_ORCHESTRATOR);
     expect(orchestratorOf('x')).toEqual(DEFAULT_ORCHESTRATOR);
   });
   it('正しい項目はそのまま通し、取れない項目だけ既定に戻す', () => {
-    expect(orchestratorOf({ enabled: true, sessionId: 's1', model: 'opus', effort: 'low' })).toEqual({ enabled: true, sessionId: 's1', model: 'opus', effort: 'low' });
+    expect(orchestratorOf({ enabled: true, sessionId: 's1', model: 'opus', effort: 'low', account: 'acc-2' })).toEqual({ enabled: true, sessionId: 's1', model: 'opus', effort: 'low', account: 'acc-2' });
     expect(orchestratorOf({ enabled: 'yes', sessionId: 5, model: '--evil', effort: 'turbo' })).toEqual(DEFAULT_ORCHESTRATOR);
     expect(orchestratorOf({ enabled: true, sessionId: '' })).toEqual({ ...DEFAULT_ORCHESTRATOR, enabled: true });
+  });
+});
+
+describe('orchestratorOf account', () => {
+  it('空でない文字列だけを受け、それ以外は null', () => {
+    expect(orchestratorOf({ account: 'acc-2' }).account).toBe('acc-2');
+    for (const v of ['', 5, null, undefined, {}]) expect(orchestratorOf({ account: v }).account).toBeNull();
   });
 });
 
@@ -20,6 +27,10 @@ describe('isOrchestratorPatch', () => {
     expect(isOrchestratorPatch({ model: 'haiku', effort: 'medium' })).toBe(true);
   });
   it('会話の id は受けない（見張りだけが書く）。形の違う値と知らない鍵、空は断る', () => {
+    expect(isOrchestratorPatch({ account: 'acc-2' })).toBe(true);
+    expect(isOrchestratorPatch({ account: null })).toBe(true);
+    expect(isOrchestratorPatch({ account: '' })).toBe(false);
+    expect(isOrchestratorPatch({ account: 3 })).toBe(false);
     expect(isOrchestratorPatch({ sessionId: 's1' })).toBe(false);
     expect(isOrchestratorPatch({ enabled: 1 })).toBe(false);
     expect(isOrchestratorPatch({ model: '-x' })).toBe(false);
