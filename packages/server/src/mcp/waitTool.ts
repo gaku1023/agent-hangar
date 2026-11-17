@@ -1,4 +1,4 @@
-import type { LiveSessionDto, MobileWaiting, SessionWaitState } from '@agent-hangar/shared';
+import { sessionPhaseOf, type LiveSessionDto, type MobileWaiting, type SessionPhase, type SessionWaitState } from '@agent-hangar/shared';
 import { waitingOf } from '../agent/waiting.ts';
 import type { Db } from '../db/open.ts';
 import { getSession } from '../db/queries.ts';
@@ -69,6 +69,8 @@ export type WaitResult = {
   reason?: 'not_running' | 'limit';
   /** live の状態。動いていなければ null。 */
   status: LiveSessionDto['status'] | null;
+  /** 画面と同じ見分けの段階（shared の sessionPhaseOf）。 */
+  phase: SessionPhase | null;
   /** 入力待ちの中身。state が waiting のときだけ付く。 */
   waiting?: MobileWaiting;
   /** 最後の assistant の返答。本文が無ければ null。 */
@@ -138,6 +140,7 @@ export async function waitForSessionTool(deps: ToolDeps, ctx: ToolContext, args:
     const waiting = o.waiting ?? (state === 'waiting' && o.live ? waitingOf(deps.db, id, o.live) : null);
     return {
       session_id: id, state, ...(o.reason ? { reason: o.reason } : {}), status: s?.live ?? null,
+      phase: s ? sessionPhaseOf({ live: s.live, status: s.state?.status, parked: s.parked, woke: s.woke, providerSessionId: s.providerSessionId }) : null,
       ...(waiting ? { waiting } : {}), last_message: reply && !stale ? clip(reply.text) : null,
       ...(o.mark ? { turn_started: o.started ?? seenBusy } : {}),
       waited_seconds: Math.round((clock.now() - begun) / 1000),
