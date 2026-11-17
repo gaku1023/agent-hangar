@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, expect } from 'vitest';
+import { afterEach, beforeEach, expect, vi } from 'vitest';
+import { LaunchPreps } from './launchPrep.ts';
 import { orchestratorOf, type OrchestratorSetting } from '@agent-hangar/shared';
 import { agentsOf } from '../agent/agents.ts';
 import { claudeDriverFor } from '../boot/agents.ts';
@@ -44,7 +45,7 @@ posixDescribe('RunManager.startOrchestrator（opencode）', () => {
 
   const sessions = (): Row[] => db.prepare('select id, provider, provider_session_id, cwd, project_id from sessions where deleted_at is null').all() as Row[];
 
-  const make = (o: { enabled?: boolean } = {}) => {
+  const make = (o: { enabled?: boolean; preps?: LaunchPreps } = {}) => {
     const { bin, logFile } = writeFakeOpencode(path.join(home, 'oc'), {});
     const enabled = () => o.enabled !== false;
     const manager = new ServeManager({ enabled, bin: () => bin, version: async () => '2.2.0', registry: new ServeRegistry(path.join(home, 'serves.json')), killGraceMs: 300, watchMs: 50 });
@@ -69,6 +70,7 @@ posixDescribe('RunManager.startOrchestrator（opencode）', () => {
       agentBin: (k) => (k === 'opencode' ? bin : null),
       injection: () => ({ askStatusAtEnd: true, liveHints: true, opencode: 'minimal' }),
       orchestrator: () => setting,
+      ...(o.preps ? { preps: o.preps } : {}),
     });
     return { rm, opened, configs, manager, log: () => readFakeOpencodeLog(logFile) };
   };
@@ -89,6 +91,14 @@ posixDescribe('RunManager.startOrchestrator（opencode）', () => {
     // 統括は自動承認を付けない。
     expect(opened[0]!.command).not.toContain('--auto');
     expect(JSON.parse((db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string }).launch_params)).toMatchObject({ agent: 'opencode', name: 'Orchestrator' });
+  });
+
+  posixIt('起動前の準備（LM Studio のサーバーとモデル）を、ふつうの起動と同じく走らせる', async () => {
+    const preps = new LaunchPreps({ broadcast: () => {} });
+    const begin = vi.spyOn(preps, 'begin');
+    const { rm } = make({ preps });
+    const r = await rm.startOrchestrator({ agent: 'opencode' });
+    expect(begin).toHaveBeenCalledWith(undefined, r.sessionId);
   });
 
   posixIt('アカウントを渡されても opencode には無いので捨てて起こす', async () => {

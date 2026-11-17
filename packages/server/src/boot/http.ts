@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isAgentKind, orchestratorOf, voiceOf, PEER_CHAT_MIN_HANGAR_VERSION, type SettingsDto } from '@agent-hangar/shared';
 import { OrchestratorKeeper } from '../orchestrator/keeper.ts';
+import { orchestratorResumable } from '../orchestrator/resumable.ts';
 import { sendToOrchestrator } from '../http/routes/orchestrator.ts';
 import { VoiceHelper, resolveVoiceBin } from '../voice/helper.ts';
 import { VoiceService } from '../voice/service.ts';
@@ -197,8 +198,8 @@ export function bootHttp(p: {
     ...(p.orchestratorFeed ? switchDeps(p.orchestratorFeed) : {}),
     startedAt: (id) => (db.prepare('select started_at s from sessions where id = ?').get(id) as { s: number | null } | undefined)?.s ?? null,
     contextTokens: (id) => getSession(db, delivery.live.current(), id, { deviceId: device.id, now: Date.now })?.stats.contextTokens ?? null,
-    // 行が消えていなくて、本文がある会話だけを再開できる（run が早く終わって本文の無いまま行が消えた会話は、新しく起こす）。
-    resumable: (id) => !!db.prepare('select 1 from sessions s where s.id = ? and s.deleted_at is null and exists (select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null)').get(id),
+    // 再開できる会話か（orchestrator/resumable.ts）。Claude Code は本文の写しがあるとき、Codex と opencode は相手の会話の id があるとき。
+    resumable: (id) => orchestratorResumable(db, id),
   });
   // 見張りの状態（止まった、切り替え中）が変わったら、全部の画面へ配る。柱のメニューと上端の棒が読む。
   orchestrator.onState((state) => { delivery.hub.broadcast({ type: 'orchestrator.state', state }); });

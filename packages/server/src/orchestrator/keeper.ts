@@ -459,6 +459,9 @@ export class OrchestratorKeeper {
           await this.deps.runs.resumeWith(sid, this.restarting ? { ...o, stray: 'stop' } : o);
         } else {
           const r = await this.deps.runs.startOrchestrator(this.launchOf(s));
+          // 起動の指定は保存より先に記録する。保存は設定の変更として apply を呼び、記録が古いままだと起こしたばかりの会話を「指定が違う」と止めてしまう。
+          this.launched = specOf(s);
+          this.restarting = false;
           // 会話が消えて（または別のアプリになって）起こし直した。前の id は系譜に gone（agent）で残す。
           this.deps.save({ sessionId: r.sessionId, ...(s.sessionId !== null && s.sessionId !== r.sessionId ? { history: this.pushed(s.sessionId, other ? 'agent' : 'gone') } : {}) });
         }

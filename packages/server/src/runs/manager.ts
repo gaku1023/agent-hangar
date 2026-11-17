@@ -872,8 +872,9 @@ export class RunManager {
     };
     let providerSessionId: string;
     let base: Omit<LaunchSpec, 'env'>;
-    // 起動前の準備（LM Studio のモデル）。外のターミナルからの起動は、問いに答える画面が無いので準備しない。
-    const prep = from ? null : this.deps.preps?.begin(params.prepKey, sessionId) ?? null;
+    // 起動前の準備（LM Studio のサーバーとモデル）。外のターミナルからの起動は、問いに答える画面が無いので準備しない。
+    // 統括は準備する（再開の resumeMaterialized と同じ）。しないと、止まっている LM Studio のサーバーを起こす人がいない。問いが要るときは起動の失敗になる。
+    const prep = from && !from.orchestrator ? null : this.deps.preps?.begin(params.prepKey, sessionId) ?? null;
     hooks.onPending?.(sessionId);
     try {
       base = this.baseInput(sessionId, projectId, cwd, params, undefined, undefined, agent);
