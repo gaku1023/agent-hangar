@@ -1,4 +1,4 @@
-import { codexEnabledOf, opencodeEnabledOf, type NewSessionSeed, type OpencodeOptionsDto, type PeerDeviceDto, type ProjectStatus, type Translate } from '@agent-hangar/shared';
+import { codexEnabledOf, opencodeEnabledOf, opencodeFallbackModel, type NewSessionSeed, type OpencodeOptionsDto, type PeerDeviceDto, type ProjectStatus, type Translate } from '@agent-hangar/shared';
 import type { LaunchPrefs, NewSessionDraft, State } from '../mediator/types.ts';
 import { hasMultipleAccounts, type CodexOptionsState, type OpencodeOptionsState, type Store } from '../store/store.ts';
 import type { FolderInspectState } from '../store/folderInspect.ts';
@@ -185,13 +185,19 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
 
 /**
  * opencode のモデルの札の値。remembered は前回の値（利用者がいま選んだ値も同じ扱い）で、空はデフォルト。
- * 一覧が届いていて、そこから前回のモデルが消えていたら（無料枠の終わりなど）、デフォルトに戻し、reset を真にする。
- * reset はダイアログが「戻した」ことを小さく知らせるための印である（知らせの見せ方は試作で選ぶ途中で、まだ出さない）。
- * 一覧がまだ無いときは、消えたかどうか分からないので前回のままにする。
+ * 一覧が届いていて、そこから前回のモデルが消えていたら（無料枠の終わり、別の PC を選んだなど）、デフォルトに戻し、reset を真にする。
+ * ただし opencode.json の既定がその PC で動かせない（一覧に無い、ローカルのサーバーに無い）ときは、デフォルトではなく代わりのモデル（opencodeFallbackModel）にする（#698）。
+ * reset はダイアログが「デフォルトに戻した」ことを札の下に 1 行で知らせるための印である。
+ * 一覧がまだ無いときは、消えたかどうか分からないので前回のままにする。options は手元の一覧か、別の PC の一覧（PeerDeviceDto.opencode）。
  */
-export function opencodeModelChoice(remembered: string, options: OpencodeOptionsDto | null): { model: string; reset: boolean } {
-  if (!remembered || !options) return { model: remembered, reset: false };
-  return options.models.some((m) => m.id === remembered) ? { model: remembered, reset: false } : { model: '', reset: true };
+export function opencodeModelChoice(remembered: string, options: Pick<OpencodeOptionsDto, 'models' | 'defaultModel'> | null): { model: string; reset: boolean } {
+  if (!options) return { model: remembered, reset: false };
+  const runnable = (id: string) => options.models.some((m) => m.id === id && m.missing !== true);
+  if (remembered && runnable(remembered)) return { model: remembered, reset: false };
+  // 既定（opencode.json）がその PC で動かせなければ、代わりのモデルを選ぶ（#698）。札にそのモデルが出るので、戻した知らせは出さない。
+  const fallback = opencodeFallbackModel(options);
+  if (fallback !== null) return { model: fallback, reset: false };
+  return { model: '', reset: remembered !== '' };
 }
 
 /** エージェントの一覧の opencode の行に添える「opencode 2.1.4 · 検証済み」。版が分からなければ null。 */

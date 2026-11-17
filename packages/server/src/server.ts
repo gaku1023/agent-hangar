@@ -243,7 +243,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   idleUnload.start();
   // ここまでで既存のセッションの紐づけは済んでいる。以後に現れた未分類だけを知らせる。
   home.life.started = true;
-  runs.startPresence();
+  runs.startPresence({ opencodeOptions: opencode.options });
   sync.start();
   // 引き継ぎの頼みを受ける。同期が始まってから回す。起きていなかった間に届いた頼みと、tmux に残った奪われた claude も、ここで止める。
   takeover.start();

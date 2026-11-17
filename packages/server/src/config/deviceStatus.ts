@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os, { type NetworkInterfaceInfo } from 'node:os';
 import path from 'node:path';
-import { parseDeviceStatus, type DeviceAccountStatus, type DeviceStatus, type PeerDeviceStatus } from '@agent-hangar/shared';
+import { DEVICE_OPENCODE_MODELS_MAX, parseDeviceStatus, type DeviceAccountStatus, type DeviceOpencodeStatus, type DeviceStatus, type OpencodeOptionsDto, type PeerDeviceStatus } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import type { DeviceInfo } from './paths.ts';
@@ -21,18 +21,56 @@ export type StatusSources = {
   lanIps(): string[];
   hostKey(): string | null;
   version: string;
+  /** 手元に持った opencode の選択肢（取りに行かない）。まだ取れていなければ null。省けば載せない。 */
+  opencode?: () => OpencodeOptionsDto | null;
 };
+
+/** ほかの PC に見せる opencode の一覧を取り直す間。取り直すと serve を起こすことがある（1〜2 秒）ので、様子の調べ直し（5 分）より長くする。 */
+export const OPENCODE_STATUS_MAX_AGE_MS = 30 * 60_000;
+
+/**
+ * 様子に載せる opencode の一覧の読み口（#698）。手元に持った一覧（ホームのもの）を返し、無いか maxAgeMs より古ければ裏で取り直す。
+ * 取り直しは 1 度に 1 つで、取れたら onFetched を呼ぶ（呼ぶ側が様子を書き直す）。opencode を起こせないときは取りに行かず null を返す。
+ */
+export function opencodeStatusFeed(o: {
+  options: { last(dir: null): OpencodeOptionsDto | null; get(dir: null): Promise<OpencodeOptionsDto> };
+  usable: () => boolean;
+  now: () => number;
+  maxAgeMs: number;
+  onFetched: () => void;
+}): () => OpencodeOptionsDto | null {
+  let inFlight = false;
+  return () => {
+    if (!o.usable()) return null;
+    const held = o.options.last(null);
+    if (!inFlight && (held === null || o.now() - held.fetchedAt >= o.maxAgeMs)) {
+      inFlight = true;
+      o.options.get(null).then(() => { inFlight = false; o.onFetched(); }, () => { inFlight = false; });
+    }
+    return held;
+  };
+}
+
+/** opencode の選択肢から、ほかの PC に見せる分を作る。いま動かせないモデル（missing）は載せず、時刻と版は落とす。 */
+export function deviceOpencodeOf(dto: OpencodeOptionsDto): DeviceOpencodeStatus {
+  const models = dto.models.filter((m) => m.missing !== true).slice(0, DEVICE_OPENCODE_MODELS_MAX)
+    .map((m) => ({ id: m.id, label: m.label, group: m.group, provider: m.provider, tools: m.tools, context: m.context, cost: m.cost }));
+  return { modes: dto.modes.map((m) => ({ id: m.id, description: m.description })), models, providers: dto.providers.map((p) => ({ id: p.id, name: p.name, where: p.where })), defaultModel: dto.defaultModel };
+}
 
 const byName = (a: DeviceAccountStatus, b: DeviceAccountStatus): number => (a.agent === b.agent ? 0 : a.agent < b.agent ? -1 : 1) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
 
 /** 読み取りを集めて、比べやすい並びの様子にする。 */
 export function collectDeviceStatus(s: StatusSources): DeviceStatus {
+  const agents = [...new Set(s.agents())].sort();
+  const opencode = agents.includes('opencode') ? s.opencode?.() ?? null : null;
   return {
     accounts: [...s.accounts()].sort(byName),
-    agents: [...new Set(s.agents())].sort(),
+    agents,
     lan_ips: [...new Set(s.lanIps())].sort(),
     ssh_host_key: s.hostKey(),
     hangar_version: s.version,
+    ...(opencode ? { opencode: deviceOpencodeOf(opencode) } : {}),
   };
 }
 
@@ -117,6 +155,8 @@ export function liveStatusSources(o: {
   agentUsable: (kind: string) => boolean;
   agentKinds: readonly string[];
   version: string;
+  /** 手元に持った opencode の選択肢（OpencodeOptionsService の last）。 */
+  opencode?: () => OpencodeOptionsDto | null;
 }): StatusSources {
   const rows = (agent: DeviceAccountStatus['agent'], store: AuthedStore): DeviceAccountStatus[] =>
     store.list().map((a) => {
@@ -130,5 +170,6 @@ export function liveStatusSources(o: {
     lanIps: () => lanIpv4s(os.networkInterfaces()),
     hostKey: () => hostKeyFingerprint(process.platform, process.env),
     version: o.version,
+    ...(o.opencode ? { opencode: o.opencode } : {}),
   };
 }

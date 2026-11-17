@@ -57,7 +57,7 @@ theme = "dark"
 
 const OPENCODE_JSONC = `{
   // my opencode config
-  "model": "p/m",
+  "theme": "p/m",
   "mcp": {
     "docs": { "type": "remote", "url": "https://mcp.example.com/mcp" },
     "files": { "type": "local", "command": ["npx", "-y", "@example/files"], "environment": { "ROOT": "/data" } }
@@ -499,13 +499,13 @@ describe('書き戻し：opencode', () => {
     fs.writeFileSync(path.join(opencodeDir, 'opencode.jsonc'), OPENCODE_JSONC);
     deliver(
       [ocItem('added', 'create', { type: 'remote', url: 'https://added.example.com' }), ocItem('files', 'delete', undefined)],
-      [{ id: 'opencode:json:model', kind: 'opencode-config', op: 'overwrite', content: JSON.stringify('p/other'), target: 'opencode.json#model' }],
+      [{ id: 'opencode:json:theme', kind: 'opencode-config', op: 'overwrite', content: JSON.stringify('p/other'), target: 'opencode.json#theme' }],
     );
     writeOpencodeMcp(opts());
     writeOpencode({ ...opts(), opencodeDir });
     const out = rd(path.join(opencodeDir, 'opencode.jsonc'));
     expect(out).toContain('// my opencode config');
-    expect(out).toContain('"model": "p/other"');
+    expect(out).toContain('"theme": "p/other"');
     expect(JSON.parse(out.replace(/\/\/.*$/m, '')).mcp.added.url).toBe('https://added.example.com');
     expect(JSON.parse(out.replace(/\/\/.*$/m, '')).mcp.docs.url).toBe('https://mcp.example.com/mcp');
     expect(JSON.parse(out.replace(/\/\/.*$/m, '')).mcp.files).toBeUndefined();

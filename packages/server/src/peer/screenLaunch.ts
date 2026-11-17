@@ -43,6 +43,8 @@ export function listPeersForScreen(db: Db, selfId: string, deps: RouteDeps, now:
     accounts: (p.status?.accounts ?? []).map((a) => ({ name: a.name, agent: a.agent, loggedIn: a.logged_in })),
     agents: p.status?.agents ?? [],
     projects: projectsOn(db, p.device_id),
+    // 相手の opencode の一覧（#698）。作成画面は、別の PC を選んだときにこれからモードとモデルを出す。
+    ...(p.status?.opencode ? { opencode: p.status.opencode } : {}),
   }));
 }
 

@@ -65,6 +65,13 @@ describe('listPeersForScreen', () => {
     workerOk = false;
     expect(listPeersForScreen(db, ME, peer, NOW)[0]!.state).toBe('outdated');
   });
+  it('相手が opencode の一覧を載せていれば、そのまま渡す（#698）。載せていなければ欄を省く', () => {
+    const opencode = { modes: [{ id: 'build', description: null }], models: [{ id: 'opencode/a', label: 'A', group: 'Zen', provider: 'opencode', tools: true, context: null, cost: null }], providers: [{ id: 'opencode', name: 'Zen', where: 'remote' as const }], defaultModel: 'lmstudio/q' };
+    putPeer({ status: status({ agents: ['claude-code', 'opencode'], opencode }) });
+    expect(listPeersForScreen(db, ME, peer, NOW)[0]!.opencode).toEqual(opencode);
+    putPeer();
+    expect(listPeersForScreen(db, ME, peer, NOW)[0]).not.toHaveProperty('opencode');
+  });
   it('消えたプロジェクトと、未解決の置き場は数えない', () => {
     db.prepare("update project_roots set resolved = 0 where id = 'r1'").run();
     expect(listPeersForScreen(db, ME, peer, NOW)[0]!.projects).toEqual([]);

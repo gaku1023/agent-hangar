@@ -153,3 +153,55 @@ describe('アカウント（名前で突き合わせる）', () => {
     expect(actions.find((a) => a.type === 'session.new.submitPeer')).toMatchObject({ body: { account: 'Work' } });
   });
 });
+
+describe('opencode のモデルは起動先の PC の一覧から（#698）', () => {
+  const zen = (id: string, label: string) => ({ id: `opencode/${id}`, label, group: 'OpenCode', provider: 'opencode', tools: true, context: null, cost: { input: 0, output: 0 } });
+  const LOCAL = {
+    version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }],
+    models: [zen('glm-5.3-flash-free', 'GLM-5.3-Flash Free'), { id: 'openrouter/qwen3-coder', label: 'Qwen3 Coder', group: 'OpenRouter', provider: 'openrouter', tools: true, context: null, cost: { input: 0.2, output: 0.8 } }],
+    providers: [{ id: 'opencode', name: 'OpenCode', where: 'remote' as const }, { id: 'openrouter', name: 'OpenRouter', where: 'remote' as const }],
+    // opencode.json の既定は、この PC に無い LM Studio のモデル。
+    defaultModel: 'lmstudio/qwen3.6-35b-a3b', pricesAt: null, fetchedAt: 1, stale: false,
+  };
+  const PEER_OC = {
+    modes: [{ id: 'build', description: null }],
+    models: [{ id: 'lmstudio/gemma-4-12b', label: 'Gemma 4 12B', group: 'LM Studio', provider: 'lmstudio', tools: true, context: null, cost: null }, zen('deepseek-v4.1-flash-free', 'DeepSeek V4.1 Flash Free')],
+    providers: [{ id: 'lmstudio', name: 'LM Studio', where: 'device' as const }, { id: 'opencode', name: 'OpenCode', where: 'remote' as const }],
+    defaultModel: 'lmstudio/qwen3.6-35b-a3b',
+  };
+  const ocMac = (over: Partial<PeerDeviceDto> = {}) => mac({ agents: ['claude-code', 'opencode'], opencode: PEER_OC, ...over });
+  const ocBase = { prefs: { p1: { agent: 'opencode' } } as unknown as NewSessionProps['prefs'], opencode: { options: { dir: '/w/alpha', status: 'ready' as const, data: LOCAL } } };
+  const modelChip = () => screen.queryByRole('button', { name: 'モデル' });
+
+  it('この PC の既定が使えなければ、札に Zen の無料のモデルを出し、それで起動する', () => {
+    const actions = mount({ ...ocBase });
+    expect(modelChip()!.textContent).toContain('GLM-5.3-Flash Free');
+    fireEvent.click(startButton(/^起動$/));
+    expect(actions.find((a) => a.type === 'session.new.submit')).toMatchObject({ params: { agent: 'opencode', model: 'opencode/glm-5.3-flash-free' } });
+  });
+  it('別の PC を選ぶと、その PC の一覧から選び、既定が使えなければその PC の Zen の無料のモデルにする', () => {
+    const actions = mount({ ...ocBase, peers: [ocMac()] });
+    pick('起動する PC', 'Mac');
+    expect(modelChip()!.textContent).toContain('DeepSeek V4.1 Flash Free');
+    fireEvent.click(modelChip()!);
+    const names = screen.getAllByRole('option').map((o) => o.getAttribute('aria-label'));
+    expect(names).toContain('Gemma 4 12B');
+    expect(names).not.toContain('Qwen3 Coder');
+    expect(names).not.toContain('デフォルト');
+    expect(screen.getByText('Mac のモデル一覧')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('option', { name: 'Gemma 4 12B' }));
+    fireEvent.click(startButton('Mac で起動'));
+    expect(actions.find((a) => a.type === 'session.new.submitPeer')).toMatchObject({ body: { device: 'pc-b', agent: 'opencode', model: 'lmstudio/gemma-4-12b' } });
+  });
+  it('一覧を持たない古い版の PC では、モデルの札を出さず、モデルを指定せずに頼む', () => {
+    const actions = mount({ ...ocBase, peers: [ocMac({ opencode: undefined })] });
+    pick('起動する PC', 'Mac');
+    expect(modelChip()).toBeNull();
+    fireEvent.click(startButton('Mac で起動'));
+    const sent = actions.find((a) => a.type === 'session.new.submitPeer') as Extract<UiAction, { type: 'session.new.submitPeer' }>;
+    expect(sent.body.agent).toBe('opencode');
+    expect(sent.body).not.toHaveProperty('model');
+    pick('起動する PC', 'この PC');
+    expect(modelChip()).not.toBeNull();
+  });
+});

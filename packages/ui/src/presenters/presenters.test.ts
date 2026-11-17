@@ -2222,6 +2222,16 @@ describe('opencodeModelChoice（前回の opencode のモデル）', () => {
     expect(opencodeModelChoice('', OC_OPTIONS)).toEqual({ model: '', reset: false });
     expect(opencodeModelChoice('opencode/gone-free', null)).toEqual({ model: 'opencode/gone-free', reset: false });
   });
+  // #698：opencode.json の既定がその PC で使えないときは、Zen の無料のモデルに寄せ、札にそのモデルを出す。
+  const NO_DEFAULT = { ...OC_OPTIONS, models: [OC_OPTIONS.models[0]!, { id: 'opencode/deepseek-free', label: 'DeepSeek', group: 'OpenCode', provider: 'opencode', tools: true, context: null, cost: { input: 0, output: 0 } }], defaultModel: 'lmstudio/qwen3.6' };
+  it('既定が一覧に無ければ、デフォルトの代わりに Zen の無料のモデルを選ぶ。戻した知らせは出さない', () => {
+    expect(opencodeModelChoice('', NO_DEFAULT)).toEqual({ model: 'opencode/deepseek-free', reset: false });
+    expect(opencodeModelChoice('lmstudio/gone', NO_DEFAULT)).toEqual({ model: 'opencode/deepseek-free', reset: false });
+  });
+  it('一覧にあってもローカルのサーバーに無い（missing）モデルは、無いものとして扱う', () => {
+    const missing = { ...OC_OPTIONS, models: OC_OPTIONS.models.map((m) => (m.id === 'lmstudio/qwen' ? { ...m, missing: true } : m)), defaultModel: null };
+    expect(opencodeModelChoice('lmstudio/qwen', missing)).toEqual({ model: '', reset: true });
+  });
 });
 
 describe('opencodeAgentNote（エージェントの一覧の opencode の説明）', () => {

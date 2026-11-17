@@ -42,7 +42,7 @@ function deliver(items: In[]): void {
 const claudeFile = (rel: string, content: string): In => ({ id: `file:${rel}`, kind: 'commands', op: 'overwrite', content, target: rel });
 const skill = (rel: string, content: string): In => ({ id: agentsSkillsId(rel), kind: 'agents-skills', op: 'create', content, target: rel });
 const codexModel = (v: string): In => ({ id: codexTomlId(['model']), kind: 'codex-config', op: 'overwrite', content: JSON.stringify(v), target: 'config.toml#model' });
-const ocModel = (v: string): In => ({ id: 'opencode:json:model', kind: 'opencode-config', op: 'create', content: JSON.stringify(v), target: 'opencode.json#model' });
+const ocModel = (v: string): In => ({ id: 'opencode:json:theme', kind: 'opencode-config', op: 'create', content: JSON.stringify(v), target: 'opencode.json#theme' });
 
 const CODEX_ORIG = '# keep me\nmodel = "old"\n';
 
@@ -70,7 +70,7 @@ describe('指示書を持ち主の対象ごとに分けて書く', () => {
     expect(fs.existsSync(at('claudeDir', 'demo/SKILL.md'))).toBe(false);
     expect(fs.existsSync(path.join(dirs().claudeDir, 'skills'))).toBe(false);
     expect(read('codexHome', 'config.toml')).toBe('# keep me\nmodel = "new"\n');
-    expect(JSON.parse(read('opencodeDir', 'opencode.json')!)).toEqual({ model: 'm' });
+    expect(JSON.parse(read('opencodeDir', 'opencode.json')!)).toEqual({ theme: 'm' });
     expect(readApplyOrder(home)).toBeNull();
     // 控えは対象ごとの置き場に 1 つずつ
     expect(r.generations!.map((g) => g.target).sort()).toEqual(['agents-skills', 'claude', 'codex', 'opencode']);

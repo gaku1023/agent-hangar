@@ -292,6 +292,8 @@ button.count-chip:focus-visible { outline: 2px solid var(--accent); outline-offs
 /* 新しいセッションの札の列（views/LaunchChips.tsx）。幅が足りなければ折り返す。
    「＋」は、足せる札が残っている間だけ末尾に出る小さい丸い札である。 */
 .launch-chips { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 1.5); }
+/* 出したり引っ込めたりする札の入れ物（LaunchChips の ChipSlot）。畳む間は幅を切り詰める。 */
+.launch-chips > .chip-slot { display: inline-flex; min-width: 0; }
 .set-add { display: inline-flex; align-items: center; justify-content: center; width: var(--row-h); height: var(--row-h); padding: 0; border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-3); cursor: pointer; box-shadow: inset 0 0 0 1px var(--line); transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .set-add:hover { color: var(--accent); background: var(--surface); }
 .set-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

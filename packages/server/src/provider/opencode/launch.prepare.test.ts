@@ -150,6 +150,45 @@ describe('checkSessionModel（この PC にモデルがあるか）', () => {
       .rejects.toThrow('lmstudio の API サーバー（http://127.0.0.1:1234）に接続できません。サーバーを起動して再試行してください。');
   });
 
+  /** 接続先の行と opencode のモデルの一覧を決めた serve の偽物。設定の既定は lmstudio/qwen3.6-35b-a3b。 */
+  async function serveWith(rows: { id: string; baseURL?: string }[], models: { providerID: string; id: string }[]): Promise<ServeInfo> {
+    server = http.createServer((req, res) => {
+      const p = new URL(req.url ?? '/', 'http://x').pathname;
+      res.setHeader('content-type', 'application/json');
+      if (p === '/api/config') res.end(JSON.stringify([{ type: 'document', info: { model: { providerID: 'lmstudio', model: 'qwen3.6-35b-a3b' } } }]));
+      else if (p === '/api/model') res.end(JSON.stringify({ data: models.map((m) => ({ ...m, name: m.id })) }));
+      else if (p === '/api/provider') res.end(JSON.stringify({ data: rows.map((r) => ({ id: r.id, name: r.id, ...(r.baseURL ? { settings: { baseURL: r.baseURL } } : {}) })) }));
+      else { res.statusCode = 404; res.end('{}'); }
+    });
+    await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
+    const port = (server.address() as AddressInfo).port;
+    return { url: `http://127.0.0.1:${port}`, password: 'pw', port, pid: 1 } as unknown as ServeInfo;
+  }
+  const zen = Array.from({ length: 7 }, (_, i) => ({ providerID: 'opencode', id: `free-${i}` }));
+
+  it('既定のモデルの接続先がこの PC の opencode に無ければ（#698）、モデル名と PC の名前と使えるモデルを添えて断る', async () => {
+    const serve = await serveWith([{ id: 'opencode' }], zen);
+    const named = { ...deps([]), deviceName: () => 'DESKTOP-J81OMQO' };
+    await expect(checkSessionModel(named, listing({ models: [] }), serve, spec()))
+      .rejects.toThrow('lmstudio/qwen3.6-35b-a3b は DESKTOP-J81OMQO の opencode にありません。使えるのは: opencode/free-0、opencode/free-1、opencode/free-2、opencode/free-3、opencode/free-4 ほか 2 件');
+  });
+
+  it('PC の名前が無ければ「この PC」と言う。使えるモデルが無ければそう言う。つないだ接続先のモデルは通す', async () => {
+    const serve = await serveWith([{ id: 'openrouter', baseURL: 'https://openrouter.ai/api/v1' }], [{ providerID: 'openrouter', id: 'qwen3-coder' }]);
+    await expect(checkSessionModel(deps([]), listing({ models: [] }), serve, { ...spec(), model: 'zen/gone' }))
+      .rejects.toThrow('zen/gone は この PC の opencode にありません。使えるのは: openrouter/qwen3-coder');
+    await expect(checkSessionModel(deps([]), listing({ models: [] }), serve, { ...spec(), model: 'openrouter/qwen3-coder' })).resolves.toBeUndefined();
+  });
+
+  it('使えるモデルが無ければそう言う。接続先の行がまだ空（起きたばかり）なら決めずに通す', async () => {
+    const none = await serveWith([{ id: 'openrouter' }], []);
+    await expect(checkSessionModel(deps([]), listing({ models: [] }), none, spec()))
+      .rejects.toThrow('lmstudio/qwen3.6-35b-a3b は この PC の opencode にありません。使えるモデルがありません。');
+    server!.close();
+    const starting = await serveWith([], []);
+    await expect(checkSessionModel(deps([]), listing({ models: [] }), starting, { ...spec(), model: 'zen/gone' })).resolves.toBeUndefined();
+  });
+
   it('この PC でない接続先（anthropic など）は聞かずに通す', async () => {
     const { serve } = await serveStarting({ providerRowsAfter: 0, rows: [...lmRow, { id: 'anthropic', baseURL: 'https://api.anthropic.com/v1' }], configProviders: {} });
     const calls: string[] = [];

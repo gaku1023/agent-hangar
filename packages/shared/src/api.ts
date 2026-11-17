@@ -241,6 +241,8 @@ export type PeerApprovalDto = { id: string; from: string | null; device: string;
 export type PeerDeviceDto = {
   id: string; name: string; platform: string; state: 'ready' | 'offline' | 'outdated';
   accounts: { name: string; agent: string; loggedIn: boolean | null }[]; agents: string[]; projects: string[];
+  /** 相手の opencode の選択肢（#698）。相手が opencode を起こせない、まだ一覧を取れていない、この欄を知らない古い版のときは省く。省いた PC では、作成画面はモデルの札を出さない。 */
+  opencode?: import('./deviceStatus.ts').DeviceOpencodeStatus;
 };
 /** 画面から別の PC へ起動を頼む本体（POST /api/peer-launch）。人が選んだので承認は要らない（D8）。account は相手のアカウントの名前で、省けば相手の既定。 */
 export type PeerLaunchBody = {

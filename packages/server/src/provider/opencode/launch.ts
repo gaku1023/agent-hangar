@@ -93,7 +93,12 @@ export type MaterializeDeps = {
   localListing?: LocalModelListing;
   /** ローカル LM Studio のサーバーを必要なときだけ起動する。 */
   localServers?: Pick<LmServerStarter, 'ensure'>;
+  /** この PC の hangar の名前。起動前に断る文に入れる（#698）。無ければ「この PC」と言う。 */
+  deviceName?: () => string;
 };
+
+/** 断る文に並べる、使えるモデルの数。残りは件数だけ言う。 */
+const AVAILABLE_SHOWN = 5;
 
 /**
  * 新しい会話を起こす前の下ごしらえ。返すのは opencode が振った会話の ID である。
@@ -188,6 +193,17 @@ export async function checkSessionModel(deps: MaterializeDeps, listing: LocalMod
   if (!model || slash <= 0) return;
   const provider = model.slice(0, slash);
   const [rows, configured] = await Promise.all([client.providerRows(spec.cwd), client.configuredBaseURLs(spec.cwd)]);
+  // 接続先がこの PC の opencode に無い（つないでいない、opencode.json にも無い）なら、起こしても「Model unavailable」で止まる（#698）。
+  // 起きたばかりの serve は接続先の行を空で答えることがあるので、行が空のときは決めない。
+  if (rows.length > 0 && !rows.some((r) => r.id === provider) && !configured.has(provider)) {
+    const device = deps.deviceName?.() || msg('launchPrep.device.thisPc');
+    const ids = new Set(rows.map((r) => r.id));
+    const usable = (await client.models(spec.cwd).catch(() => [])).filter((m) => ids.has(m.providerID) && m.enabled && m.tools).map((m) => `${m.providerID}/${m.id}`);
+    if (!usable.length) throw new MessageError(msg('launchPrep.error.modelNotOnDeviceNone', { model, device }));
+    const head = usable.slice(0, AVAILABLE_SHOWN);
+    const available = usable.length > head.length ? msg('launchPrep.error.listMore', { list: head, n: usable.length - head.length }) : head;
+    throw new MessageError(msg('launchPrep.error.modelNotOnDevice', { model, device, available }));
+  }
   const urls = await providerURLs(client, { cwd: spec.cwd, uses: [{ ref: model, uses: ['$session'] }], prep: spec.prep?.run, sleep: deps.sleep }, rows, configured);
   const r = await listing.list(urls.find((p) => p.id === provider)?.baseURL ?? null);
   spec.prep?.run.throwIfCancelled();

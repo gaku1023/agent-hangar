@@ -6,7 +6,7 @@ import { FoldBox } from './primitives/FoldBox.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { highlight } from './primitives/listboxModel.ts';
-import { growIn, staggerIn } from './primitives/motionKit.ts';
+import { fadeIn, growIn, staggerIn } from './primitives/motionKit.ts';
 import { Popover } from './primitives/Popover.tsx';
 import { revealWithin } from './primitives/revealWithin.ts';
 
@@ -36,6 +36,8 @@ export type OpencodeModelPickerProps = {
   reset: boolean;
   /** 再読み込みの途中。 */
   reloading: boolean;
+  /** 一覧がほかの PC のものなら、その PC の名前（#698）。下端に出し、LM Studio の再読み込みは置かない。 */
+  device?: string | null;
   onChange: (value: string) => void;
   onReload: () => void;
   /** 「プロバイダーを管理…」。小窓は閉じてから呼ぶ。 */
@@ -60,6 +62,15 @@ export function OpencodeModelPicker(props: OpencodeModelPickerProps) {
   const valueId = useId();
   const anchor = useRef<HTMLButtonElement | null>(null);
   const chosen = props.models.find((m) => m.id === props.value);
+  const shown = chosen?.label ?? (props.value || t('launch.value.default'));
+  // 起動先の PC を替えて札の値が変わったら、値を薄れから現す（#698）。初めの描画では動かさない。
+  const valueEl = useRef<HTMLSpanElement | null>(null);
+  const lastShown = useRef(shown);
+  useLayoutEffect(() => {
+    if (lastShown.current === shown) return;
+    lastShown.current = shown;
+    if (valueEl.current) fadeIn(valueEl.current, '--dur-swap');
+  }, [shown]);
   const toggle = (key: string) => {
     const next = new Set(closed);
     if (next.has(key)) next.delete(key);
@@ -72,7 +83,7 @@ export function OpencodeModelPicker(props: OpencodeModelPickerProps) {
         <button type="button" {...p} ref={(el) => { p.ref.current = el; anchor.current = el; }} className="set-chip" data-tone={props.value ? 'default' : 'muted'} {...props.faceProps} {...(props.reset ? { 'data-reset': 'true' } : {})}
           aria-label={props.label} aria-describedby={valueId}>
           <span className="set-chip-name">{props.label}</span>
-          <span className="set-chip-value" id={valueId}>{chosen?.label ?? (props.value || t('launch.value.default'))}</span>
+          <span ref={valueEl} className="set-chip-value" id={valueId}>{shown}</span>
           <Icon name="chevronDown" />
         </button>
       )}>
@@ -92,7 +103,7 @@ function PickerBody(props: OpencodeModelPickerProps & { anchor: RefObject<HTMLBu
   const uid = useId();
   const view = presentModelPicker(t, {
     models: props.models, providers: props.providers, defaultModel: props.defaultModel, pricesAt: props.pricesAt, fetchedAt: props.fetchedAt,
-    selected: props.value, query, now: Date.now(),
+    selected: props.value, query, now: Date.now(), device: props.device ?? null,
   });
   // 絞り込む間は、畳んだまとまりも開いて合う行を見せる（畳んだことは覚えたままで、消すと戻る）。
   const filtering = query.trim() !== '';

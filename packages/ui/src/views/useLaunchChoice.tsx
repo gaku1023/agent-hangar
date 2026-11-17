@@ -262,11 +262,16 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
   const seededOc = seeded?.agent === 'opencode' ? seeded : null;
   const seededCx = seeded?.agent === 'codex' ? seeded : null;
   const [pickedMode, setPickedMode] = useState<string | null>((initial?.agent === 'opencode' ? initial.mode : undefined) ?? seededOc?.mode ?? null);
-  const ocMode = pickedMode !== null && (!ocData || ocData.modes.some((m) => m.id === pickedMode)) ? pickedMode : ocData ? defaultOpencodeMode(ocData.modes) : '';
+  // 別の PC を選んでいれば、モードとモデルはその PC の一覧から出す（#698）。一覧を持たない古い版の PC では、モデルの札を出さず、モデルを指定しない。
+  const peerOc = remote ? remote.opencode ?? null : null;
+  const ocModelHidden = remote !== null && peerOc === null;
+  const ocList = peerOc ? { ...peerOc, pricesAt: null, fetchedAt: 0 } : remote ? null : ocData;
+  const ocModes = peerOc?.modes ?? ocData?.modes ?? null;
+  const ocMode = pickedMode !== null && (!ocModes || ocModes.some((m) => m.id === pickedMode)) ? pickedMode : ocModes ? defaultOpencodeMode(ocModes) : '';
   // モデルは選んだもの、選んでいなければ前回値。一覧から消えていたらデフォルトに戻す。
   const [pickedModel, setPickedModel] = useState<string | null>((initial?.agent === 'opencode' ? initial.model : undefined) ?? seededOc?.model ?? null);
   const ocRemembered = pickedModel ?? data.prefs[prefKey]?.opencodeModel ?? '';
-  const ocModel = opencodeModelChoice(ocRemembered, ocData);
+  const ocModel = opencodeModelChoice(ocRemembered, ocList);
   // Codex。モデルと推論は選んだもの、選んでいなければ前回値。一覧から消えたモデルはデフォルトに戻し、そのモデルで選べない推論は medium に戻す。権限は毎回自動から始める（前回値に残さない）。
   const cxState = cx?.options ?? null;
   const cxData = cxState?.data ?? null;
@@ -340,7 +345,7 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
     if (opencode) {
       params.agent = agent;
       if (scheduling ? pickedMode !== null && ocMode : ocMode) params.mode = ocMode;
-      if (ocModel.model) params.model = ocModel.model;
+      if (ocModel.model && !ocModelHidden) params.model = ocModel.model;
       if (!scheduling || autoApprove) params.autoApprove = autoApprove;
       return { params, ...(place ? { place } : {}) };
     }
@@ -434,9 +439,10 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
         permission: cxPermission, onPermission: setCxPermission,
       } : undefined}
       opencode={opencode ? {
-        mode: ocMode, modes: ocData?.modes ?? [], onMode: setPickedMode,
-        model: ocModel.model, models: ocData?.models ?? [], defaultModel: ocData?.defaultModel ?? null, modelReset: ocModel.reset, onModel: setPickedModel,
-        providers: ocData?.providers ?? [], pricesAt: ocData?.pricesAt ?? null, fetchedAt: ocData?.fetchedAt ?? 0, reloading: ocState?.status === 'loading',
+        mode: ocMode, modes: ocModes ?? [], onMode: setPickedMode,
+        model: ocModel.model, models: ocList?.models ?? [], defaultModel: ocList?.defaultModel ?? null, modelReset: ocModel.reset, onModel: setPickedModel,
+        modelHidden: ocModelHidden, device: peerOc ? remote!.name : null,
+        providers: ocList?.providers ?? [], pricesAt: ocList?.pricesAt ?? null, fetchedAt: ocList?.fetchedAt ?? 0, reloading: ocState?.status === 'loading',
         onReload: () => emit({ type: 'opencode.options', dir: ocDir, refresh: true }),
         // 設定の opencode の面へ移る（プロバイダーの面は C6）。書きかけは閉じるときに下書きとして残る。
         onManage: () => { emit({ type: 'opencode.providers.manage' }); },
@@ -461,7 +467,7 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
       {codex && cxData === null && (cxState?.status === 'loading' || cxState?.status === 'failed') && (
         <div className="faint" {...agentOnlyAttr('modelList')}>{t(cxState.status === 'loading' ? 'launch.codex.loading' : 'launch.codex.failed')}</div>
       )}
-      <OpencodeModelResetNote open={opencode && ocModel.reset && !resetNoteClosed} model={ocRemembered} onClose={() => setResetNoteClosed(true)} />
+      <OpencodeModelResetNote open={opencode && !ocModelHidden && ocModel.reset && !resetNoteClosed} model={ocRemembered} onClose={() => setResetNoteClosed(true)} />
       {opencode && ocState?.data === null && (ocState.status === 'loading' || ocState.status === 'failed') && (
         <div className="faint" {...agentOnlyAttr('modes')}>{t(ocState.status === 'loading' ? 'launch.opencode.loading' : 'launch.opencode.failed')}</div>
       )}
