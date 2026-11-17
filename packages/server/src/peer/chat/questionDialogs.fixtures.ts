@@ -46,3 +46,71 @@ ${RULE}
 
 Enter to select · ↑/↓ to navigate · Esc to cancel
 `;
+
+// ---- 1 回の呼び出しに問いが 2 つある札 ----
+// 下の 3 枚は実機の写しではない。
+// 上の 2.1.325 の見本と、利用者の画面に出た頭の行（`← ☒ voicebox ☐ 進め方 ✔ Submit →`）に合わせて作った。
+// 頭の行の箱は、答えた問いが ☒、まだの問いが ☐ である。
+// 今のタブは色で示され、capture-pane -p の文字には出ない。
+// 最後の確認のタブ（Submit）は、単一の問いの複数選択の確認の画面（answer.test.ts の偽物、2.1.319 の実機）と同じく、Submit answers と Cancel の行を持つとした。
+
+/** 1 問目の文。 */
+export const MANY_Q1 = 'voicebox を使いますか';
+/** 2 問目の文。 */
+export const MANY_Q2 = 'どう進めますか';
+
+/** 2 問の札の 1 タブ目。 */
+export const MANY_TAB1 = `
+${RULE}
+← ☐ voicebox  ☐ 進め方  ✔ Submit →
+
+${MANY_Q1}
+
+❯ 1. 使う
+     voicebox で声を出す
+  2. 使わない
+     今の声のまま
+  3. Type something.
+${RULE}
+  4. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel
+`;
+
+/** 2 問の札の 2 タブ目（1 問目に答えた後）。 */
+export const MANY_TAB2 = `
+${RULE}
+← ☒ voicebox  ☐ 進め方  ✔ Submit →
+
+${MANY_Q2}
+
+❯ 1. 今夜まとめて
+     夜のうちに全部やる
+  2. 少しずつ
+     1 つずつ確かめる
+  3. Type something.
+${RULE}
+  4. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel
+`;
+
+/** 2 問の札の最後の確認のタブ（両方に答えた後）。 */
+export const MANY_SUBMIT = `
+${RULE}
+← ☒ voicebox  ☒ 進め方  ✔ Submit →
+
+Review your answers
+
+ ● ${MANY_Q1}
+   → 使う
+ ● ${MANY_Q2}
+   → 今夜まとめて
+
+Ready to submit your answers?
+
+❯ 1. Submit answers
+  2. Cancel
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel
+`;

@@ -117,6 +117,17 @@ describe('send_to_session', () => {
     deps = { ...deps, runs: { start: deps.runs.start } };
     expect(await refusal(send({ session_id: alphaId, text: 'x' }))).toContain('tmux');
   });
+  it('質問か許可の札で待っている相手には貼らずに断り、answer_ask を使うよう返す', async () => {
+    addRun('d', 'hangar-rA');
+    for (const waitingFor of ['question', 'permission'] as const) {
+      goLive({ status: 'waiting', waitingFor });
+      expect(await refusal(send({ session_id: alphaId, text: '今夜まとめて' }))).toContain('answer_ask');
+    }
+    expect(sends).toEqual([]);
+    goLive({ status: 'idle' });
+    await send({ session_id: alphaId, text: '今夜まとめて' });
+    expect(sends).toHaveLength(1);
+  });
   it('貼れなかった失敗は、断りの文にして返す', async () => {
     addRun('d', 'hangar-rA');
     deps = { ...deps, runs: { ...deps.runs, sendInput: async () => { throw new Error('tmux paste-buffer failed: boom'); } } };

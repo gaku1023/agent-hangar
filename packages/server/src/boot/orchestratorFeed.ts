@@ -30,6 +30,8 @@ export function bootOrchestratorFeed(p: {
   delivery: { live: Pick<LiveHub, 'current' | 'onChange'> };
   runs: Pick<RunsParts, 'mux' | 'setNoticeHold'> & { runs: Pick<RunManager, 'sendInput'> };
   onGraceEnd?: (sessionId: string) => void;
+  /** 質問を待つ会話の、いま画面に出ている札の id（peer chat の宿主の local.currentAsk）。 */
+  askId?: (sessionId: string) => string | null;
 }): OrchestratorFeedParts {
   const { db } = p.home;
   const deviceId = p.home.device.id;
@@ -65,6 +67,7 @@ export function bootOrchestratorFeed(p: {
     onFed: (id) => { noteFedTurn(db, id); },
     contextTokens: (id) => getSession(db, p.delivery.live.current(), id, { deviceId, now: Date.now })?.stats.contextTokens ?? null,
     ...(p.onGraceEnd ? { onGraceEnd: p.onGraceEnd } : {}),
+    ...(p.askId ? { askId: p.askId } : {}),
   });
   p.runs.setNoticeHold((id) => feed.held(id));
 

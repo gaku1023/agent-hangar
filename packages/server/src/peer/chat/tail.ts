@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import type { PeerChatAsk, PeerChatItem } from '@agent-hangar/shared';
+import type { PeerChatAsk, PeerChatAskStep, PeerChatItem } from '@agent-hangar/shared';
 import type { Db } from '../../db/open.ts';
 import { splitLines } from '../../provider/claude-code/transcript/lines.ts';
 import { DROPPED_LINE_TYPES, normalizeRecord, toolSummary } from '../../provider/claude-code/transcript/normalize.ts';
@@ -78,6 +78,8 @@ export type PeerPendingAsk = {
   allowText: boolean;
   /** この PC が画面の札を照合して答えられないとき false（PeerChatAsk.answerable）。答えられるときは付けない。 */
   answerable?: false;
+  /** 問いが複数ある質問の、今のタブ（PeerChatAsk.step）。問いが 1 つの札は付けない。 */
+  step?: PeerChatAskStep;
 };
 
 /**
@@ -249,10 +251,15 @@ function settle(s: Scan): { items: PeerChatItem[]; waiting: Slot[] } {
  * 命令が違えば変わり、同じ命令でも呼び出しが別（2 回目の確認）なら変わる。
  * 許可が出ている間にほかの行が増えても、道具の呼び出しは変わらないので、askId も変わらない。
  * 本文がまだ書かれる前（hook が先に届いた）は拠り所が無く '' になる。そのときの askId は、呼び出しが載った後に一度だけ変わる。
+ * 問いが複数ある質問は、今のタブ（番号と、確認のタブか）も入れる。
+ * 呼び出しは同じでも、タブが進めば別の札になり、答えた askId の記録とぶつからない。
+ * 問いが 1 つの札は入れない（askId は今までと同じ）。
  */
 export function peerAskId(ask: PeerPendingAsk, anchor: string): string {
   const body = ask.kind === 'question' ? ask.question ?? '' : ask.input ?? '';
-  return createHash('sha256').update(JSON.stringify([ask.kind, anchor, ask.tool ?? '', body])).digest('hex').slice(0, 24);
+  const parts: unknown[] = [ask.kind, anchor, ask.tool ?? '', body];
+  if (ask.step) parts.push(ask.step.index, ask.step.submit === true);
+  return createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 24);
 }
 
 /**
@@ -283,6 +290,7 @@ function buildAsk(pending: PeerPendingAsk, waiting: { toolId: string; name: stri
   if (pending.tool !== undefined) ask.tool = pending.tool;
   if (pending.input !== undefined) ask.input = clipBytes(pending.input, PEER_CHAT_ASK_INPUT_MAX_BYTES);
   if (pending.answerable === false) ask.answerable = false;
+  if (pending.step) ask.step = { ...pending.step };
   return ask;
 }
 

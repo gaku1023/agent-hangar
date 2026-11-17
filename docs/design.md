@@ -10418,6 +10418,19 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   答えられるのはこの PC の Claude Code の会話だけで、Codex と opencode と画面で読めない札は `answerable: false` で載せ、統括は伝えるだけにする。
   `ask_id` は hangar の会話の id と、答え手の askId（札の道具の呼び出しから決まる）から作る。
   答え手の無い札は、会話の id、種類、道具、主な引数、待ちに入った時刻から作る。
+- **問いが複数ある質問：** AskUserQuestion の 1 回の呼び出しに問いが 2 つ以上あると、Claude Code は頭の行（`← ☒ voicebox ☐ 進め方 ✔ Submit →`）のタブで 1 問ずつ出す。
+  hangar も 1 問ずつ札にする（`peer/chat/answer.ts` の `parseDialog` の `step`、`peer/chat/hostView.ts` の `pendingAskFrom`）。
+  本文は画面の今のタブの問いの文で、登録の問い（hook と本文。いつも 1 問目）は使わない。
+  今のタブは色で示され、文字の取り込みには出ないので、画面の問いが 1 問目の文なら 1、ほかは頭の行の最初の ☐（まだ答えていない問い）と見なす。
+  `list_pending_asks` の札に `step: { index, total }`（1 始まり）を載せる。問いが 1 つの札には付けない。
+  askId はタブの番号も含めて作るので、答えてタブが進めば別の札になり、答えた id の記録とぶつからない。
+  照合は今のタブの問いの文と空白を除いて等しいことを求め、番号の行か「Type something.」の自由入力で答える（1 つの問いの札と同じ打ち方）。
+  タブの中の複数選択は、次のタブへの進み方を実機で確かめていないので `answerable: false` にする。
+  最後の確認のタブ（`Submit answers` と `Cancel`）は自動では押さず、`step.submit: true` の札として統括に知らせ、答えさせる。
+  実機の写しの見本が無く、送る前の確かめを利用者の判断に残すためである。
+  一覧の状態はタブが進んでも waiting/question のまま変わらないので、出来事の送り込みは、質問を待つ会話がある間だけ 1.5 秒ごとに札の id を読み直す（下の項）。
+- **札への貼り付けの断り：** `send_to_session` は、相手が許可か質問の札で待っている（live の `waiting` で `waitingFor` が `permission` か `question`）とき、貼らずに断り、`answer_ask` を使うよう返す（`mcp.sendToSession.askOpen`）。
+  貼った文が札の自由入力の欄に入って確定し、別の問いの答えになるのを防ぐ。
 - **方針：** 設定の `permissionPolicy`（`{ text, autoTools, updatedAt }`、この PC だけで同期しない）。
   `null` のときは、ファイルの読み取りと検索（`Read`、`Glob`、`Grep`、`LS`）だけを許すものとして読む（`permissionAutoToolsOf`）。
   空の `autoTools` は何も許さない（既定には戻さない）。
@@ -10440,6 +10453,9 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   hangar が統括の入力欄へ `[hangar]` で始まる文を送り込む。長く待つ道具は使わないので、何も起きなければ統括は動かない。
   実行中の一覧が変わるたびに前と比べ、次の出来事を作る。統括自身の会話は除き、最初の観測と統括が替わった直後は覚えるだけにする。
   `ask.permission` と `ask.question` は、許可か質問の待ちに入ったとき（急ぎ、0.3 秒でまとめる）。
+  質問の待ちのまま札の id（peer chat の askId）が変わったとき（問いが複数ある質問の次のタブ）にも、`ask.question` をもう一度作る。
+  札の id は質問を待つ会話の分だけ、統括が有効な間、一覧の変化と 1.5 秒の見直しで読む（画面を取り込む）。通知の見張りから呼ぶ `held` では読まない。
+  重複の抑止は会話と札の id ごとで、同じ会話のまだ渡していない前の札の出来事は捨てる。
   `turn.done`（busy から idle）と `session.ended`（一覧から消えた）は、統括が関わった会話だけ（普通、2 秒でまとめる）。
   関わった会話は、統括が起こした会話（`session_spawns`）と、統括が `send_to_session` した会話である（`orchestrator/involved.ts`、送った印はメモリだけで、終わりを伝えたら使い切る）。
   文は 1 通にまとめ、1 行目が見出し（`mcp.orchestrator.feedHead`）、以降が 1 件 1 行（`mcp.orchestrator.feedLine`、種類、会話の id、題名、許可なら道具の名前）。

@@ -186,7 +186,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     me: () => { void ghLogin().then((v) => { eventMe = v ?? ''; }, () => undefined); return eventMe; } });
   // 統括への出来事の送り込みと、許可待ちの通知の猶予（orchestrator/feed.ts）。猶予が明けたら、スマホの書き手を急がせる。
   let mobileForGrace: { publisher(): { nudge(): void } | null } | null = null;
-  const orchestratorFeed = bootOrchestratorFeed({ home, delivery, runs, onGraceEnd: () => { mobileForGrace?.publisher()?.nudge(); } });
+  // 問いが複数ある質問は、タブが進むと札の id が変わる。それを見て次の問いを出来事にする。
+  const orchestratorFeed = bootOrchestratorFeed({ home, delivery, runs, onGraceEnd: () => { mobileForGrace?.publisher()?.nudge(); }, askId: (id) => peerChat.host.local.currentAsk(id)?.askId ?? null });
   const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, chat: peerChat, trash: trash.trash, event: eventPuller, onPeer: (kind, id) => { peer.onBell(kind, id); }, peerApprovals: peer.approvals, noticeHold: (id) => orchestratorFeed.feed.held(id) });
   mobileForGrace = mobile;
   peerRelayEnded = (id) => peer.relay.onEnded(id);

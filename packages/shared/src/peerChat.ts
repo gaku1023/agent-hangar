@@ -52,7 +52,16 @@ export type PeerChatAsk = {
   allowText: boolean;
   answerable?: false;
   answered?: { by: PeerChatDevice; label: string; at: number };
+  /**
+   * 1 回の呼び出しに問いが複数ある質問の、今のタブ（index は 1 始まり、total は問いの数）。
+   * 問いは 1 つずつ札になり、答えると次のタブが別の askId の札になる。
+   * submit は最後の確認のタブ（送るか取り消すか）で、index は total と同じにする。
+   * 問いが 1 つの札には付けない。
+   */
+  step?: PeerChatAskStep;
 };
+
+export type PeerChatAskStep = { index: number; total: number; submit?: true };
 
 /**
  * 会話の 1 項目。
@@ -353,6 +362,11 @@ function readAsk(v: unknown): PeerChatAsk | null {
   if (v.tool !== undefined) out.tool = v.tool as string;
   if (v.input !== undefined) out.input = v.input as string;
   if (v.answerable === false) out.answerable = false;
+  // タブの印は見せるためだけのもの。形の違うものは断らずに読み捨てる。
+  const st = v.step;
+  if (isObj(st) && Number.isInteger(st.index) && Number.isInteger(st.total) && (st.index as number) >= 1 && (st.index as number) <= (st.total as number) && (st.submit === undefined || st.submit === true)) {
+    out.step = { index: st.index as number, total: st.total as number, ...(st.submit === true ? { submit: true as const } : {}) };
+  }
   if (a !== undefined) {
     const x = a as { by: PeerChatDevice; label: string; at: number };
     out.answered = { by: { deviceId: x.by.deviceId, deviceName: x.by.deviceName }, label: x.label, at: x.at };

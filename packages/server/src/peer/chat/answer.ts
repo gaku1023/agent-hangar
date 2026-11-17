@@ -147,6 +147,8 @@ export type DialogFile = {
   lead: string | null;
 };
 
+export type DialogStep = { index: number | null; total: number; submit: boolean };
+
 export type Dialog = {
   kind: 'permission' | 'question';
   options: DialogOption[];
@@ -182,9 +184,18 @@ export type Dialog = {
    */
   file: DialogFile | null;
   /**
-   * 1 回の呼び出しに質問が複数ある札か。
+   * 1 回の呼び出しに質問が複数ある札か（step が null でないこと）。
    * */
   manyQuestions: boolean;
+  /**
+   * 質問が複数ある札の、今のタブ。問いが 1 つの札は null。
+   * total は問いの数（Submit のタブを数えない）。
+   * submit は最後の確認のタブ（Submit answers と Cancel の行）。そのとき index は null。
+   * index は 1 始まりで、頭の行の最初の ☐（まだ答えていない問い）である。
+   * 今のタブは色で示され、文字の取り込みには出ないので、答えた順に進むと見なしている。
+   * ☐ が無いのに確認のタブでもなければ（答えた問いへ戻った）、null。
+   */
+  step: DialogStep | null;
   /**
    * 選択肢に箱がある（複数選択）か。
    * */
@@ -407,7 +418,7 @@ export function parseDialog(screen: string): Dialog | null {
   // 質問の札の頭の「← ☐ 質問 ✔ Submit →」の行。
   // Submit の印を除いた箱の数が 2 以上なら、質問が複数ある。
   const chipLine = aboveLines.find((l) => (l.match(CHIP_RE)?.length ?? 0) > 0 && !OPTION_RE.test(l));
-  const chips = chipLine ? (chipLine.match(CHIP_RE)?.length ?? 0) - (/submit/i.test(chipLine) ? 1 : 0) : 0;
+  const step = chipLine ? stepOf(chipLine, options) : null;
 
   return {
     kind: /^do you want\b/i.test(question) ? 'permission' : 'question',
@@ -418,9 +429,28 @@ export function parseDialog(screen: string): Dialog | null {
     file,
     header: headerLines.join(' ').toLowerCase(),
     title,
-    manyQuestions: chips > 1,
+    manyQuestions: step !== null,
+    step,
     multi: options.some((o) => o.checked !== null),
   };
+}
+
+/** 頭の行の 1 つの箱と、その後ろの見出し。 */
+const TAB_RE = /([☐☒☑✔✓])\s*([^☐☒☑✔✓←→]*)/g;
+/** 最後の確認のタブの、送る行。 */
+const SUBMIT_ROW_RE = /^submit answers\b/i;
+
+/**
+ * 頭の行（`← ☒ voicebox ☐ 進め方 ✔ Submit →`）から、今のタブを読む。
+ * 見出しが Submit の箱は問いに数えない。
+ * 問いが 2 つ以上でなければ null。
+ */
+function stepOf(chipLine: string, options: DialogOption[]): DialogStep | null {
+  const tabs = [...chipLine.matchAll(TAB_RE)].map((m) => ({ mark: m[1]!, label: m[2]!.trim() })).filter((t) => !/^submit$/i.test(t.label));
+  if (tabs.length < 2) return null;
+  if (options.some((o) => SUBMIT_ROW_RE.test(o.first))) return { index: null, total: tabs.length, submit: true };
+  const open = tabs.findIndex((t) => t.mark === '☐');
+  return { index: open >= 0 ? open + 1 : null, total: tabs.length, submit: false };
 }
 
 /**
@@ -558,12 +588,26 @@ function fileMatches(ask: PeerChatAsk, f: DialogFile, d: Dialog, cwd: string | n
  * ファイルの道具の札は、差分でなくパスで照合する（cwd は相対のパスを絶対にするのに使う）。
  */
 export function dialogMatches(ask: PeerChatAsk, d: Dialog, cwd: string | null = null): boolean {
-  if (d.kind !== ask.kind || d.multi !== ask.multi || d.manyQuestions) return false;
+  if (d.kind !== ask.kind || d.multi !== ask.multi) return false;
+  if (d.step) return stepMatches(ask, d, d.step);
   if (d.file) return ask.kind === 'permission' && fileMatches(ask, d.file, d, cwd);
   // hook の許可が無い ask（ツールが無い）は、命令の札にだけ当てる。
   // 知らない題の札は、画面の本体を input にしても答えさせない。
   if (ask.kind === 'permission' && !ask.tool && !(d.title !== null && isCommandTitle(d.title))) return false;
   return toolMatches(ask, d) && inputMatches(ask, d);
+}
+
+/**
+ * 質問が複数ある札は、今のタブの問いだけに当てる（1 問ずつ答える）。
+ * 札の上には前の問いの文（会話の本文や、確認のタブの答えの一覧）が残りうるので、上の一続きの文字でなく、今のタブの問いの文と、空白を除いて等しいことを求める。
+ * 確認のタブかどうかも ask の step と合わせる。
+ * タブの中の複数選択は、次のタブへの進み方を実機で確かめていないので、答えない。
+ */
+function stepMatches(ask: PeerChatAsk, d: Dialog, step: DialogStep): boolean {
+  if (ask.kind !== 'question' || d.multi) return false;
+  if (ask.step && (ask.step.submit === true) !== step.submit) return false;
+  const want = strip(ask.input ?? '');
+  return want !== '' && strip(d.question) === want;
 }
 
 /**
