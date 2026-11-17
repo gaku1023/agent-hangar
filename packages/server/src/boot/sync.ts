@@ -496,6 +496,8 @@ export function bootSync(
   // 画面へ配る層に、状態の組み方を教える。表の変化（束の行が降りた、基準を書いた）のたびに config.update が出る。
   // 組み直しても同じ口で足りるよう、そのときの core を引く。
   delivery.publisher?.setConfigSync(() => core.configBundle?.dto() ?? null);
+  // 件数の集計の「近く消える数」は、今の保存期間で数える。
+  delivery.publisher?.setRetentionDays(() => retention.current().days);
 
   // 設定の同期のスイッチが切から入に変わった瞬間に、次の周期を待たず 1 回回す。
   // 送る一覧を承認した人が、承認したあとの 1 分近くを黙って待たないようにする。

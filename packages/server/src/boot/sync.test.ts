@@ -781,7 +781,7 @@ describe('設定の同期の組み立て', () => {
     const sent: NoticeEvent[] = [];
     const hub = { broadcast: (ev: NoticeEvent) => { sent.push(ev); } };
     const setConfigSync = vi.fn();
-    const sync = bootSync(h, { hub, toast: toastVia(hub), publisher: { setConfigSync } as never }, { memoPath: (id) => path.join(home, 'projects', id, 'memo.md') });
+    const sync = bootSync(h, { hub, toast: toastVia(hub), publisher: { setConfigSync, setRetentionDays: vi.fn() } as never }, { memoPath: (id) => path.join(home, 'projects', id, 'memo.md') });
     expect(setConfigSync).toHaveBeenCalledTimes(1);
     const read = setConfigSync.mock.calls[0]![0] as () => unknown;
     expect(read()).toMatchObject({ enabled: false });
@@ -793,7 +793,7 @@ describe('設定の同期の組み立て', () => {
     const h = bootHome({ home, claudeDir });
     const hub = { broadcast: () => {} };
     const setConfigSync = vi.fn();
-    const sync = bootSync(h, { hub, toast: toastVia(hub), publisher: { setConfigSync } as never }, { memoPath: (id) => path.join(home, 'projects', id, 'memo.md') });
+    const sync = bootSync(h, { hub, toast: toastVia(hub), publisher: { setConfigSync, setRetentionDays: vi.fn() } as never }, { memoPath: (id) => path.join(home, 'projects', id, 'memo.md') });
     expect((setConfigSync.mock.calls[0]![0] as () => unknown)()).toBeNull();
     sync.stopTimers();
     h.stop();
@@ -929,7 +929,7 @@ describe('cloud.json が後から現れる', () => {
       const h = bootHome({ home, claudeDir });
       const hub = { broadcast: () => {} };
       const setConfigSync = vi.fn();
-      const sync = bootSync(h, { hub, toast: toastVia(hub), publisher: { setConfigSync } as never }, { memoPath: (id) => path.join(home, 'projects', id, 'memo.md') });
+      const sync = bootSync(h, { hub, toast: toastVia(hub), publisher: { setConfigSync, setRetentionDays: vi.fn() } as never }, { memoPath: (id) => path.join(home, 'projects', id, 'memo.md') });
       sync.start();
       const read = setConfigSync.mock.calls[0]![0] as () => unknown;
       expect(read()).toBeNull();

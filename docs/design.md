@@ -2148,6 +2148,7 @@ README の「商標」の節に、非公式であることと、各商標が各�
 設定の `opencodeEnabled` と `codexEnabled` がどちらも切で、Claude 以外のエージェントの会話が 1 つも無いときは出さない（切のままなら見た目は変わらない）。
 どれかが真なら、全部の行に出す。
 会話は bootstrap で全部が届くので、会話の表（と実行中の写し）に Claude 以外の行が無ければ、その hangar にその会話は無い。
+同じ事実は `sessionCounts.providers` にもある。bootstrap の会話を絞ったあと（RB-12）は、こちらを読む。
 有効にしたあと切にしても、opencode の会話が残っていれば出し続ける。行がどのエージェントのものか分からなくなるからである。
 
 新しいセッションのダイアログのエージェントの札（opencode を有効にしたときだけ出る）も、札と一覧の行の頭に同じ絵を置く。札の絵は Claude Code と opencode で同じ 20×14 の枠に置き、名前の頭をそろえる。
@@ -4407,6 +4408,16 @@ tmux の役の道具（Windows は psmux、ほかは tmux）は、設定の `tmu
 期間（全期間、今日、7 日、30 日）は切り替えの帯で選び、状態は状態のタブ（すべて、確認待ち、Active、Paused、Done、Archived）で選ぶ。動き（入力待ち、実行中、終了）は欄のトークン（`is:waiting` など）で選ぶ。
 止まっている理由は `is:permission`（許可待ち）と `is:limited`（使用制限とリセット済み）で選ぶ（「止まっている理由」の節）。動きとは別の項目なので、`is:waiting is:permission` のように重ねられる。
 状態の数え方は「画面の用語」の節の定義に従い、手元の一覧と `/api/search` の `live`（`running`、`waiting`、`ended`）で同じ関数（shared の `liveFilterOf`）を使う。
+
+一覧の形の検索。
+`/api/search` は、語も触ったファイルも無いとき、手元の全件から組む一覧と同じ頁を返す。
+並び（`sortForList`）、絞り込み（プロジェクト、期間、動き、止まっている理由、状態）、入れ子（`nestTopsOf` と `nestForest`）は shared の `sessionList.ts` に 1 つだけ持ち、画面の手元の一覧（`presenters/sessions.ts`）とサーバ（`sessions/listPage.ts`）が同じものを呼ぶ。
+食い違うと、頁を送ったときに行が抜けたり重なったりするからである。
+UI の試験（`listPageParity.test.ts`）が、散らした会話の全件で両方の頁を比べて見張る。
+状態を選ばないときは、手元の一覧と同じくいつも Archived を除く（`hideArchived` は見ない）。
+`limit` と `offset` は根の数で数える（既定 50、上限 200）。
+`hits` は頁の根の会話で、`rows` は根の下に子を深さ優先で並べた頁の行（`{ id, depth }`。畳みは画面が持つので、全部を開いた並び）、`total` は条件に合う行の数（子も 1 件に数える）、`roots` は根の数である。
+新しい会話が上に足されると、頁の区切りが 1 件ずれるのは手元の一覧と同じである。
 期間は相対の日数で持ち、問い合わせるときに時刻へ直す。
 「今日」は暦の今日の 0 時から、「7 日」と「30 日」は今日を含めたその日数分の最初の日の 0 時からである。
 結果には題名、要約の 1 文、一致箇所の抜粋、日時、プロジェクトを出す。
@@ -10730,7 +10741,15 @@ MLX の build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/vo
 - サブエージェントは、そのファイルの先頭の記録から `subagent` イベントを作り、親の時系列でその直前にある `Agent` か `Task` のツール呼び出しの下にネストする。該当が無ければ独立した項目として出す。
 - セッションの表示名は、レジストリの `name`（`nameSource` が `user`）、本文の `custom-title`、`agent-name`（索引が `sessions.custom_title` に拾う）、hangar で付けた名前（`session_notes.name`）、`ai-title`、最初の発言の先頭 40 字の順で決める。
 - 開発時は Vite（ポート 5173）が `/api` と `/ws` をサーバへプロキシし、プロキシがトークンを `Authorization` ヘッダに付ける。この経路は `HANGAR_DEV=1` のときだけ通る。本番はサーバが `packages/ui/dist` を配信し、鍵付きの入口で開かれたときだけ `index.html` の応答で `hangar_token` クッキー（HttpOnly、SameSite=Strict）を渡す。
-- 一覧の初期データは `GET /api/bootstrap` で全セッションの軽い行をまとめて返す。手元の規模（数百セッション）では 1MB 未満で、ページングは持たない。
+- 一覧の初期データは `GET /api/bootstrap` で全セッションの行をまとめて返す。
+  会話が何千件になると応答が十数 MB になるので、最初に送る行を「いま要る会話」だけに絞る作業を段に分けて進めている（RB-12）。
+  段 1 では行はまだ全件のまま送り、全件が無くても画面を組めるよう、次の口を足した。
+  - bootstrap の `sessionCounts`（`SessionCountsDto`）：会話の数、状態のタブごとの数（`all` は Archived を除く。`proposed` は提案のある会話で Active と重なる）、プロジェクトごとの数と Archived の数、opencode と Codex の会話が 1 件でもあるか、保存期間で近く（7 日のうちに）消える数と期限を過ぎた数。サーバの `sessions/counts.ts` が DTO を組まずに 1 回の問い合わせで数える。`GET /api/session-counts?days=N` は、保存期間を N 日にしたときの数を返す（保存期間を変える確認が使う）。
+  - bootstrap の `firstPage`（`ListPageDto`）：絞り込みなしの一覧の 1 頁目（根で 50 件）の id の並び。
+  - `GET /api/search` の一覧の形：語も触ったファイルも無ければ、手元の一覧と同じ並び、同じ絞り込み、同じ入れ子の頁を返す（下の「一覧の形の検索」）。
+  - `rows=1`：`/api/search` の結果に、当たった会話の行（`SessionDto`）を `sessions` に添える。手元に無い会話の行を出すためである。
+  - `GET /api/sessions?ids=a,b,c` と `?spawnedBy=<id>`：id で行をまとめて取る（500 件まで）、その会話を起動元に持つ子を取る。どちらも無ければ今までどおり全件を返す。
+  - `sessionCounts.update`：会話の行が変わったあと（`session.upsert` か `session.removed` を配った tick の後）、配る層（`events/publisher.ts`）が数え直して配る。続けて変わるときは 1 秒に 1 回までに間引き、間の変化は最後にまとめて 1 回配る。画面は手元に無い行の前の状態を知らないので、件数を自分で足し引きせず、これで置き換える。
 - UI のテストのうち `src/views/**`、`src/action/**`、`src/Root.test.tsx` は jsdom で走らせる。Vitest の入れ子プロジェクトで環境ごとに分ける。
 - ダークモードは持たない（2026-09-17 の決定）。OS のダーク設定にも従わない。ターミナルの面だけが例外である。
 - タブ 0（Claude）の ID は run の ID そのもので、`run_tabs` に行は作らない。シェルタブの ID は `run_tabs.id` である。

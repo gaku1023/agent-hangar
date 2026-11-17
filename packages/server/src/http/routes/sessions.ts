@@ -1,13 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Context, Hono } from 'hono';
-import { liveFilterOf, liveWithLimit, quietLive, type PromoteResultDto, type SearchParamsDto, type SessionStateDto, type SessionStatus, type WakeOn } from '@agent-hangar/shared';
+import { liveFilterOf, liveWithLimit, quietLive, splitFtsTokens, type PromoteResultDto, type SearchParamsDto, type SessionStateDto, type SessionStatus, type WakeOn } from '@agent-hangar/shared';
 import { touchRow } from '../../db/notify.ts';
 import { getProject, listSessions } from '../../db/queries.ts';
 import { EDIT_TOOLS } from '../../indexer/write.ts';
 import { LiveDigester } from '../../live/digest.ts';
 import { PromoteError } from '../../projects/promote.ts';
 import { searchSessions } from '../../search/search.ts';
+import { sessionCounts } from '../../sessions/counts.ts';
+import { sessionListPage } from '../../sessions/listPage.ts';
 import { approveDeleteApproval, dismissDeleteApproval, rejectDeleteApproval } from '../../sessions/deleteApprovals.ts';
 import { MoveError, moveSession } from '../../sessions/move.ts';
 import { forgetSpawn } from '../../sessions/spawns.ts';
@@ -28,7 +30,7 @@ import { wokeSince } from '../../sessions/wake.ts';
 import { wakePaused } from '../../sessions/wakePaused.ts';
 
 /** セッションの経路が使う依存。 */
-export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh' | 'trash' | 'schedules' | 'peerApprovals' | 'events'> & LanguageDeps;
+export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh' | 'trash' | 'schedules' | 'peerApprovals' | 'events' | 'retention'> & LanguageDeps;
 
 /** セッションの状態として受け付ける値。Active は null で表す。 */
 const SESSION_STATUSES = new Set(['paused', 'done', 'archived']);
@@ -49,7 +51,28 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   const liveSessionRow = (id: string) => db.prepare('select 1 from sessions where id = ? and deleted_at is null').get(id) !== undefined;
   const deletedSessionRow = (id: string) => db.prepare('select 1 from sessions where id = ? and deleted_at is not null').get(id) !== undefined;
 
-  api.get('/sessions', (c) => c.json(sessions({ projectId: c.req.query('projectId') })));
+  /** 数として読めない値（NaN）は渡されなかったものとする。 */
+  const finite = (v: string | undefined): number | undefined => { const n = numberOr(v); return n !== undefined && Number.isFinite(n) ? n : undefined; };
+  /** ids で一度に取れる会話の数の上限。 */
+  const IDS_LIMIT = 500;
+  // ids（カンマ区切り）で行をまとめて取る。開いたペイン、URL で開いた会話、起動元、知らせから跳んだ先が手元に無いときに画面が使う。
+  // spawnedBy で、その会話を起動元に持つ子を取る。どちらも無ければ今までどおり全件（projectId で絞れる）を返す。
+  api.get('/sessions', (c) => {
+    const ids = c.req.query('ids');
+    const spawnedBy = c.req.query('spawnedBy');
+    if (ids !== undefined) {
+      const list = [...new Set(ids.split(',').map((x) => x.trim()).filter((x) => x !== ''))];
+      if (list.length > IDS_LIMIT) return c.json({ error: `too many ids (max ${IDS_LIMIT})` }, 400);
+      return c.json(listSessions(db, deps.live(), { deviceId, ids: list, ...(spawnedBy ? { spawnedBy } : {}) }));
+    }
+    if (spawnedBy) return c.json(listSessions(db, deps.live(), { deviceId, spawnedBy }));
+    return c.json(sessions({ projectId: c.req.query('projectId') }));
+  });
+  // 会話の件数の集計。days を渡すと、その保存期間で消える数を数える（保存期間を変える確認が使う）。省けば今の保存期間で数える。
+  api.get('/session-counts', (c) => {
+    const days = finite(c.req.query('days'));
+    return c.json(sessionCounts(db, { retentionDays: days ?? deps.retention.current().days, now: Date.now() }));
+  });
   api.get('/sessions/:id', (c) => {
     const s = session(c.req.param('id'));
     return s ? c.json(s) : c.json({ error: tr('session.error.notFound') }, 404);
@@ -101,6 +124,17 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     const stop = q.stop === 'permission' || q.stop === 'limited' ? q.stop : undefined;
     const status = q.status && STATUS_FILTERS.has(q.status) ? (q.status as NonNullable<SearchParamsDto['status']>) : undefined;
     const hideArchived = q.hideArchived === 'true' || q.hideArchived === '1';
+    const withRows = q.rows === '1';
+    const tokens = splitFtsTokens(q.q ?? '');
+    if (tokens.long.length === 0 && tokens.short.length === 0 && !q.file) {
+      // 語も触ったファイルも無ければ、一覧の形にする。並び、絞り込み、入れ子は画面の手元の一覧と同じ（shared の listPageOf）。
+      // 「すべて」（status なし）はいつも Archived を除くので、hideArchived は見ない。
+      const limit = Math.min(Math.max(finite(q.limit) ?? 50, 1), 200);
+      const offset = Math.max(finite(q.offset) ?? 0, 0);
+      const { page, sessions: rows } = sessionListPage(db, { live: deps.live(), runs: deps.runs.listAlive().runs, deviceId, filter: { projectId: q.projectId || undefined, since: finite(q.since), until: finite(q.until), live, stop, status }, offset, limit });
+      const hits = page.rows.filter((r) => r.depth === 0).map((r) => ({ sessionId: r.id, matchCount: 0, snippets: [] }));
+      return c.json({ hits, total: page.total, rows: page.rows, roots: page.roots, ...(withRows ? { sessions: rows } : {}) });
+    }
     // 数え方は UI と同じ liveFilterOf に任せる。
     // Claude の一覧に載る前の run も実行中に入れる。
     const liveStatus = new Map(deps.live().map((l) => [l.sessionId, l.status]));
@@ -112,7 +146,11 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     // 自動で続かずにリセットを過ぎたもの（リセット済み）は、入力待ちに数える（shared の liveWithLimit。UI の数え方と同じ）。
     const stops = stopReasonsOf(db, deps.live(), Date.now());
     const liveOf = (sid: string, psid: string) => liveFilterOf(quietLive(liveWithLimit(liveStatus.get(psid) ?? null, stops.limit(psid)), settled.get(sid)?.status, wokeSince(db, sid, settled.get(sid)?.at ?? null)), alive.has(sid), parked.has(sid));
-    return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), live, stop, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset), status, hideArchived }, liveOf, (_sid, psid) => stops.reason(psid)));
+    const result = searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), live, stop, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset), status, hideArchived }, liveOf, (_sid, psid) => stops.reason(psid));
+    // rows=1 なら当たった会話の行を添える。手元に無い会話の行も出せるようにするため。
+    if (!withRows) return c.json(result);
+    const byId = new Map(listSessions(db, deps.live(), { deviceId, ids: result.hits.map((h) => h.sessionId) }).map((s) => [s.id, s]));
+    return c.json({ ...result, sessions: result.hits.map((h) => byId.get(h.sessionId)).filter((s) => s !== undefined) });
   });
 
   // 本文を送らなければ作業ディレクトリを開く。
