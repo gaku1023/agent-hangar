@@ -290,7 +290,7 @@ UI に足すのは、ヘッダの `data-tauri-drag-region` の印と、殻の中
 文脈の使用率は、今の `stats.contextPercent` を使う。
 最新のツール呼び出しと待っている問いの文は、今は Home に届いていない。
 そこで、サーバが実行中のセッションごとに、正規化したトランスクリプトの末尾から次の 2 つを取り出し、セッションに欄として載せる。
-今の `SessionDto.live` は状態の文字列で欄を足せないので、実装では同じ中身を `SessionDto.activity`（`{ tool, summary, question }`）に載せた（2 回目の計画 `docs/plans/ui-refresh-2-home.md`）。
+今の `SessionDto.live` は状態の文字列で欄を足せないので、実装では同じ中身を `SessionDto.activity`（`{ tool, summary, question }`）に載せた（2 回目の計画 `docs/plans/done/ui-refresh-2-home.md`）。
 
 | 欄 | 取り出し方 | 取れないとき |
 |---|---|---|
@@ -448,7 +448,7 @@ reduced motion では、長さのトークンがすべて 0 になり、背景�
 同じ時期に決めたこととして、行は 44px の 2 段とし、密度の切り替えは持たない。
 要対応の札は、端末を開いてフォーカスするだけにする。
 
-3 回目の実装（`docs/plans/ui-refresh-3-motion.md`）で、次のように決めた。
+3 回目の実装（`docs/plans/done/ui-refresh-3-motion.md`）で、次のように決めた。
 
 - 画面遷移の「出る画面は `--dur-exit` で消える」は、View Transitions の root を出る画面と入る画面で同じ長さと曲線にして重ねる形にした。長さを変えると、変わらないヘッダとサイドバーが途中で明滅するためである。
 - ⌘K パレットは、開く動きを Web Animations で、閉じる動きを View Transitions で作った。開く側を View Transitions にすると描き替えが遅れ、打った文字を落とすためである。

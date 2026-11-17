@@ -3,7 +3,7 @@ import path from 'node:path';
 import { resolveRealFile } from '../provider/claude-code/config/claudeFileWrite.ts';
 
 /**
- * Codex・opencode に渡す、Claude Code の指示（CLAUDE.md）と MCP の登録の読み手（docs/superpowers/plans/2026-10-28-agent-share.md の S2、S3）。
+ * Codex・opencode に渡す、Claude Code の指示（CLAUDE.md）と MCP の登録の読み手（docs/superpowers/plans/done/2026-10-28-agent-share.md の S2、S3）。
  * 純粋な部分（instructionSources、claudeMcpServers）は、ファイルの有無と JSON の値を受けて、渡すものと渡さないもの（理由つき）を返す。
  * ファイルを読む薄い包みは readShareSources である。ここはどれも読むだけで、何も書かない。
  */

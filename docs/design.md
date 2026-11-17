@@ -3312,7 +3312,7 @@ hangar の外で起こした 4 ターン以上のものは、止まったとき�
 
 ### エージェント間の共有
 
-Codex と opencode を hangar から起こすとき、Claude Code の指示（CLAUDE.md）と MCP の登録を渡す（計画 `docs/superpowers/plans/2026-10-28-agent-share.md`、2026-10-28 の決定）。
+Codex と opencode を hangar から起こすとき、Claude Code の指示（CLAUDE.md）と MCP の登録を渡す（計画 `docs/superpowers/plans/done/2026-10-28-agent-share.md`、2026-10-28 の決定）。
 渡すのは起動のときだけで、Codex・opencode の設定ファイルも、プロジェクトのファイル（AGENTS.md など）も書き換えない。
 置き場は `server/src/share/`（`sources.ts` が読み手、`codex.ts` と `opencode.ts` が変換）と、各 driver の起動（`provider/codex/share.ts`、`provider/opencode/launch.ts` の `hangarServeConfig`）である。
 
@@ -4897,7 +4897,7 @@ ssh（`git@host:owner/repo.git`、`ssh://git@host:22/owner/repo`）と https を
 
 ### 補助の文を置かない
 
-2026-10-24 に、見出しや値に添える補助の文を削った（計画は `docs/plans/lean-labels.md`）。
+2026-10-24 に、見出しや値に添える補助の文を削った（計画は `docs/plans/done/lean-labels.md`）。
 原則は "Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining." である。
 配置、見出し、札、数値で伝わることは、文で言い直さない。
 
@@ -4918,7 +4918,7 @@ ssh（`git@host:owner/repo.git`、`ssh://git@host:22/owner/repo`）と https を
 - 次の文は常に画面に出す。
   取り消せない操作の結果、秘密とコスト（回復キー、外部への送信、確認なしの実行）、許可が要る所（通知の拒否、自動化の許可、信頼確認）、数値、日時、パス、一覧の欠けの告知、エラー。
 
-スマホ版も同じ原則に従う（2026-10-25、計画は `docs/plans/lean-mobile.md`）。
+スマホ版も同じ原則に従う（2026-10-25、計画は `docs/plans/done/lean-mobile.md`）。
 マウスを乗せる操作が無いので、ⓘ を押すと説明は浮かばずに、見出しのすぐ下にその場で開く（growIn、もう一度押すと畳む）。
 新しい会話の画面では、まだ選べない段（PC、アカウント）を出さず、前の段を選ぶと次の段が現れる。
 受信箱の札の操作の文は「開く ›」だけにし、どのアカウントかは札の上のタグで見せる。
@@ -5419,7 +5419,7 @@ Codex の枠が無いときは見出しを出さず、面は Claude の札だけ
 
 #### Codex のアカウント
 
-Codex も Claude Code と同じ形の複数アカウントを持つ（2026-10-28。計画は `docs/superpowers/plans/2026-10-28-codex-accounts.md`）。
+Codex も Claude Code と同じ形の複数アカウントを持つ（2026-10-28。計画は `docs/superpowers/plans/done/2026-10-28-codex-accounts.md`）。
 Codex には標準のアカウント切り替えが無いが、`CODEX_HOME` を分けるとログインが分かれる（codex 0.165.0 で確かめた）ので、置き場を分けて切り替える。
 
 - 一覧は PC ごとの `<home>/codex-accounts.json` に持ち、同期しない（Claude の `accounts.json` と同じ扱い）。`AccountStore` にファイル名、最初の置き場、候補の接頭辞を渡して、Claude と同じ実装を使う。
@@ -7375,10 +7375,10 @@ reduced motion では静止した原図を出す。
 ## クラウド同期
 
 フェーズ 4 で実装した。
-実物の Cloudflare で通した記録は `docs/plans/phase4-real-run.md` にある。
+実物の Cloudflare で通した記録は `docs/plans/done/phase4-real-run.md` にある。
 ただし、孤児の掃除はその後に入れたもので、偽のクラウドとローカルの workerd での試験しか通していない。
 
-互換の版 9（0.9.0 を想定）で、参加トークンと参加用のシークレットを廃止し、D1 と R2 に置くものを PC どうしの間で暗号化する形に作り直した（設計は `docs/superpowers/specs/2026-10-17-cloud-e2e-design.md`、計画は `docs/superpowers/plans/2026-10-17-cloud-e2e.md`）。
+互換の版 9（0.9.0 を想定）で、参加トークンと参加用のシークレットを廃止し、D1 と R2 に置くものを PC どうしの間で暗号化する形に作り直した（設計は `docs/superpowers/specs/2026-10-17-cloud-e2e-design.md`、計画は `docs/superpowers/plans/done/2026-10-17-cloud-e2e.md`）。
 参加は参加コードと発行した PC での承認で行い、すべての PC を失ったときはリカバリーキーで戻る。
 既存のクラウドからの移行の道は作らず、作り直しの手順で移る（「作り直しの手順」）。
 版 9 の Worker は、偽のクラウドと miniflare の試験だけを通しており、実物の Cloudflare では未確認である。
@@ -10336,15 +10336,15 @@ wrangler を同梱していないので、リポジトリを clone した場所�
 
 ## フェーズ
 
-- **フェーズ 0**：危ない前提を捨てられる小さなスクリプトで検証する。計画は `docs/plans/phase0-spikes.md`。
-- **フェーズ 1**：サーバ、インデクサ、読み取り専用の UI。Projects、セッション一覧、トランスクリプト、Sessions（検索）、土台の要約。計画は `docs/plans/phase1-readonly.md`。
-- **フェーズ 2**：tmux での起動、ターミナルの埋め込み、セッション内タブ、MCP、指示の注入、iTerm2 と VS Code の連携、セッション自身による要約。計画は `docs/plans/phase2-launch.md`。
-- **フェーズ 3**：使用量、アーティファクト、TODO とメモ、クイックセッションと昇格、タブと分割、事後要約、パレットとショートカット。併せて、鍵付きの入口と入口の 3 つの検査（Origin、`Sec-Fetch-Site`、`Content-Type`）を入れた。計画は `docs/plans/phase3-workbench.md`。
+- **フェーズ 0**：危ない前提を捨てられる小さなスクリプトで検証する。計画は `docs/plans/done/phase0-spikes.md`。
+- **フェーズ 1**：サーバ、インデクサ、読み取り専用の UI。Projects、セッション一覧、トランスクリプト、Sessions（検索）、土台の要約。計画は `docs/plans/done/phase1-readonly.md`。
+- **フェーズ 2**：tmux での起動、ターミナルの埋め込み、セッション内タブ、MCP、指示の注入、iTerm2 と VS Code の連携、セッション自身による要約。計画は `docs/plans/done/phase2-launch.md`。
+- **フェーズ 3**：使用量、アーティファクト、TODO とメモ、クイックセッションと昇格、タブと分割、事後要約、パレットとショートカット。併せて、鍵付きの入口と入口の 3 つの検査（Origin、`Sec-Fetch-Site`、`Content-Type`）を入れた。計画は `docs/plans/done/phase3-workbench.md`。
 - **フェーズ 4**：クラウド同期。
   Worker と D1 と R2 の setup、メタデータと本文と Claude Code 設定の同期、無料枠の見張り（段 1 で消し、上限で退く形に替えた）、他端末のロックと「この PC で再開」まで実装した。
   引き継ぎの握手は、このフェーズでは作らなかった（段 1 で作らないと決め、2026-10-16 に停止を頼んで引き継ぐ形で入れた）。
-  計画は `docs/plans/phase4-sync.md`、実物での確認は `docs/plans/phase4-real-run.md`。
-- **フェーズ 5**：デスクトップ配布。Tauri v2 のシェル、サーバの同梱と子プロセスとしての起動、Node の探索、`hangar://` のディープリンク、タグから `.app` を作る Releases のワークフローまで実装した。公証は行わず、自作の証明書で署名する（段 5 で加えた。「署名の身元」と「Gatekeeper」の項）。計画は `docs/plans/phase5-desktop.md`。
+  計画は `docs/plans/done/phase4-sync.md`、実物での確認は `docs/plans/done/phase4-real-run.md`。
+- **フェーズ 5**：デスクトップ配布。Tauri v2 のシェル、サーバの同梱と子プロセスとしての起動、Node の探索、`hangar://` のディープリンク、タグから `.app` を作る Releases のワークフローまで実装した。公証は行わず、自作の証明書で署名する（段 5 で加えた。「署名の身元」と「Gatekeeper」の項）。計画は `docs/plans/done/phase5-desktop.md`。
 
 ## 定期の実行
 
@@ -10441,7 +10441,7 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
 ## 統括
 
 全セッションを統括する、常駐の Claude Code の会話である。
-全体の設計は `docs/plans/2026-11-14-orchestrator.md` にある。
+全体の設計は `docs/plans/done/2026-11-14-orchestrator.md` にある。
 ここには入った分だけを書く。
 今は会話の印、起動、見張り、許可の道具、出来事の送り込みと通知の猶予までで、画面は後の PR で入る。
 

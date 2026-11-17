@@ -3,7 +3,7 @@ import Foundation
 import VoiceCore
 
 // hangar-voice：hangar のサーバと標準入出力の 1 行 1 JSON で話す、端末の中の声の補助。
-// 約束は VoiceCore/Protocol.swift と docs/superpowers/plans/2026-11-16-orchestrator-voice-stage2.md。
+// 約束は VoiceCore/Protocol.swift と docs/superpowers/plans/done/2026-11-16-orchestrator-voice-stage2.md。
 
 let helperVersion = "0.1.0"
 
