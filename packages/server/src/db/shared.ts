@@ -37,16 +37,29 @@ function isUrgentWrite(db: Db, table: string, row: Record<string, unknown>, pk: 
 }
 
 /**
+ * 書く行の updated_at を決める。
+ * 手元の行の updated_at より 1 ミリ秒以上後にする（Evolu の HLC に倣った）。
+ * 同期は updated_at の後勝ちなので、時計の進んだ PC が書いた行を取り込んだ後に今の時刻で書くと、その行に負けて黙って捨てられる。
+ * 手元の行より後にしておけば、見てから書いた変更は必ず勝つ。
+ */
+function stampAfter(db: Db, table: string, pk: string, id: unknown, at: number): number {
+  const prev = db.prepare(`select updated_at from ${table} where ${pk} = ?`).get(id) as { updated_at: number | null } | undefined;
+  const last = Number(prev?.updated_at);
+  return Number.isFinite(last) ? Math.max(at, last + 1) : at;
+}
+
+/**
  * 共有テーブルへの書き込み。updated_at と origin_device を補い、changes に追記する。
  * at は updated_at に使う時刻で、省けば今の時刻である。同期で届いた行より確実に新しく書き直したいとき（sync/apply.ts）だけ渡す。
+ * どちらでも、手元の行の updated_at より前にはしない（stampAfter）。
  */
 export function upsertShared(db: Db, table: string, row: Record<string, unknown>, deviceId: string, pk = 'id', at = Date.now()): void {
   const urgent = isUrgentWrite(db, table, row, pk);
-  const full: Record<string, unknown> = { ...row, updated_at: at, origin_device: deviceId };
-  const cols = Object.keys(full);
-  const sets = cols.filter((c) => c !== pk).map((c) => `${c} = excluded.${c}`).join(', ');
-  const sql = `insert into ${table} (${cols.join(', ')}) values (${cols.map(() => '?').join(', ')}) on conflict(${pk}) do update set ${sets}`;
   const write = db.transaction(() => {
+    const full: Record<string, unknown> = { ...row, updated_at: stampAfter(db, table, pk, row[pk], at), origin_device: deviceId };
+    const cols = Object.keys(full);
+    const sets = cols.filter((c) => c !== pk).map((c) => `${c} = excluded.${c}`).join(', ');
+    const sql = `insert into ${table} (${cols.join(', ')}) values (${cols.map(() => '?').join(', ')}) on conflict(${pk}) do update set ${sets}`;
     db.prepare(sql).run(...cols.map((c) => full[c] as unknown));
     const stored = db.prepare(`select * from ${table} where ${pk} = ?`).get(full[pk]);
     dropUnpushed(db, table, String(full[pk]));
@@ -54,18 +67,19 @@ export function upsertShared(db: Db, table: string, row: Record<string, unknown>
       .run(table, String(full[pk]), 'upsert', JSON.stringify(stored), full.updated_at, deviceId);
     return Number(info.lastInsertRowid);
   });
-  noteWrite(db, table, String(full[pk]), 'upsert', write(), urgent);
+  noteWrite(db, table, String(row[pk]), 'upsert', write(), urgent);
 }
 
 /** 共有テーブルの行を論理削除し、changes に delete を追記する。 */
 export function softDeleteShared(db: Db, table: string, id: string, deviceId: string, pk = 'id'): void {
-  const now = Date.now();
   const write = db.transaction(() => {
-    db.prepare(`update ${table} set deleted_at = ?, updated_at = ?, origin_device = ? where ${pk} = ?`).run(now, now, deviceId, id);
+    const now = Date.now();
+    const stamp = stampAfter(db, table, pk, id, now);
+    db.prepare(`update ${table} set deleted_at = ?, updated_at = ?, origin_device = ? where ${pk} = ?`).run(now, stamp, deviceId, id);
     const stored = db.prepare(`select * from ${table} where ${pk} = ?`).get(id);
     dropUnpushed(db, table, id);
     const info = db.prepare('insert into changes (table_name, row_id, op, payload, updated_at, device_id) values (?,?,?,?,?,?)')
-      .run(table, id, 'delete', JSON.stringify(stored), now, deviceId);
+      .run(table, id, 'delete', JSON.stringify(stored), stamp, deviceId);
     return Number(info.lastInsertRowid);
   });
   noteWrite(db, table, id, 'delete', write());

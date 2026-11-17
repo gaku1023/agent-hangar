@@ -42,7 +42,7 @@ describe('FakeCloudClient', () => {
     const a = new FakeCloudClient({ deviceId: 'a' });
     const b = a.asDevice('b');
     expect(await a.pushChanges([ch('p1', 100)])).toEqual(pushResult({ seq: 1, accepted: 1, skipped: 0 }));
-    expect(await b.pushChanges([ch('p1', 50)])).toEqual(pushResult({ seq: 1, accepted: 0, skipped: 1 }));
+    expect(await b.pushChanges([ch('p1', 50)])).toEqual({ ...pushResult({ seq: 1, accepted: 0, skipped: 1 }), dropped: [{ tableName: 'projects', rowId: 'p1', reason: 'stale' }] });
     expect(await b.pushChanges([ch('p1', 200)])).toEqual(pushResult({ seq: 2, accepted: 1, skipped: 0 }));
     const pa = await a.pullChanges(0, 500);
     expect(pa.changes.map((c) => [c.seq, c.deviceId])).toEqual([[2, 'b']]);

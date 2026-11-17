@@ -8718,6 +8718,16 @@ push の 1 行は 2 文で書く。
 最後まで返せたときの `nextSeq` は `max(seq)` で、頁と同じ batch（1 つの取引）で読む。
 行を消すのは、より大きい連番で入れ直す直前だけなので、`max(seq)` は後戻りしない。
 版 5 までの変更ログ（Worker の `changes`）、その圧縮、`410`（`changes_floor`）、`seq_high`、`last_pulled_seq` は無くした。
+
+**時計のずれ。**
+後勝ちは `updated_at` だけで決まり、`updated_at` は書いた PC の壁時計である。
+時計の進んだ PC が書いた行を取り込んだ後に、時計の合った PC が今の時刻で書くと、その変更は Worker で黙って捨てられていた。
+Evolu の HLC に倣い、次の 3 つで防ぐ。
+- 書く側（`packages/server/src/db/shared.ts` の `upsertShared` と `softDeleteShared`）は、`updated_at` を「今の時刻」と「手元の行の `updated_at` + 1」の大きい方にする。見てから書いた変更は、見た行に必ず勝つ。`deleted_at` は今の時刻のままにする。
+- Worker は、Worker の時刻より `MAX_FUTURE_SKEW_MS`（5 分、shared）以上先の `updatedAt` の行を断る。採ると、ほかの PC の変更が時計が追いつくまで負け続けるからである。塊ごと 400 にはせず、その行だけを捨てる。端末が同じ塊を送り直し続けて、ほかの行まで止まるのを避けるためである。
+- Worker は捨てた行を push の応答の `dropped`（`{ k, reason }`）で名指しする。`reason` は、表の行が同じか新しかった `stale` と、先の時刻で断った `future` である。同じ塊の中の重複で畳んだ古い版は名指ししない。1 件も無ければ `dropped` は載らないので、古い端末と古い Worker はそのまま話せる。
+端末（`SealedCloudClient`）は `k` を表名と行 ID に引き直し、エンジンは `stale` があれば次の定期を待たずに pull して勝った方を取り込み、`future` があればエンジンの間に 1 度だけ時計が進んでいると知らせる。
+断った行は送り直しても通らないので、`pushed_at` を打って先へ進む。
 圧縮は、消すものが無い回も 14 日分の変更ログを主キーの範囲で全部読み、量の 2 乗で増えて、D1 の読み取りの無料枠（1 日 500 万行）を超えた（2026-10-16）。
 変更ログが無いので刈り込みも要らず、どれだけ古い `since` でも、残っている行をそのまま返す。
 `packages/cloud/test/read-budget.test.ts` が、古い行の多い表で、push、pull、`GET /rows`、`GET /devices` の 1 本が読む行（D1 の `meta.rows_read`）を、返した行数と書いた行数に定数を足した分に縛る。

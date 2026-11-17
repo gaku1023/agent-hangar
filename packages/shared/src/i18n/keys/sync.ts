@@ -45,6 +45,7 @@ export const syncKeys = {
   'sync.limit.stopped': ['time'],
   'sync.limit.stoppedPaused': [],
   'sync.oversize.row': ['table', 'id', 'size', 'limit'],
+  'sync.clock.ahead': ['count'],
   'sync.unreadable.rows': ['count'],
   'sync.crypto.badMagic': [],
   'sync.crypto.dataAfterFinal': [],
