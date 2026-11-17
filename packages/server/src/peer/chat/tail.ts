@@ -127,11 +127,6 @@ export function dbTranscriptReader(db: Db, o: { copies?: boolean } = {}): (sessi
   };
 }
 
-/** 実際の道具立て。索引からの読み出しと、解析の覚えを組む。pendingAsk は呼び出し側が渡す。 */
-export function dbTailDeps(db: Db, pendingAsk: TailDeps['pendingAsk']): TailDeps {
-  return { readTranscript: dbTranscriptReader(db), pendingAsk, cache: createTailCache() };
-}
-
 function readTail(file: string): Buffer {
   const size = fs.statSync(file).size;
   if (size <= PEER_CHAT_TAIL_READ_MAX_BYTES) return fs.readFileSync(file);

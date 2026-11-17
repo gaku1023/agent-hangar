@@ -5,8 +5,7 @@ import { useT } from './language.tsx';
 
 /** 出力（コマンドの出力、コード、結果の文）を切る行数。 */
 export const OUT_LINES = 12;
-/** 返答と指示を切る高さ（px）と、その高さに収まる行数の見積もり。 */
-export const MSG_MAX_PX = 320;
+/** 返答と指示を切る、その高さに収まる行数の見積もり。 */
 export const MSG_LINES = 15;
 /** 切っても隠れるのがこれより少なければ切らない。「残り 1 行」のために畳ませない。 */
 const SLACK = 3;

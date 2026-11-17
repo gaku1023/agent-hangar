@@ -4,7 +4,7 @@ import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { translatorOf } from '../i18n/message.ts';
 
 /** 入口に依らない検査は auth/request.ts に置く。HTTP の入口を読む側が 1 か所から取れるよう、ここからも出す。 */
-export { allowedOrigins, devMode, originAllowed, tokenEquals, tokenFromRequest } from '../auth/request.ts';
+export { allowedOrigins, originAllowed, tokenEquals, tokenFromRequest } from '../auth/request.ts';
 
 /** 状態を変えない動詞。応答は CORS で読めないので、ここでは断らない。 */
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);

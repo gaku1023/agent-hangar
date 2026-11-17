@@ -74,6 +74,4 @@ export function opencodeMcpNotes(item: { id: string; content: Buffer }, env: Nod
 }
 
 export const writeOpencodeMcp = (o: McpApplyOptions) => writeMcpWith(opencodeMcpSpec, o);
-export const planOpencodeMcp = (o: { home: string } & Pick<McpApplyOptions, 'opencodeDir' | 'exists' | 'userHome'>) => planMcpWith(opencodeMcpSpec, o);
-export const planOpencodeMcpFiles = (o: { home: string } & Pick<McpApplyOptions, 'opencodeDir' | 'exists' | 'userHome'>) => planMcpFilesWith(opencodeMcpSpec, o);
 export const opencodeMcpTarget = createMcpTarget(opencodeMcpSpec);

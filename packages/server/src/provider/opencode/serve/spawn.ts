@@ -47,7 +47,7 @@ export function authHeader(password: string): string {
 }
 
 /** 場所を指す header の名前。opencode 2.1.4 は `location[directory]` の問いが無ければこれを読み、それも無ければ serve の作業フォルダに寄せる。 */
-export const DIRECTORY_HEADER = 'x-opencode-directory';
+const DIRECTORY_HEADER = 'x-opencode-directory';
 
 /**
  * serve への要求に付ける header。basic 認証と、場所があればそれを指す header（URL の符号にする。opencode が解く）。

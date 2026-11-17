@@ -10,14 +10,6 @@ import type { CodexServerRequest } from './appServer.ts';
  * 許可の道具の名前は Claude に合わせる（命令は `Bash`、ファイルの変更は `Edit`、権限の追加は `Permissions`）。質問は AskUserQuestion の hook と同じ形で流す。
  */
 
-export const CODEX_APPROVAL_METHODS = [
-  'item/commandExecution/requestApproval',
-  'item/fileChange/requestApproval',
-  'item/permissions/requestApproval',
-  'item/tool/requestUserInput',
-  'mcpServer/elicitation/request',
-] as const;
-
 /** 待っている要求 1 つ。key は JSON-RPC の要求の ID。 */
 export type CodexPending =
   | { key: string; threadId: string; kind: 'permission'; ask: PermissionAskDto }
