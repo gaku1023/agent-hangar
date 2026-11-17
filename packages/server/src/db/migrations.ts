@@ -1111,6 +1111,15 @@ delete from peer_relay_out where not exists (select 1 from peer_relay r where r.
 `;
 
 /**
+ * 非対話の会話（claude -p などのバッチ）の印。端末ローカルの session_stats に持ち、同期しない。
+ * 1 は本文の entrypoint が sdk- で始まるものだけの会話、0 はそれ以外、null はまだ決めていない会話である。
+ * 今ある行は null のまま残し、索引の埋め戻し（indexer/headless.ts の backfillHeadless）が本文の先頭と末尾を読んで埋める。
+ */
+const V64_SESSION_HEADLESS_SQL = `
+alter table session_stats add column headless integer;
+`;
+
+/**
  * 版 65：event_index が行ごとに持っていたファイルのパス（file_path_ref、平均 135 字）を、別の表 event_paths の番号（path_id）で指す。
  * 同じファイルの行は 1 つのパスを指すので、パスの文字は索引が何百万行になっても、ファイルの数（数千）だけになる。
  * 開くときは表と列を足すだけにする。行を書き直すと、大きな DB（行が百万単位）で起動が十数秒止まるので、行への番号振りは起動後に背面で数千行ずつ進める（db/pathRef.ts の startPathRefFill）。
@@ -1126,19 +1135,9 @@ alter table event_index add column path_id integer;
 `;
 
 /**
- * 非対話の会話（claude -p などのバッチ）の印。端末ローカルの session_stats に持ち、同期しない。
- * 1 は本文の entrypoint が sdk- で始まるものだけの会話、0 はそれ以外、null はまだ決めていない会話である。
- * 今ある行は null のまま残し、索引の埋め戻し（indexer/headless.ts の backfillHeadless）が本文の先頭と末尾を読んで埋める。
- */
-const V64_SESSION_HEADLESS_SQL = `
-alter table session_stats add column headless integer;
-`;
-
-/**
  * 版 66：event_fts の text の末尾に区切りの文字（search/ftsTail.ts の FTS_TAIL）を足す仕事の、進み具合の印を置く。
  * 積むときは writeBatch が足す。今ある行は、起動の後に背面で少しずつ足す（search/ftsTailBackfill.ts）。
  * ここで一度に update すると、実データ（百万行台）で数分かかり、サーバが立たない。
- * 版 62 から 65 は別の変更が使う。
  */
 const V66_FTS_TAIL_SQL = `
 insert into settings_local (key, value) values ('fts_tail_backfill_rowid', '0') on conflict(key) do nothing;

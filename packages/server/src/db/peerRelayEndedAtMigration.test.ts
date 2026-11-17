@@ -9,7 +9,7 @@ let tmp: string;
 beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-peer-relay-ended-at-')); });
 afterEach(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
 
-describe('版 62：結果の返却の行の終わった時刻と、送れなくなった控えの片付け', () => {
+describe('版 63：結果の返却の行の終わった時刻と、送れなくなった控えの片付け', () => {
   it('終わった行に終わった時刻を埋め、行の消えた控えは頼んだ PC が分かれば行を作り直し、分からなければ外す', () => {
     const file = path.join(tmp, 'hangar.db');
     seedDbAt(file, 60, (db) => {
@@ -22,7 +22,7 @@ describe('版 62：結果の返却の行の終わった時刻と、送れなく�
       db.prepare("insert into peer_relay_out (request_id, seq, payload, sent, created_at) values ('r-gone', 1, '{}', 0, 700)").run();
     });
     const db = openDb(file, { backupDir: path.join(tmp, 'backups') });
-    expect(dbVersionOf(file)).toBeGreaterThanOrEqual(62);
+    expect(dbVersionOf(file)).toBeGreaterThanOrEqual(63);
     const rows = db.prepare('select session_id, request_id, from_device, seq, ended, ended_at from peer_relay order by session_id').all();
     expect(rows).toEqual([
       { session_id: 's-ended', request_id: 'r-ended', from_device: 'pc-a', seq: 2, ended: 1, ended_at: 100 },
