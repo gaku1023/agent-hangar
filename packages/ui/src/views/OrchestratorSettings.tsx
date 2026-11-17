@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import { EFFORT_VALUES, type AgentKind, type OrchestratorSetting } from '@agent-hangar/shared';
+import { DEFAULT_ORCHESTRATOR, EFFORT_VALUES, type AgentKind, type OrchestratorSetting } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { OrchestratorSettingsProps, SettingsProps } from '../presenters/settings.ts';
 import { enterAgent, leaveAgent, type AgentSwapSnapshot } from './agentSwap.ts';
@@ -39,7 +39,8 @@ export function OrchestratorSettings(props: { orchestrator: OrchestratorSettings
     if (to === o.agent) return;
     const box = body.ref.current;
     if (box) swap.current = { snap: await leaveAgent(box, o.agent), to };
-    save({ agent: to, model: '', effort: '', account: null });
+    // Claude Code に戻すときは統括の既定（DEFAULT_ORCHESTRATOR の sonnet と medium）に、ほかのアプリはそのアプリの既定（空）にする。
+    save(to === 'claude-code' ? { agent: to, model: DEFAULT_ORCHESTRATOR.model, effort: DEFAULT_ORCHESTRATOR.effort, account: null } : { agent: to, model: '', effort: '', account: null });
   };
   useLayoutEffect(() => {
     const s = swap.current;

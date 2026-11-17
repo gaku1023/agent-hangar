@@ -1048,6 +1048,13 @@ describe('設定のセッションの「Claude Code に渡す設定」と「新�
     fireEvent.click(screen.getByRole('option', { name: /Codex/ }));
     await waitFor(() => { expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { orchestrator: { agent: 'codex', model: '', effort: '', account: null } } }); });
   });
+  it('統括を Claude Code に戻すときは、統括の既定（sonnet と medium）を送る', async () => {
+    const onAction = vi.fn();
+    render(ui(atOrch({ orchestrator: orch({ agent: 'codex', agents: ['claude-code', 'codex'], model: '', effort: '', codex: { model: '', models: cxModels, effort: 'medium', efforts: cxModels[0]!.efforts } }) }), onAction));
+    fireEvent.click(screen.getByRole('button', { name: 'エージェント、Codex' }));
+    fireEvent.click(screen.getByRole('option', { name: /Claude Code/ }));
+    await waitFor(() => { expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { orchestrator: { agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null } } }); });
+  });
   it('統括のアプリが Codex のときは、Codex の札（モデルの一覧、推論）に替わり、権限の札と Claude の札は出ない', () => {
     const onAction = vi.fn();
     render(ui(atOrch({ orchestrator: orch({ agent: 'codex', agents: ['claude-code', 'codex'], model: '', effort: '', codex: { model: '', models: cxModels, effort: 'medium', efforts: cxModels[0]!.efforts } }) }), onAction));

@@ -38,6 +38,9 @@ describe('設定の目次（S1）', () => {
     expect(row(on.toc, 'orchestrator')).toMatchObject({ title: '統括', state: 'オン' });
     expect(on.orchestrator).toMatchObject({ on: true, account: null, model: 'sonnet', effort: 'medium', accounts: [] });
     expect(present(store()).toc.map((r) => r.id)).not.toContain('orchestrator');
+    // agent を知らない古いサーバの値は、既定のアプリ（Claude Code）として読む。
+    const old = present(store({ settings: { ...SETTINGS, orchestrator: { enabled: true, sessionId: null, model: 'sonnet', effort: 'medium', account: null } as never } }));
+    expect(old.orchestrator).toMatchObject({ agent: 'claude-code', model: 'sonnet' });
   });
   it('統括の札のアプリは、設定で Codex を有効にしたときだけ並び、Codex のときのモデルの一覧は取れた一覧から作る', () => {
     const o = { enabled: true, sessionId: null, agent: 'claude-code' as const, model: 'sonnet', effort: 'medium', account: null, history: [] };
