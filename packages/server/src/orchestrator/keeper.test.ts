@@ -10,7 +10,7 @@ type Sw = {
   onSend?: (id: string, text: string, keeper: OrchestratorKeeper) => boolean;
 };
 
-function rig(initial: Partial<OrchestratorSetting> = {}, o: { resumable?: boolean; failStart?: number; sw?: Sw; /** 役の文の版。渡すと起こした run に今の版を記録する。 */ role?: { now: string; record?: boolean } } = {}) {
+function rig(initial: Partial<OrchestratorSetting> = {}, o: { resumable?: boolean; failStart?: number; sw?: Sw; /** 役の文の版。渡すと起こした run に今の版を記録する。 */ role?: { now: string; record?: boolean }; /** 本物の配線と同じく、保存のたびに apply を呼ぶ。 */ applyOnSave?: boolean } = {}) {
   let setting: OrchestratorSetting = { ...DEFAULT_ORCHESTRATOR, ...initial };
   let clock = 1_000_000;
   let listener: { runEnded?(r: RunDto): void } = {};
@@ -48,7 +48,7 @@ function rig(initial: Partial<OrchestratorSetting> = {}, o: { resumable?: boolea
   const keeper: OrchestratorKeeper = new OrchestratorKeeper({
     ...(o.role ? { role: () => o.role!.now } : {}),
     settings: () => setting,
-    save: (patch) => { setting = { ...setting, ...patch }; },
+    save: (patch) => { setting = { ...setting, ...patch }; if (o.applyOnSave) keeper.apply(); },
     runs,
     resumable: () => o.resumable ?? true,
     providerOf: (id) => providers.get(id) ?? 'claude-code',
@@ -320,6 +320,16 @@ describe('OrchestratorKeeper', () => {
       expect(t.calls).toEqual(['start:orch-1#codex']);
       expect(t.setting().history).toEqual([{ sessionId: 'orch-old', startedAt: 500, endedAt: expect.any(Number), reason: 'agent' }]);
     });
+  });
+
+  it('新しい会話を起こした直後の保存で apply が走っても、起こしたばかりの会話を止めない（二重の起動をしない）', async () => {
+    const t = rig({ enabled: true, sessionId: 'lost-1' }, { resumable: false, applyOnSave: true });
+    t.live('orch-1', 'idle');
+    t.keeper.start();
+    await t.settle();
+    await t.settle();
+    expect(t.calls).toEqual(['start:orch-1']);
+    expect(t.setting().sessionId).toBe('orch-1');
   });
 
   describe('指定（account、model、effort）が変わったとき', () => {
