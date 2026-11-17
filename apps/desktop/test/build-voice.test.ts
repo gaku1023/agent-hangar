@@ -75,7 +75,7 @@ describe('補助を作る道', () => {
   it('release の macos ジョブは、ci と同じ鍵と場所で声の補助のキャッシュを戻すだけにする', () => {
     const voice = job(read('.github/workflows/ci.yml'), 'voice-mac');
     const mac = job(read('.github/workflows/release.yml'), 'macos');
-    const keyOf = (s: string) => s.match(/key=(voice-mac-xcode-.+?)" >>/)?.[1];
+    const keyOf = (s: string) => s.match(/key=(voice-mac-cas-.+?)" >>/)?.[1];
     const pathOf = (s: string) => s.match(/actions\/cache\/restore@\S+\n(?:.*\n)*?\s+path: (\S+)/)?.[1];
     expect(keyOf(mac)).toBeDefined();
     expect(keyOf(mac)).toBe(keyOf(voice));
@@ -83,7 +83,11 @@ describe('補助を作る道', () => {
     expect(pathOf(mac)).toBe(pathOf(voice));
     expect(mac).not.toMatch(/actions\/cache(\/save)?@/);
     // build.sh の既定の置き場と同じ場所（env で渡さずに当たる）。
-    expect(fs.readFileSync(path.join(root, 'apps/voice-mac/scripts/build.sh'), 'utf8')).toContain('$HOME/Library/Caches/agent-hangar/voice-mac-xcode');
+    const build = fs.readFileSync(path.join(root, 'apps/voice-mac/scripts/build.sh'), 'utf8');
+    expect(build).toContain('$HOME/Library/Caches/agent-hangar/voice-mac-xcode');
+    // 戻したキャッシュはファイルの inode が変わり、Xcode の build は Swift のモジュールを作り直す（CI で 431 秒）。
+    // 中身の指紋で引く compilation caching なら、戻した後でも当たる（手元の実測で 120 秒 → 19 秒）。
+    expect(build).toMatch(/COMPILATION_CACHE_ENABLE_CACHING=YES/);
     expect(mac.indexOf('actions/cache/restore@')).toBeLessThan(mac.indexOf('npm run tauri -- build'));
   });
   it('release の macos ジョブは Metal Toolchain を入れて、本物の補助を入れた .app を作る', () => {

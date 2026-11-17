@@ -34,9 +34,13 @@ trap 'rm -rf "$lock"' EXIT
 # 時刻を保って写す（-a）。変わっていないファイルは作り直さない。
 rsync -a --delete --exclude .build --exclude dist --exclude .swiftpm "$root/" "$src/"
 
+# CI は中間物を actions/cache で戻す。戻したファイルは時刻が同じでも inode が変わり、Xcode の build は
+# Swift のモジュールを全部作り直す（CI で 431 秒）。compilation caching は中身の指紋で引くので、戻した後でも当たる
+# （2026-11-17 の手元の実測：tar で戻した後が 120 秒 → 19 秒。置き場は 1.7GB → 2.4GB）。
 cd "$src"
 xcodebuild -scheme hangar-voice -destination platform=macOS -configuration Release \
-  -derivedDataPath "$derived" CLANG_ENABLE_CODE_COVERAGE=NO CLANG_COVERAGE_MAPPING=NO build
+  -derivedDataPath "$derived" CLANG_ENABLE_CODE_COVERAGE=NO CLANG_COVERAGE_MAPPING=NO \
+  COMPILATION_CACHE_ENABLE_CACHING=YES build
 
 products="$derived/Build/Products/Release"
 rm -rf "$dist"

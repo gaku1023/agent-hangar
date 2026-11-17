@@ -10552,7 +10552,7 @@ Mac では、聞き取り・区切り・読み上げを端末の中の補助 `ha
 殻は `voice/hangar-voice` が在るときだけ、その場所を `HANGAR_VOICE_BIN` でサーバへ渡す。サーバはそれが無ければ開発用の `apps/voice-mac/dist/hangar-voice` を探す。
 `HANGAR_SKIP_VOICE=1` の build（CI の .app の試験）は補助を入れない。
 MLX に依らない芯 `VoiceCore` は `apps/voice-mac/Core` の別のパッケージで、芯の試験は MLX を作らずに回る。
-MLX の build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/voice-mac-xcode` に置いて worktree をまたいで使い回し（ソースも同じ置き場へ写してから作る。場所が変わると Swift のモジュールが作り直しになるため）、CI は main の push で保存したものを PR とリリースで戻す。PR では `apps/voice-mac` が変わったときだけ Release の build を回す（ci.yml の voice-mac ジョブ）。
+MLX の build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/voice-mac-xcode` に置いて worktree をまたいで使い回し（ソースも同じ置き場へ写してから作る。場所が変わると Swift のモジュールが作り直しになるため。また、戻した中間物は inode が変わるだけで作り直しになるので、中身の指紋で引く compilation caching を入れる）、CI は main の push で保存したものを PR とリリースで戻す。PR では `apps/voice-mac` が変わったときだけ Release の build を回す（ci.yml の voice-mac ジョブ）。
 サーバ側は `packages/server/src/voice/` にあり、次の部品でできている。
 
 - `helper.ts`：補助の起動と見張り。落ちたら 1 秒から 30 秒のバックオフで起こし直し、5 回続けて落ちたら止める。
