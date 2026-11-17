@@ -239,23 +239,34 @@ export async function turnOffPush(p: Pairing): Promise<PushStatus> {
 
 const OPEN = '#open=';
 
+/** 通知から開く会話。deviceId は通知を送った PC の ID、pcName はその名前（古い PC の通知は ID が無く、名前で探す）。 */
+export type OpenTarget = { id: string; deviceId?: string; pcName?: string };
+
+const withPc = (id: string, deviceId: unknown, pcName: unknown): OpenTarget => ({
+  id,
+  ...(typeof deviceId === 'string' && deviceId ? { deviceId } : {}),
+  ...(typeof pcName === 'string' && pcName ? { pcName } : {}),
+});
+
 /**
- * 通知から開かれた URL の #open=<会話の ID> を取り出し、URL から消す（public/sw.js の notificationclick が付ける）。
+ * 通知から開かれた URL の #open=<会話の ID>[&device=<PC の ID>][&pc=<PC の名前>] を取り出し、URL から消す（public/sw.js の notificationclick が付ける）。
  * 無ければ null で、URL に触らない。
  */
-export function takeOpenFragment(): string | null {
+export function takeOpenFragment(): OpenTarget | null {
   const hash = location.hash;
   if (!hash.startsWith(OPEN)) return null;
   history.replaceState(history.state, '', location.pathname + location.search);
   try {
-    return decodeURIComponent(hash.slice(OPEN.length)) || null;
+    const params = new URLSearchParams(hash.slice(1));
+    const id = params.get('open');
+    return id ? withPc(id, params.get('device'), params.get('pc')) : null;
   } catch {
     return null;
   }
 }
 
 /** サービスワーカーが「この会話を開いて」と渡してきたものを読む。 */
-export function openMessageOf(data: unknown): string | null {
-  const v = data as { type?: unknown; sessionId?: unknown } | null;
-  return v && typeof v === 'object' && v.type === 'hangar-open' && typeof v.sessionId === 'string' && v.sessionId ? v.sessionId : null;
+export function openMessageOf(data: unknown): OpenTarget | null {
+  const v = data as { type?: unknown; sessionId?: unknown; deviceId?: unknown; pcName?: unknown } | null;
+  return v && typeof v === 'object' && v.type === 'hangar-open' && typeof v.sessionId === 'string' && v.sessionId ? withPc(v.sessionId, v.deviceId, v.pcName) : null;
 }
