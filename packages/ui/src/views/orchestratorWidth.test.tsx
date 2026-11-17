@@ -69,6 +69,7 @@ describe('柱の左の縁（OrchestratorGrip）', () => {
     expect(onAction).not.toHaveBeenCalled();
     expect(shell.style.getPropertyValue('--orch-w')).toBe(orchWidthCss(480));
     expect(shell.dataset.orchDrag).toBe('true');
+    expect(document.documentElement.style.getPropertyValue('--orch-w')).toBe(orchWidthCss(480));
     expect(shell.hasAttribute('data-layout-moving')).toBe(true);
     fireEvent.pointerUp(window, { clientX: 720 });
     expect(onAction).toHaveBeenCalledTimes(1);

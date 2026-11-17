@@ -31,6 +31,12 @@ export function Shell(props: ShellProps & { children: ReactNode; overlays: React
     if (shell.dataset.sidebarDropped) { delete shell.dataset.sidebarDropped; return; }
     playSidebarWidth(shell, from);
   }, [props.sidebarWidth]);
+  // 右下の札は .shell の外にあるので、柱の幅は根にも写す（札が柱の左に出る。styles/base.css）。
+  const orchW = orchWidthCss(props.orchestratorWidth ?? ORCH_WIDTH_DEFAULT);
+  useLayoutEffect(() => {
+    document.documentElement.style.setProperty('--orch-w', orchW);
+    return () => { document.documentElement.style.removeProperty('--orch-w'); };
+  }, [orchW]);
   const style = { '--sidebar-w': sidebarWidthCss(props.sidebarWidth), '--orch-w': orchWidthCss(props.orchestratorWidth ?? ORCH_WIDTH_DEFAULT) } as CSSProperties;
   return (
     <div ref={ref} className="shell" data-sidebar={props.sidebarCollapsed ? 'collapsed' : undefined} data-wide={props.wide ? 'true' : undefined} data-orch={props.orchestrator ? 'true' : undefined} style={style}>
