@@ -17,11 +17,14 @@ export interface Cache {
 
 /**
  * 鍵からロックファイルの指紋を除いた族。知らない形の鍵は undefined（消さない）。
- * setup-node は「node-cache-OS-arch-npm-指紋」、rust-cache は「接頭辞-ジョブ-OS-arch-環境の指紋-ロックの指紋」である。
+ * setup-node は「node-cache-OS-arch-npm-指紋」、rust-cache は「接頭辞-ジョブ-OS-arch-環境の指紋-ロックの指紋」、
+ * 声の補助は「voice-mac-xcode-Xcode の版の指紋-Package.resolved の指紋」である。
  */
 export function cacheFamily(key: string): string | undefined {
   if (/^node-cache-.+-[0-9a-f]+$/.test(key)) return key.replace(/-[0-9a-f]+$/, '');
   if (/^v0-rust-.+-[0-9a-f]+-[0-9a-f]+$/.test(key)) return key.replace(/-[0-9a-f]+-[0-9a-f]+$/, '');
+  // 声の補助の DerivedData（ci.yml の voice-mac ジョブ）。「voice-mac-xcode-Xcode の版の指紋-Package.resolved の指紋」。
+  if (/^voice-mac-xcode-[0-9a-f]+-[0-9a-f]+$/.test(key)) return 'voice-mac-xcode';
   return undefined;
 }
 

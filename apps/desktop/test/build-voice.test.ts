@@ -57,6 +57,35 @@ describe('補助を作る道', () => {
     expect(voice).toContain('xcodebuild -downloadComponent MetalToolchain');
     expect(voice).toContain('bash apps/voice-mac/scripts/build.sh');
   });
+  // MLX をゼロから作ると試験と build で 1 回ずつ、合わせて 8〜19 分かかり、CI の律速になっていた（2026-11-17）。
+  it('voice-mac ジョブは芯の試験を MLX の無いパッケージで回し、MLX の build は main が保存したキャッシュから続ける', () => {
+    const ci = read('.github/workflows/ci.yml');
+    const voice = job(ci, 'voice-mac');
+    expect(voice).toContain('swift test --package-path apps/voice-mac/Core');
+    expect(voice).not.toMatch(/swift test --package-path apps\/voice-mac(\s|$)/);
+    // PR では変わったときだけ build する。ジョブごと飛ばすと必須のチェックが来なくなるので、段に if を付ける。
+    expect(voice).not.toMatch(/^ {4}if:/m);
+    expect(voice).toMatch(/- run: bash apps\/voice-mac\/scripts\/build\.sh\n\s+if: steps\.changed\.outputs\.build == 'true'/);
+    // 保存は main の push だけ。
+    expect(voice).toMatch(/actions\/cache\/save@\S+\n\s+if: github\.event_name == 'push'/);
+    expect(voice).not.toMatch(/actions\/cache@/);
+    const pkg = fs.readFileSync(path.join(root, 'apps/voice-mac/Package.swift'), 'utf8');
+    expect(pkg).not.toContain('testTarget');
+  });
+  it('release の macos ジョブは、ci と同じ鍵と場所で声の補助のキャッシュを戻すだけにする', () => {
+    const voice = job(read('.github/workflows/ci.yml'), 'voice-mac');
+    const mac = job(read('.github/workflows/release.yml'), 'macos');
+    const keyOf = (s: string) => s.match(/key=(voice-mac-xcode-.+?)" >>/)?.[1];
+    const pathOf = (s: string) => s.match(/actions\/cache\/restore@\S+\n(?:.*\n)*?\s+path: (\S+)/)?.[1];
+    expect(keyOf(mac)).toBeDefined();
+    expect(keyOf(mac)).toBe(keyOf(voice));
+    expect(pathOf(mac)).toBe('~/Library/Caches/agent-hangar/voice-mac-xcode');
+    expect(pathOf(mac)).toBe(pathOf(voice));
+    expect(mac).not.toMatch(/actions\/cache(\/save)?@/);
+    // build.sh の既定の置き場と同じ場所（env で渡さずに当たる）。
+    expect(fs.readFileSync(path.join(root, 'apps/voice-mac/scripts/build.sh'), 'utf8')).toContain('$HOME/Library/Caches/agent-hangar/voice-mac-xcode');
+    expect(mac.indexOf('actions/cache/restore@')).toBeLessThan(mac.indexOf('npm run tauri -- build'));
+  });
   it('release の macos ジョブは Metal Toolchain を入れて、本物の補助を入れた .app を作る', () => {
     const mac = job(read('.github/workflows/release.yml'), 'macos');
     expect(mac).not.toContain('HANGAR_SKIP_VOICE');
