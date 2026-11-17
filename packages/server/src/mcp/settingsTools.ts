@@ -27,16 +27,16 @@ export const SETTING_TIERS: Record<keyof SettingsDto | WriteOnlyKey, SettingTier
   // 聞いてから
   terminalApp: 'confirm', defaultModel: 'confirm', autoDone: 'confirm', autoDoneIdleDays: 'confirm', autoPark: 'confirm',
   askStatusAtEnd: 'confirm', liveHints: 'confirm', notifyUser: 'confirm',
-  summaryEngine: 'confirm', summaryClaudeModel: 'confirm', summaryHourlyCap: 'confirm', summaryFallback: 'confirm', lmStudioModel: 'confirm',
+  summaryEngine: 'confirm', summaryClaudeModel: 'confirm', summaryHourlyCap: 'confirm',
   opencodeLocalContext: 'confirm', opencodeIdleUnload: 'confirm', codexEnabled: 'confirm', opencodeEnabled: 'confirm', voice: 'confirm',
-  remoteControl: 'confirm', peerChatAcceptFromPeers: 'confirm', phoneChatAccept: 'confirm',configBundleSync: 'confirm', configKinds: 'confirm',
+  remoteControl: 'confirm', peerChatAcceptFromPeers: 'confirm', phoneChatAccept: 'confirm', eventTrigger: 'confirm',configBundleSync: 'confirm', configKinds: 'confirm',
   codexShareInstructions: 'confirm', codexShareMcp: 'confirm', opencodeShareInstructions: 'confirm', opencodeShareMcp: 'confirm',
   codexInjection: 'confirm', opencodeInjection: 'confirm', codexIntercept: 'confirm', opencodeIntercept: 'confirm', opencodePermissionPreset: 'confirm',
   workspaceRoot: 'confirm', orchestrator: 'confirm',
   // 受けない
   claudeDir: 'refused', tmuxPath: 'refused', nodePath: 'refused', claudePath: 'refused', codexPath: 'refused', opencodePath: 'refused',
-  editor: 'refused', opencodeProviderPrep: 'refused', lmStudioUrl: 'refused', allowExternalSummarizer: 'refused',
-  summaryApiKey: 'refused', summaryApiKeySet: 'refused', trustedWorkspaceRoot: 'refused', permissionPolicy: 'refused',
+  editor: 'refused', opencodeProviderPrep: 'refused',
+  summaryApiKey: 'refused', trustedWorkspaceRoot: 'refused', permissionPolicy: 'refused',
   configApproval: 'refused', configTargets: 'refused', dryRun: 'refused',
 };
 

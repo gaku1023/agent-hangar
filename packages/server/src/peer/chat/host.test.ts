@@ -664,7 +664,7 @@ describe('PeerChatHost: answer と interrupt', () => {
     s.w.pane.onText = (t) => { if ((t === '1' || t === '3') && s.w.pane.plain === PERMISSION_SCREEN) { s.w.pane.plain = RUNNING_SCREEN; s.w.session!.live = 'busy'; } };
     const fromB = (): Promise<PeerChatReply> => s.ask({ t: 'answer', askId: ask.askId, keys: ['1'] });
     const fromC = (): Promise<PeerChatReply> => s.ask({ t: 'answer', askId: ask.askId, keys: ['3'] }, { from: 'pc-c' });
-    const [a, b] = cFirst ? (await Promise.all([fromC(), fromB()])).reverse() : await Promise.all([fromB(), fromC()]);
+    const [a, b] = cFirst ? await Promise.all([fromC(), fromB()]).then(([c, bb]) => [bb, c] as const) : await Promise.all([fromB(), fromC()]);
     const oks = [a, b].filter((r) => r.ok);
     const lost = [a, b].find((r) => !r.ok);
     expect(oks).toHaveLength(1);
