@@ -140,6 +140,8 @@ describe('控えの索引', () => {
       const raw = new Database(bak, { readonly: true });
       expect(n(raw, 'select count(*) c from event_index')).toBe(0);
       expect(n(raw, 'select count(*) c from event_fts')).toBe(0);
+      // 索引が指していたパスの表も、控えには残さない（番号で指す表なので、行といっしょに抜く）。
+      expect(n(raw, 'select count(*) c from event_paths')).toBe(0);
       // 元から作り直せない表と、作り直しの印は残る。
       expect(n(raw, 'select count(*) c from sessions')).toBe(1);
       expect(n(raw, 'select count(*) c from transcript_files where indexer_version = 0')).toBe(1);
@@ -172,6 +174,8 @@ describe('控えの索引（元の jsonl が無い会話）', () => {
       const raw = new Database(bak, { readonly: true });
       const n = (sql: string) => (raw.prepare(sql).get() as { c: number }).c;
       expect(n('select count(*) c from event_index')).toBe(17);
+      // 残した行は番号でパスを指し、その表の行も残る。
+      expect(n('select count(*) c from event_index e join event_paths p on p.id = e.path_id and p.path = ' + `'${main.path.replaceAll("'", "''")}'`)).toBe(17);
       expect(n("select count(*) c from event_fts where text match '\"channels\"'")).toBe(3);
       expect(n('select count(*) c from transcript_files where indexer_version = 0')).toBe(0);
       raw.close();

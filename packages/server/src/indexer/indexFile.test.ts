@@ -160,7 +160,7 @@ describe('indexFile', () => {
 
   it('バイト位置から記録を読み戻せる', () => {
     const r = indexFile(db, alphaMain(), { deviceId: DEV });
-    const rows = db.prepare('select byte_offset, byte_length, file_path_ref from event_index where session_id = ?').all(r.sessionId) as { byte_offset: number; byte_length: number; file_path_ref: string }[];
+    const rows = db.prepare('select byte_offset, byte_length, (select p.path from event_paths p where p.id = path_id) file_path_ref from event_index where session_id = ?').all(r.sessionId) as { byte_offset: number; byte_length: number; file_path_ref: string }[];
     const fd = fs.openSync(alphaMain().path, 'r');
     for (const row of rows) {
       const buf = Buffer.alloc(row.byte_length);
@@ -415,7 +415,7 @@ describe('最後のツール呼び出し（session_activity）', () => {
     forgetTranscriptFile(db, old.path);
     appendJson(moved.path, { type: 'user', message: { role: 'user', content: '移った後の依頼です' }, uuid: 'u-moved', timestamp: '2026-09-01T11:00:00.000Z', cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
     indexFile(db, moved, { deviceId: DEV });
-    const rows = db.prepare('select seq, kind, byte_offset, file_path_ref from event_index where session_id = ? and parent_agent is null order by seq').all(sessionId) as { seq: number; kind: string; byte_offset: number; file_path_ref: string }[];
+    const rows = db.prepare('select seq, kind, byte_offset, (select p.path from event_paths p where p.id = path_id) file_path_ref from event_index where session_id = ? and parent_agent is null order by seq').all(sessionId) as { seq: number; kind: string; byte_offset: number; file_path_ref: string }[];
     expect(rows).toHaveLength(18);
     expect(rows[0]).toMatchObject({ seq: 0, byte_offset: 0, file_path_ref: moved.path });
     expect(rows.filter((r) => r.kind === 'user')).toHaveLength(3);

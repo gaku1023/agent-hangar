@@ -81,8 +81,13 @@ function dropRebuildableIndex(file: string): void {
     copy.exec('create temp table gone_files (path text primary key)');
     const insGone = copy.prepare('insert or ignore into gone_files values (?)');
     for (const g of gone) insGone.run(g);
+    // 控えは「当てる前」の DB の写しなので、版 65 より前の DB はパスの文字を行ごとに持つ（file_path_ref）。どちらの形でも抜けるようにする。
+    const byNumber = (copy.prepare("select 1 from pragma_table_info('event_index') where name = 'path_id'").get() as unknown) !== undefined;
+    copy.exec(byNumber
+      ? `delete from event_index where path_id in (select p.id from event_paths p where p.path in (select path from transcript_files where path not in (select path from gone_files)));
+         delete from event_paths where id not in (select distinct path_id from event_index);`
+      : 'delete from event_index where file_path_ref in (select path from transcript_files where path not in (select path from gone_files));');
     copy.exec(`
-      delete from event_index where file_path_ref in (select path from transcript_files where path not in (select path from gone_files));
       update transcript_files set indexer_version = 0 where path not in (select path from gone_files);
     `);
     if (ddl !== undefined) {

@@ -91,7 +91,7 @@ describe('IndexerService に Codex の本文を通す', () => {
     // 会話の ID（uuid v7）は毎回違うので、provider_session_id に読み替えて比べる。
     const dump = (d: Db) => [
       d.prepare('select provider, provider_session_id, cwd, first_prompt, started_at, last_activity_at from sessions order by provider_session_id').all(),
-      d.prepare('select s.provider_session_id p, e.seq, e.kind, e.byte_offset, e.byte_length, e.file_path_ref from event_index e join sessions s on s.id = e.session_id order by p, e.parent_agent, e.seq').all(),
+      d.prepare('select s.provider_session_id p, e.seq, e.kind, e.byte_offset, e.byte_length, (select p.path from event_paths p where p.id = e.path_id) file_path_ref from event_index e join sessions s on s.id = e.session_id order by p, e.parent_agent, e.seq').all(),
       d.prepare('select path, size, indexed_bytes, agent from transcript_files order by path').all(),
       d.prepare('select s.provider_session_id p, u.day, u.file_path, u.input_tokens, u.output_tokens from usage_daily u join sessions s on s.id = u.session_id order by p, u.file_path, u.day').all(),
     ];
@@ -105,7 +105,7 @@ describe('IndexerService に Codex の本文を通す', () => {
     await svc.fullScan();
     const id = codexSessions()[0]!.id as string;
     const snap = () => ({
-      events: db.prepare('select seq, kind, byte_offset, byte_length, file_path_ref from event_index where session_id = ? order by seq').all(id),
+      events: db.prepare('select seq, kind, byte_offset, byte_length, (select p.path from event_paths p where p.id = path_id) file_path_ref from event_index where session_id = ? order by seq').all(id),
       usage: db.prepare('select * from usage_daily where session_id = ?').all(id),
       tf: one<{ indexed_bytes: number }>('select indexed_bytes from transcript_files where path = ?', p).indexed_bytes,
     });
@@ -156,7 +156,7 @@ describe('IndexerService に Codex の本文を通す', () => {
     fs.renameSync(p, moved);
     await svc.fullScan();
     expect(count('select count(*) c from event_index where session_id = ?', id)).toBe(n0);
-    expect(count('select count(*) c from event_index where session_id = ? and file_path_ref = ?', id, moved)).toBe(n0);
+    expect(count('select count(*) c from event_index where session_id = ? and path_id = (select id from event_paths where path = ?)', id, moved)).toBe(n0);
     expect(one<{ i: number }>('select sum(input_tokens) i from usage_daily where session_id = ?', id).i).toBe(1200);
   });
 

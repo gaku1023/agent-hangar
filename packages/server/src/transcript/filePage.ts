@@ -3,7 +3,7 @@ import type { EventsPageDto, TranscriptEvent } from '@agent-hangar/shared';
 import type { ReadOpts } from '../agent/types.ts';
 import type { Db } from '../db/open.ts';
 
-type Row = { seq: number; byte_offset: number; byte_length: number; file_path_ref: string };
+type Row = { seq: number; byte_offset: number; byte_length: number; path_id: number; path: string };
 
 const DEFAULT_LIMIT = 500;
 const MAX_LIMIT = 2000;
@@ -13,7 +13,7 @@ export type PageBody = { read(offset: number, length: number): Buffer; close(): 
 
 /**
  * ファイル型のエージェントごとに差し替える 2 つ。
- * normalize は記録 1 件（JSON）を正規化イベントにし、open は索引の file_path_ref（論理パス）を開く。
+ * normalize は記録 1 件（JSON）を正規化イベントにし、open は索引の path_id が指すパス（論理パス）を開く。
  * Codex の圧縮された rollout のように、論理パスの実体が別の形のとき、open がそこを展開して返す。
  */
 export type FilePageDeps = {
@@ -36,7 +36,7 @@ export function openFsBody(filePathRef: string): PageBody {
 
 /**
  * ファイル型の会話の 1 ページを読む。索引のバイト位置から本文を読み直し、正規化イベントを返す（Claude も Codex もこの本体を使う）。
- * DB には本文が無いので、ここで file_path_ref を読み直して deps.normalize に通す。
+ * DB には本文が無いので、ここでパスを読み直して deps.normalize に通す。
  * agentId を省略すると主線を読む。
  */
 export function readFilePage(db: Db, sessionId: string, opts: ReadOpts, deps: FilePageDeps): EventsPageDto {
@@ -59,19 +59,19 @@ export function readFilePage(db: Db, sessionId: string, opts: ReadOpts, deps: Fi
     take = tail.length;
   }
   // 1 件多めに取って、続きがあるかどうかを判定する。
-  const rows = db.prepare("select seq, byte_offset, byte_length, file_path_ref from event_index where session_id = ? and ifnull(parent_agent, '') = ? and seq >= ? order by seq limit ?")
+  const rows = db.prepare("select seq, byte_offset, byte_length, path_id, (select p.path from event_paths p where p.id = path_id) path from event_index where session_id = ? and ifnull(parent_agent, '') = ? and seq >= ? order by seq limit ?")
     .all(sessionId, agentKey, fromSeq, take + 1) as Row[];
   const hasMore = rows.length > take;
   const wanted = rows.slice(0, take);
   // 記録の先頭の seq。1 つの記録から出た行は seq が続いているので、ページの中の 2 つ目からの記録は、ページに入った最初の行が先頭である。
   // ページの最初の記録だけは途中から始まることがあるので、索引を 1 行ずつ遡って確かめる。
   // 記録ごとに byte_offset で min(seq) を引くと、byte_offset は索引に無いので、1 回ごとにそのセッションの全行を見に行く。
-  const prevOf = db.prepare("select seq, byte_offset, file_path_ref from event_index where session_id = ? and ifnull(parent_agent, '') = ? and seq < ? order by seq desc limit 1");
+  const prevOf = db.prepare("select seq, byte_offset, path_id from event_index where session_id = ? and ifnull(parent_agent, '') = ? and seq < ? order by seq desc limit 1");
   const headOf = (r: Row): number => {
     let head = r.seq;
     for (;;) {
-      const p = prevOf.get(sessionId, agentKey, head) as Row | undefined;
-      if (!p || p.byte_offset !== r.byte_offset || p.file_path_ref !== r.file_path_ref) return head;
+      const p = prevOf.get(sessionId, agentKey, head) as Pick<Row, 'seq' | 'byte_offset' | 'path_id'> | undefined;
+      if (!p || p.byte_offset !== r.byte_offset || p.path_id !== r.path_id) return head;
       head = p.seq;
     }
   };
@@ -83,16 +83,16 @@ export function readFilePage(db: Db, sessionId: string, opts: ReadOpts, deps: Fi
     let i = 0;
     while (i < wanted.length) {
       const r = wanted[i]!;
-      if (body === null || bodyPath !== r.file_path_ref) {
+      if (body === null || bodyPath !== r.path) {
         body?.close();
-        body = deps.open(r.file_path_ref);
-        bodyPath = r.file_path_ref;
+        body = deps.open(r.path);
+        bodyPath = r.path;
       }
       const buf = body.read(r.byte_offset, r.byte_length);
       let rec: unknown;
       try { rec = JSON.parse(buf.toString('utf8')); } catch { rec = null; }
       let j = i;
-      while (j < wanted.length && wanted[j]!.byte_offset === r.byte_offset && wanted[j]!.file_path_ref === r.file_path_ref) j++;
+      while (j < wanted.length && wanted[j]!.byte_offset === r.byte_offset && wanted[j]!.path_id === r.path_id) j++;
       const firstSeq = i === 0 ? headOf(r) : r.seq;
       const all = rec === null ? [] : deps.normalize(rec, firstSeq, agent);
       const lastSeq = wanted[j - 1]!.seq;

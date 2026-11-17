@@ -13,6 +13,7 @@ import { SESSION_ALPHA } from '../../../test/fixtures.ts';
 import { createApp, type AppDeps, type ExternalApi, type RunsApi, type SummaryApi, type SummaryEnqueueOpts } from '../app.ts';
 import { H, run, testDeps, testResult, TOKEN, type TestWorld } from '../testing.ts';
 import { noteWake } from '../../sessions/wake.ts';
+import { pathRefId } from '../../db/pathRef.ts';
 
 // セッションの経路（routes/sessions.ts）の試験。依存は testDeps() で組み、createApp を通して /api の下から叩く。
 
@@ -172,19 +173,19 @@ describe('routes', () => {
     const at = '/Users/me/workspace/alpha/channels/a.md';
     // 索引にあるのは、メイン会話の Edit 1 回だけ。
     expect(await json(await get(`/api/sessions/${id}/files`))).toEqual({ status: 200, body: { files: [{ path: at, edits: 1, agentId: null }] } });
-    const row = db.prepare("insert into event_index (session_id, seq, kind, byte_offset, byte_length, file_path_ref, parent_agent, tool_name, file_path) values (?, ?, 'tool_call', 0, 0, 'x', ?, ?, ?)");
-    row.run(id, 900_001, null, 'Edit', at);
-    row.run(id, 900_002, null, 'MultiEdit', at);
+    const row = db.prepare("insert into event_index (session_id, seq, kind, byte_offset, byte_length, path_id, parent_agent, tool_name, file_path) values (?, ?, 'tool_call', 0, 0, ?, ?, ?, ?)");
+    row.run(id, 900_001, pathRefId(db, 'x'), null, 'Edit', at);
+    row.run(id, 900_002, pathRefId(db, 'x'), null, 'MultiEdit', at);
     // サブエージェントだけが触ったファイルは、そのサブエージェントの id を添える。
-    row.run(id, 900_003, 'abc123', 'Write', '/w/only-agent.ts');
-    row.run(id, 900_004, 'def456', 'Edit', '/w/only-agent.ts');
+    row.run(id, 900_003, pathRefId(db, 'x'), 'abc123', 'Write', '/w/only-agent.ts');
+    row.run(id, 900_004, pathRefId(db, 'x'), 'def456', 'Edit', '/w/only-agent.ts');
     // サブエージェントが先に触り、メイン会話も触ったファイルは null。
-    row.run(id, 900_005, 'abc123', 'Edit', '/w/both.ts');
-    row.run(id, 900_006, null, 'NotebookEdit', '/w/both.ts');
+    row.run(id, 900_005, pathRefId(db, 'x'), 'abc123', 'Edit', '/w/both.ts');
+    row.run(id, 900_006, pathRefId(db, 'x'), null, 'NotebookEdit', '/w/both.ts');
     // 読んだだけのパスと、パスの無い呼び出しと、ほかのセッションの編集は入れない。
-    row.run(id, 900_007, null, 'Read', '/w/read-only.ts');
-    row.run(id, 900_008, null, 'Edit', null);
-    row.run('another-session', 900_009, null, 'Edit', '/w/other-session.ts');
+    row.run(id, 900_007, pathRefId(db, 'x'), null, 'Read', '/w/read-only.ts');
+    row.run(id, 900_008, pathRefId(db, 'x'), null, 'Edit', null);
+    row.run('another-session', 900_009, pathRefId(db, 'x'), null, 'Edit', '/w/other-session.ts');
     const { status, body } = await json(await get(`/api/sessions/${id}/files`));
     expect(status).toBe(200);
     expect(body).toEqual({ files: [

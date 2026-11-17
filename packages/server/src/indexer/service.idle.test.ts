@@ -165,7 +165,7 @@ describe('待機中の索引', { timeout: 120_000 }, () => {
     expect(b.counts().indexFile).toBeGreaterThanOrEqual(1);
     await advance(300);
     expect(b.indexedPaths().every((p) => p === fileOf(3))).toBe(true);
-    expect(db.prepare("select count(*) c from event_index where file_path_ref = ?").get(fileOf(3))).toEqual({ c: 6 });
+    expect(db.prepare("select count(*) c from event_index where path_id = (select id from event_paths where path = ?)").get(fileOf(3))).toEqual({ c: 6 });
   });
 
   it('名前の無い通知は、全件走査を早めに 1 回予約して変化を拾う', async () => {

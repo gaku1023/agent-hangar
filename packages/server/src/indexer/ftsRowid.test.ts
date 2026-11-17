@@ -7,6 +7,7 @@ import { dbVersionOf, seedDbAt } from '../../test/oldDb.ts';
 import { openDb, type Db } from '../db/open.ts';
 import type { IndexBatch, IndexRecord } from '../agent/types.ts';
 import { deleteIndexed, writeBatch } from './write.ts';
+import { pathRefId } from '../db/pathRef.ts';
 
 // 索引の作り直しで event_fts を消すとき、全件をなめずに rowid で引く（2026-11-14、Windows で 30 万行を 1 回 0.3〜1.7 秒なめていた）。
 // なめていないことは、消す対象の外にある行（event_index から指されていない行）が残ることで見る。
@@ -67,7 +68,7 @@ describe('event_fts を rowid で消す', () => {
   it('rowid を持たない古い行（版 60 より前に積んだ行）があれば、今までどおり位置ごとに消す', () => {
     const { sessionId } = writeBatch(db, batch([], false), { deviceId: DEV });
     // 版を上げる前に積んだ行を真似る。fts_rowid は null のまま。
-    db.prepare("insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, file_path_ref, parent_agent) values (?, 0, 'user', ?, 0, 0, 'x', null)").run(sessionId, TS);
+    db.prepare("insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, path_id, parent_agent) values (?, 0, 'user', ?, 0, 0, ?, null)").run(sessionId, TS, pathRefId(db, 'x'));
     db.prepare("insert into event_fts (session_id, agent_id, seq, role, text) values (?, null, 0, 'user', '古い行')").run(sessionId);
     db.prepare("insert into event_fts (session_id, agent_id, seq, role, text) values (?, 'agent-1', 0, 'user', '子の古い行')").run(sessionId);
     // 古い行に続きを積んでから作り直す。

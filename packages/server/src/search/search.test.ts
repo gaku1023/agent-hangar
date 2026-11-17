@@ -7,12 +7,13 @@ import { claudeTranscriptSource } from '../provider/claude-code/transcript/sourc
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { proposeSessionState, setSessionState } from '../sessions/states.ts';
 import { fitSnippet, likeSnippet, searchSessions } from './search.ts';
+import { pathRefId } from '../db/pathRef.ts';
 
 let dir: string;
 let db: Db;
 const idOf = (p: string) => (db.prepare('select id from sessions where provider_session_id = ?').get(p) as { id: string }).id;
 /** そのセッションがファイルを触ったことにする。索引の行を 1 つ足すだけで、本文は要らない。 */
-const touchFile = (sessionId: string, file: string) => db.prepare("insert into event_index (session_id, seq, kind, file_path_ref, byte_offset, byte_length, file_path) values (?, 9999, 'tool', 'x', 0, 0, ?)").run(sessionId, file);
+const touchFile = (sessionId: string, file: string) => db.prepare("insert into event_index (session_id, seq, kind, path_id, byte_offset, byte_length, file_path) values (?, 9999, 'tool', ?, 0, 0, ?)").run(sessionId, pathRefId(db, 'x'), file);
 beforeEach(async () => {
   dir = copyFixtureClaudeDir(); db = openDb(':memory:');
   await new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir: dir }), isRunning: () => false }).fullScan();
