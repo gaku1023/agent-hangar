@@ -54,6 +54,17 @@ describe('設定の目次（S1）', () => {
     // 保存した値そのものは変えない（見せ方だけ寄せる）。
     expect(cx.model).toBe('gone-model');
   });
+  it('統括の札のアプリに opencode は設定で有効にしたときだけ並び、opencode のときはモデルの一覧（場所を決めない一覧）を渡し、アカウントは出さない', () => {
+    const o = { enabled: true, sessionId: null, agent: 'claude-code' as const, model: 'sonnet', effort: 'medium', account: null, history: [] };
+    expect(present(store({ settings: { ...SETTINGS, opencodeEnabled: true, orchestrator: o } })).orchestrator).toMatchObject({ agents: ['claude-code', 'opencode'], opencode: null });
+    const data = { version: '2.2.0', verified: true, modes: [], models: [{ id: 'lmstudio/qwen3.5-9b', label: 'Qwen3.5 9B', group: 'LM Studio', provider: 'lmstudio', tools: true, context: null, cost: null }], providers: [{ id: 'lmstudio', name: 'LM Studio', where: 'device' as const }], defaultModel: null, pricesAt: null, fetchedAt: 5, stale: false };
+    const oc = present(store({ settings: { ...SETTINGS, opencodeEnabled: true, orchestrator: { ...o, agent: 'opencode', model: 'lmstudio/qwen3.5-9b', effort: '' } }, opencodeOptions: { dir: null, status: 'ready', data } })).orchestrator!;
+    expect(oc).toMatchObject({ agent: 'opencode', agents: ['claude-code', 'opencode'], opencodeNote: 'opencode 2.2.0 · 検証済み', accounts: [], codex: null, opencode: { model: 'lmstudio/qwen3.5-9b', fetchedAt: 5, reloading: false } });
+    expect(oc.opencode!.models.map((m) => m.id)).toEqual(['lmstudio/qwen3.5-9b']);
+    // ほかの場所（プロジェクト）の一覧は使わない。
+    const other = present(store({ settings: { ...SETTINGS, opencodeEnabled: true, orchestrator: { ...o, agent: 'opencode', model: '', effort: '' } }, opencodeOptions: { dir: '/w/alpha', status: 'ready', data } })).orchestrator!;
+    expect(other.opencode).toMatchObject({ models: [], reloading: false });
+  });
   it('殻の中では、「Hangar について」が更新の状態を言う。節の並びはブラウザと同じ', () => {
     const update = { ...initialUpdate(), supported: true, current: '1.4.2', phase: { kind: 'latest' as const }, checkedAt: NOW };
     const p = present(store({ desktop: true, update }));

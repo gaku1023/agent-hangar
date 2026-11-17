@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_ORCHESTRATOR, isOrchestratorOrigin, isOrchestratorPatch, markOrchestratorText, ORCHESTRATOR_HISTORY_MAX, ORCHESTRATOR_ORIGINS, orchestratorLineage, orchestratorOf, pushOrchestratorHistory } from './orchestrator.ts';
+import { DEFAULT_ORCHESTRATOR, isOrchestratorEffort, isOrchestratorOrigin, isOrchestratorPatch, markOrchestratorText, ORCHESTRATOR_HISTORY_MAX, ORCHESTRATOR_ORIGINS, orchestratorLineage, orchestratorOf, pushOrchestratorHistory } from './orchestrator.ts';
 
 describe('orchestratorOf', () => {
   it('無い値は、切で、Sonnet と medium の既定に寄せる', () => {
@@ -35,6 +35,12 @@ describe('orchestrator agent と空の model', () => {
     expect(orchestratorOf({ agent: 'codex', effort: '--x' }).effort).toBe('medium');
     expect(orchestratorOf({ agent: 'claude-code', effort: 'minimal' }).effort).toBe('medium');
     expect(isOrchestratorPatch({ effort: 'minimal' })).toBe(true);
+  });
+  it('opencode には effort が無く、空だけを読む（ほかの値は空に戻す）', () => {
+    expect(isOrchestratorEffort('opencode', '')).toBe(true);
+    expect(isOrchestratorEffort('opencode', 'high')).toBe(false);
+    expect(orchestratorOf({ agent: 'opencode', effort: 'medium' }).effort).toBe('');
+    expect(orchestratorOf({ agent: 'opencode', effort: '' }).effort).toBe('');
   });
   it('PATCH は agent と空の model を受ける', () => {
     expect(isOrchestratorPatch({ agent: 'codex', model: '', effort: '', account: null })).toBe(true);

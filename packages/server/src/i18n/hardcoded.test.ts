@@ -47,6 +47,7 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'http/testing.ts': { lines: 9, why: TEST_SUPPORT },
   'indexer/baseline.ts': { lines: 11, why: BASELINE },
   'launch/wrapper.ts': { lines: 3, why: FILE_BODY },
+  'peer/chat/inputBox.opencode.fixtures.ts': { lines: 1, why: 'opencode 2.2.0 の実機の画面から切り出した入力欄の見本（試験だけが読む）。モデルの返答が日本語で写っている。文言ではない' },
   'peer/chat/questionDialogs.fixtures.ts': { lines: 12, why: '実機の画面から切り出したものと、それに合わせて作ったものの、質問の札の見本（試験だけが読む）。文言ではない' },
   'peer/chat/questionDialogs.real.fixtures.ts': { lines: 3, why: 'Claude Code 2.1.326 の実機で写した、問いが複数ある質問の札（試験だけが読む）。文言ではない' },
   'platform/proc.ts': { lines: 1, why: LOG },

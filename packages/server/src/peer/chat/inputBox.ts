@@ -124,12 +124,44 @@ export function codexInputEmptyFromCapture(capture: string): boolean {
 }
 
 /**
- * そのエージェントの画面で、入力欄が空か。Claude Code は ❯ の箱（inputEmptyFromCapture）、Codex は › の行（codexInputEmptyFromCapture）で読む。
+ * opencode（2.2.0）の画面の capture-pane -p -e の出力で、入力欄が空か。見本は inputBox.opencode.fixtures.ts。
+ * 入力欄は、画面の下から探して最初の ╹ の行（囲みの底）の上にある、┃ で始まる行の続きである。
+ * 囲みの最後の行は agent とモデルの状態の行（`Build · モデル`）で、その上の行が打つ所である。
+ * 上に残る利用者の入力も同じ ┃ の囲みで描かれるが、空行で隔たっているので、底から続く行だけを見れば取り違えない。
+ * 空の入力欄に案内の字は出ない。打つ所の行がどれも ┃ のほかに字を持たなければ空とする。
+ * 作業中も入力欄は出ている。作業中かどうかは、この判定では見ない（Claude の判定と同じ）。
+ * 色の無い画面、状態の行（· を含む）の無い囲みは、入力欄と見分けられないので空と言わない。
+ */
+export function opencodeInputEmptyFromCapture(capture: string): boolean {
+  const lines = capture.replace(/\r\n/g, '\n').split('\n');
+  const head = (l: string) => plain(l).trimStart();
+  let bottom = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (head(lines[i]!).startsWith('╹')) {
+      bottom = i;
+      break;
+    }
+  }
+  if (bottom < 2) return false;
+  const inBox = (i: number) => i >= 0 && head(lines[i]!).startsWith('┃');
+  const status = bottom - 1;
+  if (!inBox(status) || !head(lines[status]!).includes('·')) return false;
+  let top = status;
+  while (inBox(top - 1)) top--;
+  if (top === status) return false;
+  if (!lines.slice(top, bottom + 1).some((l) => /\x1b\[[0-9;:]*m/.test(l))) return false;
+  return lines.slice(top, status).every((l) => head(l).slice(1).trim() === '');
+}
+
+/**
+ * そのエージェントの画面で、入力欄が空か。Claude Code は ❯ の箱（inputEmptyFromCapture）、Codex は › の行（codexInputEmptyFromCapture）、
+ * opencode は ┃ の囲み（opencodeInputEmptyFromCapture）で読む。
  * 判定を持たないエージェントは、空と言わない（渡さずに待つ）。
  */
 export function inputEmptyFor(agent: string, capture: string): boolean {
   if (agent === 'claude-code') return inputEmptyFromCapture(capture);
   if (agent === 'codex') return codexInputEmptyFromCapture(capture);
+  if (agent === 'opencode') return opencodeInputEmptyFromCapture(capture);
   return false;
 }
 

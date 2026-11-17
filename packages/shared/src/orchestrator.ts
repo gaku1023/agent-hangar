@@ -29,8 +29,8 @@ export const DEFAULT_ORCHESTRATOR: OrchestratorSetting = { enabled: false, sessi
 /** Codex の推論の段階の語（minimal など。Claude の EFFORT_VALUES に無いものを含む）。Codex が返す一覧の id を受けるため、語の形だけを見る。 */
 const isEffortWord = (v: unknown): v is string => typeof v === 'string' && /^[a-z][a-z-]{0,19}$/.test(v);
 
-/** そのアプリで取れる effort か。空は既定。Claude Code は決まった段階だけ、ほかは語の形だけを見る。 */
-export const isOrchestratorEffort = (agent: AgentKind, v: unknown): v is string => (agent === DEFAULT_AGENT_KIND ? isEffort(v) : v === '' || isEffortWord(v));
+/** そのアプリで取れる effort か。空は既定。Claude Code は決まった段階だけ、opencode は effort が無いので空だけ、Codex は語の形だけを見る。 */
+export const isOrchestratorEffort = (agent: AgentKind, v: unknown): v is string => (agent === DEFAULT_AGENT_KIND ? isEffort(v) : agent === 'opencode' ? v === '' : v === '' || isEffortWord(v));
 
 function historyEntryOf(v: unknown): OrchestratorHistoryEntry | null {
   if (!v || typeof v !== 'object') return null;
@@ -97,7 +97,7 @@ export function orchestratorOf(raw: unknown): OrchestratorSetting {
     sessionId: typeof o.sessionId === 'string' && o.sessionId !== '' ? o.sessionId : null,
     agent,
     model: o.model === '' || isModelName(o.model) ? o.model : DEFAULT_ORCHESTRATOR.model,
-    effort: isOrchestratorEffort(agent, o.effort) ? o.effort : DEFAULT_ORCHESTRATOR.effort,
+    effort: isOrchestratorEffort(agent, o.effort) ? o.effort : agent === 'opencode' ? '' : DEFAULT_ORCHESTRATOR.effort,
     account: typeof o.account === 'string' && o.account !== '' ? o.account : null,
     history: Array.isArray(o.history) ? o.history.map(historyEntryOf).filter((h): h is OrchestratorHistoryEntry => h !== null).slice(-ORCHESTRATOR_HISTORY_MAX) : [],
   };

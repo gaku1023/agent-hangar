@@ -36,4 +36,12 @@ describe('markOrchestrator', () => {
     const claudeSame = [live('thread-1')];
     expect(markOrchestrator(db, () => 'h2')(claudeSame)).toBe(claudeSame);
   });
+  it('opencode の統括にも付ける', () => {
+    const db = openDb(':memory:');
+    upsertShared(db, 'sessions', { id: 'h3', provider: 'opencode', provider_session_id: 'ses_abc', cwd: '/w', home_device: 'd' }, 'd');
+    const o = live('ses_abc', { agent: 'opencode' });
+    expect(markOrchestrator(db, () => 'h3')([o])[0]).toEqual({ ...o, role: 'orchestrator' });
+    const codexSame = [live('ses_abc', { agent: 'codex' })];
+    expect(markOrchestrator(db, () => 'h3')(codexSame)).toBe(codexSame);
+  });
 });

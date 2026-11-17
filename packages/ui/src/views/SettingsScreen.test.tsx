@@ -1011,7 +1011,7 @@ describe('設定のセッションの「Claude Code に渡す設定」と「新�
   });
   const atOrch = (over: Partial<SettingsProps>): SettingsProps => at('orchestrator', { toc: [...tocOf(), { id: 'orchestrator', title: '統括', state: 'オフ', tone: 'default', label: '統括、オフ' }], ...over });
   const orch = (over: Partial<NonNullable<SettingsProps['orchestrator']>> = {}): NonNullable<SettingsProps['orchestrator']> => ({
-    on: true, agent: 'claude-code', agents: ['claude-code'], agentNote: null, codex: null, account: null, model: 'sonnet', effort: 'medium',
+    on: true, agent: 'claude-code', agents: ['claude-code'], agentNote: null, opencodeNote: null, codex: null, opencode: null, account: null, model: 'sonnet', effort: 'medium',
     accounts: [{ value: 'a1', label: 'メイン', color: '#c96', disabled: false }, { value: 'a2', label: 'サブ', color: '#69c', disabled: false }], ...over,
   });
   it('統括の節は、目次に出て、入り切りは押した時点で orchestrator の enabled だけを保存する', () => {
@@ -1068,6 +1068,19 @@ describe('設定のセッションの「Claude Code に渡す設定」と「新�
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { orchestrator: { effort: 'low' } } });
     // Codex の一覧は、Codex が統括のアプリのときに読む。
     expect(onAction).toHaveBeenCalledWith({ type: 'codex.options' });
+  });
+  it('統括のアプリが opencode のときは、モデルの小窓（接続先ごとのまとまり）だけを出し、アカウントと effort の札は出さない', () => {
+    const onAction = vi.fn();
+    const models = [{ id: 'lmstudio/qwen3.5-9b', label: 'Qwen3.5 9B', group: 'LM Studio', provider: 'lmstudio', tools: true, context: null, cost: null }];
+    render(ui(atOrch({ orchestrator: orch({ agent: 'opencode', agents: ['claude-code', 'opencode'], model: '', effort: '', accounts: [], opencode: { model: '', models, providers: [{ id: 'lmstudio', name: 'LM Studio', where: 'device' }], defaultModel: null, pricesAt: null, fetchedAt: 1, reloading: false } }) }), onAction));
+    expect(screen.queryByRole('button', { name: /effort/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /アカウント/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /自動承認/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^モデル/ }));
+    fireEvent.click(screen.getByRole('option', { name: /Qwen3.5 9B/ }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { orchestrator: { model: 'lmstudio/qwen3.5-9b' } } });
+    // opencode の一覧は、場所を決めずに読む（統括はプロジェクトに属さない）。
+    expect(onAction).toHaveBeenCalledWith({ type: 'opencode.options', dir: null });
   });
   it('アカウントが 1 つの PC では、アカウントの札を出さない', () => {
     render(ui(atOrch({ orchestrator: orch({ accounts: [{ value: 'a1', label: 'メイン', color: '#c96', disabled: false }] }) })));

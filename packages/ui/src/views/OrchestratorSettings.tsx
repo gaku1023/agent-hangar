@@ -2,8 +2,9 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 import { DEFAULT_ORCHESTRATOR, EFFORT_VALUES, type AgentKind, type OrchestratorSetting } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { OrchestratorSettingsProps, SettingsProps } from '../presenters/settings.ts';
-import { enterAgent, leaveAgent, type AgentSwapSnapshot } from './agentSwap.ts';
+import { agentOnlyAttr, enterAgent, leaveAgent, type AgentSwapSnapshot } from './agentSwap.ts';
 import { AgentChip, ChipPopover, CodexChips, EffortBars, ModelEditor } from './LaunchChips.tsx';
+import { OpencodeModelPicker } from './OpencodeModelPicker.tsx';
 import { PickList } from './primitives/PickList.tsx';
 import { SetRow } from './primitives/SetRow.tsx';
 import { Switch } from './primitives/Switch.tsx';
@@ -18,6 +19,7 @@ import { VoiceSettings } from './VoiceSettings.tsx';
  * 札は新しいセッションのダイアログと同じ部品で、選ぶたびに変えた項目だけを保存する。
  * 先頭のアプリの札（設定で有効なアプリが 2 つ以上のとき）でアプリを替えると、モデルと effort とアカウントを空に戻して一緒に保存する。
  * Codex のときの札は新しいセッションの Codex の札（モデルの一覧、推論）で、権限の札は出さない（read-only に固定）。入れ替えの動きは新しいセッションと同じ（agentSwap.ts）。
+ * opencode のときは新しいセッションの opencode のモデルの小窓（接続先ごとのまとまり）だけを置き、アカウントと effort とモードと自動承認の札は出さない。
  */
 export function OrchestratorSettings(props: { orchestrator: OrchestratorSettingsProps; voice?: SettingsProps['voice']; voiceMark?: SettingsProps['save']['voice'] }) {
   const t = useT();
@@ -48,8 +50,11 @@ export function OrchestratorSettings(props: { orchestrator: OrchestratorSettings
     swap.current = null;
     enterAgent(s.snap, o.agent);
   }, [o.agent]);
-  // Codex の一覧は、Codex が統括のアプリのときに読む。
-  useEffect(() => { if (o.on && o.agent === 'codex') emit({ type: 'codex.options' }); }, [o.on, o.agent]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Codex と opencode の一覧は、そのアプリが統括のアプリのときに読む。opencode は場所を決めない一覧（統括はプロジェクトに属さない）。
+  useEffect(() => {
+    if (o.on && o.agent === 'codex') emit({ type: 'codex.options' });
+    if (o.on && o.agent === 'opencode') emit({ type: 'opencode.options', dir: null });
+  }, [o.on, o.agent]); // eslint-disable-line react-hooks/exhaustive-deps
   const def = t('launch.value.default');
   const accountId = o.account ?? o.accounts.find((a) => !a.disabled)?.value ?? '';
   const accountNow = o.accounts.find((a) => a.value === accountId);
@@ -62,7 +67,7 @@ export function OrchestratorSettings(props: { orchestrator: OrchestratorSettings
         <div ref={body.ref} aria-hidden={body.leaving ? true : undefined}>
           <SetRow title={t('launch.chips.label')} control={
           <div className="launch-chips" role="group" aria-label={t('launch.chips.label')}>
-            {o.agents.length >= 2 && <AgentChip value={o.agent} onChange={(v) => { void switchAgent(v as AgentKind); }} opencodeNote={null} codexNote={o.agentNote} offered={o.agents} />}
+            {o.agents.length >= 2 && <AgentChip value={o.agent} onChange={(v) => { void switchAgent(v as AgentKind); }} opencodeNote={o.opencodeNote} codexNote={o.agentNote} offered={o.agents} />}
             {o.accounts.length >= 2 && (
               <ChipPopover agentOnly="accounts" name={t('launch.chip.account')} value={accountNow?.label ?? accountId} dot={accountNow?.color} showName={false} tone={accountNow?.disabled ? 'muted' : 'default'} suffix={accountNow?.disabled ? accountNow.tag : undefined} width={260}>
                 {(close) => (
@@ -74,6 +79,11 @@ export function OrchestratorSettings(props: { orchestrator: OrchestratorSettings
             )}
             {o.codex ? (
               <CodexChips model={o.codex.model} models={o.codex.models} onModel={(v) => { save({ model: v }); }} effort={o.codex.effort} efforts={o.codex.efforts} onEffort={(v) => { save({ effort: v }); }} />
+            ) : o.opencode ? (
+              <OpencodeModelPicker label={t('launch.chip.model')} value={o.opencode.model} models={o.opencode.models} providers={o.opencode.providers} defaultModel={o.opencode.defaultModel}
+                pricesAt={o.opencode.pricesAt} fetchedAt={o.opencode.fetchedAt} reset={false} reloading={o.opencode.reloading}
+                onChange={(v) => { save({ model: v }); }} onReload={() => emit({ type: 'opencode.options', dir: null, refresh: true })}
+                onManage={() => { emit({ type: 'opencode.providers.manage' }); }} faceProps={agentOnlyAttr('modes')} />
             ) : (
               <>
               <ChipPopover name={t('launch.chip.model')} value={o.model || def} tone={o.model ? 'default' : 'muted'} agentOnly="modelText">

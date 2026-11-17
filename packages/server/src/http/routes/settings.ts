@@ -358,13 +358,13 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       const cur = orchestratorOf(deps.settings().orchestrator);
       const agent = v.agent ?? cur.agent;
       const badOrch = () => c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.orchestrator') }) }, 400);
-      // アプリは Claude Code と、設定で有効にした Codex だけ。opencode は段 3 まで受けない。
-      if (v.agent !== undefined && v.agent !== cur.agent && !(v.agent === 'claude-code' || (v.agent === 'codex' && codexEnabledOf(deps.settings())))) return badOrch();
-      if (v.agent !== undefined && v.agent === 'opencode') return badOrch();
-      // effort はそのアプリで取れる段階だけ（Claude Code は決まった段階、Codex は語の形）。
+      // アプリは Claude Code と、設定で有効にした Codex と opencode だけ。
+      const offered = (k: unknown) => k === 'claude-code' || (k === 'codex' && codexEnabledOf(deps.settings())) || (k === 'opencode' && opencodeEnabledOf(deps.settings()));
+      if (v.agent !== undefined && v.agent !== cur.agent && !offered(v.agent)) return badOrch();
+      // effort はそのアプリで取れる段階だけ（Claude Code は決まった段階、Codex は語の形、opencode は空だけ）。
       if (v.effort !== undefined && !isOrchestratorEffort(agent, v.effort)) return badOrch();
-      // アカウントは今あるものの id だけ（そのアプリの組から引く）。知らない id で起こすと、利用者が選んだものと違う枠を使うため。
-      const store = agent === 'claude-code' ? deps.accounts.store : deps.accounts.codex?.store;
+      // アカウントは今あるものの id だけ（そのアプリの組から引く）。知らない id で起こすと、利用者が選んだものと違う枠を使うため。opencode にはアカウントが無い。
+      const store = agent === 'claude-code' ? deps.accounts.store : agent === 'codex' ? deps.accounts.codex?.store : undefined;
       if (typeof v.account === 'string' && !store?.get(v.account)) return badOrch();
       // アプリだけを替えたときは、前のアプリのアカウントを持ち越さない。
       patch.orchestrator = orchestratorOf({ ...cur, ...(v.agent !== undefined && v.agent !== cur.agent && v.account === undefined ? { account: null } : {}), ...v });

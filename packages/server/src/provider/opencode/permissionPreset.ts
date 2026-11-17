@@ -86,3 +86,16 @@ export function permissionPresetFor(o: { enabled: boolean; home: string; cwd: st
   if (!o.enabled || userDefinesPermissions(o.home, o.cwd, o.env)) return null;
   return permissionPresetRules();
 }
+
+/**
+ * 統括の opencode に重ねる規則（docs/design.md「統括」の手を動かせなくする）。action の名前は opencode 2.2.0 のソースと実物で確かめた。
+ * まず全部（`*`）を断り、hangar の MCP の道具（action は `<サーバの名前>_<道具の名前>`、つまり `hangar_list_sessions` など）だけを通す。
+ * 断る物には、ファイルの編集と書き込み（`edit`。apply_patch も `edit`）、shell（`shell`）、web の取得（`webfetch`、`websearch`）、
+ * 子の agent（`subagent`）、Code Mode（`execute`。中の `fetch` は webfetch の規則を通らずに外へ出られる）が入る。
+ * `execute` を断ると Code Mode が切れ、hangar の道具はそのままの名前で並ぶ。
+ * 照らすときは最後に当たった規則が勝つので、通す規則を後に置く。
+ */
+export const ORCHESTRATOR_OPENCODE_RULES: readonly OpencodePermissionRule[] = Object.freeze([
+  { action: '*', resource: '*', effect: 'deny' },
+  { action: 'hangar_*', resource: '*', effect: 'allow' },
+]);
