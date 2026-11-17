@@ -13,10 +13,12 @@ afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); });
 const o = { node: '/opt/node/bin/node', script: '/h/bin/hangar-hook.mjs', mcpConfigPath: '/h/mcp/s1.json' };
 
 describe('hookSettingsJson', () => {
-  it('AskUserQuestion の前と後と、すべての道具の許可の確認で、台本を shell を通さずに裏で起こす', () => {
+  it('AskUserQuestion の前と後は裏で、許可の確認（PermissionRequest）は同期で答えを待つ形で、台本を shell を通さずに起こす', () => {
     const hook = { type: 'command', command: o.node, args: [o.script, o.mcpConfigPath], async: true, timeout: 10 };
     const entry = [{ matcher: 'AskUserQuestion', hooks: [hook] }];
-    expect(JSON.parse(hookSettingsJson(o))).toEqual({ hooks: { PreToolUse: entry, PostToolUse: entry, PostToolUseFailure: entry, PermissionRequest: [{ matcher: '*', hooks: [hook] }] } });
+    // 同期（async なし）。上限は 3600 秒で、切れても札は画面に残る。
+    const waiting = { type: 'command', command: o.node, args: [o.script, o.mcpConfigPath], timeout: 3600 };
+    expect(JSON.parse(hookSettingsJson(o))).toEqual({ hooks: { PreToolUse: entry, PostToolUse: entry, PostToolUseFailure: entry, PermissionRequest: [{ matcher: '*', hooks: [waiting] }] } });
   });
 
   it('permissions を渡さなければ、鍵ごと足さない（統括でない会話の設定は変わらない）', () => {

@@ -15,17 +15,17 @@ describe('createApi（フェーズ 2）', () => {
   it('経路とメソッドと本文', async () => {
     const { api, calls } = harness();
     await api.launch({ projectId: 'p1', name: 'n' });
-    await api.resume('s1'); await api.fork('s1'); await api.killRun('r1'); await api.openTab('r1'); await api.closeTab('r1', 't1');
+    await api.resume('s1'); await api.killRun('r1'); await api.openTab('r1'); await api.closeTab('r1', 't1');
     await api.openTerminalApp('r1', 't1'); await api.openTerminalApp('r1', null);
     await api.projectOpenTerminal('p1'); await api.createProject({ kind: 'dir', path: '/w/beta', name: 'beta' });
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
-      'POST /api/runs', 'POST /api/sessions/s1/resume', 'POST /api/sessions/s1/fork', 'DELETE /api/runs/r1', 'POST /api/runs/r1/tabs', 'DELETE /api/runs/r1/tabs/t1',
+      'POST /api/runs', 'POST /api/sessions/s1/resume', 'DELETE /api/runs/r1', 'POST /api/runs/r1/tabs', 'DELETE /api/runs/r1/tabs/t1',
       'POST /api/runs/r1/open-terminal', 'POST /api/runs/r1/open-terminal', 'POST /api/projects/p1/open-terminal', 'POST /api/projects',
     ]);
     expect(calls[0]!.body).toBe('{"projectId":"p1","name":"n"}');
-    expect(calls[6]!.body).toBe('{"tabId":"t1"}');
-    expect(calls[7]!.body).toBe('{}');
-    expect(calls[9]!.body).toBe('{"kind":"dir","path":"/w/beta","name":"beta"}');
+    expect(calls[5]!.body).toBe('{"tabId":"t1"}');
+    expect(calls[6]!.body).toBe('{}');
+    expect(calls[8]!.body).toBe('{"kind":"dir","path":"/w/beta","name":"beta"}');
   });
   it('外の webhook の URL と repo の状態の経路（owner と repo は別々に符号化する）', async () => {
     const { api, calls } = harness(200, { url: 'https://h/x' });

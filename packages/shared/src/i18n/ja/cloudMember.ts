@@ -159,7 +159,7 @@ export const cloudMemberJa: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.recovery.again': 'もう一度再発行',
   'cloudMember.phone.heading': 'スマホ',
   'cloudMember.phone.pair': 'スマホを接続',
-  'cloudMember.phone.lead': 'スマホで受信箱を見て、PC を選んで会話を始められます。会話の中は Claude アプリで開きます。スマホをなくしたときは、すぐに「解除」してください。',
+  'cloudMember.phone.lead': 'スマホで受信箱を見て、PC を選んで会話を始められます。対応する Claude Code の会話はスマホで読んで続けられ、それ以外は Claude アプリで開きます。スマホをなくしたときは、すぐに「解除」してください。',
   'cloudMember.phone.rcPointer': '「Remote Control を付けて起動する」の設定は「Claude Code」にあります。',
   'cloudMember.phone.loading': 'QR を作成しています…',
   'cloudMember.phone.title': 'スマホで読み込んでください',

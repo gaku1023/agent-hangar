@@ -2,7 +2,7 @@ import type { InjectionEntry } from '../agent/types.ts';
 import type { ShareFile, ShareMcp, ShareSkipReason } from './sources.ts';
 
 /**
- * Claude Code の指示と MCP の登録を、Codex の起動に渡す形へ変える純粋な変換（docs/superpowers/plans/2026-10-28-agent-share.md の S1、S5、S7 と変換の表）。
+ * Claude Code の指示と MCP の登録を、Codex の起動に渡す形へ変える純粋な変換（docs/superpowers/plans/done/2026-10-28-agent-share.md の S1、S5、S7 と変換の表）。
  * 何も読まず、何も書かない。返すのは app-server の `-c` の値（TOML）、app-server の環境に足す変数、追記の段、設定の画面向けの報告である。
  * 秘密（MCP の env と headers の値）は config に入れず、必ず env に入れる。config には環境変数の名前だけを書く。
  */

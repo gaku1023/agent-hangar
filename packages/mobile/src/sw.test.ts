@@ -82,7 +82,7 @@ describe('sw.js の push', () => {
     expect(h.shown).toHaveLength(1);
     expect(h.shown[0]!.title).toBe('会話 a');
     expect(h.shown[0]!.options.body).toBe('pc-a で入力を待っています');
-    expect(h.shown[0]!.options.data).toEqual({ sessionId: 's-1' });
+    expect(h.shown[0]!.options.data).toEqual({ sessionId: 's-1', pcName: 'pc-a' });
   });
 
   it('生の 32 バイトで封じても、取り出せない鍵で開ける', async () => {
@@ -108,7 +108,7 @@ describe('sw.js の push', () => {
     await push(h, await sealPhoneNotice(key, 1, notice({ kind: 'unread', body: 'テストが通りました', count: 3 })));
     expect(h.shown[0]!.title).toBe('会話 a');
     expect(h.shown[0]!.options.body).toBe('テストが通りました');
-    expect(h.shown[0]!.options.data).toEqual({ sessionId: 's-1' });
+    expect(h.shown[0]!.options.data).toEqual({ sessionId: 's-1', pcName: 'pc-a' });
   });
 
   it('kind が waiting なら body があっても入力待ちとして読む', async () => {
@@ -159,6 +159,14 @@ describe('sw.js の push', () => {
     expect(h.shown[0]!.options.data).toEqual({ sessionId: null });
   });
 
+  it('通知の deviceId を、押したときのために data に持つ', async () => {
+    const key = await makeKey();
+    await savePhoneKey(1, key);
+    const h = boot();
+    await push(h, await sealPhoneNotice(key, 1, notice({ deviceId: 'pc-1' })));
+    expect(h.shown[0]!.options.data).toEqual({ sessionId: 's-1', deviceId: 'pc-1', pcName: 'pc-a' });
+  });
+
   it('同じ会話の知らせは tag で重ね、鳴らし直す', async () => {
     const key = await makeKey();
     await savePhoneKey(1, key);
@@ -176,7 +184,7 @@ describe('sw.js の push', () => {
     const h = boot();
     await push(h, sealed);
     expect(h.shown[0]!.title).toBe(`${opened.title} ほか 1 件`);
-    expect(h.shown[0]!.options.data).toEqual({ sessionId: opened.sessionId });
+    expect(h.shown[0]!.options.data).toEqual({ sessionId: opened.sessionId, pcName: 'pc-c' });
   });
 });
 
@@ -196,6 +204,16 @@ describe('sw.js の notificationclick', () => {
     const note = await click(h, { sessionId: 's-1/x' });
     expect(note.closed).toBe(true);
     expect(h.opened).toEqual([`${ORIGIN}/app/#open=${encodeURIComponent('s-1/x')}`]);
+  });
+
+  it('PC の ID と名前があれば、開く URL と message に添える', async () => {
+    const h = boot();
+    await click(h, { sessionId: 's-1', deviceId: 'pc-1', pcName: 'Mac mini' });
+    expect(h.opened).toEqual([`${ORIGIN}/app/#open=s-1&device=pc-1&pc=${encodeURIComponent('Mac mini')}`]);
+    const win: Win = { url: `${ORIGIN}/app/`, focused: false, messages: [], focus: async () => win, postMessage: (m) => win.messages.push(m) };
+    const h2 = boot([win]);
+    await click(h2, { sessionId: 's-1', deviceId: 'pc-1', pcName: 'Mac mini' });
+    expect(win.messages).toEqual([{ type: 'hangar-open', sessionId: 's-1', deviceId: 'pc-1', pcName: 'Mac mini' }]);
   });
 
   it('汎用の知らせなら受信箱を開く', async () => {

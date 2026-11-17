@@ -78,7 +78,7 @@ describe('セッション画面の見出しと一覧の行', () => {
     expect(ok.noRoot).toBeNull();
   });
   it('sessionActions は noRoot を省いた事実でも、今までどおりに組む', () => {
-    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: true, hasTranscript: true, canResume: false, canFork: false, canResumeHere: true, outsideOpen: null, canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false };
+    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: true, hasTranscript: true, canResume: false, canResumeHere: true, outsideOpen: null, canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false };
     expect(sessionActions(facts, ja).primary).toMatchObject({ id: 'resumeHere', disabled: null });
   });
   it('一覧の行は、他の PC の会話にだけ「この PC で再開」を持ち、押せない理由を添える', () => {

@@ -1,5 +1,6 @@
-import { applyEdits, modify, parse, parseTree, printParseErrorCode, type ParseError } from 'jsonc-parser';
-import { ConfigEditError, deepEqual, detectEol, isPlainObject, lineOf } from './errors.ts';
+import { parse, printParseErrorCode, type ParseError } from 'jsonc-parser';
+import { JsonTextEditError, removeJsoncPath, setJsoncPath } from '../../../config/jsonTextEdit.ts';
+import { ConfigEditError, deepEqual, isPlainObject, lineOf } from './errors.ts';
 
 /**
  * opencode.json(c) と cli.json の書き戻し。
@@ -86,11 +87,23 @@ export function getJsonc(src: string, path: JsoncPath): unknown {
   return getIn(parseJsonc(src), path);
 }
 
+/**
+ * 書くのは config/jsonTextEdit.ts の 1 本だけ（opencode.json を書く手が 2 つあり、体裁が食い違っていた）。
+ * そちらが元の字下げ（タブか空白か、幅）を読んで合わせ、触っていない所の字面を変えない。
+ * ここでは書く前後の検算だけを持つ。鍵の道は表の鍵だけで、配列の要素へは書かない。
+ */
 function writeJsonc(src: string, path: JsoncPath, value: unknown, expected: unknown): string {
-  const eol = detectEol(src);
-  const base = src.trim() === '' ? '{}' : src;
-  const edits = modify(base, [...path], value, { formattingOptions: { insertSpaces: true, tabSize: 2, eol } });
-  const out = applyEdits(base, edits);
+  const keys = path.map((seg) => {
+    if (typeof seg !== 'string') throw new ConfigEditError('unsupported', '配列の要素には書けません');
+    return seg;
+  });
+  let out: string;
+  try {
+    out = value === undefined ? removeJsoncPath(src, keys) : setJsoncPath(src, keys, value);
+  } catch (e) {
+    if (e instanceof JsonTextEditError) throw new ConfigEditError('unsupported', '同じ鍵が 2 つある、または途中が表でないため書けません');
+    throw e;
+  }
   let after: unknown;
   try {
     after = parseJsonc(out);

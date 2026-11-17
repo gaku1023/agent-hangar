@@ -86,7 +86,7 @@ const waitingOf = (feed: MobileFeed) => feed.live.filter((l) => l.status === 'wa
  *
  * 素を書けたら、前に書けた素の要対応の会話と比べ、新しく入った会話があればスマホへ通知を 1 回送る（POST /notices）。
  * 複数なら 1 回にまとめて件数を入れ、題と会話の ID は先に待ち始めた会話のものにする。
- * 通知の中身はスマホ用の鍵 M の今の世代で封じる（shared の sealPhoneNotice）。PC の名前は素の deviceName である。
+ * 通知の中身はスマホ用の鍵 M の今の世代で封じる（shared の sealPhoneNotice）。PC の名前は素の deviceName で、PC の ID（deviceId）も添える（スマホが通知から会話の頁を開く宛先）。
  * 起動の後で最初に書けた素では送らない（前から要対応だった会話を鳴らさない）。前の集合はメモリにだけ持つ。
  * 同じ会話が要対応を出て、また入れば、もう 1 回送る。スマホが無い（hasPhones が偽）あいだは送らないが、集合は覚え直す。
  * 素の書き込みに失敗したら集合を覚えないので、その回の会話は次に書けたときに知らせる。
@@ -155,7 +155,7 @@ export class MobileFeedPublisher {
       if (!key) return;
       for (const [sessionId, u] of batch) {
         if (this.stopped) return;
-        const sealed = await sealPhoneNotice(key.key, key.epoch, { title: u.title, pcName: this.pcName, sessionId, count: u.n, kind: 'unread', body: u.text });
+        const sealed = await sealPhoneNotice(key.key, key.epoch, { title: u.title, pcName: this.pcName, sessionId, count: u.n, kind: 'unread', body: u.text, deviceId: this.deps.deviceId });
         await post(sealed, key.epoch);
       }
     } catch (e) {
@@ -290,7 +290,7 @@ export class MobileFeedPublisher {
     try {
       const post = this.deps.client.postNotice?.bind(this.deps.client);
       if (!post || !this.deps.hasPhones()) return;
-      const sealed = await sealPhoneNotice(key.key, key.epoch, { title: first.title || first.projectName, pcName: feed.deviceName, sessionId: first.sessionId, count: fresh.length });
+      const sealed = await sealPhoneNotice(key.key, key.epoch, { title: first.title || first.projectName, pcName: feed.deviceName, sessionId: first.sessionId, count: fresh.length, deviceId: this.deps.deviceId });
       if (this.stopped) return;
       await post(sealed, key.epoch);
     } catch (e) {

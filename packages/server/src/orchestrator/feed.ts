@@ -1,4 +1,4 @@
-import { ORCHESTRATOR_CONTEXT_LIMIT, type LiveSessionDto, type LiveStatus, type Translate, type WaitKind } from '@agent-hangar/shared';
+import { ORCHESTRATOR_CONTEXT_LIMIT, type LiveSessionDto, type LiveStatus, type NotifyKind, type Translate, type WaitKind } from '@agent-hangar/shared';
 
 /**
  * 統括へ出来事を送り込む（docs/design.md「統括」の出来事の届け方）。
@@ -8,7 +8,8 @@ import { ORCHESTRATOR_CONTEXT_LIMIT, type LiveSessionDto, type LiveStatus, type 
  *
  * 出来事の種類。
  * - ask.permission と ask.question：許可か質問の待ちに入った。急ぎで、0.3 秒でまとめて渡す。
- * - turn.done：busy から idle になった。統括が関わった会話（統括が起こした、または統括が送った）だけ。
+ * - turn.done：busy から idle になった。統括が関わった会話（統括が起こした、または統括が送った）で、そのターンに会話が notify_user を done か ask で呼んだものだけ。
+ *   progress だけのターンと、notify_user を呼ばなかったターン（裏の作業の結果を受けただけのものなど）は出さない。hangar が代わりに出す知らせ（immediate）と、notify_user を出し忘れた会話に積む受け皿の未読は、呼ばれたことにしない。
  * - session.ended：run が消えた。同じく統括が関わった会話だけ。
  * 統括自身の会話の変化は出来事にしない。最初の観測は覚えるだけで、出来事にしない。
  *
@@ -131,6 +132,8 @@ export class OrchestratorFeed {
   /** 新しい会話への切り替えを頼む口（keeper.fresh('auto')）。頼めたら真。見張りは送り込みの後に作られるので、後から結ぶ。 */
   private fresh: (() => boolean) | null = null;
   private stopped = false;
+  /** いまのターンで notify_user が done か ask で呼ばれた会話。ターンの終わり（idle か質問の待ち）で使い切る。 */
+  private notified = new Set<string>();
   /** 質問を待つ会話がある間、札の id を見直す周期。 */
   private questionWatch: ReturnType<typeof setInterval> | null = null;
 
@@ -144,6 +147,15 @@ export class OrchestratorFeed {
     this.observe();
     this.kick();
     this.checkFresh();
+  }
+
+  /**
+   * 会話が notify_user を呼んだ（mcp の notifyUserTool が呼ぶ）。
+   * 統括が有効なときだけ覚える。progress と、hangar の代理の知らせ（immediate）は数えない。
+   */
+  noteNotify(sessionId: string, kind: NotifyKind, immediate = false): void {
+    if (this.stopped || immediate || kind === 'progress' || this.self() === null) return;
+    this.notified.add(sessionId);
   }
 
   /**
@@ -233,11 +245,16 @@ export class OrchestratorFeed {
         this.add({ key, kind, sessionId: id, title: cur.title, tool: kind === 'ask.permission' ? cur.tool : null, at: now });
         if (kind === 'ask.permission' && selfStatus === 'idle') this.startGrace(id, now);
       }
-      if (p?.status === 'busy' && cur.status === 'idle' && this.involved(self, id)) {
+      // ターンの終わり（idle、または質問の待ち）で、notify_user の印を使い切る。許可の待ちはターンの途中なので使い切らない。
+      const turnEnd = cur.status === 'idle' || cur.waitingFor === 'question';
+      const notified = this.notified.has(id);
+      if (turnEnd) this.notified.delete(id);
+      if (p?.status === 'busy' && cur.status === 'idle' && notified && this.involved(self, id)) {
         this.add({ key: `done:${id}`, kind: 'turn.done', sessionId: id, title: cur.title, tool: null, at: now });
       }
     }
     for (const [id, p] of prev) {
+      if (!seen.has(id)) this.notified.delete(id);
       if (seen.has(id) || !this.involved(self, id)) continue;
       this.add({ key: `ended:${id}`, kind: 'session.ended', sessionId: id, title: p.title, tool: null, at: now });
     }

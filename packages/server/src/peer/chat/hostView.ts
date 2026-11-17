@@ -64,6 +64,11 @@ export type ViewDeps = {
   self(): PeerChatDevice;
   /** この hangar の起動ごとの印（state.hostId）。 */
   hostId: string;
+  /**
+   * PermissionRequest の hook の入力から作った札（hookCard.ts）。
+   * 画面から札が読めないか、答えられない札のとき、代わりに使う。hook の待ちが無ければ null。
+   */
+  hookAsk?(sessionId: string): PeerPendingAsk | null;
 };
 
 const jsonSize = (v: unknown): number => Buffer.byteLength(JSON.stringify(v));
@@ -188,7 +193,8 @@ export class ChatView {
       this.captured.delete(sessionId);
       return null;
     }
-    const sig = JSON.stringify([session.waitingFor, session.permission, session.activity?.question ?? null]);
+    const fromHook = this.d.hookAsk?.(sessionId) ?? null;
+    const sig = JSON.stringify([session.waitingFor, session.permission, session.activity?.question ?? null, fromHook]);
     const t = this.d.now();
     const hit = this.captured.get(sessionId);
     // 取り込みの覚えは、登録の状態が変わるか、poke（実行中の一覧の変化、預かりの変化、答え）が消すまで使い続ける。
@@ -203,6 +209,8 @@ export class ChatView {
     if (pane) {
       try { ask = pendingAskFrom(session, pane.capture()); } catch { ask = null; }
     }
+    // 画面から読めない札（ファイルの道具の札など）は、hook の入力から作った札で代える。答えは hook で返すので、画面の照合は要らない。
+    if ((ask === null || ask.answerable === false) && fromHook) ask = fromHook;
     this.captured.set(sessionId, { at: t, sig, ask });
     if (this.captured.size > 64) this.captured.delete(this.captured.keys().next().value!);
     return ask;

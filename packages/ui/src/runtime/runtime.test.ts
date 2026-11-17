@@ -541,6 +541,15 @@ describe('createRuntime', () => {
     a.rt.emit({ type: 'transcript.showRaw', sessionId: 's1', show: true });
     expect(a.store.get('sv:s1')).not.toHaveProperty('livePaneSplit');
   });
+  it('サイドバーを閉じて保存したとき、書いた経路の控えも残す。開く方は控えない（#616）', () => {
+    const a = harness();
+    a.rt.start();
+    a.rt.emit({ type: 'sidebar.toggle' });
+    expect(a.store.get('sidebar.trace')).toMatchObject({ collapsed: true });
+    a.store.delete('sidebar.trace');
+    a.rt.emit({ type: 'sidebar.toggle' });
+    expect(a.store.get('sidebar.trace')).toBeUndefined();
+  });
   it('サイドバーの折りたたみを保存し、起動時に読み戻す。真でない値は開いたまま', () => {
     const a = harness();
     a.rt.start();

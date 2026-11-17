@@ -104,7 +104,7 @@ export type Effect =
   | { kind: 'api.recheckMux' }
   | { kind: 'shell.openLog' } | { kind: 'shell.restart' } | { kind: 'clipboard.copy'; text: string; done?: string }
   | { kind: 'api.rebuildIndex' }
-  | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.peerLaunch'; body: PeerLaunchBody } | { kind: 'api.peerStop'; sessionId: string } | { kind: 'api.resume'; sessionId: string; stray?: ResumeStray; prepKey?: string } | { kind: 'api.fork'; sessionId: string }
+  | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.peerLaunch'; body: PeerLaunchBody } | { kind: 'api.peerStop'; sessionId: string } | { kind: 'api.resume'; sessionId: string; stray?: ResumeStray; prepKey?: string }
   // 起動した後にコンテキストが足りなかった会話のローカルのモデルを整え直す。進みは prepKey の鍵の launch.prep で届き、結果は contextShort.done か contextShort.failed で返る。
   | { kind: 'api.fixContextShort'; sessionId: string; prepKey: string }
   | { kind: 'api.attach'; sessionId: string } | { kind: 'api.adopt'; sessionId: string }
@@ -261,7 +261,7 @@ export type Overlay =
   | { kind: 'linkRepair'; agent: 'claude-code' | 'codex'; accountId: string; back: Extract<Overlay, { kind: 'newSession' }> | null }
   | { kind: 'muxGuide'; pending: MuxPending; back: Extract<Overlay, { kind: 'newSession' }> | Extract<Overlay, { kind: 'confirm' }> | null };
 /** psmux（tmux）が無いときに止める、セッションを始める操作。 */
-export type MuxPending = Extract<UiAction, { type: 'session.new.submit' | 'session.resume' | 'session.fork' | 'session.resumeHere' | 'session.adopt' | 'session.attach' | 'interrupted.resume' | 'session.takeover.start' }>;
+export type MuxPending = Extract<UiAction, { type: 'session.new.submit' | 'session.resume' | 'session.resumeHere' | 'session.adopt' | 'session.attach' | 'interrupted.resume' | 'session.takeover.start' }>;
 /** psmux（tmux）の再確認の進み。missing は、再確認しても見つからなかったこと。 */
 export type MuxCheck = 'idle' | 'checking' | 'missing';
 /**

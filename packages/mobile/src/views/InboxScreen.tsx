@@ -11,6 +11,8 @@ import { AgentIcon } from './AgentIcon.tsx';
 import { ApprovalList } from './ApprovalList.tsx';
 import { PeerApprovalList } from './PeerApprovalList.tsx';
 import { Fold } from './Fold.tsx';
+import { chatTargetOf } from '../chatTarget.ts';
+import type { ChatTarget } from './ChatScreen.tsx';
 
 /** /rc の URL が拾えなかったとき、または PC から来た値が claude.ai でないときに開く先。 */
 export const CLAUDE_CODE_URL = 'https://claude.ai/code';
@@ -48,6 +50,11 @@ type Props = {
   onNewSession?: (view: InboxView) => void;
   /** 受信箱を読めるたびに、読んだものを渡す（起動のシートが、始まった会話の URL をここから探す）。 */
   onView?: (view: InboxView) => void;
+  /**
+   * 入力待ちの札を押したときの会話の頁。caps.chat のある PC の Claude Code の会話の札だけが頁へ入り、ほかは今までどおり Remote Control を開く。
+   * 無ければ、どの札も今までどおり。
+   */
+  onOpenChat?: (target: ChatTarget) => void;
   /** 見出しの右の歯車。設定の画面を開く。無ければ歯車を出さない。 */
   onSettings?: () => void;
   /** 変わったら読み直す（新しい会話を始めて戻ったときなど）。 */
@@ -64,7 +71,7 @@ const OPEN_TRIES = 2;
 
 type Pull = { phase: 'idle' } | { phase: 'pulling'; dist: number } | { phase: 'refreshing' };
 
-export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onNewSession, onView, onSettings, refresh, openSession }: Props): ReactNode {
+export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onNewSession, onView, onSettings, onOpenChat, refresh, openSession }: Props): ReactNode {
   const [view, setView] = useState<InboxView | null>(null);
   const [failed, setFailed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -268,7 +275,7 @@ export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onN
             )}
             <ApprovalList rows={view.approvals} pairing={pairing} keys={keysRef.current} onAnswered={() => void load()} />
             <PeerApprovalList rows={view.peerApprovals} now={pcNow} pairing={pairing} keys={keysRef.current} onAnswered={() => void load()} />
-            <WaitingList rows={view.waiting} now={pcNow} target={target} icons={view.agentIcons} />
+            <WaitingList rows={view.waiting} now={pcNow} target={target} icons={view.agentIcons} chatOf={onOpenChat ? (r) => chatTargetOf(view, r) : undefined} onOpenChat={onOpenChat} />
             <Sections view={view} now={pcNow} today={localDay(today)} target={target} />
           </>
         )}
@@ -297,14 +304,14 @@ const rowKey = (r: Row): string => r.sessionId;
 /** 行の印（通知から開いた会話）の class。 */
 const targetCls = (row: Row, target: string | null): string => (target !== null && row.sessionId === target ? ' is-target' : '');
 
-function WaitingList({ rows, now, target, icons }: { rows: Row[]; now: number; target: string | null; icons: boolean }): ReactNode {
+function WaitingList({ rows, now, target, icons, chatOf, onOpenChat }: { rows: Row[]; now: number; target: string | null; icons: boolean; chatOf?: (r: Row) => ChatTarget | null; onOpenChat?: (t: ChatTarget) => void }): ReactNode {
   const list = usePresence(rows, rowKey);
   return (
     <section className="waiting" aria-label="入力待ち">
       {rows.length === 0 && <p className="empty m-fade">なし</p>}
       {list.map((p) => (
         <Fold key={p.key} phase={p.phase}>
-          <WaitingCard row={p.item} now={now} target={target} icons={icons} />
+          <WaitingCard row={p.item} now={now} target={target} icons={icons} chat={chatOf?.(p.item) ?? null} onOpenChat={onOpenChat} />
         </Fold>
       ))}
     </section>
@@ -324,7 +331,27 @@ function RowIcon({ row, icons }: { row: Row; icons: boolean }): ReactNode {
  * 押して開ける行は Remote Control へのリンク（a）、開けない行（opencode）はただの箱（div）にする。
  * 開けない行の札は押しても何も起きない。
  */
-function RowBox({ row, className, children }: { row: Row; className: string; children: ReactNode }): ReactNode {
+function RowBox({ row, className, children, onOpen }: { row: Row; className: string; children: ReactNode; onOpen?: () => void }): ReactNode {
+  // 会話の頁へ入る札は、リンクでなく押せる箱にする（頁は自分の中で読み書きする）。
+  if (onOpen) {
+    return (
+      <div
+        className={className}
+        data-session-id={row.sessionId}
+        role="button"
+        tabIndex={0}
+        onClick={onOpen}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onOpen();
+          }
+        }}
+      >
+        {children}
+      </div>
+    );
+  }
   if (opensRemote(row)) {
     return (
       <a className={className} data-session-id={row.sessionId} href={openUrlOf(row.rcUrl)} target="_blank" rel="noopener noreferrer">
@@ -339,11 +366,11 @@ function RowBox({ row, className, children }: { row: Row; className: string; chi
   );
 }
 
-function WaitingCard({ row, now, target, icons }: { row: Row; now: number; target: string | null; icons: boolean }): ReactNode {
+function WaitingCard({ row, now, target, icons, chat, onOpenChat }: { row: Row; now: number; target: string | null; icons: boolean; chat: ChatTarget | null; onOpenChat?: (t: ChatTarget) => void }): ReactNode {
   const kind = waitingKind(row);
   const text = waitingText(row);
   return (
-    <RowBox row={row} className={`card wait-card${targetCls(row, target)}`}>
+    <RowBox row={row} className={`card wait-card${targetCls(row, target)}`} onOpen={chat && onOpenChat ? () => onOpenChat(chat) : undefined}>
       <div className="wait-top">
         <AccountDot color={row.accountColor} />
         <span className="wait-proj">{row.projectName}</span>

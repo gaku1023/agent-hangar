@@ -42,3 +42,16 @@ export function readPermissionHook(body: unknown): PermissionHook | null {
   if (providerSessionId === null || tool === null) return null;
   return { providerSessionId, ask: { tool, input: inputOf(b.tool_input), description: descriptionOf(b.tool_input) } };
 }
+
+/**
+ * 同期の hook（台本が答えを待つ形）に必要な、許可の確認の素の入力。
+ * 質問の答えを組むための tool_input そのものと、claude が示した permission_suggestions も持つ。
+ */
+export type PermissionDecisionInput = { providerSessionId: string; tool: string; input: string; toolInput: unknown; suggestions: unknown[] };
+
+export function readPermissionDecisionInput(body: unknown): PermissionDecisionInput | null {
+  const hook = readPermissionHook(body);
+  if (!hook) return null;
+  const b = body as Record<string, unknown>;
+  return { providerSessionId: hook.providerSessionId, tool: hook.ask.tool, input: hook.ask.input, toolInput: b.tool_input ?? null, suggestions: Array.isArray(b.permission_suggestions) ? b.permission_suggestions : [] };
+}

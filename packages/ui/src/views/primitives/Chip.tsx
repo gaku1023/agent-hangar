@@ -82,11 +82,11 @@ export function CountChip(props: { label: string; count: number; countText?: str
  * dot は色の点（アカウントの色）で、値の前に置く。suffix は値の後ろに添える淡い文字で、読み上げない（予定の worktree の「-MMDD-HHmm」）。
  * tone の muted は既定のまま（値が薄い）、danger は赤い縁（Bypass permissions）。開いている間（aria-expanded）は青い縁である。
  */
-export function SettingChip(props: { name: string; value: string; icon?: IconName; lead?: ReactNode; dot?: string; showName?: boolean; tone?: 'default' | 'muted' | 'danger'; badge?: string; suffix?: string } & Omit<ButtonProps, 'children' | 'className' | 'aria-label'>) {
-  const { name, value, icon, lead, dot, showName, tone = 'default', badge, suffix, ...rest } = props;
+export function SettingChip(props: { name: string; value: string; icon?: IconName; lead?: ReactNode; dot?: string; showName?: boolean; tone?: 'default' | 'muted' | 'danger'; badge?: string; suffix?: string; /** 固定された札。薄くして錠を付け、押せない。 */ locked?: boolean } & Omit<ButtonProps, 'children' | 'className' | 'aria-label'>) {
+  const { name, value, icon, lead, dot, showName, tone = 'default', badge, suffix, locked, ...rest } = props;
   const t = useT();
   return (
-    <button type="button" {...rest} className="set-chip" data-tone={tone} aria-label={t('common.chip.nameValue', { name, value })}>
+    <button type="button" {...rest} className="set-chip" data-tone={tone} data-locked={locked ? 'true' : undefined} {...(locked ? { disabled: true } : {})} aria-label={t('common.chip.nameValue', { name, value })}>
       {icon && <Icon name={icon} />}
       {lead}
       {dot && <span className="st-dot" style={{ color: dot }} aria-hidden="true" />}
@@ -94,7 +94,7 @@ export function SettingChip(props: { name: string; value: string; icon?: IconNam
       <span className="set-chip-value">{value}</span>
       {suffix && <span className="wt-suffix" aria-hidden="true">{suffix}</span>}
       {badge && <span className="tag-beta">{badge}</span>}
-      <Icon name="chevronDown" />
+      <Icon name={locked ? 'lock' : 'chevronDown'} />
     </button>
   );
 }

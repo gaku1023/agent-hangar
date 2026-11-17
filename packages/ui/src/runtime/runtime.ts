@@ -9,6 +9,7 @@ import { OPENCODE_VERSION_SEEN_KEY, readOpencodeVersionSeen } from '../mediator/
 import { toSearchParams } from '../mediator/screen.ts';
 import { cleanPaneLayout, paneSessions, paneShows, PANES_KEY } from '../mediator/panes.ts';
 import { cleanOrchWidth, ORCH_WIDTH_KEY } from '../mediator/orchestrator.ts';
+import { SIDEBAR_TRACE_KEY, traceOf, watchInputs } from './sidebarTrace.ts';
 import { cleanSidebarFolded, cleanSidebarOrder, cleanSidebarWidth, SIDEBAR_FOLDED_KEY, SIDEBAR_KEY, SIDEBAR_ORDER_KEY, SIDEBAR_WIDTH_KEY } from '../mediator/sidebar.ts';
 import { PROJECT_RAIL_KEY, readProjectRailFolded } from '../mediator/projectRail.ts';
 import { NOTIFY_KEY, notifyKeep } from '../mediator/notify.ts';
@@ -817,7 +818,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           else launchFailed(err);
         });
         return;
-      case 'api.fork': deps.api.fork(e.sessionId).then(launched).catch(launchFailed); return;
       // まとめて再開の 1 本。画面は移さない。起きた run は Store に入れ、順番待ちを進めるのは Mediator である。
       case 'api.resumeQueued': {
         const id = e.sessionId;
@@ -976,7 +976,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         loadReadiness();
         loadSummarizerModels();
         return;
-      case 'storage.save': deps.storage.set(e.key, e.value); return;
+      case 'storage.save':
+        deps.storage.set(e.key, e.value);
+        // 閉じた状態を書いた経路を残す（#616）。開いた方への書き込みは控えない。
+        if (e.key === SIDEBAR_KEY && e.value === true) deps.storage.set(SIDEBAR_TRACE_KEY, traceOf(true, clock()));
+        return;
       // 前面化は静かに失敗させる。窓を触るたびに赤い通知が出ると邪魔になる。
       case 'api.syncFocus': deps.api.syncFocus().catch(() => {}); return;
       case 'api.resumeHere':
@@ -1216,6 +1220,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     subscribe: (cb) => { listeners.add(cb); return () => listeners.delete(cb); },
     canGoBack: () => deps.location.depth() > 0,
     start() {
+      watchInputs(typeof document === 'undefined' ? undefined : document, clock);
       const sv: Record<string, SessionViewState> = {};
       for (const k of deps.storage.keys()) {
         if (!k.startsWith('sv:')) continue;

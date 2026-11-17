@@ -78,8 +78,10 @@ async function placeImages(s: SendDeps, ring: PeerKeyring, askId: string, from: 
  * 画像を取る（無ければ何もしない）。
  * 取れなければ断りを返す。
  */
-async function stageImages(s: SendDeps, ring: PeerKeyring, askId: string, from: string, images: PeerBlobRef[]): Promise<{ paths: string[] } | Refuse> {
+async function stageImages(s: SendDeps, ring: PeerKeyring | null, askId: string, from: string, images: PeerBlobRef[]): Promise<{ paths: string[] } | Refuse> {
   if (images.length === 0) return { paths: [] };
+  // 鍵の束が無い（スマホの頼み）なら画像を開けない。スマホの入口は画像の付いた頼みを先に断るので、ここへは来ない。
+  if (!ring) return refuse('too-large');
   const placed = await placeImages(s, ring, askId, from, images);
   return 'reason' in placed ? refuse(placed.reason) : { paths: placed.paths };
 }
@@ -123,14 +125,14 @@ async function bounded(s: SendDeps, waitMs: number | undefined, work: (late: () 
  * 画像を置き、文を預かりに入れる。
  * 待ちを過ぎていたら、預からず画像を消して expired。
  */
-async function enqueue(s: SendDeps, ring: PeerKeyring, sessionId: string, askId: string, from: PeerChatDevice, text: string, images: PeerBlobRef[], late: () => boolean): Promise<PeerChatReply> {
+async function enqueue(s: SendDeps, ring: PeerKeyring | null, sessionId: string, askId: string, from: PeerChatDevice, text: string, images: PeerBlobRef[], late: () => boolean): Promise<PeerChatReply> {
   const staged = await stageImages(s, ring, askId, from.deviceId, images);
   if ('ok' in staged) return staged;
   if (late()) { removeFiles(staged.paths); return refuse('expired'); }
   return commit(s, sessionId, from, text, images, staged.paths);
 }
 
-export async function sendOp(s: SendDeps, ring: PeerKeyring, sessionId: string, askId: string, from: PeerChatDevice, text: string, images: PeerBlobRef[], waitMs?: number): Promise<PeerChatReply> {
+export async function sendOp(s: SendDeps, ring: PeerKeyring | null, sessionId: string, askId: string, from: PeerChatDevice, text: string, images: PeerBlobRef[], waitMs?: number): Promise<PeerChatReply> {
   // 止まった会話に預けても、いつ動き出すか分からない。
   // 再開して送るは resume-send で頼む。
   if (!s.deps.run(sessionId)) return refuse('session-unknown');
@@ -157,7 +159,7 @@ async function ready(s: SendDeps, sessionId: string): Promise<boolean> {
  * 画面は現れたが、まだ入力欄が空でない（起動の確認の札など）ときは、預かりに入れる（空いたら渡す。
  * 10 分で捨てる）。
  */
-export async function resumeSendOp(s: SendDeps, ring: PeerKeyring, sessionId: string, askId: string, from: PeerChatDevice, text: string, images: PeerBlobRef[], waitMs?: number): Promise<PeerChatReply> {
+export async function resumeSendOp(s: SendDeps, ring: PeerKeyring | null, sessionId: string, askId: string, from: PeerChatDevice, text: string, images: PeerBlobRef[], waitMs?: number): Promise<PeerChatReply> {
   const { deps } = s;
   if (deps.run(sessionId)) return bounded(s, waitMs, (late) => enqueue(s, ring, sessionId, askId, from, text, images, late));
   return bounded(s, waitMs, async (late) => {

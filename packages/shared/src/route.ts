@@ -3,12 +3,12 @@
  * 節の名前（general、sessions、summary、cloud、environment、usage、agentClaude、agentCodex、agentOpencode、about）は、左の目次で選んだ節をそのまま URL に持つ（戻ると進むで節も戻る）。
  * 並びは目次の並びで、共通の節、「エージェント」の群（Claude Code、Codex、opencode を 1 節ずつ）、読むだけのもの、の順にする（2026-10-28 の組み直し。2026-10-25 の並びを引き継ぐ）。
  * エージェントに固有の設定（アカウント、新しいセッションの既定、渡す設定、会話の保持、連携、パス）は、そのエージェントの節に置く。
- * `sync` は、ヘッダーの同期の語が使うクラウド同期の節の別名、`unsent` はその節の「送らなかった項目」の行（ベルの一覧から開く）、`accounts` はセッションの節のアカウントの位置である。
+ * `phone` はスマホの節（接続の QR とスマホの表、スマホからの送信を受けるスイッチ。通知などからここへ飛べる）。`sync` は、ヘッダーの同期の語が使うクラウド同期の節の別名、`unsent` はその節の「送らなかった項目」の行（ベルの一覧から開く）、`accounts` はセッションの節のアカウントの位置である。
  * `workspace` はセッションの節の作成先の欄、`tmux` は環境の節のパスの欄、`claude` は Claude Code の節のパスの欄、`compat` は Claude Code の節の互換性、`editor` は一般の節のエディタの欄で、ホームの準備の帯の「設定を開く」が、直す欄を指して開くのに使う。
  * `opencode` は opencode の節の面で、新しいセッションのモデルの小窓の「プロバイダーを管理…」が開く。`codex` は Codex の節の面で、未検証の Codex の版の札の「設定を開く」が開く。
  * 0.9.3 までの節の名前（tools、update、info）と、2026-10-28 までの連携の節（integrations）は、殻のディープリンクと利用者の履歴に残っているので、新しい節の別名として読み続ける。
  */
-export const SETTINGS_SECTIONS = ['general', 'sessions', 'orchestrator', 'summary', 'cloud', 'environment', 'usage', 'agentClaude', 'agentCodex', 'agentOpencode', 'about'] as const;
+export const SETTINGS_SECTIONS = ['general', 'phone', 'sessions', 'orchestrator', 'summary', 'cloud', 'environment', 'usage', 'agentClaude', 'agentCodex', 'agentOpencode', 'about'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 /** 節の中の、1 つの欄（か小さな節）を指す開く先。開いたら、その欄が見える所へ移って目立たせる。 */
 export const SETTINGS_FIELDS = ['workspace', 'tmux', 'claude', 'compat', 'editor', 'codex', 'opencode'] as const;

@@ -4,7 +4,6 @@ import { readPeerStatuses } from '../config/deviceStatus.ts';
 import type { Db } from '../db/open.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { msg, render } from '../i18n/message.ts';
-import { PeerSshConnectError } from './ssh/link.ts';
 import { choosePeerRoute, resolvePeer, type PeerCallDeps, type PeerCallRefusal } from './caller.ts';
 import { recordPeerRequest, SCREEN_CALLER } from './outbox.ts';
 import { screenRefusalText } from './text.ts';
@@ -20,7 +19,7 @@ import type { PeerDeviceStatus } from '@agent-hangar/shared';
  * 起きたかどうかの答えは、後から PeerOutbox が画面の札で知らせる。
  */
 
-type RouteDeps = Pick<PeerCallDeps, 'link' | 'workerOk' | 'ssh' | 'version'>;
+type RouteDeps = Pick<PeerCallDeps, 'link' | 'workerOk' | 'version'>;
 
 /** 頼めるか。経路と、相手がこの機能（親の会話が空の頼み）を読む版かで決める。 */
 function stateOf(p: PeerDeviceStatus, deps: RouteDeps, now: number): PeerDeviceDto['state'] {
@@ -92,13 +91,8 @@ export async function launchFromScreen(deps: ScreenLaunchDeps, body: PeerLaunchB
     ...(str(body.effort) && body.agent !== 'opencode' ? { effort: str(body.effort)! } : {}), ...(str(body.mode) ? { mode: str(body.mode)! } : {}),
     ...(body.autoApprove === true ? { autoApprove: true } : {}), ...(str(body.name) ? { name: str(body.name)! } : {}),
   };
-  try {
-    const sealed = await sealPeerLaunch(await route.ring(), { requestId, from: deps.deviceId, to: peer.device_id }, req);
-    await route.api.put({ id: requestId, to: peer.device_id, sealed, from: deps.deviceId });
-  } catch (e) {
-    if (e instanceof PeerSshConnectError) return refuse('device-offline', peer.name, render(lang(), msg('mcp.device.offline', { device: peer.name })));
-    throw e;
-  }
-  recordPeerRequest(deps.db, { requestId, to: peer.device_id, callerSessionId: SCREEN_CALLER, now, via: route.via });
+  const sealed = await sealPeerLaunch(await route.ring(), { requestId, from: deps.deviceId, to: peer.device_id }, req);
+  await route.api.put({ id: requestId, to: peer.device_id, sealed, from: deps.deviceId });
+  recordPeerRequest(deps.db, { requestId, to: peer.device_id, callerSessionId: SCREEN_CALLER, now });
   return { status: 'requested', requestId, device: peer.name };
 }

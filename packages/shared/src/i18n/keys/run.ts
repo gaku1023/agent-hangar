@@ -11,6 +11,7 @@ export const runKeys = {
   'run.launch.projectRequired': [],
   'run.launch.cwdOutside': ['path'],
   'run.agent.unknown': ['agent'],
+  'run.agent.forkClaudeOnly': [],
   'run.agent.disabled': ['label'],
   'run.agent.notFound': [],
   'run.agent.isCmd': ['file'],

@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import { PEER_BELL_KINDS, type PeerBellKind, type PeerChatBellAsk, type PeerChatBellReply } from '@agent-hangar/shared';
+import { PEER_BELL_KINDS, type PeerBellKind, type PeerChatBellAsk, type PeerChatBellReply, type PhoneChatBellAsk, type PhoneChatBellReply } from '@agent-hangar/shared';
 import type { BellTarget } from '../sync/client.ts';
 import type { Timers } from '../sync/engine.ts';
 
@@ -72,6 +72,12 @@ export type MobileBellDeps = {
    * 省けば頼みを捨てる。
    */
   onChat?: (frame: PeerChatBellAsk) => Promise<PeerChatBellReply | null>;
+  /**
+   * `{t:'phone-chat', id, from, epoch, sealed}` を受けた（スマホの会話の頼み、互換の版 13、mobile/chatHost.ts）。
+   * 封じた答えの枠（`{t:'phone-chat-reply', id, from, sealed}`）を返す。開けない頼みは null で、答えない。
+   * 省けば頼みを捨てる。
+   */
+  onPhoneChat?: (frame: PhoneChatBellAsk) => Promise<PhoneChatBellReply | null>;
   timers?: Timers;
   /** WebSocket を作る口。既定は ws。 */
   connect?: (t: BellTarget) => WebSocket;
@@ -240,13 +246,18 @@ export class MobileBell {
       }
       return;
     }
-    // ほかの PC の会話の頼み（版 11）。
+    // ほかの PC の会話の頼み（版 11）と、スマホの会話の頼み（版 13）。
     // 開けない頼みには答えない（頼み主の待ちは Worker が切る）。
-    if (msg.t === 'chat') {
+    if (msg.t === 'chat' || msg.t === 'phone-chat') {
       const f = msg as { id?: unknown; from?: unknown; sealed?: unknown; epoch?: unknown };
-      if (this.deps.onChat && typeof f.id === 'string' && f.id.length > 0 && f.id.length <= MAX_ASK_ID && typeof f.from === 'string' && f.from.length > 0 && f.from.length <= MAX_ASK_ID && typeof f.sealed === 'string' && typeof f.epoch === 'number' && Number.isSafeInteger(f.epoch) && f.epoch > 0) {
-        let reply: Promise<PeerChatBellReply | null>;
-        try { reply = this.deps.onChat({ t: 'chat', id: f.id, from: f.from, epoch: f.epoch, sealed: f.sealed }); } catch (e) { reply = Promise.reject(e); }
+      const phone = msg.t === 'phone-chat';
+      const handler = phone ? this.deps.onPhoneChat : this.deps.onChat;
+      if (handler && typeof f.id === 'string' && f.id.length > 0 && f.id.length <= MAX_ASK_ID && typeof f.from === 'string' && f.from.length > 0 && f.from.length <= MAX_ASK_ID && typeof f.sealed === 'string' && typeof f.epoch === 'number' && Number.isSafeInteger(f.epoch) && f.epoch > 0) {
+        const frame = { id: f.id, from: f.from, epoch: f.epoch, sealed: f.sealed };
+        let reply: Promise<PeerChatBellReply | PhoneChatBellReply | null>;
+        try {
+          reply = phone ? this.deps.onPhoneChat!({ t: 'phone-chat', ...frame }) : this.deps.onChat!({ t: 'chat', ...frame });
+        } catch (e) { reply = Promise.reject(e); }
         void reply.then((r) => {
           // 答えを作る間に切れた、または張り直したなら送らない。
           if (r === null || this.sock !== s || s.readyState !== WebSocket.OPEN) return;
