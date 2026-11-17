@@ -6,7 +6,7 @@ import type { Db } from '../db/open.ts';
 import { accountOfSession, getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
 import { addIntent, INTENT_MAX, noteIntent } from '../live/intents.ts';
-import { addUnread, noteUnread, NOTIFY_TARGETS, type NotifyTarget } from '../live/unread.ts';
+import { addUnread, noteNotifyCall, noteUnread, NOTIFY_TARGETS, type NotifyTarget } from '../live/unread.ts';
 import { sessionTurnRunning } from '../live/unreadHold.ts';
 import { touchRow } from '../db/notify.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
@@ -739,6 +739,8 @@ export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
     sent = NOTIFY_TARGETS.filter((x) => rules[x].includes(kind));
   }
   if (isQuietStatus(session.state?.status) && !session.woke) sent = [];
+  // 出し先が空になっても、呼ばれたことはターンの終わりの受け皿に伝える（live/notifyFallback.ts）。呼んだターンに代わりの未読を足さないためである。
+  noteNotifyCall(id);
   let unread = session.unread?.count ?? 0;
   if (sent.length > 0) {
     // 未読の数も、done と ask で作業中なら預かりが積む（holdUnread のとき）。返答を書き終える前に数が増えないようにするためである。
