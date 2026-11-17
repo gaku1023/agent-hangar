@@ -1,0 +1,823 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { writeFakeTool } from '../../../test/fake-bin.ts';
+import type { ServerEvent, SettingsDto } from '@agent-hangar/shared';
+import type { Db } from '../../db/open.ts';
+import { upsertShared } from '../../db/shared.ts';
+import { SESSION_ALPHA, SESSION_OTHER } from '../../../test/fixtures.ts';
+import { setSessionState } from '../../sessions/states.ts';
+import { createApp, type RunsApi } from '../app.ts';
+import { H, testDeps, type TestWorld } from '../testing.ts';
+import { isWindows } from '../../../test/platform.ts';
+import { terminalAppsFor } from '@agent-hangar/shared';
+import { configKindsOf } from '@agent-hangar/shared';
+
+/** 動いている OS の、既定でないほうの外部ターミナル。macOS は iTerm2、Windows は既定のターミナル。 */
+const OTHER_TERMINAL = terminalAppsFor(process.platform)[1]!;
+
+// 設定の経路（routes/settings.ts）の試験。依存は testDeps() で組み、createApp を通して /api の下から叩く。
+
+let t: TestWorld;
+let app: ReturnType<typeof createApp>;
+let dir: string;
+let db: Db;
+let ws: string;
+let sent: ServerEvent[];
+let runs: RunsApi;
+const get = (p: string, headers: Record<string, string> = H) => app.request(p, { headers });
+const json = async (r: Response) => ({ status: r.status, body: await r.json() });
+
+/** 実行できる空のファイルを ws/bin に置く。パスの欄は保存の前に存在と実行権を確かめるので、実物が要る。 */
+const exe = (name: string): string => writeFakeTool(path.join(ws, 'bin'), name, { sh: '', cmd: '' });
+
+beforeEach(async () => {
+  t = await testDeps();
+  ({ db, ws, runs } = t);
+  dir = t.claudeDir; sent = t.events;
+  app = createApp(t.deps);
+});
+afterEach(() => { t.dispose(); });
+
+describe('routes', () => {
+  it('設定の取得と更新', async () => {
+    expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);
+    const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: path.join(ws, 'alpha') }) });
+    expect(r.status).toBe(200);
+    expect((await r.json()).workspaceRoot).toBe(path.join(ws, 'alpha'));
+    // 保存の知らせは画面が欄の横に出すので、サーバからトーストは配らない。
+    expect(sent.some((e) => e.type === 'toast')).toBe(false);
+  });
+  it('パスの欄は、保存する前に存在と実行権を確かめ、理由を欄の見出しで言う', async () => {
+    const error = async (body: unknown) => {
+      const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      expect(r.status).toBe(400);
+      return ((await r.json()) as { error: string }).error;
+    };
+    // 実在しないルートと、ファイルを指したルートは弾く。どちらも 500 にはしない。
+    const missing = path.join(ws, 'no-such-root');
+    expect(await error({ workspaceRoot: missing })).toBe(`「新しいディレクトリの作成先」に ${missing} が見つかりません`);
+    const asFile = path.join(ws, 'root-is-a-file');
+    fs.writeFileSync(asFile, 'x');
+    expect(await error({ workspaceRoot: asFile })).toBe(`「新しいディレクトリの作成先」の ${asFile} はディレクトリではありません`);
+    // ツールは、無い、ファイルでない、実行できないを分けて言う。
+    expect(await error({ tmuxPath: path.join(ws, 'no-tmux') })).toBe(`「tmux のパス」に ${path.join(ws, 'no-tmux')} が見つかりません`);
+    expect(await error({ claudePath: ws })).toBe(`「claude のパス」の ${ws} はファイルではありません`);
+    expect(await error({ editor: { id: 'vscode', path: asFile } })).toBe(`「エディタのパス」の ${asFile} には実行権限がありません`);
+    expect(await error({ codexPath: ws })).toBe(`「codex のパス」の ${ws} はファイルではありません`);
+    expect(await error({ opencodePath: path.join(ws, 'no-oc') })).toBe(`「opencode のパス」に ${path.join(ws, 'no-oc')} が見つかりません`);
+    expect(await error({ nodePath: path.join(ws, 'no-node') })).toBe(`「Node のパス」に ${path.join(ws, 'no-node')} が見つかりません`);
+    // 弾いた値は保存していない。
+    expect((await json(await get('/api/settings'))).body).toMatchObject({ workspaceRoot: ws, tmuxPath: null, claudePath: null, editor: { id: 'vscode', path: null }, nodePath: null });
+  });
+  // 名前だけ（tmux など）は PATH から探して確かめ、打たれたまま保存する。起動のときも PATH から探すからである。
+  it('パスの欄は名前だけでも受け、PATH から探して確かめ、打たれたまま保存する', async () => {
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const bin = path.dirname(exe('mytmux'));
+    vi.stubEnv('PATH', ['/no/such/dir', bin].join(path.delimiter));
+    try {
+      const r = await patch({ tmuxPath: ' mytmux ' });
+      expect(r.status).toBe(200);
+      expect((await r.json()).tmuxPath).toBe('mytmux');
+      expect((await json(await get('/api/settings'))).body.tmuxPath).toBe('mytmux');
+      const missing = await patch({ tmuxPath: 'no-such-tool' });
+      expect(missing.status).toBe(400);
+      expect(((await missing.json()) as { error: string }).error).toBe('「tmux のパス」の no-such-tool が PATH に見つかりません');
+      // 相対パスは、サーバーの作業ディレクトリで読むとどこを指すかが分からないので弾く。
+      for (const rel of ['./mytmux', 'bin/mytmux']) {
+        const bad = await patch({ claudePath: rel });
+        expect(bad.status).toBe(400);
+        expect(((await bad.json()) as { error: string }).error).toBe('「claude のパス」には / か ~ で始まるパスか、tmux などのコマンド名を入力してください');
+      }
+      expect((await json(await get('/api/settings'))).body).toMatchObject({ tmuxPath: 'mytmux', claudePath: null });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  // 起動するときに ~ は直されないので、パスは ~ をホームに直した値で保存する。
+  it('パスの欄の ~ はホームに直して保存する', async () => {
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const tool = exe('hometool');
+    vi.stubEnv('HOME', ws);
+    vi.stubEnv('USERPROFILE', ws);
+    try {
+      // Windows の偽の道具は hometool.cmd になる。拡張子まで書いたパスで指す。
+      const r = await patch({ editor: { id: 'zed', path: `~/bin/${path.basename(tool)}` } });
+      expect(r.status).toBe(200);
+      expect((await r.json()).editor).toEqual({ id: 'zed', path: tool, fileCmd: '', dirCmd: '', terminal: 'none' });
+      expect((await json(await get('/api/settings'))).body.editor.path).toBe(tool);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('設定の誤りは、内部のキー名ではなく画面の欄の見出しと画面名「設定」で言う', async () => {
+    const error = async (body: unknown) => {
+      const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      expect(r.status).toBe(400);
+      return ((await r.json()) as { error: string }).error;
+    };
+    expect(await error({ workspaceRoot: 3 })).toBe('「新しいディレクトリの作成先」の値の形式が正しくありません');
+    expect(await error({ claudeDir: ' ' })).toBe('「読み取り元」は空にできません');
+    expect(await error({ tmuxPath: 3 })).toBe('「tmux のパス」の値の形式が正しくありません');
+    expect(await error({ editor: 3 })).toBe('「エディタ」の値の形式が正しくありません');
+    expect(await error({ editor: { id: 'emacs' } })).toBe('「エディタ」の値の形式が正しくありません');
+    expect(await error({ editor: { id: 'vscode', path: 3 } })).toBe('「エディタのパス」の値の形式が正しくありません');
+    // 任意のコマンドは、どのファイルを開くかを渡す {path} が要る。
+    expect(await error({ editor: { id: 'custom', fileCmd: 'subl' } })).toBe('「ファイルを開くコマンド」に {path} を含めてください');
+    // 選んだばかりの空のコマンドは保存できる（欄を出してから書く）。
+    expect((await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ editor: { id: 'custom', fileCmd: '' } }) })).status).toBe(200);
+    expect(await error({ editor: { id: 'custom', fileCmd: 'subl {path}', dirCmd: 'subl .' } })).toBe('「ディレクトリを開くコマンド」に {path} を含めてください');
+    expect(await error({ nodePath: 3 })).toBe('「Node のパス」の値の形式が正しくありません');
+    expect(await error({ claudePath: 3 })).toBe('「claude のパス」の値の形式が正しくありません');
+    // 選択肢は動いている OS のものだけで、文も OS で変わる。
+    expect(await error({ terminalApp: 'kitty' })).toBe(isWindows ? '「ターミナルアプリ」は Windows Terminal かデフォルトのターミナルから選択してください' : '「ターミナルアプリ」は Terminal.app か iTerm2 から選択してください');
+    expect(await error({ terminalApp: isWindows ? 'iterm' : 'windowsTerminal' })).toMatch(/^「ターミナルアプリ」は/);
+    expect(await error({ summaryEngine: 'openai' })).toBe('「要約エンジン」の値の形式が正しくありません');
+    expect(await error({ summaryClaudeModel: '' })).toBe('「要約に使う Claude のモデル」の値の形式が正しくありません');
+    expect(await error({ summaryClaudeModel: '--tools' })).toBe('「要約に使う Claude のモデル」の値の形式が正しくありません');
+    expect(await error({ defaultModel: 'opus sonnet' })).toBe('「デフォルトのモデル」の値の形式が正しくありません');
+    expect(await error({ summaryHourlyCap: 0 })).toBe('「1 時間の上限」には 1 から 200 までの整数を入力してください');
+    // 画面の入力と同じく 200 までにする。
+    expect(await error({ summaryHourlyCap: 201 })).toBe('「1 時間の上限」には 1 から 200 までの整数を入力してください');
+    expect(await error({ askStatusAtEnd: 'no' })).toBe('「作業の区切りで Done／Paused を確認する」の値の形式が正しくありません');
+    expect(await error({ liveHints: 0 })).toBe('「ターンの意図と操作の短い説明を送る」の値の形式が正しくありません');
+  });
+  it('設定の更新は既知の項目だけを受け、値が空なら 400', async () => {
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    expect((await patch({ workspaceRoot: 123 })).status).toBe(400);
+    expect((await patch({ claudeDir: '  ' })).status).toBe(400);
+    expect((await patch({})).status).toBe(400);
+    expect((await patch({ token: 'stolen' })).status).toBe(400);
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', summaryHourlyCap: 20, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, phoneChatAccept: true, eventTrigger: false, orchestrator: { enabled: false, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] }, voice: { mode: 'off', personaId: 'default', personas: [{ id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'kokoro:jf_alpha', voiceLabel: 'jf_alpha', speed: 1.2 }] }, permissionPolicy: null });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, eventTrigger: false, orchestrator: { enabled: false, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] }, voice: { mode: 'off', personaId: 'default', personas: [{ id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'kokoro:jf_alpha', voiceLabel: 'jf_alpha', speed: 1.2 }] }, permissionPolicy: null });
+  });
+  // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
+  it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const before = db.prepare('select count(*) c from projects where deleted_at is null').get();
+    for (const v of ['', '  ', null]) {
+      const r = await patch({ workspaceRoot: v });
+      expect(r.status).toBe(200);
+      expect((await r.json()).workspaceRoot).toBe('');
+    }
+    expect(db.prepare('select count(*) c from projects where deleted_at is null').get()).toEqual(before);
+    // 空から決め直せば、今までどおり直下を登録する。
+    fs.mkdirSync(path.join(ws, 'later'));
+    expect((await patch({ workspaceRoot: ws })).status).toBe(200);
+    expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);
+  });
+  it('claudePath は保存でき、空なら null に戻る', async () => {
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const claude = exe('claude');
+    const r = await patch({ claudePath: ` ${claude} ` });
+    expect(r.status).toBe(200);
+    expect((await r.json()).claudePath).toBe(claude);
+    expect((await json(await get('/api/settings'))).body.claudePath).toBe(claude);
+    const r2 = await patch({ claudePath: '' });
+    expect(r2.status).toBe(200);
+    expect((await r2.json()).claudePath).toBeNull();
+    expect((await patch({ claudePath: 7 })).status).toBe(400);
+  });
+  it('保存できたら、変えた欄の名前を添えて settings.changed を配る（API から直しても、開いている画面が準備の確かめを読み直せる）', async () => {
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const claude = exe('claude');
+    expect((await patch({ claudePath: claude })).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 0));
+    const ev = sent.find((e) => e.type === 'settings.changed');
+    expect(ev).toMatchObject({ type: 'settings.changed', keys: ['claudePath'], settings: { claudePath: claude } });
+    // 断った保存は配らない。
+    sent.length = 0;
+    expect((await patch({ claudePath: 7 })).status).toBe(400);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent.some((e) => e.type === 'settings.changed')).toBe(false);
+  });
+  it('nodePath は保存でき、空なら null に戻る', async () => {
+    const node = exe('node');
+    const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: ` ${node} ` }) });
+    expect(r.status).toBe(200);
+    expect((await r.json()).nodePath).toBe(node);
+    expect((await json(await get('/api/settings'))).body.nodePath).toBe(node);
+    expect((await json(await get('/api/bootstrap'))).body.settings.nodePath).toBe(node);
+    const r2 = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: '' }) });
+    expect(r2.status).toBe(200);
+    expect((await r2.json()).nodePath).toBeNull();
+    // 文字列でも null でもない値は弾く。
+    const r3 = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: 7 }) });
+    expect(r3.status).toBe(400);
+  });
+  // 殻（node.rs）は nodePath を絶対パスとして読み、Node-API が manifest.json の nodeApi 以上で、アーキが同じ Node だけを使う。
+  // 保存のときに同じ条件で確かめ、殻が使わない Node を保存しない。
+  const NEED = { napi: 10, min: '22.14', arch: 'arm64' };
+  it('nodePath は node の実行ファイルの絶対パスだけを受け、Node-API が足りてアーキが同じ Node だけを保存する', async () => {
+    const node = exe('node');
+    const withNode = (found: { version: string; napi: number; arch: string } | null) => createApp({ ...t.deps, nodeCheck: { need: () => NEED, probe: async () => found } });
+    const error = async (a: ReturnType<typeof createApp>, nodePath: string) => {
+      const r = await a.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath }) });
+      expect(r.status).toBe(400);
+      return ((await r.json()) as { error: string }).error;
+    };
+    const right = withNode({ version: '22.14.0', napi: 10, arch: 'arm64' });
+    // ~ で始まる値も弾く。殻は ~ を展開しないので、展開すれば保存できても殻は使えない。
+    for (const p of ['node', './node', 'bin/node', '~/bin/node', '~']) expect(await error(right, p), p).toBe('「Node のパス」には node の実行ファイルのフルパスを入力してください');
+    expect(await error(withNode({ version: '20.18.0', napi: 9, arch: 'arm64' }), node)).toBe(`「Node のパス」の ${node} は Node 20.18.0 です。hangar のデータベースとターミナルのネイティブモジュールは Node-API 10 を使うため、Node 22.14 以上が必要です`);
+    expect(await error(withNode({ version: '22.14.0', napi: 10, arch: 'x64' }), node)).toBe(`「Node のパス」の ${node} は x64 用の Node です。hangar には arm64 用の Node が必要です`);
+    expect(await error(withNode(null), node)).toBe(`「Node のパス」の ${node} は Node として応答しません`);
+    expect((await json(await get('/api/settings'))).body.nodePath).toBeNull();
+    // 新しいバージョンの Node も保存する（上限は付けない）。
+    const newer = await withNode({ version: '24.21.0', napi: 10, arch: 'arm64' }).request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: node }) });
+    expect(newer.status).toBe(200);
+    const ok = await right.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: node }) });
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).nodePath).toBe(node);
+  });
+  it('nodePath の誤りは、言語が英語なら英語で言う', async () => {
+    const node = exe('node');
+    const a = createApp({ ...t.deps, nodeCheck: { need: () => NEED, probe: async () => ({ version: '20.18.0', napi: 9, arch: 'arm64' }) } });
+    const patch = (body: unknown) => a.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    expect((await patch({ language: 'en' })).status).toBe(200);
+    expect(((await (await patch({ nodePath: node })).json()) as { error: string }).error).toBe(`"Node path": ${node} is Node 20.18.0. Hangar's database and terminal parts use Node-API 10, so Node 22.14 or later is needed`);
+    expect(((await (await patch({ nodePath: 'node' })).json()) as { error: string }).error).toBe('"Node path" must be the full path to the node executable');
+    expect(((await (await createApp({ ...t.deps, nodeCheck: { need: () => NEED, probe: async () => null } }).request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: node }) })).json()) as { error: string }).error).toBe(`"Node path": ${node} does not answer as Node`);
+    const x64 = createApp({ ...t.deps, nodeCheck: { need: () => NEED, probe: async () => ({ version: '22.14.0', napi: 10, arch: 'x64' }) } });
+    expect(((await (await x64.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: node }) })).json()) as { error: string }).error).toBe(`"Node path": ${node} is a Node for x64. Hangar needs a Node for arm64`);
+  });
+  it('ワークスペースのルートを変えるとプロジェクトを登録し直して配信する', async () => {
+    const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app2-'));
+    try {
+      fs.mkdirSync(`${ws2}/other`);
+      const other = db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_OTHER) as { id: string };
+      db.prepare('update sessions set cwd = ? where id = ?').run(`${ws2}/other`, other.id);
+      sent.length = 0;
+      const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: ws2 }) });
+      expect(r.status).toBe(200);
+      const created = db.prepare('select id from projects where name = ?').get('other') as { id: string } | undefined;
+      expect(created).toBeDefined();
+      expect(sent.some((e) => e.type === 'project.upsert' && e.project.id === created!.id)).toBe(true);
+      const up = sent.find((e) => e.type === 'session.upsert' && e.session.id === other.id);
+      expect(up).toBeDefined();
+      expect((up as { session: { projectId: string | null } }).session.projectId).toBe(created!.id);
+    } finally {
+      fs.rmSync(ws2, { recursive: true, force: true });
+    }
+  });
+  // hangar workspace set --dry-run（2026-10-15）。
+  // 保存と同じ検証を通し、自動で登録される直下のフォルダだけを返す。
+  it('作成場所の dryRun は、自動で登録される直下のフォルダと会話の数を返し、保存も登録もせず、何も配らない', async () => {
+    const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app2-'));
+    try {
+      fs.mkdirSync(`${ws2}/other`);
+      fs.mkdirSync(`${ws2}/quiet`);
+      const other = db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_OTHER) as { id: string };
+      db.prepare('update sessions set cwd = ?, project_id = null where id = ?').run(`${ws2}/other`, other.id);
+      await Promise.resolve();
+      sent.length = 0;
+      const count = (sql: string) => (db.prepare(sql).get() as { c: number }).c;
+      const changes = count('select count(*) c from changes');
+      const projects = count('select count(*) c from projects');
+      const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const r = await patch({ workspaceRoot: ws2, dryRun: true });
+      expect(r.status).toBe(200);
+      expect(await r.json()).toEqual({
+        dryRun: true, workspaceRoot: ws2, previous: ws, unchanged: false,
+        register: [{ path: path.join(ws2, 'other'), status: 'added', projectId: expect.any(String), name: 'other', sessionCount: 1 }],
+      });
+      await new Promise((res) => setTimeout(res, 10));
+      expect(sent).toEqual([]);
+      expect(count('select count(*) c from changes')).toBe(changes);
+      expect(count('select count(*) c from projects')).toBe(projects);
+      expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);
+      // いまと同じ値なら、自動の登録は走らない。
+      expect(await (await patch({ workspaceRoot: ws, dryRun: true })).json()).toEqual({ dryRun: true, workspaceRoot: ws, previous: ws, unchanged: true, register: [] });
+      // 空にする試しは、登録するものが無い。
+      expect(await (await patch({ workspaceRoot: '', dryRun: true })).json()).toEqual({ dryRun: true, workspaceRoot: '', previous: ws, unchanged: false, register: [] });
+      // 保存と同じ検証で断る。
+      const missing = path.join(ws2, 'no-such-root');
+      const bad = await patch({ workspaceRoot: missing, dryRun: true });
+      expect(bad.status).toBe(400);
+      expect(((await bad.json()) as { error: string }).error).toBe(`「新しいディレクトリの作成先」に ${missing} が見つかりません`);
+      // 試しは作成場所だけで受ける。
+      expect((await patch({ workspaceRoot: ws2, liveHints: false, dryRun: true })).status).toBe(400);
+      expect((await patch({ liveHints: false, dryRun: true })).status).toBe(400);
+      expect((await patch({ workspaceRoot: ws2, dryRun: 'yes' })).status).toBe(400);
+    } finally {
+      fs.rmSync(ws2, { recursive: true, force: true });
+    }
+  });
+  it('設定の新しい項目を検査する', async () => {
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    // 実物の置き場（/opt/homebrew/bin/tmux）は PC によって無いので、偽の道具を置いて指す。
+    const tmuxBin = exe('tmux');
+    expect(await (await patch({ terminalApp: OTHER_TERMINAL, tmuxPath: tmuxBin })).json()).toMatchObject({ terminalApp: OTHER_TERMINAL, tmuxPath: tmuxBin });
+    expect((await patch({ terminalApp: 'kitty' })).status).toBe(400);
+    expect((await patch({ tmuxPath: 3 })).status).toBe(400);
+    // エディタは足りない項目を今の値で埋め、任意のコマンドの欄は前後の空白を落とす。
+    expect((await (await patch({ editor: { id: 'custom', fileCmd: ' nvim +{line} {path} ', terminal: 'shell' } })).json()).editor).toEqual({ id: 'custom', path: null, fileCmd: 'nvim +{line} {path}', dirCmd: '', terminal: 'shell' });
+    expect((await (await patch({ editor: { id: 'cursor' } })).json()).editor).toEqual({ id: 'cursor', path: null, fileCmd: 'nvim +{line} {path}', dirCmd: '', terminal: 'shell' });
+    expect((await (await patch({ editor: { path: '' } })).json()).editor.path).toBeNull();
+  });
+  const post = (p: string, body?: unknown, method = 'POST') => app.request(p, { method, headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  it('要約エンジンの設定を検査する', async () => {
+    const patch = (body: unknown) => post('/api/settings', body, 'PATCH');
+    expect((await patch({ summaryHourlyCap: 5 })).status).toBe(200);
+    expect((await patch({ summaryHourlyCap: 0 })).status).toBe(400);
+    // 外した OpenAI 互換の項目は、知らない項目として断る。
+    for (const body of [{ }, { }, { }, { summaryApiKey: 'sk' }, { }]) expect([Object.keys(body)[0], (await patch(body)).status]).toEqual([Object.keys(body)[0], 400]);
+  });
+});
+
+describe('設定の変更でロックを消さない', () => {
+  it('ワークスペースを変えたときの配り直しにもロックが乗る', async () => {
+    // 配り直しの 1 か所だけ deviceId が抜けていると、サーバはロックを持っているのに
+    // 配信はロック無しの SessionDto を送り、UI の store がそれで置き換えて画面から消える。
+    const all = (await json(await get('/api/sessions'))).body as { id: string; projectId: string | null }[];
+    const orphan = all.find((s) => s.projectId === null)!;
+    // このセッションが新しいワークスペースの下に入るようにして、紐づけ直しの配信に載せる。
+    const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ws2-'));
+    try {
+      fs.mkdirSync(path.join(ws2, 'beta'));
+      db.prepare('update sessions set cwd = ? where id = ?').run(path.join(ws2, 'beta'), orphan.id);
+      upsertShared(db, 'devices', { id: 'mini', name: 'mini', platform: 'darwin', last_seen_at: Date.now(), deleted_at: null }, 'mini');
+      upsertShared(db, 'runs', {
+        id: 'remote-run', session_id: orphan.id, device_id: 'mini', kind: 'start', tmux_name: 'hangar-remote',
+        pid: null, launch_params: '{}', started_at: Date.now(), ended_at: null, end_reason: null, heartbeat_at: Date.now(), deleted_at: null,
+      }, 'mini');
+      sent.length = 0;
+      const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ workspaceRoot: ws2 }) });
+      expect(r.status).toBe(200);
+      const upserts = sent.filter((e): e is Extract<ServerEvent, { type: 'session.upsert' }> => e.type === 'session.upsert');
+      const mine = upserts.find((e) => e.session.id === orphan.id);
+      expect(mine).toBeDefined();
+      expect(mine!.session.lock).toMatchObject({ deviceId: 'mini', deviceName: 'mini', runId: 'remote-run' });
+      // 配った後に引き直しても同じ姿である（配信だけが違う、という形を作らない）。
+      expect((await json(await get(`/api/sessions/${orphan.id}`))).body.lock).toMatchObject({ deviceId: 'mini' });
+    } finally {
+      fs.rmSync(ws2, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('設定の往復', () => {
+  const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+  it('SettingsDto の項目はすべて UI から往復できる', async () => {
+    // 受け口に 1 つでも項目が足りないと、UI の操作は 400 で弾かれ、その機能が丸ごと死ぬ。
+    // 実物の確認では旧い設定の同期のスイッチがそれで、設定の同期を UI から入れられなかった。
+    const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ws3-'));
+    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cd-'));
+    try {
+      // 1 項目ずつ送って、応答と GET の両方に載ることを表示。UI は 1 項目だけの patch を送る。
+      const cases: [keyof SettingsDto, unknown][] = [
+        ['workspaceRoot', ws2],
+        ['claudeDir', dir2],
+        ['tmuxPath', exe('tmux')],
+        ['terminalApp', OTHER_TERMINAL],
+        ['editor', { id: 'zed', path: exe('zed'), fileCmd: '', dirCmd: '', terminal: 'none' }],
+        ['summaryEngine', 'claude'],
+        ['summaryClaudeModel', 'sonnet'],
+        ['summaryHourlyCap', 7],
+        ['configApproval', 'auto'],
+        ['configBundleSync', true],
+        ['configTargets', { codex: true }],
+        ['configKinds', { ...configKindsOf({}), skills: 'off', 'claude-hooks': 'auto', transcript: 'off' }],
+        ['askStatusAtEnd', false],
+        ['liveHints', false],
+        ['notifyUser', false],
+        ['unreadBadge', false],
+        ['unreadOs', false],
+        ['unreadPhone', false],
+        ['sidebarOtherPcs', false],
+        ['defaultModel', 'opus'],
+        ['autoDone', false],
+        ['autoDoneIdleDays', 14],
+        ['autoPark', false],
+        ['remoteControl', false],
+        ['codexEnabled', true],
+        ['codexInjection', 'none'],
+        ['codexIntercept', true],
+        ['opencodeEnabled', true],
+        ['opencodeInjection', 'claude'],
+        ['opencodeIntercept', true],
+        ['opencodePermissionPreset', false],
+        ['codexShareInstructions', false],
+        ['codexShareMcp', true],
+        ['opencodeShareInstructions', false],
+        ['opencodeShareMcp', true],
+        ['opencodeLocalContext', 131072],
+        ['opencodeIdleUnload', 0],
+        ['opencodeProviderPrep', { gpu: { start: 'gpu up', stop: '', stopAfter: 15 } }],
+        ['peerChatAcceptFromPeers', false],
+        ['phoneChatAccept', false],
+        ['eventTrigger', true],
+        ['nodePath', exe('node')],
+        ['claudePath', exe('claude')],
+        ['codexPath', exe('codex')],
+        ['opencodePath', exe('opencode')],
+        ['language', 'en'],
+        ['notifyPreference', { text: '済んだらスマホへ', unread: ['done', 'ask'], os: ['ask'], phone: ['done'], whileFocused: true }],
+      ];
+      for (const [key, value] of cases) {
+        const r = await patch({ [key]: value });
+        expect([key, r.status]).toEqual([key, 200]);
+        expect([key, (await r.json())[key]]).toEqual([key, value]);
+        expect([key, (await json(await get('/api/settings'))).body[key]]).toEqual([key, value]);
+      }
+      // notifyPreference は検査して断り、null で既定に戻す。
+      expect((await patch({ notifyPreference: { text: 1, unread: [], os: [], phone: [] } })).status).toBe(400);
+      expect((await patch({ notifyPreference: { text: '', unread: ['x'], os: [], phone: [] } })).status).toBe(400);
+      expect((await patch({ notifyPreference: 'x' })).status).toBe(400);
+      expect((await (await patch({ notifyPreference: null })).json()).notifyPreference).toBeNull();
+      // 選べない分は断る。
+      expect((await patch({ opencodeIdleUnload: 7 })).status).toBe(400);
+      // 受け口の項目が DTO の項目とそろっていることを、抜けが出たら落ちる形で見る。
+      const dto = (await json(await get('/api/settings'))).body as SettingsDto;
+      // 統括（orchestrator）は届いた項目を足して返す形なので、往復の表ではなく専用の試験で見る。
+      // フォルダの信頼の同意（trustedWorkspaceRoot）は読むだけで、POST /api/workspace/trust だけが書く。
+      // 許可の方針（permissionPolicy）は読むだけで、統括の set_permission_policy だけが書く。
+      expect([...cases.map(([k]) => k), 'orchestrator', 'voice', 'permissionPolicy', 'trustedWorkspaceRoot'].sort()).toEqual(Object.keys(dto).sort());
+    } finally {
+      fs.rmSync(ws2, { recursive: true, force: true });
+      fs.rmSync(dir2, { recursive: true, force: true });
+    }
+  });
+
+  it('接続先の準備は届いた接続先だけを替え、null と空のコマンドで外す。形の違うものは断る', async () => {
+    const prepOf = async (body: unknown) => (await (await patch({ opencodeProviderPrep: body })).json()).opencodeProviderPrep;
+    expect(await prepOf({ gpu: { start: ' gpu up ', stop: 'gpu down', stopAfter: 60 } })).toEqual({ gpu: { start: 'gpu up', stop: 'gpu down', stopAfter: 60 } });
+    // 止める時期が知らない値なら既定の 15 分。ほかの接続先は残す。
+    expect(await prepOf({ other: { start: 'x', stopAfter: 7 } })).toEqual({ gpu: { start: 'gpu up', stop: 'gpu down', stopAfter: 60 }, other: { start: 'x', stop: '', stopAfter: 15 } });
+    expect(await prepOf({ gpu: null, other: { start: '  ' } })).toEqual({});
+    expect((await patch({ opencodeProviderPrep: [] })).status).toBe(400);
+    expect((await patch({ opencodeProviderPrep: { 'a\nb': { start: 'x' } } })).status).toBe(400);
+  });
+
+  it('届いた設定の承認の仕方は、既定が毎回で、auto を保存でき、知らない値は断る', async () => {
+    expect((await json(await get('/api/settings'))).body.configApproval).toBe('each');
+    expect((await json(await get('/api/bootstrap'))).body.settings.configApproval).toBe('each');
+    expect((await (await patch({ configApproval: 'auto' })).json()).configApproval).toBe('auto');
+    expect((await json(await get('/api/settings'))).body.configApproval).toBe('auto');
+    for (const v of ['always', 'AUTO', '', null, true, ['auto']]) {
+      const r = await patch({ configApproval: v });
+      expect([v, r.status]).toEqual([v, 400]);
+      expect((await r.json()).error).toBe('「受信した設定の承認方法」の値の形式が正しくありません');
+    }
+    expect((await json(await get('/api/settings'))).body.configApproval).toBe('auto');
+  });
+  it('設定の同期の対象ごとの入切は、全体の置き換えで保存でき、知らない対象と真偽でない値は捨てる', async () => {
+    expect((await json(await get('/api/settings'))).body.configTargets).toEqual({});
+    expect((await (await patch({ configTargets: { codex: true, 'claude-keys2': false, nope: true, hangar: 'yes' } })).json()).configTargets).toEqual({ codex: true, 'claude-keys2': false });
+    expect((await json(await get('/api/settings'))).body.configTargets).toEqual({ codex: true, 'claude-keys2': false });
+    expect((await json(await get('/api/bootstrap'))).body.settings.configTargets).toEqual({ codex: true, 'claude-keys2': false });
+    // 受け口だけ残している（サーバの振る舞いは読まない。configKinds への移行が読む）。
+    expect(t.deps.settings().configTargets).toEqual({ codex: true, 'claude-keys2': false });
+    // 全体の置き換え：送らなかった対象は消える。
+    expect((await (await patch({ configTargets: { hangar: true } })).json()).configTargets).toEqual({ hangar: true });
+    expect((await patch({ configTargets: [] })).status).toBe(400);
+    expect((await patch({ configTargets: null })).status).toBe(400);
+    expect((await json(await get('/api/settings'))).body.configTargets).toEqual({ hangar: true });
+  });
+  it('設定の同期の種類ごとの状態は、21 鍵を埋めて返し、届いた鍵だけを替え、知らない鍵と取れない値は断る', async () => {
+    const all = (await json(await get('/api/settings'))).body.configKinds as Record<string, string>;
+    expect(Object.keys(all)).toHaveLength(21);
+    expect(all.skills).toBe('auto');
+    expect(all['claude-hooks']).toBe('confirm');
+    expect((await (await patch({ configKinds: { skills: 'off' } })).json()).configKinds.skills).toBe('off');
+    const next = (await (await patch({ configKinds: { 'claude-hooks': 'auto' } })).json()).configKinds;
+    expect([next.skills, next['claude-hooks']]).toEqual(['off', 'auto']);
+    expect((await json(await get('/api/bootstrap'))).body.settings.configKinds.skills).toBe('off');
+    // サーバが同期の振る舞いとして読む設定（boot/sync.ts の configKinds）にも入る。
+    expect(t.deps.settings().configKinds?.skills).toBe('off');
+    for (const v of [{ transcript: 'confirm' }, { nope: 'off' }, { skills: true }, null, [], 'auto']) {
+      const r = await patch({ configKinds: v });
+      expect([v, r.status]).toEqual([v, 400]);
+    }
+    expect((await json(await get('/api/settings'))).body.configKinds.skills).toBe('off');
+  });
+  it('設定の同期（作り直した実装）のスイッチは、既定が切で、保存でき、真偽値でない値は断る', async () => {
+    expect((await json(await get('/api/settings'))).body.configBundleSync).toBe(false);
+    expect((await (await patch({ configBundleSync: true })).json()).configBundleSync).toBe(true);
+    expect((await json(await get('/api/bootstrap'))).body.settings.configBundleSync).toBe(true);
+    for (const v of ['true', 1, null, []]) {
+      const r = await patch({ configBundleSync: v });
+      expect([v, r.status]).toEqual([v, 400]);
+    }
+  });
+  it('opencode コマンドの横取りは、既定が切で、保存でき、真偽値でない値は断る', async () => {
+    expect((await json(await get('/api/settings'))).body.opencodeIntercept).toBe(false);
+    expect((await (await patch({ opencodeIntercept: true })).json()).opencodeIntercept).toBe(true);
+    for (const v of ['true', 1, null]) {
+      const r = await patch({ opencodeIntercept: v });
+      expect([v, r.status]).toEqual([v, 400]);
+      expect((await r.json()).error).toBe('「opencode コマンドを hangar 経由で起動」の値の形式が正しくありません');
+    }
+    expect((await json(await get('/api/settings'))).body.opencodeIntercept).toBe(true);
+  });
+  it('opencode のコマンドの確認（許可のひな形）は、既定が入で、切を保存でき、真偽値でない値は断る', async () => {
+    expect((await json(await get('/api/settings'))).body.opencodePermissionPreset).toBe(true);
+    expect((await (await patch({ opencodePermissionPreset: false })).json()).opencodePermissionPreset).toBe(false);
+    for (const v of ['false', 0, null]) {
+      const r = await patch({ opencodePermissionPreset: v });
+      expect([v, r.status]).toEqual([v, 400]);
+      expect((await r.json()).error).toBe('「コマンド実行前に確認」の値の形式が正しくありません');
+    }
+    expect((await json(await get('/api/settings'))).body.opencodePermissionPreset).toBe(false);
+  });
+  it('机の音声の設定は届いた項目だけを替え、取れない値は 400', async () => {
+    expect((await json(await get('/api/settings'))).body.voice.mode).toBe('off');
+    const r = await patch({ voice: { mode: 'always' } });
+    expect(r.status).toBe(200);
+    expect((await r.json()).voice).toMatchObject({ mode: 'always', personaId: 'default' });
+    const p = await patch({ voice: { personas: [{ id: 'm', name: 'ミナ', reading: 'みな', tone: 'ていねい', voice: 'kokoro:jf_alpha', voiceLabel: '', speed: 1.1 }], personaId: 'm' } });
+    expect((await p.json()).voice).toMatchObject({ mode: 'always', personaId: 'm' });
+    for (const bad of [{ mode: 'loud' }, {}, { personas: [] }, { personas: [{ id: '', name: 'x' }] }, { extra: 1 }, 'x']) expect((await patch({ voice: bad })).status, JSON.stringify(bad)).toBe(400);
+  });
+  it('統括の設定は、既定が切で、入り切りとモデルと effort だけを保存でき、会話の id と形の違う値は断る', async () => {
+    expect((await json(await get('/api/settings'))).body.orchestrator).toEqual({ enabled: false, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] });
+    t.deps.updateSettings({ orchestrator: { enabled: false, sessionId: 'keep-me', agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] } });
+    sent.length = 0;
+    const r = await patch({ orchestrator: { enabled: true, model: 'opus' } });
+    expect(r.status).toBe(200);
+    // 届いた項目だけを替え、見張りが書く sessionId は残す。
+    expect((await r.json()).orchestrator).toEqual({ enabled: true, sessionId: 'keep-me', agent: 'claude-code', model: 'opus', effort: 'medium', account: null, history: [] });
+    expect(sent.find((e) => e.type === 'settings.changed')).toMatchObject({ keys: ['orchestrator'], settings: { orchestrator: { enabled: true } } });
+    for (const v of [{ sessionId: 'x' }, { enabled: 'true' }, { model: '--evil' }, { effort: 'turbo' }, { extra: 1 }, {}, null, 'on']) {
+      const bad = await patch({ orchestrator: v });
+      expect([JSON.stringify(v), bad.status]).toEqual([JSON.stringify(v), 400]);
+      expect((await bad.json()).error).toBe('「統括」の値の形式が正しくありません');
+    }
+    expect((await json(await get('/api/settings'))).body.orchestrator).toEqual({ enabled: true, sessionId: 'keep-me', agent: 'claude-code', model: 'opus', effort: 'medium', account: null, history: [] });
+  });
+  it('統括のアカウントは、今あるアカウントの id か null だけを受け、知らない id は 400', async () => {
+    const a = t.deps.accounts.store.add({ name: '別' });
+    const ok = await patch({ orchestrator: { account: a.id } });
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).orchestrator).toMatchObject({ account: a.id });
+    const bad = await patch({ orchestrator: { account: 'no-such-account' } });
+    expect(bad.status).toBe(400);
+    expect((await json(await get('/api/settings'))).body.orchestrator.account).toBe(a.id);
+    expect((await patch({ orchestrator: { account: null } })).status).toBe(200);
+    expect((await json(await get('/api/settings'))).body.orchestrator.account).toBeNull();
+    // 最初のアカウントの id も受ける。
+    expect((await patch({ orchestrator: { account: 'primary' } })).status).toBe(200);
+  });
+  it('統括のアプリは、Claude Code と設定で有効な Codex と opencode だけを受け、無効なアプリは 400。アカウントはそのアプリの組で引く', async () => {
+    const orch = async () => (await json(await get('/api/settings'))).body.orchestrator;
+    // Codex は設定で有効にするまで選べない。
+    expect((await patch({ orchestrator: { agent: 'codex' } })).status).toBe(400);
+    expect((await orch()).agent).toBe('claude-code');
+    expect((await patch({ codexEnabled: true })).status).toBe(200);
+    // アプリを替える PATCH は、モデルと effort と account を一緒に送る。空のモデルはそのアプリの既定。
+    const r = await patch({ orchestrator: { agent: 'codex', model: '', effort: '', account: null } });
+    expect(r.status).toBe(200);
+    expect(await orch()).toMatchObject({ agent: 'codex', model: '', effort: '', account: null });
+    // Codex の effort は Claude の段階に無い語（minimal）も受ける。Claude Code に戻したら受けない。
+    expect((await patch({ orchestrator: { effort: 'minimal' } })).status).toBe(200);
+    // Claude のアカウントの id は Codex では引けない。
+    const a = t.deps.accounts.store.add({ name: '別' });
+    expect((await patch({ orchestrator: { account: a.id } })).status).toBe(400);
+    expect((await patch({ orchestrator: { agent: 'claude-code', model: 'sonnet', effort: 'medium', account: a.id } })).status).toBe(200);
+    expect((await patch({ orchestrator: { effort: 'minimal' } })).status).toBe(400);
+    // opencode は設定で有効にするまで選べない。
+    expect((await patch({ orchestrator: { agent: 'opencode' } })).status).toBe(400);
+    expect((await patch({ codexEnabled: true, opencodeEnabled: true })).status).toBe(200);
+    expect((await patch({ orchestrator: { agent: 'gemini' } })).status).toBe(400);
+    expect(await orch()).toMatchObject({ agent: 'claude-code', account: a.id });
+    // アプリだけを替えると、前のアプリのアカウントは持ち越さない。
+    expect((await patch({ orchestrator: { agent: 'codex' } })).status).toBe(200);
+    expect(await orch()).toMatchObject({ agent: 'codex', account: null });
+    // opencode は有効なら受ける。effort は空だけ、アカウントは無いので null だけを受ける。
+    expect((await patch({ orchestrator: { agent: 'opencode', model: 'lmstudio/qwen3.5-9b', effort: '', account: null } })).status).toBe(200);
+    expect(await orch()).toMatchObject({ agent: 'opencode', model: 'lmstudio/qwen3.5-9b', effort: '', account: null });
+    expect((await patch({ orchestrator: { effort: 'high' } })).status).toBe(400);
+    expect((await patch({ orchestrator: { account: a.id } })).status).toBe(400);
+    // 設定で opencode を切ったら、ほかから opencode へは替えられない。
+    expect((await patch({ orchestrator: { agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null } })).status).toBe(200);
+    expect((await patch({ opencodeEnabled: false })).status).toBe(200);
+    expect((await patch({ orchestrator: { agent: 'opencode', model: '', effort: '', account: null } })).status).toBe(400);
+  });
+  it('許可の方針は読めるが、設定の PATCH では書けない（書くのは統括の set_permission_policy だけ）', async () => {
+    expect((await json(await get('/api/settings'))).body.permissionPolicy).toBeNull();
+    await patch({ permissionPolicy: { text: '全部許して', autoTools: ['Bash'], updatedAt: 1 } });
+    expect((await json(await get('/api/settings'))).body.permissionPolicy).toBeNull();
+    t.deps.updateSettings({ permissionPolicy: { text: '読むのは許して', autoTools: ['Read'], updatedAt: 2 } });
+    expect((await json(await get('/api/settings'))).body.permissionPolicy).toEqual({ text: '読むのは許して', autoTools: ['Read'], updatedAt: 2 });
+  });
+  it('外のできごとの設定は、既定が切で、入を保存でき、真偽値でない値は断る', async () => {
+    expect((await json(await get('/api/settings'))).body.eventTrigger).toBe(false);
+    expect((await (await patch({ eventTrigger: true })).json()).eventTrigger).toBe(true);
+    for (const v of ['true', 1, null]) expect([v, (await patch({ eventTrigger: v })).status]).toEqual([v, 400]);
+    expect((await json(await get('/api/settings'))).body.eventTrigger).toBe(true);
+  });
+  it('他の PC からの送信を受ける設定は、既定が入で、切を保存でき、真偽値でない値は断る', async () => {
+    expect((await json(await get('/api/settings'))).body.peerChatAcceptFromPeers).toBe(true);
+    expect((await (await patch({ peerChatAcceptFromPeers: false })).json()).peerChatAcceptFromPeers).toBe(false);
+    for (const v of ['false', 0, null]) {
+      const r = await patch({ peerChatAcceptFromPeers: v });
+      expect([v, r.status]).toEqual([v, 400]);
+      expect((await r.json()).error).toBe('「他の PC からの送信を受ける」の値の形式が正しくありません');
+    }
+    expect((await json(await get('/api/settings'))).body.peerChatAcceptFromPeers).toBe(false);
+  });
+  it('スマホからの送信を受ける設定は、既定が入で、他の PC の設定とは別に切を保存でき、真偽値でない値は断る', async () => {
+    expect((await json(await get('/api/settings'))).body.phoneChatAccept).toBe(true);
+    const off = await (await patch({ phoneChatAccept: false })).json();
+    expect([off.phoneChatAccept, off.peerChatAcceptFromPeers]).toEqual([false, true]);
+    for (const v of ['false', 0, null]) {
+      const r = await patch({ phoneChatAccept: v });
+      expect([v, r.status]).toEqual([v, 400]);
+      expect((await r.json()).error).toBe('「スマホからの送信を受ける」の値の形式が正しくありません');
+    }
+    expect((await json(await get('/api/settings'))).body.phoneChatAccept).toBe(false);
+  });
+  it('Claude Code の指示と MCP を渡す 4 つのスイッチは、既定が指示入・MCP 切で、保存でき、真偽値でない値は断る', async () => {
+    const body = (await json(await get('/api/settings'))).body;
+    expect([body.codexShareInstructions, body.codexShareMcp, body.opencodeShareInstructions, body.opencodeShareMcp]).toEqual([true, false, true, false]);
+    expect((await (await patch({ codexShareInstructions: false, opencodeShareMcp: true })).json())).toMatchObject({ codexShareInstructions: false, opencodeShareMcp: true });
+    const r = await patch({ codexShareMcp: 'yes' });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toBe('「Claude Code の MCP を渡す」の値の形式が正しくありません');
+    expect((await json(await get('/api/settings'))).body).toMatchObject({ codexShareInstructions: false, codexShareMcp: false, opencodeShareMcp: true });
+  });
+  it('opencode を有効にするスイッチ（ベータ）は、既定が切で、保存でき、真偽値でない値は断る', async () => {
+    expect((await json(await get('/api/settings'))).body.opencodeEnabled).toBe(false);
+    expect((await (await patch({ opencodeEnabled: true })).json()).opencodeEnabled).toBe(true);
+    expect((await json(await get('/api/bootstrap'))).body.settings.opencodeEnabled).toBe(true);
+    for (const v of ['true', 1, null, []]) {
+      const r = await patch({ opencodeEnabled: v });
+      expect([v, r.status]).toEqual([v, 400]);
+      expect((await r.json()).error).toBe('「opencode を有効にする」の値の形式が正しくありません');
+    }
+    expect((await json(await get('/api/settings'))).body.opencodeEnabled).toBe(true);
+  });
+  it('Codex の 3 項目（ベータ）は、常に応答に出し（既定は切・最小限・切）、保存でき、形の違う値は断る', async () => {
+    const body = (await json(await get('/api/settings'))).body;
+    expect([body.codexEnabled, body.codexInjection, body.codexIntercept]).toEqual([false, 'minimal', false]);
+    const r = await (await patch({ codexEnabled: true, codexInjection: 'none', codexIntercept: true })).json();
+    expect([r.codexEnabled, r.codexInjection, r.codexIntercept]).toEqual([true, 'none', true]);
+    for (const [k, v] of [['codexEnabled', 'true'], ['codexIntercept', 1], ['codexInjection', 'full']] as const) {
+      const bad = await patch({ [k]: v });
+      expect([k, bad.status]).toEqual([k, 400]);
+    }
+  });
+  it('opencode のシステムプロンプトへの追記は、既定が最小限で、3 つの値だけを保存でき、ほかは断る', async () => {
+    expect((await json(await get('/api/settings'))).body.opencodeInjection).toBe('minimal');
+    for (const v of ['claude', 'none', 'minimal'] as const) {
+      expect((await (await patch({ opencodeInjection: v })).json()).opencodeInjection).toBe(v);
+      expect((await json(await get('/api/settings'))).body.opencodeInjection).toBe(v);
+    }
+    for (const v of ['full', '', null, true, 1]) {
+      const r = await patch({ opencodeInjection: v });
+      expect([v, r.status]).toEqual([v, 400]);
+      expect((await r.json()).error).toBe('「システムプロンプトへの追記」の値の形式が正しくありません');
+    }
+    expect((await json(await get('/api/settings'))).body.opencodeInjection).toBe('minimal');
+  });
+  it('起動する claude に足す段のスイッチは、既定が入りで、切りを保存でき、真偽値でない値は断る', async () => {
+    for (const key of ['askStatusAtEnd', 'liveHints'] as const) {
+      expect((await json(await get('/api/settings'))).body[key]).toBe(true);
+      expect((await json(await get('/api/bootstrap'))).body.settings[key]).toBe(true);
+      expect((await (await patch({ [key]: false })).json())[key]).toBe(false);
+      expect((await json(await get('/api/settings'))).body[key]).toBe(false);
+      for (const v of ['false', 0, null, []]) expect([key, v, (await patch({ [key]: v })).status]).toEqual([key, v, 400]);
+      expect((await json(await get('/api/settings'))).body[key]).toBe(false);
+    }
+  });
+  it('要約エンジンは既定が「使わない」で、Claude に選び直せ、外した openai は断る', async () => {
+    expect((await json(await get('/api/settings'))).body).toMatchObject({ summaryEngine: 'off', summaryClaudeModel: 'haiku', defaultModel: null });
+    expect((await (await patch({ summaryEngine: 'claude' })).json()).summaryEngine).toBe('claude');
+    expect((await patch({ summaryEngine: 'openai' })).status).toBe(400);
+    // 既定のモデルは空で Claude Code の既定（null）に戻る。
+    expect((await (await patch({ defaultModel: 'sonnet' })).json()).defaultModel).toBe('sonnet');
+    expect((await (await patch({ defaultModel: '' })).json()).defaultModel).toBe(null);
+    expect((await (await patch({ summaryClaudeModel: ' sonnet ' })).json()).summaryClaudeModel).toBe('sonnet');
+  });
+  it('hangar が自分で行うこと（自動の Done と自動の停止）のスイッチは、既定が入りで、切りを保存でき、真偽値でない値は断る', async () => {
+    for (const key of ['autoDone', 'autoPark'] as const) {
+      expect((await json(await get('/api/settings'))).body[key]).toBe(true);
+      expect((await json(await get('/api/bootstrap'))).body.settings[key]).toBe(true);
+      expect((await (await patch({ [key]: false })).json())[key]).toBe(false);
+      expect((await json(await get('/api/settings'))).body[key]).toBe(false);
+      for (const v of ['false', 0, null, []]) expect([key, v, (await patch({ [key]: v })).status]).toEqual([key, v, 400]);
+      expect((await json(await get('/api/settings'))).body[key]).toBe(false);
+    }
+    expect((await (await patch({ autoDone: 'no' })).json()).error).toBe('「停止したセッションを自動で Done にする」の値の形式が正しくありません');
+    expect((await (await patch({ autoPark: 'no' })).json()).error).toBe('「Done と Archived にしたセッションを停止する」の値の形式が正しくありません');
+  });
+  it('PATCH で remoteControl を false にできる（既定は true）。真偽以外は 400', async () => {
+    expect((await json(await get('/api/settings'))).body.remoteControl).toBe(true);
+    expect((await json(await get('/api/bootstrap'))).body.settings.remoteControl).toBe(true);
+    expect((await (await patch({ remoteControl: false })).json()).remoteControl).toBe(false);
+    expect((await json(await get('/api/settings'))).body.remoteControl).toBe(false);
+    for (const v of ['false', 0, null, []]) expect([v, (await patch({ remoteControl: v })).status]).toEqual([v, 400]);
+    expect((await json(await get('/api/settings'))).body.remoteControl).toBe(false);
+    expect((await (await patch({ remoteControl: true })).json()).remoteControl).toBe(true);
+  });
+  it('長く動いていない会話を Done にする日数は、既定が 7 日で、3・7・14・30・0（しない）だけを受ける', async () => {
+    expect((await json(await get('/api/settings'))).body.autoDoneIdleDays).toBe(7);
+    expect((await json(await get('/api/bootstrap'))).body.settings.autoDoneIdleDays).toBe(7);
+    for (const v of [3, 14, 30, 0]) expect((await (await patch({ autoDoneIdleDays: v })).json()).autoDoneIdleDays).toBe(v);
+    for (const v of [1, 5, -7, '7', null, 7.5]) expect([v, (await patch({ autoDoneIdleDays: v })).status]).toEqual([v, 400]);
+    expect((await json(await get('/api/settings'))).body.autoDoneIdleDays).toBe(0);
+    expect((await (await patch({ autoDoneIdleDays: 5 })).json()).error).toBe('「長期間アクティビティの無いセッションも Done にする」の値の形式が正しくありません');
+  });
+  it('自動の停止を切り替えたら、動いている Done と Archived の行を配り直す（実行中に数えるかが変わる）', async () => {
+    t.dispose();
+    t = await testDeps({ live: () => [{ sessionId: SESSION_ALPHA, status: 'idle', name: null, nameSource: null, cwd: '/w', pid: 1 }] });
+    ({ db } = t); sent = t.events;
+    app = createApp(t.deps);
+    const alpha = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+    setSessionState(db, 'd', alpha, { status: 'done', setBy: 'user' });
+    await new Promise((r) => setTimeout(r, 0));
+    sent.length = 0;
+    expect((await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ autoPark: false }) })).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent.some((e) => e.type === 'session.upsert' && e.session.id === alpha)).toBe(true);
+    // 自動の Done だけを替えたときは配り直さない。
+    sent.length = 0;
+    await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ autoDone: false }) });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent.some((e) => e.type === 'session.upsert')).toBe(false);
+  });
+  it('言語の既定は日本語で、英語を保存して読める', async () => {
+    expect((await json(await get('/api/settings'))).body.language).toBe('ja');
+    expect((await json(await get('/api/bootstrap'))).body.settings.language).toBe('ja');
+    const r = await patch({ language: 'en' });
+    expect(r.status).toBe(200);
+    expect((await r.json()).language).toBe('en');
+    expect((await json(await get('/api/settings'))).body.language).toBe('en');
+    expect((await json(await get('/api/bootstrap'))).body.settings.language).toBe('en');
+    expect((await (await patch({ language: 'ja' })).json()).language).toBe('ja');
+  });
+  it('知らない言語は断り、保存した値を変えない', async () => {
+    await patch({ language: 'en' });
+    for (const v of ['fr', 'EN', '', null, 1, ['en']]) {
+      const r = await patch({ language: v });
+      expect([v, r.status]).toEqual([v, 400]);
+      // 言語を英語にしたあとなので、断る文も英語で返る。
+      expect((await r.json()).error).toBe('"Language" must be ja or en');
+    }
+    expect((await json(await get('/api/settings'))).body.language).toBe('en');
+  });
+  it('日本語のままなら、知らない言語を日本語で断る', async () => {
+    const r = await patch({ language: 'fr' });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toBe('「言語」は ja か en から選択してください');
+  });
+  it('言語を英語にすると、経路のエラーが英語になり、日本語に戻すと日本語になる', async () => {
+    const missing = async () => ((await (await get('/api/projects/no-such-project')).json()) as { error: string }).error;
+    expect(await missing()).toBe('プロジェクトが見つかりません');
+    await patch({ language: 'en' });
+    expect(await missing()).toBe('Project not found');
+    expect((await (await patch({ tmuxPath: 'relative/tmux' })).json()).error).toBe('"tmux path" must be a path starting with / or ~, or a command name such as tmux');
+    expect((await (await patch({})).json()).error).toBe('The request contains no settings that can be updated');
+    await patch({ language: 'ja' });
+    expect(await missing()).toBe('プロジェクトが見つかりません');
+  });
+
+  it('旧い設定の同期のスイッチ（syncClaudeConfig）はもう受けない。単独の要求は 400 で、混ざっても保存しない', async () => {
+    // 旧実装は段 4 の PR 18 で消した。旧い画面や手書きの要求が送っても、設定に残さない。
+    const r = await patch({ syncClaudeConfig: true });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toBe('更新できる設定が含まれていません');
+    const mixed = await patch({ configBundleSync: true, syncClaudeConfig: true });
+    expect(mixed.status).toBe(200);
+    expect(await mixed.json()).not.toHaveProperty('syncClaudeConfig');
+    expect((await json(await get('/api/bootstrap'))).body.settings).not.toHaveProperty('syncClaudeConfig');
+  });
+});
+
+// 経路は行を書くだけで、画面へのイベントは配る層（events/publisher.ts）が組む。
+// 書いた行のイベントが、1 回だけ、最新の中身で届くことを経路ごとに押さえる。
+describe('書いた行のイベントは配る層から届く', () => {
+  const send = (p: string, body?: unknown, method = 'POST') => app.request(p, { method, headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const of = <T extends ServerEvent['type']>(type: T) => sent.filter((e): e is Extract<ServerEvent, { type: T }> => e.type === type);
+
+  describe('プロジェクト', () => {
+    it('ワークスペースを変えると、新しく登録したプロジェクトと、そこへ入ったセッションが 1 回ずつ届く', async () => {
+      const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app3-'));
+      try {
+        fs.mkdirSync(path.join(ws2, 'other'));
+        const other = db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_OTHER) as { id: string };
+        db.prepare('update sessions set cwd = ? where id = ?').run(path.join(ws2, 'other'), other.id);
+        await send('/api/settings', { workspaceRoot: ws2 }, 'PATCH');
+        const created = (db.prepare('select id from projects where name = ?').get('other') as { id: string }).id;
+        // 中身の変わっていない既存のプロジェクトは配らない。
+        expect(of('project.upsert').map((e) => e.project.id)).toEqual([created]);
+        // 入ったセッションの最終の活動が、プロジェクトの中身に載っている（紐づけた後に組んでいる）。
+        expect(of('project.upsert')[0]!.project.lastActivityAt).not.toBeNull();
+        expect(of('session.upsert')).toEqual([{ type: 'session.upsert', session: expect.objectContaining({ id: other.id, projectId: created }) }]);
+      } finally {
+        fs.rmSync(ws2, { recursive: true, force: true });
+      }
+    });
+  });
+});
+
+describe('エディタの経路', () => {
+  it('見つけたエディタの一覧と、テストの答えを返す', async () => {
+    expect((await json(await get('/api/editors'))).body).toEqual({ candidates: [], current: { id: 'vscode', state: 'found', path: '/usr/local/bin/code' } });
+    const r = await app.request('/api/editor/test', { method: 'POST', headers: H });
+    expect(await r.json()).toEqual({ ok: true, via: 'cli', file: '/h/hangar-editor-test.md', message: null });
+    expect(t.deps.external.testEditor).toHaveBeenCalledTimes(1);
+  });
+});

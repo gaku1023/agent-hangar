@@ -88,7 +88,7 @@ describe('whichMux', () => {
 });
 
 describe('resolveToolPaths', () => {
-  const base: Settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false };
+  const base: Settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryHourlyCap: 20 };
   it('null の項目だけを埋める', () => {
     const r = resolveToolPaths({ ...base, tmuxPath: null }, (c) => (c === 'tmux' || c === 'psmux' ? '/opt/homebrew/bin/tmux' : '/found/' + c));
     expect(r.tmuxPath).toBe('/opt/homebrew/bin/tmux');

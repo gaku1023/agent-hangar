@@ -210,8 +210,6 @@ export const actionTable = {
   'summary.regenerate': (i) => call((api) => api.regenerateSummary(i.sessionId)),
 
   // TODO の操作は取り消し（⌘Z）のために State を変えるので、表に置かず Mediator（mediator/todos.ts）に置く。
-  // 保存した結果はサーバの memo.update より先に入れる。書いた本人の画面が一瞬古い本文に戻らないようにする。
-  'memo.save': (i) => call((api) => api.saveMemo(i.projectId, i.markdown), { apply: (store, m) => ({ ...store, memos: { ...store.memos, [m.projectId]: m } }) }),
   // 指示とメモリ。ファイルは外で書き換わるので、表示するたびに読み直す。
   'instructions.load': (i) => call((api) => api.instructions(i.projectId), { apply: (store, d) => ({ ...store, instructions: { ...store.instructions, [d.projectId]: d } }) }),
   'instructions.openEditor': (i) => editorOpen(i, (api) => api.openInstruction(i.projectId, i.kind, i.once)),

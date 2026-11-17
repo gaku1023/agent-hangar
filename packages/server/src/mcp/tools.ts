@@ -6,7 +6,7 @@ import type { Db } from '../db/open.ts';
 import { accountOfSession, getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
 import { addIntent, INTENT_MAX, noteIntent } from '../live/intents.ts';
-import { addUnread, noteUnread, NOTIFY_TARGETS, type NotifyTarget } from '../live/unread.ts';
+import { addUnread, noteNotifyCall, noteUnread, NOTIFY_TARGETS, type NotifyTarget } from '../live/unread.ts';
 import { noteNotifyKind } from '../live/notifyKind.ts';
 import { sessionTurnRunning } from '../live/unreadHold.ts';
 import { touchRow } from '../db/notify.ts';
@@ -64,7 +64,7 @@ export type ToolDeps = {
   /** 道具の説明と結果の文の言語。渡さなければ日本語で出す。 */
   language?: GetLanguage;
   /** notify_user の出し先の設定（notifyPreference と、古いスイッチの unreadBadge、unreadOs、unreadPhone）。無ければ既定（全部入り）として読む。 */
-  settings?: () => { notifyPreference?: NotifyPreference | null; unreadBadge?: boolean; unreadOs?: boolean; unreadPhone?: boolean; orchestrator?: unknown; permissionPolicy?: unknown };
+  settings?: () => { notifyPreference?: NotifyPreference | null; unreadBadge?: boolean; unreadOs?: boolean; unreadPhone?: boolean; orchestrator?: unknown; eventTrigger?: boolean; permissionPolicy?: unknown };
   /** 設定の保存（PATCH /api/settings と同じ道）。保存して、変えた欄を全部の画面へ配る。無ければ set_notify_preference は知らない道具として断る。 */
   saveNotifyPreference?: (p: NotifyPreference) => void;
   /** 統括の許可の道具の芯（orchestrator/asks.ts）。無ければ createMcpApp が askLocal から作る。統括の URL 以外からは使わない。 */
@@ -110,8 +110,6 @@ export class ToolError extends MessageError {
 /**
  * 道具の名前。
  * セッションのノートを書く set_session_memo は 0.4.0 で道具ごと外した（要約の set_session_summary と Paused の戻る日が役を担う）。
- * update_project の append_memo のように notice で答える形にしないのは、あちらは同じ呼び出しのほかの項目を書くためにエラーにしなかったのに対し、
- * こちらは道具が 1 つの仕事しか持たず、外した後の一覧に無い道具を呼ばれても、MCP の層が書かずに isError（道具が無い）で返すからである。
  * モデルにこの道具を使うよう指示したことも無いので、古い指示を覚えた Claude が呼び続けることもない。
  */
 export const TOOL_NAMES = [
@@ -334,8 +332,7 @@ export function getProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
 }
 
 /**
- * status、add_todos、toggle_todos、propose_done を受けて書く。プロジェクトのノートは書かない（append_memo はやめた）。
- * 古い指示を覚えた Claude が append_memo を渡したときは、黙って捨てずに、やめたことと書く場所を notice で返す。エラーにはしないので、いっしょに渡したほかの項目は書く。
+ * status、add_todos、toggle_todos、propose_done を受けて書く。
  * 画面へのイベントは、書いた行から配る層（events/publisher.ts）が配る。道具は hub を持たない。
  */
 export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
@@ -386,7 +383,6 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
     project: { id: p.id, name: p.name, status: p.status, open_todo_count: p.openTodoCount },
     todos: todoBriefs(deps, id),
     todo_results: results,
-    ...(args.append_memo !== undefined ? { notice: render((deps.language ?? defaultLanguage)(), msg('mcp.updateProject.memoRetired')) } : {}),
   };
 }
 
@@ -754,6 +750,8 @@ export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
   if (isQuietStatus(session.state?.status) && !session.woke) sent = [];
   // 出し先が空でも、呼んだことは統括の出来事の側へ知らせる（orchestrator/feed.ts の turn.done）。
   noteNotifyKind(id, kind, o.immediate === true);
+  // 出し先が空になっても、呼ばれたことはターンの終わりの受け皿に伝える（live/notifyFallback.ts）。呼んだターンに代わりの未読を足さないためである。
+  noteNotifyCall(id);
   let unread = session.unread?.count ?? 0;
   if (sent.length > 0) {
     // 未読の数も、done と ask で作業中なら預かりが積む（holdUnread のとき）。返答を書き終える前に数が増えないようにするためである。
@@ -840,6 +838,7 @@ export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args:
   if (args.wake_on !== undefined) {
     if (status !== 'paused') throw new ToolError(msg('mcp.sessionStatus.wakeOnOnlyPaused'));
     if (args.confirmed === true) throw new ToolError(msg('mcp.sessionStatus.wakeOnNotConfirmed'));
+    if (deps.settings && !deps.settings().eventTrigger) throw new ToolError(msg('schedules.event.error.off'));
     wakeOn = parseWakeOn(args.wake_on);
   }
   try {

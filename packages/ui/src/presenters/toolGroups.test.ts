@@ -39,20 +39,21 @@ describe('本文の行のまとめ（T1）', () => {
 
 describe('まとめの行の見出し', () => {
   const head = (items: TranscriptItem[], t = ja) => toolGroupHead(items as Extract<TranscriptItem, { kind: 'tool' }>[], t);
-  it('同じツールなら「Bash ×5」、混ざれば「ツール ×N」。1 回だけなら名前だけ', () => {
-    expect(head([bash(1), bash(2), bash(3)]).label).toBe('Bash ×3');
-    expect(head([bash(1), toolItem(2, 'Read', { file_path: '/w/app/a.ts' }, null)]).label).toBe('ツール ×2');
-    expect(head([bash(1), toolItem(2, 'Read', { file_path: '/w/app/a.ts' }, null)], en).label).toBe('Tools ×2');
-    expect(head([bash(1)]).label).toBe('Bash');
-  });
-  it('説明は最後の呼び出しのもの（Bash は description、無ければコマンド。ほかは要約の文）。時刻も最後の呼び出し', () => {
-    expect(head([bash(1, '一覧を出す'), bash(2, '型を調べる')])).toMatchObject({ desc: '型を調べる', when: '10:02' });
-    expect(head([bash(1, '一覧を出す'), bash(2)]).desc).toBe('ls 2');
-    expect(head([bash(1), toolItem(2, 'Read', { file_path: '/w/app/src/a.ts' }, null)]).desc).toBe('src/a.ts');
+  it('札は呼んだ数だけ（ツールの名前、説明、時刻は出さない）', () => {
+    expect(head([bash(1), bash(2), bash(3)]).label).toBe('ツール 3 件');
+    expect(head([bash(1), toolItem(2, 'Read', { file_path: '/w/app/a.ts' }, null)]).label).toBe('ツール 2 件');
+    expect(head([bash(1), bash(2)], en).label).toBe('2 tool calls');
+    expect(head([bash(1)])).toEqual({ label: 'ツール 1 件', failed: 0, failedLabel: null });
   });
   it('失敗した呼び出しの数を持ち、その語を添える', () => {
     expect(head([bash(1), bash(2, undefined, true), bash(3, undefined, true)])).toMatchObject({ failed: 2, failedLabel: '失敗 2' });
-    expect(head([bash(1)])).toMatchObject({ failed: 0, failedLabel: null });
     expect(head([bash(1, undefined, true)], en).failedLabel).toBe('1 failed');
+  });
+});
+
+describe('質問は会話の一部', () => {
+  it('AskUserQuestion の呼び出しはまとめず、前後のツールの間で 1 つの行にする', () => {
+    const ask = toolItem(3, 'AskUserQuestion', { questions: [] }, null);
+    expect(groupRows([bash(1), bash(2), ask, bash(4)], true).map((r) => [r.tools, tools(r)])).toEqual([[true, [1, 2]], [false, [3]], [true, [4]]]);
   });
 });

@@ -28,14 +28,14 @@ describe('設定の書き替えを部品へ行き渡らせる', () => {
   }, p);
 
   it('書き替えた値を返し、置き場と settings.json の両方に残す', () => {
-    const s = patch({ lmStudioModel: 'm1' });
-    expect(s.lmStudioModel).toBe('m1');
+    const s = patch({ summaryClaudeModel: 'm1' });
+    expect(s.summaryClaudeModel).toBe('m1');
     expect(box.current).toBe(s);
-    expect(loadSettings(home).lmStudioModel).toBe('m1');
+    expect(loadSettings(home).summaryClaudeModel).toBe('m1');
   });
 
   it('orchestrator の欄が来たときだけ、統括の見張りに知らせる', () => {
-    patch({ lmStudioModel: 'm1' });
+    patch({ summaryClaudeModel: 'm1' });
     expect(calls).not.toContain('orchestrator');
     patch({ orchestrator: { enabled: true, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] } });
     expect(calls.filter((c) => c === 'orchestrator')).toHaveLength(1);
@@ -43,7 +43,7 @@ describe('設定の書き替えを部品へ行き渡らせる', () => {
   });
 
   it('tmux の口は毎回渡し直し、包みの本体は tmuxPath の欄が来たときだけ書き直す', () => {
-    patch({ lmStudioModel: 'm1' });
+    patch({ summaryClaudeModel: 'm1' });
     expect(calls.filter((c) => c.startsWith('tmux ')).length).toBe(1);
     expect(calls).not.toContain('shell');
     patch({ tmuxPath: '/opt/tmux' });
@@ -61,7 +61,7 @@ describe('設定の書き替えを部品へ行き渡らせる', () => {
   });
 
   it('claudePath の欄が来たら claude の読み直しを、上限の欄が来たら要約器の作り直しを頼む', () => {
-    patch({ lmStudioModel: 'm1' });
+    patch({ summaryClaudeModel: 'm1' });
     expect(calls.some((c) => c.startsWith('claude ') || c === 'cap')).toBe(false);
     patch({ claudePath: '/opt/claude' });
     expect(calls).toContain('claude /opt/claude');
@@ -77,7 +77,7 @@ describe('設定の書き替えを部品へ行き渡らせる', () => {
   });
 
   it('phoneChatAccept の欄が来たら、スマホの一覧（caps.chat の input）を組み直させる', () => {
-    patch({ lmStudioModel: 'm1' });
+    patch({ summaryClaudeModel: 'm1' });
     expect(calls).not.toContain('opencode');
     patch({ phoneChatAccept: false });
     expect(calls.filter((c) => c === 'opencode')).toHaveLength(1);
@@ -85,7 +85,7 @@ describe('設定の書き替えを部品へ行き渡らせる', () => {
   });
 
   it('opencodeEnabled の欄が来たときだけ、opencode の入り切りの口を呼ぶ（スマホの一覧を組み直す）', () => {
-    patch({ lmStudioModel: 'm1' });
+    patch({ summaryClaudeModel: 'm1' });
     patch({ opencodeIntercept: true });
     expect(calls).not.toContain('opencode');
     patch({ opencodeEnabled: true });

@@ -86,7 +86,7 @@ describe('EventHub の受信', () => {
 });
 
 describe('EventHub の送り直しの間引き', () => {
-  const project = (id: string, over: Record<string, unknown> = {}) => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0, ...over }) as never;
+  const project = (id: string, over: Record<string, unknown> = {}) => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 0, ...over }) as never;
   const types = (got: string[]) => got.map((g) => { const e = JSON.parse(g) as { type: string; project?: { id: string; runningCount: number } }; return e.project ? `${e.type}:${e.project.id}:${e.project.runningCount}` : e.type; });
 
   it('前に送ったものと同じ project.upsert は送らない。中身が変わったものと別のプロジェクトは送る', async () => {

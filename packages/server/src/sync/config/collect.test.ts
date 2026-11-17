@@ -36,6 +36,13 @@ describe('手元の項目を集める', () => {
     expect(c.unsent).toEqual([]);
   });
 
+  it('skills/synced（デスクトップアプリが写す置き場）は集めない', () => {
+    write('skills/a/SKILL.md', 'x');
+    write('skills/synced/u_v/manifest.json', '{}');
+    write('skills/synced/u_v/docs/SKILL.md', 'y');
+    expect(ids(collect())).toEqual(['file:skills/a/SKILL.md']);
+  });
+
   it('運ぶ種類のファイルと settings の鍵を、id の順に集める', () => {
     write('CLAUDE.md', '# 規則');
     write('keybindings.json', '{"a":1}');

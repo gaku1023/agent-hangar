@@ -562,15 +562,13 @@ Mediator の入力の型（`MediatedAction`）は表の kind を除いてある�
 ### 方針
 
 hangar 固有のデータは `~/.agent-hangar/hangar.db`（SQLite）に置く。
-プロジェクトのメモだけは Markdown ファイルとして `~/.agent-hangar/projects/<projectId>/memo.md` にも置き、DB には更新時刻と内容の写しを持つ。
-メモをファイルでも持ったのは、他のエディタや Claude 自身から直接読み書きできるようにするためだった。
 プロジェクトのメモ（画面の語は「ノート」）は 2026-10-11 にやめた（「プロジェクト詳細」の右パネル）。
-画面と MCP からは書かず、起動時の指示にも渡さない。
-保存の仕組み（`projects/memo.ts` と `GET`、`PUT /api/projects/:id/memo`）と同期の表 `project_memos` は、中身の残る古いノートを読んで削除できるように、いまは残してある。
-画面が使うのは、「以前のノート」として読むことと、確かめてから空で保存して消すことだけである。
+2026-11 には画面、`GET` と `PUT /api/projects/:id/memo`、保存の仕組み（`projects/memo.ts`）、`memo.update` のイベント、`ProjectDto.memoHead`、MCP の `append_memo` の受け皿も外した。
+同期の表 `project_memos` だけは残してある。
 ノートの欄を持つ古い版の端末は、まだこの表の行を送ってくる。
 Worker は知らない表の行を 1 つでも含む送信を丸ごと断るので、表を共有テーブルの一覧から外すと、その端末のほかの表の同期まで止まる。
-受け取る側も、降りてきた古いノートを「以前のノート」として見せられるように、表と適用を残す。
+受け取る側は、降りてきた行を表に入れるだけで、画面には何も配らない。
+手元の行を上書きするときの控え（`memo.conflict-*`）は、いまも `sync/apply.ts` が残す。
 
 テーブルは **共有** と **端末ローカル** に分ける。
 共有テーブルは端末間で同期し、ローカルテーブルは端末の中だけで使う。
@@ -872,7 +870,7 @@ DB に書いた後で画面へ配るのは、書いた側ではなく、配る�
 | `projects` | そのプロジェクトの `project.upsert` |
 | `project_roots` | そのプロジェクトの `project.upsert`。この端末のルートが未解決になった書き込みも配る。ホームの帯の件数と、プロジェクトの一覧の札が、再読み込みを待たずに変わるためである |
 | `devices` | 一覧ごとの `devices.update` |
-| `project_memos` | `memo.update` と、メモの頭を載せるプロジェクトの `project.upsert`。この端末の変化だけを配る |
+| `project_memos` | 何も配らない（ノートはやめた。表は古い版の端末の送りを受けるために残してある） |
 | `artifacts` | `artifact.upsert`。この端末の変化だけを配る |
 | `todos` | そのプロジェクトの一覧ごとの `todos.update` と、未完の数を載せるプロジェクトの `project.upsert`。この端末の変化だけを配る |
 | `config_snapshots`、`config_state`（表ではなく、状態を動かした名指しの名前） | 設定の同期（作り直した実装）の状態 `config.update`。束の行が降りたときも、この端末が書いたときも配る。同期を組んでいない端末では何も配らない |
@@ -888,7 +886,7 @@ DB に書いた後で画面へ配るのは、書いた側ではなく、配る�
 - 読み直して行が無い（消えた）ときは、何も配らない。
 - WebSocket の受け手がいないあいだは、行を読み直さない。起動時の全走査で、誰も受けない DTO を組まないためである。
 - 表の変化に対応しない知らせは、呼び手が `broadcast` で渡す。それらも同じ列に並べて tick の終わりに渡すので、行のイベントとの前後は呼んだ順のまま保たれる。
-- 行のイベント（`session.upsert`、`project.upsert`、`devices.update`、`memo.update`、`artifact.upsert`、`todos.update`、`config.update`）は、この層だけが組む。`broadcast` は型（`NoticeEvent`）でこれらを受けない。呼び手が手で組んで渡す道は無いので、同じ行が二重に届くことも、端末の ID を渡し忘れた行が届くことも無い。
+- 行のイベント（`session.upsert`、`project.upsert`、`devices.update`、`artifact.upsert`、`todos.update`、`config.update`）は、この層だけが組む。`broadcast` は型（`NoticeEvent`）でこれらを受けない。呼び手が手で組んで渡す道は無いので、同じ行が二重に届くことも、端末の ID を渡し忘れた行が届くことも無い。
 - 行は書いていないが中身が変わったときは、呼び手は `touchRow` でその行を名指しする。同じ tick の書き込みと重なっても、配るのは 1 回である。
 
 サーバの業務の関数（`projects/`、`sessions/`、`runs/`、`sync/` にある受け手）も、HTTP の経路（`http/routes/*.ts`）も、MCP の道具（`mcp/tools.ts`）も、事後要約のジョブ（`summary/job.ts`）も、行を書く（か名指しする）だけで、配るのはこの層である。
@@ -3642,39 +3640,29 @@ run の終了からの契機だけは、レジストリの生存判定を飛ば�
 
 - 使わない（`off`、既定）：要約器を並べない。`SummaryJob.enqueue` は手動の作り直し（force）も含めて受け付けず、失敗も配らない。会話の中で Claude が書く要約（`set_session_summary`）は今どおり書かれる。
 - Claude（`claude`）：`claude -p` だけを使う。利用者の Claude の使用枠を使う。モデルは設定の `summaryClaudeModel`（既定 haiku）で、呼ぶたびに読む。
-- OpenAI 互換の URL（`openai`）：LM Studio、Ollama、vLLM などの `/v1/chat/completions` を先に試す。補助のスイッチ（`summaryFallback`、既定は切）が入っているときだけ、使えないときに `claude -p` へ切り替える。
 
-鍵の無い古い設定は「使わない」として読む。0.5.0 までの既定（LM Studio、無ければ Claude）は、LM Studio を使っていない人にも設定の目次に「LM Studio に接続できません」を常に出していたためである。
-URL とモデルと切り替えの鍵（`lmStudioUrl`、`lmStudioModel`、`summaryFallback`）は残すので、OpenAI 互換を選び直せば前の宛先で動く。
+外部の OpenAI 互換の要約器（LM Studio、Ollama、vLLM など。`openai`、`lmStudioUrl` などの設定、`summary/lmstudio.ts`）は、使われていなかったので外した。
+外した根拠：既定は `off` で、2 台とも `off` のままだった。事後の要約の履歴では `claude -p`（haiku）が大半で、OpenAI 互換は少数にとどまり、どちらも直近しばらくは使われていない。普段の要約は、会話自身が書く `in_session` と機械的な土台である。
+残した道は `claude -p`（`summaryEngine` が `claude`）だけで、事後の要約を作る外部の道はこれ 1 つである。
+`openai` を選んでいた設定は `off` として読む。外した項目（`lmStudioUrl`、`lmStudioModel`、`summaryApiKey`、`summaryFallback`、`allowExternalSummarizer`）は、設定の読み込みのときに捨てる。
+すでに書いた要約の `source_id` が `lmstudio` の行は残り、画面は「OpenAI 互換」と言う。
+
+鍵の無い古い設定は「使わない」として読む。
 Claude の呼び出しは 1 時間あたりの件数（既定 20、1 から 200 まで）と週の枠の使用率 80% で止め、`claude` が PATH に無ければ使わない。
-モデルの一覧（`GET /api/summarizer/models`）は、OpenAI 互換を選んでいるときだけ宛先へ問い合わせ、ほかは空を返す。
 
 要約器は差し替え可能な部品にする。
 
 ```ts
 interface Summarizer {
-  readonly id: 'lmstudio' | 'claude-headless';
+  readonly id: 'claude-headless';
   available(input?: SummaryInput): Promise<boolean>; // input は要約するセッション。Claude はそのアカウントの使用率で見る
   summarize(input: SummaryInput): Promise<SessionSummary>;
 }
 ```
 
-OpenAI 互換の要約器（`summary/lmstudio.ts`。id は LM Studio だけだった頃のまま `lmstudio` で、書いた要約の `source_id` と合わせてある）は、設定の URL（既定 `http://127.0.0.1:1234`）の `/v1/chat/completions` に、JSON スキーマ付き（`response_format` の `json_schema`）で投げる。
-API キー（`summaryApiKey`）があれば、モデルの一覧と要約の両方に `Authorization: Bearer` で添える。
-キーは settings.json（0600）にだけ置き、画面へは有無（`summaryApiKeySet`）だけを返す。設定の変更は全部の画面へ配るので、秘密を載せない。
-`json_schema` を受けない口（Ollama の古い版など。400 か 422 を返すか、指定を無視して JSON でない本文を返す）には、`json_object` で投げ直し、スキーマは指示文の末尾に書く（`summary.prompt.jsonObject`）。
-認証の失敗（401）などほかの失敗は投げ直さない。
-モデル名は Settings で選ぶ。
-既定のモデルは思考を行わない指示追従モデル（フェーズ 0 では gemma 26B が 1 件 6〜7 秒で安定した）にする。
-思考モデルは既定の出力上限を思考で使い切って本文が空になることがあるので、本文が空なら失敗として扱い、フォールバックへ回す。
-初回のモデル読み込みに 1 分近くかかるため、Settings に「要約器を試す」を置いて事前に温められるようにする。
 見立ての判定基準（最後のターンが利用者への問いなら `in_progress`）はプロンプトに明示する。
 
-要約器には会話の本文（利用者の発言とアシスタントの応答）がそのまま送られる。
-そこで宛先は既定でループバックだけに閉じ、`127.0.0.1`、`localhost`、`::1` 以外のホストは 400 で断る。
-設定の「外部の要約器を許す」を入れたときだけ、外の宛先を受け付ける。
-スイッチの下には「127.0.0.1 と localhost 以外の宛先へ本文を送れるようにします。」と淡い 1 行で添える。
-許しと宛先は同じ要求の中で突き合わせるので、片方ずつ変えて素通りさせることはできない。
+要約器には会話の本文（利用者の発言とアシスタントの応答）が送られる。残した道は手元の `claude -p` だけで、利用者の Claude のアカウントの外へは出ない。
 この印を入れている間は、Settings に「会話の本文がこの宛先へ送られます」という警告を出し、宛先の URL を添える。
 設定ファイルを手で書き換えて外の宛先を入れても、読み込みのときに既定へ戻す。
 
@@ -3717,7 +3705,6 @@ HTTP の層は `packages/server/src/http/` にある。
 | `runs.ts` | run の起動と停止、タブ、指示へ跳ぶ、セッションから run を起こす口（resume、fork、attach、adopt、resume-here） |
 | `projects.ts` | プロジェクトの一覧と 1 件、状態、置き場の選び直し、作成と登録 |
 | `todos.ts` | TODO |
-| `memos.ts` | プロジェクトのメモ（やめたノートを「以前のノート」として読み、空で保存して消すためだけに残す） |
 | `artifacts.ts` | アーティファクト |
 | `prompt.ts` | 初期プロンプト欄の候補と添付（`/prompt`、`/drops`） |
 | `settings.ts` | 設定 |
@@ -3868,7 +3855,7 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
 - `list_projects()`：プロジェクトの一覧。ステータス、パス、未完 TODO 数、最終活動。
 - `get_project(project_id)`：詳細。TODO、直近のセッション、アーティファクト。
 - `update_project(project_id, { status?, add_todos?, toggle_todos?, propose_done? })`。`add_todos` の項目は文字列か `{ text, note? }` である。
-  ノートへの追記（`append_memo`）は 2026-10-11 にやめた。古い指示を覚えた Claude が渡したときは、書かずに、やめたことと CLAUDE.md などの指示ファイルに書くよう促す一文を、応答の `notice` で返す（エラーにはしない）。
+  ノートへの追記（`append_memo`）は 2026-10-11 にやめ、引数からも外した。古い指示を覚えた Claude が渡しても、MCP の層が未知の引数として捨てる（エラーにはしない）。
 - `list_sessions({ project_id?, running?, limit? })`。
 - `search_sessions({ query, project_id?, since?, until?, file? })`：FTS と絞り込み。結果は題名、要約の 1 文、一致箇所の抜粋、再開コマンド。
 - `list_sessions`、`search_sessions`、`get_project` の直近のセッションの再開コマンド（`resume_command`）は、この PC の素の `claude -r` で開ける会話にだけ返す（2026-10-21、#313）。
@@ -3917,7 +3904,7 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   保存は設定の PATCH と同じ道（`ToolDeps.saveNotifyPreference`）で、変えた欄を全部の画面へ配る。この口が無いサーバでは知らない道具として断る。
   返り値は保存した決まり（省いた項目を埋めた形）である。
 - `set_session_memo` は 0.4.0 で道具ごと外した（セッションのノートを外したため。要約の `set_session_summary` と Paused の戻る日が役を担う）。
-  `append_memo` のように `notice` で答える形にしなかったのは、あちらは同じ呼び出しのほかの項目を書くためにエラーにしなかったのに対し、こちらは道具が 1 つの仕事しか持たないからである。
+  update_project の `append_memo` のように引数ごと外した場合は、MCP の層が未知の引数として捨てる。こちらは道具が 1 つの仕事しか持たないので、外した後の一覧に無い道具を呼ばれても MCP の層が isError で返す。
   外す前の一覧を覚えた Claude が呼んでも、MCP の層が書かずに `isError`（道具が無い）で返す。モデルにこの道具を使うよう指示したことも無い。
 - `get_usage()`：5 時間と 7 日の使用率、最終更新時刻。
 - `open_in_hangar({ session_id | project_id })`：UI とディープリンクの URL を返す。
@@ -4160,6 +4147,14 @@ hangar が代わりに知らせるもの（削除の承認待ち、準備の後�
 メモリだけだと、サーバを止めた時点で知らせも未読の数も出なかったためである。
 止めるときに流す案は、ターンの途中で返答より先に出てしまうこと、強制終了では流せないことから採らなかった。
 読み戻すとき、会話が消えている行と読めない行は捨てる。
+
+エージェントが `notify_user` を出し忘れたターンには、hangar が未読を 1 つ積む（`live/notifyFallback.ts` の `NotifyFallback`、2026-11-18）。
+出し忘れは、裏で走らせた作業が終わって始まるターンで特に多く、受け皿が無いと利用者には何も届かなかった。
+作業中（預かりと同じ `turnRunning`）から入力待ち（`idle`）か `aside` に抜けた会話で、そのターンに `notify_user` が一度も呼ばれていなければ、最後の返答の頭の 1 文（Markdown の飾りとコードの塊を外し、200 字まで）を本文にして積む。
+`notify_user` は出し先が空のときも呼ばれたこと（`onNotifyCall`）を伝え、呼ばれた印は作業中と見る前に呼ばれた分も落とさないよう、終わりの判定で使い切る。
+返答の索引は状態より遅れるので、ターンの始まり以後の返答が見えるまで 1 秒おきに読み直し、10 秒で諦める。
+出すのは未読の数だけで、OS とスマホの通知は出さない。エージェントが知らせると決めたものではないので、利用者の手を止めない。
+問いの入力待ちで終わったターン（入力待ちの知らせが別に出る）、run が居なくなったターン、決まりで未読に `done` を含まないとき、`notify_user` の段を切ったとき、休みの会話、統括の会話には積まない。
 
 会話に紐づかない知らせは `notifyApp({ text, kind }, settings?)`（`live/appNotice.ts`）で出す。
 `notify_user` はセッションの ID が前提で、未読の数も OS もスマホも会話ごとに積むので、別の口にした。
@@ -6066,7 +6061,6 @@ Hangar が `CLAUDE.local.md` を作らないのは、作るだけで `AGENTS.md`
 行を押すと本文を Markdown で描くダイアログを開き、そのときに読み直す（ファイルは外で書き換わる）。本文は 256 KB まで返し、越えたら先頭だけを描いて知らせる。
 ダイアログは長い本文を読む面なので、ほかのダイアログのガラスより濃い不透明の白にする。開くときは板の pop に背景のフェードを添え、閉じるときは逆にたどって（`popOut`、`--dur-exit`）から外す。
 行の右の印とダイアログの下端の「エディタで開く」は、種類だけを `POST /api/projects/:id/instructions/open` へ送る。決まった種類のほかは断り、無いファイルは 404 にする。
-中身の残る古いノートは、節の中に「以前のノート」として読むだけで出し、コピーと、確かめてから空で保存する削除を置く。
 この PC にフォルダが無いプロジェクトは「この PC にはフォルダがありません」とだけ出す。
 アーティファクトが空のときは、足す欄があれば別の行では断らない。
 
@@ -6198,7 +6192,8 @@ hangar が自動で付けた状態は、札の頭に ✦ を置き、説明は�
 セッション画面を開くたびに末尾を追う形で始め（`openAtLatestStep`）、前に上へ遡って追うのをやめていたセッションも開き直せば末尾から始まる。
 最初のページが届いて行の高さを測り終えるまで、末尾に着け直す。
 続けて呼んだツールの呼び出し（間に利用者や Claude の文、思考、知らせが挟まらないもの）は、1 行にまとめる（T1）。
-まとめの行は、札（同じツールなら「Bash ×5」、混ざれば「ツール ×5」、1 回だけなら名前だけ）、最後の呼び出しの説明（Bash は description、無ければコマンド。ほかは畳んだ行の要約の文）、時刻を 12.5px の控えめな字で並べ、失敗があれば「失敗 N」を添える。
+まとめの行は、呼んだ数だけの札（「ツール 5 件」）を 11.5px の控えめな字で置く。説明と時刻は出さず、失敗があれば行を赤にして「失敗 N」を添える（2026-11-18 の試作の案 A）。
+開くときは `growIn`、畳むときは `collapseOut` で動かす。質問（AskUserQuestion）はまとめず、ほかの行と同じ形で残す。
 押すと、左の細い線の下に呼び出しを 1 つずつ小さい等幅の行（`ToolItem` の compact）で開き、各行は押すと今までどおり入出力が開く。1 回だけのまとめは、押すと中身までいっしょに開く。
 サブエージェントを起こした呼び出しはまとめずに 1 つで置き、畳んだままでも「サブエージェント X を見る」を押せる。
 「詳細表示」の間はまとめず、今までどおり 1 件ずつの行にする。
@@ -6507,8 +6502,6 @@ Claude Code との互換のずれは、利用者が直せるものではない�
 新しいフォルダの作成場所は任意なので、決めた場所がその PC に無くても要修正に数えず、欄の下に注意の色で「この場所が見つかりません」と「空にするか、別の場所を選んでください」を出す（`workspaceLine` の soft）。古い設定のまま上げた利用者で、`~/workspace` がその PC に無いときに起きる。
 オンとオフの項目はスイッチにして行の右端に置き、ターミナルアプリはアプリのアイコンを添えた切り替えの帯、要約エンジンのモデルは一覧、1 時間の上限は ± の付いた数値の欄にする。
 スイッチと帯は切り替えた時点で保存する。
-外部の要約エンジンを許可するスイッチだけは、オンにするとき、保存済みの宛先へトランスクリプトが送られる旨を確かめる帯（「許可」「キャンセル」）を挟み、「許可」を押して初めて保存する。
-オフにするときは確かめずにその場で保存する。
 環境の節の先頭には、psmux（Windows）か tmux の状態の行を置く（段 6 の B3、`views/MuxSection.tsx`）。
 見出しの札で「インストール済み」か「未インストール」かを出し、済んでいれば版とパスを、無ければ入れるコマンドを添え、「再確認」のボタンを置く。
 psmux が 3.4.0 より古いときは、札を「更新が必要」にし、版の行に「（3.4.0 以上が必要です）」を添え、症状、上げる前の注意 2 点（psmux を止めるので動いているセッションは全部止まる、hangar の端末ではなく外の PowerShell で打つ）、上げる 1 行（`PSMUX_UPGRADE_COMMAND`、止める・`winget upgrade`・`tmux -V`）のコピー、「上げたら再確認」を本文に並べる（issue #245）。
@@ -6525,15 +6518,12 @@ psmux が 3.4.0 より古いときは、札を「更新が必要」にし、版�
 git は設定の欄が無く、環境の節に読むだけの行（見つけた場所と版、無ければ入れるコマンド）で出す。無くても動くので弱い色にする。
 エディタの欄は一般の節にある（「エディタの選択」の節）。
 Node の欄が空のときは、サーバを動かしている Node を「自動で見つけました」と添えて出す。
-要約の節は、使わない、Claude、OpenAI 互換の URL の 3 つのラジオの行で選ぶ（試作 3 節の推す案 A。エディタの欄と同じ作り）。
-各行は名前と 1 行の説明を持ち、Claude は「あなたの Claude の使用枠を使います」、OpenAI 互換は「トランスクリプトをこの宛先へ送ります」と、選ぶ前に違いを言う。
+要約の節は、使わない、Claude の 2 つのラジオの行で選ぶ（試作 3 節の推す案 A。エディタの欄と同じ作り）。
+Claude の行は「Claude の使用量を消費します。」と、選ぶ前に違いを言う。
 選んだ時点で保存し、選んだ行のすぐ下にその行の欄だけを開く。
 Claude の欄は、要約に使う Claude のモデル（一覧から選ぶか、名前を打つ）と、1 時間の上限である。
-OpenAI 互換の欄は、URL、モデル、API キー（任意。保存済みなら中身を出さず「キーを消す」を添える）、外部の要約エンジンを許可、接続できないときは Claude を使う（既定は切）で、切り替えを入れているときだけ 1 時間の上限を出す。
-選んだ行の欄は、ラジオの選択とスイッチを除いてまとめて「保存」で保存し、そのボタンの横に同じ「✓ 保存しました」を出す。API キーは書いたときだけ送り、送ったら欄を空に戻す。
-URL の欄の下と、OpenAI 互換の行の右端には、モデルの一覧が取れたかで「接続済み（モデル N 個）」か「接続できません」を出す。接続テストのボタンは `summarizer.test` を出し、結果をその下に出す。
+モデルと上限は「保存」でまとめて保存し、そのボタンの横に同じ「✓ 保存しました」を出す。接続テストのボタンは `summarizer.test` を出し、結果をその下に出す。
 使わないときは欄も保存も接続テストも出さない。
-要約エンジンか宛先を変えて保存したら、モデルの一覧を取り直す。
 連携の 3 枚の札（MCP サーバー、ステータスライン、シェル連携）は、殻の中ではボタンで書く（0.4.0、試作の連携 A）。
 札の形と説明文はそのままにし、コマンドの欄をボタンに替える。ボタンの横には「書き込む先：<パス>」と「書く前にバックアップを取ります」を常に出す。
 入っていなければ入れるボタン（登録…、設定…、インストール…）、入っていれば解除のボタン（登録を解除…、設定を解除…、アンインストール…）である。
@@ -7839,6 +7829,8 @@ R2 は部分更新を持たないので、末尾だけを足す道が無いた�
 同じ中身を二度上げないために、端末ローカルの `file_sync` に前回の指紋（平文の SHA-256）と大きさと更新時刻を残す。
 
 設定の同期が拾わないものは、`node_modules` と `.git` と `__pycache__` と `.venv` と `.trash`（hangar がスキルを消したときのごみ箱）の各段、シンボリックリンク、1 MiB を超えるファイル、`.DS_Store`、そして同期自身が作る写し（`*.conflict-*`、`*.hangar-tmp-*`、`*.part`）である。
+`skills/synced/` は Claude のデスクトップアプリが組織やアカウントの skills を写す置き場で、アプリが作り直すので運ばない（`kindOfRel` が null を返す）。他の PC の束や受け箱にこの id が残っていても、`parseItemId` が断るので判定の対象に出ない。
+
 Claude の入れ物（skills、commands、agents、memory、プロジェクトのメモリ）でリンクのために拾わなかったものは、集めた結果の `linkSkipped` に種類ごとの相対パス（`skills/benkyo` など）で残し、`ConfigSyncDto.linkSkipped` で最後に集めた分を返す（読めないディレクトリは入れない。送る項目は変えない）。
 写しを対象に戻すと、競合のファイルが端末間で無限に増える。
 `claude` の対象は、`statusLine`、`hooks`、`env` などの実行にかかわる鍵と、`statusLine.command` が指すスクリプトは運ばない。
@@ -8683,7 +8675,7 @@ Codex の config.toml と opencode の opencode.json(c)、cli.json へ書き戻�
 どれも「文字列を受けて文字列を返す」だけの関数で、ファイルには触れない（控えと書き込みは呼ぶ側）。
 
 - TOML は `setToml`・`removeToml`・`getToml`。自前で書いた（`tomlParse.ts` が文と行の位置を読み、`toml.ts` が行と値の範囲だけを書き換える）。
-  toml-test の TOML 1.0 の試験集（valid 208 件、invalid 509 件）を `sync/config/edit/tomlSuite.test.ts` で当てる（`packages/server/test/fixtures/toml-test-1.0.0.json` に束ねてあり、MIT、`scripts/vendor-toml-test.mjs` で作り直す）。valid は全部読める。invalid のうち通してしまう入力は試験の `LENIENT` に控えてある。1.1 の `\e` と `\xHH` は断る（対応しない）。
+  toml-test の TOML 1.0 の試験集（valid 208 件、invalid 509 件）を `sync/config/edit/tomlSuite.test.ts` で当てる（`packages/server/test/fixtures/toml-test-1.0.0.json` に束ねてあり、MIT、`scripts/vendor-toml-test.mjs` で作り直す）。valid は全部読める。invalid は、値として壊れているもの（日付の範囲、制御文字、壊れた UTF-8、0x_ の形、秒の省略）を断る。1.1 で正しくなった書き方（インライン表の改行と末尾のカンマ、\e と \xHH）は受ける（`ACCEPTED_1_1`）。利用者が Codex の config.toml に手で書いた設定を読めなくするほうが害が大きいため。
   コメント、空行、鍵の並び、引用の形（基本・リテラル・複数行）、配列の折り返しを保つ。
   鍵の道は `['mcp_servers', 'x', 'env', 'KEY']` のような文字列の並びで、点のついた鍵、インライン表の中、`[a.b]` の見出しのどれでも同じ道で指せる。
   値が表（オブジェクト）なら表ごとの差し替えで、無い鍵は消え、変わらない鍵の体裁は残る。表が無ければ、近い表の後ろに節を作る。
@@ -10549,6 +10541,11 @@ wrangler を同梱していないので、リポジトリを clone した場所�
 ## 外のできごとで動かす
 
 PR、CI、レビュー、コメント、外の webhook のできごとで、会話を起こしたり、会話へ指示を流したりする（#563）。
+
+**既定は切である。** 設定 `eventTrigger`（この PC だけで、同期しない）を入れた PC だけが動く。
+切の間は、puller が受け箱に問い合わせず（結び付けがあっても無いものとして答え、呼び鈴も張らない）、結び付けの作成（画面、MCP の `draft_event_binding` と `claim_pr`、Paused の `wake_on`）を断り、予定の画面にイベントの節を出さない。
+コードと既存の結び付けは残すので、入れ直せばそのまま動く。
+切が既定になる前から使っていた PC のために、起動のとき `eventTrigger` が無く、承認済みの結び付けが 1 件でもあれば、入りに書き替える（`event/migrateTrigger.ts`）。
 本体は `packages/server/src/event/`、Worker の口は `packages/cloud/src/inbox.ts`、画面は予定の画面の「イベント」の節である。
 Worker の互換の版は 12 から（shared の `EVENT_INBOX_MIN_WORKER_COMPAT`）で、これ未満の Worker では画面に出さず、道具も動かさない。
 
@@ -11108,7 +11105,7 @@ MLX の build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/vo
   `PATCH /api/settings` は真偽値だけを受け、ほかは 400 で断る。
   鍵の無い設定ファイルと、手で書いた真偽値でない値は true として読む。
   設定の画面にはまだ出さない（「指示の注入」の節）。
-- 要約器の設定：`SettingsDto` に `summaryEngine`（`off`、`claude`、`openai`。既定 `off` で、鍵の無い古い設定も `off`）、`summaryClaudeModel`（既定 haiku）、`lmStudioUrl`（OpenAI 互換の URL。既定 `http://127.0.0.1:1234`）、`lmStudioModel`（既定 null で、null なら `/v1/models` の最初のモデル）、`summaryApiKeySet`（API キーを保存しているか。キーは `PATCH` の `summaryApiKey` で書くだけで、返さない）、`summaryFallback`（既定 false）、`summaryHourlyCap`（既定 20）、`allowExternalSummarizer`（既定 false）を持つ。
+- 要約器の設定：`SettingsDto` に `summaryEngine`（`off`、`claude`。既定 `off` で、鍵の無い古い設定と、外した `openai` も `off`）、`summaryClaudeModel`（既定 haiku）、`summaryHourlyCap`（既定 20）を持つ。
 - 要約の入力：主線の全イベントを読み（サブエージェントは含めない）、`user` は 2,000 字、`assistant` は 600 字、`tool_call` は 1 行に切り、`thinking`、`tool_result`、`system`、`meta` は捨てる。全体が 12,000 字を超えたら先頭 30% と末尾 30% を残し、中盤を「[... N 件を省略 ...]」に置き換える。
 - 要約ジョブの契機：run の終了と、セッション画面を開いたときの先頭ページの読み込みの 2 つで `enqueue` する。受け付けるのは要約が土台のままか最後の更新から 5 ターン以上進んだときだけで、実行中のセッションは受け付けない（セッション自身の `set_session_summary` に任せる）。run の終了からの `enqueue` は `ignoreLive` で生存判定だけを飛ばし、残る 2 つの判定は通す。「要約を作り直す」は条件を無視する。ジョブは 1 セッション 1 件で、直列に走る。
 - 要約の配信が失敗しても待ち行列は進める。配信の失敗は 1 行だけ記録し、次のジョブを止めない。
@@ -11116,7 +11113,7 @@ MLX の build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/vo
 - MCP の `update_project` の TODO の書き込みは、全部成功か全部失敗のどちらかにする。途中で失敗したものが残ったままイベントだけ配られないようにするためである。
 - `GET /api/bootstrap` は `accounts`（使用率はアカウントごとにここに載る）、`todos`（全プロジェクトの未削除）、`artifacts`（全件）、`summaryPending`（作成中のセッション ID）も返す。メモの全文は含めない。
 - UI の CSS は `base.css` に足さず、View ごとのファイル（`workbench.css`、`split.css`、`rows.css`、`palette.css`、`settings.css`）に分けて `main.tsx` から `base.css` の後に読み込む。
-- 要約の出所：`session_summaries.source_id` に書いた要約器の id（`lmstudio` か `claude-headless`）、`source_model` にモデルの名前だけを置く。土台の要約とセッション自身の要約はどちらも null にする。`source_id` が無かった頃の行は null のままにして、UI は要約器を「不明」と出す。モデル名から種類を推し量って焼き付けることはしない。
+- 要約の出所：`session_summaries.source_id` に書いた要約器の id（`claude-headless`。外した OpenAI 互換の要約器が書いた行は `lmstudio` のまま残る）、`source_model` にモデルの名前だけを置く。土台の要約とセッション自身の要約はどちらも null にする。`source_id` が無かった頃の行は null のままにして、UI は要約器を「不明」と出す。モデル名から種類を推し量って焼き付けることはしない。
 - サーバの終了：`close()` は HTTP と WebSocket を畳んだ後、走っている要約のジョブが終わるまで最大 5 秒待ってから DB を閉じる。要約は DB に書き込むので、待たずに閉じると閉じた DB に触れることになる。5 秒で終わらなければ 1 行記録して待たずに閉じる。
 - 未分類のセッション：起動した後に、どのルートの配下にもない cwd のセッションが現れても、トーストは流さない（2026-10-10 に外した。事実は一覧に出るので、注意の行にもしない。「注意と知らせの出し分け」の節）。ワークスペース直下のディレクトリはその場でプロジェクトにし（2026-10-01 に改めた）、ワークスペースの外では勝手にプロジェクトを作らない。
 - ルートの復帰：消えていたディレクトリが戻ってルートが解決に戻ったら、その時点で未分類だったセッションを紐づけ直し、紐づいたセッションの `session.upsert` と、戻ったぶんおよび中身が変わったぶんの `project.upsert` を配る。戻ったルートが 1 つも無いときは何もしない（起動時の 1 回目はたいていこちらを通る）。

@@ -192,7 +192,7 @@ export function screenStep(state: State, store: Store, input: Input): Step | nul
     // 開き方を問わず（一覧、サイドバー、通知、パレット、戻る・進む、hangar:// のリンク）、つないだ端末にそのままフォーカスする。
     // 確認や入力のあるダイアログが残っていれば奪わない。端末が無い（終わったセッション）ときは Runtime が何もしない。
     if (route.name === 'session' && next.overlay.kind === 'none') effects.push({ kind: 'focus', target: 'terminal' });
-    if (route.name === 'project') effects.push({ kind: 'api.loadMemo', projectId: route.id }, { kind: 'api.loadInstructions', projectId: route.id });
+    if (route.name === 'project') effects.push({ kind: 'api.loadInstructions', projectId: route.id });
     // 設定の中で節を切り替えるだけ（左の目次）のときは、付属の値を取り直さない。
     if (route.name === 'settings' && state.screen.name !== 'settings') {
       effects.push({ kind: 'api.loadSettingsExtras' });

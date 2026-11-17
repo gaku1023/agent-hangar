@@ -207,11 +207,6 @@
 .instr-info-foot { margin: 0; color: var(--ink-2); }
 .instr-info-foot code { font-family: var(--font-mono); font-size: 0.95em; }
 /* 以前のノート。やめた機能の残りなので、Paused の淡い地で「片付けてほしいもの」として置く。 */
-.instr-legacy { margin-top: calc(var(--u) * 2.5); padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--st-paused-soft); }
-.instr-legacy-h { margin: 0 0 2px; font-size: var(--fs-xs); font-weight: 700; color: var(--st-paused); }
-.instr-legacy-body { margin: 0 0 calc(var(--u) * 1.5); font-size: var(--fs-xs); color: var(--ink-2); }
-.instr-legacy-text { margin: 0 0 calc(var(--u) * 1.5); max-height: 96px; overflow: auto; padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border-radius: 6px; background: rgba(255, 255, 255, 0.7); font: var(--fs-xs) / 1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
-.instr-legacy-acts { display: flex; justify-content: flex-end; gap: calc(var(--u) * 1.5); }
 /* 本文のダイアログ。外枠は箱を作らず、背景と板は Dialog の殻が組む。引っ込める間は押せないようにする。 */
 .instr-dialog-host { display: contents; }
 .instr-dialog-host[data-leaving='true'] .overlay { pointer-events: none; }

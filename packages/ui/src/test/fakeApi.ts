@@ -7,8 +7,8 @@ const EMPTY_OC_PROVIDERS = { connected: [], catalog: [], configPath: '/Users/me/
 type Extras = Pick<
   ApiClient,
   | 'launch' | 'cancelPrep' | 'prepareModels' | 'resume' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs' | 'folderCandidates' | 'workspaceChildren' | 'inspectFolder' | 'registerFolders'
-  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'opencodeStatus' | 'codexStatus' | 'codexOptions' | 'opencodeOptions' | 'opencodeProviders' | 'opencodeProviderKey' | 'opencodeProviderDisconnect' | 'opencodeProviderModel' | 'opencodeCustomProvider' | 'opencodeLogin' | 'opencodeLoginStatus' | 'opencodeLoginComplete' | 'opencodeLoginCancel' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'moveSession' | 'deleteSession' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction' | 'setupGuide' | 'openSetupGuide'
-  | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
+  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'opencodeStatus' | 'codexStatus' | 'codexOptions' | 'opencodeOptions' | 'opencodeProviders' | 'opencodeProviderKey' | 'opencodeProviderDisconnect' | 'opencodeProviderModel' | 'opencodeCustomProvider' | 'opencodeLogin' | 'opencodeLoginStatus' | 'opencodeLoginComplete' | 'opencodeLoginCancel' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'moveSession' | 'deleteSession' | 'instructions' | 'openInstruction' | 'setupGuide' | 'openSetupGuide'
+  | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'testSummarizer'
   | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'resumeHerePlan' | 'takeoverStart' | 'takeoverExtend' | 'takeoverCancel' | 'joinCodeCurrent' | 'joinCodeIssue' | 'joinCodeApprove' | 'joinCodeReject' | 'joinCodeClose' | 'recoveryKeyReissue' | 'recoveryKeyConfirm' | 'cloudDevices' | 'mobilePairing' | 'mobilePaired'
   | 'configSyncState' | 'configOutgoing' | 'configInbox' | 'configConflicts' | 'configUnsent' | 'configBackups' | 'configSendUnsent' | 'configPutOrder' | 'configDeleteOrder' | 'configHistorySeen'
   | 'retention' | 'retentionPreview' | 'writeRetention'
@@ -139,8 +139,6 @@ export function fakeApiExtras(): Extras {
     markUnread: vi.fn(async () => {}),
     setPinned: vi.fn(async () => {}),
     launchSettings: vi.fn(async () => ({ agent: 'claude-code' as const, model: null, effort: null, permissionMode: null, mode: null, addDirs: [], account: null })),
-    memo: vi.fn(async (projectId: string) => ({ projectId, markdown: '', updatedAt: 0 })),
-    saveMemo: vi.fn(async (projectId: string, markdown: string) => ({ projectId, markdown, updatedAt: 2 })),
     instructions: vi.fn(async (projectId: string) => ({ projectId, available: true, files: [] })),
     openInstruction: vi.fn(async () => {}),
     setupGuide: vi.fn(async () => ({ path: '~/.agent-hangar/setup-guide.md', version: '0.7.0', sha: '3f9a1c2e', prompt: '~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで、私の環境を診断して。書き換えは私が承認してから' })),
@@ -150,7 +148,6 @@ export function fakeApiExtras(): Extras {
     openArtifactEditor: vi.fn(async () => {}),
     promote: vi.fn(async () => unused()),
     regenerateSummary: vi.fn(async () => {}),
-    summarizerModels: vi.fn(async () => ({ models: ['gemma'] })),
     testSummarizer: vi.fn(async () => ({ ok: false as const, tried: [] })),
     // フェーズ 4 の同期。状態を返すものは、使うテストが自分で上書きする。
     // 使用量は届いていない状態（null）が既定である。

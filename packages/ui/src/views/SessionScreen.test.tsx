@@ -147,11 +147,11 @@ describe('SessionScreen（終わった画面）', () => {
   it('ツール呼び出しはまとめの 1 行に畳まれ、エラーは印が付き、サブエージェントへ飛べる', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><SS {...base} /></ActionRoot>);
-    const edit = screen.getByTitle('/a').closest('.tool-group')!;
+    const edit = document.querySelector('.tool-group[data-failed="true"]')!;
     expect(edit).toHaveAttribute('data-failed', 'true');
     expect(edit.querySelector('.tg-failed')).toHaveTextContent('失敗 1');
     // 開くと、今までのツールの行（失敗の札は赤）が出る。
-    fireEvent.click(screen.getByTitle('/a'));
+    fireEvent.click(edit.querySelector('.tg-row')!);
     expect(edit.querySelector('.tool .badge')).toHaveAttribute('data-k', 'fail');
     fireEvent.click(screen.getByText('サブエージェント abc を表示'));
     expect(onAction).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' });
@@ -763,9 +763,9 @@ describe('SessionScreen のアイコン', () => {
   });
   it('ツール呼び出しとサブエージェントと折りたたみの矢印', () => {
     render(<ActionRoot onAction={vi.fn()}><SS {...base} /></ActionRoot>);
-    const tool = screen.getByTitle('/a').closest('.tool-group')!;
+    const tool = document.querySelector('.tool-group')!;
     expect(tool.querySelector('.chev svg')?.getAttribute('data-icon')).toBe('chevron');
-    expect(tool.querySelector('.tg-badge')?.textContent).toBe('Edit');
+    expect(tool.querySelector('.tg-badge')?.textContent).toBe('ツール 1 件');
     expect(iconOf(screen.getByRole('button', { name: 'サブエージェント abc を表示' }))).toBe('subagent');
   });
 });

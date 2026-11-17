@@ -54,34 +54,6 @@ function FileDialog(props: { projectId: string; row: InstructionRowProps | null;
   );
 }
 
-/** 以前のノート。中身があるときだけ出し、削除は確かめてから空で保存する（取り消せないので、赤い丸の確認にする）。 */
-function LegacyNote(props: { projectId: string; text: string }) {
-  const t = useT();
-  const emit = useEmit();
-  const [confirming, setConfirming] = useState(false);
-  return (
-    <div className="instr-legacy">
-      <p className="instr-legacy-h">{t('projectScreen.legacyNote.title')}</p>
-      <p className="instr-legacy-body">{t('projectScreen.legacyNote.body')}</p>
-      <pre className="instr-legacy-text">{props.text}</pre>
-      <div className="instr-legacy-acts">
-        <CopyButton text={props.text} />
-        <button type="button" className="btn btn-sm" onClick={() => setConfirming(true)}><Icon name="discard" />{t('projectScreen.legacyNote.delete')}</button>
-      </div>
-      {confirming && (
-        <Dialog
-          title={t('projectScreen.legacyNote.confirmTitle')}
-          danger
-          icon="discard"
-          lead={t('projectScreen.legacyNote.confirmBody')}
-          onClose={() => setConfirming(false)}
-          footer={<><span className="spacer" /><button type="button" className="btn" onClick={() => setConfirming(false)}>{t('common.button.cancel')}</button><button type="button" className="btn btn-danger btn-danger-fill" onClick={() => { setConfirming(false); emit({ type: 'memo.save', projectId: props.projectId, markdown: '' }); }}><Icon name="discard" />{t('projectScreen.legacyNote.delete')}</button></>}
-        />
-      )}
-    </div>
-  );
-}
-
 /**
  * 「指示とメモリ」の見出しの ⓘ に入れる説明。並んでいるファイルの種類（チームで共有か、個人用か、読まれないか）と、
  * 読まれるものの全体は /context で見る、の 2 つを言う。行と節の下には出さない。
@@ -111,7 +83,7 @@ export function InstructionsPanel(props: { projectId: string; instructions: Inst
   const t = useT();
   const editorLabels = useEditorLabels();
   const emit = useEmit();
-  const { state, rows, legacyNote } = props.instructions;
+  const { state, rows } = props.instructions;
   const [selected, setSelected] = useState<InstructionFileKind | null>(null);
   const row = rows.find((r) => r.kind === selected) ?? null;
   const show = (kind: InstructionFileKind) => {
@@ -135,7 +107,6 @@ export function InstructionsPanel(props: { projectId: string; instructions: Inst
           ))}
         </ul>
       )}
-      {legacyNote !== null && <LegacyNote projectId={props.projectId} text={legacyNote} />}
       <FileDialog projectId={props.projectId} row={row} onClose={() => setSelected(null)} />
     </>
   );

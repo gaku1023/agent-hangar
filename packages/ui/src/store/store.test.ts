@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { ArtifactDto, BootstrapDto, CloudUsageDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, CloudUsageDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { accountsFixture } from '../test/accounts.ts';
 import { accountList, accountOfSession, aliveRunOf, appendSearchResult, applyBootstrap, applyEventsPage, applyGit, gitFileKey, applyLaunch, applyPickedFolder, applySearch, applyServerEvent, applyWorkspaceDirs, artifactsOf, currentAccount, indexFinishedBy, currentRunOf, eventsKey, hasMultipleAccounts, hotSessions, initialStore, liveSessionIds, unreadSessionIds, waitingSessionIds, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, lastTurnAt: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null });
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], deleteApprovals: [], peerApprovals: [], schedules: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null, sessionCounts: { total: 0, tabs: { all: 0, proposed: 0, active: 0, paused: 0, done: 0, archived: 0 }, byProject: {}, providers: { opencode: false, codex: false }, retention: null }, firstPage: { rows: [], total: 0, roots: 0 } };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], deleteApprovals: [], peerApprovals: [], schedules: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null, sessionCounts: { total: 0, tabs: { all: 0, proposed: 0, active: 0, paused: 0, done: 0, archived: 0 }, byProject: {}, providers: { opencode: false, codex: false }, retention: null }, firstPage: { rows: [], total: 0, roots: 0 } };
 
 describe('索引の段階', () => {
   const progress = (phase: 'idle' | 'scanning' | 'indexing') => ({ type: 'index.progress' as const, progress: { phase, done: 0, total: 0 } });
@@ -147,7 +147,7 @@ describe('同じ中身の配信', () => {
     let s = applyBootstrap(initialStore(), boot);
     s = applyServerEvent(s, { type: 'run.started', run: run('r1', 's1'), tabs: [tab('t1', 'r1', 'shell')] });
     s = applyServerEvent(s, { type: 'live.update', live: [{ sessionId: 'u1', status: 'idle', name: null, nameSource: null, cwd: '/x', pid: 1 }] });
-    const p = { id: 'p1', name: 'p1', status: 'active' as const, isScratch: false, path: '/w/p1', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0, unresolved: null };
+    const p = { id: 'p1', name: 'p1', status: 'active' as const, isScratch: false, path: '/w/p1', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 0, unresolved: null };
     s = applyServerEvent(s, { type: 'project.upsert', project: p });
     const same = (ev: Parameters<typeof applyServerEvent>[1]) => expect(applyServerEvent(s, ev)).toBe(s);
     same({ type: 'session.upsert', session: structuredClone(s.sessions.s1!) });
@@ -268,11 +268,8 @@ describe('フェーズ 3 のストア', () => {
     expect(todosOf(s, 'p1').map((t) => [t.id, t.done])).toEqual([['t2', true]]);
     expect(todosOf(s, 'p2').map((t) => t.id)).toEqual(['t9']);
   });
-  it('memo、artifact、要約の待ちのイベントを取り込む', () => {
+  it('artifact、要約の待ちのイベントを取り込む', () => {
     let s = applyBootstrap(initialStore(), boot);
-    const memo: MemoDto = { projectId: 'p1', markdown: '# m', updatedAt: 4 };
-    s = applyServerEvent(s, { type: 'memo.update', memo });
-    expect(s.memos.p1).toEqual(memo);
     s = applyServerEvent(s, { type: 'artifact.upsert', artifact: art('a1', 'p1', 5) });
     s = applyServerEvent(s, { type: 'artifact.upsert', artifact: art('a2', 'p1', 9) });
     s = applyServerEvent(s, { type: 'artifact.upsert', artifact: art('a3', 'p2', 7, ['s2']) });
@@ -417,7 +414,7 @@ describe('次の入力待ち（C5）', () => {
 
 describe('設定の store', () => {
   it('settings.changed で設定を差し替える', () => {
-    const next = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: '/bin/claude' };
+    const next = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, nodePath: null, claudePath: '/bin/claude' };
     expect(applyServerEvent(initialStore(), { type: 'settings.changed', settings: next, keys: ['claudePath'] }).settings).toEqual(next);
   });
 });

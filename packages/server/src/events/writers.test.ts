@@ -157,7 +157,7 @@ describe('事後要約のジョブ', () => {
     await new IndexerService({ db, deviceId: ME, transcript: claudeTranscriptSource({ claudeDir }), isRunning: () => false }).fullScan();
     const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
     const summarizer: Summarizer = {
-      id: 'lmstudio',
+      id: 'claude-headless',
       available: async () => true,
       summarize: async () => ({ title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [], proposal: { status: 'done', note: '片付いた', returnInDays: null } }),
     };
@@ -167,6 +167,6 @@ describe('事後要約のジョブ', () => {
     await job.idle();
     publisher.flush();
     expect(sent.map((e) => e.type)).toEqual(['summary.pending', 'session.upsert', 'summary.updated']);
-    expect(of('session.upsert')[0]!.session).toMatchObject({ id, summary: { title: 'T', source: 'post_hoc', sourceId: 'lmstudio' }, state: { status: null, candidate: { status: 'done', note: '片付いた' } } });
+    expect(of('session.upsert')[0]!.session).toMatchObject({ id, summary: { title: 'T', source: 'post_hoc', sourceId: 'claude-headless' }, state: { status: null, candidate: { status: 'done', note: '片付いた' } } });
   });
 });

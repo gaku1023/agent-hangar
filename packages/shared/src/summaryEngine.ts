@@ -1,9 +1,10 @@
 /**
  * 事後の要約を作るもの（設定の「要約エンジン」）。
- * off は作らない（既定）、claude は claude -p、openai は OpenAI 互換の URL（LM Studio、Ollama、vLLM など）である。
+ * off は作らない（既定）、claude は claude -p である。
+ * 外部の OpenAI 互換の要約器は、使われていなかったので外した。以前 openai を選んでいた設定は off として読む。
  * 会話の中で Claude が書く要約（set_session_summary）は、どれを選んでも書かれる。
  */
-export const SUMMARY_ENGINES = ['off', 'claude', 'openai'] as const;
+export const SUMMARY_ENGINES = ['off', 'claude'] as const;
 export type SummaryEngine = (typeof SUMMARY_ENGINES)[number];
 
 export function isSummaryEngine(v: unknown): v is SummaryEngine {

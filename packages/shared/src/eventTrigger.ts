@@ -8,6 +8,12 @@ import type { ScheduleRunDto, ScheduleTarget } from './schedule.ts';
  * 受け箱の側の上限は eventInbox.ts にある。
  */
 
+/**
+ * 外のできごとで動く機能を使うか（設定 eventTrigger）。
+ * 既定は切。この項目を知らない古いサーバと、値が無い設定は切として読む。
+ */
+export const eventTriggerOf = (s: { eventTrigger?: boolean }): boolean => s.eventTrigger === true;
+
 /** GitHub で見るできごと。 */
 export type GithubWhen = 'ci_done' | 'ci_failed' | 'review' | 'comment' | 'merged' | 'issue_opened';
 

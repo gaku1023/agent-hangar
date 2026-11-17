@@ -45,6 +45,13 @@ describe('辞書', () => {
     const ownLanguageNames = new Set(['settings.general.language.ja']);
     for (const key of keys.filter((k) => !ownLanguageNames.has(k))) expect([key, /[\u3040-\u30ff\u4e00-\u9fff]/.test(en[key])]).toEqual([key, false]);
   });
+  it('やめたプロジェクトのノートの画面の語は、辞書に残さない', () => {
+    // 表の名前（project_memos）は同期のために残るが、画面の「以前のノート」はやめた。
+    for (const key of keys) {
+      expect([key, key.startsWith('projectScreen.legacyNote.')]).toEqual([key, false]);
+      expect([key, /以前のノート/.test(ja[key]), /previous notes?/i.test(en[key])]).toEqual([key, false, false]);
+    }
+  });
   it('英語の文は、用語集で別の語に決めた言い方を使わない', () => {
     // 左の語は、用語集の「今の画面の語」に当たる英語の言い方。右は、代わりに使う語（用語集の英語の列）。
     // 鍵の名前や引数の名前は文の中に出ないので、文だけを見る。
@@ -67,8 +74,6 @@ describe('辞書', () => {
     expect(en['settings.label.summaryHourlyCap']).toBe('Hourly limit for Claude summaries');
     expect(en['settings.label.workspaceRoot']).toBe('Location for new folders');
     expect(en['settings.label.claudeDir']).toBe('Source directory');
-    expect(en['settings.label.allowExternalSummarizer']).toBe('Allow external summary engines');
-    expect(en['settings.label.summaryFallback']).toBe('Use Claude when the URL cannot be reached');
   });
   it('日本語と英語で、行の数が同じである', () => {
     // 何行かにわたる文（Claude に渡す指示、要約器への指示）は、1 行が 1 つの求めに当たる。行が減っていれば、求めを落としている。

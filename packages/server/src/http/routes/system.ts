@@ -62,6 +62,5 @@ export function systemRoutes(api: Hono, deps: SystemRouteDeps): void {
       return c.json({ error: tr('system.codex.optionsFailed', { reason: errorText(language(), e) }) }, 502);
     }
   });
-  api.get('/summarizer/models', async (c) => c.json({ models: await deps.summary.listModels() }));
   api.post('/summarizer/test', async (c) => c.json(await deps.summary.test()));
 }

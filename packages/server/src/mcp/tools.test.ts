@@ -11,7 +11,7 @@ import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { latestIntent } from '../live/intents.ts';
-import { markSeen, onUnread } from '../live/unread.ts';
+import { markSeen, onNotifyCall, onUnread } from '../live/unread.ts';
 import { getSession } from '../db/queries.ts';
 import { addTodo } from '../projects/todos.ts';
 import { assignSessions } from '../projects/registry.ts';
@@ -798,6 +798,18 @@ describe('MCP tools', () => {
     // 行が無ければ何もしない。
     expect(markSeen(db, alphaId)).toBe(false);
   });
+  it('notify_user は、出し先が空になるときも呼ばれたことを onNotifyCall へ知らせる（ターンの終わりの受け皿が、呼んだターンに未読を足さないため）。断った呼び出しは知らせない', () => {
+    const calls: string[] = [];
+    const off = onNotifyCall((id) => calls.push(id));
+    try {
+      upsertShared(db, 'session_states', { session_id: alphaId, status: 'done', set_by: 'conversation', set_at: 1000 }, 'd', 'session_id');
+      expect(call('notify_user', { text: '静かに' }, { sessionId: alphaId })).toMatchObject({ sent: [] });
+      expect(() => call('notify_user', { text: '' }, { sessionId: alphaId })).toThrow(ToolError);
+      expect(calls).toEqual([alphaId]);
+    } finally {
+      off();
+    }
+  });
   it('notify_user は Done、Archived、Paused にしたセッションでは何も出さない。付けた後に休みから動き出したら出す', () => {
     const seen: string[] = [];
     const off = onUnread((_id, text) => seen.push(text));
@@ -1005,21 +1017,13 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
     expect((callTool(deps, scoped(), 'list_projects', {}) as { id: string }[]).map((p) => p.id)).toEqual(['p1']);
   });
 
-  it('update_project はノートを書かない（append_memo はやめた）。渡されたら、やめたことと書く場所を notice で返し、エラーにはしない', () => {
-    const r = call('update_project', { project_id: 'p1', append_memo: '書かない' });
+  it('update_project はノートを書かない（append_memo はやめた）。notice も付けない', () => {
+    const r = call('update_project', { project_id: 'p1', status: 'paused', append_memo: '書かない' });
     expect(r).not.toHaveProperty('memo');
-    expect(r.notice).toBe('プロジェクトのノートは廃止したため、append_memo は保存しませんでした。記録したい内容は、CLAUDE.md などの指示ファイルに書いてください。');
+    expect(r).not.toHaveProperty('notice');
+    expect((r.project as { status: string }).status).toBe('paused');
     expect(db.prepare('select markdown from project_memos where project_id = ?').get('p1')).toBeUndefined();
     expect(fs.existsSync(path.join(home, 'projects', 'p1', 'memo.md'))).toBe(false);
-    // 他の項目は、いっしょに渡されても今までどおり書く。
-    const r2 = call('update_project', { project_id: 'p1', status: 'paused', append_memo: '書かない' });
-    expect((r2.project as { status: string }).status).toBe('paused');
-    expect(r2.notice).toEqual(expect.any(String));
-    // 渡さなければ notice は付けない。
-    expect(call('update_project', { project_id: 'p1', status: 'active' })).not.toHaveProperty('notice');
-    // 言語は道具の言語に従う。
-    deps.language = () => 'en';
-    expect(call('update_project', { project_id: 'p1', append_memo: 'x' }).notice).toBe('Project notes have been retired, so append_memo was not written. Write anything you want to keep in an instruction file such as CLAUDE.md.');
   });
 
   it('get_project と update_project は別のプロジェクトを断る', () => {

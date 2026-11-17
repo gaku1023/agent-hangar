@@ -22,7 +22,7 @@ describe('OpencodeClient の場所', () => {
   });
   afterEach(async () => {
     if (serve) { killGroup(serve.pid, 'SIGKILL'); await serve.exited; serve = null; }
-    for (const d of [dir, work, other]) fs.rmSync(d, { recursive: true, force: true });
+    for (const d of [dir, work, other]) fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });
 
   it('場所を問いで渡さない要求も、serve の会話のフォルダを指す。問いで渡した場所はそのまま効く', async () => {

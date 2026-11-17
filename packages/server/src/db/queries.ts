@@ -552,25 +552,16 @@ type ProjectRow = {
   resolved: number | null;
   last_activity_at: number | null;
   open_todos: number;
-  memo_markdown: string | null;
 };
 
 // open_todos（未完の数）には、利用者がまだ受け入れていない Claude の提案（suggested_at が null でない行）を数えない。
 const PROJECT_SELECT = `
 select p.id, p.name, p.status, p.is_scratch, p.updated_at, r.path, r.resolved,
   (select max(s.last_activity_at) from sessions s where s.project_id = p.id and s.deleted_at is null) last_activity_at,
-  (select count(*) from todos t where t.project_id = p.id and t.done = 0 and t.suggested_at is null and t.deleted_at is null) open_todos,
-  (select m.markdown from project_memos m where m.project_id = p.id and m.deleted_at is null) memo_markdown
+  (select count(*) from todos t where t.project_id = p.id and t.done = 0 and t.suggested_at is null and t.deleted_at is null) open_todos
 from projects p
 left join project_roots r on r.project_id = p.id and r.device_id = ? and r.deleted_at is null
 where p.deleted_at is null`;
-
-/** メモの先頭。空行でない最初の行の先頭 80 字。 */
-export function memoHead(markdown: string | null): string | null {
-  if (!markdown) return null;
-  const line = markdown.split('\n').map((l) => l.trim()).find((l) => l.length > 0);
-  return line ? [...line].slice(0, 80).join('') : null;
-}
 
 /**
  * この PC で場所が無いものの内訳（ProjectUnresolvedDto）。場所があるものとクイックセッションは null。
@@ -599,7 +590,6 @@ function toProjectDto(r: ProjectRow, db: Db, liveIds: Set<string>, sameFolder: M
     lastActivityAt: r.last_activity_at,
     runningCount: psids.filter((p) => liveIds.has(p)).length,
     openTodoCount: r.open_todos,
-    memoHead: memoHead(r.memo_markdown),
     updatedAt: r.updated_at,
     unresolved: unresolvedOf(r, db),
     sameFolder: sameFolder.get(r.id) ?? null,

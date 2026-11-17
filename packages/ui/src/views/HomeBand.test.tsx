@@ -314,7 +314,7 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
 
 describe('HomeBand の場所の不明なプロジェクト（2.11.5）', () => {
   const store = (list: ProjectDto[], sessions: SessionDto[] = []) => ({ ...initialStore(), projects: Object.fromEntries(list.map((p) => [p.id, p])), sessions: Object.fromEntries(sessions.map((s) => [s.id, s])) });
-  const lost = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: false, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1, unresolved: { kind: 'missing', previousPath: `/w/${id}`, deviceName: null } });
+  const lost = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: false, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, updatedAt: 1, unresolved: { kind: 'missing', previousPath: `/w/${id}`, deviceName: null } });
   const group = (list: ProjectDto[]) => presentUnresolved(store(list, [{ id: 's1', projectId: 'alpha' } as SessionDto]), ja)!;
 
   it('4 つ目の錠剤として並ぶ。群を足すだけで、View は変えない', () => {

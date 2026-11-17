@@ -142,7 +142,6 @@ export type UiAction =
   | { type: 'todo.accept'; id: TodoId } | { type: 'todo.dismiss'; id: TodoId }
   // 直前の操作を戻す。todoId があれば、その TODO を消した操作を戻す（消した場所の帯の「元に戻す」）。
   | { type: 'todo.undo'; projectId: ProjectId; todoId?: TodoId }
-  | { type: 'memo.save'; projectId: ProjectId; markdown: string }
   // 指示とメモリ。load は読み直し（ダイアログを開いたとき）、openEditor はそのファイルをエディタで開く。
   | { type: 'instructions.load'; projectId: ProjectId } | { type: 'instructions.openEditor'; projectId: ProjectId; kind: InstructionFileKind; once?: KnownEditorId }
   // セットアップのすゝめ。写した md をエディタで開く（設定の連携の札の「手引きの中身を見る」）。
