@@ -63,9 +63,14 @@ describe('補助を作る道', () => {
     const voice = job(ci, 'voice-mac');
     expect(voice).toContain('swift test --package-path apps/voice-mac/Core');
     expect(voice).not.toMatch(/swift test --package-path apps\/voice-mac(\s|$)/);
-    // PR では変わったときだけ build する。ジョブごと飛ばすと必須のチェックが来なくなるので、段に if を付ける。
-    expect(voice).not.toMatch(/^ {4}if:/m);
-    expect(voice).toMatch(/- run: bash apps\/voice-mac\/scripts\/build\.sh\n\s+if: steps\.changed\.outputs\.build == 'true'/);
+    // PR では声の関係のファイルが変わったときだけ、ジョブごと走らせる（変更の判定は changes ジョブ）。
+    // 必須のチェックでも、if で飛ばしたジョブは Skipped で通るので、マージは止まらない。
+    expect(voice).toMatch(/^ {4}needs: changes$/m);
+    expect(voice).toMatch(/^ {4}if: github\.event_name != 'pull_request' \|\| needs\.changes\.outputs\.voice == 'true'$/m);
+    expect(voice).not.toContain('steps.changed');
+    const changes = job(ci, 'changes');
+    expect(changes).toContain('apps/voice-mac');
+    expect(changes).toMatch(/voice=(true|false)/);
     // 保存は main の push だけ。
     expect(voice).toMatch(/actions\/cache\/save@\S+\n\s+if: github\.event_name == 'push'/);
     expect(voice).not.toMatch(/actions\/cache@/);

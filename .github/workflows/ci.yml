@@ -36,12 +36,12 @@ jobs:
           sudo apt-get install -y tmux
           tmux -V
       - run: npm ci
-      - run: npm run typecheck
       # 試験は check と check-2 の 2 つのジョブに分けて並べる（vitest の --shard）。
       # 1 本では 5〜8 分かかり、windows と並んで CI 全体の長さを決めていた（2026-10-29 の実測）。
+      # 型の確かめは、build のある check でなく check-2 に置いて、2 つの長さをそろえる。
       - run: npm test -- --shard=1/2
       - run: npm run build
-  # check の試験の残りの半分。型の確かめと build は check だけで回す。
+  # check の試験の残りの半分。build は check だけで、型の確かめはここだけで回す。
   check-2:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -58,6 +58,7 @@ jobs:
           sudo apt-get install -y tmux
           tmux -V
       - run: npm ci
+      - run: npm run typecheck
       - run: npm test -- --shard=2/2
   # 殻と同梱の CLI は、Node-API 10 以上（Node 22.14 以上）の Node を採る。上限は付けない（0.6.1 から）。
   # 新しい Node（24）でもサーバが動くことを、サーバの試験で確かめる。
@@ -81,49 +82,58 @@ jobs:
       - run: node --version
       - name: サーバの試験（Node 24）
         run: npm test -- --project server
-  # 補助 hangar-voice の芯（約束の読み書きと声の区切り）の試験と、.app に入れるのと同じ Release の build。
-  # MLX をゼロから作ると、試験と build で 1 回ずつ、合わせて 8〜19 分かかり、CI 全体の律速になっていた（2026-11-17）。
-  # そこで、芯の試験は MLX に依らない別のパッケージ（apps/voice-mac/Core）で回し、
-  # build は PR では voice-mac が変わったときだけ回し、DerivedData を main が保存したキャッシュから戻す。
-  # ジョブはいつも走らせる（必須のチェックなので、ジョブごと飛ばすとマージが止まる）。
-  voice-mac:
-    runs-on: macos-latest
-    timeout-minutes: 30
+  # voice-mac を走らせるかの判定。PR では、声の関係のファイルが変わったときだけ voice-mac を走らせる。
+  # macOS のランナーは同時に 5 本までで、PR のたびに 1 本取ると待ちが出ていた（2026-11-18 の点検）。
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      voice: ${{ steps.diff.outputs.voice }}
     steps:
       - uses: actions/checkout@v7
         with:
           # PR では refs/pull/N/merge を取り出す。その 1 つ目の親が base なので、親まであれば PR の変更が分かる。
           fetch-depth: 2
-      - run: swift test --package-path apps/voice-mac/Core
-      - name: build が要るかを見る
-        id: changed
+      - name: 声の関係が変わったかを見る
+        id: diff
         run: |
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
-            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "voice=true" >> "$GITHUB_OUTPUT"
           elif git diff --quiet HEAD^1 HEAD -- apps/voice-mac .github/workflows/ci.yml; then
-            echo "voice-mac は変わっていないので、Release の build を飛ばす"
-            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "voice-mac は変わっていないので、voice-mac ジョブを飛ばす"
+            echo "voice=false" >> "$GITHUB_OUTPUT"
           else
-            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "voice=true" >> "$GITHUB_OUTPUT"
           fi
+  # 補助 hangar-voice の芯（約束の読み書きと声の区切り）の試験と、.app に入れるのと同じ Release の build。
+  # MLX をゼロから作ると、試験と build で 1 回ずつ、合わせて 8〜19 分かかり、CI 全体の律速になっていた（2026-11-17）。
+  # そこで、芯の試験は MLX に依らない別のパッケージ（apps/voice-mac/Core）で回し、
+  # build は DerivedData を main が保存したキャッシュから戻す。
+  # PR では changes ジョブが声の関係の変更を見たときだけ、ジョブごと走らせる。main の push ではいつも走らせる（キャッシュを保存するため）。
+  # 必須のチェックの 5 つ（check、desktop、node24、windows、windows-test）に voice-mac は入っていない。
+  # 入っていても、if で飛ばしたジョブは Skipped で通るので、マージは止まらない。
+  voice-mac:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.voice == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - run: swift test --package-path apps/voice-mac/Core
       # 鍵は Xcode の版と Package.resolved の指紋。release.yml の macos ジョブも同じ鍵と場所で戻す。
       # 頭の cas は build.sh の compilation caching を入れた作り方。作り方を変えたら頭を替え、古い中間物に当たらないようにする。
       # 場所は build.sh の既定（HANGAR_VOICE_DERIVED が無いとき）なので、env は渡さない。
       - name: キャッシュの鍵
-        if: steps.changed.outputs.build == 'true'
         id: key
         run: echo "key=voice-mac-cas-$(xcodebuild -version | shasum | cut -c1-12)-${{ hashFiles('apps/voice-mac/Package.resolved') }}" >> "$GITHUB_OUTPUT"
       - uses: actions/cache/restore@v6
-        if: steps.changed.outputs.build == 'true'
         id: cache
         with:
           path: ~/Library/Caches/agent-hangar/voice-mac-xcode
           key: ${{ steps.key.outputs.key }}
       # MLX の Metal のシェーダを作るのに Metal Toolchain が要る。
       - run: xcodebuild -downloadComponent MetalToolchain
-        if: steps.changed.outputs.build == 'true'
       - run: bash apps/voice-mac/scripts/build.sh
-        if: steps.changed.outputs.build == 'true'
       # 保存するのは main だけ。PR の分は main から読めず、枠（10GB）を食うだけなので保存しない。
       # 鍵が当たったときは、同じ鍵では上書きできないので保存しない。
       - uses: actions/cache/save@v6
@@ -131,7 +141,7 @@ jobs:
         with:
           path: ~/Library/Caches/agent-hangar/voice-mac-xcode
           key: ${{ steps.key.outputs.key }}
-  # Windows の試験は、Rust とインストーラのジョブ（windows）から分けて並列に回す。
+  # Windows の server の試験は、インストーラのジョブ（windows）から分けて並列に回す。
   # 1 本のジョブで続けて回すと、試験の 7 分ほどが CI 全体の長さにそのまま乗っていた（2026-10-16 の実測）。
   windows-test:
     runs-on: windows-latest
@@ -165,32 +175,13 @@ jobs:
           Expand-Archive -Path $zip -DestinationPath $dir
           Add-Content -Path $env:GITHUB_PATH -Value $dir
           & (Join-Path $dir 'psmux.exe') -V
-      # 型の検査（typecheck）は OS に依らないので、Linux の check だけで回す。
-      # OS で結果が割れうる project（server、desktop、cli、shared）だけを回す。
+      # 型の検査（typecheck）は OS に依らないので、Linux の check-2 だけで回す。
+      # OS で結果が割れうる project のうち、server だけをここで回す。desktop、cli、shared は windows ジョブで回す（ここが律速だったため）。
       # cloud（Miniflare の上の Worker）と ui（jsdom）は OS に依らないので、Linux の check だけで回す。Windows では cloud だけで 6 分近くかかっていた。
       # 4 コアのランナーで既定の 3 本より速かったので、ワーカーは 4 本にする（2026-10-16 の実測）。
-      - run: npm test -- --project server --project desktop --project cli --project shared --maxWorkers=4
-  # 殻（Tauri、Rust）が Windows で組み上がることを clippy と cargo test で見る。窓や通知の振る舞いまでは見ない（段 6 の 6-2）。
-  # 配布物の段（windows）と更新の試し（windows-update）と並べて回す。1 本で続けて回すと 7〜11 分かかっていた（2026-10-29 の実測）。
-  windows-rust:
-    runs-on: windows-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-      # windows-latest に Rust は入っているが、版と components をここで決める。
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      # debug の依存のキャッシュ。保存は main だけにする（理由は windows ジョブの rust-cache の注記）。
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: apps/desktop/src-tauri
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      # clippy が型の検査も兼ねるので、cargo check は回さない。
-      - run: cargo clippy --all-targets -- -D warnings
-        working-directory: apps/desktop/src-tauri
-      - run: cargo test
-        working-directory: apps/desktop/src-tauri
+      - run: npm test -- --project server --maxWorkers=4
+  # 配布物の段。殻（Tauri、Rust）が Windows で組み上がることを clippy と cargo test で見る作業（旧 windows-rust）も、ここで回す。窓や通知の振る舞いまでは見ない（段 6 の 6-2）。
+  # 別のジョブにすると、Windows のランナーを PR ごとにもう 1 本取り、同時実行の上限に当たって待ちが出ていた（2026-11-18 の点検）。
   windows:
     runs-on: windows-latest
     # ビルドが固まったときの上限。Rust のビルドがキャッシュ外れで数分、配布物のビルド（Rust と NSIS）に数分かかる。
@@ -219,8 +210,12 @@ jobs:
           Expand-Archive -Path $zip -DestinationPath $dir
           Add-Content -Path $env:GITHUB_PATH -Value $dir
           & (Join-Path $dir 'psmux.exe') -V
-      # windows-latest に Rust は入っているが、版をここで決める。clippy と cargo test は windows-rust ジョブで回す。
+      # OS で結果が割れうる project のうち、desktop、cli、shared の試験をここで回す（server は windows-test）。windows-test が律速だったため。
+      - run: npm test -- --project desktop --project cli --project shared --maxWorkers=4
+      # windows-latest に Rust は入っているが、版と components をここで決める。
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri
@@ -229,6 +224,11 @@ jobs:
           # 保存は main だけにする。PR は main のキャッシュを読める。PR ごとに 1GB 前後を保存すると、リポジトリの上限（10GB）を超えて
           # 古いものから消え、main のキャッシュまで当たらなくなっていた（2026-10-15、直近の実行がすべて No cache found）。
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # clippy が型の検査も兼ねるので、cargo check は回さない。
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: apps/desktop/src-tauri
+      - run: cargo test
+        working-directory: apps/desktop/src-tauri
       # 配布物（NSIS のインストーラ）を作り、入れて、同梱の hangar.cmd が動くところと、殻を起こすとサーバが応えるところまで見る（段 6 の 6-8）。
       # 手順は release の windows ジョブと同じものを、composite action の 1 か所で持つ。
       # 署名はしない（利用者の決定）。Release には上げず、この実行の artifact に 7 日だけ残す。
@@ -296,8 +296,11 @@ jobs:
           Expand-Archive -Path $zip -DestinationPath $dir
           Add-Content -Path $env:GITHUB_PATH -Value $dir
           & (Join-Path $dir 'psmux.exe') -V
-      # windows-latest に Rust は入っているが、版をここで決める。clippy と cargo test は windows-rust ジョブで回す。
+      # windows-latest に Rust は入っているが、版と components をここで決める。
+      # 環境の指紋に components が入るので、windows ジョブと同じものを入れる（そうしないと windows ジョブのキャッシュに当たらない）。
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri
