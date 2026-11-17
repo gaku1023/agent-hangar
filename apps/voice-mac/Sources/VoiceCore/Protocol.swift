@@ -9,6 +9,7 @@ public enum Command: Equatable {
     case speak(id: String, text: String, voice: String, speed: Double)
     case stopSpeaking
     case prepare
+    case voices
     case quit
 }
 
@@ -30,6 +31,7 @@ extension Command: Decodable {
                 speed: try c.decode(Double.self, forKey: .speed))
         case "stopSpeaking": self = .stopSpeaking
         case "prepare": self = .prepare
+        case "voices": self = .voices
         case "quit": self = .quit
         default:
             throw DecodingError.dataCorruptedError(
@@ -46,6 +48,16 @@ public enum SpeakingState: String, Encodable, Equatable {
     case start, end, stopped
 }
 
+/// この Mac の声の 1 件（`voices` の応答）。
+public struct VoiceInfo: Equatable, Encodable {
+    public let id: String
+    public let name: String
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
 public enum Event: Equatable {
     case ready(version: String)
     case models(state: ModelsState, progress: Double, message: String?)
@@ -54,12 +66,13 @@ public enum Event: Equatable {
     case flushed
     case speaking(id: String, state: SpeakingState)
     case micUsers(bundles: [String])
+    case voices(os: [VoiceInfo])
     case error(code: String, message: String)
 }
 
 extension Event: Encodable {
     private enum Keys: String, CodingKey {
-        case ev, version, state, progress, message, speech, id, text, dbfs, ms, bundles, code
+        case ev, version, state, progress, message, speech, id, text, dbfs, ms, bundles, code, os
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -91,6 +104,9 @@ extension Event: Encodable {
         case .micUsers(let bundles):
             try c.encode("micUsers", forKey: .ev)
             try c.encode(bundles, forKey: .bundles)
+        case .voices(let os):
+            try c.encode("voices", forKey: .ev)
+            try c.encode(os, forKey: .os)
         case .error(let code, let message):
             try c.encode("error", forKey: .ev)
             try c.encode(code, forKey: .code)
