@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_ORCHESTRATOR, type EndReason, type LiveStatus, type OrchestratorSetting, type RunDto } from '@agent-hangar/shared';
-import { OrchestratorKeeper, type KeeperRuns } from './keeper.ts';
+import { OrchestratorKeeper, RESPEC_GONE_MS, type KeeperRuns } from './keeper.ts';
 
 const MIN = 60_000;
 
@@ -57,7 +57,9 @@ function rig(initial: Partial<OrchestratorSetting> = {}, o: { resumable?: boolea
   };
   const settle = () => new Promise((r) => setTimeout(r, 0));
   const live = (id: string, st: LiveStatus) => { status.set(id, st); for (const cb of [...liveListeners]) cb(); };
-  return { keeper, runs, calls, sent, tokens, clock: () => clock, end, settle, live, setting: () => setting, set: (p: Partial<OrchestratorSetting>) => { setting = { ...setting, ...p }; }, advance: (ms: number) => { clock += ms; }, alive };
+  // 実行中の一覧から消える（claude が終わりきった）。止めた直後はまだ一覧に残っている。
+  const gone = (id: string) => { status.delete(id); for (const cb of [...liveListeners]) cb(); };
+  return { keeper, runs, calls, sent, tokens, clock: () => clock, end, settle, live, gone, setting: () => setting, set: (p: Partial<OrchestratorSetting>) => { setting = { ...setting, ...p }; }, advance: (ms: number) => { clock += ms; }, alive };
 }
 
 describe('OrchestratorKeeper', () => {
@@ -245,6 +247,22 @@ describe('OrchestratorKeeper', () => {
   });
 
   describe('指定（account、model、effort）が変わったとき', () => {
+    it('止めた claude が一覧から消えないままなら、待ちの上限を過ぎてから再開を試みる', async () => {
+      vi.useFakeTimers();
+      try {
+        const t = rig({ enabled: true });
+        t.keeper.start();
+        await vi.advanceTimersByTimeAsync(0);
+        t.live('orch-1', 'idle');
+        t.set({ effort: 'high' });
+        t.keeper.apply();
+        await vi.advanceTimersByTimeAsync(RESPEC_GONE_MS - 1);
+        expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1']);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1', 'resume:orch-1!stop']);
+      } finally { vi.useRealTimers(); }
+    });
+
     const running = async (initial: Partial<OrchestratorSetting> = {}) => {
       const t = rig({ enabled: true, ...initial });
       t.keeper.start();
@@ -257,6 +275,10 @@ describe('OrchestratorKeeper', () => {
       t.live('orch-1', 'idle');
       t.set({ model: 'opus', account: 'acc-2' });
       t.keeper.apply();
+      await t.settle();
+      // 止めた claude が実行中の一覧に残っている間は再開しない（再開すると「hangar の外部で実行中」で断られる）。
+      expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1']);
+      t.gone('orch-1');
       await t.settle();
       expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1', 'resume:orch-1@acc-2!stop']);
       expect(t.setting()).toMatchObject({ enabled: true, sessionId: 'orch-1', model: 'opus' });
@@ -275,6 +297,8 @@ describe('OrchestratorKeeper', () => {
       expect(t.calls).toEqual(['start:orch-1']);
       t.live('orch-1', 'idle');
       await t.settle();
+      t.gone('orch-1');
+      await t.settle();
       expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1', 'resume:orch-1!stop']);
       // 同じ指定ではもう止めない。
       t.live('orch-1', 'idle');
@@ -288,6 +312,8 @@ describe('OrchestratorKeeper', () => {
         t.live('orch-1', 'idle');
         t.set({ model: m });
         t.keeper.apply();
+        await t.settle();
+        t.gone('orch-1');
         await t.settle();
       }
       expect(t.calls.filter((c) => c.startsWith('kill'))).toHaveLength(4);
@@ -326,6 +352,8 @@ describe('OrchestratorKeeper', () => {
       expect(t.calls).toEqual([]);
       t.set({ model: 'opus' });
       t.keeper.apply();
+      await t.settle();
+      t.gone('old-1');
       await t.settle();
       expect(t.calls).toEqual(['kill:run-old-1', 'resume:old-1!stop']);
       expect(t.setting().enabled).toBe(true);
