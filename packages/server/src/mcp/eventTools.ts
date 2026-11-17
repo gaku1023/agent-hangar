@@ -1,4 +1,4 @@
-import { EVENT_DRAFTS_MAX, PR_CLAIM_DRAFTS_MAX, type EventAction, type EventSource } from '@agent-hangar/shared';
+import { eventTriggerOf, EVENT_DRAFTS_MAX, PR_CLAIM_DRAFTS_MAX, type EventAction, type EventSource } from '@agent-hangar/shared';
 import { claimPr, countDrafts, countSessionDraftClaims, createBinding, hasClaim } from '../event/store.ts';
 import { parseAllowAuthors, parsePassBody, parsePrompt, parseSource, REPO_RE } from '../event/validate.ts';
 import { msg } from '../i18n/message.ts';
@@ -15,11 +15,18 @@ import { requireSession, sessionIdOf, ToolError, type ToolContext, type ToolDeps
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v : undefined);
 
+/** 設定が渡されているのに外のできごとが切なら断る。設定の口が無い呼び手（試験など）は入りとして通す。 */
+function assertEventOn(deps: ToolDeps): void {
+  const s = deps.settings?.();
+  if (deps.settings && !eventTriggerOf(s ?? {})) throw new ToolError(msg('schedules.event.error.off'));
+}
+
 /**
  * この会話が PR を持つ印を、下書きとして置く。
  * 承認済み（active）の印は下書きに戻さない。
  */
 export function claimPrTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
+  assertEventOn(deps);
   const sessionId = sessionIdOf(ctx, args);
   requireSession(deps, sessionId);
   const repo = str(args.repo);
@@ -68,6 +75,7 @@ function actionOf(deps: ToolDeps, ctx: ToolContext, v: unknown, source: EventSou
  * 返すのは、画面で見分けるための id と、利用者が決めた中身だけである。
  */
 export function draftEventBindingTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, now = Date.now()) {
+  assertEventOn(deps);
   const source = parseSource(args.source);
   // 下書きは全部で EVENT_DRAFTS_MAX 件まで。
   // 利用者が作る結び付けの上限（50 件）には数えない。
