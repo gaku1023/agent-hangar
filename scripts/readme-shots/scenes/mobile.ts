@@ -204,7 +204,9 @@ const scene: Scene = {
       // 新しい会話を開き、プロジェクトを選び、依頼の文を打って送る。
       await phone.getByRole('button', { name: '＋ 新しい会話' }).click();
       await c.sleep(800);
-      await phone.locator('.ns').getByText('hiking-log', { exact: true }).click();
+      await phone.locator('[data-chip="project"]').click();
+      await c.sleep(600);
+      await phone.getByRole('radiogroup', { name: 'プロジェクト' }).getByRole('radio', { name: /hiking-log/ }).click();
       await c.sleep(500);
       const box = phone.getByRole('textbox').first();
       await box.click();
