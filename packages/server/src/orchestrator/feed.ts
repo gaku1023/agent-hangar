@@ -1,4 +1,4 @@
-import type { LiveSessionDto, LiveStatus, Translate, WaitKind } from '@agent-hangar/shared';
+import { ORCHESTRATOR_CONTEXT_LIMIT, type LiveSessionDto, type LiveStatus, type Translate, type WaitKind } from '@agent-hangar/shared';
 
 /**
  * 統括へ出来事を送り込む（docs/design.md「統括」の出来事の届け方）。
@@ -24,8 +24,9 @@ import type { LiveSessionDto, LiveStatus, Translate, WaitKind } from '@agent-han
  * 猶予の間に待ちが消えれば通知は出ない。消えなければ、猶予が明けたときに onGraceEnd で知らせ、通知の側が 1 回出す。
  * 統括が無効、止まっている、busy のときは猶予を付けない（今までどおりすぐ出す）。
  *
- * 太り。統括の文脈が compactTokens を超え、idle が compactIdleMs 続き、預かりが空のとき、`/compact` を 1 回だけ送る。
- * 文脈が閾値を下回れば、次にまた超えたときに送れるようにする。
+ * 太り。統括の文脈が freshTokens を超え、idle が freshIdleMs 続き、預かりが空のとき、新しい会話への切り替え（keeper.fresh('auto')）を 1 回だけ頼む。
+ * 要約（/compact）は重ねない（docs/design.md「統括」の太ったとき）。切り替えが断られたら、次の idle でまた頼む。
+ * 文脈が閾値を下回れば（新しい会話に切り替わった）、次にまた超えたときに頼めるようにする。
  */
 
 export type FeedEventKind = 'ask.permission' | 'ask.question' | 'turn.done' | 'session.ended';
@@ -43,10 +44,10 @@ export const FEED_POLL_MS = 1_500;
 export const FEED_SETTLE_MS = 20_000;
 /** 許可待ちの OS とスマホの通知を預かる長さ。 */
 export const NOTICE_GRACE_MS = 15_000;
-/** 統括の文脈がこれを超えたら、idle の間に /compact を送る。 */
-export const COMPACT_TOKENS = 150_000;
-/** /compact を送るまでに続いてほしい idle の長さ。 */
-export const COMPACT_IDLE_MS = 2 * 60_000;
+/** 統括の文脈がこれを超えたら、idle の間に新しい会話へ切り替える。柱の文脈の量の線と同じ値。 */
+export const AUTO_FRESH_TOKENS = ORCHESTRATOR_CONTEXT_LIMIT;
+/** 切り替えを頼むまでに続いてほしい idle の長さ。 */
+export const AUTO_FRESH_IDLE_MS = 2 * 60_000;
 
 export type OrchestratorFeedDeps = {
   now?: () => number;
@@ -86,8 +87,8 @@ export type OrchestratorFeedDeps = {
   pollMs?: number;
   settleMs?: number;
   graceMs?: number;
-  compactTokens?: number;
-  compactIdleMs?: number;
+  freshTokens?: number;
+  freshIdleMs?: number;
 };
 
 type Seen = { status: LiveStatus; waitingFor: WaitKind | null; tool: string | null; title: string; askId: string | null };
@@ -125,8 +126,10 @@ export class OrchestratorFeed {
   private settle: { at: number; sawNonIdle: boolean } | null = null;
   private grace = new Map<string, { until: number; timer: ReturnType<typeof setTimeout> }>();
   private idleSince: number | null = null;
-  private compactTimer: ReturnType<typeof setTimeout> | null = null;
-  private compacted = false;
+  private freshTimer: ReturnType<typeof setTimeout> | null = null;
+  private freshAsked = false;
+  /** 新しい会話への切り替えを頼む口（keeper.fresh('auto')）。頼めたら真。見張りは送り込みの後に作られるので、後から結ぶ。 */
+  private fresh: (() => boolean) | null = null;
   private stopped = false;
   /** 質問を待つ会話がある間、札の id を見直す周期。 */
   private questionWatch: ReturnType<typeof setInterval> | null = null;
@@ -140,7 +143,7 @@ export class OrchestratorFeed {
     if (this.stopped) return;
     this.observe();
     this.kick();
-    this.checkCompact();
+    this.checkFresh();
   }
 
   /**
@@ -164,13 +167,13 @@ export class OrchestratorFeed {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     if (this.poll) clearInterval(this.poll);
-    if (this.compactTimer) clearTimeout(this.compactTimer);
+    if (this.freshTimer) clearTimeout(this.freshTimer);
     if (this.questionWatch) clearInterval(this.questionWatch);
     this.questionWatch = null;
     for (const g of this.grace.values()) clearTimeout(g.timer);
     this.grace.clear();
     this.items = [];
-    this.timer = this.poll = this.compactTimer = null;
+    this.timer = this.poll = this.freshTimer = null;
   }
 
   private self(): string | null {
@@ -364,39 +367,36 @@ export class OrchestratorFeed {
     }
   }
 
-  /** 文脈が太っていて、idle が続き、預かりが空なら /compact を 1 回送る。続きの判定は時計で見る。 */
-  private checkCompact(): void {
-    if (this.stopped) return;
+  /** 切り替えを頼む口を結ぶ。null で外す。 */
+  bindFresh(fn: (() => boolean) | null): void {
+    this.fresh = fn;
+  }
+
+  /** 文脈が太っていて、idle が続き、預かりが空なら、新しい会話への切り替えを 1 回頼む。続きの判定は時計で見る。 */
+  private checkFresh(): void {
+    if (this.stopped || this.fresh === null) return;
     const self = this.self();
     if (self === null) return;
     // 文脈の量は idle の間だけ読む（一覧の変化のたびに読まない）。
     if (this.selfStatus !== 'idle') return;
-    const limit = this.deps.compactTokens ?? COMPACT_TOKENS;
+    const limit = this.deps.freshTokens ?? AUTO_FRESH_TOKENS;
     let tokens: number | null = null;
     try { tokens = this.deps.contextTokens(self); } catch { tokens = null; }
     if (tokens === null) return;
-    if (tokens <= limit) { this.compacted = false; return; }
-    if (this.compacted || this.selfStatus !== 'idle' || this.idleSince === null) return;
-    const wait = (this.deps.compactIdleMs ?? COMPACT_IDLE_MS) - (this.now() - this.idleSince);
+    if (tokens <= limit) { this.freshAsked = false; return; }
+    if (this.freshAsked || this.idleSince === null) return;
+    const wait = (this.deps.freshIdleMs ?? AUTO_FRESH_IDLE_MS) - (this.now() - this.idleSince);
     if (wait > 0) {
-      if (this.compactTimer) clearTimeout(this.compactTimer);
-      this.compactTimer = setTimeout(() => { this.compactTimer = null; this.observe(); this.checkCompact(); }, wait);
-      this.compactTimer.unref?.();
+      if (this.freshTimer) clearTimeout(this.freshTimer);
+      this.freshTimer = setTimeout(() => { this.freshTimer = null; this.observe(); this.checkFresh(); }, wait);
+      this.freshTimer.unref?.();
       return;
     }
     if (this.items.length > 0 || this.delivering) return;
-    this.compacted = true;
-    this.delivering = true;
-    void (async () => {
-      try {
-        let empty = false;
-        try { empty = (await this.deps.inputEmpty(self)) === true; } catch { empty = false; }
-        const ok = empty && (await this.deps.deliver(self, '/compact').catch(() => false)) === true;
-        // 送れなかったら、次の idle でやり直す。
-        if (!ok) this.compacted = false;
-      } finally {
-        this.delivering = false;
-      }
-    })();
+    this.freshAsked = true;
+    let ok = false;
+    try { ok = this.fresh(); } catch { ok = false; }
+    // 断られたら（切り替え中、切など）、次の idle でまた頼む。
+    if (!ok) this.freshAsked = false;
   }
 }
