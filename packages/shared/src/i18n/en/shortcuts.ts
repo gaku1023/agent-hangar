@@ -15,6 +15,7 @@ export const shortcutsEn: AreaDictionary<typeof shortcutsKeys> = {
   'shortcuts.hint.inTerminal': '{keys}, or {terminal} in the terminal',
   'shortcuts.key.paletteOpen': 'Command palette (search and navigate)',
   'shortcuts.key.sessionNew': 'New session',
+  'shortcuts.key.orchestratorToggle': 'Toggle orchestrator',
   'shortcuts.key.sessionNewQuick': 'Start a quick session',
   'shortcuts.key.sessionNextWaiting': 'Go to next Needs attention',
   'shortcuts.key.settingsOpen': 'Settings',

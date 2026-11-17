@@ -26,6 +26,9 @@ describe('playPaneMotion', () => {
     expect(box).not.toHaveAttribute(LAYOUT_MOVING_ATTR);
     expect(settled).toHaveBeenCalledTimes(1);
     expect(frames[0]![0]).toHaveProperty('gridTemplateColumns');
+    // 左の列は px に固めず、残りの幅を取る形のまま（箱の幅が同時に変わっても右の欄が置き去りにならない）。
+    expect(frames[0]![0]!.gridTemplateColumns).toMatch(/^minmax\(0, 1fr\) \S+$/);
+    expect(frames[0]![1]!.gridTemplateColumns).toMatch(/^minmax\(0, 1fr\) \S+$/);
     window.removeEventListener(LAYOUT_SETTLED, settled);
     box.remove();
   });

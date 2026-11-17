@@ -22,6 +22,9 @@ const ID = 'pane-motion';
 /** 箱ごとの動きの世代。 */
 const generation = new WeakMap<HTMLElement, number>();
 
+/** 計算済みの列（px の並び）の右端の列だけを残し、左の列は残りの幅を取る形にする。 */
+const fluid = (cols: string): string => `minmax(0, 1fr) ${cols.trim().split(/\s+/).pop() ?? '0px'}`;
+
 function measure(box: HTMLElement, inner: HTMLElement | null) {
   const cs = getComputedStyle(box);
   return { cols: cs.gridTemplateColumns, gap: cs.columnGap, innerW: inner?.getBoundingClientRect().width ?? 0 };
@@ -46,7 +49,9 @@ export function playPaneMotion(box: HTMLElement, from: PaneShape, inner: HTMLEle
   // 縦の伸び（flex）には触れない。縦に伸びる中身の高さを奪うと、目次のスクロールが先頭へ戻る。幅は min-width も留め、横に並ぶ箱（終わった画面の欄）でも縮まないようにする。
   if (inner && width > 0) { inner.style.width = `${width}px`; inner.style.minWidth = `${width}px`; }
   const easing = motionEase('--ease-out', box);
-  const cols = box.animate([{ gridTemplateColumns: before.cols, columnGap: before.gap }, { gridTemplateColumns: to.cols, columnGap: to.gap }], { duration: dur, easing, id: ID });
+  // 動かすのは右の列の幅（と隙間）だけで、左の列は minmax(0, 1fr) のままにする。
+  // 左の列まで px に固めると、動きの間に箱の幅が変わるとき（統括の柱の開閉と同時に走るとき）に右の欄が置き去りになり、終わりに右へ跳ぶ。
+  const cols = box.animate([{ gridTemplateColumns: fluid(before.cols), columnGap: before.gap }, { gridTemplateColumns: fluid(to.cols), columnGap: to.gap }], { duration: dur, easing, id: ID });
   if (inner) {
     const blur = `blur(${motionValue('--blur-in', box)})`;
     if (opening) inner.animate([{ opacity: 0, filter: blur }, { offset: 0.35, filter: 'none' }, { opacity: 1, filter: 'none' }], { duration: dur, easing, id: ID });

@@ -347,6 +347,10 @@ export type State = {
    * 開いている間は、どの会話も右の欄を畳む（presenters の tocFolds と、ペインの右パネル）。保存した開閉は替えない。
    */
   orchestratorOpen: boolean;
+  /** 開いた統括の柱の幅（px）。左の縁を掴んで変え、端末ごとに保存して起動時に読み戻す。 */
+  orchestratorWidth: number;
+  /** 統括の会話の既読を頼んだ未読の鍵（「セッションの id|未読の最後の時刻」）。柱を開いている間に同じ未読へ何度も頼まないために覚える。 */
+  orchSeenAsked: string | null;
   /**
    * 一覧の語と絞り込み、平らな一覧のいまのページ（1 から）。ページは条件を変えるか画面に入り直すと 1 に戻る。
    * ホームと 1 つのプロジェクトの画面が同じものを使う。プロジェクトの画面では、そのプロジェクトに絞る（絞り込みには projectId を入れない。mediator/screen.ts の listProjectId）。

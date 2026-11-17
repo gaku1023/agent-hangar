@@ -10,6 +10,7 @@ export const orchestratorPaneEn: AreaDictionary<typeof orchestratorPaneKeys> = {
   'orchestratorPane.composer.label': 'Message to the orchestrator',
   'orchestratorPane.composer.placeholder': 'Talk to the orchestrator',
   'orchestratorPane.composer.send': 'Send',
+  'orchestratorPane.width.label': 'Orchestrator width',
   'orchestratorPane.error.notRunning': 'The orchestrator is not running',
   'orchestratorPane.error.voiceUnavailable': 'Voice is not available on this PC',
   'orchestratorPane.error.engineOpen': 'Could not open the voice engine: {reason}',

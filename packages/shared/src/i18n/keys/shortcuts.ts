@@ -14,6 +14,7 @@ export const shortcutsKeys = {
   'shortcuts.hint.inTerminal': ['keys', 'terminal'],
   'shortcuts.key.paletteOpen': [],
   'shortcuts.key.sessionNew': [],
+  'shortcuts.key.orchestratorToggle': [],
   'shortcuts.key.sessionNewQuick': [],
   'shortcuts.key.sessionNextWaiting': [],
   'shortcuts.key.settingsOpen': [],
