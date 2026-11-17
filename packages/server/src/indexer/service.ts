@@ -686,7 +686,7 @@ export class IndexerService {
     await this.fullScan();
     this.armSweep();
     this.noteLiveChanged();
-    // 版 61 より前に索引した会話の、非対話の印を埋める。本文を読むので、全走査の後に少しずつ回し、ほかの処理を止めない。
+    // 版 64 より前に索引した会話の、非対話の印を埋める。本文を読むので、全走査の後に少しずつ回し、ほかの処理を止めない。
     this.headlessBackfill = this.fillHeadless();
   }
 

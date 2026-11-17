@@ -83,7 +83,7 @@ describe('既存の行の埋め戻し', () => {
     write(PSID_A, owner(PSID_A) + user(PSID_A, '分類して', 'u1', 'sdk-cli'));
     write(PSID_B, user(PSID_B, 'こんにちは', 'u2'));
     await svc().fullScan();
-    // 版 61 より前に索引した行を作る。
+    // 版 64 より前に索引した行を作る。
     db.prepare('update session_stats set headless = null').run();
     expect(backfillHeadless(db, 1)).toBe(1);
     expect(backfillHeadless(db, 10)).toBe(1);
