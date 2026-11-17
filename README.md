@@ -123,7 +123,7 @@ hangar を MCP サーバとして登録すると、Claude Code が自分で会�
   <tr>
     <td width="60%"><img src="docs/images/mobile.webp" alt="スマホから新しい会話を頼むと、PC で会話が始まる"></td>
     <td>
-      <b>スマホから会話を起こす（試験的）</b><br><br>
+      <b>スマホから会話を起こす</b><br><br>
       自分の Cloudflare アカウントで PC 間の同期を設定すると、スマホのブラウザで受信箱を見て、PC に新しい会話を頼めます。
       同期は上級者向けのベータです。
       始め方は <a href="docs/cloud-sync.md">docs/cloud-sync.md</a> にあります。
@@ -171,7 +171,7 @@ Windows のインストーラは署名していないので、SmartScreen が止
 
 - [docs/install.md](docs/install.md)：入れ方の細部、v0.1.0 からの移行、zip から入れる手順、psmux。
 - [docs/usage.md](docs/usage.md)：初日にすること、使い方、ショートカット。
-- [docs/cloud-sync.md](docs/cloud-sync.md)：クラウド同期の始め方と割り切り、スマホ（試験的）。
+- [docs/cloud-sync.md](docs/cloud-sync.md)：クラウド同期の始め方と割り切り、スマホ。
 - [docs/files-and-network.md](docs/files-and-network.md)：hangar が書くファイルと、通信先。
 - [docs/troubleshooting.md](docs/troubleshooting.md)：困ったとき。
 - [docs/development.md](docs/development.md)：clone して動かす手順、試験、インストーラを作る手順。README の画像の撮り方は [scripts/readme-shots/README.md](scripts/readme-shots/README.md)。
