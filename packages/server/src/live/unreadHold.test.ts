@@ -156,4 +156,44 @@ describe('UnreadHold の未読の数と裏だけの印', () => {
     expect(unreadRow(s1)).toEqual({ count: 1, latest: '入力待ち' });
     expect(ready).toEqual([{ id: s1, text: '入力待ち', count: 1, sent: ['phone'], meta: { kind: 'done' } }]);
   });
+
+  it('預かりは表に残り、サーバを立て直した新しい預かりが読み戻して、ターンを抜けたら出す', () => {
+    const h = hold();
+    noteUnread(s1, '調べ終えました', 1, ['unread', 'os'], { kind: 'ask', unreadHeld: true });
+    expect(ready).toEqual([]);
+    for (const o of offs.splice(1)) o();
+    const h2 = hold();
+    expect(h2.pending()).toBe(true);
+    h2.check();
+    expect(ready).toEqual([]);
+    live = [entry('u1', 'idle'), entry('u2', 'busy')];
+    h2.check();
+    expect(ready).toEqual([{ id: s1, text: '調べ終えました', count: 1, sent: ['os'], meta: { kind: 'ask' } }]);
+    expect(h2.pending()).toBe(false);
+    expect(db.prepare('select count(*) c from unread_hold').get()).toEqual({ c: 0 });
+    expect(db.prepare('select count from session_unread where session_id = ?').get(s1)).toEqual({ count: 1 });
+    void h;
+  });
+
+  it('出した預かりは表から消え、読み戻しても二重に出ない', () => {
+    const h = hold();
+    noteUnread(s1, 'a', 1, ['os'], { kind: 'done' });
+    live = [entry('u1', 'idle'), entry('u2', 'busy')];
+    h.check();
+    expect(ready).toHaveLength(1);
+    for (const o of offs.splice(1)) o();
+    const h2 = hold();
+    expect(h2.pending()).toBe(false);
+  });
+
+  it('消えた会話の預かりは、読み戻すときに捨てる', () => {
+    const h = hold();
+    noteUnread(s1, 'a', 1, ['os'], { kind: 'done' });
+    for (const o of offs.splice(1)) o();
+    db.prepare('delete from sessions where id = ?').run(s1);
+    const h2 = hold();
+    expect(h2.pending()).toBe(false);
+    expect(db.prepare('select count(*) c from unread_hold').get()).toEqual({ c: 0 });
+    void h;
+  });
 });

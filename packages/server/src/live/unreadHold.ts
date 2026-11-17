@@ -46,8 +46,9 @@ export class UnreadHold {
 
   constructor(private readonly deps: UnreadHoldDeps) {}
 
-  /** notify_user の知らせ（onUnread）を聞き始める。戻り値を呼ぶと外す。 */
+  /** notify_user の知らせ（onUnread）を聞き始める。戻り値を呼ぶと外す。前のサーバが預かったまま止まった分は表から読み戻す。 */
   start(): () => void {
+    this.restore();
     return onUnread((sessionId, text, count, sent, meta) => this.take(sessionId, text, count, sent, meta));
   }
 
@@ -63,8 +64,34 @@ export class UnreadHold {
     for (const [id, h] of [...this.held]) {
       if (sessionTurnRunning(this.deps.db, live, id)) continue;
       this.held.delete(id);
+      this.forget(id);
       this.release(id, h);
     }
+  }
+
+  /** 表に残した預かりを読み戻す。会話が消えていたら捨てる。読めない行も捨てる（出せない知らせで止まらないため）。 */
+  private restore(): void {
+    const rows = this.deps.db.prepare('select session_id, text, sent, unread, count, meta from unread_hold').all() as { session_id: string; text: string; sent: string; unread: number; count: number; meta: string }[];
+    for (const r of rows) {
+      try {
+        const exists = this.deps.db.prepare('select 1 from sessions where id = ?').get(r.session_id);
+        if (!exists) { this.forget(r.session_id); continue; }
+        this.held.set(r.session_id, { text: r.text, sent: new Set(JSON.parse(r.sent) as NotifyTarget[]), unread: r.unread === 1, count: r.count, meta: JSON.parse(r.meta) as UnreadMeta });
+      } catch {
+        this.forget(r.session_id);
+      }
+    }
+  }
+
+  private persist(id: string, h: Held): void {
+    this.deps.db.prepare(
+      'insert into unread_hold (session_id, text, sent, unread, count, meta) values (?, ?, ?, ?, ?, ?) '
+      + 'on conflict(session_id) do update set text = excluded.text, sent = excluded.sent, unread = excluded.unread, count = excluded.count, meta = excluded.meta',
+    ).run(id, h.text, JSON.stringify([...h.sent]), h.unread ? 1 : 0, h.count, JSON.stringify(h.meta));
+  }
+
+  private forget(id: string): void {
+    this.deps.db.prepare('delete from unread_hold where session_id = ?').run(id);
   }
 
   private take(sessionId: string, text: string, count: number, sent: NotifyTarget[], meta: UnreadMeta): void {
@@ -80,7 +107,9 @@ export class UnreadHold {
     const merged = new Set<NotifyTarget>([...(prev?.sent ?? []), ...out]);
     // ask は done より利用者の手が要るので、どちらかが ask なら ask として出す。
     const kind = prev?.meta.kind === 'ask' ? 'ask' : meta.kind;
-    this.held.set(sessionId, { text, sent: merged, unread: unread || (prev?.unread ?? false), count, meta: { ...rest, kind } });
+    const next: Held = { text, sent: merged, unread: unread || (prev?.unread ?? false), count, meta: { ...rest, kind } };
+    this.held.set(sessionId, next);
+    this.persist(sessionId, next);
   }
 
   /** 預かりを出す。未読の数を積む番なら積んで画面へ配り、OS とスマホの出し先があれば流す。 */
