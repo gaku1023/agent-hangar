@@ -3097,3 +3097,47 @@ describe('Remote Control の URL を画面から拾う（tmux 不要）', () => 
     expect(rows()).toEqual([{ session_id: id, url: URL_A, at: timers.now }]);
   });
 });
+
+describe('起動の残りと kill の確認（tmux 不要）', () => {
+  const deletedAt = (sessionId: string) => (db.prepare('select deleted_at from sessions where id = ?').get(sessionId) as { deleted_at: number | null }).deleted_at;
+  const seedPending = (id: string, o: { startedAt?: number; device?: string } = {}) => upsertShared(db, 'sessions', { id, provider: 'codex', provider_session_id: `pending:${id}`, cwd, home_device: o.device ?? 'd', started_at: o.startedAt ?? 1, last_activity_at: 1 }, 'd');
+
+  it('仮の ID のまま長く経ち、生きた run も無い行は、見回りで消す', () => {
+    seedPending('p-old');
+    const rm = make({ tmux: null, now: () => 40 * 60_000 });
+    rm.tick();
+    expect(deletedAt('p-old')).not.toBeNull();
+  });
+
+  it('run がある（終わったものも）、まだ新しい、他の PC の行は残す', () => {
+    seedPending('p-alive');
+    upsertShared(db, 'runs', { id: 'rp', session_id: 'p-alive', device_id: 'd', kind: 'start', tmux_name: 'hangar-rp', pid: null, launch_params: '{}', started_at: 1, ended_at: null, heartbeat_at: 1 }, 'd');
+    seedPending('p-ended');
+    upsertShared(db, 'runs', { id: 'rpe', session_id: 'p-ended', device_id: 'd', kind: 'start', tmux_name: 'hangar-rpe', pid: null, launch_params: '{}', started_at: 1, ended_at: 2, end_reason: 'exited', heartbeat_at: 1 }, 'd');
+    seedPending('p-new', { startedAt: 39 * 60_000 });
+    seedPending('p-other', { device: 'other' });
+    const rm = make({ tmux: null, now: () => 40 * 60_000 });
+    rm.tick();
+    expect(deletedAt('p-alive')).toBeNull();
+    expect(deletedAt('p-ended')).toBeNull();
+    expect(deletedAt('p-new')).toBeNull();
+    expect(deletedAt('p-other')).toBeNull();
+  });
+
+  it('終わった run の live_status を残さない', () => {
+    const { runId } = seedRun();
+    db.prepare("update runs set live_status = 'waiting', live_reason = 'ask', live_at = 5 where id = ?").run(runId);
+    make({ tmux: null }).kill(runId);
+    expect(db.prepare('select live_status, live_reason, live_at from runs where id = ?').get(runId)).toEqual({ live_status: null, live_reason: null, live_at: null });
+  });
+
+  it('kill で落とせていなければ run を閉じず、tmux から消えたのを見てから killed で閉じる', () => {
+    const { runId } = seedRun();
+    let listing = 'hangar-r1\n';
+    const rm = make({ tmux: new Tmux({ tmuxPath: 'tmux', exec: () => ({ status: 0, stdout: listing, stderr: '' }) }) });
+    rm.kill(runId);
+    expect(rm.getRun(runId)!.endedAt).toBeNull();
+    listing = '';
+    expect(rm.tick().ended.map((r) => [r.id, r.endReason])).toEqual([[runId, 'killed']]);
+  });
+});
