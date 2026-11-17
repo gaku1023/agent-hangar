@@ -98,6 +98,8 @@ const GONE_WAIT_MS = 5_000;
  * Windows の psmux は、CPU を使い切っているセッションの返事が遅れると、一覧からそのセッションだけが一瞬抜ける（issue #258）。
  */
 const MISSES_TO_END = 2;
+const PENDING_STALE_MS = 30 * 60_000;
+const PENDING_SWEEP_MS = 60_000;
 /**
  * hangar が持つ serve につながる run（opencode）の、TUI の包みが終わったかを見る間隔。
  * opencode の TUI が閉じても Claude の登録のようには何も変わらず stir されないので、待機の周期（RUN_IDLE_POLL_MS）で 2 回抜けるのを待つと 5〜19 秒かかっていた。
@@ -186,7 +188,8 @@ export class RunManager {
   /** 引き取りの途中のセッション。二度押しで元のプロセスを止めて移す手順が 2 本走らないようにする。 */
   private adopting = new Set<string>();
   /** 区切りを付けたので落としにいった run。tmux から消えたのを見たときに、終わり方を parked と書くために持つ。 */
-  private parking = new Set<string>();
+  private lastPendingSweep = 0;
+  private parking = new Map<string, 'parked' | 'killed'>();
   /** startOrchestrator が起こしている会話の id。設定の sessionId に書かれるまでの間も、baseInput が統括として扱うため。 */
   private orchestrating = new Set<string>();
   /**
@@ -720,7 +723,8 @@ export class RunManager {
   private end(runId: string, reason: EndReason): RunDto | null {
     const row = this.db.prepare('select * from runs where id = ? and deleted_at is null').get(runId) as Record<string, unknown> | undefined;
     if (!row || row.ended_at !== null) return null;
-    upsertShared(this.db, 'runs', { ...row, ended_at: this.now(), end_reason: reason }, this.deps.deviceId);
+    // 終わった run に live_status を残さない。他の PC の読み手が、終わった run を作業中と読まないようにする。
+    upsertShared(this.db, 'runs', { ...row, ended_at: this.now(), end_reason: reason, live_status: null, live_reason: null, live_at: null }, this.deps.deviceId);
     this.liveShare.forget(runId);
     this.parking.delete(runId);
     this.misses.delete(runId);
@@ -767,6 +771,25 @@ export class RunManager {
     const other = this.db.prepare('select 1 from runs where session_id = ? and id <> ? and deleted_at is null limit 1').get(run.sessionId, run.id);
     if (other) return;
     softDeleteShared(this.db, 'sessions', run.sessionId, this.deps.deviceId);
+  }
+
+  /**
+   * 起動の途中で落ちて残った、仮の ID（pending:…）のままの行を片付ける。
+   * 仮の ID は、準備中、起動中、画面をつないだ後の ID 待ちの 3 つの段で使う。どの段でも、起動が成功すれば run が生きるか、本当の ID に替わる。
+   * 長く経っても run が 1 本も無く、仮の ID のままなら、準備の途中でサーバが落ちたか、画面を開く前に失敗したものである。
+   * run が終わったあとに仮の ID のまま残った行（最初の入力の前に終わった Codex の会話）は、終了の札を出すので消さない。
+   * 本文は生まれていないので、行を消す。1 分に 1 回だけ見る。
+   */
+  sweepStalePending(): void {
+    const now = this.now();
+    if (now - this.lastPendingSweep < PENDING_SWEEP_MS) return;
+    this.lastPendingSweep = now;
+    const rows = this.db.prepare(`select s.id from sessions s where s.deleted_at is null and s.provider_session_id like 'pending:%' and s.home_device = ? and s.started_at < ?
+      and not exists (select 1 from runs r where r.session_id = s.id and r.deleted_at is null)`).all(this.deps.deviceId, now - PENDING_STALE_MS) as { id: string }[];
+    for (const { id } of rows) {
+      revokeMcpSecret(this.db, id);
+      softDeleteShared(this.db, 'sessions', id, this.deps.deviceId);
+    }
   }
 
   /** そのエージェントを起こしてよいか。Claude Code はいつでも起こせる。MCP の create_session が start の前に断るために読む。 */
@@ -1450,6 +1473,7 @@ export class RunManager {
 
   /** tmux の一覧を 1 回読み、消えた run とタブを閉じ、古い heartbeat を更新する。 */
   tick(listedNow?: string[] | null): { ended: RunDto[]; closedTabs: TabDto[] } {
+    this.sweepStalePending();
     // tmux が無いのも、tmux を呼べなかったのも「観測できない」であって「動いていない」ではない。
     // ここで一覧を空と見なすと、設定から tmuxPath を外した瞬間や、
     // tmux のバイナリが一瞬消えた隙に、実際には動いている run が全部 exited になって二度と戻らない。
@@ -1482,8 +1506,9 @@ export class RunManager {
     const lost: RunDto[] = [];
     for (const run of alive) {
       if (!names.has(run.tmuxName)) {
-        if (this.parking.has(run.id)) {
-          const e = this.end(run.id, 'parked');
+        const parkedAs = this.parking.get(run.id);
+        if (parkedAs) {
+          const e = this.end(run.id, parkedAs);
           if (e) ended.push(e);
           continue;
         }
@@ -1734,7 +1759,17 @@ export class RunManager {
     if (run.endedAt !== null) throw new RunError(409, msg('run.error.alreadyEnded'));
     for (const t of listTabs(this.db, runId)) if (t.kind === 'shell') this.closeTab(t.id);
     this.release(run.sessionId, 'killed');
-    this.deps.panes?.close(run.tmuxName);
+    const panes = this.deps.panes;
+    panes?.close(run.tmuxName);
+    // 落とせたことを一覧で確かめてから閉じる（park と同じ）。まだ残っているなら、見回りが消えたのを見てから閉じる。
+    // 確かめずに閉じると、動いている画面を hangar が見失い、同じセッションの二重起動を許してしまう。
+    if (panes && reason === 'killed') {
+      const listed = panes.list();
+      if (listed !== null && listed.includes(run.tmuxName)) {
+        this.parking.set(runId, 'killed');
+        return run;
+      }
+    }
     return this.end(runId, reason) ?? run;
   }
 
@@ -1751,7 +1786,7 @@ export class RunManager {
     // tmux が無ければ run には触らない。止められていないのに run を閉じると、動いている claude を hangar が見失う。
     if (!run || !panes) return background;
     panes.close(run.tmuxName);
-    this.parking.add(run.id);
+    this.parking.set(run.id, 'parked');
     // 落とせたことを一覧で確かめてから閉じる。確かめられなければ、次の見回り（tick）に任せる。
     // すぐ閉じるのは、claude が登録から消えてから見回りが来るまでの間、画面に「起動しています」と出さないためである。
     const listed = panes.list();

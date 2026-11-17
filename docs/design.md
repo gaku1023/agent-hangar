@@ -1950,7 +1950,7 @@ opencode では会話の ID を hangar が決めない。
 そこで `RunManager` は次の順で起こす。
 
 1. 設定、opencode の場所、作業の場所、tmux を確かめる。
-2. `sessions` の行を仮の ID（`pending:` で始まる）で作る。MCP の URL と秘密は hangar の会話の ID で決まるので、serve より先に要る。
+2. `sessions` の行を仮の ID（`pending:` で始まる）で作る。準備の途中でサーバが落ちて、run が 1 本も無いまま 30 分を過ぎた行は、見回り（`sweepStalePending`、1 分に 1 回）が消す。run が終わったあとに仮の ID のまま残った行は消さない。MCP の URL と秘密は hangar の会話の ID で決まるので、serve より先に要る。
 3. driver の `materialize` が、serve を起こし（hangar の MCP の設定を足して）、ID を付けずに `POST /api/session` で会話を作り、追記を差し込み、hangar の MCP が `connected` になるのを待つ。
 4. 返った ID を行の `provider_session_id` に書く。
 5. その ID で TUI を tmux の中に起こす（`opencode <dir> --server <url> -s <id>`）。
@@ -2229,6 +2229,7 @@ hangar を閉じても、動いている会話の serve は止めない（下の
 TUI を閉じても serve の上の作業は続くので、残すと見えないところでモデルが動き続けるからである。
 `RunManager` は、run が `exited` か `lost` で終わるとき（`end`）に、driver の `release` を `tui-gone` で 1 回呼ぶ。
 `killed` と `parked` は、止めにいった `kill` と `park` が先に `release` を呼ぶので、`end` では呼ばない。
+`kill` は、画面を落としたあと tmux の一覧で消えたのを確かめてから `killed` で閉じる（`park` と同じ）。残っていれば閉じず、見回りが消えたのを見て閉じる。`end` は `live_status`・`live_reason`・`live_at` も空にする。
 opencode の driver の `release` は、どの理由でも同じに止める。
 状態とトランスクリプトの面から外し（本文はその前にもう一度読む）、serve の上で走っている作業を interrupt し、SIGTERM、3 秒で降りなければ SIGKILL を送る。
 Claude の `release` は、`tui-gone` では何もしない（claude は画面と一緒に終わっている）。
