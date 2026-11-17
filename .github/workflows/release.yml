@@ -117,6 +117,15 @@ jobs:
       # 声の補助 hangar-voice（apps/voice-mac）を .app に入れる。MLX の Metal のシェーダを作るのに Metal Toolchain が要る。
       # 補助は tauri build の beforeBuildCommand（tauri.macos.conf.json の npm run build-voice）が作る。
       - run: xcodebuild -downloadComponent MetalToolchain
+      # MLX の build の中間物（DerivedData）を、ci.yml の voice-mac ジョブが main で保存したキャッシュから戻す。
+      # 鍵と場所は ci.yml と同じにする。タグの run は main のキャッシュを読めるが、保存しても次のタグから読めないので、戻すだけにする。
+      - name: 声の補助のキャッシュの鍵
+        id: voice-key
+        run: echo "key=voice-mac-xcode-$(xcodebuild -version | shasum | cut -c1-12)-${{ hashFiles('apps/voice-mac/Package.resolved') }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v6
+        with:
+          path: ~/Library/Caches/agent-hangar/voice-mac-xcode
+          key: ${{ steps.voice-key.outputs.key }}
       - run: npm ci
       # 型の確かめと試験は macos-test ジョブが並べて回す。publish はそちらも待つ。
       - run: npm run build

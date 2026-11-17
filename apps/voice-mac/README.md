@@ -2,7 +2,7 @@
 
 Mac の端末の中で、聞き取り、区切り、読み上げ、会議の見張りを行う補助です。
 hangar のサーバが子のプロセスとして起こし、標準入出力の 1 行 1 JSON で話します。
-約束（cmd と ev）は `Sources/VoiceCore/Protocol.swift` と、`docs/superpowers/plans/2026-11-16-orchestrator-voice-stage2.md` の「補助とサーバの約束」にあります。
+約束（cmd と ev）は `Core/Sources/VoiceCore/Protocol.swift` と、`docs/superpowers/plans/2026-11-16-orchestrator-voice-stage2.md` の「補助とサーバの約束」にあります。
 
 macOS 14 以上の Apple Silicon で動きます。
 
@@ -17,6 +17,13 @@ apps/voice-mac/scripts/build.sh
 MLX の Metal のシェーダは xcodebuild でしか束に入らないので、`swift build` の実行ファイルでは動きません。
 束は実行ファイルと同じフォルダに置いたまま動かします。
 
+build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/voice-mac-xcode` に置き、どの worktree からの build でも使い回します。
+MLX をゼロから作ると数分かかるためです。置き場は `HANGAR_VOICE_DERIVED` で変えられます。
+xcodebuild はソースの場所が変わると Swift のモジュールを作り直すので、`build.sh` はソースも同じ置き場の `src/` へ写してから作ります。
+2 つの build が重なったときは、後の方が先の終わりを待ちます。
+CI は、main の push で作った中間物を Actions のキャッシュに保存し、PR とリリースはそれを戻して使います（`.github/workflows/ci.yml` の voice-mac ジョブ）。
+PR では、`apps/voice-mac` が変わったときだけ Release の build を回します。
+
 ## .app への同梱
 
 Mac の .app では `Contents/Resources/voice/` に入ります（`apps/desktop/src-tauri/tauri.macos.conf.json`）。
@@ -26,10 +33,10 @@ tauri build の前に `apps/desktop/scripts/build-voice.sh` が `scripts/build.s
 殻は `voice/hangar-voice` が在るときだけ、その場所を `HANGAR_VOICE_BIN` でサーバへ渡します。
 署名の台本（`apps/desktop/scripts/sign-macos.ts`）は、補助と束も .app と同じ身元で署名します。
 
-芯の試験はモデルなしで回ります。
+芯（VoiceCore）は MLX に依らない別のパッケージ（`Core/`）に分けてあり、試験は MLX を作らずにモデルなしで回ります。
 
 ```bash
-swift test --package-path apps/voice-mac --filter VoiceCoreTests
+swift test --package-path apps/voice-mac/Core
 ```
 
 ## モデル
@@ -90,8 +97,8 @@ printf '%s\n' '{"cmd":"speak","id":"a1","text":"了解しました。","voice":"
 
 - 標準出力は約束の行だけです。ライブラリの出力と記録は標準エラーに出ます。
 - `segment` の `ms` は区間の音の長さ、`dbfs` は声の枠の平均の音量です。認識の文が空の区間は出しません。
-- 区切りの値（Silero の 512 サンプルの枠、0.5 以上が 2 枠で始まり、前の 300 ms、無音 700 ms、30 秒まで）は `Sources/VoiceCore/Segmenter.swift` の既定です。
+- 区切りの値（Silero の 512 サンプルの枠、0.5 以上が 2 枠で始まり、前の 300 ms、無音 700 ms、30 秒まで）は `Core/Sources/VoiceCore/Segmenter.swift` の既定です。
 - マイクの取り込みは AVAudioEngine の voice processing を通し、他のアプリの音の絞りは最小にします。読み上げも同じエンジンから鳴らし、回り込み消しの参照に入れます。
 - `micUsers` は、自分と `com.apple.CoreSpeech` を除いたマイクを使っているプロセスの束の識別子です（無ければ `pid:<番号>`）。1 秒ごとに見て、変わったときだけ出します。
-- Kokoro に渡す文の処理は `Models.kokoroTextProcessor` です。既定は `JapaneseKokoroProcessor` で、CFStringTokenizer で語に分けて読みを取り、かなの表（`Sources/VoiceCore/KanaPhonemes.swift`、misaki の表を移したもの）で音素にします。
+- Kokoro に渡す文の処理は `Models.kokoroTextProcessor` です。既定は `JapaneseKokoroProcessor` で、CFStringTokenizer で語に分けて読みを取り、かなの表（`Core/Sources/VoiceCore/KanaPhonemes.swift`、misaki の表を移したもの）で音素にします。
 - 英字の語は、大文字だけで 4 字までの語を文字の名前で読み（PR → ピーアール）、ほかは英語の G2P（`beshkenadze/kitten-tts-g2p`、Kokoro の読み込みのときに落とす）に回します。落とせないときは英字をそのまま渡します。

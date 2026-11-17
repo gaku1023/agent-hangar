@@ -19,6 +19,9 @@ describe('main の古いキャッシュを選ぶ', () => {
     // rust-cache は「接頭辞-ジョブ-OS-arch-環境の指紋-ロックの指紋」。Rust の版が上がると環境の指紋も変わるので、両方を除く。
     expect(cacheFamily('v0-rust-desktop-Darwin-arm64-fc985acc-9ff33c2c')).toBe('v0-rust-desktop-Darwin-arm64');
     expect(cacheFamily('v0-rust-windows-release-Windows_NT-x64-e70cdc14-9ff33c2c')).toBe('v0-rust-windows-release-Windows_NT-x64');
+    // 声の補助の DerivedData は「voice-mac-xcode-Xcode の版の指紋-Package.resolved の指紋」（ci.yml の voice-mac ジョブ）。
+    // 1 つで数 GB あるので、Xcode か依存が変わったら古い方を残さない。
+    expect(cacheFamily('voice-mac-xcode-3f2a9c01d4e5-' + 'ab'.repeat(32))).toBe('voice-mac-xcode');
     // 知らない形の鍵は族を決めない（消さない）。
     expect(cacheFamily('something-else')).toBeUndefined();
   });

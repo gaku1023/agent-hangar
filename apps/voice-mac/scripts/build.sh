@@ -5,10 +5,36 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-derived="$root/.build/xcode"
 dist="$root/dist"
 
-cd "$root"
+# MLX をゼロから作ると数分（CI では 5〜10 分）かかるので、build の中間物（DerivedData）を作り直さずに使い回す。
+# 置き場は HANGAR_VOICE_DERIVED、無ければ worktree の外の決まった場所。CI とリリースは同じ場所を actions/cache で戻す。
+# xcodebuild はソースの場所が変わると Swift のモジュールを全部作り直すので、ソースも決まった場所（src）へ写してから作る。
+# こうすると、どの worktree から作っても同じ中間物に当たる（2026-11-17 の手元の実測：場所が違うと 130 秒、同じなら 6 秒）。
+cache="${HANGAR_VOICE_DERIVED:-$HOME/Library/Caches/agent-hangar/voice-mac-xcode}"
+src="$cache/src"
+derived="$cache/derived"
+mkdir -p "$cache"
+
+# 2 つの worktree から同時に作ると、写したソースと中間物を取り合う。先の build が終わるまで待つ。
+# 持ち主のプロセスが居ない鍵（強制終了の残り）は取り直す。
+lock="$cache/lock"
+until mkdir "$lock" 2>/dev/null; do
+  owner="$(cat "$lock/pid" 2>/dev/null || true)"
+  if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+    rm -rf "$lock"
+    continue
+  fi
+  echo "ほかの hangar-voice の build を待っている（${lock}）"
+  sleep 5
+done
+echo $$ > "$lock/pid"
+trap 'rm -rf "$lock"' EXIT
+
+# 時刻を保って写す（-a）。変わっていないファイルは作り直さない。
+rsync -a --delete --exclude .build --exclude dist --exclude .swiftpm "$root/" "$src/"
+
+cd "$src"
 xcodebuild -scheme hangar-voice -destination platform=macOS -configuration Release \
   -derivedDataPath "$derived" CLANG_ENABLE_CODE_COVERAGE=NO CLANG_COVERAGE_MAPPING=NO build
 
