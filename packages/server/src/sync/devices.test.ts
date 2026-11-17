@@ -5,7 +5,8 @@ import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { CloudError } from './client.ts';
 import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { leftPhoneSweeper, loadCloudDevices, sharedDeviceOf } from './devices.ts';
+import { leftPhoneSweeper, loadCloudDevices, revokedPcRetirer, sharedDeviceOf } from './devices.ts';
+import { listDevices } from '../db/queries.ts';
 
 const base = { deviceId: 'a', creator: false, language: () => 'ja' as const, roster: null };
 
@@ -136,6 +137,26 @@ describe('loadCloudDevices', () => {
     expect(seen).toEqual([['phone-left']]);
   });
 
+  it('Worker で解除済みの PC（この PC 以外）を onRevokedPcs に渡す。名簿が読めなくても渡す', async () => {
+    const cloud = new FakeCloudClient({ deviceId: 'pc-a' });
+    await cloud.health();
+    await cloud.asDevice('pc-b').health();
+    await cloud.asDevice('pc-c').health();
+    cloud.revoke('pc-c');
+    const seen: string[][] = [];
+    await loadCloudDevices({ ...base, deviceId: 'pc-a', client: cloud, onRevokedPcs: (ids) => seen.push(ids) });
+    expect(seen).toEqual([['pc-c']]);
+  });
+
+  it('解除済みの PC が無ければ onRevokedPcs を呼ばない', async () => {
+    const cloud = new FakeCloudClient({ deviceId: 'pc-a' });
+    await cloud.health();
+    await cloud.asDevice('pc-b').health();
+    const seen: string[][] = [];
+    await loadCloudDevices({ ...base, deviceId: 'pc-a', client: cloud, onRevokedPcs: (ids) => seen.push(ids) });
+    expect(seen).toEqual([]);
+  });
+
   it('後始末の要らないときと、名簿が読めないときは onLeftPhones を呼ばない', async () => {
     const cloud = new FakeCloudClient({ deviceId: 'pc-a' });
     await cloud.health();
@@ -174,5 +195,33 @@ describe('leftPhoneSweeper', () => {
     expect(calls).toEqual(['phone-a', 'phone-a']);
     expect(err).toHaveBeenCalled();
     err.mockRestore();
+  });
+});
+
+describe('revokedPcRetirer', () => {
+  it('解除した PC の devices の行に消した印を付け、起動先の一覧（listDevices）から外す。名前の控えは残す', () => {
+    const db = openDb(':memory:');
+    upsertShared(db, 'devices', { id: 'pc-a', name: 'desk', platform: 'darwin', last_seen_at: 2 }, 'pc-a');
+    upsertShared(db, 'devices', { id: 'pc-c', name: 'old-vm', platform: 'darwin', last_seen_at: 1 }, 'pc-c');
+    revokedPcRetirer(db, 'pc-a')(['pc-c']);
+    expect(listDevices(db, 'pc-a').map((d) => d.id)).toEqual(['pc-a']);
+    expect(sharedDeviceOf(db)('pc-c')).toEqual({ name: 'old-vm', platform: 'darwin' });
+    const ch = db.prepare("select op, device_id from changes where table_name = 'devices' and row_id = 'pc-c' order by rowid desc limit 1").get();
+    expect(ch).toEqual({ op: 'delete', device_id: 'pc-a' });
+    db.close();
+  });
+
+  it('消した行、行の無い端末、この PC 自身には書かない（一覧を読むたびに changes を増やさない）', () => {
+    const db = openDb(':memory:');
+    upsertShared(db, 'devices', { id: 'pc-a', name: 'desk', platform: 'darwin', last_seen_at: 2 }, 'pc-a');
+    upsertShared(db, 'devices', { id: 'pc-c', name: 'old-vm', platform: 'darwin', last_seen_at: 1 }, 'pc-c');
+    const retire = revokedPcRetirer(db, 'pc-a');
+    retire(['pc-c']);
+    const count = (): number => (db.prepare('select count(*) c from changes').get() as { c: number }).c;
+    const before = count();
+    retire(['pc-c', 'pc-x', 'pc-a']);
+    expect(count()).toBe(before);
+    expect(listDevices(db, 'pc-a').map((d) => d.id)).toEqual(['pc-a']);
+    db.close();
   });
 });
