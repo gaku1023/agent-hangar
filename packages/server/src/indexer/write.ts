@@ -215,7 +215,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
         const toolName = ev.kind === 'tool_call' ? ev.name : null;
         const filePath = ev.kind === 'tool_call' ? ev.filePath ?? null : null;
         const t = texts.get(ev.seq);
-        const ftsRowid = t ? Number(insFts.run(sessionId, b.agentId, t.seq, t.role, t.text.slice(0, FTS_MAX_CHARS)).lastInsertRowid) : 0;
+        const ftsRowid = t ? Number(insFts.run(sessionId, b.agentId, t.seq, t.role, withFtsTail(t.text.slice(0, FTS_MAX_CHARS))).lastInsertRowid) : 0;
         insEv.run(sessionId, ev.seq, ev.kind, ev.ts ?? null, offset, length, refId, b.agentId, toolName, filePath, ftsRowid);
         if ((ev.kind === 'user' || ev.kind === 'assistant') && ev.ts !== undefined) acc.lastTurnTs = Math.max(acc.lastTurnTs ?? ev.ts, ev.ts);
         if (r.locator.kind === 'stored') insBody.run(sessionId, agentKey, ev.seq, JSON.stringify(ev));
