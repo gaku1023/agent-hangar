@@ -14,9 +14,9 @@ describe('サイドバーの開閉の経路の控え', () => {
     resetSidebarTrace();
     const h: Record<string, (e: unknown) => void> = {};
     watchInputs({ addEventListener: ((t: string, f: (e: unknown) => void) => { h[t] = f; }) as never }, () => 50);
-    h.keydown({ key: 'b', ctrlKey: true, metaKey: false, shiftKey: false, target: { tagName: 'DIV' } });
+    h.keydown!({ key: 'b', ctrlKey: true, metaKey: false, shiftKey: false, target: { tagName: 'DIV' } });
     expect(traceOf(true, 100)).toMatchObject({ via: 'key', key: 'b', ctrl: true, target: 'div' });
-    h.pointerdown({ target: { tagName: 'BUTTON' } });
+    h.pointerdown!({ target: { tagName: 'BUTTON' } });
     expect(traceOf(false, 100)).toMatchObject({ via: 'pointer', target: 'button' });
   });
 });
