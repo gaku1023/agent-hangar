@@ -1,4 +1,4 @@
-import { pushOrchestratorHistory, type LiveStatus, type OrchestratorSetting, type OrchestratorSwitchReason, type RunDto } from '@agent-hangar/shared';
+import { pushOrchestratorHistory, type AgentKind, type LiveStatus, type OrchestratorSetting, type OrchestratorSwitchReason, type RunDto } from '@agent-hangar/shared';
 
 /**
  * 統括の見張りの状態。画面の統括の柱が読む。
@@ -27,7 +27,8 @@ export type KeeperRuns = {
   /** account は設定のアカウント。渡せば、前に使ったアカウントより優先する。 */
   /** stray: 'stop' は、止めたばかりの claude が残っていれば止めてから再開する（manager.resumeWith と同じ）。 */
   resumeWith(sessionId: string, o?: { account?: string; stray?: 'stop' }): Promise<unknown>;
-  startOrchestrator(o?: { account?: string }): { sessionId: string };
+  /** agent は設定のアプリ。Claude Code は同期で、Codex は下ごしらえを待つ Promise で返る。 */
+  startOrchestrator(o?: { account?: string; agent?: AgentKind }): { sessionId: string } | Promise<{ sessionId: string }>;
 };
 
 export type KeeperDeps = {
@@ -37,6 +38,8 @@ export type KeeperDeps = {
   runs: KeeperRuns;
   /** その会話を再開できるか（行が消えていない、本文がある）。偽なら新しく起こす。 */
   resumable: (sessionId: string) => boolean;
+  /** その会話を動かしているアプリ（sessions.provider）。分からなければ null で、アプリは変わっていないとみなす。 */
+  providerOf?: (sessionId: string) => AgentKind | null;
   /** 統括の会話のいまの様子（実行中の一覧の status）。動いていなければ null。 */
   liveStatus: (sessionId: string) => LiveStatus | null;
   /** 実行中の一覧が変わるたびに呼ぶ。外すには返り値を呼ぶ。 */
@@ -62,12 +65,12 @@ export type KeeperDeps = {
 export type ActionResult = { ok: true } | { ok: false; error: 'off' | 'switching' };
 
 /** 統括を起こすときの指定。これが変わったら、起こし直して当てる。 */
-type Spec = { account: string | null; model: string; effort: string };
-const specOf = (s: OrchestratorSetting): Spec => ({ account: s.account, model: s.model, effort: s.effort });
-const sameSpec = (a: Spec, b: Spec): boolean => a.account === b.account && a.model === b.model && a.effort === b.effort;
+type Spec = { agent: AgentKind; account: string | null; model: string; effort: string };
+const specOf = (s: OrchestratorSetting): Spec => ({ agent: s.agent, account: s.account, model: s.model, effort: s.effort });
+const sameSpec = (a: Spec, b: Spec): boolean => a.agent === b.agent && a.account === b.account && a.model === b.model && a.effort === b.effort;
 
 /** 引き継いだ run の指定は分からない。どの設定とも一致しない印にして、変更を当てる。 */
-const UNKNOWN_SPEC: Spec = { account: null, model: '\0', effort: '\0' };
+const UNKNOWN_SPEC: Spec = { agent: 'claude-code', account: null, model: '\0', effort: '\0' };
 
 /** 失敗を数える窓と、止まる回数。 */
 export const KEEPER_WINDOW_MS = 10 * 60_000;
@@ -231,7 +234,7 @@ export class OrchestratorKeeper {
     }
     // 3. 新しい会話を起こす。止まっていた状態は捨てる。
     const s = this.deps.settings();
-    const r = this.deps.runs.startOrchestrator(s.account === null ? {} : { account: s.account });
+    const r = await this.deps.runs.startOrchestrator(this.launchOf(s));
     this.halted = false;
     this.failures = [];
     this.launched = specOf(s);
@@ -248,6 +251,18 @@ export class OrchestratorKeeper {
       if (!sent) console.error('[orchestrator] could not hand off to the new conversation');
     }
     return r.sessionId;
+  }
+
+  /** 統括を起こすときの指定（アカウントとアプリ）。 */
+  private launchOf(s: OrchestratorSetting): { account?: string; agent: AgentKind } {
+    return { ...(s.account === null ? {} : { account: s.account }), agent: s.agent };
+  }
+
+  /** 設定のアプリが、その会話を動かしているアプリと違うか。同じ会話では起こし直せず、新しい会話が要る。 */
+  private agentChanged(s: OrchestratorSetting, sessionId: string): boolean {
+    let p: AgentKind | null = null;
+    try { p = this.deps.providerOf?.(sessionId) ?? null; } catch { p = null; }
+    return p !== null && p !== s.agent;
   }
 
   /** 系譜に old を足した値。 */
@@ -301,6 +316,8 @@ export class OrchestratorKeeper {
     if (this.switching || !s.enabled || this.halted || s.sessionId === null || this.launched === null || sameSpec(this.launched, specOf(s))) return;
     const run = this.deps.runs.aliveRun(s.sessionId);
     if (!run || this.respecs.has(run.id) || this.deps.liveStatus(s.sessionId) !== 'idle') return;
+    // アプリが変わったときは、同じ会話を起こし直せない。新しい会話に切り替える（前の会話は系譜に残る）。
+    if (this.agentChanged(s, s.sessionId)) { void this.fresh('agent'); return; }
     this.respecs.add(run.id);
     try { this.deps.runs.kill(run.id); } catch (e) {
       this.respecs.delete(run.id);
@@ -388,13 +405,17 @@ export class OrchestratorKeeper {
       }
       try {
         const o = s.account === null ? {} : { account: s.account };
-        if (s.sessionId !== null && this.deps.resumable(s.sessionId)) {
-          if (this.restarting) await this.waitGone(s.sessionId);
-          await this.deps.runs.resumeWith(s.sessionId, this.restarting ? { ...o, stray: 'stop' } : o);
+        const sid = s.sessionId;
+        const resumable = sid !== null && this.deps.resumable(sid);
+        // 会話が別のアプリのものなら再開せず、新しい会話を起こす（前の id は系譜に agent で残す）。
+        const other = sid !== null && resumable && this.agentChanged(s, sid);
+        if (sid !== null && resumable && !other) {
+          if (this.restarting) await this.waitGone(sid);
+          await this.deps.runs.resumeWith(sid, this.restarting ? { ...o, stray: 'stop' } : o);
         } else {
-          const r = this.deps.runs.startOrchestrator(o);
-          // 会話が消えて起こし直した。前の id は系譜に gone で残す。
-          this.deps.save({ sessionId: r.sessionId, ...(s.sessionId !== null && s.sessionId !== r.sessionId ? { history: this.pushed(s.sessionId, 'gone') } : {}) });
+          const r = await this.deps.runs.startOrchestrator(this.launchOf(s));
+          // 会話が消えて（または別のアプリになって）起こし直した。前の id は系譜に gone（agent）で残す。
+          this.deps.save({ sessionId: r.sessionId, ...(s.sessionId !== null && s.sessionId !== r.sessionId ? { history: this.pushed(s.sessionId, other ? 'agent' : 'gone') } : {}) });
         }
         this.launched = specOf(s);
         this.restarting = false;

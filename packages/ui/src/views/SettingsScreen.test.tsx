@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { translator, type CompatDto, type SettingsDto, type UiAction, type SettingsSection, DEFAULT_VOICE } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
@@ -1011,7 +1011,7 @@ describe('設定のセッションの「Claude Code に渡す設定」と「新�
   });
   const atOrch = (over: Partial<SettingsProps>): SettingsProps => at('orchestrator', { toc: [...tocOf(), { id: 'orchestrator', title: '統括', state: 'オフ', tone: 'default', label: '統括、オフ' }], ...over });
   const orch = (over: Partial<NonNullable<SettingsProps['orchestrator']>> = {}): NonNullable<SettingsProps['orchestrator']> => ({
-    on: true, account: null, model: 'sonnet', effort: 'medium',
+    on: true, agent: 'claude-code', agents: ['claude-code'], agentNote: null, codex: null, account: null, model: 'sonnet', effort: 'medium',
     accounts: [{ value: 'a1', label: 'メイン', color: '#c96', disabled: false }, { value: 'a2', label: 'サブ', color: '#69c', disabled: false }], ...over,
   });
   it('統括の節は、目次に出て、入り切りは押した時点で orchestrator の enabled だけを保存する', () => {
@@ -1036,6 +1036,31 @@ describe('設定のセッションの「Claude Code に渡す設定」と「新�
     fireEvent.click(screen.getByRole('button', { name: /effort/i }));
     fireEvent.click(screen.getByRole('option', { name: 'high' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { orchestrator: { effort: 'high' } } });
+  });
+  const cxModels = [{ id: 'gpt-x', label: 'GPT X', description: '', efforts: [{ id: 'low', description: '' }, { id: 'medium', description: '' }], defaultEffort: 'medium' }];
+  it('統括のアプリの札は、設定で有効なアプリが 2 つ以上のときだけ出し、替えるとモデルと effort とアカウントを空に戻して一緒に保存する', async () => {
+    const onAction = vi.fn();
+    const { unmount } = render(ui(atOrch({ orchestrator: orch() }), onAction));
+    expect(screen.queryByRole('button', { name: /^エージェント/ })).toBeNull();
+    unmount();
+    render(ui(atOrch({ orchestrator: orch({ agents: ['claude-code', 'codex'] }) }), onAction));
+    fireEvent.click(screen.getByRole('button', { name: 'エージェント、Claude Code' }));
+    fireEvent.click(screen.getByRole('option', { name: /Codex/ }));
+    await waitFor(() => { expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { orchestrator: { agent: 'codex', model: '', effort: '', account: null } } }); });
+  });
+  it('統括のアプリが Codex のときは、Codex の札（モデルの一覧、推論）に替わり、権限の札と Claude の札は出ない', () => {
+    const onAction = vi.fn();
+    render(ui(atOrch({ orchestrator: orch({ agent: 'codex', agents: ['claude-code', 'codex'], model: '', effort: '', codex: { model: '', models: cxModels, effort: 'medium', efforts: cxModels[0]!.efforts } }) }), onAction));
+    expect(screen.queryByRole('button', { name: /権限/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /effort/i })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^モデル/ }));
+    fireEvent.click(screen.getByRole('option', { name: /GPT X/ }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { orchestrator: { model: 'gpt-x' } } });
+    fireEvent.click(screen.getByRole('button', { name: /推論/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'low' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { orchestrator: { effort: 'low' } } });
+    // Codex の一覧は、Codex が統括のアプリのときに読む。
+    expect(onAction).toHaveBeenCalledWith({ type: 'codex.options' });
   });
   it('アカウントが 1 つの PC では、アカウントの札を出さない', () => {
     render(ui(atOrch({ orchestrator: orch({ accounts: [{ value: 'a1', label: 'メイン', color: '#c96', disabled: false }] }) })));

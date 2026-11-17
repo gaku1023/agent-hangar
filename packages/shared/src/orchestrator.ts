@@ -1,13 +1,15 @@
+import { AGENT_KINDS, DEFAULT_AGENT_KIND, type AgentKind } from './agents.ts';
 import { isEffort } from './launchChoices.ts';
 import { isModelName } from './summaryEngine.ts';
 
 /**
  * 統括（全セッションを統括する常駐の会話、docs/design.md「統括」）の設定。この PC だけの設定で、同期しない。
  * enabled を入れた PC が宿主になる。sessionId は宿主が起こした会話の id で、見張り（OrchestratorKeeper）だけが書く。
- * model、effort、account は統括を起こすたびに渡す（account が null なら、その時のいまのアカウント）。既定は Sonnet と medium（用途ごとには分けない）。
+ * agent は統括を動かすアプリ（既定は Claude Code）。model、effort、account は統括を起こすたびに渡す（account が null なら、その時のいまのアカウント）。
+ * model の空は、そのアプリの既定に任せる。Claude Code の既定の値は Sonnet と medium（用途ごとには分けない）。
  * history は前の統括の会話（系譜）で、古い順。見張りだけが書く（docs/design.md「統括」の系譜）。
  */
-export type OrchestratorSetting = { enabled: boolean; sessionId: string | null; model: string; effort: string; account: string | null; history: OrchestratorHistoryEntry[] };
+export type OrchestratorSetting = { enabled: boolean; sessionId: string | null; agent: AgentKind; model: string; effort: string; account: string | null; history: OrchestratorHistoryEntry[] };
 
 /**
  * 統括を新しい会話に切り替えた理由。
@@ -22,7 +24,13 @@ export type OrchestratorHistoryEntry = { sessionId: string; startedAt: number | 
 /** 系譜に残す件数。古いものから落とす（会話そのものは消さない）。 */
 export const ORCHESTRATOR_HISTORY_MAX = 20;
 
-export const DEFAULT_ORCHESTRATOR: OrchestratorSetting = { enabled: false, sessionId: null, model: 'sonnet', effort: 'medium', account: null, history: [] };
+export const DEFAULT_ORCHESTRATOR: OrchestratorSetting = { enabled: false, sessionId: null, agent: DEFAULT_AGENT_KIND, model: 'sonnet', effort: 'medium', account: null, history: [] };
+
+/** Codex の推論の段階の語（minimal など。Claude の EFFORT_VALUES に無いものを含む）。Codex が返す一覧の id を受けるため、語の形だけを見る。 */
+const isEffortWord = (v: unknown): v is string => typeof v === 'string' && /^[a-z][a-z-]{0,19}$/.test(v);
+
+/** そのアプリで取れる effort か。空は既定。Claude Code は決まった段階だけ、ほかは語の形だけを見る。 */
+export const isOrchestratorEffort = (agent: AgentKind, v: unknown): v is string => (agent === DEFAULT_AGENT_KIND ? isEffort(v) : v === '' || isEffortWord(v));
 
 function historyEntryOf(v: unknown): OrchestratorHistoryEntry | null {
   if (!v || typeof v !== 'object') return null;
@@ -83,25 +91,28 @@ export function markOrchestratorText(text: string, origin: OrchestratorOrigin): 
 /** 手で書き換えた値と古い設定を、既定に寄せて読む。 */
 export function orchestratorOf(raw: unknown): OrchestratorSetting {
   const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const agent = (AGENT_KINDS as readonly unknown[]).includes(o.agent) ? (o.agent as AgentKind) : DEFAULT_ORCHESTRATOR.agent;
   return {
     enabled: typeof o.enabled === 'boolean' ? o.enabled : DEFAULT_ORCHESTRATOR.enabled,
     sessionId: typeof o.sessionId === 'string' && o.sessionId !== '' ? o.sessionId : null,
-    model: isModelName(o.model) ? o.model : DEFAULT_ORCHESTRATOR.model,
-    effort: isEffort(o.effort) ? o.effort : DEFAULT_ORCHESTRATOR.effort,
+    agent,
+    model: o.model === '' || isModelName(o.model) ? o.model : DEFAULT_ORCHESTRATOR.model,
+    effort: isOrchestratorEffort(agent, o.effort) ? o.effort : DEFAULT_ORCHESTRATOR.effort,
     account: typeof o.account === 'string' && o.account !== '' ? o.account : null,
     history: Array.isArray(o.history) ? o.history.map(historyEntryOf).filter((h): h is OrchestratorHistoryEntry => h !== null).slice(-ORCHESTRATOR_HISTORY_MAX) : [],
   };
 }
 
-/** 設定の API が受ける変更。入り切り、モデル、effort、アカウント（空でない文字列か null）だけで、会話の id と系譜は受けない。 */
-export function isOrchestratorPatch(v: unknown): v is Partial<Pick<OrchestratorSetting, 'enabled' | 'model' | 'effort' | 'account'>> {
+/** 設定の API が受ける変更。入り切り、アプリ、モデル（空はそのアプリの既定）、effort、アカウント（空でない文字列か null）だけで、会話の id と系譜は受けない。 */
+export function isOrchestratorPatch(v: unknown): v is Partial<Pick<OrchestratorSetting, 'enabled' | 'agent' | 'model' | 'effort' | 'account'>> {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
   const o = v as Record<string, unknown>;
   const keys = Object.keys(o);
-  if (keys.length === 0 || keys.some((k) => k !== 'enabled' && k !== 'model' && k !== 'effort' && k !== 'account')) return false;
+  if (keys.length === 0 || keys.some((k) => k !== 'enabled' && k !== 'agent' && k !== 'model' && k !== 'effort' && k !== 'account')) return false;
   if ('enabled' in o && typeof o.enabled !== 'boolean') return false;
-  if ('model' in o && !isModelName(o.model)) return false;
-  if ('effort' in o && !isEffort(o.effort)) return false;
+  if ('agent' in o && !(AGENT_KINDS as readonly unknown[]).includes(o.agent)) return false;
+  if ('model' in o && o.model !== '' && !isModelName(o.model)) return false;
+  if ('effort' in o && !isEffortWord(o.effort) && o.effort !== '') return false;
   if ('account' in o && o.account !== null && (typeof o.account !== 'string' || o.account === '')) return false;
   return true;
 }

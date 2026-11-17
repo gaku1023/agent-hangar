@@ -33,11 +33,23 @@ describe('設定の目次（S1）', () => {
     expect(row(p.toc, 'cloud').label).toBe('クラウド同期 ベータ、同期オフ');
   });
   it('統括の節は、サーバが設定を返すときだけ、セッションの次に出る。古いサーバでは出さない', () => {
-    const on = present(store({ settings: { ...SETTINGS, orchestrator: { enabled: true, sessionId: null, model: 'sonnet', effort: 'medium', account: null, history: [] } } }));
+    const on = present(store({ settings: { ...SETTINGS, orchestrator: { enabled: true, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] } } }));
     expect(on.toc.map((r) => r.id).slice(0, 4)).toEqual(['general', 'sessions', 'orchestrator', 'summary']);
     expect(row(on.toc, 'orchestrator')).toMatchObject({ title: '統括', state: 'オン' });
     expect(on.orchestrator).toMatchObject({ on: true, account: null, model: 'sonnet', effort: 'medium', accounts: [] });
     expect(present(store()).toc.map((r) => r.id)).not.toContain('orchestrator');
+  });
+  it('統括の札のアプリは、設定で Codex を有効にしたときだけ並び、Codex のときのモデルの一覧は取れた一覧から作る', () => {
+    const o = { enabled: true, sessionId: null, agent: 'claude-code' as const, model: 'sonnet', effort: 'medium', account: null, history: [] };
+    expect(present(store({ settings: { ...SETTINGS, orchestrator: o } })).orchestrator).toMatchObject({ agent: 'claude-code', agents: ['claude-code'], codex: null });
+    expect(present(store({ settings: { ...SETTINGS, codexEnabled: true, orchestrator: o } })).orchestrator).toMatchObject({ agents: ['claude-code', 'codex'], codex: null });
+    const data = { models: [{ id: 'gpt-x', label: 'GPT X', description: '', efforts: [{ id: 'low', description: '' }, { id: 'medium', description: '' }], defaultEffort: 'medium' }], version: '0.164.0', verified: true, fetchedAt: 0 };
+    const cx = present(store({ settings: { ...SETTINGS, codexEnabled: true, orchestrator: { ...o, agent: 'codex', model: 'gone-model', effort: '' } }, codexOptions: { status: 'ready', data } })).orchestrator!;
+    // 一覧から消えたモデルは既定（空）に戻して見せ、推論はそのモデルで選べる段階に寄せる。
+    expect(cx).toMatchObject({ agent: 'codex', agentNote: 'codex 0.164.0 · 検証済み', codex: { model: '', effort: 'medium' } });
+    expect(cx.codex!.models.map((m) => m.id)).toEqual(['gpt-x']);
+    // 保存した値そのものは変えない（見せ方だけ寄せる）。
+    expect(cx.model).toBe('gone-model');
   });
   it('殻の中では、「Hangar について」が更新の状態を言う。節の並びはブラウザと同じ', () => {
     const update = { ...initialUpdate(), supported: true, current: '1.4.2', phase: { kind: 'latest' as const }, checkedAt: NOW };

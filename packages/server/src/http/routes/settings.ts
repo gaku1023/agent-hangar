@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Hono } from 'hono';
-import { configKindsOf, isConfigKindsPatch, peerChatAcceptOf, codexEnabledOf, codexInjectionOf, codexInterceptOf, codexShareOf, opencodeShareOf, isCodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_TERMINALS, isAutoDoneIdleDays, isEditorId, isLanguage, isModelName, isNotifyPreference, notifyPreferenceOf, isOrchestratorPatch, orchestratorOf, isVoicePatch, voiceOf, isIdleUnload, isLocalContext, isOpencodeInjection, isProviderPrepId, isSummaryEngine, idleUnloadOf, localContextOf, providerPrepOf, providerPrepsOf, languageOf, LANGUAGES, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, terminalAppsFor, type EditorSetting, type EditorTerminal, type MessageKey, type SettingsDto, type TerminalApp, type WorkspaceRootPreviewDto } from '@agent-hangar/shared';
+import { configKindsOf, isConfigKindsPatch, peerChatAcceptOf, codexEnabledOf, codexInjectionOf, codexInterceptOf, codexShareOf, opencodeShareOf, isCodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_TERMINALS, isAutoDoneIdleDays, isEditorId, isLanguage, isModelName, isNotifyPreference, notifyPreferenceOf, isOrchestratorPatch, isOrchestratorEffort, orchestratorOf, isVoicePatch, voiceOf, isIdleUnload, isLocalContext, isOpencodeInjection, isProviderPrepId, isSummaryEngine, idleUnloadOf, localContextOf, providerPrepOf, providerPrepsOf, languageOf, LANGUAGES, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, terminalAppsFor, type EditorSetting, type EditorTerminal, type MessageKey, type SettingsDto, type TerminalApp, type WorkspaceRootPreviewDto } from '@agent-hangar/shared';
 import { isLoopbackSummarizerUrl, type Settings } from '../../config/paths.ts';
 import { createNodeCheck, isFullPath, nodeBuildIssue } from '../../config/node.ts';
 import { checkToolPath, expandHome, isCommandName, toolPathIssue } from '../../config/readiness.ts';
@@ -355,9 +355,19 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
     if ('orchestrator' in body) {
       const v = body.orchestrator;
       if (!isOrchestratorPatch(v)) return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.orchestrator') }) }, 400);
-      // アカウントは今あるものの id だけ。知らない id で起こすと、利用者が選んだものと違う枠を使うため。
-      if (typeof v.account === 'string' && !deps.accounts.store.get(v.account)) return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.orchestrator') }) }, 400);
-      patch.orchestrator = orchestratorOf({ ...orchestratorOf(deps.settings().orchestrator), ...v });
+      const cur = orchestratorOf(deps.settings().orchestrator);
+      const agent = v.agent ?? cur.agent;
+      const badOrch = () => c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.orchestrator') }) }, 400);
+      // アプリは Claude Code と、設定で有効にした Codex だけ。opencode は段 3 まで受けない。
+      if (v.agent !== undefined && v.agent !== cur.agent && !(v.agent === 'claude-code' || (v.agent === 'codex' && codexEnabledOf(deps.settings())))) return badOrch();
+      if (v.agent !== undefined && v.agent === 'opencode') return badOrch();
+      // effort はそのアプリで取れる段階だけ（Claude Code は決まった段階、Codex は語の形）。
+      if (v.effort !== undefined && !isOrchestratorEffort(agent, v.effort)) return badOrch();
+      // アカウントは今あるものの id だけ（そのアプリの組から引く）。知らない id で起こすと、利用者が選んだものと違う枠を使うため。
+      const store = agent === 'claude-code' ? deps.accounts.store : deps.accounts.codex?.store;
+      if (typeof v.account === 'string' && !store?.get(v.account)) return badOrch();
+      // アプリだけを替えたときは、前のアプリのアカウントを持ち越さない。
+      patch.orchestrator = orchestratorOf({ ...cur, ...(v.agent !== undefined && v.agent !== cur.agent && v.account === undefined ? { account: null } : {}), ...v });
     }
     // 机の音声（聞き方、人格）。届いた項目だけを替え、取れない値は 400。次の聞き取りから効く。
     if ('voice' in body) {
