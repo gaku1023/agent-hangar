@@ -2,6 +2,10 @@ import type { MessageSpec } from '../messageSpec.ts';
 
 export const newSessionKeys = {
   'newSession.title.default': [],
+  'newSession.fork.label': [],
+  'newSession.fork.fresh': [],
+  'newSession.fork.continue': [],
+  'newSession.fork.locked': [],
   'newSession.pc.label': [],
   'newSession.pc.here': [],
   'newSession.pc.offline': [],

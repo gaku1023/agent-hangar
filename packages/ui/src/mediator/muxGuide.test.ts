@@ -26,8 +26,7 @@ describe('セッションを始める前の止め（B2）', () => {
     expect(r.state.launch).toEqual({ kind: 'idle' });
     expect(r.effects).toEqual([]);
   });
-  it('フォークと「この PC で再開」も止める', () => {
-    expect(transition(initialState(), storeWith(MISSING), action({ type: 'session.fork', id: 's1' })).state.overlay.kind).toBe('muxGuide');
+  it('「この PC で再開」も止める', () => {
     expect(transition(initialState(), storeWith(MISSING), action({ type: 'session.resumeHere', id: 's1' })).state.overlay.kind).toBe('muxGuide');
   });
   it('見つかっているとき、まだ確かめていないときは止めない', () => {

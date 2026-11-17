@@ -7,6 +7,7 @@ import { accountChoice, accountOptions, opencodeAgentNote, opencodeModelChoice, 
 import { STATUS_LABEL } from '../presenters/format.ts';
 import { peerAccountOptions, peerAccountPick, peerAgentState, peerProjectState } from '../presenters/peerChoice.ts';
 import { agentOnlyAttr, enterAgent, leaveAgent, type AgentSwapSnapshot } from './agentSwap.ts';
+import { SettingChip } from './primitives/Chip.tsx';
 import { LaunchChips, type LaunchChipValues } from './LaunchChips.tsx';
 import { CodexFullAccessNote } from './CodexFullAccessNote.tsx';
 import { OpencodeModelResetNote } from './OpencodeModelResetNote.tsx';
@@ -70,6 +71,8 @@ export type LaunchChoiceOpts = {
   seed?: Pick<NewSessionSeed, 'accounts' | 'settings'> | null;
   /** 名前の初めの値（下書きから）。 */
   name?: string;
+  /** 「この会話の続きから」で始めるとき、元の会話。Claude Code のときだけ効き、プロジェクトとアカウントと worktree を固定する。 */
+  fork?: { sessionId: string } | null;
   /** 予定のフォームで使うとき。 */
   schedule?: LaunchScheduleOpts;
   /** 利用者がプロジェクトを選び直したとき。 */
@@ -233,6 +236,7 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
   const agent: AgentValue = isAgentKind(chosenAgent) && offered.includes(chosenAgent) ? chosenAgent : DEFAULT_AGENT_KIND;
   const opencode = agent === 'opencode';
   const codex = agent === 'codex';
+  const forking = !!o.fork && agent === DEFAULT_AGENT_KIND;
   const caps = AGENT_UI_CAPS[agent];
   // いまのエージェントのアカウントの組（opencode は無し）。2 件未満なら null で、札も params.account も出さない。
   const accountSet = !caps.accounts ? null : codex ? data.codexAccounts ?? null : data.accounts;
@@ -352,9 +356,11 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
     if (model.trim()) params.model = model.trim();
     if (effort) params.effort = effort;
     if (permissionMode) params.permissionMode = permissionMode;
-    if (worktree.trim()) params.worktree = worktree.trim();
+    // 続きからは元の会話の場所（cwd）で動くので、worktree は渡さない。
+    if (worktree.trim() && !forking) params.worktree = worktree.trim();
     const dirs = dirsOf(addDirs);
     if (dirs.length) params.addDirs = dirs;
+    if (forking) params.fork = o.fork!.sessionId;
     return { params, ...(place ? { place } : {}) };
   };
 
@@ -417,7 +423,9 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
     if (nextName !== undefined) setName(nextName);
     if (Object.keys(rest).length) { setTouched(true); setDetail((cur) => ({ ...cur, ...rest })); }
   };
-  const projectChip = (
+  const projectChip = forking ? (
+    <SettingChip name={t('newSession.project.label')} value={chosen?.label ?? ''} icon={chosen?.icon ?? 'folder'} showName={false} tone="muted" locked />
+  ) : (
     <Listbox id="new-session-project" label={t('newSession.project.label')} value={choice || null} options={options} groups={groups} onChange={choose} actions={actions} onAction={onAction}
       searchPlaceholder={t('newSession.project.search')} minWidth={360} align="start" faceClassName="set-chip" faceProps={{ 'data-tone': nested || linking ? 'linked' : 'default', ...(chosen?.disabled ? { 'data-unusable': 'true' } : {}) }}
       renderFace={(sel) => (
@@ -457,6 +465,7 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
       onChange={onChips}
       previousPermission={prev ? prev.permissionMode ?? '' : undefined}
       worktreeSuffix={scheduling ? t('schedules.worktree.suffix') : undefined}
+      fixed={forking ? { account: true, worktree: true } : undefined}
     />
   );
 
@@ -507,5 +516,5 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
     </>
   );
 
-  return { name, setName, chips, notes, build, buildPeer, blocked, titleKey, assistProject, agent, account, bypass };
+  return { name, setName, chips, notes, build, buildPeer, blocked, titleKey, assistProject, agent, account, bypass, forking };
 }

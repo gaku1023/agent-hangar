@@ -61,8 +61,12 @@ export type InvestigateContext = { op: InvestigateOp; message: string; agent?: A
  */
 export type NewSessionSeed = { request: string; quote: string; accounts?: { 'claude-code'?: string; codex?: string }; /** info は引用を中立の色で見せる（注意とセットアップの状況）。無ければエラーの色。 */ tone?: 'info';
   /** 「同じ設定で新しいセッション…」で入れる元の会話の値。あれば札の前回値より先に使う。 */
-  settings?: { agent: AgentKind; model: string | null; effort: string | null; permissionMode: string | null; mode: string | null; addDirs: string[] } };
-export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string; agent?: AgentKind; mode?: string; autoApprove?: boolean; prepKey?: string; prepChoice?: import('./launchPrep.ts').LaunchPrepChoice };
+  settings?: { agent: AgentKind; model: string | null; effort: string | null; permissionMode: string | null; mode: string | null; addDirs: string[] };
+  /** 元の会話から分岐して始められるとき（Claude Code で、本文があり、止まっている会話）。見出しの「この会話の続きから」と、入力欄の上の元の会話の札に使う。 */
+  fork?: { sessionId: string; name: string; last: string | null } };
+export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string; agent?: AgentKind; mode?: string; autoApprove?: boolean; prepKey?: string; prepChoice?: import('./launchPrep.ts').LaunchPrepChoice;
+  /** 「この会話の続きから」。元の会話の hangar の id。Claude Code だけで、元の会話のプロジェクトと cwd で起こす（projectId、scratch、cwd、worktree は効かない）。 */
+  fork?: string };
 /** 設定の同期（作り直した実装）のダイアログ。send は送るものの一覧、review は適用内容の確認、approve は届いたスキルなどの承認、conflicts は競合。 */
 export type ConfigSyncPart = 'send' | 'review' | 'approve' | 'conflicts';
 export type PaletteCommand = { id: string; label: string };
@@ -195,7 +199,7 @@ export type UiAction =
   // ダイアログを閉じた後に送り終えた添付を、いまの下書きへ足す。名前と本文には触れない（開き直したダイアログの書きかけを上書きしないため）。下書きが無ければ、名前と本文が空のものを作る。
   | { type: 'session.new.draft.attach'; attachments: { path: string; name: string; size: number | null }[] }
   // stray は、終わった扱いの run の claude が動き続けていたときの確認で選んだもの（stop は止めてから、ignore は止めずに再開する）。
-  | { type: 'session.resume'; id: SessionId; stray?: ResumeStray; /** 起動前の準備の進みの鍵（opencode の接続先の準備）。画面が再開を押すたびに作る。 */ prepKey?: string } | { type: 'session.fork'; id: SessionId }
+  | { type: 'session.resume'; id: SessionId; stray?: ResumeStray; /** 起動前の準備の進みの鍵（opencode の接続先の準備）。画面が再開を押すたびに作る。 */ prepKey?: string }
   // 停止は作業中か、そのランにシェルタブがあるときだけ先に確認を出す。どちらなのかは View が添え、確認を出すかは Mediator が決める。
   | { type: 'session.kill'; runId: RunId; working: boolean; aside?: boolean; shellTabs: number; confirmed?: boolean }
   // ほかの PC で動いている会話の停止。その PC に頼む。確認の要否は session.kill と同じく作業中かで決める（シェルタブは相手の PC のものなので数えない）。

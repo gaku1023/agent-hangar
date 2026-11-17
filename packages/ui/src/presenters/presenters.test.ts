@@ -638,7 +638,7 @@ describe('presentSession（実行中）', () => {
     expect(p.run).toEqual({ id: 'r1', kind: 'start', alive: true, started: '1 分前' });
     expect(p.tabs).toEqual([{ id: 'r1', title: 'Claude', kind: 'agent', selected: true, closable: false }, { id: 't1', title: 'シェル t1', kind: 'shell', selected: false, closable: true }]);
     expect(p.selectedTab).toBe('r1');
-    expect(p).toMatchObject({ trustHint: false, canResume: false, canFork: false, transcriptOpen: true });
+    expect(p).toMatchObject({ trustHint: false, canResume: false, transcriptOpen: true });
     const state = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), selectedTab: 't1', transcriptOpen: false } } };
     const q = presentSession(state, store, NOW, 's1');
     expect(q.selectedTab).toBe('t1');
@@ -659,7 +659,7 @@ describe('presentSession（実行中）', () => {
   it('run が無ければ再開できる。送信中は不可', () => {
     const store = storeWith();
     store.sessions.s2 = { ...store.sessions.s2!, live: null };
-    expect(presentSession(initialState(), store, NOW, 's2')).toMatchObject({ run: null, tabs: [], selectedTab: null, canResume: true, canFork: true, trustHint: false });
+    expect(presentSession(initialState(), store, NOW, 's2')).toMatchObject({ run: null, tabs: [], selectedTab: null, canResume: true, trustHint: false });
     expect(presentSession({ ...initialState(), launch: { kind: 'submitting' } }, store, NOW, 's2').canResume).toBe(false);
     store.sessions.s2 = { ...store.sessions.s2!, hasTranscript: false };
     expect(presentSession(initialState(), store, NOW, 's2').canResume).toBe(false);
@@ -680,40 +680,35 @@ describe('presentSession（見出しの操作、A1）', () => {
   const ids = (a: { menu: { id: string }[] }) => a.menu.map((m) => m.id);
   // 要約を作り直す項目は、要約エンジンを使うときだけ出る。ここの試験は使う設定で組む。
   const summaryOn = (): Store => ({ ...storeWith(), settings: fullSettings({ summaryEngine: 'claude' }) });
-  it('実行中は VS Code で開くを主にし、残りは「…」へ。停止は危険色で最後、フォークは理由を添えて押せない', () => {
+  it('実行中は VS Code で開くを主にし、残りは「…」へ。停止は危険色で最後', () => {
     const store = summaryOn();
     store.runs = { r1: runDto('r1', 's1') };
     store.tabs = { r1: tabDto('r1', 'r1', 'agent') };
     const a = presentSession(initialState(), store, NOW, 's1').actions;
     expect(a.primary).toMatchObject({ id: 'openEditor', label: 'VS Code で開く', disabled: null });
-    expect(ids(a)).toEqual(['openTerminal', 'fork', 'regenerate', 'copyAddress', 'copyId', 'stop']);
-    expect(a.menu.find((m) => m.id === 'fork')!.disabled).toBe('実行中は使えません。停止すると使えます');
+    expect(ids(a)).toEqual(['openTerminal', 'regenerate', 'copyAddress', 'copyId', 'stop']);
     expect(a.menu.at(-1)).toMatchObject({ id: 'stop', label: '停止', danger: true, disabled: null });
   });
-  it('終わったセッションは再開を主にし、フォーク、VS Code で開く、要約を作り直すを「…」へ', () => {
+  it('終わったセッションは再開を主にし、VS Code で開く、要約を作り直すを「…」へ', () => {
     const store = summaryOn();
     store.sessions.s2 = { ...store.sessions.s2!, live: null };
     const a = presentSession(initialState(), store, NOW, 's2').actions;
     expect(a.primary).toMatchObject({ id: 'resume', label: '再開', disabled: null });
-    expect(ids(a)).toEqual(['fork', 'openEditor', 'regenerate', 'copyAddress', 'copyId']);
-    // 補足は画面に出さず、項目の title に回す。
-    expect(a.menu[0]).toMatchObject({ disabled: null, note: null, title: 'この会話から分岐した新しいセッション' });
-    // 本文が無ければ、再開もフォークも理由を添えて押せない。
+    expect(ids(a)).toEqual(['openEditor', 'regenerate', 'copyAddress', 'copyId']);
+    // 本文が無ければ、再開は理由を添えて押せない。
     store.sessions.s2 = { ...store.sessions.s2!, hasTranscript: false };
     const b = presentSession(initialState(), store, NOW, 's2').actions;
     expect(b.primary).toMatchObject({ id: 'resume', disabled: 'トランスクリプトがありません' });
-    expect(b.menu[0]!.disabled).toBe('トランスクリプトがありません');
   });
-  it('他の PC で実行中は「この PC で再開」を主にし、再開とフォークはロックの理由で押せない', () => {
+  it('他の PC で実行中は「この PC で再開」を主にし、再開はロックの理由で押せない', () => {
     const store = summaryOn();
     const lock = { deviceId: 'd2', deviceName: 'MacBook-Air', runId: 'r9', heartbeatAt: NOW - 20_000, stale: false };
     store.sessions.s2 = { ...store.sessions.s2!, live: null, lock, remoteOnly: true };
     const a = presentSession(initialState(), store, NOW, 's2').actions;
     // 生きているロックでも「この PC で再開」は押せる。押すと、停止して引き継ぐ確認の 1 枚が出る。
     expect(a.primary).toMatchObject({ id: 'resumeHere', label: 'この PC で再開', disabled: null });
-    expect(ids(a)).toEqual(['resume', 'fork', 'openEditor', 'regenerate', 'copyAddress', 'copyId']);
+    expect(ids(a)).toEqual(['resume', 'openEditor', 'regenerate', 'copyAddress', 'copyId']);
     expect(a.menu[0]!.disabled).toBe('MacBook-Air で実行中です');
-    expect(a.menu[1]!.disabled).toBe('MacBook-Air で実行中です');
     store.sessions.s2 = { ...store.sessions.s2!, lock: { ...lock, stale: true } };
     const b = presentSession(initialState(), store, NOW, 's2').actions;
     expect(b.primary).toMatchObject({ id: 'resumeHere', disabled: null });
@@ -723,13 +718,12 @@ describe('presentSession（見出しの操作、A1）', () => {
     const c = presentSession(initialState(), store, NOW, 's2').actions;
     expect(c.primary).toMatchObject({ id: 'resumeHere', disabled: null });
     expect(c.menu[0]!.disabled).toBe('トランスクリプトは他の PC にあります。「この PC で再開」でトランスクリプトをダウンロードして続けられます');
-    expect(c.menu[1]!.disabled).toBe('トランスクリプトは他の PC にあります');
   });
   it('hangar の外で動いているときは、つなぐか引き取るを「…」に入れる', () => {
-    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: 'busy', lock: null, remoteOnly: false, hasTranscript: true, canResume: false, canFork: false, canResumeHere: false, outsideOpen: 'attach', canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false };
+    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: 'busy', lock: null, remoteOnly: false, hasTranscript: true, canResume: false, canResumeHere: false, outsideOpen: 'attach', canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false };
     const a = sessionActions(facts, ja);
     expect(a.primary.id).toBe('openEditor');
-    expect(ids(a)).toEqual(['attach', 'fork', 'regenerate', 'copyAddress', 'copyId']);
+    expect(ids(a)).toEqual(['attach', 'regenerate', 'copyAddress', 'copyId']);
     expect(ids(sessionActions({ ...facts, outsideOpen: 'adopt' }, ja))[0]).toBe('adopt');
     // つなぐの補足は title に回し、引き取る（外の claude を終わらせる）の補足は画面に残す。
     expect(a.menu[0]).toMatchObject({ id: 'attach', note: null, title: '外部ターミナルで実行中の Claude に hangar のターミナルから接続する' });
@@ -738,25 +732,25 @@ describe('presentSession（見出しの操作、A1）', () => {
     expect(alive.menu.find((m) => m.id === 'openTerminal')).toMatchObject({ note: null, title: '外部ターミナルで同じセッションに接続する' });
   });
   it('昇格はメニューに入れ、要約の作成中と失敗は作り直すに 1 行添え、本文が消えた会話では作り直しを出さない', () => {
-    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: false, hasTranscript: true, canResume: true, canFork: true, canResumeHere: false, outsideOpen: null, canPromote: true, gone: null, summaryPending: true, summaryError: null, fromScratch: true };
+    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: false, hasTranscript: true, canResume: true, canResumeHere: false, outsideOpen: null, canPromote: true, gone: null, summaryPending: true, summaryError: null, fromScratch: true };
     const a = sessionActions(facts, ja);
-    expect(ids(a)).toEqual(['fork', 'openEditor', 'regenerate', 'promote', 'copyAddress', 'copyId']);
-    expect(a.menu[2]!.note).toBe('作成中…');
+    expect(ids(a)).toEqual(['openEditor', 'regenerate', 'promote', 'copyAddress', 'copyId']);
+    expect(a.menu[1]!.note).toBe('作成中…');
     // クイックセッションで始めたセッションの再開は、作業ディレクトリがクイックセッションのままであることを title に添える。
     expect(a.primary).toMatchObject({ note: null, title: '再開しても作業ディレクトリはクイックセッションの保存先のままです' });
-    expect(sessionActions({ ...facts, summaryPending: false, summaryError: 'x' }, ja).menu[2]!.note).toBe('前回は作成できませんでした');
+    expect(sessionActions({ ...facts, summaryPending: false, summaryError: 'x' }, ja).menu[1]!.note).toBe('前回は作成できませんでした');
     expect(ids(sessionActions({ ...facts, gone: { note: '', canExtend: false, extendTo: 365 } }, ja))).not.toContain('regenerate');
   });
   it('要約エンジンを使わないときは、要約を作り直すを出さない（サーバーが受け付けない。冒頭の 1 枚と同じ）', () => {
-    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: false, hasTranscript: true, canResume: true, canFork: true, canResumeHere: false, outsideOpen: null, canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false, summaryOff: true };
+    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: false, hasTranscript: true, canResume: true, canResumeHere: false, outsideOpen: null, canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false, summaryOff: true };
     expect(ids(sessionActions(facts, ja))).not.toContain('regenerate');
-    expect(ids(sessionActions({ ...facts, live: 'busy', canResume: false, canFork: false }, ja))).not.toContain('regenerate');
+    expect(ids(sessionActions({ ...facts, live: 'busy', canResume: false }, ja))).not.toContain('regenerate');
     // 実行中のセッションの「…」でも、設定が「使わない」なら出さない（0.6.0-rc.1 の Windows の確かめ）。
     const store = storeWith();
     store.settings = fullSettings({ summaryEngine: 'off' });
     store.runs = { r1: runDto('r1', 's1') };
     store.tabs = { r1: tabDto('r1', 'r1', 'agent') };
-    expect(ids(presentSession(initialState(), store, NOW, 's1').actions)).toEqual(['openTerminal', 'fork', 'copyAddress', 'copyId', 'stop']);
+    expect(ids(presentSession(initialState(), store, NOW, 's1').actions)).toEqual(['openTerminal', 'copyAddress', 'copyId', 'stop']);
     store.settings = fullSettings({ summaryEngine: 'claude' });
     expect(ids(presentSession(initialState(), store, NOW, 's1').actions)).toContain('regenerate');
   });
@@ -1720,7 +1714,6 @@ describe('セッションのロック（フェーズ 4）', () => {
     expect(p.lock).toEqual({ deviceName: 'mini', stale: false, heartbeat: '1 分前', label: 'mini で実行中' });
     expect(p.remoteOnly).toBe(true);
     expect(p.canResume).toBe(false);
-    expect(p.canFork).toBe(false);
     expect(p.canResumeHere).toBe(true);
   });
   it('heartbeat が途絶えたロックは応答がありませんと見せ、この PC で再開だけを開ける（Ruling 14）', () => {
@@ -1729,12 +1722,11 @@ describe('セッションのロック（フェーズ 4）', () => {
     expect(p.lock).toEqual({ deviceName: 'mini', stale: true, heartbeat: '10 分前', label: 'mini から応答がありません' });
     // 相手の run を止めには行かないので、同じ run の続きである再開とフォークは閉じたままにする。
     expect(p.canResume).toBe(false);
-    expect(p.canFork).toBe(false);
     expect(p.canResumeHere).toBe(true);
   });
   it('stale のロックは、写しだけのセッションでもこの PC で再開ができる', () => {
     const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: true }), remoteOnly: true, transcriptMtime: null }) } };
-    expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ remoteOnly: true, canResume: false, canFork: false, canResumeHere: true });
+    expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ remoteOnly: true, canResume: false, canResumeHere: true });
   });
   it('生きているロックでも、写しの有無にかかわらずこの PC で再開を開ける（停止して引き継ぐ）', () => {
     const local: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: false }) }) } };
@@ -1748,11 +1740,10 @@ describe('セッションのロック（フェーズ 4）', () => {
     expect(p.lock).toBeNull();
     expect(p.canResumeHere).toBe(true);
     expect(p.canResume).toBe(false);
-    expect(p.canFork).toBe(false);
   });
   it('手元に本文があってロックが無ければ普通に再開できる', () => {
     const store: Store = { ...initialStore(), sessions: { s1: session('s1') } };
-    expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ lock: null, remoteOnly: false, canResume: true, canFork: true, canResumeHere: false });
+    expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ lock: null, remoteOnly: false, canResume: true, canResumeHere: false });
   });
   it('hangar の run が無く外で動くセッションは、引き取りか attach の手を出す。作業中は出さない', () => {
     const live = (over = {}) => ({ sessionId: 'us1', status: 'idle' as const, name: null, nameSource: null, cwd: '/w/alpha', pid: 1, entrypoint: 'cli', ...over });

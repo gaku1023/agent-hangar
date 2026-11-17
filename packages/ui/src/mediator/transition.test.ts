@@ -357,10 +357,10 @@ describe('起動', () => {
     expect(run([action({ type: 'session.new.submit', params: { scratch: true } })]).effects).toEqual([{ kind: 'api.launch', params: { scratch: true } }]);
   });
   // 外部で開く操作は Mediator を通らない（runtime/actionTable.test.ts）。
-  it('再開、フォーク、停止は API 効果', () => {
-    const { state, effects } = run([action({ type: 'session.resume', id: 's1' }), action({ type: 'session.fork', id: 's1' }), action({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 })]);
+  it('再開と停止は API 効果', () => {
+    const { state, effects } = run([action({ type: 'session.resume', id: 's1' }), action({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 })]);
     expect(effects).toEqual([
-      { kind: 'api.resume', sessionId: 's1' }, { kind: 'api.fork', sessionId: 's1' }, { kind: 'api.killRun', runId: 'r1' },
+      { kind: 'api.resume', sessionId: 's1' }, { kind: 'api.killRun', runId: 'r1' },
     ]);
     expect(state.launch).toEqual({ kind: 'submitting' });
   });

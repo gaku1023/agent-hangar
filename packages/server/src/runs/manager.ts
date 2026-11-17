@@ -780,6 +780,11 @@ export class RunManager {
    */
   async start(params: LaunchParams, hooks: LaunchHooks = {}): Promise<LaunchResult> {
     const agent = this.agentKindOf(params.agent);
+    // 「この会話の続きから」。元の会話のプロジェクトと cwd で分岐して起こす（Claude Code だけ）。
+    if (params.fork !== undefined) {
+      if (agent !== DEFAULT_AGENT) throw new RunError(400, msg('run.agent.forkClaudeOnly'));
+      return this.fork(params.fork, params);
+    }
     const r = agent === DEFAULT_AGENT ? await this.startClaude(params) : await this.startMaterialized(agent, params, undefined, hooks);
     if (!params.scratch && params.projectId) this.unarchive(params.projectId);
     return r;
@@ -1254,13 +1259,15 @@ export class RunManager {
   }
 
   /** 新しい sessions 行を作り、claude -r <uuid> --fork-session --session-id <new> で起動する。名前は Claude が本文から引き継ぐ（索引が sessions.custom_title に拾う）ので、hangar の名前は付けない。 */
-  fork(sessionId: string): LaunchResult {
+  fork(sessionId: string, params: LaunchParams = {}): LaunchResult {
     const s = this.session(sessionId);
     this.assertCan(s, 'fork');
     this.assertResumable(s);
+    // 続きから始めるときも、アカウントは元の会話を最後に動かしたもの（本文の置き場がそのアカウントにある）。
     const account = this.accounts.lastUsed(s.id);
     // リンクの確かめも行を作る前に済ませる。壊れていると、本文の無い行が残る。
     this.accounts.envFor(account);
+    this.addDirs(params);
     // 新しい行を作る前に起動できるかを確かめる。失敗しても本文の無いセッションが残らないようにするため。
     // フォークした本文はこの PC の cwd の置き場に生まれるので、新しい行の cwd は読み替えた方にする。
     // ほかの PC のクイックセッションのフォルダは、この確かめが通ってから作る（precheck の create）。
@@ -1275,9 +1282,16 @@ export class RunManager {
     // 利用者が移した会話なら、新しい会話にも移した印を写す（sessions/move.ts）。写さないと、索引の自動の振り分けが cwd から元のプロジェクトへ戻す。
     const pin = pinnedProjectOf(this.db, s.id);
     if (pin !== null) setSessionPlacement(this.db, this.deps.deviceId, newSessionId, pin);
-    const base = this.baseInput(newSessionId, s.project_id, cwd, {}, s.id, { account });
+    // 続きから始めるときに渡せるのは、名前、本文、モデル、effort、権限、追加ディレクトリ。
+    // worktree は cwd を替えるので、元の本文を探せなくなる。プロジェクトと cwd も元の会話のままにする。
+    const { name, prompt, model, effort, permissionMode, addDirs } = params;
+    const given = { ...(name ? { name } : {}), ...(prompt ? { prompt } : {}), ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(permissionMode ? { permissionMode } : {}), ...(addDirs ? { addDirs } : {}) };
+    const base = this.baseInput(newSessionId, s.project_id, cwd, given, s.id, { account });
+    const dropsDir = path.join(this.deps.home, 'drops');
+    const dirs = promptMentionsDrops(prompt, dropsDir) && !base.addDirs?.includes(dropsDir) ? [...(base.addDirs ?? []), dropsDir] : base.addDirs;
+    if (name?.trim()) setSessionName(this.db, this.deps.deviceId, newSessionId, name.trim());
     const bin = this.claudeBin();
-    return this.launch({ sessionId: newSessionId, cwd, kind: 'fork', plan: (env) => driver.launch.plan(bin, { kind: 'fork', id: s.provider_session_id, newId: newUuid }, { ...base, env }), params: { projectId: s.project_id ?? undefined }, account });
+    return this.launch({ sessionId: newSessionId, cwd, kind: 'fork', plan: (env) => driver.launch.plan(bin, { kind: 'fork', id: s.provider_session_id, newId: newUuid }, { ...base, addDirs: dirs, env }), params: { projectId: s.project_id ?? undefined, ...given }, account });
   }
 
   /** fork が materialize（ID を後から受ける）の道を通る会話か。http の入口が fork と forkMaterialized を呼び分ける。 */

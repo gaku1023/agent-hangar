@@ -127,7 +127,11 @@ export function duplicateOpenAction(store: Store, id: string, s: SessionLaunchSe
   const projectId = store.sessions[id]?.projectId ?? null;
   const { account, ...settings } = s;
   const accounts = account === null || s.agent === 'opencode' ? {} : { [s.agent]: account };
-  const seed = { request: '', quote: '', accounts, settings };
+  const sess = store.sessions[id];
+  // 「この会話の続きから」は、Claude Code の、本文があり、止まっていて、手元で続けられる会話だけ（サーバの fork の条件と同じ）。
+  const canFork = !!sess && s.agent === 'claude-code' && sess.hasTranscript && sess.live === null && sess.lock === null && !sess.remoteOnly;
+  const fork = canFork ? { sessionId: id, name: sess.name ?? sess.summary?.title ?? sess.aiTitle ?? sess.firstPrompt ?? '', last: sess.summary?.oneLiner || null } : null;
+  const seed = { request: '', quote: '', accounts, settings, ...(fork ? { fork } : {}) };
   return projectId && !store.projects[projectId]?.isScratch ? { type: 'session.new.open', projectId, seed } : { type: 'session.new.open', scratch: true, seed };
 }
 
@@ -289,7 +293,6 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
       const launchPrep = i.prepKey ? { key: i.prepKey, model: null, name: null, resume: true as const } : state.launchPrep;
       return { state: { ...state, overlay, launch: { kind: 'submitting' }, launchSent: { op: 'resume', sessionId: i.id }, launchPrep }, effects: [{ kind: 'api.resume', sessionId: i.id, ...(i.stray ? { stray: i.stray } : {}), ...(i.prepKey ? { prepKey: i.prepKey } : {}) }] };
     }
-    case 'session.fork': return { state: { ...state, launch: { kind: 'submitting' }, launchSent: { op: 'fork', sessionId: i.id } }, effects: [{ kind: 'api.fork', sessionId: i.id }] };
     case 'session.attach':
       if (state.launch.kind === 'submitting') return { state, effects: [] };
       return { state: { ...state, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.attach', sessionId: i.id }] };
