@@ -64,7 +64,13 @@ export type NewSessionSeed = { request: string; quote: string; accounts?: { 'cla
   settings?: { agent: AgentKind; model: string | null; effort: string | null; permissionMode: string | null; mode: string | null; addDirs: string[] };
   /** 元の会話から分岐して始められるとき（Claude Code で、本文があり、止まっている会話）。見出しの「この会話の続きから」と、入力欄の上の元の会話の札に使う。 */
   fork?: { sessionId: string; name: string; last: string | null } };
-export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string; agent?: AgentKind; mode?: string; autoApprove?: boolean; prepKey?: string; prepChoice?: import('./launchPrep.ts').LaunchPrepChoice;
+/**
+ * 人のいない起動元。schedule は予定や出来事による自動の実行、session は別の会話（MCP の create_session、ほかの PC の会話からの頼み）。
+ * 人が起こしたときは付けない。起動の指示（server の launch/injection.ts）で、問いで止まらない段に替える。
+ */
+export type LaunchedBy = 'schedule' | 'session';
+export const isLaunchedBy = (v: unknown): v is LaunchedBy => v === 'schedule' || v === 'session';
+export type LaunchParams = { /** 人のいない起動元。人が起こしたときは省く。 */ launchedBy?: LaunchedBy; projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string; agent?: AgentKind; mode?: string; autoApprove?: boolean; prepKey?: string; prepChoice?: import('./launchPrep.ts').LaunchPrepChoice;
   /** 「この会話の続きから」。元の会話の hangar の id。Claude Code だけで、元の会話のプロジェクトと cwd で起こす（projectId、scratch、cwd、worktree は効かない）。 */
   fork?: string };
 /** 設定の同期（作り直した実装）のダイアログ。send は送るものの一覧、review は適用内容の確認、approve は届いたスキルなどの承認、conflicts は競合。 */

@@ -22,7 +22,7 @@ import { AccountStore } from '../config/accounts.ts';
 import { msg } from '../i18n/message.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
-import { callTool, ToolError, TOOL_NAMES, type ToolDeps } from './tools.ts';
+import { callTool, createSessionTool, ToolError, TOOL_NAMES, type ToolDeps } from './tools.ts';
 
 let dir: string;
 let home: string;
@@ -1057,6 +1057,20 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
     // 共通の URL では呼んだセッションが分からないので、残さない。
     await call('create_session', { project_id: 'p1' });
     expect(parentOf('sNew')).toBeUndefined();
+  });
+
+  it('create_session は、会話から呼ばれたら人のいない起動（session）として起こし、引き継ぎと共通の URL では付けない', async () => {
+    await call('create_session', { project_id: 'p1' }, scoped());
+    expect(started.at(-1)!.launchedBy).toBe('session');
+    await call('create_session', { project_id: 'p1', handoff: true }, scoped());
+    expect(started.at(-1)!.launchedBy).toBeUndefined();
+    await call('create_session', { project_id: 'p1' });
+    expect(started.at(-1)!.launchedBy).toBeUndefined();
+  });
+
+  it('create_session は、サーバの中の呼び手が付けた起動元（予定）をそのまま渡す', async () => {
+    await createSessionTool(deps, { sessionId: null, launchedBy: 'schedule' }, { project_id: 'p1' });
+    expect(started.at(-1)!.launchedBy).toBe('schedule');
   });
 
   it('open_in_hangar は別のプロジェクトのリンクを返さない', () => {

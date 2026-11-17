@@ -72,7 +72,7 @@ describe('PeerLaunchInbox', () => {
   it('同じプロジェクトに起こして started と session_id を答え、結び付きを書く（テスト 2）', async () => {
     const { db, inbox, post, start, answerOf } = await setup();
     await inbox.receive(await post('l1', request()));
-    expect(start).toHaveBeenCalledWith({ projectId: 'project-a', permissionMode: 'acceptEdits', model: 'sonnet', prompt: 'TODO の先頭をやって' });
+    expect(start).toHaveBeenCalledWith({ projectId: 'project-a', launchedBy: 'session', permissionMode: 'acceptEdits', model: 'sonnet', prompt: 'TODO の先頭をやって' });
     expect(await answerOf('l1')).toEqual({ ok: true, sessionId: 's-new', title: 'TODO の先頭をやって' });
     expect(getSpawn(db, 'pc-b', 's-new')).toMatchObject({ parentId: 'parent-1', parentDeviceId: 'pc-a', childDeviceId: 'pc-b' });
     expect(db.prepare('select result, session_id, answered from peer_launches where id = ?').get('l1')).toEqual({ result: 'started', session_id: 's-new', answered: 1 });
@@ -83,6 +83,8 @@ describe('PeerLaunchInbox', () => {
     const { db, inbox, post, start, answerOf } = await setup({ onStarted });
     await inbox.receive(await post('l1', request({ parentSessionId: '' })));
     expect(start).toHaveBeenCalledTimes(1);
+    // 人が頼んだ起動なので、人のいない起動元は付けない。
+    expect(start.mock.calls[0]![0].launchedBy).toBeUndefined();
     expect(await answerOf('l1')).toEqual({ ok: true, sessionId: 's-new', title: 'TODO の先頭をやって' });
     expect(getSpawn(db, 'pc-b', 's-new')).toBeNull();
     expect(onStarted).not.toHaveBeenCalled();
@@ -97,8 +99,8 @@ describe('PeerLaunchInbox', () => {
     await inbox.receive(await post('l2', request({ agent: 'opencode', permissionMode: '', model: '', mode: 'build', autoApprove: true })));
     await inbox.receive(await post('l3', request({ agent: 'codex', permissionMode: '', mode: 'full-access', model: '' })));
     expect(start.mock.calls[0]![0]).toMatchObject({ permissionMode: 'bypassPermissions', effort: 'high' });
-    expect(start.mock.calls[1]![0]).toEqual({ projectId: 'project-a', agent: 'opencode', mode: 'build', autoApprove: true, prompt: 'TODO の先頭をやって' });
-    expect(start.mock.calls[2]![0]).toEqual({ projectId: 'project-a', agent: 'codex', mode: 'full-access', prompt: 'TODO の先頭をやって' });
+    expect(start.mock.calls[1]![0]).toEqual({ projectId: 'project-a', launchedBy: 'session', agent: 'opencode', mode: 'build', autoApprove: true, prompt: 'TODO の先頭をやって' });
+    expect(start.mock.calls[2]![0]).toEqual({ projectId: 'project-a', launchedBy: 'session', agent: 'codex', mode: 'full-access', prompt: 'TODO の先頭をやって' });
   });
 
   it('Claude Code の permissionMode default は受けて、start に default を渡す', async () => {

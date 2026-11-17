@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { isAgentKind, isNotifyKind, isQuietStatus, sessionPhaseOf, notifyRulesOf, orchestratorLineage, orchestratorOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type PermissionPolicy, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionPhase, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto, type WakeOn } from '@agent-hangar/shared';
+import { isAgentKind, isNotifyKind, isQuietStatus, sessionPhaseOf, notifyRulesOf, orchestratorLineage, orchestratorOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LaunchedBy, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type PermissionPolicy, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionPhase, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto, type WakeOn } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
@@ -95,8 +95,9 @@ export type ToolDeps = {
 /**
  * セッション別 URL では、そのセッションに固定される。共通 URL では null。
  * sessionSecret は、セッション別 URL をそのセッションの秘密（hangar が起こした run にだけ配る）で開けたこと。本体のトークンで開けたときは偽。
+ * launchedBy は、サーバの中から道具を呼ぶときの、人のいない起動元（予定や出来事は 'schedule'）。MCP の呼び出しでは付かない。
  */
-export type ToolContext = { sessionId: string | null; sessionSecret?: boolean };
+export type ToolContext = { sessionId: string | null; sessionSecret?: boolean; launchedBy?: LaunchedBy };
 
 /** ツールの呼び出しが失敗したこと。MCP の層はこれを、いまの言語の文にして isError の応答に変える。 */
 export class ToolError extends MessageError {
@@ -539,8 +540,10 @@ export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
   const launchedAt = Date.now();
   const marked = (id: string) => noteTurnStart(deps.db, id, { at: launchedAt, expectsReply: str(args.prompt) !== undefined, ...(key ? { prepKey: key } : {}) });
   let pending: string | null = null;
+  // 人のいない起動元。予定や出来事はサーバの中から呼ぶ側が付け、別の会話から起こしたら session にする。引き継ぎは人が続けるので付けない。
+  const launchedBy: LaunchedBy | undefined = ctx.launchedBy ?? (ctx.sessionId && !bool(args.handoff) ? 'session' : undefined);
   const launch = Promise.resolve(deps.runs.start({
-    projectId, name: str(args.name), prompt: str(args.prompt), model: str(args.model),
+    ...(launchedBy ? { launchedBy } : {}), projectId, name: str(args.name), prompt: str(args.prompt), model: str(args.model),
     effort: str(args.effort), permissionMode: str(args.permission_mode), scratch: bool(args.scratch),
     agent, mode: str(args.mode), ...(account ? { account: account.id } : {}),
     worktree: str(args.worktree), addDirs: strs(args.add_dirs), ...(key ? { prepKey: key } : {}),

@@ -9,8 +9,8 @@ import type { ScheduleOutcome } from './runner.ts';
 /** 再開してから入力を受けられるようになるまで待つ長さ。 */
 const RESUME_READY_MS = 60_000;
 const NAME_MAX = 40;
-/** サーバから呼ぶ。起動元の会話は無い。 */
-const CTX: ToolContext = { sessionId: null };
+/** サーバから呼ぶ。起動元の会話は無く、人もいない。新しい会話の指示は、問いで止まらない段になる。 */
+const CTX: ToolContext = { sessionId: null, launchedBy: 'schedule' };
 const REAL: WaitClock = { now: () => Date.now(), sleep: (ms) => new Promise((r) => setTimeout(r, ms)) };
 
 const nameOf = (prompt: string): string => {

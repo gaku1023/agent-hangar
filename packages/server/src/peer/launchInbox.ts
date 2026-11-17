@@ -262,6 +262,8 @@ export class PeerLaunchInbox {
     if (!r.scratch && !this.deps.hasProjectHere(r.projectId!)) return fail('project-missing');
     if (!this.deps.hasAgent(r.agent)) return fail('agent-missing');
     const params: LaunchParams = r.scratch ? { scratch: true } : { projectId: r.projectId! };
+    // ほかの PC の会話から頼まれた起動は、人のいない起動として指示を組む。画面からの頼み（SCREEN_CALLER の空の ID）は人の起動である。
+    if (r.parentSessionId !== '') params.launchedBy = 'session';
     if (r.agent !== 'opencode') {
       // アカウントは名前で決める。省かれていれば頼みに入っている呼び出し元のアカウントの名前で、それも無ければこの PC の既定（D7）。
       const want = r.account || r.callerAccount || '';
