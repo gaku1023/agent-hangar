@@ -105,10 +105,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 組み立て。待ち受けより前は、誰も外と話さず、何も見張らない。
   const home = bootHome(opts);
   const delivery = bootDelivery(home, opts);
-  // メモの置き場は索引の側が持つ。同期が使うのは競合で負けたときだけなので、後から作る部品を呼ばれた時点で引く。
   // opencode の本文の書き出しの口は、serve の管理（下の bootOpencode）を組んだ後に入る。それまで opencode の本文は上げない。
   let opencodeExport: OpencodeExportSource | null = null;
-  const sync = bootSync(home, delivery, { memoPath: (projectId) => indexing.memos.memoPath(projectId), opencodeExport: () => opencodeExport });
+  const sync = bootSync(home, delivery, { opencodeExport: () => opencodeExport });
   const indexing = bootIndexing(home, delivery, sync);
   // 待ち受けを始める。/health はここから返る。実際のポート番号を、この後の run と包みと MCP が使う。
   let listening: Awaited<ReturnType<typeof bootListen>>;
@@ -288,7 +287,6 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       await opencode.stop(left());
       await sync.drain(left);
       // 見張りを止める。書き手が止まってから、配る層と待ち受けを畳む。
-      indexing.stopMemoWatch();
       runs.runs.stop();
       indexing.indexer.stop();
       delivery.live.stop();

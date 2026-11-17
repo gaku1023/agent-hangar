@@ -23,7 +23,7 @@ export type ProjectUnresolvedDto = { kind: 'missing' | 'elsewhere'; previousPath
  * 直す前の版の「場所を再指定」が重複を見なかった残りで、ホームの帯とプロジェクトの画面から、まとめる確認を開く。無ければ null で、古いサーバは付けない。
  */
 export type ProjectSameFolderRef = { projectId: string; name: string };
-export type ProjectDto = { id: string; name: string; status: ProjectStatus; isScratch: boolean; path: string | null; resolved: boolean; lastActivityAt: number | null; runningCount: number; openTodoCount: number; memoHead: string | null; updatedAt: number; unresolved?: ProjectUnresolvedDto | null; sameFolder?: ProjectSameFolderRef | null };
+export type ProjectDto = { id: string; name: string; status: ProjectStatus; isScratch: boolean; path: string | null; resolved: boolean; lastActivityAt: number | null; runningCount: number; openTodoCount: number; updatedAt: number; unresolved?: ProjectUnresolvedDto | null; sameFolder?: ProjectSameFolderRef | null };
 export type SessionStatsDto = { turns: number; model: string | null; effort: string | null; filesChanged: number; prUrl: string | null; inputTokens: number; outputTokens: number; contextPercent: number | null; costUsd: number | null;
   /** 文脈の量（トークン、最後の値。session_live_stats.context_used）。右欄の opencode の使用量の札が使う。項目を知らない古いサーバは送らない。 */
   contextTokens?: number | null };
@@ -454,7 +454,6 @@ export type TodoSuggestionDto = { note: string | null; at: number };
  * suggestion は Claude が足して、まだ受け入れていない提案で、受け入れた行では null である。提案の行は未完の数に入れない。
  */
 export type TodoDto = { id: string; projectId: string; text: string; done: boolean; position: number; sessionId: string | null; updatedAt: number; candidate: TodoCandidateDto | null; suggestion: TodoSuggestionDto | null };
-export type MemoDto = { projectId: string; markdown: string; updatedAt: number };
 /**
  * Claude Code が起動時に読む指示とメモリのファイルの種類（右パネルの「指示とメモリ」）。
  * project はルートの CLAUDE.md、projectDotClaude は .claude/CLAUDE.md、local は CLAUDE.local.md、agents は AGENTS.md、memory は自動メモリの MEMORY.md である。

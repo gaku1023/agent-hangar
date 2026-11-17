@@ -8,7 +8,6 @@ import type { AsksOf } from '../mcp/app.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import type { LiveDigester } from '../live/digest.ts';
 import type { CandidateEnv } from '../projects/candidates.ts';
-import type { MemoStore } from '../projects/memo.ts';
 import type { HookDecisions } from '../sessions/hookDecisions.ts';
 import type { PermissionAsks } from '../sessions/permissionAsks.ts';
 import type { OrchestratorKeeper } from '../orchestrator/keeper.ts';
@@ -131,7 +130,6 @@ export type AppDeps = {
   /** git の表示。渡さなければ、ここで作る（試験は実物の git を使う）。組み立てる側は、本文の伸びで読み直す同じものを渡す。 */
   git?: GitApi;
   usage: { current(): UsageDto; ingest(raw: unknown): { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null; accountId: string } | null };
-  memos: MemoStore;
   summary: SummaryApi;
   /** セッションの削除（sessions/trash.ts）。本文を OS のゴミ箱へ移し、削除の印を書く。 */
   trash: Pick<SessionTrash, 'deleteSession'>;

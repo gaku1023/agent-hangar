@@ -7,7 +7,6 @@ import type { ServerEvent } from '@agent-hangar/shared';
 import { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
-import type { MemoStore } from '../projects/memo.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
 import type { AccountsDeps } from './accounts.ts';
@@ -27,7 +26,6 @@ let sent: ServerEvent[];
 let calls: string[];
 let runs: RunsApi;
 let usage: UsageTracker;
-let memos: MemoStore;
 /** ワークスペースから登録される唯一のプロジェクト alpha の id。 */
 let list0ProjectId: () => string;
 const get = (p: string, headers: Record<string, string> = H) => app.request(p, { headers });
@@ -35,7 +33,7 @@ const json = async (r: Response) => ({ status: r.status, body: await r.json() })
 
 beforeEach(async () => {
   t = await testDeps();
-  ({ db, ws, runs, usage, memos, deps, calls } = t);
+  ({ db, ws, runs, usage, deps, calls } = t);
   dir = t.claudeDir; sent = t.events; list0ProjectId = t.alphaProjectId;
   app = createApp(deps);
 });
@@ -156,18 +154,11 @@ describe('routes', () => {
   it('本文の上限はバイト数で測り、超えたら 413', async () => {
     const pid = list0ProjectId();
     // 日本語は 1 文字 3 バイト。文字数で測ると上限の 3 倍まで通ってしまう。
-    expect((await post(`/api/projects/${pid}/memo`, { markdown: 'あ'.repeat(400 * 1024) }, 'PUT')).status).toBe(413);
-    expect(memos.read(pid)).toBeNull();
-    expect(sent.some((e) => e.type === 'memo.update')).toBe(false);
     expect((await post(`/api/projects/${pid}/todos`, { text: 'あ'.repeat(2000) })).status).toBe(413);
     expect((await post(`/api/projects/${pid}/artifacts`, { url: 'https://claude.ai/code/artifact/' + 'a'.repeat(3000) })).status).toBe(413);
     expect((await app.request('/api/ingest/statusline', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ session_id: 'あ'.repeat(100 * 1024) }) })).status).toBe(413);
     // 経路ごとの指定が無い本文にも既定の上限が効く。
     expect((await post('/api/settings', { workspaceRoot: 'あ'.repeat(40 * 1024) }, 'PATCH')).status).toBe(413);
-    const big = await post(`/api/projects/${pid}/memo`, { markdown: 'あ'.repeat(400 * 1024) }, 'PUT');
-    expect((await big.json()).error).toMatch(/大きすぎます/);
-    // 上限の内側はこれまでどおり通る。
-    expect((await post(`/api/projects/${pid}/memo`, { markdown: 'あ'.repeat(1000) }, 'PUT')).status).toBe(200);
     expect((await post(`/api/projects/${pid}/todos`, { text: 'あ'.repeat(100) })).status).toBe(201);
   });
   it('MCP の経路が mount されている', async () => {

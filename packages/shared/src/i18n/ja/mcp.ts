@@ -49,7 +49,6 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.sendToSession.askOpen': 'この会話は許可か質問の札で待っています。送った文は札の答えとして確定してしまうので、送りませんでした。list_pending_asks で札を引き、answer_ask で答えてください（answer_ask が無ければ、ユーザーに答えてもらってください）',
   'mcp.sendToSession.failedWindows': 'Windows のこの環境では、複数行を 1 つの入力として貼れませんでした: {reason}。1 行にまとめるか、内容をファイルに書いてそのパスを送ってください',
   'mcp.resumeHint.stale':'{device} から応答が無いため、この PC の claude -r では再開できません。open_in_hangar でこのセッションを Hangar で開き、「この PC で再開」をクリックするようユーザーに案内してください。',
-  'mcp.updateProject.memoRetired': 'プロジェクトのノートは廃止したため、append_memo は保存しませんでした。記録したい内容は、CLAUDE.md などの指示ファイルに書いてください。',
   'mcp.error.sessionNotFound': 'セッションが見つかりません: {id}',
   'mcp.error.projectNotFound': 'プロジェクトが見つかりません: {id}',
   'mcp.error.todoNotFound': 'TODO が見つかりません: {id}',

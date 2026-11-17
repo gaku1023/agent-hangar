@@ -998,21 +998,13 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
     expect((callTool(deps, scoped(), 'list_projects', {}) as { id: string }[]).map((p) => p.id)).toEqual(['p1']);
   });
 
-  it('update_project はノートを書かない（append_memo はやめた）。渡されたら、やめたことと書く場所を notice で返し、エラーにはしない', () => {
-    const r = call('update_project', { project_id: 'p1', append_memo: '書かない' });
+  it('update_project はノートを書かない（append_memo はやめた）。notice も付けない', () => {
+    const r = call('update_project', { project_id: 'p1', status: 'paused', append_memo: '書かない' });
     expect(r).not.toHaveProperty('memo');
-    expect(r.notice).toBe('プロジェクトのノートは廃止したため、append_memo は保存しませんでした。記録したい内容は、CLAUDE.md などの指示ファイルに書いてください。');
+    expect(r).not.toHaveProperty('notice');
+    expect((r.project as { status: string }).status).toBe('paused');
     expect(db.prepare('select markdown from project_memos where project_id = ?').get('p1')).toBeUndefined();
     expect(fs.existsSync(path.join(home, 'projects', 'p1', 'memo.md'))).toBe(false);
-    // 他の項目は、いっしょに渡されても今までどおり書く。
-    const r2 = call('update_project', { project_id: 'p1', status: 'paused', append_memo: '書かない' });
-    expect((r2.project as { status: string }).status).toBe('paused');
-    expect(r2.notice).toEqual(expect.any(String));
-    // 渡さなければ notice は付けない。
-    expect(call('update_project', { project_id: 'p1', status: 'active' })).not.toHaveProperty('notice');
-    // 言語は道具の言語に従う。
-    deps.language = () => 'en';
-    expect(call('update_project', { project_id: 'p1', append_memo: 'x' }).notice).toBe('Project notes have been retired, so append_memo was not written. Write anything you want to keep in an instruction file such as CLAUDE.md.');
   });
 
   it('get_project と update_project は別のプロジェクトを断る', () => {

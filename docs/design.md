@@ -562,15 +562,13 @@ Mediator の入力の型（`MediatedAction`）は表の kind を除いてある�
 ### 方針
 
 hangar 固有のデータは `~/.agent-hangar/hangar.db`（SQLite）に置く。
-プロジェクトのメモだけは Markdown ファイルとして `~/.agent-hangar/projects/<projectId>/memo.md` にも置き、DB には更新時刻と内容の写しを持つ。
-メモをファイルでも持ったのは、他のエディタや Claude 自身から直接読み書きできるようにするためだった。
 プロジェクトのメモ（画面の語は「ノート」）は 2026-10-11 にやめた（「プロジェクト詳細」の右パネル）。
-画面と MCP からは書かず、起動時の指示にも渡さない。
-保存の仕組み（`projects/memo.ts` と `GET`、`PUT /api/projects/:id/memo`）と同期の表 `project_memos` は、中身の残る古いノートを読んで削除できるように、いまは残してある。
-画面が使うのは、「以前のノート」として読むことと、確かめてから空で保存して消すことだけである。
+2026-11 には画面、`GET` と `PUT /api/projects/:id/memo`、保存の仕組み（`projects/memo.ts`）、`memo.update` のイベント、`ProjectDto.memoHead`、MCP の `append_memo` の受け皿も外した。
+同期の表 `project_memos` だけは残してある。
 ノートの欄を持つ古い版の端末は、まだこの表の行を送ってくる。
 Worker は知らない表の行を 1 つでも含む送信を丸ごと断るので、表を共有テーブルの一覧から外すと、その端末のほかの表の同期まで止まる。
-受け取る側も、降りてきた古いノートを「以前のノート」として見せられるように、表と適用を残す。
+受け取る側は、降りてきた行を表に入れるだけで、画面には何も配らない。
+手元の行を上書きするときの控え（`memo.conflict-*`）は、いまも `sync/apply.ts` が残す。
 
 テーブルは **共有** と **端末ローカル** に分ける。
 共有テーブルは端末間で同期し、ローカルテーブルは端末の中だけで使う。
@@ -872,7 +870,7 @@ DB に書いた後で画面へ配るのは、書いた側ではなく、配る�
 | `projects` | そのプロジェクトの `project.upsert` |
 | `project_roots` | そのプロジェクトの `project.upsert`。この端末のルートが未解決になった書き込みも配る。ホームの帯の件数と、プロジェクトの一覧の札が、再読み込みを待たずに変わるためである |
 | `devices` | 一覧ごとの `devices.update` |
-| `project_memos` | `memo.update` と、メモの頭を載せるプロジェクトの `project.upsert`。この端末の変化だけを配る |
+| `project_memos` | 何も配らない（ノートはやめた。表は古い版の端末の送りを受けるために残してある） |
 | `artifacts` | `artifact.upsert`。この端末の変化だけを配る |
 | `todos` | そのプロジェクトの一覧ごとの `todos.update` と、未完の数を載せるプロジェクトの `project.upsert`。この端末の変化だけを配る |
 | `config_snapshots`、`config_state`（表ではなく、状態を動かした名指しの名前） | 設定の同期（作り直した実装）の状態 `config.update`。束の行が降りたときも、この端末が書いたときも配る。同期を組んでいない端末では何も配らない |
@@ -888,7 +886,7 @@ DB に書いた後で画面へ配るのは、書いた側ではなく、配る�
 - 読み直して行が無い（消えた）ときは、何も配らない。
 - WebSocket の受け手がいないあいだは、行を読み直さない。起動時の全走査で、誰も受けない DTO を組まないためである。
 - 表の変化に対応しない知らせは、呼び手が `broadcast` で渡す。それらも同じ列に並べて tick の終わりに渡すので、行のイベントとの前後は呼んだ順のまま保たれる。
-- 行のイベント（`session.upsert`、`project.upsert`、`devices.update`、`memo.update`、`artifact.upsert`、`todos.update`、`config.update`）は、この層だけが組む。`broadcast` は型（`NoticeEvent`）でこれらを受けない。呼び手が手で組んで渡す道は無いので、同じ行が二重に届くことも、端末の ID を渡し忘れた行が届くことも無い。
+- 行のイベント（`session.upsert`、`project.upsert`、`devices.update`、`artifact.upsert`、`todos.update`、`config.update`）は、この層だけが組む。`broadcast` は型（`NoticeEvent`）でこれらを受けない。呼び手が手で組んで渡す道は無いので、同じ行が二重に届くことも、端末の ID を渡し忘れた行が届くことも無い。
 - 行は書いていないが中身が変わったときは、呼び手は `touchRow` でその行を名指しする。同じ tick の書き込みと重なっても、配るのは 1 回である。
 
 サーバの業務の関数（`projects/`、`sessions/`、`runs/`、`sync/` にある受け手）も、HTTP の経路（`http/routes/*.ts`）も、MCP の道具（`mcp/tools.ts`）も、事後要約のジョブ（`summary/job.ts`）も、行を書く（か名指しする）だけで、配るのはこの層である。
@@ -3680,7 +3678,6 @@ HTTP の層は `packages/server/src/http/` にある。
 | `runs.ts` | run の起動と停止、タブ、指示へ跳ぶ、セッションから run を起こす口（resume、fork、attach、adopt、resume-here） |
 | `projects.ts` | プロジェクトの一覧と 1 件、状態、置き場の選び直し、作成と登録 |
 | `todos.ts` | TODO |
-| `memos.ts` | プロジェクトのメモ（やめたノートを「以前のノート」として読み、空で保存して消すためだけに残す） |
 | `artifacts.ts` | アーティファクト |
 | `prompt.ts` | 初期プロンプト欄の候補と添付（`/prompt`、`/drops`） |
 | `settings.ts` | 設定 |
@@ -3831,7 +3828,7 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
 - `list_projects()`：プロジェクトの一覧。ステータス、パス、未完 TODO 数、最終活動。
 - `get_project(project_id)`：詳細。TODO、直近のセッション、アーティファクト。
 - `update_project(project_id, { status?, add_todos?, toggle_todos?, propose_done? })`。`add_todos` の項目は文字列か `{ text, note? }` である。
-  ノートへの追記（`append_memo`）は 2026-10-11 にやめた。古い指示を覚えた Claude が渡したときは、書かずに、やめたことと CLAUDE.md などの指示ファイルに書くよう促す一文を、応答の `notice` で返す（エラーにはしない）。
+  ノートへの追記（`append_memo`）は 2026-10-11 にやめ、引数からも外した。古い指示を覚えた Claude が渡しても、MCP の層が未知の引数として捨てる（エラーにはしない）。
 - `list_sessions({ project_id?, running?, limit? })`。
 - `search_sessions({ query, project_id?, since?, until?, file? })`：FTS と絞り込み。結果は題名、要約の 1 文、一致箇所の抜粋、再開コマンド。
 - `list_sessions`、`search_sessions`、`get_project` の直近のセッションの再開コマンド（`resume_command`）は、この PC の素の `claude -r` で開ける会話にだけ返す（2026-10-21、#313）。
@@ -3879,7 +3876,7 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   保存は設定の PATCH と同じ道（`ToolDeps.saveNotifyPreference`）で、変えた欄を全部の画面へ配る。この口が無いサーバでは知らない道具として断る。
   返り値は保存した決まり（省いた項目を埋めた形）である。
 - `set_session_memo` は 0.4.0 で道具ごと外した（セッションのノートを外したため。要約の `set_session_summary` と Paused の戻る日が役を担う）。
-  `append_memo` のように `notice` で答える形にしなかったのは、あちらは同じ呼び出しのほかの項目を書くためにエラーにしなかったのに対し、こちらは道具が 1 つの仕事しか持たないからである。
+  update_project の `append_memo` のように引数ごと外した場合は、MCP の層が未知の引数として捨てる。こちらは道具が 1 つの仕事しか持たないので、外した後の一覧に無い道具を呼ばれても MCP の層が isError で返す。
   外す前の一覧を覚えた Claude が呼んでも、MCP の層が書かずに `isError`（道具が無い）で返す。モデルにこの道具を使うよう指示したことも無い。
 - `get_usage()`：5 時間と 7 日の使用率、最終更新時刻。
 - `open_in_hangar({ session_id | project_id })`：UI とディープリンクの URL を返す。
@@ -6012,7 +6009,6 @@ Hangar が `CLAUDE.local.md` を作らないのは、作るだけで `AGENTS.md`
 行を押すと本文を Markdown で描くダイアログを開き、そのときに読み直す（ファイルは外で書き換わる）。本文は 256 KB まで返し、越えたら先頭だけを描いて知らせる。
 ダイアログは長い本文を読む面なので、ほかのダイアログのガラスより濃い不透明の白にする。開くときは板の pop に背景のフェードを添え、閉じるときは逆にたどって（`popOut`、`--dur-exit`）から外す。
 行の右の印とダイアログの下端の「エディタで開く」は、種類だけを `POST /api/projects/:id/instructions/open` へ送る。決まった種類のほかは断り、無いファイルは 404 にする。
-中身の残る古いノートは、節の中に「以前のノート」として読むだけで出し、コピーと、確かめてから空で保存する削除を置く。
 この PC にフォルダが無いプロジェクトは「この PC にはフォルダがありません」とだけ出す。
 アーティファクトが空のときは、足す欄があれば別の行では断らない。
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ArtifactDto, BootstrapDto, CloudUsageDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
+import type { ArtifactDto, BootstrapDto, CloudUsageDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { accountsFixture } from '../test/accounts.ts';
 import { accountList, accountOfSession, aliveRunOf, appendSearchResult, applyBootstrap, applyEventsPage, applyGit, gitFileKey, applyLaunch, applyPickedFolder, applySearch, applyServerEvent, applyWorkspaceDirs, artifactsOf, currentAccount, indexFinishedBy, currentRunOf, eventsKey, hasMultipleAccounts, hotSessions, initialStore, liveSessionIds, unreadSessionIds, waitingSessionIds, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
@@ -147,7 +147,7 @@ describe('同じ中身の配信', () => {
     let s = applyBootstrap(initialStore(), boot);
     s = applyServerEvent(s, { type: 'run.started', run: run('r1', 's1'), tabs: [tab('t1', 'r1', 'shell')] });
     s = applyServerEvent(s, { type: 'live.update', live: [{ sessionId: 'u1', status: 'idle', name: null, nameSource: null, cwd: '/x', pid: 1 }] });
-    const p = { id: 'p1', name: 'p1', status: 'active' as const, isScratch: false, path: '/w/p1', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0, unresolved: null };
+    const p = { id: 'p1', name: 'p1', status: 'active' as const, isScratch: false, path: '/w/p1', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 0, unresolved: null };
     s = applyServerEvent(s, { type: 'project.upsert', project: p });
     const same = (ev: Parameters<typeof applyServerEvent>[1]) => expect(applyServerEvent(s, ev)).toBe(s);
     same({ type: 'session.upsert', session: structuredClone(s.sessions.s1!) });
@@ -268,11 +268,8 @@ describe('フェーズ 3 のストア', () => {
     expect(todosOf(s, 'p1').map((t) => [t.id, t.done])).toEqual([['t2', true]]);
     expect(todosOf(s, 'p2').map((t) => t.id)).toEqual(['t9']);
   });
-  it('memo、artifact、要約の待ちのイベントを取り込む', () => {
+  it('artifact、要約の待ちのイベントを取り込む', () => {
     let s = applyBootstrap(initialStore(), boot);
-    const memo: MemoDto = { projectId: 'p1', markdown: '# m', updatedAt: 4 };
-    s = applyServerEvent(s, { type: 'memo.update', memo });
-    expect(s.memos.p1).toEqual(memo);
     s = applyServerEvent(s, { type: 'artifact.upsert', artifact: art('a1', 'p1', 5) });
     s = applyServerEvent(s, { type: 'artifact.upsert', artifact: art('a2', 'p1', 9) });
     s = applyServerEvent(s, { type: 'artifact.upsert', artifact: art('a3', 'p2', 7, ['s2']) });

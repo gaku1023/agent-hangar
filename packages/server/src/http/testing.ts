@@ -20,7 +20,6 @@ import { languageReader } from '../i18n/language.ts';
 import { Publisher } from '../events/publisher.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
-import { MemoStore } from '../projects/memo.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { PromoteError } from '../projects/promote.ts';
 import { RunError } from '../runs/manager.ts';
@@ -173,7 +172,6 @@ export type TestWorld = {
   /** 既定の要約の偽物。overrides で summary を差し替えたときは使われない。 */
   summary: FakeSummary;
   usage: UsageTracker;
-  memos: MemoStore;
   /** ワークスペースから登録される唯一のプロジェクト alpha の id。 */
   alphaProjectId: () => string;
   /** 配る層を止めて DB を閉じ、作った一時ディレクトリを消す。afterEach で呼ぶ。 */
@@ -229,7 +227,6 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
   const runs = fakeRuns();
   const external = fakeExternal();
   const usage = new UsageTracker(db);
-  const memos = new MemoStore({ db, deviceId: 'd', home: ws });
   const summary = fakeSummary();
   const alphaProjectId = () => (db.prepare("select id from projects where name = 'alpha'").get() as { id: string }).id;
   // 最初のアカウントだけを持つアカウントの口。サーバはいつもアカウントの口を持つので、既定でも渡す。
@@ -256,7 +253,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     settings: () => settings, language: languageReader(() => settings), updateSettings: (p) => (settings = { ...settings, ...p }),
     live: () => [], indexer, ready: () => true,
     hub: publisher,
-    runs, external, usage, memos, summary,
+    runs, external, usage, summary,
     schedules: { runNow: () => 'missing', deliver: async (id) => ({ sessionId: id }) },
     // 外のできごと（#563）。
     // 試験は本物の結び付けの流れに、付けない偽の webhook を渡す。
@@ -303,7 +300,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
   };
 
   return {
-    deps, db, ws, claudeDir, events, calls: sync.calls, sync, takeover, canCarry, runs, external, summary, usage, memos, alphaProjectId,
+    deps, db, ws, claudeDir, events, calls: sync.calls, sync, takeover, canCarry, runs, external, summary, usage, alphaProjectId,
     dispose: () => { takeover.stop(); publisher.stop(); db.close(); fs.rmSync(claudeDir, { recursive: true, force: true }); fs.rmSync(ws, { recursive: true, force: true }); },
   };
 }

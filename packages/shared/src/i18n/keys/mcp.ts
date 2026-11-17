@@ -27,7 +27,6 @@ export const mcpKeys = {
   'mcp.addTodos.notArray': [],
   'mcp.addTodos.badItem': [],
   'mcp.addTodos.noteTooLong': ['max'],
-  'mcp.updateProject.memoRetired': [],
   'mcp.resumeHint.remote': [],
   'mcp.resumeHint.running': ['device'],
   'mcp.resumeHint.stale': ['device'],

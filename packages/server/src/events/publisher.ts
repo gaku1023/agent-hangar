@@ -3,7 +3,6 @@ import { getArtifact } from '../artifacts/queries.ts';
 import { onRowChange, settleRowChanges, type RowChange, type RowOrigin } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listDevices } from '../db/queries.ts';
-import { memoFromDb } from '../projects/memo.ts';
 import { listTodos } from '../projects/todos.ts';
 import { listPeerApprovals } from '../peer/approvals.ts';
 import { listDeleteApprovals } from '../sessions/deleteApprovals.ts';
@@ -28,7 +27,7 @@ import { sessionCounts } from '../sessions/counts.ts';
  */
 
 /** この層だけが組む、行のイベント。 */
-export type RowEvent = Extract<ServerEvent, { type: 'schedules.update' | 'session.upsert' | 'session.removed' | 'project.upsert' | 'devices.update' | 'memo.update' | 'artifact.upsert' | 'todos.update' | 'config.update' | 'deleteApprovals.update' | 'peerApprovals.update' }>;
+export type RowEvent = Extract<ServerEvent, { type: 'schedules.update' | 'session.upsert' | 'session.removed' | 'project.upsert' | 'devices.update' | 'artifact.upsert' | 'todos.update' | 'config.update' | 'deleteApprovals.update' | 'peerApprovals.update' }>;
 /** 呼び手が `broadcast` で渡せる知らせ。表の変化に対応しないものだけである。 */
 export type NoticeEvent = Exclude<ServerEvent, RowEvent>;
 
@@ -55,7 +54,6 @@ const KINDS = {
   deleteApprovals: (ctx) => ({ type: 'deleteApprovals.update', approvals: listDeleteApprovals(ctx.db) }),
   peerApprovals: (ctx) => ({ type: 'peerApprovals.update', approvals: listPeerApprovals(ctx.db, Date.now()) }),
   schedules: (ctx) => ({ type: 'schedules.update', schedules: listSchedules(ctx.db, ctx.deviceId, undefined, ctx.accountName) }),
-  memo: (ctx, id) => { const m = memoFromDb(ctx.db, id); return m ? { type: 'memo.update', memo: m } : null; },
   artifact: (ctx, id) => { const a = getArtifact(ctx.db, id); return a ? { type: 'artifact.upsert', artifact: a } : null; },
   // TODO はプロジェクトの一覧ごと配るので、ID はプロジェクトのものである。
   todos: (ctx, id) => ({ type: 'todos.update', projectId: id, todos: listTodos(ctx.db, id) }),
@@ -120,9 +118,9 @@ const TABLES: Record<string, TableRule> = {
   // 設定の同期。束の行（他の PC から降りたもの、この PC が書いたもの）と、状態を動かした名指し（config_state。基準、送らなかった項目、適用の指示書、スイッチ）。
   config_snapshots: { to: () => [['configSync', '']] },
   config_state: { to: () => [['configSync', '']] },
-  // メモの頭は ProjectDto にも載る（memoHead）ので、プロジェクトも配り直す。
+  // プロジェクトのノートはやめたので、降りてきた行は表に入れるだけで何も配らない（古い版の端末の送りを受けるために表は残す）。
   // 同期で降りたメモとアーティファクトは、今の画面では配っていない。その振る舞いを変えないよう、この端末の変化だけにしてある。
-  project_memos: { from: LOCAL, to: (c) => [['memo', c.rowId], ['project', c.rowId]] },
+  project_memos: { from: LOCAL, to: () => [] },
   artifacts: { from: LOCAL, to: self('artifact') },
   // 未完の数は ProjectDto にも載る（openTodoCount）ので、プロジェクトも配り直す。消した行も残っているので、プロジェクトは引ける。
   // 同期で降りた TODO は、メモと同じく、今の画面では配っていない。
