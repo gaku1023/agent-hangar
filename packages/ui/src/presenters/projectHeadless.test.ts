@@ -3,12 +3,13 @@ import type { SessionDto } from '@agent-hangar/shared';
 import { initialState } from '../mediator/transition.ts';
 import { applyHeadlessPage, initialStore, type Store } from '../store/store.ts';
 import { presentProject } from './project.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
 // 一覧の末尾に畳む非対話の会話（claude -p など）。件数は先に読み、行は読み込んだ頁の分だけ新しい順に持つ。
 
 const NOW = new Date(2026, 10, 18, 9, 0).getTime();
 const H = 3_600_000;
-const dto = (id: string, at: number, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: at, lastActivityAt: at, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over });
+const dto = (id: string, at: number, over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ id, providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', startedAt: at, lastActivityAt: at, hasTranscript: true, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, ...over }));
 function storeOf(): Store {
   let s = initialStore();
   s.bootstrapped = true;

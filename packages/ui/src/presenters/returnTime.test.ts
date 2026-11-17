@@ -7,6 +7,7 @@ import { presentHome } from './home.ts';
 import { presentPause } from './pause.ts';
 import { candidateLabel, presentSessionRow, returnOnLabel, returnOnRowLabel } from './row.ts';
 import { returnKey } from './row.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
 const ja = translator('ja');
 
@@ -16,7 +17,7 @@ const NOW = at(12);
 const H = 3_600_000;
 const project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW, runningCount: 0, openTodoCount: 0, updatedAt: 1 });
 const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null, ...o });
-const dto = (id: string, hoursAgo: number, state: SessionStateDto): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - (hoursAgo + 1) * H, lastActivityAt: NOW - hoursAgo * H, hasTranscript: true, live: null, homeDevice: 'd', summary: null, stats: { filesChanged: 0, prUrl: null, model: null, effort: null, costUsd: null }, state, activity: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null } as unknown as SessionDto);
+const dto = (id: string, hoursAgo: number, state: SessionStateDto): SessionDto => (sessionDto({ id, providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', startedAt: NOW - (hoursAgo + 1) * H, lastActivityAt: NOW - hoursAgo * H, hasTranscript: true, state }));
 const paused = (id: string, returnOn: string | null, returnTime: string | null, hoursAgo = 1) => dto(id, hoursAgo, st({ status: 'paused', note: `${id} を確かめる`, returnOn, returnTime, setBy: 'user', setAt: 1 }));
 function storeOf(list: SessionDto[]): Store {
   const s = initialStore();

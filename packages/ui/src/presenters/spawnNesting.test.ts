@@ -5,9 +5,10 @@ import { initialStore, type Store } from '../store/store.ts';
 import { presentSessionList } from './sessions.ts';
 import { presentShell } from './shell.ts';
 import { spawnFoldKey } from './spawnTree.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
 const NOW = Date.parse('2026-10-07T12:00:00Z');
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: null, name: 'name-' + id, cwd: '/w', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 180_000, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over });
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ id, providerSessionId: 'u' + id, name: 'name-' + id, cwd: '/w', firstPrompt: 'first', startedAt: NOW - 7_200_000, lastActivityAt: NOW - 180_000, hasTranscript: true, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, ...over }));
 const storeOf = (list: SessionDto[]): Store => {
   const s = initialStore();
   s.bootstrapped = true;

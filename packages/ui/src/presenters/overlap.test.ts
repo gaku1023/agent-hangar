@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { ProjectDto, SessionDto, SessionOverlapDto } from '@agent-hangar/shared';
 import { initialStore, type Store } from '../store/store.ts';
 import { presentOverlap } from './overlap.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
 const NOW = new Date(2026, 9, 12, 4, 20).getTime();
 const at = (h: number, m: number) => new Date(2026, 9, 12, h, m).getTime();
 const project: ProjectDto = { id: 'p1', name: 'alpha-web', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: NOW, runningCount: 0, openTodoCount: 0, updatedAt: 1 };
-const dto = (id: string, name: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'p1', name, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: NOW, lastActivityAt: NOW, lastTurnAt: null, hasTranscript: true, live: 'busy', summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over });
+const dto = (id: string, name: string, over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ id, providerSessionId: 'u' + id, projectId: 'p1', name, cwd: '/w/alpha', startedAt: NOW, lastActivityAt: NOW, hasTranscript: true, live: 'busy', stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, ...over }));
 const overlap: SessionOverlapDto = {
   with: ['b'],
   files: [

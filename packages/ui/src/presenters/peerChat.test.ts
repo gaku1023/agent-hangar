@@ -5,15 +5,13 @@ import { initialStore, type Store } from '../store/store.ts';
 import { emptySlice, type PeerChatSlice } from '../store/peerChat.ts';
 import { isPeerChatCandidate, permissionWord, presentPeerChat } from './peerChat.ts';
 import { presentSession } from './session.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
 const ja = translator('ja');
 const NOW = Date.parse('2026-11-06T12:00:00Z');
 const MAC = { deviceId: 'd-mac', deviceName: 'Mac' };
 const stats = { turns: 3, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: 0 };
-const session = (over: Partial<SessionDto> = {}): SessionDto => ({
-  id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '同期の衝突を調べる', cwd: '/w/app', firstPrompt: null, aiTitle: null, startedAt: NOW - 3_600_000, lastActivityAt: NOW - 1000, lastTurnAt: NOW - 1000,
-  hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: { deviceId: 'd-mac', deviceName: 'Mac', runId: 'r9', heartbeatAt: NOW, stale: false }, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, ...over,
-} as SessionDto);
+const session = (over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ name: '同期の衝突を調べる', cwd: '/w/app', startedAt: NOW - 3_600_000, lastActivityAt: NOW - 1000, lastTurnAt: NOW - 1000, hasTranscript: true, stats, lock: { deviceId: 'd-mac', deviceName: 'Mac', runId: 'r9', heartbeatAt: NOW, stale: false }, ...over }) as SessionDto);
 const user = (uuid: string, text: string, from?: typeof MAC): PeerChatItem => ({ uuid, at: 1, kind: 'user', text, ...(from ? { from } : {}) });
 const ai = (uuid: string, text: string): PeerChatItem => ({ uuid, at: 2, kind: 'assistant', text });
 const tool = (uuid: string): PeerChatItem => ({ uuid, at: 3, kind: 'tool', text: 'Grep', tool: { name: 'Grep', summary: '"parent row" packages/server', ok: true } });

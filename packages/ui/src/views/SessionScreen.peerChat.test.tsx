@@ -8,14 +8,12 @@ import { emptySlice, type PeerChatSlice } from '../store/peerChat.ts';
 import { initialStore, type Store } from '../store/store.ts';
 import { LanguageRoot } from './primitives/language.tsx';
 import { SessionScreen } from './SessionScreen.tsx';
+import { sessionDto } from '../test/sessionDto.ts';
 
 const NOW = Date.UTC(2026, 10, 6, 3, 0, 0);
 const MAC = { deviceId: 'd-mac', deviceName: 'Mac' };
 const stats = { turns: 3, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: 0 };
-const session = (over: Partial<SessionDto> = {}): SessionDto => ({
-  id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '同期の衝突を調べる', cwd: '/w/app', firstPrompt: null, aiTitle: null, startedAt: NOW - 3_600_000, lastActivityAt: NOW - 1000, lastTurnAt: NOW - 1000,
-  hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: { deviceId: 'd-mac', deviceName: 'Mac', runId: 'r9', heartbeatAt: NOW, stale: false }, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, ...over,
-} as SessionDto);
+const session = (over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ name: '同期の衝突を調べる', cwd: '/w/app', startedAt: NOW - 3_600_000, lastActivityAt: NOW - 1000, lastTurnAt: NOW - 1000, hasTranscript: true, stats, lock: { deviceId: 'd-mac', deviceName: 'Mac', runId: 'r9', heartbeatAt: NOW, stale: false }, ...over }) as SessionDto);
 function screenOf(s: SessionDto, slice: Partial<PeerChatSlice> | null) {
   const st: Store = initialStore();
   st.bootstrapped = true;

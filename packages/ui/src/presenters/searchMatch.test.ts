@@ -3,14 +3,10 @@ import type { SearchHitDto, SessionDto } from '@agent-hangar/shared';
 import { initialState } from '../mediator/transition.ts';
 import { initialStore, type Store } from '../store/store.ts';
 import { presentSessionList } from './sessions.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
-const session = (id: string, name: string): SessionDto => ({
-  id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: null, name, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, lastTurnAt: null, hasTranscript: true, live: null,
-  summary: { title: 't', oneLiner: '要約の 1 文', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 },
-  stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null },
-  fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null,
-});
+const session = (id: string, name: string): SessionDto => (sessionDto({ id, providerSessionId: 'u' + id, name, cwd: '/w/alpha', startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, summary: { title: 't', oneLiner: '要約の 1 文', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null } }));
 const snippet = (text: string) => ({ seq: 3, role: 'user', text, agentId: null });
 const search = (hits: SearchHitDto[], total: number, text = 'CSV'): { state: ReturnType<typeof initialState>; store: Store } => {
   const store = initialStore();
