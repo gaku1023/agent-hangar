@@ -250,7 +250,7 @@ export class ChatView {
     const askId = asked.ask.askId;
     const item: PeerChatItem = { ...asked, ask: { ...asked.ask, answered: { by, label, at: this.d.now() } } };
     // 同じ札の記録は 1 つにする。答える最中に、札が消えたことを見て先にこの PC の手元の記録が入ったときは、選んだ行の分かる、後の記録で置き換える。
-    this.answers = this.answers.filter((a) => a.askId !== askId);
+    this.answers = this.answers.filter((a) => !(a.askId === askId && a.sessionId === sessionId));
     this.answers.push({ askId, sessionId, item, at: this.d.now() });
     if (this.answers.length > RECORD_MAX) this.answers.shift();
     this.poke(sessionId);
@@ -318,13 +318,14 @@ export class ChatView {
   }
 
   private settleAsk(sessionId: string, prev: PeerChatItem): void {
-    if (!prev.ask || this.answers.some((a) => a.askId === prev.ask!.askId)) return;
+    if (!prev.ask || this.answers.some((a) => a.sessionId === sessionId && a.askId === prev.ask!.askId)) return;
     this.recordAnswer(sessionId, prev, this.d.self(), '');
   }
 
-  answeredAsk(askId: string): boolean {
+  /** askId は札の文面から作るので、会話をまたいで同じになりうる。答えた記録は会話ごとに見る。 */
+  answeredAsk(sessionId: string, askId: string): boolean {
     this.sweep();
-    return this.answers.some((a) => a.askId === askId);
+    return this.answers.some((a) => a.sessionId === sessionId && a.askId === askId);
   }
 
   recordDelivered(sessionId: string, from: PeerChatDevice, text: string): void {
