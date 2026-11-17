@@ -10430,8 +10430,10 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   askId はタブの番号も含めて作るので、答えてタブが進めば別の札になり、答えた id の記録とぶつからない。
   照合は今のタブの問いの文と空白を除いて等しいことを求め、番号の行か「Type something.」の自由入力で答える（1 つの問いの札と同じ打ち方）。
   タブの中の複数選択は、次のタブへの進み方を実機で確かめていないので `answerable: false` にする。
-  最後の確認のタブ（`Submit answers` と `Cancel`）は自動では押さず、`step.submit: true` の札として統括に知らせ、答えさせる。
-  実機の写しの見本が無く、送る前の確かめを利用者の判断に残すためである。
+  問いに答えた後、最後の確認のタブ（`Submit answers` と `Cancel`）が出たら、続けて「Submit answers」の行を照合し、その番号のキーで送る（`answer.ts` の `submitWhenAllAnswered`）。
+  利用者は問いに答え終えた時点で送るつもりなので、確認のタブを改めて聞かない（統括が声で 2 問とも答えた後に「送ってよいか」を聞き直し、利用者が押されないと感じた）。
+  確認のタブを待つのは 2 秒（`REVIEW_WAIT_MS`）で、その間に出なければ、または次の問いのタブや別の札が出たら、何も打たない。
+  確認のタブの頭の行に ☐（まだ答えていない問い。`Dialog.unanswered`）が残るとき（利用者が手で飛ばした等）は押さず、`step.submit: true` の札として統括に知らせ、答えさせる。
   一覧の状態はタブが進んでも waiting/question のまま変わらないので、出来事の送り込みは、質問を待つ会話がある間だけ 1.5 秒ごとに札の id を読み直す（下の項）。
 - **札への貼り付けの断り：** `send_to_session` は、相手が許可か質問の札で待っている（live の `waiting` で `waitingFor` が `permission` か `question`）とき、貼らずに断り、`answer_ask` を使うよう返す（`mcp.sendToSession.askOpen`）。
   貼った文が札の自由入力の欄に入って確定し、別の問いの答えになるのを防ぐ。

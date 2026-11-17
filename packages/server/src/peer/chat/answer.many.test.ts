@@ -8,7 +8,8 @@ import { MANY_Q1, MANY_Q2, MANY_SUBMIT, MANY_TAB1, MANY_TAB2, SHORT_QUESTION_MAC
  * 1 回の呼び出しに問いが複数ある札（AskUserQuestion の questions が 2 つ以上）。
  * 札は 1 問ずつ答える。
  * 今のタブの問いだけを照合し、答えたら次のタブが新しい札になる。
- * 最後の確認のタブ（Submit）は自動では押さず、それも 1 つの札として答えさせる。
+ * 最後の問いに答えて確認のタブ（Submit）が出たら、続けて送る。
+ * 未回答の問いが残る確認のタブは押さず、1 つの札として答えさせる。
  */
 
 describe('parseDialog: 問いが複数ある札', () => {
@@ -131,11 +132,17 @@ describe('answerAsk: 問いが複数ある札に 1 問ずつ答える', () => {
     expect(t.pane.events).toEqual([]);
   });
 
-  it('2 問目、確認のタブと続けて答えられる', async () => {
+  it('最後の問いに答えると、確認のタブの Submit answers を続けて押す', async () => {
     const t = rig();
     t.pane.tab = 2;
     expect(await t.answerAsk('r1', ASK2, ['1'])).toEqual({ ok: true, label: '今夜まとめて' });
-    expect(t.pane.tab).toBe(3);
+    expect(t.pane.events).toEqual(['text:1', 'text:1']);
+    expect(t.pane.tab).toBe(0);
+  });
+
+  it('確認のタブが札として残っていれば、それにも答えられる', async () => {
+    const t = rig();
+    t.pane.tab = 3;
     expect(await t.answerAsk('r1', ASK_SUBMIT, ['1'])).toEqual({ ok: true, label: 'Submit answers' });
     expect(t.pane.tab).toBe(0);
   });
