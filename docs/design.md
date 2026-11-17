@@ -7796,6 +7796,7 @@ AEAD の AAD に行の宛先を入れるのは、能動的な攻撃への守り�
 鍵は世代鍵 `K[n]`（32 バイト）から HKDF で用途ごとに導く。
 用途は、行の封（`hangar-e2e-v2/row`）、鍵名の HMAC（`/index`）、指紋（`/fp`）、本文の暗号（`/file`）、名簿の封（`/roster`）、PC どうしの封（`/peer`）である。
 PC どうしの封は、別の PC への起動の頼み、その答え、ターンが止まるたびの結果に使う（`packages/shared/src/e2e/peer.ts`）。
+別の PC へ届ける経路はクラウド（Worker）だけで、SSH の予備の経路は持たない（経路の選び方は `packages/server/src/peer/caller.ts` の `choosePeerRoute`）。
 封は `<世代>.<base64url(行と同じ形の封)>` の文字列で、開く側は封が名乗る世代の鍵で開く。
 AAD は `["peer-launch", 世代, 頼みの ID, 頼んだ PC, 頼まれた PC]` の JSON で、答えは頭を `peer-answer`、結果は `peer-result` にして末尾に連番を足す。
 グループの PC はどれも同じ鍵を持つので、この封が守るのはグループの外（Worker、別のグループ、解除の後に回した世代を持たない PC）に対してである。

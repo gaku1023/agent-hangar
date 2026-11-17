@@ -37,7 +37,6 @@ import { stopAfterIdle, stopUploader } from './stopping.ts';
 import { t } from '@agent-hangar/shared';
 import { touchRow } from '../db/notify.ts';
 import { followRemoteScratch } from '../projects/scratch.ts';
-import { keyringPeerTokenKeys, type PeerTokenKeys } from '../peer/ssh/token.ts';
 
 /**
  * 上がっていない本文を拾い直す走査の間隔。
@@ -75,8 +74,6 @@ export type SyncParts = {
   retention: RetentionService;
   /** 同期の状態に添える付録と、状態の配り。HTTP の応答と websocket の通知の両方がこれを通る。 */
   feed: SyncFeed;
-  /** SSH の予備の経路の、PC どうしの token の鍵（peer/ssh/token.ts）。同期を設定していなければ null。 */
-  peerTokenKeys(): PeerTokenKeys | null;
   /** 利用者が押した「今すぐ同期」。 */
   syncNow(): Promise<void>;
   /** 本文とメモの控えの世代を刈る。 */
@@ -627,7 +624,6 @@ export function bootSync(
     get cloudUsage() { return core.cloudUsage; },
     retention,
     get feed() { return core.feed; },
-    peerTokenKeys: () => (core.keyring ? keyringPeerTokenKeys(core.keyring) : null),
     pruneBackups,
     get configBundle() { return core.configBundle; },
     syncNow: () => core.once.syncNow(),

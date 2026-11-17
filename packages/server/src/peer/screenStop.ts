@@ -3,7 +3,6 @@ import { sealPeerLaunch, type PeerLaunchOutcomeDto, type PeerLaunchRequest, type
 import { sessionLock } from '../db/queries.ts';
 import { defaultLanguage } from '../i18n/language.ts';
 import { msg, render } from '../i18n/message.ts';
-import { PeerSshConnectError } from './ssh/link.ts';
 import { choosePeerRoute, resolvePeer } from './caller.ts';
 import { recordPeerRequest, SCREEN_CALLER } from './outbox.ts';
 import { versionAtLeast } from './version.ts';
@@ -40,13 +39,8 @@ export async function stopFromScreen(deps: ScreenLaunchDeps, body: PeerStopBody)
     v: 1, createdAt: now, parentSessionId: SCREEN_CALLER, projectId: null, scratch: true, agent: 'claude-code',
     account: '', permissionMode: '', model: '', prompt: '', op: 'stop', targetSessionId: body.sessionId,
   };
-  try {
-    const sealed = await sealPeerLaunch(await route.ring(), { requestId, from: deps.deviceId, to: peer.device_id }, req);
-    await route.api.put({ id: requestId, to: peer.device_id, sealed, from: deps.deviceId });
-  } catch (e) {
-    if (e instanceof PeerSshConnectError) return offline();
-    throw e;
-  }
-  recordPeerRequest(deps.db, { requestId, to: peer.device_id, callerSessionId: SCREEN_CALLER, now, op: 'stop', childSessionId: body.sessionId, via: route.via });
+  const sealed = await sealPeerLaunch(await route.ring(), { requestId, from: deps.deviceId, to: peer.device_id }, req);
+  await route.api.put({ id: requestId, to: peer.device_id, sealed, from: deps.deviceId });
+  recordPeerRequest(deps.db, { requestId, to: peer.device_id, callerSessionId: SCREEN_CALLER, now, op: 'stop', childSessionId: body.sessionId });
   return { status: 'requested', requestId, device: peer.name };
 }
