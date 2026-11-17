@@ -22,10 +22,12 @@ export function OrchestratorSettings(props: { orchestrator: OrchestratorSettings
   const o = props.orchestrator;
   const save = (patch: Partial<OrchestratorSetting>) => emit({ type: 'settings.update', patch: { orchestrator: patch as OrchestratorSetting } });
   const body = usePresence<HTMLDivElement>(o.on, (el) => (motionOn(el) ? collapseOut(el) : null));
+  const voice = usePresence<HTMLDivElement>(o.on, (el) => (motionOn(el) ? collapseOut(el) : null));
   const first = useRef(true);
   useLayoutEffect(() => {
     if (first.current) { first.current = false; return; }
     if (o.on && body.ref.current) growIn(body.ref.current);
+    if (o.on && voice.ref.current) growIn(voice.ref.current);
     // 入る向きの変わり目だけで動かす。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [o.on]);
@@ -37,9 +39,9 @@ export function OrchestratorSettings(props: { orchestrator: OrchestratorSettings
       <section aria-label={t('settings.label.orchestrator')}>
         <SetRow title={t('settings.label.orchestrator')}
           control={<Switch label={t('settings.label.orchestrator')} checked={o.on} onChange={(next) => save({ enabled: next })} />} />
-      </section>
       {body.mounted && (
         <div ref={body.ref} aria-hidden={body.leaving ? true : undefined}>
+          <SetRow title={t('launch.chips.label')} control={
           <div className="launch-chips" role="group" aria-label={t('launch.chips.label')}>
             {o.accounts.length >= 2 && (
               <ChipPopover name={t('launch.chip.account')} value={accountNow?.label ?? accountId} dot={accountNow?.color} showName={false} tone={accountNow?.disabled ? 'muted' : 'default'} suffix={accountNow?.disabled ? accountNow.tag : undefined} width={260}>
@@ -60,8 +62,13 @@ export function OrchestratorSettings(props: { orchestrator: OrchestratorSettings
                   onPick={(v) => { save({ effort: v }); close(); }} />
               )}
             </ChipPopover>
-          </div>
-          {props.voice !== undefined && <VoiceSettings {...props.voice} mark={props.voiceMark} />}
+          </div>} />
+        </div>
+      )}
+      </section>
+      {voice.mounted && props.voice !== undefined && (
+        <div ref={voice.ref} aria-hidden={voice.leaving ? true : undefined}>
+          <VoiceSettings {...props.voice} mark={props.voiceMark} />
         </div>
       )}
     </>
