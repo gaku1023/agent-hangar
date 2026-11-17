@@ -1,7 +1,9 @@
 import type { ToolDeps } from './mcp/tools.ts';
+import { startPathRefFill } from './db/pathRef.ts';
 import { launchScheduled, waitScheduled } from './schedule/launch.ts';
 import { ScheduleRunner } from './schedule/runner.ts';
 import path from 'node:path';
+import { createFtsTailBackfill } from './search/ftsTailBackfill.ts';
 import { fileURLToPath } from 'node:url';
 import { CLOSE_DEADLINE_MS, STOP_WATCHDOG_MS } from './boot/budget.ts';
 import { bootDelivery } from './boot/delivery.ts';
@@ -14,6 +16,7 @@ import { dropStaleWakes, watchWakeScope } from './event/wakeScope.ts';
 import { EventHooks } from './event/githubHooks.ts';
 import { EventBindingService } from './event/service.ts';
 import { ghLoginResolver } from './event/ghLogin.ts';
+import { migrateEventTrigger } from './event/migrateTrigger.ts';
 import { EventPuller, type PulledEvent } from './event/puller.ts';
 import { bootIndexing } from './boot/indexing.ts';
 import { bootMobile } from './boot/mobile.ts';
@@ -31,7 +34,7 @@ import { LocalCodex } from './provider/codex/compat/version.ts';
 import { CodexOptionsService } from './provider/codex/options.ts';
 import { translatorOf } from './i18n/message.ts';
 import { IdleUnloadWatch } from './provider/opencode/localModels/idleUnload.ts';
-import { idleUnloadOf } from '@agent-hangar/shared';
+import { eventTriggerOf, idleUnloadOf } from '@agent-hangar/shared';
 import { uploadOnOpencodeTurnEnd } from './sync/opencodeTurnEnd.ts';
 import type { OpencodeExportSource } from './sync/uploader.ts';
 
@@ -104,10 +107,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 組み立て。待ち受けより前は、誰も外と話さず、何も見張らない。
   const home = bootHome(opts);
   const delivery = bootDelivery(home, opts);
-  // メモの置き場は索引の側が持つ。同期が使うのは競合で負けたときだけなので、後から作る部品を呼ばれた時点で引く。
   // opencode の本文の書き出しの口は、serve の管理（下の bootOpencode）を組んだ後に入る。それまで opencode の本文は上げない。
   let opencodeExport: OpencodeExportSource | null = null;
-  const sync = bootSync(home, delivery, { memoPath: (projectId) => indexing.memos.memoPath(projectId), opencodeExport: () => opencodeExport });
+  const sync = bootSync(home, delivery, { opencodeExport: () => opencodeExport });
   const indexing = bootIndexing(home, delivery, sync);
   // 待ち受けを始める。/health はここから返る。実際のポート番号を、この後の run と包みと MCP が使う。
   let listening: Awaited<ReturnType<typeof bootListen>>;
@@ -175,7 +177,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     if (!eventDispatcher) throw new Error('event dispatcher is not ready');
     void eventDispatcher.handle(events, { more: true });
   };
-  const eventPuller = new EventPuller({ db: home.db, api: () => inboxApiOf(sync.mobileLink()?.client), onPulled: (events) => { dispatchEvents(events); }, onPassEnd: () => { eventDispatcher?.flushWakes(); },
+  if (migrateEventTrigger(home.db, home.settings.current)) home.persistSettings();
+  const eventPuller = new EventPuller({ db: home.db, enabled: () => eventTriggerOf(home.settings.current), api: () => inboxApiOf(sync.mobileLink()?.client), onPulled: (events) => { dispatchEvents(events); }, onPassEnd: () => { eventDispatcher?.flushWakes(); },
     // puller の me は同期で読む。
     // 引き手が答えを持つまでは空で、聞いた答えは次の荷物から使う。
     me: () => { void ghLogin().then((v) => { eventMe = v ?? ''; }, () => undefined); return eventMe; } });
@@ -215,14 +218,19 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 起こす結び付けは、作った Paused のあいだだけ生きる。会話が Paused を離れたら（同期で届いた状態も含む）消す。起動のときに、前の回から残ったものも片付ける。
   try { if (dropStaleWakes(home.db) > 0) void eventHooks.sweep(); } catch (e) { console.error('[event] could not sweep stale wakes', e instanceof Error ? e.constructor.name : typeof e); }
   watchWakeScope(home.db, () => { void eventHooks.sweep(); }, (e) => { console.error('[event] could not drop wakes', e instanceof Error ? e.constructor.name : typeof e); });
-  const eventBindings = new EventBindingService({ db: home.db, deviceId: home.device.id, hooks: eventHooks, changed: () => { mobile.settingsChanged(); }, language: () => home.language() });
+  const eventBindings = new EventBindingService({ db: home.db, deviceId: home.device.id, hooks: eventHooks, enabled: () => eventTriggerOf(home.settings.current), changed: () => { mobile.settingsChanged(); }, language: () => home.language() });
   const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, peerChat, orchestratorFeed, peer, events: { bindings: eventBindings, dispatcher: eventDispatcher }, schedules: { runNow: (id) => schedules.runNow(id), deliver: (id, text) => launchScheduled(scheduleTools, { prompt: text, target: { kind: 'session', sessionId: id }, plannedAt: Date.now() }) }, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。
   delivery.live.start();
   runs.primeLive();
   await indexing.start();
+  // 版 65 で足した索引のパスの番号は、起動を止めないよう、起動後に背面で数千行ずつ振る。
+  startPathRefFill(home.db);
   runs.start();
+  // 版 66 より前の索引の行へ、末尾の区切りを背面で少しずつ足す（search/ftsTailBackfill.ts）。
+  const ftsTail = createFtsTailBackfill(home.db, { onError: (e) => { console.error('[index] fts tail backfill failed', e instanceof Error ? e.constructor.name : typeof e); } });
+  ftsTail.start();
   summary.startAutoDone();
   // 使っていない LM Studio のモデルを外す見張り（provider/opencode/localModels/idleUnload.ts）。
   const idleUnload = new IdleUnloadWatch({
@@ -269,6 +277,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       indexing.stopTimers();
       runs.stopParkTimer();
       summary.stopAutoDone();
+      ftsTail.stop();
       idleUnload.stop();
       runs.stopPresence();
       sync.stopTimers();
@@ -286,7 +295,6 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       await opencode.stop(left());
       await sync.drain(left);
       // 見張りを止める。書き手が止まってから、配る層と待ち受けを畳む。
-      indexing.stopMemoWatch();
       runs.runs.stop();
       indexing.indexer.stop();
       delivery.live.stop();

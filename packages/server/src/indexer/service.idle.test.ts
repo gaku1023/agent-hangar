@@ -86,6 +86,8 @@ async function boot(extra: Partial<IndexerServiceOptions> & { remoteRoot?: strin
   const gone: string[] = [];
   s.on({ error: (e) => errors.push(e.message), sessionChanged: (e) => changed.push(e.path!), transcriptGone: (e) => gone.push(e.sessionId) });
   await s.start();
+  // 起動の後に回る非対話の印の埋め戻し（本文を開く）も、数える前に済ませる。
+  await s.headlessBackfill;
   vi.mocked(indexFile).mockClear();
   changed.length = 0;
   const statSync = vi.spyOn(fs, 'statSync');
@@ -165,7 +167,7 @@ describe('待機中の索引', { timeout: 120_000 }, () => {
     expect(b.counts().indexFile).toBeGreaterThanOrEqual(1);
     await advance(300);
     expect(b.indexedPaths().every((p) => p === fileOf(3))).toBe(true);
-    expect(db.prepare("select count(*) c from event_index where file_path_ref = ?").get(fileOf(3))).toEqual({ c: 6 });
+    expect(db.prepare("select count(*) c from event_index where path_id = (select id from event_paths where path = ?)").get(fileOf(3))).toEqual({ c: 6 });
   });
 
   it('名前の無い通知は、全件走査を早めに 1 回予約して変化を拾う', async () => {

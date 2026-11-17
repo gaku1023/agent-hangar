@@ -3,7 +3,6 @@ import { IndexerService } from '../indexer/service.ts';
 import { gitPath } from '../git/find.ts';
 import { GitService } from '../git/service.ts';
 import { spawnGit } from '../git/status.ts';
-import { MemoStore } from '../projects/memo.ts';
 import { createSessionChangeHandler } from '../projects/onSessionChanged.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { fillProjectRemotes } from '../projects/link.ts';
@@ -23,18 +22,15 @@ const ROOT_CHECK_MS = 30_000;
 
 export type IndexingParts = {
   indexer: IndexerService;
-  memos: MemoStore;
   /** git の表示。実行中のセッションの本文が伸びたら、ここが作業ツリーを読み直して配る。 */
   git: GitService;
   /**
    * 最初の索引づけと、プロジェクトへの紐づけを済ませる。
-   * 全走査、プロジェクトの git の remote の空きを埋める、ワークスペースからのプロジェクトの登録、紐づけ、クイックセッションの用意、メモの突き合わせと監視、ルートの確かめ、の順である。
+   * 全走査、プロジェクトの git の remote の空きを埋める、ワークスペースからのプロジェクトの登録、紐づけ、クイックセッションの用意、ルートの確かめ、の順である。
    */
   start(): Promise<void>;
   /** ルートの確かめの周期を止める。 */
   stopTimers(): void;
-  /** メモのファイルの監視を止める。 */
-  stopMemoWatch(): void;
   /**
    * opencode のモデルのコンテキストの長さを引く口を渡す。opencode の部品（boot/opencode.ts）は索引より後に組むので、組んでから渡す。
    * 渡すまでは、opencode の使用量の context_size を書かない。
@@ -128,12 +124,10 @@ export function bootIndexing(
   sync.onRemoteChange(() => indexer.requestSweep());
   // 写しが降りたときと会話の行が届いたときに、opencode の写しも見直す（行が後から届いた写しも、ここで入る）。
   sync.onRemoteChange(() => { remoteOpencode.refresh(); });
-  const memos = new MemoStore({ db, deviceId, home: home.home });
-  let stopMemoWatch: () => void = () => undefined;
   let rootTimer: ReturnType<typeof setInterval> | null = null;
   return {
     onAppended: (listener) => { appendedListeners.push(listener); },
-    indexer, memos, git,
+    indexer, git,
     bindContextSize(of) { contextSize = of; },
     bindCodexRateLimits(on) { rateLimits = on; },
     onSettingsChanged() {
@@ -150,16 +144,11 @@ export function bootIndexing(
       syncProjectsFromWorkspace(db, deviceId, settings.current.workspaceRoot);
       assignSessions(db, deviceId);
       ensureScratchProject(db, deviceId, home.home);
-      // メモは DB とファイルの両方にある。起動時に食い違いを直し、以後はファイルの外部編集を監視で取り込む。
-      // 取り込んだメモは project_memos の行を書くので、memo.update とプロジェクトの配り直しは events/publisher.ts が受け持つ。
-      memos.reconcileAll();
-      stopMemoWatch = memos.watch(() => undefined);
       const checkRootsNow = () => checkRoots({ db, deviceId, broadcast: (ev) => hub.broadcast(ev) });
       checkRootsNow();
       rootTimer = setInterval(checkRootsNow, ROOT_CHECK_MS);
       rootTimer.unref();
     },
     stopTimers() { if (rootTimer) clearInterval(rootTimer); },
-    stopMemoWatch: () => stopMemoWatch(),
   };
 }

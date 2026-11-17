@@ -8,7 +8,7 @@ import { arrivedCount, presentSameFolder, presentUnresolved, unresolvedKind } fr
 const ja = translator('ja');
 const en = translator('en');
 
-const project = (id: string, over: Partial<ProjectDto> = {}): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1, unresolved: null, ...over });
+const project = (id: string, over: Partial<ProjectDto> = {}): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, updatedAt: 1, unresolved: null, ...over });
 /** この PC で場所が消えたもの。 */
 const missing = (id: string, over: Partial<ProjectDto> = {}) => project(id, { resolved: false, unresolved: { kind: 'missing', previousPath: `/w/${id}`, deviceName: null }, ...over });
 /** 他の PC から届いただけで、この PC に場所を持ったことが無いもの。 */

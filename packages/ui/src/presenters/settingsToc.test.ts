@@ -8,7 +8,7 @@ import { presentSettings, type SettingsTocRow } from './settings.ts';
 
 const NOW = Date.parse('2026-10-09T12:00:00Z');
 
-const SETTINGS: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+const SETTINGS: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, nodePath: null, claudePath: null };
 const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: 'https://h.example', lastPushAt: null, lastPullAt: NOW - 3 * 60_000, pending: 0, error: null, deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false, diskShort: null };
 const READY: ReadinessDto = {
   tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/opt/homebrew/bin/claude', ok: true, problem: null, version: '2.1.0' }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
@@ -125,22 +125,17 @@ describe('設定の目次（S1）', () => {
     expect(row(present(store({ notify: { available: true, on: false, blocked: false } })).toc, 'general').state).toBe('通知オフ');
     expect(row(present(store({ notify: { available: false, on: false, blocked: false } })).toc, 'general').state).toBe('通知は使えません');
   });
-  it('要約は、使わないなら淡く「オフ」と言い、LM Studio に繋がらない警告を出さない', () => {
+  it('要約は、使わないなら淡く「オフ」と言う', () => {
     expect(row(present(store()).toc, 'summary')).toMatchObject({ state: 'オフ', tone: 'default', label: '要約、オフ' });
-    expect(row(present(store({ summarizerModels: [] })).toc, 'summary')).toMatchObject({ state: 'オフ', tone: 'default' });
     // 鍵を知らない古いサーバーの設定も「使わない」として読む。
     expect(row(present(store({ settings: { ...SETTINGS, summaryEngine: undefined } })).toc, 'summary').state).toBe('オフ');
   });
   it('要約のエンジンが Claude なら、使用枠を使うことを言う', () => {
     expect(row(present(store({ settings: { ...SETTINGS, summaryEngine: 'claude' } })).toc, 'summary')).toMatchObject({ state: 'Claude（使用量を消費）', tone: 'default' });
   });
-  it('要約のエンジンが OpenAI 互換なら、モデルの一覧が取れたか、接続テストの結果で言う', () => {
-    const openai = (over: Partial<Store> = {}) => store({ settings: { ...SETTINGS, summaryEngine: 'openai' }, ...over });
-    expect(row(present(openai()).toc, 'summary')).toMatchObject({ state: '確認中', tone: 'default' });
-    expect(row(present(openai({ summarizerModels: ['a'] })).toc, 'summary')).toMatchObject({ state: 'OpenAI 互換、接続済み', tone: 'default' });
-    expect(row(present(openai({ summarizerModels: [] })).toc, 'summary')).toMatchObject({ state: 'OpenAI 互換に接続できません', tone: 'warn' });
-    const failed: SummarizerTestDto = { ok: false, tried: [{ id: 'lmstudio', message: 'x' }] };
-    expect(row(present(openai({ summarizerModels: ['a'], summarizerTest: failed })).toc, 'summary')).toMatchObject({ state: '接続テストに失敗', tone: 'warn' });
+  it('要約のエンジンが Claude で接続テストに失敗したら、そう言う', () => {
+    const failed: SummarizerTestDto = { ok: false, tried: [{ id: 'claude-headless', message: 'x' }] };
+    expect(row(present(store({ settings: { ...SETTINGS, summaryEngine: 'claude' }, summarizerTest: failed })).toc, 'summary')).toMatchObject({ state: '接続テストに失敗', tone: 'warn' });
   });
   it('セッションは、セッションの数を言う', () => {
     const s = store();

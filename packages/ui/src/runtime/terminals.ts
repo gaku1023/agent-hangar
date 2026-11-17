@@ -1,5 +1,5 @@
 export type TerminalStatus = 'connecting' | 'connected' | 'closed' | 'error';
-export type TerminalLike = { cols: number; rows: number; element: HTMLElement | null; open(el: HTMLElement): void; write(d: string): void; onData(cb: (d: string) => void): { dispose(): void }; onResize(cb: (s: { cols: number; rows: number }) => void): { dispose(): void }; fit(): void; focus(): void; dispose(): void;
+export type TerminalLike = { cols: number; rows: number; element: HTMLElement | null; open(el: HTMLElement): void; write(d: string, done?: () => void): void; onData(cb: (d: string) => void): { dispose(): void }; onResize(cb: (s: { cols: number; rows: number }) => void): { dispose(): void }; fit(): void; focus(): void; dispose(): void;
   /** WebGL の描画を付け外しする。外すと DOM の描画に戻る。open のあとにだけ呼ぶ。 */
   setGpu(on: boolean): void;
   /** 貼り付けとして送る。xterm は括弧付き貼り付けが有効なら括弧で包む。 */
@@ -77,6 +77,8 @@ export const GPU_MAX = 8;
  * 通数が多いと term.write の回数が増えて描画の負荷が上がるので、1 フレームに 1 回にまとめる。
  */
 export const WRITE_MAX_WAIT_MS = 50;
+/** 描き終えた量を、これだけ溜まるごとにサーバへ返す（ack）。サーバの下限（FLOW_LOW_CHARS）より十分小さい。 */
+export const ACK_CHARS = 4096;
 /** 前に書いてからこの時間（ミリ秒）より空いて届いた出力は、貯めずにその場で書く。打鍵の返りを 1 フレーム遅らせないため。 */
 export const WRITE_IDLE_MS = 16;
 
@@ -90,7 +92,7 @@ const FOCUS_FRAMES = 10;
  * painted は最初のデータが届いたか（それまで画面は透明にしておく）。
  * timer と retryAt は待っている自動の試し。
  */
-type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[]; want: boolean; fails: number; dropped: boolean; gaveUp: boolean; detached: boolean; painted: boolean; timer: ReturnType<typeof setTimeout> | null; retryAt: number | null; pending: string; cancelWrite: (() => void) | null; lastWrite: number };
+type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[]; want: boolean; fails: number; dropped: boolean; gaveUp: boolean; detached: boolean; painted: boolean; timer: ReturnType<typeof setTimeout> | null; retryAt: number | null; pending: string; cancelWrite: (() => void) | null; lastWrite: number; unacked: number };
 
 /**
  * タブごとの xterm と WebSocket を React の外で持つ。
@@ -146,7 +148,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     if (!e) {
       const term = deps.createTerminal();
       term.setFontSize(fontSize);
-      e = { term, ws: null, status: 'closed', opened: false, subs: [], want: false, fails: 0, dropped: false, gaveUp: false, detached: false, painted: false, timer: null, retryAt: null, pending: '', cancelWrite: null, lastWrite: -Infinity };
+      e = { term, ws: null, status: 'closed', opened: false, subs: [], want: false, fails: 0, dropped: false, gaveUp: false, detached: false, painted: false, timer: null, retryAt: null, pending: '', cancelWrite: null, lastWrite: -Infinity, unacked: 0 };
       entries.set(tabId, e);
     }
     return e;
@@ -156,7 +158,11 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     e.cancelWrite?.(); e.cancelWrite = null;
     if (e.pending === '') return;
     const d = e.pending; e.pending = '';
-    e.term.write(d);
+    // xterm が描き終えた量を、ACK_CHARS ずつサーバへ返す。サーバはこれが遅れると出力を止める（pty/relay.ts の FLOW_HIGH_CHARS）。
+    e.term.write(d, () => {
+      e.unacked += d.length;
+      if (e.unacked >= ACK_CHARS) { send(e, { t: 'ack', n: e.unacked }); e.unacked = 0; }
+    });
     e.lastWrite = Date.now();
   };
   /** 貯めた出力を捨てる（dispose のとき）。 */
@@ -197,7 +203,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     e.ws = ws;
     setStatus(e, 'connecting');
     notify();
-    ws.onopen = () => { e.fails = 0; e.dropped = false; e.gaveUp = false; e.detached = false; setStatus(e, 'connected'); send(e, { t: 'resize', cols: e.term.cols, rows: e.term.rows }); };
+    ws.onopen = () => { e.unacked = 0; e.fails = 0; e.dropped = false; e.gaveUp = false; e.detached = false; setStatus(e, 'connected'); send(e, { t: 'resize', cols: e.term.cols, rows: e.term.rows }); };
     ws.onmessage = (m) => {
       let parsed: unknown;
       try { parsed = JSON.parse(String(m.data)); } catch { return; }

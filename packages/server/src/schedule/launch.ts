@@ -1,4 +1,4 @@
-import type { AgentKind, ScheduleTarget } from '@agent-hangar/shared';
+import { turnPhaseOf, type AgentKind, type ScheduleTarget } from '@agent-hangar/shared';
 import { getSession } from '../db/queries.ts';
 import { MessageError, msg } from '../i18n/message.ts';
 import { sendToSessionTool } from '../mcp/screenTools.ts';
@@ -9,8 +9,8 @@ import type { ScheduleOutcome } from './runner.ts';
 /** 再開してから入力を受けられるようになるまで待つ長さ。 */
 const RESUME_READY_MS = 60_000;
 const NAME_MAX = 40;
-/** サーバから呼ぶ。起動元の会話は無い。 */
-const CTX: ToolContext = { sessionId: null };
+/** サーバから呼ぶ。起動元の会話は無く、人もいない。新しい会話の指示は、問いで止まらない段になる。 */
+const CTX: ToolContext = { sessionId: null, launchedBy: 'schedule' };
 const REAL: WaitClock = { now: () => Date.now(), sleep: (ms) => new Promise((r) => setTimeout(r, ms)) };
 
 const nameOf = (prompt: string): string => {
@@ -57,7 +57,7 @@ export async function launchScheduled(deps: ToolDeps, s: { prompt: string; targe
   if (!cur) throw new MessageError(msg('mcp.error.sessionNotFound', { id }));
   if (deps.runs.aliveRun?.(id)) {
     // 考えている途中や、許可の問いで止まっている会話に入力を流し込まない。
-    if (cur.live !== 'idle') return 'busy';
+    if (turnPhaseOf({ status: cur.live, aside: cur.liveAside }) !== 'idle') return 'busy';
   } else {
     await resumeSessionTool(deps, CTX, { session_id: id });
     const until = clock.now() + RESUME_READY_MS;

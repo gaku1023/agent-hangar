@@ -15,7 +15,7 @@ export type NotifyPreference = {
   os: NotifyKind[];
   /** つないだスマホへ知らせる場面。 */
   phone: NotifyKind[];
-  /** 見ている間も Mac に出すか。省けば既定（出さない）。 */
+  /** 見ている間もこの PC に出すか。省けば既定（出さない）。 */
   whileFocused?: boolean;
   /** 返答と入力待ちを 1 通にまとめるか。省けば既定（まとめる）。 */
   merge?: boolean;

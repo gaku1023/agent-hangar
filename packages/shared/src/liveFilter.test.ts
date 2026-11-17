@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isParked, liveFilterOf, quietLive } from './liveFilter.ts';
+import { isParked, liveFilterOf, quietLive, sessionPhaseOf } from './liveFilter.ts';
 
 describe('liveFilterOf', () => {
   it('入力待ちは、hangar の run の有無によらず入力待ちに数える', () => {
@@ -85,5 +85,31 @@ describe('isParked', () => {
   });
   it('印の時刻が欠けていれば偽', () => {
     expect(isParked({ ...base, setAt: null })).toBe(false);
+  });
+});
+
+describe('sessionPhaseOf', () => {
+  const base = { live: null, status: null, parked: false, woke: false, providerSessionId: 'u1' } as const;
+  it('会話の ID が決まっていない起動中の行で、動いていなければ preparing', () => {
+    expect(sessionPhaseOf({ ...base, providerSessionId: 'pending:x' })).toBe('preparing');
+    expect(sessionPhaseOf({ ...base, providerSessionId: 'pending:x', live: 'busy' })).toBe('running');
+  });
+  it('作業中と、状態の無い休みは running、入力待ちは waiting', () => {
+    expect(sessionPhaseOf({ ...base, live: 'busy' })).toBe('running');
+    expect(sessionPhaseOf({ ...base, live: 'idle' })).toBe('running');
+    expect(sessionPhaseOf({ ...base, live: 'waiting' })).toBe('waiting');
+  });
+  it('Paused と Done を付けて休んでいれば、プロセスが残っていても paused と done', () => {
+    expect(sessionPhaseOf({ ...base, live: 'idle', status: 'paused' })).toBe('paused');
+    expect(sessionPhaseOf({ ...base, live: 'waiting', status: 'paused' })).toBe('paused');
+    expect(sessionPhaseOf({ ...base, live: 'waiting', status: 'paused', woke: true })).toBe('waiting');
+    expect(sessionPhaseOf({ ...base, live: 'idle', status: 'done', parked: true })).toBe('done');
+    expect(sessionPhaseOf({ ...base, live: 'busy', status: 'done' })).toBe('running');
+  });
+  it('止まっている会話は、状態に応じて paused、done、ended', () => {
+    expect(sessionPhaseOf({ ...base, status: 'paused' })).toBe('paused');
+    expect(sessionPhaseOf({ ...base, status: 'done' })).toBe('done');
+    expect(sessionPhaseOf({ ...base, status: 'archived' })).toBe('done');
+    expect(sessionPhaseOf(base)).toBe('ended');
   });
 });

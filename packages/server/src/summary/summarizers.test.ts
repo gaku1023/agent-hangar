@@ -25,7 +25,7 @@ describe('要約の契機', () => {
       await new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir }), isRunning: () => false }).fullScan();
       const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
       const live: LiveSessionDto[] = [{ sessionId: SESSION_ALPHA, status: 'idle', name: null, nameSource: null, cwd: '/w', pid: 1 }];
-      const summarizer: Summarizer = { id: 'lmstudio', available: async () => true, summarize: async () => ({ title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [] }) };
+      const summarizer: Summarizer = { id: 'claude-headless', available: async () => true, summarize: async () => ({ title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [] }) };
       const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [summarizer], live: () => live, hub: { broadcast: () => {} }, language: () => 'ja' });
       // セッションを開いたときの契機は、レジストリが生きていると言う間は受け付けない。
       expect(job.enqueue(id)).toBe(false);
@@ -43,7 +43,7 @@ describe('要約の契機', () => {
 
 describe('要約器の列', () => {
   const setup = () => {
-    const settings = { summaryEngine: 'openai' as SummaryEngine, summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1', lmStudioModel: null as string | null, summaryApiKey: null as string | null, summaryFallback: true, summaryHourlyCap: 3 };
+    const settings = { summaryEngine: 'claude' as SummaryEngine, summaryClaudeModel: 'haiku', summaryHourlyCap: 3 };
     const spawn = vi.fn<SpawnText>(async () => ({ code: 0, stdout: JSON.stringify({ structured_output: { title: 'T', one_liner: 'O', body: 'B', state: 'done', next_steps: [] } }), stderr: '' }));
     const set = new SummarizerSet({ settings: () => settings, claudeBin: () => '/nope/claude', usage: () => ({}) as UsageDto, compat: NO_COMPAT, spawn });
     return { settings, set, spawn };
@@ -55,19 +55,10 @@ describe('要約器の列', () => {
     expect(set.list()).toEqual([]);
   });
 
-  it('Claude を選べば Claude だけを並べる。切り替えのスイッチは見ない', () => {
+  it('Claude を選べば Claude だけを並べる', () => {
     const { settings, set } = setup();
     settings.summaryEngine = 'claude';
     expect(set.list().map((s) => s.id)).toEqual(['claude-headless']);
-    settings.summaryFallback = false;
-    expect(set.list().map((s) => s.id)).toEqual(['claude-headless']);
-  });
-
-  it('OpenAI 互換を選べば先頭に置き、切り替えを許しているときだけ Claude を後ろに足す', () => {
-    const { settings, set } = setup();
-    expect(set.list().map((s) => s.id)).toEqual(['lmstudio', 'claude-headless']);
-    settings.summaryFallback = false;
-    expect(set.list().map((s) => s.id)).toEqual(['lmstudio']);
   });
 
   it('Claude の要約器は、設定のモデルで claude -p を呼ぶ。作り直さずに、変えたモデルが次の呼び出しから効く', async () => {
@@ -84,10 +75,10 @@ describe('要約器の列', () => {
 
   it('Claude の要約器は 1 度だけ作る。毎回作り直すと 1 時間の窓が空になる', () => {
     const { set } = setup();
-    const first = set.list()[1];
-    expect(set.list()[1]).toBe(first);
+    const first = set.list()[0];
+    expect(set.list()[0]).toBe(first);
     // claude の場所か上限が変わったときだけ、作り直す。
     set.rebuildClaude();
-    expect(set.list()[1]).not.toBe(first);
+    expect(set.list()[0]).not.toBe(first);
   });
 });

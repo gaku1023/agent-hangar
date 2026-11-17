@@ -6,6 +6,9 @@ describe('項目の id', () => {
     expect(kindOfRel('CLAUDE.md')).toBe('claude-md');
     expect(kindOfRel('keybindings.json')).toBe('keybindings');
     expect(kindOfRel('skills/a/SKILL.md')).toBe('skills');
+    expect(kindOfRel('skills/synced/x_y/docs/SKILL.md')).toBeNull();
+    expect(parseItemId('file:skills/synced/x_y/manifest.json')).toBeNull();
+    expect(kindOfRel('skills/synced-notes/SKILL.md')).toBe('skills');
     expect(kindOfRel('commands/x.md')).toBe('commands');
     expect(kindOfRel('agents/sub/y.md')).toBe('agents');
     expect(kindOfRel('memory/notes.md')).toBe('memory');

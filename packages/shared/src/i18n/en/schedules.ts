@@ -75,6 +75,7 @@ export const schedulesEn: AreaDictionary<typeof schedulesKeys> = {
   'schedules.event.heldHourly': 'Stopped after the hourly limit ({max})',
   'schedules.event.wakeFailed': "Couldn't wake \"{title}\"",
   'schedules.event.error.invalid': 'Invalid event setting',
+  'schedules.event.error.off': 'Event triggers are off. Turn them on in Settings',
   'schedules.event.error.max': 'Up to {max} event settings',
   'schedules.event.error.notFound': 'Event setting not found',
   'schedules.event.error.badState': 'Invalid event setting state',

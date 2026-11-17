@@ -289,3 +289,18 @@
 /* 畳んだ起動元の名前の右に並べる、子孫ごとの小さな状態の丸（A1）。 */
 .row-kidots { display: inline-flex; align-items: center; gap: 3px; margin-left: calc(var(--u) * 2); vertical-align: middle; }
 .row-kidot { width: 6px; height: 6px; }
+
+/* 一覧の末尾に畳んだ非対話の会話（claude -p など）。畳んだ 1 行と、開いたときの低い行。行は等幅の字で、淡い地に左の罫を付け、端末の記号で見分ける。 */
+.headless-toggle, .headless-more { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; border: 0; border-top: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font-size: var(--fs-sm); font-weight: 600; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.headless-toggle { height: 36px; padding: 0 calc(var(--u) * 5); }
+.headless-toggle:hover, .headless-more:hover { background: var(--surface-2); }
+.headless-toggle > .icon, .headless-more > .icon, .headless-row > .icon { width: 14px; height: 14px; flex: none; }
+.headless-toggle > .icon:last-child, .headless-more > .icon:last-child { margin-left: auto; transition: transform var(--dur) var(--ease-out); }
+.headless-toggle[aria-expanded='true'] > .icon:last-child { transform: rotate(180deg); }
+.headless-toggle .num, .headless-more .num { font-weight: 500; font-size: var(--fs-xs); color: var(--ink-3); }
+.headless-grp { background: var(--surface-2); }
+.headless-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: calc(var(--u) * 4); height: 36px; padding: 0 calc(var(--u) * 5); box-shadow: inset 2px 0 0 var(--line-strong); border-bottom: 1px solid var(--line); white-space: nowrap; cursor: pointer; color: var(--ink-3); transition: background var(--dur-fast) var(--ease-out); }
+.headless-row:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface-2)); }
+.headless-name { overflow: hidden; text-overflow: ellipsis; font: 500 var(--fs-sm) var(--font-mono); color: var(--ink-2); }
+.headless-when { font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.headless-more { height: 34px; padding: 0 calc(var(--u) * 5); border-top: 0; background: transparent; box-shadow: inset 2px 0 0 var(--line-strong); font-weight: 500; }

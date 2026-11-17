@@ -6,6 +6,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { recordPeers } from '../sync/peers.ts';
 import { deviceOfSession, handoverFacts, projectDeviceCount, resumeCwd, resumeHerePlan, resumeTarget, scratchFolderName } from './handover.ts';
+import { pathRefId } from '../db/pathRef.ts';
 
 let db: Db;
 let here: string;
@@ -34,7 +35,7 @@ const run = (sessionId: string, device: string, startedAt: number) =>
   upsertShared(db, 'runs', { id: `run-${device}-${startedAt}`, session_id: sessionId, device_id: device, kind: 'resume', tmux_name: 'x', pid: null, launch_params: '{}', started_at: startedAt, ended_at: startedAt + 1, end_reason: 'exited', heartbeat_at: startedAt }, device);
 let seq = 0;
 const edit = (sessionId: string, file: string, tool = 'Edit') =>
-  db.prepare('insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, file_path_ref, tool_name, file_path) values (?,?,?,?,?,?,?,?,?)').run(sessionId, ++seq, 'tool_call', 1, 0, 1, 'f', tool, file);
+  db.prepare('insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, path_id, tool_name, file_path, file_path_ref) values (?,?,?,?,?,?,?,?,?,\'\')').run(sessionId, ++seq, 'tool_call', 1, 0, 1, pathRefId(db, 'f'), tool, file);
 
 describe('resumeCwd（再開とフォークの作業ディレクトリ）', () => {
   it('前の cwd がこの PC にあれば、そのまま使う', () => {

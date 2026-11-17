@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type Database from 'better-sqlite3';
+import Database from 'better-sqlite3';
 import { causeOf, msg, MessageError } from '../i18n/message.ts';
 
 /** 控えを残す数。新しいものから数える。 */
@@ -31,6 +31,7 @@ export function defaultDbBackupDir(dbFile: string): string {
  * VACUUM はトランザクションの中では動かないので、マイグレーションを当てる前に、トランザクションの外で呼ぶ。
  * 写しは控えの形でない一時の名前に書き、0600 にして fsync してから改名する。途中で失敗したり落ちたりしても、控えに見えるものは残らない。
  * 置き場がシンボリックリンクなら取らない（刈る側の pruneBackupFiles と、書く側の resolveUnder にそろえる）。
+ * 写しからは、作り直せる本文の索引を抜く（dropRebuildableIndex）。
  * 写しが取れなければ DbBackupError を投げる。刈り込みの失敗は投げない（控えはもう取れている）。
  */
 export function backupDb(db: Database.Database, dir: string, lastVersion: number, now: Date, keep: number = DB_BACKUP_GENERATIONS): string {
@@ -43,7 +44,8 @@ export function backupDb(db: Database.Database, dir: string, lastVersion: number
     // 前の失敗の残りが同じ名前であると VACUUM INTO が断るので、先に消す。
     fs.rmSync(tmp, { force: true });
     db.prepare('vacuum into ?').run(tmp);
-    // 写しは会話の索引をそのまま持つので、トークンと同じ 0600 にする。
+    dropRebuildableIndex(tmp);
+    // 写しは会話の本文の抜粋（event_fts は抜いても、要約や題名）を持つので、トークンと同じ 0600 にする。
     fs.chmodSync(tmp, 0o600);
     // VACUUM INTO の出力は SQLite が fsync しない。続くマイグレーションは耐久的に確定するので、先に写しを固める。
     const fd = fs.openSync(tmp, 'r+');
@@ -59,6 +61,49 @@ export function backupDb(db: Database.Database, dir: string, lastVersion: number
     console.error('[db] 古い控えを刈れませんでした', e instanceof Error ? e.message : e);
   }
   return file;
+}
+
+/**
+ * 写しから、元のファイルから作り直せる本文の索引（event_index の、transcript_files に載るファイルの行と、本文を DB に持つ会話に属さない event_fts の行。event_fts は表ごと作り直す）を抜く。
+ * 検索の索引は DB の大半を占める（1GB を超える DB の 9 割以上）が、控えを戻したあとにインデクサが読み直せば元に戻る。
+ * 読み直しの印として transcript_files の indexer_version を 0 にしておく（indexFile が先頭から積み直す。IndexerService.rebuild と同じ印）。
+ * 表の形は残すので、戻した DB はそのまま開ける。
+ * 本文を DB に持つ束（opencode）の行と、その検索の行は、元のファイルが無く作り直せるか分からないので抜かない。ディスクに元の jsonl が無い会話も同じで、行も印も残す（event_fts は会話と線（主線かサブエージェント）で見分ける。古い行は fts_rowid を持たない）。
+ * 抜いたあとに VACUUM して、ファイルを縮める。
+ */
+function dropRebuildableIndex(file: string): void {
+  const copy = new Database(file);
+  try {
+    // FTS5 は行を消しても印を付けるだけで、VACUUM でも縮まない。消さずに、残す行を控えて表を作り直す。
+    const ddl = (copy.prepare("select sql from sqlite_master where name = 'event_fts'").get() as { sql: string } | undefined)?.sql;
+    // 元のファイルがディスクに無い会話（Claude Code の掃除で消えたものなど）は、読み直せないので索引を残す。
+    const gone = (copy.prepare('select path from transcript_files').all() as { path: string }[]).filter((r) => !fs.existsSync(r.path)).map((r) => r.path);
+    copy.exec('create temp table gone_files (path text primary key)');
+    const insGone = copy.prepare('insert or ignore into gone_files values (?)');
+    for (const g of gone) insGone.run(g);
+    // 控えは「当てる前」の DB の写しなので、版 65 より前の DB はパスの文字を行ごとに持つ（file_path_ref）。どちらの形でも抜けるようにする。
+    // 控えは「当てる前」の DB の写しなので、多くは版 65 より前の形（file_path_ref だけ）だが、版 65 以降の DB に次の版を当てるときは、番号の行と旧い列の行が混じる。どちらも抜ける。
+    const byNumber = (copy.prepare("select 1 from pragma_table_info('event_index') where name = 'path_id'").get() as unknown) !== undefined;
+    const live = 'select path from transcript_files where path not in (select path from gone_files)';
+    copy.exec(byNumber
+      ? `delete from event_index where path_id in (select p.id from event_paths p where p.path in (${live})) or file_path_ref in (${live});
+         delete from event_paths where id not in (select distinct path_id from event_index where path_id is not null);`
+      : `delete from event_index where file_path_ref in (${live});`);
+    copy.exec(`
+      update transcript_files set indexer_version = 0 where path not in (select path from gone_files);
+    `);
+    if (ddl !== undefined) {
+      copy.exec(`
+        create temp table keep_fts as select rowid r, session_id, agent_id, seq, role, text from event_fts f where exists (select 1 from event_index e where e.session_id = f.session_id and ifnull(e.parent_agent, '') = ifnull(f.agent_id, ''));
+        drop table event_fts;
+      `);
+      copy.exec(ddl);
+      copy.exec('drop table gone_files; insert into event_fts (rowid, session_id, agent_id, seq, role, text) select r, session_id, agent_id, seq, role, text from keep_fts; drop table keep_fts;');
+    }
+    copy.exec('vacuum');
+  } finally {
+    copy.close();
+  }
 }
 
 /** 置き場そのものがリンクだと、書くのも刈るのもリンクの先に出てしまう。無いのは構わない（これから作る）。 */

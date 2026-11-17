@@ -240,7 +240,6 @@ type Core = {
  * クラウド同期を組む。cloud.json が無ければ client は null で、同期の状態は off になる。
  * 組むのは、同期のエンジン、使用量、本文の上げ手、設定の同期、保持期間、本文の降ろし手、頼まれた 1 巡、状態の配りである。
  * 保持期間は同期ではないが、起動と停止の順がこの並びの中にあるので、ここで持つ。
- * memoPath は、プロジェクトのメモのファイルの場所である。競合で負けた手元の内容を、その隣に残す。
  *
  * cloud.json に依る部品は Core にまとめてあり、返す SyncParts はその時点の Core を引く。
  * 起動のときに cloud.json が無かった端末では、置き場を見張り、設定が現れたら起動と同じ組み立てで Core を組み直して始める。
@@ -252,7 +251,6 @@ export function bootSync(
   home: Pick<HomeParts, 'home' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language'>,
   delivery: Pick<DeliveryParts, 'hub'> & Partial<Pick<DeliveryParts, 'publisher' | 'osNotices'>> & { toast: Toast },
   o: {
-    memoPath: (projectId: string) => string;
     cloudWatch?: CloudWatchOptions;
     /** opencode の本文の書き出しの口（boot/opencode.ts）。serve の管理は同期より後に組むので、呼ばれた時点で引く。 */
     opencodeExport?: () => OpencodeExportSource | null;
@@ -362,7 +360,7 @@ export function bootSync(
       // 起動のときの cloud.json が古い形式なら、同期の状態にその印を載せる（設定の画面が再構築を案内する）。
       // 版 2 の cloud.json が現れて組み直した Core では cloud があるので立たない。
       legacyConfig: cloud === null && cloudRead.state === 'legacy',
-      ...memoLossHandlers({ memoPath: o.memoPath, toast, pruneMemos: () => pruneBackups('memos'), language: home.language }),
+      ...memoLossHandlers({ memoPath: (projectId) => path.join(home.home, 'projects', projectId, 'memo.md'), toast, pruneMemos: () => pruneBackups('memos'), language: home.language }),
     });
     // 設定の「使用量と費用」。
     const cloudUsage = new CloudUsagePoller({ client, isPaused, broadcast: (usage) => hub.broadcast({ type: 'sync.usage', usage }) });

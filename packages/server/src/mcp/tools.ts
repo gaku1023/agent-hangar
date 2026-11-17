@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { isAgentKind, isNotifyKind, isQuietStatus, notifyRulesOf, orchestratorLineage, orchestratorOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type PermissionPolicy, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto, type WakeOn } from '@agent-hangar/shared';
+import { isAgentKind, isNotifyKind, isQuietStatus, sessionPhaseOf, notifyRulesOf, orchestratorLineage, orchestratorOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LaunchedBy, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type PermissionPolicy, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionPhase, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto, type WakeOn } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { accountOfSession, getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
 import { addIntent, INTENT_MAX, noteIntent } from '../live/intents.ts';
-import { addUnread, noteUnread, NOTIFY_TARGETS, type NotifyTarget } from '../live/unread.ts';
+import { addUnread, noteNotifyCall, noteUnread, NOTIFY_TARGETS, type NotifyTarget } from '../live/unread.ts';
 import { noteNotifyKind } from '../live/notifyKind.ts';
 import { sessionTurnRunning } from '../live/unreadHold.ts';
 import { touchRow } from '../db/notify.ts';
@@ -64,7 +64,7 @@ export type ToolDeps = {
   /** 道具の説明と結果の文の言語。渡さなければ日本語で出す。 */
   language?: GetLanguage;
   /** notify_user の出し先の設定（notifyPreference と、古いスイッチの unreadBadge、unreadOs、unreadPhone）。無ければ既定（全部入り）として読む。 */
-  settings?: () => { notifyPreference?: NotifyPreference | null; unreadBadge?: boolean; unreadOs?: boolean; unreadPhone?: boolean; orchestrator?: unknown; permissionPolicy?: unknown };
+  settings?: () => { notifyPreference?: NotifyPreference | null; unreadBadge?: boolean; unreadOs?: boolean; unreadPhone?: boolean; orchestrator?: unknown; eventTrigger?: boolean; permissionPolicy?: unknown };
   /** 設定の保存（PATCH /api/settings と同じ道）。保存して、変えた欄を全部の画面へ配る。無ければ set_notify_preference は知らない道具として断る。 */
   saveNotifyPreference?: (p: NotifyPreference) => void;
   /** 統括の許可の道具の芯（orchestrator/asks.ts）。無ければ createMcpApp が askLocal から作る。統括の URL 以外からは使わない。 */
@@ -95,8 +95,9 @@ export type ToolDeps = {
 /**
  * セッション別 URL では、そのセッションに固定される。共通 URL では null。
  * sessionSecret は、セッション別 URL をそのセッションの秘密（hangar が起こした run にだけ配る）で開けたこと。本体のトークンで開けたときは偽。
+ * launchedBy は、サーバの中から道具を呼ぶときの、人のいない起動元（予定や出来事は 'schedule'）。MCP の呼び出しでは付かない。
  */
-export type ToolContext = { sessionId: string | null; sessionSecret?: boolean };
+export type ToolContext = { sessionId: string | null; sessionSecret?: boolean; launchedBy?: LaunchedBy };
 
 /** ツールの呼び出しが失敗したこと。MCP の層はこれを、いまの言語の文にして isError の応答に変える。 */
 export class ToolError extends MessageError {
@@ -109,8 +110,6 @@ export class ToolError extends MessageError {
 /**
  * 道具の名前。
  * セッションのノートを書く set_session_memo は 0.4.0 で道具ごと外した（要約の set_session_summary と Paused の戻る日が役を担う）。
- * update_project の append_memo のように notice で答える形にしないのは、あちらは同じ呼び出しのほかの項目を書くためにエラーにしなかったのに対し、
- * こちらは道具が 1 つの仕事しか持たず、外した後の一覧に無い道具を呼ばれても、MCP の層が書かずに isError（道具が無い）で返すからである。
  * モデルにこの道具を使うよう指示したことも無いので、古い指示を覚えた Claude が呼び続けることもない。
  */
 export const TOOL_NAMES = [
@@ -230,6 +229,10 @@ function resumeOf(deps: ToolDeps, s: SessionDto): { resume_command: string | nul
  * セッション 1 件の要点。
  * resume_command だけは Claude の UUID を使う。ほかの項目の id は hangar の sessions.id である。
  */
+function phaseOf(s: SessionDto): SessionPhase {
+  return sessionPhaseOf({ live: s.live, status: s.state?.status, parked: s.parked, woke: s.woke, providerSessionId: s.providerSessionId });
+}
+
 function sessionBrief(deps: ToolDeps, s: SessionDto) {
   return {
     id: s.id,
@@ -237,6 +240,8 @@ function sessionBrief(deps: ToolDeps, s: SessionDto) {
     project_id: s.projectId,
     cwd: s.cwd,
     live: s.live,
+    phase: phaseOf(s),
+    status: s.state?.status ?? null,
     started_at: s.startedAt,
     last_activity_at: s.lastActivityAt,
     summary: s.summary ? { title: s.summary.title, one_liner: s.summary.oneLiner, state: s.summary.state, source: s.summary.source } : null,
@@ -327,8 +332,7 @@ export function getProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
 }
 
 /**
- * status、add_todos、toggle_todos、propose_done を受けて書く。プロジェクトのノートは書かない（append_memo はやめた）。
- * 古い指示を覚えた Claude が append_memo を渡したときは、黙って捨てずに、やめたことと書く場所を notice で返す。エラーにはしないので、いっしょに渡したほかの項目は書く。
+ * status、add_todos、toggle_todos、propose_done を受けて書く。
  * 画面へのイベントは、書いた行から配る層（events/publisher.ts）が配る。道具は hub を持たない。
  */
 export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
@@ -379,7 +383,6 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
     project: { id: p.id, name: p.name, status: p.status, open_todo_count: p.openTodoCount },
     todos: todoBriefs(deps, id),
     todo_results: results,
-    ...(args.append_memo !== undefined ? { notice: render((deps.language ?? defaultLanguage)(), msg('mcp.updateProject.memoRetired')) } : {}),
   };
 }
 
@@ -533,8 +536,10 @@ export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
   const launchedAt = Date.now();
   const marked = (id: string) => noteTurnStart(deps.db, id, { at: launchedAt, expectsReply: str(args.prompt) !== undefined, ...(key ? { prepKey: key } : {}) });
   let pending: string | null = null;
+  // 人のいない起動元。予定や出来事はサーバの中から呼ぶ側が付け、別の会話から起こしたら session にする。引き継ぎは人が続けるので付けない。
+  const launchedBy: LaunchedBy | undefined = ctx.launchedBy ?? (ctx.sessionId && !bool(args.handoff) ? 'session' : undefined);
   const launch = Promise.resolve(deps.runs.start({
-    projectId, name: str(args.name), prompt: str(args.prompt), model: str(args.model),
+    ...(launchedBy ? { launchedBy } : {}), projectId, name: str(args.name), prompt: str(args.prompt), model: str(args.model),
     effort: str(args.effort), permissionMode: str(args.permission_mode), scratch: bool(args.scratch),
     agent, mode: str(args.mode), ...(account ? { account: account.id } : {}),
     worktree: str(args.worktree), addDirs: strs(args.add_dirs), ...(key ? { prepKey: key } : {}),
@@ -745,6 +750,8 @@ export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
   if (isQuietStatus(session.state?.status) && !session.woke) sent = [];
   // 出し先が空でも、呼んだことは統括の出来事の側へ知らせる（orchestrator/feed.ts の turn.done）。
   noteNotifyKind(id, kind, o.immediate === true);
+  // 出し先が空になっても、呼ばれたことはターンの終わりの受け皿に伝える（live/notifyFallback.ts）。呼んだターンに代わりの未読を足さないためである。
+  noteNotifyCall(id);
   let unread = session.unread?.count ?? 0;
   if (sent.length > 0) {
     // 未読の数も、done と ask で作業中なら預かりが積む（holdUnread のとき）。返答を書き終える前に数が増えないようにするためである。
@@ -831,6 +838,7 @@ export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args:
   if (args.wake_on !== undefined) {
     if (status !== 'paused') throw new ToolError(msg('mcp.sessionStatus.wakeOnOnlyPaused'));
     if (args.confirmed === true) throw new ToolError(msg('mcp.sessionStatus.wakeOnNotConfirmed'));
+    if (deps.settings && !deps.settings().eventTrigger) throw new ToolError(msg('schedules.event.error.off'));
     wakeOn = parseWakeOn(args.wake_on);
   }
   try {

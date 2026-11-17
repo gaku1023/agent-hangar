@@ -156,7 +156,6 @@ export type Effect =
   | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string; wakeOn?: WakeOn | null } }
   | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string; returnTime?: string; wakeOn?: WakeOn | null } }
   | { kind: 'api.rejectSessionState'; id: string }
-  | { kind: 'api.loadMemo'; projectId: string }
   | { kind: 'api.loadInstructions'; projectId: string }
   | { kind: 'api.promote'; sessionId: string; name: string; gitInit: boolean; moveFiles: boolean; parent?: string }
   | { kind: 'api.createProject'; place: ProjectPlace; startSession: boolean }

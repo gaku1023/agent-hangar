@@ -202,15 +202,13 @@ describe('表から DTO とイベントへ', () => {
     expect(t.sent).toEqual([{ type: 'devices.update', devices: listDevices(t.db, ME) }]);
   });
 
-  it('project_memos の行は memo.update と、メモの頭を載せるプロジェクトの project.upsert になる', () => {
+  it('project_memos の行は何も配らない（ノートはやめた。表は古い版の端末の送りを受けるために残してある）', () => {
     const t = setup();
     seedProject(t.db);
     t.reset();
     upsertShared(t.db, 'project_memos', { project_id: 'p1', markdown: '# メモ', deleted_at: null }, ME, 'project_id');
     t.publisher.flush();
-    expect(t.types()).toEqual(['memo.update', 'project.upsert']);
-    expect(t.sent[0]).toMatchObject({ type: 'memo.update', memo: { projectId: 'p1', markdown: '# メモ' } });
-    expect(t.sent[1]).toMatchObject({ type: 'project.upsert', project: { id: 'p1', memoHead: '# メモ' } });
+    expect(t.sent).toEqual([]);
   });
 
   it('artifacts の行は artifact.upsert になる', () => {
@@ -288,6 +286,16 @@ describe('表から DTO とイベントへ', () => {
     t.publisher.flush();
     // 画面が Store からセッションを外せるように、論理削除したセッションは知らせる（セッションの削除）。
     expect(t.sent).toEqual([{ type: 'session.removed', id: 's1' }]);
+  });
+
+  it('非対話の会話（session_stats.headless）は session.upsert を配らない。画面の一覧に入れないため', () => {
+    const t = setup();
+    seedSession(t.db);
+    t.reset();
+    t.db.prepare('insert into session_stats (session_id, headless) values (?, 1)').run('s1');
+    touchRow(t.db, 'sessions', 's1');
+    t.publisher.flush();
+    expect(t.sent).toEqual([]);
   });
 
   it('別の DB の知らせは拾わない', () => {

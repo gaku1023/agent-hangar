@@ -115,6 +115,39 @@ describe('PtyRelay の出力のまとめ送り', () => {
   });
 });
 
+describe('PtyRelay の流量の制御（ack）', () => {
+  const tmux = new Tmux({ tmuxPath: '/x/tmux', socketName: 'fake' });
+  async function setup() {
+    const f = fakeSpawn();
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: () => 'hangar-a', spawn: f.spawn, coalesce: { windowMs: 0, maxBytes: 1 } });
+    await listen(relay);
+    const c = await connect('tab=t1');
+    await waitFor(() => f.procs.length === 1);
+    const p = f.procs[0]!;
+    const calls: string[] = [];
+    p.pause = () => { calls.push('pause'); };
+    p.resume = () => { calls.push('resume'); };
+    return { p, calls, ...c };
+  }
+  it('画面が ack を返す接続では、返されていない分が上限を超えたら pause し、返されて下限を切ったら resume する', async () => {
+    const { p, calls, ws, msgs } = await setup();
+    ws.send(JSON.stringify({ t: 'ack', n: 1 }));
+    await new Promise((r) => setTimeout(r, 30));
+    for (let i = 0; i < 20; i++) p.emitData('x'.repeat(10_000));
+    await waitFor(() => msgs.length === 20);
+    expect(calls).toEqual(['pause']);
+    ws.send(JSON.stringify({ t: 'ack', n: 190_000 }));
+    await waitFor(() => calls.length === 2);
+    expect(calls).toEqual(['pause', 'resume']);
+  });
+  it('ack を一度も返さない画面（古い版）は、どれだけ送っても止めない', async () => {
+    const { p, calls, msgs } = await setup();
+    for (let i = 0; i < 20; i++) p.emitData('x'.repeat(10_000));
+    await waitFor(() => msgs.length === 20);
+    expect(calls).toEqual([]);
+  });
+});
+
 describe('PtyRelay（偽の spawn）', () => {
   const tmux = new Tmux({ tmuxPath: '/x/tmux', socketName: 'fake' });
   beforeEach(async () => { relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: (t) => (t === 't1' ? 'hangar-a' : null), spawn: fakeSpawn().spawn }); await listen(relay); });

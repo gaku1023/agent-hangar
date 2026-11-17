@@ -8,6 +8,7 @@ import type { ParentLink } from './heading.ts';
 import { translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
 import { byteBase, bytesLabel } from './bytes.ts';
+import { presentSessionRow, type SessionRowProps } from './row.ts';
 import { presentSessionList, type SessionListProps } from './sessions.ts';
 import { artifactIconOf, type ArtifactIconName } from './artifactIcon.ts';
 
@@ -37,6 +38,11 @@ export type ProjectProps = {
   railFolded: ProjectRailSection[];
   /** git の表示（0.5.0）。パスの行の札と、右パネルの「ブランチと worktree」の行。 */
   git?: ProjectGitProps;
+  /**
+   * 一覧の末尾に畳む非対話の会話（claude -p など）。total は全件、rows は読み込んだ頁までの行（新しい順）、remaining は未読の件数。
+   * 1 件も無いときと、語で検索しているときは無い。
+   */
+  headless?: { total: number; rows: SessionRowProps[]; remaining: number } | null;
   /** この PC で同じフォルダを場所にしている、残す方のプロジェクト（ProjectDto の sameFolder）。あればパスの行に、まとめる確認へ進む札を出す。 */
   sameFolder?: { name: string } | null;
 };
@@ -75,9 +81,8 @@ export function presentArtifactCard(t: Translate, a: ArtifactDto, now: number): 
 export type InstructionRowProps = { kind: InstructionFileKind; name: string; desc: string; meta: string; off: boolean; markdown: string | null; truncated: boolean };
 /**
  * 右パネルの「指示とメモリ」。state は読み込む前（loading）、この PC にフォルダが無い（missing）、読み込んだ（ready）。
- * legacyNote は、やめたプロジェクトのノートに中身が残っているときの本文で、空なら null。
  */
-export type InstructionsProps = { state: 'loading' | 'missing' | 'ready'; rows: InstructionRowProps[]; legacyNote: string | null };
+export type InstructionsProps = { state: 'loading' | 'missing' | 'ready'; rows: InstructionRowProps[] };
 
 /** ファイルの大きさ。1 KB 未満はバイト、10 KB 未満は小数 1 桁の KB、それより上は bytesLabel に任せる。割る単位は bytes.ts の byteBase。 */
 function sizeLabel(bytes: number): string {
@@ -102,16 +107,14 @@ function descOf(t: Translate, f: InstructionFileDto, files: InstructionFileDto[]
 }
 
 export function presentInstructions(t: Translate, store: Store, id: string, now: number): InstructionsProps {
-  const memo = store.memos[id]?.markdown ?? '';
-  const legacyNote = memo.trim() !== '' ? memo : null;
   const dto = store.instructions[id];
-  if (!dto) return { state: 'loading', rows: [], legacyNote };
-  if (!dto.available) return { state: 'missing', rows: [], legacyNote };
+  if (!dto) return { state: 'loading', rows: [] };
+  if (!dto.available) return { state: 'missing', rows: [] };
   const rows = dto.files.map((f) => ({
     kind: f.kind, name: f.name, desc: descOf(t, f, dto.files), meta: t('projectScreen.instructions.meta', { size: sizeLabel(f.size), ago: relativeTime(t, f.updatedAt, now) }),
     off: !f.read, markdown: f.markdown, truncated: f.truncated,
   }));
-  return { state: 'ready', rows, legacyNote };
+  return { state: 'ready', rows };
 }
 
 /** この PC にパスの無いプロジェクトの git（サーバの GET /api/projects/:id/git も同じものを返す）。 */
@@ -120,13 +123,20 @@ const NO_PATH_GIT: ProjectGitDto = { root: null, worktrees: [], blocked: { kind:
 /** プロジェクト詳細の見出しの上には、一覧へ戻るリンクを出す。 */
 const parentOf = (t: Translate): ParentLink => ({ label: t('projects.heading.title'), route: { name: 'projects' } });
 
+function headlessOf(state: State, store: Store, now: number, id: string): ProjectProps['headless'] {
+  const h = store.headless[id];
+  if (!h || h.total === 0 || state.search.text !== '') return null;
+  const rows = h.ids.flatMap((sid) => { const s = store.sessions[sid]; return s ? [presentSessionRow(s, store, now)] : []; });
+  return { total: h.total, rows, remaining: Math.max(0, h.total - rows.length) };
+}
+
 export function presentProject(state: State, store: Store, now: number, id: string): ProjectProps {
   const p = store.projects[id];
   const t = translatorOf(store);
   const PARENT = parentOf(t);
   // 一覧はホームと同じ部品で、このプロジェクトのセッションだけを出す。見つからないプロジェクトは行が 0 になる。
   const list = presentSessionList(state, store, now, id);
-  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', notFound: true, isScratch: false, list, loadMore: null, info: { sessionsText: '', lastActivity: '' }, todos: [], doneTodos: [], suggestions: [], pendingTodos: 0, instructions: { state: 'loading', rows: [], legacyNote: null }, artifacts: [], artifactAddError: null, railFolded: [], git: { state: 'nogit', root: null, rows: [], fix: null } };
+  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', notFound: true, isScratch: false, list, loadMore: null, info: { sessionsText: '', lastActivity: '' }, todos: [], doneTodos: [], suggestions: [], pendingTodos: 0, instructions: { state: 'loading', rows: [] }, artifacts: [], artifactAddError: null, railFolded: [], git: { state: 'nogit', root: null, rows: [], fix: null } };
   const remaining = list.total - list.rows.length;
   const all = todosOf(store, id);
   const item = (x: TodoDto): TodoItemProps => ({ id: x.id, text: x.text, done: x.done, position: x.position, candidate: presentTodoCandidate(x, store, now) });
@@ -138,6 +148,7 @@ export function presentProject(state: State, store: Store, now: number, id: stri
     id, name: projectDisplayName(p, translatorOf(store)), parent: PARENT, path: p.path, resolved: p.resolved, status: p.status, notFound: false, isScratch: p.isScratch,
     sameFolder: p.sameFolder ? { name: p.sameFolder.name } : null,
     list,
+    headless: headlessOf(state, store, now, id),
     loadMore: list.mode === 'search' && remaining > 0 ? { remaining, step: SEARCH_STEP, loading: list.loading } : null,
     // セッションの数は、Archived も含めた全部（タブの「すべて」は Archived を除く）。
     info: { sessionsText: t('projects.row.sessions', { n: Object.values(store.sessions).filter((s) => s.projectId === id).length }), lastActivity: relativeTime(t, p.lastActivityAt, now) },

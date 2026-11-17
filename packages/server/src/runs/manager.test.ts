@@ -284,6 +284,24 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(rm.getTab(r.run.id)?.kind).toBe('agent');
   });
 
+  it('人のいない起動元（予定、別の会話）なら、区切りの問いの代わりに問いで止まらない段を指示に入れる。知らない値は人の起動として読む', async () => {
+    const rm = make();
+    const sysOf = async (params: Parameters<typeof rm.start>[0]) => {
+      const r = await rm.start(params);
+      const args = await launchedArgs(r.run.id);
+      return args[args.indexOf('--append-system-prompt') + 1]!;
+    };
+    const human = await sysOf({ projectId: 'p1' });
+    expect(human).toContain('このセッションをどうしますか');
+    expect(human).not.toContain('から起動されました');
+    const scheduled = await sysOf({ projectId: 'p1', launchedBy: 'schedule' });
+    expect(scheduled).toContain('このセッションは予定や出来事による自動の実行から起動されました。');
+    expect(scheduled).not.toContain('このセッションをどうしますか');
+    expect(await sysOf({ projectId: 'p1', launchedBy: 'session' })).toContain('このセッションは別の会話から起動されました。');
+    const odd = await sysOf({ projectId: 'p1', launchedBy: 'robot' as never });
+    expect(odd).toContain('このセッションをどうしますか');
+  });
+
   it('選んだ権限モードは run の DTO に載り、選ばなかった起動には載らない（列は足さず、launch_params から読む）', async () => {
     const rm = make();
     const chosen = await rm.start({ projectId: 'p1', permissionMode: 'acceptEdits' });

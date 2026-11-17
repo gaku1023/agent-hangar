@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createTerminalHost, GPU_MAX, WRITE_IDLE_MS, WRITE_MAX_WAIT_MS, type TerminalLike } from './terminals.ts';
+import { ACK_CHARS, createTerminalHost, GPU_MAX, WRITE_IDLE_MS, WRITE_MAX_WAIT_MS, type TerminalLike } from './terminals.ts';
 
 class FakeWs {
   static all: FakeWs[] = [];
@@ -20,7 +20,7 @@ function fakeTerm(): FakeTerm {
     cols: 80, rows: 24, element: null, fontSize: null, written: [], opened: null, fitted: 0, focused: 0, disposed: false, gpu: false, gpuBeforeOpen: false, pasted: [],
     open(el) { t.opened = el; node.parentElement = el; t.element = node as unknown as HTMLElement; },
     detachHost() { node.hostDetached = true; },
-    write(d) { t.written.push(d); },
+    write(d, done) { t.written.push(d); done?.(); },
     onData(cb) { data.push(cb); return { dispose() {} }; },
     onResize(cb) { resize.push(cb); return { dispose() {} }; },
     fit() { t.fitted++; }, focus() { t.focused++; }, dispose() { t.disposed = true; },
@@ -39,6 +39,27 @@ function make(fontSize?: { load(): unknown; save(px: number): void }, alive?: (t
   const host = createTerminalHost({ wsUrl: (id) => `ws://x/ws/pty?tab=${id}`, createTerminal: () => { const t = fakeTerm(); terms.push(t); return t; }, wsFactory: (u) => new FakeWs(u) as unknown as WebSocket, fontSize, alive, ...front });
   return { host, terms };
 }
+
+describe('createTerminalHost の ack', () => {
+  const sent = (ws: FakeWs) => (ws as unknown as { sent: string[] }).sent.map((s) => JSON.parse(s) as { t: string; n?: number }).filter((m) => m.t === 'ack');
+  it('描き終えた文字数が ACK_CHARS に達するごとに、まとめて返す', () => {
+    const { host } = make();
+    host.connect('t1');
+    const ws = FakeWs.all[0]!;
+    ws.open();
+    ws.receive({ t: 'data', d: 'a'.repeat(ACK_CHARS - 1) });
+    expect(sent(ws)).toEqual([]);
+    vi.useFakeTimers();
+    try {
+      ws.receive({ t: 'data', d: 'bb' });
+      ws.receive({ t: 'data', d: 'c'.repeat(ACK_CHARS) });
+      vi.advanceTimersByTime(WRITE_MAX_WAIT_MS + 1);
+    } finally { vi.useRealTimers(); }
+    const total = sent(ws).reduce((a, m) => a + (m.n ?? 0), 0);
+    expect(total).toBeGreaterThanOrEqual(ACK_CHARS);
+    expect(sent(ws).every((m) => (m.n ?? 0) >= ACK_CHARS)).toBe(true);
+  });
+});
 
 describe('createTerminalHost', () => {
   it('最初のデータが届くまで painted は偽で、届いたら真になって知らせる', () => {

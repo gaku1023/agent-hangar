@@ -10,10 +10,11 @@ import {
 } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/write.ts';
-import { getSpawn, recordSpawn } from '../sessions/spawns.ts';
+import { softDeleteShared } from '../db/shared.ts';
+import { forgetSpawnsOf, getSpawn, recordSpawn } from '../sessions/spawns.ts';
 import { setSessionState } from '../sessions/states.ts';
 import { CloudError } from '../sync/client.ts';
-import { PEER_REPLY_MAX, PeerRelay } from './relay.ts';
+import { PEER_RELAY_KEEP_MS, PEER_REPLY_MAX, PeerRelay } from './relay.ts';
 
 const T0 = 1_800_000_000_000;
 
@@ -99,6 +100,19 @@ describe('PeerRelay', () => {
     t.relay.check();
     await t.flush();
     expect(await t.results()).toMatchObject([{ reason: 'idle', lastReply: '' }]);
+  });
+
+  it('裏だけが動く間は本体が入力を受け付けているので、idle として終わりを書く（SM1）', async () => {
+    const t = await setup();
+    t.start();
+    t.setReply({ text: '済み', ts: T0 + 1000 });
+    t.setLive([entry('u-child', 'busy')]);
+    t.relay.check();
+    t.setNow(T0 + 2000);
+    t.setLive([entry('u-child', 'busy', { aside: { shell: false, agents: 1 } })]);
+    t.relay.check();
+    await t.flush();
+    expect(await t.results()).toMatchObject([{ reason: 'idle', lastReply: '済み' }]);
   });
 
   it('質問と許可で止まると理由つきで書き、そのあと idle でもう 1 件（テスト 9）', async () => {
@@ -345,5 +359,69 @@ describe('PeerRelay', () => {
     t.relay.check();
     await t.flush();
     expect(await t.results()).toHaveLength(0);
+  });
+
+  it('起動から 7 日を過ぎて Done にしても、ended が届く（掃除が先に行を消さない）', async () => {
+    const t = await setup();
+    t.start();
+    t.setNow(T0 + PEER_RELAY_KEEP_MS + 60_000);
+    setSessionState(t.db, 'pc-b', t.id, { status: 'done', setBy: 'user' });
+    t.relay.check();
+    await t.flush();
+    expect(await t.results()).toMatchObject([{ seq: 1, reason: 'ended' }]);
+  });
+
+  it('送れないまま残った ended は、送れるまで行を消さずに送り直す', async () => {
+    const t = await setup();
+    t.start();
+    t.failing.on = true;
+    t.setNow(T0 + PEER_RELAY_KEEP_MS + 60_000);
+    t.relay.onEnded(t.id);
+    await t.flush();
+    t.setNow(T0 + PEER_RELAY_KEEP_MS + 3_600_000);
+    t.failing.on = false;
+    await t.flush();
+    expect(await t.results()).toMatchObject([{ seq: 1, reason: 'ended' }]);
+  });
+
+  it('終わってから保持の期間を過ぎた行と控えは消す。届かないまま期間を過ぎた控えも消す', async () => {
+    const t = await setup();
+    t.start();
+    t.relay.onEnded(t.id);
+    await t.flush();
+    t.setNow(T0 + PEER_RELAY_KEEP_MS + 1);
+    await t.flush();
+    expect(t.db.prepare('select count(*) c from peer_relay').get()).toEqual({ c: 0 });
+    expect(t.db.prepare('select count(*) c from peer_relay_out').get()).toEqual({ c: 0 });
+    const u = await setup();
+    u.start();
+    u.failing.on = true;
+    u.relay.onEnded(u.id);
+    await u.flush();
+    u.setNow(T0 + PEER_RELAY_KEEP_MS + 1);
+    await u.flush();
+    expect(u.db.prepare('select count(*) c from peer_relay').get()).toEqual({ c: 0 });
+    expect(u.db.prepare('select count(*) c from peer_relay_out').get()).toEqual({ c: 0 });
+  });
+
+  it('結び付きが先に消えた（起動元の PC が子を消した）なら、結び付きの行を閉じて何も書かない', async () => {
+    const t = await setup();
+    t.start();
+    forgetSpawnsOf(t.db, 'pc-a', t.id);
+    t.relay.check();
+    await t.flush();
+    expect(await t.results()).toHaveLength(0);
+    expect(t.db.prepare('select ended, armed_at from peer_relay').get()).toEqual({ ended: 1, armed_at: null });
+    expect(t.relay.arm(t.id)).toBe(false);
+  });
+
+  it('結び付きが残ったまま会話が消えていれば、ended を書いて閉じる', async () => {
+    const t = await setup();
+    t.start();
+    softDeleteShared(t.db, 'sessions', t.id, 'pc-b');
+    t.relay.check();
+    await t.flush();
+    expect(await t.results()).toMatchObject([{ seq: 1, reason: 'ended' }]);
+    expect(getSpawn(t.db, 'pc-b', t.id)).toMatchObject({ relay: 'off' });
   });
 });

@@ -6,7 +6,9 @@ import { muxServersOf, type MuxServers } from '../tmux/servers.ts';
 import { controlSpawn } from '../tmux/control.ts';
 import type { Tmux } from '../tmux/tmux.ts';
 
-export type PtyProcess = { pid: number; onData(cb: (d: string) => void): void; onExit(cb: (e: { exitCode: number }) => void): void; write(d: string): void; resize(cols: number, rows: number): void; kill(): void };
+export type PtyProcess = { pid: number; onData(cb: (d: string) => void): void; onExit(cb: (e: { exitCode: number }) => void): void; write(d: string): void; resize(cols: number, rows: number): void; kill(): void;
+  /** 受け手が読み切れていない間、出力を止める。持たない pty は止めない（擬似端末の attach）。 */
+  pause?(): void; resume?(): void };
 export type PtySpawn = (file: string, args: string[], opts: { name: string; cols: number; rows: number; cwd: string; env: NodeJS.ProcessEnv }) => PtyProcess;
 type Deps = { token: string; /** 待ち受けているポート。許可する Origin をここから組み立てる。 */ port: number; /** hangar の tmux のサーバの組（tmux/servers.ts）。Tmux 1 つなら、そのサーバだけを使う。 */ tmux: Tmux | MuxServers | null; resolveTab: (tabId: string) => string | null; spawn: PtySpawn; /** コントロールモード（tmux/control.ts）でつなぐタブか。シェルのタブだけを真にする。渡さなければ、どのタブも擬似端末の attach。 */ controlTab?: (tabId: string) => boolean; /** コントロールモードのつなぎ。試験で差し替える。 */ controlSpawn?: (tmux: Tmux, name: string) => PtyProcess; /** attach が終わった（tmux の画面が閉じたかもしれない）。run の見張りを急がせる（RunManager.stir）。 */ onExit?: () => void; /** 出力をまとめて送る窓と上限。試験で差し替える。 */ coalesce?: { windowMs: number; maxBytes: number } };
 
@@ -18,6 +20,14 @@ type Deps = { token: string; /** 待ち受けているポート。許可する O
 export const COALESCE_WINDOW_MS = 16;
 /** 貯めがこの大きさ（文字数）に達したら、窓の終わりを待たずに送る。 */
 export const COALESCE_MAX_BYTES = 64 * 1024;
+
+/**
+ * 画面が描き終えた量を返す（ack）ことで、出力を流しすぎないようにする。VS Code の端末と同じ形である。
+ * 返されていない分（文字数）が HIGH を超えたら pty の読みを止め（pause）、LOW を切ったら戻す（resume）。
+ * 画面が一度も ack を返さない間は数えない。古い画面でも止まらないようにするためである。
+ */
+export const FLOW_HIGH_CHARS = 128 * 1024;
+export const FLOW_LOW_CHARS = 16 * 1024;
 
 /** close フレームに応えない相手を待つ上限。これを過ぎたら接続を切り、pty を落とす。 */
 const CLOSE_GRACE_MS = 500;
@@ -101,17 +111,29 @@ export class PtyRelay {
     let buf = '';
     let timer: ReturnType<typeof setTimeout> | null = null;
     let lastSent = -Infinity;
+    // 送った量と、画面が描き終えた量。ack を返す画面だけが数える。
+    let sent = 0;
+    let acked = 0;
+    let flowOn = false;
+    let stopped = false;
+    const settle = (): void => {
+      if (!flowOn) return;
+      const behind = sent - acked;
+      if (!stopped && behind > FLOW_HIGH_CHARS) { stopped = true; p.pause?.(); }
+      else if (stopped && behind < FLOW_LOW_CHARS) { stopped = false; p.resume?.(); }
+    };
+    const send = (d: string): void => { ws.send(JSON.stringify({ t: 'data', d })); sent += d.length; settle(); };
     const drop = (): void => { buf = ''; if (timer !== null) clearTimeout(timer); timer = null; };
     const flush = (): void => {
       const d = buf;
       drop();
-      if (d !== '' && ws.readyState === ws.OPEN) { ws.send(JSON.stringify({ t: 'data', d })); lastSent = Date.now(); }
+      if (d !== '' && ws.readyState === ws.OPEN) { send(d); lastSent = Date.now(); }
     };
     this.flushers.set(ws, flush);
     p.onData((d) => {
       if (ws.readyState !== ws.OPEN) return;
       const now = Date.now();
-      if (buf === '' && timer === null && now - lastSent >= windowMs) { ws.send(JSON.stringify({ t: 'data', d })); lastSent = now; return; }
+      if (buf === '' && timer === null && now - lastSent >= windowMs) { send(d); lastSent = now; return; }
       buf += d;
       if (buf.length >= maxBytes) { flush(); return; }
       if (timer === null) timer = setTimeout(flush, Math.max(0, lastSent + windowMs - now));
@@ -122,10 +144,11 @@ export class PtyRelay {
       this.deps.onExit?.();
     });
     ws.on('message', (raw) => {
-      let m: { t?: string; d?: unknown; cols?: unknown; rows?: unknown };
+      let m: { t?: string; d?: unknown; cols?: unknown; rows?: unknown; n?: unknown };
       try { m = JSON.parse(raw.toString()) as typeof m; } catch { return; }
       if (m.t === 'resize' && Number.isInteger(m.cols) && Number.isInteger(m.rows) && (m.cols as number) > 0 && (m.rows as number) > 0) p.resize(m.cols as number, m.rows as number);
       else if (m.t === 'data' && typeof m.d === 'string') p.write(m.d);
+      else if (m.t === 'ack' && Number.isInteger(m.n) && (m.n as number) > 0) { flowOn = true; acked = Math.min(acked + (m.n as number), sent); settle(); }
     });
     // 殺すのは attach しているクライアントだけで、tmux セッションはそのまま残す。
     ws.on('close', () => { drop(); this.flushers.delete(ws); this.clients.delete(ws); this.names.delete(ws); killQuietly(p); });

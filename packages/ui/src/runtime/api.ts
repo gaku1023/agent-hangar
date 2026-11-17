@@ -1,8 +1,8 @@
 import type { AutoApprovalDto, OrchestratorOrigin, OrchestratorStateDto, PeerChatOpIn, PeerChatOpResult, PeerChatViewDto, ScheduleInput, SchedulePatch, PeerDeviceDto, PeerLaunchBody, PeerLaunchOutcomeDto } from '@agent-hangar/shared';
 import { LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE } from '@agent-hangar/shared';
 import type { AccountLinkConflictDto, LinkConflictsDto, EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
-import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto, SessionLaunchSettingsDto } from '@agent-hangar/shared';
-import type { EventBindingDto, EventCreateInput, EventRepoHookDto, HeldChoiceDto, HeldEventDto, EventSaveResultDto, PrClaimDto, WakeOn, WakeResultDto, SharePreviewAgent, SharePreviewDto, AccountDirPreviewDto, AccountsDto, AgentAccountsDto, ArtifactDto, CodexOptionsDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MobilePairedDto, MobilePairingDto, MuxRecheckDto, OpencodeOptionsDto, OpencodeStatusDto, CodexStatusDto, OpencodeProvidersDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeCustomProviderBody, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
+import type { GitDiffDto, GitDto, HeadlessPageDto, ProjectGitDto, SessionChangesDto, SessionEditsDto, SessionLaunchSettingsDto } from '@agent-hangar/shared';
+import type { EventBindingDto, EventCreateInput, EventRepoHookDto, HeldChoiceDto, HeldEventDto, EventSaveResultDto, PrClaimDto, WakeOn, WakeResultDto, SharePreviewAgent, SharePreviewDto, AccountDirPreviewDto, AccountsDto, AgentAccountsDto, ArtifactDto, CodexOptionsDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderInspectDto, FolderRegisterItem, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MobilePairedDto, MobilePairingDto, MuxRecheckDto, OpencodeOptionsDto, OpencodeStatusDto, CodexStatusDto, OpencodeProvidersDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeCustomProviderBody, ProjectDto, ProjectNestedDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, ResumeStray, StrayProcessDto, TakeoverDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -93,6 +93,8 @@ export type ApiClient = {
   sessionEdits(sessionId: string, file: string): Promise<SessionEditsDto>;
   /** プロジェクトのブランチと worktree。 */
   projectGit(projectId: string): Promise<ProjectGitDto>;
+  /** 非対話の会話の頁。limit を省くと件数だけ。 */
+  headless(projectId: string, limit?: number, offset?: number): Promise<HeadlessPageDto>;
   search(params: SearchParamsDto): Promise<SearchResultDto>;
   setProjectStatus(id: string, status: ProjectStatus): Promise<ProjectDto>;
   renameProject(id: string, name: string): Promise<ProjectDto>;
@@ -269,8 +271,6 @@ export type ApiClient = {
   markUnread(sessionId: string): Promise<void>;
   setPinned(sessionId: string, pinned: boolean): Promise<void>;
   launchSettings(sessionId: string): Promise<SessionLaunchSettingsDto>;
-  memo(projectId: string): Promise<MemoDto>;
-  saveMemo(projectId: string, markdown: string): Promise<MemoDto>;
   /** プロジェクトの指示とメモリ。あるファイルだけが来る。 */
   instructions(projectId: string): Promise<InstructionsDto>;
   /** 指示とメモリのファイルをエディタで開く。無いファイルは作らず、404 の一文で投げる。 */
@@ -285,7 +285,6 @@ export type ApiClient = {
   promote(sessionId: string, body: { name: string; gitInit: boolean; moveFiles: boolean; parent?: string }): Promise<PromoteResultDto>;
   /** 202 と { accepted } が返るが、本文は使わない。結果は summary.pending と summary.updated で届く。 */
   regenerateSummary(sessionId: string): Promise<void>;
-  summarizerModels(): Promise<{ models: string[] }>;
   testSummarizer(): Promise<SummarizerTestDto>;
   // ここから下はクラウド同期（フェーズ 4）である。
   /** 設定の「使用量と費用」。refresh なら取り直す（サーバは一時停止の間は取りに行かず最後の値を返す）。 */
@@ -416,6 +415,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     sessionDiff: (sessionId, file) => call(`/api/sessions/${sessionId}/diff${qs({ file })}`),
     sessionEdits: (sessionId, file) => call(`/api/sessions/${sessionId}/edits${qs({ file })}`),
     projectGit: (projectId) => call(`/api/projects/${projectId}/git`),
+    headless: (projectId, limit, offset) => call(`/api/sessions/headless${qs({ projectId, limit, offset })}`),
     search: (params) => call(`/api/search${qs(params)}`),
     setProjectStatus: (id, status) => call(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
     renameProject: (id, name) => call(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
@@ -528,8 +528,6 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     markUnread: (sessionId) => post(`/api/sessions/${sessionId}/unread`, {}),
     setPinned: (sessionId, pinned) => post(`/api/sessions/${sessionId}/pin`, { pinned }),
     launchSettings: (sessionId) => call(`/api/sessions/${sessionId}/launch-settings`),
-    memo: (projectId) => call(`/api/projects/${projectId}/memo`),
-    saveMemo: (projectId, markdown) => call(`/api/projects/${projectId}/memo`, { method: 'PUT', body: JSON.stringify({ markdown }) }),
     instructions: (projectId) => call(`/api/projects/${projectId}/instructions`),
     openInstruction: (projectId, kind, once) => post(`/api/projects/${projectId}/instructions/open`, { kind, ...(once ? { once } : {}) }),
     setupGuide: () => call('/api/setup-guide'),
@@ -539,7 +537,6 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     openArtifactEditor: (id, once) => post(`/api/artifacts/${id}/open-editor`, once ? { once } : undefined),
     promote: (sessionId, body) => post(`/api/sessions/${sessionId}/promote`, body),
     regenerateSummary: (sessionId) => post(`/api/sessions/${sessionId}/summarize`),
-    summarizerModels: () => call('/api/summarizer/models'),
     testSummarizer: () => post('/api/summarizer/test'),
     syncUsage: (refresh) => call(refresh ? '/api/sync/usage?refresh=1' : '/api/sync/usage'),
     syncNow: () => post('/api/sync/now'),

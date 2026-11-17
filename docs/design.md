@@ -562,15 +562,13 @@ Mediator の入力の型（`MediatedAction`）は表の kind を除いてある�
 ### 方針
 
 hangar 固有のデータは `~/.agent-hangar/hangar.db`（SQLite）に置く。
-プロジェクトのメモだけは Markdown ファイルとして `~/.agent-hangar/projects/<projectId>/memo.md` にも置き、DB には更新時刻と内容の写しを持つ。
-メモをファイルでも持ったのは、他のエディタや Claude 自身から直接読み書きできるようにするためだった。
 プロジェクトのメモ（画面の語は「ノート」）は 2026-10-11 にやめた（「プロジェクト詳細」の右パネル）。
-画面と MCP からは書かず、起動時の指示にも渡さない。
-保存の仕組み（`projects/memo.ts` と `GET`、`PUT /api/projects/:id/memo`）と同期の表 `project_memos` は、中身の残る古いノートを読んで削除できるように、いまは残してある。
-画面が使うのは、「以前のノート」として読むことと、確かめてから空で保存して消すことだけである。
+2026-11 には画面、`GET` と `PUT /api/projects/:id/memo`、保存の仕組み（`projects/memo.ts`）、`memo.update` のイベント、`ProjectDto.memoHead`、MCP の `append_memo` の受け皿も外した。
+同期の表 `project_memos` だけは残してある。
 ノートの欄を持つ古い版の端末は、まだこの表の行を送ってくる。
 Worker は知らない表の行を 1 つでも含む送信を丸ごと断るので、表を共有テーブルの一覧から外すと、その端末のほかの表の同期まで止まる。
-受け取る側も、降りてきた古いノートを「以前のノート」として見せられるように、表と適用を残す。
+受け取る側は、降りてきた行を表に入れるだけで、画面には何も配らない。
+手元の行を上書きするときの控え（`memo.conflict-*`）は、いまも `sync/apply.ts` が残す。
 
 テーブルは **共有** と **端末ローカル** に分ける。
 共有テーブルは端末間で同期し、ローカルテーブルは端末の中だけで使う。
@@ -872,7 +870,7 @@ DB に書いた後で画面へ配るのは、書いた側ではなく、配る�
 | `projects` | そのプロジェクトの `project.upsert` |
 | `project_roots` | そのプロジェクトの `project.upsert`。この端末のルートが未解決になった書き込みも配る。ホームの帯の件数と、プロジェクトの一覧の札が、再読み込みを待たずに変わるためである |
 | `devices` | 一覧ごとの `devices.update` |
-| `project_memos` | `memo.update` と、メモの頭を載せるプロジェクトの `project.upsert`。この端末の変化だけを配る |
+| `project_memos` | 何も配らない（ノートはやめた。表は古い版の端末の送りを受けるために残してある） |
 | `artifacts` | `artifact.upsert`。この端末の変化だけを配る |
 | `todos` | そのプロジェクトの一覧ごとの `todos.update` と、未完の数を載せるプロジェクトの `project.upsert`。この端末の変化だけを配る |
 | `config_snapshots`、`config_state`（表ではなく、状態を動かした名指しの名前） | 設定の同期（作り直した実装）の状態 `config.update`。束の行が降りたときも、この端末が書いたときも配る。同期を組んでいない端末では何も配らない |
@@ -888,7 +886,7 @@ DB に書いた後で画面へ配るのは、書いた側ではなく、配る�
 - 読み直して行が無い（消えた）ときは、何も配らない。
 - WebSocket の受け手がいないあいだは、行を読み直さない。起動時の全走査で、誰も受けない DTO を組まないためである。
 - 表の変化に対応しない知らせは、呼び手が `broadcast` で渡す。それらも同じ列に並べて tick の終わりに渡すので、行のイベントとの前後は呼んだ順のまま保たれる。
-- 行のイベント（`session.upsert`、`project.upsert`、`devices.update`、`memo.update`、`artifact.upsert`、`todos.update`、`config.update`）は、この層だけが組む。`broadcast` は型（`NoticeEvent`）でこれらを受けない。呼び手が手で組んで渡す道は無いので、同じ行が二重に届くことも、端末の ID を渡し忘れた行が届くことも無い。
+- 行のイベント（`session.upsert`、`project.upsert`、`devices.update`、`artifact.upsert`、`todos.update`、`config.update`）は、この層だけが組む。`broadcast` は型（`NoticeEvent`）でこれらを受けない。呼び手が手で組んで渡す道は無いので、同じ行が二重に届くことも、端末の ID を渡し忘れた行が届くことも無い。
 - 行は書いていないが中身が変わったときは、呼び手は `touchRow` でその行を名指しする。同じ tick の書き込みと重なっても、配るのは 1 回である。
 
 サーバの業務の関数（`projects/`、`sessions/`、`runs/`、`sync/` にある受け手）も、HTTP の経路（`http/routes/*.ts`）も、MCP の道具（`mcp/tools.ts`）も、事後要約のジョブ（`summary/job.ts`）も、行を書く（か名指しする）だけで、配るのはこの層である。
@@ -990,10 +988,16 @@ create table event_index (
   session_id text not null, seq integer not null,
   kind text not null,                              -- 正規化イベントの種別
   ts integer, byte_offset integer not null, byte_length integer not null,
-  file_path_ref text not null,                     -- 位置が指すファイル
+  path_id integer,                                 -- 位置が指すファイル。event_paths の番号（版 65）。null は番号を振る前の行で、file_path_ref を読む
+  file_path_ref text not null,                     -- 旧い列。番号を振った行と版 65 以降の新しい行は空
   parent_agent text,                               -- サブエージェントの ID。null は主線
   tool_name text, file_path text,                  -- tool_call のときだけ
   fts_rowid integer                                -- 対応する event_fts の rowid（版 60）。0 は検索の行が無い、null は版 60 より前に積んだ行
+);
+-- 索引が指すファイルのパス。1 ファイル 1 行で、event_index は行ごとに文字を持たず番号で指す。
+create table event_paths (
+  id integer primary key,
+  path text not null unique
 );
 -- 主線とサブエージェントで seq の空間を分ける。
 create unique index event_index_pos on event_index(session_id, ifnull(parent_agent, ''), seq);
@@ -1175,7 +1179,7 @@ DB に書くのは hangar の側（`indexer/write.ts` の `writeBatch`）で、�
 索引は、見張りが名指ししたファイルと全件の見比べで変わったファイルについて、どこまで読んだか（`transcript_files`、`indexer/indexFile.ts`）を見て、driver の読み出しの口（`TranscriptFiles.read`、Claude は `provider/claude-code/transcript/batch.ts`）に続きを束にさせ、`writeBatch` で書く。
 互換の見張り（`compat/transcript.ts`）は、この読み出しの口が手元の本文の行にだけかける。
 本文を DB に持つエージェントは、作った束を `start` に渡した受け口の `batch` へ押し込み、索引はそれをそのまま `writeBatch` で書く。
-押し込んだ束の出どころの名前（`storedOrigin`）は、日別の使用量の鍵と `event_index.file_path_ref` に入る。
+押し込んだ束の出どころの名前（`storedOrigin`）は、日別の使用量の鍵と `event_paths.path`（`event_index.path_id` が指す）に入る。
 本文そのものは、`writeBatch` が同じ取引で `agent_events` に 1 行 1 イベントで写す。作り直しの束では、その位置の行を消してから積む。
 読む側は `transcript/stored.ts` の `readStoredPage` で、ページの切り方は Claude の読み手と同じにする。
 ファイル型の読み手は、ページの切り方を `transcript/filePage.ts` の `readFilePage` に共通にし、記録の正規化と、論理パスから本文を開く口だけを面ごとに渡す。
@@ -1255,6 +1259,17 @@ Claude Code の保存先と、その読み方を定める。
 作り直しと削除で検索の行（`event_fts`）を消すときは、位置で引かずに `event_index.fts_rowid` の rowid で引く（`indexer/write.ts` の `deleteIndexed`）。
 FTS5 の `unindexed` の列には索引が無く、`session_id` で消すと中身の表を全部なめるためである（2026-11-14 の実測で、Windows の 30.7 万行で 1 回 0.29〜1.67 秒、冷えていると 4 秒、Mac の 29 万行で 0.07 秒。実行中の会話の作り直しが重なり、イベントループが 15 秒止まった）。
 検索の行はイベントごとに高々 1 つなので、積むときの rowid をそのイベントの行に持たせる。版 60 より前に積んだ行（`fts_rowid` が null）が残る位置だけは、次の作り直しで今までどおり位置で消し、積み直した後は rowid で引ける。
+索引の行は、ファイルのパスの文字を持たず、`event_paths` の番号（`path_id`）で指す（版 65）。
+パスは平均 135 字で、行ごとに持つと、行が百万単位の索引では DB の大きな部分（147 万行で 200MB 前後）を占めていた。
+番号なら、パスの文字は索引の行数によらずファイルの数だけである。
+書く側（`indexer/write.ts`）は、束の中で引いた番号を覚え、読む側（`transcript/filePage.ts`）は、番号か旧い列からパスを引いて開く。
+控え（`db/backup.ts`）は、抜く行を番号と旧い列の両方で選び、行が無くなったパスの行も抜く。
+控えは当てる前の DB の写しなので、版 65 より前の形（`file_path_ref`）の DB でも抜ける。
+版 65 は、パスの表と `path_id` の列を足すだけで、行を書き直さない。
+行を書き直すと、大きな DB では開くときに十数秒止まり、列を落とすだけではファイルが縮まない（VACUUM も同じだけかかる）ので、どちらもしない。
+旧い列（`file_path_ref`）は NOT NULL で後から外せないので残し、新しい行は空の文字を入れる。
+旧い行への番号振りは、起動の後ろで背面（`db/pathRef.ts` の `startPathRefFill`）が数千行ずつ進める。1 回は 1 つの取引で、間に待ちを挟み、振った行は旧い列を空にする（空いた頁は後の書き込みが使い回す）。
+埋め終えるまでは、`path_id` が null の行を旧い列で読む（`EVENT_PATH_SQL`）。途中でサーバが止まっても、次の起動が残りから続ける。
 Claude の本文を読むとき（`provider/claude-code/transcript/page.ts`）は、索引のバイト位置からファイルを読み、正規化し直す。
 1 つの記録から出た行は `seq` が続いているので、ページの中の 2 つ目からの記録は、ページに入った最初の行が記録の先頭である。
 記録の途中から始まりうるのはページの最初の記録だけで、その先頭は索引を 1 行ずつ遡って確かめる。
@@ -2831,6 +2846,9 @@ busy のままにするのは、Claude 自身も裏でサブエージェント�
 終わってから 2 秒経っている。裏の無いターンでも、終わりが書かれてから登録が休みへ移るまで少しかかるので、その間に灯らないようにする。
 `agents` は、ライブの要約（digest）で running のサブエージェントの数で、「バックグラウンドで N 本」と出す。
 数えられないとき（workflow など）は 0 で、「バックグラウンドで作業中」と言う。
+ターンの段階の読み方は shared の `turnPhaseOf`（`liveFilter.ts`）に 1 つだけある（`running`、`aside`、`waiting`、`idle`、`none`）。
+server がターンの始まりと終わりを推す所（`wait_for_session`、通知の預かり、他の PC への結果の返し、別の PC からの入力の預かり、統括の出来事、予定の起動、引き取りの断り、声のターン、重なりの履歴）は、登録の status を直に比べず、この関数と述語（`isTurnRunning`・`isTurnWorking`・`acceptsInput`）を通す。
+`aside` は本体が入力を受け付けているので、ターンの終わりを待つ側（`wait_for_session`、他の PC への結果の返し）では終わりとして読む。止める、引き取る、の判断では動いている事実として残す。
 プロンプト送信から busy まで約 0.5 秒、終了からファイルの消失まで約 0.4 秒で、見張りの知らせと、作業中の 500 ミリ秒間隔の監視で足りる。
 `-n` や `/rename` で付けた名前は本文にも記録として残り（`agent-name`、`custom-title`）、再開やフォークの先にも引き継がれる。
 hangar は名前を本文の記録から読み（索引が `sessions.custom_title` に拾う）、レジストリの値で上書きする。
@@ -3207,8 +3225,11 @@ hangar が起動するセッションには、`--append-system-prompt` で短い
 
 4 つめの段として、`notify_user` で利用者に知らせる段（`launch.injection.notify`）を足す（Codex と opencode の最小限には、それぞれ `launch.injection.codex.notify` と `launch.injection.opencode.notify`）。
 この段は常に足す段の直後に置き（引き継ぎ、状態、意図の段より前）、利用者が画面を見ていないことが多く、返答したことは `notify_user` でしか伝わらないと前置きする。
-時機は「ターンを終えて利用者に返すたびに、最後の返答の前に」と書き、依頼の結果、途中経過の報告、サブエージェントの結果がまとまったとき、利用者の判断が要るときを含める。何が起きたかを 1 文で書いて呼ぶ。
-AskUserQuestion で聞くときは呼ばない（入力待ちとして別に知らせる）。ターンの途中の細かい手順のたびには呼ばない。出し先を `to` で選べることも一言で言う。
+時機は「ターンを終えて利用者に返すたびに、最後の返答を書く直前に 1 回」と書き、依頼の結果、途中経過の報告、サブエージェントの結果がまとまったとき、利用者の判断が要るときを含める。何が起きたかを 1 文で書いて呼ぶ。
+AskUserQuestion や文の問いで終えるときも、聞く直前に `kind` を `ask` にして 1 回呼ぶ。ターンの途中の細かい手順のたびには呼ばない。
+道具の説明（`mcp.tool.notifyUser`）も同じ言い方にそろえる。
+以前は「AskUserQuestion で聞くときは呼ばない」と書いていたが、道具の説明の「返答を終えるたびに」と食い違い、実際の会話では問いの前にも多くの回で呼んでいた（2026-11-18 にそろえた）。
+`ask` の知らせはターンを抜けるまで預かり、返答と入力待ちを 1 通にまとめる設定（`merge`）で 1 つにするので、問いの前に呼んでも知らせは重ならない。
 はじめは「見てほしい出力を出したとき」と書いて段の最後に置いたが、実物の会話で 1 度も呼ばれなかった。`claude -p` で文面と位置を比べ、Sonnet（effort low）と Opus のどちらでも、前の書き方は呼ばない回が多く、今の書き方は毎回呼んだ（2026-10-30）。時機だけを直して位置を変えない書き方は、hangar の道具を丸ごと飛ばす回が残った。
 設定の `notifyUser` で入り切りし、既定は入りである。いつ呼ぶかは、この段が提案する。
 呼ぶときは `kind`（`done`、`ask`、`progress`）で場面を付ける。どこに出るかは `kind` と設定の知らせ方の決まりで決まり、エージェントが出し先を選ぶ必要はない。
@@ -3244,9 +3265,11 @@ TODO を片付けたと判断したら、update_project の propose_done に TOD
 区切りの問いの段（`askStatusAtEnd`）：
 
 ```
-頼まれたことが明確に終わったときだけ、そのターンの終わりに AskUserQuestion で「このセッションをどうしますか」と聞いてください。選択肢は「Done にする」「Paused · <リマインダーの日付。時刻に意味があれば時刻も>（理由。何を確認しに戻るか）」「まだ続ける」です。
-明確に終わったときとは、利用者が終わりを告げたとき（「ありがとう」「ここまで」「マージした」「今日はここまで」など）、頼まれたことが全部済んで次のステップが残っていないとき、利用者が外の出来事（CI、レビュー、明日の確認など）を待つと言ったときです。
-一手が済んだだけのとき、質問に答えただけのとき、直しのやりとりの途中、利用者が次の指示を続けているとき、次のステップが残っているときは聞かないでください。迷ったら聞かないでください。
+利用者が終わりを告げたときと、利用者が外の出来事を待つと言ったときだけ、そのターンの終わりに AskUserQuestion で「このセッションをどうしますか」と聞いてください。選択肢は「Done にする」「Paused · <リマインダーの日付。時刻に意味があれば時刻も>（理由。何を確認しに戻るか）」「まだ続ける」です。
+終わりを告げたときとは「ありがとう」「ここまで」「マージした」「今日はここまで」などと言ったとき、外の出来事とは CI、レビュー、明日の確認などです。
+頼まれたことが全部済んだと自分で判断しただけのときは聞かないでください。propose_session_status に confirmed なしで提案だけ出してください。
+一手が済んだだけのとき、質問に答えただけのとき、直しのやりとりの途中、利用者が次の指示を続けているときも聞かないでください。迷ったら聞かないでください。
+「まだ続ける」を選ばれたあとは、利用者がもう一度終わりを告げるか、外の出来事を待つと言うまで、聞き直さないでください。
 聞かないときは、set_session_summary の進捗を正直に書いてください。待ちが明らかなら、propose_session_status に confirmed なしで提案だけ出してください。
 利用者が Done か Paused を選んだら、propose_session_status に confirmed: true で渡してください。答えずに次の指示へ進んだら、confirmed なしで提案だけ出してください。
 Paused のリマインダーの日付は return_on（YYYY-MM-DD）に、確認する時刻が決まっているときは return_time（HH:MM、手元の時刻）にも渡してください。時刻を note の文だけに書かないでください。
@@ -3255,7 +3278,7 @@ Paused のリマインダーの日付は return_on（YYYY-MM-DD）に、確認�
 ターンの意図と短い手の説明の段（`liveHints`）：
 
 ```
-ターンを始めたときと方針を変えたときは、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。
+各ターンの最初の一手で、他のツールより先に、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。方針を変えたときも呼びます。
 Bash と Agent の description は日本語で短く（20 字程度）書いてください。
 ```
 
@@ -3311,10 +3334,22 @@ Paused は自動で止めない（#206）ので、戻る時点が来たときに
 時刻を過ぎたら、通知を受け取る設定で窓が背面なら OS の通知を 1 回出す。この通知は、同じセッションの入力待ちの通知とは別の枠に入れる（「入力待ちの知らせ」の節）。右下の札は出さない。ヘッダーの注意には入れない。今日戻るの行はホームの帯（要対応）にある（「注意と知らせの出し分け」の節）。OS の通知で知らせ終えた時点は localStorage に覚える（画面の時計で見るので、hangar を開いていない間は出ない。開いたときに、その日に過ぎた分を 1 回知らせる）。
 日付だけの Paused は知らせない。
 
-状態の問いは、頼まれたことが明確に終わったときだけ AskUserQuestion で聞かせる。利用者が選んだものは `propose_session_status` の `confirmed: true` でそのまま状態になり、答えずに進めたものは候補として残る。
-以前は「頼まれたことを終えたと判断したターン」で聞かせていたが、聞く場面を明確に終わったときに絞った（2026-10-13 の決定）。
-聞くのは、利用者が終わりを告げたとき、頼まれたことが全部済んで次のステップが残っていないとき、利用者が外の出来事を待つと言ったときの 3 つだけで、迷ったら聞かない。
+状態の問いは、利用者が終わりを告げたときと、利用者が外の出来事を待つと言ったときだけ AskUserQuestion で聞かせる。利用者が選んだものは `propose_session_status` の `confirmed: true` でそのまま状態になり、答えずに進めたものは候補として残る。
+以前は「頼まれたことを終えたと判断したターン」で聞かせていたが、2026-10-13 に、聞く場面を明確に終わったとき（上の 2 つと、頼まれたことが全部済んで次のステップが残っていないとき）に絞った。
+2026-11-18 に、3 つめの「全部済んだ」を外した。エージェントが自分で済んだと判断して聞いた回の多くで、利用者は答えの欄に続きの依頼を書いており、1 つの会話で何度も聞く回もあった。
+自分で済んだと判断しただけのときは、確定なしの提案だけを出させる。提案は画面に候補として残るので、利用者は区切りで選べる。
+「まだ続ける」を選ばれたら、利用者がもう一度終わりを告げるか、外の出来事を待つと言うまで聞き直させない。迷ったら聞かない。
 聞かないときは要約の進捗を正直に書かせ、待ちが明らかなら確定なしの提案だけを出させる。
+
+予定や出来事による自動の実行と、別の会話から起こした会話には、答える人がいない。
+区切りの問いで止まると、その会話はそこから進まない。
+そこで、起動元を指示の組み立てに渡し（`LaunchParams` の `launchedBy`、`schedule` か `session`）、区切りの問いの段と知らせ方を聞く段の代わりに、無人の段（`launch.injection.unattended`、Codex と opencode の最小限は AskUserQuestion の語を持たない `launch.injection.unattendedText`）を足す（2026-11-18）。
+無人の段は、問いでターンを終えず、決めかねることは妥当な方を選んで理由を書き、区切りでは要約と確定なしの提案で終えるよう頼む。
+`askStatusAtEnd` を切っていても足す。止まらないための段だからである。
+`schedule` は予定の起動（`schedule/launch.ts`、出来事の起動も同じ道）が付ける。
+`session` は、MCP の `create_session` を会話から呼んだとき（引き継ぎの `handoff` を除く）と、ほかの PC の会話から頼まれた起動（`peer/launchInbox.ts`、画面からの頼みは除く）で付ける。
+画面、スマホ、共通の URL からの起動には付けない。
+再開（予定が止まった会話を起こしてから送るときを含む）には付けない。もとは人が始めた会話で、そのあと人が続けることが多いからである。
 この指示は hangar が `--append-system-prompt` で起こす会話に渡る。ターミナルで claude.zsh から起動した claude も hangar の run になるので、同じ指示を受け取る。
 `claude attach` で開く会話（attach、バックグラウンドのセッションの再開）には渡らないので、そちらは事後の要約で拾う。
 
@@ -3605,39 +3640,29 @@ run の終了からの契機だけは、レジストリの生存判定を飛ば�
 
 - 使わない（`off`、既定）：要約器を並べない。`SummaryJob.enqueue` は手動の作り直し（force）も含めて受け付けず、失敗も配らない。会話の中で Claude が書く要約（`set_session_summary`）は今どおり書かれる。
 - Claude（`claude`）：`claude -p` だけを使う。利用者の Claude の使用枠を使う。モデルは設定の `summaryClaudeModel`（既定 haiku）で、呼ぶたびに読む。
-- OpenAI 互換の URL（`openai`）：LM Studio、Ollama、vLLM などの `/v1/chat/completions` を先に試す。補助のスイッチ（`summaryFallback`、既定は切）が入っているときだけ、使えないときに `claude -p` へ切り替える。
 
-鍵の無い古い設定は「使わない」として読む。0.5.0 までの既定（LM Studio、無ければ Claude）は、LM Studio を使っていない人にも設定の目次に「LM Studio に接続できません」を常に出していたためである。
-URL とモデルと切り替えの鍵（`lmStudioUrl`、`lmStudioModel`、`summaryFallback`）は残すので、OpenAI 互換を選び直せば前の宛先で動く。
+外部の OpenAI 互換の要約器（LM Studio、Ollama、vLLM など。`openai`、`lmStudioUrl` などの設定、`summary/lmstudio.ts`）は、使われていなかったので外した。
+外した根拠：既定は `off` で、2 台とも `off` のままだった。事後の要約の履歴では `claude -p`（haiku）が大半で、OpenAI 互換は少数にとどまり、どちらも直近しばらくは使われていない。普段の要約は、会話自身が書く `in_session` と機械的な土台である。
+残した道は `claude -p`（`summaryEngine` が `claude`）だけで、事後の要約を作る外部の道はこれ 1 つである。
+`openai` を選んでいた設定は `off` として読む。外した項目（`lmStudioUrl`、`lmStudioModel`、`summaryApiKey`、`summaryFallback`、`allowExternalSummarizer`）は、設定の読み込みのときに捨てる。
+すでに書いた要約の `source_id` が `lmstudio` の行は残り、画面は「OpenAI 互換」と言う。
+
+鍵の無い古い設定は「使わない」として読む。
 Claude の呼び出しは 1 時間あたりの件数（既定 20、1 から 200 まで）と週の枠の使用率 80% で止め、`claude` が PATH に無ければ使わない。
-モデルの一覧（`GET /api/summarizer/models`）は、OpenAI 互換を選んでいるときだけ宛先へ問い合わせ、ほかは空を返す。
 
 要約器は差し替え可能な部品にする。
 
 ```ts
 interface Summarizer {
-  readonly id: 'lmstudio' | 'claude-headless';
+  readonly id: 'claude-headless';
   available(input?: SummaryInput): Promise<boolean>; // input は要約するセッション。Claude はそのアカウントの使用率で見る
   summarize(input: SummaryInput): Promise<SessionSummary>;
 }
 ```
 
-OpenAI 互換の要約器（`summary/lmstudio.ts`。id は LM Studio だけだった頃のまま `lmstudio` で、書いた要約の `source_id` と合わせてある）は、設定の URL（既定 `http://127.0.0.1:1234`）の `/v1/chat/completions` に、JSON スキーマ付き（`response_format` の `json_schema`）で投げる。
-API キー（`summaryApiKey`）があれば、モデルの一覧と要約の両方に `Authorization: Bearer` で添える。
-キーは settings.json（0600）にだけ置き、画面へは有無（`summaryApiKeySet`）だけを返す。設定の変更は全部の画面へ配るので、秘密を載せない。
-`json_schema` を受けない口（Ollama の古い版など。400 か 422 を返すか、指定を無視して JSON でない本文を返す）には、`json_object` で投げ直し、スキーマは指示文の末尾に書く（`summary.prompt.jsonObject`）。
-認証の失敗（401）などほかの失敗は投げ直さない。
-モデル名は Settings で選ぶ。
-既定のモデルは思考を行わない指示追従モデル（フェーズ 0 では gemma 26B が 1 件 6〜7 秒で安定した）にする。
-思考モデルは既定の出力上限を思考で使い切って本文が空になることがあるので、本文が空なら失敗として扱い、フォールバックへ回す。
-初回のモデル読み込みに 1 分近くかかるため、Settings に「要約器を試す」を置いて事前に温められるようにする。
 見立ての判定基準（最後のターンが利用者への問いなら `in_progress`）はプロンプトに明示する。
 
-要約器には会話の本文（利用者の発言とアシスタントの応答）がそのまま送られる。
-そこで宛先は既定でループバックだけに閉じ、`127.0.0.1`、`localhost`、`::1` 以外のホストは 400 で断る。
-設定の「外部の要約器を許す」を入れたときだけ、外の宛先を受け付ける。
-スイッチの下には「127.0.0.1 と localhost 以外の宛先へ本文を送れるようにします。」と淡い 1 行で添える。
-許しと宛先は同じ要求の中で突き合わせるので、片方ずつ変えて素通りさせることはできない。
+要約器には会話の本文（利用者の発言とアシスタントの応答）が送られる。残した道は手元の `claude -p` だけで、利用者の Claude のアカウントの外へは出ない。
 この印を入れている間は、Settings に「会話の本文がこの宛先へ送られます」という警告を出し、宛先の URL を添える。
 設定ファイルを手で書き換えて外の宛先を入れても、読み込みのときに既定へ戻す。
 
@@ -3680,7 +3705,6 @@ HTTP の層は `packages/server/src/http/` にある。
 | `runs.ts` | run の起動と停止、タブ、指示へ跳ぶ、セッションから run を起こす口（resume、fork、attach、adopt、resume-here） |
 | `projects.ts` | プロジェクトの一覧と 1 件、状態、置き場の選び直し、作成と登録 |
 | `todos.ts` | TODO |
-| `memos.ts` | プロジェクトのメモ（やめたノートを「以前のノート」として読み、空で保存して消すためだけに残す） |
 | `artifacts.ts` | アーティファクト |
 | `prompt.ts` | 初期プロンプト欄の候補と添付（`/prompt`、`/drops`） |
 | `settings.ts` | 設定 |
@@ -3831,7 +3855,7 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
 - `list_projects()`：プロジェクトの一覧。ステータス、パス、未完 TODO 数、最終活動。
 - `get_project(project_id)`：詳細。TODO、直近のセッション、アーティファクト。
 - `update_project(project_id, { status?, add_todos?, toggle_todos?, propose_done? })`。`add_todos` の項目は文字列か `{ text, note? }` である。
-  ノートへの追記（`append_memo`）は 2026-10-11 にやめた。古い指示を覚えた Claude が渡したときは、書かずに、やめたことと CLAUDE.md などの指示ファイルに書くよう促す一文を、応答の `notice` で返す（エラーにはしない）。
+  ノートへの追記（`append_memo`）は 2026-10-11 にやめ、引数からも外した。古い指示を覚えた Claude が渡しても、MCP の層が未知の引数として捨てる（エラーにはしない）。
 - `list_sessions({ project_id?, running?, limit? })`。
 - `search_sessions({ query, project_id?, since?, until?, file? })`：FTS と絞り込み。結果は題名、要約の 1 文、一致箇所の抜粋、再開コマンド。
 - `list_sessions`、`search_sessions`、`get_project` の直近のセッションの再開コマンド（`resume_command`）は、この PC の素の `claude -r` で開ける会話にだけ返す（2026-10-21、#313）。
@@ -3843,6 +3867,7 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   開ける会話では `resume_hint` は `null` である。
   以前は手元に本文が無い会話にも `claude -r <id>` を返しており、それを打った Claude が失敗していた。
 - `list_sessions`、`search_sessions`、`get_project` の直近のセッションには、会話を最後に動かした PC を `device: { name, platform, here }` で添える（0.6.1）。最後の run の PC で、run が無ければ作った PC（`home_device`）である。`here` はこの PC か。ほかの PC の会話は、パスやファイルの状態がこの PC と違うことがあるので、Claude が読み分けられるようにする（`runs/handover.ts` の `deviceOfSession`）。
+- `list_sessions` と `get_project` の直近のセッションには、生の `live` に加えて、画面と同じ見分けの `phase`（`preparing`、`running`、`waiting`、`paused`、`done`、`ended`）と、付けた状態の `status`（`paused`、`done`、`archived`、無ければ null）を返す。`wait_for_session` も `phase` を返す（`status` は従来どおり live）。決め方は shared の `sessionPhaseOf`（`liveFilter.ts`）で、会話の ID が決まっていない起動中の行は `preparing`、Paused と Done を付けて休んでいれば、プロセスが残っていても `paused` と `done`、作業中は状態が付いていても `running` とする。`create_session` の準備中の案内はこの `phase` を見るよう指す。既存の欄は消さない。
 - `get_transcript(session_id, { from_seq?, limit?, include_tools? })`：正規化イベントを返す。
 - `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch?, agent?, mode?, handoff?, worktree?, add_dirs?, account? })`：tmux で起動して run を返す。agent、mode、worktree、add_dirs は `POST /api/runs` と同じく `RunManager.start` にそのまま渡す。agent を省けば Claude Code で、mode は opencode のときだけ読む（Claude Code と Codex では捨てる）。
   Codex の権限（read-only、auto、full-access。省くと auto）は `permission_mode` で渡し、model はモデル名、effort は推論の段階である。
@@ -3879,7 +3904,7 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   保存は設定の PATCH と同じ道（`ToolDeps.saveNotifyPreference`）で、変えた欄を全部の画面へ配る。この口が無いサーバでは知らない道具として断る。
   返り値は保存した決まり（省いた項目を埋めた形）である。
 - `set_session_memo` は 0.4.0 で道具ごと外した（セッションのノートを外したため。要約の `set_session_summary` と Paused の戻る日が役を担う）。
-  `append_memo` のように `notice` で答える形にしなかったのは、あちらは同じ呼び出しのほかの項目を書くためにエラーにしなかったのに対し、こちらは道具が 1 つの仕事しか持たないからである。
+  update_project の `append_memo` のように引数ごと外した場合は、MCP の層が未知の引数として捨てる。こちらは道具が 1 つの仕事しか持たないので、外した後の一覧に無い道具を呼ばれても MCP の層が isError で返す。
   外す前の一覧を覚えた Claude が呼んでも、MCP の層が書かずに `isError`（道具が無い）で返す。モデルにこの道具を使うよう指示したことも無い。
 - `get_usage()`：5 時間と 7 日の使用率、最終更新時刻。
 - `open_in_hangar({ session_id | project_id })`：UI とディープリンクの URL を返す。
@@ -4123,6 +4148,14 @@ hangar が代わりに知らせるもの（削除の承認待ち、準備の後�
 止めるときに流す案は、ターンの途中で返答より先に出てしまうこと、強制終了では流せないことから採らなかった。
 読み戻すとき、会話が消えている行と読めない行は捨てる。
 
+エージェントが `notify_user` を出し忘れたターンには、hangar が未読を 1 つ積む（`live/notifyFallback.ts` の `NotifyFallback`、2026-11-18）。
+出し忘れは、裏で走らせた作業が終わって始まるターンで特に多く、受け皿が無いと利用者には何も届かなかった。
+作業中（預かりと同じ `turnRunning`）から入力待ち（`idle`）か `aside` に抜けた会話で、そのターンに `notify_user` が一度も呼ばれていなければ、最後の返答の頭の 1 文（Markdown の飾りとコードの塊を外し、200 字まで）を本文にして積む。
+`notify_user` は出し先が空のときも呼ばれたこと（`onNotifyCall`）を伝え、呼ばれた印は作業中と見る前に呼ばれた分も落とさないよう、終わりの判定で使い切る。
+返答の索引は状態より遅れるので、ターンの始まり以後の返答が見えるまで 1 秒おきに読み直し、10 秒で諦める。
+出すのは未読の数だけで、OS とスマホの通知は出さない。エージェントが知らせると決めたものではないので、利用者の手を止めない。
+問いの入力待ちで終わったターン（入力待ちの知らせが別に出る）、run が居なくなったターン、決まりで未読に `done` を含まないとき、`notify_user` の段を切ったとき、休みの会話、統括の会話には積まない。
+
 会話に紐づかない知らせは `notifyApp({ text, kind }, settings?)`（`live/appNotice.ts`）で出す。
 `notify_user` はセッションの ID が前提で、未読の数も OS もスマホも会話ごとに積むので、別の口にした。
 出し先は `notifyRulesOf` の `os` と `phone` だけで、`kind` を含む先に振り分ける（`unread` は使わない。画面のヘッダの札が代わる）。決まりで `os` と `phone` の両方が `kind` を含まなければ何も配らない。預かり（`UnreadHold`）は通さず、すぐ配る。
@@ -4144,7 +4177,8 @@ hangar が代わりに知らせるもの（削除の承認待ち、準備の後�
 指示文の notify の段は、案 S の文に替え、次の 2 つの段を続ける。
 - 保存の段：ユーザーが知らせ方を言ったら、場面と出し先に直して `set_notify_preference` で保存し、保存した決まりを読み返して伝える。触れていない出し先は、今の決まりのまま渡す。今の決まりは、起動のときに指示文へ差し込む。
 - 聞く段：決まりが未設定のときだけ入れる。最初の返答の終わりに、依頼が済んだかどうかに関係なく必ず 1 度、AskUserQuestion で「どんなときに知らせてほしいか」を聞く。
-  「このセッションをどうしますか」の段（明確に終わったときだけ聞く、迷ったら聞かない）は当てはまらないと書き添える。
+  「このセッションをどうしますか」の段（終わりを告げたときと外の出来事を待つと言ったときだけ聞く、迷ったら聞かない）は当てはまらないと書き添える。
+  人のいない起動（`launchedBy`）では、この段を入れない。
   auto mode の会話では、この断りが無いと区切りでない最初のターンで聞かないことがあった（Sonnet で 4/6、断りを足すと 6/6）。答えは保存の段に従って保存する。決まりがあれば、この段は入れない。
 
 Codex と opencode の最小限の指示にも、同じ趣旨の段を足す（`launch.injection.codex.notify`、`launch.injection.opencode.notify`）。
@@ -4518,7 +4552,13 @@ trigram の 12 トークンは 14 文字ほどで、当たりが本文の頭に�
   検索 1 回の時間を決めているのは、当たった行ごとに抜粋を取る処理（`event_fts` の全走査が行ごとに 1 回）である。
 - トランスクリプトの 2 文字の語は、`like` の全走査（実データで 2〜5 秒、主スレッドを止め、打ち切りで当たりも欠けた）にせず、`event_fts` の語彙（`fts5vocab`、接続ごとの一時表）でその 2 文字で始まる trigram を範囲で引き、`text` の列への OR の MATCH にする（`search.ts` の `bigramMatch`）。
   1 文字の語だけが `like` で、従来どおり集計に回す行を 5,000 行で打ち切る。
-  限界：その 2 文字が本文の最後にだけ現れる行と、本文が 2 文字以下の行は引かない。前に 1 文字ある trigram を探すには語彙の全件（実データで 170 万語、1.5 秒）をなめるためである。
+  本文の最後の 2 文字も引けるように、索引に入れる本文の末尾に区切りの文字（制御文字のユニット区切り、`search/ftsTail.ts` の `FTS_TAIL`）を 1 つ足す。
+  最後の 2 文字が「2 文字と区切り」の trigram として索引に入り、本文のどこにある 2 文字も、その 2 文字で始まる trigram で引ける。
+  区切りは画面と MCP に出す抜粋から外す（`stripFtsTail`）。検索の結果の数と順は変わらない。
+  積むのは `writeBatch` で、今ある行は、起動の後に背面で足し直す（`search/ftsTailBackfill.ts`）。
+  版 66 のマイグレーションは版を上げて、進み具合の印（`settings_local` の `fts_tail_backfill_rowid`）を置くだけにする。実データ（百万行台）で一度に `update` すると数分かかり、その間サーバが立たないためである。
+  背面の仕事は、`event_fts` を rowid の昇順に 1,000 行ずつ `text || char(31)` へ直し（すでに区切りで終わる行は触らない）、済んだ rowid を印に覚え、25 ミリ秒の間を空けて次へ進む。止まっても次の起動で印の続きから進み、全部済むと印を消す。
+  足し直す前の行は、末尾の 2 文字が引けないだけで、検索も抜粋も動く。`stripFtsTail` は区切りのない行でも何もしない。
   2 文字の語があるときは、抜粋に `snippet()` を使わず本文から `likeSnippet` で切る（何百もの trigram を行ごとに探すので重い）。抜粋は頁のセッション全部を 1 回の問い合わせで取る。
 - MCP の `search_sessions` も同じ関数を使うので、名前と要約だけで当たった行も返す。
 
@@ -5255,6 +5295,15 @@ MCP の `create_session` で起こした会話（`SessionDto.spawnedBy` が起�
 セッション画面では、子は見出しの上（プロジェクトへのリンクの右）に起動元へのリンクを出し、起動元は見出しの下に子の札（状態の丸と名前）を 1 行で並べる（`views/SpawnedLinks.tsx`）。新しい札は `growIn` で出る。
 引き継ぎ（`handoff: true`）で起こした会話は記録しないので、入れ子にも印にもならない。
 起動元が Done か Archived の間は、子を入れ子にせず独立した行として並べ、起動元をサイドバーに薄く出すこともしない（`spawnParentOf`）。終わった会話の下に、動いている仕事を並べないためである。起動元の状態を戻せば入れ子に戻る。Paused は戻ってくる前提なので入れ子のままにする。セッション画面の起動元へのリンクと子の札は、どの会話から始まったかを失わないよう残す。
+
+#### 別の PC への起動の記録の終わり方
+
+別の PC への起動の結び付きは、両方の PC に手元だけの記録を持つ。
+頼まれた側は会話ごとの返却の行（`peer_relay`）と結果の控え（`peer_relay_out`）、頼んだ側は頼みの記録（`peer_outbox`）と呼び出し元への預かり（`peer_deliveries`）である。
+どれも承認待ち（`peer_approvals`）と同じく、状態の列を一方向にだけ進め、書き換えは今の状態を条件にし、期限と掃除を持つ。
+- 頼まれた側（`peer/relay.ts`）：会話が Done になったか消えたら、`ended` を 1 度だけ書いて結び付きを閉じる。結び付きが先に消えていれば（起動元の PC が子を消した、切り離した）、書かずに終わった印だけを付ける。終わった行は終わった時刻（`ended_at`）から 7 日で消すが、届いていない控えが残る間は消さない。控えは書いてから 7 日で外す（Worker の行もそのころ消える）。
+- 頼んだ側（`peer/outbox.ts` の `sweep`）：受け取られたまま答えが来ない頼みは、置いてから 24 時間で期限切れとして呼び出し元に返す。Worker は受け取られない頼みしか期限切れにしないからである。結び付きが消えた起動の頼みは終える。ただし呼び出し元が消えたときは、最初の報告を通知で知らせるために待ち、7 日で終える。終わった頼みの記録と渡し終えた預かりは 7 日で消し、渡せないまま 7 日たった預かりはログに残して外す。
+- 版 63 のマイグレーションは、終わった行に時刻を埋め、行が先に消えて送れなくなった控えを、受けた頼みの記録から頼んだ PC が分かれば終わった行として作り直し、分からなければ外す。
 
 #### ほかの PC で動いている会話
 
@@ -6012,7 +6061,6 @@ Hangar が `CLAUDE.local.md` を作らないのは、作るだけで `AGENTS.md`
 行を押すと本文を Markdown で描くダイアログを開き、そのときに読み直す（ファイルは外で書き換わる）。本文は 256 KB まで返し、越えたら先頭だけを描いて知らせる。
 ダイアログは長い本文を読む面なので、ほかのダイアログのガラスより濃い不透明の白にする。開くときは板の pop に背景のフェードを添え、閉じるときは逆にたどって（`popOut`、`--dur-exit`）から外す。
 行の右の印とダイアログの下端の「エディタで開く」は、種類だけを `POST /api/projects/:id/instructions/open` へ送る。決まった種類のほかは断り、無いファイルは 404 にする。
-中身の残る古いノートは、節の中に「以前のノート」として読むだけで出し、コピーと、確かめてから空で保存する削除を置く。
 この PC にフォルダが無いプロジェクトは「この PC にはフォルダがありません」とだけ出す。
 アーティファクトが空のときは、足す欄があれば別の行では断らない。
 
@@ -6144,7 +6192,8 @@ hangar が自動で付けた状態は、札の頭に ✦ を置き、説明は�
 セッション画面を開くたびに末尾を追う形で始め（`openAtLatestStep`）、前に上へ遡って追うのをやめていたセッションも開き直せば末尾から始まる。
 最初のページが届いて行の高さを測り終えるまで、末尾に着け直す。
 続けて呼んだツールの呼び出し（間に利用者や Claude の文、思考、知らせが挟まらないもの）は、1 行にまとめる（T1）。
-まとめの行は、札（同じツールなら「Bash ×5」、混ざれば「ツール ×5」、1 回だけなら名前だけ）、最後の呼び出しの説明（Bash は description、無ければコマンド。ほかは畳んだ行の要約の文）、時刻を 12.5px の控えめな字で並べ、失敗があれば「失敗 N」を添える。
+まとめの行は、呼んだ数だけの札（「ツール 5 件」）を 11.5px の控えめな字で置く。説明と時刻は出さず、失敗があれば行を赤にして「失敗 N」を添える（2026-11-18 の試作の案 A）。
+開くときは `growIn`、畳むときは `collapseOut` で動かす。質問（AskUserQuestion）はまとめず、ほかの行と同じ形で残す。
 押すと、左の細い線の下に呼び出しを 1 つずつ小さい等幅の行（`ToolItem` の compact）で開き、各行は押すと今までどおり入出力が開く。1 回だけのまとめは、押すと中身までいっしょに開く。
 サブエージェントを起こした呼び出しはまとめずに 1 つで置き、畳んだままでも「サブエージェント X を見る」を押せる。
 「詳細表示」の間はまとめず、今までどおり 1 件ずつの行にする。
@@ -6453,8 +6502,6 @@ Claude Code との互換のずれは、利用者が直せるものではない�
 新しいフォルダの作成場所は任意なので、決めた場所がその PC に無くても要修正に数えず、欄の下に注意の色で「この場所が見つかりません」と「空にするか、別の場所を選んでください」を出す（`workspaceLine` の soft）。古い設定のまま上げた利用者で、`~/workspace` がその PC に無いときに起きる。
 オンとオフの項目はスイッチにして行の右端に置き、ターミナルアプリはアプリのアイコンを添えた切り替えの帯、要約エンジンのモデルは一覧、1 時間の上限は ± の付いた数値の欄にする。
 スイッチと帯は切り替えた時点で保存する。
-外部の要約エンジンを許可するスイッチだけは、オンにするとき、保存済みの宛先へトランスクリプトが送られる旨を確かめる帯（「許可」「キャンセル」）を挟み、「許可」を押して初めて保存する。
-オフにするときは確かめずにその場で保存する。
 環境の節の先頭には、psmux（Windows）か tmux の状態の行を置く（段 6 の B3、`views/MuxSection.tsx`）。
 見出しの札で「インストール済み」か「未インストール」かを出し、済んでいれば版とパスを、無ければ入れるコマンドを添え、「再確認」のボタンを置く。
 psmux が 3.4.0 より古いときは、札を「更新が必要」にし、版の行に「（3.4.0 以上が必要です）」を添え、症状、上げる前の注意 2 点（psmux を止めるので動いているセッションは全部止まる、hangar の端末ではなく外の PowerShell で打つ）、上げる 1 行（`PSMUX_UPGRADE_COMMAND`、止める・`winget upgrade`・`tmux -V`）のコピー、「上げたら再確認」を本文に並べる（issue #245）。
@@ -6471,15 +6518,12 @@ psmux が 3.4.0 より古いときは、札を「更新が必要」にし、版�
 git は設定の欄が無く、環境の節に読むだけの行（見つけた場所と版、無ければ入れるコマンド）で出す。無くても動くので弱い色にする。
 エディタの欄は一般の節にある（「エディタの選択」の節）。
 Node の欄が空のときは、サーバを動かしている Node を「自動で見つけました」と添えて出す。
-要約の節は、使わない、Claude、OpenAI 互換の URL の 3 つのラジオの行で選ぶ（試作 3 節の推す案 A。エディタの欄と同じ作り）。
-各行は名前と 1 行の説明を持ち、Claude は「あなたの Claude の使用枠を使います」、OpenAI 互換は「トランスクリプトをこの宛先へ送ります」と、選ぶ前に違いを言う。
+要約の節は、使わない、Claude の 2 つのラジオの行で選ぶ（試作 3 節の推す案 A。エディタの欄と同じ作り）。
+Claude の行は「Claude の使用量を消費します。」と、選ぶ前に違いを言う。
 選んだ時点で保存し、選んだ行のすぐ下にその行の欄だけを開く。
 Claude の欄は、要約に使う Claude のモデル（一覧から選ぶか、名前を打つ）と、1 時間の上限である。
-OpenAI 互換の欄は、URL、モデル、API キー（任意。保存済みなら中身を出さず「キーを消す」を添える）、外部の要約エンジンを許可、接続できないときは Claude を使う（既定は切）で、切り替えを入れているときだけ 1 時間の上限を出す。
-選んだ行の欄は、ラジオの選択とスイッチを除いてまとめて「保存」で保存し、そのボタンの横に同じ「✓ 保存しました」を出す。API キーは書いたときだけ送り、送ったら欄を空に戻す。
-URL の欄の下と、OpenAI 互換の行の右端には、モデルの一覧が取れたかで「接続済み（モデル N 個）」か「接続できません」を出す。接続テストのボタンは `summarizer.test` を出し、結果をその下に出す。
+モデルと上限は「保存」でまとめて保存し、そのボタンの横に同じ「✓ 保存しました」を出す。接続テストのボタンは `summarizer.test` を出し、結果をその下に出す。
 使わないときは欄も保存も接続テストも出さない。
-要約エンジンか宛先を変えて保存したら、モデルの一覧を取り直す。
 連携の 3 枚の札（MCP サーバー、ステータスライン、シェル連携）は、殻の中ではボタンで書く（0.4.0、試作の連携 A）。
 札の形と説明文はそのままにし、コマンドの欄をボタンに替える。ボタンの横には「書き込む先：<パス>」と「書く前にバックアップを取ります」を常に出す。
 入っていなければ入れるボタン（登録…、設定…、インストール…）、入っていれば解除のボタン（登録を解除…、設定を解除…、アンインストール…）である。
@@ -7785,6 +7829,8 @@ R2 は部分更新を持たないので、末尾だけを足す道が無いた�
 同じ中身を二度上げないために、端末ローカルの `file_sync` に前回の指紋（平文の SHA-256）と大きさと更新時刻を残す。
 
 設定の同期が拾わないものは、`node_modules` と `.git` と `__pycache__` と `.venv` と `.trash`（hangar がスキルを消したときのごみ箱）の各段、シンボリックリンク、1 MiB を超えるファイル、`.DS_Store`、そして同期自身が作る写し（`*.conflict-*`、`*.hangar-tmp-*`、`*.part`）である。
+`skills/synced/` は Claude のデスクトップアプリが組織やアカウントの skills を写す置き場で、アプリが作り直すので運ばない（`kindOfRel` が null を返す）。他の PC の束や受け箱にこの id が残っていても、`parseItemId` が断るので判定の対象に出ない。
+
 Claude の入れ物（skills、commands、agents、memory、プロジェクトのメモリ）でリンクのために拾わなかったものは、集めた結果の `linkSkipped` に種類ごとの相対パス（`skills/benkyo` など）で残し、`ConfigSyncDto.linkSkipped` で最後に集めた分を返す（読めないディレクトリは入れない。送る項目は変えない）。
 写しを対象に戻すと、競合のファイルが端末間で無限に増える。
 `claude` の対象は、`statusLine`、`hooks`、`env` などの実行にかかわる鍵と、`statusLine.command` が指すスクリプトは運ばない。
@@ -7991,7 +8037,7 @@ puller は opencode の行を Claude の本文と同じ道で降ろす。
 置き場は `provider/opencode/transcript/remote.ts`（`RemoteOpencodeTranscripts`）で、索引の stored の面の 1 つとして組む（`boot/indexing.ts`）。
 見直すのは、索引が始まったときと、写しが降りたときと、会話の行が届いたとき（`onRemoteChange`）である。
 束には元の PC（`IndexBatch.remoteDevice`）を付け、索引は他端末の写しとして書く（会話の行と要約には書かず、行がまだ届いていなければ書かない）。
-出どころの名前（`event_index.file_path_ref` と日別の使用量の鍵）は `opencode:<ID>@<元の PC>` にし、手元の束（`opencode:<ID>`）と分ける。
+出どころの名前（`event_paths.path` と日別の使用量の鍵）は `opencode:<ID>@<元の PC>` にし、手元の束（`opencode:<ID>`）と分ける。
 手元の本文があるか（`SessionDto.remoteOnly` の元）は、主線の先頭のイベントの出どころが手元の束かで見る。
 手元の束と写しの束は互いに作り直しで置き換え、作り直しはどちらの出どころの日別も消してから積む（二重に数えない）。
 写しが何台分もあれば本文の新しい方を選び、この PC で動いている会話と、この PC の書き出しの方が新しい会話には入れない。
@@ -8629,7 +8675,7 @@ Codex の config.toml と opencode の opencode.json(c)、cli.json へ書き戻�
 どれも「文字列を受けて文字列を返す」だけの関数で、ファイルには触れない（控えと書き込みは呼ぶ側）。
 
 - TOML は `setToml`・`removeToml`・`getToml`。自前で書いた（`tomlParse.ts` が文と行の位置を読み、`toml.ts` が行と値の範囲だけを書き換える）。
-  toml-test の TOML 1.0 の試験集（valid 208 件、invalid 509 件）を `sync/config/edit/tomlSuite.test.ts` で当てる（`packages/server/test/fixtures/toml-test-1.0.0.json` に束ねてあり、MIT、`scripts/vendor-toml-test.mjs` で作り直す）。valid は全部読める。invalid のうち通してしまう入力は試験の `LENIENT` に控えてある。1.1 の `\e` と `\xHH` は断る（対応しない）。
+  toml-test の TOML 1.0 の試験集（valid 208 件、invalid 509 件）を `sync/config/edit/tomlSuite.test.ts` で当てる（`packages/server/test/fixtures/toml-test-1.0.0.json` に束ねてあり、MIT、`scripts/vendor-toml-test.mjs` で作り直す）。valid は全部読める。invalid は、値として壊れているもの（日付の範囲、制御文字、壊れた UTF-8、0x_ の形、秒の省略）を断る。1.1 で正しくなった書き方（インライン表の改行と末尾のカンマ、\e と \xHH）は受ける（`ACCEPTED_1_1`）。利用者が Codex の config.toml に手で書いた設定を読めなくするほうが害が大きいため。
   コメント、空行、鍵の並び、引用の形（基本・リテラル・複数行）、配列の折り返しを保つ。
   鍵の道は `['mcp_servers', 'x', 'env', 'KEY']` のような文字列の並びで、点のついた鍵、インライン表の中、`[a.b]` の見出しのどれでも同じ道で指せる。
   値が表（オブジェクト）なら表ごとの差し替えで、無い鍵は消え、変わらない鍵の体裁は残る。表が無ければ、近い表の後ろに節を作る。
@@ -10495,6 +10541,11 @@ wrangler を同梱していないので、リポジトリを clone した場所�
 ## 外のできごとで動かす
 
 PR、CI、レビュー、コメント、外の webhook のできごとで、会話を起こしたり、会話へ指示を流したりする（#563）。
+
+**既定は切である。** 設定 `eventTrigger`（この PC だけで、同期しない）を入れた PC だけが動く。
+切の間は、puller が受け箱に問い合わせず（結び付けがあっても無いものとして答え、呼び鈴も張らない）、結び付けの作成（画面、MCP の `draft_event_binding` と `claim_pr`、Paused の `wake_on`）を断り、予定の画面にイベントの節を出さない。
+コードと既存の結び付けは残すので、入れ直せばそのまま動く。
+切が既定になる前から使っていた PC のために、起動のとき `eventTrigger` が無く、承認済みの結び付けが 1 件でもあれば、入りに書き替える（`event/migrateTrigger.ts`）。
 本体は `packages/server/src/event/`、Worker の口は `packages/cloud/src/inbox.ts`、画面は予定の画面の「イベント」の節である。
 Worker の互換の版は 12 から（shared の `EVENT_INBOX_MIN_WORKER_COMPAT`）で、これ未満の Worker では画面に出さず、道具も動かさない。
 
@@ -10925,6 +10976,20 @@ MLX の build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/vo
 - 意味検索は持たないが、LM Studio に埋め込みモデルがあるので、将来ローカルで追加できる。
 - `event_index` の一意制約は `(session_id, ifnull(parent_agent, ''), seq)`。サブエージェントの本文は別ファイルで独立に伸びるので、主線と `seq` の空間を分ける。
 - 端末ローカルのテーブル `session_stats` を持つ。ターン数、モデル、effort、変更ファイル数、PR の URL、トークン数、最後の発言、最後の入力・返答の時刻（`last_turn_ts`）を索引から導出して置き、共有しない。
+- 非対話の会話（`claude -p` や Agent SDK で走ったバッチ）の印を、`session_stats.headless` に持つ（版 64）。
+  Claude Code は本文の行ごとに `entrypoint` を書き、対話の端末は `cli`、`claude -p` は `sdk-cli`、SDK は `sdk-ts` や `sdk-py` になる。
+  索引（`indexer/headless.ts`）は、`sdk-` で始まる入口だけを見た会話に 1 を、対話の入口を一度でも見た会話に 0 を付ける。
+  一度 0 になった会話は、後から `sdk-` の行が来ても 0 のままにする（対話で使った会話を隠さない）。
+  版 64 より前に索引した行は null で、索引の起動のあと、主線の本文の先頭と末尾を読んで少しずつ埋める（`backfillHeadless`）。
+  他の PC の会話も、手元に降ろした本文の写しを同じ規則で読んで印を付ける。印は同期しない。写しの無い会話は印が付かず、一覧に出る。
+- 印が 1 で、hangar の run が 1 つも付いていない会話を非対話とみなす（`db/queries.ts` の `isHeadlessSql`）。
+  一覧（`listSessions` の既定、`/api/sessions`、`/api/bootstrap`）は返さず、画面への `session.upsert` も配らない。サイドバー、未読、「最近」は bootstrap と配信から組むので、ここから外れる。
+  検索（`/api/search`）は今までどおり当て、当たった非対話の会話の DTO を `sessions` に添える。画面はそれを Store に入れて行を組み、ふだんの一覧と「最近」では `SessionDto.headless` を見て外す。
+  プロジェクトの絞り込みは `/api/sessions?headless=1&projectId=…` で含めて引ける。件数を数える集計は `not isHeadlessSql('s')` を条件に足せば一覧と同じ数え方になる。
+  プロジェクトの画面は、一覧の末尾に非対話の会話を畳んだまとまりを置く（`views/HeadlessFold.tsx`）。畳んだ行は端末の記号と件数だけで、押すと行が開く。開閉は `FoldBox`（growIn と collapseOut）。
+  非対話の会話は数千件ありうるので、`GET /api/sessions/headless?projectId=…&limit=…&offset=…` で件数と新しい順の 1 頁（最大 200 件、画面は 50 件ずつ）を引く。`limit` を省くと件数だけを返す。
+  画面を開いたときに件数だけを読み（`project.headless.load`）、開いたときに先頭の頁、末尾の「残り N 件」の行で続きを読む。読んだ分は `Store.headless[projectId]`（件数と id の並び）と `Store.sessions` に入る。畳んだままの間は行を 1 つも描かない。
+  行は背を低く、等幅の字で、淡い地に左の罫を付け、端末の記号で見分ける。文字の札は付けない。語で検索しているときは出さない（検索が非対話の当たりを行に出す）。
 - 土台の要約の `state` は、レジストリに生きた項目があれば `in_progress`、無ければ `done`。UI は `source = 'baseline'` の状態を控えめに描く。
 - サブエージェントは、そのファイルの先頭の記録から `subagent` イベントを作り、親の時系列でその直前にある `Agent` か `Task` のツール呼び出しの下にネストする。該当が無ければ独立した項目として出す。
 - セッションの表示名は、レジストリの `name`（`nameSource` が `user`）、本文の `custom-title`、`agent-name`（索引が `sessions.custom_title` に拾う）、hangar で付けた名前（`session_notes.name`）、`ai-title`、最初の発言の先頭 40 字の順で決める。
@@ -10963,9 +11028,27 @@ MLX の build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/vo
   打鍵は `send-keys -H`（16 進）、大きさは `refresh-client -C` で渡す。
   最初の大きさが届いたら、同じ制御の経路に履歴（`capture-pane -e -J -S - -E -1`）、今の画面、カーソルの位置を頼み、xterm の履歴ごと消してから描く。
   tmux は答えと出力を起きた順に流すので、今の画面の答えより前の出力は写しに含まれていて捨て、後の出力はカーソルの位置が届くまで溜めてから流す。
+  つないだ時点のモード（矢印のアプリケーションモード、テンキー、挿入、折り返し、原点、カーソルの表示、マウスの 4 種と SGR、貼り付けの括り）は、同じ `display-message` の旗（`#{bracket_paste_flag}`、`#{mouse_any_flag}`、`#{keypad_cursor_flag}` など）で読み、対応するエスケープ列を履歴と今の画面の後、カーソルの位置の前に流して xterm に戻す（iTerm2 の tmux 連携が戻す旗に倣う）。
+  旗が空（その旗を知らない tmux）なら触らない。tmux にフォーカスの旗は無いので、フォーカスの報告は戻さない。
   答えは送った順に受け手へ渡す。tmux は 3.0 から、つないだ直後に attach そのものの答えを `%begin` の flags 0 で返し、標準入力から送ったコマンドの答えは flags 1 で返すので、flags 0 の答えは数えない。
   Windows の psmux（3.4.0）は、シェルタブも擬似端末の attach のままである。psmux の `-C` は attach の答えを返さず、`send-keys` には打鍵を届けたうえで毎回 `%error` を返す。
   さらに、離れている間の出力を次に出力が出たときにまとめて流し直すので、最初の写しの後に同じ履歴が重なる（issue #534）。
+- シェルタブの出力は、画面が描き終えた量を返す（ack）ことで流しすぎないようにする。VS Code の端末と同じ形である。
+  コントロールモードの tmux は、attach の 80 倍ほどの速さ（1 秒に 50MB 近く）で `yes` や大きな `cat` の出力を流せる。
+  画面が追いつかないと、サーバと WebSocket に溜まり続ける。
+  画面は、`term.write` が終わった文字数を `ACK_CHARS`（4096）ごとに `{ t: 'ack', n }` で返す（`runtime/terminals.ts`）。
+  サーバは、送った量から返された量を引いた分が `FLOW_HIGH_CHARS`（128K）を超えたら `PtyProcess.pause()` し、`FLOW_LOW_CHARS`（16K）を切ったら `resume()` する（`pty/relay.ts`）。
+  画面が一度も ack を返さない間は数えない。古い画面は止められない。
+  コントロールモードの `pause()` は、tmux の子の標準出力の読みを止める。
+  tmux は読まれない間、pane の読みを自分で止めるので、溜まるのは tmux の中に限られ、打鍵のコマンドは通る。
+  加えて、つないだ直後に `refresh-client -f pause-after=2`（tmux 3.2 から）を頼む。
+  同じ pane を別のクライアントが読み続けていて、こちらだけが 2 秒より遅れたときは、tmux が溜めを捨てて `%pause %<pane>` を返す（読みを止めても tmux は自分で止まらない場合）。
+  出力は `%extended-output %<pane> <遅れ> : <中身>` で届くので、`%output` と同じに読む。
+  読みが追いついた（`resume()`）ら `refresh-client -A '%<pane>:continue'` で続きを頼み、その答えが返ったら、止まっていた間の出力が届かないので、最初と同じ写し（履歴と今の画面とカーソル）を頼み直して描き直す。
+  `%continue` の行は、tmux 3.4 では答えの `%begin` と `%end` の間に来て答えの中身に読まれるので、合図には使わない。
+  `%` で始まる語は、引用符で包まないと tmux の構文の誤りになる。
+  `pause-after` を断る tmux（3.2 より前、psmux）では、%output のまま、読みの止めだけで抑える。
+  擬似端末の attach（エージェントのタブ）は `pause` を持たず、これまでどおりである。
 - 起動ダイアログの model、effort、permission mode、worktree、追加ディレクトリは空欄を既定にし、空欄の項目は起動引数に含めない。
 
 以下はフェーズ 3 の実装で決めた前提である。
@@ -11022,7 +11105,7 @@ MLX の build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/vo
   `PATCH /api/settings` は真偽値だけを受け、ほかは 400 で断る。
   鍵の無い設定ファイルと、手で書いた真偽値でない値は true として読む。
   設定の画面にはまだ出さない（「指示の注入」の節）。
-- 要約器の設定：`SettingsDto` に `summaryEngine`（`off`、`claude`、`openai`。既定 `off` で、鍵の無い古い設定も `off`）、`summaryClaudeModel`（既定 haiku）、`lmStudioUrl`（OpenAI 互換の URL。既定 `http://127.0.0.1:1234`）、`lmStudioModel`（既定 null で、null なら `/v1/models` の最初のモデル）、`summaryApiKeySet`（API キーを保存しているか。キーは `PATCH` の `summaryApiKey` で書くだけで、返さない）、`summaryFallback`（既定 false）、`summaryHourlyCap`（既定 20）、`allowExternalSummarizer`（既定 false）を持つ。
+- 要約器の設定：`SettingsDto` に `summaryEngine`（`off`、`claude`。既定 `off` で、鍵の無い古い設定と、外した `openai` も `off`）、`summaryClaudeModel`（既定 haiku）、`summaryHourlyCap`（既定 20）を持つ。
 - 要約の入力：主線の全イベントを読み（サブエージェントは含めない）、`user` は 2,000 字、`assistant` は 600 字、`tool_call` は 1 行に切り、`thinking`、`tool_result`、`system`、`meta` は捨てる。全体が 12,000 字を超えたら先頭 30% と末尾 30% を残し、中盤を「[... N 件を省略 ...]」に置き換える。
 - 要約ジョブの契機：run の終了と、セッション画面を開いたときの先頭ページの読み込みの 2 つで `enqueue` する。受け付けるのは要約が土台のままか最後の更新から 5 ターン以上進んだときだけで、実行中のセッションは受け付けない（セッション自身の `set_session_summary` に任せる）。run の終了からの `enqueue` は `ignoreLive` で生存判定だけを飛ばし、残る 2 つの判定は通す。「要約を作り直す」は条件を無視する。ジョブは 1 セッション 1 件で、直列に走る。
 - 要約の配信が失敗しても待ち行列は進める。配信の失敗は 1 行だけ記録し、次のジョブを止めない。
@@ -11030,7 +11113,7 @@ MLX の build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/vo
 - MCP の `update_project` の TODO の書き込みは、全部成功か全部失敗のどちらかにする。途中で失敗したものが残ったままイベントだけ配られないようにするためである。
 - `GET /api/bootstrap` は `accounts`（使用率はアカウントごとにここに載る）、`todos`（全プロジェクトの未削除）、`artifacts`（全件）、`summaryPending`（作成中のセッション ID）も返す。メモの全文は含めない。
 - UI の CSS は `base.css` に足さず、View ごとのファイル（`workbench.css`、`split.css`、`rows.css`、`palette.css`、`settings.css`）に分けて `main.tsx` から `base.css` の後に読み込む。
-- 要約の出所：`session_summaries.source_id` に書いた要約器の id（`lmstudio` か `claude-headless`）、`source_model` にモデルの名前だけを置く。土台の要約とセッション自身の要約はどちらも null にする。`source_id` が無かった頃の行は null のままにして、UI は要約器を「不明」と出す。モデル名から種類を推し量って焼き付けることはしない。
+- 要約の出所：`session_summaries.source_id` に書いた要約器の id（`claude-headless`。外した OpenAI 互換の要約器が書いた行は `lmstudio` のまま残る）、`source_model` にモデルの名前だけを置く。土台の要約とセッション自身の要約はどちらも null にする。`source_id` が無かった頃の行は null のままにして、UI は要約器を「不明」と出す。モデル名から種類を推し量って焼き付けることはしない。
 - サーバの終了：`close()` は HTTP と WebSocket を畳んだ後、走っている要約のジョブが終わるまで最大 5 秒待ってから DB を閉じる。要約は DB に書き込むので、待たずに閉じると閉じた DB に触れることになる。5 秒で終わらなければ 1 行記録して待たずに閉じる。
 - 未分類のセッション：起動した後に、どのルートの配下にもない cwd のセッションが現れても、トーストは流さない（2026-10-10 に外した。事実は一覧に出るので、注意の行にもしない。「注意と知らせの出し分け」の節）。ワークスペース直下のディレクトリはその場でプロジェクトにし（2026-10-01 に改めた）、ワークスペースの外では勝手にプロジェクトを作らない。
 - ルートの復帰：消えていたディレクトリが戻ってルートが解決に戻ったら、その時点で未分類だったセッションを紐づけ直し、紐づいたセッションの `session.upsert` と、戻ったぶんおよび中身が変わったぶんの `project.upsert` を配る。戻ったルートが 1 つも無いときは何もしない（起動時の 1 回目はたいていこちらを通る）。
@@ -11100,6 +11183,12 @@ MLX の build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/vo
   DB を開く側（サーバと、DB を開く CLI）は、すでに 1 本以上のマイグレーションを当てた DB に当てていないものがあるとき、当てる前に `VACUUM INTO` で `hangar-v<当てた最後の版>-<UTC の時刻>.db` を作る（`packages/server/src/db/backup.ts`）。
   新しい DB と `:memory:` では作らない。
   起点より古い版の DB は、当てるものが無く断るだけなので、控えも作らない。
+  写しからは、元の jsonl から作り直せる本文の索引（`event_index` の `transcript_files` に載るファイルの行と、その検索の `event_fts`）を抜く。
+  索引は DB の大半を占め、1 世代が 1GB を超えていたのが数十 MB になる。
+  `event_fts` は行を消しても縮まないので、残す行（本文を DB に持つ opencode の会話）を控えて表を作り直す。
+  `transcript_files` の `indexer_version` を 0 にしてあるので、控えを DB の場所に戻して起こすと、インデクサが先頭から読み直して索引と検索が戻る（`IndexerService.rebuild` と同じ印）。
+  表の形は残るので、戻した DB はそのまま開ける。抜くのは、控えを取る時点で元の jsonl がディスクにある会話だけである。jsonl が消えた会話（Claude Code の掃除など）は読み直せないので、索引も `indexer_version` も残し、戻したあとも検索で引ける。
+  写しは `VACUUM INTO` で全体を取ってから抜くので、取っている間だけ DB と同じ大きさの空きが要る。
   写しは控えの形でない一時の名前に書き、`fsync` してから改名する。
   失敗や中断で、控えに見える壊れたファイルが残らない。
   `backups/db` がシンボリックリンクなら、ほかの控えの置き場と同じく取らずに止める。

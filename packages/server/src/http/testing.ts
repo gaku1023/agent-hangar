@@ -20,7 +20,6 @@ import { languageReader } from '../i18n/language.ts';
 import { Publisher } from '../events/publisher.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
-import { MemoStore } from '../projects/memo.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { PromoteError } from '../projects/promote.ts';
 import { RunError } from '../runs/manager.ts';
@@ -46,7 +45,7 @@ export const launched: LaunchResultDto = { run, sessionId: 's1', tabs: [agentTab
 export const endedRun: RunDto = { ...run, id: 'dead', tmuxName: 'hangar-dead', endedAt: 9, endReason: 'exited' };
 export const deadAgentTab: TabDto = { ...agentTab, id: 'dead', runId: 'dead', tmuxName: 'hangar-dead' };
 export const deadShellTab: TabDto = { ...shellTab, id: 'dead-t1', runId: 'dead', tmuxName: 'hangar-dead-t1' };
-export const testResult: SummarizerTestDto = { ok: true, id: 'lmstudio', ms: 5, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: null, basedOnTurns: 3 } };
+export const testResult: SummarizerTestDto = { ok: true, id: 'claude-headless', ms: 5, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: null, basedOnTurns: 3 } };
 export const syncStatus: SyncStatusDto = { state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, limitedUntil: null, paused: false };
 export const READY: ReadinessDto = {
   tools: { tmux: { path: '/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: null, ok: false, problem: 'unset', version: null }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
@@ -125,7 +124,6 @@ export function fakeSummary(): FakeSummary {
     enqueue: (id, opts) => { s.enqueued.push([id, opts]); return true; },
     pending: () => ['pending-1'],
     test: async () => testResult,
-    listModels: async () => ['gemma'],
   };
   return s;
 }
@@ -173,7 +171,6 @@ export type TestWorld = {
   /** 既定の要約の偽物。overrides で summary を差し替えたときは使われない。 */
   summary: FakeSummary;
   usage: UsageTracker;
-  memos: MemoStore;
   /** ワークスペースから登録される唯一のプロジェクト alpha の id。 */
   alphaProjectId: () => string;
   /** 配る層を止めて DB を閉じ、作った一時ディレクトリを消す。afterEach で呼ぶ。 */
@@ -225,11 +222,10 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
   // 行の変化を配る層。経路は行を書くだけで、画面へのイベントはこの層が組んで events へ渡す（tick の終わりに出る）。
   const publisher = new Publisher({ db, deviceId: 'd', live: () => [], hub: { broadcast: (e) => { events.push(e); } } });
   const sync: SyncFakeState = { calls: [], skipped: [], sweepPending: null, oncePass: false, resumeHereResult: launched };
-  let settings: Settings = { workspaceRoot: ws, claudeDir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKey: null, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+  let settings: Settings = { workspaceRoot: ws, claudeDir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', summaryHourlyCap: 20, nodePath: null, claudePath: null };
   const runs = fakeRuns();
   const external = fakeExternal();
   const usage = new UsageTracker(db);
-  const memos = new MemoStore({ db, deviceId: 'd', home: ws });
   const summary = fakeSummary();
   const alphaProjectId = () => (db.prepare("select id from projects where name = 'alpha'").get() as { id: string }).id;
   // 最初のアカウントだけを持つアカウントの口。サーバはいつもアカウントの口を持つので、既定でも渡す。
@@ -256,7 +252,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     settings: () => settings, language: languageReader(() => settings), updateSettings: (p) => (settings = { ...settings, ...p }),
     live: () => [], indexer, ready: () => true,
     hub: publisher,
-    runs, external, usage, memos, summary,
+    runs, external, usage, summary,
     schedules: { runNow: () => 'missing', deliver: async (id) => ({ sessionId: id }) },
     // 外のできごと（#563）。
     // 試験は本物の結び付けの流れに、付けない偽の webhook を渡す。
@@ -303,7 +299,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
   };
 
   return {
-    deps, db, ws, claudeDir, events, calls: sync.calls, sync, takeover, canCarry, runs, external, summary, usage, memos, alphaProjectId,
+    deps, db, ws, claudeDir, events, calls: sync.calls, sync, takeover, canCarry, runs, external, summary, usage, alphaProjectId,
     dispose: () => { takeover.stop(); publisher.stop(); db.close(); fs.rmSync(claudeDir, { recursive: true, force: true }); fs.rmSync(ws, { recursive: true, force: true }); },
   };
 }

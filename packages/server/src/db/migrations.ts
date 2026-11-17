@@ -1094,6 +1094,56 @@ alter table session_states add column pinned_changed_at integer;
 `;
 
 /**
+ * 版 63。別の PC から起こされた会話の、結果の返却の行に、終わった時刻を足す（peer/relay.ts）。
+ * 掃除は終わった時刻から数え、届いていない控えがある行は消さない。前は作った時刻から数えたので、起動から 7 日を過ぎて終えると、控えより先に行が消えて ended が届かなかった。
+ * 終わっている行は、作った時刻を終わった時刻とみなす。
+ * 行が先に消えて送れなくなった控えは、受けた頼みの記録（peer_launches）から頼んだ PC が分かれば、終わった行を作り直して送れるようにする。分からなければ外す。
+ */
+const V63_PEER_RELAY_ENDED_AT_SQL = `
+alter table peer_relay add column ended_at integer;
+update peer_relay set ended_at = created_at where ended = 1;
+insert or ignore into peer_relay (session_id, request_id, from_device, seq, armed_at, ended, ended_at, title, created_at)
+  select l.session_id, o.request_id, l.from_device, max(o.seq), null, 1, max(o.created_at), '', min(o.created_at)
+  from peer_relay_out o join peer_launches l on l.id = o.request_id
+  where l.session_id is not null and not exists (select 1 from peer_relay r where r.request_id = o.request_id)
+  group by o.request_id;
+delete from peer_relay_out where not exists (select 1 from peer_relay r where r.request_id = peer_relay_out.request_id);
+`;
+
+/**
+ * 非対話の会話（claude -p などのバッチ）の印。端末ローカルの session_stats に持ち、同期しない。
+ * 1 は本文の entrypoint が sdk- で始まるものだけの会話、0 はそれ以外、null はまだ決めていない会話である。
+ * 今ある行は null のまま残し、索引の埋め戻し（indexer/headless.ts の backfillHeadless）が本文の先頭と末尾を読んで埋める。
+ */
+const V64_SESSION_HEADLESS_SQL = `
+alter table session_stats add column headless integer;
+`;
+
+/**
+ * 版 65：event_index が行ごとに持っていたファイルのパス（file_path_ref、平均 135 字）を、別の表 event_paths の番号（path_id）で指す。
+ * 同じファイルの行は 1 つのパスを指すので、パスの文字は索引が何百万行になっても、ファイルの数（数千）だけになる。
+ * 開くときは表と列を足すだけにする。行を書き直すと、大きな DB（行が百万単位）で起動が十数秒止まるので、行への番号振りは起動後に背面で数千行ずつ進める（db/pathRef.ts の startPathRefFill）。
+ * 旧い列（file_path_ref）は NOT NULL で後から外せず、落とすと表の書き直しと VACUUM が要る。新しい行は空の文字を入れ、番号を振った行も空にする。埋め終えるまでは、番号が null の行を旧い列で読む。
+ * 控えは当てる前に取り、そこでは索引を抜いてある（db/backup.ts）。
+ */
+const V65_EVENT_PATH_REF_SQL = `
+create table event_paths (
+  id integer primary key,
+  path text not null unique
+);
+alter table event_index add column path_id integer;
+`;
+
+/**
+ * 版 66：event_fts の text の末尾に区切りの文字（search/ftsTail.ts の FTS_TAIL）を足す仕事の、進み具合の印を置く。
+ * 積むときは writeBatch が足す。今ある行は、起動の後に背面で少しずつ足す（search/ftsTailBackfill.ts）。
+ * ここで一度に update すると、実データ（百万行台）で数分かかり、サーバが立たない。
+ */
+const V66_FTS_TAIL_SQL = `
+insert into settings_local (key, value) values ('fts_tail_backfill_rowid', '0') on conflict(key) do nothing;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -1145,4 +1195,8 @@ export const MIGRATIONS: Migration[] = [
   { version: 60, sql: V60_EVENT_FTS_ROWID_SQL },
   { version: 61, sql: V61_UNREAD_HOLD_SQL },
   { version: 62, sql: V62_SESSION_STATE_FACT_AT_SQL },
+  { version: 63, sql: V63_PEER_RELAY_ENDED_AT_SQL },
+  { version: 64, sql: V64_SESSION_HEADLESS_SQL },
+  { version: 65, sql: V65_EVENT_PATH_REF_SQL },
+  { version: 66, sql: V66_FTS_TAIL_SQL },
 ];

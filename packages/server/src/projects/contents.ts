@@ -19,14 +19,5 @@ export function moveProjectContents(db: Db, deviceId: string, fromId: string, in
   for (const t of db.prepare('select * from todos where project_id = ? order by position, id').all(fromId) as Record<string, unknown>[]) { upsertShared(db, 'todos', { ...t, project_id: intoId, position: ++position }, deviceId); moved = true; }
   for (const a of db.prepare('select * from artifacts where project_id = ?').all(fromId) as Record<string, unknown>[]) { upsertShared(db, 'artifacts', { ...a, project_id: intoId }, deviceId); moved = true; }
 
-  const memoOf = db.prepare('select markdown from project_memos where project_id = ? and deleted_at is null');
-  const fromMemo = (memoOf.get(fromId) as { markdown: string } | undefined)?.markdown ?? '';
-  if (fromMemo.trim() !== '') {
-    const intoMemo = (memoOf.get(intoId) as { markdown: string } | undefined)?.markdown ?? '';
-    const markdown = intoMemo.trim() === '' ? fromMemo : `${intoMemo.replace(/\s+$/, '')}\n\n${fromMemo}`;
-    upsertShared(db, 'project_memos', { project_id: intoId, markdown, deleted_at: null }, deviceId, 'project_id');
-    moved = true;
-  }
-  if (db.prepare('select 1 from project_memos where project_id = ? and deleted_at is null').get(fromId)) { softDeleteShared(db, 'project_memos', fromId, deviceId, 'project_id'); moved = true; }
   return moved;
 }

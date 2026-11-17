@@ -45,10 +45,13 @@ export type EventServiceDeps = {
    */
   changed: () => void;
   language: GetLanguage;
+  /** 外のできごとを使う設定が入っているか（eventTriggerOf）。切の間は結び付けを作らせない。省けば入りとして動く。 */
+  enabled?: () => boolean;
   now?: () => number;
 };
 
 const notFound = (): MessageError => new MessageError(msg('schedules.event.error.notFound'));
+const off = (): MessageError => new MessageError(msg('schedules.event.error.off'));
 const overCap = (): MessageError => new MessageError(msg('schedules.event.error.max', { max: EVENT_BINDINGS_MAX }));
 
 export class EventBindingService {
@@ -86,6 +89,7 @@ export class EventBindingService {
    * 作ったら有効になる。
    */
   async create(input: NewBinding): Promise<CreateResult> {
+    if (this.d.enabled && !this.d.enabled()) throw off();
     this.assertRoom();
     if (input.source.kind === 'hook') return this.createHook(input);
     const repo = input.source.repo;
@@ -228,6 +232,7 @@ export class EventBindingService {
    * GitHub の webhook を付けられなかったときは、その理由を返す（Paused は確定したまま）。
    */
   async createWake(sessionId: string, wakeOn: WakeOn): Promise<{ status: 'created' } | HookFailure> {
+    if (this.d.enabled && !this.d.enabled()) return { status: 'failed', message: 'event_off' };
     if (deviceOfSession(this.d.db, sessionId)?.id !== this.d.deviceId) return { status: 'failed', message: 'other_pc' };
     const wakes = this.list().filter((b) => b.action.kind === 'wake' && b.action.sessionId === sessionId);
     const same = wakes.find((b) => b.source.kind === 'github' && b.source.repo.toLowerCase() === wakeOn.repo.toLowerCase() && b.source.pr === wakeOn.pr && b.source.when.length === 1 && b.source.when[0] === wakeOn.when);

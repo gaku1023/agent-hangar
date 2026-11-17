@@ -25,7 +25,7 @@ const CODEX: CodexOptionsDto = { version: '0.164.0', verified: true, fetchedAt: 
 /** 予定の画面を描く。launch で札の中身（Codex の有効、一覧、フォルダの問い合わせなど）を差し替える。 */
 const mount = (list: ScheduleDto[], over: { launch?: Partial<LaunchChoiceData>; store?: Partial<ReturnType<typeof initialStore>> } = {}) => {
   const onAction = vi.fn();
-  const store = { ...initialStore(), schedules: list, projects: { p: proj('p', 'alpha'), q: proj('q', 'beta') } as never, sessions: { s: { id: 's', projectId: 'p', name: '既存の会話A', lastTurnAt: 1 } } as never, ...over.store };
+  const store = { ...initialStore(), settings: { eventTrigger: true } as never, schedules: list, projects: { p: proj('p', 'alpha'), q: proj('q', 'beta') } as never, sessions: { s: { id: 's', projectId: 'p', name: '既存の会話A', lastTurnAt: 1 } } as never, ...over.store };
   const base = presentSchedules(store, t, NOW);
   const props: SchedulesProps = { ...base, launch: { ...base.launch, ...over.launch } };
   render(<LanguageRoot language="ja"><ActionRoot onAction={onAction}><SchedulesScreen {...props} /></ActionRoot></LanguageRoot>);
@@ -365,6 +365,11 @@ describe('イベントの節（#563）', () => {
   const events = () => screen.getByRole('region', { name: t('schedules.section.event') });
   const items = () => within(events()).getAllByRole('listitem');
 
+  it('外のできごとが切の間は、イベントの節を出さない', () => {
+    mountEvents([], [], { store: { settings: { eventTrigger: false } as never } });
+    expect(screen.queryByRole('region', { name: t('schedules.section.event') })).toBeNull();
+  });
+
   it('時刻とイベントを 2 つの見出しで分け、開いたときにイベントを読みに行く', () => {
     const onAction = mountEvents([bind()]);
     expect(screen.getByRole('heading', { name: t('schedules.section.time') })).toBeInTheDocument();
@@ -659,7 +664,7 @@ describe('イベントの節（#563）', () => {
   it('作れた回数が増えたらフォームを閉じる。前に作った分では閉じない', () => {
     const onAction = vi.fn();
     const base = initialStore().eventTrigger;
-    const props = (done: number): SchedulesProps => presentSchedules({ ...initialStore(), sync: SYNC, schedules: [dto()], projects: { p: proj('p', 'alpha') } as never, eventTrigger: { ...base, ready: true, form: { ...base.form, done } } }, t, NOW);
+    const props = (done: number): SchedulesProps => presentSchedules({ ...initialStore(), settings: { eventTrigger: true } as never, sync: SYNC, schedules: [dto()], projects: { p: proj('p', 'alpha') } as never, eventTrigger: { ...base, ready: true, form: { ...base.form, done } } }, t, NOW);
     const ui = (done: number) => <LanguageRoot language="ja"><ActionRoot onAction={onAction}><SchedulesScreen {...props(done)} /></ActionRoot></LanguageRoot>;
     const { rerender } = render(ui(3));
     openNew();

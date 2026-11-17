@@ -9,8 +9,8 @@ import { initialUpdate, type UpdateState } from './update.ts';
 import { applyUpdate as applyPeerChatUpdate, type PeerChatSlice } from './peerChat.ts';
 import { emptyOrchestrator, type OrchestratorSlice } from './orchestrator.ts';
 import type { FolderInspectState } from './folderInspect.ts';
-import type { LaunchPrepDto, GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
-import type { CodexStatusDto, SharePreviewAgent, SharePreviewDto, EditorMissingDto, EditorsDto, EditorTestDto, SetupGuideDto, UiAction, SessionFilesDto, AccountDirPreviewDto, AccountDto, AccountsDto, ArtifactDto, CodexOptionsDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, FolderCandidatesDto, IndexProgressDto, InstructionsDto, InterruptedDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeOptionsDto, OpencodeProvidersDto, OpencodeStatusDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { HeadlessPageDto, LaunchPrepDto, GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
+import type { CodexStatusDto, SharePreviewAgent, SharePreviewDto, EditorMissingDto, EditorsDto, EditorTestDto, SetupGuideDto, UiAction, SessionFilesDto, AccountDirPreviewDto, AccountDto, AccountsDto, ArtifactDto, CodexOptionsDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, FolderCandidatesDto, IndexProgressDto, InstructionsDto, InterruptedDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, OpencodeLoginDto, OpencodeLoginStatusDto, OpencodeOptionsDto, OpencodeProvidersDto, OpencodeStatusDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceChildrenDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -79,7 +79,7 @@ export type Store = {
   sessionFiles: Record<string, SessionFilesDto['files']>;
   search: { params: SearchParamsDto | null; result: SearchResultDto | null; loading: boolean };
   index: IndexProgressDto;
-  todos: Record<string, TodoDto>; memos: Record<string, MemoDto>; artifacts: Record<string, ArtifactDto>;
+  todos: Record<string, TodoDto>; artifacts: Record<string, ArtifactDto>;
   /** プロジェクトの指示とメモリ（`GET /api/projects/:id/instructions`）。プロジェクトの画面を開いたときと、ファイルを表示したときに取り直す。 */
   instructions: Record<string, InstructionsDto>;
   /** 手で足した URL が断られたときの理由と、入れた URL。次の追加を始めるか、成功したら消える。bootstrap は運ばない。 */
@@ -120,7 +120,7 @@ export type Store = {
   summaryFailed: Record<string, string>;
   // 設定画面に入ったときだけ読む値。
   // 未取得は null で、View は「読み込んでいます」を出す。
-  usageAggregate: UsageAggregateDto | null; statusline: StatuslineStatusDto | null; shellHook: ShellHookDto | null; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
+  usageAggregate: UsageAggregateDto | null; statusline: StatuslineStatusDto | null; shellHook: ShellHookDto | null; summarizerTest: SummarizerTestDto | null;
   // クラウド同期（フェーズ 4）。同期を設定していない間は sync が off のまま届く。
   // 設定の「使用量と費用」。未取得は null である。
   cloudUsage: CloudUsageDto | null;
@@ -197,6 +197,11 @@ export type Store = {
   gitDiffs: Record<string, GitDiffDto | { error: string }>;
   gitEdits: Record<string, SessionEditsDto | { error: string }>;
   projectGit: Record<string, ProjectGitDto>;
+  /**
+   * プロジェクトごとの非対話の会話（claude -p など）。total は全件、ids は読み込んだ分（新しい順）。DTO は sessions に入れる。
+   * 一覧の末尾の畳んだまとまりが開いたときに頁で読み足す。端末ローカルで、同期しない。
+   */
+  headless: Record<string, { total: number; ids: string[] }>;
   /** 設定のエディタの欄の候補（GET /api/editors）。設定の一般の節を開いたときと「再確認」で取り直す。未取得は null。 */
   editors: EditorsDto | null;
   /** エディタの「テスト」の答え。押してから答えが届くまでは running。 */
@@ -238,8 +243,8 @@ export function initialStore(): Store {
   return {
     bootstrapped: false, version: '', device: null, settings: null, home: null, projects: {}, sessions: {}, live: [], runs: {}, tabs: {}, events: {}, subagents: {}, liveDigests: {}, sessionFiles: {},
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
-    todos: {}, memos: {}, instructions: {}, artifacts: {}, artifactAddError: null, summaryPending: {}, summaryFailed: {},
-    usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
+    todos: {}, instructions: {}, artifacts: {}, artifactAddError: null, summaryPending: {}, summaryFailed: {},
+    usageAggregate: null, statusline: null, shellHook: null, summarizerTest: null,
     cloudUsage: null, sync: null, deleteApprovals: [], peerApprovals: [], peerQueued: {}, peerDelivered: {}, peerChat: {}, orchestrator: emptyOrchestrator(), voice: null, voiceCatalog: null, schedules: [], eventTrigger: EMPTY_EVENT_TRIGGER, heldEvents: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
     readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, peers: null, launchPreps: {}, opencodeProviders: null, desktop: false, canRestoreHistory: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null, sharePreview: {},
@@ -247,7 +252,7 @@ export function initialStore(): Store {
     cloudMember: initialCloudMember(),
     interrupted: null,
     editors: null, editorTest: null, editorMissing: null,
-    git: { sessions: {}, trees: {} }, gitChanges: {}, gitDiffs: {}, gitEdits: {}, projectGit: {},
+    git: { sessions: {}, trees: {} }, gitChanges: {}, gitDiffs: {}, gitEdits: {}, projectGit: {}, headless: {},
   };
 }
 
@@ -340,7 +345,6 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
       for (const t of ev.todos) todos[t.id] = t;
       return { ...store, todos };
     }
-    case 'memo.update': return sameValue(store.memos[ev.memo.projectId], ev.memo) ? store : { ...store, memos: { ...store.memos, [ev.memo.projectId]: ev.memo } };
     case 'artifact.upsert': return sameValue(store.artifacts[ev.artifact.id], ev.artifact) ? store : { ...store, artifacts: { ...store.artifacts, [ev.artifact.id]: ev.artifact } };
     case 'sync.status': return sameValue(store.sync, ev.status) ? store : { ...store, sync: ev.status };
     case 'config.update': return sameValue(store.configSync, ev.configSync) ? store : { ...store, configSync: ev.configSync };
@@ -462,8 +466,23 @@ export function applyEventsPage(store: Store, key: string, page: EventsPageDto, 
   return { ...store, events: { ...store.events, [key]: { items, total: page.total, nextSeq, loading: false, loadingOlder: false, olderDone } } };
 }
 
+/** 非対話の会話を 1 回に読む件数。 */
+export const HEADLESS_PAGE = 50;
+
+/** 非対話の会話の 1 頁を入れる。offset が無ければ件数だけ（読んだ分は残す）。あれば、そこから後ろを読んだ分に置き換える。 */
+export function applyHeadlessPage(store: Store, projectId: string, offset: number | undefined, page: HeadlessPageDto): Store {
+  const prev = store.headless[projectId]?.ids ?? [];
+  const ids = offset === undefined ? prev.slice(0, page.total) : [...prev.slice(0, offset), ...page.sessions.map((s) => s.id)];
+  const sessions = page.sessions.length === 0 ? store.sessions : { ...store.sessions, ...Object.fromEntries(page.sessions.map((s) => [s.id, s])) };
+  return { ...store, sessions, headless: { ...store.headless, [projectId]: { total: page.total, ids } } };
+}
+
 export function applySearch(store: Store, params: SearchParamsDto, result: SearchResultDto | null, loading: boolean): Store {
-  return { ...store, search: { params, result, loading } };
+  // 一覧（bootstrap）に載らない非対話の会話は、検索の結果が DTO を添えてくる。行を組み、開けるように Store に入れる。
+  // ふだんの一覧と「最近」は headless の印を見て外す（presenters の sessions.ts と palette.ts）。
+  const extra = result?.sessions ?? [];
+  const sessions = extra.length === 0 ? store.sessions : { ...store.sessions, ...Object.fromEntries(extra.map((s) => [s.id, s])) };
+  return { ...store, sessions, search: { params, result, loading } };
 }
 
 /**
@@ -474,7 +493,8 @@ export function applySearch(store: Store, params: SearchParamsDto, result: Searc
 export function appendSearchResult(prev: SearchResultDto | null, next: SearchResultDto): SearchResultDto {
   if (!prev) return next;
   const seen = new Set(prev.hits.map((h) => h.sessionId));
-  return { hits: [...prev.hits, ...next.hits.filter((h) => !seen.has(h.sessionId))], total: next.total };
+  const sessions = [...(prev.sessions ?? []), ...(next.sessions ?? [])];
+  return { hits: [...prev.hits, ...next.hits.filter((h) => !seen.has(h.sessionId))], total: next.total, ...(sessions.length > 0 ? { sessions } : {}) };
 }
 
 export function applySubagents(store: Store, sessionId: string, ids: string[]): Store {

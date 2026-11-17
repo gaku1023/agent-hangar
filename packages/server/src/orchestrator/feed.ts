@@ -1,4 +1,4 @@
-import { ORCHESTRATOR_CONTEXT_LIMIT, type LiveSessionDto, type LiveStatus, type NotifyKind, type Translate, type WaitKind } from '@agent-hangar/shared';
+import { ORCHESTRATOR_CONTEXT_LIMIT, isTurnWorking, turnPhaseOf, type LiveSessionDto, type LiveStatus, type NotifyKind, type TurnPhase, type Translate, type WaitKind } from '@agent-hangar/shared';
 
 /**
  * 統括へ出来事を送り込む（docs/design.md「統括」の出来事の届け方）。
@@ -92,7 +92,7 @@ export type OrchestratorFeedDeps = {
   freshIdleMs?: number;
 };
 
-type Seen = { status: LiveStatus; waitingFor: WaitKind | null; tool: string | null; title: string; askId: string | null };
+type Seen = { status: LiveStatus; phase: TurnPhase; waitingFor: WaitKind | null; tool: string | null; title: string; askId: string | null };
 type Item = { key: string; kind: FeedEventKind; sessionId: string; title: string; tool: string | null; at: number };
 
 /** 題名は 1 行にし、長ければ切る（会話の題名は他人の文を含みうるので、文の形を崩させない）。 */
@@ -210,7 +210,7 @@ export class OrchestratorFeed {
       // 統括自身の会話は、有効でなくても出来事にしない。
       if (r.id === o.sessionId) { selfStatus = l.status; continue; }
       const waitingFor = l.status === 'waiting' ? l.waitingFor ?? null : null;
-      seen.set(r.id, { status: l.status, waitingFor, tool: l.permission?.tool ?? null, title: r.title, askId: waitingFor === 'question' ? this.askIdOf(r.id, readAsks && self !== null) : null });
+      seen.set(r.id, { status: l.status, phase: turnPhaseOf(l), waitingFor, tool: l.permission?.tool ?? null, title: r.title, askId: waitingFor === 'question' ? this.askIdOf(r.id, readAsks && self !== null) : null });
     }
     this.seen = seen;
     // 統括が無効なら、画面は取り込まない。
@@ -249,7 +249,7 @@ export class OrchestratorFeed {
       const turnEnd = cur.status === 'idle' || cur.waitingFor === 'question';
       const notified = this.notified.has(id);
       if (turnEnd) this.notified.delete(id);
-      if (p?.status === 'busy' && cur.status === 'idle' && notified && this.involved(self, id)) {
+      if (p && isTurnWorking(p.phase) && cur.phase === 'idle' && notified && this.involved(self, id)) {
         this.add({ key: `done:${id}`, kind: 'turn.done', sessionId: id, title: cur.title, tool: null, at: now });
       }
     }

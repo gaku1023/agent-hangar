@@ -101,7 +101,7 @@ function holdsFocus(el: Element | null, host: HTMLElement | null): boolean {
  * badgeAction を渡すと、行の状態の札がそのタブへ移るボタンになる（Home の ★）。
  * statusColumn が偽なら、状態の列（F1）を畳む。状態がどれも同じ一覧（Done のタブなど）で使う。動きの点は、列があれば札の中に、無ければ行の頭に置く。
  */
-export function SessionRows(props: RowsSource & { /** 一覧の高さ。省くと器（.screen-fill など）から受け取る。 */ height?: number | string; variant: RowVariant; emptyText?: string; /** 行が無いときの札。あれば emptyText の代わりに出す。 */ emptyNode?: ReactNode; autoFocus?: boolean; id?: string; page?: number; statusColumn?: boolean; badgeAction?: (status: StatusFilter) => UiAction; /** 並びの替わりを知らせる範囲（VirtualList の scope）。タブ、条件、ページが替わったら替える。 */ scope?: string }) {
+export function SessionRows(props: RowsSource & { /** 一覧の高さ。省くと器（.screen-fill など）から受け取る。 */ height?: number | string; variant: RowVariant; emptyText?: string; /** 行が無いときの札。あれば emptyText の代わりに出す。 */ emptyNode?: ReactNode; autoFocus?: boolean; id?: string; page?: number; statusColumn?: boolean; badgeAction?: (status: StatusFilter) => UiAction; /** 並びの替わりを知らせる範囲（VirtualList の scope）。タブ、条件、ページが替わったら替える。 */ scope?: string; /** 行の末尾（スクロールの中）に置くもの。行が 0 件のときも出す。 */ foot?: ReactNode }) {
   const emit = useEmit();
   const t = useT();
   const paneOf = usePaneOf();
@@ -251,7 +251,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   }, [bg, gitKey, gitIds]);
   useEffect(() => () => bg({ type: 'git.watch', key: gitKey, sessionIds: [] }), [bg, gitKey]);
 
-  if (items.length === 0) return <div className="list">{props.emptyNode ?? <div className="empty">{props.emptyText ?? t('row.empty.default')}</div>}</div>;
+  if (items.length === 0) return <div className="list">{props.emptyNode ?? <div className="empty">{props.emptyText ?? t('row.empty.default')}</div>}{props.foot}</div>;
 
   // 2 段目。頭に要約の見立ての札を置き（B1）、検索は一致箇所の抜粋を、ほかは要約の 1 文を出す。右端に PR の番号を置く。
   const flat = props.variant !== 'recent';
@@ -373,7 +373,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   return (
     <div className="rows-host" id={props.id} data-testid="session-rows" data-status-col={String(statusColumn)} ref={hostRef} tabIndex={-1} onKeyDown={onKeyDown} onFocus={onHostFocus} onBlur={onHostBlur}>
       <VirtualList items={items} rowHeight={(it) => (it.kind === 'head' ? SECTION_HEAD_H : SESSION_ROW_H)} height={props.height} keyOf={(it) => (it.kind === 'head' ? `head:${it.id}` : it.row.id)}
-        scope={props.scope} grows={(it) => it.kind === 'row' && !!it.row.phone} render={(it) => (it.kind === 'head' ? head(it) : rowEl(it.row))} />
+        scope={props.scope} foot={props.foot} grows={(it) => it.kind === 'row' && !!it.row.phone} render={(it) => (it.kind === 'head' ? head(it) : rowEl(it.row))} />
       {ctx && ctxMenu && <SessionMenuPop key={ctx.id} menu={ctxMenu} at={ctx.at} onClose={ctxClosed} />}
     </div>
   );

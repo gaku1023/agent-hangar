@@ -40,7 +40,7 @@ function mount(bindings: EventBindingDto[], first: Over = {}) {
   const tree = (o: Over) => {
     const base = initialStore().eventTrigger;
     const store = {
-      ...initialStore(), sync: SYNC, schedules: [],
+      ...initialStore(), settings: { eventTrigger: true } as never, sync: SYNC, schedules: [],
       projects: { p: { id: 'p', name: 'alpha', status: 'active', isScratch: false, resolved: true, path: '/w/alpha', lastActivityAt: null } } as never,
       eventTrigger: { ...base, ready: true, bindings, rev: o.rev ?? 0, form: { ...base.form, busy: o.busy ?? false, done: o.done ?? 0 } },
     };

@@ -1,6 +1,7 @@
 import { newId } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
+import { pathRefId } from '../db/pathRef.ts';
 import { upsertShared } from '../db/shared.ts';
 import type { Activity, AgentKind, IndexBatch, Limit } from '../agent/types.ts';
 import { artifactCallOf, isArtifactPublish, parsePublishedUrl, recordArtifactPublish } from '../artifacts/extract.ts';
@@ -8,6 +9,8 @@ import { indexTexts } from '../provider/claude-code/transcript/normalize.ts';
 import { pinnedProjectOf } from '../sessions/move.ts';
 import { clearOnNewPrompt } from '../sessions/states.ts';
 import { localDay } from '../usage/aggregate.ts';
+import { entrypointKind, nextHeadless } from './headless.ts';
+import { withFtsTail } from '../search/ftsTail.ts';
 import { stmt } from './statements.ts';
 
 // 索引の DB に書く側。どのエージェントの束（agent/types.ts の IndexBatch）も、ここで同じ表に書く。
@@ -33,7 +36,7 @@ export type ProcessStartOf = (q: { sessionId: string; providerSessionId: string;
 
 /**
  * remote が真なら他端末から降ろした写しである。sessions と session_summaries には書かない。
- * origin は束の出どころで、日別の使用量の鍵（usage_daily.file_path）と、本文を DB に持つ束の event_index.file_path_ref に入る。
+ * origin は束の出どころで、日別の使用量の鍵（usage_daily.file_path）と、本文を DB に持つ束の event_paths.path（event_index.path_id が指す）に入る。
  * ファイルの束ではファイルのパスを渡す。省けば storedOrigin で決める。
  * sessionId は、呼び手が既に引いた hangar の会話の id である（transcript_files の行など）。渡せば、削除と写しの見送りの確かめを省く。
  */
@@ -71,6 +74,8 @@ type Acc = {
   daily: Map<string, { input: number; output: number }>;
   /** ターンの終わりの印か、入力待ちの問いが新しく出たか。last_activity_at の共有の間引きを外す合図である。 */
   turnEnded?: boolean;
+  /** 束の行の entrypoint に、非対話（sdk-）と対話の入口が現れたか。session_stats.headless を決める（indexer/headless.ts）。 */
+  entry: { headless: boolean; interactive: boolean };
 };
 
 export type SessionRow = { id: string; deleted_at: number | null };
@@ -156,7 +161,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
   // 「いま何をしているか」は手元の主線だけから取る。サブエージェントと他端末の写しは見ない。
   const mainLocal = b.agentId === null && !remote;
 
-  const insEv = stmt(db, 'insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, file_path_ref, parent_agent, tool_name, file_path, fts_rowid) values (?,?,?,?,?,?,?,?,?,?,?)');
+  const insEv = stmt(db, 'insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, path_id, file_path_ref, parent_agent, tool_name, file_path, fts_rowid) values (?,?,?,?,?,?,?,\'\',?,?,?,?)');
   const insFts = stmt(db, 'insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)');
   // 本文を DB に持つ束（stored）は、イベントそのものを agent_events に写す（読むのは transcript/stored.ts）。
   const insBody = stmt(db, 'insert or replace into agent_events (session_id, agent_key, seq, body) values (?,?,?,?)');
@@ -191,14 +196,18 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
     let project: { id: string | null } | null = null;
     const projectOf = () => (project ??= { id: (stmt(db, 'select project_id from sessions where id = ?').get(sessionId) as { project_id: string | null }).project_id }).id;
     // seq は主線とサブエージェントで別々に振り、続きは既存の最大値の次から始める。束の中の seq はその上に乗せる。
+    // 束の中は同じファイルが続くので、パスの番号は引いたものを覚える。
+    const refIds = new Map<string, number>();
     const base = reset ? 0 : ((stmt(db, "select max(seq) m from event_index where session_id = ? and ifnull(parent_agent, '') = ?").get(sessionId, agentKey) as { m: number | null }).m ?? -1) + 1;
-    const acc: Acc = { userTurns: 0, input: 0, output: 0, daily: new Map() };
+    const acc: Acc = { userTurns: 0, input: 0, output: 0, daily: new Map(), entry: { headless: false, interactive: false } };
     let appended = 0;
     for (const r of b.records) {
       const events = r.events.map((e) => ({ ...e, seq: e.seq + base }));
       const offset = r.locator.kind === 'file' ? r.locator.offset : 0;
       const length = r.locator.kind === 'file' ? r.locator.length : 0;
       const ref = r.locator.kind === 'file' ? r.locator.path : origin;
+      let refId = refIds.get(ref);
+      if (refId === undefined) { refId = pathRefId(db, ref); refIds.set(ref, refId); }
       if (r.endsTurn) acc.turnEnded = true;
       // 検索の行はイベントごとに高々 1 つで、同じ seq を持つ。積んだ rowid を event_index に持たせ、消すときに rowid で引く（deleteIndexed）。
       const texts = new Map(indexTexts(events).map((t) => [t.seq, t]));
@@ -206,8 +215,8 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
         const toolName = ev.kind === 'tool_call' ? ev.name : null;
         const filePath = ev.kind === 'tool_call' ? ev.filePath ?? null : null;
         const t = texts.get(ev.seq);
-        const ftsRowid = t ? Number(insFts.run(sessionId, b.agentId, t.seq, t.role, t.text.slice(0, FTS_MAX_CHARS)).lastInsertRowid) : 0;
-        insEv.run(sessionId, ev.seq, ev.kind, ev.ts ?? null, offset, length, ref, b.agentId, toolName, filePath, ftsRowid);
+        const ftsRowid = t ? Number(insFts.run(sessionId, b.agentId, t.seq, t.role, withFtsTail(t.text.slice(0, FTS_MAX_CHARS))).lastInsertRowid) : 0;
+        insEv.run(sessionId, ev.seq, ev.kind, ev.ts ?? null, offset, length, refId, b.agentId, toolName, filePath, ftsRowid);
         if ((ev.kind === 'user' || ev.kind === 'assistant') && ev.ts !== undefined) acc.lastTurnTs = Math.max(acc.lastTurnTs ?? ev.ts, ev.ts);
         if (r.locator.kind === 'stored') insBody.run(sessionId, agentKey, ev.seq, JSON.stringify(ev));
         if (ev.kind === 'tool_call' && ev.name === 'Artifact' && isArtifactPublish(ev.input)) {
@@ -238,6 +247,8 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
       if (f.model) acc.model = f.model;
       if (f.modelSelected) acc.modelSelected = true;
       if (f.effort) acc.effort = f.effort;
+      const entry = entrypointKind(f.entrypoint);
+      if (entry !== null) acc.entry[entry] = true;
       if (f.costUsd !== undefined) acc.cost = (acc.cost ?? 0) + f.costUsd;
       if (f.contextTokens !== undefined) acc.contextTokens = f.contextTokens;
       if (f.contextSize !== undefined) acc.contextSize = f.contextSize;
@@ -372,12 +383,13 @@ function onlyActivityCreeps(base: Record<string, unknown>, next: Record<string, 
 function writeSessionStats(db: Db, sessionId: string, acc: Acc, reset: boolean): void {
   const st = stmt(db, 'select * from session_stats where session_id = ?').get(sessionId) as Record<string, unknown> | undefined;
   const base = reset || !st ? { turns: 0, input_tokens: 0, output_tokens: 0 } : { turns: st.turns as number, input_tokens: st.input_tokens as number, output_tokens: st.output_tokens as number };
-  stmt(db, `insert into session_stats (session_id, turns, model, effort, pr_url, input_tokens, output_tokens, first_ts, last_ts, last_prompt, last_turn_ts) values (?,?,?,?,?,?,?,?,?,?,?)
-    on conflict(session_id) do update set turns = excluded.turns, model = excluded.model, effort = excluded.effort, pr_url = excluded.pr_url, input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens, first_ts = excluded.first_ts, last_ts = excluded.last_ts, last_prompt = excluded.last_prompt, last_turn_ts = excluded.last_turn_ts`)
+  const headless = nextHeadless((st?.headless as number | null | undefined) ?? null, acc.entry, reset || !st);
+  stmt(db, `insert into session_stats (session_id, turns, model, effort, pr_url, input_tokens, output_tokens, first_ts, last_ts, last_prompt, last_turn_ts, headless) values (?,?,?,?,?,?,?,?,?,?,?,?)
+    on conflict(session_id) do update set turns = excluded.turns, model = excluded.model, effort = excluded.effort, pr_url = excluded.pr_url, input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens, first_ts = excluded.first_ts, last_ts = excluded.last_ts, last_prompt = excluded.last_prompt, last_turn_ts = excluded.last_turn_ts, headless = excluded.headless`)
     .run(sessionId, base.turns + acc.userTurns, acc.model ?? (reset ? null : st?.model ?? null), acc.effort ?? (reset ? null : st?.effort ?? null), acc.prUrl ?? (reset ? null : st?.pr_url ?? null),
       base.input_tokens + acc.input, base.output_tokens + acc.output,
       acc.firstTs ?? (reset ? null : st?.first_ts ?? null), acc.lastTs ?? (reset ? null : st?.last_ts ?? null),
       acc.lastPrompt ?? (reset ? null : st?.last_prompt ?? null),
-      acc.lastTurnTs ?? (reset ? null : st?.last_turn_ts ?? null));
+      acc.lastTurnTs ?? (reset ? null : st?.last_turn_ts ?? null), headless);
   refreshFilesChanged(db, sessionId);
 }

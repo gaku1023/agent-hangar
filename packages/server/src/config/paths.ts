@@ -33,29 +33,15 @@ export type Settings = {
    */
   toolsResolved?: boolean;
   /**
-   * 事後の要約を作るもの（0.6.0）。off は作らない、claude は claude -p、openai は OpenAI 互換の URL（lmStudioUrl）である。
-   * 鍵の無い設定（0.5.0 まで）は off として読む。0.5.0 までの既定（LM Studio、無ければ Claude）は、使っていない人にも常に警告を出していたためである。
-   * URL とモデルと切り替えの鍵（lmStudio*、summaryFallback）は残すので、openai を選び直せば前の宛先で動く。
+   * 事後の要約を作るもの（0.6.0）。off は作らない、claude は claude -p である。
+   * 鍵の無い設定（0.5.0 まで）と、外した openai の設定は off として読む。
    * `loadSettings` が必ず埋めるが、試験や古い呼び手が組んだ設定には無いことがあるので、読む側は無ければ off として読む（下の 2 つも同じく既定で読む）。
    */
   summaryEngine?: SummaryEngine;
   /** 要約に claude -p を使うときのモデル（--model）。既定は haiku。 */
   summaryClaudeModel?: string;
-  /** OpenAI 互換の要約器の入口。末尾の / は付けない。鍵の名前は LM Studio だけだった頃のまま残す（保存済みの設定を読み替えずに済む）。 */
-  lmStudioUrl: string;
-  /** 使うモデルの id。null なら /v1/models の先頭のモデルに任せる。 */
-  lmStudioModel: string | null;
-  /** OpenAI 互換の要約器へ Authorization: Bearer で渡す API キー。要らないサーバでは null。settings.json（0600）にだけ置き、画面へは有無だけを返す。 */
-  summaryApiKey?: string | null;
-  /** OpenAI 互換の要約器が使えないときに Claude のヘッドレスへ落とすかどうか。既定は切（使用枠を黙って使わない）。 */
-  summaryFallback: boolean;
   /** Claude のヘッドレスを 1 時間に何件まで呼ぶか。 */
   summaryHourlyCap: number;
-  /**
-   * ループバックの外の要約器を許すかどうか。
-   * 要約器には会話の本文が送られるので、既定では手元だけに閉じる。
-   */
-  allowExternalSummarizer: boolean;
   /**
    * 旧い承認の仕方（each か auto）。今は読まず、configKinds への移行（loadSettings）だけが読む。
    */
@@ -178,6 +164,8 @@ export type Settings = {
   peerChatAcceptFromPeers?: boolean;
   /** スマホの会話の頁からの送信を受けるか。この PC だけの設定で、同期しない。項目が無いうちは入りとして読む（phoneChatAcceptOf）。 */
   phoneChatAccept?: boolean;
+  /** 外のできごと（#563）を使うか。この PC だけの設定で、同期しない。項目が無いうちは切として読む（eventTriggerOf）。 */
+  eventTrigger?: boolean;
   /** 統括（全セッションを統括する常駐の会話）の設定。この PC だけで、同期しない。項目が無いうちは切（orchestratorOf）。 */
   orchestrator?: OrchestratorSetting;
   /** 机の音声の設定（聞き方、人格）。この PC だけで、同期しない。項目が無いうちは既定（voiceOf）。 */
@@ -185,14 +173,6 @@ export type Settings = {
   /** 統括が自分で許可してよい範囲。この PC だけで、同期しない。無いか null は既定（読み取りと検索だけ、permissionAutoToolsOf）。 */
   permissionPolicy?: PermissionPolicy | null;
 };
-
-/** 要約器の宛先に既定で許すホスト。 */
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
-
-/** 要約器の URL が手元を指しているか。読めない文字列は手元とみなさない。 */
-export function isLoopbackSummarizerUrl(v: string): boolean {
-  try { return LOOPBACK_HOSTS.has(new URL(v).hostname); } catch { return false; }
-}
 
 export function hangarHome(): string {
   return process.env.HANGAR_HOME ?? path.join(os.homedir(), '.agent-hangar');
@@ -232,7 +212,7 @@ export function readOrCreateDevice(home: string): DeviceInfo {
 }
 
 function defaultSettings(platform: NodeJS.Platform = process.platform): Settings {
-  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: defaultTerminalApp(platform), editor: { ...DEFAULT_EDITOR }, toolsResolved: false, summaryEngine: 'off', summaryClaudeModel: DEFAULT_SUMMARY_CLAUDE_MODEL, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKey: null, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null };
+  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: defaultTerminalApp(platform), editor: { ...DEFAULT_EDITOR }, toolsResolved: false, summaryEngine: 'off', summaryClaudeModel: DEFAULT_SUMMARY_CLAUDE_MODEL, summaryHourlyCap: 20, askStatusAtEnd: true, liveHints: true, autoDone: true, autoDoneIdleDays: DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null };
 }
 
 /**
@@ -266,9 +246,8 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   // 無く、設定の同期を入れていた旧い設定は、旧い承認の仕方と対象の入切から 1 回だけ作る（書き戻しは起動が通ってから）。
   if (s.configKinds !== undefined && !isConfigKindsPatch(s.configKinds)) delete s.configKinds;
   if (s.configKinds === undefined && s.configBundleSync === true && !newcomer) s.configKinds = migrateConfigKinds(s);
-  // 許しの無い外部の宛先は、読み込みのときに既定へ戻す。
-  // 手で書き換えた settings.json や、この制限より前に保存された設定から、会話の本文が外へ出ていかないようにする。
-  if (!s.allowExternalSummarizer && !isLoopbackSummarizerUrl(s.lmStudioUrl)) s.lmStudioUrl = defaultSettings().lmStudioUrl;
+  // 外した要約器の項目（OpenAI 互換の URL、モデル、API キー、切り替え、外部の許し）は、読み込みのときに捨てる。
+  for (const k of ['lmStudioUrl', 'lmStudioModel', 'summaryApiKey', 'summaryFallback', 'allowExternalSummarizer']) delete (s as Record<string, unknown>)[k];
   // 足す段のスイッチは真偽値だけを受ける。手で書き換えた値は既定（入り）に寄せる。
   if (typeof s.askStatusAtEnd !== 'boolean') s.askStatusAtEnd = true;
   if (typeof s.liveHints !== 'boolean') s.liveHints = true;
@@ -282,7 +261,6 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   // 要約エンジンとモデルの名前も、手で書き換えた値を既定に寄せる。モデルの名前は claude の引数へそのまま渡るので、形を確かめる。
   if (!isSummaryEngine(s.summaryEngine)) s.summaryEngine = 'off';
   if (!isModelName(s.summaryClaudeModel)) s.summaryClaudeModel = DEFAULT_SUMMARY_CLAUDE_MODEL;
-  if (typeof s.summaryApiKey !== 'string' || s.summaryApiKey.trim() === '') s.summaryApiKey = null;
   if (!isModelName(s.defaultModel)) s.defaultModel = null;
   // hangar が自分で行うことのスイッチも同じ。
   if (typeof s.autoDone !== 'boolean') s.autoDone = true;
@@ -303,6 +281,7 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   if (s.opencodeProviderPrep !== undefined) s.opencodeProviderPrep = providerPrepsOf(s.opencodeProviderPrep);
   if (s.peerChatAcceptFromPeers !== undefined && typeof s.peerChatAcceptFromPeers !== 'boolean') delete s.peerChatAcceptFromPeers;
   if (s.phoneChatAccept !== undefined && typeof s.phoneChatAccept !== 'boolean') delete s.phoneChatAccept;
+  if (s.eventTrigger !== undefined && typeof s.eventTrigger !== 'boolean') delete s.eventTrigger;
   // 統括の設定は形を検査する。オブジェクトでなければ項目ごと捨て、あれば取れない値だけ既定に寄せる。
   if (s.orchestrator !== undefined) {
     if (s.orchestrator !== null && typeof s.orchestrator === 'object' && !Array.isArray(s.orchestrator)) s.orchestrator = orchestratorOf(s.orchestrator);

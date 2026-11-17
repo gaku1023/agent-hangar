@@ -25,7 +25,7 @@ import { presentToasts } from './toasts.ts';
 const ja = translator('ja');
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
-const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
+const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, updatedAt: 1 });
 const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, lastTurnAt: null, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over });
 const runDto = (id: string, sessionId: string, endedAt: number | null = null): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: NOW - 60_000, endedAt, endReason: endedAt ? 'exited' : null, heartbeatAt: 1 });
 const tabDto = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null): TabDto => ({ id, runId, sessionId: 's1', kind, title: kind === 'agent' ? 'Claude' : `シェル ${id}`, tmuxName: `hangar-${runId}-${id}`, createdAt: 2, closedAt });
@@ -980,7 +980,7 @@ describe('presentNewSession', () => {
 describe('presentSettings（フェーズ 2）', () => {
   it('外部ターミナルの選択肢は動いている OS のものだけで、別の OS の値はその OS の既定として見せる', () => {
     const store = storeWith();
-    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'iterm', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'iterm', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, nodePath: null, claudePath: null };
     const mac = presentSettings(initialState(), store, Date.now(), 'darwin');
     expect(mac.terminalOptions).toEqual([{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }]);
     expect(mac.terminalApp).toBe('iterm');
@@ -998,7 +998,7 @@ describe('presentSettings（フェーズ 2）', () => {
   });
   it('ツールのパスと MCP のコマンド', () => {
     const store = storeWith();
-    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, nodePath: null, claudePath: null };
     // コマンドは hangar の呼び方にそろえる。準備の確かめが届く前は hangar と書く。
     expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', editor: { setting: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, name: 'VS Code' }, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: 'hangar cloud join <URL>', setupCloud: 'npm run hangar -- setup cloud' } });
     store.settings = null;
@@ -1274,18 +1274,16 @@ describe('ヘッダの使用量の切り替え（Codex の枠）', () => {
 });
 
 describe('presentProject の右レール', () => {
-  it('TODO とメモとアーティファクトを並べ、クイックセッションは印を付ける', () => {
+  it('TODO とアーティファクトを並べ、クイックセッションは印を付ける', () => {
     const store: Store = {
       ...initialStore(),
-      projects: { p1: { ...project('p1'), name: 'alpha', path: '/w/alpha', lastActivityAt: NOW, openTodoCount: 1, memoHead: '# alpha' } },
+      projects: { p1: { ...project('p1'), name: 'alpha', path: '/w/alpha', lastActivityAt: NOW, openTodoCount: 1 } },
       todos: { t2: todoDto('t2', 2, true), t1: todoDto('t1', 1) },
-      memos: { p1: { projectId: 'p1', markdown: '# alpha\n本文', updatedAt: 5 } },
       artifacts: { a1: artDto('a1'), a2: artDto('a2', { projectId: 'p2' }) },
     };
     const p = presentProject(initialState(), store, NOW, 'p1');
     expect(p.todos).toEqual([{ id: 't1', text: 'やる t1', done: false, position: 1, candidate: null }]);
     expect(p.doneTodos).toEqual([{ id: 't2', text: 'やる t2', done: true, position: 2, candidate: null }]);
-    expect(p.instructions.legacyNote).toBe('# alpha\n本文');
     expect(p.artifacts.map((a) => a.id)).toEqual(['a1']);
     expect(p.isScratch).toBe(false);
   });
@@ -1386,13 +1384,12 @@ describe('presentSettings のフェーズ 3 の項目', () => {
   it('要約器と statusline と使用量の集計を渡す', () => {
     const store: Store = {
       ...initialStore(),
-      settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, allowExternalSummarizer: false, nodePath: null, claudePath: null },
+      settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 5, nodePath: null, claudePath: null },
       statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true },
-      summarizerModels: ['gemma', 'qwen'],
       usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 10, outputTokens: 2, sessions: 1 }], projects: [] },
     };
     const p = presentSettings(initialState(), store);
-    expect(p).toMatchObject({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, summarizerModels: ['gemma', 'qwen'] });
+    expect(p).toMatchObject({ summaryHourlyCap: 5 });
     expect(p.commands.statusline).toBe('hangar statusline install');
     expect(p.statusline?.installed).toBe(true);
     expect(p.usageAggregate?.days).toHaveLength(1);
@@ -1485,17 +1482,16 @@ describe('presentProject の右レール（端）', () => {
   it('クイックセッションには印が付く。無いプロジェクトの右レールは空', () => {
     const store: Store = { ...initialStore(), projects: { sc: scratchProject() } };
     expect(presentProject(initialState(), store, NOW, 'sc').isScratch).toBe(true);
-    expect(presentProject(initialState(), store, NOW, 'nope')).toMatchObject({ notFound: true, isScratch: false, todos: [], instructions: { state: 'loading', rows: [], legacyNote: null }, artifacts: [] });
+    expect(presentProject(initialState(), store, NOW, 'nope')).toMatchObject({ notFound: true, isScratch: false, todos: [], instructions: { state: 'loading', rows: [] }, artifacts: [] });
   });
 });
 
 describe('presentSettings の既定値', () => {
   it('設定がまだ届いていないときの要約器の既定と null の項目', () => {
     const p = presentSettings(initialState(), initialStore());
-    expect(p).toMatchObject({ summaryEngine: 'off', summaryClaudeModel: 'haiku', summaryApiKeySet: false, lmStudioUrl: '', lmStudioModel: null, summaryFallback: false, summaryHourlyCap: 20 });
+    expect(p).toMatchObject({ summaryEngine: 'off', summaryClaudeModel: 'haiku', summaryHourlyCap: 20 });
     expect(p.injection).toMatchObject({ askStatusAtEnd: true, liveHints: true, defaultModel: null });
     expect(p.statusline).toBeNull();
-    expect(p.summarizerModels).toBeNull();
     expect(p.usageAggregate).toBeNull();
     expect(p.summarizerTest).toBeNull();
   });
@@ -1508,7 +1504,7 @@ describe('presentSettings の既定値', () => {
   });
 });
 
-const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null, ...over });
+const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, nodePath: null, claudePath: null, ...over });
 const syncStatus = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null, ...over });
 const lockDto = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, ...over });
 

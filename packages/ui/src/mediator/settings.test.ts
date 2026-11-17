@@ -59,14 +59,14 @@ describe('殻の操作', () => {
 });
 
 describe('ほかから変えられた設定（settings.changed）', () => {
-  const dto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+  const dto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, nodePath: null, claudePath: null };
   it('準備の確かめに効く欄が変わったら、準備の確かめを取り直す', () => {
     for (const key of ['claudePath', 'tmuxPath', 'nodePath', 'editor', 'workspaceRoot', 'claudeDir'] as const) {
       expect(run([server({ type: 'settings.changed', settings: dto, keys: [key] })]).effects, key).toEqual([{ kind: 'api.readiness' }]);
     }
   });
   it('効かない欄だけが変わったときは取り直さない', () => {
-    expect(run([server({ type: 'settings.changed', settings: dto, keys: ['summaryFallback', 'language'] })]).effects).toEqual([]);
+    expect(run([server({ type: 'settings.changed', settings: dto, keys: ['summaryHourlyCap', 'language'] })]).effects).toEqual([]);
   });
 });
 

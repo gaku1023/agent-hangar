@@ -64,7 +64,13 @@ export type NewSessionSeed = { request: string; quote: string; accounts?: { 'cla
   settings?: { agent: AgentKind; model: string | null; effort: string | null; permissionMode: string | null; mode: string | null; addDirs: string[] };
   /** 元の会話から分岐して始められるとき（Claude Code で、本文があり、止まっている会話）。見出しの「この会話の続きから」と、入力欄の上の元の会話の札に使う。 */
   fork?: { sessionId: string; name: string; last: string | null } };
-export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string; agent?: AgentKind; mode?: string; autoApprove?: boolean; prepKey?: string; prepChoice?: import('./launchPrep.ts').LaunchPrepChoice;
+/**
+ * 人のいない起動元。schedule は予定や出来事による自動の実行、session は別の会話（MCP の create_session、ほかの PC の会話からの頼み）。
+ * 人が起こしたときは付けない。起動の指示（server の launch/injection.ts）で、問いで止まらない段に替える。
+ */
+export type LaunchedBy = 'schedule' | 'session';
+export const isLaunchedBy = (v: unknown): v is LaunchedBy => v === 'schedule' || v === 'session';
+export type LaunchParams = { /** 人のいない起動元。人が起こしたときは省く。 */ launchedBy?: LaunchedBy; projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string; agent?: AgentKind; mode?: string; autoApprove?: boolean; prepKey?: string; prepChoice?: import('./launchPrep.ts').LaunchPrepChoice;
   /** 「この会話の続きから」。元の会話の hangar の id。Claude Code だけで、元の会話のプロジェクトと cwd で起こす（projectId、scratch、cwd、worktree は効かない）。 */
   fork?: string };
 /** 設定の同期（作り直した実装）のダイアログ。send は送るものの一覧、review は適用内容の確認、approve は届いたスキルなどの承認、conflicts は競合。 */
@@ -136,7 +142,6 @@ export type UiAction =
   | { type: 'todo.accept'; id: TodoId } | { type: 'todo.dismiss'; id: TodoId }
   // 直前の操作を戻す。todoId があれば、その TODO を消した操作を戻す（消した場所の帯の「元に戻す」）。
   | { type: 'todo.undo'; projectId: ProjectId; todoId?: TodoId }
-  | { type: 'memo.save'; projectId: ProjectId; markdown: string }
   // 指示とメモリ。load は読み直し（ダイアログを開いたとき）、openEditor はそのファイルをエディタで開く。
   | { type: 'instructions.load'; projectId: ProjectId } | { type: 'instructions.openEditor'; projectId: ProjectId; kind: InstructionFileKind; once?: KnownEditorId }
   // セットアップのすゝめ。写した md をエディタで開く（設定の連携の札の「手引きの中身を見る」）。
@@ -218,6 +223,8 @@ export type UiAction =
   | { type: 'git.watch'; key: string; sessionIds: SessionId[] }
   | { type: 'git.changes.load'; sessionId: SessionId } | { type: 'git.diff.load'; sessionId: SessionId; file: string } | { type: 'git.edits.load'; sessionId: SessionId; file: string }
   | { type: 'project.git.load'; projectId: ProjectId }
+  // 非対話の会話（claude -p など）の頁。offset を省くと件数だけ読み、渡すとそこから 1 頁（HEADLESS_PAGE 件）を読み足す。
+  | { type: 'project.headless.load'; projectId: ProjectId; offset?: number }
   // 差分のダイアログ。open は file を渡すとそのファイルを選んで開く。source は「作業ツリーとの差（git）」か「このセッションの編集」。
   | { type: 'diff.open'; sessionId: SessionId; file?: string } | { type: 'diff.select'; file: string } | { type: 'diff.source'; source: 'git' | 'session' }
   | { type: 'session.promote.open'; id: SessionId } | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean; /** 作る場所。作成場所（設定）が空のときだけ渡す。 */ parent?: string }

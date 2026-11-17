@@ -76,6 +76,21 @@ describe('wait_for_session', () => {
     expect(r.url).toContain(`session/${alphaId}`);
   });
 
+  it('裏のサブエージェントだけが動いている間は、本体のターンは終わっているので、待たずに finished を返す（SM1）', async () => {
+    goLive({ status: 'busy', aside: { shell: false, agents: 2 } });
+    const r = await wait({ timeout_seconds: 240 });
+    expect(r.state).toBe('finished');
+    expect(r.waited_seconds).toBeLessThan(5);
+  });
+
+  it('動いたあとで裏だけになっても、そこでターンの終わりとして返す（SM1）', async () => {
+    goLive({ status: 'busy' });
+    at(3000, () => goLive({ status: 'busy', aside: { shell: false, agents: 1 } }));
+    const r = await wait({ timeout_seconds: 60 });
+    expect(r.state).toBe('finished');
+    expect(r.waited_seconds).toBeLessThan(10);
+  });
+
   it('入力待ちになったら waiting と、何を待っているかを返す', async () => {
     goLive({ status: 'busy' });
     at(2000, () => goLive({ status: 'waiting', waitingFor: 'permission', permission: { tool: 'Bash', input: 'rm x', description: null } }));

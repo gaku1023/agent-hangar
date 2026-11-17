@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { isAgentKind, type CodexPermission, prepChoiceOf, type OrchestratorSetting, LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE, newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
+import { isAgentKind, isLaunchedBy, isTurnWorking, turnPhaseOf, type CodexPermission, prepChoiceOf, type OrchestratorSetting, LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE, newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
 import type { Account } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
@@ -389,12 +389,13 @@ export class RunManager {
    * 直前の run がほかの PC なら引き継ぎの段を、プロジェクトを 2 台以上の PC で使っていれば弱い 1 文を足す（runs/handover.ts）。
    * 段（InjectionEntry）に分けて返し、どう渡すかは driver が決める（Claude は段をつないで --append-system-prompt に渡す）。
    */
-  private injectionFor(projectId: string | null, cwd: string, handoverFrom?: string, agent: AgentKind = DEFAULT_AGENT): InjectionEntry[] {
+  private injectionFor(projectId: string | null, cwd: string, handoverFrom?: string, agent: AgentKind = DEFAULT_AGENT, launchedBy?: unknown): InjectionEntry[] {
     const p = projectId ? this.project(projectId) : null;
     const todos = projectId ? (this.db.prepare('select id, text from todos where project_id = ? and done = 0 and suggested_at is null and deleted_at is null order by position limit 10').all(projectId) as { id: string; text: string }[]) : [];
     const handover = handoverFrom ? handoverFacts(this.db, { sessionId: handoverFrom, selfDeviceId: this.deps.deviceId, cwd }) : null;
     const deviceCount = projectId ? projectDeviceCount(this.db, projectId) : 0;
-    const input = { projectName: p?.name ?? this.tr('project.name.uncategorized'), projectPath: cwd, todos, handover, deviceCount };
+    // 人のいない起動元は、知っている値だけを読む。画面の POST /api/runs から知らない値が来ても、人の起動として扱う。
+    const input = { projectName: p?.name ?? this.tr('project.name.uncategorized'), projectPath: cwd, todos, handover, deviceCount, ...(isLaunchedBy(launchedBy) ? { launchedBy } : {}) };
     const parts = this.deps.injection?.() ?? DEFAULT_INJECTION_PARTS;
     // opencode に足す量は設定の opencodeInjection で選ぶ（launch/injection.ts の renderOpencodeInjectionEntries）。
     if (agent === 'opencode') return renderOpencodeInjectionEntries(input, this.language(), parts, parts.opencode);
@@ -507,7 +508,7 @@ export class RunManager {
       cwd,
       hangarSessionId: sessionId,
       mcp: { url: this.mcpUrl(sessionId), secret },
-      instructions: this.injectionFor(projectId, cwd, handoverFrom, agent),
+      instructions: this.injectionFor(projectId, cwd, handoverFrom, agent, params.launchedBy),
       name: s(params.name),
       prompt: s(params.prompt),
       model: s(params.model),
@@ -1444,7 +1445,8 @@ export class RunManager {
     const l = this.liveOf(s.provider_session_id);
     if (!l) throw new RunError(409, msg('run.adopt.notRunning'));
     if (l.background) return this.attach(s.id);
-    if (l.status === 'busy') throw new RunError(409, msg('run.adopt.busy'));
+    // 裏だけが動く間も、動いている事実として引き取りを断る。
+    if (isTurnWorking(turnPhaseOf(l))) throw new RunError(409, msg('run.adopt.busy'));
     if (l.entrypoint !== 'cli') throw new RunError(409, msg('run.adopt.notCli'));
     if (this.adopting.has(s.id)) throw new RunError(409, msg('run.adopt.inProgress'));
     this.precheck(s.cwd);

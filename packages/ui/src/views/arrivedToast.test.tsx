@@ -8,7 +8,7 @@ import { initialStore } from '../store/store.ts';
 import { ToastStack } from './ToastStack.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
 
-const arrived = (id: string, over: Partial<ProjectDto> = {}): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: null, resolved: false, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1, unresolved: { kind: 'elsewhere', previousPath: `/o/${id}`, deviceName: 'Mac mini' }, ...over });
+const arrived = (id: string, over: Partial<ProjectDto> = {}): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: null, resolved: false, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 1, unresolved: { kind: 'elsewhere', previousPath: `/o/${id}`, deviceName: 'Mac mini' }, ...over });
 const storeOf = (list: ProjectDto[]) => ({ ...initialStore(), projects: Object.fromEntries(list.map((p) => [p.id, p])) });
 
 const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, blocked: false, arrived: null, update: null, whatsNew: null, join: null, ...over });

@@ -87,3 +87,22 @@ export function noteUnread(sessionId: string, text: string, count: number, sent:
 export function noteUnreadReady(sessionId: string, text: string, count: number, sent: NotifyTarget[], meta: UnreadMeta = { kind: 'done' }): void {
   fire(readyListeners, sessionId, text, count, sent, meta);
 }
+
+type NotifyCallListener = (sessionId: string) => void;
+const callListeners = new Set<NotifyCallListener>();
+
+/**
+ * notify_user が呼ばれたことの購読（2026-11-18）。戻り値を呼ぶと外す。
+ * 出し先が空でも（決まりでオフ、休みの会話）呼ばれたことは知らせる。聞くのはターンの終わりの受け皿（live/notifyFallback.ts）で、呼んだターンに代わりの未読を足さないためである。
+ */
+export function onNotifyCall(cb: NotifyCallListener): () => void {
+  callListeners.add(cb);
+  return () => { callListeners.delete(cb); };
+}
+
+/** notify_user が呼ばれたことを購読へ渡す。呼ぶのは notifyUserTool で、引数の検査を通った後に呼ぶ。 */
+export function noteNotifyCall(sessionId: string): void {
+  for (const cb of callListeners) {
+    try { cb(sessionId); } catch (e) { console.error('[unread] a listener failed', e instanceof Error ? e.constructor.name : typeof e); }
+  }
+}

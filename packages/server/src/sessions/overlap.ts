@@ -1,4 +1,4 @@
-import type { LiveSessionDto, LiveStatus, OverlapFileDto, SessionOverlapDto } from '@agent-hangar/shared';
+import { isTurnWorking, turnPhaseOf, type LiveSessionDto, type LiveStatus, type OverlapFileDto, type SessionOverlapDto } from '@agent-hangar/shared';
 import { touchRow } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
 import { EDIT_TOOLS } from '../indexer/write.ts';
@@ -174,7 +174,8 @@ export class OverlapWatch {
       if (h.at > at) break;
       status = h.status;
     }
-    return status === 'busy' || status === 'waiting';
+    const ph = turnPhaseOf({ status });
+    return isTurnWorking(ph) || ph === 'waiting';
   }
 
   private write(next: Map<string, SessionOverlapDto>, now: number): void {

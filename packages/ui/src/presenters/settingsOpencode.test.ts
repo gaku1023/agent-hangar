@@ -5,7 +5,7 @@ import { initialStore, type Store } from '../store/store.ts';
 import { presentSettings } from './settings.ts';
 
 // 設定の「連携 › opencode」（ベータ、試作の D1）。
-const SETTINGS: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+const SETTINGS: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, nodePath: null, claudePath: null };
 const FOUND: OpencodeStatusDto = { found: true, version: '2.2.4', verified: true };
 const store = (settings: Partial<SettingsDto> = {}, status: OpencodeStatusDto | null = FOUND): Store => ({ ...initialStore(), settings: { ...SETTINGS, ...settings }, opencodeStatus: status });
 const present = (s: Store, platform = 'darwin') => presentSettings({ ...initialState(), screen: { name: 'settings' } }, s, Date.now(), platform).opencode;

@@ -56,3 +56,48 @@ export function isParked(o: { status: SessionStatus | null; setBy: StateSetBy | 
   if ((o.status !== 'done' && o.status !== 'archived') || o.setBy === 'import' || o.setAt === null || o.live !== 'idle' || o.limited) return false;
   return o.processStartedAt !== null && o.processStartedAt + START_PRECISION_MS <= o.setAt;
 }
+
+/**
+ * セッションの段階。画面が Paused・Done・準備中を見分けるのと同じ決め方を、MCP の道具にも渡すための共有の関数である。
+ * preparing は、会話の ID がまだ決まっていない起動中の行（pending:…）で、プロセスもまだ無いもの。
+ * running は作業中か、状態の無い休み。waiting は入力待ち（quietLive を通すので、Paused や Done を付けた会話の問いは含めない）。
+ * paused と done は、状態を付けて休んでいるもの。Archived は done に含める。プロセスが残っていても、休みなら状態の側に寄せる。
+ * 作業中は、状態が付いていても running のままにする（動いている事実を見失わせない）。
+ * ended は、動いておらず状態も無いもの。
+ */
+export type SessionPhase = 'preparing' | 'running' | 'waiting' | 'paused' | 'done' | 'ended';
+
+export function sessionPhaseOf(o: { live: LiveStatus | null; status: SessionStatus | null | undefined; parked: boolean; woke?: boolean; providerSessionId: string }): SessionPhase {
+  const settled: SessionPhase | null = o.status === 'paused' ? 'paused' : o.status === 'done' || o.status === 'archived' ? 'done' : null;
+  if (o.parked) return 'done';
+  if (o.live === null) {
+    if (o.providerSessionId.startsWith('pending:')) return 'preparing';
+    return settled ?? 'ended';
+  }
+  const live = quietLive(o.live, o.status, o.woke ?? false);
+  if (live === 'busy') return 'running';
+  if (live === 'waiting') return 'waiting';
+  return settled ?? 'running';
+}
+
+/**
+ * ターンの段階。登録の busy・waiting・idle と、裏だけの印（aside）を 1 か所で読み分ける。
+ * running は本体が動いている。aside は本体が入力を受け付けていて、裏の作業だけが動いている（登録の status は busy のまま）。
+ * waiting は入力待ち、idle は休み、none は登録に居ない。
+ * server がターンの始まりと終わりを推すときは、status を直に見ず、この関数を通す。
+ */
+export type TurnPhase = 'running' | 'aside' | 'waiting' | 'idle' | 'none';
+
+export function turnPhaseOf(o: { status: LiveStatus | null | undefined; aside?: unknown }): TurnPhase {
+  if (o.status === 'busy') return o.aside ? 'aside' : 'running';
+  if (o.status === 'waiting') return 'waiting';
+  if (o.status === 'idle') return 'idle';
+  return 'none';
+}
+
+/** 動いている事実があるか。裏だけの作業も含む（止める、引き取る、の判断で見失わない）。 */
+export const isTurnWorking = (p: TurnPhase): boolean => p === 'running' || p === 'aside';
+/** 本体が返答を書いている最中か。裏だけの間は含まない（ターンの終わりを待つ側が使う）。 */
+export const isTurnRunning = (p: TurnPhase): boolean => p === 'running';
+/** 本体が入力を受け付けているか。休みと、裏だけの間。 */
+export const acceptsInput = (p: TurnPhase): boolean => p === 'idle' || p === 'aside';
