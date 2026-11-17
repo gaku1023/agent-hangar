@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import { permissionAutoToolsOf, type LiveSessionDto, type PeerChatAskStep, type PermissionPolicy } from '@agent-hangar/shared';
+import { pendingQuestionOf, type PendingQuestion } from '../agent/waiting.ts';
 import type { Db } from '../db/open.ts';
 import { displayName } from '../db/queries.ts';
+import { aliveRunForSession } from '../runs/queries.ts';
 import type { PeerChatLocal } from '../peer/chat/host.ts';
 import { deleteAutoApproval, insertAutoApproval } from './autoApprovals.ts';
 
@@ -17,6 +19,10 @@ import { deleteAutoApproval, insertAutoApproval } from './autoApprovals.ts';
  *   押す前に記録を書き、書けなければ打たず、打てなければ記録を消す。1 分に ORCHESTRATOR_POLICY_RATE 回まで。
  * - by: 'user' は、統括の今のターンが利用者の入力で始まったときだけ通す（userTurn）。
  * - Claude Code の会話だけに答える。Codex と opencode は answerable: false で載せ、伝えるだけにする。
+ *
+ * 答えられない札には、理由と PC の名前（unanswerable）を添え、統括が「どこで答えればよいか」を言えるようにする。
+ * 画面の札が読めない質問でも、hook と本文に残った問い（session_activity と AskUserQuestion の呼び出しの入力）から、本文と選択肢を出す。
+ * 2026-11-17 に、質問が出て 2〜3 秒の、画面に札がまだ描かれていない間に一覧を引き、本文も選択肢も空で伝えたことがあった。
  */
 
 /** by: 'policy' の答えの、1 分あたりの上限。超えたら断り、利用者へ知らせる（暴走の歯止め）。 */
@@ -31,6 +37,15 @@ const ANSWERED_KEEP_MS = 10 * 60_000;
  */
 const ONE_TIME_ALLOW = /^yes$/i;
 
+/**
+ * 統括が答えられない理由。
+ * - agent：Codex と opencode の会話（統括は Claude Code の会話にだけ答える）。
+ * - outside-hangar：hangar が起こしていない端末で動いている（この PC の hangar の画面が無い）。その端末で答えてもらう。
+ * - not-on-screen：hangar の画面はあるが、札がまだ読めない（出た直後の描き途中など）。数秒おいて一覧を引き直すと答えられることがある。
+ * - screen：画面の札は読めたが、中身が合わないか、統括が押せない形（タブの中の複数選択など）。
+ */
+export type UnanswerableReason = 'agent' | 'outside-hangar' | 'not-on-screen' | 'screen';
+
 export type PendingAsk = {
   ask_id: string;
   session_id: string;
@@ -42,6 +57,8 @@ export type PendingAsk = {
   description: string | null;
   options: { key: string; label: string }[];
   answerable: boolean;
+  /** 答えられない札だけに付く。device はその会話が動いている PC（この PC）の名前。 */
+  unanswerable?: { reason: UnanswerableReason; device: string | null };
   since: number | null;
   /**
    * 1 回の呼び出しに問いが複数ある質問の、今のタブ（index は 1 始まり）。
@@ -67,6 +84,10 @@ export type AnswerAskResult = { ok: true; label: string } | { ok: false; reason:
 
 export type OrchestratorAsksDeps = {
   db: Db;
+  /** この PC。hangar の run がこの PC のものかと、PC の名前を引くのに使う。 */
+  deviceId: string;
+  /** 画面の札が読めない質問の、hook と本文に残った問い。省けば agent/waiting.ts の pendingQuestionOf で DB から読む。 */
+  questionOf?(sessionId: string): PendingQuestion | null;
   /** この PC の実行中の一覧（agent/liveHub.ts）。 */
   live(): LiveSessionDto[];
   /** この PC の Claude Code の会話の札に答える口。無ければ全部を answerable: false にする。 */
@@ -97,6 +118,12 @@ export function createOrchestratorAsks(deps: OrchestratorAsksDeps): Orchestrator
   const policyTimes: number[] = [];
   let limitedUntil = 0;
 
+  const questionOf = deps.questionOf ?? ((id: string) => pendingQuestionOf(deps.db, id));
+  const deviceRow = deps.db.prepare('select name from devices where id = ?');
+  const deviceName = (): string | null => (deviceRow.get(deps.deviceId) as { name: string } | undefined)?.name ?? null;
+  /** hangar がこの PC で起こした run（画面のある tmux）があるか。 */
+  const hasPane = (sessionId: string): boolean => aliveRunForSession(deps.db, sessionId, deps.deviceId, now())?.deviceId === deps.deviceId;
+
   const sessionRow = deps.db.prepare(`select s.id, s.custom_title, sn.name, s.ai_title, s.first_prompt, p.name project from sessions s
     left join session_notes sn on sn.session_id = s.id and sn.deleted_at is null
     left join projects p on p.id = s.project_id and p.deleted_at is null
@@ -105,6 +132,8 @@ export function createOrchestratorAsks(deps: OrchestratorAsksDeps): Orchestrator
   /** 実行中の一覧の、許可か質問を待っている会話の札を全部（統括自身も含む）。 */
   function locate(): Located[] {
     const out: Located[] = [];
+    let device: string | null | undefined;
+    const why = (reason: UnanswerableReason) => ({ reason, device: device === undefined ? (device = deviceName()) : device });
     for (const l of deps.live()) {
       if (l.waitingFor !== 'permission' && l.waitingFor !== 'question') continue;
       const provider = l.agent ?? 'claude-code';
@@ -113,18 +142,25 @@ export function createOrchestratorAsks(deps: OrchestratorAsksDeps): Orchestrator
       const base = { session_id: row.id, title: displayName(row, l) ?? '', project: row.project, description: l.permission?.description ?? null, since: l.statusAt ?? null };
       const ask = provider === 'claude-code' ? deps.local?.currentAsk(row.id) ?? null : null;
       if (ask) {
+        const answerable = ask.answerable !== false;
         out.push({
           ...base, ask_id: hash(['claude-code', row.id, ask.askId]), peerAskId: ask.askId, kind: ask.kind,
-          tool: ask.tool ?? l.permission?.tool ?? null, input: ask.input ?? null, options: ask.options.map((o) => ({ key: o.key, label: o.label })), answerable: ask.answerable !== false,
+          tool: ask.tool ?? l.permission?.tool ?? null, input: ask.input ?? null, options: ask.options.map((o) => ({ key: o.key, label: o.label })), answerable,
+          ...(answerable ? {} : { unanswerable: why('screen') }),
           ...(ask.step ? { step: { ...ask.step } } : {}),
         });
         continue;
       }
-      // 答え手の無い会話（Codex、opencode）と、画面に札がまだ読めない Claude Code の会話は、伝えるだけにする。
+      // 答え手の無い会話（Codex、opencode）と、画面に札が読めない Claude Code の会話は、伝えるだけにする。
+      // 問いは hook と本文に残ったものから出す（答えるのは画面の札を見てからなので、ここで出す選択肢では押さない）。
       const kind = l.waitingFor;
       const tool = l.permission?.tool ?? null;
-      const input = l.permission?.input ?? null;
-      out.push({ ...base, ask_id: hash([provider, row.id, kind, tool, input, l.statusAt ?? null]), peerAskId: null, kind, tool, input, options: [], answerable: false });
+      const asking = kind === 'question' || tool === 'AskUserQuestion';
+      const q = asking ? questionOf(row.id) : null;
+      const input = q?.text ?? l.permission?.input ?? null;
+      const options = (q?.options ?? []).map((label, i) => ({ key: String(i + 1), label }));
+      const reason: UnanswerableReason = provider !== 'claude-code' ? 'agent' : hasPane(row.id) ? 'not-on-screen' : 'outside-hangar';
+      out.push({ ...base, ask_id: hash([provider, row.id, kind, tool, l.permission?.input ?? null, l.statusAt ?? null]), peerAskId: null, kind, tool, input, options, answerable: false, unanswerable: why(reason) });
     }
     return out;
   }

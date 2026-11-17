@@ -10420,6 +10420,10 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   ほかの PC からの答えと同じ照合（札の道具と主な引数）と記録を通るので、同じ札に 2 度は打たず、利用者やスマホが先に答えれば打たずに断る。
   ほかの PC からの頼みの入り切り（`peerChatAcceptFromPeers`）には縛られない。
   答えられるのはこの PC の Claude Code の会話だけで、Codex と opencode と画面で読めない札は `answerable: false` で載せ、統括は伝えるだけにする。
+  答えられない札には `unanswerable: { reason, device }` を添え、統括が「どこで答えればよいか」を言えるようにする。
+  `reason` は `agent`（Codex と opencode）、`outside-hangar`（この PC の hangar の run が無い。hangar の外の端末で動いている）、`not-on-screen`（hangar の画面はあるが札がまだ読めない）、`screen`（画面の札は読めたが統括が押せない形）で、`device` はこの PC の名前である。
+  画面の札が読めない質問でも、本文と選択肢は hook と本文に残った問いから出す（`agent/waiting.ts` の `pendingQuestionOf`。文は `session_activity`、選択肢はその呼び出しの入力の最初の問いの `options`）。
+  2026-11-17 に、質問が出て 2〜3 秒の、画面に札がまだ描かれていない間に一覧を引き、本文も選択肢も空で伝えたことがあった。`not-on-screen` は数秒おいて引き直せば答えられることがある。
   `ask_id` は hangar の会話の id と、答え手の askId（札の道具の呼び出しから決まる）から作る。
   答え手の無い札は、会話の id、種類、道具、主な引数、待ちに入った時刻から作る。
 - **問いが複数ある質問：** AskUserQuestion の 1 回の呼び出しに問いが 2 つ以上あると、Claude Code は頭の行（`← ☒ voicebox ☐ 進め方 ✔ Submit →`）のタブで 1 問ずつ出す。

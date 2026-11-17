@@ -26,12 +26,15 @@ type World = {
   userTurn: boolean;
   limited: number;
   now: number;
+  questions: Map<string, { text: string; options: string[] }>;
 };
 
 let w: World;
 const svc = () => createOrchestratorAsks({
   db: w.db,
+  deviceId: 'd',
   live: () => w.live,
+  questionOf: (sessionId) => w.questions.get(sessionId) ?? null,
   local: {
     currentAsk: (sessionId) => w.asks.get(sessionId) ?? null,
     answer: async (sessionId, askId, keys, text) => {
@@ -51,15 +54,21 @@ const svc = () => createOrchestratorAsks({
 function addSession(id: string, provider: string, providerId: string, title: string): void {
   w.db.prepare('insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device, custom_title) values (?, ?, ?, ?, ?, 1, ?, ?)').run(id, provider, providerId, '/w', 'd', 'd', title);
 }
+function addRun(sessionId: string, device = 'd'): void {
+  w.db.prepare('insert into runs (id, session_id, device_id, kind, tmux_name, started_at, heartbeat_at, launch_params, updated_at, origin_device) values (?,?,?,?,?,?,?,?,?,?)')
+    .run(`run-${sessionId}`, sessionId, device, 'start', `hangar-${sessionId}`, 1, w.now, '{}', 1, device);
+}
 const waiting = (sessionId: string, over: Partial<LiveSessionDto> = {}): LiveSessionDto => ({ sessionId, status: 'waiting', name: null, nameSource: null, cwd: '/w', pid: 1, statusAt: 100, waitingFor: 'permission', ...over });
 const permAsk = (askId: string, tool: string, input: string): PeerChatAsk => ({ askId, kind: 'permission', tool, input, options: OPTIONS, multi: false, allowText: false });
 
 beforeEach(() => {
-  w = { db: openDb(':memory:'), live: [], asks: new Map(), typed: [], result: { ok: true, label: 'Yes' }, policy: null, userTurn: true, limited: 0, now: 1_000_000 };
+  w = { db: openDb(':memory:'), live: [], asks: new Map(), typed: [], result: { ok: true, label: 'Yes' }, policy: null, userTurn: true, limited: 0, now: 1_000_000, questions: new Map() };
+  w.db.prepare("insert into devices (id, name, platform, last_seen_at, updated_at, origin_device) values ('d', 'MacBook', 'darwin', 1, 1, 'd'), ('other', 'Win', 'win32', 1, 1, 'other')").run();
   addSession('orch', 'claude-code', 'u-orch', '統括');
   addSession('s1', 'claude-code', 'u-s1', 'ログイン修正');
   addSession('s2', 'codex', 't-s2', 'Codex の会話');
   addSession('s3', 'opencode', 'o-s3', 'opencode の会話');
+  addRun('s1');
   w.live = [
     waiting('u-orch', { permission: { tool: 'Read', input: '/etc/hosts', description: null } }),
     waiting('u-s1', { permission: { tool: 'Read', input: '/w/a.txt', description: 'read a' } }),
@@ -106,6 +115,52 @@ describe('list_pending_asks', () => {
     const a = askOf('s1').ask_id;
     expect(askOf('s1').ask_id).toBe(a);
     expect(svc().list('other').asks.find((x) => x.session_id === 'orch')!.ask_id).not.toBe(a);
+  });
+
+  describe('画面の札が読めない質問（answerable: false）', () => {
+    beforeEach(() => {
+      addSession('q1', 'claude-code', 'u-q1', '質問の会話');
+      w.live.push(waiting('u-q1', { waitingFor: 'question', permission: { tool: 'AskUserQuestion', input: '', description: null } }));
+      w.questions.set('q1', { text: 'このセッションをどうしますか', options: ['Done にする', 'Paused · 2026-11-18', 'まだ続ける'] });
+    });
+    it('hook と本文の問いから、本文と選択肢を出す', () => {
+      expect(askOf('q1')).toMatchObject({
+        kind: 'question', tool: 'AskUserQuestion', input: 'このセッションをどうしますか', answerable: false,
+        options: [{ key: '1', label: 'Done にする' }, { key: '2', label: 'Paused · 2026-11-18' }, { key: '3', label: 'まだ続ける' }],
+      });
+    });
+    it('hangar の run が無ければ、hangar の外の端末として、この PC の名前を添える', () => {
+      expect(askOf('q1').unanswerable).toEqual({ reason: 'outside-hangar', device: 'MacBook' });
+    });
+    it('hangar の run があって画面の札がまだ読めなければ、not-on-screen', () => {
+      addRun('q1');
+      expect(askOf('q1').unanswerable).toEqual({ reason: 'not-on-screen', device: 'MacBook' });
+    });
+    it('ほかの PC の run しかなければ、hangar の外の端末とみなす', () => {
+      addRun('q1', 'other');
+      expect(askOf('q1').unanswerable?.reason).toBe('outside-hangar');
+    });
+    it('問いが記録に無ければ、本文は許可の入力のまま、選択肢は空', () => {
+      w.questions.delete('q1');
+      expect(askOf('q1')).toMatchObject({ input: '', options: [] });
+    });
+    it('答えようとしても not-answerable', async () => {
+      addRun('q1');
+      const r = await svc().answer('orch', { askId: askOf('q1').ask_id, option: '1', by: 'user' });
+      expect(r).toEqual({ ok: false, reason: 'not-answerable' });
+      expect(w.typed).toEqual([]);
+    });
+  });
+  it('Codex と opencode は理由を agent にする', () => {
+    expect(askOf('s2').unanswerable).toEqual({ reason: 'agent', device: 'MacBook' });
+    expect(askOf('s3').unanswerable?.reason).toBe('agent');
+  });
+  it('画面の札が読めても答えられない形なら、理由を screen にする', () => {
+    w.asks.set('s1', { ...permAsk('peer-s1', 'Read', '/w/a.txt'), answerable: false });
+    expect(askOf('s1')).toMatchObject({ answerable: false, unanswerable: { reason: 'screen', device: 'MacBook' } });
+  });
+  it('答えられる札には unanswerable を付けない', () => {
+    expect(askOf('s1')).not.toHaveProperty('unanswerable');
   });
 });
 
