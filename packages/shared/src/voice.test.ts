@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_VOICE_PERSONA, isVoiceEvent, isVoicePatch, voiceOf } from './voice.ts';
+import { DEFAULT_VOICE_PERSONA, isVoiceEvent, isVoiceId, KOKORO_VOICES, isVoicePatch, voiceOf } from './voice.ts';
 
 describe('isVoiceEvent', () => {
   it('約束どおりの形の行を受ける', () => {
@@ -13,6 +13,8 @@ describe('isVoiceEvent', () => {
       { ev: 'speaking', id: 'r1', state: 'end' },
       { ev: 'micUsers', bundles: ['us.zoom.xos'] },
       { ev: 'error', code: 'x', message: 'y' },
+      { ev: 'voices', os: [] },
+      { ev: 'voices', os: [{ id: 'com.apple.voice.compact.ja-JP.Kyoko', name: 'Kyoko' }] },
     ]) expect(isVoiceEvent(e), JSON.stringify(e)).toBe(true);
   });
 
@@ -32,6 +34,11 @@ describe('isVoiceEvent', () => {
       { ev: 'micUsers', bundles: [1] },
       { ev: 'micUsers', bundles: 'zoom' },
       { ev: 'error', code: 1, message: 'y' },
+      { ev: 'voices' },
+      { ev: 'voices', os: 'x' },
+      { ev: 'voices', os: [{ id: 'a' }] },
+      { ev: 'voices', os: [{ id: 1, name: 'a' }] },
+      { ev: 'voices', os: [null] },
     ]) expect(isVoiceEvent(e), JSON.stringify(e)).toBe(false);
   });
 });
@@ -74,5 +81,32 @@ describe('人格の値の検証', () => {
     expect(v.personas[0]).toMatchObject({ name: 'ミナ', reading: '', tone: '' });
     const bad = voiceOf({ personas: [persona({ name: 'ミ\nナ' })] });
     expect(bad.personas).toEqual([DEFAULT_VOICE_PERSONA]);
+  });
+});
+
+describe('isVoiceId', () => {
+  it('4 つの形を受け、style id は非負の整数だけ', () => {
+    for (const v of ['kokoro:jf_alpha', 'os:com.apple.voice.x', 'voicevox:3', 'voicevox:0', 'aivis:888753760']) expect(isVoiceId(v), v).toBe(true);
+    for (const v of ['voicevox:x', 'voicevox:', 'aivis:-1', 'aivis:1.5', 'aivis:1a', 'voicevox:3 ', 'other:1', 'kokoro:', 7, null]) expect(isVoiceId(v), String(v)).toBe(false);
+  });
+});
+
+describe('voiceLabel', () => {
+  it('既定は jf_alpha で、KOKORO_VOICES は 5 つ', () => {
+    expect(DEFAULT_VOICE_PERSONA.voiceLabel).toBe('jf_alpha');
+    expect(KOKORO_VOICES).toEqual(['jf_alpha', 'jf_gongitsune', 'jf_nezumi', 'jf_tebukuro', 'jm_kumo']);
+  });
+  it('PATCH は 0〜40 字で制御文字なしの voiceLabel を受け、省けば受ける', () => {
+    for (const p of [persona({ voiceLabel: '' }), persona({ voiceLabel: 'VOICEVOX:ずんだもん（あまあま）' }), persona({ voiceLabel: 'あ'.repeat(40) }), persona({})]) expect(isVoicePatch({ personas: [p] }), JSON.stringify(p)).toBe(true);
+  });
+  it('PATCH は 41 字、制御文字、文字でない値を断る', () => {
+    for (const p of [persona({ voiceLabel: 'あ'.repeat(41) }), persona({ voiceLabel: 'a\nb' }), persona({ voiceLabel: 3 })]) expect(isVoicePatch({ personas: [p] }), JSON.stringify(p)).toBe(false);
+  });
+  it('読み込みでは、合う値は残し、合わない値と無い値は空にする', () => {
+    expect(voiceOf({ personas: [persona({ voiceLabel: 'ずんだもん' })] }).personas[0]!.voiceLabel).toBe('ずんだもん');
+    expect(voiceOf({ personas: [persona({ voiceLabel: 'あ'.repeat(41) })] }).personas[0]!.voiceLabel).toBe('');
+    expect(voiceOf({ personas: [persona({ voiceLabel: 'a\u0007' })] }).personas[0]!.voiceLabel).toBe('');
+    expect(voiceOf({ personas: [persona({})] }).personas[0]!.voiceLabel).toBe('');
+    expect(voiceOf({ personas: [persona({ voice: 'voicevox:3' })] }).personas[0]!.voice).toBe('voicevox:3');
   });
 });

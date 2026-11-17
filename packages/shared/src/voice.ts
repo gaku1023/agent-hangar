@@ -17,6 +17,7 @@ export type VoiceCommand =
   | { cmd: 'speak'; id: string; text: string; voice: string; speed: number }
   | { cmd: 'stopSpeaking' }
   | { cmd: 'prepare' }
+  | { cmd: 'voices' }
   | { cmd: 'quit' };
 
 export type VoiceModelState = 'missing' | 'downloading' | 'loading' | 'ready' | 'failed';
@@ -30,6 +31,7 @@ export type VoiceEvent =
   | { ev: 'flushed' }
   | { ev: 'speaking'; id: string; state: 'start' | 'end' | 'stopped' }
   | { ev: 'micUsers'; bundles: string[] }
+  | { ev: 'voices'; os: Array<{ id: string; name: string }> }
   | { ev: 'error'; code: string; message: string };
 
 const MODEL_STATES: readonly VoiceModelState[] = ['missing', 'downloading', 'loading', 'ready', 'failed'];
@@ -52,23 +54,35 @@ export function isVoiceEvent(v: unknown): v is VoiceEvent {
     case 'flushed': return true;
     case 'speaking': return isStr(o.id) && isStr(o.state) && SPEAKING_STATES.includes(o.state);
     case 'micUsers': return Array.isArray(o.bundles) && o.bundles.every(isStr);
+    case 'voices': return Array.isArray(o.os) && o.os.every((x) => !!x && typeof x === 'object' && !Array.isArray(x) && isStr((x as Record<string, unknown>).id) && isStr((x as Record<string, unknown>).name));
     case 'error': return isStr(o.code) && isStr(o.message);
     default: return false;
   }
 }
 
-/** 人格。呼びかけ語の名前と読み、統括の口調、読み上げの声と速さ。声は `os:<識別子>` か `kokoro:<声>`。 */
-export type VoicePersona = { id: string; name: string; reading: string; tone: string; voice: string; speed: number };
+/**
+ * 人格。呼びかけ語の名前と読み、統括の口調、読み上げの声と速さ。
+ * 声は `kokoro:<声>`、`os:<識別子>`、`voicevox:<style id>`、`aivis:<style id>`（style id は非負の整数）。
+ * voiceLabel は設定の行の一言（VOICEVOX のクレジットの形）で、エンジンから声が消えても行に出せるよう、選んだときに書き残す。
+ */
+export type VoicePersona = { id: string; name: string; reading: string; tone: string; voice: string; voiceLabel: string; speed: number };
+
+export type VoiceSourceId = 'kokoro' | 'voicevox' | 'aivis' | 'os';
+/** 声の一覧（GET /api/voice/voices）。並びは kokoro・voicevox・aivis・os。running が偽の出どころは speakers が空。 */
+export type VoiceCatalog = { sources: Array<{ id: VoiceSourceId; running: boolean; speakers: Array<{ name: string; styles: Array<{ name: string; voice: string }> }> }> };
+
+/** Kokoro の声（同梱の固定の一覧）。 */
+export const KOKORO_VOICES = ['jf_alpha', 'jf_gongitsune', 'jf_nezumi', 'jf_tebukuro', 'jm_kumo'] as const;
 
 /** 設定の voice。この PC だけで、同期しない。 */
 export type VoiceSetting = { mode: VoiceMode; personaId: string; personas: VoicePersona[]; asrModel?: string };
 
-export const DEFAULT_VOICE_PERSONA: VoicePersona = { id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'kokoro:jf_alpha', speed: 1.2 };
+export const DEFAULT_VOICE_PERSONA: VoicePersona = { id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'kokoro:jf_alpha', voiceLabel: 'jf_alpha', speed: 1.2 };
 export const DEFAULT_VOICE: VoiceSetting = { mode: 'off', personaId: DEFAULT_VOICE_PERSONA.id, personas: [DEFAULT_VOICE_PERSONA] };
 
 const MODES: readonly VoiceMode[] = ['off', 'toggle', 'always'];
 export const isVoiceMode = (v: unknown): v is VoiceMode => typeof v === 'string' && (MODES as readonly string[]).includes(v);
-const isVoiceId = (v: unknown): v is string => typeof v === 'string' && /^(os|kokoro):\S+$/.test(v);
+export const isVoiceId = (v: unknown): v is string => typeof v === 'string' && /^((os|kokoro):\S+|(voicevox|aivis):\d+)$/.test(v);
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const charLen = (s: string): number => Array.from(s).length;
 const CONTROL = /\p{Cc}/u;
@@ -80,6 +94,7 @@ const CONTROL = /\p{Cc}/u;
  */
 const isPersonaName = (s: string): boolean => charLen(s) >= 1 && charLen(s) <= 20 && !CONTROL.test(s);
 const isPersonaReading = (s: string): boolean => s === '' || /^[\u3041-\u3096\u309d\u309eー]{2,20}$/u.test(s);
+const isVoiceLabel = (s: string): boolean => charLen(s) <= 40 && !CONTROL.test(s);
 const isPersonaTone = (s: string): boolean => charLen(s) <= 300 && !CONTROL.test(s.replace(/\n/g, '')) && (s.match(/\n/g)?.length ?? 0) <= 3;
 
 /**
@@ -96,13 +111,16 @@ function personaOf(raw: unknown, strict = false): VoicePersona | null {
   const tone = 'tone' in o && o.tone !== undefined ? str(o.tone)?.trim() ?? null : '';
   const readingOk = reading !== null && isPersonaReading(reading);
   const toneOk = tone !== null && isPersonaTone(tone);
-  if (strict && (!readingOk || !toneOk)) return null;
+  const label = 'voiceLabel' in o && o.voiceLabel !== undefined ? str(o.voiceLabel) : '';
+  const labelOk = label !== null && isVoiceLabel(label);
+  if (strict && (!readingOk || !toneOk || !labelOk)) return null;
   const speed = typeof o.speed === 'number' && Number.isFinite(o.speed) && o.speed >= 0.5 && o.speed <= 2 ? o.speed : DEFAULT_VOICE_PERSONA.speed;
   return {
     id, name,
     reading: readingOk ? reading : '',
     tone: toneOk ? tone : '',
     voice: isVoiceId(o.voice) ? o.voice : DEFAULT_VOICE_PERSONA.voice,
+    voiceLabel: labelOk ? label : '',
     speed,
   };
 }

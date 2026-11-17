@@ -1,9 +1,11 @@
 import type { Hono } from 'hono';
 import { translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
+import { isVoiceId } from '@agent-hangar/shared';
+import { buildCatalog, isEngineId, openEngine } from '../../voice/catalog.ts';
 import { BODY_LIMITS, readJson, tooLargeResult } from './common.ts';
 
-export type VoiceRouteDeps = Pick<AppDeps, 'voice'> & LanguageDeps;
+export type VoiceRouteDeps = Pick<AppDeps, 'voice' | 'voiceEngine'> & LanguageDeps;
 
 /**
  * 机の音声の口（docs/design.md「机の音声」）。
@@ -39,6 +41,37 @@ export function voiceRoutes(api: Hono, deps: VoiceRouteDeps): void {
     if (typeof b.value.text !== 'string') return c.json({ error: tr('common.field.mustBeString', { field: 'text' }) }, 400);
     if (!deps.voice) return c.json(unavailable(), 409);
     return deps.voice.speak(b.value.id, b.value.text) ? c.json({ ok: true }) : c.json(unavailable(), 409);
+  });
+
+  api.get('/voice/voices', async (c) => {
+    const os = await deps.voice?.osVoices();
+    if (!os) return c.json(unavailable(), 409);
+    const e = deps.voiceEngine;
+    return c.json(await buildCatalog({ os, env: e?.env ?? process.env, ...(e?.fetch ? { fetch: e.fetch } : {}), ...(e?.timeoutMs !== undefined ? { timeoutMs: e.timeoutMs } : {}) }));
+  });
+
+  api.post('/voice/preview', async (c) => {
+    const b = await body(c);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.memo, tr);
+    const { voice, speed, text } = b.value;
+    if (!isVoiceId(voice)) return c.json({ error: tr('common.field.mustBeString', { field: 'voice' }) }, 400);
+    if (typeof speed !== 'number' || !Number.isFinite(speed) || speed < 0.5 || speed > 2) return c.json({ error: tr('common.field.needed', { field: 'speed' }) }, 400);
+    if (text !== undefined && (typeof text !== 'string' || text.trim() === '' || Array.from(text).length > 200)) return c.json({ error: tr('common.field.mustBeString', { field: 'text' }) }, 400);
+    if (!deps.voice) return c.json(unavailable(), 409);
+    const line = typeof text === 'string' ? text : tr('orchestratorPane.preview.sample', { name: deps.voice.personaName() });
+    return deps.voice.preview(voice, speed, line) ? c.json({ ok: true }) : c.json(unavailable(), 409);
+  });
+
+  api.post('/voice/engine', async (c) => {
+    const b = await body(c);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.memo, tr);
+    if (!isEngineId(b.value.source)) return c.json({ error: tr('common.field.mustBeString', { field: 'source' }) }, 400);
+    if (!deps.voice) return c.json(unavailable(), 409);
+    const e = deps.voiceEngine;
+    const r = await openEngine(b.value.source, { platform: e?.platform ?? process.platform, ...(e?.exec ? { exec: e.exec } : {}) });
+    if (r === 'ok') return c.json({ ok: true });
+    if (r === 'unsupported') return c.json(unavailable(), 409);
+    return c.json({ error: tr('orchestratorPane.error.engineOpen', { reason: r.failed }) }, 502);
   });
 
   api.post('/voice/stop', (c) => (deps.voice?.stopSpeaking() ? c.json({ ok: true }) : c.json(unavailable(), 409)));
