@@ -64,5 +64,9 @@ export const launchPrepEn: AreaDictionary<typeof launchPrepKeys> = {
   'launchPrep.error.notFound': 'No preparation in progress.',
   'launchPrep.error.modelMissing': '{model} is not on this PC. Available: {available}',
   'launchPrep.error.modelMissingNone': '{model} is not on this PC. No models found in {name}.',
+  'launchPrep.error.modelNotOnDevice': '{model} is not available in opencode on {device}. Available: {available}',
+  'launchPrep.error.modelNotOnDeviceNone': '{model} is not available in opencode on {device}. No models are available.',
+  'launchPrep.error.listMore': '{list}, and {n} more',
+  'launchPrep.device.thisPc': 'this PC',
   'launchPrep.error.serverDown': 'Can\'t connect to the {name} API server ({url}). Start the server and try again.',
 };

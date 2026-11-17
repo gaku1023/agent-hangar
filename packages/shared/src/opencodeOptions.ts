@@ -35,6 +35,21 @@ export type OpencodeProviderOption = { id: string; name: string; where: Opencode
  * pricesAt は models.dev から料金を取った時刻（ミリ秒）で、まだ取れていなければ null。モデルの小窓の下端に出す。
  * fetchedAt は serve から取った時刻（ミリ秒）。stale は、取り直せずに前に取った一覧を返したときに真になる。
  */
+/** OpenCode Zen のプロバイダーの ID。 */
+export const OPENCODE_ZEN_PROVIDER = 'opencode';
+
+/**
+ * opencode.json の既定がその PC で使えないときに、代わりに選ぶモデル（#698）。既定が使えるとき、既定が無いときは null。
+ * 代わりは OpenCode Zen の無料で deepseek を含むもの、Zen の無料の先頭、使える先頭の順に選ぶ。Zen の無料のモデルは入れ替わるので、名前ではなく決まりで選ぶ。
+ * 使えるのは、ローカルのサーバーに無いもの（missing）とツール呼び出しに対応しないものを除いた行。使えるモデルが 1 つも無ければ null。
+ */
+export function opencodeFallbackModel(o: { models: readonly OpencodeModelOption[]; defaultModel: string | null }): string | null {
+  if (o.defaultModel === null || o.models.some((m) => m.id === o.defaultModel && m.missing !== true)) return null;
+  const usable = o.models.filter((m) => m.missing !== true && m.tools);
+  const zenFree = usable.filter((m) => m.provider === OPENCODE_ZEN_PROVIDER && m.cost !== null && m.cost.input === 0 && m.cost.output === 0);
+  return (zenFree.find((m) => /deepseek/i.test(m.id)) ?? zenFree[0] ?? usable[0])?.id ?? null;
+}
+
 export type OpencodeOptionsDto = {
   version: string | null;
   verified: boolean;

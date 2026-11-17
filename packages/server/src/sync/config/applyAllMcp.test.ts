@@ -42,14 +42,14 @@ function deliver(items: In[]): void {
 }
 
 const codexModel: In = { id: codexTomlId(['model']), kind: 'codex-config', op: 'overwrite', value: 'new', target: 'config.toml#model' };
-const ocModel: In = { id: 'opencode:json:model', kind: 'opencode-config', op: 'overwrite', value: 'm2', target: 'opencode.json#model' };
+const ocModel: In = { id: 'opencode:json:theme', kind: 'opencode-config', op: 'overwrite', value: 'm2', target: 'opencode.json#theme' };
 const claudeSrv: In = { id: mcpIdOf(CLAUDE_MCP_PREFIX, 'docs'), kind: 'claude-mcp', op: 'create', value: { type: 'stdio', command: 'npx', args: ['-y', 'docs-mcp'] }, target: '.claude.json#mcpServers.docs' };
 const codexSrv: In = { id: mcpIdOf(CODEX_MCP_PREFIX, 'docs'), kind: 'codex-mcp', op: 'create', value: { command: 'npx', args: ['-y', 'docs-mcp'] }, target: 'config.toml#mcp_servers.docs' };
 const ocSrv: In = { id: mcpIdOf(OPENCODE_MCP_PREFIX, 'docs'), kind: 'opencode-mcp', op: 'create', value: { type: 'local', command: ['npx', '-y', 'docs-mcp'] }, target: 'opencode.json#mcp.docs' };
 const MIXED = (): In[] => [codexModel, codexSrv, ocModel, ocSrv, claudeSrv];
 
 const CODEX_ORIG = '# keep me\nmodel = "old"\n\n[mcp_servers.mine]\ncommand = "mine"\n';
-const OC_ORIG = `${JSON.stringify({ model: 'm1', mcp: { mine: { type: 'local', command: ['mine'] } } }, null, 2)}\n`;
+const OC_ORIG = `${JSON.stringify({ theme: 'm1', mcp: { mine: { type: 'local', command: ['mine'] } } }, null, 2)}\n`;
 const CLAUDE_ORIG = `${JSON.stringify({ numStartups: 7, mcpServers: { mine: { type: 'stdio', command: 'mine', args: [] } }, projects: {} }, null, 2)}\n`;
 
 beforeEach(() => {
@@ -82,7 +82,7 @@ describe('MCP と好みの鍵が混ざった指示書', () => {
     expect(toml).toMatch(/\[mcp_servers\.docs\]\ncommand = "npx"/);
     expect(toml).toMatch(/\[mcp_servers\.mine\]\ncommand = "mine"/);
     const oc = JSON.parse(fs.readFileSync(ocJson(), 'utf8'));
-    expect(oc).toEqual({ model: 'm2', mcp: { mine: { type: 'local', command: ['mine'] }, docs: { type: 'local', command: ['npx', '-y', 'docs-mcp'] } } });
+    expect(oc).toEqual({ theme: 'm2', mcp: { mine: { type: 'local', command: ['mine'] }, docs: { type: 'local', command: ['npx', '-y', 'docs-mcp'] } } });
     const cj = JSON.parse(fs.readFileSync(claudeJson(), 'utf8'));
     expect(cj.numStartups).toBe(7);
     expect(cj.mcpServers.mine).toEqual({ type: 'stdio', command: 'mine', args: [] });

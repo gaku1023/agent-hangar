@@ -1,12 +1,12 @@
 import os from 'node:os';
 import path from 'node:path';
-import { AGENT_KINDS, orchestratorOf, activePersona, voiceOf, codexInjectionOf, notifyRulesOf, opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type AgentKind, type CompatDto, type DeviceStatus, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
+import { AGENT_KINDS, orchestratorOf, activePersona, voiceOf, codexInjectionOf, notifyRulesOf, opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type AgentKind, type CompatDto, type DeviceStatus, type OpencodeOptionsDto, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
 import { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { claudeJsonFor, claudeJsonPath } from '../provider/claude-code/config/claudeJson.ts';
 import { trustBeforeLaunch, trustedWorkspaceOf, trustWorkspaceFolders } from '../projects/folderTrust.ts';
 import { DEVICE_TOUCH_MS, measureShellHook, touchDevice } from '../config/devicePresence.ts';
-import { collectDeviceStatus, DEVICE_STATUS_MS, liveStatusSources, refreshDeviceStatus } from '../config/deviceStatus.ts';
+import { collectDeviceStatus, DEVICE_STATUS_MS, liveStatusSources, OPENCODE_STATUS_MAX_AGE_MS, opencodeStatusFeed, refreshDeviceStatus } from '../config/deviceStatus.ts';
 import { VERSION } from './options.ts';
 import type { Settings } from '../config/paths.ts';
 import { createReadiness } from '../config/readiness.ts';
@@ -100,8 +100,11 @@ export type RunsParts = {
   primeLive(): void;
   /** 前回の終了時に生きていた run の回復と、run の終了の見張り、休みの見張りを始める。 */
   start(): void;
-  /** 自端末の生存を devices に刻み、周期で刻み続ける。 */
-  startPresence(): void;
+  /**
+   * 自端末の生存を devices に刻み、周期で刻み続ける。
+   * opencodeOptions を渡すと、opencode の一覧も様子に載せる（#698。別の PC の作成画面が、起動先の一覧からモデルを出すため）。
+   */
+  startPresence(o?: { opencodeOptions?: { last(dir: null): OpencodeOptionsDto | null; get(dir: null): Promise<OpencodeOptionsDto> } }): void;
   /** 同じファイルの編集の見張り。「このファイルでは表示しない」の後に、すぐ読み直させる。 */
   overlaps: OverlapWatch;
   /** 休みの見張り、デスクトップ通知の見張り、同じファイルの編集の見張りの周期を止める。 */
@@ -354,16 +357,22 @@ export function bootRuns(
       overlapTimer.unref();
       notices.start();
     },
-    startPresence() {
+    startPresence(po) {
       touch();
       deviceTimer = setInterval(touch, DEVICE_TOUCH_MS);
       deviceTimer.unref();
       // 自分の様子（アカウントとログイン、起こせるエージェント、LAN の IP、ホスト鍵の指紋、版）を、変わったときだけ devices に書く。
+      const agentUsable = (k: string): boolean => (k === 'claude-code' ? claudeBin() !== null : AGENT_ENTRY[k as AgentKind].enabled(settings.current) && AGENT_ENTRY[k as AgentKind].bin() !== null);
+      // opencode の一覧は手元に持ったものを載せ、無いか古ければ裏で取り直す。取れたら様子を書き直す。
+      const opencode = po?.opencodeOptions
+        ? opencodeStatusFeed({ options: po.opencodeOptions, usable: () => agentUsable('opencode'), now: Date.now, maxAgeMs: OPENCODE_STATUS_MAX_AGE_MS, onFetched: () => refresh() })
+        : undefined;
       const collect = (): DeviceStatus => collectDeviceStatus(liveStatusSources({
         claude: { list: () => accountStore.list(), auth: accountAuth },
         codex: { list: () => codexAccountStore.list(), auth: codexAuth, enabled: codexOn },
-        agentUsable: (k) => (k === 'claude-code' ? claudeBin() !== null : AGENT_ENTRY[k as AgentKind].enabled(settings.current) && AGENT_ENTRY[k as AgentKind].bin() !== null),
+        agentUsable,
         agentKinds: AGENT_KINDS, version: VERSION,
+        ...(opencode ? { opencode } : {}),
       }));
       const refresh = (): void => { refreshDeviceStatus({ db, device, collect }); };
       refresh();

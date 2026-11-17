@@ -64,5 +64,9 @@ export const launchPrepKeys = {
   'launchPrep.error.notFound': [],
   'launchPrep.error.modelMissing': ['model', 'available'],
   'launchPrep.error.modelMissingNone': ['model', 'name'],
+  'launchPrep.error.modelNotOnDevice': ['model', 'device', 'available'],
+  'launchPrep.error.modelNotOnDeviceNone': ['model', 'device'],
+  'launchPrep.error.listMore': ['list', 'n'],
+  'launchPrep.device.thisPc': [],
   'launchPrep.error.serverDown': ['name', 'url'],
 } as const satisfies MessageSpec;

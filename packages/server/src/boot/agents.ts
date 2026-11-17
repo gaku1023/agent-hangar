@@ -70,7 +70,7 @@ export type AgentParts = {
  * registryIsGone は、Claude の登録のうち消えたプロセスの残りと見る pid（省けば OS で決める）。
  */
 export function bootAgents(
-  home: Pick<HomeParts, 'home' | 'token' | 'claudeDir' | 'settings' | 'language'>,
+  home: Pick<HomeParts, 'home' | 'token' | 'claudeDir' | 'settings' | 'language' | 'device'>,
   o: { compatLog: CompatLog; claudeVersion: { current: string | null }; enrich: (live: LiveSessionDto[]) => LiveSessionDto[]; registryIsGone?: IsGone },
 ): AgentParts {
   const procs = realProcOpsWith(o.compatLog);
@@ -106,6 +106,8 @@ export function bootAgents(
     localModels: { home: home.home, context: () => localContextOf(home.settings.current) },
     // 起動前に、会話のモデルがこの PC の LM Studio などにあるかを聞く。無いモデルでは起こさない。
     localListing: new LocalModelListing(),
+    // 起動前に断る文に入れる、この PC の名前（#698）。
+    deviceName: () => home.device.name,
     localServers: new LmServerStarter({ language: home.language }),
     // 接続先の準備のコマンド（この PC の設定）。呼ばれた時点の値を読む。
     providerPreps: new ProviderPreps({

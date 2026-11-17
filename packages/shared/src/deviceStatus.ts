@@ -1,5 +1,17 @@
+import type { OpencodeModelOption, OpencodeModeOption, OpencodeProviderOption } from './opencodeOptions.ts';
+
 /** 各 PC が自分の様子として devices に載せるアカウント 1 件。logged_in が null なのは、まだ読めていない（未確認）こと。 */
 export type DeviceAccountStatus = { agent: 'claude-code' | 'codex'; name: string; logged_in: boolean | null };
+
+/**
+ * 各 PC が載せる opencode の選択肢（#698）。別の PC へ opencode を起こすとき、作成画面はこの一覧からモードとモデルを出す。
+ * models はその PC でいま動かせるモデルだけ（ローカルのサーバーに無いモデルは載せない）。defaultModel はその PC の opencode.json の既定。
+ * 料金を取った時刻は持たない（DeviceStatus は時刻を持たない決まり）。
+ */
+export type DeviceOpencodeStatus = { modes: OpencodeModeOption[]; models: OpencodeModelOption[]; providers: OpencodeProviderOption[]; defaultModel: string | null };
+
+/** 載せるモデルの上限。同期の 1 行は封じた後で 180KB までなので、それに収まる数で切る。 */
+export const DEVICE_OPENCODE_MODELS_MAX = 300;
 
 /**
  * 各 PC が devices.status（JSON）に載せる自分の様子。同期の行の鍵で封じられるので、Worker は読めない。
@@ -7,8 +19,9 @@ export type DeviceAccountStatus = { agent: 'claude-code' | 'codex'; name: string
  * agents は、その PC で起こせるエージェント（入っていて、設定で有効なもの）である。
  * ssh_host_key は ssh-keygen -lf と同じ SHA256:... の形で、ホスト鍵が無ければ null。
  * 時刻は持たない。変わっていなければ書かない比較のためである（鮮度は devices.last_seen_at を見る）。
+ * opencode はその PC の opencode の選択肢で、opencode を起こせない PC、まだ一覧を取れていない PC、この欄を知らない古い版は持たない。
  */
-export type DeviceStatus = { accounts: DeviceAccountStatus[]; agents: string[]; lan_ips: string[]; ssh_host_key: string | null; hangar_version: string };
+export type DeviceStatus = { accounts: DeviceAccountStatus[]; agents: string[]; lan_ips: string[]; ssh_host_key: string | null; hangar_version: string; opencode?: DeviceOpencodeStatus };
 
 /**
  * 別の PC の様子。status が null の PC は様子の欄を持たない版（この機能より前の hangar）で、outdated が真になる。
@@ -33,5 +46,31 @@ export function parseDeviceStatus(raw: string | null | undefined): DeviceStatus 
     if ((r.agent !== 'claude-code' && r.agent !== 'codex') || !isStr(r.name)) continue;
     accounts.push({ agent: r.agent, name: r.name, logged_in: typeof r.logged_in === 'boolean' ? r.logged_in : null });
   }
-  return { accounts, agents: o.agents.filter(isStr), lan_ips: o.lan_ips.filter(isStr), ssh_host_key: isStr(o.ssh_host_key) ? o.ssh_host_key : null, hangar_version: o.hangar_version };
+  const opencode = parseOpencodeStatus(o.opencode);
+  return { accounts, agents: o.agents.filter(isStr), lan_ips: o.lan_ips.filter(isStr), ssh_host_key: isStr(o.ssh_host_key) ? o.ssh_host_key : null, hangar_version: o.hangar_version, ...(opencode ? { opencode } : {}) };
+}
+
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const rec = (v: unknown): Record<string, unknown> | null => (typeof v === 'object' && v !== null && !Array.isArray(v) ? v as Record<string, unknown> : null);
+
+/** opencode の欄を読む。形が違えば欄ごと無いことにする（ほかの欄は活かす）。行の形が違うものは捨てる。 */
+function parseOpencodeStatus(v: unknown): DeviceOpencodeStatus | null {
+  const o = rec(v);
+  if (!o || !Array.isArray(o.modes) || !Array.isArray(o.models) || !Array.isArray(o.providers)) return null;
+  const modes: OpencodeModeOption[] = o.modes.flatMap((m) => {
+    const r = rec(m);
+    return r && isStr(r.id) ? [{ id: r.id, description: isStr(r.description) ? r.description : null }] : [];
+  });
+  const models: OpencodeModelOption[] = o.models.slice(0, DEVICE_OPENCODE_MODELS_MAX).flatMap((m) => {
+    const r = rec(m);
+    if (!r || !isStr(r.id) || !isStr(r.label) || !isStr(r.group) || !isStr(r.provider)) return [];
+    const c = rec(r.cost);
+    const cost = c && isNum(c.input) && isNum(c.output) ? { input: c.input, output: c.output } : null;
+    return [{ id: r.id, label: r.label, group: r.group, provider: r.provider, tools: r.tools !== false, context: isNum(r.context) ? r.context : null, cost }];
+  });
+  const providers: OpencodeProviderOption[] = o.providers.flatMap((p) => {
+    const r = rec(p);
+    return r && isStr(r.id) && isStr(r.name) && (r.where === 'device' || r.where === 'lan' || r.where === 'remote') ? [{ id: r.id, name: r.name, where: r.where }] : [];
+  });
+  return { modes, models, providers, defaultModel: isStr(o.defaultModel) ? o.defaultModel : null };
 }

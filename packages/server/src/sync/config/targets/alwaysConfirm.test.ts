@@ -47,7 +47,7 @@ describe('権限の鍵はいつも確認', () => {
     for (const id of [jid('permission'), jid('agent', 'a', 'permission'), jid('agents', 'a', 'permission')]) {
       for (const op of OPS) expect(need(id, 'opencode-config', 'auto', op), `${id} ${op}`).toBe(true);
     }
-    expect(need(jid('model'), 'opencode-config', 'auto')).toBe(false);
+    expect(need(jid('theme'), 'opencode-config', 'auto')).toBe(false);
     expect(need(jid('agent', 'a', 'prompt'), 'opencode-config', 'auto')).toBe(false);
     expect(need('opencode:cli:theme', 'opencode-cli', 'auto')).toBe(false);
     expect(need('opencode:file:agents/a.md', 'opencode-file', 'auto')).toBe(false);

@@ -64,5 +64,9 @@ export const launchPrepJa: AreaDictionary<typeof launchPrepKeys> = {
   'launchPrep.error.notFound': '進行中の準備はありません。',
   'launchPrep.error.modelMissing': '{model} はこの PC にありません。使えるのは: {available}',
   'launchPrep.error.modelMissingNone': '{model} はこの PC にありません。{name} にモデルがありません。',
+  'launchPrep.error.modelNotOnDevice': '{model} は {device} の opencode にありません。使えるのは: {available}',
+  'launchPrep.error.modelNotOnDeviceNone': '{model} は {device} の opencode にありません。使えるモデルがありません。',
+  'launchPrep.error.listMore': '{list} ほか {n} 件',
+  'launchPrep.device.thisPc': 'この PC',
   'launchPrep.error.serverDown': '{name} の API サーバー（{url}）に接続できません。サーバーを起動して再試行してください。',
 };

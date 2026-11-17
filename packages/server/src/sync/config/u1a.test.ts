@@ -55,13 +55,13 @@ describe('U1a', () => {
     const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
     addDevices([a, b]);
     fs.writeFileSync(path.join(a.opencodeDir, 'opencode.json'), JSON.stringify({
-      model: `{env:${MISSING_A}}`, theme: 'plain',
+      share: `{env:${MISSING_A}}`, theme: 'plain',
       mcp: { docs: { type: 'local', command: ['npx', 'docs'], environment: { TOKEN: `{env:${MISSING_B}}` } }, calm: { type: 'local', command: ['npx', 'calm'] } },
     }));
     fs.writeFileSync(path.join(b.opencodeDir, 'opencode.json'), '{}');
     await sync(a, b);
     const by = Object.fromEntries(b.service.inbox().items.map((i) => [i.id, i.missingEnv]));
-    expect(by['opencode:json:model']).toEqual([MISSING_A]);
+    expect(by['opencode:json:share']).toEqual([MISSING_A]);
     expect(by['opencode:json:theme']).toBeUndefined();
     const docs = b.service.inbox().items.find((i) => i.kind === 'opencode-mcp' && i.label.includes('docs'));
     expect(docs?.missingEnv).toEqual([MISSING_B]);

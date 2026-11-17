@@ -79,15 +79,15 @@ export type OcJsonSort = {
 };
 
 const TOP_SCALAR = new Map<string, (v: unknown) => boolean>([
-  ['model', isStr], ['small_model', isStr], ['share', isStr], ['theme', isStr],
+  ['share', isStr], ['theme', isStr],
   ['autoupdate', (v) => typeof v === 'boolean' || isStr(v)],
   ['compaction', isStrOrObj], ['permission', isStrOrObj],
 ]);
 const AGENT_FIELDS = new Map<string, (v: unknown) => boolean>([
   ['prompt', isStr], ['description', isStr], ['mode', isStr], ['temperature', isNum], ['top_p', isNum], ['steps', isNum], ['permission', isStrOrObj],
 ]);
-/** PC に依るので運ばない最上位の鍵（接続先、パスを指すもの）。mcp は S7 が別に扱う。 */
-const MACHINE_TOP = new Set(['provider', 'providers', 'skills', 'plugin', 'plugins']);
+/** PC に依るので運ばない最上位の鍵（接続先、パスを指すもの、既定のモデル）。mcp は S7 が別に扱う。既定のモデルは PC ごとに使える接続先が違うので運ばない（#698）。 */
+const MACHINE_TOP = new Set(['provider', 'providers', 'skills', 'plugin', 'plugins', 'model', 'small_model']);
 const SILENT_TOP = new Set(['$schema', 'mcp']);
 
 /** 絶対パスらしいか（POSIX の `/`、Windows のドライブ、UNC）。`~/` と URL は含めない。 */

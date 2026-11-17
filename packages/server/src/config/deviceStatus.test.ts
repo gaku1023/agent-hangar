@@ -5,7 +5,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { applyRemoteChange } from '../sync/apply.ts';
 import { touchDevice } from './devicePresence.ts';
-import { collectDeviceStatus, fingerprintOfPublicKey, hostKeyFingerprint, hostKeyPaths, lanIpv4s, readPeerStatuses, refreshDeviceStatus, type StatusSources } from './deviceStatus.ts';
+import { collectDeviceStatus, opencodeStatusFeed, fingerprintOfPublicKey, hostKeyFingerprint, hostKeyPaths, lanIpv4s, readPeerStatuses, refreshDeviceStatus, type StatusSources } from './deviceStatus.ts';
 
 const sources = (over: Partial<StatusSources> = {}): StatusSources => ({
   accounts: () => [{ agent: 'claude-code', name: 'Main', logged_in: true }, { agent: 'codex', name: 'Work', logged_in: false }],
@@ -23,6 +23,61 @@ describe('様子を組む', () => {
       accounts: [{ agent: 'claude-code', name: 'Main', logged_in: true }, { agent: 'codex', name: 'Work', logged_in: false }],
       agents: ['claude-code', 'codex'], lan_ips: ['10.0.0.2', '192.168.0.9'], ssh_host_key: 'SHA256:abc', hangar_version: '1.2.3',
     });
+  });
+
+  it('opencode を起こせる PC は、opencode の一覧を載せる。ローカルのサーバーに無いモデルは載せない（#698）', () => {
+    const dto = {
+      version: '2.1.4', verified: true, modes: [{ id: 'build', description: null }],
+      models: [
+        { id: 'lmstudio/qwen', label: 'Qwen', group: 'LM Studio', provider: 'lmstudio', tools: true, context: 1000, cost: null, missing: true },
+        { id: 'opencode/deepseek-free', label: 'DeepSeek', group: 'Zen', provider: 'opencode', tools: true, context: 2000, cost: { input: 0, output: 0 }, missing: false },
+      ],
+      providers: [{ id: 'opencode', name: 'Zen', where: 'remote' as const }], defaultModel: 'lmstudio/qwen', pricesAt: 5, fetchedAt: 9, stale: true,
+    };
+    const s = collectDeviceStatus(sources({ agents: () => ['claude-code', 'opencode'], opencode: () => dto }));
+    expect(s.opencode).toEqual({
+      modes: [{ id: 'build', description: null }],
+      models: [{ id: 'opencode/deepseek-free', label: 'DeepSeek', group: 'Zen', provider: 'opencode', tools: true, context: 2000, cost: { input: 0, output: 0 } }],
+      providers: [{ id: 'opencode', name: 'Zen', where: 'remote' }], defaultModel: 'lmstudio/qwen',
+    });
+    // 読み戻しても同じ形になる（同期の行の比べで、毎回書き直さない）。
+    expect(parseDeviceStatus(JSON.stringify(s))).toEqual(s);
+    // opencode を起こせない PC、一覧をまだ取れていない PC は載せない。
+    expect(collectDeviceStatus(sources({ opencode: () => dto })).opencode).toBeUndefined();
+    expect(collectDeviceStatus(sources({ agents: () => ['opencode'], opencode: () => null })).opencode).toBeUndefined();
+  });
+
+  it('opencode の一覧は手元のものを返し、無いか古ければ裏で取り直して、取れたら知らせる（#698）', async () => {
+    let now = 1_000_000;
+    let held: { fetchedAt: number } | null = null;
+    const gets: number[] = [];
+    let fetched = 0;
+    const options = {
+      last: () => held as never,
+      get: async () => { gets.push(now); await Promise.resolve(); held = { fetchedAt: now }; return held as never; },
+    };
+    let usable = true;
+    const feed = opencodeStatusFeed({ options, usable: () => usable, now: () => now, maxAgeMs: 1000, onFetched: () => { fetched++; } });
+    expect(feed()).toBeNull();
+    // 取りに行っている間に呼ばれても、二重には取らない。
+    expect(feed()).toBeNull();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(gets).toEqual([1_000_000]);
+    expect(fetched).toBe(1);
+    expect(feed()).toEqual({ fetchedAt: 1_000_000 });
+    now += 500;
+    feed();
+    expect(gets).toHaveLength(1);
+    now += 600;
+    feed();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(gets).toHaveLength(2);
+    // opencode を起こせないときは取りに行かず、載せない。
+    usable = false;
+    now += 5000;
+    expect(feed()).toBeNull();
+    await Promise.resolve();
+    expect(gets).toHaveLength(2);
   });
 
   it('LAN の IP はプライベートの IPv4 だけで、ループバックと仮想の口は外す', () => {

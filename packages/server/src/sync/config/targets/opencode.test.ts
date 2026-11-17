@@ -123,13 +123,18 @@ describe('opencode.json(c) の鍵（SPEC 3 章）', () => {
     expect(c.items.map((i) => i.id)).toEqual([
       jid('agent', 'build', 'description'), jid('agent', 'build', 'mode'), jid('agent', 'build', 'permission'), jid('agent', 'build', 'prompt'),
       jid('agent', 'build', 'steps'), jid('agent', 'build', 'temperature'), jid('agent', 'build', 'top_p'),
-      jid('agents', 'plan', 'description'), jid('autoupdate'), jid('compaction'), jid('instructions'), jid('model'), jid('permission'), jid('share'), jid('small_model'), jid('theme'),
+      jid('agents', 'plan', 'description'), jid('autoupdate'), jid('compaction'), jid('instructions'), jid('permission'), jid('share'), jid('theme'),
     ].sort());
     const reasons = Object.fromEntries(c.dropped.map((d) => [d.key, d.reason]));
     expect(reasons[jid('provider')]).toBe('machine');
     expect(reasons[jid('skills')]).toBe('machine');
     expect(reasons[jid('plugin')]).toBe('machine');
     expect(reasons[jid('agent', 'build', 'model')]).toBe('machine');
+    expect(reasons[jid('model')]).toBe('machine');
+    expect(reasons[jid('small_model')]).toBe('machine');
+    // 古い版の PC から届いた既定のモデルは受けない（#698）。
+    expect(opencodeTarget.parseId(jid('model'))).toBeNull();
+    expect(opencodeTarget.parseId(jid('small_model'))).toBeNull();
     expect(reasons[jid('instructions')]).toBe('path');
     expect(reasons[jid('mystery')]).toBe('unknown');
     expect(jid('mcp') in reasons).toBe(false);
@@ -163,10 +168,10 @@ describe('opencode.json(c) の鍵（SPEC 3 章）', () => {
     expect(opencodeTarget.parseId(item!.id)!.ref).toEqual({ type: 'opencode-json', path: ['agent', 'my.agent', 'mode'] });
   });
   it('json と jsonc が両方あれば jsonc を正とし、知らせる', () => {
-    put('opencode.json', '{"model":"from-json","share":"manual"}');
-    put('opencode.jsonc', '{"model":"from-jsonc"}');
-    expect(valueOf(jid('model'))).toBe('from-jsonc');
-    expect(idsOf()).toEqual([jid('model')]);
+    put('opencode.json', '{"autoupdate":"from-json","share":"manual"}');
+    put('opencode.jsonc', '{"autoupdate":"from-jsonc"}');
+    expect(valueOf(jid('autoupdate'))).toBe('from-jsonc');
+    expect(idsOf()).toEqual([jid('autoupdate')]);
     expect(opencodeNotices(dir)).toEqual([{ code: 'both-json-jsonc' }]);
     fs.rmSync(path.join(dir, 'opencode.json'));
     expect(opencodeNotices(dir)).toEqual([]);
@@ -181,11 +186,11 @@ describe('opencode.json(c) の鍵（SPEC 3 章）', () => {
     expect(JSON.stringify(u)).not.toContain('secret-ish');
   });
   it('型の合わない値は運ばない', () => {
-    put('opencode.json', '{"model":5,"agent":{"a":{"steps":"x"}}}');
+    put('opencode.json', '{"autoupdate":5,"agent":{"a":{"steps":"x"}}}');
     expect(idsOf()).toEqual([]);
   });
   it('壊れた設定ファイルは何も運ばず、書き込み側の id を塞ぐ', () => {
-    put('opencode.jsonc', '{ "model": ');
+    put('opencode.jsonc', '{ "autoupdate": ');
     const c = collect();
     expect(c.items).toEqual([]);
     expect(c.blocked.prefixes).toContain('opencode:json:');
@@ -265,7 +270,7 @@ describe('古い版の束との判定（SPEC 12 章）', () => {
   const snap = (targets?: string[]): RemoteSnapshot => ({ deviceId: 'B', at: 10, items: new Map(), ...(targets ? { targets: new Set(targets) } : {}) });
   const m = (o: Record<string, string>) => new Map(Object.entries(o));
   it('opencode を知らない古い版の束（targets 無し、claude のみ）では、opencode の項目は消去にも forget にもならない', () => {
-    const local = m({ 'opencode:file:AGENTS.md': 'x', [jid('model')]: 'y', [cid('theme')]: 'z' });
+    const local = m({ 'opencode:file:AGENTS.md': 'x', [jid('autoupdate')]: 'y', [cid('theme')]: 'z' });
     for (const old of [snap(), snap(['claude'])]) {
       const j = judge({ local, base: local, remotes: [old] });
       expect(j.actions).toEqual([]);
@@ -273,8 +278,8 @@ describe('古い版の束との判定（SPEC 12 章）', () => {
     }
   });
   it('opencode を扱う束が持っていなければ、今までどおり delete', () => {
-    const j = judge({ local: m({ [jid('model')]: 'y' }), base: m({ [jid('model')]: 'y' }), remotes: [snap(['claude', 'opencode'])] });
-    expect(j.actions.map((a) => [a.id, a.op])).toEqual([[jid('model'), 'delete']]);
+    const j = judge({ local: m({ [jid('autoupdate')]: 'y' }), base: m({ [jid('autoupdate')]: 'y' }), remotes: [snap(['claude', 'opencode'])] });
+    expect(j.actions.map((a) => [a.id, a.op])).toEqual([[jid('autoupdate'), 'delete']]);
   });
 });
 
@@ -304,32 +309,32 @@ const setup = (items: (OrderIn & { content: string })[]): void => {
 
 describe('書き戻し：jsonc は体裁を保ち、json は整形し直す', () => {
   it('jsonc はコメントと並びを保ち、鍵だけ差し替える', () => {
-    const src = '{\n  // 私のモデル\n  "model": "old",   "share": "manual", /* keep */\n  "mystery": 1\n}\n';
+    const src = '{\n  // 私のモデル\n  "autoupdate": "old",   "share": "manual", /* keep */\n  "mystery": 1\n}\n';
     put('opencode.jsonc', src);
-    setup([{ id: jid('model'), kind: 'opencode-config', op: 'overwrite', content: val('new/m') }, { id: jid('theme'), kind: 'opencode-config', op: 'create', content: val('nord') }]);
+    setup([{ id: jid('autoupdate'), kind: 'opencode-config', op: 'overwrite', content: val('new/m') }, { id: jid('theme'), kind: 'opencode-config', op: 'create', content: val('nord') }]);
     const r = run();
     const out = get('opencode.jsonc')!;
     expect(out).toContain('// 私のモデル');
     expect(out).toContain('/* keep */');
     expect(out).toContain('"mystery": 1');
-    expect(out).toContain('"model": "new/m"');
+    expect(out).toContain('"autoupdate": "new/m"');
     expect(out).toContain('"theme": "nord"');
     expect(r.written).toBe(1);
     expect(r.files).toEqual(['opencode.jsonc']);
   });
   it('json は 2 空白で整形し直す（1 行の json が複数行になる）。未知の鍵は保つ', () => {
-    put('opencode.json', '{"model":"old","mystery":{"a":1}}');
-    setup([{ id: jid('model'), kind: 'opencode-config', op: 'overwrite', content: val('new') }]);
+    put('opencode.json', '{"autoupdate":"old","mystery":{"a":1}}');
+    setup([{ id: jid('autoupdate'), kind: 'opencode-config', op: 'overwrite', content: val('new') }]);
     run();
-    expect(get('opencode.json')).toBe('{\n  "model": "new",\n  "mystery": {\n    "a": 1\n  }\n}\n');
+    expect(get('opencode.json')).toBe('{\n  "autoupdate": "new",\n  "mystery": {\n    "a": 1\n  }\n}\n');
   });
   it('両方あれば jsonc に書く（opencode が勝たせる方）。json は触らない', () => {
-    put('opencode.json', '{"model":"j"}');
-    put('opencode.jsonc', '{"model":"c"}');
-    setup([{ id: jid('model'), kind: 'opencode-config', op: 'overwrite', content: val('n') }]);
+    put('opencode.json', '{"autoupdate":"j"}');
+    put('opencode.jsonc', '{"autoupdate":"c"}');
+    setup([{ id: jid('autoupdate'), kind: 'opencode-config', op: 'overwrite', content: val('n') }]);
     run();
-    expect(get('opencode.json')).toBe('{"model":"j"}');
-    expect(JSON.parse(get('opencode.jsonc')!).model).toBe('n');
+    expect(get('opencode.json')).toBe('{"autoupdate":"j"}');
+    expect(JSON.parse(get('opencode.jsonc')!).autoupdate).toBe('n');
   });
   it('どちらも無ければ opencode.json を 2 空白で新規に作る', () => {
     setup([{ id: jid('agent', 'a', 'description'), kind: 'opencode-config', op: 'create', content: val('d') }]);
@@ -337,8 +342,8 @@ describe('書き戻し：jsonc は体裁を保ち、json は整形し直す', ()
     expect(get('opencode.json')).toBe('{\n  "agent": {\n    "a": {\n      "description": "d"\n    }\n  }\n}\n');
   });
   it('消去は鍵を消し、空になった agent の表も消す', () => {
-    put('opencode.jsonc', '{"agent":{"a":{"description":"d"},"b":{"mode":"x"}},"model":"m"}');
-    order({ id: jid('agent', 'a', 'description'), kind: 'opencode-config', op: 'delete' }, { id: jid('model'), kind: 'opencode-config', op: 'delete' });
+    put('opencode.jsonc', '{"agent":{"a":{"description":"d"},"b":{"mode":"x"}},"autoupdate":"m"}');
+    order({ id: jid('agent', 'a', 'description'), kind: 'opencode-config', op: 'delete' }, { id: jid('autoupdate'), kind: 'opencode-config', op: 'delete' });
     run();
     expect(JSON.parse(get('opencode.jsonc')!)).toEqual({ agent: { b: { mode: 'x' } } });
   });
@@ -350,9 +355,9 @@ describe('書き戻し：jsonc は体裁を保ち、json は整形し直す', ()
   });
   it('手元の provider や知らない鍵は、鍵を書いても消えない', () => {
     put('opencode.jsonc', '{\n  "provider": {"x": {"options": {"apiKey": "local"}}}\n}\n');
-    setup([{ id: jid('model'), kind: 'opencode-config', op: 'create', content: val('m') }]);
+    setup([{ id: jid('autoupdate'), kind: 'opencode-config', op: 'create', content: val('m') }]);
     run();
-    expect(JSON.parse(get('opencode.jsonc')!)).toEqual({ provider: { x: { options: { apiKey: 'local' } } }, model: 'm' });
+    expect(JSON.parse(get('opencode.jsonc')!)).toEqual({ provider: { x: { options: { apiKey: 'local' } } }, autoupdate: 'm' });
   });
   it('cli.json は体裁を保って鍵だけ差し替える', () => {
     put('cli.json', '{\n  // theme\n  "theme": {"name": "a"}, "plugins": ["/p.js"]\n}\n');
@@ -373,47 +378,47 @@ describe('書き戻し：jsonc は体裁を保ち、json は整形し直す', ()
     expect(get('agents/old.md')).toBeNull();
   });
   it('書いた項目は基準に入り、消した項目は基準から消える', () => {
-    setup([{ id: jid('model'), kind: 'opencode-config', op: 'create', content: val('m') }]);
+    setup([{ id: jid('autoupdate'), kind: 'opencode-config', op: 'create', content: val('m') }]);
     run();
-    expect(new ConfigBase(db).all().get(jid('model'))).toBe(sha(val('m')));
+    expect(new ConfigBase(db).all().get(jid('autoupdate'))).toBe(sha(val('m')));
     fs.rmSync(path.join(home, 'claude-config', 'inbox'), { recursive: true });
-    order({ id: jid('model'), kind: 'opencode-config', op: 'delete' });
+    order({ id: jid('autoupdate'), kind: 'opencode-config', op: 'delete' });
     run();
-    expect(new ConfigBase(db).all().has(jid('model'))).toBe(false);
+    expect(new ConfigBase(db).all().has(jid('autoupdate'))).toBe(false);
   });
 });
 
 describe('書き戻し：控えと安全', () => {
   it('書く前に backups/opencode-config/<時刻>/ に元の中身を控える', () => {
-    put('opencode.jsonc', '{"model":"old"}');
-    setup([{ id: jid('model'), kind: 'opencode-config', op: 'overwrite', content: val('new') }, { id: 'opencode:file:AGENTS.md', kind: 'opencode-file', op: 'create', content: 'x' }]);
+    put('opencode.jsonc', '{"autoupdate":"old"}');
+    setup([{ id: jid('autoupdate'), kind: 'opencode-config', op: 'overwrite', content: val('new') }, { id: 'opencode:file:AGENTS.md', kind: 'opencode-file', op: 'create', content: 'x' }]);
     const r = run();
     const gdir = path.join(home, 'backups', 'opencode-config', r.generation!);
-    expect(fs.readFileSync(path.join(gdir, 'opencode.jsonc'), 'utf8')).toBe('{"model":"old"}');
+    expect(fs.readFileSync(path.join(gdir, 'opencode.jsonc'), 'utf8')).toBe('{"autoupdate":"old"}');
     const meta = JSON.parse(fs.readFileSync(path.join(gdir, '.hangar-apply.json'), 'utf8'));
     expect(meta.created).toEqual(['AGENTS.md']);
   });
   it('控えを取れなければ何も書かない', () => {
-    put('opencode.jsonc', '{"model":"old"}');
+    put('opencode.jsonc', '{"autoupdate":"old"}');
     fs.mkdirSync(path.join(home, 'backups'));
     fs.writeFileSync(path.join(home, 'backups', 'opencode-config'), 'ファイルが邪魔をする');
-    setup([{ id: jid('model'), kind: 'opencode-config', op: 'overwrite', content: val('new') }]);
+    setup([{ id: jid('autoupdate'), kind: 'opencode-config', op: 'overwrite', content: val('new') }]);
     expect(() => run()).toThrow();
-    expect(get('opencode.jsonc')).toBe('{"model":"old"}');
+    expect(get('opencode.jsonc')).toBe('{"autoupdate":"old"}');
   });
   it('途中の失敗は元へ戻し、作ったファイルも消す', () => {
-    put('opencode.jsonc', '{"model":"old"}');
-    setup([{ id: 'opencode:file:AGENTS.md', kind: 'opencode-file', op: 'create', content: 'x' }, { id: jid('model'), kind: 'opencode-config', op: 'overwrite', content: val('new') }]);
+    put('opencode.jsonc', '{"autoupdate":"old"}');
+    setup([{ id: 'opencode:file:AGENTS.md', kind: 'opencode-file', op: 'create', content: 'x' }, { id: jid('autoupdate'), kind: 'opencode-config', op: 'overwrite', content: val('new') }]);
     const e = fail(() => run({ onWrite: (_rel: string, i: number) => { if (i === 1) throw new Error('boom'); } }));
     expect(e.code).toBe('write-failed');
-    expect(get('opencode.jsonc')).toBe('{"model":"old"}');
+    expect(get('opencode.jsonc')).toBe('{"autoupdate":"old"}');
     expect(get('AGENTS.md')).toBeNull();
   });
   it('壊れた設定ファイルには書かない', () => {
-    put('opencode.jsonc', '{ "model": ');
+    put('opencode.jsonc', '{ "autoupdate": ');
     setup([{ id: jid('theme'), kind: 'opencode-config', op: 'create', content: val('x') }]);
     expect(fail(() => run()).code).toBe('settings-unreadable');
-    expect(get('opencode.jsonc')).toBe('{ "model": ');
+    expect(get('opencode.jsonc')).toBe('{ "autoupdate": ');
   });
   it('リンクの先へは書かない', () => {
     fs.mkdirSync(path.join(tmp, 'elsewhere'));
@@ -423,40 +428,40 @@ describe('書き戻し：控えと安全', () => {
     expect(fs.readdirSync(path.join(tmp, 'elsewhere'))).toEqual([]);
   });
   it('型の合わない値、外を指す値、書き込み先の食い違いは書かない', () => {
-    setup([{ id: jid('model'), kind: 'opencode-config', op: 'create', content: val(5) }]);
+    setup([{ id: jid('autoupdate'), kind: 'opencode-config', op: 'create', content: val(5) }]);
     expect(fail(() => run()).code).toBe('bad-content');
     setup([{ id: jid('agent', 'a', 'prompt'), kind: 'opencode-config', op: 'create', content: val('{file:/etc/x}') }]);
     expect(fail(() => run()).code).toBe('bad-content');
-    setup([{ id: jid('model'), kind: 'opencode-config', op: 'create', content: val('m') }]);
-    writeApplyOrder(home, 'dev-a', [{ ...orderItem({ id: jid('model'), kind: 'opencode-config', op: 'create', content: val('m') }), target: 'opencode.json#theme' }], NOW);
+    setup([{ id: jid('autoupdate'), kind: 'opencode-config', op: 'create', content: val('m') }]);
+    writeApplyOrder(home, 'dev-a', [{ ...orderItem({ id: jid('autoupdate'), kind: 'opencode-config', op: 'create', content: val('m') }), target: 'opencode.json#theme' }], NOW);
     expect(fail(() => run()).code).toBe('unsafe');
     expect(get('opencode.json')).toBeNull();
   });
   it('inbox と指紋が合わなければ stale', () => {
-    inbox([{ id: jid('model'), kind: 'opencode-config', content: val('a') }]);
-    order({ id: jid('model'), kind: 'opencode-config', op: 'create', content: val('b') });
+    inbox([{ id: jid('autoupdate'), kind: 'opencode-config', content: val('a') }]);
+    order({ id: jid('autoupdate'), kind: 'opencode-config', op: 'create', content: val('b') });
     expect(fail(() => run()).code).toBe('stale');
   });
   it('他の対象の項目は見ない。指示書を消さない', () => {
-    setup([{ id: jid('model'), kind: 'opencode-config', op: 'create', content: val('m') }]);
+    setup([{ id: jid('autoupdate'), kind: 'opencode-config', op: 'create', content: val('m') }]);
     run();
     expect(fs.existsSync(path.join(home, 'claude-config', 'apply-order.json'))).toBe(true);
   });
   it('競合で手元を採る項目は書かず、控えも作らない', () => {
-    put('opencode.jsonc', '{"model":"mine"}');
-    inbox([{ id: jid('model'), kind: 'opencode-config', content: val('theirs') }]);
-    order({ id: jid('model'), kind: 'opencode-config', op: 'conflict', content: val('theirs'), take: 'mine' });
+    put('opencode.jsonc', '{"autoupdate":"mine"}');
+    inbox([{ id: jid('autoupdate'), kind: 'opencode-config', content: val('theirs') }]);
+    order({ id: jid('autoupdate'), kind: 'opencode-config', op: 'conflict', content: val('theirs'), take: 'mine' });
     const r = run();
     expect(r.keptMine).toBe(1);
     expect(r.generation).toBeNull();
-    expect(get('opencode.jsonc')).toBe('{"model":"mine"}');
+    expect(get('opencode.jsonc')).toBe('{"autoupdate":"mine"}');
     expect(listBackups(home)).toEqual([]);
   });
   it('見立て：書く数と承認が要る指示を数える', () => {
     setup([
       { id: 'opencode:file:agents/a.md', kind: 'opencode-file', op: 'create', content: 'x' },
       { id: 'opencode:file:AGENTS.md', kind: 'opencode-file', op: 'create', content: 'y' },
-      { id: jid('model'), kind: 'opencode-config', op: 'overwrite', content: val('m') },
+      { id: jid('autoupdate'), kind: 'opencode-config', op: 'overwrite', content: val('m') },
     ]);
     const p = planOpencodeWrite({ home });
     expect(p.counts).toMatchObject({ create: 2, overwrite: 1 });
