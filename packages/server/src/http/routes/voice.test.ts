@@ -5,7 +5,7 @@ import { H, testDeps, type TestWorld } from '../testing.ts';
 
 // 机の音声の口（GET /api/voice、POST /api/voice/hold|toggle|speak|stop|prepare）の試験。
 
-const STATE: VoiceStateDto = { available: true, models: { state: 'ready', progress: 1 }, mode: 'off', phase: 'off', caption: null, speakingId: null, meeting: false, callable: true };
+const STATE: VoiceStateDto = { available: true, models: { state: 'ready', progress: 1 }, mode: 'off', phase: 'off', caption: null, speakingId: null, toggled: false, meeting: false, callable: true };
 const fake = (ok = true) => ({
   state: vi.fn(() => STATE),
   hold: vi.fn(() => ok), toggle: vi.fn(() => ok), speak: vi.fn(() => ok), stopSpeaking: vi.fn(() => ok), prepare: vi.fn(() => ok),

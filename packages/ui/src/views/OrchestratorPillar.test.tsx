@@ -152,7 +152,7 @@ describe('統括の柱の音声', () => {
 });
 
 describe('統括の柱のマイク（補助）', () => {
-  const voice = (o: Partial<import('@agent-hangar/shared').VoiceStateDto> = {}): import('@agent-hangar/shared').VoiceStateDto => ({ available: true, models: { state: 'ready', progress: 1 }, mode: 'off', phase: 'ambient', caption: null, speakingId: null, meeting: false, callable: true, ...o });
+  const voice = (o: Partial<import('@agent-hangar/shared').VoiceStateDto> = {}): import('@agent-hangar/shared').VoiceStateDto => ({ available: true, models: { state: 'ready', progress: 1 }, mode: 'off', phase: 'ambient', caption: null, speakingId: null, toggled: false, meeting: false, callable: true, ...o });
   it('available が偽なら今の MicButton が出る', () => {
     mount(base({ voice: voice({ available: false }) }));
     expect(screen.getByRole('button', { name: '音声で入力' })).toHaveClass('mic-btn');

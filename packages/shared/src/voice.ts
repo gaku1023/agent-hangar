@@ -147,6 +147,8 @@ export type VoiceStateDto = {
   available: boolean;
   models: { state: VoiceModelState; progress: number };
   mode: VoiceMode;
+  /** 切り替え（ショートカットや丸の短押し）で聞くが入っているか。設定の mode とは別。 */
+  toggled: boolean;
   phase: VoicePhase;
   caption: string | null;
   speakingId: string | null;

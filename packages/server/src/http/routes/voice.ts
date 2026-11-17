@@ -15,7 +15,7 @@ export function voiceRoutes(api: Hono, deps: VoiceRouteDeps): void {
   const tr = translatorOf(deps.language);
   const unavailable = () => ({ error: tr('orchestratorPane.error.voiceUnavailable') });
 
-  api.get('/voice', (c) => c.json(deps.voice?.state() ?? { available: false, models: { state: 'missing', progress: 0 }, mode: 'off', phase: 'off', caption: null, speakingId: null, meeting: false }));
+  api.get('/voice', (c) => c.json(deps.voice?.state() ?? { available: false, models: { state: 'missing', progress: 0 }, mode: 'off', toggled: false, phase: 'off', caption: null, speakingId: null, meeting: false }));
 
   const body = async (c: Parameters<typeof readJson>[0]) => {
     const b = await readJson(c, BODY_LIMITS.memo);
