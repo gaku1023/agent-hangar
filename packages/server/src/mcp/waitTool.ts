@@ -1,4 +1,4 @@
-import { sessionPhaseOf, type LiveSessionDto, type MobileWaiting, type SessionPhase, type SessionWaitState } from '@agent-hangar/shared';
+import { sessionPhaseOf, turnPhaseOf, type LiveSessionDto, type MobileWaiting, type SessionPhase, type SessionWaitState } from '@agent-hangar/shared';
 import { waitingOf } from '../agent/waiting.ts';
 import type { Db } from '../db/open.ts';
 import { getSession } from '../db/queries.ts';
@@ -156,11 +156,13 @@ export async function waitForSessionTool(deps: ToolDeps, ctx: ToolContext, args:
     const live = deps.live().find((l) => l.sessionId === s.providerSessionId) ?? null;
     const inGrace = mark !== undefined && !seenBusy && now - mark.at < TURN_START_GRACE_MS;
 
-    if (s.live === 'busy') {
+    // 裏だけが動く間（aside）は本体が入力を受け付けているので、ターンの終わりとして下の枝で読む。
+    const phase = turnPhaseOf({ status: s.live, aside: s.liveAside });
+    if (phase === 'running') {
       seenBusy = true;
       idleSince = null;
       goneSince = null;
-    } else if (s.live === null) {
+    } else if (phase === 'none') {
       idleSince = null;
       goneSince ??= now;
       const preparing = mark?.prepKey !== undefined && (deps.runs.prepRunning?.(mark.prepKey) ?? false);

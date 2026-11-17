@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import {
+  turnPhaseOf,
   appendPaths,
   checkPeerChatRequest,
   openPeerChat,
@@ -132,8 +133,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     const s = deps.session(sessionId);
     if (!s || s.live === null || !deps.run(sessionId)) return 'stopped';
     // 裏の作業だけが動いている間は、本体は入力を受け付けているので、止まっているのと同じに扱う。
-    if (s.live === 'busy' && s.aside) return 'idle';
-    return s.live;
+    return turnPhaseOf({ status: s.live, aside: s.aside }) === 'aside' ? 'idle' : s.live;
   };
   const pathsByQueue = new Map<string, string[]>();
   /**
