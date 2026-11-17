@@ -1,4 +1,4 @@
-import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -36,6 +36,12 @@ describe('ControlStream', () => {
     const s = new ControlStream({ output: () => {}, block: (_l, _ok, fromClient) => got.push(fromClient), exit: () => {} });
     s.feed(Buffer.from('%begin 1 1 0\n%end 1 1 0\n%begin 1 2 1\n%end 1 2 1\n%begin 1 3\n%end 1 3\n', 'latin1'));
     expect(got).toEqual([false, true, true]);
+  });
+  it('pause-after のときの %extended-output を %output と同じに読み、%pause と %continue を知らせる', () => {
+    const got: string[] = [];
+    const s = new ControlStream({ output: (pane, b) => got.push(`o ${pane} ${b.toString('utf8')}`), block: () => {}, exit: () => {}, pause: (p) => got.push(`pause ${p}`), resume: (p) => got.push(`continue ${p}`) });
+    s.feed(Buffer.from('%extended-output %2 150 : a\\015\\012 : b\n%pause %2\n%continue %2\n', 'latin1'));
+    expect(got).toEqual(['o %2 a\r\n : b', 'pause %2', 'continue %2']);
   });
   it('%exit で終わりを知らせる', () => {
     let exited = false;
@@ -135,6 +141,59 @@ describe('controlSpawn（答えの数え方）', () => {
   });
 });
 
+describe('controlSpawn（流量の制御、偽の tmux）', () => {
+  const fakeTmux = (): Tmux => new Tmux({ tmuxPath: 'tmux', exec: () => ({ status: 0, stdout: '%1\n', stderr: '' }) });
+  const setup = (pauseAfterOk = true) => {
+    const cmds: string[] = [];
+    let out: (s: string) => void = () => {};
+    let n = 0;
+    const child = fakeChild((c, o) => {
+      cmds.push(c);
+      const body = c.startsWith('capture-pane') ? 'x\n' : c.startsWith('display-message') ? '0 0 0 0\n' : '';
+      const bad = !pauseAfterOk && c.startsWith('refresh-client -f');
+      o(`%begin 1 ${++n} 1\n${bad ? 'unknown flag\n' : body}%${bad ? 'error' : 'end'} 1 ${n} 1\n`);
+    }, (o) => { out = o; });
+    const p = controlSpawn(fakeTmux(), 'hangar-x', () => child);
+    const got: string[] = [];
+    p.onData((d) => got.push(d));
+    return { p, cmds, got, out: (s: string) => out(s) };
+  };
+  it('つなぐとすぐ pause-after を頼み、%pause が来たら続きを頼み、その答えで描き直す', async () => {
+    const { p, cmds, got, out } = setup();
+    p.resize(80, 10);
+    await waitFor(() => got.length === 1);
+    expect(cmds[0]).toMatch(/^refresh-client -f pause-after=\d+$/);
+    out('%extended-output %1 5 : hello\n');
+    await waitFor(() => got.includes('hello'));
+    out('%pause %1\n');
+    await waitFor(() => cmds.includes("refresh-client -A '%1:continue'"));
+    // 止まっている間に届いた分は捨てる（描き直しに含まれる）
+    await waitFor(() => got.filter((g) => g.startsWith('\x1b[H')).length === 2);
+    expect(cmds.filter((c) => c.startsWith('capture-pane'))).toHaveLength(4);
+  });
+  it('pause() の間は続きを頼まず、resume() で頼む', async () => {
+    const { p, cmds, got, out } = setup();
+    p.resize(80, 10);
+    await waitFor(() => got.length === 1);
+    p.pause?.();
+    out('%pause %1\n');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(cmds).not.toContain("refresh-client -A '%1:continue'");
+    p.resume?.();
+    await waitFor(() => cmds.includes("refresh-client -A '%1:continue'"));
+  });
+  it('pause-after を断る tmux（psmux や古い版）では pause/resume を子の読みの止めだけにし、%output の経路は変えない', async () => {
+    const { p, cmds, got, out } = setup(false);
+    p.resize(80, 10);
+    await waitFor(() => got.length === 1);
+    out('%output %1 hi\n');
+    await waitFor(() => got.includes('hi'));
+    out('%pause %1\n');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(cmds.some((c) => c.includes(':continue'))).toBe(false);
+  });
+});
+
 describe.skipIf(!TMUX)('controlSpawn（実物の tmux）', () => {
   const socketPath = testSocketPath();
   const tmux = new Tmux({ tmuxPath: TMUX ?? 'tmux', socketPath });
@@ -188,4 +247,38 @@ describe.skipIf(!TMUX)('controlSpawn（実物の tmux）', () => {
     if (hasPaste) { expect(got).toContain('\x1b[?2004h'); expect(got).not.toContain('\x1b[?2004l'); }
     p.kill();
   });
+  it('出力が止まらない yes でも、読みを止めて待たせると %pause のあと %continue で戻り、描き直して打鍵が通る', async () => {
+    const name = 'hangar-ctl-t3';
+    tmux.run('new-session', '-d', '-s', name, '-x', '80', '-y', '10', 'sh');
+    tmux.run('send-keys', '-t', `=${name}:`, 'yes', 'Enter');
+    await waitFor(() => tmux.capturePane(name).includes('y'));
+    // tmux が %pause を返すのは、同じ pane を別のクライアントが読み続けていて、こちらだけ遅れるとき。
+    // 遅れるのがこの 1 つだけなら、tmux は pane の読みを自分で止めるので溜まらない。
+    const other = spawn(tmux.tmuxPath, tmux.controlAttachArgs(name), { stdio: ['pipe', 'pipe', 'ignore'], env: { ...process.env, ...tmux.env } });
+    other.stdout.on('data', () => {});
+    other.stdin.on('error', () => {});
+    const p = controlSpawn(tmux, name, undefined, { pauseAfterSec: 1 });
+    let got = '';
+    let paints = 0;
+    p.onData((d) => { got += d; if (d.startsWith('\x1b[H\x1b[2J\x1b[3J')) paints++; });
+    p.resize(80, 10);
+    await waitFor(() => paints === 1);
+    p.pause?.();
+    const before = got.length;
+    // 読まずに 1 秒以上待つと、tmux は止める。止まっている間、子の読みは止まったまま
+    await new Promise((r) => setTimeout(r, 1800));
+    expect(got.length).toBe(before);
+    p.resume?.();
+    await waitFor(() => paints === 2, 8000);
+    // 戻ったあとも出力は流れ続ける
+    const mid = got.length;
+    await waitFor(() => got.length > mid + 1000, 5000);
+    // 打鍵が通る：Ctrl-C で yes を止め、続けて打った行の答えが届く
+    p.write('\x03');
+    await new Promise((r) => setTimeout(r, 300));
+    p.write('echo flow-$((40+2))\r');
+    await waitFor(() => got.includes('flow-42'), 8000);
+    p.kill();
+    other.kill();
+  }, 30000);
 });
