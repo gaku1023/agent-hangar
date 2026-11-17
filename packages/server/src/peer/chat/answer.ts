@@ -197,6 +197,11 @@ export type Dialog = {
    */
   step: DialogStep | null;
   /**
+   * 質問が複数ある札の、まだ答えていない問いの数（頭の行の ☐ の数。Submit の箱は数えない）。
+   * 問いが 1 つの札は 0。
+   */
+  unanswered: number;
+  /**
    * 選択肢に箱がある（複数選択）か。
    * */
   multi: boolean;
@@ -435,6 +440,7 @@ export function parseDialog(screen: string): Dialog | null {
     title,
     manyQuestions: step !== null,
     step,
+    unanswered: chipLine && step ? questionTabs(chipLine).filter((t) => t.mark === '☐').length : 0,
     multi: options.some((o) => o.checked !== null),
   };
 }
@@ -444,13 +450,18 @@ const TAB_RE = /([☐☒☑✔✓])\s*([^☐☒☑✔✓←→]*)/g;
 /** 最後の確認のタブの、送る行。 */
 const SUBMIT_ROW_RE = /^submit answers\b/i;
 
+/** 頭の行の、問いのタブ（見出しが Submit の箱を除く）。 */
+function questionTabs(chipLine: string): { mark: string; label: string }[] {
+  return [...chipLine.matchAll(TAB_RE)].map((m) => ({ mark: m[1]!, label: m[2]!.trim() })).filter((t) => !/^submit$/i.test(t.label));
+}
+
 /**
  * 頭の行（`← ☒ voicebox ☐ 進め方 ✔ Submit →`）から、今のタブを読む。
  * 見出しが Submit の箱は問いに数えない。
  * 問いが 2 つ以上でなければ null。
  */
 function stepOf(chipLine: string, options: DialogOption[]): DialogStep | null {
-  const tabs = [...chipLine.matchAll(TAB_RE)].map((m) => ({ mark: m[1]!, label: m[2]!.trim() })).filter((t) => !/^submit$/i.test(t.label));
+  const tabs = questionTabs(chipLine);
   if (tabs.length < 2) return null;
   if (options.some((o) => SUBMIT_ROW_RE.test(o.first))) return { index: null, total: tabs.length, submit: true };
   const open = tabs.findIndex((t) => t.mark === '☐');
@@ -774,7 +785,32 @@ export function createPeerAnswerer(deps: PeerAnswererDeps): PeerAnswerer {
     // 札が閉じたことを確かめる。
     // 閉じなければ、打ったキーは受け付けられていない。
     if (!(await waitUntil(pane, closed(ask, cwd), CLOSE_WAIT_MS))) return refuse('ask-mismatch', true);
+    // 質問が複数ある札の問いに答えたら、確認のタブが出たときだけ続けて送る。
+    if (dialog.step && !dialog.step.submit) await submitWhenAllAnswered(pane);
     return { ok: true, label: [...labels, ...(hasText ? [text!] : [])].join(', ') };
+  }
+
+  /**
+   * 質問が複数ある札の問いに答えた後、最後の確認のタブが出たら「Submit answers」を選ぶ。
+   * 利用者は問いに答え終えた時点で送るつもりなので、確認のタブを改めて聞かない。
+   * 次の問いのタブや別の札が出たら、何もしない。
+   * REVIEW_WAIT_MS のうちに確認のタブが出なければ、何もしない。
+   * 確認のタブに ☐（まだ答えていない問い）が残るとき（利用者が手で飛ばした等）は押さず、確認のタブを札として残す。
+   * 押すのは、行のラベルを照合したうえで、その行の番号のキー 1 つである。
+   */
+  async function submitWhenAllAnswered(pane: AnswerPane): Promise<void> {
+    for (let waited = 0; ; waited += CLOSE_STEP_MS) {
+      const d = parseDialog(pane.capture());
+      if (d?.step?.submit) {
+        if (d.unanswered > 0) return;
+        const row = rowByLabel(d, 'Submit answers');
+        if (row && row.n <= 9) pane.sendText(String(row.n));
+        return;
+      }
+      if (d) return;
+      if (waited >= REVIEW_WAIT_MS) return;
+      await sleep(CLOSE_STEP_MS);
+    }
   }
 
   async function interrupt(runId: string): Promise<InterruptResult> {

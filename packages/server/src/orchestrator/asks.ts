@@ -45,7 +45,7 @@ export type PendingAsk = {
   since: number | null;
   /**
    * 1 回の呼び出しに問いが複数ある質問の、今のタブ（index は 1 始まり）。
-   * 問いは 1 つずつ載り、答えると次の問いが別の ask_id で載る。submit は最後の確認のタブ。
+   * 問いは 1 つずつ載り、答えると次の問いが別の ask_id で載る。submit は最後の確認のタブで、答えていない問いが残るときだけ載る（最後の問いに答えると自動で送る）。
    * 問いが 1 つの札には付けない。
    */
   step?: PeerChatAskStep;
