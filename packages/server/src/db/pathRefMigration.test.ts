@@ -5,7 +5,7 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { dbVersionOf, seedDbAt } from '../../test/oldDb.ts';
 import { openDb } from './open.ts';
-import { EVENT_PATH_SQL, fillPathRefs, startPathRefFill } from './pathRef.ts';
+import { EVENT_PATH_SQL, fillPathRefs, fillPathRefsAfter, startPathRefFill } from './pathRef.ts';
 
 /**
  * 版 65 は、event_index が行ごとに持っていたファイルのパス（file_path_ref）を、別の表 event_paths の番号（path_id）で指すようにする。
@@ -48,6 +48,24 @@ describe('版 65：パスを番号で指す', () => {
       .toEqual([0, 1, 2, 3, 4, 5, 6].map((seq) => ({ seq, path: seq % 3 === 2 ? '/w/b.jsonl' : '/w/a.jsonl' })));
     expect(db.prepare('select count(*) c from event_paths').get()).toEqual({ c: 2 });
     expect(db.prepare("select count(*) c from event_index where file_path_ref <> ''").get()).toEqual({ c: 0 });
+    db.close();
+  });
+
+  it('覚えた最後の id より後ろから読み、振り終えた行をなめ直さない', () => {
+    const file = path.join(tmp, 'hangar.db');
+    seed(file, 7);
+    const db = openDb(file, { backupDir: path.join(tmp, 'backups') });
+    const first = fillPathRefsAfter(db, 0, 3);
+    expect(first.filled).toBe(3);
+    // 覚えた id より前に旧い行が残っていても、after より後ろだけを読む。
+    const ids = (db.prepare('select id from event_index order by id').all() as { id: number }[]).map((r) => r.id);
+    db.prepare("update event_index set path_id = null, file_path_ref = '/w/a.jsonl' where id = ?").run(ids[0]);
+    const second = fillPathRefsAfter(db, first.last, 3);
+    expect(second.filled).toBe(3);
+    expect(second.last).toBeGreaterThan(first.last);
+    expect(db.prepare('select count(*) c from event_index where path_id is null').get()).toEqual({ c: 2 });
+    expect(fillPathRefsAfter(db, second.last, 3).filled).toBe(1);
+    expect(fillPathRefsAfter(db, 0, 3).filled).toBe(1);
     db.close();
   });
 

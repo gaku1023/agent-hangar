@@ -23,14 +23,25 @@ export const EVENT_PATH_SQL = "coalesce((select p.path from event_paths p where 
  * 1 回は 1 つの取引で、途中で止まっても、振った行は番号のまま、残りは旧い列のままで、次の呼びが続きから振る。
  */
 export function fillPathRefs(db: Db, limit = 5000): number {
+  return fillPathRefsAfter(db, 0, limit).filled;
+}
+
+/**
+ * fillPathRefs の、id が after より大きい行から読む版。振った最後の id（last）も返す。
+ * 毎回 id の先頭から探し直すと、番号を振り終えた行を何度もなめて、行が多いほど後半の 1 回が重くなる。呼ぶ側は last を覚えて次の after に渡す。
+ * 再開は after = 0 から始めればよい（振り終えた行は条件で外れ、主キーの範囲で先頭から読むので、最初の 1 回だけ前の分をなめる）。
+ * 読んだ行が無ければ filled は 0 で、last は after のまま（after より後ろに旧い行は無い）。
+ */
+export function fillPathRefsAfter(db: Db, after: number, limit = 5000): { filled: number; last: number } {
   return db.transaction(() => {
-    const ids = (stmt(db, 'select id from event_index where path_id is null and file_path_ref <> \'\' order by id limit ?').all(limit) as { id: number }[]).map((r) => r.id);
-    if (ids.length === 0) return 0;
+    const ids = (stmt(db, 'select id from event_index where id > ? and path_id is null and file_path_ref <> \'\' order by id limit ?').all(after, limit) as { id: number }[]).map((r) => r.id);
+    if (ids.length === 0) return { filled: 0, last: after };
     const lo = ids[0]!;
     const hi = ids[ids.length - 1]!;
     // 範囲の中に、振り終えた行や旧い列が空の行が混じっても、条件で絞る。
     stmt(db, "insert or ignore into event_paths (path) select distinct file_path_ref from event_index where id between ? and ? and path_id is null and file_path_ref <> ''").run(lo, hi);
-    return stmt(db, "update event_index set path_id = (select p.id from event_paths p where p.path = event_index.file_path_ref), file_path_ref = '' where id between ? and ? and path_id is null and file_path_ref <> ''").run(lo, hi).changes;
+    const filled = stmt(db, "update event_index set path_id = (select p.id from event_paths p where p.path = event_index.file_path_ref), file_path_ref = '' where id between ? and ? and path_id is null and file_path_ref <> ''").run(lo, hi).changes;
+    return { filled, last: hi };
   })();
 }
 
@@ -43,11 +54,14 @@ export type PathRefFillOptions = { limit?: number; delayMs?: number; onDone?: ()
 export function startPathRefFill(db: Db, opts: PathRefFillOptions = {}): () => void {
   const delay = opts.delayMs ?? 50;
   let stopped = false;
+  let last = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const step = (): void => {
     if (stopped) return;
     try {
-      if (fillPathRefs(db, opts.limit) === 0) { opts.onDone?.(); return; }
+      const r = fillPathRefsAfter(db, last, opts.limit);
+      last = r.last;
+      if (r.filled === 0) { opts.onDone?.(); return; }
     } catch (e) {
       console.error('[db] path number fill stopped', e instanceof Error ? e.message : e);
       return;
