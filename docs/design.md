@@ -10557,6 +10557,10 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   札の id は質問を待つ会話の分だけ、統括が有効な間、一覧の変化と 1.5 秒の見直しで読む（画面を取り込む）。通知の見張りから呼ぶ `held` では読まない。
   重複の抑止は会話と札の id ごとで、同じ会話のまだ渡していない前の札の出来事は捨てる。
   `turn.done`（busy から idle）と `session.ended`（一覧から消えた）は、統括が関わった会話だけ（普通、2 秒でまとめる）。
+  `turn.done` はさらに、そのターンに会話が `notify_user` を `done` か `ask` で呼んだものだけ（2026-11-18）。
+  `progress` だけのターンと、`notify_user` を呼ばなかったターン（裏で走らせた作業の結果を受けただけの短いターンなど）では出さない。サブエージェントを多く動かす会話が、結果の届くたびに統括を起こすのを防ぐためである。
+  呼んだことは `notifyUserTool` が `live/notifyKind.ts` で知らせ、送り込みが会話ごとに覚えて、ターンの終わり（idle か質問の待ち）で使い切る。出し先が空になる呼び出しも数える。
+  hangar が代わりに出す知らせ（`immediate`）と、出し忘れの受け皿（`NotifyFallback`）が積む未読は、呼んだことにしない。許可と質問の待ちと `session.ended` はこれまでどおり。
   関わった会話は、統括の系譜（今と前の統括）が起こした会話（`session_spawns`）と、`send_to_session` した会話である（`orchestrator/involved.ts` の `lineageInvolvement`、送った印はメモリだけで、終わりを伝えたら系譜の分を全部使い切る）。切り替えの前に前の統括が起こした会話の終わりも、新しい統括に届く。
   文は 1 通にまとめ、1 行目が見出し（`mcp.orchestrator.feedHead`）、以降が 1 件 1 行（`mcp.orchestrator.feedLine`、種類、会話の id、題名、許可なら道具の名前）。
   命令の全文は載せず、統括は `list_pending_asks` で引く。題名は 1 行にして 80 字で切る。

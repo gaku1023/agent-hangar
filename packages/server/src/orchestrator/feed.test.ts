@@ -3,7 +3,7 @@ import { ORCHESTRATOR_CONTEXT_LIMIT, type LiveSessionDto } from '@agent-hangar/s
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { recordSpawn } from '../sessions/spawns.ts';
-import { AUTO_FRESH_IDLE_MS, AUTO_FRESH_TOKENS, feedText, NOTICE_GRACE_MS, OrchestratorFeed, type FeedLine } from './feed.ts';
+import { AUTO_FRESH_IDLE_MS, AUTO_FRESH_TOKENS, FEED_SETTLE_MS, feedText, NOTICE_GRACE_MS, OrchestratorFeed, type FeedLine } from './feed.ts';
 import { lineageInvolvement } from './involved.ts';
 
 /**
@@ -201,12 +201,43 @@ describe('出来事の送り込み', () => {
     w.involved.add('s3');
     set('s1', { status: 'busy' });
     set('s3', { status: 'busy' });
+    feed.noteNotify('s1', 'done');
     set('s1', { status: 'idle' });
     gone('s3');
     await tick(1_999);
     expect(w.delivered).toEqual([]);
     await tick(1);
     expect(w.delivered).toEqual(['[hangar] 出来事 2 件\n- turn.done s1 「ログイン修正」\n- session.ended s3 「文書」']);
+  });
+
+  it('turn.done は、そのターンで notify_user を done か ask で呼んだ会話だけ。progress だけ、呼ばない、hangar の代理の知らせは出さない', async () => {
+    w.involved.add('s1');
+    w.involved.add('s2');
+    w.involved.add('s3');
+    for (const id of ['s1', 's2', 's3']) set(id, { status: 'busy' });
+    feed.noteNotify('s1', 'done');
+    feed.noteNotify('s2', 'progress');
+    feed.noteNotify('s3', 'ask', true);
+    for (const id of ['s1', 's2', 's3']) set(id, { status: 'idle' });
+    await tick(2_000);
+    expect(w.delivered).toEqual(['[hangar] 出来事 1 件\n- turn.done s1 「ログイン修正」']);
+  });
+
+  it('notify_user の印は 1 ターンで使い切る。次のターンで呼ばなければ turn.done は出ない', async () => {
+    w.involved.add('s1');
+    set('s1', { status: 'busy' });
+    feed.noteNotify('s1', 'ask');
+    set('s1', { status: 'idle' });
+    await tick(2_000);
+    expect(w.delivered).toHaveLength(1);
+    w.live.set('orch', row('orch', { status: 'idle' }));
+    feed.onLiveChange();
+    await tick(FEED_SETTLE_MS);
+    w.involved.add('s1');
+    set('s1', { status: 'busy' });
+    set('s1', { status: 'idle' });
+    await tick(5_000);
+    expect(w.delivered).toHaveLength(1);
   });
 
   it('渡したあとは、統括のターンが動き出してから次を渡す', async () => {
@@ -235,6 +266,7 @@ describe('出来事の送り込み', () => {
       const id = `d${i}`;
       w.involved.add(id);
       set(id, { status: 'busy' });
+      feed.noteNotify(id, 'done');
       set(id, { status: 'idle' });
     }
     waitPerm('s1');
@@ -389,6 +421,7 @@ describe('統括の切り替えと系譜', () => {
       live.delete('old');
       live.set('new', row('new', { status: 'idle' }));
       f.onLiveChange();
+      f.noteNotify('c1', 'done');
       live.set('c1', row('c1', { status: 'idle' }));
       f.onLiveChange();
       await tick(3_000);
