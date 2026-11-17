@@ -267,12 +267,12 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     // 手元で答えた札が、まだ tail に見られていなくても、記録にしてから見る。
     view.observe(sessionId);
     // 同じ札に先に答えた PC があれば、画面を見るまでもなく断る（札が閉じた後に遅れて来た答えも）。
-    if (view.answeredAsk(askId)) return { ok: false, reason: 'already-answered' };
+    if (view.answeredAsk(sessionId, askId)) return { ok: false, reason: 'already-answered' };
     const current = view.currentAsk(sessionId);
     if (!current) return { ok: false, reason: 'ask-mismatch' };
     // 拠り所が決まって askId が言い換わった札には、言い換え前の askId で来た答えを、今の札のものとして受ける。
     if (view.resolveAskId(askId, current.askId) !== current.askId) return { ok: false, reason: 'ask-mismatch' };
-    if (current.askId !== askId && view.answeredAsk(current.askId)) return { ok: false, reason: 'already-answered' };
+    if (current.askId !== askId && view.answeredAsk(sessionId, current.askId)) return { ok: false, reason: 'already-answered' };
     const asked = view.askItem(sessionId, current.askId);
     const r = await answerer.answerAsk(sessionId, current, keys, text);
     if (!r.ok) return r;
