@@ -120,6 +120,17 @@ describe('声のサービス', () => {
     expect(sent[1]).toEqual({ text: '次の文', origin: 'voice-held' });
   });
 
+  it('state() に切り替えが入っているかが toggled で出る（設定の mode とは別）', () => {
+    voice = voiceOf({ mode: 'toggle' });
+    const svc = make();
+    expect(svc.state().toggled).toBe(false);
+    svc.toggle(true);
+    expect(svc.state().toggled).toBe(true);
+    expect(svc.state().mode).toBe('toggle');
+    svc.toggle(false);
+    expect(svc.state().toggled).toBe(false);
+  });
+
   it('遅れて来た前の flushed で、次の押している間の区間を外へ出さない', async () => {
     voice = voiceOf({ mode: 'off' });
     const svc = make();

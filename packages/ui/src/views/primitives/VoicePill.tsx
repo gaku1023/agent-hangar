@@ -32,7 +32,7 @@ export function VoicePill(props: { state: VoiceStateDto; api: PillApi }) {
     down.current = false;
     clearTimeout(timer.current);
     if (held.current) { held.current = false; void apiRef.current.voiceHold(false).catch(() => {}); }
-    else void apiRef.current.voiceToggle(stateRef.current.mode !== 'toggle').catch(() => {});
+    else void apiRef.current.voiceToggle(!stateRef.current.toggled).catch(() => {});
   };
   const press = () => {
     down.current = true;
@@ -69,9 +69,9 @@ export function VoicePill(props: { state: VoiceStateDto; api: PillApi }) {
       )}
       <button type="button" className="vp-btn" data-phase={state.phase} data-preparing={preparing ? 'true' : undefined}
         style={preparing ? ({ '--vp-progress': String(state.models.progress) } as React.CSSProperties) : undefined}
-        aria-label={t('primitives.micButton.label')} aria-pressed={state.mode === 'toggle'} aria-busy={preparing || undefined}
+        aria-label={t('primitives.micButton.label')} aria-pressed={state.toggled} aria-busy={preparing || undefined}
         onPointerDown={press} onPointerUp={release} onPointerCancel={release} onPointerLeave={release}
-        onClick={(e) => { if (e.detail === 0) void api.voiceToggle(state.mode !== 'toggle').catch(() => {}); }}>
+        onClick={(e) => { if (e.detail === 0) void api.voiceToggle(!state.toggled).catch(() => {}); }}>
         <Icon name="mic" />
       </button>
     </span>

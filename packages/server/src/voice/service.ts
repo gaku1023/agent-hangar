@@ -111,6 +111,7 @@ export class VoiceService {
       available: this.available(),
       models: { ...this.models },
       mode: this.cfg().mode,
+      toggled: this.addr.toggled,
       phase: this.phase,
       caption: this.caption,
       speakingId: this.speakingId,

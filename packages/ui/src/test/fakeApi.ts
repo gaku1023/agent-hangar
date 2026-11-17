@@ -43,7 +43,7 @@ export function fakeApiExtras(): Extras {
     peerChatOpen: vi.fn(async () => ({ ok: false as const, reason: 'not-remote' as const })),
     peerChatOp: vi.fn(async () => ({ ok: true as const })),
     orchestratorApprovals: vi.fn(async () => ({ approvals: [] })),
-    voice: vi.fn(async () => ({ available: false, models: { state: 'missing' as const, progress: 0 }, mode: 'off' as const, phase: 'off' as const, caption: null, speakingId: null, meeting: false, callable: true })),
+    voice: vi.fn(async () => ({ available: false, models: { state: 'missing' as const, progress: 0 }, mode: 'off' as const, phase: 'off' as const, caption: null, speakingId: null, toggled: false, meeting: false, callable: true })),
     voiceHold: vi.fn(async () => ({ ok: true })),
     voiceToggle: vi.fn(async () => ({ ok: true })),
     voiceSpeak: vi.fn(async () => ({ ok: true })),
