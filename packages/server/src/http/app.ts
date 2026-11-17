@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono } from 'hono';
-import { COMPAT_VERSION, t, type Language, type SyncSkippedDto, type SyncStatusBody } from '@agent-hangar/shared';
+import { COMPAT_VERSION, t, type Language, type SettingsDto, type SyncSkippedDto, type SyncStatusBody } from '@agent-hangar/shared';
 import { createMcpApp } from '../mcp/app.ts';
 import { permissionPolicySaver } from '../mcp/orchestratorTools.ts';
+import type { ToolDeps } from '../mcp/tools.ts';
 import { accountsRoutes, type AccountsDeps } from './accounts.ts';
 import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
 import type { AppDeps } from './deps.ts';
@@ -158,7 +159,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.route('/api', api);
   // MCP は自前の認証と Origin の検査を持つので、/api の認証を通さずに直接 mount する。
-  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, trash: deps.trash, usage: () => deps.usage.current(), accounts: deps.accounts, ...(deps.peerCall ? { peer: deps.peerCall } : {}), ...(deps.accounts.codex ? { codexAccounts: deps.accounts.codex.store } : {}), language, settings: deps.settings, saveNotifyPreference: (p) => { const s = deps.updateSettings({ notifyPreference: p }); deps.hub.broadcast({ type: 'settings.changed', settings: toSettingsDto(s), keys: ['notifyPreference'] }); }, savePermissionPolicy: permissionPolicySaver({ updateSettings: deps.updateSettings, broadcast: (ev) => { deps.hub.broadcast(ev); }, toDto: toSettingsDto }), ...(deps.askLocal ? { askLocal: deps.askLocal } : {}), openUrl: (u) => deps.external.openUrl(u), ...(deps.permissionAsks ? { permissionAsks: deps.permissionAsks } : {}), ...(deps.hookDecisions ? { hookDecisions: deps.hookDecisions } : {}), ...(deps.asksOf ? { asksOf: deps.asksOf } : {}), ...(deps.holdUnread ? { holdUnread: true } : {}), ...(deps.orchestratorKeeper ? { orchestratorHandoff: (id: string, text: string) => deps.orchestratorKeeper!.receiveHandoff(id, text) } : {}) }));
+  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, trash: deps.trash, usage: () => deps.usage.current(), accounts: deps.accounts, ...(deps.peerCall ? { peer: deps.peerCall } : {}), ...(deps.accounts.codex ? { codexAccounts: deps.accounts.codex.store } : {}), language, settings: deps.settings, saveNotifyPreference: (p) => { const s = deps.updateSettings({ notifyPreference: p }); deps.hub.broadcast({ type: 'settings.changed', settings: toSettingsDto(s), keys: ['notifyPreference'] }); }, settingsAccess: settingsAccessOf(deps), savePermissionPolicy: permissionPolicySaver({ updateSettings: deps.updateSettings, broadcast: (ev) => { deps.hub.broadcast(ev); }, toDto: toSettingsDto }), ...(deps.askLocal ? { askLocal: deps.askLocal } : {}), openUrl: (u) => deps.external.openUrl(u), ...(deps.permissionAsks ? { permissionAsks: deps.permissionAsks } : {}), ...(deps.hookDecisions ? { hookDecisions: deps.hookDecisions } : {}), ...(deps.asksOf ? { asksOf: deps.asksOf } : {}), ...(deps.holdUnread ? { holdUnread: true } : {}), ...(deps.orchestratorKeeper ? { orchestratorHandoff: (id: string, text: string) => deps.orchestratorKeeper!.receiveHandoff(id, text) } : {}) }));
 
   if (deps.uiDist) {
     const dist = path.resolve(deps.uiDist);
@@ -190,4 +191,21 @@ export function createApp(deps: AppDeps): Hono {
     });
   }
   return app;
+}
+
+/**
+ * MCP の設定の道具（mcp/settingsTools.ts）の口。
+ * 書くのは画面と同じ PATCH /api/settings の処理で、認証の層を外した設定の経路だけの Hono に投げる（値の検査、保存、画面への配りをそのまま使う）。
+ */
+function settingsAccessOf(deps: AppDeps): NonNullable<ToolDeps['settingsAccess']> {
+  const routes = new Hono();
+  settingsRoutes(routes, deps);
+  return {
+    settingsDto: () => toSettingsDto(deps.settings()),
+    patchSettings: async (body) => {
+      const res = await routes.request('/settings', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const json = (await res.json()) as SettingsDto & { error?: string };
+      return res.ok ? { ok: true, settings: json } : { ok: false, error: typeof json.error === 'string' ? json.error : `HTTP ${res.status}` };
+    },
+  };
 }

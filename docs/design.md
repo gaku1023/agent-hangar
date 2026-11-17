@@ -3903,6 +3903,14 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   `whileFocused` と `merge` は省け、省くと今の値を保つ。必須の欠け、形の違い、場面でない要素は断り、何も保存しない。
   保存は設定の PATCH と同じ道（`ToolDeps.saveNotifyPreference`）で、変えた欄を全部の画面へ配る。この口が無いサーバでは知らない道具として断る。
   返り値は保存した決まり（省いた項目を埋めた形）である。
+- `get_settings()`：設定の今の値（画面へ返すのと同じ `SettingsDto`。API キーは保存の有無だけ）と、項目ごとの段（`tiers` の `direct`、`confirm`、`refused`）を返す。
+- `update_settings({ changes, confirmed? })`：設定を変える（2026-11-18）。段は `mcp/settingsTools.ts` の `SETTING_TIERS` で、`SettingsDto` の全部の鍵を持つ。設定を足して段を付け忘れると型が止める。
+  `direct` は見た目と知らせ方（`language`、`unread*`、`sidebarOtherPcs`、`notifyPreference`）で、聞かずに書く。
+  `confirm` はそれ以外の書けても乗っ取りにならない項目で、`confirmed: true` が無ければ何も書かず、`current` と `proposed` を返す。エージェントはそれをチャットで見せて `AskUserQuestion` で聞き、利用者が選んだら `confirmed: true` で呼び直す。
+  hangar はその申告を確かめられない（`propose_session_status` と同じ余地）。画面の承認（`delete_session` の帯）にしなかったのは、利用者がチャットで聞く形を選んだためである。守れるのはうっかりの変更までになる。
+  `refused` は、書かれると任意のコマンドが動く項目（道具のパス、`claudeDir`、`editor`、`opencodeProviderPrep`）、会話を外へ出せる項目（`lmStudioUrl`、`allowExternalSummarizer`）、鍵、専用の道具か画面にしか書かせない項目（`permissionPolicy`、`trustedWorkspaceRoot`、古い項目）で、`confirmed` があっても受けない。
+  鍵を全部先に見て、知らない鍵か `refused` の鍵が 1 つでもあれば何も書かずに断る。
+  書くのは画面と同じ `PATCH /api/settings` の処理で、認証の層を外した設定の経路だけの Hono に投げる（`http/app.ts` の `settingsAccessOf`）。値の検査、保存、画面への配りはそちらのままで、検査に落ちたらその文で断る。
 - `set_session_memo` は 0.4.0 で道具ごと外した（セッションのノートを外したため。要約の `set_session_summary` と Paused の戻る日が役を担う）。
   update_project の `append_memo` のように引数ごと外した場合は、MCP の層が未知の引数として捨てる。こちらは道具が 1 つの仕事しか持たないので、外した後の一覧に無い道具を呼ばれても MCP の層が isError で返す。
   外す前の一覧を覚えた Claude が呼んでも、MCP の層が書かずに `isError`（道具が無い）で返す。モデルにこの道具を使うよう指示したことも無い。
