@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VoicePill } from './VoicePill.tsx';
 
-const st = (o: Partial<VoiceStateDto> = {}): VoiceStateDto => ({ available: true, models: { state: 'ready', progress: 1 }, mode: 'off', phase: 'off', caption: null, speakingId: null, meeting: false, callable: true, ...o });
+const st = (o: Partial<VoiceStateDto> = {}): VoiceStateDto => ({ available: true, models: { state: 'ready', progress: 1 }, mode: 'toggle', toggled: false, phase: 'off', caption: null, speakingId: null, meeting: false, callable: true, ...o });
 const mkApi = () => ({ voiceHold: vi.fn(async () => ({})), voiceToggle: vi.fn(async () => ({})) });
 const pill = () => screen.getByRole('button', { name: '音声で入力' });
 
@@ -29,9 +29,20 @@ describe('VoicePill', () => {
     fireEvent.pointerUp(pill());
     expect(api.voiceToggle).toHaveBeenLastCalledWith(true);
     expect(api.voiceHold).not.toHaveBeenCalled();
-    rerender(<VoicePill state={st({ mode: 'toggle', phase: 'listening' })} api={api} />);
+    rerender(<VoicePill state={st({ toggled: true, phase: 'listening' })} api={api} />);
     fireEvent.pointerDown(pill());
     fireEvent.pointerUp(pill());
+    expect(api.voiceToggle).toHaveBeenLastCalledWith(false);
+  });
+  it('設定が toggle でも、toggled が偽なら on を、真なら off を送り aria-pressed に出る', () => {
+    const api = mkApi();
+    const { rerender } = render(<VoicePill state={st({ mode: 'toggle', toggled: false })} api={api} />);
+    expect(pill()).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.pointerDown(pill()); fireEvent.pointerUp(pill());
+    expect(api.voiceToggle).toHaveBeenLastCalledWith(true);
+    rerender(<VoicePill state={st({ mode: 'toggle', toggled: true })} api={api} />);
+    expect(pill()).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(pill());
     expect(api.voiceToggle).toHaveBeenLastCalledWith(false);
   });
   it('キーボードの Enter（click）も toggle になる', () => {

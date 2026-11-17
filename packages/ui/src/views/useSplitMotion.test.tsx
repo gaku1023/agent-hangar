@@ -5,7 +5,7 @@ import { classify, frameOf, play, useSplitMotion, type Frame } from './useSplitM
 
 const leaf = (id: string, sessionId: string | null): PaneNode => ({ kind: 'pane', id, sessionId, toc: false });
 const row = (a: PaneNode, b: PaneNode): PaneNode => ({ kind: 'split', id: 'n1', dir: 'row', ratio: 0.5, a, b });
-const panes = (root: PaneNode | null, zoom: string | null = null): PanesState => ({ root, focus: null, zoom, flash: null });
+const panes = (root: PaneNode | null, zoom: string | null = null): PanesState => ({ root, focus: null, zoom, flash: null, tocPeek: [] });
 
 describe('frameOf と classify', () => {
   it('セッション画面でなければ count 0。ペインが 1 つなら 1 つ、2 つ以上なら分割', () => {

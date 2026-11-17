@@ -25,9 +25,11 @@ export type PanesState = {
   zoom: PaneId | null;
   /** 「もう開いている」ペインを光らせる一時状態。n は立てるたびに増え、同じペインをもう一度光らせるときの合図になる。保存しない。 */
   flash: { pane: PaneId; n: number } | null;
+  /** 統括の柱が開いている間に、⌘J やボタンでその場だけ右パネルを開いたペイン。保存しない。柱の開閉で空にする（orchestratorOpen）。 */
+  tocPeek: PaneId[];
 };
 
-export const emptyPanes = (): PanesState => ({ root: null, focus: null, zoom: null, flash: null });
+export const emptyPanes = (): PanesState => ({ root: null, focus: null, zoom: null, flash: null, tocPeek: [] });
 
 /** 木と操作中を残す localStorage の鍵。値は { root, focus }。 */
 export const PANES_KEY = 'panes.layout';
@@ -177,7 +179,7 @@ export function prunePanes(state: State, store: Store): State {
     if (!root) { focus = null; zoom = null; flash = null; break; }
   }
   if (root && !findLeaf(root, focus)) focus = paneLeaves(root)[0]!.id;
-  return { ...state, panes: { root, focus, zoom, flash } };
+  return { ...state, panes: { ...state.panes, root, focus, zoom, flash } };
 }
 
 /** 木か操作中が変わったときだけ、保存の Effect を 1 つ足す。最大化と光らせるのは保存しない。 */
@@ -372,6 +374,11 @@ export function paneStep(state: State, store: Store, input: Input): Step | null 
     case 'pane.toc': {
       const leaf = findLeaf(root, i.pane);
       if (!root || !leaf || paneLeaves(root).length < 2) return { state, effects: [] };
+      // 統括の柱が開いている間は、保存する toc を替えず、そのペインだけ覗く（tocPeek）。
+      if (state.orchestratorOpen) {
+        const peek = state.panes.tocPeek;
+        return { state: withPanes(quiet, { tocPeek: peek.includes(i.pane) ? peek.filter((p) => p !== i.pane) : [...peek, i.pane] }), effects: [] };
+      }
       return { state: withPanes(quiet, { root: mapNode(root, i.pane, (n) => ({ ...(n as PaneLeaf), toc: !(n as PaneLeaf).toc })) }), effects: [] };
     }
   }

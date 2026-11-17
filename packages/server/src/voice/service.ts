@@ -26,6 +26,8 @@ export type VoiceServiceDeps = {
   /** 統括へ 1 本の文を送る（sendToOrchestrator）。ok が偽なら届いていない。 */
   send: (text: string, origin: OrchestratorOrigin) => Promise<{ ok: boolean }>;
   broadcast: (ev: { type: 'voice.state'; state: VoiceStateDto }) => void;
+  /** 補助の voices の事象を待つ上限（既定 1 秒）。 */
+  voicesWaitMs?: number;
   hintSource: () => { sessionTitles: string[]; projectNames: string[] };
   /** 統括の会話のいまの様子（実行中の一覧の status）。動いていなければ null。 */
   orchestratorStatus: () => LiveStatus | null;
@@ -71,6 +73,10 @@ export class VoiceService {
   /** 送った数。送れなかった知らせが、後から送った文の待ちを消さないために数える。 */
   private sends = 0;
   private timer: NodeJS.Timeout | null = null;
+  /** 補助が最後に返したこの Mac の声と、返事を待っている呼び。 */
+  private osList: Array<{ id: string; name: string }> = [];
+  private osWaiters: Array<() => void> = [];
+  private previewSeq = 0;
   private lastPublished = '';
   private readonly now: () => number;
   private readonly onHelperEvent = (e: VoiceEvent) => { this.onEvent(e); };
@@ -111,6 +117,7 @@ export class VoiceService {
       available: this.available(),
       models: { ...this.models },
       mode: this.cfg().mode,
+      toggled: this.addr.toggled,
       phase: this.phase,
       caption: this.caption,
       speakingId: this.speakingId,
@@ -152,6 +159,35 @@ export class VoiceService {
     if (this.pendingReply && this.pendingReply.speakId === null) this.pendingReply.speakId = id;
     return true;
   }
+
+  /**
+   * この Mac の声の一覧。補助へ voices を送り、事象を待つ。待つのは 1 秒までで、来なければ最後に受けた値（無ければ空）を running:true で返す。
+   * 補助が無ければ null。
+   */
+  async osVoices(): Promise<{ running: boolean; voices: Array<{ id: string; name: string }> } | null> {
+    if (!this.ensureHelper()) return null;
+    await new Promise<void>((resolve) => {
+      let done = false;
+      const finish = () => { if (done) return; done = true; clearTimeout(timer); this.osWaiters = this.osWaiters.filter((w) => w !== finish); resolve(); };
+      const timer = setTimeout(finish, this.deps.voicesWaitMs ?? 1000);
+      timer.unref?.();
+      this.osWaiters.push(finish);
+      this.deps.helper.send({ cmd: 'voices' });
+    });
+    return { running: true, voices: this.osList };
+  }
+
+  /** 試し聞き。人格の声ではなく、渡された声と速さで 1 度鳴らす（id は preview-<連番>）。 */
+  preview(voice: string, speed: number, text: string): boolean {
+    if (!this.ensureHelper()) return false;
+    const spoken = speechText(text);
+    if (spoken === '') return true;
+    this.deps.helper.send({ cmd: 'speak', id: `preview-${++this.previewSeq}`, text: spoken, voice, speed });
+    return true;
+  }
+
+  /** 使っている人格の名前（試し聞きの決まった一文に入れる）。 */
+  personaName(): string { return activePersona(this.cfg()).name; }
 
   stopSpeaking(): boolean {
     if (!this.ensureHelper()) return false;
@@ -218,6 +254,11 @@ export class VoiceService {
         this.refreshHints(true);
         this.syncListen();
         break;
+      case 'voices': {
+        this.osList = e.os;
+        for (const w of [...this.osWaiters]) w();
+        return;
+      }
       case 'models':
         this.models = { state: e.state, progress: e.progress };
         break;

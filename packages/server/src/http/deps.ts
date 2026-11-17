@@ -114,7 +114,9 @@ export type AppDeps = {
   hub: { broadcast(ev: NoticeEvent): void };
   runs: RunsApi;
   /** 机の音声のサービス（voice/service.ts）。補助が無い build や環境では渡さず、GET /api/voice は available が偽、動かす口は 409。 */
-  voice?: Pick<VoiceService, 'state' | 'hold' | 'toggle' | 'speak' | 'stopSpeaking' | 'prepare'>;
+  voice?: Pick<VoiceService, 'state' | 'hold' | 'toggle' | 'speak' | 'stopSpeaking' | 'prepare' | 'osVoices' | 'preview' | 'personaName'>;
+  /** 声の一覧と「エンジンを開く」の外とのやりとり（voice/catalog.ts）。試験で差し替える。無ければ実物（fetch、process.env、open -a）。 */
+  voiceEngine?: { fetch?: typeof fetch; env?: NodeJS.ProcessEnv; timeoutMs?: number; platform?: NodeJS.Platform; exec?: (file: string, args: string[]) => Promise<unknown> };
   /** 定期の実行（schedule/runner.ts）。画面の「今すぐ実行」が呼ぶ。 */
   schedules: { runNow(id: string): 'started' | 'busy' | 'missing'; deliver(sessionId: string, text: string): Promise<{ sessionId: string } | 'busy'> };
   /**

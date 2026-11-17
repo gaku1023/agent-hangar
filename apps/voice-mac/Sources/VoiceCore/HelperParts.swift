@@ -71,15 +71,25 @@ public struct Framer {
 public enum VoiceSpec: Equatable {
     case os(identifier: String)
     case kokoro(voice: String)
+    case voicevox(style: Int)
+    case aivis(style: Int)
 
     public init?(_ s: String) {
         guard let colon = s.firstIndex(of: ":") else { return nil }
         let kind = s[..<colon]
         let rest = String(s[s.index(after: colon)...])
         guard !rest.isEmpty else { return nil }
+        // 非負の整数（数字だけ）。
+        let style: Int? = rest.allSatisfy({ $0.isASCII && $0.isNumber }) ? Int(rest) : nil
         switch kind {
         case "os": self = .os(identifier: rest)
         case "kokoro": self = .kokoro(voice: rest)
+        case "voicevox":
+            guard let style else { return nil }
+            self = .voicevox(style: style)
+        case "aivis":
+            guard let style else { return nil }
+            self = .aivis(style: style)
         default: return nil
         }
     }

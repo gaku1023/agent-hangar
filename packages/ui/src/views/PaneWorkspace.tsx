@@ -55,11 +55,11 @@ function PaneCell(props: { leaf: PaneLeaf; p: PanesProps }) {
     flashed.current = flashN;
     if (ref.current) flashPane(ref.current);
   }, [flashN]);
-  const view: PaneView = { id: leaf.id, toc: leaf.toc, tight, tiny, zoomed: p.zoom === leaf.id };
+  const view: PaneView = { id: leaf.id, toc: p.toc[leaf.id] ?? leaf.toc, tight, tiny, zoomed: p.zoom === leaf.id };
   const screen = p.screens[leaf.id];
   return (
     <div ref={ref} data-pane={leaf.id} data-session={leaf.sessionId ?? undefined} data-focused={focused ? 'true' : undefined}
-      data-toc={leaf.toc ? 'true' : undefined} data-empty={leaf.sessionId === null ? 'true' : undefined}
+      data-toc={view.toc ? 'true' : undefined} data-empty={leaf.sessionId === null ? 'true' : undefined}
       className={['pane', tight ? 'tight' : '', tiny ? 'tiny' : ''].filter(Boolean).join(' ')}
       onPointerDownCapture={() => { if (!focused) emit({ type: 'pane.focus', pane: leaf.id }); }}>
       {screen ? <SessionScreen {...screen} variant="pane" pane={view} /> : <><EmptyPaneHeader pane={view} /><PanePicker pane={leaf.id} rows={p.picker} /></>}

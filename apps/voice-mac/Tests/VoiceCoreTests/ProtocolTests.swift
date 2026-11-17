@@ -13,6 +13,14 @@ final class ProtocolTests: XCTestCase {
         XCTAssertEqual(decodeLine(#"{"cmd":"stopSpeaking"}"#), .stopSpeaking)
         XCTAssertEqual(decodeLine(#"{"cmd":"prepare"}"#), .prepare)
         XCTAssertEqual(decodeLine(#"{"cmd":"quit"}"#), .quit)
+        XCTAssertEqual(decodeLine(#"{"cmd":"voices"}"#), .voices)
+    }
+
+    func testVoicesEventEncodes() throws {
+        let j = try json(.voices(os: [VoiceInfo(id: "com.apple.voice.compact.ja-JP.Kyoko", name: "Kyoko")]))
+        XCTAssertEqual(j["ev"] as? String, "voices")
+        let os = try XCTUnwrap(j["os"] as? [[String: String]])
+        XCTAssertEqual(os, [["id": "com.apple.voice.compact.ja-JP.Kyoko", "name": "Kyoko"]])
     }
 
     func testUnknownOrBrokenIsNil() {

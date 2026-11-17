@@ -49,7 +49,12 @@ final class VoiceSpecTests: XCTestCase {
             VoiceSpec("os:com.apple.voice.compact.ja-JP.Kyoko"),
             .os(identifier: "com.apple.voice.compact.ja-JP.Kyoko"))
         XCTAssertEqual(VoiceSpec("kokoro:jf_alpha"), .kokoro(voice: "jf_alpha"))
-        XCTAssertNil(VoiceSpec("voicevox:1"))
+        XCTAssertEqual(VoiceSpec("voicevox:3"), .voicevox(style: 3))
+        XCTAssertEqual(VoiceSpec("aivis:888753760"), .aivis(style: 888753760))
+        XCTAssertEqual(VoiceSpec("voicevox:0"), .voicevox(style: 0))
+        for bad in ["voicevox:x", "voicevox:", "voicevox:-1", "voicevox:+1", "aivis:1.5", "aivis:"] {
+            XCTAssertNil(VoiceSpec(bad), bad)
+        }
         XCTAssertNil(VoiceSpec("os:"))
         XCTAssertNil(VoiceSpec("Kyoko"))
     }
