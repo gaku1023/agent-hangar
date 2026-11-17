@@ -3,7 +3,9 @@ import type { InboxView } from './inbox.ts';
 import { exitMs } from './presence.ts';
 import { readPairText, type UnpairedReason } from './api.ts';
 import { refreshPhoneKeys } from './keyring.ts';
-import { openMessageOf } from './push.ts';
+import { openMessageOf, type OpenTarget } from './push.ts';
+import { chatTargetOfNotice } from './chatTarget.ts';
+import { ChatScreen, type ChatTarget } from './views/ChatScreen.tsx';
 import { startLaunch, type LaunchRun, type LaunchSpec, type RunState } from './launchRun.ts';
 import { clearPairing, currentKey, loadPairing, loadPhoneKeys, loadPhonePair, type Keyring, type Pairing, type PhoneKey, type PhonePair } from './store.ts';
 import { isIosSafari, isStandalone } from './platform.ts';
@@ -48,7 +50,7 @@ type AppProps = {
   /** 接続の後に keybox を読む間隔と、待つ長さ。試験で縮める。 */
   keyboxWait?: { everyMs?: number; giveUpMs?: number };
   /** 通知を押して開いたときの会話の ID（URL の #open=、main.tsx が読む）。 */
-  openSession?: string | null;
+  openSession?: OpenTarget | null;
 };
 
 const inboxOf = (pairing: Pairing, pair: PhonePair, keys: Keyring): Screen | null => {
@@ -60,7 +62,10 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs, keyboxWait, openS
   const [screen, setScreen] = useState<Screen>(() => (pairText ? { kind: 'join', pairText, guide: needsGuide() } : { kind: 'loading' }));
   // 通知から開いた会話。受信箱がその行に印を付ける。
   // 開いている hangar で通知を押したときは、サービスワーカーが message で会話の ID を渡すので、受信箱を読み直してから探す。
-  const [openTarget, setOpenTarget] = useState<{ id: string; n: number } | null>(() => (openSession ? { id: openSession, n: 1 } : null));
+  // stale は、押したときの受信箱の読み込み（開いている hangar に message で届いたときだけ持つ。読み直した新しいものを待つ）。
+  const [openTarget, setOpenTarget] = useState<(OpenTarget & { n: number; stale: InboxView | null }) | null>(() => (openSession ? { ...openSession, n: 1, stale: null } : null));
+  // 通知の会話を受信箱の行で示す印（会話の頁を開けないとき）。
+  const [mark, setMark] = useState<{ id: string; n: number } | null>(null);
 
   useEffect(() => {
     if (screen.kind !== 'loading') return;
@@ -97,9 +102,9 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs, keyboxWait, openS
     const sw = typeof navigator !== 'undefined' ? navigator.serviceWorker : undefined;
     if (!sw) return;
     const onMessage = (e: MessageEvent): void => {
-      const id = openMessageOf(e.data);
-      if (!id) return;
-      setOpenTarget((o) =>({ id, n: (o?.n ?? 0) + 1 }));
+      const t = openMessageOf(e.data);
+      if (!t) return;
+      setOpenTarget((o) => ({ ...t, n: (o?.n ?? 0) + 1, stale: inboxViewRef.current }));
       setRefresh((n) => n + 1);
     };
     sw.addEventListener('message', onMessage);
@@ -111,10 +116,16 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs, keyboxWait, openS
   const launchNo = useRef(0);
   // 受信箱で最後に読めたもの。起動のシートが、始まった会話の URL をここから探す。
   const [inboxView, setInboxView] = useState<InboxView | null>(null);
+  const inboxViewRef = useRef<InboxView | null>(null);
+  inboxViewRef.current = inboxView;
   useEffect(() => () => run.current?.cancel(), []);
   // 設定の画面。n は開くたびに増やす番号で、開き直すたびに一覧から始める（key に使う）。
   const [settings, setSettings] = useState<{ open: boolean; n: number } | null>(null);
+  // 会話の頁。n は開くたびに増やす番号（key に使う）。鍵は開いたときのものに固める。
+  const [chat, setChat] = useState<{ target: ChatTarget; key: PhoneKey; leaving: boolean; n: number } | null>(null);
+  const chatNo = useRef(0);
   const toJoin = useCallback((notice: JoinNotice | null) => {
+    setChat(null);
     run.current?.cancel();
     run.current = null;
     setLaunch(null);
@@ -146,6 +157,54 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs, keyboxWait, openS
     setSheet((s) => (s ? { ...s, leaving: true } : s));
     setTimeout(() => setSheet((s) => (s?.leaving && s.n === n ? null : s)), ms);
   }, []);
+
+  const openChat = useCallback((target: ChatTarget) => {
+    if (screen.kind !== 'inbox') return;
+    chatNo.current += 1;
+    setChat({ target, key: screen.current, leaving: false, n: chatNo.current });
+  }, [screen]);
+  const onCloseChat = useCallback(() => {
+    const n = chatNo.current;
+    const ms = exitMs();
+    if (ms <= 0) {
+      setChat(null);
+      return;
+    }
+    setChat((c) => (c ? { ...c, leaving: true } : c));
+    setTimeout(() => setChat((c) => (c?.leaving && c.n === n ? null : c)), ms);
+  }, []);
+  // 通知から開いた会話。受信箱の素から宛先を決めて会話の頁を開く。決められなければ受信箱のその行に印だけ付ける。
+  const handled = useRef(0);
+  useEffect(() => {
+    if (!openTarget || !inboxView || handled.current === openTarget.n) return;
+    if (openTarget.stale && inboxView === openTarget.stale) return;
+    handled.current = openTarget.n;
+    const t = chatTargetOfNotice(inboxView, openTarget);
+    if (t) openChat(t);
+    else setMark({ id: openTarget.id, n: openTarget.n });
+  }, [openTarget, inboxView, openChat]);
+  // 読み直しが返らなくても、押した通知を放っておかない（手元の受信箱で決める）。
+  useEffect(() => {
+    if (!openTarget?.stale) return;
+    const n = openTarget.n;
+    const t = setTimeout(() => setOpenTarget((o) => (o && o.n === n ? { ...o, stale: null } : o)), 6000);
+    return () => clearTimeout(t);
+  }, [openTarget]);
+  // 読めなかった会話は頁を閉じ、受信箱に印だけ付ける（今までの振る舞い）。
+  const onChatGone = useCallback(() => {
+    setChat(null);
+    setOpenTarget((o) => {
+      if (o) setMark({ id: o.id, n: o.n });
+      return o;
+    });
+  }, []);
+  const onChatUnpaired = useCallback(
+    (reason?: UnpairedReason) => {
+      void clearPairing();
+      onUnpaired(reason);
+    },
+    [onUnpaired],
+  );
 
   const onWantRefresh = useCallback(() => setRefresh((n) => n + 1), []);
   // key は新しい会話の画面を開いたときの鍵。画像もこの鍵で封じてあるので、依頼も同じ世代で封じる（受信箱が後で新しい世代を読んでも替えない）。
@@ -196,7 +255,7 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs, keyboxWait, openS
     );
   return (
     <>
-      <div className="under" inert={(!!sheet && !sheet.leaving) || !!launch?.open || !!settings?.open}>
+      <div className="under" inert={(!!sheet && !sheet.leaving) || !!launch?.open || !!settings?.open || (!!chat && !chat.leaving)}>
         <InboxScreen
           pairing={screen.pairing}
           keys={screen.keys}
@@ -207,7 +266,8 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs, keyboxWait, openS
           onSettings={onSettings}
           onView={setInboxView}
           refresh={refresh}
-          openSession={openTarget}
+          onOpenChat={openChat}
+          openSession={mark}
         />
       </div>
       {settings && (
@@ -219,6 +279,19 @@ export function App({ pairText, launchEveryMs, launchGiveUpMs, keyboxWait, openS
           onClose={onCloseSettings}
           onRescan={onRescan}
           onLeft={onLeft}
+        />
+      )}
+      {chat && (
+        <ChatScreen
+          key={chat.n}
+          target={chat.target}
+          pairing={screen.pairing}
+          phoneKey={chat.key}
+          skewMs={inboxView?.skewMs}
+          leaving={chat.leaving}
+          onClose={onCloseChat}
+          onUnpaired={onChatUnpaired}
+          onGone={onChatGone}
         />
       )}
       {sheet && (
