@@ -82,7 +82,7 @@ posixDescribe('RunManager.startOrchestrator（Codex）', () => {
   /** app-server の -c の値（key=value の value）。 */
   const configOf = (argv: string[], key: string): string | undefined => argv.find((a) => a.startsWith(`${key}=`))?.slice(key.length + 1);
 
-  it('専用の cwd、read-only の sandbox、承認 on-request、役の文、設定のモデルと effort で起こす。プロジェクトの段は足さず、プロジェクトにも属さない', async () => {
+  it('専用の cwd、read-only の sandbox、承認 never（昇格を求められない）、役の文、設定のモデルと effort で起こす。プロジェクトの段は足さず、プロジェクトにも属さない', async () => {
     const { rm, opened, boots } = make();
     const r = await rm.startOrchestrator({ agent: 'codex' });
     const dir = path.join(home, 'orchestrator');
@@ -90,7 +90,7 @@ posixDescribe('RunManager.startOrchestrator（Codex）', () => {
     expect(sessions()).toEqual([expect.objectContaining({ id: r.sessionId, provider: 'codex', cwd: dir, project_id: null })]);
     const argv = boots()[0]!.argv;
     expect(configOf(argv, 'sandbox_mode')).toBe('"read-only"');
-    expect(configOf(argv, 'approval_policy')).toBe('"on-request"');
+    expect(configOf(argv, 'approval_policy')).toBe('"never"');
     expect(configOf(argv, 'mcp_servers.hangar.default_tools_approval_mode')).toBe('"approve"');
     expect(configOf(argv, 'model')).toBe('"gpt-x"');
     expect(configOf(argv, 'model_reasoning_effort')).toBe('"low"');
@@ -99,9 +99,17 @@ posixDescribe('RunManager.startOrchestrator（Codex）', () => {
     expect(inst).toContain('[voice]');
     expect(inst).not.toContain('プロジェクト：');
     const cmd = opened[0]!.command;
-    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['-m', 'gpt-x', '-s', 'read-only', '-a', 'on-request']));
+    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['-m', 'gpt-x', '-s', 'read-only', '-a', 'never']));
     expect(cmd).not.toContain('--remote-control');
     expect(JSON.parse((db.prepare('select launch_params from runs where id = ?').get(r.run.id) as { launch_params: string }).launch_params)).toMatchObject({ agent: 'codex', name: 'Orchestrator' });
+  });
+
+  it('統括でない read-only の Codex の会話は、承認 on-request のまま', async () => {
+    const { rm, opened, boots } = make();
+    await rm.start({ agent: 'codex', projectId: 'p1', permissionMode: 'read-only' });
+    expect(configOf(boots()[0]!.argv, 'approval_policy')).toBe('"on-request"');
+    const cmd = opened[0]!.command;
+    expect(cmd.slice(cmd.indexOf(path.join(home, 'cx', 'codex')))).toEqual(expect.arrayContaining(['-s', 'read-only', '-a', 'on-request']));
   });
 
   it('Claude Code を渡す（または省く）と、今までどおり同期で起こす', () => {
@@ -126,9 +134,10 @@ posixDescribe('RunManager.startOrchestrator（Codex）', () => {
     const sid = ensureSession(db, EXT, dir, 'd', 'codex');
     setting = { ...setting, sessionId: sid };
     await rm.resumeWith(sid, {});
-    expect(rpcs().find((x) => x.method === 'thread/resume')!.params).toMatchObject({ threadId: EXT, sandbox: 'read-only', approvalPolicy: 'on-request' });
+    expect(rpcs().find((x) => x.method === 'thread/resume')!.params).toMatchObject({ threadId: EXT, sandbox: 'read-only', approvalPolicy: 'never' });
     const argv = boots()[0]!.argv;
     expect(configOf(argv, 'sandbox_mode')).toBe('"read-only"');
+    expect(configOf(argv, 'approval_policy')).toBe('"never"');
     expect(JSON.parse(configOf(argv, 'developer_instructions')!)).toContain('[hangar]');
   });
 });

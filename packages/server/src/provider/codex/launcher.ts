@@ -39,6 +39,15 @@ export function loggedOutError(): MessageError {
 /** TOML の基本文字列（JSON の文字列の記法で足りる）。 */
 const toml = (s: string): string => JSON.stringify(s);
 
+/**
+ * 起動に渡す sandbox と承認。3 段の組（CODEX_PERMISSION_FLAGS）に、昇格を禁じる指定（LaunchSpec.noEscalation、統括）を重ねる。
+ * 禁じるときは sandbox はそのままに、承認だけを never にする。app-server の -c、TUI の -s と -a、thread/start と thread/resume が同じ値を使う。
+ */
+export function codexFlagsOf(spec: Pick<LaunchSpec, 'noEscalation'>, perm: CodexPermission): { sandbox: (typeof CODEX_PERMISSION_FLAGS)[CodexPermission]['sandbox']; approval: 'on-request' | 'never' } {
+  const flags = CODEX_PERMISSION_FLAGS[perm];
+  return spec.noEscalation ? { sandbox: flags.sandbox, approval: 'never' } : flags;
+}
+
 /** 権限の指定（LaunchSpec.mode）を 3 段のどれかにする。空は自動。知らない値は断る。 */
 export function codexPermissionOf(mode: string | undefined): CodexPermission {
   const m = mode?.trim();
@@ -62,7 +71,7 @@ export function instructionValue(entries: readonly InjectionEntry[]): string | n
 
 /** app-server の起動に足す `-c key=value`（値は TOML）。 */
 export function codexAppServerConfig(spec: LaunchSpec, perm: CodexPermission): string[] {
-  const flags = CODEX_PERMISSION_FLAGS[perm];
+  const flags = codexFlagsOf(spec, perm);
   const out = [
     `mcp_servers.${HANGAR_MCP_NAME}.url=${toml(spec.mcp.url)}`,
     `mcp_servers.${HANGAR_MCP_NAME}.bearer_token_env_var=${toml(MCP_TOKEN_ENV)}`,
@@ -90,7 +99,7 @@ export function planCodex(bin: string, mode: SessionMode, spec: LaunchSpec, remo
   // フォークは、呼び手が materialize（thread/fork）で作ったスレッドの ID を newId に入れて渡す。TUI は新しいスレッドを resume でつなぐ。
   const threadId = mode.kind === 'fork' ? mode.newId : mode.id;
   if (mode.kind !== 'start' && threadId.startsWith(PENDING_PREFIX)) throw noRolloutError();
-  const flags = CODEX_PERMISSION_FLAGS[codexPermissionOf(spec.mode)];
+  const flags = codexFlagsOf(spec, codexPermissionOf(spec.mode));
   const argv = [bin, ...remote.args];
   if (spec.model?.trim()) argv.push('-m', spec.model.trim());
   const effort = codexEffortOf(spec.effort);

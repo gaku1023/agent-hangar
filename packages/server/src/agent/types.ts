@@ -65,6 +65,11 @@ export type LaunchSpec = {
   /** 道具の許可と禁止（統括の会話だけ。docs/design.md「統括」）。Claude だけが読み、run の --settings の permissions に書く。ほかのエージェントは捨てる。 */
   permissions?: { allow: string[]; deny: string[] };
   /**
+   * sandbox の外での実行（昇格）を求められなくする（統括の会話だけ。docs/design.md「統括」）。
+   * Codex だけが読み、権限の 3 段の sandbox はそのままに、承認を never にする。人が承認の札で許しても、統括は書けない。
+   */
+  noEscalation?: boolean;
+  /**
    * 起動前の準備（runs/launchPrep.ts）。進みを配る口と、利用者の答え（問いのあとに送り直したとき）。
    * 準備を持つ driver（opencode の LM Studio）だけが読み、ほかは捨てる。
    */

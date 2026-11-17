@@ -480,7 +480,7 @@ export class RunManager {
     const orch = claude || agent === 'codex' ? this.orchestratorOf(sessionId) : null;
     if (orch) {
       // 統括は、起こすたび（新しい起動も再開も）に同じ指定にする。プロジェクトの段は足さず、手を動かす道具は禁じ、Remote Control は付けない。
-      // 手を動かす道具の禁じ方はエージェントで違う。Claude は run の settings の permissions、Codex は sandbox を read-only にする（hangar の MCP の道具は承認なしで通る）。
+      // 手を動かす道具の禁じ方はエージェントで違う。Claude は run の settings の permissions、Codex は sandbox を read-only にし、承認を never にして昇格も求められなくする（hangar の MCP の道具は承認なしで通る）。
       return {
         cwd,
         hangarSessionId: sessionId,
@@ -492,7 +492,7 @@ export class RunManager {
         remoteControl: null,
         ...(claude
           ? { mode: 'default', permissions: { allow: [...ORCHESTRATOR_PERMISSIONS.allow], deny: [...ORCHESTRATOR_PERMISSIONS.deny] } }
-          : { mode: 'read-only' satisfies CodexPermission, autoApprove: false }),
+          : { mode: 'read-only' satisfies CodexPermission, autoApprove: false, noEscalation: true }),
       };
     }
     return {
