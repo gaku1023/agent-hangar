@@ -567,3 +567,5 @@ button.set-it:active { background: var(--surface-2); }
 .chat-send { flex: none; width: 42px; height: 42px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-ink); font-size: 18px; cursor: pointer; transition: opacity var(--dur-fast) var(--ease-out); }
 .chat-send:disabled { opacity: 0.35; cursor: default; }
 .wait-card[role="button"] { cursor: pointer; }
+.input[aria-invalid="true"] { box-shadow: inset 0 0 0 1.5px var(--error); }
+.ns-start.danger { background: var(--error); }

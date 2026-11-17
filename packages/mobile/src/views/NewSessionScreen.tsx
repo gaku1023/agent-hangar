@@ -1,7 +1,7 @@
 import type { AgentKind } from '@agent-hangar/shared/src/agents.ts';
 import { launchJa } from '@agent-hangar/shared/src/i18n/ja/launch.ts';
 import { CODEX_PERMISSIONS, DEFAULT_CODEX_PERMISSION, type CodexPermission } from '@agent-hangar/shared/src/codexCompat.ts';
-import { MOBILE_PROMPT_MAX, type MobileAccount, type MobileAgentOptions, type MobileCodexOptions, type MobileModelOption } from '@agent-hangar/shared/src/mobile.ts';
+import { MOBILE_LAUNCH_NAME_MAX, MOBILE_PROMPT_MAX, MOBILE_WORKTREE_RE, type MobileAccount, type MobileAgentOptions, type MobileCodexOptions, type MobileModelOption } from '@agent-hangar/shared/src/mobile.ts';
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { workerTooOld } from '../api.ts';
 import { createAsker, type Asker } from '../ask.ts';
@@ -133,6 +133,9 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
   const [cxEffort, setCxEffort] = useState('');
   const [cxOptions, setCxOptions] = useState<CxOptions | null>(null);
   const [adv, setAdv] = useState(false);
+  // worktree と名前（PC の新規ダイアログと同じ）。caps.launchExtras のある PC にだけ出す。worktree は Claude Code だけ。
+  const [worktree, setWorktree] = useState('');
+  const [convName, setConvName] = useState('');
   const [prompt, setPrompt] = useState('');
   const [submitted, setSubmitted] = useState(false);
   // 依頼の ID は画面を開いたときに振る。画像はこの ID の下に置き、依頼もこの ID で出す。
@@ -145,6 +148,8 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
   const att = useAttachments({ pairing, key, launchId, put: deps?.putImage, shrink: deps?.shrink });
   const promptId = useId();
   const advId = useId();
+  const worktreeId = useId();
+  const nameId = useId();
   const titleId = useId();
 
   // 候補が 1 つなら選んだことにし、候補から外れた選択は外す（選び直したプロジェクトに PC が無いなど）。
@@ -162,6 +167,7 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
   const canAsk = !workerOld && (!pc || !!caps?.asks);
   const canImages = !workerOld && (!pc || !!caps?.images);
   const canEffort = !pc || !!caps?.effort;
+  const canExtras = !!pc && !!caps?.launchExtras;
   // opencode は、選んだ PC が caps.agents に opencode を載せているときだけ選べる。
   // 載せていない PC（古い PC、opencode を無効にした PC）は依頼の agent を知らずに Claude を起こしてしまうので、段ごと出さず、依頼にも agent を入れない。
   const canOpencode = !!pc && !!caps?.agents?.includes('opencode');
@@ -245,11 +251,18 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
   /** アカウントを使わないエージェント（opencode と Codex）。 */
   const noAccount = oc || cx;
 
+  // worktree は Claude Code の依頼にだけ、名前は選んだエージェントに依らず入れる（どちらも caps.launchExtras のある PC にだけ）。
+  const worktreeSent = canExtras && !oc && !cx ? worktree.trim() : '';
+  const worktreeBad = worktreeSent !== '' && !MOBILE_WORKTREE_RE.test(worktreeSent);
+  const nameSent = canExtras ? convName.trim() : '';
+  const extras = { ...(worktreeSent && !worktreeBad ? { worktree: worktreeSent } : {}), ...(nameSent ? { name: nameSent } : {}) };
+  const bypass = !noAccount && permissionMode === 'bypassPermissions';
+
   const tooLong = prompt.length > PROMPT_MAX;
   const left = PROMPT_MAX - prompt.length;
   const hasText = prompt.trim().length > 0 || att.ready.length > 0;
   const imagesBlocked = !canImages && att.items.length > 0;
-  const ready = !!sel && (sel.scratch || !!project) && !!pc && (noAccount || !!account) && hasText && !att.busy && !att.failed && !imagesBlocked && !tooLong && !submitted;
+  const ready = !!sel && (sel.scratch || !!project) && !!pc && (noAccount || !!account) && hasText && !att.busy && !att.failed && !imagesBlocked && !tooLong && !worktreeBad && !submitted;
   const nothing = choices.scratchDeviceIds.length === 0;
 
   const advShown = usePresence(adv ? ADV_ON : NO_ITEMS, (k) => k);
@@ -296,6 +309,7 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
               prompt,
               ...imageRefs,
               agent: 'codex',
+              ...(nameSent ? { name: nameSent } : {}),
             }
           : oc
           ? {
@@ -308,6 +322,7 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
               agent: 'opencode',
               ...(ocModeSent ? { mode: ocModeSent } : {}),
               ...(ocAuto ? { autoApprove: true } : {}),
+              ...(nameSent ? { name: nameSent } : {}),
             }
           : {
               ...target,
@@ -317,6 +332,7 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
               ...(effortSent ? { effort: effortSent } : {}),
               prompt,
               ...imageRefs,
+              ...extras,
             },
         skewMs: view.skewMs,
         id: launchId,
@@ -338,7 +354,9 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
             ? '送信できなかった画像があります'
             : att.busy
               ? '画像の送信中…'
-              : `${pcName} で始める`;
+              : bypass
+                ? 'Bypass permissions で起動'
+                : `${pcName} で始める`;
 
   return (
     <div className={`ns ${leaving ? 'leaving' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} inert={leaving}>
@@ -552,6 +570,24 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
                           ))}
                         </Fold>
                       ))}
+                      {canExtras && (
+                        <>
+                          {!noAccount && (
+                            <section className="ns-sec">
+                              <label className="ns-h" htmlFor={worktreeId}>
+                                worktree
+                              </label>
+                              <input id={worktreeId} className="input" value={worktree} placeholder="worktree の名前" aria-invalid={worktreeBad || undefined} autoCapitalize="off" autoCorrect="off" spellCheck={false} onChange={(e) => setWorktree(e.target.value)} />
+                            </section>
+                          )}
+                          <section className="ns-sec">
+                            <label className="ns-h" htmlFor={nameId}>
+                              名前
+                            </label>
+                            <input id={nameId} className="input" value={convName} placeholder="名前" maxLength={MOBILE_LAUNCH_NAME_MAX} onChange={(e) => setConvName(e.target.value)} />
+                          </section>
+                        </>
+                      )}
                     </div>
                   </Fold>
                 ))}
@@ -563,7 +599,7 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
 
       <div className="ns-bar">
         <div className="ns-bar-in">
-          <button type="button" className="ns-start" disabled={!ready} onClick={start}>
+          <button type="button" className={`ns-start${ready && bypass ? ' danger' : ''}`} disabled={!ready} onClick={start}>
             {label}
           </button>
         </div>
