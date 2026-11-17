@@ -28,6 +28,7 @@ import { callOrchestratorTool, guardWeakTurn, isOrchestratorCtx, isOrchestratorT
 import type { OrchestratorAsks } from '../orchestrator/asks.ts';
 import type { PeerChatLocal } from '../peer/chat/host.ts';
 import { createScheduleTool, listSchedulesTool, updateScheduleTool } from './scheduleTools.ts';
+import { getSettingsTool, updateSettingsTool, type SettingsToolDeps } from './settingsTools.ts';
 import { readSessionScreenTool, sendToSessionTool } from './screenTools.ts';
 import { noteTurnStart, waitForSessionTool } from './waitTool.ts';
 
@@ -65,6 +66,8 @@ export type ToolDeps = {
   settings?: () => { notifyPreference?: NotifyPreference | null; unreadBadge?: boolean; unreadOs?: boolean; unreadPhone?: boolean; orchestrator?: unknown; permissionPolicy?: unknown };
   /** 設定の保存（PATCH /api/settings と同じ道）。保存して、変えた欄を全部の画面へ配る。無ければ set_notify_preference は知らない道具として断る。 */
   saveNotifyPreference?: (p: NotifyPreference) => void;
+  /** 設定の道具（settingsTools.ts）の口。画面と同じ形で読み、画面と同じ PATCH /api/settings の処理で書く。無ければ get_settings と update_settings は知らない道具として断る。 */
+  settingsAccess?: Omit<SettingsToolDeps, 'language'>;
   /** 統括の許可の道具の芯（orchestrator/asks.ts）。無ければ createMcpApp が askLocal から作る。統括の URL 以外からは使わない。 */
   orchestratorAsks?: OrchestratorAsks;
   /** この PC の Claude Code の会話の札に答える口（peer/chat/host.ts の local）。無ければ統括はどの札にも答えられない（answerable: false）。 */
@@ -116,7 +119,7 @@ export const TOOL_NAMES = [
   'stop_session', 'resume_session', 'delete_session',
   'send_to_session', 'read_session_screen', 'wait_for_session', 'notify_user', 'set_notify_preference',
   'list_schedules', 'create_schedule', 'update_schedule',
-  'claim_pr', 'draft_event_binding',
+  'claim_pr', 'draft_event_binding', 'get_settings', 'update_settings',
 ] as const;
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
@@ -876,6 +879,12 @@ export function openInHangarTool(deps: ToolDeps, ctx: ToolContext, args: Record<
   return { url: url(deps, `session/${id}`), deep_link: `hangar://session/${id}` };
 }
 
+/** 設定の道具の口。無ければ知らない道具として断る。 */
+function settingsOf(deps: ToolDeps, name: string): SettingsToolDeps {
+  if (!deps.settingsAccess) throw new ToolError(msg('mcp.error.unknownTool', { name }));
+  return { ...deps.settingsAccess, ...(deps.language ? { language: deps.language } : {}) };
+}
+
 /** 作者への問い合わせの口。共通 URL でもセッション別 URL でも、枠に関わりなく使える（プロジェクトもセッションも指さない）。 */
 function reportOf(deps: ToolDeps, name: string): NonNullable<ToolDeps['report']> {
   if (!deps.report) throw new ToolError(msg('mcp.error.unknownTool', { name }));
@@ -918,6 +927,8 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'update_schedule': return updateScheduleTool(deps, ctx, args);
     case 'claim_pr': return claimPrTool(deps, ctx, args);
     case 'draft_event_binding': return draftEventBindingTool(deps, ctx, args);
+    case 'get_settings': return getSettingsTool(settingsOf(deps, name));
+    case 'update_settings': return updateSettingsTool(settingsOf(deps, name), args);
     default:
       // 統括だけの道具。統括の URL でなければ、知らない道具と同じ断りを返す（orchestratorTools.ts）。
       if (isOrchestratorToolName(name)) return callOrchestratorTool(deps, ctx, name, args);

@@ -219,4 +219,12 @@ export const mcpKeys = {
   'mcp.orchestrator.handoffWordLine': ['text'],
   'mcp.orchestrator.handoffMemo': [],
   'mcp.orchestrator.handoffNoMemo': [],
+  'mcp.tool.getSettings': [],
+  'mcp.tool.updateSettings': [],
+  'mcp.settings.changesParam': [],
+  'mcp.settings.confirmedParam': [],
+  'mcp.settings.badChanges': [],
+  'mcp.settings.unknownKey': ['keys'],
+  'mcp.settings.refused': ['keys'],
+  'mcp.settings.needsConfirmation': [],
 } as const satisfies MessageSpec;

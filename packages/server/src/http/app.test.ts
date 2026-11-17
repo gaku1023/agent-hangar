@@ -320,6 +320,25 @@ describe('アカウントの取り付け', () => {
     expect((await usageOver(app)).accounts?.map((a) => [a.name, a.current])).toEqual([['メイン', true]]);
   });
 
+  it('MCP の update_settings は画面と同じ PATCH の処理で書き、その検査の文で断る', async () => {
+    const mcp = async (name: string, args: unknown) => {
+      const res = await app.request('/mcp', { method: 'POST', headers: { ...H, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) });
+      const text = await res.text();
+      const json = (res.headers.get('content-type') ?? '').includes('text/event-stream') ? text.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim())[0]! : text;
+      const r = (JSON.parse(json) as { result: { content: { text: string }[]; isError?: boolean } }).result;
+      return { isError: r.isError === true, text: r.content[0]!.text };
+    };
+    const ok = await mcp('update_settings', { changes: { unreadOs: false } });
+    expect(ok.isError).toBe(false);
+    expect(JSON.parse(ok.text)).toMatchObject({ status: 'updated', changed: { unreadOs: false } });
+    expect((await (await app.request('/api/settings', { headers: H })).json() as { unreadOs: boolean }).unreadOs).toBe(false);
+    const bad = await mcp('update_settings', { changes: { autoDoneIdleDays: 999 }, confirmed: true });
+    expect(bad.isError).toBe(true);
+    expect(bad.text).toContain('値の形式が正しくありません');
+    const refused = await mcp('update_settings', { changes: { claudePath: '/tmp/evil' }, confirmed: true });
+    expect(refused.isError).toBe(true);
+  });
+
   it('アカウントの切り替えは、resume と同じく起動の前に同期の取り込みを待つ', async () => {
     const id = (await (await accountsApp.request('/api/accounts', { headers: H })).json() as { accounts: { id: string }[] }).accounts[1]!.id;
     calls.length = 0;

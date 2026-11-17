@@ -44,6 +44,8 @@ export const TOOL_CLASSES: Record<(typeof TOOL_NAMES)[number] | (typeof ORCHESTR
   draft_event_binding: { kind: 'write', why: "Files a draft only. Nothing runs, no inbox or webhook exists, and no URL is returned until the user approves it on the screen. A wake setting cannot be drafted." },
   draft_issue_report: { kind: 'write', why: "Writes a draft and sends nothing." },
   submit_issue_report: { kind: 'outward', why: "Posts a public issue. The full text is shown to the user first, and private data is masked by machine." },
+  get_settings: { kind: 'read', why: "Reads the settings and the tier of each key. The API key itself is never returned." },
+  update_settings: { kind: 'write', why: "Writes through the same checks as the settings screen. Keys that run commands, send conversations out or hold secrets are refused. Other keys beyond appearance and notifications need confirmed: true, which the agent sets after asking the user in the chat; hangar cannot verify that, so it only guards against accidental changes (settingsTools.ts)." },
   // 統括だけの道具（orchestratorTools.ts）。統括のセッション別 URL のほかには出さない。
   list_pending_asks: { kind: 'read', why: "Reads the pending permission and question prompts of other sessions on this computer. Only the orchestrator's own URL has it, and its own prompts are left out." },
   answer_ask: { kind: 'drive', why: "Presses a row of another session's prompt after matching the screen. With by policy, hangar only lets it press the one-time allow row for a tool in the user's policy (read and search by default), records it first, and caps it at 20 a minute. Questions and its own prompts are refused. Only the orchestrator's own URL has it." },

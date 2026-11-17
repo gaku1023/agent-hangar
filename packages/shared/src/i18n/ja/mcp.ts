@@ -220,4 +220,12 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.orchestrator.handoffWordLine': "- {text}",
   'mcp.orchestrator.handoffMemo': "前の統括の申し送り:",
   'mcp.orchestrator.handoffNoMemo': "前の統括の申し送りは無い。",
+  'mcp.tool.getSettings': "hangar の設定の今の値と、項目ごとの段（direct：聞かずに書ける、confirm：ユーザーに聞いてから書く、refused：MCP からは書けない）を返す。API キーそのものは返さない。",
+  'mcp.tool.updateSettings': "hangar の設定を変える。changes に項目名と値を渡す（形は get_settings の settings と同じ）。direct の項目はそのまま書く。confirm の項目があれば、まず confirmed なしで呼び、返った current と proposed をユーザーに見せて AskUserQuestion で聞き、ユーザーが選んだときだけ confirmed: true で呼び直す。ユーザーに聞かずに confirmed を true にしてはいけない。refused の項目（パス、エディタ、準備のコマンド、要約の宛先、API キーなど）は受けないので、ユーザーに設定の画面で変えるよう伝える。",
+  'mcp.settings.changesParam': "変える項目と値。get_settings の settings と同じ形",
+  'mcp.settings.confirmedParam': "confirm の項目を、ユーザーが会話の中で選んだときだけ true",
+  'mcp.settings.badChanges': "changes は、変える項目名と値を 1 つ以上持つオブジェクトにしてください",
+  'mcp.settings.unknownKey': "知らない設定の項目です：{keys}。get_settings で項目名を確認してください",
+  'mcp.settings.refused': "MCP からは変えられない項目です：{keys}。ユーザーに hangar の設定の画面で変えるよう伝えてください。他の項目も書いていません",
+  'mcp.settings.needsConfirmation': "まだ何も書いていません。current と proposed をユーザーに見せて AskUserQuestion で聞き、ユーザーが選んだら同じ changes に confirmed: true を付けて呼び直してください",
 };

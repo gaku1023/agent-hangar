@@ -220,4 +220,12 @@ export const mcpEn: AreaDictionary<typeof mcpKeys> = {
   'mcp.orchestrator.handoffWordLine': "- {text}",
   'mcp.orchestrator.handoffMemo': "Handoff note from the previous orchestrator:",
   'mcp.orchestrator.handoffNoMemo': "The previous orchestrator left no handoff note.",
+  'mcp.tool.getSettings': "Returns hangar's current settings and the tier of each key (direct: write without asking, confirm: ask the user first, refused: cannot be written over MCP). The API key itself is never returned.",
+  'mcp.tool.updateSettings': "Changes hangar's settings. Pass keys and values in changes (same shape as settings from get_settings). Direct keys are written as is. If any confirm key is included, call it first without confirmed, show the returned current and proposed to the user, ask with AskUserQuestion, and call again with confirmed: true only when the user chose it. Never set confirmed to true without asking the user. Refused keys (paths, editor, prep commands, the summary engine destination, API keys and so on) are not accepted; tell the user to change them on hangar's settings screen.",
+  'mcp.settings.changesParam': "Keys and values to change, in the same shape as settings from get_settings",
+  'mcp.settings.confirmedParam': "true only when the user chose the confirm keys in the conversation",
+  'mcp.settings.badChanges': "changes must be an object with at least one setting key and value",
+  'mcp.settings.unknownKey': "Unknown setting keys: {keys}. Check the names with get_settings",
+  'mcp.settings.refused': "These keys cannot be changed over MCP: {keys}. Tell the user to change them on hangar's settings screen. Nothing else was written either",
+  'mcp.settings.needsConfirmation': "Nothing was written yet. Show current and proposed to the user, ask with AskUserQuestion, and if the user chooses it, call again with the same changes and confirmed: true",
 };
