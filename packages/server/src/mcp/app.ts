@@ -13,6 +13,7 @@ import { defaultLanguage } from '../i18n/language.ts';
 import { errorText, translatorOf } from '../i18n/message.ts';
 import { mcpSecretMatches } from '../runs/secrets.ts';
 import { applyPermissionHook } from '../sessions/permissionAsks.ts';
+import { readPermissionDecisionInput } from '../provider/claude-code/hooks/permission.ts';
 import { applyQuestionHook } from '../sessions/questionHook.ts';
 import { openTargetCommand } from '../platform/browser.ts';
 import { execFile } from '../external/open.ts';
@@ -262,10 +263,37 @@ export function createMcpApp(given: ToolDeps & { token: string; asksOf?: AsksOf 
     const asks = row && given.asksOf ? given.asksOf(row.provider).parseHook?.(body) ?? [] : [];
     const now = Date.now();
     for (const a of asks) {
-      if (a.kind === 'question') applyQuestionHook(deps.db, id, a.hook, now);
-      else if (deps.permissionAsks) applyPermissionHook(deps.db, id, { providerSessionId: a.providerSessionId, ask: a.ask }, deps.permissionAsks, now);
+      if (a.kind === 'question') {
+        applyQuestionHook(deps.db, id, a.hook, now);
+        // 画面で先に答えられた（または取り消した）。PermissionRequest の hook はそのまま走り続けるので、待ちを閉じて台本を抜けさせる。
+        if (a.hook.kind === 'answered') deps.hookDecisions?.closeTool(id, 'AskUserQuestion');
+      } else if (deps.permissionAsks) applyPermissionHook(deps.db, id, { providerSessionId: a.providerSessionId, ask: a.ask }, deps.permissionAsks, now);
+    }
+    // 許可の確認（Claude）には、答えを待つ id を返す。台本は /decision でその答えを待つ。
+    const wait = row?.provider === 'claude-code' && deps.hookDecisions ? readPermissionDecisionInput(body) : null;
+    if (wait) {
+      const s = deps.db.prepare('select provider_session_id from sessions where id = ? and deleted_at is null').get(id) as { provider_session_id: string } | undefined;
+      if (s?.provider_session_id === wait.providerSessionId) return c.json({ id: deps.hookDecisions!.open(id, wait) });
     }
     return c.body(null, 204);
+  });
+  /**
+   * PermissionRequest の hook の台本が、答えを待つ口（sessions/hookDecisions.ts）。/hook と同じ鍵で開く。
+   * 本文は { id, waitMs }。決まっていれば答え、waitMs まで決まらなければ pending、待ちが閉じていれば gone を返す。
+   */
+  app.post('/s/:sessionId/decision', async (c) => {
+    const id = c.req.param('sessionId');
+    const denied = mcpGuard(c, deps, id);
+    if (denied) return denied;
+    let body: { id?: unknown; waitMs?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'invalid json' }, 400);
+    }
+    if (!deps.hookDecisions || typeof body.id !== 'string') return c.json({ t: 'gone' });
+    const ms = typeof body.waitMs === 'number' && body.waitMs >= 0 ? Math.min(body.waitMs, 30_000) : 0;
+    return c.json(await deps.hookDecisions.wait(id, body.id, ms));
   });
   return app;
 }

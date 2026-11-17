@@ -2430,12 +2430,42 @@ JSON には Bearer トークンが入るので、文字列で渡すと claude �
 消し損ねたものは、次の起動と起動時の回復のときに、生きている run のぶんを残して落とす。
 `--settings` には hook の設定（`provider/claude-code/launch/hookSettings.ts`）を書いた 0600 のファイルを渡し、`--mcp-config` の直後に置く。
 中身は AskUserQuestion の前（`PreToolUse`）と後（`PostToolUse`、取り消しは `PostToolUseFailure`）の hook と、全部の道具の許可の確認（`PermissionRequest`、matcher は `*`）の hook で、hangar の台本 `~/.agent-hangar/bin/hangar-hook.mjs`（`launch/hookScript.ts`）をサーバ自身の node で起こす。
-許可の確認の hook は、許可待ちの札と通知に、何の許可か（道具と命令）を出すために受け取る（「止まっている理由」の節）。裏で走り、何も出力しないので、許可するかどうかには加わらない。
+許可の確認の hook は、許可待ちの札と通知に、何の許可か（道具と命令）を出すために受け取る（「止まっている理由」の節）。
+それに加えて、別の PC と統括が札に答える道にもなる（下の「hook で答える」）。
 shell を通さない exec の形（`command` に node、`args` に台本と MCP の設定ファイル）にして、Windows の PowerShell と Git Bash の引用の違いに左右されないようにする。
-裏で走らせ（`async`）、問いの表示を待たせない。台本は失敗しても何も書かずに 0 で抜けるので、hangar が止まっている間も claude の画面に失敗が出ない（http の hook は失敗を画面に出すので使わない）。
+問いの出入り（`PreToolUse`、`PostToolUse`、`PostToolUseFailure`）の hook は裏で走らせ（`async`）、問いの表示を待たせない。
+許可の確認（`PermissionRequest`）の hook だけは同期で走らせ、待つ上限（`timeout`）は 3600 秒にする。
+台本は失敗しても何も書かずに 0 で抜けるので、hangar が止まっている間も claude の画面に失敗が出ない（http の hook は失敗を画面に出すので使わない）。
 鍵は設定に書かない。台本は MCP の設定ファイルから宛先と鍵を読み、標準入力をそのまま `/mcp/s/<sessionId>/hook` へ送る。
 ファイルは MCP の設定と同じ後始末で消す（run の終わりと、起動のときの掃除）。書けなかったときは `--settings` を省いて起こす。
 利用者の設定の `disableAllHooks` などで hook が走らないときは、問いの文は今までどおり本文から取る。
+**hook で答える。**
+別の PC と統括が札（許可、質問）に答えるとき、まず `PermissionRequest` の hook で答え、hook で言えない行だけ画面のキーで打つ。
+画面から札を読んでキーを打つ道は、Claude Code の版ごとの見た目の変化（頭の行のタブ、縦線、ファイルの道具の札、Bash の注記）に引きずられて直しが続いたので、答えの運び手を hook に寄せる。
+答えの入口（`peer/chat/host.ts` の `answerCurrent`）は 1 つのままで、askId、`keys`、`text`、断りの理由も変えない。
+- 台本は、`PermissionRequest` の入力を `/mcp/s/<sessionId>/hook` へ送ると、待ちの id が 200 で返る（`sessions/hookDecisions.ts` の `open`）。
+  台本は `/mcp/s/<sessionId>/decision`（本文は `{ id, waitMs }`）を 25 秒ずつ繰り返して答えを待ち、答えが来たら `hookSpecificOutput` を標準出力に書いて 0 で抜ける。
+  claude は札を出さずに（待っている間は出ている札を閉じて）その答えを使う。
+  hangar が止まっている、待ちが閉じた、親の claude が消えた（`process.ppid` を毎回見る）ときは、何も書かずに抜け、札は画面に残って画面で答えられる。
+- 待ちの表（`HookDecisions`）は手元のメモリだけで、DB にも同期にも載せない。
+  手元の画面や別の PC が先に答えたとき、claude は hook のプロセスを止めない（Claude Code 2.1.326 で確かめた）ので、サーバ側で待ちを閉じる。
+  契機は、AskUserQuestion の `PostToolUse`（取り消しの `PostToolUseFailure`）、登録が許可の待ちを抜けたこと、会話が実行中の一覧から消えて 30 秒たったこと（run の終わり）である。
+  閉じた待ちには、台本へ gone を返す。
+- 答え方（`peer/chat/hookAnswer.ts`）：
+  許可の Yes は `allow`。許可の No（「No, and tell Claude…」も）は `deny` に `interrupt: true` を付ける（画面で No を押したのと同じ中断になる）。
+  質問は、`updatedInput.answers[問いの文]` に、選んだラベル、自由な文、複数選択ならラベルを `", "` でつないだ文を入れる。
+  「いつも許可」とモードを替える行、「Chat about this」、問いが複数ある質問のタブは、hook で言えないので、今までどおり画面のキーで打つ。
+  統括の `by: 'policy'` は Yes の 1 回だけを押せる決まりのままで、hook でも `allow` だけである。
+- 打つ前に、今までどおり askId、already-answered、画面の札との照合を通す。
+  hook の待ちは道具の名前と主な引数（質問は問いの文）で札と突き合わせる。同じ札に hook とキーの両方は打たない。
+  決めた答えを台本が 1.5 秒のうちに受け取らなければ、取り下げて画面のキーで打つ。受け取った後に札が閉じなければ、`sent: true` の断りにする（キーの道と同じ）。
+- 画面から札が読めない（ファイルの道具の札、読めない形の札、照合できない札）ときは、hook の入力から札を作る（`peer/chat/hookCard.ts`）。
+  許可は道具と主な引数と、Yes と No の 2 行、質問は問いが 1 問のときの選択肢と自由な文である。
+  askId は画面の札と同じ決め方（`peerAskId`）である。答えは hook の待ちに決めるだけで、画面の照合は要らない。
+- hook を持たない run（入れる前の版で起こした run、外の端末、`disableAllHooks`）には待ちが無いので、今までどおり画面だけで答える。
+- 利用者の設定の `PermissionRequest` の hook が先に決定を返したときは、そちらが効き、hangar の待ちは登録が待ちを抜けて閉じる。
+- 本物の claude を偽の API で動かす試験（`launch/hookWait.real.test.ts`）が、allow、No、質問の答え、画面で先に答えたときの待ちの閉じ方を確かめる。claude と tmux が無い環境では飛ばす。
+- Codex と opencode は、hangar は答えない（決定 5）のまま。
 `--mcp-config` と `--add-dir` は可変長オプションで、直後の位置引数を飲み込む。
 起動コマンドの組み立てでは、可変長オプションを他のオプションの前に置き、初期プロンプトは必ず末尾に置く（フェーズ 0 の検証で、逆順にすると初期プロンプトが設定ファイル名として解釈されて即時終了した）。
 tmux で `claude` を直接起動すると異常終了時の出力が失われるので、薄いラッパースクリプトを介して起動し、終了コードと標準エラーをログに残してから tmux セッションを閉じる。

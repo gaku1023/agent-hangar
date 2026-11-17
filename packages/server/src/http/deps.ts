@@ -9,6 +9,7 @@ import type { NoticeEvent } from '../events/publisher.ts';
 import type { LiveDigester } from '../live/digest.ts';
 import type { CandidateEnv } from '../projects/candidates.ts';
 import type { MemoStore } from '../projects/memo.ts';
+import type { HookDecisions } from '../sessions/hookDecisions.ts';
 import type { PermissionAsks } from '../sessions/permissionAsks.ts';
 import type { OrchestratorKeeper } from '../orchestrator/keeper.ts';
 import type { OsNoticeFeed } from '../sessions/stopNotices.ts';
@@ -102,6 +103,8 @@ export type AppDeps = {
   digester?: Pick<LiveDigester, 'digest'>;
   /** hook から届いた許可の確認の預け先（sessions/permissionAsks.ts）。登録の読み直しが許可待ちの札の中身として足す。無ければ預けない。 */
   permissionAsks?: Pick<PermissionAsks, 'put'>;
+  /** 許可の確認の同期の hook が答えを待つ表（sessions/hookDecisions.ts）。無ければ待ちを開けず、台本はすぐ抜ける。 */
+  hookDecisions?: Pick<HookDecisions, 'open' | 'wait' | 'closeTool'>;
   /** hook の受け口（/mcp/s/<id>/hook）が本文を読む口。sessions.provider の値から driver の許可と質問の面を返す。無ければ hook の本文は読まない。 */
   asksOf?: AsksOf;
   /** 統括の見張り（orchestrator/keeper.ts）。柱の始め直す、止める、起こすが使う。無ければ統括は切とみなす。 */
