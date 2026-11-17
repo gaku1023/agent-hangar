@@ -10,7 +10,7 @@ import { notifyApp } from '../live/appNotice.ts';
 import { translatorOf } from '../i18n/message.ts';
 import { defaultTargetPaths } from '../sync/config/targets/paths.ts';
 import { HttpCloudClient, type CloudClient } from '../sync/client.ts';
-import { leftPhoneSweeper, loadCloudDevices, sharedDeviceOf } from '../sync/devices.ts';
+import { leftPhoneSweeper, loadCloudDevices, revokedPcRetirer, sharedDeviceOf } from '../sync/devices.ts';
 import { Keyring } from '../sync/keyring.ts';
 import { SealedCloudClient } from '../sync/sealedClient.ts';
 import { SyncEngine } from '../sync/engine.ts';
@@ -289,9 +289,11 @@ export function bootSync(
    * core.revoke は解除と回しの鎖に並ぶので、ほかの解除と重ならない。
    */
   const sweepLeftPhones = leftPhoneSweeper((id) => core.revoke?.(id) ?? Promise.resolve());
+  /** 解除した PC の devices の行に消した印を付ける（起動先の一覧から外す）。解除の直後と、端末の一覧を読んだときに呼ぶ。 */
+  const retireRevokedPcs = revokedPcRetirer(db, deviceId);
   /** 端末の一覧を読み、受け手（onCloudDevices）に配る。読むのは呼んだときの core である。 */
   const readCloudDevices = async (): Promise<CloudDevicesDto> => {
-    const d = await loadCloudDevices({ client: core.client, roster: core.roster, deviceId, creator: core.cloud?.workerName != null, language: home.language, sharedDevice: sharedDeviceOf(db), ...(core.revoke ? { onLeftPhones: sweepLeftPhones } : {}) });
+    const d = await loadCloudDevices({ client: core.client, roster: core.roster, deviceId, creator: core.cloud?.workerName != null, language: home.language, sharedDevice: sharedDeviceOf(db), onRevokedPcs: retireRevokedPcs, ...(core.revoke ? { onLeftPhones: sweepLeftPhones } : {}) });
     for (const cb of [...cloudDeviceListeners]) {
       try { cb(d); } catch (e) { console.error('[sync] a cloud devices listener failed', e instanceof Error ? e.constructor.name : typeof e); }
     }
@@ -465,7 +467,11 @@ export function bootSync(
     // 動いている間の解除が途中で失敗して記録が残ったら、起動のときと同じく 5 分おきに続きを試す（画面は「自動で再試行します」と出す）。
     const revoke = rotateDeps && retry
       ? (id: string): Promise<DeviceOut> =>
-          serial(() => revokeMember({ ...rotateDeps, id })).catch((e: unknown) => {
+          serial(() => revokeMember({ ...rotateDeps, id })).then((d) => {
+            // 解除はもう済んでいる。行の印付けに失敗しても解除の失敗にはしない（次に一覧を読んだときに付け直す）。
+            try { if (d.kind === 'pc' && d.revokedAt !== null) retireRevokedPcs([d.id]); } catch (e) { console.error('[sync] could not retire the removed computer', e instanceof Error ? e.constructor.name : typeof e); }
+            return d;
+          }, (e: unknown) => {
             retry.failed(e);
             throw e;
           })

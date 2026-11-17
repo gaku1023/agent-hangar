@@ -1,5 +1,6 @@
 import { DEVICE_ADMIN_MIN_WORKER_COMPAT, type CloudDevicesDto, type Language, type RosterEntry } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
+import { softDeleteShared } from '../db/shared.ts';
 import { errorText, msg, render } from '../i18n/message.ts';
 import { CloudError, RevokedError, type CloudClient } from './client.ts';
 import type { RosterStore } from './roster.ts';
@@ -26,6 +27,11 @@ export type CloudDevicesDeps = {
    * 解除した PC は名簿から外れるので、解除済みの行の名前はここから取る（sharedDeviceOf）。渡さなければ名前なしで出す。
    */
   sharedDevice?: (id: string) => { name: string; platform: string } | null;
+  /**
+   * Worker で解除済みの PC（この PC 以外）の ID を渡す。受け手（revokedPcRetirer）は共有の devices の行に消した印を付ける。
+   * 名簿は要らないので、一覧が読めれば呼ぶ。解除済みの PC が無ければ呼ばない。
+   */
+  onRevokedPcs?: (ids: string[]) => void;
 };
 
 /**
@@ -83,6 +89,10 @@ export async function loadCloudDevices(d: CloudDevicesDeps): Promise<CloudDevice
     if (left.length > 0) {
       try { d.onLeftPhones?.(left); } catch (e) { console.error('[sync] could not start removing the phones that left', e instanceof Error ? e.constructor.name : typeof e); }
     }
+    const revokedPcs = rows.filter((r) => r.kind === 'pc' && r.revokedAt !== null && r.id !== d.deviceId).map((r) => r.id);
+    if (revokedPcs.length > 0) {
+      try { d.onRevokedPcs?.(revokedPcs); } catch (e) { console.error('[sync] could not retire the removed computers', e instanceof Error ? e.constructor.name : typeof e); }
+    }
     return { state: 'ok', devices, creator: d.creator, message: null };
   } catch (e) {
     if (e instanceof RevokedError) return { state: 'revoked', ...empty, message: errorText(d.language(), e) };
@@ -110,6 +120,24 @@ export function leftPhoneSweeper(revoke: (id: string) => Promise<unknown>): (ids
       void revoke(id)
         .catch((e: unknown) => { console.error('[sync] could not remove a phone that left by itself', e instanceof Error ? e.constructor.name : typeof e); })
         .finally(() => { running.delete(id); });
+    }
+  };
+}
+
+/**
+ * 解除した PC の、共有の devices の行に消した印（deleted_at）を付ける口。
+ * 解除は Worker の端末トークンと鍵の世代だけを変え、devices の行は残していた。そのため解除した PC が、
+ * 新しい会話の起動先や端末の一覧（queries.ts の listDevices、mcp の list_devices）に出続けていた。
+ * 印は同期でほかの PC にも届く。解除した PC はもう書けないので、行が生き返ることはない（参加し直せば touchDevice が印を外す）。
+ * 名前の控え（sharedDeviceOf）は消した行も読むので、設定の「解除した PC」の名前はそのまま出る。
+ * 行が無い、もう印がある、この PC 自身のときは書かない。一覧を読むたびに changes を増やさないためである。
+ */
+export function revokedPcRetirer(db: Db, deviceId: string): (ids: string[]) => void {
+  const live = db.prepare('select 1 from devices where id = ? and deleted_at is null');
+  return (ids) => {
+    for (const id of ids) {
+      if (id === deviceId || !live.get(id)) continue;
+      softDeleteShared(db, 'devices', id, deviceId);
     }
   };
 }
