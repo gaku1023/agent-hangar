@@ -25,6 +25,8 @@ export function kindOfRel(rel: string): ConfigItemKind | null {
   if (!isSafeRelPath(rel)) return null;
   const segs = rel.split('/');
   if (segs.some((s) => EXCLUDE_SEGMENTS.has(s) || OURS_RE.test(s))) return null;
+  // skills/synced/ は Claude のデスクトップアプリが組織やアカウントの skills を写す置き場（<id>_<id>/manifest.json）。アプリが作り直すので運ばない。
+  if (segs[0] === 'skills' && segs[1] === 'synced') return null;
   if (rel === 'CLAUDE.md') return 'claude-md';
   if (rel === 'keybindings.json') return 'keybindings';
   if (segs.length < 2) return null;
