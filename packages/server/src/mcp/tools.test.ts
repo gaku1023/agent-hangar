@@ -1201,3 +1201,54 @@ describe('作者への問い合わせ', () => {
     expect(() => callTool(deps, { sessionId: null }, 'draft_issue_report', {})).toThrow(ToolError);
   });
 });
+
+describe('統括の URL は、読む道具で全プロジェクトを読める（書く道具の枠は今のまま）', () => {
+  let orchId: string;
+  // 統括の会話の秘密で開けた URL。本体のトークンで開けた URL は統括とみなさない（orchestratorTools.ts の isOrchestratorCtx）。
+  const orch = () => ({ sessionId: orchId, sessionSecret: true });
+  const hitsOf = (r: Record<string, unknown>) => r.hits as { session_id: string; orchestrator: boolean }[];
+  const idsOf = (r: unknown) => (r as { id: string }[]).map((s) => s.id);
+  beforeEach(() => {
+    // 「hello there」の会話を、どのプロジェクトにも属さない統括の会話に見立てる。
+    orchId = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_OTHER) as { id: string }).id;
+    db.prepare('update sessions set project_id = null where id = ?').run(orchId);
+    upsertShared(db, 'projects', { id: 'p2', name: 'other', status: 'active', is_scratch: 0 }, 'd');
+    deps.settings = () => ({ orchestrator: { enabled: true, sessionId: orchId, model: 'sonnet', effort: 'medium' } });
+  });
+
+  it('別のプロジェクトの会話の語で search_sessions が当たり、list_sessions が全プロジェクトを返す', () => {
+    expect(hitsOf(call('search_sessions', { query: 'チャンネル' }, orch())).map((h) => h.session_id)).toContain(alphaId);
+    // 狭い枠では自分だけ（最後の it）。全プロジェクトなら別のプロジェクトの会話も並ぶ。
+    expect(idsOf(call('list_sessions', {}, orch()))).toEqual(expect.arrayContaining([alphaId, orchId]));
+    expect(idsOf(call('list_projects', {}, orch())).sort()).toEqual(['p1', 'p2']);
+    expect(call('get_project', { project_id: 'p1' }, orch()).id).toBe('p1');
+    // project_id で絞ることもできる。
+    expect(idsOf(call('list_sessions', { project_id: 'p1' }, orch()))).toEqual([alphaId]);
+    expect(call('get_transcript', { session_id: alphaId }, orch()).session_id).toBe(alphaId);
+  });
+
+  it('書く道具は今と同じく断る', () => {
+    expect(() => call('update_project', { project_id: 'p1', status: 'paused' }, orch())).toThrow(ToolError);
+    expect((db.prepare('select status from projects where id = ?').get('p1') as { status: string }).status).toBe('active');
+    expect(() => call('open_in_hangar', { project_id: 'p1' }, orch())).toThrow(ToolError);
+  });
+
+  it('統括の会話の当たりと一覧の項目に orchestrator: true を付け、ほかは false', () => {
+    expect(hitsOf(call('search_sessions', { query: 'hello' }, orch())).find((h) => h.session_id === orchId)?.orchestrator).toBe(true);
+    expect(hitsOf(call('search_sessions', { query: 'チャンネル' }, orch())).find((h) => h.session_id === alphaId)?.orchestrator).toBe(false);
+    const list = call('list_sessions', {}, orch()) as unknown as { id: string; orchestrator: boolean }[];
+    expect(list.filter((s) => s.orchestrator).map((s) => s.id)).toEqual([orchId]);
+    expect(list.find((s) => s.id === alphaId)?.orchestrator).toBe(false);
+  });
+
+  it('プロジェクトのセッションの URL からは、統括の会話は検索に出ない', () => {
+    expect(hitsOf(call('search_sessions', { query: 'hello' }, { sessionId: alphaId })).map((h) => h.session_id)).not.toContain(orchId);
+  });
+
+  it('本体のトークンで開けた統括の URL と、統括を切ったときは、今までどおり狭い', () => {
+    expect(() => call('search_sessions', { query: 'チャンネル' }, { sessionId: orchId })).toThrow(ToolError);
+    deps.settings = () => ({ orchestrator: { enabled: false, sessionId: orchId, model: 'sonnet', effort: 'medium' } });
+    expect(() => call('search_sessions', { query: 'チャンネル' }, orch())).toThrow(ToolError);
+    expect(idsOf(call('list_sessions', {}, orch()))).toEqual([orchId]);
+  });
+});

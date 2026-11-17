@@ -3783,6 +3783,8 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
 オーケストレータ役の Claude が、束ねるセッションの画面を見回り、指示を送るための道具だからである。
 送る側の書き込みの道具は「自分のセッションだけ」という決まりだったが、`send_to_session` に限って外した。
 `list_projects` と `list_sessions` も枠の外を返さない。
+ただし統括の URL（統括の会話の秘密で開けたとき）では、読む道具（`search_sessions`、`list_sessions`、`get_transcript`、`list_projects`、`get_project`）は共通の `/mcp` と同じく全プロジェクトに効く（2026-11-17、`mcp/tools.ts` の `readScope`）。書く道具の枠は統括でも今のままで、統括はプロジェクトに書けない。
+検索の結果と一覧の項目には `orchestrator`（統括の会話なら true）を付ける。今は設定の `sessionId` だけで決める（過去の統括の会話の系譜は「統括」の節の後の段で入る）。
 セッションがプロジェクトに属していないときは、プロジェクトを必要とするツールを断る。
 共通の `/mcp` には枠が無く、今までどおりすべてを指せる。
 
@@ -10405,6 +10407,7 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   許可は方針に照らして答え、迷えば利用者に伝えること。
   出来事のうち利用者へ伝えるのは、判断が必要なもの（方針で答えられない許可、質問）と、終わったもの（`turn.done`、`session.ended`）の結果だけで、自分で片付けた許可は黙ること。
   出来事のターンで自分で片付けたときは、返答も書かずに終える。前のターンで伝えた待ちは繰り返さない。
+  今の会話に無いことを指されたら、答える前に `search_sessions` で前の統括の会話と他の会話を調べ、必要なら `get_transcript` で読むこと。`orchestrator: true` の会話は統括自身の会話であること。見つからなければそう言うこと。
   状態は覚えず、道具で引くこと。
 - **手を動かせなくする：** その run の `--settings`（hook を書いているファイル）に `permissions` を足す。
   `deny` は `Bash`、`Edit`、`Write`、`NotebookEdit`、`WebFetch`、`allow` は hangar の MCP（`mcp__hangar`）。
@@ -10425,6 +10428,7 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   統括のセッション別 URL を、統括の会話の秘密で開けたときだけ道具の一覧に出し、呼べる。
   ほかの URL と、本体のトークンで開けた統括の URL では一覧に出さず、呼ばれても「知らない道具」と同じ断りを返す。
   統括を切っていれば、会話の id が残っていても出さない。
+  同じ条件で、読む道具は全プロジェクトに効く（「MCP」の節の枠）。統括のほかには、プロジェクトのセッションからの検索に統括の会話は出ない（`project_id` が null で枠の外）。
   道具の分類（`mcp/toolClasses.ts`）は、読む 2 本が `read`、`answer_ask` が `drive`、`set_permission_policy` が `write` である。
 - **答え方：** ペインへのキー入力で、peer chat の宿主の答え手（`peer/chat/host.ts` の `local`）を通す。
   ほかの PC からの答えと同じ照合（札の道具と主な引数）と記録を通るので、同じ札に 2 度は打たず、利用者やスマホが先に答えれば打たずに断る。
