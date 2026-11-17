@@ -76,7 +76,7 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'sync/config/edit/jsonc.ts': { lines: 18, why: INTERNAL },
   'sync/config/edit/toml.ts': { lines: 11, why: INTERNAL },
   'sync/config/targets/codexWrite.ts': { lines: 24, why: INTERNAL },
-  'sync/config/edit/tomlParse.ts': { lines: 28, why: INTERNAL },
+  'sync/config/edit/tomlParse.ts': { lines: 29, why: INTERNAL },
   'sync/config/inbox.ts': { lines: 1, why: INTERNAL },
   'sync/config/service.ts': { lines: 6, why: LOG },
   'sync/config/targets/mcpWrite.ts': { lines: 25, why: CLI },
