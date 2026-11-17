@@ -1241,6 +1241,15 @@ describe('統括の URL は、読む道具で全プロジェクトを読める�
     expect(list.find((s) => s.id === alphaId)?.orchestrator).toBe(false);
   });
 
+  it('系譜にある前の統括の会話にも orchestrator: true を付ける', () => {
+    deps.settings = () => ({ orchestrator: { enabled: true, sessionId: 'orch-new', model: 'sonnet', effort: 'medium', history: [{ sessionId: orchId, startedAt: 1, endedAt: 2, reason: 'fresh' }] } });
+    const now = { sessionId: 'orch-new', sessionSecret: true };
+    expect(hitsOf(call('search_sessions', { query: 'hello' }, now)).find((h) => h.session_id === orchId)?.orchestrator).toBe(true);
+    expect(hitsOf(call('search_sessions', { query: 'チャンネル' }, now)).find((h) => h.session_id === alphaId)?.orchestrator).toBe(false);
+    const list = call('list_sessions', {}, now) as unknown as { id: string; orchestrator: boolean }[];
+    expect(list.find((s) => s.id === orchId)?.orchestrator).toBe(true);
+  });
+
   it('プロジェクトのセッションの URL からは、統括の会話は検索に出ない', () => {
     expect(hitsOf(call('search_sessions', { query: 'hello' }, { sessionId: alphaId })).map((h) => h.session_id)).not.toContain(orchId);
   });

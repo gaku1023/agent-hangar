@@ -1,3 +1,4 @@
+import { orchestratorLineage, type OrchestratorSetting } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { isSpawnedBy } from '../sessions/spawns.ts';
 
@@ -33,4 +34,26 @@ export function forgetSend(db: Db, from: string, to: string): void {
 /** self（統括）が id の会話に関わっているか。 */
 export function involvedWith(db: Db, deviceId: string, self: string, id: string): boolean {
   return sends.get(db)?.has(keyOf(self, id)) === true || isSpawnedBy(db, deviceId, self, id);
+}
+
+/** 統括の系譜（今と前の統括の id、shared の orchestratorLineage）のどれかが、id の会話に関わっているか。前の統括が起こした会話の終わりも、新しい統括に届けるためである。 */
+export function involvedWithAny(db: Db, deviceId: string, selves: readonly string[], id: string): boolean {
+  return selves.some((self) => involvedWith(db, deviceId, self, id));
+}
+
+/** 系譜の全部の送った印を使い切る。 */
+export function forgetSendAny(db: Db, selves: readonly string[], to: string): void {
+  for (const self of selves) forgetSend(db, self, to);
+}
+
+/**
+ * 出来事の見張り（orchestrator/feed.ts）に渡す、系譜で引く関わりの判定と印の片付け。
+ * self（今の統括）に加えて設定の系譜の id で引くので、切り替えの前に前の統括が起こした会話の終わりも、新しい統括に届く。
+ */
+export function lineageInvolvement(db: Db, deviceId: string, orchestrator: () => Pick<OrchestratorSetting, 'sessionId' | 'history'>) {
+  const ids = (self: string): string[] => [...new Set([self, ...orchestratorLineage(orchestrator())])];
+  return {
+    involved: (self: string, id: string): boolean => involvedWithAny(db, deviceId, ids(self), id),
+    reported: (self: string, id: string): void => { forgetSendAny(db, ids(self), id); },
+  };
 }

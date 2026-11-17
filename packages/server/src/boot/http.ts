@@ -16,7 +16,11 @@ import { PeerChatViewer } from '../peer/chat/viewer.ts';
 import { applySettingsPatch } from '../config/settingsUpdate.ts';
 import { setHangarPrefsApplier } from '../sync/config/targets/hangarApplier.ts';
 import { findCodex, findOpencode, whichMux } from '../config/tools.ts';
-import { listDevices } from '../db/queries.ts';
+import { getSession, listDevices } from '../db/queries.ts';
+import { translatorOf } from '../i18n/message.ts';
+import { buildHandoff, HANDOFF_USER_WORDS } from '../orchestrator/handoff.ts';
+import { recentUserWords } from '../orchestrator/userWords.ts';
+import type { OrchestratorFeedParts } from './orchestratorFeed.ts';
 import { createApp } from '../http/app.ts';
 import { promoteSession } from '../projects/promote.ts';
 import type { MobileParts } from './mobile.ts';
@@ -121,6 +125,8 @@ export function bootHttp(p: {
   peer?: Pick<PeerParts, 'approvals'>;
   /** ほかの PC の会話の頼みを受ける部品（boot/peerChat.ts）。渡せば、bootstrap が預かりを運ぶ。 */
   peerChat?: { host: Pick<PeerChatHost, 'queued' | 'local' | 'rush'> };
+  /** 統括への出来事の送り込み（boot/orchestratorFeed.ts）。渡せば、統括を新しい会話へ切り替えられる（申し送りと引き継ぎを渡す口）。 */
+  orchestratorFeed?: Pick<OrchestratorFeedParts, 'feed' | 'inputEmpty' | 'sendEvent' | 'handoffFacts'>;
 }): HttpParts {
   const { home, delivery, sync, indexing, listening, runs, summary, trash, takeover } = p;
   const { db, settings, device } = home;
@@ -163,6 +169,17 @@ export function bootHttp(p: {
     if (!r?.psid) return null;
     return delivery.live.current().find((l) => (l.agent ?? 'claude-code') === r.provider && l.sessionId === r.psid)?.status ?? null;
   };
+  const tr = translatorOf(home.language);
+  const switchDeps = (f: NonNullable<typeof p.orchestratorFeed>) => ({
+    quiet: async (id: string) => liveStatusOf(id) === 'idle' && f.feed.pending().length === 0 && (await f.inputEmpty(id)),
+    send: (id: string, text: string) => f.sendEvent(id, text),
+    memoRequest: () => tr('mcp.orchestrator.handoffRequest'),
+    handoff: (h: { previousId: string; memo: string | null }) => buildHandoff(tr, {
+      previousId: h.previousId, ...f.handoffFacts(), memo: h.memo,
+      policy: settings.current.permissionPolicy?.text ?? null,
+      userWords: recentUserWords(db, h.previousId, HANDOFF_USER_WORDS),
+    }),
+  });
   // 統括の会話の見張り（orchestrator/keeper.ts）。会話の id と、利用者が止めたときの入り切りは、ここから設定へ書き、全部の画面へ配る。
   const orchestrator: OrchestratorKeeper = new OrchestratorKeeper({
     settings: () => orchestratorOf(settings.current.orchestrator),
@@ -173,6 +190,10 @@ export function bootHttp(p: {
     runs: { on: (l) => runs.runs.on(l), aliveRun: (id) => runs.runs.aliveRun(id), kill: (runId) => runs.runs.kill(runId), resumeWith: (id, o) => runs.runs.resumeWith(id, o), startOrchestrator: (o) => runs.runs.startOrchestrator(o) },
     liveStatus: (id) => liveStatusOf(id),
     onLiveChange: (cb) => delivery.live.onChange(cb),
+    // 切り替え（docs/design.md「統括」の切り替えの手順）。手すきは、idle で、出来事と許可の預かりが空で、入力欄が空のとき。
+    ...(p.orchestratorFeed ? switchDeps(p.orchestratorFeed) : {}),
+    startedAt: (id) => (db.prepare('select started_at s from sessions where id = ?').get(id) as { s: number | null } | undefined)?.s ?? null,
+    contextTokens: (id) => getSession(db, delivery.live.current(), id, { deviceId: device.id, now: Date.now })?.stats.contextTokens ?? null,
     // 行が消えていなくて、本文がある会話だけを再開できる（run が早く終わって本文の無いまま行が消えた会話は、新しく起こす）。
     resumable: (id) => !!db.prepare('select 1 from sessions s where s.id = ? and s.deleted_at is null and exists (select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null)').get(id),
   });
@@ -212,6 +233,7 @@ export function bootHttp(p: {
   attachPeerChatSocket(delivery.sockets, peerChat);
   const app = createApp({
     voice,
+    orchestratorKeeper: orchestrator,
     peerChat,
     // 同期は起動のあとに始まることがある（boot/sync.ts）。同期の部品は呼ぶたびに引く。
     cloudUsage: { current: () => sync.cloudUsage.current(), refresh: () => sync.cloudUsage.refresh() },

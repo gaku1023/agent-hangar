@@ -12,6 +12,8 @@ export const orchestratorPaneJa: AreaDictionary<typeof orchestratorPaneKeys> = {
   'orchestratorPane.composer.send': '送る',
   'orchestratorPane.width.label': '統括の幅',
   'orchestratorPane.error.notRunning': '統括は実行中ではありません',
+  'orchestratorPane.error.off': '統括は切になっています',
+  'orchestratorPane.error.switching': '統括を新しい会話に切り替えています',
   'orchestratorPane.error.voiceUnavailable': 'この PC では声を使えません',
   'orchestratorPane.error.sendFailed': '統括へ送れませんでした: {reason}',
   'orchestratorPane.error.engineOpen': '声のエンジンを開けませんでした: {reason}',

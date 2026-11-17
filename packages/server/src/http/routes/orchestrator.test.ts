@@ -81,7 +81,46 @@ describe('POST /api/orchestrator/send', () => {
   });
 });
 
+describe('統括の見張りの口（fresh、stop、wake、state）', () => {
+  const fake = (error: 'off' | 'switching' | null = null) => {
+    const k = {
+      fresh: vi.fn(() => (error ? { ok: false as const, error } : { ok: true as const, done: Promise.resolve('orch-2') })),
+      stopByUser: vi.fn(() => (error ? { ok: false as const, error } : { ok: true as const })),
+      wake: vi.fn(() => (error ? { ok: false as const, error } : { ok: true as const })),
+      state: vi.fn(() => ({ status: 'running' as const, contextTokens: 1234 })),
+      receiveHandoff: vi.fn(() => false),
+    };
+    t.deps.orchestratorKeeper = k;
+    app = createApp(t.deps);
+    return k;
+  };
+  it('fresh は利用者の切り替え（reason fresh）として見張りへ渡し、待たずに 202 を返す', async () => {
+    const k = fake();
+    const r = await post('/api/orchestrator/fresh', {});
+    expect(r.status).toBe(202);
+    expect(k.fresh).toHaveBeenCalledWith('fresh');
+  });
+  it('stop と wake は見張りへ渡す', async () => {
+    const k = fake();
+    expect((await post('/api/orchestrator/stop', {})).status).toBe(200);
+    expect((await post('/api/orchestrator/wake', {})).status).toBe(200);
+    expect(k.stopByUser).toHaveBeenCalledTimes(1);
+    expect(k.wake).toHaveBeenCalledTimes(1);
+  });
+  it('切のときと切り替え中は 409', async () => {
+    fake('off');
+    for (const p of ['fresh', 'stop', 'wake']) expect((await post(`/api/orchestrator/${p}`, {})).status, p).toBe(409);
+    fake('switching');
+    expect((await post('/api/orchestrator/fresh', {})).status).toBe(409);
+  });
+  it('GET state は見張りの状態を返し、見張りが無ければ off', async () => {
+    expect(await (await app.request('/api/orchestrator/state', { headers: H })).json()).toEqual({ status: 'off' });
+    fake();
+    expect(await (await app.request('/api/orchestrator/state', { headers: H })).json()).toEqual({ status: 'running', contextTokens: 1234 });
+  });
+});
+
 function alive(): void {
-  t.deps.updateSettings({ orchestrator: { enabled: true, sessionId: 'orch-1', model: 'sonnet', effort: 'medium', account: null } });
+  t.deps.updateSettings({ orchestrator: { enabled: true, sessionId: 'orch-1', model: 'sonnet', effort: 'medium', account: null, history: [] } });
   (t.runs.listAlive as ReturnType<typeof vi.fn>).mockReturnValue({ runs: [{ id: 'r9', sessionId: 'orch-1', tmuxName: 'hg-orch' }], tabs: [] });
 }

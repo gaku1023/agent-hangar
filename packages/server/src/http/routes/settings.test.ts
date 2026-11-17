@@ -155,7 +155,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, orchestrator: { enabled: false, sessionId: null, model: 'sonnet', effort: 'medium', account: null }, voice: { mode: 'off', personaId: 'default', personas: [{ id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'kokoro:jf_alpha', voiceLabel: 'jf_alpha', speed: 1.2 }] }, permissionPolicy: null });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, orchestrator: { enabled: false, sessionId: null, model: 'sonnet', effort: 'medium', account: null, history: [] }, voice: { mode: 'off', personaId: 'default', personas: [{ id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'kokoro:jf_alpha', voiceLabel: 'jf_alpha', speed: 1.2 }] }, permissionPolicy: null });
   });
   // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
   it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
@@ -567,20 +567,20 @@ describe('設定の往復', () => {
     for (const bad of [{ mode: 'loud' }, {}, { personas: [] }, { personas: [{ id: '', name: 'x' }] }, { extra: 1 }, 'x']) expect((await patch({ voice: bad })).status, JSON.stringify(bad)).toBe(400);
   });
   it('統括の設定は、既定が切で、入り切りとモデルと effort だけを保存でき、会話の id と形の違う値は断る', async () => {
-    expect((await json(await get('/api/settings'))).body.orchestrator).toEqual({ enabled: false, sessionId: null, model: 'sonnet', effort: 'medium', account: null });
-    t.deps.updateSettings({ orchestrator: { enabled: false, sessionId: 'keep-me', model: 'sonnet', effort: 'medium', account: null } });
+    expect((await json(await get('/api/settings'))).body.orchestrator).toEqual({ enabled: false, sessionId: null, model: 'sonnet', effort: 'medium', account: null, history: [] });
+    t.deps.updateSettings({ orchestrator: { enabled: false, sessionId: 'keep-me', model: 'sonnet', effort: 'medium', account: null, history: [] } });
     sent.length = 0;
     const r = await patch({ orchestrator: { enabled: true, model: 'opus' } });
     expect(r.status).toBe(200);
     // 届いた項目だけを替え、見張りが書く sessionId は残す。
-    expect((await r.json()).orchestrator).toEqual({ enabled: true, sessionId: 'keep-me', model: 'opus', effort: 'medium', account: null });
+    expect((await r.json()).orchestrator).toEqual({ enabled: true, sessionId: 'keep-me', model: 'opus', effort: 'medium', account: null, history: [] });
     expect(sent.find((e) => e.type === 'settings.changed')).toMatchObject({ keys: ['orchestrator'], settings: { orchestrator: { enabled: true } } });
     for (const v of [{ sessionId: 'x' }, { enabled: 'true' }, { model: '--evil' }, { effort: 'turbo' }, { extra: 1 }, {}, null, 'on']) {
       const bad = await patch({ orchestrator: v });
       expect([JSON.stringify(v), bad.status]).toEqual([JSON.stringify(v), 400]);
       expect((await bad.json()).error).toBe('「統括」の値の形式が正しくありません');
     }
-    expect((await json(await get('/api/settings'))).body.orchestrator).toEqual({ enabled: true, sessionId: 'keep-me', model: 'opus', effort: 'medium', account: null });
+    expect((await json(await get('/api/settings'))).body.orchestrator).toEqual({ enabled: true, sessionId: 'keep-me', model: 'opus', effort: 'medium', account: null, history: [] });
   });
   it('統括のアカウントは、今あるアカウントの id か null だけを受け、知らない id は 400', async () => {
     const a = t.deps.accounts.store.add({ name: '別' });

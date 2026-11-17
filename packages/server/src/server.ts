@@ -221,7 +221,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   try { if (dropStaleWakes(home.db) > 0) void eventHooks.sweep(); } catch (e) { console.error('[event] could not sweep stale wakes', e instanceof Error ? e.constructor.name : typeof e); }
   watchWakeScope(home.db, () => { void eventHooks.sweep(); }, (e) => { console.error('[event] could not drop wakes', e instanceof Error ? e.constructor.name : typeof e); });
   const eventBindings = new EventBindingService({ db: home.db, deviceId: home.device.id, hooks: eventHooks, changed: () => { mobile.settingsChanged(); }, language: () => home.language() });
-  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, peerChat, ...(peerSsh ? { peerSsh } : {}), peer, events: { bindings: eventBindings, dispatcher: eventDispatcher }, schedules: { runNow: (id) => schedules.runNow(id), deliver: (id, text) => launchScheduled(scheduleTools, { prompt: text, target: { kind: 'session', sessionId: id }, plannedAt: Date.now() }) }, opts, serverDir });
+  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, peerChat, orchestratorFeed, ...(peerSsh ? { peerSsh } : {}), peer, events: { bindings: eventBindings, dispatcher: eventDispatcher }, schedules: { runNow: (id) => schedules.runNow(id), deliver: (id, text) => launchScheduled(scheduleTools, { prompt: text, target: { kind: 'session', sessionId: id }, plannedAt: Date.now() }) }, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。
   delivery.live.start();

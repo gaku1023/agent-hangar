@@ -1,7 +1,10 @@
 import { translatorOf } from '../i18n/message.ts';
 import type { LiveSessionDto } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { openDb } from '../db/open.ts';
+import { recordSpawn } from '../sessions/spawns.ts';
 import { COMPACT_IDLE_MS, COMPACT_TOKENS, feedText, NOTICE_GRACE_MS, OrchestratorFeed, type FeedLine } from './feed.ts';
+import { lineageInvolvement } from './involved.ts';
 
 /**
  * 統括への出来事の送り込みと、許可待ちの通知の猶予（docs/design.md「統括」の出来事の届け方）。
@@ -320,5 +323,41 @@ describe('文脈の太り', () => {
     await tick(COMPACT_IDLE_MS * 2);
     feed.onLiveChange();
     expect(w.delivered).toEqual([]);
+  });
+});
+
+describe('統括の切り替えと系譜', () => {
+  it('前の統括が起こした会話の turn.done が、新しい統括に届く', async () => {
+    const db = openDb(':memory:');
+    recordSpawn(db, 'd', 'c1', 'old', 1);
+    let setting: { sessionId: string | null; history: { sessionId: string; startedAt: number | null; endedAt: number; reason: 'fresh' }[] } = { sessionId: 'old', history: [] };
+    const live = new Map<string, LiveSessionDto>([['old', row('old', { status: 'idle' })], ['c1', row('c1')]]);
+    const got: { self: string; text: string }[] = [];
+    const l = lineageInvolvement(db, 'd', () => setting);
+    const f = new OrchestratorFeed({
+      orchestrator: () => ({ enabled: true, sessionId: setting.sessionId }),
+      live: () => [...live.values()],
+      resolve: (x) => { const id = x.sessionId.replace(/^u-/, ''); return { id, title: id }; },
+      involved: l.involved,
+      reported: l.reported,
+      inputEmpty: async () => true,
+      deliver: async (self, text) => { got.push({ self, text }); return true; },
+      format: (lines: FeedLine[]) => feedText(tr, lines),
+      contextTokens: () => null,
+    });
+    try {
+      f.onLiveChange();
+      // 切り替え：古い統括が消え、新しい統括が idle で現れ、系譜に古い id が入る。
+      setting = { sessionId: 'new', history: [{ sessionId: 'old', startedAt: null, endedAt: 2, reason: 'fresh' }] };
+      live.delete('old');
+      live.set('new', row('new', { status: 'idle' }));
+      f.onLiveChange();
+      live.set('c1', row('c1', { status: 'idle' }));
+      f.onLiveChange();
+      await tick(3_000);
+      expect(got).toEqual([{ self: 'new', text: '[hangar] 出来事 1 件\n- turn.done c1 「c1」' }]);
+    } finally {
+      f.stop();
+    }
   });
 });

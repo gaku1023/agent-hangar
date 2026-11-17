@@ -2,6 +2,7 @@ import { isAutoToolName, orchestratorOf, PERMISSION_POLICY_TEXT_MAX, PERMISSION_
 import type { Settings } from '../config/paths.ts';
 import { msg } from '../i18n/message.ts';
 import { listAutoApprovals, AUTO_APPROVAL_LIST_MAX } from '../orchestrator/autoApprovals.ts';
+import { HANDOFF_MEMO_MAX } from '../orchestrator/handoff.ts';
 import { turnStrengthOf } from '../orchestrator/turnMark.ts';
 import { TOOL_CLASSES } from './toolClasses.ts';
 import { ToolError, type ToolContext, type ToolDeps } from './tools.ts';
@@ -11,7 +12,7 @@ import { ToolError, type ToolContext, type ToolDeps } from './tools.ts';
  * 統括のセッション別 URL（ctx.sessionId が設定の orchestrator.sessionId で、統括が入り）からだけ通す。
  * ほかの URL では道具の一覧に出さず（mcp/app.ts）、呼ばれても「知らない道具」と同じ断りを返す（ここ）。
  */
-export const ORCHESTRATOR_TOOL_NAMES = ['list_pending_asks', 'answer_ask', 'set_permission_policy', 'list_auto_approvals'] as const;
+export const ORCHESTRATOR_TOOL_NAMES = ['list_pending_asks', 'answer_ask', 'set_permission_policy', 'list_auto_approvals', 'write_handoff'] as const;
 export type OrchestratorToolName = (typeof ORCHESTRATOR_TOOL_NAMES)[number];
 
 export const isOrchestratorToolName = (name: string): name is OrchestratorToolName => (ORCHESTRATOR_TOOL_NAMES as readonly string[]).includes(name);
@@ -50,8 +51,17 @@ const unknown = (name: string): ToolError => new ToolError(msg('mcp.error.unknow
 const bad = (field: string): ToolError => new ToolError(msg('mcp.orchestrator.badField', { field }));
 
 export function callOrchestratorTool(deps: ToolDeps, ctx: ToolContext, name: OrchestratorToolName, args: Record<string, unknown>): unknown {
-  if (!isOrchestratorCtx(deps, ctx) || !deps.orchestratorAsks) throw unknown(name);
+  if (!isOrchestratorCtx(deps, ctx)) throw unknown(name);
   const self = ctx.sessionId!;
+  if (name === 'write_handoff') {
+    // 切り替えのときに見張りが頼んだ申し送り（orchestrator/keeper.ts の receiveHandoff）。頼んでいなければ断る。
+    if (!deps.orchestratorHandoff) throw unknown(name);
+    const text = typeof args.text === 'string' ? args.text.trim() : '';
+    if (text === '' || text.length > HANDOFF_MEMO_MAX) throw bad('text');
+    if (!deps.orchestratorHandoff(self, text)) throw new ToolError(msg('mcp.orchestrator.handoffNotAsked'));
+    return { ok: true };
+  }
+  if (!deps.orchestratorAsks) throw unknown(name);
   const asks = deps.orchestratorAsks;
   switch (name) {
     case 'list_pending_asks':

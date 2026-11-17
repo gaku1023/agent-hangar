@@ -11,6 +11,8 @@ export const orchestratorPaneKeys = {
   'orchestratorPane.composer.send': [],
   'orchestratorPane.width.label': [],
   'orchestratorPane.error.notRunning': [],
+  'orchestratorPane.error.off': [],
+  'orchestratorPane.error.switching': [],
   'orchestratorPane.error.voiceUnavailable': [],
   'orchestratorPane.error.sendFailed': ['reason'],
   'orchestratorPane.error.engineOpen': ['reason'],

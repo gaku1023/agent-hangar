@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { isAgentKind, isNotifyKind, isQuietStatus, notifyRulesOf, orchestratorOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type PermissionPolicy, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto, type WakeOn } from '@agent-hangar/shared';
+import { isAgentKind, isNotifyKind, isQuietStatus, notifyRulesOf, orchestratorLineage, orchestratorOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type PermissionPolicy, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto, type WakeOn } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
@@ -71,6 +71,8 @@ export type ToolDeps = {
   askLocal?: Pick<PeerChatLocal, 'currentAsk' | 'answer'>;
   /** 許可の方針の保存（orchestratorTools.ts の permissionPolicySaver）。無ければ set_permission_policy は知らない道具として断る。 */
   savePermissionPolicy?: (p: PermissionPolicy) => void;
+  /** 統括の切り替えの申し送りを見張りへ渡す口（orchestrator/keeper.ts の receiveHandoff）。受けなければ偽。無ければ write_handoff は知らない道具として断る。 */
+  orchestratorHandoff?: (sessionId: string, text: string) => boolean;
   /** notify_user の未読の数を、作業中ならターンの終わりまで預かりに任せるか（live/unreadHold.ts）。預かりが動いているサーバだけが立てる。無ければその場で積む。 */
   holdUnread?: boolean;
   /** hook から届いた許可の確認の預け先（sessions/permissionAsks.ts）。無ければ許可の確認は読まない。 */
@@ -174,10 +176,9 @@ function readScope(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknow
   return isOrchestratorCtx(deps, ctx) ? undefined : projectScope(deps, ctx, args);
 }
 
-/** 今の統括の会話か。検索の結果と一覧の項目に印を付け、統括が自分の過去の話とほかの会話を見分けられるようにする。 */
+/** 統括の系譜（今と前の統括）の会話か。検索の結果と一覧の項目に印を付け、統括が自分の過去の話とほかの会話を見分けられるようにする。 */
 function isOrchestratorSession(deps: ToolDeps, sessionId: string): boolean {
-  const id = orchestratorOf(deps.settings?.().orchestrator).sessionId;
-  return id !== null && id === sessionId;
+  return orchestratorLineage(orchestratorOf(deps.settings?.().orchestrator)).includes(sessionId);
 }
 
 /** プロジェクトを 1 件に決める道具のための project_id。 */

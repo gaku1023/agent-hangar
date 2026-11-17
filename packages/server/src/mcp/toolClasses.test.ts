@@ -21,7 +21,7 @@ describe('MCP の道具の分類', () => {
     expect(TOOL_NAMES.filter((n) => /approv|allow/i.test(n))).toEqual([]);
   });
   it('許可の札に答える道具は統括だけのもので、どの会話にも出す道具には入れない', () => {
-    expect([...ORCHESTRATOR_TOOL_NAMES].sort()).toEqual(['answer_ask', 'list_auto_approvals', 'list_pending_asks', 'set_permission_policy']);
+    expect([...ORCHESTRATOR_TOOL_NAMES].sort()).toEqual(['answer_ask', 'list_auto_approvals', 'list_pending_asks', 'set_permission_policy', 'write_handoff']);
     for (const n of ORCHESTRATOR_TOOL_NAMES) expect(TOOL_NAMES as readonly string[]).not.toContain(n);
     expect(TOOL_CLASSES.answer_ask.kind).toBe('drive');
     expect(TOOL_CLASSES.set_permission_policy.kind).toBe('write');

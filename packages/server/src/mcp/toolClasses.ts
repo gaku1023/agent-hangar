@@ -48,6 +48,7 @@ export const TOOL_CLASSES: Record<(typeof TOOL_NAMES)[number] | (typeof ORCHESTR
   list_pending_asks: { kind: 'read', why: "Reads the pending permission and question prompts of other sessions on this computer. Only the orchestrator's own URL has it, and its own prompts are left out." },
   answer_ask: { kind: 'drive', why: "Presses a row of another session's prompt after matching the screen. With by policy, hangar only lets it press the one-time allow row for a tool in the user's policy (read and search by default), records it first, and caps it at 20 a minute. Questions and its own prompts are refused. Only the orchestrator's own URL has it." },
   set_permission_policy: { kind: 'write', why: "Saves the user's own words about what the orchestrator may allow. It is refused in a turn that hangar started, every change is shown on the screen, and only the orchestrator's own URL has it." },
+  write_handoff: { kind: 'write', why: "Writes a handoff note that hangar asked for while switching the orchestrator to a new conversation. It is refused at any other time, and only the orchestrator's own URL has it." },
   list_auto_approvals: { kind: 'read', why: "Reads the record of what the orchestrator allowed by itself. Only the orchestrator's own URL has it." },
   delete_session: { kind: 'irreversible', why: "Deletes a session. The tool only files a request. hangar deletes after the user approves on the screen (sessions/deleteApprovals.ts)." },
 };

@@ -118,6 +118,7 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
     reg('answer_ask', D(tr('mcp.tool.answerAsk')), { ask_id: z.string(), option: z.union([z.string(), z.array(z.string())]).describe(tr('mcp.orchestrator.optionParam')), by: z.string().describe(tr('mcp.orchestrator.byParam')), reason: z.string().optional().describe(tr('mcp.orchestrator.reasonParam')), text: z.string().optional().describe(tr('mcp.orchestrator.textParam')) });
     reg('set_permission_policy', D(tr('mcp.tool.setPermissionPolicy')), { text: z.string().describe(tr('mcp.orchestrator.policyTextParam')), auto_tools: z.array(z.string()).describe(tr('mcp.orchestrator.autoToolsParam')) });
     reg('list_auto_approvals', D(tr('mcp.tool.listAutoApprovals')), { limit: z.number().int().positive().optional(), since: z.number().optional() });
+    reg('write_handoff', D(tr('mcp.tool.writeHandoff')), { text: z.string().describe(tr('mcp.orchestrator.handoffTextParam')) });
   }
   return server;
 }
