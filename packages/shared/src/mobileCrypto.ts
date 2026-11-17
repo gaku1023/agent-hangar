@@ -44,6 +44,9 @@ export const aadAnswer = (id: string): string => `answer:${id}`;
 export const aadAsk = (id: string, targetDevice: string): string => `ask:${id}:${targetDevice}`;
 export const aadReply = (id: string): string => `reply:${id}`;
 export const aadImage = (launchId: string, n: number): string => `image:${launchId}:${n}`;
+/** スマホから PC の会話への問い合わせ（互換の版 13）と、その答え。 */
+export const aadPhoneChat = (askId: string, targetDevice: string): string => `phone-chat:${askId}:${targetDevice}`;
+export const aadPhoneChatReply = (askId: string): string => `phone-chat-reply:${askId}`;
 
 /** 値を JSON にして AES-256-GCM で封じる。戻りは base64url(iv(12) || 暗号文 || タグ)。IV は毎回乱数。 */
 export async function seal(key: CryptoKey, aad: string, value: unknown): Promise<string> {

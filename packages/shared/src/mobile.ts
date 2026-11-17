@@ -264,6 +264,15 @@ export type MobileLaunchIn = { id: string; targetDevice: string; sealed: string;
 export type MobileAskIn = { id: string; targetDevice: string; sealed: string; epoch: number };
 export type MobileAskOut = { sealed: string };
 /**
+ * スマホから PC の会話への問い合わせ（`POST /m/chat`、互換の版 13）。
+ * 中身は peer chat の PeerChatRequest と同じ形で、スマホ用の鍵 `M[m]` で封じる（AAD は aadPhoneChat）。Worker と Durable Object は読まない。
+ * Durable Object は宛先の PC の WebSocket に PhoneChatBellAsk を送り、PhoneChatBellReply（id と from は届いた枠のまま）を待って `{ sealed }` を返す。
+ * 本文の上限、待ち（waitMs）、答えの上限は PC どうしの /peer/ask と同じである。
+ */
+export type PhoneChatIn = { askId: string; to: string; sealed: string; epoch: number; waitMs: number };
+export type PhoneChatBellAsk = { t: 'phone-chat'; id: string; from: string; epoch: number; sealed: string };
+export type PhoneChatBellReply = { t: 'phone-chat-reply'; id: string; from: string; sealed: string };
+/**
  * PC の pull に添える起動の依頼（`GET /changes` の launches）。
  * from は依頼を置いたスマホの ID で、Worker が端末トークンで知るもの（スマホが名乗るものではない）。
  * PC はこれで名簿のスマホの名前を引き、右下の通知「〈スマホの名前〉から起動」に使う（試作 F1）。from を返さない Worker もあるので省ける。
