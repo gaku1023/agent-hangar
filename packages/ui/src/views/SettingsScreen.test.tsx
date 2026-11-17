@@ -60,10 +60,10 @@ const editorProps = (over: Partial<SettingsProps['editor']> = {}): SettingsProps
 const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, indexLabel: '3 セッション、2 プロジェクト', sessionCount: 3, projectCount: 2,
   tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', terminalOptions: [{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }], terminalDesc: '「ターミナルで開く」で使うアプリ。', terminalDescAlways: true, editor: editorProps(), commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: '/A/hangar cloud join <URL>', setupCloud: 'npm run hangar -- setup cloud' },
-  summaryEngine: 'openai', summaryClaudeModel: 'haiku', summaryApiKeySet: false,
-  lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false,
+  summaryEngine: 'claude', summaryClaudeModel: 'haiku', 
+  summaryHourlyCap: 20, 
   injection: { askStatusAtEnd: true, liveHints: true, remoteControl: true, defaultModel: null, full: presentInjection(translator('ja'), { askStatusAtEnd: true, liveHints: true, notifyUser: true }) },
-  summarizerModels: ['gemma', 'qwen'], summarizerTest: null,
+  summarizerTest: null,
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
   usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 1200, outputTokens: 340, sessions: 2 }], projects: [{ projectId: 'p1', name: 'alpha', inputTokens: 1200, outputTokens: 340, costUsd: 1.5, sessions: 2 }] },
   notifyRules: { quote: null, defaultText: '既定', rows: [], seed: { request: '', quote: '' } },
@@ -988,7 +988,7 @@ describe('設定のセッションの「Claude Code に渡す設定」と「新�
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { remoteControl: false } });
   });
   it('設定から remoteControl を読み、無ければ入りとして出す', () => {
-    const base: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+    const base: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryHourlyCap: 20, nodePath: null, claudePath: null };
     const page = (settings: Partial<SettingsDto>) => presentSettings({ ...initialState(), screen: { name: 'settings', at: 'sessions' } }, { ...initialStore(), settings: { ...base, ...settings } }, 0, 'darwin');
     expect(page({}).injection.remoteControl).toBe(true);
     expect(page({ remoteControl: false }).injection.remoteControl).toBe(false);
@@ -1116,16 +1116,15 @@ describe('設定のセッションの「Claude Code に渡す設定」と「新�
 });
 
 describe('設定の要約エンジンの選択（2a）', () => {
-  it('使わない、Claude、OpenAI 互換の URL の 3 つのラジオを並べ、選んだ時点で保存する', () => {
+  it('使わない、Claude の 2 つのラジオを並べ、選んだ時点で保存する', () => {
     const onAction = vi.fn();
     render(ui(at('summary', { summaryEngine: 'off' }), onAction));
     const group = screen.getByRole('radiogroup', { name: '要約エンジン' });
     const radios = within(group).getAllByRole('radio');
-    expect(radios.map((r) => r.querySelector('.editor-choice-name')?.textContent)).toEqual(['使わない', 'Claude', 'OpenAI 互換の URL']);
+    expect(radios.map((r) => r.querySelector('.editor-choice-name')?.textContent)).toEqual(['使わない', 'Claude']);
     expect(radios[0]).toHaveAttribute('aria-checked', 'true');
-    // 大事な違い（使用枠を使う、宛先へ送る）は、選ぶ前に各行の説明で読める。
+    // 大事な違い（使用枠を使う）は、選ぶ前に行の説明で読める。
     expect(radios[1]).toHaveTextContent('Claude の使用量を消費します。');
-    expect(radios[2]).toHaveTextContent('トランスクリプトをこの接続先へ送信します。');
     fireEvent.click(radios[1]!);
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { summaryEngine: 'claude' } });
   });
@@ -1150,137 +1149,28 @@ describe('設定の要約エンジンの選択（2a）', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { summaryClaudeModel: 'sonnet', summaryHourlyCap: 5 }, field: 'summarizer' });
   });
-  it('OpenAI 互換は、選んだ行に接続の札を出し、API キーは書いたときだけ送る', () => {
-    const onAction = vi.fn();
-    render(ui(at('summary', { summarizerModels: ['gemma'] }), onAction));
-    const openai = screen.getAllByRole('radio')[2]!;
-    expect(openai).toHaveTextContent('接続済み');
-    const key = screen.getByLabelText('API キー（任意）') as HTMLInputElement;
-    expect(key.type).toBe('password');
-    expect(key.placeholder).toBe('必要なサーバーのみ');
-    fireEvent.change(key, { target: { value: ' sk-local ' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryHourlyCap: 20, summaryApiKey: 'sk-local' }, field: 'summarizer' });
-    // 書いたキーは欄に残さない。
-    expect(key).toHaveValue('');
-  });
-  it('保存済みの API キーは中身を出さず、消すボタンで null を送る', () => {
-    const onAction = vi.fn();
-    render(ui(at('summary', { summaryApiKeySet: true }), onAction));
-    expect((screen.getByLabelText('API キー（任意）') as HTMLInputElement).placeholder).toBe('保存済み。変更する場合だけ入力します');
-    fireEvent.click(screen.getByRole('button', { name: 'キーを削除' }));
-    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { summaryApiKey: null } });
-  });
-  it('OpenAI 互換で切り替えを切っているときは、1 時間の上限を出さない', () => {
-    render(ui(at('summary', { summaryFallback: false })));
-    expect(screen.queryByLabelText('Claude での要約の 1 時間あたりの上限')).toBeNull();
-    expect(screen.getByRole('switch', { name: '接続できないときは Claude を使う' })).toHaveAttribute('aria-checked', 'false');
+  it('選べるのは「使わない」と Claude だけで、OpenAI 互換の欄は出さない', () => {
+    render(ui(at('summary', { summaryEngine: 'off' })));
+    expect(screen.getAllByRole('radio')).toHaveLength(2);
+    for (const label of ['URL', 'API キー（任意）']) expect(screen.queryByLabelText(label)).toBeNull();
+    expect(screen.queryByRole('switch', { name: '外部の要約エンジンを許可' })).toBeNull();
+    expect(screen.queryByRole('switch', { name: '接続できないときは Claude を使う' })).toBeNull();
   });
 });
 
 describe('設定の要約エンジン', () => {
-  it('要約エンジンの URL とモデルと上限を保存する', () => {
-    const onAction = vi.fn();
-    render(ui(at('summary', { summarizerModels: ['qwen', 'gemma'] }), onAction));
-    fireEvent.change(screen.getByLabelText('URL'), { target: { value: 'http://127.0.0.1:2345' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryHourlyCap: 20 }, field: 'summarizer' });
-    pick('モデル', 'qwen');
-    fireEvent.change(screen.getByLabelText('Claude での要約の 1 時間あたりの上限'), { target: { value: '5' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: 'qwen', summaryHourlyCap: 5 }, field: 'summarizer' });
-  });
-  it('2 欄も、サーバーが整えた後の値で見比べる', () => {
-    // サーバは URL の前後の空白と末尾の / を落とし、モデル名も trim する。
-    // 整える前の値で見比べると、落とされた結果が元と同じでも props が動かず、
-    // 欄には整える前の文字列が残り、ボタンは押せたままになる（実測で何度でも押せた）。
-    const onAction = vi.fn();
-    render(ui(at('summary'), onAction));
-    const url = screen.getByLabelText('URL');
-    const save = screen.getByRole('button', { name: '保存' });
-    for (const same of ['http://127.0.0.1:1234/', 'http://127.0.0.1:1234///', '  http://127.0.0.1:1234  ']) {
-      fireEvent.change(url, { target: { value: same } });
-      expect(save).toBeDisabled();
-    }
-    // 本物の変更は今までどおり送れる。送る値はサーバーが保存する形にそろえる。
-    fireEvent.change(url, { target: { value: '  http://127.0.0.1:2345/  ' } });
-    expect(save).toBeEnabled();
-    fireEvent.click(save);
-    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryHourlyCap: 20 }, field: 'summarizer' });
-    // 欄も整えた形に直しておく。整える前の文字列が残ると、押せない理由が読めない。
-    expect(url).toHaveValue('http://127.0.0.1:2345');
-  });
-  it('上限だけを変えても保存は押せる。スイッチは保存の対象に入らない', () => {
+  it('上限だけを変えても保存は押せる', () => {
     render(ui(at('summary')));
     const save = screen.getByRole('button', { name: '保存' });
-    expect(save).toBeDisabled();
-    fireEvent.click(screen.getByRole('switch', { name: '接続できないときは Claude を使う' }));
     expect(save).toBeDisabled();
     // 読めない上限も「変えた」に入れる。押せないと案内を出す道が無くなる。
     fireEvent.change(screen.getByLabelText('Claude での要約の 1 時間あたりの上限'), { target: { value: '' } });
     expect(save).toBeEnabled();
   });
-  it('スイッチは切り替えた時点で、その 1 項目だけを保存する', () => {
-    const onAction = vi.fn();
-    render(ui(at('summary'), onAction));
-    fireEvent.click(screen.getByRole('switch', { name: '接続できないときは Claude を使う' }));
-    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { summaryFallback: false } });
-  });
   it('1 時間あたりの上限は − と ＋ でも変えられる', () => {
     render(ui(at('summary')));
     fireEvent.click(screen.getByRole('button', { name: 'Claude での要約の 1 時間あたりの上限を増やす' }));
     expect(screen.getByLabelText('Claude での要約の 1 時間あたりの上限')).toHaveValue(21);
-  });
-  it('外部の要約エンジンを許可するときは、保存済みの宛先を示して確かめる', () => {
-    const onAction = vi.fn();
-    render(ui(at('summary', { lmStudioUrl: 'https://summarizer.example.com' }), onAction));
-    const sw = screen.getByRole('switch', { name: '外部の要約エンジンを許可' });
-    // 見える文も読み上げと同じにし、何が起きるかを淡い 1 行で添える。
-    expect(sw.closest('.set-row')).toHaveTextContent(/^外部の要約エンジンを許可/);
-    expect(screen.getByText('127.0.0.1 と localhost 以外の接続先へトランスクリプトを送信できるようにします。')).toBeInTheDocument();
-    fireEvent.click(sw);
-    // まだ保存しない。スイッチもオフのまま。
-    expect(onAction).not.toHaveBeenCalled();
-    expect(sw).toHaveAttribute('aria-checked', 'false');
-    expect(screen.getByText(/https:\/\/summarizer\.example\.com へ送信されます/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
-    expect(screen.queryByText(/へ送られます/)).toBeNull();
-    expect(onAction).not.toHaveBeenCalled();
-    fireEvent.click(sw);
-    fireEvent.click(screen.getByRole('button', { name: '許可' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { allowExternalSummarizer: true } });
-  });
-  it('確かめの帯が開くと、キャンセルへフォーカスが移り、閉じるとスイッチへ戻る', () => {
-    render(ui(at('summary')));
-    const sw = screen.getByRole('switch', { name: '外部の要約エンジンを許可' });
-    fireEvent.click(sw);
-    expect(screen.getByRole('button', { name: 'キャンセル' })).toHaveFocus();
-    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
-    expect(sw).toHaveFocus();
-  });
-  it('許可で閉じたときも、フォーカスはスイッチへ戻る', () => {
-    render(ui(at('summary')));
-    fireEvent.click(screen.getByRole('switch', { name: '外部の要約エンジンを許可' }));
-    fireEvent.click(screen.getByRole('button', { name: '許可' }));
-    expect(screen.getByRole('switch', { name: '外部の要約エンジンを許可' })).toHaveFocus();
-  });
-  it('保存済みのモデルが一覧に無くても、顔にその名前を出す', () => {
-    render(ui(at('summary', { lmStudioModel: 'qwen', summarizerModels: [] })));
-    expect(screen.getByRole('button', { name: 'モデル' })).toHaveTextContent('qwen');
-  });
-  it('確かめの宛先は、書きかけの URL ではなく保存済みの URL', () => {
-    render(ui(at('summary', { lmStudioUrl: 'http://127.0.0.1:1234' })));
-    fireEvent.change(screen.getByLabelText('URL'), { target: { value: 'https://other.example.com' } });
-    fireEvent.click(screen.getByRole('switch', { name: '外部の要約エンジンを許可' }));
-    expect(screen.getByText(/http:\/\/127\.0\.0\.1:1234 へ送信されます/)).toBeInTheDocument();
-  });
-  it('外部の要約エンジンを不許可にするときは確かめずに保存し、許可の間は警告を出す', () => {
-    const onAction = vi.fn();
-    render(ui(at('summary', { allowExternalSummarizer: true, lmStudioUrl: 'https://summarizer.example.com' }), onAction));
-    expect(screen.getByRole('switch', { name: '外部の要約エンジンを許可' })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByRole('alert')).toHaveTextContent('トランスクリプト');
-    fireEvent.click(screen.getByRole('switch', { name: '外部の要約エンジンを許可' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { allowExternalSummarizer: false } });
   });
   it('1 時間あたりの上限は 1 以上 200 以下の整数の入力欄である', () => {
     render(ui(at('summary')));
@@ -1306,28 +1196,17 @@ describe('設定の要約エンジン', () => {
     fireEvent.change(cap, { target: { value: '12' } });
     expect(screen.queryByText('1 から 200 までの整数を入力してください')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryHourlyCap: 12 }, field: 'summarizer' });
-  });
-  it('モデルの一覧の状態を出し分ける', () => {
-    const { rerender } = render(ui(at('summary', { summarizerModels: null })));
-    expect(screen.getByText('読み込み中…')).toBeTruthy();
-    rerender(ui(at('summary', { summarizerModels: [] })));
-    // 欄の下の 1 行と、選んだ行の札の両方で言う。
-    expect(screen.getAllByText('接続できません')).toHaveLength(2);
-    rerender(ui(at('summary', { summarizerModels: ['a', 'b'] })));
-    expect(screen.getAllByText('接続済み')).toHaveLength(2);
-    expect(screen.getByText('（モデル 2 個）')).toBeTruthy();
+    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { summaryClaudeModel: 'haiku', summaryHourlyCap: 12 }, field: 'summarizer' });
   });
   it('接続テストをすると summarizer.test を出し、結果を出す', () => {
     const onAction = vi.fn();
     const { rerender } = render(ui(at('summary'), onAction));
     fireEvent.click(screen.getByRole('button', { name: '接続テスト' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'summarizer.test' });
-    rerender(ui(at('summary', { summarizerTest: { ok: true, id: 'lmstudio', ms: 820, summary: { title: '題', oneLiner: '1 文', body: '本文', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: 'gemma', basedOnTurns: 3 } } }), onAction));
-    expect(screen.getByText('OpenAI 互換の URL で成功しました（820 ミリ秒）')).toBeTruthy();
+    rerender(ui(at('summary', { summarizerTest: { ok: true, id: 'claude-headless', ms: 820, summary: { title: '題', oneLiner: '1 文', body: '本文', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: 'claude-headless', sourceModel: null, basedOnTurns: 1 } } }), onAction));
+    expect(screen.getByText('Claude で成功しました（820 ミリ秒）')).toBeTruthy();
     expect(screen.getByText('1 文')).toBeTruthy();
-    rerender(ui(at('summary', { summarizerTest: { ok: false, tried: [{ id: 'lmstudio', message: 'ECONNREFUSED' }, { id: 'claude-headless', message: '上限に達しています' }] } }), onAction));
-    expect(screen.getByText('OpenAI 互換の URL: ECONNREFUSED')).toBeTruthy();
+    rerender(ui(at('summary', { summarizerTest: { ok: false, tried: [{ id: 'claude-headless', message: '上限に達しています' }] } }), onAction));
     expect(screen.getByText('Claude: 上限に達しています')).toBeTruthy();
   });
 });
@@ -1761,10 +1640,9 @@ describe('設定の説明は見出しの横の ⓘ に畳む（lean-labels の�
     fireEvent.click(tip('新しいディレクトリの作成先'));
     expect(screen.getByRole('dialog')).toHaveTextContent(/自動でプロジェクトに登録します/);
   });
-  it('要約の「使わない」には説明を添えない。使用量と送信先の文は常に出す', () => {
+  it('要約の「使わない」には説明を添えない。使用量の文は常に出す', () => {
     render(ui(at('summary')));
     expect(screen.queryByText('事後の要約を作成しません。')).toBeNull();
-    expect(screen.getByText(/トランスクリプトをこの接続先へ送信します/)).toBeInTheDocument();
-    expect(screen.getByText(/127\.0\.0\.1 と localhost 以外の接続先へ/)).toBeInTheDocument();
+    expect(screen.getByText('Claude の使用量を消費します。')).toBeInTheDocument();
   });
 });

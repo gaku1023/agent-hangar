@@ -13,7 +13,7 @@ import { presentNewProject } from '../presenters/newProject.ts';
 import { presentShell } from '../presenters/shell.ts';
 import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], deleteApprovals: [], peerApprovals: [], schedules: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], deleteApprovals: [], peerApprovals: [], schedules: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null };
 const syncStatus: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null };
 const launchResult: LaunchResultDto = { run: { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'resume', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 's1', tabs: [] };
 const page = (seqs: number[], total: number): EventsPageDto => ({ sessionId: 's1', events: seqs.map((seq) => ({ kind: 'user', seq, text: 'x' })), total, nextSeq: null });
@@ -35,7 +35,7 @@ function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps>
     setProjectStatus: vi.fn(async () => { throw new Error('500 /api/projects/p1'); }),
     resolveProject: vi.fn(async () => ({})),
     candidates: vi.fn(async () => []),
-    updateSettings: vi.fn(async (p) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, ...p })),
+    updateSettings: vi.fn(async (p) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, ...p })),
     rebuildIndex: vi.fn(async () => {}),
     ...fakeApiExtras(),
     syncNow: vi.fn(async () => syncStatus),
@@ -769,7 +769,7 @@ describe('起動とターミナル', () => {
     const order: string[] = [];
     const cands = { candidates: [{ path: '/Users/me/src/a', sessionCount: 4, lastActivityAt: 1, worktreeCount: 0 }], suggestedRoot: '/Users/me/src' };
     const folderCandidates = vi.fn(async () => cands);
-    const base: SettingsDto = { workspaceRoot: '', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+    const base: SettingsDto = { workspaceRoot: '', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryHourlyCap: 20, nodePath: null, claudePath: null };
     const updateSettings = vi.fn(async (patch: Partial<SettingsDto>) => { order.push(`settings:${patch.workspaceRoot}`); return { ...base, ...patch }; });
     const registerFolders = vi.fn(async (items: FolderRegisterItem[]) => { order.push(`register:${items.map((i) => i.path).join(',')}`); return { projects: [{ ...created, id: 'p-a', path: '/Users/me/src/a' }], failed: [{ path: '/gone', error: 'path は既存のディレクトリではありません' }] }; });
     const { rt, api } = harness({ folderCandidates, updateSettings, registerFolders });
@@ -1333,11 +1333,10 @@ describe('フェーズ 3 の効果', () => {
     // file を落とすと、ファイルではなく作業ディレクトリが開く。
     expect(openEditor.mock.calls).toEqual([['s1', '/w/alpha/src/a.ts', { line: undefined, once: undefined }], ['s1', undefined, { once: undefined }]]);
   });
-  it('設定画面に入ると statusline と集計とモデル一覧を読む', async () => {
+  it('設定画面に入ると statusline と集計を読む', async () => {
     const statusline = vi.fn(async () => ({ command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true }));
     const usageAggregate = vi.fn(async () => ({ days: [{ day: '2026-09-18', inputTokens: 1, outputTokens: 2, sessions: 1 }], projects: [] }));
-    const summarizerModels = vi.fn(async () => { throw new Error('ECONNREFUSED'); });
-    const { rt, wsHandlers, setHash } = harness({ statusline, usageAggregate, summarizerModels });
+    const { rt, wsHandlers, setHash } = harness({ statusline, usageAggregate });
     rt.start();
     wsHandlers[0]!.onOpen();
     await flush();
@@ -1345,11 +1344,9 @@ describe('フェーズ 3 の効果', () => {
     await flush();
     expect(usageAggregate).toHaveBeenCalledWith(30);
     expect(statusline).toHaveBeenCalledTimes(1);
-    expect(summarizerModels).toHaveBeenCalledTimes(1);
     expect(rt.getStore().statusline?.installed).toBe(true);
     expect(rt.getStore().usageAggregate?.days).toHaveLength(1);
-    expect(rt.getStore().summarizerModels).toEqual([]);
-    // LM Studio に繋がらないのは普通の状態なので、トーストにしない。
+    // 設定画面に入っただけでは、トーストを出さない。
     expect(rt.getState().toasts).toEqual([]);
   });
   it('設定画面に入ると opencode の検出を読み、失敗は黙って null のままにする', async () => {
@@ -1417,7 +1414,7 @@ describe('フェーズ 3 の効果', () => {
     expect(rt.getStore().cloudUsage).toEqual(dto);
   });
   it('要約器を試すと結果がストアに入る', async () => {
-    const testSummarizer = vi.fn(async () => ({ ok: true as const, id: 'lmstudio' as const, ms: 12, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done' as const, nextSteps: [], source: 'post_hoc' as const, sourceId: 'lmstudio', sourceModel: 'gemma', basedOnTurns: 3 } }));
+    const testSummarizer = vi.fn(async () => ({ ok: true as const, id: 'claude-headless' as const, ms: 12, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done' as const, nextSteps: [], source: 'post_hoc' as const, sourceId: 'lmstudio', sourceModel: 'gemma', basedOnTurns: 3 } }));
     const { rt, wsHandlers } = harness({ testSummarizer });
     rt.start();
     wsHandlers[0]!.onOpen();
@@ -1425,7 +1422,7 @@ describe('フェーズ 3 の効果', () => {
     rt.emit({ type: 'summarizer.test' });
     await flush();
     expect(testSummarizer).toHaveBeenCalledTimes(1);
-    expect(rt.getStore().summarizerTest).toMatchObject({ ok: true, id: 'lmstudio', ms: 12 });
+    expect(rt.getStore().summarizerTest).toMatchObject({ ok: true, id: 'claude-headless', ms: 12 });
     // もう一度試すと、結果が届くまでの間は前回の結果が消えている。
     rt.emit({ type: 'summarizer.test' });
     expect(rt.getStore().summarizerTest).toBeNull();
@@ -2311,22 +2308,6 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
     expect(readiness).toHaveBeenCalled();
     expect(rt.getStore().readiness).toEqual(READY);
   });
-  it('要約エンジンや宛先を変えて保存したら、モデルの一覧を取り直す（目次の接続済み／接続できませんが古いまま残らない）', async () => {
-    const summarizerModels = vi.fn(async () => ({ models: ['gemma'] }));
-    const { rt } = harness({ summarizerModels });
-    rt.start();
-    rt.emit({ type: 'settings.update', patch: { summaryEngine: 'openai' } });
-    await flush();
-    expect(summarizerModels).toHaveBeenCalledTimes(1);
-    expect(rt.getStore().summarizerModels).toEqual(['gemma']);
-    rt.emit({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:9', lmStudioModel: null, summaryHourlyCap: 20 }, field: 'summarizer' });
-    await flush();
-    expect(summarizerModels).toHaveBeenCalledTimes(2);
-    // 関わらない欄では取り直さない。
-    rt.emit({ type: 'settings.update', patch: { liveHints: false } });
-    await flush();
-    expect(summarizerModels).toHaveBeenCalledTimes(2);
-  });
   it('保存を断られたら、理由を欄に返し、トーストにしない', async () => {
     const { rt } = harness({ updateSettings: vi.fn(async () => { throw new Error('「tmux のパス」に /x が未検出'); }) });
     rt.start();
@@ -2396,7 +2377,7 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
     expect(rt.getStore().readiness?.tools.claude.ok).toBe(true);
     expect(rt.getStore().settings?.claudePath).toBe('/bin/claude');
     // 準備の確かめに関わらない欄の変更では読み直さない。
-    wsHandlers[0]!.onEvent({ type: 'settings.changed', settings, keys: ['summaryFallback'] });
+    wsHandlers[0]!.onEvent({ type: 'settings.changed', settings, keys: ['summaryHourlyCap'] });
     await flush();
     expect(readiness).toHaveBeenCalledTimes(2);
   });
@@ -3067,7 +3048,7 @@ describe('psmux と tmux の再確認（ランタイム）', () => {
   };
   const MISSING = { ...base, tools: { ...tools, tmux: { path: null, ok: false, problem: 'unset' as const, version: null } } };
   const FOUND = { ...base, tools: { ...tools, tmux: { path: 'C:\\x\\psmux.exe', ok: true, problem: null, version: '3.3.1' } } };
-  const settings = (tmuxPath: string | null) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null });
+  const settings = (tmuxPath: string | null) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, nodePath: null, claudePath: null });
   it('見つかれば、準備の確かめと埋めた設定を Store に入れ、印を外す', async () => {
     const recheckMux = vi.fn(async () => ({ readiness: FOUND, settings: settings('C:\\x\\psmux.exe') }));
     const { rt } = harness({ readiness: vi.fn(async () => MISSING), recheckMux });

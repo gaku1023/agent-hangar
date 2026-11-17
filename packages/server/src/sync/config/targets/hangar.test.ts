@@ -35,7 +35,7 @@ describe('hangar の好み：集める', () => {
       summaryEngine: 'claude', summaryClaudeModel: 'sonnet', configKinds: { skills: 'off' }, opencodeInjection: 'none', opencodePermissionPreset: false, opencodeLocalContext: 65536, codexInjection: 'none',
       // PC ごと
       codexEnabled: true, codexIntercept: true, opencodeEnabled: true, opencodeIntercept: true, claudeDir: '/x', tmuxPath: '/t', nodePath: '/n', claudePath: '/c', workspaceRoot: '/w',
-      editor: { id: 'vscode', path: null }, terminalApp: 'terminal', summaryApiKey: 'sk-secret', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'm',
+      editor: { id: 'vscode', path: null }, terminalApp: 'terminal',
       opencodeProviderPrep: { a: { command: 'x' } }, opencodeIdleUnload: 5, peerChatAcceptFromPeers: false, configTargets: { hangar: true }, configApproval: 'auto', configBundleSync: true, toolsResolved: true,
     });
     const ids = collectAll(ctx()).items.map((i) => i.id).sort();
@@ -109,7 +109,7 @@ describe('hangar の好み：書く', () => {
   const opts = () => ({ home: tmp, claudeDir: path.join(tmp, 'claude'), db, now: () => NOW });
 
   it('settings を書く関数で書き、読み込みが新しい値を見る。ほかの鍵と PC ごとの鍵は変えない', () => {
-    put({ language: 'ja', codexEnabled: true, summaryApiKey: 'keep-me' });
+    put({ language: 'ja', codexEnabled: true, nodePath: '/keep-me' });
     receive([{ id: 'hangar:language', content: '"en"' }, { id: 'hangar:autoDoneIdleDays', content: '14' }]);
     const r = hangarTarget.write(opts());
     expect(r.written).toBe(2);
@@ -117,7 +117,7 @@ describe('hangar の好み：書く', () => {
     expect(s.language).toBe('en');
     expect(s.autoDoneIdleDays).toBe(14);
     expect(s.codexEnabled).toBe(true);
-    expect(s.summaryApiKey).toBe('keep-me');
+    expect(s.nodePath).toBe('/keep-me');
     expect(new ConfigBase(db).all().get('hangar:language')).toBe(sha('"en"'));
     expectMode(settingsFile(), 0o600);
   });

@@ -36,7 +36,7 @@ const v22 = { version: '22.14.0', napi: 10, arch: 'arm64' };
 
 const baseSettings = (over: Partial<Settings> = {}): Settings => ({
   workspaceRoot: path.join(tmp, 'ws'), claudeDir: path.join(tmp, 'claude'), tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' },
-  lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null,
+  summaryHourlyCap: 20, nodePath: null, claudePath: null,
   ...over,
 });
 

@@ -14,7 +14,7 @@ import { anyKindOn, type ConfigTarget } from './types.ts';
 /**
  * hangar の好み（設計書 7 章）。hangar の settings.json の鍵のうち、PC をまたいで同じでよいものを `hangar:<鍵>` で運ぶ。
  * 運ばないもの（PC ごと）：Codex・opencode の有効と横取り、パス（claudeDir、tmuxPath、nodePath、claudePath、workspaceRoot）、エディタ、
- * 端末アプリ、秘密（summaryApiKey）、要約器の宛先（lmStudio*）、接続先の準備、使わなくなった旧い入切（configTargets、configApproval）。
+ * 端末アプリ、接続先の準備、使わなくなった旧い入切（configTargets、configApproval）。
  * 種類ごとの状態（configKinds）は運び、全部の PC で共通にする。
  * サーバが settings.json を書くので、殻の承認の窓は通さない。承認が要るかは種類 hangar-pref の状態で決まる。
  */

@@ -5,7 +5,7 @@ import { initialStore, type Store } from '../store/store.ts';
 import { presentSettings } from './settings.ts';
 
 const vscode: EditorSetting = { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' };
-const SETTINGS: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: vscode, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+const SETTINGS: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: vscode, summaryHourlyCap: 20, nodePath: null, claudePath: null };
 const EDITORS: EditorsDto = {
   candidates: [
     { id: 'vscode', name: 'VS Code', state: 'found', path: '/usr/local/bin/code', version: '1.105.1' },
