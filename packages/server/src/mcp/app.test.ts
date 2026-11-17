@@ -123,6 +123,21 @@ describe('createMcpApp', () => {
     expect(JSON.parse((r.body.result!.content as { text: string }[])[0]!.text)).toMatchObject({ ok: true, session_id: alphaId });
     expect((await app.request('/s/nope', { method: 'POST', headers: H, body: '{}' })).status).toBe(404);
   });
+  it('set_turn_intent は to を引数に持たない。古い呼び出しが to を付けても断られず、書ける', async () => {
+    const list = await rpc('/', 'tools/list', {}, 14);
+    const tool = (list.body.result!.tools as { name: string; inputSchema: { properties: Record<string, unknown> } }[]).find((t) => t.name === 'set_turn_intent')!;
+    expect(Object.keys(tool.inputSchema.properties)).not.toContain('to');
+    const r = await rpc(`/s/${alphaId}`, 'tools/call', { name: 'set_turn_intent', arguments: { text: 'old call', to: ['os'] } }, 15);
+    expect(r.body.result!.isError).not.toBe(true);
+    expect(JSON.parse((r.body.result!.content as { text: string }[])[0]!.text)).toMatchObject({ ok: true });
+  });
+  it('set_notify_preference の説明は OS の名前を固定せず、引数の説明と重ならない', async () => {
+    const list = await rpc('/', 'tools/list', {}, 16);
+    const tool = (list.body.result!.tools as { name: string; description: string; inputSchema: { properties: Record<string, { description?: string }> } }[]).find((t) => t.name === 'set_notify_preference')!;
+    expect(tool.description).not.toMatch(/Mac/);
+    expect(tool.inputSchema.properties.whileFocused!.description).not.toMatch(/Mac/);
+    expect(tool.description).not.toContain('notify on the Mac');
+  });
   it('セッションのノート（set_session_memo）は道具ごと無い。古い一覧を持つ Claude が呼んでも、書かずに isError で返る', async () => {
     const list = await rpc('/', 'tools/list', {}, 12);
     expect((list.body.result!.tools as { name: string }[]).map((t) => t.name)).not.toContain('set_session_memo');

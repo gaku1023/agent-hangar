@@ -30,7 +30,7 @@ const STATUS_JA = [
 ];
 /** ターンの意図と短い手の説明の段（launch.injection.live）。 */
 const LIVE_JA = [
-  'ターンを始めたときと方針を変えたときは、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。',
+  '各ターンの最初の一手で、他のツールより先に、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。方針を変えたときも呼びます。',
   'Bash と Agent の description は日本語で短く（20 字程度）書いてください。',
 ];
 /** notify_user で知らせる段（launch.injection.notify）。 */
