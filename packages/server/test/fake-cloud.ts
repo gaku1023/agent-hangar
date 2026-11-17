@@ -12,6 +12,7 @@ import {
   EVENT_INBOX_PULL_PAGE,
   LAUNCH_TTL_MS,
   MAX_BLOB_DELETE_KEYS,
+  MAX_FUTURE_SKEW_MS,
   MAX_PUSH_BATCH,
   MAX_SEALED_META_CHARS,
   MOBILE_BELL_MIN_WORKER_COMPAT,
@@ -73,6 +74,8 @@ import {
   type PeerLaunchStatus,
   type PeerResultOut,
   type PushChangesResponse,
+  type PushDropped,
+  type OpenedPushResponse,
   type Roster,
   type SealedChangeIn,
   type SealedChangeOut,
@@ -539,16 +542,19 @@ export class FakeWireClient implements WireCloudClient {
     if (!changes.every((x) => isSealedText(x.sealed, MAX_ROW_BYTES))) throw new CloudError(400, errorBody('invalid body'));
     let accepted = 0;
     let skipped = 0;
-    // 同じ鍵の重複は updatedAt の大きい方だけを見る（Worker と同じ数え方）。
+    const dropped: PushDropped[] = [];
+    const now = this.store.now();
+    // 同じ鍵の重複は updatedAt の大きい方だけを見る（Worker と同じ数え方）。先の時刻の行は断って名指しする。
     const latest = new Map<string, SealedChangeIn>();
     for (const ch of changes) {
+      if (ch.updatedAt > now + MAX_FUTURE_SKEW_MS) { skipped++; dropped.push({ k: ch.k, reason: 'future' }); continue; }
       const cur = latest.get(ch.k);
       if (!cur) latest.set(ch.k, ch);
       else { skipped++; if (ch.updatedAt > cur.updatedAt) latest.set(ch.k, ch); }
     }
     for (const [k, ch] of latest) {
       const prev = this.store.rows.get(k);
-      if (prev && prev.updatedAt >= ch.updatedAt) { skipped++; continue; }
+      if (prev && prev.updatedAt >= ch.updatedAt) { skipped++; dropped.push({ k, reason: 'stale' }); continue; }
       const row: FakeRow = { seq: ++this.store.seq, k, op: ch.op, updatedAt: ch.updatedAt, deviceId: this.deviceId, epoch: ch.epoch, sealed: fromBase64Url(ch.sealed)! };
       // 書き換えた行は末尾の連番で入り直す（Map の並びも末尾へ移す）。
       this.store.rows.delete(k);
@@ -556,7 +562,7 @@ export class FakeWireClient implements WireCloudClient {
       this.store.changes.push(row);
       accepted++;
     }
-    return { seq: this.maxSeq(), accepted, skipped };
+    return { seq: this.maxSeq(), accepted, skipped, ...(dropped.length ? { dropped } : {}) };
   }
 
   /** 表の連番の高水位（Worker の max(seq)）。 */
@@ -1252,7 +1258,7 @@ export class FakeCloudClient implements CloudClient {
   seedUnchecked(meta: SealedFileIn, body: Buffer): { seq: number } { return this.wire.seedUnchecked(meta, body); }
 
   health(): Promise<{ ok: boolean; version: string }> { return this.wire.health(); }
-  pushChanges(changes: ChangeIn[], opts?: PushOptions): Promise<PushChangesResponse> { return this.sealed.pushChanges(changes, opts); }
+  pushChanges(changes: ChangeIn[], opts?: PushOptions): Promise<OpenedPushResponse> { return this.sealed.pushChanges(changes, opts); }
   pullChanges(since: number, limit: number): Promise<OpenedPullResponse> { return this.sealed.pullChanges(since, limit); }
   snapshot(after: string | null, limit: number): Promise<OpenedSnapshotResponse> { return this.sealed.snapshot(after, limit); }
   refreshKeys(epochs: number[]): Promise<KeyRefresh> { return this.sealed.refreshKeys(epochs); }

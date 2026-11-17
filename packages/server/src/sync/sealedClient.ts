@@ -21,6 +21,7 @@ import {
   type FileKind,
   type FileMetaIn,
   type ListFilesResponse,
+  type OpenedPushResponse,
   type PushChangesResponse,
   type SealedChangeIn,
   type SealedChangeOut,
@@ -278,7 +279,8 @@ export class SealedCloudClient implements CloudClient {
     return { files, unreadable, nextSeq: page.nextSeq, more: page.more };
   }
 
-  async pushChanges(changes: ChangeIn[], opts?: PushOptions): Promise<PushChangesResponse> {
+  /** 捨てられた行（応答の dropped）は、封じるときに控えた k から表名と行 ID に引き直す。引けない k は落とす。 */
+  async pushChanges(changes: ChangeIn[], opts?: PushOptions): Promise<OpenedPushResponse> {
     if (!Array.isArray(changes) || !changes.every(isPlainChange)) throw new CloudError(400, errorBody('invalid body'));
     const cur = (await this.ring).current();
     const byK = new Map<string, ChangeIn>();
@@ -290,11 +292,19 @@ export class SealedCloudClient implements CloudClient {
         return { k, op: c.op, updatedAt: c.updatedAt, epoch: cur.epoch, sealed: toBase64Url(bytes) };
       }),
     );
+    let res: PushChangesResponse;
     try {
-      return await this.wire.pushChanges(sealed, opts);
+      res = await this.wire.pushChanges(sealed, opts);
     } catch (e) {
       throw nameOversize(e, byK);
     }
+    const { dropped, ...rest } = res;
+    if (!Array.isArray(dropped)) return rest;
+    const named = dropped.flatMap((d) => {
+      const hit = byK.get(d.k);
+      return hit && (d.reason === 'stale' || d.reason === 'future') ? [{ tableName: hit.tableName, rowId: hit.rowId, reason: d.reason }] : [];
+    });
+    return named.length ? { ...rest, dropped: named } : rest;
   }
 
   async pullChanges(since: number, limit: number): Promise<OpenedPullResponse> {

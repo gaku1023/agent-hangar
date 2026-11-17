@@ -50,6 +50,7 @@ import {
   type PeerOutboxResponse,
   type PeerResultAck,
   type PeerResultsResponse,
+  type OpenedPushResponse,
   type PushChangesResponse,
   type RosterOut,
   type RosterPut,
@@ -408,7 +409,8 @@ export type RosterPutResult = { ok: boolean } & RosterPutOut;
  * FakeCloudClient（test/fake-cloud.ts）は偽の Worker を同じ SealedCloudClient で包んだもの。
  */
 export interface CloudClient extends CloudClientBase {
-  pushChanges(changes: ChangeIn[], opts?: PushOptions): Promise<PushChangesResponse>;
+  /** 捨てられた行は、応答の dropped で表名と行 ID と理由を名指しする。 */
+  pushChanges(changes: ChangeIn[], opts?: PushOptions): Promise<OpenedPushResponse>;
   pullChanges(since: number, limit: number): Promise<OpenedPullResponse>;
   snapshot(after: string | null, limit: number): Promise<OpenedSnapshotResponse>;
   /**
