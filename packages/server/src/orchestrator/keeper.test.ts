@@ -18,7 +18,7 @@ function rig(initial: Partial<OrchestratorSetting> = {}, o: { resumable?: boolea
     on(l) { listener = l; return () => { listener = {}; }; },
     aliveRun: (id) => (alive.has(id) ? ({ id: `run-${id}`, sessionId: id } as RunDto) : null),
     kill: vi.fn((runId: string) => { calls.push(`kill:${runId}`); const id = runId.replace('run-', ''); alive.delete(id); listener.runEnded?.({ id: runId, sessionId: id, endReason: 'killed', endedAt: clock } as RunDto); }),
-    resumeWith: vi.fn(async (id: string, o?: { account?: string }) => { calls.push(`resume:${id}${o?.account ? `@${o.account}` : ''}`); alive.add(id); return {}; }),
+    resumeWith: vi.fn(async (id: string, o?: { account?: string; stray?: string }) => { calls.push(`resume:${id}${o?.account ? `@${o.account}` : ''}${o?.stray ? `!${o.stray}` : ''}`); alive.add(id); return {}; }),
     startOrchestrator: vi.fn((o?: { account?: string }) => {
       if (startFails > 0) { startFails -= 1; calls.push('start:fail'); throw new Error('tmux'); }
       const id = `orch-${++n}`;
@@ -243,7 +243,7 @@ describe('OrchestratorKeeper', () => {
       t.set({ model: 'opus', account: 'acc-2' });
       t.keeper.apply();
       await t.settle();
-      expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1', 'resume:orch-1@acc-2']);
+      expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1', 'resume:orch-1@acc-2!stop']);
       expect(t.setting()).toMatchObject({ enabled: true, sessionId: 'orch-1', model: 'opus' });
       expect(t.keeper.state()).toEqual({ status: 'running' });
     });
@@ -260,7 +260,7 @@ describe('OrchestratorKeeper', () => {
       expect(t.calls).toEqual(['start:orch-1']);
       t.live('orch-1', 'idle');
       await t.settle();
-      expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1', 'resume:orch-1']);
+      expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1', 'resume:orch-1!stop']);
       // 同じ指定ではもう止めない。
       t.live('orch-1', 'idle');
       await t.settle();
@@ -312,7 +312,7 @@ describe('OrchestratorKeeper', () => {
       t.set({ model: 'opus' });
       t.keeper.apply();
       await t.settle();
-      expect(t.calls).toEqual(['kill:run-old-1', 'resume:old-1']);
+      expect(t.calls).toEqual(['kill:run-old-1', 'resume:old-1!stop']);
       expect(t.setting().enabled).toBe(true);
     });
   });
