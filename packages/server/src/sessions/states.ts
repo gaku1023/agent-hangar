@@ -1,6 +1,7 @@
 import { candidateExpired, CANDIDATE_EXPIRE_DAYS, isQuietStatus, isReturnOn, isReturnTime, STATE_NOTE_MAX, type CandidateSource, type SessionCandidateDto, type SessionStateDto, type SessionStatus, type StateSetBy, type WakeOn } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { stampFacts } from './stateFacts.ts';
 import { markSeen } from '../live/unread.ts';
 import { MessageError, msg, type Message } from '../i18n/message.ts';
 import { readWakeOn, wakeOnJson } from '../event/validate.ts';
@@ -69,12 +70,14 @@ const liveRow = (db: Db, id: string) => db.prepare('select * from session_states
 
 /**
  * 今の行（無ければ空の行）に差分を重ねて書く。updated_at と origin_device は upsertShared が補う。
+ * 差分が触れた事実の時刻（版 62）は at にする。
  * at は updated_at に使う時刻で、省けば今の時刻である（upsertShared の at）。
  */
-function write(db: Db, deviceId: string, sessionId: string, patch: Partial<StateRow>, at?: number): SessionStateDto {
+function write(db: Db, deviceId: string, sessionId: string, patch: Partial<StateRow>, at = Date.now()): SessionStateDto {
   const cur = db.prepare('select * from session_states where session_id = ?').get(sessionId) as StateRow | undefined;
   const base = cur ?? { session_id: sessionId, ...CLEARED };
-  upsertShared(db, 'session_states', { ...base, ...patch, session_id: sessionId, deleted_at: null }, deviceId, 'session_id', at);
+  // 触れた事実の時刻も書く。同期の取り込みは事実ごとに新しい方を採る（sessions/stateFacts.ts）。
+  upsertShared(db, 'session_states', { ...base, ...patch, ...stampFacts(patch, at), session_id: sessionId, deleted_at: null }, deviceId, 'session_id', at);
   return toStateDto(liveRow(db, sessionId)!);
 }
 

@@ -1079,6 +1079,21 @@ alter table event_index add column fts_rowid integer;
 `;
 
 /**
+ * 版 62。session_states に事実ごとの書いた時刻を足す（2026-11-18）。
+ * 1 行に独立した事実（状態、提案、移した先、ピン、削除の印）が入っているので、行ごとの後勝ちでは、
+ * 同期が届く前に 2 台が別の事実を書くと片方が消える。取り込みは事実ごとに新しい方を採る（sync/apply.ts の mergeFacts）。
+ * 削除の印は trashed_at と restored_at で合わせる（mergeTrash）ので、ここには足さない。
+ * 既存の行は null のままにする。null は時刻 0 として比べ、同じ時刻は行の時刻で決めるので、移る前の行はこれまでどおり行ごとの後勝ちになる。
+ * 列を足すだけなので、クラウド（Worker）にマイグレーションは要らず、互換の版も変えない。
+ */
+const V62_SESSION_STATE_FACT_AT_SQL = `
+alter table session_states add column status_changed_at integer;
+alter table session_states add column candidate_changed_at integer;
+alter table session_states add column project_changed_at integer;
+alter table session_states add column pinned_changed_at integer;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -1129,4 +1144,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 59, sql: V59_AUTO_APPROVALS_SQL },
   { version: 60, sql: V60_EVENT_FTS_ROWID_SQL },
   { version: 61, sql: V61_UNREAD_HOLD_SQL },
+  { version: 62, sql: V62_SESSION_STATE_FACT_AT_SQL },
 ];

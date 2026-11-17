@@ -7,6 +7,7 @@ import { hangarHome } from '../config/paths.ts';
 import { MIGRATED_NOTE_AT } from '../db/migrations.ts';
 import { noteApplied } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
+import { STATE_FACTS } from '../sessions/stateFacts.ts';
 import { upsertShared } from '../db/shared.ts';
 import { alignSessionProject } from '../sessions/move.ts';
 import { alignSessionTrash, trashedAtOf } from '../sessions/trash.ts';
@@ -284,10 +285,13 @@ function applyOne(db: Db, c: ChangeOut, o: ApplyOptions): 'applied' | 'skipped' 
   const pk = TABLE_PK[c.tableName];
   const cols = tableColumns(db, c.tableName);
   const cur = db.prepare(`select updated_at from ${c.tableName} where ${pk} = ?`).get(c.rowId) as { updated_at: number } | undefined;
-  if (cur && cur.updated_at >= c.updatedAt && !copiesCollide(db, c, cur.updated_at)) return 'skipped';
   const row: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(c.payload)) if (cols.has(k)) row[k] = v;
   row[pk] = c.rowId;
+  // session_states は事実ごとに新しい方を採る（mergeFacts）。届いた行が古くても、手元より新しい事実があれば当てる。
+  const facts = c.tableName === 'session_states' && c.op === 'upsert' ? mergeFacts(db, c, row, cols, cur?.updated_at ?? null) : null;
+  const older = cur !== undefined && cur.updated_at >= c.updatedAt;
+  if (older && !(facts?.incomingWon) && !copiesCollide(db, c, cur.updated_at)) return 'skipped';
   row.updated_at = c.updatedAt;
   // upsertShared は conflict で渡された列しか書かないので、適用の側で deleted_at を必ず書いて生き返らせる。
   if (c.op === 'upsert' && row.deleted_at === undefined) row.deleted_at = null;
@@ -321,9 +325,10 @@ function applyOne(db: Db, c: ChangeOut, o: ApplyOptions): 'applied' | 'skipped' 
   if (trashCols) alignSessionTrash(db, c.rowId, prevTrash);
   // 保った印と外した印は、届いた行より新しい時刻で上げ直し、クラウドとほかの PC もそろえる。
   // 上げ直した行を受け取った PC は、同じ合わせ方で同じ印になるので、そのまま取り込み、上げ返さない。往復はここで止まる。
-  if (reraiseTrash) {
+  // 事実ごとに合わせた行が届いた行と違うとき（手元の事実が勝った、または古い行から新しい事実を採った）も同じく上げ直す。
+  if (reraiseTrash || facts?.localWon || (older && facts?.incomingWon)) {
     const merged = db.prepare('select * from session_states where session_id = ?').get(c.rowId) as Record<string, unknown>;
-    upsertShared(db, 'session_states', merged, o.ownDeviceId, 'session_id', Math.max(Date.now(), c.updatedAt + 1));
+    upsertShared(db, 'session_states', merged, o.ownDeviceId, 'session_id', Math.max(Date.now(), c.updatedAt + 1, (cur?.updated_at ?? 0) + 1));
   }
   if (carriesOldNote(c)) {
     if (o.onOldSessionNote) o.onOldSessionNote(c);
@@ -536,6 +541,52 @@ function mergeTrash(db: Db, sessionId: string, row: Record<string, unknown>, pre
   if (trash !== null || 'trashed_at' in row) row.trashed_at = trash;
   if (hasRestored && (restored !== null || 'restored_at' in row)) row.restored_at = restored;
   return trash !== incomingTrash;
+}
+
+/**
+ * 届いた session_states の行を、事実ごとに手元の行と合わせる（版 62、sessions/stateFacts.ts）。row を書き換える。
+ *
+ * 1 行には独立した事実（状態、提案、移した先、ピン、削除の印）が入っている。
+ * 行ごとの後勝ちでは、同期が届く前に 2 台が別の事実を書くと、後から書いた行が、先の行の事実を知らない古い値で消す。
+ * そこで事実ごとに、書いた時刻（`*_changed_at`）の新しい方の列を採る。
+ * - 時刻の無い事実は 0 として比べる。同じ時刻なら行の時刻の新しい方を採り、それも同じなら手元を残す（行ごとの後勝ちと同じ決め方）。
+ * - 削除の印はここでは扱わない（mergeTrash）。
+ * - 事実の時刻の列を持たない行（版 60 以下の PC が書いた行）は、事実ごとには合わせず、これまでどおり行ごとの後勝ちで当てる。
+ *   その PC は事実ごとの時刻を残さないので、どの事実が新しいかを知るすべがない。
+ *   当てるときは、どの事実の時刻も届いた行の時刻にする。当てた値より古い時刻を残すと、次に合わせるときに古い値として負けるからである。
+ *
+ * localWon は手元の事実が勝って行が届いたものと変わったこと、incomingWon は届いた行の事実が手元に勝ったことである。
+ * 呼び手は、届いた行が手元より古くても incomingWon なら当て、合わせた行が届いた行と違えば上げ直す。
+ * 上げ直した行を受け取った PC は、どの事実も同じか古いので、そのまま取り込んで上げ返さない。往復はそこで止まる。
+ */
+function mergeFacts(db: Db, c: ChangeOut, row: Record<string, unknown>, cols: Set<string>, localUpdatedAt: number | null): { localWon: boolean; incomingWon: boolean } | null {
+  const facts = STATE_FACTS.filter((f) => cols.has(f.at));
+  if (facts.length === 0) return null;
+  if (!facts.every((f) => f.at in c.payload)) {
+    for (const f of facts) row[f.at] = c.updatedAt;
+    return null;
+  }
+  const local = localUpdatedAt === null ? undefined : db.prepare('select * from session_states where session_id = ?').get(c.rowId) as Record<string, unknown> | undefined;
+  if (!local) return null;
+  const rowNewer = c.updatedAt > (localUpdatedAt ?? 0);
+  const time = (v: unknown) => (typeof v === 'number' ? v : 0);
+  let localWon = false, incomingWon = false;
+  for (const f of facts) {
+    const inAt = time(row[f.at]), loAt = time(local[f.at]);
+    const keys = [f.at, ...f.cols.filter((k) => cols.has(k))];
+    // 値が同じなら、どちらを採っても変わらない。時刻だけ新しい方にそろえ、上げ直しの理由にはしない。
+    if (f.cols.every((k) => !cols.has(k) || (row[k] ?? null) === (local[k] ?? null))) {
+      row[f.at] = Math.max(inAt, loAt) || (row[f.at] ?? null);
+      continue;
+    }
+    if (loAt > inAt || (loAt === inAt && !rowNewer)) {
+      for (const k of keys) row[k] = local[k] ?? null;
+      localWon = true;
+    } else {
+      incomingWon = true;
+    }
+  }
+  return { localWon, incomingWon };
 }
 
 /**
