@@ -14,15 +14,11 @@ import { LanguageRoot } from './primitives/language.tsx';
 import { SessionScreen } from './SessionScreen.tsx';
 import { TabStrip } from './TabStrip.tsx';
 import { TerminalHostContext } from './TerminalPane.tsx';
+import { sessionDto } from '../test/sessionDto.ts';
 
 const ja = translator('ja');
 const NOW = Date.UTC(2026, 9, 9, 3, 0, 0);
-const dto = (over: Partial<SessionDto> = {}): SessionDto => ({
-  id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: 'name', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, lastTurnAt: null, 
-  hasTranscript: true, live: null, stats: { turns: 2, model: 'claude-sonnet-4-5', effort: 'high', filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 1_000_000, outputTokens: 200_000, contextPercent: null, costUsd: null },
-  summary: { title: 'T', oneLiner: 'ONE', body: 'BODY', state: 'in_progress', nextSteps: ['next1'], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 },
-  fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over,
-});
+const dto = (over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ providerSessionId: 'u', projectId: 'p1', name: 'name', cwd: '/w/alpha', startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, stats: { turns: 2, model: 'claude-sonnet-4-5', effort: 'high', filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 1_000_000, outputTokens: 200_000, contextPercent: null, costUsd: null }, summary: { title: 'T', oneLiner: 'ONE', body: 'BODY', state: 'in_progress', nextSteps: ['next1'], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, ...over }));
 const leadOf = (over: Partial<SessionDto> = {}, extra: { summaryPending?: boolean; summaryError?: string | null; gone?: boolean } = {}) =>
   presentLeadCard({ session: dto(over), now: NOW, gone: extra.gone ?? false, summaryPending: extra.summaryPending ?? false, summaryError: extra.summaryError ?? null, artifacts: [], files: null, windowFiles: [] }, ja);
 const stripOf = (over: Partial<Parameters<typeof presentNowCard>[0]> = {}) => presentNowCard({

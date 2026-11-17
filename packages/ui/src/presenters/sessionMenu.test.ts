@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { translator, type ProjectDto, type RunDto, type SessionDto, type TabDto } from '@agent-hangar/shared';
 import { initialStore, type Store } from '../store/store.ts';
 import { moveTargetIds, presentSessionMenu, sessionMenuEntries, type SessionMenuProps } from './sessionMenu.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
 const NOW = new Date(2026, 9, 16, 12, 0).getTime();
 const ja = translator('ja');
 const en = translator('en');
-const session = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'ログイン画面の直し', cwd: '/Users/me/src/app', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 12, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over });
+const session = (over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ projectId: 'p1', name: 'ログイン画面の直し', cwd: '/Users/me/src/app', firstPrompt: 'first', startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, stats: { turns: 12, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, ...over }));
 const project = (over: Partial<ProjectDto> = {}): ProjectDto => ({ id: 'p1', name: 'app', status: 'active', isScratch: false, path: '/Users/me/src/app', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 1, unresolved: null, ...over });
 const run = (over: Partial<RunDto> = {}): RunDto => ({ id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: NOW - 60_000, endedAt: null, endReason: null, heartbeatAt: NOW, ...over });
 const shellTab = (id: string): TabDto => ({ id, runId: 'r1', sessionId: 's1', kind: 'shell', title: 'zsh', tmuxName: `hangar-${id}`, createdAt: NOW, closedAt: null });

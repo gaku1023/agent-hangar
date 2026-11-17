@@ -8,11 +8,12 @@ import { emptySlice, type PeerChatSlice } from '../store/peerChat.ts';
 import { LanguageRoot } from './primitives/language.tsx';
 import { PromptAssistContext, NO_ASSIST, type PromptAssist } from './primitives/promptAssist.ts';
 import { PeerChatPane } from './PeerChatPane.tsx';
+import { sessionDto } from '../test/sessionDto.ts';
 
 const ja = translator('ja');
 const MAC = { deviceId: 'd-mac', deviceName: 'Mac' };
 const stats = { turns: 3, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: 0 };
-const SESSION = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: 'x', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, lastTurnAt: 1, hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: { deviceId: 'd-mac', deviceName: 'Mac', runId: 'r', heartbeatAt: 1, stale: false }, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null } as unknown as SessionDto;
+const SESSION = sessionDto({ name: 'x', cwd: '/w', startedAt: 1, lastActivityAt: 1, lastTurnAt: 1, hasTranscript: true, stats, lock: { deviceId: 'd-mac', deviceName: 'Mac', runId: 'r', heartbeatAt: 1, stale: false } }) as unknown as SessionDto;
 const user = (uuid: string, text: string, from?: typeof MAC): PeerChatItem => ({ uuid, at: 1, kind: 'user', text, ...(from ? { from } : {}) });
 const ai = (uuid: string, text: string): PeerChatItem => ({ uuid, at: 2, kind: 'assistant', text });
 const ask = (answered = false, over: Partial<NonNullable<PeerChatItem['ask']>> = {}): PeerChatItem => ({

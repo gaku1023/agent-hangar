@@ -4,11 +4,12 @@ import { initialState } from '../mediator/transition.ts';
 import type { State } from '../mediator/types.ts';
 import { initialStore, type Store } from '../store/store.ts';
 import { pauseChoices, presentPause } from './pause.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
 /** 手元の暦の時刻。試験を走らせる機械のタイムゾーンによらず、同じ日付になる。 */
 const at = (y: number, m: number, d: number, h = 9, min = 0) => new Date(y, m - 1, d, h, min).getTime();
 const THU = at(2026, 10, 1);
-const session = (state: SessionDto['state']): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'Worker の CPU 超過', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 2, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null });
+const session = (state: SessionDto['state']): SessionDto => (sessionDto({ projectId: 'p1', name: 'Worker の CPU 超過', cwd: '/w', startedAt: 1, lastActivityAt: 2, hasTranscript: true, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, state }));
 const open = (from: 'menu' | 'candidate'): State => ({ ...initialState(), overlay: { kind: 'pause', sessionId: 's1', from } });
 const storeOf = (s: SessionDto): Store => ({ ...initialStore(), sessions: { [s.id]: s } });
 

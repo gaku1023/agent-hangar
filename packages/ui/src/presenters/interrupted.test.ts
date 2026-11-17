@@ -9,11 +9,12 @@ import { presentHomeScreen } from './home.ts';
 import { translatorOf } from './i18n.ts';
 import { interruptMark, presentInterrupted } from './interrupted.ts';
 import { presentSessionRow } from './row.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
 const NOW = new Date(2026, 9, 12, 9, 0).getTime();
 const at = (h: number, m: number, d = 12) => new Date(2026, 9, d, h, m).getTime();
 const project: ProjectDto = { id: 'p1', name: 'alpha-web', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: NOW, runningCount: 0, openTodoCount: 0, updatedAt: 1 };
-const dto = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'p1', name: `n-${id}`, cwd: '/w/alpha', firstPrompt: `first ${id}`, aiTitle: null, startedAt: at(1, 0), lastActivityAt: at(3, 0), lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: { at: at(3, 12), cause: 'restart' }, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over });
+const dto = (id: string, over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ id, providerSessionId: 'u' + id, projectId: 'p1', name: `n-${id}`, cwd: '/w/alpha', firstPrompt: `first ${id}`, startedAt: at(1, 0), lastActivityAt: at(3, 0), hasTranscript: true, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, interrupted: { at: at(3, 12), cause: 'restart' }, ...over }));
 const group: InterruptedDto = {
   at: at(3, 12), cause: 'restart',
   items: [

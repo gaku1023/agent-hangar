@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { translator, type SessionDto, type SessionSummaryDto, type SessionStateDto } from '@agent-hangar/shared';
 import type { ArtifactCardProps } from './project.ts';
 import { presentLeadCard, presentSessionBadges, type ChangedFileProps, type LeadInput } from './session.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
 const ja = translator('ja');
 const en = translator('en');
@@ -10,11 +11,7 @@ const DAY = 86_400_000;
 
 const summary = (p: Partial<SessionSummaryDto> = {}): SessionSummaryDto => ({ title: 't', oneLiner: 'o', body: '商品一覧の画像を遅延読み込みにし、PR をマージした。', state: 'done', nextSteps: ['詳細の頁の画像にも同じ部品を使う'], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: 'qwen3-8b', basedOnTurns: 11, updatedAt: Date.UTC(2026, 9, 6, 9, 40), ...p });
 const state = (p: Partial<SessionStateDto> = {}): SessionStateDto => ({ status: 'done', note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: Date.UTC(2026, 9, 6, 3, 0), candidate: null, ...p });
-const session = (p: Partial<SessionDto> = {}): SessionDto => ({
-  id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: '画像の遅延読み込み', cwd: '/w/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 4 * DAY, lastActivityAt: NOW - 3 * DAY, lastTurnAt: null, 
-  hasTranscript: true, live: null, summary: summary(), stats: { turns: 11, model: 'claude-sonnet-4-5', effort: null, filesChanged: 5, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: null, costUsd: 0.42 },
-  fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: state(), parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...p,
-});
+const session = (p: Partial<SessionDto> = {}): SessionDto => (sessionDto({ providerSessionId: 'u', projectId: 'p1', name: '画像の遅延読み込み', cwd: '/w/web-shop', startedAt: NOW - 4 * DAY, lastActivityAt: NOW - 3 * DAY, hasTranscript: true, summary: summary(), stats: { turns: 11, model: 'claude-sonnet-4-5', effort: null, filesChanged: 5, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: null, costUsd: 0.42 }, state: state(), ...p }));
 const artifact = (id: string): ArtifactCardProps => ({ id, title: `成果 ${id}`, description: null, icon: 'document', url: 'https://x', lastPublished: '3 日前', versionCount: 1, canOpenEditor: true });
 const win = (path: string, p: Partial<ChangedFileProps> = {}): ChangedFileProps => ({ path, dir: '', base: path.split('/').pop()!, added: 1, removed: 0, created: false, ...p });
 const input = (p: Partial<LeadInput> = {}): LeadInput => ({ session: session(), now: NOW, gone: false, summaryPending: false, summaryError: null, artifacts: [], files: null, windowFiles: [], ...p });
