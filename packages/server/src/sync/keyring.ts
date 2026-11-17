@@ -45,22 +45,6 @@ export class Keyring {
     return this.keys.get(epoch) ?? null;
   }
 
-  /**
-   * SSH の予備の経路で、相手の hangar の `/peer` に見せる token の HMAC の鍵（用途 peer-token）。
-   * 手元に無い世代なら null。使うときだけ導いて覚える。
-   */
-  async peerTokenKey(epoch: number): Promise<CryptoKey | null> {
-    const cached = this.peerTokenKeys.get(epoch);
-    if (cached) return cached;
-    const raw = this.raw.get(epoch);
-    if (raw === undefined) return null;
-    const key = await importHmacKey(await deriveSubkeyBytes(raw, 'peer-token'));
-    this.peerTokenKeys.set(epoch, key);
-    return key;
-  }
-
-  private readonly peerTokenKeys = new Map<number, CryptoKey>();
-
   /** 手元にある世代の番号。新しい順。 */
   epochs(): number[] {
     return [...this.keys.keys()].sort((a, b) => b - a);
@@ -109,7 +93,6 @@ export class Keyring {
     if (epoch === this.cur) throw new Error('the current epoch key cannot be dropped');
     this.keys.delete(epoch);
     this.raw.delete(epoch);
-    this.peerTokenKeys.delete(epoch);
   }
 
   /** スマホ用の鍵。スマホをまだ接続していなければ null。 */

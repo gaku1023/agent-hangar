@@ -25,8 +25,6 @@ import type { StartOptions } from './boot/options.ts';
 import { bootRuns, panesOf } from './boot/runs.ts';
 import { bootSummary } from './boot/summary.ts';
 import { bootSync } from './boot/sync.ts';
-import { bootPeerSsh } from './boot/peerSsh.ts';
-import { whenPeerSshEnabled } from './peer/ssh/enabled.ts';
 import { bootTakeover } from './boot/takeover.ts';
 import { findCodex } from './config/tools.ts';
 import { LocalCodex } from './provider/codex/compat/version.ts';
@@ -158,10 +156,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const localCodex = new LocalCodex({ bin: () => findCodex() });
   const codex = { local: localCodex, options: new CodexOptionsService({ bin: () => findCodex(), status: localCodex.status }) };
   // 別の PC への頼みの、受ける側と呼ぶ側。呼び鈴の answer と result の知らせは、スマホの呼び鈴（bootMobile）が受けて peer.onBell へ渡す。
-  // SSH の予備の経路（別の PC への起動）。/peer の入口と、設定「ほかの PC」の登録とトンネル。受ける側の受け口は bootPeer が bindInbox で差し込む。
-  // 今回のリリースでは止めている（peer/ssh/enabled.ts）。止めているあいだは何も組まず、ssh の子プロセスも起こさない。
-  const peerSsh = whenPeerSshEnabled(() => bootPeerSsh({ home: home.home, db: home.db, deviceId: home.device.id, language: home.language, tokens: () => sync.peerTokenKeys(), broadcast: (ev) => { delivery.hub.broadcast(ev); } }));
-  const peer = bootPeer({ home, runs, sync, delivery, ...(peerSsh ? { ssh: peerSsh } : {}) });
+  const peer = bootPeer({ home, runs, sync, delivery });
   // ほかの PC の会話の頼み（呼び鈴の chat の枠）。預かりと答えた記録はメモリだけに持つ。
   const peerChat = bootPeerChat({ home, runs, delivery, sync });
   // 外のできごと（#563）。
@@ -221,7 +216,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   try { if (dropStaleWakes(home.db) > 0) void eventHooks.sweep(); } catch (e) { console.error('[event] could not sweep stale wakes', e instanceof Error ? e.constructor.name : typeof e); }
   watchWakeScope(home.db, () => { void eventHooks.sweep(); }, (e) => { console.error('[event] could not drop wakes', e instanceof Error ? e.constructor.name : typeof e); });
   const eventBindings = new EventBindingService({ db: home.db, deviceId: home.device.id, hooks: eventHooks, changed: () => { mobile.settingsChanged(); }, language: () => home.language() });
-  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, peerChat, orchestratorFeed, ...(peerSsh ? { peerSsh } : {}), peer, events: { bindings: eventBindings, dispatcher: eventDispatcher }, schedules: { runNow: (id) => schedules.runNow(id), deliver: (id, text) => launchScheduled(scheduleTools, { prompt: text, target: { kind: 'session', sessionId: id }, plannedAt: Date.now() }) }, opts, serverDir });
+  const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, trash, takeover, opencode, mobile, codex, peerChat, orchestratorFeed, peer, events: { bindings: eventBindings, dispatcher: eventDispatcher }, schedules: { runNow: (id) => schedules.runNow(id), deliver: (id, text) => launchScheduled(scheduleTools, { prompt: text, target: { kind: 'session', sessionId: id }, plannedAt: Date.now() }) }, opts, serverDir });
 
   // 起動の手続き。実行中の一覧、索引とプロジェクト、run の順に動かし始める。
   delivery.live.start();
@@ -285,8 +280,6 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       web.orchestrator.stop();
       await web.voice.stop();
       orchestratorFeed.stop();
-      // 自分が起こした ssh のトンネルだけを止める。
-      peerSsh?.stop();
       // 本文をゴミ箱へ移している最中の回は、DB を閉じる前に待ち切る。
       await trash.stop();
       // 起こした opencode の serve を止める（interrupt、SIGTERM、間をおいて SIGKILL）。

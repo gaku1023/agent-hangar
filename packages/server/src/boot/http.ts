@@ -49,7 +49,6 @@ import type { SyncParts } from './sync.ts';
 import type { TakeoverParts } from './takeover.ts';
 import type { TrashParts } from './trash.ts';
 import type { PeerParts } from './peer.ts';
-import type { PeerSshParts } from './peerSsh.ts';
 import type { PeerChatHost } from '../peer/chat/host.ts';
 
 /** createApp が返すアプリの fetch。listen した後に差し込むために型だけ取る。 */
@@ -120,8 +119,6 @@ export function bootHttp(p: {
   /** 外のできごとで動く結び付けの流れと、閉じている間に溜まったできごとを流す部品（#563）。 */
   events: AppDeps['events'];
   opts: Pick<StartOptions, 'uiDist'>; serverDir: string;
-  /** SSH の予備の経路（boot/peerSsh.ts）。渡せば /peer と /api/peer-ssh を持つ。 */
-  peerSsh?: PeerSshParts;
   /** 別の PC への起動の承認待ち（boot/peer.ts）。渡せば、承認の口と、MCP からの承認待ちの預け口を持つ。 */
   peer?: Pick<PeerParts, 'approvals'>;
   /** ほかの PC の会話の頼みを受ける部品（boot/peerChat.ts）。渡せば、bootstrap が預かりを運ぶ。 */
@@ -316,14 +313,11 @@ export function bootHttp(p: {
     // 利用者の opencode.json が許可を決めているかも、聞かれるたびに読み直して添える（設定の画面の許可のひな形の行）。
     opencodeStatus: async () => ({ ...(await opencode.status()), configPermissions: userConfigDefinesPermissions(home.home) }),
     codexOptions: (o) => codexOptions.get(o),
-    ...(p.peerSsh ? { peerSsh: { endpoint: p.peerSsh.endpoint, store: p.peerSsh.store, hostKeyState: (id: string) => p.peerSsh!.connector.hostKeyState(id) } } : {}),
     peerCall: {
       link: () => (sync.canCarryPeer() ? sync.peerLink() : null),
       workerOk: () => sync.canCarryPeer(),
       version: VERSION,
       ...(p.peer ? { requestApproval: (o: Parameters<NonNullable<typeof p.peer>['approvals']['request']>[0]) => p.peer!.approvals.request(o) } : {}),
-      // SSH の予備（D3）。封の鍵は、Worker の版が古くても参加していれば持つ。
-      ...(p.peerSsh ? { ssh: { registered: (id: string) => p.peerSsh!.store.get(id) !== null, api: (id: string) => p.peerSsh!.link.api(id), ring: () => sync.peerLink()?.ring ?? null, tokensReady: () => p.peerSsh!.tokens() !== null } } : {}),
       ...(p.peer ? { requestApproval: (o) => p.peer!.approvals.request(o) } : {}),
     },
     ...(p.peer ? { peerApprovals: p.peer.approvals } : {}),
