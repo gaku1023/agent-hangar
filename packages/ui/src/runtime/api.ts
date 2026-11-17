@@ -1,4 +1,4 @@
-import type { AutoApprovalDto, OrchestratorOrigin, PeerChatOpIn, PeerChatOpResult, PeerChatViewDto, ScheduleInput, SchedulePatch, PeerDeviceDto, PeerLaunchBody, PeerLaunchOutcomeDto } from '@agent-hangar/shared';
+import type { AutoApprovalDto, OrchestratorOrigin, OrchestratorStateDto, PeerChatOpIn, PeerChatOpResult, PeerChatViewDto, ScheduleInput, SchedulePatch, PeerDeviceDto, PeerLaunchBody, PeerLaunchOutcomeDto } from '@agent-hangar/shared';
 import { LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE } from '@agent-hangar/shared';
 import type { AccountLinkConflictDto, LinkConflictsDto, EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto, SessionLaunchSettingsDto } from '@agent-hangar/shared';
@@ -171,6 +171,10 @@ export type ApiClient = {
   orchestratorApprovals(): Promise<{ approvals: AutoApprovalDto[] }>;
   /** 統括の柱の入力欄の文を、統括の窓へ送る。origin は由来で、省けば打鍵（印はサーバが付ける）。統括が動いていなければ 409 の一文で投げる。 */
   orchestratorSend(text: string, origin?: OrchestratorOrigin): Promise<unknown>;
+  /** 統括の見張りの状態（GET /api/orchestrator/state）。 */
+  orchestratorState(): Promise<OrchestratorStateDto>;
+  /** 柱のメニューの操作（POST /api/orchestrator/fresh・stop・wake）。断られたら 409 の error を投げる。 */
+  orchestratorControl(op: 'fresh' | 'stop' | 'wake'): Promise<unknown>;
   /** 机の音声（補助 hangar-voice）。補助が使えないとき、動かす口は 409 で投げる。 */
   voice(): Promise<import('@agent-hangar/shared').VoiceStateDto>;
   voiceHold(on: boolean): Promise<unknown>;
@@ -464,6 +468,8 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     peerChatOp: (sessionId, body) => post(`/api/sessions/${encodeURIComponent(sessionId)}/peer-chat/ops`, body),
     orchestratorApprovals: () => call('/api/orchestrator/approvals'),
     orchestratorSend: (text, origin) => post('/api/orchestrator/send', { text, ...(origin !== undefined ? { origin } : {}) }),
+    orchestratorState: () => call('/api/orchestrator/state'),
+    orchestratorControl: (op) => post(`/api/orchestrator/${op}`, {}),
     voice: () => call('/api/voice'),
     voiceHold: (on) => post('/api/voice/hold', { on }),
     voiceToggle: (on) => post('/api/voice/toggle', { on }),

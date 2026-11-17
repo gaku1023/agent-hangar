@@ -64,11 +64,11 @@ describe('orchestratorRows', () => {
 });
 
 const live = (status: LiveSessionDto['status']): LiveSessionDto => ({ sessionId: 'o1', status, name: null, nameSource: null, cwd: '/h', pid: 1, role: 'orchestrator' });
-function store(over: { enabled?: boolean; sessionId?: string | null; live?: LiveSessionDto[]; policy?: string | null; events?: TranscriptEvent[]; approvals?: Store['orchestrator']['approvals'] } = {}): Store {
+function store(over: { enabled?: boolean; sessionId?: string | null; live?: LiveSessionDto[]; policy?: string | null; events?: TranscriptEvent[]; approvals?: Store['orchestrator']['approvals']; keeper?: Store['orchestrator']['keeper'] } = {}): Store {
   const s = initialStore();
   s.settings = { orchestrator: { enabled: over.enabled ?? true, sessionId: over.sessionId === undefined ? 'o1' : over.sessionId, model: 'sonnet', effort: 'medium' }, permissionPolicy: over.policy ? { text: over.policy, autoTools: ['Read'], updatedAt: 1 } : null } as Store['settings'];
   s.live = over.live ?? [live('idle')];
-  s.orchestrator = { events: over.events ?? [], approvals: over.approvals ?? [], loaded: true, sending: false };
+  s.orchestrator = { events: over.events ?? [], approvals: over.approvals ?? [], loaded: true, sending: false, keeper: over.keeper ?? null };
   return s;
 }
 
@@ -91,5 +91,41 @@ describe('presentOrchestrator', () => {
   it('記録の行は 会話の題名 / 道具 / 中身の先頭 で、押す先の会話を持つ', () => {
     const p = presentOrchestrator(store({ approvals: [{ id: 'a1', at: 5, sessionId: 's9', title: '調べもの', tool: 'Read', input: '/a/b/c.ts\nつづき', label: 'Yes', reason: '読むだけ', policyText: null }] }), ja)!;
     expect(p.approvals).toEqual([{ id: 'a1', sessionId: 's9', title: '調べもの', tool: 'Read', head: '/a/b/c.ts' }]);
+  });
+});
+
+describe('presentOrchestrator の見張りの状態（柱のメニュー）', () => {
+  it('動いているときは止まった印が無く、文脈の量を棒の割合と札にする', () => {
+    const p = presentOrchestrator(store({ keeper: { status: 'running', contextTokens: 77_264 } }), ja)!;
+    expect(p.keeper).toEqual({ stopped: null, switching: false });
+    expect(p.context).toEqual({ ratio: 77_264 / 200_000, over: false, label: '文脈: 77.3k トークン' });
+    expect(p.statusLabel).toBe('アイドル');
+  });
+  it('15 万を超えると over', () => {
+    expect(presentOrchestrator(store({ keeper: { status: 'running', contextTokens: 150_001 } }), ja)!.context?.over).toBe(true);
+    expect(presentOrchestrator(store({ keeper: { status: 'running', contextTokens: 150_000 } }), ja)!.context?.over).toBe(false);
+    expect(presentOrchestrator(store({ keeper: { status: 'running', contextTokens: 400_000 } }), ja)!.context?.ratio).toBe(1);
+  });
+  it('文脈の量が分からなければ棒を出さない', () => {
+    expect(presentOrchestrator(store({ keeper: { status: 'running' } }), ja)!.context).toBeNull();
+    expect(presentOrchestrator(store(), ja)!.context).toBeNull();
+  });
+  it('利用者が止めたら停止中で、丸は ended、送れない', () => {
+    const p = presentOrchestrator(store({ keeper: { status: 'stopped', reason: 'user' } }), ja)!;
+    expect(p.keeper.stopped).toBe('user');
+    expect(p.statusLabel).toBe('停止中');
+    expect(p.tone).toBe('ended');
+    expect(p.canSend).toBe(false);
+  });
+  it('失敗で止まったときは理由つきの状態の行', () => {
+    const p = presentOrchestrator(store({ keeper: { status: 'stopped', reason: 'failures' } }), ja)!;
+    expect(p.keeper.stopped).toBe('failures');
+    expect(p.statusLabel).toBe('エラーで停止中（10 分に 3 回失敗）');
+  });
+  it('切り替え中は切り替え中の行で、送れない', () => {
+    const p = presentOrchestrator(store({ keeper: { status: 'running', switching: true } }), ja)!;
+    expect(p.keeper.switching).toBe(true);
+    expect(p.statusLabel).toBe('切り替え中');
+    expect(p.canSend).toBe(false);
   });
 });

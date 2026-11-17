@@ -10434,7 +10434,7 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   `busy` と `waiting` の間は待ち、一覧が変わるたびに見直す（`KeeperDeps` の `liveStatus` と `onLiveChange`、`boot/http.ts` が実行中の一覧につなぐ）。
   この止め方は終わりの知らせで見分け（`respecs`）、利用者の停止にも失敗にも数えない（`enabled` は入りのまま）。
   前の hangar から引き継いだ run など、見張りが起こしていないものは、どの指定で起きたか分からないので当て直さない。
-  状態は `state()` と `onState` で読める（画面の柱は後の PR）。
+  状態は `state()` と `onState` で読める。`onState` は `boot/http.ts` が WebSocket の `orchestrator.state` で全部の画面へ配り、柱のメニューと上端の棒が読む。
   状態には、切り替えの間だけ `switching: true` が、統括の文脈の量が分かるときは `contextTokens` が付く。
 - **切り替え：** `OrchestratorKeeper.fresh(reason)`（`reason` は `fresh`、`auto`、`agent`）。切のときと切り替えの最中は断る。止まっている（`stopped`）ときも始め直せる。
   1. 古い統括の手すき（idle、出来事と許可の預かりが空、入力欄が空）を待つ。上限は 30 秒（`SWITCH_QUIET_MS`）で、越えたら待たずに進む。
@@ -10541,7 +10541,11 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
 - **既読：** 柱を開いたら、統括の会話の未読を既読にする（`mediator/orchestrator.ts` の `orchestratorSeenStep`。開いた瞬間と、開いている間に増えた分に `api.markSeen`。同じ未読へは 1 度だけ）。サイドバーの「統括」の行の丸から未読の数が消える。入力待ち（waiting）は未読ではないので、答えるまで残る。
 - **幅：** 左の縁（`views/OrchestratorGrip.tsx`、サイドバーの縁 `SidebarGrip` と同じ作りと見た目）を掴んで広げる。既定は 340px（これより狭くしない）、上限は 640px と窓の幅の 40%。左へ動かすと広がり、ダブルクリックで既定、左右の矢印で 16px ずつ。ドラッグの間は `.shell` に `data-orch-drag` と `data-layout-moving` を付け、端末の寸法合わせを止めて離したら 1 度だけ合わせる。幅は `orchestrator.width` で状態に入れ、`localStorage`（鍵 `orchestrator.width`）に残す。開く動きの「開いたときの幅」はこの幅である。
 - **右下の札：** 柱が開いている間、右下の札（`.toasts`）は柱の左（柱の左端の外、端末の右下）に出し、入力欄に重ねない。柱の幅は `Shell` が根の `--orch-w` にも写し（札は `.shell` の外にある）、ドラッグの間は `OrchestratorGrip` が根にも書く。`right` は柱の開閉と同じ `--dur` と `--ease-out` で動き、ドラッグの間は動きを切って付いて動く。丸だけのときは今の位置。
-- **ショートカット：** ⌘⇧J（macOS の外は Ctrl+Alt+J、ターミナルの中でも効く）で開閉する（`keys.ts` の `orchestrator.toggle`、`Root.tsx`）。統括が無効なら何もしない。札は閉じる丸の左に ⌘J の札と同じ `kbd` で置き、閉じた丸の `title` にも出す。ショートカットの一覧にも載る。
+- **ショートカット：** ⌘⇧J（macOS の外は Ctrl+Alt+J、ターミナルの中でも効く）で開閉する（`keys.ts` の `orchestrator.toggle`、`Root.tsx`）。統括が無効なら何もしない。札は右上の丸の左に ⌘J の札と同じ `kbd` で置き、閉じた丸の `title` にも出す。ショートカットの一覧にも載る。
+- **右上の丸とメニュー：** 開いた柱の右上の丸を押すと、`MenuButton` のメニューが開く（試作 A、`docs/superpowers/specs/2026-11-17-orchestrator-lifecycle-design.md` の 6）。頭は状態の 1 行（丸と同じ色の点と、作業中・アイドル・入力待ち・停止中・切り替え中・エラーで停止中（10 分に 3 回失敗））。項目は「会話を新しくする」（`POST /api/orchestrator/fresh`）、止まっていなければ「停止」（`/stop`）、止まっていれば「再開」（`/wake`）、区切って「統括を閉じる」。切り替え中は前の 2 つを押せず、丸が `--breathe-period` で脈打つ。断られたとき（409）はサーバの文を右下の札に出し、状態を読み直す。止まっている間と切り替え中は入力欄を閉じる。
+- **文脈の量：** 上の帯の下端の細い線（試作の A2）。幅は統括の会話の文脈の量（閾値 15 万が 3/4 の位置）、15 万を超えると作業中の色（`--busy`）。札（`title` と読み上げの名前）は「文脈: 77.3k トークン」。量が分からなければ出さない。幅と色は `--dur` の transition で動く。
+- **状態の受け方：** 見張りの状態は `Store.orchestrator.keeper`。柱が会話を読むたび（`load`、本文が伸びるたび）に `GET /api/orchestrator/state` を読み、止まった・切り替え中の変化は WebSocket の `orchestrator.state` で届く。
+- **切り替わったとき（S1）：** 切り替えの間は前の会話を残して読めるままにする。設定の `orchestrator.sessionId` が変わると、Store は前の本文を捨て、Runtime が新しい会話を読み直す。柱は前の会話の行を `collapseOut` で畳み（末尾を見せたまま）、区切りの線を `fadeIn` で入れ、その下に新しい会話を積む。区切りは柱を開いている間だけで、前の行は残さない（F1。前の話は検索とその会話を開く操作で読む）。
 - **動き：** 柱の開閉は外側の箱だけの幅の伸び縮み（`primitives/pillarMotion.ts`。中身は開いたときの幅のまま切り抜き、折り返し直さない）で、長さと曲線は右の欄の開閉（`paneMotion.ts`）と同じ `--dur` と `--ease-out`。右の欄は柱と同時に畳まれ、開くときも右端に寄ったまま開く（右の欄の動きは右の列の幅だけを動かし、左の列は `minmax(0, 1fr)` のまま）。丸と柱の入れ替えは `usePresence`。記録の行の出入りは `useMotionList`（`growIn` と `collapseOut`）。読み上げている発言の左の印は `enter`。新しい動きは足さない。
 - **会話の取り方：** 統括の会話の本文の末尾の頁（`GET /api/sessions/:id/events?latest`）を、`transcript.appended` のたびに読み直して `Store.orchestrator` に置く（`runtime/orchestrator.ts`）。記録は `GET /api/orchestrator/approvals`（新しい順、`limit` と `since`）。送信は `POST /api/orchestrator/send`（`{ text, origin? }`、打鍵は `origin` を省き、マイクは `voice-held`）で、宛先は設定の `orchestrator.sessionId` の run だけ。統括が動いていなければ 409。柱は送れない入力欄を閉じる。
 - **描き分け：** 会話は `PeerChatLog` と同じ行にして、ほかの PC の会話の表示の部品をそのまま使う。`[hangar]` で始まる入力は発言として描かず、そのターンの返答も描かない（`notify_user` の文だけは統括の発言として描く。成功の結果が付いた呼び出しだけで、検証や宛先の誤りで失敗した再試行は描かず、読み上げにも入れない）。`[voice]` と `[voice:window]` の印は描かない。ほかの道具の呼び出しは描かない。

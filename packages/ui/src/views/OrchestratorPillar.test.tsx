@@ -8,12 +8,13 @@ import { OrchestratorPillar } from './OrchestratorPillar.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
 import * as kit from './primitives/pillarMotion.ts';
 
-vi.mock('./primitives/motionKit.ts', async (orig) => ({ ...(await orig<typeof import('./primitives/motionKit.ts')>()), fadeIn: vi.fn(() => null) }));
+vi.mock('./primitives/motionKit.ts', async (orig) => ({ ...(await orig<typeof import('./primitives/motionKit.ts')>()), fadeIn: vi.fn(() => null), collapseOut: vi.fn(() => Promise.resolve()) }));
+import * as motion from './primitives/motionKit.ts';
 vi.mock('./primitives/pillarMotion.ts', () => ({ pillarOpen: vi.fn(() => null), pillarClose: vi.fn(() => Promise.resolve()) }));
 
 const base = (o: Partial<OrchestratorPillarProps> = {}): OrchestratorPillarProps => ({
   sessionId: 'o1', tone: 'idle', statusLabel: '待機中', policy: null, approvals: [], rows: [], loading: false, canSend: true, sending: false,
-  speak: { reply: null, notices: [], voiceOn: false }, ...o,
+  speak: { reply: null, notices: [], voiceOn: false }, keeper: { stopped: null, switching: false }, context: null, ...o,
 });
 let port: FakeVoicePort;
 let actions: UiAction[];
@@ -23,6 +24,8 @@ function mount(p: OrchestratorPillarProps, open = true) {
   return { ...r, update: (props: OrchestratorPillarProps) => r.rerender(tree(props)) };
 }
 beforeEach(() => { port = new FakeVoicePort(); actions = []; vi.clearAllMocks(); });
+const openMenu = () => fireEvent.click(screen.getByRole('button', { name: '統括のメニュー' }));
+function closeByMenu() { openMenu(); fireEvent.click(screen.getByRole('menuitem', { name: /統括を閉じる/ })); }
 
 describe('統括の柱の開き閉じ', () => {
   it('畳んでいるときは丸 1 つで、押すと柱が pillarOpen で開く', () => {
@@ -34,7 +37,7 @@ describe('統括の柱の開き閉じ', () => {
   });
   it('閉じると pillarClose を通ってから外れ、丸に戻る', async () => {
     mount(base());
-    fireEvent.click(screen.getByRole('button', { name: '統括を閉じる' }));
+    closeByMenu();
     expect(kit.pillarClose).toHaveBeenCalledWith(expect.any(HTMLElement), expect.any(HTMLElement));
     await waitFor(() => expect(screen.queryByRole('region', { name: '統括' })).toBeNull());
     expect(screen.getByRole('button', { name: '統括を開く' })).toBeInTheDocument();
@@ -43,7 +46,7 @@ describe('統括の柱の開き閉じ', () => {
     const { container } = mount(base());
     const kbd = container.querySelector('.orch-top kbd');
     expect(kbd?.textContent).toMatch(/⌘⇧J|Ctrl/);
-    expect(kbd?.nextElementSibling).toBe(screen.getByRole('button', { name: '統括を閉じる' }));
+    expect(kbd?.nextElementSibling).toBe(screen.getByRole('button', { name: '統括のメニュー' }));
     cleanup();
     mount(base({ statusLabel: '待機中' }), false);
     expect(screen.getByRole('button', { name: '統括を開く' }).getAttribute('title')).toMatch(/^待機中 .*(⌘⇧J|Ctrl)/);
@@ -58,7 +61,7 @@ describe('統括の柱の開閉を mediator へ知らせる', () => {
   it('開いたまま始めれば open: true を、閉じれば open: false を出す', () => {
     mount(base());
     expect(actions).toContainEqual({ type: 'orchestrator.pillar', open: true });
-    fireEvent.click(screen.getByRole('button', { name: '統括を閉じる' }));
+    closeByMenu();
     expect(actions).toContainEqual({ type: 'orchestrator.pillar', open: false });
   });
 });
@@ -185,5 +188,76 @@ describe('統括の柱のマイク（補助）', () => {
     const b = screen.getByRole('button', { name: '音声で入力' });
     expect(b).not.toHaveClass('mic-btn');
     expect(b).toHaveAttribute('data-phase', 'ambient');
+  });
+});
+
+describe('柱のメニュー（右上の丸）', () => {
+  it('丸を押すとメニューが開き、頭に状態の行、項目は 会話を新しくする・停止・統括を閉じる', () => {
+    mount(base({ statusLabel: 'アイドル' }));
+    openMenu();
+    const menu = screen.getByRole('menu', { name: '統括のメニュー' });
+    expect(menu.querySelector('.menu-head')?.textContent).toContain('アイドル');
+    expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['会話を新しくする', '停止', '統括を閉じる']);
+  });
+  it('項目を選ぶと orchestrator.control を出す', () => {
+    mount(base());
+    openMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: /会話を新しくする/ }));
+    openMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: /停止/ }));
+    expect(actions).toContainEqual({ type: 'orchestrator.control', op: 'fresh' });
+    expect(actions).toContainEqual({ type: 'orchestrator.control', op: 'stop' });
+  });
+  it('止まっているときは停止の代わりに再開', () => {
+    mount(base({ keeper: { stopped: 'user', switching: false }, tone: 'ended', canSend: false }));
+    openMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: /再開/ }));
+    expect(actions).toContainEqual({ type: 'orchestrator.control', op: 'wake' });
+    expect(screen.queryByRole('menuitem', { name: /停止/ })).toBeNull();
+  });
+  it('切り替え中は 会話を新しくする と 停止 を押せず、丸が脈打つ', () => {
+    const { container } = mount(base({ keeper: { stopped: null, switching: true }, statusLabel: '切り替え中', canSend: false }));
+    expect(container.querySelector('.orch-dot-close .orch-dot')?.getAttribute('data-switching')).toBe('true');
+    openMenu();
+    expect(screen.getByRole('menuitem', { name: /会話を新しくする/ }).getAttribute('aria-disabled')).toBe('true');
+    expect(screen.getByRole('menuitem', { name: /停止/ }).getAttribute('aria-disabled')).toBe('true');
+    // 理由は頭の段と同じなので、項目の下には出さず title に回す。
+    expect(screen.getByRole('menu').querySelectorAll('.menu-item small')).toHaveLength(0);
+    expect(screen.getByRole('menuitem', { name: /停止/ }).getAttribute('title')).toBe('切り替え中');
+  });
+});
+
+describe('柱の上端の文脈の量の棒（案 A2）', () => {
+  it('量が分かれば上の帯の下端に棒を出し、幅は割合、札はトークン数', () => {
+    const { container } = mount(base({ context: { ratio: 0.4, over: false, label: '文脈: 80k トークン' } }));
+    const bar = container.querySelector('.orch-top .orch-context') as HTMLElement;
+    expect(bar.getAttribute('aria-label')).toBe('文脈: 80k トークン');
+    expect((bar.firstElementChild as HTMLElement).style.width).toBe('40%');
+    expect(bar.getAttribute('data-over')).toBeNull();
+  });
+  it('15 万を超えると data-over（作業中の色）', () => {
+    const { container } = mount(base({ context: { ratio: 0.8, over: true, label: 'x' } }));
+    expect(container.querySelector('.orch-context')?.getAttribute('data-over')).toBe('true');
+  });
+  it('量が分からなければ棒を出さない', () => {
+    const { container } = mount(base());
+    expect(container.querySelector('.orch-context')).toBeNull();
+  });
+});
+
+describe('新しい会話に切り替わったとき', () => {
+  const r = (key: string, text: string) => ({ kind: 'assistant' as const, key, text });
+  it('前の会話の行を collapseOut で畳み、区切りの線を fadeIn で入れ、その下に新しい会話を積む', async () => {
+    const { container, update } = mount(base({ sessionId: 'o1', rows: [r('1', '前の話')] }));
+    expect(container.querySelector('.orch-divider')).toBeNull();
+    update(base({ sessionId: 'o2', rows: [], loading: true }));
+    const old = container.querySelector('.orch-retired');
+    expect(old?.textContent).toContain('前の話');
+    expect(motion.collapseOut).toHaveBeenCalledWith(old);
+    const divider = container.querySelector('.orch-divider') as HTMLElement;
+    expect(motion.fadeIn).toHaveBeenCalledWith(divider);
+    await waitFor(() => expect(container.querySelector('.orch-retired')).toBeNull());
+    update(base({ sessionId: 'o2', rows: [r('9', '引き継ぎを読みました')] }));
+    expect(divider.nextElementSibling?.textContent).toContain('引き継ぎを読みました');
   });
 });

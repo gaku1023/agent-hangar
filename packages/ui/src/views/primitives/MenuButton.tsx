@@ -19,7 +19,9 @@ export type MenuItem = { key: string; label: string; icon?: IconName; note?: str
   /** 選べる状態の 1 つ（menuitemradio）。真なら頭に ✓ を付ける。持たない項目はふつうの menuitem である。 */
   checked?: boolean;
   /** 語の前に添える印（状態の色の点など）。 */
-  lead?: ReactNode };
+  lead?: ReactNode;
+  /** 押せない理由を項目の下に出さず、title に回す。頭の段（head）が同じことを言っているときに使う（統括の柱の「切り替え中」）。 */
+  quietReason?: boolean };
 
 export type MenuCloseHow = 'select' | 'escape' | 'tab' | 'outside';
 
@@ -166,13 +168,13 @@ export function MenuPop(props: { id?: string; label: string; items: MenuItem[]; 
         <Fragment key={item.key}>
           {(i === firstDanger || item.separatorBefore) && i > 0 && <div role="separator" className="menu-sep" />}
           <button type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemradio'} aria-checked={item.checked === undefined ? undefined : item.checked} tabIndex={-1} className="menu-item"
-            aria-disabled={item.disabled ? 'true' : undefined} data-danger={item.danger ? 'true' : undefined} title={item.title ?? undefined}
+            aria-disabled={item.disabled ? 'true' : undefined} data-danger={item.danger ? 'true' : undefined} title={item.title ?? (item.quietReason ? item.disabled : null) ?? undefined}
             onClick={() => choose(item)}>
             {item.checked !== undefined && <span className="menu-check" aria-hidden="true">{item.checked && <Icon name="check" />}</span>}
             {item.icon && <Icon name={item.icon} />}
             <span className="menu-item-text">
               <span>{item.lead}{item.label}</span>
-              {(item.disabled || item.note) && <small>{item.disabled ?? item.note}</small>}
+              {((item.disabled && !item.quietReason) || item.note) && <small>{(item.quietReason ? null : item.disabled) ?? item.note}</small>}
             </span>
             {item.kbd && <kbd className="menu-kbd">{item.kbd}</kbd>}
           </button>

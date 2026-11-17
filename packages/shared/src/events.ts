@@ -59,6 +59,8 @@ export type ServerEvent =
    * API やほかの窓から直されても、開いている画面が準備の確かめ（道具のパスと作業フォルダ）を読み直せるようにする。
    */
   | { type: 'settings.changed'; settings: SettingsDto; keys: (keyof SettingsDto)[] }
+  /** 統括の見張りの状態が変わった（動いている、止まった理由、切り替え中）。柱のメニューと上端の棒が読む。 */
+  | { type: 'orchestrator.state'; state: import('./orchestratorState.ts').OrchestratorStateDto }
   /** 参加コードを発行した PC の承認の状態が変わった（設定のクラウド同期の節が切り替わる）。 */
   | { type: 'join.update'; join: JoinApproverState }
   /** 参加リクエストを受信した。1 つのリクエストにつき 1 回だけ配る（右下の通知）。 */

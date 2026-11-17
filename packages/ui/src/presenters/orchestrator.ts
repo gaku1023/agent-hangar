@@ -1,4 +1,5 @@
-import { VOICE_MARK, VOICE_WINDOW_MARK, type Translate, type TranscriptEvent } from '@agent-hangar/shared';
+import { ORCHESTRATOR_CONTEXT_LIMIT, VOICE_MARK, VOICE_WINDOW_MARK, type OrchestratorStateDto, type Translate, type TranscriptEvent } from '@agent-hangar/shared';
+import { contextTokensLabel } from './format.ts';
 import { unreadOf, type Store } from '../store/store.ts';
 import type { PeerChatRow } from './peerChat.ts';
 
@@ -83,7 +84,23 @@ export type OrchestratorPillarProps = {
   speak: SpeakPlan;
   /** 机の音声の状態。補助が使えるとき（available）だけ丸が VoicePill になる。 */
   voice?: import('@agent-hangar/shared').VoiceStateDto | null;
+  /** 見張りの状態（柱のメニュー）。stopped は止まった理由で、止まっていれば停止の代わりに再開を出す。switching の間は操作を押せない。 */
+  keeper: { stopped: null | 'user' | 'failures'; switching: boolean };
+  /** 文脈の量（柱の上端の棒）。ratio は棒の幅（0〜1）、over は自動の切り替えの閾値を超えたか、label は札。量が分からなければ null。 */
+  context: { ratio: number; over: boolean; label: string } | null;
 };
+
+/** 棒の右端の量。閾値が棒の 3/4 の位置に来るようにする。 */
+const CONTEXT_FULL = (ORCHESTRATOR_CONTEXT_LIMIT * 4) / 3;
+
+/** 見張りの状態を、メニューと棒の値にする（純粋）。 */
+export function keeperView(k: OrchestratorStateDto | null, t: Translate): Pick<OrchestratorPillarProps, 'keeper' | 'context'> {
+  const tokens = k?.contextTokens;
+  return {
+    keeper: { stopped: k?.status === 'stopped' ? k.reason : null, switching: k?.switching === true },
+    context: tokens === undefined ? null : { ratio: Math.min(1, tokens / CONTEXT_FULL), over: tokens > ORCHESTRATOR_CONTEXT_LIMIT, label: t('orchestratorPane.context.label', { tokens: contextTokensLabel(tokens) }) },
+  };
+}
 
 const STATUS_KEY = { busy: 'peerChat.status.busy', idle: 'peerChat.status.idle', waiting: 'peerChat.status.waiting', ended: 'peerChat.status.stopped' } as const;
 
@@ -96,13 +113,18 @@ export function presentOrchestrator(store: Store, t: Translate): OrchestratorPil
   if (!o?.enabled || !o.sessionId) return null;
   const sessionId = o.sessionId;
   const live = store.live.find((l) => l.sessionId === sessionId)?.status ?? store.sessions[sessionId]?.live ?? null;
-  const tone = live ?? 'ended';
+  const kv = keeperView(store.orchestrator.keeper, t);
+  // 止めた会話は、run が消えるまでの間も止まった色で見せる。
+  const tone = kv.keeper.stopped ? 'ended' : live ?? 'ended';
+  const statusLabel = kv.keeper.switching ? t('orchestratorPane.status.switching')
+    : kv.keeper.stopped === 'failures' ? t('orchestratorPane.status.stoppedFailures')
+    : t(STATUS_KEY[tone]);
   const { rows, speak } = orchestratorRows(store.orchestrator.events);
   return {
-    sessionId, tone, statusLabel: t(STATUS_KEY[tone]),
+    sessionId, tone, statusLabel, ...kv,
     policy: store.settings?.permissionPolicy?.text ?? null,
     approvals: store.orchestrator.approvals.map((a) => ({ id: a.id, sessionId: a.sessionId, title: a.title, tool: a.tool, head: headOf(a.input) })),
-    rows, loading: !store.orchestrator.loaded, canSend: live !== null, sending: store.orchestrator.sending, speak, voice: store.voice,
+    rows, loading: !store.orchestrator.loaded, canSend: live !== null && !kv.keeper.stopped && !kv.keeper.switching, sending: store.orchestrator.sending, speak, voice: store.voice,
   };
 }
 

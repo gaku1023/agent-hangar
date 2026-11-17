@@ -15,7 +15,7 @@ type Extras = Pick<
   | 'renameProject' | 'live' | 'sessionFiles' | 'gitSessions' | 'sessionChanges' | 'sessionDiff' | 'sessionEdits' | 'projectGit' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'previewAccountDir' | 'sharePreview' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
   | 'codexAccounts' | 'setCurrentCodexAccount' | 'addCodexAccount' | 'previewCodexAccountDir' | 'updateCodexAccount' | 'removeCodexAccount' | 'loginCodexAccount' | 'cancelCodexAccountLogin' | 'refreshCodexAccount' | 'linkConflicts' | 'repairLinkConflicts'
-  | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen' | 'markUnread' | 'setPinned' | 'launchSettings' | 'answerPeerApproval' | 'rushPeerQueue' | 'eventBindings' | 'prClaims' | 'createEventBinding' | 'approveEventBinding' | 'deleteEventBinding' | 'answerPrClaim' | 'heldEvents' | 'runHeldEvents' | 'eventHookUrl' | 'rotateEventUrl' | 'eventRepoHook' | 'peers' | 'peerLaunch' | 'peerStop' | 'peerChatOpen' | 'peerChatOp' | 'orchestratorApprovals' | 'orchestratorSend' | 'voice' | 'voiceHold' | 'voiceToggle' | 'voiceSpeak' | 'voiceStop' | 'voiceVoices' | 'voicePreview' | 'voiceEngine'
+  | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen' | 'markUnread' | 'setPinned' | 'launchSettings' | 'answerPeerApproval' | 'rushPeerQueue' | 'eventBindings' | 'prClaims' | 'createEventBinding' | 'approveEventBinding' | 'deleteEventBinding' | 'answerPrClaim' | 'heldEvents' | 'runHeldEvents' | 'eventHookUrl' | 'rotateEventUrl' | 'eventRepoHook' | 'peers' | 'peerLaunch' | 'peerStop' | 'peerChatOpen' | 'peerChatOp' | 'orchestratorApprovals' | 'orchestratorSend' | 'orchestratorState' | 'orchestratorControl' | 'voice' | 'voiceHold' | 'voiceToggle' | 'voiceSpeak' | 'voiceStop' | 'voiceVoices' | 'voicePreview' | 'voiceEngine'
 >;
 
 /** フェーズ 2 からフェーズ 4 で増えた API の偽物。
@@ -52,6 +52,8 @@ export function fakeApiExtras(): Extras {
     voicePreview: vi.fn(async () => ({ ok: true })),
     voiceEngine: vi.fn(async () => ({ ok: true })),
     orchestratorSend: vi.fn(async () => ({ ok: true })),
+    orchestratorState: vi.fn(async () => ({ status: 'off' as const })),
+    orchestratorControl: vi.fn(async () => ({ ok: true })),
     peerLaunch: vi.fn(async () => ({ status: 'requested' as const, requestId: 'r1', device: 'Mac' })),
     peerStop: vi.fn(async () => ({ status: 'requested' as const, requestId: 'r2', device: 'Mac' })),
     // git の表示。一覧と画面を開くたびに取りに行くので、どのテストでも空の答えを返す。
