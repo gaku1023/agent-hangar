@@ -34,9 +34,6 @@ const BUNDLES: readonly BundleSpec[] = [
 ];
 const LEFT: readonly BundleId[] = ['conv', 'instr', 'skill', 'mem'];
 
-/** 自動で走るコードの種類。自動にするときだけ、行の下に 1 文の帯を開く。 */
-export const EXEC_KINDS: readonly ConfigKindKey[] = BUNDLES.find((b) => b.id === 'exec')!.kinds;
-
 const shown = (kind: ConfigKindKey, s: SettingsDto | null): boolean => {
   if (kind.startsWith('codex-')) return s !== null && codexEnabledOf(s);
   if (kind.startsWith('opencode-')) return s !== null && opencodeEnabledOf(s);

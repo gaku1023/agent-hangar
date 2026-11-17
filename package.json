@@ -13,10 +13,12 @@
     "capture-claude-fixtures": "node --import tsx scripts/capture-claude-fixtures.ts",
     "capture-opencode-fixtures": "node --import tsx scripts/capture-opencode-fixtures.ts",
     "capture-codex-fixtures": "node --import tsx scripts/capture-codex-fixtures.ts",
-    "readme-shots": "node --import tsx scripts/readme-shots/run.ts"
+    "readme-shots": "node --import tsx scripts/readme-shots/run.ts",
+    "knip": "knip --include exports"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
+    "knip": "^6.45.1",
     "playwright": "^1.63.0",
     "typescript": "~6.0.3",
     "vitest": "^5.0.1"

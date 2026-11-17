@@ -213,7 +213,3 @@ export class CodexAccountService {
 
 export const codexAccounts = new CodexAccountService({ launch: defaultLaunch, openUrl: defaultOpenUrl });
 
-export const readCodexAccount = (dir: string | null, svc: CodexAccountService = codexAccounts): Promise<CodexAccountRead> => svc.readAccount(dir);
-export const readCodexRateLimits = (dir: string | null, svc: CodexAccountService = codexAccounts): Promise<AgentWindows | null> => svc.readRateLimits(dir);
-export const startCodexLogin = (accountId: string, dir: string | null, method: CodexLoginMethod, svc: CodexAccountService = codexAccounts): Promise<CodexLoginState> => svc.startLogin(accountId, dir, method);
-export const cancelCodexLogin = (accountId: string, svc: CodexAccountService = codexAccounts): Promise<void> => svc.cancelLogin(accountId);

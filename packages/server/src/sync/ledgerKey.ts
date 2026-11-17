@@ -4,7 +4,7 @@ import type { AgentKind } from '../agent/types.ts';
 import { agentOfSyncPath, AGENT_SYNC } from './agentSync.ts';
 
 // 鍵の組み立ては agentSync.ts の表にある（エージェントごとの「同期の単位」）。ここは従来の名前の入口である。
-export { opencodeSessionOfPath, opencodeSyncPath, transcriptLedgerKey } from './agentSync.ts';
+export { opencodeSyncPath, transcriptLedgerKey } from './agentSync.ts';
 
 /**
  * 手元の台帳（file_sync）と、上げるのを諦めた控え（sync_state の `skipped:`）の鍵。
