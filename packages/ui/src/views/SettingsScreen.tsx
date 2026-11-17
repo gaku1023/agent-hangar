@@ -43,7 +43,7 @@ import type { NotifyRulesProps } from '../presenters/notifyRules.ts';
 export const SAVED_TICK_MS = 2000;
 
 /** 目次の各行のアイコン。 */
-const SECTION_ICON: Record<SettingsSection, IconName> = { general: 'general', sessions: 'sessions', orchestrator: 'orchestrator', summary: 'permissionAuto', environment: 'tool', cloud: 'cloud', usage: 'usage', agentClaude: 'agent', agentCodex: 'agent', agentOpencode: 'agent', about: 'info' };
+const SECTION_ICON: Record<SettingsSection, IconName> = { general: 'general', phone: 'phone', sessions: 'sessions', orchestrator: 'orchestrator', summary: 'permissionAuto', environment: 'tool', cloud: 'cloud', usage: 'usage', agentClaude: 'agent', agentCodex: 'agent', agentOpencode: 'agent', about: 'info' };
 
 /** 欄の横に「✓ 保存しました」を 2 秒出す。n が進むたびに出し直す（設定の C1）。 */
 /** 外部ターミナルの選択肢の印。製品のアプリは窓の印、OS の素のターミナルはターミナルの印にする。 */
@@ -508,7 +508,7 @@ export function SettingsScreen(props: SettingsProps) {
               control={<Switch label={t('settings.label.peerChatAcceptFromPeers')} checked={props.cloud.peerChatAccept !== false} onChange={(next) => setNow({ peerChatAcceptFromPeers: next })} />} />
             {/* 小見出し「PC」の表（試作 cloud-e2e の E2）。Worker の一覧から、参加日、最終同期、解除を出す。IP と所在地は出さない。 */}
             {/* 表の下に小見出し「スマホ」とスマホの表、「スマホを接続」（試作 A1、E2）。解除されている間は出さない。 */}
-            {member ? <><CloudPcTable m={member} heading={t('settings.cloud.computers')} />{!member.revoked && <CloudPhones m={member} />}</> : (
+            {member ? <CloudPcTable m={member} heading={t('settings.cloud.computers')} /> : (
               <>
                 <h4 className="sub-h">{t('settings.cloud.computers')}<span className="n">{props.cloud.devices.length}</span></h4>
                 <div className="list flat">
@@ -820,8 +820,22 @@ export function SettingsScreen(props: SettingsProps) {
     </>
   );
 
+  // スマホの節。クラウドに参加していない間（解除された間も）は、同期の節へ移るボタンだけを置く。
+  // 参加していれば、スマホからの送信を受けるスイッチの下に、接続の QR とスマホの表（CloudPhones）を並べる。
+  const phone = !cloudOff && member && !member.revoked ? (
+    <>
+      <section aria-label={t('settings.label.phoneChatAccept')}>
+        <SetRow title={t('settings.label.phoneChatAccept')} info={t('settings.phone.accept.info')}
+          control={<Switch label={t('settings.label.phoneChatAccept')} checked={props.cloud.phoneChatAccept !== false} onChange={(next) => setNow({ phoneChatAccept: next })} />} />
+      </section>
+      <CloudPhones m={member} />
+    </>
+  ) : (
+    <section aria-label={cur.title}><div className="btns"><button type="button" className="btn" onClick={() => go('cloud')}>{t('settings.phone.openCloud')}</button></div></section>
+  );
+
   const body: Record<SettingsSection, ReactNode> = {
-    general,
+    general, phone,
     sessions: <>{newSession}{self}</>,
     orchestrator: props.orchestrator !== undefined ? <OrchestratorSettings orchestrator={props.orchestrator} voice={props.voice} voiceMark={props.save.voice} /> : null,
     summary, environment, cloud, usage, agentClaude, agentCodex, agentOpencode, about,

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { peerChatAcceptOf, type PeerChatBellAsk, type PeerChatBellReply, type SessionDto } from '@agent-hangar/shared';
+import { peerChatAcceptOf, phoneChatAcceptOf, type PeerChatBellAsk, type PeerChatBellReply, type SessionDto } from '@agent-hangar/shared';
 import type { LiveHub } from '../agent/liveHub.ts';
 import { onRowChange } from '../db/notify.ts';
 import { getSession } from '../db/queries.ts';
@@ -37,7 +37,7 @@ export type PeerChatParts = {
 /**
  * ほかの PC の会話の頼み（PeerChatHost、peer/chat/host.ts）を、この PC の DB、画面、run、同期の口につなぐ。
  * 呼び鈴（boot/mobile.ts）が chat の枠を渡し、答えを返す。
- * 頼みを受けてよいか（設定 peerChatAcceptFromPeers）は、頼みのたびに設定を読み直す。
+ * 頼みを受けてよいか（ほかの PC は設定 peerChatAcceptFromPeers、スマホは設定 phoneChatAccept）は、頼みのたびに設定を読み直す。
  * 預かりと答えた記録はメモリだけに持つ（再起動では残さない）。
  */
 export function bootPeerChat(p: {
@@ -67,7 +67,7 @@ export function bootPeerChat(p: {
     deviceId,
     now,
     ring: async () => link()?.ring() ?? null,
-    acceptFromPeers: () => peerChatAcceptOf(p.home.settings.current),
+    acceptFrom: (kind) => (kind === 'phone' ? phoneChatAcceptOf(p.home.settings.current) : peerChatAcceptOf(p.home.settings.current)),
     deviceName: (id) => (deviceName.get(id) as { name: string } | undefined)?.name ?? id.slice(0, 8),
     session: (sessionId): HostSession | null => {
       const s = sessionOf(sessionId);

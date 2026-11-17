@@ -27,6 +27,11 @@ import { MOBILE_IMAGE_MAX_BYTES, MOBILE_IMAGES_PER_LAUNCH, MOBILE_REPLY_MAX_BYTE
  * この PC だけの設定で、設定の同期には載せない。項目が無いときは受ける（既定は入り）。
  */
 export const peerChatAcceptOf = (s: { peerChatAcceptFromPeers?: boolean }): boolean => s.peerChatAcceptFromPeers !== false;
+/**
+ * スマホからの送信（send、answer、interrupt、resume-send、rush）を受けるか（設定 phoneChatAccept、互換の版 13）。
+ * PC どうしの peerChatAcceptFromPeers とは分ける。この PC だけの設定で、設定の同期には載せない。項目が無いときは受ける（既定は入り）。
+ */
+export const phoneChatAcceptOf = (s: { phoneChatAccept?: boolean }): boolean => s.phoneChatAccept !== false;
 
 // ---- 型 ----
 

@@ -13,6 +13,7 @@ import { d1LimitOfError, limitBody } from './limits.ts';
 import { mobileApp } from './mobile.ts';
 import { peerAskApp } from './peerAsk.ts';
 import { peerApp } from './peerLaunch.ts';
+import { phoneChatApp } from './phoneChat.ts';
 import { noticesApp, pushApp } from './push.ts';
 import { ensureSchema } from './schema.ts';
 import { collectUsage } from './usage.ts';
@@ -69,6 +70,8 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
   // 封じた名簿と keybox と、スマホ用の鍵の keybox（互換の版 9）。PC の端末トークンが要る。
   app.route('/', keysApp);
   // スマホの参加と受信箱。認証と種類の検査は経路ごとに mobile.ts の中で付ける（参加の口だけはトークンなし）。
+  // スマホから PC の会話への問い合わせ（互換の版 13）。スマホのトークンを phoneChat.ts の中で求める。D1 には書かない。
+  app.route('/m/chat', phoneChatApp);
   app.route('/m', mobileApp);
   // スマホのプッシュ通知（0.9.1）。購読の口（/m/push）はスマホのトークンを push.ts の中で求め、PC が送る口（/notices）は上の一覧で PC のトークンを求める。
   app.route('/m/push', pushApp);

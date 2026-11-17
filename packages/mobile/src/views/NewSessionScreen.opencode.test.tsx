@@ -6,6 +6,7 @@ import { openInbox } from '../inbox.ts';
 import { clearLaunchDefaults, saveLaunchDefaults, EMPTY_DEFAULTS } from '../launchDefaults.ts';
 import type { LaunchSpec } from '../launchRun.ts';
 import { at1, feedOf, inboxOf, makeKey, MIN, ring } from '../test/fixtures.ts';
+import { chipOf, group, pick } from '../test/launchScreen.ts';
 import { WORKER } from '../test/pairText.ts';
 import { NewSessionScreen } from './NewSessionScreen.tsx';
 
@@ -59,11 +60,7 @@ async function setup(asker: Asker = askerOf(), fs: MobileFeed[] = feeds()) {
   return { onLaunch, asker };
 }
 
-const group = (name: string) => screen.getByRole('radiogroup', { name });
-const queryGroup = (name: string) => screen.queryByRole('radiogroup', { name });
-const pick = (groupName: string, option: RegExp | string) => fireEvent.click(within(group(groupName)).getByRole('radio', { name: option }));
 const prompt = () => screen.getByRole('textbox', { name: '初期プロンプト' });
-const advanced = () => screen.getByRole('button', { name: /詳しい設定/ });
 const specOf = (fn: ReturnType<typeof vi.fn<(s: LaunchSpec) => void>>): LaunchSpec => fn.mock.calls[0]![0];
 
 describe('NewSessionScreen のエージェント', () => {
@@ -71,8 +68,8 @@ describe('NewSessionScreen のエージェント', () => {
     await setup();
     pick('プロジェクト', /project-b/);
     expect(within(group('PC')).getByRole('radio', { name: /Old/ })).toHaveAttribute('aria-checked', 'true');
-    expect(queryGroup('エージェント')).not.toBeInTheDocument();
-    expect(group('アカウント')).toBeInTheDocument();
+    expect(chipOf('エージェント')).toBeNull();
+    expect(chipOf('アカウント')).not.toBeNull();
   });
 
   it('caps.agents に opencode のある PC を選ぶと、PC の次にエージェントの段が出る。既定は Claude Code', async () => {
@@ -88,7 +85,7 @@ describe('NewSessionScreen のエージェント', () => {
     saveLaunchDefaults({ ...EMPTY_DEFAULTS, agent: 'opencode' });
     const { onLaunch } = await setup();
     pick('プロジェクト', /project-b/);
-    expect(queryGroup('エージェント')).not.toBeInTheDocument();
+    expect(chipOf('エージェント')).toBeNull();
     pick('アカウント', /アカウント 1/);
     fireEvent.change(prompt(), { target: { value: 'a' } });
     fireEvent.click(screen.getByRole('button', { name: 'Old で始める' }));
@@ -99,15 +96,14 @@ describe('NewSessionScreen のエージェント', () => {
     expect(p.accountId).toBe('acc-1');
   });
 
-  it('opencode を選ぶとアカウントの段を畳み、詳しい設定がモード、モデル、自動承認に変わる', async () => {
+  it('opencode を選ぶとアカウントの段を畳み、札がモード、モデル、自動承認に変わる', async () => {
     const { asker } = await setup();
     pick('プロジェクト', /project-a/);
-    fireEvent.click(advanced());
-    expect(group('権限モード')).toBeInTheDocument();
+    expect(chipOf('権限モード')).not.toBeNull();
     pick('エージェント', /opencode/);
-    await waitFor(() => expect(queryGroup('アカウント')).not.toBeInTheDocument());
-    await waitFor(() => expect(queryGroup('権限モード')).not.toBeInTheDocument());
-    expect(queryGroup('effort')).not.toBeInTheDocument();
+    await waitFor(() => expect(chipOf('アカウント')).toBeNull());
+    await waitFor(() => expect(chipOf('権限モード')).toBeNull());
+    expect(chipOf('effort')).toBeNull();
     expect(asker.agentOptions).toHaveBeenCalledWith('pc-1', 'p-a');
     await waitFor(() => expect(within(group('モード')).getAllByRole('radio').map((r) => r.textContent)).toEqual(['デフォルト', 'build', 'plan']));
     const models = within(group('モデル')).getAllByRole('radio');
@@ -117,27 +113,28 @@ describe('NewSessionScreen のエージェント', () => {
     expect(models[2]).toHaveTextContent('OpenCode Zen · 無料 · ⚠ 学習利用の可能性あり');
     expect(models[3]).toHaveTextContent('LM Studio · ローカル · PC 外への送信なし');
     expect(within(group('自動承認')).getAllByRole('radio').map((r) => r.textContent)).toEqual(['オフ', 'オン（--auto）']);
-    expect(screen.getByText('ask のツールは実行前に確認')).toBeInTheDocument();
     // 選択肢の説明に版を出す。
     expect(within(group('エージェント')).getByRole('radio', { name: /opencode/ })).toHaveTextContent('2.1.4 · 検証済み');
     // Claude Code に戻すと、アカウントと権限モードが戻る。
     pick('エージェント', 'Claude Code');
-    await waitFor(() => expect(group('アカウント')).toBeInTheDocument());
-    await waitFor(() => expect(queryGroup('モード')).not.toBeInTheDocument());
-    expect(group('権限モード')).toBeInTheDocument();
+    await waitFor(() => expect(chipOf('アカウント')).not.toBeNull());
+    await waitFor(() => expect(chipOf('モード')).toBeNull());
+    expect(chipOf('権限モード')).not.toBeNull();
   });
 
   it('opencode の依頼は agent、mode、model、autoApprove を持ち、アカウントと権限モードは空、effort は無い', async () => {
     const { onLaunch } = await setup();
     pick('プロジェクト', /project-a/);
     pick('エージェント', /opencode/);
-    fireEvent.click(advanced());
     await waitFor(() => expect(within(group('モード')).getAllByRole('radio')).toHaveLength(3));
     pick('モード', 'plan');
     pick('モデル', /GLM-5.3-Flash Free/);
     pick('自動承認', 'オン（--auto）');
     expect(screen.getByText('deny 以外をすべて許可')).toBeInTheDocument();
-    expect(advanced()).toHaveTextContent('モード plan · モデル GLM-5.3-Flash Free · 自動承認 オン');
+    expect(chipOf('モード')).toHaveTextContent('モード plan');
+    expect(chipOf('モデル')).toHaveTextContent('モデル GLM-5.3-Flash Free');
+    expect(chipOf('自動承認')).toHaveTextContent('自動承認 オン');
+    expect(chipOf('自動承認')).toHaveClass('danger');
     fireEvent.change(prompt(), { target: { value: '読んで' } });
     fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
     const spec = specOf(onLaunch);
@@ -149,7 +146,9 @@ describe('NewSessionScreen のエージェント', () => {
     const { onLaunch } = await setup();
     pick('プロジェクト', /project-a/);
     pick('エージェント', /opencode/);
-    expect(advanced()).toHaveTextContent('モード デフォルト · モデル デフォルト · 自動承認 オフ');
+    expect(chipOf('モード')).toHaveTextContent('モード デフォルト');
+    expect(chipOf('モデル')).toHaveTextContent('モデル デフォルト');
+    expect(chipOf('自動承認')).toHaveTextContent('自動承認 オフ');
     fireEvent.change(prompt(), { target: { value: 'a' } });
     fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
     const p = specOf(onLaunch).payload;
@@ -178,7 +177,6 @@ describe('NewSessionScreen のエージェント', () => {
     await setup(askerOf({ options: async () => ({ ...OPTIONS, models }) }));
     pick('プロジェクト', /project-a/);
     pick('エージェント', /opencode/);
-    fireEvent.click(advanced());
     await waitFor(() => expect(within(group('モデル')).getAllByRole('radio')).toHaveLength(3));
     const radios = within(group('モデル')).getAllByRole('radio');
     expect(radios[1]).toHaveTextContent('OpenCode Zen · 無料 · 学習への利用なし');
@@ -189,7 +187,7 @@ describe('NewSessionScreen のエージェント', () => {
     await setup(askerOf({ options: async () => ({ ...OPTIONS, stale: true }) }));
     pick('プロジェクト', /project-a/);
     pick('エージェント', /opencode/);
-    fireEvent.click(advanced());
+    fireEvent.click(chipOf('モデル')!);
     expect(await screen.findByText('PC の一覧（更新が古い可能性があります）')).toBeInTheDocument();
   });
 
@@ -197,7 +195,7 @@ describe('NewSessionScreen のエージェント', () => {
     await setup(askerOf({ options: async () => null }));
     pick('プロジェクト', /project-a/);
     pick('エージェント', /opencode/);
-    fireEvent.click(advanced());
+    fireEvent.click(chipOf('モデル')!);
     expect(await screen.findByText('モデルの一覧を取得できません。デフォルトで起動します。')).toBeInTheDocument();
     expect(within(group('モデル')).getAllByRole('radio').map((r) => r.textContent)).toEqual(['デフォルト']);
   });
@@ -206,7 +204,7 @@ describe('NewSessionScreen のエージェント', () => {
     const { onLaunch } = await setup(askerOf({ options: async () => { throw new AskError('pc-timeout'); } }));
     pick('プロジェクト', /project-a/);
     pick('エージェント', /opencode/);
-    fireEvent.click(advanced());
+    fireEvent.click(chipOf('モデル')!);
     expect(await screen.findByText('モデルの一覧を取得できません。デフォルトで起動します。')).toBeInTheDocument();
     fireEvent.change(prompt(), { target: { value: 'a' } });
     fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
@@ -229,6 +227,6 @@ describe('NewSessionScreen のエージェント', () => {
     await setup();
     pick('プロジェクト', /project-a/);
     expect(within(group('エージェント')).getByRole('radio', { name: /opencode/ })).toHaveAttribute('aria-checked', 'true');
-    expect(queryGroup('アカウント')).not.toBeInTheDocument();
+    expect(chipOf('アカウント')).toBeNull();
   });
 });

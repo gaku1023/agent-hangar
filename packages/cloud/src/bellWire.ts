@@ -19,6 +19,8 @@ export const BELL_CHANGES_KIND = 'changes';
 export const ASK_RATE = { max: 20, windowMs: 10_000 } as const;
 /** PC 1 台からの会話の問い合わせ（POST /peer/ask）の回数の上限（互換の版 11）。 */
 export const PEER_ASK_RATE = { max: 120, windowMs: 60_000 } as const;
+/** スマホ 1 台からの会話の問い合わせ（POST /m/chat）の回数の上限（互換の版 13）。tail の長い待ちを 2 秒おきに張り直す見張りが収まる値である。 */
+export const PHONE_CHAT_RATE = { max: 120, windowMs: 60_000 } as const;
 /** 会話の問い合わせの答えの待ちに足す余裕。実際の待ちは waitMs にこれを足した長さである。 */
 export const PEER_ASK_GRACE_MS = 5_000;
 /** 同じ PC が新しくつないだとき、古い WebSocket を閉じる符号。 */

@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
-import { MOBILE_REPLY_MAX_BYTES, PEER_BELL_KINDS, PEER_CHAT_REPLY_SEALED_MAX, type PeerAskIn, type PeerBellKind, type PeerChatBellAsk } from '@agent-hangar/shared';
-import { ASK_RATE, askTimeoutMs, BELL_CHANGES_KIND, BELL_DEVICE_HEADER, BELL_RING_ID_HEADER, BELL_RING_KIND_HEADER, PEER_ASK_RATE, peerAskGraceMs, REPLACED_CLOSE_CODE } from './bellWire.ts';
+import { MOBILE_REPLY_MAX_BYTES, PEER_BELL_KINDS, PEER_CHAT_REPLY_SEALED_MAX, type PeerAskIn, type PeerBellKind, type PeerChatBellAsk, type PhoneChatBellAsk, type PhoneChatIn } from '@agent-hangar/shared';
+import { ASK_RATE, askTimeoutMs, BELL_CHANGES_KIND, BELL_DEVICE_HEADER, BELL_RING_ID_HEADER, BELL_RING_KIND_HEADER, PEER_ASK_RATE, peerAskGraceMs, PHONE_CHAT_RATE, REPLACED_CLOSE_CODE } from './bellWire.ts';
 import type { Env } from './env.ts';
 
 /**
@@ -19,6 +19,7 @@ import type { Env } from './env.ts';
  * POST /ask はスマホの問い合わせを宛先の PC に渡して答えを待つ（見出しはスマホの ID）。
  * POST /ring は宛先の PC（見出しの ID）を鳴らす。PC どうしの頼みのときは、種類と頼みの ID を見出しで受けて { t: 'peer', kind, id } を送る。
  * POST /peer-ask は PC の会話の問い合わせ（互換の版 11）を宛先の PC に渡して答えを待つ（見出しは頼む PC の ID）。
+ * POST /phone-chat はスマホの会話の問い合わせ（互換の版 13）を宛先の PC に渡して答えを待つ（見出しはスマホの ID）。
  *
  * 問い合わせも答えもスマホの鍵（会話の問い合わせは PC どうしの鍵）で封をしたまま運び、ここでは読まない。D1 にも書かない。
  * 待ちと回数の数えはメモリに置く。問い合わせの間は fetch が開いているので、Durable Object は眠らない。
@@ -28,6 +29,9 @@ import type { Env } from './env.ts';
  * この Durable Object から宛先の PC へは PeerChatBellAsk（t: 'chat'）を送る。
  * 宛先の PC は PeerChatBellReply（t: 'chat-reply'、id と from は届いた枠のまま）で返す。
  * スマホの問い合わせ（t: 'ask' と t: 'reply'）とは待ちの表を分け、ID が重なっても混ざらない。
+ *
+ * スマホの会話の問い合わせ（互換の版 13）は PhoneChatBellAsk（t: 'phone-chat'）で送り、PhoneChatBellReply（t: 'phone-chat-reply'）を待つ。
+ * 待ちと回数の表は PC どうしのものと分ける。
  */
 
 type Attachment = { deviceId: string };
@@ -45,6 +49,9 @@ export class HangarBell extends DurableObject<Env> {
   /** 会話の問い合わせの待ち（鍵は chatKey）と、PC ごとの回数。 */
   private readonly chatPending = new Map<string, Pending>();
   private readonly chatAsks = new Map<string, number[]>();
+  /** スマホの会話の問い合わせの待ち（鍵は chatKey(スマホ, askId)）と、スマホごとの回数。 */
+  private readonly phonePending = new Map<string, Pending>();
+  private readonly phoneAsks = new Map<string, number[]>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -59,6 +66,7 @@ export class HangarBell extends DurableObject<Env> {
     if (path === '/connect') return this.acceptPc(req, device);
     if (path === '/ask' && req.method === 'POST') return this.ask(req, device);
     if (path === '/peer-ask' && req.method === 'POST') return this.peerAsk(req, device);
+    if (path === '/phone-chat' && req.method === 'POST') return this.phoneChat(req, device);
     if (path === '/ring' && req.method === 'POST') return this.ring(device, req.headers.get(BELL_RING_KIND_HEADER), req.headers.get(BELL_RING_ID_HEADER));
     return json({ error: 'not found' }, 404);
   }
@@ -141,6 +149,29 @@ export class HangarBell extends DurableObject<Env> {
     });
   }
 
+  /**
+   * スマホの会話の問い合わせを宛先の PC に渡し、答えを待つ（互換の版 13）。本文の形と宛先は Worker（phoneChat.ts）が確かめてある。
+   * 断り方と待ちの長さは peerAsk と同じである。
+   */
+  private async phoneChat(req: Request, from: string): Promise<Response> {
+    const body = (await req.json()) as PhoneChatIn;
+    if (!this.countAsk(from, Date.now(), this.phoneAsks, PHONE_CHAT_RATE)) return json({ error: 'rate limited', reason: 'rate' }, 429);
+    const ws = this.socketOf(body.to);
+    if (!ws) return json({ error: 'pc-offline', reason: 'offline' }, 409);
+    const key = chatKey(from, body.askId);
+    if (this.phonePending.has(key)) return json({ error: 'conflict', reason: 'duplicate' }, 409);
+    return new Promise<Response>((resolve) => {
+      const timer = setTimeout(() => this.settle(key, json({ error: 'pc-timeout' }, 504), this.phonePending), body.waitMs + peerAskGraceMs(this.env));
+      this.phonePending.set(key, { target: body.to, ws, resolve, timer });
+      try {
+        const frame: PhoneChatBellAsk = { t: 'phone-chat', id: body.askId, from, epoch: body.epoch, sealed: body.sealed };
+        ws.send(JSON.stringify(frame));
+      } catch {
+        this.settle(key, json({ error: 'pc-offline', reason: 'offline' }, 409), this.phonePending);
+      }
+    });
+  }
+
   private settle(id: string, res: Response, pending: Map<string, Pending> = this.pending): void {
     const p = pending.get(id);
     if (!p) return;
@@ -181,16 +212,17 @@ export class HangarBell extends DurableObject<Env> {
     } catch {
       return;
     }
-    if (m && m.t === 'chat-reply' && typeof m.id === 'string' && typeof m.from === 'string' && typeof m.sealed === 'string') {
+    if (m && (m.t === 'chat-reply' || m.t === 'phone-chat-reply') && typeof m.id === 'string' && typeof m.from === 'string' && typeof m.sealed === 'string') {
+      const table = m.t === 'chat-reply' ? this.chatPending : this.phonePending;
       const key = chatKey(m.from, m.id);
-      const p = this.chatPending.get(key);
+      const p = table.get(key);
       const sender = (ws.deserializeAttachment() as Attachment | null)?.deviceId;
       if (!p || !sender || sender !== p.target) return;
       if (m.sealed.length > PEER_CHAT_REPLY_SEALED_MAX) {
-        this.settle(key, json({ error: 'reply too large' }, 502), this.chatPending);
+        this.settle(key, json({ error: 'reply too large' }, 502), table);
         return;
       }
-      this.settle(key, json({ sealed: m.sealed }, 200), this.chatPending);
+      this.settle(key, json({ sealed: m.sealed }, 200), table);
       return;
     }
     if (!m || m.t !== 'reply' || typeof m.id !== 'string' || typeof m.sealed !== 'string') return;
@@ -225,8 +257,10 @@ export class HangarBell extends DurableObject<Env> {
       if (p.ws === ws) this.settle(id, json({ error: 'pc-offline' }, 503));
     }
     // 会話の問い合わせは、待たずに 409 offline で返す。頼んだ側は長い待ちを抱えず、すぐ「つながっていない」を出せる。
-    for (const [key, p] of this.chatPending) {
-      if (p.ws === ws) this.settle(key, json({ error: 'pc-offline', reason: 'offline' }, 409), this.chatPending);
+    for (const table of [this.chatPending, this.phonePending]) {
+      for (const [key, p] of table) {
+        if (p.ws === ws) this.settle(key, json({ error: 'pc-offline', reason: 'offline' }, 409), table);
+      }
     }
   }
 }

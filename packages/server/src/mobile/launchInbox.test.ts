@@ -424,6 +424,34 @@ describe('MobileLaunchInbox の effort', () => {
   });
 });
 
+describe('MobileLaunchInbox の worktree と名前', () => {
+  it('worktree と名前は前後の空白を落として params に写る。空なら付けない', async () => {
+    const { start, inbox, post } = setup();
+    await inbox.receive(await post('l1', payload({ worktree: ' fix-login ', name: ' ログインの直し ' })));
+    await inbox.receive(await post('l2', payload({ worktree: '', name: '' })));
+    expect(start.mock.calls[0]![0]).toMatchObject({ worktree: 'fix-login', name: 'ログインの直し' });
+    expect(start.mock.calls[1]![0]).not.toHaveProperty('worktree');
+    expect(start.mock.calls[1]![0]).not.toHaveProperty('name');
+  });
+
+  it('名前は opencode にも写る。worktree は Claude Code だけで、ほかのエージェントでは bad-payload', async () => {
+    const { start, inbox, post, answerOf } = setup();
+    await inbox.receive(await post('l1', ocPayload({ name: 'まとめ' })));
+    expect(start.mock.calls[0]![0]).toMatchObject({ agent: 'opencode', name: 'まとめ' });
+    await inbox.receive(await post('l2', ocPayload({ worktree: 'wt' })));
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(await answerOf('l2')).toMatchObject({ ok: false, reason: 'bad-payload' });
+  });
+
+  it('形の違う worktree と名前は bad-payload（引数に読まれる形、区切り、長すぎ、文字列でない）', async () => {
+    const { start, inbox, post, answerOf } = setup();
+    const bad: Partial<MobileLaunchPayload>[] = [{ worktree: '--force' }, { worktree: 'a/b' }, { worktree: '../x' }, { worktree: 'x'.repeat(65) }, { worktree: 3 as never }, { name: 'x'.repeat(121) }, { name: 1 as never }];
+    for (const [i, o] of bad.entries()) await inbox.receive(await post(`b${i}`, { ...payload(), ...o }));
+    expect(start).not.toHaveBeenCalled();
+    for (const i of bad.keys()) expect(await answerOf(`b${i}`)).toMatchObject({ ok: false, reason: 'bad-payload' });
+  });
+});
+
 /** opencode の依頼。アカウントと権限モードは空、effort は無い。 */
 const ocPayload = (over: Partial<MobileLaunchPayload> = {}): MobileLaunchPayload => payload({ agent: 'opencode', accountId: '', permissionMode: '', model: 'opencode/glm-5.3-flash-free', mode: 'plan', autoApprove: true, ...over });
 

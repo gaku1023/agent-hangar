@@ -520,3 +520,47 @@ describe('InboxScreen', () => {
   });
 });
 
+
+describe('InboxScreen の会話の頁への入口', () => {
+  const waiting = (id: string, extra = {}) => liveItem({ sessionId: id, status: 'waiting', statusAt: now() - 5 * MIN, rcUrl: 'https://claude.ai/code/session_x', ...extra });
+
+  it('caps.chat のある PC の Claude Code の札は、リンクでなく押せる箱になり、押すと会話の頁の宛先を渡す', async () => {
+    await serveFeeds([feedOf('pc-1', 'Mac', { caps: { asks: true, images: true, effort: true, chat: { input: true } }, live: [waiting('s-1')] })]);
+    const onOpenChat = vi.fn();
+    const { container } = render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} onOpenChat={onOpenChat} />);
+    await screen.findByText('project-a');
+    const card = container.querySelector('[data-session-id="s-1"]') as HTMLElement;
+    expect(card.tagName).toBe('DIV');
+    expect(card.getAttribute('role')).toBe('button');
+    fireEvent.click(card);
+    expect(onOpenChat).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's-1', deviceId: 'pc-1', deviceName: 'Mac', input: true }));
+  });
+
+  it('input が偽の PC は、頁は開くが input を偽で渡す', async () => {
+    await serveFeeds([feedOf('pc-1', 'Mac', { caps: { asks: true, images: true, effort: true, chat: { input: false } }, live: [waiting('s-1')] })]);
+    const onOpenChat = vi.fn();
+    const { container } = render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} onOpenChat={onOpenChat} />);
+    await screen.findByText('project-a');
+    fireEvent.click(container.querySelector('[data-session-id="s-1"]') as HTMLElement);
+    expect(onOpenChat).toHaveBeenCalledWith(expect.objectContaining({ input: false }));
+  });
+
+  it('caps.chat の無い PC の札は、今までどおり Remote Control のリンク', async () => {
+    await serveFeeds([feedOf('pc-1', 'Mac', { live: [waiting('s-1')] })]);
+    const onOpenChat = vi.fn();
+    const { container } = render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} onOpenChat={onOpenChat} />);
+    await screen.findByText('project-a');
+    const card = container.querySelector('[data-session-id="s-1"]') as HTMLAnchorElement;
+    expect(card.tagName).toBe('A');
+    expect(card.getAttribute('href')).toBe('https://claude.ai/code/session_x');
+    fireEvent.click(card);
+    expect(onOpenChat).not.toHaveBeenCalled();
+  });
+
+  it('opencode の札は、caps.chat があっても頁に入らない', async () => {
+    await serveFeeds([feedOf('pc-1', 'Mac', { caps: { asks: true, images: true, effort: true, chat: { input: true }, agents: ['claude-code', 'opencode'] }, live: [waiting('s-1', { agent: 'opencode' })] })]);
+    const { container } = render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} onOpenChat={vi.fn()} />);
+    await screen.findByText('project-a');
+    expect((container.querySelector('[data-session-id="s-1"]') as HTMLElement).getAttribute('role')).toBeNull();
+  });
+});

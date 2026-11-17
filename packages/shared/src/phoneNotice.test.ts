@@ -16,6 +16,14 @@ describe('スマホの通知の封じ（sealPhoneNotice / openPhoneNotice）', (
     expect(await openPhoneNotice(key, sealed)).toEqual(notice);
   });
 
+  it('宛先の PC の ID（deviceId）を任意で運ぶ。無いもの（古い PC）は無いまま開け、長すぎる ID や文字列でない ID は封じない', async () => {
+    const key = await importMobileKey(keyBytes(1));
+    expect(await openPhoneNotice(key, await sealPhoneNotice(key, 1, { ...notice, deviceId: 'pc-a-id' }))).toEqual({ ...notice, deviceId: 'pc-a-id' });
+    expect(await openPhoneNotice(key, await sealPhoneNotice(key, 1, notice))).toEqual(notice);
+    await expect(sealPhoneNotice(key, 1, { ...notice, deviceId: 'x'.repeat(200) })).rejects.toThrow(TypeError);
+    await expect(sealPhoneNotice(key, 1, { ...notice, deviceId: 3 as unknown as string })).rejects.toThrow(TypeError);
+  });
+
   it('生の 32 バイトの鍵でも封じて開ける。CryptoKey と生の鍵は互いに開ける', async () => {
     const raw = keyBytes(2);
     const key = await importMobileKey(raw);

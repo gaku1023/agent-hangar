@@ -76,6 +76,14 @@ describe('設定の書き替えを部品へ行き渡らせる', () => {
     expect(calls).toEqual(['tmux /t', 'shell', 'claude /c', 'cap', 'publish false']);
   });
 
+  it('phoneChatAccept の欄が来たら、スマホの一覧（caps.chat の input）を組み直させる', () => {
+    patch({ lmStudioModel: 'm1' });
+    expect(calls).not.toContain('opencode');
+    patch({ phoneChatAccept: false });
+    expect(calls.filter((c) => c === 'opencode')).toHaveLength(1);
+    expect(loadSettings(home).phoneChatAccept).toBe(false);
+  });
+
   it('opencodeEnabled の欄が来たときだけ、opencode の入り切りの口を呼ぶ（スマホの一覧を組み直す）', () => {
     patch({ lmStudioModel: 'm1' });
     patch({ opencodeIntercept: true });

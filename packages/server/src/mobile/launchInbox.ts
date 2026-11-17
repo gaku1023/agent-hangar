@@ -14,6 +14,8 @@ import {
   MOBILE_IMAGE_MAX_BYTES,
   MOBILE_IMAGES_PER_LAUNCH,
   MOBILE_LAUNCH_ID_MAX,
+  MOBILE_LAUNCH_NAME_MAX,
+  MOBILE_WORKTREE_RE,
   MOBILE_PROMPT_MAX,
   open,
   openBytes,
@@ -116,6 +118,13 @@ function isPayload(v: unknown): v is MobileLaunchPayload {
     (o.effort === undefined || typeof o.effort === 'string') &&
     (o.images === undefined || isImageRefs(o.images));
   if (!base) return false;
+  // worktree と名前（互換の版 13 と同じ頃に足した）。worktree は Claude Code だけが受ける。
+  if (o.name !== undefined && (typeof o.name !== 'string' || o.name.trim().length > MOBILE_LAUNCH_NAME_MAX)) return false;
+  if (o.worktree !== undefined) {
+    if (typeof o.worktree !== 'string') return false;
+    const wt = o.worktree.trim();
+    if (wt !== '' && (!MOBILE_WORKTREE_RE.test(wt) || wt.includes('..') || !(o.agent === undefined || o.agent === 'claude-code'))) return false;
+  }
   if (o.agent === 'codex') {
     // 権限は Codex の 3 段（空は自動）。推論の段階は Codex の語で、引数に読まれる形を断る。
     return (
@@ -151,6 +160,10 @@ const isCodexEffort = (v: unknown): v is string => typeof v === 'string' && /^[a
  */
 function paramsOf(p: MobileLaunchPayload, prompt = p.prompt): LaunchParams {
   const params: LaunchParams = p.scratch ? { scratch: true } : { projectId: p.projectId! };
+  const name = p.name?.trim();
+  if (name) params.name = name;
+  const worktree = p.worktree?.trim();
+  if (worktree) params.worktree = worktree;
   if (isOpencode(p)) {
     params.agent = 'opencode';
     if (p.mode) params.mode = p.mode;

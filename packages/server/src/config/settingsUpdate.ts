@@ -20,7 +20,7 @@ export type SettingsUpdateDeps = {
   onSummaryCap: () => void;
   /** 設定の同期の入り切りを、ヘッダと Settings の表示に載せ直す。 */
   publishConfigSync: (s: Settings) => void;
-  /** opencodeEnabled の欄が来たとき。スマホの一覧（受信箱の素）は opencode の入り切りで中身が変わるので、組み直させる。 */
+  /** opencodeEnabled などエージェントの入り切りと phoneChatAccept の欄が来たとき。スマホの一覧（受信箱の素）の中身が変わるので、組み直させる。 */
   onOpencodeEnabled?: () => void;
   /** orchestrator の欄が来たとき。統括の見張りが、入り切りとモデルの変更を受けて起こす・止まる。 */
   onOrchestrator?: () => void;
@@ -42,7 +42,8 @@ export function applySettingsPatch(deps: SettingsUpdateDeps, patch: Partial<Sett
   if (patch.claudePath !== undefined) deps.onClaudePath(settings);
   if (patch.codexPath !== undefined || patch.opencodePath !== undefined) setAgentBinPaths(settings);
   if (patch.summaryHourlyCap !== undefined) deps.onSummaryCap();
-  if (ENABLED_KEYS.some((k) => patch[k] !== undefined)) deps.onOpencodeEnabled?.();
+  // スマホから会話に入力する（phoneChatAccept）も、受信箱の素の caps.chat の input に載るので組み直させる。
+  if (ENABLED_KEYS.some((k) => patch[k] !== undefined) || patch.phoneChatAccept !== undefined) deps.onOpencodeEnabled?.();
   if (patch.orchestrator !== undefined) deps.onOrchestrator?.();
   if (patch.voice !== undefined) deps.onVoice?.();
   deps.publishConfigSync(settings);

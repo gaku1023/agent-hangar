@@ -57,15 +57,15 @@ export type PeerQueueDeps = {
    * それでも、読んでから貼り付けるまでの間に人が打ち始める余地は残る。
    * だから実装は、貼り付ける直前にもう一度、入力欄が空であることを確かめ、空でなければ送らずに false を返す。
    */
-  deliver(runId: string, text: string, images: PeerBlobRef[], queueId: string): Promise<boolean>;
+  deliver(runId: string, text: string, images: PeerBlobRef[], queueId: string, from: string): Promise<boolean>;
   /** 預かりの ID を作る。 */
   newId(): string;
   /**
-   * ほかの PC からの送信を受ける設定が入っているか。
-   * 偽になったら、確認のたびに、預かっていた文を渡さずに捨てる（expired、reason は queue-expired）。
+   * その送り主（端末の ID）からの送信を受ける設定が入っているか。
+   * 偽になったら、確認のたびに、その送り主の預かっていた文を渡さずに捨てる（expired、reason は queue-expired）。
    * 送り主には、文が戻る知らせ（gone）として届く。省けば常に受ける。
    */
-  accepting?(): boolean;
+  accepting?(from: string): boolean;
   pollMs?: number;
   expireMs?: number;
   settleMs?: number;
@@ -272,7 +272,7 @@ export class PeerQueue {
     rs.ticking = true;
     try {
       const { deps } = this;
-      if (!this.acceptingNow()) { this.refuseWaiting(runId, rs); return; }
+      this.refuseWaiting(runId, rs);
       const turn = this.turnOf(runId);
       const t0 = this.now();
       if (turn === 'idle' || turn === 'stopped') rs.idleSince ??= t0;
@@ -309,7 +309,7 @@ export class PeerQueue {
     item.state = 'delivering';
     this.emit({ type: 'delivering', runId, item: snap(item) });
     let ok = false;
-    try { ok = (await this.deps.deliver(runId, item.text, item.images, item.queueId)) === true; } catch { ok = false; }
+    try { ok = (await this.deps.deliver(runId, item.text, item.images, item.queueId, item.from.deviceId)) === true; } catch { ok = false; }
     if (this.disposed) return;
     if (!ok) {
       item.state = 'waiting';
@@ -327,15 +327,15 @@ export class PeerQueue {
     return turn === 'idle' || (rs.rushAt !== null && turn === 'busy');
   }
 
-  /** 受ける設定を読む。読めなければ（投げたら）受けるとみなす（設定の読み出しの失敗で、預かりを捨てない）。 */
-  private acceptingNow(): boolean {
-    try { return this.deps.accepting ? this.deps.accepting() !== false : true; } catch { return true; }
+  /** 送り主ごとに受ける設定を読む。読めなければ（投げたら）受けるとみなす（設定の読み出しの失敗で、預かりを捨てない）。 */
+  private acceptingFrom(from: string): boolean {
+    try { return this.deps.accepting ? this.deps.accepting(from) !== false : true; } catch { return true; }
   }
 
-  /** 受けない設定になったので、渡していない預かりを全部捨てる（渡している最中の 1 件には触らない）。 */
+  /** 受けない設定になった送り主の、渡していない預かりを捨てる（渡している最中の 1 件には触らない）。ほかの送り主の預かりは残す。 */
   private refuseWaiting(runId: string, rs: RunState): void {
     for (const item of [...rs.items]) {
-      if (item.state !== 'waiting') continue;
+      if (item.state !== 'waiting' || this.acceptingFrom(item.from.deviceId)) continue;
       rs.items.splice(rs.items.indexOf(item), 1);
       this.emit({ type: 'expired', runId, item: snap(item), reason: 'queue-expired' });
     }

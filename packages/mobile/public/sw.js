@@ -83,12 +83,14 @@ async function openNotice(sealed) {
 function noticeText(v) {
   const title = v.title.trim() || 'hangar';
   // 未読（notify_user）は、題を会話の名前、本文を知らせの文にする。数は本文に出さず、「ほか n 件」も付けない。
-  if (v.kind === 'unread' && typeof v.body === 'string' && v.body.trim()) return { title, body: v.body.trim(), sessionId: v.sessionId };
+  if (v.kind === 'unread' && typeof v.body === 'string' && v.body.trim()) return { title, body: v.body.trim(), sessionId: v.sessionId, deviceId: typeof v.deviceId === 'string' ? v.deviceId : '', pcName: v.pcName.trim() };
   const pc = v.pcName.trim();
   return {
     title: v.count >= 2 ? `${title} ほか ${v.count - 1} 件` : title,
     body: pc ? `${pc} で入力を待っています` : '入力を待っています',
     sessionId: v.sessionId,
+    deviceId: typeof v.deviceId === 'string' ? v.deviceId : '',
+    pcName: pc,
   };
 }
 
@@ -103,7 +105,7 @@ self.addEventListener('push', (event) => {
       }
       const v = await openNotice(sealed);
       const t = v ? noticeText(v) : GENERIC;
-      const options = { body: t.body, icon: `${SCOPE}icon-192.png`, data: { sessionId: t.sessionId } };
+      const options = { body: t.body, icon: `${SCOPE}icon-192.png`, data: { sessionId: t.sessionId, ...(t.deviceId ? { deviceId: t.deviceId } : {}), ...(t.pcName ? { pcName: t.pcName } : {}) } };
       // 同じ会話の知らせは重ねて 1 つにし、また要対応に入ったら鳴らし直す。
       if (t.sessionId) Object.assign(options, { tag: `session:${t.sessionId}`, renotify: true });
       await self.registration.showNotification(t.title, options);
@@ -112,18 +114,22 @@ self.addEventListener('push', (event) => {
 });
 
 // 通知を押したら、受信箱のその会話の行を開く。
-// 開いている hangar があれば前に出して会話の ID を渡し（画面は message の hangar-open を待つ）、無ければ #open=<ID> を付けて開く（main.tsx が読む）。
+// 開いている hangar があれば前に出して会話の ID（と PC の ID、名前）を渡し（画面は message の hangar-open を待つ）、無ければ #open=<ID> を付けて開く（main.tsx が読む）。
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data;
   const id = data && typeof data.sessionId === 'string' && data.sessionId ? data.sessionId : null;
-  const url = new URL(id ? `${SCOPE}#open=${encodeURIComponent(id)}` : SCOPE, self.location.origin).href;
+  const deviceId = data && typeof data.deviceId === 'string' && data.deviceId ? data.deviceId : null;
+  const pcName = data && typeof data.pcName === 'string' && data.pcName ? data.pcName : null;
+  // 会話の頁を開くとき、宛先の PC を決める手がかり（PC の ID、無ければ名前）を添える。
+  const frag = id ? `#open=${encodeURIComponent(id)}${deviceId ? `&device=${encodeURIComponent(deviceId)}` : ''}${pcName ? `&pc=${encodeURIComponent(pcName)}` : ''}` : '';
+  const url = new URL(`${SCOPE}${frag}`, self.location.origin).href;
   event.waitUntil(
     (async () => {
       const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       for (const c of list) {
         if (!new URL(c.url).pathname.startsWith(SCOPE)) continue;
-        if (id) c.postMessage({ type: 'hangar-open', sessionId: id });
+        if (id) c.postMessage({ type: 'hangar-open', sessionId: id, ...(deviceId ? { deviceId } : {}), ...(pcName ? { pcName } : {}) });
         if (typeof c.focus === 'function') return c.focus();
       }
       return self.clients.openWindow(url);

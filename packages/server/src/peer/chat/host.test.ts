@@ -59,6 +59,8 @@ type World = {
   resumeFails: boolean;
   events: PeerChatHostEvent[];
   acceptFromPeers: boolean;
+  /** スマホからの入力を受けるか（設定 phoneChatAccept）。 */
+  acceptFromPhones: boolean;
   /** 時計の進み（ミリ秒）。期限を過ぎた後の再送の試験に使う。 */
   skew: number;
   blobs: Map<string, Uint8Array>;
@@ -74,12 +76,12 @@ async function setup(o: Partial<World> & { deps?: Partial<PeerChatHostDeps> } = 
   const ring: PeerKeyring = { current: () => keys, at: (e) => (e === 1 ? keys : null) };
   const dropsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-host-'));
   dirs.push(dropsDir);
-  const w: World = { session: idleSession(), run: { tmuxName: 'hangar-1' }, pane: new FakePane(), lines: [userLine('first'), asstLine('hello')], sent: [], resumed: 0, resumeFails: false, events: [], acceptFromPeers: true, skew: 0, blobs: new Map(), ...o };
+  const w: World = { session: idleSession(), run: { tmuxName: 'hangar-1' }, pane: new FakePane(), lines: [userLine('first'), asstLine('hello')], sent: [], resumed: 0, resumeFails: false, events: [], acceptFromPeers: true, acceptFromPhones: true, skew: 0, blobs: new Map(), ...o };
   const deps: PeerChatHostDeps = {
     deviceId: 'pc-a',
     now: () => Date.now() + w.skew,
     ring: async () => ring,
-    acceptFromPeers: () => w.acceptFromPeers,
+    acceptFrom: (kind) => (kind === 'phone' ? w.acceptFromPhones : w.acceptFromPeers),
     deviceName: (id) => (id === 'pc-b' ? 'Mac' : id === 'pc-c' ? 'Linux' : id),
     session: () => w.session,
     run: () => w.run,
@@ -129,11 +131,19 @@ async function setup(o: Partial<World> & { deps?: Partial<PeerChatHostDeps> } = 
     expect(frame).toMatchObject({ t: 'chat-reply', id, from });
     return { frame, reply: await openPeerChatReply(ring, route, frame.sealed) };
   }
+  /** スマホの入口（mobile/chatHost.ts）と同じ道で、開けた頼みを渡す。封は試験では省く（中身をそのまま渡し、答えを JSON で返す）。 */
+  async function askPhone(op: PeerChatOp, over: { from?: string; sessionId?: string; id?: string } = {}): Promise<PeerChatReply> {
+    const id = over.id ?? `phone-ask-${++seq}`;
+    const from = over.from ?? 'phone-1';
+    const out = await host.handleRequest({ id: from, kind: 'phone', name: 'iPhone' }, id, async () => ({ v: 1, askId: id, expiresAt: peerChatExpiresAt(Date.now()), sessionId: over.sessionId ?? 's1', op }), async (r) => JSON.stringify(r));
+    if (out === null) throw new Error('no reply');
+    return JSON.parse(out) as PeerChatReply;
+  }
   const state = (r: PeerChatReply): PeerChatState => {
     if (!r.ok || !r.state) throw new Error(`no state: ${JSON.stringify(r)}`);
     return r.state;
   };
-  return { w, host, ring, ask, askRaw, state, dropsDir, deps };
+  return { w, host, ring, ask, askRaw, askPhone, state, dropsDir, deps };
 }
 
 const cleanups: (() => void)[] = [];
@@ -969,5 +979,60 @@ describe('PeerChatHost: この PC の中からの答え（統括の answer_ask �
       expect(await s.host.local.answer('s1', 'x', ['1'])).toEqual({ ok: false, reason: 'session-unknown' });
       expect(s.w.pane.events).toEqual([]);
     }
+  });
+});
+
+describe('PeerChatHost: 送り主ごとの入り切り（スマホと PC）', () => {
+  const sending: PeerChatOp[] = [send('x'), { t: 'answer', askId: 'a', keys: ['1'] }, { t: 'interrupt' }, { t: 'resume-send', text: 'x', images: [] }, { t: 'rush', queueId: 'q' }];
+
+  it('スマホを切、PC を入にすると、スマホの送る系だけが refused-by-setting。スマホの tail は通る', async () => {
+    const s = await setup({ acceptFromPhones: false });
+    for (const op of sending) expect(await s.askPhone(op), JSON.stringify(op)).toEqual({ ok: false, reason: 'refused-by-setting' });
+    expect((await s.askPhone(tailOp())).ok).toBe(true);
+    expect(s.w.sent).toEqual([]);
+    expect((await s.ask(send('from pc'))).ok).toBe(true);
+    await settle(() => s.w.sent.length === 1);
+    expect(s.w.sent).toEqual(['from pc']);
+  });
+
+  it('PC を切、スマホを入にすると、スマホの文は渡り、PC の文は断る。送り主の名前はスマホの名前', async () => {
+    const s = await setup({ acceptFromPeers: false });
+    expect(await s.ask(send('from pc'))).toEqual({ ok: false, reason: 'refused-by-setting' });
+    expect((await s.askPhone(send('from phone'))).ok).toBe(true);
+    await settle(() => s.w.sent.length === 1);
+    expect(s.w.sent).toEqual(['from phone']);
+    const delivered = s.w.events.find((e) => e.type === 'peerChat.delivered');
+    expect(delivered).toMatchObject({ from: { deviceId: 'phone-1', deviceName: 'iPhone' } });
+  });
+
+  it('預かりの途中でスマホだけ切ると、スマホの文は捨て、PC の文は渡す', async () => {
+    const s = await setup({ session: idleSession({ live: 'busy' }) });
+    const phone = (await s.askPhone(send('phone queued'))) as { ok: true; queueId: string };
+    expect(phone.ok).toBe(true);
+    expect((await s.ask(send('pc queued'))).ok).toBe(true);
+    s.w.acceptFromPhones = false;
+    s.w.session!.live = 'idle';
+    s.host.turnChanged();
+    await settle(() => s.w.sent.length === 1);
+    await new Promise((res) => setTimeout(res, 60));
+    expect(s.w.sent).toEqual(['pc queued']);
+    expect(s.state(await s.askPhone(tailOp())).gone).toEqual([{ queueId: phone.queueId, reason: 'queue-expired' }]);
+  });
+
+  it('渡す直前にスマホだけ切れても、スマホの文は渡さない', async () => {
+    const s = await setup({ session: idleSession({ live: 'busy' }) });
+    expect((await s.askPhone(send('racing'))).ok).toBe(true);
+    s.w.session!.live = 'idle';
+    s.w.pane.captureStyled = async () => { s.w.acceptFromPhones = false; return WIN_EMPTY_AFTER_TURN; };
+    s.host.turnChanged();
+    await settle(() => s.w.events.some((e) => e.type === 'peerChat.queue' && e.queued.length === 0));
+    await new Promise((res) => setTimeout(res, 60));
+    expect(s.w.sent).toEqual([]);
+  });
+
+  it('スマホからの画像は受けない（最初は文だけ）', async () => {
+    const s = await setup();
+    expect(await s.askPhone(send('pic', [{ n: 0, mime: 'image/png', bytes: 10 }]))).toEqual({ ok: false, reason: 'too-large' });
+    expect(s.w.sent).toEqual([]);
   });
 });

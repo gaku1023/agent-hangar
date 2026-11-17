@@ -1,7 +1,7 @@
 import type { AgentKind } from '@agent-hangar/shared/src/agents.ts';
 import { launchJa } from '@agent-hangar/shared/src/i18n/ja/launch.ts';
 import { CODEX_PERMISSIONS, DEFAULT_CODEX_PERMISSION, type CodexPermission } from '@agent-hangar/shared/src/codexCompat.ts';
-import { MOBILE_PROMPT_MAX, type MobileAccount, type MobileAgentOptions, type MobileCodexOptions, type MobileModelOption } from '@agent-hangar/shared/src/mobile.ts';
+import { MOBILE_LAUNCH_NAME_MAX, MOBILE_PROMPT_MAX, MOBILE_WORKTREE_RE, type MobileAccount, type MobileAgentOptions, type MobileCodexOptions, type MobileModelOption } from '@agent-hangar/shared/src/mobile.ts';
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { workerTooOld } from '../api.ts';
 import { createAsker, type Asker } from '../ask.ts';
@@ -16,7 +16,8 @@ import { AgentIcon } from './AgentIcon.tsx';
 import { Choice } from './Choice.tsx';
 import { Composer } from './Composer.tsx';
 import { Fold } from './Fold.tsx';
-import { ProjectPicker, type Sel } from './ProjectPicker.tsx';
+import { BottomSheet } from './BottomSheet.tsx';
+import { ProjectPicker, projectLabel, type Sel } from './ProjectPicker.tsx';
 
 /** 初期プロンプトの上限。PC はこれより長い依頼を断る。 */
 export const PROMPT_MAX = MOBILE_PROMPT_MAX;
@@ -27,20 +28,18 @@ const PROMPT_NEAR = 500;
 const NO_PCS: string[] = [];
 const NO_ACCOUNTS: MobileAccount[] = [];
 const NO_ITEMS: string[] = [];
-const ADV_ON = ['adv'];
 const NOTE_ON = ['note'];
-const STEP_ON = ['step'];
-const CC_ON = ['cc'];
-const OC_ON = ['oc'];
 const AUTO_ON = ['on'];
-const AUTO_OFF = ['off'];
-const CX_ON = ['cx'];
 const FULL_ON = ['on'];
-const FULL_OFF = ['off'];
 const NO_MODELS: MobileModelOption[] = [];
 const NO_MODES: MobileAgentOptions['modes'] = [];
 
 type Agent = AgentKind;
+
+/** シートで選ぶ札。 */
+type SheetKey = 'project' | 'pc' | 'agent' | 'account' | 'model' | 'effort' | 'perm' | 'cxPerm' | 'cxModel' | 'cxEffort' | 'ocMode' | 'ocModel' | 'ocAuto';
+/** 札の列の札。worktree は欄を、name（＋）は名前の欄を開く。 */
+type ChipKey = SheetKey | 'worktree' | 'name';
 
 /** モデルの札に添える費用の型（PC のモデルの小窓と同じ語）。 */
 const COST_LABEL: Record<MobileModelOption['cost'], string> = { local: 'ローカル', free: '無料', metered: '従量', plan: '定額' };
@@ -132,7 +131,13 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
   const [cxModel, setCxModel] = useState('');
   const [cxEffort, setCxEffort] = useState('');
   const [cxOptions, setCxOptions] = useState<CxOptions | null>(null);
-  const [adv, setAdv] = useState(false);
+  const [wtOpen, setWtOpen] = useState(false);
+  const [nameOpen, setNameOpen] = useState(false);
+  const [sheet, setSheet] = useState<{ kind: SheetKey; open: boolean } | null>(null);
+  const [bumps, setBumps] = useState<Record<string, number>>({});
+  // worktree と名前（PC の新規ダイアログと同じ）。caps.launchExtras のある PC にだけ出す。worktree は Claude Code だけ。
+  const [worktree, setWorktree] = useState('');
+  const [convName, setConvName] = useState('');
   const [prompt, setPrompt] = useState('');
   const [submitted, setSubmitted] = useState(false);
   // 依頼の ID は画面を開いたときに振る。画像はこの ID の下に置き、依頼もこの ID で出す。
@@ -144,7 +149,8 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
   const [asker] = useState(() => deps?.asker ?? createAsker(pairing, key));
   const att = useAttachments({ pairing, key, launchId, put: deps?.putImage, shrink: deps?.shrink });
   const promptId = useId();
-  const advId = useId();
+  const worktreeId = useId();
+  const nameId = useId();
   const titleId = useId();
 
   // 候補が 1 つなら選んだことにし、候補から外れた選択は外す（選び直したプロジェクトに PC が無いなど）。
@@ -162,6 +168,7 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
   const canAsk = !workerOld && (!pc || !!caps?.asks);
   const canImages = !workerOld && (!pc || !!caps?.images);
   const canEffort = !pc || !!caps?.effort;
+  const canExtras = !!pc && !!caps?.launchExtras;
   // opencode は、選んだ PC が caps.agents に opencode を載せているときだけ選べる。
   // 載せていない PC（古い PC、opencode を無効にした PC）は依頼の agent を知らずに Claude を起こしてしまうので、段ごと出さず、依頼にも agent を入れない。
   const canOpencode = !!pc && !!caps?.agents?.includes('opencode');
@@ -245,30 +252,247 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
   /** アカウントを使わないエージェント（opencode と Codex）。 */
   const noAccount = oc || cx;
 
+  // worktree は Claude Code の依頼にだけ、名前は選んだエージェントに依らず入れる（どちらも caps.launchExtras のある PC にだけ）。
+  const worktreeSent = canExtras && !oc && !cx ? worktree.trim() : '';
+  const worktreeBad = worktreeSent !== '' && !MOBILE_WORKTREE_RE.test(worktreeSent);
+  const nameSent = canExtras ? convName.trim() : '';
+  const extras = { ...(worktreeSent && !worktreeBad ? { worktree: worktreeSent } : {}), ...(nameSent ? { name: nameSent } : {}) };
+  const bypass = !noAccount && permissionMode === 'bypassPermissions';
+
   const tooLong = prompt.length > PROMPT_MAX;
   const left = PROMPT_MAX - prompt.length;
   const hasText = prompt.trim().length > 0 || att.ready.length > 0;
   const imagesBlocked = !canImages && att.items.length > 0;
-  const ready = !!sel && (sel.scratch || !!project) && !!pc && (noAccount || !!account) && hasText && !att.busy && !att.failed && !imagesBlocked && !tooLong && !submitted;
+  const ready = !!sel && (sel.scratch || !!project) && !!pc && (noAccount || !!account) && hasText && !att.busy && !att.failed && !imagesBlocked && !tooLong && !worktreeBad && !submitted;
   const nothing = choices.scratchDeviceIds.length === 0;
 
-  const advShown = usePresence(adv ? ADV_ON : NO_ITEMS, (k) => k);
-  // まだ選べない段は出さない。前の段を選ぶと、次の段が伸びて現れる。
-  const pcStep = usePresence(sel ? STEP_ON : NO_ITEMS, (k) => k);
-  // エージェントの段は PC の次に出る。opencode にすると、アカウントの段は畳まれる（試作 S1：既存の Fold で段ごとに畳み、伸びる）。
-  const agentStep = usePresence(canOpencode || canCodex ? STEP_ON : NO_ITEMS, (k) => k);
-  const acctStep = usePresence(pc && !noAccount ? STEP_ON : NO_ITEMS, (k) => k);
-  const ccAdv = usePresence(noAccount ? NO_ITEMS : CC_ON, (k) => k);
-  const cxAdv = usePresence(cx ? CX_ON : NO_ITEMS, (k) => k);
-  const fullNote = usePresence(cx && cxPerm === 'full-access' ? FULL_ON : FULL_OFF, (k) => k);
-  const ocAdv = usePresence(oc ? OC_ON : NO_ITEMS, (k) => k);
-  const autoNote = usePresence(ocAuto ? AUTO_ON : AUTO_OFF, (k) => k);
+  // 札の列（試作 4A）。PC の新規ダイアログと同じ順に並べ、押すと下からシートで選ぶ。
+  // エージェントの札は、選べるエージェントが 2 つ以上あるときだけ出す。
+  const worktreeAvail = canExtras && !noAccount;
+  const chipKeysRaw: ChipKey[] = [
+    'pc',
+    ...(canOpencode || canCodex ? (['agent'] as const) : []),
+    'project',
+    ...(cx ? (['cxPerm', 'cxModel', 'cxEffort'] as const) : oc ? (['ocMode', 'ocModel', 'ocAuto'] as const) : (['account', 'model', ...(canEffort ? ['effort' as const] : []), 'perm', ...(worktreeAvail ? ['worktree' as const] : [])] as const)),
+    ...(canExtras && !nameOpen ? (['name'] as const) : []),
+  ];
+  const chipKeys = chipKeysRaw.join(' ');
+  const chipList = useMemo(() => chipKeys.split(' ') as ChipKey[], [chipKeys]);
+  // worktree と名前の欄は、札を押すと札の列の下に伸びて現れる。
+  const fieldKeysRaw = [...(wtOpen && worktreeAvail ? ['worktree'] : []), ...(nameOpen && canExtras ? ['name'] : [])];
+  const fieldKeys = fieldKeysRaw.join(' ');
+  const fieldList = useMemo(() => (fieldKeys ? fieldKeys.split(' ') : NO_ITEMS), [fieldKeys]);
+  const fields = usePresence(fieldList, (k) => k);
+  const fullNote = usePresence(cx && cxPerm === 'full-access' ? FULL_ON : NO_ITEMS, (k) => k);
+  const autoNote = usePresence(oc && ocAuto ? AUTO_ON : NO_ITEMS, (k) => k);
   const noteShown = usePresence(effortSent === 'xhigh' || effortSent === 'max' ? NOTE_ON : NO_ITEMS, (k) => k);
-  const summary = cx
-    ? [`権限 ${CODEX_PERMISSION_TEXT[cxPerm].name}`, `モデル ${cxModelName || DEFAULT_LABEL}`, ...(cxEffortSent ? [`推論 ${cxEffortSent}`] : [])]
-    : oc
-    ? [`モード ${ocModeSent || DEFAULT_LABEL}`, `モデル ${ocModelName || DEFAULT_LABEL}`, `自動承認 ${ocAuto ? 'オン' : 'オフ'}`]
-    : [permissionMode ? `権限 ${permissionName(permissionMode)}` : '', model ? `モデル ${model}` : '', effortSent ? `effort ${effortSent}` : ''].filter(Boolean);
+
+  const closeSheet = (): void => setSheet((s) => (s ? { ...s, open: false } : s));
+  const bump = (k: ChipKey): void => setBumps((b) => ({ ...b, [k]: (b[k] ?? 0) + 1 }));
+  /** シートで選んだら、値を替えてシートを閉じ、その札だけ薄れから現す。 */
+  const choose = (k: ChipKey, fn: () => void) => (): void => {
+    fn();
+    closeSheet();
+    bump(k);
+  };
+
+  type Chip = { text: string; dim?: boolean; danger?: boolean; off?: boolean; icon?: ReactNode; dot?: string | null };
+  const chipOf = (k: ChipKey): Chip => {
+    const dflt = (label: string, v: string): Chip => ({ text: v ? `${label} ${v}` : `${label} ${DEFAULT_LABEL}`, dim: !v });
+    switch (k) {
+      case 'pc':
+        return { text: pc ? pcName : 'PC', dim: !pc, off: !sel };
+      case 'agent':
+        return { text: AGENT_NAMES[cx ? 'codex' : oc ? 'opencode' : 'claude-code'], icon: <AgentIcon kind={cx ? 'codex' : oc ? 'opencode' : 'claude-code'} /> };
+      case 'project':
+        return { text: !sel ? 'プロジェクト' : sel.scratch ? 'クイックセッション' : project ? projectLabel(project) : 'プロジェクト', dim: !sel };
+      case 'account':
+        return { text: accountOf ? accountOf.name || accountOf.id : 'アカウント', dim: !accountOf, off: !pc, dot: accountOf ? safeColor(accountOf.color) : undefined };
+      case 'model':
+        return dflt('モデル', model);
+      case 'effort':
+        return dflt('effort', effortSent);
+      case 'perm':
+        return permissionMode ? { text: permissionName(permissionMode), danger: permissionMode === 'bypassPermissions' } : { text: `権限 ${DEFAULT_LABEL}`, dim: true };
+      case 'worktree':
+        return worktree.trim() ? { text: `worktree ${worktree.trim()}`, danger: worktreeBad } : { text: 'worktree なし', dim: true };
+      case 'ocMode':
+        return dflt('モード', ocModeSent);
+      case 'ocModel':
+        return dflt('モデル', ocModelName);
+      case 'ocAuto':
+        return ocAuto ? { text: '自動承認 オン', danger: true } : { text: '自動承認 オフ', dim: true };
+      case 'cxPerm':
+        return { text: CODEX_PERMISSION_TEXT[cxPerm].name, danger: cxPerm === 'full-access' };
+      case 'cxModel':
+        return dflt('モデル', cxModelName);
+      case 'cxEffort':
+        return dflt('推論', cxEffortSent);
+      case 'name':
+        return { text: '＋' };
+    }
+  };
+  const onChip = (k: ChipKey): void => {
+    if (k === 'name') setNameOpen(true);
+    else if (k === 'worktree') {
+      if (wtOpen) document.getElementById(worktreeId)?.focus();
+      else setWtOpen(true);
+    } else setSheet({ kind: k, open: true });
+  };
+
+  /** シートの題と中身。 */
+  const sheetOf = (k: SheetKey): { title: string; body: ReactNode } => {
+    switch (k) {
+      case 'project':
+        return { title: 'プロジェクト', body: <ProjectPicker projects={choices.projects} sel={sel} names={names} onPick={(s) => choose('project', () => setSel(s))()} /> };
+      case 'pc':
+        return {
+          title: 'PC',
+          body: (
+            <PickList label="PC">
+              {pcOptions.map((d) => {
+                const n = running.get(d) ?? 0;
+                return <Choice key={d} checked={pc === d} onPick={choose('pc', () => setPcPicked(d))} title={names.get(d) ?? d} sub={n > 0 ? `実行中 ${n}` : undefined} />;
+              })}
+            </PickList>
+          ),
+        };
+      case 'agent':
+        return {
+          title: 'エージェント',
+          body: (
+            <PickList label="エージェント">
+              <Choice checked={!noAccount} onPick={choose('agent', () => setAgentPicked('claude-code'))} title={AGENT_NAMES['claude-code']} icon={<AgentIcon kind="claude-code" />} />
+              {canCodex && <Choice checked={cx} onPick={choose('agent', () => setAgentPicked('codex'))} title={AGENT_NAMES.codex} badge="ベータ" sub={cx ? cxVersion : undefined} icon={<AgentIcon kind="codex" />} />}
+              {canOpencode && <Choice checked={oc} onPick={choose('agent', () => setAgentPicked('opencode'))} title={AGENT_NAMES.opencode} badge="ベータ" sub={oc ? ocVersion : undefined} icon={<AgentIcon kind="opencode" />} />}
+            </PickList>
+          ),
+        };
+      case 'account':
+        return {
+          title: 'アカウント',
+          body: (
+            <>
+              {accounts.length === 0 && <p className="ns-hint">この PC にアカウントがありません</p>}
+              <PickList label="アカウント">
+                {accounts.map((a) => (
+                  <Choice key={`${pc}:${a.id}`} checked={account === a.id} onPick={choose('account', () => setAcctPicked(a.id))} title={a.name || a.id} dot={safeColor(a.color)} sub={accountUsageSub(a)} />
+                ))}
+              </PickList>
+            </>
+          ),
+        };
+      case 'model':
+        return {
+          title: 'モデル',
+          body: (
+            <PickList label="モデル">
+              {MODEL_OPTIONS.map((m) => (
+                <Choice key={m} value={m} checked={model === m} onPick={choose('model', () => setModel(m))} title={m || DEFAULT_LABEL} />
+              ))}
+            </PickList>
+          ),
+        };
+      case 'effort':
+        return {
+          title: 'effort',
+          body: (
+            <PickList label="effort">
+              {EFFORT_OPTIONS.map((v) => (
+                <Choice key={v} value={v} checked={effort === v} onPick={choose('effort', () => setEffort(v))} title={v || DEFAULT_LABEL} />
+              ))}
+            </PickList>
+          ),
+        };
+      case 'perm':
+        return {
+          title: '権限モード',
+          body: (
+            <PickList label="権限モード">
+              {PERMISSION_OPTIONS.map((v) => (
+                <Choice key={v} value={v} checked={permissionMode === v} onPick={choose('perm', () => setPermissionMode(v))} title={permissionName(v)} danger={v === 'bypassPermissions'} />
+              ))}
+            </PickList>
+          ),
+        };
+      case 'cxPerm':
+        return {
+          title: '権限',
+          body: (
+            <PickList label="権限">
+              {CODEX_PERMISSIONS.map((v) => (
+                <Choice key={v} value={v} checked={cxPerm === v} onPick={choose('cxPerm', () => setCxPerm(v))} title={CODEX_PERMISSION_TEXT[v].name} sub={CODEX_PERMISSION_TEXT[v].note} danger={v === 'full-access'} />
+              ))}
+            </PickList>
+          ),
+        };
+      case 'cxModel':
+        return {
+          title: 'モデル',
+          body: (
+            <>
+              {cxHint && <p className="ns-hint">{cxHint}</p>}
+              <PickList label="モデル">
+                <Choice value="" checked={cxModelSent === ''} onPick={choose('cxModel', () => setCxModel(''))} title={DEFAULT_LABEL} />
+                {cxModels.map((m) => (
+                  <Choice key={m.id} value={m.id} checked={cxModelSent === m.id} onPick={choose('cxModel', () => setCxModel(m.id))} title={m.label} />
+                ))}
+              </PickList>
+            </>
+          ),
+        };
+      case 'cxEffort':
+        return {
+          title: '推論の強さ',
+          body: (
+            <PickList label="推論の強さ">
+              <Choice value="" checked={cxEffortSent === ''} onPick={choose('cxEffort', () => setCxEffort(''))} title={DEFAULT_LABEL} />
+              {cxEfforts.map((e) => (
+                <Choice key={e} value={e} checked={cxEffortSent === e} onPick={choose('cxEffort', () => setCxEffort(e))} title={e} />
+              ))}
+            </PickList>
+          ),
+        };
+      case 'ocMode':
+        return {
+          title: 'モード',
+          body: (
+            <PickList label="モード">
+              <Choice value="" checked={ocModeSent === ''} onPick={choose('ocMode', () => setOcMode(''))} title={DEFAULT_LABEL} />
+              {ocModes.map((m) => (
+                <Choice key={m.id} value={m.id} checked={ocModeSent === m.id} onPick={choose('ocMode', () => setOcMode(m.id))} title={m.id} />
+              ))}
+            </PickList>
+          ),
+        };
+      case 'ocModel':
+        return {
+          title: 'モデル',
+          body: (
+            <>
+              {ocHint && <p className="ns-hint">{ocHint}</p>}
+              <PickList label="モデル">
+                <Choice stack value="" checked={ocModelSent === ''} onPick={choose('ocModel', () => setOcModel(''))} title={DEFAULT_LABEL} sub={ocList?.defaultModel ?? undefined} />
+                {ocModels.map((m) => (
+                  <Choice key={m.id} stack value={m.id} checked={ocModelSent === m.id} onPick={choose('ocModel', () => setOcModel(m.id))} title={m.label} sub={modelSub(m)} />
+                ))}
+              </PickList>
+            </>
+          ),
+        };
+      case 'ocAuto':
+        return {
+          title: '自動承認',
+          body: (
+            <PickList label="自動承認">
+              <Choice value="off" checked={!ocAuto} onPick={choose('ocAuto', () => setOcAuto(false))} title="オフ" />
+              <Choice value="on" checked={ocAuto} onPick={choose('ocAuto', () => setOcAuto(true))} title="オン（--auto）" danger />
+            </PickList>
+          ),
+        };
+    }
+  };
+  const sheetNow = sheet ? sheetOf(sheet.kind) : null;
 
   const start = (): void => {
     if (!ready || !sel || !pc || (!noAccount && !account)) return;
@@ -296,6 +520,7 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
               prompt,
               ...imageRefs,
               agent: 'codex',
+              ...(nameSent ? { name: nameSent } : {}),
             }
           : oc
           ? {
@@ -308,6 +533,7 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
               agent: 'opencode',
               ...(ocModeSent ? { mode: ocModeSent } : {}),
               ...(ocAuto ? { autoApprove: true } : {}),
+              ...(nameSent ? { name: nameSent } : {}),
             }
           : {
               ...target,
@@ -317,6 +543,7 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
               ...(effortSent ? { effort: effortSent } : {}),
               prompt,
               ...imageRefs,
+              ...extras,
             },
         skewMs: view.skewMs,
         id: launchId,
@@ -338,7 +565,9 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
             ? '送信できなかった画像があります'
             : att.busy
               ? '画像の送信中…'
-              : `${pcName} で始める`;
+              : bypass
+                ? 'Bypass permissions で起動'
+                : `${pcName} で始める`;
 
   return (
     <div className={`ns ${leaving ? 'leaving' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} inert={leaving}>
@@ -359,55 +588,8 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
           </p>
         ) : (
           <fieldset className="ns-form" disabled={submitted}>
-            <ProjectPicker projects={choices.projects} sel={sel} onPick={setSel} names={names} />
-
-            {pcStep.map((s) => (
-              <Fold key={s.key} phase={s.phase} className="ns-step">
-                <Group label="PC">
-                  <Options
-                    items={pcOptions}
-                    keyOf={(d) => d}
-                    render={(d) => {
-                      const n = running.get(d) ?? 0;
-                      return <Choice checked={pc === d} onPick={() => setPcPicked(d)} title={names.get(d) ?? d} sub={n > 0 ? `実行中 ${n}` : undefined} />;
-                    }}
-                  />
-                </Group>
-              </Fold>
-            ))}
-
-            {agentStep.map((s) => (
-              <Fold key={s.key} phase={s.phase} className="ns-step">
-                <Group label="エージェント">
-                  <Choice checked={!noAccount} onPick={() => setAgentPicked('claude-code')} title={AGENT_NAMES['claude-code']} icon={<AgentIcon kind="claude-code" />} />
-                  {canCodex && <Choice checked={cx} onPick={() => setAgentPicked('codex')} title={AGENT_NAMES.codex} badge="ベータ" sub={cx ? cxVersion : undefined} icon={<AgentIcon kind="codex" />} />}
-                  {canOpencode && <Choice checked={oc} onPick={() => setAgentPicked('opencode')} title={AGENT_NAMES.opencode} badge="ベータ" sub={oc ? ocVersion : undefined} icon={<AgentIcon kind="opencode" />} />}
-                </Group>
-              </Fold>
-            ))}
-
-            {acctStep.map((s) => (
-              <Fold key={s.key} phase={s.phase} className="ns-step">
-                <Group label="アカウント" hint={accounts.length === 0 ? 'この PC にアカウントがありません' : null}>
-                  <Options
-                    items={accounts}
-                    keyOf={(a) => `${pc}:${a.id}`}
-                    render={(a) => (
-                      <Choice
-                        checked={account === a.id}
-                        onPick={() => setAcctPicked(a.id)}
-                        title={a.name || a.id}
-                        dot={safeColor(a.color)}
-                        sub={accountUsageSub(a)}
-                      />
-                    )}
-                  />
-                </Group>
-              </Fold>
-            ))}
-
             <section className="ns-sec">
-              <label className="ns-h" htmlFor={promptId}>
+              <label className="vh" htmlFor={promptId}>
                 初期プロンプト
               </label>
               <Composer
@@ -435,169 +617,75 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
               ) : null}
             </section>
 
-            <section className="ns-sec">
-              <button type="button" className={`sumrow ${adv ? 'open' : ''}`} aria-expanded={adv} aria-controls={advId} onClick={() => setAdv((v) => !v)}>
-                <span className="sumrow-text">
-                  <b>詳しい設定</b>
-                  {summary.length > 0 && <small>{summary.join(' · ')}</small>}
-                </span>
-                <span className="chev" aria-hidden="true">
-                  ›
-                </span>
-              </button>
-              <div id={advId}>
-                {advShown.map((x) => (
-                  <Fold key={x.key} phase={x.phase}>
-                    <div className="adv">
-                      {ccAdv.map((c) => (
-                        <Fold key={c.key} phase={c.phase}>
-                          <Group label="権限モード" grid>
-                            {PERMISSION_OPTIONS.map((v) => (
-                              <Choice key={v} small value={v} checked={permissionMode === v} onPick={() => setPermissionMode(v)} title={permissionName(v)} danger={v === 'bypassPermissions'} />
-                            ))}
-                          </Group>
-                          <Group label="モデル" grid>
-                            {MODEL_OPTIONS.map((m) => (
-                              <Choice key={m} small value={m} checked={model === m} onPick={() => setModel(m)} title={m || DEFAULT_LABEL} />
-                            ))}
-                          </Group>
-                          {canEffort && (
-                            <Group label="effort" grid>
-                              {EFFORT_OPTIONS.map((v) => (
-                                <Choice key={v} small value={v} checked={effort === v} onPick={() => setEffort(v)} title={v || DEFAULT_LABEL} />
-                              ))}
-                            </Group>
-                          )}
-                          {noteShown.map((n) => (
-                            <div key={n.key} className={`fold ${phaseClass(n.phase)}`} aria-hidden={n.phase === 'leave' ? true : undefined}>
-                              <div className="fold-in">
-                                <p className="strip warn adv-note" role="note">
-                                  xhigh と max は考える時間が長く、使用量が増えます。
-                                </p>
-                              </div>
-                            </div>
-                          ))}
-                        </Fold>
-                      ))}
-                      {cxAdv.map((c) => (
-                        <Fold key={c.key} phase={c.phase}>
-                          <Group label="権限">
-                            {CODEX_PERMISSIONS.map((v) => (
-                              <Choice key={v} value={v} checked={cxPerm === v} onPick={() => setCxPerm(v)} title={CODEX_PERMISSION_TEXT[v].name} sub={CODEX_PERMISSION_TEXT[v].note} danger={v === 'full-access'} />
-                            ))}
-                          </Group>
-                          {fullNote.map((n) => (
-                            <div key={n.key} className={`fold ${phaseClass(n.phase)}`} aria-hidden={n.phase === 'leave' ? true : undefined}>
-                              <div className="fold-in">
-                                {n.key === 'on' ? (
-                                  <p className="strip danger adv-note" role="note">
-                                    {launchJa['launch.codexPermission.fullAccessWarn']}
-                                  </p>
-                                ) : null}
-                              </div>
-                            </div>
-                          ))}
-                          <Group label="モデル" grid={2} hint={cxHint}>
-                            <Choice small stack value="" checked={cxModelSent === ''} onPick={() => setCxModel('')} title={DEFAULT_LABEL} />
-                            <Options
-                              items={cxModels}
-                              keyOf={(m) => m.id}
-                              render={(m) => <Choice small stack value={m.id} checked={cxModelSent === m.id} onPick={() => setCxModel(m.id)} title={m.label} />}
-                            />
-                          </Group>
-                          <Group label="推論の強さ" grid>
-                            <Choice small value="" checked={cxEffortSent === ''} onPick={() => setCxEffort('')} title={DEFAULT_LABEL} />
-                            <Options
-                              items={cxEfforts}
-                              keyOf={(e) => e}
-                              render={(e) => <Choice small value={e} checked={cxEffortSent === e} onPick={() => setCxEffort(e)} title={e} />}
-                            />
-                          </Group>
-                        </Fold>
-                      ))}
-                      {ocAdv.map((o) => (
-                        <Fold key={o.key} phase={o.phase}>
-                          <Group label="モード" grid>
-                            <Choice small value="" checked={ocModeSent === ''} onPick={() => setOcMode('')} title={DEFAULT_LABEL} />
-                            <Options
-                              items={ocModes}
-                              keyOf={(m) => m.id}
-                              render={(m) => <Choice small value={m.id} checked={ocModeSent === m.id} onPick={() => setOcMode(m.id)} title={m.id} />}
-                            />
-                          </Group>
-                          <Group label="モデル" grid={2} hint={ocHint}>
-                            <Choice small stack value="" checked={ocModelSent === ''} onPick={() => setOcModel('')} title={DEFAULT_LABEL} sub={ocList?.defaultModel ?? undefined} />
-                            <Options
-                              items={ocModels}
-                              keyOf={(m) => m.id}
-                              render={(m) => <Choice small stack value={m.id} checked={ocModelSent === m.id} onPick={() => setOcModel(m.id)} title={m.label} sub={modelSub(m)} />}
-                            />
-                          </Group>
-                          <Group label="自動承認" grid={2}>
-                            <Choice small value="off" checked={!ocAuto} onPick={() => setOcAuto(false)} title="オフ" />
-                            <Choice small value="on" checked={ocAuto} onPick={() => setOcAuto(true)} title="オン（--auto）" danger />
-                          </Group>
-                          {autoNote.map((n) => (
-                            <div key={n.key} className={`fold ${phaseClass(n.phase)}`} aria-hidden={n.phase === 'leave' ? true : undefined}>
-                              <div className="fold-in">
-                                {n.key === 'on' ? (
-                                  <p className="strip danger adv-note" role="note">
-                                    deny 以外をすべて許可
-                                  </p>
-                                ) : (
-                                  <p className="ns-hint adv-note">ask のツールは実行前に確認</p>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </Fold>
-                      ))}
-                    </div>
-                  </Fold>
-                ))}
-              </div>
-            </section>
+            <div className="chips">
+              {chipList.map((k) => {
+                const c = chipOf(k);
+                const cls = ['chip', 'm-fade', k === 'name' ? 'plus' : '', c.dim ? 'dim' : '', c.danger ? 'danger' : ''].filter(Boolean).join(' ');
+                return (
+                  <button key={`${k}:${bumps[k] ?? 0}`} type="button" className={cls} data-chip={k} disabled={c.off} aria-haspopup={k === 'name' || k === 'worktree' ? undefined : 'dialog'} aria-label={k === 'name' ? '名前を足す' : undefined} onClick={() => onChip(k)}>
+                    {c.dot !== undefined && <span className="acct-dot" style={c.dot ? { background: c.dot } : undefined} aria-hidden="true" />}
+                    {c.icon !== undefined && <span aria-hidden="true">{c.icon}</span>}
+                    {c.text}
+                  </button>
+                );
+              })}
+            </div>
+
+            {fields.map((f) => (
+              <Fold key={f.key} phase={f.phase}>
+                {f.key === 'worktree' ? (
+                  <input id={worktreeId} className="input" aria-label="worktree" value={worktree} placeholder="worktree の名前" aria-invalid={worktreeBad || undefined} autoFocus autoCapitalize="off" autoCorrect="off" spellCheck={false} onChange={(e) => setWorktree(e.target.value)} />
+                ) : (
+                  <input id={nameId} className="input" aria-label="名前" value={convName} placeholder="名前" maxLength={MOBILE_LAUNCH_NAME_MAX} autoFocus onChange={(e) => setConvName(e.target.value)} />
+                )}
+              </Fold>
+            ))}
+
+            {noteShown.map((n) => (
+              <Fold key={n.key} phase={n.phase}>
+                <p className="strip warn" role="note">
+                  xhigh と max は考える時間が長く、使用量が増えます。
+                </p>
+              </Fold>
+            ))}
+            {fullNote.map((n) => (
+              <Fold key={n.key} phase={n.phase}>
+                <p className="strip danger" role="note">
+                  {launchJa['launch.codexPermission.fullAccessWarn']}
+                </p>
+              </Fold>
+            ))}
+            {autoNote.map((n) => (
+              <Fold key={n.key} phase={n.phase}>
+                <p className="strip danger" role="note">
+                  deny 以外をすべて許可
+                </p>
+              </Fold>
+            ))}
           </fieldset>
         )}
       </div>
 
       <div className="ns-bar">
         <div className="ns-bar-in">
-          <button type="button" className="ns-start" disabled={!ready} onClick={start}>
+          <button type="button" className={`ns-start${ready && bypass ? ' danger' : ''}`} disabled={!ready} onClick={start}>
             {label}
           </button>
         </div>
       </div>
+
+      <BottomSheet open={!!sheet?.open} title={sheetNow?.title ?? ''} closeText="閉じる" closeLabel="一覧を閉じる" onClose={closeSheet}>
+        {sheetNow?.body}
+      </BottomSheet>
     </div>
   );
 }
 
-/** 選択肢の組。grid は 3 列の札（true）か 2 列の札（2）、省けば縦の並び。 */
-function Group({ label, hint, grid, children }: { label: string; hint?: string | null; grid?: boolean | 2; children: ReactNode }): ReactNode {
-  const id = useId();
+/** シートの中の選択肢の並び。 */
+function PickList({ label, children }: { label: string; children: ReactNode }): ReactNode {
   return (
-    <section className="ns-sec">
-      <h2 className="ns-h" id={id}>
-        {label}
-      </h2>
-      {hint && <p className="ns-hint m-fade">{hint}</p>}
-      <div role="radiogroup" aria-labelledby={id} className={grid === 2 ? 'ns-grid' : grid ? 'ns-grid c3' : 'ns-list'}>
-        {children}
-      </div>
-    </section>
-  );
-}
-
-/** 候補が入れ替わる組（PC、アカウント）。増えたものは伸びて入り、消えたものは畳んで出る。 */
-function Options<T>({ items, keyOf, render }: { items: readonly T[]; keyOf: (t: T) => string; render: (t: T) => ReactNode }): ReactNode {
-  const list = usePresence(items, keyOf);
-  return (
-    <>
-      {list.map((p) => (
-        <Fold key={p.key} phase={p.phase}>
-          {render(p.item)}
-        </Fold>
-      ))}
-    </>
+    <div role="radiogroup" aria-label={label} className="pick-list">
+      {children}
+    </div>
   );
 }

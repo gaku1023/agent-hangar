@@ -386,7 +386,7 @@ Root
 │     ├─ ProjectsScreen     節 × n → ProjectRow（行の表）
 │     ├─ ProjectScreen      見出し / SessionList / 右パネル（TodoList、InstructionsPanel、ArtifactCards）
 │     ├─ SessionScreen      見出しの段（SessionBadges、(i) の詳細） / TabStrip / TerminalPane または Transcript（ToolGroup＝続けて呼んだツールのまとめ） / 見出しの下の 1 行（EndedFacts） / 右の列（NowCard＝現在の札、SummaryCard＝要約の札、TocPane（TurnIndex））
-│     └─ SettingsScreen     目次 / 選んだ節（一般、セッション、要約、クラウド同期、環境、使用量、エージェントの 3 節、Hangar について）
+│     └─ SettingsScreen     目次 / 選んだ節（一般、スマホ、セッション、要約、クラウド同期、環境、使用量、エージェントの 3 節、Hangar について）
 └─ Overlays
    ├─ CommandPalette
    ├─ NewSessionDialog / NewProjectDialog / PromoteDialog / ResolveProjectDialog / ConfigSyncDialog
@@ -4955,7 +4955,7 @@ ssh（`git@host:owner/repo.git`、`ssh://git@host:22/owner/repo`）と https を
 
 スマホ版も同じ原則に従う（2026-10-25、計画は `docs/plans/done/lean-mobile.md`）。
 マウスを乗せる操作が無いので、ⓘ を押すと説明は浮かばずに、見出しのすぐ下にその場で開く（growIn、もう一度押すと畳む）。
-新しい会話の画面では、まだ選べない段（PC、アカウント）を出さず、前の段を選ぶと次の段が現れる。
+新しい会話の画面では、まだ選べない札（PC、アカウント）を薄くして押せなくし、前の札を選ぶと押せる。
 受信箱の札の操作の文は「開く ›」だけにし、どのアカウントかは札の上のタグで見せる。
 
 ### 画面の用語
@@ -6527,7 +6527,7 @@ PC の表の列は名前、OS（macOS、Windows）、参加日、最終同期で
 スマホの表は、名前、参加日、最終同期と「解除」を並べる。
 名前の下には、使わずに切れるまでの残りの日数と再接続の日付（「残り {n} 日（使用すると延長されます）。{date} に再接続が必要です。」）を出す。
 残りの日数は、最後に使ってから 30 日と接続から 90 日の早いほうまでで、再接続の日付は接続から 90 日の期限である（どちらも Worker の値から求める）。
-スマホの「解除」は確認なしの 1 クリックで、右下に 5 秒の「元に戻す」を出す（「スマホ（試験的）」の「スマホの解除」）。
+スマホの「解除」は確認なしの 1 クリックで、右下に 5 秒の「元に戻す」を出す（「スマホ」の「スマホの解除」）。
 解除したスマホの行も `collapseOut` で畳んで外し、「解除した PC」のようには並べない。0 台のときは「接続しているスマホはありません。」の 1 行を出す。
 スマホが自分で外したとき（`POST /m/leave`）も、Worker の一覧で解除済みになるので、同じく表から消える。
 ブラウザでは「解除…」を出さず、`hangar cloud revoke <ID>` を案内し、解除すると暗号鍵を再生成する旨を添える。
@@ -7662,7 +7662,7 @@ Worker が平文で持つのは、鍵、連番、時刻、端末の ID、鍵の�
 | `join_codes` | 参加コード | `code_hash`、`created_by`、`created_at`、`expires_at`、`used_at`、`status`、`device_id` | `request`（新しい PC の公開鍵、名前、OS） |
 | `meta` | 表を作ったときの印（`cloud_id`）、回数の窓、bootstrap の印、VAPID の鍵ペア（`vapid`、0.9.1） | `key`、`value` | 無し |
 
-スマホ向けの 3 表（`mobile_feeds`、`launch_requests`、`mobile_pairings`）と、プッシュ通知の購読の表（`push_subscriptions`、0.9.1）は「スマホ（試験的）」の節にある。
+スマホ向けの 3 表（`mobile_feeds`、`launch_requests`、`mobile_pairings`）と、プッシュ通知の購読の表（`push_subscriptions`、0.9.1）は「スマホ」の節にある。
 `devices` は IP と所在地を持たない。
 名前と OS は名簿に置く。
 
@@ -7778,7 +7778,7 @@ R2 の無料枠は 10GB で、gzip したトランスクリプト全体でも 75
 - **Claude Code のユーザー設定**：`~/.claude` の `CLAUDE.md`、`keybindings.json`、`skills/**`、`commands/**`、`agents/**`、`memory/**`、`settings.json` の運べる鍵、プロジェクトのメモリ（`projects/<slug>/memory/**`）。PC ごとに 1 つの束（tar を gzip したもの）にまとめ、本文と同じ鍵で暗号化して R2 に置く。鍵名は `b/<端末 ID>/<HMAC("c:" 元の PC ":" 束のパス)>` で、束のパスは固定の `.hangar/config-bundle.hgr` である。束の索引は共有テーブルの `config_snapshots`（PC ごとに 1 行）が持ち、中身の項目の id と相対パスは Worker に見えない。運ぶ項目と運ばない項目の仕分けは「設定の同期の作り直し」の節にある。
 
 hangar 自体の設定（ワークスペースルート、ターミナルアプリ）と UI の一時状態は同期しない。
-スマホ向けの 3 表（`mobile_feeds`、`launch_requests`、`mobile_pairings`）は共有テーブルではなく、PC どうしの同期には載らない（「スマホ（試験的）」）。
+スマホ向けの 3 表（`mobile_feeds`、`launch_requests`、`mobile_pairings`）は共有テーブルではなく、PC どうしの同期には載らない（「スマホ」）。
 
 本文は差分ではなく、**変わるたびにファイル全体を gzip して上げ直す**。
 R2 は部分更新を持たないので、末尾だけを足す道が無いためである。
@@ -9019,8 +9019,8 @@ Worker の `MIN_DEVICE_COMPAT` は、同期に参加しているすべての端�
 | 4 | 設定の同期の旧実装を消す（項目ごとに R2 の `config/<端末>/<相対パス>` へ置く方式）。Worker は旧い置き場を掃除する | `MIN_DEVICE_COMPAT` を 4 に（`MIN_WORKER_COMPAT` は 1 のまま） |
 | 5 | Worker が PC の一覧（`GET /devices`）と解除（`POST /devices/:id/revoke`）を持ち、解除した PC の端末トークンを 401 の `revoked` で断る。殻は参加と解除の命令（`cloud_join_plan`、`cloud_join`、`cloud_revoke`、`cloud_leave`）を持ち、画面がそれを呼ぶ。端末は、Worker の版が 5（`DEVICE_ADMIN_MIN_WORKER_COMPAT`）に届くまで、一覧と解除を「Worker の更新が要る」と出す | 上げない |
 | 6 | Worker の変更ログ（`changes`）と圧縮と `410` をやめ、`rows` の連番で差分を引く。pull の応答に `peers` と `now` を添え、端末は他の PC の生存をそれで見て、`runs.heartbeat_at` を共有の行に書かない。Worker は引き継ぎの頼みと応答の行（共有表 `takeovers` と `takeover_answers`）も受け取る | `MIN_DEVICE_COMPAT` と `MIN_WORKER_COMPAT` を同時に 6 に（例外） |
-| 7 | Worker がスマホ向けの口（`/m/`）と専用の 3 表（`mobile_feeds`、`launch_requests`、`mobile_pairings`）を持ち、`devices` に列 `kind` を足す。`GET /changes` に `launches` を添える。共有表（`rows`）には何も足さない。PC は Worker の版が 7（`MOBILE_MIN_WORKER_COMPAT`）に届くまでスマホ向けの書き込みも依頼の処理もしない（「スマホ（試験的）」） | 上げない |
-| 8 | Worker が呼び鈴（Durable Object `HangarBell`。`GET /m/bell`、`POST /m/ask`）、画像の口（`PUT` と `GET /m/blobs`）、`DELETE /m/feed` を持つ。PC は Worker の版が 8（`MOBILE_BELL_MIN_WORKER_COMPAT`）以上になるまで呼び鈴を張らない（「スマホ（試験的）」） | 上げない |
+| 7 | Worker がスマホ向けの口（`/m/`）と専用の 3 表（`mobile_feeds`、`launch_requests`、`mobile_pairings`）を持ち、`devices` に列 `kind` を足す。`GET /changes` に `launches` を添える。共有表（`rows`）には何も足さない。PC は Worker の版が 7（`MOBILE_MIN_WORKER_COMPAT`）に届くまでスマホ向けの書き込みも依頼の処理もしない（「スマホ」） | 上げない |
+| 8 | Worker が呼び鈴（Durable Object `HangarBell`。`GET /m/bell`、`POST /m/ask`）、画像の口（`PUT` と `GET /m/blobs`）、`DELETE /m/feed` を持つ。PC は Worker の版が 8（`MOBILE_BELL_MIN_WORKER_COMPAT`）以上になるまで呼び鈴を張らない（「スマホ」） | 上げない |
 | 9 | E2E の作り直し。Worker の表を作り直し、行とファイルのメタを PC が封じた BLOB で持つ。参加用の秘密と `POST /join` をやめ、`POST /bootstrap` と参加コードで参加する。名簿と keybox の口、`DELETE /blobs` を足し、`sweepTrash` と `devices` の IP と所在地を無くした（「Worker の表」）。版 8 の呼び鈴と画像の口はそのまま持つ | `MIN_DEVICE_COMPAT` と `MIN_WORKER_COMPAT` を同時に 9 に（作り直しなので混在させない） |
 
 引き継ぎの 2 表は、同期の版 6 と一緒に 0.7.1 で出すので、別の版を立てずに版 6 に含めた。
@@ -9424,22 +9424,37 @@ waiting への変化だけは急ぎの書き込み（`isUrgentWrite`）にして
 同じセッションの同じ位置につき索引化するファイルは常に 1 つで、手元の本文があればそれを優先し、無ければ更新時刻が最新の写しを 1 つだけ採る。
 本文が 2 か所で伸びても、見た目が二重にならないようにするためである。
 
-### スマホ（試験的）
+### スマホ
 
-スマホで「いま自分の番の会話」を見て、会話を起こせるようにする。
+スマホで「いま自分の番の会話」を見て、答え、会話を起こせるようにする。
 互換の版 7 で入れた。
 0.8.0 の rc.2 で、呼び鈴（Durable Object）、`@` と `/` の問い合わせ、画像の添付、effort の選択を足し、互換の版を 8 に上げた。
 クラウド同期の作り直し（E2E、互換の版 9）で、参加の秘密が無くなったので、スマホの接続と鍵も作り直した（「スマホの接続」「暗号の鍵と AAD」「スマホの解除」「互換の版 9」）。
+試験的の扱いをやめ、会話の頁（互換の版 13）と、PC の設定の目次の節「スマホ」を足した。
 スマホの画面は自分の Worker が配る小さな PWA（`packages/mobile`、React と Vite）で、PC の受信箱をスマホ向けに見せる。
-会話そのものは扱わない。
-会話を開いて続けるのは、Claude の Remote Control（`claude --remote-control`）に任せる。
+Claude Code の会話は、スマホの会話の頁で続きを読み、文を送り、許可と質問の札に答え、作業中のターンを中断できる（「会話の頁」）。
+opencode と Codex の会話、互換の版 13 に届かない PC や Worker の会話は、今までどおり Claude の Remote Control（`claude --remote-control`）で開くか、PC で答える。
 スマホから会話の状態は変えない（Done や Paused にする操作は無い）。
 
 **範囲。**
 見るのは、入力待ち（許可待ちと入力待ち）、実行中の会話、今日のリマインダー（今日戻る会話）、今日終わった会話、PC ごとの生存である。
-できるのは、選んだ PC に新しい会話を起こすことだけである。
+入力待ちの札を押すと会話の頁が開き、続きを読み、文を送り、札に答えられる。
+通知を押すと、その会話の頁が問いの位置まで送られて開く。
+選んだ PC に新しい会話を起こせる。
 ほかに、スマホの設定（通知、新しい会話のデフォルト、接続）を変えられる（「スマホの設定」）。
-選べるのは、プロジェクト（ディレクトリなしの「クイックセッション」を含む）、PC、アカウント、権限モード、モデル、effort、初期プロンプトである。
+起動で選べるのは、プロジェクト（ディレクトリなしの「クイックセッション」を含む）、PC、アカウント、モデル、effort、権限モード、worktree、名前、初期プロンプトである。
+追加ディレクトリはスマホでは選べない（パスを打つのはスマホに向かない）。
+worktree と名前は、起動の依頼の封（`MobileLaunchPayload`）の `worktree` と `name` で運ぶ。
+PC は受信箱の素の `caps.launchExtras` で読めることを示し、スマホは印のある PC にだけ 2 つの欄を出す（古い PC は知らない欄を捨てて起こすため）。
+worktree は Claude Code だけが受け、形は `MOBILE_WORKTREE_RE`（先頭は英数字、`/` と `..` を含まない、64 字まで）、名前は 120 字までで、外れた依頼は `bad-payload` で断る。
+起動の画面は、大きな初期プロンプトの欄の下に、PC の新規ダイアログと同じ順の札を並べる（試作 4A）。
+札は PC、エージェント（選べるエージェントが 2 つ以上あるときだけ）、プロジェクト、アカウント、モデル、effort、権限モード、worktree、名前を足す「＋」の順で、「詳しい設定」の畳みは持たない。
+札を押すと下から BottomSheet が上がって選択肢を並べ、選ぶとシートが下がって、その札だけ薄れから現れる（`m-fade`、新しい動きは足さない）。
+選ぶ前の値は薄い札、Bypass permissions と Codex のフルアクセスは危険の色の札になる。
+worktree の札と「＋」は欄を開く札で、押すと札の列の下に入力欄が伸びて現れる（`Fold`）。
+worktree の札は Claude Code だけ、worktree と名前の札は `caps.launchExtras` のある PC だけに出す。
+opencode と Codex では、モード・モデル・自動承認、権限・モデル・推論の強さの札に替わる。
+危険の帯（xhigh と max の使用量、フルアクセスと自動承認オンの注意）は札の列の下に出し、モデルの一覧の取得失敗の文はモデルのシートの上に出す。
 権限モードの値は、PC の新規セッションのダイアログと同じである。
 effort の値（デフォルト、low、medium、high、xhigh、max）も、PC の新規セッションのダイアログと同じ表（shared の `EFFORT_VALUES`）を使う。
 PC 側で権限モードやモデルや effort に上限は設けず、スマホで選んだ値のまま起こす。
@@ -9481,6 +9496,7 @@ Worker が平文で持つのは、PC の ID と更新時刻、依頼の ID と�
 | `POST /m/launches/:id/claim`、`POST /m/launches/:id/answer` | PC | 依頼を受け取る、答える。答えが通ったら、その依頼の画像を R2 から消す |
 | `GET /m/bell` | PC | 呼び鈴の WebSocket につなぐ |
 | `POST /m/ask` | スマホ | `@` と `/` の問い合わせを、宛先の PC に渡して答えを返す |
+| `POST /m/chat` | スマホ | 会話の頼み（読む、送る、答える、中断）を、宛先の PC に渡して答えを返す（互換の版 13、「会話の頁」） |
 | `PUT /m/blobs/<依頼の ID>/<番号>` | スマホ | 封をした画像を R2 に置く |
 | `GET /m/blobs/<依頼の ID>/<番号>` | PC | 自分宛ての依頼の画像を読む |
 | `DELETE /m/feed` | PC | 自分の受信箱の素の行を消す |
@@ -9578,12 +9594,11 @@ Codex のある PC があれば、行の選択肢に Codex も入る（Claude Co
 エージェントは opencode か Codex のときだけ `agent` として置く。
 
 新しい会話の画面で opencode のある PC を選ぶと、PC の段の次に「エージェント」の段（Claude Code／opencode と小札「ベータ」）が伸びて現れる。
-opencode にすると、アカウントの段と、詳しい設定の権限モード・モデル・effort の組は既存の Fold で畳まれ、モード・モデル・自動承認の組が伸びて現れる（試作 S1。新しい動きは足さない）。
-要約の行は「モード build · モデル … · 自動承認 オフ」になる。
+opencode にすると、アカウント、モデル、effort、権限モードの札が、モード、モデル、自動承認の札に替わる。
 モードとモデルの一覧は、opencode を選んだときに呼び鈴の問い合わせ（`agent-options`）で PC から取り、届いた札は順に伸びて入る。
 モデルの札には、プロバイダー、費用の型（ローカル、無料、従量、定額）と、PC 外へ出ないこと、学習に使わないこと、気を付けるデータの扱い（⚠）を添える。
 文はモデルの小窓と同じ辞書（`launch.model.data.*` の日本語）から引く。30 日間保持は、狭い札に収めるため出さない。
-自動承認のオンは危険の色にし、下に「deny 以外をすべて許可」を出す（オフなら「ask のツールは実行前に確認」）。
+自動承認のオンは危険の色の札にし、札の列の下に「deny 以外をすべて許可」を出す。
 `/` の候補は、アカウントなしで opencode のコマンドとスキルを問い合わせる。
 opencode の会話には Remote Control が無いので、起動のシートは開くボタンを出さず、URL も待たない。
 
@@ -9591,7 +9606,7 @@ opencode の会話には Remote Control が無いので、起動のシートは�
 Codex を有効にし、手元に codex が見つかる PC（`caps.agents` に codex）を選ぶと、エージェントの段に Codex（小札「ベータ」）が Claude Code と opencode の間に入る。
 並びは PC の新しい会話と同じ（Claude Code、Codex、opencode）。
 段の作りと動きは opencode と同じで、新しい部品も動きも足さない（既存の `Choice`、`Group`、`Fold`、危険の帯を使い回す）。
-Codex にすると、アカウントの段と、詳しい設定の権限モード・モデル・effort の組が畳まれ、権限・モデル・推論の強さの組が伸びて現れる。
+Codex にすると、アカウント、モデル、effort、権限モードの札が、権限、モデル、推論の強さの札に替わる。
 権限は PC の新しい会話と同じ 3 段（読み取りのみ、自動、フルアクセス。`launch.codexPermission.*` の辞書）で、既定は自動である。
 フルアクセスだけ危険の色にし、下に「確認なしでコマンドを実行します。信頼できるディレクトリでだけ使ってください。」を出す。
 フルアクセスは既定に持たず、毎回自動から始める。
@@ -9656,7 +9671,10 @@ QR の中身は `<Worker の URL>/app/#pair=<base64url(JSON)>` で、JSON は `P
 互換の版 8 までの `key`（スマホ用の鍵）は消した。
 `pcName` と `expiresAt` は秘密ではなく、画面の表示に使う。
 `#` 以降はサーバへ送られず、スマホの画面は読んだらすぐ `history.replaceState` で消す。
-PC 側の接続の画面は、設定 › クラウド同期 の「スマホ」にある。
+PC 側の接続の画面は、設定の節「スマホ」にある（目次は「一般」の次、URL は `#/settings?at=phone`）。
+節には、スマホからの送信を受けるスイッチ（`phoneChatAccept`、既定は入り）、スマホの表、「スマホを接続」を置く。
+クラウドに参加していない間は、クラウド同期の節へ移るボタンだけを置く。
+クラウド同期の節にはスマホを出さない。
 
 **スマホの接続（互換の版 9）。**
 
@@ -9732,6 +9750,8 @@ info と AAD が PC の keybox（`hangar-keybox-v1`）と違うので、取り�
 | `@` と `/` の問い合わせ | `ask:<問い合わせの ID>:<宛先の PC の ID>` |
 | 問い合わせの答え | `reply:<問い合わせの ID>` |
 | 画像 | `image:<依頼の ID>:<番号>` |
+| 会話の頼み | `phone-chat:<頼みの ID>:<宛先の PC の ID>` |
+| 会話の頼みの答え | `phone-chat-reply:<頼みの ID>` |
 
 区切りはコロンである（shared の `aadAsk`、`aadReply`、`aadImage`）。
 問い合わせと画像の封にも、同じスマホ用の鍵を使う。
@@ -9742,7 +9762,7 @@ PC は、復号できた依頼だけを起こす。
 スマホの Worker 用トークンだけが漏れても、鍵が無いので、有効な依頼は作れない。
 
 **スマホの解除。**
-設定 › クラウド同期 のスマホの行の「解除」は、確認なしの 1 クリックである。
+設定 › スマホ のスマホの行の「解除」は、確認なしの 1 クリックである。
 押すと行を `collapseOut` で畳み、右下に 5 秒の「元に戻す」の通知を出す。
 5 秒の間は Worker に何も送らない（取り消しのための口を Worker に作らないため）。
 「元に戻す」で行は `growIn` で戻り、5 秒たつと解除を送る。
@@ -10111,6 +10131,79 @@ Windows の psmux は `-J` を受けて 0 で終わるが、折り返しをつ�
 `rcUrl` は `https://claude.ai/` で始まるものだけを通す（`isRemoteControlUrl`）。
 拾うときと、スマホで開くときの両方で確かめる。
 画面の文は会話から来るので、攻撃者が操れるからである。
+
+**会話の頁（互換の版 13）。**
+スマホから Claude Code の会話を読み、答えるための道である。
+PC どうしの会話（「ほかの PC で動いている会話」の peer chat）の宿主（`peer/chat/host.ts`）を、そのままスマホにも使う。
+
+運び方。
+スマホは `POST /m/chat` で頼む（`packages/cloud/src/phoneChat.ts`）。
+PC どうしの `POST /peer/ask` の写しで、スマホのトークンだけを通す。
+本文は `{ askId, to, sealed, epoch, waitMs }` で、上限は `/peer/ask` と同じ 96 KiB、`waitMs` は 0 から 20 秒である。
+Worker は宛先が解除していない PC であることを D1 で 1 行読んで確かめ（`/m/ask` と同じ）、Durable Object に渡す。
+Durable Object は宛先の WebSocket に `{ t: 'phone-chat', id, from, epoch, sealed }` を送り、`{ t: 'phone-chat-reply', id, from, sealed }` を待って封のまま返す。
+`from` は Worker が端末トークンで知るスマホの ID で、待ちの鍵はスマホの ID と頼みの ID の組である。
+PC どうしの待ちとは表を分ける。
+断り方（409 の `offline` と `duplicate`、429 の `rate`、502、504）と待ちの長さ（`waitMs` に 5 秒を足す）は `/peer/ask` と同じである。
+回数の上限はスマホ 1 台ごとに 1 分 120 回（`PHONE_CHAT_RATE`）で、tail の長い待ちを 2 秒おきに張り直す見張りが収まる。
+D1 には書かない。
+
+封と中身。
+スマホ用の鍵 `M[m]` で封じ、新しい鍵は作らない。
+AAD は頼みが `phone-chat:<頼みの ID>:<宛先の PC の ID>`、答えが `phone-chat-reply:<頼みの ID>` で、問い合わせ（`ask:`、`reply:`）と取り違えて開けない。
+中身は peer chat の `PeerChatRequest` と `PeerChatReply` と同じ形で、PC は開いたら peer chat の宿主の同じ op の処理へ通す（`mobile/chatHost.ts`）。
+送り主（`PeerChatItem.from`）はスマホの ID で、名前は名簿から引く。
+PC の画面にも「〈スマホの名前〉から」と出る。
+最初は文だけを送る（`images` は空）。
+画像は、PC が受信箱の素の `caps` に印を載せてから足す。
+
+送り主ごとの入り切り。
+PC の設定「スマホから会話に入力する」（`Settings.phoneChatAccept`、既定は入り）は、PC どうしの「ほかの PC からの入力を受け付ける」（`peerChatAcceptFromPeers`）と分ける。
+宿主は、送り主の種類（PC かスマホか）でどちらの設定を見るかを選ぶ（`acceptFrom(送り主)`）。
+頼みを断るとき、預かりを受けるとき、預かりを渡す直前の 3 か所で、同じ選び方をする。
+切のときは、読む頼み（tail、files）だけを通し、送る頼み（send、answer、interrupt、resume-send、rush）は `refused-by-setting` で断る。
+スマホの頁は、切の PC では中断のボタンも出さない。
+スマホの鍵を持つ者は、もう全 PC で bypass の会話を起こせるので、会話に文を送れても守る境界は増えない（脅威モデルの「スマホの画面を差し替える」と同じ扱い）。
+それでも切り替えを置くのは、PC どうしは切、スマホは入、のように分けたい人がいるからである。
+
+古い組み合わせ。
+PC は、Worker が名乗る版が `PHONE_CHAT_MIN_WORKER_COMPAT`（13）に届いたときだけ、受信箱の素の `caps` に `chat: { input }` を載せる。
+`input` は設定「スマホからの送信を受ける」で、設定を替えると素を組み直す（`config/settingsUpdate.ts`）。
+スマホは `caps.chat` のある PC の Claude Code の会話にだけ会話の頁を出し、ほかは今までどおり Remote Control を開く。
+`input` が偽なら、頁は読むだけにし、入力欄も中断も出さない。
+版 12 までの Worker は `/m/chat` を 404 で返す。
+
+PC の受け口。
+呼び鈴の `phone-chat` の枠は `mobile/bell.ts` が受け、`mobile/chatHost.ts` が枠の世代の `M` で開いて、宿主の `handleRequest` へ渡す。
+宿主は、開けた頼みの送り主を `{ id, kind: 'phone', name }` として扱い、スマホの ID を覚える。
+預かりの見直しと渡す直前の確かめは、預かりの送り主の ID からその種類を引き、種類の設定を読む。
+答えの封が呼び鈴の上限（64 KiB）を超えるなら、`too-large` の断りを封じて返す。
+スマホの頼みには PC どうしの鍵の束を渡さないので、画像の付いた頼みは `too-large` で断る。
+
+通知から開く。
+PC はスマホの通知（`PhoneNotice`）に、送った PC の ID（`deviceId`）を添える。
+スマホは通知から会話の頁を開くとき、これで宛先の PC を決める。
+無い通知（古い PC）は、PC の名前で探す。
+サービスワーカーは `#open=<会話の ID>&device=<PC の ID>&pc=<PC の名前>` を付けて開く（開いている画面には `message` で同じ値を渡す）。
+画面は読み直した受信箱の素から宛先を決める。
+素に会話の行があればその行から、無ければ PC の ID（無ければ名前）で `caps.chat` のある PC を探し、素に無い会話として 1 度読む。
+PC が決まらないとき、読めなかったときは、頁を開かずに受信箱のその行に印だけを付ける（今までの振る舞い）。
+
+スマホの画面（`packages/mobile`）。
+入力待ちの札のうち、`caps.chat` のある PC の Claude Code の札だけが、リンクでなく押せる箱になり、押すと会話の頁が右から入る（設定の頁と同じ横の動き）。
+頁は上に会話の続き、下に入力欄を置く。
+続きは `POST /m/chat` の tail を長く待って（最初は待たず、あとは 20 秒）、返ったらすぐ次を頼む。
+頼みの間は最短 2 秒で、画面が見えている間だけ読む。
+届かない間は 5 秒、15 秒と空け、「接続なし」の 1 行を出す。
+届いた項目は `riseIn` で軽く浮かせ、一度に来たものは 40ms ずつ遅らせる。
+送った文は入力欄から薄い行として並び、同じ文が会話の項目として届いたら濃い行に替わる。
+送れなかったら薄い行を外し、文を入力欄に戻して断りの理由を出す。
+許可と質問の札は選択肢のボタンで、答えると選択肢の列が畳まれ（`collapseOut`）、答えの 1 行が伸びて出る（`growIn`）。
+`input` が偽の PC、または PC の画面でしか答えられない札（`answerable: false`）は、選択肢を押せない形で見せる。
+中断は、`input` が真で、会話が作業中のときだけ頁の右上に出す。
+通知から開いたときは、頁を最初に問いの位置まで送り、札を `riseIn` で軽く浮かせる。
+入力欄に焦点は移さない（iOS は通知から開いた直後の焦点でキーボードを出さないことが多く、機種で振る舞いが割れる）。
+opencode と Codex の札、`caps.chat` の無い PC の札は、今までどおり Remote Control を開くか、PC で答える。
 
 **端末ローカルの表。**
 スマホ向けに、端末ローカルの表を 2 つ足し、そのうち `mobile_launches` には後の版で列を足した（版 31 と 33）。

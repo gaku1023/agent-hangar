@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App.tsx';
 import * as store from './store.ts';
+import { chipOf, pick } from './test/launchScreen.ts';
 import { connectPhone, feedOf, inboxOf, liveItem, makeKey } from './test/fixtures.ts';
 import { json, WORKER } from './test/pairText.ts';
 
@@ -56,7 +57,7 @@ const openNew = async () => {
   fireEvent.click(plus);
 };
 const fillAndStart = () => {
-  fireEvent.click(within(screen.getByRole('radiogroup', { name: 'プロジェクト' })).getByRole('radio', { name: /project-a/ }));
+  pick('プロジェクト', /project-a/);
   fireEvent.change(screen.getByRole('textbox', { name: '初期プロンプト' }), { target: { value: 'テストを足して' } });
   fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
 };
@@ -70,14 +71,13 @@ describe('App', () => {
     try {
       render(<App pairText={null} />);
       await openNew();
-      const projects = () => within(screen.getByRole('radiogroup', { name: 'プロジェクト' }));
-      fireEvent.click(projects().getByRole('radio', { name: /project-a/ }));
-      expect(projects().getByRole('radio', { name: /project-a/ })).toHaveAttribute('aria-checked', 'true');
+      pick('プロジェクト', /project-a/);
+      expect(chipOf('プロジェクト')).toHaveTextContent('project-a');
       fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
       // まだ畳んでいる間に開き直す。
       fireEvent.click(screen.getByRole('button', { name: '＋ 新しい会話' }));
       expect(screen.getAllByRole('dialog')).toHaveLength(1);
-      expect(projects().getByRole('radio', { name: /project-a/ })).toHaveAttribute('aria-checked', 'false');
+      expect(chipOf('プロジェクト')).not.toHaveTextContent('project-a');
     } finally {
       root.removeProperty('--dur-exit');
       root.removeProperty('--dur-fast');

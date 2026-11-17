@@ -272,7 +272,8 @@ describe('夜は鳴らさない時間帯', () => {
 
 describe('openMessageOf', () => {
   it('サービスワーカーの hangar-open だけを読む', () => {
-    expect(openMessageOf({ type: 'hangar-open', sessionId: 's-1' })).toBe('s-1');
+    expect(openMessageOf({ type: 'hangar-open', sessionId: 's-1' })).toEqual({ id: 's-1' });
+    expect(openMessageOf({ type: 'hangar-open', sessionId: 's-1', deviceId: 'pc-1', pcName: 'Mac' })).toEqual({ id: 's-1', deviceId: 'pc-1', pcName: 'Mac' });
     expect(openMessageOf({ type: 'other', sessionId: 's-1' })).toBeNull();
     expect(openMessageOf({ type: 'hangar-open', sessionId: '' })).toBeNull();
     expect(openMessageOf(null)).toBeNull();
@@ -282,9 +283,15 @@ describe('openMessageOf', () => {
 describe('takeOpenFragment', () => {
   it('#open= の会話の ID を取り出し、URL から消す', () => {
     history.replaceState(null, '', `/app/#open=${encodeURIComponent('s-1/x')}`);
-    expect(takeOpenFragment()).toBe('s-1/x');
+    expect(takeOpenFragment()).toEqual({ id: 's-1/x' });
     expect(location.hash).toBe('');
     expect(location.pathname).toBe('/app/');
+  });
+
+  it('device と pc があれば合わせて取り出す', () => {
+    history.replaceState(null, '', `/app/#open=s-1&device=pc-1&pc=${encodeURIComponent('Mac mini')}`);
+    expect(takeOpenFragment()).toEqual({ id: 's-1', deviceId: 'pc-1', pcName: 'Mac mini' });
+    expect(location.hash).toBe('');
   });
 
   it('#open= が無ければ null で、URL に触らない', () => {

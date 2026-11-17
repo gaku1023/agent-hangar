@@ -159,7 +159,7 @@ export const cloudMemberEn: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.recovery.again': 'Reissue again',
   'cloudMember.phone.heading': 'Phones',
   'cloudMember.phone.pair': 'Connect a phone',
-  'cloudMember.phone.lead': 'See your inbox on your phone and start a conversation on any of your PCs. Conversations open in the Claude app. If you lose your phone, remove it right away.',
+  'cloudMember.phone.lead': 'See your inbox on your phone and start a conversation on any of your PCs. Compatible Claude Code conversations can be read and continued on your phone, while others open in the Claude app. If you lose your phone, remove it right away.',
   'cloudMember.phone.rcPointer': 'The “Start with Remote Control” setting is in Claude Code.',
   'cloudMember.phone.loading': 'Creating a QR code…',
   'cloudMember.phone.title': 'Scan with your phone',
