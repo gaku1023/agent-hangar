@@ -355,7 +355,11 @@ export function parseDialog(screen: string): Dialog | null {
   const last = group[group.length - 1]!;
   // アシスタントの番号つきの箇条書きと見分ける。
   // 札の下には、必ず案内の行（Esc to cancel など）がある。
-  if (!lines.slice(last.i + 1, last.i + 9).some((l) => FOOTER_RE.test(l))) return null;
+  // ただし問いが複数ある札の最後の確認のタブ（Ready to submit your answers? と Submit answers・Cancel）には、
+  // 実機（2.1.326）で案内の行が出ない。その形だけは案内の行なしで札とみなす。
+  const submitTab = group.length === 2 && SUBMIT_ROW_RE.test(group[0]!.text) && /^cancel$/i.test(group[1]!.text.trim())
+    && lines.slice(Math.max(0, group[0]!.i - 4), group[0]!.i).some((l) => /ready to submit your answers\?/i.test(l));
+  if (!submitTab && !lines.slice(last.i + 1, last.i + 9).some((l) => FOOTER_RE.test(l))) return null;
 
   const first = group[0]!;
   const options: DialogOption[] = group.map((g, k) => {
