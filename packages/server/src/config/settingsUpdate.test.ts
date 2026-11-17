@@ -37,9 +37,9 @@ describe('設定の書き替えを部品へ行き渡らせる', () => {
   it('orchestrator の欄が来たときだけ、統括の見張りに知らせる', () => {
     patch({ lmStudioModel: 'm1' });
     expect(calls).not.toContain('orchestrator');
-    patch({ orchestrator: { enabled: true, sessionId: null, model: 'sonnet', effort: 'medium', account: null, history: [] } });
+    patch({ orchestrator: { enabled: true, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] } });
     expect(calls.filter((c) => c === 'orchestrator')).toHaveLength(1);
-    expect(loadSettings(home).orchestrator).toEqual({ enabled: true, sessionId: null, model: 'sonnet', effort: 'medium', account: null, history: [] });
+    expect(loadSettings(home).orchestrator).toEqual({ enabled: true, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] });
   });
 
   it('tmux の口は毎回渡し直し、包みの本体は tmuxPath の欄が来たときだけ書き直す', () => {

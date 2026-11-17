@@ -3,12 +3,12 @@ import { DEFAULT_ORCHESTRATOR, isOrchestratorOrigin, isOrchestratorPatch, markOr
 
 describe('orchestratorOf', () => {
   it('無い値は、切で、Sonnet と medium の既定に寄せる', () => {
-    expect(orchestratorOf(undefined)).toEqual({ enabled: false, sessionId: null, model: 'sonnet', effort: 'medium', account: null, history: [] });
+    expect(orchestratorOf(undefined)).toEqual({ enabled: false, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] });
     expect(orchestratorOf(null)).toEqual(DEFAULT_ORCHESTRATOR);
     expect(orchestratorOf('x')).toEqual(DEFAULT_ORCHESTRATOR);
   });
   it('正しい項目はそのまま通し、取れない項目だけ既定に戻す', () => {
-    expect(orchestratorOf({ enabled: true, sessionId: 's1', model: 'opus', effort: 'low', account: 'acc-2' })).toEqual({ enabled: true, sessionId: 's1', model: 'opus', effort: 'low', account: 'acc-2', history: [] });
+    expect(orchestratorOf({ enabled: true, sessionId: 's1', model: 'opus', effort: 'low', account: 'acc-2' })).toEqual({ enabled: true, sessionId: 's1', model: 'opus', effort: 'low', account: 'acc-2', agent: 'claude-code', history: [] });
     expect(orchestratorOf({ enabled: 'yes', sessionId: 5, model: '--evil', effort: 'turbo' })).toEqual(DEFAULT_ORCHESTRATOR);
     expect(orchestratorOf({ enabled: true, sessionId: '' })).toEqual({ ...DEFAULT_ORCHESTRATOR, enabled: true });
   });
@@ -18,6 +18,28 @@ describe('orchestratorOf account', () => {
   it('空でない文字列だけを受け、それ以外は null', () => {
     expect(orchestratorOf({ account: 'acc-2' }).account).toBe('acc-2');
     for (const v of ['', 5, null, undefined, {}]) expect(orchestratorOf({ account: v }).account).toBeNull();
+  });
+});
+
+describe('orchestrator agent と空の model', () => {
+  it('agent は知っているアプリだけ通し、知らない値は Claude Code に戻す', () => {
+    expect(orchestratorOf({ agent: 'codex' }).agent).toBe('codex');
+    for (const v of ['gemini', '', 5, null, undefined]) expect(orchestratorOf({ agent: v }).agent).toBe('claude-code');
+  });
+  it('model の空はそのアプリの既定として残す', () => {
+    expect(orchestratorOf({ model: '' }).model).toBe('');
+    expect(orchestratorOf({}).model).toBe('sonnet');
+  });
+  it('Codex の effort は語の形だけ、Claude Code は決まった段階だけ読む', () => {
+    expect(orchestratorOf({ agent: 'codex', effort: 'minimal' }).effort).toBe('minimal');
+    expect(orchestratorOf({ agent: 'codex', effort: '--x' }).effort).toBe('medium');
+    expect(orchestratorOf({ agent: 'claude-code', effort: 'minimal' }).effort).toBe('medium');
+    expect(isOrchestratorPatch({ effort: 'minimal' })).toBe(true);
+  });
+  it('PATCH は agent と空の model を受ける', () => {
+    expect(isOrchestratorPatch({ agent: 'codex', model: '', effort: '', account: null })).toBe(true);
+    expect(isOrchestratorPatch({ agent: 'gemini' })).toBe(false);
+    expect(isOrchestratorPatch({ agent: 3 })).toBe(false);
   });
 });
 
@@ -35,7 +57,8 @@ describe('isOrchestratorPatch', () => {
     expect(isOrchestratorPatch({ history: [] })).toBe(false);
     expect(isOrchestratorPatch({ enabled: 1 })).toBe(false);
     expect(isOrchestratorPatch({ model: '-x' })).toBe(false);
-    expect(isOrchestratorPatch({ effort: 'turbo' })).toBe(false);
+    expect(isOrchestratorPatch({ effort: 3 })).toBe(false);
+    expect(isOrchestratorPatch({ effort: '--x' })).toBe(false);
     expect(isOrchestratorPatch({ extra: true })).toBe(false);
     expect(isOrchestratorPatch({})).toBe(false);
     expect(isOrchestratorPatch(null)).toBe(false);

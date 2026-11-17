@@ -1,5 +1,5 @@
 import { presentOpencodeProviders, type OpencodeProvidersProps } from './opencodeProviders.ts';
-import { type OrchestratorSetting, peerChatAcceptOf, CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SharePreviewDto, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
+import { orchestratorOf, type AgentKind, type CodexEffortOption, type CodexModelOption, type OrchestratorSetting, peerChatAcceptOf, CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SharePreviewDto, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
 import { canLaunchGuide } from './investigate.ts';
 import { presentNotifyRules, type NotifyRulesProps } from './notifyRules.ts';
 import type { SaveMark, State } from '../mediator/types.ts';
@@ -9,6 +9,7 @@ import { storeLanguage, translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
 import { limitedWord, syncStateWord } from './syncLabel.ts';
 import { presentAccounts, presentCodexAccounts, type AccountView } from './accounts.ts';
+import { codexAgentNote, codexEffortChoice, codexEffortsOf, codexModelChoice } from './codexLaunch.ts';
 import { accountOptions, type NewSessionAccountOption } from './newSession.ts';
 import { presentCloudUsage, SETUP_CLOUD_COMMAND, type CloudUsageProps } from './cloudUsage.ts';
 import { cloudJoinCommand, presentCloudMember, type CloudMemberProps } from './cloudMember.ts';
@@ -270,7 +271,15 @@ export type AccountSettingsProps = { list: AccountView[]; colors: string[] };
  */
 export type VoiceSettingsProps = { voice: import('@agent-hangar/shared').VoiceSetting; available: boolean; speakingId: string | null; catalog: import('@agent-hangar/shared').VoiceCatalog | null };
 
-export type OrchestratorSettingsProps = { on: boolean; account: string | null; model: string; effort: string; accounts: NewSessionAccountOption[] };
+/**
+ * 統括の節の props。agent は統括を動かすアプリ、agents は札に並べるアプリ（設定で有効にしたもの。1 つだけなら札を出さない）。
+ * accounts は agent のアカウントの組。codex は agent が Codex のときだけ、モデルの一覧と推論の段階（Codex から取った一覧が届くまでは空）。
+ * agentNote は札の一覧の Codex の行に添える版の確かめ。
+ */
+export type OrchestratorSettingsProps = {
+  on: boolean; agent: AgentKind; agents: AgentKind[]; agentNote: string | null; account: string | null; model: string; effort: string; accounts: NewSessionAccountOption[];
+  codex: { model: string; models: CodexModelOption[]; effort: string; efforts: CodexEffortOption[] } | null;
+};
 
 export type SettingsProps = {
   /** 統括の声。サーバが設定の voice を返さない古い版では省かれ、節を出さない。 */
@@ -437,12 +446,21 @@ function retentionSettings(store: Store): RetentionSettingsProps | null {
 
 /** 「エージェント」の群の節と、その絵の組。 */
 /**
- * 統括の節の札。アカウントが 2 件未満なら札を出さない（空の一覧にする）。
+ * 統括の節の札。アカウントが 2 件未満なら札を出さない（空の一覧にする）。アカウントの組は統括のアプリのもの（Claude Code と Codex は別）。
  * 設定のアカウントが一覧に無い（消えた）ときは、account を null にして、札を既定の表示（選べる最初のアカウント）に寄せる。
+ * Codex のモデルは、一覧が届いて消えていたら既定（空）に戻して見せる。
  */
-function presentOrchestrator(t: Translate, o: OrchestratorSetting, list: AccountView[]): OrchestratorSettingsProps {
+function presentOrchestrator(t: Translate, o: OrchestratorSetting, store: Store, now: number, codexOn: boolean): OrchestratorSettingsProps {
+  const codex = o.agent === 'codex';
+  const list = codex ? presentCodexAccounts(store, now) : presentAccounts(store, now);
   const accounts = list.length >= 2 ? accountOptions(t, { list, currentId: list.find((a) => a.current)?.id ?? '' }) : [];
-  return { on: o.enabled, account: accounts.some((a) => a.value === o.account) ? o.account : null, model: o.model, effort: o.effort, accounts };
+  const data = store.codexOptions?.data ?? null;
+  const model = codexModelChoice(o.model, data);
+  return {
+    on: o.enabled, agent: o.agent, agents: ['claude-code', ...(codexOn || codex ? (['codex'] as const) : [])], agentNote: codexAgentNote(t, data),
+    account: accounts.some((a) => a.value === o.account) ? o.account : null, model: o.model, effort: o.effort, accounts,
+    codex: codex ? { model, models: data?.models ?? [], effort: codexEffortChoice(o.effort, data, model), efforts: codexEffortsOf(data, model) } : null,
+  };
 }
 
 const AGENT_OF: Partial<Record<SettingsSection, 'claude-code' | 'codex' | 'opencode'>> = { agentClaude: 'claude-code', agentCodex: 'codex', agentOpencode: 'opencode' };
@@ -591,7 +609,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
   const opencode = presentOpencode(t, s ?? {}, store.opencodeStatus, platform, store.shellHook?.state ?? null, store.sharePreview.opencode, store.home);
   const integrations = presentIntegrations(t, state, store, { mcp: r?.commands.mcp ?? 'hangar mcp install', statusline: r?.commands.statusline ?? 'hangar statusline install', shell: command });
   return {
-    ...(s?.orchestrator !== undefined ? { orchestrator: presentOrchestrator(t, s.orchestrator, accountList) } : {}),
+    ...(s?.orchestrator !== undefined ? { orchestrator: presentOrchestrator(t, orchestratorOf(s.orchestrator), store, now, codexEnabledOf(s)) } : {}),
     ...(s?.voice !== undefined ? { voice: { voice: s.voice, available: store.voice?.available === true, speakingId: store.voice?.speakingId ?? null, catalog: store.voiceCatalog } } : {}),
     cloud,
     integrations,

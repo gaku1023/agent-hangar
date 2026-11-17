@@ -10383,13 +10383,19 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
 ここには入った分だけを書く。
 今は会話の印、起動、見張り、許可の道具、出来事の送り込みと通知の猶予までで、画面は後の PR で入る。
 
-- **設定：** 設定の `orchestrator`（`{ enabled, sessionId, model, effort, account, history }`）。
+- **設定：** 設定の `orchestrator`（`{ enabled, sessionId, agent, model, effort, account, history }`）。
   この PC だけの設定で、同期しない（同期の許可リスト `HANGAR_PREF_KEYS` に入れない）。
   既定は切、モデルは `sonnet`、effort は `medium`。
   `enabled` を入れた PC が宿主になる。
   `account` は統括を起こすアカウントの id で、`null` はいまのアカウント（再開では前に使ったアカウント）である。
-  `PATCH /api/settings` は `enabled`、`model`、`effort`、`account` だけを受け、届いた項目だけを替える。
-  `account` は今あるアカウントの id か `null` だけを受け、知らない id は 400 で断る。
+  `agent` は統括を動かすアプリ（`AgentKind`、既定は `claude-code`）で、読み込みで知らない値は既定に戻す。
+  `model` の空は、そのアプリの既定に任せる（Claude Code の既定の値 `sonnet` は変えない）。
+  `PATCH /api/settings` は `enabled`、`agent`、`model`、`effort`、`account` だけを受け、届いた項目だけを替える。
+  `agent` は `claude-code` と、設定で有効にした `codex` だけを受け、無効なアプリ、`opencode`（段 3 まで）、知らない値は 400 で断る。
+  `effort` はそのアプリで取れる段階だけを受ける（Claude Code は決まった段階、Codex は語の形で、Codex が返す `minimal` なども通る）。
+  `account` は今あるアカウントの id か `null` だけを受け、知らない id は 400 で断る。引く組はそのアプリのもの（Claude Code と Codex は別）である。
+  `agent` だけを替えて `account` を送らなかったときは、前のアプリのアカウントを持ち越さず `null` にする。
+  画面はアプリを替えるとき、`{ agent, model: '', effort: '', account: null }` を一緒に送る。
   `sessionId` と `history` は見張りだけが書き、この経路からは書かせない。形の違う値は 400 で断る。
 - **系譜：** `history` は前の統括の会話（`{ sessionId, startedAt, endedAt, reason }` の古い順、上限 20 件で古いものから落とす。会話そのものは消さない）。
   `reason` は `fresh`（利用者が始め直した）、`auto`（太った）、`agent`（起動の設定でアプリが変わった）、`gone`（会話が消えて起こし直した）である。
@@ -10447,6 +10453,11 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   指定（`account`、`model`、`effort`）が変わったときは、見張りが起こした統括が動いていれば、実行中の一覧の status が `idle` になったときに `kill` して、同じ会話を新しい指定で再開する。
   `busy` と `waiting` の間は待ち、一覧が変わるたびに見直す（`KeeperDeps` の `liveStatus` と `onLiveChange`、`boot/http.ts` が実行中の一覧につなぐ）。
   この止め方は終わりの知らせで見分け（`respecs`）、利用者の停止にも失敗にも数えない（`enabled` は入りのまま）。
+  `agent` が変わったときは、同じ会話を起こし直せない（会話は 1 つのアプリのもの）ので、`idle` になったときに `fresh('agent')` で新しい会話へ切り替える（申し送りと系譜は切り替えの手順と同じで、前の会話は `reason: 'agent'` で `history` に残る）。
+  アプリを動かしている会話のアプリは `KeeperDeps.providerOf`（`sessions.provider`）で引く。止まっているときに起こす場合も、会話のアプリが設定と違えば再開せず、新しい会話を `agent` で系譜に残して起こす。
+  起こすときは `startOrchestrator({ account, agent })` を待つ（Claude Code は同期、Codex は下ごしらえの Promise）。
+  設定の画面は札の先頭にアプリの札（設定で有効なアプリが 2 つ以上のときだけ）を置き、Codex のときはアカウント、モデルの一覧、推論の札に替える。権限の札は出さない（Codex の統括は read-only に固定）。
+  入れ替えの動きは新しいセッションのエージェントの切り替え（`agentSwap.ts`）と同じである。
   前の hangar から引き継いだ run など、見張りが起こしていないものは、どの指定で起きたか分からないので当て直さない。
   状態は `state()` と `onState` で読める（画面の柱は後の PR）。
   状態には、切り替えの間だけ `switching: true` が、統括の文脈の量が分かるときは `contextTokens` が付く。
