@@ -14,7 +14,7 @@ export const transcriptJa: AreaDictionary<typeof transcriptKeys> = {
   'transcript.tool.result': '結果',
   'transcript.tool.raw': '詳細表示',
   'transcript.tool.viewSubagent': 'サブエージェント {id} を表示',
-  'transcript.toolGroup.count': 'ツール {n} 件',
+  'transcript.toolGroup.count': 'ツール呼び出し {n} 回',
   'transcript.toolGroup.failed': '失敗 {n}',
   'transcript.find.noMatch': '0 件',
   'transcript.find.label': 'トランスクリプト内を検索',

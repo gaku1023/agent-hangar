@@ -765,7 +765,7 @@ describe('SessionScreen のアイコン', () => {
     render(<ActionRoot onAction={vi.fn()}><SS {...base} /></ActionRoot>);
     const tool = document.querySelector('.tool-group')!;
     expect(tool.querySelector('.chev svg')?.getAttribute('data-icon')).toBe('chevron');
-    expect(tool.querySelector('.tg-badge')?.textContent).toBe('ツール 1 件');
+    expect(tool.querySelector('.tg-badge')?.textContent).toBe('ツール呼び出し 1 回');
     expect(iconOf(screen.getByRole('button', { name: 'サブエージェント abc を表示' }))).toBe('subagent');
   });
 });

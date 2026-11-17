@@ -18,7 +18,7 @@ export const newSessionEn: AreaDictionary<typeof newSessionKeys> = {
   'newSession.prompt.label': 'Initial prompt (optional)',
   'newSession.fork.label': 'How to start',
   'newSession.fork.fresh': 'New',
-  'newSession.fork.continue': 'Continue this conversation',
+  'newSession.fork.continue': 'Continue from this conversation',
   'newSession.fork.locked': 'Fixed when continuing',
   'newSession.prompt.placeholder': 'What should Claude do? / for skills, @ for files, drop images or files',
   'newSession.prompt.placeholderPeer': 'What should Claude do? / for skills',

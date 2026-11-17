@@ -30,7 +30,7 @@ async function setup(feeds: MobileFeed[]) {
   return onLaunch;
 }
 const wt = () => document.querySelector<HTMLElement>('[data-chip="worktree"]');
-const plus = () => screen.queryByRole('button', { name: '名前を足す' });
+const plus = () => screen.queryByRole('button', { name: '名前を追加' });
 
 describe('NewSessionScreen の worktree と名前', () => {
   it('caps.launchExtras の無い PC には、worktree の札も「＋」も出さない', async () => {

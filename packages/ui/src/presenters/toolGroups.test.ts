@@ -40,10 +40,10 @@ describe('本文の行のまとめ（T1）', () => {
 describe('まとめの行の見出し', () => {
   const head = (items: TranscriptItem[], t = ja) => toolGroupHead(items as Extract<TranscriptItem, { kind: 'tool' }>[], t);
   it('札は呼んだ数だけ（ツールの名前、説明、時刻は出さない）', () => {
-    expect(head([bash(1), bash(2), bash(3)]).label).toBe('ツール 3 件');
-    expect(head([bash(1), toolItem(2, 'Read', { file_path: '/w/app/a.ts' }, null)]).label).toBe('ツール 2 件');
+    expect(head([bash(1), bash(2), bash(3)]).label).toBe('ツール呼び出し 3 回');
+    expect(head([bash(1), toolItem(2, 'Read', { file_path: '/w/app/a.ts' }, null)]).label).toBe('ツール呼び出し 2 回');
     expect(head([bash(1), bash(2)], en).label).toBe('2 tool calls');
-    expect(head([bash(1)])).toEqual({ label: 'ツール 1 件', failed: 0, failedLabel: null });
+    expect(head([bash(1)])).toEqual({ label: 'ツール呼び出し 1 回', failed: 0, failedLabel: null });
   });
   it('失敗した呼び出しの数を持ち、その語を添える', () => {
     expect(head([bash(1), bash(2, undefined, true), bash(3, undefined, true)])).toMatchObject({ failed: 2, failedLabel: '失敗 2' });
