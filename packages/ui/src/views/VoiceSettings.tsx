@@ -35,7 +35,7 @@ const labelOf = (source: VoiceSourceId, speaker: string, style: string, normal: 
 /** 行の下の一言。声が一覧から消えていても、選んだときに書き残した voiceLabel を出す。 */
 function lineOf(p: VoicePersona): string {
   const src = sourceOfVoice(p.voice);
-  const label = src === 'kokoro' ? `Kokoro ${p.voice.replace(/^kokoro:/, '')}` : p.voiceLabel !== '' ? p.voiceLabel : p.voice;
+  const label = src === 'kokoro' ? `Kokoro ${p.voice.replace(/^kokoro:/, '')}` : p.voiceLabel ? p.voiceLabel : p.voice;
   return `${label} · ${p.speed.toFixed(1)}`;
 }
 
@@ -113,7 +113,7 @@ function VoiceField(props: { persona: VoicePersona; catalog: VoiceCatalog | null
                   const st = sp?.styles[0];
                   if (sp && st) setVoice(shown, sp.name, st);
                 }}>
-                {!(found && found.source === shown) && <option value="">{persona.voiceLabel !== '' ? persona.voiceLabel : persona.voice}</option>}
+                {!(found && found.source === shown) && <option value="">{persona.voiceLabel ? persona.voiceLabel : persona.voice}</option>}
                 {speakers.map((sp) => <option key={sp.name} value={sp.name}>{sp.name}</option>)}
               </select>
               {styles.length >= 2 && found && (
@@ -175,7 +175,7 @@ function PersonaBody(props: { persona: VoicePersona; voiceOn: boolean; catalog: 
         <textarea className="input" aria-label={t('settings.voice.tone')} placeholder={t('settings.voice.tone.placeholder')} rows={2} value={draft.tone} spellCheck={false}
           onChange={(e) => edit({ tone: e.target.value })} onBlur={() => flush()} />
       </div>
-      {props.voiceOn && <div className="voice-f"><b>{t('settings.voice.voice')}</b><VoiceField persona={p} catalog={props.catalog} save={props.save} /></div>}
+      {props.voiceOn && <div className="voice-f top"><b>{t('settings.voice.voice')}</b><VoiceField persona={p} catalog={props.catalog} save={props.save} /></div>}
       <div className="voice-f"><b>{t('settings.voice.speed')}</b>
         <div className="voice-speed">
           <input type="range" min={0.5} max={2} step={0.1} aria-label={t('settings.voice.speed')} value={draft.speed} onChange={(e) => edit({ speed: Number(e.target.value) })} />
