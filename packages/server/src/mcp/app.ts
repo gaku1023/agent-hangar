@@ -185,6 +185,7 @@ function orchestratorAsksFor(deps: ToolDeps): OrchestratorAsks {
   const tr = translatorOf(deps.language ?? defaultLanguage);
   return createOrchestratorAsks({
     db: deps.db,
+    deviceId: deps.deviceId,
     live: deps.live,
     local: deps.askLocal ?? null,
     policy: () => permissionPolicyOf(deps.settings?.().permissionPolicy),
