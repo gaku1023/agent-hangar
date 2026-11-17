@@ -2,6 +2,7 @@ import type { ToolDeps } from './mcp/tools.ts';
 import { launchScheduled, waitScheduled } from './schedule/launch.ts';
 import { ScheduleRunner } from './schedule/runner.ts';
 import path from 'node:path';
+import { createFtsTailBackfill } from './search/ftsTailBackfill.ts';
 import { fileURLToPath } from 'node:url';
 import { CLOSE_DEADLINE_MS, STOP_WATCHDOG_MS } from './boot/budget.ts';
 import { bootDelivery } from './boot/delivery.ts';
@@ -228,6 +229,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   runs.primeLive();
   await indexing.start();
   runs.start();
+  // 版 66 より前の索引の行へ、末尾の区切りを背面で少しずつ足す（search/ftsTailBackfill.ts）。
+  const ftsTail = createFtsTailBackfill(home.db, { onError: (e) => { console.error('[index] fts tail backfill failed', e instanceof Error ? e.constructor.name : typeof e); } });
+  ftsTail.start();
   summary.startAutoDone();
   // 使っていない LM Studio のモデルを外す見張り（provider/opencode/localModels/idleUnload.ts）。
   const idleUnload = new IdleUnloadWatch({
@@ -274,6 +278,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       indexing.stopTimers();
       runs.stopParkTimer();
       summary.stopAutoDone();
+      ftsTail.stop();
       idleUnload.stop();
       runs.stopPresence();
       sync.stopTimers();

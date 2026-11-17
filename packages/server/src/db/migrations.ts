@@ -1079,14 +1079,13 @@ alter table event_index add column fts_rowid integer;
 `;
 
 /**
- * 版 66：event_fts の text の末尾に区切りの文字（search/ftsTail.ts の FTS_TAIL）を足す。
- * 積むときは writeBatch が足すので、ここでは今ある行だけを直す。
- * 足すと本文の最後の 2 文字が「2 文字と区切り」の trigram として索引に入り、2 文字の検索で引ける。
- * 列を書き換えるので FTS5 が索引を作り直す。実行時間は行数と本文の長さに比例する（docs/design.md の「索引」）。
+ * 版 66：event_fts の text の末尾に区切りの文字（search/ftsTail.ts の FTS_TAIL）を足す仕事の、進み具合の印を置く。
+ * 積むときは writeBatch が足す。今ある行は、起動の後に背面で少しずつ足す（search/ftsTailBackfill.ts）。
+ * ここで一度に update すると、実データ（百万行台）で数分かかり、サーバが立たない。
  * 版 62 から 65 は別の変更が使う。
  */
 const V66_FTS_TAIL_SQL = `
-update event_fts set text = text || char(31);
+insert into settings_local (key, value) values ('fts_tail_backfill_rowid', '0') on conflict(key) do nothing;
 `;
 
 /**
