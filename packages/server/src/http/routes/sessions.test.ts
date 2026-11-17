@@ -93,7 +93,10 @@ describe('routes', () => {
     const { body } = await json(await get('/api/search?q=' + encodeURIComponent('チャンネル')));
     expect(body.total).toBe(1);
     expect((await json(await get('/api/search?q=channels'))).body.hits).toHaveLength(1);
-    expect((await json(await get('/api/search?q='))).body).toEqual({ hits: [], total: 0 });
+    // 語もファイルも無ければ一覧の形になる（RB-12）。試料の会話はどれも状態も起動元も持たないので、全部が根として並ぶ。
+    const { body: listed } = await json(await get('/api/search?q='));
+    const n = (await json(await get('/api/sessions'))).body.length;
+    expect([listed.total, listed.roots, listed.hits.length, listed.rows.length]).toEqual([n, n, n, n]);
     // キーワードが無くても、触ったファイルで絞れる。
     expect((await json(await get('/api/search?q=&file=a.md'))).body.total).toBe(1);
     // 続きは offset で読む。件数は全件のまま。

@@ -55,7 +55,7 @@ export type DeliveryParts = AgentParts & {
 export function bootDelivery(home: Pick<HomeParts, 'home' | 'db' | 'device' | 'claudeDir' | 'token' | 'settings' | 'language'>, opts: Pick<StartOptions, 'registryIsGone'> = {}): DeliveryParts {
   const { db } = home;
   const sockets = new EventHub(VERSION);
-  const publisher = new Publisher({ db, deviceId: home.device.id, live: () => live.current(), hub: sockets, active: () => sockets.clientCount() > 0 });
+  const publisher = new Publisher({ db, deviceId: home.device.id, live: () => live.current(), hub: sockets, active: () => sockets.clientCount() > 0, counts: true });
   const claudeVersion: { current: string | null } = { current: null };
   const compatLog = new CompatLog({ file: compatPath(home.home), localVersion: () => claudeVersion.current });
   compatLog.start();

@@ -252,7 +252,7 @@ export type PeerLaunchBody = {
 export type PeerLaunchOutcomeDto = { status: 'requested'; requestId: string; device: string } | { status: 'refused'; reason: string; message: string };
 /** 画面から、ほかの PC で動いている会話の停止を頼む本体（POST /api/peer-stop）。止める先の PC は会話のロックで決める。答えは PeerLaunchOutcomeDto と同じ形。 */
 export type PeerStopBody = { sessionId: string };
-export type BootstrapDto = { /** ほかの PC から来た文の、まだ渡していない預かり（会話の id ごと、古い順）。この項目を知らない古いサーバは返さないので、読む側は空として読む。 */ peerQueued?: Record<string, import('./peerChat.ts').PeerChatQueued[]>; schedules: ScheduleDto[]; device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; /** MCP の削除の依頼のうち、利用者の答えを待っているもの。 */ deleteApprovals: DeleteApprovalDto[]; /** 別の PC への起動の承認待ち。 */ peerApprovals: PeerApprovalDto[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto; /** サーバのホーム（os.homedir()）。画面はホームの下の置き場を ~ に縮めるときにだけ使う。 */ home: string; /** 中断の群（InterruptedDto）。 */ interrupted: InterruptedDto | null };
+export type BootstrapDto = { /** ほかの PC から来た文の、まだ渡していない預かり（会話の id ごと、古い順）。この項目を知らない古いサーバは返さないので、読む側は空として読む。 */ peerQueued?: Record<string, import('./peerChat.ts').PeerChatQueued[]>; schedules: ScheduleDto[]; device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; /** MCP の削除の依頼のうち、利用者の答えを待っているもの。 */ deleteApprovals: DeleteApprovalDto[]; /** 別の PC への起動の承認待ち。 */ peerApprovals: PeerApprovalDto[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto; /** サーバのホーム（os.homedir()）。画面はホームの下の置き場を ~ に縮めるときにだけ使う。 */ home: string; /** 中断の群（InterruptedDto）。 */ interrupted: InterruptedDto | null; /** 会話の件数の集計。 */ sessionCounts: import('./sessionList.ts').SessionCountsDto; /** 一覧の 1 頁目（絞り込みなし、最近の 50 件）。2 回目の取得をせずに一覧を出すため。 */ firstPage: import('./sessionList.ts').ListPageDto };
 export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; total: number; nextSeq: number | null };
 /**
  * 実行中のセッションの右ペインに出すライブの要約。サーバが主線とサブエージェントを読んで作る。
@@ -277,7 +277,13 @@ export type SearchParamsDto = { q: string; projectId?: string; since?: number; u
  * 語の無いファイルだけの検索の行には付かない。古いサーバも送らないので、受け取る側は無いものとして読む。
  */
 export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { seq: number; role: string; text: string; agentId: string | null }[]; matched?: ('name' | 'summary' | 'transcript')[] };
-export type SearchResultDto = { hits: SearchHitDto[]; total: number };
+/**
+ * 検索の結果。total は条件に合う全件の数で、hits は offset から limit 件だけを持つ。
+ * sessions は rows=1 で求めたときだけ持ち、hits（と一覧の形の rows）の会話の行そのもの。手元に無い会話の行を出すために使う。
+ * 語も触ったファイルも無いときは一覧の形になる。hits は頁の根の会話で、rows は根の下に子を深さ優先で並べた頁の行（shared の ListPageDto）、
+ * total は条件に合う行の数（子も 1 件）、roots は根の数（頁送りはこの数で数える）である。一覧の形でないときは rows と roots を持たない。
+ */
+export type SearchResultDto = { hits: SearchHitDto[]; total: number; sessions?: SessionDto[]; rows?: import('./sessionList.ts').ListRowDto[]; roots?: number };
 /**
  * 場所の無いプロジェクトの扱い。
  * repoint の merge は、選んだフォルダがこの PC で別のプロジェクトの置き場になっているときに、そのプロジェクトへまとめること。

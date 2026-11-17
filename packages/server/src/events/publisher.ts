@@ -8,6 +8,7 @@ import { listTodos } from '../projects/todos.ts';
 import { listPeerApprovals } from '../peer/approvals.ts';
 import { listDeleteApprovals } from '../sessions/deleteApprovals.ts';
 import { listSchedules, type AccountNamer } from '../schedule/store.ts';
+import { sessionCounts } from '../sessions/counts.ts';
 
 /**
  * DB の行の変化を、画面へのイベントにして配る 1 層。
@@ -149,7 +150,12 @@ export type PublisherDeps = {
   hub: { broadcast(ev: ServerEvent): void };
   /** 受け手がいるか。いなければ行を読み直さない（起動時の全走査で、誰も受けない DTO を組まないため）。省けば常にいるものとする。 */
   active?: () => boolean;
+  /** 会話の件数の集計（sessionCounts.update）も配るか。省けば配らない（行のイベントだけを見る試験の並びを変えないため）。 */
+  counts?: boolean;
 };
+
+/** 件数の集計（sessionCounts.update）を配る間隔の下限。会話の行は続けて変わる（索引の取り込み、同期の降り）ので、毎回は数え直さない。 */
+export const COUNTS_INTERVAL_MS = 1000;
 
 export class Publisher {
   /** 設定の同期の状態の組み方。同期を組んだ後（boot/sync.ts）に渡される。それまでは何も配らない。 */
@@ -161,6 +167,11 @@ export class Publisher {
   private rows = new Map<string, Extract<Item, { key: string }>>();
   private scheduled = false;
   private off: (() => void) | null;
+  /** 保存期間の日数の読み方。保持期間の口を組んだ後（boot/sync.ts）に渡される。それまでは数えない（null）。 */
+  private retentionDays: () => number | null = () => null;
+  /** 件数を最後に配った時刻と、次に配る予約。 */
+  private countsAt = Number.NEGATIVE_INFINITY;
+  private countsTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly deps: PublisherDeps) {
     this.off = onRowChange((c) => { if (c.db === deps.db) this.onRow(c); });
@@ -168,6 +179,9 @@ export class Publisher {
 
   /** 設定の同期の状態の組み方を渡す。組み立ての順で、配る層のほうが先にできるので、後から渡す。 */
   setConfigSync(read: () => ConfigSyncDto | null): void { this.configSync = read; }
+
+  /** 保存期間の日数の読み方を渡す。件数の集計の「近く消える数」に使う。 */
+  setRetentionDays(read: () => number | null): void { this.retentionDays = read; }
 
   /** 予定のアカウントの表示名の引き方を渡す。 */
   setAccountNamer(namer: AccountNamer): void { this.accountName = namer; }
@@ -218,21 +232,49 @@ export class Publisher {
     this.rows = new Map();
     this.scheduled = false;
     const active = this.deps.active ? this.deps.active() : true;
+    let sessionsMoved = false;
     for (const it of queue) {
       try {
         if ('ev' in it) { this.deps.hub.broadcast(it.ev); continue; }
         if (it.dead || !active) continue;
         const ev = KINDS[it.kind]({ ...this.deps, configSync: this.configSync, accountName: this.accountName }, it.id);
         if (ev) this.deps.hub.broadcast(ev);
+        if (ev && (ev.type === 'session.upsert' || ev.type === 'session.removed')) sessionsMoved = true;
       } catch (e) {
         // 1 つの行が読めなくても、残りは配る。
         console.error('[publisher]', 'ev' in it ? it.ev.type : it.kind, e instanceof Error ? e.message : e);
       }
     }
+    if (sessionsMoved && this.deps.counts) this.countsChanged();
+  }
+
+  /**
+   * 会話の行が変わった。件数の集計を数え直して配る。
+   * 画面は手元に無い行の前の状態を知らないので、件数を自分で足し引きできない。だからサーバが数え直して配る。
+   * 続けて変わるときは、COUNTS_INTERVAL_MS に 1 回までに間引き、間の変化は最後にまとめて 1 回配る。
+   */
+  private countsChanged(): void {
+    if (this.countsTimer !== null) return;
+    const wait = this.countsAt + COUNTS_INTERVAL_MS - Date.now();
+    if (wait <= 0) { this.sendCounts(); return; }
+    this.countsTimer = setTimeout(() => { this.countsTimer = null; this.sendCounts(); }, wait);
+    this.countsTimer.unref?.();
+  }
+
+  private sendCounts(): void {
+    if (!this.off) return;
+    if (this.deps.active && !this.deps.active()) return;
+    this.countsAt = Date.now();
+    try {
+      this.deps.hub.broadcast({ type: 'sessionCounts.update', counts: sessionCounts(this.deps.db, { retentionDays: this.retentionDays(), now: this.countsAt }) });
+    } catch (e) {
+      console.error('[publisher]', 'sessionCounts', e instanceof Error ? e.message : e);
+    }
   }
 
   /** 購読を外し、溜めた分を捨てる。以後は何も配らない。DB を閉じる前に呼ぶ。 */
   stop(): void {
+    if (this.countsTimer !== null) { clearTimeout(this.countsTimer); this.countsTimer = null; }
     this.off?.();
     this.off = null;
     this.queue = [];

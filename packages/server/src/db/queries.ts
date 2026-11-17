@@ -174,7 +174,8 @@ export function contextPercent(used: number | null, size: number | null): number
   return Math.round((used / size) * 1000) / 10;
 }
 
-export type SessionQueryOptions = { projectId?: string; ids?: string[]; deviceId?: string; now?: () => number };
+/** spawnedBy は、その会話を起動元に持つ子だけに絞る（session_spawns の消していない行）。 */
+export type SessionQueryOptions = { projectId?: string; ids?: string[]; spawnedBy?: string; deviceId?: string; now?: () => number };
 
 type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number; live_status: LiveStatus | null; live_reason: StopReason | null; live_at: number | null; started_at: number };
 /** 一覧が組むロックと、その run の始まり。始まりは区切りの判定（parked）にだけ使い、DTO には載せない。 */
@@ -475,6 +476,10 @@ export function listSessions(db: Db, live: LiveSessionDto[], opts: SessionQueryO
     if (opts.ids.length === 0) return [];
     where.push(`s.id in (${opts.ids.map(() => '?').join(',')})`);
     args.push(...opts.ids);
+  }
+  if (opts.spawnedBy) {
+    where.push('sp.parent_id = ?');
+    args.push(opts.spawnedBy);
   }
   const sql = `${SESSION_SELECT}${where.length ? ' and ' + where.join(' and ') : ''} order by activity_at desc nulls last, s.started_at desc nulls last, s.id`;
   const rows = db.prepare(sql).all(...args) as SessionRow[];
