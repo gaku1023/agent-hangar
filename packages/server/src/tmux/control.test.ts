@@ -171,18 +171,20 @@ describe.skipIf(!TMUX)('controlSpawn（実物の tmux）', () => {
     tmux.run('new-session', '-d', '-s', name, '-x', '80', '-y', '10', 'sh');
     tmux.run('send-keys', '-t', `=${name}:`, `printf '\\033[?2004h\\033[?1003h\\033[?1006h\\033[?1h\\033[?25l'; echo ready`, 'Enter');
     // 画面には打ったコマンドの 'ready' も出るので、文字ではなく旗が揃うのを待つ（遅い環境では printf が走る前に通ってしまう）
-    const readFlags = () => tmux.run('display-message', '-p', '-t', `=${name}:`, '#{bracket_paste_flag}#{mouse_any_flag}#{mouse_sgr_flag}#{keypad_cursor_flag}#{cursor_flag}').stdout.trim();
-    await waitFor(() => readFlags() === '11110');
-    expect(readFlags()).toBe('11110');
+    // bracket_paste_flag は tmux 3.4 の書式に無く（空で返る）、その版では戻せない。ある版だけ見る。
+    const hasPaste = tmux.run('display-message', '-p', '-t', `=${name}:`, '#{bracket_paste_flag}').stdout.trim() !== '';
+    const readFlags = () => tmux.run('display-message', '-p', '-t', `=${name}:`, '#{mouse_any_flag}#{mouse_sgr_flag}#{keypad_cursor_flag}#{cursor_flag}').stdout.trim();
+    await waitFor(() => readFlags() === '1110');
+    if (hasPaste) await waitFor(() => tmux.run('display-message', '-p', '-t', `=${name}:`, '#{bracket_paste_flag}').stdout.trim() === '1');
 
     const p = controlSpawn(tmux, name);
     let got = '';
     p.onData((d) => { got += d; });
     p.resize(80, 10);
     await waitFor(() => got.includes('ready'));
-    await waitFor(() => got.includes('\x1b[?2004h'));
-    for (const seq of ['\x1b[?2004h', '\x1b[?1003h', '\x1b[?1006h', '\x1b[?1h', '\x1b[?25l']) expect(got).toContain(seq);
-    expect(got).not.toContain('\x1b[?2004l');
+    await waitFor(() => got.includes('\x1b[?1003h'));
+    for (const seq of ['\x1b[?1003h', '\x1b[?1006h', '\x1b[?1h', '\x1b[?25l']) expect(got).toContain(seq);
+    if (hasPaste) { expect(got).toContain('\x1b[?2004h'); expect(got).not.toContain('\x1b[?2004l'); }
     p.kill();
   });
 });
