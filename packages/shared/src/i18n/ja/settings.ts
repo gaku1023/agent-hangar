@@ -358,6 +358,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.label.opencodeIdleUnload': '使っていないモデルのアンロード',
   'settings.label.opencodeProviderPrep': '接続先の準備',
   'settings.label.peerChatAcceptFromPeers': '他の PC からの送信を受ける',
+  'settings.label.phoneChatAccept': 'スマホからの送信を受ける',
   'settings.label.voice': '声',
   'settings.label.orchestrator': '統括',
   'settings.opencode.title': 'opencode',

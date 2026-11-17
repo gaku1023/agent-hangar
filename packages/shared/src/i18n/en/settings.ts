@@ -358,6 +358,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.label.opencodeIdleUnload': 'Unload idle models',
   'settings.label.opencodeProviderPrep': 'Server preparation',
   'settings.label.peerChatAcceptFromPeers': 'Accept messages from other PCs',
+  'settings.label.phoneChatAccept': 'Accept messages from your phone',
   'settings.label.voice': 'Voice',
   'settings.label.orchestrator': 'Orchestrator',
   'settings.opencode.title': 'opencode',

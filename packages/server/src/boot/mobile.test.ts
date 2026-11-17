@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
-import { EVENT_INBOX_MIN_WORKER_COMPAT, PEER_LAUNCH_MIN_WORKER_COMPAT, aadAnswer, aadAsk, aadFeed, aadImage, aadLaunch, aadReply, COMPAT_HEADER, COMPAT_VERSION, MOBILE_BELL_MIN_WORKER_COMPAT, open, quotePath, seal, sealBytes, type MobileAsk, type AccountsDto, type CloudDevicesDto, type LaunchParams, type LiveSessionDto, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
+import { EVENT_INBOX_MIN_WORKER_COMPAT, PEER_LAUNCH_MIN_WORKER_COMPAT, PHONE_CHAT_MIN_WORKER_COMPAT, aadAnswer, aadPhoneChat, aadPhoneChatReply, peerChatExpiresAt, type PeerChatReply, aadAsk, aadFeed, aadImage, aadLaunch, aadReply, COMPAT_HEADER, COMPAT_VERSION, MOBILE_BELL_MIN_WORKER_COMPAT, open, quotePath, seal, sealBytes, type MobileAsk, type AccountsDto, type CloudDevicesDto, type LaunchParams, type LiveSessionDto, type MobileFeed, type MobileLaunchAnswer, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
 import { upsertShared } from '../db/shared.ts';
 import type { LaunchResult, RunListener } from '../runs/manager.ts';
 import type { SyncListener } from '../sync/engine.ts';
@@ -142,7 +142,7 @@ describe('bootMobile', () => {
       await off.timers.advance(FEED_DEBOUNCE_MS);
       await settle(() => off.client.mobileFeeds.size === 1);
       const f = await open<MobileFeed>(await mobileKey(), aadFeed('pc-a'), off.client.mobileFeeds.get('pc-a')!.sealed);
-      expect(f.caps).toEqual({ asks: true, images: true, effort: true });
+      expect(f.caps).toEqual({ asks: true, images: true, effort: true, launchExtras: true });
       off.mobile.stop();
     }
   });
@@ -785,6 +785,65 @@ describe('bootMobile', () => {
       expect(await open(key, aadReply('q1'), replies.get('q1')!.sealed)).toEqual({ files: [{ path: 'one.ts', changed: false }] });
       expect(await open(key, aadReply('q2'), replies.get('q2')!.sealed)).toEqual({ error: 'project-missing' });
       expect(await open(key, aadReply('q3'), replies.get('q3')!.sealed)).toEqual({ error: 'account-missing' });
+    });
+
+    describe('スマホの会話の頁（互換の版 13）', () => {
+      const chatHost = () => {
+        const calls: { sender: unknown; id: string; op: string | null }[] = [];
+        return {
+          calls,
+          handle: vi.fn(async () => null),
+          host: {
+            handleRequest: vi.fn(async (sender: unknown, id: string, openFn: () => Promise<{ op: { t: string } } | null>, sealFn: (r: PeerChatReply) => Promise<string>) => {
+              const req = await openFn();
+              calls.push({ sender, id, op: req?.op.t ?? null });
+              return req ? sealFn({ ok: true, queueId: 'q-1' }) : null;
+            }),
+          },
+        };
+      };
+      const feedOf = async (s: Awaited<ReturnType<typeof bellSetup>>): Promise<MobileFeed> => {
+        await s.timers.advance(FEED_DEBOUNCE_MS);
+        await settle(() => s.client.mobileFeeds.size === 1);
+        return open<MobileFeed>(await mobileKey(), aadFeed('pc-a'), s.client.mobileFeeds.get('pc-a')!.sealed);
+      };
+
+      it('呼び鈴の phone-chat を M で開いて宿主へ渡し、答えを phone-chat-reply で返す。送り主はスマホで名前は一覧から', async () => {
+        const chat = chatHost();
+        const s = await bellSetup({ boot: { chat } });
+        cleanups.push(() => s.mobile.stop(), () => s.w.close());
+        s.mobile.start();
+        await settle(() => s.w.open().length === 1);
+        const key = await mobileKey();
+        const req = { v: 1, askId: 'c-1', expiresAt: peerChatExpiresAt(Date.now()), sessionId: 's1', op: { t: 'tail', after: null, waitMs: 0 } };
+        s.w.open()[0]!.send(JSON.stringify({ t: 'phone-chat', id: 'c-1', from: 'phone-1', epoch: 1, sealed: await seal(key, aadPhoneChat('c-1', 'pc-a'), req) }));
+        await settle(() => s.w.received.some((x) => x.includes('phone-chat-reply')));
+        const reply = JSON.parse(s.w.received.find((x) => x.includes('phone-chat-reply'))!) as { id: string; from: string; sealed: string };
+        expect(reply).toMatchObject({ id: 'c-1', from: 'phone-1' });
+        expect(await open(key, aadPhoneChatReply('c-1'), reply.sealed)).toEqual({ ok: true, queueId: 'q-1' });
+        expect(chat.calls).toEqual([{ sender: { id: 'phone-1', kind: 'phone', name: 'phone-1' }, id: 'c-1', op: 'tail' }]);
+        expect(chat.handle).not.toHaveBeenCalled();
+      });
+
+      it(`Worker が版 ${PHONE_CHAT_MIN_WORKER_COMPAT} 以上で宿主があれば caps.chat を載せ、input に設定 phoneChatAccept を写す`, async () => {
+        for (const [current, input] of [[{}, true], [{ phoneChatAccept: false }, false]] as const) {
+          const s = await bellSetup({ boot: { chat: chatHost(), home: { db: openDb(':memory:'), device: { id: 'pc-a', name: 'PC A' }, home: '/h', settings: { current } } } });
+          cleanups.push(() => s.mobile.stop(), () => s.w.close());
+          s.mobile.start();
+          expect((await feedOf(s)).caps?.chat).toEqual({ input });
+        }
+      });
+
+      it(`Worker が版 ${PHONE_CHAT_MIN_WORKER_COMPAT} 未満、または宿主が無ければ caps.chat を載せない`, async () => {
+        const old = await bellSetup({ workerCompat: PHONE_CHAT_MIN_WORKER_COMPAT - 1, boot: { chat: chatHost() } });
+        cleanups.push(() => old.mobile.stop(), () => old.w.close());
+        old.mobile.start();
+        expect((await feedOf(old)).caps?.chat).toBeUndefined();
+        const none = await bellSetup();
+        cleanups.push(() => none.mobile.stop(), () => none.w.close());
+        none.mobile.start();
+        expect((await feedOf(none)).caps?.chat).toBeUndefined();
+      });
     });
 
     it('リンクが変わったら古いのを閉じて組み直し、同期を外したら閉じる。stop でも閉じる', async () => {

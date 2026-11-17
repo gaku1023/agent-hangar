@@ -357,6 +357,7 @@ export const settingsKeys = {
   'settings.label.opencodeIdleUnload': [],
   'settings.label.opencodeProviderPrep': [],
   'settings.label.peerChatAcceptFromPeers': [],
+  'settings.label.phoneChatAccept': [],
   'settings.label.voice': [],
   'settings.label.orchestrator': [],
   'settings.opencode.title': [],

@@ -91,8 +91,13 @@ export type MobileProject = { id: string; name: string; lastUsedAt: number | nul
  *
  * agents は、この PC で起こせるエージェント（0.10.0 で足した）。opencode と Codex は、PC の設定で有効にしているときだけ載せる。
  * 無ければ Claude Code だけの PC である。古い PC は依頼の知らない欄（agent）を断らずに Claude を起こしてしまうので、スマホは agents にそのエージェントのある PC にだけ、そのエージェントの依頼を出す。
+ *
+ * launchExtras は、起動の依頼の worktree と name を読む PC の印（互換の版 13 と同じ頃に足した）。古い PC は知らない欄を捨てて起こすので、スマホは印のある PC にだけ 2 つの欄を出す。
+ * chat は、スマホの会話の頁（POST /m/chat）に答える PC の印である。Worker が版 13（PHONE_CHAT_MIN_WORKER_COMPAT）に届いたときだけ載せる。
+ * input は設定「スマホからの送信を受ける」（phoneChatAccept）で、偽なら頁は読むだけにし、入力欄と中断を出さない。
+ * 画像を送れる印は、PC が受けるようになってから chat に足す。
  */
-export type MobileCaps = { asks: boolean; images: boolean; effort: boolean; agents?: AgentKind[] };
+export type MobileCaps = { asks: boolean; images: boolean; effort: boolean; agents?: AgentKind[]; launchExtras?: boolean; chat?: { input: boolean } };
 
 /** 1 台の PC が Worker に預ける受信箱の素。暗号化して置くので、Worker は中身を読めない。 */
 export type MobileFeed = {
@@ -140,7 +145,19 @@ export type MobileLaunchPayload = {
   mode?: string;
   /** opencode の自動承認（--auto）。真なら deny 以外をすべて許可する。 */
   autoApprove?: boolean;
+  /**
+   * worktree の名前（PC の新しいセッションのダイアログの worktree の札と同じ）。空か無ければ使わない。Claude Code だけ。MOBILE_WORKTREE_RE の形だけ。
+   * スマホは caps.launchExtras のある PC にだけ送る。古い PC は知らない欄を捨てて起こすからである。
+   */
+  worktree?: string;
+  /** 会話の名前。空か無ければ付けない。MOBILE_LAUNCH_NAME_MAX 字まで。worktree と同じく caps.launchExtras のある PC にだけ送る。 */
+  name?: string;
 };
+
+/** 起動の依頼の worktree の名前の形。引数やパスに読まれる形（先頭の -、区切りの / と ..）を断る。 */
+export const MOBILE_WORKTREE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+/** 起動の依頼の会話の名前の字数の上限。 */
+export const MOBILE_LAUNCH_NAME_MAX = 120;
 
 /** 起動の依頼で選べるエージェント。 */
 export type MobileLaunchAgent = AgentKind;
@@ -287,8 +304,9 @@ export type MobileLaunchStatus = { id: string; status: 'pending' | 'claimed' | '
  * count は新しく要対応に入った会話の数で、2 以上なら「〈題〉ほか n 件」と出す。題と ID は先頭の 1 件のもの。
  * kind が 'unread' のときは notify_user の知らせで、題は会話の名前、body が本文、count はまとめた回数である（出し方は本文を使い、「ほか n 件」は付けない）。
  * kind が無いものは今までどおり入力待ちとして読む（古いスマホは kind と body を無視して入力待ちの文で出す）。
+ * deviceId は通知を送った PC の ID（互換の版 13 と同じ頃に足した）。スマホは通知から会話の頁を開くとき、これで宛先の PC を決める。無ければ（古い PC）pcName で探す。
  */
-export type PhoneNotice = { title: string; pcName: string; sessionId: string; count: number; kind?: 'waiting' | 'unread'; body?: string };
+export type PhoneNotice = { title: string; pcName: string; sessionId: string; count: number; kind?: 'waiting' | 'unread'; body?: string; deviceId?: string };
 /** 通知の題と PC の名前の字数の上限。封じる前に切る。 */
 export const PHONE_NOTICE_TEXT_MAX = 120;
 /** 通知の会話の ID の字数の上限。 */

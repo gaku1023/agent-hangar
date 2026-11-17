@@ -132,7 +132,9 @@ export async function sealPhoneNotice(key: CryptoKey | Uint8Array, epoch: number
   }
   if (n.kind !== undefined && n.kind !== 'waiting' && n.kind !== 'unread') throw new TypeError('通知の形が違います');
   if (n.body !== undefined && typeof n.body !== 'string') throw new TypeError('通知の形が違います');
+  if (n.deviceId !== undefined && (typeof n.deviceId !== 'string' || n.deviceId.length > PHONE_NOTICE_ID_MAX)) throw new TypeError('通知の形が違います');
   const body: PhoneNotice = { title: clip(n.title), pcName: clip(n.pcName), sessionId: n.sessionId, count: n.count };
+  if (n.deviceId !== undefined) body.deviceId = n.deviceId;
   if (n.kind !== undefined) body.kind = n.kind;
   if (n.body !== undefined) body.body = clip(n.body);
   return `${epoch}.${await seal(await noticeKey(key), aadPhoneNotice(epoch), body)}`;
@@ -156,6 +158,7 @@ export async function openPhoneNotice(key: CryptoKey | Uint8Array, sealed: strin
   const out: PhoneNotice = { title: v.title, pcName: v.pcName, sessionId: v.sessionId, count: v.count };
   if (v.kind === 'waiting' || v.kind === 'unread') out.kind = v.kind;
   if (typeof v.body === 'string') out.body = v.body;
+  if (typeof v.deviceId === 'string' && v.deviceId.length > 0 && v.deviceId.length <= PHONE_NOTICE_ID_MAX) out.deviceId = v.deviceId;
   return out;
 }
 

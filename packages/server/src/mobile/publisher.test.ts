@@ -299,7 +299,7 @@ describe('MobileFeedPublisher のスマホへの通知', () => {
     expect(notices(s)).toHaveLength(1);
     const n = notices(s)[0]!;
     expect(n.epoch).toBe(1);
-    expect(await openPhoneNotice(await mKey(), n.sealed)).toEqual({ title: '題 s1', pcName: 'PC A', sessionId: 's1', count: 1 });
+    expect(await openPhoneNotice(await mKey(), n.sealed)).toEqual({ title: '題 s1', pcName: 'PC A', sessionId: 's1', count: 1, deviceId: 'pc-a' });
   });
 
   it('起動の直後の最初の書き込みでは、既に要対応だった会話を知らせない', async () => {
@@ -353,7 +353,7 @@ describe('MobileFeedPublisher のスマホへの通知', () => {
     s.setFeed(withLive([liveOf('s0', 'waiting'), liveOf('s2', 'waiting', { statusAt: 30 }), liveOf('s3', 'waiting', { statusAt: 20 }), liveOf('s4', 'idle')], 1));
     await s.pub.flushNow();
     expect(notices(s)).toHaveLength(1);
-    expect(await openPhoneNotice(await mKey(), notices(s)[0]!.sealed)).toEqual({ title: '題 s3', pcName: 'PC A', sessionId: 's3', count: 2 });
+    expect(await openPhoneNotice(await mKey(), notices(s)[0]!.sealed)).toEqual({ title: '題 s3', pcName: 'PC A', sessionId: 's3', count: 2, deviceId: 'pc-a' });
   });
 
   it('スマホが 1 台も無いときは送らない。後からスマホが現れても、その前から待っていた会話は鳴らさない', async () => {
@@ -435,7 +435,7 @@ describe('MobileFeedPublisher の未読の通知（notify_user）', () => {
     s.pub.noticeUnread({ sessionId: 's1', title: '会話 A', text: 'テストが通りました' });
     await s.timers.advance(UNREAD_COALESCE_MS);
     await settle(() => s.client.notices.length === 1);
-    expect(await sent(s)).toEqual([{ title: '会話 A', pcName: '', sessionId: 's1', count: 1, kind: 'unread', body: 'テストが通りました' }]);
+    expect(await sent(s)).toEqual([{ title: '会話 A', pcName: '', sessionId: 's1', count: 1, kind: 'unread', body: 'テストが通りました', deviceId: 'pc-a' }]);
     expect(s.writes()).toBe(0);
   });
 

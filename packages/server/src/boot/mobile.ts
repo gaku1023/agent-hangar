@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type WebSocket from 'ws';
-import { codexEnabledOf, EVENT_INBOX_MIN_WORKER_COMPAT, MOBILE_BELL_MIN_WORKER_COMPAT, opencodeEnabledOf, type PeerBellKind, type PeerChatBellAsk, type PeerChatBellReply, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
+import { codexEnabledOf, EVENT_INBOX_MIN_WORKER_COMPAT, MOBILE_BELL_MIN_WORKER_COMPAT, opencodeEnabledOf, PHONE_CHAT_MIN_WORKER_COMPAT, phoneChatAcceptOf, type PhoneChatBellAsk, type PeerBellKind, type PeerChatBellAsk, type PeerChatBellReply, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
 import type { AccountStore } from '../config/accounts.ts';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
@@ -27,6 +27,7 @@ import type { SyncEngine, Timers } from '../sync/engine.ts';
 import type { PhoneKeySource } from '../sync/phoneKeys.ts';
 import type { UsageTracker } from '../usage/statusline.ts';
 import type { SyncParts } from './sync.ts';
+import { createPhoneChatEntry, type PhoneChatHost } from '../mobile/chatHost.ts';
 
 /**
  * 変わったら受信箱の素を組み直すきっかけにする表。
@@ -103,7 +104,7 @@ type Link = { client: CloudClient; phoneKeys: PhoneKeySource };
  */
 export function bootMobile(p: {
   /** home は hangar の home（置き場 drops の親）。 */
-  home: { db: Db; device: { id: string; name: string }; home: string; settings?: { readonly current: Pick<Settings, 'opencodeEnabled' | 'codexEnabled'> } };
+  home: { db: Db; device: { id: string; name: string }; home: string; settings?: { readonly current: Pick<Settings, 'opencodeEnabled' | 'codexEnabled' | 'phoneChatAccept'> } };
   /** hub は画面への配り口。スマホから起こした会話の右下の通知（phone.launch、試作 F1）を配る。無ければ配らない。 */
   delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub?: { broadcast(ev: Extract<ServerEvent, { type: 'phone.launch' }>): void } };
   runs: { runs: Pick<RunManager, 'start' | 'on'>; accounts: { store: Pick<AccountStore, 'list'>; usage: Pick<UsageTracker, 'of'>; broadcast: (accounts: AccountsDto) => void } };
@@ -142,7 +143,11 @@ export function bootMobile(p: {
   /** Codex の置き場を探す口。既定は config/tools.ts の findCodex。試験が差し替える。 */
   findCodex?: () => string | null;
   /** ほかの PC の会話の頼み（呼び鈴の chat の枠、boot/peerChat.ts）に答える口。省けば chat の枠を捨てる。 */
-  chat?: { handle(frame: PeerChatBellAsk): Promise<PeerChatBellReply | null> };
+  /**
+   * ほかの PC の会話の頼み（呼び鈴の chat の枠、boot/peerChat.ts）に答える口。省けば chat の枠を捨てる。
+   * host があれば、スマホの会話の頼み（phone-chat の枠、互換の版 13）にも同じ宿主で答え（mobile/chatHost.ts）、受信箱の素の caps.chat を載せる。
+   */
+  chat?: { handle(frame: PeerChatBellAsk): Promise<PeerChatBellReply | null>; host?: PhoneChatHost };
   /** セッションの削除の口。スマホの削除の承認（#547）に使う。省けば承認の問い合わせを断る。 */
   trash?: Pick<SessionTrash, 'deleteSession'>;
 }): MobileParts {
@@ -197,6 +202,14 @@ export function bootMobile(p: {
   /** 知らないスマホの ID で一覧を最後に読み直した時刻。ID ごとに読み直しを間引く。 */
   const phoneRereadAt = new Map<string, number>();
 
+  /**
+   * スマホの会話の頁に答えられるか（caps.chat）。宿主があり、Worker が版 13 を名乗ったときだけ。
+   * input は設定 phoneChatAccept で、切なら頁は読むだけになる。
+   */
+  const chatCaps = (): { input: boolean } | null => {
+    if (!p.chat?.host || (cur?.link.client.lastWorkerCompat?.() ?? p.sync.mobileLink()?.client.lastWorkerCompat?.() ?? 0) < PHONE_CHAT_MIN_WORKER_COMPAT) return null;
+    return { input: p.home.settings ? phoneChatAcceptOf(p.home.settings.current) : true };
+  };
   const build = () => buildMobileFeed({
     db, deviceId, deviceName: p.home.device.name,
     live: p.delivery.live.current(),
@@ -208,6 +221,7 @@ export function bootMobile(p: {
     opencodeEnabled: p.home.settings ? opencodeEnabledOf(p.home.settings.current) : false,
     // 見つからない Codex は caps に載せない（スマホに選ばせて agent-missing で断るより、段ごと出さない）。
     codexEnabled: codexOn(),
+    chat: chatCaps(),
   });
 
   /** 今の engine を購読する。組み直されていたら前の購読を外す。 */
@@ -247,6 +261,7 @@ export function bootMobile(p: {
       onStarted: (e) => { void announceLaunch(e).catch((err: unknown) => console.error('[mobile] could not announce the started session', err instanceof Error ? err.constructor.name : typeof err)); },
     });
     const client = link.client;
+    const phoneChat = createPhoneChatEntry({ deviceId, phoneKeys: link.phoneKeys, host: () => p.chat?.host ?? null, phoneName: (id) => phoneNames.get(id) ?? null });
     const bell = new MobileBell({
       target: () => {
         if (!started || stopped) return null;
@@ -284,6 +299,7 @@ export function bootMobile(p: {
         ...(p.codex ? { codex: { ready: codexOn, options: () => p.codex!.options.last() } } : {}),
       }, id, sealed, epoch),
       ...(p.chat ? { onChat: (frame: PeerChatBellAsk) => p.chat!.handle(frame) } : {}),
+      ...(p.chat?.host ? { onPhoneChat: (frame: PhoneChatBellAsk) => phoneChat.handle(frame) } : {}),
       timers,
       ...(p.bellConnect ? { connect: p.bellConnect } : {}),
     });

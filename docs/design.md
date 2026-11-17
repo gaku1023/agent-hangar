@@ -9343,6 +9343,9 @@ opencode と Codex の会話、互換の版 13 に届かない PC や Worker の
 起動で選べるのは、プロジェクト（ディレクトリなしの「クイックセッション」を含む）、PC、アカウント、モデル、effort、権限モード、worktree、名前、初期プロンプトである。
 並びは PC の新しいセッションのダイアログと同じにする。
 追加ディレクトリはスマホでは選べない（パスを打つのはスマホに向かない）。
+worktree と名前は、起動の依頼の封（`MobileLaunchPayload`）の `worktree` と `name` で運ぶ。
+PC は受信箱の素の `caps.launchExtras` で読めることを示し、スマホは印のある PC にだけ 2 つの欄を出す（古い PC は知らない欄を捨てて起こすため）。
+worktree は Claude Code だけが受け、形は `MOBILE_WORKTREE_RE`（先頭は英数字、`/` と `..` を含まない、64 字まで）、名前は 120 字までで、外れた依頼は `bad-payload` で断る。
 権限モードの値は、PC の新規セッションのダイアログと同じである。
 effort の値（デフォルト、low、medium、high、xhigh、max）も、PC の新規セッションのダイアログと同じ表（shared の `EFFORT_VALUES`）を使う。
 PC 側で権限モードやモデルや effort に上限は設けず、スマホで選んだ値のまま起こす。
@@ -10053,9 +10056,23 @@ PC の設定「スマホから会話に入力する」（`Settings.phoneChatAcce
 それでも切り替えを置くのは、PC どうしは切、スマホは入、のように分けたい人がいるからである。
 
 古い組み合わせ。
-PC は、Worker が名乗る版が `PHONE_CHAT_MIN_WORKER_COMPAT`（13）に届き、設定が入りのときだけ、受信箱の素の `caps` に `chat: 1` を載せる。
+PC は、Worker が名乗る版が `PHONE_CHAT_MIN_WORKER_COMPAT`（13）に届いたときだけ、受信箱の素の `caps` に `chat: { input }` を載せる。
+`input` は設定「スマホからの送信を受ける」で、設定を替えると素を組み直す（`config/settingsUpdate.ts`）。
 スマホは `caps.chat` のある PC の Claude Code の会話にだけ会話の頁を出し、ほかは今までどおり Remote Control を開く。
+`input` が偽なら、頁は読むだけにし、入力欄も中断も出さない。
 版 12 までの Worker は `/m/chat` を 404 で返す。
+
+PC の受け口。
+呼び鈴の `phone-chat` の枠は `mobile/bell.ts` が受け、`mobile/chatHost.ts` が枠の世代の `M` で開いて、宿主の `handleRequest` へ渡す。
+宿主は、開けた頼みの送り主を `{ id, kind: 'phone', name }` として扱い、スマホの ID を覚える。
+預かりの見直しと渡す直前の確かめは、預かりの送り主の ID からその種類を引き、種類の設定を読む。
+答えの封が呼び鈴の上限（64 KiB）を超えるなら、`too-large` の断りを封じて返す。
+スマホの頼みには PC どうしの鍵の束を渡さないので、画像の付いた頼みは `too-large` で断る。
+
+通知から開く。
+PC はスマホの通知（`PhoneNotice`）に、送った PC の ID（`deviceId`）を添える。
+スマホは通知から会話の頁を開くとき、これで宛先の PC を決める。
+無い通知（古い PC）は、PC の名前で探す。
 
 **端末ローカルの表。**
 スマホ向けに、端末ローカルの表を 2 つ足し、そのうち `mobile_launches` には後の版で列を足した（版 31 と 33）。

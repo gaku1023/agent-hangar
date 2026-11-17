@@ -17,7 +17,7 @@ import {
 import { createPeerAnswerer, type AnswerPane, type AnswerResult } from './answer.ts';
 import { inputEmptyFromCapture } from './inputBox.ts';
 import { resumeSendOp, sendOp, type SendDeps } from './hostSend.ts';
-import type { PeerChatHostDeps } from './hostTypes.ts';
+import type { PeerChatHostDeps, PeerChatSender } from './hostTypes.ts';
 import { ChatView, RECHECK_MS } from './hostView.ts';
 import { PeerQueue, type TurnState } from './queue.ts';
 
@@ -29,9 +29,12 @@ import { PeerQueue, type TurnState } from './queue.ts';
  * 開けた頼みには、断りも含めて必ず 1 つ答える。
  * 同じ askId の再送には、同じ答えを返し、効果は 1 回にする。
  *
+ * 頼みは、ほかの PC からは呼び鈴の chat の枠（handle）で、スマホからは phone-chat の枠を mobile/chatHost.ts が開いて（handleRequest）届く。
+ * どちらも同じ op の処理を通る。入り切りの設定は送り主の種類（pc か phone）ごとに読む（deps.acceptFrom）。
+ *
  * 断る順番。
  * 期限切れ（expired）と本文の大きさ（too-large）→ 会話がこの PC に無い（session-unknown）→ Claude Code でない（not-claude）
- * → 送る系で設定が切れている（refused-by-setting）。
+ * → 送る系で、送り主の種類の設定が切れている（refused-by-setting）→ スマホからの画像（too-large。最初は文だけを受ける）。
  * 読む系（tail、files）は設定が切れていても答える（見えるが送れない）。
  *
  * op の道。
@@ -74,6 +77,12 @@ export type PeerChatHost = {
    */
   handle(frame: PeerChatBellAsk): Promise<PeerChatBellReply | null>;
   /**
+   * 封を開く道と封じる道を呼び手が持つ頼み（スマホの入口、mobile/chatHost.ts）に答える。
+   * open が null を返すか投げたら答えない（null）。seal が投げたら too-large の断りを封じ直し、それも投げたら null。
+   * 戻りは封じた答え。投げない。
+   */
+  handleRequest(sender: PeerChatSender, id: string, open: () => Promise<PeerChatRequest | null>, seal: (reply: PeerChatReply) => Promise<string>): Promise<string | null>;
+  /**
    * 会話の状態が変わった。
    * 待っている tail を起こす。
    * sessionId を省けば全部。
@@ -114,7 +123,7 @@ export type PeerChatLocal = {
 
 const refuse = (reason: Extract<PeerChatReply, { ok: false }>['reason']): PeerChatReply => ({ ok: false, reason });
 /**
- * 設定 peerChatAcceptFromPeers が切れていると断る op。
+ * 送り主の種類の設定（peerChatAcceptFromPeers か phoneChatAccept）が切れていると断る op。
  * cancel は入れない（送り主が自分の預かりを取り戻すだけで、この PC の入力には触れない。
  * 設定を切ったあとも、預けた文を取り戻せるようにする）。
  */
@@ -143,19 +152,26 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
   const staged: { paths: string[] | null } = { paths: null };
   const newId = deps.newId ?? randomUUID;
   const active = new Set<string>();
+  /**
+   * スマホの送り主の ID。スマホの入口から頼みが届いたときに覚える。
+   * 送り主の ID は Worker が端末トークンで決めるので、PC の ID とスマホの ID は重ならず、頼みの中身では名乗れない。
+   * 預かりを渡す直前の確かめ（deliver）と預かりの見直し（accepting）が、送り主の種類を引くのに使う。
+   */
+  const phones = new Set<string>();
+  const acceptsSender = (fromId: string): boolean => deps.acceptFrom(phones.has(fromId) ? 'phone' : 'pc');
 
   const queue: PeerQueue = new PeerQueue({
     now: deps.now,
     turnState,
-    accepting: deps.acceptFromPeers,
+    accepting: acceptsSender,
     inputEmpty: async (sessionId) => {
       const cap = await paneOf(sessionId)?.captureStyled();
       return cap != null && inputEmptyFromCapture(cap);
     },
     // 貼る直前にもう一度、入力欄が空であることを確かめる（人が打ち始めたら渡さず、預かりに戻す）。
-    deliver: async (sessionId, text, _images, queueId) => {
-      // 預けたあとに設定が切れたら、渡さない（次の確認で捨てて、送り主に文を返す）。
-      if (!deps.acceptFromPeers()) return false;
+    deliver: async (sessionId, text, _images, queueId, fromId) => {
+      // 預けたあとに送り主の種類の設定が切れたら、渡さない（次の確認で捨てて、送り主に文を返す）。
+      if (!acceptsSender(fromId)) return false;
       const run = deps.run(sessionId);
       const pane = paneOf(sessionId);
       if (!run || !pane) return false;
@@ -284,15 +300,18 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     },
   };
 
-  async function dispatch(ring: PeerKeyring, req: PeerChatRequest, fromId: string): Promise<PeerChatReply> {
+  async function dispatch(ring: PeerKeyring | null, req: PeerChatRequest, sender: PeerChatSender): Promise<PeerChatReply> {
+    const fromId = sender.id;
     const { sessionId, op } = req;
     const session = deps.session(sessionId);
     if (!session) return refuse('session-unknown');
     if (session.provider !== 'claude-code') return refuse('not-claude');
     // この PC が会話の持ち主でなければ（ほかの PC で動いている、続きが新しい、本文が無い、引き継がれた）、手元の古い写しを見せも動かしもしない。
     if (session.lock || session.newerElsewhere || session.remoteOnly || session.takenOver) return refuse(op.t === 'resume-send' ? 'resume-failed' : 'session-unknown');
-    if (SENDING.has(op.t) && !deps.acceptFromPeers()) return refuse('refused-by-setting');
-    const from: PeerChatDevice = { deviceId: fromId, deviceName: deps.deviceName(fromId) };
+    if (SENDING.has(op.t) && !deps.acceptFrom(sender.kind)) return refuse('refused-by-setting');
+    // スマホからは、まず文だけを受ける（画像は、受信箱の素の caps に印を載せてから足す）。
+    if (sender.kind === 'phone' && (op.t === 'send' || op.t === 'resume-send') && op.images.length > 0) return refuse('too-large');
+    const from: PeerChatDevice = { deviceId: fromId, deviceName: sender.name ?? deps.deviceName(fromId) };
     switch (op.t) {
       case 'tail':
         return { ok: true, state: await view.tail(sessionId, fromId, op.after, op.waitMs) };
@@ -331,7 +350,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
    * 覚えは expiresAt に少しの余裕を足した時刻まで残す（読むだけの頼みは短く）。その後の再送は期限切れで断られるので、隙間は無い。
    * 数は頼み主ごとに数える。refusal は、答えが小さい断りの覚えで、実行の覚えとは別の上限を持つ。
    */
-  const seen = new Map<string, { from: string; until: number; refusal: boolean; reply: Promise<PeerChatBellReply | null> }>();
+  const seen = new Map<string, { from: string; until: number; refusal: boolean; reply: Promise<string | null> }>();
   const countOf = (from: string, refusal: boolean): number => {
     let n = 0;
     for (const v of seen.values()) if (v.from === from && v.refusal === refusal) n++;
@@ -340,28 +359,25 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
 
   const kind = (e: unknown): string => (e instanceof Error ? e.constructor.name : typeof e);
 
-  async function seal(ring: PeerKeyring, frame: PeerChatBellAsk, reply: PeerChatReply): Promise<PeerChatBellReply | null> {
-    const route = { requestId: frame.id, from: frame.from, to: deps.deviceId };
-    let sealed: string;
+  /** 答えを封じる道。封じられなければ too-large の断りを封じ直し、それも駄目なら null（答えない）。 */
+  type Sealer = (reply: PeerChatReply) => Promise<string>;
+  async function sealOrRefuse(sealer: Sealer, reply: PeerChatReply): Promise<string | null> {
     try {
-      sealed = await sealPeerChatReply(ring, route, reply);
+      return await sealer(reply);
     } catch {
-      try { sealed = await sealPeerChatReply(ring, route, refuse('too-large')); } catch { return null; }
+      try { return await sealer(refuse('too-large')); } catch { return null; }
     }
-    return { t: 'chat-reply', id: frame.id, from: frame.from, sealed };
   }
 
-  async function respond(frame: PeerChatBellAsk): Promise<PeerChatBellReply | null> {
-    const ring = await deps.ring();
-    if (!ring) return null;
-    let req: PeerChatRequest;
-    try {
-      req = await openPeerChat(ring, { requestId: frame.id, from: frame.from, to: deps.deviceId }, frame.sealed);
-    } catch {
-      return null;
-    }
+  /**
+   * 開けた頼みに答える（ほかの PC とスマホが分け合う本体）。
+   * ring は PC どうしの鍵の束で、画像を開くのに使う。スマホの頼みでは null（画像を受けない）。
+   */
+  function respondTo(sender: PeerChatSender, id: string, req: PeerChatRequest, ring: PeerKeyring | null, sealer: Sealer): Promise<string | null> {
+    if (sender.kind === 'phone') phones.add(sender.id);
     // ここから先は同期で、覚えの確かめと登録の間に別の頼みが割り込まない。
-    const key = `${frame.from}|${frame.id}`;
+    const from = sender.id;
+    const key = `${from}|${id}`;
     const t = deps.now();
     for (const [k, v] of seen) if (t > v.until) seen.delete(k);
     const hit = seen.get(key);
@@ -371,35 +387,66 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     const keep = req.expiresAt + SEEN_MARGIN_MS;
     const until = req.op.t === 'tail' || req.op.t === 'files' ? Math.min(keep, t + SEEN_READ_KEEP_MS) : keep;
     /** 断りを覚えて返す。覚えの上限に達していれば、覚えずに返す（頼み主 1 台が覚えを埋め尽くせないように）。 */
-    const refused = (r: PeerChatReply): Promise<PeerChatBellReply | null> => {
-      const reply = seal(ring, frame, r);
-      if (countOf(frame.from, true) < SEEN_REFUSALS_PER_SENDER) seen.set(key, { from: frame.from, until: keep, refusal: true, reply });
+    const refused = (r: PeerChatReply): Promise<string | null> => {
+      const reply = sealOrRefuse(sealer, r);
+      if (countOf(from, true) < SEEN_REFUSALS_PER_SENDER) seen.set(key, { from, until: keep, refusal: true, reply });
       return reply;
     };
     const check = checkPeerChatRequest(req, t);
     if (!check.ok) {
       // 期限が遠い未来の頼みは、時がたてば通るようになる。覚えて、再送を断り続ける。
-      return check.reason === 'expired' && req.expiresAt > t ? refused(refuse('expired')) : seal(ring, frame, refuse(check.reason));
+      return check.reason === 'expired' && req.expiresAt > t ? refused(refuse('expired')) : sealOrRefuse(sealer, refuse(check.reason));
     }
-    if (countOf(frame.from, false) >= SEEN_PER_SENDER) return refused(refuse('rate'));
-    const reply = (async (): Promise<PeerChatBellReply | null> => {
+    if (countOf(from, false) >= SEEN_PER_SENDER) return refused(refuse('rate'));
+    const reply = (async (): Promise<string | null> => {
       let r: PeerChatReply;
       try {
-        r = await dispatch(ring, req, frame.from);
+        r = await dispatch(ring, req, sender);
       } catch (e) {
         // 想定外の失敗。画面が「PC がつながらない」と取り違えないよう、専用の断り host-error で返す。
         console.error('[peer-chat] request failed inside the host', req.op.t, kind(e));
         r = refuse('host-error');
       }
-      return seal(ring, frame, r);
+      return sealOrRefuse(sealer, r);
     })();
-    seen.set(key, { from: frame.from, until, refusal: false, reply });
+    seen.set(key, { from, until, refusal: false, reply });
     return reply;
+  }
+
+  async function respond(frame: PeerChatBellAsk): Promise<PeerChatBellReply | null> {
+    const ring = await deps.ring();
+    if (!ring) return null;
+    const route = { requestId: frame.id, from: frame.from, to: deps.deviceId };
+    let req: PeerChatRequest;
+    try {
+      req = await openPeerChat(ring, route, frame.sealed);
+    } catch {
+      return null;
+    }
+    const sealed = await respondTo({ id: frame.from, kind: 'pc' }, frame.id, req, ring, (r) => sealPeerChatReply(ring, route, r));
+    return sealed === null ? null : { t: 'chat-reply', id: frame.id, from: frame.from, sealed };
+  }
+
+  async function respondPhone(sender: PeerChatSender, id: string, open: () => Promise<PeerChatRequest | null>, sealer: Sealer): Promise<string | null> {
+    let req: PeerChatRequest | null;
+    try {
+      req = await open();
+    } catch {
+      return null;
+    }
+    if (!req) return null;
+    return respondTo(sender, id, req, null, sealer);
   }
 
   return {
     handle(frame) {
       return respond(frame).catch((e: unknown) => {
+        console.error('[peer-chat] could not answer', kind(e));
+        return null;
+      });
+    },
+    handleRequest(sender, id, open, sealer) {
+      return respondPhone(sender, id, open, sealer).catch((e: unknown) => {
         console.error('[peer-chat] could not answer', kind(e));
         return null;
       });
