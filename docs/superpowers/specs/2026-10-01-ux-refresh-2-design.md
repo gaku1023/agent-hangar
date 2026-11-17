@@ -19,7 +19,7 @@
 
 ## 入れる順番（利用者の決定）
 
-1. UX の直し 1（`docs/plans/ux-fixes-1.md`）を main へ入れる。
+1. UX の直し 1（`docs/plans/done/ux-fixes-1.md`）を main へ入れる。
 2. live-explainer（実行中の右ペイン）を main へ入れる。
 3. セッション画面の組み直し（`session-layout-v2.html`）を作る。
 

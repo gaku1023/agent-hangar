@@ -2,7 +2,7 @@
 
 Mac の端末の中で、聞き取り、区切り、読み上げ、会議の見張りを行う補助です。
 hangar のサーバが子のプロセスとして起こし、標準入出力の 1 行 1 JSON で話します。
-約束（cmd と ev）は `Core/Sources/VoiceCore/Protocol.swift` と、`docs/superpowers/plans/2026-11-16-orchestrator-voice-stage2.md` の「補助とサーバの約束」にあります。
+約束（cmd と ev）は `Core/Sources/VoiceCore/Protocol.swift` と、`docs/superpowers/plans/done/2026-11-16-orchestrator-voice-stage2.md` の「補助とサーバの約束」にあります。
 
 macOS 14 以上の Apple Silicon で動きます。
 
