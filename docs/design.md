@@ -10383,15 +10383,20 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
 ここには入った分だけを書く。
 今は会話の印、起動、見張り、許可の道具、出来事の送り込みと通知の猶予までで、画面は後の PR で入る。
 
-- **設定：** 設定の `orchestrator`（`{ enabled, sessionId, model, effort, account }`）。
+- **設定：** 設定の `orchestrator`（`{ enabled, sessionId, model, effort, account, history }`）。
   この PC だけの設定で、同期しない（同期の許可リスト `HANGAR_PREF_KEYS` に入れない）。
   既定は切、モデルは `sonnet`、effort は `medium`。
   `enabled` を入れた PC が宿主になる。
   `account` は統括を起こすアカウントの id で、`null` はいまのアカウント（再開では前に使ったアカウント）である。
   `PATCH /api/settings` は `enabled`、`model`、`effort`、`account` だけを受け、届いた項目だけを替える。
   `account` は今あるアカウントの id か `null` だけを受け、知らない id は 400 で断る。
-  `sessionId` は見張りだけが書き、この経路からは書かせない。形の違う値は 400 で断る。
-- **印：** `SessionDto.role` と `LiveSessionDto.role` が `'orchestrator'` になるのは、設定の `sessionId` と同じ会話だけである。
+  `sessionId` と `history` は見張りだけが書き、この経路からは書かせない。形の違う値は 400 で断る。
+- **系譜：** `history` は前の統括の会話（`{ sessionId, startedAt, endedAt, reason }` の古い順、上限 20 件で古いものから落とす。会話そのものは消さない）。
+  `reason` は `fresh`（利用者が始め直した）、`auto`（太った）、`agent`（起動の設定でアプリが変わった）、`gone`（会話が消えて起こし直した）である。
+  今の `sessionId` と `history` の id を合わせて系譜と呼ぶ（shared の `orchestratorLineage`）。
+  MCP の検索と一覧の `orchestrator: true`、出来事の関わった会話、一覧の DTO の `role` は系譜で引く。
+- **印：** `SessionDto.role` が `'orchestrator'` になるのは系譜の会話で、`LiveSessionDto.role` は設定の `sessionId` と同じ会話だけである。
+  前の統括の会話にも `role` を付けるのは、サイドバーに出さないためである（柱は設定の `sessionId` から今の 1 本を引く）。検索とその会話を開く操作では見える。
   DB の列は持たず、設定から導く（一覧と 1 件は `db/queries.ts` の `setOrchestratorSource`、実行中の一覧は `live/orchestratorRole.ts` の足し付け）。
   ほかの会話は鍵ごと送らない。
 - **起動：** `RunManager.startOrchestrator()`。
@@ -10430,13 +10435,26 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   この止め方は終わりの知らせで見分け（`respecs`）、利用者の停止にも失敗にも数えない（`enabled` は入りのまま）。
   前の hangar から引き継いだ run など、見張りが起こしていないものは、どの指定で起きたか分からないので当て直さない。
   状態は `state()` と `onState` で読める（画面の柱は後の PR）。
-- **許可の道具：** 統括がほかの会話の許可待ちに答える MCP の道具 4 本（`mcp/orchestratorTools.ts`、芯は `orchestrator/asks.ts`）。
-  `list_pending_asks`（読む）、`answer_ask`（押す）、`set_permission_policy`（方針を書く）、`list_auto_approvals`（記録を読む）。
+  状態には、切り替えの間だけ `switching: true` が、統括の文脈の量が分かるときは `contextTokens` が付く。
+- **切り替え：** `OrchestratorKeeper.fresh(reason)`（`reason` は `fresh`、`auto`、`agent`）。切のときと切り替えの最中は断る。止まっている（`stopped`）ときも始め直せる。
+  1. 古い統括の手すき（idle、出来事と許可の預かりが空、入力欄が空）を待つ。上限は 30 秒（`SWITCH_QUIET_MS`）で、越えたら待たずに進む。
+  2. 古い統括へ `[hangar]` の入力（`mcp.orchestrator.handoffRequest`）で、申し送りを統括だけの道具 `write_handoff` で書くよう頼む。上限は 90 秒（`SWITCH_MEMO_MS`）。入力欄に入れられないときと、時間切れのときは、メモ無しで進む。
+  3. 古い run を `kill` で止め（その終わりは利用者の停止にも失敗にも数えない、`ownKills`）、`startOrchestrator` で新しい会話を起こす。
+  4. 系譜を更新し（今の id を `history` へ移し、新しい id を `sessionId` に書く）、`running` を配る。
+  5. hangar が記録から引き継ぎ（`orchestrator/handoff.ts` の `buildHandoff`）を作り、新しい統括が手すきになったら（上限 120 秒）最初の入力（`[hangar]`）として渡す。
+  引き継ぎの中身は、前の統括の会話 id、系譜が起こした・送った会話のうち動いているもの（id と題名）、預かり中の問い、許可の方針、前の会話の利用者の最近の言葉 3 つ（`orchestrator/userWords.ts`、`[hangar]` の出来事を除き、声の印は剥がす）、古い統括のメモ（あれば）である。
+  `write_handoff` は切り替えの最中に、頼んだ古い統括から 1 回だけ受け（`receiveHandoff`）、ほかのときは断る。本文は 4000 字まで。道具の分類は `write`。
+  頼みと引き継ぎは出来事のターン（`noteFedTurn`）として渡すので、そのターンでは方針の変更と `answer_ask(by: 'user')` は通らない。
+  `resumable` が偽で新しく起こしたときは、前の id を `reason: 'gone'` で系譜に残す。
+- **止める・起こす：** `stopByUser()` は画面の停止と同じ `kill` で止め、`enabled` は切らずに `stopped`（理由は `user`）にする。`wake()` は止まった状態と失敗の数を捨てて起こす。
+- **見張りの口：** `GET /api/orchestrator/state`（見張りの状態、見張りが無ければ `{ status: 'off' }`）、`POST /api/orchestrator/fresh`（利用者の切り替え。申し送りの待ちが長いので受けたら 202）、`POST /api/orchestrator/stop`、`POST /api/orchestrator/wake`。切のときと切り替えの最中は 409。
+- **許可の道具：** 統括だけの MCP の道具 5 本（`mcp/orchestratorTools.ts`、許可の芯は `orchestrator/asks.ts`）。
+  `list_pending_asks`（読む）、`answer_ask`（押す）、`set_permission_policy`（方針を書く）、`list_auto_approvals`（記録を読む）と、切り替えの申し送りの `write_handoff`（上の項）。
   統括のセッション別 URL を、統括の会話の秘密で開けたときだけ道具の一覧に出し、呼べる。
   ほかの URL と、本体のトークンで開けた統括の URL では一覧に出さず、呼ばれても「知らない道具」と同じ断りを返す。
   統括を切っていれば、会話の id が残っていても出さない。
   同じ条件で、読む道具は全プロジェクトに効く（「MCP」の節の枠）。統括のほかには、プロジェクトのセッションからの検索に統括の会話は出ない（`project_id` が null で枠の外）。
-  道具の分類（`mcp/toolClasses.ts`）は、読む 2 本が `read`、`answer_ask` が `drive`、`set_permission_policy` が `write` である。
+  道具の分類（`mcp/toolClasses.ts`）は、読む 2 本が `read`、`answer_ask` が `drive`、`set_permission_policy` と `write_handoff` が `write` である。
 - **答え方：** ペインへのキー入力で、peer chat の宿主の答え手（`peer/chat/host.ts` の `local`）を通す。
   ほかの PC からの答えと同じ照合（札の道具と主な引数）と記録を通るので、同じ札に 2 度は打たず、利用者やスマホが先に答えれば打たずに断る。
   ほかの PC からの頼みの入り切り（`peerChatAcceptFromPeers`）には縛られない。
@@ -10488,7 +10506,7 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   札の id は質問を待つ会話の分だけ、統括が有効な間、一覧の変化と 1.5 秒の見直しで読む（画面を取り込む）。通知の見張りから呼ぶ `held` では読まない。
   重複の抑止は会話と札の id ごとで、同じ会話のまだ渡していない前の札の出来事は捨てる。
   `turn.done`（busy から idle）と `session.ended`（一覧から消えた）は、統括が関わった会話だけ（普通、2 秒でまとめる）。
-  関わった会話は、統括が起こした会話（`session_spawns`）と、統括が `send_to_session` した会話である（`orchestrator/involved.ts`、送った印はメモリだけで、終わりを伝えたら使い切る）。
+  関わった会話は、統括の系譜（今と前の統括）が起こした会話（`session_spawns`）と、`send_to_session` した会話である（`orchestrator/involved.ts` の `lineageInvolvement`、送った印はメモリだけで、終わりを伝えたら系譜の分を全部使い切る）。切り替えの前に前の統括が起こした会話の終わりも、新しい統括に届く。
   文は 1 通にまとめ、1 行目が見出し（`mcp.orchestrator.feedHead`）、以降が 1 件 1 行（`mcp.orchestrator.feedLine`、種類、会話の id、題名、許可なら道具の名前）。
   命令の全文は載せず、統括は `list_pending_asks` で引く。題名は 1 行にして 80 字で切る。
   渡し方は peer chat の預かり（`peer/chat/queue.ts`）と同じ規則で、統括が idle で入力欄が空のときだけ渡し、貼る直前にも入力欄を読み直す。

@@ -24,6 +24,8 @@ let saved: PermissionPolicy[];
 let userTurn: boolean;
 let orchestrator: { enabled: boolean; sessionId: string | null };
 let orchSecret: string;
+let handoffs: { self: string; text: string }[];
+let acceptHandoff: boolean;
 
 const fakeAsks = (): OrchestratorAsks => ({
   list: () => ({ asks: [], policy: { text: null, auto_tools: ['Read', 'Glob', 'Grep', 'LS'] } }),
@@ -37,6 +39,8 @@ beforeEach(() => {
   orchSecret = issueMcpSecret(db, 'orch', 1);
   answered = [];
   saved = [];
+  handoffs = [];
+  acceptHandoff = true;
   userTurn = true;
   orchestrator = { enabled: true, sessionId: 'orch' };
   deps = {
@@ -44,6 +48,7 @@ beforeEach(() => {
     settings: () => ({ orchestrator: { ...orchestrator, model: 'sonnet', effort: 'medium' } }),
     orchestratorAsks: fakeAsks(),
     savePermissionPolicy: (p) => { saved.push(p); },
+    orchestratorHandoff: (self, text) => { if (!acceptHandoff) return false; handoffs.push({ self, text }); return true; },
   };
 });
 
@@ -58,8 +63,8 @@ async function rpc(path: string, method: string, params: unknown, bearer = path 
 const toolNames = async (path: string, bearer?: string) => ((await rpc(path, 'tools/list', {}, bearer)).result!.tools as { name: string }[]).map((t) => t.name);
 
 describe('統括だけの道具', () => {
-  it('統括のセッション別 URL だけが 4 本を持ち、共通 URL とほかの会話の URL には出さない', async () => {
-    expect([...ORCHESTRATOR_TOOL_NAMES].sort()).toEqual(['answer_ask', 'list_auto_approvals', 'list_pending_asks', 'set_permission_policy']);
+  it('統括のセッション別 URL だけが 5 本を持ち、共通 URL とほかの会話の URL には出さない', async () => {
+    expect([...ORCHESTRATOR_TOOL_NAMES].sort()).toEqual(['answer_ask', 'list_auto_approvals', 'list_pending_asks', 'set_permission_policy', 'write_handoff']);
     expect((await toolNames('/s/orch')).sort()).toEqual([...TOOL_NAMES, ...ORCHESTRATOR_TOOL_NAMES].sort());
     expect((await toolNames('/s/other')).sort()).toEqual([...TOOL_NAMES].sort());
     expect((await toolNames('/')).sort()).toEqual([...TOOL_NAMES].sort());
@@ -139,6 +144,26 @@ describe('set_permission_policy', () => {
     save(p);
     expect(current.permissionPolicy).toEqual(p);
     expect(sent).toEqual([{ type: 'settings.changed', settings: { permissionPolicy: p }, keys: ['permissionPolicy'] }]);
+  });
+});
+
+describe('write_handoff', () => {
+  it('切り替えの申し送りを見張りへ渡す', () => {
+    expect(call('write_handoff', { text: '  s1 の CI を見ている  ' })).toEqual({ ok: true });
+    expect(handoffs).toEqual([{ self: 'orch', text: 's1 の CI を見ている' }]);
+  });
+  it('頼まれていないときと、空と長すぎる本文は断る', () => {
+    acceptHandoff = false;
+    expect(() => call('write_handoff', { text: 'x' })).toThrow(ToolError);
+    acceptHandoff = true;
+    expect(() => call('write_handoff', { text: '  ' })).toThrow(ToolError);
+    expect(() => call('write_handoff', { text: 'x'.repeat(4001) })).toThrow(ToolError);
+    expect(() => call('write_handoff', {})).toThrow(ToolError);
+    expect(handoffs).toEqual([]);
+  });
+  it('統括のほかの URL からは「知らない道具」として断る', () => {
+    expect(() => call('write_handoff', { text: 'x' }, { sessionId: 'other', sessionSecret: true })).toThrow(ToolError);
+    expect(handoffs).toEqual([]);
   });
 });
 

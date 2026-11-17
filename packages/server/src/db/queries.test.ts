@@ -48,6 +48,12 @@ describe('統括の印（role）', () => {
     id = null;
     expect(listSessions(db, []).every((s) => !('role' in s))).toBe(true);
   });
+  it('系譜にある前の統括の会話にも role を付ける（サイドバーに出さない）', () => {
+    const all = listSessions(db, []);
+    const [a, b] = [all[0]!.id, all[1]!.id];
+    setOrchestratorSource(db, () => [a, b]);
+    expect(listSessions(db, []).filter((s) => 'role' in s).map((s) => s.id).sort()).toEqual([a, b].sort());
+  });
 });
 
 describe('listSessions', () => {

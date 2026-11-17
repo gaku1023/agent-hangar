@@ -1,3 +1,4 @@
+import { orchestratorLineage, orchestratorOf } from '@agent-hangar/shared';
 import type { NoticeEvent } from '../events/publisher.ts';
 import { Publisher } from '../events/publisher.ts';
 import { AsideReader } from '../live/aside.ts';
@@ -69,7 +70,8 @@ export function bootDelivery(home: Pick<HomeParts, 'home' | 'db' | 'device' | 'c
   // 実行中の一覧。足し付けの鎖（裏だけの印、許可の中身の順）は束ねる側が持ち、各 driver の写しが読み直しのたびに通す。
   // 統括の会話には role を足す（live/orchestratorRole.ts）。role は設定の orchestrator.sessionId から導き、一覧の DTO（db/queries.ts）も同じ設定を見る。
   const orchestratorId = (): string | null => home.settings.current.orchestrator?.sessionId ?? null;
-  setOrchestratorSource(db, orchestratorId);
+  // 一覧の DTO は系譜の全部（前の統括の会話もサイドバーに出さない）、実行中の一覧は今の 1 本だけに付ける。
+  setOrchestratorSource(db, () => orchestratorLineage(orchestratorOf(home.settings.current.orchestrator)));
   const markRole = markOrchestrator(db, orchestratorId);
   const live = new LiveHub({ enrich: [(l, now) => aside.apply(l, now), (l, now) => permissionAsks.apply(l, now), (l) => markRole(l)] });
   const agents = bootAgents(home, { compatLog, claudeVersion, enrich: (l) => live.enrich(l), registryIsGone: opts.registryIsGone });

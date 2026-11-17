@@ -9,7 +9,7 @@ import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, readJson, tooLargeResult } from './common.ts';
 
 /** 統括の柱が使う経路の依存。 */
-export type OrchestratorRouteDeps = Pick<AppDeps, 'db' | 'settings' | 'runs'> & LanguageDeps;
+export type OrchestratorRouteDeps = Pick<AppDeps, 'db' | 'settings' | 'runs' | 'orchestratorKeeper'> & LanguageDeps;
 
 export type SendToOrchestratorResult = { ok: true } | { ok: false; status: 400 | 409 | 500; error: string };
 
@@ -40,6 +40,7 @@ export async function sendToOrchestrator(deps: OrchestratorRouteDeps, text: stri
 /**
  * 統括の柱の口。
  * GET /orchestrator/approvals は自動許可の記録（新しい順）、POST /orchestrator/send は柱の入力欄の文を統括の窓へ送る。
+ * GET /orchestrator/state と POST /orchestrator/fresh、/stop、/wake は見張り（orchestrator/keeper.ts）の口。
  * 送るのは統括の会話だけで、ほかの会話へは送れない（宛先は設定の orchestrator.sessionId で、本文からは受けない）。
  */
 export function orchestratorRoutes(api: Hono, deps: OrchestratorRouteDeps): void {
@@ -64,4 +65,25 @@ export function orchestratorRoutes(api: Hono, deps: OrchestratorRouteDeps): void
     if (!r.ok) return c.json({ error: r.error }, r.status);
     return c.json({ ok: true });
   });
+
+  // 見張りの状態（動いている、止まった理由、切り替え中、文脈の量）。見張りが無ければ切。
+  api.get('/orchestrator/state', (c) => c.json(deps.orchestratorKeeper?.state() ?? { status: 'off' }));
+
+  const refused = (error: 'off' | 'switching') => ({ error: tr(error === 'off' ? 'orchestratorPane.error.off' : 'orchestratorPane.error.switching'), code: error });
+
+  // 新しい会話で始め直す（docs/design.md「統括」の切り替えの手順）。申し送りの待ちが長いので、受けたら待たずに 202 を返す。
+  api.post('/orchestrator/fresh', (c) => {
+    const r = deps.orchestratorKeeper?.fresh('fresh') ?? { ok: false as const, error: 'off' as const };
+    if (!r.ok) return c.json(refused(r.error), 409);
+    return c.json({ ok: true }, 202);
+  });
+
+  // 止める（enabled は切らず、見張りは stopped: user）と、止まった状態を捨てて起こす。
+  for (const [path, act] of [['/orchestrator/stop', 'stopByUser'], ['/orchestrator/wake', 'wake']] as const) {
+    api.post(path, (c) => {
+      const r = deps.orchestratorKeeper?.[act]() ?? { ok: false as const, error: 'off' as const };
+      if (!r.ok) return c.json(refused(r.error), 409);
+      return c.json({ ok: true });
+    });
+  }
 }

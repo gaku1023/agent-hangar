@@ -232,10 +232,10 @@ describe('paths', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));
     expect(loadSettings(tmp).orchestrator).toBeUndefined();
-    saveSettings(tmp, { ...loadSettings(tmp), orchestrator: { enabled: true, sessionId: 's1', model: 'opus', effort: 'low', account: null } });
-    expect(loadSettings(tmp).orchestrator).toEqual({ enabled: true, sessionId: 's1', model: 'opus', effort: 'low', account: null });
+    saveSettings(tmp, { ...loadSettings(tmp), orchestrator: { enabled: true, sessionId: 's1', model: 'opus', effort: 'low', account: null, history: [] } });
+    expect(loadSettings(tmp).orchestrator).toEqual({ enabled: true, sessionId: 's1', model: 'opus', effort: 'low', account: null, history: [] });
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', orchestrator: { enabled: 'yes', model: '--x', effort: 9 } }));
-    expect(loadSettings(tmp).orchestrator).toEqual({ enabled: false, sessionId: null, model: 'sonnet', effort: 'medium', account: null });
+    expect(loadSettings(tmp).orchestrator).toEqual({ enabled: false, sessionId: null, model: 'sonnet', effort: 'medium', account: null, history: [] });
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', orchestrator: 7 }));
     expect('orchestrator' in loadSettings(tmp)).toBe(false);
   });

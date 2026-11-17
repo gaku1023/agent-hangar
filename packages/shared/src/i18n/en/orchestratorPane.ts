@@ -12,6 +12,8 @@ export const orchestratorPaneEn: AreaDictionary<typeof orchestratorPaneKeys> = {
   'orchestratorPane.composer.send': 'Send',
   'orchestratorPane.width.label': 'Orchestrator width',
   'orchestratorPane.error.notRunning': 'The orchestrator is not running',
+  'orchestratorPane.error.off': 'The orchestrator is turned off',
+  'orchestratorPane.error.switching': 'The orchestrator is switching to a new conversation',
   'orchestratorPane.error.voiceUnavailable': 'Voice is not available on this PC',
   'orchestratorPane.error.engineOpen': 'Could not open the voice engine: {reason}',
   'orchestratorPane.preview.sample': 'This is {name}. I will read aloud in this voice.',

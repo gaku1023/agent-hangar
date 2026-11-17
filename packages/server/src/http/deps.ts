@@ -10,6 +10,7 @@ import type { LiveDigester } from '../live/digest.ts';
 import type { CandidateEnv } from '../projects/candidates.ts';
 import type { MemoStore } from '../projects/memo.ts';
 import type { PermissionAsks } from '../sessions/permissionAsks.ts';
+import type { OrchestratorKeeper } from '../orchestrator/keeper.ts';
 import type { OsNoticeFeed } from '../sessions/stopNotices.ts';
 import type { PeerApprovals } from '../peer/approvals.ts';
 import type { SessionTrash } from '../sessions/trash.ts';
@@ -106,6 +107,8 @@ export type AppDeps = {
   permissionAsks?: Pick<PermissionAsks, 'put'>;
   /** hook の受け口（/mcp/s/<id>/hook）が本文を読む口。sessions.provider の値から driver の許可と質問の面を返す。無ければ hook の本文は読まない。 */
   asksOf?: AsksOf;
+  /** 統括の見張り（orchestrator/keeper.ts）。柱の始め直す、止める、起こすが使う。無ければ統括は切とみなす。 */
+  orchestratorKeeper?: Pick<OrchestratorKeeper, 'fresh' | 'stopByUser' | 'wake' | 'state' | 'receiveHandoff'>;
   /** notify_user の預かり（live/unreadHold.ts）が動いているか。立っていれば、作業中の未読の数も預かりがターンの終わりに積む。 */
   holdUnread?: boolean;
   /** デスクトップ通知の並び（sessions/stopNotices.ts）。殻が `GET /api/notify/feed` で読む。無ければ経路を持たない。 */
