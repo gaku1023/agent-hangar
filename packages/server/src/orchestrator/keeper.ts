@@ -25,7 +25,8 @@ export type KeeperRuns = {
   /** 画面の停止と同じ止め方（RunManager.kill）。 */
   kill(runId: string): unknown;
   /** account は設定のアカウント。渡せば、前に使ったアカウントより優先する。 */
-  resumeWith(sessionId: string, o?: { account?: string }): Promise<unknown>;
+  /** stray: 'stop' は、止めたばかりの claude が残っていれば止めてから再開する（manager.resumeWith と同じ）。 */
+  resumeWith(sessionId: string, o?: { account?: string; stray?: 'stop' }): Promise<unknown>;
   startOrchestrator(o?: { account?: string }): { sessionId: string };
 };
 
@@ -89,6 +90,8 @@ export class OrchestratorKeeper {
   private launched: Spec | null = null;
   /** 指定が変わったので、見張り自身が止めた run の id。その終わりは利用者の停止でも失敗でもない。 */
   private readonly respecs = new Set<string>();
+  /** 指定が変わって止めた直後の再開か。止めた claude が終わりきる前に再開すると「hangar の外部で実行中」で断られるので、残りを止めてから再開する。 */
+  private restarting = false;
   private offLive: (() => void) | null = null;
   private current: KeeperState = { status: 'off' };
   private readonly listeners = new Set<(s: KeeperState) => void>();
@@ -328,7 +331,7 @@ export class OrchestratorKeeper {
     const s = this.deps.settings();
     if (this.respecs.delete(run.id)) {
       // 指定が変わったための止め方。入り切りも失敗の数もそのままで、新しい指定で同じ会話を起こし直す。
-      if (s.enabled && !this.halted) this.schedule();
+      if (s.enabled && !this.halted) { this.restarting = true; this.schedule(); }
       return;
     }
     if (!s.enabled || s.sessionId === null || run.sessionId !== s.sessionId) return;
@@ -370,13 +373,14 @@ export class OrchestratorKeeper {
       try {
         const o = s.account === null ? {} : { account: s.account };
         if (s.sessionId !== null && this.deps.resumable(s.sessionId)) {
-          await this.deps.runs.resumeWith(s.sessionId, o);
+          await this.deps.runs.resumeWith(s.sessionId, this.restarting ? { ...o, stray: 'stop' } : o);
         } else {
           const r = this.deps.runs.startOrchestrator(o);
           // 会話が消えて起こし直した。前の id は系譜に gone で残す。
           this.deps.save({ sessionId: r.sessionId, ...(s.sessionId !== null && s.sessionId !== r.sessionId ? { history: this.pushed(s.sessionId, 'gone') } : {}) });
         }
         this.launched = specOf(s);
+        this.restarting = false;
         this.set({ status: 'running' });
         return;
       } catch (e) {
