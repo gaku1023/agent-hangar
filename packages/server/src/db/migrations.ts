@@ -985,6 +985,21 @@ const V46_DEVICE_STATUS_SQL = `
 alter table devices add column status text;
 `;
 
+/**
+ * 版 61。notify_user の預かり（live/unreadHold.ts）を残す表。手元だけで、同期しない。
+ * 預かりはターンを抜けるまでのメモリの値で、サーバを止めると消えて知らせも未読の数も出なかった。起動時に読み戻す。
+ */
+const V61_UNREAD_HOLD_SQL = `
+create table unread_hold (
+  session_id text primary key,
+  text text not null,
+  sent text not null,
+  unread integer not null,
+  count integer not null,
+  meta text not null
+);
+`;
+
 const V39_SESSION_UNREAD_SQL = `
 create table session_unread (
   session_id text primary key,
@@ -1113,4 +1128,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 58, sql: V58_CONFIG_HISTORY_SQL },
   { version: 59, sql: V59_AUTO_APPROVALS_SQL },
   { version: 60, sql: V60_EVENT_FTS_ROWID_SQL },
+  { version: 61, sql: V61_UNREAD_HOLD_SQL },
 ];
