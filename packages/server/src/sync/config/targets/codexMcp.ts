@@ -52,6 +52,5 @@ export const codexMcpSpec: McpTargetSpec = {
 };
 
 export const writeCodexMcp = (o: McpApplyOptions) => writeMcpWith(codexMcpSpec, o);
-export const planCodexMcp = (o: { home: string } & Pick<McpApplyOptions, 'codexHome' | 'exists' | 'userHome'>) => planMcpWith(codexMcpSpec, o);
 export const planCodexMcpFiles = (o: { home: string } & Pick<McpApplyOptions, 'codexHome' | 'exists' | 'userHome'>) => planMcpFilesWith(codexMcpSpec, o);
 export const codexMcpTarget = createMcpTarget(codexMcpSpec);

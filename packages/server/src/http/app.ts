@@ -43,8 +43,6 @@ import { usageRoutes } from './routes/usage.ts';
  * 下の再輸出は、これらを app.ts から引いている呼び手を切らないためである。
  */
 export type { AppDeps, ExternalApi, RunsApi, SummaryApi, SummaryEnqueueOpts, SyncApi } from './deps.ts';
-export { safeExternalMessage } from './routes/common.ts';
-export { toSettingsDto } from './routes/settings.ts';
 /**
  * 型は shared に移した。
  * 画面も同じ形を読むので、正本は 1 つにしてある。

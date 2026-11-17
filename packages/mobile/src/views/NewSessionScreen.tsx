@@ -373,7 +373,7 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
           title: 'アカウント',
           body: (
             <>
-              {accounts.length === 0 && <p className="ns-hint">この PC にアカウントがありません</p>}
+              {accounts.length === 0 && <p className="ns-hint">{pcName} にアカウントがありません</p>}
               <PickList label="アカウント">
                 {accounts.map((a) => (
                   <Choice key={`${pc}:${a.id}`} checked={account === a.id} onPick={choose('account', () => setAcctPicked(a.id))} title={a.name || a.id} dot={safeColor(a.color)} sub={accountUsageSub(a)} />
@@ -622,7 +622,7 @@ export function NewSessionScreen({ view, pairing, phoneKey, deps, onLaunch, onCl
                 const c = chipOf(k);
                 const cls = ['chip', 'm-fade', k === 'name' ? 'plus' : '', c.dim ? 'dim' : '', c.danger ? 'danger' : ''].filter(Boolean).join(' ');
                 return (
-                  <button key={`${k}:${bumps[k] ?? 0}`} type="button" className={cls} data-chip={k} disabled={c.off} aria-haspopup={k === 'name' || k === 'worktree' ? undefined : 'dialog'} aria-label={k === 'name' ? '名前を足す' : undefined} onClick={() => onChip(k)}>
+                  <button key={`${k}:${bumps[k] ?? 0}`} type="button" className={cls} data-chip={k} disabled={c.off} aria-haspopup={k === 'name' || k === 'worktree' ? undefined : 'dialog'} aria-label={k === 'name' ? '名前を追加' : undefined} onClick={() => onChip(k)}>
                     {c.dot !== undefined && <span className="acct-dot" style={c.dot ? { background: c.dot } : undefined} aria-hidden="true" />}
                     {c.icon !== undefined && <span aria-hidden="true">{c.icon}</span>}
                     {c.text}

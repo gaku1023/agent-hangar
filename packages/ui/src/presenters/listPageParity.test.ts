@@ -5,6 +5,7 @@ import { periodStart } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import { aliveAnywhere, initialStore, type Store } from '../store/store.ts';
 import { presentSessionList } from './sessions.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
 // サーバの一覧の形の検索（shared の listPageOf）が、画面が手元の全件から組む一覧（presentSessionList）と同じ並び、同じ件数になることを見張る。
 // 食い違うと、画面を頁の取得に切り替えたときに、頁を送ると行が抜けたり重なったりする（RB-12）。
@@ -19,7 +20,7 @@ function rng(seed: number): () => number {
 }
 
 const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: null, candidate: null, ...o });
-const base = (id: string, over: Partial<SessionDto>): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: null, name: 'name-' + id, cwd: '/w', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 9 * H, lastActivityAt: NOW - H, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over });
+const base = (id: string, over: Partial<SessionDto>): SessionDto => (sessionDto({ id, providerSessionId: 'u' + id, name: 'name-' + id, cwd: '/w', firstPrompt: 'first', startedAt: NOW - 9 * H, lastActivityAt: NOW - H, hasTranscript: true, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, ...over }));
 
 /** 状態、動き、起動元、時刻、ほかの PC のロックを散らした会話の全件と、生きている run。 */
 function world(seed: number, n: number): Store {

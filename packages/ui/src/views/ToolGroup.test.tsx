@@ -29,7 +29,7 @@ describe('続けて呼んだツールのまとめ（T1）', () => {
     expect(t.container.querySelectorAll('.tr-row')).toHaveLength(4);
     const g = t.group(1);
     const row = within(g).getByRole('button', { expanded: false });
-    expect(row.querySelector('.tg-badge')?.textContent).toBe('ツール 3 件');
+    expect(row.querySelector('.tg-badge')?.textContent).toBe('ツール呼び出し 3 回');
     expect(row.querySelector('.tg-desc')).toBeNull();
     expect(row.querySelector('.tg-when')).toBeNull();
     expect(g.querySelector('.tool')).toBeNull();
@@ -46,14 +46,14 @@ describe('続けて呼んだツールのまとめ（T1）', () => {
     fireEvent.click(lines[1]!.querySelector('.trow')!);
     expect(lines[1]!.querySelector('.bash .cmd')?.textContent).toContain('grep -rn x2 src');
     // もう一度押すと畳む。
-    fireEvent.click(within(g).getByRole('button', { name: /ツール 3 件/ }));
+    fireEvent.click(within(g).getByRole('button', { name: /ツール呼び出し 3 回/ }));
     expect(g.querySelector('.tg-list')).toBeNull();
   });
-  it('1 回だけの呼び出しも同じ 1 行の形（「ツール 1 件」）。押すとすぐ中身まで開く', () => {
+  it('1 回だけの呼び出しも同じ 1 行の形（「ツール呼び出し 1 回」）。押すとすぐ中身まで開く', () => {
     const t = draw();
     const g = t.group(5);
     const row = within(g).getByRole('button', { expanded: false });
-    expect(row.querySelector('.tg-badge')?.textContent).toBe('ツール 1 件');
+    expect(row.querySelector('.tg-badge')?.textContent).toBe('ツール呼び出し 1 回');
     fireEvent.click(row);
     expect(g.querySelector('.tg-list .bash .cmd')?.textContent).toContain('grep -rn x5 src');
   });
@@ -71,7 +71,7 @@ describe('続けて呼んだツールのまとめ（T1）', () => {
     fireEvent.click(screen.getByText('サブエージェント abc を表示'));
     expect(t.onAction).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' });
     // 開いても、ボタンは 1 つだけ。
-    fireEvent.click(within(t.group(2)).getByRole('button', { name: /ツール 1 件/ }));
+    fireEvent.click(within(t.group(2)).getByRole('button', { name: /ツール呼び出し 1 回/ }));
     expect(screen.getAllByText('サブエージェント abc を表示')).toHaveLength(1);
   });
   it('質問（AskUserQuestion）は畳まず、ほかの行と同じ形で残す', () => {

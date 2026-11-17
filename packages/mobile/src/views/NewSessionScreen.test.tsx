@@ -174,11 +174,11 @@ describe('NewSessionScreen', () => {
     expect(chipOf('プロジェクト')).toHaveTextContent('project-a');
   });
 
-  it('PC にアカウントが無ければ「この PC にアカウントがありません」は残す', async () => {
+  it('PC にアカウントが無ければ「{PC 名} にアカウントがありません」は残す', async () => {
     await setup([feedOf('pc-1', 'Mac', { accounts: [], projects: [{ id: 'p-a', name: 'project-a', lastUsedAt: Date.now() }] })]);
     pick('プロジェクト', /project-a/);
     fireEvent.click(chipOf('アカウント')!);
-    expect(screen.getByText('この PC にアカウントがありません')).toBeInTheDocument();
+    expect(screen.getByText('Mac にアカウントがありません')).toBeInTheDocument();
   });
 
   it('初期プロンプトの欄の例に、/ と @ の括弧を付けない', async () => {

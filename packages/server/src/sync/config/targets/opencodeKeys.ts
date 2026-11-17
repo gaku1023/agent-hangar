@@ -62,7 +62,6 @@ export function isExecRel(rel: string): boolean {
   const top = rel.split('/')[0]!;
   return top !== 'themes';
 }
-export const isExecDir = (top: string): boolean => EXEC_DIRS.has(top);
 
 // ---- opencode.json(c) ----
 

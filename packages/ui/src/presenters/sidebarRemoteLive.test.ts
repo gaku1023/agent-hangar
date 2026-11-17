@@ -6,11 +6,12 @@ import { presentHome } from './home.ts';
 import { liveCountsOf } from './projects.ts';
 import { presentSessionList } from './sessions.ts';
 import { presentShell } from './shell.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
 // ほかの PC で動いている会話（lock を持つもの）を、この PC の実行中と同じに数え、PC の札つきで出す。
 
 const NOW = Date.parse('2026-10-07T12:00:00Z');
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 180_000, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over });
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ id, providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w', firstPrompt: 'first', startedAt: NOW - 7_200_000, lastActivityAt: NOW - 180_000, hasTranscript: true, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, ...over }));
 const lock = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'd2', deviceName: 'Office', runId: 'r9', heartbeatAt: NOW - 1000, stale: false, ...over });
 const storeOf = (list: SessionDto[]): Store => {
   const s = initialStore();

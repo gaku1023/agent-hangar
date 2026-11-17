@@ -287,4 +287,3 @@ export function restoreHistory(o: WritePaths & { db: Db; historyId: number; now?
   return restoreItem(o);
 }
 
-export const planRestoreHistory = (o: WritePaths & { db: Db; historyId: number }): ItemRestorePlan => planRestoreItem(o);

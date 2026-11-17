@@ -24,7 +24,7 @@ import { execCli, runMcpInstall, runMcpUninstall, type CliExec, type PortProbe }
  */
 
 // 対象の並びは shared にある（画面のボタンと殻の命令も同じものを使う）。
-export { SETUP_TARGETS, isSetupTarget, type SetupTarget } from '@agent-hangar/shared';
+export { SETUP_TARGETS, type SetupTarget } from '@agent-hangar/shared';
 import type { SetupTarget } from '@agent-hangar/shared';
 
 /** 伏せた値の置き場。承認の窓は、この文字を黒い帯にして出す。トークンそのものは見立てに載せない。 */

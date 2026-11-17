@@ -125,7 +125,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.cloud.legacy.steps': 'クラウドを作成した PC で古いクラウドを削除してから、新しいクラウドを作成します。他の PC は、新しいクラウドに参加コードで参加します。始める前に、手順の順番を確認してください。',
   'settings.cloud.legacy.doc': '再構築の手順を開く（docs/cloud-sync.md）',
   'settings.cloud.state': '状態',
-  'settings.cloud.eventTrigger.info': 'GitHub の出来事や外の webhook で、会話を起こしたり文を送ったりします。オンにすると、予定の画面に出来事の設定が現れます。切の間は、受け箱を見に行きません。',
+  'settings.cloud.eventTrigger.info': 'GitHub のできごとや外の webhook で、会話を起こしたり文を送ったりします。オンにすると、予定の画面に「イベント」の節が表示されます。オフの間はクラウドに問い合わせません。',
   'settings.cloud.peerChat.info': '同じグループの PC から、この PC の Claude Code の会話へ文を送る、許可や質問に答える、中断することができます。切ると、他の PC からは見るだけになります。',
   'settings.cloud.lastReceived': '最終受信',
   'settings.cloud.unsentChanges': '未送信の変更',
