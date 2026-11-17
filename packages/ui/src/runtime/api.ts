@@ -283,7 +283,6 @@ export type ApiClient = {
   promote(sessionId: string, body: { name: string; gitInit: boolean; moveFiles: boolean; parent?: string }): Promise<PromoteResultDto>;
   /** 202 と { accepted } が返るが、本文は使わない。結果は summary.pending と summary.updated で届く。 */
   regenerateSummary(sessionId: string): Promise<void>;
-  summarizerModels(): Promise<{ models: string[] }>;
   testSummarizer(): Promise<SummarizerTestDto>;
   // ここから下はクラウド同期（フェーズ 4）である。
   /** 設定の「使用量と費用」。refresh なら取り直す（サーバは一時停止の間は取りに行かず最後の値を返す）。 */
@@ -535,7 +534,6 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     openArtifactEditor: (id, once) => post(`/api/artifacts/${id}/open-editor`, once ? { once } : undefined),
     promote: (sessionId, body) => post(`/api/sessions/${sessionId}/promote`, body),
     regenerateSummary: (sessionId) => post(`/api/sessions/${sessionId}/summarize`),
-    summarizerModels: () => call('/api/summarizer/models'),
     testSummarizer: () => post('/api/summarizer/test'),
     syncUsage: (refresh) => call(refresh ? '/api/sync/usage?refresh=1' : '/api/sync/usage'),
     syncNow: () => post('/api/sync/now'),

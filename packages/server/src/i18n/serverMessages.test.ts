@@ -60,9 +60,9 @@ describe('プロジェクト', () => {
   });
 
   it('入れ子の理由も、外側の文と同じ言語で出る', () => {
-    const e = caught(() => makeProjectDir(dir, 'fresh', true, () => { throw new SummarizerError('lmstudio', msg('summary.lmstudio.noModel')); }));
-    expect(errorText('ja', e)).toBe('git init に失敗しました: 要約エンジンの URL でモデルが見つかりません');
-    expect(errorText('en', e)).toBe('git init failed: The summary engine URL has no model');
+    const e = caught(() => makeProjectDir(dir, 'fresh', true, () => { throw new SummarizerError('claude-headless', msg('summary.claude.notJson')); }));
+    expect(errorText('ja', e)).toBe('git init に失敗しました: 出力が JSON ではありません');
+    expect(errorText('en', e)).toBe('git init failed: The output is not JSON');
   });
 });
 
@@ -127,10 +127,10 @@ describe('要約', () => {
   });
 
   it('使えない要約器と失敗した要約器の文', async () => {
-    const off: Summarizer = { id: 'lmstudio', available: async () => false, summarize: async () => { throw new Error('unused'); } };
+    const off: Summarizer = { id: 'claude-headless', available: async () => false, summarize: async () => { throw new Error('unused'); } };
     const broken: Summarizer = { id: 'claude-headless', available: async () => true, summarize: async () => { throw new SummarizerError('claude-headless', msg('summary.claude.exited', { code: 2, detail: 'boom' })); } };
     const job = (language: () => 'ja' | 'en' = () => 'ja') => new SummaryJob({ db: null as never, deviceId: 'd', summarizers: () => [off, broken], live: () => [], hub: { broadcast: () => {} }, language });
-    expect(await job().test()).toEqual({ ok: false, tried: [{ id: 'lmstudio', message: '使用できません（接続できないか、上限に達しています）' }, { id: 'claude-headless', message: 'claude が 2 で終了しました: boom' }] });
-    expect(await job(() => 'en').test()).toEqual({ ok: false, tried: [{ id: 'lmstudio', message: 'Not available (cannot connect, or the limit has been reached)' }, { id: 'claude-headless', message: 'claude exited with 2: boom' }] });
+    expect(await job().test()).toEqual({ ok: false, tried: [{ id: 'claude-headless', message: '使用できません（接続できないか、上限に達しています）' }, { id: 'claude-headless', message: 'claude が 2 で終了しました: boom' }] });
+    expect(await job(() => 'en').test()).toEqual({ ok: false, tried: [{ id: 'claude-headless', message: 'Not available (cannot connect, or the limit has been reached)' }, { id: 'claude-headless', message: 'claude exited with 2: boom' }] });
   });
 });

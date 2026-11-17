@@ -86,13 +86,12 @@ describe('フェーズ 3 の経路', () => {
     await api.rejectTodo('t1');
     await api.addArtifact('p1', 'https://claude.ai/code/artifact/x');
     await api.promote('s1', { name: 'n', gitInit: true, moveFiles: false });
-    await api.summarizerModels();
     await api.testSummarizer();
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       'GET /api/usage/aggregate?days=30', 'GET /api/statusline',
       'POST /api/projects/p1/todos', 'PATCH /api/todos/t1', 'DELETE /api/todos/t1', 'POST /api/todos/t1/confirm', 'POST /api/todos/t1/reject',
       'POST /api/projects/p1/artifacts', 'POST /api/sessions/s1/promote',
-      'GET /api/summarizer/models', 'POST /api/summarizer/test',
+      'POST /api/summarizer/test',
     ]);
     expect(JSON.parse(String(calls[2]!.body))).toEqual({ text: '買う' });
     expect(JSON.parse(String(calls[3]!.body))).toEqual({ done: true });

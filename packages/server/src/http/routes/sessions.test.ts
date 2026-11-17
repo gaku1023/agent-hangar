@@ -251,7 +251,6 @@ describe('routes', () => {
     await get(`/api/sessions/${id}/events?before=5`);
     await get(`/api/sessions/${id}/events?latest=1&agentId=abc123`);
     expect(summary.enqueued).toEqual([]);
-    expect((await json(await get('/api/summarizer/models'))).body).toEqual({ models: ['gemma'] });
     expect((await json(await post('/api/summarizer/test'))).body).toEqual(testResult);
   });
   it('要約の受け付けが投げても呼び手の操作は成立する', async () => {

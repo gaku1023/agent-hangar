@@ -89,7 +89,6 @@ export function bootSummary(
       enqueue: (id, opts) => summary.enqueue(id, opts),
       pending: () => summary.pending(),
       test: () => summary.test(),
-      listModels: summarizers.listModels,
     },
     rebuildClaude: () => summarizers.rebuildClaude(),
     startAutoDone() {

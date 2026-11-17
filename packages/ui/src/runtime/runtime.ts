@@ -136,9 +136,6 @@ function arrivedFromSync(store: Store, p: ProjectDto): boolean {
 
 /** 先の戻る時点を見直す間隔の上限。 */
 const RETURN_RECHECK_MAX_MS = 12 * 60 * 60_000;
-/** 変わると要約エンジンのモデルの一覧（つながるか）が変わる設定の鍵。 */
-const SUMMARIZER_KEYS = ['summaryEngine', 'lmStudioUrl', 'summaryApiKey'] as const;
-
 export function createRuntime(deps: RuntimeDeps): Runtime {
   let state = initialState();
   // React が読む状態。present が commit を呼ぶまで、前に描いた state のままでいる。
@@ -367,13 +364,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   };
   const loadSetupGuide = () => {
     deps.api.setupGuide().then((g) => setStore({ ...store, setupGuide: g })).catch(() => setStore({ ...store, setupGuide: null }));
-  };
-  /**
-   * 要約エンジンのモデルの一覧を取りに行く。OpenAI 互換を選んでいなければ、サーバは問い合わせずに空を返す。
-   * 宛先が起動していないのは普通の状態なので、失敗は空の一覧にして黙る。
-   */
-  const loadSummarizerModels = () => {
-    deps.api.summarizerModels().then((m) => setStore({ ...store, summarizerModels: m.models })).catch(() => setStore({ ...store, summarizerModels: [] }));
   };
   /** 準備の確かめの答えを Store に入れる。取り直し（loadReadiness）と再確認（api.recheckMux）が使う。 */
   const takeReadiness = (seq: number, r: ReadinessDto) => {
@@ -648,8 +638,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           if (field) dispatch({ kind: 'runtime', event: { type: 'settings.saved', field } });
           // パスが変わると欄の下の検証も変わるので、準備の確かめを取り直す。
           loadReadiness();
-          // 要約エンジンか宛先が変わると、つながるかも変わる。目次と欄の「接続済み／接続できません」を古いまま残さない。
-          if (SUMMARIZER_KEYS.some((k) => k in e.patch)) loadSummarizerModels();
         }).catch((err: unknown) => {
           // 欄ごとの保存の失敗は、その欄の下に理由を出す。トーストにはしない。
           if (field) dispatch({ kind: 'runtime', event: { type: 'settings.failed', field, message: errMsg(err) } });
@@ -973,7 +961,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         // Worker の PC の一覧。同期していなければサーバが off を返す。
         cloudMember.run({ op: 'load' });
         loadReadiness();
-        loadSummarizerModels();
         return;
       case 'storage.save':
         deps.storage.set(e.key, e.value);

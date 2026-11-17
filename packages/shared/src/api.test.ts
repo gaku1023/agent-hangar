@@ -15,11 +15,11 @@ describe('フェーズ 2 の DTO', () => {
   });
   it('SettingsDto は claude の場所を持つ', () => {
     // .app から起こすと PATH で claude を引けないので、絶対パスを設定で持てなければならない。
-    const s: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: '/Users/x/.local/bin/claude' };
+    const s: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryHourlyCap: 20, nodePath: null, claudePath: '/Users/x/.local/bin/claude' };
     expect(s.claudePath).toBe('/Users/x/.local/bin/claude');
   });
   it('SettingsDto と BootstrapDto に新しい項目がある', () => {
-    const s: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+    const s: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryHourlyCap: 20, nodePath: null, claudePath: null };
     const b: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: s, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], deleteApprovals: [], peerApprovals: [], schedules: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null, sessionCounts: { total: 0, tabs: { all: 0, proposed: 0, active: 0, paused: 0, done: 0, archived: 0 }, byProject: {}, providers: { opencode: false, codex: false }, retention: null }, firstPage: { rows: [], total: 0, roots: 0 } };
     expect(b.runs).toEqual([]);
     expect(b.settings.terminalApp).toBe('terminal');
@@ -36,13 +36,13 @@ describe('フェーズ 3 の DTO', () => {
     expect(usage.fiveHour?.usedPercent).toBe(47);
   });
   it('SettingsDto、SessionDto、BootstrapDto に新しい項目がある', () => {
-    const s: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+    const s: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryHourlyCap: 20, nodePath: null, claudePath: null };
     const ses: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, lastTurnAt: null, hasTranscript: false, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null };
     const b: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: s, projects: [], sessions: [ses], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], deleteApprovals: [], peerApprovals: [], schedules: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null, sessionCounts: { total: 0, tabs: { all: 0, proposed: 0, active: 0, paused: 0, done: 0, archived: 0 }, byProject: {}, providers: { opencode: false, codex: false }, retention: null }, firstPage: { rows: [], total: 0, roots: 0 } };
     expect(b.summaryPending).toEqual([]);
     const r: PromoteResultDto = { project: { id: 'p', name: 'n', status: 'active', isScratch: false, path: '/w/n', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 1 }, session: ses, moved: true, reason: null };
     expect(r.moved).toBe(true);
-    const t: SummarizerTestDto = { ok: false, tried: [{ id: 'lmstudio', message: 'x' }] };
+    const t: SummarizerTestDto = { ok: false, tried: [{ id: 'claude-headless', message: 'x' }] };
     expect(t.ok).toBe(false);
   });
   it('UiAction に gitInit、split.resize、summarizer.test、artifact.openEditor がある', () => {

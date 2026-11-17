@@ -64,7 +64,7 @@ export type ExternalApi = {
  */
 export type SummaryEnqueueOpts = { force?: boolean; ignoreLive?: boolean };
 /** SummaryJob のうち HTTP から触る部分だけ。 */
-export type SummaryApi = { enqueue(sessionId: string, opts?: SummaryEnqueueOpts): boolean; pending(): string[]; test(): Promise<SummarizerTestDto>; listModels(): Promise<string[]> };
+export type SummaryApi = { enqueue(sessionId: string, opts?: SummaryEnqueueOpts): boolean; pending(): string[]; test(): Promise<SummarizerTestDto> };
 /** JoinApprover のうち HTTP から触る部分だけ。 */
 export type JoinApproverApi = Pick<JoinApprover, 'state' | 'issue' | 'approve' | 'reject' | 'cancel'>;
 /** リカバリーキーの再発行のうち HTTP から触る部分だけ。 */

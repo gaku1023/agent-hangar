@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_SUMMARY_CLAUDE_MODEL, isModelName, isSummaryEngine, MODEL_CHOICES, SUMMARY_ENGINES } from './summaryEngine.ts';
 
 describe('要約エンジンの選択', () => {
-  it('使わない、Claude、OpenAI 互換の 3 つだけを受ける', () => {
-    expect(SUMMARY_ENGINES).toEqual(['off', 'claude', 'openai']);
+  it('使わない、Claude の 2 つだけを受ける', () => {
+    expect(SUMMARY_ENGINES).toEqual(['off', 'claude']);
     for (const v of SUMMARY_ENGINES) expect(isSummaryEngine(v)).toBe(true);
-    for (const v of ['lmstudio', 'OFF', '', null, undefined, 1]) expect(isSummaryEngine(v)).toBe(false);
+    for (const v of ['lmstudio', 'openai', 'OFF', '', null, undefined, 1]) expect(isSummaryEngine(v)).toBe(false);
   });
   it('要約に使う Claude のモデルの既定は haiku', () => {
     expect(DEFAULT_SUMMARY_CLAUDE_MODEL).toBe('haiku');

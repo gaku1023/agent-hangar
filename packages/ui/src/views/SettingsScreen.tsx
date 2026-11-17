@@ -16,7 +16,6 @@ import { CommandLine, CopyButton } from './primitives/CommandLine.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { InfoTip } from './primitives/InfoTip.tsx';
 import { useT } from './primitives/language.tsx';
-import { Listbox } from './primitives/Listbox.tsx';
 import { fadeIn, markHit } from './primitives/motionKit.ts';
 import { revealWithin } from './primitives/revealWithin.ts';
 import { Segmented } from './primitives/Segmented.tsx';
@@ -232,76 +231,32 @@ export function SettingsScreen(props: SettingsProps) {
   const emit = useEmit();
   const t = useT();
   const root = useRef<HTMLDivElement>(null);
-  const [lmUrl, setLmUrl] = useState(props.lmStudioUrl);
-  const [lmModel, setLmModel] = useState(props.lmStudioModel ?? '');
   const [claudeModel, setClaudeModel] = useState(props.summaryClaudeModel);
-  // API キーは書いたときだけ送る。保存済みのキーは画面に来ないので、欄はいつも空から始める。
-  const [apiKey, setApiKey] = useState('');
   const [cap, setCap] = useState(String(props.summaryHourlyCap));
   const [capError, setCapError] = useState(false);
   // 同期していない人が押した方の、ターミナルで打つコマンド。
   const [cloudCommand, setCloudCommand] = useState<'start' | 'join' | null>(null);
   // サーバが正規化した値を入力欄に反映する。
-  useEffect(() => { setLmUrl(props.lmStudioUrl); }, [props.lmStudioUrl]);
-  useEffect(() => { setLmModel(props.lmStudioModel ?? ''); }, [props.lmStudioModel]);
   useEffect(() => { setClaudeModel(props.summaryClaudeModel); }, [props.summaryClaudeModel]);
   useEffect(() => { setCap(String(props.summaryHourlyCap)); }, [props.summaryHourlyCap]);
   useEffect(() => { setCapError(false); }, [props.summaryHourlyCap]);
-  // 外部の要約エンジンを許可する前の確かめの帯。許可するまでは、スイッチもオフのままにする。
-  const [confirmExternal, setConfirmExternal] = useState(false);
-  useEffect(() => { if (props.allowExternalSummarizer) setConfirmExternal(false); }, [props.allowExternalSummarizer]);
-  // 帯が開いたら、キャンセルへフォーカスを送る。閉じるときは、開いたスイッチへ戻す。
-  const externalRow = useRef<HTMLDivElement>(null);
-  const cancelExternal = useRef<HTMLButtonElement>(null);
-  useEffect(() => { if (confirmExternal) cancelExternal.current?.focus(); }, [confirmExternal]);
-  const closeConfirm = () => {
-    setConfirmExternal(false);
-    externalRow.current?.querySelector<HTMLElement>('[role="switch"]')?.focus();
-  };
   const setNow = (patch: Partial<SettingsDto>) => emit({ type: 'settings.update', patch });
   const engine = props.summaryEngine;
-  // 1 時間の上限の欄は、Claude を使うとき（Claude を選んだか、OpenAI 互換で切り替えを入れているとき）だけ出す。
-  const usesClaude = engine === 'claude' || (engine === 'openai' && props.summaryFallback);
   // 1 時間の上限は 1 以上 200 以下の整数だけを受け付ける。
   // 空のまま送ると 0 になって、Claude での要約が黙って止まってしまう。
   // 数字でない文字は NaN になるので、これも送らない。
   const capNumber = cap.trim() === '' ? Number.NaN : Number(cap);
   const capValid = Number.isInteger(capNumber) && capNumber >= 1 && capNumber <= 200;
-  // サーバが保存する形にそろえてから送る。
-  // URL は前後の空白と末尾の / を落とし、モデル名は trim して空なら未設定に寄せる。
-  // 整えずに送ると、落とされた結果が元と同じときに props が動かない。
-  // すると欄には整える前の文字列が残り、保存ボタンも押せたままになる。
-  const lmUrlValue = lmUrl.trim().replace(/\/+$/, '');
-  const lmModelValue = lmModel.trim() || null;
-  const apiKeyValue = apiKey.trim();
   const saveSummarizer = () => {
     if (!capValid) { setCapError(true); return; }
     setCapError(false);
-    if (engine === 'claude') {
-      emit({ type: 'settings.update', patch: { summaryClaudeModel: claudeModel, summaryHourlyCap: capNumber }, field: 'summarizer' });
-      return;
-    }
-    // 欄も整えた形に直す。押せない理由が欄から読めるようにする。書いたキーは欄に残さない。
-    setLmUrl(lmUrlValue);
-    setLmModel(lmModelValue ?? '');
-    setApiKey('');
-    emit({ type: 'settings.update', patch: { lmStudioUrl: lmUrlValue, lmStudioModel: lmModelValue, summaryHourlyCap: capNumber, ...(apiKeyValue ? { summaryApiKey: apiKeyValue } : {}) }, field: 'summarizer' });
+    emit({ type: 'settings.update', patch: { summaryClaudeModel: claudeModel, summaryHourlyCap: capNumber }, field: 'summarizer' });
   };
-  // 選んだエンジンの欄をまとめて送るので、1 つでも変わっていれば押せる。
+  // モデルか上限のどちらかが変わっていれば押せる。
   // 読めない上限（空や小数）は capNumber が NaN になるため、ここでは必ず「変わっている」側に入る。
   // 押せないと、1 から 200 までの整数を入れてくださいという案内を出す道が無くなってしまう。
-  const summarizerDirty = engine === 'claude'
-    ? claudeModel !== props.summaryClaudeModel || capNumber !== props.summaryHourlyCap
-    : lmUrlValue !== props.lmStudioUrl || lmModelValue !== props.lmStudioModel || apiKeyValue !== '' || (props.summaryFallback && capNumber !== props.summaryHourlyCap);
-  // 保存済みのモデルが一覧に無くても（宛先が落ちているときなど）、顔から名前を消さない。
-  const models = props.summarizerModels ?? [];
-  const modelNames = lmModel && !models.includes(lmModel) ? [lmModel, ...models] : models;
-  const modelOptions = [{ value: '', label: t('settings.summary.modelAuto') }, ...modelNames.map((m) => ({ value: m, label: m }))];
-  // OpenAI 互換の URL の欄の下の 1 行。モデルの一覧が取れたかで、つながったかを言う。
-  const lmLine: VerifyLine | null = props.summarizerModels === null ? null
-    : props.summarizerModels.length === 0 ? { ok: false, soft: false, text: t('settings.summary.offline'), note: null, fix: null, fixCommand: null }
-      : { ok: true, soft: false, text: t('settings.summary.connected'), note: t('settings.summary.models', { n: props.summarizerModels.length }), fix: null, fixCommand: null };
-  const engineName = (id: string) => (id === 'claude-headless' ? t('settings.summary.engine.claude.name') : id === 'lmstudio' ? t('settings.summary.engine.openai.name') : id);
+  const summarizerDirty = claudeModel !== props.summaryClaudeModel || capNumber !== props.summaryHourlyCap;
+  const engineName = (id: string) => (id === 'claude-headless' ? t('settings.summary.engine.claude.name') : id);
 
   // 節を切り替えたら、頁をスクロールする枠の先頭へ戻す。前の節の途中の位置から始めない。
   const first = useRef(true);
@@ -654,48 +609,10 @@ export function SettingsScreen(props: SettingsProps) {
       {capRow}
     </div>
   );
-  const openaiDetail = (
-    <div className="sum-detail">
-      <div className="grid2">
-        <div className="field"><span aria-hidden="true">{t('settings.summary.url')}</span>
-          <input className="input mono" aria-label={t('settings.summary.url')} value={lmUrl} onChange={(e) => setLmUrl(e.target.value)} />
-          <VerifyRow line={lmLine} waiting={t('settings.common.loading')} />
-        </div>
-        <div className="field"><span aria-hidden="true">{t('settings.summary.model')}</span>
-          <Listbox label={t('settings.summary.model')} value={lmModel} options={modelOptions} onChange={setLmModel} searchPlaceholder={t('settings.summary.modelSearch')} />
-        </div>
-      </div>
-      <div className="field sum-key"><span aria-hidden="true">{t('settings.summary.apiKey')}</span>
-        <span className="inrow">
-          <input className="input mono" type="password" aria-label={t('settings.summary.apiKey')} value={apiKey} autoComplete="off" spellCheck={false}
-            placeholder={props.summaryApiKeySet ? t('settings.summary.apiKeySaved') : t('settings.summary.apiKeyPlaceholder')} onChange={(e) => setApiKey(e.target.value)} />
-          {props.summaryApiKeySet && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setNow({ summaryApiKey: null })}>{t('settings.summary.apiKeyClear')}</button>}
-        </span>
-      </div>
-      <div ref={externalRow}>
-        <SetRow title={t('settings.summary.external.title')} desc={t('settings.summary.external.desc')}
-          control={<Switch label={t('settings.summary.external.title')} checked={props.allowExternalSummarizer} onChange={(next) => { if (next) setConfirmExternal(true); else setNow({ allowExternalSummarizer: false }); }} />} />
-      </div>
-      {confirmExternal && !props.allowExternalSummarizer && (
-        <div className="confirm-strip" role="group" aria-label={t('settings.summary.external.confirmLabel')}>
-          {/* 送られる先は保存済みの URL。欄を書き換えただけでは宛先は変わらない。 */}
-          <span>{t('settings.summary.external.confirm', { url: props.lmStudioUrl })}</span>
-          <span className="spacer" />
-          <button ref={cancelExternal} className="btn" onClick={closeConfirm}>{t('common.button.cancel')}</button>
-          <button className="btn btn-primary" onClick={() => { closeConfirm(); setNow({ allowExternalSummarizer: true }); }}>{t('settings.summary.external.allow')}</button>
-        </div>
-      )}
-      {props.allowExternalSummarizer && <div className="error" role="alert">{t('settings.summary.external.warn', { url: props.lmStudioUrl || t('settings.summary.external.thisDestination') })}</div>}
-      <SetRow title={t('settings.summary.fallback')} desc={t('settings.summary.fallbackDesc')}
-        control={<Switch label={t('settings.summary.fallback')} checked={props.summaryFallback} onChange={(next) => setNow({ summaryFallback: next })} />} />
-      {props.summaryFallback && capRow}
-    </div>
-  );
   // 要約エンジンの選択肢（試作 3 節の推す案 A）。エディタと同じラジオの行で、選んだ行のすぐ下にその行の欄だけを開く。
   const engines: { id: SummaryEngine; icon: IconName; detail: ReactNode }[] = [
     { id: 'off', icon: 'minus', detail: null },
     { id: 'claude', icon: 'agent', detail: claudeDetail },
-    { id: 'openai', icon: 'link', detail: openaiDetail },
   ];
   const pickEngine = (id: SummaryEngine) => { if (id !== engine) setNow({ summaryEngine: id }); };
   const summary = (
@@ -712,9 +629,7 @@ export function SettingsScreen(props: SettingsProps) {
                 <span className="editor-choice-name">{t(`settings.summary.engine.${e.id}.name`)}</span>
                 {e.id !== 'off' && <span className="sum-choice-desc">{t(`settings.summary.engine.${e.id}.desc`)}</span>}
               </span>
-              {e.id === 'openai' && engine === 'openai' && props.summarizerModels !== null
-                ? <span className="badge" data-tone={props.summarizerModels.length > 0 ? 'ok' : 'warn'}><Icon name={props.summarizerModels.length > 0 ? 'check' : 'alert'} />{props.summarizerModels.length > 0 ? t('settings.summary.connected') : t('settings.summary.offline')}</span>
-                : <span />}
+              <span />
             </div>
             {engine === e.id && e.detail}
           </Fragment>

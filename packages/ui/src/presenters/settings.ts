@@ -304,16 +304,14 @@ export type SettingsProps = {
   /** ターミナルで打つコマンド。どれも同じ hangar の呼び方にそろえる。 */
   /** join は入れた版の CLI でも打てる。setupCloud は wrangler が要るので、リポジトリを clone した場所での呼び方である。 */
   commands: { mcp: string; statusline: string; join: string; setupCloud: string };
-  /** 要約エンジン（使わない、Claude、OpenAI 互換）。古いサーバの設定は「使わない」に寄せてある。 */
+  /** 要約エンジン（使わない、Claude）。古いサーバの設定は「使わない」に寄せてある。 */
   summaryEngine: SummaryEngine;
   /** 要約に使う Claude のモデル。 */
   summaryClaudeModel: string;
-  /** OpenAI 互換の要約器の API キーを保存しているか（キーそのものは画面に来ない）。 */
-  summaryApiKeySet: boolean;
-  lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean;
+  summaryHourlyCap: number;
   /** 連携の「hangar が起動する Claude Code に足すもの」。 */
   injection: InjectionSettingsProps;
-  summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
+  summarizerTest: SummarizerTestDto | null;
   statusline: StatuslineStatusDto | null; usageAggregate: UsageAggregateDto | null;
   cloud: CloudSettingsProps;
   /** クラウド同期の節の中の、Claude Code の設定の同期（作り直した実装）。 */
@@ -488,7 +486,7 @@ function agentState(t: Translate, enabled: boolean, badge: { text: string; tone:
 /** 目次の各行の状態。連携とツールは、準備の確かめが届くまで分からないので「確認中」と言う。 */
 function presentToc(a: {
   t: Translate; language: Language; todo: { must: number; link: number }; cloud: CloudSettingsProps; cloudWord: string; cloudTone: string;
-  sync: Store['sync']; notify: Store['notify']; readiness: boolean; summaryEngine: SummaryEngine; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null; sessionCount: number; retentionDays: number | null; now: number;
+  sync: Store['sync']; notify: Store['notify']; readiness: boolean; summaryEngine: SummaryEngine; summarizerTest: SummarizerTestDto | null; sessionCount: number; retentionDays: number | null; now: number;
   update: UpdateSectionProps; desktop: boolean; usageAggregate: UsageAggregateDto | null; version: string;
   codex: CodexSettingsProps; opencode: OpencodeSettingsProps;
   /** 統括の設定。古いサーバは返さないので null で、目次に節を出さない。 */
@@ -509,13 +507,10 @@ function presentToc(a: {
     // Codex と opencode は、切のままなら淡く「オフ」と言う。入れたあとは、版の札（検証済み、未検証、見つかりません）をそのまま状態にする。
     agentCodex: agentState(t, a.codex.enabled, a.codex.badge),
     agentOpencode: agentState(t, a.opencode.enabled, a.opencode.badge),
-    // 使わないときは淡く「オフ」とだけ言う（試作 3 節の 2b の案 A）。繋がらない警告は、OpenAI 互換を選んだときだけ出す。
+    // 使わないときは淡く「オフ」とだけ言う（試作 3 節の 2b の案 A）。
     summary: a.summaryEngine === 'off' ? { state: t('settings.toc.summaryOff'), tone: 'default' }
       : a.summarizerTest?.ok === false ? { state: t('settings.toc.summaryTestFailed'), tone: 'warn' }
-        : a.summaryEngine === 'claude' ? { state: t('settings.toc.summaryClaude'), tone: 'default' }
-          : a.summarizerModels === null ? checking
-            : a.summarizerModels.length === 0 ? { state: t('settings.toc.summaryOffline'), tone: 'warn' }
-              : { state: t('settings.toc.summaryConnected'), tone: 'default' },
+        : { state: t('settings.toc.summaryClaude'), tone: 'default' },
     environment: a.readiness ? fix(a.todo.must, t('settings.toc.allFound')) : checking,
     // 保持期間の日数は、注意の一覧から外してここに残す（2026-10-13 の決定、9a）。保持の欄と同じ節に置く。
     orchestrator: a.orchestrator?.on ? { state: t('settings.toc.orchestratorOn'), tone: 'default' } : { state: t('settings.toc.agentOff'), tone: 'default' },
@@ -651,10 +646,10 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     tmuxPath: s?.tmuxPath ?? null, terminalApp: terminalAppFor(s?.terminalApp, platform), editor: presentEditor(t, store),
     terminalOptions: terminalAppsFor(platform).map((value) => ({ value, label: terminalLabel(t, value) })),
     terminalDesc: t(platform === 'win32' ? 'settings.general.terminal.descWindows' : 'settings.general.terminal.desc'), terminalDescAlways: platform !== 'win32',
-    summaryEngine, summaryClaudeModel: s?.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL, summaryApiKeySet: s?.summaryApiKeySet === true,
+    summaryEngine, summaryClaudeModel: s?.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL,
     injection: { askStatusAtEnd: s?.askStatusAtEnd !== false, liveHints: s?.liveHints !== false, notifyUser: s?.notifyUser !== false, remoteControl: s?.remoteControl !== false, defaultModel: s?.defaultModel ?? null, full: presentInjection(t, { askStatusAtEnd: s?.askStatusAtEnd !== false, liveHints: s?.liveHints !== false, notifyUser: s?.notifyUser !== false }) },
-    lmStudioUrl: s?.lmStudioUrl ?? '', lmStudioModel: s?.lmStudioModel ?? null, summaryFallback: s?.summaryFallback ?? false, summaryHourlyCap: s?.summaryHourlyCap ?? 20, allowExternalSummarizer: s?.allowExternalSummarizer ?? false,
-    summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest,
+    summaryHourlyCap: s?.summaryHourlyCap ?? 20,
+    summarizerTest: store.summarizerTest,
     statusline: store.statusline, usageAggregate: store.usageAggregate && { ...store.usageAggregate, projects: store.usageAggregate.projects.map((u) => { const p = u.projectId ? store.projects[u.projectId] : undefined; return p ? { ...u, name: projectDisplayName(p, t) } : u; }) },
     nodePath: s?.nodePath ?? '',
     claudePath: s?.claudePath ?? null,
@@ -665,7 +660,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     accounts: { list: accountList, colors: ACCOUNT_COLORS },
     codexAccounts: { list: presentCodexAccounts(store, now), colors: ACCOUNT_COLORS },
     section: settingsSectionOf(at),
-    toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summaryEngine, summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, retentionDays: store.retention?.days ?? null, now, update, desktop: store.desktop, codex, opencode, usageAggregate: store.usageAggregate, version: store.version, orchestrator: s?.orchestrator !== undefined ? { on: s.orchestrator.enabled } : null }),
+    toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summaryEngine, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, retentionDays: store.retention?.days ?? null, now, update, desktop: store.desktop, codex, opencode, usageAggregate: store.usageAggregate, version: store.version, orchestrator: s?.orchestrator !== undefined ? { on: s.orchestrator.enabled } : null }),
     update,
     language: { value: storeLanguage(store) },
     focus: at === 'accounts' || at === 'unsent' || isSettingsField(at) ? at : null,

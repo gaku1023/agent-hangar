@@ -133,21 +133,15 @@ describe('routes', () => {
     // 選択肢は動いている OS のものだけで、文も OS で変わる。
     expect(await error({ terminalApp: 'kitty' })).toBe(isWindows ? '「ターミナルアプリ」は Windows Terminal かデフォルトのターミナルから選択してください' : '「ターミナルアプリ」は Terminal.app か iTerm2 から選択してください');
     expect(await error({ terminalApp: isWindows ? 'iterm' : 'windowsTerminal' })).toMatch(/^「ターミナルアプリ」は/);
-    expect(await error({ lmStudioUrl: 'ftp://x' })).toBe('「OpenAI 互換の URL」には http か https で始まる URL を入力してください');
-    expect(await error({ lmStudioModel: 3 })).toBe('「モデル」の値の形式が正しくありません');
-    expect(await error({ summaryFallback: 'yes' })).toBe('「接続できないときは Claude を使う」の値の形式が正しくありません');
-    expect(await error({ summaryEngine: 'lmstudio' })).toBe('「要約エンジン」の値の形式が正しくありません');
+    expect(await error({ summaryEngine: 'openai' })).toBe('「要約エンジン」の値の形式が正しくありません');
     expect(await error({ summaryClaudeModel: '' })).toBe('「要約に使う Claude のモデル」の値の形式が正しくありません');
     expect(await error({ summaryClaudeModel: '--tools' })).toBe('「要約に使う Claude のモデル」の値の形式が正しくありません');
-    expect(await error({ summaryApiKey: 3 })).toBe('「API キー」の値の形式が正しくありません');
     expect(await error({ defaultModel: 'opus sonnet' })).toBe('「デフォルトのモデル」の値の形式が正しくありません');
     expect(await error({ summaryHourlyCap: 0 })).toBe('「1 時間の上限」には 1 から 200 までの整数を入力してください');
     // 画面の入力と同じく 200 までにする。
     expect(await error({ summaryHourlyCap: 201 })).toBe('「1 時間の上限」には 1 から 200 までの整数を入力してください');
-    expect(await error({ allowExternalSummarizer: 'yes' })).toBe('「外部の要約エンジンを許可」の値の形式が正しくありません');
     expect(await error({ askStatusAtEnd: 'no' })).toBe('「作業の区切りで Done／Paused を確認する」の値の形式が正しくありません');
     expect(await error({ liveHints: 0 })).toBe('「ターンの意図と操作の短い説明を送る」の値の形式が正しくありません');
-    expect(await error({ lmStudioUrl: 'https://attacker.example.com' })).toBe('要約エンジンの接続先に指定できるのは 127.0.0.1 か localhost だけです。トランスクリプトを送信するため、その他の接続先は設定の「外部の要約エンジンを許可」を有効にしてから指定してください');
   });
   it('設定の更新は既知の項目だけを受け、値が空なら 400', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -155,7 +149,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, phoneChatAccept: true, orchestrator: { enabled: false, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] }, voice: { mode: 'off', personaId: 'default', personas: [{ id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'kokoro:jf_alpha', voiceLabel: 'jf_alpha', speed: 1.2 }] }, permissionPolicy: null });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', summaryHourlyCap: 20, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, phoneChatAccept: true, orchestrator: { enabled: false, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] }, voice: { mode: 'off', personaId: 'default', personas: [{ id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'kokoro:jf_alpha', voiceLabel: 'jf_alpha', speed: 1.2 }] }, permissionPolicy: null });
     expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, eventTrigger: false, orchestrator: { enabled: false, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] }, voice: { mode: 'off', personaId: 'default', personas: [{ id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'kokoro:jf_alpha', voiceLabel: 'jf_alpha', speed: 1.2 }] }, permissionPolicy: null });
   });
   // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
@@ -325,32 +319,10 @@ describe('routes', () => {
   const post = (p: string, body?: unknown, method = 'POST') => app.request(p, { method, headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   it('要約エンジンの設定を検査する', async () => {
     const patch = (body: unknown) => post('/api/settings', body, 'PATCH');
-    expect(await (await patch({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5 })).json()).toMatchObject({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5 });
-    expect((await patch({ lmStudioUrl: 'ftp://x' })).status).toBe(400);
-    // host の無い URL は繋ぎ先にならない。
-    expect((await patch({ lmStudioUrl: 'http://' })).status).toBe(400);
-    expect((await patch({ lmStudioUrl: 'http' })).status).toBe(400);
+    expect((await patch({ summaryHourlyCap: 5 })).status).toBe(200);
     expect((await patch({ summaryHourlyCap: 0 })).status).toBe(400);
-    expect((await patch({ summaryFallback: 'yes' })).status).toBe(400);
-    expect((await (await patch({ lmStudioModel: null })).json()).lmStudioModel).toBeNull();
-  });
-  it('要約エンジンの宛先は、既定ではループバックだけを受ける', async () => {
-    const patch = (body: unknown) => post('/api/settings', body, 'PATCH');
-    // 会話の本文はこの宛先へ送られる。外部のホストは、明示の許可が無ければ断る。
-    const bad = await patch({ lmStudioUrl: 'https://attacker.example.com/collect' });
-    expect(bad.status).toBe(400);
-    expect((await bad.json()).error).toMatch(/外部の要約エンジン/);
-    expect((await json(await get('/api/settings'))).body.lmStudioUrl).toBe('http://127.0.0.1:1234');
-    for (const u of ['http://127.0.0.1:1234', 'http://localhost:4321', 'http://[::1]:1234']) {
-      expect([u, (await patch({ lmStudioUrl: u })).status]).toEqual([u, 200]);
-    }
-    // 許しを立てたときだけ通り、外部の宛先であることは設定に残る。
-    expect((await patch({ allowExternalSummarizer: true, lmStudioUrl: 'https://attacker.example.com/collect' })).status).toBe(200);
-    expect((await json(await get('/api/settings'))).body).toMatchObject({ allowExternalSummarizer: true, lmStudioUrl: 'https://attacker.example.com/collect' });
-    // 許しを下ろすときは、宛先も戻してもらう。外部のまま無効にはできない。
-    expect((await patch({ allowExternalSummarizer: false })).status).toBe(400);
-    expect((await patch({ allowExternalSummarizer: false, lmStudioUrl: 'http://127.0.0.1:1234' })).status).toBe(200);
-    expect((await patch({ allowExternalSummarizer: 'yes' })).status).toBe(400);
+    // 外した OpenAI 互換の項目は、知らない項目として断る。
+    for (const body of [{ }, { }, { }, { summaryApiKey: 'sk' }, { }]) expect([Object.keys(body)[0], (await patch(body)).status]).toEqual([Object.keys(body)[0], 400]);
   });
 });
 
@@ -403,11 +375,7 @@ describe('設定の往復', () => {
         ['editor', { id: 'zed', path: exe('zed'), fileCmd: '', dirCmd: '', terminal: 'none' }],
         ['summaryEngine', 'claude'],
         ['summaryClaudeModel', 'sonnet'],
-        ['lmStudioUrl', 'http://127.0.0.1:9999'],
-        ['lmStudioModel', 'gemma-3'],
-        ['summaryFallback', true],
         ['summaryHourlyCap', 7],
-        ['allowExternalSummarizer', true],
         ['configApproval', 'auto'],
         ['configBundleSync', true],
         ['configTargets', { codex: true }],
@@ -461,18 +429,12 @@ describe('設定の往復', () => {
       expect((await (await patch({ notifyPreference: null })).json()).notifyPreference).toBeNull();
       // 選べない分は断る。
       expect((await patch({ opencodeIdleUnload: 7 })).status).toBe(400);
-      // API キーは書くだけで、DTO には有無（summaryApiKeySet）だけが載る。
-      const keyed = await patch({ summaryApiKey: ' sk-test ' });
-      expect(keyed.status).toBe(200);
-      const keyedBody = await keyed.json();
-      expect(keyedBody.summaryApiKeySet).toBe(true);
-      expect('summaryApiKey' in keyedBody).toBe(false);
       // 受け口の項目が DTO の項目とそろっていることを、抜けが出たら落ちる形で見る。
       const dto = (await json(await get('/api/settings'))).body as SettingsDto;
       // 統括（orchestrator）は届いた項目を足して返す形なので、往復の表ではなく専用の試験で見る。
       // フォルダの信頼の同意（trustedWorkspaceRoot）は読むだけで、POST /api/workspace/trust だけが書く。
       // 許可の方針（permissionPolicy）は読むだけで、統括の set_permission_policy だけが書く。
-      expect([...cases.map(([k]) => k), 'orchestrator', 'voice', 'permissionPolicy', 'summaryApiKeySet', 'trustedWorkspaceRoot'].sort()).toEqual(Object.keys(dto).sort());
+      expect([...cases.map(([k]) => k), 'orchestrator', 'voice', 'permissionPolicy', 'trustedWorkspaceRoot'].sort()).toEqual(Object.keys(dto).sort());
     } finally {
       fs.rmSync(ws2, { recursive: true, force: true });
       fs.rmSync(dir2, { recursive: true, force: true });
@@ -720,17 +682,10 @@ describe('設定の往復', () => {
       expect((await json(await get('/api/settings'))).body[key]).toBe(false);
     }
   });
-  it('要約エンジンは既定が「使わない」で、選び直せ、API キーは保存しても返さず、空で消せる', async () => {
-    expect((await json(await get('/api/settings'))).body).toMatchObject({ summaryEngine: 'off', summaryClaudeModel: 'haiku', summaryApiKeySet: false, defaultModel: null });
-    expect((await (await patch({ summaryEngine: 'openai' })).json()).summaryEngine).toBe('openai');
-    const r = await patch({ summaryApiKey: 'sk-secret' });
-    const body = JSON.stringify(await r.json());
-    expect(body).not.toContain('sk-secret');
-    expect(JSON.stringify((await json(await get('/api/bootstrap'))).body)).not.toContain('sk-secret');
-    expect((await json(await get('/api/settings'))).body.summaryApiKeySet).toBe(true);
-    expect((await (await patch({ summaryApiKey: '' })).json()).summaryApiKeySet).toBe(false);
-    expect((await (await patch({ summaryApiKey: 'sk-2' })).json()).summaryApiKeySet).toBe(true);
-    expect((await (await patch({ summaryApiKey: null })).json()).summaryApiKeySet).toBe(false);
+  it('要約エンジンは既定が「使わない」で、Claude に選び直せ、外した openai は断る', async () => {
+    expect((await json(await get('/api/settings'))).body).toMatchObject({ summaryEngine: 'off', summaryClaudeModel: 'haiku', defaultModel: null });
+    expect((await (await patch({ summaryEngine: 'claude' })).json()).summaryEngine).toBe('claude');
+    expect((await patch({ summaryEngine: 'openai' })).status).toBe(400);
     // 既定のモデルは空で Claude Code の既定（null）に戻る。
     expect((await (await patch({ defaultModel: 'sonnet' })).json()).defaultModel).toBe('sonnet');
     expect((await (await patch({ defaultModel: '' })).json()).defaultModel).toBe(null);
@@ -817,16 +772,6 @@ describe('設定の往復', () => {
     expect((await (await patch({})).json()).error).toBe('The request contains no settings that can be updated');
     await patch({ language: 'ja' });
     expect(await missing()).toBe('プロジェクトが見つかりません');
-  });
-
-  // 前後の空白に意味は無い。パス系の設定と同じ扱いにそろえる。
-  it('lmStudioModel は前後の空白を落として保存する', async () => {
-    const r = await patch({ lmStudioModel: '  gemma-3  ' });
-    expect(r.status).toBe(200);
-    expect((await r.json()).lmStudioModel).toBe('gemma-3');
-    expect((await json(await get('/api/settings'))).body.lmStudioModel).toBe('gemma-3');
-    // 空白だけの文字列は「未設定」と同じに扱う。
-    expect((await (await patch({ lmStudioModel: '   ' })).json()).lmStudioModel).toBeNull();
   });
 
   it('旧い設定の同期のスイッチ（syncClaudeConfig）はもう受けない。単独の要求は 400 で、混ざっても保存しない', async () => {
