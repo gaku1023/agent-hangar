@@ -214,6 +214,8 @@ export type UiAction =
   | { type: 'git.watch'; key: string; sessionIds: SessionId[] }
   | { type: 'git.changes.load'; sessionId: SessionId } | { type: 'git.diff.load'; sessionId: SessionId; file: string } | { type: 'git.edits.load'; sessionId: SessionId; file: string }
   | { type: 'project.git.load'; projectId: ProjectId }
+  // 非対話の会話（claude -p など）の頁。offset を省くと件数だけ読み、渡すとそこから 1 頁（HEADLESS_PAGE 件）を読み足す。
+  | { type: 'project.headless.load'; projectId: ProjectId; offset?: number }
   // 差分のダイアログ。open は file を渡すとそのファイルを選んで開く。source は「作業ツリーとの差（git）」か「このセッションの編集」。
   | { type: 'diff.open'; sessionId: SessionId; file?: string } | { type: 'diff.select'; file: string } | { type: 'diff.source'; source: 'git' | 'session' }
   | { type: 'session.promote.open'; id: SessionId } | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean; /** 作る場所。作成場所（設定）が空のときだけ渡す。 */ parent?: string }

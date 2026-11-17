@@ -101,6 +101,19 @@ describe('routes', () => {
     expect(body.hits.map((h: { sessionId: string }) => h.sessionId)).toEqual([hit]);
     expect(body.sessions.map((s: { id: string; headless?: boolean }) => [s.id, s.headless])).toEqual([[hit, true]]);
   });
+  it('非対話の会話だけを、プロジェクトごとに新しい順の頁で引ける（/sessions/headless）', async () => {
+    const hit = (await json(await get('/api/search?q=' + encodeURIComponent('チャンネル')))).body.hits[0].sessionId as string;
+    const pid = list0ProjectId();
+    const none = (await json(await get(`/api/sessions/headless?projectId=${pid}`))).body;
+    expect(none).toEqual({ sessions: [], total: 0 });
+    db.prepare('update session_stats set headless = 1 where session_id = ?').run(hit);
+    const page = (await json(await get(`/api/sessions/headless?projectId=${pid}&limit=10`))).body;
+    expect(page.total).toBe(1);
+    expect(page.sessions.map((s: { id: string; headless?: boolean }) => [s.id, s.headless])).toEqual([[hit, true]]);
+    // limit を渡さなければ件数だけ。offset を過ぎれば空。
+    expect((await json(await get(`/api/sessions/headless?projectId=${pid}`))).body).toEqual({ sessions: [], total: 1 });
+    expect((await json(await get(`/api/sessions/headless?projectId=${pid}&limit=10&offset=1`))).body).toEqual({ sessions: [], total: 1 });
+  });
   it('検索', async () => {
     const { body } = await json(await get('/api/search?q=' + encodeURIComponent('チャンネル')));
     expect(body.total).toBe(1);

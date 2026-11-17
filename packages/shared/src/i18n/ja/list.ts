@@ -47,5 +47,7 @@ export const listJa: AreaDictionary<typeof listKeys> = {
   'list.more.load': 'さらに {n} 件を読み込む',
   'list.more.loading': '読み込み中…',
   'list.more.rest': '残り {n} 件',
+  'list.headless.fold': '非対話の会話 {n} 件',
+  'list.headless.more': '非対話の会話の残り {n} 件',
   'list.pager.label': 'セッション',
 };

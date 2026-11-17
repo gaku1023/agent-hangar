@@ -47,5 +47,7 @@ export const listEn: AreaDictionary<typeof listKeys> = {
   'list.more.load': 'Load {n} more',
   'list.more.loading': 'Loading',
   'list.more.rest': '{n} left',
+  'list.headless.fold': '{n} non-interactive sessions',
+  'list.headless.more': '{n} more non-interactive sessions',
   'list.pager.label': 'Sessions',
 };

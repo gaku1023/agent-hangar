@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { Context, Hono } from 'hono';
 import { liveFilterOf, liveWithLimit, quietLive, type PromoteResultDto, type SearchParamsDto, type SessionStateDto, type SessionStatus, type WakeOn } from '@agent-hangar/shared';
 import { touchRow } from '../../db/notify.ts';
-import { getProject, isHeadlessSql, listSessions } from '../../db/queries.ts';
+import { countHeadless, getProject, isHeadlessSql, listSessions } from '../../db/queries.ts';
 import { EDIT_TOOLS } from '../../indexer/write.ts';
 import { LiveDigester } from '../../live/digest.ts';
 import { PromoteError } from '../../projects/promote.ts';
@@ -51,6 +51,15 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
 
   // headless=1 で、既定では外す非対話の会話（claude -p などのバッチ）も返す。プロジェクトの画面の絞り込みが使う。
   api.get('/sessions', (c) => c.json(sessions({ projectId: c.req.query('projectId'), includeHeadless: c.req.query('headless') === '1' })));
+  // 非対話の会話だけを、新しい順の頁で返す（プロジェクトの画面の末尾に畳んだまとまりが使う）。limit を渡さなければ件数だけ。
+  // :id より先に置く（headless が id として読まれないように）。
+  api.get('/sessions/headless', (c) => {
+    const projectId = c.req.query('projectId') || undefined;
+    const limit = Math.min(200, Math.max(0, Math.floor(Number(c.req.query('limit')) || 0)));
+    const offset = Math.max(0, Math.floor(Number(c.req.query('offset')) || 0));
+    const total = countHeadless(db, projectId);
+    return c.json({ sessions: limit === 0 ? [] : listSessions(db, deps.live(), { projectId, onlyHeadless: true, limit, offset, deviceId }), total });
+  });
   api.get('/sessions/:id', (c) => {
     const s = session(c.req.param('id'));
     return s ? c.json(s) : c.json({ error: tr('session.error.notFound') }, 404);

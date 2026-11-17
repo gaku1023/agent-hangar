@@ -191,7 +191,17 @@ export function contextPercent(used: number | null, size: number | null): number
  * includeHeadless を立てると、非対話の会話（isHeadlessSql）も返す。既定では外す（一覧・未読・サイドバー・「最近」に出さない）。
  * ids で名指ししたときは、立てなくても返す。
  */
-export type SessionQueryOptions = { projectId?: string; ids?: string[]; deviceId?: string; now?: () => number; includeHeadless?: boolean };
+export type SessionQueryOptions = {
+  projectId?: string; ids?: string[]; deviceId?: string; now?: () => number; includeHeadless?: boolean;
+  /** 非対話の会話（isHeadlessSql）だけを返す。limit と offset で頁に分ける（何千件にもなるため）。 */
+  onlyHeadless?: boolean; limit?: number; offset?: number;
+};
+
+/** 非対話の会話（isHeadlessSql）の数。projectId があればそのプロジェクトの分。削除済みは数えない。 */
+export function countHeadless(db: Db, projectId?: string): number {
+  const row = db.prepare(`select count(*) n from sessions s where s.deleted_at is null and ${isHeadlessSql('s')}${projectId ? ' and s.project_id = ?' : ''}`).get(...(projectId ? [projectId] : [])) as { n: number };
+  return row.n;
+}
 
 type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number; live_status: LiveStatus | null; live_reason: StopReason | null; live_at: number | null; started_at: number };
 /** 一覧が組むロックと、その run の始まり。始まりは区切りの判定（parked）にだけ使い、DTO には載せない。 */
@@ -495,8 +505,11 @@ export function listSessions(db: Db, live: LiveSessionDto[], opts: SessionQueryO
     where.push(`s.id in (${opts.ids.map(() => '?').join(',')})`);
     args.push(...opts.ids);
   }
-  if (!opts.includeHeadless && !opts.ids) where.push(`not ${isHeadlessSql('s')}`);
-  const sql = `${SESSION_SELECT}${where.length ? ' and ' + where.join(' and ') : ''} order by activity_at desc nulls last, s.started_at desc nulls last, s.id`;
+  if (opts.onlyHeadless) where.push(isHeadlessSql('s'));
+  else if (!opts.includeHeadless && !opts.ids) where.push(`not ${isHeadlessSql('s')}`);
+  const paging = opts.limit !== undefined ? ' limit ? offset ?' : '';
+  if (opts.limit !== undefined) args.push(opts.limit, opts.offset ?? 0);
+  const sql = `${SESSION_SELECT}${where.length ? ' and ' + where.join(' and ') : ''} order by activity_at desc nulls last, s.started_at desc nulls last, s.id${paging}`;
   const rows = db.prepare(sql).all(...args) as SessionRow[];
   const lm = liveMapOf(live);
   const now = opts.now ? opts.now() : Date.now();

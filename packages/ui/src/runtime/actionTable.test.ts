@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import type { ArtifactDto, UiAction, SessionDto } from '@agent-hangar/shared';
 import type { MediatedAction } from '../mediator/types.ts';
-import { initialStore, type Store } from '../store/store.ts';
+import { applyHeadlessPage, initialStore, type Store } from '../store/store.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 import { EditorMissingApiError, type ApiClient } from './api.ts';
@@ -47,7 +47,7 @@ describe('表の鍵', () => {
       'account.add.preview', 'account.choose', 'account.login', 'account.login.cancel', 'account.refresh', 'account.update', 'accounts.load',
       'artifact.add', 'artifact.open', 'artifact.openEditor', 'codex.options', 'configSync.history.seen', 'configSync.order.cancel', 'configSync.unsent.send', 'deleteApproval.answer', 'editor.test', 'editors.load', 'events.approve', 'events.claim', 'events.create', 'events.load', 'events.remove', 'folder.inspect', 'git.changes.load', 'git.diff.load', 'git.edits.load', 'heldEvents.load', 'heldEvents.run', 'instructions.load', 'instructions.openEditor', 'launchPrep.cancel', 'memo.save',
       'opencode.options', 'opencode.providers.custom', 'opencode.providers.disconnect', 'opencode.providers.key', 'opencode.providers.load', 'opencode.providers.login', 'opencode.providers.login.cancel', 'opencode.providers.login.code', 'opencode.providers.login.poll', 'opencode.providers.model',
-      'overlap.dismiss', 'peerApproval.answer', 'peerQueue.rush', 'project.git.load', 'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
+      'overlap.dismiss', 'peerApproval.answer', 'peerQueue.rush', 'project.git.load', 'project.headless.load', 'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
       'schedule.delete', 'schedule.run', 'session.delete', 'session.move', 'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.state.reject', 'session.tryNow', 'setupGuide.openEditor', 'share.preview', 'summarizer.test', 'summary.regenerate',
       'sync.now', 'sync.pause', 'voice.catalog.load', 'voice.engine', 'voice.preview',
     ]);
@@ -333,6 +333,24 @@ describe('設定の同期（作り直した実装）', () => {
     const r = await runRow({ type: 'configSync.unsent.send', id: 'u' }, fakeApi({ configSendUnsent }));
     expect(configSendUnsent.mock.calls).toEqual([['u']]);
     expect(r.store.configDetail.unsent).toEqual(list);
+  });
+});
+
+describe('非対話の会話', () => {
+  it('件数だけを読み、頁は後ろへ足し、DTO は sessions に入れる', async () => {
+    const dto = (id: string) => ({ id, projectId: 'p1', headless: true as const }) as never;
+    const api = fakeApi({ headless: vi.fn(async (_p: string, limit?: number, offset?: number) => ({ total: 3, sessions: limit === undefined ? [] : offset === 0 ? [dto('a'), dto('b')] : [dto('c')] })) });
+    const count = await runRow({ type: 'project.headless.load', projectId: 'p1' }, api);
+    expect(vi.mocked(api.headless).mock.calls).toEqual([['p1', undefined, undefined]]);
+    expect(count.store.headless).toEqual({ p1: { total: 3, ids: [] } });
+    const first = applyHeadlessPage(count.store, 'p1', 0, { total: 3, sessions: [dto('a'), dto('b')] });
+    expect(first.headless.p1).toEqual({ total: 3, ids: ['a', 'b'] });
+    expect(Object.keys(first.sessions)).toEqual(expect.arrayContaining(['a', 'b']));
+    const next = await runRow({ type: 'project.headless.load', projectId: 'p1', offset: 2 }, api, first);
+    expect(vi.mocked(api.headless).mock.calls[1]).toEqual(['p1', 50, 2]);
+    expect(next.store.headless.p1).toEqual({ total: 3, ids: ['a', 'b', 'c'] });
+    // 件数だけを読み直しても、読んだ分は残る。
+    expect(applyHeadlessPage(next.store, 'p1', undefined, { total: 4, sessions: [] }).headless.p1).toEqual({ total: 4, ids: ['a', 'b', 'c'] });
   });
 });
 

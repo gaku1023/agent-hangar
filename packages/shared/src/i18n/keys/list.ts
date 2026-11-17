@@ -46,5 +46,7 @@ export const listKeys = {
   'list.more.load': ['n'],
   'list.more.loading': [],
   'list.more.rest': ['n'],
+  'list.headless.fold': ['n'],
+  'list.headless.more': ['n'],
   'list.pager.label': [],
 } as const satisfies MessageSpec;

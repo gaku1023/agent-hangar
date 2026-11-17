@@ -10736,6 +10736,10 @@ MLX の build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/vo
   一覧（`listSessions` の既定、`/api/sessions`、`/api/bootstrap`）は返さず、画面への `session.upsert` も配らない。サイドバー、未読、「最近」は bootstrap と配信から組むので、ここから外れる。
   検索（`/api/search`）は今までどおり当て、当たった非対話の会話の DTO を `sessions` に添える。画面はそれを Store に入れて行を組み、ふだんの一覧と「最近」では `SessionDto.headless` を見て外す。
   プロジェクトの絞り込みは `/api/sessions?headless=1&projectId=…` で含めて引ける。件数を数える集計は `not isHeadlessSql('s')` を条件に足せば一覧と同じ数え方になる。
+  プロジェクトの画面は、一覧の末尾に非対話の会話を畳んだまとまりを置く（`views/HeadlessFold.tsx`）。畳んだ行は端末の記号と件数だけで、押すと行が開く。開閉は `FoldBox`（growIn と collapseOut）。
+  非対話の会話は数千件ありうるので、`GET /api/sessions/headless?projectId=…&limit=…&offset=…` で件数と新しい順の 1 頁（最大 200 件、画面は 50 件ずつ）を引く。`limit` を省くと件数だけを返す。
+  画面を開いたときに件数だけを読み（`project.headless.load`）、開いたときに先頭の頁、末尾の「残り N 件」の行で続きを読む。読んだ分は `Store.headless[projectId]`（件数と id の並び）と `Store.sessions` に入る。畳んだままの間は行を 1 つも描かない。
+  行は背を低く、等幅の字で、淡い地に左の罫を付け、端末の記号で見分ける。文字の札は付けない。語で検索しているときは出さない（検索が非対話の当たりを行に出す）。
 - 土台の要約の `state` は、レジストリに生きた項目があれば `in_progress`、無ければ `done`。UI は `source = 'baseline'` の状態を控えめに描く。
 - サブエージェントは、そのファイルの先頭の記録から `subagent` イベントを作り、親の時系列でその直前にある `Agent` か `Task` のツール呼び出しの下にネストする。該当が無ければ独立した項目として出す。
 - セッションの表示名は、レジストリの `name`（`nameSource` が `user`）、本文の `custom-title`、`agent-name`（索引が `sessions.custom_title` に拾う）、hangar で付けた名前（`session_notes.name`）、`ai-title`、最初の発言の先頭 40 字の順で決める。
