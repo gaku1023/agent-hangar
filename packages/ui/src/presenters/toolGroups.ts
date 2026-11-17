@@ -33,7 +33,7 @@ export type ToolGroupHead = { label: string; failed: number; failedLabel: string
 
 /**
  * まとめの行の見出し（2026-11-18 の試作の案 A）。
- * 札は呼んだ数だけ（「ツール 4 件」）で、説明と時刻は出さない。失敗した呼び出しがあればその数を添える。
+ * 札は呼んだ数だけ（「ツール呼び出し 4 回」）で、説明と時刻は出さない。失敗した呼び出しがあればその数を添える。
  */
 export function toolGroupHead(items: ToolItem[], t: Translate): ToolGroupHead {
   const failed = items.filter((it) => it.view.step === 'fail').length;

@@ -19,7 +19,7 @@ export const newSessionJa: AreaDictionary<typeof newSessionKeys> = {
   'newSession.fork.label': '始め方',
   'newSession.fork.fresh': '新規',
   'newSession.fork.continue': 'この会話の続きから',
-  'newSession.fork.locked': '続きからは変えられません',
+  'newSession.fork.locked': '続きからでは変更できません',
   'newSession.prompt.placeholder': '何をしますか。/ でスキル、@ でファイル、画像やファイルはドロップ',
   'newSession.prompt.placeholderPeer': '何をしますか。/ でスキル',
   'newSession.project.label': 'プロジェクト',
