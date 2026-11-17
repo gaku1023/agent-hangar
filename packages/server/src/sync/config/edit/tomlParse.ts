@@ -70,6 +70,10 @@ export function parseToml(src: string): TomlDoc {
     throw new ConfigEditError('parse', `TOML として読めません（${msg}）`, lineOf(src, at));
   };
 
+  // 制御文字（タブ以外）、CR だけの改行、壊れた UTF-8（読み込みで U+FFFD になる）は、どこにあっても TOML では不正。
+  const bad = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\ufffd]|\r(?!\n)/.exec(src);
+  if (bad) fail('使えない文字があります', bad.index);
+
   const lineStarts = [0];
   for (let k = 0; k < n; k++) if (src.charCodeAt(k) === 10) lineStarts.push(k + 1);
   const lineAt = (off: number): number => {
@@ -222,7 +226,21 @@ export function parseToml(src: string): TomlDoc {
 
   const INT = /^[+-]?(0|[1-9](_?\d)*)$/;
   const FLOAT = /^[+-]?(0|[1-9](_?\d)*)(\.\d(_?\d)*)?([eE][+-]?\d(_?\d)*)?$/;
-  const DT = /^\d{4}-\d\d-\d\d([Tt ]\d\d:\d\d(:\d\d(\.\d+)?)?([Zz]|[+-]\d\d:\d\d)?)?$|^\d\d:\d\d(:\d\d(\.\d+)?)?$/;
+  const DT = /^(\d{4})-(\d\d)-(\d\d)(?:[Tt ](\d\d):(\d\d):(\d\d)(?:\.\d+)?(?:[Zz]|[+-](\d\d):(\d\d))?)?$|^(\d\d):(\d\d):(\d\d)(?:\.\d+)?$/;
+  const validDatetime = (m: RegExpExecArray): boolean => {
+    const num = (x: string | undefined): number => (x === undefined ? 0 : Number(x));
+    if (m[1] !== undefined) {
+      const y = num(m[1]);
+      const mo = num(m[2]);
+      const d = num(m[3]);
+      const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+      const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1];
+      if (days === undefined || d < 1 || d > days) return false;
+      if (m[4] !== undefined && (num(m[4]) > 23 || num(m[5]) > 59 || num(m[6]) > 60)) return false;
+      return m[7] === undefined || (num(m[7]) <= 23 && num(m[8]) <= 59);
+    }
+    return num(m[9]) <= 23 && num(m[10]) <= 59 && num(m[11]) <= 60;
+  };
   const markInline = (o: Tree, path: string[], status: Map<string, string>): void => {
     for (const [k, v] of Object.entries(o)) {
       if (isObj(v) && !isDatetimeValue(v)) {
@@ -264,9 +282,10 @@ export function parseToml(src: string): TomlDoc {
       const entries: NonNullable<VNode['entries']> = [];
       const status = new Map<string, string>();
       for (;;) {
-        skipBlank();
-        if (i >= n) return fail('インライン表が閉じていません', start);
+        skipWs();
+        if (i >= n || src[i] === '\n' || src[i] === '\r') return fail('インライン表が閉じていません', start);
         if (src[i] === '}') {
+          if (entries.length > 0) return fail('インライン表の末尾にカンマは置けません');
           i++;
           break;
         }
@@ -290,9 +309,12 @@ export function parseToml(src: string): TomlDoc {
         if (Object.hasOwn(t, last)) return fail(`インライン表の鍵 ${last} が重複しています`, es);
         t[last] = node.value;
         entries.push({ key: parts[0] as string, dotted: parts.length > 1, start: es, node });
-        skipBlank();
+        skipWs();
         if (src[i] === ',') i++;
-        else if (src[i] !== '}') return fail('インライン表の区切りが読めません');
+        else if (src[i] === '}') {
+          i++;
+          break;
+        } else return fail('インライン表の区切りが読めません');
       }
       return { type: 'inline', start, end: i, value: obj, entries };
     }
@@ -310,13 +332,14 @@ export function parseToml(src: string): TomlDoc {
     if (tok === 'true' || tok === 'false') return { type: 'boolean', start, end: i, value: tok === 'true' };
     if (/^[+-]?inf$/.test(tok)) return { type: 'number', start, end: i, value: tok.startsWith('-') ? -Infinity : Infinity };
     if (/^[+-]?nan$/.test(tok)) return { type: 'number', start, end: i, value: Number.NaN };
-    if (DT.test(tok)) return { type: 'datetime', start, end: i, value: datetimeValue(tok) };
-    const radix = /^0([xob])([0-9a-fA-F_]+)$/.exec(tok);
+    const dt = DT.exec(tok);
+    if (dt) {
+      if (!validDatetime(dt)) return fail(`日時の範囲が不正です: ${tok}`, start);
+      return { type: 'datetime', start, end: i, value: datetimeValue(tok) };
+    }
+    const radix = /^0(?:x[0-9a-fA-F](?:_?[0-9a-fA-F])*|o[0-7](?:_?[0-7])*|b[01](?:_?[01])*)$/.exec(tok);
     if (radix) {
-      const base = radix[1] === 'x' ? 16 : radix[1] === 'o' ? 8 : 2;
-      const digits = (radix[2] as string).replace(/_/g, '');
-      const v = BigInt(`0${radix[1]}${digits}`);
-      if (Number.isNaN(Number.parseInt(digits, base))) return fail(`数値が読めません: ${tok}`, start);
+      const v = BigInt(tok.replace(/_/g, ''));
       return { type: 'number', start, end: i, value: v <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(v) : v };
     }
     if (INT.test(tok)) {
