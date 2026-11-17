@@ -19,7 +19,8 @@ export function groupRows(items: TranscriptItem[], group: boolean): TranscriptRo
   const rows: TranscriptRow[] = [];
   let open: TranscriptRow | null = null;
   for (const it of items) {
-    if (!group || it.kind !== 'tool') { rows.push({ key: it.seq, items: [it], tools: false }); open = null; continue; }
+    // 質問（AskUserQuestion）は会話の一部なので、まとめに畳まず、ほかの行と同じ形で残す。
+    if (!group || it.kind !== 'tool' || it.name === 'AskUserQuestion') { rows.push({ key: it.seq, items: [it], tools: false }); open = null; continue; }
     if (it.subagent) { rows.push({ key: it.seq, items: [it], tools: true }); open = null; continue; }
     if (open) { open.items.push(it); continue; }
     open = { key: it.seq, items: [it], tools: true };
@@ -28,24 +29,13 @@ export function groupRows(items: TranscriptItem[], group: boolean): TranscriptRo
   return rows;
 }
 
-/** 呼び出し 1 つの説明。Bash は Claude が付けた description（無ければコマンド）、ほかは畳んだ行の要約の文。 */
-function describe(it: ToolItem): string {
-  const h = it.view.head;
-  if (it.name === 'Bash' && h.dim) return h.dim;
-  return h.main || it.summary;
-}
-
-export type ToolGroupHead = { label: string; desc: string; when: string; failed: number; failedLabel: string | null };
+export type ToolGroupHead = { label: string; failed: number; failedLabel: string | null };
 
 /**
- * まとめの行の見出し。
- * 札は、同じツールなら「Bash ×5」、混ざれば「ツール ×5」、1 回だけなら名前だけ（×1 は出さない）。
- * 説明と時刻は最後の呼び出しのもので、失敗した呼び出しがあればその数を添える。
+ * まとめの行の見出し（2026-11-18 の試作の案 A）。
+ * 札は呼んだ数だけ（「ツール 4 件」）で、説明と時刻は出さない。失敗した呼び出しがあればその数を添える。
  */
 export function toolGroupHead(items: ToolItem[], t: Translate): ToolGroupHead {
-  const last = items[items.length - 1]!;
-  const name = items[0]!.name;
-  const label = items.length === 1 ? name : items.every((it) => it.name === name) ? t('transcript.toolGroup.same', { name, n: items.length }) : t('transcript.toolGroup.mixed', { n: items.length });
   const failed = items.filter((it) => it.view.step === 'fail').length;
-  return { label, desc: describe(last), when: last.when, failed, failedLabel: failed > 0 ? t('transcript.toolGroup.failed', { n: failed }) : null };
+  return { label: t('transcript.toolGroup.count', { n: items.length }), failed, failedLabel: failed > 0 ? t('transcript.toolGroup.failed', { n: failed }) : null };
 }
