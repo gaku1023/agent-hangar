@@ -8592,11 +8592,12 @@ Codex の config.toml と opencode の opencode.json(c)、cli.json へ書き戻�
 どれも「文字列を受けて文字列を返す」だけの関数で、ファイルには触れない（控えと書き込みは呼ぶ側）。
 
 - TOML は `setToml`・`removeToml`・`getToml`。自前で書いた（`tomlParse.ts` が文と行の位置を読み、`toml.ts` が行と値の範囲だけを書き換える）。
+  toml-test の TOML 1.0 の試験集（valid 208 件、invalid 509 件）を `sync/config/edit/tomlSuite.test.ts` で当てる（`packages/server/test/fixtures/toml-test-1.0.0.json` に束ねてあり、MIT、`scripts/vendor-toml-test.mjs` で作り直す）。valid は全部読める。invalid のうち通してしまう入力は試験の `LENIENT` に控えてある。1.1 の `\e` と `\xHH` は断る（対応しない）。
   コメント、空行、鍵の並び、引用の形（基本・リテラル・複数行）、配列の折り返しを保つ。
   鍵の道は `['mcp_servers', 'x', 'env', 'KEY']` のような文字列の並びで、点のついた鍵、インライン表の中、`[a.b]` の見出しのどれでも同じ道で指せる。
   値が表（オブジェクト）なら表ごとの差し替えで、無い鍵は消え、変わらない鍵の体裁は残る。表が無ければ、近い表の後ろに節を作る。
   表の配列（`[[x]]`）をまたぐ道は書かない。
-- jsonc は `setJsonc`・`removeJsonc`・`getJsonc`（`jsonc-parser` の `modify`）。コメントと他の行の体裁を保ち、触った所だけ書き換える。
+- jsonc は `setJsonc`・`removeJsonc`・`getJsonc`。読むのは `jsonc-parser`、書くのは `config/jsonTextEdit.ts` の `setJsoncPath`・`removeJsoncPath` の 1 本だけ（opencode.json を書く手は 1 つにしてある）。元の字下げ（タブか空白か、幅）を読んで合わせ、コメント、末尾のカンマ、触っていない配列や行の字面を変えない。鍵の道は表の鍵だけで、配列の要素へは書かない。
   json は opencode が書くたびに 2 空白で整形し直すので、`setJson`・`removeJson`・`formatJson` で同じ整形にして書く。
 - 壊れた入力、TOML・JSON にできない値、道の途中が値のときは `ConfigEditError`（`code`: parse、unsupported、conflict、invalid-value、verify）を投げる。何も書かない。
   書いた結果は読み直し、狙った中身と合わなければ `verify` で失敗する。
