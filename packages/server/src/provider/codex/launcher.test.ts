@@ -88,3 +88,22 @@ describe('TUI の argv と環境', () => {
     expect(() => planCodex('/bin/codex', { kind: 'resume', id: 'pending:x' }, spec(), remote, [])).toThrow(MessageError);
   });
 });
+
+describe('昇格を禁じる起動（統括。docs/design.md「統括」）', () => {
+  const tuiFlags = (s: LaunchSpec) => {
+    const argv = planCodex('/bin/codex', { kind: 'start', id: 'pending:x' }, s, { args: [], env: {} }, []).argv;
+    return argv.slice(argv.indexOf('-s'), argv.indexOf('-s') + 4);
+  };
+
+  it('noEscalation なら、read-only のまま承認を never にする（app-server の -c と、ID の無い TUI の -a）', () => {
+    const s = spec({ mode: 'read-only', noEscalation: true });
+    expect(codexAppServerConfig(s, 'read-only')).toEqual(expect.arrayContaining(['sandbox_mode="read-only"', 'approval_policy="never"']));
+    expect(tuiFlags(s)).toEqual(['-s', 'read-only', '-a', 'never']);
+  });
+
+  it('ふつうの read-only は on-request のまま', () => {
+    const s = spec({ mode: 'read-only' });
+    expect(codexAppServerConfig(s, 'read-only')).toEqual(expect.arrayContaining(['sandbox_mode="read-only"', 'approval_policy="on-request"']));
+    expect(tuiFlags(s)).toEqual(['-s', 'read-only', '-a', 'on-request']);
+  });
+});

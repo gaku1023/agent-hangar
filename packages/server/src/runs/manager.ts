@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { isAgentKind, prepChoiceOf, type OrchestratorSetting, LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE, newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
+import { isAgentKind, type CodexPermission, prepChoiceOf, type OrchestratorSetting, LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE, newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
 import type { Account } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
@@ -477,9 +477,10 @@ export class RunManager {
     const s = (v: string | undefined) => (v && v.trim() ? v.trim() : undefined);
     const secret = issueMcpSecret(this.db, sessionId, this.now());
     const claude = agent === DEFAULT_AGENT;
-    const orch = claude ? this.orchestratorOf(sessionId) : null;
+    const orch = claude || agent === 'codex' ? this.orchestratorOf(sessionId) : null;
     if (orch) {
       // 統括は、起こすたび（新しい起動も再開も）に同じ指定にする。プロジェクトの段は足さず、手を動かす道具は禁じ、Remote Control は付けない。
+      // 手を動かす道具の禁じ方はエージェントで違う。Claude は run の settings の permissions、Codex は sandbox を read-only にし、承認を never にして昇格も求められなくする（hangar の MCP の道具は承認なしで通る）。
       return {
         cwd,
         hangarSessionId: sessionId,
@@ -488,9 +489,10 @@ export class RunManager {
         name: s(params.name),
         model: s(orch.model),
         effort: s(orch.effort),
-        mode: 'default',
         remoteControl: null,
-        permissions: { allow: [...ORCHESTRATOR_PERMISSIONS.allow], deny: [...ORCHESTRATOR_PERMISSIONS.deny] },
+        ...(claude
+          ? { mode: 'default', permissions: { allow: [...ORCHESTRATOR_PERMISSIONS.allow], deny: [...ORCHESTRATOR_PERMISSIONS.deny] } }
+          : { mode: 'read-only' satisfies CodexPermission, autoApprove: false, noEscalation: true }),
       };
     }
     return {
@@ -523,9 +525,19 @@ export class RunManager {
    * cwd は hangar の置き場の下の専用のディレクトリで、プロジェクトには属さない。
    * account は設定のアカウントの id で、省けばいまのアカウント。
    * 起動の指定（モデル、effort、役の文、permissions）は baseInput が統括として足す。設定の sessionId に書くのは呼び手（OrchestratorKeeper）である。
+   * agent は統括を起こすエージェントで、省けば Claude Code。Claude Code は今までどおり同期で返す。
+   * Codex は会話の ID を先に決めないので、一般の起動と同じ下ごしらえ（startMaterialized）を待つ Promise を返す。
    */
-  startOrchestrator(o: { account?: string } = {}): LaunchResult {
+  startOrchestrator(o?: { account?: string; agent?: typeof DEFAULT_AGENT }): LaunchResult;
+  startOrchestrator(o: { account?: string; agent?: AgentKind }): LaunchResult | Promise<LaunchResult>;
+  startOrchestrator(o: { account?: string; agent?: AgentKind } = {}): LaunchResult | Promise<LaunchResult> {
     if (!this.deps.orchestrator) throw new Error('orchestrator is not configured');
+    const agent = o.agent ?? DEFAULT_AGENT;
+    if (agent !== DEFAULT_AGENT) {
+      if (agent !== 'codex') return Promise.reject(new RunError(400, agentMsg.actionUnsupported(agent)));
+      const cwd = orchestratorCwd(this.deps.home);
+      return this.startMaterialized(agent, { name: ORCHESTRATOR_NAME, ...(o.account !== undefined ? { account: o.account } : {}) }, { cwd, orchestrator: true });
+    }
     const account = this.accounts.resolve(o.account);
     this.accounts.envFor(account);
     const cwd = orchestratorCwd(this.deps.home);
@@ -793,7 +805,7 @@ export class RunManager {
    * 下ごしらえか画面で失敗したら、serve を止め、仮の行と秘密を消して 400 で断る。
    * from は外のターミナルからの起動（startOpencodeFromTerminal）で、その作業ディレクトリで起こし、プロジェクトは場所の最長一致で紐づける（無ければ未分類）。
    */
-  private async startMaterialized(agent: AgentKind, params: LaunchParams, from?: { cwd: string }, hooks: LaunchHooks = {}): Promise<LaunchResult> {
+  private async startMaterialized(agent: AgentKind, params: LaunchParams, from?: { cwd: string; /** 統括として起こす（startOrchestrator）。cwd を作り、プロジェクトに属させず、baseInput が統括の指定にする。 */ orchestrator?: boolean }, hooks: LaunchHooks = {}): Promise<LaunchResult> {
     const driver = this.agents.of(agent);
     if (!(this.deps.agentEnabled?.(agent) ?? false)) throw new RunError(400, agentMsg.disabled(agent));
     if (!driver.launch.materialize) throw new Error(`agent ${agent} cannot launch without choosing a session id`);
@@ -814,12 +826,14 @@ export class RunManager {
     if (params.scratch && !from) this.startPanes();
     const target = from ? null : this.startTarget(params);
     const cwd = from ? from.cwd : target!.cwd;
+    if (from?.orchestrator) fs.mkdirSync(cwd, { recursive: true });
     this.precheck(cwd, { agent });
     const sessionId = newId();
     const now = this.now();
     upsertShared(this.db, 'sessions', { id: sessionId, provider: agent, provider_session_id: `pending:${newId()}`, cwd, home_device: this.deps.deviceId, project_id: target?.project.id ?? null, started_at: now, last_activity_at: now }, this.deps.deviceId);
-    const projectId = target ? target.project.id : assignSession(this.db, this.deps.deviceId, sessionId);
+    const projectId = target ? target.project.id : from?.orchestrator ? null : assignSession(this.db, this.deps.deviceId, sessionId);
     setSessionName(this.db, this.deps.deviceId, sessionId, params.name?.trim() || null);
+    if (from?.orchestrator) this.orchestrating.add(sessionId);
     const discard = () => {
       revokeMcpSecret(this.db, sessionId);
       softDeleteShared(this.db, 'sessions', sessionId, this.deps.deviceId);

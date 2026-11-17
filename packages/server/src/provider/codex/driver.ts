@@ -10,9 +10,8 @@ import type { CodexLiveTarget } from './live.ts';
 import type { CodexUsage } from './usage.ts';
 import { launchCodexAppServer } from './launch.ts';
 import { CodexRegistry, codexRegistryPath } from './registry.ts';
-import { CODEX_PERMISSION_FLAGS } from '@agent-hangar/shared';
 import { codexShareFor, type CodexShareDeps } from './share.ts';
-import { codexAppServerConfig, codexPermissionOf, HANGAR_MCP_NAME, instructionValue, MCP_TOKEN_ENV, loggedOutError, noRolloutError, planCodex, PENDING_PREFIX } from './launcher.ts';
+import { codexAppServerConfig, codexFlagsOf, codexPermissionOf, HANGAR_MCP_NAME, instructionValue, MCP_TOKEN_ENV, loggedOutError, noRolloutError, planCodex, PENDING_PREFIX } from './launcher.ts';
 
 /**
  * Codex の driver の起動の面（計画の B3a、docs/design.md「Codex の起動（ベータ）」）。
@@ -170,7 +169,7 @@ export function createCodexDriver(deps: CodexDriverDeps): CodexDriver {
     const share = deps.share ? codexShareFor(spec, { share: deps.share, ...(deps.shareHome ? { homeDir: deps.shareHome } : {}) }) : null;
     if (share?.instructions) spec = { ...spec, instructions: [...spec.instructions, share.instructions] };
     const config = [...codexAppServerConfig(spec, perm), ...(share?.config ?? [])];
-    const flags = CODEX_PERMISSION_FLAGS[perm];
+    const flags = codexFlagsOf(spec, perm);
     const prior = served.get(spec.hangarSessionId);
     if (prior) {
       served.delete(spec.hangarSessionId);

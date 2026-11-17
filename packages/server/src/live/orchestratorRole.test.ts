@@ -26,4 +26,14 @@ describe('markOrchestrator', () => {
     const codex = [live('uuid-1', { agent: 'codex' })];
     expect(markOrchestrator(db, () => 'h1')(codex)).toBe(codex);
   });
+  it('Codex の統括にも付ける。一覧の agent と会話の provider が合うときだけ', () => {
+    const db = openDb(':memory:');
+    upsertShared(db, 'sessions', { id: 'h2', provider: 'codex', provider_session_id: 'thread-1', cwd: '/w', home_device: 'd' }, 'd');
+    const c = live('thread-1', { agent: 'codex' });
+    const out = markOrchestrator(db, () => 'h2')([c, live('thread-2', { agent: 'codex' })]);
+    expect(out[0]).toEqual({ ...c, role: 'orchestrator' });
+    expect(out[1]).not.toHaveProperty('role');
+    const claudeSame = [live('thread-1')];
+    expect(markOrchestrator(db, () => 'h2')(claudeSame)).toBe(claudeSame);
+  });
 });
