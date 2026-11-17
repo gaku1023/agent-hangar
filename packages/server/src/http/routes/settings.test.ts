@@ -155,7 +155,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, orchestrator: { enabled: false, sessionId: null, model: 'sonnet', effort: 'medium', account: null, history: [] }, voice: { mode: 'off', personaId: 'default', personas: [{ id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'kokoro:jf_alpha', voiceLabel: 'jf_alpha', speed: 1.2 }] }, permissionPolicy: null });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, orchestrator: { enabled: false, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] }, voice: { mode: 'off', personaId: 'default', personas: [{ id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'kokoro:jf_alpha', voiceLabel: 'jf_alpha', speed: 1.2 }] }, permissionPolicy: null });
   });
   // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
   it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
@@ -567,20 +567,20 @@ describe('設定の往復', () => {
     for (const bad of [{ mode: 'loud' }, {}, { personas: [] }, { personas: [{ id: '', name: 'x' }] }, { extra: 1 }, 'x']) expect((await patch({ voice: bad })).status, JSON.stringify(bad)).toBe(400);
   });
   it('統括の設定は、既定が切で、入り切りとモデルと effort だけを保存でき、会話の id と形の違う値は断る', async () => {
-    expect((await json(await get('/api/settings'))).body.orchestrator).toEqual({ enabled: false, sessionId: null, model: 'sonnet', effort: 'medium', account: null, history: [] });
-    t.deps.updateSettings({ orchestrator: { enabled: false, sessionId: 'keep-me', model: 'sonnet', effort: 'medium', account: null, history: [] } });
+    expect((await json(await get('/api/settings'))).body.orchestrator).toEqual({ enabled: false, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] });
+    t.deps.updateSettings({ orchestrator: { enabled: false, sessionId: 'keep-me', agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] } });
     sent.length = 0;
     const r = await patch({ orchestrator: { enabled: true, model: 'opus' } });
     expect(r.status).toBe(200);
     // 届いた項目だけを替え、見張りが書く sessionId は残す。
-    expect((await r.json()).orchestrator).toEqual({ enabled: true, sessionId: 'keep-me', model: 'opus', effort: 'medium', account: null, history: [] });
+    expect((await r.json()).orchestrator).toEqual({ enabled: true, sessionId: 'keep-me', agent: 'claude-code', model: 'opus', effort: 'medium', account: null, history: [] });
     expect(sent.find((e) => e.type === 'settings.changed')).toMatchObject({ keys: ['orchestrator'], settings: { orchestrator: { enabled: true } } });
     for (const v of [{ sessionId: 'x' }, { enabled: 'true' }, { model: '--evil' }, { effort: 'turbo' }, { extra: 1 }, {}, null, 'on']) {
       const bad = await patch({ orchestrator: v });
       expect([JSON.stringify(v), bad.status]).toEqual([JSON.stringify(v), 400]);
       expect((await bad.json()).error).toBe('「統括」の値の形式が正しくありません');
     }
-    expect((await json(await get('/api/settings'))).body.orchestrator).toEqual({ enabled: true, sessionId: 'keep-me', model: 'opus', effort: 'medium', account: null, history: [] });
+    expect((await json(await get('/api/settings'))).body.orchestrator).toEqual({ enabled: true, sessionId: 'keep-me', agent: 'claude-code', model: 'opus', effort: 'medium', account: null, history: [] });
   });
   it('統括のアカウントは、今あるアカウントの id か null だけを受け、知らない id は 400', async () => {
     const a = t.deps.accounts.store.add({ name: '別' });
@@ -594,6 +594,32 @@ describe('設定の往復', () => {
     expect((await json(await get('/api/settings'))).body.orchestrator.account).toBeNull();
     // 最初のアカウントの id も受ける。
     expect((await patch({ orchestrator: { account: 'primary' } })).status).toBe(200);
+  });
+  it('統括のアプリは、設定で有効な Claude Code と Codex だけを受け、opencode と無効なアプリは 400。アカウントはそのアプリの組で引く', async () => {
+    const orch = async () => (await json(await get('/api/settings'))).body.orchestrator;
+    // Codex は設定で有効にするまで選べない。
+    expect((await patch({ orchestrator: { agent: 'codex' } })).status).toBe(400);
+    expect((await orch()).agent).toBe('claude-code');
+    expect((await patch({ codexEnabled: true })).status).toBe(200);
+    // アプリを替える PATCH は、モデルと effort と account を一緒に送る。空のモデルはそのアプリの既定。
+    const r = await patch({ orchestrator: { agent: 'codex', model: '', effort: '', account: null } });
+    expect(r.status).toBe(200);
+    expect(await orch()).toMatchObject({ agent: 'codex', model: '', effort: '', account: null });
+    // Codex の effort は Claude の段階に無い語（minimal）も受ける。Claude Code に戻したら受けない。
+    expect((await patch({ orchestrator: { effort: 'minimal' } })).status).toBe(200);
+    // Claude のアカウントの id は Codex では引けない。
+    const a = t.deps.accounts.store.add({ name: '別' });
+    expect((await patch({ orchestrator: { account: a.id } })).status).toBe(400);
+    expect((await patch({ orchestrator: { agent: 'claude-code', model: 'sonnet', effort: 'medium', account: a.id } })).status).toBe(200);
+    expect((await patch({ orchestrator: { effort: 'minimal' } })).status).toBe(400);
+    // opencode は段 3 まで受けない。
+    expect((await patch({ codexEnabled: true, opencodeEnabled: true })).status).toBe(200);
+    expect((await patch({ orchestrator: { agent: 'opencode' } })).status).toBe(400);
+    expect((await patch({ orchestrator: { agent: 'gemini' } })).status).toBe(400);
+    expect(await orch()).toMatchObject({ agent: 'claude-code', account: a.id });
+    // アプリだけを替えると、前のアプリのアカウントは持ち越さない。
+    expect((await patch({ orchestrator: { agent: 'codex' } })).status).toBe(200);
+    expect(await orch()).toMatchObject({ agent: 'codex', account: null });
   });
   it('許可の方針は読めるが、設定の PATCH では書けない（書くのは統括の set_permission_policy だけ）', async () => {
     expect((await json(await get('/api/settings'))).body.permissionPolicy).toBeNull();

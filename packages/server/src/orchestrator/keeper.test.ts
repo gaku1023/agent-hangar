@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_ORCHESTRATOR, type EndReason, type LiveStatus, type OrchestratorSetting, type RunDto } from '@agent-hangar/shared';
-import { OrchestratorKeeper, type KeeperRuns } from './keeper.ts';
+import { DEFAULT_ORCHESTRATOR, type AgentKind, type EndReason, type LiveStatus, type OrchestratorSetting, type RunDto } from '@agent-hangar/shared';
+import { OrchestratorKeeper, RESPEC_GONE_MS, type KeeperRuns } from './keeper.ts';
 
 const MIN = 60_000;
 
@@ -21,18 +21,23 @@ function rig(initial: Partial<OrchestratorSetting> = {}, o: { resumable?: boolea
   const calls: string[] = [];
   const sent: { id: string; text: string }[] = [];
   const tokens = new Map<string, number>();
+  // 会話ごとのアプリ。見張りが起こしたものは起こしたアプリ、ほかは Claude Code。
+  const providers = new Map<string, AgentKind>();
   let n = 0;
   const runs: KeeperRuns = {
     on(l) { listener = l; return () => { listener = {}; }; },
     aliveRun: (id) => (alive.has(id) ? ({ id: `run-${id}`, sessionId: id } as RunDto) : null),
     kill: vi.fn((runId: string) => { calls.push(`kill:${runId}`); const id = runId.replace('run-', ''); alive.delete(id); listener.runEnded?.({ id: runId, sessionId: id, endReason: 'killed', endedAt: clock } as RunDto); }),
     resumeWith: vi.fn(async (id: string, o?: { account?: string; stray?: string }) => { calls.push(`resume:${id}${o?.account ? `@${o.account}` : ''}${o?.stray ? `!${o.stray}` : ''}`); alive.add(id); return {}; }),
-    startOrchestrator: vi.fn((o?: { account?: string }) => {
+    startOrchestrator: vi.fn((o?: { account?: string; agent?: AgentKind }) => {
       if (startFails > 0) { startFails -= 1; calls.push('start:fail'); throw new Error('tmux'); }
       const id = `orch-${++n}`;
-      calls.push(`start:${id}${o?.account ? `@${o.account}` : ''}`);
+      const agent = o?.agent ?? 'claude-code';
+      calls.push(`start:${id}${o?.account ? `@${o.account}` : ''}${agent === 'claude-code' ? '' : `#${agent}`}`);
       alive.add(id);
-      return { sessionId: id };
+      providers.set(id, agent);
+      // Codex は会話の id を先に決めないので、下ごしらえを待つ Promise で返る。
+      return agent === 'codex' ? new Promise<{ sessionId: string }>((r) => { setTimeout(() => { r({ sessionId: id }); }, 0); }) : { sessionId: id };
     }),
   };
   const keeper: OrchestratorKeeper = new OrchestratorKeeper({
@@ -40,6 +45,7 @@ function rig(initial: Partial<OrchestratorSetting> = {}, o: { resumable?: boolea
     save: (patch) => { setting = { ...setting, ...patch }; },
     runs,
     resumable: () => o.resumable ?? true,
+    providerOf: (id) => providers.get(id) ?? 'claude-code',
     liveStatus: (id) => status.get(id) ?? null,
     onLiveChange: (cb) => { liveListeners.add(cb); return () => { liveListeners.delete(cb); }; },
     now: () => clock,
@@ -57,7 +63,9 @@ function rig(initial: Partial<OrchestratorSetting> = {}, o: { resumable?: boolea
   };
   const settle = () => new Promise((r) => setTimeout(r, 0));
   const live = (id: string, st: LiveStatus) => { status.set(id, st); for (const cb of [...liveListeners]) cb(); };
-  return { keeper, runs, calls, sent, tokens, clock: () => clock, end, settle, live, setting: () => setting, set: (p: Partial<OrchestratorSetting>) => { setting = { ...setting, ...p }; }, advance: (ms: number) => { clock += ms; }, alive };
+  // 実行中の一覧から消える（claude が終わりきった）。止めた直後はまだ一覧に残っている。
+  const gone = (id: string) => { status.delete(id); for (const cb of [...liveListeners]) cb(); };
+  return { keeper, runs, providers, calls, sent, tokens, clock: () => clock, end, settle, live, gone, setting: () => setting, set: (p: Partial<OrchestratorSetting>) => { setting = { ...setting, ...p }; }, advance: (ms: number) => { clock += ms; }, alive };
 }
 
 describe('OrchestratorKeeper', () => {
@@ -244,7 +252,87 @@ describe('OrchestratorKeeper', () => {
     expect(t.calls).toEqual(['start:orch-1@acc-2', 'resume:orch-1@acc-2']);
   });
 
+  describe('アプリ（agent）', () => {
+    it('設定のアプリで起こす。Codex は Promise を待ってから sessionId を書く', async () => {
+      const t = rig({ enabled: true, agent: 'codex', model: '', effort: '' });
+      t.keeper.start();
+      await t.settle();
+      await t.settle();
+      expect(t.calls).toEqual(['start:orch-1#codex']);
+      expect(t.setting().sessionId).toBe('orch-1');
+      expect(t.keeper.state()).toEqual({ status: 'running' });
+    });
+
+    it('アプリが変わったら、idle のときに新しい会話へ切り替える（同じ会話の再開ではない）。前の会話は reason agent で history に残る', async () => {
+      const t = rig({ enabled: true });
+      t.keeper.start();
+      await t.settle();
+      t.live('orch-1', 'idle');
+      t.set({ agent: 'codex' });
+      t.keeper.apply();
+      await t.settle();
+      await t.settle();
+      expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1', 'start:orch-2#codex']);
+      expect(t.setting()).toMatchObject({ sessionId: 'orch-2', agent: 'codex' });
+      expect(t.setting().history).toEqual([{ sessionId: 'orch-1', startedAt: 500, endedAt: expect.any(Number), reason: 'agent' }]);
+      expect(t.keeper.state()).toEqual({ status: 'running' });
+    });
+
+    it('アプリが変わっても busy の間は待ち、idle になってから切り替える', async () => {
+      const t = rig({ enabled: true });
+      t.keeper.start();
+      await t.settle();
+      t.live('orch-1', 'busy');
+      t.set({ agent: 'codex' });
+      t.keeper.apply();
+      await t.settle();
+      expect(t.calls).toEqual(['start:orch-1']);
+      t.live('orch-1', 'idle');
+      await t.settle();
+      await t.settle();
+      expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1', 'start:orch-2#codex']);
+    });
+
+    it('アプリが同じでモデルだけ変わったときは、今までどおり同じ会話を起こし直す', async () => {
+      const t = rig({ enabled: true, agent: 'codex', model: '', effort: '' });
+      t.keeper.start();
+      await t.settle();
+      t.live('orch-1', 'idle');
+      t.set({ model: 'gpt-x' });
+      t.keeper.apply();
+      await t.settle();
+      t.gone('orch-1');
+      await t.settle();
+      expect(t.calls).toEqual(['start:orch-1#codex', 'kill:run-orch-1', 'resume:orch-1!stop']);
+    });
+
+    it('動いていない統括の会話が別のアプリのものなら、再開せず新しい会話を起こして reason agent で残す', async () => {
+      const t = rig({ enabled: true, sessionId: 'orch-old', agent: 'codex' });
+      t.keeper.start();
+      await t.settle();
+      await t.settle();
+      expect(t.calls).toEqual(['start:orch-1#codex']);
+      expect(t.setting().history).toEqual([{ sessionId: 'orch-old', startedAt: 500, endedAt: expect.any(Number), reason: 'agent' }]);
+    });
+  });
+
   describe('指定（account、model、effort）が変わったとき', () => {
+    it('止めた claude が一覧から消えないままなら、待ちの上限を過ぎてから再開を試みる', async () => {
+      vi.useFakeTimers();
+      try {
+        const t = rig({ enabled: true });
+        t.keeper.start();
+        await vi.advanceTimersByTimeAsync(0);
+        t.live('orch-1', 'idle');
+        t.set({ effort: 'high' });
+        t.keeper.apply();
+        await vi.advanceTimersByTimeAsync(RESPEC_GONE_MS - 1);
+        expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1']);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1', 'resume:orch-1!stop']);
+      } finally { vi.useRealTimers(); }
+    });
+
     const running = async (initial: Partial<OrchestratorSetting> = {}) => {
       const t = rig({ enabled: true, ...initial });
       t.keeper.start();
@@ -257,6 +345,10 @@ describe('OrchestratorKeeper', () => {
       t.live('orch-1', 'idle');
       t.set({ model: 'opus', account: 'acc-2' });
       t.keeper.apply();
+      await t.settle();
+      // 止めた claude が実行中の一覧に残っている間は再開しない（再開すると「hangar の外部で実行中」で断られる）。
+      expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1']);
+      t.gone('orch-1');
       await t.settle();
       expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1', 'resume:orch-1@acc-2!stop']);
       expect(t.setting()).toMatchObject({ enabled: true, sessionId: 'orch-1', model: 'opus' });
@@ -275,6 +367,8 @@ describe('OrchestratorKeeper', () => {
       expect(t.calls).toEqual(['start:orch-1']);
       t.live('orch-1', 'idle');
       await t.settle();
+      t.gone('orch-1');
+      await t.settle();
       expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1', 'resume:orch-1!stop']);
       // 同じ指定ではもう止めない。
       t.live('orch-1', 'idle');
@@ -288,6 +382,8 @@ describe('OrchestratorKeeper', () => {
         t.live('orch-1', 'idle');
         t.set({ model: m });
         t.keeper.apply();
+        await t.settle();
+        t.gone('orch-1');
         await t.settle();
       }
       expect(t.calls.filter((c) => c.startsWith('kill'))).toHaveLength(4);
@@ -326,6 +422,8 @@ describe('OrchestratorKeeper', () => {
       expect(t.calls).toEqual([]);
       t.set({ model: 'opus' });
       t.keeper.apply();
+      await t.settle();
+      t.gone('old-1');
       await t.settle();
       expect(t.calls).toEqual(['kill:run-old-1', 'resume:old-1!stop']);
       expect(t.setting().enabled).toBe(true);

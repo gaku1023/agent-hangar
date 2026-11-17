@@ -121,6 +121,6 @@ describe('統括の見張りの口（fresh、stop、wake、state）', () => {
 });
 
 function alive(): void {
-  t.deps.updateSettings({ orchestrator: { enabled: true, sessionId: 'orch-1', model: 'sonnet', effort: 'medium', account: null, history: [] } });
+  t.deps.updateSettings({ orchestrator: { enabled: true, sessionId: 'orch-1', agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] } });
   (t.runs.listAlive as ReturnType<typeof vi.fn>).mockReturnValue({ runs: [{ id: 'r9', sessionId: 'orch-1', tmuxName: 'hg-orch' }], tabs: [] });
 }

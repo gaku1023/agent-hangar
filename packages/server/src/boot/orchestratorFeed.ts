@@ -7,7 +7,7 @@ import { sessionTitleOf } from '../mobile/feed.ts';
 import { feedText, OrchestratorFeed } from '../orchestrator/feed.ts';
 import { lineageInvolvement } from '../orchestrator/involved.ts';
 import { noteFedTurn } from '../orchestrator/turnMark.ts';
-import { inputEmptyFromCapture } from '../peer/chat/inputBox.ts';
+import { inputEmptyFor } from '../peer/chat/inputBox.ts';
 import type { RunManager } from '../runs/manager.ts';
 import { aliveRunForSession } from '../runs/queries.ts';
 import type { HomeParts } from './home.ts';
@@ -42,14 +42,19 @@ export function bootOrchestratorFeed(p: {
   const { db } = p.home;
   const deviceId = p.home.device.id;
   const idOf = db.prepare('select id from sessions where provider = ? and provider_session_id = ? and deleted_at is null');
+  const providerOf = db.prepare('select provider from sessions where id = ?');
   const tr = translatorOf(p.home.language);
-  /** 統括の画面。この PC で生きている run が無ければ null。 */
+  /**
+   * 統括の画面。この PC で生きている run が無ければ null。
+   * 入力欄の空の判定は、統括のエージェント（Claude Code の ❯ の箱、Codex の › の行）で選ぶ。
+   */
   const paneOf = (sessionId: string) => {
     const run = aliveRunForSession(db, sessionId, deviceId, Date.now());
     const panes = panesOf(p.runs.mux());
     if (!run || run.deviceId !== deviceId || !panes?.captureStyled) return null;
     const captureStyled = panes.captureStyled.bind(panes);
-    return { tmuxName: run.tmuxName, empty: async () => { const cap = await captureStyled(run.tmuxName); return cap != null && inputEmptyFromCapture(cap); } };
+    const agent = (providerOf.get(sessionId) as { provider: string } | undefined)?.provider ?? 'claude-code';
+    return { tmuxName: run.tmuxName, empty: async () => { const cap = await captureStyled(run.tmuxName); return cap != null && inputEmptyFor(agent, cap); } };
   };
 
   const lineage = lineageInvolvement(db, deviceId, () => orchestratorOf(p.home.settings.current.orchestrator));

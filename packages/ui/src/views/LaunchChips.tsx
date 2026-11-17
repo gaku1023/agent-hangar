@@ -44,7 +44,8 @@ export type LaunchAgentChip = { value: AgentValue; onChange: (value: AgentValue)
 export type LaunchCodexChips = {
   model: string; models: CodexModelOption[]; onModel: (value: string) => void;
   effort: string; efforts: CodexEffortOption[]; onEffort: (value: string) => void;
-  permission: CodexPermission; onPermission: (value: CodexPermission) => void;
+  /** 権限の札。省くと札を出さない（統括は read-only に固定なので選ばせない）。 */
+  permission?: CodexPermission; onPermission?: (value: CodexPermission) => void;
 };
 
 /** 権限の 3 段の文言のキー。 */
@@ -243,7 +244,7 @@ export function LaunchChips(props: {
 /** 一覧に並べるエージェントの既定（offered を省いたとき）。Codex は設定で有効にしたときだけ呼び手が足す。 */
 const DEFAULT_OFFERED: readonly AgentValue[] = AGENT_KINDS.filter((k) => k !== 'codex');
 
-function AgentChip(props: LaunchAgentChip) {
+export function AgentChip(props: LaunchAgentChip) {
   const t = useT();
   const beta = t('launch.agent.beta');
   const label = (v: AgentValue) => t(AGENT_TEXT[v].launchLabel);
@@ -307,7 +308,7 @@ function OpencodeChips(props: LaunchOpencodeChips) {
  * モデルは古い世代（splitCodexModels）を「過去のモデル」に畳んで下に置く。
  * フルアクセスは赤い縁と警告の印にする（Bypass permissions と同じ）。下の注意はダイアログが出す。
  */
-function CodexChips(props: LaunchCodexChips) {
+export function CodexChips(props: LaunchCodexChips) {
   const t = useT();
   const def = t('launch.value.default');
   const modelName = t('launch.chip.model');
@@ -316,7 +317,8 @@ function CodexChips(props: LaunchCodexChips) {
   const modelNow = props.models.find((m) => m.id === props.model);
   const { current, older } = splitCodexModels(props.models);
   const modelItem = (m: CodexModelOption) => ({ value: m.id, label: m.label, ...(m.description ? { sub: m.description } : {}) });
-  const full = props.permission === 'full-access';
+  const permission = props.permission;
+  const full = permission === 'full-access';
   return (
     <>
       <ChipPopover name={modelName} value={props.model ? modelNow?.label ?? props.model : def} tone={props.model ? 'default' : 'muted'} width={300} agentOnly="modelList">
@@ -334,13 +336,15 @@ function CodexChips(props: LaunchCodexChips) {
             onPick={(v) => { props.onEffort(v); close(); }} />
         )}
       </ChipPopover>
-      <ChipPopover name={permName} value={t(CODEX_PERMISSION_TEXT[props.permission].label)} tone={full ? 'danger' : 'default'} icon={full ? 'warning' : undefined} width={320} agentOnly="modelList">
-        {(close) => (
-          <PickList label={permName} value={props.permission}
-            items={CODEX_PERMISSIONS.map((p) => ({ value: p, label: t(CODEX_PERMISSION_TEXT[p].label), sub: t(CODEX_PERMISSION_TEXT[p].note), ...(p === 'full-access' ? { tone: 'danger' as const } : {}) }))}
-            onPick={(v) => { props.onPermission(v as CodexPermission); close(); }} />
-        )}
-      </ChipPopover>
+      {permission !== undefined && (
+        <ChipPopover name={permName} value={t(CODEX_PERMISSION_TEXT[permission].label)} tone={full ? 'danger' : 'default'} icon={full ? 'warning' : undefined} width={320} agentOnly="modelList">
+          {(close) => (
+            <PickList label={permName} value={permission}
+              items={CODEX_PERMISSIONS.map((p) => ({ value: p, label: t(CODEX_PERMISSION_TEXT[p].label), sub: t(CODEX_PERMISSION_TEXT[p].note), ...(p === 'full-access' ? { tone: 'danger' as const } : {}) }))}
+              onPick={(v) => { props.onPermission?.(v as CodexPermission); close(); }} />
+          )}
+        </ChipPopover>
+      )}
     </>
   );
 }

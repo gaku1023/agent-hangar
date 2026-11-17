@@ -3,7 +3,7 @@ import { serve } from '@hono/node-server';
 import type http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { orchestratorOf, voiceOf, PEER_CHAT_MIN_HANGAR_VERSION, type SettingsDto } from '@agent-hangar/shared';
+import { isAgentKind, orchestratorOf, voiceOf, PEER_CHAT_MIN_HANGAR_VERSION, type SettingsDto } from '@agent-hangar/shared';
 import { OrchestratorKeeper } from '../orchestrator/keeper.ts';
 import { sendToOrchestrator } from '../http/routes/orchestrator.ts';
 import { VoiceHelper, resolveVoiceBin } from '../voice/helper.ts';
@@ -187,7 +187,8 @@ export function bootHttp(p: {
       updateSettings({ orchestrator: { ...orchestratorOf(settings.current.orchestrator), ...patch } });
       delivery.hub.broadcast({ type: 'settings.changed', settings: toSettingsDto(settings.current), keys: ['orchestrator'] });
     },
-    runs: { on: (l) => runs.runs.on(l), aliveRun: (id) => runs.runs.aliveRun(id), kill: (runId) => runs.runs.kill(runId), resumeWith: (id, o) => runs.runs.resumeWith(id, o), startOrchestrator: (o) => runs.runs.startOrchestrator(o) },
+    runs: { on: (l) => runs.runs.on(l), aliveRun: (id) => runs.runs.aliveRun(id), kill: (runId) => runs.runs.kill(runId), resumeWith: (id, o) => runs.runs.resumeWith(id, o), startOrchestrator: (o) => runs.runs.startOrchestrator(o ?? {}) },
+    providerOf: (id) => { const r = providerIdOf.get(id) as { provider: string } | undefined; return r && isAgentKind(r.provider) ? r.provider : null; },
     liveStatus: (id) => liveStatusOf(id),
     onLiveChange: (cb) => delivery.live.onChange(cb),
     // 切り替え（docs/design.md「統括」の切り替えの手順）。手すきは、idle で、出来事と許可の預かりが空で、入力欄が空のとき。

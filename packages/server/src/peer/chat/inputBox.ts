@@ -52,11 +52,18 @@ export function inputEmptyFromCapture(capture: string): boolean {
   const bottom = rules[rules.length - 1]!;
   const box = lines.slice(top + 1, bottom);
   if (box.length === 0 || !plain(box[0]!).replace(/^\s+/, '').startsWith('❯')) return false;
+  return !hasTyped(box, '❯');
+}
+
+/**
+ * 薄くない字が並びにあるか。薄字でも [ で始まる語は、貼り付けや画像の札かもしれないので、薄くない字と同じに扱う。
+ * skip は数えない最初の 1 字（入力欄の印 ❯ や ›）。
+ */
+function hasTyped(lines: readonly string[], skip: string): boolean {
   let dim = false;
   let promptSeen = false;
-  // 語の頭か（空白と ❯ の直後）。薄字でも [ で始まる語は、提案でなく札（貼り付けや画像）かもしれないので、空でないとみなす。
   let wordStart = true;
-  for (const line of box) {
+  for (const line of lines) {
     for (let i = 0; i < line.length; ) {
       if (line[i] === '\x1b') {
         CSI.lastIndex = i;
@@ -75,16 +82,55 @@ export function inputEmptyFromCapture(capture: string): boolean {
         wordStart = true;
         continue;
       }
-      if (!promptSeen && ch === '❯') {
+      if (!promptSeen && ch === skip) {
         promptSeen = true;
         wordStart = true;
         continue;
       }
-      if (!dim || (wordStart && ch === '[')) return false;
+      if (!dim || (wordStart && ch === '[')) return true;
       wordStart = false;
     }
   }
-  return true;
+  return false;
+}
+
+/**
+ * Codex の TUI の入力欄が空かを、色付きの画面（capture-pane -e）から読む（見本は inputBox.codex.fixtures.ts）。
+ *
+ * Codex の入力欄には区切り線が無い。
+ * 入力欄は、画面の下から探して最初の、› で始まる行である（その下は空行と、モデルや使用量の行）。
+ * 上に残る過去の入力も › で始まるが、入力欄より上にあるので、下から探せば取り違えない。
+ * 複数行の打ちかけは、次の行から 2 字下げて続く。空行までを入力欄とみなす。
+ * 空の入力欄には薄字（SGR 2）の案内（Ask Codex to do anything）が出る。打った字は薄字でない。
+ * 承認の札が出ている間は、選択の › が下にあり、その字は薄字でないので、空と言わない。
+ * 作業中も入力欄は出ている。作業中かどうかは、この判定では見ない（Claude の判定と同じ）。
+ * 迷ったら空でないと答える。
+ */
+export function codexInputEmptyFromCapture(capture: string): boolean {
+  const lines = capture.replace(/\r\n/g, '\n').split('\n');
+  let at = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (plain(lines[i]!).startsWith('›')) {
+      at = i;
+      break;
+    }
+  }
+  if (at < 0) return false;
+  const box = [lines[at]!];
+  for (let i = at + 1; i < lines.length && plain(lines[i]!).trim() !== ''; i++) box.push(lines[i]!);
+  // 色の無い画面では薄字を見分けられない。案内の字が薄字で描かれていなければ空と言わない。
+  if (!box.some((l) => /\x1b\[[0-9;:]*m/.test(l))) return false;
+  return !hasTyped(box, '›');
+}
+
+/**
+ * そのエージェントの画面で、入力欄が空か。Claude Code は ❯ の箱（inputEmptyFromCapture）、Codex は › の行（codexInputEmptyFromCapture）で読む。
+ * 判定を持たないエージェントは、空と言わない（渡さずに待つ）。
+ */
+export function inputEmptyFor(agent: string, capture: string): boolean {
+  if (agent === 'claude-code') return inputEmptyFromCapture(capture);
+  if (agent === 'codex') return codexInputEmptyFromCapture(capture);
+  return false;
 }
 
 /**
