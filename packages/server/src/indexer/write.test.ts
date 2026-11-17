@@ -5,6 +5,7 @@ import { softDeleteShared } from '../db/shared.ts';
 import type { IndexBatch, IndexRecord } from '../agent/types.ts';
 import { localDay } from '../usage/aggregate.ts';
 import { storedOrigin, writeBatch } from './write.ts';
+import { stripFtsTail } from '../search/ftsTail.ts';
 
 let db: Db;
 const DEV = 'dev-1';
@@ -39,7 +40,7 @@ describe('writeBatch', () => {
       { seq: 1, kind: 'assistant', byte_offset: 0, byte_length: 0, file_path_ref: origin, tool_name: null, file_path: null },
       { seq: 2, kind: 'tool_call', byte_offset: 0, byte_length: 0, file_path_ref: origin, tool_name: 'edit', file_path: '/Users/me/workspace/oc/a.ts' },
     ]);
-    expect(all('select seq, role, text from event_fts where session_id = ? order by seq', r.sessionId).map((x) => x.text)).toEqual(['はじめの依頼', '直しました', 'a.ts']);
+    expect(all('select seq, role, text from event_fts where session_id = ? order by seq', r.sessionId).map((x) => stripFtsTail(String(x.text)))).toEqual(['はじめの依頼', '直しました', 'a.ts']);
     expect(one('select turns, model, input_tokens, output_tokens, last_prompt from session_stats where session_id = ?', r.sessionId))
       .toEqual({ turns: 1, model: 'glm-4.6', input_tokens: 10, output_tokens: 5, last_prompt: 'はじめの依頼' });
     expect(all('select day, file_path, input_tokens, output_tokens from usage_daily where session_id = ?', r.sessionId))
@@ -56,7 +57,7 @@ describe('writeBatch', () => {
     expect(one('select turns, input_tokens from session_stats where session_id = ?', first.sessionId)).toEqual({ turns: 1, input_tokens: 10 });
     writeBatch(db, batch([prompt(0, '作り直した依頼')], true), { deviceId: DEV });
     expect(all('select seq, kind from event_index where session_id = ? order by seq', first.sessionId).map((x) => `${x.seq}:${x.kind}`)).toEqual(['0:user']);
-    expect(all('select text from event_fts where session_id = ?', first.sessionId).map((x) => x.text)).toEqual(['作り直した依頼']);
+    expect(all('select text from event_fts where session_id = ?', first.sessionId).map((x) => stripFtsTail(String(x.text)))).toEqual(['作り直した依頼']);
     expect(all('select * from usage_daily where session_id = ?', first.sessionId)).toEqual([]);
     expect(one('select turns, input_tokens from session_stats where session_id = ?', first.sessionId)).toEqual({ turns: 1, input_tokens: 0 });
   });

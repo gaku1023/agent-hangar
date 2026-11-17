@@ -10,6 +10,7 @@ import { pinnedProjectOf } from '../sessions/move.ts';
 import { clearOnNewPrompt } from '../sessions/states.ts';
 import { localDay } from '../usage/aggregate.ts';
 import { entrypointKind, nextHeadless } from './headless.ts';
+import { withFtsTail } from '../search/ftsTail.ts';
 import { stmt } from './statements.ts';
 
 // 索引の DB に書く側。どのエージェントの束（agent/types.ts の IndexBatch）も、ここで同じ表に書く。

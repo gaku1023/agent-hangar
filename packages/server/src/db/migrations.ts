@@ -1135,6 +1135,16 @@ alter table session_stats add column headless integer;
 `;
 
 /**
+ * 版 66：event_fts の text の末尾に区切りの文字（search/ftsTail.ts の FTS_TAIL）を足す仕事の、進み具合の印を置く。
+ * 積むときは writeBatch が足す。今ある行は、起動の後に背面で少しずつ足す（search/ftsTailBackfill.ts）。
+ * ここで一度に update すると、実データ（百万行台）で数分かかり、サーバが立たない。
+ * 版 62 から 65 は別の変更が使う。
+ */
+const V66_FTS_TAIL_SQL = `
+insert into settings_local (key, value) values ('fts_tail_backfill_rowid', '0') on conflict(key) do nothing;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -1189,4 +1199,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 63, sql: V63_PEER_RELAY_ENDED_AT_SQL },
   { version: 64, sql: V64_SESSION_HEADLESS_SQL },
   { version: 65, sql: V65_EVENT_PATH_REF_SQL },
+  { version: 66, sql: V66_FTS_TAIL_SQL },
 ];
