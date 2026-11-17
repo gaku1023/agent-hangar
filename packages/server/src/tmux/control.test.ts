@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { afterAll, describe, expect, it } from 'vitest';
 import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
-import { ControlStream, controlSpawn, initialPaint, sendKeysCommands, unescapeOutput } from './control.ts';
+import { ControlStream, MODE_FORMAT, controlSpawn, initialPaint, modeSequences, sendKeysCommands, unescapeOutput } from './control.ts';
 import { Tmux } from './tmux.ts';
 
 describe('unescapeOutput', () => {
@@ -64,6 +64,21 @@ describe('initialPaint', () => {
   it('中のアプリが別画面を使っているときは、履歴を描いてから別画面に入る', () => {
     const s = initialPaint({ history: ['h1'], screen: ['vim'], cursorX: 0, cursorY: 0, alternate: true });
     expect(s).toBe('\x1b[H\x1b[2J\x1b[3Jh1\r\n\x1b[?1049h\x1b[H\x1b[2Jvim\x1b[1;1H');
+  });
+});
+
+describe('modeSequences', () => {
+  it('旗が 1 ならモードを入れ、0 なら切り、空（旗を知らない tmux）なら触らない', () => {
+    const n = MODE_FORMAT.split(' ').length;
+    const v = Array<string>(n).fill('');
+    v[0] = '1'; // keypad_cursor_flag
+    v[3] = '0'; // wrap_flag
+    v[8] = '1'; // mouse_any_flag
+    v[11] = '1'; // bracket_paste_flag
+    expect(modeSequences(v)).toBe('\x1b[?1h\x1b[?7l\x1b[?1003h\x1b[?2004h');
+  });
+  it('initialPaint は画面の後、カーソルの位置の前に modes を置く', () => {
+    expect(initialPaint({ history: [], screen: ['a'], cursorX: 0, cursorY: 0, alternate: false, modes: 'M' })).toBe('\x1b[H\x1b[2J\x1b[3JaM\x1b[1;1H');
   });
 });
 
@@ -150,5 +165,27 @@ describe.skipIf(!TMUX)('controlSpawn（実物の tmux）', () => {
     await waitFor(() => exited);
     // 切ったのは attach だけで、シェルは残る
     expect(tmux.run('has-session', '-t', `=${name}`).code).toBe(0);
+  });
+
+  it('つないだ時点のモード（貼り付けの括り、マウス、矢印のアプリケーションモード）を xterm に戻す', async () => {
+    const name = 'hangar-ctl-t2';
+    tmux.run('new-session', '-d', '-s', name, '-x', '80', '-y', '10', 'sh');
+    tmux.run('send-keys', '-t', `=${name}:`, `printf '\\033[?2004h\\033[?1003h\\033[?1006h\\033[?1h\\033[?25l'; echo ready`, 'Enter');
+    // 画面には打ったコマンドの 'ready' も出るので、文字ではなく旗が揃うのを待つ（遅い環境では printf が走る前に通ってしまう）
+    // bracket_paste_flag は tmux 3.4 の書式に無く（空で返る）、その版では戻せない。ある版だけ見る。
+    const hasPaste = tmux.run('display-message', '-p', '-t', `=${name}:`, '#{bracket_paste_flag}').stdout.trim() !== '';
+    const readFlags = () => tmux.run('display-message', '-p', '-t', `=${name}:`, '#{mouse_any_flag}#{mouse_sgr_flag}#{keypad_cursor_flag}#{cursor_flag}').stdout.trim();
+    await waitFor(() => readFlags() === '1110');
+    if (hasPaste) await waitFor(() => tmux.run('display-message', '-p', '-t', `=${name}:`, '#{bracket_paste_flag}').stdout.trim() === '1');
+
+    const p = controlSpawn(tmux, name);
+    let got = '';
+    p.onData((d) => { got += d; });
+    p.resize(80, 10);
+    await waitFor(() => got.includes('ready'));
+    await waitFor(() => got.includes('\x1b[?1003h'));
+    for (const seq of ['\x1b[?1003h', '\x1b[?1006h', '\x1b[?1h', '\x1b[?25l']) expect(got).toContain(seq);
+    if (hasPaste) { expect(got).toContain('\x1b[?2004h'); expect(got).not.toContain('\x1b[?2004l'); }
+    p.kill();
   });
 });

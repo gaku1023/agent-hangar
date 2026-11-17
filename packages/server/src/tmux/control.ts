@@ -89,15 +89,47 @@ export function sendKeysCommands(pane: string, bytes: Buffer): string[] {
 }
 
 /**
+ * ペインのモードの旗。display-message の書式（modeFormat）と同じ順で、値は 0 か 1 である。
+ * iTerm2 の tmux 連携がつなぎ直しで戻す旗に倣う。
+ */
+const MODE_FLAGS = [
+  ['keypad_cursor_flag', '\x1b[?1h', '\x1b[?1l'],
+  ['keypad_flag', '\x1b=', '\x1b>'],
+  ['insert_flag', '\x1b[4h', '\x1b[4l'],
+  ['wrap_flag', '\x1b[?7h', '\x1b[?7l'],
+  ['origin_flag', '\x1b[?6h', '\x1b[?6l'],
+  ['cursor_flag', '\x1b[?25h', '\x1b[?25l'],
+  ['mouse_standard_flag', '\x1b[?1000h', '\x1b[?1000l'],
+  ['mouse_button_flag', '\x1b[?1002h', '\x1b[?1002l'],
+  ['mouse_any_flag', '\x1b[?1003h', '\x1b[?1003l'],
+  ['mouse_utf8_flag', '\x1b[?1005h', '\x1b[?1005l'],
+  ['mouse_sgr_flag', '\x1b[?1006h', '\x1b[?1006l'],
+  ['bracket_paste_flag', '\x1b[?2004h', '\x1b[?2004l'],
+] as const;
+/** display-message の書式の中の、モードの旗の並び。 */
+export const MODE_FORMAT = MODE_FLAGS.map(([n]) => `#{${n}}`).join(' ');
+/** 旗の値（MODE_FORMAT の順）から、xterm のモードを戻す列。旗を知らない tmux は空を返すので、その旗は触らない。 */
+export function modeSequences(values: string[]): string {
+  let s = '';
+  MODE_FLAGS.forEach(([, on, off], i) => {
+    const v = values[i];
+    if (v === '1') s += on;
+    else if (v === '0') s += off;
+  });
+  return s;
+}
+
+/**
  * つないだ時点の様子を xterm に描く列。
  * 先に xterm の履歴ごと消す。つなぎ直したときに同じ xterm へもう一度描くので、消さないと履歴が重なる。
  * 中のアプリが別画面（vim や less）を使っていれば、履歴を描いてから別画面に入る。抜けたときに履歴が戻る。
  */
-export function initialPaint(o: { history: string[]; screen: string[]; cursorX: number; cursorY: number; alternate: boolean }): string {
+export function initialPaint(o: { history: string[]; screen: string[]; cursorX: number; cursorY: number; alternate: boolean; modes?: string }): string {
   let s = '\x1b[H\x1b[2J\x1b[3J';
   if (o.history.length) s += o.history.join('\r\n') + '\r\n';
   if (o.alternate) s += '\x1b[?1049h\x1b[H\x1b[2J';
   s += o.screen.join('\r\n');
+  s += o.modes ?? '';
   s += `\x1b[${o.cursorY + 1};${o.cursorX + 1}H`;
   return s;
 }
@@ -166,9 +198,10 @@ export function controlSpawn(tmux: Tmux, name: string, spawn: Spawn = defaultSpa
       // ここから後の出力は写しに含まれない。カーソルの位置が届くまで溜める。
       phase = 'capture';
     });
-    command(`display-message -p -t ${pane} '#{history_size} #{cursor_x} #{cursor_y} #{alternate_on}'`, (lines) => {
-      const [hs, cx, cy, alt] = (lines[0] ?? '').trim().split(' ').map(Number);
-      onData(initialPaint({ history: hs ? history : [], screen, cursorX: cx || 0, cursorY: cy || 0, alternate: alt === 1 }));
+    command(`display-message -p -t ${pane} '#{history_size} #{cursor_x} #{cursor_y} #{alternate_on} ${MODE_FORMAT}'`, (lines) => {
+      const parts = (lines[0] ?? '').trim().split(' ');
+      const [hs, cx, cy, alt] = parts.slice(0, 4).map(Number);
+      onData(initialPaint({ history: hs ? history : [], screen, cursorX: cx || 0, cursorY: cy || 0, alternate: alt === 1, modes: modeSequences(parts.slice(4)) }));
       phase = 'live';
       for (const b of held.splice(0)) emit(b);
     });
