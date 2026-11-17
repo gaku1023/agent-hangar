@@ -170,9 +170,10 @@ describe.skipIf(!TMUX)('controlSpawn（実物の tmux）', () => {
     const name = 'hangar-ctl-t2';
     tmux.run('new-session', '-d', '-s', name, '-x', '80', '-y', '10', 'sh');
     tmux.run('send-keys', '-t', `=${name}:`, `printf '\\033[?2004h\\033[?1003h\\033[?1006h\\033[?1h\\033[?25l'; echo ready`, 'Enter');
-    await waitFor(() => tmux.capturePane(name).includes('ready'));
-    const flags = tmux.run('display-message', '-p', '-t', `=${name}:`, '#{bracket_paste_flag}#{mouse_any_flag}#{mouse_sgr_flag}#{keypad_cursor_flag}#{cursor_flag}').stdout.trim();
-    expect(flags).toBe('11110');
+    // 画面には打ったコマンドの 'ready' も出るので、文字ではなく旗が揃うのを待つ（遅い環境では printf が走る前に通ってしまう）
+    const readFlags = () => tmux.run('display-message', '-p', '-t', `=${name}:`, '#{bracket_paste_flag}#{mouse_any_flag}#{mouse_sgr_flag}#{keypad_cursor_flag}#{cursor_flag}').stdout.trim();
+    await waitFor(() => readFlags() === '11110');
+    expect(readFlags()).toBe('11110');
 
     const p = controlSpawn(tmux, name);
     let got = '';
