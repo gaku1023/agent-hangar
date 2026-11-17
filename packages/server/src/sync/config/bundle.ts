@@ -93,7 +93,11 @@ export function readTar(tar: Buffer, o: { maxEntries?: number; maxEntryBytes?: n
   return out;
 }
 
-export type ManifestItem = { id: string; kind: ConfigItemKind; sha256: string; size: number; marks: ConfigExecMark[] };
+/**
+ * 目録の項目。base と baseAt は、送り手が競合で手元を採ったときだけ付く（threeWay.ts の冒頭）。
+ * base はそのとき基準に付け替えた相手の指紋、baseAt はその時刻。古い版は知らない欄を捨てる。
+ */
+export type ManifestItem = { id: string; kind: ConfigItemKind; sha256: string; size: number; marks: ConfigExecMark[]; base?: string; baseAt?: number };
 /** 送り手の OS。 */
 export type BundleOs = 'darwin' | 'win32' | 'linux';
 const OS_VALUES: readonly BundleOs[] = ['darwin', 'win32', 'linux'];
@@ -191,7 +195,9 @@ export function unpackBundle(tar: Buffer, o: { maxBlobBytes?: number; maxEntries
     if (blob.length !== it.size) throw new BundleError('目録の大きさと中身が合いません');
     const parsedId = parseItemId(it.id);
     if (!parsedId || parsedId.kind !== it.kind) { skipped++; continue; }
-    items.push({ id: it.id, kind: parsedId.kind, sha256: it.sha256, size: it.size, marks: it.marks ?? [] });
+    // 壊れた base は、項目ごとは断らずにその欄だけ捨てる（古い版の項目として読む）。
+    const base = typeof it.base === 'string' && SHA_RE.test(it.base) && typeof it.baseAt === 'number' && Number.isFinite(it.baseAt) ? { base: it.base, baseAt: it.baseAt } : {};
+    items.push({ id: it.id, kind: parsedId.kind, sha256: it.sha256, size: it.size, marks: it.marks ?? [], ...base });
   }
   // 壊れた targets と os は、束ごとは断らずにその欄だけ捨てる（古い版の束として読む。対象を扱う相手と見なさないので、安全な側に倒れる）。
   const targets = readTargets(m.targets);
