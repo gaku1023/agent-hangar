@@ -31,4 +31,11 @@ describe('ホームの動きの CSS', () => {
     expect(block(base, '.toast-waiting-list')).not.toMatch(/gap:/);
     expect(block(base, '.toasts > .toast, .toast-waiting-list > .toast')).toMatch(/margin-top: calc\(var\(--u\) \* 2\)/);
   });
+  it('統括の柱が開いている間、右下の札は柱の左に出る。柱と同じ --dur と --ease-out で動き、幅のつまみを掴んでいる間は付いて動く', () => {
+    const base = read('./base.css');
+    const open = block(base, ':root:has(.orch[data-open]) .toasts');
+    expect(open).toMatch(/right: calc\(var\(--float-gap\) \+ min\(var\(--orch-w\), 44vw\) \+ var\(--u\) \* 4\)/);
+    expect(block(base, '.toasts')).toMatch(/transition: right var\(--dur\) var\(--ease-out\)/);
+    expect(block(base, ':root:has(.shell[data-orch-drag]) .toasts')).toMatch(/transition: none/);
+  });
 });

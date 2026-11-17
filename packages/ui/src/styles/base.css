@@ -514,7 +514,9 @@ a:where(.btn) { color: inherit; }
    上から error と info のトースト、並べきれない入力待ちの数、入力待ちのカードの順に、右端をそろえて積む。 */
 /* 札の間は gap ではなく、札ごとの上の余白で空ける。出る札は自分の余白ごと畳むので、外れた瞬間に間が跳ばない（ToastStack.tsx）。
    いちばん上の札の上にも余白が付くが、窓の下端に寄せた積みなので見えない。 */
-.toasts { position: fixed; right: calc(var(--u) * 4); bottom: calc(var(--u) * 4); display: flex; flex-direction: column; align-items: flex-end; z-index: 20; max-width: calc(100vw - var(--u) * 8); }
+.toasts { transition: right var(--dur) var(--ease-out); position: fixed; right: calc(var(--u) * 4); bottom: calc(var(--u) * 4); display: flex; flex-direction: column; align-items: flex-end; z-index: 20; max-width: calc(100vw - var(--u) * 8); }
+:root:has(.orch[data-open]) .toasts { right: calc(var(--float-gap) + min(var(--orch-w), 44vw) + var(--u) * 4); }
+:root:has(.shell[data-orch-drag]) .toasts { transition: none; }
 .toasts > .toast, .toast-waiting-list > .toast { margin-top: calc(var(--u) * 2); }
 .toast { max-width: 420px; background: var(--glass-bg-toast); color: var(--ink); padding: calc(var(--u) * 2.5) calc(var(--u) * 3.5); border-radius: var(--r-lg); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: slide var(--dur) var(--ease-out); cursor: pointer; text-align: left; }
 /* 知らせの札。種類の色（--k）を薄く敷いた見出しと、その下の本文の 2 段でできている。

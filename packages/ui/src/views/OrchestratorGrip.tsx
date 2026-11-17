@@ -32,6 +32,7 @@ export function OrchestratorGrip(props: { width: number }) {
     const move = (ev: globalThis.PointerEvent) => {
       w = Math.round(Math.min(cap(), cleanOrchWidth(w0 - (ev.clientX - x0))));
       shell.style.setProperty('--orch-w', orchWidthCss(w));
+      document.documentElement.style.setProperty('--orch-w', orchWidthCss(w));
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
@@ -39,7 +40,7 @@ export function OrchestratorGrip(props: { width: number }) {
       window.removeEventListener('pointercancel', up);
       delete shell.dataset.orchDrag;
       // 動かさずに離したら、書き換えた値を元に戻す。React は style の値が変わらないので書き戻さない。
-      if (w === w0) shell.style.setProperty('--orch-w', orchWidthCss(props.width));
+      if (w === w0) { shell.style.setProperty('--orch-w', orchWidthCss(props.width)); document.documentElement.style.setProperty('--orch-w', orchWidthCss(props.width)); }
       else emit({ type: 'orchestrator.width', width: w });
       endLayoutMotion(shell);
     };
