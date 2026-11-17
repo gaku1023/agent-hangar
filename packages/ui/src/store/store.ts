@@ -102,6 +102,8 @@ export type Store = {
   orchestrator: OrchestratorSlice;
   /** 机の音声の今の状態（GET /api/voice と事象 voice.state）。まだ読めていないか、読めなかったときは null（画面は今のマイクのまま）。 */
   voice: import('@agent-hangar/shared').VoiceStateDto | null;
+  /** 設定の「統括の声」が出す声の一覧（GET /api/voice/voices）。まだ読めていないか、読めなかった（補助が無い）ときは null。 */
+  voiceCatalog: import('@agent-hangar/shared').VoiceCatalog | null;
   schedules: ScheduleDto[];
   /**
    * 予定の画面のイベント。
@@ -238,7 +240,7 @@ export function initialStore(): Store {
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     todos: {}, memos: {}, instructions: {}, artifacts: {}, artifactAddError: null, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
-    cloudUsage: null, sync: null, deleteApprovals: [], peerApprovals: [], peerQueued: {}, peerDelivered: {}, peerChat: {}, orchestrator: emptyOrchestrator(), voice: null, schedules: [], eventTrigger: EMPTY_EVENT_TRIGGER, heldEvents: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
+    cloudUsage: null, sync: null, deleteApprovals: [], peerApprovals: [], peerQueued: {}, peerDelivered: {}, peerChat: {}, orchestrator: emptyOrchestrator(), voice: null, voiceCatalog: null, schedules: [], eventTrigger: EMPTY_EVENT_TRIGGER, heldEvents: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
     readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, peers: null, launchPreps: {}, opencodeProviders: null, desktop: false, canRestoreHistory: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null, sharePreview: {},
     update: initialUpdate(),

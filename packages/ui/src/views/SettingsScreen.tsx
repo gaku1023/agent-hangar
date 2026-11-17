@@ -8,6 +8,7 @@ import type { IntegrationCard, SettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
 import { MuxSection } from './MuxSection.tsx';
 import { EditorSettings } from './EditorSettings.tsx';
+import { VoiceSettings } from './VoiceSettings.tsx';
 import { InjectionSettings } from './InjectionSettings.tsx';
 import { ModelPicker } from './ModelPicker.tsx';
 import { PageHeading } from './PageHeading.tsx';
@@ -548,6 +549,8 @@ export function SettingsScreen(props: SettingsProps) {
             control={<Switch label={t('settings.label.orchestrator')} checked={props.orchestratorOn} onChange={(next) => setNow({ orchestrator: { enabled: next } as OrchestratorSetting })} />} />
         </section>
       )}
+      {/* 統括の声。聞き方と人格（名前・読み・口調・声・速さ）。設定の voice を返さない古いサーバでは出さない。 */}
+      {props.voice !== undefined && <VoiceSettings {...props.voice} mark={props.save.voice} />}
       {retention}
       {/* 互換のずれは利用者が直せるものではないので、todo には数えない（目次の状態も要修正にしない）。 */}
       <CompatSection compat={props.compat} />

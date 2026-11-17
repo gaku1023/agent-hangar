@@ -354,6 +354,8 @@ export type UiAction =
   | { type: 'settings.update'; patch: Partial<Settings>; field?: string }
   // エディタの欄。load は候補の一覧を読み直す（一般の節を開いたときと「再確認」）。test は見本のファイルを 3 行目で開く。
   | { type: 'editors.load' } | { type: 'editor.test' }
+  // 設定の「統括の声」。catalog.load は声の一覧（出どころごとの話者）を読み直す。preview は人格の声と速さで試し聞きを鳴らす。engine は VOICEVOX か AivisSpeech のアプリを起こす。
+  | { type: 'voice.catalog.load' } | { type: 'voice.preview'; voice: string; speed: number } | { type: 'voice.engine'; source: 'voicevox' | 'aivis' }
   // 準備の確かめ（設定画面の検証と、ホームの帯の始める前の確認）を取り直す。
   | { type: 'readiness.check' }
   // psmux（Windows）と tmux の再確認。サーバが探し直し、見つかれば設定の tmuxPath を埋める。

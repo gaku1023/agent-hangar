@@ -10538,6 +10538,14 @@ Mac では、聞き取り・区切り・読み上げを端末の中の補助 `ha
   - `POST /api/voice/preview { voice, speed, text? }` は、人格の声ではなく渡された声と速さで 1 度鳴らす（補助へ `speak`、id は `preview-<連番>`）。`text` が無ければ、使っている人格の名前を入れた決まった一文（`orchestratorPane.preview.sample`）。`voice` は声の id の形、`speed` は 0.5〜2、`text` は空でない 200 字まで、合わなければ 400。
   - `POST /api/voice/engine { source: 'voicevox' | 'aivis' }` は `open -a VOICEVOX` か `open -a AivisSpeech` を子プロセスで起こす（シェルを通さない）。`source` が合わなければ 400、macOS 以外は 409、開けなければ 502。
   統括の指示文では、人格の文を権限と安全の決まりの後ろに置き、口調と名前だけの希望で決まりは変えないと枠付けする。
+- 設定の「統括の声」（`views/VoiceSettings.tsx`、エージェント別の節の Claude Code の統括の入り切りの下）。設定が `voice` を返すときだけ出す。
+  - 聞き方（`off`＝押している間だけ、`toggle`＝押して切り替え、`always`＝常に聞く）の切り替えと、人格の行、「+ 足す」だけを置く。見出しの下に補助のラベルや説明は足さない。`always` のときだけ、切り替えの左に「ねえ、<読み>」が伸びて出る（読みが空なら出さない）。
+  - 人格の行は、丸（使う人格を選ぶ）、名前、一言（`Kokoro jf_alpha` のように、VOICEVOX と AivisSpeech は `voiceLabel`、Mac の声は名前）、後ろに ` · 1.2` の速さ。行を押すと選んで開き、開くのは 1 つだけ。開閉は `FoldBox`、足した行は `growIn`、消す行は `collapseOut`。
+  - 中身は名前、読み、口調、声、速さ、試し聞き、消す。人格は 8 人まで。最後の 1 人は消せない。使っている人格を消すと前の人格（先頭なら次）が選ばれる。
+  - 声の欄は、出どころ（Kokoro、VOICEVOX、AivisSpeech、この Mac）の切り替えと、話者の選択、スタイルが 2 つ以上のときだけスタイルの選択。止まっている出どころ（`running:false`）は薄く、押せる。選ぶと話者の代わりに「<アプリ名> を開く」のボタンを出し、押すと `POST /api/voice/engine` を呼んで、1 秒おきに最大 10 回 `GET /api/voice/voices` を読み直す。動き出したら話者の欄に戻して先頭の声に替える。選んだ声と同時に `voiceLabel` を書く。
+  - 試し聞きは `POST /api/voice/preview`（その人格の声と速さ）。`speakingId` が `preview-` で始まる間、ボタンの中の棒が動く。
+  - 補助が使えない環境（`VoiceStateDto.available` が偽、Windows）では、声の欄と試し聞きを出さず、聞き方と名前・読み・口調・速さだけにする。声の一覧も読まない。
+  - 保存は設定の PATCH で `voice` の全体を送る（field は `voice`）。名前・読み・口調は欄を出たとき（blur）か 600ms の間のあとに保存し、速さは動かして 600ms のあとに保存する。shared の人格の決まり（`isVoicePatch`）に合わない値（空の名前、ひらがなでない読み、長い口調）は保存せず、欄には打った値を残す。保存の失敗は節の下に理由を出す。
 
 ## 決めた前提と未決事項
 

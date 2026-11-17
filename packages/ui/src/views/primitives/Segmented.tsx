@@ -1,7 +1,8 @@
 import { type KeyboardEvent, type ReactNode } from 'react';
 import { useThumb } from './useThumb.ts';
 
-export type SegmentedOption = { value: string; label: string; lead?: ReactNode };
+/** dim は薄く見せるだけで、押せる（声の出どころで、止まっているエンジン）。 */
+export type SegmentedOption = { value: string; label: string; lead?: ReactNode; dim?: boolean };
 
 /**
  * 切り替えの帯。選んだ項目の下に白い玉を置き、選び直すと玉が滑る。
@@ -29,7 +30,7 @@ export function Segmented(props: { label: string; value: string; options: Segmen
     <span ref={box} className={`seg seg-${props.size ?? 'sm'}`} role="radiogroup" aria-label={props.label} data-ready={ready ? 'true' : undefined} aria-disabled={props.disabled ? 'true' : undefined} onKeyDown={onKey}>
       <span ref={thumb} className="seg-thumb" aria-hidden="true" />
       {props.options.map((o, i) => (
-        <button key={o.value} type="button" role="radio" aria-checked={i === checked} tabIndex={i === Math.max(checked, 0) ? 0 : -1} disabled={props.disabled} onClick={() => pick(o.value)}>
+        <button key={o.value} type="button" role="radio" aria-checked={i === checked} data-dim={o.dim ? 'true' : undefined} tabIndex={i === Math.max(checked, 0) ? 0 : -1} disabled={props.disabled} onClick={() => pick(o.value)}>
           {o.lead && <span className="seg-lead" aria-hidden="true">{o.lead}</span>}
           <span className="seg-label">{o.label}</span>
         </button>
