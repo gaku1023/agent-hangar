@@ -76,6 +76,10 @@ export async function sendToSessionTool(deps: ToolDeps, ctx: ToolContext, args: 
   if (spawn) return remoteControlTool(deps, ctx, 'send', spawn, text);
   const name = paneOf(deps, id);
   if (!deps.runs.sendInput) throw new ToolError(msg('mcp.screen.noPanes'));
+  // 許可か質問の札が出ている会話に貼ると、文が札の自由入力の欄に入って確定し、札の問いに答えてしまう。
+  // 札には answer_ask で答えさせる（hangar が画面の札を確かめてから選ぶ）。
+  const target = getSession(deps.db, deps.live(), id, { deviceId: deps.deviceId });
+  if (target?.live === 'waiting' && (target.waitingFor === 'permission' || target.waitingFor === 'question')) throw new ToolError(msg('mcp.sendToSession.askOpen'));
   // 届ける前に残す。届いた直後に待ち始めた wait_for_session が、前のターンの idle を終わりと読まないためである。
   if (submit) noteTurnStart(deps.db, id, { at: Date.now() });
   // 統括が送った会話は、その終わりを統括へ出来事として伝える（orchestrator/involved.ts）。

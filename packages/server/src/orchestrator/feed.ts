@@ -72,6 +72,14 @@ export type OrchestratorFeedDeps = {
   contextTokens(orchestratorId: string): number | null;
   /** 猶予が明けたのに、その会話がまだ許可を待っている。通知の側が出す。 */
   onGraceEnd?(sessionId: string): void;
+  /**
+   * 質問を待つ会話の、いま画面に出ている札の id（peer chat の askId）。読めなければ null。
+   * 問いが複数ある質問は、答えるたびに次のタブが別の id の札になる。一覧の状態は waiting/question のまま変わらないので、これで見分ける。
+   * 画面を取り込むので、質問を待つ会話があるときだけ呼ぶ。
+   */
+  askId?(sessionId: string): string | null;
+  /** 質問を待つ会話の札を見直す間隔。 */
+  questionPollMs?: number;
   urgentMs?: number;
   normalMs?: number;
   maxItems?: number;
@@ -82,7 +90,7 @@ export type OrchestratorFeedDeps = {
   compactIdleMs?: number;
 };
 
-type Seen = { status: LiveStatus; waitingFor: WaitKind | null; tool: string | null; title: string };
+type Seen = { status: LiveStatus; waitingFor: WaitKind | null; tool: string | null; title: string; askId: string | null };
 type Item = { key: string; kind: FeedEventKind; sessionId: string; title: string; tool: string | null; at: number };
 
 /** 題名は 1 行にし、長ければ切る（会話の題名は他人の文を含みうるので、文の形を崩させない）。 */
@@ -120,6 +128,8 @@ export class OrchestratorFeed {
   private compactTimer: ReturnType<typeof setTimeout> | null = null;
   private compacted = false;
   private stopped = false;
+  /** 質問を待つ会話がある間、札の id を見直す周期。 */
+  private questionWatch: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly deps: OrchestratorFeedDeps) {}
 
@@ -139,7 +149,8 @@ export class OrchestratorFeed {
    */
   held(sessionId: string): boolean {
     if (this.stopped) return false;
-    this.observe();
+    // 通知の見張りは短い周期で呼ぶので、ここでは画面を取り込まない（質問の札の id は前の値を使う）。
+    this.observe(false);
     const g = this.grace.get(sessionId);
     return g !== undefined && this.now() < g.until;
   }
@@ -154,6 +165,8 @@ export class OrchestratorFeed {
     if (this.timer) clearTimeout(this.timer);
     if (this.poll) clearInterval(this.poll);
     if (this.compactTimer) clearTimeout(this.compactTimer);
+    if (this.questionWatch) clearInterval(this.questionWatch);
+    this.questionWatch = null;
     for (const g of this.grace.values()) clearTimeout(g.timer);
     this.grace.clear();
     this.items = [];
@@ -165,8 +178,11 @@ export class OrchestratorFeed {
     return o.enabled ? o.sessionId : null;
   }
 
-  /** 今の一覧を読み、前と比べて出来事と猶予を作る。 */
-  private observe(): void {
+  /**
+   * 今の一覧を読み、前と比べて出来事と猶予を作る。
+   * readAsks が偽なら、質問の札の id を読み直さず、前に見た値を使う。
+   */
+  private observe(readAsks = true): void {
     const o = this.deps.orchestrator();
     const self = this.self();
     const now = this.now();
@@ -178,9 +194,12 @@ export class OrchestratorFeed {
       if (!r) continue;
       // 統括自身の会話は、有効でなくても出来事にしない。
       if (r.id === o.sessionId) { selfStatus = l.status; continue; }
-      seen.set(r.id, { status: l.status, waitingFor: l.status === 'waiting' ? l.waitingFor ?? null : null, tool: l.permission?.tool ?? null, title: r.title });
+      const waitingFor = l.status === 'waiting' ? l.waitingFor ?? null : null;
+      seen.set(r.id, { status: l.status, waitingFor, tool: l.permission?.tool ?? null, title: r.title, askId: waitingFor === 'question' ? this.askIdOf(r.id, readAsks && self !== null) : null });
     }
     this.seen = seen;
+    // 統括が無効なら、画面は取り込まない。
+    this.watchQuestions(self !== null && [...seen.values()].some((s) => s.waitingFor === 'question'));
     this.selfStatus = selfStatus;
     if (selfStatus !== 'idle') this.idleSince = null;
     else this.idleSince ??= now;
@@ -203,8 +222,12 @@ export class OrchestratorFeed {
     for (const [id, cur] of seen) {
       const p = prev.get(id);
       const kind = askKind(cur.waitingFor);
-      if (kind && !(p && p.waitingFor === cur.waitingFor)) {
-        this.add({ key: `ask:${id}`, kind, sessionId: id, title: cur.title, tool: kind === 'ask.permission' ? cur.tool : null, at: now });
+      // 待ちに入ったときと、質問の待ちのまま札が替わったとき（問いが複数ある質問の次のタブ）に出す。
+      if (kind && !(p && p.waitingFor === cur.waitingFor && p.askId === cur.askId)) {
+        const key = `ask:${id}:${cur.askId ?? ''}`;
+        // 同じ会話の、まだ渡していない前の札の出来事は捨てる（その札はもう出ていない）。
+        this.items = this.items.filter((x) => !(isAsk(x.kind) && x.sessionId === id && x.key !== key));
+        this.add({ key, kind, sessionId: id, title: cur.title, tool: kind === 'ask.permission' ? cur.tool : null, at: now });
         if (kind === 'ask.permission' && selfStatus === 'idle') this.startGrace(id, now);
       }
       if (p?.status === 'busy' && cur.status === 'idle' && this.involved(self, id)) {
@@ -215,6 +238,30 @@ export class OrchestratorFeed {
       if (seen.has(id) || !this.involved(self, id)) continue;
       this.add({ key: `ended:${id}`, kind: 'session.ended', sessionId: id, title: p.title, tool: null, at: now });
     }
+  }
+
+  /**
+   * 質問を待つ会話の札の id。
+   * 読めなかった（画面の取り込みの失敗）ときと、読まないときは、前に見た値を使う（取り込みの揺れで出来事を作らない）。
+   */
+  private askIdOf(id: string, read: boolean): string | null {
+    const before = this.seen.get(id)?.askId ?? null;
+    if (!read || !this.deps.askId) return before;
+    let v: string | null = null;
+    try { v = this.deps.askId(id); } catch { v = null; }
+    return v ?? before;
+  }
+
+  /** 質問を待つ会話がある間だけ、札の id を周期で見直す（タブが進んでも一覧は変わらないため）。 */
+  private watchQuestions(on: boolean): void {
+    if (on && this.deps.askId && !this.stopped) {
+      if (this.questionWatch) return;
+      this.questionWatch = setInterval(() => { if (!this.stopped) { this.observe(); this.kick(); } }, this.deps.questionPollMs ?? FEED_POLL_MS);
+      this.questionWatch.unref?.();
+      return;
+    }
+    if (this.questionWatch) clearInterval(this.questionWatch);
+    this.questionWatch = null;
   }
 
   private involved(self: string, id: string): boolean {

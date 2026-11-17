@@ -47,6 +47,7 @@ export const mcpKeys = {
   'mcp.sendToSession.textRequired': [],
   'mcp.sendToSession.textTooLong': ['max'],
   'mcp.sendToSession.failed': ['reason'],
+  'mcp.sendToSession.askOpen': [],
   'mcp.sendToSession.failedWindows': ['reason'],
   'mcp.error.sessionNotFound': ['id'],
   'mcp.error.projectNotFound': ['id'],

@@ -401,11 +401,11 @@ describe('answerAsk: 質問の札', () => {
     expect(t.pane.events.filter((e) => e === 'key:enter')).toHaveLength(2);
   });
 
-  it('1 回の呼び出しに質問が複数ある札は、打たずに断る', async () => {
-    const t = setup(qScreen(false));
+  it('1 回の呼び出しに質問が複数ある札の、複数選択のタブは、打たずに断る（1 問ずつの答え方は answer.many.test.ts）', async () => {
+    const t = setup(qScreen(true));
     const orig = t.pane.capture.bind(t.pane);
     t.pane.capture = () => orig().replace(' ☐ Choice', '← ☐ Choice ☐ Size ✔ Submit →');
-    expect(await t.answerAsk('r1', qAsk(false), ['o1'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(await t.answerAsk('r1', qAsk(true), ['o1'])).toEqual({ ok: false, reason: 'ask-mismatch' });
     expect(t.pane.events).toEqual([]);
   });
 

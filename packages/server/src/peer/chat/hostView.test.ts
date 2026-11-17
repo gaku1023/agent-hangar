@@ -5,7 +5,9 @@ import { EDIT_NARROW_SPACES, EDIT_OUTSIDE, EDIT_RELATIVE, EDIT_SUBDIR, NOTEBOOK_
 import { readPermissionHook } from '../../provider/claude-code/hooks/permission.ts';
 import { ChatView, pendingAskFrom, UNANSWERABLE_RECHECK_MS } from './hostView.ts';
 import type { HostSession } from './hostTypes.ts';
-import { currentPendingAsk } from './tail.ts';
+import { currentPendingAsk, peerAskId } from './tail.ts';
+import { createHash } from 'node:crypto';
+import { MANY_Q1, MANY_Q2, MANY_SUBMIT, MANY_TAB1, MANY_TAB2, SHORT_QUESTION_MAC } from './questionDialogs.fixtures.ts';
 
 const session = (over: Partial<HostSession> = {}): HostSession => ({ provider: 'claude-code', live: 'waiting', aside: false, waitingFor: 'permission', permission: null, activity: null, cwd: '/p', lock: false, newerElsewhere: false, remoteOnly: false, takenOver: false, ...over });
 const RULE = '╌'.repeat(44);
@@ -52,6 +54,46 @@ describe('pendingAskFrom', () => {
     const a = pendingAskFrom(session({ waitingFor: 'question', activity: { tool: 'AskUserQuestion', summary: '', question: 'Which one?' } }), screen)!;
     expect(a).toMatchObject({ kind: 'question', tool: 'AskUserQuestion', input: 'Which one?', multi: false, allowText: true });
     expect(a.options.map((o) => o.label)).toEqual(['Alpha', 'Beta']);
+  });
+});
+
+describe('pendingAskFrom: 問いが複数ある札', () => {
+  // 登録の問い（hook と本文）は、いつも 1 問目の文である。
+  const asking = session({ waitingFor: 'question', activity: { tool: 'AskUserQuestion', summary: '', question: MANY_Q1 } });
+
+  it('1 タブ目は 1 問目の文と 1/2 で、答えられる', () => {
+    const a = pendingAskFrom(asking, MANY_TAB1)!;
+    expect(a).toMatchObject({ kind: 'question', input: MANY_Q1, question: MANY_Q1, step: { index: 1, total: 2 }, allowText: true });
+    expect(a.answerable).toBeUndefined();
+    expect(a.options.map((o) => o.label)).toEqual(['使う', '使わない']);
+  });
+
+  it('2 タブ目は、登録の問いが 1 問目のままでも、画面の 2 問目の文と 2/2 にする', () => {
+    const a = pendingAskFrom(asking, MANY_TAB2)!;
+    expect(a).toMatchObject({ input: MANY_Q2, question: MANY_Q2, step: { index: 2, total: 2 } });
+    expect(a.answerable).toBeUndefined();
+    expect(a.options.map((o) => o.label)).toEqual(['今夜まとめて', '少しずつ']);
+  });
+
+  it('最後の確認のタブは、submit の印を付けた札にする（自動では押さない）', () => {
+    const a = pendingAskFrom(asking, MANY_SUBMIT)!;
+    expect(a).toMatchObject({ input: 'Ready to submit your answers?', step: { index: 2, total: 2, submit: true }, allowText: false });
+    expect(a.answerable).toBeUndefined();
+    expect(a.options.map((o) => o.label)).toEqual(['Submit answers', 'Cancel']);
+  });
+
+  it('askId はタブが進むと変わる', () => {
+    const ids = [MANY_TAB1, MANY_TAB2, MANY_SUBMIT].map((s) => peerAskId(pendingAskFrom(asking, s)!, 'toolu_1'));
+    expect(new Set(ids).size).toBe(3);
+    // 同じタブなら同じ。
+    expect(peerAskId(pendingAskFrom(asking, MANY_TAB2)!, 'toolu_1')).toBe(ids[1]);
+  });
+
+  it('問いが 1 つの札は step を付けず、askId も今までと同じ形', () => {
+    const one = session({ waitingFor: 'question', activity: { tool: 'AskUserQuestion', summary: '', question: 'どちらにしますか' } });
+    const a = pendingAskFrom(one, SHORT_QUESTION_MAC)!;
+    expect(a.step).toBeUndefined();
+    expect(peerAskId(a, 'toolu_1')).toBe(createHash('sha256').update(JSON.stringify(['question', 'toolu_1', 'AskUserQuestion', 'どちらにしますか'])).digest('hex').slice(0, 24));
   });
 });
 

@@ -1,5 +1,5 @@
-import { PEER_CHAT_REPLY_SEALED_MAX, peerAskBase, peerAskInsertIndex, type PeerChatAsk, type PeerChatDevice, type PeerChatGone, type PeerChatItem, type PeerChatQueued, type PeerChatState, type PeerChatStatus } from '@agent-hangar/shared';
-import { dialogMatches, isCommandTitle, parseDialog, type Dialog } from './answer.ts';
+import { PEER_CHAT_REPLY_SEALED_MAX, peerAskBase, peerAskInsertIndex, type PeerChatAsk, type PeerChatAskStep, type PeerChatDevice, type PeerChatGone, type PeerChatItem, type PeerChatQueued, type PeerChatState, type PeerChatStatus } from '@agent-hangar/shared';
+import { dialogMatches, isCommandTitle, parseDialog, strip, type Dialog, type DialogStep } from './answer.ts';
 import type { HostPane, HostSession } from './hostTypes.ts';
 import { currentPendingAsk, peerAskId, transcriptPosition, transcriptTail, type PeerPendingAsk, type TailDeps } from './tail.ts';
 
@@ -100,7 +100,14 @@ export function pendingAskFrom(session: HostSession, screen: string): PeerPendin
   const options = rows.filter((o) => !OTHER_ROW.test(o.first)).map((o) => ({ key: String(o.n), label: o.first }));
   const allowText = rows.some((o) => OTHER_ROW.test(o.first));
   if (d.kind === 'question') {
-    const q = session.activity?.question || d.question;
+    const first = session.activity?.question || null;
+    if (d.step) {
+      // 問いが複数ある札は、1 問ずつ札にする。登録の問い（hook と本文）はいつも 1 問目なので、画面の今のタブの問いを使う。
+      const q = d.question || first || '';
+      const asked: PeerPendingAsk = { kind: 'question', tool: 'AskUserQuestion', input: q, question: q, options, multi: d.multi, allowText, step: tabOf(d.step, q, first) };
+      return markUnanswerable(asked, d, session.cwd);
+    }
+    const q = first || d.question;
     const asked: PeerPendingAsk = { kind: 'question', tool: 'AskUserQuestion', input: q, question: q, options, multi: d.multi, allowText };
     return markUnanswerable(asked, d, session.cwd);
   }
@@ -116,6 +123,18 @@ export function pendingAskFrom(session: HostSession, screen: string): PeerPendin
 }
 
 /**
+ * 画面の今のタブを、見せる step（1 始まり）にする。
+ * 確認のタブは index を total にして submit を付ける。
+ * 画面の問いが登録の 1 問目の文と同じなら 1（答えた問いへ戻ったときも合う）。
+ * ほかは頭の行の最初の ☐ で、それも無ければ最後の問いと見なす。
+ */
+function tabOf(step: DialogStep, question: string, first: string | null): PeerChatAskStep {
+  if (step.submit) return { index: step.total, total: step.total, submit: true };
+  if (first !== null && strip(first) === strip(question)) return { index: 1, total: step.total };
+  return { index: step.index ?? step.total, total: step.total };
+}
+
+/**
  * この PC が答えられない札には answerable: false を付ける。
  * 判定は答えるとき（answer.ts の answerAsk）が使う dialogMatches そのものである。
  * 規則を二重に持たないので、見る側の釦と、答えたときの ask-mismatch が食い違わない。
@@ -125,6 +144,7 @@ function markUnanswerable(pending: PeerPendingAsk, d: Dialog, cwd: string): Peer
   const probe: PeerChatAsk = { askId: '', kind: pending.kind, options: pending.options, multi: pending.multi, allowText: pending.allowText };
   if (pending.tool !== undefined) probe.tool = pending.tool;
   if (pending.input !== undefined) probe.input = pending.input;
+  if (pending.step !== undefined) probe.step = pending.step;
   return dialogMatches(probe, d, cwd || null) ? pending : { ...pending, answerable: false };
 }
 
@@ -174,7 +194,8 @@ export class ChatView {
     // 取り込みの覚えは、登録の状態が変わるか、poke（実行中の一覧の変化、預かりの変化、答え）が消すまで使い続ける。
     // 答えられないと印を付けた結果は、描き途中の画面（hook が先に届いた）の読み違いかもしれない。
     // 覚えを使い続けず、同じ札について UNANSWERABLE_RECHECK_MS に 1 回だけ取り直す（見る人数ぶん capture が増えないように）。
-    const stale = hit?.ask?.answerable === false && t - hit.at >= UNANSWERABLE_RECHECK_MS;
+    // 問いが複数ある札も、同じ間隔で取り直す。手元でタブを進めても、登録の状態は変わらないからである。
+    const stale = (hit?.ask?.answerable === false || hit?.ask?.step !== undefined) && t - hit.at >= UNANSWERABLE_RECHECK_MS;
     if (!fresh && hit && hit.sig === sig && !stale) return hit.ask;
     const run = this.d.run(sessionId);
     const pane = run ? this.d.pane(run.tmuxName) : null;

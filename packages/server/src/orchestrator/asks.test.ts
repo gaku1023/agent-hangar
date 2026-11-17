@@ -88,6 +88,18 @@ describe('list_pending_asks', () => {
     w.policy = { text: '全部聞いて', autoTools: [], updatedAt: 1 };
     expect(svc().list('orch').policy).toEqual({ text: '全部聞いて', auto_tools: [] });
   });
+  it('問いが複数ある質問は、今のタブの問いを input にし、step（1 始まり）を載せる。問いが 1 つの札は step を載せない', () => {
+    w.live = [waiting('u-s1', { waitingFor: 'question' })];
+    const q = (askId: string, input: string, step?: PeerChatAsk['step']): PeerChatAsk => ({ askId, kind: 'question', tool: 'AskUserQuestion', input, options: [{ key: '1', label: 'A' }], multi: false, allowText: true, ...(step ? { step } : {}) });
+    w.asks.set('s1', q('peer-tab2', 'どう進めますか', { index: 2, total: 2 }));
+    expect(askOf('s1')).toMatchObject({ kind: 'question', input: 'どう進めますか', step: { index: 2, total: 2 }, answerable: true });
+    const tab2 = askOf('s1').ask_id;
+    w.asks.set('s1', q('peer-submit', 'Ready to submit your answers?', { index: 2, total: 2, submit: true }));
+    expect(askOf('s1')).toMatchObject({ step: { index: 2, total: 2, submit: true } });
+    expect(askOf('s1').ask_id).not.toBe(tab2);
+    w.asks.set('s1', q('peer-one', 'どちらにしますか'));
+    expect(askOf('s1')).not.toHaveProperty('step');
+  });
   it('ask_id は会話ごとに違い、同じ札なら何度引いても同じ', () => {
     w.asks.set('s1', permAsk('same', 'Read', '/w/a.txt'));
     w.asks.set('orch', permAsk('same', 'Read', '/w/a.txt'));

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { permissionAutoToolsOf, type LiveSessionDto, type PermissionPolicy } from '@agent-hangar/shared';
+import { permissionAutoToolsOf, type LiveSessionDto, type PeerChatAskStep, type PermissionPolicy } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { displayName } from '../db/queries.ts';
 import type { PeerChatLocal } from '../peer/chat/host.ts';
@@ -43,6 +43,12 @@ export type PendingAsk = {
   options: { key: string; label: string }[];
   answerable: boolean;
   since: number | null;
+  /**
+   * 1 回の呼び出しに問いが複数ある質問の、今のタブ（index は 1 始まり）。
+   * 問いは 1 つずつ載り、答えると次の問いが別の ask_id で載る。submit は最後の確認のタブ。
+   * 問いが 1 つの札には付けない。
+   */
+  step?: PeerChatAskStep;
 };
 
 export type AnswerAskArgs = {
@@ -110,6 +116,7 @@ export function createOrchestratorAsks(deps: OrchestratorAsksDeps): Orchestrator
         out.push({
           ...base, ask_id: hash(['claude-code', row.id, ask.askId]), peerAskId: ask.askId, kind: ask.kind,
           tool: ask.tool ?? l.permission?.tool ?? null, input: ask.input ?? null, options: ask.options.map((o) => ({ key: o.key, label: o.label })), answerable: ask.answerable !== false,
+          ...(ask.step ? { step: { ...ask.step } } : {}),
         });
         continue;
       }

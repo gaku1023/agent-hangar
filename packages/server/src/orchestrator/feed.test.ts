@@ -18,6 +18,9 @@ type World = {
   involved: Set<string>;
   tokens: number | null;
   graceEnded: string[];
+  /** 会話ごとの、いま画面に出ている札の id（問いが複数ある質問はタブごとに変わる）。 */
+  askIds: Map<string, string>;
+  askReads: number;
   fed: number;
 };
 
@@ -45,7 +48,7 @@ async function tick(ms: number): Promise<void> {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(1_000_000);
-  w = { live: new Map(), enabled: true, inputEmpty: true, delivered: [], involved: new Set(), tokens: 10_000, graceEnded: [], fed: 0 };
+  w = { live: new Map(), enabled: true, inputEmpty: true, delivered: [], involved: new Set(), tokens: 10_000, graceEnded: [], fed: 0, askIds: new Map(), askReads: 0 };
   feed = new OrchestratorFeed({
     orchestrator: () => ({ enabled: w.enabled, sessionId: 'orch' }),
     live: () => [...w.live.values()],
@@ -67,6 +70,7 @@ beforeEach(() => {
     onFed: () => { w.fed++; },
     contextTokens: () => w.tokens,
     onGraceEnd: (id) => { w.graceEnded.push(id); },
+    askId: (id) => { w.askReads++; return w.askIds.get(id) ?? null; },
   });
   // 統括は idle、ほかの会話は作業中。最初の観測は覚えるだけ。
   w.live.set('orch', row('orch', { status: 'idle' }));
@@ -93,6 +97,38 @@ describe('出来事の送り込み', () => {
     expect(w.delivered[0]).not.toContain('rm -rf');
     expect(w.delivered[0]).not.toContain('SECRET');
     expect(w.fed).toBe(1);
+  });
+
+  it('質問の待ちのまま問い（札の id）が変わると、ask.question をもう 1 件出す。同じ問いのままなら出さない', async () => {
+    w.askIds.set('s1', 'tab1');
+    set('s1', { status: 'waiting', waitingFor: 'question' });
+    await tick(300);
+    expect(w.delivered).toEqual(['[hangar] 出来事 1 件\n- ask.question s1 「ログイン修正」']);
+    // 統括のターンが動いて終わる。
+    set('orch', { status: 'busy' });
+    orchIdle();
+    // 一覧は変わらず、同じ問いのまま。
+    await tick(5_000);
+    expect(w.delivered).toHaveLength(1);
+    // 1 問目に答えて 2 問目のタブへ進んだ。一覧の状態は waiting/question のまま変わらないので、見張りの周期で拾う。
+    w.askIds.set('s1', 'tab2');
+    await tick(2_000);
+    expect(w.delivered).toEqual(['[hangar] 出来事 1 件\n- ask.question s1 「ログイン修正」', '[hangar] 出来事 1 件\n- ask.question s1 「ログイン修正」']);
+  });
+
+  it('問いが変わったとき、渡す前の前の問いの出来事は 1 件にまとめる（同じ会話の札は今の 1 つだけ）', async () => {
+    set('orch', { status: 'busy' });
+    w.askIds.set('s1', 'tab1');
+    set('s1', { status: 'waiting', waitingFor: 'question' });
+    w.askIds.set('s1', 'tab2');
+    feed.onLiveChange();
+    expect(feed.pending()).toEqual([{ kind: 'ask.question', sessionId: 's1', title: 'ログイン修正', tool: null }]);
+  });
+
+  it('質問を待つ会話が無ければ、札の id を読まない（画面を取り込まない）', async () => {
+    waitPerm('s1');
+    await tick(10_000);
+    expect(w.askReads).toBe(0);
   });
 
   it('2 件が続けば 1 通にまとまる', async () => {
