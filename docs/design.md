@@ -10897,7 +10897,7 @@ MLX の build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/vo
   索引は DB の大半を占め、1 世代が 1GB を超えていたのが数十 MB になる。
   `event_fts` は行を消しても縮まないので、残す行（本文を DB に持つ opencode の会話）を控えて表を作り直す。
   `transcript_files` の `indexer_version` を 0 にしてあるので、控えを DB の場所に戻して起こすと、インデクサが先頭から読み直して索引と検索が戻る（`IndexerService.rebuild` と同じ印）。
-  表の形は残るので、戻した DB はそのまま開ける。元の jsonl が無くなった会話の検索は、戻したあとは引けない。
+  表の形は残るので、戻した DB はそのまま開ける。抜くのは、控えを取る時点で元の jsonl がディスクにある会話だけである。jsonl が消えた会話（Claude Code の掃除など）は読み直せないので、索引も `indexer_version` も残し、戻したあとも検索で引ける。
   写しは `VACUUM INTO` で全体を取ってから抜くので、取っている間だけ DB と同じ大きさの空きが要る。
   写しは控えの形でない一時の名前に書き、`fsync` してから改名する。
   失敗や中断で、控えに見える壊れたファイルが残らない。

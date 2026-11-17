@@ -68,7 +68,7 @@ export function backupDb(db: Database.Database, dir: string, lastVersion: number
  * 検索の索引は DB の大半を占める（1GB を超える DB の 9 割以上）が、控えを戻したあとにインデクサが読み直せば元に戻る。
  * 読み直しの印として transcript_files の indexer_version を 0 にしておく（indexFile が先頭から積み直す。IndexerService.rebuild と同じ印）。
  * 表の形は残すので、戻した DB はそのまま開ける。
- * 本文を DB に持つ束（opencode）の行と、その検索の行は、元のファイルが無く作り直せるか分からないので抜かない（event_fts は会話の id で見分ける。古い行は fts_rowid を持たない）。
+ * 本文を DB に持つ束（opencode）の行と、その検索の行は、元のファイルが無く作り直せるか分からないので抜かない。ディスクに元の jsonl が無い会話も同じで、行も印も残す（event_fts は会話と線（主線かサブエージェント）で見分ける。古い行は fts_rowid を持たない）。
  * 抜いたあとに VACUUM して、ファイルを縮める。
  */
 function dropRebuildableIndex(file: string): void {
@@ -76,17 +76,22 @@ function dropRebuildableIndex(file: string): void {
   try {
     // FTS5 は行を消しても印を付けるだけで、VACUUM でも縮まない。消さずに、残す行を控えて表を作り直す。
     const ddl = (copy.prepare("select sql from sqlite_master where name = 'event_fts'").get() as { sql: string } | undefined)?.sql;
+    // 元のファイルがディスクに無い会話（Claude Code の掃除で消えたものなど）は、読み直せないので索引を残す。
+    const gone = (copy.prepare('select path from transcript_files').all() as { path: string }[]).filter((r) => !fs.existsSync(r.path)).map((r) => r.path);
+    copy.exec('create temp table gone_files (path text primary key)');
+    const insGone = copy.prepare('insert or ignore into gone_files values (?)');
+    for (const g of gone) insGone.run(g);
     copy.exec(`
-      delete from event_index where file_path_ref in (select path from transcript_files);
-      update transcript_files set indexer_version = 0;
+      delete from event_index where file_path_ref in (select path from transcript_files where path not in (select path from gone_files));
+      update transcript_files set indexer_version = 0 where path not in (select path from gone_files);
     `);
     if (ddl !== undefined) {
       copy.exec(`
-        create temp table keep_fts as select rowid r, session_id, agent_id, seq, role, text from event_fts where session_id in (select session_id from event_index);
+        create temp table keep_fts as select rowid r, session_id, agent_id, seq, role, text from event_fts f where exists (select 1 from event_index e where e.session_id = f.session_id and ifnull(e.parent_agent, '') = ifnull(f.agent_id, ''));
         drop table event_fts;
       `);
       copy.exec(ddl);
-      copy.exec('insert into event_fts (rowid, session_id, agent_id, seq, role, text) select r, session_id, agent_id, seq, role, text from keep_fts; drop table keep_fts;');
+      copy.exec('drop table gone_files; insert into event_fts (rowid, session_id, agent_id, seq, role, text) select r, session_id, agent_id, seq, role, text from keep_fts; drop table keep_fts;');
     }
     copy.exec('vacuum');
   } finally {

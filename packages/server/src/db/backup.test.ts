@@ -157,6 +157,33 @@ describe('控えの索引', () => {
   });
 });
 
+describe('控えの索引（元の jsonl が無い会話）', () => {
+  it('jsonl が消えた会話の索引は控えに残り、戻したあとも検索で引ける。抜いた分の印だけが付く', () => {
+    const claude = copyFixtureClaudeDir();
+    try {
+      const file = path.join(tmp, 'hangar.db');
+      const main = listTranscriptFiles(claude).find((f) => f.sessionId === SESSION_ALPHA && f.agentId === null)!;
+      const live = openDb(file);
+      indexFile(live, main, { deviceId: 'dev-1' });
+      live.close();
+      fs.rmSync(main.path);
+      openDb(file, { now: () => AT, migrations: WITH_NEXT }).close();
+      const bak = path.join(tmp, 'backups', 'db', `hangar-v${LATEST - 1}-${STAMP}.db`);
+      const raw = new Database(bak, { readonly: true });
+      const n = (sql: string) => (raw.prepare(sql).get() as { c: number }).c;
+      expect(n('select count(*) c from event_index')).toBe(17);
+      expect(n("select count(*) c from event_fts where text match '\"channels\"'")).toBe(3);
+      expect(n('select count(*) c from transcript_files where indexer_version = 0')).toBe(0);
+      raw.close();
+      const restored = path.join(tmp, 'restored.db');
+      fs.copyFileSync(bak, restored);
+      const r = openDb(restored);
+      expect(searchSessions(r, { q: 'channels' }).total).toBe(1);
+      r.close();
+    } finally { fs.rmSync(claude, { recursive: true, force: true }); }
+  });
+});
+
 describe('backupStamp', () => {
   it('UTC のミリ秒までを詰めた形で、辞書順がそのまま時刻順になる', () => {
     expect(backupStamp(AT)).toBe(STAMP);
