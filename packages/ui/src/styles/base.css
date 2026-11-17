@@ -124,6 +124,15 @@ a:hover { text-decoration: underline; }
   .side-live-row .pc-pill > span { display: none; }
   .side-live-row .pc-pill svg { display: block; }
 }
+/*
+ * 右端の語は、広いと「入力待ち 2分」、狭いと語を外して「2分」だけにする。待ちは赤い丸と太字の名前で分かる。
+ * 札が PC の名前を出している幅でも語まで並ぶと溢れるので、札を絵にする幅より先に外す。
+ */
+.side-live-wait-time { display: none; }
+@container (max-width: 279px) {
+  .side-live-row:has(.pc-pill) .side-live-wait-full { display: none; }
+  .side-live-row:has(.pc-pill) .side-live-wait-time { display: inline; }
+}
 .side-live-row:has(.pc-pill) .side-live-name { min-width: 3em; }
 .side-live-row[data-peer-ended='true'] .side-live-name { color: var(--ink-3); }
 .side-live-row[data-peer-ended='true'] .pc-pill { background: var(--surface-2); color: var(--ink-3); }

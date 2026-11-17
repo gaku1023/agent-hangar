@@ -133,6 +133,17 @@ describe('ほかの PC の本当の状態（lock.live）', () => {
     expect(b.peer).toEqual({ name: 'Office', ended: false });
   });
 
+  it('狭い行で語を外せるよう、待った時間だけを waitedTime に分けて持つ。時間の無い語（リセット済み）は持たない', () => {
+    const b = rowsOf(storeOf([session('b', { lock: waitingLock() })]))[0]!;
+    expect(b.waitedTime).toBeTruthy();
+    expect(b.waited).toContain(b.waitedTime!);
+    expect(b.waited).not.toBe(b.waitedTime);
+    const here = rowsOf(storeOf([session('x', { live: 'waiting', waitingFor: 'permission', lastActivityAt: NOW - 5 * 60_000 })]))[0]!;
+    expect(here.waited).toContain(here.waitedTime!);
+    const rst = rowsOf(storeOf([session('b', { lock: lock({ live: 'idle', liveAt: NOW - 1000, reason: 'reset' }) })]))[0]!;
+    expect(rst.waitedTime).toBeUndefined();
+  });
+
   it('許可待ちは permission の印と、この PC の許可待ちと同じ文言', () => {
     const b = rowsOf(storeOf([session('b', { lock: waitingLock({ reason: 'permission' }) })]))[0]!;
     expect(b.live).toBe('waiting');
