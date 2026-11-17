@@ -12,7 +12,7 @@ const dto = (id: string, at: number, over: Partial<SessionDto> = {}): SessionDto
 function storeOf(): Store {
   let s = initialStore();
   s.bootstrapped = true;
-  s.projects = { alpha: { id: 'alpha', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: NOW, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 } };
+  s.projects = { alpha: { id: 'alpha', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: NOW, runningCount: 0, openTodoCount: 0, updatedAt: 1 } };
   s.sessions = { n1: dto('n1', NOW - H) };
   s = applyHeadlessPage(s, 'alpha', 0, { total: 3, sessions: [dto('h1', NOW - 2 * H, { headless: true }), dto('h2', NOW - 3 * H, { headless: true })] });
   return s;
