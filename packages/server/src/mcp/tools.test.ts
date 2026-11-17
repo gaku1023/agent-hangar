@@ -11,7 +11,7 @@ import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { latestIntent } from '../live/intents.ts';
-import { markSeen, onUnread } from '../live/unread.ts';
+import { markSeen, onNotifyCall, onUnread } from '../live/unread.ts';
 import { getSession } from '../db/queries.ts';
 import { addTodo } from '../projects/todos.ts';
 import { assignSessions } from '../projects/registry.ts';
@@ -790,6 +790,18 @@ describe('MCP tools', () => {
     expect(unread()).toBeNull();
     // 行が無ければ何もしない。
     expect(markSeen(db, alphaId)).toBe(false);
+  });
+  it('notify_user は、出し先が空になるときも呼ばれたことを onNotifyCall へ知らせる（ターンの終わりの受け皿が、呼んだターンに未読を足さないため）。断った呼び出しは知らせない', () => {
+    const calls: string[] = [];
+    const off = onNotifyCall((id) => calls.push(id));
+    try {
+      upsertShared(db, 'session_states', { session_id: alphaId, status: 'done', set_by: 'conversation', set_at: 1000 }, 'd', 'session_id');
+      expect(call('notify_user', { text: '静かに' }, { sessionId: alphaId })).toMatchObject({ sent: [] });
+      expect(() => call('notify_user', { text: '' }, { sessionId: alphaId })).toThrow(ToolError);
+      expect(calls).toEqual([alphaId]);
+    } finally {
+      off();
+    }
   });
   it('notify_user は Done、Archived、Paused にしたセッションでは何も出さない。付けた後に休みから動き出したら出す', () => {
     const seen: string[] = [];

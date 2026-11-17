@@ -28,6 +28,8 @@ import { hasMarkedIdle, ParkWatch, parkedSessionIds } from '../sessions/park.ts'
 import { setParkingSwitch } from '../db/queries.ts';
 import { paceNotices, StopNoticeWatch } from '../sessions/stopNotices.ts';
 import { UnreadHold } from '../live/unreadHold.ts';
+import { NotifyFallback } from '../live/notifyFallback.ts';
+import { lastReply } from '../mcp/waitTool.ts';
 import { paneOpsFor, type PaneOps } from '../tmux/pane.ts';
 import { HANGAR_SOCKET, hangarMux, type MuxServers } from '../tmux/servers.ts';
 import { accountOfProviderSession } from '../usage/accountOf.ts';
@@ -278,6 +280,10 @@ export function bootRuns(
   const unreadHold = new UnreadHold({ db, live: () => live.current() });
   unreadHold.start();
   live.onChange(() => { try { unreadHold.check(); } catch (e) { console.error('[unread] could not release held notices', e instanceof Error ? e.message : e); } notices.onLiveChange(); });
+  // notify_user の出し忘れの受け皿。そのターンに呼ばれないまま抜けた会話に、最後の返答の頭の 1 文で未読を 1 つ積む（OS とスマホへは出さない）。
+  const notifyFallback = new NotifyFallback({ db, live: () => live.current(), settings: () => settings.current, lastReply: (id) => lastReply(db, id) });
+  notifyFallback.start();
+  live.onChange(() => { try { notifyFallback.check(); } catch (e) { console.error('[unread] could not check the notify fallback', e instanceof Error ? e.message : e); } });
   const touch = (): void => touchDevice({ db, device, shellHook: shell.hook });
   let parkTimer: ReturnType<typeof setInterval> | null = null;
   let overlapTimer: ReturnType<typeof setInterval> | null = null;
