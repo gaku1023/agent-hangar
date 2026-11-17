@@ -32,6 +32,13 @@ describe('設定の目次（S1）', () => {
     expect(row(p.toc, 'agentOpencode').label).toBe('opencode ベータ、オフ');
     expect(row(p.toc, 'cloud').label).toBe('クラウド同期 ベータ、同期オフ');
   });
+  it('統括の節は、サーバが設定を返すときだけ、セッションの次に出る。古いサーバでは出さない', () => {
+    const on = present(store({ settings: { ...SETTINGS, orchestrator: { enabled: true, sessionId: null, model: 'sonnet', effort: 'medium', account: null } } }));
+    expect(on.toc.map((r) => r.id).slice(0, 4)).toEqual(['general', 'sessions', 'orchestrator', 'summary']);
+    expect(row(on.toc, 'orchestrator')).toMatchObject({ title: '統括', state: 'オン' });
+    expect(on.orchestrator).toMatchObject({ on: true, account: null, model: 'sonnet', effort: 'medium', accounts: [] });
+    expect(present(store()).toc.map((r) => r.id)).not.toContain('orchestrator');
+  });
   it('殻の中では、「Hangar について」が更新の状態を言う。節の並びはブラウザと同じ', () => {
     const update = { ...initialUpdate(), supported: true, current: '1.4.2', phase: { kind: 'latest' as const }, checkedAt: NOW };
     const p = present(store({ desktop: true, update }));

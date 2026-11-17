@@ -1,5 +1,5 @@
 import { presentOpencodeProviders, type OpencodeProvidersProps } from './opencodeProviders.ts';
-import { peerChatAcceptOf, CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SharePreviewDto, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
+import { type OrchestratorSetting, peerChatAcceptOf, CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SharePreviewDto, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
 import { canLaunchGuide } from './investigate.ts';
 import { presentNotifyRules, type NotifyRulesProps } from './notifyRules.ts';
 import type { SaveMark, State } from '../mediator/types.ts';
@@ -9,6 +9,7 @@ import { storeLanguage, translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
 import { limitedWord, syncStateWord } from './syncLabel.ts';
 import { presentAccounts, presentCodexAccounts, type AccountView } from './accounts.ts';
+import { accountOptions, type NewSessionAccountOption } from './newSession.ts';
 import { presentCloudUsage, SETUP_CLOUD_COMMAND, type CloudUsageProps } from './cloudUsage.ts';
 import { cloudJoinCommand, presentCloudMember, type CloudMemberProps } from './cloudMember.ts';
 import { presentConfigSection, type ConfigSyncSectionProps } from './configSync.ts';
@@ -269,11 +270,13 @@ export type AccountSettingsProps = { list: AccountView[]; colors: string[] };
  */
 export type VoiceSettingsProps = { voice: import('@agent-hangar/shared').VoiceSetting; available: boolean; speakingId: string | null; catalog: import('@agent-hangar/shared').VoiceCatalog | null };
 
+export type OrchestratorSettingsProps = { on: boolean; account: string | null; model: string; effort: string; accounts: NewSessionAccountOption[] };
+
 export type SettingsProps = {
   /** 統括の声。サーバが設定の voice を返さない古い版では省かれ、節を出さない。 */
   voice?: VoiceSettingsProps;
-  /** 統括（全セッションを統括する会話）を使うか。サーバが設定を返さない古い版では省かれ、スイッチを出さない。 */
-  orchestratorOn?: boolean;
+  /** 統括の節（入り切りと、起動の札のアカウント・モデル・effort）。サーバが設定を返さない古い版では省かれ、節を目次に出さない。account は設定の値で、一覧に無ければ null に寄せる。 */
+  orchestrator?: OrchestratorSettingsProps;
   workspaceRoot: string; claudeDir: string; device: { id: string; name: string } | null; version: string; index: IndexProgressDto; indexLabel: string; sessionCount: number; projectCount: number;
   tmuxPath: string | null; terminalApp: TerminalApp;
   /** エディタの欄（一般の節）。 */
@@ -433,6 +436,15 @@ function retentionSettings(store: Store): RetentionSettingsProps | null {
 }
 
 /** 「エージェント」の群の節と、その絵の組。 */
+/**
+ * 統括の節の札。アカウントが 2 件未満なら札を出さない（空の一覧にする）。
+ * 設定のアカウントが一覧に無い（消えた）ときは、account を null にして、札を既定の表示（選べる最初のアカウント）に寄せる。
+ */
+function presentOrchestrator(t: Translate, o: OrchestratorSetting, list: AccountView[]): OrchestratorSettingsProps {
+  const accounts = list.length >= 2 ? accountOptions(t, { list, currentId: list.find((a) => a.current)?.id ?? '' }) : [];
+  return { on: o.enabled, account: accounts.some((a) => a.value === o.account) ? o.account : null, model: o.model, effort: o.effort, accounts };
+}
+
 const AGENT_OF: Partial<Record<SettingsSection, 'claude-code' | 'codex' | 'opencode'>> = { agentClaude: 'claude-code', agentCodex: 'codex', agentOpencode: 'opencode' };
 
 function agentState(t: Translate, enabled: boolean, badge: { text: string; tone: 'ok' | 'info' | 'warn' } | null): { state: string; tone: 'default' | 'warn' } {
@@ -447,6 +459,8 @@ function presentToc(a: {
   sync: Store['sync']; notify: Store['notify']; readiness: boolean; summaryEngine: SummaryEngine; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null; sessionCount: number; retentionDays: number | null; now: number;
   update: UpdateSectionProps; desktop: boolean; usageAggregate: UsageAggregateDto | null; version: string;
   codex: CodexSettingsProps; opencode: OpencodeSettingsProps;
+  /** 統括の設定。古いサーバは返さないので null で、目次に節を出さない。 */
+  orchestrator: { on: boolean } | null;
 }): SettingsTocRow[] {
   const { t } = a;
   type St = { state: string; tone: 'default' | 'warn' };
@@ -471,6 +485,7 @@ function presentToc(a: {
               : { state: t('settings.toc.summaryConnected'), tone: 'default' },
     environment: a.readiness ? fix(a.todo.must, t('settings.toc.allFound')) : checking,
     // 保持期間の日数は、注意の一覧から外してここに残す（2026-10-13 の決定、9a）。保持の欄と同じ節に置く。
+    orchestrator: a.orchestrator?.on ? { state: t('settings.toc.orchestratorOn'), tone: 'default' } : { state: t('settings.toc.agentOff'), tone: 'default' },
     sessions: { state: a.retentionDays === null ? t('settings.toc.sessions', { n: a.sessionCount.toLocaleString('en-US') }) : t('settings.toc.sessionsRetention', { n: a.sessionCount.toLocaleString('en-US'), days: daysLabel(t, a.retentionDays) }), tone: 'default' },
     // セッションの数は、プロジェクト別の件数を足す（日ごとの件数は日をまたぐ会話を重ねて数える）。
     usage: a.usageAggregate === null ? checking : { state: t('settings.toc.usage', { n: a.usageAggregate.projects.reduce((n, p) => n + p.sessions, 0).toLocaleString('en-US') }), tone: 'default' },
@@ -480,7 +495,7 @@ function presentToc(a: {
       : { state: t('settings.toc.version', { version: a.version }), tone: 'default' },
   };
   // 「Hangar について」はブラウザでも出す。更新の段は殻の中だけで、ブラウザではバージョンとこの PC を出す。
-  return SETTINGS_SECTIONS.map((id) => {
+  return SETTINGS_SECTIONS.filter((id) => id !== 'orchestrator' || a.orchestrator !== null).map((id) => {
     const title = t(`settings.section.${id}`);
     // クラウド同期は上級者向けのベータ。小札は状態の段を潰さないよう、名前の横に添える（試作の 5 節の案 A）。
     const agent = AGENT_OF[id];
@@ -571,11 +586,12 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     must: hard(verify.workspace) + hard(verify.tmux) + hard(verify.node),
     link: r ? (r.mcp.registered ? 0 : 1) + (r.statusline.installed ? 0 : 1) + hard(verify.claude) : 0,
   };
+  const accountList = presentAccounts(store, now);
   const codex = presentCodex(t, s ?? {}, store.codexStatus, platform, store.shellHook?.state ?? null, store.sharePreview.codex, store.home);
   const opencode = presentOpencode(t, s ?? {}, store.opencodeStatus, platform, store.shellHook?.state ?? null, store.sharePreview.opencode, store.home);
   const integrations = presentIntegrations(t, state, store, { mcp: r?.commands.mcp ?? 'hangar mcp install', statusline: r?.commands.statusline ?? 'hangar statusline install', shell: command });
   return {
-    ...(s?.orchestrator !== undefined ? { orchestratorOn: s.orchestrator.enabled } : {}),
+    ...(s?.orchestrator !== undefined ? { orchestrator: presentOrchestrator(t, s.orchestrator, accountList) } : {}),
     ...(s?.voice !== undefined ? { voice: { voice: s.voice, available: store.voice?.available === true, speakingId: store.voice?.speakingId ?? null, catalog: store.voiceCatalog } } : {}),
     cloud,
     integrations,
@@ -611,10 +627,10 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     opencodePath: s?.opencodePath ?? null,
     indexSource: [s?.claudeDir ?? '', ...(codexEnabledOf(s ?? {}) ? ['~/.codex'] : [])].join(storeLanguage(store) === 'ja' ? '、' : ', '),
     retention: retentionSettings(store),
-    accounts: { list: presentAccounts(store, now), colors: ACCOUNT_COLORS },
+    accounts: { list: accountList, colors: ACCOUNT_COLORS },
     codexAccounts: { list: presentCodexAccounts(store, now), colors: ACCOUNT_COLORS },
     section: settingsSectionOf(at),
-    toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summaryEngine, summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, retentionDays: store.retention?.days ?? null, now, update, desktop: store.desktop, codex, opencode, usageAggregate: store.usageAggregate, version: store.version }),
+    toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summaryEngine, summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, retentionDays: store.retention?.days ?? null, now, update, desktop: store.desktop, codex, opencode, usageAggregate: store.usageAggregate, version: store.version, orchestrator: s?.orchestrator !== undefined ? { on: s.orchestrator.enabled } : null }),
     update,
     language: { value: storeLanguage(store) },
     focus: at === 'accounts' || at === 'unsent' || isSettingsField(at) ? at : null,

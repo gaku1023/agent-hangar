@@ -8,7 +8,7 @@
  * `opencode` は opencode の節の面で、新しいセッションのモデルの小窓の「プロバイダーを管理…」が開く。`codex` は Codex の節の面で、未検証の Codex の版の札の「設定を開く」が開く。
  * 0.9.3 までの節の名前（tools、update、info）と、2026-10-28 までの連携の節（integrations）は、殻のディープリンクと利用者の履歴に残っているので、新しい節の別名として読み続ける。
  */
-export const SETTINGS_SECTIONS = ['general', 'sessions', 'summary', 'cloud', 'environment', 'usage', 'agentClaude', 'agentCodex', 'agentOpencode', 'about'] as const;
+export const SETTINGS_SECTIONS = ['general', 'sessions', 'orchestrator', 'summary', 'cloud', 'environment', 'usage', 'agentClaude', 'agentCodex', 'agentOpencode', 'about'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 /** 節の中の、1 つの欄（か小さな節）を指す開く先。開いたら、その欄が見える所へ移って目立たせる。 */
 export const SETTINGS_FIELDS = ['workspace', 'tmux', 'claude', 'compat', 'editor', 'codex', 'opencode'] as const;

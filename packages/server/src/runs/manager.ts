@@ -521,11 +521,12 @@ export class RunManager {
   /**
    * 統括の会話を新しく起こす（docs/design.md「統括」）。
    * cwd は hangar の置き場の下の専用のディレクトリで、プロジェクトには属さない。
+   * account は設定のアカウントの id で、省けばいまのアカウント。
    * 起動の指定（モデル、effort、役の文、permissions）は baseInput が統括として足す。設定の sessionId に書くのは呼び手（OrchestratorKeeper）である。
    */
-  startOrchestrator(): LaunchResult {
+  startOrchestrator(o: { account?: string } = {}): LaunchResult {
     if (!this.deps.orchestrator) throw new Error('orchestrator is not configured');
-    const account = this.accounts.resolve(undefined);
+    const account = this.accounts.resolve(o.account);
     this.accounts.envFor(account);
     const cwd = orchestratorCwd(this.deps.home);
     fs.mkdirSync(cwd, { recursive: true });

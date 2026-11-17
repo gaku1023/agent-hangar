@@ -82,6 +82,6 @@ describe('POST /api/orchestrator/send', () => {
 });
 
 function alive(): void {
-  t.deps.updateSettings({ orchestrator: { enabled: true, sessionId: 'orch-1', model: 'sonnet', effort: 'medium' } });
+  t.deps.updateSettings({ orchestrator: { enabled: true, sessionId: 'orch-1', model: 'sonnet', effort: 'medium', account: null } });
   (t.runs.listAlive as ReturnType<typeof vi.fn>).mockReturnValue({ runs: [{ id: 'r9', sessionId: 'orch-1', tmuxName: 'hg-orch' }], tabs: [] });
 }

@@ -70,6 +70,8 @@ export const settingsKeys = {
   'settings.toc.usage': ['n'],
   'settings.toc.version': ['version'],
   'settings.section.general': [],
+  'settings.section.orchestrator': [],
+  'settings.toc.orchestratorOn': [],
   'settings.section.sessions': [],
   'settings.section.summary': [],
   'settings.section.agentClaude': [],

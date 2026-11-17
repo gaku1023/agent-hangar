@@ -14,7 +14,7 @@ import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, readJson, tooLargeResult } from './common.ts';
 
 /** 設定の経路が使う依存。 */
-export type SettingsRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'settings' | 'updateSettings' | 'nodeCheck' | 'hub' | 'live'> & LanguageDeps;
+export type SettingsRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'settings' | 'updateSettings' | 'nodeCheck' | 'hub' | 'live' | 'accounts'> & LanguageDeps;
 
 /** 空にできない文字列の設定。作成場所（workspaceRoot）は任意なので、ここに入れず別に見る。 */
 const TEXT_SETTING_KEYS = ['claudeDir'] as const;
@@ -351,10 +351,12 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       if (!isIdleUnload(v)) return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.opencodeIdleUnload') }) }, 400);
       patch.opencodeIdleUnload = v;
     }
-    // 統括の入り切りとモデルと effort。届いた項目だけを替え、見張りが書く sessionId は残す（会話の id はこの経路から書かせない）。
+    // 統括の入り切りとモデルと effort とアカウント。届いた項目だけを替え、見張りが書く sessionId は残す（会話の id はこの経路から書かせない）。
     if ('orchestrator' in body) {
       const v = body.orchestrator;
       if (!isOrchestratorPatch(v)) return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.orchestrator') }) }, 400);
+      // アカウントは今あるものの id だけ。知らない id で起こすと、利用者が選んだものと違う枠を使うため。
+      if (typeof v.account === 'string' && !deps.accounts.store.get(v.account)) return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.orchestrator') }) }, 400);
       patch.orchestrator = orchestratorOf({ ...orchestratorOf(deps.settings().orchestrator), ...v });
     }
     // 机の音声（聞き方、人格）。届いた項目だけを替え、取れない値は 400。次の聞き取りから効く。

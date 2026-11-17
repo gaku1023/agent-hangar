@@ -14,6 +14,8 @@ import { TMUX, removeDirsWhenIdle, removeTestSocket, testSocketPath, waitFor } f
 import { tmuxPaneOps } from '../tmux/pane.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { liveSourceOf } from '../../test/fake-live.ts';
+import { AccountStore } from '../config/accounts.ts';
+import { RunAccounts } from './accounts.ts';
 import { RunManager } from './manager.ts';
 
 let db: Db;
@@ -44,12 +46,13 @@ afterEach(async () => {
   await removeDirsWhenIdle([home, cwd, claudeDir]);
 });
 
-function make(o: { orchestrator?: boolean } = {}): RunManager {
+function make(o: { orchestrator?: boolean; accounts?: AccountStore } = {}): RunManager {
   const claude = claudeDriverFor({ home, token: 'tok', language: () => 'ja', claudeBin: () => fake.bin, live: liveSourceOf(), transcript: claudeTranscriptSource({ claudeDir: home }), procs: () => noJobs });
   return new RunManager({
     db, deviceId: 'd', home, panes: tmux ? tmuxPaneOps(tmux) : null, claudeBin: fake.bin, claudeDir, port: 4177, token: 'tok', shell: 'sh', procs: noJobs, language: () => 'ja',
     agents: agentsOf([claude]), claude,
     ...(o.orchestrator === false ? {} : { orchestrator: () => setting }),
+    ...(o.accounts ? { accounts: new RunAccounts({ db, claudeDir, store: o.accounts }) } : {}),
   });
 }
 
@@ -116,6 +119,32 @@ describe.skipIf(!TMUX)('RunManager.startOrchestrator', () => {
     expect(args).not.toContain('--model');
     expect(args).not.toContain('--permission-mode');
     expect(valueOf(args, '--append-system-prompt')).not.toContain('[voice]');
+  });
+
+  it('設定のアカウントの置き場で起こす。省けばいまのアカウント', async () => {
+    fake = writeFakeClaude(home, { recordEnv: ['CLAUDE_CONFIG_DIR'] });
+    const accounts = new AccountStore({ home, primaryDir: claudeDir, homeDir: home });
+    const a = accounts.add({ name: '別' });
+    const r = make({ accounts }).startOrchestrator({ account: a.id });
+    await launchedArgs(r.run.id);
+    expect(fs.readFileSync(fake.envFile, 'utf8')).toContain(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
+    expect(() => make({ accounts }).startOrchestrator({ account: 'no-such' })).toThrow();
+  });
+
+  it('再開でも、渡したアカウントを前に使ったアカウントより優先する', async () => {
+    fake = writeFakeClaude(home, { recordEnv: ['CLAUDE_CONFIG_DIR'] });
+    const accounts = new AccountStore({ home, primaryDir: claudeDir, homeDir: home });
+    const a = accounts.add({ name: '別' });
+    const rm = make({ accounts });
+    const first = rm.startOrchestrator();
+    await launchedArgs(first.run.id);
+    setting = { ...setting, sessionId: first.sessionId };
+    db.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)').run('/x/o.jsonl', first.sessionId, null, 10, 1, 10, 1);
+    rm.kill(first.run.id);
+    fs.rmSync(fake.envFile, { force: true });
+    const again = await rm.resumeWith(first.sessionId, { account: a.id });
+    await launchedArgs(again.run.id);
+    expect(fs.readFileSync(fake.envFile, 'utf8')).toContain(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
   });
 
   it('orchestrator の口を渡さない RunManager は、統括を起こさない', () => {

@@ -79,7 +79,7 @@ const dirCount = (text: string) => text.split('\n').filter((d) => d.trim()).leng
  * 札と、押すと開く小さい面。面の見出しは札の名前で、開く元は SettingChip である。
  * 面の高さは開く側の空きまでに抑え（bounded）、見出しを残して中身を送る。長い一覧（Codex のモデル）が窓の外へ出ないためである。
  */
-function ChipPopover(props: { name: string; value: string; tone?: 'default' | 'muted' | 'danger'; icon?: IconName; lead?: ReactNode; dot?: string; badge?: string; suffix?: string; showName?: boolean; width?: number; defaultOpen?: boolean; agentOnly?: AgentUiCap; children: (close: () => void) => ReactNode }) {
+export function ChipPopover(props: { name: string; value: string; tone?: 'default' | 'muted' | 'danger'; icon?: IconName; lead?: ReactNode; dot?: string; badge?: string; suffix?: string; showName?: boolean; width?: number; defaultOpen?: boolean; agentOnly?: AgentUiCap; children: (close: () => void) => ReactNode }) {
   return (
     <Popover label={props.name} width={props.width ?? 240} align="start" className="launch-pop" bounded defaultOpen={props.defaultOpen}
       face={(p) => <SettingChip name={props.name} value={props.value} showName={props.showName ?? true} tone={props.tone} icon={props.icon} lead={props.lead} dot={props.dot} badge={props.badge} suffix={props.suffix} {...(props.agentOnly ? agentOnlyAttr(props.agentOnly) : {})} {...p} />}>
@@ -108,11 +108,11 @@ function TextEditor(props: { name: string; placeholder: string; value: string; o
  * モデルの一覧と、一覧に無い名前の入力欄。一覧にある値のときは欄を空にしておく。
  * 欄は打つたびに値を渡す（Enter を押さずに外を押して閉じても残る）。Enter は閉じるだけである。
  */
-function ModelEditor(props: { value: string; onChange: (v: string) => void; close: () => void }) {
+export function ModelEditor(props: { value: string; onChange: (v: string) => void; close: () => void; noDefault?: boolean }) {
   const t = useT();
   const listed = MODELS.includes(props.value);
   const [other, setOther] = useState(listed ? '' : props.value);
-  const items: PickItem[] = MODELS.map((m) => ({ value: m, label: m || t('launch.value.default') }));
+  const items: PickItem[] = MODELS.filter((m) => !props.noDefault || m !== '').map((m) => ({ value: m, label: m || t('launch.value.default') }));
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Enter' || isComposing(e)) return;
     e.preventDefault();
@@ -346,7 +346,7 @@ function CodexChips(props: LaunchCodexChips) {
 }
 
 /** effort の強さを 5 段の棒で添える。 */
-function EffortBars(props: { level: number }) {
+export function EffortBars(props: { level: number }) {
   return <span className="effort-bars" aria-hidden="true">{[1, 2, 3, 4, 5].map((i) => <i key={i} data-on={i <= props.level ? 'true' : undefined} />)}</span>;
 }
 

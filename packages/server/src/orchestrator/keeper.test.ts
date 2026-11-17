@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_ORCHESTRATOR, type EndReason, type OrchestratorSetting, type RunDto } from '@agent-hangar/shared';
+import { DEFAULT_ORCHESTRATOR, type EndReason, type LiveStatus, type OrchestratorSetting, type RunDto } from '@agent-hangar/shared';
 import { OrchestratorKeeper, type KeeperRuns } from './keeper.ts';
 
 const MIN = 60_000;
@@ -10,17 +10,19 @@ function rig(initial: Partial<OrchestratorSetting> = {}, o: { resumable?: boolea
   let listener: { runEnded?(r: RunDto): void } = {};
   let startFails = o.failStart ?? 0;
   const alive = new Set<string>();
+  const status = new Map<string, LiveStatus>();
+  const liveListeners = new Set<() => void>();
   const calls: string[] = [];
   let n = 0;
   const runs: KeeperRuns = {
     on(l) { listener = l; return () => { listener = {}; }; },
     aliveRun: (id) => (alive.has(id) ? ({ id: `run-${id}`, sessionId: id } as RunDto) : null),
     kill: vi.fn((runId: string) => { calls.push(`kill:${runId}`); const id = runId.replace('run-', ''); alive.delete(id); listener.runEnded?.({ id: runId, sessionId: id, endReason: 'killed', endedAt: clock } as RunDto); }),
-    resumeWith: vi.fn(async (id: string) => { calls.push(`resume:${id}`); alive.add(id); return {}; }),
-    startOrchestrator: vi.fn(() => {
+    resumeWith: vi.fn(async (id: string, o?: { account?: string }) => { calls.push(`resume:${id}${o?.account ? `@${o.account}` : ''}`); alive.add(id); return {}; }),
+    startOrchestrator: vi.fn((o?: { account?: string }) => {
       if (startFails > 0) { startFails -= 1; calls.push('start:fail'); throw new Error('tmux'); }
       const id = `orch-${++n}`;
-      calls.push(`start:${id}`);
+      calls.push(`start:${id}${o?.account ? `@${o.account}` : ''}`);
       alive.add(id);
       return { sessionId: id };
     }),
@@ -30,6 +32,8 @@ function rig(initial: Partial<OrchestratorSetting> = {}, o: { resumable?: boolea
     save: (patch) => { setting = { ...setting, ...patch }; },
     runs,
     resumable: () => o.resumable ?? true,
+    liveStatus: (id) => status.get(id) ?? null,
+    onLiveChange: (cb) => { liveListeners.add(cb); return () => { liveListeners.delete(cb); }; },
     now: () => clock,
   });
   const end = (sessionId: string, endReason: EndReason) => {
@@ -37,7 +41,8 @@ function rig(initial: Partial<OrchestratorSetting> = {}, o: { resumable?: boolea
     listener.runEnded?.({ id: `run-${sessionId}`, sessionId, endReason, endedAt: clock } as RunDto);
   };
   const settle = () => new Promise((r) => setTimeout(r, 0));
-  return { keeper, runs, calls, end, settle, setting: () => setting, set: (p: Partial<OrchestratorSetting>) => { setting = { ...setting, ...p }; }, advance: (ms: number) => { clock += ms; }, alive };
+  const live = (id: string, st: LiveStatus) => { status.set(id, st); for (const cb of [...liveListeners]) cb(); };
+  return { keeper, runs, calls, end, settle, live, setting: () => setting, set: (p: Partial<OrchestratorSetting>) => { setting = { ...setting, ...p }; }, advance: (ms: number) => { clock += ms; }, alive };
 }
 
 describe('OrchestratorKeeper', () => {
@@ -212,5 +217,103 @@ describe('OrchestratorKeeper', () => {
     t.set({ enabled: false });
     t.keeper.apply();
     expect(seen).toEqual(['running', 'off']);
+  });
+
+  it('設定のアカウントで起こし、再開にも前に使ったアカウントより設定の値を渡す', async () => {
+    const t = rig({ enabled: true, account: 'acc-2' });
+    t.keeper.start();
+    await t.settle();
+    expect(t.calls).toEqual(['start:orch-1@acc-2']);
+    t.end('orch-1', 'lost');
+    await t.settle();
+    expect(t.calls).toEqual(['start:orch-1@acc-2', 'resume:orch-1@acc-2']);
+  });
+
+  describe('指定（account、model、effort）が変わったとき', () => {
+    const running = async (initial: Partial<OrchestratorSetting> = {}) => {
+      const t = rig({ enabled: true, ...initial });
+      t.keeper.start();
+      await t.settle();
+      return t;
+    };
+
+    it('idle なら、すぐ止めて同じ会話を新しい指定で再開する。入りのまま、失敗に数えない', async () => {
+      const t = await running();
+      t.live('orch-1', 'idle');
+      t.set({ model: 'opus', account: 'acc-2' });
+      t.keeper.apply();
+      await t.settle();
+      expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1', 'resume:orch-1@acc-2']);
+      expect(t.setting()).toMatchObject({ enabled: true, sessionId: 'orch-1', model: 'opus' });
+      expect(t.keeper.state()).toEqual({ status: 'running' });
+    });
+
+    it('busy の間は待ち、idle になったときに止めて再開する', async () => {
+      const t = await running();
+      t.live('orch-1', 'busy');
+      t.set({ effort: 'high' });
+      t.keeper.apply();
+      await t.settle();
+      expect(t.calls).toEqual(['start:orch-1']);
+      t.live('orch-1', 'waiting');
+      await t.settle();
+      expect(t.calls).toEqual(['start:orch-1']);
+      t.live('orch-1', 'idle');
+      await t.settle();
+      expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1', 'resume:orch-1']);
+      // 同じ指定ではもう止めない。
+      t.live('orch-1', 'idle');
+      await t.settle();
+      expect(t.calls).toHaveLength(3);
+    });
+
+    it('この止め方を何度繰り返しても、失敗で止まらない', async () => {
+      const t = await running();
+      for (const m of ['opus', 'haiku', 'sonnet', 'opus']) {
+        t.live('orch-1', 'idle');
+        t.set({ model: m });
+        t.keeper.apply();
+        await t.settle();
+      }
+      expect(t.calls.filter((c) => c.startsWith('kill'))).toHaveLength(4);
+      expect(t.keeper.state()).toEqual({ status: 'running' });
+      expect(t.setting().enabled).toBe(true);
+    });
+
+    it('待っている間に切にされたら、止めるだけで再開しない', async () => {
+      const t = await running();
+      t.live('orch-1', 'busy');
+      t.set({ model: 'opus' });
+      t.keeper.apply();
+      t.set({ enabled: false });
+      t.keeper.apply();
+      await t.settle();
+      t.live('orch-1', 'idle');
+      await t.settle();
+      expect(t.calls).toEqual(['start:orch-1', 'kill:run-orch-1']);
+    });
+
+    it('指定が同じなら（入り切りだけの変更でも）止めない', async () => {
+      const t = await running();
+      t.live('orch-1', 'idle');
+      t.keeper.apply();
+      await t.settle();
+      expect(t.calls).toEqual(['start:orch-1']);
+    });
+
+    it('前の hangar から引き継いだ run は、起動時は触らず、設定の変更で idle なら起こし直す', async () => {
+      const t = rig({ enabled: true, sessionId: 'old-1' });
+      t.alive.add('old-1');
+      t.keeper.start();
+      await t.settle();
+      t.live('old-1', 'idle');
+      await t.settle();
+      expect(t.calls).toEqual([]);
+      t.set({ model: 'opus' });
+      t.keeper.apply();
+      await t.settle();
+      expect(t.calls).toEqual(['kill:run-old-1', 'resume:old-1']);
+      expect(t.setting().enabled).toBe(true);
+    });
   });
 });

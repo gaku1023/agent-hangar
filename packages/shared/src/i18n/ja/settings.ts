@@ -71,6 +71,8 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.toc.usage': '直近 30 日 · {n} セッション',
   'settings.toc.version': 'バージョン {version}',
   'settings.section.general': '一般',
+  'settings.section.orchestrator': '統括',
+  'settings.toc.orchestratorOn': 'オン',
   'settings.section.sessions': 'セッション',
   'settings.section.summary': '要約',
   'settings.section.agentClaude': 'Claude Code',

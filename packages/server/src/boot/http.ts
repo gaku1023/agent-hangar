@@ -156,6 +156,13 @@ export function bootHttp(p: {
     onOrchestrator: () => { orchestrator.apply(); },
     onVoice: () => { voice.onSettingsChanged(); },
   }, patch);
+  // 実行中の一覧にある、その会話（hangar の id）のいまの status。動いていなければ null。
+  const providerIdOf = db.prepare('select provider, provider_session_id psid from sessions where id = ? and deleted_at is null');
+  const liveStatusOf = (id: string | null) => {
+    const r = id ? (providerIdOf.get(id) as { provider: string; psid: string | null } | undefined) : undefined;
+    if (!r?.psid) return null;
+    return delivery.live.current().find((l) => (l.agent ?? 'claude-code') === r.provider && l.sessionId === r.psid)?.status ?? null;
+  };
   // 統括の会話の見張り（orchestrator/keeper.ts）。会話の id と、利用者が止めたときの入り切りは、ここから設定へ書き、全部の画面へ配る。
   const orchestrator: OrchestratorKeeper = new OrchestratorKeeper({
     settings: () => orchestratorOf(settings.current.orchestrator),
@@ -163,13 +170,14 @@ export function bootHttp(p: {
       updateSettings({ orchestrator: { ...orchestratorOf(settings.current.orchestrator), ...patch } });
       delivery.hub.broadcast({ type: 'settings.changed', settings: toSettingsDto(settings.current), keys: ['orchestrator'] });
     },
-    runs: { on: (l) => runs.runs.on(l), aliveRun: (id) => runs.runs.aliveRun(id), kill: (runId) => runs.runs.kill(runId), resumeWith: (id) => runs.runs.resumeWith(id), startOrchestrator: () => runs.runs.startOrchestrator() },
+    runs: { on: (l) => runs.runs.on(l), aliveRun: (id) => runs.runs.aliveRun(id), kill: (runId) => runs.runs.kill(runId), resumeWith: (id, o) => runs.runs.resumeWith(id, o), startOrchestrator: (o) => runs.runs.startOrchestrator(o) },
+    liveStatus: (id) => liveStatusOf(id),
+    onLiveChange: (cb) => delivery.live.onChange(cb),
     // 行が消えていなくて、本文がある会話だけを再開できる（run が早く終わって本文の無いまま行が消えた会話は、新しく起こす）。
     resumable: (id) => !!db.prepare('select 1 from sessions s where s.id = ? and s.deleted_at is null and exists (select 1 from transcript_files t where t.session_id = s.id and t.agent_id is null)').get(id),
   });
   // 机の音声（voice/service.ts）。補助は常に聞くのときと、押す・切り替え・読み上げ・準備が来たときだけ起こす。
   const voiceBin = resolveVoiceBin(process.env, process.platform, fs.existsSync);
-  const providerIdOf = db.prepare('select provider, provider_session_id psid from sessions where id = ? and deleted_at is null');
   const titles = db.prepare('select coalesce(n.name, s.custom_title, s.ai_title, s.first_prompt) t from sessions s left join session_notes n on n.session_id = s.id where s.deleted_at is null order by s.last_activity_at desc limit 100');
   const projectNames = db.prepare('select name from projects where deleted_at is null');
   const voice = new VoiceService({
@@ -182,12 +190,7 @@ export function bootHttp(p: {
       sessionTitles: (titles.all() as { t: string | null }[]).map((r) => r.t ?? '').filter((x) => x !== ''),
       projectNames: (projectNames.all() as { name: string }[]).map((r) => r.name),
     }),
-    orchestratorStatus: () => {
-      const id = orchestratorOf(settings.current.orchestrator).sessionId;
-      const r = id ? (providerIdOf.get(id) as { provider: string; psid: string | null } | undefined) : undefined;
-      if (!r?.psid) return null;
-      return delivery.live.current().find((l) => (l.agent ?? 'claude-code') === r.provider && l.sessionId === r.psid)?.status ?? null;
-    },
+    orchestratorStatus: () => liveStatusOf(orchestratorOf(settings.current.orchestrator).sessionId),
   });
   voice.start();
   // 強い声のターンの終わり（統括が入力待ちに戻った）を、実行中の一覧の変化で見る。

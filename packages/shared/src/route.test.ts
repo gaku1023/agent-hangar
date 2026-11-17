@@ -17,7 +17,7 @@ describe('parseRoute', () => {
     expect(parseRoute('#/settings?at=unsent')).toEqual({ name: 'settings', at: 'unsent' });
     // 帯の「設定を開く」が指す欄。
     for (const at of ['workspace', 'tmux', 'claude', 'compat'] as const) expect(parseRoute(`#/settings?at=${at}`)).toEqual({ name: 'settings', at });
-    for (const at of ['general', 'sessions', 'summary', 'cloud', 'environment', 'usage', 'agentClaude', 'agentCodex', 'agentOpencode', 'about'] as const) expect(parseRoute(`#/settings?at=${at}`)).toEqual({ name: 'settings', at });
+    for (const at of ['general', 'sessions', 'orchestrator', 'summary', 'cloud', 'environment', 'usage', 'agentClaude', 'agentCodex', 'agentOpencode', 'about'] as const) expect(parseRoute(`#/settings?at=${at}`)).toEqual({ name: 'settings', at });
     // 0.9.3 までの節の名前も読む（殻のディープリンクと履歴に残っている）。
     for (const at of ['tools', 'update', 'info'] as const) expect(parseRoute(`#/settings?at=${at}`)).toEqual({ name: 'settings', at });
     // 知らない行き先は印なしの設定として読む。
