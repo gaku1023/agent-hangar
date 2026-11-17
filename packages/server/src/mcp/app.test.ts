@@ -9,7 +9,7 @@ import { IndexerService } from '../indexer/service.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { assignSessions } from '../projects/registry.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
-import { createMcpApp } from './app.ts';
+import { ALWAYS_LOADED_TOOLS, createMcpApp } from './app.ts';
 import { TOOL_NAMES } from './tools.ts';
 
 let dir: string;
@@ -86,6 +86,15 @@ describe('createMcpApp', () => {
     expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
     // 説明文は先頭が `agent-hangar:` である。含むだけの検査では、途中に紛れ込んでも通ってしまう。
     for (const t of tools) expect(t.description, t.name).toMatch(/^agent-hangar:/);
+  });
+  it('毎ターン使う 4 本だけを、遅延させずに最初から読み込ませる（_meta の anthropic/alwaysLoad）', async () => {
+    const list = await rpc('/', 'tools/list', {}, 2);
+    const tools = list.body.result!.tools as { name: string; _meta?: Record<string, unknown> }[];
+    const always = tools.filter((t) => t._meta?.['anthropic/alwaysLoad'] === true).map((t) => t.name).sort();
+    expect(always).toEqual([...ALWAYS_LOADED_TOOLS].sort());
+    expect(always).toEqual(['notify_user', 'propose_session_status', 'set_session_summary', 'set_turn_intent']);
+    // ほかの道具には印を付けない（偽の印も付けない）。付けると、そのぶんだけ毎回の要求が太る。
+    for (const t of tools.filter((x) => !always.includes(x.name))) expect(t._meta?.['anthropic/alwaysLoad'], t.name).toBeUndefined();
   });
   it('tools/call は結果を text に包む', async () => {
     const r = await rpc('/', 'tools/call', { name: 'list_projects', arguments: {} }, 3);

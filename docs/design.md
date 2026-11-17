@@ -3929,6 +3929,10 @@ Claude Code は `~/.claude.json` のほかの鍵（起動の回数など）を�
 ロックを取って読んだ `mcpServers` を、見立ての値ともう一度比べてから書く。
 そのポートで誰も応答しないときだけは、起動前の登録を塞がないために成功のまま起動を促す。
 Claude Code は MCP のツール定義を遅延して読むため、ツールの説明文に「agent-hangar」を含めて検索で当たるようにする。
+ただし、起動時の指示が毎ターン呼ぶよう頼む 4 本（`notify_user`、`set_turn_intent`、`set_session_summary`、`propose_session_status`）は、道具の `_meta` に `anthropic/alwaysLoad: true` を付けて最初から読み込ませる（`mcp/app.ts` の `ALWAYS_LOADED_TOOLS`、Claude Code 2.1.326 で確かめた）。
+遅延のままだと、呼ぶたびに先に ToolSearch で定義を引く 1 往復が要るためである。
+全部に付けると使わない道具の定義で毎回の要求が太るので、ほかは遅延のままにする。
+Codex と opencode はこの印を知らないので読み飛ばす。
 
 ### 初期プロンプトの欄の口
 
