@@ -3945,7 +3945,7 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   update_project の `append_memo` のように引数ごと外した場合は、MCP の層が未知の引数として捨てる。こちらは道具が 1 つの仕事しか持たないので、外した後の一覧に無い道具を呼ばれても MCP の層が isError で返す。
   外す前の一覧を覚えた Claude が呼んでも、MCP の層が書かずに `isError`（道具が無い）で返す。モデルにこの道具を使うよう指示したことも無い。
 - `get_usage()`：5 時間と 7 日の使用率、最終更新時刻。
-- `open_in_hangar({ session_id | project_id })`：UI とディープリンクの URL を返す。セッションを指したときは、画面へ事件 `session.openPrompt`（`sessionId`、その会話の PC の `deviceId`、呼び出し元の会話 `fromSessionId`、共通の URL なら null）を `ToolDeps.openPrompt`（`hub.broadcast`）で流し、返り値に `prompted: true` を足す。画面は切り替えず、右下の知らせに「開く」を出す。プロジェクトを指したときは流さない。
+- `open_in_hangar({ session_id | project_id })`：UI とディープリンクの URL を返す。セッションを指したときは、画面へ事件 `session.openPrompt`（`sessionId`、その会話の PC の `deviceId`、呼び出し元の会話 `fromSessionId`、共通の URL なら null）を `ToolDeps.openPrompt`（`hub.broadcast`）で流し、返り値に `prompted: true` を足す。画面は切り替えず、右下の知らせに「開く」を出す。プロジェクトを指したときは流さない。セッション別 URL からでも、ほかの会話（自分が起こした子など）の `session_id` を指せる（知らせを出して URL を返すだけなので、ほかの道具のようにそのセッションに閉じない）。省けば自分。
   セッションの URL は、MCP が返すものはいつも `#/session/<id>?device=<その会話の PC の ID>`（`sessions.home_device`、行が無ければこの PC）で、画面がアプリ内で開くときに PC を知れる。プロジェクトの URL と `deep_link` は変えない。
 - `send_to_session({ session_id, text, submit? })`：この PC の hangar の tmux（Windows では psmux）で動いているそのセッションの主の画面に、`text` を入力として送る（2026-10-27）。
   どのセッションにも、聞かずに送れる。ただし呼んだセッション自身には断る。

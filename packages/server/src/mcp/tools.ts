@@ -906,7 +906,8 @@ export function openInHangarTool(deps: ToolDeps, ctx: ToolContext, args: Record<
     requireProject(deps, projectId);
     return { url: url(deps, `project/${projectId}`), deep_link: `hangar://project/${projectId}` };
   }
-  const id = sessionIdOf(ctx, args);
+  // 知らせを出して URL を返すだけなので、セッション別 URL からでもほかの会話（自分が起こした子など）を指せる。省けば自分。
+  const id = str(args.session_id) ?? sessionIdOf(ctx, args);
   requireSession(deps, id);
   const r = deps.db.prepare('select home_device d from sessions where id = ?').get(id) as { d: string } | undefined;
   deps.openPrompt?.({ type: 'session.openPrompt', sessionId: id, deviceId: r?.d ?? deps.deviceId, fromSessionId: ctx.sessionId });

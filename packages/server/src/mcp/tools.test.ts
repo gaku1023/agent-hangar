@@ -983,6 +983,14 @@ describe('MCP tools', () => {
       { type: 'session.openPrompt', sessionId: alphaId, deviceId: 'd', fromSessionId: alphaId },
     ]);
   });
+  it('open_in_hangar はセッション別 URL からでも、ほかの会話（自分が起こした子など）を開ける', () => {
+    const other = (db.prepare('select id from sessions where id != ? limit 1').get(alphaId) as { id: string }).id;
+    const evs: unknown[] = [];
+    deps = { ...deps, openPrompt: (e) => { evs.push(e); } };
+    expect(call('open_in_hangar', { session_id: other }, { sessionId: alphaId }).url).toContain(`/#/session/${other}?device=`);
+    expect(evs).toEqual([{ type: 'session.openPrompt', sessionId: other, deviceId: 'd', fromSessionId: alphaId }]);
+    expect(() => call('open_in_hangar', { session_id: 'ghost-session' }, { sessionId: alphaId })).toThrow(ToolError);
+  });
   it('open_in_hangar は実在しない ID を死んだリンクにしない', () => {
     expect(() => call('open_in_hangar', { session_id: 'ghost-session' })).toThrow(ToolError);
     expect(() => call('open_in_hangar', { project_id: 'ghost-project' })).toThrow(ToolError);
@@ -1022,7 +1030,8 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
   });
 
   it('セッションを取る他の道具は、別のセッションを断る', () => {
-    for (const [name, args] of SESSION_TOOL_CALLS.filter(([n]) => n !== 'get_transcript')) {
+    // open_in_hangar は知らせを出して URL を返すだけなので、どの会話でも指せる（上の試験）。
+    for (const [name, args] of SESSION_TOOL_CALLS.filter(([n]) => n !== 'get_transcript' && n !== 'open_in_hangar')) {
       expect(() => call(name, { ...args, session_id: otherId }, scoped())).toThrow(ToolError);
     }
     // 別のセッションの要約は書かれていない。
