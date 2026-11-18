@@ -15,6 +15,8 @@ export const transcriptKeys = {
   'transcript.tool.viewSubagent': ['id'],
   'transcript.toolGroup.count': ['n'],
   'transcript.toolGroup.failed': ['n'],
+  'transcript.compact.title': [],
+  'transcript.compact.tools': ['n'],
   'transcript.find.noMatch': [],
   'transcript.find.label': [],
   'transcript.find.matchCase': [],

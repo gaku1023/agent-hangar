@@ -14,6 +14,8 @@ export type PeerChatRow =
   | { kind: 'user'; key: string; text: string; from: string | null }
   | { kind: 'assistant'; key: string; text: string; /** 読み上げている発言（統括の柱）。左に印を出す。 */ speaking?: boolean }
   | { kind: 'tool'; key: string; name: string; summary: string; ok: boolean }
+  // 続けて呼んだ 2 本以上のツールのまとめ（本文の画面の「ツール呼び出し N 回」と同じ）。key は先頭のツールの key のままにし、2 本目が来ても入る動きを出し直さない。
+  | { kind: 'tools'; key: string; label: string; failed: string | null; items: { key: string; name: string; summary: string; ok: boolean }[] }
   | { kind: 'system'; key: string; text: string }
   | { kind: 'ask'; key: string; askId: string; askKind: 'permission' | 'question'; title: string; input: string | null; options: { key: string; label: string }[]; multi: boolean; allowText: boolean; answered: string | null; /** 元の PC で答える札（この PC からは答えられない）。案内の文。答えられる札と、答えが付いた札は null。 */ hostOnly: string | null; /** 答えを送って結果を待っている。 */ pending: boolean; /** 受け付けない設定の PC。押せない。 */ locked: boolean }
   | { kind: 'queued'; key: string; queueId: string; text: string; images: number; tag: string; from: string | null; mine: boolean; delivering: boolean; rushing: boolean };
@@ -104,7 +106,33 @@ function staleAsk(slice: PeerChatSlice, index: number): boolean {
   return slice.status !== 'waiting' || index < slice.items.length - 1;
 }
 
-function rowOf(t: Translate, it: PeerChatItem, slice: PeerChatSlice, index: number, device: string): PeerChatRow {
+/** MCP の道具の名前（mcp__server__tool）は、道具の名前だけにする。 */
+const shortToolName = (name: string): string => name.replace(/^mcp__.+?__/, '');
+/** 送られてくる要旨は頭に道具の名前を持つ（toolSummary）。名前は札に出すので、要旨からは外す。 */
+const dropName = (summary: string, name: string): string => (summary === name ? '' : summary.startsWith(`${name} `) ? summary.slice(name.length + 1) : summary);
+
+/** 続けて並ぶ 2 本以上のツールを 1 行にまとめる。間に文や札が挟まれば区切る。 */
+function foldTools(rows: PeerChatRow[], t: Translate): PeerChatRow[] {
+  const out: PeerChatRow[] = [];
+  let run: Extract<PeerChatRow, { kind: 'tool' }>[] = [];
+  const flush = () => {
+    if (run.length === 1) out.push(run[0]!);
+    else if (run.length > 1) {
+      const failed = run.filter((r) => !r.ok).length;
+      out.push({ kind: 'tools', key: run[0]!.key, label: t('transcript.toolGroup.count', { n: run.length }), failed: failed > 0 ? t('transcript.toolGroup.failed', { n: failed }) : null, items: run.map(({ key, name, summary, ok }) => ({ key, name, summary, ok })) });
+    }
+    run = [];
+  };
+  for (const r of rows) {
+    if (r.kind === 'tool') { run.push(r); continue; }
+    flush();
+    out.push(r);
+  }
+  flush();
+  return out;
+}
+
+function rowOf(t: Translate,it: PeerChatItem, slice: PeerChatSlice, index: number, device: string): PeerChatRow {
   if (it.ask) {
     const answered = answerLine(t, it) ?? (staleAsk(slice, index) ? t('peerChat.ask.closed') : null);
     return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, answered, hostOnly: answered === null && it.ask.answerable === false ? t('peerChat.ask.hostOnly', { device }) : null, pending: slice.answering.includes(it.ask.askId), locked: slice.locked };
@@ -112,7 +140,10 @@ function rowOf(t: Translate, it: PeerChatItem, slice: PeerChatSlice, index: numb
   switch (it.kind) {
     case 'user': return { kind: 'user', key: it.uuid, text: it.text, from: it.from ? t('peerChat.log.sentFrom', { device: it.from.deviceName }) : null };
     case 'assistant': return { kind: 'assistant', key: it.uuid, text: it.text };
-    case 'tool': return { kind: 'tool', key: it.uuid, name: it.tool?.name ?? '', summary: it.tool?.summary ?? it.text, ok: it.tool?.ok !== false };
+    case 'tool': {
+      const name = it.tool?.name ?? '';
+      return { kind: 'tool', key: it.uuid, name: shortToolName(name), summary: dropName(it.tool?.summary ?? it.text, name), ok: it.tool?.ok !== false };
+    }
     default: return { kind: 'system', key: it.uuid, text: it.text };
   }
 }
@@ -131,7 +162,7 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
   const device = peerChatDeviceName(store, s!, slice);
   const myId = store.device?.id ?? null;
   const status = slice.status;
-  const rows: PeerChatRow[] = slice.items.map((it, i) => rowOf(t, it, slice, i, device));
+  const rows: PeerChatRow[] = foldTools(slice.items.map((it, i) => rowOf(t, it, slice, i, device)), t);
   for (const q of slice.queued) {
     const mine = myId !== null && q.from.deviceId === myId;
     const delivering = q.state === 'delivering';

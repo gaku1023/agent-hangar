@@ -2231,3 +2231,28 @@ describe('opencodeAgentNote（エージェントの一覧の opencode の説明�
     expect(opencodeAgentNote(t, null)).toBeNull();
   });
 });
+
+describe('要約の頭とエージェントの報告はツールの行にする', () => {
+  const compact = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\n<system-reminder>\n<tools-used-before-summary>Bash, Edit, Read</tools-used-before-summary>\n</system-reminder>\nSummary:\n1. Primary Request and Intent:\n   - 直す';
+  const opts = { showThinking: false, showRaw: false, subagents: [] };
+  it('要約の頭は札 compact、「ここまでの要約 · ツール 3 種」で、開くと Summary: の後ろと使ったツールが出る', () => {
+    const [it] = buildItems([{ kind: 'system', seq: 1, ts: 1, text: compact, subtype: 'compact_summary' }], opts, ja);
+    expect(it).toMatchObject({ kind: 'tool', name: 'compact', view: { head: { main: 'ここまでの要約', dim: 'ツール 3 種' }, body: { kind: 'note', text: '1. Primary Request and Intent:\n   - 直す', tools: ['Bash', 'Edit', 'Read'] } } });
+    const [en] = buildItems([{ kind: 'system', seq: 1, ts: 1, text: compact, subtype: 'compact_summary' }], opts, translator('en'));
+    expect(en).toMatchObject({ view: { head: { main: 'Conversation summary', dim: '3 tools used' } } });
+  });
+  it('ツールの一覧が無い要約は添え書きを出さず、Summary: が無ければ本文の全部を出す', () => {
+    const [it] = buildItems([{ kind: 'system', seq: 1, ts: 1, text: 'This session is being continued.\n\nあらすじ', subtype: 'compact_summary' }], opts, ja);
+    expect(it).toMatchObject({ kind: 'tool', view: { head: { main: 'ここまでの要約', dim: null }, body: { kind: 'note', text: 'This session is being continued.\n\nあらすじ', tools: [] } } });
+  });
+  it('エージェントの報告は札が送り手の名前で、行は本文の最初の行、開くと本文の全部', () => {
+    const [it] = buildItems([{ kind: 'system', seq: 2, ts: 1, text: '\nPR #764 になりました。\n\n- 未確認：CI', subtype: 'agent_message', from: 'general-purpose' }], opts, ja);
+    expect(it).toMatchObject({ kind: 'tool', name: 'general-purpose', view: { head: { main: 'PR #764 になりました。', dim: null }, body: { kind: 'note', text: '\nPR #764 になりました。\n\n- 未確認：CI', tools: [] } } });
+    const [anon] = buildItems([{ kind: 'system', seq: 2, ts: 1, text: '手が空きました', subtype: 'agent_message' }], opts, ja);
+    expect(anon).toMatchObject({ kind: 'tool', name: 'agent' });
+  });
+  it('生の記録を出すときは、手を加えずに知らせの行で出す', () => {
+    const [it] = buildItems([{ kind: 'system', seq: 1, ts: 1, text: compact, subtype: 'compact_summary' }], { ...opts, showRaw: true }, ja);
+    expect(it).toMatchObject({ kind: 'system', text: compact });
+  });
+});

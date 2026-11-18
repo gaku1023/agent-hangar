@@ -13,7 +13,7 @@ import { periodLabel } from './retentionDialog.ts';
 import { absoluteTime, costLabel, durationLabel, percentLabel, relativeTime, shortModel, STATUS_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
 import type { ParentLink } from './heading.ts';
 import { presentArtifactCard, type ArtifactCardProps } from './project.ts';
-import { presentTool, relPath, type ToolView } from './tools.ts';
+import { noteView, presentTool, relPath, type ToolView } from './tools.ts';
 import { turnsText } from './stats.ts';
 import { translatorOf } from './i18n.ts';
 import { isPeerChatCandidate, presentPeerChat, type PeerChatView } from './peerChat.ts';
@@ -260,6 +260,12 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
         // 生の記録を出すときは、手を加えずにそのまま見せる。
         // 種類の名前しか持たない行（turn_duration と stop_hook_summary は毎ターン 1 つずつ出る）は、読む中身が無いので落とす。
         if (!opts.showRaw && e.subtype !== undefined && e.text === e.subtype) break;
+        // 要約の頭とエージェントの報告は、ツールと同じ畳んだ行にする。
+        if (!opts.showRaw && (e.subtype === 'compact_summary' || e.subtype === 'agent_message')) {
+          const { name, view } = noteView({ subtype: e.subtype, text: e.text, ...(e.from ? { from: e.from } : {}) }, t);
+          items.push({ kind: 'tool', seq: e.seq, summary: view.head.main, name, view, raw: null, result: null, when: when(e.ts), subagent: null });
+          break;
+        }
         const text = opts.showRaw ? e.text : localCommandText(e.text, t);
         if (text !== null) items.push({ kind: 'system', seq: e.seq, text, when: when(e.ts) });
         break;

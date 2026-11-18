@@ -20,7 +20,8 @@ export function groupRows(items: TranscriptItem[], group: boolean): TranscriptRo
   let open: TranscriptRow | null = null;
   for (const it of items) {
     // 質問（AskUserQuestion）は会話の一部なので、まとめに畳まず、ほかの行と同じ形で残す。
-    if (!group || it.kind !== 'tool' || it.name === 'AskUserQuestion') { rows.push({ key: it.seq, items: [it], tools: false }); open = null; continue; }
+    // 要約の頭とエージェントの報告（note）も、読む本文なので 1 つで置く。
+    if (!group || it.kind !== 'tool' || it.name === 'AskUserQuestion' || it.view.body.kind === 'note') { rows.push({ key: it.seq, items: [it], tools: false }); open = null; continue; }
     if (it.subagent) { rows.push({ key: it.seq, items: [it], tools: true }); open = null; continue; }
     if (open) { open.items.push(it); continue; }
     open = { key: it.seq, items: [it], tools: true };
