@@ -40,7 +40,7 @@ export function Shell(props: ShellProps & { children: ReactNode; overlays: React
   const style = { '--sidebar-w': sidebarWidthCss(props.sidebarWidth), '--orch-w': orchWidthCss(props.orchestratorWidth ?? ORCH_WIDTH_DEFAULT) } as CSSProperties;
   return (
     <div ref={ref} className="shell" data-sidebar={props.sidebarCollapsed ? 'collapsed' : undefined} data-wide={props.wide ? 'true' : undefined} data-orch={props.orchestrator ? 'true' : undefined} style={style}>
-      <Sidebar nav={props.nav} foot={props.foot} collapsed={props.sidebarCollapsed} live={props.live} orch={props.orchNav} />
+      <Sidebar nav={props.nav} foot={props.foot} collapsed={props.sidebarCollapsed} live={props.live} orch={props.orchNav} history={props.history} />
       {!props.sidebarCollapsed && <SidebarGrip width={props.sidebarWidth} />}
       <Header indexLabel={props.indexLabel} usage={props.usage} account={props.account} sync={props.sync} notices={props.notices} newSession={props.newSession} />
       {/* 帯は 2 行目に置く。切断の帯だけで、無いときは箱が空になり、:empty で潰れる。保持期間は帯でなくベルの一覧の行になった。 */}

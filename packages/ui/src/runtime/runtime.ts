@@ -42,7 +42,7 @@ import { keyLabel } from '../keys.ts';
 export type RuntimeDeps = {
   api: ApiClient;
   ws: (handlers: { onOpen(): void; onClose(): void; onEvent(ev: ServerEvent): void }) => WsClient;
-  location: { getHash(): string; setHash(h: string): void; replaceHash?(h: string): void; onHashChange(cb: () => void): () => void; go(delta: number): void; depth(): number };
+  location: { getHash(): string; setHash(h: string): void; replaceHash?(h: string): void; onHashChange(cb: () => void): () => void; go(delta: number): void; depth(): number; canForward?(): boolean };
   storage: { get(key: string): unknown; set(key: string, value: unknown): void; keys(): string[] };
   setTimeout: (fn: () => void, ms: number) => unknown;
   /** いま何時か。切断の時刻を Mediator へ渡すために要る。テストが差し替えられるように受け口にしてある。 */
@@ -520,6 +520,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         dispatch({ kind: 'runtime', event: { type: 'configSync.done', close: false } });
       }
     })();
+  }
+
+  /** 履歴を戻れるか（アプリの最初の段より後ろか）と、進める段があるか。 */
+  function historyNow(): { back: boolean; forward: boolean } {
+    return { back: deps.location.depth() > 0, forward: deps.location.canForward?.() ?? false };
   }
 
   function runEffect(e: Effect): void {
@@ -1220,7 +1225,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。
       state = {
-        ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, sidebarOrder: cleanSidebarOrder(deps.storage.get(SIDEBAR_ORDER_KEY)),
+        ...state, sessionView: sv, history: historyNow(), sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, sidebarOrder: cleanSidebarOrder(deps.storage.get(SIDEBAR_ORDER_KEY)),
         panes: { ...cleanPaneLayout(deps.storage.get(PANES_KEY)), zoom: null, flash: null, tocPeek: [] },
         sidebarFolded: cleanSidebarFolded(deps.storage.get(SIDEBAR_FOLDED_KEY)), sidebarWidth: cleanSidebarWidth(deps.storage.get(SIDEBAR_WIDTH_KEY)), orchestratorWidth: cleanOrchWidth(deps.storage.get(ORCH_WIDTH_KEY)),
         pageSize: readPageSize(deps.storage.get(PAGE_SIZE_KEY)),
@@ -1284,9 +1289,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const d = deps.location.depth();
         const moved = d - lastDepth;
         lastDepth = d;
-        if (wrote === h) { wrote = null; dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h) } }); return; }
+        // 戻れる・進めるを添える（サイドバーの戻る・進むのボタン）。別の知らせにすると、1 回の移動で描き直しが 2 回走る。
+        const history = historyNow();
+        if (wrote === h) { wrote = null; dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), history } }); return; }
         wrote = null;
-        dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), moved } });
+        dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), moved, history } });
       });
       // 前面に来たときも、隠れている間に溜めた Store の変化を出す。visibilitychange を出し損ねる WebView があっても、画面が古いまま残らないようにする。
       unsubFocus = deps.onWindowFocus?.(() => { peerChat.resume(); releaseStore(); dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); resendSeen(); }) ?? null;

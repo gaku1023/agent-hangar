@@ -98,7 +98,9 @@ describe('Shell', () => {
     expect(within(screen.getByRole('banner')).queryByRole('button', { name: /サイドバー/ })).toBeNull();
     const toggle = side.getByRole('button', { name: 'サイドバーを閉じる' });
     expect(toggle.parentElement).toHaveClass('nav-row');
-    expect(toggle.previousElementSibling).toBe(side.getByRole('link', { name: 'ホーム' }));
+    // ホームと開閉のボタンの間に、履歴の戻る・進むが入る（sidebarHistory.test.tsx）。
+    expect(toggle.previousElementSibling).toHaveClass('nav-history');
+    expect(toggle.previousElementSibling?.previousElementSibling).toBe(side.getByRole('link', { name: 'ホーム' }));
     // 乗せたときの吹き出しは、今押すと何が起きるかを短く言う。読み上げは aria-label に任せる。
     expect(toggle.querySelector('.toggle-tip')).toHaveTextContent('閉じる⌘B');
     expect(toggle.querySelector('.toggle-tip')).toHaveAttribute('aria-hidden', 'true');

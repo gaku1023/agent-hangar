@@ -54,11 +54,13 @@ function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps>
   const timers: { fn: () => void; ms: number }[] = [];
   const go = vi.fn();
   let depth = 0;
+  // 進める段の上端。積むと今の段が上端になり、戻っても上端は動かない（本物の履歴と同じ）。
+  let top = 0;
   const store = new Map<string, unknown>();
   const deps: RuntimeDeps = {
     api,
     ws: (h) => { wsHandlers.push(h); return { connect: vi.fn(), close: vi.fn() }; },
-    location: { getHash: () => hash, setHash: (h) => { hash = h; depth += 1; for (const l of hashListeners) l(); }, onHashChange: (cb) => { hashListeners.add(cb); return () => hashListeners.delete(cb); }, go, depth: () => depth },
+    location: { getHash: () => hash, setHash: (h) => { hash = h; depth += 1; top = depth; for (const l of hashListeners) l(); }, onHashChange: (cb) => { hashListeners.add(cb); return () => hashListeners.delete(cb); }, go, depth: () => depth, canForward: () => depth < top },
     storage: { get: (k) => store.get(k), set: (k, v) => store.set(k, v), keys: () => [...store.keys()] },
     setTimeout: (fn, ms) => timers.push({ fn, ms }),
     terminals: fakeTerminals(),
@@ -1498,6 +1500,18 @@ describe('履歴', () => {
     expect(rt.canGoBack()).toBe(false);
     rt.emit({ type: 'nav.go', to: { name: 'projects' } });
     expect(rt.canGoBack()).toBe(true);
+  });
+
+  it('戻れる・進めるを、段が動くたびに状態へ入れる（サイドバーの戻る・進むのボタン）', () => {
+    const { rt, browse } = harness();
+    rt.start();
+    expect(rt.getState().history).toEqual({ back: false, forward: false });
+    rt.emit({ type: 'nav.go', to: { name: 'projects' } });
+    expect(rt.getState().history).toEqual({ back: true, forward: false });
+    browse('#/', 0);
+    expect(rt.getState().history).toEqual({ back: false, forward: true });
+    browse('#/projects', 1);
+    expect(rt.getState().history).toEqual({ back: true, forward: false });
   });
 
   it('アプリの最初の頁からは戻らない', () => {
