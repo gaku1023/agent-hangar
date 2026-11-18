@@ -3,6 +3,23 @@ import { indexTexts, isTypedPrompt, normalizeRecord, recordFacts, toolSummary } 
 
 const base = { uuid: 'u', parentUuid: null, isSidechain: false, timestamp: '2026-09-01T10:00:00.000Z', cwd: '/Users/me/workspace/alpha', sessionId: 'aaaa' };
 
+describe('要約の頭とエージェントの報告', () => {
+  it('要約で続けた会話の頭は system の compact_summary', () => {
+    const text = 'This session is being continued from a previous conversation that ran out of context.\n\nSummary:\n1. Primary';
+    const ev = normalizeRecord({ ...base, type: 'user', isCompactSummary: true, isVisibleInTranscriptOnly: true, message: { role: 'user', content: text } }, 3, null);
+    expect(ev).toEqual([{ kind: 'system', seq: 3, ts: Date.parse(base.timestamp), text, subtype: 'compact_summary' }]);
+  });
+  it('サブエージェントの報告は、前置きの注意書きを外し、字下げを戻した本文と送り手の名前の agent_message', () => {
+    const body = '[Subagent hand-back] The text below is the final report of a subagent. The report follows:\n  PR #764 になりました。\n  \n  - 未確認：CI';
+    const ev = normalizeRecord({ ...base, type: 'user', isMeta: true, origin: { kind: 'peer', from: 'ab29', name: 'general-purpose', body }, message: { role: 'user', content: `Another Claude session sent a message:\n<agent-message from="ab29">\n${body}\n</agent-message>\n\nThat "other Claude session" is …` } }, 0, null);
+    expect(ev).toEqual([{ kind: 'system', seq: 0, ts: Date.parse(base.timestamp), text: 'PR #764 になりました。\n\n- 未確認：CI', subtype: 'agent_message', from: 'general-purpose' }]);
+  });
+  it('前置きの無いエージェントの文はそのまま本文にし、名前が無ければ from を持たない', () => {
+    const ev = normalizeRecord({ ...base, type: 'user', isMeta: true, origin: { kind: 'peer', from: 'x1', body: '手が空きました' }, message: { role: 'user', content: 'Another Claude session sent a message: …' } }, 0, null);
+    expect(ev).toEqual([{ kind: 'system', seq: 0, ts: Date.parse(base.timestamp), text: '手が空きました', subtype: 'agent_message' }]);
+  });
+});
+
 describe('normalizeRecord', () => {
   it('文字列 content の user は user 1 件', () => {
     const ev = normalizeRecord({ ...base, type: 'user', message: { role: 'user', content: 'こんにちは' } }, 5, null);

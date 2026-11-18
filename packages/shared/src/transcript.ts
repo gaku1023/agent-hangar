@@ -8,7 +8,8 @@ export type TranscriptEvent =
   | { kind: 'tool_result'; seq: number; ts?: number; toolId: string; text: string; isError: boolean; agentLaunch?: { agentId: string; async: boolean } }
   | { kind: 'subagent'; seq: number; ts?: number; agentId: string; label: string }
   // subtype は Claude Code の system 行の種類（turn_duration など）。本文の無い行は text も subtype と同じになる。
-  | { kind: 'system'; seq: number; ts?: number; text: string; subtype?: string }
+  // hangar が付ける種類：compact_summary は要約で続けた会話の頭（本文は要約）、agent_message はほかのエージェントからの文（from は送り手の名前）。
+  | { kind: 'system'; seq: number; ts?: number; text: string; subtype?: string; from?: string }
   | { kind: 'meta'; seq: number; ts?: number; name: string; value: unknown };
 
 /**

@@ -1116,12 +1116,26 @@ type TranscriptEvent =
   | { kind: 'tool_call'; seq: number; ts?: number; toolId: string; name: string; input: unknown; summary: string; filePath?: string }
   | { kind: 'tool_result'; seq: number; ts?: number; toolId: string; text: string; isError: boolean }
   | { kind: 'subagent'; seq: number; ts?: number; agentId: string; label: string }
-  | { kind: 'system'; seq: number; ts?: number; text: string }
+  | { kind: 'system'; seq: number; ts?: number; text: string; subtype?: string; from?: string }
   | { kind: 'meta'; seq: number; ts?: number; name: string; value: unknown };   // ai-title, pr-link など
 ```
 
 `summary` はツール呼び出しを 1 行で表す文字列で、折りたたみ表示に使う（例：`Edit src/app.ts`）。
 `meta` は表示しないが、索引の抽出元になる。
+
+Claude Code が user として書くが利用者の発言ではない 2 つの記録は、`system` に hangar の `subtype` を付けて分ける（2026-11-18）。
+
+- `compact_summary`：要約で続けた会話の頭（`isCompactSummary`）。本文は要約の全文。
+- `agent_message`：ほかのエージェント（サブエージェントの報告、チームの仲間、別の Claude のセッション）からの文（`isMeta` で `origin.kind` が `peer`）。本文は `origin.body` から、モデル向けの前置き（`[Subagent hand-back] … The report follows:`）と 2 字の字下げを外したもの。`from` は `origin.name`。
+
+会話の画面はこの 2 つを、ツールと同じ畳んだ行で描く（`presenters/tools.ts` の `noteView`、中身は `ToolBody` の `note`）。
+要約の頭は札が `compact`、行が「ここまでの要約 · ツール N 種」で、開くと `Summary:` の後ろの要約と、要約の前に使ったツール（`<tools-used-before-summary>`）を出す。
+エージェントの文は札が送り手の名前、行が本文の最初の行で、開くと本文の全部を出す。
+どちらも続くツールのまとめ（「ツール呼び出し N 回」）には入れない。
+生の記録を出すときは、手を加えずに知らせの行で出す。
+
+ほかの PC の会話の列（`PeerChatLog`）では、続けて呼んだ 2 本以上のツールを「ツール呼び出し N 回」の 1 行に畳み、押すと 1 本ずつの行を開く。
+行の名前は 1 回だけにし（送られてくる要旨の頭の名前を外す）、MCP の道具は `mcp__server__` を外した名前にする。
 
 ## Claude Code に固有の部分
 

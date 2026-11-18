@@ -56,4 +56,9 @@ describe('質問は会話の一部', () => {
     const ask = toolItem(3, 'AskUserQuestion', { questions: [] }, null);
     expect(groupRows([bash(1), bash(2), ask, bash(4)], true).map((r) => [r.tools, tools(r)])).toEqual([[true, [1, 2]], [false, [3]], [true, [4]]]);
   });
+  it('本文を持つ行（要約の頭とエージェントの報告）は、続くツールのまとめに入れず 1 つで置く', () => {
+    const b = bash(3);
+    const note = { ...b, name: 'compact', view: { ...b.view, body: { kind: 'note' as const, text: 'x', tools: [] } } };
+    expect(groupRows([bash(1), bash(2), note, bash(4)], true).map((r) => [r.tools, tools(r)])).toEqual([[true, [1, 2]], [false, [3]], [true, [4]]]);
+  });
 });

@@ -4,12 +4,12 @@ import type { DiffLine } from '../presenters/diff.ts';
 import { safeHref } from '../presenters/markdown.ts';
 import type { TranscriptItem } from '../presenters/session.ts';
 import type { ToolBody } from '../presenters/tools.ts';
-import { Clamp, headLines, OUT_LINES } from './primitives/Clamp.tsx';
+import { Clamp, estimateLines, headLines, MSG_LINES, OUT_LINES } from './primitives/Clamp.tsx';
 import { CopyButton } from './primitives/CopyButton.tsx';
 import { Hl } from './primitives/Hl.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
-import { CodeBlock } from './primitives/Markdown.tsx';
+import { CodeBlock, Markdown } from './primitives/Markdown.tsx';
 import { useHits, useOpen } from './transcriptOpen.tsx';
 
 type ToolItemProps = Extract<TranscriptItem, { kind: 'tool' }>;
@@ -129,6 +129,12 @@ function Body(props: { item: ToolItemProps }): ReactNode {
       </div>
     );
     case 'args': return <ArgsView seq={seq} body={b} />;
+    case 'note': return (
+      <div className="tool-note">
+        <Clamp seq={seq} part="note" lines={estimateLines(b.text)} shown={MSG_LINES} height>{() => <Markdown text={b.text} />}</Clamp>
+        {b.tools.length > 0 && <div className="tool-note-tools">{b.tools.map((name, i) => <span key={i} className="mono"><Hl text={name} /></span>)}</div>}
+      </div>
+    );
   }
 }
 

@@ -89,6 +89,14 @@ describe('indexFile', () => {
     expect((db.prepare('select last_activity_at from sessions where id = ?').get(r.sessionId) as { last_activity_at: number }).last_activity_at).toBe(Date.parse('2026-09-01T11:00:00.000Z'));
   });
 
+  it('要約で続けた会話の頭は turns にも last_prompt にも入らない', () => {
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    fs.appendFileSync(alphaMain().path, JSON.stringify({ type: 'user', isCompactSummary: true, isVisibleInTranscriptOnly: true, message: { role: 'user', content: 'This session is being continued from a previous conversation that ran out of context.\n\nSummary:\n1. x' }, uuid: 'u20', timestamp: '2026-09-01T11:00:00.000Z', cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA }) + '\n');
+    const r = indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(r.appended).toBe(1);
+    expect(db.prepare('select turns, last_prompt from session_stats where session_id = ?').get(r.sessionId)).toEqual({ turns: 2, last_prompt: 'b.md も同じように直して' });
+  });
+
   it('スラッシュコマンドの記録は turns にも first_prompt にも last_prompt にも入らない', () => {
     indexFile(db, alphaMain(), { deviceId: DEV });
     const mk = (uuid: string, content: string, ts: string) => JSON.stringify({ type: 'user', message: { role: 'user', content }, uuid, timestamp: ts, cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA }) + '\n';

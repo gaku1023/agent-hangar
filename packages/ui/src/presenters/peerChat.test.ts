@@ -151,6 +151,18 @@ describe('ほかの PC の会話の画面の描き分け（presenters/peerChat�
     expect(v.rows[3]).toMatchObject({ name: 'Grep', ok: true });
   });
 
+  it('続けて呼んだツールは「ツール呼び出し N 回」の 1 行に畳み、名前は 1 回だけ、MCP の頭は外す', () => {
+    const call = (uuid: string, name: string, summary: string, ok = true): PeerChatItem => ({ uuid, at: 3, kind: 'tool', text: summary, tool: { name, summary, ok } });
+    const v = view(store({ items: [ai('a1', '見ます'), call('t1', 'Bash', 'Bash ssh vm systemctl'), call('t2', 'mcp__hangar__set_session_summary', 'mcp__hangar__set_session_summary'), call('t3', 'mcp__hangar__notify_user', 'mcp__hangar__notify_user', false), ai('a2', '済みました'), call('t4', 'Read', 'Read /w/app/a.ts')] }))!;
+    expect(v.rows.map((r) => r.kind)).toEqual(['assistant', 'tools', 'assistant', 'tool']);
+    expect(v.rows[1]).toEqual({ kind: 'tools', key: 't1', label: 'ツール呼び出し 3 回', failed: '失敗 1', items: [
+      { key: 't1', name: 'Bash', summary: 'ssh vm systemctl', ok: true },
+      { key: 't2', name: 'set_session_summary', summary: '', ok: true },
+      { key: 't3', name: 'notify_user', summary: '', ok: false },
+    ] });
+    expect(v.rows[3]).toMatchObject({ kind: 'tool', name: 'Read', summary: '/w/app/a.ts' });
+  });
+
   it('許可の札は askId で行になり、答えが付けば答えの行（「Mac で許可」）になる', () => {
     const open = view(store({ status: 'waiting', items: [ask()] }))!.rows[0]!;
     expect(open).toMatchObject({ kind: 'ask', askId: 'ask-1', askKind: 'permission', title: '実行の許可', input: 'git push origin fix', answered: null });

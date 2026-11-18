@@ -21,7 +21,9 @@ export type ToolBody =
   | { kind: 'read'; path: string; range: string | null }
   | { kind: 'fetch'; url: string; prompt: string | null; text: string | null }
   | { kind: 'search'; query: string; links: SearchLink[] }
-  | { kind: 'args'; rows: ArgRow[] };
+  | { kind: 'args'; rows: ArgRow[] }
+  // ツールではないが同じ行で見せる記録（要約の頭、エージェントの報告）。text は Markdown、tools は要約の前に使ったツール。
+  | { kind: 'note'; text: string; tools: string[] };
 
 /**
  * 1 つのツールの見せ方。
@@ -209,6 +211,25 @@ function findCount(result: { text: string; isError: boolean } | null, t: Transla
  * 描く順に並べた文字の葉。本文の中の検索は、この葉ごとに一致を数える。
  * ツールの行と中身の View（views/ToolBody.tsx）は、同じ順に同じ文字を印の部品へ渡す。
  */
+const USED_TOOLS = /<tools-used-before-summary>([\s\S]*?)<\/tools-used-before-summary>/;
+const SUMMARY_HEAD = '\nSummary:\n';
+
+/**
+ * ツールではない記録を、ツールと同じ畳んだ行で見せる（2026-11-18 の試作の案 A）。
+ * 要約で続けた会話の頭は、札を compact、行を「ここまでの要約」にし、開くと Summary: の後ろの要約と、要約の前に使ったツールを出す。
+ * ほかのエージェントからの文は、札を送り手の名前、行を本文の最初の行にし、開くと本文の全部を出す。
+ */
+export function noteView(e: { subtype: 'compact_summary' | 'agent_message'; text: string; from?: string }, t: Translate): { name: string; view: ToolView } {
+  if (e.subtype === 'compact_summary') {
+    const tools = (USED_TOOLS.exec(e.text)?.[1] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    const at = e.text.indexOf(SUMMARY_HEAD);
+    const text = at >= 0 ? e.text.slice(at + SUMMARY_HEAD.length) : e.text;
+    return { name: 'compact', view: { step: 'other', head: { main: t('transcript.compact.title'), dim: tools.length > 0 ? t('transcript.compact.tools', { n: tools.length }) : null, meta: [] }, body: { kind: 'note', text, tools }, result: null } };
+  }
+  const first = e.text.split('\n').find((l) => l.trim() !== '')?.trim() ?? '';
+  return { name: e.from ?? 'agent', view: { step: 'other', head: { main: first, dim: null, meta: [] }, body: { kind: 'note', text: e.text, tools: [] }, result: null } };
+}
+
 export function toolLeaves(v: ToolView): string[] {
   const out = [v.head.main];
   if (v.head.dim) out.push(v.head.dim);
@@ -221,6 +242,7 @@ export function toolLeaves(v: ToolView): string[] {
     case 'fetch': out.push(b.url); if (b.prompt) out.push(b.prompt); if (b.text) out.push(b.text); break;
     case 'search': for (const l of b.links) out.push(l.title); break;
     case 'args': for (const r of b.rows) out.push(r.value); break;
+    case 'note': out.push(b.text, ...b.tools); break;
   }
   if (v.result) out.push(v.result);
   return out;

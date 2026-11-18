@@ -16,6 +16,8 @@ export const transcriptEn: AreaDictionary<typeof transcriptKeys> = {
   'transcript.tool.viewSubagent': 'View subagent {id}',
   'transcript.toolGroup.count': '{n} tool calls',
   'transcript.toolGroup.failed': '{n} failed',
+  'transcript.compact.title': 'Conversation summary',
+  'transcript.compact.tools': '{n} tools used',
   'transcript.find.noMatch': '0 matches',
   'transcript.find.label': 'Find in transcript',
   'transcript.find.matchCase': 'Match case',

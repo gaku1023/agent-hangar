@@ -4,6 +4,8 @@ import { PeerChatCard } from './PeerChatCard.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { Markdown } from './primitives/Markdown.tsx';
 import { useT } from './primitives/language.tsx';
+import { collapseOut, growIn, motionOn } from './primitives/motionKit.ts';
+import { usePresence } from './primitives/usePresence.ts';
 
 /** 末尾からこの距離（px）以内なら、新しい項目が来たとき末尾へ追う。読み返している間は動かさない。 */
 const FOLLOW_PX = 80;
@@ -32,6 +34,35 @@ export function nextTrack(prev: Track, rows: PeerChatRow[], loading: boolean): T
   const users = fresh.filter((r) => r.kind === 'user');
   for (const r of users.slice(0, vanished.length)) delivered.add(r.key);
   return { seen: new Set([...seen, ...keys]), entering, delivered, queued };
+}
+
+/**
+ * 続けて呼んだツールのまとめ（2026-11-18 の試作の案 1）。畳んだ行は「✓ ツール呼び出し N 回」で、押すと 1 本ずつの行が開く。
+ * 動きは本文の画面のまとめ（ToolGroup）と同じ growIn と collapseOut。
+ */
+function PeerToolFold({ row }: { row: Extract<PeerChatRow, { kind: 'tools' }> }) {
+  const [open, setOpen] = useState(false);
+  const list = usePresence<HTMLDivElement>(open, (el) => (motionOn(el) ? collapseOut(el) : null));
+  useLayoutEffect(() => {
+    if (open && list.ref.current) growIn(list.ref.current);
+    // 開いた変わり目だけで動かす。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  const ok = row.failed === null;
+  return (
+    <>
+      <button type="button" className="pchat-tool pchat-tools-row" data-ok={ok ? 'true' : 'false'} data-open={open ? 'true' : undefined} aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="chev"><Icon name="chevron" /></span>
+        <Icon name={ok ? 'check' : 'close'} />
+        <span className="pchat-tool-text">{row.label}{row.failed && <span className="pchat-tools-failed"> · {row.failed}</span>}</span>
+      </button>
+      {list.mounted && (
+        <div ref={list.ref} className="pchat-tools-list" aria-hidden={list.leaving ? true : undefined}>
+          {row.items.map((it) => <div key={it.key} className="pchat-tools-item" data-ok={it.ok ? 'true' : 'false'}><Icon name={it.ok ? 'check' : 'close'} /><span className="pchat-tool-text"><b>{it.name}</b>{it.summary && ` ${it.summary}`}</span></div>)}
+        </div>
+      )}
+    </>
+  );
 }
 
 /**
@@ -74,7 +105,9 @@ export function PeerChatLog(props: { rows: PeerChatRow[]; loading: boolean; onCa
           case 'assistant':
             return <div key={r.key} className={cls(r.key, 'pchat-ai')} data-speaking={r.speaking ? 'true' : undefined}><Markdown text={r.text} /></div>;
           case 'tool':
-            return <div key={r.key} className={cls(r.key, 'pchat-tool')} data-ok={r.ok ? 'true' : 'false'}><Icon name={r.ok ? 'check' : 'close'} /><span className="pchat-tool-text"><b>{r.name}</b> {r.summary}</span></div>;
+            return <div key={r.key} className={cls(r.key, 'pchat-tool')} data-ok={r.ok ? 'true' : 'false'}><Icon name={r.ok ? 'check' : 'close'} /><span className="pchat-tool-text"><b>{r.name}</b>{r.summary && ` ${r.summary}`}</span></div>;
+          case 'tools':
+            return <div key={r.key} className={cls(r.key, 'pchat-tools')}><PeerToolFold row={r} /></div>;
           case 'system':
             return <div key={r.key} className={cls(r.key, 'pchat-sys')}>{r.text}</div>;
           case 'ask':

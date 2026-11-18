@@ -133,6 +133,10 @@
 .tool-args { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: var(--u) calc(var(--u) * 3); margin: 0; padding: 8px 12px; border-radius: var(--r); background: #f7f8fb; box-shadow: 0 0 0 1px var(--line); font-size: var(--fs-sm); }
 .tool-args dt { font: 500 var(--fs-xs)/1.9 var(--font-mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
 .tool-args dd { margin: 0; min-width: 0; }
+/* 要約の頭とエージェントの報告の中身（ToolBody の note）。本文は返答と同じ Markdown で、引数の箱と同じ枠に入れる。 */
+.tool-note { padding: 8px 12px; border-radius: var(--r); background: #f7f8fb; box-shadow: 0 0 0 1px var(--line); font-size: var(--fs-sm); min-width: 0; }
+.tool-note-tools { display: flex; flex-wrap: wrap; gap: var(--u); margin-top: calc(var(--u) * 2); }
+.tool-note-tools > span { padding: 0 6px; border-radius: 5px; background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-xs); }
 .tool-args .clamp { --clamp-bg: #f7f8fb; }
 .arg-v { font-family: var(--font-mono); white-space: pre-wrap; word-break: break-word; }
 .tool-label { margin: 0 0 2px 2px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }

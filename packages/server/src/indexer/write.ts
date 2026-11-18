@@ -232,7 +232,8 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
       const f = r.facts;
       if (f.cwd && !acc.cwd) acc.cwd = f.cwd;
       if (f.ts !== undefined) { acc.firstTs = Math.min(acc.firstTs ?? f.ts, f.ts); acc.lastTs = Math.max(acc.lastTs ?? f.ts, f.ts); }
-      if (f.isUserTurn) {
+      // 要約で続けた会話の頭は、利用者の発言ではない（normalize で system の compact_summary になる）。指示の数にも書き出しにも入れない。
+      if (f.isUserTurn && !events.some((e) => e.kind === 'system' && e.subtype === 'compact_summary')) {
         const text = events.find((e) => e.kind === 'user');
         const head = text && text.kind === 'user' ? text.text.slice(0, 200) : '';
         acc.userTurns += 1;
