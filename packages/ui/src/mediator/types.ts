@@ -15,7 +15,7 @@ export type SearchQuery = Omit<SearchParamsDto, 'since'> & { days?: number };
 
 export type RuntimeEvent =
   // ws.close は時刻を運ぶ。Mediator は純粋な遷移なので、いつ切れたかを自分では測れない。
-  | { type: 'ws.open' } | { type: 'ws.close'; at: number } | { type: 'hash.changed'; route: Route; moved?: number }
+  | { type: 'ws.open' } | { type: 'ws.close'; at: number } | { type: 'hash.changed'; route: Route; moved?: number; /** 履歴の段が動いた後の、戻れるか・進めるか。runtime が URL の変化を受けたときだけ添える。 */ history?: { back: boolean; forward: boolean } }
   | { type: 'api.failed'; message: string; holdMs?: number; /** あれば、トーストに「エージェントで調査…」を付ける。 */ investigate?: InvestigateContext } | { type: 'search.done'; params: SearchParamsDto }
   | { type: 'launch.done'; sessionId: string; runId: string } | { type: 'launch.failed'; message: string; /** 起動が、リンクの場所のファイルの衝突だけで断られた（修復のダイアログを開ける）。 */ linkConflict?: LinkConflictRef }
   // 準備が問い（ask）で止まった、または利用者がやめた（cancel）。どちらも失敗ではない。message はサーバの文で、閉じた後に問いで止まったときだけ知らせる。
@@ -439,6 +439,8 @@ export type State = {
   accountAdd: LaunchState;
   linkRepair: LinkRepairState;
   toasts: Toast[]; nextToastId: number;
+  /** 履歴を戻れるか・進めるか。サイドバーの戻る・進むのボタンが、行けないほうを薄くするのに使う。runtime が段の動くたびに知らせる。 */
+  history: { back: boolean; forward: boolean };
   /** サイドバーを図とアイコンだけの帯に縮めているか。開閉のたびに保存し、起動時に読み戻す。 */
   sidebarCollapsed: boolean;
   /** 開いたサイドバーの幅（px）。境目を掴んで変え、端末ごとに保存して起動時に読み戻す。 */

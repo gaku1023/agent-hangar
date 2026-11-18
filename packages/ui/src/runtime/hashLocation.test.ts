@@ -44,6 +44,21 @@ describe('ハッシュの履歴', () => {
     expect(loc.depth()).toBe(0);
   });
 
+  it('戻った段からは進める。新しく積むと、その先は消える', () => {
+    const f = fake();
+    const loc = createHashLocation(f.history, f.location, () => () => {});
+    expect(loc.canForward()).toBe(false);
+    loc.setHash('#/projects');
+    loc.setHash('#/sessions');
+    expect(loc.canForward()).toBe(false);
+    // ブラウザの戻る。段の印は 1 段目のものに戻る。
+    f.history.replaceState({ hangarDepth: 1 });
+    expect(loc.canForward()).toBe(true);
+    loc.setHash('#/settings');
+    expect(loc.depth()).toBe(2);
+    expect(loc.canForward()).toBe(false);
+  });
+
   it('go はそのまま履歴へ渡す', () => {
     const f = fake();
     const loc = createHashLocation(f.history, f.location, () => () => {});

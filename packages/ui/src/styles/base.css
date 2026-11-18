@@ -65,6 +65,19 @@ a:hover { text-decoration: underline; }
 .toggle-tip { position: absolute; top: calc(100% + var(--u) * 1.5); right: 0; z-index: 3; display: flex; align-items: center; gap: calc(var(--u) * 1.5); padding: calc(var(--u) * 0.75) calc(var(--u) * 2); border-radius: var(--r); background: var(--ink); color: var(--surface); font-size: var(--fs-xs); font-weight: 500; line-height: 1.5; white-space: nowrap; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast); }
 .toggle-tip kbd { font-family: var(--font-mono); opacity: 0.65; }
 .btn.sidebar-toggle:hover .toggle-tip, .btn.sidebar-toggle:focus-visible .toggle-tip { opacity: 1; visibility: visible; }
+/* 履歴の戻る・進む（Sidebar.tsx の HistoryButtons）。開閉のボタンの手前に、いつも 2 つ並べる。行けないほうは薄くし、乗せても地を出さない。
+   使える・使えないの切り替えは薄さだけを --dur-fast で移す。吹き出しは開閉のボタンと同じものを、同じ規則で出す。 */
+.nav-history { display: flex; flex: none; margin-left: auto; }
+.nav-history + .btn.sidebar-toggle { margin-left: 0; }
+.btn.nav-history-btn { position: relative; flex: none; width: 26px; height: 32px; padding: 0 4px; color: var(--ink-2); background: none; box-shadow: none; transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out); }
+.btn.nav-history-btn svg { width: 18px; height: 18px; }
+.sidebar .btn.nav-history-btn:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: none; transform: none; }
+/* 薄くするのはアイコンだけにする。ボタンごと薄くすると、吹き出しまで薄くなって下の項目名と重なって読めない。 */
+.btn.nav-history-btn svg { transition: opacity var(--dur-fast) var(--ease-out); }
+.btn.nav-history-btn[aria-disabled='true'] { cursor: default; }
+.btn.nav-history-btn[aria-disabled='true'] svg { opacity: 0.3; }
+.sidebar .btn.nav-history-btn[aria-disabled='true']:hover { color: var(--ink-2); background: none; }
+.btn.nav-history-btn:hover .toggle-tip, .btn.nav-history-btn:focus-visible .toggle-tip { opacity: 1; visibility: visible; }
 .shell[data-sidebar-moving] .toggle-tip { display: none; }
 @keyframes glass-arrive-side { from { opacity: 0; transform: translateX(-28px); } }
 @keyframes glass-arrive-head { from { opacity: 0; transform: translateY(-14px); } }
@@ -305,6 +318,10 @@ a:hover { text-decoration: underline; }
 .shell[data-sidebar='collapsed'] .nav-row > .nav-item { flex: none; }
 .shell[data-sidebar='collapsed'] .btn.sidebar-toggle { width: var(--item); height: var(--item); padding: 0 calc(var(--u) * 2.75); border-radius: var(--r-lg); }
 .shell[data-sidebar='collapsed'] .sidebar .btn.sidebar-toggle:hover { background: rgba(255, 255, 255, 0.5); }
+/* 畳んだ帯では、戻る・進むを開閉のボタンの下に縦に並べる（並べ替えた .nav-row の中で、開閉とホームの間に来る）。 */
+.shell[data-sidebar='collapsed'] .nav-history { flex-direction: column; margin-left: 0; }
+.shell[data-sidebar='collapsed'] .btn.nav-history-btn { width: var(--item); height: 28px; padding: 0 calc(var(--u) * 2.75); border-radius: var(--r-lg); }
+.shell[data-sidebar='collapsed'] .sidebar .btn.nav-history-btn:not([aria-disabled='true']):hover { background: rgba(255, 255, 255, 0.5); }
 .shell[data-sidebar='collapsed'] .toggle-tip { top: 50%; right: auto; left: calc(var(--item) + var(--u) * 3); translate: 0 -50%; }
 .shell[data-sidebar-moving] .sidebar { overflow: hidden; }
 /* サイドバーの右の縁（views/SidebarGrip.tsx）。ガラスの縁を挟んで 8px の当たりを置き、普段は何も見せない。

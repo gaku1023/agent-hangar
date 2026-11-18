@@ -151,6 +151,11 @@ export function seenStep(state: State, store: Store, fromStore: boolean): Step {
 
 /** screen 領域：どの画面にいるか。URL のハッシュが正で、UiAction は navigate 効果を出すだけ。 */
 export function screenStep(state: State, store: Store, input: Input): Step | null {
+  if (input.kind === 'runtime' && input.event.type === 'hash.changed' && input.event.history) {
+    // 戻れる・進めるを入れてから、移動そのものを同じ知らせで続ける。同じ値なら状態を作り直さない。
+    const { back, forward } = input.event.history;
+    if (state.history.back !== back || state.history.forward !== forward) state = { ...state, history: { back, forward } };
+  }
   if (input.kind === 'runtime' && input.event.type === 'hash.changed') {
     const route = input.event.route;
     // ブラウザの戻る・進む（マウスの戻るボタンなど）は UiAction を通らず、ここへ直に届く。何段動いたかが moved に添えてある。
