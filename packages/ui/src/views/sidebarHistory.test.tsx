@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
@@ -53,5 +56,14 @@ describe('戻れる・進めるの状態（hash.changed に添える）', () => 
     const { state } = transition(initialState(), initialStore(), { kind: 'runtime', event: { type: 'hash.changed', route: { name: 'projects' }, moved: 1, history: { back: true, forward: false } } });
     expect(state.history).toEqual({ back: true, forward: false });
     expect(presentShell(state, initialStore(), 0).history).toEqual({ back: true, forward: false });
+  });
+});
+
+describe('ホームの丸と戻る・進むが重ならない', () => {
+  const base = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../styles/base.css'), 'utf8');
+  it('開いた帯でも、ホームの数の丸はアイコンの右上に載せる（畳んだ帯と同じ置き方）。項目の右端には置かない', () => {
+    // 戻る・進むと開閉に幅を取られ、ホームの項目は「ホーム」と 2 桁の丸が入り切らない。右端に置くと ‹ にかぶる。
+    expect(base).toMatch(/\.shell:not\(\[data-sidebar='collapsed'\]\) \.nav-row > \.nav-item \{[^}]*position: relative/);
+    expect(base).toMatch(/\.shell:not\(\[data-sidebar='collapsed'\]\) \.nav-row \.nav-count \{[^}]*position: absolute[^}]*min-width: 16px[^}]*height: 16px/);
   });
 });
