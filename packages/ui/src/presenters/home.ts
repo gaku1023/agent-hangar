@@ -70,7 +70,12 @@ export type ConfirmCard = TodoConfirmCard | SessionConfirmCard;
  * 未読の札（エージェントが notify_user で知らせた会話）。latest は知らせの最後の文、ago はその時刻からの経過、count はたまった数。
  * live は点の状態で、Done や Archived でも未読は残るので、休みとして出す。
  */
-export type UnreadCard = { id: string; name: string; projectName: string | null; live: LiveStatus | null; aside: boolean; latest: string; ago: string; count: number; agent?: AgentIconKind | null };
+export type UnreadCard = { id: string; name: string; projectName: string | null; live: LiveStatus | null; aside: boolean; latest: string; ago: string; count: number; agent?: AgentIconKind | null;
+  /**
+   * 統括の会話。帯の行の先頭を統括の絵にする。current は今の統括の会話で、押すと会話の画面ではなく統括の柱を開く。
+   * 前の統括の会話（作り直しや auto で切り替わる前に積んだ未読）は柱に出ないので、押すと会話の画面を開く（開けば既読になる）。
+   */
+  orchestrator?: 'current' | 'past' };
 /**
  * 帯の引き出しの行になる 5 つの群の中身。要対応（入力待ちと今日戻る）、未読、確認待ち、実行中である。
  * 引き出しの行は presentHomeBand が作る。
@@ -206,9 +211,11 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
   });
 
   // 未読のある会話。知らせの新しいものが先。設定 unreadBadge が切なら出さない（store.ts の unreadSessionIds）。
-  const unread = unreadSessionIds(store).filter((id) => !isOrchestratorSession(store.sessions[id]!)).map((id): UnreadCard => {
+  // 統括も混ぜる。Dock のバッジは統括の未読も数えるので、ホームで数の出どころを見られるようにする。
+  const unread = unreadSessionIds(store).map((id): UnreadCard => {
     const s = store.sessions[id]!;
     const u = s.unread!;
+    if (isOrchestratorSession(s)) return { id, name: t('orchestratorPane.pillar.region'), projectName: null, live: null, aside: false, latest: u.latest ?? '', ago: relativeTime(t, u.at, now), count: u.count, orchestrator: id === store.settings?.orchestrator?.sessionId ? 'current' : 'past' };
     const live = quietLive(liveWithLimit(s.live, s.limit), s.state?.status, s.woke);
     const agent = rowAgent(store, s);
     return { id, name: name(s), projectName: projectName(s), live, aside: asideOf(live, s.liveAside) !== null, latest: u.latest ?? '', ago: relativeTime(t, u.at, now), count: u.count, ...(agent !== undefined ? { agent } : {}) };
@@ -247,7 +254,9 @@ export type BandLead =
   | { kind: 'guide' }
   | { kind: 'check'; tone: 'ok' | 'info' | 'soft' | 'ng'; label: string }
   // 中断の印（中身の無い輪）。spin は再開を頼んで返事を待っている間で、輪が回る。label は読み上げの名前に添える語。
-  | { kind: 'ring'; spin: boolean; label: string };
+  | { kind: 'ring'; spin: boolean; label: string }
+  // 統括の絵（サイドバーの「統括」の行と同じ）。統括の未読の行の先頭に置く。
+  | { kind: 'orch' };
 /** 行の右端に並べる文字。tone の wait は入力待ちの色、busy は作業中の色、limit は使用制限の色である。 */
 export type BandTrail = { text: string; tone?: 'wait' | 'busy' | 'limit' | 'unread' };
 /**
@@ -260,6 +269,8 @@ export type BandTrail = { text: string; tone?: 'wait' | 'busy' | 'limit' | 'unre
  * どの群の行もこの形にするので、群を足すときに View を触らずに済む。
  */
 export type BandRow = { key: string; lead: BandLead; name: string; badge?: string | null; context: string | null; text: string; detail: string | null; tone: 'wait' | null; trail: BandTrail[]; open: UiAction | null; actions: BandAction[]; ask?: { tool: string; input: string } | null; agent?: AgentIconKind | null;
+  /** 名前を押すと統括の柱を開く（統括の未読の行）。柱の開閉は View の状態なので、open（UiAction）ではなく印で渡す。 */
+  opensOrchestrator?: true;
   /** 本文の頭に添える色の語（中断の行の「作業中だった」「再開中」「失敗」）。 */
   textHead?: { text: string; tone: 'busy' | 'wait' | 'faint' | 'error' };
   /** 行の上に小見出しを置く区切り。key が前の行と替わったところで見出しを出す（中断の群のアカウントごとの小見出し）。 */
@@ -377,6 +388,11 @@ function runningRowBody(t: Translate, r: RunningCard): BandRow {
 }
 
 function unreadRow(c: UnreadCard): BandRow {
+  // 統括は時刻の順のまま混ぜ、先頭の印だけ統括の絵にする。会話の画面には出さないので、押すと柱を開く（柱を開けば既読になる）。
+  if (c.orchestrator) {
+    const row: BandRow = { key: `unread:${c.id}`, lead: { kind: 'orch' }, name: c.name, context: null, text: c.latest, detail: null, tone: null, trail: [{ text: c.ago }, { text: String(c.count), tone: 'unread' }], open: null, actions: [] };
+    return c.orchestrator === 'current' ? { ...row, opensOrchestrator: true } : { ...row, open: { type: 'session.open', id: c.id } };
+  }
   const row: BandRow = { key: `unread:${c.id}`, lead: { kind: 'dot', live: c.live, aside: c.aside }, name: c.name, context: c.projectName, text: c.latest, detail: null, tone: null, trail: [{ text: c.ago }, { text: String(c.count), tone: 'unread' }], open: { type: 'session.open', id: c.id }, actions: [] };
   return c.agent !== undefined ? { ...row, agent: c.agent } : row;
 }

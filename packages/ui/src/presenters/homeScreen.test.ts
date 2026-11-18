@@ -225,3 +225,33 @@ describe('presentHomeScreen の場所の不明なプロジェクト（2.11.5）'
     expect(p.band.groups.map((g) => g.id)).toEqual(['unresolved', 'readiness']);
   });
 });
+
+describe('presentHomeScreen の未読に統括を混ぜる', () => {
+  it('統括の未読も時刻の順に並べ、先頭の印を統括の絵にして、押すと柱を開く', () => {
+    const store = storeOf([
+      dto('s1', 0.2, { unread: { count: 2, latest: '撮り直しました', at: NOW - 0.2 * H } }),
+      dto('o1', 7, { role: 'orchestrator', unread: { count: 1, latest: '許可を求めています', at: NOW - 7 * H } }),
+      dto('s2', 20, { unread: { count: 1, latest: '終えました', at: NOW - 20 * H } }),
+    ]);
+    const p = presentHomeScreen(initialState(), { ...store, settings: { orchestrator: { sessionId: 'o1' } } as SettingsDto }, NOW);
+    const unread = p.band.groups.find((g) => g.id === 'unread')!;
+    expect(unread.count).toBe(4);
+    expect(unread.rows.map((r) => r.key)).toEqual(['unread:s1', 'unread:o1', 'unread:s2']);
+    const o = unread.rows[1]!;
+    expect(o.lead).toEqual({ kind: 'orch' });
+    expect(o.name).toBe('統括');
+    expect(o.context).toBeNull();
+    expect(o.text).toBe('許可を求めています');
+    expect(o.open).toBeNull();
+    expect(o.opensOrchestrator).toBe(true);
+  });
+
+  it('前の統括の会話（切り替わる前に積んだ未読）は柱に出ないので、押すとその会話の画面を開く', () => {
+    const store = storeOf([dto('old', 7, { role: 'orchestrator', unread: { count: 1, latest: '許可を求めています', at: NOW - 7 * H } })]);
+    const p = presentHomeScreen(initialState(), { ...store, settings: { orchestrator: { sessionId: 'new' } } as SettingsDto }, NOW);
+    const o = p.band.groups.find((g) => g.id === 'unread')!.rows[0]!;
+    expect(o.lead).toEqual({ kind: 'orch' });
+    expect(o.opensOrchestrator).toBeUndefined();
+    expect(o.open).toEqual({ type: 'session.open', id: 'old' });
+  });
+});

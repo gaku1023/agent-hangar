@@ -8,6 +8,7 @@ import { presentUnresolved } from '../presenters/unresolved.ts';
 import { initialStore } from '../store/store.ts';
 import { fakeMotionTokens } from '../test/motion.ts';
 import { HomeBand } from './HomeBand.tsx';
+import { resetOrchestratorOpen } from './orchestratorOpen.ts';
 import { LanguageRoot } from './primitives/language.tsx';
 import { CopiedContext } from './primitives/CommandLine.tsx';
 
@@ -498,5 +499,21 @@ describe('HomeBand の動き', () => {
     act(() => m.rerender(busy, false));
     expect(m.container.querySelector('.band-text')).toBeNull();
     expect(animations).toHaveLength(0);
+  });
+});
+
+describe('HomeBand の統括の未読', () => {
+  it('統括の行は統括の絵を先頭に置き、名前を押すと統括の柱を開く（会話の画面へは移らない）', () => {
+    localStorage.removeItem('hangar.orchestrator.open');
+    resetOrchestratorOpen();
+    const orch = { id: 'o1', name: '統括', projectName: null, live: null, aside: false, latest: '許可を求めています', ago: '7 時間前', count: 1, orchestrator: 'current' as const };
+    const { onAction, container } = mount({ ...none, unread: [orch] });
+    fireEvent.click(pill(/未読/));
+    expect(container.querySelector('.orch-mark')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '統括' }));
+    expect(localStorage.getItem('hangar.orchestrator.open')).toBe('1');
+    expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
+    localStorage.removeItem('hangar.orchestrator.open');
+    resetOrchestratorOpen();
   });
 });
