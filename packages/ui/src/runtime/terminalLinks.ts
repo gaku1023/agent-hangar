@@ -1,5 +1,6 @@
 import type { ILink, ILinkProvider } from '@xterm/xterm';
 import { isMacClient } from '../keys.ts';
+import { hangarLinkOf, type HangarLink } from './hangarLink.ts';
 
 /**
  * ターミナルのリンク。
@@ -29,9 +30,17 @@ export function linkOpener(desktop: { openLink(url: string): Promise<void> } | n
   return (url) => { open(url, '_blank', 'noopener,noreferrer'); };
 }
 
-/** リンクが押されたとき。修飾キー付きで、開いてよい URL のときだけ開き、開いたかを返す。 */
-export function activateLink(e: Pick<MouseEvent, 'metaKey' | 'ctrlKey'>, text: string, open: (url: string) => void, mac: boolean = isMacClient()): boolean {
+/**
+ * リンクが押されたとき。修飾キー付きで、開いてよい URL のときだけ開き、開いたかを返す。
+ * hangar 自身のリンク（hangarLink.ts）は、hangar があれば open へは出さず、いまのペインで開く。
+ */
+export function activateLink(e: Pick<MouseEvent, 'metaKey' | 'ctrlKey'>, text: string, open: (url: string) => void, mac: boolean = isMacClient(), hangar?: (link: HangarLink) => void): boolean {
   if (!isLinkClick(e, mac)) return false;
+  const mine = hangar ? hangarLinkOf(text) : null;
+  if (mine) {
+    hangar!(mine);
+    return true;
+  }
   const url = openableUrl(text);
   if (!url) return false;
   open(url);

@@ -325,7 +325,13 @@ describe('MCP tools', () => {
   it('create_session は runs.start を呼び、URL を返す', async () => {
     const r = await call('create_session', { project_id: 'p1', name: 'n', prompt: 'p', permission_mode: 'default' });
     expect(started[0]).toEqual({ projectId: 'p1', name: 'n', prompt: 'p', model: undefined, effort: undefined, permissionMode: 'default', scratch: undefined });
-    expect(r).toEqual({ run_id: 'r1', session_id: 'sNew', tmux_name: 'hangar-r1', url: 'http://127.0.0.1:4177/#/session/sNew' });
+    const u = 'http://127.0.0.1:4177/#/session/sNew?device=d';
+    expect(r).toEqual({ run_id: 'r1', session_id: 'sNew', tmux_name: 'hangar-r1', url: u, announce: `n\n${u}` });
+  });
+  it('create_session の announce は、名前が無ければ最初の依頼文の頭、どちらも無ければ URL だけ', async () => {
+    const u = 'http://127.0.0.1:4177/#/session/sNew?device=d';
+    expect((await call('create_session', { project_id: 'p1', prompt: '一行目の依頼\n二行目' })).announce).toBe(`一行目の依頼\n${u}`);
+    expect((await call('create_session', { project_id: 'p1' })).announce).toBe(u);
   });
   it('create_session は agent を省くと Claude Code として起動する', async () => {
     await call('create_session', { project_id: 'p1', model: 'opus' });
@@ -464,7 +470,7 @@ describe('MCP tools', () => {
   });
   it('create_session は非同期の start を待ってから答える', async () => {
     deps = { ...deps, runs: { start: async (p) => { started.push(p); await new Promise((r) => setTimeout(r, 5)); return { run: { id: 'r2', sessionId: 'sLater', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r2', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 'sLater', tabs: [] }; } } };
-    expect(await call('create_session', { project_id: 'p1' })).toEqual({ run_id: 'r2', session_id: 'sLater', tmux_name: 'hangar-r2', url: 'http://127.0.0.1:4177/#/session/sLater' });
+    expect(await call('create_session', { project_id: 'p1' })).toEqual({ run_id: 'r2', session_id: 'sLater', tmux_name: 'hangar-r2', url: 'http://127.0.0.1:4177/#/session/sLater?device=d', announce: 'http://127.0.0.1:4177/#/session/sLater?device=d' });
   });
   describe('create_session の起動前の準備（#545）', () => {
     const okRun = (sessionId: string) => ({ run: { id: 'rP', sessionId, deviceId: 'd', kind: 'start' as const, tmuxName: 'hangar-rP', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId, tabs: [] });
@@ -496,7 +502,7 @@ describe('MCP tools', () => {
     });
     it('準備が待ちの上限を越えたら、起動を待たずに preparing で返す。起動元の下にはその場で入れる', async () => {
       const r = await call('create_session', { project_id: 'p1', agent: 'opencode', name: '準備の確かめ' }, { sessionId: alphaId });
-      expect(r).toMatchObject({ session_id: 'sPending', preparing: true, url: 'http://127.0.0.1:4177/#/session/sPending' });
+      expect(r).toMatchObject({ session_id: 'sPending', preparing: true, url: 'http://127.0.0.1:4177/#/session/sPending?device=d', announce: '準備の確かめ\nhttp://127.0.0.1:4177/#/session/sPending?device=d' });
       expect(r).not.toHaveProperty('run_id');
       expect(String(r.note)).toMatch(/準備/);
       expect(parentOf('sPending')).toBe(alphaId);
@@ -506,7 +512,7 @@ describe('MCP tools', () => {
       deps = { ...deps, launchWaitMs: 1_000 };
       const r = call('create_session', { project_id: 'p1', agent: 'opencode' });
       finish!();
-      expect(await r).toEqual({ run_id: 'rP', session_id: 'sPending', tmux_name: 'hangar-rP', url: 'http://127.0.0.1:4177/#/session/sPending' });
+      expect(await r).toEqual({ run_id: 'rP', session_id: 'sPending', tmux_name: 'hangar-rP', url: 'http://127.0.0.1:4177/#/session/sPending?device=d', announce: 'http://127.0.0.1:4177/#/session/sPending?device=d' });
     });
     it('上限の内に起動が断られたら、これまでどおり理由をその場で返す', async () => {
       deps = { ...deps, launchWaitMs: 1_000 };
@@ -592,7 +598,7 @@ describe('MCP tools', () => {
       asAgent(agent);
       const r = await call('resume_session', { session_id: alphaId });
       expect(resumed).toEqual([{ id: alphaId }]);
-      expect(r).toEqual({ run_id: 'rRes', session_id: alphaId, tmux_name: 'hangar-rRes', url: `http://127.0.0.1:4177/#/session/${alphaId}` });
+      expect(r).toEqual({ run_id: 'rRes', session_id: alphaId, tmux_name: 'hangar-rRes', url: `http://127.0.0.1:4177/#/session/${alphaId}?device=d` });
     });
     it('resume_session は opencode の準備が待ちの上限を越えたら preparing で返し、失敗は起動元に知らせる', async () => {
       asAgent('opencode');
@@ -752,7 +758,7 @@ describe('MCP tools', () => {
     expect(TOOL_NAMES).not.toContain('set_session_memo');
     expect(() => call('set_session_memo', { session_id: alphaId, text: 'メモ' })).toThrow(ToolError);
     expect(call('get_usage')).toEqual({ five_hour: { used_percentage: 47, resets_at: 1_760_000_000_000 }, seven_day: null, updated_at: 5 });
-    expect(call('open_in_hangar', { session_id: alphaId })).toEqual({ url: `http://127.0.0.1:4177/#/session/${alphaId}`, deep_link: `hangar://session/${alphaId}` });
+    expect(call('open_in_hangar', { session_id: alphaId })).toEqual({ url: `http://127.0.0.1:4177/#/session/${alphaId}?device=d`, deep_link: `hangar://session/${alphaId}`, prompted: true });
     expect(call('open_in_hangar', { project_id: 'p1' })).toEqual({ url: 'http://127.0.0.1:4177/#/project/p1', deep_link: 'hangar://project/p1' });
     expect(call('open_in_hangar', {}, { sessionId: alphaId }).url).toContain(alphaId);
     expect(() => call('nope')).toThrow(ToolError);
@@ -965,6 +971,17 @@ describe('MCP tools', () => {
     expect(b.at).toBe(a.at + 1);
     expect(latestIntent(db, alphaId)?.text).toBe('二つ目');
     expect((db.prepare('select count(*) c from turn_intents where session_id = ?').get(alphaId) as { c: number }).c).toBe(2);
+  });
+  it('open_in_hangar はセッションを指すと session.openPrompt を流し、プロジェクトでは流さない', () => {
+    const evs: unknown[] = [];
+    deps = { ...deps, openPrompt: (e) => { evs.push(e); } };
+    call('open_in_hangar', { session_id: alphaId });
+    call('open_in_hangar', {}, { sessionId: alphaId });
+    call('open_in_hangar', { project_id: 'p1' });
+    expect(evs).toEqual([
+      { type: 'session.openPrompt', sessionId: alphaId, deviceId: 'd', fromSessionId: null },
+      { type: 'session.openPrompt', sessionId: alphaId, deviceId: 'd', fromSessionId: alphaId },
+    ]);
   });
   it('open_in_hangar は実在しない ID を死んだリンクにしない', () => {
     expect(() => call('open_in_hangar', { session_id: 'ghost-session' })).toThrow(ToolError);

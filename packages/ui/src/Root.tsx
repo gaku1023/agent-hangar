@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { useRuntime } from './hooks/useRuntime.ts';
 import { ActionRoot } from './action/chain.tsx';
+import { SessionLinkContext } from './views/primitives/Markdown.tsx';
 import { canMoveBehind } from './mediator/screen.ts';
 import { defaultSessionView } from './mediator/sessionView.ts';
 import { presentConfigDialog } from './presenters/configSync.ts';
@@ -558,8 +559,13 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     return (id: string): string | null => (leaves.length >= 2 ? leaves.find((l) => l.sessionId === id)?.id ?? null : null);
   }, [paneRoot]);
 
+  // 本文の hangar の会話へのリンクの札が読む、ストアと見ている会話。
+  const screen = state.screen;
+  const sessionLinks = useMemo(() => ({ store, viewingId: screen.name === 'session' ? screen.id : null }), [store, screen]);
+
   return (
     <ActionRoot onAction={rt.emit} background={rt.emit}>
+      <SessionLinkContext.Provider value={sessionLinks}>
       <TerminalHostContext.Provider value={props.terminals}>
         <CopiedContext.Provider value={state.copied}>
           <PaneOfContext.Provider value={paneOf}>
@@ -575,6 +581,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
           </PaneOfContext.Provider>
         </CopiedContext.Provider>
       </TerminalHostContext.Provider>
+      </SessionLinkContext.Provider>
     </ActionRoot>
   );
 }

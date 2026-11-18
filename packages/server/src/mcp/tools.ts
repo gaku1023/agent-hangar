@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { isAgentKind, isNotifyKind, isQuietStatus, sessionPhaseOf, notifyRulesOf, orchestratorLineage, orchestratorOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LaunchedBy, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type PermissionPolicy, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionPhase, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto, type WakeOn } from '@agent-hangar/shared';
+import { isAgentKind, isNotifyKind, isQuietStatus, sessionPhaseOf, notifyRulesOf, orchestratorLineage, orchestratorOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LaunchedBy, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type PermissionPolicy, type ProjectDto, type ProjectStatus, type RunDto, type ServerEvent, type SessionDto, type SessionPhase, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto, type WakeOn } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
@@ -92,6 +92,8 @@ export type ToolDeps = {
   launchWaitMs?: number;
   /** 別の PC へ起こす口（peer/caller.ts）。無ければ list_devices は空で、device を付けた create_session は device-unknown で断る。 */
   peer?: PeerCallDeps;
+  /** open_in_hangar が画面へ流す口。無ければ知らせは出さず、URL だけ返す。 */
+  openPrompt?: (ev: Extract<ServerEvent, { type: 'session.openPrompt' }>) => void;
   /** wait_for_session が進みを流す間隔（ミリ秒）。渡さなければ WAIT_PROGRESS_MS。 */
   waitProgressMs?: number;
 };
@@ -314,6 +316,22 @@ function requireProject(deps: ToolDeps, id: string): ProjectDto {
 
 const url = (deps: ToolDeps, route: string) => `http://127.0.0.1:${deps.port}/#/${route}`;
 
+/**
+ * 会話の URL。画面がアプリ内で開くとき、その会話の PC を知れるよう、いつも ?device=<PC の ID> を付ける。
+ * PC は sessions.home_device（別の PC の会話ならその PC）で、行が無ければこの PC。
+ */
+export function sessionUrl(deps: ToolDeps, id: string): string {
+  const r = deps.db.prepare('select home_device d from sessions where id = ?').get(id) as { d: string } | undefined;
+  return `${url(deps, `session/${id}`)}?device=${encodeURIComponent(r?.d ?? deps.deviceId)}`;
+}
+
+/** そのまま本文に貼れる 2 行。1 行目は題名（name、無ければ最初の依頼文の最初の行）、2 行目は URL。題名が無ければ URL だけ。 */
+function announceOf(deps: ToolDeps, id: string, args: Record<string, unknown>): string {
+  const title = (str(args.name) ?? str(args.prompt)?.split('\n').find((l) => l.trim() !== '') ?? '').replace(/\s+/g, ' ').trim();
+  const link = sessionUrl(deps, id);
+  return title ? `${[...title].slice(0, 60).join('')}\n${link}` : link;
+}
+
 export function listProjectsTool(deps: ToolDeps, ctx: ToolContext) {
   const scope = readScope(deps, ctx, {});
   return listProjects(deps.db, deps.deviceId, deps.live()).filter((p) => scope === undefined || p.id === scope).map((p) => ({
@@ -453,7 +471,7 @@ export const LAUNCH_WAIT_MS = 15_000;
  * 準備の進みは画面の札が鍵（prepKey）で拾い、返した後の失敗は reportLateFailure が起動元の会話の知らせにする。
  * 準備が走っていなければ（Claude Code、Codex、準備の前後の段）、1 秒ごとに見直しながら起動を待つ。
  */
-function awaitLaunch(deps: ToolDeps, ctx: ToolContext, launch: Promise<LaunchResult>, o: { key: string | undefined; sessionId: () => string | null; name: string; done: (r: LaunchResult) => Record<string, unknown>; detached: (sessionId: string) => void }): Promise<Record<string, unknown>> {
+function awaitLaunch(deps: ToolDeps, ctx: ToolContext, launch: Promise<LaunchResult>, o: { key: string | undefined; sessionId: () => string | null; name: string; announce?: (sessionId: string) => string; done: (r: LaunchResult) => Record<string, unknown>; detached: (sessionId: string) => void }): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     let settled = false;
     let detached = false;
@@ -467,7 +485,7 @@ function awaitLaunch(deps: ToolDeps, ctx: ToolContext, launch: Promise<LaunchRes
       }
       detached = true;
       o.detached(id);
-      resolve({ session_id: id, preparing: true, url: url(deps, `session/${id}`), note: render(languageOf(deps), msg('mcp.launch.preparing')) });
+      resolve({ session_id: id, preparing: true, url: sessionUrl(deps, id), ...(o.announce ? { announce: o.announce(id) } : {}), note: render(languageOf(deps), msg('mcp.launch.preparing')) });
     };
     timer = setTimeout(tryDetach, deps.launchWaitMs ?? LAUNCH_WAIT_MS);
     launch.then((r) => {
@@ -549,13 +567,13 @@ export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
     ...(bool(args.auto_approve) === true ? { autoApprove: true } : {}), ...(str(args.cwd) ? { cwd: str(args.cwd) } : {}),
   }, { onPending: (id) => { pending = id; } }));
   return awaitLaunch(deps, ctx, launch, {
-    key, name: str(args.name) ?? agent ?? '', sessionId: () => pending,
+    key, name: str(args.name) ?? agent ?? '', sessionId: () => pending, announce: (id) => announceOf(deps, id, args),
     // 準備の間も、起こした会話を起動元の下に並べる。
     detached: (id) => { spawned(id); marked(id); },
     done: (r) => {
       spawned(r.sessionId);
       marked(r.sessionId);
-      return { run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`), ...(account ? { account: account.name } : {}) };
+      return { run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: sessionUrl(deps, r.sessionId), announce: announceOf(deps, r.sessionId, args), ...(account ? { account: account.name } : {}) };
     },
   });
 }
@@ -647,7 +665,7 @@ export function resumeSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
   const launch = Promise.resolve(deps.runs.resumeWith(s.id, { ...(given !== undefined && account ? { account: account.id } : {}), ...(key ? { prepKey: key } : {}) }));
   return awaitLaunch(deps, ctx, launch, {
     key, name: sessionTitle(s), sessionId: () => s.id, detached: () => { if (key) noteTurnStart(deps.db, s.id, { at: Date.now(), prepKey: key, expectsReply: false }); },
-    done: (r) => ({ run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`), ...(account ? { account: account.name } : {}) }),
+    done: (r) => ({ run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: sessionUrl(deps, r.sessionId), ...(account ? { account: account.name } : {}) }),
   });
 }
 
@@ -890,7 +908,9 @@ export function openInHangarTool(deps: ToolDeps, ctx: ToolContext, args: Record<
   }
   const id = sessionIdOf(ctx, args);
   requireSession(deps, id);
-  return { url: url(deps, `session/${id}`), deep_link: `hangar://session/${id}` };
+  const r = deps.db.prepare('select home_device d from sessions where id = ?').get(id) as { d: string } | undefined;
+  deps.openPrompt?.({ type: 'session.openPrompt', sessionId: id, deviceId: r?.d ?? deps.deviceId, fromSessionId: ctx.sessionId });
+  return { url: sessionUrl(deps, id), deep_link: `hangar://session/${id}`, prompted: true };
 }
 
 /** 設定の道具の口。無ければ知らない道具として断る。 */

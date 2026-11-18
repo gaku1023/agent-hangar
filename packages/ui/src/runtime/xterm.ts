@@ -8,6 +8,7 @@ import '@xterm/xterm/css/xterm.css';
 import { wrapComposition } from './compositionWrap.ts';
 import { createDesktopBridge } from './desktop.ts';
 import type { TerminalLike } from './terminals.ts';
+import type { HangarLink } from './hangarLink.ts';
 import { activateLink, createLinkGate, linkOpener, linkProvidersOf, type LinkGate } from './terminalLinks.ts';
 import { clipboardProvider, createKeyHandler, guardEmptyCopy, terminalOptions } from './xtermSetup.ts';
 
@@ -27,8 +28,11 @@ function linkGate(): LinkGate {
   return g;
 }
 
-/** 本物の xterm.js。テストでは TerminalLike の偽物を使うので、このファイルは main.tsx だけが読む。 */
-export function createXterm(): TerminalLike {
+/**
+ * 本物の xterm.js。テストでは TerminalLike の偽物を使うので、このファイルは main.tsx だけが読む。
+ * hangar は、hangar 自身のリンク（hangarLink.ts）を押されたときの行き先で、いまのペインでその会話を開く。
+ */
+export function createXterm(hangar?: (link: HangarLink) => void): TerminalLike {
   const css = getComputedStyle(document.documentElement);
   const term = new Terminal(terminalOptions({ background: css.getPropertyValue('--term-bg').trim() || '#1c1b2e', foreground: css.getPropertyValue('--term-fg').trim() || '#e8e6f0' }));
   const fit = new FitAddon();
@@ -43,8 +47,8 @@ export function createXterm(): TerminalLike {
   // 下線とポインタは修飾キーを押している間だけ出す。
   const desktop = createDesktopBridge(window);
   const open = linkOpener(desktop?.openLink ? { openLink: desktop.openLink } : null);
-  term.options.linkHandler = { activate: (e, text) => { activateLink(e, text, open); }, allowNonHttpProtocols: false };
-  term.loadAddon(new WebLinksAddon((e, uri) => { activateLink(e, uri, open); }));
+  term.options.linkHandler = { activate: (e, text) => { activateLink(e, text, open, undefined, hangar); }, allowNonHttpProtocols: false };
+  term.loadAddon(new WebLinksAddon((e, uri) => { activateLink(e, uri, open, undefined, hangar); }));
   const providers = linkProvidersOf(term);
   if (providers) linkGate().wrapAll(providers);
   // Shift+Enter を送信ではなく改行にする。列は xtermSetup.ts の NEWLINE_SEQ を見よ。

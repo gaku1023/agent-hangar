@@ -540,6 +540,13 @@ a:where(.btn) { color: inherit; }
 /* スマホから起動した会話の通知（試作 F1）。通常は info と同じ青で、Bypass permissions は赤にして「停止」を置く。 */
 .notice[data-kind='phone-launch'] { --k: var(--accent); cursor: default; }
 .notice[data-kind='phone-launch'][data-tone='err'] { --k: var(--error); }
+/* エージェントが会話を見てほしいと求めた知らせ。丸、題 2 行、「開く」、× を 1 列に並べる（説明の文は置かない）。 */
+.toast.notice[data-kind='open-prompt'] { --k: var(--accent); display: flex; align-items: center; gap: calc(var(--u) * 2.5); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); cursor: default; }
+.toast.notice[data-kind='open-prompt'] > .dot { flex: none; }
+.toast.notice[data-kind='open-prompt'] > .notice-close { margin: 0; }
+.op-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.op-name { font-size: var(--fs); font-weight: 600; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.op-from { font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* ダイアログを閉じた後に走り続ける起動前の準備の進みと、起動後にコンテキストが足りなかった札。中の 1 行は新しいセッションのダイアログの進みの箱と同じ（controls.css の .launch-prep-line）。 */
 .notice[data-kind='prep-progress'] { --k: var(--accent); cursor: default; }
 .notice[data-kind='context-short'] { --k: var(--st-paused); cursor: default; }

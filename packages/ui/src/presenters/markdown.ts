@@ -27,9 +27,9 @@ export type Block =
   | { t: 'quote'; children: Block[] }
   | { t: 'hr' };
 
-/** リンクにしてよい宛先か。http と https のほかは null を返す。 */
+/** リンクにしてよい宛先か。http と https、hangar 自身の hangar://session/… と hangar://project/… のほかは null を返す。 */
 export function safeHref(href: string): string | null {
-  return /^https?:\/\/[^\s]+$/i.test(href) ? href : null;
+  return /^(?:https?:\/\/[^\s]+|hangar:\/\/(?:session|project)\/[^\s/?#]+(?:\?[^\s#]*)?)$/i.test(href) ? href : null;
 }
 
 const FENCE = /^( {0,3})(`{3,}|~{3,})\s*([^\s`]*)/;

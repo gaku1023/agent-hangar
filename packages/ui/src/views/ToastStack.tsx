@@ -1,13 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { Toast } from '../mediator/types.ts';
-import type { ContextShortCardProps, JoinCardProps, ModelMissingCardProps, PhoneLaunchCardProps, PrepProgressCardProps, ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
+import type { ContextShortCardProps, JoinCardProps, OpenPromptCardProps, ModelMissingCardProps, PhoneLaunchCardProps, PrepProgressCardProps, ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
 import { newPrepKey } from '../lib/prepKey.ts';
 import { PrepLine } from './LaunchPrepBox.tsx';
 import type { UpdateAct, UpdateCardProps, WhatsNewCardProps } from '../presenters/update.ts';
 import type { CodexVersionCardProps } from '../presenters/codexNotice.ts';
 import type { OpencodeVersionCardProps } from '../presenters/opencodeNotice.ts';
-import { ReasonGlyph } from './primitives/StatusDot.tsx';
+import { ReasonGlyph, StatusDot } from './primitives/StatusDot.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { collapseOut, slideAway } from './primitives/motionKit.ts';
@@ -81,6 +81,7 @@ export function ToastStack(props: ToastsProps) {
     <div className="toasts">
       {top.list.map(({ item, key, leaving }) => {
         const m = { ref: top.ref(key), leaving };
+        if (item.kind === 'toast' && item.toast.openPrompt && props.openPrompts?.[item.toast.id]) return <OpenPromptToast key={key} toast={item.toast} card={props.openPrompts[item.toast.id]!} motion={m} />;
         if (item.kind === 'toast') return item.toast.level === 'error' ? <ErrorToast key={key} toast={item.toast} motion={m} /> : <InfoToast key={key} toast={item.toast} motion={m} />;
         if (item.kind === 'update') return <UpdateCard key={key} card={item.card} motion={m} />;
         if (item.kind === 'whatsNew') return <WhatsNewCard key={key} card={item.card} motion={m} />;
@@ -485,6 +486,31 @@ function InfoToast(props: { toast: Toast; motion: CardMotion }) {
           <button type="button" className="btn btn-sm notice-action" title={props.toast.action.title} onClick={(e) => { e.stopPropagation(); emit(props.toast.action!.send); dismiss(); }}>{props.toast.action.label}</button>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * エージェントが open_in_hangar で会話を見てほしいと求めた知らせ（session.openPrompt）。
+ * 状態の丸、開く先の会話の題（1 行目）、求めた会話の題（2 行目。無ければ出さない）、「開く」、閉じる ×を 1 列に並べる。説明の文は足さない。
+ * 画面は切り替えない。「開く」で今のペインをその会話に切り替える（サイドバーの行と同じ、← で戻れる）。
+ * 消え方は info と同じで、時間で消え（乗せている間は止める）、× でも消せる。
+ */
+function OpenPromptToast(props: { toast: Toast; card: OpenPromptCardProps; motion: CardMotion }) {
+  const emit = useEmit();
+  const t = useT();
+  const c = props.card;
+  const dismiss = () => emit({ type: 'toast.dismiss', id: props.toast.id });
+  const pause = useAutoDismiss(props.toast.holdMs ?? INFO_TOAST_MS, dismiss);
+  return (
+    <div className="toast notice" data-kind="open-prompt" role="status" {...motionAttrs(props.motion)} {...pause}>
+      <StatusDot status={c.live} aside={c.aside} reason={c.reason} />
+      <span className="op-text">
+        <span className="op-name">{c.name}</span>
+        {c.fromName !== null && <span className="op-from">{c.fromName}</span>}
+      </span>
+      <button type="button" className="btn btn-sm btn-primary" onClick={() => { emit({ type: 'session.open', id: c.sessionId }); dismiss(); }}>{t('launchPrep.notice.open')}</button>
+      <button type="button" className="notice-close" aria-label={t('common.button.close')} onClick={dismiss}><Icon name="close" /></button>
     </div>
   );
 }

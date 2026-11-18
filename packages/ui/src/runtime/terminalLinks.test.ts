@@ -25,6 +25,21 @@ describe('ターミナルのリンク', () => {
     expect(activateLink(click({ metaKey: true }), 'https://example.com', open, true)).toBe(true);
     expect(open).toHaveBeenCalledWith('https://example.com/');
   });
+  it('hangar 自身のリンクは、修飾キー付きのクリックで hangar に渡し、殻にも新しいタブにも出さない', () => {
+    const open = vi.fn();
+    const hangar = vi.fn();
+    expect(activateLink(click(), 'http://127.0.0.1:4177/#/session/s1', open, true, hangar)).toBe(false);
+    expect(activateLink(click({ metaKey: true }), 'http://127.0.0.1:4177/#/session/s1?device=d2', open, true, hangar)).toBe(true);
+    expect(hangar).toHaveBeenCalledWith({ kind: 'session', id: 's1', deviceId: 'd2' });
+    expect(activateLink(click({ metaKey: true }), 'hangar://project/p1', open, true, hangar)).toBe(true);
+    expect(hangar).toHaveBeenLastCalledWith({ kind: 'project', id: 'p1' });
+    expect(open).not.toHaveBeenCalled();
+  });
+  it('hangar の渡し先が無いときは、これまでどおり開く', () => {
+    const open = vi.fn();
+    expect(activateLink(click({ metaKey: true }), 'http://127.0.0.1:4177/#/session/s1', open, true)).toBe(true);
+    expect(open).toHaveBeenCalledWith('http://127.0.0.1:4177/#/session/s1');
+  });
   it('デスクトップ版は殻に開かせ、ブラウザで開いた UI では新しいタブで開く', () => {
     const desktop = { openLink: vi.fn(async () => {}) };
     const win = vi.fn();

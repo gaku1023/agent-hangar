@@ -25,7 +25,7 @@ describe('新しいタブへのリンクを殻に開かせる', () => {
   it('頁の中の移動（target の無いリンク）、http と https のほか、右ボタン、止められたクリックは触らない', () => {
     const open = vi.fn();
     const cases = [
-      clickOn({ href: 'http://127.0.0.1:4177/#/session/1', target: '' }),
+      clickOn({ href: 'http://127.0.0.1:4177/#/settings', target: '' }),
       clickOn({ href: 'file:///etc/passwd', target: '_blank' }),
       clickOn({ href: 'javascript:alert(1)', target: '_blank' }),
       clickOn({ href: 'https://example.com/', target: '_blank' }, { button: 2 }),
@@ -44,3 +44,36 @@ describe('新しいタブへのリンクを殻に開かせる', () => {
     expect(openAnchorInShell({ target: null, button: 0, defaultPrevented: false, preventDefault: vi.fn() }, open)).toBe(false);
   });
 });
+
+describe('hangar 自身のリンクは、アプリの中で開く', () => {
+  it('会話のリンクは、target があってもなくても、既定の動きを止めて hangar に渡す（殻の外へは出さない）', () => {
+    for (const target of ['_blank', '']) {
+      const open = vi.fn();
+      const hangar = vi.fn();
+      const { e, preventDefault } = clickOn({ href: 'http://127.0.0.1:4177/#/session/s1?device=d2', target });
+      expect(openAnchorInShell(e, open, hangar)).toBe(true);
+      expect(preventDefault).toHaveBeenCalled();
+      expect(hangar).toHaveBeenCalledWith({ kind: 'session', id: 's1', deviceId: 'd2' });
+      expect(open).not.toHaveBeenCalled();
+    }
+  });
+  it('hangar:// のプロジェクトのリンクも渡す', () => {
+    const hangar = vi.fn();
+    expect(openAnchorInShell(clickOn({ href: 'hangar://project/p1', target: '_blank' }).e, null, hangar)).toBe(true);
+    expect(hangar).toHaveBeenCalledWith({ kind: 'project', id: 'p1' });
+  });
+  it('ブラウザで開いた UI（殻の open が無い）でも、hangar のリンクだけ受け、ほかの外へのリンクは触らない', () => {
+    const hangar = vi.fn();
+    const other = clickOn({ href: 'https://example.com/', target: '_blank' });
+    expect(openAnchorInShell(other.e, null, hangar)).toBe(false);
+    expect(other.preventDefault).not.toHaveBeenCalled();
+    expect(hangar).not.toHaveBeenCalled();
+  });
+  it('右ボタンと止められたクリックは渡さない', () => {
+    const hangar = vi.fn();
+    expect(openAnchorInShell(clickOn({ href: 'hangar://session/s1', target: '_blank' }, { button: 2 }).e, null, hangar)).toBe(false);
+    expect(openAnchorInShell(clickOn({ href: 'hangar://session/s1', target: '_blank' }, { defaultPrevented: true }).e, null, hangar)).toBe(false);
+    expect(hangar).not.toHaveBeenCalled();
+  });
+});
+
