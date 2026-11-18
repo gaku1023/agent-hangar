@@ -1,27 +1,27 @@
 {
   "agents": {
-    "commit": "1ac8d271c938611aafecd466d6e937f7f6953c90",
-    "shotAt": "2026-11-17T20:51:39.664Z",
+    "commit": "3d4fb1929036737eb0e94427810f4702a1dc40f0",
+    "shotAt": "2026-11-18T15:04:49.886Z",
     "file": "docs/images/agents.webp",
-    "bytes": 1043702
+    "bytes": 1002418
   },
   "attention": {
-    "commit": "1ac8d271c938611aafecd466d6e937f7f6953c90",
-    "shotAt": "2026-11-17T20:52:08.842Z",
+    "commit": "3d4fb1929036737eb0e94427810f4702a1dc40f0",
+    "shotAt": "2026-11-18T15:05:16.058Z",
     "file": "docs/images/attention.webp",
-    "bytes": 3043432
+    "bytes": 2529440
   },
   "drop": {
-    "commit": "1ac8d271c938611aafecd466d6e937f7f6953c90",
-    "shotAt": "2026-11-17T20:52:30.014Z",
+    "commit": "3d4fb1929036737eb0e94427810f4702a1dc40f0",
+    "shotAt": "2026-11-18T15:05:39.084Z",
     "file": "docs/images/drop.webp",
-    "bytes": 829346
+    "bytes": 714846
   },
   "hero": {
-    "commit": "1ac8d271c938611aafecd466d6e937f7f6953c90",
-    "shotAt": "2026-11-17T20:52:49.250Z",
+    "commit": "3d4fb1929036737eb0e94427810f4702a1dc40f0",
+    "shotAt": "2026-11-18T15:05:59.610Z",
     "file": "docs/images/hero.webp",
-    "bytes": 1054992
+    "bytes": 898098
   },
   "mobile": {
     "commit": "1ac8d271c938611aafecd466d6e937f7f6953c90",
@@ -30,57 +30,57 @@
     "bytes": 1136578
   },
   "new-session": {
-    "commit": "1ac8d271c938611aafecd466d6e937f7f6953c90",
-    "shotAt": "2026-11-17T20:54:03.516Z",
+    "commit": "3d4fb1929036737eb0e94427810f4702a1dc40f0",
+    "shotAt": "2026-11-18T15:07:12.375Z",
     "file": "docs/images/new-session.webp",
-    "bytes": 1205576
+    "bytes": 1176682
   },
   "palette": {
-    "commit": "1ac8d271c938611aafecd466d6e937f7f6953c90",
-    "shotAt": "2026-11-17T20:54:17.590Z",
+    "commit": "3d4fb1929036737eb0e94427810f4702a1dc40f0",
+    "shotAt": "2026-11-18T15:07:28.594Z",
     "file": "docs/images/palette.webp",
-    "bytes": 683654
+    "bytes": 718140
   },
   "projects": {
-    "commit": "1ac8d271c938611aafecd466d6e937f7f6953c90",
-    "shotAt": "2026-11-17T20:54:23.415Z",
+    "commit": "3d4fb1929036737eb0e94427810f4702a1dc40f0",
+    "shotAt": "2026-11-18T15:07:34.629Z",
     "file": "docs/images/projects.png",
-    "bytes": 560636
+    "bytes": 561089
   },
   "schedules": {
-    "commit": "1ac8d271c938611aafecd466d6e937f7f6953c90",
-    "shotAt": "2026-11-17T20:54:42.116Z",
+    "commit": "3d4fb1929036737eb0e94427810f4702a1dc40f0",
+    "shotAt": "2026-11-18T15:07:55.658Z",
     "file": "docs/images/schedules.webp",
-    "bytes": 603814
+    "bytes": 616972
   },
   "search": {
-    "commit": "1ac8d271c938611aafecd466d6e937f7f6953c90",
-    "shotAt": "2026-11-17T20:54:57.148Z",
+    "commit": "3d4fb1929036737eb0e94427810f4702a1dc40f0",
+    "shotAt": "2026-11-18T15:08:11.073Z",
     "file": "docs/images/search.webp",
-    "bytes": 783896
+    "bytes": 818370
   },
   "split": {
-    "commit": "1ac8d271c938611aafecd466d6e937f7f6953c90",
-    "shotAt": "2026-11-17T20:55:18.924Z",
+    "commit": "3d4fb1929036737eb0e94427810f4702a1dc40f0",
+    "shotAt": "2026-11-18T15:08:34.630Z",
     "file": "docs/images/split.webp",
-    "bytes": 1520886
+    "bytes": 1553178
   },
   "todo": {
-    "commit": "1ac8d271c938611aafecd466d6e937f7f6953c90",
-    "shotAt": "2026-11-17T20:55:37.424Z",
+    "commit": "3d4fb1929036737eb0e94427810f4702a1dc40f0",
+    "shotAt": "2026-11-18T15:08:54.819Z",
     "file": "docs/images/todo.webp",
-    "bytes": 669114
+    "bytes": 675246
   },
   "usage": {
-    "commit": "1ac8d271c938611aafecd466d6e937f7f6953c90",
-    "shotAt": "2026-11-17T20:55:47.210Z",
+    "commit": "3d4fb1929036737eb0e94427810f4702a1dc40f0",
+    "shotAt": "2026-11-18T15:09:06.071Z",
     "file": "docs/images/usage.webp",
-    "bytes": 146176
+    "bytes": 139956
   },
   "wrap-up": {
-    "commit": "1ac8d271c938611aafecd466d6e937f7f6953c90",
-    "shotAt": "2026-11-17T20:56:12.155Z",
+    "commit": "3d4fb1929036737eb0e94427810f4702a1dc40f0",
+    "shotAt": "2026-11-18T15:09:33.293Z",
     "file": "docs/images/wrap-up.webp",
-    "bytes": 1114662
+    "bytes": 970182
   }
 }
