@@ -126,7 +126,7 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.tool.setNotifyPreference': "ユーザーが知らせ方を言ったら呼ぶ。ユーザーの言葉を text に、出し先ごとの場面を unread・os・phone（'done'、'ask'、'progress' の配列、空の配列はオフ）に直して保存する。unread・os・phone は 3 つとも必須で、触れていない出し先は今の決まりのまま渡す。whileFocused と merge は、言われたときだけ渡す。保存したら、返った決まりをユーザーに読み返す。",
   'mcp.tool.proposeSessionStatus': 'このセッションのステータス（Done か Paused）を提案する。ユーザーが会話の中で選んだときだけ confirmed を true にする。ユーザーに聞かずに true にしてはいけない。',
   'mcp.tool.getUsage': 'Claude の 5 時間と 7 日のレート制限の使用率と最終更新時刻。ステータスラインから受信した最新の値。上の 3 項目はメインアカウントの値で、accounts にアカウントごとの値（名前、現在使っているか、同じ 3 項目）が並ぶ。',
-  'mcp.tool.openInHangar': 'ユーザーにその会話を見てほしいときに呼ぶ。hangar の画面に、その会話を開く知らせが出る（画面は切り替わらない）。URL とディープリンクも返す。プロジェクトを指定したときは知らせを出さず、URL とディープリンクだけ返す。',
+  'mcp.tool.openInHangar': 'ユーザーにその会話を見てほしいときに呼ぶ（自分が create_session で起こした子など、どの会話でも指せる）。hangar の画面に、その会話を開く知らせが出る（画面は切り替わらない）。URL とディープリンクも返す。プロジェクトを指定したときは知らせを出さず、URL とディープリンクだけ返す。',
   'mcp.tool.stopSession': '別のセッションを停止する。この PC で実行中の会話の run を、画面の停止と同じ処理で停止する。自分自身と、他の PC で実行中の会話は停止できない。聞かずに使ってよい。',
   'mcp.tool.resumeSession': '止まっている会話を再開する。画面の再開と同じ処理で、Claude Code、Codex、opencode のどれも再開できる。account は Claude Code の会話のときだけ渡せる。聞かずに使ってよい。準備に時間がかかるとき（opencode の接続先の準備など）は、起動を待たずに preparing: true と session_id を返し、準備と起動は背面で続く。',
   'mcp.tool.deleteSession': '会話の削除を依頼する。ここでは消えず、ユーザーが hangar の画面かスマホで承認すると、トランスクリプトが OS のゴミ箱へ移る。返答は待たずに次の作業を進める。実行中の会話と自分自身は依頼できない。',
