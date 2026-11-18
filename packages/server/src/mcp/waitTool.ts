@@ -5,7 +5,7 @@ import { getSession } from '../db/queries.ts';
 import { msg } from '../i18n/message.ts';
 import { aliveRunForSession } from '../runs/queries.ts';
 import { readEvents } from '../transcript/read.ts';
-import { ToolError, type ToolContext, type ToolDeps } from './tools.ts';
+import { sessionUrl, ToolError, type ToolContext, type ToolDeps } from './tools.ts';
 
 /**
  * wait_for_session の既定の上限（秒）。
@@ -144,7 +144,7 @@ export async function waitForSessionTool(deps: ToolDeps, ctx: ToolContext, args:
       ...(waiting ? { waiting } : {}), last_message: reply && !stale ? clip(reply.text) : null,
       ...(o.mark ? { turn_started: o.started ?? seenBusy } : {}),
       waited_seconds: Math.round((clock.now() - begun) / 1000),
-      url: `http://127.0.0.1:${deps.port}/#/session/${id}`,
+      url: sessionUrl(deps, id),
     };
   };
 

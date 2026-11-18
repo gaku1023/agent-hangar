@@ -160,6 +160,9 @@ describe('safeHref', () => {
   it('http と https のほかは通さない', () => {
     expect(safeHref('https://a.example/x')).toBe('https://a.example/x');
     expect(safeHref('HTTP://a.example')).toBe('HTTP://a.example');
+    expect(safeHref('hangar://session/s1?device=d2')).toBe('hangar://session/s1?device=d2');
+    expect(safeHref('hangar://project/p1')).toBe('hangar://project/p1');
+    expect(safeHref('hangar://settings')).toBeNull();
     expect(safeHref('javascript:alert(1)')).toBeNull();
     expect(safeHref('data:text/html,x')).toBeNull();
     expect(safeHref('//evil.example')).toBeNull();

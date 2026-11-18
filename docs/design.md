@@ -2991,7 +2991,21 @@ hangar では、解放と子のプロセスを止めた後の猶予のうちに�
 - 画面の中の外へのリンク（`target="_blank"` の a。返答の Markdown、PR の札、ツールの URL）は、デスクトップ版では同じ `open_link` で開く（`runtime/anchorLinks.ts`）。
   殻の窓は新しい窓の求めを受けない（`on_new_window` を付けていない）ので、素のままでは macOS でも Windows でも押して何も起きない。
   文書の click と auxclick を捕捉の段で受け、修飾キーなしのクリックで開く。部品が伝わりを止める札もあるので、泡の段では受けない。
-  target の無いリンクは頁の中の移動なので通す。ブラウザで開いた UI では付けず、ブラウザが新しいタブで開く。
+  target の無いリンクは頁の中の移動なので通す。
+  殻の `open_link` に渡すのはデスクトップ版だけで、ブラウザで開いた UI では hangar 自身のリンク以外は触らず、ブラウザが新しいタブで開く。
+- hangar 自身のリンクは、ターミナルでも、本文の Markdown でも、ツールの行の URL でも、デスクトップ版でもブラウザで開いた UI でも、既定のブラウザへ出さず、いまのペインをその会話に切り替えて開く（サイドバーの行を押したのと同じ `session.open`。← で戻れる）。
+  見分けは `runtime/hangarLink.ts` の `hangarLinkOf(url)` の 1 か所である。
+  対象は、http と https でホストが `127.0.0.1`、`localhost`、いまの画面の origin のもので、ハッシュが `#/session/<id>`（`?device=<deviceId>` 付きも）か `#/project/<id>` のもの、と `hangar://session/<id>`、`hangar://project/<id>`。
+  ポートは問わない。別の PC の hangar も 4177 で、その会話のリンクも 127.0.0.1 になるからである。
+  ターミナルは `terminalLinks.ts` の `activateLink`（修飾キー付きのクリックだけ）、本文は文書の click と auxclick（`anchorLinks.ts`、target の有無によらず）と Markdown の a が `hangarLinkOf` を通す。
+  両方が同じクリックを受けるので、Markdown の a は、文書の click が先に開いて `defaultPrevented` なら重ねて開かない。
+  開く先の会話の画面は id で決まる。この PC の会話も、同期で見えている別の PC の会話（`isPeerChatCandidate` で別の PC の会話を見る画面になる）も、同じ `session.open` で開く。
+  `deviceId` は、id がこの PC で分からないときに、どの PC の会話かを見分ける手がかりで、見つからないときの扱いは今のままである。
+- 本文の Markdown（`views/primitives/Markdown.tsx`）の hangar の会話へのリンクは、この PC で分かる会話なら札で描く。
+  札は状態の丸と会話の題で、見ている会話とプロジェクトが違うときだけプロジェクト名を、PC が違うときだけ PC の名前を、薄い字で添える（`presenters/sessionLink.ts` の `presentSessionChip`）。
+  状態はストアから読む（`Root` が `SessionLinkContext` で渡す。札だけが読むので、ストアが変わっても Markdown 全体は描き直さない）。変われば丸も変わる。
+  この PC で分からない会話は、ふつうのリンクのまま（押せば同じく開く）。ターミナル（xterm）は札にしない。
+  本文の中の検索は葉ごとに一致を数えるので、札は題だけを葉として描く（リンクの元の文字は描かない）。
 - ⌘+ と ⌘− と ⌘0 はターミナルの文字の大きさを 1px ずつ変える（既定 13、8 から 32）。
   全部のタブに効かせて寸法を合わせ直し、大きさは localStorage に覚える。
   ターミナルが画面に無いときは受けず、ブラウザの拡大に渡す。
@@ -3885,6 +3899,7 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
 - `list_sessions` と `get_project` の直近のセッションには、生の `live` に加えて、画面と同じ見分けの `phase`（`preparing`、`running`、`waiting`、`paused`、`done`、`ended`）と、付けた状態の `status`（`paused`、`done`、`archived`、無ければ null）を返す。`wait_for_session` も `phase` を返す（`status` は従来どおり live）。決め方は shared の `sessionPhaseOf`（`liveFilter.ts`）で、会話の ID が決まっていない起動中の行は `preparing`、Paused と Done を付けて休んでいれば、プロセスが残っていても `paused` と `done`、作業中は状態が付いていても `running` とする。`create_session` の準備中の案内はこの `phase` を見るよう指す。既存の欄は消さない。
 - `get_transcript(session_id, { from_seq?, limit?, include_tools? })`：正規化イベントを返す。
 - `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch?, agent?, mode?, handoff?, worktree?, add_dirs?, account? })`：tmux で起動して run を返す。agent、mode、worktree、add_dirs は `POST /api/runs` と同じく `RunManager.start` にそのまま渡す。agent を省けば Claude Code で、mode は opencode のときだけ読む（Claude Code と Codex では捨てる）。
+  返り値には、そのまま本文に貼れる 2 行の `announce` も入る（1 行目が題名で `name`、無ければ `prompt` の最初の空でない行の頭 60 字、2 行目が URL。どちらも無ければ URL だけ）。準備中の `preparing: true` の返り値にも入る。別の PC への起動（`device`）は URL を返さないので、`announce` も無い。
   Codex の権限（read-only、auto、full-access。省くと auto）は `permission_mode` で渡し、model はモデル名、effort は推論の段階である。
   セッション別の URL から呼ばれたら、呼んだセッションを起こした会話の起動元として手元の表 `session_spawns` に残す（`handoff: true` のときと、呼んだセッションが分からない共通の URL では残さない）。画面は起動元の下に入れ子で並べる（「起動元の入れ子」）。
   worktree（claude の `--worktree` に渡す名前）と add_dirs（`--add-dir`）は Claude Code だけのもので、Codex と opencode に付けると `start` が `optionUnsupported` で断る（UI の新規ダイアログは札を出さないので、断られるのは API と MCP だけである）。知らない agent と、設定で有効でない agent は、黙って Claude Code にせず、start の前に断る。opencode の model は provider/model の形で渡す。
@@ -3930,7 +3945,8 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   update_project の `append_memo` のように引数ごと外した場合は、MCP の層が未知の引数として捨てる。こちらは道具が 1 つの仕事しか持たないので、外した後の一覧に無い道具を呼ばれても MCP の層が isError で返す。
   外す前の一覧を覚えた Claude が呼んでも、MCP の層が書かずに `isError`（道具が無い）で返す。モデルにこの道具を使うよう指示したことも無い。
 - `get_usage()`：5 時間と 7 日の使用率、最終更新時刻。
-- `open_in_hangar({ session_id | project_id })`：UI とディープリンクの URL を返す。
+- `open_in_hangar({ session_id | project_id })`：UI とディープリンクの URL を返す。セッションを指したときは、画面へ事件 `session.openPrompt`（`sessionId`、その会話の PC の `deviceId`、呼び出し元の会話 `fromSessionId`、共通の URL なら null）を `ToolDeps.openPrompt`（`hub.broadcast`）で流し、返り値に `prompted: true` を足す。画面は切り替えず、右下の知らせに「開く」を出す。プロジェクトを指したときは流さない。
+  セッションの URL は、MCP が返すものはいつも `#/session/<id>?device=<その会話の PC の ID>`（`sessions.home_device`、行が無ければこの PC）で、画面がアプリ内で開くときに PC を知れる。プロジェクトの URL と `deep_link` は変えない。
 - `send_to_session({ session_id, text, submit? })`：この PC の hangar の tmux（Windows では psmux）で動いているそのセッションの主の画面に、`text` を入力として送る（2026-10-27）。
   どのセッションにも、聞かずに送れる。ただし呼んだセッション自身には断る。
   複数行の `text` は tmux の貼り付け（`set-buffer` と `paste-buffer -p -d`、bracketed paste）で 1 回に届け、1 つの入力になる。`send-keys` は 1 行ごとに Enter を打つのと変わらず、行ごとに確定してしまうので使わない。
@@ -6941,6 +6957,14 @@ OS で切られているときの案内は、許可する場所の名前を OS �
 `notify_status` が失敗したとき（権限で断られた、殻が答えない）や `.app` の外では、まだ決まっていないとみなし、これまでどおり受け取るのままにする。
 ブラウザの許可も、設定のスイッチか始める前の確認の［許可する］を押したときにだけ求める（押した操作の中でないとダイアログが出ないため）。
 許されなかったら受け取らないままにして、「通知が許可されませんでした」と知らせる。
+
+### 会話を見てほしいという求めの知らせ
+
+エージェントが MCP の `open_in_hangar` で会話を見てほしいと求めると、サーバが `session.openPrompt`（開く先 `sessionId`、その会話の PC `deviceId`、求めた会話 `fromSessionId`。共通の URL から呼ばれたときは null）を配る。
+画面は切り替えず、右下に知らせを 1 枚積む（`Toast.openPrompt`、`OpenPromptToast`）。同じ会話への求めは新しい 1 枚にまとめる。
+並びは、状態の丸、開く先の会話の題（1 行目）、求めた会話の題（2 行目。null なら出さない）、「開く」、閉じる × の 1 列で、説明の文は足さない。
+「開く」は今のペインをその会話に切り替える（`session.open`）。
+消え方は info と同じで、時間で消え（`INFO_TOAST_MS`、乗せている間は止める）、× でも消せる。出入りも他の札と同じ。
 
 ### 注意と知らせの出し分け
 

@@ -38,7 +38,7 @@ import { syncStep } from './sync.ts';
 import { todosStep } from './todos.ts';
 import { diskShortStep } from './diskShort.ts';
 import { workbenchStep } from './workbench.ts';
-import type { Input, State, Step } from './types.ts';
+import type { Input, State, Step, Toast } from './types.ts';
 import type { Store } from '../store/store.ts';
 
 export type { State, Input, Effect, Step } from './types.ts';
@@ -95,6 +95,13 @@ export function transition(state: State, store: Store, input: Input): Step {
   }
   if (input.kind === 'server') {
     if (input.event.type === 'toast') return { state: pushToast(state, input.event.level, input.event.message, input.event.holdMs), effects: [] };
+    // エージェントが会話を見てほしいと求めた。画面は切り替えず、知らせを 1 枚積む。同じ会話への求めは新しい 1 枚にまとめる。
+    if (input.event.type === 'session.openPrompt') {
+      const { sessionId, deviceId, fromSessionId } = input.event;
+      const rest = state.toasts.filter((t) => t.openPrompt?.sessionId !== sessionId);
+      const toast: Toast = { id: String(state.nextToastId), level: 'info', message: store.sessions[sessionId]?.name ?? '', openPrompt: { sessionId, deviceId, fromSessionId } };
+      return { state: { ...state, toasts: [...rest, toast], nextToastId: state.nextToastId + 1 }, effects: [] };
+    }
     return { state, effects: [] };
   }
   if (input.kind === 'runtime') {

@@ -37,6 +37,24 @@ describe('トーストの長さ', () => {
   });
 });
 
+describe('session.openPrompt（open_in_hangar の求め）', () => {
+  it('画面は切り替えず、開く先と求めた会話を持つ知らせを 1 枚積む', () => {
+    const r = run([server({ type: 'session.openPrompt', sessionId: 's2', deviceId: 'd1', fromSessionId: 's1' })]);
+    expect(r.state.screen).toEqual({ name: 'booting' });
+    expect(r.effects).toEqual([]);
+    expect(r.state.toasts).toEqual([expect.objectContaining({ id: '1', level: 'info', openPrompt: { sessionId: 's2', deviceId: 'd1', fromSessionId: 's1' } })]);
+  });
+  it('同じ会話への求めは 1 枚にまとめ、新しい方に置き換える', () => {
+    const r = run([
+      server({ type: 'session.openPrompt', sessionId: 's2', deviceId: 'd1', fromSessionId: 's1' }),
+      server({ type: 'toast', level: 'info', message: 'x' }),
+      server({ type: 'session.openPrompt', sessionId: 's2', deviceId: 'd1', fromSessionId: null }),
+      server({ type: 'session.openPrompt', sessionId: 's3', deviceId: 'd1', fromSessionId: null }),
+    ]);
+    expect(r.state.toasts.map((t) => [t.id, t.openPrompt?.sessionId ?? null])).toEqual([['2', null], ['3', 's2'], ['4', 's3']]);
+  });
+});
+
 describe('起動と接続', () => {
   it('ws が開いたら bootstrap を取り、hash で画面が決まる', () => {
     const { state, effects } = run([runtime({ type: 'ws.open' }), runtime({ type: 'hash.changed', route: { name: 'projects' } })]);

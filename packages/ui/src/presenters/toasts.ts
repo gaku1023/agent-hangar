@@ -13,6 +13,7 @@ import { arrivedCount } from './unresolved.ts';
 import { presentUpdateCard, presentWhatsNew, type UpdateCardProps, type WhatsNewCardProps } from './update.ts';
 import { presentCodexVersionCard, type CodexVersionCardProps } from './codexNotice.ts';
 import { presentHeldEvents, type HeldEventsCardProps } from './heldEvents.ts';
+import { sessionDotOf, type SessionDot } from './sessionLink.ts';
 import { presentOpencodeVersionCard, type OpencodeVersionCardProps } from './opencodeNotice.ts';
 
 /**
@@ -40,7 +41,7 @@ export type WaitingCardProps = { sessionId: string; name: string; waited: string
  * phoneLaunches は、スマホからの依頼でこの PC が起こした会話の通知（試作 F1）。受信した順で、その会話の画面を開いている間は出さない。
  * 入力待ちと同じく新しい SHOWN 枚までを並べ、並べきれない数を phoneLaunchMore に置く。
  */
-export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; more: number; blocked: boolean; arrived: { count: number } | null; update: UpdateCardProps | null; whatsNew: WhatsNewCardProps | null; opencodeVersion?: OpencodeVersionCardProps | null; codexVersion?: CodexVersionCardProps | null; join: JoinCardProps | null; phoneUndo?: { name: string } | null; phoneLaunches?: PhoneLaunchCardProps[]; phoneLaunchMore?: number; prepProgress?: PrepProgressCardProps | null; contextShorts?: ContextShortCardProps[]; modelMissings?: ModelMissingCardProps[]; heldEvents?: HeldEventsCardProps | null };
+export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; more: number; blocked: boolean; arrived: { count: number } | null; update: UpdateCardProps | null; whatsNew: WhatsNewCardProps | null; opencodeVersion?: OpencodeVersionCardProps | null; codexVersion?: CodexVersionCardProps | null; join: JoinCardProps | null; phoneUndo?: { name: string } | null; phoneLaunches?: PhoneLaunchCardProps[]; phoneLaunchMore?: number; prepProgress?: PrepProgressCardProps | null; contextShorts?: ContextShortCardProps[]; modelMissings?: ModelMissingCardProps[]; heldEvents?: HeldEventsCardProps | null; openPrompts?: Record<string, OpenPromptCardProps> };
 
 /**
  * ダイアログを閉じた後に走り続けている起動前の準備の進みの札（試作の「途中で閉じる」）。line は今の段の 1 行、startedAt から経過時間を数える。
@@ -52,6 +53,24 @@ export type PrepProgressCardProps = { key: string; line: string; startedAt: numb
  */
 /** model は `provider/model` の形（分からなければ文から取れた名前、それも無ければ空）、name は接続先の表示名（分からなければ provider の ID）、projectId は会話のプロジェクト（無ければ null）。 */
 export type ModelMissingCardProps = { sessionId: string; model: string; name: string; projectId: string | null };
+/**
+ * エージェントが会話を見てほしいと求めた知らせ（session.openPrompt）の中身。トーストの id で引く。
+ * 状態の丸と、開く先の会話の題（1 行目）、求めた会話の題（2 行目。共通の URL から呼ばれたときと、この PC で分からない会話は null で出さない）。
+ */
+export type OpenPromptCardProps = SessionDot & { sessionId: string; name: string; fromName: string | null };
+
+function presentOpenPrompts(state: State, store: Store, t: Translate): Record<string, OpenPromptCardProps> {
+  const out: Record<string, OpenPromptCardProps> = {};
+  for (const toast of state.toasts) {
+    const p = toast.openPrompt;
+    if (!p) continue;
+    const s = store.sessions[p.sessionId];
+    const from = p.fromSessionId ? store.sessions[p.fromSessionId] : undefined;
+    out[toast.id] = { sessionId: p.sessionId, name: s?.name ?? t('common.label.noName'), ...(s ? sessionDotOf(s) : { live: null, aside: false, reason: null }), fromName: from ? from.name ?? t('common.label.noName') : null };
+  }
+  return out;
+}
+
 export type ContextShortCardProps = { sessionId: string; fix: { text: string; startedAt: number | null } | null; done: boolean };
 
 /**
@@ -153,5 +172,5 @@ export function presentToasts(state: State, store: Store, now: number): ToastsPr
   const arrived = arrivedCount(store, state.arrivedProjects);
   const launches = presentPhoneLaunches(state, store, t);
   const phoneLaunches = launches.slice(-SHOWN);
-  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, blocked: !overlayReplaceable(state.overlay), arrived: arrived > 0 ? { count: arrived } : null, update: presentUpdateCard(store), whatsNew: presentWhatsNew(store), opencodeVersion: presentOpencodeVersionCard(state, store), codexVersion: presentCodexVersionCard(state, store), join: presentJoinCard(state, store), phoneUndo: store.cloudMember.phoneUndo ? { name: store.cloudMember.phoneUndo.name } : null, phoneLaunches, phoneLaunchMore: launches.length - phoneLaunches.length, prepProgress: presentPrepProgress(state, store, t), contextShorts: presentContextShorts(state, store, t), modelMissings: presentModelMissings(state, store), heldEvents: presentHeldEvents(store, t) };
+  return { toasts: state.toasts, waiting, more: cards.length - waiting.length, blocked: !overlayReplaceable(state.overlay), arrived: arrived > 0 ? { count: arrived } : null, update: presentUpdateCard(store), whatsNew: presentWhatsNew(store), opencodeVersion: presentOpencodeVersionCard(state, store), codexVersion: presentCodexVersionCard(state, store), join: presentJoinCard(state, store), phoneUndo: store.cloudMember.phoneUndo ? { name: store.cloudMember.phoneUndo.name } : null, phoneLaunches, phoneLaunchMore: launches.length - phoneLaunches.length, prepProgress: presentPrepProgress(state, store, t), contextShorts: presentContextShorts(state, store, t), modelMissings: presentModelMissings(state, store), heldEvents: presentHeldEvents(store, t), openPrompts: presentOpenPrompts(state, store, t) };
 }

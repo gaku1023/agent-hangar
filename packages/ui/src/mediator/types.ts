@@ -314,7 +314,11 @@ export type SessionViewState = {
 };
 /** holdMs は info の出している長さ（ミリ秒）。省くと既定の長さ（INFO_TOAST_MS）。action はトーストの中のボタン（「元に戻す」）で、押すとその UiAction を出してトーストを閉じる。 */
 /** action の title は、ボタンに添える説明（「エージェントで調査…」）。 */
-export type Toast = { id: string; level: 'info' | 'error'; message: string; holdMs?: number; action?: { label: string; send: UiAction; title?: string } };
+/**
+ * 右下の知らせ 1 枚。openPrompt があるのは、エージェントが open_in_hangar で会話を見てほしいと求めた知らせ（session.openPrompt）で、
+ * 開く先の会話と求めた会話を持ち、描き方は presenters/toasts.ts の OpenPromptCardProps が決める（message は札を描けないときの代わりの文）。
+ */
+export type Toast = { id: string; level: 'info' | 'error'; message: string; holdMs?: number; action?: { label: string; send: UiAction; title?: string }; openPrompt?: { sessionId: string; deviceId: string; fromSessionId: string | null } };
 /**
  * まとめて再開（中断の群）の進み。queued は順番待ち、active は再開を頼んで返事を待っているもの、failed は断られた理由（セッションの id から）。
  * 同時に頼むのは RESUME_CONCURRENCY 本までである。

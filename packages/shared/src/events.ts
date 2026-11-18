@@ -99,5 +99,11 @@ export type ServerEvent =
    * at は起こした時刻。
    */
   | { type: 'session.woken'; id: string; at: number }
+  /**
+   * エージェントが open_in_hangar で、利用者に会話を見てほしいと求めた。
+   * 画面は切り替えず、右下の知らせに「開く」を出す（自動で消える）。
+   * sessionId は開く先、deviceId はその会話の PC、fromSessionId は求めた会話（共通の URL から呼ばれたときは null）。
+   */
+  | { type: 'session.openPrompt'; sessionId: string; deviceId: string; fromSessionId: string | null }
   /** holdMs は info の出している長さ（ミリ秒）。省くと既定の長さ。読み切るのに時間がかかる知らせだけが付ける。 */
   | { type: 'toast'; level: 'info' | 'error'; message: string; holdMs?: number };
