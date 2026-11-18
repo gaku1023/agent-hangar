@@ -9,7 +9,7 @@ import { Sidebar } from './Sidebar.tsx';
 afterEach(cleanup);
 
 const live: SideLiveProps = { count: 0, ids: [], rows: [], groups: [], pins: [] };
-const home = { label: 'ホーム', route: { name: 'home' as const }, current: true };
+const home = { label: 'ホーム', route: { name: 'home' as const }, current: true, count: 0 };
 const view = (history: { back: boolean; forward: boolean }, onAction = vi.fn(), collapsed = false) => (
   <ActionRoot onAction={onAction}><Sidebar nav={[home]} foot={[]} collapsed={collapsed} live={live} history={history} /></ActionRoot>
 );
