@@ -348,6 +348,10 @@ a:hover { text-decoration: underline; }
 .shell[data-sidebar='collapsed'] .side-live-grp-body .side-live-row, .shell[data-sidebar='collapsed'] .side-live-kids .side-live-row { padding: 0; }
 .shell[data-sidebar='collapsed'] .side-live-scroll { -webkit-mask-image: none; mask-image: none; scrollbar-width: none; }
 .shell[data-sidebar='collapsed'] .side-live-row { justify-content: center; width: var(--item); height: 26px; padding: 0; }
+/* 開いた帯でも、ホームの行の数の丸はアイコンの右上に載せる（畳んだ帯と同じ置き方）。
+   ホームの行は戻る・進むと開閉に幅を取られ、「ホーム」と 2 桁の丸が入り切らない。右端に置くと ‹ にかぶる（PR #779 の後に見つけた）。 */
+.shell:not([data-sidebar='collapsed']) .nav-row > .nav-item { position: relative; }
+.shell:not([data-sidebar='collapsed']) .nav-row .nav-count { position: absolute; top: 2px; left: 22px; min-width: 16px; height: 16px; padding: 0 4px; margin: 0; font-size: 10px; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9); }
 .shell[data-sidebar='collapsed'] .nav-count { position: absolute; top: 3px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; margin: 0; font-size: 10px; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9); }
 .shell[data-sidebar='collapsed'] .nav-item:hover .nav-label, .shell[data-sidebar='collapsed'] .nav-item:focus-visible .nav-label { opacity: 1; visibility: visible; }
 /* 閉じる動きの間、項目名は吹き出しの地を持たず、開いた帯のときの文字のまま薄れる。 */
