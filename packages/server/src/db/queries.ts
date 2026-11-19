@@ -479,11 +479,13 @@ const parkingOn = (db: Db): boolean => parkingSwitches.get(db)?.() ?? true;
 /**
  * 統括の系譜の会話の id（設定の orchestrator.sessionId と history、shared の orchestratorLineage）。role は DB の列を持たず、ここから導く。
  * 前の統括の会話にも付けるのは、サイドバーに出さないためである（柱の固定の行は今の 1 本だけで、設定の sessionId から引く）。
+ * ほかの PC が宿主の統括の系譜も合わせる（起動の組み立て boot/delivery.ts が orchestrator/peerLineage.ts の orchestratorIdsSource を渡す）。
  * セッションを組む全ての経路（一覧、配信、MCP）に通すため、parkingSwitches と同じく DB に結ぶ。渡していない DB には role を付けない。
  */
 const orchestratorSources = new WeakMap<Db, () => string | null | readonly string[]>();
 export function setOrchestratorSource(db: Db, ids: () => string | null | readonly string[]): void { orchestratorSources.set(db, ids); }
-const isOrchestratorId = (db: Db, id: string): boolean => {
+/** 統括の系譜（手元とほかの PC）の会話か。一覧の DTO の role と、MCP の orchestrator の印が同じ判定を使う。 */
+export const isOrchestratorId = (db: Db, id: string): boolean => {
   const v = orchestratorSources.get(db)?.() ?? null;
   return v === null ? false : typeof v === 'string' ? v === id : v.includes(id);
 };

@@ -157,7 +157,8 @@ export function bootHttp(p: {
     publishConfigSync: sync.publishConfigSync,
     onOpencodeEnabled: () => { p.mobile.settingsChanged(); indexing.onSettingsChanged(); runs.agentUsage.refresh(); },
     // 統括の入り切りとモデルの変更を、見張りが受けて起こす・止まる。
-    onOrchestrator: () => { orchestrator.apply(); },
+    // 系譜が変わったら、devices の自分の行の様子に載せ直す（ほかの PC がサイドバーから外すため）。
+    onOrchestrator: () => { orchestrator.apply(); runs.refreshStatus(); },
     onVoice: () => { voice.onSettingsChanged(); },
   }, patch);
   // 実行中の一覧にある、その会話（hangar の id）のいまの status。動いていなければ null。

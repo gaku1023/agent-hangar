@@ -3,7 +3,7 @@ import { isAgentKind, isNotifyKind, isQuietStatus, sessionPhaseOf, notifyRulesOf
 import { listArtifacts } from '../artifacts/queries.ts';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
-import { accountOfSession, getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
+import { accountOfSession, getProject, getSession, isOrchestratorId, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
 import { addIntent, INTENT_MAX, noteIntent } from '../live/intents.ts';
 import { addUnread, noteNotifyCall, noteUnread, NOTIFY_TARGETS, type NotifyTarget } from '../live/unread.ts';
@@ -184,9 +184,12 @@ function readScope(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknow
   return isOrchestratorCtx(deps, ctx) ? undefined : projectScope(deps, ctx, args);
 }
 
-/** 統括の系譜（今と前の統括）の会話か。検索の結果と一覧の項目に印を付け、統括が自分の過去の話とほかの会話を見分けられるようにする。 */
+/**
+ * 統括の系譜（今と前の統括）の会話か。検索の結果と一覧の項目に印を付け、統括が自分の過去の話とほかの会話を見分けられるようにする。
+ * 手元の設定の系譜に加え、一覧の DTO の role と同じ判定（db/queries.ts の isOrchestratorId。ほかの PC が宿主の統括の系譜も含む）を見る。
+ */
 function isOrchestratorSession(deps: ToolDeps, sessionId: string): boolean {
-  return orchestratorLineage(orchestratorOf(deps.settings?.().orchestrator)).includes(sessionId);
+  return orchestratorLineage(orchestratorOf(deps.settings?.().orchestrator)).includes(sessionId) || isOrchestratorId(deps.db, sessionId);
 }
 
 /** プロジェクトを 1 件に決める道具のための project_id。 */
