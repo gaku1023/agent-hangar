@@ -202,6 +202,23 @@ describe('表から DTO とイベントへ', () => {
     expect(t.sent).toEqual([{ type: 'devices.update', devices: listDevices(t.db, ME) }]);
   });
 
+  it('ほかの PC の devices の行が統括の系譜を載せていれば、その会話も配り直す（印が付いてサイドバーから外れる）', () => {
+    const t = setup();
+    seedSession(t.db, 's1');
+    seedSession(t.db, 's2');
+    t.reset();
+    const status = JSON.stringify({ accounts: [], agents: [], lan_ips: [], ssh_host_key: null, hangar_version: '1.0.0', orchestrator_ids: ['s1', 'gone'] });
+    upsertShared(t.db, 'devices', { id: OTHER, name: 'もう 1 台', platform: 'darwin', last_seen_at: 1, status }, OTHER);
+    t.publisher.flush();
+    expect(t.types().sort()).toEqual(['devices.update', 'session.upsert']);
+    expect(upserts(t.sent).map((e) => e.session.id)).toEqual(['s1']);
+    // 自分の行は配り直さない（手元の設定で印はもう付いている）。
+    t.reset();
+    upsertShared(t.db, 'devices', { id: ME, name: 'この PC', platform: 'darwin', last_seen_at: 2, status }, ME);
+    t.publisher.flush();
+    expect(t.types()).toEqual(['devices.update']);
+  });
+
   it('project_memos の行は何も配らない（ノートはやめた。表は古い版の端末の送りを受けるために残してある）', () => {
     const t = setup();
     seedProject(t.db);

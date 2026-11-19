@@ -53,6 +53,30 @@ describe('applyRemoteChange', () => {
     expect((db.prepare('select is_scratch from projects where id = ?').get('p2') as { is_scratch: number }).is_scratch).toBe(1);
   });
 
+  it('devices の様子の欄（統括の系譜を含む）は同期で運ばれ、様子の欄を持たない古い版の DB でも壊れずに当たる', () => {
+    const status = JSON.stringify({ accounts: [], agents: [], lan_ips: [], ssh_host_key: null, hangar_version: '1.0.0', orchestrator_ids: ['orch-1'] });
+    const payload = { id: 'b', name: 'host', platform: 'darwin', last_seen_at: 1, shell_hook: null, status, updated_at: 100, deleted_at: null, origin_device: 'b' };
+    const c: ChangeOut = { seq: 1, tableName: 'devices', rowId: 'b', op: 'upsert', deviceId: 'b', updatedAt: 100, payload };
+    const db = openDb(':memory:');
+    expect(applyRemoteChange(db, c, o)).toBe('applied');
+    expect((db.prepare('select status from devices where id = ?').get('b') as { status: string }).status).toBe(status);
+    // 版 45 の DB（devices に status の列が無い）。知らない列は落として、ほかの列は当てる。
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'apply-devices-'));
+    try {
+      const file = path.join(home, 'old.db');
+      seedDbAt(file, 45);
+      const old = new Database(file);
+      try {
+        expect(applyRemoteChange(old, c, o)).toBe('applied');
+        expect(old.prepare('select name from devices where id = ?').get('b')).toEqual({ name: 'host' });
+      } finally {
+        old.close();
+      }
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it('upsert は deleted_at を明示的に戻すので、削除された行が生き返る', () => {
     const db = openDb(':memory:');
     applyRemoteChange(db, ch({ rowId: 'p1', updatedAt: 1 }), o);

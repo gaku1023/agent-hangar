@@ -10704,6 +10704,17 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   DB の列は持たず、設定から導く（一覧と 1 件は `db/queries.ts` の `setOrchestratorSource`、実行中の一覧は `live/orchestratorRole.ts` の足し付け）。
   実行中の一覧では、一覧の `agent`（Claude Code は省かれる）と会話の `provider` が合うものだけに付ける。Codex と opencode の統括にも付く。
   ほかの会話は鍵ごと送らない。
+- **ほかの PC への伝え方：** 統括の設定は同期しないので、宿主でない PC は統括の会話の id を知らない。
+  そこで宿主は、自分の devices の行の様子（`devices.status` の `orchestrator_ids`、`DeviceStatus`）に系譜の id を載せる（`config/deviceStatus.ts` の `collectDeviceStatus`）。
+  載せ直すのは起動時、様子の調べ直しの周期、統括の設定が変わったとき（`applySettingsPatch` の `onOrchestrator` から `refreshStatus`）で、中身が変わったときだけ書く。
+  統括を切っても系譜は消えないので、載せたままにする。前の統括の会話も、ほかの PC でずっと隠すためである。系譜が無い PC は欄ごと持たない。
+  各 PC の一覧の DTO の `role` は、手元の系譜と、ほかの PC の行（解除した PC の行も含む）に載った系譜の和で決める（`orchestrator/peerLineage.ts` の `orchestratorIdsSource`）。
+  自分の行は見ない。手元の設定のほうが新しいためである。
+  devices の行は会話の数だけ引くと重いので、devices の行が変わったときだけ読み直す。
+  ほかの PC の行が届いたら、載った系譜の会話も配り直す（`events/publisher.ts`）。印が付き、サイドバーから外れる。
+  MCP の検索と一覧の `orchestrator: true` も同じ判定を使う（`db/queries.ts` の `isOrchestratorId`）。
+  実行中の一覧の `LiveSessionDto.role` は、この PC で動いている会話だけの印なので、手元の設定のままである。ほかの PC で動いている統括は、`SessionDto.role` で一覧から外れる。
+  列は足さない。様子の欄を持つ版は、知らない鍵を読み飛ばす。様子の欄そのものを持たない古い版は、届いた列を落とす（`sync/apply.ts`）。
 - **起動：** `RunManager.startOrchestrator()`。
   cwd は hangar の置き場の下の `orchestrator/` で、プロジェクトには属さない（`project_id` は null）。
   起こす前に、この置き場を `.claude.json` で信頼済みにする（`projects/folderTrust.ts` の `trustedPlaces`）。

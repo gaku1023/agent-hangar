@@ -47,6 +47,14 @@ describe('様子を組む', () => {
     expect(collectDeviceStatus(sources({ agents: () => ['opencode'], opencode: () => null })).opencode).toBeUndefined();
   });
 
+  it('統括の系譜の id を載せる。系譜が無ければ鍵ごと載せない（ほかの PC がサイドバーから外すため）', () => {
+    const s = collectDeviceStatus(sources({ orchestratorIds: () => ['now', 'old', 'now'] }));
+    expect(s.orchestrator_ids).toEqual(['now', 'old']);
+    expect(parseDeviceStatus(JSON.stringify(s))).toEqual(s);
+    expect('orchestrator_ids' in collectDeviceStatus(sources({ orchestratorIds: () => [] }))).toBe(false);
+    expect('orchestrator_ids' in collectDeviceStatus(sources())).toBe(false);
+  });
+
   it('opencode の一覧は手元のものを返し、無いか古ければ裏で取り直して、取れたら知らせる（#698）', async () => {
     let now = 1_000_000;
     let held: { fetchedAt: number } | null = null;

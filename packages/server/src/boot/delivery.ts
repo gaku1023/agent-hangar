@@ -4,6 +4,7 @@ import { Publisher } from '../events/publisher.ts';
 import { AsideReader } from '../live/aside.ts';
 import { markOrchestrator } from '../live/orchestratorRole.ts';
 import { setOrchestratorSource } from '../db/queries.ts';
+import { orchestratorIdsSource } from '../orchestrator/peerLineage.ts';
 import { LiveDigester } from '../live/digest.ts';
 import { LiveHub } from '../agent/liveHub.ts';
 import { CompatLog, compatPath } from '../provider/claude-code/compat/log.ts';
@@ -76,7 +77,8 @@ export function bootDelivery(home: Pick<HomeParts, 'home' | 'db' | 'device' | 'c
   // 統括の会話には role を足す（live/orchestratorRole.ts）。role は設定の orchestrator.sessionId から導き、一覧の DTO（db/queries.ts）も同じ設定を見る。
   const orchestratorId = (): string | null => home.settings.current.orchestrator?.sessionId ?? null;
   // 一覧の DTO は系譜の全部（前の統括の会話もサイドバーに出さない）、実行中の一覧は今の 1 本だけに付ける。
-  setOrchestratorSource(db, () => orchestratorLineage(orchestratorOf(home.settings.current.orchestrator)));
+  // 一覧の DTO には、ほかの PC が宿主の統括の系譜（その PC の devices の行の様子）も合わせる。統括の設定は同期しないためである（orchestrator/peerLineage.ts）。
+  setOrchestratorSource(db, orchestratorIdsSource(db, home.device.id, () => orchestratorLineage(orchestratorOf(home.settings.current.orchestrator))));
   const markRole = markOrchestrator(db, orchestratorId);
   const live = new LiveHub({ enrich: [(l, now) => aside.apply(l, now), (l, now) => permissionAsks.apply(l, now), (l, now) => { hookDecisions.apply(l, now); return l; }, (l) => markRole(l)] });
   const agents = bootAgents(home, { compatLog, claudeVersion, enrich: (l) => live.enrich(l), registryIsGone: opts.registryIsGone });

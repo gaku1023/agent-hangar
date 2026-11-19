@@ -20,8 +20,20 @@ export const DEVICE_OPENCODE_MODELS_MAX = 300;
  * ssh_host_key は ssh-keygen -lf と同じ SHA256:... の形で、ホスト鍵が無ければ null。
  * 時刻は持たない。変わっていなければ書かない比較のためである（鮮度は devices.last_seen_at を見る）。
  * opencode はその PC の opencode の選択肢で、opencode を起こせない PC、まだ一覧を取れていない PC、この欄を知らない古い版は持たない。
+ * orchestrator_ids はその PC が宿主になった統括の系譜（今と前の会話の hangar の id、shared の orchestratorLineage）である。
+ * 統括の設定は PC ごとで同期しないので、ほかの PC はこの欄で統括の会話を見分け、サイドバーから外す（docs/design.md「統括」）。
+ * 系譜が無い PC と、この欄を知らない古い版は持たない。
  */
-export type DeviceStatus = { accounts: DeviceAccountStatus[]; agents: string[]; lan_ips: string[]; ssh_host_key: string | null; hangar_version: string; opencode?: DeviceOpencodeStatus };
+export type DeviceStatus = { accounts: DeviceAccountStatus[]; agents: string[]; lan_ips: string[]; ssh_host_key: string | null; hangar_version: string; opencode?: DeviceOpencodeStatus; orchestrator_ids?: string[] };
+
+/** 載せる統括の系譜の上限。系譜は今の 1 本と前の 20 件（ORCHESTRATOR_HISTORY_MAX）なので、余裕を見た数で切る。 */
+export const DEVICE_ORCHESTRATOR_IDS_MAX = 64;
+
+/** 統括の系譜の id を、空でない文字列だけ、重なりなしで、上限までに揃える。 */
+export function orchestratorIdsOf(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return [...new Set(v.filter((x): x is string => typeof x === 'string' && x !== ''))].slice(0, DEVICE_ORCHESTRATOR_IDS_MAX);
+}
 
 /**
  * 別の PC の様子。status が null の PC は様子の欄を持たない版（この機能より前の hangar）で、outdated が真になる。
@@ -47,7 +59,8 @@ export function parseDeviceStatus(raw: string | null | undefined): DeviceStatus 
     accounts.push({ agent: r.agent, name: r.name, logged_in: typeof r.logged_in === 'boolean' ? r.logged_in : null });
   }
   const opencode = parseOpencodeStatus(o.opencode);
-  return { accounts, agents: o.agents.filter(isStr), lan_ips: o.lan_ips.filter(isStr), ssh_host_key: isStr(o.ssh_host_key) ? o.ssh_host_key : null, hangar_version: o.hangar_version, ...(opencode ? { opencode } : {}) };
+  const orchestratorIds = orchestratorIdsOf(o.orchestrator_ids);
+  return { accounts, agents: o.agents.filter(isStr), lan_ips: o.lan_ips.filter(isStr), ssh_host_key: isStr(o.ssh_host_key) ? o.ssh_host_key : null, hangar_version: o.hangar_version, ...(opencode ? { opencode } : {}), ...(orchestratorIds.length > 0 ? { orchestrator_ids: orchestratorIds } : {}) };
 }
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);

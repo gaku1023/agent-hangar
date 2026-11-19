@@ -1,4 +1,4 @@
-import type { ConfigSyncDto, LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
+import { parseDeviceStatus, type ConfigSyncDto, type LiveSessionDto, type ServerEvent } from '@agent-hangar/shared';
 import { getArtifact } from '../artifacts/queries.ts';
 import { onRowChange, settleRowChanges, type RowChange, type RowOrigin } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
@@ -116,7 +116,18 @@ const TABLES: Record<string, TableRule> = {
       return r ? [['project', r.project_id]] : [];
     },
   },
-  devices: { to: () => [['devices', '']] },
+  // ほかの PC の行が統括の系譜（様子の orchestrator_ids）を載せていれば、その会話も配り直す。role が付いてサイドバーから外れる（docs/design.md「統括」）。
+  // 自分の行は配り直さない。手元の設定で印はもう付いている。系譜から落ちた id は配り直さない（前の統括の会話は隠したままでよい）。
+  devices: {
+    to: (c, ctx) => {
+      const out: Target[] = [['devices', '']];
+      if (c.rowId === ctx.deviceId) return out;
+      const r = ctx.db.prepare('select status from devices where id = ?').get(c.rowId) as { status: string | null } | undefined;
+      const known = ctx.db.prepare('select 1 from sessions where id = ? and deleted_at is null');
+      for (const id of parseDeviceStatus(r?.status)?.orchestrator_ids ?? []) if (known.get(id)) out.push(['session', id]);
+      return out;
+    },
+  },
   // 設定の同期。束の行（他の PC から降りたもの、この PC が書いたもの）と、状態を動かした名指し（config_state。基準、送らなかった項目、適用の指示書、スイッチ）。
   config_snapshots: { to: () => [['configSync', '']] },
   config_state: { to: () => [['configSync', '']] },

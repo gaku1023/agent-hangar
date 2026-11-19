@@ -12,6 +12,7 @@ import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA, SESSION_OTHER } from
 import { setSessionName } from '../sessions/notes.ts';
 import { PEER_STALE_MS, PEERS_FRESH_MS, recordPeers } from '../sync/peers.ts';
 import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
+import { orchestratorIdsSource } from '../orchestrator/peerLineage.ts';
 import { displayName, getProject, getSession, listDevices, listProjects, listSessions, sessionLock, setOrchestratorSource, setParkingSwitch } from './queries.ts';
 
 let dir: string;
@@ -53,6 +54,17 @@ describe('統括の印（role）', () => {
     const [a, b] = [all[0]!.id, all[1]!.id];
     setOrchestratorSource(db, () => [a, b]);
     expect(listSessions(db, []).filter((s) => 'role' in s).map((s) => s.id).sort()).toEqual([a, b].sort());
+  });
+  it('別の PC の devices の行に載った統括の系譜の会話にも role を付ける（この PC で統括を切っていても）', () => {
+    const all = listSessions(db, []);
+    const [a, b] = [all[0]!.id, all[1]!.id];
+    setOrchestratorSource(db, orchestratorIdsSource(db, 'd', () => []));
+    expect(listSessions(db, []).every((s) => !('role' in s))).toBe(true);
+    const status = JSON.stringify({ accounts: [], agents: [], lan_ips: [], ssh_host_key: null, hangar_version: '1.0.0', orchestrator_ids: [a] });
+    upsertShared(db, 'devices', { id: 'host', name: 'host', platform: 'darwin', status }, 'host');
+    expect(listSessions(db, []).filter((s) => 'role' in s).map((s) => s.id)).toEqual([a]);
+    expect(getSession(db, [], a)!.role).toBe('orchestrator');
+    expect('role' in getSession(db, [], b)!).toBe(false);
   });
 });
 

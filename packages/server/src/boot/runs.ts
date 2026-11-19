@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { AGENT_KINDS, orchestratorOf, activePersona, voiceOf, codexInjectionOf, notifyRulesOf, opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type AgentKind, type CompatDto, type DeviceStatus, type OpencodeOptionsDto, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
+import { AGENT_KINDS, orchestratorLineage, orchestratorOf, activePersona, voiceOf, codexInjectionOf, notifyRulesOf, opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type AgentKind, type CompatDto, type DeviceStatus, type OpencodeOptionsDto, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
 import { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { claudeJsonFor, claudeJsonPath } from '../provider/claude-code/config/claudeJson.ts';
@@ -111,6 +111,8 @@ export type RunsParts = {
   overlaps: OverlapWatch;
   /** 休みの見張り、デスクトップ通知の見張り、同じファイルの編集の見張りの周期を止める。 */
   stopParkTimer(): void;
+  /** 自分の様子を今すぐ調べ直し、変わっていれば devices に書く。統括の設定が変わったとき（系譜を載せ直す）に呼ぶ。startPresence の前は何もしない。 */
+  refreshStatus(): void;
   /** 生存の刻みの周期を止める。 */
   stopPresence(): void;
 };
@@ -289,6 +291,8 @@ export function bootRuns(
   let overlapTimer: ReturnType<typeof setInterval> | null = null;
   let deviceTimer: ReturnType<typeof setInterval> | null = null;
   let statusTimer: ReturnType<typeof setInterval> | null = null;
+  // 様子の書き直し。startPresence の前は何もしない。
+  let refreshStatus = (): void => {};
   return {
     runs, usage, agentUsage, codexUsage, accounts, claudeBin, localClaude, overlaps,
     // 最初のアカウントは CLAUDE_CONFIG_DIR を付けずに起こすので、ホームの直下の .claude.json を読む（RunAccounts.envFor）。
@@ -379,8 +383,11 @@ export function bootRuns(
         agentUsable,
         agentKinds: AGENT_KINDS, version: VERSION,
         ...(opencode ? { opencode } : {}),
+        // 統括の系譜。ほかの PC はこれで統括の会話を見分け、サイドバーから外す（統括の設定は同期しない）。切っても系譜は残る。
+        orchestratorIds: () => orchestratorLineage(orchestratorOf(settings.current.orchestrator)),
       }));
       const refresh = (): void => { refreshDeviceStatus({ db, device, collect }); };
+      refreshStatus = refresh;
       refresh();
       statusTimer = setInterval(refresh, DEVICE_STATUS_MS);
       statusTimer.unref();
@@ -390,6 +397,7 @@ export function bootRuns(
       if (overlapTimer) clearInterval(overlapTimer);
       notices.stop();
     },
+    refreshStatus() { refreshStatus(); },
     stopPresence() { if (deviceTimer) clearInterval(deviceTimer); if (statusTimer) clearInterval(statusTimer); },
   };
 }

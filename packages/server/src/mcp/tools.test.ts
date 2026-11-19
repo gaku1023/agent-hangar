@@ -12,7 +12,8 @@ import { IndexerService } from '../indexer/service.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { latestIntent } from '../live/intents.ts';
 import { markSeen, onNotifyCall, onUnread } from '../live/unread.ts';
-import { getSession } from '../db/queries.ts';
+import { getSession, setOrchestratorSource } from '../db/queries.ts';
+import { orchestratorIdsSource } from '../orchestrator/peerLineage.ts';
 import { addTodo } from '../projects/todos.ts';
 import { assignSessions } from '../projects/registry.ts';
 import { listDeleteApprovals, rejectDeleteApproval } from '../sessions/deleteApprovals.ts';
@@ -1299,6 +1300,16 @@ describe('統括の URL は、読む道具で全プロジェクトを読める�
     expect(hitsOf(call('search_sessions', { query: 'チャンネル' }, now)).find((h) => h.session_id === alphaId)?.orchestrator).toBe(false);
     const list = call('list_sessions', {}, now) as unknown as { id: string; orchestrator: boolean }[];
     expect(list.find((s) => s.id === orchId)?.orchestrator).toBe(true);
+  });
+
+  it('別の PC の統括の系譜の会話にも、一覧の DTO と同じ判定で orchestrator: true を付ける', () => {
+    deps.settings = () => ({});
+    setOrchestratorSource(db, orchestratorIdsSource(db, 'd', () => []));
+    const status = JSON.stringify({ accounts: [], agents: [], lan_ips: [], ssh_host_key: null, hangar_version: '1.0.0', orchestrator_ids: [orchId] });
+    upsertShared(db, 'devices', { id: 'host', name: 'host', platform: 'darwin', status }, 'host');
+    const list = call('list_sessions', {}, { sessionId: null }) as unknown as { id: string; orchestrator: boolean }[];
+    expect(list.find((s) => s.id === orchId)?.orchestrator).toBe(true);
+    expect(list.find((s) => s.id === alphaId)?.orchestrator).toBe(false);
   });
 
   it('プロジェクトのセッションの URL からは、統括の会話は検索に出ない', () => {
