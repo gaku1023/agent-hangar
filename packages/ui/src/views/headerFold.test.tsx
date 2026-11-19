@@ -67,32 +67,32 @@ const renderShell = (account = false) => render(<ActionRoot onAction={() => {}}>
  * 段 n では、ここで n 以下の段に書いた部品がすべて畳まれ、それより奥の部品は畳まれない。
  */
 const ORDER: [string, number][] = [
-  ['.progress', 2],
-  ['.sync-count', 3],
-  ['.gauge-bar', 4],
-  ['.search-pill-label', 5],
-  ['.search-kbd', 5],
-  ['.search-pill-hint', 5],
-  ['.sync-label-text', 6],
-  ['.new-session .btn-label', 7],
-  ['.gauges', 8],
+  ['.progress', 1],
+  ['.sync-count', 2],
+  ['.gauge-bar', 3],
+  ['.search-pill-label', 4],
+  ['.search-kbd', 4],
+  ['.search-pill-hint', 4],
+  ['.sync-label-text', 5],
+  ['.new-session .btn-label', 6],
+  ['.gauges', 7],
 ];
-/** アカウントがあるときだけ現れる部品。最終更新の次、計器の棒より前に畳む。 */
-const ACCOUNT_ORDER: [string, number][] = [['.account-name', 1]];
+/** アカウントがあるときだけ現れる部品で、畳むもの。名前は畳まず末尾を縮めるので、無い。 */
+const ACCOUNT_ORDER: [string, number][] = [];
 /** どの段でも畳まない部品。 */
 const KEPT = ['.search-pill', '.sync', '.sync-label', '.sync-dot', '.sync-skipped', '.gauge-key', '.gauge-num', '.new-session'];
-/** アカウントがあるとき、どの段でも畳まない部品。名前を畳んでも、色の点と押せるボタンは残る。 */
-const ACCOUNT_KEPT = ['.account-switch', '.account-dot', '.account-caret'];
+/** アカウントがあるとき、どの段でも畳まない部品。エージェントの印と、アカウントの色の名前は、いちばん奥の段でも残る。 */
+const ACCOUNT_KEPT = ['.account-switch', '.account-face-agent', '.account-name', '.account-caret'];
 
 describe('applyFold（段ごとに付く畳んだ印）', () => {
   it('段の数は、畳む部品の組の数である', () => {
-    expect(FOLD_LEVELS).toBe(8);
+    expect(FOLD_LEVELS).toBe(7);
   });
   // アカウントが 1 件以下のときは、ヘッダに account の部品が無く、段は何も畳まない。ほかの部品の順は変わらない。
   for (const account of [false, true]) {
     const order = account ? [...ORDER, ...ACCOUNT_ORDER] : ORDER;
     const kept = account ? [...KEPT, ...ACCOUNT_KEPT] : KEPT;
-    for (let level = 0; level <= 8; level++) {
+    for (let level = 0; level <= 7; level++) {
       it(`${account ? 'アカウントあり' : 'アカウントなし'}・段 ${level} では、その段までの部品にだけ印が付く`, () => {
         const { container } = renderShell(account);
         const row = container.querySelector<HTMLElement>('.header-row')!;
@@ -110,7 +110,7 @@ describe('applyFold（段ごとに付く畳んだ印）', () => {
   it('段を戻すと印を外す', () => {
     const { container } = renderShell(true);
     const row = container.querySelector<HTMLElement>('.header-row')!;
-    applyFold(row, 8);
+    applyFold(row, 7);
     applyFold(row, 0);
     expect(row.querySelectorAll('[data-folded]')).toHaveLength(0);
   });
@@ -135,14 +135,14 @@ describe('畳んでも読める', () => {
   });
 });
 
-describe('アカウントの名前を畳んでも読める', () => {
-  it('名前を畳んでも、ボタンの名前（読み上げ）と色の点から、どのアカウントか分かる', () => {
+describe('アカウントの名前は畳まない', () => {
+  it('いちばん奥の段でも、名前はアカウントの色のまま残る', () => {
     const { container } = renderShell(true);
     const row = container.querySelector<HTMLElement>('.header-row')!;
-    applyFold(row, 2);
+    applyFold(row, FOLD_LEVELS);
     const face = screen.getByRole('button', { name: /^アカウントを切り替え（現在は 会社/ });
-    expect(face.querySelector('.account-name')).toHaveAttribute('data-folded');
-    expect(face.querySelector('.account-dot')).toHaveStyle({ color: '#2a57b8' });
+    expect(face.querySelector('.account-name')).not.toHaveAttribute('data-folded');
+    expect(face.querySelector('.account-name')).toHaveStyle({ color: '#2a57b8' });
   });
   it('アカウントがあるとき、計器は全体が 1 つのボタンの中にある', () => {
     renderShell(true);
@@ -188,10 +188,10 @@ describe('useHeaderFold（測って畳む）', () => {
     const row = container.querySelector<HTMLElement>('.header-row')!;
     expect(row).toHaveAttribute('data-fold-level', '0');
     fakeLayout(row, () => width);
-    width = 800;
+    width = 820;
     act(() => { for (const cb of roCallbacks) cb(); });
-    // 畳んだ段の数だけ、行が 60px ずつ縮む。1000 − 60 × 段 ≤ 800 になる最初の段は 4 である（段 4 では名前、索引、同期の件数、ゲージの棒を畳む）。
-    expect(row).toHaveAttribute('data-fold-level', '4');
+    // 畳んだ段の数だけ、行が 60px ずつ縮む。1000 − 60 × 段 ≤ 820 になる最初の段は 3 である（段 3 では索引、同期の件数、ゲージの棒を畳む）。
+    expect(row).toHaveAttribute('data-fold-level', '3');
     expect(row.querySelector('.sync-count')).toHaveAttribute('data-folded');
     expect(row.querySelector('.gauge-bar')).toHaveAttribute('data-folded');
     expect(row.querySelector('.search-pill-label')).not.toHaveAttribute('data-folded');

@@ -41,25 +41,35 @@ describe('AccountSwitcher のボタンの読み上げ', () => {
 });
 
 describe('AccountSwitcher のボタン', () => {
-  it('色の点と名前と計器と ▾ を 1 つのボタンに入れ、dialog を開く印を持つ', () => {
+  it('エージェントの印、アカウントの色の名前、計器、▾ を 1 つのボタンに入れ、dialog を開く印を持つ', () => {
     const { face } = mount(home());
     expect(face).toHaveAttribute('aria-haspopup', 'dialog');
     expect(face).toHaveAttribute('aria-expanded', 'false');
-    expect(face.querySelector('.account-dot')).toHaveStyle({ color: '#2a57b8' });
+    expect(face.querySelector('.account-dot')).toBeNull();
+    expect(face.querySelector('.account-face-agent')).toHaveAttribute('data-agent', 'claude');
+    expect(face.querySelector('.account-face-agent')).toHaveAttribute('aria-hidden', 'true');
+    expect(face.querySelector('.account-face-agent svg')).not.toBeNull();
     expect(face.querySelector('.account-name')).toHaveTextContent('会社');
+    expect(face.querySelector('.account-name')).toHaveStyle({ color: '#2a57b8' });
     expect(within(face).getByTestId('gauges')).toBeInTheDocument();
     expect(face.querySelector('.account-caret')).toHaveAttribute('aria-hidden', 'true');
     expect(screen.queryByRole('dialog')).toBeNull();
   });
-  it('名前の字は畳む段（account-name）に載り、点は畳む印を持たない', () => {
+  it('名前も印も畳む段に載らない（狭いときは名前の末尾を縮める）', () => {
     const { face } = mount(home());
-    expect(face.querySelector('.account-name')).toHaveAttribute('data-fold-at', '0');
-    expect(face.querySelector('.account-dot')).not.toHaveAttribute('data-fold-at');
+    expect(face.querySelector('.account-name')).not.toHaveAttribute('data-fold-at');
+    expect(face.querySelector('.account-face-agent')).not.toHaveAttribute('data-fold-at');
   });
   it('セッション画面では、そのセッションのアカウントを名前に出す', () => {
     const { face } = mount(inSession());
     expect(face.querySelector('.account-name')).toHaveTextContent('大学');
-    expect(face.querySelector('.account-dot')).toHaveStyle({ color: '#7a4a9e' });
+    expect(face.querySelector('.account-name')).toHaveStyle({ color: '#7a4a9e' });
+  });
+  it('Codex のアカウントを顔に出すときは、印を Codex にする', () => {
+    const { face } = mount(home({ agent: 'codex' }));
+    expect(face.querySelector('.account-face-agent')).toHaveAttribute('data-agent', 'codex');
+    expect(face.querySelector('.account-face-agent .agent-icon')).toHaveAttribute('data-agent', 'codex');
+    expect(face.querySelector('.account-face-agent svg')).not.toBeNull();
   });
 });
 

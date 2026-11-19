@@ -1244,15 +1244,15 @@ describe('ヘッダの使用量の切り替え（Codex の枠）', () => {
   };
   it('Codex の会話では Codex の枠を出し、頭の札は Codex。アカウントの切り替えは、いまのアカウントのまま', () => {
     const p = presentShell(at({ name: 'session', id: 'c1' }), withCodex(CODEX), NOW);
-    expect(p.usage).toMatchObject({ fiveHour: 12, sevenDay: 31, agent: { key: 'codex', label: 'Codex' } });
+    expect(p.usage).toMatchObject({ fiveHour: 12, sevenDay: 31, agent: { key: 'codex' } });
     expect(p.usage.fiveHourLimit).toBeUndefined();
     expect(p.account?.shown.id).toBe('a1');
     expect(p.account?.sessionId).toBeNull();
   });
   it('Claude の会話とホームでは Claude の枠を出し、Codex の枠があるときだけ頭の札 Claude を添える', () => {
     const store = withCodex(CODEX);
-    expect(presentShell(at({ name: 'session', id: 'k1' }), store, NOW).usage).toMatchObject({ fiveHour: 82, sevenDay: 41, agent: { key: 'claude', label: 'Claude' } });
-    expect(presentShell(initialState(), store, NOW).usage).toMatchObject({ agent: { key: 'claude', label: 'Claude' } });
+    expect(presentShell(at({ name: 'session', id: 'k1' }), store, NOW).usage).toMatchObject({ fiveHour: 82, sevenDay: 41, agent: { key: 'claude' } });
+    expect(presentShell(initialState(), store, NOW).usage).toMatchObject({ agent: { key: 'claude' } });
   });
   it('Codex の枠が無い（値が未着、切）ときは、Codex の会話でも Claude の枠のまま、札も出さない', () => {
     const store = withCodex(null);
@@ -1268,6 +1268,11 @@ describe('ヘッダの使用量の切り替え（Codex の枠）', () => {
     expect(home?.usage.updatedLabel).not.toBeNull();
     expect(presentShell(at({ name: 'session', id: 'c1' }), store, NOW).account?.codex?.here).toBe(true);
     expect(presentShell(at({ name: 'session', id: 'k1' }), store, NOW).account?.codex?.here).toBe(false);
+  });
+  it('Codex のアカウントが無ければ、Codex の会話でも顔の印は Claude（顔は Claude のアカウント）', () => {
+    const store = withCodex(CODEX);
+    expect(presentShell(initialState(), store, NOW).account?.agent).toBe('claude');
+    expect(presentShell(at({ name: 'session', id: 'c1' }), store, NOW).account?.agent).toBe('claude');
   });
   it('Codex の枠が無いときは、面に Codex の札を渡さない', () => {
     expect(presentShell(initialState(), withCodex(null), NOW).account?.codex).toBeNull();

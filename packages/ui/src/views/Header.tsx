@@ -43,7 +43,6 @@ export function Header(props: { indexLabel: string | null; usage: UsageProps; ac
   }, [agentKey]);
   const gauges = (
     <span ref={gaugesEl} className="gauges" data-fold-at={foldAt('gauges')}>
-      {props.usage.agent && <span className="gauge-agent" data-agent={props.usage.agent.key}>{props.usage.agent.label}</span>}
       <UsageGauge label={t('header.gauge.fiveHourLabel')} short={t('header.gauge.fiveHourShort')} percent={props.usage.fiveHour} resets={props.usage.fiveHourResets} updated={props.usage.updatedLabel} limited={props.usage.fiveHourLimit ?? null} present={!fiveHourDropped(props.usage) || props.usage.fiveHourLimit !== undefined} />
       <UsageGauge label={t('header.gauge.weeklyLabel')} short={t('header.gauge.weeklyShort')} percent={props.usage.sevenDay} resets={props.usage.sevenDayResets} updated={props.usage.updatedLabel} limited={props.usage.sevenDayLimit ?? null} />
     </span>
