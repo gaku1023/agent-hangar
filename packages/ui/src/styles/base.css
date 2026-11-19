@@ -677,7 +677,8 @@ a:where(.btn) { color: inherit; }
 .header .account-switch .gauges { padding-left: 0; }
 .header .account-switch .gauges::before { display: none; }
 /* 名前は、ゲージの見出し（.gauge-key）と同じ大きさの字にする。 */
-.header .account-name { font-size: var(--fs-xs); font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.header .account-face-agent { display: inline-flex; flex: none; }
+.header .account-name { font-size: var(--fs-xs); font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 2em; padding-right: calc(var(--u) * 2); border-right: 1px solid rgba(30, 40, 90, 0.14); }
 .header .account-caret { flex: none; color: var(--ink-3); font-size: var(--fs-xs); line-height: 1; }
 /* 値が一度も届いていない間の 1 語。 */
 .header .account-none { font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }

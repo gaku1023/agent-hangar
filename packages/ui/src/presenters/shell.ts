@@ -31,7 +31,7 @@ export type NavItem = { route: Route; label: string; current: boolean; count: nu
  */
 export type UsageProps = { fiveHour: number | null; sevenDay: number | null; fiveHourResets: string | null; sevenDayResets: string | null; updatedLabel: string | null; fiveHourLimit?: string; sevenDayLimit?: string;
   /** 頭の札。Codex の枠が届いているときだけ付く（Claude の枠でも Claude と言う）。無ければ札を出さず、見た目は今のまま。 */
-  agent?: { key: 'claude' | 'codex'; label: string } };
+  agent?: { key: 'claude' | 'codex' } };
 /**
  * ヘッダのアカウントの切り替え。アカウントが 1 件以下なら null で、ヘッダは今までのまま。
  * shown は計器を出すアカウントで、セッション画面ではそのセッションのアカウント、ほかではいまのアカウントである。
@@ -47,7 +47,7 @@ export type UsageProps = { fiveHour: number | null; sevenDay: number | null; fiv
  * sessionId は Codex の会話の画面で開いている会話（ホームと Claude の会話では null）。
  */
 export type HeaderCodexAccounts = { list: AccountView[]; shownId: string; claudeShownId: string; sessionId: string | null; working: boolean };
-export type HeaderAccountProps = { shown: AccountView; list: AccountView[]; sessionId: string | null; working: boolean; codex?: { usage: AgentUsageView; here: boolean } | null; codexAccounts?: HeaderCodexAccounts | null } | null;
+export type HeaderAccountProps = { shown: AccountView; /** 顔に出すアカウントのエージェント。顔の印になる。無ければ claude。 */ agent?: 'claude' | 'codex'; list: AccountView[]; sessionId: string | null; working: boolean; codex?: { usage: AgentUsageView; here: boolean } | null; codexAccounts?: HeaderCodexAccounts | null } | null;
 /**
  * 同期の一行は状態を示すだけで、操作は持たない。今すぐ同期、一時停止、PC を追加は設定の同期の群にある。
  * label は状態の語、title は label と件数を並べた全文で、狭いヘッダーで畳んだ部品もここから読める。
@@ -378,7 +378,7 @@ const gaugePercent = (g: AccountGauge | null): number | null => g?.percent ?? nu
 /** Codex の枠。リセット済みの窓は 0% に読む（usageAt）。使用制限で止まった会話の時刻は Claude の枠のものなので付けない。 */
 function codexUsage(t: Translate, c: AgentUsageDto, now: number): UsageProps {
   const u = usageAt(c, now);
-  return { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(t, u.updatedAt, now), agent: { key: 'codex', label: t('header.gauge.agentCodex') } };
+  return { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(t, u.updatedAt, now), agent: { key: 'codex' } };
 }
 
 /** 使用率がまだ届いていないときの値。 */
@@ -411,7 +411,8 @@ function headerAccount(state: State, store: Store, now: number): { account: Head
   const codexList = presentCodexAccounts(store, now);
   const codexSessionId = screenAgent === 'codex' ? screenId : null;
   const codexShownId = codexList.length === 0 ? null : (codexSessionId === null ? null : codexAccountIdOfSession(store, codexSessionId)) ?? codexList.find((a) => a.current)?.id ?? codexList[0]!.id;
-  const shown = codexSessionId !== null && codexShownId !== null ? codexList.find((a) => a.id === codexShownId) ?? claudeShown : claudeShown;
+  const codexShown = codexSessionId !== null && codexShownId !== null ? codexList.find((a) => a.id === codexShownId) : undefined;
+  const shown = codexShown ?? claudeShown;
   const live = (sessionId ?? codexSessionId) === null ? null : store.sessions[(sessionId ?? codexSessionId)!]?.live ?? null;
   const limited = limitedSessions(store, claudeShown.id);
   const claudeUsage: UsageProps = { fiveHour: gaugePercent(claudeShown.fiveHour), sevenDay: gaugePercent(claudeShown.sevenDay), fiveHourResets: claudeShown.fiveHour?.resets ?? null, sevenDayResets: claudeShown.sevenDay?.resets ?? null, updatedLabel: claudeShown.updatedLabel, ...limitTimes(t, limited, now) };
@@ -419,12 +420,12 @@ function headerAccount(state: State, store: Store, now: number): { account: Head
   const codex = store.accounts?.agents?.codex;
   const usage: UsageProps = !codex ? claudeUsage
     : screenAgent === 'codex' ? codexUsage(t, codex, now)
-    : { ...claudeUsage, agent: { key: 'claude', label: t('header.gauge.agentClaude') } };
+    : { ...claudeUsage, agent: { key: 'claude' } };
   // 面には、開いている会話によらず Codex の枠も並べる（Claude Code と Codex の節、AccountSwitcher.tsx）。
   const codexCard = codex ? { usage: presentAgentUsage(t, codex, now), here: screenAgent === 'codex' } : null;
   const working = live === 'busy' || live === 'waiting';
   const codexAccounts: HeaderCodexAccounts | null = codexList.length === 0 ? null : { list: codexList, shownId: codexShownId ?? codexList[0]!.id, claudeShownId: claudeShown.id, sessionId: codexSessionId, working };
-  return { account: { shown, list, sessionId, working, codex: codexCard, ...(codexAccounts ? { codexAccounts } : {}) }, usage };
+  return { account: { shown, agent: codexShown ? 'codex' : 'claude', list, sessionId, working, codex: codexCard, ...(codexAccounts ? { codexAccounts } : {}) }, usage };
 }
 
 /** tz は日付と時刻を言うときの時差で、省略すると端末の時差になる。 */

@@ -10,7 +10,6 @@ import { Icon } from './primitives/Icon.tsx';
 import { staggerIn } from './primitives/motionKit.ts';
 import { useT } from './primitives/language.tsx';
 import { place, type Placement } from './primitives/listboxModel.ts';
-import { foldAt } from './headerFold.ts';
 
 /** 開いた先の幅。 */
 const WIDTH = 380;
@@ -19,7 +18,7 @@ const SETTINGS = { name: 'settings', at: 'accounts' } as const;
 
 /**
  * ヘッダのアカウントの切り替え。
- * 色の点、名前、計器（children）、▾ の全体が 1 つのボタンで、押すとアカウントの一覧が開く。
+ * エージェントの印、アカウントの色の名前、計器（children）、▾ の全体が 1 つのボタンで、押すとアカウントの一覧が開く。
  * アカウントが 1 件のときも同じ顔と同じ面にする。面の札でリセットの時刻が読め、下の段から 2 件目を足せる。
  * ヘッダは窓を掴む領域なので、押す部品はボタンにする。
  * 一覧はアカウントごとに 1 枚の札で、選ぶと、ホームなら「いまのアカウント」を、セッション画面ならそのセッションのアカウントを替える。
@@ -31,6 +30,7 @@ const SETTINGS = { name: 'settings', at: 'accounts' } as const;
  */
 export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps>; children: ReactNode }) {
   const { shown, list, sessionId, working, codex, codexAccounts } = props.account;
+  const agent = props.account.agent ?? 'claude';
   // Claude の節でいまの札。Codex の会話の画面では顔が Codex のアカウントなので、Claude の節は別に持つ。
   const claudeShownId = codexAccounts?.claudeShownId ?? shown.id;
   const emit = useEmit();
@@ -156,8 +156,10 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
     <>
       <button ref={face} type="button" className="account-switch" aria-label={switchLabel(t, shown)} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? popId : undefined}
         onClick={() => (open ? hide(false) : show())}>
-        <span className="st-dot account-dot" style={{ color: shown.color }} aria-hidden="true" />
-        <span className="account-name" data-fold-at={foldAt('account-name')}>{shown.name}</span>
+        {/* 顔の頭は、エージェントの印と、アカウントの色で書いた名前（大学・会社など）。名前は畳まず、狭いときは末尾を縮める。
+            どのエージェントの枠かは印で分かるので、計器の前に Claude・Codex の札は置かない。 */}
+        <span className="account-face-agent" data-agent={agent} aria-hidden="true"><AgentIcon kind={agent === 'codex' ? 'codex' : 'claude-code'} decorative /></span>
+        <span className="account-name" style={{ color: shown.color }}>{shown.name}</span>
         {props.children}
         <span className="account-caret" aria-hidden="true">▾</span>
       </button>
