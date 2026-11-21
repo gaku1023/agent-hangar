@@ -30,6 +30,8 @@ export type PeerCallDeps = {
   workerOk(): boolean;
   /** Worker が名乗った互換値。まだ話していない、または同期が無ければ null。断りの文に添える（無くても断れる）。 */
   workerCompat?(): number | null;
+  /** この PC が Worker を setup した PC か（cloud.json に Worker の名前がある）。worker-outdated の断りの fix を決める。渡さなければ違うとみなす。 */
+  creator?(): boolean;
   now?: () => number;
   /**
    * この hangar の版。send と stop の頼み（op を読む版にだけ送れる）は、相手の hangar_version がこれ以上のときだけ送る（D16）。

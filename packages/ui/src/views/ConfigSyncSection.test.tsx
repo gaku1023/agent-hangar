@@ -40,6 +40,12 @@ describe('Claude Code の設定の同期の節', () => {
     fireEvent.click(screen.getByRole('button', { name: '送信する項目を表示' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'configSync.open', part: 'send' });
   });
+  it('Worker の更新待ちの帯に「エージェントで調査…」を置き、止まった機能と必要な互換値を渡す', () => {
+    const onAction = vi.fn();
+    render(ui(propsOf(dto({ workerPending: true })), onAction));
+    fireEvent.click(within(screen.getByRole('status')).getByRole('button', { name: 'エージェントで調査…' }));
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'investigate.open', op: 'workerOutdated', worker: { feature: 'config', need: 3 } }));
+  });
   it('Worker の更新待ちでなければ帯は出さず、切のときも出さない', () => {
     const { rerender } = render(ui(propsOf(dto())));
     expect(screen.queryByRole('status')).toBeNull();

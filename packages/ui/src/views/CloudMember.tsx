@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { normalizeJoinCode } from '@agent-hangar/shared';
+import { MOBILE_MIN_WORKER_COMPAT, normalizeJoinCode } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import { PAIR_TTL_MS, PHONE_LEFT_FULL_DAYS, type CloudAddProps, type CloudJoinProps, type CloudMemberProps, type CloudPhoneProps } from '../presenters/cloudMember.ts';
 import { CommandLine, CopyButton } from './primitives/CommandLine.tsx';
@@ -869,6 +869,7 @@ export function CloudPhones(props: { m: CloudMemberProps }) {
         <Strip tone="warn">
           <p>{p.compat !== null ? t('cloudMember.phone.old', { compat: p.compat }) : t('cloudMember.phone.oldUnknown')}</p>
           <p className="cm-faint">{t('cloudMember.phone.oldHint')}</p>
+          <div className="err-acts"><InvestigateButton ctx={{ op: 'workerOutdated', message: t('cloudMember.phone.oldHint'), worker: { feature: 'phone', need: MOBILE_MIN_WORKER_COMPAT, ...(p.compat !== null ? { have: p.compat } : {}) } }} /></div>
         </Strip>
       )}
       {p.kind === 'limited' && <Strip tone="warn" role="alert"><p>{t('cloudMember.phone.limited')}</p></Strip>}

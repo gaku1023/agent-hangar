@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
+import { CONFIG_BUNDLE_MIN_WORKER_COMPAT } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { ConfigSyncSectionProps } from '../presenters/configSync.ts';
 import { ConfigGroup, Reveal } from './ConfigSyncParts.tsx';
 import { ConfigInbox } from './ConfigInbox.tsx';
 import { ConfigKindsList } from './ConfigKindsList.tsx';
+import { InvestigateButton } from './InvestigateButton.tsx';
 import { CommandLine } from './primitives/CommandLine.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -65,6 +67,7 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
           <div className="cfg-strip" data-tone="warn" role="status">
             <Icon name="alert" />
             <span><b>{t('configSyncUi.worker.title')}</b>{' '}{t('configSyncUi.worker.body')}</span>
+            <span className="strip-acts"><InvestigateButton ctx={{ op: 'workerOutdated', message: `${t('configSyncUi.worker.title')} ${t('configSyncUi.worker.body')}`, worker: { feature: 'config', need: CONFIG_BUNDLE_MIN_WORKER_COMPAT } }} /></span>
           </div>
         ) : undefined} />
       {/* 種類ごとの行（C 性質ごと）と、右の「届いたもの」。親を切ると畳む。 */}

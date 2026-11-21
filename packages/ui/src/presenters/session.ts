@@ -83,7 +83,7 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
    * ほかの PC の Claude Code の会話を、チャットの形で見て続ける画面（views/PeerChatPane.tsx）。
    * watch が真の間、画面は見張りを張る。view が null の間（読み込み中、見続けられなかった）は、読み取り専用のトランスクリプトを出す。
    */
-  peerChat?: { watch: boolean; view: PeerChatView | null };
+  peerChat?: { watch: boolean; view: PeerChatView | null; /** クラウドの Worker が古くて見張れず、読み取り専用のままになっている。見出しの下に帯を出す。 */ workerOutdated?: boolean };
   /** このセッションを起こしたセッション（SessionDto.spawnedBy）。store に無い、または起こされていなければ null、省けば出さない。 */
   spawnedFrom?: SpawnedFromView | null;
   /** このセッションが起こしたセッション（起動の古い順）。無ければ空、省けば出さない。 */
@@ -690,7 +690,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     fromScratch: s.fromScratch, canPromote: !!(s.projectId && store.projects[s.projectId]?.isScratch),
     split: right && selectedTab ? { left: selectedTab, right: right.id } : null, canSplit,
     gone, transcriptBand, peerOrigin: presentPeerOrigin(store, id, t),
-    peerChat: isPeerChatCandidate(s) ? { watch: true, view: presentPeerChat(store, id, t) } : { watch: false, view: null },
+    peerChat: isPeerChatCandidate(s) ? { watch: true, view: presentPeerChat(store, id, t), ...(store.peerChat[id]?.phase === 'fallback' && store.peerChat[id]?.fallback === 'worker-outdated' ? { workerOutdated: true } : {}) } : { watch: false, view: null },
   };
   props.endedLine = run !== null || agentKind === null ? null : pending ? AGENT_TEXT[agentKind].endedPending : props.canResume ? AGENT_TEXT[agentKind].endedLine : null;
   return { ...props, actions: sessionActions({ ...props, summaryOff }, t, openLabel(t, store.settings)) };

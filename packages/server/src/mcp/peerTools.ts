@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { isAgentKind, isPeerLaunchPermission, peerLaunchPermissionChoices, sealPeerLaunch, type AgentKind, type PeerLaunchRequest } from '@agent-hangar/shared';
+import { PEER_LAUNCH_MIN_WORKER_COMPAT, isAgentKind, isPeerLaunchPermission, peerLaunchPermissionChoices, sealPeerLaunch, type AgentKind, type PeerLaunchRequest } from '@agent-hangar/shared';
 import { accountOfSession, getSession } from '../db/queries.ts';
 import { defaultLanguage } from '../i18n/language.ts';
 import { msg, render, type Message } from '../i18n/message.ts';
@@ -32,7 +32,24 @@ export function isThisDevice(deps: ToolDeps, key: string): boolean {
 
 /** 頼みを置く前の断り。request_id は無い（何も置いていない）。 */
 function refused(deps: ToolDeps, reason: PeerCallRefusal, device: string, m: Message) {
-  return { status: 'refused' as const, reason, device, note: render_(deps, m) };
+  const base = { status: 'refused' as const, reason, device, note: render_(deps, m) };
+  return reason === 'worker-outdated' ? { ...base, ...workerOutdatedDetail(deps) } : base;
+}
+
+/**
+ * worker-outdated の断りに添える、会話の中のエージェントが直しに進める手がかり。
+ * worker_compat は Worker が名乗った互換値（分かるときだけ）、need は必要な値、this_pc_is_creator はこの PC が Worker を setup した PC か。
+ * fix は、setup した PC なら承認を得てから setup cloud を打つこと、違えば setup した PC で打つよう利用者に伝えること。
+ */
+function workerOutdatedDetail(deps: ToolDeps) {
+  const have = deps.peer?.workerCompat?.() ?? null;
+  const isCreator = deps.peer?.creator?.() === true;
+  return {
+    ...(have !== null && have > 0 ? { worker_compat: have } : {}),
+    need: PEER_LAUNCH_MIN_WORKER_COMPAT,
+    this_pc_is_creator: isCreator,
+    fix: render_(deps, msg(isCreator ? 'mcp.device.workerFixCreator' : 'mcp.device.workerFixOther')),
+  };
 }
 
 /**

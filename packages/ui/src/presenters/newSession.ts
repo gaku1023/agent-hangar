@@ -77,6 +77,8 @@ export type NewSessionProps = {
    * ダイアログは開いたときに peers.load を送って読む。
    */
   peers?: PeerDeviceDto[];
+  /** Worker が最後に名乗った互換値（分からなければ null）。Worker が古い PC を選んだときの断りの文に添える。 */
+  workerCompat?: number | null;
 };
 /**
  * プロジェクトの札とエージェント、アカウントの札の中身。新しいセッションのダイアログと予定のフォームが同じ形で使う（views/useLaunchChoice.tsx）。
@@ -193,6 +195,7 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
     dir: state.overlay.dir ?? null,
     prep: mark && prepDto ? presentLaunchPrep(prepDto, t, mark.model) : null,
     peers: store.peers ?? [],
+    workerCompat: store.sync?.workerCompat ?? null,
   };
 }
 

@@ -24,6 +24,8 @@ let db: Db;
 let a: FakeCloudClient;
 let ring: PeerKeyring;
 let workerOk: boolean;
+let workerCompat: number | null;
+let creator: boolean;
 let linkOk: boolean;
 let deps: ToolDeps;
 let caller: string;
@@ -44,6 +46,8 @@ beforeEach(async () => {
   const keys = await deriveEpochKeys(1, randomEpochKey());
   ring = { current: () => keys, at: (n) => (n === 1 ? keys : null) };
   workerOk = true;
+  workerCompat = null;
+  creator = false;
   linkOk = true;
   approvals = [];
   approvalRequests = [];
@@ -57,6 +61,8 @@ beforeEach(async () => {
   const peer: PeerCallDeps = {
     link: () => (linkOk ? { api, ring: async () => ring } : null),
     workerOk: () => workerOk,
+    workerCompat: () => workerCompat,
+    creator: () => creator,
     now: () => NOW,
     version: '1.0.0',
     newId: () => 'req-1',
@@ -196,6 +202,27 @@ describe('create_session の device', () => {
     expect(String((r as { note?: string }).note)).not.toContain('Mac の hangar が古い');
     putPeer({ status: null });
     expect(await call('create_session', { device: 'Mac' })).toMatchObject({ status: 'refused', reason: 'worker-outdated' });
+  });
+
+  it('worker-outdated の断りは、互換値と必要値、この PC が setup した PC か、直し方を添える', async () => {
+    putPeer();
+    workerOk = false;
+    workerCompat = 9;
+    creator = true;
+    const c = await call('create_session', { device: 'Mac' });
+    expect(c).toMatchObject({ reason: 'worker-outdated', worker_compat: 9, need: 10, this_pc_is_creator: true });
+    expect(String(c.fix)).toContain('承認を得てから');
+    expect(String(c.fix)).toContain('npm run hangar -- setup cloud');
+    creator = false;
+    workerCompat = null;
+    const n = await call('create_session', { device: 'Mac' });
+    expect(n).toMatchObject({ reason: 'worker-outdated', need: 10, this_pc_is_creator: false });
+    expect(n).not.toHaveProperty('worker_compat');
+    expect(String(n.fix)).toContain('setup した PC');
+    // 別の理由の断りには添えない
+    workerOk = true;
+    putPeer({ lastSeen: NOW - PEER_ONLINE_MS - 1 });
+    expect(await call('create_session', { device: 'Mac' })).not.toHaveProperty('fix');
   });
 
   it('last_seen_at が古ければ device-offline', async () => {
@@ -342,8 +369,8 @@ describe('send_to_session と stop_session の別の PC への頼み（D16）', 
     putPeer({ status: status({ hangar_version: '0.9.0' }) });
     const id = spawned();
     workerOk = false;
-    expect(await call('send_to_session', { session_id: id, text: 'x' })).toMatchObject({ status: 'refused', reason: 'worker-outdated' });
-    expect(await call('stop_session', { session_id: id })).toMatchObject({ status: 'refused', reason: 'worker-outdated' });
+    expect(await call('send_to_session', { session_id: id, text: 'x' })).toMatchObject({ status: 'refused', reason: 'worker-outdated', need: 10, this_pc_is_creator: false });
+    expect(await call('stop_session', { session_id: id })).toMatchObject({ status: 'refused', reason: 'worker-outdated', need: 10, this_pc_is_creator: false });
   });
 
   it('空白だけと長すぎる本文は断る。相手が落ちていれば device-offline', async () => {

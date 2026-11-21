@@ -189,3 +189,4 @@
 .cfg-held-link:hover { color: var(--accent); }
 .cfg-held { list-style: none; padding: 0; }
 .cfg-held > .cfg-it:first-child { border-top: 0; }
+.cfg-strip .strip-acts { margin-left: auto; flex: none; }

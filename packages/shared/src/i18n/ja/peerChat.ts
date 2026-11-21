@@ -2,6 +2,7 @@ import type { peerChatKeys } from '../keys/peerChat.ts';
 import type { AreaDictionary } from '../messageSpec.ts';
 
 export const peerChatJa: AreaDictionary<typeof peerChatKeys> = {
+  'peerChat.readOnly.workerOutdated': 'クラウドの Worker が古いため、この会話は読み取り専用です',
   'peerChat.status.busy': '作業中',
   'peerChat.status.idle': 'アイドル',
   'peerChat.status.waiting': '入力待ち',

@@ -48,12 +48,19 @@ export type StatusFilter = NonNullable<SearchFilter['status']>;
  */
 export type InvestigateErrorOp = 'launch' | 'resume' | 'fork' | 'accountSwitch' | 'accountLinks' | 'linkRepair' | 'accountAdd' | 'sync' | 'cloud' | 'summary' | 'editor' | 'opencodeProvider';
 /** エラーではない注意から調べるときの op。その場で直すボタンの無い注意にだけ置く（互換のずれ、空き不足、エージェントの版、クラウドの古い形式）。 */
-export type InvestigateNoticeOp = 'compat' | 'disk' | 'agentVersion' | 'cloudLegacy';
+export type InvestigateNoticeOp = 'compat' | 'disk' | 'agentVersion' | 'cloudLegacy' | 'workerOutdated';
 export type InvestigateOp = InvestigateErrorOp | InvestigateNoticeOp;
-const NOTICE_OPS: ReadonlySet<InvestigateOp> = new Set<InvestigateNoticeOp>(['compat', 'disk', 'agentVersion', 'cloudLegacy']);
+const NOTICE_OPS: ReadonlySet<InvestigateOp> = new Set<InvestigateNoticeOp>(['compat', 'disk', 'agentVersion', 'cloudLegacy', 'workerOutdated']);
 /** 注意から調べる op か。依頼の文、引用の頭の語、ボタンの title が変わる。 */
 export const isNoticeOp = (op: InvestigateOp): op is InvestigateNoticeOp => NOTICE_OPS.has(op);
-export type InvestigateContext = { op: InvestigateOp; message: string; agent?: AgentKind; accountId?: string; sessionId?: SessionId; code?: string; files?: string[] };
+/** Worker が古くて止まった機能。launch は別の PC への起動、sync は同期の停止、config は設定の同期、phone はスマホ、peerChat は別の PC の会話の閲覧。 */
+export type WorkerFeature = 'launch' | 'sync' | 'config' | 'phone' | 'peerChat';
+/**
+ * op が workerOutdated のとき、止まった機能と、その機能に必要な Worker の互換値（分かれば）。
+ * Worker が名乗った互換値と、この PC が Worker を setup した PC かは、依頼を組むときに Store の sync から読む。
+ */
+export type InvestigateWorker = { feature: WorkerFeature; need?: number | null; have?: number | null };
+export type InvestigateContext = { op: InvestigateOp; message: string; agent?: AgentKind; accountId?: string; sessionId?: SessionId; code?: string; files?: string[]; worker?: InvestigateWorker };
 /**
  * 新しいセッションのダイアログを、中身を埋めて開くときの種（session.new.open の seed）。
  * request は依頼の文（欄で書き換えられる）、quote はエラーの引用（欄の中に分けて見せ、送るときに依頼の文の後に足す）。

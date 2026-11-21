@@ -1,7 +1,9 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { PEER_CHAT_MIN_WORKER_COMPAT } from '@agent-hangar/shared';
 import { useBackgroundEmit, useEmit } from '../action/chain.tsx';
 import type { SessionAction, SessionActionId, SessionProps } from '../presenters/session.ts';
 import { EndedAgentLine, EndedFacts } from './EndedFacts.tsx';
+import { InvestigateButton } from './InvestigateButton.tsx';
 import { NowCard } from './NowCard.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { PeerChatPane, usePeerChatWatch } from './PeerChatPane.tsx';
@@ -174,7 +176,14 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
   // 要約の札（S5）。書かれた要約か、作成中と失敗の知らせがあるときだけ描く（SummaryCard が自分で決める）。
   const summaryCard = props.lead ? <SummaryCard sessionId={id} {...props.lead} /> : null;
   // 見出しの下の押せない理由の行など。大きな見出しの below と同じものを、ペインの見出しの下にも出す。
-  const belowLines = <><SpawnedPills sessionId={id} kids={props.spawned} />{facts}{noRootLine}{takenOverLine}</>;
+  // クラウドの Worker が古くて見張れず、ほかの PC の会話が読み取り専用のままのとき。直す入口を同じ行に置く。
+  const workerLine = props.peerChat?.workerOutdated ? (
+    <div className="session-reason" role="note">
+      <Icon name="info" /><span>{t('peerChat.readOnly.workerOutdated')}</span>
+      <InvestigateButton ctx={{ op: 'workerOutdated', message: t('peerChat.readOnly.workerOutdated'), worker: { feature: 'peerChat', need: PEER_CHAT_MIN_WORKER_COMPAT } }} />
+    </div>
+  ) : null;
+  const belowLines = <><SpawnedPills sessionId={id} kids={props.spawned} />{facts}{noRootLine}{takenOverLine}{workerLine}</>;
   // 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。
   const primaryButton = (
     <>
