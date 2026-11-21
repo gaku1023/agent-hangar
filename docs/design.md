@@ -2058,7 +2058,9 @@ LM Studio の段（`provider/opencode/localModels/`）は、serve を起こし�
 2. プロバイダーの baseURL は `/api/provider` の行の `settings.baseURL` を先に使い、無ければ設定の層の `providers.<ID>.settings.baseURL`（1.x の書き方は `provider.<ID>.options.baseURL`）を使う。起きたばかりの serve は `/api/provider` を数百 ms の間、空で答えるが、`/api/config` は初めから揃っているからである。設定に baseURL の無い接続先（opencode に組み込みの宛先）だけは、行が出るまで 200ms おきに 10 回まで聞き直す。
    baseURL が 127.0.0.1 か localhost のものだけを触る。LAN の LM Studio はほかの人の PC かもしれないので触らない。`/api/v1/models` が 404 かつながらない宛先は、黙って飛ばす。
 3. ロードする長さは、設定の `opencodeLocalContext`（既定 64K）と、opencode の `limit.context` と、LM Studio の `max_context_length` の小さい方である。
+   会話のモデルが決まっていれば（指定か設定の `model`）、選んだ主の agent（モードの指定、無ければ `build`）の `model` は数えない。hangar はそのモデルで会話を作り、opencode はそれを agent の `model` より優先するからである（2026-11-21 に、build に qwen を書いた設定でクラウドのモデルを指定し、LM Studio に推論が来ないことで確かめた）。
 4. 足りる長さで載っていれば何もしない。載っていなければロードし、短く載っていれば、アンロードしてからロードし直す。
+   起動前にロードするのは、会話の始まりに要るモデル（会話のモデルと `small_model`）だけである。ほかの agent だけが使うモデル（サブエージェントなど、呼ばれたときに使うもの）のロードは、会話を作った後に裏で走らせ、画面の準備には出さない。失敗しても会話は止めない。ロード自体をやめないのは、LM Studio が使われたときに自分で読み込むと既定の短い長さで載るからである。計画（下の 5、6 の問いとメモリ）は、後に回すモデルも含めて起動前に立てる。
 5. アンロードしてよいのは、hangar がロードしたもの（ホームの `opencode/local-models.json` に、宛先と使った hangar の会話と一緒に記録する）のうち、ほかの実行中の会話（serve がある会話）が使っていないものだけである。手動でロードされたものは、答え（`unload`）が無ければ触らずに聞く（`unload-manual`）。
 6. メモリは、残る instance と新しくロードするものの重みの合計が物理メモリの 8 割を超えるかで見る。会話と agent が別々のモデルを使い、それだけで超えるなら、1 モデルに寄せるかを聞く（`memory`、勧めるのは会話のモデル）。答えが `singleModel` なら、agent と `small_model` をそのモデルに上書きする設定で serve を起こし直す。1 つで収まらないモデルは聞かずにロードしてみる。
 
