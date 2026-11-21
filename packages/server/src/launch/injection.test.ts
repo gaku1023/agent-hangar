@@ -17,12 +17,13 @@ const BODY_JA = [
   'TODO を片付けたと判断したら、update_project の propose_done に TODO の ID と根拠の一文を渡してください。',
   '完了にするのはユーザーです。確認できていないものは出さないでください。',
 ];
-/** 区切りの問いの段（launch.injection.status）。フォームで聞くのは、利用者が終わりを告げたときと外の待ちを言ったときだけ。 */
+/** 区切りの問いの段（launch.injection.status）。フォームで聞くのは、利用者が終わりを告げたとき、外の待ちを言ったとき、このセッションでやることが残っていないと自分で判断したとき。 */
 const STATUS_JA = [
-  'ユーザーが終わりを告げたときと、ユーザーが外の出来事を待つと言ったときだけ、そのターンの終わりに AskUserQuestion で「このセッションをどうしますか」と聞いてください。選択肢は「Done にする」「Paused · <リマインダーの日付。時刻に意味があれば時刻も>（理由。何を確認しに戻るか）」「まだ続ける」です。',
-  '終わりを告げたときとは「ありがとう」「ここまで」「マージした」「今日はここまで」などと言ったとき、外の出来事とは CI、レビュー、明日の確認などです。',
-  '頼まれたことが全部済んだと自分で判断しただけのときは聞かないでください。propose_session_status に confirmed なしで提案だけ出してください。',
-  '一手が済んだだけのとき、質問に答えただけのとき、修正のやりとりの途中、ユーザーが次の指示を続けているときも聞かないでください。迷ったら聞かないでください。',
+  '次の 3 つのどれかに当てはまったら、そのターンの終わりに AskUserQuestion で「このセッションをどうしますか」と聞いてください。選択肢は「Done にする」「Paused · <リマインダーの日付。時刻に意味があれば時刻も>（理由。何を確認しに戻るか）」「まだ続ける」です。',
+  '・ユーザーが終わりを告げたとき（「ありがとう」「ここまで」「マージした」「今日はここまで」など）',
+  '・ユーザーが外の出来事（CI、レビュー、明日の確認など）を待つと言ったとき',
+  '・頼まれたことが全部済み、このセッションでやることはもう残っていないと、自分で判断したとき',
+  '一手が済んだだけのとき、修正のやりとりの途中、ユーザーが次の指示を続けているとき、このセッションでやる次のステップが残っているときは聞かないでください。',
   '「まだ続ける」を選ばれたあとは、ユーザーがもう一度終わりを告げるか、外の出来事を待つと言うまで、聞き直さないでください。',
   '聞かないときは、set_session_summary の進捗を正直に書いてください。待ちが明らかなら、propose_session_status に confirmed なしで提案だけ出してください。',
   'ユーザーが Done か Paused を選んだら、propose_session_status に confirmed: true で渡してください。答えずに次の指示へ進んだら、confirmed なしで提案だけ出してください。',
@@ -52,7 +53,7 @@ const RULES_DEFAULT_JA = 'unread は done・ask・progress、os は done・ask�
 const ASK_JA = (os: string) => [
   '知らせ方がまだ決まっていません。このセッションの最初の返答の終わりには、依頼が済んだかどうか、区切りかどうかに関係なく、必ず AskUserQuestion で、どんなときに知らせてほしいかを 1 度だけ聞いてください。'
   + `選択肢は「返答のたびに未読、${os} とスマホは済んだときと判断が必要なとき（デフォルト）」「${os} とスマホにも毎回」「${os} とスマホは判断が必要なときだけ」の 3 つにし、ユーザーは Other で自由に答えられます。答えたら set_notify_preference で保存してください。`
-  + 'この問いは、下の「このセッションをどうしますか」の決まり（終わりを告げたときと外の出来事を待つと言ったときだけ聞く、迷ったら聞かない）とは別のもので、その決まりは当てはまりません。',
+  + 'この問いは、下の「このセッションをどうしますか」の決まり（終わりを告げたとき、外の出来事を待つと言ったとき、このセッションでやることが残っていないと判断したときに聞く）とは別のもので、その決まりは当てはまりません。',
 ];
 /** Mac で、知らせ方が未設定の既定の入り（Windows の CI でも同じ文になるよう、OS を指す）。 */
 const MAC: InjectionParts = { askStatusAtEnd: true, liveHints: true, notifyUser: true, notify: { platform: 'darwin' } };
@@ -136,10 +137,11 @@ describe('renderInjection', () => {
     // してはいけないことも残る。
     expect(en).toContain('Only the user marks a to-do as done. Do not suggest anything that has not been verified.');
     expect(en).toContain('Do not write the time only in the note text.');
-    expect(en).toContain('When in doubt, do not ask.');
-    // フォームで聞くのは、終わりを告げたときと外の待ちを言ったときだけ。自分で済んだと判断しただけなら提案だけ。
-    expect(en).toContain('Only when the user signals the end, or says they are waiting for something outside');
-    expect(en).toContain('Do not ask when you have only judged by yourself that everything asked is done.');
+    expect(en).not.toContain('When in doubt, do not ask.');
+    // フォームで聞くのは、終わりを告げたとき、外の待ちを言ったとき、自分でこのセッションの務めが済んだと判断したとき。
+    expect(en).toContain('When any of these three applies');
+    expect(en).toContain('- You judge by yourself that everything asked is done and nothing is left for this session to do');
+    expect(en).not.toContain('Do not ask when you have only judged by yourself that everything asked is done.');
     // 選択肢は用語集の語にする。
     expect(en).toContain('"Mark as Done", "Paused · <reminder date, plus the time if the time matters> (what to come back and check)", and "Keep going"');
     // 手の説明は短く。字数の上限ではなく目安で言う。
@@ -178,7 +180,7 @@ describe('renderInjection の PC をまたぐ段', () => {
     expect(t).toContain('ssh、scp、rsync は自分で実行しないでください。1 度合っていると確認したものは、その後は疑わないでください。\n');
     const at = (s: string) => t.indexOf(s);
     expect(at('あなたは agent-hangar')).toBeLessThan(at('この会話は work-pc'));
-    expect(at('この会話は work-pc')).toBeLessThan(at('ユーザーが終わりを告げたときと、'));
+    expect(at('この会話は work-pc')).toBeLessThan(at('次の 3 つのどれかに当てはまったら'));
   });
   it('分からない値は（なし）にし、無いファイルが 10 件を越えたら件数を言って末尾を省く', () => {
     const t = renderInjection({ ...BASE, handover: { ...FACTS, prevDevice: null, prevPlatform: null, lastAt: null, branch: null, missing: [], missingCount: 0 } });
@@ -195,7 +197,7 @@ describe('renderInjection の PC をまたぐ段', () => {
   it('プロジェクトを 2 台以上で使っていれば弱い 1 文を足し、1 台なら足さない', () => {
     const two = renderInjection({ ...BASE, deviceCount: 2 });
     expect(two).toContain('このプロジェクトは 2 台の PC で使っています。過去の会話のパスやファイルの状態は、この PC と違うことがあります。\n');
-    expect(two.indexOf('このプロジェクトは')).toBeLessThan(two.indexOf('ユーザーが終わりを告げたときと、'));
+    expect(two.indexOf('このプロジェクトは')).toBeLessThan(two.indexOf('次の 3 つのどれかに当てはまったら'));
     expect(renderInjection({ ...BASE, deviceCount: 1 })).not.toContain('台の PC');
     expect(renderInjection(BASE)).not.toContain('台の PC');
   });

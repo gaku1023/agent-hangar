@@ -60,7 +60,7 @@ function unattendedEntry(language: Language, by: LaunchedBy, key: 'launch.inject
  * どのエージェントにも通じる形（agent/types.ts の InjectionEntry）で返し、どう渡すかは driver が決める（Claude は段をつないで --append-system-prompt に渡す）。
  * プロジェクトのノートは渡さない。Claude Code は CLAUDE.md と自動メモリを自分で読むので、渡すと同じ役が二重になる。
  * TODO は ID を添えて渡す。ID が無いと、候補を出す前に get_project を呼んで引く一手が要るためである。
- * 状態をフォームで聞かせるのは、利用者が終わりを告げたときと、外の出来事を待つと言ったときだけである。自分で済んだと判断しただけなら、confirmed なしの提案だけを出させる。
+ * 状態をフォームで聞かせるのは、利用者が終わりを告げたとき、外の出来事を待つと言ったとき、このセッションでやることが残っていないと自分で判断したときである。
  * 利用者が選んだものは confirmed: true でそのまま状態になり、答えずに進めたものは候補として画面に残る。
  * 予定や出来事、別の会話から起こした会話（launchedBy）には、区切りの問いと知らせ方の問いの代わりに、問いで止まらない段（unattended）を足す。
  * attach で開く会話にはこの指示が渡らないので、そちらは事後の要約で拾う。
