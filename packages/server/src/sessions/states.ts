@@ -1,4 +1,4 @@
-import { candidateExpired, CANDIDATE_EXPIRE_DAYS, isQuietStatus, isReturnOn, isReturnTime, STATE_NOTE_MAX, type CandidateSource, type SessionCandidateDto, type SessionStateDto, type SessionStatus, type StateSetBy, type WakeOn } from '@agent-hangar/shared';
+import { candidateExpired, CANDIDATE_EXPIRE_DAYS, isLaunchedBy, isQuietStatus, isReturnOn, isReturnTime, STATE_NOTE_MAX, type CandidateSource, type SessionCandidateDto, type SessionStateDto, type SessionStatus, type StateSetBy, type WakeOn } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { stampFacts } from './stateFacts.ts';
@@ -312,9 +312,24 @@ function stateClears(cur: StateRow, promptTs: number, processStartOf: () => numb
 }
 
 /**
+ * 提案を出した時に動いていた run が、人のいない起動（予定や出来事、別の会話。launch_params の launchedBy）だったか。
+ * そうした run の区切りの提案は、人が見る前に出たものなので、あとから来た人の一言で消すと、人は一度も見られない（2026-11-21、予定から起こした会話で Done の提案が消えた）。
+ * 見るのは提案の時刻までに始まった最後の run で、そのあと人が再開した run の提案は今までどおり消す。読めない指定は人の起動とみなす。
+ */
+function candidateFromUnattendedRun(db: Db, sessionId: string, candidateAt: number): boolean {
+  const r = db.prepare('select launch_params from runs where session_id = ? and deleted_at is null and started_at <= ? order by started_at desc, id desc limit 1').get(sessionId, candidateAt) as { launch_params: string | null } | undefined;
+  try {
+    return isLaunchedBy((JSON.parse(r?.launch_params ?? 'null') as { launchedBy?: unknown } | null)?.launchedBy);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 利用者の新しい発言（promptTs）で、古くなったものを外す。何か外したら true を返す。
  * 状態は resume した後の発言だけで外す（stateClears）。
  * 提案と却下の印は、発言がそれぞれの時刻より後なら外す。会話を続けたら前の提案は古く、却下の後に続けたらまた提案を出してよい。
+ * ただし、人のいない起動の run で出した提案は、発言では外さない（candidateFromUnattendedRun）。次の提案か、人の判断（選ぶ・却下）で置き換わる。
  * 状態が無いときの set_at（Active に戻した時刻）は比べない。
  * 外すものが何も無ければ書かない。発言は数が多いので、毎回書くと D1 の無料枠を食う。
  */
@@ -323,7 +338,7 @@ export function clearOnNewPrompt(db: Db, deviceId: string, sessionId: string, pr
   if (!cur) return false;
   const patch: Partial<StateRow> = {};
   if (stateClears(cur, promptTs, processStartOf)) Object.assign(patch, NO_STATUS);
-  if (cur.candidate_at !== null && promptTs > cur.candidate_at) Object.assign(patch, NO_CANDIDATE);
+  if (cur.candidate_at !== null && promptTs > cur.candidate_at && !candidateFromUnattendedRun(db, sessionId, cur.candidate_at)) Object.assign(patch, NO_CANDIDATE);
   if (cur.rejected_at !== null && promptTs > cur.rejected_at) patch.rejected_at = null;
   if (Object.keys(patch).length === 0) return false;
   write(db, deviceId, sessionId, patch);

@@ -17,6 +17,7 @@ export const launchKeys = {
   'launch.injection.missing': ['n', 'files'],
   'launch.injection.multiDevice': ['deviceCount'],
   'launch.injection.unattended': ['origin'],
+  'launch.injection.unattendedHumanJoins': [],
   'launch.injection.unattendedText': ['origin'],
   'launch.injection.origin.schedule': [],
   'launch.injection.origin.session': [],

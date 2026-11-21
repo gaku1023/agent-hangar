@@ -83,8 +83,14 @@ export function renderInjectionEntries(i: InjectionInput, language: Language = D
   if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.notify') }, ...notifyFollowEntries(language, parts, '', !!i.launchedBy));
   if (i.handover) entries.push({ key: 'handover', text: renderHandover(i.handover, language) });
   if ((i.deviceCount ?? 0) >= 2) entries.push({ key: 'multiDevice', text: t(language, 'launch.injection.multiDevice', { deviceCount: String(i.deviceCount) }) });
-  if (i.launchedBy) entries.push(unattendedEntry(language, i.launchedBy, 'launch.injection.unattended'));
-  else if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.status') });
+  if (i.launchedBy) {
+    // 予定から起こした会話には、あとから人が話しかけてくることがある。そのときは区切りの問いの決まりへ移らせる。
+    // 別の会話から起こした子は、親が send_to_session で動かすので、人の発言と見分けられず、無人の決まりのままにする。
+    const joins = i.launchedBy === 'schedule' && parts.askStatusAtEnd;
+    const u = unattendedEntry(language, i.launchedBy, 'launch.injection.unattended');
+    entries.push(joins ? { ...u, text: u.text + t(language, 'launch.injection.unattendedHumanJoins') } : u);
+    if (joins) entries.push({ key: 'status', text: t(language, 'launch.injection.status') });
+  } else if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.status') });
   if (parts.liveHints) entries.push({ key: 'live', text: t(language, 'launch.injection.live') });
   return entries;
 }
