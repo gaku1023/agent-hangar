@@ -246,6 +246,8 @@ export type PeerApprovalDto = { id: string; from: string | null; device: string;
 export type PeerDeviceDto = {
   id: string; name: string; platform: string; state: 'ready' | 'offline' | 'outdated';
   accounts: { name: string; agent: string; loggedIn: boolean | null }[]; agents: string[]; projects: string[];
+  /** projects の各 id の、相手の PC での置き場（パス）。この PC に置き場の無いプロジェクトも、作成画面がこのパスで出す。この欄を知らない古いサーバは返さない。 */
+  paths?: Record<string, string>;
   /** 相手の opencode の選択肢（#698）。相手が opencode を起こせない、まだ一覧を取れていない、この欄を知らない古い版のときは省く。省いた PC では、作成画面はモデルの札を出さない。 */
   opencode?: import('./deviceStatus.ts').DeviceOpencodeStatus;
 };

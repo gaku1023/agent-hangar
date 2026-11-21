@@ -10,7 +10,12 @@ import { presentLaunchPrep, type LaunchPrepView } from './launchPrep.ts';
 
 export type NewSessionProject = { id: string; name: string; path: string | null; status: ProjectStatus; lastActivity: string };
 export type NewSessionProps = {
-  projects: NewSessionProject[]; recentIds: string[]; projectId: string | null; submitting: boolean; error: string | null; /** 失敗が、リンクの場所のファイルの衝突だけのとき、修復のダイアログへ進める先。 */ errorRepair?: { agent: 'claude-code' | 'codex'; accountId: string } | null; scratch: boolean;
+  projects: NewSessionProject[];
+  /** この PC に置き場の無いプロジェクト。別の PC を選んだときだけ、その PC に置き場があれば候補に混ぜる。省けば無し。 */
+  away?: NewSessionProject[];
+  recentIds: string[];
+  /** 別の PC を選んだときの「最近」。この PC と ほかの PC のプロジェクトを合わせて数える。省けば recentIds。 */
+  recentAnywhere?: string[]; projectId: string | null; submitting: boolean; error: string | null; /** 失敗が、リンクの場所のファイルの衝突だけのとき、修復のダイアログへ進める先。 */ errorRepair?: { agent: 'claude-code' | 'codex'; accountId: string } | null; scratch: boolean;
   /** 前に閉じたときの書きかけ。開いたときの名前と初期プロンプトにする。 */
   draft: NewSessionDraft | null;
   /** 埋めて開いたときの種（「エージェントで調査…」）。あれば下書きを読まず、閉じても書かない。 */
@@ -77,7 +82,7 @@ export type NewSessionProps = {
  * プロジェクトの札とエージェント、アカウントの札の中身。新しいセッションのダイアログと予定のフォームが同じ形で使う（views/useLaunchChoice.tsx）。
  * 予定は prefs を空にして渡し、前回値を持ち込まない。
  */
-export type LaunchChoiceData = Pick<NewSessionProps, 'projects' | 'recentIds' | 'prefs' | 'dirs' | 'takenNames' | 'workspaceRoot' | 'desktop' | 'picked' | 'createdProjectId' | 'accounts' | 'codexAccounts' | 'defaultModel' | 'inspect' | 'opencode' | 'codex'>;
+export type LaunchChoiceData = Pick<NewSessionProps, 'projects' | 'away' | 'recentIds' | 'recentAnywhere' | 'prefs' | 'dirs' | 'takenNames' | 'workspaceRoot' | 'desktop' | 'picked' | 'createdProjectId' | 'accounts' | 'codexAccounts' | 'defaultModel' | 'inspect' | 'opencode' | 'codex'>;
 export type NewSessionOpencode = { options: OpencodeOptionsState | null };
 export type NewSessionCodex = { options: CodexOptionsState | null };
 export type NewSessionAccounts = { list: AccountView[]; currentId: string };
@@ -147,15 +152,23 @@ export function presentLaunchChoice(store: Store, now: number, prefs: Record<str
   const live = resolved.filter((p) => p.status !== 'archived');
   // アーカイブは後ろに置き、ダイアログが検索したときだけ出す。
   const byName = (list: typeof resolved) => [...list].sort((a, b) => a.name.localeCompare(b.name));
-  const projects = [...byName(live), ...byName(resolved.filter((p) => p.status === 'archived'))].map((p) => ({ id: p.id, name: p.name, path: p.path, status: p.status, lastActivity: p.lastActivityAt === null ? '' : relativeTime(t, p.lastActivityAt, now) }));
+  const row = (p: (typeof resolved)[number]): NewSessionProject => ({ id: p.id, name: p.name, path: p.path, status: p.status, lastActivity: p.lastActivityAt === null ? '' : relativeTime(t, p.lastActivityAt, now) });
+  const ordered = (list: typeof resolved) => [...byName(list.filter((p) => p.status !== 'archived')), ...byName(list.filter((p) => p.status === 'archived'))];
+  const projects = ordered(resolved).map(row);
+  // この PC に置き場の無いプロジェクト（ほかの PC から届いたもの）。別の PC を選んだときだけ、その PC に置き場があれば候補に混ぜる。
+  const elsewhere = Object.values(store.projects).filter((p) => !p.isScratch && !p.resolved);
+  const away = ordered(elsewhere).map((p) => ({ ...row(p), path: null }));
   // 最近は最後に使った時刻の新しい順。使ったことのないプロジェクトは入れない。
-  const recentIds = live.filter((p) => p.lastActivityAt !== null).sort((a, b) => b.lastActivityAt! - a.lastActivityAt!).slice(0, RECENT_COUNT).map((p) => p.id);
+  const recentOf = (list: typeof resolved) => list.filter((p) => p.status !== 'archived' && p.lastActivityAt !== null).sort((a, b) => b.lastActivityAt! - a.lastActivityAt!).slice(0, RECENT_COUNT).map((p) => p.id);
+  const recentIds = recentOf(live);
+  // 別の PC を選んだときの最近。両方の PC のプロジェクトから数える（選んだ PC に置き場の無いものは、ダイアログが除く）。
+  const recentAnywhere = recentOf([...resolved, ...elsewhere]);
   const taken = new Set(Object.values(store.projects).map((p) => p.path).filter((p): p is string => !!p));
   const dirs = (store.workspaceDirs ?? []).filter((d) => !taken.has(d.path));
   // クイックセッションはワークスペースの外に置くので、その名前で作っても重ならない。
   const takenNames = [...new Set(Object.values(store.projects).filter((p) => !p.isScratch && p.path).map((p) => baseName(p.path!).toLowerCase()))];
   return {
-    projects, recentIds, prefs, dirs, takenNames, workspaceRoot: store.settings?.workspaceRoot ?? null, desktop: store.desktop, picked: store.pickedFolder, createdProjectId,
+    projects, away, recentIds, recentAnywhere, prefs, dirs, takenNames, workspaceRoot: store.settings?.workspaceRoot ?? null, desktop: store.desktop, picked: store.pickedFolder, createdProjectId,
     accounts: newSessionAccounts(store, now), codexAccounts: newSessionCodexAccounts(store, now), defaultModel: store.settings?.defaultModel ?? null,
     inspect: store.folderInspect,
     opencode: opencodeEnabledOf(store.settings ?? {}) ? { options: store.opencodeOptions } : null,

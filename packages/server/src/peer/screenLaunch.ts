@@ -29,10 +29,14 @@ function stateOf(p: PeerDeviceStatus, deps: RouteDeps, now: number): PeerDeviceD
   return route.refuse === 'device-outdated' ? 'outdated' : 'offline';
 }
 
+/** 相手に、解決済みの置き場があるプロジェクトと、その置き場（相手の PC のパス）。 */
+function rootsOn(db: Db, deviceId: string): { id: string; path: string }[] {
+  return db.prepare('select r.project_id id, min(r.path) path from project_roots r join projects p on p.id = r.project_id where r.device_id = ? and r.deleted_at is null and r.resolved = 1 and p.deleted_at is null and p.is_scratch = 0 group by r.project_id order by r.project_id').all(deviceId) as { id: string; path: string }[];
+}
+
 /** 相手に、解決済みの置き場があるプロジェクトの id。 */
 function projectsOn(db: Db, deviceId: string): string[] {
-  const rows = db.prepare('select distinct r.project_id id from project_roots r join projects p on p.id = r.project_id where r.device_id = ? and r.deleted_at is null and r.resolved = 1 and p.deleted_at is null and p.is_scratch = 0 order by r.project_id').all(deviceId) as { id: string }[];
-  return rows.map((r) => r.id);
+  return rootsOn(db, deviceId).map((r) => r.id);
 }
 
 /** 新規ダイアログの PC の選択（GET /api/peers）。自分は含めない。 */
@@ -41,7 +45,11 @@ export function listPeersForScreen(db: Db, selfId: string, deps: RouteDeps, now:
     id: p.device_id, name: p.name, platform: p.platform, state: stateOf(p, deps, now),
     accounts: (p.status?.accounts ?? []).map((a) => ({ name: a.name, agent: a.agent, loggedIn: a.logged_in })),
     agents: p.status?.agents ?? [],
-    projects: projectsOn(db, p.device_id),
+    ...(() => {
+      // 置き場のパスは相手の PC のもの。作成画面は、この PC に無いプロジェクトも相手の置き場で出す。
+      const roots = rootsOn(db, p.device_id);
+      return { projects: roots.map((r) => r.id), paths: Object.fromEntries(roots.map((r) => [r.id, r.path])) };
+    })(),
     // 相手の opencode の一覧（#698）。作成画面は、別の PC を選んだときにこれからモードとモデルを出す。
     ...(p.status?.opencode ? { opencode: p.status.opencode } : {}),
   }));

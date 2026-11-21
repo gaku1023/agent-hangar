@@ -920,6 +920,17 @@ describe('presentNewSession', () => {
     expect(p1).toMatchObject({ status: store.projects.p1!.status, lastActivity: '1 分前' });
     expect(p.projects.find((x) => x.id === 'p7')!.lastActivity).toBe('');
   });
+  it('この PC に置き場の無いプロジェクトは away に分け（パスは持たない）、最近は recentAnywhere で両方から数える', () => {
+    const store = storeWith();
+    store.projects.edge = { ...project('edge'), resolved: false, path: null, lastActivityAt: NOW - 60_000 };
+    store.projects.alpha = { ...store.projects.alpha!, lastActivityAt: NOW - 120_000 };
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
+    const p = presentNewSession(state, store, NOW)!;
+    expect(p.projects.map((x) => x.id)).not.toContain('edge');
+    expect(p.away).toEqual([{ id: 'edge', name: 'edge', path: null, status: 'active', lastActivity: '1 分前' }]);
+    expect(p.recentIds[0]).toBe('alpha');
+    expect(p.recentAnywhere!.slice(0, 2)).toEqual(['edge', 'alpha']);
+  });
   it('書きかけの下書きと、プロジェクトごとの前回値を渡す', () => {
     const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false }, newSessionDraft: { name: 'n', prompt: '', attachments: [] }, launchPrefs: { alpha: { model: 'opus' } } };
     expect(presentNewSession(state, storeWith(), NOW)).toMatchObject({ draft: { name: 'n', prompt: '' }, prefs: { alpha: { model: 'opus' } } });
