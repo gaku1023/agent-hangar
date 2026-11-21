@@ -234,6 +234,7 @@ Node 24.16 以上、または 22.14 以上の 22 系を入れてください（m
 3. インストーラを開きます。
    署名していないので、SmartScreen が「Windows によって PC が保護されました」と出します。
    そのときは「詳細情報」を押して「実行」を選びます。
+   Smart App Control がオンの PC では、インストーラが止められることがあります（下の「[Smart App Control に止められたとき](#smart-app-control-に止められたとき)」）。
    管理者権限は要らず、`%LOCALAPPDATA%\Hangar` に入ります。
 4. スタートメニューの Hangar から開きます。
    合う Node が見つからないときは、起動の画面がそう告げます。入れてから「もう一度試す」を押すか、「node.exe を選ぶ…」で入れた Node を選んでください。
@@ -244,6 +245,19 @@ Node 24.16 以上、または 22.14 以上の 22 系を入れてください（m
 入れたあとは、新しい版が出ると設定の更新の節と札が知らせます。
 「ダウンロードしてインストール」のあと「再起動して更新」を押すと入れ替わります。
 動いているセッションは止まらず、開き直したアプリからつなぎ直せます。
+
+### Smart App Control に止められたとき
+
+Hangar の Windows 版は署名していません。
+Windows 11 の Smart App Control がオンになっていると、インストーラや自動更新で落としたインストーラが止められ、「Smart App Control がブロックしました」という通知が出ることがあります。
+SmartScreen と違い、Smart App Control には「実行」で進む道がなく、アプリごとに許す設定もありません。
+
+- 自動更新が止められたときは、設定の更新の節と札にリリースページのリンクが出ます。時間をおくと通ることもあります。
+- 入れるには、Smart App Control をオフにします（Windows セキュリティ → アプリとブラウザーの制御 → Smart App Control の設定）。
+  Windows の版によっては、一度オフにするとオンに戻せません。決める前に [Microsoft の説明](https://support.microsoft.com/topic/what-is-smart-app-control-285ea03d-fa88-4d56-882e-6698afdb7003) を読んでください。
+- オフにしたくないときは、Windows では Hangar を使えません。
+
+署名の状況は [Code signing policy](code-signing-policy.md) にあります。
 
 ### psmux を入れる
 

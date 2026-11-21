@@ -1,10 +1,9 @@
 # Code signing policy
 
-Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
-
-Status: agent-hangar has applied to SignPath Foundation for code signing of its Windows releases.
-Until signing starts, the Windows installer is unsigned, as described in the [README](../README.md#入れる).
-This page states the rules that apply once the Windows releases are signed.
+Status: the Windows releases are not code signed at this time.
+agent-hangar applied to SignPath Foundation for free code signing, but the application was not approved.
+The Windows installer is unsigned, as described in [install.md](install.md#smart-app-control-に止められたとき).
+The signing rules below describe how signing would work if it starts. The privacy policy describes how the app behaves today.
 
 ## What is signed
 
