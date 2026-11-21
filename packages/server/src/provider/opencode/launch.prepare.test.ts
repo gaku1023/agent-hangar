@@ -259,3 +259,75 @@ describe('materializeOpencode の再開（会話のモデルの接続先）', ()
     expect(servers).toEqual(['lmstudio']);
   });
 });
+
+describe('prepareModels（起動前に載せるものと、起動の後に回すもの）', () => {
+  /** 設定の層の既定は qwen。LM Studio は qwen も gemma も載っていない。 */
+  async function serveWithAgents(agent: Record<string, unknown>): Promise<ServeInfo> {
+    const { serve } = await serveStarting({ providerRowsAfter: 0, rows: [{ id: 'lmstudio', baseURL: LM }], configProviders: {} });
+    server!.removeAllListeners('request');
+    server!.on('request', (req: http.IncomingMessage, res: http.ServerResponse) => {
+      const p = new URL(req.url ?? '/', 'http://x').pathname;
+      res.setHeader('content-type', 'application/json');
+      if (p === '/api/config') res.end(JSON.stringify([{ info: { model: 'lmstudio/qwen', agent } }]));
+      else if (p === '/api/model') res.end(JSON.stringify({ data: [{ providerID: 'lmstudio', id: 'qwen', limit: { context: 131_072 } }, { providerID: 'lmstudio', id: 'gemma', limit: { context: 131_072 } }] }));
+      else if (p === '/api/provider') res.end(JSON.stringify({ data: [{ id: 'lmstudio', name: 'lmstudio', settings: { baseURL: LM } }] }));
+      else res.end(JSON.stringify({ data: [] }));
+    });
+    return serve;
+  }
+  function emptyLm() {
+    const loads: string[] = [];
+    const f = (async (url: string | URL, init?: RequestInit) => {
+      const u = new URL(String(url));
+      if (u.pathname === '/api/v1/models') return Response.json({ models: [{ type: 'llm', key: 'qwen', size_bytes: 16 * GB, max_context_length: 262_144, loaded_instances: [] }, { type: 'llm', key: 'gemma', size_bytes: 15 * GB, max_context_length: 262_144, loaded_instances: [] }] });
+      if (u.pathname === '/api/v1/models/load') {
+        const m = (JSON.parse(String(init?.body)) as { model: string }).model;
+        loads.push(m);
+        return Response.json({ instance_id: m });
+      }
+      return new Response('?', { status: 404 });
+    }) as typeof fetch;
+    return { f, loads };
+  }
+  const agents = { build: { mode: 'primary', model: 'lmstudio/qwen' }, thinker: { mode: 'subagent', model: 'lmstudio/qwen' }, scout: { mode: 'subagent', model: 'lmstudio/gemma' } };
+
+  it('クラウドのモデルを指定したら、起動前には何も載せず、agent のモデルは起動の後に回す', async () => {
+    const serve = await serveWithAgents(agents);
+    const lm = emptyLm();
+    const r = await prepareModels(deps([]), local(lm.f), serve, { ...spec(), model: 'opencode/deepseek', mode: 'build' });
+    expect(lm.loads).toEqual([]);
+    expect(r.model).toBe('opencode/deepseek');
+    await r.later();
+    expect(lm.loads.sort()).toEqual(['gemma', 'qwen']);
+  });
+
+  it('指定したモデルが会話に効くので、選んだ主の agent（build）だけが使うモデルは載せない', async () => {
+    const serve = await serveWithAgents({ build: { mode: 'primary', model: 'lmstudio/qwen' }, scout: { mode: 'subagent', model: 'lmstudio/gemma' } });
+    const lm = emptyLm();
+    const r = await prepareModels(deps([]), local(lm.f), serve, { ...spec(), model: 'opencode/deepseek', mode: 'build' });
+    await r.later();
+    expect(lm.loads).toEqual(['gemma']);
+  });
+
+  it('会話のモデルがローカルなら起動前に載せ、ほかの agent だけが使うモデルは起動の後に回す', async () => {
+    const serve = await serveWithAgents(agents);
+    const lm = emptyLm();
+    const r = await prepareModels(deps([]), local(lm.f), serve, { ...spec(), mode: 'build' });
+    expect(lm.loads).toEqual(['qwen']);
+    await r.later();
+    expect(lm.loads).toEqual(['qwen', 'gemma']);
+    const ledger = JSON.parse(fs.readFileSync(path.join(home, 'opencode', 'local-models.json'), 'utf8')) as { entries: { model: string; sessions: string[] }[] };
+    expect(ledger.entries.map((e) => [e.model, e.sessions])).toEqual([['qwen', ['h1']], ['gemma', ['h1']]]);
+  });
+
+  it('起動の後に回した分が失敗しても投げない', async () => {
+    const serve = await serveWithAgents(agents);
+    const f = (async (url: string | URL) => {
+      const u = new URL(String(url));
+      if (u.pathname === '/api/v1/models') return Response.json({ models: [{ type: 'llm', key: 'gemma', size_bytes: 15 * GB, max_context_length: 262_144, loaded_instances: [] }] });
+      return new Response('boom', { status: 500 });
+    }) as typeof fetch;
+    const r = await prepareModels(deps([]), local(f), serve, { ...spec(), model: 'opencode/deepseek', mode: 'build' });
+    await expect(r.later()).resolves.toBeUndefined();
+  });
+});

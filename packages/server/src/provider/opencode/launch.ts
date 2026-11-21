@@ -7,7 +7,7 @@ import type { ServeEnsureOptions, ServeInfo } from './serve/manager.ts';
 import { msg, MessageError } from '../../i18n/message.ts';
 import type { LocalModelListing } from './localModels/available.ts';
 import type { LmServerStarter } from './localModels/serverStart.ts';
-import { prepareLocalModels, type LocalModelsDeps, type LocalModelUse } from './localModels/prepare.ts';
+import { prepareLocalModels, runLater, type LaterLoads, type LocalModelsDeps, type LocalModelUse } from './localModels/prepare.ts';
 import type { ProviderPreps } from './providerPrep.ts';
 import type { OpencodeShareConfig } from '../../share/opencode.ts';
 import { modelOf } from './transcript/convert.ts';
@@ -129,6 +129,7 @@ export async function materializeOpencode(deps: MaterializeDeps, mode: Materiali
   if (mode.kind === 'resume') await deps.serves.stop(spec.hangarSessionId);
   let serve = await deps.serves.ensure(spec.hangarSessionId, { configContent: hangarServeConfig(spec.mcp, serveRulesOf(deps, spec), {}, deps.share?.(spec) ?? null), directory: spec.cwd });
   let providerSessionId: string;
+  let later: (() => Promise<void>) | null = null;
   try {
     // 再開には起動の指定のモデルが無い。準備は設定の既定ではなく、会話が最後に使ったモデル（途中の /models の切り替えも含む）について走らせる。
     // 本文を読めなければ、これまでどおり設定の既定のモデルで準備する。
@@ -140,7 +141,7 @@ export async function materializeOpencode(deps: MaterializeDeps, mode: Materiali
     // 外のターミナルからの起動（prep が無い）は確かめない。選び直す画面が無く、TUI の /models で替えられるからである。
     if (spec.prep && deps.localListing && mode.kind === 'start') await checkSessionModel(deps, deps.localListing, serve, spec);
     // LM Studio の段は新しい会話だけ（問いに答える画面が新しいセッションのダイアログにしか無い）。再開は接続先の準備だけを走らせる。
-    if (spec.prep && deps.localModels && !spec.prep.choice.skip && mode.kind === 'start') ({ serve, model } = await prepareModels(deps, deps.localModels, serve, spec));
+    if (spec.prep && deps.localModels && !spec.prep.choice.skip && mode.kind === 'start') ({ serve, model, later } = await prepareModels(deps, deps.localModels, serve, spec));
     // 統括の規則は会話の permissions にも載せる。opencode は会話の規則を agent の規則（利用者の agent ごとの規則を含む）より後に照らすので、利用者の規則に勝つ。
     // 再開では当て直す（前の版の hangar が作った会話や、途中で書き換えられた会話でも、統括の規則にそろえる）。当て直せなければ起こさない。
     const lock = spec.handsOff ? [...ORCHESTRATOR_OPENCODE_RULES] : undefined;
@@ -154,6 +155,8 @@ export async function materializeOpencode(deps: MaterializeDeps, mode: Materiali
     await deps.serves.stop(spec.hangarSessionId).catch(() => undefined);
     throw e;
   }
+  // 呼ばれたときに使う agent のモデルは、会話を待たせずに裏で載せる。LM Studio の読み込みに任せると短い長さで載るため、載せ込み自体はやめない。
+  if (later) void later();
   const client = new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs });
   await putInstructions(client, providerSessionId, spec.instructions, deps.report);
   await waitForMcp(client, spec.cwd, deps);
@@ -233,7 +236,7 @@ export async function checkSessionModel(deps: MaterializeDeps, listing: LocalMod
  * 答えが「1 モデルに寄せる」（choice.singleModel）なら、agent と small_model のモデルをそのモデルに上書きする設定で serve を起こし直し、会話もそのモデルで作る。
  * 返すのは、使う serve（起こし直したらその serve）と会話のモデル。
  */
-export async function prepareModels(deps: MaterializeDeps, local: LocalModelsDeps, serve: ServeInfo, spec: LaunchSpec): Promise<{ serve: ServeInfo; model: string | undefined }> {
+export async function prepareModels(deps: MaterializeDeps, local: LocalModelsDeps, serve: ServeInfo, spec: LaunchSpec): Promise<{ serve: ServeInfo; model: string | undefined; later: () => Promise<void> }> {
   const prep = spec.prep!;
   const client = new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs });
   const conf = await client.modelUses(spec.cwd);
@@ -241,8 +244,8 @@ export async function prepareModels(deps: MaterializeDeps, local: LocalModelsDep
   const single = prep.choice.singleModel;
   if (!single) {
     const model = spec.model ?? conf.model ?? undefined;
-    await prepareWith(local, client, { hangarSessionId: spec.hangarSessionId, cwd: spec.cwd, uses: usesOf(conf, model), prep: prep.run, choice: prep.choice, sleep: deps.sleep });
-    return { serve, model };
+    const pending = await prepareWith(local, client, { hangarSessionId: spec.hangarSessionId, cwd: spec.cwd, uses: usesOf(conf, model, { primary: spec.mode ?? DEFAULT_PRIMARY }), prep: prep.run, choice: prep.choice, sleep: deps.sleep });
+    return { serve, model, later: () => runLater(local, spec.hangarSessionId, pending) };
   }
   const agent = Object.fromEntries(conf.agents.filter((a) => a.model !== single).map((a) => [a.id, { model: single }]));
   const override: Record<string, unknown> = { ...(Object.keys(agent).length ? { agent } : {}), ...(conf.small && conf.small !== single ? { small_model: single } : {}) };
@@ -252,8 +255,11 @@ export async function prepareModels(deps: MaterializeDeps, local: LocalModelsDep
   }
   const uses = [{ ref: single, uses: ['$session', ...(conf.small ? ['$small'] : []), ...conf.agents.map((a) => a.id)] }];
   await prepareWith(local, new OpencodeClient(serve, { timeoutMs: deps.requestTimeoutMs }), { hangarSessionId: spec.hangarSessionId, cwd: spec.cwd, uses, prep: prep.run, choice: prep.choice, sleep: deps.sleep });
-  return { serve, model: single };
+  return { serve, model: single, later: async () => undefined };
 }
+
+/** 会話の主の agent の既定（opencode の build）。モードの指定が無い起動はこれで始まる。 */
+const DEFAULT_PRIMARY = 'build';
 
 /**
  * 動いている会話のモデルを整え直す（起動後に長さが足りずに落ちた札の「整えて再開」）。serve は起こし直さない。
@@ -291,22 +297,34 @@ export async function lastSessionModel(client: OpencodeClient, sessionId: string
   return null;
 }
 
-/** 会話のモデル、small_model、agent ごとのモデルを、モデルごとの使い手にまとめる。 */
-function usesOf(conf: { small: string | null; agents: { id: string; model: string }[] }, model: string | undefined): LocalModelUse[] {
-  const byRef = new Map<string, string[]>();
-  const add = (ref: string | null | undefined, use: string) => { if (ref) byRef.set(ref, [...(byRef.get(ref) ?? []), use]); };
-  add(model, '$session');
-  add(conf.small, '$small');
-  for (const a of conf.agents) add(a.model, a.id);
-  return [...byRef].map(([ref, u]) => ({ ref, uses: u }));
+/**
+ * 会話のモデル、small_model、agent ごとのモデルを、モデルごとの使い手にまとめる。
+ * later を渡すと、会話の始まりに要らないモデルに later を立てる（起動の後に載せる）。始まりに要るのは、会話のモデルと small_model（題名づけ）。
+ * 会話のモデルが決まっていれば、hangar はそれで会話を作り、選んだ主の agent（later.primary）の model より優先される（2026-11-21 に実物で確かめた）。
+ * なので、その agent のモデルは数えない。会話のモデルが無ければ、その agent のモデルが会話のモデルになるので、始まりに要るものとして数える。
+ */
+function usesOf(conf: { small: string | null; agents: { id: string; model: string }[] }, model: string | undefined, later?: { primary: string }): LocalModelUse[] {
+  const byRef = new Map<string, { uses: string[]; now: boolean }>();
+  const add = (ref: string | null | undefined, use: string, now: boolean) => {
+    if (!ref) return;
+    const cur = byRef.get(ref);
+    byRef.set(ref, { uses: [...(cur?.uses ?? []), use], now: (cur?.now ?? false) || now });
+  };
+  add(model, '$session', true);
+  add(conf.small, '$small', true);
+  for (const a of conf.agents) {
+    if (later && a.id === later.primary && model) continue;
+    add(a.model, a.id, !later || a.id === later.primary);
+  }
+  return [...byRef].map(([ref, u]) => ({ ref, uses: u.uses, ...(u.now ? {} : { later: true }) }));
 }
 
-async function prepareWith(local: LocalModelsDeps, client: OpencodeClient, o: { hangarSessionId: string; cwd: string; uses: LocalModelUse[]; prep: LaunchPrep; choice: LaunchPrepChoice; reloadShort?: boolean; sleep?: (ms: number) => Promise<void> }): Promise<void> {
+async function prepareWith(local: LocalModelsDeps, client: OpencodeClient, o: { hangarSessionId: string; cwd: string; uses: LocalModelUse[]; prep: LaunchPrep; choice: LaunchPrepChoice; reloadShort?: boolean; sleep?: (ms: number) => Promise<void> }): Promise<LaterLoads> {
   const [rows, configured, models] = await Promise.all([client.providerRows(o.cwd), client.configuredBaseURLs(o.cwd), client.models(o.cwd)]);
   o.prep.throwIfCancelled();
   const providers = await providerURLs(client, o, rows, configured);
   const limits = new Map(models.flatMap((m) => (m.context ? [[`${m.providerID}/${m.id}`, m.context] as const] : [])));
-  await prepareLocalModels(local, { hangarSessionId: o.hangarSessionId, uses: o.uses, providers, limits, choice: o.choice, prep: o.prep, reloadShort: o.reloadShort });
+  return prepareLocalModels(local, { hangarSessionId: o.hangarSessionId, uses: o.uses, providers, limits, choice: o.choice, prep: o.prep, reloadShort: o.reloadShort });
 }
 
 /** 宛先の見えない接続先を聞き直す回数と間隔。行は起きてから数百 ms で出る（2.1.4 で確かめた）。 */

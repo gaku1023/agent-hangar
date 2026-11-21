@@ -25,8 +25,14 @@ export type LocalModelsDeps = {
   fetch?: typeof fetch;
 };
 
-/** 会話が使うモデル 1 つ。ref は `provider/model`、uses はそれを使う agent（'$session'、'$small' を含む）。 */
-export type LocalModelUse = { ref: string; uses: string[] };
+/**
+ * 会話が使うモデル 1 つ。ref は `provider/model`、uses はそれを使う agent（'$session'、'$small' を含む）。
+ * later は、会話の始まりには要らない（呼ばれたときに使う agent だけが使う）こと。計画（問いとメモリ）には入れるが、載せるのは起動の後にする。
+ */
+export type LocalModelUse = { ref: string; uses: string[]; later?: boolean };
+
+/** 起動の後に回した載せ込み。runLater で走らせる。 */
+export type LaterLoads = { origin: string; actions: PlanAction[] }[];
 
 export type PrepareInput = {
   hangarSessionId: string;
@@ -69,10 +75,15 @@ const split = (ref: string): { provider: string; model: string } | null => {
   return i > 0 && i < ref.length - 1 ? { provider: ref.slice(0, i), model: ref.slice(i + 1) } : null;
 };
 
-export async function prepareLocalModels(deps: LocalModelsDeps, input: PrepareInput): Promise<void> {
-  if (input.choice.skip) return;
+/**
+ * 計画を立て、会話の始まりに要るモデルをいま載せる。later の使い手だけのモデルの載せ込みは返し、呼び手が起動の後に runLater で走らせる。
+ * 計画は全部のモデルで立てるので、合わせてメモリに収まらないときの問い（memory）は、これまでどおり起動前に出る。
+ */
+export async function prepareLocalModels(deps: LocalModelsDeps, input: PrepareInput): Promise<LaterLoads> {
+  if (input.choice.skip) return [];
   const byOrigin = new Map<string, WantedModel[]>();
   const refs = new Map<string, string>();
+  const now = new Set<string>();
   for (const u of input.uses) {
     const r = split(u.ref);
     const origin = r ? deviceOrigin(input.providers.find((p) => p.id === r.provider)?.baseURL ?? null) : null;
@@ -80,16 +91,43 @@ export async function prepareLocalModels(deps: LocalModelsDeps, input: PrepareIn
     const list = byOrigin.get(origin) ?? [];
     list.push({ model: r.model, uses: u.uses, limit: input.limits.get(u.ref) ?? null });
     refs.set(r.model, u.ref);
+    if (!u.later) now.add(`${origin} ${r.model}`);
     byOrigin.set(origin, list);
   }
-  for (const [origin, wanted] of byOrigin) await prepareAt(deps, input, origin, wanted, refs);
+  const later: LaterLoads = [];
+  for (const [origin, wanted] of byOrigin) {
+    const actions = await prepareAt(deps, input, origin, wanted, refs, (m) => now.has(`${origin} ${m}`));
+    if (actions.length) later.push({ origin, actions });
+  }
+  return later;
 }
 
-async function prepareAt(deps: LocalModelsDeps, input: PrepareInput, origin: string, wanted: WantedModel[], refs: ReadonlyMap<string, string>): Promise<void> {
+/** 起動の後に回した載せ込みを走らせる。画面には出さず、失敗しても投げない（呼ばれた agent は LM Studio の読み込みで動く）。 */
+export async function runLater(deps: LocalModelsDeps, hangarSessionId: string, later: LaterLoads): Promise<void> {
+  const quiet: PrepareInput['prep'] = {
+    step: () => ({ update: () => undefined, done: () => undefined, skip: () => undefined, fail: () => undefined }),
+    ask: () => { throw new Error('no questions after launch'); },
+    signal: new AbortController().signal,
+    throwIfCancelled: () => undefined,
+  };
+  for (const { origin, actions } of later) {
+    const lm = new LmStudio(origin, { fetch: deps.fetch });
+    for (const a of actions) {
+      try {
+        const entries = await run(lm, { prep: quiet, hangarSessionId }, origin, a, readLedger(deps.home));
+        writeLedger(deps.home, entries);
+      } catch {
+        // 載せられなくても会話は動く。次のモデルは試す。
+      }
+    }
+  }
+}
+
+async function prepareAt(deps: LocalModelsDeps, input: PrepareInput, origin: string, wanted: WantedModel[], refs: ReadonlyMap<string, string>, isNow: (model: string) => boolean): Promise<PlanAction[]> {
   const lm = new LmStudio(origin, { fetch: deps.fetch });
   const models = await lm.list(input.prep.signal);
   input.prep.throwIfCancelled();
-  if (!models) return;
+  if (!models) return [];
   const ledger = pruneLedger(readLedger(deps.home), origin, models);
   const owned = new Map<string, OwnedInstance>(ledger.filter((e) => e.origin === origin).map((e) => [e.instanceId, { protected: e.sessions.some((s) => s !== input.hangarSessionId && deps.isRunning(s)) }]));
   const plan = planLocalModels({
@@ -107,11 +145,14 @@ async function prepareAt(deps: LocalModelsDeps, input: PrepareInput, origin: str
       entries = entries.map((e) => (e.origin === origin && e.instanceId === x.id && !e.sessions.includes(input.hangarSessionId) ? { ...e, sessions: [...e.sessions, input.hangarSessionId] } : e));
     }
   }
+  // 外すのは今やる（場所を空ける）。載せるのは、会話の始まりに要るものだけ今やり、残りは返す。
+  const deferred = plan.actions.filter((a) => a.kind !== 'unload' && !isNow(a.model));
   try {
-    for (const a of plan.actions) entries = await run(lm, input, origin, a, entries);
+    for (const a of plan.actions) if (!deferred.includes(a)) entries = await run(lm, input, origin, a, entries);
   } finally {
     save();
   }
+  return deferred;
 }
 
 /** 記録のうち、その宛先で今は載っていないもの（利用者が外した、LM Studio を起こし直した）を捨てる。 */
@@ -120,7 +161,7 @@ function pruneLedger(entries: LedgerEntry[], origin: string, models: LmModel[]):
   return entries.filter((e) => e.origin !== origin || live.has(e.instanceId));
 }
 
-async function run(lm: LmStudio, input: PrepareInput, origin: string, a: PlanAction, entries: LedgerEntry[]): Promise<LedgerEntry[]> {
+async function run(lm: LmStudio, input: Pick<PrepareInput, 'prep' | 'hangarSessionId'>, origin: string, a: PlanAction, entries: LedgerEntry[]): Promise<LedgerEntry[]> {
   input.prep.throwIfCancelled();
   const step = input.prep.step('local-model', a.model, a.kind);
   if (a.kind !== 'unload') step.update({ toContext: a.to, fromContext: a.kind === 'reload' ? a.from : null });
