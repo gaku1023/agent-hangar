@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { getSession } from '../db/queries.ts';
-import { addUnread, guardMutedUnread, noteUnread, onUnread } from '../live/unread.ts';
+import { addUnread, guardMutedUnread, noteUnread, onUnread, readUnread } from '../live/unread.ts';
 import { applyRemoteChange } from '../sync/apply.ts';
 import { isSessionMuted, setSessionMuted, setSessionPinned, setSessionState } from './states.ts';
 
@@ -13,7 +13,7 @@ function seed() {
 }
 type Db = ReturnType<typeof seed>;
 const muted = (db: Db) => (db.prepare('select muted_at from session_states where session_id = ?').get('s1') as { muted_at: number | null } | undefined)?.muted_at;
-const unread = (db: Db) => (db.prepare('select count from session_unread where session_id = ?').get('s1') as { count: number } | undefined)?.count;
+const unread = (db: Db) => readUnread(db, 's1')?.count;
 const lastSeq = (db: Db) => (db.prepare("select max(seq) s from changes where table_name = 'session_states'").get() as { s: number | null }).s;
 
 describe('ミュート（setSessionMuted）', () => {

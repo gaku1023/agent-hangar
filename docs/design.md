@@ -644,6 +644,7 @@ create table session_states (
   restored_at integer,                            -- 明示の復元の時刻。印はこれが印より新しいときだけ外れる（版 27）
   status_changed_at integer, candidate_changed_at integer,
   project_changed_at integer, pinned_changed_at integer   -- 事実ごとの書いた時刻。取り込みは事実ごとに新しい方を採る（版 62）
+  -- muted_at integer, muted_changed_at integer   -- ミュート（静かな会話）の時刻と、その事実の時刻（版 68）
 );
 
 -- 1 回の起動または再開。tmux 上の寿命と一致する。
@@ -5951,8 +5952,8 @@ Done、Paused、Archived でも、開くまで残る。会話を削除すると�
 開いている会話を戻したときは、戻した未読をすぐ既読にしないよう、離れるまで `State.unreadKept` を持つ（`mediator/screen.ts` の `seenStep`、窓が前に出たときの `resendSeen`）。
 
 **`session_states` は事実ごとに後勝ちにする（版 62）。**
-1 行には互いに独立した事実が 6 つ入っている。
-状態（`status` から `set_at`）、提案（`candidate_*` と `rejected_at`）、移した先（`project_id`）、ピン（`pinned_at`）、ミュート（`muted_at`）、削除の印（`trashed_at` と `restored_at`）である。
+1 行には互いに独立した事実が 7 つ入っている。
+状態（`status` から `set_at`）、提案（`candidate_*` と `rejected_at`）、移した先（`project_id`）、ピン（`pinned_at`）、ミュート（`muted_at`）、未読（`unread_*`）、削除の印（`trashed_at` と `restored_at`）である。
 行ごとの後勝ちでは、片方の PC がスリープして同期が止まっている間に 2 台が別の事実を書くと、後から書いた行が、先の行の事実を知らない古い値で消す（ピンが外れる、Done が戻る）。
 - 書き手（`sessions/states.ts` の `write`）は、差分が触れた事実の時刻の列（`status_changed_at`、`candidate_changed_at`、`project_changed_at`、`pinned_changed_at`、`muted_changed_at`）を、行の `updated_at` と同じ時刻にする。事実と列の対応は `sessions/stateFacts.ts` の 1 か所に置く。
 - 同期の取り込み（`sync/apply.ts` の `mergeFacts`）は、事実ごとに時刻の新しい方の列を採る。時刻の無い事実は 0 として比べ、同じ時刻なら行の `updated_at` の新しい方を採る。移る前の行は時刻がどれも無いので、これまでどおり行ごとの後勝ちになる。
@@ -5965,7 +5966,7 @@ Done、Paused、Archived でも、開くまで残る。会話を削除すると�
 サイドバーでは「実行中」の一覧の上に、線で区切った固定の段（`.side-pins`）を置き、留めた順に並べる。一覧のスクロールに混ぜず、止まった会話も白抜きの丸で残す。段の行は元のグループから外し、並べ替えの対象にしない。起動元を留めたときは、動いている子をグループの根の行にする。畳んだ帯でも、丸の列を線で分ける。
 留める、外すの動きは「滑って移る」（`views/pinSlide.ts`）。段とスクロールする一覧をまたぐので、行の複製を body に置いて元の席から行き先へ飛ばし、残りの行は前の位置から滑らせる。長さと曲線は `--dur` と `--ease-out` である。行き先が畳んだグループの中か見えている範囲の外なら、複製は薄れて消える。元の席が画面に無いとき（止まった会話を一覧の画面から留めたとき）は、ふつうの垂れる出入りにする。
 
-**ミュート**（静かな会話、2026-11-21）は、ミュートした時刻を `session_states.muted_at`（版 67、事実の時刻は `muted_changed_at`）に置き、ピン留めと同じく同期で 2 台の PC にそろう（`sessions/states.ts` の `setSessionMuted`、`POST /api/sessions/:id/mute`）。
+**ミュート**（静かな会話、2026-11-21）は、ミュートした時刻を `session_states.muted_at`（版 68、事実の時刻は `muted_changed_at`）に置き、ピン留めと同じく同期で 2 台の PC にそろう（`sessions/states.ts` の `setSessionMuted`、`POST /api/sessions/:id/mute`）。
 メニューではピン留めの隣に置き、押すたびに「ミュートする」と「ミュートを解除する」が入れ替わる（試作の M1）。ミュート中は「未読に戻す」を出さない。
 ミュートした会話は、未読の数、OS の通知、スマホの通知を一切出さない。止めるのは `live/unread.ts` の入口の 1 か所である。`addUnread` は積まずに 0 を返し、`noteUnread` と `noteUnreadReady` は、起動（`boot/runs.ts`）が渡した判定（`guardMutedUnread`）で真になった会話を購読へ渡さない。どの道（notify_user、ターンの終わり、預かり、別の PC の問い）から来ても、ここで止まる。
 入力待ちと許可待ちの OS の通知（`sessions/stopNotices.ts`）も出さず、スマホの受信箱の素（`mobile/feed.ts`）では入力待ちを idle として載せる。スマホの通知は要対応に新しく入った会話から出るためである。画面の入力待ち（`awaitsAnswer`）にも数えない。
