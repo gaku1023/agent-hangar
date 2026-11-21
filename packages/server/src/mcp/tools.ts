@@ -26,7 +26,7 @@ import type { PeerCallDeps } from '../peer/caller.ts';
 import { createRemoteSessionTool, isThisDevice, listDevicesTool, remoteControlTool, remoteSpawnOf } from './peerTools.ts';
 import { parseWakeOn } from '../event/validate.ts';
 import { claimPrTool, draftEventBindingTool } from './eventTools.ts';
-import { callOrchestratorTool, guardWeakTurn, isOrchestratorCtx, isOrchestratorToolName } from './orchestratorTools.ts';
+import { callOrchestratorTool, guardWeakTurn, isOrchestratorToolName } from './orchestratorTools.ts';
 import type { OrchestratorAsks } from '../orchestrator/asks.ts';
 import type { PeerChatLocal } from '../peer/chat/host.ts';
 import type { HookDecisions } from '../sessions/hookDecisions.ts';
@@ -156,36 +156,6 @@ export function sessionIdOf(ctx: ToolContext, args: Record<string, unknown>): st
 }
 
 /**
- * セッション別 URL が閉じ込めるプロジェクト。
- * 共通 URL では undefined、そのセッションがまだプロジェクトに属していなければ null になる。
- */
-function scopeProjectId(deps: ToolDeps, ctx: ToolContext): string | null | undefined {
-  if (!ctx.sessionId) return undefined;
-  return requireSession(deps, ctx.sessionId).projectId;
-}
-
-const NO_PROJECT = msg('mcp.scope.noProject');
-
-/** 引数の project_id を枠に照らし、枠の外を指していれば断る。返すのは枠そのものである。 */
-export function projectScope(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>): string | null | undefined {
-  const scope = scopeProjectId(deps, ctx);
-  const given = str(args.project_id);
-  if (scope !== undefined && given && given !== scope) {
-    throw new ToolError(scope === null ? NO_PROJECT : msg('mcp.scope.projectOnly', { projectId: scope }));
-  }
-  return scope;
-}
-
-/**
- * 読む道具（search_sessions、list_sessions、get_transcript、list_projects、get_project）の枠。
- * 統括の URL では共通 URL と同じく全プロジェクト（undefined）にし、ほかは projectScope と同じ。
- * 統括は過去の話とほかの会話を引いて答えるためで、書く道具の枠（projectScope）は統括でも今のまま（docs/design.md「統括」）。
- */
-function readScope(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>): string | null | undefined {
-  return isOrchestratorCtx(deps, ctx) ? undefined : projectScope(deps, ctx, args);
-}
-
-/**
  * 統括の系譜（今と前の統括）の会話か。検索の結果と一覧の項目に印を付け、統括が自分の過去の話とほかの会話を見分けられるようにする。
  * 手元の設定の系譜に加え、一覧の DTO の role と同じ判定（db/queries.ts の isOrchestratorId。ほかの PC が宿主の統括の系譜も含む）を見る。
  */
@@ -193,13 +163,16 @@ function isOrchestratorSession(deps: ToolDeps, sessionId: string): boolean {
   return orchestratorLineage(orchestratorOf(deps.settings?.().orchestrator)).includes(sessionId) || isOrchestratorId(deps.db, sessionId);
 }
 
-/** プロジェクトを 1 件に決める道具のための project_id。 */
+/**
+ * プロジェクトを 1 件に決める道具のための project_id。
+ * 引数の project_id を使い、省けば呼んだ会話のプロジェクトを使う。会話がプロジェクトに属さず省いたときは断る。
+ */
 export function projectIdOf(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>): string {
-  const scope = projectScope(deps, ctx, args);
-  if (scope === null) throw new ToolError(NO_PROJECT);
-  const id = scope ?? str(args.project_id);
-  if (!id) throw new ToolError(msg('mcp.args.projectIdRequired'));
-  return id;
+  const given = str(args.project_id);
+  if (given) return given;
+  const own = ctx.sessionId ? requireSession(deps, ctx.sessionId).projectId : null;
+  if (!own) throw new ToolError(msg('mcp.args.projectIdRequired'));
+  return own;
 }
 
 /**
@@ -336,33 +309,15 @@ function announceOf(deps: ToolDeps, id: string, args: Record<string, unknown>): 
   return title ? `${[...title].slice(0, 60).join('')}\n${link}` : link;
 }
 
-/**
- * 一覧が枠で絞られているときの印。共通の /mcp と統括の URL（枠が無い）では添えない。
- * 絞ったことが結果に出ないと、呼び手は全体の一覧と読み、「登録はこれだけ」と言い切ってしまう（#783）。
- */
-function scopeMark(scope: string | null | undefined): { scoped_to: string | null } | null {
-  return scope === undefined ? null : { scoped_to: scope };
-}
-
-/**
- * 枠が無いときは従来どおり配列、枠があるときは印を添えるためにオブジェクト（projects）で返す。
- * 配列のまま印を添える形が無いためで、共通の /mcp を読む CLI などの呼び手は配列のまま変わらない。
- */
-export function listProjectsTool(deps: ToolDeps, ctx: ToolContext) {
-  const scope = readScope(deps, ctx, {});
-  const all = listProjects(deps.db, deps.deviceId, deps.live());
-  const projects = all.filter((p) => scope === undefined || p.id === scope).map((p) => ({
+export function listProjectsTool(deps: ToolDeps) {
+  return listProjects(deps.db, deps.deviceId, deps.live()).map((p) => ({
     id: p.id, name: p.name, status: p.status, path: p.path, resolved: p.resolved,
     open_todo_count: p.openTodoCount, running_count: p.runningCount, last_activity_at: p.lastActivityAt,
   }));
-  const mark = scopeMark(scope);
-  return mark ? { ...mark, hidden_count: all.length - projects.length, projects } : projects;
 }
 
 export function getProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
-  // 統括の URL では、どのプロジェクトも読める（readScope）。project_id は必ず渡させる。
-  const id = isOrchestratorCtx(deps, ctx) ? str(args.project_id) : projectIdOf(deps, ctx, args);
-  if (!id) throw new ToolError(msg('mcp.args.projectIdRequired'));
+  const id = projectIdOf(deps, ctx, args);
   const p = requireProject(deps, id);
   const todos = todoBriefs(deps, id);
   const recent = listSessions(deps.db, deps.live(), { projectId: id, deviceId: deps.deviceId }).slice(0, RECENT_SESSIONS).map((s) => sessionBrief(deps, s));
@@ -427,27 +382,19 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
 }
 
 export function listSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
-  const scope = readScope(deps, ctx, args);
-  let list = listSessions(deps.db, deps.live(), { projectId: scope === undefined ? str(args.project_id) : (scope ?? undefined), deviceId: deps.deviceId });
-  // プロジェクトに属していないセッションの URL では、そのセッション自身だけを見せる。
-  if (scope === null) list = list.filter((s) => s.id === ctx.sessionId);
+  let list = listSessions(deps.db, deps.live(), { projectId: str(args.project_id), deviceId: deps.deviceId });
   const running = bool(args.running);
   if (running !== undefined) list = list.filter((s) => (s.live !== null) === running);
   // 負数の limit を slice にそのまま渡すと末尾から削る意味になるので、下限を 0 で押さえる。
   const limit = Math.max(num(args.limit) ?? DEFAULT_LIST_LIMIT, 0);
   const sessions = list.slice(0, limit).map((s) => sessionBrief(deps, s));
-  // 枠があるときだけ、絞った印を添えるためにオブジェクトで返す（listProjectsTool と同じ理由）。
-  const mark = scopeMark(scope);
-  return mark ? { ...mark, sessions } : sessions;
+  return sessions;
 }
 
 export function searchSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const q = str(args.query) ?? '';
-  const scope = readScope(deps, ctx, args);
-  // プロジェクトに属していないセッションの URL では、横断の検索を渡さない（統括の URL は readScope が全プロジェクトにする）。
-  if (scope === null) throw new ToolError(NO_PROJECT);
   // 状態では絞らないので、状態を返す関数は渡さない。
-  const r = searchSessions(deps.db, { q, projectId: scope ?? str(args.project_id), since: num(args.since), until: num(args.until), file: str(args.file), limit: num(args.limit) });
+  const r = searchSessions(deps.db, { q, projectId: str(args.project_id), since: num(args.since), until: num(args.until), file: str(args.file), limit: num(args.limit) });
   const hits = r.hits.map((h) => {
     const s = getSession(deps.db, deps.live(), h.sessionId, { deviceId: deps.deviceId });
     return {
@@ -557,14 +504,13 @@ const newPrepKey = (): string => `mcp-${randomUUID().replaceAll('-', '')}`;
  * Claude Code だけのもので、Codex と opencode に付けると start が UI と同じ文で断る（黙って捨てない）。
  * 知らない agent と、設定で有効でない agent は、黙って Claude Code にせず、start の前に UI と同じ文で断る。
  * auto_approve は opencode だけ（start の autoApprove。opencode の --auto）で、Claude Code と Codex に付けると断る。
- * scratch: true で project_id が無ければクイックセッションを起こす。プロジェクトを固定した URL では、そのプロジェクトの外を起こせないので断る。
+ * scratch: true で project_id が無ければクイックセッションを起こす。project_id を省けば、呼んだ会話のプロジェクトで起こす。
  * cwd は MCP のスキーマに出さない内部の引数で、予定が登録済みのプロジェクトの下のフォルダを渡すのに使う。
  */
 export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const device = str(args.device);
   if (device && !isThisDevice(deps, device)) return createRemoteSessionTool(deps, ctx, args, device);
   const quick = bool(args.scratch) === true && !str(args.project_id);
-  if (quick && projectScope(deps, ctx, args) !== undefined) throw new ToolError(msg('schedules.error.scratchScoped'));
   const projectId = quick ? undefined : projectIdOf(deps, ctx, args);
   const agent = args.agent;
   if (agent !== undefined && !isAgentKind(agent)) throw new ToolError(msg('run.agent.unknown', { agent: String(agent).slice(0, 40) }));
@@ -962,7 +908,7 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
   // 統括の弱い声のターンは、読むことと自分の記録だけにする（orchestratorTools.ts）。どの道具より先に見る。
   guardWeakTurn(deps, ctx, name, args);
   switch (name) {
-    case 'list_projects': return listProjectsTool(deps, ctx);
+    case 'list_projects': return listProjectsTool(deps);
     case 'get_project': return getProjectTool(deps, ctx, args);
     case 'update_project': return updateProjectTool(deps, ctx, args);
     case 'list_sessions': return listSessionsTool(deps, ctx, args);

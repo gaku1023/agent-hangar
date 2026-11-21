@@ -7,7 +7,7 @@ import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { acceptsResultFrom, closeSpawn, recordSpawn } from '../sessions/spawns.ts';
 import type { Timers } from '../sync/engine.ts';
 import { PEER_QUEUE_EXPIRE_MS, PEER_QUEUE_POLL_MS } from './chat/queue.ts';
-import { expiredText, goneNotice, heldNotice, PEER_TEXT_MAX, refusalText, resultText, screenExpiredText, screenRefusalText, screenStartedText, stopReasonText, type PeerLocalRefusal } from './text.ts';
+import { expiredText, goneNotice, heldNotice, PEER_TEXT_MAX, refusalText, resultText, screenExpiredText, screenRefusalText, screenStartedText, stopReasonText } from './text.ts';
 
 /**
  * 呼ぶ側（T7）。別の PC へ置いた頼みの答えと結果を受け取り、呼び出し元の会話へ送り込む。
@@ -309,7 +309,7 @@ export class PeerOutbox {
     return true;
   }
 
-  private refuse(row: PeerRequestRow, reason: PeerLaunchRefusal | PeerLocalRefusal, detail?: string, expired = false): void {
+  private refuse(row: PeerRequestRow, reason: PeerLaunchRefusal, detail?: string, expired = false): void {
     const lang = this.language();
     const device = this.nameOf(row.to_device);
     // 画面から人が頼んだ起動の断りは、入力にせず画面の札で知らせる。
@@ -328,18 +328,6 @@ export class PeerOutbox {
   /** requested の頼みを断りで終える。ほかの状態に進んでいれば何もせず false。 */
   private settle(row: PeerRequestRow, state: 'refused' | 'expired', reason: string): boolean {
     return this.deps.db.prepare("update peer_outbox set state = ?, reason = ?, updated_at = ? where request_id = ? and state = 'requested'").run(state, reason, this.now(), row.request_id).changes > 0;
-  }
-
-  /**
-   * 頼みを置かずに断る（承認で断られた、時間切れ、承認したが置けなかった。peer/approvals.ts）。
-   * 記録を作り、断りの入力を預かりに積んで、渡せるものを渡す。同じ ID は 1 度しか積まない。投げない。
-   */
-  refuseLocal(o: { requestId: string; to: string; callerSessionId: string; reason: PeerLocalRefusal | 'launch-failed'; detail?: string }): Promise<void> {
-    const now = this.now();
-    recordPeerRequest(this.deps.db, { requestId: o.requestId, to: o.to, callerSessionId: o.callerSessionId, now });
-    const row = getPeerRequest(this.deps.db, o.requestId)!;
-    if (row.state === 'requested') this.refuse(row, o.reason, o.detail);
-    return this.flush();
   }
 
   private async fetchResults(api: PeerLaunchApi, ring: PeerKeyring, row: PeerRequestRow): Promise<void> {

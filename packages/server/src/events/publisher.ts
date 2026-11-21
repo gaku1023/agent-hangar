@@ -4,7 +4,6 @@ import { onRowChange, settleRowChanges, type RowChange, type RowOrigin } from '.
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listDevices } from '../db/queries.ts';
 import { listTodos } from '../projects/todos.ts';
-import { listPeerApprovals } from '../peer/approvals.ts';
 import { listDeleteApprovals } from '../sessions/deleteApprovals.ts';
 import { listSchedules, type AccountNamer } from '../schedule/store.ts';
 import { sessionCounts } from '../sessions/counts.ts';
@@ -27,7 +26,7 @@ import { sessionCounts } from '../sessions/counts.ts';
  */
 
 /** この層だけが組む、行のイベント。 */
-export type RowEvent = Extract<ServerEvent, { type: 'schedules.update' | 'session.upsert' | 'session.removed' | 'project.upsert' | 'devices.update' | 'artifact.upsert' | 'todos.update' | 'config.update' | 'deleteApprovals.update' | 'peerApprovals.update' }>;
+export type RowEvent = Extract<ServerEvent, { type: 'schedules.update' | 'session.upsert' | 'session.removed' | 'project.upsert' | 'devices.update' | 'artifact.upsert' | 'todos.update' | 'config.update' | 'deleteApprovals.update' }>;
 /** 呼び手が `broadcast` で渡せる知らせ。表の変化に対応しないものだけである。 */
 export type NoticeEvent = Exclude<ServerEvent, RowEvent>;
 
@@ -54,7 +53,6 @@ const KINDS = {
   // 端末は一覧ごと配るので、ID は持たない。
   devices: (ctx) => ({ type: 'devices.update', devices: listDevices(ctx.db, ctx.deviceId) }),
   deleteApprovals: (ctx) => ({ type: 'deleteApprovals.update', approvals: listDeleteApprovals(ctx.db) }),
-  peerApprovals: (ctx) => ({ type: 'peerApprovals.update', approvals: listPeerApprovals(ctx.db, Date.now()) }),
   schedules: (ctx) => ({ type: 'schedules.update', schedules: listSchedules(ctx.db, ctx.deviceId, undefined, ctx.accountName) }),
   artifact: (ctx, id) => { const a = getArtifact(ctx.db, id); return a ? { type: 'artifact.upsert', artifact: a } : null; },
   // TODO はプロジェクトの一覧ごと配るので、ID はプロジェクトのものである。
@@ -88,8 +86,6 @@ const TABLES: Record<string, TableRule> = {
   // 依頼の行は消す会話の題名を載せる。会話が変わった（消えた）ときに、依頼のある会話だけ配り直す。
   sessions: { to: (c, ctx) => (ctx.db.prepare('select 1 from delete_approvals where session_id = ?').get(c.rowId) ? [['session', c.rowId], ['deleteApprovals', '']] : [['session', c.rowId]]) },
   delete_approvals: { to: () => [['deleteApprovals', '']] },
-  // 別の PC への起動の承認待ち。画面は一覧ごと受ける。会話の題名を載せるが、題名の変化では配り直さない（答えるまでの短い間の札である）。
-  peer_approvals: { to: () => [['peerApprovals', '']] },
   schedules: { to: () => [['schedules', '']] },
   // 起動元の結び付き。主キーは子の会話で、起動元、PC、終わった印は子の SessionDto（spawnedBy、spawnPeer）に載る。ほかの PC から降りた行と、終わった印の書き込みも配る。
   session_spawns: { to: self('session') },

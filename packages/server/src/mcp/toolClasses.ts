@@ -36,7 +36,7 @@ export const TOOL_CLASSES: Record<(typeof TOOL_NAMES)[number] | (typeof ORCHESTR
   propose_session_status: { kind: 'write', why: "Sets a status tag. Nothing is lost and the screen can change it." },
   notify_user: { kind: 'write', why: "Only notifies, through the targets the user chose." },
   set_notify_preference: { kind: 'write', why: "Writes how to notify, which the settings screen can change." },
-  create_session: { kind: 'launch', why: "Adds a session and loses nothing. On another computer it is limited to the caller's own project. Any other project or a quick session waits for the user's approval." },
+  create_session: { kind: 'launch', why: "Adds a session and loses nothing. It works in any project, or as a quick session, and omitting project_id uses the caller's own project. On another computer it is sent as a launch request without an approval." },
   resume_session: { kind: 'launch', why: "Continues a stopped session." },
   send_to_session: { kind: 'drive', why: "Needed to orchestrate sessions. The input runs within the permissions of the receiving session." },
   stop_session: { kind: 'stop', why: "The session stays and can be resumed. The user decided no approval is needed." },

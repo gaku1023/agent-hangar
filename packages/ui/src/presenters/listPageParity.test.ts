@@ -35,14 +35,17 @@ function world(seed: number, n: number): Store {
     const live = r() < 0.15 ? pick(['busy', 'idle', 'waiting'] as const) : null;
     // 時刻が重なる行も混ぜる（並びの揺れを見るため）。
     const lastActivityAt = r() < 0.1 ? NOW - 5 * H : NOW - Math.floor(r() * 2000) * 60_000;
-    const spawnedBy = i > 0 && r() < 0.25 ? list[Math.floor(r() * i)]!.id : null;
+    // 起動元は、ほとんど同じプロジェクトから選ぶ（別のプロジェクトの起動元は入れ子にならない）。たまに別のプロジェクトも混ぜる。
+    const projectId = pick(['alpha', 'beta', null]);
+    const pool = r() < 0.1 ? list : list.filter((x) => x.projectId === projectId);
+    const spawnedBy = pool.length > 0 && r() < 0.25 ? pool[Math.floor(r() * pool.length)]!.id : null;
     const lock = live === null && r() < 0.05 ? { deviceId: 'pc-b', deviceName: 'B', runId: 'rb' + id, heartbeatAt: NOW, stale: false, live: pick(['busy', 'idle', 'waiting'] as const) } : null;
     const limit = live === 'idle' && r() < 0.3 ? { kind: 'five_hour' as const, resetsAt: NOW + H, auto: false, reset: r() < 0.5 } : null;
     const waitingFor = live === 'waiting' && r() < 0.5 ? ('permission' as const) : null;
-    list.push(base(id, { projectId: pick(['alpha', 'beta', null]), state, live, lastActivityAt, spawnedBy, lock, limit, waitingFor, parked: live === 'idle' && status === 'done' && r() < 0.5, woke: r() < 0.05 }));
+    list.push(base(id, { projectId, state, live, lastActivityAt, spawnedBy, lock, limit, waitingFor, parked: live === 'idle' && status === 'done' && r() < 0.5, woke: r() < 0.05 }));
   }
   // 起動元の輪も 1 つ作る。
-  if (n > 3) { list[1] = { ...list[1]!, spawnedBy: list[2]!.id }; list[2] = { ...list[2]!, spawnedBy: list[1]!.id }; }
+  if (n > 3) { list[1] = { ...list[1]!, spawnedBy: list[2]!.id }; list[2] = { ...list[2]!, projectId: list[1]!.projectId, spawnedBy: list[1]!.id }; }
   const s = initialStore();
   s.bootstrapped = true;
   s.sessions = Object.fromEntries(list.map((x) => [x.id, x]));

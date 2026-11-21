@@ -80,10 +80,12 @@ describe('サイドバーの実行中の入れ子', () => {
     const live = presentShell({ ...initialState(), sidebarFolded: [spawnFoldKey('p')] }, store, NOW).live;
     expect(live.rows.find((r) => r.id === 'p')!.nest).toMatchObject({ open: false });
   });
-  it('子は起動元のグループに入る（子のプロジェクトが違っても）', () => {
-    const store = storeOf([session('p', { live: 'busy', projectId: 'A' }), session('c', { live: 'busy', projectId: 'B', spawnedBy: 'p' })]);
+  it('プロジェクトが違う子は、起動元の下に入れず、子のプロジェクトの群に独立した行で出る', () => {
+    const store = storeOf([session('p', { live: 'busy', projectId: 'A', startedAt: 1 }), session('c', { live: 'busy', projectId: 'B', spawnedBy: 'p', startedAt: 2 })]);
     const live = presentShell(initialState(), store, NOW).live;
-    expect(live.groups.map((g) => [g.key, g.rows.map((r) => r.id)])).toEqual([['A', ['p', 'c']]]);
+    expect(live.groups.map((g) => [g.key, g.rows.map((r) => r.id)]).sort()).toEqual([['A', ['p']], ['B', ['c']]]);
+    expect(live.rows.find((r) => r.id === 'p')!.nest).toBeFalsy();
+    expect(live.rows.find((r) => r.id === 'c')!.nest).toBeFalsy();
   });
   it('輪になった起動元でも落ちない', () => {
     const store = storeOf([session('a', { live: 'busy', spawnedBy: 'b' }), session('b', { live: 'busy', spawnedBy: 'a' })]);

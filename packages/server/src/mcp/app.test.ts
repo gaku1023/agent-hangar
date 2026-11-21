@@ -88,12 +88,9 @@ describe('createMcpApp', () => {
     // 説明文は先頭が `agent-hangar:` である。含むだけの検査では、途中に紛れ込んでも通ってしまう。
     for (const t of tools) expect(t.description, t.name).toMatch(/^agent-hangar:/);
   });
-  it('list_projects と list_sessions の説明は、セッション別 URL でだけ枠で絞ることを言う', async () => {
+  it('list_projects と list_sessions の説明は、セッション別 URL でも共通の URL と同じ', async () => {
     const desc = async (path: string, name: string) => ((await rpc(path, 'tools/list', {}, 2)).body.result!.tools as { name: string; description: string }[]).find((t) => t.name === name)!.description;
-    for (const name of ['list_projects', 'list_sessions']) {
-      expect(await desc('/', name), name).not.toMatch(/この URL では/);
-      expect(await desc(`/s/${alphaId}`, name), name).toMatch(/この URL では/);
-    }
+    for (const name of ['list_projects', 'list_sessions']) expect(await desc(`/s/${alphaId}`, name), name).toBe(await desc('/', name));
   });
   it('毎ターン使う 4 本だけを、遅延させずに最初から読み込ませる（_meta の anthropic/alwaysLoad）', async () => {
     const list = await rpc('/', 'tools/list', {}, 2);

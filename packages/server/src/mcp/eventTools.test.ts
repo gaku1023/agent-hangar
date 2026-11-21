@@ -94,9 +94,9 @@ describe('draft_event_binding', () => {
     expect(listBindings(db)).toEqual([]);
   });
 
-  it('stays within a per-session url project', () => {
+  it('uses the caller session project by default, and any project when named', () => {
     upsertShared(db, 'projects', { id: 'p2', name: 'beta', status: 'active', is_scratch: 0 }, 'd');
-    expect(() => draft({ action: { kind: 'new', project_id: 'p2' } }, { sessionId: alphaId })).toThrow();
+    expect(draft({ action: { kind: 'new', project_id: 'p2' } }, { sessionId: alphaId }).binding).toMatchObject({ action: { projectId: 'p2' } });
     expect(draft({ action: { kind: 'new' } }, { sessionId: alphaId }).binding).toMatchObject({ action: { projectId: 'p1' } });
   });
 

@@ -1,6 +1,6 @@
 import type { SessionLockDto } from '@agent-hangar/shared';
 import type { EventBindingDto, HeldEventDto, PrClaimDto, ScheduleDto } from '@agent-hangar/shared';
-import type { DeleteApprovalDto, PeerApprovalDto, PeerChatDevice, PeerChatQueued, PeerDeviceDto } from '@agent-hangar/shared';
+import type { DeleteApprovalDto, PeerChatDevice, PeerChatQueued, PeerDeviceDto } from '@agent-hangar/shared';
 import { liveFilterOf, liveWithLimit, quietLive, remoteAsideOf, remoteLiveOf, sessionLiveFilter, shownLive, shownReason, type LiveFilter, type PermissionAskDto, type StopReason } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
 import { sameValue } from '../lib/same.ts';
@@ -89,7 +89,6 @@ export type Store = {
   /** MCP の削除の依頼のうち、利用者の答えを待っているもの。 */
   deleteApprovals: DeleteApprovalDto[];
   /** 別の PC への起動の承認待ち（peer/approvals.ts）。答えた直後の結果も、短い間だけ載る。 */
-  peerApprovals: PeerApprovalDto[];
   /**
    * ほかの PC から来て、この PC の入力欄へまだ渡していない文（会話の id ごと、古い順）。空の会話は持たない。
    * サーバのメモリだけにある値。bootstrap が最初の状態を運び（つなぎ直しも同じ）、あとは peerChat.queue が全体を置き換える。
@@ -248,7 +247,7 @@ export function initialStore(): Store {
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     todos: {}, instructions: {}, artifacts: {}, artifactAddError: null, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerTest: null,
-    cloudUsage: null, sync: null, deleteApprovals: [], peerApprovals: [], peerQueued: {}, peerDelivered: {}, peerChat: {}, peerAnswered: {}, orchestrator: emptyOrchestrator(), voice: null, voiceCatalog: null, schedules: [], eventTrigger: EMPTY_EVENT_TRIGGER, heldEvents: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
+    cloudUsage: null, sync: null, deleteApprovals: [], peerQueued: {}, peerDelivered: {}, peerChat: {}, peerAnswered: {}, orchestrator: emptyOrchestrator(), voice: null, voiceCatalog: null, schedules: [], eventTrigger: EMPTY_EVENT_TRIGGER, heldEvents: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
     readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, peers: null, launchPreps: {}, opencodeProviders: null, desktop: false, canRestoreHistory: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null, sharePreview: {},
     update: initialUpdate(),
@@ -267,7 +266,7 @@ const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object
  * 差し替えると、終了した run のスクロールバックを見ている最中に画面が変わってしまう。
  */
 export function applyBootstrap(store: Store, b: BootstrapDto): Store {
-  return { ...store, bootstrapped: true, peerAnswered: {}, peerQueued: b.peerQueued ?? {}, deleteApprovals: b.deleteApprovals, peerApprovals: b.peerApprovals, schedules: b.schedules ?? [], version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home, interrupted: b.interrupted };
+  return { ...store, bootstrapped: true, peerAnswered: {}, peerQueued: b.peerQueued ?? {}, deleteApprovals: b.deleteApprovals, schedules: b.schedules ?? [], version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home, interrupted: b.interrupted };
 }
 
 /** 鍵を 1 つ外す。無ければ同じ物を返す。 */
@@ -379,7 +378,6 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
       return cur ? confirmPeerAnswer({ ...store, peerChat: { ...store.peerChat, [ev.sessionId]: applyPeerChatUpdate(cur, ev) } }, ev.sessionId) : store;
     }
     case 'voice.state': return sameValue(store.voice, ev.state) ? store : { ...store, voice: ev.state };
-    case 'peerApprovals.update': return sameValue(store.peerApprovals, ev.approvals) ? store : { ...store, peerApprovals: ev.approvals };
     case 'deleteApprovals.update': return sameValue(store.deleteApprovals, ev.approvals) ? store : { ...store, deleteApprovals: ev.approvals };
     case 'devices.update': return sameValue(store.devices, ev.devices) ? store : { ...store, devices: ev.devices };
     case 'retention.changed': return sameValue(store.retention, ev.retention) ? store : { ...store, retention: ev.retention };

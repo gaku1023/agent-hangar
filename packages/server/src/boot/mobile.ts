@@ -7,7 +7,6 @@ import type { Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
 import type { EventPuller } from '../event/puller.ts';
 import { onIntent } from '../live/intents.ts';
-import { mobilePeerApprovals } from '../peer/approvals.ts';
 import { approveDeleteApproval, dismissDeleteApproval, listDeleteApprovals, rejectDeleteApproval } from '../sessions/deleteApprovals.ts';
 import type { SessionTrash } from '../sessions/trash.ts';
 import { answerAsk } from '../mobile/asks.ts';
@@ -34,7 +33,7 @@ import { createPhoneChatEntry, type PhoneChatHost } from '../mobile/chatHost.ts'
  * 素が読むのは、会話（sessions、session_notes）、状態（session_states）、要約の 1 行（session_summaries）、run（runs）、プロジェクトとこの PC の場所（projects、project_roots）である。
  * 中身が変わらなければ書かない（ハッシュで比べる）ので、多めに拾っても書き込みは増えない。
  */
-export const FEED_TABLES: ReadonlySet<string> = new Set(['sessions', 'session_states', 'session_summaries', 'runs', 'project_roots', 'projects', 'session_notes', 'delete_approvals', 'peer_approvals']);
+export const FEED_TABLES: ReadonlySet<string> = new Set(['sessions', 'session_states', 'session_summaries', 'runs', 'project_roots', 'projects', 'session_notes', 'delete_approvals']);
 
 /**
  * 答えを送れなかった起動の依頼を送り直す見回りの間隔（mobile/launchInbox.ts の resendAnswers）。
@@ -120,8 +119,6 @@ export function bootMobile(p: {
    * 取った事実の渡し先は、取り手の onPulled に渡す側（server.ts）で決める。
    */
   event?: Pick<EventPuller, 'pull' | 'hasBindings'>;
-  /** 別の PC への起動の承認待ちへの答えの口（peer/approvals.ts）。省けば、スマホの答えを断る。 */
-  peerApprovals?: { approve(id: string): Promise<'done' | 'failed' | 'missing'>; reject(id: string): boolean };
   timers?: Timers;
   now?: () => number;
   /** 呼び鈴の WebSocket を作る口。既定は ws。 */
@@ -214,7 +211,6 @@ export function bootMobile(p: {
     db, deviceId, deviceName: p.home.device.name,
     live: p.delivery.live.current(),
     approvals: listDeleteApprovals(db).map(({ requestedAt: _at, ...a }) => a),
-    peerApprovals: mobilePeerApprovals(db, Date.now()),
     accounts: accounts.store.list(),
     usageOf: (id) => accounts.usage.of(id),
     now: Date.now(),
@@ -295,7 +291,6 @@ export function bootMobile(p: {
         accountDir: (accountId) => accounts.store.list().find((a) => a.id === accountId)?.dir ?? null,
         ...(opencodeAsk ? { opencode: opencodeAsk } : {}),
         ...(p.trash ? { deleteApprovals: { approve: (aid: string) => approveDeleteApproval(db, p.trash!, aid), reject: (aid: string) => rejectDeleteApproval(db, aid, Date.now()), dismiss: (aid: string) => dismissDeleteApproval(db, aid) } } : {}),
-        ...(p.peerApprovals ? { peerApprovals: p.peerApprovals } : {}),
         ...(p.codex ? { codex: { ready: codexOn, options: () => p.codex!.options.last() } } : {}),
       }, id, sealed, epoch),
       ...(p.chat ? { onChat: (frame: PeerChatBellAsk) => p.chat!.handle(frame) } : {}),

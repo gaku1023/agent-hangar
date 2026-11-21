@@ -9,7 +9,6 @@ import { clearPairing, type Keyring, type Pairing } from '../store.ts';
 import { AccountTag } from './AccountTag.tsx';
 import { AgentIcon } from './AgentIcon.tsx';
 import { ApprovalList } from './ApprovalList.tsx';
-import { PeerApprovalList } from './PeerApprovalList.tsx';
 import { Fold } from './Fold.tsx';
 import { chatTargetOf } from '../chatTarget.ts';
 import type { ChatTarget } from './ChatScreen.tsx';
@@ -274,7 +273,6 @@ export function InboxScreen({ pairing, keys, reloadKeys, onKeys, onUnpaired, onN
               </p>
             )}
             <ApprovalList rows={view.approvals} pairing={pairing} keys={keysRef.current} onAnswered={() => void load()} />
-            <PeerApprovalList rows={view.peerApprovals} now={pcNow} pairing={pairing} keys={keysRef.current} onAnswered={() => void load()} />
             <WaitingList rows={view.waiting} now={pcNow} target={target} icons={view.agentIcons} chatOf={onOpenChat ? (r) => chatTargetOf(view, r) : undefined} onOpenChat={onOpenChat} />
             <Sections view={view} now={pcNow} today={localDay(today)} target={target} />
           </>

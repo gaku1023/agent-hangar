@@ -198,8 +198,6 @@ export const actionTable = {
   'events.remove': (i) => eventOp((api) => api.deleteEventBinding(i.id)),
   'events.claim': (i) => eventOp((api) => api.answerPrClaim(i.op, { sessionId: i.sessionId, repo: i.repo, pr: i.pr })),
   'deleteApproval.answer': (i) => call((api) => api.answerDeleteApproval(i.id, i.answer)),
-  // 別の PC への起動の承認への答え。画面の正は後から届く peerApprovals.update なので、返り値は Store に入れない。
-  'peerApproval.answer': (i) => call((api) => api.answerPeerApproval(i.id, i.answer)),
   // 預かりの中断して渡す。渡した結果は peerChat.queue と peerChat.delivered で届くので、返り値は Store に入れない。
   'peerQueue.rush': (i) => call((api) => api.rushPeerQueue(i.sessionId)),
   // 同じファイルの編集の「このファイルでは表示しない」。写しは見張りが書き直し、session.upsert で消える。
