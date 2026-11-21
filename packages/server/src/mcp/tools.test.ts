@@ -1052,7 +1052,11 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
 
   it('list_projects は自分のプロジェクトだけを返す', () => {
     expect((call('list_projects') as unknown as { id: string }[]).map((p) => p.id).sort()).toEqual(['p1', 'p2']);
-    expect((callTool(deps, scoped(), 'list_projects', {}) as { id: string }[]).map((p) => p.id)).toEqual(['p1']);
+    const r = callTool(deps, scoped(), 'list_projects', {}) as unknown as { scoped_to: string; hidden_count: number; projects: { id: string }[] };
+    expect(r.projects.map((p) => p.id)).toEqual(['p1']);
+    // 枠で絞ったことを結果に出す。隠した数は、全体の active でない物も含めた登録の総数から数える。
+    expect(r.scoped_to).toBe('p1');
+    expect(r.hidden_count).toBe(1);
   });
 
   it('update_project はノートを書かない（append_memo はやめた）。notice も付けない', () => {
@@ -1074,8 +1078,9 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
   });
 
   it('list_sessions と search_sessions は自分のプロジェクトの外を見せない', () => {
-    const list = callTool(deps, scoped(), 'list_sessions', {}) as { id: string }[];
-    expect(list.map((s) => s.id)).toEqual([alphaId]);
+    const res = callTool(deps, scoped(), 'list_sessions', {}) as unknown as { scoped_to: string; sessions: { id: string }[] };
+    expect(res.scoped_to).toBe('p1');
+    expect(res.sessions.map((s) => s.id)).toEqual([alphaId]);
     expect(() => call('list_sessions', { project_id: 'p2' }, scoped())).toThrow(ToolError);
     const r = callTool(deps, scoped(), 'search_sessions', { query: 'a' }) as { hits: { session_id: string }[] };
     expect(r.hits.every((h) => h.session_id === alphaId)).toBe(true);
@@ -1344,6 +1349,9 @@ describe('統括の URL は、読む道具で全プロジェクトを読める�
     expect(() => call('search_sessions', { query: 'チャンネル' }, { sessionId: orchId })).toThrow(ToolError);
     deps.settings = () => ({ orchestrator: { enabled: false, sessionId: orchId, model: 'sonnet', effort: 'medium' } });
     expect(() => call('search_sessions', { query: 'チャンネル' }, orch())).toThrow(ToolError);
-    expect(idsOf(call('list_sessions', {}, orch()))).toEqual([orchId]);
+    // プロジェクトに属さない会話の URL は枠つき（scoped_to が null）で、自分だけを返す。
+    const narrow = call('list_sessions', {}, orch()) as unknown as { scoped_to: null; sessions: unknown };
+    expect(narrow.scoped_to).toBeNull();
+    expect(idsOf(narrow.sessions as never)).toEqual([orchId]);
   });
 });

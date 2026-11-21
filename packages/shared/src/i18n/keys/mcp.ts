@@ -17,6 +17,7 @@ export const mcpKeys = {
   'mcp.scope.sessionOnly': ['sessionId'],
   'mcp.scope.noProject': [],
   'mcp.scope.projectOnly': ['projectId'],
+  'mcp.tool.scopedListNote': [],
   'mcp.args.sessionIdRequired': [],
   'mcp.args.projectIdRequired': [],
   'mcp.args.oneOf': ['field', 'values'],
