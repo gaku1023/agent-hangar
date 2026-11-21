@@ -14,7 +14,8 @@ export function peerChatStep(state: State, store: Store, input: Input): Step | n
     const ev = input.event;
     const t = translatorOf(store);
     const name = store.sessions[ev.sessionId]?.name ?? t('common.label.noName');
-    const message = t(ev.kind === 'question' ? 'peerChat.toast.questionFailed' : 'peerChat.toast.permissionFailed', { name });
+    // 許可の札で拒否を送ったときもあるので、許可とは書かず「答え」と言う。
+    const message = t('peerChat.toast.answerFailed', { name });
     const toast = { id: String(state.nextToastId), level: 'error' as const, message, action: { label: t('peerChat.toast.open'), send: { type: 'session.open' as const, id: ev.sessionId } } };
     return { state: { ...state, toasts: [...state.toasts, toast], nextToastId: state.nextToastId + 1 }, effects: [] };
   }

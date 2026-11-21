@@ -26,7 +26,7 @@ export type PeerChatRunnerDeps = {
   /** 手元の見え方を解いて、相手の最新の状態に戻す。答えが届いた確かめが無いまま持っていたら true（届いた、または相手の更新で捨てられていたら false）。 */
   release?: (sessionId: string, askId: string) => boolean;
   /** 答えが届かなかった（断られた、時間切れ）。画面の下の知らせを出す。kind は札の種類。 */
-  failed?: (sessionId: string, reason: PeerChatReason | 'answer-timeout', kind: 'permission' | 'question') => void;
+  failed?: (sessionId: string, reason: PeerChatReason | 'answer-timeout') => void;
 };
 
 /** 選んだ答えの文。書いた文があればそれ、無ければ選んだ行の文（複数はつなぐ）。 */
@@ -172,10 +172,9 @@ export function createPeerChatRunner(deps: PeerChatRunnerDeps): PeerChatRunner {
   /** 答えの見え方の時間切れ（会話と札ごと）。同じ札へ送り直したら前の分は取り消す。 */
   const answerTimers = new Map<string, () => void>();
 
-  /** 答えを送る前に、手元で待ちを外し、時間切れを数え始める。札の種類を返す。 */
-  function holdAnswer(sessionId: string, body: Extract<PeerChatOpIn, { t: 'answer' }>): 'permission' | 'question' {
+  /** 答えを送る前に、手元で待ちを外し、時間切れを数え始める。 */
+  function holdAnswer(sessionId: string, body: Extract<PeerChatOpIn, { t: 'answer' }>): void {
     const item = slice(sessionId)?.items.find((i) => i.ask?.askId === body.askId);
-    const kind = item?.ask?.kind ?? 'permission';
     deps.hold?.(sessionId, body.askId, liveAfterAnswer(item, body));
     const key = `${sessionId}\n${body.askId}`;
     answerTimers.get(key)?.();
@@ -184,18 +183,17 @@ export function createPeerChatRunner(deps: PeerChatRunnerDeps): PeerChatRunner {
       // 相手の状態が動いて見え方が捨てられていれば、答えは届いている。
       if (!deps.release?.(sessionId, body.askId)) return;
       write(sessionId, (s) => showNotice(unpick(s, body.askId), 'answer-timeout'));
-      deps.failed?.(sessionId, 'answer-timeout', kind);
+      deps.failed?.(sessionId, 'answer-timeout');
     }));
-    return kind;
   }
 
   /** 答えが断られた。見え方を解いて、画面の下に知らせる（札の近くの理由と、また押せる状態は下の書き込みが戻す）。 */
-  function answerFailed(sessionId: string, askId: string, reason: PeerChatReason, kind: 'permission' | 'question'): void {
+  function answerFailed(sessionId: string, askId: string, reason: PeerChatReason): void {
     const key = `${sessionId}\n${askId}`;
     answerTimers.get(key)?.();
     answerTimers.delete(key);
     deps.release?.(sessionId, askId);
-    if (reason !== 'refused-by-setting') deps.failed?.(sessionId, reason, kind);
+    if (reason !== 'refused-by-setting') deps.failed?.(sessionId, reason);
   }
 
   async function send(sessionId: string, body: PeerChatOpIn): Promise<void> {
@@ -210,10 +208,10 @@ export function createPeerChatRunner(deps: PeerChatRunnerDeps): PeerChatRunner {
       if (body.t === 'rush') return { ...base, rushing: base.rushing.includes(body.queueId) ? base.rushing : [...base.rushing, body.queueId] };
       return base;
     });
-    const askKind = body.t === 'answer' ? holdAnswer(sessionId, body) : 'permission';
+    if (body.t === 'answer') holdAnswer(sessionId, body);
     let r: PeerChatOpResult;
     try { r = await deps.op(sessionId, body); } catch { r = { ok: false, reason: failure() }; }
-    if (body.t === 'answer' && !r.ok) answerFailed(sessionId, body.askId, r.reason, askKind);
+    if (body.t === 'answer' && !r.ok) answerFailed(sessionId, body.askId, r.reason);
     if (!slice(sessionId)) return;
     if (!r.ok) {
       write(sessionId, (s) => {

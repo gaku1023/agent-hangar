@@ -21,9 +21,7 @@ describe('mediator: ほかの PC の会話の操作は効果にして Runtime �
 describe('mediator: ほかの PC への答えが届かなかった知らせ', () => {
   it('会話の名前を入れた知らせを積み、押すとその会話を開く', () => {
     const store = { ...initialStore(), sessions: { s1: sessionDto({ id: 's1', providerSessionId: 'u1', name: 'ビルドの直し', startedAt: 1, lastActivityAt: 1, hasTranscript: true }) } };
-    const r = transition(initialState(), store, { kind: 'runtime', event: { type: 'peerAnswer.failed', sessionId: 's1', kind: 'permission' } });
-    expect(r.state.toasts.at(-1)).toMatchObject({ level: 'error', message: 'ビルドの直し への許可が届きませんでした', action: { label: '開く', send: { type: 'session.open', id: 's1' } } });
-    const q = transition(initialState(), store, { kind: 'runtime', event: { type: 'peerAnswer.failed', sessionId: 's1', kind: 'question' } });
-    expect(q.state.toasts.at(-1)?.message).toBe('ビルドの直し への答えが届きませんでした');
+    const r = transition(initialState(), store, { kind: 'runtime', event: { type: 'peerAnswer.failed', sessionId: 's1' } });
+    expect(r.state.toasts.at(-1)).toMatchObject({ level: 'error', message: 'ビルドの直し への答えが届きませんでした', action: { label: '開く', send: { type: 'session.open', id: 's1' } } });
   });
 });

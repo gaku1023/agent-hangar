@@ -433,12 +433,12 @@ describe('答えた札の手元の見え方（相手の返事を待たない）'
   /** 札の付いた会話を開いた台。hold は手元の見え方を持っている札の集合で、release はそこから外したかを返す。 */
   const answerRig = async (op: (s: string, b: PeerChatOpIn) => Promise<PeerChatOpResult>, item: PeerChatItem = card('c1', 'ask-1')) => {
     const holds = new Map<string, 'busy' | 'waiting'>();
-    const failed: { sessionId: string; reason: string; kind: string }[] = [];
+    const failed: { sessionId: string; reason: string }[] = [];
     const afters: number[] = [];
     const t = rig(async () => view({ items: [item], status: 'waiting' }), op, {
       hold: (_s, askId, live) => { holds.set(askId, live); },
       release: (_s, askId) => holds.delete(askId),
-      failed: (sessionId, reason, kind) => { failed.push({ sessionId, reason, kind }); },
+      failed: (sessionId, reason) => { failed.push({ sessionId, reason }); },
     });
     t.runner.run({ op: 'open', sessionId: 's1', viewer: 'v1' });
     await t.tick();
@@ -467,7 +467,7 @@ describe('答えた札の手元の見え方（相手の返事を待たない）'
     t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['1'] } });
     await t.tick();
     expect(t.holds.size).toBe(0);
-    expect(t.failed).toEqual([{ sessionId: 's1', reason: 'already-answered', kind: 'permission' }]);
+    expect(t.failed).toEqual([{ sessionId: 's1', reason: 'already-answered' }]);
   });
 
   it('通っても、時間内に相手が動かなければ解いて札を戻し、知らせる', async () => {
@@ -478,7 +478,7 @@ describe('答えた札の手元の見え方（相手の返事を待たない）'
     t.fire();
     expect(t.holds.size).toBe(0);
     expect(t.slice()).toMatchObject({ answering: [], notice: { reason: 'answer-timeout' } });
-    expect(t.failed).toEqual([{ sessionId: 's1', reason: 'answer-timeout', kind: 'permission' }]);
+    expect(t.failed).toEqual([{ sessionId: 's1', reason: 'answer-timeout' }]);
   });
 
   it('時間内に相手が動いて見え方が捨てられていたら、何も知らせない', async () => {

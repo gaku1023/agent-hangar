@@ -311,7 +311,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       if (peerAnswerHeld(store, sessionId, askId)) setStore(releasePeerAnswer(store, sessionId, askId));
       return unconfirmed;
     },
-    failed: (sessionId, _reason, kind) => dispatch({ kind: 'runtime', event: { type: 'peerAnswer.failed', sessionId, kind } }),
+    failed: (sessionId) => dispatch({ kind: 'runtime', event: { type: 'peerAnswer.failed', sessionId } }),
   });
   /** 統括の柱の読み込みと送信（runtime/orchestrator.ts）。本文が伸びたら、下の applyServerEvent のあとで読み直す。 */
   const orchestrator = createOrchestratorRunner({
