@@ -1,3 +1,4 @@
+import os from 'node:os';
 import path from 'node:path';
 import { Command } from 'commander';
 import { claudeJsonPath, defaultClaudeDir, defaultCodexHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, zshrcPath } from '@agent-hangar/server/src/cliEntry.ts';
@@ -11,7 +12,8 @@ import { candidatesCommand, projectAddCommand, projectRemoveCommand, workspaceSe
 import { formatSetupReport, runSetup, whichMuxCmd } from './setup.ts';
 import { runShellInstall, runShellUninstall, shellStatusLine } from './shell.ts';
 import { headlessServer, runCommand } from './run.ts';
-import { runStart } from './start.ts';
+import { installService, realRunner, uninstallService, type ServiceOptions } from './service.ts';
+import { runStart, serverArgs } from './start.ts';
 import { promptYesNo, runStatuslineInstall } from './statusline.ts';
 import { runSetupCommand, setupEnvFor, type SetupCommandFlags, type SetupTarget } from './setupPlan.ts';
 import { entryUrl, openedMessage, openFailedMessage, openInBrowser } from './url.ts';
@@ -432,6 +434,48 @@ shell
   .command('status')
   .description('この PC にインストールされているかを表示する')
   .action(() => { console.log(shellStatusLine({ tmuxPath: tmuxPathFor(hangarHome()) })); });
+
+const service = program.command('service').description('サーバーを systemd のユニットとして常駐させる（Linux だけ）');
+
+function serviceOptions(o: { system?: boolean; ephemeral?: boolean; uiDist?: string }): ServiceOptions {
+  const args = serverArgs();
+  const entry = args[args.length - 1]!;
+  // 配布版は server.mjs の置き場、リポジトリは tsx が解決できるリポジトリの根（packages/server/src の 3 つ上）で起こす。
+  const workingDir = args[0] === '--import' ? path.resolve(path.dirname(entry), '../../..') : path.dirname(entry);
+  return {
+    scope: o.system ? 'system' : 'user',
+    ephemeral: o.ephemeral ?? false,
+    platform: process.platform,
+    uid: process.getuid?.() ?? -1,
+    userName: os.userInfo().username,
+    home: os.homedir(),
+    nodePath: process.execPath,
+    serverArgs: args,
+    workingDir,
+    envPath: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+    uiDist: o.uiDist ?? process.env.HANGAR_UI_DIST,
+    run: realRunner,
+    log: (line) => console.log(line),
+  };
+}
+
+service
+  .command('install')
+  .description('ユニットを入れて起動する。ふだんは root 不要のユーザユニット（ログアウト後も動かすため linger を立てる）。--system は sudo で /etc/systemd/system に入れる')
+  .option('--system', 'システムユニットとして入れる（sudo を使う）')
+  .option('--ephemeral', 'ディレクトリを再起動で消える領域に置き、この PC の ID を引き継がない（使い捨ての VM 向け）')
+  .option('--ui-dist <dir>', '画面のディレクトリ（デフォルトは環境変数 HANGAR_UI_DIST）')
+  .action((o: { system?: boolean; ephemeral?: boolean; uiDist?: string }) => {
+    if (!installService(serviceOptions(o)).ok) process.exitCode = 1;
+  });
+
+service
+  .command('uninstall')
+  .description('ユニットを停止して解除する。データのディレクトリは残す')
+  .option('--system', 'システムユニットを解除する（sudo を使う）')
+  .action((o: { system?: boolean }) => {
+    if (!uninstallService(serviceOptions(o)).ok) process.exitCode = 1;
+  });
 
 const config = program.command('config').description('Claude Code の設定の同期（他の PC から受信した設定を適用する、バックアップの世代に戻す）');
 

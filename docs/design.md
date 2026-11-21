@@ -7566,6 +7566,27 @@ reduced motion では長さと移動とぼかしのトークンが 0 になり�
 reduced motion では静止した原図を出す。
 画面の中の初回索引の進行は、静的な文字で示す。
 
+## Linux の常駐（hangar service）
+
+頭のない Linux 機（VM、クラウド、自宅のサーバー）に、サーバーだけを常駐させる。殻（Tauri）は作らず、画面はブラウザかスマホで開き、遠隔の操作はクラウド参加（`hangar cloud join-request`）で受ける。
+
+`hangar service install` が systemd のユニットを入れて起動する（`packages/cli/src/service.ts`）。
+- ふだんは root 不要のユーザユニット（`~/.config/systemd/user/hangar.service`、`default.target`）。ログアウト後も動かすため `loginctl enable-linger` を立てる。立てられないときは案内を出す。既に立っていれば何もしない。
+- `--system` は sudo でシステムユニット（`/etc/systemd/system/hangar.service`、`User=`、`multi-user.target`）に入れる。
+- root では断る。Claude Code が root での全許可のモードを断り、クラウドの VM と Docker の既定が root だからである。非 root の利用者の作り方を案内する。
+- `--ephemeral` は、置き場（`HANGAR_HOME`）を再起動で消える領域（ユーザユニットは `%t/hangar`、システムユニットは `RuntimeDirectory=hangar`）に置き、端末 ID と鍵を引き継がない。使い捨ての VM 向けで、参加と後片付け（`hangar cloud revoke`）は手順で行う。
+- `hangar service uninstall` は止めて外す。データの置き場には触れない。
+
+ユニットは `hangar start` を通さず、サーバー（`server.mjs`、リポジトリでは `main.ts` を tsx で）を直に起こす。`start` はトークン付きの URL を標準出力に印字し、journald に残るためである。必要なときだけ、その機械で `hangar url` を打つ。
+
+`KillMode=process` にする。既定の `control-group` では、ユニットを再起動すると、同じ cgroup に居る hangar の tmux サーバーと中の会話が止まる（Docker 上の systemd で確かめた）。`process` なら、再起動でも停止でも会話は残る（停止後に会話を片付けるのは手順に任せる）。
+
+systemd は素の PATH で起こすため、`tmux` や `claude` が見つからなくなる。インストールした人の `PATH` をユニットの `Environment=PATH=` に控える。
+
+待ち受けは 127.0.0.1 のまま変えない（「認証」）。外からは、クラウド参加か SSH の転送で届く。
+
+Claude Code の初回の問い（テーマ、フォルダの信頼）は、越えないと会話が待ちで止まる（実測）。hangar は Claude Code の内部の設定（`~/.claude.json`）を書かない。最初に 1 度、SSH で `claude` を対話で開いて済ませる。
+
 ## クラウド同期
 
 フェーズ 4 で実装した。
