@@ -38,7 +38,8 @@ jobs:
       # 試験は check と check-2 の 2 つのジョブに分けて並べる（vitest の --shard）。
       # 1 本では 5〜8 分かかり、windows と並んで CI 全体の長さを決めていた（2026-10-29 の実測）。
       # 型の確かめは、build のある check でなく check-2 に置いて、2 つの長さをそろえる。
-      - run: npm test -- --shard=1/2
+      # ワーカーは Windows と同じく 4 本にする。4 コアのランナーで vitest の既定は 3 本で、試験は子プロセスを待つ時間が長い（2026-11-21）。
+      - run: npm test -- --shard=1/2 --maxWorkers=4
       - run: npm run build
   # check の試験の残りの半分。build は check だけで、型の確かめはここだけで回す。
   check-2:
@@ -57,7 +58,7 @@ jobs:
           tmux -V
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test -- --shard=2/2
+      - run: npm test -- --shard=2/2 --maxWorkers=4
   # 殻と同梱の CLI は、Node-API 10 以上（Node 22.14 以上）の Node を採る。上限は付けない（0.6.1 から）。
   # 新しい Node（24）でもサーバが動くことを、サーバの試験で確かめる。
   # CI の時間を延ばさないよう、ここで回すのはサーバの試験だけにする（殻が Node 24 で同梱のサーバを起こす試験は desktop ジョブにある）。
@@ -78,7 +79,7 @@ jobs:
       - run: npm ci
       - run: node --version
       - name: サーバの試験（Node 24）
-        run: npm test -- --project server
+        run: npm test -- --project server --maxWorkers=4
   # voice-mac を走らせるかの判定。PR では、声の関係のファイルが変わったときだけ voice-mac を走らせる。
   # macOS のランナーは同時に 5 本までで、PR のたびに 1 本取ると待ちが出ていた（2026-11-18 の点検）。
   changes:
@@ -264,6 +265,15 @@ jobs:
           # 保存は main だけにする。PR は main のキャッシュを読める。PR ごとに 1GB 前後を保存すると、リポジトリの上限（10GB）を超えて
           # 古いものから消え、main のキャッシュまで当たらなくなっていた（2026-10-15、直近の実行がすべて No cache found）。
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # CI の release の build は、殻のクレート（hangar-desktop）だけ最適化を切る（opt-level 0）。殻は薄く、試すのは起動と更新の経路なので、最適化の有無は結果に効かない。
+      # 依存は最適化したままなので、rust-cache の中身はそのまま当たる。clippy と cargo test（dev と test の設定）には効かない。
+      # 手元の実測で、殻だけの build が 10 秒から 4 秒になった（2026-11-21）。Windows の版 A・版 B・インストーラはそれぞれ 1.5〜2 分かかっていた。
+      # 配布の build（release.yml）はここを通らず、Cargo.toml のまま opt-level 3 で作る。環境変数では package ごとの設定を渡せないので、ジョブの中だけ殻の置き場の cargo の設定（コミットしない）に書く。
+      # cargo は build を始めた場所から上へ設定を探し、tauri build は src-tauri で cargo を起こすので、ここに置けば効く。
+      # rust-cache は鍵を復元の段で決めるので、その後に書けば鍵は変わらない。
+      - name: 殻のクレートだけ最適化を切る
+        shell: bash
+        run: mkdir -p apps/desktop/src-tauri/.cargo && printf '[profile.release.package.hangar-desktop]\nopt-level = 0\n' >> apps/desktop/src-tauri/.cargo/config.toml
       # clippy が型の検査も兼ねるので、cargo check は回さない。
       - run: cargo clippy --all-targets -- -D warnings
         working-directory: apps/desktop/src-tauri
@@ -347,6 +357,15 @@ jobs:
           prefix-key: v1-rust
           shared-key: windows-release
           save-if: false
+      # CI の release の build は、殻のクレート（hangar-desktop）だけ最適化を切る（opt-level 0）。殻は薄く、試すのは起動と更新の経路なので、最適化の有無は結果に効かない。
+      # 依存は最適化したままなので、rust-cache の中身はそのまま当たる。clippy と cargo test（dev と test の設定）には効かない。
+      # 手元の実測で、殻だけの build が 10 秒から 4 秒になった（2026-11-21）。Windows の版 A・版 B・インストーラはそれぞれ 1.5〜2 分かかっていた。
+      # 配布の build（release.yml）はここを通らず、Cargo.toml のまま opt-level 3 で作る。環境変数では package ごとの設定を渡せないので、ジョブの中だけ殻の置き場の cargo の設定（コミットしない）に書く。
+      # cargo は build を始めた場所から上へ設定を探し、tauri build は src-tauri で cargo を起こすので、ここに置けば効く。
+      # rust-cache は鍵を復元の段で決めるので、その後に書けば鍵は変わらない。
+      - name: 殻のクレートだけ最適化を切る
+        shell: bash
+        run: mkdir -p apps/desktop/src-tauri/.cargo && printf '[profile.release.package.hangar-desktop]\nopt-level = 0\n' >> apps/desktop/src-tauri/.cargo/config.toml
       # tauri build の beforeBuildCommand は同梱のサーバだけを作るので、UI はここで作る（windows ジョブではインストーラの段が作る）。
       - run: npm run build
       # 本当の更新の経路を 1 回通す（apps/desktop/scripts/ci-update-windows.ps1）。
@@ -394,6 +413,15 @@ jobs:
           # 保存は main だけにする。PR は main のキャッシュを読める。PR ごとに 1GB 前後を保存すると、リポジトリの上限（10GB）を超えて
           # 古いものから消え、main のキャッシュまで当たらなくなっていた（2026-10-15、直近の実行がすべて No cache found）。
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # CI の release の build は、殻のクレート（hangar-desktop）だけ最適化を切る（opt-level 0）。殻は薄く、試すのは起動と更新の経路なので、最適化の有無は結果に効かない。
+      # 依存は最適化したままなので、rust-cache の中身はそのまま当たる。clippy と cargo test（dev と test の設定）には効かない。
+      # 手元の実測で、殻だけの build が 10 秒から 4 秒になった（2026-11-21）。Windows の版 A・版 B・インストーラはそれぞれ 1.5〜2 分かかっていた。
+      # 配布の build（release.yml）はここを通らず、Cargo.toml のまま opt-level 3 で作る。環境変数では package ごとの設定を渡せないので、ジョブの中だけ殻の置き場の cargo の設定（コミットしない）に書く。
+      # cargo は build を始めた場所から上へ設定を探し、tauri build は src-tauri で cargo を起こすので、ここに置けば効く。
+      # rust-cache は鍵を復元の段で決めるので、その後に書けば鍵は変わらない。
+      - name: 殻のクレートだけ最適化を切る
+        shell: bash
+        run: mkdir -p apps/desktop/src-tauri/.cargo && printf '[profile.release.package.hangar-desktop]\nopt-level = 0\n' >> apps/desktop/src-tauri/.cargo/config.toml
       - run: cargo fmt --check
         working-directory: apps/desktop/src-tauri
       - run: cargo clippy --all-targets -- -D warnings
@@ -492,6 +520,15 @@ jobs:
           # 環境の指紋に Rust の版と components が入るので、toolchain は desktop ジョブと同じものを入れる。
           shared-key: desktop
           save-if: false
+      # CI の release の build は、殻のクレート（hangar-desktop）だけ最適化を切る（opt-level 0）。殻は薄く、試すのは起動と更新の経路なので、最適化の有無は結果に効かない。
+      # 依存は最適化したままなので、rust-cache の中身はそのまま当たる。clippy と cargo test（dev と test の設定）には効かない。
+      # 手元の実測で、殻だけの build が 10 秒から 4 秒になった（2026-11-21）。Windows の版 A・版 B・インストーラはそれぞれ 1.5〜2 分かかっていた。
+      # 配布の build（release.yml）はここを通らず、Cargo.toml のまま opt-level 3 で作る。環境変数では package ごとの設定を渡せないので、ジョブの中だけ殻の置き場の cargo の設定（コミットしない）に書く。
+      # cargo は build を始めた場所から上へ設定を探し、tauri build は src-tauri で cargo を起こすので、ここに置けば効く。
+      # rust-cache は鍵を復元の段で決めるので、その後に書けば鍵は変わらない。
+      - name: 殻のクレートだけ最適化を切る
+        shell: bash
+        run: mkdir -p apps/desktop/src-tauri/.cargo && printf '[profile.release.package.hangar-desktop]\nopt-level = 0\n' >> apps/desktop/src-tauri/.cargo/config.toml
       - run: npm ci
       # tauri build の beforeBuildCommand は同梱のサーバだけを作るので、UI はここで作る。
       - run: npm run build
