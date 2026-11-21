@@ -66,9 +66,10 @@ const REFUSAL_KEY = {
 } as const;
 
 /** 断りの理由を、入力欄のそばに出す一言にする。知らない理由は「送れませんでした」。 */
-export function refusalText(t: Translate, reason: PeerChatReason | 'gone' | 'cancel-late', device: string): string {
+export function refusalText(t: Translate, reason: PeerChatReason | 'gone' | 'cancel-late' | 'answer-timeout', device: string): string {
   if (reason === 'gone') return t('peerChat.notice.gone');
   if (reason === 'cancel-late') return t('peerChat.notice.cancelLate');
+  if (reason === 'answer-timeout') return t('peerChat.notice.answerTimeout', { device });
   const key = (REFUSAL_KEY as Record<string, (typeof REFUSAL_KEY)[keyof typeof REFUSAL_KEY]>)[reason];
   return key ? t(key, { device }) : t('peerChat.refusal.other');
 }
@@ -86,8 +87,9 @@ export function permissionWord(t: Translate, label: string): string | null {
   return null;
 }
 
-function answerLine(t: Translate, it: PeerChatItem): string | null {
-  const a = it.ask?.answered;
+function answerLine(t: Translate, it: PeerChatItem, mine: { label: string; deviceName: string } | null): string | null {
+  // この PC から送って、相手の返事を待っている札は、選んだ答えで答えた形に見せる。
+  const a = it.ask?.answered ?? (mine ? { by: { deviceName: mine.deviceName }, label: mine.label } : null);
   if (!a) return null;
   // 元の PC の手元で答えた札は、選んだ行が分からない（label が空）。
   if (a.label === '') return t('peerChat.ask.answeredHere', { device: a.by.deviceName });
@@ -132,9 +134,10 @@ function foldTools(rows: PeerChatRow[], t: Translate): PeerChatRow[] {
   return out;
 }
 
-function rowOf(t: Translate,it: PeerChatItem, slice: PeerChatSlice, index: number, device: string): PeerChatRow {
+function rowOf(t: Translate,it: PeerChatItem, slice: PeerChatSlice, index: number, device: string, myName: string): PeerChatRow {
   if (it.ask) {
-    const answered = answerLine(t, it) ?? (staleAsk(slice, index) ? t('peerChat.ask.closed') : null);
+    const pick = slice.answering.includes(it.ask.askId) ? slice.picked[it.ask.askId] : undefined;
+    const answered = answerLine(t, it, pick !== undefined ? { label: pick, deviceName: myName } : null) ?? (staleAsk(slice, index) ? t('peerChat.ask.closed') : null);
     return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, answered, hostOnly: answered === null && it.ask.answerable === false ? t('peerChat.ask.hostOnly', { device }) : null, pending: slice.answering.includes(it.ask.askId), locked: slice.locked };
   }
   switch (it.kind) {
@@ -161,8 +164,11 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
   if (!isPeerChatCandidate(s) || slice.phase === 'fallback') return null;
   const device = peerChatDeviceName(store, s!, slice);
   const myId = store.device?.id ?? null;
-  const status = slice.status;
-  const rows: PeerChatRow[] = foldTools(slice.items.map((it, i) => rowOf(t, it, slice, i, device)), t);
+  // この PC から札に答えて、相手の返事を待っている間は、答えたあとの状態（許可は実行中、拒否は入力待ち）に見せる。
+  const hold = store.peerAnswered[sessionId];
+  const status = hold && slice.status === 'waiting' ? hold.live : slice.status;
+  const myName = store.device?.name ?? '';
+  const rows: PeerChatRow[] = foldTools(slice.items.map((it, i) => rowOf(t, it, slice, i, device, myName)), t);
   for (const q of slice.queued) {
     const mine = myId !== null && q.from.deviceId === myId;
     const delivering = q.state === 'delivering';

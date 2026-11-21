@@ -34,6 +34,7 @@ import { createUpdateRunner } from './updater.ts';
 import type { ReleaseNote } from '../lib/releaseNotes.ts';
 import { createCloudMemberRunner } from './cloudMember.ts';
 import { createPeerChatRunner } from './peerChat.ts';
+import { confirmPeerAnswers, holdPeerAnswer, peerAnswerHeld, peerAnswerUnconfirmed, releasePeerAnswer } from '../store/peerAnswer.ts';
 import { createOrchestratorRunner } from './orchestrator.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
@@ -301,7 +302,16 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     op: (sessionId, body) => deps.api.peerChatOp(sessionId, body),
     send: (msg) => ws?.send?.(msg),
     get: () => store.peerChat,
-    set: (next) => setStore({ ...store, peerChat: next }),
+    // 操作の答えに付いてきた会話の状態で、答えが届いたと分かることがある（store/peerAnswer.ts の confirmPeerAnswer）。
+    set: (next) => setStore(confirmPeerAnswers({ ...store, peerChat: next })),
+    // 札に答えたら、相手の返事を待たずに待ちを外す。断られたか時間切れなら戻して、画面の下に知らせる（store/peerAnswer.ts）。
+    hold: (sessionId, askId, live) => setStore(holdPeerAnswer(store, sessionId, askId, live, clock())),
+    release: (sessionId, askId) => {
+      const unconfirmed = peerAnswerUnconfirmed(store, sessionId, askId);
+      if (peerAnswerHeld(store, sessionId, askId)) setStore(releasePeerAnswer(store, sessionId, askId));
+      return unconfirmed;
+    },
+    failed: (sessionId, _reason, kind) => dispatch({ kind: 'runtime', event: { type: 'peerAnswer.failed', sessionId, kind } }),
   });
   /** 統括の柱の読み込みと送信（runtime/orchestrator.ts）。本文が伸びたら、下の applyServerEvent のあとで読み直す。 */
   const orchestrator = createOrchestratorRunner({

@@ -1,4 +1,4 @@
-import type { PeerChatClientMsg, PeerChatOpIn, PeerChatOpResult, PeerChatReason, PeerChatViewDto } from '@agent-hangar/shared';
+import type { PeerChatClientMsg, PeerChatItem, PeerChatOpIn, PeerChatOpResult, PeerChatReason, PeerChatViewDto } from '@agent-hangar/shared';
 import { applyState, applyUpdate, clearNotice, emptySlice, rememberMine, restoreText, showNotice, type PeerChatSlice } from '../store/peerChat.ts';
 
 /** 画面からの操作。Mediator が peerChat の効果にして渡す（mediator/peerChat.ts）。 */
@@ -18,7 +18,44 @@ export type PeerChatRunnerDeps = {
   set: (next: Record<string, PeerChatSlice>) => void;
   /** ms 後に fn を呼ぶ。戻りは取り消し（省けば setTimeout）。worker-outdated の開き直しに使う。 */
   after?: (ms: number, fn: () => void) => () => void;
+  /**
+   * 札に答えを送った。相手の返事を待たずに、手元で待ちを外す（store/peerAnswer.ts）。live は許可なら busy、拒否なら waiting。
+   * 省けば何もしない（試験）。
+   */
+  hold?: (sessionId: string, askId: string, live: 'busy' | 'waiting') => void;
+  /** 手元の見え方を解いて、相手の最新の状態に戻す。答えが届いた確かめが無いまま持っていたら true（届いた、または相手の更新で捨てられていたら false）。 */
+  release?: (sessionId: string, askId: string) => boolean;
+  /** 答えが届かなかった（断られた、時間切れ）。画面の下の知らせを出す。kind は札の種類。 */
+  failed?: (sessionId: string, reason: PeerChatReason | 'answer-timeout', kind: 'permission' | 'question') => void;
 };
+
+/** 選んだ答えの文。書いた文があればそれ、無ければ選んだ行の文（複数はつなぐ）。 */
+function pickedLabel(s: PeerChatSlice, body: Extract<PeerChatOpIn, { t: 'answer' }>): string {
+  const text = (body.text ?? '').trim();
+  if (text !== '') return text;
+  const ask = s.items.find((i) => i.ask?.askId === body.askId)?.ask;
+  return (ask?.options ?? []).filter((o) => body.keys.includes(o.key)).map((o) => o.label).join('、');
+}
+
+/** 答えが届かなかった札を、また押せる形に戻す。 */
+const unpick = (s: PeerChatSlice, askId: string): PeerChatSlice => {
+  const { [askId]: _, ...picked } = s.picked;
+  return { ...s, answering: s.answering.filter((a) => a !== askId), picked };
+};
+
+/** 答えを送ったあと、相手の状態が動くのを待つ長さ。過ぎても動かなければ、答えが届かなかったとみなす。 */
+export const PEER_ANSWER_TIMEOUT_MS = 30_000;
+
+/**
+ * 答えたあとの会話の見え方。許可の札で No を選び、文を添えなかったときだけ入力待ち（Claude Code は止まって入力を待つ）。
+ * 許可、質問への答え、文を添えた No は、Claude が続けるので実行中にする。
+ */
+function liveAfterAnswer(item: PeerChatItem | undefined, body: Extract<PeerChatOpIn, { t: 'answer' }>): 'busy' | 'waiting' {
+  const ask = item?.ask;
+  if (!ask || ask.kind !== 'permission' || (body.text ?? '').trim() !== '') return 'busy';
+  const labels = ask.options.filter((o) => body.keys.includes(o.key)).map((o) => o.label.trim());
+  return labels.length > 0 && labels.every((l) => /^no\b/i.test(l)) ? 'waiting' : 'busy';
+}
 
 /**
  * 最初の同期の前は、Worker の版がまだ分からず、見張りの入口が worker-outdated で断る。
@@ -132,6 +169,35 @@ export function createPeerChatRunner(deps: PeerChatRunnerDeps): PeerChatRunner {
     deps.set(rest);
   }
 
+  /** 答えの見え方の時間切れ（会話と札ごと）。同じ札へ送り直したら前の分は取り消す。 */
+  const answerTimers = new Map<string, () => void>();
+
+  /** 答えを送る前に、手元で待ちを外し、時間切れを数え始める。札の種類を返す。 */
+  function holdAnswer(sessionId: string, body: Extract<PeerChatOpIn, { t: 'answer' }>): 'permission' | 'question' {
+    const item = slice(sessionId)?.items.find((i) => i.ask?.askId === body.askId);
+    const kind = item?.ask?.kind ?? 'permission';
+    deps.hold?.(sessionId, body.askId, liveAfterAnswer(item, body));
+    const key = `${sessionId}\n${body.askId}`;
+    answerTimers.get(key)?.();
+    answerTimers.set(key, after(PEER_ANSWER_TIMEOUT_MS, () => {
+      answerTimers.delete(key);
+      // 相手の状態が動いて見え方が捨てられていれば、答えは届いている。
+      if (!deps.release?.(sessionId, body.askId)) return;
+      write(sessionId, (s) => showNotice(unpick(s, body.askId), 'answer-timeout'));
+      deps.failed?.(sessionId, 'answer-timeout', kind);
+    }));
+    return kind;
+  }
+
+  /** 答えが断られた。見え方を解いて、画面の下に知らせる（札の近くの理由と、また押せる状態は下の書き込みが戻す）。 */
+  function answerFailed(sessionId: string, askId: string, reason: PeerChatReason, kind: 'permission' | 'question'): void {
+    const key = `${sessionId}\n${askId}`;
+    answerTimers.get(key)?.();
+    answerTimers.delete(key);
+    deps.release?.(sessionId, askId);
+    if (reason !== 'refused-by-setting') deps.failed?.(sessionId, reason, kind);
+  }
+
   async function send(sessionId: string, body: PeerChatOpIn): Promise<void> {
     const sends = body.t === 'send' || body.t === 'resume-send';
     const text = sends ? body.text : '';
@@ -140,12 +206,14 @@ export function createPeerChatRunner(deps: PeerChatRunnerDeps): PeerChatRunner {
     write(sessionId, (s) => {
       const base = clearNotice(s);
       if (sends) return { ...base, sending: true };
-      if (body.t === 'answer') return { ...base, answering: base.answering.includes(body.askId) ? base.answering : [...base.answering, body.askId] };
+      if (body.t === 'answer') return { ...base, answering: base.answering.includes(body.askId) ? base.answering : [...base.answering, body.askId], picked: { ...base.picked, [body.askId]: pickedLabel(base, body) } };
       if (body.t === 'rush') return { ...base, rushing: base.rushing.includes(body.queueId) ? base.rushing : [...base.rushing, body.queueId] };
       return base;
     });
+    const askKind = body.t === 'answer' ? holdAnswer(sessionId, body) : 'permission';
     let r: PeerChatOpResult;
     try { r = await deps.op(sessionId, body); } catch { r = { ok: false, reason: failure() }; }
+    if (body.t === 'answer' && !r.ok) answerFailed(sessionId, body.askId, r.reason, askKind);
     if (!slice(sessionId)) return;
     if (!r.ok) {
       write(sessionId, (s) => {
@@ -153,7 +221,7 @@ export function createPeerChatRunner(deps: PeerChatRunnerDeps): PeerChatRunner {
         const locked = r.reason === 'refused-by-setting' || s.locked;
         let done: PeerChatSlice = { ...s, sending: false, locked };
         // 断られた答えの札は、また押せるようにする。
-        if (body.t === 'answer') done = { ...done, answering: done.answering.filter((a) => a !== body.askId) };
+        if (body.t === 'answer') done = unpick(done, body.askId);
         if (body.t === 'rush') done = { ...done, rushing: done.rushing.filter((q) => q !== body.queueId) };
         // 取り消しが間に合わなかった（もう渡した、または預かりに無い）ときは、渡せなかったとは言わない。
         if (!(r.reason === 'refused-by-setting')) done = showNotice(done, body.t === 'cancel' && r.reason === 'queue-expired' ? 'cancel-late' : r.reason);
