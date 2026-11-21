@@ -25,12 +25,14 @@ export type PeerChatSlice = {
   sending: boolean;
   /** 答えを送って、結果を待っている札の askId。断られたら外す（札がまた押せるように）。 */
   answering: string[];
+  /** 答えを送った札の、選んだ答えの文（askId から）。相手の返事を待たずに、札を答えた形で見せるために持つ。 */
+  picked: Record<string, string>;
   /** 「中断して渡す」を送った預かりの queueId。断られたら外す。渡し終えた預かりは一覧から消えるので、残っても表示には出ない。 */
   rushing: string[];
   /** 元の PC が他の PC からの操作を受け付けない設定だと分かった。入力欄と札を閉じる（会話は読める）。 */
   locked: boolean;
   restore: { n: number; text: string; images: string[] } | null;
-  notice: { n: number; reason: PeerChatReason | 'gone' | 'cancel-late' } | null;
+  notice: { n: number; reason: PeerChatReason | 'gone' | 'cancel-late' | 'answer-timeout' } | null;
   /** 自分が預けた文（queueId から文へ）。渡せずに消えた知らせ（gone）で入力欄へ戻すために持つ。 */
   mine: Record<string, string>;
 };
@@ -39,7 +41,7 @@ export type PeerChatSlice = {
 const MINE_MAX = 20;
 
 export function emptySlice(viewer: string): PeerChatSlice {
-  return { viewers: [viewer], phase: 'loading', fallback: null, device: null, link: 'online', status: null, items: [], queued: [], cursor: null, sending: false, answering: [], rushing: [], locked: false, restore: null, notice: null, mine: {} };
+  return { viewers: [viewer], phase: 'loading', fallback: null, device: null, link: 'online', status: null, items: [], queued: [], cursor: null, sending: false, answering: [], picked: {}, rushing: [], locked: false, restore: null, notice: null, mine: {} };
 }
 
 /**
@@ -102,7 +104,7 @@ export function restoreText(s: PeerChatSlice, text: string, images: string[] = [
 }
 
 /** 入力欄のそばの一言を出す。 */
-export function showNotice(s: PeerChatSlice, reason: PeerChatReason | 'gone' | 'cancel-late'): PeerChatSlice {
+export function showNotice(s: PeerChatSlice, reason: PeerChatReason | 'gone' | 'cancel-late' | 'answer-timeout'): PeerChatSlice {
   return { ...s, notice: { n: nextN(s.notice), reason } };
 }
 

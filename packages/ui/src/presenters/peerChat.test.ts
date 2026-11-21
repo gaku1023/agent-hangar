@@ -280,6 +280,25 @@ describe('チャットを出さない会話は、今までの読み取り専用�
     expect(ans('Yes', 'question').answered).toBe('Mac で「Yes」');
   });
 
+  it('この PC から答えた札は、相手の返事を待たずに答えた形（この PC の名前と選んだ答え）で見せ、状態も答えたあとにする', () => {
+    const st = store({ status: 'waiting', items: [ask()], answering: ['ask-1'], picked: { 'ask-1': 'Yes' } });
+    st.peerAnswered = { s1: { askId: 'ask-1', sig: '', raw: st.sessions.s1!.lock!, live: 'busy', at: 1 } };
+    const v = view(st)!;
+    expect(v.rows[0]).toMatchObject({ pending: true, answered: 'Win で許可' });
+    expect(v).toMatchObject({ status: 'busy', statusLabel: '作業中' });
+    // 拒否は入力待ちのまま見せる。
+    st.peerAnswered = { s1: { ...st.peerAnswered.s1!, live: 'waiting' } };
+    st.peerChat.s1 = { ...st.peerChat.s1!, picked: { 'ask-1': 'No' } };
+    expect(view(st)!.rows[0]).toMatchObject({ answered: 'Win で拒否' });
+    expect(view(st)!.status).toBe('waiting');
+  });
+
+  it('答えが届かずに外したら、札はまた押せる形に戻る', () => {
+    const v = view(store({ status: 'waiting', items: [ask()], answering: [], picked: {}, notice: { n: 1, reason: 'answer-timeout' } }))!;
+    expect(v.rows[0]).toMatchObject({ pending: false, answered: null });
+    expect(v.notice?.text).toBe('Mac に答えが届きませんでした');
+  });
+
   it('答えを待っている札は pending、受け付けない設定の PC では札も入力欄も閉じる（理由を先に出す）', () => {
     const v = view(store({ status: 'waiting', items: [ask()], answering: ['ask-1'] }))!;
     expect(v.rows[0]).toMatchObject({ pending: true, locked: false });
