@@ -1,5 +1,8 @@
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { claudeJsonPath, defaultClaudeDir, defaultCodexHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, zshrcPath } from '@agent-hangar/server/src/cliEntry.ts';
 import { runConfigApply, runConfigRestore } from './config.ts';
@@ -12,7 +15,8 @@ import { candidatesCommand, projectAddCommand, projectRemoveCommand, workspaceSe
 import { formatSetupReport, runSetup, whichMuxCmd } from './setup.ts';
 import { runShellInstall, runShellUninstall, shellStatusLine } from './shell.ts';
 import { headlessServer, runCommand } from './run.ts';
-import { installService, realRunner, uninstallService, type ServiceOptions } from './service.ts';
+import { installService, realRunner, restartInstalledService, uninstallService, type ServiceOptions } from './service.ts';
+import { latestTagFrom, runUpdate, stableServicePaths, tarLayout } from './update.ts';
 import { runStart, serverArgs } from './start.ts';
 import { promptYesNo, runStatuslineInstall } from './statusline.ts';
 import { runSetupCommand, setupEnvFor, type SetupCommandFlags, type SetupTarget } from './setupPlan.ts';
@@ -437,11 +441,19 @@ shell
 
 const service = program.command('service').description('サーバーを systemd のユニットとして常駐させる（Linux だけ）');
 
+/** cli.mjs（リポジトリでは index.ts）の置き場。 */
+const CLI_DIR = path.dirname(fileURLToPath(import.meta.url));
+
 function serviceOptions(o: { system?: boolean; ephemeral?: boolean; uiDist?: string }): ServiceOptions {
   const args = serverArgs();
   const entry = args[args.length - 1]!;
   // 配布版は server.mjs の置き場、リポジトリは tsx が解決できるリポジトリの根（packages/server/src の 3 つ上）で起こす。
-  const workingDir = args[0] === '--import' ? path.resolve(path.dirname(entry), '../../..') : path.dirname(entry);
+  let workingDir = args[0] === '--import' ? path.resolve(path.dirname(entry), '../../..') : path.dirname(entry);
+  let nodePath = process.execPath;
+  let serverArgsForUnit = args;
+  // tar で入れた hangar は、版ごとの実体ではなく current の下を指す。更新で current が移れば、ユニットは書き換えずに新しいバージョンになる。
+  const layout = tarLayout(CLI_DIR);
+  if (layout) ({ nodePath, serverArgs: serverArgsForUnit, workingDir } = stableServicePaths(layout));
   return {
     scope: o.system ? 'system' : 'user',
     ephemeral: o.ephemeral ?? false,
@@ -449,8 +461,8 @@ function serviceOptions(o: { system?: boolean; ephemeral?: boolean; uiDist?: str
     uid: process.getuid?.() ?? -1,
     userName: os.userInfo().username,
     home: os.homedir(),
-    nodePath: process.execPath,
-    serverArgs: args,
+    nodePath,
+    serverArgs: serverArgsForUnit,
     workingDir,
     envPath: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
     uiDist: o.uiDist ?? process.env.HANGAR_UI_DIST,
@@ -475,6 +487,44 @@ service
   .option('--system', 'システムユニットを解除する（sudo を使う）')
   .action((o: { system?: boolean }) => {
     if (!uninstallService(serviceOptions(o)).ok) process.exitCode = 1;
+  });
+
+const UPDATE_REPO = 'gaku1023/agent-hangar';
+
+program
+  .command('update')
+  .description('install.sh で入れた hangar を、新しいバージョンに更新する（Linux だけ。更新後に常駐のサーバーを再起動する）')
+  .option('--check', '新しいバージョンがあるかを見るだけで、更新しない')
+  .option('--version <tag>', '版を指定して入れる（古い版に戻すこともできる。例 v0.24.0）')
+  .action(async (o: { check?: boolean; version?: string }) => {
+    const r = await runUpdate({
+      here: CLI_DIR,
+      platform: process.platform,
+      version: o.version,
+      check: o.check,
+      fetchLatest: async () => {
+        const res = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`, { headers: { accept: 'application/vnd.github+json' } });
+        if (!res.ok) throw new Error(`最新の版を調べられませんでした（HTTP ${res.status}）。`);
+        return latestTagFrom(await res.json());
+      },
+      install: async (tag, layout) => {
+        // その版の Release に添えた install.sh を取って走らせる（入れ方は 1 つにそろえる）。常駐は触らず、再起動はこのコマンドが行う。
+        const res = await fetch(`https://github.com/${UPDATE_REPO}/releases/download/${tag}/install.sh`, { redirect: 'follow' });
+        if (!res.ok) { console.error(`install.sh を取得できませんでした（HTTP ${res.status}）: ${tag}`); return false; }
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-update-'));
+        try {
+          const file = path.join(dir, 'install.sh');
+          fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()), { mode: 0o700 });
+          const r = spawnSync('sh', [file], { stdio: 'inherit', env: { ...process.env, HANGAR_VERSION: tag, HANGAR_PREFIX: layout.prefix, HANGAR_NO_SERVICE: '1' } });
+          return r.status === 0;
+        } finally {
+          fs.rmSync(dir, { recursive: true, force: true });
+        }
+      },
+      restart: async () => restartInstalledService({ home: os.homedir(), run: realRunner }),
+      log: (line) => console.log(line),
+    });
+    if (!r.ok) process.exitCode = 1;
   });
 
 const config = program.command('config').description('Claude Code の設定の同期（他の PC から受信した設定を適用する、バックアップの世代に戻す）');

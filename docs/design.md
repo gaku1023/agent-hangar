@@ -7591,6 +7591,8 @@ systemd は素の PATH で起こすため、`tmux` や `claude` が見つから�
 Linux の配布物は GitHub Release の資産で、x64 と arm64（glibc）の 2 つある（`Hangar-<タグ>-linux-<arch>.tar.gz` と `.sha256`）。musl（Alpine）は対象外である。署名と自動更新（Tauri の updater）は無く、更新は `hangar update` が取る（別の変更）。
 tar は展開すると `hangar/` の下に、同梱の Node（`node/bin/node`）、束（`app/`、`bundle-server` の出力で、`cli.mjs`、`server.mjs`、`ui/`、その arch のネイティブ）、`bin/hangar`（同梱の Node で `app/cli.mjs` を起こす台本）、`VERSION` が並ぶ（`apps/desktop/scripts/package-linux.ts`）。Mac 用の `hangar.sh` は Node を探して回る台本なので使わない。Node は、作るランナーの setup-node の公式の Node の実行ファイルを入れる。
 `install.sh`（リポジトリの根、Release にも添える）が、tar と checksum を取って確かめ、`~/.local/share/agent-hangar/versions/<版>` に展開し、`current` を切り替え、`~/.local/bin/hangar` を張る。root では断る。checksum が合わなければ何も置かない。続けて `hangar service install` を呼ぶ（`HANGAR_NO_SERVICE=1` で飛ばせる）。
+`hangar update`（`packages/cli/src/update.ts`）は、tar で入れた hangar だけで使える（cli.mjs が `versions/<版>/app` の下にあり、`VERSION` がある形で見分ける）。GitHub の最新の Release（正式な版）を引き、今の版より新しければ、その版の Release に添えた `install.sh` を取って走らせ（入れ方を 1 つにそろえる。常駐は触らない）、入っているユニットを再起動する。`--check` は告げるだけ、`--version <タグ>` は最新を引かずにその版を入れる（古い版にも戻せる）。最新が今より古いときは、黙って戻さない。
+ユニットは版ごとの実体ではなく `current` の下の node と `server.mjs` を指す（`stableServicePaths`）ので、更新で `current` が移れば、ユニットを書き換えずに再起動だけで新しい版になる。`KillMode=process` なので、tmux の会話は再起動で保持される。
 作る手順は `ci.yml` の `linux-package`（毎回）と `release.yml` の `linux`（タグのとき）で同じで、入れて、サーバーを起こし、画面が配られ、ネイティブが読めるところまで `apps/desktop/scripts/smoke-linux.sh` で確かめる。`linux-upload` が下書きの Release に添え、`publish` は Linux の資産と `install.sh` がそろわなければ公開しない（`release-plan.ts` の `expectedAssets`）。
 
 Claude Code の初回の問い（テーマ、フォルダの信頼）は、越えないと会話が待ちで止まる（実測）。hangar は Claude Code の内部の設定（`~/.claude.json`）を書かない。最初に 1 度、SSH で `claude` を対話で開いて済ませる。

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildUnit, installService, uninstallService, type CommandResult, type Runner, type ServiceOptions } from './service.ts';
+import { buildUnit, installService, restartInstalledService, uninstallService, type CommandResult, type Runner, type ServiceOptions } from './service.ts';
 
 let tmp: string;
 beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-service-')); });
@@ -168,5 +168,31 @@ describe('uninstallService', () => {
   it('入っていなければ ok のまま、何もしない', () => {
     const { run } = recorder();
     expect(uninstallService(opts({ run })).ok).toBe(true);
+  });
+});
+
+describe('restartInstalledService', () => {
+  it('ユーザユニットが入っていれば、それを再起動する', () => {
+    const { run, calls } = recorder();
+    installService(opts({ run }));
+    calls.length = 0;
+    expect(restartInstalledService({ home: tmp, run })).toBe('restarted');
+    expect(calls).toEqual(['systemctl --user restart hangar.service']);
+  });
+
+  it('システムユニットだけなら sudo で再起動する', () => {
+    const sys = path.join(tmp, 'hangar.service');
+    fs.writeFileSync(sys, '');
+    const { run, calls } = recorder();
+    expect(restartInstalledService({ home: tmp, run, systemUnitPath: sys })).toBe('restarted');
+    expect(calls).toEqual(['sudo systemctl restart hangar.service']);
+  });
+
+  it('どちらも無ければ none、再起動に失敗したら failed', () => {
+    const { run } = recorder();
+    expect(restartInstalledService({ home: tmp, run, systemUnitPath: path.join(tmp, 'none') })).toBe('none');
+    installService(opts({ run }));
+    const { run: failing } = recorder(() => true);
+    expect(restartInstalledService({ home: tmp, run: failing })).toBe('failed');
   });
 });
