@@ -1,4 +1,4 @@
-import type { LiveStatus, SessionDto, SessionLockDto } from './api.ts';
+import type { LiveAsideDto, LiveStatus, SessionDto, SessionLockDto } from './api.ts';
 import type { StopFilter } from './action.ts';
 import { liveFilterOf, quietLive, type LiveFilter } from './liveFilter.ts';
 import type { SessionStatus } from './sessionState.ts';
@@ -38,6 +38,14 @@ export function shownReason(s: SessionDto, shown: LiveStatus | null): StopReason
 export function remoteLiveOf(lock: SessionLockDto): LiveStatus {
   if (lock.stale || !lock.live) return 'idle';
   return lock.live === 'idle' && lock.reason === 'reset' ? 'waiting' : lock.live;
+}
+
+/**
+ * ほかの PC の run の裏だけの印（SessionLockDto の aside）。この PC の画面で busy に見えるときだけ返す。
+ * 黙った PC（stale）と未知は、状態が分からないので印を付けない。
+ */
+export function remoteAsideOf(lock: SessionLockDto): LiveAsideDto | null {
+  return remoteLiveOf(lock) === 'busy' ? lock.aside ?? null : null;
 }
 
 /** 数えるときの live。この PC の live が無く、ほかの PC のロックがあるときは、そのロックの状態に読む。 */

@@ -21,6 +21,7 @@ export const launchKeys = {
   'launch.injection.origin.schedule': [],
   'launch.injection.origin.session': [],
   'launch.injection.opencode.minimal': [],
+  'launch.injection.opencode.tools': [],
   'launch.injection.opencode.status': [],
   'launch.injection.opencode.live': [],
   'launch.injection.opencode.notify': [],

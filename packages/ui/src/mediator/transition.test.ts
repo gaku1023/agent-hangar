@@ -1417,6 +1417,8 @@ describe('停止の確認', () => {
     const b = run([action({ type: 'session.peerStop', id: 's1', working: true, confirmed: true })], a.state);
     expect(b.state.overlay).toEqual({ kind: 'none' });
     expect(b.effects).toEqual([{ kind: 'api.peerStop', sessionId: 's1' }]);
+    const c = run([action({ type: 'session.peerStop', id: 's1', working: true, aside: true })]);
+    expect(c.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'peerStop', sessionId: 's1', working: true, aside: true } });
   });
   it('休みでシェルタブが無ければ、確認せずにすぐ止める', () => {
     const r = run([action({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 })]);

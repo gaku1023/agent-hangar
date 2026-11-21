@@ -1,7 +1,7 @@
 import type { SessionLockDto } from '@agent-hangar/shared';
 import type { EventBindingDto, HeldEventDto, PrClaimDto, ScheduleDto } from '@agent-hangar/shared';
 import type { DeleteApprovalDto, PeerChatDevice, PeerChatQueued, PeerDeviceDto } from '@agent-hangar/shared';
-import { liveFilterOf, liveWithLimit, quietLive, remoteLiveOf, sessionLiveFilter, shownLive, shownReason, type LiveFilter, type PermissionAskDto, type StopReason } from '@agent-hangar/shared';
+import { liveFilterOf, liveWithLimit, quietLive, remoteAsideOf, remoteLiveOf, sessionLiveFilter, shownLive, shownReason, type LiveFilter, type PermissionAskDto, type StopReason } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
 import { sameValue } from '../lib/same.ts';
 import { initialCloudMember, reduceCloudMember, type CloudMemberState } from './cloudMember.ts';
@@ -598,7 +598,7 @@ export function remoteLockOf(s: SessionDto, local: Set<string>): SessionLockDto 
 }
 
 // ほかの PC の run の動きの読み方（remoteLiveOf）は shared の sessionList.ts にある。
-export { remoteLiveOf };
+export { remoteAsideOf, remoteLiveOf };
 
 /** 画面で数えるときの live。この PC の live が無く、ほかの PC のロックがあるときは、そのロックの状態に読む。 */
 function countedLive(s: SessionDto): LiveStatus | null {
@@ -631,7 +631,8 @@ export { shownLive, shownReason };
 
 /** 本体は入力を受け付けていて、裏の作業だけが動いているか（lib/aside.ts の asideOf）。一覧の見せ方は shownLive にそろえる。 */
 export function shownAside(session: SessionDto): LiveAsideDto | null {
-  return asideOf(shownLive(session), session.liveAside);
+  // ほかの PC で動く会話（この PC の live が無い）は、その PC が共有の行に載せた印で読む。
+  return asideOf(shownLive(session), session.live === null && session.lock ? remoteAsideOf(session.lock) : session.liveAside);
 }
 
 /** 終わっていない最新の run。 */

@@ -9,14 +9,14 @@ let tmp: string;
 beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-peer-approvals-drop-')); });
 afterEach(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
 
-describe('版 70：別の PC への起動の承認待ちの表を外す', () => {
-  it('版 69 の DB に残っていた peer_approvals を、行ごと外す', () => {
+describe('版 71：別の PC への起動の承認待ちの表を外す', () => {
+  it('版 70 の DB に残っていた peer_approvals を、行ごと外す', () => {
     const file = path.join(tmp, 'hangar.db');
-    seedDbAt(file, 69, (db) => {
+    seedDbAt(file, 70, (db) => {
       db.prepare("insert into peer_approvals (id, caller_session_id, to_device, to_name, request, created_at) values ('r1', 's1', 'd2', 'laptop', '{}', 1)").run();
     });
     const db = openDb(file, { backupDir: path.join(tmp, 'backups') });
-    expect(dbVersionOf(file)).toBeGreaterThanOrEqual(70);
+    expect(dbVersionOf(file)).toBeGreaterThanOrEqual(71);
     expect(db.prepare("select count(*) c from sqlite_master where name = 'peer_approvals'").get()).toEqual({ c: 0 });
     db.close();
   });

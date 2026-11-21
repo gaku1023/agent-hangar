@@ -3,7 +3,7 @@ import { agentIconsOn, agentOfSession } from './agentIcon.ts';
 import { presentSessionMenu, type SessionMenuProps } from './sessionMenu.ts';
 import { type AgentIconKind, type AgentUsageDto, type IndexProgressDto, type LiveStatus, type Route, type SessionDto, type SessionLockDto, type StopReason, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, liveWithLimit, quietLive, resetAtText, stopReasonOf, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
-import { accountList, accountOfSession, currentAccount, hotSessions, isOrchestratorSession, liveSessionIds, remoteLockOf, runningSessionIds, sidebarOtherPcsOn, remoteLiveOf, remoteReasonOf, shownReason, unreadOf, unreadSessionIds, waitingAnywhereIds, type Store } from '../store/store.ts';
+import { accountList, accountOfSession, currentAccount, hotSessions, isOrchestratorSession, liveSessionIds, remoteLockOf, runningSessionIds, sidebarOtherPcsOn, remoteAsideOf, remoteLiveOf, remoteReasonOf, shownReason, unreadOf, unreadSessionIds, waitingAnywhereIds, type Store } from '../store/store.ts';
 import { codexAccountIdOfSession, presentAccounts, presentAgentUsage, presentCodexAccounts, type AccountGauge, type AccountView, type AgentUsageView } from './accounts.ts';
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
 import { translatorOf, storeLanguage } from './i18n.ts';
@@ -265,11 +265,12 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
     const s = store.sessions[id]!;
     // ほかの PC で動いている会話。点と待ちの時間は、その PC が共有の行に載せた状態（lock.live）で決める。
     // 未知（null）と黙った PC（stale）は、状態が分からない灰の点（idle）にして、待ちの時間も出さない。
+    // 裏だけが動いている（その PC が載せた印）ときは、この PC の行と同じ薄い点にする。
     const lock = remoteLockOf(s, local);
     if (lock) {
       const shown = quietLive(remoteLiveOf(lock), s.state?.status, s.woke);
       const reason = remoteReasonOf(lock, shown);
-      return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: false, reason, ...waitedOf(remoteWaited(t, lock, shown, reason, now)), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, lockTitle: t(lock.stale ? 'session.lock.stale' : 'session.lock.running', { device: lock.deviceName }), ...(lock.stale ? { stale: true as const } : {}), ...(icons ? { agent: agentOfSession(store, s) } : {}), ...peerInOf(store, id, t), peer: { name: lock.deviceName, ended: lock.stale } };
+      return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: asideOf(shown, remoteAsideOf(lock)) !== null, reason, ...waitedOf(remoteWaited(t, lock, shown, reason, now)), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, lockTitle: t(lock.stale ? 'session.lock.stale' : 'session.lock.running', { device: lock.deviceName }), ...(lock.stale ? { stale: true as const } : {}), ...(icons ? { agent: agentOfSession(store, s) } : {}), ...peerInOf(store, id, t), peer: { name: lock.deviceName, ended: lock.stale } };
     }
     const aside = asideOf(s.live, s.liveAside);
     // 点と「待ち N 分」は、入力待ちの数え方と同じ規則（shownLive）で決める。Done と Archived にした入力待ちは、行は残すが休みとして出す。

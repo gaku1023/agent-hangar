@@ -725,7 +725,7 @@ export class RunManager {
     const row = this.db.prepare('select * from runs where id = ? and deleted_at is null').get(runId) as Record<string, unknown> | undefined;
     if (!row || row.ended_at !== null) return null;
     // 終わった run に live_status を残さない。他の PC の読み手が、終わった run を作業中と読まないようにする。
-    upsertShared(this.db, 'runs', { ...row, ended_at: this.now(), end_reason: reason, live_status: null, live_reason: null, live_at: null }, this.deps.deviceId);
+    upsertShared(this.db, 'runs', { ...row, ended_at: this.now(), end_reason: reason, live_status: null, live_reason: null, live_aside: null, live_at: null }, this.deps.deviceId);
     this.liveShare.forget(runId);
     this.parking.delete(runId);
     this.misses.delete(runId);
@@ -1665,7 +1665,7 @@ export class RunManager {
     this.shareLive(live, byUuid, now);
   }
 
-  /** 生きた run の状態と止まっている理由を、共有の行へ載せる（変わったときだけ、liveShare.ts）。 */
+  /** 生きた run の状態と止まっている理由と裏だけの印を、共有の行へ載せる（変わったときだけ、liveShare.ts）。 */
   private shareLive(live: LiveSessionDto[], byUuid: Map<string, LiveSessionDto>, now: number): void {
     const alive = listAliveRuns(this.db, this.deviceId);
     if (alive.length === 0) return;
@@ -1673,7 +1673,7 @@ export class RunManager {
     for (const run of alive) {
       const s = this.db.prepare('select provider_session_id from sessions where id = ?').get(run.sessionId) as { provider_session_id: string } | undefined;
       const l = s ? byUuid.get(s.provider_session_id) : undefined;
-      if (l) this.liveShare.observe(run.id, l.status, reasons.reason(l.sessionId));
+      if (l) this.liveShare.observe(run.id, l.status, reasons.reason(l.sessionId), l.aside ?? null);
     }
   }
 

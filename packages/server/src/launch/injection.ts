@@ -103,14 +103,23 @@ export function renderInjectionEntries(i: InjectionInput, language: Language = D
 export function renderOpencodeInjectionEntries(i: InjectionInput, language: Language = DEFAULT_LANGUAGE, parts: InjectionParts = DEFAULT_INJECTION_PARTS, choice: OpencodeInjection = DEFAULT_OPENCODE_INJECTION): InjectionEntry[] {
   if (choice === 'none') return [];
   if (choice === 'minimal') {
-    const entries: InjectionEntry[] = [{ key: 'body', text: t(language, 'launch.injection.opencode.minimal') }];
+    const entries: InjectionEntry[] = [{ key: 'body', text: t(language, 'launch.injection.opencode.minimal') }, toolsEntry(language)];
     if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.opencode.notify') }, ...notifyFollowEntries(language, parts, 'opencode.', !!i.launchedBy));
     if (i.launchedBy) entries.push(unattendedEntry(language, i.launchedBy, 'launch.injection.unattendedText'));
     else if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.opencode.status') });
     return entries;
   }
   const follow = notifyFollowEntries(language, parts, 'opencode.', !!i.launchedBy);
-  return renderInjectionEntries(i, language, parts).flatMap((e) => (e.key === 'live' ? [{ key: 'live', text: t(language, 'launch.injection.opencode.live') }] : e.key === 'notify' ? [{ key: 'notify', text: t(language, 'launch.injection.opencode.notify') }, ...follow] : e.key === 'notifySave' || e.key === 'notifyAsk' ? [] : [e]));
+  return renderInjectionEntries(i, language, parts).flatMap((e) => (e.key === 'body' ? [e, toolsEntry(language)] : e.key === 'live' ? [{ key: 'live', text: t(language, 'launch.injection.opencode.live') }] : e.key === 'notify' ? [{ key: 'notify', text: t(language, 'launch.injection.opencode.notify') }, ...follow] : e.key === 'notifySave' || e.key === 'notifyAsk' ? [] : [e]));
+}
+
+/**
+ * opencode の道具の段。Code Mode の目録は予算 2000 トークンに、型と説明の頭 120 字の短い道具から詰めるので、
+ * 引数の多い send_to_session や create_session が載らず、モデルが「送る手段が無い」と答えてしまう（2026-11-21、opencode 2.2.0）。
+ * 目的ごとに名前を挙げ、目録に無い道具は search で引くよう言う。スイッチでは切らない（目録の間引きは設定に関わらず起きる）。
+ */
+function toolsEntry(language: Language): InjectionEntry {
+  return { key: 'tools', text: t(language, 'launch.injection.opencode.tools') };
 }
 
 /**

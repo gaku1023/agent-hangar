@@ -2032,6 +2032,10 @@ opencode はこれを system prompt の末尾近くに `<context key="hangar">` 
 既定の `minimal` は hangar の MCP の使い方で、意図を呼ぶ時機を「各ターンの最初の一手で、他のツールより先に」と書き、Code Mode の呼び方（`tools.hangar.…`）を添える。
 本文には、利用者が Done か Paused にしてと言ったら `propose_session_status` を `confirmed: true` で呼ぶことと、`set_session_summary` の state では状態が変わらないことを常に書く。
 Code Mode の目録は道具の一部しか見せず、`propose_session_status` が隠れていると、モデルは `set_session_summary` の state で済ませてしまうからである（2026-10-26 に DeepSeek V4.1 Flash で起きた）。
+本文の直後には道具の段（`launch.injection.opencode.tools`）を置き、目的ごとに hangar の道具の名前を挙げて、目録に無い道具は `search` で引くよう言う。この段はスイッチで切らない（`none` のときだけ無い）。
+opencode 2.2.0 の Code Mode は、目録を予算 2000 トークンで作る。1 行は型の宣言（引数の説明と数値の上限・下限の注記を含む）と説明の頭 120 字で、費用（長さ÷4）の安い順に詰める。
+そのため引数の多い `send_to_session` や `create_session`、`create_schedule` が載らず、読む道具と止める道具だけが見える。2026-11-21 には、モデルが「別のセッションへ送る手段は無い」と答えた。
+同じ理由で、対になる道具の名前は説明の頭 120 字に書く（`wait_for_session`・`read_session_screen` から `send_to_session`、`stop_session` から `resume_session`。`mcp/app.test.ts` が見張る）。
 状態の段（`launch.injection.opencode.status`、Claude と同じ `askStatusAtEnd` で入り切り）は、区切りで `confirmed` なしの提案だけを出させる。
 Claude のようにフォームで聞かせないのは、聞かずに `confirmed: true` を渡すモデルがあったためである。
 `claude` は Claude に足すのと同じ段で、意図の段だけ同じ書き方に替える。`none` は何も足さない。
@@ -3918,7 +3922,7 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
 - `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch?, agent?, mode?, handoff?, worktree?, add_dirs?, account? })`：tmux で起動して run を返す。agent、mode、worktree、add_dirs は `POST /api/runs` と同じく `RunManager.start` にそのまま渡す。agent を省けば Claude Code で、mode は opencode のときだけ読む（Claude Code と Codex では捨てる）。
   返り値には、そのまま本文に貼れる 2 行の `announce` も入る（1 行目が題名で `name`、無ければ `prompt` の最初の空でない行の頭 60 字、2 行目が URL。どちらも無ければ URL だけ）。準備中の `preparing: true` の返り値にも入る。別の PC への起動（`device`）は URL を返さないので、`announce` も無い。
   Codex の権限（read-only、auto、full-access。省くと auto）は `permission_mode` で渡し、model はモデル名、effort は推論の段階である。
-  セッション別の URL から呼ばれたら、呼んだセッションを起こした会話の起動元として手元の表 `session_spawns` に残す（`handoff: true` のときと、呼んだセッションが分からない共通の URL では残さない）。画面は、同じプロジェクトの子を起動元の下に入れ子で並べる（「起動元の入れ子」）。別の PC への起動（`device`）は、ほかのプロジェクトやクイックセッションでも承認を挟まず、そのまま頼みとして置く（2026-11-21、以前の承認待ちの表は版 70 で外した）。
+  セッション別の URL から呼ばれたら、呼んだセッションを起こした会話の起動元として手元の表 `session_spawns` に残す（`handoff: true` のときと、呼んだセッションが分からない共通の URL では残さない）。画面は、同じプロジェクトの子を起動元の下に入れ子で並べる（「起動元の入れ子」）。別の PC への起動（`device`）は、ほかのプロジェクトやクイックセッションでも承認を挟まず、そのまま頼みとして置く（2026-11-21、以前の承認待ちの表は版 71 で外した）。
   worktree（claude の `--worktree` に渡す名前）と add_dirs（`--add-dir`）は Claude Code だけのもので、Codex と opencode に付けると `start` が `optionUnsupported` で断る（UI の新規ダイアログは札を出さないので、断られるのは API と MCP だけである）。知らない agent と、設定で有効でない agent は、黙って Claude Code にせず、start の前に断る。opencode の model は provider/model の形で渡す。
   - account（Claude Code のときだけ）：省くと、呼んだセッション（セッション別 URL）がこの PC で最後に使ったアカウントを引き継ぐ。「別セッションを起こして」と頼んだ会話と同じ枠で続けるためで、ヘッダで選んでいるアカウントは最後に画面で選んだものにすぎない。ほかの PC の run は見ない（`RunAccounts.accountFor` と同じ）。共通の URL から呼ばれたとき、この PC で動かしたことが無いとき、そのアカウントが消えたときは、いま選んでいるアカウントにする。明示されたら名前か id で引き、知らないものは使える名前を添えて断る。opencode と Codex に渡されたら断る。結果には使ったアカウントの名前を添える。
 - `set_session_summary({ session_id?, title, one_liner, body, state, next_steps })`。
@@ -9450,6 +9454,7 @@ UI は `stale` でないとき「<端末名> で実行中」、`stale` のとき
 短い往復で書き込みが増えないよう、idle と busy は手元で変わってから約 3 秒（`LIVE_SHARE_HOLD_MS`）保留し、その間に戻ったら書かない。waiting は保留せずすぐ書く。
 waiting への変化だけは急ぎの書き込み（`isUrgentWrite`）にして、150ms で push し、ほかの PC を呼び鈴で鳴らす。ほかの変化は普段の送り（1 秒のデバウンスと 10 秒の間隔）に相乗りする。
 理由だけが変わったときも書く。使用制限の理由は、登録が次に変わるまで反映されないことがある。
+本体が入力を受け付けていて裏の作業（Bash、サブエージェント）だけが動いている印（`LiveAsideDto`）も、`live_aside` に JSON で載せる（マイグレーション version 70）。busy の間だけ持ち、状態が busy のまま印だけが変わったときは `live_at` を保つ。受け側は `SessionLockDto` の `aside` を `remoteAsideOf` で読み、サイドバーとホームの点を、この PC の会話と同じ薄い点にする。停止の確認も、裏だけのときは裏の作業も終わることを伝える。
 古い端末は未知の列を捨てるので壊れない（同期の版は上げない）。Worker と D1 は封じた行しか見ないので変更は要らない。
 確認の 1 枚は、いまも作業中かどうかで出し分けず、1 本の帯で「停止すると、作業中のターンは途中で切れます」と伝える（状態は共有の行の覚えで、止める瞬間の本当の状態ではないため）。
 
