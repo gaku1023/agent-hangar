@@ -219,7 +219,7 @@ export type ConfirmRequest =
   | { kind: 'strayProcess'; sessionId: string; pid: number; queued?: true }
   | { kind: 'killRun'; runId: string; working: boolean; aside?: boolean; shellTabs: number }
   // ほかの PC で動いている会話の停止（作業中のときだけ確認する）。
-  | { kind: 'peerStop'; sessionId: string; working: boolean }
+  | { kind: 'peerStop'; sessionId: string; working: boolean; aside?: boolean }
   // fromDialog は、未解決のプロジェクトのダイアログから来たこと。やめるとそのダイアログへ戻る。
   | { kind: 'unlinkProject'; projectId: string; fromDialog?: true }
   // 別のアカウントで再開する場面と、アカウントを一覧から外す場面。
