@@ -165,6 +165,7 @@ brew install node tmux
 
 macOS では自作の証明書で署名しているので、初めて開くときに「"Hangar" は開いていません」という警告が出ます。
 Windows のインストーラは署名していないので、SmartScreen が止めます。
+Smart App Control がオンの PC では、オフにしないと入れられないことがあります。
 警告の越え方、psmux の入れ方、Node の探し方は [docs/install.md](docs/install.md) にあります。
 
 ## 詳しい文書
@@ -183,10 +184,8 @@ Windows のインストーラは署名していないので、SmartScreen が止
 
 ## Code signing policy
 
-Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
-
-Windows のリリースは、SignPath Foundation の無料のコード署名に申請しています。
-署名を始めるまでは、Windows のインストーラは署名していません。
+Windows のリリースは、今は署名していません。
+SignPath Foundation の無料のコード署名に申請しましたが、今回は通りませんでした。
 署名する物、ビルドの方法、役割（Committers and reviewers と Approvers は、どちらも [gaku1023](https://github.com/gaku1023)）、プライバシーの方針は、[Code signing policy](docs/code-signing-policy.md) にあります。
 
 ## 商標
