@@ -37,11 +37,13 @@ jobs:
       - run: npm ci
       # 試験は check と check-2 の 2 つのジョブに分けて並べる（vitest の --shard）。
       # 1 本では 5〜8 分かかり、windows と並んで CI 全体の長さを決めていた（2026-10-29 の実測）。
-      # 型の確かめは、build のある check でなく check-2 に置いて、2 つの長さをそろえる。
+      # 型の確かめ（約 70 秒）はこちらに置いて、2 つの長さをそろえる。--shard は重さでなくファイルで分け、
+      # 後半（check-2）の試験が 270 秒、前半が 200 秒と偏っていた（2026-11-21）。
       # ワーカーは Windows と同じく 4 本にする。4 コアのランナーで vitest の既定は 3 本で、試験は子プロセスを待つ時間が長い（2026-11-21）。
+      - run: npm run typecheck
       - run: npm test -- --shard=1/2 --maxWorkers=4
       - run: npm run build
-  # check の試験の残りの半分。build は check だけで、型の確かめはここだけで回す。
+  # check の試験の残りの半分。build と型の確かめは check だけで回す。
   check-2:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -57,7 +59,6 @@ jobs:
           sudo apt-get install -y tmux
           tmux -V
       - run: npm ci
-      - run: npm run typecheck
       - run: npm test -- --shard=2/2 --maxWorkers=4
   # 殻と同梱の CLI は、Node-API 10 以上（Node 22.14 以上）の Node を採る。上限は付けない（0.6.1 から）。
   # 新しい Node（24）でもサーバが動くことを、サーバの試験で確かめる。
@@ -174,7 +175,7 @@ jobs:
           Expand-Archive -Path $zip -DestinationPath $dir
           Add-Content -Path $env:GITHUB_PATH -Value $dir
           & (Join-Path $dir 'psmux.exe') -V
-      # 型の検査（typecheck）は OS に依らないので、Linux の check-2 だけで回す。
+      # 型の検査（typecheck）は OS に依らないので、Linux の check だけで回す。
       # OS で結果が割れうる project のうち、server だけをここで回す。desktop、cli、shared は windows ジョブで回す（ここが律速だったため）。
       # cloud（Miniflare の上の Worker）と ui（jsdom）は OS に依らないので、Linux の check だけで回す。Windows では cloud だけで 6 分近くかかっていた。
       # 4 コアのランナーで既定の 3 本より速かったので、ワーカーは 4 本にする（2026-10-16 の実測）。
@@ -211,7 +212,7 @@ jobs:
           Expand-Archive -Path $zip -DestinationPath $dir
           Add-Content -Path $env:GITHUB_PATH -Value $dir
           & (Join-Path $dir 'psmux.exe') -V
-      # 型の検査（typecheck）は OS に依らないので、Linux の check-2 だけで回す。
+      # 型の検査（typecheck）は OS に依らないので、Linux の check だけで回す。
       # OS で結果が割れうる project のうち、server だけをここで回す。desktop、cli、shared は windows ジョブで回す（ここが律速だったため）。
       # cloud（Miniflare の上の Worker）と ui（jsdom）は OS に依らないので、Linux の check だけで回す。Windows では cloud だけで 6 分近くかかっていた。
       # 4 コアのランナーで既定の 3 本より速かったので、ワーカーは 4 本にする（2026-10-16 の実測）。

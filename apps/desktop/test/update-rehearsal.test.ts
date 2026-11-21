@@ -228,11 +228,13 @@ describe('CI の段', () => {
     expect(job('check-2')).toContain('run: npm test -- --shard=2/2 --maxWorkers=4');
     expect(job('node24')).toContain('run: npm test -- --project server --maxWorkers=4');
   });
-  it('check の試験は 2 つのジョブに分け、型の確かめは check-2 だけで回す', () => {
+  // vitest の --shard は重さでなくファイルで分けるので、後半（check-2）が 270 秒、前半（check）が 200 秒と偏っていた（2026-11-21）。
+  // 型の確かめ（約 70 秒）は軽い側の check に置き、2 つの長さをそろえる。
+  it('check の試験は 2 つのジョブに分け、型の確かめは check だけで回す', () => {
     expect(job('check')).toContain('run: npm test -- --shard=1/2');
     expect(job('check-2')).toContain('run: npm test -- --shard=2/2');
-    expect(job('check-2')).toContain('run: npm run typecheck');
-    expect(job('check')).not.toContain('typecheck');
+    expect(job('check')).toContain('run: npm run typecheck');
+    expect(job('check-2')).not.toContain('typecheck');
     // tmux が無いと、tmux に依存する試験が黙って飛ぶ。
     for (const j of ['check', 'check-2']) expect(job(j)).toContain('sudo apt-get install -y tmux');
   });
