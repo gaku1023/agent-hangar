@@ -16,7 +16,7 @@ import { isViewing } from './viewing.ts';
  * progress の呼び出しは途中の 1 つとして別に積まれ、終わりの 1 つは打ち消さない。hangar が代わりに出した知らせ（immediate：承認待ち、起動の失敗）も打ち消さない。
  *
  * notify_user の無いターンは、最後の返答の頭の 1 文を未読の文にし、知らせ方の done の決まりどおり OS とスマホへも流す（onUnreadReady）。
- * 問いの入力待ち（AskUserQuestion）で終わったターンは、未読だけ積む。OS とスマホへは入力待ちの知らせが別に出るからである。
+ * 問いの入力待ち（AskUserQuestion）で終わったターンは、場面を ask にして未読だけ積む。OS とスマホへは入力待ちの知らせが別に出るからである。
  * 画面で前に出して見ている会話（live/viewing.ts）には、未読を積まず、スマホへも流さない。OS の通知は殻が窓の前後で決める。
  * 休みの会話と統括の会話には出さない。notify_user の段（設定の notifyUser）は指示文の入切なので、切っていても数える。
  *
@@ -154,8 +154,10 @@ export class NotifyFallback {
     const now = this.now();
     const viewing = isViewing(id, now);
     let count = session.unread?.count ?? 0;
-    if (rules.unread.includes('done') && !viewing) {
-      count = addUnread(this.deps.db, id, text, now, { kind: 'done' });
+    // 問いの入力待ちで終えたターンは、判断が要る（ask）として積む。
+    const kind = question ? 'ask' : 'done';
+    if (rules.unread.includes(kind) && !viewing) {
+      count = addUnread(this.deps.db, id, text, now, { kind });
       touchRow(this.deps.db, 'sessions', id);
     }
     if (question) return;

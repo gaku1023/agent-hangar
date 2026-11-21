@@ -4,7 +4,6 @@ import { getSession } from '../db/queries.ts';
 import { translatorOf } from '../i18n/message.ts';
 import { sanitizeInput } from '../mcp/screenTools.ts';
 import { sessionTitleOf } from '../mobile/feed.ts';
-import { onNotifyKind } from '../live/notifyKind.ts';
 import { feedText, OrchestratorFeed } from '../orchestrator/feed.ts';
 import { lineageInvolvement } from '../orchestrator/involved.ts';
 import { noteFedTurn } from '../orchestrator/turnMark.ts';
@@ -81,7 +80,6 @@ export function bootOrchestratorFeed(p: {
   p.runs.setNoticeHold((id) => feed.held(id));
 
   let off: (() => void) | null = null;
-  let offNotify: (() => void) | null = null;
   const deliver = async (id: string, text: string): Promise<boolean> => {
     const pane = paneOf(id);
     if (!pane || !(await pane.empty())) return false;
@@ -111,15 +109,11 @@ export function bootOrchestratorFeed(p: {
     },
     start() {
       off ??= p.delivery.live.onChange(() => { feed.onLiveChange(); });
-      // turn.done は、そのターンに notify_user が done か ask で呼ばれた会話だけ。
-      offNotify ??= onNotifyKind((id, kind, immediate) => { feed.noteNotify(id, kind, immediate); });
       feed.onLiveChange();
     },
     stop() {
       off?.();
       off = null;
-      offNotify?.();
-      offNotify = null;
       feed.stop();
     },
   };

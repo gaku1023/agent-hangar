@@ -35,11 +35,10 @@ const LIVE_JA = [
 ];
 /** notify_user で知らせる段（launch.injection.notify）。 */
 const NOTIFY_JA = [
-  'ユーザーは複数のセッションを並べて使っており、このセッションの画面を見ていないことが多いです。返答を書き終えるたびに、hangar がこのセッションに未読の印を自動で付けます。',
-  'ターンを終えてユーザーに返すたびに（依頼の結果、途中経過の報告、サブエージェントの結果がまとまったとき、ユーザーの判断が必要なときを含む）、最後の返答を書く直前に 1 回 notify_user を呼び、何が起きたかを 1 文で text に、場面を kind に書いてください。未読の印に、その 1 文と場面が添えられます。',
-  'kind は、頼まれたことが済んだら "done"、ユーザーの判断や答えが必要なら "ask"、まだ途中の報告なら "progress" です。どこに知らせるかは hangar がユーザーの設定で決めるので、to は渡さないでください。',
-  'AskUserQuestion で聞いて終えるときも、聞く直前に kind を "ask" にして 1 回呼んでください。',
-  'ターンの途中でも、ユーザーに見てほしいことがあれば kind を "progress" にして呼んでください。ただし、細かい手順のたびには呼ばないでください。',
+  'ユーザーは複数のセッションを並べて使っており、このセッションの画面を見ていないことが多いです。返答を書き終えるたびに、hangar がこのセッションに未読の印を自動で付け、返答の最初の 1 文を添えます。返答は、何が起きたかが分かる 1 文から書き始めてください。',
+  'ターンの終わりに notify_user を呼ぶ必要はありません。呼ぶのは次の 2 つのときだけです。どこに知らせるかは hangar がユーザーの設定で決めるので、to は渡さないでください。',
+  '・ターンの途中で、ユーザーに見てほしいことがあるとき：kind を "progress" にして、何が起きたかを 1 文で text に書きます。細かい手順のたびには呼ばないでください。',
+  '・AskUserQuestion を使わずに、文で問いかけてターンを終えるとき：最後の返答を書く直前に kind を "ask" にして 1 回呼び、何を聞いているかを 1 文で text に書きます。AskUserQuestion で聞くときは呼ばなくて構いません。',
 ];
 /** 知らせ方を保存する段（launch.injection.notifySave）。os は Mac か Windows、rules は今の決まり。 */
 const SAVE_JA = (os: string, rules: string) => [
@@ -379,7 +378,7 @@ describe('notify_user の段', () => {
   it('どの節も、to を渡さず kind で場面を添えることを言い、to で出し先を選ぶ文は持たない', () => {
     for (const language of ['ja', 'en'] as const) {
       for (const k of ['launch.injection.notify', 'launch.injection.opencode.notify', 'launch.injection.codex.notify'] as const) {
-        expect(tt(language, k), k).toContain('"done"');
+        expect(tt(language, k), k).toContain('"ask"');
         expect(tt(language, k), k).toContain('"progress"');
         expect(tt(language, k), k).not.toContain("['phone']");
       }
@@ -405,19 +404,21 @@ describe('notify_user の段', () => {
       expect(es.find((e) => e.key === 'notifySave')!.text).toContain('the Windows notification');
     }
   });
-  it('どの節も、画面を見ていないことを前置きし、ターンを返すたびに最後の返答を書く直前に 1 回呼ばせる。質問で終えるときも ask で呼ぶ', () => {
+  it('どの節も、画面を見ていないことを前置きし、返答の頭の 1 文を hangar が添えると言う。ターンの終わりには呼ばせず、途中の progress と問いの ask だけで呼ばせる', () => {
     for (const k of ['launch.injection.notify', 'launch.injection.opencode.notify', 'launch.injection.codex.notify'] as const) {
       expect(tt('ja', k), k).toMatch(/^ユーザーは複数のセッションを並べて使っており、このセッションの画面を見ていないことが多いです。/);
-      expect(tt('ja', k), k).toContain('ターンを終えてユーザーに返すたびに');
-      expect(tt('ja', k), k).toContain('最後の返答を書く直前に 1 回');
-      expect(tt('ja', k), k).toContain('聞く直前に kind を "ask" にして 1 回呼んでください。');
-      expect(tt('ja', k), k).not.toContain('呼ばなくて構いません');
+      expect(tt('ja', k), k).toContain('返答の最初の 1 文を添えます。返答は、何が起きたかが分かる 1 文から書き始めてください。');
+      expect(tt('ja', k), k).toContain('ターンの終わりに notify_user を呼ぶ必要はありません。');
+      expect(tt('ja', k), k).toContain('最後の返答を書く直前に kind を "ask" にして 1 回呼び');
+      expect(tt('ja', k), k).not.toContain('ターンを終えてユーザーに返すたびに');
       expect(tt('en', k), k).toMatch(/^The user runs several sessions side by side/);
-      expect(tt('en', k), k).toContain('right before you write your final reply');
-      expect(tt('en', k), k).toContain('with kind set to "ask"');
-      expect(tt('en', k), k).not.toContain('You do not need to call it');
+      expect(tt('en', k), k).toContain('Start each reply with one sentence that says what happened.');
+      expect(tt('en', k), k).toContain('You do not need to call notify_user at the end of a turn.');
+      expect(tt('en', k), k).toContain('call it once with kind set to "ask"');
+      expect(tt('en', k), k).not.toContain('Every time you finish a turn');
     }
   });
+
 });
 
 /** 無人の起動（予定や出来事、別の会話）の段（launch.injection.unattended）。Claude 向け。 */
@@ -494,10 +495,11 @@ describe('無人の起動（予定や出来事、別の会話から起こした�
 });
 
 describe('notify_user の時機は、指示文と道具の説明で同じ言い方にする', () => {
-  it('道具の説明も、最後の返答を書く直前に 1 回呼び、質問で終えるときも ask で呼ぶと言う', () => {
-    expect(tt('ja', 'mcp.tool.notifyUser')).toContain('最後の返答を書く直前に 1 回呼び');
-    expect(tt('ja', 'mcp.tool.notifyUser')).toContain('質問で終えるときも kind を ask にして呼ぶ');
-    expect(tt('en', 'mcp.tool.notifyUser')).toContain('right before you write your final reply');
-    expect(tt('en', 'mcp.tool.notifyUser')).toContain('also when you end with a question, with kind ask');
+  it('道具の説明も、ターンの終わりには呼ばず、途中の progress と文で問いかけて終えるときの ask だけで呼ぶと言う', () => {
+    expect(tt('ja', 'mcp.tool.notifyUser')).toContain('ターンの終わりに呼ぶ必要はない');
+    expect(tt('ja', 'mcp.tool.notifyUser')).toContain('最後の返答を書く直前に 1 回、kind は ask');
+    expect(tt('en', 'mcp.tool.notifyUser')).toContain('You do not need to call it at the end of a turn');
+    expect(tt('en', 'mcp.tool.notifyUser')).toContain('right before you write your final reply, with kind ask');
   });
+
 });
