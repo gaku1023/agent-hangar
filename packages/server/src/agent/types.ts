@@ -362,7 +362,7 @@ export interface AskSource {
  * システムプロンプトに足す段の 1 つ。text は末尾の改行まで含み、区切りを足さずにつなげば 1 つの指示になる。
  * 段の組み立ては launch/injection.ts の renderInjectionEntries で、どのエージェントにも同じ形で渡す。
  */
-export type InjectionEntry = { key: 'body' | 'handover' | 'multiDevice' | 'status' | 'unattended' | 'live' | 'notify' | 'notifySave' | 'notifyAsk' | 'share' | 'orchestrator'; text: string };
+export type InjectionEntry = { key: 'body' | 'tools' | 'handover' | 'multiDevice' | 'status' | 'unattended' | 'live' | 'notify' | 'notifySave' | 'notifyAsk' | 'share' | 'orchestrator'; text: string };
 
 export interface InstructionChannel {
   /** 起動の引数でだけ渡せるか（Claude）、途中でも差し替えられるか。 */

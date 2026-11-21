@@ -154,7 +154,7 @@ describe('createMcpApp', () => {
     expect(db.prepare('select count(*) n from session_notes').get()).toEqual({ n: 0 });
   });
   it('対になる道具の名前は、説明の頭 120 字に書く（opencode の Code Mode の目録は説明を 120 字で切り、引数の多い道具を載せない）', async () => {
-    const PAIRS: [string, string, string[]][] = [
+    const PAIRS: [string, 'mcp.tool.waitForSession' | 'mcp.tool.readSessionScreen' | 'mcp.tool.stopSession', string[]][] = [
       ['wait_for_session', 'mcp.tool.waitForSession', ['send_to_session', 'create_session']],
       ['read_session_screen', 'mcp.tool.readSessionScreen', ['send_to_session']],
       ['stop_session', 'mcp.tool.stopSession', ['resume_session']],
