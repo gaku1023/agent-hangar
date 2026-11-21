@@ -212,6 +212,22 @@ describe('CI の段', () => {
     }
     expect(job('windows')).toContain('run: npm test -- --project desktop --project cli --project shared --maxWorkers=4');
   });
+  // CI の release の build は、殻のクレートだけ最適化を切る（opt-level 0）。依存は最適化したままなので、キャッシュはそのまま当たる。
+  // 配布の build（release.yml）は切らない。手元の実測で、殻だけの build が 10 秒から 4 秒になった（2026-11-21）。
+  it('Rust の release を build する CI のジョブは、rust-cache の後で殻のクレートだけ opt-level 0 にし、release.yml は切らない', () => {
+    const line = "mkdir -p apps/desktop/src-tauri/.cargo && printf '[profile.release.package.hangar-desktop]\\nopt-level = 0\\n' >> apps/desktop/src-tauri/.cargo/config.toml";
+    for (const j of ['windows', 'windows-update', 'desktop', 'desktop-update']) {
+      const t = job(j);
+      expect(t).toContain(line);
+      expect(t.indexOf(line)).toBeGreaterThan(t.indexOf('Swatinem/rust-cache@v2'));
+    }
+    expect(fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8')).not.toContain('opt-level = 0');
+  });
+  it('Linux の vitest は、Windows と同じくワーカーを 4 本にする', () => {
+    expect(job('check')).toContain('run: npm test -- --shard=1/2 --maxWorkers=4');
+    expect(job('check-2')).toContain('run: npm test -- --shard=2/2 --maxWorkers=4');
+    expect(job('node24')).toContain('run: npm test -- --project server --maxWorkers=4');
+  });
   it('check の試験は 2 つのジョブに分け、型の確かめは check-2 だけで回す', () => {
     expect(job('check')).toContain('run: npm test -- --shard=1/2');
     expect(job('check-2')).toContain('run: npm test -- --shard=2/2');
