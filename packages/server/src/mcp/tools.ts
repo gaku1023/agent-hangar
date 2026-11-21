@@ -336,12 +336,27 @@ function announceOf(deps: ToolDeps, id: string, args: Record<string, unknown>): 
   return title ? `${[...title].slice(0, 60).join('')}\n${link}` : link;
 }
 
+/**
+ * 一覧が枠で絞られているときの印。共通の /mcp と統括の URL（枠が無い）では添えない。
+ * 絞ったことが結果に出ないと、呼び手は全体の一覧と読み、「登録はこれだけ」と言い切ってしまう（#783）。
+ */
+function scopeMark(scope: string | null | undefined): { scoped_to: string | null } | null {
+  return scope === undefined ? null : { scoped_to: scope };
+}
+
+/**
+ * 枠が無いときは従来どおり配列、枠があるときは印を添えるためにオブジェクト（projects）で返す。
+ * 配列のまま印を添える形が無いためで、共通の /mcp を読む CLI などの呼び手は配列のまま変わらない。
+ */
 export function listProjectsTool(deps: ToolDeps, ctx: ToolContext) {
   const scope = readScope(deps, ctx, {});
-  return listProjects(deps.db, deps.deviceId, deps.live()).filter((p) => scope === undefined || p.id === scope).map((p) => ({
+  const all = listProjects(deps.db, deps.deviceId, deps.live());
+  const projects = all.filter((p) => scope === undefined || p.id === scope).map((p) => ({
     id: p.id, name: p.name, status: p.status, path: p.path, resolved: p.resolved,
     open_todo_count: p.openTodoCount, running_count: p.runningCount, last_activity_at: p.lastActivityAt,
   }));
+  const mark = scopeMark(scope);
+  return mark ? { ...mark, hidden_count: all.length - projects.length, projects } : projects;
 }
 
 export function getProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
@@ -420,7 +435,10 @@ export function listSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Record<
   if (running !== undefined) list = list.filter((s) => (s.live !== null) === running);
   // 負数の limit を slice にそのまま渡すと末尾から削る意味になるので、下限を 0 で押さえる。
   const limit = Math.max(num(args.limit) ?? DEFAULT_LIST_LIMIT, 0);
-  return list.slice(0, limit).map((s) => sessionBrief(deps, s));
+  const sessions = list.slice(0, limit).map((s) => sessionBrief(deps, s));
+  // 枠があるときだけ、絞った印を添えるためにオブジェクトで返す（listProjectsTool と同じ理由）。
+  const mark = scopeMark(scope);
+  return mark ? { ...mark, sessions } : sessions;
 }
 
 export function searchSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
