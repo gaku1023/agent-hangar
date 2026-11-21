@@ -310,10 +310,18 @@ class Watch {
       replaced = true;
       changed = true;
     }
+    let dropped = false;
     for (const it of s.items) {
       if (it.ask) {
         const sig = askSig(it.ask);
         let known = this.asks.get(it.ask.askId);
+        // 位置がずれて言い換わった札は、答えの無い前の札を外す（同じ問いを 2 枚並べない）。外したことは全体の差し替えで伝える。
+        const prev = !known && !replaced && it.ask.replaces !== undefined ? this.asks.get(it.ask.replaces) : undefined;
+        if (prev && !prev.answered && !s.items.some((x) => x.ask?.askId === it.ask!.replaces)) {
+          this.items.delete(prev.uuid);
+          this.asks.delete(it.ask.replaces!);
+          dropped = true;
+        }
         if (!known && !replaced) {
           // 元の PC が札の askId を言い換えたとき（拠り所が決まった）は、同じ位置・同じ種類で答えの無い前の札を、この札で置き換える。
           const base = askBase(it.uuid);
@@ -344,6 +352,11 @@ class Watch {
       if (this.items.has(it.uuid) && !replaced) continue;
       this.items.set(it.uuid, it);
       emit.push(it);
+      changed = true;
+    }
+    if (dropped) {
+      this.replace = true;
+      replaced = true;
       changed = true;
     }
     // 溢れたら、古いものを捨てる。

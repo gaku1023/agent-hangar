@@ -254,6 +254,15 @@ describe('答えの封', () => {
     expect(shared.parsePeerChatReply(withAsk({ answerable: 'no' }))).toBeNull();
   });
 
+  it('札の replaces（言い換え前の askId）は往復し、型違いは断る', async () => {
+    const ring = await ringOf({ 1: randomEpochKey() }, 1);
+    const withAsk = (over: Record<string, unknown>) => ({ ok: true as const, state: { ...state, items: [{ ...state.items[2]!, ask: { ...state.items[2]!.ask!, ...over } }] } });
+    const marked = withAsk({ replaces: 'old-ask' });
+    expect(await openPeerChatReply(ring, route, await sealPeerChatReply(ring, route, marked as PeerChatReply))).toEqual(marked);
+    expect('replaces' in (shared.parsePeerChatReply(withAsk({})) as { state: PeerChatState }).state.items[0]!.ask!).toBe(false);
+    expect(shared.parsePeerChatReply(withAsk({ replaces: 3 }))).toBeNull();
+  });
+
   it('断りの理由は計画の 11 個', () => {
     expect([...PEER_CHAT_REFUSALS]).toEqual(['offline', 'refused-by-setting', 'not-claude', 'session-unknown', 'expired', 'already-answered', 'ask-mismatch', 'resume-failed', 'queue-expired', 'too-large', 'rate', 'host-error']);
   });

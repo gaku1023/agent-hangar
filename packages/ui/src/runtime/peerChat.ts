@@ -27,6 +27,8 @@ export type PeerChatRunnerDeps = {
   release?: (sessionId: string, askId: string) => boolean;
   /** 答えが届かなかった（断られた、時間切れ）。画面の下の知らせを出す。kind は札の種類。 */
   failed?: (sessionId: string, reason: PeerChatReason | 'answer-timeout') => void;
+  /** この PC からの答えが元の PC に通った。前に断られた知らせ（failed）を画面から外すのに使う。 */
+  delivered?: (sessionId: string) => void;
 };
 
 /** 選んだ答えの文。書いた文があればそれ、無ければ選んだ行の文（複数はつなぐ）。 */
@@ -212,6 +214,7 @@ export function createPeerChatRunner(deps: PeerChatRunnerDeps): PeerChatRunner {
     let r: PeerChatOpResult;
     try { r = await deps.op(sessionId, body); } catch { r = { ok: false, reason: failure() }; }
     if (body.t === 'answer' && !r.ok) answerFailed(sessionId, body.askId, r.reason);
+    if (body.t === 'answer' && r.ok) deps.delivered?.(sessionId);
     if (!slice(sessionId)) return;
     if (!r.ok) {
       write(sessionId, (s) => {

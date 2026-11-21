@@ -321,6 +321,13 @@ export class ChatView {
     return this.rekeys.get(askId) === currentAskId ? currentAskId : askId;
   }
 
+  /** to へ言い換えた前の askId（いちばん新しい覚え）。無ければ null。 */
+  private rekeyedFrom(to: string): string | null {
+    let from: string | null = null;
+    for (const [k, v] of this.rekeys) if (v === to) from = k;
+    return from;
+  }
+
   private settleAsk(sessionId: string, prev: PeerChatItem): void {
     if (!prev.ask || this.answers.some((a) => a.sessionId === sessionId && a.askId === prev.ask!.askId)) return;
     this.recordAnswer(sessionId, prev, this.d.self(), '');
@@ -358,6 +365,11 @@ export class ChatView {
    */
   private annotate(items: PeerChatItem[], sessionId: string): PeerChatItem[] {
     return items.map((it) => {
+      if (it.ask && !it.ask.answered) {
+        // 言い換えた札には前の askId を添える。位置がずれた言い換えを、見る側が同じ札と分かるようにする。
+        const from = this.rekeyedFrom(it.ask.askId);
+        return from === null ? it : { ...it, ask: { ...it.ask, replaces: from } };
+      }
       if (it.kind !== 'user') return it;
       let from = this.fromByUuid.get(it.uuid);
       if (!from) {

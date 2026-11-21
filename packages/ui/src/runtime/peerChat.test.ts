@@ -16,7 +16,7 @@ const update = (over: Partial<PeerChatUpdate> = {}): PeerChatUpdate => ({ sessio
 const view = (over: Partial<PeerChatUpdate> = {}): PeerChatViewDto => ({ ok: true, device: { deviceId: 'd-mac', deviceName: 'Mac' }, startedAfter: null, update: update({ items: [user('u1', '調べて'), ai('a1', '見ます')], ...over }) });
 
 /** Store を 1 つ持つ、runner の試験用の台。WebSocket の更新は applyServerEvent を通して流す。 */
-function rig(open: (s: string, v: string, after: string) => Promise<PeerChatViewDto>, op: (s: string, b: PeerChatOpIn) => Promise<PeerChatOpResult> = async () => ({ ok: true }), answers?: Pick<PeerChatRunnerDeps, 'hold' | 'release' | 'failed'>) {
+function rig(open: (s: string, v: string, after: string) => Promise<PeerChatViewDto>, op: (s: string, b: PeerChatOpIn) => Promise<PeerChatOpResult> = async () => ({ ok: true }), answers?: Pick<PeerChatRunnerDeps, 'hold' | 'release' | 'failed' | 'delivered'>) {
   let store: Store = initialStore();
   const sent: PeerChatClientMsg[] = [];
   // 開き直しの待ち（試験が手で進める）。
@@ -434,15 +434,17 @@ describe('答えた札の手元の見え方（相手の返事を待たない）'
   const answerRig = async (op: (s: string, b: PeerChatOpIn) => Promise<PeerChatOpResult>, item: PeerChatItem = card('c1', 'ask-1')) => {
     const holds = new Map<string, 'busy' | 'waiting'>();
     const failed: { sessionId: string; reason: string }[] = [];
+    const delivered: string[] = [];
     const afters: number[] = [];
     const t = rig(async () => view({ items: [item], status: 'waiting' }), op, {
       hold: (_s, askId, live) => { holds.set(askId, live); },
       release: (_s, askId) => holds.delete(askId),
       failed: (sessionId, reason) => { failed.push({ sessionId, reason }); },
+      delivered: (sessionId) => { delivered.push(sessionId); },
     });
     t.runner.run({ op: 'open', sessionId: 's1', viewer: 'v1' });
     await t.tick();
-    return { ...t, holds, failed, afters };
+    return { ...t, holds, failed, delivered, afters };
   };
 
   it('許可を送った時点で手元の見え方を持つ（許可は実行中）', async () => {
@@ -489,6 +491,17 @@ describe('答えた札の手元の見え方（相手の返事を待たない）'
     t.fire();
     expect(t.failed).toEqual([]);
     expect(t.slice().notice).toBeNull();
+  });
+
+  it('答えが通ったら delivered を呼ぶ（前の断りの知らせを外すため）。断られたら呼ばない', async () => {
+    const t = await answerRig(async () => ({ ok: true }));
+    t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['1'] } });
+    await t.tick();
+    expect(t.delivered).toEqual(['s1']);
+    const n = await answerRig(async () => ({ ok: false, reason: 'already-answered' }));
+    n.runner.run({ op: 'send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['1'] } });
+    await n.tick();
+    expect(n.delivered).toEqual([]);
   });
 
   it('待つ長さは 30 秒', () => {

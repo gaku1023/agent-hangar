@@ -261,6 +261,7 @@ describe('ChatView.observe: 拠り所なしから tool_use ありへの askId �
     expect(cards.find((c) => c.ask!.askId === a0)?.ask?.answered).toMatchObject({ by: SELF, label: '' });
     expect(view.answeredAsk('s1', a0)).toBe(true);
     expect(view.resolveAskId(a0, a2)).toBe(a0);
+    expect(cards.find((c) => c.ask!.askId === a2)!.ask!.replaces).toBeUndefined();
   });
 
   it('tool_use より先に返答の文が載って札の位置がずれても、言い換えとして読み替え、古い札を手元の記録にしない', () => {
@@ -277,6 +278,8 @@ describe('ChatView.observe: 拠り所なしから tool_use ありへの askId �
     expect(cards[0]!.ask!.answered).toBeUndefined();
     expect(view.answeredAsk('s1', oldId)).toBe(false);
     expect(view.resolveAskId(oldId, cur.askId)).toBe(cur.askId);
+    // 見る側が古い札を外せるよう、今の札に言い換え前の askId を添える。
+    expect(cards[0]!.ask!.replaces).toBe(oldId);
   });
 
   it('言い換えの覚えは 64 件まで。古いものから忘れる', () => {

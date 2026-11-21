@@ -24,4 +24,14 @@ describe('mediator: ほかの PC への答えが届かなかった知らせ', ()
     const r = transition(initialState(), store, { kind: 'runtime', event: { type: 'peerAnswer.failed', sessionId: 's1' } });
     expect(r.state.toasts.at(-1)).toMatchObject({ level: 'error', message: 'ビルドの直し への答えが届きませんでした', action: { label: '開く', send: { type: 'session.open', id: 's1' } } });
   });
+
+  it('同じ会話への答えがあとで通ったら、その会話の断りの知らせだけを外す', () => {
+    const store = initialStore();
+    let st = transition(initialState(), store, { kind: 'runtime', event: { type: 'peerAnswer.failed', sessionId: 's1' } }).state;
+    st = transition(st, store, { kind: 'runtime', event: { type: 'peerAnswer.failed', sessionId: 's2' } }).state;
+    st = { ...st, toasts: [...st.toasts, { id: 'other', level: 'error', message: 'ほか' }] };
+    const r = transition(st, store, { kind: 'runtime', event: { type: 'peerAnswer.delivered', sessionId: 's1' } });
+    expect(r.state.toasts.map((x) => x.message)).toEqual([st.toasts[1]!.message, 'ほか']);
+    expect(r.effects).toEqual([]);
+  });
 });
