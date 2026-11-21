@@ -16,7 +16,7 @@ const update = (over: Partial<PeerChatUpdate> = {}): PeerChatUpdate => ({ sessio
 const view = (over: Partial<PeerChatUpdate> = {}): PeerChatViewDto => ({ ok: true, device: { deviceId: 'd-mac', deviceName: 'Mac' }, startedAfter: null, update: update({ items: [user('u1', '調べて'), ai('a1', '見ます')], ...over }) });
 
 /** Store を 1 つ持つ、runner の試験用の台。WebSocket の更新は applyServerEvent を通して流す。 */
-function rig(open: (s: string, v: string, after: string) => Promise<PeerChatViewDto>, op: (s: string, b: PeerChatOpIn) => Promise<PeerChatOpResult> = async () => ({ ok: true }), answers?: Pick<PeerChatRunnerDeps, 'hold' | 'release' | 'failed'>) {
+function rig(open: (s: string, v: string, after: string) => Promise<PeerChatViewDto>, op: (s: string, b: PeerChatOpIn) => Promise<PeerChatOpResult> = async () => ({ ok: true }), answers?: Pick<PeerChatRunnerDeps, 'hold' | 'release' | 'failed' | 'delivered'>) {
   let store: Store = initialStore();
   const sent: PeerChatClientMsg[] = [];
   // 開き直しの待ち（試験が手で進める）。
