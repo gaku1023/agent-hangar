@@ -33,6 +33,8 @@ export const PEER_CLOCK_SLACK_MS = 5 * 60_000;
 export const PEER_ANSWER_RESEND_WINDOW_MS = 10 * 60_000;
 /** 手元の記録（peer_launches）を残す長さ。同じ頼みの再送は Worker の期限で止まるので、重複を防ぐ控えの掃除である。 */
 export const PEER_LAUNCH_KEEP_MS = 7 * 24 * 60 * 60_000;
+/** wake の頼みを受ける鮮度（頼みの createdAt から）。呼ぶ側は 20 秒で手元に切り替えるので、これより古い頼みを受けると二重に起きる。 */
+export const PEER_WAKE_FRESH_MS = 15_000;
 /** 知らない世代の鍵を探して keybox を読み直す間隔。 */
 export const PEER_EPOCH_REREAD_MS = 60_000;
 
@@ -67,6 +69,8 @@ export type PeerLaunchInboxDeps = {
   control?: {
     send(sessionId: string, text: string): Promise<void>;
     stop(sessionId: string): Promise<void> | void;
+    /** Paused の会話を起こす（画面の「今すぐ試す」）。Paused でなければ投げる。起こすのは待たずに裏で走らせてよい。省けば wake は断る。 */
+    wake?(sessionId: string): Promise<void> | void;
   };
 };
 
@@ -87,10 +91,10 @@ const kindOf = (e: unknown): string => {
  * Codex の権限は mode か permissionMode のどちらかに入っていればよい。opencode にはアカウントと権限モードと effort が無く、Claude には mode と autoApprove が無い。
  */
 function isMeaningful(r: PeerLaunchRequest): boolean {
-  if (r.op === 'send' || r.op === 'stop') {
+  if (r.op === 'send' || r.op === 'stop' || r.op === 'wake') {
     // 起動の欄は使わない。対象と、send の本文だけを見る。
-    // 親の会話が空なのは、人が画面から頼んだ停止（ほかの PC のサイドバーの「停止」）で、stop だけに許す。
-    if (r.parentSessionId.length > MOBILE_LAUNCH_ID_MAX || (r.parentSessionId.length === 0 && r.op !== 'stop')) return false;
+    // 親の会話が空なのは、人が画面から頼んだ停止（ほかの PC のサイドバーの「停止」）と、今すぐ試すで、stop と wake だけに許す。
+    if (r.parentSessionId.length > MOBILE_LAUNCH_ID_MAX || (r.parentSessionId.length === 0 && r.op === 'send')) return false;
     if (!r.targetSessionId || r.targetSessionId.length > MOBILE_LAUNCH_ID_MAX) return false;
     return r.op === 'send' ? r.prompt.trim().length > 0 && r.prompt.length <= MOBILE_PROMPT_MAX : r.prompt === '';
   }
@@ -256,7 +260,7 @@ export class PeerLaunchInbox {
     opened.r = r;
     if (!isMeaningful(r)) return fail('bad-payload');
     if (r.createdAt < this.deps.now() - PEER_LAUNCH_TTL_MS - PEER_CLOCK_SLACK_MS) return fail('expired');
-    if (r.op === 'send' || r.op === 'stop') return this.control(r, l.from, fail);
+    if (r.op === 'send' || r.op === 'stop' || r.op === 'wake') return this.control(r, l.from, fail);
     // 深さは 1 まで（D11）。頼んだ会話が、さらに別の PC から起こされたものなら断る。頼みの申告と、同期で届いた結び付きのどちらでも見る。
     if (r.spawnedRemotely === true || isSpawnedFromOtherDevice(this.deps.db, l.from, r.parentSessionId)) return fail('depth-exceeded');
     if (!r.scratch && !this.deps.hasProjectHere(r.projectId!)) return fail('project-missing');
@@ -307,13 +311,16 @@ export class PeerLaunchInbox {
     const target = r.targetSessionId!;
     // 人が画面から頼んだ停止（親の会話が空）は、結び付きを問わない。人が別の PC への起動を承認なしに頼めるのと同じ扱いである（D8）。
     // それ以外（会話が頼んだ send と stop）は、その会話が起こした会話にだけ効く（D16）。
-    const fromScreen = r.parentSessionId === '' && r.op === 'stop';
+    const fromScreen = r.parentSessionId === '' && (r.op === 'stop' || r.op === 'wake');
     const link = fromScreen ? null : getSpawn(this.deps.db, this.deps.deviceId, target);
     if (!fromScreen && (!link || link.childDeviceId !== this.deps.deviceId || link.parentDeviceId !== from || link.parentId !== r.parentSessionId)) return fail('not-spawned-by-caller');
+    // wake は画面の頼みだけで、呼ぶ側が 20 秒で手元に切り替える。古い頼みを受けると二重に起きるので、鮮度を見る。
+    if (r.op === 'wake' && (!fromScreen || r.createdAt < this.deps.now() - PEER_WAKE_FRESH_MS)) return fail(fromScreen ? 'expired' : 'bad-payload');
     const c = this.deps.control;
-    if (!c) return fail('launch-failed', 'unsupported');
+    if (!c || (r.op === 'wake' && !c.wake)) return fail('launch-failed', 'unsupported');
     try {
       if (r.op === 'send') await c.send(target, r.prompt);
+      else if (r.op === 'wake') await c.wake!(target);
       else await c.stop(target);
     } catch (e) {
       return fail('launch-failed', clampText(e instanceof Error ? e.message : String(e)) ?? undefined);

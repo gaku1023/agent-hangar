@@ -71,7 +71,7 @@ export const SCREEN_CALLER = '';
 export type PeerRequestState = 'requested' | 'started' | 'refused' | 'expired' | 'done';
 
 /** 頼みの種類。launch は起動、send と stop は起こした会話への入力と停止（D16）。 */
-export type PeerRequestOp = 'launch' | 'send' | 'stop';
+export type PeerRequestOp = 'launch' | 'send' | 'stop' | 'wake';
 
 export type PeerRequestRow = {
   op: PeerRequestOp;
@@ -315,6 +315,8 @@ export class PeerOutbox {
     // 画面から人が頼んだ起動の断りは、入力にせず画面の札で知らせる。
     if (row.caller_session_id === SCREEN_CALLER) {
       if (!this.settle(row, expired ? 'expired' : 'refused', expired ? 'expired' : reason)) return;
+      // wake（今すぐ試す）の断りは札にしない。呼ぶ側（peer/screenWake.ts）が、断りを見て手元で起こす。
+      if (row.op === 'wake') return;
       this.safeToast('error', expired ? screenExpiredText(lang, { device }) : screenRefusalText(lang, { device, reason, op: row.op, ...(detail ? { detail } : {}) }));
       return;
     }

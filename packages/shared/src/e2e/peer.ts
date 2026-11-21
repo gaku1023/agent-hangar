@@ -62,17 +62,17 @@ export type PeerLaunchRequest = {
   /** 頼んだ PC の会話が、さらに別の PC から起こされたものなら true（D11 の深さの検査。同期の遅れで結び付きが届いていなくても断れる）。 */
   spawnedRemotely?: boolean;
   /**
-   * 頼みの種類。省けば launch（起動）。send は起こした会話への入力、stop は起こした会話を止める。
-   * 古い版の PC はこの欄を読まずに launch と扱うので、send と stop は版が新しい PC にしか送らない（呼ぶ側が相手の hangar_version で確かめる）。
-   * send と stop では起動の欄（projectId、scratch、agent など）は使われない。形の検査を通るように、scratch を真、projectId を null、agent を claude-code、ほかを空にして送る。
+   * 頼みの種類。省けば launch（起動）。send は起こした会話への入力、stop は起こした会話を止める、wake は Paused の会話を起こす（画面の「今すぐ試す」）。
+   * 古い版の PC はこの欄を読まずに launch と扱うので、send、stop、wake は版が新しい PC にしか送らない（呼ぶ側が相手の hangar_version で確かめる）。
+   * send、stop、wake では起動の欄（projectId、scratch、agent など）は使われない。形の検査を通るように、scratch を真、projectId を null、agent を claude-code、ほかを空にして送る。
    * send の本文は prompt に入れる。
    */
   op?: PeerLaunchOp;
-  /** send と stop の対象。頼まれた PC にある、頼んだ側が起こした会話の ID。 */
+  /** send、stop、wake の対象。頼まれた PC にある、頼んだ側が起こした会話の ID。 */
   targetSessionId?: string;
 };
 
-export const PEER_LAUNCH_OPS = ['launch', 'send', 'stop'] as const;
+export const PEER_LAUNCH_OPS = ['launch', 'send', 'stop', 'wake'] as const;
 export type PeerLaunchOp = (typeof PEER_LAUNCH_OPS)[number];
 
 /** 頼まれた PC が起動を断る理由（計画の断る理由のうち、頼まれた PC が決めるもの）。 */

@@ -2,6 +2,7 @@ import { notifyRulesOf, sealPeerLaunch, type AgentKind, type PeerBellKind, type 
 import { AGENT_ENTRY } from '../agent/entry.ts';
 import type { LiveHub } from '../agent/liveHub.ts';
 import { getSession } from '../db/queries.ts';
+import { getSessionState } from '../sessions/states.ts';
 import { touchRow } from '../db/notify.ts';
 import { INTENT_MAX } from '../live/intents.ts';
 import { addUnread, noteUnread, NOTIFY_TARGETS } from '../live/unread.ts';
@@ -33,6 +34,8 @@ export type PeerParts = {
   onBell(kind: PeerBellKind, id: string): void;
   /** 別の PC への起動の承認待ち（D8）。MCP の呼び出し（peerCall.requestApproval）が預け、画面の HTTP とスマホの問い合わせが答える。 */
   approvals: PeerApprovals;
+  /** 取得を今すぐ回す。画面の「今すぐ試す」が、別の PC の答えを待つ間に呼ぶ。 */
+  syncNow(): Promise<void>;
 };
 
 /**
@@ -75,6 +78,8 @@ export function bootPeer(p: {
   /** 実行中の一覧と、画面への知らせの口。呼ぶ側が使う。 */
   delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub: { broadcast(ev: Extract<ServerEvent, { type: 'toast' }>): void } };
   sync: Pick<SyncParts, 'engine' | 'peerLink' | 'canCarryPeer'>;
+  /** 別の PC から頼まれた「今すぐ試す」を、この PC で起こす（sessions/wakePaused.ts の wakePaused と同じ道）。状態の確認は呼ぶ前にしてある。 */
+  wake?: (sessionId: string) => Promise<unknown>;
   now?: () => number;
   setInterval?: typeof setInterval;
 }): PeerParts & { inbox(): PeerLaunchInbox | null; relay: PeerRelay } {
@@ -122,6 +127,13 @@ export function bootPeer(p: {
     },
     stop(sessionId: string): void {
       p.runs.runs.kill(ownRun(sessionId).id);
+    },
+    // Paused でなければ断る。起こす（再開して入力を待つ）のは最大 60 秒かかるので、待たずに裏で走らせてすぐ答える。失敗は Paused のまま残る。
+    wake(sessionId: string): void {
+      if (!p.wake) throw new Error('unsupported');
+      if (getSessionState(db, sessionId)?.status !== 'paused') throw new Error('the session is not paused');
+      const wake = p.wake;
+      void Promise.resolve().then(() => wake(sessionId)).catch((e) => { console.error('[peer] could not wake a paused session', e instanceof Error ? e.constructor.name : typeof e); });
     },
   };
   let offRelayLive: (() => void) | null = null;
@@ -284,6 +296,7 @@ export function bootPeer(p: {
       timer = (p.setInterval ?? setInterval)(tick, PEER_RESEND_MS);
       timer.unref?.();
     },
+    syncNow: () => refreshRing().then(() => outbox.sync()),
     stop() {
       stopped = true;
       if (timer) clearInterval(timer);

@@ -313,6 +313,41 @@ describe('PeerLaunchInbox', () => {
       expect(await answerOf('s3')).toEqual({ ok: false, reason: 'bad-payload' });
     });
 
+    it('wake は親が空でも通り、結び付きを問わず control.wake を呼ぶ。起動も send も stop もしない', async () => {
+      const control = { send: vi.fn(async () => {}), stop: vi.fn(async () => {}), wake: vi.fn(async () => {}) };
+      const { inbox, post, start, answerOf } = await setup({ control });
+      await inbox.receive(await post('w1', stopReq({ op: 'wake', parentSessionId: '', targetSessionId: 's-paused' })));
+      expect(control.wake).toHaveBeenCalledWith('s-paused');
+      expect(control.stop).not.toHaveBeenCalled();
+      expect(start).not.toHaveBeenCalled();
+      expect(await answerOf('w1')).toMatchObject({ ok: true, sessionId: 's-paused' });
+    });
+
+    it('wake は作られてから 15 秒より古ければ expired で断り、起こさない', async () => {
+      const control = { send: vi.fn(async () => {}), stop: vi.fn(async () => {}), wake: vi.fn(async () => {}) };
+      const { inbox, post, answerOf, setNow } = await setup({ control });
+      setNow(T0 + 15_001);
+      await inbox.receive(await post('w1', stopReq({ op: 'wake', parentSessionId: '', targetSessionId: 's-paused' })));
+      expect(control.wake).not.toHaveBeenCalled();
+      expect(await answerOf('w1')).toEqual({ ok: false, reason: 'expired' });
+    });
+
+    it('wake は Paused でなければ（control.wake が投げれば）launch-failed、親が空の send と同じく wake の本文は空だけ許す', async () => {
+      const control = { send: vi.fn(async () => {}), stop: vi.fn(async () => {}), wake: vi.fn(async () => { throw new Error('the session is not paused'); }) };
+      const { inbox, post, answerOf } = await setup({ control });
+      await inbox.receive(await post('w1', stopReq({ op: 'wake', parentSessionId: '', targetSessionId: 's-x' })));
+      await inbox.receive(await post('w2', stopReq({ op: 'wake', parentSessionId: '', targetSessionId: 's-x', prompt: 'x' })));
+      expect(await answerOf('w1')).toEqual({ ok: false, reason: 'launch-failed', detail: 'the session is not paused' });
+      expect(await answerOf('w2')).toEqual({ ok: false, reason: 'bad-payload' });
+    });
+
+    it('wake の口が無ければ launch-failed', async () => {
+      const control = { send: vi.fn(async () => {}), stop: vi.fn(async () => {}) };
+      const { inbox, post, answerOf } = await setup({ control });
+      await inbox.receive(await post('w1', stopReq({ op: 'wake', parentSessionId: '', targetSessionId: 's-x' })));
+      expect(await answerOf('w1')).toEqual({ ok: false, reason: 'launch-failed', detail: 'unsupported' });
+    });
+
     it('op の欄が無い頼みは今までどおり起動、知らない op は封じられない', async () => {
       const { inbox, post, start, answerOf } = await setup();
       await inbox.receive(await post('l1', request()));

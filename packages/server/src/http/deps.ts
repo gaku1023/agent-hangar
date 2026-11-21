@@ -278,6 +278,11 @@ export type AppDeps = {
   shareHome?: string;
   /** 別の PC へ起こす口（peer/caller.ts）。MCP の create_session の device と list_devices が使う。渡さなければ、別の PC は引けない。 */
   peerCall?: PeerCallDeps;
+  /**
+   * 「今すぐ試す」を、その会話が最後に動いた PC で起こす口（peer/screenWake.ts）。渡さなければ、いつも押した PC で起こす。
+   * ownerOf は最後の run の PC が手元でなければその名前、wake は頼んで答えを待ち、起きたら woken-remote、届かなければ fallback（手元で起こす）。
+   */
+  wakeOwner?: { ownerOf(sessionId: string): { name: string } | null; wake(sessionId: string): Promise<'woken-remote' | 'fallback'> };
   /** UI の dist。null なら UI を配らない（試験と、dist を持たない組み立て）。 */
   uiDist: string | null;
 };
