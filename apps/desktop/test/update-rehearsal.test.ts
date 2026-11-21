@@ -169,7 +169,7 @@ describe('CI の段', () => {
   const ci = read('.github/workflows/ci.yml');
   const job = (name: string) => {
     const at = ci.indexOf(`\n  ${name}:\n`);
-    const next = ci.slice(at + 1).search(/\n {2}[a-z-]+:\n/);
+    const next = ci.slice(at + 1).search(/\n {2}[a-z0-9-]+:\n/);
     return next < 0 ? ci.slice(at) : ci.slice(at, at + 1 + next);
   };
   const stepOf = (j: string, run: string) => {
@@ -188,21 +188,29 @@ describe('CI の段', () => {
     expect(stepOf(w, run)).toContain("CARGO_PROFILE_RELEASE_LTO: 'false'");
     expect(job('windows')).not.toContain('ci-update-windows.ps1');
   });
-  it('Windows の 3 つのジョブは、Rust の試験と、配布物と、更新の試しを分けて並べ、release の依存のキャッシュは 1 つを分け合う', () => {
-    const rust = job('windows-rust');
-    expect(rust).toContain('run: cargo clippy --all-targets -- -D warnings');
-    expect(rust).toContain('run: cargo test');
-    expect(job('windows')).not.toContain('cargo clippy');
+  it('Windows の 3 つのジョブは、試験と、配布物（Rust の試験を含む）と、更新の試しを分けて並べ、release の依存のキャッシュは 1 つを分け合う', () => {
+    expect(ci).not.toContain('\n  windows-rust:\n');
+    const w = job('windows');
+    expect(w).toContain('run: cargo clippy --all-targets -- -D warnings');
+    expect(w).toContain('run: cargo test');
+    expect(w).toContain('components: clippy');
     // 配布物の段が main で保存したキャッシュを、更新の試しが読む。保存は 1 か所にする。
-    expect(job('windows')).toContain('shared-key: windows-release');
+    expect(w).toContain('shared-key: windows-release');
     expect(job('windows-update')).toContain('shared-key: windows-release');
     expect(job('windows-update')).toContain('save-if: false');
   });
-  it('check の試験は 2 つのジョブに分け、型の確かめは片方だけで回す', () => {
+  // windows-test が律速だったので、server 以外の試験は windows ジョブへ移した。
+  it('Windows の試験は、server を windows-test が、desktop と cli と shared を windows が回す', () => {
+    const t = job('windows-test');
+    expect(t).toContain('run: npm test -- --project server --maxWorkers=4');
+    for (const p of ['desktop', 'cli', 'shared']) expect(t).not.toContain(`--project ${p}`);
+    expect(job('windows')).toContain('run: npm test -- --project desktop --project cli --project shared --maxWorkers=4');
+  });
+  it('check の試験は 2 つのジョブに分け、型の確かめは check-2 だけで回す', () => {
     expect(job('check')).toContain('run: npm test -- --shard=1/2');
     expect(job('check-2')).toContain('run: npm test -- --shard=2/2');
-    expect(job('check')).toContain('run: npm run typecheck');
-    expect(job('check-2')).not.toContain('typecheck');
+    expect(job('check-2')).toContain('run: npm run typecheck');
+    expect(job('check')).not.toContain('typecheck');
     // tmux が無いと、tmux に依存する試験が黙って飛ぶ。
     for (const j of ['check', 'check-2']) expect(job(j)).toContain('sudo apt-get install -y tmux');
   });
