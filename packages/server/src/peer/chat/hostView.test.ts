@@ -263,6 +263,22 @@ describe('ChatView.observe: 拠り所なしから tool_use ありへの askId �
     expect(view.resolveAskId(a0, a2)).toBe(a0);
   });
 
+  it('tool_use より先に返答の文が載って札の位置がずれても、言い換えとして読み替え、古い札を手元の記録にしない', () => {
+    const { w, view } = make();
+    const oldId = asks(view)[0]!.ask!.askId;
+    // hook が先に届いて札が出たあと、札を呼ぶ前の一言と tool_use がまとめて載る。札の直前の項目は u-asst から u-say に変わる。
+    const sayL = jl({ type: 'assistant', uuid: 'u-say', message: { role: 'assistant', model: 'm', content: [{ type: 'text', text: 'これから聞きます' }] } });
+    w.lines.push(sayL, useL);
+    view.poke('s1');
+    const cards = asks(view);
+    expect(cards).toHaveLength(1);
+    const cur = view.currentAsk('s1')!;
+    expect(cards[0]!.ask!.askId).toBe(cur.askId);
+    expect(cards[0]!.ask!.answered).toBeUndefined();
+    expect(view.answeredAsk('s1', oldId)).toBe(false);
+    expect(view.resolveAskId(oldId, cur.askId)).toBe(cur.askId);
+  });
+
   it('言い換えの覚えは 64 件まで。古いものから忘れる', () => {
     const { view } = make();
     const remember = (view as unknown as { rememberRekey(a: string, b: string): void }).rememberRekey.bind(view);

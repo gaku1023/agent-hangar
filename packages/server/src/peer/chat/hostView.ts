@@ -1,7 +1,7 @@
 import { PEER_CHAT_REPLY_SEALED_MAX, peerAskBase, peerAskInsertIndex, type PeerChatAsk, type PeerChatAskStep, type PeerChatDevice, type PeerChatGone, type PeerChatItem, type PeerChatQueued, type PeerChatState, type PeerChatStatus } from '@agent-hangar/shared';
 import { dialogMatches, isCommandTitle, parseDialog, strip, type Dialog, type DialogStep } from './answer.ts';
 import type { HostPane, HostSession } from './hostTypes.ts';
-import { currentPendingAsk, peerAskId, transcriptPosition, transcriptTail, type PeerPendingAsk, type TailDeps } from './tail.ts';
+import { currentPendingAsk, onlyRepliesBetween, peerAskId, transcriptPosition, transcriptTail, type PeerPendingAsk, type TailDeps } from './tail.ts';
 
 /**
  * 見る側へ返す会話の状態を作り、長いポーリング（tail）を待たせる。
@@ -292,12 +292,16 @@ export class ChatView {
    * 拠り所なしの askId で計算し直した値が prev の askId と一致し、種類も同じなら、同じ札である。
    * 位置（uuid の @ask: より前）も同じでなければならない。
    * 同じ命令の 2 回目の札は、内容が同じで askId だけ違うので、位置まで見ないと言い換えと取り違える（1 枚目は手元で答えられている）。
-   * text の行が先に載って位置が変わったときは、言い換えと見なさず settle する（札が重なっても、取り違えるよりよい）。
-   * 内容が違う札や、拠り所が付いていた札の入れ替わりも、別の札として扱う。
+   * ただし、札を呼ぶ前の一言（返答の文）が tool_use より先に載ると、位置が後ろへずれる。
+   * ずれた先までの間が返答の文だけなら、間に道具も発言も無いので 2 回目の札ではありえず、言い換えと見なす。
+   * 言い換えと見ずに settle すると、古い札を見ている PC の答えが、誰も答えていないのに already-answered で断られる。
+   * 内容が違う札や、拠り所が付いていた札の入れ替わりは、別の札として扱う。
    */
   private rekeyed(sessionId: string, prev: PeerChatItem, now: PeerChatItem): boolean {
     if (prev.kind !== now.kind || prev.ask!.kind !== now.ask!.kind) return false;
-    if (askBase(prev.uuid) !== askBase(now.uuid)) return false;
+    const from = askBase(prev.uuid);
+    const to = askBase(now.uuid);
+    if (from !== to && !onlyRepliesBetween(sessionId, from, to, this.tailDeps)) return false;
     const pending = this.pendingAsk(sessionId, false);
     return pending !== null && peerAskId(pending, '') === prev.ask!.askId;
   }

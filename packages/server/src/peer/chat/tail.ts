@@ -318,6 +318,20 @@ export function transcriptPosition(sessionId: string, uuid: string, deps: TailDe
 }
 
 /**
+ * transcript の項目（札を除く）で、from の後ろから to までが、返答の文（assistant）だけか。
+ * どちらかが見つからないか、to が from より前なら false。
+ * 札を呼ぶ前の一言が tool_use より先に載ると、札の直前の項目がずれる。その間に道具や発言が無ければ、同じ札の言い換えと見てよい。
+ */
+export function onlyRepliesBetween(sessionId: string, from: string, to: string, deps: TailDeps): boolean {
+  if (from === '' || to === '') return false;
+  const items = settle(scanOf(sessionId, deps)).items;
+  const i = items.findIndex((x) => x.uuid === from);
+  const j = items.findIndex((x) => x.uuid === to);
+  if (i === -1 || j <= i) return false;
+  return items.slice(i + 1, j + 1).every((x) => x.kind === 'assistant');
+}
+
+/**
  * 会話の解析の結果。deps.cache があり、手がかりの key が前と同じなら、読まず解析せずに前の結果を返す。
  * 覚えは PEER_CHAT_TAIL_CACHE_MAX 会話までで、一番長く使われていないものから捨てる。
  */
