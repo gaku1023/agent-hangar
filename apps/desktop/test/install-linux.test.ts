@@ -31,7 +31,8 @@ function run(env: Record<string, string>): { code: number; out: string } {
   return { code: r.status ?? 1, out: `${r.stdout}${r.stderr}` };
 }
 
-describe('install.sh', () => {
+// install.sh は sh の台本で、Windows のランナーでは動かさない。
+describe.skipIf(process.platform === 'win32')('install.sh', () => {
   it('手元の tar（と同じ場所の .sha256）を、版ごとのディレクトリに展開し、current と ~/.local/bin/hangar を張る', () => {
     const tarball = makeTarball('v1.2.3');
     const r = run({ HANGAR_TARBALL: tarball });

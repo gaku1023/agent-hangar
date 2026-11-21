@@ -49,7 +49,8 @@ describe('linuxTarballName', () => {
   });
 });
 
-describe('packageLinux', () => {
+// tar と sh の台本は Unix の道具で、Windows のランナーでは動かさない（配布物は Linux で作る）。
+describe.skipIf(process.platform === 'win32')('packageLinux', () => {
   it('node、app、bin/hangar、VERSION を hangar/ の下に置く。.gitkeep は入れない', () => {
     const { tarball } = pack();
     const files = execFileSync('tar', ['-tzf', tarball], { encoding: 'utf8' }).split('\n').filter(Boolean);
