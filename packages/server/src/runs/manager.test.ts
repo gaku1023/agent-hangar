@@ -296,8 +296,11 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(human).not.toContain('から起動されました');
     const scheduled = await sysOf({ projectId: 'p1', launchedBy: 'schedule' });
     expect(scheduled).toContain('このセッションは予定や出来事による自動の実行から起動されました。');
-    expect(scheduled).not.toContain('このセッションをどうしますか');
-    expect(await sysOf({ projectId: 'p1', launchedBy: 'session' })).toContain('このセッションは別の会話から起動されました。');
+    expect(scheduled).toContain('最初の依頼は予定が送ったものです。');
+    expect(scheduled).toContain('このセッションをどうしますか');
+    const spawned = await sysOf({ projectId: 'p1', launchedBy: 'session' });
+    expect(spawned).toContain('このセッションは別の会話から起動されました。');
+    expect(spawned).not.toContain('このセッションをどうしますか');
     const odd = await sysOf({ projectId: 'p1', launchedBy: 'robot' as never });
     expect(odd).toContain('このセッションをどうしますか');
   });

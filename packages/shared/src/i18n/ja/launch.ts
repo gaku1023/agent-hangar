@@ -18,6 +18,7 @@ export const launchJa: AreaDictionary<typeof launchKeys> = {
   'launch.injection.missing': '{n} 件{files}',
   'launch.injection.multiDevice': 'このプロジェクトは {deviceCount} 台の PC で使っています。過去の会話のパスやファイルの状態は、この PC と違うことがあります。\n',
   'launch.injection.unattended': "このセッションは{origin}から起動されました。画面を見て答える人はいません。\nAskUserQuestion で聞いたり、ユーザーの答えを待つ問いでターンを終えたりしないでください。答える人がいないので、そこで止まります。\n決めかねることは、妥当な方を選んで進め、選んだことと理由を返答に書いてください。進められないときは、何が足りないかを書いて終えてください。\n区切りでは、set_session_summary を更新し、propose_session_status に confirmed なしで提案だけ出して、要約の返答でターンを終えてください。\n",
+  'launch.injection.unattendedHumanJoins': "最初の依頼は予定が送ったものです。そのあと、ユーザーが自分でこの会話に話しかけてきたら、画面を見ている人がいます。それ以降は、ここまでの無人の決まりに代えて、下の「このセッションをどうしますか」の決まりに従ってください。\n",
   'launch.injection.unattendedText': "このセッションは{origin}から起動されました。画面を見て答える人はいません。\nユーザーの答えを待つ問いでターンを終えないでください。答える人がいないので、そこで止まります。\n決めかねることは、妥当な方を選んで進め、選んだことと理由を返答に書いてください。進められないときは、何が足りないかを書いて終えてください。\n区切りでは、set_session_summary を更新し、propose_session_status を confirmed なしで呼んで提案だけ出して、要約の返答でターンを終えてください。\n",
   'launch.injection.origin.schedule': "予定や出来事による自動の実行",
   'launch.injection.origin.session': "別の会話",

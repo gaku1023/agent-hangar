@@ -450,6 +450,9 @@ const UNATTENDED_JA = (origin: string) => [
   '区切りでは、set_session_summary を更新し、propose_session_status に confirmed なしで提案だけ出して、要約の返答でターンを終えてください。',
 ];
 
+/** 予定から起こした会話に、人が話しかけてきたときの一文（launch.injection.unattendedHumanJoins）。 */
+const HUMAN_JOINS_JA = '最初の依頼は予定が送ったものです。そのあと、ユーザーが自分でこの会話に話しかけてきたら、画面を見ている人がいます。それ以降は、ここまでの無人の決まりに代えて、下の「このセッションをどうしますか」の決まりに従ってください。';
+
 describe('無人の起動（予定や出来事、別の会話から起こした会話）', () => {
   const input: InjectionInput = { projectName: 'alpha', projectPath: '/w/alpha', todos: [{ id: 'ta', text: 'a' }] };
 
@@ -458,11 +461,17 @@ describe('無人の起動（予定や出来事、別の会話から起こした�
     expect(keys).toEqual(['body', 'notify', 'notifySave', 'notifyAsk', 'status', 'live']);
   });
 
-  it('予定から起こした会話は、区切りの問いと知らせ方の問いを外し、無人の段を区切りの問いの場所に置く', () => {
+  it('予定から起こした会話は、知らせ方の問いを外し、無人の段と人が来たときの一文の後に区切りの問いの段を置く', () => {
     const t = renderInjection({ ...input, launchedBy: 'schedule' }, 'ja', MAC);
-    expect(t).toBe(joined(BODY_JA, [...NOTIFY_JA, ...SAVE_JA('Mac', RULES_DEFAULT_JA)], UNATTENDED_JA('予定や出来事による自動の実行'), LIVE_JA));
-    expect(t).not.toContain('このセッションをどうしますか');
+    expect(t).toBe(joined(BODY_JA, [...NOTIFY_JA, ...SAVE_JA('Mac', RULES_DEFAULT_JA)], [...UNATTENDED_JA('予定や出来事による自動の実行'), HUMAN_JOINS_JA], STATUS_JA, LIVE_JA));
     expect(t).not.toContain('知らせ方がまだ決まっていません');
+    expect(renderInjectionEntries({ ...input, launchedBy: 'schedule' }, 'ja', MAC).map((e) => e.key)).toEqual(['body', 'notify', 'notifySave', 'unattended', 'status', 'live']);
+  });
+
+  it('予定から起こした会話でも、区切りの問いを切っていれば、人が来たときの一文も区切りの問いの段も足さない', () => {
+    const es = renderInjectionEntries({ ...input, launchedBy: 'schedule' }, 'ja', { ...MAC, askStatusAtEnd: false });
+    expect(es.map((e) => e.key)).not.toContain('status');
+    expect(es.find((e) => e.key === 'unattended')!.text).toBe(joined(UNATTENDED_JA('予定や出来事による自動の実行')));
   });
 
   it('別の会話から起こした会話も同じで、起動元の語だけが変わる', () => {
@@ -482,7 +491,8 @@ describe('無人の起動（予定や出来事、別の会話から起こした�
       const en = renderInjection({ ...input, launchedBy }, 'en', MAC);
       expect(en.split('\n').length, launchedBy).toBe(ja.split('\n').length);
       expect(en).not.toMatch(/[぀-ヿ一-鿿＀-￯]/);
-      expect(en).not.toContain('What do you want to do with this session?');
+      if (launchedBy === 'session') expect(en).not.toContain('What do you want to do with this session?');
+      else expect(en).toContain('What do you want to do with this session?');
       for (const name of ['AskUserQuestion', 'set_session_summary', 'propose_session_status', 'without confirmed']) expect(en, name).toContain(name);
     }
     expect(renderInjection({ ...input, launchedBy: 'schedule' }, 'en', MAC)).toContain('This session was started by an automatic run (a schedule or an event).');

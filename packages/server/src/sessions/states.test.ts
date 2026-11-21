@@ -54,6 +54,47 @@ describe('提案する', () => {
   });
 });
 
+describe('無人で起動した run の提案', () => {
+  const runAt = (db: Db, id: string, startedAt: number, params: Record<string, unknown>) =>
+    upsertShared(db, 'runs', { id, session_id: 's1', device_id: 'd', kind: 'start', tmux_name: `hangar-${id}`, pid: null, launch_params: JSON.stringify(params), started_at: startedAt, ended_at: null, end_reason: null, heartbeat_at: startedAt }, 'd');
+  const done = { status: 'done' as const, note: '前夜の準備が済んだ', returnOn: null, source: 'in_session' as const };
+
+  it('予定から起こした run の中で出した提案は、あとの人の発言では消さない', () => {
+    const db = seed();
+    runAt(db, 'r1', 50, { projectId: 'p', launchedBy: 'schedule' });
+    proposeSessionState(db, 'd', 's1', { ...done, now: 100 });
+    expect(clearOnNewPrompt(db, 'd', 's1', 200, () => null)).toBe(false);
+    expect(getSessionState(db, 's1')?.candidate).toMatchObject({ status: 'done', at: 100 });
+  });
+  it('別の会話から起こした run の提案も同じく残す', () => {
+    const db = seed();
+    runAt(db, 'r1', 50, { projectId: 'p', launchedBy: 'session' });
+    proposeSessionState(db, 'd', 's1', { ...done, now: 100 });
+    expect(clearOnNewPrompt(db, 'd', 's1', 200, () => null)).toBe(false);
+  });
+  it('人が起こした run の提案は、今までどおり人の発言で消す', () => {
+    const db = seed();
+    runAt(db, 'r1', 50, { projectId: 'p' });
+    proposeSessionState(db, 'd', 's1', { ...done, now: 100 });
+    expect(clearOnNewPrompt(db, 'd', 's1', 200, () => null)).toBe(true);
+    expect(getSessionState(db, 's1')?.candidate ?? null).toBeNull();
+  });
+  it('無人の run の後に人が再開した run で出した提案は消す。見るのは提案を出した時の run', () => {
+    const db = seed();
+    runAt(db, 'r1', 50, { projectId: 'p', launchedBy: 'schedule' });
+    runAt(db, 'r2', 300, { projectId: 'p' });
+    proposeSessionState(db, 'd', 's1', { ...done, now: 400 });
+    expect(clearOnNewPrompt(db, 'd', 's1', 500, () => null)).toBe(true);
+  });
+  it('残した提案も、新しい提案で上書きされる', () => {
+    const db = seed();
+    runAt(db, 'r1', 50, { projectId: 'p', launchedBy: 'schedule' });
+    proposeSessionState(db, 'd', 's1', { ...done, now: 100 });
+    clearOnNewPrompt(db, 'd', 's1', 200, () => null);
+    expect(proposeSessionState(db, 'd', 's1', { ...paused, now: 300 }).state.candidate).toMatchObject({ status: 'paused', at: 300 });
+  });
+});
+
 describe('会話で選ぶ・手で選ぶ', () => {
   it('会話で選ぶ：どれでも状態を書き、set_by を conversation にし、提案を消す', () => {
     const db = seed();
