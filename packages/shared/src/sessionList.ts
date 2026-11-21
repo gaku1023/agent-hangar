@@ -77,11 +77,12 @@ export function sortForList(list: SessionDto[]): SessionDto[] {
   return keyed.map((x) => x.s);
 }
 
-/** 起動元を引く表。会話の id から、spawnedBy と状態だけを読む。 */
-export type SpawnTable = Record<string, { spawnedBy?: string | null; state?: { status: string | null } | null } | undefined>;
+/** 起動元を引く表。会話の id から、spawnedBy とプロジェクトと状態だけを読む。 */
+export type SpawnTable = Record<string, { spawnedBy?: string | null; projectId?: string | null; state?: { status: string | null } | null } | undefined>;
 
 /**
- * 入れ子にするときの起動元。自分自身を指すもの、無いもの、Done か Archived のものは null。
+ * 入れ子にするときの起動元。自分自身を指すもの、無いもの、Done か Archived のもの、プロジェクトが違うものは null。
+ * 別のプロジェクトに起こした子は、起動元の下には入れず、子のプロジェクトの群に独立した行で出す（起動元の記録 session_spawns は残る）。
  * 終わった会話の下に、動いている仕事を並べないためである。起動元を Active に戻せば、また入れ子になる。
  * 起動元は SessionDto.spawnedBy で、古いサーバは返さないので undefined は null と読む。
  */
@@ -90,6 +91,7 @@ export function spawnParentOf(sessions: SpawnTable, id: string): string | null {
   if (typeof p !== 'string' || p === '' || p === id) return null;
   const parent = sessions[p];
   if (parent === undefined || parent.state?.status === 'done' || parent.state?.status === 'archived') return null;
+  if ((parent.projectId ?? null) !== (sessions[id]?.projectId ?? null)) return null;
   return p;
 }
 

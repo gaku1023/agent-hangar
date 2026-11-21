@@ -437,11 +437,12 @@ describe('MCP tools', () => {
       expect(() => call('create_session', { project_id: 'p1', agent: 'codex', auto_approve: true })).toThrow(ToolError);
       expect(started).toHaveLength(1);
     });
-    it('scratch: true で project_id が無くてもクイックセッションを起こす（共通の URL だけ）', async () => {
+    it('scratch: true で project_id が無くてもクイックセッションを起こす（セッション別 URL からも）', async () => {
       await call('create_session', { scratch: true });
       expect(started[0]).toMatchObject({ scratch: true });
       expect(started[0]!.projectId).toBeUndefined();
-      expect(() => call('create_session', { scratch: true }, { sessionId: alphaId })).toThrow(ToolError);
+      await call('create_session', { scratch: true }, { sessionId: alphaId });
+      expect(started[1]).toMatchObject({ scratch: true });
       expect(() => call('create_session', {})).toThrow(ToolError);
     });
     it('内部の引数 cwd を start の cwd に渡す', async () => {
@@ -1024,7 +1025,7 @@ describe('MCP tools', () => {
   });
 });
 
-describe('セッション別 URL は、そのセッションとそのプロジェクトに閉じる', () => {
+describe('セッション別 URL は、書く道具の session_id を自分に絞り、プロジェクトは共通の URL と同じく全部に効く', () => {
   let otherId: string;
   const scoped = () => ({ sessionId: alphaId });
   beforeEach(() => {
@@ -1053,13 +1054,10 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
     expect((db.prepare('select title from session_summaries where session_id = ?').get(otherId) as { title: string } | undefined)?.title).not.toBe('T');
   });
 
-  it('list_projects は自分のプロジェクトだけを返す', () => {
-    expect((call('list_projects') as unknown as { id: string }[]).map((p) => p.id).sort()).toEqual(['p1', 'p2']);
-    const r = callTool(deps, scoped(), 'list_projects', {}) as unknown as { scoped_to: string; hidden_count: number; projects: { id: string }[] };
-    expect(r.projects.map((p) => p.id)).toEqual(['p1']);
-    // 枠で絞ったことを結果に出す。隠した数は、全体の active でない物も含めた登録の総数から数える。
-    expect(r.scoped_to).toBe('p1');
-    expect(r.hidden_count).toBe(1);
+  it('list_projects は共通の URL と同じ配列で、全プロジェクトを返す', () => {
+    const r = callTool(deps, scoped(), 'list_projects', {}) as unknown as { id: string }[];
+    expect(Array.isArray(r)).toBe(true);
+    expect(r.map((p) => p.id).sort()).toEqual(['p1', 'p2']);
   });
 
   it('update_project はノートを書かない（append_memo はやめた）。notice も付けない', () => {
@@ -1071,30 +1069,38 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
     expect(fs.existsSync(path.join(home, 'projects', 'p1', 'memo.md'))).toBe(false);
   });
 
-  it('get_project と update_project は別のプロジェクトを断る', () => {
-    expect(() => call('get_project', { project_id: 'p2' }, scoped())).toThrow(ToolError);
-    expect(() => call('update_project', { project_id: 'p2', status: 'archived' }, scoped())).toThrow(ToolError);
-    expect((db.prepare('select status from projects where id = ?').get('p2') as { status: string }).status).toBe('active');
-    // 自分のプロジェクトは触れる。
-    expect(call('get_project', { project_id: 'p1' }, scoped()).id).toBe('p1');
-    expect((call('update_project', { project_id: 'p1', status: 'paused' }, scoped()).project as { status: string }).status).toBe('paused');
+  it('get_project と update_project は別のプロジェクトにも効き、project_id を省けば呼んだ会話のプロジェクトを使う', () => {
+    expect(call('get_project', { project_id: 'p2' }, scoped()).id).toBe('p2');
+    expect((call('update_project', { project_id: 'p2', status: 'archived' }, scoped()).project as { status: string }).status).toBe('archived');
+    expect(call('get_project', {}, scoped()).id).toBe('p1');
+    expect((call('update_project', { status: 'paused' }, scoped()).project as { status: string; id: string }).id).toBe('p1');
   });
 
-  it('list_sessions と search_sessions は自分のプロジェクトの外を見せない', () => {
-    const res = callTool(deps, scoped(), 'list_sessions', {}) as unknown as { scoped_to: string; sessions: { id: string }[] };
-    expect(res.scoped_to).toBe('p1');
-    expect(res.sessions.map((s) => s.id)).toEqual([alphaId]);
-    expect(() => call('list_sessions', { project_id: 'p2' }, scoped())).toThrow(ToolError);
-    const r = callTool(deps, scoped(), 'search_sessions', { query: 'a' }) as { hits: { session_id: string }[] };
-    expect(r.hits.every((h) => h.session_id === alphaId)).toBe(true);
-    expect(() => call('search_sessions', { query: 'a', project_id: 'p2' }, scoped())).toThrow(ToolError);
+  it('プロジェクトに属さない会話が project_id を省くと断り、渡せば通る', () => {
+    db.prepare('update sessions set project_id = null where id = ?').run(alphaId);
+    expect(() => call('get_project', {}, scoped())).toThrow(ToolError);
+    expect(call('get_project', { project_id: 'p2' }, scoped()).id).toBe('p2');
   });
 
-  it('create_session は別のプロジェクトで起動しない', () => {
-    expect(() => call('create_session', { project_id: 'p2', prompt: 'x' }, scoped())).toThrow(ToolError);
-    expect(started).toEqual([]);
-    call('create_session', { project_id: 'p1' }, scoped());
+  it('list_sessions と search_sessions は共通の URL と同じく全プロジェクトを返し、project_id で絞れる', () => {
+    const all = callTool(deps, scoped(), 'list_sessions', {}) as unknown as { id: string }[];
+    expect(Array.isArray(all)).toBe(true);
+    expect(all.map((s) => s.id)).toEqual(expect.arrayContaining([alphaId, otherId]));
+    const p2 = call('list_sessions', { project_id: 'p2' }, scoped()) as unknown as { id: string }[];
+    expect(p2.map((s) => s.id)).toEqual([otherId]);
+    const r = callTool(deps, scoped(), 'search_sessions', { query: 'hello' }) as { hits: { session_id: string }[] };
+    expect(r.hits.map((h) => h.session_id)).toContain(otherId);
+    expect(() => call('search_sessions', { query: 'a', project_id: 'p2' }, scoped())).not.toThrow();
+  });
+
+  it('create_session は別のプロジェクトでも起動し、クイックセッションも起こせる', async () => {
+    await call('create_session', { project_id: 'p2', prompt: 'x' }, scoped());
     expect(started).toHaveLength(1);
+    expect(started[0]!.projectId).toBe('p2');
+    await call('create_session', { project_id: 'p1' }, scoped());
+    expect(started).toHaveLength(2);
+    await call('create_session', { scratch: true }, scoped());
+    expect(started).toHaveLength(3);
   });
 
   it('create_session は呼んだセッションを起動元として残し、handoff なら残さない', async () => {
@@ -1136,8 +1142,8 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
     expect(started.at(-1)!.launchedBy).toBe('schedule');
   });
 
-  it('open_in_hangar は別のプロジェクトのリンクを返さない', () => {
-    expect(() => call('open_in_hangar', { project_id: 'p2' }, scoped())).toThrow(ToolError);
+  it('open_in_hangar は別のプロジェクトのリンクも返す', () => {
+    expect(call('open_in_hangar', { project_id: 'p2' }, scoped()).url).toContain('p2');
     expect(call('open_in_hangar', { project_id: 'p1' }, scoped()).url).toContain('p1');
   });
 });
@@ -1286,7 +1292,7 @@ describe('作者への問い合わせ', () => {
   });
 });
 
-describe('統括の URL は、読む道具で全プロジェクトを読める（書く道具の枠は今のまま）', () => {
+describe('統括の URL は、共通の URL と同じく全プロジェクトを読み書きできる', () => {
   let orchId: string;
   // 統括の会話の秘密で開けた URL。本体のトークンで開けた URL は統括とみなさない（orchestratorTools.ts の isOrchestratorCtx）。
   const orch = () => ({ sessionId: orchId, sessionSecret: true });
@@ -1311,10 +1317,10 @@ describe('統括の URL は、読む道具で全プロジェクトを読める�
     expect(call('get_transcript', { session_id: alphaId }, orch()).session_id).toBe(alphaId);
   });
 
-  it('書く道具は今と同じく断る', () => {
-    expect(() => call('update_project', { project_id: 'p1', status: 'paused' }, orch())).toThrow(ToolError);
-    expect((db.prepare('select status from projects where id = ?').get('p1') as { status: string }).status).toBe('active');
-    expect(() => call('open_in_hangar', { project_id: 'p1' }, orch())).toThrow(ToolError);
+  it('書く道具もプロジェクトを指して通る。省くと断る', () => {
+    expect((call('update_project', { project_id: 'p1', status: 'paused' }, orch()).project as { status: string }).status).toBe('paused');
+    expect(call('open_in_hangar', { project_id: 'p1' }, orch()).url).toContain('p1');
+    expect(() => call('update_project', { status: 'paused' }, orch())).toThrow(ToolError);
   });
 
   it('統括の会話の当たりと一覧の項目に orchestrator: true を付け、ほかは false', () => {
@@ -1344,17 +1350,10 @@ describe('統括の URL は、読む道具で全プロジェクトを読める�
     expect(list.find((s) => s.id === alphaId)?.orchestrator).toBe(false);
   });
 
-  it('プロジェクトのセッションの URL からは、統括の会話は検索に出ない', () => {
-    expect(hitsOf(call('search_sessions', { query: 'hello' }, { sessionId: alphaId })).map((h) => h.session_id)).not.toContain(orchId);
-  });
-
-  it('本体のトークンで開けた統括の URL と、統括を切ったときは、今までどおり狭い', () => {
-    expect(() => call('search_sessions', { query: 'チャンネル' }, { sessionId: orchId })).toThrow(ToolError);
+  it('本体のトークンで開けた URL と、統括を切ったときも、読む道具は全プロジェクトに効く', () => {
+    expect(hitsOf(call('search_sessions', { query: 'チャンネル' }, { sessionId: orchId })).map((h) => h.session_id)).toContain(alphaId);
     deps.settings = () => ({ orchestrator: { enabled: false, sessionId: orchId, model: 'sonnet', effort: 'medium' } });
-    expect(() => call('search_sessions', { query: 'チャンネル' }, orch())).toThrow(ToolError);
-    // プロジェクトに属さない会話の URL は枠つき（scoped_to が null）で、自分だけを返す。
-    const narrow = call('list_sessions', {}, orch()) as unknown as { scoped_to: null; sessions: unknown };
-    expect(narrow.scoped_to).toBeNull();
-    expect(idsOf(narrow.sessions as never)).toEqual([orchId]);
+    expect(hitsOf(call('search_sessions', { query: 'チャンネル' }, orch())).map((h) => h.session_id)).toContain(alphaId);
+    expect(idsOf(call('list_sessions', {}, orch()))).toEqual(expect.arrayContaining([alphaId, orchId]));
   });
 });

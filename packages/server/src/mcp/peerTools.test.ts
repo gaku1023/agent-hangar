@@ -30,8 +30,6 @@ let linkOk: boolean;
 let deps: ToolDeps;
 let caller: string;
 let live: LiveSessionDto[];
-let approvals: { requestId: string; to: string }[];
-let approvalRequests: Record<string, unknown>[];
 
 const ctx = () => ({ sessionId: caller });
 const call = async (name: string, args: Record<string, unknown> = {}, c: { sessionId: string | null } = ctx()) => (await callTool(deps, c, name, args)) as Record<string, unknown>;
@@ -49,8 +47,6 @@ beforeEach(async () => {
   workerCompat = null;
   creator = false;
   linkOk = true;
-  approvals = [];
-  approvalRequests = [];
   upsertShared(db, 'devices', { id: ME, name: 'Win', platform: 'win32', last_seen_at: NOW }, ME);
   upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, ME);
   upsertShared(db, 'projects', { id: 'p2', name: 'beta', status: 'active', is_scratch: 0 }, ME);
@@ -66,7 +62,6 @@ beforeEach(async () => {
     now: () => NOW,
     version: '1.0.0',
     newId: () => 'req-1',
-    requestApproval: (o) => { approvals.push({ requestId: o.requestId, to: o.to }); approvalRequests.push({ ...o.request, toName: o.toName, scratch: o.scratch }); },
   };
   deps = {
     db, deviceId: ME, port: 4177, live: () => live, peer,
@@ -236,17 +231,21 @@ describe('create_session の device', () => {
     expect(await call('create_session', { device: 'Mac' })).toMatchObject({ status: 'refused', reason: 'device-offline' });
   });
 
-  it('ほかのプロジェクトやクイックセッションを名指しすると approval-pending で、頼みは置かない', async () => {
+  it('ほかのプロジェクトやクイックセッションを名指しすると、承認を挟まずそのまま頼みとして置く', async () => {
     putPeer();
     const r = await call('create_session', { device: 'Mac', project_id: 'p2', prompt: 'x' });
-    expect(r).toMatchObject({ status: 'approval-pending', request_id: 'req-1' });
-    expect(approvals).toEqual([{ requestId: 'req-1', to: PEER }]);
-    expect(a.wire.peerLaunches.size).toBe(0);
+    expect(r).toMatchObject({ status: 'requested', request_id: 'req-1' });
+    expect(a.wire.peerLaunches.has('req-1')).toBe(true);
+    expect(getPeerRequest(db, 'req-1')).toMatchObject({ to_device: PEER, caller_session_id: caller, state: 'requested' });
     const q = await call('create_session', { device: 'Mac', scratch: true, prompt: 'x' });
-    expect(q.status).toBe('approval-pending');
-    // 承認されたら封じて置くので、頼みの中身は封じる前の値で渡す。
-    expect(approvalRequests[0]).toMatchObject({ prompt: 'x', projectId: 'p2', scratch: false, parentSessionId: caller, toName: 'Mac' });
-    expect(approvalRequests[1]).toMatchObject({ projectId: null, scratch: true });
+    expect(q.status).toBe('requested');
+  });
+
+  it('呼び出し元の会話がプロジェクトに属さず project_id を省けば断る', async () => {
+    putPeer();
+    db.prepare('update sessions set project_id = null where id = ?').run(caller);
+    await expect(call('create_session', { device: 'Mac', prompt: 'x' })).rejects.toThrow();
+    expect(a.wire.peerLaunches.size).toBe(0);
   });
 
   it('呼び出し元の会話が無い共通の URL では断る', async () => {
