@@ -98,7 +98,8 @@ describe.skipIf(!host)('bundleServer', () => {
       'node_modules/node-pty/lib/index.js',
       // Windows の node-pty は 1.2 で winpty をやめ、pty.node（winpty の口）を持たない。ConPTY の conpty.node だけで動く。
       onWindows ? `node_modules/node-pty/prebuilds/${host}/conpty.node` : `node_modules/node-pty/prebuilds/${host}/pty.node`,
-      onWindows ? `node_modules/node-pty/prebuilds/${host}/conpty_console_list.node` : `node_modules/node-pty/prebuilds/${host}/spawn-helper`,
+      // spawn-helper は macOS の node-pty だけが持つ（Linux の prebuild は pty.node だけ）。
+      onWindows ? `node_modules/node-pty/prebuilds/${host}/conpty_console_list.node` : host?.startsWith('linux-') ? `node_modules/node-pty/prebuilds/${host}/pty.node` : `node_modules/node-pty/prebuilds/${host}/spawn-helper`,
       'cloud/worker.mjs',
       'cloud/metadata.json',
     ]) {

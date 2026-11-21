@@ -32,7 +32,7 @@ fi
 case "$machine" in
   x86_64 | amd64) arch=x64 ;;
   aarch64 | arm64) arch=arm64 ;;
-  *) die "この CPU（$machine）には対応していません。対応するのは x64 と arm64 です。" ;;
+  *) die "この CPU（${machine}）には対応していません。対応するのは x64 と arm64 です。" ;;
 esac
 
 # musl（Alpine など）の Node-API のネイティブは同梱していない。
@@ -82,7 +82,7 @@ elif command -v shasum >/dev/null 2>&1; then
 else
   die "sha256sum か shasum が必要です。"
 fi
-[ "$expected" = "$actual" ] || die "checksum が合いません（$tarball）。壊れているか、書き換えられています。何も入れていません。"
+[ "$expected" = "$actual" ] || die "checksum が合いません（${tarball}）。壊れているか、書き換えられています。何も入れていません。"
 
 # 版は tar の中の VERSION から読む（手元の tar でも正しい名前で置く）。
 extract="$(mktemp -d)"
