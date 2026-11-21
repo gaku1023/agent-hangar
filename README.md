@@ -171,6 +171,7 @@ Smart App Control がオンの PC では、オフにしないと入れられな�
 ## 詳しい文書
 
 - [docs/install.md](docs/install.md)：入れ方の細部、v0.1.0 からの移行、zip から入れる手順、psmux。
+- [docs/linux.md](docs/linux.md)：Linux にサーバーだけ常駐させる手順（画面なし。Mac やスマホから操る）。
 - [docs/usage.md](docs/usage.md)：初日にすること、使い方、ショートカット。
 - [docs/cloud-sync.md](docs/cloud-sync.md)：クラウド同期の始め方と割り切り、スマホ。
 - [docs/files-and-network.md](docs/files-and-network.md)：hangar が書くファイルと、通信先。
