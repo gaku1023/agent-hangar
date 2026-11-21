@@ -47,6 +47,7 @@ import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
 import { AGENT_ENTRY } from '../agent/entry.ts';
 import { watchArrivedUnread } from '../live/unreadArrive.ts';
+import { ViewingShare } from '../live/viewingShare.ts';
 
 /** run の出入りや登録の変化の後（RunManager.stir）に、tmux の一覧を見て run の終了を拾う間隔。 */
 const RUN_POLL_MS = 2000;
@@ -298,6 +299,8 @@ export function bootRuns(
   // notify_user の出し忘れの受け皿。そのターンに呼ばれないまま抜けた会話に、最後の返答の頭の 1 文で未読を 1 つ積む（OS とスマホへは出さない）。
   const notifyFallback = new NotifyFallback({ db, live: () => live.current(), settings: () => settings.current, lastReply: (id) => lastReply(db, id) });
   notifyFallback.start();
+  // いま開いて見ている会話を devices の行で 2 台に配り、ほかの PC で見ている会話も知らせを止める（live/viewingShare.ts）。
+  new ViewingShare({ db, device }).start();
   live.onChange(() => { try { notifyFallback.check(); } catch (e) { console.error('[unread] could not check the notify fallback', e instanceof Error ? e.message : e); } });
   const touch = (): void => touchDevice({ db, device, shellHook: shell.hook });
   let parkTimer: ReturnType<typeof setInterval> | null = null;

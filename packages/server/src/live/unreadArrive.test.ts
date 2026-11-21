@@ -4,6 +4,7 @@ import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { addUnread, bindUnreadDevice, onUnreadReady, type NotifyTarget } from './unread.ts';
 import { noticeArrivedUnread, type ArriveDeps } from './unreadArrive.ts';
+import { noteViewing, resetViewing } from './viewing.ts';
 
 /**
  * ほかの PC から届いた未読の OS の通知（2026-11-21）。
@@ -33,6 +34,16 @@ describe('noticeArrivedUnread', () => {
     const db = world();
     noticeArrivedUnread(deps(db), 's1');
     expect(fired).toEqual([{ id: 's1', text: '終わりました', count: 1, sent: ['os'], kind: 'done' }]);
+  });
+  it('この PC で開いて見ている会話には出さない（相手がまだこちらの見ているのを知らずに積んだ分）', () => {
+    const db = world();
+    noteViewing('win', 's1');
+    try {
+      noticeArrivedUnread(deps(db), 's1');
+      expect(fired).toEqual([]);
+    } finally {
+      resetViewing();
+    }
   });
   it('決まりの os に場面が無ければ出さない', () => {
     const db = world({ kind: 'progress' });

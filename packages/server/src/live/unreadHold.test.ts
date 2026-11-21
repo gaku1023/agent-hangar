@@ -46,13 +46,13 @@ describe('UnreadHold', () => {
     expect(ready).toHaveLength(1);
   });
 
-  it('ターンを抜けたときに画面で前に出して見ている会話なら、預かった未読を積まず、スマホへも出さない', () => {
+  it('ターンを抜けたときにどちらかの PC で開いて見ている会話なら、預かった未読を積まず、OS にもスマホにも出さない', () => {
     const h = hold();
     noteUnread(s1, '見ている間に終わりました', 0, ['unread', 'os', 'phone'], { kind: 'done', unreadHeld: true });
     noteViewing('win', s1);
     live = [entry('u1', 'idle'), entry('u2', 'busy')];
     h.check();
-    expect(ready).toEqual([{ id: s1, text: '見ている間に終わりました', count: 0, sent: ['os'], meta: { kind: 'done' } }]);
+    expect(ready).toEqual([]);
     expect(db.prepare('select count(*) as n from session_states where unread_count > 0').get()).toEqual({ n: 0 });
   });
 
