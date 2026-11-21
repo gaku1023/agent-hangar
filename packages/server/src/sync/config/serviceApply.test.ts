@@ -42,6 +42,19 @@ function arrive(home: string, items: In[], meta: { os?: 'darwin' | 'win32' | 'li
 }
 
 describe('保留の理由（フックとプラグイン）', () => {
+  it('OS が違うため書かない statusLine は、手元と食い違っても競合に数えず、競合の一覧にも出さない', () => {
+    const { svc, home } = make({ switches: { 'claude-hooks': true } });
+    fs.writeFileSync(path.join(tmp, 'claude', 'settings.json'), JSON.stringify({ statusLine: { type: 'command', command: 'echo mac' } }));
+    arrive(home, [
+      { id: 'claude-hooks:statusline', kind: 'claude-statusline', content: JSON.stringify({ v: 1, value: { type: 'command', command: 'echo win' }, files: [] }) },
+    ], { os: 'win32', targets: ['claude', 'claude-hooks'] });
+    const item = svc.inbox().items.find((i) => i.id === 'claude-hooks:statusline');
+    expect(item).toMatchObject({ op: 'conflict', held: 'other-os' });
+    expect(svc.dto().conflicts).toBe(0);
+    expect(svc.dto().held).toBe(1);
+    expect(svc.conflicts()).toEqual([]);
+  });
+
   it('送り手と OS が違うフック、ローカルの配布元を持つプラグインは held に出て、指示書に入れられない', () => {
     const { svc, home } = make({ switches: { 'claude-hooks': true, 'claude-plugins': true } });
     arrive(home, [

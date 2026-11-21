@@ -101,6 +101,12 @@ export type ConfigSyncDeps = {
 
 export type ConfigAttention = { asks: number; conflicts: number; autoFailed: boolean };
 
+/**
+ * 人が選ぶ競合か。保留の項目（OS 違いの hooks・statusLine など）は、どちらを採っても書き込まないので選びようがない。
+ * 件数、競合の一覧、知らせのどれにも数えない（保留の数と「適用外の変更」には出る）。
+ */
+const isLiveConflict = (r: { action: { op: string }; held: unknown }): boolean => r.action.op === 'conflict' && !r.held;
+
 /** 経路が status を付けて返す、利用者に見せる失敗。 */
 export class ConfigSyncError extends MessageError {
   constructor(readonly status: 400 | 404 | 500, text: Message) { super(text); this.name = 'ConfigSyncError'; }
@@ -566,7 +572,7 @@ export class ConfigSyncService {
       if (kind !== 'settings') return s;
       try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; }
     };
-    return this.resolved().filter((r) => r.action.op === 'conflict').map((r) => {
+    return this.resolved().filter(isLiveConflict).map((r) => {
       const remoteBlob = r.remote ? readInboxBlob(this.deps.home, r.action.fromDeviceId, r.remote.item.sha256) : null;
       return {
         id: r.action.id, kind: r.kind, label: r.label, marks: r.marks,
@@ -795,7 +801,7 @@ export class ConfigSyncService {
       const rs = this.resolved();
       const key = (r: Resolved): string => `${r.action.id}\0${r.action.op}\0${r.action.remoteSha256 ?? ''}`;
       const ask = new Set(rs.filter((r) => r.action.op !== 'conflict' && !r.held && itemNeedsConfirm({ id: r.action.id, kind: r.kind, op: r.action.op }, this.kindMode(r.kind))).map(key));
-      const conflict = new Set(rs.filter((r) => r.action.op === 'conflict').map(key));
+      const conflict = new Set(rs.filter(isLiveConflict).map(key));
       const asks = [...ask].filter((k) => !this.notified.ask.has(k)).length;
       const conflicts = [...conflict].filter((k) => !this.notified.conflict.has(k)).length;
       const errorAt = this.lastAutoError?.at ?? null;
@@ -850,7 +856,7 @@ export class ConfigSyncService {
       approval: this.legacyApproval(),
       workerPending: this.workerPending(),
       incoming: r.filter((x) => x.action.op !== 'conflict' && !x.held).length,
-      conflicts: r.filter((x) => x.action.op === 'conflict').length,
+      conflicts: r.filter(isLiveConflict).length,
       held: r.filter((x) => x.held).length,
       unsent: this.unsentCounts().unsent,
       unknownKeyCount: this.unsentCounts().unknownKeys,
