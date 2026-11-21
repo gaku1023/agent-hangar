@@ -25,6 +25,7 @@ import type { Db } from '../db/open.ts';
 import { displayName } from '../db/queries.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import { getSpawn, isSpawnedFromOtherDevice, recordSpawn } from '../sessions/spawns.ts';
+import { setSessionMuted } from '../sessions/states.ts';
 import { CloudError } from '../sync/client.ts';
 
 /** 頼んだ PC と頼まれた PC の時計のずれを見込んで、期限に足す余裕（スマホの依頼と同じ）。 */
@@ -292,6 +293,10 @@ export class PeerLaunchInbox {
       res = await this.deps.start(params);
     } catch (e) {
       return fail('launch-failed', clampText(e instanceof Error ? e.message : String(e)) ?? undefined);
+    }
+    // 静かな会話として頼まれたら、起こした会話をミュートする。書けなくても起動は済んでいるので、started と答える。
+    if (r.silent === true) {
+      try { setSessionMuted(this.deps.db, this.deps.deviceId, res.sessionId, true); } catch (e) { console.error('[peer] could not mute the launched session', e instanceof Error ? e.constructor.name : typeof e); }
     }
     // 起こした後は、題が読めなくても started と答える（会話は動いている）。
     let title: string;

@@ -21,7 +21,7 @@ import { parkedSessionIds } from '../../sessions/park.ts';
 import { stopReasonsOf } from '../../sessions/stopReasons.ts';
 import { changedFilesOf } from '../../sessions/files.ts';
 import { DeleteError } from '../../sessions/trash.ts';
-import { confirmSessionState, getSessionState, rejectSessionState, setSessionPinned, setSessionState, StateInputError } from '../../sessions/states.ts';
+import { confirmSessionState, getSessionState, rejectSessionState, setSessionMuted, setSessionPinned, setSessionState, StateInputError } from '../../sessions/states.ts';
 import { parseWakeOn } from '../../event/validate.ts';
 import { readEvents, subagentIds } from '../../transcript/read.ts';
 import { errorText, MessageError, render, translatorOf } from '../../i18n/message.ts';
@@ -376,6 +376,17 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     const pinned = (b.value as { pinned?: unknown } | null)?.pinned;
     if (typeof pinned !== 'boolean') return c.json({ error: tr('http.request.badShape') }, 400);
     setSessionPinned(db, deviceId, id, pinned);
+    return c.body(null, 204);
+  });
+  // ミュート（静かな会話）。ピン留めと同じ行に置くので、同期で 2 台の PC にそろう。
+  api.post('/sessions/:id/mute', async (c) => {
+    const id = c.req.param('id');
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
+    if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
+    const muted = (b.value as { muted?: unknown } | null)?.muted;
+    if (typeof muted !== 'boolean') return c.json({ error: tr('http.request.badShape') }, 400);
+    setSessionMuted(db, deviceId, id, muted);
     return c.body(null, 204);
   });
   // 複製の新規ダイアログに入れる値。

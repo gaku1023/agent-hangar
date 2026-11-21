@@ -21,6 +21,13 @@ describe('ピン留め', () => {
   });
 });
 
+describe('ミュート', () => {
+  it('session.mute は api.setMuted を出す', () => {
+    const r = transition(initialState(), storeOf([sess('a')]), act({ type: 'session.mute', id: 'a', muted: true }));
+    expect(r.effects).toContainEqual({ kind: 'api.setMuted', id: 'a', muted: true });
+  });
+});
+
 describe('未読に戻す', () => {
   it('開いていない会話は、送るだけで印を付けない', () => {
     const r = transition(initialState(), storeOf([sess('a')]), act({ type: 'session.unread.mark', id: 'a' }));

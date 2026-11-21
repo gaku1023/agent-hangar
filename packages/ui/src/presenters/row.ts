@@ -53,6 +53,8 @@ export type SessionRowProps = { id: string; name: string; oneLiner: string; proj
   resumeHere?: { disabled: string | null };
   /** 中断の印（右端の「中断」）。ステータスの無いセッションで、最後の run が中断で終わり、いま終わっているものだけが持つ。title は原因と時刻。 */
   interrupted?: { label: string; title: string };
+  /** ミュートした会話（静かな会話）の印の名前（右端のベルの斜線、試作の L1）。ミュートしていなければ持たない。 */
+  muted?: string;
   /** スマホから起動した会話のラベル（試作 F1、名前の後ろ）。bypass は Bypass permissions で、赤い枠にする。PC で起こした会話は持たない。 */
   phone?: { label: string; title: string; bypass: boolean };
   /** 題名の左のエージェントのアイコン（B10、agentIcon.ts）。null は空の枠（絵の無い種類）。アイコンを出さないとき（opencode が切で、その会話も無い）は持たない。 */
@@ -147,6 +149,7 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
   if (here) row.resumeHere = { disabled: here.disabled };
   row.menu = presentSessionMenu(store, s, t);
   if (s.interrupted && row.live === null && row.runId === null && !status) row.interrupted = interruptMark(t, s.interrupted, now);
+  if ((s.mutedAt ?? null) !== null) row.muted = t('row.mark.muted');
   const phone = phoneLabelOf(s, t);
   if (phone) row.phone = phone;
   const agent = rowAgent(store, s);

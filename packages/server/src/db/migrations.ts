@@ -1177,6 +1177,16 @@ insert into settings_local (key, value) values ('fts_tail_backfill_rowid', '0') 
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
  */
+/**
+ * 版 68。session_states にミュートの時刻（muted_at）と、その事実の時刻（muted_changed_at）を足す（2026-11-21、静かな会話）。
+ * ミュートは利用者が決める会話の属性で、2 台の PC で同期するので、ピン留めと同じ行に置く。null はミュートしていないこと。
+ * 列を足すだけなので、クラウド（Worker）にマイグレーションは要らない。
+ */
+const V68_SESSION_MUTED_SQL = `
+alter table session_states add column muted_at integer;
+alter table session_states add column muted_changed_at integer;
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: BASELINE_VERSION, sql: BASELINE_SQL },
   { version: 17, sql: V17_SESSION_NOTES_SQL },
@@ -1229,4 +1239,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 65, sql: V65_EVENT_PATH_REF_SQL },
   { version: 66, sql: V66_FTS_TAIL_SQL },
   { version: 67, sql: V67_UNREAD_SYNC_SQL },
+  { version: 68, sql: V68_SESSION_MUTED_SQL },
 ];

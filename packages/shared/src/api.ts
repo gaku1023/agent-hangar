@@ -150,6 +150,8 @@ export type SessionDto = { id: string; provider: AgentKind; providerSessionId: s
   unread: { count: number; latest: string | null; at: number; elsewhere?: true } | null;
   /** ピン留めした時刻（session_states.pinned_at、同期する）。留めていなければ null。 */
   pinnedAt: number | null;
+  /** ミュートした時刻（session_states.muted_at、同期する）。ミュートした会話は未読・OS・スマホの知らせを出さず、サイドバーに載らない。していなければ null。 */
+  mutedAt: number | null;
   /**
    * MCP の create_session で起こした会話の起動元のセッション id（この PC の手元の表 session_spawns）。
    * 引き継ぎ（handoff）で起こした会話と、画面や共通の URL から起こした会話は null。他の PC では null である。

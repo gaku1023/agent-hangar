@@ -86,6 +86,7 @@ type SessionRow = {
   // 同じファイルの編集の写し（session_overlaps の payload）。無ければ null。
   overlap_payload: string | null;
   ss_pinned_at: number | null;
+  ss_muted_at: number | null;
   unread_count: number | null;
   unread_text: string | null;
   unread_at: number | null;
@@ -131,7 +132,7 @@ select s.*, (exists(select 1 from transcript_files t where t.session_id = s.id a
   (select r.ended_at from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1) last_ended_at,
   (select i.cause from interrupted_runs i where i.run_id = (select r.id from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1)) last_interrupt_cause,
   ov.payload overlap_payload,
-  ss.pinned_at ss_pinned_at, ss.unread_count unread_count, ss.unread_text unread_text, ss.unread_at unread_at, ss.unread_device unread_device,
+  ss.pinned_at ss_pinned_at, ss.muted_at ss_muted_at, ss.unread_count unread_count, ss.unread_text unread_text, ss.unread_at unread_at, ss.unread_device unread_device,
   sp.parent_id spawned_by, sp.parent_device_id sp_parent_dev, sp.child_device_id sp_child_dev, sp.relay sp_relay,
   (select d.name from devices d where d.id = sp.parent_device_id) sp_parent_name, (select d.name from devices d where d.id = sp.child_device_id) sp_child_name,
   (select ifnull(ml.permission_mode, '') from mobile_launches ml where ml.session_id = s.id order by ml.handled_at limit 1) ml_mode,
@@ -426,6 +427,7 @@ function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto
     overlap: live ? overlapOf(r.overlap_payload) : null,
     unread: unreadOf(r, self),
     pinnedAt: r.ss_pinned_at,
+    mutedAt: r.ss_muted_at,
     spawnedBy: r.spawned_by,
     spawnPeer: spawnPeerOf(r, self),
     // 統括の系譜の会話にだけ付ける。ほかは鍵ごと送らない。

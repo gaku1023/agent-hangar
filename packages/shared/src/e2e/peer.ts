@@ -56,6 +56,8 @@ export type PeerLaunchRequest = {
   effort?: string;
   mode?: string;
   autoApprove?: boolean;
+  /** 静かな会話として起こす（create_session の silent）。受けた PC が起こした会話をミュートする。知らない古い PC は読み捨てる。 */
+  silent?: boolean;
   name?: string;
   /** 頼んだ PC の会話のアカウントの名前。account が空のとき、頼まれた PC はこの名前のアカウントで起こす（D7）。 */
   callerAccount?: string;
@@ -134,7 +136,7 @@ function isRequest(v: unknown): v is PeerLaunchRequest {
   if (!isObj(v) || v.v !== 1 || !isTime(v.createdAt) || !isStr(v.parentSessionId) || typeof v.scratch !== 'boolean') return false;
   if (!(v.projectId === null || isStr(v.projectId)) || !isAgentKind(v.agent)) return false;
   if (!isStr(v.account) || !isStr(v.permissionMode) || !isStr(v.model) || !isStr(v.prompt)) return false;
-  return optStr(v.effort) && optStr(v.mode) && optStr(v.name) && optStr(v.callerAccount) && (v.spawnedRemotely === undefined || typeof v.spawnedRemotely === 'boolean') && (v.autoApprove === undefined || typeof v.autoApprove === 'boolean') && (v.op === undefined || (isStr(v.op) && (PEER_LAUNCH_OPS as readonly string[]).includes(v.op))) && optStr(v.targetSessionId);
+  return optStr(v.effort) && optStr(v.mode) && optStr(v.name) && optStr(v.callerAccount) && (v.spawnedRemotely === undefined || typeof v.spawnedRemotely === 'boolean') && (v.autoApprove === undefined || typeof v.autoApprove === 'boolean') && (v.silent === undefined || typeof v.silent === 'boolean') && (v.op === undefined || (isStr(v.op) && (PEER_LAUNCH_OPS as readonly string[]).includes(v.op))) && optStr(v.targetSessionId);
 }
 
 function pickRequest(v: PeerLaunchRequest): PeerLaunchRequest {
@@ -153,6 +155,7 @@ function pickRequest(v: PeerLaunchRequest): PeerLaunchRequest {
   if (v.effort !== undefined) out.effort = v.effort;
   if (v.mode !== undefined) out.mode = v.mode;
   if (v.autoApprove !== undefined) out.autoApprove = v.autoApprove;
+  if (v.silent !== undefined) out.silent = v.silent;
   if (v.name !== undefined) out.name = v.name;
   if (v.callerAccount !== undefined) out.callerAccount = v.callerAccount;
   if (v.spawnedRemotely !== undefined) out.spawnedRemotely = v.spawnedRemotely;

@@ -42,10 +42,10 @@ describe('メニューの 3 項目', () => {
   it('状態の後ろに区切ってまとめる', () => {
     const list = sessionMenuEntries(t, menu());
     const at = list.findIndex((e) => e.key === 'markUnread');
-    expect(list.slice(at, at + 3).map((e) => e.key)).toEqual(['markUnread', 'pin', 'duplicate']);
+    expect(list.slice(at, at + 4).map((e) => e.key)).toEqual(['markUnread', 'pin', 'mute', 'duplicate']);
     expect(list[at]!.separatorBefore).toBe(true);
     expect(list[at - 1]!.key).toBe('archived');
-    expect(list[at + 3]!.separatorBefore).toBe(true);
+    expect(list[at + 4]!.separatorBefore).toBe(true);
   });
   it('送る中身', () => {
     const by = Object.fromEntries(sessionMenuEntries(t, menu()).map((e) => [e.key, e]));

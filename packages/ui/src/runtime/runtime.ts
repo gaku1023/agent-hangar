@@ -940,6 +940,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // セッションの状態。画面の正は後から届く session.upsert なので、返り値はストアに入れない。失敗の一文はトーストに出す。
       case 'api.detachSpawn': deps.api.detachSpawn(e.id).catch(fail); return;
       case 'api.setPinned': deps.api.setPinned(e.id, e.pinned).catch(fail); return;
+      case 'api.setMuted': deps.api.setMuted(e.id, e.muted).catch(fail); return;
       case 'api.markUnread': deps.api.markUnread(e.id).catch(fail); return;
       case 'api.loadDuplicate':
         deps.api.launchSettings(e.id).then((settings) => { dispatch({ kind: 'action', action: duplicateOpenAction(store, e.id, settings) }); }).catch(fail);

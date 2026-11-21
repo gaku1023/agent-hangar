@@ -18,7 +18,7 @@ import { agentEnabledLabel, type LaunchHooks, type LaunchResult } from '../runs/
 import { searchSessions } from '../search/search.ts';
 import { requestDeleteApproval } from '../sessions/deleteApprovals.ts';
 import { recordSpawn } from '../sessions/spawns.ts';
-import { getSessionState, proposeSessionState, setSessionState, StateInputError, validateStateInput, type ProposeStateOutcome } from '../sessions/states.ts';
+import { getSessionState, proposeSessionState, setSessionMuted, setSessionState, StateInputError, validateStateInput, type ProposeStateOutcome } from '../sessions/states.ts';
 import { readEvents } from '../transcript/read.ts';
 import { deviceOfSession } from '../runs/handover.ts';
 import type { ReportService } from '../report/service.ts';
@@ -557,6 +557,8 @@ export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
   const key = agent !== undefined && agent !== 'claude-code' ? newPrepKey() : undefined;
   // 呼んだセッションを起動元として残す。引き継ぎと、呼んだセッションが分からない共通の URL では残さない。
   const spawned = (id: string) => { if (ctx.sessionId && !bool(args.handoff)) recordSpawn(deps.db, deps.deviceId, id, ctx.sessionId, Date.now()); };
+  // silent: true は静かな会話として起こす（ミュート）。呼んだ会話がミュートでも引き継がず、毎回指定したときだけにする（2026-11-21）。
+  const silenced = (id: string) => { if (bool(args.silent) === true) setSessionMuted(deps.db, deps.deviceId, id, true); };
   // 待つ道具（wait_for_session）が、起動の途中と起動直後の idle をターンの終わりと読まないための印。
   const launchedAt = Date.now();
   const marked = (id: string) => noteTurnStart(deps.db, id, { at: launchedAt, expectsReply: str(args.prompt) !== undefined, ...(key ? { prepKey: key } : {}) });
@@ -573,8 +575,9 @@ export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
   return awaitLaunch(deps, ctx, launch, {
     key, name: str(args.name) ?? agent ?? '', sessionId: () => pending, announce: (id) => announceOf(deps, id, args),
     // 準備の間も、起こした会話を起動元の下に並べる。
-    detached: (id) => { spawned(id); marked(id); },
+    detached: (id) => { silenced(id); spawned(id); marked(id); },
     done: (r) => {
+      silenced(r.sessionId);
       spawned(r.sessionId);
       marked(r.sessionId);
       return { run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: sessionUrl(deps, r.sessionId), announce: announceOf(deps, r.sessionId, args), ...(account ? { account: account.name } : {}) };
@@ -775,6 +778,8 @@ export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
   if (isQuietStatus(session.state?.status) && !session.woke) sent = [];
   // 画面で前に出して見ている会話には、未読を積まず、スマホへも出さない（live/viewing.ts）。OS の通知は殻が窓の前後で決める。
   if (isViewing(id, now)) sent = sent.filter((x) => x === 'os');
+  // ミュートした会話（静かな会話）は、どの先へも出さない。
+  if ((session.mutedAt ?? null) !== null) sent = [];
   // 出し先が空でも、呼んだことと場面は知らせる。統括の出来事（orchestrator/feed.ts の turn.done）と、
   // 返答の終わりの数え（live/notifyFallback.ts）が聞く。後者は done と ask の呼ばれたターンに、終わりの 1 つを二重に積まない。
   noteNotifyKind(id, kind, o.immediate === true);

@@ -150,6 +150,7 @@ export type Effect =
   // セッションの状態。本文には渡されたものだけを載せる。
   | { kind: 'api.detachSpawn'; id: string }
   | { kind: 'api.setPinned'; id: string; pinned: boolean }
+  | { kind: 'api.setMuted'; id: string; muted: boolean }
   | { kind: 'api.markUnread'; id: string }
   // 元の会話の設定を読み、埋めた新規ダイアログを開く（mediator/launch.ts の duplicateOpenAction）。
   | { kind: 'api.loadDuplicate'; id: string }

@@ -187,6 +187,7 @@ export type UiAction =
   // 右クリックの 3 つ。未読に戻す、ピン留め、同じ設定で新しいセッション（設定を読んでから埋めたダイアログを開き、起動はしない）。
   | { type: 'session.unread.mark'; id: SessionId }
   | { type: 'session.pin'; id: SessionId; pinned: boolean }
+  | { type: 'session.mute'; id: SessionId; muted: boolean }
   | { type: 'session.duplicate'; id: SessionId }
   | { type: 'session.state.confirm'; id: SessionId; returnOn?: string; returnTime?: string; wakeOn?: WakeOn | null } | { type: 'session.state.reject'; id: SessionId }
   // 確認待ちの群の見出しの「すべて確定」「すべて却下」（2026-10-13 の決定、知らせの 9d）。いまある提案を、セッションの提案と TODO の完了の提案に分けて渡す。

@@ -118,12 +118,12 @@ describe('create_session の device', () => {
 
   it('同じプロジェクトなら封じて頼みを置き、記録して requested を返す。名前でも ID でも引ける', async () => {
     putPeer();
-    const r = await call('create_session', { device: 'mac', prompt: 'やって', name: 'w', auto_approve: true, permission_mode: 'acceptEdits' });
+    const r = await call('create_session', { device: 'mac', prompt: 'やって', name: 'w', auto_approve: true, permission_mode: 'acceptEdits', silent: true });
     expect(r).toMatchObject({ status: 'requested', request_id: 'req-1' });
     const put = a.wire.peerLaunches.get('req-1')!;
     expect(put).toMatchObject({ to: PEER, from: ME, status: 'pending' });
     const req = await openPeerLaunch(ring, { requestId: 'req-1', from: ME, to: PEER }, put.sealed);
-    expect(req).toMatchObject({ parentSessionId: caller, projectId: 'p1', scratch: false, agent: 'claude-code', prompt: 'やって', name: 'w', permissionMode: 'acceptEdits', autoApprove: true, account: '' });
+    expect(req).toMatchObject({ parentSessionId: caller, projectId: 'p1', scratch: false, agent: 'claude-code', prompt: 'やって', name: 'w', permissionMode: 'acceptEdits', autoApprove: true, silent: true, account: '' });
     expect(getPeerRequest(db, 'req-1')).toMatchObject({ to_device: PEER, caller_session_id: caller, state: 'requested' });
     const r2 = await call('create_session', { device: PEER, prompt: 'もう一つ' });
     expect(r2.status).toBe('requested');

@@ -11,7 +11,7 @@ export function sessionDto(over: Partial<SessionDto> = {}): SessionDto {
     stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null },
     fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false,
     woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false,
-    takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null,
+    takenOver: null, fromPhone: null, pinnedAt: null, mutedAt: null, unread: null, spawnedBy: null, spawnPeer: null,
     ...over,
   };
 }

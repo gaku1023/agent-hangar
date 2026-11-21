@@ -45,6 +45,20 @@ describe('POST /api/sessions/:id/pin', () => {
   });
 });
 
+describe('POST /api/sessions/:id/mute', () => {
+  it('ミュートすると mutedAt が付き、解除すると null に戻る', async () => {
+    expect((await dto(alphaId())).mutedAt ?? null).toBeNull();
+    expect((await post(`/api/sessions/${alphaId()}/mute`, { muted: true })).status).toBe(204);
+    expect(typeof (await dto(alphaId())).mutedAt).toBe('number');
+    expect((await post(`/api/sessions/${alphaId()}/mute`, { muted: false })).status).toBe(204);
+    expect((await dto(alphaId())).mutedAt).toBeNull();
+  });
+  it('真偽でない本文は 400、知らない id は 404', async () => {
+    expect((await post(`/api/sessions/${alphaId()}/mute`, { muted: 'yes' })).status).toBe(400);
+    expect((await post('/api/sessions/nope/mute', { muted: true })).status).toBe(404);
+  });
+});
+
 describe('GET /api/sessions/:id/launch-settings', () => {
   const run = (id: string, at: number, params: unknown, device = t.deps.deviceId) => upsertShared(t.db, 'runs', { id, session_id: alphaId(), device_id: device, kind: 'start', tmux_name: id, pid: null, launch_params: JSON.stringify(params), started_at: at, ended_at: at + 1, end_reason: null, heartbeat_at: at }, device);
   const get = async () => (await app.request(`/api/sessions/${alphaId()}/launch-settings`, { headers: H })).json();
