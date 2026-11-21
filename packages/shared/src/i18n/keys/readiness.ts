@@ -13,6 +13,7 @@ export const readinessKeys = {
   'readiness.problem.notNode': ['path'],
   'readiness.problem.nodeTooOld': ['path', 'found', 'min', 'napi'],
   'readiness.problem.nodeWrongArch': ['path', 'foundArch', 'arch'],
+  'readiness.problem.nodeUnstable': ['path', 'found'],
   'readiness.tool.autoFound': [],
   'readiness.tool.optional': [],
   'readiness.workspace.missing': [],

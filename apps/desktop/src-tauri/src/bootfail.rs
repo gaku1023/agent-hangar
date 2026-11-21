@@ -18,6 +18,7 @@ pub const KINDS: &[&str] = &[
     "node-missing",
     "node-version-mismatch",
     "node-arch-mismatch",
+    "node-unstable",
     "other",
 ];
 
@@ -63,12 +64,13 @@ impl BootFailure {
     }
 
     /// 合う Node が無い。種類は node.rs の `failure_kind` で、見つからない（`node-missing`）、版が古い（`node-version-mismatch`）、
-    /// アーキテクチャが違う（`node-arch-mismatch`）のどれか。知らない種類は `node-missing` にする。
+    /// アーキテクチャが違う（`node-arch-mismatch`）、Windows で使えない版（`node-unstable`）のどれか。知らない種類は `node-missing` にする。
     /// 頁は params（node.rs の `failure_params`）から見出しと入れ方を作り、詳細（調べた場所と別の入れ方）は畳んで出す。
     pub fn node(kind: &str, params: Map<String, Value>, detail: impl Into<String>) -> Self {
         let kind = match kind {
             "node-version-mismatch" => "node-version-mismatch",
             "node-arch-mismatch" => "node-arch-mismatch",
+            "node-unstable" => "node-unstable",
             _ => "node-missing",
         };
         Self::new(kind, params, detail.into())
@@ -639,8 +641,8 @@ mod tests {
     const GOOD: &str = r#"{"kind":"port-in-use","params":{"port":4177,"host":"127.0.0.1"},"detail":"listen EADDRINUSE"}"#;
 
     #[test]
-    fn the_nine_kinds_are_the_four_the_server_writes_plus_the_five_the_shell_decides() {
-        assert_eq!(KINDS.len(), 9);
+    fn the_ten_kinds_are_the_four_the_server_writes_plus_the_six_the_shell_decides() {
+        assert_eq!(KINDS.len(), 10);
         for k in SERVER_KINDS {
             assert!(KINDS.contains(k));
         }
@@ -649,6 +651,7 @@ mod tests {
             "node-missing",
             "node-version-mismatch",
             "node-arch-mismatch",
+            "node-unstable",
             "other",
         ] {
             assert!(KINDS.contains(&k) && !SERVER_KINDS.contains(&k), "{k}");
@@ -1013,8 +1016,10 @@ mod tests {
             "node-missing",
             "node-version-mismatch",
             "node-arch-mismatch",
+            "node-unstable",
         ] {
             assert!(KINDS.contains(&k));
+            assert_eq!(BootFailure::node(k, Map::new(), "").kind, k);
         }
     }
 

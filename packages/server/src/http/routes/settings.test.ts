@@ -241,6 +241,19 @@ describe('routes', () => {
     const x64 = createApp({ ...t.deps, nodeCheck: { need: () => NEED, probe: async () => ({ version: '22.14.0', napi: 10, arch: 'x64' }) } });
     expect(((await (await x64.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: node }) })).json()) as { error: string }).error).toBe(`"Node path": ${node} is a Node for x64. Hangar needs a Node for arm64`);
   });
+  // Windows で Node 24.0 から 24.15 は黙って落ちる（nodejs/node#63620）ので、保存しない。
+  it('Windows では Node 24.15 の nodePath を断り、24.16 は保存する', async () => {
+    const node = exe('node');
+    const on = (version: string) => createApp({ ...t.deps, nodeCheck: { need: () => NEED, probe: async () => ({ version, napi: 10, arch: 'arm64' }), platform: 'win32' } });
+    const patch = (a: ReturnType<typeof createApp>, body: unknown) => a.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const bad = on('24.15.0');
+    const ja = await patch(bad, { nodePath: node });
+    expect(ja.status).toBe(400);
+    expect(((await ja.json()) as { error: string }).error).toBe(`「Node のパス」の ${node} は Node 24.15.0 です。Windows で突然終了することがあるため、Node 24.16 以上に更新してください`);
+    expect((await patch(bad, { language: 'en' })).status).toBe(200);
+    expect(((await (await patch(bad, { nodePath: node })).json()) as { error: string }).error).toBe(`"Node path": ${node} is Node 24.15.0. It can crash on Windows, so update to Node 24.16 or later`);
+    expect((await patch(on('24.16.0'), { nodePath: node })).status).toBe(200);
+  });
   it('ワークスペースのルートを変えるとプロジェクトを登録し直して配信する', async () => {
     const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app2-'));
     try {

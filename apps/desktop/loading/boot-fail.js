@@ -4,10 +4,16 @@
 // 殻は種類と数だけを渡し（lib.rs の fail_js と bootfail.rs）、文はここで作る。殻は札の文を書かない（詳細だけを頁の言語で書く）。
 
 /** 札を出せる失敗の種類。bootfail.rs の KINDS と同じ並びにする（config.test.ts が突き合わせる）。 */
-export const FAIL_KINDS = ['server-exited', 'port-in-use', 'db-too-old', 'db-backup-failed', 'compat-mismatch', 'node-missing', 'node-version-mismatch', 'node-arch-mismatch', 'other'];
+export const FAIL_KINDS = ['server-exited', 'port-in-use', 'db-too-old', 'db-backup-failed', 'compat-mismatch', 'node-missing', 'node-version-mismatch', 'node-arch-mismatch', 'node-unstable', 'other'];
 
-/** Node の札の種類。見つからない、版が古い（Node-API が足りない）、アーキテクチャが違う（node.rs の failure_kind）。 */
-export const NODE_KINDS = ['node-missing', 'node-version-mismatch', 'node-arch-mismatch'];
+/** Node の札の種類。見つからない、版が古い（Node-API が足りない）、アーキテクチャが違う、Windows で使えない版（node.rs の failure_kind）。 */
+export const NODE_KINDS = ['node-missing', 'node-version-mismatch', 'node-arch-mismatch', 'node-unstable'];
+
+/**
+ * Windows で使えない Node（24.0 から 24.15）が直った最初の版。node.rs の UNSTABLE_FIXED と nodeRule.ts の NODE_UNSTABLE_FIXED_LABEL と同じにする。
+ * 24.0 から 24.15 は、TCP で接続するときに libuv のスタックが壊れて、サーバが黙って落ちる（nodejs/node#63620）。
+ */
+export const UNSTABLE_FIXED = '24.16';
 
 /** 札の言語。packages/shared の LANGUAGES と同じ（config.test.ts が突き合わせる）。先頭が既定である。 */
 export const LANGS = ['ja', 'en'];
@@ -89,6 +95,17 @@ function nodeJa(c) {
       tryAgain,
     };
   }
+  if (reason === 'unstable') {
+    const fixedMajor = UNSTABLE_FIXED.split('.')[0];
+    return {
+      title: `Node.js ${found} は Windows で突然終了することがあります`,
+      what: `Node.js 24.0〜24.15 には、Windows で接続を開く際にプロセスが終了する不具合があります。現在の Node.js を残したまま、Node.js ${UNSTABLE_FIXED} 以上を別のディレクトリにインストールできます。`,
+      lead: '現在の Node.js を置き換えずにインストールするには：',
+      steps: [`nodejs.org から Node.js ${UNSTABLE_FIXED} 以上の Windows 用 zip（${arch}）を取得します`, `現在の Node.js とは別のディレクトリ（例 %LOCALAPPDATA%\\Programs\\node${fixedMajor}）に展開します`, `「${c.node.pickLabel}」をクリックして、展開したディレクトリの node.exe を選択します`],
+      command: null,
+      tryAgain: 'もう一度試す',
+    };
+  }
   const title = reason === 'version' ? `Node.js ${found} を検出しましたが、Hangar には Node.js ${min} 以上が必要です` : `${foundArch} 用の Node.js を検出しましたが、Hangar には ${arch} 用が必要です`;
   const keep = '現在の Node.js を置き換えずに、別のディレクトリにインストールできます。';
   const what = reason === 'version' ? `Hangar のデータベースとターミナルのネイティブモジュールが Node-API ${napi} を使うためです。${keep}` : `${c.mac ? 'この Mac' : 'この PC'} で Hangar を実行するには、${arch} 用の Node.js ${min} 以上が必要です。${keep}`;
@@ -117,6 +134,17 @@ function nodeEn(c) {
       steps: [],
       command: c.node.install.fresh(lts),
       tryAgain,
+    };
+  }
+  if (reason === 'unstable') {
+    const fixedMajor = UNSTABLE_FIXED.split('.')[0];
+    return {
+      title: `Node.js ${found} can crash on Windows`,
+      what: `Node.js 24.0 through 24.15 has a bug that can crash the process on Windows when opening a connection. You can install Node.js ${UNSTABLE_FIXED} or later in another folder without replacing your current Node.js.`,
+      lead: 'To install it without replacing your current Node.js:',
+      steps: [`Get the Windows zip of Node.js ${UNSTABLE_FIXED} or later (${arch}) from nodejs.org`, `Extract it to a folder separate from your current Node.js (for example %LOCALAPPDATA%\\Programs\\node${fixedMajor})`, `Press "${c.node.pickLabel}" and choose node.exe in that folder`],
+      command: null,
+      tryAgain: 'Try again',
     };
   }
   const title = reason === 'version' ? `Node.js ${found} was found, but Hangar needs Node.js ${min} or later` : `Node.js for ${foundArch} was found, but Hangar needs one for ${arch}`;
@@ -188,6 +216,7 @@ const TABLE = {
     'node-missing': nodeJa,
     'node-version-mismatch': nodeJa,
     'node-arch-mismatch': nodeJa,
+    'node-unstable': nodeJa,
     other: () => ({
       title: 'Hangar を起動できませんでした',
       what: '起動の途中で停止しました。理由は下の詳細にあります。',
@@ -236,6 +265,7 @@ const TABLE = {
     'node-missing': nodeEn,
     'node-version-mismatch': nodeEn,
     'node-arch-mismatch': nodeEn,
+    'node-unstable': nodeEn,
     other: () => ({
       title: 'Hangar could not start',
       what: 'Startup stopped partway. The reason is in the details below.',
@@ -264,7 +294,7 @@ function nodeOf(kind, p, install, pickLabel) {
   const arch = word(p.arch);
   const found = /^\d+\.\d+\.\d+$/.test(text(p.found)) ? text(p.found) : '';
   const foundArch = word(p.foundArch);
-  const reason = kind === 'node-version-mismatch' && found !== '' ? 'version' : kind === 'node-arch-mismatch' && foundArch !== '' && arch !== '' ? 'arch' : 'missing';
+  const reason = kind === 'node-version-mismatch' && found !== '' ? 'version' : kind === 'node-arch-mismatch' && foundArch !== '' && arch !== '' ? 'arch' : kind === 'node-unstable' && found !== '' && arch !== '' ? 'unstable' : 'missing';
   return { min, napi, lts: Number(min.split('.')[0]), arch, reason, found, foundArch, install, pickLabel };
 }
 
@@ -418,6 +448,7 @@ const PICK = {
     notNode: (r) => `${r.path} は Node.js として応答しませんでした。node の実行ファイルを選択してください。`,
     version: (r) => `選択した Node.js は ${r.found} です。Node.js ${r.min} 以上を選択してください。`,
     arch: (r) => `選択した Node.js は ${r.foundArch} 用です。${r.arch} 用を選択してください。`,
+    unstable: (r) => `選択した Node.js（${r.found}）は Windows で突然終了することがあるため、Node.js ${r.min} 以上を選択してください。`,
     saveFailed: (r) => `設定に保存できませんでした（${r.error}）。`,
     other: () => '選択した Node.js を確認できませんでした。',
   },
@@ -425,6 +456,7 @@ const PICK = {
     notNode: (r) => `${r.path} did not answer as Node.js. Choose the node executable.`,
     version: (r) => `The Node.js you chose is ${r.found}. Choose Node.js ${r.min} or later.`,
     arch: (r) => `The Node.js you chose is for ${r.foundArch}. Choose one for ${r.arch}.`,
+    unstable: (r) => `The Node.js you chose (${r.found}) can crash on Windows. Choose Node.js ${r.min} or later.`,
     saveFailed: (r) => `Couldn't save the setting (${r.error}).`,
     other: () => "Couldn't check the Node.js you chose.",
   },

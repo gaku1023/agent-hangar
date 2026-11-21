@@ -44,6 +44,10 @@ describe('欄の下の検証（設定の B1）', () => {
     const x64 = { ...old, version: 'v24.21.0', found: { version: '24.21.0', napi: 10, arch: 'x64' } };
     expect(toolLine(ja, 'node', x64)).toMatchObject({ text: '/x/node は x64 用の Node です。arm64 用の Node が必要です' });
     expect(toolLine(en, 'node', x64)).toMatchObject({ text: '/x/node is a Node for x64. A Node for arm64 is needed' });
+    // Node-API もアーキも足りているのに使えないのは、Windows で使えない版（24.0 から 24.15）。
+    const unstable = { ...old, version: 'v24.15.0', found: { version: '24.15.0', napi: 10, arch: 'arm64' } };
+    expect(toolLine(ja, 'node', unstable)).toMatchObject({ text: '/x/node は Node 24.15.0 です。Windows で突然終了することがあるため、Node 24.16 以上が必要です' });
+    expect(toolLine(en, 'node', unstable)).toMatchObject({ text: '/x/node is Node 24.15.0. It can crash on Windows, so Node 24.16 or later is needed' });
   });
   it('ワークスペースは、登録したプロジェクトの数を出し、0 件なら理由を言う', () => {
     expect(workspaceLine(ja, { ...READY.workspace, projectCount: 12 })).toEqual({ ok: true, soft: false, text: '/Users/me/workspace', note: 'プロジェクト 12 件', fix: null, fixCommand: null });

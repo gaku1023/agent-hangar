@@ -14,6 +14,8 @@ export const readinessEn: AreaDictionary<typeof readinessKeys> = {
   'readiness.problem.notNode': '{path} does not answer as Node',
   'readiness.problem.nodeTooOld': '{path} is Node {found}. Node {min} or later is needed (Hangar uses Node-API {napi})',
   'readiness.problem.nodeWrongArch': '{path} is a Node for {foundArch}. A Node for {arch} is needed',
+  // 24.16 は Windows で使えない Node（24.0 から 24.15）が直った最初の版。nodeRule.ts の NODE_UNSTABLE_FIXED_LABEL と同じにする。
+  'readiness.problem.nodeUnstable': '{path} is Node {found}. It can crash on Windows, so Node 24.16 or later is needed',
   'readiness.tool.autoFound': 'Found automatically',
   'readiness.tool.optional': 'Works without it',
   'readiness.workspace.missing': 'This location was not found',

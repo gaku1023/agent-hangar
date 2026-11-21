@@ -1112,13 +1112,28 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
     it('見本の表（node-rule-cases.json）のとおりに採る', () => {
       const table = JSON.parse(fs.readFileSync(path.join(repoRoot, 'packages/server/src/config/node-rule-cases.json'), 'utf8')) as {
         need: { napi: number; min: string; arch: string };
-        cases: { answer: string; version?: string; napi?: number; arch?: string; fit: 'ok' | 'version' | 'arch' | null }[];
+        cases: { answer: string; version?: string; napi?: number; arch?: string; fit: 'ok' | 'version' | 'arch' | null; fitOnWindows?: string }[];
       };
       for (const c of table.cases) {
         if (c.fit === null) continue;
         const r: ProbeResult = { version: c.version!, napi: c.napi!, arch: c.arch! };
-        expect(chooseNode(['C:\\n\\node.exe'], table.need, () => r).node, c.answer).toBe(c.fit === 'ok' ? 'C:\\n\\node.exe' : undefined);
+        // この入口は Windows だけで動くので、どの OS の上で試験しても、Windows の答え（fitOnWindows）で採るかどうかを見る。
+        expect(chooseNode(['C:\\n\\node.exe'], table.need, () => r).node, c.answer).toBe((c.fitOnWindows ?? c.fit) === 'ok' ? 'C:\\n\\node.exe' : undefined);
       }
+    });
+    // Windows で Node 24.0 から 24.15 は黙って落ちる（nodejs/node#63620）。ほかに合う候補があればそちらを採る。
+    it('Node 24.15 は飛ばし、後ろの 24.16 以上や 22 系を採る', () => {
+      const got: Record<string, ProbeResult> = {
+        'C:\\a\\node.exe': { version: '24.15.0', napi: 10, arch: 'x64' },
+        'C:\\b\\node.exe': { version: '24.0.0', napi: 10, arch: 'x64' },
+        'C:\\c\\node.exe': { version: '22.14.0', napi: 10, arch: 'x64' },
+        'C:\\d\\node.exe': { version: '24.16.0', napi: 10, arch: 'x64' },
+      };
+      const r = chooseNode(Object.keys(got), want, (p) => got[p]!);
+      expect(r.node).toBe('C:\\c\\node.exe');
+      expect(r.tried.map((t) => t.node)).toEqual(['C:\\a\\node.exe', 'C:\\b\\node.exe', 'C:\\c\\node.exe']);
+      expect(chooseNode(['C:\\a\\node.exe', 'C:\\d\\node.exe'], want, (p) => got[p]!).node).toBe('C:\\d\\node.exe');
+      expect(chooseNode(['C:\\a\\node.exe', 'C:\\b\\node.exe'], want, (p) => got[p]!).node).toBeUndefined();
     });
   });
 
@@ -1145,6 +1160,19 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
       expect(lines).toContain('  5. C:\\z\\node.exe：Node 22.14.0（arm64）。x64 用が必要です');
       expect(text).toContain('HANGAR_NODE');
       expect(text).toContain('C:\\Users\\me\\.agent-hangar\\settings.json');
+    });
+    // Windows で使えない Node（24.0 から 24.15）しか無いときは、Node 24.16 以上へ更新するよう勧める。
+    it('Windows で使えない Node の候補は、その理由を書き、24.16 以上へ更新するよう勧める', () => {
+      const bad = { version: '24.15.0', napi: 10, arch: 'x64' };
+      const ja = describeNotFound(want, { path: 'C:\\n\\node.exe', result: bad }, [{ node: 'C:\\n\\node.exe', result: bad }], 's.json');
+      expect(ja.split('\n')).toContain('  1. C:\\n\\node.exe：Node 24.15.0（x64）。Windows で突然終了することがあるため、Node 24.16 以上へ更新してください');
+      expect(ja).toContain('Node 24.0 から 24.15 は Windows で通信時に落ちる不具合があるため、Node 24.16 以上に更新してください。');
+      const en = describeNotFound(want, { path: 'C:\\n\\node.exe', result: bad }, [{ node: 'C:\\n\\node.exe', result: bad }], 's.json', 'en');
+      expect(en.split('\n')).toContain('  1. C:\\n\\node.exe: Node 24.15.0 (x64), can crash on Windows; update to Node 24.16 or later');
+      expect(en).toContain('Node 24.0–24.15 can crash when opening connections on Windows. Update to Node 24.16 or later.');
+      expect(en).not.toMatch(/[\u3040-\u30ff\u3400-\u9fff\uff08\uff09\uff1a\u3001\u3002]/);
+      // 使えない版が無ければ、この勧めは出ない。
+      expect(describeNotFound(want, { path: 'node', result: v24 }, tried, 's.json')).not.toContain('24.16');
     });
     it('候補が 1 つも無ければ、そう述べる', () => {
       const text = describeNotFound(want, { path: 'node', result: v24 }, [], 'settings.json');

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { NODE_API_MIN, NODE_MIN_LABEL, NODE_PROBE_EXPR, nodeFit, parseNodeProbe, type NodeBuild, type NodeNeed } from './nodeRule.ts';
+import { NODE_API_MIN, NODE_MIN_LABEL, NODE_PROBE_EXPR, nodeFit, parseNodeProbe, type NodeBuild, type NodeFit, type NodeNeed } from './nodeRule.ts';
 
 // 設定の「Node のパス」の確かめ。
 // 殻（apps/desktop/src-tauri/src/node.rs）は、nodePath を絶対パスとして読み、manifest.json の nodeApi 以上の Node-API を持ち、アーキテクチャが同じ Node だけを使う。
@@ -16,6 +16,8 @@ export type NodeCheck = {
   need(): NodeNeed;
   /** 候補を起こして版、Node-API の版、アーキを訊く。Node として答えなければ null。 */
   probe(file: string): Promise<NodeBuild | null>;
+  /** 合うかを決める OS。既定はこの機械の OS で、試験が差し替える（Windows でだけ使えない版がある。nodeRule.ts の isUnstableNodeOnWindows）。 */
+  platform?: NodeJS.Platform;
 };
 
 /** 候補 1 つを調べてよい時間。殻の PROBE_TIMEOUT と同じ。 */
@@ -54,11 +56,12 @@ export function probeNodeBuild(file: string, timeoutMs: number = PROBE_TIMEOUT_M
  * ソースから動かすときのネイティブモジュールは、その Node に合わせて入っている。
  * 答えは、パスと更新時刻と大きさを鍵に覚え、同じファイルを起こし直さない。
  */
-export function createNodeCheck(o: { manifestFile?: string; timeoutMs?: number } = {}): NodeCheck {
+export function createNodeCheck(o: { manifestFile?: string; timeoutMs?: number; platform?: NodeJS.Platform } = {}): NodeCheck {
   const manifestFile = o.manifestFile ?? bundledManifestFile();
   const fallback: NodeNeed = { napi: NODE_API_MIN, min: NODE_MIN_LABEL, arch: process.arch };
   const cache = new Map<string, NodeBuild | null>();
   return {
+    platform: o.platform ?? process.platform,
     need: () => readNodeNeed(manifestFile) ?? fallback,
     async probe(file) {
       const st = fs.statSync(file, { throwIfNoEntry: false });
@@ -81,14 +84,14 @@ export function isFullPath(p: string, platform: NodeJS.Platform = process.platfo
   return platform === 'win32' ? /^([a-zA-Z]:[\\/]|[\\/]{2})/.test(p) : p.startsWith('/');
 }
 
-/** 候補の Node が同梱のサーバに合わない理由。合えば null。fit は Node-API が足りない（version）か、アーキが違う（arch）か。 */
-export type NodeBuildIssue = { kind: 'notNode' } | { kind: 'mismatch'; fit: 'version' | 'arch'; found: NodeBuild; need: NodeNeed };
+/** 候補の Node が同梱のサーバに合わない理由。合えば null。fit は Node-API が足りない（version）か、アーキが違う（arch）か、Windows で使えない版（unstable）か。 */
+export type NodeBuildIssue = { kind: 'notNode' } | { kind: 'mismatch'; fit: Exclude<NodeFit, 'ok'>; found: NodeBuild; need: NodeNeed };
 
-/** 候補の Node が、殻と同じ条件（Node-API が要る版以上で、アーキが同じ）で使えるか。上限は付けない。 */
+/** 候補の Node が、殻と同じ条件（Node-API が要る版以上で、アーキが同じ。Windows では 24.0 から 24.15 を除く）で使えるか。上限は付けない。 */
 export async function nodeBuildIssue(file: string, check: NodeCheck): Promise<NodeBuildIssue | null> {
   const found = await check.probe(file);
   if (found === null) return { kind: 'notNode' };
   const need = check.need();
-  const fit = nodeFit(found, need);
+  const fit = nodeFit(found, need, check.platform);
   return fit === 'ok' ? null : { kind: 'mismatch', fit, found, need };
 }

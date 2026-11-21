@@ -14,6 +14,7 @@ export const settingsKeys = {
   'settings.node.notNode': ['label', 'path'],
   'settings.node.tooOld': ['label', 'path', 'found', 'min', 'napi'],
   'settings.node.wrongArch': ['label', 'path', 'foundArch', 'arch'],
+  'settings.node.unstable': ['label', 'path', 'found'],
   'settings.terminalApp.invalid': ['label'],
   'settings.terminalApp.invalidWindows': ['label'],
   'settings.hourlyCap.invalid': ['label', 'max'],

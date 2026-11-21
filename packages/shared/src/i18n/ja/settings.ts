@@ -15,6 +15,8 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.node.notNode': '「{label}」の {path} は Node として応答しません',
   'settings.node.tooOld': '「{label}」の {path} は Node {found} です。hangar のデータベースとターミナルのネイティブモジュールは Node-API {napi} を使うため、Node {min} 以上が必要です',
   'settings.node.wrongArch': '「{label}」の {path} は {foundArch} 用の Node です。hangar には {arch} 用の Node が必要です',
+  // 24.16 は Windows で使えない Node（24.0 から 24.15）が直った最初の版。nodeRule.ts の NODE_UNSTABLE_FIXED_LABEL と同じにする。
+  'settings.node.unstable': '「{label}」の {path} は Node {found} です。Windows で突然終了することがあるため、Node 24.16 以上に更新してください',
   'settings.terminalApp.invalid': '「{label}」は Terminal.app か iTerm2 から選択してください',
   'settings.terminalApp.invalidWindows': '「{label}」は Windows Terminal かデフォルトのターミナルから選択してください',
   'settings.hourlyCap.invalid': '「{label}」には 1 から {max} までの整数を入力してください',

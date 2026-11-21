@@ -10,8 +10,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { NODE_PROBE_EXPR, nodeFit, nodeLtsMajor, parseNodeProbe, type NodeBuild, type NodeNeed } from '../../../packages/server/src/config/nodeRule.ts';
+import { NODE_PROBE_EXPR, NODE_UNSTABLE_FIXED_LABEL, nodeFit as nodeFitOn, nodeLtsMajor, parseNodeProbe, type NodeBuild, type NodeFit, type NodeNeed } from '../../../packages/server/src/config/nodeRule.ts';
 import { decideLanguage, osDisplayLanguage } from '../../../packages/server/src/i18n/osLanguage.ts';
+
+/**
+ * この入口は Windows の hangar.cmd からだけ動くので、合うかどうかは常に Windows の規則で決める。
+ * どの OS の上で試験しても同じ答えになる（Windows で Node 24.0 から 24.15 を使わない規則は nodeRule.ts の isUnstableNodeOnWindows）。
+ */
+const nodeFit = (found: NodeBuild, need: NodeNeed): NodeFit => nodeFitOn(found, need, 'win32');
 
 /** 要る Node（manifest.json の nodeApi、nodeMin、arch）。 */
 export type Want = NodeNeed;
@@ -95,6 +101,9 @@ const TEXT = {
     probed: (p: Probed) => `Node ${p.version}（${p.arch}）`,
     tooOld: (what: string, w: Want) => `${what}。Node ${w.min} 以上が必要です`,
     wrongArch: (what: string, w: Want) => `${what}。${w.arch} 用が必要です`,
+    // 24.16 は、Windows で使えない Node（24.0 から 24.15。nodejs/node#63620）が直った最初の版。
+    unstable: (what: string) => `${what}。Windows で突然終了することがあるため、Node ${NODE_UNSTABLE_FIXED_LABEL} 以上へ更新してください`,
+    unstableWhy: `Node 24.0 から 24.15 は Windows で通信時に落ちる不具合があるため、Node ${NODE_UNSTABLE_FIXED_LABEL} 以上に更新してください。`,
     zip: (w: Want) => `現在の Node を置き換えずにインストールするには、nodejs.org から Node ${nodeLtsMajor(w.min)} の Windows 用 zip（${w.arch}）を取得して別のディレクトリ（例 %LOCALAPPDATA%\\Programs\\node${nodeLtsMajor(w.min)}）に展開し、その node.exe を指定してください。`,
     nvm: (w: Want) => `nvm-windows を使う場合は、nvm install ${nodeLtsMajor(w.min)} でインストールしたバージョンも検出します（fnm、Volta、scoop でインストールしたバージョンと、PATH にあるバージョンも検索します）。`,
     elsewhere: (settings: string) => `別のディレクトリにインストールした場合は、環境変数 HANGAR_NODE か ${settings} の nodePath で、その node.exe のパスを指定してください。`,
@@ -115,6 +124,8 @@ const TEXT = {
     probed: (p: Probed) => `Node ${p.version} (${p.arch})`,
     tooOld: (what: string, _w: Want) => `${what}, too old`,
     wrongArch: (what: string, _w: Want) => `${what}, wrong architecture`,
+    unstable: (what: string) => `${what}, can crash on Windows; update to Node ${NODE_UNSTABLE_FIXED_LABEL} or later`,
+    unstableWhy: `Node 24.0–24.15 can crash when opening connections on Windows. Update to Node ${NODE_UNSTABLE_FIXED_LABEL} or later.`,
     zip: (w: Want) => `To keep your current Node, get the Windows zip of Node ${nodeLtsMajor(w.min)} (${w.arch}) from nodejs.org and extract it to a separate folder (for example %LOCALAPPDATA%\\Programs\\node${nodeLtsMajor(w.min)}).`,
     nvm: (w: Want) => `With nvm-windows, a version installed with nvm install ${nodeLtsMajor(w.min)} is found too (Hangar also looks in fnm, Volta, scoop, and PATH).`,
     elsewhere: (settings: string) => `If it is installed somewhere else, set the HANGAR_NODE environment variable or nodePath in ${settings} to that node.exe.`,
@@ -131,6 +142,7 @@ const describeResult = (want: Want, r: ProbeResult, lang: Lang): string => {
   const fit = nodeFit(r, want);
   if (fit === 'version') return t.tooOld(what, want);
   if (fit === 'arch') return t.wrongArch(what, want);
+  if (fit === 'unstable') return t.unstable(what);
   return what;
 };
 
@@ -143,7 +155,9 @@ const describeResult = (want: Want, r: ProbeResult, lang: Lang): string => {
  */
 export function describeNotFound(want: Want, mine: { path: string; result: ProbeResult }, tried: Tried[], settingsFile: string, lang: Lang = 'ja'): string {
   const t = TEXT[lang];
-  const lines = [t.notFound(want), t.why(want), t.running(isProbed(mine.result) ? t.runningOf(mine.result) : t.unknownVersion, mine.path)];
+  // Windows で使えない版（24.0 から 24.15）が 1 つでもあれば、どう直すかを理由の次の行に言う。
+  const anyUnstable = [mine.result, ...tried.map((x) => x.result)].some((r) => isProbed(r) && nodeFit(r, want) === 'unstable');
+  const lines = [t.notFound(want), t.why(want), ...(anyUnstable ? [t.unstableWhy] : []), t.running(isProbed(mine.result) ? t.runningOf(mine.result) : t.unknownVersion, mine.path)];
   if (tried.length === 0) {
     lines.push(t.noPlaces);
   } else {

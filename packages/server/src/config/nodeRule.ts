@@ -5,6 +5,7 @@
 // 殻（apps/desktop/src-tauri/src/node.rs）と hangar.sh は manifest.json を読み、ここと同じ規則で比べる。
 // launch-cli.ts（Windows の hangar コマンド）と設定の確かめ（node.ts）は、この関数をそのまま使う。
 // 規則が各所で同じであることは、見本の表（node-rule-cases.json）を各所の試験が読んで縛る。
+// Windows だけは、Node 24.0 から 24.15 を使わない（isUnstableNodeOnWindows）。nodejs/node#63620 の不具合で、サーバが黙って落ちるためである。
 
 /** 同梱のネイティブモジュールが要る Node-API の版。 */
 export const NODE_API_MIN = 10;
@@ -18,8 +19,14 @@ export type NodeBuild = { version: string; napi: number; arch: string };
 /** 同梱のサーバが要る Node。napi は要る Node-API の版、min はそれを持つ最初の Node の版（案内に出すだけで、比べるのには使わない）。 */
 export type NodeNeed = { napi: number; min: string; arch: string };
 
-/** 合うか。合わなければ、Node-API が足りない（version）か、アーキテクチャが違う（arch）か。両方なら version と言う。 */
-export type NodeFit = 'ok' | 'version' | 'arch';
+/**
+ * 合うか。合わなければ、Node-API が足りない（version）か、アーキテクチャが違う（arch）か、Windows で使えない版（unstable）か。
+ * 重なるときは version、arch、unstable の順に言う（入れ直すものを先に言うため）。
+ */
+export type NodeFit = 'ok' | 'version' | 'arch' | 'unstable';
+
+/** Windows で使えない Node の、直った最初の版（24.16.0）。案内に出す。 */
+export const NODE_UNSTABLE_FIXED_LABEL = '24.16';
 
 /**
  * 候補に訊く式（node -p に渡す）。出力は「v<版> <アーキ> <Node-API の版>」の 1 行（例 v22.14.0 arm64 10）。
@@ -40,10 +47,24 @@ export function parseNodeProbe(out: string): NodeBuild | null {
   return null;
 }
 
-/** 候補の Node が要るものに合うか。 */
-export function nodeFit(found: NodeBuild, need: NodeNeed): NodeFit {
+/**
+ * Windows で使えない Node か。24.0.0 から 24.15.x（major 24 かつ minor 15 以下）だけを、Windows のときだけ対象にする。
+ * この範囲の Node（libuv 1.50 と 1.51）は、TCP で接続するときに uv__tcp_try_connect のスタックが壊れ、
+ * /GS の stack cookie の検査で fast-fail（0xc0000409）が起きて、サーバが何も残さず落ちる（nodejs/node#63620）。
+ * Node 24.16.0（libuv 1.52.1、nodejs/node#62561）で直った。macOS と Linux、22 系、25 系には影響がない。
+ * 版は process.version から v を除いたもの（22.14.0）。読めなければ対象にしない。
+ */
+export function isUnstableNodeOnWindows(version: string, platform: NodeJS.Platform = process.platform): boolean {
+  if (platform !== 'win32') return false;
+  const m = /^(\d+)\.(\d+)\.\d+$/.exec(version);
+  return m !== null && Number(m[1]) === 24 && Number(m[2]) <= 15;
+}
+
+/** 候補の Node が要るものに合うか。platform は試験が差し替える（既定はこの機械の OS）。 */
+export function nodeFit(found: NodeBuild, need: NodeNeed, platform: NodeJS.Platform = process.platform): NodeFit {
   if (found.napi < need.napi) return 'version';
   if (found.arch !== need.arch) return 'arch';
+  if (isUnstableNodeOnWindows(found.version, platform)) return 'unstable';
   return 'ok';
 }
 

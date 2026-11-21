@@ -15,6 +15,8 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.node.notNode': '"{label}": {path} does not answer as Node',
   'settings.node.tooOld': '"{label}": {path} is Node {found}. Hangar\'s database and terminal parts use Node-API {napi}, so Node {min} or later is needed',
   'settings.node.wrongArch': '"{label}": {path} is a Node for {foundArch}. Hangar needs a Node for {arch}',
+  // 24.16 は Windows で使えない Node（24.0 から 24.15）が直った最初の版。nodeRule.ts の NODE_UNSTABLE_FIXED_LABEL と同じにする。
+  'settings.node.unstable': '"{label}": {path} is Node {found}. It can crash on Windows, so update to Node 24.16 or later',
   'settings.terminalApp.invalid': '"{label}" must be Terminal.app or iTerm2',
   'settings.terminalApp.invalidWindows': '"{label}" must be Windows Terminal or Default terminal',
   'settings.hourlyCap.invalid': '"{label}" must be an integer from 1 to {max}',
