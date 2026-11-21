@@ -16,7 +16,7 @@ describe('investigateSeed workerOutdated', () => {
     const seed = investigateSeed({ ...base, sync: sync(true, 9) }, ctx, 'darwin');
     expect(seed.request).toContain('この PC は Worker を setup した PC です');
     expect(seed.request).toContain('承認を得てから、npm run hangar -- setup cloud で Worker を更新し');
-    expect(seed.quote.split('\n')).toEqual(['止まった機能：他の PC への起動', 'Worker の互換バージョン：9（必要なのは 10 以上）', 'この PC：setup した PC', 'hangar 0.13.1 / macOS']);
+    expect(seed.quote.split('\n')).toEqual(['止まった機能：他の PC での起動', 'Worker の今の互換バージョン：9（必要なのは 10 以上）', 'この PC：setup した PC', 'hangar 0.13.1 / macOS']);
     expect(seed.tone).toBe('info');
   });
 
@@ -24,19 +24,19 @@ describe('investigateSeed workerOutdated', () => {
     const seed = investigateSeed({ ...base, sync: sync(false, 9) }, ctx, 'darwin');
     expect(seed.request).toContain('Worker を setup した PC ではないので、ここでは更新できません');
     expect(seed.request).toContain('手順にしてください');
-    expect(seed.quote).toContain('この PC：setup した PC ではない');
+    expect(seed.quote).toContain('この PC：setup していない PC');
   });
 
   it('互換値が分からなければ不明、必要値が分からなければ互換値だけを書き、英語にもなる', () => {
     expect(investigateSeed({ ...base, sync: sync(true, null) }, ctx, 'darwin').quote).toContain('Worker の互換バージョン：不明（必要なのは 10 以上）');
-    expect(investigateSeed({ ...base, sync: sync(true, 9) }, { ...ctx, worker: { feature: 'sync' } }, 'darwin').quote.split('\n').slice(0, 2)).toEqual(['止まった機能：同期', 'Worker の互換バージョン：9']);
+    expect(investigateSeed({ ...base, sync: sync(true, 9) }, { ...ctx, worker: { feature: 'sync' } }, 'darwin').quote.split('\n').slice(0, 2)).toEqual(['止まった機能：同期', 'Worker の今の互換バージョン：9']);
     const en = investigateSeed(withLanguage({ ...base, sync: sync(false, 9) }, 'en'), { ...ctx, worker: { feature: 'peerChat', need: 11 } }, 'darwin');
     expect(en.quote.split('\n').slice(0, 3)).toEqual(["Stopped feature: Viewing another PC's session", 'Worker compat version: 9 (11 or newer required)', 'This PC: not the one where setup was run']);
   });
 
   it('ctx に互換値があれば（スマホの帯）、同期の状態より先に使う', () => {
     const seed = investigateSeed({ ...base, sync: sync(true, null) }, { ...ctx, worker: { feature: 'phone', need: 7, have: 6 } }, 'darwin');
-    expect(seed.quote).toContain('Worker の互換バージョン：6（必要なのは 7 以上）');
+    expect(seed.quote).toContain('Worker の今の互換バージョン：6（必要なのは 7 以上）');
   });
 });
 
