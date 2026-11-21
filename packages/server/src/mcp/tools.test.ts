@@ -11,7 +11,9 @@ import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { latestIntent } from '../live/intents.ts';
-import { markSeen, onNotifyCall, onUnread } from '../live/unread.ts';
+import { markSeen, onUnread } from '../live/unread.ts';
+import { onNotifyKind } from '../live/notifyKind.ts';
+import { noteViewing, resetViewing } from '../live/viewing.ts';
 import { getSession, setOrchestratorSource } from '../db/queries.ts';
 import { orchestratorIdsSource } from '../orchestrator/peerLineage.ts';
 import { addTodo } from '../projects/todos.ts';
@@ -805,16 +807,25 @@ describe('MCP tools', () => {
     // 行が無ければ何もしない。
     expect(markSeen(db, alphaId)).toBe(false);
   });
-  it('notify_user は、出し先が空になるときも呼ばれたことを onNotifyCall へ知らせる（ターンの終わりの受け皿が、呼んだターンに未読を足さないため）。断った呼び出しは知らせない', () => {
+  it('notify_user は、出し先が空になるときも呼ばれたことと場面を onNotifyKind へ知らせる（ターンの終わりの数えが、呼んだターンに二重に積まないため）。断った呼び出しは知らせない', () => {
     const calls: string[] = [];
-    const off = onNotifyCall((id) => calls.push(id));
+    const off = onNotifyKind((id, kind) => calls.push(`${id}:${kind}`));
     try {
       upsertShared(db, 'session_states', { session_id: alphaId, status: 'done', set_by: 'conversation', set_at: 1000 }, 'd', 'session_id');
       expect(call('notify_user', { text: '静かに' }, { sessionId: alphaId })).toMatchObject({ sent: [] });
       expect(() => call('notify_user', { text: '' }, { sessionId: alphaId })).toThrow(ToolError);
-      expect(calls).toEqual([alphaId]);
+      expect(calls).toEqual([`${alphaId}:done`]);
     } finally {
       off();
+    }
+  });
+  it('notify_user は、画面で前に出して見ている会話には未読を積まず、スマホへも出さない。OS は殻に任せて出す', () => {
+    noteViewing('win', alphaId);
+    try {
+      expect(call('notify_user', { text: '見えています' }, { sessionId: alphaId })).toMatchObject({ unread: 0, sent: ['os'] });
+      expect(getSession(db, live, alphaId)!.unread).toBeNull();
+    } finally {
+      resetViewing();
     }
   });
   it('notify_user は Done、Archived、Paused にしたセッションでは何も出さない。付けた後に休みから動き出したら出す', () => {

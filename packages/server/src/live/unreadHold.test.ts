@@ -4,6 +4,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { noteUnread, onUnreadReady, type NotifyTarget, type UnreadMeta } from './unread.ts';
 import { UnreadHold } from './unreadHold.ts';
+import { noteViewing, resetViewing } from './viewing.ts';
 
 let db: Db;
 let live: LiveSessionDto[];
@@ -24,6 +25,7 @@ beforeEach(() => {
   s2 = ensureSession(db, 'u2', '/w', 'd');
   live = [entry('u1', 'busy'), entry('u2', 'busy')];
   ready = [];
+  resetViewing();
   offs = [onUnreadReady((id, text, count, sent, meta) => ready.push({ id, text, count, sent, meta }))];
 });
 afterEach(() => { for (const o of offs) o(); db.close(); });
@@ -42,6 +44,16 @@ describe('UnreadHold', () => {
     expect(h.pending()).toBe(false);
     h.check();
     expect(ready).toHaveLength(1);
+  });
+
+  it('ターンを抜けたときに画面で前に出して見ている会話なら、預かった未読を積まず、スマホへも出さない', () => {
+    const h = hold();
+    noteUnread(s1, '見ている間に終わりました', 0, ['unread', 'os', 'phone'], { kind: 'done', unreadHeld: true });
+    noteViewing('win', s1);
+    live = [entry('u1', 'idle'), entry('u2', 'busy')];
+    h.check();
+    expect(ready).toEqual([{ id: s1, text: '見ている間に終わりました', count: 0, sent: ['os'], meta: { kind: 'done' } }]);
+    expect(db.prepare('select count(*) as n from session_unread').get()).toEqual({ n: 0 });
   });
 
   it('許可待ちの間は出さず、問いの入力待ちになったら出す', () => {

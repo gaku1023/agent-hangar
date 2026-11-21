@@ -268,6 +268,8 @@ export type ApiClient = {
   rushPeerQueue(sessionId: string): Promise<unknown>;
   /** 開いたセッションを既読にする（未読の数を 0 にする）。 */
   markSeen(sessionId: string): Promise<void>;
+  /** いま前に出して見ている会話を送る（null は見ていない）。client は画面ごとの鍵。古いサーバでは 404 になるだけで、呼ぶ側は捨てる。 */
+  viewing?(client: string, sessionId: string | null): Promise<void>;
   markUnread(sessionId: string): Promise<void>;
   setPinned(sessionId: string, pinned: boolean): Promise<void>;
   launchSettings(sessionId: string): Promise<SessionLaunchSettingsDto>;
@@ -525,6 +527,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     rushPeerQueue: (sessionId) => post(`/api/sessions/${encodeURIComponent(sessionId)}/peer-queue/rush`),
     dismissOverlap: (sessionId, other, paths) => post(`/api/sessions/${sessionId}/overlap/dismiss`, { with: other, paths }),
     markSeen: (sessionId) => post(`/api/sessions/${sessionId}/seen`, {}),
+    viewing: (client, sessionId) => post('/api/viewing', { client, sessionId }),
     markUnread: (sessionId) => post(`/api/sessions/${sessionId}/unread`, {}),
     setPinned: (sessionId, pinned) => post(`/api/sessions/${sessionId}/pin`, { pinned }),
     launchSettings: (sessionId) => call(`/api/sessions/${sessionId}/launch-settings`),
