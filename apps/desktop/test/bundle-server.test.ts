@@ -98,7 +98,8 @@ describe.skipIf(!host)('bundleServer', () => {
       'node_modules/node-pty/lib/index.js',
       // Windows の node-pty は 1.2 で winpty をやめ、pty.node（winpty の口）を持たない。ConPTY の conpty.node だけで動く。
       onWindows ? `node_modules/node-pty/prebuilds/${host}/conpty.node` : `node_modules/node-pty/prebuilds/${host}/pty.node`,
-      onWindows ? `node_modules/node-pty/prebuilds/${host}/conpty_console_list.node` : `node_modules/node-pty/prebuilds/${host}/spawn-helper`,
+      // spawn-helper は macOS の node-pty だけが持つ（Linux の prebuild は pty.node だけ）。
+      onWindows ? `node_modules/node-pty/prebuilds/${host}/conpty_console_list.node` : host?.startsWith('linux-') ? `node_modules/node-pty/prebuilds/${host}/pty.node` : `node_modules/node-pty/prebuilds/${host}/spawn-helper`,
       'cloud/worker.mjs',
       'cloud/metadata.json',
     ]) {
@@ -109,11 +110,11 @@ describe.skipIf(!host)('bundleServer', () => {
     for (const f of [
       'node_modules/better-sqlite3/deps',
       'node_modules/better-sqlite3/src',
-      'node_modules/better-sqlite3/prebuilds/linux-x64.node',
-      `node_modules/better-sqlite3/prebuilds/${onWindows ? 'darwin-arm64' : 'win32-x64'}.node`,
+      // この機械の target 以外は、全部入っていない。
+      ...BUNDLE_TARGETS.filter((t) => t !== host).map((t) => `node_modules/better-sqlite3/prebuilds/${t}.node`),
       'node_modules/node-pty/deps',
       'node_modules/node-pty/third_party',
-      `node_modules/node-pty/prebuilds/${onWindows ? 'darwin-arm64' : 'win32-x64'}`,
+      ...BUNDLE_TARGETS.filter((t) => t !== host).map((t) => `node_modules/node-pty/prebuilds/${t}`),
       'node_modules/node-pty/prebuilds/darwin-x64',
       // sourcemap は配布物に入れない。UI の写しの大半を占めるうえ、利用者の役には立たない。
       'ui/assets/index.js.map',
@@ -758,14 +759,29 @@ describe('bundleServer の target 別の同梱物', () => {
     expect(src).toContain('target: `node${LAUNCHER_MIN_NODE}`');
   });
 
-  it('対応する target は darwin-arm64 と win32-x64 だけである', () => {
-    expect([...BUNDLE_TARGETS]).toEqual(['darwin-arm64', 'win32-x64']);
+  it('対応する target は darwin-arm64、win32-x64、linux-x64、linux-arm64 だけである', () => {
+    expect([...BUNDLE_TARGETS]).toEqual(['darwin-arm64', 'win32-x64', 'linux-x64', 'linux-arm64']);
     expect(hostBundleTarget('darwin', 'arm64')).toBe('darwin-arm64');
     expect(hostBundleTarget('win32', 'x64')).toBe('win32-x64');
+    expect(hostBundleTarget('linux', 'x64')).toBe('linux-x64');
+    expect(hostBundleTarget('linux', 'arm64')).toBe('linux-arm64');
     // 作らないものは、黙って別の target の束にせず、無いと答える。
     expect(hostBundleTarget('darwin', 'x64')).toBeUndefined();
     expect(hostBundleTarget('win32', 'arm64')).toBeUndefined();
-    expect(hostBundleTarget('linux', 'x64')).toBeUndefined();
+    expect(hostBundleTarget('linux', 'arm')).toBeUndefined();
+  });
+
+  it.each(['linux-x64', 'linux-arm64'] as const)('%s：その arch の prebuild だけを置き、Windows 用の物を置かない', async (target) => {
+    const out = await make(target);
+    const files = listAll(out);
+    expect(files).toContain('bin/hangar');
+    expect(files).toContain('server.mjs');
+    expect(files).toContain('cli.mjs');
+    expect(files).toContain(`node_modules/better-sqlite3/prebuilds/${target}.node`);
+    expect(files.filter((f) => f.includes('prebuilds/') && !f.includes(target))).toEqual([]);
+    expect(files).not.toContain('bin/hangar.cmd');
+    expect(files).not.toContain('launch-cli.mjs');
+    expect(JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8')).arch).toBe(target.split('-')[1]);
   });
 
   it('darwin-arm64：darwin の prebuild と bin/hangar（sh）だけで、Windows 用の物を置かない', async () => {

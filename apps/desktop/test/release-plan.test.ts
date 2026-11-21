@@ -190,6 +190,9 @@ describe('公開の前にそろう資産', () => {
     'Hangar-v9.9.9-macos-arm64.dmg', 'Hangar-v9.9.9-macos-arm64.dmg.sha256',
     'Hangar-v9.9.9-macos-arm64.zip', 'Hangar-v9.9.9-macos-arm64.zip.sha256',
     'Hangar-v9.9.9-windows-x64-setup.exe', 'Hangar-v9.9.9-windows-x64-setup.exe.sha256',
+    'Hangar-v9.9.9-linux-x64.tar.gz', 'Hangar-v9.9.9-linux-x64.tar.gz.sha256',
+    'Hangar-v9.9.9-linux-arm64.tar.gz', 'Hangar-v9.9.9-linux-arm64.tar.gz.sha256',
+    'install.sh',
   ];
   const updater = ['Hangar-v9.9.9-macos-arm64.app.tar.gz', 'Hangar-v9.9.9-macos-arm64.app.tar.gz.sig', 'Hangar-v9.9.9-windows-x64-setup.exe.sig', 'latest.json'];
   it('更新の署名鍵があれば、配布物と更新物と目録のすべてが要る', () => {
@@ -200,6 +203,11 @@ describe('公開の前にそろう資産', () => {
   it('鍵が無ければ（fork）、配布物だけが要る', () => {
     expect(missingAssets(tag, base, false)).toEqual([]);
     expect(missingAssets(tag, base.slice(1), false)).toEqual([base[0]]);
+  });
+  it('Linux の tar は自動更新の対象ではなく、更新物には数えない（ただし配布物として要る）', () => {
+    expect(updater.some((n) => n.includes('linux'))).toBe(false);
+    expect(missingAssets(tag, base.filter((n) => n !== 'install.sh'), false)).toEqual(['install.sh']);
+    expect(missingAssets(tag, base.filter((n) => !n.includes('linux-arm64')), false)).toEqual(['Hangar-v9.9.9-linux-arm64.tar.gz', 'Hangar-v9.9.9-linux-arm64.tar.gz.sha256']);
   });
   it('ほかのタグの資産は数えない', () => {
     expect(missingAssets(tag, [...base, ...updater].map((n) => n.replace('v9.9.9', 'v9.9.8')), true)).toContain('Hangar-v9.9.9-macos-arm64.dmg');
@@ -306,10 +314,25 @@ describe('release.yml の配線', () => {
     expect(job('windows')).toMatch(/needs: plan\n/);
     expect(job('macos-test')).toMatch(/needs: plan\n/);
     expect(job('windows-upload')).toMatch(/needs: \[macos, windows\]\n/);
-    expect(job('publish')).toMatch(/needs: \[plan, macos, macos-test, windows-upload\]\n/);
+    expect(job('linux')).toMatch(/needs: plan\n/);
+    expect(job('linux-upload')).toMatch(/needs: \[macos, linux\]\n/);
+    expect(job('publish')).toMatch(/needs: \[plan, macos, macos-test, windows-upload, linux-upload\]\n/);
     expect(job('channel')).toMatch(/needs: \[plan, publish\]\n/);
     // 照合は plan の 1 か所にする（tauri.conf.json だけを見る古い段は残さない）。
     expect(release).not.toContain("require('./apps/desktop/src-tauri/tauri.conf.json').version");
+  });
+  it('Linux の tar は x64 と arm64 の実機のランナーで作り、入れて起こす確かめを通してから Release に添える', () => {
+    const l = job('linux');
+    expect(l).toContain('runner: ubuntu-24.04\n');
+    expect(l).toContain('runner: ubuntu-24.04-arm');
+    expect(l).toContain('smoke-linux.sh');
+    expect(l).toContain('package-linux.ts');
+    // 署名の鍵や書き込みの権限は渡さない。
+    expect(l).toMatch(/permissions:\n\s+contents: read/);
+    expect(job('linux-upload')).toContain('install.sh');
+    expect(job('linux-upload')).toMatch(/permissions:\n\s+contents: write/);
+    // 同じ手順を ci でも回す（タグを打つ前に壊れていることに気づくため）。
+    expect(fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8')).toContain('smoke-linux.sh');
   });
   it('macOS の型の確かめと試験は、.app のビルドと並ぶ別のジョブで回し、通らなければ公開しない', () => {
     const t = steps(job('macos-test'), 6);
@@ -523,7 +546,8 @@ describe('release.yml から呼ぶ形', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'release-plan-'));
     const names = path.join(dir, 'names.txt');
     const base = ['dmg', 'dmg.sha256', 'zip', 'zip.sha256'].map((s) => `Hangar-v9.9.9-macos-arm64.${s}`)
-      .concat(['Hangar-v9.9.9-windows-x64-setup.exe', 'Hangar-v9.9.9-windows-x64-setup.exe.sha256']);
+      .concat(['Hangar-v9.9.9-windows-x64-setup.exe', 'Hangar-v9.9.9-windows-x64-setup.exe.sha256'])
+      .concat(['x64', 'arm64'].flatMap((a) => [`Hangar-v9.9.9-linux-${a}.tar.gz`, `Hangar-v9.9.9-linux-${a}.tar.gz.sha256`]), ['install.sh']);
     fs.writeFileSync(names, `${base.join('\n')}\n`);
     expect(node(['assets', 'v9.9.9', 'false', names]).status).toBe(0);
     const r = node(['assets', 'v9.9.9', 'true', names]);
