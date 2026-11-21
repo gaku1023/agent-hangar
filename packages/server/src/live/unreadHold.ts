@@ -2,6 +2,7 @@ import { isTurnRunning, turnPhaseOf, type LiveSessionDto } from '@agent-hangar/s
 import type { Db } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
 import { addUnread, noteUnreadReady, onUnread, type NotifyTarget, type UnreadMeta } from './unread.ts';
+import { isViewing } from './viewing.ts';
 
 /**
  * notify_user の知らせを、そのターンが終わるまで預かる（2026-11-05、未読の数も 2026-11-11）。
@@ -115,10 +116,14 @@ export class UnreadHold {
   /** 預かりを出す。未読の数を積む番なら積んで画面へ配り、OS とスマホの出し先があれば流す。 */
   private release(sessionId: string, h: Held): void {
     let count = h.count;
-    if (h.unread) {
-      count = addUnread(this.deps.db, sessionId, h.text, this.deps.now?.() ?? Date.now());
+    const now = this.deps.now?.() ?? Date.now();
+    // 抜けたときに画面で前に出して見ている会話には、未読を積まず、スマホへも出さない（live/viewing.ts）。
+    const viewing = isViewing(sessionId, now);
+    if (h.unread && !viewing) {
+      count = addUnread(this.deps.db, sessionId, h.text, now);
       touchRow(this.deps.db, 'sessions', sessionId);
     }
-    if (h.sent.size > 0) noteUnreadReady(sessionId, h.text, count, [...h.sent], h.meta);
+    const sent = [...h.sent].filter((x) => !(viewing && x === 'phone'));
+    if (sent.length > 0) noteUnreadReady(sessionId, h.text, count, sent, h.meta);
   }
 }

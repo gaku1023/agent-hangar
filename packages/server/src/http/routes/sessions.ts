@@ -15,6 +15,7 @@ import { MoveError, moveSession } from '../../sessions/move.ts';
 import { forgetSpawn } from '../../sessions/spawns.ts';
 import { dismissOverlap } from '../../sessions/overlap.ts';
 import { markSeen, markUnread } from '../../live/unread.ts';
+import { noteViewing } from '../../live/viewing.ts';
 import { launchSettingsOf } from '../../runs/launchSettings.ts';
 import { parkedSessionIds } from '../../sessions/park.ts';
 import { stopReasonsOf } from '../../sessions/stopReasons.ts';
@@ -345,6 +346,18 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   // 開いたら既読。未読の行を消して画面へ配る。行が無ければ何もしない。
   api.post('/sessions/:id/seen', (c) => {
     markSeen(db, c.req.param('id'));
+    return c.body(null, 204);
+  });
+  // 画面がいま前に出して見ている会話（live/viewing.ts）。client は画面ごとの鍵で、sessionId が null なら見ていない。
+  api.post('/viewing', async (c) => {
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
+    const v = b.value as { client?: unknown; sessionId?: unknown } | null;
+    const client = v?.client;
+    const sessionId = v?.sessionId;
+    if (typeof client !== 'string' || client.length === 0 || client.length > 100) return c.json({ error: tr('http.request.badShape') }, 400);
+    if (sessionId !== null && (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > 100)) return c.json({ error: tr('http.request.badShape') }, 400);
+    noteViewing(client, sessionId);
     return c.body(null, 204);
   });
   // 未読に戻す。既存の未読の表に積むだけで、OS とスマホへは知らせない。

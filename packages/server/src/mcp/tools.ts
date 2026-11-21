@@ -6,7 +6,8 @@ import type { Db } from '../db/open.ts';
 import { accountOfSession, getProject, getSession, isOrchestratorId, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
 import { addIntent, INTENT_MAX, noteIntent } from '../live/intents.ts';
-import { addUnread, noteNotifyCall, noteUnread, NOTIFY_TARGETS, type NotifyTarget } from '../live/unread.ts';
+import { addUnread, noteUnread, NOTIFY_TARGETS, type NotifyTarget } from '../live/unread.ts';
+import { isViewing } from '../live/viewing.ts';
 import { noteNotifyKind } from '../live/notifyKind.ts';
 import { sessionTurnRunning } from '../live/unreadHold.ts';
 import { touchRow } from '../db/notify.ts';
@@ -772,10 +773,11 @@ export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
     sent = NOTIFY_TARGETS.filter((x) => rules[x].includes(kind));
   }
   if (isQuietStatus(session.state?.status) && !session.woke) sent = [];
-  // 出し先が空でも、呼んだことは統括の出来事の側へ知らせる（orchestrator/feed.ts の turn.done）。
+  // 画面で前に出して見ている会話には、未読を積まず、スマホへも出さない（live/viewing.ts）。OS の通知は殻が窓の前後で決める。
+  if (isViewing(id, now)) sent = sent.filter((x) => x === 'os');
+  // 出し先が空でも、呼んだことと場面は知らせる。統括の出来事（orchestrator/feed.ts の turn.done）と、
+  // 返答の終わりの数え（live/notifyFallback.ts）が聞く。後者は done と ask の呼ばれたターンに、終わりの 1 つを二重に積まない。
   noteNotifyKind(id, kind, o.immediate === true);
-  // 出し先が空になっても、呼ばれたことはターンの終わりの受け皿に伝える（live/notifyFallback.ts）。呼んだターンに代わりの未読を足さないためである。
-  noteNotifyCall(id);
   let unread = session.unread?.count ?? 0;
   if (sent.length > 0) {
     // 未読の数も、done と ask で作業中なら預かりが積む（holdUnread のとき）。返答を書き終える前に数が増えないようにするためである。

@@ -3,22 +3,25 @@ import type { Db } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
 import { getSession } from '../db/queries.ts';
 import { INTENT_MAX } from './intents.ts';
+import { onNotifyKind } from './notifyKind.ts';
 import { turnRunning } from './unreadHold.ts';
-import { addUnread, onNotifyCall } from './unread.ts';
+import { addUnread, noteUnreadReady, type NotifyTarget } from './unread.ts';
+import { isViewing } from './viewing.ts';
 
 /**
- * notify_user の出し忘れの受け皿（2026-11-18）。
+ * 返答の終わりで hangar が未読を 1 つ積む（2026-11-18 に出し忘れの受け皿として入れ、2026-11-21 に数え方の本体にした）。
  *
- * 起動時の指示は、返答を書いたら notify_user で知らせるよう頼むが、エージェントは出し忘れる。
- * 特に、裏で走らせた作業が終わって始まるターンでは忘れやすく、利用者には何も届かない。
- * そこで、作業中からターンを抜けた会話のうち、そのターンに notify_user が一度も呼ばれなかったものに、最後の返答の頭の 1 文で未読を 1 つ積む。
+ * 未読の数は、エージェントが notify_user を呼ぶかどうかに頼らず、hangar が返答の終わりごとに 1 つ積む。Claude Code・Codex・opencode で同じである。
+ * notify_user は、丸に 1 文と場面を添える役である。そのターンに done か ask で呼ばれていれば、その呼び出しが 1 つを積む（live/unreadHold.ts）ので、ここでは積まない（二重に数えない）。
+ * progress の呼び出しは途中の 1 つとして別に積まれ、終わりの 1 つは打ち消さない。hangar が代わりに出した知らせ（immediate：承認待ち、起動の失敗）も打ち消さない。
  *
- * 出すのは未読の数だけで、OS の通知とスマホの通知は出さない。
- * エージェントが自分で知らせると決めたものではないので、利用者の手を止める通知にはしない。
- * 知らせ方の決まりで未読に done を含まないとき、notify_user の段を切ったとき、休みの会話、統括の会話には積まない。
+ * notify_user の無いターンは、最後の返答の頭の 1 文を未読の文にし、知らせ方の done の決まりどおり OS とスマホへも流す（onUnreadReady）。
+ * 問いの入力待ち（AskUserQuestion）で終わったターンは、未読だけ積む。OS とスマホへは入力待ちの知らせが別に出るからである。
+ * 画面で前に出して見ている会話（live/viewing.ts）には、未読を積まず、スマホへも流さない。OS の通知は殻が窓の前後で決める。
+ * 休みの会話と統括の会話には出さない。notify_user の段（設定の notifyUser）は指示文の入切なので、切っていても数える。
  *
- * ターンを抜けたとみなすのは、入力待ち（idle）と、裏だけが動く（aside）に移ったときである（UnreadHold と同じ turnRunning で見る）。
- * 問いの入力待ち（AskUserQuestion）で終わったターンは、入力待ちの知らせが別に出るので積まない。run が居なくなったときも積まない。
+ * ターンを抜けたとみなすのは、入力待ち（idle、問いの waiting）と、裏だけが動く（aside）に移ったときである（UnreadHold と同じ turnRunning で見る）。
+ * run が居なくなったときは積まない。
  * 作業中と見る前に呼ばれた notify_user も落とさないよう、呼ばれた印はターンの始まりで消さず、終わりの判定で使い切る。
  * 返答の本文の索引は状態より少し遅れるので、ターンの始まり以後の返答が見えるまで間を置いて読み直し、上限まで見えなければ諦める。
  */
@@ -32,8 +35,8 @@ export type NotifyFallbackDeps = {
   db: Db;
   /** いまの実行中の一覧（agent/liveHub.ts の LiveHub.current）。 */
   live: () => LiveSessionDto[];
-  /** いまの設定。知らせ方の決まり、notify_user の段の入切、統括の会話を読む。 */
-  settings: () => Parameters<typeof notifyRulesOf>[0] & { notifyUser?: boolean; orchestrator?: unknown };
+  /** いまの設定。知らせ方の決まりと統括の会話を読む。 */
+  settings: () => Parameters<typeof notifyRulesOf>[0] & { orchestrator?: unknown };
   /** 会話の最後の返答とその時刻（mcp/waitTool.ts の lastReply）。 */
   lastReply: (sessionId: string) => { text: string; ts: number | null } | null;
   now?: () => number;
@@ -63,7 +66,7 @@ export function firstSentence(text: string): string | null {
 export class NotifyFallback {
   /** 作業中と見ている会話（hangar の id）と、作業中と見た時刻。 */
   private running = new Map<string, number>();
-  /** 最後の判定の後に notify_user が呼ばれた会話。 */
+  /** 最後の判定の後に notify_user が done か ask で呼ばれた会話。 */
   private notified = new Set<string>();
 
   constructor(private readonly deps: NotifyFallbackDeps) {}
@@ -72,9 +75,9 @@ export class NotifyFallback {
     return this.deps.now?.() ?? Date.now();
   }
 
-  /** notify_user が呼ばれたことを聞き始める。戻り値を呼ぶと外す。 */
+  /** notify_user が呼ばれたことを聞き始める。戻り値を呼ぶと外す。progress と、hangar が代わりに出した知らせは数えない。 */
   start(): () => void {
-    return onNotifyCall((id) => { this.notified.add(id); });
+    return onNotifyKind((id, kind, immediate) => { if (kind !== 'progress' && !immediate) this.notified.add(id); });
   }
 
   /** 登録が変わったときに呼ぶ。作業中に入った会話を覚え、抜けた会話を判定する。 */
@@ -93,8 +96,8 @@ export class NotifyFallback {
       if (started === undefined) continue;
       this.running.delete(id);
       const notified = this.notified.delete(id);
-      if (notified || l.status === 'waiting') continue;
-      this.attempt(id, started, now);
+      if (notified) continue;
+      this.attempt(id, started, now, l.status === 'waiting');
     }
     // run が居なくなった会話は、積まずに忘れる。
     for (const id of [...this.running.keys()]) {
@@ -110,32 +113,39 @@ export class NotifyFallback {
   }
 
   /** そのターンの返答が見えたら未読を積む。まだ見えなければ、上限まで間を置いて読み直す。 */
-  private attempt(id: string, started: number, endedAt: number): void {
+  private attempt(id: string, started: number, endedAt: number, question: boolean): void {
     // 終わりの後に呼ばれた notify_user（裏の作業の間など）があれば、それに任せる。
     if (this.notified.has(id)) return;
     const reply = this.deps.lastReply(id);
     if (reply && reply.ts !== null && reply.ts >= started - START_SLACK_MS) {
-      this.give(id, reply.text);
+      this.give(id, reply.text, question);
       return;
     }
     const poll = this.deps.pollMs ?? POLL_MS;
     if (this.now() + poll - endedAt > (this.deps.maxWaitMs ?? MAX_WAIT_MS)) return;
     const set = this.deps.setTimer ?? ((fn, ms) => { setTimeout(fn, ms).unref?.(); });
     set(() => {
-      try { this.attempt(id, started, endedAt); } catch (e) { console.error('[unread] fallback failed', e instanceof Error ? e.message : e); }
+      try { this.attempt(id, started, endedAt, question); } catch (e) { console.error('[unread] fallback failed', e instanceof Error ? e.message : e); }
     }, poll);
   }
 
-  private give(id: string, reply: string): void {
+  private give(id: string, reply: string, question: boolean): void {
     const settings = this.deps.settings();
-    if (settings.notifyUser === false) return;
-    if (!notifyRulesOf(settings).unread.includes('done')) return;
     if (orchestratorOf(settings.orchestrator).sessionId === id) return;
     const session = getSession(this.deps.db, this.deps.live(), id);
     if (!session || (isQuietStatus(session.state?.status) && !session.woke)) return;
     const text = firstSentence(reply);
     if (!text) return;
-    addUnread(this.deps.db, id, text, this.now());
-    touchRow(this.deps.db, 'sessions', id);
+    const rules = notifyRulesOf(settings);
+    const now = this.now();
+    const viewing = isViewing(id, now);
+    let count = session.unread?.count ?? 0;
+    if (rules.unread.includes('done') && !viewing) {
+      count = addUnread(this.deps.db, id, text, now);
+      touchRow(this.deps.db, 'sessions', id);
+    }
+    if (question) return;
+    const sent: NotifyTarget[] = (['os', 'phone'] as const).filter((x) => rules[x].includes('done') && !(x === 'phone' && viewing));
+    if (sent.length > 0) noteUnreadReady(id, text, count, sent, { kind: 'done' });
   }
 }

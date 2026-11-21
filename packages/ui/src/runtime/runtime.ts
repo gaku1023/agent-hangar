@@ -38,6 +38,7 @@ import { createOrchestratorRunner } from './orchestrator.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
 import { keyLabel } from '../keys.ts';
+import { createViewingReporter } from './viewing.ts';
 
 export type RuntimeDeps = {
   api: ApiClient;
@@ -67,6 +68,8 @@ export type RuntimeDeps = {
    * ほかの PC の会話の見張りは、隠れている間は外し、見えたら（onWindowVisible か onWindowFocus）張り直す。
    */
   onWindowHidden?: (cb: () => void) => () => void;
+  /** 窓が前面を離れたことを知らせる。返り値で購読を外す。見ている会話の知らせ（runtime/viewing.ts）を外すのに使う。 */
+  onWindowBlur?: (cb: () => void) => () => void;
   /**
    * 状態の変化を画面へ出す。
    * commit を呼ぶまで、getState は前に描いた状態を返し、React はそれを描き続ける。
@@ -165,6 +168,13 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     const id = state.screen.name === 'session' ? state.screen.id : null;
     if (id && id !== state.unreadKept && (store.sessions[id]?.unread?.count ?? 0) > 0) deps.api.markSeen(id).catch(fail);
   };
+  /** いま前に出して見ている会話をサーバへ知らせる（runtime/viewing.ts）。返答の終わりの未読とスマホの知らせを、見ている会話には出さないためである。 */
+  const viewingClient = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `v${Math.random().toString(36).slice(2)}`;
+  const viewing = createViewingReporter({
+    current: () => (state.screen.name === 'session' && visible() && focused() ? state.screen.id : null),
+    send: (id) => deps.api.viewing?.(viewingClient, id) ?? Promise.resolve(),
+    setTimeout: deps.setTimeout,
+  });
   const present = deps.present ?? ((c: () => void) => c());
   // ストアが変わったら、そのことだけを Mediator へ知らせる。
   // ストアから決まる状態（入力待ちの知らせ、サイドバーの「動いている」の並び）は、Mediator がストアを読んで合わせる。
@@ -322,6 +332,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   let unsubFocus: (() => void) | null = null;
   let unsubVisible: (() => void) | null = null;
   let unsubHidden: (() => void) | null = null;
+  let unsubBlur: (() => void) | null = null;
   let unsubHide: (() => void) | null = null;
   /** 通知の許可を最後に読み直した時刻。 */
   let notifyCheckedAt = -Infinity;
@@ -1291,17 +1302,20 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         lastDepth = d;
         // 戻れる・進めるを添える（サイドバーの戻る・進むのボタン）。別の知らせにすると、1 回の移動で描き直しが 2 回走る。
         const history = historyNow();
-        if (wrote === h) { wrote = null; dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), history } }); return; }
+        if (wrote === h) { wrote = null; dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), history } }); viewing.report(); return; }
         wrote = null;
         dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), moved, history } });
+        viewing.report();
       });
       // 前面に来たときも、隠れている間に溜めた Store の変化を出す。visibilitychange を出し損ねる WebView があっても、画面が古いまま残らないようにする。
-      unsubFocus = deps.onWindowFocus?.(() => { peerChat.resume(); releaseStore(); dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); resendSeen(); }) ?? null;
-      unsubHidden = deps.onWindowHidden?.(() => peerChat.pause()) ?? null;
-      unsubVisible = deps.onWindowVisible?.(() => { peerChat.resume(); releaseStore(); recheckNotify(); gitWatch.wake(); resendSeen(); }) ?? null;
+      unsubFocus = deps.onWindowFocus?.(() => { peerChat.resume(); releaseStore(); dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); resendSeen(); viewing.report(); }) ?? null;
+      unsubHidden = deps.onWindowHidden?.(() => { peerChat.pause(); viewing.report(); }) ?? null;
+      unsubVisible = deps.onWindowVisible?.(() => { peerChat.resume(); releaseStore(); recheckNotify(); gitWatch.wake(); resendSeen(); viewing.report(); }) ?? null;
+      unsubBlur = deps.onWindowBlur?.(() => viewing.report()) ?? null;
+      viewing.report();
       unsubHide = deps.onPageHide?.(() => cloudMember.flushPending()) ?? null;
       ws.connect();
     },
-    stop() { queued = []; unsubHidden?.(); unsubHidden = null; ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubHide?.(); unsubHide = null; unsubNotify?.(); unsubNotify = null; unsubJoin?.(); unsubJoin = null; deps.terminals.dispose(); },
+    stop() { queued = []; viewing.stop(); unsubBlur?.(); unsubBlur = null; unsubHidden?.(); unsubHidden = null; ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubHide?.(); unsubHide = null; unsubNotify?.(); unsubNotify = null; unsubJoin?.(); unsubJoin = null; deps.terminals.dispose(); },
   };
 }

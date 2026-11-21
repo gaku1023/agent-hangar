@@ -4,7 +4,9 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { firstSentence, NotifyFallback, START_SLACK_MS } from './notifyFallback.ts';
-import { noteNotifyCall, onUnread, onUnreadReady } from './unread.ts';
+import { noteNotifyKind } from './notifyKind.ts';
+import { onUnread, onUnreadReady } from './unread.ts';
+import { noteViewing, resetViewing } from './viewing.ts';
 
 let db: Db;
 let live: LiveSessionDto[];
@@ -51,30 +53,32 @@ beforeEach(() => {
   replies = new Map();
   timers = [];
   fired = [];
-  offs = [onUnread((id) => fired.push(`unread:${id}`)), onUnreadReady((id) => fired.push(`ready:${id}`))];
+  resetViewing();
+  offs = [onUnread((id) => fired.push(`unread:${id}`)), onUnreadReady((id, text, count, sent, meta) => fired.push(`ready:${id}:${text}:${count}:${sent.join(',')}:${meta.kind}`))];
 });
 afterEach(() => { for (const o of offs) o(); db.close(); });
 
 describe('NotifyFallback', () => {
-  it('notify_user の無いまま作業中から入力待ち（idle）に抜けたら、最後の返答の頭の 1 文で未読を 1 つ積む。OS とスマホへは流さない', () => {
+  it('notify_user の無いまま作業中から入力待ち（idle）に抜けたら、最後の返答の頭の 1 文で未読を 1 つ積み、知らせ方の done の決まりどおり OS とスマホへ流す', () => {
     const f = fallback();
     replies.set(s1, { text: '調べ終えました。原因は設定の読み違いです。', ts: clock + 20_000 });
     turn(f, 'idle');
     expect(unread(s1)).toEqual({ count: 1, text: '調べ終えました。' });
     expect(unread(s2)).toBeUndefined();
-    expect(fired).toEqual([]);
+    // 預かり（onUnread）は通さず、出してよい知らせ（onUnreadReady）として直に流す。
+    expect(fired).toEqual([`ready:${s1}:調べ終えました。:1:os,phone:done`]);
     // 同じ終わりを何度見ても、積むのは 1 回だけ。
     f.check();
     runTimers();
     expect(unread(s1)!.count).toBe(1);
   });
 
-  it('そのターンに notify_user が呼ばれていれば積まない。次のターンでは、また呼ばれなければ積む', () => {
+  it('そのターンに notify_user が done か ask で呼ばれていれば積まない（数えるのはその呼び出し）。次のターンでは、また呼ばれなければ積む', () => {
     const f = fallback();
     replies.set(s1, { text: '一つ目。', ts: clock + 1 });
     live = [entry('u1', 'busy')];
     f.check();
-    noteNotifyCall(s1);
+    noteNotifyKind(s1, 'ask');
     live = [entry('u1', 'idle')];
     f.check();
     runTimers();
@@ -87,22 +91,46 @@ describe('NotifyFallback', () => {
   it('作業中と見る前に呼ばれた notify_user も、そのターンの分として数える', () => {
     const f = fallback();
     replies.set(s1, { text: '済みました。', ts: clock + 20_000 });
-    noteNotifyCall(s1);
+    noteNotifyKind(s1, 'done');
     turn(f, 'idle');
     runTimers();
     expect(unread(s1)).toBeUndefined();
   });
 
-  it('問いの入力待ちで終わったターンと、run が居なくなったターンには積まない', () => {
+  it('progress の呼び出しと、hangar が代わりに出した知らせ（immediate）は、終わりの 1 つを打ち消さない', () => {
+    const f = fallback();
+    replies.set(s1, { text: '終わりました。', ts: clock + 20_000 });
+    live = [entry('u1', 'busy')];
+    f.check();
+    noteNotifyKind(s1, 'progress');
+    noteNotifyKind(s1, 'ask', true);
+    clock += 30_000;
+    live = [entry('u1', 'idle')];
+    f.check();
+    expect(unread(s1)).toEqual({ count: 1, text: '終わりました。' });
+  });
+
+  it('画面で前に出して見ている会話には積まず、スマホへも流さない。OS は殻が窓の前後で決めるので流す', () => {
+    const f = fallback();
+    replies.set(s1, { text: '見ている間に終わりました。', ts: clock + 20_000 });
+    noteViewing('win', s1, clock);
+    turn(f, 'idle');
+    expect(unread(s1)).toBeUndefined();
+    expect(fired).toEqual([`ready:${s1}:見ている間に終わりました。:0:os:done`]);
+  });
+
+  it('問いの入力待ちで終わったターンは未読だけ積む（OS とスマホは入力待ちの知らせが別に出す）。run が居なくなったターンには積まない', () => {
     const f = fallback();
     replies.set(s1, { text: 'どちらにしますか。', ts: clock + 20_000 });
     turn(f, 'waiting', { waitingFor: 'question' });
+    expect(unread(s1)).toEqual({ count: 1, text: 'どちらにしますか。' });
+    expect(fired).toEqual([]);
     live = [entry('u1', 'busy')];
     f.check();
     live = [];
     f.check();
     runTimers();
-    expect(unread(s1)).toBeUndefined();
+    expect(unread(s1)!.count).toBe(1);
   });
 
   it('許可待ちはターンの途中なので終わりとみなさない。裏だけが動く（aside）のは終わりとみなす', () => {
@@ -147,7 +175,7 @@ describe('NotifyFallback', () => {
     expect(unread(s1)).toBeUndefined();
   });
 
-  it('知らせ方の決まりで未読に done を含まないとき、notify_user の段を切ったとき、休みの会話、統括の会話には積まない', () => {
+  it('知らせ方の決まりで done を含まない出し先、休みの会話、統括の会話には出さない。notify_user の段を切っていても数える', () => {
     const f = fallback();
     const check = () => {
       replies.set(s1, { text: '済み。', ts: clock + 20_000 });
@@ -155,10 +183,14 @@ describe('NotifyFallback', () => {
       runTimers();
       return unread(s1);
     };
-    settings = { notifyPreference: { text: '未読は判断が要るときだけ', unread: ['ask'], os: [], phone: [], whileFocused: false, merge: true } };
+    settings = { notifyPreference: { text: '未読は判断が要るときだけ', unread: ['ask'], os: ['done'], phone: [], whileFocused: false, merge: true } };
     expect(check()).toBeUndefined();
+    expect(fired).toEqual([`ready:${s1}:済み。:0:os:done`]);
+    fired = [];
     settings = { notifyUser: false };
-    expect(check()).toBeUndefined();
+    expect(check()).toEqual({ count: 1, text: '済み。' });
+    db.prepare('delete from session_unread').run();
+    fired = [];
     settings = { orchestrator: { enabled: true, sessionId: s1 } as SettingsDto['orchestrator'] };
     expect(check()).toBeUndefined();
     settings = {};
@@ -166,6 +198,7 @@ describe('NotifyFallback', () => {
     expect(check()).toBeUndefined();
     db.prepare('delete from session_states').run();
     expect(check()).toEqual({ count: 1, text: '済み。' });
+    expect(fired).toEqual([`ready:${s1}:済み。:1:os,phone:done`]);
   });
 
   it('Codex と opencode の会話も、登録の agent と会話の provider で引き当てる', () => {
