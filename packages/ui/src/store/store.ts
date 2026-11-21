@@ -716,11 +716,18 @@ export function waitingSessionIds(store: Store): string[] {
 export const unreadBadgeOn = (store: Store): boolean => store.settings?.unreadBadge !== false;
 /** ほかの PC で動いている会話をサイドバーの「実行中」に出すか。設定 sidebarOtherPcs が無ければ入り。 */
 export const sidebarOtherPcsOn = (store: Store): boolean => store.settings?.sidebarOtherPcs !== false;
-export const unreadOf = (store: Store, id: string): NonNullable<SessionDto['unread']> | null => (unreadBadgeOn(store) ? store.sessions[id]?.unread ?? null : null);
+/**
+ * 数えてよい未読か。ほかの PC が数えた未読（elsewhere、2 台で同期する）は、設定 sidebarOtherPcs が切なら数えない（サイドバー、ホーム、Dock のどれにも出さない）。
+ */
+const countable = (store: Store, u: SessionDto['unread'] | undefined): u is NonNullable<SessionDto['unread']> => !!u && u.count > 0 && (u.elsewhere !== true || sidebarOtherPcsOn(store));
+export const unreadOf = (store: Store, id: string): NonNullable<SessionDto['unread']> | null => {
+  const u = store.sessions[id]?.unread;
+  return unreadBadgeOn(store) && countable(store, u) ? u : null;
+};
 /** 未読のあるセッションの id。知らせの新しいものが先。 */
 export function unreadSessionIds(store: Store): string[] {
   if (!unreadBadgeOn(store)) return [];
-  return hotSessions(store.sessions).filter((s) => (s.unread?.count ?? 0) > 0)
+  return hotSessions(store.sessions).filter((s) => countable(store, s.unread))
     .sort((a, b) => b.unread!.at - a.unread!.at || a.id.localeCompare(b.id))
     .map((s) => s.id);
 }

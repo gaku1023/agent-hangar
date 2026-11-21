@@ -120,7 +120,7 @@ export class UnreadHold {
     // 抜けたときに画面で前に出して見ている会話には、未読を積まず、スマホへも出さない（live/viewing.ts）。
     const viewing = isViewing(sessionId, now);
     if (h.unread && !viewing) {
-      count = addUnread(this.deps.db, sessionId, h.text, now);
+      count = addUnread(this.deps.db, sessionId, h.text, now, { kind: h.meta.kind });
       touchRow(this.deps.db, 'sessions', sessionId);
     }
     const sent = [...h.sent].filter((x) => !(viewing && x === 'phone'));

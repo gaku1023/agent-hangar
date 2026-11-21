@@ -89,6 +89,8 @@ type SessionRow = {
   unread_count: number | null;
   unread_text: string | null;
   unread_at: number | null;
+  /** 未読を数えた PC（版 67）。この PC でなければ、ほかの PC の会話の未読である。 */
+  unread_device: string | null;
   /** MCP の create_session で起こした会話の起動元（session_spawns）。無ければ null。 */
   spawned_by: string | null;
   sp_parent_dev: string | null; sp_child_dev: string | null; sp_relay: string | null; sp_parent_name: string | null; sp_child_name: string | null;
@@ -129,7 +131,7 @@ select s.*, (exists(select 1 from transcript_files t where t.session_id = s.id a
   (select r.ended_at from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1) last_ended_at,
   (select i.cause from interrupted_runs i where i.run_id = (select r.id from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1)) last_interrupt_cause,
   ov.payload overlap_payload,
-  ss.pinned_at ss_pinned_at, un.count unread_count, un.latest_text unread_text, un.latest_at unread_at,
+  ss.pinned_at ss_pinned_at, ss.unread_count unread_count, ss.unread_text unread_text, ss.unread_at unread_at, ss.unread_device unread_device,
   sp.parent_id spawned_by, sp.parent_device_id sp_parent_dev, sp.child_device_id sp_child_dev, sp.relay sp_relay,
   (select d.name from devices d where d.id = sp.parent_device_id) sp_parent_name, (select d.name from devices d where d.id = sp.child_device_id) sp_child_name,
   (select ifnull(ml.permission_mode, '') from mobile_launches ml where ml.session_id = s.id order by ml.handled_at limit 1) ml_mode,
@@ -144,7 +146,6 @@ left join session_limits lim on lim.session_id = s.id
 left join session_states ss on ss.session_id = s.id and ss.deleted_at is null
 left join session_notes sn on sn.session_id = s.id and sn.deleted_at is null
 left join session_overlaps ov on ov.session_id = s.id
-left join session_unread un on un.session_id = s.id
 left join session_spawns sp on sp.session_id = s.id and sp.deleted_at is null
 where s.deleted_at is null`;
 
@@ -423,7 +424,7 @@ function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto
     interrupted: r.ss_status === null && r.last_end_reason === 'lost' && r.last_ended_at !== null ? { at: r.last_ended_at, cause: r.last_interrupt_cause } : null,
     // 同じファイルの編集は、実行中の間だけの警告である。終わった後に古い写しが残っていても出さない。
     overlap: live ? overlapOf(r.overlap_payload) : null,
-    unread: unreadOf(r),
+    unread: unreadOf(r, self),
     pinnedAt: r.ss_pinned_at,
     spawnedBy: r.spawned_by,
     spawnPeer: spawnPeerOf(r, self),

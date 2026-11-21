@@ -704,7 +704,7 @@ function noticeDeleteApproval(deps: ToolDeps, ctx: ToolContext, s: SessionDto, n
   if (sent.length === 0) return;
   let unread = from?.unread?.count ?? 0;
   if (from && sent.includes('unread')) {
-    unread = addUnread(deps.db, from.id, text, now);
+    unread = addUnread(deps.db, from.id, text, now, { kind: 'ask' });
     touchRow(deps.db, 'sessions', from.id);
   }
   // 依頼元のターンの終わりを待たずに出す。依頼元は承認を待って止まっていることがあるからである。
@@ -783,7 +783,7 @@ export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
     // 未読の数も、done と ask で作業中なら預かりが積む（holdUnread のとき）。返答を書き終える前に数が増えないようにするためである。
     const unreadHeld = sent.includes('unread') && deps.holdUnread === true && kind !== 'progress' && !o.immediate && sessionTurnRunning(deps.db, deps.live(), id);
     if (sent.includes('unread') && !unreadHeld) {
-      unread = addUnread(deps.db, id, text, now);
+      unread = addUnread(deps.db, id, text, now, { kind });
       touchRow(deps.db, 'sessions', id);
     }
     // OS とスマホへの通知は、done と ask ならこのターンが終わるまで預かってから出る（live/unreadHold.ts）。

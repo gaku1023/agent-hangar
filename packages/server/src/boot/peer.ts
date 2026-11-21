@@ -157,7 +157,7 @@ export function bootPeer(p: {
     }
     let unread = 0;
     if (sent.includes('unread')) {
-      unread = addUnread(db, sessionId, clipped, now());
+      unread = addUnread(db, sessionId, clipped, now(), { kind: 'ask' });
       touchRow(db, 'sessions', sessionId);
       }
       noteUnread(sessionId, clipped, unread, sent, { kind: 'ask', immediate: true });

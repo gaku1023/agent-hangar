@@ -152,7 +152,7 @@ export function setSessionState(db: Db, deviceId: string, sessionId: string, o: 
 /**
  * 知らせを止める状態（Done、Archived、Paused）にしたら、残っていた未読を消す。
  * その会話はサイドバーから消えるので、残すとホームの未読の帯から開くまで消せない（2026-10-31）。
- * 未読は手元だけの表（session_unread）なので、ほかの PC から届いた状態では消さない。ここは手元で付けたときだけ通る。
+ * ここは手元で付けたときだけ通る。消した未読は同期で届くので、ほかの PC でも消える（版 67）。
  */
 function settleUnread(db: Db, sessionId: string, status: SessionStatus): void {
   if (isQuietStatus(status)) markSeen(db, sessionId);

@@ -141,7 +141,7 @@ export class NotifyFallback {
     const viewing = isViewing(id, now);
     let count = session.unread?.count ?? 0;
     if (rules.unread.includes('done') && !viewing) {
-      count = addUnread(this.deps.db, id, text, now);
+      count = addUnread(this.deps.db, id, text, now, { kind: 'done' });
       touchRow(this.deps.db, 'sessions', id);
     }
     if (question) return;

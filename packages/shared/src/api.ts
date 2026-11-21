@@ -143,10 +143,11 @@ export type SessionDto = { id: string; provider: AgentKind; providerSessionId: s
    */
   newerElsewhere: boolean;
   /**
-   * エージェントが notify_user で知らせた未読（この PC の手元の表 session_unread）。count はたまった回数、latest は最後の text、at はその時刻。
+   * エージェントが notify_user で知らせた未読（session_states の未読の列。2 台で同期する）。count はたまった回数、latest は最後の text、at はその時刻。
+   * elsewhere はほかの PC が数えた未読の印で、設定 sidebarOtherPcs が切なら画面は数えない。この項目を知らない古いサーバは返さない。
    * 開くと 0 になり、そのとき null に戻る。Done・Paused・Archived でも、開くまで残す。この項目を知らない古いサーバは返さないので、読む側は null として読む。
    */
-  unread: { count: number; latest: string | null; at: number } | null;
+  unread: { count: number; latest: string | null; at: number; elsewhere?: true } | null;
   /** ピン留めした時刻（session_states.pinned_at、同期する）。留めていなければ null。 */
   pinnedAt: number | null;
   /**
