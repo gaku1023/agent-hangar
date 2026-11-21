@@ -164,6 +164,7 @@ describe('NotifyFallback', () => {
     replies.set(s1, { text: 'どちらにしますか。', ts: clock + 20_000 });
     turn(f, 'waiting', { waitingFor: 'question' });
     expect(unread(s1)).toEqual({ count: 1, text: 'どちらにしますか。' });
+    expect(db.prepare('select unread_kind as k from session_states where session_id = ?').get(s1)).toEqual({ k: 'ask' });
     expect(fired).toEqual([]);
     live = [entry('u1', 'busy')];
     f.check();
