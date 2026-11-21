@@ -1,6 +1,6 @@
 import type { PaneId, SessionDto, SessionStatus, Translate, UiAction } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
-import { aliveRunOf, remoteLiveOf, tabsOf, unreadBadgeOn, type Store } from '../store/store.ts';
+import { aliveRunOf, remoteAsideOf, remoteLiveOf, tabsOf, unreadBadgeOn, type Store } from '../store/store.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
 import { resumeHereOf } from './resumeHere.ts';
 import { ACTIVE_LABEL, STATUS_LABEL } from './row.ts';
@@ -8,7 +8,7 @@ import { ACTIVE_LABEL, STATUS_LABEL } from './row.ts';
 /** 停止に要るもの。止めるときの確認（作業中、裏の作業、シェルタブ）はセッション画面の「停止」と同じに数える。 */
 export type SessionMenuStop = { runId: string; working: boolean; aside: boolean; shellTabs: number };
 /** ほかの PC で動いている会話の停止に要るもの。その PC に頼む（POST /api/peer-stop）。working は相手の PC の動きで決める。 */
-export type SessionMenuPeerStop = { peer: true; working: boolean };
+export type SessionMenuPeerStop = { peer: true; working: boolean; aside: boolean };
 
 /**
  * セッションのメニュー（1A）の中身。ホームとプロジェクト画面の一覧、ホームの帯、サイドバーで同じものを出す。
@@ -67,7 +67,7 @@ export function presentSessionMenu(store: Store, s: SessionDto, t: Translate): S
   const stop: SessionMenuProps['stop'] = run
     ? { runId: run.id, working: s.live === 'busy' || s.live === 'waiting', aside: asideOf(s.live, s.liveAside) !== null, shellTabs: tabsOf(store, run.id).filter((tab) => tab.kind === 'shell').length }
     : running ? 'external'
-    : s.lock && !s.lock.stale ? { peer: true, working: ['busy', 'waiting'].includes(remoteLiveOf(s.lock)) }
+    : s.lock && !s.lock.stale ? { peer: true, working: ['busy', 'waiting'].includes(remoteLiveOf(s.lock)), aside: remoteAsideOf(s.lock) !== null }
     : null;
   const here = resumeHereOf(store, s, t);
   return {
@@ -129,7 +129,7 @@ export function sessionMenuEntries(t: Translate, m: SessionMenuProps): SessionMe
     { key: 'move', label: t('row.menu.move'), icon: 'moveSession', kbd: 'm', separatorBefore: !m.spawned, disabled: m.moveBlocked, send: { type: 'session.move.open', id: m.id } },
     { key: 'copyId', label: t('session.action.copyId'), icon: 'copy', disabled: null, send: { type: 'session.copyId', id: m.id } },
     stop
-      ? { key: 'stop', label: t('sidebar.live.stop'), icon: 'stop', danger: true, separatorBefore: true, disabled: stop === 'external' ? t('sidebar.live.stopExternal') : null, send: stop === 'external' ? null : 'peer' in stop ? { type: 'session.peerStop', id: m.id, working: stop.working } : { type: 'session.kill', ...stop } }
+      ? { key: 'stop', label: t('sidebar.live.stop'), icon: 'stop', danger: true, separatorBefore: true, disabled: stop === 'external' ? t('sidebar.live.stopExternal') : null, send: stop === 'external' ? null : 'peer' in stop ? { type: 'session.peerStop', id: m.id, working: stop.working, aside: stop.aside } : { type: 'session.kill', ...stop } }
       : { key: 'delete', label: t('row.menu.delete'), icon: 'trash', danger: true, separatorBefore: true, disabled: null, send: { type: 'session.delete.open', id: m.id } },
   ];
 }

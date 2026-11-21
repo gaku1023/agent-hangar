@@ -13,6 +13,7 @@ const HOLD = 3000;
 const run = (id: string, extra: Record<string, unknown> = {}) =>
   upsertShared(db, 'runs', { id, session_id: 's1', device_id: 'd', kind: 'start', tmux_name: `t-${id}`, pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1, ...extra }, 'd');
 const live = (id = 'r1') => db.prepare('select live_status, live_reason, live_at from runs where id = ?').get(id) as { live_status: string | null; live_reason: string | null; live_at: number | null };
+const aside = (id = 'r1') => { const v = (db.prepare('select live_aside from runs where id = ?').get(id) as { live_aside: string | null }).live_aside; return v === null ? null : JSON.parse(v); };
 const writes = () => (db.prepare("select count(*) c from changes where table_name = 'runs'").get() as { c: number }).c;
 
 beforeEach(() => {
@@ -90,5 +91,32 @@ describe('LiveShare', () => {
     run('r1', { ended_at: 1100, end_reason: 'exit' });
     vi.advanceTimersByTime(HOLD);
     expect(live().live_status).toBeNull();
+  });
+
+  it('裏だけの印（aside）も載せる。状態が busy のままなら、その状態になった時刻を保つ', () => {
+    share.observe('r1', 'busy', null);
+    now = 1000 + HOLD;
+    vi.advanceTimersByTime(HOLD);
+    expect(aside()).toBeNull();
+    now = 9000;
+    share.observe('r1', 'busy', null, { shell: true, agents: 0 });
+    now = 9000 + HOLD;
+    vi.advanceTimersByTime(HOLD);
+    expect(aside()).toEqual({ shell: true, agents: 0 });
+    expect(live()).toMatchObject({ live_status: 'busy', live_at: 1000 });
+    const before = writes();
+    share.observe('r1', 'busy', null, { shell: true, agents: 0 });
+    vi.advanceTimersByTime(HOLD);
+    expect(writes()).toBe(before);
+    share.observe('r1', 'busy', null);
+    vi.advanceTimersByTime(HOLD);
+    expect(aside()).toBeNull();
+  });
+
+  it('入力待ちや休みでは印を載せない', () => {
+    share.observe('r1', 'idle', null, { shell: true, agents: 0 });
+    vi.advanceTimersByTime(HOLD);
+    expect(live().live_status).toBe('idle');
+    expect(aside()).toBeNull();
   });
 });

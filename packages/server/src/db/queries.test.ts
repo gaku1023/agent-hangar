@@ -355,7 +355,7 @@ describe('ロックと remoteOnly と端末一覧', () => {
     addRun(d2, { id: 'r-self', device: 'dev-a', heartbeat: NOW });
     expect(one(d2).lock).toBeNull();
     addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: 1 });
-    expect(one(d2).lock).toEqual({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r-b', heartbeatAt: NOW - 30_000, stale: false, live: null, liveAt: null, reason: null });
+    expect(one(d2).lock).toEqual({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r-b', heartbeatAt: NOW - 30_000, stale: false, live: null, liveAt: null, reason: null, aside: null });
     expect(getSession(d2, [], 's1', { deviceId: 'dev-a', now: () => NOW })!.lock!.runId).toBe('r-b');
   });
 
@@ -365,6 +365,16 @@ describe('ロックと remoteOnly と端末一覧', () => {
     addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: 1, live: { live_status: 'waiting', live_reason: 'permission', live_at: NOW - 5000 } });
     expect(one(d2).lock).toMatchObject({ live: 'waiting', liveAt: NOW - 5000, reason: 'permission' });
     expect(getSession(d2, [], 's1', { deviceId: 'dev-a', now: () => NOW })!.lock).toMatchObject({ live: 'waiting', liveAt: NOW - 5000, reason: 'permission' });
+  });
+
+  it('run の行の live_aside（裏だけの印）をロックに載せる。読めない値は無いものとする', () => {
+    const d2 = setup();
+    seen(d2, [{ id: 'dev-b', age: 0 }]);
+    addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: 1, live: { live_status: 'busy', live_at: NOW - 5000, live_aside: JSON.stringify({ shell: true, agents: 0 }) } });
+    expect(one(d2).lock).toMatchObject({ live: 'busy', aside: { shell: true, agents: 0 } });
+    expect(sessionLock(d2, 'dev-a', 's1', NOW)!.aside).toEqual({ shell: true, agents: 0 });
+    addRun(d2, { id: 'r-b', device: 'dev-b', heartbeat: 1, live: { live_status: 'busy', live_at: NOW - 5000, live_aside: 'oops' } });
+    expect(one(d2).lock!.aside).toBeNull();
   });
 
   it('同じ端末に生きた run が複数あれば、後から起きた 1 件を採る', () => {
@@ -428,7 +438,7 @@ describe('ロックと remoteOnly と端末一覧', () => {
     const d2 = setup();
     seen(d2, [{ id: 'dev-b', age: 10_000 }]);
     addRun(d2, { id: 'r1', device: 'dev-b', heartbeat: NOW - 10_000 });
-    expect(sessionLock(d2, 'dev-a', 's1', NOW)).toEqual({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 10_000, stale: false, live: null, liveAt: null, reason: null });
+    expect(sessionLock(d2, 'dev-a', 's1', NOW)).toEqual({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 10_000, stale: false, live: null, liveAt: null, reason: null, aside: null });
     expect(sessionLock(d2, 'dev-a', 's1', NOW)).toEqual(one(d2).lock);
   });
 

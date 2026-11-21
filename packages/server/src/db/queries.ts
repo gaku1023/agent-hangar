@@ -1,5 +1,5 @@
 import { isParked, limitReset, PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
-import type { CandidateSource, DeviceDto, InterruptCause, LimitKind, LiveSessionDto, LiveStatus, StopReason, SessionLimitDto, SessionOverlapDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionStatus, SessionSummaryDto, StateSetBy } from '@agent-hangar/shared';
+import type { CandidateSource, DeviceDto, InterruptCause, LimitKind, LiveAsideDto, LiveSessionDto, LiveStatus, StopReason, SessionLimitDto, SessionOverlapDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionStatus, SessionSummaryDto, StateSetBy } from '@agent-hangar/shared';
 import { isStrictlyUnder } from '../platform/paths.ts';
 import { parseStartTime as parseProcStart } from '../platform/proc.ts';
 import { sameFolderPairs } from '../projects/registry.ts';
@@ -206,12 +206,12 @@ export function countHeadless(db: Db, projectId?: string): number {
   return row.n;
 }
 
-type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number; live_status: LiveStatus | null; live_reason: StopReason | null; live_at: number | null; started_at: number };
+type LockRow = { session_id: string; run_id: string; device_id: string; device_name: string | null; heartbeat_at: number; live_status: LiveStatus | null; live_reason: StopReason | null; live_aside: string | null; live_at: number | null; started_at: number };
 /** 一覧が組むロックと、その run の始まり。始まりは区切りの判定（parked）にだけ使い、DTO には載せない。 */
 type LockEntry = { dto: SessionLockDto; startedAt: number };
 
 const LOCK_SELECT = `
-    select r.session_id, r.id run_id, r.device_id, d.name device_name, r.heartbeat_at, r.live_status, r.live_reason, r.live_at, r.started_at
+    select r.session_id, r.id run_id, r.device_id, d.name device_name, r.heartbeat_at, r.live_status, r.live_reason, r.live_aside, r.live_at, r.started_at
     from runs r left join devices d on d.id = r.device_id and d.deleted_at is null
     where r.ended_at is null and r.deleted_at is null and r.device_id <> ?`;
 
@@ -226,7 +226,20 @@ function toLock(r: LockRow, peers: PeerBook | null, now: number): SessionLockDto
     live: r.live_status,
     liveAt: r.live_at,
     reason: r.live_reason,
+    aside: asideOfRow(r.live_aside),
   };
+}
+
+/** run の行の live_aside（JSON）を読む。読めない値と形の違うものは、印が無いものとする。 */
+function asideOfRow(v: string | null): LiveAsideDto | null {
+  if (!v) return null;
+  try {
+    const o = JSON.parse(v) as unknown;
+    if (!o || typeof o !== 'object') return null;
+    const { shell, agents } = o as Record<string, unknown>;
+    if (typeof shell !== 'boolean' || typeof agents !== 'number' || !Number.isFinite(agents)) return null;
+    return { shell, agents };
+  } catch { return null; }
 }
 
 /**

@@ -100,7 +100,7 @@ export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: Confir
         title={t('confirm.killRun.title')}
         danger
         icon="stop"
-        lead={t('confirm.killRun.working')}
+        lead={c.aside ? t('confirm.killRun.aside') : t('confirm.killRun.working')}
         onClose={close}
         footer={<><span className="spacer" />{cancel}<button type="button" className="btn btn-danger btn-danger-fill" onClick={() => emit({ type: 'session.peerStop', id: c.sessionId, working: c.working, confirmed: true })}>{t('confirm.killRun.action')}</button></>}
       >

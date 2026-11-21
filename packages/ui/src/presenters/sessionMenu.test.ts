@@ -66,11 +66,13 @@ describe('セッションのメニューの中身（presentSessionMenu）', () =
     const lock = (over: Partial<NonNullable<SessionDto['lock']>> = {}): SessionDto['lock'] => ({ deviceId: 'd2', deviceName: 'Mac', runId: 'r9', heartbeatAt: NOW, stale: false, live: 'busy', ...over });
     const busy = session({ lock: lock() });
     const m = presentSessionMenu(storeWith(busy), busy, ja);
-    expect(m.stop).toEqual({ peer: true, working: true });
+    expect(m.stop).toEqual({ peer: true, working: true, aside: false });
     expect(keys(m)).not.toContain('delete');
-    expect(entry(m, 'stop')).toMatchObject({ label: '停止', danger: true, disabled: null, send: { type: 'session.peerStop', id: 's1', working: true } });
+    expect(entry(m, 'stop')).toMatchObject({ label: '停止', danger: true, disabled: null, send: { type: 'session.peerStop', id: 's1', working: true, aside: false } });
     const idle = session({ lock: lock({ live: 'idle' }) });
-    expect(presentSessionMenu(storeWith(idle), idle, ja).stop).toEqual({ peer: true, working: false });
+    expect(presentSessionMenu(storeWith(idle), idle, ja).stop).toEqual({ peer: true, working: false, aside: false });
+    const aside = session({ lock: lock({ aside: { shell: true, agents: 0 } }) });
+    expect(presentSessionMenu(storeWith(aside), aside, ja).stop).toEqual({ peer: true, working: true, aside: true });
     const stale = session({ lock: lock({ stale: true }) });
     const ms = presentSessionMenu(storeWith(stale), stale, ja);
     expect(ms.stop).toBeNull();

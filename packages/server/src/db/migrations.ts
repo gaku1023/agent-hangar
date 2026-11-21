@@ -1193,6 +1193,15 @@ alter table devices add column viewing text;
 alter table devices add column viewing_at integer;
 `;
 
+/**
+ * 版 70。run の行に、裏だけが動いている印（LiveAsideDto の JSON）を足す。
+ * 本体は入力を受け付けていて、裏の Bash やサブエージェントだけが動いている間、ほかの PC のサイドバーも薄い点にするためである。
+ * null は印が無いこと。書き手は live_status と同じくその run の PC だけ（runs/liveShare.ts）。列を足すだけなので、Worker の変更は要らない。
+ */
+const V70_RUN_LIVE_ASIDE_SQL = `
+alter table runs add column live_aside text;
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: BASELINE_VERSION, sql: BASELINE_SQL },
   { version: 17, sql: V17_SESSION_NOTES_SQL },
@@ -1247,4 +1256,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 67, sql: V67_UNREAD_SYNC_SQL },
   { version: 68, sql: V68_SESSION_MUTED_SQL },
   { version: 69, sql: V69_DEVICE_VIEWING_SQL },
+  { version: 70, sql: V70_RUN_LIVE_ASIDE_SQL },
 ];

@@ -125,6 +125,21 @@ describe('ほかの PC の本当の状態（lock.live）', () => {
     expect(unknown.waited).toBeNull();
   });
 
+  it('裏だけ動いている（lock.aside）は、この PC の行と同じく薄い点（aside）にする。黙った PC と busy 以外には付けない', () => {
+    const shell = { shell: true, agents: 0 };
+    expect(rowsOf(storeOf([session('b', { lock: lock({ live: 'busy', liveAt: NOW - 1000, aside: shell }) })]))[0]!).toMatchObject({ live: 'busy', aside: true });
+    expect(rowsOf(storeOf([session('b', { lock: lock({ live: 'busy', liveAt: NOW - 1000 }) })]))[0]!.aside).toBe(false);
+    expect(rowsOf(storeOf([session('b', { lock: lock({ live: 'idle', liveAt: NOW - 1000, aside: shell }) })]))[0]!.aside).toBe(false);
+    expect(rowsOf(storeOf([session('b', { lock: lock({ live: 'busy', liveAt: NOW - 1000, aside: shell, stale: true }) })]))[0]!.aside).toBe(false);
+  });
+
+  it('ホームの実行中の札も、ほかの PC の裏だけの会話を aside にして、裏の語を添える', () => {
+    const store = storeOf([session('b', { lock: lock({ live: 'busy', liveAt: NOW - 1000, aside: { shell: true, agents: 0 } }) })]);
+    const card = presentHome(initialState(), store, NOW).running.find((c) => c.id === 'b')!;
+    expect(card).toMatchObject({ live: 'busy', aside: true });
+    expect(card.note).toContain('シェル');
+  });
+
   it('入力待ちは waiting の点と「待ち N 分」を live_at から出す。この PC の行と同じ文言', () => {
     const b = rowsOf(storeOf([session('b', { lock: waitingLock() })]))[0]!;
     expect(b.live).toBe('waiting');

@@ -6,7 +6,7 @@ import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
 import type { OverlapProps } from './overlap.ts';
 import { rowAgent } from './agentIcon.ts';
-import { aliveRunOf, awaitsAnswerAnywhere, hotOrAlive, hotSessions, isOrchestratorSession, liveFilterOfSession, outsideOpenOf, runningSessionIds, aliveAnywhere, remoteLockOf, remoteLiveOf, remoteReasonOf, shownAside, unreadSessionIds, type Store } from '../store/store.ts';
+import { aliveRunOf, awaitsAnswerAnywhere, hotOrAlive, hotSessions, isOrchestratorSession, liveFilterOfSession, outsideOpenOf, runningSessionIds, aliveAnywhere, remoteLockOf, remoteAsideOf, remoteLiveOf, remoteReasonOf, shownAside, unreadSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortenPaths } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
@@ -193,13 +193,14 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
     const remoteLock = remoteLockOf(s, local);
     const remote = remoteLock !== null;
     const live = remoteLock ? quietLive(remoteLiveOf(remoteLock), s.state?.status, s.woke) : quietLive(liveWithLimit(s.live, s.limit), s.state?.status, s.woke);
-    const aside = asideOf(live, s.liveAside);
+    const aside = asideOf(live, remoteLock ? remoteAsideOf(remoteLock) : s.liveAside);
     // 使用制限でリセットを待っているものは、実行中のまま理由と時刻を言う（試作の B1）。
     const limit = live === 'idle' && stopReasonOf(s) === 'limit' && s.limit ? limitCardOf(t, s.limit, now) : null;
     const working = live === 'busy' && aside === null;
     const activity = working && s.activity ? { tool: s.activity.tool, summary: shortenPaths(stripLeadingTool(s.activity.tool, s.activity.summary)) } : null;
     const idle = live === 'idle' && aside === null && !remote;
-    const note = activity || idle || remote ? null : aside ? t('home.card.asideNote', { head: asideHead(t, aside), free: asideFree(t) }) : live === 'busy' ? t('home.card.workingNote') : t('home.card.startingNote');
+    // ほかの PC のものも、裏だけ動いているなら裏の語を添える（その PC が載せた印）。
+    const note = activity || idle ? null : aside ? t('home.card.asideNote', { head: asideHead(t, aside), free: asideFree(t) }) : remote ? null : live === 'busy' ? t('home.card.workingNote') : t('home.card.startingNote');
     const idleFor = idle ? durationLabel(t, now - (s.lastActivityAt ?? now)) : null;
     const meta = projectName(s) ?? t('common.label.uncategorized');
     // 意図は作業中の間だけ出す。前のターンの意図は、いまの作業を言っていないので出さない。
