@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { noteUnreadArrived } from '../live/unread.ts';
 import { SHARED_TABLES, TABLE_PK, type ChangeOut, type SharedTable } from '@agent-hangar/shared';
 import { backupsRoot } from '../config/cloud.ts';
 import { hangarHome } from '../config/paths.ts';
@@ -563,7 +564,8 @@ function mergeFacts(db: Db, c: ChangeOut, row: Record<string, unknown>, cols: Se
   const facts = STATE_FACTS.filter((f) => cols.has(f.at));
   if (facts.length === 0) return null;
   if (!facts.every((f) => f.at in c.payload)) {
-    for (const f of facts) row[f.at] = c.updatedAt;
+    // 届いた行が値を運んだ事実だけ時刻を付ける。運ばなかった事実（その PC が知らない列、例えば版 67 の未読）は手元の値も時刻も残す。
+    for (const f of facts) if (f.cols.some((k) => k in c.payload)) row[f.at] = c.updatedAt;
     return null;
   }
   const local = localUpdatedAt === null ? undefined : db.prepare('select * from session_states where session_id = ?').get(c.rowId) as Record<string, unknown> | undefined;
@@ -601,6 +603,7 @@ function mergeFacts(db: Db, c: ChangeOut, row: Record<string, unknown>, cols: Se
  */
 export function applyRemoteBatch(db: Db, changes: ChangeOut[], o: ApplyOptions): ChangeOut[] {
   const sorted = [...changes].sort((a, b) => (ORDER.get(a.tableName) ?? 99) - (ORDER.get(b.tableName) ?? 99) || a.seq - b.seq);
+  const unreadBefore = unreadCounts(db, changes);
   const applied: ChangeOut[] = [];
   const stillFailed: [ChangeOut, unknown][] = [];
   const run = db.transaction(() => {
@@ -626,5 +629,30 @@ export function applyRemoteBatch(db: Db, changes: ChangeOut[], o: ApplyOptions):
     const local = c.tableName === 'sessions' || TABLE_PK[c.tableName] === 'session_id' ? sessionAlias(db, c.rowId)?.session_id : undefined;
     noteApplied(db, c.tableName, local ?? c.rowId, c.op);
   }
+  if (unreadBefore) noteArrivedUnread(db, unreadBefore, o.ownDeviceId);
   return applied;
+}
+
+/**
+ * 束の中の session_states の会話について、当てる前の未読の数を控える（版 67）。束に session_states が無いか、列の無い古い DB なら null。
+ * 読み替えた会話（session_aliases）は手元の ID で控える。
+ */
+function unreadCounts(db: Db, changes: ChangeOut[]): Map<string, number> | null {
+  const ids = [...new Set(changes.filter((c) => c.tableName === 'session_states').map((c) => sessionAlias(db, c.rowId)?.session_id ?? c.rowId))];
+  if (ids.length === 0 || !tableColumns(db, 'session_states').has('unread_count')) return null;
+  const read = db.prepare('select unread_count from session_states where session_id = ?');
+  return new Map(ids.map((id) => [id, (read.get(id) as { unread_count: number | null } | undefined)?.unread_count ?? 0]));
+}
+
+/**
+ * ほかの PC が積んだ未読が届いたら知らせる（live/unread.ts の onUnreadArrived、OS の通知は live/unreadArrive.ts）。
+ * 数が増え、場面があり（未読に戻しただけではない）、数えたのがこの PC でない行だけである。確定の後に呼ぶ。
+ */
+function noteArrivedUnread(db: Db, before: Map<string, number>, ownDeviceId: string): void {
+  const read = db.prepare('select unread_count, unread_kind, unread_device from session_states where session_id = ?');
+  for (const [id, prev] of before) {
+    const r = read.get(id) as { unread_count: number | null; unread_kind: string | null; unread_device: string | null } | undefined;
+    if (!r || (r.unread_count ?? 0) <= prev || r.unread_kind === null || r.unread_device === ownDeviceId) continue;
+    noteUnreadArrived(db, id);
+  }
 }

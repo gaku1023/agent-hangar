@@ -53,7 +53,7 @@ describe('UnreadHold', () => {
     live = [entry('u1', 'idle'), entry('u2', 'busy')];
     h.check();
     expect(ready).toEqual([{ id: s1, text: '見ている間に終わりました', count: 0, sent: ['os'], meta: { kind: 'done' } }]);
-    expect(db.prepare('select count(*) as n from session_unread').get()).toEqual({ n: 0 });
+    expect(db.prepare('select count(*) as n from session_states where unread_count > 0').get()).toEqual({ n: 0 });
   });
 
   it('許可待ちの間は出さず、問いの入力待ちになったら出す', () => {
@@ -123,7 +123,7 @@ describe('UnreadHold', () => {
 });
 
 describe('UnreadHold の未読の数と裏だけの印', () => {
-  const unreadRow = (id: string) => db.prepare('select count, latest_text as latest from session_unread where session_id = ?').get(id) as { count: number; latest: string } | undefined;
+  const unreadRow = (id: string) => db.prepare('select unread_count as count, unread_text as latest from session_states where session_id = ? and unread_count > 0').get(id) as { count: number; latest: string } | undefined;
 
   it('作業中でも本体が入力を受け付けていて裏だけが動く（aside）なら、ターンを抜けたとみなして出す', () => {
     const h = hold();
@@ -183,7 +183,7 @@ describe('UnreadHold の未読の数と裏だけの印', () => {
     expect(ready).toEqual([{ id: s1, text: '調べ終えました', count: 1, sent: ['os'], meta: { kind: 'ask' } }]);
     expect(h2.pending()).toBe(false);
     expect(db.prepare('select count(*) c from unread_hold').get()).toEqual({ c: 0 });
-    expect(db.prepare('select count from session_unread where session_id = ?').get(s1)).toEqual({ count: 1 });
+    expect(db.prepare('select unread_count as count from session_states where session_id = ? and unread_count > 0').get(s1)).toEqual({ count: 1 });
     void h;
   });
 

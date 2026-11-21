@@ -5844,9 +5844,20 @@ hangar が起こした run では、問いの文を hook からも受け取る�
 Home を開いたときにトランスクリプトを読み直すことはしない。
 主線のトランスクリプトを忘れさせたとき（`forgetTranscriptFile`）は、そのセッションの `session_activity` の行も一緒に消す。
 
-未読は別の端末ローカルの表 `session_unread`（マイグレーション version 39）に置く（`session_id`、`count`、`latest_text`、`latest_at`）。`session_activity` と分けるのは、あちらが索引の作り直しで積み直す表なのに対し、未読は利用者がまだ見ていないという事実で、作り直しで消えてはならないためである。
-返答の終わりごと（`notify_user` の `done`・`ask` の呼ばれたターンはその呼び出し）と `progress` の呼び出しごとに `count` を 1 つ増やし、`POST /api/sessions/:id/seen` が行を消す。Done、Paused、Archived でも、開くまで残る。会話を削除するとき（`sessions/trash.ts`）は行も片付ける。
-`SessionDto.unread`（`{ count, latest, at }`）は、行があるときだけ値を持ち、無いときは `null` になる。共有テーブルにも同期の changes にも入れない。
+未読は共有テーブル `session_states` の列に置き、2 台で同期する（version 67、2026-11-21。それまでは端末ローカルの表 `session_unread`（version 39）で、version 67 で写して消した）。
+列は `unread_count`、`unread_text`（最後の文）、`unread_at`、`unread_kind`（最後の知らせの場面。未読に戻したときは null）、`unread_device`（数えた PC）で、`unread_changed_at` を時刻にした 1 つの事実として取り込む（「session_states は事実ごとに新しい方を採る」、`sessions/stateFacts.ts`）。
+`session_activity` と分けるのは、あちらが索引の作り直しで積み直す表なのに対し、未読は利用者がまだ見ていないという事実で、作り直しで消えてはならないためである。
+返答の終わりごと（`notify_user` の `done`・`ask` の呼ばれたターンはその呼び出し）と `progress` の呼び出しごとに 1 つ積む。積むのは会話を動かしている PC で（`live/unread.ts` の `addUnread`。呼び方は `addUnread(db, sessionId, text, at, { kind })`）、`POST /api/sessions/:id/seen` は列を空にする（`markSeen`）。どちらの PC で既読にしても、その書き込みが届いてもう 1 台でも既読になる。
+事実の時刻は、書く時刻と手元の時刻より 1 だけ後の遅い方にする。既読が届く前に積んだ次の未読は、既読より後なので残る。
+未読の数が変わる書き込みは急ぐ（`db/shared.ts` の `isUrgentWrite`）。呼び鈴でもう 1 台に 2 秒以内に届く（「他 PC の会話をほぼ即時に」と同じ道）。
+書き手の PC の ID は起動のときに `bindUnreadDevice` で DB に結ぶ（呼び方を変えずに同期の書き込みにするため）。
+Done、Paused、Archived でも、開くまで残る。会話を削除するとき（`sessions/trash.ts`）は列を手元だけで空にする（削除の印は別に同期する）。
+`SessionDto.unread`（`{ count, latest, at, elsewhere? }`）は、数が 1 以上のときだけ値を持ち、無いときは `null` になる。`elsewhere` はほかの PC が数えた未読の印で、設定 `sidebarOtherPcs` が切なら、画面は数えない（`store.ts` の `unreadSessionIds`。サイドバー、ホーム、Dock のどれにも出さない）。
+
+**ほかの PC から届いた未読の通知。** 取り込み（`sync/apply.ts` の `applyRemoteBatch`）は、当てる前と後の未読の数を比べ、数が増え、場面があり、数えたのがこの PC でない会話を、確定の後に `onUnreadArrived` で知らせる。
+聞くのは `live/unreadArrive.ts` で、受け取った PC の知らせ方の決まりの `os` に場面が入っていれば、出し先を `os` だけにして `onUnreadReady` へ流す（OS の通知の並びが拾う）。2 台で同時に鳴ってよい。
+スマホへは出さない。スマホの通知は会話を動かしている PC だけが出し、2 通にしない。設定 `sidebarOtherPcs` が切のとき、統括の会話、状態で黙らせた会話にも出さない。
+押した OS の通知は、ほかと同じくその会話を開く（ほかの PC で動いている会話なら、ほかの PC の会話の画面になる）。
 起動元は共有テーブル `session_spawns`（version 40 で手元の表として作り、version 47 で同期の表にした）に置く。列は `session_id`（子）、`parent_id`、`created_at`、`parent_device_id`、`child_device_id`、`relay`（`on` か `off`）、`closed_at`、共有表の三つ組である。MCP の `create_session` がセッション別の URL から呼ばれたときに書き、`handoff: true` の引き継ぎでは書かない。
 `SessionDto.spawnedBy` は起動元のセッション id で、行が無ければ `null` になる。同期の表なので、ほかの PC でも親の下に入れ子になる。`relay` は結果を返し続けるかで、「終わった」を返した後は `off` になり、入れ子は残る。切り離しと会話の削除は `deleted_at` を付け、入れ子も結果の返却もなくなる（起動元が消えた子は平らに並ぶ）。古い版の PC はこの表を知らない表として捨てる。
 実行中の登録（`~/.claude/sessions/<pid>.json`）から消えたセッションは、問いだけを消す（`sessions/liveChange.ts`）。終わった会話の問いにはもう答えられず、再開した直後の要対応の行に前の run の問いを出さないためである。
@@ -5936,7 +5947,7 @@ Home を開いたときにトランスクリプトを読み直すことはしな
 
 メニューの状態の後ろに、区切って 3 つ置く（issue #550、2026-11-02）。
 
-**未読に戻す**は、既存の未読の表（`session_unread`）に数 1、本文なしの行を足す（`live/unread.ts` の `markUnread`）。すでに未読の行では出さず、未読の数を出さない設定でも出さない。OS とスマホへは知らせず、未読の表と同じく同期もしない。
+**未読に戻す**は、未読の列（`session_states`）を数 1、本文と場面なしにする（`live/unread.ts` の `markUnread`）。すでに未読の行では出さず、未読の数を出さない設定でも出さない。OS とスマホへは知らせない。未読と同じく同期し、届いた PC でも場面が無いので鳴らさない。
 開いている会話を戻したときは、戻した未読をすぐ既読にしないよう、離れるまで `State.unreadKept` を持つ（`mediator/screen.ts` の `seenStep`、窓が前に出たときの `resendSeen`）。
 
 **`session_states` は事実ごとに後勝ちにする（版 62）。**
@@ -6892,6 +6903,7 @@ Dock（ブラウザならインストールしたアプリ）のバッジには�
 サーバは `onUnread` の購読（`StopNoticeWatch.subscribeUnread`）で、出し先に `os` があるときだけ、セッションの名前を題、知らせの文を本文にして並びへ積む。
 決まりで `os` に `kind` が無ければ、道具の側で `sent` から外れるので積まれない。
 殻の全体のスイッチ（`notify_feed`）と、窓が前にあるときは出さない決まりは、入力待ちと同じである。
+ほかの PC から同期で届いた未読も、受け取った PC の決まりの `os` どおりに同じ並びへ積む（`live/unreadArrive.ts`、「ほかの PC から届いた未読の通知」）。
 押すとそのセッションを開く。未読の通知は頁の顔ぶれの一覧に載らないので、`notify_prune` では外さず、利用者が通知センターから消す（参加リクエストの知らせと同じ扱い）。
 
 もう待っていない知らせは、通知センターから外す。

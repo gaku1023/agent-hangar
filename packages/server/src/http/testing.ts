@@ -16,6 +16,7 @@ import { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { RetentionConflictError } from '../provider/claude-code/config/retention.ts';
 import { openDb, type Db } from '../db/open.ts';
+import { bindUnreadDevice } from '../live/unread.ts';
 import { languageReader } from '../i18n/language.ts';
 import { Publisher } from '../events/publisher.ts';
 import { IndexerService } from '../indexer/service.ts';
@@ -211,6 +212,7 @@ function noEvents(db: Db, settings: () => Settings): AppDeps['events'] {
 export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWorld> {
   const claudeDir = copyFixtureClaudeDir();
   const db = openDb(':memory:');
+  bindUnreadDevice(db, 'd');
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app-'));
   fs.mkdirSync(path.join(ws, 'alpha'));
   const indexer = new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir }), isRunning: () => false });

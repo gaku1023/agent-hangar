@@ -26,6 +26,6 @@ describe('POST /api/sessions/:id/seen', () => {
   it('行が無いセッションや知らない id でも 204 で、何も書かない', async () => {
     expect((await seen(alphaId())).status).toBe(204);
     expect((await seen('nope')).status).toBe(204);
-    expect(t.db.prepare('select count(*) c from session_unread').get()).toEqual({ c: 0 });
+    expect(t.db.prepare('select count(*) c from session_states where unread_count is not null').get()).toEqual({ c: 0 });
   });
 });

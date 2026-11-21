@@ -20,7 +20,7 @@ let offs: (() => void)[];
 let fired: string[];
 
 const entry = (sessionId: string, status: LiveSessionDto['status'], over: Partial<LiveSessionDto> = {}): LiveSessionDto => ({ sessionId, status, name: null, nameSource: null, cwd: '/w', pid: 1, ...over });
-const unread = (id: string) => db.prepare('select count, latest_text as text from session_unread where session_id = ?').get(id) as { count: number; text: string } | undefined;
+const unread = (id: string) => db.prepare('select unread_count as count, unread_text as text from session_states where session_id = ? and unread_count > 0').get(id) as { count: number; text: string } | undefined;
 const fallback = () => {
   const f = new NotifyFallback({
     db, live: () => live, settings: () => settings, lastReply: (id) => replies.get(id) ?? null,
@@ -189,7 +189,7 @@ describe('NotifyFallback', () => {
     fired = [];
     settings = { notifyUser: false };
     expect(check()).toEqual({ count: 1, text: '済み。' });
-    db.prepare('delete from session_unread').run();
+    db.prepare('update session_states set unread_count = null, unread_text = null, unread_at = null, unread_kind = null, unread_device = null').run();
     fired = [];
     settings = { orchestrator: { enabled: true, sessionId: s1 } as SettingsDto['orchestrator'] };
     expect(check()).toBeUndefined();

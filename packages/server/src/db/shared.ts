@@ -22,11 +22,12 @@ export function onSharedWrite(cb: (table: string, rowId: string, db: Db) => void
 
 /**
  * ほかの PC に早く見せたい書き込みか。
- * run の新規と、ended_at が空から入った書き込み、run の live_status が waiting に変わった書き込み、会話（sessions）の新規だけである。
+ * run の新規と、ended_at が空から入った書き込み、run の live_status が waiting に変わった書き込み、会話（sessions）の新規、未読の数が変わった session_states だけである。
  * 会話の更新（本文の伸びで sessions は何度も書かれる）や run の pid と heartbeat の更新は含めない。
  * 書く前の行を読んで決める。
  */
 function isUrgentWrite(db: Db, table: string, row: Record<string, unknown>, pk: string): boolean {
+  if (table === 'session_states') return 'unread_changed_at' in row && unreadMoved(db, row, pk);
   if (table !== 'runs' && table !== 'sessions') return false;
   const before = db.prepare(`select * from ${table} where ${pk} = ?`).get(row[pk]) as Record<string, unknown> | undefined;
   if (!before) return true;
@@ -34,6 +35,15 @@ function isUrgentWrite(db: Db, table: string, row: Record<string, unknown>, pk: 
   // 入力待ちに変わったこと（live_status、runs/liveShare.ts）も急ぐ。作業中や休みへの変化は普段の送りに相乗りする。
   if (row.live_status === 'waiting' && before.live_status !== 'waiting') return true;
   return before.ended_at == null && row.ended_at != null;
+}
+
+/**
+ * 未読の数が変わる書き込みか（積む、既読にする、未読に戻す。live/unread.ts）。
+ * 未読はもう 1 台にも 2 秒以内に見せる（2026-11-21、未読の同期）。ほかの事実（状態、ピン）だけの書き込みは普段の送りに相乗りする。
+ */
+function unreadMoved(db: Db, row: Record<string, unknown>, pk: string): boolean {
+  const before = db.prepare(`select unread_count from session_states where ${pk} = ?`).get(row[pk]) as { unread_count: number | null } | undefined;
+  return (before?.unread_count ?? null) !== (row.unread_count ?? null);
 }
 
 /**

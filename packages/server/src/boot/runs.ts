@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { AGENT_KINDS, orchestratorLineage, orchestratorOf, activePersona, voiceOf, codexInjectionOf, notifyRulesOf, opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type AgentKind, type CompatDto, type DeviceStatus, type OpencodeOptionsDto, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
+import { AGENT_KINDS, isQuietStatus, orchestratorLineage, orchestratorOf, activePersona, voiceOf, codexInjectionOf, notifyRulesOf, opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type AgentKind, type CompatDto, type DeviceStatus, type OpencodeOptionsDto, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
 import { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { claudeJsonFor, claudeJsonPath } from '../provider/claude-code/config/claudeJson.ts';
@@ -25,7 +25,7 @@ import { RunManager } from '../runs/manager.ts';
 import { createLiveChangeHandler } from '../sessions/liveChange.ts';
 import { OVERLAP_TICK_MS, OverlapWatch } from '../sessions/overlap.ts';
 import { hasMarkedIdle, ParkWatch, parkedSessionIds } from '../sessions/park.ts';
-import { setParkingSwitch } from '../db/queries.ts';
+import { getSession, setParkingSwitch } from '../db/queries.ts';
 import { paceNotices, StopNoticeWatch } from '../sessions/stopNotices.ts';
 import { UnreadHold } from '../live/unreadHold.ts';
 import { NotifyFallback } from '../live/notifyFallback.ts';
@@ -44,6 +44,7 @@ import { touchRow } from '../db/notify.ts';
 import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
 import { AGENT_ENTRY } from '../agent/entry.ts';
+import { watchArrivedUnread } from '../live/unreadArrive.ts';
 
 /** run の出入りや登録の変化の後（RunManager.stir）に、tmux の一覧を見て run の終了を拾う間隔。 */
 const RUN_POLL_MS = 2000;
@@ -275,6 +276,14 @@ export function bootRuns(
   const notices = paceNotices(stopNotices);
   // notify_user の知らせのうち、出し先に OS の通知を含むものを同じ並びへ積む。
   stopNotices.subscribeUnread();
+  // ほかの PC から同期で届いた未読も、この PC の知らせ方の決まり（os の列）どおりに同じ並びへ積む（live/unreadArrive.ts）。スマホへは出さない。
+  watchArrivedUnread({
+    db, deviceId: device.id, settings: () => home.settings.current,
+    session: (id) => {
+      const s = getSession(db, live.current(), id, { deviceId: device.id });
+      return s ? { role: s.role ?? null, quiet: isQuietStatus(s.state?.status) && !s.woke } : null;
+    },
+  });
   // 設定の同期などの、セッションに紐づかない知らせのうち、出し先に OS の通知を含むものも同じ並びへ積む。
   stopNotices.subscribeAppNotice();
   // notify_user の OS とスマホの通知は、done と ask ならターンを抜けるまで預かる。返答を書き終えてから届くようにするためである。

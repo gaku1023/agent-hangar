@@ -1086,6 +1086,35 @@ alter table event_index add column fts_rowid integer;
  * 既存の行は null のままにする。null は時刻 0 として比べ、同じ時刻は行の時刻で決めるので、移る前の行はこれまでどおり行ごとの後勝ちになる。
  * 列を足すだけなので、クラウド（Worker）にマイグレーションは要らず、互換の版も変えない。
  */
+/**
+ * 版 67。未読を 2 台で同期する（2026-11-21、未読の同期）。
+ * 手元だけの表（session_unread）をやめ、session_states の 1 つの事実（unread_changed_at が時刻）として持つ。
+ * 事実ごとの後勝ち（sync/apply.ts の mergeFacts）に乗るので、積むのも既読も、どちらの PC で書いても届いた側で同じになる。
+ * unread_kind は最後の知らせの場面（done・ask・progress、未読に戻したときは null）、unread_device は数えた PC である。
+ * 受け取った PC は、場面で自分の知らせ方の決まりを引き、数えた PC でほかの PC の会話の未読かを見分ける。
+ * 列を足すだけなので、クラウド（Worker）にマイグレーションは要らない（行は封じて運ぶ）。
+ * 写した行は changes に積まない。次に積むか既読にしたときに、行ごと送る。
+ */
+const V67_UNREAD_SYNC_SQL = `
+alter table session_states add column unread_count integer;
+alter table session_states add column unread_text text;
+alter table session_states add column unread_at integer;
+alter table session_states add column unread_kind text;
+alter table session_states add column unread_device text;
+alter table session_states add column unread_changed_at integer;
+update session_states set
+  unread_count = (select u.count from session_unread u where u.session_id = session_states.session_id),
+  unread_text = (select u.latest_text from session_unread u where u.session_id = session_states.session_id),
+  unread_at = (select u.latest_at from session_unread u where u.session_id = session_states.session_id),
+  unread_changed_at = (select u.latest_at from session_unread u where u.session_id = session_states.session_id)
+  where session_id in (select session_id from session_unread where count > 0);
+insert into session_states (session_id, updated_at, origin_device, unread_count, unread_text, unread_at, unread_changed_at)
+  select u.session_id, u.latest_at, coalesce(s.home_device, s.origin_device), u.count, u.latest_text, u.latest_at, u.latest_at
+  from session_unread u join sessions s on s.id = u.session_id
+  where u.count > 0 and not exists (select 1 from session_states st where st.session_id = u.session_id);
+drop table session_unread;
+`;
+
 const V62_SESSION_STATE_FACT_AT_SQL = `
 alter table session_states add column status_changed_at integer;
 alter table session_states add column candidate_changed_at integer;
@@ -1199,4 +1228,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 64, sql: V64_SESSION_HEADLESS_SQL },
   { version: 65, sql: V65_EVENT_PATH_REF_SQL },
   { version: 66, sql: V66_FTS_TAIL_SQL },
+  { version: 67, sql: V67_UNREAD_SYNC_SQL },
 ];
