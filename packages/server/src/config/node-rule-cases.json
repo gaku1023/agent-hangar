@@ -1,9 +1,15 @@
 {
-  "note": "Node を採るかどうかの規則の見本。殻（node.rs）、同梱の CLI（hangar.sh、launch-cli.ts）、設定の確かめ（nodeRule.ts）の試験が同じこの表を読み、同じ答えを出すことを確かめる。answer は候補の Node の標準出力、fit は ok（採る）、version（Node-API が足りない）、arch（アーキテクチャが違う）、null（Node の答えとして読めない）。",
+  "note": "Node を採るかどうかの規則の見本。殻（node.rs）、同梱の CLI（hangar.sh、launch-cli.ts）、設定の確かめ（nodeRule.ts）の試験が同じこの表を読み、同じ答えを出すことを確かめる。answer は候補の Node の標準出力、fit は ok（採る）、version（Node-API が足りない）、arch（アーキテクチャが違う）、null（Node の答えとして読めない）。fit はどの OS でも同じ答えで、fitOnWindows は Windows でだけ答えが変わる行に付ける。unstable は、Windows で Node 24.0 から 24.15 を使わない規則（nodejs/node#63620）である。",
   "need": { "napi": 10, "min": "22.14", "arch": "arm64" },
   "cases": [
     { "answer": "v22.14.0 arm64 10", "version": "22.14.0", "napi": 10, "arch": "arm64", "fit": "ok" },
     { "answer": "v24.21.0 arm64 10", "version": "24.21.0", "napi": 10, "arch": "arm64", "fit": "ok" },
+    { "answer": "v24.15.0 arm64 10", "version": "24.15.0", "napi": 10, "arch": "arm64", "fit": "ok", "fitOnWindows": "unstable" },
+    { "answer": "v24.0.0 arm64 10", "version": "24.0.0", "napi": 10, "arch": "arm64", "fit": "ok", "fitOnWindows": "unstable" },
+    { "answer": "v24.15.3 arm64 10", "version": "24.15.3", "napi": 10, "arch": "arm64", "fit": "ok", "fitOnWindows": "unstable" },
+    { "answer": "v24.16.0 arm64 10", "version": "24.16.0", "napi": 10, "arch": "arm64", "fit": "ok" },
+    { "answer": "v25.1.0 arm64 11", "version": "25.1.0", "napi": 11, "arch": "arm64", "fit": "ok" },
+    { "answer": "v24.15.0 x64 10", "version": "24.15.0", "napi": 10, "arch": "x64", "fit": "arch" },
     { "answer": "v26.1.0 arm64 11", "version": "26.1.0", "napi": 11, "arch": "arm64", "fit": "ok" },
     { "answer": "v22.13.1 arm64 9", "version": "22.13.1", "napi": 9, "arch": "arm64", "fit": "version" },
     { "answer": "v23.5.0 arm64 9", "version": "23.5.0", "napi": 9, "arch": "arm64", "fit": "version" },

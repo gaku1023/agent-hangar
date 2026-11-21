@@ -84,7 +84,9 @@ function problemText(t: Translate, c: ToolCheckDto & Partial<Pick<NodeCheckDto, 
   if (c.problem === 'notNode') return t('readiness.problem.notNode', { path: c.path });
   // 版が古い（Node-API が足りない）のか、アーキが違うのかを分けて言う。両方なら版を言う（サーバの nodeFit と同じ順）。
   if (c.problem === 'wrongNode' && c.found && c.need && c.found.napi < c.need.napi) return t('readiness.problem.nodeTooOld', { path: c.path, found: c.found.version, min: c.need.min, napi: c.need.napi });
-  if (c.problem === 'wrongNode' && c.found && c.need) return t('readiness.problem.nodeWrongArch', { path: c.path, foundArch: c.found.arch, arch: c.need.arch });
+  if (c.problem === 'wrongNode' && c.found && c.need && c.found.arch !== c.need.arch) return t('readiness.problem.nodeWrongArch', { path: c.path, foundArch: c.found.arch, arch: c.need.arch });
+  // Node-API もアーキも足りているのに使えないのは、Windows で使えない版（24.0 から 24.15。nodejs/node#63620）。サーバの nodeFit の最後の順である。
+  if (c.problem === 'wrongNode' && c.found && c.need) return t('readiness.problem.nodeUnstable', { path: c.path, found: c.found.version });
   if (c.problem === 'wrongNode') return t('readiness.problem.notNode', { path: c.path });
   return t('readiness.problem.missing', { path: c.path });
 }

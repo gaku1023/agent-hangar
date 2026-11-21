@@ -401,8 +401,8 @@ describe('読み込み画面', () => {
     const written = [...(serverSource.match(/export type BootErrorKind = ([^;]+);/)?.[1] ?? '').matchAll(/'([a-z-]+)'/g)].map((m) => m[1]!);
     expect(written).toHaveLength(4);
     for (const k of written) expect(page.FAIL_KINDS).toContain(k);
-    // サーバが書かない 3 種類は、殻が決める。
-    expect(page.FAIL_KINDS.filter((k) => !written.includes(k)).sort()).toEqual(['compat-mismatch', 'node-arch-mismatch', 'node-missing', 'node-version-mismatch', 'other']);
+    // サーバが書かない 6 種類は、殻が決める。
+    expect(page.FAIL_KINDS.filter((k) => !written.includes(k)).sort()).toEqual(['compat-mismatch', 'node-arch-mismatch', 'node-missing', 'node-unstable', 'node-version-mismatch', 'other']);
     // 殻が読むファイルの名前は、サーバが書く名前と同じ。
     const file = serverSource.match(/export const BOOT_ERROR_FILE = '([^']+)'/)?.[1];
     expect(file).toBeDefined();

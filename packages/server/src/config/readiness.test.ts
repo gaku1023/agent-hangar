@@ -283,6 +283,16 @@ describe('createReadiness', () => {
       expect(await readNode(node, old)).toEqual({ path: node, ok: false, problem: 'wrongNode', version: 'v20.18.0', auto: false, found: old, need: NEED });
       expect(await readNode(node, { version: '22.14.0', napi: 10, arch: 'x64' })).toMatchObject({ ok: false, problem: 'wrongNode', found: { arch: 'x64' } });
     });
+    // Windows で Node 24.0 から 24.15 は黙って落ちる（nodejs/node#63620）。✓ にせず、見つけた版と要るものを添える。
+    it('Windows では Node 24.15 を ✗ にし、24.16 は ✓ にする', async () => {
+      const node = fakeTool('node', 'v24.15.0');
+      const bad = { version: '24.15.0', napi: 10, arch: 'arm64' };
+      const on = (found: NodeBuild): NodeCheck => ({ need: () => NEED, probe: async () => found, platform: 'win32' });
+      const read = async (found: NodeBuild) =>
+        (await createReadiness({ settings: () => baseSettings({ nodePath: node }), claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', nodeCheck: on(found) })()).tools.node;
+      expect(await read(bad)).toEqual({ path: node, ok: false, problem: 'wrongNode', version: 'v24.15.0', auto: false, found: bad, need: NEED });
+      expect(await read({ ...bad, version: '24.16.0' })).toMatchObject({ ok: true, problem: null });
+    });
     it('新しい版の Node は ✓ にする（上限は付けない）', async () => {
       const node = fakeTool('node', 'v24.21.0');
       expect(await readNode(node, { version: '24.21.0', napi: 10, arch: 'arm64' })).toMatchObject({ ok: true, problem: null });

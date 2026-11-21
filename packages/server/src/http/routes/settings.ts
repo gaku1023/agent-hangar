@@ -133,6 +133,8 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
         const bad = await nodeBuildIssue(t.path, nodeCheck);
         if (bad?.kind === 'notNode') return c.json({ error: tr('settings.node.notNode', { label: label(key), path: t.path }) }, 400);
         if (bad?.kind === 'mismatch' && bad.fit === 'version') return c.json({ error: tr('settings.node.tooOld', { label: label(key), path: t.path, found: bad.found.version, min: bad.need.min, napi: bad.need.napi }) }, 400);
+        // Windows で Node 24.0 から 24.15 は、黙って落ちる不具合がある（nodejs/node#63620）。
+        if (bad?.kind === 'mismatch' && bad.fit === 'unstable') return c.json({ error: tr('settings.node.unstable', { label: label(key), path: t.path, found: bad.found.version }) }, 400);
         if (bad?.kind === 'mismatch') return c.json({ error: tr('settings.node.wrongArch', { label: label(key), path: t.path, foundArch: bad.found.arch, arch: bad.need.arch }) }, 400);
       }
       // パスは ~ を直した値で保存する（起動するときに ~ は直されない）。名前は打たれたまま残す。

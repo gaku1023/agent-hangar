@@ -68,14 +68,51 @@ pub enum Fit {
     Version,
     /// Node-API は足りるが、アーキテクチャが違う。
     Arch,
+    /// Node-API もアーキも足りるが、Windows で使えない版（24.0 から 24.15）。`fit_on` だけが返す。
+    Unstable,
 }
 
-/// 合うかを決める。Node-API が足りなければ、アーキが違っても版を言う（nodeRule.ts の nodeFit と同じ順）。
+/// Windows で使えない Node の、直った最初の版（24.16.0）。案内に出す。nodeRule.ts の NODE_UNSTABLE_FIXED_LABEL と同じ値にする（試験が突き合わせる）。
+pub const UNSTABLE_FIXED: &str = "24.16";
+
+/// Windows で使えない Node か。24.0.0 から 24.15.x（major 24 かつ minor 15 以下）だけを、Windows のときだけ対象にする。
+/// この範囲の Node（libuv 1.50 と 1.51）は、TCP で接続するときに `uv__tcp_try_connect` のスタックが壊れ、
+/// /GS の stack cookie の検査で fast-fail（0xc0000409）が起きて、サーバが何も残さず落ちる（nodejs/node#63620）。
+/// Node 24.16.0（libuv 1.52.1、nodejs/node#62561）で直った。macOS と Linux、22 系、25 系には影響がない。
+/// `version` は v を除いた版（22.14.0）。読めなければ対象にしない（nodeRule.ts の isUnstableNodeOnWindows と同じ）。
+pub fn is_unstable_node_on_windows(version: &str, windows: bool) -> bool {
+    if !windows {
+        return false;
+    }
+    let mut it = version.split('.');
+    let (Some(major), Some(minor), Some(patch), None) =
+        (it.next(), it.next(), it.next(), it.next())
+    else {
+        return false;
+    };
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    digits(major)
+        && digits(minor)
+        && digits(patch)
+        && major == "24"
+        && minor.parse::<u32>().is_ok_and(|n| n <= 15)
+}
+
+/// 合うかを決める。OS を問わない部分（Node-API とアーキ）だけ。
+/// Node-API が足りなければ、アーキが違っても版を言う（nodeRule.ts の nodeFit と同じ順）。
 pub fn fit(p: &NodeProbe, m: &Manifest) -> Fit {
+    fit_on(p, m, false)
+}
+
+/// 同上に、Windows で使えない版（`Fit::Unstable`）を加える。`windows` は試験が差し替える（本番は `cfg!(windows)`）。
+/// 重なるときは、版、アーキ、使えない版の順に言う。
+pub fn fit_on(p: &NodeProbe, m: &Manifest, windows: bool) -> Fit {
     if p.napi < m.node_api {
         Fit::Version
     } else if p.arch != m.arch {
         Fit::Arch
+    } else if is_unstable_node_on_windows(&p.version, windows) {
+        Fit::Unstable
     } else {
         Fit::Ok
     }
@@ -87,6 +124,8 @@ pub fn fit(p: &NodeProbe, m: &Manifest) -> Fit {
 pub enum ProbeOutcome {
     /// 起動できて、版とアーキテクチャが読めた。
     Ok(NodeProbe),
+    /// 起動できたが、Windows で使えない版（24.0 から 24.15）。`choose_node_on` が `Ok` から振り分ける。probe は返さない。
+    Unstable(NodeProbe),
     /// そのパスにファイルが無い。
     Missing,
     /// ファイルはあるが起動できない。実行権が無い、壊れている、など。
@@ -593,18 +632,31 @@ pub fn probe_node_within(path: &Path, timeout: Duration) -> ProbeOutcome {
     }
 }
 
-/// 候補を順に調べ、manifest に合う（Node-API が足りて、アーキテクチャが同じ）最初の Node を返す。
+/// 候補を順に調べ、manifest に合う（Node-API が足りて、アーキテクチャが同じ。Windows では 24.0 から 24.15 を除く）最初の Node を返す。
 pub fn choose_node(
     candidates: &[PathBuf],
     manifest: &Manifest,
     probe: impl Fn(&Path) -> ProbeOutcome,
 ) -> Result<PathBuf, NodeError> {
+    choose_node_on(candidates, manifest, probe, cfg!(windows))
+}
+
+/// 同上。OS を引数で受け取る形（試験が Windows の規則をどの OS の上でも確かめる）。
+/// Windows で使えない版は、後ろの候補に合うものがあればそちらを採り、無ければ理由つき（`ProbeOutcome::Unstable`）で返す。
+pub fn choose_node_on(
+    candidates: &[PathBuf],
+    manifest: &Manifest,
+    probe: impl Fn(&Path) -> ProbeOutcome,
+    windows: bool,
+) -> Result<PathBuf, NodeError> {
     let mut tried = Vec::new();
     for c in candidates {
-        let outcome = probe(c);
+        let mut outcome = probe(c);
         if let ProbeOutcome::Ok(pr) = &outcome {
-            if fit(pr, manifest) == Fit::Ok {
-                return Ok(c.clone());
+            match fit_on(pr, manifest, windows) {
+                Fit::Ok => return Ok(c.clone()),
+                Fit::Unstable => outcome = ProbeOutcome::Unstable(pr.clone()),
+                Fit::Version | Fit::Arch => {}
             }
         }
         tried.push(Tried {
@@ -619,13 +671,15 @@ pub fn choose_node(
 }
 
 /// 見つからなかった理由の見立て。
-/// 要る Node-API を持つ別のアーキの Node があれば `Arch`、Node として答えた候補があれば `Version`（最初に見つけたもの）、
-/// 無ければ `Missing`。
+/// 要る Node-API を持つ別のアーキの Node があれば `Arch`、Windows で使えない版（24.0 から 24.15）があれば `Unstable`（最初に見つけたもの）、
+/// Node として答えた候補があれば `Version`（最初に見つけたもの）、無ければ `Missing`。
 /// 要る作りの別のアーキを先に言うのは、入れ直すものがその作りだからである。
+/// 使えない版を古い版より先に言うのは、24.16 以上へ上げれば済むからである。
 enum Found<'a> {
     Missing,
     Version(&'a NodeProbe),
     Arch(&'a NodeProbe),
+    Unstable(&'a NodeProbe),
 }
 
 fn found_of(e: &NodeError) -> Found<'_> {
@@ -637,8 +691,14 @@ fn found_of(e: &NodeError) -> Found<'_> {
             _ => None,
         })
         .collect();
+    let unstable = tried.iter().find_map(|t| match &t.outcome {
+        ProbeOutcome::Unstable(pr) => Some(pr),
+        _ => None,
+    });
     if let Some(p) = probes.iter().find(|p| fit(p, manifest) == Fit::Arch) {
         Found::Arch(p)
+    } else if let Some(p) = unstable {
+        Found::Unstable(p)
     } else if let Some(p) = probes.first() {
         Found::Version(p)
     } else {
@@ -654,6 +714,7 @@ pub fn failure_kind(e: &NodeError) -> &'static str {
         Found::Missing => "node-missing",
         Found::Version(_) => "node-version-mismatch",
         Found::Arch(_) => "node-arch-mismatch",
+        Found::Unstable(_) => "node-unstable",
     }
 }
 
@@ -665,7 +726,7 @@ pub fn failure_params(e: &NodeError) -> serde_json::Map<String, serde_json::Valu
     p.insert("min".into(), manifest.node_min.clone().into());
     p.insert("napi".into(), manifest.node_api.into());
     p.insert("arch".into(), manifest.arch.clone().into());
-    if let Found::Version(f) | Found::Arch(f) = found_of(e) {
+    if let Found::Version(f) | Found::Arch(f) | Found::Unstable(f) = found_of(e) {
         p.insert("found".into(), f.version.clone().into());
         p.insert("foundArch".into(), f.arch.clone().into());
     }
@@ -683,6 +744,8 @@ pub enum Picked {
     Version { found: String },
     /// アーキテクチャが違う。
     Arch { found_arch: String },
+    /// Windows で使えない版（24.0 から 24.15）。
+    Unstable { found: String },
 }
 
 /// 選んだ 1 つを、設定の欄（packages/server の nodeBuildIssue）と同じ条件で確かめる。
@@ -691,11 +754,22 @@ pub fn check_picked(
     manifest: &Manifest,
     probe: impl Fn(&Path) -> ProbeOutcome,
 ) -> Picked {
+    check_picked_on(path, manifest, probe, cfg!(windows))
+}
+
+/// 同上。OS を引数で受け取る形。
+pub fn check_picked_on(
+    path: &Path,
+    manifest: &Manifest,
+    probe: impl Fn(&Path) -> ProbeOutcome,
+    windows: bool,
+) -> Picked {
     match probe(path) {
-        ProbeOutcome::Ok(p) => match fit(&p, manifest) {
+        ProbeOutcome::Ok(p) => match fit_on(&p, manifest, windows) {
             Fit::Ok => Picked::Ok,
             Fit::Version => Picked::Version { found: p.version },
             Fit::Arch => Picked::Arch { found_arch: p.arch },
+            Fit::Unstable => Picked::Unstable { found: p.version },
         },
         _ => Picked::NotNode,
     }
@@ -712,6 +786,9 @@ pub fn pick_answer(path: &Path, picked: &Picked, manifest: &Manifest) -> serde_j
         }),
         Picked::Arch { found_arch } => serde_json::json!({
             "result": "arch", "path": path, "foundArch": found_arch, "min": manifest.node_min, "arch": manifest.arch,
+        }),
+        Picked::Unstable { found } => serde_json::json!({
+            "result": "unstable", "path": path, "found": found, "min": UNSTABLE_FIXED, "arch": manifest.arch,
         }),
     }
 }
@@ -825,11 +902,16 @@ struct Words {
 fn describe_error_for(e: &NodeError, hangar_home: &Path, lang: &str, hint: InstallHint) -> String {
     let NodeError::NotFound { manifest, tried } = e;
     let en = lang == "en";
+    let found = found_of(e);
     let w = Words {
         min: manifest.node_min.clone(),
         napi: manifest.node_api,
         arch: manifest.arch.clone(),
-        lts: manifest.lts_major(),
+        // 使えない版（24.0 から 24.15）のときは、直った系列（24）の入れ方を案内する。22 を勧めると、「24.16 以上へ更新」と食い違う。
+        lts: match found {
+            Found::Unstable(_) => UNSTABLE_FIXED.split('.').next().unwrap_or("24").to_string(),
+            _ => manifest.lts_major(),
+        },
         settings: hangar_home.join("settings.json").display().to_string(),
         pick: match (en, hint) {
             (false, InstallHint::Winget) => "「node.exe を選択…」",
@@ -838,7 +920,6 @@ fn describe_error_for(e: &NodeError, hangar_home: &Path, lang: &str, hint: Insta
             (true, _) => "\"Choose node…\"",
         },
     };
-    let found = found_of(e);
     let has_node = !matches!(found, Found::Missing);
     let mut lines = vec![
         if en {
@@ -846,7 +927,11 @@ fn describe_error_for(e: &NodeError, hangar_home: &Path, lang: &str, hint: Insta
         } else {
             headline_ja(&found, &w)
         },
-        if en { why_en(&w) } else { why_ja(&w) },
+        if en {
+            why_en(&found, &w)
+        } else {
+            why_ja(&found, &w)
+        },
     ];
     lines.extend(if en {
         ways_en(hint, has_node, &w)
@@ -876,6 +961,7 @@ fn headline_ja(found: &Found, w: &Words) -> String {
         Found::Missing => format!("Node {} 以上（{}）が見つかりません。", w.min, w.arch),
         Found::Version(p) => format!("Node {} を検出しましたが、Hangar には Node {} 以上（{}）が必要です。", p.version, w.min, w.arch),
         Found::Arch(p) => format!("{} 用の Node {} を検出しましたが、Hangar には {} 用の Node {} 以上が必要です。", p.arch, p.version, w.arch, w.min),
+        Found::Unstable(p) => format!("Node {} を検出しましたが、Windows で突然終了することがあるため使いません。", p.version),
     }
 }
 
@@ -885,17 +971,24 @@ fn headline_en(found: &Found, w: &Words) -> String {
         Found::Missing => format!("Node {} or later ({}) was not found.", w.min, w.arch),
         Found::Version(p) => format!("Node {} was found, but Hangar needs Node {} or later ({}).", p.version, w.min, w.arch),
         Found::Arch(p) => format!("Node {} for {} was found, but Hangar needs Node {} or later for {}.", p.version, p.arch, w.min, w.arch),
+        Found::Unstable(p) => format!("Node {} was found, but it can crash on Windows, so Hangar does not use it.", p.version),
     }
 }
 
 #[rustfmt::skip]
-fn why_ja(w: &Words) -> String {
-    format!("Hangar のデータベースとターミナルのネイティブモジュールは Node-API {} を使うため、Node {} 以上が必要です。", w.napi, w.min)
+fn why_ja(found: &Found, w: &Words) -> String {
+    match found {
+        Found::Unstable(_) => format!("Node 24.0 から 24.15 は Windows で通信時に落ちる不具合があるため、Node {UNSTABLE_FIXED} 以上に更新してください。"),
+        _ => format!("Hangar のデータベースとターミナルのネイティブモジュールは Node-API {} を使うため、Node {} 以上が必要です。", w.napi, w.min),
+    }
 }
 
 #[rustfmt::skip]
-fn why_en(w: &Words) -> String {
-    format!("Hangar's database and terminal parts use Node-API {}, so Node {} or later is needed.", w.napi, w.min)
+fn why_en(found: &Found, w: &Words) -> String {
+    match found {
+        Found::Unstable(_) => format!("Node 24.0–24.15 can crash when opening connections on Windows. Update to Node {UNSTABLE_FIXED} or later."),
+        _ => format!("Hangar's database and terminal parts use Node-API {}, so Node {} or later is needed.", w.napi, w.min),
+    }
 }
 
 /// 入れ方と指し方の行。古い Node があるとき（has_node）は、今の Node を置き換えない入れ方を先に置く。
@@ -959,8 +1052,9 @@ fn outcome_ja(o: &ProbeOutcome, m: &Manifest) -> String {
         ProbeOutcome::Ok(p) => match fit(p, m) {
             Fit::Version => format!("v{} {}（Node-API {}。Node {} 以上が必要です）", p.version, p.arch, p.napi, m.node_min),
             Fit::Arch => format!("v{} {}（{} 用が必要です）", p.version, p.arch, m.arch),
-            Fit::Ok => format!("v{} {}", p.version, p.arch),
+            Fit::Ok | Fit::Unstable => format!("v{} {}", p.version, p.arch),
         },
+        ProbeOutcome::Unstable(p) => format!("v{} {}（Windows で突然終了することがあるため、Node {UNSTABLE_FIXED} 以上が必要）", p.version, p.arch),
         ProbeOutcome::Missing => "ありません".to_string(),
         ProbeOutcome::NotExecutable => "起動できません（実行権限を確認してください）".to_string(),
         ProbeOutcome::Failed => "Node ではありません（別の実行ファイルのようです）".to_string(),
@@ -974,8 +1068,9 @@ fn outcome_en(o: &ProbeOutcome, m: &Manifest) -> String {
         ProbeOutcome::Ok(p) => match fit(p, m) {
             Fit::Version => format!("v{} {} (Node-API {}; Node {} or later is needed)", p.version, p.arch, p.napi, m.node_min),
             Fit::Arch => format!("v{} {} ({} is needed)", p.version, p.arch, m.arch),
-            Fit::Ok => format!("v{} {}", p.version, p.arch),
+            Fit::Ok | Fit::Unstable => format!("v{} {}", p.version, p.arch),
         },
+        ProbeOutcome::Unstable(p) => format!("v{} {} (can crash on Windows; Node {UNSTABLE_FIXED} or later required)", p.version, p.arch),
         ProbeOutcome::Missing => "not found".to_string(),
         ProbeOutcome::NotExecutable => "cannot run it (check that it is executable)".to_string(),
         ProbeOutcome::Failed => "not Node (it looks like another program)".to_string(),
@@ -1481,12 +1576,16 @@ mod tests {
                     assert_eq!(p.version, c["version"].as_str().unwrap(), "{answer:?}");
                     assert_eq!(p.napi as u64, c["napi"].as_u64().unwrap(), "{answer:?}");
                     assert_eq!(p.arch, c["arch"].as_str().unwrap(), "{answer:?}");
-                    let f = match fit(&p, &m) {
+                    let name = |f: Fit| match f {
                         Fit::Ok => "ok",
                         Fit::Version => "version",
                         Fit::Arch => "arch",
+                        Fit::Unstable => "unstable",
                     };
-                    assert_eq!(f, want, "{answer:?}");
+                    // macOS と Linux は fit のとおり。Windows は fitOnWindows があればそれ。
+                    assert_eq!(name(fit_on(&p, &m, false)), want, "{answer:?}");
+                    let on_windows = c["fitOnWindows"].as_str().unwrap_or(want);
+                    assert_eq!(name(fit_on(&p, &m, true)), on_windows, "{answer:?}");
                 }
             }
         }
@@ -1812,6 +1911,164 @@ mod tests {
         assert!(en_lines[4].contains(WINGET_LTS), "{en}");
         assert!(en_lines[5].contains("\"Choose node.exe…\""), "{en}");
         assert!(no_kana(&en), "{en}");
+    }
+
+    // Windows で Node 24.0.0 から 24.15.x は、libuv の uv__tcp_try_connect のスタックが壊れて黙って落ちる（nodejs/node#63620）。
+    // 判定は major 24 かつ minor 15 以下だけ。22 系、25 系、24.16 以上は通す。Windows 以外は対象にしない。
+    #[test]
+    fn unstable_node_on_windows_is_24_0_to_24_15_only() {
+        for (v, bad) in [
+            ("24.0.0", true),
+            ("24.15.0", true),
+            ("24.15.99", true),
+            ("24.16.0", false),
+            ("24.21.0", false),
+            ("23.11.0", false),
+            ("22.14.0", false),
+            ("22.23.2", false),
+            ("25.0.0", false),
+            ("2.15.0", false),
+            ("124.15.0", false),
+            ("", false),
+            ("24", false),
+            ("v24.15.0", false),
+        ] {
+            assert_eq!(is_unstable_node_on_windows(v, true), bad, "{v}");
+            assert!(!is_unstable_node_on_windows(v, false), "{v}");
+        }
+        // 24.16 を持つ行は、設定の確かめ（nodeRule.ts）と同じ値で案内する。
+        let rule = include_str!("../../../../packages/server/src/config/nodeRule.ts");
+        assert!(
+            rule.contains(&format!("NODE_UNSTABLE_FIXED_LABEL = '{UNSTABLE_FIXED}'")),
+            "{UNSTABLE_FIXED}"
+        );
+    }
+
+    #[test]
+    fn choose_node_skips_unstable_node_on_windows_and_takes_a_fitting_one() {
+        let probes: HashMap<PathBuf, ProbeOutcome> = HashMap::from([
+            (PathBuf::from("/a/node"), ok("24.15.0", "arm64", 10)),
+            (PathBuf::from("/b/node"), ok("24.0.0", "arm64", 10)),
+            (PathBuf::from("/c/node"), ok("22.14.0", "arm64", 10)),
+            (PathBuf::from("/d/node"), ok("24.16.0", "arm64", 10)),
+        ]);
+        let probe_of = |p: &Path| probes.get(p).cloned().unwrap_or(ProbeOutcome::Missing);
+        let cands = ["/a/node", "/b/node", "/c/node", "/d/node"].map(PathBuf::from);
+        // Windows は 24.15 と 24.0 を飛ばし、次の 22.14 を採る。
+        assert_eq!(
+            choose_node_on(&cands, &manifest(), probe_of, true),
+            Ok(PathBuf::from("/c/node"))
+        );
+        // Windows 以外は先頭の 24.15 をそのまま採る。
+        assert_eq!(
+            choose_node_on(&cands, &manifest(), probe_of, false),
+            Ok(PathBuf::from("/a/node"))
+        );
+        // 24.16 以上だけが後ろにあっても、Windows はそれを採る。
+        assert_eq!(
+            choose_node_on(
+                &cands[..2]
+                    .iter()
+                    .chain(&cands[3..])
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                &manifest(),
+                probe_of,
+                true
+            ),
+            Ok(PathBuf::from("/d/node"))
+        );
+        // 使えない候補しか無ければ、理由つきで返す。
+        let err = choose_node_on(&cands[..2], &manifest(), probe_of, true).unwrap_err();
+        let NodeError::NotFound { tried, .. } = &err;
+        assert_eq!(
+            tried[0].outcome,
+            ProbeOutcome::Unstable(probe("24.15.0", "arm64", 10))
+        );
+        assert_eq!(failure_kind(&err), "node-unstable");
+        assert!(crate::bootfail::KINDS.contains(&failure_kind(&err)));
+        // 見つけた版は札へ渡す。
+        let p = failure_params(&err);
+        assert_eq!(
+            serde_json::Value::Object(p),
+            serde_json::json!({"min": "22.14", "napi": 10, "arch": "arm64", "found": "24.15.0", "foundArch": "arm64"})
+        );
+    }
+
+    // 理由が重なるときは、入れ直すものを先に言う。アーキが違う Node があればそれ、次に使えない版、最後に古い版。
+    #[test]
+    fn failure_kind_puts_unstable_between_arch_and_version() {
+        let unstable_and_old = not_found(vec![
+            ("/a/node", ok("20.18.0", "arm64", 9)),
+            (
+                "/b/node",
+                ProbeOutcome::Unstable(probe("24.15.0", "arm64", 10)),
+            ),
+        ]);
+        assert_eq!(failure_kind(&unstable_and_old), "node-unstable");
+        let with_arch = not_found(vec![
+            (
+                "/b/node",
+                ProbeOutcome::Unstable(probe("24.15.0", "arm64", 10)),
+            ),
+            ("/c/node", ok("24.18.0", "x64", 10)),
+        ]);
+        assert_eq!(failure_kind(&with_arch), "node-arch-mismatch");
+    }
+
+    // 使えない版だけのときの詳細。1 行目は何が起きたか、2 行目は理由と 24.16 以上へ更新する勧め、続けて入れ方、確認したパスの順に並べる。
+    // 入れ方は、直った系列（24）の zip を案内する（22 を勧めると、勧めが食い違う）。
+    // CI の rustfmt は日本語の幅を手元と違って数えるので、整形を止めて書いたままにする。
+    #[rustfmt::skip]
+    #[test]
+    fn describe_error_on_windows_with_an_unstable_node_says_update_to_24_16() {
+        let err = not_found(vec![
+            ("C:\\nodejs\\node.exe", ProbeOutcome::Missing),
+            ("C:\\fnm\\node.exe", ProbeOutcome::Unstable(probe("24.15.0", "arm64", 10))),
+        ]);
+        let home = Path::new("/elsewhere/hangar");
+        let ja = describe_error_for(&err, home, "ja", InstallHint::Winget);
+        let lines: Vec<&str> = ja.lines().collect();
+        assert_eq!(lines[0], "Node 24.15.0 を検出しましたが、Windows で突然終了することがあるため使いません。", "{ja}");
+        assert_eq!(lines[1], "Node 24.0 から 24.15 は Windows で通信時に落ちる不具合があるため、Node 24.16 以上に更新してください。", "{ja}");
+        assert!(lines[2].contains("zip（arm64）") && lines[2].contains("Node 24 の Windows 用 zip"), "{ja}");
+        assert!(ja.contains("nvm install 24"), "{ja}");
+        assert!(!ja.contains("Node-API"), "{ja}");
+        assert!(ja.lines().any(|l| l == "  C:\\fnm\\node.exe: v24.15.0 arm64（Windows で突然終了することがあるため、Node 24.16 以上が必要）"), "{ja}");
+        assert!(ja.lines().any(|l| l == "  C:\\nodejs\\node.exe: ありません"), "{ja}");
+        let en = describe_error_for(&err, home, "en", InstallHint::Winget);
+        let en_lines: Vec<&str> = en.lines().collect();
+        assert_eq!(en_lines[0], "Node 24.15.0 was found, but it can crash on Windows, so Hangar does not use it.", "{en}");
+        assert_eq!(en_lines[1], "Node 24.0–24.15 can crash when opening connections on Windows. Update to Node 24.16 or later.", "{en}");
+        assert!(en.contains("Node 24 (arm64)") && en.contains("nvm install 24"), "{en}");
+        assert!(en.lines().any(|l| l == "  C:\\fnm\\node.exe: v24.15.0 arm64 (can crash on Windows; Node 24.16 or later required)"), "{en}");
+        assert!(no_kana(&en), "{en}");
+    }
+
+    // 手で選んだ Node も同じ規則で断る。頁（boot-fail.js の pickText）へ unstable と見つけた版を返す。
+    #[test]
+    fn a_picked_unstable_node_is_refused_on_windows_only() {
+        let m = manifest();
+        let p = Path::new("C:\\picked\\node.exe");
+        let answer =
+            |windows: bool| check_picked_on(p, &m, |_| ok("24.15.0", "arm64", 10), windows);
+        assert_eq!(
+            answer(true),
+            Picked::Unstable {
+                found: "24.15.0".into()
+            }
+        );
+        assert_eq!(answer(false), Picked::Ok);
+        let v = pick_answer(
+            p,
+            &Picked::Unstable {
+                found: "24.15.0".into(),
+            },
+            &m,
+        );
+        assert_eq!(v["result"], "unstable");
+        assert_eq!(v["found"], "24.15.0");
+        assert_eq!(v["path"], p.display().to_string());
     }
 
     /// 何も無いときに案内する、winget で Node の LTS を入れる命令。頁（boot-fail.js）、launch-cli.ts、hangar.cmd、docs/install.md と同じ。

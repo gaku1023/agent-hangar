@@ -82,4 +82,17 @@ describe('nodeBuildIssue', () => {
   it('Node として答えなければ notNode', async () => {
     expect(await nodeBuildIssue('/n/node', check(null))).toEqual({ kind: 'notNode' });
   });
+  // Windows で Node 24.0 から 24.15 は黙って落ちる（nodejs/node#63620）ので、殻も使わない。OS は check から差し替える。
+  it('Windows では、Node 24.0 から 24.15 を unstable として返す。ほかの OS と 24.16 以上は null', async () => {
+    const bad = { version: '24.15.0', napi: 10, arch: 'arm64' };
+    const on = (platform: NodeJS.Platform, found: NodeBuild): NodeCheck => ({ need: () => need, probe: async () => found, platform });
+    expect(await nodeBuildIssue('C:\\n\\node.exe', on('win32', bad))).toEqual({ kind: 'mismatch', fit: 'unstable', found: bad, need });
+    expect(await nodeBuildIssue('/n/node', on('darwin', bad))).toBeNull();
+    expect(await nodeBuildIssue('/n/node', on('linux', bad))).toBeNull();
+    expect(await nodeBuildIssue('C:\\n\\node.exe', on('win32', { ...bad, version: '24.16.0' }))).toBeNull();
+    expect(await nodeBuildIssue('C:\\n\\node.exe', on('win32', { ...bad, version: '22.14.0' }))).toBeNull();
+  });
+  it('既定の確かめは、この機械の OS で決める', () => {
+    expect(createNodeCheck().platform ?? process.platform).toBe(process.platform);
+  });
 });

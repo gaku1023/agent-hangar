@@ -36,9 +36,9 @@ const view = (kind: string, extra: Partial<Info> = {}) => m.failView({ kind, lan
 const KANA_KANJI = /[぀-ヿ㐀-鿿]/;
 
 describe('失敗の種類', () => {
-  it('殻が決める 9 種類を持つ（サーバが書く 4 種類、互換の別のサーバ、Node の 3 つ、殻のそれ以外の失敗）', () => {
-    expect([...m.FAIL_KINDS].sort()).toEqual(['compat-mismatch', 'db-backup-failed', 'db-too-old', 'node-arch-mismatch', 'node-missing', 'node-version-mismatch', 'other', 'port-in-use', 'server-exited']);
-    expect(m.NODE_KINDS).toEqual(['node-missing', 'node-version-mismatch', 'node-arch-mismatch']);
+  it('殻が決める 10 種類を持つ（サーバが書く 4 種類、互換の別のサーバ、Node の 4 つ、殻のそれ以外の失敗）', () => {
+    expect([...m.FAIL_KINDS].sort()).toEqual(['compat-mismatch', 'db-backup-failed', 'db-too-old', 'node-arch-mismatch', 'node-missing', 'node-unstable', 'node-version-mismatch', 'other', 'port-in-use', 'server-exited']);
+    expect(m.NODE_KINDS).toEqual(['node-missing', 'node-version-mismatch', 'node-arch-mismatch', 'node-unstable']);
   });
   it('Node の札のほかの種類は、どちらの言語でも、見出し、何が起きたか、2 つ以上の次にすること、詳細を持つ', () => {
     for (const lang of ['ja', 'en']) {
@@ -294,6 +294,35 @@ describe('Node の札', () => {
       expect(w.what).toBe('この PC で Hangar を実行するには、x64 用の Node.js 22.14 以上が必要です。現在の Node.js を置き換えずに、別のディレクトリにインストールできます。');
       expect(w.steps[0]).toBe('nodejs.org から Node.js 22 の Windows 用 zip（x64）を取得します');
       expect(w.pick).toEqual({ label: 'node.exe を選択…', primary: true });
+    });
+  });
+
+  // Windows で Node 24.0 から 24.15 は黙って落ちる（nodejs/node#63620）。24.16 以上へ上げるよう勧める。
+  describe('Windows で使えない版', () => {
+    it('見つかった版と、24.16 以上への更新を言い、直った系列の zip と「node.exe を選択…」を出す', () => {
+      const v = node('node-unstable', { found: '24.15.0', arch: 'x64' }, win);
+      expect(v.title).toBe('Node.js 24.15.0 は Windows で突然終了することがあります');
+      expect(v.what).toBe('Node.js 24.0〜24.15 には、Windows で接続を開く際にプロセスが終了する不具合があります。現在の Node.js を残したまま、Node.js 24.16 以上を別のディレクトリにインストールできます。');
+      expect(v.lead).toBe('現在の Node.js を置き換えずにインストールするには：');
+      expect(v.steps).toEqual([
+        'nodejs.org から Node.js 24.16 以上の Windows 用 zip（x64）を取得します',
+        '現在の Node.js とは別のディレクトリ（例 %LOCALAPPDATA%\\Programs\\node24）に展開します',
+        '「node.exe を選択…」をクリックして、展開したディレクトリの node.exe を選択します',
+      ]);
+      expect(v.command).toBeNull();
+      expect(v.pick).toEqual({ label: 'node.exe を選択…', primary: true });
+      const e = node('node-unstable', { found: '24.15.0', arch: 'x64' }, { lang: 'en', os: 'Windows 11', sep: '\\' });
+      expect(e.title).toBe('Node.js 24.15.0 can crash on Windows');
+      expect(e.what).toBe('Node.js 24.0 through 24.15 has a bug that can crash the process on Windows when opening a connection. You can install Node.js 24.16 or later in another folder without replacing your current Node.js.');
+      expect(e.steps[0]).toBe('Get the Windows zip of Node.js 24.16 or later (x64) from nodejs.org');
+      expect(`${e.title}${e.what}${e.steps.join('')}`).not.toMatch(KANA_KANJI);
+    });
+    it('見つかった版が渡されなければ、見つからない札に落とす', () => {
+      expect(node('node-unstable', {}, win).title).toBe('Node.js が見つかりません');
+    });
+    it('選んだ Node が使えない版だったときの文', () => {
+      expect(m.pickText('ja', { result: 'unstable', path: 'C:\\n\\node.exe', found: '24.15.0', min: '24.16' })).toBe('選択した Node.js（24.15.0）は Windows で突然終了することがあるため、Node.js 24.16 以上を選択してください。');
+      expect(m.pickText('en', { result: 'unstable', path: 'C:\\n\\node.exe', found: '24.15.0', min: '24.16' })).toBe('The Node.js you chose (24.15.0) can crash on Windows. Choose Node.js 24.16 or later.');
     });
   });
 
