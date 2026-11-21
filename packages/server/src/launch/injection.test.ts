@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { localDate, localTime, osName, t as tt, translator, type Language } from '@agent-hangar/shared';
 import type { HandoverFacts } from '../runs/handover.ts';
+import { TOOL_NAMES } from '../mcp/tools.ts';
 import { DEFAULT_INJECTION_PARTS, renderInjection, renderCodexInjectionEntries, renderInjectionEntries, renderOpencodeInjectionEntries, type InjectionInput, type InjectionParts } from './injection.ts';
 
 const todo = (n: number | string) => ({ id: `id${n}`, text: `t${n}` });
@@ -292,7 +293,7 @@ describe('renderOpencodeInjectionEntries（opencode に足す段）', () => {
 
   it('最小限（既定）は、hangar の MCP の使い方の段と、状態の段。時機は各ターンの最初の一手で、Code Mode の呼び方を添える（RESULT.md の条件 d）', () => {
     const entries = renderOpencodeInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'minimal');
-    expect(entries.map((e) => e.key)).toEqual(['body', 'notify', 'notifySave', 'notifyAsk', 'status']);
+    expect(entries.map((e) => e.key)).toEqual(['body', 'tools', 'notify', 'notifySave', 'notifyAsk', 'status']);
     expect(entries[0]!.text).toBe(
       'あなたは agent-hangar から起動されたセッションです。\n'
       + '各ターンの最初の一手で、他のツールより先に、execute で `await tools.hangar.set_turn_intent({ text: "<このターンで何のために何をするか、1〜2 文>" })` を呼んでください。方針を変えたときも呼びます。\n'
@@ -303,7 +304,7 @@ describe('renderOpencodeInjectionEntries（opencode に足す段）', () => {
       + 'ユーザーが Done か Paused にしてと言っていないのに、confirmed: true を渡さないでください。\n');
     // 英語も同じ道具と同じ時機を指す。
     const en = renderOpencodeInjectionEntries(input, 'en', DEFAULT_INJECTION_PARTS, 'minimal');
-    expect(en.map((e) => e.key)).toEqual(['body', 'notify', 'notifySave', 'notifyAsk', 'status']);
+    expect(en.map((e) => e.key)).toEqual(['body', 'tools', 'notify', 'notifySave', 'notifyAsk', 'status']);
     expect(en[0]!.text).toContain('tools.hangar.set_turn_intent');
     expect(en[0]!.text).toContain('tools.hangar.set_session_summary');
     expect(en[0]!.text).toContain('tools.hangar.propose_session_status({ status, note, confirmed: true })');
@@ -315,8 +316,25 @@ describe('renderOpencodeInjectionEntries（opencode に足す段）', () => {
 
   it('最小限でも、区切りで状態を確認する設定を切れば状態の段は足さない。頼まれたときの確定は本文に残る', () => {
     const entries = renderOpencodeInjectionEntries(input, 'ja', { askStatusAtEnd: false, liveHints: true, notifyUser: false }, 'minimal');
-    expect(entries.map((e) => e.key)).toEqual(['body']);
+    expect(entries.map((e) => e.key)).toEqual(['body', 'tools']);
     expect(entries[0]!.text).toContain('propose_session_status({ status, note, confirmed: true })');
+  });
+
+  it('道具の段は、Code Mode の目録に載らない hangar の道具を目的ごとに名前で挙げ、search で引くよう言う（目録は予算 2000 トークンで、引数の多い道具から落ちる）', () => {
+    const names = new Set<string>(TOOL_NAMES);
+    for (const language of ['ja', 'en'] as const) {
+      for (const choice of ['minimal', 'claude'] as const) {
+        const text = renderOpencodeInjectionEntries(input, language, { askStatusAtEnd: false, liveHints: false, notifyUser: false }, choice).find((e) => e.key === 'tools')!.text;
+        // 目録で隠れやすい、動かす側の道具を挙げる。
+        for (const n of ['send_to_session', 'wait_for_session', 'create_session', 'resume_session', 'create_schedule', 'search_sessions', 'get_transcript', 'notify_user']) expect(text, `${language} ${choice} ${n}`).toContain(n);
+        expect(text, `${language} ${choice}`).toContain('search({ query:');
+        // 挙げた名前は、どれも実在する道具である。道具の名前を変えたら、ここが止める。
+        for (const m of text.matchAll(/\b[a-z]+(?:_[a-z]+)+\b/g)) expect(names.has(m[0]), `${language} ${m[0]}`).toBe(true);
+        expect(text.endsWith('\n'), language).toBe(true);
+      }
+    }
+    // Codex の段には足さない（目録の間引きは opencode の Code Mode のもの）。
+    expect(renderCodexInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'minimal').map((e) => e.key)).not.toContain('tools');
   });
 
   it('追記しないなら段は無い', () => {
@@ -326,12 +344,13 @@ describe('renderOpencodeInjectionEntries（opencode に足す段）', () => {
   it('Claude Code と同じなら Claude の段を使い、意図の段だけ時機を各ターンの最初の一手に書き直す（条件 g）', () => {
     const claude = renderInjectionEntries(input, 'ja');
     const oc = renderOpencodeInjectionEntries(input, 'ja', DEFAULT_INJECTION_PARTS, 'claude');
-    expect(oc.map((e) => e.key)).toEqual(claude.map((e) => e.key));
-    expect(oc.filter((e) => !['live', 'notify', 'notifySave', 'notifyAsk'].includes(e.key))).toEqual(claude.filter((e) => !['live', 'notify', 'notifySave', 'notifyAsk'].includes(e.key)));
+    // 道具の段は Claude に無く、本文の直後に入る。
+    expect(oc.map((e) => e.key)).toEqual(claude.map((e) => e.key).flatMap((k) => (k === 'body' ? ['body', 'tools'] : [k])));
+    expect(oc.filter((e) => !['live', 'notify', 'notifySave', 'notifyAsk', 'tools'].includes(e.key))).toEqual(claude.filter((e) => !['live', 'notify', 'notifySave', 'notifyAsk'].includes(e.key)));
     expect(oc.find((e) => e.key === 'notify')!.text).toContain('tools.hangar.notify_user');
     expect(oc.find((e) => e.key === 'live')!.text).toBe('各ターンの最初の一手で、他のツールより先に、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。方針を変えたときも呼びます。\nBash と Agent の description は日本語で短く（20 字程度）書いてください。\n');
     // 段の入り切りの設定は Claude と同じく効く。
-    expect(renderOpencodeInjectionEntries(input, 'ja', { askStatusAtEnd: false, liveHints: false, notifyUser: false }, 'claude').map((e) => e.key)).toEqual(['body', 'multiDevice']);
+    expect(renderOpencodeInjectionEntries(input, 'ja', { askStatusAtEnd: false, liveHints: false, notifyUser: false }, 'claude').map((e) => e.key)).toEqual(['body', 'tools', 'multiDevice']);
     expect(renderOpencodeInjectionEntries(input, 'en', DEFAULT_INJECTION_PARTS, 'claude').find((e) => e.key === 'live')!.text).toMatch(/^At the first step of every turn, before any other tool/);
   });
 });
@@ -402,7 +421,7 @@ describe('notify_user の段', () => {
       expect(ask).not.toContain('AskUserQuestion');
     }
     for (const es of [renderOpencodeInjectionEntries(input, 'en', decided, 'minimal'), renderCodexInjectionEntries(input, 'en', decided, 'minimal')]) {
-      expect(es.map((e) => e.key)).toEqual(['body', 'notify', 'notifySave', 'status']);
+      expect(es.map((e) => e.key).filter((k) => k !== 'tools')).toEqual(['body', 'notify', 'notifySave', 'status']);
       expect(es.find((e) => e.key === 'notifySave')!.text).toContain('the Windows notification');
     }
   });
@@ -475,7 +494,7 @@ describe('無人の起動（予定や出来事、別の会話から起こした�
       renderOpencodeInjectionEntries({ ...input, launchedBy: 'schedule' }, 'ja', MAC, 'minimal'),
       renderCodexInjectionEntries({ ...input, launchedBy: 'schedule' }, 'ja', MAC, 'minimal'),
     ]) {
-      expect(es.map((e) => e.key)).toEqual(['body', 'notify', 'notifySave', 'unattended']);
+      expect(es.map((e) => e.key).filter((k) => k !== 'tools')).toEqual(['body', 'notify', 'notifySave', 'unattended']);
       const u = es.find((e) => e.key === 'unattended')!.text;
       expect(u).toContain('このセッションは予定や出来事による自動の実行から起動されました。');
       expect(u).toContain('ユーザーの答えを待つ問いでターンを終えないでください。');
@@ -486,7 +505,7 @@ describe('無人の起動（予定や出来事、別の会話から起こした�
       renderOpencodeInjectionEntries({ ...input, launchedBy: 'session' }, 'en', MAC, 'minimal'),
       renderCodexInjectionEntries({ ...input, launchedBy: 'session' }, 'en', MAC, 'minimal'),
     ]) {
-      expect(es.map((e) => e.key)).toEqual(['body', 'notify', 'notifySave', 'unattended']);
+      expect(es.map((e) => e.key).filter((k) => k !== 'tools')).toEqual(['body', 'notify', 'notifySave', 'unattended']);
       expect(es.find((e) => e.key === 'unattended')!.text).not.toContain('AskUserQuestion');
     }
   });

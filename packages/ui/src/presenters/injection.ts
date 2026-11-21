@@ -80,10 +80,10 @@ export function presentOpencodeInjection(t: Translate, parts: InjectionSwitches,
   const named = (name: string, on: boolean) => t(on ? 'settings.integrations.inject.part.on' : 'settings.integrations.inject.part.off', { name });
   if (choice === 'minimal') {
     return [
-      { label: t('settings.opencode.injection.minimal'), off: false, mark: null, pieces: split(t('launch.injection.opencode.minimal')) },
+      { label: t('settings.opencode.injection.minimal'), off: false, mark: null, pieces: split(t('launch.injection.opencode.minimal') + t('launch.injection.opencode.tools')) },
       { label: named(t('settings.label.notifyUser'), parts.notifyUser), off: !parts.notifyUser, mark: null, pieces: split(notifyText(t, 'opencode.')) },
       { label: named(t('settings.label.askStatusAtEnd'), parts.askStatusAtEnd), off: !parts.askStatusAtEnd, mark: null, pieces: split(t('launch.injection.opencode.status')) },
     ];
   }
-  return presentInjection(t, parts).map((p, i) => (i === LIVE_PART ? { ...p, pieces: split(t('launch.injection.opencode.live')) } : i === NOTIFY_PART ? { ...p, pieces: split(notifyText(t, 'opencode.')) } : p));
+  return presentInjection(t, parts).map((p, i) => (i === 0 ? { ...p, pieces: [...p.pieces, ...split(t('launch.injection.opencode.tools'))] } : i === LIVE_PART ? { ...p, pieces: split(t('launch.injection.opencode.live')) } : i === NOTIFY_PART ? { ...p, pieces: split(notifyText(t, 'opencode.')) } : p));
 }

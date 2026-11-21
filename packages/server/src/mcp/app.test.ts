@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { t as tt } from '@agent-hangar/shared';
 import { VERSION } from '../boot/options.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
@@ -151,6 +152,19 @@ describe('createMcpApp', () => {
     const r = await rpc(`/s/${alphaId}`, 'tools/call', { name: 'set_session_memo', arguments: { text: 'from mcp' } }, 13);
     expect(r.body.result!.isError).toBe(true);
     expect(db.prepare('select count(*) n from session_notes').get()).toEqual({ n: 0 });
+  });
+  it('対になる道具の名前は、説明の頭 120 字に書く（opencode の Code Mode の目録は説明を 120 字で切り、引数の多い道具を載せない）', async () => {
+    const PAIRS: [string, 'mcp.tool.waitForSession' | 'mcp.tool.readSessionScreen' | 'mcp.tool.stopSession', string[]][] = [
+      ['wait_for_session', 'mcp.tool.waitForSession', ['send_to_session', 'create_session']],
+      ['read_session_screen', 'mcp.tool.readSessionScreen', ['send_to_session']],
+      ['stop_session', 'mcp.tool.stopSession', ['resume_session']],
+    ];
+    const list = await rpc('/', 'tools/list', {}, 2);
+    const tools = list.body.result!.tools as { name: string; description: string }[];
+    for (const [name, key, partners] of PAIRS) {
+      const heads = [tools.find((t) => t.name === name)!.description, ...(['ja', 'en'] as const).map((l) => `agent-hangar: ${tt(l, key)}`)].map((d) => d.slice(0, 117));
+      for (const h of heads) for (const p of partners) expect(h, `${name} → ${p}`).toContain(p);
+    }
   });
   it('propose_session_status の説明文は、聞かずに confirmed を立てないよう求める', async () => {
     const list = await rpc('/', 'tools/list', {}, 6);
