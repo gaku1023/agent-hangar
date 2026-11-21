@@ -77,7 +77,7 @@ export function bootPeer(p: {
   };
   /** 実行中の一覧と、画面への知らせの口。呼ぶ側が使う。 */
   delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub: { broadcast(ev: Extract<ServerEvent, { type: 'toast' }>): void } };
-  sync: Pick<SyncParts, 'engine' | 'peerLink' | 'canCarryPeer'>;
+  sync: Pick<SyncParts, 'engine' | 'peerLink' | 'canCarryPeer'> & Partial<Pick<SyncParts, 'workerCompat'>>;
   /** 別の PC から頼まれた「今すぐ試す」を、この PC で起こす（sessions/wakePaused.ts の wakePaused と同じ道）。状態の確認は呼ぶ前にしてある。 */
   wake?: (sessionId: string) => Promise<unknown>;
   now?: () => number;
@@ -199,7 +199,7 @@ export function bootPeer(p: {
     // 画面から人が頼んだ起動の答えは、利用者が待っているので、知らせの出し先の決まりによらず画面の札で出す。
     toast: (level, message) => { p.delivery.hub.broadcast({ type: 'toast', level, message }); },
   });
-  const callDeps = { link: () => (p.sync.canCarryPeer() ? p.sync.peerLink() : null), workerOk: () => p.sync.canCarryPeer() };
+  const callDeps = { link: () => (p.sync.canCarryPeer() ? p.sync.peerLink() : null), workerOk: () => p.sync.canCarryPeer(), workerCompat: () => p.sync.workerCompat?.() ?? null };
   // 別の PC への起動の承認待ち（D8）。承認されたら経路を決めて封じて置き、断りと時間切れは呼び出し元に入力として入れる。
   const approvals = new PeerApprovals({
     db, now,

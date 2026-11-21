@@ -149,6 +149,8 @@ export type SyncParts = {
    * 版 9 までの Worker は頼みの口を知らないので、満たさないあいだは頼みを扱わない。
    */
   canCarryPeer(): boolean;
+  /** Worker が最後に名乗った互換値。まだ話していなければ null。断りの文に添える。 */
+  workerCompat(): number | null;
   /**
    * PC どうしの頼みが使う、今の頼みの口、封の鍵の束、keybox の読み直し。同期を設定していなければ（または古い Worker で口が無ければ）null。
    * cloud.json が後から現れて組み直すと、別のものを返す。
@@ -638,6 +640,7 @@ export function bootSync(
     canCarryTakeover: () => canCarry(TAKEOVER_MIN_WORKER_COMPAT),
     canCarryMobile: () => canCarry(MOBILE_MIN_WORKER_COMPAT),
     canCarryPeer: () => canCarry(PEER_LAUNCH_MIN_WORKER_COMPAT),
+    workerCompat: () => core.client?.lastWorkerCompat?.() ?? null,
     peerLink: () => {
       const { client, peer } = core;
       if (!client?.peerLaunch || !peer) return null;

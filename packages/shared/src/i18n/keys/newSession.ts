@@ -10,6 +10,7 @@ export const newSessionKeys = {
   'newSession.pc.here': [],
   'newSession.pc.offline': [],
   'newSession.pc.outdated': [],
+  'newSession.pc.workerOutdated': [],
   'newSession.pc.start': ['device'],
   'newSession.peer.noAccount': [],
   'newSession.peer.loggedOut': [],

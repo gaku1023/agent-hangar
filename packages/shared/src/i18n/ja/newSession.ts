@@ -7,6 +7,7 @@ export const newSessionJa: AreaDictionary<typeof newSessionKeys> = {
   'newSession.pc.here': 'この PC',
   'newSession.pc.offline': '未接続',
   'newSession.pc.outdated': '古いバージョン',
+  'newSession.pc.workerOutdated': 'クラウドが古い',
   'newSession.pc.start': '{device} で起動',
   'newSession.peer.noAccount': 'なし',
   'newSession.peer.loggedOut': 'ログアウト中',

@@ -187,10 +187,15 @@ describe('create_session の device', () => {
     expect(a.wire.peerLaunches.size).toBe(0);
   });
 
-  it('Worker の版が足りなければ device-outdated', async () => {
+  it('Worker の版が足りなければ、相手が古いとは言わず worker-outdated（相手も古ければ Worker を先に）', async () => {
     putPeer();
     workerOk = false;
-    expect(await call('create_session', { device: 'Mac' })).toMatchObject({ status: 'refused', reason: 'device-outdated' });
+    const r = await call('create_session', { device: 'Mac' });
+    expect(r).toMatchObject({ status: 'refused', reason: 'worker-outdated' });
+    expect(String((r as { note?: string }).note)).toContain('Worker');
+    expect(String((r as { note?: string }).note)).not.toContain('Mac の hangar が古い');
+    putPeer({ status: null });
+    expect(await call('create_session', { device: 'Mac' })).toMatchObject({ status: 'refused', reason: 'worker-outdated' });
   });
 
   it('last_seen_at が古ければ device-offline', async () => {
@@ -331,6 +336,14 @@ describe('send_to_session と stop_session の別の PC への頼み（D16）', 
     expect(await call('send_to_session', { session_id: id, text: 'x' })).toMatchObject({ status: 'refused', reason: 'device-outdated' });
     expect(await call('stop_session', { session_id: id })).toMatchObject({ status: 'refused', reason: 'device-outdated' });
     expect(a.wire.peerLaunches.size).toBe(0);
+  });
+
+  it('Worker の版が足りなければ send と stop は worker-outdated で断る（相手が古くても Worker を先に）', async () => {
+    putPeer({ status: status({ hangar_version: '0.9.0' }) });
+    const id = spawned();
+    workerOk = false;
+    expect(await call('send_to_session', { session_id: id, text: 'x' })).toMatchObject({ status: 'refused', reason: 'worker-outdated' });
+    expect(await call('stop_session', { session_id: id })).toMatchObject({ status: 'refused', reason: 'worker-outdated' });
   });
 
   it('空白だけと長すぎる本文は断る。相手が落ちていれば device-offline', async () => {

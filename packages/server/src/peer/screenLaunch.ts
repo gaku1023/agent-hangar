@@ -4,7 +4,7 @@ import { readPeerStatuses } from '../config/deviceStatus.ts';
 import type { Db } from '../db/open.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { msg, render } from '../i18n/message.ts';
-import { choosePeerRoute, resolvePeer, type PeerCallDeps, type PeerCallRefusal } from './caller.ts';
+import { choosePeerRoute, peerRefusalMessage, resolvePeer, type PeerCallDeps, type PeerCallRefusal } from './caller.ts';
 import { recordPeerRequest, SCREEN_CALLER } from './outbox.ts';
 import { screenRefusalText } from './text.ts';
 import { versionAtLeast } from './version.ts';
@@ -23,10 +23,11 @@ type RouteDeps = Pick<PeerCallDeps, 'link' | 'workerOk' | 'version'>;
 
 /** 頼めるか。経路と、相手がこの機能（親の会話が空の頼み）を読む版かで決める。 */
 function stateOf(p: PeerDeviceStatus, deps: RouteDeps, now: number): PeerDeviceDto['state'] {
+  if (!deps.workerOk()) return 'worker-outdated';
   if (p.outdated || (deps.version !== undefined && !versionAtLeast(p.status?.hangar_version, deps.version))) return 'outdated';
   const route = choosePeerRoute(p, deps, now);
   if (!('refuse' in route)) return 'ready';
-  return route.refuse === 'device-outdated' ? 'outdated' : 'offline';
+  return route.refuse === 'device-outdated' ? 'outdated' : route.refuse === 'worker-outdated' ? 'worker-outdated' : 'offline';
 }
 
 /** 相手に、解決済みの置き場があるプロジェクトと、その置き場（相手の PC のパス）。 */
@@ -78,8 +79,8 @@ export async function launchFromScreen(deps: ScreenLaunchDeps, body: PeerLaunchB
   if (!peer) return refuse('device-unknown', body.device, render(lang(), msg('mcp.device.unknown', { device: body.device.slice(0, 40), names })));
   const state = stateOf(peer, deps.peer, now);
   if (state !== 'ready') {
-    const reason: PeerCallRefusal = state === 'outdated' ? 'device-outdated' : 'device-offline';
-    return refuse(reason, peer.name, render(lang(), msg(state === 'outdated' ? 'mcp.device.outdated' : 'mcp.device.offline', { device: peer.name })));
+    const reason: PeerCallRefusal = state === 'outdated' ? 'device-outdated' : state === 'worker-outdated' ? 'worker-outdated' : 'device-offline';
+    return refuse(reason, peer.name, render(lang(), peerRefusalMessage(reason, peer.name, deps.peer)));
   }
   const st = peer.status!;
   if (!st.agents.includes(body.agent)) return launchRefusal('agent-missing', peer);
@@ -91,7 +92,7 @@ export async function launchFromScreen(deps: ScreenLaunchDeps, body: PeerLaunchB
     if (a.logged_in === false) return launchRefusal('account-logged-out', peer, account);
   }
   const route = choosePeerRoute(peer, deps.peer, now);
-  if ('refuse' in route) return refuse(route.refuse, peer.name, render(lang(), msg(route.refuse === 'device-outdated' ? 'mcp.device.outdated' : 'mcp.device.offline', { device: peer.name })));
+  if ('refuse' in route) return refuse(route.refuse, peer.name, render(lang(), peerRefusalMessage(route.refuse, peer.name, deps.peer)));
   const requestId = (deps.peer.newId ?? randomUUID)();
   const req: PeerLaunchRequest = {
     v: 1, createdAt: now, parentSessionId: SCREEN_CALLER, projectId: body.scratch ? null : body.projectId, scratch: body.scratch, agent: body.agent,

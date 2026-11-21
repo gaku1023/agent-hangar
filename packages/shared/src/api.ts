@@ -243,11 +243,11 @@ export type PeerApprovalState = 'pending' | 'approved' | 'denied' | 'timeout' | 
 export type PeerApprovalDto = { id: string; from: string | null; device: string; project: string | null; scratch: boolean; ask: string; expiresAt: number; state: PeerApprovalState };
 /**
  * 新規ダイアログの PC の選択（GET /api/peers）。ほかの PC 1 台につき 1 件で、自分は含めない。
- * state は起動を頼めるか。ready は頼める、offline はいま接続できない、outdated は hangar が古くこの機能を持たない。
+ * state は起動を頼めるか。ready は頼める、offline はいま接続できない、outdated は hangar が古くこの機能を持たない、worker-outdated はクラウドの Worker が古くて送れない。
  * accounts は相手のアカウントの名前とログインの可否、agents は相手で起こせるエージェント、projects は相手に置き場があるプロジェクトの id。
  */
 export type PeerDeviceDto = {
-  id: string; name: string; platform: string; state: 'ready' | 'offline' | 'outdated';
+  id: string; name: string; platform: string; state: 'ready' | 'offline' | 'outdated' | 'worker-outdated';
   accounts: { name: string; agent: string; loggedIn: boolean | null }[]; agents: string[]; projects: string[];
   /** projects の各 id の、相手の PC での置き場（パス）。この PC に置き場の無いプロジェクトも、作成画面がこのパスで出す。この欄を知らない古いサーバは返さない。 */
   paths?: Record<string, string>;

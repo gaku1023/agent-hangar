@@ -3,7 +3,7 @@ import { isAgentKind, isPeerLaunchPermission, peerLaunchPermissionChoices, sealP
 import { accountOfSession, getSession } from '../db/queries.ts';
 import { defaultLanguage } from '../i18n/language.ts';
 import { msg, render, type Message } from '../i18n/message.ts';
-import { choosePeerRoute, listPeerDevices, resolvePeer, type PeerCallRefusal } from '../peer/caller.ts';
+import { choosePeerRoute, listPeerDevices, peerRefusalMessage, resolvePeer, type PeerCallRefusal } from '../peer/caller.ts';
 import { recordPeerRequest } from '../peer/outbox.ts';
 import { versionAtLeast } from '../peer/version.ts';
 import { getSpawn, isSpawnedBy, isSpawnedFromOtherDevice, type SpawnLink } from '../sessions/spawns.ts';
@@ -74,7 +74,7 @@ export async function createRemoteSessionTool(deps: ToolDeps, ctx: ToolContext, 
     throw new ToolError(values.length === 0 ? msg('mcp.device.permissionModeNone', { agent: kind }) : msg('mcp.device.permissionModeUnsupported', { mode: permissionMode.slice(0, 40), agent: kind, values }));
   }
   const route = choosePeerRoute(peer, peerDeps!, now);
-  if ('refuse' in route) return refused(deps, route.refuse, peer.name, msg(route.refuse === 'device-outdated' ? 'mcp.device.outdated' : 'mcp.device.offline', { device: peer.name }));
+  if ('refuse' in route) return refused(deps, route.refuse, peer.name, peerRefusalMessage(route.refuse, peer.name, peerDeps!));
   // 深さは 1 まで（D11）。受ける側でも断るが、送る前に断れば無駄な往復を避けられる。
   if (isSpawnedFromOtherDevice(deps.db, deps.deviceId, ctx.sessionId)) return refused(deps, 'depth-exceeded', peer.name, msg('mcp.device.depthExceeded'));
   const callerProject = getSession(deps.db, deps.live(), ctx.sessionId, { deviceId: deps.deviceId })?.projectId ?? null;
@@ -133,11 +133,12 @@ export async function remoteControlTool(deps: ToolDeps, ctx: ToolContext, op: 's
     return refused(deps, 'device-unknown', link.childDeviceId.slice(0, 40), msg('mcp.device.unknown', { device: link.childDeviceId.slice(0, 40), names }));
   }
   if (!ctx.sessionId) throw new ToolError(msg('mcp.device.needsSession'));
+  if (!peerDeps!.workerOk()) return refused(deps, 'worker-outdated', peer.name, peerRefusalMessage('worker-outdated', peer.name, peerDeps!));
   if (peer.outdated || (peerDeps!.version !== undefined && !versionAtLeast(peer.status?.hangar_version, peerDeps!.version))) {
     return refused(deps, 'device-outdated', peer.name, msg('mcp.device.outdated', { device: peer.name }));
   }
   const route = choosePeerRoute(peer, peerDeps!, now);
-  if ('refuse' in route) return refused(deps, route.refuse, peer.name, msg(route.refuse === 'device-outdated' ? 'mcp.device.outdated' : 'mcp.device.offline', { device: peer.name }));
+  if ('refuse' in route) return refused(deps, route.refuse, peer.name, peerRefusalMessage(route.refuse, peer.name, peerDeps!));
   const requestId = (peerDeps!.newId ?? randomUUID)();
   const req: PeerLaunchRequest = {
     v: 1, createdAt: now, parentSessionId: ctx.sessionId, projectId: null, scratch: true, agent: 'claude-code',

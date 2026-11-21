@@ -9,8 +9,8 @@ import type { PeerDeviceDto } from '@agent-hangar/shared';
 /** 選べるか。ok は選べる、missing は相手に無い、loggedOut は相手でログインしていない。 */
 export type PeerItemState = 'ok' | 'missing' | 'loggedOut';
 
-/** PC の印。頼める PC は印を持たない。offline はいま接続できない、outdated は hangar が古い。 */
-export function peerMark(p: PeerDeviceDto): 'offline' | 'outdated' | null {
+/** PC の印。頼める PC は印を持たない。offline はいま接続できない、outdated は hangar が古い、worker-outdated はクラウドの Worker が古い。 */
+export function peerMark(p: PeerDeviceDto): 'offline' | 'outdated' | 'worker-outdated' | null {
   return p.state === 'ready' ? null : p.state;
 }
 

@@ -33,9 +33,10 @@ describe('choosePeerRoute（受け入れ 17）', () => {
     expect(choosePeerRoute(peer({ last_seen_at: NOW - 60 * 60_000 }), deps(), NOW)).toEqual({ refuse: 'device-offline' });
   });
 
-  it('Worker の版が足りなければ、または相手の版が古ければ device-outdated', () => {
-    expect(choosePeerRoute(peer(), deps({ worker: false }), NOW)).toEqual({ refuse: 'device-outdated' });
+  it('Worker の版が足りなければ worker-outdated、相手の版が古ければ device-outdated、両方なら Worker を先に言う', () => {
+    expect(choosePeerRoute(peer(), deps({ worker: false }), NOW)).toEqual({ refuse: 'worker-outdated' });
     expect(choosePeerRoute(peer({ outdated: true }, null), deps(), NOW)).toEqual({ refuse: 'device-outdated' });
+    expect(choosePeerRoute(peer({ outdated: true }, null), deps({ worker: false }), NOW)).toEqual({ refuse: 'worker-outdated' });
   });
 });
 
