@@ -110,11 +110,11 @@ describe.skipIf(!host)('bundleServer', () => {
     for (const f of [
       'node_modules/better-sqlite3/deps',
       'node_modules/better-sqlite3/src',
-      'node_modules/better-sqlite3/prebuilds/linux-x64.node',
-      `node_modules/better-sqlite3/prebuilds/${onWindows ? 'darwin-arm64' : 'win32-x64'}.node`,
+      // この機械の target 以外は、全部入っていない。
+      ...BUNDLE_TARGETS.filter((t) => t !== host).map((t) => `node_modules/better-sqlite3/prebuilds/${t}.node`),
       'node_modules/node-pty/deps',
       'node_modules/node-pty/third_party',
-      `node_modules/node-pty/prebuilds/${onWindows ? 'darwin-arm64' : 'win32-x64'}`,
+      ...BUNDLE_TARGETS.filter((t) => t !== host).map((t) => `node_modules/node-pty/prebuilds/${t}`),
       'node_modules/node-pty/prebuilds/darwin-x64',
       // sourcemap は配布物に入れない。UI の写しの大半を占めるうえ、利用者の役には立たない。
       'ui/assets/index.js.map',
