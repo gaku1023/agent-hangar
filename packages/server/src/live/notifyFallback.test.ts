@@ -150,13 +150,13 @@ describe('NotifyFallback', () => {
     expect(unread(s1)).toEqual({ count: 1, text: '終わりました。' });
   });
 
-  it('画面で前に出して見ている会話には積まず、スマホへも流さない。OS は殻が窓の前後で決めるので流す', () => {
+  it('どちらかの PC で開いて見ている会話には積まず、OS にもスマホにも流さない', () => {
     const f = fallback();
     replies.set(s1, { text: '見ている間に終わりました。', ts: clock + 20_000 });
     noteViewing('win', s1, clock);
     turn(f, 'idle');
     expect(unread(s1)).toBeUndefined();
-    expect(fired).toEqual([`ready:${s1}:見ている間に終わりました。:0:os:done`]);
+    expect(fired).toEqual([]);
   });
 
   it('問いの入力待ちで終わったターンは未読だけ積む（OS とスマホは入力待ちの知らせが別に出す）。run が居なくなったターンには積まない', () => {

@@ -1,6 +1,7 @@
 import { notifyRulesOf, type NotifyPreference } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { noteUnreadReady, onUnreadArrived, readUnread } from './unread.ts';
+import { isViewing } from './viewing.ts';
 
 /**
  * ほかの PC から届いた未読の OS の通知（2026-11-21、未読の同期）。
@@ -28,6 +29,8 @@ export function noticeArrivedUnread(deps: ArriveDeps, sessionId: string): void {
   const view = deps.session(sessionId);
   if (!view || view.role === 'orchestrator' || view.quiet) return;
   if (!notifyRulesOf(s).os.includes(u.kind)) return;
+  // この PC で開いて見ている会話には出さない。動かしている PC がまだこちらの見ているのを知らずに積んだ分である。
+  if (isViewing(sessionId)) return;
   noteUnreadReady(sessionId, u.latest, u.count, ['os'], { kind: u.kind });
 }
 

@@ -117,13 +117,12 @@ export class UnreadHold {
   private release(sessionId: string, h: Held): void {
     let count = h.count;
     const now = this.deps.now?.() ?? Date.now();
-    // 抜けたときに画面で前に出して見ている会話には、未読を積まず、スマホへも出さない（live/viewing.ts）。
-    const viewing = isViewing(sessionId, now);
-    if (h.unread && !viewing) {
+    // 抜けたときにどちらかの PC で開いて見ている会話には、未読も OS もスマホも出さない（live/viewing.ts）。
+    if (isViewing(sessionId, now)) return;
+    if (h.unread) {
       count = addUnread(this.deps.db, sessionId, h.text, now, { kind: h.meta.kind });
       touchRow(this.deps.db, 'sessions', sessionId);
     }
-    const sent = [...h.sent].filter((x) => !(viewing && x === 'phone'));
-    if (sent.length > 0) noteUnreadReady(sessionId, h.text, count, sent, h.meta);
+    if (h.sent.size > 0) noteUnreadReady(sessionId, h.text, count, [...h.sent], h.meta);
   }
 }

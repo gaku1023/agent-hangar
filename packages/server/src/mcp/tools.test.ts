@@ -13,7 +13,7 @@ import { claudeTranscriptSource } from '../provider/claude-code/transcript/sourc
 import { latestIntent } from '../live/intents.ts';
 import { markSeen, onUnread } from '../live/unread.ts';
 import { onNotifyKind } from '../live/notifyKind.ts';
-import { noteViewing, resetViewing } from '../live/viewing.ts';
+import { noteViewing, resetViewing, setRemoteViewing } from '../live/viewing.ts';
 import { getSession, setOrchestratorSource } from '../db/queries.ts';
 import { orchestratorIdsSource } from '../orchestrator/peerLineage.ts';
 import { addTodo } from '../projects/todos.ts';
@@ -819,11 +819,14 @@ describe('MCP tools', () => {
       off();
     }
   });
-  it('notify_user は、画面で前に出して見ている会話には未読を積まず、スマホへも出さない。OS は殻に任せて出す', () => {
+  it('notify_user は、どちらかの PC で開いて見ている会話には未読を積まず、OS にもスマホにも出さない', () => {
     noteViewing('win', alphaId);
     try {
-      expect(call('notify_user', { text: '見えています' }, { sessionId: alphaId })).toMatchObject({ unread: 0, sent: ['os'] });
+      expect(call('notify_user', { text: '見えています' }, { sessionId: alphaId })).toMatchObject({ unread: 0, sent: [] });
       expect(getSession(db, live, alphaId)!.unread).toBeNull();
+      noteViewing('win', null);
+      setRemoteViewing((id) => id === alphaId);
+      expect(call('notify_user', { text: '別の PC で見えています' }, { sessionId: alphaId })).toMatchObject({ unread: 0, sent: [] });
     } finally {
       resetViewing();
     }

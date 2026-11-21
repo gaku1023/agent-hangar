@@ -776,8 +776,8 @@ export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
     sent = NOTIFY_TARGETS.filter((x) => rules[x].includes(kind));
   }
   if (isQuietStatus(session.state?.status) && !session.woke) sent = [];
-  // 画面で前に出して見ている会話には、未読を積まず、スマホへも出さない（live/viewing.ts）。OS の通知は殻が窓の前後で決める。
-  if (isViewing(id, now)) sent = sent.filter((x) => x === 'os');
+  // どちらかの PC で開いて見ている会話には、未読も OS もスマホも出さない（live/viewing.ts）。
+  if (isViewing(id, now)) sent = [];
   // ミュートした会話（静かな会話）は、どの先へも出さない。
   if ((session.mutedAt ?? null) !== null) sent = [];
   // 出し先が空でも、呼んだことと場面は知らせる。統括の出来事（orchestrator/feed.ts の turn.done）と、

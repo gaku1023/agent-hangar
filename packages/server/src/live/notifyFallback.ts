@@ -17,7 +17,7 @@ import { isViewing } from './viewing.ts';
  *
  * notify_user の無いターンは、最後の返答の頭の 1 文を未読の文にし、知らせ方の done の決まりどおり OS とスマホへも流す（onUnreadReady）。
  * 問いの入力待ち（AskUserQuestion）で終わったターンは、場面を ask にして未読だけ積む。OS とスマホへは入力待ちの知らせが別に出るからである。
- * 画面で前に出して見ている会話（live/viewing.ts）には、未読を積まず、スマホへも流さない。OS の通知は殻が窓の前後で決める。
+ * どちらかの PC で開いて見ている会話（live/viewing.ts）には、未読も OS もスマホも出さない。
  * 休みの会話と統括の会話には出さない。notify_user の段（設定の notifyUser）は指示文の入切なので、切っていても数える。
  *
  * ターンを抜けたとみなすのは、入力待ち（idle、問いの waiting）と、裏だけが動く（aside）に移ったときである（UnreadHold と同じ turnRunning で見る）。
@@ -152,16 +152,17 @@ export class NotifyFallback {
     if (!text) return;
     const rules = notifyRulesOf(settings);
     const now = this.now();
-    const viewing = isViewing(id, now);
+    // どちらかの PC で開いて見ている会話には、未読も OS もスマホも出さない（live/viewing.ts）。返答はその場で見えている。
+    if (isViewing(id, now)) return;
     let count = session.unread?.count ?? 0;
     // 問いの入力待ちで終えたターンは、判断が要る（ask）として積む。
     const kind = question ? 'ask' : 'done';
-    if (rules.unread.includes(kind) && !viewing) {
+    if (rules.unread.includes(kind)) {
       count = addUnread(this.deps.db, id, text, now, { kind });
       touchRow(this.deps.db, 'sessions', id);
     }
     if (question) return;
-    const sent: NotifyTarget[] = (['os', 'phone'] as const).filter((x) => rules[x].includes('done') && !(x === 'phone' && viewing));
+    const sent: NotifyTarget[] = (['os', 'phone'] as const).filter((x) => rules[x].includes('done'));
     if (sent.length > 0) noteUnreadReady(id, text, count, sent, { kind: 'done' });
   }
 }

@@ -1187,6 +1187,12 @@ alter table session_states add column muted_at integer;
 alter table session_states add column muted_changed_at integer;
 `;
 
+/** いま開いて見ている会話を 2 台で共有する（live/viewingShare.ts）。devices のこの PC の行に、会話の id の JSON の配列と、書いた時刻を置く。 */
+const V69_DEVICE_VIEWING_SQL = `
+alter table devices add column viewing text;
+alter table devices add column viewing_at integer;
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: BASELINE_VERSION, sql: BASELINE_SQL },
   { version: 17, sql: V17_SESSION_NOTES_SQL },
@@ -1240,4 +1246,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 66, sql: V66_FTS_TAIL_SQL },
   { version: 67, sql: V67_UNREAD_SYNC_SQL },
   { version: 68, sql: V68_SESSION_MUTED_SQL },
+  { version: 69, sql: V69_DEVICE_VIEWING_SQL },
 ];
