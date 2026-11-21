@@ -91,6 +91,8 @@ export const mcpKeys = {
   'mcp.tool.listDevices': [],
   'mcp.device.unknown': ['device', 'names'],
   'mcp.device.outdated': ['device'],
+  'mcp.device.workerOutdated': ['have', 'need'],
+  'mcp.device.workerOutdatedUnknown': [],
   'mcp.device.offline': ['device'],
   'mcp.device.depthExceeded': [],
   'mcp.device.requested': ['device'],

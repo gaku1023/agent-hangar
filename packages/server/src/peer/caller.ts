@@ -1,4 +1,5 @@
-import type { PeerDeviceStatus, PeerKeyring, PeerLaunchApi, PeerLaunchRequest } from '@agent-hangar/shared';
+import { PEER_LAUNCH_MIN_WORKER_COMPAT, type PeerDeviceStatus, type PeerKeyring, type PeerLaunchApi, type PeerLaunchRequest } from '@agent-hangar/shared';
+import { msg, type Message } from '../i18n/message.ts';
 import { readPeerStatuses } from '../config/deviceStatus.ts';
 import type { Db } from '../db/open.ts';
 
@@ -14,8 +15,11 @@ export const PEER_ONLINE_MS = 15 * 60_000;
 /** 経路。Worker 経由のクラウドだけである。 */
 export type PeerVia = 'cloud';
 
-/** 送る前に決まる断りの理由（頼みを置く前に呼ぶ側が決めるもの）。 */
-export const PEER_CALL_REFUSALS = ['device-unknown', 'device-outdated', 'device-offline', 'depth-exceeded'] as const;
+/**
+ * 送る前に決まる断りの理由（頼みを置く前に呼ぶ側が決めるもの）。
+ * device-outdated は相手の hangar が古い、worker-outdated はクラウドの Worker の互換値が足りない（PEER_CHAT_VIEW_REFUSALS と同じ名前と考え方）。
+ */
+export const PEER_CALL_REFUSALS = ['device-unknown', 'device-outdated', 'worker-outdated', 'device-offline', 'depth-exceeded'] as const;
 export type PeerCallRefusal = (typeof PEER_CALL_REFUSALS)[number];
 
 /** 呼ぶ側の依存。MCP の道具（mcp/peerTools.ts）が使う。 */
@@ -24,6 +28,8 @@ export type PeerCallDeps = {
   link(): { api: PeerLaunchApi; ring: () => Promise<PeerKeyring> } | null;
   /** Worker の版が足りるか（SyncParts.canCarryPeer）。 */
   workerOk(): boolean;
+  /** Worker が名乗った互換値。まだ話していない、または同期が無ければ null。断りの文に添える（無くても断れる）。 */
+  workerCompat?(): number | null;
   now?: () => number;
   /**
    * この hangar の版。send と stop の頼み（op を読む版にだけ送れる）は、相手の hangar_version がこれ以上のときだけ送る（D16）。
@@ -57,7 +63,7 @@ export type PeerDeviceBrief = {
 export const isOnline = (p: PeerDeviceStatus, now: number): boolean => p.last_seen_at !== null && now - p.last_seen_at <= PEER_ONLINE_MS;
 
 /** 経路の判定に使う依存。 */
-type RouteDeps = Pick<PeerCallDeps, 'link' | 'workerOk'>;
+type RouteDeps = Pick<PeerCallDeps, 'link' | 'workerOk' | 'workerCompat'>;
 
 const cloudUsable = (p: PeerDeviceStatus, deps: RouteDeps): boolean => !p.outdated && deps.workerOk() && deps.link() !== null;
 
@@ -98,17 +104,32 @@ export function resolvePeer(db: Db, selfId: string, key: string): PeerDeviceStat
 
 export type PeerRouteChoice =
   | { via: PeerVia; api: PeerLaunchApi; ring: () => Promise<PeerKeyring> }
-  | { refuse: Extract<PeerCallRefusal, 'device-outdated' | 'device-offline'> };
+  | { refuse: Extract<PeerCallRefusal, 'device-outdated' | 'worker-outdated' | 'device-offline'> };
 
 /**
  * 送る前に経路を決める（D1）。経路はクラウドだけである。
- * - Worker の版が足りない、または相手の版が古い（様子の欄が無い）ときは device-outdated。
+ * - Worker の版が足りないときは worker-outdated。相手の版が古い（様子の欄が無い）ときは device-outdated。
+ *   両方のときは Worker を先に言う（Worker を直さない限り何も送れないため）。
  * - 手元に頼みの口が無い、または相手が online でなければ device-offline。
  * 選んだ経路（via）は、呼ぶ側が頼みごとに記録し（recordPeerRequest）、答えと結果の取得もその経路で行う。
  */
 export function choosePeerRoute(peer: PeerDeviceStatus, deps: RouteDeps, now: number): PeerRouteChoice {
-  if (peer.outdated || !deps.workerOk()) return { refuse: 'device-outdated' };
+  if (!deps.workerOk()) return { refuse: 'worker-outdated' };
+  if (peer.outdated) return { refuse: 'device-outdated' };
   const link = deps.link();
   if (!link || !isOnline(peer, now)) return { refuse: 'device-offline' };
   return { via: 'cloud', api: link.api, ring: link.ring };
+}
+
+/**
+ * 断りの理由に対応する文。device は相手の名前。
+ * worker-outdated は、Worker の互換値が手に入り、必要な値に届いていないときだけ括弧つきの文にする（同期の停止などで偽のときは括弧を省く）。
+ */
+export function peerRefusalMessage(reason: Extract<PeerCallRefusal, 'device-outdated' | 'worker-outdated' | 'device-offline'>, device: string, deps: Pick<PeerCallDeps, 'workerCompat'>): Message {
+  if (reason === 'device-outdated') return msg('mcp.device.outdated', { device });
+  if (reason === 'device-offline') return msg('mcp.device.offline', { device });
+  const have = deps.workerCompat?.() ?? null;
+  return have !== null && have > 0 && have < PEER_LAUNCH_MIN_WORKER_COMPAT
+    ? msg('mcp.device.workerOutdated', { have, need: PEER_LAUNCH_MIN_WORKER_COMPAT })
+    : msg('mcp.device.workerOutdatedUnknown');
 }

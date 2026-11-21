@@ -7966,6 +7966,9 @@ AEAD の AAD に行の宛先を入れるのは、能動的な攻撃への守り�
 用途は、行の封（`hangar-e2e-v2/row`）、鍵名の HMAC（`/index`）、指紋（`/fp`）、本文の暗号（`/file`）、名簿の封（`/roster`）、PC どうしの封（`/peer`）である。
 PC どうしの封は、別の PC への起動の頼み、その答え、ターンが止まるたびの結果に使う（`packages/shared/src/e2e/peer.ts`）。
 別の PC へ届ける経路はクラウド（Worker）だけで、SSH の予備の経路は持たない（経路の選び方は `packages/server/src/peer/caller.ts` の `choosePeerRoute`）。
+送る前の断りは、Worker の互換値が `PEER_LAUNCH_MIN_WORKER_COMPAT` に届かないとき `worker-outdated`、相手の hangar が古いとき `device-outdated` で、両方のときは Worker を先に言う（Worker を直さない限り何も送れないため）。
+`worker-outdated` の文は Worker の互換値と必要な値を添え、互換値が手に入らないときは括弧を省く。
+新規ダイアログの PC のメニューは、同じ理由を `PeerDeviceDto.state` の `worker-outdated`（札は「クラウドが古い」）で見せる。
 封は `<世代>.<base64url(行と同じ形の封)>` の文字列で、開く側は封が名乗る世代の鍵で開く。
 AAD は `["peer-launch", 世代, 頼みの ID, 頼んだ PC, 頼まれた PC]` の JSON で、答えは頭を `peer-answer`、結果は `peer-result` にして末尾に連番を足す。
 グループの PC はどれも同じ鍵を持つので、この封が守るのはグループの外（Worker、別のグループ、解除の後に回した世代を持たない PC）に対してである。

@@ -54,7 +54,7 @@ describe('listPeersForScreen', () => {
       agents: ['claude-code', 'codex'], projects: ['p1'], paths: { p1: '/w/alpha' },
     }]);
   });
-  it('last_seen_at が古いと offline、様子の欄が無い PC と版が足りない PC は outdated、Worker の版が足りなくても outdated', () => {
+  it('last_seen_at が古いと offline、様子の欄が無い PC と版が足りない PC は outdated、Worker の版が足りなければ worker-outdated', () => {
     putPeer({ lastSeen: NOW - PEER_ONLINE_MS - 1 });
     expect(listPeersForScreen(db, ME, peer, NOW)[0]!.state).toBe('offline');
     putPeer({ status: null });
@@ -63,7 +63,9 @@ describe('listPeersForScreen', () => {
     expect(listPeersForScreen(db, ME, peer, NOW)[0]!.state).toBe('outdated');
     putPeer();
     workerOk = false;
-    expect(listPeersForScreen(db, ME, peer, NOW)[0]!.state).toBe('outdated');
+    expect(listPeersForScreen(db, ME, peer, NOW)[0]!.state).toBe('worker-outdated');
+    putPeer({ status: null });
+    expect(listPeersForScreen(db, ME, peer, NOW)[0]!.state).toBe('worker-outdated');
   });
   it('相手が opencode の一覧を載せていれば、そのまま渡す（#698）。載せていなければ欄を省く', () => {
     const opencode = { modes: [{ id: 'build', description: null }], models: [{ id: 'opencode/a', label: 'A', group: 'Zen', provider: 'opencode', tools: true, context: null, cost: null }], providers: [{ id: 'opencode', name: 'Zen', where: 'remote' as const }], defaultModel: 'lmstudio/q' };

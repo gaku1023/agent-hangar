@@ -64,4 +64,11 @@ describe('stopFromScreen', () => {
     expect(await run()).toMatchObject({ status: 'refused', reason: 'device-outdated' });
     expect(getPeerRequest(db, 'req-1')).toBeFalsy();
   });
+
+  it('Worker の版が足りなければ、相手が古くても worker-outdated で断る', async () => {
+    putPeer({ status: status({ hangar_version: '0.1.0' }) });
+    peer = { ...peer, workerOk: () => false };
+    expect(await run()).toMatchObject({ status: 'refused', reason: 'worker-outdated' });
+    expect(getPeerRequest(db, 'req-1')).toBeFalsy();
+  });
 });

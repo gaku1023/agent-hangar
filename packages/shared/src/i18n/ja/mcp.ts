@@ -101,6 +101,8 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.tool.listDevices': '同じグループの他の PC の一覧。名前、OS、オンラインか、アカウントとログインの可否、入っているエージェント、hangar のバージョンを返す。outdated が true の PC は hangar が古く、起動先にできない',
   'mcp.device.unknown': '「{device}」という PC は見つかりません。使えるのは: {names}',
   'mcp.device.outdated': '{device} の hangar が古いため、このリクエストを受けられません。先に {device} の hangar を更新してください',
+  'mcp.device.workerOutdated': 'クラウドの Worker が古いため、他の PC にこのリクエストを送信できません（Worker の互換バージョンは {have}、必要なのは {need} 以上）。setup した PC で npm run hangar -- setup cloud をもう一度実行して、Worker を更新してください',
+  'mcp.device.workerOutdatedUnknown': 'クラウドの Worker が古いため、他の PC にこのリクエストを送信できません。setup した PC で npm run hangar -- setup cloud をもう一度実行して、Worker を更新してください',
   'mcp.device.offline': '{device} には今接続できません。そちらで hangar が実行中か確認して、もう一度試してください',
   'mcp.device.depthExceeded': 'この会話は別の PC から起動されたため、さらに別の PC には起動できません',
   'mcp.device.requested': '{device} に起動をリクエストしました。結果は後で、この会話への入力として受け取ります',

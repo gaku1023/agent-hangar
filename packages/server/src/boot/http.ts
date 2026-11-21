@@ -239,7 +239,7 @@ export function bootHttp(p: {
     publish: (ev) => { delivery.hub.broadcast(ev); },
   });
   attachPeerChatSocket(delivery.sockets, peerChat);
-  const peerCallOf = (): PeerCallDeps => ({ link: () => (sync.canCarryPeer() ? sync.peerLink() : null), workerOk: () => sync.canCarryPeer(), version: VERSION });
+  const peerCallOf = (): PeerCallDeps => ({ link: () => (sync.canCarryPeer() ? sync.peerLink() : null), workerOk: () => sync.canCarryPeer(), workerCompat: () => sync.workerCompat(), version: VERSION });
   const app = createApp({
     voice,
     orchestratorKeeper: orchestrator,
@@ -322,6 +322,7 @@ export function bootHttp(p: {
     peerCall: {
       link: () => (sync.canCarryPeer() ? sync.peerLink() : null),
       workerOk: () => sync.canCarryPeer(),
+      workerCompat: () => sync.workerCompat(),
       version: VERSION,
       ...(p.peer ? { requestApproval: (o: Parameters<NonNullable<typeof p.peer>['approvals']['request']>[0]) => p.peer!.approvals.request(o) } : {}),
       ...(p.peer ? { requestApproval: (o) => p.peer!.approvals.request(o) } : {}),

@@ -13,6 +13,7 @@ describe('peerMark（PC の印）', () => {
     expect(peerMark(peer())).toBeNull();
     expect(peerMark(peer({ state: 'offline' }))).toBe('offline');
     expect(peerMark(peer({ state: 'outdated' }))).toBe('outdated');
+    expect(peerMark(peer({ state: 'worker-outdated' }))).toBe('worker-outdated');
   });
 });
 

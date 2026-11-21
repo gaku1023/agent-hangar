@@ -3,7 +3,7 @@ import { sealPeerLaunch, type PeerLaunchOutcomeDto, type PeerLaunchRequest, type
 import { sessionLock } from '../db/queries.ts';
 import { defaultLanguage } from '../i18n/language.ts';
 import { msg, render } from '../i18n/message.ts';
-import { choosePeerRoute, resolvePeer } from './caller.ts';
+import { choosePeerRoute, peerRefusalMessage, resolvePeer } from './caller.ts';
 import { recordPeerRequest, SCREEN_CALLER } from './outbox.ts';
 import { versionAtLeast } from './version.ts';
 import type { ScreenLaunchDeps } from './screenLaunch.ts';
@@ -25,14 +25,13 @@ export async function stopFromScreen(deps: ScreenLaunchDeps, body: PeerStopBody)
   const peer = resolvePeer(deps.db, deps.deviceId, lock.deviceId);
   if (!peer) return { status: 'refused', reason: 'device-unknown', message: render(lang(), msg('mcp.device.offline', { device: lock.deviceName })) };
   const offline = (): PeerLaunchOutcomeDto => ({ status: 'refused', reason: 'device-offline', message: render(lang(), msg('mcp.device.offline', { device: peer.name })) });
+  if (!deps.peer.workerOk()) return { status: 'refused', reason: 'worker-outdated', message: render(lang(), peerRefusalMessage('worker-outdated', peer.name, deps.peer)) };
   if (peer.outdated || (deps.peer.version !== undefined && !versionAtLeast(peer.status?.hangar_version, deps.peer.version))) {
     return { status: 'refused', reason: 'device-outdated', message: render(lang(), msg('mcp.device.outdated', { device: peer.name })) };
   }
   const route = choosePeerRoute(peer, deps.peer, now);
   if ('refuse' in route) {
-    return route.refuse === 'device-outdated'
-      ? { status: 'refused', reason: route.refuse, message: render(lang(), msg('mcp.device.outdated', { device: peer.name })) }
-      : offline();
+    return route.refuse === 'device-offline' ? offline() : { status: 'refused', reason: route.refuse, message: render(lang(), peerRefusalMessage(route.refuse, peer.name, deps.peer)) };
   }
   const requestId = (deps.peer.newId ?? randomUUID)();
   const req: PeerLaunchRequest = {

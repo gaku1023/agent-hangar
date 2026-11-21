@@ -17,7 +17,7 @@ export function PcMenu(props: { peers: PeerDeviceDto[]; value: string | null; on
   const t = useT();
   const tagOf = (p: PeerDeviceDto): string | undefined => {
     const m = peerMark(p);
-    return m === null ? undefined : t(m === 'offline' ? 'newSession.pc.offline' : 'newSession.pc.outdated');
+    return m === null ? undefined : t(m === 'offline' ? 'newSession.pc.offline' : m === 'worker-outdated' ? 'newSession.pc.workerOutdated' : 'newSession.pc.outdated');
   };
   const options: ListboxOption[] = [
     { value: HERE, label: t('newSession.pc.here'), icon: 'otherPc' },
