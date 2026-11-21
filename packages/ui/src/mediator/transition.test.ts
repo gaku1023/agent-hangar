@@ -37,6 +37,24 @@ describe('トーストの長さ', () => {
   });
 });
 
+describe('session.openPrompt（open_in_hangar の求め）', () => {
+  it('画面は切り替えず、開く先と求めた会話を持つ知らせを 1 枚積む', () => {
+    const r = run([server({ type: 'session.openPrompt', sessionId: 's2', deviceId: 'd1', fromSessionId: 's1' })]);
+    expect(r.state.screen).toEqual({ name: 'booting' });
+    expect(r.effects).toEqual([]);
+    expect(r.state.toasts).toEqual([expect.objectContaining({ id: '1', level: 'info', openPrompt: { sessionId: 's2', deviceId: 'd1', fromSessionId: 's1' } })]);
+  });
+  it('同じ会話への求めは 1 枚にまとめ、新しい方に置き換える', () => {
+    const r = run([
+      server({ type: 'session.openPrompt', sessionId: 's2', deviceId: 'd1', fromSessionId: 's1' }),
+      server({ type: 'toast', level: 'info', message: 'x' }),
+      server({ type: 'session.openPrompt', sessionId: 's2', deviceId: 'd1', fromSessionId: null }),
+      server({ type: 'session.openPrompt', sessionId: 's3', deviceId: 'd1', fromSessionId: null }),
+    ]);
+    expect(r.state.toasts.map((t) => [t.id, t.openPrompt?.sessionId ?? null])).toEqual([['2', null], ['3', 's2'], ['4', 's3']]);
+  });
+});
+
 describe('起動と接続', () => {
   it('ws が開いたら bootstrap を取り、hash で画面が決まる', () => {
     const { state, effects } = run([runtime({ type: 'ws.open' }), runtime({ type: 'hash.changed', route: { name: 'projects' } })]);
@@ -357,10 +375,10 @@ describe('起動', () => {
     expect(run([action({ type: 'session.new.submit', params: { scratch: true } })]).effects).toEqual([{ kind: 'api.launch', params: { scratch: true } }]);
   });
   // 外部で開く操作は Mediator を通らない（runtime/actionTable.test.ts）。
-  it('再開、フォーク、停止は API 効果', () => {
-    const { state, effects } = run([action({ type: 'session.resume', id: 's1' }), action({ type: 'session.fork', id: 's1' }), action({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 })]);
+  it('再開と停止は API 効果', () => {
+    const { state, effects } = run([action({ type: 'session.resume', id: 's1' }), action({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 })]);
     expect(effects).toEqual([
-      { kind: 'api.resume', sessionId: 's1' }, { kind: 'api.fork', sessionId: 's1' }, { kind: 'api.killRun', runId: 'r1' },
+      { kind: 'api.resume', sessionId: 's1' }, { kind: 'api.killRun', runId: 'r1' },
     ]);
     expect(state.launch).toEqual({ kind: 'submitting' });
   });
@@ -1241,9 +1259,9 @@ describe('分割', () => {
 });
 
 describe('画面に入るときの読み込み', () => {
-  it('プロジェクト画面はメモを、設定画面は付属の値を読む', () => {
+  it('プロジェクト画面は指示とメモリを、設定画面は付属の値を読む', () => {
     const p = run([runtime({ type: 'hash.changed', route: { name: 'project', id: 'p1' } })]);
-    expect(p.effects).toEqual([{ kind: 'api.loadMemo', projectId: 'p1' }, { kind: 'api.loadInstructions', projectId: 'p1' }]);
+    expect(p.effects).toEqual([{ kind: 'api.loadInstructions', projectId: 'p1' }]);
     const s = run([runtime({ type: 'hash.changed', route: { name: 'settings' } })]);
     expect(s.effects).toEqual([{ kind: 'api.loadSettingsExtras' }]);
   });

@@ -1,5 +1,7 @@
 import type { PeerChatAsk, PeerChatRefusal } from '@agent-hangar/shared';
 import type { PaneKey, PaneOps } from '../../tmux/pane.ts';
+import type { HookChoice } from '../../sessions/hookDecisions.ts';
+import { hookChoiceOf } from './hookAnswer.ts';
 
 /**
  * ほかの PC からの答えと割り込みを、この PC の Claude Code の画面（tmux か psmux のペイン）へ打つ。
@@ -31,6 +33,11 @@ import type { PaneKey, PaneOps } from '../../tmux/pane.ts';
  */
 const CLOSE_WAIT_MS = 4000;
 const CLOSE_STEP_MS = 100;
+/**
+ * hook で答えを決めてから、台本が受け取る（または札が閉じる）のを待つ長さ。
+ * 過ぎたら決めた答えを取り下げて、画面のキーで打つ。
+ */
+const HOOK_DELIVER_MS = 1500;
 /**
  * 複数選択で、確認の画面が出るのを待つ長さ。
  */
@@ -79,6 +86,16 @@ export type PeerAnswererDeps = {
   cwd?: (runId: string) => string | null;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * PermissionRequest の hook で答える口（sessions/hookDecisions.ts）。
+   * 待ちがあり、答えが hook の形で言えるとき（hookAnswer.ts）は、画面にキーを打たずにこれで答える。
+   * 無い、または言えない答えは、今までどおり画面のキーで打つ。
+   */
+  hook?: {
+    decide(runId: string, ask: PeerChatAsk, choice: HookChoice): { id: string } | null;
+    delivered(id: string): boolean;
+    withdraw(id: string): void;
+  };
   answeredTtlMs?: number;
   maxAnswered?: number;
 };
@@ -713,6 +730,18 @@ export function createPeerAnswerer(deps: PeerAnswererDeps): PeerAnswerer {
     return d === null || !dialogMatches(ask, d, cwd);
   };
 
+  /**
+   * hook に決めた答えを台本が受け取る（または、札がもう閉じた）のを待つ。受け取らなければ false。
+   * pane が null は、画面から札が読めないとき（閉じたかどうかを画面では見られない）で、受け取りだけを見る。
+   */
+  async function waitHookDelivered(pane: AnswerPane | null, ask: PeerChatAsk, cwd: string | null, id: string): Promise<boolean> {
+    for (let waited = 0; ; waited += CLOSE_STEP_MS) {
+      if (deps.hook!.delivered(id) || (pane !== null && closed(ask, cwd)(pane.capture()))) return true;
+      if (waited >= HOOK_DELIVER_MS) return false;
+      await sleep(CLOSE_STEP_MS);
+    }
+  }
+
   async function answer(runId: string, ask: PeerChatAsk, keys: string[], rawText: string | undefined): Promise<AnswerResult> {
     // 本文は send-keys -l で打つので、制御文字（CR、ESC など）が入ると、途中で確定したり次の入力に落ちたりする。
     // 改行とタブは空白にし、ほかの制御文字は除く（stripControl）。
@@ -737,13 +766,38 @@ export function createPeerAnswerer(deps: PeerAnswererDeps): PeerAnswerer {
 
     const dialog = parseDialog(pane.capture());
     const cwd = deps.cwd?.(runId) ?? null;
-    if (!dialog || !dialogMatches(ask, dialog, cwd)) return refuse('ask-mismatch');
+    if (!dialog || !dialogMatches(ask, dialog, cwd)) {
+      // 画面から読めない札（ファイルの道具の札など）は、hook の待ちが同じ札なら、hook で答える。待ちが無ければ断る。
+      // 待ちは道具と主な引数（質問は問いの文）で札と突き合わせる。待ちは登録が許可の待ちを抜けたら閉じるので、古い札には合わない。
+      const choice = deps.hook ? hookChoiceOf(ask, labels, hasText ? text : undefined) : null;
+      const hooked = choice ? deps.hook!.decide(runId, ask, choice) : null;
+      if (!hooked) return refuse('ask-mismatch');
+      if (!(await waitHookDelivered(null, ask, cwd, hooked.id))) {
+        deps.hook!.withdraw(hooked.id);
+        return refuse('ask-mismatch');
+      }
+      remember(ask.askId);
+      return { ok: true, label: [...labels, ...(hasText ? [text!] : [])].join(', ') };
+    }
     // 質問の札は、ask が見せた選択肢がすべて画面にあるときだけ通す（別の質問に取り違えない）。
     if (ask.kind === 'question' && ask.options.some((o) => !rowByLabel(dialog, o.label))) return refuse('ask-mismatch');
     const rows = labels.map((l) => rowByLabel(dialog, l));
     if (rows.some((r) => !r)) return refuse('ask-mismatch');
     const other = hasText ? otherRow(dialog) : null;
     if (hasText && !other) return refuse('ask-mismatch');
+    // hook の待ちがあり、答えが hook で言えるなら、キーを打たずに hook で答える。
+    const choice = deps.hook && !dialog.step ? hookChoiceOf(ask, labels, hasText ? text : undefined) : null;
+    const hooked = choice ? deps.hook!.decide(runId, ask, choice) : null;
+    if (hooked) {
+      const settled = await waitHookDelivered(pane, ask, cwd, hooked.id);
+      if (settled) {
+        remember(ask.askId);
+        if (!(await waitUntil(pane, closed(ask, cwd), CLOSE_WAIT_MS))) return refuse('ask-mismatch', true);
+        return { ok: true, label: [...labels, ...(hasText ? [text!] : [])].join(', ') };
+      }
+      // 台本が来ない。決めた答えを取り下げて、画面のキーで打つ。
+      deps.hook!.withdraw(hooked.id);
+    }
     // 番号は数字 1 つで打つ。2 桁の行は 2 回のキーになり、別の行に当たるので断る。
     if (rows.some((r) => r!.n > 9) || (other && other.n > 9)) return refuse('ask-mismatch');
 

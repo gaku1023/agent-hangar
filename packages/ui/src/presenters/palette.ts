@@ -118,7 +118,8 @@ export function presentPalette(state: State, store: Store, query: string, now: n
 
   // セッションは状態で 3 つに分ける。入力待ちは実行中に含めない（用語の D1）。
   // 引くのは名前だけである。要約と本文は、ホームの欄が引く。
-  const sessions = byRecency(Object.values(store.sessions));
+  // 非対話の会話（SessionDto.headless）は「最近」に出さない。
+  const sessions = byRecency(Object.values(store.sessions).filter((s) => !s.headless));
   const sessionItem = (s: SessionDto, running: boolean): PaletteItem => ({ id: `session:${s.id}`, label: s.name ?? t('common.label.noName'), kind: 'session', lead: { kind: 'dot', live: shownLive(s), aside: shownAside(s) !== null, reason: shownReason(s, shownLive(s)) }, sub: projectName(s), meta: sessionMeta(t, s, running, now), keys: '' });
   const byState = { waiting: [] as Scored[], running: [] as Scored[], ended: [] as Scored[] };
   for (const s of sessions) {

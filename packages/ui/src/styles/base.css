@@ -65,6 +65,19 @@ a:hover { text-decoration: underline; }
 .toggle-tip { position: absolute; top: calc(100% + var(--u) * 1.5); right: 0; z-index: 3; display: flex; align-items: center; gap: calc(var(--u) * 1.5); padding: calc(var(--u) * 0.75) calc(var(--u) * 2); border-radius: var(--r); background: var(--ink); color: var(--surface); font-size: var(--fs-xs); font-weight: 500; line-height: 1.5; white-space: nowrap; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast); }
 .toggle-tip kbd { font-family: var(--font-mono); opacity: 0.65; }
 .btn.sidebar-toggle:hover .toggle-tip, .btn.sidebar-toggle:focus-visible .toggle-tip { opacity: 1; visibility: visible; }
+/* 履歴の戻る・進む（Sidebar.tsx の HistoryButtons）。開閉のボタンの手前に、いつも 2 つ並べる。行けないほうは薄くし、乗せても地を出さない。
+   使える・使えないの切り替えは薄さだけを --dur-fast で移す。吹き出しは開閉のボタンと同じものを、同じ規則で出す。 */
+.nav-history { display: flex; flex: none; margin-left: auto; }
+.nav-history + .btn.sidebar-toggle { margin-left: 0; }
+.btn.nav-history-btn { position: relative; flex: none; width: 26px; height: 32px; padding: 0 4px; color: var(--ink-2); background: none; box-shadow: none; transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out); }
+.btn.nav-history-btn svg { width: 18px; height: 18px; }
+.sidebar .btn.nav-history-btn:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: none; transform: none; }
+/* 薄くするのはアイコンだけにする。ボタンごと薄くすると、吹き出しまで薄くなって下の項目名と重なって読めない。 */
+.btn.nav-history-btn svg { transition: opacity var(--dur-fast) var(--ease-out); }
+.btn.nav-history-btn[aria-disabled='true'] { cursor: default; }
+.btn.nav-history-btn[aria-disabled='true'] svg { opacity: 0.3; }
+.sidebar .btn.nav-history-btn[aria-disabled='true']:hover { color: var(--ink-2); background: none; }
+.btn.nav-history-btn:hover .toggle-tip, .btn.nav-history-btn:focus-visible .toggle-tip { opacity: 1; visibility: visible; }
 .shell[data-sidebar-moving] .toggle-tip { display: none; }
 @keyframes glass-arrive-side { from { opacity: 0; transform: translateX(-28px); } }
 @keyframes glass-arrive-head { from { opacity: 0; transform: translateY(-14px); } }
@@ -305,6 +318,10 @@ a:hover { text-decoration: underline; }
 .shell[data-sidebar='collapsed'] .nav-row > .nav-item { flex: none; }
 .shell[data-sidebar='collapsed'] .btn.sidebar-toggle { width: var(--item); height: var(--item); padding: 0 calc(var(--u) * 2.75); border-radius: var(--r-lg); }
 .shell[data-sidebar='collapsed'] .sidebar .btn.sidebar-toggle:hover { background: rgba(255, 255, 255, 0.5); }
+/* 畳んだ帯では、戻る・進むを開閉のボタンの下に縦に並べる（並べ替えた .nav-row の中で、開閉とホームの間に来る）。 */
+.shell[data-sidebar='collapsed'] .nav-history { flex-direction: column; margin-left: 0; }
+.shell[data-sidebar='collapsed'] .btn.nav-history-btn { width: var(--item); height: 28px; padding: 0 calc(var(--u) * 2.75); border-radius: var(--r-lg); }
+.shell[data-sidebar='collapsed'] .sidebar .btn.nav-history-btn:not([aria-disabled='true']):hover { background: rgba(255, 255, 255, 0.5); }
 .shell[data-sidebar='collapsed'] .toggle-tip { top: 50%; right: auto; left: calc(var(--item) + var(--u) * 3); translate: 0 -50%; }
 .shell[data-sidebar-moving] .sidebar { overflow: hidden; }
 /* サイドバーの右の縁（views/SidebarGrip.tsx）。ガラスの縁を挟んで 8px の当たりを置き、普段は何も見せない。
@@ -331,6 +348,10 @@ a:hover { text-decoration: underline; }
 .shell[data-sidebar='collapsed'] .side-live-grp-body .side-live-row, .shell[data-sidebar='collapsed'] .side-live-kids .side-live-row { padding: 0; }
 .shell[data-sidebar='collapsed'] .side-live-scroll { -webkit-mask-image: none; mask-image: none; scrollbar-width: none; }
 .shell[data-sidebar='collapsed'] .side-live-row { justify-content: center; width: var(--item); height: 26px; padding: 0; }
+/* 開いた帯でも、ホームの行の数の丸はアイコンの右上に載せる（畳んだ帯と同じ置き方）。
+   ホームの行は戻る・進むと開閉に幅を取られ、「ホーム」と 2 桁の丸が入り切らない。右端に置くと ‹ にかぶる（PR #779 の後に見つけた）。 */
+.shell:not([data-sidebar='collapsed']) .nav-row > .nav-item { position: relative; }
+.shell:not([data-sidebar='collapsed']) .nav-row .nav-count { position: absolute; top: 2px; left: 22px; min-width: 16px; height: 16px; padding: 0 4px; margin: 0; font-size: 10px; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9); }
 .shell[data-sidebar='collapsed'] .nav-count { position: absolute; top: 3px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; margin: 0; font-size: 10px; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9); }
 .shell[data-sidebar='collapsed'] .nav-item:hover .nav-label, .shell[data-sidebar='collapsed'] .nav-item:focus-visible .nav-label { opacity: 1; visibility: visible; }
 /* 閉じる動きの間、項目名は吹き出しの地を持たず、開いた帯のときの文字のまま薄れる。 */
@@ -540,6 +561,13 @@ a:where(.btn) { color: inherit; }
 /* スマホから起動した会話の通知（試作 F1）。通常は info と同じ青で、Bypass permissions は赤にして「停止」を置く。 */
 .notice[data-kind='phone-launch'] { --k: var(--accent); cursor: default; }
 .notice[data-kind='phone-launch'][data-tone='err'] { --k: var(--error); }
+/* エージェントが会話を見てほしいと求めた知らせ。丸、題 2 行、「開く」、× を 1 列に並べる（説明の文は置かない）。 */
+.toast.notice[data-kind='open-prompt'] { --k: var(--accent); display: flex; align-items: center; gap: calc(var(--u) * 2.5); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); cursor: default; }
+.toast.notice[data-kind='open-prompt'] > .dot { flex: none; }
+.toast.notice[data-kind='open-prompt'] > .notice-close { margin: 0; }
+.op-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.op-name { font-size: var(--fs); font-weight: 600; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.op-from { font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* ダイアログを閉じた後に走り続ける起動前の準備の進みと、起動後にコンテキストが足りなかった札。中の 1 行は新しいセッションのダイアログの進みの箱と同じ（controls.css の .launch-prep-line）。 */
 .notice[data-kind='prep-progress'] { --k: var(--accent); cursor: default; }
 .notice[data-kind='context-short'] { --k: var(--st-paused); cursor: default; }
@@ -649,7 +677,8 @@ a:where(.btn) { color: inherit; }
 .header .account-switch .gauges { padding-left: 0; }
 .header .account-switch .gauges::before { display: none; }
 /* 名前は、ゲージの見出し（.gauge-key）と同じ大きさの字にする。 */
-.header .account-name { font-size: var(--fs-xs); font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.header .account-face-agent { display: inline-flex; flex: none; }
+.header .account-name { font-size: var(--fs-xs); font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 2em; padding-right: calc(var(--u) * 2); border-right: 1px solid rgba(30, 40, 90, 0.14); }
 .header .account-caret { flex: none; color: var(--ink-3); font-size: var(--fs-xs); line-height: 1; }
 /* 値が一度も届いていない間の 1 語。 */
 .header .account-none { font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }

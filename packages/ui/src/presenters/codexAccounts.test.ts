@@ -29,6 +29,7 @@ describe('ヘッダの面の Codex のアカウント（A7）', () => {
   it('Codex の会話の画面では、顔の名前と色がその会話の Codex アカウントになり、確認つきで付け替える会話を指す', () => {
     const a = presentShell(at({ name: 'session', id: 'c1' }), storeWith(codexAccountsFixture), NOW).account!;
     expect(a.shown).toMatchObject({ id: 'cw', name: '会社用', color: '#c77a1a' });
+    expect(a.agent).toBe('codex');
     expect(a.codexAccounts).toMatchObject({ shownId: 'cw', sessionId: 'c1', working: true, claudeShownId: 'primary' });
     // Claude の切り替えは会話の付け替えにしない（Codex の会話には Claude のアカウントが無い）。
     expect(a.sessionId).toBeNull();
@@ -36,6 +37,7 @@ describe('ヘッダの面の Codex のアカウント（A7）', () => {
   it('Claude の会話では今のまま（顔は会話の Claude アカウント）。Codex の節は現在の Codex アカウント', () => {
     const a = presentShell(at({ name: 'session', id: 'k1' }), storeWith(codexAccountsFixture), NOW).account!;
     expect(a.shown.id).toBe('primary');
+    expect(a.agent).toBe('claude');
     expect(a.sessionId).toBe('k1');
     expect(a.codexAccounts).toMatchObject({ shownId: 'primary', sessionId: null });
   });

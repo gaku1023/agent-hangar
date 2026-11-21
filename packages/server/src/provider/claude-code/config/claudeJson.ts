@@ -5,8 +5,6 @@ import { acquireFileLock, resolveRealFile, writeFileAtomically } from './claudeF
 import { isLoose, modeOf } from '../../../platform/secure.ts';
 import { MessageError, msg } from '../../../i18n/message.ts';
 
-export { resolveRealFile } from './claudeFileWrite.ts';
-
 /**
  * Claude Code の user スコープの設定（~/.claude.json）に、MCP サーバの登録だけを書く。
  *

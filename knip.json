@@ -1,0 +1,10 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": { "entry": ["scripts/**/*.{ts,mjs}"], "project": ["scripts/**/*.{ts,mjs}"] },
+    "packages/*": { "entry": ["test/**/*.{ts,tsx}", "src/index.ts", "src/main.tsx", "scripts/**/*.{ts,mjs}"], "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"] },
+    "apps/*": { "entry": ["test/**/*.{ts,tsx}", "scripts/**/*.{ts,mjs}"], "project": ["test/**/*.{ts,tsx}", "scripts/**/*.{ts,mjs}"] }
+  },
+  "ignoreExportsUsedInFile": true,
+  "ignore": ["spikes/**", "**/dist/**", "**/target/**"]
+}

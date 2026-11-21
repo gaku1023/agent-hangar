@@ -6,16 +6,16 @@ const EMPTY_OC_PROVIDERS = { connected: [], catalog: [], configPath: '/Users/me/
 
 type Extras = Pick<
   ApiClient,
-  | 'launch' | 'cancelPrep' | 'prepareModels' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs' | 'folderCandidates' | 'workspaceChildren' | 'inspectFolder' | 'registerFolders'
-  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'opencodeStatus' | 'codexStatus' | 'codexOptions' | 'opencodeOptions' | 'opencodeProviders' | 'opencodeProviderKey' | 'opencodeProviderDisconnect' | 'opencodeProviderModel' | 'opencodeCustomProvider' | 'opencodeLogin' | 'opencodeLoginStatus' | 'opencodeLoginComplete' | 'opencodeLoginCancel' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'moveSession' | 'deleteSession' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction' | 'setupGuide' | 'openSetupGuide'
-  | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
+  | 'launch' | 'cancelPrep' | 'prepareModels' | 'resume' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs' | 'folderCandidates' | 'workspaceChildren' | 'inspectFolder' | 'registerFolders'
+  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'opencodeStatus' | 'codexStatus' | 'codexOptions' | 'opencodeOptions' | 'opencodeProviders' | 'opencodeProviderKey' | 'opencodeProviderDisconnect' | 'opencodeProviderModel' | 'opencodeCustomProvider' | 'opencodeLogin' | 'opencodeLoginStatus' | 'opencodeLoginComplete' | 'opencodeLoginCancel' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'moveSession' | 'deleteSession' | 'instructions' | 'openInstruction' | 'setupGuide' | 'openSetupGuide'
+  | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'testSummarizer'
   | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'resumeHerePlan' | 'takeoverStart' | 'takeoverExtend' | 'takeoverCancel' | 'joinCodeCurrent' | 'joinCodeIssue' | 'joinCodeApprove' | 'joinCodeReject' | 'joinCodeClose' | 'recoveryKeyReissue' | 'recoveryKeyConfirm' | 'cloudDevices' | 'mobilePairing' | 'mobilePaired'
   | 'configSyncState' | 'configOutgoing' | 'configInbox' | 'configConflicts' | 'configUnsent' | 'configBackups' | 'configSendUnsent' | 'configPutOrder' | 'configDeleteOrder' | 'configHistorySeen'
   | 'retention' | 'retentionPreview' | 'writeRetention'
-  | 'renameProject' | 'live' | 'sessionFiles' | 'gitSessions' | 'sessionChanges' | 'sessionDiff' | 'sessionEdits' | 'projectGit' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
+  | 'renameProject' | 'live' | 'sessionFiles' | 'gitSessions' | 'sessionChanges' | 'sessionDiff' | 'sessionEdits' | 'projectGit' | 'headless' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'previewAccountDir' | 'sharePreview' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
   | 'codexAccounts' | 'setCurrentCodexAccount' | 'addCodexAccount' | 'previewCodexAccountDir' | 'updateCodexAccount' | 'removeCodexAccount' | 'loginCodexAccount' | 'cancelCodexAccountLogin' | 'refreshCodexAccount' | 'linkConflicts' | 'repairLinkConflicts'
-  | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen' | 'markUnread' | 'setPinned' | 'launchSettings' | 'answerPeerApproval' | 'rushPeerQueue' | 'eventBindings' | 'prClaims' | 'createEventBinding' | 'approveEventBinding' | 'deleteEventBinding' | 'answerPrClaim' | 'heldEvents' | 'runHeldEvents' | 'eventHookUrl' | 'rotateEventUrl' | 'eventRepoHook' | 'peers' | 'peerLaunch' | 'peerStop' | 'peerChatOpen' | 'peerChatOp' | 'orchestratorApprovals' | 'orchestratorSend' | 'orchestratorState' | 'orchestratorControl' | 'voice' | 'voiceHold' | 'voiceToggle' | 'voiceSpeak' | 'voiceStop' | 'voiceVoices' | 'voicePreview' | 'voiceEngine'
+  | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen' | 'markUnread' | 'setPinned' | 'setMuted' | 'launchSettings' | 'answerPeerApproval' | 'rushPeerQueue' | 'eventBindings' | 'prClaims' | 'createEventBinding' | 'approveEventBinding' | 'deleteEventBinding' | 'answerPrClaim' | 'heldEvents' | 'runHeldEvents' | 'eventHookUrl' | 'rotateEventUrl' | 'eventRepoHook' | 'peers' | 'peerLaunch' | 'peerStop' | 'peerChatOpen' | 'peerChatOp' | 'orchestratorApprovals' | 'orchestratorSend' | 'orchestratorState' | 'orchestratorControl' | 'voice' | 'voiceHold' | 'voiceToggle' | 'voiceSpeak' | 'voiceStop' | 'voiceVoices' | 'voicePreview' | 'voiceEngine'
 >;
 
 /** フェーズ 2 からフェーズ 4 で増えた API の偽物。
@@ -62,11 +62,11 @@ export function fakeApiExtras(): Extras {
     sessionDiff: vi.fn(async () => unused()),
     sessionEdits: vi.fn(async () => unused()),
     projectGit: vi.fn(async () => ({ root: null, worktrees: [] })),
+    headless: vi.fn(async () => ({ sessions: [], total: 0 })),
     launch: vi.fn(async () => unused()),
     cancelPrep: vi.fn(async () => unused()),
     prepareModels: vi.fn(async () => unused()),
     resume: vi.fn(async () => unused()),
-    fork: vi.fn(async () => unused()),
     attach: vi.fn(async () => unused()),
     adopt: vi.fn(async () => unused()),
     killRun: vi.fn(async () => unused()),
@@ -138,9 +138,8 @@ export function fakeApiExtras(): Extras {
     markSeen: vi.fn(async () => {}),
     markUnread: vi.fn(async () => {}),
     setPinned: vi.fn(async () => {}),
+    setMuted: vi.fn(async () => {}),
     launchSettings: vi.fn(async () => ({ agent: 'claude-code' as const, model: null, effort: null, permissionMode: null, mode: null, addDirs: [], account: null })),
-    memo: vi.fn(async (projectId: string) => ({ projectId, markdown: '', updatedAt: 0 })),
-    saveMemo: vi.fn(async (projectId: string, markdown: string) => ({ projectId, markdown, updatedAt: 2 })),
     instructions: vi.fn(async (projectId: string) => ({ projectId, available: true, files: [] })),
     openInstruction: vi.fn(async () => {}),
     setupGuide: vi.fn(async () => ({ path: '~/.agent-hangar/setup-guide.md', version: '0.7.0', sha: '3f9a1c2e', prompt: '~/.agent-hangar/setup-guide.md（v0.7.0 sha256:3f9a1c2e）を読んで、私の環境を診断して。書き換えは私が承認してから' })),
@@ -150,7 +149,6 @@ export function fakeApiExtras(): Extras {
     openArtifactEditor: vi.fn(async () => {}),
     promote: vi.fn(async () => unused()),
     regenerateSummary: vi.fn(async () => {}),
-    summarizerModels: vi.fn(async () => ({ models: ['gemma'] })),
     testSummarizer: vi.fn(async () => ({ ok: false as const, tried: [] })),
     // フェーズ 4 の同期。状態を返すものは、使うテストが自分で上書きする。
     // 使用量は届いていない状態（null）が既定である。

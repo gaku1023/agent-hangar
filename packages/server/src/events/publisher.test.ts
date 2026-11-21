@@ -202,15 +202,30 @@ describe('表から DTO とイベントへ', () => {
     expect(t.sent).toEqual([{ type: 'devices.update', devices: listDevices(t.db, ME) }]);
   });
 
-  it('project_memos の行は memo.update と、メモの頭を載せるプロジェクトの project.upsert になる', () => {
+  it('ほかの PC の devices の行が統括の系譜を載せていれば、その会話も配り直す（印が付いてサイドバーから外れる）', () => {
+    const t = setup();
+    seedSession(t.db, 's1');
+    seedSession(t.db, 's2');
+    t.reset();
+    const status = JSON.stringify({ accounts: [], agents: [], lan_ips: [], ssh_host_key: null, hangar_version: '1.0.0', orchestrator_ids: ['s1', 'gone'] });
+    upsertShared(t.db, 'devices', { id: OTHER, name: 'もう 1 台', platform: 'darwin', last_seen_at: 1, status }, OTHER);
+    t.publisher.flush();
+    expect(t.types().sort()).toEqual(['devices.update', 'session.upsert']);
+    expect(upserts(t.sent).map((e) => e.session.id)).toEqual(['s1']);
+    // 自分の行は配り直さない（手元の設定で印はもう付いている）。
+    t.reset();
+    upsertShared(t.db, 'devices', { id: ME, name: 'この PC', platform: 'darwin', last_seen_at: 2, status }, ME);
+    t.publisher.flush();
+    expect(t.types()).toEqual(['devices.update']);
+  });
+
+  it('project_memos の行は何も配らない（ノートはやめた。表は古い版の端末の送りを受けるために残してある）', () => {
     const t = setup();
     seedProject(t.db);
     t.reset();
     upsertShared(t.db, 'project_memos', { project_id: 'p1', markdown: '# メモ', deleted_at: null }, ME, 'project_id');
     t.publisher.flush();
-    expect(t.types()).toEqual(['memo.update', 'project.upsert']);
-    expect(t.sent[0]).toMatchObject({ type: 'memo.update', memo: { projectId: 'p1', markdown: '# メモ' } });
-    expect(t.sent[1]).toMatchObject({ type: 'project.upsert', project: { id: 'p1', memoHead: '# メモ' } });
+    expect(t.sent).toEqual([]);
   });
 
   it('artifacts の行は artifact.upsert になる', () => {
@@ -288,6 +303,16 @@ describe('表から DTO とイベントへ', () => {
     t.publisher.flush();
     // 画面が Store からセッションを外せるように、論理削除したセッションは知らせる（セッションの削除）。
     expect(t.sent).toEqual([{ type: 'session.removed', id: 's1' }]);
+  });
+
+  it('非対話の会話（session_stats.headless）は session.upsert を配らない。画面の一覧に入れないため', () => {
+    const t = setup();
+    seedSession(t.db);
+    t.reset();
+    t.db.prepare('insert into session_stats (session_id, headless) values (?, 1)').run('s1');
+    touchRow(t.db, 'sessions', 's1');
+    t.publisher.flush();
+    expect(t.sent).toEqual([]);
   });
 
   it('別の DB の知らせは拾わない', () => {

@@ -17,6 +17,12 @@
 .md h3, .md h4, .md h5, .md h6 { font-size: var(--fs); font-weight: 700; margin: calc(var(--u) * 3) 0 var(--u); }
 .md strong { font-weight: 700; }
 .md a { color: var(--accent); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent); text-underline-offset: 2px; }
+/* 本文の hangar の会話へのリンクの札。状態の丸と題、違うときだけ薄い字でプロジェクト名と PC の名前。 */
+.md a.sess-chip { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); max-width: 100%; padding: 1px calc(var(--u) * 2.25); border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); text-decoration: none; vertical-align: middle; transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out); }
+.md a.sess-chip:hover { border-color: var(--accent); background: var(--accent-soft); }
+.md a.sess-chip > .dot { flex: none; }
+.sess-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sess-chip-meta { flex: none; font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
 .md a .icon { width: 12px; height: 12px; vertical-align: -1px; margin-left: 1px; }
 .md code, .msg-user code { font-family: var(--font-mono); font-size: 0.88em; padding: 1px 4px; border-radius: 4px; background: color-mix(in srgb, var(--ink) 7%, transparent); }
 .md ul, .md ol { margin: 0 0 calc(var(--u) * 2); padding-left: 22px; }
@@ -57,16 +63,14 @@
 .tool { min-width: 0; }
 /* 続けて呼んだツールのまとめ（T1）。畳んだ 1 行は控えめな小さい字にし、押すと左の細い線の下に小さい等幅の行で開く。 */
 .tool-group { min-width: 0; }
-.tg-row { display: inline-flex; align-items: center; gap: calc(var(--u) * 2); max-width: 100%; min-height: 26px; padding: 0 calc(var(--u) * 2.5) 0 6px; border: 0; border-radius: var(--r); background: none; color: var(--ink-3); font: inherit; font-size: 12.5px; text-align: left; white-space: nowrap; cursor: pointer; }
+.tg-row { display: inline-flex; align-items: center; gap: calc(var(--u) * 2); max-width: 100%; min-height: 22px; padding: 0 calc(var(--u) * 2) 0 4px; border: 0; border-radius: var(--r); background: none; color: var(--ink-3); font: inherit; font-size: 11.5px; text-align: left; white-space: nowrap; cursor: pointer; }
 .tg-row:hover { background: var(--surface-2); }
 .tg-row > .chev { display: inline-flex; flex: none; color: var(--ink-3); transition: transform var(--dur) var(--ease-out); }
 .tool-group[data-open='true'] > .tg-row > .chev { transform: rotate(90deg); }
-.tg-badge { flex: none; padding: 0 6px; border-radius: 5px; background: var(--surface-2); color: var(--ink-2); font: 11.5px/18px var(--font-mono); }
-.tg-row:hover .tg-badge { background: #e6e8f0; }
-.tg-desc { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tg-badge { flex: none; }
 .tg-failed { flex: none; font-size: var(--fs-xs); font-weight: 600; color: var(--error); }
-.tool-group[data-failed='true'] .tg-badge { color: var(--error); background: #fcecea; }
-.tg-when { flex: none; font: var(--fs-xs) var(--font-mono); color: var(--ink-3); opacity: 0.8; }
+.tg-row:hover { color: var(--ink-2); }
+.tool-group[data-failed='true'] > .tg-row, .tool-group[data-failed='true'] > .tg-row:hover { color: var(--error); }
 .tg-list { display: flex; flex-direction: column; margin: 2px 0 4px 14px; padding-left: calc(var(--u) * 3); border-left: 2px solid var(--line); }
 /* まとめの中の 1 行。今のツールの行と同じ中身を、小さい等幅で 1 行に置く。 */
 .tool-compact > .trow { height: 24px; gap: calc(var(--u) * 1.5); padding-left: 2px; }
@@ -135,6 +139,10 @@
 .tool-args { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: var(--u) calc(var(--u) * 3); margin: 0; padding: 8px 12px; border-radius: var(--r); background: #f7f8fb; box-shadow: 0 0 0 1px var(--line); font-size: var(--fs-sm); }
 .tool-args dt { font: 500 var(--fs-xs)/1.9 var(--font-mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
 .tool-args dd { margin: 0; min-width: 0; }
+/* 要約の頭とエージェントの報告の中身（ToolBody の note）。本文は返答と同じ Markdown で、引数の箱と同じ枠に入れる。 */
+.tool-note { padding: 8px 12px; border-radius: var(--r); background: #f7f8fb; box-shadow: 0 0 0 1px var(--line); font-size: var(--fs-sm); min-width: 0; }
+.tool-note-tools { display: flex; flex-wrap: wrap; gap: var(--u); margin-top: calc(var(--u) * 2); }
+.tool-note-tools > span { padding: 0 6px; border-radius: 5px; background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-xs); }
 .tool-args .clamp { --clamp-bg: #f7f8fb; }
 .arg-v { font-family: var(--font-mono); white-space: pre-wrap; word-break: break-word; }
 .tool-label { margin: 0 0 2px 2px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }

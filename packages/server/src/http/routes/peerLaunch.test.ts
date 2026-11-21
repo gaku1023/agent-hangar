@@ -35,7 +35,7 @@ afterEach(() => { t.dispose(); });
 describe('/api/peers と /api/peer-launch', () => {
   it('GET /api/peers は、ほかの PC の様子と頼めるかを返す', async () => {
     const body = await (await app.request('/api/peers', { headers: H })).json() as { peers: PeerDeviceDto[] };
-    expect(body.peers).toEqual([{ id: PEER, name: 'Mac', platform: 'darwin', state: 'ready', accounts: [{ name: 'Work', agent: 'claude-code', loggedIn: true }], agents: ['claude-code'], projects: ['p1'] }]);
+    expect(body.peers).toEqual([{ id: PEER, name: 'Mac', platform: 'darwin', state: 'ready', accounts: [{ name: 'Work', agent: 'claude-code', loggedIn: true }], agents: ['claude-code'], projects: ['p1'], paths: { p1: '/w/alpha' } }]);
   });
 
   it('POST は頼みを置いて requested を返し、親の会話の無い頼みとして記録する', async () => {

@@ -13,7 +13,7 @@ import { periodLabel } from './retentionDialog.ts';
 import { absoluteTime, costLabel, durationLabel, percentLabel, relativeTime, shortModel, STATUS_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
 import type { ParentLink } from './heading.ts';
 import { presentArtifactCard, type ArtifactCardProps } from './project.ts';
-import { presentTool, relPath, type ToolView } from './tools.ts';
+import { noteView, presentTool, relPath, type ToolView } from './tools.ts';
 import { turnsText } from './stats.ts';
 import { translatorOf } from './i18n.ts';
 import { isPeerChatCandidate, presentPeerChat, type PeerChatView } from './peerChat.ts';
@@ -88,7 +88,7 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   spawnedFrom?: SpawnedFromView | null;
   /** このセッションが起こしたセッション（起動の古い順）。無ければ空、省けば出さない。 */
   spawned?: SpawnedChild[];
-  hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; canFork: boolean; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean; lock: SessionLockProps | null; remoteOnly: boolean; canResumeHere: boolean; outsideOpen: 'attach' | 'adopt' | null;
+  hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean; lock: SessionLockProps | null; remoteOnly: boolean; canResumeHere: boolean; outsideOpen: 'attach' | 'adopt' | null;
   /** この PC にプロジェクトのフォルダが無いほかの PC の会話の、押せない理由と場所を指定する先（presenters/resumeHere.ts）。省けば null として読む。 */
   noRoot?: { reason: string; projectId: string } | null;
   /** ほかの PC に引き継がれたことを伝える見出しの下の 1 行（SessionDto.takenOver）。引き継がれていなければ null、省けば出さない。 */
@@ -157,7 +157,7 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
 /** セッション画面の git。 */
 export type SessionGitView = { chip: GitChipProps | null; files: GitFilesView };
 
-export type SessionActionId = 'openEditor' | 'resume' | 'resumeHere' | 'fork' | 'openTerminal' | 'attach' | 'adopt' | 'regenerate' | 'promote' | 'copyAddress' | 'copyId' | 'stop';
+export type SessionActionId = 'openEditor' | 'resume' | 'resumeHere' | 'openTerminal' | 'attach' | 'adopt' | 'regenerate' | 'promote' | 'copyAddress' | 'copyId' | 'stop';
 /**
  * 操作の 1 つ。
  * disabled は押せない理由（押せるなら null）、note は下に添える 1 行。
@@ -260,6 +260,12 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
         // 生の記録を出すときは、手を加えずにそのまま見せる。
         // 種類の名前しか持たない行（turn_duration と stop_hook_summary は毎ターン 1 つずつ出る）は、読む中身が無いので落とす。
         if (!opts.showRaw && e.subtype !== undefined && e.text === e.subtype) break;
+        // 要約の頭とエージェントの報告は、ツールと同じ畳んだ行にする。
+        if (!opts.showRaw && (e.subtype === 'compact_summary' || e.subtype === 'agent_message')) {
+          const { name, view } = noteView({ subtype: e.subtype, text: e.text, ...(e.from ? { from: e.from } : {}) }, t);
+          items.push({ kind: 'tool', seq: e.seq, summary: view.head.main, name, view, raw: null, result: null, when: when(e.ts), subagent: null });
+          break;
+        }
         const text = opts.showRaw ? e.text : localCommandText(e.text, t);
         if (text !== null) items.push({ kind: 'system', seq: e.seq, text, when: when(e.ts) });
         break;
@@ -284,7 +290,7 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
 const openEditor = (label: string): SessionAction => ({ id: 'openEditor', label, disabled: null, note: null });
 
 /** 見出しの行の操作を決めるのに要る事実。 */
-export type ActionFacts = Pick<SessionProps, 'run' | 'live' | 'lock' | 'remoteOnly' | 'hasTranscript' | 'canResume' | 'canFork' | 'canResumeHere' | 'outsideOpen' | 'canPromote' | 'gone' | 'summaryPending' | 'summaryError' | 'fromScratch' | 'noRoot' | 'newerElsewhere'> & {
+export type ActionFacts = Pick<SessionProps, 'run' | 'live' | 'lock' | 'remoteOnly' | 'hasTranscript' | 'canResume' | 'canResumeHere' | 'outsideOpen' | 'canPromote' | 'gone' | 'summaryPending' | 'summaryError' | 'fromScratch' | 'noRoot' | 'newerElsewhere'> & {
   /** 要約エンジンが「使わない」。作り直しをサーバが受け付けないので、項目を出さない（冒頭の 1 枚の canRegenerate と同じ）。省けば使うものとして扱う。 */
   summaryOff?: boolean;
 };
@@ -300,17 +306,16 @@ export type ActionFacts = Pick<SessionProps, 'run' | 'live' | 'lock' | 'remoteOn
 export function sessionActions(f: ActionFacts, t: Translate, editorLabel: string = t('editor.open.named', { name: 'VS Code' })): SessionActions {
   const running = f.run?.alive === true || (f.live !== null && f.lock === null && !f.remoteOnly);
   const dev = f.lock?.deviceName ?? null;
-  const why = (kind: 'resume' | 'fork'): string => {
+  const why = (): string => {
     if (running) return t('session.action.runningReason');
-    if (f.lock) return f.lock.stale && kind === 'resume' ? t('session.action.reason.staleResume', { device: dev ?? '' }) : t('session.action.reason.running', { device: dev ?? '' });
-    if (f.remoteOnly) return kind === 'resume' ? t('session.action.reason.remoteResume') : t('session.action.reason.remote');
+    if (f.lock) return f.lock.stale ? t('session.action.reason.staleResume', { device: dev ?? '' }) : t('session.action.reason.running', { device: dev ?? '' });
+    if (f.remoteOnly) return t('session.action.reason.remoteResume');
     if (!f.hasTranscript) return t('session.action.reason.noTranscript');
     return t('session.action.reason.starting');
   };
   // ほかの PC の続きの方が新しいときの素の再開は、手元の古いトランスクリプトで起きる。そう分かる名前と注記にする。
   const stale = f.newerElsewhere === true && f.canResume;
-  const resume: SessionAction = { id: 'resume', label: t(stale ? 'session.action.resumeLocal' : 'session.action.resume'), disabled: f.canResume ? null : why('resume'), note: stale ? t('session.action.resumeLocalNote') : null, title: !stale && f.fromScratch ? t('session.action.resumeQuickNote') : null };
-  const fork: SessionAction = { id: 'fork', label: t('session.action.fork'), disabled: f.canFork ? null : why('fork'), note: null, title: f.canFork ? t('session.action.forkNote') : null };
+  const resume: SessionAction = { id: 'resume', label: t(stale ? 'session.action.resumeLocal' : 'session.action.resume'), disabled: f.canResume ? null : why(), note: stale ? t('session.action.resumeLocalNote') : null, title: !stale && f.fromScratch ? t('session.action.resumeQuickNote') : null };
   const regenerate: SessionAction[] = f.gone || f.summaryOff ? [] : [{ id: 'regenerate', label: t('session.action.regenerate'), disabled: null, note: f.summaryPending ? t('session.action.regenerateBusy') : f.summaryError ? t('session.action.regenerateFailed') : null }];
   const promote: SessionAction[] = f.canPromote ? [{ id: 'promote', label: t('session.action.promote'), disabled: null, note: null }] : [];
   const editor = openEditor(editorLabel);
@@ -324,7 +329,7 @@ export function sessionActions(f: ActionFacts, t: Translate, editorLabel: string
       : f.outsideOpen === 'adopt' ? [{ id: 'adopt', label: t('session.action.adopt'), disabled: null, note: t('session.action.adoptNote') }] : [];
     return { primary: editor, menu: [
       ...(alive ? [{ id: 'openTerminal', label: t('session.action.openTerminal'), disabled: null, note: null, title: t('session.action.openTerminalNote') } satisfies SessionAction] : []),
-      ...outside, fork, ...regenerate, ...promote, copyAddress, copyId,
+      ...outside, ...regenerate, ...promote, copyAddress, copyId,
       ...(alive ? [{ id: 'stop', label: t('session.action.stop'), disabled: null, note: null, danger: true } satisfies SessionAction] : []),
     ] };
   }
@@ -333,9 +338,9 @@ export function sessionActions(f: ActionFacts, t: Translate, editorLabel: string
     // ほかの PC で実行中でも押せる。押すと、停止して引き継ぐ確認の 1 枚が出る。
     const blocked = f.noRoot?.reason ?? null;
     const here: SessionAction = { id: 'resumeHere', label: t('session.action.resumeHere'), disabled: blocked, note: null };
-    return { primary: here, menu: [resume, fork, editor, ...regenerate, ...promote, copyAddress, copyId] };
+    return { primary: here, menu: [resume, editor, ...regenerate, ...promote, copyAddress, copyId] };
   }
-  return { primary: resume, menu: [fork, editor, ...regenerate, ...promote, copyAddress, copyId] };
+  return { primary: resume, menu: [editor, ...regenerate, ...promote, copyAddress, copyId] };
 }
 
 const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
@@ -564,7 +569,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const view = state.sessionView[id] ?? defaultSessionView();
   // ターンの少ない終わった会話は、右の欄をはじめ畳み、その画面だけの開閉（tocPeek）に従う。
   const transcriptOpen = tocFolds(store, view, id, state.orchestratorOpen) ? view.tocPeek : view.transcriptOpen;
-  const base = { id, parent: null, live: null, aside: false, oneLiner: null, hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen, trustHint: false, canResume: false, canFork: false, summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, turnRows: [], turnsComplete: true, turnsPending: false, turnCount: null, loadingOlder: false, openTurnItems: [], turnJump: null, promptJump: false, strip: null, lead: null, badges: [], details: [], git: null, account: null, gone: null, jump: null, hasNewer: false, actions: { primary: openEditor(openLabel(t, store.settings)), menu: [] }, transcriptBand: null };
+  const base = { id, parent: null, live: null, aside: false, oneLiner: null, hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen, trustHint: false, canResume: false, summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, turnRows: [], turnsComplete: true, turnsPending: false, turnCount: null, loadingOlder: false, openTurnItems: [], turnJump: null, promptJump: false, strip: null, lead: null, badges: [], details: [], git: null, account: null, gone: null, jump: null, hasNewer: false, actions: { primary: openEditor(openLabel(t, store.settings)), menu: [] }, transcriptBand: null };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
@@ -672,7 +677,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     tabs, selectedTab, trustHint: alive && s.live === null,
     // 他端末が動かしている間は再開もフォークもさせない。手元に写ししか無いセッションも同じである。
     // 手元で続けたいときは「この PC で再開」に回して、本文を降ろしてから新しい run を立てる。
-    canResume: s.hasTranscript && !pending && idle && s.lock === null && !s.remoteOnly, canFork: s.hasTranscript && idle && s.lock === null && !s.remoteOnly,
+    canResume: s.hasTranscript && !pending && idle && s.lock === null && !s.remoteOnly,
     // Ruling 14。heartbeat が途絶えたロック（stale）は行き止まりにせず、「この PC で再開」だけを開ける。
     // 相手の run は止めに行かないので、同じ run の続きである再開とフォークは閉じたままにする。
     lock: lockProps(s.lock, now, t), remoteOnly: s.remoteOnly, canResumeHere: s.lock !== null || s.remoteOnly || s.newerElsewhere === true, newerElsewhere: s.newerElsewhere === true,

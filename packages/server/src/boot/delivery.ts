@@ -4,10 +4,12 @@ import { Publisher } from '../events/publisher.ts';
 import { AsideReader } from '../live/aside.ts';
 import { markOrchestrator } from '../live/orchestratorRole.ts';
 import { setOrchestratorSource } from '../db/queries.ts';
+import { orchestratorIdsSource } from '../orchestrator/peerLineage.ts';
 import { LiveDigester } from '../live/digest.ts';
 import { LiveHub } from '../agent/liveHub.ts';
 import { CompatLog, compatPath } from '../provider/claude-code/compat/log.ts';
 import { routeAgentAsk } from '../sessions/agentAsks.ts';
+import { HookDecisions } from '../sessions/hookDecisions.ts';
 import { PermissionAsks } from '../sessions/permissionAsks.ts';
 import { OsNoticeFeed } from '../sessions/stopNotices.ts';
 import { toastVia, type Toast } from '../sync/notices.ts';
@@ -39,6 +41,8 @@ export type DeliveryParts = AgentParts & {
   live: LiveHub;
   /** hook から届いた許可の確認（sessions/permissionAsks.ts）。登録の読み直しのたびに、入力待ちの登録へ中身を足す。 */
   permissionAsks: PermissionAsks;
+  /** 許可の確認の同期の hook が答えを待つ表（sessions/hookDecisions.ts）。札に答える手（peer/chat）が決め、台本が受け取る。 */
+  hookDecisions: HookDecisions;
   /** デスクトップ通知の並び（sessions/stopNotices.ts）。書くのは知らせの見張り（boot/runs.ts）、読むのは殻（GET /api/notify/feed）。 */
   osNotices: OsNoticeFeed;
   /** 溜まっている知らせを出し切ってから配る層を止め、WebSocket を畳む。止めた後は DB を読みに行かない。 */
@@ -55,7 +59,7 @@ export type DeliveryParts = AgentParts & {
 export function bootDelivery(home: Pick<HomeParts, 'home' | 'db' | 'device' | 'claudeDir' | 'token' | 'settings' | 'language'>, opts: Pick<StartOptions, 'registryIsGone'> = {}): DeliveryParts {
   const { db } = home;
   const sockets = new EventHub(VERSION);
-  const publisher = new Publisher({ db, deviceId: home.device.id, live: () => live.current(), hub: sockets, active: () => sockets.clientCount() > 0 });
+  const publisher = new Publisher({ db, deviceId: home.device.id, live: () => live.current(), hub: sockets, active: () => sockets.clientCount() > 0, counts: true });
   const claudeVersion: { current: string | null } = { current: null };
   const compatLog = new CompatLog({ file: compatPath(home.home), localVersion: () => claudeVersion.current });
   compatLog.start();
@@ -66,14 +70,17 @@ export function bootDelivery(home: Pick<HomeParts, 'home' | 'db' | 'device' | 'c
   // 許可待ちの中身（道具と命令）は hook から届く。読み直しのたびに、入力待ちの登録へ足す。
   // 届いたら、登録の読み直しを待たずに足させる（待機中の読み直しは間が空く）。
   const permissionAsks = new PermissionAsks(() => live.kick(0));
+  // 同期の hook が答えを待つ表。登録が許可の待ちを抜けたり、会話が一覧から消えたりしたら、待ちを閉じる。
+  const hookDecisions = new HookDecisions({ onOpen: () => live.kick(0) });
   const osNotices = new OsNoticeFeed();
   // 実行中の一覧。足し付けの鎖（裏だけの印、許可の中身の順）は束ねる側が持ち、各 driver の写しが読み直しのたびに通す。
   // 統括の会話には role を足す（live/orchestratorRole.ts）。role は設定の orchestrator.sessionId から導き、一覧の DTO（db/queries.ts）も同じ設定を見る。
   const orchestratorId = (): string | null => home.settings.current.orchestrator?.sessionId ?? null;
   // 一覧の DTO は系譜の全部（前の統括の会話もサイドバーに出さない）、実行中の一覧は今の 1 本だけに付ける。
-  setOrchestratorSource(db, () => orchestratorLineage(orchestratorOf(home.settings.current.orchestrator)));
+  // 一覧の DTO には、ほかの PC が宿主の統括の系譜（その PC の devices の行の様子）も合わせる。統括の設定は同期しないためである（orchestrator/peerLineage.ts）。
+  setOrchestratorSource(db, orchestratorIdsSource(db, home.device.id, () => orchestratorLineage(orchestratorOf(home.settings.current.orchestrator))));
   const markRole = markOrchestrator(db, orchestratorId);
-  const live = new LiveHub({ enrich: [(l, now) => aside.apply(l, now), (l, now) => permissionAsks.apply(l, now), (l) => markRole(l)] });
+  const live = new LiveHub({ enrich: [(l, now) => aside.apply(l, now), (l, now) => permissionAsks.apply(l, now), (l, now) => { hookDecisions.apply(l, now); return l; }, (l) => markRole(l)] });
   const agents = bootAgents(home, { compatLog, claudeVersion, enrich: (l) => live.enrich(l), registryIsGone: opts.registryIsGone });
   live.add(agents.claude.live);
   // opencode の写し（serve の出来事の流れ）。会話を起こすまで行は無い。
@@ -89,7 +96,7 @@ export function bootDelivery(home: Pick<HomeParts, 'home' | 'db' | 'device' | 'c
   agents.opencode.asks.subscribe?.((a) => { routeAgentAsk(db, agents.opencode.kind, a, permissionAsks, Date.now()); });
   return {
     ...agents,
-    sockets, publisher, hub: publisher, toast: toastVia(publisher), compatLog, claudeVersion, live, digester, permissionAsks, osNotices,
+    sockets, publisher, hub: publisher, toast: toastVia(publisher), compatLog, claudeVersion, live, digester, permissionAsks, hookDecisions, osNotices,
     stopPublishing: async () => {
       // 殻の長いポーリングを先に返す。開いたままの要求が、待ち受けを閉じるのを遅らせないためである。
       osNotices.close();

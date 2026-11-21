@@ -24,14 +24,14 @@ function draw(list: TranscriptItem[] = items, language: 'ja' | 'en' = 'ja') {
 }
 
 describe('続けて呼んだツールのまとめ（T1）', () => {
-  it('続けて並ぶ呼び出しを 1 行に畳み、札、最後の説明、時刻を並べる。中身はまだ描かない', () => {
+  it('続けて並ぶ呼び出しを 1 行に畳み、呼んだ数だけを出す（説明と時刻は出さない）。中身はまだ描かない', () => {
     const t = draw();
     expect(t.container.querySelectorAll('.tr-row')).toHaveLength(4);
     const g = t.group(1);
     const row = within(g).getByRole('button', { expanded: false });
-    expect(row.querySelector('.tg-badge')?.textContent).toBe('Bash ×3');
-    expect(row.querySelector('.tg-desc')?.textContent).toBe('描画を読む');
-    expect(row.querySelector('.tg-when')?.textContent).toBe('10:03');
+    expect(row.querySelector('.tg-badge')?.textContent).toBe('ツール呼び出し 3 回');
+    expect(row.querySelector('.tg-desc')).toBeNull();
+    expect(row.querySelector('.tg-when')).toBeNull();
     expect(g.querySelector('.tool')).toBeNull();
   });
   it('押すと、左の線の付いた一覧に呼び出しを 1 行ずつ開き、各行は押すと入出力が開く', () => {
@@ -46,15 +46,14 @@ describe('続けて呼んだツールのまとめ（T1）', () => {
     fireEvent.click(lines[1]!.querySelector('.trow')!);
     expect(lines[1]!.querySelector('.bash .cmd')?.textContent).toContain('grep -rn x2 src');
     // もう一度押すと畳む。
-    fireEvent.click(within(g).getByRole('button', { name: /Bash ×3/ }));
+    fireEvent.click(within(g).getByRole('button', { name: /ツール呼び出し 3 回/ }));
     expect(g.querySelector('.tg-list')).toBeNull();
   });
-  it('1 回だけの呼び出しも同じ 1 行の形で、×1 は出さない。押すとすぐ中身まで開く', () => {
+  it('1 回だけの呼び出しも同じ 1 行の形（「ツール呼び出し 1 回」）。押すとすぐ中身まで開く', () => {
     const t = draw();
     const g = t.group(5);
     const row = within(g).getByRole('button', { expanded: false });
-    expect(row.querySelector('.tg-badge')?.textContent).toBe('Bash');
-    expect(row.querySelector('.tg-desc')?.textContent).toBe('色を探す');
+    expect(row.querySelector('.tg-badge')?.textContent).toBe('ツール呼び出し 1 回');
     fireEvent.click(row);
     expect(g.querySelector('.tg-list .bash .cmd')?.textContent).toContain('grep -rn x5 src');
   });
@@ -65,11 +64,6 @@ describe('続けて呼んだツールのまとめ（T1）', () => {
     expect(g.querySelector('.tg-failed')?.textContent).toBe('失敗 1');
     expect(draw([bash(1, 'a')]).group(1)).not.toHaveAttribute('data-failed');
   });
-  it('種類が混ざれば「ツール ×N」', () => {
-    const t = draw([bash(1, 'a'), toolItem(2, 'Read', { file_path: '/w/app/src/a.ts' }, null)]);
-    expect(t.group(1).querySelector('.tg-badge')?.textContent).toBe('ツール ×2');
-    expect(t.group(1).querySelector('.tg-desc')?.textContent).toBe('src/a.ts');
-  });
   it('サブエージェントを起こした呼び出しは 1 つで置き、畳んだままでも「見る」を押せる', () => {
     const agent = toolItem(2, 'Agent', { description: '調べる' }, null, { subagent: { agentId: 'abc', label: 'x' } });
     const t = draw([bash(1, 'a'), agent, bash(3, 'b')]);
@@ -77,8 +71,15 @@ describe('続けて呼んだツールのまとめ（T1）', () => {
     fireEvent.click(screen.getByText('サブエージェント abc を表示'));
     expect(t.onAction).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' });
     // 開いても、ボタンは 1 つだけ。
-    fireEvent.click(within(t.group(2)).getByRole('button', { name: /Agent/ }));
+    fireEvent.click(within(t.group(2)).getByRole('button', { name: /ツール呼び出し 1 回/ }));
     expect(screen.getAllByText('サブエージェント abc を表示')).toHaveLength(1);
+  });
+  it('質問（AskUserQuestion）は畳まず、ほかの行と同じ形で残す', () => {
+    const ask = toolItem(2, 'AskUserQuestion', { questions: [] }, null);
+    const t = draw([bash(1, 'a'), ask, bash(3, 'b')]);
+    expect(t.container.querySelectorAll('.tr-row')).toHaveLength(3);
+    expect(t.container.querySelectorAll('.tool-group')).toHaveLength(2);
+    expect(t.container.querySelector('.tr-row[data-seq="2"] .tool')).not.toBeNull();
   });
   it('まとめないとき（詳細表示）は、今までどおり 1 行ずつのツールの行にする', () => {
     const { container } = render(<ActionRoot onAction={vi.fn()}><Transcript sessionId="s1" items={items} hasMore={false} loading={false} follow={false} live={false} remaining={0} /></ActionRoot>);
@@ -87,7 +88,7 @@ describe('続けて呼んだツールのまとめ（T1）', () => {
   });
   it('英語の札と失敗の語', () => {
     const t = draw([bash(1, 'a', true), toolItem(2, 'Read', { file_path: '/w/app/src/a.ts' }, null)], 'en');
-    expect(t.group(1).querySelector('.tg-badge')?.textContent).toBe('Tools ×2');
+    expect(t.group(1).querySelector('.tg-badge')?.textContent).toBe('2 tool calls');
     expect(t.group(1).querySelector('.tg-failed')?.textContent).toBe('1 failed');
   });
 });

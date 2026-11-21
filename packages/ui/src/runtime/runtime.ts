@@ -9,6 +9,7 @@ import { OPENCODE_VERSION_SEEN_KEY, readOpencodeVersionSeen } from '../mediator/
 import { toSearchParams } from '../mediator/screen.ts';
 import { cleanPaneLayout, paneSessions, paneShows, PANES_KEY } from '../mediator/panes.ts';
 import { cleanOrchWidth, ORCH_WIDTH_KEY } from '../mediator/orchestrator.ts';
+import { SIDEBAR_TRACE_KEY, traceOf, watchInputs } from './sidebarTrace.ts';
 import { cleanSidebarFolded, cleanSidebarOrder, cleanSidebarWidth, SIDEBAR_FOLDED_KEY, SIDEBAR_KEY, SIDEBAR_ORDER_KEY, SIDEBAR_WIDTH_KEY } from '../mediator/sidebar.ts';
 import { PROJECT_RAIL_KEY, readProjectRailFolded } from '../mediator/projectRail.ts';
 import { NOTIFY_KEY, notifyKeep } from '../mediator/notify.ts';
@@ -37,11 +38,12 @@ import { createOrchestratorRunner } from './orchestrator.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
 import { keyLabel } from '../keys.ts';
+import { createViewingReporter } from './viewing.ts';
 
 export type RuntimeDeps = {
   api: ApiClient;
   ws: (handlers: { onOpen(): void; onClose(): void; onEvent(ev: ServerEvent): void }) => WsClient;
-  location: { getHash(): string; setHash(h: string): void; replaceHash?(h: string): void; onHashChange(cb: () => void): () => void; go(delta: number): void; depth(): number };
+  location: { getHash(): string; setHash(h: string): void; replaceHash?(h: string): void; onHashChange(cb: () => void): () => void; go(delta: number): void; depth(): number; canForward?(): boolean };
   storage: { get(key: string): unknown; set(key: string, value: unknown): void; keys(): string[] };
   setTimeout: (fn: () => void, ms: number) => unknown;
   /** いま何時か。切断の時刻を Mediator へ渡すために要る。テストが差し替えられるように受け口にしてある。 */
@@ -66,6 +68,8 @@ export type RuntimeDeps = {
    * ほかの PC の会話の見張りは、隠れている間は外し、見えたら（onWindowVisible か onWindowFocus）張り直す。
    */
   onWindowHidden?: (cb: () => void) => () => void;
+  /** 窓が前面を離れたことを知らせる。返り値で購読を外す。見ている会話の知らせ（runtime/viewing.ts）を外すのに使う。 */
+  onWindowBlur?: (cb: () => void) => () => void;
   /**
    * 状態の変化を画面へ出す。
    * commit を呼ぶまで、getState は前に描いた状態を返し、React はそれを描き続ける。
@@ -135,9 +139,6 @@ function arrivedFromSync(store: Store, p: ProjectDto): boolean {
 
 /** 先の戻る時点を見直す間隔の上限。 */
 const RETURN_RECHECK_MAX_MS = 12 * 60 * 60_000;
-/** 変わると要約エンジンのモデルの一覧（つながるか）が変わる設定の鍵。 */
-const SUMMARIZER_KEYS = ['summaryEngine', 'lmStudioUrl', 'summaryApiKey'] as const;
-
 export function createRuntime(deps: RuntimeDeps): Runtime {
   let state = initialState();
   // React が読む状態。present が commit を呼ぶまで、前に描いた state のままでいる。
@@ -167,6 +168,13 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     const id = state.screen.name === 'session' ? state.screen.id : null;
     if (id && id !== state.unreadKept && (store.sessions[id]?.unread?.count ?? 0) > 0) deps.api.markSeen(id).catch(fail);
   };
+  /** いま前に出して見ている会話をサーバへ知らせる（runtime/viewing.ts）。返答の終わりの未読とスマホの知らせを、見ている会話には出さないためである。 */
+  const viewingClient = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `v${Math.random().toString(36).slice(2)}`;
+  const viewing = createViewingReporter({
+    current: () => (state.screen.name === 'session' && visible() && focused() ? state.screen.id : null),
+    send: (id) => deps.api.viewing?.(viewingClient, id) ?? Promise.resolve(),
+    setTimeout: deps.setTimeout,
+  });
   const present = deps.present ?? ((c: () => void) => c());
   // ストアが変わったら、そのことだけを Mediator へ知らせる。
   // ストアから決まる状態（入力待ちの知らせ、サイドバーの「動いている」の並び）は、Mediator がストアを読んで合わせる。
@@ -324,6 +332,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   let unsubFocus: (() => void) | null = null;
   let unsubVisible: (() => void) | null = null;
   let unsubHidden: (() => void) | null = null;
+  let unsubBlur: (() => void) | null = null;
   let unsubHide: (() => void) | null = null;
   /** 通知の許可を最後に読み直した時刻。 */
   let notifyCheckedAt = -Infinity;
@@ -366,13 +375,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   };
   const loadSetupGuide = () => {
     deps.api.setupGuide().then((g) => setStore({ ...store, setupGuide: g })).catch(() => setStore({ ...store, setupGuide: null }));
-  };
-  /**
-   * 要約エンジンのモデルの一覧を取りに行く。OpenAI 互換を選んでいなければ、サーバは問い合わせずに空を返す。
-   * 宛先が起動していないのは普通の状態なので、失敗は空の一覧にして黙る。
-   */
-  const loadSummarizerModels = () => {
-    deps.api.summarizerModels().then((m) => setStore({ ...store, summarizerModels: m.models })).catch(() => setStore({ ...store, summarizerModels: [] }));
   };
   /** 準備の確かめの答えを Store に入れる。取り直し（loadReadiness）と再確認（api.recheckMux）が使う。 */
   const takeReadiness = (seq: number, r: ReadinessDto) => {
@@ -531,6 +533,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     })();
   }
 
+  /** 履歴を戻れるか（アプリの最初の段より後ろか）と、進める段があるか。 */
+  function historyNow(): { back: boolean; forward: boolean } {
+    return { back: deps.location.depth() > 0, forward: deps.location.canForward?.() ?? false };
+  }
+
   function runEffect(e: Effect): void {
     switch (e.kind) {
       // 履歴を動かすだけで、行き先はハッシュの変化として戻ってくる。
@@ -647,8 +654,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           if (field) dispatch({ kind: 'runtime', event: { type: 'settings.saved', field } });
           // パスが変わると欄の下の検証も変わるので、準備の確かめを取り直す。
           loadReadiness();
-          // 要約エンジンか宛先が変わると、つながるかも変わる。目次と欄の「接続済み／接続できません」を古いまま残さない。
-          if (SUMMARIZER_KEYS.some((k) => k in e.patch)) loadSummarizerModels();
         }).catch((err: unknown) => {
           // 欄ごとの保存の失敗は、その欄の下に理由を出す。トーストにはしない。
           if (field) dispatch({ kind: 'runtime', event: { type: 'settings.failed', field, message: errMsg(err) } });
@@ -817,7 +822,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           else launchFailed(err);
         });
         return;
-      case 'api.fork': deps.api.fork(e.sessionId).then(launched).catch(launchFailed); return;
       // まとめて再開の 1 本。画面は移さない。起きた run は Store に入れ、順番待ちを進めるのは Mediator である。
       case 'api.resumeQueued': {
         const id = e.sessionId;
@@ -936,6 +940,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // セッションの状態。画面の正は後から届く session.upsert なので、返り値はストアに入れない。失敗の一文はトーストに出す。
       case 'api.detachSpawn': deps.api.detachSpawn(e.id).catch(fail); return;
       case 'api.setPinned': deps.api.setPinned(e.id, e.pinned).catch(fail); return;
+      case 'api.setMuted': deps.api.setMuted(e.id, e.muted).catch(fail); return;
       case 'api.markUnread': deps.api.markUnread(e.id).catch(fail); return;
       case 'api.loadDuplicate':
         deps.api.launchSettings(e.id).then((settings) => { dispatch({ kind: 'action', action: duplicateOpenAction(store, e.id, settings) }); }).catch(fail);
@@ -944,7 +949,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.setSessionState': deps.api.setSessionState(e.id, e.body).then(wakeToast).catch(fail); return;
       case 'api.confirmSessionState': deps.api.confirmSessionState(e.id, e.body).then(wakeToast).catch(fail); return;
       case 'api.rejectSessionState': deps.api.rejectSessionState(e.id).catch(fail); return;
-      case 'api.loadMemo': deps.api.memo(e.projectId).then((m) => setStore({ ...store, memos: { ...store.memos, [m.projectId]: m } })).catch(fail); return;
       case 'api.loadInstructions': deps.api.instructions(e.projectId).then((d) => setStore({ ...store, instructions: { ...store.instructions, [d.projectId]: d } })).catch(fail); return;
       case 'api.promote':
         deps.api.promote(e.sessionId, { name: e.name, gitInit: e.gitInit, moveFiles: e.moveFiles, ...(e.parent ? { parent: e.parent } : {}) })
@@ -974,9 +978,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         // Worker の PC の一覧。同期していなければサーバが off を返す。
         cloudMember.run({ op: 'load' });
         loadReadiness();
-        loadSummarizerModels();
         return;
-      case 'storage.save': deps.storage.set(e.key, e.value); return;
+      case 'storage.save':
+        deps.storage.set(e.key, e.value);
+        // 閉じた状態を書いた経路を残す（#616）。開いた方への書き込みは控えない。
+        if (e.key === SIDEBAR_KEY && e.value === true) deps.storage.set(SIDEBAR_TRACE_KEY, traceOf(true, clock()));
+        return;
       // 前面化は静かに失敗させる。窓を触るたびに赤い通知が出ると邪魔になる。
       case 'api.syncFocus': deps.api.syncFocus().catch(() => {}); return;
       case 'api.resumeHere':
@@ -1216,6 +1223,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     subscribe: (cb) => { listeners.add(cb); return () => listeners.delete(cb); },
     canGoBack: () => deps.location.depth() > 0,
     start() {
+      watchInputs(typeof document === 'undefined' ? undefined : document, clock);
       const sv: Record<string, SessionViewState> = {};
       for (const k of deps.storage.keys()) {
         if (!k.startsWith('sv:')) continue;
@@ -1229,7 +1237,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。
       state = {
-        ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, sidebarOrder: cleanSidebarOrder(deps.storage.get(SIDEBAR_ORDER_KEY)),
+        ...state, sessionView: sv, history: historyNow(), sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, sidebarOrder: cleanSidebarOrder(deps.storage.get(SIDEBAR_ORDER_KEY)),
         panes: { ...cleanPaneLayout(deps.storage.get(PANES_KEY)), zoom: null, flash: null, tocPeek: [] },
         sidebarFolded: cleanSidebarFolded(deps.storage.get(SIDEBAR_FOLDED_KEY)), sidebarWidth: cleanSidebarWidth(deps.storage.get(SIDEBAR_WIDTH_KEY)), orchestratorWidth: cleanOrchWidth(deps.storage.get(ORCH_WIDTH_KEY)),
         pageSize: readPageSize(deps.storage.get(PAGE_SIZE_KEY)),
@@ -1293,17 +1301,22 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const d = deps.location.depth();
         const moved = d - lastDepth;
         lastDepth = d;
-        if (wrote === h) { wrote = null; dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h) } }); return; }
+        // 戻れる・進めるを添える（サイドバーの戻る・進むのボタン）。別の知らせにすると、1 回の移動で描き直しが 2 回走る。
+        const history = historyNow();
+        if (wrote === h) { wrote = null; dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), history } }); viewing.report(); return; }
         wrote = null;
-        dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), moved } });
+        dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), moved, history } });
+        viewing.report();
       });
       // 前面に来たときも、隠れている間に溜めた Store の変化を出す。visibilitychange を出し損ねる WebView があっても、画面が古いまま残らないようにする。
-      unsubFocus = deps.onWindowFocus?.(() => { peerChat.resume(); releaseStore(); dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); resendSeen(); }) ?? null;
-      unsubHidden = deps.onWindowHidden?.(() => peerChat.pause()) ?? null;
-      unsubVisible = deps.onWindowVisible?.(() => { peerChat.resume(); releaseStore(); recheckNotify(); gitWatch.wake(); resendSeen(); }) ?? null;
+      unsubFocus = deps.onWindowFocus?.(() => { peerChat.resume(); releaseStore(); dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); resendSeen(); viewing.report(); }) ?? null;
+      unsubHidden = deps.onWindowHidden?.(() => { peerChat.pause(); viewing.report(); }) ?? null;
+      unsubVisible = deps.onWindowVisible?.(() => { peerChat.resume(); releaseStore(); recheckNotify(); gitWatch.wake(); resendSeen(); viewing.report(); }) ?? null;
+      unsubBlur = deps.onWindowBlur?.(() => viewing.report()) ?? null;
+      viewing.report();
       unsubHide = deps.onPageHide?.(() => cloudMember.flushPending()) ?? null;
       ws.connect();
     },
-    stop() { queued = []; unsubHidden?.(); unsubHidden = null; ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubHide?.(); unsubHide = null; unsubNotify?.(); unsubNotify = null; unsubJoin?.(); unsubJoin = null; deps.terminals.dispose(); },
+    stop() { queued = []; viewing.stop(); unsubBlur?.(); unsubBlur = null; unsubHidden?.(); unsubHidden = null; ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubHide?.(); unsubHide = null; unsubNotify?.(); unsubNotify = null; unsubJoin?.(); unsubJoin = null; deps.terminals.dispose(); },
   };
 }

@@ -5,6 +5,7 @@ import type { Account } from '../config/accounts.ts';
 import { accountOfSession, displayName } from '../db/queries.ts';
 import type { Db } from '../db/open.ts';
 import { latestIntent } from '../live/intents.ts';
+import { isSessionMuted } from '../sessions/states.ts';
 
 /** Done を受信箱に残す長さ。「今日」の絞り込みはスマホが自分の日付でするので、PC は少し広めに入れる。 */
 export const DONE_WINDOW_MS = 36 * 3_600_000;
@@ -23,6 +24,11 @@ export type FeedSources = {
   opencodeEnabled?: boolean;
   /** 設定の「Codex を有効にする」。真のときだけ caps.agents に codex を載せる。省略は切。 */
   codexEnabled?: boolean;
+  /**
+   * スマホの会話の頁に答えられるか（互換の版 13）。null や省略は答えない（caps.chat を載せない）。
+   * input は設定 phoneChatAccept。
+   */
+  chat?: { input: boolean } | null;
   /** 利用者の答えを待っている削除の依頼（sessions/deleteApprovals.ts）。無ければ載せない。 */
   approvals?: MobileApproval[];
   /** 別の PC への起動の承認待ち（peer/approvals.ts）。無ければ載せない。 */
@@ -86,16 +92,17 @@ export const LAST_USED_SQL = `select s.project_id id, max(r.started_at) at
   group by s.project_id`;
 
 /** この版の hangar ができること。スマホは、これの無い（rc.1 の）PC に画像、effort、候補を出さない。 */
-export const FEED_CAPS: MobileCaps = { asks: true, images: true, effort: true };
+export const FEED_CAPS: MobileCaps = { asks: true, images: true, effort: true, launchExtras: true };
 
 /**
  * この PC のできること。設定で opencode か Codex を有効にしているときだけ agents を載せる（どちらも切なら今までと同じ形）。
  * agents は Claude Code と有効なエージェントを AGENT_KINDS の並びで入れる。
  * 古い PC は依頼の agent を断らずに Claude を起こしてしまうので、スマホは agents にそのエージェントのある PC にだけ、そのエージェントの依頼を出す。
  */
-export function feedCaps(opencodeEnabled: boolean, codexEnabled = false): MobileCaps {
-  if (!opencodeEnabled && !codexEnabled) return FEED_CAPS;
-  return { ...FEED_CAPS, agents: AGENT_KINDS.filter((k) => k === 'claude-code' || (k === 'opencode' && opencodeEnabled) || (k === 'codex' && codexEnabled)) };
+export function feedCaps(opencodeEnabled: boolean, codexEnabled = false, chat: { input: boolean } | null = null): MobileCaps {
+  const base: MobileCaps = chat ? { ...FEED_CAPS, chat: { input: chat.input } } : FEED_CAPS;
+  if (!opencodeEnabled && !codexEnabled) return base;
+  return { ...base, agents: AGENT_KINDS.filter((k) => k === 'claude-code' || (k === 'opencode' && opencodeEnabled) || (k === 'codex' && codexEnabled)) };
 }
 
 /** 行に付けるエージェントの印。Claude の行には付けない（欄ごと省く）。 */
@@ -149,7 +156,8 @@ export function buildMobileFeed(src: FeedSources): MobileFeed {
       projectName: s.project_name ?? '',
       title: titleOf(s, l),
       accountId: accountOf(s),
-      status: l.status,
+      // ミュートした会話（静かな会話）は要対応に入れない。スマホへの通知は要対応に新しく入った会話から出るためである（publisher.ts）。
+      status: l.status === 'waiting' && isSessionMuted(db, s.id) ? 'idle' : l.status,
       statusAt: l.statusAt ?? r.started_at,
       startedAt: r.started_at,
       waiting: waitingOf(db, s.id, l),
@@ -208,5 +216,5 @@ export function buildMobileFeed(src: FeedSources): MobileFeed {
     return { id: a.id, name: a.name, color: a.color, fiveHour: u?.fiveHour?.usedPercent ?? null, sevenDay: u?.sevenDay?.usedPercent ?? null };
   });
 
-  return { v: 1, deviceId, deviceName: src.deviceName, caps: feedCaps(src.opencodeEnabled === true, src.codexEnabled === true), accounts, projects, live: liveItems, returns, done, ...(src.approvals && src.approvals.length > 0 ? { approvals: src.approvals } : {}), ...(src.peerApprovals && src.peerApprovals.length > 0 ? { peerApprovals: src.peerApprovals } : {}) };
+  return { v: 1, deviceId, deviceName: src.deviceName, caps: feedCaps(src.opencodeEnabled === true, src.codexEnabled === true, src.chat ?? null), accounts, projects, live: liveItems, returns, done, ...(src.approvals && src.approvals.length > 0 ? { approvals: src.approvals } : {}), ...(src.peerApprovals && src.peerApprovals.length > 0 ? { peerApprovals: src.peerApprovals } : {}) };
 }

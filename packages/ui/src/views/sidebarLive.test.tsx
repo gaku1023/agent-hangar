@@ -12,12 +12,13 @@ import type { SessionMenuProps } from '../presenters/sessionMenu.ts';
 import { initialStore, liveSessionIds, type Store } from '../store/store.ts';
 import { fakeMotionTokens } from '../test/motion.ts';
 import { moveId, nudgeId, Sidebar } from './Sidebar.tsx';
+import { sessionDto } from '../test/sessionDto.ts';
 // 前の版が DB に付けた名前（旧称）。表示がこれを出さないことを見るための見本で、文字コードで書く（noScratchWord.test.ts）。
 const LEGACY = '\u30b9\u30af\u30e9\u30c3\u30c1';
 
 
 const NOW = 1_800_000_000_000;
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: null, name: `name-${id}`, cwd: '/w', firstPrompt: null, aiTitle: null, live: 'busy', lastActivityAt: NOW - 60_000, startedAt: NOW - 600_000, hasTranscript: true, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, cost: null }, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over } as unknown as SessionDto);
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ id, providerSessionId: `u-${id}`, name: `name-${id}`, cwd: '/w', live: 'busy', lastActivityAt: NOW - 60_000, startedAt: NOW - 600_000, hasTranscript: true, stats: { ...sessionDto().stats, turns: 1 }, ...over }));
 const storeWith = (list: SessionDto[]): Store => ({ ...initialStore(), bootstrapped: true, sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
 const liveOf = (store: Store, state = initialState()) => presentShell(state, store, NOW).live;
 const at = (name: 'home' | 'projects') => ({ ...initialState(), screen: { name } });
@@ -824,8 +825,8 @@ describe('行のメニュー（右クリックと .）', () => {
     expect(screen.getAllByRole('menuitemradio').map((i) => [i.textContent, i.getAttribute('aria-checked')])).toEqual([['Activeu', 'true'], ['Pausedp', 'false'], ['Doned', 'false'], ['Archiveda', 'false']]);
     const items = screen.getAllByRole('menuitem');
     // 停止の補足の 1 行は出さない。
-    expect(items.map((i) => i.textContent)).toEqual(['未読に戻す', 'ピン留めする', '同じ設定で新しいセッション…', '右に分割して開く', '下に分割して開く', 'プロジェクトを変更…m', 'セッション ID をコピー', '停止']);
-    expect(items[7]).toHaveAttribute('data-danger', 'true');
+    expect(items.map((i) => i.textContent)).toEqual(['未読に戻す', 'ピン留めする', 'ミュートする', '同じ設定で新しいセッション…', '右に分割して開く', '下に分割して開く', 'プロジェクトを変更…m', 'セッション ID をコピー', '停止']);
+    expect(items[8]).toHaveAttribute('data-danger', 'true');
   });
   it('「停止」を押すと、その行の run を止める手を出し、メニューを閉じる。行は開かない', () => {
     const { onAction } = mount(liveProps({ rows: [row('a', { menu: menuOf('a', { runId: 'r9', working: false, aside: false, shellTabs: 2 }) }), row('b')] }));

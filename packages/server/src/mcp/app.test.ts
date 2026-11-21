@@ -9,7 +9,7 @@ import { IndexerService } from '../indexer/service.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { assignSessions } from '../projects/registry.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
-import { createMcpApp } from './app.ts';
+import { ALWAYS_LOADED_TOOLS, createMcpApp } from './app.ts';
 import { TOOL_NAMES } from './tools.ts';
 
 let dir: string;
@@ -87,6 +87,15 @@ describe('createMcpApp', () => {
     // 説明文は先頭が `agent-hangar:` である。含むだけの検査では、途中に紛れ込んでも通ってしまう。
     for (const t of tools) expect(t.description, t.name).toMatch(/^agent-hangar:/);
   });
+  it('毎ターン使う 4 本だけを、遅延させずに最初から読み込ませる（_meta の anthropic/alwaysLoad）', async () => {
+    const list = await rpc('/', 'tools/list', {}, 2);
+    const tools = list.body.result!.tools as { name: string; _meta?: Record<string, unknown> }[];
+    const always = tools.filter((t) => t._meta?.['anthropic/alwaysLoad'] === true).map((t) => t.name).sort();
+    expect(always).toEqual([...ALWAYS_LOADED_TOOLS].sort());
+    expect(always).toEqual(['notify_user', 'propose_session_status', 'set_session_summary', 'set_turn_intent']);
+    // ほかの道具には印を付けない（偽の印も付けない）。付けると、そのぶんだけ毎回の要求が太る。
+    for (const t of tools.filter((x) => !always.includes(x.name))) expect(t._meta?.['anthropic/alwaysLoad'], t.name).toBeUndefined();
+  });
   it('tools/call は結果を text に包む', async () => {
     const r = await rpc('/', 'tools/call', { name: 'list_projects', arguments: {} }, 3);
     const content = r.body.result!.content as { type: string; text: string }[];
@@ -113,6 +122,21 @@ describe('createMcpApp', () => {
     const r = await rpc(`/s/${alphaId}`, 'tools/call', { name: 'set_turn_intent', arguments: { text: 'from mcp' } }, 5);
     expect(JSON.parse((r.body.result!.content as { text: string }[])[0]!.text)).toMatchObject({ ok: true, session_id: alphaId });
     expect((await app.request('/s/nope', { method: 'POST', headers: H, body: '{}' })).status).toBe(404);
+  });
+  it('set_turn_intent は to を引数に持たない。古い呼び出しが to を付けても断られず、書ける', async () => {
+    const list = await rpc('/', 'tools/list', {}, 14);
+    const tool = (list.body.result!.tools as { name: string; inputSchema: { properties: Record<string, unknown> } }[]).find((t) => t.name === 'set_turn_intent')!;
+    expect(Object.keys(tool.inputSchema.properties)).not.toContain('to');
+    const r = await rpc(`/s/${alphaId}`, 'tools/call', { name: 'set_turn_intent', arguments: { text: 'old call', to: ['os'] } }, 15);
+    expect(r.body.result!.isError).not.toBe(true);
+    expect(JSON.parse((r.body.result!.content as { text: string }[])[0]!.text)).toMatchObject({ ok: true });
+  });
+  it('set_notify_preference の説明は OS の名前を固定せず、引数の説明と重ならない', async () => {
+    const list = await rpc('/', 'tools/list', {}, 16);
+    const tool = (list.body.result!.tools as { name: string; description: string; inputSchema: { properties: Record<string, { description?: string }> } }[]).find((t) => t.name === 'set_notify_preference')!;
+    expect(tool.description).not.toMatch(/Mac/);
+    expect(tool.inputSchema.properties.whileFocused!.description).not.toMatch(/Mac/);
+    expect(tool.description).not.toContain('notify on the Mac');
   });
   it('セッションのノート（set_session_memo）は道具ごと無い。古い一覧を持つ Claude が呼んでも、書かずに isError で返る', async () => {
     const list = await rpc('/', 'tools/list', {}, 12);
@@ -150,11 +174,11 @@ describe('createMcpApp', () => {
     const todos = JSON.parse((r.body.result!.content as { text: string }[])[0]!.text).todos as { text: string; suggestion: unknown }[];
     expect(todos.map((t) => [t.text, t.suggestion])).toEqual([['a', { note: null }], ['b', { note: '理由' }], ['c', { note: null }]]);
   });
-  it('update_project の append_memo は MCP の層で捨てず、道具まで届けて notice を返す（古い指示を覚えた Claude に、やめたことを伝える）', async () => {
+  it('update_project の append_memo は、やめた引数として MCP の層が捨てる。エラーにも notice にもせず、ほかの項目は書く', async () => {
     const r = await rpc('/', 'tools/call', { name: 'update_project', arguments: { project_id: 'p1', append_memo: '追記' } }, 11);
     expect(r.body.result!.isError).toBeUndefined();
     const body = JSON.parse((r.body.result!.content as { text: string }[])[0]!.text) as { notice?: string };
-    expect(body.notice).toContain('CLAUDE.md');
+    expect(body.notice).toBeUndefined();
   });
 });
 

@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { isAgentKind, isNotifyKind, isQuietStatus, notifyRulesOf, orchestratorLineage, orchestratorOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type PermissionPolicy, type ProjectDto, type ProjectStatus, type RunDto, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto, type WakeOn } from '@agent-hangar/shared';
+import { isAgentKind, isNotifyKind, isQuietStatus, sessionPhaseOf, notifyRulesOf, orchestratorLineage, orchestratorOf, localDate, localTime, returnAtIso, returnAtMs, type AgentKind, type LaunchParams, type LaunchedBy, type LiveSessionDto, type NotifyKind, type NotifyPreference, type PermissionAskDto, type PermissionPolicy, type ProjectDto, type ProjectStatus, type RunDto, type ServerEvent, type SessionDto, type SessionPhase, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto, type WakeOn } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
-import { accountOfSession, getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
+import { accountOfSession, getProject, getSession, isOrchestratorId, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
 import { addIntent, INTENT_MAX, noteIntent } from '../live/intents.ts';
 import { addUnread, noteUnread, NOTIFY_TARGETS, type NotifyTarget } from '../live/unread.ts';
+import { isViewing } from '../live/viewing.ts';
+import { noteNotifyKind } from '../live/notifyKind.ts';
 import { sessionTurnRunning } from '../live/unreadHold.ts';
 import { touchRow } from '../db/notify.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
@@ -16,7 +18,7 @@ import { agentEnabledLabel, type LaunchHooks, type LaunchResult } from '../runs/
 import { searchSessions } from '../search/search.ts';
 import { requestDeleteApproval } from '../sessions/deleteApprovals.ts';
 import { recordSpawn } from '../sessions/spawns.ts';
-import { getSessionState, proposeSessionState, setSessionState, StateInputError, validateStateInput, type ProposeStateOutcome } from '../sessions/states.ts';
+import { getSessionState, proposeSessionState, setSessionMuted, setSessionState, StateInputError, validateStateInput, type ProposeStateOutcome } from '../sessions/states.ts';
 import { readEvents } from '../transcript/read.ts';
 import { deviceOfSession } from '../runs/handover.ts';
 import type { ReportService } from '../report/service.ts';
@@ -27,7 +29,9 @@ import { claimPrTool, draftEventBindingTool } from './eventTools.ts';
 import { callOrchestratorTool, guardWeakTurn, isOrchestratorCtx, isOrchestratorToolName } from './orchestratorTools.ts';
 import type { OrchestratorAsks } from '../orchestrator/asks.ts';
 import type { PeerChatLocal } from '../peer/chat/host.ts';
+import type { HookDecisions } from '../sessions/hookDecisions.ts';
 import { createScheduleTool, listSchedulesTool, updateScheduleTool } from './scheduleTools.ts';
+import { getSettingsTool, updateSettingsTool, type SettingsToolDeps } from './settingsTools.ts';
 import { readSessionScreenTool, sendToSessionTool } from './screenTools.ts';
 import { noteTurnStart, waitForSessionTool } from './waitTool.ts';
 
@@ -62,9 +66,11 @@ export type ToolDeps = {
   /** 道具の説明と結果の文の言語。渡さなければ日本語で出す。 */
   language?: GetLanguage;
   /** notify_user の出し先の設定（notifyPreference と、古いスイッチの unreadBadge、unreadOs、unreadPhone）。無ければ既定（全部入り）として読む。 */
-  settings?: () => { notifyPreference?: NotifyPreference | null; unreadBadge?: boolean; unreadOs?: boolean; unreadPhone?: boolean; orchestrator?: unknown; permissionPolicy?: unknown };
+  settings?: () => { notifyPreference?: NotifyPreference | null; unreadBadge?: boolean; unreadOs?: boolean; unreadPhone?: boolean; orchestrator?: unknown; eventTrigger?: boolean; permissionPolicy?: unknown };
   /** 設定の保存（PATCH /api/settings と同じ道）。保存して、変えた欄を全部の画面へ配る。無ければ set_notify_preference は知らない道具として断る。 */
   saveNotifyPreference?: (p: NotifyPreference) => void;
+  /** 設定の道具（settingsTools.ts）の口。画面と同じ形で読み、画面と同じ PATCH /api/settings の処理で書く。無ければ get_settings と update_settings は知らない道具として断る。 */
+  settingsAccess?: Omit<SettingsToolDeps, 'language'>;
   /** 統括の許可の道具の芯（orchestrator/asks.ts）。無ければ createMcpApp が askLocal から作る。統括の URL 以外からは使わない。 */
   orchestratorAsks?: OrchestratorAsks;
   /** この PC の Claude Code の会話の札に答える口（peer/chat/host.ts の local）。無ければ統括はどの札にも答えられない（answerable: false）。 */
@@ -77,6 +83,8 @@ export type ToolDeps = {
   holdUnread?: boolean;
   /** hook から届いた許可の確認の預け先（sessions/permissionAsks.ts）。無ければ許可の確認は読まない。 */
   permissionAsks?: { put(providerSessionId: string, ask: PermissionAskDto, now: number): void };
+  /** 許可の確認の同期の hook が答えを待つ表（sessions/hookDecisions.ts）。無ければ待ちを開けず、台本はすぐ抜ける。 */
+  hookDecisions?: Pick<HookDecisions, 'open' | 'wait' | 'closeTool'>;
   /** 作者への問い合わせの口（report/service.ts）。無ければ draft_issue_report と submit_issue_report は断る。 */
   report?: Pick<ReportService, 'draft' | 'submit'>;
   /** URL を既定のブラウザで開く口。問い合わせの送信で gh が使えないときに使う。 */
@@ -85,14 +93,17 @@ export type ToolDeps = {
   launchWaitMs?: number;
   /** 別の PC へ起こす口（peer/caller.ts）。無ければ list_devices は空で、device を付けた create_session は device-unknown で断る。 */
   peer?: PeerCallDeps;
+  /** open_in_hangar が画面へ流す口。無ければ知らせは出さず、URL だけ返す。 */
+  openPrompt?: (ev: Extract<ServerEvent, { type: 'session.openPrompt' }>) => void;
   /** wait_for_session が進みを流す間隔（ミリ秒）。渡さなければ WAIT_PROGRESS_MS。 */
   waitProgressMs?: number;
 };
 /**
  * セッション別 URL では、そのセッションに固定される。共通 URL では null。
  * sessionSecret は、セッション別 URL をそのセッションの秘密（hangar が起こした run にだけ配る）で開けたこと。本体のトークンで開けたときは偽。
+ * launchedBy は、サーバの中から道具を呼ぶときの、人のいない起動元（予定や出来事は 'schedule'）。MCP の呼び出しでは付かない。
  */
-export type ToolContext = { sessionId: string | null; sessionSecret?: boolean };
+export type ToolContext = { sessionId: string | null; sessionSecret?: boolean; launchedBy?: LaunchedBy };
 
 /** ツールの呼び出しが失敗したこと。MCP の層はこれを、いまの言語の文にして isError の応答に変える。 */
 export class ToolError extends MessageError {
@@ -105,8 +116,6 @@ export class ToolError extends MessageError {
 /**
  * 道具の名前。
  * セッションのノートを書く set_session_memo は 0.4.0 で道具ごと外した（要約の set_session_summary と Paused の戻る日が役を担う）。
- * update_project の append_memo のように notice で答える形にしないのは、あちらは同じ呼び出しのほかの項目を書くためにエラーにしなかったのに対し、
- * こちらは道具が 1 つの仕事しか持たず、外した後の一覧に無い道具を呼ばれても、MCP の層が書かずに isError（道具が無い）で返すからである。
  * モデルにこの道具を使うよう指示したことも無いので、古い指示を覚えた Claude が呼び続けることもない。
  */
 export const TOOL_NAMES = [
@@ -116,7 +125,7 @@ export const TOOL_NAMES = [
   'stop_session', 'resume_session', 'delete_session',
   'send_to_session', 'read_session_screen', 'wait_for_session', 'notify_user', 'set_notify_preference',
   'list_schedules', 'create_schedule', 'update_schedule',
-  'claim_pr', 'draft_event_binding',
+  'claim_pr', 'draft_event_binding', 'get_settings', 'update_settings',
 ] as const;
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
@@ -176,9 +185,12 @@ function readScope(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknow
   return isOrchestratorCtx(deps, ctx) ? undefined : projectScope(deps, ctx, args);
 }
 
-/** 統括の系譜（今と前の統括）の会話か。検索の結果と一覧の項目に印を付け、統括が自分の過去の話とほかの会話を見分けられるようにする。 */
+/**
+ * 統括の系譜（今と前の統括）の会話か。検索の結果と一覧の項目に印を付け、統括が自分の過去の話とほかの会話を見分けられるようにする。
+ * 手元の設定の系譜に加え、一覧の DTO の role と同じ判定（db/queries.ts の isOrchestratorId。ほかの PC が宿主の統括の系譜も含む）を見る。
+ */
 function isOrchestratorSession(deps: ToolDeps, sessionId: string): boolean {
-  return orchestratorLineage(orchestratorOf(deps.settings?.().orchestrator)).includes(sessionId);
+  return orchestratorLineage(orchestratorOf(deps.settings?.().orchestrator)).includes(sessionId) || isOrchestratorId(deps.db, sessionId);
 }
 
 /** プロジェクトを 1 件に決める道具のための project_id。 */
@@ -226,6 +238,10 @@ function resumeOf(deps: ToolDeps, s: SessionDto): { resume_command: string | nul
  * セッション 1 件の要点。
  * resume_command だけは Claude の UUID を使う。ほかの項目の id は hangar の sessions.id である。
  */
+function phaseOf(s: SessionDto): SessionPhase {
+  return sessionPhaseOf({ live: s.live, status: s.state?.status, parked: s.parked, woke: s.woke, providerSessionId: s.providerSessionId });
+}
+
 function sessionBrief(deps: ToolDeps, s: SessionDto) {
   return {
     id: s.id,
@@ -233,6 +249,8 @@ function sessionBrief(deps: ToolDeps, s: SessionDto) {
     project_id: s.projectId,
     cwd: s.cwd,
     live: s.live,
+    phase: phaseOf(s),
+    status: s.state?.status ?? null,
     started_at: s.startedAt,
     last_activity_at: s.lastActivityAt,
     summary: s.summary ? { title: s.summary.title, one_liner: s.summary.oneLiner, state: s.summary.state, source: s.summary.source } : null,
@@ -302,6 +320,22 @@ function requireProject(deps: ToolDeps, id: string): ProjectDto {
 
 const url = (deps: ToolDeps, route: string) => `http://127.0.0.1:${deps.port}/#/${route}`;
 
+/**
+ * 会話の URL。画面がアプリ内で開くとき、その会話の PC を知れるよう、いつも ?device=<PC の ID> を付ける。
+ * PC は sessions.home_device（別の PC の会話ならその PC）で、行が無ければこの PC。
+ */
+export function sessionUrl(deps: ToolDeps, id: string): string {
+  const r = deps.db.prepare('select home_device d from sessions where id = ?').get(id) as { d: string } | undefined;
+  return `${url(deps, `session/${id}`)}?device=${encodeURIComponent(r?.d ?? deps.deviceId)}`;
+}
+
+/** そのまま本文に貼れる 2 行。1 行目は題名（name、無ければ最初の依頼文の最初の行）、2 行目は URL。題名が無ければ URL だけ。 */
+function announceOf(deps: ToolDeps, id: string, args: Record<string, unknown>): string {
+  const title = (str(args.name) ?? str(args.prompt)?.split('\n').find((l) => l.trim() !== '') ?? '').replace(/\s+/g, ' ').trim();
+  const link = sessionUrl(deps, id);
+  return title ? `${[...title].slice(0, 60).join('')}\n${link}` : link;
+}
+
 export function listProjectsTool(deps: ToolDeps, ctx: ToolContext) {
   const scope = readScope(deps, ctx, {});
   return listProjects(deps.db, deps.deviceId, deps.live()).filter((p) => scope === undefined || p.id === scope).map((p) => ({
@@ -323,8 +357,7 @@ export function getProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
 }
 
 /**
- * status、add_todos、toggle_todos、propose_done を受けて書く。プロジェクトのノートは書かない（append_memo はやめた）。
- * 古い指示を覚えた Claude が append_memo を渡したときは、黙って捨てずに、やめたことと書く場所を notice で返す。エラーにはしないので、いっしょに渡したほかの項目は書く。
+ * status、add_todos、toggle_todos、propose_done を受けて書く。
  * 画面へのイベントは、書いた行から配る層（events/publisher.ts）が配る。道具は hub を持たない。
  */
 export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
@@ -375,7 +408,6 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
     project: { id: p.id, name: p.name, status: p.status, open_todo_count: p.openTodoCount },
     todos: todoBriefs(deps, id),
     todo_results: results,
-    ...(args.append_memo !== undefined ? { notice: render((deps.language ?? defaultLanguage)(), msg('mcp.updateProject.memoRetired')) } : {}),
   };
 }
 
@@ -443,7 +475,7 @@ export const LAUNCH_WAIT_MS = 15_000;
  * 準備の進みは画面の札が鍵（prepKey）で拾い、返した後の失敗は reportLateFailure が起動元の会話の知らせにする。
  * 準備が走っていなければ（Claude Code、Codex、準備の前後の段）、1 秒ごとに見直しながら起動を待つ。
  */
-function awaitLaunch(deps: ToolDeps, ctx: ToolContext, launch: Promise<LaunchResult>, o: { key: string | undefined; sessionId: () => string | null; name: string; done: (r: LaunchResult) => Record<string, unknown>; detached: (sessionId: string) => void }): Promise<Record<string, unknown>> {
+function awaitLaunch(deps: ToolDeps, ctx: ToolContext, launch: Promise<LaunchResult>, o: { key: string | undefined; sessionId: () => string | null; name: string; announce?: (sessionId: string) => string; done: (r: LaunchResult) => Record<string, unknown>; detached: (sessionId: string) => void }): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     let settled = false;
     let detached = false;
@@ -457,7 +489,7 @@ function awaitLaunch(deps: ToolDeps, ctx: ToolContext, launch: Promise<LaunchRes
       }
       detached = true;
       o.detached(id);
-      resolve({ session_id: id, preparing: true, url: url(deps, `session/${id}`), note: render(languageOf(deps), msg('mcp.launch.preparing')) });
+      resolve({ session_id: id, preparing: true, url: sessionUrl(deps, id), ...(o.announce ? { announce: o.announce(id) } : {}), note: render(languageOf(deps), msg('mcp.launch.preparing')) });
     };
     timer = setTimeout(tryDetach, deps.launchWaitMs ?? LAUNCH_WAIT_MS);
     launch.then((r) => {
@@ -525,25 +557,30 @@ export function createSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
   const key = agent !== undefined && agent !== 'claude-code' ? newPrepKey() : undefined;
   // 呼んだセッションを起動元として残す。引き継ぎと、呼んだセッションが分からない共通の URL では残さない。
   const spawned = (id: string) => { if (ctx.sessionId && !bool(args.handoff)) recordSpawn(deps.db, deps.deviceId, id, ctx.sessionId, Date.now()); };
+  // silent: true は静かな会話として起こす（ミュート）。呼んだ会話がミュートでも引き継がず、毎回指定したときだけにする（2026-11-21）。
+  const silenced = (id: string) => { if (bool(args.silent) === true) setSessionMuted(deps.db, deps.deviceId, id, true); };
   // 待つ道具（wait_for_session）が、起動の途中と起動直後の idle をターンの終わりと読まないための印。
   const launchedAt = Date.now();
   const marked = (id: string) => noteTurnStart(deps.db, id, { at: launchedAt, expectsReply: str(args.prompt) !== undefined, ...(key ? { prepKey: key } : {}) });
   let pending: string | null = null;
+  // 人のいない起動元。予定や出来事はサーバの中から呼ぶ側が付け、別の会話から起こしたら session にする。引き継ぎは人が続けるので付けない。
+  const launchedBy: LaunchedBy | undefined = ctx.launchedBy ?? (ctx.sessionId && !bool(args.handoff) ? 'session' : undefined);
   const launch = Promise.resolve(deps.runs.start({
-    projectId, name: str(args.name), prompt: str(args.prompt), model: str(args.model),
+    ...(launchedBy ? { launchedBy } : {}), projectId, name: str(args.name), prompt: str(args.prompt), model: str(args.model),
     effort: str(args.effort), permissionMode: str(args.permission_mode), scratch: bool(args.scratch),
     agent, mode: str(args.mode), ...(account ? { account: account.id } : {}),
     worktree: str(args.worktree), addDirs: strs(args.add_dirs), ...(key ? { prepKey: key } : {}),
     ...(bool(args.auto_approve) === true ? { autoApprove: true } : {}), ...(str(args.cwd) ? { cwd: str(args.cwd) } : {}),
   }, { onPending: (id) => { pending = id; } }));
   return awaitLaunch(deps, ctx, launch, {
-    key, name: str(args.name) ?? agent ?? '', sessionId: () => pending,
+    key, name: str(args.name) ?? agent ?? '', sessionId: () => pending, announce: (id) => announceOf(deps, id, args),
     // 準備の間も、起こした会話を起動元の下に並べる。
-    detached: (id) => { spawned(id); marked(id); },
+    detached: (id) => { silenced(id); spawned(id); marked(id); },
     done: (r) => {
+      silenced(r.sessionId);
       spawned(r.sessionId);
       marked(r.sessionId);
-      return { run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`), ...(account ? { account: account.name } : {}) };
+      return { run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: sessionUrl(deps, r.sessionId), announce: announceOf(deps, r.sessionId, args), ...(account ? { account: account.name } : {}) };
     },
   });
 }
@@ -635,7 +672,7 @@ export function resumeSessionTool(deps: ToolDeps, ctx: ToolContext, args: Record
   const launch = Promise.resolve(deps.runs.resumeWith(s.id, { ...(given !== undefined && account ? { account: account.id } : {}), ...(key ? { prepKey: key } : {}) }));
   return awaitLaunch(deps, ctx, launch, {
     key, name: sessionTitle(s), sessionId: () => s.id, detached: () => { if (key) noteTurnStart(deps.db, s.id, { at: Date.now(), prepKey: key, expectsReply: false }); },
-    done: (r) => ({ run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: url(deps, `session/${r.sessionId}`), ...(account ? { account: account.name } : {}) }),
+    done: (r) => ({ run_id: r.run.id, session_id: r.sessionId, tmux_name: r.run.tmuxName, url: sessionUrl(deps, r.sessionId), ...(account ? { account: account.name } : {}) }),
   });
 }
 
@@ -670,7 +707,7 @@ function noticeDeleteApproval(deps: ToolDeps, ctx: ToolContext, s: SessionDto, n
   if (sent.length === 0) return;
   let unread = from?.unread?.count ?? 0;
   if (from && sent.includes('unread')) {
-    unread = addUnread(deps.db, from.id, text, now);
+    unread = addUnread(deps.db, from.id, text, now, { kind: 'ask' });
     touchRow(deps.db, 'sessions', from.id);
   }
   // 依頼元のターンの終わりを待たずに出す。依頼元は承認を待って止まっていることがあるからである。
@@ -739,12 +776,19 @@ export function notifyUserTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
     sent = NOTIFY_TARGETS.filter((x) => rules[x].includes(kind));
   }
   if (isQuietStatus(session.state?.status) && !session.woke) sent = [];
+  // 画面で前に出して見ている会話には、未読を積まず、スマホへも出さない（live/viewing.ts）。OS の通知は殻が窓の前後で決める。
+  if (isViewing(id, now)) sent = sent.filter((x) => x === 'os');
+  // ミュートした会話（静かな会話）は、どの先へも出さない。
+  if ((session.mutedAt ?? null) !== null) sent = [];
+  // 出し先が空でも、呼んだことと場面は知らせる。統括の出来事（orchestrator/feed.ts の turn.done）と、
+  // 返答の終わりの数え（live/notifyFallback.ts）が聞く。後者は done と ask の呼ばれたターンに、終わりの 1 つを二重に積まない。
+  noteNotifyKind(id, kind, o.immediate === true);
   let unread = session.unread?.count ?? 0;
   if (sent.length > 0) {
     // 未読の数も、done と ask で作業中なら預かりが積む（holdUnread のとき）。返答を書き終える前に数が増えないようにするためである。
     const unreadHeld = sent.includes('unread') && deps.holdUnread === true && kind !== 'progress' && !o.immediate && sessionTurnRunning(deps.db, deps.live(), id);
     if (sent.includes('unread') && !unreadHeld) {
-      unread = addUnread(deps.db, id, text, now);
+      unread = addUnread(deps.db, id, text, now, { kind });
       touchRow(deps.db, 'sessions', id);
     }
     // OS とスマホへの通知は、done と ask ならこのターンが終わるまで預かってから出る（live/unreadHold.ts）。
@@ -825,6 +869,7 @@ export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args:
   if (args.wake_on !== undefined) {
     if (status !== 'paused') throw new ToolError(msg('mcp.sessionStatus.wakeOnOnlyPaused'));
     if (args.confirmed === true) throw new ToolError(msg('mcp.sessionStatus.wakeOnNotConfirmed'));
+    if (deps.settings && !deps.settings().eventTrigger) throw new ToolError(msg('schedules.event.error.off'));
     wakeOn = parseWakeOn(args.wake_on);
   }
   try {
@@ -871,9 +916,18 @@ export function openInHangarTool(deps: ToolDeps, ctx: ToolContext, args: Record<
     requireProject(deps, projectId);
     return { url: url(deps, `project/${projectId}`), deep_link: `hangar://project/${projectId}` };
   }
-  const id = sessionIdOf(ctx, args);
+  // 知らせを出して URL を返すだけなので、セッション別 URL からでもほかの会話（自分が起こした子など）を指せる。省けば自分。
+  const id = str(args.session_id) ?? sessionIdOf(ctx, args);
   requireSession(deps, id);
-  return { url: url(deps, `session/${id}`), deep_link: `hangar://session/${id}` };
+  const r = deps.db.prepare('select home_device d from sessions where id = ?').get(id) as { d: string } | undefined;
+  deps.openPrompt?.({ type: 'session.openPrompt', sessionId: id, deviceId: r?.d ?? deps.deviceId, fromSessionId: ctx.sessionId });
+  return { url: sessionUrl(deps, id), deep_link: `hangar://session/${id}`, prompted: true };
+}
+
+/** 設定の道具の口。無ければ知らない道具として断る。 */
+function settingsOf(deps: ToolDeps, name: string): SettingsToolDeps {
+  if (!deps.settingsAccess) throw new ToolError(msg('mcp.error.unknownTool', { name }));
+  return { ...deps.settingsAccess, ...(deps.language ? { language: deps.language } : {}) };
 }
 
 /** 作者への問い合わせの口。共通 URL でもセッション別 URL でも、枠に関わりなく使える（プロジェクトもセッションも指さない）。 */
@@ -918,6 +972,8 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'update_schedule': return updateScheduleTool(deps, ctx, args);
     case 'claim_pr': return claimPrTool(deps, ctx, args);
     case 'draft_event_binding': return draftEventBindingTool(deps, ctx, args);
+    case 'get_settings': return getSettingsTool(settingsOf(deps, name));
+    case 'update_settings': return updateSettingsTool(settingsOf(deps, name), args);
     default:
       // 統括だけの道具。統括の URL でなければ、知らない道具と同じ断りを返す（orchestratorTools.ts）。
       if (isOrchestratorToolName(name)) return callOrchestratorTool(deps, ctx, name, args);

@@ -12,6 +12,7 @@ export const runEn: AreaDictionary<typeof runKeys> = {
   'run.launch.projectRequired': 'Select a project',
   'run.launch.cwdOutside': 'The working folder must be inside the project folder: {path}',
   'run.agent.unknown': 'Unknown agent: {agent}',
+  'run.agent.forkClaudeOnly': 'Only Claude Code can continue from a conversation',
   'run.agent.disabled': 'opencode is disabled. Turn on "{label}" in Settings',
   'run.agent.notFound': 'opencode was not found (check your PATH)',
   'run.agent.isCmd': '{file} is a .cmd file and cannot be used. Make sure opencode.exe can be found on PATH',

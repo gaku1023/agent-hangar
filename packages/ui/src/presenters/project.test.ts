@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { initialState } from '../mediator/transition.ts';
 import { initialStore, type Store } from '../store/store.ts';
 import { presentProject, presentTodoCandidate } from './project.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
 // 1 つのプロジェクトの画面（Q3）の Presenter。左の一覧はホームと同じ部品に渡すもので、このプロジェクトのセッションだけを出す。
 
@@ -11,8 +12,8 @@ const H = 3_600_000;
 const DAY = 24 * H;
 
 const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null, ...o });
-const dto = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: NOW - H, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over });
-const project = (id: string, over: Partial<ProjectDto> = {}): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3 * H, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1, ...over });
+const dto = (id: string, over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ id, providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', lastActivityAt: NOW - H, hasTranscript: true, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, ...over }));
+const project = (id: string, over: Partial<ProjectDto> = {}): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3 * H, runningCount: 0, openTodoCount: 0, updatedAt: 1, ...over });
 const doneSt = st({ status: 'done', setBy: 'user', setAt: NOW - 10 * DAY });
 const todo = (id: string, over: Partial<TodoDto> = {}): TodoDto => ({ id, projectId: 'alpha', text: `やる ${id}`, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null, ...over });
 
@@ -150,8 +151,8 @@ describe('presentProject の右パネル', () => {
     const of = (extra: Partial<Store>, id = 'alpha') => presentProject(initialState(), storeOf([], extra), NOW, id).instructions;
 
     it('読み込む前は loading、フォルダが無ければ missing', () => {
-      expect(of({})).toEqual({ state: 'loading', rows: [], legacyNote: null });
-      expect(of(loaded([], false))).toEqual({ state: 'missing', rows: [], legacyNote: null });
+      expect(of({})).toEqual({ state: 'loading', rows: [] });
+      expect(of(loaded([], false))).toEqual({ state: 'missing', rows: [] });
     });
 
     it('行は名前、説明、大きさと更新、本文を持つ', () => {
@@ -169,12 +170,6 @@ describe('presentProject の右パネル', () => {
       expect(of(loaded([file({ kind: 'agents', name: 'AGENTS.md' })])).rows[0]!.desc).toBe('CLAUDE.md の代わりに読み込まれる');
       // CLAUDE.md の類が並んでいないのに読まれないのは、上のフォルダの CLAUDE.md か設定のせいなので、理由を言い切らない。
       expect(of(loaded([file({ kind: 'agents', name: 'AGENTS.md', read: false })])).rows[0]!.desc).toBe('起動時には読み込まれない');
-    });
-
-    it('以前のノートは中身があるときだけ返す', () => {
-      const memo = (markdown: string) => ({ memos: { alpha: { projectId: 'alpha', markdown, updatedAt: 5 } } });
-      expect(of({ ...loaded([]), ...memo('決済は v3') }).legacyNote).toBe('決済は v3');
-      expect(of({ ...loaded([]), ...memo('  \n') }).legacyNote).toBeNull();
     });
 
     it('英語では説明も英語', () => {

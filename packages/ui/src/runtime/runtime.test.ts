@@ -1,6 +1,6 @@
 import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
-import type { BootstrapDto, CloudUsageDto, EventsPageDto, FolderRegisterItem, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, WorkspaceChildrenDto } from '@agent-hangar/shared';
+import type { BootstrapDto, CloudUsageDto, EventsPageDto, FolderRegisterItem, LaunchResultDto, ProjectDto, RunDto, ServerEvent, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, WorkspaceChildrenDto } from '@agent-hangar/shared';
 import { AccountLinkConflictApiError, ApiConflictError, ApiNotFoundError, LaunchPrepAskApiError, LaunchPrepCancelledApiError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient } from './api.ts';
 import { LONG_TOAST_MS } from './actionTable.ts';
 import { GIT_POLL_MS } from './gitWatch.ts';
@@ -12,8 +12,9 @@ import type { State } from '../mediator/types.ts';
 import { presentNewProject } from '../presenters/newProject.ts';
 import { presentShell } from '../presenters/shell.ts';
 import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], deleteApprovals: [], peerApprovals: [], schedules: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], deleteApprovals: [], peerApprovals: [], schedules: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null, sessionCounts: { total: 0, tabs: { all: 0, proposed: 0, active: 0, paused: 0, done: 0, archived: 0 }, byProject: {}, providers: { opencode: false, codex: false }, retention: null }, firstPage: { rows: [], total: 0, roots: 0 } };
 const syncStatus: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null };
 const launchResult: LaunchResultDto = { run: { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'resume', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 's1', tabs: [] };
 const page = (seqs: number[], total: number): EventsPageDto => ({ sessionId: 's1', events: seqs.map((seq) => ({ kind: 'user', seq, text: 'x' })), total, nextSeq: null });
@@ -35,7 +36,7 @@ function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps>
     setProjectStatus: vi.fn(async () => { throw new Error('500 /api/projects/p1'); }),
     resolveProject: vi.fn(async () => ({})),
     candidates: vi.fn(async () => []),
-    updateSettings: vi.fn(async (p) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, ...p })),
+    updateSettings: vi.fn(async (p) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, ...p })),
     rebuildIndex: vi.fn(async () => {}),
     ...fakeApiExtras(),
     syncNow: vi.fn(async () => syncStatus),
@@ -53,11 +54,13 @@ function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps>
   const timers: { fn: () => void; ms: number }[] = [];
   const go = vi.fn();
   let depth = 0;
+  // 進める段の上端。積むと今の段が上端になり、戻っても上端は動かない（本物の履歴と同じ）。
+  let top = 0;
   const store = new Map<string, unknown>();
   const deps: RuntimeDeps = {
     api,
     ws: (h) => { wsHandlers.push(h); return { connect: vi.fn(), close: vi.fn() }; },
-    location: { getHash: () => hash, setHash: (h) => { hash = h; depth += 1; for (const l of hashListeners) l(); }, onHashChange: (cb) => { hashListeners.add(cb); return () => hashListeners.delete(cb); }, go, depth: () => depth },
+    location: { getHash: () => hash, setHash: (h) => { hash = h; depth += 1; top = depth; for (const l of hashListeners) l(); }, onHashChange: (cb) => { hashListeners.add(cb); return () => hashListeners.delete(cb); }, go, depth: () => depth, canForward: () => depth < top },
     storage: { get: (k) => store.get(k), set: (k, v) => store.set(k, v), keys: () => [...store.keys()] },
     setTimeout: (fn, ms) => timers.push({ fn, ms }),
     terminals: fakeTerminals(),
@@ -373,7 +376,7 @@ describe('createRuntime', () => {
     expect(api.subagents).toHaveBeenCalledTimes(2);
   });
   describe('未解決のプロジェクト（2.11.5）', () => {
-    const project = (id: string, over: Partial<ProjectDto> = {}): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0, unresolved: null, ...over });
+    const project = (id: string, over: Partial<ProjectDto> = {}): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 0, unresolved: null, ...over });
     const lost = (id: string) => project(id, { resolved: false, unresolved: { kind: 'missing', previousPath: `/w/${id}`, deviceName: null } });
     const arrived = (id: string) => project(id, { path: null, resolved: false, unresolved: { kind: 'elsewhere', previousPath: `/o/${id}`, deviceName: 'Mac mini' } });
     const upsert = (p: ProjectDto): ServerEvent => ({ type: 'project.upsert', project: p });
@@ -541,6 +544,15 @@ describe('createRuntime', () => {
     a.rt.emit({ type: 'transcript.showRaw', sessionId: 's1', show: true });
     expect(a.store.get('sv:s1')).not.toHaveProperty('livePaneSplit');
   });
+  it('サイドバーを閉じて保存したとき、書いた経路の控えも残す。開く方は控えない（#616）', () => {
+    const a = harness();
+    a.rt.start();
+    a.rt.emit({ type: 'sidebar.toggle' });
+    expect(a.store.get('sidebar.trace')).toMatchObject({ collapsed: true });
+    a.store.delete('sidebar.trace');
+    a.rt.emit({ type: 'sidebar.toggle' });
+    expect(a.store.get('sidebar.trace')).toBeUndefined();
+  });
   it('サイドバーの折りたたみを保存し、起動時に読み戻す。真でない値は開いたまま', () => {
     const a = harness();
     a.rt.start();
@@ -633,7 +645,7 @@ describe('createRuntime', () => {
 });
 
 describe('配信のまとめ', () => {
-  const project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0, unresolved: null });
+  const project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 0, unresolved: null });
   const setup = async () => {
     const batches: (() => void)[] = [];
     const h = harness({}, { batchServerEvents: (fn) => { batches.push(fn); } });
@@ -679,7 +691,7 @@ describe('配信のまとめ', () => {
 const launched: LaunchResultDto = { run: { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 's1', tabs: [{ id: 'r1', runId: 'r1', sessionId: 's1', kind: 'agent', title: 'Claude', tmuxName: 'hangar-r1', createdAt: 1, closedAt: null }] };
 
 describe('起動とターミナル', () => {
-  const created = { id: 'p9', name: 'fresh', status: 'active' as const, isScratch: false, path: '/w/fresh', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 };
+  const created = { id: 'p9', name: 'fresh', status: 'active' as const, isScratch: false, path: '/w/fresh', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 1 };
   it('place 付きの起動は、作ってから、作ったプロジェクトで起動する', async () => {
     const createProject = vi.fn(async () => created);
     const launch = vi.fn(async () => launched);
@@ -769,7 +781,7 @@ describe('起動とターミナル', () => {
     const order: string[] = [];
     const cands = { candidates: [{ path: '/Users/me/src/a', sessionCount: 4, lastActivityAt: 1, worktreeCount: 0 }], suggestedRoot: '/Users/me/src' };
     const folderCandidates = vi.fn(async () => cands);
-    const base: SettingsDto = { workspaceRoot: '', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+    const base: SettingsDto = { workspaceRoot: '', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryHourlyCap: 20, nodePath: null, claudePath: null };
     const updateSettings = vi.fn(async (patch: Partial<SettingsDto>) => { order.push(`settings:${patch.workspaceRoot}`); return { ...base, ...patch }; });
     const registerFolders = vi.fn(async (items: FolderRegisterItem[]) => { order.push(`register:${items.map((i) => i.path).join(',')}`); return { projects: [{ ...created, id: 'p-a', path: '/Users/me/src/a' }], failed: [{ path: '/gone', error: 'path は既存のディレクトリではありません' }] }; });
     const { rt, api } = harness({ folderCandidates, updateSettings, registerFolders });
@@ -1179,8 +1191,8 @@ describe('起動とターミナル', () => {
   });
 });
 
-const p3Project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: '/w/' + id, resolved: true, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const p3Session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p9', name: 's1', cwd: '/w/newp', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, lastTurnAt: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null };
+const p3Project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: '/w/' + id, resolved: true, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, updatedAt: 1 });
+const p3Session: SessionDto = sessionDto({ projectId: 'p9', name: 's1', cwd: '/w/newp', startedAt: 1, lastActivityAt: 1, hasTranscript: true });
 const p3Todo = (id: string, done: boolean): TodoDto => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null });
 const p3Run = (id: string, sessionId: string): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: 1, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 });
 const p3Tab = (id: string, runId: string, kind: 'agent' | 'shell'): TabDto => ({ id, runId, sessionId: 's1', kind, title: id, tmuxName: `hangar-${runId}-${id}`, createdAt: Number(id.replace(/\D/g, '') || 0), closedAt: null });
@@ -1259,22 +1271,6 @@ describe('フェーズ 3 の効果', () => {
     expect(setTodoDone).toHaveBeenCalledWith('t1', false);
     expect(confirmTodo).not.toHaveBeenCalled();
   });
-  it('メモは読み込みと保存の両方でストアに入る', async () => {
-    const memo = vi.fn(async (projectId: string): Promise<MemoDto> => ({ projectId, markdown: '# 読んだ', updatedAt: 5 }));
-    const saveMemo = vi.fn(async (projectId: string, markdown: string): Promise<MemoDto> => ({ projectId, markdown, updatedAt: 6 }));
-    const { rt, wsHandlers, setHash } = harness({ memo, saveMemo });
-    rt.start();
-    wsHandlers[0]!.onOpen();
-    await flush();
-    setHash('#/project/p1');
-    await flush();
-    expect(memo).toHaveBeenCalledWith('p1');
-    expect(rt.getStore().memos.p1?.markdown).toBe('# 読んだ');
-    rt.emit({ type: 'memo.save', projectId: 'p1', markdown: '# 書いた' });
-    await flush();
-    expect(saveMemo).toHaveBeenCalledWith('p1', '# 書いた');
-    expect(rt.getStore().memos.p1).toEqual({ projectId: 'p1', markdown: '# 書いた', updatedAt: 6 });
-  });
   it('昇格は成功でストアを更新して promote.done、失敗で promote.failed になる', async () => {
     const promote = vi.fn(async () => ({ project: p3Project('p9'), session: p3Session, moved: true, reason: null }));
     const { rt, wsHandlers } = harness({ promote });
@@ -1333,11 +1329,10 @@ describe('フェーズ 3 の効果', () => {
     // file を落とすと、ファイルではなく作業ディレクトリが開く。
     expect(openEditor.mock.calls).toEqual([['s1', '/w/alpha/src/a.ts', { line: undefined, once: undefined }], ['s1', undefined, { once: undefined }]]);
   });
-  it('設定画面に入ると statusline と集計とモデル一覧を読む', async () => {
+  it('設定画面に入ると statusline と集計を読む', async () => {
     const statusline = vi.fn(async () => ({ command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true }));
     const usageAggregate = vi.fn(async () => ({ days: [{ day: '2026-09-18', inputTokens: 1, outputTokens: 2, sessions: 1 }], projects: [] }));
-    const summarizerModels = vi.fn(async () => { throw new Error('ECONNREFUSED'); });
-    const { rt, wsHandlers, setHash } = harness({ statusline, usageAggregate, summarizerModels });
+    const { rt, wsHandlers, setHash } = harness({ statusline, usageAggregate });
     rt.start();
     wsHandlers[0]!.onOpen();
     await flush();
@@ -1345,11 +1340,9 @@ describe('フェーズ 3 の効果', () => {
     await flush();
     expect(usageAggregate).toHaveBeenCalledWith(30);
     expect(statusline).toHaveBeenCalledTimes(1);
-    expect(summarizerModels).toHaveBeenCalledTimes(1);
     expect(rt.getStore().statusline?.installed).toBe(true);
     expect(rt.getStore().usageAggregate?.days).toHaveLength(1);
-    expect(rt.getStore().summarizerModels).toEqual([]);
-    // LM Studio に繋がらないのは普通の状態なので、トーストにしない。
+    // 設定画面に入っただけでは、トーストを出さない。
     expect(rt.getState().toasts).toEqual([]);
   });
   it('設定画面に入ると opencode の検出を読み、失敗は黙って null のままにする', async () => {
@@ -1417,7 +1410,7 @@ describe('フェーズ 3 の効果', () => {
     expect(rt.getStore().cloudUsage).toEqual(dto);
   });
   it('要約器を試すと結果がストアに入る', async () => {
-    const testSummarizer = vi.fn(async () => ({ ok: true as const, id: 'lmstudio' as const, ms: 12, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done' as const, nextSteps: [], source: 'post_hoc' as const, sourceId: 'lmstudio', sourceModel: 'gemma', basedOnTurns: 3 } }));
+    const testSummarizer = vi.fn(async () => ({ ok: true as const, id: 'claude-headless' as const, ms: 12, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done' as const, nextSteps: [], source: 'post_hoc' as const, sourceId: 'lmstudio', sourceModel: 'gemma', basedOnTurns: 3 } }));
     const { rt, wsHandlers } = harness({ testSummarizer });
     rt.start();
     wsHandlers[0]!.onOpen();
@@ -1425,7 +1418,7 @@ describe('フェーズ 3 の効果', () => {
     rt.emit({ type: 'summarizer.test' });
     await flush();
     expect(testSummarizer).toHaveBeenCalledTimes(1);
-    expect(rt.getStore().summarizerTest).toMatchObject({ ok: true, id: 'lmstudio', ms: 12 });
+    expect(rt.getStore().summarizerTest).toMatchObject({ ok: true, id: 'claude-headless', ms: 12 });
     // もう一度試すと、結果が届くまでの間は前回の結果が消えている。
     rt.emit({ type: 'summarizer.test' });
     expect(rt.getStore().summarizerTest).toBeNull();
@@ -1507,6 +1500,18 @@ describe('履歴', () => {
     expect(rt.canGoBack()).toBe(false);
     rt.emit({ type: 'nav.go', to: { name: 'projects' } });
     expect(rt.canGoBack()).toBe(true);
+  });
+
+  it('戻れる・進めるを、段が動くたびに状態へ入れる（サイドバーの戻る・進むのボタン）', () => {
+    const { rt, browse } = harness();
+    rt.start();
+    expect(rt.getState().history).toEqual({ back: false, forward: false });
+    rt.emit({ type: 'nav.go', to: { name: 'projects' } });
+    expect(rt.getState().history).toEqual({ back: true, forward: false });
+    browse('#/', 0);
+    expect(rt.getState().history).toEqual({ back: false, forward: true });
+    browse('#/projects', 1);
+    expect(rt.getState().history).toEqual({ back: true, forward: false });
   });
 
   it('アプリの最初の頁からは戻らない', () => {
@@ -1727,7 +1732,7 @@ describe('保持期間（ランタイム）', () => {
   const R = { days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null };
   const preview = { days: 365, path: '/c/settings.json', lines: [], baseSha256: 'abc', backupDir: '/h/backups/claude-config', projectedBytes: null };
   it('本文の無い会話を開いても、本文を読みに行かない', async () => {
-    const s1: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, lastTurnAt: null, hasTranscript: false, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null };
+    const s1: SessionDto = sessionDto({ cwd: '/w' });
     const { rt, api, wsHandlers, setHash } = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions: [s1] })) });
     rt.start();
     wsHandlers[0]!.onOpen();
@@ -1789,7 +1794,7 @@ describe('保持期間（ランタイム）', () => {
 
 describe('入力待ちの知らせ', () => {
   const stats = { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null };
-  const waitingSession = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '請求書の書き出し', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over });
+  const waitingSession = (over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ name: '請求書の書き出し', cwd: '/w', startedAt: 1, lastActivityAt: 1, hasTranscript: true, stats, ...over }));
   const live = (sessionId: string, status: 'busy' | 'waiting') => ({ sessionId, status, name: null, nameSource: null, cwd: '/w', pid: 1 });
   function fakeNotifier(o: { available?: boolean; defaultOn?: boolean; granted?: boolean; background?: boolean; grant?: boolean; status?: NotifyPermission } = {}) {
     let open: ((id: string) => void) | null = null;
@@ -2311,22 +2316,6 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
     expect(readiness).toHaveBeenCalled();
     expect(rt.getStore().readiness).toEqual(READY);
   });
-  it('要約エンジンや宛先を変えて保存したら、モデルの一覧を取り直す（目次の接続済み／接続できませんが古いまま残らない）', async () => {
-    const summarizerModels = vi.fn(async () => ({ models: ['gemma'] }));
-    const { rt } = harness({ summarizerModels });
-    rt.start();
-    rt.emit({ type: 'settings.update', patch: { summaryEngine: 'openai' } });
-    await flush();
-    expect(summarizerModels).toHaveBeenCalledTimes(1);
-    expect(rt.getStore().summarizerModels).toEqual(['gemma']);
-    rt.emit({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:9', lmStudioModel: null, summaryHourlyCap: 20 }, field: 'summarizer' });
-    await flush();
-    expect(summarizerModels).toHaveBeenCalledTimes(2);
-    // 関わらない欄では取り直さない。
-    rt.emit({ type: 'settings.update', patch: { liveHints: false } });
-    await flush();
-    expect(summarizerModels).toHaveBeenCalledTimes(2);
-  });
   it('保存を断られたら、理由を欄に返し、トーストにしない', async () => {
     const { rt } = harness({ updateSettings: vi.fn(async () => { throw new Error('「tmux のパス」に /x が未検出'); }) });
     rt.start();
@@ -2347,7 +2336,7 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
     expect(readiness).toHaveBeenCalledTimes(2);
   });
   it('起動のたびに、ホームの帯の確認のために準備の確かめを取る（セッションが 1 つも無いときに限らない）', async () => {
-    const s1: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, lastTurnAt: null, hasTranscript: false, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null };
+    const s1: SessionDto = sessionDto({ cwd: '/w' });
     for (const sessions of [[], [s1]]) {
       const readiness = vi.fn(async () => READY);
       const { rt, wsHandlers } = harness({ readiness, bootstrap: vi.fn(async () => ({ ...boot, sessions })) });
@@ -2396,7 +2385,7 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
     expect(rt.getStore().readiness?.tools.claude.ok).toBe(true);
     expect(rt.getStore().settings?.claudePath).toBe('/bin/claude');
     // 準備の確かめに関わらない欄の変更では読み直さない。
-    wsHandlers[0]!.onEvent({ type: 'settings.changed', settings, keys: ['summaryFallback'] });
+    wsHandlers[0]!.onEvent({ type: 'settings.changed', settings, keys: ['summaryHourlyCap'] });
     await flush();
     expect(readiness).toHaveBeenCalledTimes(2);
   });
@@ -3009,7 +2998,7 @@ describe('ランタイムの文（英語）', () => {
   const JAPANESE = /[぀-ヿ㐀-鿿]/;
   const english = { ...boot, settings: { ...boot.settings, language: 'en' as const } };
   const stats = { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null };
-  const nameless: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null };
+  const nameless: SessionDto = sessionDto({ cwd: '/w', startedAt: 1, lastActivityAt: 1, hasTranscript: true, stats });
   async function startedEnglish(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps> = {}, sessions: SessionDto[] = []) {
     const h = harness({ bootstrap: vi.fn(async () => ({ ...english, sessions })), ...overrides }, extra);
     h.rt.start();
@@ -3067,7 +3056,7 @@ describe('psmux と tmux の再確認（ランタイム）', () => {
   };
   const MISSING = { ...base, tools: { ...tools, tmux: { path: null, ok: false, problem: 'unset' as const, version: null } } };
   const FOUND = { ...base, tools: { ...tools, tmux: { path: 'C:\\x\\psmux.exe', ok: true, problem: null, version: '3.3.1' } } };
-  const settings = (tmuxPath: string | null) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null });
+  const settings = (tmuxPath: string | null) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, nodePath: null, claudePath: null });
   it('見つかれば、準備の確かめと埋めた設定を Store に入れ、印を外す', async () => {
     const recheckMux = vi.fn(async () => ({ readiness: FOUND, settings: settings('C:\\x\\psmux.exe') }));
     const { rt } = harness({ readiness: vi.fn(async () => MISSING), recheckMux });
@@ -3187,7 +3176,7 @@ describe('隠れている間の配信', () => {
     let notified = 0;
     h.rt.subscribe(() => { notified++; });
     shown = false;
-    const base: SessionDto = { id: 's9', provider: 'claude-code', providerSessionId: 'u9', projectId: null, name: 'x', cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, lastTurnAt: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null };
+    const base: SessionDto = sessionDto({ id: 's9', providerSessionId: 'u9', name: 'x', startedAt: 1, lastActivityAt: 1, hasTranscript: true });
     h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: base });
     h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: { ...base, name: 'y' } });
     expect(h.rt.getStore().sessions.s9?.name).toBe('y');
@@ -3208,7 +3197,7 @@ describe('git の表示（ランタイム）', () => {
   it('開いたままのプロジェクト画面のブランチと worktree は、周期と、窓が前に戻ったときに読み直す', async () => {
     const projectGit = vi.fn(async () => ({ root: null, worktrees: [] }));
     const visible = new Set<() => void>();
-    const p1: ProjectDto = { id: 'p1', name: 'p1', status: 'active', isScratch: false, path: '/w/p1', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0, unresolved: null };
+    const p1: ProjectDto = { id: 'p1', name: 'p1', status: 'active', isScratch: false, path: '/w/p1', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 0, unresolved: null };
     const { rt, wsHandlers, setHash, timers } = harness({ projectGit, bootstrap: vi.fn(async () => ({ ...boot, projects: [p1] })) }, { visible: () => true, onWindowVisible: (cb) => { visible.add(cb); return () => visible.delete(cb); } });
     rt.start();
     wsHandlers[0]!.onOpen();
@@ -3237,7 +3226,7 @@ describe('git の表示（ランタイム）', () => {
   /** プロジェクト画面を開いた状態まで進める。読み直しの周期と、窓が前に戻ったときの合図も返す。 */
   async function projectOpen(projectGit: ApiClient['projectGit']) {
     const visible = new Set<() => void>();
-    const p1: ProjectDto = { id: 'p1', name: 'p1', status: 'active', isScratch: false, path: '/w/p1', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0, unresolved: null };
+    const p1: ProjectDto = { id: 'p1', name: 'p1', status: 'active', isScratch: false, path: '/w/p1', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 0, unresolved: null };
     const h = harness({ projectGit, bootstrap: vi.fn(async () => ({ ...boot, projects: [p1] })) }, { visible: () => true, onWindowVisible: (cb) => { visible.add(cb); return () => visible.delete(cb); } });
     h.rt.start();
     h.wsHandlers[0]!.onOpen();
@@ -3367,7 +3356,7 @@ describe('opencode の版の知らせの種（C7）', () => {
 });
 
 describe('既読', () => {
-  const withUnread = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: 's1', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, lastTurnAt: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: { count: 2, latest: '終わりました', at: 10 }, spawnedBy: null, spawnPeer: null, ...over });
+  const withUnread = (over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ name: 's1', cwd: '/w', startedAt: 1, lastActivityAt: 1, hasTranscript: true, unread: { count: 2, latest: '終わりました', at: 10 }, ...over }));
   it('未読のあるセッションを開くと、api.markSeen を呼ぶ', async () => {
     const h = harness({}, { visible: () => true });
     h.rt.start();

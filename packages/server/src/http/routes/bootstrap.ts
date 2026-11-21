@@ -1,12 +1,14 @@
 import os from 'node:os';
 import type { Hono } from 'hono';
-import type { BootstrapDto } from '@agent-hangar/shared';
+import { listPageOf, type BootstrapDto } from '@agent-hangar/shared';
 import { listArtifacts } from '../../artifacts/queries.ts';
 import { listProjects, listSessions } from '../../db/queries.ts';
 import { listTodos } from '../../projects/todos.ts';
 import { interruptedGroup } from '../../runs/interrupted.ts';
 import { listPeerApprovals } from '../../peer/approvals.ts';
 import { listDeleteApprovals } from '../../sessions/deleteApprovals.ts';
+import { sessionCounts } from '../../sessions/counts.ts';
+import { aliveIdsOf, FIRST_PAGE_SIZE } from '../../sessions/listPage.ts';
 import { accountNamerOf, listSchedules } from '../../schedule/store.ts';
 import { buildAccountsDto } from '../accounts.ts';
 import type { AppDeps } from '../deps.ts';
@@ -25,13 +27,18 @@ export function bootstrapRoutes(api: Hono, deps: BootstrapRouteDeps): void {
   api.get('/bootstrap', (c) => {
     const live = deps.live();
     const alive = deps.runs.listAlive();
+    const sessions = listSessions(db, live, { deviceId });
+    const retention = deps.retention.current();
     const body: BootstrapDto = {
       sync: syncStatus(),
       devices: deps.devices(),
       device: { id: deviceId, name: deps.deviceName },
       settings: toSettingsDto(deps.settings()),
       projects: listProjects(db, deviceId, live),
-      sessions: listSessions(db, live, { deviceId }),
+      // 会話はまだ全件を送る（RB-12 の段 1）。件数の集計と一覧の 1 頁目は、画面が全件を持たなくても出せるように先に載せておく。
+      sessions,
+      sessionCounts: sessionCounts(db, { retentionDays: retention?.days ?? null, now: Date.now() }),
+      firstPage: listPageOf(sessions, {}, aliveIdsOf(sessions, alive.runs), 0, FIRST_PAGE_SIZE),
       live,
       runs: alive.runs,
       tabs: alive.tabs,
@@ -43,7 +50,7 @@ export function bootstrapRoutes(api: Hono, deps: BootstrapRouteDeps): void {
       schedules: listSchedules(db, deviceId, undefined, accountNamerOf(accountsDeps)),
       index: deps.indexer.progress(),
       version: deps.version,
-      retention: deps.retention.current(),
+      retention,
       cloudUsage: deps.cloudUsage.current(),
       accounts: buildAccountsDto(accountsDeps, { checkLinks: true }),
       // 画面は置き場をホームの下なら ~ に縮めて出す。/Users/<誰か> の形から推測しないよう、本当のホームを渡す。

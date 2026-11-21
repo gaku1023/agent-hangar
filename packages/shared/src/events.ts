@@ -1,6 +1,6 @@
 import type { PeerChatDevice, PeerChatQueued, PeerChatUpdate } from './peerChat.ts';
 import type { ScheduleDto } from './schedule.ts';
-import type { TakeoverDto, DeleteApprovalDto, PeerApprovalDto, AccountsDto, ArtifactDto, CloudUsageDto, ConfigSyncDto, DeviceDto, IndexProgressDto, InterruptedDto, JoinApproverState, JoinRequestView, LiveSessionDto, MemoDto, PhoneLaunchDto, ProjectDto, RetentionDto, RunDto, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
+import type { TakeoverDto, DeleteApprovalDto, PeerApprovalDto, AccountsDto, ArtifactDto, CloudUsageDto, ConfigSyncDto, DeviceDto, IndexProgressDto, InterruptedDto, JoinApproverState, JoinRequestView, LiveSessionDto, PhoneLaunchDto, ProjectDto, RetentionDto, RunDto, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
 
 export type ServerEvent =
   | { type: 'ready'; version: string }
@@ -10,6 +10,8 @@ export type ServerEvent =
   // セッションが一覧から消えた（削除した、本文の無いまま片付けた）。画面は Store から外す。
   | { type: 'session.removed'; id: string }
   | { type: 'live.update'; live: LiveSessionDto[] }
+  // 会話の件数の集計。会話の行が変わったあと、間引いて 1 秒に 1 回まで配る（events/publisher.ts）。画面は件数を足し引きせず、これで置き換える。
+  | { type: 'sessionCounts.update'; counts: import('./sessionList.ts').SessionCountsDto }
   | { type: 'transcript.appended'; sessionId: string; count: number }
   /** 机の音声のいまの状態（補助の有無、聞き取りの段、字幕、読み上げ中）。サーバの声のサービスが変わるたびに配る。 */
   | { type: 'voice.state'; state: import('./voice.ts').VoiceStateDto }
@@ -20,7 +22,6 @@ export type ServerEvent =
   | { type: 'tab.upsert'; tab: TabDto }
   | { type: 'accounts.update'; accounts: AccountsDto }
   | { type: 'todos.update'; projectId: string; todos: TodoDto[] }
-  | { type: 'memo.update'; memo: MemoDto }
   | { type: 'artifact.upsert'; artifact: ArtifactDto }
   | { type: 'summary.pending'; sessionId: string }
   | { type: 'summary.updated'; sessionId: string }
@@ -98,5 +99,11 @@ export type ServerEvent =
    * at は起こした時刻。
    */
   | { type: 'session.woken'; id: string; at: number }
+  /**
+   * エージェントが open_in_hangar で、利用者に会話を見てほしいと求めた。
+   * 画面は切り替えず、右下の知らせに「開く」を出す（自動で消える）。
+   * sessionId は開く先、deviceId はその会話の PC、fromSessionId は求めた会話（共通の URL から呼ばれたときは null）。
+   */
+  | { type: 'session.openPrompt'; sessionId: string; deviceId: string; fromSessionId: string | null }
   /** holdMs は info の出している長さ（ミリ秒）。省くと既定の長さ。読み切るのに時間がかかる知らせだけが付ける。 */
   | { type: 'toast'; level: 'info' | 'error'; message: string; holdMs?: number };

@@ -1,6 +1,7 @@
 import { candidateExpired, CANDIDATE_EXPIRE_DAYS, isQuietStatus, isReturnOn, isReturnTime, STATE_NOTE_MAX, type CandidateSource, type SessionCandidateDto, type SessionStateDto, type SessionStatus, type StateSetBy, type WakeOn } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { stampFacts } from './stateFacts.ts';
 import { markSeen } from '../live/unread.ts';
 import { MessageError, msg, type Message } from '../i18n/message.ts';
 import { readWakeOn, wakeOnJson } from '../event/validate.ts';
@@ -38,6 +39,8 @@ type StateRow = {
   restored_at: number | null;
   /** ピン留めした時刻（版 43）。null なら留めていない。状態の書き込みでは触らない（setSessionPinned）。 */
   pinned_at: number | null;
+  /** ミュートした時刻（版 67）。null ならミュートしていない。状態の書き込みでは触らない（setSessionMuted）。 */
+  muted_at: number | null;
   updated_at: number; deleted_at: number | null; origin_device: string;
 };
 /** DTO に写すのに要る列。db/queries.ts の左結合の行も、この形に詰め直して渡す。 */
@@ -69,12 +72,14 @@ const liveRow = (db: Db, id: string) => db.prepare('select * from session_states
 
 /**
  * 今の行（無ければ空の行）に差分を重ねて書く。updated_at と origin_device は upsertShared が補う。
+ * 差分が触れた事実の時刻（版 62）は at にする。
  * at は updated_at に使う時刻で、省けば今の時刻である（upsertShared の at）。
  */
-function write(db: Db, deviceId: string, sessionId: string, patch: Partial<StateRow>, at?: number): SessionStateDto {
+function write(db: Db, deviceId: string, sessionId: string, patch: Partial<StateRow>, at = Date.now()): SessionStateDto {
   const cur = db.prepare('select * from session_states where session_id = ?').get(sessionId) as StateRow | undefined;
   const base = cur ?? { session_id: sessionId, ...CLEARED };
-  upsertShared(db, 'session_states', { ...base, ...patch, session_id: sessionId, deleted_at: null }, deviceId, 'session_id', at);
+  // 触れた事実の時刻も書く。同期の取り込みは事実ごとに新しい方を採る（sessions/stateFacts.ts）。
+  upsertShared(db, 'session_states', { ...base, ...patch, ...stampFacts(patch, at), session_id: sessionId, deleted_at: null }, deviceId, 'session_id', at);
   return toStateDto(liveRow(db, sessionId)!);
 }
 
@@ -149,7 +154,7 @@ export function setSessionState(db: Db, deviceId: string, sessionId: string, o: 
 /**
  * 知らせを止める状態（Done、Archived、Paused）にしたら、残っていた未読を消す。
  * その会話はサイドバーから消えるので、残すとホームの未読の帯から開くまで消せない（2026-10-31）。
- * 未読は手元だけの表（session_unread）なので、ほかの PC から届いた状態では消さない。ここは手元で付けたときだけ通る。
+ * ここは手元で付けたときだけ通る。消した未読は同期で届くので、ほかの PC でも消える（版 67）。
  */
 function settleUnread(db: Db, sessionId: string, status: SessionStatus): void {
   if (isQuietStatus(status)) markSeen(db, sessionId);
@@ -176,6 +181,24 @@ export function setSessionPinned(db: Db, deviceId: string, sessionId: string, pi
   // 押し直しでは書かない。留めた時刻は並びの順なので、変えると行が動く。
   if ((cur?.pinned_at ?? null) !== null === pinned) return;
   write(db, deviceId, sessionId, { pinned_at: pinned ? now : null }, Math.max(now, (cur?.updated_at ?? 0) + 1));
+}
+
+/**
+ * ミュート（静かな会話、2026-11-21）を書く。ミュートした会話は未読・OS・スマホの知らせを出さず（live/unread.ts の入口の守り）、サイドバーに載らない。
+ * プロジェクトの一覧、検索、get_transcript には残る。押し直しでは書かない。ミュートしたら残っていた未読を消す（settleUnread と同じ理由）。
+ * 行の updated_at の決め方はピン留めと同じ（setSessionPinned）。
+ */
+export function setSessionMuted(db: Db, deviceId: string, sessionId: string, muted: boolean, now = Date.now()): void {
+  const cur = db.prepare('select muted_at, updated_at from session_states where session_id = ?').get(sessionId) as Pick<StateRow, 'updated_at' | 'muted_at'> | undefined;
+  if ((cur?.muted_at ?? null) !== null === muted) return;
+  write(db, deviceId, sessionId, { muted_at: muted ? now : null }, Math.max(now, (cur?.updated_at ?? 0) + 1));
+  if (muted) markSeen(db, sessionId);
+}
+
+/** ミュートした会話か。行が無ければ false。 */
+export function isSessionMuted(db: Db, sessionId: string): boolean {
+  const r = db.prepare('select muted_at from session_states where session_id = ? and deleted_at is null').get(sessionId) as { muted_at: number | null } | undefined;
+  return (r?.muted_at ?? null) !== null;
 }
 
 export function setSessionTrashed(db: Db, deviceId: string, sessionId: string, at: number | null, now = Date.now()): void {

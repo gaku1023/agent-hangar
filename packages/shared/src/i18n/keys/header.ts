@@ -26,8 +26,6 @@ export const headerKeys = {
   'header.gauge.weeklyShort': [],
   'header.gauge.resetsTitle': ['time'],
   'header.gauge.updatedTitle': ['time'],
-  'header.gauge.agentClaude': [],
-  'header.gauge.agentCodex': [],
   'header.gauge.none': [],
   'header.gauge.noneLink': [],
   'header.gauge.noneTitle': [],

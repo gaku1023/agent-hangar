@@ -1,13 +1,13 @@
-import type { ConfigSyncDto, LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
+import { parseDeviceStatus, type ConfigSyncDto, type LiveSessionDto, type ServerEvent } from '@agent-hangar/shared';
 import { getArtifact } from '../artifacts/queries.ts';
 import { onRowChange, settleRowChanges, type RowChange, type RowOrigin } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listDevices } from '../db/queries.ts';
-import { memoFromDb } from '../projects/memo.ts';
 import { listTodos } from '../projects/todos.ts';
 import { listPeerApprovals } from '../peer/approvals.ts';
 import { listDeleteApprovals } from '../sessions/deleteApprovals.ts';
 import { listSchedules, type AccountNamer } from '../schedule/store.ts';
+import { sessionCounts } from '../sessions/counts.ts';
 
 /**
  * DB の行の変化を、画面へのイベントにして配る 1 層。
@@ -27,7 +27,7 @@ import { listSchedules, type AccountNamer } from '../schedule/store.ts';
  */
 
 /** この層だけが組む、行のイベント。 */
-export type RowEvent = Extract<ServerEvent, { type: 'schedules.update' | 'session.upsert' | 'session.removed' | 'project.upsert' | 'devices.update' | 'memo.update' | 'artifact.upsert' | 'todos.update' | 'config.update' | 'deleteApprovals.update' | 'peerApprovals.update' }>;
+export type RowEvent = Extract<ServerEvent, { type: 'schedules.update' | 'session.upsert' | 'session.removed' | 'project.upsert' | 'devices.update' | 'artifact.upsert' | 'todos.update' | 'config.update' | 'deleteApprovals.update' | 'peerApprovals.update' }>;
 /** 呼び手が `broadcast` で渡せる知らせ。表の変化に対応しないものだけである。 */
 export type NoticeEvent = Exclude<ServerEvent, RowEvent>;
 
@@ -45,6 +45,8 @@ const KINDS = {
   // 論理削除した行は session.removed にする。画面が Store から外せるようにするためである。行が無いときは何も配らない。
   session: (ctx, id) => {
     const s = getSession(ctx.db, ctx.live(), id, { deviceId: ctx.deviceId });
+    // 非対話の会話（claude -p などのバッチ）は、bootstrap と同じく画面の一覧に入れない。検索の結果が DTO ごと運ぶ。
+    if (s?.headless) return null;
     if (s) return { type: 'session.upsert', session: s };
     return ctx.db.prepare('select 1 from sessions where id = ? and deleted_at is not null').get(id) ? { type: 'session.removed', id } : null;
   },
@@ -54,7 +56,6 @@ const KINDS = {
   deleteApprovals: (ctx) => ({ type: 'deleteApprovals.update', approvals: listDeleteApprovals(ctx.db) }),
   peerApprovals: (ctx) => ({ type: 'peerApprovals.update', approvals: listPeerApprovals(ctx.db, Date.now()) }),
   schedules: (ctx) => ({ type: 'schedules.update', schedules: listSchedules(ctx.db, ctx.deviceId, undefined, ctx.accountName) }),
-  memo: (ctx, id) => { const m = memoFromDb(ctx.db, id); return m ? { type: 'memo.update', memo: m } : null; },
   artifact: (ctx, id) => { const a = getArtifact(ctx.db, id); return a ? { type: 'artifact.upsert', artifact: a } : null; },
   // TODO はプロジェクトの一覧ごと配るので、ID はプロジェクトのものである。
   todos: (ctx, id) => ({ type: 'todos.update', projectId: id, todos: listTodos(ctx.db, id) }),
@@ -115,13 +116,24 @@ const TABLES: Record<string, TableRule> = {
       return r ? [['project', r.project_id]] : [];
     },
   },
-  devices: { to: () => [['devices', '']] },
+  // ほかの PC の行が統括の系譜（様子の orchestrator_ids）を載せていれば、その会話も配り直す。role が付いてサイドバーから外れる（docs/design.md「統括」）。
+  // 自分の行は配り直さない。手元の設定で印はもう付いている。系譜から落ちた id は配り直さない（前の統括の会話は隠したままでよい）。
+  devices: {
+    to: (c, ctx) => {
+      const out: Target[] = [['devices', '']];
+      if (c.rowId === ctx.deviceId) return out;
+      const r = ctx.db.prepare('select status from devices where id = ?').get(c.rowId) as { status: string | null } | undefined;
+      const known = ctx.db.prepare('select 1 from sessions where id = ? and deleted_at is null');
+      for (const id of parseDeviceStatus(r?.status)?.orchestrator_ids ?? []) if (known.get(id)) out.push(['session', id]);
+      return out;
+    },
+  },
   // 設定の同期。束の行（他の PC から降りたもの、この PC が書いたもの）と、状態を動かした名指し（config_state。基準、送らなかった項目、適用の指示書、スイッチ）。
   config_snapshots: { to: () => [['configSync', '']] },
   config_state: { to: () => [['configSync', '']] },
-  // メモの頭は ProjectDto にも載る（memoHead）ので、プロジェクトも配り直す。
+  // プロジェクトのノートはやめたので、降りてきた行は表に入れるだけで何も配らない（古い版の端末の送りを受けるために表は残す）。
   // 同期で降りたメモとアーティファクトは、今の画面では配っていない。その振る舞いを変えないよう、この端末の変化だけにしてある。
-  project_memos: { from: LOCAL, to: (c) => [['memo', c.rowId], ['project', c.rowId]] },
+  project_memos: { from: LOCAL, to: () => [] },
   artifacts: { from: LOCAL, to: self('artifact') },
   // 未完の数は ProjectDto にも載る（openTodoCount）ので、プロジェクトも配り直す。消した行も残っているので、プロジェクトは引ける。
   // 同期で降りた TODO は、メモと同じく、今の画面では配っていない。
@@ -149,7 +161,12 @@ export type PublisherDeps = {
   hub: { broadcast(ev: ServerEvent): void };
   /** 受け手がいるか。いなければ行を読み直さない（起動時の全走査で、誰も受けない DTO を組まないため）。省けば常にいるものとする。 */
   active?: () => boolean;
+  /** 会話の件数の集計（sessionCounts.update）も配るか。省けば配らない（行のイベントだけを見る試験の並びを変えないため）。 */
+  counts?: boolean;
 };
+
+/** 件数の集計（sessionCounts.update）を配る間隔の下限。会話の行は続けて変わる（索引の取り込み、同期の降り）ので、毎回は数え直さない。 */
+export const COUNTS_INTERVAL_MS = 1000;
 
 export class Publisher {
   /** 設定の同期の状態の組み方。同期を組んだ後（boot/sync.ts）に渡される。それまでは何も配らない。 */
@@ -161,6 +178,11 @@ export class Publisher {
   private rows = new Map<string, Extract<Item, { key: string }>>();
   private scheduled = false;
   private off: (() => void) | null;
+  /** 保存期間の日数の読み方。保持期間の口を組んだ後（boot/sync.ts）に渡される。それまでは数えない（null）。 */
+  private retentionDays: () => number | null = () => null;
+  /** 件数を最後に配った時刻と、次に配る予約。 */
+  private countsAt = Number.NEGATIVE_INFINITY;
+  private countsTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly deps: PublisherDeps) {
     this.off = onRowChange((c) => { if (c.db === deps.db) this.onRow(c); });
@@ -168,6 +190,9 @@ export class Publisher {
 
   /** 設定の同期の状態の組み方を渡す。組み立ての順で、配る層のほうが先にできるので、後から渡す。 */
   setConfigSync(read: () => ConfigSyncDto | null): void { this.configSync = read; }
+
+  /** 保存期間の日数の読み方を渡す。件数の集計の「近く消える数」に使う。 */
+  setRetentionDays(read: () => number | null): void { this.retentionDays = read; }
 
   /** 予定のアカウントの表示名の引き方を渡す。 */
   setAccountNamer(namer: AccountNamer): void { this.accountName = namer; }
@@ -218,21 +243,49 @@ export class Publisher {
     this.rows = new Map();
     this.scheduled = false;
     const active = this.deps.active ? this.deps.active() : true;
+    let sessionsMoved = false;
     for (const it of queue) {
       try {
         if ('ev' in it) { this.deps.hub.broadcast(it.ev); continue; }
         if (it.dead || !active) continue;
         const ev = KINDS[it.kind]({ ...this.deps, configSync: this.configSync, accountName: this.accountName }, it.id);
         if (ev) this.deps.hub.broadcast(ev);
+        if (ev && (ev.type === 'session.upsert' || ev.type === 'session.removed')) sessionsMoved = true;
       } catch (e) {
         // 1 つの行が読めなくても、残りは配る。
         console.error('[publisher]', 'ev' in it ? it.ev.type : it.kind, e instanceof Error ? e.message : e);
       }
     }
+    if (sessionsMoved && this.deps.counts) this.countsChanged();
+  }
+
+  /**
+   * 会話の行が変わった。件数の集計を数え直して配る。
+   * 画面は手元に無い行の前の状態を知らないので、件数を自分で足し引きできない。だからサーバが数え直して配る。
+   * 続けて変わるときは、COUNTS_INTERVAL_MS に 1 回までに間引き、間の変化は最後にまとめて 1 回配る。
+   */
+  private countsChanged(): void {
+    if (this.countsTimer !== null) return;
+    const wait = this.countsAt + COUNTS_INTERVAL_MS - Date.now();
+    if (wait <= 0) { this.sendCounts(); return; }
+    this.countsTimer = setTimeout(() => { this.countsTimer = null; this.sendCounts(); }, wait);
+    this.countsTimer.unref?.();
+  }
+
+  private sendCounts(): void {
+    if (!this.off) return;
+    if (this.deps.active && !this.deps.active()) return;
+    this.countsAt = Date.now();
+    try {
+      this.deps.hub.broadcast({ type: 'sessionCounts.update', counts: sessionCounts(this.deps.db, { retentionDays: this.retentionDays(), now: this.countsAt }) });
+    } catch (e) {
+      console.error('[publisher]', 'sessionCounts', e instanceof Error ? e.message : e);
+    }
   }
 
   /** 購読を外し、溜めた分を捨てる。以後は何も配らない。DB を閉じる前に呼ぶ。 */
   stop(): void {
+    if (this.countsTimer !== null) { clearTimeout(this.countsTimer); this.countsTimer = null; }
     this.off?.();
     this.off = null;
     this.queue = [];

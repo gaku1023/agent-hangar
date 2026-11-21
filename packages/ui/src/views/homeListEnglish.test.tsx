@@ -18,6 +18,7 @@ import { SessionRows } from './SessionRows.tsx';
 import { Sidebar } from './Sidebar.tsx';
 import { ToastStack } from './ToastStack.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
+import { sessionDto } from '../test/sessionDto.ts';
 
 /** 言語を英語にしたとき、ホーム、一覧、ヘッダー、サイドバーの文が英語で出る。日本語の文が混ざらないことも見る。 */
 const JAPANESE = /[぀-ヿ㐀-鿿]/;
@@ -29,7 +30,7 @@ const inEnglish = (ui: React.ReactNode) => render(<LanguageRoot language="en"><A
 const noJapanese = (value: string = document.body.textContent ?? '') => expect(value).not.toMatch(JAPANESE);
 const jsonOf = (value: unknown) => JSON.stringify(value);
 
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: null, name: `name-${id}`, cwd: '/w', firstPrompt: null, aiTitle: null, live: 'busy', lastActivityAt: NOW - 5 * MIN, startedAt: NOW - 10 * MIN, hasTranscript: true, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over } as unknown as SessionDto);
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ id, providerSessionId: `u-${id}`, name: `name-${id}`, cwd: '/w', live: 'busy', lastActivityAt: NOW - 5 * MIN, startedAt: NOW - 10 * MIN, hasTranscript: true, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, ...over }) as unknown as SessionDto);
 const storeIn = (list: SessionDto[]): Store => ({ ...initialStore(), bootstrapped: true, settings: { language: 'en' } as SettingsDto, sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
 
 const row = (over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id: 'a', name: 'alpha work', oneLiner: 'one', projectName: null, live: 'waiting', aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 min ago', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, hasTranscript: true, cost: '', runId: null, transcript: 'expiring', state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, menu: { id: 'a', name: 'alpha work', status: over.state ?? null, resumeHere: null, stop: null, moveBlocked: null }, ...over });

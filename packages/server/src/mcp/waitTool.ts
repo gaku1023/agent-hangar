@@ -1,11 +1,11 @@
-import type { LiveSessionDto, MobileWaiting, SessionWaitState } from '@agent-hangar/shared';
+import { sessionPhaseOf, turnPhaseOf, type LiveSessionDto, type MobileWaiting, type SessionPhase, type SessionWaitState } from '@agent-hangar/shared';
 import { waitingOf } from '../agent/waiting.ts';
 import type { Db } from '../db/open.ts';
 import { getSession } from '../db/queries.ts';
 import { msg } from '../i18n/message.ts';
 import { aliveRunForSession } from '../runs/queries.ts';
 import { readEvents } from '../transcript/read.ts';
-import { ToolError, type ToolContext, type ToolDeps } from './tools.ts';
+import { sessionUrl, ToolError, type ToolContext, type ToolDeps } from './tools.ts';
 
 /**
  * wait_for_session の既定の上限（秒）。
@@ -69,6 +69,8 @@ export type WaitResult = {
   reason?: 'not_running' | 'limit';
   /** live の状態。動いていなければ null。 */
   status: LiveSessionDto['status'] | null;
+  /** 画面と同じ見分けの段階（shared の sessionPhaseOf）。 */
+  phase: SessionPhase | null;
   /** 入力待ちの中身。state が waiting のときだけ付く。 */
   waiting?: MobileWaiting;
   /** 最後の assistant の返答。本文が無ければ null。 */
@@ -138,10 +140,11 @@ export async function waitForSessionTool(deps: ToolDeps, ctx: ToolContext, args:
     const waiting = o.waiting ?? (state === 'waiting' && o.live ? waitingOf(deps.db, id, o.live) : null);
     return {
       session_id: id, state, ...(o.reason ? { reason: o.reason } : {}), status: s?.live ?? null,
+      phase: s ? sessionPhaseOf({ live: s.live, status: s.state?.status, parked: s.parked, woke: s.woke, providerSessionId: s.providerSessionId }) : null,
       ...(waiting ? { waiting } : {}), last_message: reply && !stale ? clip(reply.text) : null,
       ...(o.mark ? { turn_started: o.started ?? seenBusy } : {}),
       waited_seconds: Math.round((clock.now() - begun) / 1000),
-      url: `http://127.0.0.1:${deps.port}/#/session/${id}`,
+      url: sessionUrl(deps, id),
     };
   };
 
@@ -153,11 +156,13 @@ export async function waitForSessionTool(deps: ToolDeps, ctx: ToolContext, args:
     const live = deps.live().find((l) => l.sessionId === s.providerSessionId) ?? null;
     const inGrace = mark !== undefined && !seenBusy && now - mark.at < TURN_START_GRACE_MS;
 
-    if (s.live === 'busy') {
+    // 裏だけが動く間（aside）は本体が入力を受け付けているので、ターンの終わりとして下の枝で読む。
+    const phase = turnPhaseOf({ status: s.live, aside: s.liveAside });
+    if (phase === 'running') {
       seenBusy = true;
       idleSince = null;
       goneSince = null;
-    } else if (s.live === null) {
+    } else if (phase === 'none') {
       idleSince = null;
       goneSince ??= now;
       const preparing = mark?.prepKey !== undefined && (deps.runs.prepRunning?.(mark.prepKey) ?? false);

@@ -27,6 +27,11 @@ describe('予定を流す', () => {
     expect([...(args.name as string)]).toHaveLength(40);
   });
 
+  it('新しい会話は、人のいない起動（予定）として起こす', async () => {
+    await launchScheduled(deps(false), { prompt: 'x', target: { kind: 'new', projectId: 'p' }, plannedAt: PLANNED }, clock());
+    expect(vi.mocked(tools.createSessionTool).mock.calls.at(-1)![1]).toMatchObject({ sessionId: null, launchedBy: 'schedule' });
+  });
+
   it.each(['busy', 'waiting', null])('既存の会話が %s なら送らず busy を返す', async (live) => {
     session_.mockReturnValue(session(live));
     vi.mocked(screen.sendToSessionTool).mockClear();

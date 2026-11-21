@@ -222,7 +222,8 @@ export class StopNoticeWatch {
       if (ep.phase === 'done') continue;
       const id = this.idOf(l);
       const s = id ? this.session(live, id, now) : null;
-      if (!s || quietLive(s.live, s.state?.status, s.woke) !== 'waiting') { ep.phase = 'done'; continue; }
+      // ミュートした会話（静かな会話）は、入力待ちも許可待ちも知らせない。
+      if (!s || (s.mutedAt ?? null) !== null || quietLive(s.live, s.state?.status, s.woke) !== 'waiting') { ep.phase = 'done'; continue; }
       const question = s.activity?.question ?? null;
       const push = (body: string, bare: boolean) => this.deps.feed.push({ kind: 'waiting', sessionId: s.id, title: this.titleOf(s), body, bare });
       if (ep.phase === 'bare') {

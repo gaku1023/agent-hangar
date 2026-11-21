@@ -10,6 +10,7 @@ import { presentSession } from './session.ts';
 import { presentSessionList } from './sessions.ts';
 import { presentSettings } from './settings.ts';
 import { parseQuery } from '../lib/searchTokens.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 // 前の版が DB に付けた名前（旧称）。表示がこれを出さないことを見るための見本で、文字コードで書く（noScratchWord.test.ts）。
 const LEGACY = '\u30b9\u30af\u30e9\u30c3\u30c1';
 
@@ -21,8 +22,8 @@ const H = 3_600_000;
 const ja = translator('ja');
 const en = translator('en');
 
-const project = (id: string, name: string, isScratch = false): ProjectDto => ({ id, name, status: 'active', isScratch, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - H, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const session = (id: string, projectId: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId, name: id, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: NOW - 2 * H, lastActivityAt: NOW - H, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over });
+const project = (id: string, name: string, isScratch = false): ProjectDto => ({ id, name, status: 'active', isScratch, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - H, runningCount: 0, openTodoCount: 0, updatedAt: 1 });
+const session = (id: string, projectId: string, over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ id, providerSessionId: 'u' + id, projectId, name: id, cwd: '/w', startedAt: NOW - 2 * H, lastActivityAt: NOW - H, hasTranscript: true, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, ...over }));
 const storeOf = (language: 'ja' | 'en', over: Partial<Store> = {}): Store => ({
   ...initialStore(), bootstrapped: true, settings: { language } as unknown as SettingsDto,
   projects: { alpha: project('alpha', 'alpha'), sc: project('sc', LEGACY, true) },

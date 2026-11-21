@@ -98,6 +98,9 @@
 .drawer-tail { border-top: 1px solid var(--line); }
 .guide-mark { flex: none; display: inline-flex; color: var(--accent); }
 .guide-mark .icon { width: 16px; height: 16px; }
+/* 統括の未読の行の先頭。サイドバーの「統括」の行と同じ絵。 */
+.orch-mark { flex: none; display: inline-flex; color: var(--accent); }
+.orch-mark .icon { width: 16px; height: 16px; }
 .crow[data-k='guide'] .c-name { max-width: 55%; }
 .crow[data-k='guide'] .c-text { color: var(--ink-3); }
 .crow .btn[data-copied] { color: var(--st-done); }

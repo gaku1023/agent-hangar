@@ -68,6 +68,7 @@ export const schedulesKeys = {
   'schedules.event.heldHourly': ['max'],
   'schedules.event.wakeFailed': ['title'],
   'schedules.event.error.invalid': [],
+  'schedules.event.error.off': [],
   'schedules.event.error.max': ['max'],
   'schedules.event.error.notFound': [],
   'schedules.event.error.badState': [],

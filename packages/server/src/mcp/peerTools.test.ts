@@ -1,14 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// SSH は今回のリリースで止めている。有効にした状態で試す。
-vi.mock('../peer/ssh/enabled.ts', () => ({ PEER_SSH_ENABLED: true, whenPeerSshEnabled: <T>(f: () => T) => f() }));
 import { deriveEpochKeys, openPeerLaunch, randomEpochKey, type DeviceStatus, type LiveSessionDto, type PeerKeyring, type PeerLaunchApi } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { getPeerRequest } from '../peer/outbox.ts';
 import { PEER_ONLINE_MS, type PeerCallDeps } from '../peer/caller.ts';
-import { PeerSshConnectError } from '../peer/ssh/link.ts';
 import { aliveRunForSession } from '../runs/queries.ts';
 import { recordSpawn } from '../sessions/spawns.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
@@ -121,12 +118,12 @@ describe('create_session の device', () => {
 
   it('同じプロジェクトなら封じて頼みを置き、記録して requested を返す。名前でも ID でも引ける', async () => {
     putPeer();
-    const r = await call('create_session', { device: 'mac', prompt: 'やって', name: 'w', auto_approve: true, permission_mode: 'acceptEdits' });
+    const r = await call('create_session', { device: 'mac', prompt: 'やって', name: 'w', auto_approve: true, permission_mode: 'acceptEdits', silent: true });
     expect(r).toMatchObject({ status: 'requested', request_id: 'req-1' });
     const put = a.wire.peerLaunches.get('req-1')!;
     expect(put).toMatchObject({ to: PEER, from: ME, status: 'pending' });
     const req = await openPeerLaunch(ring, { requestId: 'req-1', from: ME, to: PEER }, put.sealed);
-    expect(req).toMatchObject({ parentSessionId: caller, projectId: 'p1', scratch: false, agent: 'claude-code', prompt: 'やって', name: 'w', permissionMode: 'acceptEdits', autoApprove: true, account: '' });
+    expect(req).toMatchObject({ parentSessionId: caller, projectId: 'p1', scratch: false, agent: 'claude-code', prompt: 'やって', name: 'w', permissionMode: 'acceptEdits', autoApprove: true, silent: true, account: '' });
     expect(getPeerRequest(db, 'req-1')).toMatchObject({ to_device: PEER, caller_session_id: caller, state: 'requested' });
     const r2 = await call('create_session', { device: PEER, prompt: 'もう一つ' });
     expect(r2.status).toBe('requested');
@@ -231,66 +228,37 @@ describe('create_session の device', () => {
   });
 });
 
-describe('create_session の device（SSH の予備、受け入れ 17・18）', () => {
-  const sshStatus = () => status({ ssh_host_key: 'SHA256:abc' });
-  const puts: string[] = [];
-  const withSsh = (api: PeerLaunchApi): void => {
-    puts.length = 0;
-    deps.peer!.ssh = { registered: () => true, api: () => api, ring: () => async () => ring, tokensReady: () => true };
-  };
-  const sshApi = (over: Partial<PeerLaunchApi> = {}): PeerLaunchApi => ({ ...a.peerLaunch, put: async (b) => { puts.push(b.id); return { id: b.id, to: b.to, status: 'pending', sealedAnswer: null, resultSeq: 0, updatedAt: NOW }; }, ...over });
+describe('create_session の device（経路はクラウドだけ、受け入れ 17）', () => {
+  // 相手が SSH のホスト鍵と宛先を知らせていても、SSH の予備の経路は無い。
+  const withHostKey = () => status({ ssh_host_key: 'SHA256:abc' });
 
-  it('クラウドに入っていなければ SSH で頼み、経路を ssh と記録する。クラウドには置かない', async () => {
-    putPeer({ status: sshStatus() });
-    linkOk = false;
-    withSsh(sshApi());
-    expect(await call('create_session', { device: 'Mac' })).toMatchObject({ status: 'requested', request_id: 'req-1' });
-    expect(puts).toEqual(['req-1']);
-    expect(a.wire.peerLaunches.size).toBe(0);
-    expect(getPeerRequest(db, 'req-1')).toMatchObject({ via: 'ssh', state: 'requested' });
-  });
-
-  it('両方が参加していれば、SSH が登録済みでもクラウドで頼み、経路は cloud', async () => {
-    putPeer({ status: sshStatus() });
-    withSsh(sshApi());
+  it('両方が参加していれば、クラウドで頼み、経路は cloud', async () => {
+    putPeer({ status: withHostKey() });
     expect(await call('create_session', { device: 'Mac' })).toMatchObject({ status: 'requested' });
-    expect(puts).toEqual([]);
     expect(a.wire.peerLaunches.has('req-1')).toBe(true);
     expect(getPeerRequest(db, 'req-1')).toMatchObject({ via: 'cloud' });
   });
 
-  it('指紋の食い違いは ssh-host-key-mismatch で断る。何も記録せず、クラウドへも乗り換えない', async () => {
-    putPeer({ status: sshStatus() });
+  it('手元がクラウドに未参加なら、SSH に落とさず device-offline で断り、何も置かない', async () => {
+    putPeer({ status: withHostKey() });
     linkOk = false;
-    withSsh(sshApi({ put: () => Promise.reject(new PeerSshConnectError('ssh-host-key-mismatch')) }));
-    expect(await call('create_session', { device: 'Mac' })).toMatchObject({ status: 'refused', reason: 'ssh-host-key-mismatch' });
+    expect(await call('create_session', { device: 'Mac' })).toMatchObject({ status: 'refused', reason: 'device-offline' });
     expect(getPeerRequest(db, 'req-1')).toBeNull();
     expect(a.wire.peerLaunches.size).toBe(0);
   });
 
-  it('つながらなければ ssh-unreachable で断る', async () => {
-    putPeer({ status: sshStatus() });
-    linkOk = false;
-    withSsh(sshApi({ put: () => Promise.reject(new PeerSshConnectError('ssh-unreachable', 'network')) }));
-    expect(await call('create_session', { device: 'Mac' })).toMatchObject({ status: 'refused', reason: 'ssh-unreachable' });
-    expect(getPeerRequest(db, 'req-1')).toBeNull();
-  });
-
-  it('両方が参加していて相手が online でなければ、SSH が登録済みでも device-offline（SSH に落とさない）', async () => {
-    putPeer({ status: sshStatus(), lastSeen: NOW - PEER_ONLINE_MS - 1 });
-    withSsh(sshApi());
+  it('両方が参加していて相手が online でなければ、device-offline', async () => {
+    putPeer({ status: withHostKey(), lastSeen: NOW - PEER_ONLINE_MS - 1 });
     expect(await call('create_session', { device: 'Mac' })).toMatchObject({ status: 'refused', reason: 'device-offline' });
-    expect(puts).toEqual([]);
   });
 
-  it('list_devices の via は、クラウドに未参加のときだけ ssh を出す', async () => {
-    putPeer({ status: sshStatus() });
-    withSsh(sshApi());
+  it('list_devices の via は cloud だけで、未参加なら空', async () => {
+    putPeer({ status: withHostKey() });
     const r = (await call('list_devices')) as unknown as { devices: { via: string[] }[] };
     expect(r.devices[0]!.via).toEqual(['cloud']);
     linkOk = false;
     const r2 = (await call('list_devices')) as unknown as { devices: { via: string[] }[] };
-    expect(r2.devices[0]!.via).toEqual(['ssh']);
+    expect(r2.devices[0]!.via).toEqual([]);
   });
 });
 
@@ -320,23 +288,6 @@ describe('send_to_session と stop_session の別の PC への頼み（D16）', 
     const r = await call('stop_session', { session_id: id });
     expect(r).toMatchObject({ status: 'requested', request_id: 'req-1' });
     expect(await open()).toMatchObject({ op: 'stop', targetSessionId: id, prompt: '' });
-  });
-
-  it('SSH の経路の send は経路を ssh と記録し、張れなければ ssh-unreachable で断る', async () => {
-    putPeer({ status: status({ ssh_host_key: 'SHA256:abc' }) });
-    linkOk = false;
-    const id = spawned();
-    const puts: string[] = [];
-    let fail = false;
-    const api: PeerLaunchApi = { ...a.peerLaunch, put: async (b) => { if (fail) throw new PeerSshConnectError('ssh-unreachable'); puts.push(b.id); return { id: b.id, to: b.to, status: 'pending', sealedAnswer: null, resultSeq: 0, updatedAt: NOW }; } };
-    deps.peer!.ssh = { registered: () => true, api: () => api, ring: () => async () => ring, tokensReady: () => true };
-    expect(await call('send_to_session', { session_id: id, text: '続けて' })).toMatchObject({ status: 'requested' });
-    expect(puts).toEqual(['req-1']);
-    expect(getPeerRequest(db, 'req-1')).toMatchObject({ op: 'send', via: 'ssh' });
-    fail = true;
-    deps.peer!.newId = () => 'req-2';
-    expect(await call('stop_session', { session_id: id })).toMatchObject({ status: 'refused', reason: 'ssh-unreachable' });
-    expect(getPeerRequest(db, 'req-2')).toBeNull();
   });
 
   it('sessions の行が同期で届く前でも、結び付きの行だけで send と stop が requested になる', async () => {

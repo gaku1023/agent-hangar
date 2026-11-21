@@ -64,6 +64,8 @@ function parts(shell: HTMLElement): Parts {
     items: [
       ...[...shell.querySelectorAll<HTMLElement>('.sidebar .nav-item')].map((el) => ({ box: el, icon: el.querySelector('svg'), label: el.querySelector<HTMLElement>('.nav-label'), edge: false })),
       ...[...shell.querySelectorAll<HTMLElement>('.sidebar .sidebar-toggle')].map((el) => ({ box: el, icon: el.querySelector('svg'), label: null, edge: true })),
+      // 戻る・進むも開閉のボタンと同じく、ホームの行の右端から帯の上のほうへ移す。
+      ...[...shell.querySelectorAll<HTMLElement>('.sidebar .nav-history-btn')].map((el) => ({ box: el, icon: el.querySelector('svg'), label: null, edge: true })),
     ],
   };
 }

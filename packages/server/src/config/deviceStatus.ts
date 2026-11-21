@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os, { type NetworkInterfaceInfo } from 'node:os';
 import path from 'node:path';
-import { DEVICE_OPENCODE_MODELS_MAX, parseDeviceStatus, type DeviceAccountStatus, type DeviceOpencodeStatus, type DeviceStatus, type OpencodeOptionsDto, type PeerDeviceStatus } from '@agent-hangar/shared';
+import { DEVICE_OPENCODE_MODELS_MAX, orchestratorIdsOf, parseDeviceStatus, type DeviceAccountStatus, type DeviceOpencodeStatus, type DeviceStatus, type OpencodeOptionsDto, type PeerDeviceStatus } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import type { DeviceInfo } from './paths.ts';
@@ -23,6 +23,8 @@ export type StatusSources = {
   version: string;
   /** 手元に持った opencode の選択肢（取りに行かない）。まだ取れていなければ null。省けば載せない。 */
   opencode?: () => OpencodeOptionsDto | null;
+  /** この PC が宿主になった統括の系譜（設定の orchestrator の sessionId と history）。省けば載せない。 */
+  orchestratorIds?: () => readonly string[];
 };
 
 /** ほかの PC に見せる opencode の一覧を取り直す間。取り直すと serve を起こすことがある（1〜2 秒）ので、様子の調べ直し（5 分）より長くする。 */
@@ -64,6 +66,7 @@ const byName = (a: DeviceAccountStatus, b: DeviceAccountStatus): number => (a.ag
 export function collectDeviceStatus(s: StatusSources): DeviceStatus {
   const agents = [...new Set(s.agents())].sort();
   const opencode = agents.includes('opencode') ? s.opencode?.() ?? null : null;
+  const orchestratorIds = orchestratorIdsOf(s.orchestratorIds?.() ?? []);
   return {
     accounts: [...s.accounts()].sort(byName),
     agents,
@@ -71,6 +74,7 @@ export function collectDeviceStatus(s: StatusSources): DeviceStatus {
     ssh_host_key: s.hostKey(),
     hangar_version: s.version,
     ...(opencode ? { opencode: deviceOpencodeOf(opencode) } : {}),
+    ...(orchestratorIds.length > 0 ? { orchestrator_ids: orchestratorIds } : {}),
   };
 }
 
@@ -157,6 +161,8 @@ export function liveStatusSources(o: {
   version: string;
   /** 手元に持った opencode の選択肢（OpencodeOptionsService の last）。 */
   opencode?: () => OpencodeOptionsDto | null;
+  /** 統括の系譜（設定の orchestrator から）。 */
+  orchestratorIds?: () => readonly string[];
 }): StatusSources {
   const rows = (agent: DeviceAccountStatus['agent'], store: AuthedStore): DeviceAccountStatus[] =>
     store.list().map((a) => {
@@ -171,5 +177,6 @@ export function liveStatusSources(o: {
     hostKey: () => hostKeyFingerprint(process.platform, process.env),
     version: o.version,
     ...(o.opencode ? { opencode: o.opencode } : {}),
+    ...(o.orchestratorIds ? { orchestratorIds: o.orchestratorIds } : {}),
   };
 }

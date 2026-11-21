@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { isAgentKind, type CodexPermission, prepChoiceOf, type OrchestratorSetting, LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE, newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
+import { isAgentKind, isLaunchedBy, isTurnWorking, turnPhaseOf, type CodexPermission, prepChoiceOf, type OrchestratorSetting, LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE, newId, runTmuxId, type EndReason, type ResumeStray, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
 import type { Account } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
@@ -98,6 +98,8 @@ const GONE_WAIT_MS = 5_000;
  * Windows の psmux は、CPU を使い切っているセッションの返事が遅れると、一覧からそのセッションだけが一瞬抜ける（issue #258）。
  */
 const MISSES_TO_END = 2;
+const PENDING_STALE_MS = 30 * 60_000;
+const PENDING_SWEEP_MS = 60_000;
 /**
  * hangar が持つ serve につながる run（opencode）の、TUI の包みが終わったかを見る間隔。
  * opencode の TUI が閉じても Claude の登録のようには何も変わらず stir されないので、待機の周期（RUN_IDLE_POLL_MS）で 2 回抜けるのを待つと 5〜19 秒かかっていた。
@@ -186,7 +188,8 @@ export class RunManager {
   /** 引き取りの途中のセッション。二度押しで元のプロセスを止めて移す手順が 2 本走らないようにする。 */
   private adopting = new Set<string>();
   /** 区切りを付けたので落としにいった run。tmux から消えたのを見たときに、終わり方を parked と書くために持つ。 */
-  private parking = new Set<string>();
+  private lastPendingSweep = 0;
+  private parking = new Map<string, 'parked' | 'killed'>();
   /** startOrchestrator が起こしている会話の id。設定の sessionId に書かれるまでの間も、baseInput が統括として扱うため。 */
   private orchestrating = new Set<string>();
   /**
@@ -386,12 +389,13 @@ export class RunManager {
    * 直前の run がほかの PC なら引き継ぎの段を、プロジェクトを 2 台以上の PC で使っていれば弱い 1 文を足す（runs/handover.ts）。
    * 段（InjectionEntry）に分けて返し、どう渡すかは driver が決める（Claude は段をつないで --append-system-prompt に渡す）。
    */
-  private injectionFor(projectId: string | null, cwd: string, handoverFrom?: string, agent: AgentKind = DEFAULT_AGENT): InjectionEntry[] {
+  private injectionFor(projectId: string | null, cwd: string, handoverFrom?: string, agent: AgentKind = DEFAULT_AGENT, launchedBy?: unknown): InjectionEntry[] {
     const p = projectId ? this.project(projectId) : null;
     const todos = projectId ? (this.db.prepare('select id, text from todos where project_id = ? and done = 0 and suggested_at is null and deleted_at is null order by position limit 10').all(projectId) as { id: string; text: string }[]) : [];
     const handover = handoverFrom ? handoverFacts(this.db, { sessionId: handoverFrom, selfDeviceId: this.deps.deviceId, cwd }) : null;
     const deviceCount = projectId ? projectDeviceCount(this.db, projectId) : 0;
-    const input = { projectName: p?.name ?? this.tr('project.name.uncategorized'), projectPath: cwd, todos, handover, deviceCount };
+    // 人のいない起動元は、知っている値だけを読む。画面の POST /api/runs から知らない値が来ても、人の起動として扱う。
+    const input = { projectName: p?.name ?? this.tr('project.name.uncategorized'), projectPath: cwd, todos, handover, deviceCount, ...(isLaunchedBy(launchedBy) ? { launchedBy } : {}) };
     const parts = this.deps.injection?.() ?? DEFAULT_INJECTION_PARTS;
     // opencode に足す量は設定の opencodeInjection で選ぶ（launch/injection.ts の renderOpencodeInjectionEntries）。
     if (agent === 'opencode') return renderOpencodeInjectionEntries(input, this.language(), parts, parts.opencode);
@@ -504,7 +508,7 @@ export class RunManager {
       cwd,
       hangarSessionId: sessionId,
       mcp: { url: this.mcpUrl(sessionId), secret },
-      instructions: this.injectionFor(projectId, cwd, handoverFrom, agent),
+      instructions: this.injectionFor(projectId, cwd, handoverFrom, agent, params.launchedBy),
       name: s(params.name),
       prompt: s(params.prompt),
       model: s(params.model),
@@ -720,7 +724,8 @@ export class RunManager {
   private end(runId: string, reason: EndReason): RunDto | null {
     const row = this.db.prepare('select * from runs where id = ? and deleted_at is null').get(runId) as Record<string, unknown> | undefined;
     if (!row || row.ended_at !== null) return null;
-    upsertShared(this.db, 'runs', { ...row, ended_at: this.now(), end_reason: reason }, this.deps.deviceId);
+    // 終わった run に live_status を残さない。他の PC の読み手が、終わった run を作業中と読まないようにする。
+    upsertShared(this.db, 'runs', { ...row, ended_at: this.now(), end_reason: reason, live_status: null, live_reason: null, live_at: null }, this.deps.deviceId);
     this.liveShare.forget(runId);
     this.parking.delete(runId);
     this.misses.delete(runId);
@@ -769,6 +774,25 @@ export class RunManager {
     softDeleteShared(this.db, 'sessions', run.sessionId, this.deps.deviceId);
   }
 
+  /**
+   * 起動の途中で落ちて残った、仮の ID（pending:…）のままの行を片付ける。
+   * 仮の ID は、準備中、起動中、画面をつないだ後の ID 待ちの 3 つの段で使う。どの段でも、起動が成功すれば run が生きるか、本当の ID に替わる。
+   * 長く経っても run が 1 本も無く、仮の ID のままなら、準備の途中でサーバが落ちたか、画面を開く前に失敗したものである。
+   * run が終わったあとに仮の ID のまま残った行（最初の入力の前に終わった Codex の会話）は、終了の札を出すので消さない。
+   * 本文は生まれていないので、行を消す。1 分に 1 回だけ見る。
+   */
+  sweepStalePending(): void {
+    const now = this.now();
+    if (now - this.lastPendingSweep < PENDING_SWEEP_MS) return;
+    this.lastPendingSweep = now;
+    const rows = this.db.prepare(`select s.id from sessions s where s.deleted_at is null and s.provider_session_id like 'pending:%' and s.home_device = ? and s.started_at < ?
+      and not exists (select 1 from runs r where r.session_id = s.id and r.deleted_at is null)`).all(this.deps.deviceId, now - PENDING_STALE_MS) as { id: string }[];
+    for (const { id } of rows) {
+      revokeMcpSecret(this.db, id);
+      softDeleteShared(this.db, 'sessions', id, this.deps.deviceId);
+    }
+  }
+
   /** そのエージェントを起こしてよいか。Claude Code はいつでも起こせる。MCP の create_session が start の前に断るために読む。 */
   agentEnabled(kind: AgentKind): boolean {
     return kind === DEFAULT_AGENT || (this.deps.agentEnabled?.(kind) ?? false);
@@ -780,6 +804,11 @@ export class RunManager {
    */
   async start(params: LaunchParams, hooks: LaunchHooks = {}): Promise<LaunchResult> {
     const agent = this.agentKindOf(params.agent);
+    // 「この会話の続きから」。元の会話のプロジェクトと cwd で分岐して起こす（Claude Code だけ）。
+    if (params.fork !== undefined) {
+      if (agent !== DEFAULT_AGENT) throw new RunError(400, msg('run.agent.forkClaudeOnly'));
+      return this.fork(params.fork, params);
+    }
     const r = agent === DEFAULT_AGENT ? await this.startClaude(params) : await this.startMaterialized(agent, params, undefined, hooks);
     if (!params.scratch && params.projectId) this.unarchive(params.projectId);
     return r;
@@ -1254,13 +1283,15 @@ export class RunManager {
   }
 
   /** 新しい sessions 行を作り、claude -r <uuid> --fork-session --session-id <new> で起動する。名前は Claude が本文から引き継ぐ（索引が sessions.custom_title に拾う）ので、hangar の名前は付けない。 */
-  fork(sessionId: string): LaunchResult {
+  fork(sessionId: string, params: LaunchParams = {}): LaunchResult {
     const s = this.session(sessionId);
     this.assertCan(s, 'fork');
     this.assertResumable(s);
+    // 続きから始めるときも、アカウントは元の会話を最後に動かしたもの（本文の置き場がそのアカウントにある）。
     const account = this.accounts.lastUsed(s.id);
     // リンクの確かめも行を作る前に済ませる。壊れていると、本文の無い行が残る。
     this.accounts.envFor(account);
+    this.addDirs(params);
     // 新しい行を作る前に起動できるかを確かめる。失敗しても本文の無いセッションが残らないようにするため。
     // フォークした本文はこの PC の cwd の置き場に生まれるので、新しい行の cwd は読み替えた方にする。
     // ほかの PC のクイックセッションのフォルダは、この確かめが通ってから作る（precheck の create）。
@@ -1275,9 +1306,16 @@ export class RunManager {
     // 利用者が移した会話なら、新しい会話にも移した印を写す（sessions/move.ts）。写さないと、索引の自動の振り分けが cwd から元のプロジェクトへ戻す。
     const pin = pinnedProjectOf(this.db, s.id);
     if (pin !== null) setSessionPlacement(this.db, this.deps.deviceId, newSessionId, pin);
-    const base = this.baseInput(newSessionId, s.project_id, cwd, {}, s.id, { account });
+    // 続きから始めるときに渡せるのは、名前、本文、モデル、effort、権限、追加ディレクトリ。
+    // worktree は cwd を替えるので、元の本文を探せなくなる。プロジェクトと cwd も元の会話のままにする。
+    const { name, prompt, model, effort, permissionMode, addDirs } = params;
+    const given = { ...(name ? { name } : {}), ...(prompt ? { prompt } : {}), ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(permissionMode ? { permissionMode } : {}), ...(addDirs ? { addDirs } : {}) };
+    const base = this.baseInput(newSessionId, s.project_id, cwd, given, s.id, { account });
+    const dropsDir = path.join(this.deps.home, 'drops');
+    const dirs = promptMentionsDrops(prompt, dropsDir) && !base.addDirs?.includes(dropsDir) ? [...(base.addDirs ?? []), dropsDir] : base.addDirs;
+    if (name?.trim()) setSessionName(this.db, this.deps.deviceId, newSessionId, name.trim());
     const bin = this.claudeBin();
-    return this.launch({ sessionId: newSessionId, cwd, kind: 'fork', plan: (env) => driver.launch.plan(bin, { kind: 'fork', id: s.provider_session_id, newId: newUuid }, { ...base, env }), params: { projectId: s.project_id ?? undefined }, account });
+    return this.launch({ sessionId: newSessionId, cwd, kind: 'fork', plan: (env) => driver.launch.plan(bin, { kind: 'fork', id: s.provider_session_id, newId: newUuid }, { ...base, addDirs: dirs, env }), params: { projectId: s.project_id ?? undefined, ...given }, account });
   }
 
   /** fork が materialize（ID を後から受ける）の道を通る会話か。http の入口が fork と forkMaterialized を呼び分ける。 */
@@ -1407,7 +1445,8 @@ export class RunManager {
     const l = this.liveOf(s.provider_session_id);
     if (!l) throw new RunError(409, msg('run.adopt.notRunning'));
     if (l.background) return this.attach(s.id);
-    if (l.status === 'busy') throw new RunError(409, msg('run.adopt.busy'));
+    // 裏だけが動く間も、動いている事実として引き取りを断る。
+    if (isTurnWorking(turnPhaseOf(l))) throw new RunError(409, msg('run.adopt.busy'));
     if (l.entrypoint !== 'cli') throw new RunError(409, msg('run.adopt.notCli'));
     if (this.adopting.has(s.id)) throw new RunError(409, msg('run.adopt.inProgress'));
     this.precheck(s.cwd);
@@ -1450,6 +1489,7 @@ export class RunManager {
 
   /** tmux の一覧を 1 回読み、消えた run とタブを閉じ、古い heartbeat を更新する。 */
   tick(listedNow?: string[] | null): { ended: RunDto[]; closedTabs: TabDto[] } {
+    this.sweepStalePending();
     // tmux が無いのも、tmux を呼べなかったのも「観測できない」であって「動いていない」ではない。
     // ここで一覧を空と見なすと、設定から tmuxPath を外した瞬間や、
     // tmux のバイナリが一瞬消えた隙に、実際には動いている run が全部 exited になって二度と戻らない。
@@ -1482,8 +1522,9 @@ export class RunManager {
     const lost: RunDto[] = [];
     for (const run of alive) {
       if (!names.has(run.tmuxName)) {
-        if (this.parking.has(run.id)) {
-          const e = this.end(run.id, 'parked');
+        const parkedAs = this.parking.get(run.id);
+        if (parkedAs) {
+          const e = this.end(run.id, parkedAs);
           if (e) ended.push(e);
           continue;
         }
@@ -1734,7 +1775,17 @@ export class RunManager {
     if (run.endedAt !== null) throw new RunError(409, msg('run.error.alreadyEnded'));
     for (const t of listTabs(this.db, runId)) if (t.kind === 'shell') this.closeTab(t.id);
     this.release(run.sessionId, 'killed');
-    this.deps.panes?.close(run.tmuxName);
+    const panes = this.deps.panes;
+    panes?.close(run.tmuxName);
+    // 落とせたことを一覧で確かめてから閉じる（park と同じ）。まだ残っているなら、見回りが消えたのを見てから閉じる。
+    // 確かめずに閉じると、動いている画面を hangar が見失い、同じセッションの二重起動を許してしまう。
+    if (panes && reason === 'killed') {
+      const listed = panes.list();
+      if (listed !== null && listed.includes(run.tmuxName)) {
+        this.parking.set(runId, 'killed');
+        return run;
+      }
+    }
     return this.end(runId, reason) ?? run;
   }
 
@@ -1751,7 +1802,7 @@ export class RunManager {
     // tmux が無ければ run には触らない。止められていないのに run を閉じると、動いている claude を hangar が見失う。
     if (!run || !panes) return background;
     panes.close(run.tmuxName);
-    this.parking.add(run.id);
+    this.parking.set(run.id, 'parked');
     // 落とせたことを一覧で確かめてから閉じる。確かめられなければ、次の見回り（tick）に任せる。
     // すぐ閉じるのは、claude が登録から消えてから見回りが来るまでの間、画面に「起動しています」と出さないためである。
     const listed = panes.list();

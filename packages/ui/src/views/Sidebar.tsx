@@ -667,12 +667,36 @@ function LiveSection(props: { live: SideLiveProps }) {
 
 /** 開閉の吹き出しに出す打鍵の行。会話の画面でも効く打鍵を出す（keys.ts の anywhereKeys）。 */
 const SIDEBAR_KEYS = KEYMAP.find((k) => k.id === 'sidebar.toggle')!;
+const BACK_KEYS = KEYMAP.find((k) => k.id === 'nav.back')!;
+const FORWARD_KEYS = KEYMAP.find((k) => k.id === 'nav.forward')!;
+
+/**
+ * 履歴の戻る・進む（案 3）。開閉のボタンの手前に、いつも 2 つ並べる。行けないほうは消さずに薄くし、押しても何もしない。
+ * 置き場所を変えないのは、別の会話へ飛んだ後に戻る手を、いつも同じ所で探せるようにするためである。
+ * 題の上の「↩ 起動元」（親へ行く）とは、段も場所も分けて紛れないようにする。
+ * disabled にせず aria-disabled にするのは、薄いときも吹き出しで何のボタンかを読めるようにするためである。
+ */
+function HistoryButtons(props: { back: boolean; forward: boolean }) {
+  const emit = useEmit();
+  const t = useT();
+  const one = (dir: 'back' | 'forward') => {
+    const can = dir === 'back' ? props.back : props.forward;
+    const label = t(dir === 'back' ? 'shortcuts.key.navBack' : 'shortcuts.key.navForward');
+    return (
+      <button type="button" className="btn nav-history-btn" aria-label={label} aria-disabled={can ? undefined : 'true'} aria-keyshortcuts={ariaKeyShortcuts(dir === 'back' ? 'nav.back' : 'nav.forward')} onClick={() => { if (can) emit({ type: dir === 'back' ? 'nav.back' : 'nav.forward' }); }}>
+        <Icon name={dir === 'back' ? 'chevronLeft' : 'chevron'} />
+        <span className="toggle-tip" aria-hidden="true">{label}<kbd>{anywhereKeys(dir === 'back' ? BACK_KEYS : FORWARD_KEYS)}</kbd></span>
+      </button>
+    );
+  };
+  return <span className="nav-history">{one('back')}{one('forward')}</span>;
+}
 
 /**
  * サイドバー。上から「ホーム」「プロジェクト」の 2 項目、「実行中」の節、下端の「設定」の順に置く（設計書 2.1）。
  * 設定は foot で受け取り、残りの高さの底に寄せる。
  */
-export function Sidebar(props: { nav: NavItem[]; foot: NavItem[]; collapsed: boolean; live: SideLiveProps; orch?: OrchestratorNavProps | null }) {
+export function Sidebar(props: { nav: NavItem[]; foot: NavItem[]; collapsed: boolean; live: SideLiveProps; orch?: OrchestratorNavProps | null; history?: { back: boolean; forward: boolean } }) {
   const emit = useEmit();
   const t = useT();
   const item = (n: NavItem) => (
@@ -686,7 +710,7 @@ export function Sidebar(props: { nav: NavItem[]; foot: NavItem[]; collapsed: boo
     <nav id="sidebar" className="sidebar" aria-label={t('sidebar.nav.label')}>
       {/* ロゴはヘッダへ移した。開閉のボタンは、開いた帯では最初の項目（ホーム）の行の右端に、畳んだ帯では帯の一番上に置く（base.css の .nav-row）。開閉の間は、その 2 か所を滑って移る。
           2 つの形は CSS だけで作り、DOM の組み立ては変えない。開閉の動きは、開閉の印だけを一瞬戻して前の形を測るからである（sidebarMotion.ts）。 */}
-      <div className="nav-row">{first && item(first)}{toggle}</div>
+      <div className="nav-row">{first && item(first)}<HistoryButtons back={props.history?.back ?? false} forward={props.history?.forward ?? false} />{toggle}</div>
       {rest.map(item)}
       {props.orch && <OrchestratorNavRow orch={props.orch} />}
       <LiveSection live={props.live} />

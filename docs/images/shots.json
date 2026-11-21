@@ -1,86 +1,86 @@
 {
   "agents": {
-    "commit": "b66a4342bfa01f8476506c3c8269c30981adeefa",
-    "shotAt": "2026-11-01T17:28:18.567Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.470Z",
     "file": "docs/images/agents.webp",
-    "bytes": 1541260
+    "bytes": 1043656
   },
   "attention": {
-    "commit": "b66a4342bfa01f8476506c3c8269c30981adeefa",
-    "shotAt": "2026-11-01T17:28:43.355Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.480Z",
     "file": "docs/images/attention.webp",
-    "bytes": 2935524
+    "bytes": 2953074
   },
   "drop": {
-    "commit": "b66a4342bfa01f8476506c3c8269c30981adeefa",
-    "shotAt": "2026-11-01T17:29:04.333Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.484Z",
     "file": "docs/images/drop.webp",
-    "bytes": 784178
+    "bytes": 723072
   },
   "hero": {
-    "commit": "b66a4342bfa01f8476506c3c8269c30981adeefa",
-    "shotAt": "2026-11-01T17:29:23.437Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.487Z",
     "file": "docs/images/hero.webp",
-    "bytes": 1030836
+    "bytes": 935570
   },
   "mobile": {
-    "commit": "b66a4342bfa01f8476506c3c8269c30981adeefa",
-    "shotAt": "2026-11-01T17:29:47.849Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.489Z",
     "file": "docs/images/mobile.webp",
-    "bytes": 1120732
+    "bytes": 1136578
   },
   "new-session": {
-    "commit": "b66a4342bfa01f8476506c3c8269c30981adeefa",
-    "shotAt": "2026-11-01T17:30:22.970Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.492Z",
     "file": "docs/images/new-session.webp",
-    "bytes": 1425958
+    "bytes": 1143960
   },
   "palette": {
-    "commit": "b66a4342bfa01f8476506c3c8269c30981adeefa",
-    "shotAt": "2026-11-01T17:30:37.118Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.496Z",
     "file": "docs/images/palette.webp",
-    "bytes": 699888
+    "bytes": 684156
   },
   "projects": {
-    "commit": "b66a4342bfa01f8476506c3c8269c30981adeefa",
-    "shotAt": "2026-11-01T17:30:42.923Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.498Z",
     "file": "docs/images/projects.png",
-    "bytes": 560636
+    "bytes": 559112
   },
   "schedules": {
-    "commit": "b66a4342bfa01f8476506c3c8269c30981adeefa",
-    "shotAt": "2026-11-01T17:41:56.691Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.501Z",
     "file": "docs/images/schedules.webp",
-    "bytes": 586450
+    "bytes": 592128
   },
   "search": {
-    "commit": "b66a4342bfa01f8476506c3c8269c30981adeefa",
-    "shotAt": "2026-11-01T17:31:12.745Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.502Z",
     "file": "docs/images/search.webp",
-    "bytes": 800492
+    "bytes": 782118
   },
   "split": {
-    "commit": "b66a4342bfa01f8476506c3c8269c30981adeefa",
-    "shotAt": "2026-11-01T17:31:34.245Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.508Z",
     "file": "docs/images/split.webp",
-    "bytes": 1553884
+    "bytes": 1437438
   },
   "todo": {
-    "commit": "b66a4342bfa01f8476506c3c8269c30981adeefa",
-    "shotAt": "2026-11-01T17:31:52.433Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.511Z",
     "file": "docs/images/todo.webp",
-    "bytes": 651964
+    "bytes": 695778
   },
   "usage": {
-    "commit": "b66a4342bfa01f8476506c3c8269c30981adeefa",
-    "shotAt": "2026-11-01T17:32:02.131Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.511Z",
     "file": "docs/images/usage.webp",
-    "bytes": 146414
+    "bytes": 149800
   },
   "wrap-up": {
-    "commit": "b66a4342bfa01f8476506c3c8269c30981adeefa",
-    "shotAt": "2026-11-01T17:32:26.848Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.514Z",
     "file": "docs/images/wrap-up.webp",
-    "bytes": 1109808
+    "bytes": 940298
   }
 }

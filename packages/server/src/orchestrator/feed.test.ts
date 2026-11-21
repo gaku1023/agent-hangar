@@ -3,7 +3,7 @@ import { ORCHESTRATOR_CONTEXT_LIMIT, type LiveSessionDto } from '@agent-hangar/s
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { recordSpawn } from '../sessions/spawns.ts';
-import { AUTO_FRESH_IDLE_MS, AUTO_FRESH_TOKENS, feedText, NOTICE_GRACE_MS, OrchestratorFeed, type FeedLine } from './feed.ts';
+import { AUTO_FRESH_IDLE_MS, AUTO_FRESH_TOKENS, FEED_SETTLE_MS, feedText, NOTICE_GRACE_MS, OrchestratorFeed, type FeedLine } from './feed.ts';
 import { lineageInvolvement } from './involved.ts';
 
 /**
@@ -208,6 +208,16 @@ describe('出来事の送り込み', () => {
     await tick(1);
     expect(w.delivered).toEqual(['[hangar] 出来事 2 件\n- turn.done s1 「ログイン修正」\n- session.ended s3 「文書」']);
   });
+
+  it('turn.done は、関わった会話の作業中から idle への変わり目ごとに出す。notify_user を呼んだかどうかに依らない', async () => {
+    w.involved.add('s1');
+    w.involved.add('s2');
+    for (const id of ['s1', 's2']) set(id, { status: 'busy' });
+    for (const id of ['s1', 's2']) set(id, { status: 'idle' });
+    await tick(2_000);
+    expect(w.delivered).toEqual(['[hangar] 出来事 2 件\n- turn.done s1 「ログイン修正」\n- turn.done s2 「請求の集計」']);
+  });
+
 
   it('渡したあとは、統括のターンが動き出してから次を渡す', async () => {
     waitPerm('s1');

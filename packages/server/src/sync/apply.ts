@@ -1,12 +1,14 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { noteUnreadArrived } from '../live/unread.ts';
 import { SHARED_TABLES, TABLE_PK, type ChangeOut, type SharedTable } from '@agent-hangar/shared';
 import { backupsRoot } from '../config/cloud.ts';
 import { hangarHome } from '../config/paths.ts';
 import { MIGRATED_NOTE_AT } from '../db/migrations.ts';
 import { noteApplied } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
+import { STATE_FACTS } from '../sessions/stateFacts.ts';
 import { upsertShared } from '../db/shared.ts';
 import { alignSessionProject } from '../sessions/move.ts';
 import { alignSessionTrash, trashedAtOf } from '../sessions/trash.ts';
@@ -284,10 +286,13 @@ function applyOne(db: Db, c: ChangeOut, o: ApplyOptions): 'applied' | 'skipped' 
   const pk = TABLE_PK[c.tableName];
   const cols = tableColumns(db, c.tableName);
   const cur = db.prepare(`select updated_at from ${c.tableName} where ${pk} = ?`).get(c.rowId) as { updated_at: number } | undefined;
-  if (cur && cur.updated_at >= c.updatedAt && !copiesCollide(db, c, cur.updated_at)) return 'skipped';
   const row: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(c.payload)) if (cols.has(k)) row[k] = v;
   row[pk] = c.rowId;
+  // session_states は事実ごとに新しい方を採る（mergeFacts）。届いた行が古くても、手元より新しい事実があれば当てる。
+  const facts = c.tableName === 'session_states' && c.op === 'upsert' ? mergeFacts(db, c, row, cols, cur?.updated_at ?? null) : null;
+  const older = cur !== undefined && cur.updated_at >= c.updatedAt;
+  if (older && !(facts?.incomingWon) && !copiesCollide(db, c, cur.updated_at)) return 'skipped';
   row.updated_at = c.updatedAt;
   // upsertShared は conflict で渡された列しか書かないので、適用の側で deleted_at を必ず書いて生き返らせる。
   if (c.op === 'upsert' && row.deleted_at === undefined) row.deleted_at = null;
@@ -321,9 +326,10 @@ function applyOne(db: Db, c: ChangeOut, o: ApplyOptions): 'applied' | 'skipped' 
   if (trashCols) alignSessionTrash(db, c.rowId, prevTrash);
   // 保った印と外した印は、届いた行より新しい時刻で上げ直し、クラウドとほかの PC もそろえる。
   // 上げ直した行を受け取った PC は、同じ合わせ方で同じ印になるので、そのまま取り込み、上げ返さない。往復はここで止まる。
-  if (reraiseTrash) {
+  // 事実ごとに合わせた行が届いた行と違うとき（手元の事実が勝った、または古い行から新しい事実を採った）も同じく上げ直す。
+  if (reraiseTrash || facts?.localWon || (older && facts?.incomingWon)) {
     const merged = db.prepare('select * from session_states where session_id = ?').get(c.rowId) as Record<string, unknown>;
-    upsertShared(db, 'session_states', merged, o.ownDeviceId, 'session_id', Math.max(Date.now(), c.updatedAt + 1));
+    upsertShared(db, 'session_states', merged, o.ownDeviceId, 'session_id', Math.max(Date.now(), c.updatedAt + 1, (cur?.updated_at ?? 0) + 1));
   }
   if (carriesOldNote(c)) {
     if (o.onOldSessionNote) o.onOldSessionNote(c);
@@ -539,6 +545,53 @@ function mergeTrash(db: Db, sessionId: string, row: Record<string, unknown>, pre
 }
 
 /**
+ * 届いた session_states の行を、事実ごとに手元の行と合わせる（版 62、sessions/stateFacts.ts）。row を書き換える。
+ *
+ * 1 行には独立した事実（状態、提案、移した先、ピン、削除の印）が入っている。
+ * 行ごとの後勝ちでは、同期が届く前に 2 台が別の事実を書くと、後から書いた行が、先の行の事実を知らない古い値で消す。
+ * そこで事実ごとに、書いた時刻（`*_changed_at`）の新しい方の列を採る。
+ * - 時刻の無い事実は 0 として比べる。同じ時刻なら行の時刻の新しい方を採り、それも同じなら手元を残す（行ごとの後勝ちと同じ決め方）。
+ * - 削除の印はここでは扱わない（mergeTrash）。
+ * - 事実の時刻の列を持たない行（版 60 以下の PC が書いた行）は、事実ごとには合わせず、これまでどおり行ごとの後勝ちで当てる。
+ *   その PC は事実ごとの時刻を残さないので、どの事実が新しいかを知るすべがない。
+ *   当てるときは、どの事実の時刻も届いた行の時刻にする。当てた値より古い時刻を残すと、次に合わせるときに古い値として負けるからである。
+ *
+ * localWon は手元の事実が勝って行が届いたものと変わったこと、incomingWon は届いた行の事実が手元に勝ったことである。
+ * 呼び手は、届いた行が手元より古くても incomingWon なら当て、合わせた行が届いた行と違えば上げ直す。
+ * 上げ直した行を受け取った PC は、どの事実も同じか古いので、そのまま取り込んで上げ返さない。往復はそこで止まる。
+ */
+function mergeFacts(db: Db, c: ChangeOut, row: Record<string, unknown>, cols: Set<string>, localUpdatedAt: number | null): { localWon: boolean; incomingWon: boolean } | null {
+  const facts = STATE_FACTS.filter((f) => cols.has(f.at));
+  if (facts.length === 0) return null;
+  if (!facts.every((f) => f.at in c.payload)) {
+    // 届いた行が値を運んだ事実だけ時刻を付ける。運ばなかった事実（その PC が知らない列、例えば版 67 の未読）は手元の値も時刻も残す。
+    for (const f of facts) if (f.cols.some((k) => k in c.payload)) row[f.at] = c.updatedAt;
+    return null;
+  }
+  const local = localUpdatedAt === null ? undefined : db.prepare('select * from session_states where session_id = ?').get(c.rowId) as Record<string, unknown> | undefined;
+  if (!local) return null;
+  const rowNewer = c.updatedAt > (localUpdatedAt ?? 0);
+  const time = (v: unknown) => (typeof v === 'number' ? v : 0);
+  let localWon = false, incomingWon = false;
+  for (const f of facts) {
+    const inAt = time(row[f.at]), loAt = time(local[f.at]);
+    const keys = [f.at, ...f.cols.filter((k) => cols.has(k))];
+    // 値が同じなら、どちらを採っても変わらない。時刻だけ新しい方にそろえ、上げ直しの理由にはしない。
+    if (f.cols.every((k) => !cols.has(k) || (row[k] ?? null) === (local[k] ?? null))) {
+      row[f.at] = Math.max(inAt, loAt) || (row[f.at] ?? null);
+      continue;
+    }
+    if (loAt > inAt || (loAt === inAt && !rowNewer)) {
+      for (const k of keys) row[k] = local[k] ?? null;
+      localWon = true;
+    } else {
+      incomingWon = true;
+    }
+  }
+  return { localWon, incomingWon };
+}
+
+/**
  * 1 トランザクションで親から子の順に適用する。失敗した行は最後に 1 度だけ再試行する。
  * 当てた行は、確定の後に行の変化の口へ知らせる。
  *
@@ -550,6 +603,7 @@ function mergeTrash(db: Db, sessionId: string, row: Record<string, unknown>, pre
  */
 export function applyRemoteBatch(db: Db, changes: ChangeOut[], o: ApplyOptions): ChangeOut[] {
   const sorted = [...changes].sort((a, b) => (ORDER.get(a.tableName) ?? 99) - (ORDER.get(b.tableName) ?? 99) || a.seq - b.seq);
+  const unreadBefore = unreadCounts(db, changes);
   const applied: ChangeOut[] = [];
   const stillFailed: [ChangeOut, unknown][] = [];
   const run = db.transaction(() => {
@@ -575,5 +629,30 @@ export function applyRemoteBatch(db: Db, changes: ChangeOut[], o: ApplyOptions):
     const local = c.tableName === 'sessions' || TABLE_PK[c.tableName] === 'session_id' ? sessionAlias(db, c.rowId)?.session_id : undefined;
     noteApplied(db, c.tableName, local ?? c.rowId, c.op);
   }
+  if (unreadBefore) noteArrivedUnread(db, unreadBefore, o.ownDeviceId);
   return applied;
+}
+
+/**
+ * 束の中の session_states の会話について、当てる前の未読の数を控える（版 67）。束に session_states が無いか、列の無い古い DB なら null。
+ * 読み替えた会話（session_aliases）は手元の ID で控える。
+ */
+function unreadCounts(db: Db, changes: ChangeOut[]): Map<string, number> | null {
+  const ids = [...new Set(changes.filter((c) => c.tableName === 'session_states').map((c) => sessionAlias(db, c.rowId)?.session_id ?? c.rowId))];
+  if (ids.length === 0 || !tableColumns(db, 'session_states').has('unread_count')) return null;
+  const read = db.prepare('select unread_count from session_states where session_id = ?');
+  return new Map(ids.map((id) => [id, (read.get(id) as { unread_count: number | null } | undefined)?.unread_count ?? 0]));
+}
+
+/**
+ * ほかの PC が積んだ未読が届いたら知らせる（live/unread.ts の onUnreadArrived、OS の通知は live/unreadArrive.ts）。
+ * 数が増え、場面があり（未読に戻しただけではない）、数えたのがこの PC でない行だけである。確定の後に呼ぶ。
+ */
+function noteArrivedUnread(db: Db, before: Map<string, number>, ownDeviceId: string): void {
+  const read = db.prepare('select unread_count, unread_kind, unread_device from session_states where session_id = ?');
+  for (const [id, prev] of before) {
+    const r = read.get(id) as { unread_count: number | null; unread_kind: string | null; unread_device: string | null } | undefined;
+    if (!r || (r.unread_count ?? 0) <= prev || r.unread_kind === null || r.unread_device === ownDeviceId) continue;
+    noteUnreadArrived(db, id);
+  }
 }

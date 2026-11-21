@@ -1,7 +1,7 @@
 import { resumeHereOf } from './resumeHere.ts';
 import { rowAgent } from './agentIcon.ts';
 import { presentSessionMenu, type SessionMenuProps } from './sessionMenu.ts';
-import { AUTO_DONE_IDLE_DAYS, CANDIDATE_EXPIRE_DAYS, isReturnOn, isReturnTime, overdueDays, resetAtText, returnDue, returnPastMinutes, type CandidateSource, type LiveStatus, type StopReason, type SessionDto, type SessionStateDto, type SessionStatus, type SessionSummaryDto, type StateSetBy, type StatusFilter, type Translate, type AgentIconKind } from '@agent-hangar/shared';
+import { AUTO_DONE_IDLE_DAYS, CANDIDATE_EXPIRE_DAYS, isReturnOn, isReturnTime, overdueDays, resetAtText, returnDue, returnPastMinutes, type CandidateSource, type LiveStatus, type StopReason, type SessionDto, type SessionStateDto, type SessionStatus, type SessionSummaryDto, type StateSetBy, type StatusFilter, type Translate, type AgentIconKind, liveRank, sortForList } from '@agent-hangar/shared';
 import { aliveRunOf, shownAside, shownLive, shownReason, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, relativeTime, shortModel, stateLabel } from './format.ts';
 import { translatorOf } from './i18n.ts';
@@ -53,6 +53,8 @@ export type SessionRowProps = { id: string; name: string; oneLiner: string; proj
   resumeHere?: { disabled: string | null };
   /** 中断の印（右端の「中断」）。ステータスの無いセッションで、最後の run が中断で終わり、いま終わっているものだけが持つ。title は原因と時刻。 */
   interrupted?: { label: string; title: string };
+  /** ミュートした会話（静かな会話）の印の名前（右端のベルの斜線、試作の L1）。ミュートしていなければ持たない。 */
+  muted?: string;
   /** スマホから起動した会話のラベル（試作 F1、名前の後ろ）。bypass は Bypass permissions で、赤い枠にする。PC で起こした会話は持たない。 */
   phone?: { label: string; title: string; bypass: boolean };
   /** 題名の左のエージェントのアイコン（B10、agentIcon.ts）。null は空の枠（絵の無い種類）。アイコンを出さないとき（opencode が切で、その会話も無い）は持たない。 */
@@ -147,6 +149,7 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
   if (here) row.resumeHere = { disabled: here.disabled };
   row.menu = presentSessionMenu(store, s, t);
   if (s.interrupted && row.live === null && row.runId === null && !status) row.interrupted = interruptMark(t, s.interrupted, now);
+  if ((s.mutedAt ?? null) !== null) row.muted = t('row.mark.muted');
   const phone = phoneLabelOf(s, t);
   if (phone) row.phone = phone;
   const agent = rowAgent(store, s);
@@ -154,13 +157,7 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
   return row;
 }
 
-/** 生きているセッションの並び。答えを待っているものほど上に置く。 */
-const LIVE_ORDER: Record<string, number> = { waiting: 0, busy: 1, idle: 2 };
-/** 終わったセッションの順位。どの生きている状態よりも後ろに来る。 */
-const ENDED_ORDER = 9;
-/** 並びの順位。区切りを付けて休みのまま残っているもの（parked）は、終わったものと同じ順位にする。 */
-const liveRank = (s: SessionDto): number => { const l = shownLive(s); return l ? LIVE_ORDER[l] ?? 3 : ENDED_ORDER; };
-/** 生きているものを先頭に waiting、busy、idle の順で並べ、同じ順位の中は新しい順にする。 */
+/** 生きているものを先頭に waiting、busy、idle の順で並べ、同じ順位の中は新しい順にする（順位は shared の liveRank）。 */
 export function sortSessions(list: SessionDto[]): SessionDto[] {
   return [...list].sort((a, b) => {
     const la = liveRank(a);
@@ -170,23 +167,8 @@ export function sortSessions(list: SessionDto[]): SessionDto[] {
   });
 }
 
-/**
- * 一覧の並び。
- * 生きているものを先に置くのは sortSessions と同じで、残りは新しい順にする。
- * 止まっている Done の行だけは、Done にした時刻（setAt）の新しい順にする。
- * 提案を確定した行や手で Done にした行が、最後に動いた時刻が古くても Done の先頭に来て、ページ送りの奥に消えないようにするためである。
- * 導入時の一括 Done は同じ時刻を持つので、その中は最後に動いた時刻の新しい順になる。
- */
-export function sortForList(list: SessionDto[]): SessionDto[] {
-  // 何千件も並べるので、順位と鍵は 1 件につき 1 回だけ求めてから並べる（比べるたびに shownLive を通すと重い）。
-  const keyed = list.map((s) => {
-    const rank = liveRank(s);
-    const last = s.lastActivityAt ?? 0;
-    return { s, rank, key: rank === ENDED_ORDER && s.state?.status === 'done' ? s.state.setAt ?? 0 : last, last };
-  });
-  keyed.sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : b.key - a.key || b.last - a.last));
-  return keyed.map((x) => x.s);
-}
+// 一覧の並び（生きているものを先に、残りは新しい順）は、サーバの一覧の形の検索と同じものを使う（shared の sessionList.ts）。
+export { sortForList };
 
 /**
  * 戻る時点が来たか（ホームの今日戻るに出すか）。

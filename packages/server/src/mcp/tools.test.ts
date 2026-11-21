@@ -12,7 +12,10 @@ import { IndexerService } from '../indexer/service.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { latestIntent } from '../live/intents.ts';
 import { markSeen, onUnread } from '../live/unread.ts';
-import { getSession } from '../db/queries.ts';
+import { onNotifyKind } from '../live/notifyKind.ts';
+import { noteViewing, resetViewing } from '../live/viewing.ts';
+import { getSession, setOrchestratorSource } from '../db/queries.ts';
+import { orchestratorIdsSource } from '../orchestrator/peerLineage.ts';
 import { addTodo } from '../projects/todos.ts';
 import { assignSessions } from '../projects/registry.ts';
 import { listDeleteApprovals, rejectDeleteApproval } from '../sessions/deleteApprovals.ts';
@@ -22,7 +25,7 @@ import { AccountStore } from '../config/accounts.ts';
 import { msg } from '../i18n/message.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
-import { callTool, ToolError, TOOL_NAMES, type ToolDeps } from './tools.ts';
+import { callTool, createSessionTool, ToolError, TOOL_NAMES, type ToolDeps } from './tools.ts';
 
 let dir: string;
 let home: string;
@@ -79,6 +82,11 @@ const SESSION_TOOL_CALLS: [string, Record<string, unknown>][] = [
 ];
 
 describe('MCP tools', () => {
+  it('list_sessions は Paused の会話を phase: paused で返す（live は残す）', () => {
+    setSessionState(db, 'd', alphaId, { status: 'paused', note: 'x', setBy: 'user' });
+    const row = (call('list_sessions') as unknown as Record<string, unknown>[]).find((s) => s.id === alphaId)!;
+    expect(row).toMatchObject({ phase: 'running', status: 'paused', live: 'busy' });
+  });
   it('list_projects と get_project', () => {
     const list = call('list_projects') as unknown as Record<string, unknown>[];
     expect(list).toHaveLength(1);
@@ -88,6 +96,8 @@ describe('MCP tools', () => {
     // プロジェクトのノートはやめたので返さない。
     expect(p).not.toHaveProperty('memo');
     expect((p.recent_sessions as { id: string }[]).map((s) => s.id)).toEqual([alphaId]);
+    // 生の live に加えて、画面と同じ見分けの phase と、付けた状態の status を返す。
+    expect((p.recent_sessions as Record<string, unknown>[])[0]).toMatchObject({ live: 'busy', phase: 'running', status: null });
     expect(() => call('get_project', { project_id: 'nope' })).toThrow(ToolError);
     call('update_project', { project_id: 'p1', add_todos: ['a'] });
     recordArtifactPublish(db, 'd', { sessionId: alphaId, projectId: 'p1', url: 'https://claude.ai/code/artifact/z', publishedAt: 7, call: { filePath: null, description: 'Z', icon: 'flask' } });
@@ -318,7 +328,13 @@ describe('MCP tools', () => {
   it('create_session は runs.start を呼び、URL を返す', async () => {
     const r = await call('create_session', { project_id: 'p1', name: 'n', prompt: 'p', permission_mode: 'default' });
     expect(started[0]).toEqual({ projectId: 'p1', name: 'n', prompt: 'p', model: undefined, effort: undefined, permissionMode: 'default', scratch: undefined });
-    expect(r).toEqual({ run_id: 'r1', session_id: 'sNew', tmux_name: 'hangar-r1', url: 'http://127.0.0.1:4177/#/session/sNew' });
+    const u = 'http://127.0.0.1:4177/#/session/sNew?device=d';
+    expect(r).toEqual({ run_id: 'r1', session_id: 'sNew', tmux_name: 'hangar-r1', url: u, announce: `n\n${u}` });
+  });
+  it('create_session の announce は、名前が無ければ最初の依頼文の頭、どちらも無ければ URL だけ', async () => {
+    const u = 'http://127.0.0.1:4177/#/session/sNew?device=d';
+    expect((await call('create_session', { project_id: 'p1', prompt: '一行目の依頼\n二行目' })).announce).toBe(`一行目の依頼\n${u}`);
+    expect((await call('create_session', { project_id: 'p1' })).announce).toBe(u);
   });
   it('create_session は agent を省くと Claude Code として起動する', async () => {
     await call('create_session', { project_id: 'p1', model: 'opus' });
@@ -457,7 +473,7 @@ describe('MCP tools', () => {
   });
   it('create_session は非同期の start を待ってから答える', async () => {
     deps = { ...deps, runs: { start: async (p) => { started.push(p); await new Promise((r) => setTimeout(r, 5)); return { run: { id: 'r2', sessionId: 'sLater', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r2', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 'sLater', tabs: [] }; } } };
-    expect(await call('create_session', { project_id: 'p1' })).toEqual({ run_id: 'r2', session_id: 'sLater', tmux_name: 'hangar-r2', url: 'http://127.0.0.1:4177/#/session/sLater' });
+    expect(await call('create_session', { project_id: 'p1' })).toEqual({ run_id: 'r2', session_id: 'sLater', tmux_name: 'hangar-r2', url: 'http://127.0.0.1:4177/#/session/sLater?device=d', announce: 'http://127.0.0.1:4177/#/session/sLater?device=d' });
   });
   describe('create_session の起動前の準備（#545）', () => {
     const okRun = (sessionId: string) => ({ run: { id: 'rP', sessionId, deviceId: 'd', kind: 'start' as const, tmuxName: 'hangar-rP', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId, tabs: [] });
@@ -489,7 +505,7 @@ describe('MCP tools', () => {
     });
     it('準備が待ちの上限を越えたら、起動を待たずに preparing で返す。起動元の下にはその場で入れる', async () => {
       const r = await call('create_session', { project_id: 'p1', agent: 'opencode', name: '準備の確かめ' }, { sessionId: alphaId });
-      expect(r).toMatchObject({ session_id: 'sPending', preparing: true, url: 'http://127.0.0.1:4177/#/session/sPending' });
+      expect(r).toMatchObject({ session_id: 'sPending', preparing: true, url: 'http://127.0.0.1:4177/#/session/sPending?device=d', announce: '準備の確かめ\nhttp://127.0.0.1:4177/#/session/sPending?device=d' });
       expect(r).not.toHaveProperty('run_id');
       expect(String(r.note)).toMatch(/準備/);
       expect(parentOf('sPending')).toBe(alphaId);
@@ -499,7 +515,7 @@ describe('MCP tools', () => {
       deps = { ...deps, launchWaitMs: 1_000 };
       const r = call('create_session', { project_id: 'p1', agent: 'opencode' });
       finish!();
-      expect(await r).toEqual({ run_id: 'rP', session_id: 'sPending', tmux_name: 'hangar-rP', url: 'http://127.0.0.1:4177/#/session/sPending' });
+      expect(await r).toEqual({ run_id: 'rP', session_id: 'sPending', tmux_name: 'hangar-rP', url: 'http://127.0.0.1:4177/#/session/sPending?device=d', announce: 'http://127.0.0.1:4177/#/session/sPending?device=d' });
     });
     it('上限の内に起動が断られたら、これまでどおり理由をその場で返す', async () => {
       deps = { ...deps, launchWaitMs: 1_000 };
@@ -585,7 +601,7 @@ describe('MCP tools', () => {
       asAgent(agent);
       const r = await call('resume_session', { session_id: alphaId });
       expect(resumed).toEqual([{ id: alphaId }]);
-      expect(r).toEqual({ run_id: 'rRes', session_id: alphaId, tmux_name: 'hangar-rRes', url: `http://127.0.0.1:4177/#/session/${alphaId}` });
+      expect(r).toEqual({ run_id: 'rRes', session_id: alphaId, tmux_name: 'hangar-rRes', url: `http://127.0.0.1:4177/#/session/${alphaId}?device=d` });
     });
     it('resume_session は opencode の準備が待ちの上限を越えたら preparing で返し、失敗は起動元に知らせる', async () => {
       asAgent('opencode');
@@ -745,11 +761,11 @@ describe('MCP tools', () => {
     expect(TOOL_NAMES).not.toContain('set_session_memo');
     expect(() => call('set_session_memo', { session_id: alphaId, text: 'メモ' })).toThrow(ToolError);
     expect(call('get_usage')).toEqual({ five_hour: { used_percentage: 47, resets_at: 1_760_000_000_000 }, seven_day: null, updated_at: 5 });
-    expect(call('open_in_hangar', { session_id: alphaId })).toEqual({ url: `http://127.0.0.1:4177/#/session/${alphaId}`, deep_link: `hangar://session/${alphaId}` });
+    expect(call('open_in_hangar', { session_id: alphaId })).toEqual({ url: `http://127.0.0.1:4177/#/session/${alphaId}?device=d`, deep_link: `hangar://session/${alphaId}`, prompted: true });
     expect(call('open_in_hangar', { project_id: 'p1' })).toEqual({ url: 'http://127.0.0.1:4177/#/project/p1', deep_link: 'hangar://project/p1' });
     expect(call('open_in_hangar', {}, { sessionId: alphaId }).url).toContain(alphaId);
     expect(() => call('nope')).toThrow(ToolError);
-    expect(TOOL_NAMES).toHaveLength(28);
+    expect(TOOL_NAMES).toHaveLength(30);
   });
   it('set_turn_intent は意図を積み、最新を返せるようにする', () => {
     const r = call('set_turn_intent', { text: '  抜けたあと、答え終えた会話だけ止める  ' }, { sessionId: alphaId });
@@ -790,6 +806,27 @@ describe('MCP tools', () => {
     expect(unread()).toBeNull();
     // 行が無ければ何もしない。
     expect(markSeen(db, alphaId)).toBe(false);
+  });
+  it('notify_user は、出し先が空になるときも呼ばれたことと場面を onNotifyKind へ知らせる（ターンの終わりの数えが、呼んだターンに二重に積まないため）。断った呼び出しは知らせない', () => {
+    const calls: string[] = [];
+    const off = onNotifyKind((id, kind) => calls.push(`${id}:${kind}`));
+    try {
+      upsertShared(db, 'session_states', { session_id: alphaId, status: 'done', set_by: 'conversation', set_at: 1000 }, 'd', 'session_id');
+      expect(call('notify_user', { text: '静かに' }, { sessionId: alphaId })).toMatchObject({ sent: [] });
+      expect(() => call('notify_user', { text: '' }, { sessionId: alphaId })).toThrow(ToolError);
+      expect(calls).toEqual([`${alphaId}:done`]);
+    } finally {
+      off();
+    }
+  });
+  it('notify_user は、画面で前に出して見ている会話には未読を積まず、スマホへも出さない。OS は殻に任せて出す', () => {
+    noteViewing('win', alphaId);
+    try {
+      expect(call('notify_user', { text: '見えています' }, { sessionId: alphaId })).toMatchObject({ unread: 0, sent: ['os'] });
+      expect(getSession(db, live, alphaId)!.unread).toBeNull();
+    } finally {
+      resetViewing();
+    }
   });
   it('notify_user は Done、Archived、Paused にしたセッションでは何も出さない。付けた後に休みから動き出したら出す', () => {
     const seen: string[] = [];
@@ -947,6 +984,25 @@ describe('MCP tools', () => {
     expect(latestIntent(db, alphaId)?.text).toBe('二つ目');
     expect((db.prepare('select count(*) c from turn_intents where session_id = ?').get(alphaId) as { c: number }).c).toBe(2);
   });
+  it('open_in_hangar はセッションを指すと session.openPrompt を流し、プロジェクトでは流さない', () => {
+    const evs: unknown[] = [];
+    deps = { ...deps, openPrompt: (e) => { evs.push(e); } };
+    call('open_in_hangar', { session_id: alphaId });
+    call('open_in_hangar', {}, { sessionId: alphaId });
+    call('open_in_hangar', { project_id: 'p1' });
+    expect(evs).toEqual([
+      { type: 'session.openPrompt', sessionId: alphaId, deviceId: 'd', fromSessionId: null },
+      { type: 'session.openPrompt', sessionId: alphaId, deviceId: 'd', fromSessionId: alphaId },
+    ]);
+  });
+  it('open_in_hangar はセッション別 URL からでも、ほかの会話（自分が起こした子など）を開ける', () => {
+    const other = (db.prepare('select id from sessions where id != ? limit 1').get(alphaId) as { id: string }).id;
+    const evs: unknown[] = [];
+    deps = { ...deps, openPrompt: (e) => { evs.push(e); } };
+    expect(call('open_in_hangar', { session_id: other }, { sessionId: alphaId }).url).toContain(`/#/session/${other}?device=`);
+    expect(evs).toEqual([{ type: 'session.openPrompt', sessionId: other, deviceId: 'd', fromSessionId: alphaId }]);
+    expect(() => call('open_in_hangar', { session_id: 'ghost-session' }, { sessionId: alphaId })).toThrow(ToolError);
+  });
   it('open_in_hangar は実在しない ID を死んだリンクにしない', () => {
     expect(() => call('open_in_hangar', { session_id: 'ghost-session' })).toThrow(ToolError);
     expect(() => call('open_in_hangar', { project_id: 'ghost-project' })).toThrow(ToolError);
@@ -986,7 +1042,8 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
   });
 
   it('セッションを取る他の道具は、別のセッションを断る', () => {
-    for (const [name, args] of SESSION_TOOL_CALLS.filter(([n]) => n !== 'get_transcript')) {
+    // open_in_hangar は知らせを出して URL を返すだけなので、どの会話でも指せる（上の試験）。
+    for (const [name, args] of SESSION_TOOL_CALLS.filter(([n]) => n !== 'get_transcript' && n !== 'open_in_hangar')) {
       expect(() => call(name, { ...args, session_id: otherId }, scoped())).toThrow(ToolError);
     }
     // 別のセッションの要約は書かれていない。
@@ -998,21 +1055,13 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
     expect((callTool(deps, scoped(), 'list_projects', {}) as { id: string }[]).map((p) => p.id)).toEqual(['p1']);
   });
 
-  it('update_project はノートを書かない（append_memo はやめた）。渡されたら、やめたことと書く場所を notice で返し、エラーにはしない', () => {
-    const r = call('update_project', { project_id: 'p1', append_memo: '書かない' });
+  it('update_project はノートを書かない（append_memo はやめた）。notice も付けない', () => {
+    const r = call('update_project', { project_id: 'p1', status: 'paused', append_memo: '書かない' });
     expect(r).not.toHaveProperty('memo');
-    expect(r.notice).toBe('プロジェクトのノートは廃止したため、append_memo は保存しませんでした。記録したい内容は、CLAUDE.md などの指示ファイルに書いてください。');
+    expect(r).not.toHaveProperty('notice');
+    expect((r.project as { status: string }).status).toBe('paused');
     expect(db.prepare('select markdown from project_memos where project_id = ?').get('p1')).toBeUndefined();
     expect(fs.existsSync(path.join(home, 'projects', 'p1', 'memo.md'))).toBe(false);
-    // 他の項目は、いっしょに渡されても今までどおり書く。
-    const r2 = call('update_project', { project_id: 'p1', status: 'paused', append_memo: '書かない' });
-    expect((r2.project as { status: string }).status).toBe('paused');
-    expect(r2.notice).toEqual(expect.any(String));
-    // 渡さなければ notice は付けない。
-    expect(call('update_project', { project_id: 'p1', status: 'active' })).not.toHaveProperty('notice');
-    // 言語は道具の言語に従う。
-    deps.language = () => 'en';
-    expect(call('update_project', { project_id: 'p1', append_memo: 'x' }).notice).toBe('Project notes have been retired, so append_memo was not written. Write anything you want to keep in an instruction file such as CLAUDE.md.');
   });
 
   it('get_project と update_project は別のプロジェクトを断る', () => {
@@ -1050,6 +1099,33 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
     // 共通の URL では呼んだセッションが分からないので、残さない。
     await call('create_session', { project_id: 'p1' });
     expect(parentOf('sNew')).toBeUndefined();
+  });
+
+  it('create_session は silent: true のときだけ、起こした会話をミュートする（呼んだ会話から引き継がない）', async () => {
+    // 本物の runs.start は起こす前に会話の行を作る（runs/manager.ts）。ここでは偽の start の代わりに置く。
+    upsertShared(db, 'sessions', { id: 'sNew', provider: 'claude-code', provider_session_id: 'uNew', cwd: '/w', home_device: 'd' }, 'd');
+    const mutedAt = (id: string) => (db.prepare('select muted_at from session_states where session_id = ?').get(id) as { muted_at: number | null } | undefined)?.muted_at ?? null;
+    await call('create_session', { project_id: 'p1', silent: true }, scoped());
+    expect(mutedAt('sNew')).not.toBeNull();
+    db.prepare('update session_states set muted_at = null').run();
+    // 呼んだ会話がミュートでも、指定しなければ普通の会話として起こす。
+    db.prepare("insert into session_states (session_id, muted_at, updated_at, origin_device) values (?, 1, 1, 'd') on conflict(session_id) do update set muted_at = 1").run(alphaId);
+    await call('create_session', { project_id: 'p1' }, scoped());
+    expect(mutedAt('sNew')).toBeNull();
+  });
+
+  it('create_session は、会話から呼ばれたら人のいない起動（session）として起こし、引き継ぎと共通の URL では付けない', async () => {
+    await call('create_session', { project_id: 'p1' }, scoped());
+    expect(started.at(-1)!.launchedBy).toBe('session');
+    await call('create_session', { project_id: 'p1', handoff: true }, scoped());
+    expect(started.at(-1)!.launchedBy).toBeUndefined();
+    await call('create_session', { project_id: 'p1' });
+    expect(started.at(-1)!.launchedBy).toBeUndefined();
+  });
+
+  it('create_session は、サーバの中の呼び手が付けた起動元（予定）をそのまま渡す', async () => {
+    await createSessionTool(deps, { sessionId: null, launchedBy: 'schedule' }, { project_id: 'p1' });
+    expect(started.at(-1)!.launchedBy).toBe('schedule');
   });
 
   it('open_in_hangar は別のプロジェクトのリンクを返さない', () => {
@@ -1248,6 +1324,16 @@ describe('統括の URL は、読む道具で全プロジェクトを読める�
     expect(hitsOf(call('search_sessions', { query: 'チャンネル' }, now)).find((h) => h.session_id === alphaId)?.orchestrator).toBe(false);
     const list = call('list_sessions', {}, now) as unknown as { id: string; orchestrator: boolean }[];
     expect(list.find((s) => s.id === orchId)?.orchestrator).toBe(true);
+  });
+
+  it('別の PC の統括の系譜の会話にも、一覧の DTO と同じ判定で orchestrator: true を付ける', () => {
+    deps.settings = () => ({});
+    setOrchestratorSource(db, orchestratorIdsSource(db, 'd', () => []));
+    const status = JSON.stringify({ accounts: [], agents: [], lan_ips: [], ssh_host_key: null, hangar_version: '1.0.0', orchestrator_ids: [orchId] });
+    upsertShared(db, 'devices', { id: 'host', name: 'host', platform: 'darwin', status }, 'host');
+    const list = call('list_sessions', {}, { sessionId: null }) as unknown as { id: string; orchestrator: boolean }[];
+    expect(list.find((s) => s.id === orchId)?.orchestrator).toBe(true);
+    expect(list.find((s) => s.id === alphaId)?.orchestrator).toBe(false);
   });
 
   it('プロジェクトのセッションの URL からは、統括の会話は検索に出ない', () => {

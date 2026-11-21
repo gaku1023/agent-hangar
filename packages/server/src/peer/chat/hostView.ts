@@ -64,6 +64,11 @@ export type ViewDeps = {
   self(): PeerChatDevice;
   /** この hangar の起動ごとの印（state.hostId）。 */
   hostId: string;
+  /**
+   * PermissionRequest の hook の入力から作った札（hookCard.ts）。
+   * 画面から札が読めないか、答えられない札のとき、代わりに使う。hook の待ちが無ければ null。
+   */
+  hookAsk?(sessionId: string): PeerPendingAsk | null;
 };
 
 const jsonSize = (v: unknown): number => Buffer.byteLength(JSON.stringify(v));
@@ -188,7 +193,8 @@ export class ChatView {
       this.captured.delete(sessionId);
       return null;
     }
-    const sig = JSON.stringify([session.waitingFor, session.permission, session.activity?.question ?? null]);
+    const fromHook = this.d.hookAsk?.(sessionId) ?? null;
+    const sig = JSON.stringify([session.waitingFor, session.permission, session.activity?.question ?? null, fromHook]);
     const t = this.d.now();
     const hit = this.captured.get(sessionId);
     // 取り込みの覚えは、登録の状態が変わるか、poke（実行中の一覧の変化、預かりの変化、答え）が消すまで使い続ける。
@@ -203,6 +209,8 @@ export class ChatView {
     if (pane) {
       try { ask = pendingAskFrom(session, pane.capture()); } catch { ask = null; }
     }
+    // 画面から読めない札（ファイルの道具の札など）は、hook の入力から作った札で代える。答えは hook で返すので、画面の照合は要らない。
+    if ((ask === null || ask.answerable === false) && fromHook) ask = fromHook;
     this.captured.set(sessionId, { at: t, sig, ask });
     if (this.captured.size > 64) this.captured.delete(this.captured.keys().next().value!);
     return ask;
@@ -242,7 +250,7 @@ export class ChatView {
     const askId = asked.ask.askId;
     const item: PeerChatItem = { ...asked, ask: { ...asked.ask, answered: { by, label, at: this.d.now() } } };
     // 同じ札の記録は 1 つにする。答える最中に、札が消えたことを見て先にこの PC の手元の記録が入ったときは、選んだ行の分かる、後の記録で置き換える。
-    this.answers = this.answers.filter((a) => a.askId !== askId);
+    this.answers = this.answers.filter((a) => !(a.askId === askId && a.sessionId === sessionId));
     this.answers.push({ askId, sessionId, item, at: this.d.now() });
     if (this.answers.length > RECORD_MAX) this.answers.shift();
     this.poke(sessionId);
@@ -310,13 +318,14 @@ export class ChatView {
   }
 
   private settleAsk(sessionId: string, prev: PeerChatItem): void {
-    if (!prev.ask || this.answers.some((a) => a.askId === prev.ask!.askId)) return;
+    if (!prev.ask || this.answers.some((a) => a.sessionId === sessionId && a.askId === prev.ask!.askId)) return;
     this.recordAnswer(sessionId, prev, this.d.self(), '');
   }
 
-  answeredAsk(askId: string): boolean {
+  /** askId は札の文面から作るので、会話をまたいで同じになりうる。答えた記録は会話ごとに見る。 */
+  answeredAsk(sessionId: string, askId: string): boolean {
     this.sweep();
-    return this.answers.some((a) => a.askId === askId);
+    return this.answers.some((a) => a.sessionId === sessionId && a.askId === askId);
   }
 
   recordDelivered(sessionId: string, from: PeerChatDevice, text: string): void {

@@ -99,6 +99,47 @@ describe('選んだ PC で使えない項目（テスト 22）', () => {
   });
 });
 
+describe('この PC に置き場の無いプロジェクト', () => {
+  // delta は相手（Mac）にだけ置き場がある。epsilon はどちらにも無い。
+  const away: NewSessionProps['away'] = [
+    { id: 'p4', name: 'delta', path: null, status: 'active', lastActivity: '5 分前' },
+    { id: 'p5', name: 'epsilon', path: null, status: 'active', lastActivity: '' },
+  ];
+  const macWithDelta = () => mac({ projects: ['p1', 'p2', 'p4'], paths: { p1: '/m/alpha', p2: '/m/beta', p4: '/m/delta' } });
+  it('この PC のままなら出さない', () => {
+    mount({ peers: [macWithDelta()], away });
+    const names = projectOptions().map(([n]) => n);
+    expect(names).toEqual(expect.arrayContaining(['alpha', 'beta', 'gamma']));
+    expect(names).not.toContain('delta');
+    expect(names).not.toContain('epsilon');
+  });
+  it('相手の PC を選ぶと、相手に置き場があるものを名前の順に混ぜて、相手のパスで出す。どちらにも無いものは出さない', () => {
+    mount({ peers: [macWithDelta()], away });
+    pick('起動する PC', 'Mac');
+    expect(projectOptions()).toEqual([['クイックセッション', false], ['alpha', false], ['beta', false], ['delta', false], ['gamma', true]]);
+    expect(screen.getByRole('option', { name: 'delta' }).textContent).toContain('/m/delta');
+    expect(screen.getByRole('option', { name: 'alpha' }).textContent).toContain('/m/alpha');
+  });
+  it('最近は、相手の PC を選んだ間は両方の PC のプロジェクトから数える', () => {
+    mount({ peers: [macWithDelta()], away, recentIds: ['p1'], recentAnywhere: ['p4', 'p1'] });
+    pick('起動する PC', 'Mac');
+    fireEvent.click(screen.getByRole('button', { name: /^プロジェクト/ }));
+    const recent = screen.getByRole('group', { name: '最近' });
+    expect(within(recent).getAllByRole('option').map((o) => o.getAttribute('aria-label'))).toEqual(['delta', 'alpha']);
+  });
+  it('選んで頼める。選んだまま この PC に戻すと、移さず残して起動を止める', () => {
+    const actions = mount({ peers: [macWithDelta()], away, projectId: null });
+    pick('起動する PC', 'Mac');
+    fireEvent.click(screen.getByRole('button', { name: /^プロジェクト/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'delta' }));
+    fireEvent.click(startButton('Mac で起動'));
+    expect(actions.find((a) => a.type === 'session.new.submitPeer')).toMatchObject({ body: { device: 'pc-b', projectId: 'p4', scratch: false } });
+    pick('起動する PC', 'この PC');
+    expect(screen.getByRole('button', { name: /^プロジェクト/ }).textContent).toContain('delta');
+    expect(startButton(/^起動$/)).toBeDisabled();
+  });
+});
+
 describe('起動', () => {
   it('頼めない PC（古いバージョン、つながらない）を選ぶと、起動のボタンが押せない', () => {
     mount({ peers: [mac(), old, away] });

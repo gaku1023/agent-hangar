@@ -13,6 +13,7 @@ import { defaultLanguage } from '../i18n/language.ts';
 import { errorText, translatorOf } from '../i18n/message.ts';
 import { mcpSecretMatches } from '../runs/secrets.ts';
 import { applyPermissionHook } from '../sessions/permissionAsks.ts';
+import { readPermissionDecisionInput } from '../provider/claude-code/hooks/permission.ts';
 import { applyQuestionHook } from '../sessions/questionHook.ts';
 import { openTargetCommand } from '../platform/browser.ts';
 import { execFile } from '../external/open.ts';
@@ -32,6 +33,14 @@ export function mcpAllowedOrigins(port: number): string[] {
   return [`http://127.0.0.1:${port}`, `http://localhost:${port}`, 'tauri://localhost'];
 }
 
+/**
+ * 遅延させずに最初から読み込ませる道具（Claude Code の道具の _meta の `anthropic/alwaysLoad`、2.1.326 で確かめた）。
+ * 起動時の指示が毎ターン呼ぶよう頼む 4 本だけにする。遅延のままだと、呼ぶたびに先に ToolSearch で定義を引く 1 往復が要る。
+ * 全部を載せると、使わない道具の定義で毎回の要求が太るので、ほかは遅延のまま検索で引かせる。
+ * Codex と opencode は知らない印なので読み飛ばす。
+ */
+export const ALWAYS_LOADED_TOOLS: readonly string[] = ['notify_user', 'set_turn_intent', 'set_session_summary', 'propose_session_status'];
+
 /** 説明文に「agent-hangar」を含める。Claude Code はツール定義を遅延して読むので、検索で当たる語が要る。 */
 const D = (s: string) => `agent-hangar: ${s}`;
 const STATUS = z.enum(['active', 'paused', 'done', 'archived']);
@@ -43,7 +52,8 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   const language = deps.language ?? defaultLanguage;
   const tr = translatorOf(language);
   const reg = (name: string, description: string, inputSchema: Record<string, z.ZodTypeAny>) => {
-    server.registerTool(name, { description, inputSchema }, async (args: Record<string, unknown>, extra) => {
+    const meta = ALWAYS_LOADED_TOOLS.includes(name) ? { _meta: { 'anthropic/alwaysLoad': true } } : {};
+    server.registerTool(name, { description, inputSchema, ...meta }, async (args: Record<string, unknown>, extra) => {
       // 長く待つ間は進みを流す。Claude Code は応答も進みも 300 秒無い呼び出しを切る（2.1.316 で実測）。進みの札は呼び手が付けたときだけ送れる。
       const token = extra._meta?.progressToken;
       let progress = 0;
@@ -61,14 +71,14 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   };
   reg('list_projects', D(tr('mcp.tool.listProjects')), {});
   reg('get_project', D(tr('mcp.tool.getProject')), { project_id: z.string() });
-  reg('update_project', D(tr('mcp.tool.updateProject')), { project_id: z.string(), status: STATUS.optional(), add_todos: z.array(z.union([z.string(), z.object({ text: z.string(), note: z.string().optional() })])).optional(), toggle_todos: z.array(z.string()).optional(), propose_done: z.array(z.object({ todo_id: z.string(), note: z.string() })).optional(), append_memo: z.string().optional() });
+  reg('update_project', D(tr('mcp.tool.updateProject')), { project_id: z.string(), status: STATUS.optional(), add_todos: z.array(z.union([z.string(), z.object({ text: z.string(), note: z.string().optional() })])).optional(), toggle_todos: z.array(z.string()).optional(), propose_done: z.array(z.object({ todo_id: z.string(), note: z.string() })).optional() });
   reg('list_sessions', D(tr('mcp.tool.listSessions')), { project_id: z.string().optional(), running: z.boolean().optional(), limit: z.number().int().positive().optional() });
   reg('search_sessions', D(tr('mcp.tool.searchSessions')), { query: z.string(), project_id: z.string().optional(), since: z.number().optional(), until: z.number().optional(), file: z.string().optional(), limit: z.number().int().positive().optional() });
   reg('get_transcript', D(tr('mcp.tool.getTranscript')), { session_id: z.string().optional(), from_seq: z.number().int().optional(), limit: z.number().int().positive().optional(), include_tools: z.boolean().optional() });
   reg('list_devices', D(tr('mcp.tool.listDevices')), {});
-  reg('create_session', D(tr('mcp.tool.createSession')), { project_id: z.string().optional(), auto_approve: z.boolean().optional().describe(tr('mcp.schedule.autoApproveParam')), name: z.string().optional(), prompt: z.string().optional(), model: z.string().optional().describe(tr('mcp.createSession.modelParam')), effort: z.string().optional(), permission_mode: z.string().optional().describe(tr('mcp.createSession.permissionModeParam')), scratch: z.boolean().optional().describe(tr('mcp.schedule.scratchParam')), agent: z.enum(AGENT_KINDS).optional().describe(tr('mcp.createSession.agentParam')), mode: z.string().optional().describe(tr('mcp.createSession.modeParam')), handoff: z.boolean().optional().describe(tr('mcp.createSession.handoffParam')), worktree: z.string().optional().describe(tr('mcp.createSession.worktreeParam')), add_dirs: z.array(z.string()).optional().describe(tr('mcp.createSession.addDirsParam')), account: z.string().optional().describe(tr('mcp.createSession.accountParam')), device: z.string().optional().describe(tr('mcp.createSession.deviceParam')) });
+  reg('create_session', D(tr('mcp.tool.createSession')), { project_id: z.string().optional(), auto_approve: z.boolean().optional().describe(tr('mcp.schedule.autoApproveParam')), name: z.string().optional(), prompt: z.string().optional(), model: z.string().optional().describe(tr('mcp.createSession.modelParam')), effort: z.string().optional(), permission_mode: z.string().optional().describe(tr('mcp.createSession.permissionModeParam')), scratch: z.boolean().optional().describe(tr('mcp.schedule.scratchParam')), agent: z.enum(AGENT_KINDS).optional().describe(tr('mcp.createSession.agentParam')), mode: z.string().optional().describe(tr('mcp.createSession.modeParam')), handoff: z.boolean().optional().describe(tr('mcp.createSession.handoffParam')), worktree: z.string().optional().describe(tr('mcp.createSession.worktreeParam')), add_dirs: z.array(z.string()).optional().describe(tr('mcp.createSession.addDirsParam')), account: z.string().optional().describe(tr('mcp.createSession.accountParam')), device: z.string().optional().describe(tr('mcp.createSession.deviceParam')), silent: z.boolean().optional().describe(tr('mcp.createSession.silentParam')) });
   reg('set_session_summary', D(tr('mcp.tool.setSessionSummary')), { session_id: z.string().optional(), title: z.string(), one_liner: z.string(), body: z.string(), state: STATE, next_steps: z.array(z.string()) });
-  reg('set_turn_intent', D(tr('mcp.tool.setTurnIntent')), { session_id: z.string().optional(), text: z.string(), to: z.array(z.string()).optional() });
+  reg('set_turn_intent', D(tr('mcp.tool.setTurnIntent')), { session_id: z.string().optional(), text: z.string() });
   reg('notify_user', D(tr('mcp.tool.notifyUser')), { session_id: z.string().optional(), text: z.string(), kind: z.string().optional().describe(tr('mcp.notify.kindParam')), to: z.array(z.string()).optional() });
   // 必須の欠けは SDK の型の失敗でなく、tools.ts の断りの文で返すため、いずれも任意にして検査は道具に任せる。
   reg('set_notify_preference', D(tr('mcp.tool.setNotifyPreference')), { session_id: z.string().optional(), text: z.string().optional().describe(tr('mcp.notifyPref.textParam')), unread: z.array(z.string()).optional().describe(tr('mcp.notifyPref.unreadParam')), os: z.array(z.string()).optional().describe(tr('mcp.notifyPref.osParam')), phone: z.array(z.string()).optional().describe(tr('mcp.notifyPref.phoneParam')), whileFocused: z.boolean().optional().describe(tr('mcp.notifyPref.whileFocusedParam')), merge: z.boolean().optional().describe(tr('mcp.notifyPref.mergeParam')) });
@@ -96,6 +106,8 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   reg('list_schedules', D(tr('mcp.tool.listSchedules')), { project_id: z.string().optional() });
   reg('create_schedule', D(tr('mcp.tool.createSchedule')), scheduleArgs);
   reg('update_schedule', D(tr('mcp.tool.updateSchedule')), { schedule_id: z.string(), enabled: z.boolean().optional().describe(tr('mcp.schedule.enabledParam')), ...scheduleArgs, kind: scheduleArgs.kind.optional(), prompt: z.string().optional() });
+  reg('get_settings', D(tr('mcp.tool.getSettings')), {});
+  reg('update_settings', D(tr('mcp.tool.updateSettings')), { changes: z.record(z.string(), z.unknown()).describe(tr('mcp.settings.changesParam')), confirmed: z.boolean().optional().describe(tr('mcp.settings.confirmedParam')) });
   reg('claim_pr', D(tr('mcp.tool.claimPr')), { session_id: z.string().optional(), repo: z.string().describe(tr('mcp.event.repoParam')), pr: z.number().int().describe(tr('mcp.event.prParam')) });
   // 元と動きの形の検査は道具に任せ、断りの文で足りない所を名指しする。
   reg('draft_event_binding', D(tr('mcp.tool.draftEventBinding')), {
@@ -253,10 +265,37 @@ export function createMcpApp(given: ToolDeps & { token: string; asksOf?: AsksOf 
     const asks = row && given.asksOf ? given.asksOf(row.provider).parseHook?.(body) ?? [] : [];
     const now = Date.now();
     for (const a of asks) {
-      if (a.kind === 'question') applyQuestionHook(deps.db, id, a.hook, now);
-      else if (deps.permissionAsks) applyPermissionHook(deps.db, id, { providerSessionId: a.providerSessionId, ask: a.ask }, deps.permissionAsks, now);
+      if (a.kind === 'question') {
+        applyQuestionHook(deps.db, id, a.hook, now);
+        // 画面で先に答えられた（または取り消した）。PermissionRequest の hook はそのまま走り続けるので、待ちを閉じて台本を抜けさせる。
+        if (a.hook.kind === 'answered') deps.hookDecisions?.closeTool(id, 'AskUserQuestion');
+      } else if (deps.permissionAsks) applyPermissionHook(deps.db, id, { providerSessionId: a.providerSessionId, ask: a.ask }, deps.permissionAsks, now);
+    }
+    // 許可の確認（Claude）には、答えを待つ id を返す。台本は /decision でその答えを待つ。
+    const wait = row?.provider === 'claude-code' && deps.hookDecisions ? readPermissionDecisionInput(body) : null;
+    if (wait) {
+      const s = deps.db.prepare('select provider_session_id from sessions where id = ? and deleted_at is null').get(id) as { provider_session_id: string } | undefined;
+      if (s?.provider_session_id === wait.providerSessionId) return c.json({ id: deps.hookDecisions!.open(id, wait) });
     }
     return c.body(null, 204);
+  });
+  /**
+   * PermissionRequest の hook の台本が、答えを待つ口（sessions/hookDecisions.ts）。/hook と同じ鍵で開く。
+   * 本文は { id, waitMs }。決まっていれば答え、waitMs まで決まらなければ pending、待ちが閉じていれば gone を返す。
+   */
+  app.post('/s/:sessionId/decision', async (c) => {
+    const id = c.req.param('sessionId');
+    const denied = mcpGuard(c, deps, id);
+    if (denied) return denied;
+    let body: { id?: unknown; waitMs?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'invalid json' }, 400);
+    }
+    if (!deps.hookDecisions || typeof body.id !== 'string') return c.json({ t: 'gone' });
+    const ms = typeof body.waitMs === 'number' && body.waitMs >= 0 ? Math.min(body.waitMs, 30_000) : 0;
+    return c.json(await deps.hookDecisions.wait(id, body.id, ms));
   });
   return app;
 }

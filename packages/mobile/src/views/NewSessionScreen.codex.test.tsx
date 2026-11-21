@@ -6,6 +6,7 @@ import { openInbox } from '../inbox.ts';
 import { clearLaunchDefaults, saveLaunchDefaults, EMPTY_DEFAULTS } from '../launchDefaults.ts';
 import type { LaunchSpec } from '../launchRun.ts';
 import { at1, feedOf, inboxOf, makeKey, MIN, ring } from '../test/fixtures.ts';
+import { chipOf, group, pick } from '../test/launchScreen.ts';
 import { WORKER } from '../test/pairText.ts';
 import { NewSessionScreen } from './NewSessionScreen.tsx';
 
@@ -57,11 +58,7 @@ async function setup(asker: Asker = askerOf()) {
   return { onLaunch, asker };
 }
 
-const group = (name: string) => screen.getByRole('radiogroup', { name });
-const queryGroup = (name: string) => screen.queryByRole('radiogroup', { name });
-const pick = (groupName: string, option: RegExp | string) => fireEvent.click(within(group(groupName)).getByRole('radio', { name: option }));
 const prompt = () => screen.getByRole('textbox', { name: '初期プロンプト' });
-const advanced = () => screen.getByRole('button', { name: /詳しい設定/ });
 
 describe('NewSessionScreen の Codex', () => {
   it('caps.agents に codex のある PC だけエージェントの段に Codex を出す。並びは Claude Code、Codex、opencode', async () => {
@@ -72,16 +69,15 @@ describe('NewSessionScreen の Codex', () => {
     pick('プロジェクト', /project-c/);
     expect(within(group('エージェント')).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Claude Code', expect.stringContaining('Codex'), expect.stringContaining('opencode')]);
     pick('プロジェクト', /project-b/);
-    expect(queryGroup('エージェント')).not.toBeInTheDocument();
+    expect(chipOf('エージェント')).toBeNull();
   });
 
   it('Codex を選ぶとアカウントと権限モードの段が畳まれ、詳しい設定が権限、モデル、推論の強さに変わる。一覧は PC ごとに問い合わせる', async () => {
     const { asker } = await setup();
     pick('プロジェクト', /project-a/);
-    fireEvent.click(advanced());
     pick('エージェント', /Codex/);
-    await waitFor(() => expect(queryGroup('アカウント')).not.toBeInTheDocument());
-    await waitFor(() => expect(queryGroup('権限モード')).not.toBeInTheDocument());
+    await waitFor(() => expect(chipOf('アカウント')).toBeNull());
+    await waitFor(() => expect(chipOf('権限モード')).toBeNull());
     expect(asker.codexOptions).toHaveBeenCalledWith('pc-1');
     expect(asker.agentOptions).not.toHaveBeenCalled();
     await waitFor(() => expect(within(group('モデル')).getAllByRole('radio').map((r) => r.getAttribute('data-value'))).toEqual(['', 'gpt-5.5', 'gpt-5.5-mini']));
@@ -93,17 +89,16 @@ describe('NewSessionScreen の Codex', () => {
     await waitFor(() => expect(within(group('推論の強さ')).getAllByRole('radio').map((r) => r.getAttribute('data-value'))).toEqual(['', 'low', 'medium']));
     expect(within(group('エージェント')).getByRole('radio', { name: /Codex/ })).toHaveTextContent('0.164.0 · 検証済み');
     pick('エージェント', 'Claude Code');
-    await waitFor(() => expect(group('アカウント')).toBeInTheDocument());
-    expect(group('権限モード')).toBeInTheDocument();
-    expect(queryGroup('推論の強さ')).not.toBeInTheDocument();
+    await waitFor(() => expect(chipOf('アカウント')).not.toBeNull());
+    expect(chipOf('権限モード')).not.toBeNull();
+    expect(chipOf('推論の強さ')).toBeNull();
   });
 
   it('フルアクセスを選ぶと注意を出し、読み取りのみに戻すと消える', async () => {
     await setup();
     pick('プロジェクト', /project-a/);
     pick('エージェント', /Codex/);
-    fireEvent.click(advanced());
-    await waitFor(() => expect(group('権限')).toBeInTheDocument());
+    await waitFor(() => expect(chipOf('権限')).not.toBeNull());
     expect(screen.queryByText(/確認なしでコマンドを実行します/)).not.toBeInTheDocument();
     pick('権限', /フルアクセス/);
     expect(await screen.findByText(/確認なしでコマンドを実行します/)).toBeInTheDocument();
@@ -115,12 +110,13 @@ describe('NewSessionScreen の Codex', () => {
     const { onLaunch } = await setup();
     pick('プロジェクト', /project-a/);
     pick('エージェント', /Codex/);
-    fireEvent.click(advanced());
     await waitFor(() => expect(within(group('モデル')).getAllByRole('radio')).toHaveLength(3));
     pick('モデル', /GPT-5.5$/);
     pick('推論の強さ', 'high');
     pick('権限', /読み取りのみ/);
-    expect(advanced()).toHaveTextContent('権限 読み取りのみ · モデル GPT-5.5 · 推論 high');
+    expect(chipOf('権限')).toHaveTextContent('読み取りのみ');
+    expect(chipOf('モデル')).toHaveTextContent('モデル GPT-5.5');
+    expect(chipOf('推論の強さ')).toHaveTextContent('推論 high');
     fireEvent.change(prompt(), { target: { value: '読んで' } });
     fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));
     const spec = onLaunch.mock.calls[0]![0];
@@ -146,7 +142,7 @@ describe('NewSessionScreen の Codex', () => {
     const { onLaunch } = await setup(askerOf({ codex: async () => null }));
     pick('プロジェクト', /project-a/);
     pick('エージェント', /Codex/);
-    fireEvent.click(advanced());
+    fireEvent.click(chipOf('モデル')!);
     expect(await screen.findByText('モデルの一覧を取得できません。デフォルトで起動します。')).toBeInTheDocument();
     fireEvent.change(prompt(), { target: { value: 'a' } });
     fireEvent.click(screen.getByRole('button', { name: 'Mac で始める' }));

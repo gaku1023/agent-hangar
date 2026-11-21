@@ -41,6 +41,7 @@ import { FOCUS_IDS, focusSoon } from './runtime/focusSoon.ts';
 import { clickThrough } from './runtime/clickThrough.ts';
 import { suppressNativeMenu } from './runtime/nativeMenu.ts';
 import { openAnchorInShell } from './runtime/anchorLinks.ts';
+import { hangarActionOf, type HangarLink } from './runtime/hangarLink.ts';
 import { linkOpener } from './runtime/terminalLinks.ts';
 import { tabAlive } from './store/store.ts';
 import { createPresent } from './runtime/present.ts';
@@ -58,12 +59,13 @@ stripEntryToken(location.href, (u) => history.replaceState(null, '', u));
 if (typeof (window as unknown as Partial<DesktopEnv>).__TAURI_INTERNALS__?.invoke === 'function') {
   holdPageAwake(navigator as unknown as LockEnv);
   document.addEventListener('contextmenu', (e) => suppressNativeMenu(e, () => window.getSelection()?.toString() ?? ''));
-  const shell = createDesktopBridge(window);
-  if (shell?.openLink) {
-    const open = linkOpener({ openLink: shell.openLink });
-    for (const type of ['click', 'auxclick'] as const) document.addEventListener(type, (e) => { openAnchorInShell(e, open); }, true);
-  }
 }
+// 外へのリンクは殻に既定のブラウザで開かせる。hangar 自身のリンクは、デスクトップ版でもブラウザで開いた UI でも、いまのペインでその会話を開く。
+const shell = typeof (window as unknown as Partial<DesktopEnv>).__TAURI_INTERNALS__?.invoke === 'function' ? createDesktopBridge(window) : null;
+const shellOpen = shell?.openLink ? linkOpener({ openLink: shell.openLink }) : null;
+// runtime は下で作るが、呼ばれるのは押された後なので、そのときには出来ている。
+const openHangar = (link: HangarLink) => runtime.emit(hangarActionOf(link));
+for (const type of ['click', 'auxclick'] as const) document.addEventListener(type, (e) => { openAnchorInShell(e, shellOpen, openHangar); }, true);
 
 const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
 const api = createApi();
@@ -72,7 +74,7 @@ const api = createApi();
 // 文字の大きさは端末ごとの一時の好みなので、この端末の localStorage に置き、同期しない。読み書きの失敗は TerminalHost が吸う。
 const terminals = createTerminalHost({
   wsUrl: (tab) => `${wsProto}://${location.host}/ws/pty?tab=${encodeURIComponent(tab)}`,
-  createTerminal: createXterm,
+  createTerminal: () => createXterm(openHangar),
   fontSize: { load: () => JSON.parse(localStorage.getItem(FONT_SIZE_KEY) ?? 'null'), save: (px) => localStorage.setItem(FONT_SIZE_KEY, JSON.stringify(px)) },
   // 自動でつなぎ直す前に、そのタブがストアの上でまだ生きているかを確かめる。
   // runtime は下で作るが、呼ばれるのは切れた後なので、そのときには出来ている。
@@ -125,6 +127,8 @@ const runtime = createRuntime({
   focus: (t) => focusSoon(() => document.getElementById(FOCUS_IDS[t]), (cb) => { requestAnimationFrame(cb); }),
   // 窓に戻ってきたら他端末の変更を引く。間引きはサーバ側で行う。
   onWindowFocus: (cb) => { window.addEventListener('focus', cb); return () => window.removeEventListener('focus', cb); },
+  // 窓が前面を離れたら、見ている会話の知らせを外す。
+  onWindowBlur: (cb) => { window.addEventListener('blur', cb); return () => window.removeEventListener('blur', cb); },
   // 頁を閉じる間際（アプリを閉じる、再読み込み）。WebKit は beforeunload を出さないことがあるので pagehide も聞く。
   onPageHide: (cb) => {
     window.addEventListener('pagehide', cb);

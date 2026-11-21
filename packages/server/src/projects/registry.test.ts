@@ -224,19 +224,6 @@ describe('同じフォルダのプロジェクトをまとめる', () => {
     mergeProjects(db, DEV, 'p-win', pid!);
     expect(liveRoots(pid!)).toEqual([{ device_id: DEV, path: path.join(ws, 'alpha') }, { device_id: OTHER, path: 'D:\\workspace\\alpha' }]);
   });
-  it('メモは、残す方が空なら移し、両方にあれば後ろへつなぐ', () => {
-    const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
-    addElsewhere();
-    addElsewhere('p-win2');
-    const memo = (id: string) => db.prepare('select markdown from project_memos where project_id = ? and deleted_at is null').get(id) as { markdown: string } | undefined;
-    upsertShared(db, 'project_memos', { project_id: 'p-win', markdown: 'Windows のメモ' }, OTHER, 'project_id');
-    mergeProjects(db, DEV, 'p-win', pid!);
-    expect(memo(pid!)).toEqual({ markdown: 'Windows のメモ' });
-    expect(memo('p-win')).toBeUndefined();
-    upsertShared(db, 'project_memos', { project_id: 'p-win2', markdown: '2 台目のメモ' }, OTHER, 'project_id');
-    mergeProjects(db, DEV, 'p-win2', pid!);
-    expect(memo(pid!)).toEqual({ markdown: 'Windows のメモ\n\n2 台目のメモ' });
-  });
   it('mergePreview は、まとめた後の PC ごとの場所と、両方のセッションの数を返す', () => {
     const [pid] = syncProjectsFromWorkspace(db, DEV, ws).created;
     assignSessions(db, DEV);

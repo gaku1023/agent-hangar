@@ -70,7 +70,7 @@ describe('SummaryJob', () => {
   it('会話の中で書いた要約は、事後の要約で上書きしない。手動の作り直し（force）は受け付けて上書きする', async () => {
     upsertShared(db, 'session_summaries', { session_id: alphaId, title: '会話の題', one_liner: 'o', body: 'b', state: 'in_progress', next_steps: '[]', source: 'in_session', source_model: null, based_on_turns: 1 }, 'd', 'session_id');
     db.prepare('update session_stats set turns = 40 where session_id = ?').run(alphaId);
-    const job = make([fake('lmstudio')]);
+    const job = make([fake('claude-headless')]);
     expect(job.enqueue(alphaId)).toBe(false);
     expect(job.enqueue(alphaId, { ignoreLive: true })).toBe(false);
     await job.idle();
@@ -81,7 +81,7 @@ describe('SummaryJob', () => {
   });
   it('受け付けて pending を配り、要約を post_hoc で書いて配る', async () => {
     const seen: SummaryInput[] = [];
-    const job = make([fake('lmstudio', { seen, model: 'qwen3-27b' })]);
+    const job = make([fake('claude-headless', { seen, model: 'qwen3-27b' })]);
     expect(job.enqueue(alphaId)).toBe(true);
     expect(job.enqueue(alphaId)).toBe(false);
     expect(job.pending()).toEqual([alphaId]);
@@ -91,16 +91,16 @@ describe('SummaryJob', () => {
     expect(seen[0]).toMatchObject({ sessionId: alphaId, turns: 2, running: false });
     const row = db.prepare('select * from session_summaries where session_id = ?').get(alphaId) as Record<string, unknown>;
     // どの要約器が書いたかは source_id に入れる。source_model はモデル名だけを持つ。
-    expect(row).toMatchObject({ title: 'T', source: 'post_hoc', source_id: 'lmstudio', source_model: 'qwen3-27b', based_on_turns: 2 });
+    expect(row).toMatchObject({ title: 'T', source: 'post_hoc', source_id: 'claude-headless', source_model: 'qwen3-27b', based_on_turns: 2 });
     const upsert = sent.find((e) => e.type === 'session.upsert');
-    expect(upsert?.type === 'session.upsert' && upsert.session.summary).toMatchObject({ sourceId: 'lmstudio', sourceModel: 'qwen3-27b' });
+    expect(upsert?.type === 'session.upsert' && upsert.session.summary).toMatchObject({ sourceId: 'claude-headless', sourceModel: 'qwen3-27b' });
     expect(sent.map((e) => e.type)).toEqual(['summary.pending', 'session.upsert', 'summary.updated']);
   });
   it('他端末のロックは、要約を書いた後の配信から消えない', async () => {
     // 他端末で生きている run。以前はここだけ端末の ID を渡さずに組んでいて、ロックの無い行が配られ、画面からロックの表示が消えた。
     db.prepare("insert into devices (id, name, platform, last_seen_at, updated_at, origin_device) values ('other', 'mini', 'darwin', ?, 1, 'other')").run(Date.now());
     db.prepare("insert into runs (id, session_id, device_id, kind, tmux_name, launch_params, pid, started_at, ended_at, end_reason, heartbeat_at, updated_at, origin_device) values ('rX', ?, 'other', 'start', 'hangar-rX', '{}', null, 1, null, null, ?, 1, 'other')").run(alphaId, Date.now());
-    const job = make([fake('lmstudio')]);
+    const job = make([fake('claude-headless')]);
     job.enqueue(alphaId, { force: true });
     await job.idle();
     const upserts = sent.filter((e): e is Extract<ServerEvent, { type: 'session.upsert' }> => e.type === 'session.upsert');
@@ -112,20 +112,20 @@ describe('SummaryJob', () => {
     await job.idle();
   });
   it('使えない要約器を飛ばし、失敗したら次へ。全部だめなら summary.failed', async () => {
-    const job = make([fake('lmstudio', { available: false }), fake('claude-headless', { fail: true })]);
+    const job = make([fake('claude-headless', { available: false }), fake('claude-headless', { fail: true })]);
     job.enqueue(alphaId);
     await job.idle();
     expect(sent.at(-1)).toEqual({ type: 'summary.failed', sessionId: alphaId, message: 'claude-headless failed' });
     expect((db.prepare('select source from session_summaries where session_id = ?').get(alphaId) as { source: string }).source).toBe('baseline');
     sent.length = 0;
-    const job2 = make([fake('lmstudio', { fail: true }), fake('claude-headless', { model: 'haiku' })]);
+    const job2 = make([fake('claude-headless', { fail: true }), fake('claude-headless', { model: 'haiku' })]);
     job2.enqueue(alphaId);
     await job2.idle();
     expect(db.prepare('select source_id, source_model from session_summaries where session_id = ?').get(alphaId)).toEqual({ source_id: 'claude-headless', source_model: 'haiku' });
   });
   it('実行中のセッションは受け付けず、force なら受け付ける。本文の無いセッションも受け付けない', async () => {
     const live: LiveSessionDto[] = [{ sessionId: SESSION_ALPHA, status: 'busy', name: null, nameSource: null, cwd: '/x', pid: 1 }];
-    const job = make([fake('lmstudio')], live);
+    const job = make([fake('claude-headless')], live);
     expect(job.enqueue(alphaId)).toBe(false);
     expect(job.enqueue(alphaId, { force: true })).toBe(true);
     await job.idle();
@@ -144,7 +144,7 @@ describe('SummaryJob', () => {
   it('配信が失敗しても待ち行列は進む', async () => {
     const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
     const boom = { broadcast: (e: ServerEvent) => { sent.push(e); throw new Error('socket closed'); } };
-    const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [fake('lmstudio')], live: () => [], hub: boom, language: () => 'ja' });
+    const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [fake('claude-headless')], live: () => [], hub: boom, language: () => 'ja' });
     const other = (db.prepare("select id from sessions where provider_session_id = 'aaaaaaaa-0000-4000-8000-000000000003'").get() as { id: string }).id;
     expect(job.enqueue(alphaId, { force: true })).toBe(true);
     expect(job.enqueue(other, { force: true })).toBe(true);
@@ -160,7 +160,7 @@ describe('SummaryJob', () => {
   it('run の終了直後は ignoreLive で受理する。土台かどうかと 5 ターンの判定は残る', async () => {
     // レジストリのキャッシュは 500 ミリ秒遅れるので、kill の直後はまだ生きて見える。
     const live: LiveSessionDto[] = [{ sessionId: SESSION_ALPHA, status: 'idle', name: null, nameSource: null, cwd: '/x', pid: 1 }];
-    const job = make([fake('lmstudio', { model: 'qwen3-27b' })], live);
+    const job = make([fake('claude-headless', { model: 'qwen3-27b' })], live);
     expect(job.enqueue(alphaId)).toBe(false);
     expect(job.enqueue(alphaId, { ignoreLive: true })).toBe(true);
     await job.idle();
@@ -173,13 +173,13 @@ describe('SummaryJob', () => {
     await job.idle();
   });
   it('モデル名を言わない要約器なら source_model は null で、source_id だけが残る', async () => {
-    const job = make([fake('lmstudio')]);
+    const job = make([fake('claude-headless')]);
     job.enqueue(alphaId, { force: true });
     await job.idle();
-    expect(db.prepare('select source_id, source_model from session_summaries where session_id = ?').get(alphaId)).toEqual({ source_id: 'lmstudio', source_model: null });
+    expect(db.prepare('select source_id, source_model from session_summaries where session_id = ?').get(alphaId)).toEqual({ source_id: 'claude-headless', source_model: null });
   });
   it('直列に走り、test は DB に書かない', async () => {
-    const job = make([fake('lmstudio', { delayMs: 20, model: 'qwen3-27b' })]);
+    const job = make([fake('claude-headless', { delayMs: 20, model: 'qwen3-27b' })]);
     const beta = (db.prepare("select id from sessions where provider_session_id = 'aaaaaaaa-0000-4000-8000-000000000003'").get() as { id: string }).id;
     job.enqueue(alphaId, { force: true }); job.enqueue(beta, { force: true });
     expect(job.pending()).toEqual([alphaId, beta]);
@@ -187,14 +187,14 @@ describe('SummaryJob', () => {
     expect(sent.filter((e) => e.type === 'summary.updated').map((e) => (e as { sessionId: string }).sessionId)).toEqual([alphaId, beta]);
     const before = (db.prepare('select count(*) c from changes').get() as { c: number }).c;
     const r = await job.test();
-    expect(r).toMatchObject({ ok: true, id: 'lmstudio', summary: { title: 'T', source: 'post_hoc', sourceModel: 'qwen3-27b' } });
+    expect(r).toMatchObject({ ok: true, id: 'claude-headless', summary: { title: 'T', source: 'post_hoc', sourceModel: 'qwen3-27b' } });
     expect((db.prepare('select count(*) c from changes').get() as { c: number }).c).toBe(before);
-    const bad = await make([fake('lmstudio', { fail: true }), fake('claude-headless', { available: false })]).test();
-    expect(bad).toEqual({ ok: false, tried: [{ id: 'lmstudio', message: 'lmstudio failed' }, { id: 'claude-headless', message: '使用できません（接続できないか、上限に達しています）' }] });
+    const bad = await make([fake('claude-headless', { fail: true }), fake('claude-headless', { available: false })]).test();
+    expect(bad).toEqual({ ok: false, tried: [{ id: 'claude-headless', message: 'claude-headless failed' }, { id: 'claude-headless', message: '使用できません（接続できないか、上限に達しています）' }] });
   });
   it('test は、そのときの言語の決め打ちの入力を要約器へ渡す', async () => {
     const seen: SummaryInput[] = [];
-    const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [fake('lmstudio', { seen })], live: () => [], hub: hubFor([]), language: () => 'en' });
+    const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [fake('claude-headless', { seen })], live: () => [], hub: hubFor([]), language: () => 'en' });
     await job.test();
     expect(seen[0]!.language).toBe('en');
     expect(/[\u3040-\u30ff\u4e00-\u9fff]/.test(seen[0]!.text)).toBe(false);
@@ -204,7 +204,7 @@ describe('SummaryJob', () => {
 describe('事後の要約からの状態の提案', () => {
   // 手元の暦で 10 月 1 日の 23 時 30 分。日をまたぐ直前でも、戻る日は書いた日から数える。
   const NOW = new Date(2026, 9, 1, 23, 30).getTime();
-  const proposing = (proposal?: SummaryProposal): Summarizer => ({ id: 'lmstudio', available: async () => true, summarize: async () => (proposal ? { ...out, proposal } : out) });
+  const proposing = (proposal?: SummaryProposal): Summarizer => ({ id: 'claude-headless', available: async () => true, summarize: async () => (proposal ? { ...out, proposal } : out) });
   const runWith = async (s: Summarizer, live: LiveSessionDto[] = []) => {
     const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [s], live: () => live, hub: hubFor(live), now: () => NOW, language: () => 'ja' });
     expect(job.enqueue(alphaId, { force: true })).toBe(true);

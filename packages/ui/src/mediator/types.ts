@@ -15,7 +15,7 @@ export type SearchQuery = Omit<SearchParamsDto, 'since'> & { days?: number };
 
 export type RuntimeEvent =
   // ws.close は時刻を運ぶ。Mediator は純粋な遷移なので、いつ切れたかを自分では測れない。
-  | { type: 'ws.open' } | { type: 'ws.close'; at: number } | { type: 'hash.changed'; route: Route; moved?: number }
+  | { type: 'ws.open' } | { type: 'ws.close'; at: number } | { type: 'hash.changed'; route: Route; moved?: number; /** 履歴の段が動いた後の、戻れるか・進めるか。runtime が URL の変化を受けたときだけ添える。 */ history?: { back: boolean; forward: boolean } }
   | { type: 'api.failed'; message: string; holdMs?: number; /** あれば、トーストに「エージェントで調査…」を付ける。 */ investigate?: InvestigateContext } | { type: 'search.done'; params: SearchParamsDto }
   | { type: 'launch.done'; sessionId: string; runId: string } | { type: 'launch.failed'; message: string; /** 起動が、リンクの場所のファイルの衝突だけで断られた（修復のダイアログを開ける）。 */ linkConflict?: LinkConflictRef }
   // 準備が問い（ask）で止まった、または利用者がやめた（cancel）。どちらも失敗ではない。message はサーバの文で、閉じた後に問いで止まったときだけ知らせる。
@@ -104,7 +104,7 @@ export type Effect =
   | { kind: 'api.recheckMux' }
   | { kind: 'shell.openLog' } | { kind: 'shell.restart' } | { kind: 'clipboard.copy'; text: string; done?: string }
   | { kind: 'api.rebuildIndex' }
-  | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.peerLaunch'; body: PeerLaunchBody } | { kind: 'api.peerStop'; sessionId: string } | { kind: 'api.resume'; sessionId: string; stray?: ResumeStray; prepKey?: string } | { kind: 'api.fork'; sessionId: string }
+  | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.peerLaunch'; body: PeerLaunchBody } | { kind: 'api.peerStop'; sessionId: string } | { kind: 'api.resume'; sessionId: string; stray?: ResumeStray; prepKey?: string }
   // 起動した後にコンテキストが足りなかった会話のローカルのモデルを整え直す。進みは prepKey の鍵の launch.prep で届き、結果は contextShort.done か contextShort.failed で返る。
   | { kind: 'api.fixContextShort'; sessionId: string; prepKey: string }
   | { kind: 'api.attach'; sessionId: string } | { kind: 'api.adopt'; sessionId: string }
@@ -150,13 +150,13 @@ export type Effect =
   // セッションの状態。本文には渡されたものだけを載せる。
   | { kind: 'api.detachSpawn'; id: string }
   | { kind: 'api.setPinned'; id: string; pinned: boolean }
+  | { kind: 'api.setMuted'; id: string; muted: boolean }
   | { kind: 'api.markUnread'; id: string }
   // 元の会話の設定を読み、埋めた新規ダイアログを開く（mediator/launch.ts の duplicateOpenAction）。
   | { kind: 'api.loadDuplicate'; id: string }
   | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string; wakeOn?: WakeOn | null } }
   | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string; returnTime?: string; wakeOn?: WakeOn | null } }
   | { kind: 'api.rejectSessionState'; id: string }
-  | { kind: 'api.loadMemo'; projectId: string }
   | { kind: 'api.loadInstructions'; projectId: string }
   | { kind: 'api.promote'; sessionId: string; name: string; gitInit: boolean; moveFiles: boolean; parent?: string }
   | { kind: 'api.createProject'; place: ProjectPlace; startSession: boolean }
@@ -261,7 +261,7 @@ export type Overlay =
   | { kind: 'linkRepair'; agent: 'claude-code' | 'codex'; accountId: string; back: Extract<Overlay, { kind: 'newSession' }> | null }
   | { kind: 'muxGuide'; pending: MuxPending; back: Extract<Overlay, { kind: 'newSession' }> | Extract<Overlay, { kind: 'confirm' }> | null };
 /** psmux（tmux）が無いときに止める、セッションを始める操作。 */
-export type MuxPending = Extract<UiAction, { type: 'session.new.submit' | 'session.resume' | 'session.fork' | 'session.resumeHere' | 'session.adopt' | 'session.attach' | 'interrupted.resume' | 'session.takeover.start' }>;
+export type MuxPending = Extract<UiAction, { type: 'session.new.submit' | 'session.resume' | 'session.resumeHere' | 'session.adopt' | 'session.attach' | 'interrupted.resume' | 'session.takeover.start' }>;
 /** psmux（tmux）の再確認の進み。missing は、再確認しても見つからなかったこと。 */
 export type MuxCheck = 'idle' | 'checking' | 'missing';
 /**
@@ -315,7 +315,11 @@ export type SessionViewState = {
 };
 /** holdMs は info の出している長さ（ミリ秒）。省くと既定の長さ（INFO_TOAST_MS）。action はトーストの中のボタン（「元に戻す」）で、押すとその UiAction を出してトーストを閉じる。 */
 /** action の title は、ボタンに添える説明（「エージェントで調査…」）。 */
-export type Toast = { id: string; level: 'info' | 'error'; message: string; holdMs?: number; action?: { label: string; send: UiAction; title?: string } };
+/**
+ * 右下の知らせ 1 枚。openPrompt があるのは、エージェントが open_in_hangar で会話を見てほしいと求めた知らせ（session.openPrompt）で、
+ * 開く先の会話と求めた会話を持ち、描き方は presenters/toasts.ts の OpenPromptCardProps が決める（message は札を描けないときの代わりの文）。
+ */
+export type Toast = { id: string; level: 'info' | 'error'; message: string; holdMs?: number; action?: { label: string; send: UiAction; title?: string }; openPrompt?: { sessionId: string; deviceId: string; fromSessionId: string | null } };
 /**
  * まとめて再開（中断の群）の進み。queued は順番待ち、active は再開を頼んで返事を待っているもの、failed は断られた理由（セッションの id から）。
  * 同時に頼むのは RESUME_CONCURRENCY 本までである。
@@ -436,6 +440,8 @@ export type State = {
   accountAdd: LaunchState;
   linkRepair: LinkRepairState;
   toasts: Toast[]; nextToastId: number;
+  /** 履歴を戻れるか・進めるか。サイドバーの戻る・進むのボタンが、行けないほうを薄くするのに使う。runtime が段の動くたびに知らせる。 */
+  history: { back: boolean; forward: boolean };
   /** サイドバーを図とアイコンだけの帯に縮めているか。開閉のたびに保存し、起動時に読み戻す。 */
   sidebarCollapsed: boolean;
   /** 開いたサイドバーの幅（px）。境目を掴んで変え、端末ごとに保存して起動時に読み戻す。 */

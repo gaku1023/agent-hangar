@@ -193,6 +193,8 @@ export type SessionListOptions = {
   /** 行の一覧の id と、開いたときにフォーカスを取るか。 */
   id?: string;
   autoFocus?: boolean;
+  /** 一覧の末尾に置くもの（プロジェクトの画面の、非対話の会話を畳んだまとまり）。 */
+  foot?: ReactNode;
 };
 
 /**
@@ -225,7 +227,7 @@ export function SessionList(props: SessionListProps & SessionListOptions) {
       {filtersOpen && <Filters id={filtersId} filter={props.filter} projects={props.projects} projectFixed={props.projectFixed} />}
       <Hints hints={props.hints} />
       <ConditionRow conditions={props.conditions} tab={props.tab} filter={props.filter} loading={props.loading} total={props.total} />
-      <SessionRows id={id} {...(props.items ? { items: props.items } : { rows: props.rows })} variant={props.projectFixed ? 'project' : 'search'} autoFocus={autoFocus} page={props.pager?.page} statusColumn={props.statusColumn} emptyText={props.mode === 'search' && !props.loading ? t('list.empty.noMatch') : undefined} emptyNode={props.empty} badgeAction={badgeAction} scope={listScope} />
+      <SessionRows id={id} {...(props.items ? { items: props.items } : { rows: props.rows })} variant={props.projectFixed ? 'project' : 'search'} autoFocus={autoFocus} page={props.pager?.page} statusColumn={props.statusColumn} emptyText={props.mode === 'search' && !props.loading ? t('list.empty.noMatch') : undefined} emptyNode={props.empty} badgeAction={badgeAction} scope={listScope} foot={props.foot} />
       {props.loadMore
         ? <LoadMore {...props.loadMore} />
         : props.pager && <Pager label={t('list.pager.label')} pager={props.pager} onPage={(page) => emit({ type: 'search.page', page })} onSize={(size) => emit({ type: 'list.pageSize', size })} />}

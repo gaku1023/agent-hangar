@@ -284,6 +284,24 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(rm.getTab(r.run.id)?.kind).toBe('agent');
   });
 
+  it('人のいない起動元（予定、別の会話）なら、区切りの問いの代わりに問いで止まらない段を指示に入れる。知らない値は人の起動として読む', async () => {
+    const rm = make();
+    const sysOf = async (params: Parameters<typeof rm.start>[0]) => {
+      const r = await rm.start(params);
+      const args = await launchedArgs(r.run.id);
+      return args[args.indexOf('--append-system-prompt') + 1]!;
+    };
+    const human = await sysOf({ projectId: 'p1' });
+    expect(human).toContain('このセッションをどうしますか');
+    expect(human).not.toContain('から起動されました');
+    const scheduled = await sysOf({ projectId: 'p1', launchedBy: 'schedule' });
+    expect(scheduled).toContain('このセッションは予定や出来事による自動の実行から起動されました。');
+    expect(scheduled).not.toContain('このセッションをどうしますか');
+    expect(await sysOf({ projectId: 'p1', launchedBy: 'session' })).toContain('このセッションは別の会話から起動されました。');
+    const odd = await sysOf({ projectId: 'p1', launchedBy: 'robot' as never });
+    expect(odd).toContain('このセッションをどうしますか');
+  });
+
   it('選んだ権限モードは run の DTO に載り、選ばなかった起動には載らない（列は足さず、launch_params から読む）', async () => {
     const rm = make();
     const chosen = await rm.start({ projectId: 'p1', permissionMode: 'acceptEdits' });
@@ -1132,6 +1150,32 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
     expect(getSessionNote(db, f.sessionId)).toBeNull();
     expect(args[1]).toBe(path.join(home, 'mcp', `${f.sessionId}.json`));
     expect(JSON.parse(fs.readFileSync(args[1]!, 'utf8')).mcpServers.hangar.url).toBe(`http://127.0.0.1:4177/mcp/s/${f.sessionId}`);
+  });
+
+  it('新規の起動に fork を添えると、元の会話から分岐して起動し、モデル・effort・権限・名前・本文を渡す。worktree は渡さない', async () => {
+    const id = seedOldSession();
+    const rm = make();
+    const f = await rm.start({ fork: id, projectId: 'p1', name: '続き', prompt: '次はテスト', model: 'opus', effort: 'high', permissionMode: 'plan', worktree: 'wt-x' });
+    expect(f.sessionId).not.toBe(id);
+    expect(f.run).toMatchObject({ kind: 'fork', sessionId: f.sessionId });
+    const args = await launchedArgs(f.run.id);
+    const i = args.indexOf('--fork-session');
+    expect(args.slice(i - 2, i + 3)).toEqual(['-r', 'u-old', '--fork-session', '--session-id', args[i + 2]]);
+    expect(args.slice(args.indexOf('--model'), args.indexOf('--model') + 2)).toEqual(['--model', 'opus']);
+    expect(args).toContain('--effort');
+    expect(args).toContain('--permission-mode');
+    expect(args).not.toContain('-w');
+    expect(args[args.indexOf('-n') + 1]).toBe('続き');
+    expect(args).toContain("次はテスト");
+    expect(args.indexOf("次はテスト")).toBeGreaterThan(args.indexOf("--permission-mode"));
+    expect(db.prepare('select project_id from sessions where id = ?').get(f.sessionId)).toMatchObject({ project_id: 'p1' });
+  });
+
+  it('fork を添えた起動は、元の会話が無ければ 404、本文が無ければ 400', async () => {
+    const rm = make();
+    await expect(rm.start({ fork: 'nope', projectId: 'p1' })).rejects.toMatchObject({ status: 404 });
+    const noBody = seedOldSession(false);
+    await expect(rm.start({ fork: noBody, projectId: 'p1' })).rejects.toMatchObject({ status: 400 });
   });
 
   // プロジェクトに属する会話は、cwd が無ければプロジェクトの場所に読み替える（runs/handover.ts）。読み替えられないのは、属さない会話である。
@@ -3069,5 +3113,49 @@ describe('Remote Control の URL を画面から拾う（tmux 不要）', () => 
     rm.resume(id);
     await timers.advance(2_000);
     expect(rows()).toEqual([{ session_id: id, url: URL_A, at: timers.now }]);
+  });
+});
+
+describe('起動の残りと kill の確認（tmux 不要）', () => {
+  const deletedAt = (sessionId: string) => (db.prepare('select deleted_at from sessions where id = ?').get(sessionId) as { deleted_at: number | null }).deleted_at;
+  const seedPending = (id: string, o: { startedAt?: number; device?: string } = {}) => upsertShared(db, 'sessions', { id, provider: 'codex', provider_session_id: `pending:${id}`, cwd, home_device: o.device ?? 'd', started_at: o.startedAt ?? 1, last_activity_at: 1 }, 'd');
+
+  it('仮の ID のまま長く経ち、生きた run も無い行は、見回りで消す', () => {
+    seedPending('p-old');
+    const rm = make({ tmux: null, now: () => 40 * 60_000 });
+    rm.tick();
+    expect(deletedAt('p-old')).not.toBeNull();
+  });
+
+  it('run がある（終わったものも）、まだ新しい、他の PC の行は残す', () => {
+    seedPending('p-alive');
+    upsertShared(db, 'runs', { id: 'rp', session_id: 'p-alive', device_id: 'd', kind: 'start', tmux_name: 'hangar-rp', pid: null, launch_params: '{}', started_at: 1, ended_at: null, heartbeat_at: 1 }, 'd');
+    seedPending('p-ended');
+    upsertShared(db, 'runs', { id: 'rpe', session_id: 'p-ended', device_id: 'd', kind: 'start', tmux_name: 'hangar-rpe', pid: null, launch_params: '{}', started_at: 1, ended_at: 2, end_reason: 'exited', heartbeat_at: 1 }, 'd');
+    seedPending('p-new', { startedAt: 39 * 60_000 });
+    seedPending('p-other', { device: 'other' });
+    const rm = make({ tmux: null, now: () => 40 * 60_000 });
+    rm.tick();
+    expect(deletedAt('p-alive')).toBeNull();
+    expect(deletedAt('p-ended')).toBeNull();
+    expect(deletedAt('p-new')).toBeNull();
+    expect(deletedAt('p-other')).toBeNull();
+  });
+
+  it('終わった run の live_status を残さない', () => {
+    const { runId } = seedRun();
+    db.prepare("update runs set live_status = 'waiting', live_reason = 'ask', live_at = 5 where id = ?").run(runId);
+    make({ tmux: null }).kill(runId);
+    expect(db.prepare('select live_status, live_reason, live_at from runs where id = ?').get(runId)).toEqual({ live_status: null, live_reason: null, live_at: null });
+  });
+
+  it('kill で落とせていなければ run を閉じず、tmux から消えたのを見てから killed で閉じる', () => {
+    const { runId } = seedRun();
+    let listing = 'hangar-r1\n';
+    const rm = make({ tmux: new Tmux({ tmuxPath: 'tmux', exec: () => ({ status: 0, stdout: listing, stderr: '' }) }) });
+    rm.kill(runId);
+    expect(rm.getRun(runId)!.endedAt).toBeNull();
+    listing = '';
+    expect(rm.tick().ended.map((r) => [r.id, r.endReason])).toEqual([[runId, 'killed']]);
   });
 });

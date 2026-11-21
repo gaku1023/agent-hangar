@@ -15,6 +15,7 @@ import { mangleCwd } from '../provider/claude-code/transcript/discover.ts';
 import { resolvePhysical } from '../provider/codex/transcript/logical.ts';
 import { setSessionTrashed } from './states.ts';
 import { forgetSpawnsOf } from './spawns.ts';
+import { forgetUnread } from '../live/unread.ts';
 
 /**
  * セッションの削除（docs/design.md の「セッションの削除」）。
@@ -319,7 +320,7 @@ export class SessionTrash {
    */
   private forgetIndex(sessionId: string): void {
     // 未読は索引ではないが、会話ごと片付ける（行だけが残らないように）。
-    this.db.prepare('delete from session_unread where session_id = ?').run(sessionId);
+    forgetUnread(this.db, sessionId);
     // 起動元の印（同期する表）も会話ごと切る。起動元が消えた子は、平らに並ぶ。
     try { this.deps.beforeForget?.(sessionId); } catch (e) { this.log(`beforeForget failed: ${e instanceof Error ? e.message : String(e)}`); }
     forgetSpawnsOf(this.db, this.deps.deviceId, sessionId);

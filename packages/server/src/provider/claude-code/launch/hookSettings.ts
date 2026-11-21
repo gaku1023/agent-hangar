@@ -10,7 +10,7 @@ import { runSettingsPath, writePrivateFile } from './mcpConfig.ts';
  *
  * 起こすのは hangar の台本（launch/hookScript.ts）で、shell を通さず（`args` を持つ exec の形）に node で直に起こす。
  * Windows の PowerShell と Git Bash の引用の違いに左右されないためである。
- * 裏で（`async`）走らせるので、問いの表示を待たせず、hangar が止まっていても claude の画面に失敗を出さない。
+ * 問いの出入りは裏で（`async`）走らせるので、問いの表示を待たせず、hangar が止まっていても claude の画面に失敗を出さない。
  * 鍵は書かない。台本は、引数に渡した MCP の設定ファイル（0600）から宛先と鍵を読む。
  */
 export type HookSettingsInput = {
@@ -29,17 +29,24 @@ export type HookSettingsInput = {
 
 /** hook を待つ秒数。裏で走るので claude は待たないが、残り続けないよう区切る。 */
 const HOOK_TIMEOUT_SECONDS = 10;
+/**
+ * 許可の確認の hook が、答えを待つ上限の秒数。
+ * 切れても札は画面に残るので、画面の道に落ちるだけである（Claude Code 2.1.326 で確かめた）。
+ */
+const PERMISSION_WAIT_SECONDS = 3600;
 
 /**
  * PermissionRequest は、道具の許可を求める画面が出るときに走る（hooks/permission.ts）。
  * 許可待ちの札と通知に、何の許可か（道具と命令）を出すために受け取る。全部の道具に当てる。
- * 裏で走るので許可の判断には加わらず、台本は何も出力しない。
+ * これだけは同期（async なし）で走らせる。台本は、別の PC や統括からの答えが決まるまで待ち、答えを出力する（launch/hookScript.ts）。
+ * 待っている間も札は画面に出ていて、画面で先に答えてもよい（台本は待ちが閉じたと分かって抜ける）。答えが無ければ何も出力しない。
  * PostToolUse を全部の道具に広げると、呼び出しのたびに台本が走るので広げない。許可待ちを抜けたことは登録でわかる。
  */
 export function hookSettingsJson(o: HookSettingsInput): string {
   const hook = { type: 'command', command: o.node, args: [o.script, o.mcpConfigPath], async: true, timeout: HOOK_TIMEOUT_SECONDS };
   const entry = [{ matcher: 'AskUserQuestion', hooks: [hook] }];
-  const hooks = { PreToolUse: entry, PostToolUse: entry, PostToolUseFailure: entry, PermissionRequest: [{ matcher: '*', hooks: [hook] }] };
+  const waiting = { type: 'command', command: o.node, args: [o.script, o.mcpConfigPath], timeout: PERMISSION_WAIT_SECONDS };
+  const hooks = { PreToolUse: entry, PostToolUse: entry, PostToolUseFailure: entry, PermissionRequest: [{ matcher: '*', hooks: [waiting] }] };
   return JSON.stringify(o.permissions ? { hooks, permissions: { allow: o.permissions.allow, deny: o.permissions.deny } } : { hooks });
 }
 

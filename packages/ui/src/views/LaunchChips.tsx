@@ -156,6 +156,8 @@ export function LaunchChips(props: {
   remote?: boolean;
   /** worktree の札の値の後ろに添える淡い文字（予定は回ごとに日時が付くので「-MMDD-HHmm」）。 */
   worktreeSuffix?: string;
+  /** 「この会話の続きから」で固定する札。アカウントは元の会話のまま、worktree は元の会話の場所を離れるので使えない。 */
+  fixed?: { account?: boolean; worktree?: boolean };
 }) {
   const t = useT();
   const { values, onChange } = props;
@@ -185,7 +187,8 @@ export function LaunchChips(props: {
     <div className="launch-chips" role="group" aria-label={t('launch.chips.label')} ref={props.rootRef}>
       {props.agent && <AgentChip {...props.agent} />}
       {props.lead}
-      {account && (
+      {account && props.fixed?.account && <SettingChip name={t('launch.chip.account')} value={accountLabel} dot={accountNow?.color} showName={false} tone="muted" locked />}
+      {account && !props.fixed?.account && (
         <ChipPopover name={t('launch.chip.account')} value={accountLabel} dot={accountNow?.color} showName={false} tone={accountNow?.disabled ? 'muted' : 'default'} suffix={accountNow?.disabled ? accountNow.tag : undefined} width={260} agentOnly="accounts">
           {(close) => (
             <PickList label={t('launch.chip.account')} value={account.value}
@@ -211,7 +214,8 @@ export function LaunchChips(props: {
           <ChipPopover name={t('launch.permission.label')} value={permissionLabel(values.permissionMode, t)} tone={bypass ? 'danger' : values.permissionMode === PERMISSION_DEFAULT ? 'muted' : 'default'} icon={bypass ? 'warning' : undefined} agentOnly="permissionMode">
             {(close) => <PermissionList value={values.permissionMode} previous={props.previousPermission} onChange={(v) => { onChange({ permissionMode: v }); close(); }} />}
           </ChipPopover>
-          {!props.remote && <ChipPopover name={t('launch.chip.worktree')} value={values.worktree.trim() || none} suffix={values.worktree.trim() ? props.worktreeSuffix : undefined} tone={values.worktree.trim() ? 'default' : 'muted'} width={280} agentOnly="worktree">
+          {!props.remote && props.fixed?.worktree && <SettingChip name={t('launch.chip.worktree')} value={none} tone="muted" locked />}
+          {!props.remote && !props.fixed?.worktree && <ChipPopover name={t('launch.chip.worktree')} value={values.worktree.trim() || none} suffix={values.worktree.trim() ? props.worktreeSuffix : undefined} tone={values.worktree.trim() ? 'default' : 'muted'} width={280} agentOnly="worktree">
             {(close) => <TextEditor name={t('launch.chip.worktree')} placeholder={t('launch.edit.worktreePlaceholder')} value={values.worktree} onChange={(v) => onChange({ worktree: v })} close={close} mono />}
           </ChipPopover>}
         </>

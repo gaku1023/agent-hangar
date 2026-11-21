@@ -115,7 +115,7 @@ describe('1 つの記録から何行も出る本文', () => {
 
   it('どこからページを切っても、通しで読んだものと同じ行を返す（記録の途中から始まるページを含む）', () => {
     // 1 つの記録から 3 行以上が出ていることを先に確かめる。無ければ途中から始まるページを試せていない。
-    const widest = (db.prepare("select max(c) m from (select count(*) c from event_index where session_id = ? and ifnull(parent_agent, '') = '' group by file_path_ref, byte_offset)").get(wideId) as { m: number }).m;
+    const widest = (db.prepare("select max(c) m from (select count(*) c from event_index where session_id = ? and ifnull(parent_agent, '') = '' group by path_id, byte_offset)").get(wideId) as { m: number }).m;
     expect(widest).toBeGreaterThanOrEqual(3);
     const all = readEvents(db, wideId, {}).events;
     expect(all.map((e) => e.seq)).toEqual([...Array(all.length).keys()]);

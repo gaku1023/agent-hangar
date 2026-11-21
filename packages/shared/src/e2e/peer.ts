@@ -56,23 +56,25 @@ export type PeerLaunchRequest = {
   effort?: string;
   mode?: string;
   autoApprove?: boolean;
+  /** 静かな会話として起こす（create_session の silent）。受けた PC が起こした会話をミュートする。知らない古い PC は読み捨てる。 */
+  silent?: boolean;
   name?: string;
   /** 頼んだ PC の会話のアカウントの名前。account が空のとき、頼まれた PC はこの名前のアカウントで起こす（D7）。 */
   callerAccount?: string;
   /** 頼んだ PC の会話が、さらに別の PC から起こされたものなら true（D11 の深さの検査。同期の遅れで結び付きが届いていなくても断れる）。 */
   spawnedRemotely?: boolean;
   /**
-   * 頼みの種類。省けば launch（起動）。send は起こした会話への入力、stop は起こした会話を止める。
-   * 古い版の PC はこの欄を読まずに launch と扱うので、send と stop は版が新しい PC にしか送らない（呼ぶ側が相手の hangar_version で確かめる）。
-   * send と stop では起動の欄（projectId、scratch、agent など）は使われない。形の検査を通るように、scratch を真、projectId を null、agent を claude-code、ほかを空にして送る。
+   * 頼みの種類。省けば launch（起動）。send は起こした会話への入力、stop は起こした会話を止める、wake は Paused の会話を起こす（画面の「今すぐ試す」）。
+   * 古い版の PC はこの欄を読まずに launch と扱うので、send、stop、wake は版が新しい PC にしか送らない（呼ぶ側が相手の hangar_version で確かめる）。
+   * send、stop、wake では起動の欄（projectId、scratch、agent など）は使われない。形の検査を通るように、scratch を真、projectId を null、agent を claude-code、ほかを空にして送る。
    * send の本文は prompt に入れる。
    */
   op?: PeerLaunchOp;
-  /** send と stop の対象。頼まれた PC にある、頼んだ側が起こした会話の ID。 */
+  /** send、stop、wake の対象。頼まれた PC にある、頼んだ側が起こした会話の ID。 */
   targetSessionId?: string;
 };
 
-export const PEER_LAUNCH_OPS = ['launch', 'send', 'stop'] as const;
+export const PEER_LAUNCH_OPS = ['launch', 'send', 'stop', 'wake'] as const;
 export type PeerLaunchOp = (typeof PEER_LAUNCH_OPS)[number];
 
 /** 頼まれた PC が起動を断る理由（計画の断る理由のうち、頼まれた PC が決めるもの）。 */
@@ -134,7 +136,7 @@ function isRequest(v: unknown): v is PeerLaunchRequest {
   if (!isObj(v) || v.v !== 1 || !isTime(v.createdAt) || !isStr(v.parentSessionId) || typeof v.scratch !== 'boolean') return false;
   if (!(v.projectId === null || isStr(v.projectId)) || !isAgentKind(v.agent)) return false;
   if (!isStr(v.account) || !isStr(v.permissionMode) || !isStr(v.model) || !isStr(v.prompt)) return false;
-  return optStr(v.effort) && optStr(v.mode) && optStr(v.name) && optStr(v.callerAccount) && (v.spawnedRemotely === undefined || typeof v.spawnedRemotely === 'boolean') && (v.autoApprove === undefined || typeof v.autoApprove === 'boolean') && (v.op === undefined || (isStr(v.op) && (PEER_LAUNCH_OPS as readonly string[]).includes(v.op))) && optStr(v.targetSessionId);
+  return optStr(v.effort) && optStr(v.mode) && optStr(v.name) && optStr(v.callerAccount) && (v.spawnedRemotely === undefined || typeof v.spawnedRemotely === 'boolean') && (v.autoApprove === undefined || typeof v.autoApprove === 'boolean') && (v.silent === undefined || typeof v.silent === 'boolean') && (v.op === undefined || (isStr(v.op) && (PEER_LAUNCH_OPS as readonly string[]).includes(v.op))) && optStr(v.targetSessionId);
 }
 
 function pickRequest(v: PeerLaunchRequest): PeerLaunchRequest {
@@ -153,6 +155,7 @@ function pickRequest(v: PeerLaunchRequest): PeerLaunchRequest {
   if (v.effort !== undefined) out.effort = v.effort;
   if (v.mode !== undefined) out.mode = v.mode;
   if (v.autoApprove !== undefined) out.autoApprove = v.autoApprove;
+  if (v.silent !== undefined) out.silent = v.silent;
   if (v.name !== undefined) out.name = v.name;
   if (v.callerAccount !== undefined) out.callerAccount = v.callerAccount;
   if (v.spawnedRemotely !== undefined) out.spawnedRemotely = v.spawnedRemotely;

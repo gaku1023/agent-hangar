@@ -15,17 +15,17 @@ describe('createApi（フェーズ 2）', () => {
   it('経路とメソッドと本文', async () => {
     const { api, calls } = harness();
     await api.launch({ projectId: 'p1', name: 'n' });
-    await api.resume('s1'); await api.fork('s1'); await api.killRun('r1'); await api.openTab('r1'); await api.closeTab('r1', 't1');
+    await api.resume('s1'); await api.killRun('r1'); await api.openTab('r1'); await api.closeTab('r1', 't1');
     await api.openTerminalApp('r1', 't1'); await api.openTerminalApp('r1', null);
     await api.projectOpenTerminal('p1'); await api.createProject({ kind: 'dir', path: '/w/beta', name: 'beta' });
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
-      'POST /api/runs', 'POST /api/sessions/s1/resume', 'POST /api/sessions/s1/fork', 'DELETE /api/runs/r1', 'POST /api/runs/r1/tabs', 'DELETE /api/runs/r1/tabs/t1',
+      'POST /api/runs', 'POST /api/sessions/s1/resume', 'DELETE /api/runs/r1', 'POST /api/runs/r1/tabs', 'DELETE /api/runs/r1/tabs/t1',
       'POST /api/runs/r1/open-terminal', 'POST /api/runs/r1/open-terminal', 'POST /api/projects/p1/open-terminal', 'POST /api/projects',
     ]);
     expect(calls[0]!.body).toBe('{"projectId":"p1","name":"n"}');
-    expect(calls[6]!.body).toBe('{"tabId":"t1"}');
-    expect(calls[7]!.body).toBe('{}');
-    expect(calls[9]!.body).toBe('{"kind":"dir","path":"/w/beta","name":"beta"}');
+    expect(calls[5]!.body).toBe('{"tabId":"t1"}');
+    expect(calls[6]!.body).toBe('{}');
+    expect(calls[8]!.body).toBe('{"kind":"dir","path":"/w/beta","name":"beta"}');
   });
   it('外の webhook の URL と repo の状態の経路（owner と repo は別々に符号化する）', async () => {
     const { api, calls } = harness(200, { url: 'https://h/x' });
@@ -84,24 +84,19 @@ describe('フェーズ 3 の経路', () => {
     await api.removeTodo('t1');
     await api.confirmTodo('t1');
     await api.rejectTodo('t1');
-    await api.memo('p1');
-    await api.saveMemo('p1', '# m');
     await api.addArtifact('p1', 'https://claude.ai/code/artifact/x');
     await api.promote('s1', { name: 'n', gitInit: true, moveFiles: false });
-    await api.summarizerModels();
     await api.testSummarizer();
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       'GET /api/usage/aggregate?days=30', 'GET /api/statusline',
       'POST /api/projects/p1/todos', 'PATCH /api/todos/t1', 'DELETE /api/todos/t1', 'POST /api/todos/t1/confirm', 'POST /api/todos/t1/reject',
-      'GET /api/projects/p1/memo', 'PUT /api/projects/p1/memo',
       'POST /api/projects/p1/artifacts', 'POST /api/sessions/s1/promote',
-      'GET /api/summarizer/models', 'POST /api/summarizer/test',
+      'POST /api/summarizer/test',
     ]);
     expect(JSON.parse(String(calls[2]!.body))).toEqual({ text: '買う' });
     expect(JSON.parse(String(calls[3]!.body))).toEqual({ done: true });
-    expect(JSON.parse(String(calls[8]!.body))).toEqual({ markdown: '# m' });
-    expect(JSON.parse(String(calls[9]!.body))).toEqual({ url: 'https://claude.ai/code/artifact/x' });
-    expect(JSON.parse(String(calls[10]!.body))).toEqual({ name: 'n', gitInit: true, moveFiles: false });
+    expect(JSON.parse(String(calls[7]!.body))).toEqual({ url: 'https://claude.ai/code/artifact/x' });
+    expect(JSON.parse(String(calls[8]!.body))).toEqual({ name: 'n', gitInit: true, moveFiles: false });
     // セッションのノートを書く口（PATCH /api/sessions/:id）は 0.4.0 で外した。
     expect(api).not.toHaveProperty('setSessionMemo');
   });

@@ -1,4 +1,4 @@
-import { useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { PromptCommandDto } from '@agent-hangar/shared';
 import { FILE_DRAG_EVENT, FILE_DROP_EVENT, parseDrag, parseDrop } from '../../runtime/fileDrop.ts';
@@ -53,7 +53,7 @@ function Marked(props: { text: string; query: string }) {
  * hero は新しいセッションのダイアログの主役の欄で、高さを 150px から始め、ダイアログを開いたときの焦点を受ける（data-autofocus）。placeholder は空のときの案内である。
  * 候補はダイアログの外（body）に描く。ダイアログは backdrop-filter を持ち、中の fixed はダイアログ基準になるからである（Listbox と同じ）。
  */
-export function PromptComposer(props: { id: string; value: string; onChange: (value: string) => void; projectId: string | null; attachments: Attachment[]; onAttachmentsChange: (next: Attachment[]) => void; onPendingChange?: (count: number) => void; remote?: boolean; hero?: boolean; placeholder?: string; /** 欄の中で、打つ文の下に分けて見せる引用（書き換えない）。送るときに足すのは呼び手。 */ quote?: string; /** info は引用を中立の色にする（注意とセットアップの状況）。無ければエラーの色。 */ quoteTone?: 'info' }) {
+export function PromptComposer(props: { id: string; value: string; onChange: (value: string) => void; projectId: string | null; attachments: Attachment[]; onAttachmentsChange: (next: Attachment[]) => void; onPendingChange?: (count: number) => void; remote?: boolean; hero?: boolean; placeholder?: string; /** 欄の中で、打つ文の下に分けて見せる引用（書き換えない）。送るときに足すのは呼び手。 */ quote?: string; /** info は引用を中立の色にする（注意とセットアップの状況）。無ければエラーの色。 */ quoteTone?: 'info'; /** 欄の箱の先頭（打つ欄の上）に置くもの。続きからの元の会話の札。 */ band?: ReactNode }) {
   /** 別の PC へ頼むときは、この PC のファイルを添付も候補にも出さない。 */
   const fileProject = props.remote ? null : props.projectId;
   const t = useT();
@@ -374,6 +374,7 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
         // 欄の中の子（textarea とボタン）の間を渡るときも dragleave は来る。行き先が欄の中なら、色は消さない。
         onDragLeave={(e) => { if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return; setDropping(false); }}
         onDrop={(e) => { setDropping(false); const files = [...(e.dataTransfer?.files ?? [])]; if (!files.length) return; e.preventDefault(); send(files); }}>
+        {props.band}
         <textarea
           ref={ta} id={props.id} className="pc-input" rows={4} value={props.value} placeholder={props.placeholder} data-autofocus={props.hero ? 'true' : undefined}
           // role は textbox のままにする。combobox にすると、複数行の入力として読まれなくなり、既存の画面の探し方（textbox）も変わる。

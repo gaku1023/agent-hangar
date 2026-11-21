@@ -5,15 +5,13 @@ import { initialStore, type Store } from '../store/store.ts';
 import { emptySlice, type PeerChatSlice } from '../store/peerChat.ts';
 import { isPeerChatCandidate, permissionWord, presentPeerChat } from './peerChat.ts';
 import { presentSession } from './session.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
 const ja = translator('ja');
 const NOW = Date.parse('2026-11-06T12:00:00Z');
 const MAC = { deviceId: 'd-mac', deviceName: 'Mac' };
 const stats = { turns: 3, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: 0 };
-const session = (over: Partial<SessionDto> = {}): SessionDto => ({
-  id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '同期の衝突を調べる', cwd: '/w/app', firstPrompt: null, aiTitle: null, startedAt: NOW - 3_600_000, lastActivityAt: NOW - 1000, lastTurnAt: NOW - 1000,
-  hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: { deviceId: 'd-mac', deviceName: 'Mac', runId: 'r9', heartbeatAt: NOW, stale: false }, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, ...over,
-} as SessionDto);
+const session = (over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ name: '同期の衝突を調べる', cwd: '/w/app', startedAt: NOW - 3_600_000, lastActivityAt: NOW - 1000, lastTurnAt: NOW - 1000, hasTranscript: true, stats, lock: { deviceId: 'd-mac', deviceName: 'Mac', runId: 'r9', heartbeatAt: NOW, stale: false }, ...over }) as SessionDto);
 const user = (uuid: string, text: string, from?: typeof MAC): PeerChatItem => ({ uuid, at: 1, kind: 'user', text, ...(from ? { from } : {}) });
 const ai = (uuid: string, text: string): PeerChatItem => ({ uuid, at: 2, kind: 'assistant', text });
 const tool = (uuid: string): PeerChatItem => ({ uuid, at: 3, kind: 'tool', text: 'Grep', tool: { name: 'Grep', summary: '"parent row" packages/server', ok: true } });
@@ -151,6 +149,18 @@ describe('ほかの PC の会話の画面の描き分け（presenters/peerChat�
     expect(v.rows[0]).toMatchObject({ from: null });
     expect(v.rows[1]).toMatchObject({ from: 'Mac から' });
     expect(v.rows[3]).toMatchObject({ name: 'Grep', ok: true });
+  });
+
+  it('続けて呼んだツールは「ツール呼び出し N 回」の 1 行に畳み、名前は 1 回だけ、MCP の頭は外す', () => {
+    const call = (uuid: string, name: string, summary: string, ok = true): PeerChatItem => ({ uuid, at: 3, kind: 'tool', text: summary, tool: { name, summary, ok } });
+    const v = view(store({ items: [ai('a1', '見ます'), call('t1', 'Bash', 'Bash ssh vm systemctl'), call('t2', 'mcp__hangar__set_session_summary', 'mcp__hangar__set_session_summary'), call('t3', 'mcp__hangar__notify_user', 'mcp__hangar__notify_user', false), ai('a2', '済みました'), call('t4', 'Read', 'Read /w/app/a.ts')] }))!;
+    expect(v.rows.map((r) => r.kind)).toEqual(['assistant', 'tools', 'assistant', 'tool']);
+    expect(v.rows[1]).toEqual({ kind: 'tools', key: 't1', label: 'ツール呼び出し 3 回', failed: '失敗 1', items: [
+      { key: 't1', name: 'Bash', summary: 'ssh vm systemctl', ok: true },
+      { key: 't2', name: 'set_session_summary', summary: '', ok: true },
+      { key: 't3', name: 'notify_user', summary: '', ok: false },
+    ] });
+    expect(v.rows[3]).toMatchObject({ kind: 'tool', name: 'Read', summary: '/w/app/a.ts' });
   });
 
   it('許可の札は askId で行になり、答えが付けば答えの行（「Mac で許可」）になる', () => {

@@ -1,4 +1,5 @@
 import type { AgentKind, LiveStatus, PeerChatFile, PermissionAskDto, PeerKeyring, ServerEvent, SessionActivityDto, WaitKind } from '@agent-hangar/shared';
+import type { HookDecisions } from '../../sessions/hookDecisions.ts';
 import type { AnswerPane } from './answer.ts';
 import type { TailDeps } from './tail.ts';
 
@@ -38,6 +39,16 @@ export type HostSession = {
  */
 export type HostPane = AnswerPane & { captureStyled(): Promise<string | null> };
 
+/** 頼みの送り主の種類。pc はほかの PC（呼び鈴の chat の枠）、phone はスマホ（呼び鈴の phone-chat の枠、mobile/chatHost.ts）。 */
+export type PeerChatSenderKind = 'pc' | 'phone';
+
+/**
+ * 開けた頼みの送り主。
+ * id は Worker が端末トークンで知る ID で、頼みの中身では名乗れない。
+ * name を省けば deps.deviceName で引く。
+ */
+export type PeerChatSender = { id: string; kind: PeerChatSenderKind; name?: string };
+
 /** サーバから画面へ配る知らせ（T8 が受ける）。 */
 export type PeerChatHostEvent = Extract<ServerEvent, { type: 'peerChat.queue' | 'peerChat.delivered' }>;
 
@@ -61,12 +72,13 @@ export type PeerChatHostDeps = {
    */
   ring(): Promise<PeerKeyring | null>;
   /**
-   * 設定 peerChatAcceptFromPeers（peerChatAcceptOf）。
-   * 偽なら送る系の頼み（send、answer、interrupt、resume-send）を断り、預かっていた文は渡さずに捨てる。
+   * 送り主の種類ごとの入り切り。
+   * pc は設定 peerChatAcceptFromPeers（peerChatAcceptOf）、phone は設定 phoneChatAccept（phoneChatAcceptOf）を読む。
+   * 偽なら、その種類の送り主の送る系の頼み（send、answer、interrupt、resume-send、rush）を断り、預かっていた文は渡さずに捨てる。
    * cancel は断らない（預けた文を取り戻すだけ）。
    * 読む系（tail、files）は通す。
    */
-  acceptFromPeers(): boolean;
+  acceptFrom(kind: PeerChatSenderKind): boolean;
   /**
    * 端末の名前。
    * 「Mac で許可」の札に使う。
@@ -114,6 +126,11 @@ export type PeerChatHostDeps = {
    * 省けば配らない。
    */
   emit?(ev: PeerChatHostEvent): void;
+  /**
+   * PermissionRequest の hook の待ちの表（sessions/hookDecisions.ts）。
+   * あれば、札への答えは、待ちがあり hook で言えるとき（hookAnswer.ts）に、画面にキーを打たずにここへ決める。
+   */
+  hookDecisions?: Pick<HookDecisions, 'decide' | 'isDelivered' | 'withdraw' | 'peek'>;
   newId?(): string;
   /** 預かりの時計（試験で縮める）。 */
   queue?: { pollMs?: number; expireMs?: number; settleMs?: number };

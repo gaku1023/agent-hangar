@@ -7,20 +7,14 @@ import { presentLeadCard, type LeadInput } from '../presenters/session.ts';
 import { EndedFacts } from './EndedFacts.tsx';
 import { SummaryCard } from './SummaryCard.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
+import { sessionDto } from '../test/sessionDto.ts';
 
 const ja = translator('ja');
 const en = translator('en');
 const NOW = Date.UTC(2026, 9, 9, 3, 0, 0);
 const DAY = 86_400_000;
 
-const session = (p: Partial<SessionDto> = {}): SessionDto => ({
-  id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: '画像の遅延読み込み', cwd: '/w/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 4 * DAY, lastActivityAt: NOW - 3 * DAY, lastTurnAt: null, 
-  hasTranscript: true, live: null,
-  summary: { title: 't', oneLiner: 'o', body: '商品一覧の画像を遅延読み込みにした。', state: 'done', nextSteps: ['詳細の頁の画像にも同じ部品を使う'], source: 'post_hoc', sourceId: null, sourceModel: null, basedOnTurns: 11, updatedAt: NOW - 3 * DAY },
-  stats: { turns: 11, model: null, effort: null, filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: null, costUsd: 0.42 },
-  fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null,
-  state: { status: 'done', note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: NOW - 3 * DAY, candidate: null }, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...p,
-});
+const session = (p: Partial<SessionDto> = {}): SessionDto => (sessionDto({ providerSessionId: 'u', projectId: 'p1', name: '画像の遅延読み込み', cwd: '/w/web-shop', startedAt: NOW - 4 * DAY, lastActivityAt: NOW - 3 * DAY, hasTranscript: true, summary: { title: 't', oneLiner: 'o', body: '商品一覧の画像を遅延読み込みにした。', state: 'done', nextSteps: ['詳細の頁の画像にも同じ部品を使う'], source: 'post_hoc', sourceId: null, sourceModel: null, basedOnTurns: 11, updatedAt: NOW - 3 * DAY }, stats: { turns: 11, model: null, effort: null, filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: null, costUsd: 0.42 }, state: { status: 'done', note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: NOW - 3 * DAY, candidate: null }, ...p }));
 const art = (id: string, p: Partial<ArtifactCardProps> = {}): ArtifactCardProps => ({ id, title: `成果 ${id}`, description: null, icon: 'document', url: 'https://x', lastPublished: '3 日前', versionCount: 1, canOpenEditor: false, ...p });
 const input = (p: Partial<LeadInput> = {}): LeadInput => ({
   session: session(), now: NOW, gone: false, summaryPending: false, summaryError: null, artifacts: [art('a1')],

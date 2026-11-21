@@ -4,7 +4,6 @@ import { readPeerStatuses } from '../config/deviceStatus.ts';
 import type { Db } from '../db/open.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { msg, render } from '../i18n/message.ts';
-import { PeerSshConnectError } from './ssh/link.ts';
 import { choosePeerRoute, resolvePeer, type PeerCallDeps, type PeerCallRefusal } from './caller.ts';
 import { recordPeerRequest, SCREEN_CALLER } from './outbox.ts';
 import { screenRefusalText } from './text.ts';
@@ -20,7 +19,7 @@ import type { PeerDeviceStatus } from '@agent-hangar/shared';
  * 起きたかどうかの答えは、後から PeerOutbox が画面の札で知らせる。
  */
 
-type RouteDeps = Pick<PeerCallDeps, 'link' | 'workerOk' | 'ssh' | 'version'>;
+type RouteDeps = Pick<PeerCallDeps, 'link' | 'workerOk' | 'version'>;
 
 /** 頼めるか。経路と、相手がこの機能（親の会話が空の頼み）を読む版かで決める。 */
 function stateOf(p: PeerDeviceStatus, deps: RouteDeps, now: number): PeerDeviceDto['state'] {
@@ -30,10 +29,14 @@ function stateOf(p: PeerDeviceStatus, deps: RouteDeps, now: number): PeerDeviceD
   return route.refuse === 'device-outdated' ? 'outdated' : 'offline';
 }
 
+/** 相手に、解決済みの置き場があるプロジェクトと、その置き場（相手の PC のパス）。 */
+function rootsOn(db: Db, deviceId: string): { id: string; path: string }[] {
+  return db.prepare('select r.project_id id, min(r.path) path from project_roots r join projects p on p.id = r.project_id where r.device_id = ? and r.deleted_at is null and r.resolved = 1 and p.deleted_at is null and p.is_scratch = 0 group by r.project_id order by r.project_id').all(deviceId) as { id: string; path: string }[];
+}
+
 /** 相手に、解決済みの置き場があるプロジェクトの id。 */
 function projectsOn(db: Db, deviceId: string): string[] {
-  const rows = db.prepare('select distinct r.project_id id from project_roots r join projects p on p.id = r.project_id where r.device_id = ? and r.deleted_at is null and r.resolved = 1 and p.deleted_at is null and p.is_scratch = 0 order by r.project_id').all(deviceId) as { id: string }[];
-  return rows.map((r) => r.id);
+  return rootsOn(db, deviceId).map((r) => r.id);
 }
 
 /** 新規ダイアログの PC の選択（GET /api/peers）。自分は含めない。 */
@@ -42,7 +45,11 @@ export function listPeersForScreen(db: Db, selfId: string, deps: RouteDeps, now:
     id: p.device_id, name: p.name, platform: p.platform, state: stateOf(p, deps, now),
     accounts: (p.status?.accounts ?? []).map((a) => ({ name: a.name, agent: a.agent, loggedIn: a.logged_in })),
     agents: p.status?.agents ?? [],
-    projects: projectsOn(db, p.device_id),
+    ...(() => {
+      // 置き場のパスは相手の PC のもの。作成画面は、この PC に無いプロジェクトも相手の置き場で出す。
+      const roots = rootsOn(db, p.device_id);
+      return { projects: roots.map((r) => r.id), paths: Object.fromEntries(roots.map((r) => [r.id, r.path])) };
+    })(),
     // 相手の opencode の一覧（#698）。作成画面は、別の PC を選んだときにこれからモードとモデルを出す。
     ...(p.status?.opencode ? { opencode: p.status.opencode } : {}),
   }));
@@ -92,13 +99,8 @@ export async function launchFromScreen(deps: ScreenLaunchDeps, body: PeerLaunchB
     ...(str(body.effort) && body.agent !== 'opencode' ? { effort: str(body.effort)! } : {}), ...(str(body.mode) ? { mode: str(body.mode)! } : {}),
     ...(body.autoApprove === true ? { autoApprove: true } : {}), ...(str(body.name) ? { name: str(body.name)! } : {}),
   };
-  try {
-    const sealed = await sealPeerLaunch(await route.ring(), { requestId, from: deps.deviceId, to: peer.device_id }, req);
-    await route.api.put({ id: requestId, to: peer.device_id, sealed, from: deps.deviceId });
-  } catch (e) {
-    if (e instanceof PeerSshConnectError) return refuse('device-offline', peer.name, render(lang(), msg('mcp.device.offline', { device: peer.name })));
-    throw e;
-  }
-  recordPeerRequest(deps.db, { requestId, to: peer.device_id, callerSessionId: SCREEN_CALLER, now, via: route.via });
+  const sealed = await sealPeerLaunch(await route.ring(), { requestId, from: deps.deviceId, to: peer.device_id }, req);
+  await route.api.put({ id: requestId, to: peer.device_id, sealed, from: deps.deviceId });
+  recordPeerRequest(deps.db, { requestId, to: peer.device_id, callerSessionId: SCREEN_CALLER, now });
   return { status: 'requested', requestId, device: peer.name };
 }

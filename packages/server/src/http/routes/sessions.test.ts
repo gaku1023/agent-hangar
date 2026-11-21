@@ -13,6 +13,7 @@ import { SESSION_ALPHA } from '../../../test/fixtures.ts';
 import { createApp, type AppDeps, type ExternalApi, type RunsApi, type SummaryApi, type SummaryEnqueueOpts } from '../app.ts';
 import { H, run, testDeps, testResult, TOKEN, type TestWorld } from '../testing.ts';
 import { noteWake } from '../../sessions/wake.ts';
+import { pathRefId } from '../../db/pathRef.ts';
 
 // セッションの経路（routes/sessions.ts）の試験。依存は testDeps() で組み、createApp を通して /api の下から叩く。
 
@@ -89,11 +90,39 @@ describe('routes', () => {
     expect((await json(await get(`/api/sessions/${id}/live`))).body).toEqual({ sessionId: id, turnStartSeq: 42, intent: null, agents: [] });
     expect(asked).toEqual([id]);
   });
+  it('非対話の会話は一覧と bootstrap に載らず、?headless=1 の一覧と検索の結果（sessions）で引ける', async () => {
+    const hit = (await json(await get('/api/search?q=' + encodeURIComponent('チャンネル')))).body.hits[0].sessionId as string;
+    db.prepare('update session_stats set headless = 1 where session_id = ?').run(hit);
+    const ids = async (p: string) => ((await json(await get(p))).body as { id: string }[]).map((s) => s.id);
+    expect(await ids('/api/sessions')).not.toContain(hit);
+    expect((await json(await get('/api/bootstrap'))).body.sessions.map((s: { id: string }) => s.id)).not.toContain(hit);
+    expect(await ids('/api/sessions?headless=1')).toContain(hit);
+    expect(await ids(`/api/sessions?headless=1&projectId=${list0ProjectId()}`)).toContain(hit);
+    const { body } = await json(await get('/api/search?q=' + encodeURIComponent('チャンネル')));
+    expect(body.hits.map((h: { sessionId: string }) => h.sessionId)).toEqual([hit]);
+    expect(body.sessions.map((s: { id: string; headless?: boolean }) => [s.id, s.headless])).toEqual([[hit, true]]);
+  });
+  it('非対話の会話だけを、プロジェクトごとに新しい順の頁で引ける（/sessions/headless）', async () => {
+    const hit = (await json(await get('/api/search?q=' + encodeURIComponent('チャンネル')))).body.hits[0].sessionId as string;
+    const pid = list0ProjectId();
+    const none = (await json(await get(`/api/sessions/headless?projectId=${pid}`))).body;
+    expect(none).toEqual({ sessions: [], total: 0 });
+    db.prepare('update session_stats set headless = 1 where session_id = ?').run(hit);
+    const page = (await json(await get(`/api/sessions/headless?projectId=${pid}&limit=10`))).body;
+    expect(page.total).toBe(1);
+    expect(page.sessions.map((s: { id: string; headless?: boolean }) => [s.id, s.headless])).toEqual([[hit, true]]);
+    // limit を渡さなければ件数だけ。offset を過ぎれば空。
+    expect((await json(await get(`/api/sessions/headless?projectId=${pid}`))).body).toEqual({ sessions: [], total: 1 });
+    expect((await json(await get(`/api/sessions/headless?projectId=${pid}&limit=10&offset=1`))).body).toEqual({ sessions: [], total: 1 });
+  });
   it('検索', async () => {
     const { body } = await json(await get('/api/search?q=' + encodeURIComponent('チャンネル')));
     expect(body.total).toBe(1);
     expect((await json(await get('/api/search?q=channels'))).body.hits).toHaveLength(1);
-    expect((await json(await get('/api/search?q='))).body).toEqual({ hits: [], total: 0 });
+    // 語もファイルも無ければ一覧の形になる（RB-12）。試料の会話はどれも状態も起動元も持たないので、全部が根として並ぶ。
+    const { body: listed } = await json(await get('/api/search?q='));
+    const n = (await json(await get('/api/sessions'))).body.length;
+    expect([listed.total, listed.roots, listed.hits.length, listed.rows.length]).toEqual([n, n, n, n]);
     // キーワードが無くても、触ったファイルで絞れる。
     expect((await json(await get('/api/search?q=&file=a.md'))).body.total).toBe(1);
     // 続きは offset で読む。件数は全件のまま。
@@ -172,19 +201,19 @@ describe('routes', () => {
     const at = '/Users/me/workspace/alpha/channels/a.md';
     // 索引にあるのは、メイン会話の Edit 1 回だけ。
     expect(await json(await get(`/api/sessions/${id}/files`))).toEqual({ status: 200, body: { files: [{ path: at, edits: 1, agentId: null }] } });
-    const row = db.prepare("insert into event_index (session_id, seq, kind, byte_offset, byte_length, file_path_ref, parent_agent, tool_name, file_path) values (?, ?, 'tool_call', 0, 0, 'x', ?, ?, ?)");
-    row.run(id, 900_001, null, 'Edit', at);
-    row.run(id, 900_002, null, 'MultiEdit', at);
+    const row = db.prepare("insert into event_index (session_id, seq, kind, byte_offset, byte_length, path_id, parent_agent, tool_name, file_path, file_path_ref) values (?, ?, 'tool_call', 0, 0, ?, ?, ?, ?, '')");
+    row.run(id, 900_001, pathRefId(db, 'x'), null, 'Edit', at);
+    row.run(id, 900_002, pathRefId(db, 'x'), null, 'MultiEdit', at);
     // サブエージェントだけが触ったファイルは、そのサブエージェントの id を添える。
-    row.run(id, 900_003, 'abc123', 'Write', '/w/only-agent.ts');
-    row.run(id, 900_004, 'def456', 'Edit', '/w/only-agent.ts');
+    row.run(id, 900_003, pathRefId(db, 'x'), 'abc123', 'Write', '/w/only-agent.ts');
+    row.run(id, 900_004, pathRefId(db, 'x'), 'def456', 'Edit', '/w/only-agent.ts');
     // サブエージェントが先に触り、メイン会話も触ったファイルは null。
-    row.run(id, 900_005, 'abc123', 'Edit', '/w/both.ts');
-    row.run(id, 900_006, null, 'NotebookEdit', '/w/both.ts');
+    row.run(id, 900_005, pathRefId(db, 'x'), 'abc123', 'Edit', '/w/both.ts');
+    row.run(id, 900_006, pathRefId(db, 'x'), null, 'NotebookEdit', '/w/both.ts');
     // 読んだだけのパスと、パスの無い呼び出しと、ほかのセッションの編集は入れない。
-    row.run(id, 900_007, null, 'Read', '/w/read-only.ts');
-    row.run(id, 900_008, null, 'Edit', null);
-    row.run('another-session', 900_009, null, 'Edit', '/w/other-session.ts');
+    row.run(id, 900_007, pathRefId(db, 'x'), null, 'Read', '/w/read-only.ts');
+    row.run(id, 900_008, pathRefId(db, 'x'), null, 'Edit', null);
+    row.run('another-session', 900_009, pathRefId(db, 'x'), null, 'Edit', '/w/other-session.ts');
     const { status, body } = await json(await get(`/api/sessions/${id}/files`));
     expect(status).toBe(200);
     expect(body).toEqual({ files: [
@@ -248,7 +277,6 @@ describe('routes', () => {
     await get(`/api/sessions/${id}/events?before=5`);
     await get(`/api/sessions/${id}/events?latest=1&agentId=abc123`);
     expect(summary.enqueued).toEqual([]);
-    expect((await json(await get('/api/summarizer/models'))).body).toEqual({ models: ['gemma'] });
     expect((await json(await post('/api/summarizer/test'))).body).toEqual(testResult);
   });
   it('要約の受け付けが投げても呼び手の操作は成立する', async () => {

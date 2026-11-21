@@ -26,6 +26,8 @@ export type SessionMenuProps = { id: string; name: string; status: SessionStatus
   pane?: PaneId | null;
   /** ピン留めしているか。真なら「ピン留めを外す」を出す。 */
   pinned?: boolean;
+  /** ミュートしているか（静かな会話）。真なら「ミュートを解除する」を出し、「未読に戻す」は出さない。 */
+  muted?: boolean;
   /** 「未読に戻す」を出さない。すでに未読か、未読の数を出さない設定のとき（戻しても何も見えない）。 */
   hideMarkUnread?: boolean };
 
@@ -77,7 +79,9 @@ export function presentSessionMenu(store: Store, s: SessionDto, t: Translate): S
     moveBlocked: moveTargetIds(store, s.projectId).length === 0 ? t('row.menu.moveNone') : null,
     spawned: s.spawnedBy != null && store.sessions[s.spawnedBy] !== undefined,
     pinned: (s.pinnedAt ?? null) !== null,
-    hideMarkUnread: !unreadBadgeOn(store) || (s.unread?.count ?? 0) > 0,
+    muted: (s.mutedAt ?? null) !== null,
+    // ミュートした会話は未読を積まないので、戻しても丸が出ない。
+    hideMarkUnread: !unreadBadgeOn(store) || (s.unread?.count ?? 0) > 0 || (s.mutedAt ?? null) !== null,
   };
 }
 
@@ -104,12 +108,16 @@ export function sessionMenuEntries(t: Translate, m: SessionMenuProps): SessionMe
     { key: 'splitRight', label: t('row.menu.splitRight'), icon: 'splitRight', disabled: null, send: { type: 'pane.open', sessionId: m.id, target: null, side: 'right' } },
     { key: 'splitDown', label: t('row.menu.splitDown'), icon: 'splitDown', disabled: null, send: { type: 'pane.open', sessionId: m.id, target: null, side: 'down' } },
   ] satisfies SessionMenuEntry[]).map((e, i): SessionMenuEntry => (i === 0 ? { ...e, separatorBefore: true } : e));
-  // 未読に戻す、ピン留め、同じ設定で新しいセッションは、状態の後ろに区切ってまとめる。
+  // 未読に戻す、ピン留め、ミュート、同じ設定で新しいセッションは、状態の後ろに区切ってまとめる。
   const keep = ([
     ...(m.hideMarkUnread ? [] : [{ key: 'markUnread', label: t('row.menu.markUnread'), icon: 'markUnread', disabled: null, send: { type: 'session.unread.mark', id: m.id } }] satisfies SessionMenuEntry[]),
     m.pinned
       ? { key: 'pin', label: t('row.menu.unpin'), icon: 'unpin', disabled: null, send: { type: 'session.pin', id: m.id, pinned: false } }
       : { key: 'pin', label: t('row.menu.pin'), icon: 'pin', disabled: null, send: { type: 'session.pin', id: m.id, pinned: true } },
+    // ミュート（静かな会話、試作の M1）。ピン留めと同じく、押すたびに語と向きが入れ替わる。
+    m.muted
+      ? { key: 'mute', label: t('row.menu.unmute'), icon: 'bell', disabled: null, send: { type: 'session.mute', id: m.id, muted: false } }
+      : { key: 'mute', label: t('row.menu.mute'), icon: 'bellOff', disabled: null, send: { type: 'session.mute', id: m.id, muted: true } },
     { key: 'duplicate', label: t('row.menu.duplicate'), icon: 'duplicate', disabled: null, send: { type: 'session.duplicate', id: m.id } },
   ] satisfies SessionMenuEntry[]).map((e, i): SessionMenuEntry => (i === 0 ? { ...e, separatorBefore: true } : e));
   return [

@@ -14,6 +14,7 @@ import { useMotionList } from './primitives/useMotionList.ts';
 import type { MenuAnchor, MenuCloseHow } from './primitives/MenuButton.tsx';
 import { boxAnchor, pointAnchor, SessionMenuPop } from './sessionMenu.tsx';
 import { usePresence } from './primitives/usePresence.ts';
+import { setOrchestratorOpen } from './orchestratorOpen.ts';
 
 /**
  * ホームの帯（試作 B）。上の細い帯に件数の錠剤を並べ、押した群だけが帯の下に引き出しで開く。
@@ -174,6 +175,7 @@ function Lead(props: { lead: BandLead }) {
     case 'guide': return <span className="guide-mark" aria-hidden="true"><Icon name="agent" /></span>;
     case 'check': return <span className="ck-mark" data-tone={l.tone} role="img" aria-label={l.label}><Icon name={CHECK_ICON[l.tone]} /></span>;
     case 'ring': return <span className="int-ring" data-spin={l.spin ? 'true' : undefined} role="img" aria-label={l.label} />;
+    case 'orch': return <span className="orch-mark" aria-hidden="true"><Icon name="orchestrator" /></span>;
   }
 }
 
@@ -271,7 +273,9 @@ function BandRowView(props: { row: BandRow; leaving?: boolean; rowRef?: (el: HTM
       {/* エージェントの絵（一覧の行と同じ 20px の枠）。出さないとき（agent が無い）は枠ごと置かない。 */}
       {r.agent !== undefined && <span className="c-agent" data-agent={r.agent ?? 'none'}>{r.agent && <AgentIcon kind={r.agent} />}</span>}
       {/* 小札（「任意」、提案の出どころ）は名前の後ろに置く。名前がボタンの行では、ボタンの外に置いて読み上げの名前に混ぜない。 */}
-      {open
+      {r.opensOrchestrator
+        ? <button type="button" className="c-name c-link" onClick={() => setOrchestratorOpen(true)}>{r.name}</button>
+        : open
         ? <><button type="button" className="c-name c-link" onClick={() => emit(open)}>{r.name}</button>{r.badge && <span className="c-badge c-src">{r.badge}</span>}</>
         : <span className="c-name">{r.name}{r.badge && <span className="c-badge">{r.badge}</span>}</span>}
       {r.context !== null && <span className="c-proj">{r.context}</span>}

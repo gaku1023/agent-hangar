@@ -7,7 +7,7 @@ import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { acceptsResultFrom, closeSpawn, recordSpawn } from '../sessions/spawns.ts';
 import type { Timers } from '../sync/engine.ts';
 import { PEER_QUEUE_EXPIRE_MS, PEER_QUEUE_POLL_MS } from './chat/queue.ts';
-import { expiredText, goneNotice, heldNotice, PEER_TEXT_MAX, refusalText, resultText, screenExpiredText, screenRefusalText, screenStartedText, sshGaveUpText, stopReasonText, type PeerLocalRefusal } from './text.ts';
+import { expiredText, goneNotice, heldNotice, PEER_TEXT_MAX, refusalText, resultText, screenExpiredText, screenRefusalText, screenStartedText, stopReasonText, type PeerLocalRefusal } from './text.ts';
 
 /**
  * 呼ぶ側（T7）。別の PC へ置いた頼みの答えと結果を受け取り、呼び出し元の会話へ送り込む。
@@ -31,6 +31,12 @@ import { expiredText, goneNotice, heldNotice, PEER_TEXT_MAX, refusalText, result
  * 数えるのは、登録では入力を待っているのに画面で止めている間だけで、作業中、札の間、止められている間は数えない（peer/chat/queue.ts の PeerQueue と同じ考え方）。
  * 預かりは呼び出し元ごとに PEER_DELIVERY_MAX_PER_CALLER 件までで、超えた古いものは、外したと利用者に知らせてから預かりから外し、ログに 1 行ずつ残す。
  * 画面を読んでから打つまでの間（capture と inject の間）に人が打ち始める余地は残る。仕様として受け入れる（PeerQueue も同じ）。
+ *
+ * 頼みの記録（peer_outbox.state）は requested から started を経て done へ、または refused、expired へ、一方向にだけ進む。
+ * 期限と掃除は tick ごとの sweep が受け持つ（peer/approvals.ts の承認待ちと同じ形）。
+ * - requested のまま PEER_REQUEST_ANSWER_MS を過ぎた頼みは expired にし、呼び出し元に返す。
+ * - started のまま結び付きが消えた頼み（子が消された、切り離した）は done にする。呼び出し元が消えたときは最初の報告を待ち、PEER_OUTBOX_KEEP_MS を過ぎたら done にする。
+ * - 終わった頼みの記録と渡し終えた預かりは PEER_OUTBOX_KEEP_MS の後に消す。渡せないまま過ぎた預かりも、ログに残して外す。
  */
 
 /** 取得の間隔。呼び鈴が無くても、頼みと結果はこの間隔で届く。 */
@@ -48,6 +54,14 @@ export const PEER_DELIVERY_NOTICE_MS = PEER_QUEUE_EXPIRE_MS;
 export const PEER_DELIVERY_MAX_PER_CALLER = 50;
 /** 画面の都合で打てなかったとき、読み直すまでの間隔。 */
 export const PEER_DELIVERY_RECHECK_MS = PEER_QUEUE_POLL_MS;
+/**
+ * 受け取られた頼みの答えを待てる長さ。過ぎたら expired として呼び出し元に返す。
+ * Worker は受け取られない頼みだけを期限切れにするので、受け取ったまま答えない相手（落ちた、古い版）を待ち続けないためである。
+ * 期限は置いた時刻から決まるので、再起動をまたいでも同じである。
+ */
+export const PEER_REQUEST_ANSWER_MS = 24 * 60 * 60_000;
+/** 終わった頼みの記録と、渡し終えた預かりを残す長さ。Worker の行の保持（7 日）に揃える。渡せないまま過ぎた預かりも外す。 */
+export const PEER_OUTBOX_KEEP_MS = 7 * 24 * 60 * 60_000;
 /** 預かりから外した知らせをログに残すときの長さ。 */
 const DROP_LOG_CHARS = 300;
 
@@ -57,25 +71,25 @@ export const SCREEN_CALLER = '';
 export type PeerRequestState = 'requested' | 'started' | 'refused' | 'expired' | 'done';
 
 /** 頼みの種類。launch は起動、send と stop は起こした会話への入力と停止（D16）。 */
-export type PeerRequestOp = 'launch' | 'send' | 'stop';
+export type PeerRequestOp = 'launch' | 'send' | 'stop' | 'wake';
 
 export type PeerRequestRow = {
   op: PeerRequestOp;
   request_id: string; to_device: string; caller_session_id: string; state: PeerRequestState;
   child_session_id: string | null; title: string | null; reason: string | null;
   received_seq: number; seen_seq: number; created_at: number; updated_at: number;
-  /** 頼みを置いたときに決めた経路。 */
-  via: 'cloud' | 'ssh';
+  /** 頼みを置いたときに決めた経路。いまは cloud だけ（列は SSH の予備の経路があった名残）。 */
+  via: 'cloud';
 };
 
 /**
  * 頼みを置いたら、手元に記録する（T8 の create_session が、POST /launches の後に呼ぶ）。
  * 記録が無い頼みの答えと結果は読まない。同じ ID なら何もしない。
  */
-export function recordPeerRequest(db: Db, o: { requestId: string; to: string; callerSessionId: string; now: number; op?: PeerRequestOp; childSessionId?: string; via?: 'cloud' | 'ssh' }): void {
+export function recordPeerRequest(db: Db, o: { requestId: string; to: string; callerSessionId: string; now: number; op?: PeerRequestOp; childSessionId?: string }): void {
   // send と stop は、対象の会話（相手の PC で起こした子）の ID も残す。結果は最初の launch の request_id の下に届くので、ここには答えだけが来る。
   db.prepare('insert into peer_outbox (request_id, to_device, caller_session_id, op, child_session_id, created_at, updated_at, via) values (?, ?, ?, ?, ?, ?, ?, ?) on conflict(request_id) do nothing')
-    .run(o.requestId, o.to, o.callerSessionId, o.op ?? 'launch', o.childSessionId ?? null, o.now, o.now, o.via ?? 'cloud');
+    .run(o.requestId, o.to, o.callerSessionId, o.op ?? 'launch', o.childSessionId ?? null, o.now, o.now, 'cloud');
 }
 
 export function getPeerRequest(db: Db, requestId: string): PeerRequestRow | null {
@@ -88,8 +102,6 @@ export type PeerOutboxDeps = {
   deviceId: string;
   /** 取得の口。クラウドに入っていなければ null（取得は何もしない）。 */
   api: () => PeerLaunchApi | null;
-  /** SSH の経路の相手ごとの口（peer/ssh/link.ts の PeerSshLink.api）。渡さなければ SSH の頼みは読まない。 */
-  sshApi?: (deviceId: string) => PeerLaunchApi | null;
   /** 封を開く鍵の束。読めなければ null。 */
   ring: () => PeerKeyring | null;
   /** いまの実行中の一覧（agent/liveHub.ts の LiveHub.current）。 */
@@ -154,6 +166,7 @@ export class PeerOutbox {
 
   /** 取得と送り込みを 1 回。どの道も投げない。 */
   async tick(): Promise<void> {
+    await this.serial(async () => { this.sweep(); });
     await this.sync();
     await this.flush();
   }
@@ -184,6 +197,36 @@ export class PeerOutbox {
     return run;
   }
 
+  // ---- 期限と掃除 ----
+
+  /** 答えの期限を過ぎた頼み、結び付きが消えた頼み、古い記録と預かりを片付ける。投げない。 */
+  private sweep(): void {
+    const db = this.deps.db;
+    const now = this.now();
+    const cutoff = now - PEER_OUTBOX_KEEP_MS;
+    try {
+      const late = db.prepare("select * from peer_outbox where state = 'requested' and created_at < ?").all(now - PEER_REQUEST_ANSWER_MS) as PeerRequestRow[];
+      for (const row of late) this.refuse(row, 'expired', undefined, true);
+      const loose = db.prepare(`select request_id, caller_session_id, updated_at from peer_outbox o where state = 'started'
+        and not exists (select 1 from session_spawns sp where sp.session_id = o.child_session_id and sp.deleted_at is null and sp.relay = 'on')`).all() as { request_id: string; caller_session_id: string; updated_at: number }[];
+      const finish = db.prepare("update peer_outbox set state = 'done', updated_at = ? where request_id = ? and state = 'started'");
+      for (const r of loose) {
+        if (this.callerState(r.caller_session_id) === 'gone' && r.updated_at >= cutoff) continue;
+        finish.run(now, r.request_id);
+      }
+      const stale = db.prepare('select id, request_id, seq, caller_session_id, text from peer_deliveries where delivered_at is null and created_at < ?').all(cutoff) as Pick<Delivery, 'id' | 'request_id' | 'seq' | 'caller_session_id' | 'text'>[];
+      for (const d of stale) {
+        const head = [...d.text.replace(/\s+/g, ' ')].slice(0, DROP_LOG_CHARS).join('');
+        console.warn(`[peer] held notice expired before it could be injected, session ${d.caller_session_id}, request ${d.request_id} seq ${d.seq}: ${head}`);
+      }
+      db.prepare('delete from peer_deliveries where (delivered_at is null and created_at < ?) or delivered_at < ?').run(cutoff, cutoff);
+      db.prepare(`delete from peer_outbox where state in ('done', 'refused', 'expired') and updated_at < ?
+        and not exists (select 1 from peer_deliveries d where d.request_id = peer_outbox.request_id and d.delivered_at is null)`).run(cutoff);
+    } catch (e) {
+      console.error('[peer] could not sweep the outbox', e instanceof Error ? e.constructor.name : typeof e);
+    }
+  }
+
   // ---- 取得 ----
 
   private cursor(key: string): number {
@@ -199,69 +242,10 @@ export class PeerOutbox {
   private async syncOnce(): Promise<void> {
     const api = this.deps.api();
     const ring = this.deps.ring();
-    try {
-      if (api && ring) await this.syncVia(api, ring, CURSOR_KEY, 'cloud');
-    } finally {
-      // クラウドが読めなくても、SSH の経路は取る（SSH は、クラウドが使えないときの予備でもある）。
-      await this.syncSshOnce();
-    }
+    if (api && ring) await this.syncVia(api, ring, CURSOR_KEY, 'cloud');
   }
 
-  /** SSH の頼みが残っている相手（答えか結果をまだ待っている）。 */
-  private sshPeers(): string[] {
-    const rows = this.deps.db.prepare("select distinct to_device from peer_outbox where via = 'ssh' and state in ('requested', 'started')").all() as { to_device: string }[];
-    return rows.map((r) => r.to_device);
-  }
-
-  /** SSH の経路で答えか結果を待っている頼みがあるか。あれば呼び出し元はトンネルを張ったまま、短い間隔で取る。 */
-  hasSshWork(): boolean {
-    return this.deps.sshApi !== undefined && this.sshPeers().length > 0;
-  }
-
-  /**
-   * SSH の張り直しを諦めた相手（PeerSshLink の gave-up）について、答えか結果を待っていた頼みの呼び出し元に、1 度だけ入力で知らせる。
-   * 頼みは終わらせない（state はそのまま）。新しい頼みの put でつながれば、続きを受け取る。
-   * 知らせは seq 0 の行で、同じ頼みには 1 度しか積まれない。投げない。
-   */
-  noteSshGaveUp(deviceId: string): Promise<void> {
-    return this.serial(async () => {
-      const rows = this.deps.db.prepare("select * from peer_outbox where via = 'ssh' and to_device = ? and state in ('requested', 'started')").all(deviceId) as PeerRequestRow[];
-      const lang = this.language();
-      const device = this.nameOf(deviceId);
-      const text = sshGaveUpText(lang, { device });
-      for (const row of rows) this.enqueue(row, 0, text, heldNotice(lang, { device, title: null }), text);
-      await this.flushOnce();
-    });
-  }
-
-  /** SSH の経路の取得と送り込みを 1 回。投げない。boot の短い間隔の見回りが呼ぶ。 */
-  syncSsh(): Promise<void> {
-    return this.serial(async () => {
-      try { await this.syncSshOnce(); } catch (e) { console.error('[peer] could not read the SSH outbox', e instanceof Error ? e.constructor.name : typeof e); }
-      await this.flushOnce();
-    });
-  }
-
-  /**
-   * SSH の相手ごとに取る。相手の時計は別なので、起点は相手ごとに持つ。
-   * 張れない、つながらない相手は、その相手だけ飛ばす（張り直しの間隔は口の側が守る）。受け取り済みの連番は同じ表で見るので、張り直しても二重に入れない。
-   */
-  private async syncSshOnce(): Promise<void> {
-    const ring = this.deps.ring();
-    const open = this.deps.sshApi;
-    if (!ring || !open) return;
-    for (const peer of this.sshPeers()) {
-      const api = open(peer);
-      if (!api) continue;
-      try {
-        await this.syncVia(api, ring, `${CURSOR_KEY}:ssh:${peer}`, 'ssh', peer);
-      } catch (e) {
-        console.warn('[peer] could not read the outbox over SSH; will retry', e instanceof Error ? e.constructor.name : typeof e);
-      }
-    }
-  }
-
-  private async syncVia(api: PeerLaunchApi, ring: PeerKeyring, cursorKey: string, via: 'cloud' | 'ssh', peer?: string): Promise<void> {
+  private async syncVia(api: PeerLaunchApi, ring: PeerKeyring, cursorKey: string, via: 'cloud'): Promise<void> {
     const db = this.deps.db;
     let since = Math.max(0, this.cursor(cursorKey) - PEER_OUTBOX_OVERLAP_MS);
     let next = this.cursor(cursorKey);
@@ -286,9 +270,7 @@ export class PeerOutbox {
     }
     // 取りこぼしを残さないため、読めないものがあった回は起点を進めない（次の回で読み直す）。
     if (clean) this.setCursor(cursorKey, next);
-    const rows = (peer === undefined
-      ? db.prepare("select * from peer_outbox where state = 'started' and seen_seq > received_seq and via = ?").all(via)
-      : db.prepare("select * from peer_outbox where state = 'started' and seen_seq > received_seq and via = ? and to_device = ?").all(via, peer)) as PeerRequestRow[];
+    const rows = db.prepare("select * from peer_outbox where state = 'started' and seen_seq > received_seq and via = ?").all(via) as PeerRequestRow[];
     for (const row of rows) await this.fetchResults(api, ring, row);
   }
 
@@ -332,13 +314,20 @@ export class PeerOutbox {
     const device = this.nameOf(row.to_device);
     // 画面から人が頼んだ起動の断りは、入力にせず画面の札で知らせる。
     if (row.caller_session_id === SCREEN_CALLER) {
-      this.deps.db.prepare('update peer_outbox set state = ?, reason = ?, updated_at = ? where request_id = ?').run(expired ? 'expired' : 'refused', expired ? 'expired' : reason, this.now(), row.request_id);
+      if (!this.settle(row, expired ? 'expired' : 'refused', expired ? 'expired' : reason)) return;
+      // wake（今すぐ試す）の断りは札にしない。呼ぶ側（peer/screenWake.ts）が、断りを見て手元で起こす。
+      if (row.op === 'wake') return;
       this.safeToast('error', expired ? screenExpiredText(lang, { device }) : screenRefusalText(lang, { device, reason, op: row.op, ...(detail ? { detail } : {}) }));
       return;
     }
     const text = expired ? expiredText(lang, { device }) : refusalText(lang, { device, reason, op: row.op, ...(detail ? { detail } : {}) });
-    this.deps.db.prepare('update peer_outbox set state = ?, reason = ?, updated_at = ? where request_id = ?').run(expired ? 'expired' : 'refused', expired ? 'expired' : reason, this.now(), row.request_id);
+    if (!this.settle(row, expired ? 'expired' : 'refused', expired ? 'expired' : reason)) return;
     this.enqueue(row, 0, text, heldNotice(lang, { device, title: null }), text);
+  }
+
+  /** requested の頼みを断りで終える。ほかの状態に進んでいれば何もせず false。 */
+  private settle(row: PeerRequestRow, state: 'refused' | 'expired', reason: string): boolean {
+    return this.deps.db.prepare("update peer_outbox set state = ?, reason = ?, updated_at = ? where request_id = ? and state = 'requested'").run(state, reason, this.now(), row.request_id).changes > 0;
   }
 
   /**

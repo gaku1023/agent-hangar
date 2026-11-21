@@ -175,6 +175,11 @@ export type RecordFacts = {
   modelSelected?: boolean;
   aiTitle?: string; customTitle?: string; agentName?: string; prUrl?: string;
   contextSize?: number;
+  /**
+   * 記録を書いたクライアントの入口（Claude の行の entrypoint。cli、sdk-cli など）。
+   * 非対話の会話（claude -p などのバッチ）を見分けるのに使う（indexer/headless.ts）。持たない記録とエージェントでは undefined。
+   */
+  entrypoint?: string;
   isUserTurn: boolean;
 };
 
@@ -357,7 +362,7 @@ export interface AskSource {
  * システムプロンプトに足す段の 1 つ。text は末尾の改行まで含み、区切りを足さずにつなげば 1 つの指示になる。
  * 段の組み立ては launch/injection.ts の renderInjectionEntries で、どのエージェントにも同じ形で渡す。
  */
-export type InjectionEntry = { key: 'body' | 'handover' | 'multiDevice' | 'status' | 'live' | 'notify' | 'notifySave' | 'notifyAsk' | 'share' | 'orchestrator'; text: string };
+export type InjectionEntry = { key: 'body' | 'handover' | 'multiDevice' | 'status' | 'unattended' | 'live' | 'notify' | 'notifySave' | 'notifyAsk' | 'share' | 'orchestrator'; text: string };
 
 export interface InstructionChannel {
   /** 起動の引数でだけ渡せるか（Claude）、途中でも差し替えられるか。 */

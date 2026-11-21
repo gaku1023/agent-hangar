@@ -75,6 +75,15 @@ describe('claudeDirDrifts', () => {
     expect(isClaudeDirDrift('entry=history.jsonl.bak-20261024')).toBe(false);
     expect(isClaudeDirDrift('entry=history.jsonl.backup')).toBe(true);
   });
+  it('Claude Code が書き換えの途中に作る一時ファイル（<名前>.tmp.<pid>.<hex>）は見ない', () => {
+    const dir = path.join(tmp, 'second');
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, '.claude.json.tmp.12345.abcdef0123'), '');
+    fs.writeFileSync(path.join(dir, 'brand-new.json.tmp.1.ab'), '');
+    expect(claudeDirDrifts(dir)).toEqual([entry('brand-new.json.tmp.1.ab')]);
+    expect(isClaudeDirDrift('entry=.claude.json.tmp.12345.abcdef0123')).toBe(false);
+    expect(isClaudeDirDrift('entry=.claude.json.tmp.x')).toBe(true);
+  });
   it('読めない置き場は空', () => {
     expect(claudeDirDrifts(path.join(tmp, 'none'))).toEqual([]);
   });

@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Hono } from 'hono';
-import { configKindsOf, isConfigKindsPatch, peerChatAcceptOf, codexEnabledOf, codexInjectionOf, codexInterceptOf, codexShareOf, opencodeShareOf, isCodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_TERMINALS, isAutoDoneIdleDays, isEditorId, isLanguage, isModelName, isNotifyPreference, notifyPreferenceOf, isOrchestratorPatch, isOrchestratorEffort, orchestratorOf, isVoicePatch, voiceOf, isIdleUnload, isLocalContext, isOpencodeInjection, isProviderPrepId, isSummaryEngine, idleUnloadOf, localContextOf, providerPrepOf, providerPrepsOf, languageOf, LANGUAGES, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, terminalAppsFor, type EditorSetting, type EditorTerminal, type MessageKey, type SettingsDto, type TerminalApp, type WorkspaceRootPreviewDto } from '@agent-hangar/shared';
-import { isLoopbackSummarizerUrl, type Settings } from '../../config/paths.ts';
+import { eventTriggerOf, configKindsOf, isConfigKindsPatch, peerChatAcceptOf, phoneChatAcceptOf, codexEnabledOf, codexInjectionOf, codexInterceptOf, codexShareOf, opencodeShareOf, isCodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_TERMINALS, isAutoDoneIdleDays, isEditorId, isLanguage, isModelName, isNotifyPreference, notifyPreferenceOf, isOrchestratorPatch, isOrchestratorEffort, orchestratorOf, isVoicePatch, voiceOf, isIdleUnload, isLocalContext, isOpencodeInjection, isProviderPrepId, isSummaryEngine, idleUnloadOf, localContextOf, providerPrepOf, providerPrepsOf, languageOf, LANGUAGES, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, terminalAppsFor, type EditorSetting, type EditorTerminal, type MessageKey, type SettingsDto, type TerminalApp, type WorkspaceRootPreviewDto } from '@agent-hangar/shared';
+import { type Settings } from '../../config/paths.ts';
 import { createNodeCheck, isFullPath, nodeBuildIssue } from '../../config/node.ts';
 import { checkToolPath, expandHome, isCommandName, toolPathIssue } from '../../config/readiness.ts';
 import { touchRow, tryWrites } from '../../db/notify.ts';
@@ -54,14 +54,7 @@ export const configTargetsOf = (v: unknown): Record<string, boolean> => {
   return out;
 };
 
-export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, trustedWorkspaceRoot: s.trustedWorkspaceRoot ?? null, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, summaryEngine: s.summaryEngine ?? 'off', summaryClaudeModel: s.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryApiKeySet: typeof s.summaryApiKey === 'string' && s.summaryApiKey !== '', summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, configTargets: configTargetsOf(s.configTargets), configKinds: configKindsOf(s), askStatusAtEnd: s.askStatusAtEnd !== false, liveHints: s.liveHints !== false, notifyUser: s.notifyUser !== false, unreadBadge: s.unreadBadge !== false, sidebarOtherPcs: s.sidebarOtherPcs !== false, unreadOs: s.unreadOs !== false, unreadPhone: s.unreadPhone !== false, notifyPreference: s.notifyPreference ?? null, autoDone: s.autoDone !== false, autoDoneIdleDays: isAutoDoneIdleDays(s.autoDoneIdleDays) ? s.autoDoneIdleDays : DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: s.autoPark !== false, remoteControl: s.remoteControl !== false, defaultModel: s.defaultModel ?? null, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, codexPath: s.codexPath ?? null, opencodePath: s.opencodePath ?? null, language: languageOf(s.language), ...codexSettingsDto(s), codexShareInstructions: codexShareOf(s).instructions, codexShareMcp: codexShareOf(s).mcp, opencodeShareInstructions: opencodeShareOf(s).instructions, opencodeShareMcp: opencodeShareOf(s).mcp, opencodeEnabled: opencodeEnabledOf(s), opencodeInjection: opencodeInjectionOf(s), opencodeIntercept: opencodeInterceptOf(s), opencodePermissionPreset: opencodePermissionPresetOf(s), opencodeLocalContext: localContextOf(s), opencodeIdleUnload: idleUnloadOf(s), opencodeProviderPrep: providerPrepsOf(s.opencodeProviderPrep), peerChatAcceptFromPeers: peerChatAcceptOf(s), orchestrator: orchestratorOf(s.orchestrator), voice: voiceOf(s.voice), permissionPolicy: s.permissionPolicy ?? null });
-
-/** http か https で、host のある URL だけを通す。`http://` のような繋ぎ先にならない文字列を弾く。 */
-function parseHttpUrl(v: string): URL | null {
-  let u: URL;
-  try { u = new URL(v); } catch { return null; }
-  return (u.protocol === 'http:' || u.protocol === 'https:') && u.hostname !== '' ? u : null;
-}
+export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, trustedWorkspaceRoot: s.trustedWorkspaceRoot ?? null, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, summaryEngine: s.summaryEngine ?? 'off', summaryClaudeModel: s.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL, summaryHourlyCap: s.summaryHourlyCap, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, configTargets: configTargetsOf(s.configTargets), configKinds: configKindsOf(s), askStatusAtEnd: s.askStatusAtEnd !== false, liveHints: s.liveHints !== false, notifyUser: s.notifyUser !== false, unreadBadge: s.unreadBadge !== false, sidebarOtherPcs: s.sidebarOtherPcs !== false, unreadOs: s.unreadOs !== false, unreadPhone: s.unreadPhone !== false, notifyPreference: s.notifyPreference ?? null, autoDone: s.autoDone !== false, autoDoneIdleDays: isAutoDoneIdleDays(s.autoDoneIdleDays) ? s.autoDoneIdleDays : DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: s.autoPark !== false, remoteControl: s.remoteControl !== false, defaultModel: s.defaultModel ?? null, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, codexPath: s.codexPath ?? null, opencodePath: s.opencodePath ?? null, language: languageOf(s.language), ...codexSettingsDto(s), codexShareInstructions: codexShareOf(s).instructions, codexShareMcp: codexShareOf(s).mcp, opencodeShareInstructions: opencodeShareOf(s).instructions, opencodeShareMcp: opencodeShareOf(s).mcp, opencodeEnabled: opencodeEnabledOf(s), opencodeInjection: opencodeInjectionOf(s), opencodeIntercept: opencodeInterceptOf(s), opencodePermissionPreset: opencodePermissionPresetOf(s), opencodeLocalContext: localContextOf(s), opencodeIdleUnload: idleUnloadOf(s), opencodeProviderPrep: providerPrepsOf(s.opencodeProviderPrep), peerChatAcceptFromPeers: peerChatAcceptOf(s), phoneChatAccept: phoneChatAcceptOf(s), eventTrigger: eventTriggerOf(s), orchestrator: orchestratorOf(s.orchestrator), voice: voiceOf(s.voice), permissionPolicy: s.permissionPolicy ?? null });
 
 /** 設定の経路。読むと、項目ごとに検査してから書くを持つ。 */
 export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
@@ -182,23 +175,7 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       if (typeof v !== 'string' || !TERMINAL_APPS.has(v)) return c.json({ error: tr(TERMINAL_APP_INVALID, { label: tr('settings.label.terminalApp') }) }, 400);
       patch.terminalApp = v as TerminalApp;
     }
-    if ('lmStudioUrl' in body) {
-      // URL の解析は前後の空白を黙って落とすので、保存する値も落としておく。
-      // 落とさないと、貼り付けで空白が混ざった値がそのまま設定に残る。
-      const v = typeof body.lmStudioUrl === 'string' ? body.lmStudioUrl.trim() : body.lmStudioUrl;
-      // host の無い http:// は繋ぎ先にならないので、形だけでなく URL として読めることを確かめる。
-      if (typeof v !== 'string' || !parseHttpUrl(v)) return c.json({ error: tr('settings.lmStudioUrl.invalid', { label: tr('settings.label.lmStudioUrl') }) }, 400);
-      // 末尾の / は付けない。呼び出し側が /v1/... を足すので、二重の / を作らない。
-      patch.lmStudioUrl = v.replace(/\/+$/, '');
-    }
-    if ('lmStudioModel' in body) {
-      const v = body.lmStudioModel;
-      if (v !== null && typeof v !== 'string') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.lmStudioModel') }) }, 400);
-      // 空文字と空白だけの文字列は「未設定」と同じ意味なので null に寄せる。
-      // 前後の空白は落とす。パス系の設定と同じ扱いにそろえる。
-      patch.lmStudioModel = typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
-    }
-    // 要約エンジン（使わない、Claude、OpenAI 互換）。
+    // 要約エンジン（使わない、Claude）。
     if ('summaryEngine' in body) {
       const v = body.summaryEngine;
       if (!isSummaryEngine(v)) return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.summaryEngine') }) }, 400);
@@ -218,26 +195,10 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       else if (!isModelName(v)) return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.defaultModel') }) }, 400);
       else patch.defaultModel = v;
     }
-    // API キーは書くだけで、返さない。空文字と null は消す。
-    if ('summaryApiKey' in body) {
-      const v = body.summaryApiKey;
-      if (v !== null && typeof v !== 'string') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.summaryApiKey') }) }, 400);
-      patch.summaryApiKey = typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
-    }
-    if ('summaryFallback' in body) {
-      const v = body.summaryFallback;
-      if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.summaryFallback') }) }, 400);
-      patch.summaryFallback = v;
-    }
     if ('summaryHourlyCap' in body) {
       const v = body.summaryHourlyCap;
       if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > SUMMARY_HOURLY_CAP_MAX) return c.json({ error: tr('settings.hourlyCap.invalid', { max: SUMMARY_HOURLY_CAP_MAX, label: tr('settings.label.summaryHourlyCap') }) }, 400);
       patch.summaryHourlyCap = v;
-    }
-    if ('allowExternalSummarizer' in body) {
-      const v = body.allowExternalSummarizer;
-      if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.allowExternalSummarizer') }) }, 400);
-      patch.allowExternalSummarizer = v;
     }
     // 使わなくなった承認の仕方（configKinds の確認に移した）。受け口だけ残す。
     if ('configApproval' in body) {
@@ -381,6 +342,18 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.peerChatAcceptFromPeers') }) }, 400);
       patch.peerChatAcceptFromPeers = v;
     }
+    // スマホの会話の頁からの送信を受けるか。この PC だけの設定で、同期しない。受ける側が送信のたびに読み、受信箱の素の caps.chat にも載せる。
+    if ('phoneChatAccept' in body) {
+      const v = body.phoneChatAccept;
+      if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.phoneChatAccept') }) }, 400);
+      patch.phoneChatAccept = v;
+    }
+    // 外のできごとを使うか。この PC だけの設定で、同期しない。切の間は受け箱を見に行かず、結び付けも作らせない。
+    if ('eventTrigger' in body) {
+      const v = body.eventTrigger;
+      if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.eventTrigger') }) }, 400);
+      patch.eventTrigger = v;
+    }
     // 接続先の準備のコマンド。届いた接続先だけを替える（null か、始める前のコマンドが空なら外す）。次の起動から効く。
     if ('opencodeProviderPrep' in body) {
       const v = body.opencodeProviderPrep;
@@ -402,14 +375,6 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       patch.language = v;
     }
     if (Object.keys(patch).length === 0) return c.json({ error: tr('settings.error.nothingToUpdate') }, 400);
-    // 要約器には会話の本文が送られる。宛先は既定でループバックだけにし、明示の許しがあるときだけ外へ出す。
-    // 許しと宛先は同じ要求で見る。片方ずつ変えて素通りする隙間を作らない。
-    const cur = deps.settings();
-    const allowExternal = patch.allowExternalSummarizer ?? cur.allowExternalSummarizer;
-    const nextLmUrl = patch.lmStudioUrl ?? cur.lmStudioUrl;
-    if (!allowExternal && !isLoopbackSummarizerUrl(nextLmUrl)) {
-      return c.json({ error: tr('settings.summarizer.loopbackOnly', { label: tr('settings.label.allowExternalSummarizer') }) }, 400);
-    }
     const before = deps.settings();
     // フォルダの信頼の同意は、同意した作業フォルダにだけ効く。作業フォルダを変えたら同意を消す（新しい場所は改めて同意を取る）。
     if (patch.workspaceRoot !== undefined && patch.workspaceRoot !== before.workspaceRoot && before.trustedWorkspaceRoot) patch.trustedWorkspaceRoot = null;

@@ -17,6 +17,7 @@ import { StatusSelect } from './primitives/StatusSelect.tsx';
 import { SessionList } from './SessionList.tsx';
 import { TodoList } from './TodoList.tsx';
 import { RollingNumber } from './primitives/RollingNumber.tsx';
+import { HeadlessFold } from './HeadlessFold.tsx';
 import { GitChip } from './GitChip.tsx';
 import { GitUnsafeNote } from './GitUnsafeNote.tsx';
 import type { ProjectGitProps } from '../presenters/git.ts';
@@ -96,6 +97,8 @@ export function ProjectScreen(props: ProjectProps) {
   const bg = useBackgroundEmit();
   const hasPath = props.path !== null;
   useEffect(() => { if (!props.isScratch && !props.notFound && hasPath) bg({ type: 'project.git.load', projectId: props.id }); }, [bg, props.id, props.isScratch, props.notFound, hasPath]);
+  // 非対話の会話の件数は、画面を開いたときに読む（行は畳んだ末尾を開いたときに頁で読む）。
+  useEffect(() => { if (!props.notFound) bg({ type: 'project.headless.load', projectId: props.id }); }, [bg, props.id, props.notFound]);
   const boxRef = useRef<HTMLDivElement>(null);
   const pane = usePresence<HTMLElement>(railOpen, (inner) => (boxRef.current ? playPaneMotion(boxRef.current, PANE_SHAPE.rail.open, inner, false) : null));
   const paneFirst = useRef(true);
@@ -139,7 +142,7 @@ export function ProjectScreen(props: ProjectProps) {
             <button type="button" className="project-path-warn" onClick={() => emit({ type: 'project.resolve', id: props.id, action: { kind: 'repoint', path: props.path! } })}><Icon name="warning" />{t('projectScreen.path.sameFolder', { name: props.sameFolder.name })}</button>
           )}
         </div>
-        <SessionList {...props.list} projectFixed loadMore={loadMore} empty={props.list.allCount === 0 && props.list.total === 0 && props.list.mode === 'all' ? <div className="empty">{t('projectScreen.list.empty')}</div> : undefined} />
+        <SessionList {...props.list} projectFixed loadMore={loadMore} foot={props.headless ? <HeadlessFold projectId={props.id} headless={props.headless} /> : undefined} empty={props.list.allCount === 0 && props.list.total === 0 && props.list.mode === 'all' ? <div className="empty">{t('projectScreen.list.empty')}</div> : undefined} />
       </div>
       {/* 右の列。閉じると幅 0 になり、中身（.rail）は閉じる動きが終わってから外す。 */}
       <div className="rail-slot" data-leaving={pane.leaving ? 'true' : undefined}>

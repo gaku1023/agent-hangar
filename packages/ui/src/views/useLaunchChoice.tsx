@@ -7,6 +7,7 @@ import { accountChoice, accountOptions, opencodeAgentNote, opencodeModelChoice, 
 import { STATUS_LABEL } from '../presenters/format.ts';
 import { peerAccountOptions, peerAccountPick, peerAgentState, peerProjectState } from '../presenters/peerChoice.ts';
 import { agentOnlyAttr, enterAgent, leaveAgent, type AgentSwapSnapshot } from './agentSwap.ts';
+import { SettingChip } from './primitives/Chip.tsx';
 import { LaunchChips, type LaunchChipValues } from './LaunchChips.tsx';
 import { CodexFullAccessNote } from './CodexFullAccessNote.tsx';
 import { OpencodeModelResetNote } from './OpencodeModelResetNote.tsx';
@@ -70,6 +71,8 @@ export type LaunchChoiceOpts = {
   seed?: Pick<NewSessionSeed, 'accounts' | 'settings'> | null;
   /** 名前の初めの値（下書きから）。 */
   name?: string;
+  /** 「この会話の続きから」で始めるとき、元の会話。Claude Code のときだけ効き、プロジェクトとアカウントと worktree を固定する。 */
+  fork?: { sessionId: string } | null;
   /** 予定のフォームで使うとき。 */
   schedule?: LaunchScheduleOpts;
   /** 利用者がプロジェクトを選び直したとき。 */
@@ -233,6 +236,7 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
   const agent: AgentValue = isAgentKind(chosenAgent) && offered.includes(chosenAgent) ? chosenAgent : DEFAULT_AGENT_KIND;
   const opencode = agent === 'opencode';
   const codex = agent === 'codex';
+  const forking = !!o.fork && agent === DEFAULT_AGENT_KIND;
   const caps = AGENT_UI_CAPS[agent];
   // いまのエージェントのアカウントの組（opencode は無し）。2 件未満なら null で、札も params.account も出さない。
   const accountSet = !caps.accounts ? null : codex ? data.codexAccounts ?? null : data.accounts;
@@ -243,12 +247,22 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
   const peerRows = remote && caps.accounts ? peerAccountOptions(remote, agent, accountSet?.list.map((a) => ({ name: a.name, id: a.id })) ?? []) : null;
   const peerAccount = peerRows ? peerAccountPick(peerRows, pickedPeerAccount, accountSet?.list.find((a) => a.id === account)?.name ?? null) : null;
   // 選んだ別の PC で使えない項目を選んだままのとき（置き場の無いプロジェクト、入っていないエージェント、選べないアカウント）、黙って別の項目へ移さず、起動だけを止める。
+  // 候補のプロジェクト。別の PC を選んだ間は、この PC に置き場が無くても、その PC に置き場があるものを名前の順に混ぜる（アーカイブは後ろ）。
+  const pool = remote === null ? data.projects : (() => {
+    const there = (data.away ?? []).filter((p) => peerProjectState(remote, p.id) === 'ok');
+    if (there.length === 0) return data.projects;
+    const all = [...data.projects, ...there];
+    const byName = (list: typeof all) => [...list].sort((a, b) => a.name.localeCompare(b.name));
+    return [...byName(all.filter((p) => p.status !== 'archived')), ...byName(all.filter((p) => p.status === 'archived'))];
+  })();
+  // この PC に置き場の無いプロジェクトを選んだまま この PC に戻したとき。黙って移さず残し、起動を止める。
+  const strayAway = remote === null ? data.away?.find((p) => p.id === choice) ?? null : null;
   const peerUnusable = remote !== null && (
     remote.state !== 'ready' || peerAgentState(remote, agent) !== 'ok'
-    || !(choice === SCRATCH || (data.projects.some((p) => p.id === choice) && peerProjectState(remote, choice) === 'ok'))
+    || !(choice === SCRATCH || (pool.some((p) => p.id === choice) && peerProjectState(remote, choice) === 'ok'))
     || (peerRows !== null && peerRows.length > 0 && peerRows.find((r) => r.name === peerAccount)?.state !== 'ok')
   );
-  const blocked = blockedHere || peerUnusable;
+  const blocked = blockedHere || peerUnusable || strayAway !== null;
   // 既存の予定の編集では、アカウントの札に触れない限り、元の target の account をそのまま保つ（無ければ無いまま、一覧から消えた id も黙って替えない）。エージェントを替えたら、組が違うので札の値に従う。
   const [accountTouched, setAccountTouched] = useState(false);
   const keepAccount = initial !== null && !accountTouched && caps.accounts && (initial.agent ?? DEFAULT_AGENT_KIND) === agent;
@@ -352,9 +366,11 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
     if (model.trim()) params.model = model.trim();
     if (effort) params.effort = effort;
     if (permissionMode) params.permissionMode = permissionMode;
-    if (worktree.trim()) params.worktree = worktree.trim();
+    // 続きからは元の会話の場所（cwd）で動くので、worktree は渡さない。
+    if (worktree.trim() && !forking) params.worktree = worktree.trim();
     const dirs = dirsOf(addDirs);
     if (dirs.length) params.addDirs = dirs;
+    if (forking) params.fork = o.fork!.sessionId;
     return { params, ...(place ? { place } : {}) };
   };
 
@@ -363,7 +379,7 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
    * アカウントは名前で渡す。この PC の id は相手に通じない。prompt は呼び手が添える。
    */
   const buildPeer = (prompt: string): PeerLaunchBody | null => {
-    if (!remote || !(scratch || data.projects.some((p) => p.id === choice))) return null;
+    if (!remote || !(scratch || pool.some((p) => p.id === choice))) return null;
     const { params } = build();
     return {
       device: remote.id, projectId: scratch ? null : choice, scratch, agent,
@@ -374,15 +390,18 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
     };
   };
 
-  const recent = new Set(data.recentIds);
+  const recentIds = remote ? data.recentAnywhere ?? data.recentIds : data.recentIds;
+  const recent = new Set(recentIds);
   const placedOn = (p: { id: string }) => remote === null || peerProjectState(remote, p.id) === 'ok';
   const options: ListboxOption[] = [
     { value: SCRATCH, label: t('newSession.project.quick'), sub: t('newSession.project.quickSub'), subKind: 'prose', icon: 'scratch' },
     // アーカイブは語に一致したときだけ、札付きで出す。presenter が後ろに並べてあるので、検索の結果でもほかのプロジェクトの後に来る。
     // 別の PC を選んでいるときは、その PC に置き場の無いプロジェクトを末尾へ集めて選べなくする（理由は札の 1 語）。
-    ...[...data.projects.filter(placedOn), ...data.projects.filter((p) => !placedOn(p))].map((p) => ({ value: p.id, label: p.name, sub: p.path ?? undefined, meta: p.lastActivity || undefined, status: p.status, ...(placedOn(p) ? {} : { disabled: true, tag: t('newSession.peer.noFolder') }), ...(p.status === 'archived' && placedOn(p) ? { tag: STATUS_LABEL.archived, searchOnly: true } : {}) })),
+    // 別の PC を選んでいる間のパスは、その PC の置き場（古いサーバは返さないので、この PC のパス）。
+    ...[...pool.filter(placedOn), ...pool.filter((p) => !placedOn(p))].map((p) => ({ value: p.id, label: p.name, sub: remote?.paths?.[p.id] ?? p.path ?? undefined, meta: p.lastActivity || undefined, status: p.status, ...(placedOn(p) ? {} : { disabled: true, tag: t('newSession.peer.noFolder') }), ...(p.status === 'archived' && placedOn(p) ? { tag: STATUS_LABEL.archived, searchOnly: true } : {}) })),
     // 登録していないフォルダは、別の PC には頼めない。選んだまま PC を替えたときに見えるよう、選べない行として残す。
     ...data.dirs.map((d) => ({ value: DIR + d.path, label: d.name, sub: d.path, icon: 'folder' as const, tag: t('newSession.project.unregistered'), searchOnly: true, ...(remote ? { disabled: true, tag: t('newSession.peer.noFolder') } : {}) })),
+    ...(strayAway ? [{ value: strayAway.id, label: strayAway.name, status: strayAway.status, hidden: true, disabled: true, tag: t('newSession.peer.noFolder') }] : []),
     ...(extraDir ? [{ value: DIR + extraDir, label: baseName(extraDir), sub: extraDir, icon: 'folder' as const, hidden: true, ...(remote ? { disabled: true } : {}) }] : []),
     { value: NEW_DIR, label: newName.trim() || t('newSession.project.newFolderChip'), faceSub: t('newSession.project.newFolderPath', { path: joinPath(root, newName.trim()) }), icon: 'folderPlus', hidden: true },
   ];
@@ -404,7 +423,7 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
     if (word && !taken(word)) setNewName(word);
     choose(NEW_DIR);
   };
-  const groups = [{ title: t('newSession.project.groupQuick'), values: [SCRATCH] }, { title: t('newSession.project.groupRecent'), values: data.recentIds.filter((id) => placedOn({ id })) }, { title: t('newSession.project.groupAll'), values: data.projects.filter((p) => !recent.has(p.id) && p.status !== 'archived' && placedOn(p)).map((p) => p.id) }];
+  const groups = [{ title: t('newSession.project.groupQuick'), values: [SCRATCH] }, { title: t('newSession.project.groupRecent'), values: recentIds.filter((id) => placedOn({ id }) && pool.some((p) => p.id === id)) }, { title: t('newSession.project.groupAll'), values: pool.filter((p) => !recent.has(p.id) && p.status !== 'archived' && placedOn(p)).map((p) => p.id) }];
   const chosen = options.find((o2) => o2.value === choice);
 
   // 前回値のままなら、札の下に「前回と同じ」と出どころを言い、「既定に戻す」を添える（D1）。
@@ -417,7 +436,9 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
     if (nextName !== undefined) setName(nextName);
     if (Object.keys(rest).length) { setTouched(true); setDetail((cur) => ({ ...cur, ...rest })); }
   };
-  const projectChip = (
+  const projectChip = forking ? (
+    <SettingChip name={t('newSession.project.label')} value={chosen?.label ?? ''} icon={chosen?.icon ?? 'folder'} showName={false} tone="muted" locked />
+  ) : (
     <Listbox id="new-session-project" label={t('newSession.project.label')} value={choice || null} options={options} groups={groups} onChange={choose} actions={actions} onAction={onAction}
       searchPlaceholder={t('newSession.project.search')} minWidth={360} align="start" faceClassName="set-chip" faceProps={{ 'data-tone': nested || linking ? 'linked' : 'default', ...(chosen?.disabled ? { 'data-unusable': 'true' } : {}) }}
       renderFace={(sel) => (
@@ -457,6 +478,7 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
       onChange={onChips}
       previousPermission={prev ? prev.permissionMode ?? '' : undefined}
       worktreeSuffix={scheduling ? t('schedules.worktree.suffix') : undefined}
+      fixed={forking ? { account: true, worktree: true } : undefined}
     />
   );
 
@@ -507,5 +529,5 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
     </>
   );
 
-  return { name, setName, chips, notes, build, buildPeer, blocked, titleKey, assistProject, agent, account, bypass };
+  return { name, setName, chips, notes, build, buildPeer, blocked, titleKey, assistProject, agent, account, bypass, forking };
 }

@@ -21,6 +21,18 @@
 .pchat-tool svg { width: 12px; height: 12px; flex: none; color: var(--idle); }
 .pchat-tool[data-ok='false'] svg { color: var(--error); }
 .pchat-tool-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 続けて呼んだツールのまとめ（PeerToolFold）。畳んだ行は単独のツールと同じ札の形で、押すと下に 1 本ずつの行が開く。 */
+.pchat-tools { display: flex; flex-direction: column; align-items: flex-start; max-width: 100%; }
+.pchat-tools-row { border: 0; font-family: inherit; cursor: pointer; text-align: left; }
+.pchat-tools-row:hover { background: var(--surface-3, #e8eaf0); }
+.pchat-tools-row .chev { display: inline-flex; flex: none; transition: transform var(--dur) var(--ease-out); }
+.pchat-tools-row .chev svg { color: var(--ink-3); }
+.pchat-tools-row[data-open='true'] .chev { transform: rotate(90deg); }
+.pchat-tools-failed { color: var(--error); }
+.pchat-tools-list { display: flex; flex-direction: column; gap: 2px; max-width: 100%; padding: calc(var(--u) * 1) 0 0 calc(var(--u) * 4); overflow: hidden; }
+.pchat-tools-item { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; color: var(--ink-2); font: var(--fs-xs) var(--font-mono); }
+.pchat-tools-item svg { width: 11px; height: 11px; flex: none; color: var(--idle); }
+.pchat-tools-item[data-ok='false'] svg { color: var(--error); }
 .pchat-sys { align-self: center; font-size: var(--fs-xs); color: var(--ink-3); }
 
 /* 預かり（2A）。点線の吹き出しを末尾に置き、渡ると会話に入って小さく弾む。 */

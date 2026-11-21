@@ -5,13 +5,10 @@ import { initialStore, type Store } from '../store/store.ts';
 import { fuzzyScore, presentPalette } from './palette.ts';
 import { presentPromote, presentPromoted } from './promote.ts';
 import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
-const project = (id: string, name: string, isScratch = false): ProjectDto => ({ id, name, status: 'active', isScratch, path: '/w/' + name, resolved: true, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const session = (id: string, name: string, oneLiner: string | null): SessionDto => ({
-  id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'p1', name, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, lastTurnAt: null, hasTranscript: true, live: null,
-  summary: oneLiner ? { title: name, oneLiner, body: '', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 1, updatedAt: 1 } : null,
-  fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null,
-});
+const project = (id: string, name: string, isScratch = false): ProjectDto => ({ id, name, status: 'active', isScratch, path: '/w/' + name, resolved: true, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, updatedAt: 1 });
+const session = (id: string, name: string, oneLiner: string | null): SessionDto => (sessionDto({ id, providerSessionId: 'u' + id, projectId: 'p1', name, cwd: '/w/alpha', startedAt: 1, lastActivityAt: 1, hasTranscript: true, summary: oneLiner ? { title: name, oneLiner, body: '', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 1, updatedAt: 1 } : null }));
 
 const withPalette = () => ({ ...initialState(), overlay: { kind: 'palette' as const } });
 const store = (): Store => ({ ...initialStore(), projects: { p1: project('p1', 'alpha'), sc: project('sc', 'クイックセッション', true) }, sessions: { s1: session('s1', '動画の変換', '動画を mp4 に変換した'), s2: session('s2', 'ログの整理', null) } });

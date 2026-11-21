@@ -1,5 +1,5 @@
 import type { LiveStatus, OrchestratorOrigin, VoiceEvent, VoiceMode, VoiceModelState, VoicePhase, VoiceSetting, VoiceStateDto } from '@agent-hangar/shared';
-import { activePersona, speechText } from '@agent-hangar/shared';
+import { activePersona, isTurnWorking, speechText, turnPhaseOf } from '@agent-hangar/shared';
 import { addressee, initialAddrState, isStrongOrigin, isWindowOpen, type AddrInput, type AddrState } from './addressee.ts';
 import { dropReason } from './filters.ts';
 import type { VoiceHelper } from './helper.ts';
@@ -370,7 +370,9 @@ export class VoiceService {
   private dispatch(text: string, origin: OrchestratorOrigin): void {
     this.pendingReply = null;
     const st = this.deps.orchestratorStatus();
-    const running = st === 'busy' || st === 'waiting';
+    // 登録の status だけを受けるので、裏だけの印は見えない（running のまま）。
+    const ph = turnPhaseOf({ status: st });
+    const running = isTurnWorking(ph) || ph === 'waiting';
     const t = isStrongOrigin(origin) ? { endsLeft: running ? 2 : 1, active: running, confirmed: false } : null;
     this.turn = t;
     const seq = ++this.sends;

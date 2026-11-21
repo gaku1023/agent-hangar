@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { AGENT_KINDS, orchestratorOf, activePersona, voiceOf, codexInjectionOf, notifyRulesOf, opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type AgentKind, type CompatDto, type DeviceStatus, type OpencodeOptionsDto, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
+import { AGENT_KINDS, isQuietStatus, orchestratorLineage, orchestratorOf, activePersona, voiceOf, codexInjectionOf, notifyRulesOf, opencodeInjectionOf, PRIMARY_ACCOUNT_ID, type AgentKind, type CompatDto, type DeviceStatus, type OpencodeOptionsDto, type ReadinessDto, type ShellHookDto, type WorkspaceTrustDto } from '@agent-hangar/shared';
 import { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { claudeJsonFor, claudeJsonPath } from '../provider/claude-code/config/claudeJson.ts';
@@ -25,9 +25,13 @@ import { RunManager } from '../runs/manager.ts';
 import { createLiveChangeHandler } from '../sessions/liveChange.ts';
 import { OVERLAP_TICK_MS, OverlapWatch } from '../sessions/overlap.ts';
 import { hasMarkedIdle, ParkWatch, parkedSessionIds } from '../sessions/park.ts';
-import { setParkingSwitch } from '../db/queries.ts';
+import { getSession, setParkingSwitch } from '../db/queries.ts';
 import { paceNotices, StopNoticeWatch } from '../sessions/stopNotices.ts';
 import { UnreadHold } from '../live/unreadHold.ts';
+import { guardMutedUnread } from '../live/unread.ts';
+import { isSessionMuted } from '../sessions/states.ts';
+import { NotifyFallback } from '../live/notifyFallback.ts';
+import { lastReply } from '../mcp/waitTool.ts';
 import { paneOpsFor, type PaneOps } from '../tmux/pane.ts';
 import { HANGAR_SOCKET, hangarMux, type MuxServers } from '../tmux/servers.ts';
 import { accountOfProviderSession } from '../usage/accountOf.ts';
@@ -42,6 +46,7 @@ import { touchRow } from '../db/notify.ts';
 import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
 import { AGENT_ENTRY } from '../agent/entry.ts';
+import { watchArrivedUnread } from '../live/unreadArrive.ts';
 
 /** run の出入りや登録の変化の後（RunManager.stir）に、tmux の一覧を見て run の終了を拾う間隔。 */
 const RUN_POLL_MS = 2000;
@@ -109,6 +114,8 @@ export type RunsParts = {
   overlaps: OverlapWatch;
   /** 休みの見張り、デスクトップ通知の見張り、同じファイルの編集の見張りの周期を止める。 */
   stopParkTimer(): void;
+  /** 自分の様子を今すぐ調べ直し、変わっていれば devices に書く。統括の設定が変わったとき（系譜を載せ直す）に呼ぶ。startPresence の前は何もしない。 */
+  refreshStatus(): void;
   /** 生存の刻みの周期を止める。 */
   stopPresence(): void;
 };
@@ -271,18 +278,34 @@ export function bootRuns(
   const notices = paceNotices(stopNotices);
   // notify_user の知らせのうち、出し先に OS の通知を含むものを同じ並びへ積む。
   stopNotices.subscribeUnread();
+  // ほかの PC から同期で届いた未読も、この PC の知らせ方の決まり（os の列）どおりに同じ並びへ積む（live/unreadArrive.ts）。スマホへは出さない。
+  watchArrivedUnread({
+    db, deviceId: device.id, settings: () => home.settings.current,
+    session: (id) => {
+      const s = getSession(db, live.current(), id, { deviceId: device.id });
+      return s ? { role: s.role ?? null, quiet: isQuietStatus(s.state?.status) && !s.woke } : null;
+    },
+  });
   // 設定の同期などの、セッションに紐づかない知らせのうち、出し先に OS の通知を含むものも同じ並びへ積む。
   stopNotices.subscribeAppNotice();
   // notify_user の OS とスマホの通知は、done と ask ならターンを抜けるまで預かる。返答を書き終えてから届くようにするためである。
   // 入力待ちの見張りより先に出し、merge（返答と入力待ちを 1 通に）が同じ変わり目で重なりを見られるようにする。
+  // ミュートした会話（静かな会話）の知らせは、どの購読にも渡さない（live/unread.ts の入口の守り）。
+  guardMutedUnread((id) => isSessionMuted(db, id));
   const unreadHold = new UnreadHold({ db, live: () => live.current() });
   unreadHold.start();
   live.onChange(() => { try { unreadHold.check(); } catch (e) { console.error('[unread] could not release held notices', e instanceof Error ? e.message : e); } notices.onLiveChange(); });
+  // notify_user の出し忘れの受け皿。そのターンに呼ばれないまま抜けた会話に、最後の返答の頭の 1 文で未読を 1 つ積む（OS とスマホへは出さない）。
+  const notifyFallback = new NotifyFallback({ db, live: () => live.current(), settings: () => settings.current, lastReply: (id) => lastReply(db, id) });
+  notifyFallback.start();
+  live.onChange(() => { try { notifyFallback.check(); } catch (e) { console.error('[unread] could not check the notify fallback', e instanceof Error ? e.message : e); } });
   const touch = (): void => touchDevice({ db, device, shellHook: shell.hook });
   let parkTimer: ReturnType<typeof setInterval> | null = null;
   let overlapTimer: ReturnType<typeof setInterval> | null = null;
   let deviceTimer: ReturnType<typeof setInterval> | null = null;
   let statusTimer: ReturnType<typeof setInterval> | null = null;
+  // 様子の書き直し。startPresence の前は何もしない。
+  let refreshStatus = (): void => {};
   return {
     runs, usage, agentUsage, codexUsage, accounts, claudeBin, localClaude, overlaps,
     // 最初のアカウントは CLAUDE_CONFIG_DIR を付けずに起こすので、ホームの直下の .claude.json を読む（RunAccounts.envFor）。
@@ -373,8 +396,11 @@ export function bootRuns(
         agentUsable,
         agentKinds: AGENT_KINDS, version: VERSION,
         ...(opencode ? { opencode } : {}),
+        // 統括の系譜。ほかの PC はこれで統括の会話を見分け、サイドバーから外す（統括の設定は同期しない）。切っても系譜は残る。
+        orchestratorIds: () => orchestratorLineage(orchestratorOf(settings.current.orchestrator)),
       }));
       const refresh = (): void => { refreshDeviceStatus({ db, device, collect }); };
+      refreshStatus = refresh;
       refresh();
       statusTimer = setInterval(refresh, DEVICE_STATUS_MS);
       statusTimer.unref();
@@ -384,6 +410,7 @@ export function bootRuns(
       if (overlapTimer) clearInterval(overlapTimer);
       notices.stop();
     },
+    refreshStatus() { refreshStatus(); },
     stopPresence() { if (deviceTimer) clearInterval(deviceTimer); if (statusTimer) clearInterval(statusTimer); },
   };
 }

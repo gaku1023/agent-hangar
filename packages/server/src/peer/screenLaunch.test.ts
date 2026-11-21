@@ -51,7 +51,7 @@ describe('listPeersForScreen', () => {
     expect(listPeersForScreen(db, ME, peer, NOW)).toEqual([{
       id: PEER, name: 'Mac', platform: 'darwin', state: 'ready',
       accounts: [{ name: 'Work', agent: 'claude-code', loggedIn: true }, { name: 'Out', agent: 'claude-code', loggedIn: false }, { name: 'Sub', agent: 'codex', loggedIn: true }],
-      agents: ['claude-code', 'codex'], projects: ['p1'],
+      agents: ['claude-code', 'codex'], projects: ['p1'], paths: { p1: '/w/alpha' },
     }]);
   });
   it('last_seen_at が古いと offline、様子の欄が無い PC と版が足りない PC は outdated、Worker の版が足りなくても outdated', () => {
@@ -75,6 +75,7 @@ describe('listPeersForScreen', () => {
   it('消えたプロジェクトと、未解決の置き場は数えない', () => {
     db.prepare("update project_roots set resolved = 0 where id = 'r1'").run();
     expect(listPeersForScreen(db, ME, peer, NOW)[0]!.projects).toEqual([]);
+    expect(listPeersForScreen(db, ME, peer, NOW)[0]!.paths).toEqual({});
   });
 });
 

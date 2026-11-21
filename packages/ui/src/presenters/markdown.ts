@@ -1,7 +1,9 @@
 /**
  * Claude の返答に出る Markdown を、描く前の木に読む。
  * 読むのは段落、見出し、囲みのコード、箇条書きと番号付き（入れ子を含む）、表、引用、横線と、
- * 行の中の太字、斜体、打ち消し、インラインのコード、リンクである。
+ * 行の中の太字、斜体、太字と斜体の重ね（***）、打ち消し、インラインのコード、リンク、バックスラッシュで逃がした記号である。
+ * 画像（![代替](宛先)）は読み込まず、リンクと同じ決まりで代替の文字のリンクにする。
+ * 表の欄の中の <br> だけは改行にする。
  * HTML は解釈しない。文字は React の子として渡すので、タグは文字のまま出る。
  * リンクの宛先は http と https だけを通し、ほかは名前だけの文字にする。
  */
@@ -10,7 +12,9 @@ export type Inline =
   | { t: 'text'; text: string }
   | { t: 'code'; text: string }
   | { t: 'strong' | 'em' | 'del'; children: Inline[] }
-  | { t: 'link'; href: string; children: Inline[] };
+  | { t: 'link'; href: string; children: Inline[] }
+  /** 表の欄の中の <br>。欄の外では解釈しない。 */
+  | { t: 'br' };
 
 export type Align = 'left' | 'center' | 'right' | null;
 
@@ -23,9 +27,9 @@ export type Block =
   | { t: 'quote'; children: Block[] }
   | { t: 'hr' };
 
-/** リンクにしてよい宛先か。http と https のほかは null を返す。 */
+/** リンクにしてよい宛先か。http と https、hangar 自身の hangar://session/… と hangar://project/… のほかは null を返す。 */
 export function safeHref(href: string): string | null {
-  return /^https?:\/\/[^\s]+$/i.test(href) ? href : null;
+  return /^(?:https?:\/\/[^\s]+|hangar:\/\/(?:session|project)\/[^\s/?#]+(?:\?[^\s#]*)?)$/i.test(href) ? href : null;
 }
 
 const FENCE = /^( {0,3})(`{3,}|~{3,})\s*([^\s`]*)/;
@@ -164,9 +168,9 @@ function parseLines(lines: string[]): Block[] {
       const rows: Inline[][][] = [];
       for (i += 2; i < lines.length && !blank(lines[i]!) && lines[i]!.includes('|'); i++) {
         const c = cells(lines[i]!);
-        rows.push(head.map((_, k) => (c[k] ? parseInline(c[k]!) : [])));
+        rows.push(head.map((_, k) => (c[k] ? cellInline(c[k]!) : [])));
       }
-      out.push({ t: 'table', align, head: head.map((c) => parseInline(c)), rows });
+      out.push({ t: 'table', align, head: head.map((c) => cellInline(c)), rows });
       continue;
     }
     const para: string[] = [line.trim()];
@@ -183,10 +187,13 @@ export function parseMarkdown(text: string): Block[] {
 // 行の中の書式。先に現れたものから取る。コードの中身は解釈しない。
 // 裸の URL は ASCII の URL の文字だけを拾い、後ろに続く日本語や句読点を宛先に含めない。
 const INLINE = new RegExp([
-  /(`+)([^`\n]|[^`\n][^\n]*?[^`\n])\1(?!`)/.source,
+  /\\([!-/:-@[-`{-~])/.source,
+  /!\[([^\]\n]*)\]\(([^()\s]+(?:\([^()\s]*\))?[^()\s]*)(?:\s+"[^"\n]*")?\)/.source,
+  /(?<tick>`+)([^`\n]|[^`\n][^\n]*?[^`\n])\k<tick>(?!`)/.source,
   /\[([^\]\n]+)\]\(([^()\s]+(?:\([^()\s]*\))?[^()\s]*)(?:\s+"[^"\n]*")?\)/.source,
   /<(https?:\/\/[^>\s]+)>/.source,
   /(https?:\/\/[A-Za-z0-9\-._~:/?#@!$&*+,;=%]*[A-Za-z0-9\-_~/#@$&*+=%])/.source,
+  /\*\*\*(?=[^\s*])([^\n]*?[^\s*])\*\*\*/.source,
   /\*\*(?=\S)([^\n]*?\S)\*\*/.source,
   /~~(?=\S)([^\n]*?\S)~~/.source,
   /(?<![*\w])\*(?=[^\s*])([^*\n]*?[^\s*])\*(?![*\w])/.source,
@@ -203,24 +210,42 @@ export function parseInline(text: string): Inline[] {
   for (const m of text.matchAll(INLINE)) {
     const idx = m.index;
     push(text.slice(at, idx));
-    if (m[1] !== undefined) out.push({ t: 'code', text: m[2]! });
-    else if (m[3] !== undefined) {
-      const href = safeHref(m[4]!);
-      if (href) out.push({ t: 'link', href, children: parseInline(m[3]) });
-      else for (const n of parseInline(m[3])) n.t === 'text' ? push(n.text) : out.push(n);
-    } else if (m[5] !== undefined) out.push({ t: 'link', href: m[5], children: [{ t: 'text', text: m[5] }] });
-    else if (m[6] !== undefined) out.push({ t: 'link', href: m[6], children: [{ t: 'text', text: m[6] }] });
-    else if (m[7] !== undefined) out.push({ t: 'strong', children: parseInline(m[7]) });
-    else if (m[8] !== undefined) out.push({ t: 'del', children: parseInline(m[8]) });
-    else if (m[9] !== undefined) out.push({ t: 'em', children: parseInline(m[9]) });
+    if (m[1] !== undefined) push(m[1]);
+    else if (m[2] !== undefined) {
+      // 画像は読み込まない。外の URL を勝手に取りに行かないよう、リンクと同じ決まりで文字のリンクにする。
+      const href = safeHref(m[3]!);
+      if (!href) push(m[2]);
+      else out.push({ t: 'link', href, children: [{ t: 'text', text: m[2] === '' ? href : m[2] }] });
+    } else if (m[4] !== undefined) out.push({ t: 'code', text: m[5]! });
+    else if (m[6] !== undefined) {
+      const href = safeHref(m[7]!);
+      if (href) out.push({ t: 'link', href, children: parseInline(m[6]) });
+      else for (const n of parseInline(m[6])) n.t === 'text' ? push(n.text) : out.push(n);
+    } else if (m[8] !== undefined) out.push({ t: 'link', href: m[8], children: [{ t: 'text', text: m[8] }] });
+    else if (m[9] !== undefined) out.push({ t: 'link', href: m[9], children: [{ t: 'text', text: m[9] }] });
+    else if (m[10] !== undefined) out.push({ t: 'em', children: [{ t: 'strong', children: parseInline(m[10]) }] });
+    else if (m[11] !== undefined) out.push({ t: 'strong', children: parseInline(m[11]) });
+    else if (m[12] !== undefined) out.push({ t: 'del', children: parseInline(m[12]) });
+    else if (m[13] !== undefined) out.push({ t: 'em', children: parseInline(m[13]) });
     at = idx + m[0].length;
   }
   push(text.slice(at));
   return out;
 }
 
+/** 表の欄の中身。<br> だけを改行にし、前後の文字はそれぞれ読む。 */
+function cellInline(text: string): Inline[] {
+  const out: Inline[] = [];
+  text.split(/<br\s*\/?>/i).forEach((part, k) => {
+    if (k > 0) out.push({ t: 'br' });
+    for (const n of parseInline(part)) out.push(n);
+  });
+  return out;
+}
+
 function inlineLeaves(inl: Inline[], out: string[]): void {
   for (const n of inl) {
+    if (n.t === 'br') continue;
     if (n.t === 'text' || n.t === 'code') out.push(n.text);
     else inlineLeaves(n.children, out);
   }

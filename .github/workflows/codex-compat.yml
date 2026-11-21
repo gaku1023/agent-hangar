@@ -21,7 +21,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
       # 確かめた範囲（packages/shared/src/codexCompat.ts の CODEX_VERIFIED_RANGE。0.164.x）のうち、いちばん新しい codex を npm から入れる。
       # 版を持つのはその 1 か所だけで、ここへは書かない（scripts/codex-compat-version.mjs が範囲から npm の指定を作る）。
       # 範囲を広げるときは、見本を採り直してから範囲を上げる。最新の版に追いかけて上がることはしない。

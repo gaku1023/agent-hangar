@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ServerEvent } from '@agent-hangar/shared';
 import type { Db } from '../../db/open.ts';
-import type { MemoStore } from '../../projects/memo.ts';
 import { addTodo, proposeTodoDone } from '../../projects/todos.ts';
 import { createApp } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
@@ -13,7 +12,6 @@ let t: TestWorld;
 let app: ReturnType<typeof createApp>;
 let db: Db;
 let sent: ServerEvent[];
-let memos: MemoStore;
 /** ワークスペースから登録される唯一のプロジェクト alpha の id。 */
 let list0ProjectId: () => string;
 const get = (p: string, headers: Record<string, string> = H) => app.request(p, { headers });
@@ -21,7 +19,7 @@ const json = async (r: Response) => ({ status: r.status, body: await r.json() })
 
 beforeEach(async () => {
   t = await testDeps();
-  ({ db, memos } = t);
+  ({ db } = t);
   sent = t.events; list0ProjectId = t.alphaProjectId;
   app = createApp(t.deps);
 });
@@ -44,13 +42,6 @@ describe('routes', () => {
     expect((await json(await get(`/api/projects/${pid}/todos`))).body).toHaveLength(1);
     expect((await app.request(`/api/todos/${todo.id}`, { method: 'DELETE', headers: H })).status).toBe(200);
     expect((await json(await get(`/api/projects/${pid}/todos`))).body).toEqual([]);
-    expect((await json(await get(`/api/projects/${pid}/memo`))).body).toEqual({ projectId: pid, markdown: '', updatedAt: 0 });
-    const m = await post(`/api/projects/${pid}/memo`, { markdown: '# alpha\n本文' }, 'PUT');
-    expect((await m.json()).markdown).toBe('# alpha\n本文');
-    expect(sent.at(-2)).toMatchObject({ type: 'memo.update', memo: { projectId: pid } });
-    expect(sent.at(-1)).toMatchObject({ type: 'project.upsert', project: { memoHead: '# alpha' } });
-    expect(fs.readFileSync(memos.memoPath(pid), 'utf8')).toBe('# alpha\n本文');
-    expect((await post(`/api/projects/${pid}/memo`, { markdown: 3 }, 'PUT')).status).toBe(400);
   });
   it('TODO の候補の確定と却下', async () => {
     const pid = list0ProjectId();

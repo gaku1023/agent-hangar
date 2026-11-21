@@ -985,6 +985,21 @@ const V46_DEVICE_STATUS_SQL = `
 alter table devices add column status text;
 `;
 
+/**
+ * 版 61。notify_user の預かり（live/unreadHold.ts）を残す表。手元だけで、同期しない。
+ * 預かりはターンを抜けるまでのメモリの値で、サーバを止めると消えて知らせも未読の数も出なかった。起動時に読み戻す。
+ */
+const V61_UNREAD_HOLD_SQL = `
+create table unread_hold (
+  session_id text primary key,
+  text text not null,
+  sent text not null,
+  unread integer not null,
+  count integer not null,
+  meta text not null
+);
+`;
+
 const V39_SESSION_UNREAD_SQL = `
 create table session_unread (
   session_id text primary key,
@@ -1064,10 +1079,114 @@ alter table event_index add column fts_rowid integer;
 `;
 
 /**
+ * 版 62。session_states に事実ごとの書いた時刻を足す（2026-11-18）。
+ * 1 行に独立した事実（状態、提案、移した先、ピン、削除の印）が入っているので、行ごとの後勝ちでは、
+ * 同期が届く前に 2 台が別の事実を書くと片方が消える。取り込みは事実ごとに新しい方を採る（sync/apply.ts の mergeFacts）。
+ * 削除の印は trashed_at と restored_at で合わせる（mergeTrash）ので、ここには足さない。
+ * 既存の行は null のままにする。null は時刻 0 として比べ、同じ時刻は行の時刻で決めるので、移る前の行はこれまでどおり行ごとの後勝ちになる。
+ * 列を足すだけなので、クラウド（Worker）にマイグレーションは要らず、互換の版も変えない。
+ */
+/**
+ * 版 67。未読を 2 台で同期する（2026-11-21、未読の同期）。
+ * 手元だけの表（session_unread）をやめ、session_states の 1 つの事実（unread_changed_at が時刻）として持つ。
+ * 事実ごとの後勝ち（sync/apply.ts の mergeFacts）に乗るので、積むのも既読も、どちらの PC で書いても届いた側で同じになる。
+ * unread_kind は最後の知らせの場面（done・ask・progress、未読に戻したときは null）、unread_device は数えた PC である。
+ * 受け取った PC は、場面で自分の知らせ方の決まりを引き、数えた PC でほかの PC の会話の未読かを見分ける。
+ * 列を足すだけなので、クラウド（Worker）にマイグレーションは要らない（行は封じて運ぶ）。
+ * 写した行は changes に積まない。次に積むか既読にしたときに、行ごと送る。
+ */
+const V67_UNREAD_SYNC_SQL = `
+alter table session_states add column unread_count integer;
+alter table session_states add column unread_text text;
+alter table session_states add column unread_at integer;
+alter table session_states add column unread_kind text;
+alter table session_states add column unread_device text;
+alter table session_states add column unread_changed_at integer;
+update session_states set
+  unread_count = (select u.count from session_unread u where u.session_id = session_states.session_id),
+  unread_text = (select u.latest_text from session_unread u where u.session_id = session_states.session_id),
+  unread_at = (select u.latest_at from session_unread u where u.session_id = session_states.session_id),
+  unread_changed_at = (select u.latest_at from session_unread u where u.session_id = session_states.session_id)
+  where session_id in (select session_id from session_unread where count > 0);
+insert into session_states (session_id, updated_at, origin_device, unread_count, unread_text, unread_at, unread_changed_at)
+  select u.session_id, u.latest_at, coalesce(s.home_device, s.origin_device), u.count, u.latest_text, u.latest_at, u.latest_at
+  from session_unread u join sessions s on s.id = u.session_id
+  where u.count > 0 and not exists (select 1 from session_states st where st.session_id = u.session_id);
+drop table session_unread;
+`;
+
+const V62_SESSION_STATE_FACT_AT_SQL = `
+alter table session_states add column status_changed_at integer;
+alter table session_states add column candidate_changed_at integer;
+alter table session_states add column project_changed_at integer;
+alter table session_states add column pinned_changed_at integer;
+`;
+
+/**
+ * 版 63。別の PC から起こされた会話の、結果の返却の行に、終わった時刻を足す（peer/relay.ts）。
+ * 掃除は終わった時刻から数え、届いていない控えがある行は消さない。前は作った時刻から数えたので、起動から 7 日を過ぎて終えると、控えより先に行が消えて ended が届かなかった。
+ * 終わっている行は、作った時刻を終わった時刻とみなす。
+ * 行が先に消えて送れなくなった控えは、受けた頼みの記録（peer_launches）から頼んだ PC が分かれば、終わった行を作り直して送れるようにする。分からなければ外す。
+ */
+const V63_PEER_RELAY_ENDED_AT_SQL = `
+alter table peer_relay add column ended_at integer;
+update peer_relay set ended_at = created_at where ended = 1;
+insert or ignore into peer_relay (session_id, request_id, from_device, seq, armed_at, ended, ended_at, title, created_at)
+  select l.session_id, o.request_id, l.from_device, max(o.seq), null, 1, max(o.created_at), '', min(o.created_at)
+  from peer_relay_out o join peer_launches l on l.id = o.request_id
+  where l.session_id is not null and not exists (select 1 from peer_relay r where r.request_id = o.request_id)
+  group by o.request_id;
+delete from peer_relay_out where not exists (select 1 from peer_relay r where r.request_id = peer_relay_out.request_id);
+`;
+
+/**
+ * 非対話の会話（claude -p などのバッチ）の印。端末ローカルの session_stats に持ち、同期しない。
+ * 1 は本文の entrypoint が sdk- で始まるものだけの会話、0 はそれ以外、null はまだ決めていない会話である。
+ * 今ある行は null のまま残し、索引の埋め戻し（indexer/headless.ts の backfillHeadless）が本文の先頭と末尾を読んで埋める。
+ */
+const V64_SESSION_HEADLESS_SQL = `
+alter table session_stats add column headless integer;
+`;
+
+/**
+ * 版 65：event_index が行ごとに持っていたファイルのパス（file_path_ref、平均 135 字）を、別の表 event_paths の番号（path_id）で指す。
+ * 同じファイルの行は 1 つのパスを指すので、パスの文字は索引が何百万行になっても、ファイルの数（数千）だけになる。
+ * 開くときは表と列を足すだけにする。行を書き直すと、大きな DB（行が百万単位）で起動が十数秒止まるので、行への番号振りは起動後に背面で数千行ずつ進める（db/pathRef.ts の startPathRefFill）。
+ * 旧い列（file_path_ref）は NOT NULL で後から外せず、落とすと表の書き直しと VACUUM が要る。新しい行は空の文字を入れ、番号を振った行も空にする。埋め終えるまでは、番号が null の行を旧い列で読む。
+ * 控えは当てる前に取り、そこでは索引を抜いてある（db/backup.ts）。
+ */
+const V65_EVENT_PATH_REF_SQL = `
+create table event_paths (
+  id integer primary key,
+  path text not null unique
+);
+alter table event_index add column path_id integer;
+`;
+
+/**
+ * 版 66：event_fts の text の末尾に区切りの文字（search/ftsTail.ts の FTS_TAIL）を足す仕事の、進み具合の印を置く。
+ * 積むときは writeBatch が足す。今ある行は、起動の後に背面で少しずつ足す（search/ftsTailBackfill.ts）。
+ * ここで一度に update すると、実データ（百万行台）で数分かかり、サーバが立たない。
+ */
+const V66_FTS_TAIL_SQL = `
+insert into settings_local (key, value) values ('fts_tail_backfill_rowid', '0') on conflict(key) do nothing;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
  */
+/**
+ * 版 68。session_states にミュートの時刻（muted_at）と、その事実の時刻（muted_changed_at）を足す（2026-11-21、静かな会話）。
+ * ミュートは利用者が決める会話の属性で、2 台の PC で同期するので、ピン留めと同じ行に置く。null はミュートしていないこと。
+ * 列を足すだけなので、クラウド（Worker）にマイグレーションは要らない。
+ */
+const V68_SESSION_MUTED_SQL = `
+alter table session_states add column muted_at integer;
+alter table session_states add column muted_changed_at integer;
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: BASELINE_VERSION, sql: BASELINE_SQL },
   { version: 17, sql: V17_SESSION_NOTES_SQL },
@@ -1113,4 +1232,12 @@ export const MIGRATIONS: Migration[] = [
   { version: 58, sql: V58_CONFIG_HISTORY_SQL },
   { version: 59, sql: V59_AUTO_APPROVALS_SQL },
   { version: 60, sql: V60_EVENT_FTS_ROWID_SQL },
+  { version: 61, sql: V61_UNREAD_HOLD_SQL },
+  { version: 62, sql: V62_SESSION_STATE_FACT_AT_SQL },
+  { version: 63, sql: V63_PEER_RELAY_ENDED_AT_SQL },
+  { version: 64, sql: V64_SESSION_HEADLESS_SQL },
+  { version: 65, sql: V65_EVENT_PATH_REF_SQL },
+  { version: 66, sql: V66_FTS_TAIL_SQL },
+  { version: 67, sql: V67_UNREAD_SYNC_SQL },
+  { version: 68, sql: V68_SESSION_MUTED_SQL },
 ];

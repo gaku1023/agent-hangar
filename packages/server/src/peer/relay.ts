@@ -1,4 +1,6 @@
 import {
+  isTurnRunning,
+  turnPhaseOf,
   E2eOpenError,
   sealPeerResult,
   type LiveSessionDto,
@@ -19,7 +21,10 @@ export const PEER_REPLY_MAX = 6000;
 export const PEER_TURN_START_GRACE_MS = 5 * 60_000;
 /** 止まりが見えてから、返答が本文に載るまで待つ長さ。本文の索引は登録の状態より少し遅れる。 */
 export const PEER_REPLY_SETTLE_MS = 5000;
-/** 届いた結果の控えと、終わった会話の行を残す長さ。Worker の行の保持（7 日）に揃える。 */
+/**
+ * 結果の控えと、終わった結び付きの行を残す長さ。Worker の行の保持（7 日）に揃える。
+ * 控えは書いた時刻から、行は終わった時刻（ended_at）から数える。届いていない控えがある行は、期間を過ぎても消さない。
+ */
 export const PEER_RELAY_KEEP_MS = 7 * 24 * 60 * 60_000;
 
 export type PeerRelayDeps = {
@@ -41,7 +46,7 @@ export type PeerRelayDeps = {
   schedule?: (fn: () => void, ms: number) => void;
 };
 
-type RelayRow = { session_id: string; request_id: string; from_device: string; seq: number; armed_at: number | null; ended: number; title: string; created_at: number };
+type RelayRow = { session_id: string; request_id: string; from_device: string; seq: number; armed_at: number | null; ended: number; ended_at: number | null; title: string; created_at: number };
 
 /** 印を付けたターンの、メモリ上の様子。印を付け直すたびに作り直す。 */
 type Watch = { armedAt: number; seenBusy: boolean; emitted: 'permission' | 'question' | null; stop: { key: string; since: number } | null };
@@ -60,8 +65,11 @@ const kindOf = (e: unknown): string => `${e instanceof Error ? e.constructor.nam
  * 止まるたびに結果を 1 件書く。idle は印を外す。質問と許可の waiting は印を残し、そのあとの idle でもう 1 件書く。
  * 結果の連番（seq）は頼みごとに 1 から数え、peer_relay.seq に持つ。結果の中身は peer_relay_out に控え、Worker に届くまで同じ seq で送り直す。
  * プロセスの終わり（onProcessEnded）は stopped を 1 件書いて印を外し、結び付きは残す。
- * 会話の終わり（onEnded）は、会話が Done になったとき（check が見つける）と、会話を消す前に呼ぶ。ended を 1 度だけ書き、結び付きを閉じる（closeSpawn）。
+ * 会話の終わり（onEnded）は、会話が Done になったとき、会話が消えたとき（どちらも check が見つける）と、会話を消す前に呼ぶ。ended を 1 度だけ書き、結び付きを閉じる（closeSpawn）。
  * 同じ PC の中の入れ子、切り離された結び付き、閉じた結び付きでは何も書かない（relayTarget が null）。
+ * 結び付きが先に消えた行（起動元の PC が子を消した、切り離した）は、check が見つけて、何も書かずに終わった印だけを付ける。
+ * 行の状態は ended の 1 列で、0 から 1 へ一方向にだけ進む（update は ended = 0 の行だけを書き換える）。
+ * 終わった行は PEER_RELAY_KEEP_MS の後に flush が消す。届いていない控えが残る行は消さないので、期間の後に終わっても ended は届く。
  */
 export class PeerRelay {
   private watches = new Map<string, Watch>();
@@ -96,8 +104,13 @@ export class PeerRelay {
   check(): void {
     const { db } = this.deps;
     try {
-      // Done にされた会話は、ended を返して切る。Active に戻しても、切った後なので返さない。
-      const done = db.prepare("select r.session_id from peer_relay r join session_states st on st.session_id = r.session_id where r.ended = 0 and st.status = 'done'").all() as { session_id: string }[];
+      // Done にされた会話と消えた会話は、ended を返して切る。Active に戻しても、切った後なので返さない。
+      // 結び付きが先に消えた会話も、ここで終わった印を付ける（onEnded は結び付きが無ければ何も書かない）。
+      const done = db.prepare(`select r.session_id from peer_relay r
+        left join session_states st on st.session_id = r.session_id
+        left join sessions s on s.id = r.session_id
+        where r.ended = 0 and (st.status = 'done' or s.id is null or s.deleted_at is not null
+          or not exists (select 1 from session_spawns sp where sp.session_id = r.session_id and sp.deleted_at is null and sp.relay = 'on'))`).all() as { session_id: string }[];
       for (const d of done) this.onEnded(d.session_id);
     } catch (e) {
       console.error('[peer] could not look for done sessions', kindOf(e));
@@ -137,7 +150,8 @@ export class PeerRelay {
     };
     const l = this.liveOf(row.session_id, live);
     if (!l) return expire();
-    if (l.status === 'busy') {
+    // 裏だけが動く間（aside）は、本体が返答を終えて入力を受け付けているので、終わりとして読む。
+    if (isTurnRunning(turnPhaseOf(l))) {
       w.seenBusy = true;
       w.emitted = null;
       w.stop = null;
@@ -182,8 +196,8 @@ export class PeerRelay {
   }
 
   /**
-   * 会話が Done になった（check が見つける）か、消える（削除の前）。
-   * 返し続けている結び付きなら、ended を 1 度だけ書いて閉じる。ほかは何もしない。投げない。
+   * 会話が Done になった、消えた（check が見つける）か、消える（削除の前）。
+   * 返し続けている結び付きなら、ended を 1 度だけ書いて閉じる。結び付きが無ければ、書かずに終わった印だけを付ける。投げない。
    */
   onEnded(sessionId: string): void {
     try {
@@ -191,12 +205,13 @@ export class PeerRelay {
       const row = db.prepare('select * from peer_relay where session_id = ?').get(sessionId) as RelayRow | undefined;
       if (!row || row.ended === 1) return;
       const link = relayTarget(db, deviceId, sessionId);
-      if (!link || link.parentDeviceId !== row.from_device) return;
-      const reply = this.deps.lastReply(sessionId);
+      const relaying = link !== null && link.parentDeviceId === row.from_device;
+      const reply = relaying ? this.deps.lastReply(sessionId) : null;
+      const now = this.deps.now();
       db.transaction(() => {
-        this.emit(row, 'ended', reply);
-        db.prepare('update peer_relay set ended = 1, armed_at = null where session_id = ?').run(sessionId);
-        closeSpawn(db, deviceId, sessionId, this.deps.now());
+        if (relaying) this.emit(row, 'ended', reply);
+        db.prepare('update peer_relay set ended = 1, ended_at = ?, armed_at = null where session_id = ? and ended = 0').run(now, sessionId);
+        if (relaying) closeSpawn(db, deviceId, sessionId, now);
       })();
       this.watches.delete(sessionId);
       void this.flush();
@@ -236,8 +251,11 @@ export class PeerRelay {
     const { db } = this.deps;
     try {
       const cutoff = this.deps.now() - PEER_RELAY_KEEP_MS;
-      db.prepare('delete from peer_relay_out where sent = 1 and created_at < ?').run(cutoff);
-      db.prepare('delete from peer_relay where ended = 1 and created_at < ?').run(cutoff);
+      // 期間を過ぎた控えは、届いていなくても Worker の行が消えているので外す。行の無い控え（頼みが差し替わった）は送れないので外す。
+      db.prepare('delete from peer_relay_out where created_at < ?').run(cutoff);
+      db.prepare('delete from peer_relay_out where not exists (select 1 from peer_relay r where r.request_id = peer_relay_out.request_id)').run();
+      // 行は終わってから期間を過ぎ、届いていない控えが無いときだけ消す。先に消すと、控えが送れなくなる。
+      db.prepare('delete from peer_relay where ended = 1 and coalesce(ended_at, created_at) < ? and not exists (select 1 from peer_relay_out o where o.request_id = peer_relay.request_id and o.sent = 0)').run(cutoff);
     } catch (e) {
       console.error('[peer] could not prune relay records', kindOf(e));
     }

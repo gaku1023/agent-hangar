@@ -81,6 +81,23 @@ function agentLaunchOf(raw: Rec): { agentId: string; async: boolean } | undefine
   return agentId ? { agentId, async: r.status === 'async_launched' } : undefined;
 }
 
+/** サブエージェントの報告の前置き（モデル向けの注意書き）の終わり。この後ろに、各行を 2 字下げた報告が続く。 */
+const HAND_BACK_HEAD = 'The report follows:\n';
+
+/**
+ * ほかのエージェント（サブエージェント、チームの仲間、別の Claude のセッション）から届いた文。
+ * Claude Code は isMeta の user として書き、origin に送り手の名前と本文を持たせる。
+ * 本文の前置きの注意書きと字下げは、モデル向けの枠なので外す。
+ */
+function agentMessageOf(origin: unknown): { text: string; from?: string } | null {
+  if (!isRec(origin) || origin.kind !== 'peer' || typeof origin.body !== 'string') return null;
+  let text = origin.body;
+  const at = text.indexOf(HAND_BACK_HEAD);
+  if (text.startsWith('[Subagent hand-back]') && at >= 0) text = text.slice(at + HAND_BACK_HEAD.length).split('\n').map((l) => (l.startsWith('  ') ? l.slice(2) : l.trimEnd())).join('\n');
+  const from = str(origin.name);
+  return from ? { text: text.trim(), from } : { text: text.trim() };
+}
+
 export function normalizeRecord(raw: unknown, seqStart: number, _agentId: string | null): TranscriptEvent[] {
   if (!isRec(raw)) return [];
   const type = str(raw.type) ?? 'unknown';
@@ -90,7 +107,10 @@ export function normalizeRecord(raw: unknown, seqStart: number, _agentId: string
 
   if (type === 'user' && msg) {
     const content = msg.content;
-    if (raw.isMeta === true || isLocalCommandText(contentText(content))) return [{ kind: 'system', seq, ts, text: contentText(content) }];
+    if (raw.isCompactSummary === true) return [{ kind: 'system', seq, ts, text: contentText(content), subtype: 'compact_summary' }];
+    const peer = raw.isMeta === true ? agentMessageOf(raw.origin) : null;
+    if (peer) return [{ kind: 'system', seq, ts, text: peer.text, subtype: 'agent_message', ...(peer.from ? { from: peer.from } : {}) }];
+    if (raw.isMeta === true ||isLocalCommandText(contentText(content))) return [{ kind: 'system', seq, ts, text: contentText(content) }];
     if (typeof content === 'string') return [{ kind: 'user', seq, ts, text: content }];
     if (!Array.isArray(content)) return [];
     const texts: string[] = [];
@@ -154,6 +174,7 @@ export function recordFacts(raw: unknown): RecordFacts {
   if (!isRec(raw)) return facts;
   const cwd = str(raw.cwd); if (cwd) facts.cwd = cwd;
   const ts = parseTs(raw); if (ts !== undefined) facts.ts = ts;
+  const entrypoint = str(raw.entrypoint); if (entrypoint) facts.entrypoint = entrypoint;
   const msg = isRec(raw.message) ? raw.message : null;
   switch (raw.type) {
     case 'assistant': {

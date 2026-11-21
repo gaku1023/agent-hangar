@@ -17,7 +17,7 @@ const TABS: StatusTabProps[] = ([['all', 'すべて', '2'], ['proposed', '確認
 const list = (over: Partial<SessionListProps> = {}): SessionListProps => ({ text: '', filter: {}, projects: [{ id: 'alpha', name: 'alpha' }], rows: [row('a'), row('b')], total: 2, loading: false, mode: 'all', conditions: [], tabs: TABS, tab: 'all', pager: null, statusColumn: true, tokens: [], hints: [], allCount: 2, ...over });
 const claudeRow: InstructionRowProps = { kind: 'project', name: 'CLAUDE.md', desc: 'プロジェクト指示・チームで共有', meta: '2.3 KB · 2 日前', off: false, markdown: '# 見本\n\n- 試験を先に書く', truncated: false };
 const agentsRow: InstructionRowProps = { kind: 'agents', name: 'AGENTS.md', desc: 'CLAUDE.md があるため読み込まれない', meta: '0.4 KB · 1 か月前', off: true, markdown: '# agents', truncated: false };
-const INSTRUCTIONS: InstructionsProps = { state: 'ready', rows: [claudeRow, agentsRow], legacyNote: null };
+const INSTRUCTIONS: InstructionsProps = { state: 'ready', rows: [claudeRow, agentsRow] };
 const props = (over: Partial<ProjectProps> = {}): ProjectProps => ({
   id: 'alpha', name: 'alpha', parent: { label: 'プロジェクト', route: { name: 'projects' } }, path: '/w/alpha', resolved: true, status: 'active', notFound: false, isScratch: false,
   list: list(), loadMore: null, info: { sessionsText: '2 本', lastActivity: '3 時間前' },
@@ -27,6 +27,40 @@ const props = (over: Partial<ProjectProps> = {}): ProjectProps => ({
 const mount = (p: ProjectProps = props(), onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><ProjectScreen {...p} /></ActionRoot>), onAction });
 const iconOf = (el: Element | null) => el?.querySelector('svg')?.getAttribute('data-icon') ?? null;
 const openInfo = () => { fireEvent.click(screen.getByRole('button', { name: '詳細' })); return screen.getByRole('dialog', { name: '詳細' }); };
+
+describe('一覧の末尾に畳んだ非対話の会話', () => {
+  const hl = (over: Partial<NonNullable<ProjectProps['headless']>> = {}) => ({ total: 3214, rows: [row('h1', { name: 'claude -p "list todo"' })], remaining: 3213, ...over });
+  it('開くまで行を描かず、開くとき（まだ読んでいなければ）先頭の頁を読む。件数は画面を開いたときに読む', () => {
+    const onAction = vi.fn();
+    const background = vi.fn();
+    const { container } = render(<ActionRoot onAction={onAction} background={background}><ProjectScreen {...props({ headless: hl({ rows: [], remaining: 3214 }) })} /></ActionRoot>);
+    expect(background).toHaveBeenCalledWith({ type: 'project.headless.load', projectId: 'alpha' });
+    const fold = screen.getByRole('button', { name: '非対話の会話 3,214 件' });
+    expect(fold).toHaveAttribute('aria-expanded', 'false');
+    expect(container.querySelector('.headless-row')).toBeNull();
+    fireEvent.click(fold);
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.headless.load', projectId: 'alpha', offset: 0 });
+    expect(fold).toHaveAttribute('aria-expanded', 'true');
+  });
+  it('開くと低い行が並び、押すと会話を開き、末尾の 1 行で続きを読む。畳むと行は外れる', async () => {
+    const onAction = vi.fn();
+    const { container } = mount(props({ headless: hl() }), onAction);
+    fireEvent.click(screen.getByRole('button', { name: '非対話の会話 3,214 件' }));
+    const r = container.querySelector('.headless-row')!;
+    expect(r.textContent).toContain('claude -p "list todo"');
+    fireEvent.click(r);
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.open', id: 'h1' });
+    fireEvent.click(screen.getByRole('button', { name: '非対話の会話の残り 3,213 件' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'project.headless.load', projectId: 'alpha', offset: 1 });
+    fireEvent.click(screen.getByRole('button', { name: '非対話の会話 3,214 件' }));
+    await act(async () => { await Promise.resolve(); });
+    expect(container.querySelector('.headless-row')).toBeNull();
+  });
+  it('1 件も無ければ出さない', () => {
+    mount(props({ headless: null }));
+    expect(screen.queryByRole('button', { name: /非対話の会話/ })).toBeNull();
+  });
+});
 
 describe('ProjectScreen の左の一覧（ホームと同じ部品）', () => {
   it('状態のタブ、欄、行を並べ、見出しの「セッション N 件」は置かない。絞り込みにプロジェクトの選択は出さない', () => {
@@ -335,33 +369,18 @@ describe('ProjectScreen の指示とメモリ', () => {
   });
 
   it('ファイルが無ければ無いとだけ言う。読み込む前は何も言わない。フォルダが無ければそう言い、ⓘ を出さない', () => {
-    const { unmount } = mount(props({ instructions: { state: 'ready', rows: [], legacyNote: null } }));
+    const { unmount } = mount(props({ instructions: { state: 'ready', rows: [] } }));
     expect(within(section()).getByText('指示ファイルはありません')).toBeInTheDocument();
     expect(info()).toHaveTextContent('/context');
     unmount();
-    const r = mount(props({ instructions: { state: 'loading', rows: [], legacyNote: null } }));
+    const r = mount(props({ instructions: { state: 'loading', rows: [] } }));
     expect(section()).not.toHaveTextContent('指示のファイルはありません');
     r.unmount();
-    mount(props({ instructions: { state: 'missing', rows: [], legacyNote: null } }));
+    mount(props({ instructions: { state: 'missing', rows: [] } }));
     expect(section()).toHaveTextContent('この PC にはディレクトリがありません');
     expect(within(section()).queryByRole('button', { name: '指示とメモリの説明' })).toBeNull();
   });
 
-  it('以前のノートは中身があるときだけ出し、削除は確かめてから空で保存する', () => {
-    const { onAction, unmount } = mount();
-    expect(screen.queryByText('以前のノート')).toBeNull();
-    unmount();
-    mount(props({ instructions: { ...INSTRUCTIONS, legacyNote: '決済は Stripe の v3' } }), onAction);
-    expect(section()).toHaveTextContent('以前のノート');
-    expect(section()).toHaveTextContent('決済は Stripe の v3');
-    expect(within(section()).getByRole('button', { name: 'コピー' })).toBeInTheDocument();
-    fireEvent.click(within(section()).getByRole('button', { name: '削除' }));
-    const confirm = screen.getByRole('dialog', { name: '以前のノートを削除しますか' });
-    expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'memo.save' }));
-    fireEvent.click(within(confirm).getByRole('button', { name: '削除' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'memo.save', projectId: 'alpha', markdown: '' });
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
 });
 
 // 窓に収めた右パネル（A1 + B + C3 + D1）。節の見出しの左のシェブロンで折りたたみ、アーティファクトは新しい方から 3 件だけ出す。

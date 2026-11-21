@@ -1,5 +1,5 @@
 import { eventsAvailable, type AccountsDto, type EventHookFailureDto, type InvestigateContext, type UiAction, type SyncStatusBody, type TerminalApp } from '@agent-hangar/shared';
-import { applyConfigDetail, CUSTOM_PROVIDER_ROW, type EventNotice, type EventTriggerState, gitFileKey, type EditorOpenAction, type OpencodeProviderOp, type OpencodeProvidersState, type Store } from '../store/store.ts';
+import { applyConfigDetail, applyHeadlessPage, HEADLESS_PAGE, CUSTOM_PROVIDER_ROW, type EventNotice, type EventTriggerState, gitFileKey, type EditorOpenAction, type OpencodeProviderOp, type OpencodeProvidersState, type Store } from '../store/store.ts';
 import type { OpencodeProvidersDto } from '@agent-hangar/shared';
 import { EditorMissingApiError, type ApiClient } from './api.ts';
 import { sameInspect } from '../store/folderInspect.ts';
@@ -210,8 +210,6 @@ export const actionTable = {
   'summary.regenerate': (i) => call((api) => api.regenerateSummary(i.sessionId)),
 
   // TODO の操作は取り消し（⌘Z）のために State を変えるので、表に置かず Mediator（mediator/todos.ts）に置く。
-  // 保存した結果はサーバの memo.update より先に入れる。書いた本人の画面が一瞬古い本文に戻らないようにする。
-  'memo.save': (i) => call((api) => api.saveMemo(i.projectId, i.markdown), { apply: (store, m) => ({ ...store, memos: { ...store.memos, [m.projectId]: m } }) }),
   // 指示とメモリ。ファイルは外で書き換わるので、表示するたびに読み直す。
   'instructions.load': (i) => call((api) => api.instructions(i.projectId), { apply: (store, d) => ({ ...store, instructions: { ...store.instructions, [d.projectId]: d } }) }),
   'instructions.openEditor': (i) => editorOpen(i, (api) => api.openInstruction(i.projectId, i.kind, i.once)),
@@ -232,6 +230,7 @@ export const actionTable = {
     failed: (store, e) => ({ ...store, gitEdits: { ...store.gitEdits, [gitFileKey(i.sessionId, i.file)]: { error: e instanceof Error ? e.message : String(e) } } }),
   }),
   'project.git.load': (i) => call((api) => api.projectGit(i.projectId), { apply: (store, d) => ({ ...store, projectGit: { ...store.projectGit, [i.projectId]: d } }) }),
+  'project.headless.load': (i) => call((api) => api.headless(i.projectId, i.offset === undefined ? undefined : HEADLESS_PAGE, i.offset), { apply: (store, d) => applyHeadlessPage(store, i.projectId, i.offset, d) }),
   'artifact.openEditor': (i) => editorOpen(i, (api) => api.openArtifactEditor(i.id, i.once)),
   'artifact.add': (i) => {
     const url = i.url.trim();

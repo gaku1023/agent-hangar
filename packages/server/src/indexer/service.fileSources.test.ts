@@ -78,14 +78,14 @@ describe('IndexerService（ファイル型を複数）', () => {
     const row = db.prepare('select t.path, t.agent, s.provider from transcript_files t join sessions s on s.id = t.session_id where s.provider_session_id = ?').get(FAKE_SESSION) as { path: string; agent: string; provider: string };
     expect(row).toEqual({ path: fake.logical, agent: FAKE_AGENT, provider: FAKE_AGENT });
     expect(count("select count(*) c from transcript_files where agent = 'claude-code'")).toBe(3);
-    expect(count('select count(*) c from event_index e join sessions s on s.id = e.session_id where s.provider_session_id = ? and e.file_path_ref = ?', FAKE_SESSION, fake.logical)).toBe(1);
+    expect(count('select count(*) c from event_index e join sessions s on s.id = e.session_id where s.provider_session_id = ? and e.path_id = (select id from event_paths where path = ?)', FAKE_SESSION, fake.logical)).toBe(1);
   });
 
   it('論理パスと物理パスが違っても、実体が変わって読みが 0 行で終わるとき、索引は変わらず、消されもしない', async () => {
     const fake = fakeSource();
     const svc = make([claudeTranscriptSource({ claudeDir: dir }), fake.source]);
     await svc.fullScan();
-    const events = () => count('select count(*) c from event_index where file_path_ref = ?', fake.logical);
+    const events = () => count('select count(*) c from event_index where path_id = (select id from event_paths where path = ?)', fake.logical);
     expect(events()).toBe(1);
     // 圧縮し直した（物理の大きさと更新時刻が変わった）。
     fs.writeFileSync(fake.physical, 'zst-bytes-recompressed-longer');

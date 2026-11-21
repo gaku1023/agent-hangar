@@ -5,11 +5,12 @@ import { initialStore, type Store } from '../store/store.ts';
 import { presentSessionRow } from './row.ts';
 import { presentSession, sessionActions } from './session.ts';
 import { presentResumeHere, presentTakeover, resumeHereOf } from './resumeHere.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
 const NOW = new Date(2026, 9, 13, 12, 0).getTime();
 const ja = translator('ja');
-const session = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'notes', cwd: 'D:\\src\\notes-app', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: true, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over });
-const project = (over: Partial<ProjectDto> = {}): ProjectDto => ({ id: 'p1', name: 'notes-app', status: 'active', isScratch: false, path: '/Users/me/src/notes-app', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1, unresolved: null, ...over });
+const session = (over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ projectId: 'p1', name: 'notes', cwd: 'D:\\src\\notes-app', firstPrompt: 'first', startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, remoteOnly: true, ...over }));
+const project = (over: Partial<ProjectDto> = {}): ProjectDto => ({ id: 'p1', name: 'notes-app', status: 'active', isScratch: false, path: '/Users/me/src/notes-app', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, updatedAt: 1, unresolved: null, ...over });
 const lock = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'win', deviceName: 'work-pc', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, ...over });
 const storeWith = (s: SessionDto, p: ProjectDto | null = project()): Store => ({ ...initialStore(), sessions: { [s.id]: s }, projects: p ? { [p.id]: p } : {} } as Store);
 const NO_ROOT = 'この PC にこのプロジェクトのディレクトリがありません。先にパスを指定してください。';
@@ -78,7 +79,7 @@ describe('セッション画面の見出しと一覧の行', () => {
     expect(ok.noRoot).toBeNull();
   });
   it('sessionActions は noRoot を省いた事実でも、今までどおりに組む', () => {
-    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: true, hasTranscript: true, canResume: false, canFork: false, canResumeHere: true, outsideOpen: null, canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false };
+    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: true, hasTranscript: true, canResume: false, canResumeHere: true, outsideOpen: null, canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false };
     expect(sessionActions(facts, ja).primary).toMatchObject({ id: 'resumeHere', disabled: null });
   });
   it('一覧の行は、他の PC の会話にだけ「この PC で再開」を持ち、押せない理由を添える', () => {

@@ -118,7 +118,7 @@
 .cm-leave .kv { margin-top: calc(var(--u) * 2); }
 
 /* スマホ（試作 cloud-e2e の E2）。PC の表の下の小見出し「スマホ」に別の表で並べ、小見出しから QR の段を開く。 */
-.cm-phones .sub-h { margin-top: calc(var(--u) * 6); }
+.cm-phones .sub-h { margin-top: 0; }
 .cm-sp { flex: 1; }
 .cm-pair { margin-top: calc(var(--u) * 2.5); }
 .cm-pair-in { display: flex; gap: calc(var(--u) * 5); padding: calc(var(--u) * 4); border-radius: var(--r-lg); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); }

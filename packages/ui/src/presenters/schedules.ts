@@ -1,4 +1,4 @@
-import { eventsAvailable, EVENT_HOURLY_MAX, type EventAction, type EventBindingDto, type EventBindingState, type GithubWhen, type PrClaimDto, type ScheduleDto, type ScheduleRunResult, type ScheduleSpec, type ScheduleTarget, type Translate } from '@agent-hangar/shared';
+import { eventTriggerOf, eventsAvailable, EVENT_HOURLY_MAX, type EventAction, type EventBindingDto, type EventBindingState, type GithubWhen, type PrClaimDto, type ScheduleDto, type ScheduleRunResult, type ScheduleSpec, type ScheduleTarget, type Translate } from '@agent-hangar/shared';
 import type { EventNotice, Store } from '../store/store.ts';
 import { PERMISSION_BYPASS, permissionLabel } from '../views/primitives/permissionModel.ts';
 import { durationLabel } from './format.ts';
@@ -213,7 +213,7 @@ const noticeText = (t: Translate, n: EventNotice | null): string | null => (n ==
 const claimRow = (t: Translate, c: PrClaimDto): PrClaimRow => ({ key: `${c.sessionId}#${c.repo}#${c.pr}`, sessionId: c.sessionId, repo: c.repo, pr: c.pr, text: t('schedules.event.claim', { title: c.sessionTitle || c.sessionId, repo: c.repo, pr: c.pr }) });
 
 function presentEvents(store: Store, t: Translate, now: number): EventsProps | null {
-  if (!eventsAvailable(store.sync)) return null;
+  if (!eventTriggerOf(store.settings ?? {}) || !eventsAvailable(store.sync)) return null;
   const e = store.eventTrigger;
   const rows = e.bindings.map((b) => eventRow(store, t, now, b));
   return {

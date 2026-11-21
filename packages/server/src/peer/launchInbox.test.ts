@@ -72,7 +72,7 @@ describe('PeerLaunchInbox', () => {
   it('同じプロジェクトに起こして started と session_id を答え、結び付きを書く（テスト 2）', async () => {
     const { db, inbox, post, start, answerOf } = await setup();
     await inbox.receive(await post('l1', request()));
-    expect(start).toHaveBeenCalledWith({ projectId: 'project-a', permissionMode: 'acceptEdits', model: 'sonnet', prompt: 'TODO の先頭をやって' });
+    expect(start).toHaveBeenCalledWith({ projectId: 'project-a', launchedBy: 'session', permissionMode: 'acceptEdits', model: 'sonnet', prompt: 'TODO の先頭をやって' });
     expect(await answerOf('l1')).toEqual({ ok: true, sessionId: 's-new', title: 'TODO の先頭をやって' });
     expect(getSpawn(db, 'pc-b', 's-new')).toMatchObject({ parentId: 'parent-1', parentDeviceId: 'pc-a', childDeviceId: 'pc-b' });
     expect(db.prepare('select result, session_id, answered from peer_launches where id = ?').get('l1')).toEqual({ result: 'started', session_id: 's-new', answered: 1 });
@@ -83,6 +83,8 @@ describe('PeerLaunchInbox', () => {
     const { db, inbox, post, start, answerOf } = await setup({ onStarted });
     await inbox.receive(await post('l1', request({ parentSessionId: '' })));
     expect(start).toHaveBeenCalledTimes(1);
+    // 人が頼んだ起動なので、人のいない起動元は付けない。
+    expect(start.mock.calls[0]![0].launchedBy).toBeUndefined();
     expect(await answerOf('l1')).toEqual({ ok: true, sessionId: 's-new', title: 'TODO の先頭をやって' });
     expect(getSpawn(db, 'pc-b', 's-new')).toBeNull();
     expect(onStarted).not.toHaveBeenCalled();
@@ -97,8 +99,20 @@ describe('PeerLaunchInbox', () => {
     await inbox.receive(await post('l2', request({ agent: 'opencode', permissionMode: '', model: '', mode: 'build', autoApprove: true })));
     await inbox.receive(await post('l3', request({ agent: 'codex', permissionMode: '', mode: 'full-access', model: '' })));
     expect(start.mock.calls[0]![0]).toMatchObject({ permissionMode: 'bypassPermissions', effort: 'high' });
-    expect(start.mock.calls[1]![0]).toEqual({ projectId: 'project-a', agent: 'opencode', mode: 'build', autoApprove: true, prompt: 'TODO の先頭をやって' });
-    expect(start.mock.calls[2]![0]).toEqual({ projectId: 'project-a', agent: 'codex', mode: 'full-access', prompt: 'TODO の先頭をやって' });
+    expect(start.mock.calls[1]![0]).toEqual({ projectId: 'project-a', launchedBy: 'session', agent: 'opencode', mode: 'build', autoApprove: true, prompt: 'TODO の先頭をやって' });
+    expect(start.mock.calls[2]![0]).toEqual({ projectId: 'project-a', launchedBy: 'session', agent: 'codex', mode: 'full-access', prompt: 'TODO の先頭をやって' });
+  });
+
+  it('silent の頼みは、起こした会話をミュートする。付いていなければしない', async () => {
+    const db = openDb(':memory:');
+    for (const id of ['s-new', 's-two']) upsertShared(db, 'sessions', { id, provider: 'claude-code', provider_session_id: `u-${id}`, cwd: '/w', home_device: 'pc-b' }, 'pc-b');
+    let n = 0;
+    const { inbox, post } = await setup({ db, start: () => started(n++ === 0 ? 's-new' : 's-two') });
+    await inbox.receive(await post('m1', request({ silent: true })));
+    await inbox.receive(await post('m2', request({})));
+    const mutedAt = (id: string) => (db.prepare('select muted_at from session_states where session_id = ?').get(id) as { muted_at: number | null } | undefined)?.muted_at ?? null;
+    expect(mutedAt('s-new')).not.toBeNull();
+    expect(mutedAt('s-two')).toBeNull();
   });
 
   it('Claude Code の permissionMode default は受けて、start に default を渡す', async () => {
@@ -309,6 +323,41 @@ describe('PeerLaunchInbox', () => {
       expect(await answerOf('s1')).toEqual({ ok: false, reason: 'launch-failed', detail: 'no pane' });
       expect(await answerOf('s2')).toEqual({ ok: false, reason: 'bad-payload' });
       expect(await answerOf('s3')).toEqual({ ok: false, reason: 'bad-payload' });
+    });
+
+    it('wake は親が空でも通り、結び付きを問わず control.wake を呼ぶ。起動も send も stop もしない', async () => {
+      const control = { send: vi.fn(async () => {}), stop: vi.fn(async () => {}), wake: vi.fn(async () => {}) };
+      const { inbox, post, start, answerOf } = await setup({ control });
+      await inbox.receive(await post('w1', stopReq({ op: 'wake', parentSessionId: '', targetSessionId: 's-paused' })));
+      expect(control.wake).toHaveBeenCalledWith('s-paused');
+      expect(control.stop).not.toHaveBeenCalled();
+      expect(start).not.toHaveBeenCalled();
+      expect(await answerOf('w1')).toMatchObject({ ok: true, sessionId: 's-paused' });
+    });
+
+    it('wake は作られてから 15 秒より古ければ expired で断り、起こさない', async () => {
+      const control = { send: vi.fn(async () => {}), stop: vi.fn(async () => {}), wake: vi.fn(async () => {}) };
+      const { inbox, post, answerOf, setNow } = await setup({ control });
+      setNow(T0 + 15_001);
+      await inbox.receive(await post('w1', stopReq({ op: 'wake', parentSessionId: '', targetSessionId: 's-paused' })));
+      expect(control.wake).not.toHaveBeenCalled();
+      expect(await answerOf('w1')).toEqual({ ok: false, reason: 'expired' });
+    });
+
+    it('wake は Paused でなければ（control.wake が投げれば）launch-failed、親が空の send と同じく wake の本文は空だけ許す', async () => {
+      const control = { send: vi.fn(async () => {}), stop: vi.fn(async () => {}), wake: vi.fn(async () => { throw new Error('the session is not paused'); }) };
+      const { inbox, post, answerOf } = await setup({ control });
+      await inbox.receive(await post('w1', stopReq({ op: 'wake', parentSessionId: '', targetSessionId: 's-x' })));
+      await inbox.receive(await post('w2', stopReq({ op: 'wake', parentSessionId: '', targetSessionId: 's-x', prompt: 'x' })));
+      expect(await answerOf('w1')).toEqual({ ok: false, reason: 'launch-failed', detail: 'the session is not paused' });
+      expect(await answerOf('w2')).toEqual({ ok: false, reason: 'bad-payload' });
+    });
+
+    it('wake の口が無ければ launch-failed', async () => {
+      const control = { send: vi.fn(async () => {}), stop: vi.fn(async () => {}) };
+      const { inbox, post, answerOf } = await setup({ control });
+      await inbox.receive(await post('w1', stopReq({ op: 'wake', parentSessionId: '', targetSessionId: 's-x' })));
+      expect(await answerOf('w1')).toEqual({ ok: false, reason: 'launch-failed', detail: 'unsupported' });
     });
 
     it('op の欄が無い頼みは今までどおり起動、知らない op は封じられない', async () => {

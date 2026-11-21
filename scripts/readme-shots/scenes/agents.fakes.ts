@@ -61,7 +61,7 @@ export function opencodeScript(o: { gate: string; model?: string; prompt: string
   const model = o.model ?? 'Qwen3 Coder 30B';
   const bar = magenta('┃');
   return [
-    { out: `\r\n  ${bold('opencode')} ${dim('2.1.4')}\r\n\r\n` },
+    { out: `\r\n  ${bold('opencode')} ${dim('2.2.0')}\r\n\r\n` },
     { gate: o.gate },
     { ms: 200, out: `  ${bar} ` },
     { out: o.prompt, typed: true },
@@ -121,6 +121,6 @@ export function installAgentFakes(e: Env, scripts: AgentScripts, codexTurnMs = 1
   const codexBin = path.join(bin, 'codex');
   const opencodeBin = path.join(bin, 'opencode');
   fs.writeFileSync(codexBin, `#!/bin/sh\ncase " $* " in\n  *" --remote "*) exec "${node}" "${player}" "${cxSteps}" "${e.gates}" ;;\n  *) exec "${realCodex}" "$@" ;;\nesac\n`, { mode: 0o755 });
-  fs.writeFileSync(opencodeBin, `#!/bin/sh\ncase " $* " in\n  *" --version "*) echo 2.1.4 ;;\n  *" --server "*) exec "${node}" "${player}" "${ocSteps}" "${e.gates}" ;;\n  *) exec "${realOpencode}" "$@" ;;\nesac\n`, { mode: 0o755 });
+  fs.writeFileSync(opencodeBin, `#!/bin/sh\ncase " $* " in\n  *" --version "*) echo 2.2.0 ;;\n  *" --server "*) exec "${node}" "${player}" "${ocSteps}" "${e.gates}" ;;\n  *) exec "${realOpencode}" "$@" ;;\nesac\n`, { mode: 0o755 });
   return { codexBin, opencodeBin };
 }

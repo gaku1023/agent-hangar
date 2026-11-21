@@ -8,7 +8,7 @@ import type { AsksOf } from '../mcp/app.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import type { LiveDigester } from '../live/digest.ts';
 import type { CandidateEnv } from '../projects/candidates.ts';
-import type { MemoStore } from '../projects/memo.ts';
+import type { HookDecisions } from '../sessions/hookDecisions.ts';
 import type { PermissionAsks } from '../sessions/permissionAsks.ts';
 import type { OrchestratorKeeper } from '../orchestrator/keeper.ts';
 import type { OsNoticeFeed } from '../sessions/stopNotices.ts';
@@ -28,10 +28,7 @@ import type { OpencodeProvidersService } from '../provider/opencode/integration.
 import type { PeerCallDeps } from '../peer/caller.ts';
 import type { EventDispatcher } from '../event/dispatcher.ts';
 import type { EventBindingService } from '../event/service.ts';
-import type { PeerEndpointDeps } from '../peer/endpoint.ts';
 import type { PeerChatViewer } from '../peer/chat/viewer.ts';
-import type { PeerSshStore } from '../peer/ssh/config.ts';
-import type { HostKeyState } from '../peer/ssh/connector.ts';
 
 /**
  * HTTP の層が外から受け取る依存の一覧。
@@ -67,7 +64,7 @@ export type ExternalApi = {
  */
 export type SummaryEnqueueOpts = { force?: boolean; ignoreLive?: boolean };
 /** SummaryJob のうち HTTP から触る部分だけ。 */
-export type SummaryApi = { enqueue(sessionId: string, opts?: SummaryEnqueueOpts): boolean; pending(): string[]; test(): Promise<SummarizerTestDto>; listModels(): Promise<string[]> };
+export type SummaryApi = { enqueue(sessionId: string, opts?: SummaryEnqueueOpts): boolean; pending(): string[]; test(): Promise<SummarizerTestDto> };
 /** JoinApprover のうち HTTP から触る部分だけ。 */
 export type JoinApproverApi = Pick<JoinApprover, 'state' | 'issue' | 'approve' | 'reject' | 'cancel'>;
 /** リカバリーキーの再発行のうち HTTP から触る部分だけ。 */
@@ -105,6 +102,8 @@ export type AppDeps = {
   digester?: Pick<LiveDigester, 'digest'>;
   /** hook から届いた許可の確認の預け先（sessions/permissionAsks.ts）。登録の読み直しが許可待ちの札の中身として足す。無ければ預けない。 */
   permissionAsks?: Pick<PermissionAsks, 'put'>;
+  /** 許可の確認の同期の hook が答えを待つ表（sessions/hookDecisions.ts）。無ければ待ちを開けず、台本はすぐ抜ける。 */
+  hookDecisions?: Pick<HookDecisions, 'open' | 'wait' | 'closeTool'>;
   /** hook の受け口（/mcp/s/<id>/hook）が本文を読む口。sessions.provider の値から driver の許可と質問の面を返す。無ければ hook の本文は読まない。 */
   asksOf?: AsksOf;
   /** 統括の見張り（orchestrator/keeper.ts）。柱の始め直す、止める、起こすが使う。無ければ統括は切とみなす。 */
@@ -131,7 +130,6 @@ export type AppDeps = {
   /** git の表示。渡さなければ、ここで作る（試験は実物の git を使う）。組み立てる側は、本文の伸びで読み直す同じものを渡す。 */
   git?: GitApi;
   usage: { current(): UsageDto; ingest(raw: unknown): { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null; accountId: string } | null };
-  memos: MemoStore;
   summary: SummaryApi;
   /** セッションの削除（sessions/trash.ts）。本文を OS のゴミ箱へ移し、削除の印を書く。 */
   trash: Pick<SessionTrash, 'deleteSession'>;
@@ -280,16 +278,11 @@ export type AppDeps = {
   shareHome?: string;
   /** 別の PC へ起こす口（peer/caller.ts）。MCP の create_session の device と list_devices が使う。渡さなければ、別の PC は引けない。 */
   peerCall?: PeerCallDeps;
+  /**
+   * 「今すぐ試す」を、その会話が最後に動いた PC で起こす口（peer/screenWake.ts）。渡さなければ、いつも押した PC で起こす。
+   * ownerOf は最後の run の PC が手元でなければその名前、wake は頼んで答えを待ち、起きたら woken-remote、届かなければ fallback（手元で起こす）。
+   */
+  wakeOwner?: { ownerOf(sessionId: string): { name: string } | null; wake(sessionId: string): Promise<'woken-remote' | 'fallback'> };
   /** UI の dist。null なら UI を配らない（試験と、dist を持たない組み立て）。 */
   uiDist: string | null;
-  /**
-   * SSH の予備の経路（boot/peerSsh.ts）。
-   * endpoint は別の PC から来る `/peer` の入口、store と hostKeyState は設定「ほかの PC」の `/api/peer-ssh` が使う。
-   * 渡さなければ、どちらの経路も持たない。
-   */
-  peerSsh?: {
-    endpoint: PeerEndpointDeps;
-    store: Pick<PeerSshStore, 'list' | 'set' | 'remove'>;
-    hostKeyState(deviceId: string): HostKeyState;
-  };
 };

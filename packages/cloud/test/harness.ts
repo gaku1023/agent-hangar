@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
@@ -79,6 +80,32 @@ function withCompat(init: RequestInit = {}): RequestInit {
  * bell: false で、呼び鈴（Durable Object の束縛）の無い Worker を起こす。rc.1 の設定のまま再配備していない Worker の真似である。
  * 呼び鈴の答えの待ちを短くするときは、bindings に BELL_ASK_TIMEOUT_MS を渡す。
  */
+/**
+ * miniflare の束縛の stub は、プロパティを引くたびに Worker のスレッドへ同期の fetch を投げ、返事の id を突き合わせる。
+ * 2026-11 に CI で 1 度だけ、その突き合わせ（message?.id === id）が落ちた。再現できず、原因は確かめられていない。
+ * 次に落ちたとき、どの束縛のどこで、どのくらい混んでいる最中だったかが分かるように、手掛かりを足して投げ直す。
+ */
+export function withFetchSyncDiagnostics<T extends object>(target: T, name: string): T {
+  return new Proxy(target, {
+    get(t, prop) {
+      let value: unknown;
+      try {
+        value = Reflect.get(t, prop, t);
+      } catch (e) {
+        if (e instanceof Error && e.message.includes('message?.id === id')) {
+          const load = os.loadavg().map((n) => n.toFixed(2)).join('/');
+          throw new Error(
+            `miniflare の同期 fetch の突き合わせ（message?.id === id）が落ちた（${name}.${String(prop)}）: loadavg=${load} cpus=${os.cpus().length} freemem=${Math.round(os.freemem() / 1048576)}MB node=${process.version} platform=${process.platform}`,
+            { cause: e },
+          );
+        }
+        throw e;
+      }
+      return typeof value === 'function' ? value.bind(t) : value;
+    },
+  });
+}
+
 export async function startCloud(options: { BOOTSTRAP_TOKEN_HASH?: string; bindings?: Record<string, string>; outbound?: (req: Request) => Response | Promise<Response>; minDeviceCompat?: number; bell?: boolean } = {}): Promise<CloudHarness> {
   const script = await workerScript(options.minDeviceCompat);
   const bootstrapTokenHash = options.BOOTSTRAP_TOKEN_HASH ?? '';
@@ -98,8 +125,8 @@ export async function startCloud(options: { BOOTSTRAP_TOKEN_HASH?: string; bindi
     outboundService: options.outbound ?? (() => new Response('outbound fetch is not allowed in tests', { status: 599 })),
   });
   const env = {
-    DB: await mf.getD1Database('DB'),
-    BUCKET: await mf.getR2Bucket('BUCKET'),
+    DB: withFetchSyncDiagnostics(await mf.getD1Database('DB'), 'DB'),
+    BUCKET: withFetchSyncDiagnostics(await mf.getR2Bucket('BUCKET'), 'BUCKET'),
     BOOTSTRAP_TOKEN_HASH: bootstrapTokenHash,
   } as unknown as Env;
   return {

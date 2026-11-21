@@ -6,7 +6,7 @@ import type { SideLiveGroup } from '../presenters/shell.ts';
 import { Shell } from './Shell.tsx';
 import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
-const props = { approvals: [], live: { count: 0, ids: [], rows: [], groups: [], pins: [] }, sidebarCollapsed: false, sidebarWidth: 208, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], foot: [{ route: { name: 'settings' as const }, label: '設定', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: syncFixture({ visible: false, state: 'off', label: '' }), notices: { rows: [], unread: 0, keys: [], label: '通知' }, account: null, newSession: {} };
+const props = { approvals: [], live: { count: 0, ids: [], rows: [], groups: [], pins: [] }, history: { back: false, forward: false }, sidebarCollapsed: false, sidebarWidth: 208, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], foot: [{ route: { name: 'settings' as const }, label: '設定', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: syncFixture({ visible: false, state: 'off', label: '' }), notices: { rows: [], unread: 0, keys: [], label: '通知' }, account: null, newSession: {} };
 
 describe('Shell の本文の幅', () => {
   // セッション画面だけ幅の上限を外す（案 b）。
@@ -98,7 +98,9 @@ describe('Shell', () => {
     expect(within(screen.getByRole('banner')).queryByRole('button', { name: /サイドバー/ })).toBeNull();
     const toggle = side.getByRole('button', { name: 'サイドバーを閉じる' });
     expect(toggle.parentElement).toHaveClass('nav-row');
-    expect(toggle.previousElementSibling).toBe(side.getByRole('link', { name: 'ホーム' }));
+    // ホームと開閉のボタンの間に、履歴の戻る・進むが入る（sidebarHistory.test.tsx）。
+    expect(toggle.previousElementSibling).toHaveClass('nav-history');
+    expect(toggle.previousElementSibling?.previousElementSibling).toBe(side.getByRole('link', { name: 'ホーム' }));
     // 乗せたときの吹き出しは、今押すと何が起きるかを短く言う。読み上げは aria-label に任せる。
     expect(toggle.querySelector('.toggle-tip')).toHaveTextContent('閉じる⌘B');
     expect(toggle.querySelector('.toggle-tip')).toHaveAttribute('aria-hidden', 'true');

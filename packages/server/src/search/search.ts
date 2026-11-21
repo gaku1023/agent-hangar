@@ -1,16 +1,36 @@
 import { matchesStopFilter, splitFtsTokens, toFtsQuery, type LiveFilter, type StopReason, type SearchHitDto, type SearchParamsDto, type SearchResultDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
+import { stripFtsTail } from './ftsTail.ts';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const SNIPPETS_PER_HIT = 3;
 /**
- * 短い語だけの検索は like の全走査になるので、集計に回す行数をここで打ち切る。
+ * 1 文字の語だけの検索は like の全走査になるので、集計に回す行数をここで打ち切る。
  * 行数がこれを超えると件数と順位が不完全になるが、コストを抑える方を選ぶ。
  */
 const LIKE_ONLY_SCAN_CAP = 5000;
 /** like 経路の抜粋で、当たった語の前後を合わせて残す文字数。 */
 const LIKE_SNIPPET_CHARS = 60;
+
+/**
+ * 2 文字の語を、event_fts の語彙（fts5vocab）から引いた trigram の OR にして、text の列の MATCH 式にする。
+ * 2 文字を含む行は、その 2 文字で始まる trigram を必ず 1 つ持つ。本文の最後の 2 文字も、末尾に足した区切り（ftsTail.ts）との trigram を持つ。
+ * 語彙は並んでいるので、範囲で引けばミリ秒で済む。like の全走査は数秒かかり、主スレッドを止める。
+ * 当たる trigram が 1 つも無ければ null（どの行にも当たらない）。
+ */
+const vocabReady = new WeakSet<Db>();
+function bigramMatch(db: Db, token: string): string | null {
+  if (!vocabReady.has(db)) {
+    db.exec('create virtual table if not exists temp.event_fts_vocab using fts5vocab(main, event_fts, row)');
+    vocabReady.add(db);
+  }
+  const lower = token.toLowerCase();
+  const rows = db.prepare('select term from temp.event_fts_vocab where term >= ? and term <= ?').all(lower, lower + '\u{10FFFF}') as { term: string }[];
+  const terms = rows.map((r) => r.term).filter((t) => [...t].length === 3 && t.startsWith(lower));
+  if (terms.length === 0) return null;
+  return 'text : (' + terms.map((t) => `"${t.replace(/"/g, '""')}"`).join(' OR ') + ')';
+}
 
 /** like の部分一致に使う文字列を作る。ワイルドカードと逃げ文字は逃がす。 */
 function likePattern(s: string): string {
@@ -61,8 +81,14 @@ export function fitSnippet(snippet: string, full: string, tokens: { long: string
  */
 export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (sessionId: string, providerSessionId: string) => LiveFilter = () => 'ended', stopOf: (sessionId: string, providerSessionId: string) => StopReason | null = () => null): SearchResultDto {
   const { long, short } = splitFtsTokens(params.q);
-  const match = long.length > 0 ? toFtsQuery(params.q) : null;
-  const hasText = match !== null || short.length > 0;
+  // 2 文字の語は語彙から引いた trigram の MATCH にし、1 文字の語だけ like で補う。
+  const bigrams = short.filter((t) => [...t].length === 2);
+  const singles = short.filter((t) => [...t].length < 2);
+  const bigramParts = bigrams.map((t) => bigramMatch(db, t));
+  const noBigramHit = bigramParts.includes(null);
+  const matchParts = [...(long.length > 0 ? [toFtsQuery(params.q)!] : []), ...bigramParts.filter((p): p is string => p !== null)];
+  const match = matchParts.length > 0 ? matchParts.join(' AND ') : null;
+  const hasText = long.length > 0 || short.length > 0;
   if (!hasText && !params.file) return { hits: [], total: 0 };
   const limit = Math.min(Math.max(params.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
   const offset = Math.max(params.offset ?? 0, 0);
@@ -71,7 +97,7 @@ export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (session
   const textWhere: string[] = [];
   const textArgs: unknown[] = [];
   if (match) { textWhere.push('f.text match ?'); textArgs.push(match); }
-  for (const t of short) { textWhere.push("f.text like ? escape '\\'"); textArgs.push(likePattern(t)); }
+  for (const t of singles) { textWhere.push("f.text like ? escape '\\'"); textArgs.push(likePattern(t)); }
 
   const where: string[] = ['s.deleted_at is null'];
   const args: unknown[] = [];
@@ -110,7 +136,8 @@ export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (session
     ? `event_fts f join sessions s on s.id = f.session_id where ${[...textWhere, ...where].join(' and ')}`
     : `(select session_id from event_fts f where ${textWhere.join(' and ')} limit ${LIKE_ONLY_SCAN_CAP}) f join sessions s on s.id = f.session_id where ${where.join(' and ')}`;
   const sql = `select s.id sid, s.provider_session_id psid, s.last_activity_at la, count(*) n from ${source} group by s.id`;
-  const transcript = db.prepare(sql).all(...textArgs, ...args) as { sid: string; psid: string; la: number | null; n: number }[];
+  // 2 文字の語に当たる trigram が無ければ、トランスクリプトのどの行にも当たらない。
+  const transcript = noBigramHit ? [] : db.prepare(sql).all(...textArgs, ...args) as { sid: string; psid: string; la: number | null; n: number }[];
 
   // 名前と要約の当たり。語は 3 文字以上も未満も like で引き、名前の組、要約の組のそれぞれの中で全部の語を満たす行を当たりとする。
   // 名前の組をまたいで（名前に 1 語、要約に 1 語のように）満たす行は当たりにしない。
@@ -147,20 +174,41 @@ export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (session
     || (a.sid < b.sid ? -1 : a.sid > b.sid ? 1 : 0));
   const total = rows.length;
 
-  // snippet() は MATCH した問い合わせでしか使えないので、like だけの経路は本文を取って切り出す。
-  // 抜粋が語を丸ごと含まないときに切り出し直すため、MATCH の経路は本文も取る（fitSnippet）。
-  const column = match ? "snippet(event_fts, 4, '', '', '…', 12) text, text body" : 'text';
+  // 3 文字以上の語だけのときは snippet() で切り、抜粋が語を丸ごと含まないときに切り出し直すため本文も取る（fitSnippet）。
+  // 2 文字の語があるときは、snippet() をかけない。語彙から引いた何百もの trigram を行ごとに探すので、150 行で 2 秒かかる。
+  // like だけの経路と同じく、本文を取って likeSnippet で切り出す。
+  const useSnippet = match !== null && bigrams.length === 0;
+  const column = useSnippet ? "snippet(event_fts, 4, '', '', '…', 12) text, text body" : 'text';
+  const anchor = long[0] ?? bigrams[0] ?? singles[0]!;
   // seq は主線とサブエージェントで別々に振るので、どの線の行かを agentId で添える（主線は null）。
   // 並びは主線を先に、seq の順にする。決めないと、跳び先（J1）に使う最初の抜粋が挿入の順で揺れる。
-  const snip = db.prepare(`select seq, role, agent_id agentId, ${column} from event_fts f where f.session_id = ? and ${textWhere.join(' and ')} order by (agent_id is not null), cast(seq as integer) limit ${SNIPPETS_PER_HIT}`);
-  const hits: SearchHitDto[] = rows.slice(offset, offset + limit).map((r) => {
+  // 抜粋は、この頁の当たりのセッション全部を 1 回の問い合わせで取り、セッションごとに SNIPPETS_PER_HIT 件までにする。
+  const page = rows.slice(offset, offset + limit);
+  const bySession = new Map<string, (SearchHitDto['snippets'][number] & { body?: string })[]>();
+  const withText = page.filter((r) => r.n > 0).map((r) => r.sid);
+  if (withText.length > 0) {
+    const win = (cols: string) => `select ${cols}, row_number() over (partition by f.session_id order by (f.agent_id is not null), cast(f.seq as integer)) rn from event_fts f where f.session_id in (select value from json_each(?)) and ${textWhere.join(' and ')}`;
+    // snippet() は窓関数の中では使えないので、使うときは内側で行（rowid）を選び、外側で MATCH しなおして抜粋を取る。
+    const sql = useSnippet
+      ? `select f.session_id sid, seq, role, agent_id agentId, ${column} from event_fts f where f.text match ? and f.rowid in (select rowid from (${win('f.rowid rowid')}) where rn <= ${SNIPPETS_PER_HIT}) order by f.session_id, (f.agent_id is not null), cast(f.seq as integer)`
+      : `select sid, seq, role, agentId, text from (${win('f.session_id sid, f.seq seq, f.role role, f.agent_id agentId, f.text text')}) where rn <= ${SNIPPETS_PER_HIT} order by sid, rn`;
+    const snipRows = db.prepare(sql).all(...(useSnippet ? [match] : []), JSON.stringify(withText), ...textArgs) as ((SearchHitDto['snippets'][number] & { body?: string }) & { sid: string })[];
+    for (const { sid, ...raw } of snipRows) {
+      // 索引の末尾の区切りは、画面に出さない。
+      const s = { ...raw, text: stripFtsTail(raw.text), ...(raw.body !== undefined ? { body: stripFtsTail(raw.body) } : {}) };
+      const list = bySession.get(sid) ?? [];
+      list.push(s);
+      bySession.set(sid, list);
+    }
+  }
+  const hits: SearchHitDto[] = page.map((r) => {
     const matched: NonNullable<SearchHitDto['matched']> = [];
     if (r.nm) matched.push('name');
     if (r.sm) matched.push('summary');
     if (r.n > 0) matched.push('transcript');
     if (r.n === 0) return { sessionId: r.sid, matchCount: 0, snippets: [], matched };
-    const got = snip.all(r.sid, ...textArgs) as (SearchHitDto['snippets'][number] & { body?: string })[];
-    const snippets: SearchHitDto['snippets'] = got.map(({ body, ...s }) => ({ ...s, text: match ? fitSnippet(s.text, body ?? s.text, { long, short }) : likeSnippet(s.text, short[0]!) }));
+    const got = bySession.get(r.sid) ?? [];
+    const snippets: SearchHitDto['snippets'] = got.map(({ body, ...s }) => ({ ...s, text: useSnippet ? fitSnippet(s.text, body ?? s.text, { long, short }) : likeSnippet(s.text, anchor) }));
     return {
       sessionId: r.sid,
       matchCount: r.n,

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import {
   LAUNCH_TTL_MS,
+  MAX_FUTURE_SKEW_MS,
   PEER_LAUNCH_TTL_MS,
   MAX_PUSH_BATCH,
   PULL_LIMIT,
@@ -9,6 +10,7 @@ import {
   type MobileLaunchOut,
   type PeerLaunchIncoming,
   type PushChangesResponse,
+  type PushDropped,
   type SealedChangeIn,
   type SealedChangeOut,
   type SealedPullChangesResponse,
@@ -179,7 +181,10 @@ async function ringPeersOf(env: Env, from: string): Promise<void> {
 
 export const changesApp = new Hono<{ Bindings: Env; Variables: Vars }>();
 
-/** 端末から届いた封じた行を受ける。行ごとに `updated_at` の新しい方を採り、採った行には表の末尾の連番が付く。 */
+/**
+ * 端末から届いた封じた行を受ける。行ごとに `updated_at` の新しい方を採り、採った行には表の末尾の連番が付く。
+ * 採らなかった行は、応答の `dropped` で k と理由を名指しする。
+ */
 changesApp.post('/', async (c) => {
   const body = (await c.req.json().catch(() => null)) as { changes?: unknown } | null;
   if (!body || !Array.isArray(body.changes) || body.changes.length > MAX_PUSH_BATCH || !body.changes.every(isChange)) return c.json({ error: 'invalid body' }, 400);
@@ -206,10 +211,19 @@ changesApp.post('/', async (c) => {
   }
   // 大きさの収まった行は、字の形（詰め物の無い base64url）を確かめてから BLOB に戻す。
   if (!incoming.every((x) => isSealedText(x.sealed, MAX_ROW_BYTES))) return c.json({ error: 'invalid body' }, 400);
-  // 同じ鍵の重複は updatedAt の大きい方だけを見る。
+  // Worker の時刻より MAX_FUTURE_SKEW_MS 以上先の行は、時計の進んだ PC が書いたとみなして断る。
+  // 採ると、時計の合った PC がその後に書いた変更が、時計が追いつくまで後勝ちで負け続ける。
+  // 塊ごと 400 にはしない。端末は同じ塊を送り直し続けて、ほかの行まで止まるからである。
+  const dropped: PushDropped[] = [];
   const latest = new Map<string, SealedChangeIn>();
   let skipped = 0;
   for (const row of incoming) {
+    if (row.updatedAt > now + MAX_FUTURE_SKEW_MS) {
+      skipped++;
+      dropped.push({ k: row.k, reason: 'future' });
+      continue;
+    }
+    // 同じ鍵の重複は updatedAt の大きい方だけを見る。畳んだ古い版は同じ PC の新しい版が採られるので、名指ししない。
     const cur = latest.get(row.k);
     if (!cur) latest.set(row.k, row);
     else {
@@ -220,7 +234,8 @@ changesApp.post('/', async (c) => {
   const stmts: D1PreparedStatement[] = [];
   // 行ごとの insert の位置。meta.changes を読んで採った数を数える。
   const inserts: number[] = [];
-  for (const row of latest.values()) {
+  const written = [...latest.values()];
+  for (const row of written) {
     const [del, ins] = writeRow(db, row, device.id);
     stmts.push(del);
     inserts.push(stmts.push(ins) - 1);
@@ -230,9 +245,14 @@ changesApp.post('/', async (c) => {
   // 高水位は同じ batch（1 つの取引）の中で読む。別の要求に割り込まれた値を返さない。
   const maxAt = stmts.push(maxSeqStmt(db)) - 1;
   const results = await db.batch(stmts);
-  const accepted = inserts.filter((i) => Number(results[i]?.meta?.changes ?? 0) > 0).length;
-  skipped += latest.size - accepted;
-  const res: PushChangesResponse = { seq: firstNum(results[maxAt] as D1Result<{ s: number }> | undefined), accepted, skipped };
+  let accepted = 0;
+  inserts.forEach((at, i) => {
+    if (Number(results[at]?.meta?.changes ?? 0) > 0) accepted++;
+    // 表の行の方が同じか新しかったので捨てた。端末が気づけるように名指しする（黙って捨てない）。
+    else dropped.push({ k: written[i]!.k, reason: 'stale' });
+  });
+  skipped += written.length - accepted;
+  const res: PushChangesResponse = { seq: firstNum(results[maxAt] as D1Result<{ s: number }> | undefined), accepted, skipped, ...(dropped.length ? { dropped } : {}) };
   // 急ぎの印（?ring=1）。書き込みが通ったので、同じクラウドの送り主以外の PC を鳴らして pull を早めさせる。
   // 応答は待たず、失敗しても push は成功のまま返す（相手は 30 秒の pull で拾う）。スマホには鳴らさない。
   if (c.req.query('ring') === '1' && accepted > 0) {

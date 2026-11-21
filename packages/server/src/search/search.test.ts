@@ -6,13 +6,15 @@ import { IndexerService } from '../indexer/service.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { proposeSessionState, setSessionState } from '../sessions/states.ts';
+import { FTS_TAIL, withFtsTail } from './ftsTail.ts';
 import { fitSnippet, likeSnippet, searchSessions } from './search.ts';
+import { pathRefId } from '../db/pathRef.ts';
 
 let dir: string;
 let db: Db;
 const idOf = (p: string) => (db.prepare('select id from sessions where provider_session_id = ?').get(p) as { id: string }).id;
 /** そのセッションがファイルを触ったことにする。索引の行を 1 つ足すだけで、本文は要らない。 */
-const touchFile = (sessionId: string, file: string) => db.prepare("insert into event_index (session_id, seq, kind, file_path_ref, byte_offset, byte_length, file_path) values (?, 9999, 'tool', 'x', 0, 0, ?)").run(sessionId, file);
+const touchFile = (sessionId: string, file: string) => db.prepare("insert into event_index (session_id, seq, kind, path_id, byte_offset, byte_length, file_path, file_path_ref) values (?, 9999, 'tool', ?, 0, 0, ?, '')").run(sessionId, pathRefId(db, 'x'), file);
 beforeEach(async () => {
   dir = copyFixtureClaudeDir(); db = openDb(':memory:');
   await new IndexerService({ db, deviceId: 'd', transcript: claudeTranscriptSource({ claudeDir: dir }), isRunning: () => false }).fullScan();
@@ -85,6 +87,52 @@ describe('searchSessions', () => {
   it('どこにも無い短い語は空の結果', () => {
     expect(searchSessions(db, { q: 'zz' })).toEqual({ hits: [], total: 0 });
     expect(searchSessions(db, { q: 'channels zz' })).toEqual({ hits: [], total: 0 });
+  });
+  // 2 文字の語は、event_fts の語彙（fts5vocab）でその 2 文字で始まる trigram を引き、OR の MATCH にする（全走査をしない）。
+  it('2 文字の語は索引で引き、打ち切りで当たりを落とさない', () => {
+    const sid = idOf(SESSION_ALPHA);
+    const ins = db.prepare('insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)');
+    // 5000 行を超える同じ 2 文字の行の後ろに、別のセッションの当たりを置く。
+    const other = idOf(SESSION_OTHER);
+    for (let i = 0; i < 5200; i++) ins.run(sid, null, 1000 + i, 'user', `かきく${String.fromCodePoint(0x4e00 + (i % 50))} ${i}`);
+    ins.run(other, null, 0, 'user', 'かきく最後の行');
+    const r = searchSessions(db, { q: 'かき' });
+    expect(r.total).toBe(2);
+    expect(r.hits.map((h) => h.sessionId).sort()).toEqual([sid, other].sort());
+    expect(r.hits.find((h) => h.sessionId === other)!.snippets[0]!.text).toContain('かき');
+  });
+  // 本文の末尾に区切りを足して索引に入れる（版 66）ので、最後の 2 文字も引け、抜粋に区切りは出ない。
+  it('本文の最後にだけある 2 文字も引け、抜粋に区切りの文字は出ない', () => {
+    const sid = idOf(SESSION_ALPHA);
+    const ins = db.prepare('insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)');
+    ins.run(sid, null, 9001, 'user', withFtsTail('これは長い本文の末尾にだけ ぬるぽ'));
+    ins.run(sid, null, 9002, 'user', withFtsTail('ぬるぽ'));
+    for (const q of ['ぬる', 'るぽ', 'ぬるぽ', 'ぬる 末尾']) {
+      const r = searchSessions(db, { q });
+      expect(r.total, q).toBe(1);
+      for (const s of r.hits[0]!.snippets) expect(s.text, q).not.toContain(FTS_TAIL);
+    }
+    expect(searchSessions(db, { q: 'るぽ' }).hits[0]!.matchCount).toBe(2);
+    expect(searchSessions(db, { q: 'ぽ' }).hits[0]!.snippets.every((s) => !s.text.includes(FTS_TAIL))).toBe(true);
+  });
+  it('2 文字の語は text の列だけを見る（role の列の語に当たらない）', () => {
+    expect(searchSessions(db, { q: 'us' }).hits.every((h) => h.snippets.every((s) => s.text.toLowerCase().includes('us')))).toBe(true);
+    const sid = idOf(SESSION_ALPHA);
+    db.prepare('insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)').run(sid, null, 5000, 'xyzrole', 'あいうえお');
+    expect(searchSessions(db, { q: 'xy' }).total).toBe(0);
+  });
+  it('2 文字の語は大文字小文字を問わず、長い語とも AND になる', () => {
+    const sid = idOf(SESSION_ALPHA);
+    db.prepare('insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)').run(sid, null, 5001, 'user', 'Qzx wombat とは');
+    expect(searchSessions(db, { q: 'QZ' }).total).toBe(1);
+    expect(searchSessions(db, { q: 'qz wombat' }).total).toBe(1);
+    expect(searchSessions(db, { q: 'qz marmotxx' }).total).toBe(0);
+  });
+  it('1 文字の語と 2 文字の語の混在は両方を満たす行だけ', () => {
+    const sid = idOf(SESSION_ALPHA);
+    db.prepare('insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)').run(sid, null, 5002, 'user', 'ぬねの% ふへほ');
+    expect(searchSessions(db, { q: 'ぬね %' }).total).toBe(1);
+    expect(searchSessions(db, { q: 'ぬね ま' }).total).toBe(0);
   });
   it('短い語だけの経路でも絞り込みは効く', () => {
     expect(searchSessions(db, { q: 'ls', live: 'running' }).total).toBe(0);

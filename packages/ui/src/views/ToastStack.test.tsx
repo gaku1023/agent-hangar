@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
 import { fakeMotionTokens } from '../test/motion.ts';
 import type { Toast } from '../mediator/types.ts';
-import type { PhoneLaunchCardProps, ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
+import type { OpenPromptCardProps, PhoneLaunchCardProps, ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
 import type { UpdateCardProps } from '../presenters/update.ts';
 import { INFO_TOAST_MS, PHONE_LAUNCH_TOAST_MS, ToastStack } from './ToastStack.tsx';
 
@@ -554,5 +554,43 @@ describe('起動後にモデルが見つからなかった札', () => {
   it('会話ごとに 1 枚ずつ出す', () => {
     mount(props({ modelMissings: [card(), card({ sessionId: 's2' })] }));
     expect(document.querySelectorAll('[data-kind="model-missing"]')).toHaveLength(2);
+  });
+});
+
+describe('会話を見てほしいという求めの知らせ（open_in_hangar）', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+  const toast: Toast = { id: '1', level: 'info', message: '', openPrompt: { sessionId: 's2', deviceId: 'd1', fromSessionId: 's1' } };
+  const open = (over: Partial<OpenPromptCardProps> = {}): OpenPromptCardProps => ({ sessionId: 's2', name: '開く先の題', live: 'busy', aside: false, reason: null, fromName: '求めた会話の題', ...over });
+  const mountPrompt = (over: Partial<OpenPromptCardProps> = {}) => mount(props({ toasts: [toast], openPrompts: { '1': open(over) } }));
+
+  it('状態の丸、開く先の題（1 行目）、求めた会話の題（2 行目）、「開く」、閉じる ×を並べる', () => {
+    mountPrompt();
+    const c = document.querySelector<HTMLElement>('.toast[data-kind="open-prompt"]')!;
+    expect(c.querySelector('.dot')).toHaveAttribute('data-status', 'busy');
+    expect(c.querySelector('.op-name')).toHaveTextContent('開く先の題');
+    expect(c.querySelector('.op-from')).toHaveTextContent('求めた会話の題');
+    expect(within(c).getByRole('button', { name: '開く' })).toBeInTheDocument();
+    expect(within(c).getByRole('button', { name: '閉じる' })).toBeInTheDocument();
+  });
+  it('求めた会話が無ければ 2 行目は出さない', () => {
+    mountPrompt({ fromName: null });
+    expect(document.querySelector('.op-from')).toBeNull();
+  });
+  it('「開く」は今のペインをその会話に切り替え、知らせを下げる。画面は勝手に切り替えない', () => {
+    const { onAction } = mountPrompt();
+    expect(onAction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '開く' }));
+    expect(onAction.mock.calls).toEqual([[{ type: 'session.open', id: 's2' }], [{ type: 'toast.dismiss', id: '1' }]]);
+  });
+  it('× は開かずに下げるだけ', () => {
+    const { onAction } = mountPrompt();
+    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+    expect(onAction.mock.calls).toEqual([[{ type: 'toast.dismiss', id: '1' }]]);
+  });
+  it('ほかの知らせと同じく、時間が来たら自動で消える', () => {
+    const { onAction } = mountPrompt();
+    act(() => { vi.advanceTimersByTime(INFO_TOAST_MS); });
+    expect(onAction).toHaveBeenCalledWith({ type: 'toast.dismiss', id: '1' });
   });
 });

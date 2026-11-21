@@ -705,7 +705,7 @@ describe('参加の動き（A1、B2）', () => {
 });
 
 describe('設定のクラウド同期の節', () => {
-  const SETTINGS = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+  const SETTINGS = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, nodePath: null, claudePath: null };
   const page = (over: Partial<Store>) => presentSettings({ ...initialState(), screen: { name: 'settings', at: 'cloud' } }, { ...initialStore(), settings: SETTINGS, device: { id: 'studio', name: 'studio' }, ...over }, NOW, 'darwin');
 
   it('殻の中で同期していなければ、参加コードで参加の段を節の中で開く', () => {
@@ -729,16 +729,22 @@ describe('設定のクラウド同期の節', () => {
     expect(onAction).toHaveBeenLastCalledWith({ type: 'cloud.add.open' });
   });
 
+  it('スマホの節に、スマホの小見出しと「スマホを接続」を出す（試作 A1）', () => {
+    const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), dev('desk')], creator: false, message: null };
+    const p = presentSettings({ ...initialState(), screen: { name: 'settings', at: 'phone' } }, { ...initialStore(), settings: SETTINGS, sync: SYNC, desktop: true, device: { id: 'studio', name: 'studio' }, cloudMember: { ...initialCloudMember(), devices } }, NOW, 'darwin');
+    render(ui(<SettingsScreen {...p} />));
+    expect(screen.getByRole('region', { name: 'スマホ' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'スマホを接続' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'スマホからの送信を受ける' })).toBeInTheDocument();
+  });
   it('同期していれば、PC の表と、節の末尾の「この PC の参加を解除」を出す', () => {
     const devices = { state: 'ok' as const, devices: [dev('studio', { self: true }), dev('desk')], creator: false, message: null };
     render(ui(<SettingsScreen {...page({ desktop: true, sync: SYNC, cloudMember: { ...initialCloudMember(), devices } })} />));
     expect(screen.getByRole('table', { name: 'PC' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'この PC の参加を解除' })).toBeInTheDocument();
-    // 表の下に「スマホ」の小見出しと「スマホを接続」（試作 A1）。
-    expect(screen.getByRole('region', { name: 'スマホ' })).toBeInTheDocument();
-    const table = screen.getByRole('table', { name: 'PC' });
-    const pairBtn = screen.getByRole('button', { name: 'スマホを接続' });
-    expect(table.compareDocumentPosition(pairBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // スマホは「スマホ」の節へ移した（クラウド同期の節には出さない）。
+    expect(screen.queryByRole('region', { name: 'スマホ' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'スマホを接続' })).toBeNull();
   });
 
   it('この PC が解除されていれば、節の先頭に帯を出し、参加の解除の帯は出さない', () => {

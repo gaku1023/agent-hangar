@@ -50,7 +50,7 @@ const ROW_MAX = 420;
 /** 測る前の高さの見積もり。ツールは畳んだ 1 行（まとめも畳んだ 1 行）、本文は 80 字で折り返した行数から当てる。 */
 function estimateRow(row: TranscriptRow): number {
   const it = row.items[0]!;
-  if (row.tools) return GAP + 28 + (row.items.length === 1 && it.kind === 'tool' && it.subagent ? 32 : 0);
+  if (row.tools) return GAP + 24 + (row.items.length === 1 && it.kind === 'tool' && it.subagent ? 32 : 0);
   if (it.kind === 'tool') return GAP + 28 + (it.subagent ? 32 : 0);
   const text = it.kind === 'meta' ? `${it.name} ${it.json}` : it.text;
   let lines = 0;

@@ -4,6 +4,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { noteUnread, onUnreadReady, type NotifyTarget, type UnreadMeta } from './unread.ts';
 import { UnreadHold } from './unreadHold.ts';
+import { noteViewing, resetViewing } from './viewing.ts';
 
 let db: Db;
 let live: LiveSessionDto[];
@@ -24,6 +25,7 @@ beforeEach(() => {
   s2 = ensureSession(db, 'u2', '/w', 'd');
   live = [entry('u1', 'busy'), entry('u2', 'busy')];
   ready = [];
+  resetViewing();
   offs = [onUnreadReady((id, text, count, sent, meta) => ready.push({ id, text, count, sent, meta }))];
 });
 afterEach(() => { for (const o of offs) o(); db.close(); });
@@ -42,6 +44,16 @@ describe('UnreadHold', () => {
     expect(h.pending()).toBe(false);
     h.check();
     expect(ready).toHaveLength(1);
+  });
+
+  it('ターンを抜けたときに画面で前に出して見ている会話なら、預かった未読を積まず、スマホへも出さない', () => {
+    const h = hold();
+    noteUnread(s1, '見ている間に終わりました', 0, ['unread', 'os', 'phone'], { kind: 'done', unreadHeld: true });
+    noteViewing('win', s1);
+    live = [entry('u1', 'idle'), entry('u2', 'busy')];
+    h.check();
+    expect(ready).toEqual([{ id: s1, text: '見ている間に終わりました', count: 0, sent: ['os'], meta: { kind: 'done' } }]);
+    expect(db.prepare('select count(*) as n from session_states where unread_count > 0').get()).toEqual({ n: 0 });
   });
 
   it('許可待ちの間は出さず、問いの入力待ちになったら出す', () => {
@@ -111,7 +123,7 @@ describe('UnreadHold', () => {
 });
 
 describe('UnreadHold の未読の数と裏だけの印', () => {
-  const unreadRow = (id: string) => db.prepare('select count, latest_text as latest from session_unread where session_id = ?').get(id) as { count: number; latest: string } | undefined;
+  const unreadRow = (id: string) => db.prepare('select unread_count as count, unread_text as latest from session_states where session_id = ? and unread_count > 0').get(id) as { count: number; latest: string } | undefined;
 
   it('作業中でも本体が入力を受け付けていて裏だけが動く（aside）なら、ターンを抜けたとみなして出す', () => {
     const h = hold();
@@ -155,5 +167,45 @@ describe('UnreadHold の未読の数と裏だけの印', () => {
     noteUnread(s1, '入力待ち', 0, ['unread', 'phone'], { kind: 'done', unreadHeld: true });
     expect(unreadRow(s1)).toEqual({ count: 1, latest: '入力待ち' });
     expect(ready).toEqual([{ id: s1, text: '入力待ち', count: 1, sent: ['phone'], meta: { kind: 'done' } }]);
+  });
+
+  it('預かりは表に残り、サーバを立て直した新しい預かりが読み戻して、ターンを抜けたら出す', () => {
+    const h = hold();
+    noteUnread(s1, '調べ終えました', 1, ['unread', 'os'], { kind: 'ask', unreadHeld: true });
+    expect(ready).toEqual([]);
+    for (const o of offs.splice(1)) o();
+    const h2 = hold();
+    expect(h2.pending()).toBe(true);
+    h2.check();
+    expect(ready).toEqual([]);
+    live = [entry('u1', 'idle'), entry('u2', 'busy')];
+    h2.check();
+    expect(ready).toEqual([{ id: s1, text: '調べ終えました', count: 1, sent: ['os'], meta: { kind: 'ask' } }]);
+    expect(h2.pending()).toBe(false);
+    expect(db.prepare('select count(*) c from unread_hold').get()).toEqual({ c: 0 });
+    expect(db.prepare('select unread_count as count from session_states where session_id = ? and unread_count > 0').get(s1)).toEqual({ count: 1 });
+    void h;
+  });
+
+  it('出した預かりは表から消え、読み戻しても二重に出ない', () => {
+    const h = hold();
+    noteUnread(s1, 'a', 1, ['os'], { kind: 'done' });
+    live = [entry('u1', 'idle'), entry('u2', 'busy')];
+    h.check();
+    expect(ready).toHaveLength(1);
+    for (const o of offs.splice(1)) o();
+    const h2 = hold();
+    expect(h2.pending()).toBe(false);
+  });
+
+  it('消えた会話の預かりは、読み戻すときに捨てる', () => {
+    const h = hold();
+    noteUnread(s1, 'a', 1, ['os'], { kind: 'done' });
+    for (const o of offs.splice(1)) o();
+    db.prepare('delete from sessions where id = ?').run(s1);
+    const h2 = hold();
+    expect(h2.pending()).toBe(false);
+    expect(db.prepare('select count(*) c from unread_hold').get()).toEqual({ c: 0 });
+    void h;
   });
 });

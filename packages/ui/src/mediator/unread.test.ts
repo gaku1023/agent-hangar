@@ -31,6 +31,11 @@ describe('Dock のバッジは入力待ちに未読を足す', () => {
     const a = liveStep(initialState(), storeOf([sess('w', { live: 'waiting' }), sess('u', { unread: unread(2) })], { unreadBadge: false }));
     expect(badges(a.effects)).toEqual([{ kind: 'badge', count: 1 }]);
   });
+  it('sidebarOtherPcs が切なら、ほかの PC が数えた未読（elsewhere）は数えない。入りなら数える', () => {
+    const list = [sess('u', { unread: unread(2) }), sess('r', { unread: { ...unread(3), elsewhere: true } })];
+    expect(badges(liveStep(initialState(), storeOf(list)).effects)).toEqual([{ kind: 'badge', count: 5 }]);
+    expect(badges(liveStep(initialState(), storeOf(list, { sidebarOtherPcs: false })).effects)).toEqual([{ kind: 'badge', count: 2 }]);
+  });
 });
 
 describe('既読', () => {

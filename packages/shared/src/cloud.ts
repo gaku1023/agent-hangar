@@ -26,8 +26,26 @@ export type ChangeOp = 'upsert' | 'delete';
  */
 export type ChangeIn = { tableName: SharedTable; rowId: string; op: ChangeOp; payload: Record<string, unknown>; updatedAt: number };
 export type ChangeOut = ChangeIn & { seq: number; deviceId: string };
-/** push の応答である。seq はサーバの連番の高水位、accepted は採った行、skipped は新しくなかったので捨てた行の数である。 */
-export type PushChangesResponse = { seq: number; accepted: number; skipped: number };
+/**
+ * Worker が受ける `updatedAt` の、Worker の時刻からの先行きの上限（5 分）である。
+ * これより先の時刻の行は、時計の進んだ PC が書いたとみなして断る（Evolu の HLC の maxDrift に倣った）。
+ * 採ってしまうと、時計の合った PC がその後に書いた変更が、時計が追いつくまで後勝ちで負け続けるからである。
+ */
+export const MAX_FUTURE_SKEW_MS = 5 * 60_000;
+/**
+ * push で Worker が捨てた行の名指しである。
+ * `stale` は表にある行の `updated_at` が同じか新しかったので捨てた行、`future` は `MAX_FUTURE_SKEW_MS` より先の時刻なので断った行である。
+ * 同じ塊の中の重複で畳んだ古い版は、同じ PC の新しい版が採られているので名指ししない。
+ */
+export type PushDropReason = 'stale' | 'future';
+export type PushDropped = { k: string; reason: PushDropReason };
+/**
+ * push の応答である。seq はサーバの連番の高水位、accepted は採った行、skipped は採らなかった行の数である。
+ * dropped は捨てた行の名指しで、1 件も無ければ載らない（古い Worker も載せない）。
+ */
+export type PushChangesResponse = { seq: number; accepted: number; skipped: number; dropped?: PushDropped[] };
+/** 開いた形の push の応答である。dropped の行は表名と行 ID で名指しする（sync/sealedClient.ts が k から引き直す）。 */
+export type OpenedPushResponse = Omit<PushChangesResponse, 'dropped'> & { dropped?: { tableName: SharedTable; rowId: string; reason: PushDropReason }[] };
 /**
  * 解除していない PC の 1 台と、Worker がその PC を最後に見た時刻（互換の版 6）。
  * lastSeenAt は Worker の時計で、1 分おきにしか書かないので最大 1 分遅れる。参加の前の行など、まだ見ていなければ null である。

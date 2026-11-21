@@ -1,4 +1,4 @@
-import { DEFAULT_CODEX_INJECTION, DEFAULT_LANGUAGE, DEFAULT_NOTIFY_RULES, DEFAULT_OPENCODE_INJECTION, localDate, localTime, notifyOsLabel, notifyRulesLine, osName, t, translator, type CodexInjection, type Language, type NotifyRules, type OpencodeInjection } from '@agent-hangar/shared';
+import { DEFAULT_CODEX_INJECTION, DEFAULT_LANGUAGE, DEFAULT_NOTIFY_RULES, DEFAULT_OPENCODE_INJECTION, localDate, localTime, notifyOsLabel, notifyRulesLine, osName, t, translator, type CodexInjection, type Language, type LaunchedBy, type NotifyRules, type OpencodeInjection } from '@agent-hangar/shared';
 import type { InjectionEntry } from '../agent/types.ts';
 import type { HandoverFacts } from '../runs/handover.ts';
 
@@ -6,8 +6,9 @@ import type { HandoverFacts } from '../runs/handover.ts';
  * 指示に埋める事実。
  * handover はほかの PC で進めた会話をこの PC で起こすときの事実（runs/handover.ts の handoverFacts）で、あれば引き継ぎの段を足す。
  * deviceCount はプロジェクトを使っている PC の数で、2 以上なら弱い 1 文を足す。どちらも同期を使わない人には出ない。
+ * launchedBy は人のいない起動元（LaunchParams の launchedBy）。あれば区切りの問いと知らせ方の問いを外し、問いで止まらずに提案と要約で終える段（unattended）を足す。
  */
-export type InjectionInput = { projectName: string; projectPath: string; todos: { id: string; text: string }[]; handover?: HandoverFacts | null; deviceCount?: number };
+export type InjectionInput = { projectName: string; projectPath: string; todos: { id: string; text: string }[]; handover?: HandoverFacts | null; deviceCount?: number; launchedBy?: LaunchedBy };
 
 /**
  * 足す段の入り切り。設定の 2 つのスイッチ（askStatusAtEnd、liveHints）から組む。どちらも既定は入りである。
@@ -36,13 +37,22 @@ type Agent = '' | 'opencode.' | 'codex.';
  * notify の段の続き。保存の段（notifySave）は常に、未設定のときだけ聞く段（notifyAsk）を足す。
  * 今の決まりは起動のときの設定から、OS の名前は platform から差し込む。
  */
-function notifyFollowEntries(language: Language, parts: InjectionParts, agent: Agent): InjectionEntry[] {
+function notifyFollowEntries(language: Language, parts: InjectionParts, agent: Agent, unattended = false): InjectionEntry[] {
   const n = parts.notify ?? {};
   const os = notifyOsLabel(n.platform ?? process.platform);
   const rules = notifyRulesLine(translator(language), n.rules ?? DEFAULT_NOTIFY_RULES);
   const entries: InjectionEntry[] = [{ key: 'notifySave', text: t(language, `launch.injection.${agent}notifySave` as 'launch.injection.notifySave', { os, rules }) }];
-  if (!n.decided) entries.push({ key: 'notifyAsk', text: t(language, `launch.injection.${agent}notifyAsk` as 'launch.injection.notifyAsk', { os }) });
+  // 人のいない起動では聞かない。答える人がいないので、問いで止まる。
+  if (!n.decided && !unattended) entries.push({ key: 'notifyAsk', text: t(language, `launch.injection.${agent}notifyAsk` as 'launch.injection.notifyAsk', { os }) });
   return entries;
+}
+
+/**
+ * 人のいない起動の段。Claude は AskUserQuestion を名指しで禁じ、Codex と opencode は文の問いだけを禁じる（AskUserQuestion を持たない）。
+ * 区切りの問いの段（status）の場所に置き、区切りの問いの入り切りに関係なく足す。止まらないための段だからである。
+ */
+function unattendedEntry(language: Language, by: LaunchedBy, key: 'launch.injection.unattended' | 'launch.injection.unattendedText'): InjectionEntry {
+  return { key: 'unattended', text: t(language, key, { origin: t(language, by === 'schedule' ? 'launch.injection.origin.schedule' : 'launch.injection.origin.session') }) };
 }
 
 /**
@@ -50,7 +60,9 @@ function notifyFollowEntries(language: Language, parts: InjectionParts, agent: A
  * どのエージェントにも通じる形（agent/types.ts の InjectionEntry）で返し、どう渡すかは driver が決める（Claude は段をつないで --append-system-prompt に渡す）。
  * プロジェクトのノートは渡さない。Claude Code は CLAUDE.md と自動メモリを自分で読むので、渡すと同じ役が二重になる。
  * TODO は ID を添えて渡す。ID が無いと、候補を出す前に get_project を呼んで引く一手が要るためである。
- * 状態は、頼まれたことが明確に終わったときだけ AskUserQuestion で聞かせる。利用者が選んだものは confirmed: true でそのまま状態になり、答えずに進めたものは候補として画面に残る。
+ * 状態をフォームで聞かせるのは、利用者が終わりを告げたときと、外の出来事を待つと言ったときだけである。自分で済んだと判断しただけなら、confirmed なしの提案だけを出させる。
+ * 利用者が選んだものは confirmed: true でそのまま状態になり、答えずに進めたものは候補として画面に残る。
+ * 予定や出来事、別の会話から起こした会話（launchedBy）には、区切りの問いと知らせ方の問いの代わりに、問いで止まらない段（unattended）を足す。
  * attach で開く会話にはこの指示が渡らないので、そちらは事後の要約で拾う。
  *
  * 段は辞書の鍵に分けてある。常に足す段（body、launch.injection.body）、notify_user で知らせる段（notify、launch.injection.notify）、区切りの問いの段（status、launch.injection.status）、ターンの意図と手の説明の段（live、launch.injection.live）である。
@@ -68,10 +80,11 @@ export function renderInjectionEntries(i: InjectionInput, language: Language = D
   const todos = i.todos.slice(0, 10);
   const todoText = todos.length ? '\n' + todos.map((todo) => `- [${todo.id}] ${todo.text}`).join('\n') : none;
   const entries: InjectionEntry[] = [{ key: 'body', text: t(language, 'launch.injection.body', { projectName: i.projectName, projectPath: i.projectPath, todos: todoText }) }];
-  if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.notify') }, ...notifyFollowEntries(language, parts, ''));
+  if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.notify') }, ...notifyFollowEntries(language, parts, '', !!i.launchedBy));
   if (i.handover) entries.push({ key: 'handover', text: renderHandover(i.handover, language) });
   if ((i.deviceCount ?? 0) >= 2) entries.push({ key: 'multiDevice', text: t(language, 'launch.injection.multiDevice', { deviceCount: String(i.deviceCount) }) });
-  if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.status') });
+  if (i.launchedBy) entries.push(unattendedEntry(language, i.launchedBy, 'launch.injection.unattended'));
+  else if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.status') });
   if (parts.liveHints) entries.push({ key: 'live', text: t(language, 'launch.injection.live') });
   return entries;
 }
@@ -91,11 +104,12 @@ export function renderOpencodeInjectionEntries(i: InjectionInput, language: Lang
   if (choice === 'none') return [];
   if (choice === 'minimal') {
     const entries: InjectionEntry[] = [{ key: 'body', text: t(language, 'launch.injection.opencode.minimal') }];
-    if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.opencode.notify') }, ...notifyFollowEntries(language, parts, 'opencode.'));
-    if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.opencode.status') });
+    if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.opencode.notify') }, ...notifyFollowEntries(language, parts, 'opencode.', !!i.launchedBy));
+    if (i.launchedBy) entries.push(unattendedEntry(language, i.launchedBy, 'launch.injection.unattendedText'));
+    else if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.opencode.status') });
     return entries;
   }
-  const follow = notifyFollowEntries(language, parts, 'opencode.');
+  const follow = notifyFollowEntries(language, parts, 'opencode.', !!i.launchedBy);
   return renderInjectionEntries(i, language, parts).flatMap((e) => (e.key === 'live' ? [{ key: 'live', text: t(language, 'launch.injection.opencode.live') }] : e.key === 'notify' ? [{ key: 'notify', text: t(language, 'launch.injection.opencode.notify') }, ...follow] : e.key === 'notifySave' || e.key === 'notifyAsk' ? [] : [e]));
 }
 
@@ -110,8 +124,9 @@ export function renderCodexInjectionEntries(i: InjectionInput, language: Languag
   if (choice === 'none') return [];
   if (choice === 'claude') return renderInjectionEntries(i, language, parts);
   const entries: InjectionEntry[] = [{ key: 'body', text: t(language, 'launch.injection.codex.minimal') }];
-  if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.codex.notify') }, ...notifyFollowEntries(language, parts, 'codex.'));
-  if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.codex.status') });
+  if (parts.notifyUser !== false) entries.push({ key: 'notify', text: t(language, 'launch.injection.codex.notify') }, ...notifyFollowEntries(language, parts, 'codex.', !!i.launchedBy));
+  if (i.launchedBy) entries.push(unattendedEntry(language, i.launchedBy, 'launch.injection.unattendedText'));
+  else if (parts.askStatusAtEnd) entries.push({ key: 'status', text: t(language, 'launch.injection.codex.status') });
   return entries;
 }
 

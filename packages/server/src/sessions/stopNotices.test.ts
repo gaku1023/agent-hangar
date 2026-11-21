@@ -4,7 +4,7 @@ import { onRowChange } from '../db/notify.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { setSessionName } from './notes.ts';
-import { setSessionState } from './states.ts';
+import { setSessionMuted, setSessionState } from './states.ts';
 import { notifyApp } from '../live/appNotice.ts';
 import { noteUnread, noteUnreadReady } from '../live/unread.ts';
 import { UnreadHold } from '../live/unreadHold.ts';
@@ -148,6 +148,16 @@ describe('StopNoticeWatch：入力待ち', () => {
     expect(pushed).toEqual([]);
   });
 
+  it('ミュートした会話は、入力待ちも許可待ちも知らせない', () => {
+    setSessionMuted(db, 'd', s1, true);
+    const w = watch();
+    w.tick();
+    live = [entry('u1', 'waiting', { waitingFor: 'question' })];
+    w.tick();
+    live = [entry('u1', 'waiting', { waitingFor: 'permission' })];
+    w.tick();
+    expect(pushed).toEqual([]);
+  });
   it('入力待ちを抜けてまた入ったら、もう 1 回知らせる', () => {
     ask('一つ目？');
     const w = watch();

@@ -21,12 +21,13 @@ import { daysLabel, transcriptMark } from './retention.ts';
 import { presentRetentionDialog } from './retentionDialog.ts';
 import { presentShell } from './shell.ts';
 import { presentToasts } from './toasts.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
 const ja = translator('ja');
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
-const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, lastTurnAt: null, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over });
+const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, updatedAt: 1 });
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ id, providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, ...over }));
 const runDto = (id: string, sessionId: string, endedAt: number | null = null): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: NOW - 60_000, endedAt, endReason: endedAt ? 'exited' : null, heartbeatAt: 1 });
 const tabDto = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null): TabDto => ({ id, runId, sessionId: 's1', kind, title: kind === 'agent' ? 'Claude' : `シェル ${id}`, tmuxName: `hangar-${runId}-${id}`, createdAt: 2, closedAt });
 function storeWith(): Store {
@@ -638,7 +639,7 @@ describe('presentSession（実行中）', () => {
     expect(p.run).toEqual({ id: 'r1', kind: 'start', alive: true, started: '1 分前' });
     expect(p.tabs).toEqual([{ id: 'r1', title: 'Claude', kind: 'agent', selected: true, closable: false }, { id: 't1', title: 'シェル t1', kind: 'shell', selected: false, closable: true }]);
     expect(p.selectedTab).toBe('r1');
-    expect(p).toMatchObject({ trustHint: false, canResume: false, canFork: false, transcriptOpen: true });
+    expect(p).toMatchObject({ trustHint: false, canResume: false, transcriptOpen: true });
     const state = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), selectedTab: 't1', transcriptOpen: false } } };
     const q = presentSession(state, store, NOW, 's1');
     expect(q.selectedTab).toBe('t1');
@@ -659,7 +660,7 @@ describe('presentSession（実行中）', () => {
   it('run が無ければ再開できる。送信中は不可', () => {
     const store = storeWith();
     store.sessions.s2 = { ...store.sessions.s2!, live: null };
-    expect(presentSession(initialState(), store, NOW, 's2')).toMatchObject({ run: null, tabs: [], selectedTab: null, canResume: true, canFork: true, trustHint: false });
+    expect(presentSession(initialState(), store, NOW, 's2')).toMatchObject({ run: null, tabs: [], selectedTab: null, canResume: true, trustHint: false });
     expect(presentSession({ ...initialState(), launch: { kind: 'submitting' } }, store, NOW, 's2').canResume).toBe(false);
     store.sessions.s2 = { ...store.sessions.s2!, hasTranscript: false };
     expect(presentSession(initialState(), store, NOW, 's2').canResume).toBe(false);
@@ -680,40 +681,35 @@ describe('presentSession（見出しの操作、A1）', () => {
   const ids = (a: { menu: { id: string }[] }) => a.menu.map((m) => m.id);
   // 要約を作り直す項目は、要約エンジンを使うときだけ出る。ここの試験は使う設定で組む。
   const summaryOn = (): Store => ({ ...storeWith(), settings: fullSettings({ summaryEngine: 'claude' }) });
-  it('実行中は VS Code で開くを主にし、残りは「…」へ。停止は危険色で最後、フォークは理由を添えて押せない', () => {
+  it('実行中は VS Code で開くを主にし、残りは「…」へ。停止は危険色で最後', () => {
     const store = summaryOn();
     store.runs = { r1: runDto('r1', 's1') };
     store.tabs = { r1: tabDto('r1', 'r1', 'agent') };
     const a = presentSession(initialState(), store, NOW, 's1').actions;
     expect(a.primary).toMatchObject({ id: 'openEditor', label: 'VS Code で開く', disabled: null });
-    expect(ids(a)).toEqual(['openTerminal', 'fork', 'regenerate', 'copyAddress', 'copyId', 'stop']);
-    expect(a.menu.find((m) => m.id === 'fork')!.disabled).toBe('実行中は使えません。停止すると使えます');
+    expect(ids(a)).toEqual(['openTerminal', 'regenerate', 'copyAddress', 'copyId', 'stop']);
     expect(a.menu.at(-1)).toMatchObject({ id: 'stop', label: '停止', danger: true, disabled: null });
   });
-  it('終わったセッションは再開を主にし、フォーク、VS Code で開く、要約を作り直すを「…」へ', () => {
+  it('終わったセッションは再開を主にし、VS Code で開く、要約を作り直すを「…」へ', () => {
     const store = summaryOn();
     store.sessions.s2 = { ...store.sessions.s2!, live: null };
     const a = presentSession(initialState(), store, NOW, 's2').actions;
     expect(a.primary).toMatchObject({ id: 'resume', label: '再開', disabled: null });
-    expect(ids(a)).toEqual(['fork', 'openEditor', 'regenerate', 'copyAddress', 'copyId']);
-    // 補足は画面に出さず、項目の title に回す。
-    expect(a.menu[0]).toMatchObject({ disabled: null, note: null, title: 'この会話から分岐した新しいセッション' });
-    // 本文が無ければ、再開もフォークも理由を添えて押せない。
+    expect(ids(a)).toEqual(['openEditor', 'regenerate', 'copyAddress', 'copyId']);
+    // 本文が無ければ、再開は理由を添えて押せない。
     store.sessions.s2 = { ...store.sessions.s2!, hasTranscript: false };
     const b = presentSession(initialState(), store, NOW, 's2').actions;
     expect(b.primary).toMatchObject({ id: 'resume', disabled: 'トランスクリプトがありません' });
-    expect(b.menu[0]!.disabled).toBe('トランスクリプトがありません');
   });
-  it('他の PC で実行中は「この PC で再開」を主にし、再開とフォークはロックの理由で押せない', () => {
+  it('他の PC で実行中は「この PC で再開」を主にし、再開はロックの理由で押せない', () => {
     const store = summaryOn();
     const lock = { deviceId: 'd2', deviceName: 'MacBook-Air', runId: 'r9', heartbeatAt: NOW - 20_000, stale: false };
     store.sessions.s2 = { ...store.sessions.s2!, live: null, lock, remoteOnly: true };
     const a = presentSession(initialState(), store, NOW, 's2').actions;
     // 生きているロックでも「この PC で再開」は押せる。押すと、停止して引き継ぐ確認の 1 枚が出る。
     expect(a.primary).toMatchObject({ id: 'resumeHere', label: 'この PC で再開', disabled: null });
-    expect(ids(a)).toEqual(['resume', 'fork', 'openEditor', 'regenerate', 'copyAddress', 'copyId']);
+    expect(ids(a)).toEqual(['resume', 'openEditor', 'regenerate', 'copyAddress', 'copyId']);
     expect(a.menu[0]!.disabled).toBe('MacBook-Air で実行中です');
-    expect(a.menu[1]!.disabled).toBe('MacBook-Air で実行中です');
     store.sessions.s2 = { ...store.sessions.s2!, lock: { ...lock, stale: true } };
     const b = presentSession(initialState(), store, NOW, 's2').actions;
     expect(b.primary).toMatchObject({ id: 'resumeHere', disabled: null });
@@ -723,13 +719,12 @@ describe('presentSession（見出しの操作、A1）', () => {
     const c = presentSession(initialState(), store, NOW, 's2').actions;
     expect(c.primary).toMatchObject({ id: 'resumeHere', disabled: null });
     expect(c.menu[0]!.disabled).toBe('トランスクリプトは他の PC にあります。「この PC で再開」でトランスクリプトをダウンロードして続けられます');
-    expect(c.menu[1]!.disabled).toBe('トランスクリプトは他の PC にあります');
   });
   it('hangar の外で動いているときは、つなぐか引き取るを「…」に入れる', () => {
-    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: 'busy', lock: null, remoteOnly: false, hasTranscript: true, canResume: false, canFork: false, canResumeHere: false, outsideOpen: 'attach', canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false };
+    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: 'busy', lock: null, remoteOnly: false, hasTranscript: true, canResume: false, canResumeHere: false, outsideOpen: 'attach', canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false };
     const a = sessionActions(facts, ja);
     expect(a.primary.id).toBe('openEditor');
-    expect(ids(a)).toEqual(['attach', 'fork', 'regenerate', 'copyAddress', 'copyId']);
+    expect(ids(a)).toEqual(['attach', 'regenerate', 'copyAddress', 'copyId']);
     expect(ids(sessionActions({ ...facts, outsideOpen: 'adopt' }, ja))[0]).toBe('adopt');
     // つなぐの補足は title に回し、引き取る（外の claude を終わらせる）の補足は画面に残す。
     expect(a.menu[0]).toMatchObject({ id: 'attach', note: null, title: '外部ターミナルで実行中の Claude に hangar のターミナルから接続する' });
@@ -738,25 +733,25 @@ describe('presentSession（見出しの操作、A1）', () => {
     expect(alive.menu.find((m) => m.id === 'openTerminal')).toMatchObject({ note: null, title: '外部ターミナルで同じセッションに接続する' });
   });
   it('昇格はメニューに入れ、要約の作成中と失敗は作り直すに 1 行添え、本文が消えた会話では作り直しを出さない', () => {
-    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: false, hasTranscript: true, canResume: true, canFork: true, canResumeHere: false, outsideOpen: null, canPromote: true, gone: null, summaryPending: true, summaryError: null, fromScratch: true };
+    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: false, hasTranscript: true, canResume: true, canResumeHere: false, outsideOpen: null, canPromote: true, gone: null, summaryPending: true, summaryError: null, fromScratch: true };
     const a = sessionActions(facts, ja);
-    expect(ids(a)).toEqual(['fork', 'openEditor', 'regenerate', 'promote', 'copyAddress', 'copyId']);
-    expect(a.menu[2]!.note).toBe('作成中…');
+    expect(ids(a)).toEqual(['openEditor', 'regenerate', 'promote', 'copyAddress', 'copyId']);
+    expect(a.menu[1]!.note).toBe('作成中…');
     // クイックセッションで始めたセッションの再開は、作業ディレクトリがクイックセッションのままであることを title に添える。
     expect(a.primary).toMatchObject({ note: null, title: '再開しても作業ディレクトリはクイックセッションの保存先のままです' });
-    expect(sessionActions({ ...facts, summaryPending: false, summaryError: 'x' }, ja).menu[2]!.note).toBe('前回は作成できませんでした');
+    expect(sessionActions({ ...facts, summaryPending: false, summaryError: 'x' }, ja).menu[1]!.note).toBe('前回は作成できませんでした');
     expect(ids(sessionActions({ ...facts, gone: { note: '', canExtend: false, extendTo: 365 } }, ja))).not.toContain('regenerate');
   });
   it('要約エンジンを使わないときは、要約を作り直すを出さない（サーバーが受け付けない。冒頭の 1 枚と同じ）', () => {
-    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: false, hasTranscript: true, canResume: true, canFork: true, canResumeHere: false, outsideOpen: null, canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false, summaryOff: true };
+    const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: false, hasTranscript: true, canResume: true, canResumeHere: false, outsideOpen: null, canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false, summaryOff: true };
     expect(ids(sessionActions(facts, ja))).not.toContain('regenerate');
-    expect(ids(sessionActions({ ...facts, live: 'busy', canResume: false, canFork: false }, ja))).not.toContain('regenerate');
+    expect(ids(sessionActions({ ...facts, live: 'busy', canResume: false }, ja))).not.toContain('regenerate');
     // 実行中のセッションの「…」でも、設定が「使わない」なら出さない（0.6.0-rc.1 の Windows の確かめ）。
     const store = storeWith();
     store.settings = fullSettings({ summaryEngine: 'off' });
     store.runs = { r1: runDto('r1', 's1') };
     store.tabs = { r1: tabDto('r1', 'r1', 'agent') };
-    expect(ids(presentSession(initialState(), store, NOW, 's1').actions)).toEqual(['openTerminal', 'fork', 'copyAddress', 'copyId', 'stop']);
+    expect(ids(presentSession(initialState(), store, NOW, 's1').actions)).toEqual(['openTerminal', 'copyAddress', 'copyId', 'stop']);
     store.settings = fullSettings({ summaryEngine: 'claude' });
     expect(ids(presentSession(initialState(), store, NOW, 's1').actions)).toContain('regenerate');
   });
@@ -925,6 +920,17 @@ describe('presentNewSession', () => {
     expect(p1).toMatchObject({ status: store.projects.p1!.status, lastActivity: '1 分前' });
     expect(p.projects.find((x) => x.id === 'p7')!.lastActivity).toBe('');
   });
+  it('この PC に置き場の無いプロジェクトは away に分け（パスは持たない）、最近は recentAnywhere で両方から数える', () => {
+    const store = storeWith();
+    store.projects.edge = { ...project('edge'), resolved: false, path: null, lastActivityAt: NOW - 60_000 };
+    store.projects.alpha = { ...store.projects.alpha!, lastActivityAt: NOW - 120_000 };
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
+    const p = presentNewSession(state, store, NOW)!;
+    expect(p.projects.map((x) => x.id)).not.toContain('edge');
+    expect(p.away).toEqual([{ id: 'edge', name: 'edge', path: null, status: 'active', lastActivity: '1 分前' }]);
+    expect(p.recentIds[0]).toBe('alpha');
+    expect(p.recentAnywhere!.slice(0, 2)).toEqual(['edge', 'alpha']);
+  });
   it('書きかけの下書きと、プロジェクトごとの前回値を渡す', () => {
     const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false }, newSessionDraft: { name: 'n', prompt: '', attachments: [] }, launchPrefs: { alpha: { model: 'opus' } } };
     expect(presentNewSession(state, storeWith(), NOW)).toMatchObject({ draft: { name: 'n', prompt: '' }, prefs: { alpha: { model: 'opus' } } });
@@ -986,7 +992,7 @@ describe('presentNewSession', () => {
 describe('presentSettings（フェーズ 2）', () => {
   it('外部ターミナルの選択肢は動いている OS のものだけで、別の OS の値はその OS の既定として見せる', () => {
     const store = storeWith();
-    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'iterm', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'iterm', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, nodePath: null, claudePath: null };
     const mac = presentSettings(initialState(), store, Date.now(), 'darwin');
     expect(mac.terminalOptions).toEqual([{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }]);
     expect(mac.terminalApp).toBe('iterm');
@@ -1004,7 +1010,7 @@ describe('presentSettings（フェーズ 2）', () => {
   });
   it('ツールのパスと MCP のコマンド', () => {
     const store = storeWith();
-    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, nodePath: null, claudePath: null };
     // コマンドは hangar の呼び方にそろえる。準備の確かめが届く前は hangar と書く。
     expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', editor: { setting: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, name: 'VS Code' }, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: 'hangar cloud join <URL>', setupCloud: 'npm run hangar -- setup cloud' } });
     store.settings = null;
@@ -1249,15 +1255,15 @@ describe('ヘッダの使用量の切り替え（Codex の枠）', () => {
   };
   it('Codex の会話では Codex の枠を出し、頭の札は Codex。アカウントの切り替えは、いまのアカウントのまま', () => {
     const p = presentShell(at({ name: 'session', id: 'c1' }), withCodex(CODEX), NOW);
-    expect(p.usage).toMatchObject({ fiveHour: 12, sevenDay: 31, agent: { key: 'codex', label: 'Codex' } });
+    expect(p.usage).toMatchObject({ fiveHour: 12, sevenDay: 31, agent: { key: 'codex' } });
     expect(p.usage.fiveHourLimit).toBeUndefined();
     expect(p.account?.shown.id).toBe('a1');
     expect(p.account?.sessionId).toBeNull();
   });
   it('Claude の会話とホームでは Claude の枠を出し、Codex の枠があるときだけ頭の札 Claude を添える', () => {
     const store = withCodex(CODEX);
-    expect(presentShell(at({ name: 'session', id: 'k1' }), store, NOW).usage).toMatchObject({ fiveHour: 82, sevenDay: 41, agent: { key: 'claude', label: 'Claude' } });
-    expect(presentShell(initialState(), store, NOW).usage).toMatchObject({ agent: { key: 'claude', label: 'Claude' } });
+    expect(presentShell(at({ name: 'session', id: 'k1' }), store, NOW).usage).toMatchObject({ fiveHour: 82, sevenDay: 41, agent: { key: 'claude' } });
+    expect(presentShell(initialState(), store, NOW).usage).toMatchObject({ agent: { key: 'claude' } });
   });
   it('Codex の枠が無い（値が未着、切）ときは、Codex の会話でも Claude の枠のまま、札も出さない', () => {
     const store = withCodex(null);
@@ -1274,24 +1280,27 @@ describe('ヘッダの使用量の切り替え（Codex の枠）', () => {
     expect(presentShell(at({ name: 'session', id: 'c1' }), store, NOW).account?.codex?.here).toBe(true);
     expect(presentShell(at({ name: 'session', id: 'k1' }), store, NOW).account?.codex?.here).toBe(false);
   });
+  it('Codex のアカウントが無ければ、Codex の会話でも顔の印は Claude（顔は Claude のアカウント）', () => {
+    const store = withCodex(CODEX);
+    expect(presentShell(initialState(), store, NOW).account?.agent).toBe('claude');
+    expect(presentShell(at({ name: 'session', id: 'c1' }), store, NOW).account?.agent).toBe('claude');
+  });
   it('Codex の枠が無いときは、面に Codex の札を渡さない', () => {
     expect(presentShell(initialState(), withCodex(null), NOW).account?.codex).toBeNull();
   });
 });
 
 describe('presentProject の右レール', () => {
-  it('TODO とメモとアーティファクトを並べ、クイックセッションは印を付ける', () => {
+  it('TODO とアーティファクトを並べ、クイックセッションは印を付ける', () => {
     const store: Store = {
       ...initialStore(),
-      projects: { p1: { ...project('p1'), name: 'alpha', path: '/w/alpha', lastActivityAt: NOW, openTodoCount: 1, memoHead: '# alpha' } },
+      projects: { p1: { ...project('p1'), name: 'alpha', path: '/w/alpha', lastActivityAt: NOW, openTodoCount: 1 } },
       todos: { t2: todoDto('t2', 2, true), t1: todoDto('t1', 1) },
-      memos: { p1: { projectId: 'p1', markdown: '# alpha\n本文', updatedAt: 5 } },
       artifacts: { a1: artDto('a1'), a2: artDto('a2', { projectId: 'p2' }) },
     };
     const p = presentProject(initialState(), store, NOW, 'p1');
     expect(p.todos).toEqual([{ id: 't1', text: 'やる t1', done: false, position: 1, candidate: null }]);
     expect(p.doneTodos).toEqual([{ id: 't2', text: 'やる t2', done: true, position: 2, candidate: null }]);
-    expect(p.instructions.legacyNote).toBe('# alpha\n本文');
     expect(p.artifacts.map((a) => a.id)).toEqual(['a1']);
     expect(p.isScratch).toBe(false);
   });
@@ -1392,13 +1401,12 @@ describe('presentSettings のフェーズ 3 の項目', () => {
   it('要約器と statusline と使用量の集計を渡す', () => {
     const store: Store = {
       ...initialStore(),
-      settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, allowExternalSummarizer: false, nodePath: null, claudePath: null },
+      settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 5, nodePath: null, claudePath: null },
       statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true },
-      summarizerModels: ['gemma', 'qwen'],
       usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 10, outputTokens: 2, sessions: 1 }], projects: [] },
     };
     const p = presentSettings(initialState(), store);
-    expect(p).toMatchObject({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, summarizerModels: ['gemma', 'qwen'] });
+    expect(p).toMatchObject({ summaryHourlyCap: 5 });
     expect(p.commands.statusline).toBe('hangar statusline install');
     expect(p.statusline?.installed).toBe(true);
     expect(p.usageAggregate?.days).toHaveLength(1);
@@ -1491,17 +1499,16 @@ describe('presentProject の右レール（端）', () => {
   it('クイックセッションには印が付く。無いプロジェクトの右レールは空', () => {
     const store: Store = { ...initialStore(), projects: { sc: scratchProject() } };
     expect(presentProject(initialState(), store, NOW, 'sc').isScratch).toBe(true);
-    expect(presentProject(initialState(), store, NOW, 'nope')).toMatchObject({ notFound: true, isScratch: false, todos: [], instructions: { state: 'loading', rows: [], legacyNote: null }, artifacts: [] });
+    expect(presentProject(initialState(), store, NOW, 'nope')).toMatchObject({ notFound: true, isScratch: false, todos: [], instructions: { state: 'loading', rows: [] }, artifacts: [] });
   });
 });
 
 describe('presentSettings の既定値', () => {
   it('設定がまだ届いていないときの要約器の既定と null の項目', () => {
     const p = presentSettings(initialState(), initialStore());
-    expect(p).toMatchObject({ summaryEngine: 'off', summaryClaudeModel: 'haiku', summaryApiKeySet: false, lmStudioUrl: '', lmStudioModel: null, summaryFallback: false, summaryHourlyCap: 20 });
+    expect(p).toMatchObject({ summaryEngine: 'off', summaryClaudeModel: 'haiku', summaryHourlyCap: 20 });
     expect(p.injection).toMatchObject({ askStatusAtEnd: true, liveHints: true, defaultModel: null });
     expect(p.statusline).toBeNull();
-    expect(p.summarizerModels).toBeNull();
     expect(p.usageAggregate).toBeNull();
     expect(p.summarizerTest).toBeNull();
   });
@@ -1514,7 +1521,7 @@ describe('presentSettings の既定値', () => {
   });
 });
 
-const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null, ...over });
+const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, summaryHourlyCap: 20, nodePath: null, claudePath: null, ...over });
 const syncStatus = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, diskShort: null, ...over });
 const lockDto = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, ...over });
 
@@ -1720,7 +1727,6 @@ describe('セッションのロック（フェーズ 4）', () => {
     expect(p.lock).toEqual({ deviceName: 'mini', stale: false, heartbeat: '1 分前', label: 'mini で実行中' });
     expect(p.remoteOnly).toBe(true);
     expect(p.canResume).toBe(false);
-    expect(p.canFork).toBe(false);
     expect(p.canResumeHere).toBe(true);
   });
   it('heartbeat が途絶えたロックは応答がありませんと見せ、この PC で再開だけを開ける（Ruling 14）', () => {
@@ -1729,12 +1735,11 @@ describe('セッションのロック（フェーズ 4）', () => {
     expect(p.lock).toEqual({ deviceName: 'mini', stale: true, heartbeat: '10 分前', label: 'mini から応答がありません' });
     // 相手の run を止めには行かないので、同じ run の続きである再開とフォークは閉じたままにする。
     expect(p.canResume).toBe(false);
-    expect(p.canFork).toBe(false);
     expect(p.canResumeHere).toBe(true);
   });
   it('stale のロックは、写しだけのセッションでもこの PC で再開ができる', () => {
     const store: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: true }), remoteOnly: true, transcriptMtime: null }) } };
-    expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ remoteOnly: true, canResume: false, canFork: false, canResumeHere: true });
+    expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ remoteOnly: true, canResume: false, canResumeHere: true });
   });
   it('生きているロックでも、写しの有無にかかわらずこの PC で再開を開ける（停止して引き継ぐ）', () => {
     const local: Store = { ...initialStore(), sessions: { s1: session('s1', { lock: lockDto({ stale: false }) }) } };
@@ -1748,11 +1753,10 @@ describe('セッションのロック（フェーズ 4）', () => {
     expect(p.lock).toBeNull();
     expect(p.canResumeHere).toBe(true);
     expect(p.canResume).toBe(false);
-    expect(p.canFork).toBe(false);
   });
   it('手元に本文があってロックが無ければ普通に再開できる', () => {
     const store: Store = { ...initialStore(), sessions: { s1: session('s1') } };
-    expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ lock: null, remoteOnly: false, canResume: true, canFork: true, canResumeHere: false });
+    expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ lock: null, remoteOnly: false, canResume: true, canResumeHere: false });
   });
   it('hangar の run が無く外で動くセッションは、引き取りか attach の手を出す。作業中は出さない', () => {
     const live = (over = {}) => ({ sessionId: 'us1', status: 'idle' as const, name: null, nameSource: null, cwd: '/w/alpha', pid: 1, entrypoint: 'cli', ...over });
@@ -1993,7 +1997,7 @@ describe('presentToasts（入力待ちのカード）', () => {
   it('入力待ちとトーストと届いたプロジェクトの札と更新の札（更新後の札を含む）と未検証の opencode の版の札と参加リクエストの通知とスマホの「元に戻す」以外は渡さない（戻る時刻の札、通知の誘い）', () => {
     const store = { ...waitingStore(['w1']), notify: { available: true, on: false, blocked: false } };
     const p = presentToasts({ ...initialState(), waitingToasts: ['w1'] }, store, NOW);
-    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'codexVersion', 'contextShorts', 'heldEvents', 'join', 'modelMissings', 'more', 'opencodeVersion', 'phoneLaunchMore', 'phoneLaunches', 'phoneUndo', 'prepProgress', 'toasts', 'update', 'waiting', 'whatsNew']);
+    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'codexVersion', 'contextShorts', 'heldEvents', 'join', 'modelMissings', 'more', 'openPrompts', 'opencodeVersion', 'phoneLaunchMore', 'phoneLaunches', 'phoneUndo', 'prepProgress', 'toasts', 'update', 'waiting', 'whatsNew']);
     expect(p.opencodeVersion).toBeNull();
     expect(p.heldEvents).toBeNull();
     expect(p.phoneUndo).toBeNull();
@@ -2241,5 +2245,30 @@ describe('opencodeAgentNote（エージェントの一覧の opencode の説明�
     expect(opencodeAgentNote(t, { ...OC_OPTIONS, version: '2.2.0', verified: false })).toBe('opencode 2.2.0 · 未検証');
     expect(opencodeAgentNote(t, { ...OC_OPTIONS, version: null })).toBeNull();
     expect(opencodeAgentNote(t, null)).toBeNull();
+  });
+});
+
+describe('要約の頭とエージェントの報告はツールの行にする', () => {
+  const compact = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\n<system-reminder>\n<tools-used-before-summary>Bash, Edit, Read</tools-used-before-summary>\n</system-reminder>\nSummary:\n1. Primary Request and Intent:\n   - 直す';
+  const opts = { showThinking: false, showRaw: false, subagents: [] };
+  it('要約の頭は札 compact、「ここまでの要約 · ツール 3 種」で、開くと Summary: の後ろと使ったツールが出る', () => {
+    const [it] = buildItems([{ kind: 'system', seq: 1, ts: 1, text: compact, subtype: 'compact_summary' }], opts, ja);
+    expect(it).toMatchObject({ kind: 'tool', name: 'compact', view: { head: { main: 'ここまでの要約', dim: 'ツール 3 種' }, body: { kind: 'note', text: '1. Primary Request and Intent:\n   - 直す', tools: ['Bash', 'Edit', 'Read'] } } });
+    const [en] = buildItems([{ kind: 'system', seq: 1, ts: 1, text: compact, subtype: 'compact_summary' }], opts, translator('en'));
+    expect(en).toMatchObject({ view: { head: { main: 'Conversation summary', dim: '3 tools used' } } });
+  });
+  it('ツールの一覧が無い要約は添え書きを出さず、Summary: が無ければ本文の全部を出す', () => {
+    const [it] = buildItems([{ kind: 'system', seq: 1, ts: 1, text: 'This session is being continued.\n\nあらすじ', subtype: 'compact_summary' }], opts, ja);
+    expect(it).toMatchObject({ kind: 'tool', view: { head: { main: 'ここまでの要約', dim: null }, body: { kind: 'note', text: 'This session is being continued.\n\nあらすじ', tools: [] } } });
+  });
+  it('エージェントの報告は札が送り手の名前で、行は本文の最初の行、開くと本文の全部', () => {
+    const [it] = buildItems([{ kind: 'system', seq: 2, ts: 1, text: '\nPR #764 になりました。\n\n- 未確認：CI', subtype: 'agent_message', from: 'general-purpose' }], opts, ja);
+    expect(it).toMatchObject({ kind: 'tool', name: 'general-purpose', view: { head: { main: 'PR #764 になりました。', dim: null }, body: { kind: 'note', text: '\nPR #764 になりました。\n\n- 未確認：CI', tools: [] } } });
+    const [anon] = buildItems([{ kind: 'system', seq: 2, ts: 1, text: '手が空きました', subtype: 'agent_message' }], opts, ja);
+    expect(anon).toMatchObject({ kind: 'tool', name: 'agent' });
+  });
+  it('生の記録を出すときは、手を加えずに知らせの行で出す', () => {
+    const [it] = buildItems([{ kind: 'system', seq: 1, ts: 1, text: compact, subtype: 'compact_summary' }], { ...opts, showRaw: true }, ja);
+    expect(it).toMatchObject({ kind: 'system', text: compact });
   });
 });

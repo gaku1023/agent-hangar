@@ -151,6 +151,11 @@ export function seenStep(state: State, store: Store, fromStore: boolean): Step {
 
 /** screen 領域：どの画面にいるか。URL のハッシュが正で、UiAction は navigate 効果を出すだけ。 */
 export function screenStep(state: State, store: Store, input: Input): Step | null {
+  if (input.kind === 'runtime' && input.event.type === 'hash.changed' && input.event.history) {
+    // 戻れる・進めるを入れてから、移動そのものを同じ知らせで続ける。同じ値なら状態を作り直さない。
+    const { back, forward } = input.event.history;
+    if (state.history.back !== back || state.history.forward !== forward) state = { ...state, history: { back, forward } };
+  }
   if (input.kind === 'runtime' && input.event.type === 'hash.changed') {
     const route = input.event.route;
     // ブラウザの戻る・進む（マウスの戻るボタンなど）は UiAction を通らず、ここへ直に届く。何段動いたかが moved に添えてある。
@@ -192,7 +197,7 @@ export function screenStep(state: State, store: Store, input: Input): Step | nul
     // 開き方を問わず（一覧、サイドバー、通知、パレット、戻る・進む、hangar:// のリンク）、つないだ端末にそのままフォーカスする。
     // 確認や入力のあるダイアログが残っていれば奪わない。端末が無い（終わったセッション）ときは Runtime が何もしない。
     if (route.name === 'session' && next.overlay.kind === 'none') effects.push({ kind: 'focus', target: 'terminal' });
-    if (route.name === 'project') effects.push({ kind: 'api.loadMemo', projectId: route.id }, { kind: 'api.loadInstructions', projectId: route.id });
+    if (route.name === 'project') effects.push({ kind: 'api.loadInstructions', projectId: route.id });
     // 設定の中で節を切り替えるだけ（左の目次）のときは、付属の値を取り直さない。
     if (route.name === 'settings' && state.screen.name !== 'settings') {
       effects.push({ kind: 'api.loadSettingsExtras' });

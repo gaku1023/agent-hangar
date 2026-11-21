@@ -12,6 +12,7 @@ import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA, SESSION_OTHER } from
 import { setSessionName } from '../sessions/notes.ts';
 import { PEER_STALE_MS, PEERS_FRESH_MS, recordPeers } from '../sync/peers.ts';
 import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
+import { orchestratorIdsSource } from '../orchestrator/peerLineage.ts';
 import { displayName, getProject, getSession, listDevices, listProjects, listSessions, sessionLock, setOrchestratorSource, setParkingSwitch } from './queries.ts';
 
 let dir: string;
@@ -53,6 +54,17 @@ describe('統括の印（role）', () => {
     const [a, b] = [all[0]!.id, all[1]!.id];
     setOrchestratorSource(db, () => [a, b]);
     expect(listSessions(db, []).filter((s) => 'role' in s).map((s) => s.id).sort()).toEqual([a, b].sort());
+  });
+  it('別の PC の devices の行に載った統括の系譜の会話にも role を付ける（この PC で統括を切っていても）', () => {
+    const all = listSessions(db, []);
+    const [a, b] = [all[0]!.id, all[1]!.id];
+    setOrchestratorSource(db, orchestratorIdsSource(db, 'd', () => []));
+    expect(listSessions(db, []).every((s) => !('role' in s))).toBe(true);
+    const status = JSON.stringify({ accounts: [], agents: [], lan_ips: [], ssh_host_key: null, hangar_version: '1.0.0', orchestrator_ids: [a] });
+    upsertShared(db, 'devices', { id: 'host', name: 'host', platform: 'darwin', status }, 'host');
+    expect(listSessions(db, []).filter((s) => 'role' in s).map((s) => s.id)).toEqual([a]);
+    expect(getSession(db, [], a)!.role).toBe('orchestrator');
+    expect('role' in getSession(db, [], b)!).toBe(false);
   });
 });
 
@@ -169,7 +181,7 @@ describe('listProjects', () => {
     expect(p).toMatchObject({
       id: 'p1', name: 'alpha', status: 'active', isScratch: false,
       path: '/Users/me/workspace/alpha', resolved: true,
-      runningCount: 1, openTodoCount: 0, memoHead: null,
+      runningCount: 1, openTodoCount: 0,
       lastActivityAt: Date.parse('2026-09-01T10:04:00.000Z'),
     });
   });
@@ -244,18 +256,16 @@ describe('getProject', () => {
 });
 
 describe('フェーズ 3 の項目', () => {
-  it('openTodoCount と memoHead はプロジェクトに付く', () => {
+  it('openTodoCount はプロジェクトに付く', () => {
     upsertShared(db, 'todos', { id: 't1', project_id: 'p1', text: 'a', done: 0, position: 1, session_id: null }, 'd');
     upsertShared(db, 'todos', { id: 't2', project_id: 'p1', text: 'b', done: 1, position: 2, session_id: null }, 'd');
     upsertShared(db, 'todos', { id: 't3', project_id: 'p1', text: 'c', done: 0, position: 3, session_id: null }, 'd');
     db.prepare('update todos set deleted_at = 1 where id = ?').run('t3');
     // Claude の提案は、利用者が受け入れるまで未完に数えない。
     upsertShared(db, 'todos', { id: 't4', project_id: 'p1', text: 'd', done: 0, position: 4, session_id: null, suggested_at: 1, suggested_note: null }, 'd');
-    upsertShared(db, 'project_memos', { project_id: 'p1', markdown: '\n\n# 見出し\n本文' }, 'd', 'project_id');
     const p = getProject(db, 'd', live, 'p1')!;
     expect(p.openTodoCount).toBe(1);
-    expect(p.memoHead).toBe('# 見出し');
-    expect(listProjects(db, 'd', live)[0]).toMatchObject({ openTodoCount: 1, memoHead: '# 見出し' });
+    expect(listProjects(db, 'd', live)[0]).toMatchObject({ openTodoCount: 1 });
   });
   it('statusline の値が stats に乗り、無ければ索引の値', () => {
     const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;

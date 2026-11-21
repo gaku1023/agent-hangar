@@ -75,6 +75,7 @@ export const schedulesJa: AreaDictionary<typeof schedulesKeys> = {
   'schedules.event.heldHourly': '1 時間の上限（{max} 回）を超えたので止めました',
   'schedules.event.wakeFailed': '「{title}」を起こせませんでした',
   'schedules.event.error.invalid': 'イベントの設定が正しくありません',
+  'schedules.event.error.off': '外のできごとがオフになっています。設定でオンにしてください',
   'schedules.event.error.max': 'イベントの設定は {max} 件までです',
   'schedules.event.error.notFound': 'イベントの設定が見つかりません',
   'schedules.event.error.badState': 'イベントの設定の状態が正しくありません',

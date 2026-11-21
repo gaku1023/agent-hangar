@@ -85,7 +85,7 @@ Phone notifications can be turned off separately in the notification rules in Se
 (`packages/server/src/boot/sync.ts`, `packages/server/src/sync/client.ts`, `packages/server/src/mobile/bell.ts`, `packages/cloud/src/push.ts`, `packages/cloud/src/usage.ts`)
 
 Other PCs are reached only through your Worker.
-A direct SSH connection between PCs exists in the code but is disabled (`packages/server/src/peer/ssh/enabled.ts`).
+There is no direct SSH connection between PCs.
 
 **Event triggers.**
 Nothing is registered until you create an event on the Schedules screen, or approve one that your agent drafted.

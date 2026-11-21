@@ -5,6 +5,7 @@ import { softDeleteShared } from '../db/shared.ts';
 import type { IndexBatch, IndexRecord } from '../agent/types.ts';
 import { localDay } from '../usage/aggregate.ts';
 import { storedOrigin, writeBatch } from './write.ts';
+import { stripFtsTail } from '../search/ftsTail.ts';
 
 let db: Db;
 const DEV = 'dev-1';
@@ -34,12 +35,12 @@ describe('writeBatch', () => {
     const s = one('select * from sessions where id = ?', r.sessionId)!;
     expect(s).toMatchObject({ provider: 'opencode', provider_session_id: OC, cwd: '/Users/me/workspace/oc', first_prompt: 'はじめの依頼', started_at: TS, last_activity_at: TS + 1000 });
     const origin = storedOrigin(batch([]));
-    expect(all('select seq, kind, byte_offset, byte_length, file_path_ref, tool_name, file_path from event_index where session_id = ? order by seq', r.sessionId)).toEqual([
+    expect(all('select seq, kind, byte_offset, byte_length, (select p.path from event_paths p where p.id = path_id) file_path_ref, tool_name, file_path from event_index where session_id = ? order by seq', r.sessionId)).toEqual([
       { seq: 0, kind: 'user', byte_offset: 0, byte_length: 0, file_path_ref: origin, tool_name: null, file_path: null },
       { seq: 1, kind: 'assistant', byte_offset: 0, byte_length: 0, file_path_ref: origin, tool_name: null, file_path: null },
       { seq: 2, kind: 'tool_call', byte_offset: 0, byte_length: 0, file_path_ref: origin, tool_name: 'edit', file_path: '/Users/me/workspace/oc/a.ts' },
     ]);
-    expect(all('select seq, role, text from event_fts where session_id = ? order by seq', r.sessionId).map((x) => x.text)).toEqual(['はじめの依頼', '直しました', 'a.ts']);
+    expect(all('select seq, role, text from event_fts where session_id = ? order by seq', r.sessionId).map((x) => stripFtsTail(String(x.text)))).toEqual(['はじめの依頼', '直しました', 'a.ts']);
     expect(one('select turns, model, input_tokens, output_tokens, last_prompt from session_stats where session_id = ?', r.sessionId))
       .toEqual({ turns: 1, model: 'glm-4.6', input_tokens: 10, output_tokens: 5, last_prompt: 'はじめの依頼' });
     expect(all('select day, file_path, input_tokens, output_tokens from usage_daily where session_id = ?', r.sessionId))
@@ -56,7 +57,7 @@ describe('writeBatch', () => {
     expect(one('select turns, input_tokens from session_stats where session_id = ?', first.sessionId)).toEqual({ turns: 1, input_tokens: 10 });
     writeBatch(db, batch([prompt(0, '作り直した依頼')], true), { deviceId: DEV });
     expect(all('select seq, kind from event_index where session_id = ? order by seq', first.sessionId).map((x) => `${x.seq}:${x.kind}`)).toEqual(['0:user']);
-    expect(all('select text from event_fts where session_id = ?', first.sessionId).map((x) => x.text)).toEqual(['作り直した依頼']);
+    expect(all('select text from event_fts where session_id = ?', first.sessionId).map((x) => stripFtsTail(String(x.text)))).toEqual(['作り直した依頼']);
     expect(all('select * from usage_daily where session_id = ?', first.sessionId)).toEqual([]);
     expect(one('select turns, input_tokens from session_stats where session_id = ?', first.sessionId)).toEqual({ turns: 1, input_tokens: 0 });
   });
@@ -92,6 +93,6 @@ describe('writeBatch', () => {
     const rec: IndexRecord = { events: [{ kind: 'user', seq: 0, ts: TS, text: 'hi' }], facts: { isUserTurn: true, ts: TS }, locator: { kind: 'file', path: '/x/a.jsonl', offset: 120, length: 42 } };
     const r = writeBatch(db, { agent: 'claude-code', providerSessionId: 'aaaaaaaa-0000-4000-8000-000000000001', agentId: null, reset: true, records: [rec] }, { deviceId: DEV, origin: '/x/a.jsonl' });
     expect(one('select provider from sessions where id = ?', r.sessionId)).toEqual({ provider: 'claude-code' });
-    expect(all('select byte_offset, byte_length, file_path_ref from event_index where session_id = ?', r.sessionId)).toEqual([{ byte_offset: 120, byte_length: 42, file_path_ref: '/x/a.jsonl' }]);
+    expect(all('select byte_offset, byte_length, (select p.path from event_paths p where p.id = path_id) file_path_ref from event_index where session_id = ?', r.sessionId)).toEqual([{ byte_offset: 120, byte_length: 42, file_path_ref: '/x/a.jsonl' }]);
   });
 });

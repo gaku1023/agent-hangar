@@ -9,7 +9,7 @@ import { ensureSession } from '../indexer/write.ts';
 import { acceptsResultFrom, forgetSpawn, getSpawn } from '../sessions/spawns.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { heldNotice } from './text.ts';
-import { getPeerRequest, PEER_DELIVERY_MAX_PER_CALLER, PEER_DELIVERY_NOTICE_MS, PeerOutbox, recordPeerRequest, SCREEN_CALLER } from './outbox.ts';
+import { getPeerRequest, PEER_DELIVERY_MAX_PER_CALLER, PEER_OUTBOX_KEEP_MS, PEER_REQUEST_ANSWER_MS, PEER_DELIVERY_NOTICE_MS, PeerOutbox, recordPeerRequest, SCREEN_CALLER } from './outbox.ts';
 
 const ME = 'pc-a';
 const PEER = 'pc-b';
@@ -132,6 +132,31 @@ describe('PeerOutbox の画面からの頼み（呼び出し元の会話が無�
     expect(toasts[0]!.message).toContain('ディレクトリがありません');
     expect(injected).toEqual([]);
     expect(notices).toEqual([]);
+  });
+
+  it('wake の断りと期限切れは札を出さず、頼みだけ終える（呼ぶ側が手元に切り替える）。受け取られれば done', async () => {
+    const W = 'req-wake';
+    await a.peerLaunch.put({ id: W, to: PEER, sealed: SEALED });
+    recordPeerRequest(db, { requestId: W, to: PEER, callerSessionId: SCREEN_CALLER, now: clock.t, op: 'wake', childSessionId: 'child-1' });
+    await b.peerLaunch.claim(W);
+    await b.peerLaunch.answer(W, false, await sealPeerAnswer(ring, { requestId: W, from: ME, to: PEER }, { ok: false, reason: 'launch-failed' }));
+    await ob.sync();
+    expect(getPeerRequest(db, W)).toMatchObject({ state: 'refused', reason: 'launch-failed' });
+    const W2 = 'req-wake2';
+    await a.peerLaunch.put({ id: W2, to: PEER, sealed: SEALED });
+    recordPeerRequest(db, { requestId: W2, to: PEER, callerSessionId: SCREEN_CALLER, now: clock.t, op: 'wake', childSessionId: 'child-1' });
+    clock.t += PEER_LAUNCH_TTL_MS + 1_000;
+    await ob.tick();
+    expect(getPeerRequest(db, W2)!.state).toBe('expired');
+    expect(toasts).toEqual([]);
+    const W3 = 'req-wake3';
+    await a.peerLaunch.put({ id: W3, to: PEER, sealed: SEALED });
+    recordPeerRequest(db, { requestId: W3, to: PEER, callerSessionId: SCREEN_CALLER, now: clock.t, op: 'wake', childSessionId: 'child-1' });
+    await b.peerLaunch.claim(W3);
+    await b.peerLaunch.answer(W3, true, await sealPeerAnswer(ring, { requestId: W3, from: ME, to: PEER }, { ok: true, sessionId: 'child-1', title: 't' }));
+    await ob.sync();
+    expect(getPeerRequest(db, W3)!.state).toBe('done');
+    expect(toasts).toEqual([]);
   });
 
   it('受け取られないまま期限を過ぎたら、画面の札で知らせる', async () => {
@@ -657,5 +682,73 @@ describe('PeerOutbox の send と stop の答え', () => {
     await ob.sync();
     expect(db.prepare('select state from peer_outbox where request_id = ?').get(SEND)).toEqual({ state: 'expired' });
     expect(injected).toHaveLength(1);
+  });
+});
+
+describe('PeerOutbox の期限と掃除', () => {
+  it('受け取られたまま答えが来ない頼みは、答えの期限を過ぎたら expired を入れる。1 度だけ', async () => {
+    await place();
+    await b.peerLaunch.claim(REQ);
+    await ob.tick();
+    clock.t += PEER_REQUEST_ANSWER_MS - 1_000;
+    await ob.tick();
+    expect(injected).toEqual([]);
+    clock.t += 2_000;
+    await ob.tick();
+    expect(getPeerRequest(db, REQ)?.state).toBe('expired');
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.text).toContain('タイムアウトしました');
+    // 期限の後に答えが来ても、起こした相手として結び付けない。
+    await b.peerLaunch.answer(REQ, true, await sealPeerAnswer(ring, route, { ok: true, sessionId: 'child-1', title: 'worker' }));
+    await ob.tick();
+    expect(getSpawn(db, ME, 'child-1')).toBeNull();
+    expect(injected).toHaveLength(1);
+  });
+
+  it('子が消されて結び付きが切れたら、started の頼みを終える', async () => {
+    await place();
+    await started();
+    await ob.sync();
+    forgetSpawn(db, ME, 'child-1');
+    await ob.tick();
+    expect(getPeerRequest(db, REQ)?.state).toBe('done');
+  });
+
+  it('呼び出し元が消えて結び付きが切れたときは、最初の報告を待ち、保持の期間を過ぎたら終える', async () => {
+    await place();
+    await started();
+    await ob.sync();
+    softDeleteShared(db, 'sessions', caller, ME);
+    forgetSpawn(db, ME, 'child-1');
+    await ob.tick();
+    expect(getPeerRequest(db, REQ)?.state).toBe('started');
+    clock.t += PEER_OUTBOX_KEEP_MS + 1;
+    await ob.tick();
+    expect(getPeerRequest(db, REQ)?.state).toBe('done');
+  });
+
+  it('渡し終えた預かりと、終わった頼みの記録は、保持の期間を過ぎたら消す', async () => {
+    await place();
+    await refused('project-missing');
+    await ob.sync();
+    expect(injected).toHaveLength(1);
+    clock.t += PEER_OUTBOX_KEEP_MS + 1;
+    await ob.tick();
+    expect(db.prepare('select count(*) c from peer_deliveries').get()).toEqual({ c: 0 });
+    expect(getPeerRequest(db, REQ)).toBeNull();
+  });
+
+  it('渡せないまま保持の期間を過ぎた預かりは外し、あとで再開しても入れない', async () => {
+    live = [];
+    await place();
+    await refused('project-missing');
+    await ob.sync();
+    expect(injected).toEqual([]);
+    clock.t += PEER_OUTBOX_KEEP_MS + 1;
+    await ob.tick();
+    live = [entry('u1', 'idle')];
+    await ob.tick();
+    expect(injected).toEqual([]);
+    expect(db.prepare('select count(*) c from peer_deliveries where delivered_at is null').get()).toEqual({ c: 0 });
   });
 });

@@ -4,12 +4,13 @@ import { initialState } from '../mediator/transition.ts';
 import type { State } from '../mediator/types.ts';
 import { initialStore, type Store } from '../store/store.ts';
 import { presentHomeScreen } from './home.ts';
+import { sessionDto } from '../test/sessionDto.ts';
 
 const NOW = new Date(2026, 9, 2, 9, 0).getTime();
 const H = 3_600_000;
-const project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
+const project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW, runningCount: 0, openTodoCount: 0, updatedAt: 1 });
 const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null, ...o });
-const dto = (id: string, hoursAgo: number, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - (hoursAgo + 1) * H, lastActivityAt: NOW - hoursAgo * H, lastTurnAt: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, woke: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, takenOver: null, fromPhone: null, pinnedAt: null, unread: null, spawnedBy: null, spawnPeer: null, ...over });
+const dto = (id: string, hoursAgo: number, over: Partial<SessionDto> = {}): SessionDto => (sessionDto({ id, providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', startedAt: NOW - (hoursAgo + 1) * H, lastActivityAt: NOW - hoursAgo * H, hasTranscript: true, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, ...over }));
 function storeOf(list: SessionDto[]): Store {
   const s = initialStore();
   s.bootstrapped = true;
@@ -222,5 +223,35 @@ describe('presentHomeScreen の場所の不明なプロジェクト（2.11.5）'
     };
     const p = presentHomeScreen(initialState(), { ...withProjects(storeOf([]), [missing('lost')]), readiness: READY }, NOW);
     expect(p.band.groups.map((g) => g.id)).toEqual(['unresolved', 'readiness']);
+  });
+});
+
+describe('presentHomeScreen の未読に統括を混ぜる', () => {
+  it('統括の未読も時刻の順に並べ、先頭の印を統括の絵にして、押すと柱を開く', () => {
+    const store = storeOf([
+      dto('s1', 0.2, { unread: { count: 2, latest: '撮り直しました', at: NOW - 0.2 * H } }),
+      dto('o1', 7, { role: 'orchestrator', unread: { count: 1, latest: '許可を求めています', at: NOW - 7 * H } }),
+      dto('s2', 20, { unread: { count: 1, latest: '終えました', at: NOW - 20 * H } }),
+    ]);
+    const p = presentHomeScreen(initialState(), { ...store, settings: { orchestrator: { sessionId: 'o1' } } as SettingsDto }, NOW);
+    const unread = p.band.groups.find((g) => g.id === 'unread')!;
+    expect(unread.count).toBe(4);
+    expect(unread.rows.map((r) => r.key)).toEqual(['unread:s1', 'unread:o1', 'unread:s2']);
+    const o = unread.rows[1]!;
+    expect(o.lead).toEqual({ kind: 'orch' });
+    expect(o.name).toBe('統括');
+    expect(o.context).toBeNull();
+    expect(o.text).toBe('許可を求めています');
+    expect(o.open).toBeNull();
+    expect(o.opensOrchestrator).toBe(true);
+  });
+
+  it('前の統括の会話（切り替わる前に積んだ未読）は柱に出ないので、押すとその会話の画面を開く', () => {
+    const store = storeOf([dto('old', 7, { role: 'orchestrator', unread: { count: 1, latest: '許可を求めています', at: NOW - 7 * H } })]);
+    const p = presentHomeScreen(initialState(), { ...store, settings: { orchestrator: { sessionId: 'new' } } as SettingsDto }, NOW);
+    const o = p.band.groups.find((g) => g.id === 'unread')!.rows[0]!;
+    expect(o.lead).toEqual({ kind: 'orch' });
+    expect(o.opensOrchestrator).toBeUndefined();
+    expect(o.open).toEqual({ type: 'session.open', id: 'old' });
   });
 });

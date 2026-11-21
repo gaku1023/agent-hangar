@@ -19,8 +19,11 @@ describe('startServe', () => {
   const workDirs: string[] = [];
   beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-serve-')); });
   afterEach(async () => {
+    // Windows では serve の pid は cmd.exe のもので、本体の node（log の start.pid）はその子である。
+    // exited は cmd.exe の終わりで解けるが、node が作業フォルダを放すのはその後なので、本体の pid が消えるまで待ってから消す。
+    const bodyPids = readFakeOpencodeLog(path.join(dir, 'events.jsonl')).flatMap((e) => (e.ev === 'start' ? [e.pid] : []));
     for (const s of started.splice(0)) { killGroup(s.pid, 'SIGKILL'); await s.exited; }
-    // exited は cmd.exe の終わりで解ける。子の node がフォルダを放すのはその少し後のことがあり、CI で 5 回 × 100ms の待ちでは足りなかった。
+    await until(() => bodyPids.every((pid) => !isAlive(pid)), 20_000).catch(() => {});
     for (const w of workDirs.splice(0)) fs.rmSync(w, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
     fs.rmSync(dir, { recursive: true, force: true });
   });
