@@ -102,6 +102,36 @@ jobs:
           else
             echo "voice=true" >> "$GITHUB_OUTPUT"
           fi
+  # Linux の配布物（tar と install.sh）が作れて、入って、動くことを見る。release.yml の linux ジョブと同じ手順である。
+  # 入れて、サーバーを起こし、画面（UI）が配られ、ネイティブ（better-sqlite3、node-pty）が読めるところまで確かめる。
+  # arm64 は Linux の arm のランナーで、x64 と並べて回す。
+  linux-package:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run build
+      - run: npm run bundle-server -w apps/desktop
+      - name: tar を作る
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/linux"
+          node --import tsx apps/desktop/scripts/package-linux.ts apps/desktop/server-dist "$(command -v node)" v0.0.0-ci "${{ matrix.arch }}" "$out"
+          echo "ASSET_DIR=$out" >> "$GITHUB_ENV"
+      - name: 入れて、サーバーを起こして確かめる
+        run: sh apps/desktop/scripts/smoke-linux.sh "$ASSET_DIR/Hangar-v0.0.0-ci-linux-${{ matrix.arch }}.tar.gz" install.sh
   # 補助 hangar-voice の芯（約束の読み書きと声の区切り）の試験と、.app に入れるのと同じ Release の build。
   # MLX をゼロから作ると、試験と build で 1 回ずつ、合わせて 8〜19 分かかり、CI 全体の律速になっていた（2026-11-17）。
   # そこで、芯の試験は MLX に依らない別のパッケージ（apps/voice-mac/Core）で回し、

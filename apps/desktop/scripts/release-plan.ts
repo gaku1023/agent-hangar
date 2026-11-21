@@ -178,10 +178,12 @@ export function checkCommitGate(a: { sha: string; onMain: boolean; runs: CiRun[]
   }
 }
 
-/** Release の資産の OS と arch。release.yml の macos と windows の matrix（arch）と同じものを挙げる。 */
+/** Release の資産の OS と arch。release.yml の macos、windows、linux の matrix（arch）と同じものを挙げる。 */
 export const RELEASE_PLATFORMS = [
   { os: 'macos', arch: 'arm64' },
   { os: 'windows', arch: 'x64' },
+  { os: 'linux', arch: 'x64' },
+  { os: 'linux', arch: 'arm64' },
 ] as const;
 
 /** 公開の前にそろっているべき資産の名前。updater は、更新の署名鍵があって更新物と目録も作ったか。 */
@@ -193,11 +195,16 @@ export function expectedAssets(tag: string, updater: boolean): string[] {
     if (p.os === 'macos') {
       base.push(`${name}.dmg`, `${name}.dmg.sha256`, `${name}.zip`, `${name}.zip.sha256`);
       upd.push(`${name}.app.tar.gz`, `${name}.app.tar.gz.sig`);
+    } else if (p.os === 'linux') {
+      // Linux は自動更新の対象ではない（hangar update が取る）ので、更新物と署名は無い。
+      base.push(`${name}.tar.gz`, `${name}.tar.gz.sha256`);
     } else {
       base.push(`${name}-setup.exe`, `${name}-setup.exe.sha256`);
       upd.push(`${name}-setup.exe.sig`);
     }
   }
+  // install.sh は Linux の入れ方（`curl .../releases/latest/download/install.sh | sh`）の入口で、版ごとの Release に添える。
+  base.push('install.sh');
   return updater ? [...base, ...upd, 'latest.json'] : base;
 }
 

@@ -8,9 +8,9 @@ import { SETUP_GUIDE_FILES } from '../../../packages/server/src/setupGuide/guide
 
 /**
  * 配布物を作る相手。`<process.platform>-<process.arch>` の形で、prebuild の置き場の名前と同じである。
- * Apple silicon の macOS と x64 の Windows 11 だけを作る。
+ * Apple silicon の macOS、x64 の Windows 11、x64 と arm64 の Linux（glibc）を作る。
  */
-export const BUNDLE_TARGETS = ['darwin-arm64', 'win32-x64'] as const;
+export const BUNDLE_TARGETS = ['darwin-arm64', 'win32-x64', 'linux-x64', 'linux-arm64'] as const;
 export type BundleTarget = (typeof BUNDLE_TARGETS)[number];
 
 /** この機械で動くアプリの target。配布の対象でなければ undefined。 */
