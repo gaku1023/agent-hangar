@@ -160,6 +160,20 @@ export function uninstallService(o: ServiceOptions): ServiceResult {
   return { ok: true };
 }
 
+/**
+ * 入っているユニット（ユーザユニット、なければシステムユニット）を再起動する。hangar update が使う。
+ * KillMode=process なので、再起動しても tmux の会話は残る。
+ */
+export function restartInstalledService(o: { home: string; run: Runner; systemUnitPath?: string }): 'restarted' | 'none' | 'failed' {
+  if (fs.existsSync(userUnitPath(o.home))) {
+    return o.run('systemctl', ['--user', 'restart', UNIT_NAME]).code === 0 ? 'restarted' : 'failed';
+  }
+  if (fs.existsSync(o.systemUnitPath ?? SYSTEM_UNIT_PATH)) {
+    return o.run('sudo', ['systemctl', 'restart', UNIT_NAME]).code === 0 ? 'restarted' : 'failed';
+  }
+  return 'none';
+}
+
 /** 本物のコマンドを走らせる口。 */
 export const realRunner: Runner = (cmd, args) => {
   const r = spawnSync(cmd, args, { encoding: 'utf8' });
