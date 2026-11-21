@@ -17,12 +17,13 @@ export interface Cache {
 
 /**
  * 鍵からロックファイルの指紋を除いた族。知らない形の鍵は undefined（消さない）。
- * setup-node は「node-cache-OS-arch-npm-指紋」、rust-cache は「接頭辞-ジョブ-OS-arch-環境の指紋-ロックの指紋」、
+ * setup-node は「node-cache-OS-arch-npm-指紋」、rust-cache は「接頭辞の版-rust-ジョブ-OS-arch-環境の指紋-ロックの指紋」（族は接頭辞の版を除く）、
  * 声の補助は「voice-mac-<作り方>-Xcode の版の指紋-Package.resolved の指紋」である。
  */
 export function cacheFamily(key: string): string | undefined {
   if (/^node-cache-.+-[0-9a-f]+$/.test(key)) return key.replace(/-[0-9a-f]+$/, '');
-  if (/^v0-rust-.+-[0-9a-f]+-[0-9a-f]+$/.test(key)) return key.replace(/-[0-9a-f]+-[0-9a-f]+$/, '');
+  // 接頭辞の版（ci.yml の prefix-key の v0、v1…）は族に入れない。頭を上げたら、新しい鍵を残して古い鍵を消す。
+  if (/^v\d+-rust-.+-[0-9a-f]+-[0-9a-f]+$/.test(key)) return key.replace(/^v\d+-/, '').replace(/-[0-9a-f]+-[0-9a-f]+$/, '');
   // 声の補助の DerivedData（ci.yml の voice-mac ジョブ）。「voice-mac-<作り方>-Xcode の版の指紋-Package.resolved の指紋」。
   // 作り方は cas（compilation caching あり）と、前の xcode（なし）。
   const voice = key.match(/^(voice-mac-[a-z]+)-[0-9a-f]+-[0-9a-f]+$/);

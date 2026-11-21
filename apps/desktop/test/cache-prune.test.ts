@@ -17,8 +17,10 @@ describe('main の古いキャッシュを選ぶ', () => {
   it('鍵から、ロックファイルの指紋を除いた族を取る', () => {
     expect(cacheFamily('node-cache-Linux-x64-npm-011186114ce7921f5e3f1e51de04b0b79cefbac7358e3952fbe3171a965e085f')).toBe('node-cache-Linux-x64-npm');
     // rust-cache は「接頭辞-ジョブ-OS-arch-環境の指紋-ロックの指紋」。Rust の版が上がると環境の指紋も変わるので、両方を除く。
-    expect(cacheFamily('v0-rust-desktop-Darwin-arm64-fc985acc-9ff33c2c')).toBe('v0-rust-desktop-Darwin-arm64');
-    expect(cacheFamily('v0-rust-windows-release-Windows_NT-x64-e70cdc14-9ff33c2c')).toBe('v0-rust-windows-release-Windows_NT-x64');
+    // 接頭辞の版（v0、v1…）も族に入れない。ci.yml で接頭辞を上げたとき、新しい鍵が残り古い鍵が消えるようにする。
+    expect(cacheFamily('v0-rust-desktop-Darwin-arm64-fc985acc-9ff33c2c')).toBe('rust-desktop-Darwin-arm64');
+    expect(cacheFamily('v0-rust-windows-release-Windows_NT-x64-e70cdc14-9ff33c2c')).toBe('rust-windows-release-Windows_NT-x64');
+    expect(cacheFamily('v1-rust-windows-release-Windows_NT-x64-e70cdc14-9ff33c2c')).toBe('rust-windows-release-Windows_NT-x64');
     // 声の補助の DerivedData は「voice-mac-<作り方>-Xcode の版の指紋-Package.resolved の指紋」（ci.yml の voice-mac ジョブ）。
     // 1 つで数 GB あるので、Xcode か依存が変わったら古い方を残さない。
     expect(cacheFamily('voice-mac-cas-3f2a9c01d4e5-' + 'ab'.repeat(32))).toBe('voice-mac-cas');

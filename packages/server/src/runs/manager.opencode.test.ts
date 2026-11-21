@@ -674,7 +674,8 @@ posixDescribe('RunManager.start で opencode を起こす（materialize）', () 
     second.rm.tick(); second.rm.tick();
     await until(() => !isAlive(pid));
     expect(second.manager.get(open.sessionId)).toBeNull();
-    expect(second.registry.list()).toEqual([]);
+    // 登録の片付けは、serve の終わり（exited）を受けてから走る。pid が消えた直後にはまだ残っていることがあるので、片付くまで待つ（2026-11-21 に CI で揺れた）。
+    await until(() => second.registry.list().length === 0);
   });
 
   posixIt('引き継いだ serve の TUI の画面が起こし直しの間に閉じていたら、run を lost で閉じて serve も止める', async () => {

@@ -198,12 +198,18 @@ describe('CI の段', () => {
     expect(w).toContain('shared-key: windows-release');
     expect(job('windows-update')).toContain('shared-key: windows-release');
     expect(job('windows-update')).toContain('save-if: false');
+    // rust-cache は鍵が当たると保存し直さない。clippy と cargo test の成果物を入れるため頭を上げた。読む側も同じ頭で読む。
+    for (const j of ['windows', 'windows-update']) expect(job(j)).toContain('prefix-key: v1-rust');
   });
   // windows-test が律速だったので、server 以外の試験は windows ジョブへ移した。
-  it('Windows の試験は、server を windows-test が、desktop と cli と shared を windows が回す', () => {
-    const t = job('windows-test');
-    expect(t).toContain('run: npm test -- --project server --maxWorkers=4');
-    for (const p of ['desktop', 'cli', 'shared']) expect(t).not.toContain(`--project ${p}`);
+  it('Windows の試験は、server を windows-test と windows-test-2 が半分ずつ、desktop と cli と shared を windows が回す', () => {
+    for (const [j, shard] of [['windows-test', '1/2'], ['windows-test-2', '2/2']] as const) {
+      const t = job(j);
+      expect(t).toContain(`run: npm test -- --project server --maxWorkers=4 --shard=${shard}`);
+      for (const p of ['desktop', 'cli', 'shared']) expect(t).not.toContain(`--project ${p}`);
+      // psmux が無いと、psmux を相手にする試験が黙って飛ぶ。
+      expect(t).toContain('PSMUX_SHA256');
+    }
     expect(job('windows')).toContain('run: npm test -- --project desktop --project cli --project shared --maxWorkers=4');
   });
   it('check の試験は 2 つのジョブに分け、型の確かめは check-2 だけで回す', () => {
