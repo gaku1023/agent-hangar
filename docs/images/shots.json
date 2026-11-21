@@ -1,85 +1,85 @@
 {
   "agents": {
-    "commit": "39086bde3ec96e46ad908e4b6ffe6341de664cbc",
-    "shotAt": "2026-11-19T13:23:07.550Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.470Z",
     "file": "docs/images/agents.webp",
     "bytes": 1043656
   },
   "attention": {
-    "commit": "39086bde3ec96e46ad908e4b6ffe6341de664cbc",
-    "shotAt": "2026-11-19T13:23:33.366Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.480Z",
     "file": "docs/images/attention.webp",
     "bytes": 2953074
   },
   "drop": {
-    "commit": "39086bde3ec96e46ad908e4b6ffe6341de664cbc",
-    "shotAt": "2026-11-19T13:23:54.556Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.484Z",
     "file": "docs/images/drop.webp",
     "bytes": 723072
   },
   "hero": {
-    "commit": "39086bde3ec96e46ad908e4b6ffe6341de664cbc",
-    "shotAt": "2026-11-19T13:24:14.029Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.487Z",
     "file": "docs/images/hero.webp",
     "bytes": 935570
   },
   "mobile": {
-    "commit": "1ac8d271c938611aafecd466d6e937f7f6953c90",
-    "shotAt": "2026-11-17T20:57:22.548Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.489Z",
     "file": "docs/images/mobile.webp",
     "bytes": 1136578
   },
   "new-session": {
-    "commit": "57601160be9e6d8c476f24d68b5ac8801ae2c87b",
-    "shotAt": "2026-11-21T06:19:12.025Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.492Z",
     "file": "docs/images/new-session.webp",
     "bytes": 1143960
   },
   "palette": {
-    "commit": "39086bde3ec96e46ad908e4b6ffe6341de664cbc",
-    "shotAt": "2026-11-19T13:25:38.937Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.496Z",
     "file": "docs/images/palette.webp",
     "bytes": 684156
   },
   "projects": {
-    "commit": "39086bde3ec96e46ad908e4b6ffe6341de664cbc",
-    "shotAt": "2026-11-19T13:25:44.757Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.498Z",
     "file": "docs/images/projects.png",
     "bytes": 559112
   },
   "schedules": {
-    "commit": "39086bde3ec96e46ad908e4b6ffe6341de664cbc",
-    "shotAt": "2026-11-19T13:26:03.517Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.501Z",
     "file": "docs/images/schedules.webp",
     "bytes": 592128
   },
   "search": {
-    "commit": "39086bde3ec96e46ad908e4b6ffe6341de664cbc",
-    "shotAt": "2026-11-19T13:26:18.666Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.502Z",
     "file": "docs/images/search.webp",
     "bytes": 782118
   },
   "split": {
-    "commit": "39086bde3ec96e46ad908e4b6ffe6341de664cbc",
-    "shotAt": "2026-11-19T13:26:40.447Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.508Z",
     "file": "docs/images/split.webp",
     "bytes": 1437438
   },
   "todo": {
-    "commit": "39086bde3ec96e46ad908e4b6ffe6341de664cbc",
-    "shotAt": "2026-11-19T13:26:58.916Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.511Z",
     "file": "docs/images/todo.webp",
     "bytes": 695778
   },
   "usage": {
-    "commit": "39086bde3ec96e46ad908e4b6ffe6341de664cbc",
-    "shotAt": "2026-11-19T13:27:08.762Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.511Z",
     "file": "docs/images/usage.webp",
     "bytes": 149800
   },
   "wrap-up": {
-    "commit": "39086bde3ec96e46ad908e4b6ffe6341de664cbc",
-    "shotAt": "2026-11-19T13:27:33.659Z",
+    "commit": "5883c767f7ee34fb3889b186128563237345ba47",
+    "shotAt": "2026-11-21T06:34:38.514Z",
     "file": "docs/images/wrap-up.webp",
     "bytes": 940298
   }
