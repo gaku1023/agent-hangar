@@ -49,6 +49,8 @@ import type { SyncParts } from './sync.ts';
 import type { TakeoverParts } from './takeover.ts';
 import type { TrashParts } from './trash.ts';
 import type { PeerParts } from './peer.ts';
+import type { PeerCallDeps } from '../peer/caller.ts';
+import { ownerOf, wakeOnOwner } from '../peer/screenWake.ts';
 import type { PeerChatHost } from '../peer/chat/host.ts';
 
 /** createApp が返すアプリの fetch。listen した後に差し込むために型だけ取る。 */
@@ -120,7 +122,7 @@ export function bootHttp(p: {
   events: AppDeps['events'];
   opts: Pick<StartOptions, 'uiDist'>; serverDir: string;
   /** 別の PC への起動の承認待ち（boot/peer.ts）。渡せば、承認の口と、MCP からの承認待ちの預け口を持つ。 */
-  peer?: Pick<PeerParts, 'approvals'>;
+  peer?: Pick<PeerParts, 'approvals' | 'syncNow'>;
   /** ほかの PC の会話の頼みを受ける部品（boot/peerChat.ts）。渡せば、bootstrap が預かりを運ぶ。 */
   peerChat?: { host: Pick<PeerChatHost, 'queued' | 'local' | 'rush'> };
   /** 統括への出来事の送り込み（boot/orchestratorFeed.ts）。渡せば、統括を新しい会話へ切り替えられる（申し送りと引き継ぎを渡す口）。 */
@@ -237,6 +239,7 @@ export function bootHttp(p: {
     publish: (ev) => { delivery.hub.broadcast(ev); },
   });
   attachPeerChatSocket(delivery.sockets, peerChat);
+  const peerCallOf = (): PeerCallDeps => ({ link: () => (sync.canCarryPeer() ? sync.peerLink() : null), workerOk: () => sync.canCarryPeer(), version: VERSION });
   const app = createApp({
     voice,
     orchestratorKeeper: orchestrator,
@@ -314,6 +317,8 @@ export function bootHttp(p: {
     // 利用者の opencode.json が許可を決めているかも、聞かれるたびに読み直して添える（設定の画面の許可のひな形の行）。
     opencodeStatus: async () => ({ ...(await opencode.status()), configPermissions: userConfigDefinesPermissions(home.home) }),
     codexOptions: (o) => codexOptions.get(o),
+    // 「今すぐ試す」を、その会話が最後に動いた PC で起こす（peer/screenWake.ts）。
+    ...(p.peer ? { wakeOwner: { ownerOf: (id: string) => ownerOf(home.db, home.device.id, id), wake: (id: string) => wakeOnOwner({ db: home.db, deviceId: home.device.id, peer: peerCallOf(), language: home.language, sync: () => p.peer!.syncNow() }, id) } } : {}),
     peerCall: {
       link: () => (sync.canCarryPeer() ? sync.peerLink() : null),
       workerOk: () => sync.canCarryPeer(),

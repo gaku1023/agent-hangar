@@ -31,7 +31,7 @@ import { wokeSince } from '../../sessions/wake.ts';
 import { wakePaused } from '../../sessions/wakePaused.ts';
 
 /** セッションの経路が使う依存。 */
-export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh' | 'trash' | 'schedules' | 'peerApprovals' | 'events' | 'retention'> & LanguageDeps;
+export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh' | 'trash' | 'schedules' | 'peerApprovals' | 'events' | 'retention' | 'wakeOwner'> & LanguageDeps;
 
 /** セッションの状態として受け付ける値。Active は null で表す。 */
 const SESSION_STATUSES = new Set(['paused', 'done', 'archived']);
@@ -327,6 +327,9 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   // Paused の会話を今すぐ起こす（#549）。渡せてから Active にする。渡せなければ Paused のまま残し、理由を返す。
   api.post('/sessions/:id/try-now', async (c) => {
     const id = c.req.param('id');
+    // 最後に動いた PC が別なら、そこで起こすよう頼む。届かなければ手元で起こす（今までの動き）。手元が Paused でなければ頼まない。
+    const owner = deps.wakeOwner && getSessionState(db, id)?.status === 'paused' ? deps.wakeOwner.ownerOf(id) : null;
+    if (owner && (await deps.wakeOwner!.wake(id)) === 'woken-remote') return c.json({ ok: true, device: owner.name });
     try {
       const got = await wakePaused({ db, deviceId, deliver: deps.schedules.deliver }, id, (state) => (state.note ? tr('home.tryNow.prompt', { note: state.note }) : tr('home.tryNow.promptNoReason')));
       if (got === 'not_paused') return c.json({ error: tr('home.tryNow.notPaused') }, 409);

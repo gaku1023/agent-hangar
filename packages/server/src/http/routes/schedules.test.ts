@@ -103,6 +103,48 @@ describe('POST /api/sessions/:id/try-now', () => {
   });
 });
 
+describe('POST /api/sessions/:id/try-now の最後に動いた PC', () => {
+  const pause = () => send('PUT', `/api/sessions/${sessionId}/state`, { status: 'paused', note: '結果を見る' });
+  const state = () => t.db.prepare('select status from session_states where session_id = ?').get(sessionId) as { status: string | null } | undefined;
+  const setup = (result: 'woken-remote' | 'fallback', owner: { name: string } | null) => {
+    const deliver = vi.fn(async (id: string) => ({ sessionId: id }));
+    const wake = vi.fn(async () => result);
+    t.deps.schedules = { runNow: () => 'missing', deliver };
+    t.deps.wakeOwner = { ownerOf: () => owner, wake };
+    app = createApp(t.deps);
+    return { deliver, wake };
+  };
+
+  it('別の PC が起きたと答えれば、手元では起こさず、その PC の名前を返す', async () => {
+    await pause();
+    const { deliver, wake } = setup('woken-remote', { name: 'Mac' });
+    const r = await send('POST', `/api/sessions/${sessionId}/try-now`);
+    expect(await r.json()).toEqual({ ok: true, device: 'Mac' });
+    expect(wake).toHaveBeenCalledWith(sessionId);
+    expect(deliver).not.toHaveBeenCalled();
+  });
+  it('届かなければ手元で起こす', async () => {
+    await pause();
+    const { deliver } = setup('fallback', { name: 'Mac' });
+    const r = await send('POST', `/api/sessions/${sessionId}/try-now`);
+    expect(await r.json()).toEqual({ ok: true });
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(state()?.status ?? null).toBeNull();
+  });
+  it('最後の run が手元なら今までどおり（別の PC へは頼まない）', async () => {
+    await pause();
+    const { deliver, wake } = setup('woken-remote', null);
+    expect((await send('POST', `/api/sessions/${sessionId}/try-now`)).status).toBe(200);
+    expect(wake).not.toHaveBeenCalled();
+    expect(deliver).toHaveBeenCalledTimes(1);
+  });
+  it('手元で Paused でなければ、別の PC にも頼まず 409', async () => {
+    const { wake } = setup('woken-remote', { name: 'Mac' });
+    expect((await send('POST', `/api/sessions/${sessionId}/try-now`)).status).toBe(409);
+    expect(wake).not.toHaveBeenCalled();
+  });
+});
+
 describe('予定の MCP の道具', () => {
   const tools = () => ({ db: t.db, deviceId: t.deps.deviceId, port: 1, live: () => [], runs: t.deps.runs, language: t.deps.language, usage: () => t.deps.usage.current() }) as unknown as ToolDeps;
   const create = (ctx: { sessionId: string | null }, over = {}) => callTool(tools(), ctx, 'create_schedule', { kind: 'every', every_minutes: 30, prompt: 'p', project_id: projectId, ...over }) as ScheduleDto;

@@ -52,7 +52,7 @@ export type PeerLocalRefusal = 'approval-denied' | 'approval-timeout';
 const LOCAL_REFUSAL_KEY = { 'approval-denied': 'mcp.peer.refusal.approvalDenied', 'approval-timeout': 'mcp.peer.refusal.approvalTimeout' } as const satisfies Record<PeerLocalRefusal, string>;
 
 /** 断られた答えの文。detail は相手の PC が添えた短い説明で、あれば末尾に足す。 */
-export function refusalText(lang: Language, o: { device: string; reason: PeerLaunchRefusal | PeerLocalRefusal; detail?: string; op?: 'launch' | 'send' | 'stop' }): string {
+export function refusalText(lang: Language, o: { device: string; reason: PeerLaunchRefusal | PeerLocalRefusal; detail?: string; op?: 'launch' | 'send' | 'stop' | 'wake' }): string {
   const why = render(lang, msg(o.reason === 'approval-denied' || o.reason === 'approval-timeout' ? LOCAL_REFUSAL_KEY[o.reason] : REFUSAL_KEY[o.reason]));
   const detail = o.detail ? ` (${oneLine(o.detail, 200)})` : '';
   const key = o.op === 'send' ? 'mcp.peer.refusedSend' : o.op === 'stop' ? 'mcp.peer.refusedStop' : 'mcp.peer.refused';
@@ -87,7 +87,7 @@ export function screenStartedText(lang: Language, o: { device: string; title: st
 }
 
 /** 画面から人が頼んだ起動か停止（op が stop）が断られた（相手の答え、置く前の検査）ときの札の文。 */
-export function screenRefusalText(lang: Language, o: { device: string; reason: PeerLaunchRefusal | PeerLocalRefusal; detail?: string; op?: 'launch' | 'send' | 'stop' }): string {
+export function screenRefusalText(lang: Language, o: { device: string; reason: PeerLaunchRefusal | PeerLocalRefusal; detail?: string; op?: 'launch' | 'send' | 'stop' | 'wake' }): string {
   const why = render(lang, msg(o.reason === 'approval-denied' || o.reason === 'approval-timeout' ? LOCAL_REFUSAL_KEY[o.reason] : REFUSAL_KEY[o.reason]));
   const detail = o.detail ? ` (${oneLine(o.detail, 200)})` : '';
   return render(lang, msg(o.op === 'stop' ? 'mcp.peer.screenStopRefused' : 'mcp.peer.screenRefused', { device: oneLine(o.device, 80), reason: why + detail }));

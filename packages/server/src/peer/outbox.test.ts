@@ -134,6 +134,31 @@ describe('PeerOutbox の画面からの頼み（呼び出し元の会話が無�
     expect(notices).toEqual([]);
   });
 
+  it('wake の断りと期限切れは札を出さず、頼みだけ終える（呼ぶ側が手元に切り替える）。受け取られれば done', async () => {
+    const W = 'req-wake';
+    await a.peerLaunch.put({ id: W, to: PEER, sealed: SEALED });
+    recordPeerRequest(db, { requestId: W, to: PEER, callerSessionId: SCREEN_CALLER, now: clock.t, op: 'wake', childSessionId: 'child-1' });
+    await b.peerLaunch.claim(W);
+    await b.peerLaunch.answer(W, false, await sealPeerAnswer(ring, { requestId: W, from: ME, to: PEER }, { ok: false, reason: 'launch-failed' }));
+    await ob.sync();
+    expect(getPeerRequest(db, W)).toMatchObject({ state: 'refused', reason: 'launch-failed' });
+    const W2 = 'req-wake2';
+    await a.peerLaunch.put({ id: W2, to: PEER, sealed: SEALED });
+    recordPeerRequest(db, { requestId: W2, to: PEER, callerSessionId: SCREEN_CALLER, now: clock.t, op: 'wake', childSessionId: 'child-1' });
+    clock.t += PEER_LAUNCH_TTL_MS + 1_000;
+    await ob.tick();
+    expect(getPeerRequest(db, W2)!.state).toBe('expired');
+    expect(toasts).toEqual([]);
+    const W3 = 'req-wake3';
+    await a.peerLaunch.put({ id: W3, to: PEER, sealed: SEALED });
+    recordPeerRequest(db, { requestId: W3, to: PEER, callerSessionId: SCREEN_CALLER, now: clock.t, op: 'wake', childSessionId: 'child-1' });
+    await b.peerLaunch.claim(W3);
+    await b.peerLaunch.answer(W3, true, await sealPeerAnswer(ring, { requestId: W3, from: ME, to: PEER }, { ok: true, sessionId: 'child-1', title: 't' }));
+    await ob.sync();
+    expect(getPeerRequest(db, W3)!.state).toBe('done');
+    expect(toasts).toEqual([]);
+  });
+
   it('受け取られないまま期限を過ぎたら、画面の札で知らせる', async () => {
     await placeScreen();
     await ob.tick();

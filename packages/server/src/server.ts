@@ -1,6 +1,7 @@
 import type { ToolDeps } from './mcp/tools.ts';
 import { startPathRefFill } from './db/pathRef.ts';
 import { launchScheduled, waitScheduled } from './schedule/launch.ts';
+import { wakePaused } from './sessions/wakePaused.ts';
 import { ScheduleRunner } from './schedule/runner.ts';
 import path from 'node:path';
 import { createFtsTailBackfill } from './search/ftsTailBackfill.ts';
@@ -158,7 +159,14 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const localCodex = new LocalCodex({ bin: () => findCodex() });
   const codex = { local: localCodex, options: new CodexOptionsService({ bin: () => findCodex(), status: localCodex.status }) };
   // 別の PC への頼みの、受ける側と呼ぶ側。呼び鈴の answer と result の知らせは、スマホの呼び鈴（bootMobile）が受けて peer.onBell へ渡す。
-  const peer = bootPeer({ home, runs, sync, delivery });
+  // 別の PC から頼まれた「今すぐ試す」。押した PC と同じ文と起こし方（http/routes/sessions.ts の try-now）。deliver は下の scheduleTools ができてから呼ばれる。
+  const peer = bootPeer({
+    home, runs, sync, delivery,
+    wake: (id) => {
+      const tr = translatorOf(home.language);
+      return wakePaused({ db: home.db, deviceId: home.device.id, deliver: (sid, text) => launchScheduled(scheduleTools, { prompt: text, target: { kind: 'session', sessionId: sid }, plannedAt: Date.now() }) }, id, (state) => (state.note ? tr('home.tryNow.prompt', { note: state.note }) : tr('home.tryNow.promptNoReason')));
+    },
+  });
   // ほかの PC の会話の頼み（呼び鈴の chat の枠）。預かりと答えた記録はメモリだけに持つ。
   const peerChat = bootPeerChat({ home, runs, delivery, sync });
   // 外のできごと（#563）。
