@@ -179,6 +179,13 @@ describe('SyncEngine の push', () => {
     e.stop();
   });
 
+  it('Worker を setup した PC だけ、状態に creator の印を載せる', async () => {
+    const a = make({ creator: true });
+    expect(a.status().creator).toBe(true);
+    const b = make({});
+    expect(b.status()).not.toHaveProperty('creator');
+  });
+
   it('古い形の cloud.json で止まっているときは、off に作り直しの印を添える', async () => {
     const e = make({ client: null, url: null, legacyConfig: true });
     await e.start();
@@ -1069,6 +1076,25 @@ describe('互換の版', () => {
     expect(e.status().error).toContain('Worker');
     expect(e.status().error).toContain('今すぐ同期');
     e.stop();
+  });
+
+  it('Worker が古くて止まったときだけ、状態に workerBlocked（必要な互換値）を載せ、戻れば外す', async () => {
+    cloud = new FakeCloudClient({ deviceId: 'a', minWorkerCompat: COMPAT_VERSION + 1 });
+    cloud.workerCompat = COMPAT_VERSION;
+    const e = make();
+    await e.start();
+    expect(e.status().workerBlocked).toEqual({ need: COMPAT_VERSION + 1 });
+    cloud.workerCompat = COMPAT_VERSION + 1;
+    await e.syncNow();
+    expect(e.status()).not.toHaveProperty('workerBlocked');
+    e.stop();
+    // この PC の hangar が古くて止まったときは載せない。
+    cloud = new FakeCloudClient({ deviceId: 'a' });
+    const d = make();
+    await d.start();
+    await blockOnPush(d);
+    expect(d.status()).not.toHaveProperty('workerBlocked');
+    d.stop();
   });
 
   it('版の見出しを返さない古い Worker（版 0）は、この PC の下限 9 で断り、Worker を上げるよう error に出す', async () => {

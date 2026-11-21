@@ -130,3 +130,4 @@ a.chip { color: var(--accent); text-decoration: none; }
 .spawned-pill .dot { flex: none; }
 .spawned-pill .dot:not([data-reason]) { width: 6px; height: 6px; }
 .spawned-pill:hover { color: var(--accent); text-decoration: none; }
+.session-reason > .btn { flex: none; }

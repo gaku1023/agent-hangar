@@ -1,6 +1,7 @@
 import type { MessageSpec } from '../messageSpec.ts';
 
 export const peerChatKeys = {
+  'peerChat.readOnly.workerOutdated': [],
   'peerChat.status.busy': [],
   'peerChat.status.idle': [],
   'peerChat.status.waiting': [],

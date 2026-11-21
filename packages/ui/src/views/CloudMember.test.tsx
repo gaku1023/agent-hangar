@@ -457,6 +457,13 @@ describe('スマホの接続（試作 A1）', () => {
     expect(screen.getByRole('note')).toHaveTextContent('QR に収まりませんでした');
   });
 
+  it('worker-too-old の帯に「エージェントで調査…」を置き、スマホの接続と今の互換値を渡す', () => {
+    const onAction = vi.fn();
+    render(ui(both(props({ phone: { kind: 'old', compat: 6 } })), onAction));
+    fireEvent.click(screen.getByRole('button', { name: 'エージェントで調査…' }));
+    expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'investigate.open', op: 'workerOutdated', worker: { feature: 'phone', need: 7, have: 6 } }));
+  });
+
   it('worker-too-old では QR を出さず、更新を促す文を出す。券の取りすぎと失敗も理由を出す', () => {
     const { rerender } = render(ui(both(props({ phone: { kind: 'old', compat: 6 } }))));
     expect(screen.queryByRole('img', { name: 'スマホを接続する QR' })).toBeNull();

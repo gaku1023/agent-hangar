@@ -51,6 +51,13 @@ describe('presentNotices：事実から行を組む', () => {
     expect(row!.investigate).toEqual({ op: 'sync', message: 'サーバーが 503 を返しました' });
   });
 
+  it('Worker が古くて止まったときは、調査の事情を workerOutdated（同期、必要な互換値）にする', () => {
+    const [row] = presentNotices(initialState(), storeOf({ sync: sync({ state: 'error', error: 'Worker が古い', workerBlocked: { need: 10 } }) }), NOW).rows;
+    expect(row!.investigate).toEqual({ op: 'workerOutdated', message: 'Worker が古い', worker: { feature: 'sync', need: 10 } });
+    const [other] = presentNotices(initialState(), storeOf({ sync: sync({ state: 'error', error: 'Worker が古い', workerBlocked: { need: null } }) }), NOW).rows;
+    expect(other!.investigate).toEqual({ op: 'workerOutdated', message: 'Worker が古い', worker: { feature: 'sync' } });
+  });
+
   it('理由が無いエラーは「同期に失敗しました」と言い、止めているときはその旨を足す', () => {
     const [a] = presentNotices(initialState(), storeOf({ sync: sync({ state: 'error', error: null }) }), NOW).rows;
     expect(a).toMatchObject({ key: 'sync|error|', detail: '同期に失敗しました' });

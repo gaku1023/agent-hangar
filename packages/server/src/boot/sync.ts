@@ -151,6 +151,8 @@ export type SyncParts = {
   canCarryPeer(): boolean;
   /** Worker が最後に名乗った互換値。まだ話していなければ null。断りの文に添える。 */
   workerCompat(): number | null;
+  /** この PC が Worker を setup した PC か（cloud.json に Worker の名前がある）。worker-outdated の直し方が変わる。 */
+  creator(): boolean;
   /**
    * PC どうしの頼みが使う、今の頼みの口、封の鍵の束、keybox の読み直し。同期を設定していなければ（または古い Worker で口が無ければ）null。
    * cloud.json が後から現れて組み直すと、別のものを返す。
@@ -362,6 +364,7 @@ export function bootSync(
       // 起動のときの cloud.json が古い形式なら、同期の状態にその印を載せる（設定の画面が再構築を案内する）。
       // 版 2 の cloud.json が現れて組み直した Core では cloud があるので立たない。
       legacyConfig: cloud === null && cloudRead.state === 'legacy',
+      creator: cloud?.workerName != null,
       ...memoLossHandlers({ memoPath: (projectId) => path.join(home.home, 'projects', projectId, 'memo.md'), toast, pruneMemos: () => pruneBackups('memos'), language: home.language }),
     });
     // 設定の「使用量と費用」。
@@ -641,6 +644,7 @@ export function bootSync(
     canCarryMobile: () => canCarry(MOBILE_MIN_WORKER_COMPAT),
     canCarryPeer: () => canCarry(PEER_LAUNCH_MIN_WORKER_COMPAT),
     workerCompat: () => core.client?.lastWorkerCompat?.() ?? null,
+    creator: () => core.cloud?.workerName != null,
     peerLink: () => {
       const { client, peer } = core;
       if (!client?.peerLaunch || !peer) return null;

@@ -45,6 +45,29 @@ describe('PC のメニュー', () => {
   });
 });
 
+describe('クラウドの Worker が古い PC を選んだとき', () => {
+  const stale = mac({ id: 'pc-e', name: 'Shed', state: 'worker-outdated' });
+  it('選んだ時点で、断る文と「エージェントで調査…」を出す。起動は押せないまま。選び直すと消える', () => {
+    const actions = mount({ peers: [mac(), stale], workerCompat: 9 });
+    expect(screen.queryByRole('alert')).toBeNull();
+    pick('起動する PC', 'Shed');
+    const band = screen.getByRole('alert');
+    expect(band).toHaveTextContent('クラウドの Worker が古いため、他の PC にこのリクエストを送信できません（Worker の互換バージョンは 9、必要なのは 10 以上）');
+    expect(startButton('Shed で起動')).toBeDisabled();
+    fireEvent.click(within(band).getByRole('button', { name: 'エージェントで調査…' }));
+    expect(actions).toContainEqual(expect.objectContaining({ type: 'investigate.open', op: 'workerOutdated', worker: { feature: 'launch', need: 10 } }));
+    pick('起動する PC', 'Mac');
+    expect(screen.queryByText(/Worker が古いため/)).toBeNull();
+  });
+  it('互換値が分からなければ括弧を省く。ほかの印の PC では出さない', () => {
+    mount({ peers: [mac(), stale, old], workerCompat: null });
+    pick('起動する PC', 'Shed');
+    expect(screen.getByRole('alert').textContent).not.toContain('互換バージョンは');
+    pick('起動する PC', 'Garage');
+    expect(screen.queryByText(/Worker が古いため/)).toBeNull();
+  });
+});
+
 describe('選んだ PC で使えない項目（テスト 22）', () => {
   it('置き場の無いプロジェクトは末尾に集まり、薄く（disabled）、選んでも変わらない', () => {
     mount({ peers: [mac()] });

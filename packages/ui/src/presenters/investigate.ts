@@ -1,4 +1,4 @@
-import { isNoticeOp, setupGuidePrompt, type AccountDto, type AgentAccountsDto, type AgentKind, type InvestigateContext, type NewSessionSeed } from '@agent-hangar/shared';
+import { isNoticeOp, setupGuidePrompt, type AccountDto, type AgentAccountsDto, type AgentKind, type InvestigateContext, type InvestigateWorker, type NewSessionSeed, type Translate } from '@agent-hangar/shared';
 import { clientPlatform } from '../keys.ts';
 import type { Store } from '../store/store.ts';
 import { AGENT_TEXT } from './agentText.ts';
@@ -45,11 +45,12 @@ export function investigateSeed(store: Store, ctx: InvestigateContext, platform:
   const { agent, account } = involved(store, ctx);
   // 注意（エラーではないもの）は、操作の行を持たず、「注意：」で始める。
   const notice = isNoticeOp(ctx.op);
+  const workerLines = ctx.op === 'workerOutdated' && ctx.worker ? workerOutdatedLines(store, ctx.worker, t) : null;
   const lines = [
-    ...(isNoticeOp(ctx.op) ? [t('newSession.investigate.line.notice', { text: ctx.message })] : [
+    ...(workerLines ?? (isNoticeOp(ctx.op) ? [t('newSession.investigate.line.notice', { text: ctx.message })] : [
       t('newSession.investigate.line.action', { text: t(`newSession.investigate.op.${ctx.op}`) }),
       t('newSession.investigate.line.error', { text: ctx.message }),
-    ]),
+    ])),
     ...(ctx.code ? [t('newSession.investigate.line.code', { text: ctx.code })] : []),
     ...(ctx.files?.length ? [t('newSession.investigate.line.files', { text: ctx.files.join(t('common.list.separator')) })] : []),
     ...(agent ? [t('newSession.investigate.line.agent', { text: t(AGENT_TEXT[agent].launchLabel) })] : []),
@@ -57,7 +58,25 @@ export function investigateSeed(store: Store, ctx: InvestigateContext, platform:
     `hangar ${store.version} / ${osLabel(platform)}`,
   ];
   const accounts = pickAccounts(store, agent, account?.id ?? null);
-  return { request: t(notice ? 'newSession.investigate.requestNotice' : 'newSession.investigate.request'), quote: lines.join('\n'), ...(accounts ? { accounts } : {}), ...(notice ? { tone: 'info' as const } : {}) };
+  const request = ctx.op === 'workerOutdated' ? t(store.sync?.creator === true ? 'newSession.investigate.requestWorkerCreator' : 'newSession.investigate.requestWorkerOther') : t(notice ? 'newSession.investigate.requestNotice' : 'newSession.investigate.request');
+  return { request, quote: lines.join('\n'), ...(accounts ? { accounts } : {}), ...(notice ? { tone: 'info' as const } : {}) };
+}
+
+/**
+ * Worker が古いときの引用の行。止まった機能、Worker の互換値（必要な値が分かれば添える）、この PC が Worker を setup した PC か。
+ * 互換値は ctx にあればそれ、無ければ同期の状態の workerCompat を使う。
+ */
+function workerOutdatedLines(store: Store, w: InvestigateWorker, t: Translate): string[] {
+  const have = w.have ?? store.sync?.workerCompat ?? null;
+  const need = w.need ?? null;
+  const compat = have !== null && have > 0
+    ? (need !== null ? t('newSession.investigate.line.workerCompat', { have, need }) : t('newSession.investigate.line.workerCompatOnly', { have }))
+    : need !== null ? t('newSession.investigate.line.workerCompatUnknown', { need }) : null;
+  return [
+    t('newSession.investigate.line.workerFeature', { text: t(`newSession.investigate.workerFeature.${w.feature}`) }),
+    ...(compat ? [compat] : []),
+    t(store.sync?.creator === true ? 'newSession.investigate.line.workerPcCreator' : 'newSession.investigate.line.workerPcOther'),
+  ];
 }
 
 /** エージェントごとに、調べる会話を起こすアカウント（pickAccount）。avoid は agent のアカウントのうち避ける id。どれも選べなければ undefined。 */

@@ -52,6 +52,8 @@ export type SyncEngineDeps = {
    * 立っていて client が無いとき、status() は off に legacyConfig の印を添える（設定の画面が再構築を案内する）。
    */
   legacyConfig?: boolean;
+  /** この PC が Worker を setup した PC か（cloud.json に Worker の名前がある）。立っているとき、状態に creator の印を載せる。 */
+  creator?: boolean;
 };
 
 export type SyncListener = {
@@ -213,6 +215,8 @@ export class SyncEngine {
    * 残すと、直した後も止まり続ける。
    */
   private compatBlock: string | null = null;
+  /** compatBlock が Worker の版の足りなさによるときの、必要な互換値（分からなければ null）。この PC の hangar が古いときは undefined。 */
+  private workerBlock: { need: number | null } | null = null;
   /**
    * この PC が同期から解除されたと Worker に言われた（RevokedError）。
    * 版で止まったときと同じく、止めて、sync_state には残さない。
@@ -334,7 +338,10 @@ export class SyncEngine {
   protected failPull(e: unknown): void { if (this.noteLimit(e)) return; this.pullError = this.errorText(e); this.noteCompat(e); this.persistError(); }
   /** 版が合わないと分かったら止める。理由の文は CompatError が持っている（どちらを上げればよいか）。 */
   private noteCompat(e: unknown): void {
-    if (e instanceof CompatError) this.compatBlock = this.errorText(e);
+    if (e instanceof CompatError) {
+      this.compatBlock = this.errorText(e);
+      this.workerBlock = e.upgrade === 'worker' ? { need: e.need } : null;
+    }
     if (e instanceof RevokedError) this.noteRevoked();
   }
 
@@ -405,6 +412,8 @@ export class SyncEngine {
       workerCompat: this.deps.client?.lastWorkerCompat?.() ?? null,
       // 古い形式の cloud.json で止まっているときだけ載せる。未参加の off と見分けるためである。
       ...(state === 'off' && this.deps.legacyConfig === true ? { legacyConfig: true } : {}),
+      ...(this.deps.creator === true ? { creator: true } : {}),
+      ...(this.compatBlock !== null && this.workerBlock !== null ? { workerBlocked: this.workerBlock } : {}),
     };
   }
 
@@ -1063,6 +1072,7 @@ export class SyncEngine {
     // 一時停止のまま何も送らない回では外さない。外すと、試してもいないのに表示だけが変わる。
     if (!this.paused || o.evenIfPaused || this.onePass) {
       this.compatBlock = null;
+      this.workerBlock = null;
       this.revokedBlock = false;
       this.state.set('limitedUntil', null);
     }

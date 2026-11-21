@@ -7983,6 +7983,22 @@ PC どうしの封は、別の PC への起動の頼み、その答え、ター�
 送る前の断りは、Worker の互換値が `PEER_LAUNCH_MIN_WORKER_COMPAT` に届かないとき `worker-outdated`、相手の hangar が古いとき `device-outdated` で、両方のときは Worker を先に言う（Worker を直さない限り何も送れないため）。
 `worker-outdated` の文は Worker の互換値と必要な値を添え、互換値が手に入らないときは括弧を省く。
 新規ダイアログの PC のメニューは、同じ理由を `PeerDeviceDto.state` の `worker-outdated`（札は「クラウドが古い」）で見せる。
+
+#### Worker が古いときの「エージェントで調査…」
+
+Worker が古くて止まる機能は、利用者が setup cloud の手順を探さずに済むよう、Claude に調査と修復を渡せる。
+調査の種類は `workerOutdated`（注意の op）で、事情に止まった機能（`InvestigateWorker.feature`：起動、同期、設定の同期、スマホ、別の PC の会話の閲覧）と必要な互換値を持つ。
+Worker の互換値と、この PC が Worker を setup した PC か（`SyncStatusDto.creator`。cloud.json に Worker の名前がある）は、依頼を組むときに Store の `sync` から読む。
+依頼の文は creator かどうかで 2 通りに分ける。
+creator なら、何をするかを説明して承認を得てから `npm run hangar -- setup cloud` で Worker を更新し、止まっていた機能が戻ったかを確かめさせる。
+creator でなければ、ここでは更新できないので、どの PC で何をすればよいかの手順にさせる。
+承認は会話の中で求め、新しい承認の仕組みは作らない。
+
+入口は 4 つある。
+1. 新規ダイアログ：PC のメニューで `worker-outdated` の PC を選んだ時点で、起動を押す前に、断りの文（`mcp.device.workerOutdated` と同じ）と「エージェントで調査…」を、エラーの帯と同じ形で出す。出るときは `growIn`、選び直すと畳む。起動のボタンは押せないまま。
+2. 設定：同期の停止（`SyncStatusDto.workerBlocked` が立っているとき、通知の行の調査の事情が `workerOutdated` になる）、設定の同期の Worker の帯、スマホの `worker-too-old` の帯にボタンを置く。
+3. 別の PC の会話：見張りが `worker-outdated` で断られ、読み取り専用のままのとき、見出しの下の行（`session-reason`）にその旨とボタンを置く。Worker が直って見張りが張れれば消える。
+4. MCP：`create_session`、`send_to_session`、`stop_session` が `worker-outdated` で断るとき、結果に `worker_compat`（分かるときだけ）、`need`、`this_pc_is_creator`、`fix` を添える。`fix` は creator なら「利用者の承認を得てから setup cloud を実行すると直る」、違えば「setup した PC で実行するよう利用者に伝える」。
 封は `<世代>.<base64url(行と同じ形の封)>` の文字列で、開く側は封が名乗る世代の鍵で開く。
 AAD は `["peer-launch", 世代, 頼みの ID, 頼んだ PC, 頼まれた PC]` の JSON で、答えは頭を `peer-answer`、結果は `peer-result` にして末尾に連番を足す。
 グループの PC はどれも同じ鍵を持つので、この封が守るのはグループの外（Worker、別のグループ、解除の後に回した世代を持たない PC）に対してである。

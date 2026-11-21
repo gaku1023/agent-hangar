@@ -77,7 +77,7 @@ function syncState(s: SyncStatusBody, base: SyncBase, t: Translate, language: La
     // 版で止まると state は error のまま paused の印だけが立つ。止まっていることも言う。
     const message = s.error ?? '';
     const detail = s.error ?? t('header.sync.failed');
-    return [{ ...base, key: `sync|error|${message}${s.paused ? '|paused' : ''}`, tone: 'err', title: t('header.sync.error'), detail: s.paused ? `${detail}。${t('notices.sync.pausedToo')}` : detail, investigate: { op: 'sync', message: detail } }];
+    return [{ ...base, key: `sync|error|${message}${s.paused ? '|paused' : ''}`, tone: 'err', title: t('header.sync.error'), detail: s.paused ? `${detail}。${t('notices.sync.pausedToo')}` : detail, investigate: s.workerBlocked ? { op: 'workerOutdated', message: detail, worker: { feature: 'sync', ...(s.workerBlocked.need !== null ? { need: s.workerBlocked.need } : {}) } } : { op: 'sync', message: detail } }];
   }
   if (s.state !== 'paused') return [];
   if (s.limitedUntil !== null) return [{ ...base, key: `sync|paused|quota|${s.limitedUntil}`, tone: 'warn', title: limitedWord(t, language, s.limitedUntil, tz), detail: null }];

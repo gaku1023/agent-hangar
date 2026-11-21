@@ -8,6 +8,38 @@ const base: Store = { ...initialStore(), version: '0.13.1', accounts: codexAccou
 const withLanguage = (s: Store, language: 'ja' | 'en'): Store => ({ ...s, settings: { ...(s.settings ?? {}), language } as Store['settings'] });
 const broken = (a: AccountsDto, id: string): AccountsDto => ({ ...a, accounts: a.accounts.map((x) => (x.id === id ? { ...x, linkProblem: '~/.claude-univ/plugins が共有から外れています' } : x)) });
 
+describe('investigateSeed workerOutdated', () => {
+  const sync = (creator: boolean, workerCompat: number | null): Store['sync'] => ({ state: 'ok', paused: false, url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 2, limitedUntil: null, workerCompat, ...(creator ? { creator: true } : {}) }) as never;
+  const ctx = { op: 'workerOutdated' as const, message: 'x', worker: { feature: 'launch' as const, need: 10 } };
+
+  it('setup した PC には、承認を得てから setup cloud で更新し、戻ったかを確かめる依頼にする', () => {
+    const seed = investigateSeed({ ...base, sync: sync(true, 9) }, ctx, 'darwin');
+    expect(seed.request).toContain('この PC は Worker を setup した PC です');
+    expect(seed.request).toContain('承認を得てから、npm run hangar -- setup cloud で Worker を更新し');
+    expect(seed.quote.split('\n')).toEqual(['止まった機能：他の PC での起動', 'Worker の今の互換バージョン：9（必要なのは 10 以上）', 'この PC：setup した PC', 'hangar 0.13.1 / macOS']);
+    expect(seed.tone).toBe('info');
+  });
+
+  it('setup した PC でなければ、ここでは更新できないと言い、どの PC で何をするかの手順にする', () => {
+    const seed = investigateSeed({ ...base, sync: sync(false, 9) }, ctx, 'darwin');
+    expect(seed.request).toContain('Worker を setup した PC ではないので、ここでは更新できません');
+    expect(seed.request).toContain('手順にしてください');
+    expect(seed.quote).toContain('この PC：setup していない PC');
+  });
+
+  it('互換値が分からなければ不明、必要値が分からなければ互換値だけを書き、英語にもなる', () => {
+    expect(investigateSeed({ ...base, sync: sync(true, null) }, ctx, 'darwin').quote).toContain('Worker の互換バージョン：不明（必要なのは 10 以上）');
+    expect(investigateSeed({ ...base, sync: sync(true, 9) }, { ...ctx, worker: { feature: 'sync' } }, 'darwin').quote.split('\n').slice(0, 2)).toEqual(['止まった機能：同期', 'Worker の今の互換バージョン：9']);
+    const en = investigateSeed(withLanguage({ ...base, sync: sync(false, 9) }, 'en'), { ...ctx, worker: { feature: 'peerChat', need: 11 } }, 'darwin');
+    expect(en.quote.split('\n').slice(0, 3)).toEqual(["Stopped feature: Viewing another PC's session", 'Worker compat version: 9 (11 or newer required)', 'This PC: not the one where setup was run']);
+  });
+
+  it('ctx に互換値があれば（スマホの帯）、同期の状態より先に使う', () => {
+    const seed = investigateSeed({ ...base, sync: sync(true, null) }, { ...ctx, worker: { feature: 'phone', need: 7, have: 6 } }, 'darwin');
+    expect(seed.quote).toContain('Worker の今の互換バージョン：6（必要なのは 7 以上）');
+  });
+});
+
 describe('investigateSeed', () => {
   it('依頼の文と、操作・エラー・エージェント・アカウント・版と OS の引用に分ける', () => {
     const seed = investigateSeed(base, { op: 'launch', message: 'codex を起動できませんでした: spawn codex ENOENT', agent: 'claude-code', accountId: 'a1' }, 'darwin');

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { translator, type SessionDto, type UiAction } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
@@ -49,12 +49,21 @@ describe('セッション画面: ほかの PC の Claude Code の会話', () => 
   });
 
   it('見続けられなかった（相手の hangar が古い、会話が多すぎる、など）ときは、読み取り専用のトランスクリプトのまま', () => {
-    for (const fallback of ['device-outdated', 'too-many', 'worker-outdated', 'not-claude'] as const) {
+    for (const fallback of ['device-outdated', 'too-many', 'not-claude'] as const) {
       const { container, unmount } = screenOf(session(), { phase: 'fallback', fallback });
       expect(container.querySelector('.pchat-pane'), fallback).toBeNull();
       expect(container.querySelector('.session-reason'), fallback).toBeNull();
       unmount();
     }
+  });
+
+  it('Worker が古くて読み取り専用になったときだけ、見出しの下にその旨の帯を出し、「エージェントで調査…」を添える', () => {
+    const { actions, container } = screenOf(session(), { phase: 'fallback', fallback: 'worker-outdated' });
+    expect(container.querySelector('.pchat-pane')).toBeNull();
+    const band = container.querySelector('.session-reason')!;
+    expect(band).toHaveTextContent('クラウドの Worker が古いため、この会話は読み取り専用です');
+    fireEvent.click(within(band as HTMLElement).getByRole('button', { name: 'エージェントで調査…' }));
+    expect(actions).toContainEqual(expect.objectContaining({ type: 'investigate.open', op: 'workerOutdated', worker: { feature: 'peerChat', need: 11 } }));
   });
 
   it('Codex と opencode の会話は、見張りを頼まず、チャットも出さない', () => {

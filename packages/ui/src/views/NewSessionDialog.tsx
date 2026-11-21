@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { type LaunchPrepChoice, type PeerDeviceDto } from '@agent-hangar/shared';
+import { PEER_LAUNCH_MIN_WORKER_COMPAT, type LaunchPrepChoice, type PeerDeviceDto } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { NewSessionProps } from '../presenters/newSession.ts';
 import { isComposing } from './ime.ts';
@@ -203,10 +203,34 @@ export function NewSessionDialog(props: NewSessionProps) {
             : <div className="err-acts"><InvestigateButton ctx={{ op: 'launch', message: errorShown, agent: lc.agent, ...(lc.account !== null ? { accountId: lc.account } : {}) }} /></div>}
         </div>
       )}
+      <WorkerOutdatedBand open={peer?.state === 'worker-outdated'} compat={props.workerCompat ?? null} />
       <LaunchPrepAsk ask={asking} onChoose={submit} />
       <LaunchPrepFailed reason={failure} title={failure !== null ? prep?.failureTitle ?? null : null} />
       <LaunchPrepBox open={preparing} view={prep} />
     </Dialog>
+  );
+}
+
+/**
+ * Worker が古い PC を選んだ時点で、起動を押す前に出す断りの帯。文は MCP の断り（mcp.device.workerOutdated）と同じで、
+ * 「エージェントで調査…」を添える。選び直すと畳んで消え、出るときは growIn で伸びて入る。
+ */
+function WorkerOutdatedBand(props: { open: boolean; compat: number | null }) {
+  const t = useT();
+  const panel = usePresence<HTMLDivElement>(props.open, (el) => (motionOn(el) ? collapseOut(el) : null));
+  const was = useRef(props.open);
+  useLayoutEffect(() => {
+    if (props.open && !was.current && panel.ref.current) growIn(panel.ref.current);
+    was.current = props.open;
+  }, [props.open, panel.ref]);
+  const have = props.compat !== null && props.compat > 0 && props.compat < PEER_LAUNCH_MIN_WORKER_COMPAT ? props.compat : null;
+  const message = have !== null ? t('mcp.device.workerOutdated', { have, need: PEER_LAUNCH_MIN_WORKER_COMPAT }) : t('mcp.device.workerOutdatedUnknown');
+  if (!panel.mounted) return null;
+  return (
+    <div ref={panel.ref} className="error" role="alert" data-testid="worker-outdated-band">
+      {message}
+      <div className="err-acts"><InvestigateButton ctx={{ op: 'workerOutdated', message, worker: { feature: 'launch', need: PEER_LAUNCH_MIN_WORKER_COMPAT } }} /></div>
+    </div>
   );
 }
 

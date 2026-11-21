@@ -666,11 +666,19 @@ export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 
  * 立っているときだけ true で載せ、それ以外は載せない（送らない古いサーバも偽とみなす）。
  */
 /**
+ * workerBlocked は、Worker の互換の版が足りなくて同期が止まっているときの印（need は必要な互換値、分からなければ null）。
+ * この PC の hangar が古くて止まったときは載せない。
+ */
+/**
+ * creator は、この PC が Worker を setup した PC か（cloud.json に Worker の名前がある）。立っているときだけ true で載せる。
+ * Worker が古いとき、画面が「エージェントで調査…」の依頼の文を setup した PC 向けか否かで分けるのに使う。
+ */
+/**
  * workerCompat は、Worker が最後に名乗った互換の版（まだ話していなければ null）。
  * イベントの種類を出せるかを画面が決めるのに使う（eventsAvailable）。
  * 送らない古いサーバは null とみなす。
  */
-export type SyncStatusDto = { state: SyncStateKind; paused: boolean; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; limitedUntil: number | null; revoked?: boolean; legacyConfig?: boolean; workerCompat?: number | null };
+export type SyncStatusDto = { state: SyncStateKind; paused: boolean; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; limitedUntil: number | null; revoked?: boolean; legacyConfig?: boolean; workerCompat?: number | null; creator?: boolean; workerBlocked?: { need: number | null } };
 /**
  * 降ろすのを諦めた本文。key は雲の中の鍵、attempts は試した回数、message は最後の理由。
  * 載るのは降ろす側（RemotePuller）の諦めだけである。

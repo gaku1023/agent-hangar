@@ -104,6 +104,8 @@ export const mcpEn: AreaDictionary<typeof mcpKeys> = {
   'mcp.device.outdated': '{device} runs an older hangar that cannot receive this request. Update hangar on it first',
   'mcp.device.workerOutdated': 'The cloud Worker is outdated and cannot carry this request to another PC (Worker compat version {have}, {need} or newer required). Run npm run hangar -- setup cloud again on the PC where you ran setup to update the Worker',
   'mcp.device.workerOutdatedUnknown': 'The cloud Worker is outdated and cannot carry this request to another PC. Run npm run hangar -- setup cloud again on the PC where you ran setup to update the Worker',
+  'mcp.device.workerFixCreator': 'This PC is the one where Worker was set up. Once the user approves, running npm run hangar -- setup cloud fixes it',
+  'mcp.device.workerFixOther': 'This PC is not the one where Worker was set up. Tell the user to run npm run hangar -- setup cloud on the PC where setup was run',
   'mcp.device.offline': '{device} is not reachable right now. Check that hangar is running there and try again',
   'mcp.device.depthExceeded': 'This session was itself started from another computer, so it cannot start a session on yet another computer',
   'mcp.device.requested': 'Requested {device} to start the session. The result arrives later as input to this session',
