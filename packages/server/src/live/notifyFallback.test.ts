@@ -97,6 +97,46 @@ describe('NotifyFallback', () => {
     expect(unread(s1)).toBeUndefined();
   });
 
+  it('起動直後の短い作業中→入力待ちの後に本当のターンが続いても、1 つの返答には 1 つだけ積む', () => {
+    const f = fallback();
+    // 起動の準備で一瞬だけ作業中になり、返答の無いまま入力待ちに戻る。
+    live = [entry('u1', 'busy')];
+    f.check();
+    clock += 500;
+    live = [entry('u1', 'idle')];
+    f.check();
+    expect(timers).toHaveLength(1);
+    // 読み直しを待つ間に本当のターンが始まり、返答を書いて終わる。
+    clock += 300;
+    live = [entry('u1', 'busy')];
+    f.check();
+    clock += 1000;
+    replies.set(s1, { text: '確認しました。', ts: clock });
+    live = [entry('u1', 'idle')];
+    f.check();
+    for (let i = 0; i < 20 && timers.length > 0; i++) runTimers();
+    expect(unread(s1)).toEqual({ count: 1, text: '確認しました。' });
+  });
+
+  it('擬似のターンの読み直しの間に始まったターンで done が呼ばれたら、擬似のターンの分も積まない', () => {
+    const f = fallback();
+    live = [entry('u1', 'busy')];
+    f.check();
+    clock += 500;
+    live = [entry('u1', 'idle')];
+    f.check();
+    clock += 300;
+    live = [entry('u1', 'busy')];
+    f.check();
+    noteNotifyKind(s1, 'done');
+    clock += 1000;
+    replies.set(s1, { text: '済みました。', ts: clock });
+    live = [entry('u1', 'idle')];
+    f.check();
+    for (let i = 0; i < 20 && timers.length > 0; i++) runTimers();
+    expect(unread(s1)).toBeUndefined();
+  });
+
   it('progress の呼び出しと、hangar が代わりに出した知らせ（immediate）は、終わりの 1 つを打ち消さない', () => {
     const f = fallback();
     replies.set(s1, { text: '終わりました。', ts: clock + 20_000 });

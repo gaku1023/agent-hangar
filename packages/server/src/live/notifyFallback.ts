@@ -66,6 +66,10 @@ export function firstSentence(text: string): string | null {
 export class NotifyFallback {
   /** 作業中と見ている会話（hangar の id）と、作業中と見た時刻。 */
   private running = new Map<string, number>();
+  /** 会話ごとの、作業中に入った回数。読み直しの間に次のターンが始まったら、前の判定を諦めるのに使う。 */
+  private turns = new Map<string, number>();
+  /** 会話ごとの、最後に積んだ返答の時刻。同じ返答で 2 つ積まないためである。 */
+  private given = new Map<string, number>();
   /** 最後の判定の後に notify_user が done か ask で呼ばれた会話。 */
   private notified = new Set<string>();
 
@@ -89,7 +93,10 @@ export class NotifyFallback {
       if (!id) continue;
       seen.add(id);
       if (turnRunning(l)) {
-        if (!this.running.has(id)) this.running.set(id, now);
+        if (!this.running.has(id)) {
+          this.running.set(id, now);
+          this.turns.set(id, (this.turns.get(id) ?? 0) + 1);
+        }
         continue;
       }
       const started = this.running.get(id);
@@ -97,13 +104,15 @@ export class NotifyFallback {
       this.running.delete(id);
       const notified = this.notified.delete(id);
       if (notified) continue;
-      this.attempt(id, started, now, l.status === 'waiting');
+      this.attempt(id, started, now, l.status === 'waiting', this.turns.get(id) ?? 0);
     }
     // run が居なくなった会話は、積まずに忘れる。
     for (const id of [...this.running.keys()]) {
       if (seen.has(id)) continue;
       this.running.delete(id);
       this.notified.delete(id);
+      this.turns.delete(id);
+      this.given.delete(id);
     }
   }
 
@@ -113,11 +122,16 @@ export class NotifyFallback {
   }
 
   /** そのターンの返答が見えたら未読を積む。まだ見えなければ、上限まで間を置いて読み直す。 */
-  private attempt(id: string, started: number, endedAt: number, question: boolean): void {
+  private attempt(id: string, started: number, endedAt: number, question: boolean, turn: number): void {
     // 終わりの後に呼ばれた notify_user（裏の作業の間など）があれば、それに任せる。
     if (this.notified.has(id)) return;
+    // 読み直しの間に次のターンが始まったら、その終わりに任せる。
+    // 起動直後の短い作業中→入力待ち（返答の無い擬似のターン）が、次のターンの返答を拾って 2 つ積まないためである。
+    if ((this.turns.get(id) ?? 0) !== turn) return;
     const reply = this.deps.lastReply(id);
     if (reply && reply.ts !== null && reply.ts >= started - START_SLACK_MS) {
+      if (reply.ts <= (this.given.get(id) ?? -Infinity)) return;
+      this.given.set(id, reply.ts);
       this.give(id, reply.text, question);
       return;
     }
@@ -125,7 +139,7 @@ export class NotifyFallback {
     if (this.now() + poll - endedAt > (this.deps.maxWaitMs ?? MAX_WAIT_MS)) return;
     const set = this.deps.setTimer ?? ((fn, ms) => { setTimeout(fn, ms).unref?.(); });
     set(() => {
-      try { this.attempt(id, started, endedAt, question); } catch (e) { console.error('[unread] fallback failed', e instanceof Error ? e.message : e); }
+      try { this.attempt(id, started, endedAt, question, turn); } catch (e) { console.error('[unread] fallback failed', e instanceof Error ? e.message : e); }
     }, poll);
   }
 
