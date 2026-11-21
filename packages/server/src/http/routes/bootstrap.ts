@@ -5,7 +5,6 @@ import { listArtifacts } from '../../artifacts/queries.ts';
 import { listProjects, listSessions } from '../../db/queries.ts';
 import { listTodos } from '../../projects/todos.ts';
 import { interruptedGroup } from '../../runs/interrupted.ts';
-import { listPeerApprovals } from '../../peer/approvals.ts';
 import { listDeleteApprovals } from '../../sessions/deleteApprovals.ts';
 import { sessionCounts } from '../../sessions/counts.ts';
 import { aliveIdsOf, FIRST_PAGE_SIZE } from '../../sessions/listPage.ts';
@@ -46,7 +45,6 @@ export function bootstrapRoutes(api: Hono, deps: BootstrapRouteDeps): void {
       artifacts: listArtifacts(db),
       summaryPending: deps.summary.pending(),
       deleteApprovals: listDeleteApprovals(db),
-      peerApprovals: listPeerApprovals(db, Date.now()),
       schedules: listSchedules(db, deviceId, undefined, accountNamerOf(accountsDeps)),
       index: deps.indexer.progress(),
       version: deps.version,

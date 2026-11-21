@@ -119,12 +119,8 @@ a:hover { text-decoration: underline; }
 .del-approval-f { font-size: var(--fs-sm); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .del-approval-note { font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; }
 .del-approval[data-failed] .del-approval-note { color: var(--error); }
-.peer-approval { position: relative; }
-.peer-approval-route { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; font-weight: 600; }
-.peer-approval-route > svg { flex: none; width: 14px; height: 14px; color: var(--ink-3); }
-.peer-approval-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.peer-approval-pc, .pc-pill { flex: none; display: inline-flex; align-items: center; gap: var(--u); padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill, 999px); background: var(--limit-soft); color: var(--limit); font-size: var(--fs-sm); line-height: 20px; white-space: nowrap; }
-.peer-approval-pc svg, .pc-pill svg { width: 12px; height: 12px; flex: none; }
+.pc-pill { flex: none; display: inline-flex; align-items: center; gap: var(--u); padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill, 999px); background: var(--limit-soft); color: var(--limit); font-size: var(--fs-sm); line-height: 20px; white-space: nowrap; }
+.pc-pill svg { width: 12px; height: 12px; flex: none; }
 /*
  * サイドバーの別の PC の子の札。札は縮めず、8em を超える名前だけ省略する（全文は title）。
  * 行が狭くて会話の名前と並ばないときは、札を PC の絵だけにして、会話の名前に幅を回す。結び付きが終わった子は、灰色にする。
@@ -154,15 +150,6 @@ a:hover { text-decoration: underline; }
 .spawned-from[data-ended='true'] span:not(.pc-pill) { text-decoration: line-through; }
 .pc-pill[data-ended='true'], .spawned-from[data-ended='true'] .pc-pill { background: var(--surface-2); color: var(--ink-3); }
 .side-live-kids.peer-ended { border-left-style: dashed; border-left-color: var(--ink-3); }
-.peer-approval-project { flex: none; font: 600 var(--fs-sm) var(--font-mono); color: var(--ink-2); white-space: nowrap; }
-.peer-approval-note { flex: none; display: inline-flex; align-items: center; gap: var(--u); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
-.peer-approval-note svg { width: 14px; height: 14px; }
-.peer-approval[data-state='approved'] .peer-approval-note { color: var(--st-done); }
-.peer-approval[data-state='timeout'] { background: var(--limit-soft); }
-.peer-approval[data-state='timeout'] .peer-approval-note, .peer-approval[data-state='failed'] .peer-approval-note { color: var(--limit); }
-.peer-approval-bar { position: absolute; left: 0; bottom: 0; width: 100%; height: 3px; background: var(--accent); opacity: 0.55; transform-origin: left; animation: peer-approval-drain var(--drain) linear forwards; }
-@keyframes peer-approval-drain { to { transform: scaleX(0); } }
-@media (prefers-reduced-motion: reduce) { .peer-approval-bar { animation: none; } }
 .del-approval-spin { display: inline-block; width: 11px; height: 11px; margin-right: var(--u); border-radius: 50%; border: 2px solid var(--line-strong); border-top-color: var(--ink-2); vertical-align: -2px; animation: del-approval-spin var(--dur-spin) linear infinite; }
 @keyframes del-approval-spin { to { transform: rotate(360deg); } }
 .main-inner { max-width: var(--main-w); margin: 0 auto; padding: calc(var(--u) * 2) calc(var(--u) * 4) calc(var(--u) * 4) var(--gutter-l); }

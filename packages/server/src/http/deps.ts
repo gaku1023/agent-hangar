@@ -12,7 +12,6 @@ import type { HookDecisions } from '../sessions/hookDecisions.ts';
 import type { PermissionAsks } from '../sessions/permissionAsks.ts';
 import type { OrchestratorKeeper } from '../orchestrator/keeper.ts';
 import type { OsNoticeFeed } from '../sessions/stopNotices.ts';
-import type { PeerApprovals } from '../peer/approvals.ts';
 import type { SessionTrash } from '../sessions/trash.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { VoiceService } from '../voice/service.ts';
@@ -133,8 +132,6 @@ export type AppDeps = {
   summary: SummaryApi;
   /** セッションの削除（sessions/trash.ts）。本文を OS のゴミ箱へ移し、削除の印を書く。 */
   trash: Pick<SessionTrash, 'deleteSession'>;
-  /** 別の PC への起動の承認待ちへの答え（peer/approvals.ts）。画面の HTTP だけが答える。無ければ答えを断る。 */
-  peerApprovals?: Pick<PeerApprovals, 'approve' | 'reject'>;
   /** ほかの PC から来た文の、まだ渡していない預かり（peer/chat/host.ts の queued）。bootstrap が最初の状態として運ぶ。無ければ運ばない。 */
   peerQueued?: () => Record<string, import('@agent-hangar/shared').PeerChatQueued[]>;
   /** 預かりの先頭を、走っているターンを中断して渡す（peer/chat/host.ts の rush）。端末の下の帯のボタンが使う。無ければ経路を出さない。 */

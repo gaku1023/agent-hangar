@@ -194,7 +194,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   let mobileForGrace: { publisher(): { nudge(): void } | null } | null = null;
   // 問いが複数ある質問は、タブが進むと札の id が変わる。それを見て次の問いを出来事にする。
   const orchestratorFeed = bootOrchestratorFeed({ home, delivery, runs, onGraceEnd: () => { mobileForGrace?.publisher()?.nudge(); }, askId: (id) => peerChat.host.local.currentAsk(id)?.askId ?? null });
-  const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, chat: peerChat, trash: trash.trash, event: eventPuller, onPeer: (kind, id) => { peer.onBell(kind, id); }, peerApprovals: peer.approvals, noticeHold: (id) => orchestratorFeed.feed.held(id) });
+  const mobile = bootMobile({ home, delivery, runs, sync, opencode, codex: { options: codex.options }, chat: peerChat, trash: trash.trash, event: eventPuller, onPeer: (kind, id) => { peer.onBell(kind, id); }, noticeHold: (id) => orchestratorFeed.feed.held(id) });
   mobileForGrace = mobile;
   peerRelayEnded = (id) => peer.relay.onEnded(id);
   // 定期の実行（#549）。予定はこの PC のものだけを流す。起こし方と待ち方は MCP の道具と同じ本体を通す。

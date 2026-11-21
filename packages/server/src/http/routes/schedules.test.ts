@@ -172,13 +172,13 @@ describe('予定の MCP の道具', () => {
     expect(() => create({ sessionId: null }, { agent: 'nope' })).toThrow();
   });
 
-  it('セッション別の URL では、そのプロジェクトの外に届かない', () => {
+  it('セッション別の URL でも、共通の URL と同じくほかのプロジェクトの予定に届く。project_id を省けば呼んだ会話のプロジェクト', () => {
     const other = create({ sessionId: null });
     t.db.prepare('update schedules set project_id = ? where id = ?').run('other-project', other.id);
     const ctx = { sessionId };
-    expect(() => callTool(tools(), ctx, 'update_schedule', { schedule_id: other.id, enabled: false })).toThrow();
-    expect((callTool(tools(), ctx, 'list_schedules', {}) as { schedules: ScheduleDto[] }).schedules).toEqual([]);
-    expect(() => create(ctx, { project_id: 'other-project' })).toThrow();
+    expect((callTool(tools(), ctx, 'update_schedule', { schedule_id: other.id, enabled: false }) as ScheduleDto).enabled).toBe(false);
+    expect((callTool(tools(), ctx, 'list_schedules', {}) as { schedules: ScheduleDto[] }).schedules.map((s) => s.id)).toContain(other.id);
+    expect(create(ctx, { project_id: 'other-project' }).projectId).toBe('other-project');
     expect(create(ctx).projectId).toBe(projectId);
   });
 });
@@ -278,12 +278,12 @@ describe('予定の起動の項目', () => {
     expect(mk({ agent: '', model: 'sonnet' }).target).toEqual({ kind: 'new', projectId, model: 'sonnet' });
   });
 
-  it('MCP の scratch は共通の URL からだけ作れ、プロジェクトを固定した URL では断る', () => {
+  it('MCP の scratch は、セッション別の URL からも作れ、触れる', () => {
     const q = mcp({ sessionId: null }, 'create_schedule', { kind: 'every', every_minutes: 30, prompt: 'p', scratch: true });
     expect(q).toMatchObject({ projectId: null, target: { kind: 'new', projectId: null, scratch: true } });
-    expect(() => mcp({ sessionId }, 'create_schedule', { kind: 'every', every_minutes: 30, prompt: 'p', scratch: true })).toThrow();
-    // 固定した URL からは、クイックセッションの予定に触れない（一覧にも出ない）。
-    expect((callTool(tools(), { sessionId }, 'list_schedules', {}) as { schedules: ScheduleDto[] }).schedules).toEqual([]);
-    expect(() => mcp({ sessionId }, 'update_schedule', { schedule_id: q.id, enabled: false })).toThrow();
+    const own = mcp({ sessionId }, 'create_schedule', { kind: 'every', every_minutes: 30, prompt: 'p', scratch: true });
+    expect(own).toMatchObject({ projectId: null, target: { kind: 'new', projectId: null, scratch: true } });
+    expect((callTool(tools(), { sessionId }, 'list_schedules', {}) as { schedules: ScheduleDto[] }).schedules.map((s) => s.id)).toContain(q.id);
+    expect(mcp({ sessionId }, 'update_schedule', { schedule_id: q.id, enabled: false }).enabled).toBe(false);
   });
 });

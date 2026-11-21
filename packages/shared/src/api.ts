@@ -233,14 +233,6 @@ export type DeleteApprovalFailure = 'running' | 'trash';
  * title は消す会話の題名、project と turns はその事実、from は依頼した会話の題名（共通の URL からの依頼や、依頼元が消えたときは null）。failure は承認した後に消せなかったときだけ持つ。
  */
 export type DeleteApprovalDto = { id: string; sessionId: string; title: string; project: string | null; turns: number; from: string | null; requestedAt: number; failure: DeleteApprovalFailure | null };
-/** 別の PC への起動の承認の状態。pending は答えを待つ。ほかは答えた直後（または時間切れ）に短く残る結果で、failed は承認したが送れなかった。 */
-export type PeerApprovalState = 'pending' | 'approved' | 'denied' | 'timeout' | 'failed';
-/**
- * 別の PC へ起動を頼む MCP の呼び出しのうち、利用者の承認を待つもの（D8）。依頼元の PC の画面とスマホで答える。
- * from は頼んだ会話の題名（消えていれば null）、device は頼まれた PC の名前、project はプロジェクトの名前（クイックセッションなら null）。ask は頼みの先頭。
- * expiresAt を過ぎると timeout になる。
- */
-export type PeerApprovalDto = { id: string; from: string | null; device: string; project: string | null; scratch: boolean; ask: string; expiresAt: number; state: PeerApprovalState };
 /**
  * 新規ダイアログの PC の選択（GET /api/peers）。ほかの PC 1 台につき 1 件で、自分は含めない。
  * state は起動を頼めるか。ready は頼める、offline はいま接続できない、outdated は hangar が古くこの機能を持たない、worker-outdated はクラウドの Worker が古くて送れない。
@@ -262,7 +254,7 @@ export type PeerLaunchBody = {
 export type PeerLaunchOutcomeDto = { status: 'requested'; requestId: string; device: string } | { status: 'refused'; reason: string; message: string };
 /** 画面から、ほかの PC で動いている会話の停止を頼む本体（POST /api/peer-stop）。止める先の PC は会話のロックで決める。答えは PeerLaunchOutcomeDto と同じ形。 */
 export type PeerStopBody = { sessionId: string };
-export type BootstrapDto = { /** ほかの PC から来た文の、まだ渡していない預かり（会話の id ごと、古い順）。この項目を知らない古いサーバは返さないので、読む側は空として読む。 */ peerQueued?: Record<string, import('./peerChat.ts').PeerChatQueued[]>; schedules: ScheduleDto[]; device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; /** MCP の削除の依頼のうち、利用者の答えを待っているもの。 */ deleteApprovals: DeleteApprovalDto[]; /** 別の PC への起動の承認待ち。 */ peerApprovals: PeerApprovalDto[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto; /** サーバのホーム（os.homedir()）。画面はホームの下の置き場を ~ に縮めるときにだけ使う。 */ home: string; /** 中断の群（InterruptedDto）。 */ interrupted: InterruptedDto | null; /** 会話の件数の集計。 */ sessionCounts: import('./sessionList.ts').SessionCountsDto; /** 一覧の 1 頁目（絞り込みなし、最近の 50 件）。2 回目の取得をせずに一覧を出すため。 */ firstPage: import('./sessionList.ts').ListPageDto };
+export type BootstrapDto = { /** ほかの PC から来た文の、まだ渡していない預かり（会話の id ごと、古い順）。この項目を知らない古いサーバは返さないので、読む側は空として読む。 */ peerQueued?: Record<string, import('./peerChat.ts').PeerChatQueued[]>; schedules: ScheduleDto[]; device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; /** MCP の削除の依頼のうち、利用者の答えを待っているもの。 */ deleteApprovals: DeleteApprovalDto[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto; /** サーバのホーム（os.homedir()）。画面はホームの下の置き場を ~ に縮めるときにだけ使う。 */ home: string; /** 中断の群（InterruptedDto）。 */ interrupted: InterruptedDto | null; /** 会話の件数の集計。 */ sessionCounts: import('./sessionList.ts').SessionCountsDto; /** 一覧の 1 頁目（絞り込みなし、最近の 50 件）。2 回目の取得をせずに一覧を出すため。 */ firstPage: import('./sessionList.ts').ListPageDto };
 export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; total: number; nextSeq: number | null };
 /**
  * 実行中のセッションの右ペインに出すライブの要約。サーバが主線とサブエージェントを読んで作る。

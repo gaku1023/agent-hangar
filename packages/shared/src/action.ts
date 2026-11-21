@@ -184,7 +184,6 @@ export type UiAction =
   // 印を 1 度だけ使って下げる。
   | { type: 'wakeGlow.seen'; id: string }
   | { type: 'deleteApproval.answer'; id: string; answer: 'approve' | 'reject' | 'dismiss' }
-  | { type: 'peerApproval.answer'; id: string; answer: 'approve' | 'reject' }
   /** ほかの PC から預かった文を、走っているターンを中断して渡す（端末の下の帯）。 */
   | { type: 'peerQueue.rush'; sessionId: string }
   // 移す先を選ぶダイアログと、削除の確認を開く（セッションのメニューの「プロジェクトを変更…」と「削除…」）。決めたら session.move と session.delete を送る。

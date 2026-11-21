@@ -8,7 +8,6 @@ import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { acceptsResultFrom, forgetSpawn, getSpawn } from '../sessions/spawns.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
-import { heldNotice } from './text.ts';
 import { getPeerRequest, PEER_DELIVERY_MAX_PER_CALLER, PEER_OUTBOX_KEEP_MS, PEER_REQUEST_ANSWER_MS, PEER_DELIVERY_NOTICE_MS, PeerOutbox, recordPeerRequest, SCREEN_CALLER } from './outbox.ts';
 
 const ME = 'pc-a';
@@ -605,40 +604,6 @@ describe('PeerOutbox の終わりと二重の防ぎ', () => {
     await a.peerLaunch.put({ id: 'not-mine', to: PEER, sealed: SEALED });
     await ob.sync();
     expect(injected).toEqual([]);
-  });
-
-  describe('承認で決まる断り（refuseLocal）', () => {
-    it('承認を断られたら approval-denied を、時間切れなら approval-timeout を、呼び出し元に入力として入れる', async () => {
-      await ob.refuseLocal({ requestId: 'ap-1', to: PEER, callerSessionId: caller, reason: 'approval-denied' });
-      expect(injected).toHaveLength(1);
-      expect(injected[0]!.id).toBe(caller);
-      expect(injected[0]!.text).toContain('Mac');
-      expect(injected[0]!.text).toContain('承認しませんでした');
-      await ob.refuseLocal({ requestId: 'ap-2', to: PEER, callerSessionId: caller, reason: 'approval-timeout' });
-      expect(injected[1]!.text).toContain('時間内に承認しませんでした');
-    });
-    it('同じ頼みの断りは 1 度しか入れない', async () => {
-      await ob.refuseLocal({ requestId: 'ap-1', to: PEER, callerSessionId: caller, reason: 'approval-denied' });
-      await ob.refuseLocal({ requestId: 'ap-1', to: PEER, callerSessionId: caller, reason: 'approval-timeout' });
-      expect(injected).toHaveLength(1);
-    });
-    it('呼び出し元が止まっていれば預かって通知し、再開したら入れる', async () => {
-      live = [];
-      await ob.refuseLocal({ requestId: 'ap-1', to: PEER, callerSessionId: caller, reason: 'approval-denied' });
-      expect(injected).toEqual([]);
-      expect(notices).toHaveLength(1);
-      live = [entry('u1', 'idle')];
-      await ob.flush();
-      expect(injected).toHaveLength(1);
-    });
-    it('札か打ちかけで止めて長引いたら、起動の答えの文で知らせる', async () => {
-      screen = false;
-      await ob.refuseLocal({ requestId: 'ap-1', to: PEER, callerSessionId: caller, reason: 'approval-denied' });
-      clock.t += PEER_DELIVERY_NOTICE_MS;
-      await ob.flush();
-      expect(notices.map((x) => x.text)).toEqual(['Mac への起動のリクエストの答えを預かっています。質問に答えるか入力欄を空にすると渡します。']);
-      expect(heldNotice('en', { device: 'Mac', title: null, scene: 'dropped' })).toBe('Too many held notices: dropped an old answer to the launch request on Mac.');
-    });
   });
 });
 

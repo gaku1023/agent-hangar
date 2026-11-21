@@ -1187,6 +1187,16 @@ alter table session_states add column muted_at integer;
 alter table session_states add column muted_changed_at integer;
 `;
 
+/**
+ * 版 70。別の PC への起動の承認待ちの表（版 52）を外す。
+ * 別のプロジェクトやクイックセッションへの起動も承認を挟まず頼みとして通すので、承認待ちの行は作らなくなった（2026-11-21）。
+ * 手元だけの表で同期しないので、クラウド（Worker）のマイグレーションは要らない。
+ */
+const V70_DROP_PEER_APPROVALS_SQL = `
+drop index if exists peer_approvals_state;
+drop table if exists peer_approvals;
+`;
+
 /** いま開いて見ている会話を 2 台で共有する（live/viewingShare.ts）。devices のこの PC の行に、会話の id の JSON の配列と、書いた時刻を置く。 */
 const V69_DEVICE_VIEWING_SQL = `
 alter table devices add column viewing text;
@@ -1247,4 +1257,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 67, sql: V67_UNREAD_SYNC_SQL },
   { version: 68, sql: V68_SESSION_MUTED_SQL },
   { version: 69, sql: V69_DEVICE_VIEWING_SQL },
+  { version: 70, sql: V70_DROP_PEER_APPROVALS_SQL },
 ];
