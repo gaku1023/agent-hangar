@@ -2023,6 +2023,10 @@ opencode はこれを system prompt の末尾近くに `<context key="hangar">` 
 既定の `minimal` は hangar の MCP の使い方で、意図を呼ぶ時機を「各ターンの最初の一手で、他のツールより先に」と書き、Code Mode の呼び方（`tools.hangar.…`）を添える。
 本文には、利用者が Done か Paused にしてと言ったら `propose_session_status` を `confirmed: true` で呼ぶことと、`set_session_summary` の state では状態が変わらないことを常に書く。
 Code Mode の目録は道具の一部しか見せず、`propose_session_status` が隠れていると、モデルは `set_session_summary` の state で済ませてしまうからである（2026-10-26 に DeepSeek V4.1 Flash で起きた）。
+本文の直後には道具の段（`launch.injection.opencode.tools`）を置き、目的ごとに hangar の道具の名前を挙げて、目録に無い道具は `search` で引くよう言う。この段はスイッチで切らない（`none` のときだけ無い）。
+opencode 2.2.0 の Code Mode は、目録を予算 2000 トークンで作る。1 行は型の宣言（引数の説明と数値の上限・下限の注記を含む）と説明の頭 120 字で、費用（長さ÷4）の安い順に詰める。
+そのため引数の多い `send_to_session` や `create_session`、`create_schedule` が載らず、読む道具と止める道具だけが見える。2026-11-21 には、モデルが「別のセッションへ送る手段は無い」と答えた。
+同じ理由で、対になる道具の名前は説明の頭 120 字に書く（`wait_for_session`・`read_session_screen` から `send_to_session`、`stop_session` から `resume_session`。`mcp/app.test.ts` が見張る）。
 状態の段（`launch.injection.opencode.status`、Claude と同じ `askStatusAtEnd` で入り切り）は、区切りで `confirmed` なしの提案だけを出させる。
 Claude のようにフォームで聞かせないのは、聞かずに `confirmed: true` を渡すモデルがあったためである。
 `claude` は Claude に足すのと同じ段で、意図の段だけ同じ書き方に替える。`none` は何も足さない。

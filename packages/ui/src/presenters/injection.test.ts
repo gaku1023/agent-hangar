@@ -60,7 +60,8 @@ describe('opencode に足す指示の全文', () => {
     expect(parts.map((p) => p.label)).toEqual([translate('ja', 'settings.opencode.injection.minimal'), '見てほしい出力を notify_user で知らせる（オン）', '作業の区切りで Done／Paused を確認する（オン）']);
     expect(parts.map((p) => p.off)).toEqual([false, false, false]);
     expect(parts[0]).toMatchObject({ mark: null });
-    expect(textOf(parts[0]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.minimal'));
+    // 本文の後ろに、目録に載らない道具を挙げる段が続く（サーバの toolsEntry）。
+    expect(textOf(parts[0]!.pieces)).toBe(translate('ja', 'launch.injection.opencode.minimal') + translate('ja', 'launch.injection.opencode.tools'));
     expect(textOf(parts[1]!.pieces).startsWith(translate('ja', 'launch.injection.opencode.notify'))).toBe(true);
     expect(textOf(parts[1]!.pieces)).toContain('tools.hangar.set_notify_preference');
     expect(textOf(parts[1]!.pieces)).toContain('知らせ方がまだ決まっていません');
@@ -74,7 +75,8 @@ describe('opencode に足す指示の全文', () => {
     const parts = presentOpencodeInjection(ja, on, 'claude');
     const claude = presentInjection(ja, on);
     expect(parts.map((p) => p.label)).toEqual(claude.map((p) => p.label));
-    expect(parts[0]).toEqual(claude[0]);
+    expect(textOf(parts[0]!.pieces)).toBe(textOf(claude[0]!.pieces) + translate('ja', 'launch.injection.opencode.tools'));
+    expect(parts[0]!.label).toBe(claude[0]!.label);
     expect(parts.slice(2, 5)).toEqual(claude.slice(2, 5));
     expect(textOf(parts[1]!.pieces).startsWith(translate('ja', 'launch.injection.opencode.notify'))).toBe(true);
     expect(textOf(parts[1]!.pieces)).toContain('tools.hangar.set_notify_preference');
@@ -92,6 +94,6 @@ describe('opencode に足す指示の全文', () => {
   it('英語の画面では英語の指示を出す', () => {
     const [p] = presentOpencodeInjection(translator('en'), on, 'minimal');
     expect(p!.label).toBe(translate('en', 'settings.opencode.injection.minimal'));
-    expect(textOf(p!.pieces)).toBe(translate('en', 'launch.injection.opencode.minimal'));
+    expect(textOf(p!.pieces)).toBe(translate('en', 'launch.injection.opencode.minimal') + translate('en', 'launch.injection.opencode.tools'));
   });
 });
