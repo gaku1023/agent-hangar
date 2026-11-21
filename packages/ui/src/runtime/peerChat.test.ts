@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PeerChatClientMsg, PeerChatItem, PeerChatOpIn, PeerChatOpResult, PeerChatQueued, PeerChatUpdate, PeerChatViewDto } from '@agent-hangar/shared';
 import { initialStore, applyServerEvent, type Store } from '../store/store.ts';
 import type { PeerChatSlice } from '../store/peerChat.ts';
-import { createPeerChatRunner } from './peerChat.ts';
+import { createPeerChatRunner, PEER_ANSWER_TIMEOUT_MS, type PeerChatRunnerDeps } from './peerChat.ts';
 
 const MAC = { deviceId: 'd-mac', deviceName: 'Mac' };
 const user = (uuid: string, text: string): PeerChatItem => ({ uuid, at: 1, kind: 'user', text });
@@ -16,13 +16,13 @@ const update = (over: Partial<PeerChatUpdate> = {}): PeerChatUpdate => ({ sessio
 const view = (over: Partial<PeerChatUpdate> = {}): PeerChatViewDto => ({ ok: true, device: { deviceId: 'd-mac', deviceName: 'Mac' }, startedAfter: null, update: update({ items: [user('u1', '調べて'), ai('a1', '見ます')], ...over }) });
 
 /** Store を 1 つ持つ、runner の試験用の台。WebSocket の更新は applyServerEvent を通して流す。 */
-function rig(open: (s: string, v: string, after: string) => Promise<PeerChatViewDto>, op: (s: string, b: PeerChatOpIn) => Promise<PeerChatOpResult> = async () => ({ ok: true })) {
+function rig(open: (s: string, v: string, after: string) => Promise<PeerChatViewDto>, op: (s: string, b: PeerChatOpIn) => Promise<PeerChatOpResult> = async () => ({ ok: true }), answers?: Pick<PeerChatRunnerDeps, 'hold' | 'release' | 'failed'>) {
   let store: Store = initialStore();
   const sent: PeerChatClientMsg[] = [];
   // 開き直しの待ち（試験が手で進める）。
   const timers: (() => void)[] = [];
   const after = (_ms: number, fn: () => void): (() => void) => { timers.push(fn); return () => { const i = timers.indexOf(fn); if (i >= 0) timers.splice(i, 1); }; };
-  const runner = createPeerChatRunner({ open, op, send: (m) => sent.push(m), get: () => store.peerChat, set: (peerChat) => { store = { ...store, peerChat }; }, after });
+  const runner = createPeerChatRunner({ open, op, send: (m) => sent.push(m), get: () => store.peerChat, set: (peerChat) => { store = { ...store, peerChat }; }, after, ...answers });
   const slice = (id = 's1'): PeerChatSlice => store.peerChat[id]!;
   const push = (u: PeerChatUpdate) => { store = applyServerEvent(store, { type: 'peerChat.update', ...u }); };
   const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -426,6 +426,73 @@ describe('受け付けない設定と、断られた答え', () => {
     t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['1'] } });
     await t.tick();
     expect(t.slice().answering).toEqual(['ask-1']);
+  });
+});
+
+describe('答えた札の手元の見え方（相手の返事を待たない）', () => {
+  /** 札の付いた会話を開いた台。hold は手元の見え方を持っている札の集合で、release はそこから外したかを返す。 */
+  const answerRig = async (op: (s: string, b: PeerChatOpIn) => Promise<PeerChatOpResult>, item: PeerChatItem = card('c1', 'ask-1')) => {
+    const holds = new Map<string, 'busy' | 'waiting'>();
+    const failed: { sessionId: string; reason: string }[] = [];
+    const afters: number[] = [];
+    const t = rig(async () => view({ items: [item], status: 'waiting' }), op, {
+      hold: (_s, askId, live) => { holds.set(askId, live); },
+      release: (_s, askId) => holds.delete(askId),
+      failed: (sessionId, reason) => { failed.push({ sessionId, reason }); },
+    });
+    t.runner.run({ op: 'open', sessionId: 's1', viewer: 'v1' });
+    await t.tick();
+    return { ...t, holds, failed, afters };
+  };
+
+  it('許可を送った時点で手元の見え方を持つ（許可は実行中）', async () => {
+    const t = await answerRig(() => new Promise<PeerChatOpResult>(() => {}));
+    t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['1'] } });
+    expect(t.holds.get('ask-1')).toBe('busy');
+  });
+
+  it('No を選んだ許可は入力待ちに見せる。文を添えたら Claude が続けるので実行中', async () => {
+    const no = card('c1', 'ask-1');
+    no.ask!.options = [{ key: '1', label: 'Yes' }, { key: '3', label: 'No, and tell Claude what to do differently (esc)' }];
+    const t = await answerRig(() => new Promise<PeerChatOpResult>(() => {}), no);
+    t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['3'] } });
+    expect(t.holds.get('ask-1')).toBe('waiting');
+    t.holds.clear();
+    t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['3'], text: 'テストを先に' } });
+    expect(t.holds.get('ask-1')).toBe('busy');
+  });
+
+  it('断られたら見え方を解いて知らせる', async () => {
+    const t = await answerRig(async () => ({ ok: false, reason: 'already-answered' }));
+    t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['1'] } });
+    await t.tick();
+    expect(t.holds.size).toBe(0);
+    expect(t.failed).toEqual([{ sessionId: 's1', reason: 'already-answered' }]);
+  });
+
+  it('通っても、時間内に相手が動かなければ解いて札を戻し、知らせる', async () => {
+    const t = await answerRig(async () => ({ ok: true }));
+    t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['1'] } });
+    await t.tick();
+    expect(t.slice().answering).toEqual(['ask-1']);
+    t.fire();
+    expect(t.holds.size).toBe(0);
+    expect(t.slice()).toMatchObject({ answering: [], notice: { reason: 'answer-timeout' } });
+    expect(t.failed).toEqual([{ sessionId: 's1', reason: 'answer-timeout' }]);
+  });
+
+  it('時間内に相手が動いて見え方が捨てられていたら、何も知らせない', async () => {
+    const t = await answerRig(async () => ({ ok: true }));
+    t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['1'] } });
+    await t.tick();
+    t.holds.clear();
+    t.fire();
+    expect(t.failed).toEqual([]);
+    expect(t.slice().notice).toBeNull();
+  });
+
+  it('待つ長さは 30 秒', () => {
+    expect(PEER_ANSWER_TIMEOUT_MS).toBe(30_000);
   });
 });
 

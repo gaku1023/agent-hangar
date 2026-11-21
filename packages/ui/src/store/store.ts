@@ -7,6 +7,7 @@ import { sameValue } from '../lib/same.ts';
 import { initialCloudMember, reduceCloudMember, type CloudMemberState } from './cloudMember.ts';
 import { initialUpdate, type UpdateState } from './update.ts';
 import { applyUpdate as applyPeerChatUpdate, type PeerChatSlice } from './peerChat.ts';
+import { confirmPeerAnswer, reconcilePeerAnswer, type PeerAnswerHold } from './peerAnswer.ts';
 import { emptyOrchestrator, type OrchestratorSlice } from './orchestrator.ts';
 import type { FolderInspectState } from './folderInspect.ts';
 import type { HeadlessPageDto, LaunchPrepDto, GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
@@ -97,6 +98,8 @@ export type Store = {
   peerDelivered: Record<string, { from: PeerChatDevice; at: number }>;
   /** ほかの PC の会話を見ている画面の状態（セッションごと。store/peerChat.ts）。 */
   peerChat: Record<string, PeerChatSlice>;
+  /** ほかの PC の会話の札にこの PC から答えて、相手の返事を待たずに待ちを外している会話（store/peerAnswer.ts）。 */
+  peerAnswered: Record<string, PeerAnswerHold>;
   /** 統括の柱が読む状態（store/orchestrator.ts）。 */
   orchestrator: OrchestratorSlice;
   /** 机の音声の今の状態（GET /api/voice と事象 voice.state）。まだ読めていないか、読めなかったときは null（画面は今のマイクのまま）。 */
@@ -244,7 +247,7 @@ export function initialStore(): Store {
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     todos: {}, instructions: {}, artifacts: {}, artifactAddError: null, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerTest: null,
-    cloudUsage: null, sync: null, deleteApprovals: [], peerQueued: {}, peerDelivered: {}, peerChat: {}, orchestrator: emptyOrchestrator(), voice: null, voiceCatalog: null, schedules: [], eventTrigger: EMPTY_EVENT_TRIGGER, heldEvents: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
+    cloudUsage: null, sync: null, deleteApprovals: [], peerQueued: {}, peerDelivered: {}, peerChat: {}, peerAnswered: {}, orchestrator: emptyOrchestrator(), voice: null, voiceCatalog: null, schedules: [], eventTrigger: EMPTY_EVENT_TRIGGER, heldEvents: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
     readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, peers: null, launchPreps: {}, opencodeProviders: null, desktop: false, canRestoreHistory: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null, sharePreview: {},
     update: initialUpdate(),
@@ -263,7 +266,7 @@ const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object
  * 差し替えると、終了した run のスクロールバックを見ている最中に画面が変わってしまう。
  */
 export function applyBootstrap(store: Store, b: BootstrapDto): Store {
-  return { ...store, bootstrapped: true, peerQueued: b.peerQueued ?? {}, deleteApprovals: b.deleteApprovals, schedules: b.schedules ?? [], version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home, interrupted: b.interrupted };
+  return { ...store, bootstrapped: true, peerAnswered: {}, peerQueued: b.peerQueued ?? {}, deleteApprovals: b.deleteApprovals, schedules: b.schedules ?? [], version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home, interrupted: b.interrupted };
 }
 
 /** 鍵を 1 つ外す。無ければ同じ物を返す。 */
@@ -315,7 +318,14 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
   switch (ev.type) {
     case 'ready': return { ...store, version: ev.version };
     case 'project.upsert': return sameValue(store.projects[ev.project.id], ev.project) ? store : { ...store, projects: { ...store.projects, [ev.project.id]: ev.project } };
-    case 'session.upsert': return sameValue(store.sessions[ev.session.id], ev.session) ? store : { ...store, sessions: { ...store.sessions, [ev.session.id]: ev.session } };
+    case 'session.upsert': {
+      if (store.peerAnswered[ev.session.id]) {
+        // この PC から答えた札の見え方を持っている会話。相手の状態が動くまでは見え方を保つ（store/peerAnswer.ts）。
+        const r = reconcilePeerAnswer(store, ev.session);
+        return { ...store, peerAnswered: r.peerAnswered, sessions: { ...store.sessions, [ev.session.id]: r.session } };
+      }
+      return sameValue(store.sessions[ev.session.id], ev.session) ? store : { ...store, sessions: { ...store.sessions, [ev.session.id]: ev.session } };
+    }
     case 'session.removed': {
       // 預かりと札は、会話が Store に無くても持っていることがあるので、先に片付ける。
       const peer = ev.id in store.peerQueued || ev.id in store.peerDelivered
@@ -365,7 +375,7 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     case 'peerChat.update': {
       // 見ていない会話の更新は捨てる（画面を閉じたあとに届いた分）。
       const cur = store.peerChat[ev.sessionId];
-      return cur ? { ...store, peerChat: { ...store.peerChat, [ev.sessionId]: applyPeerChatUpdate(cur, ev) } } : store;
+      return cur ? confirmPeerAnswer({ ...store, peerChat: { ...store.peerChat, [ev.sessionId]: applyPeerChatUpdate(cur, ev) } }, ev.sessionId) : store;
     }
     case 'voice.state': return sameValue(store.voice, ev.state) ? store : { ...store, voice: ev.state };
     case 'deleteApprovals.update': return sameValue(store.deleteApprovals, ev.approvals) ? store : { ...store, deleteApprovals: ev.approvals };

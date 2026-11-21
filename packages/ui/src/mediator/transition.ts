@@ -89,7 +89,8 @@ export function transition(state: State, store: Store, input: Input): Step {
   const settings = (s: State, i: Input) => settingsStep(s, store, i);
   const pane = (s: State, i: Input) => paneStep(s, store, i);
   const orch = (s: State, i: Input) => orchestratorStep(s, i, store);
-  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, linkRepair, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, pane, sidebarStep, sidebarOrderStep, sidebarFoldStep, sidebarWidthStep, projectRailStep, returnStep, arrived, phoneLaunch, contextShort, modelMissing, wakeGlow, noticesStep, notifyStep, update, opencodeVersion, codexVersion, cloudMemberStep, peerChatStep, orch, todos, workbench]) {
+  const peerChat = (s: State, i: Input) => peerChatStep(s, store, i);
+  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, linkRepair, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, pane, sidebarStep, sidebarOrderStep, sidebarFoldStep, sidebarWidthStep, projectRailStep, returnStep, arrived, phoneLaunch, contextShort, modelMissing, wakeGlow, noticesStep, notifyStep, update, opencodeVersion, codexVersion, cloudMemberStep, peerChat, orch, todos, workbench]) {
     const r = step(state, input);
     if (r) return settled(state, r, store);
   }
