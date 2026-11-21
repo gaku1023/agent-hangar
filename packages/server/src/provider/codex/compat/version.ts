@@ -39,6 +39,8 @@ export type LocalCodexDeps = {
   env?: NodeJS.ProcessEnv;
   /** 1 回の問いの時間の上限。 */
   timeoutMs?: number;
+  /** login status だけの時間の上限。無ければ timeoutMs。試験が版の読みと切り離して短くする。 */
+  loginTimeoutMs?: number;
   /** codex の本物の置き場（既定は ~/.codex）。無ければ login status は打たない（打つと置き場が生えるため）。 */
   codexHome?: string;
 };
@@ -63,8 +65,8 @@ export class LocalCodex {
     return { found: true, version, verified: judgeCodexVersion(version) === 'verified', loggedIn };
   };
 
-  private run(bin: string, args: string[], env: NodeJS.ProcessEnv = codexBaseEnv(bin, this.deps.env)): ReturnType<typeof captureOutput> {
-    return captureOutput(bin, args, { timeoutMs: this.deps.timeoutMs ?? 5000, env, stderr: true, shell: needsShell(bin) });
+  private run(bin: string, args: string[], env: NodeJS.ProcessEnv = codexBaseEnv(bin, this.deps.env), timeoutMs = this.deps.timeoutMs ?? 5000): ReturnType<typeof captureOutput> {
+    return captureOutput(bin, args, { timeoutMs, env, stderr: true, shell: needsShell(bin) });
   }
 
   /** 終了コード 0 ならログイン済み、0 以外なら未ログイン。時間切れは分からない（null）。起こせなかったときは偽（起動はそのあと自分で失敗する）。 */
@@ -72,7 +74,7 @@ export class LocalCodex {
     // 置き場がまだ無いなら、ログインしたことが無い。打つと codex が置き場（tmp/arg0-*）を作ってしまうので、打たない。
     const home = this.deps.codexHome ?? path.join(os.homedir(), '.codex');
     if (!fs.statSync(home, { throwIfNoEntry: false })?.isDirectory()) return Promise.resolve(false);
-    return this.run(bin, ['login', 'status']).then((r) => r.code === 0, (e: unknown) => (e instanceof MessageError && e.text?.key === 'platform.capture.timeout' ? null : false));
+    return this.run(bin, ['login', 'status'], undefined, this.deps.loginTimeoutMs ?? this.deps.timeoutMs ?? 5000).then((r) => r.code === 0, (e: unknown) => (e instanceof MessageError && e.text?.key === 'platform.capture.timeout' ? null : false));
   }
 
   private version(bin: string, key: string): Promise<string | null> {

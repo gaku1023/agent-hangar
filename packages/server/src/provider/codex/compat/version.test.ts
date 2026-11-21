@@ -81,9 +81,11 @@ describe('LocalCodex', () => {
       expect(l.env.PATH).toContain(path.dirname(process.execPath));
     }
   });
+  // 時間切れを短くするのは login status だけにする。版の読みまで 600ms で切ると、重い Windows のランナーでは
+  // 偽の codex の起動が間に合わず版が null になり、CI で揺れていた（2026-11-21、2 回）。
   it('login status が時間切れなら loggedIn は null（分からない）。版は読める', async () => {
     const bin = writeFakeCodex(dir, { version: '0.167.2', loginHang: true });
-    expect(await new LocalCodex({ bin: () => bin, codexHome: dir, timeoutMs: 600 }).status()).toEqual({ found: true, version: '0.167.2', verified: true, loggedIn: null });
+    expect(await new LocalCodex({ bin: () => bin, codexHome: dir, loginTimeoutMs: 600 }).status()).toEqual({ found: true, version: '0.167.2', verified: true, loggedIn: null });
   });
   it('版は一時の CODEX_HOME で読み、本物の置き場には何も作らせない。.codex が無ければ login status は起こさず未ログイン', async () => {
     const logFile = path.join(dir, 'log.jsonl');
