@@ -38,6 +38,12 @@ function writeUnread(db: Db, sessionId: string, cols: Record<(typeof UNREAD_COLS
   upsertShared(db, 'session_states', { session_id: sessionId, ...cols, unread_changed_at: stamp }, deviceOf(db), 'session_id', stamp);
 }
 
+/** ミュートした会話か（session_states.muted_at）。sessions/states.ts の isSessionMuted と同じ読み方で、循環の import を避けて ここに置く。 */
+function mutedRow(db: Db, sessionId: string): boolean {
+  const r = db.prepare('select muted_at from session_states where session_id = ? and deleted_at is null').get(sessionId) as { muted_at: number | null } | undefined;
+  return (r?.muted_at ?? null) !== null;
+}
+
 /**
  * 未読を 1 つ積む。count を 1 つ増やし、最後の本文と時刻と場面を置き換える。戻り値は積んだ後の count である。
  * 会話の行が無い id には積まず、0 を返す。
@@ -45,6 +51,8 @@ function writeUnread(db: Db, sessionId: string, cols: Record<(typeof UNREAD_COLS
  */
 export function addUnread(db: Db, sessionId: string, text: string, now: number, o: { kind?: NotifyKind } = {}): number {
   if (!sessionExists(db, sessionId)) return 0;
+  // ミュートした会話（静かな会話）には積まない。どの道（notify_user、ターンの終わり、預かり、別の PC の問い）から来ても、ここで 1 か所で止める。
+  if (mutedRow(db, sessionId)) return 0;
   const cur = unreadCols(db, sessionId);
   const count = (cur?.unread_count ?? 0) + 1;
   writeUnread(db, sessionId, { unread_count: count, unread_text: text, unread_at: now, unread_kind: o.kind ?? 'done', unread_device: deviceOf(db) }, now, cur);
@@ -142,6 +150,17 @@ export function onUnreadReady(cb: UnreadListener): () => void {
   return () => { readyListeners.delete(cb); };
 }
 
+const mutedGuards = new Set<(sessionId: string) => boolean>();
+
+/**
+ * noteUnread の入口の守りを足す。真を返した会話の知らせは購読へ渡さない。戻り値を呼ぶと外す。
+ * noteUnread は db を持たないので、起動（boot/runs.ts）が db を閉じ込めた判定（isSessionMuted）を渡す。
+ */
+export function guardMutedUnread(muted: (sessionId: string) => boolean): () => void {
+  mutedGuards.add(muted);
+  return () => { mutedGuards.delete(muted); };
+}
+
 const fire = (set: Set<UnreadListener>, sessionId: string, text: string, count: number, sent: NotifyTarget[], meta: UnreadMeta): void => {
   for (const cb of set) {
     try { cb(sessionId, text, count, sent, meta); } catch (e) { console.error('[unread] a listener failed', e instanceof Error ? e.constructor.name : typeof e); }
@@ -150,10 +169,14 @@ const fire = (set: Set<UnreadListener>, sessionId: string, text: string, count: 
 
 /** 知らせを購読へ渡す。sent は設定を通って実際に出す先で、購読者は os と phone を見て送る。count は積んだ後の数（unread を出さなかったときは今の数）。購読が投げても、書いた側にも他の購読にも波及させない。 */
 export function noteUnread(sessionId: string, text: string, count: number, sent: NotifyTarget[], meta: UnreadMeta = { kind: 'done' }): void {
+  // ミュートした会話（静かな会話）の知らせは、OS とスマホへの預かり（UnreadHold）にも渡さない。
+  for (const muted of mutedGuards) if (muted(sessionId)) return;
   fire(unreadListeners, sessionId, text, count, sent, meta);
 }
 
 /** 出してよくなった知らせを onUnreadReady の購読へ渡す。呼ぶのは預かり（UnreadHold）と、返答の終わりの数え（NotifyFallback）である。 */
 export function noteUnreadReady(sessionId: string, text: string, count: number, sent: NotifyTarget[], meta: UnreadMeta = { kind: 'done' }): void {
+  // 預かっている間にミュートされた会話も、出す前に止める。
+  for (const muted of mutedGuards) if (muted(sessionId)) return;
   fire(readyListeners, sessionId, text, count, sent, meta);
 }

@@ -560,6 +560,11 @@ describe('hotSessions（集計が見る会話だけの並び）', () => {
     const t2 = { ...t1, q: at(quiet, { live: 'busy' }) };
     expect(hotSessions(t2).map((s) => s.id)).toEqual(['q', 'w']);
   });
+  it('ミュートした会話は、動いていても入力待ちでも、サイドバー（liveSessionIds）と入力待ちに入れない', () => {
+    const store = applyBootstrap(initialStore(), { ...boot, sessions: [at(session('a', 'ua'), { live: 'busy', mutedAt: 1 }), at(session('b', 'ub'), { live: 'waiting', mutedAt: 1 }), at(session('c', 'uc'), { live: 'busy' })] });
+    expect(liveSessionIds(store)).toEqual(['c']);
+    expect(waitingSessionIds(store)).toEqual([]);
+  });
   it('ほかの PC のロックのある会話も、liveSessionIds に入る（run の有無とは別に）', () => {
     const lock = { deviceId: 'd2', deviceName: 'Office', runId: 'r9', heartbeatAt: 1, stale: false };
     const store = applyBootstrap(initialStore(), { ...boot, sessions: [session('a', 'ua'), at(session('b', 'ub'), { lock })] });

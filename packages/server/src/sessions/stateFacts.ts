@@ -13,6 +13,7 @@ export const STATE_FACTS: readonly StateFact[] = [
   { at: 'pinned_changed_at', cols: ['pinned_at'] },
   // 未読（版 67、live/unread.ts）。積むのは動かしている PC、既読はどちらの PC でもよく、新しい方を採る。
   { at: 'unread_changed_at', cols: ['unread_count', 'unread_text', 'unread_at', 'unread_kind', 'unread_device'] },
+  { at: 'muted_changed_at', cols: ['muted_at'] },
 ];
 
 /** 差分が触れた事実の時刻の列を、at にした差分を返す。 */

@@ -97,6 +97,7 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.createSession.addDirsParam': '作業ディレクトリのほかに読み書きを許すディレクトリ（claude の --add-dir）。claude-code だけで、codex と opencode に渡すと断る',
   'mcp.createSession.permissionModeParam': '権限。claude-code では default、acceptEdits、plan などの権限モード、codex では read-only、auto、full-access のどれか（省くと auto）。opencode では使えない',
   'mcp.createSession.deviceParam': '起動先の PC の名前か ID（list_devices で調べる）。省くとこの PC で起動する。別の PC へは、この会話と同じプロジェクトにだけすぐ起動できる。他のプロジェクトとクイックセッションは、ユーザーの承認が必要。結果は後で、この会話への入力として受け取る',
+  'mcp.createSession.silentParam': 'ミュートした会話として起こすなら true。未読の数・デスクトップ通知・スマホの通知を出さず、サイドバーにも出さない。プロジェクトの会話の一覧と検索には出る。見張りや調査など、ユーザーがすぐ見なくてよい下請けの会話に使う。呼び出し元の会話からは引き継がれないので、毎回指定する',
   'mcp.tool.listDevices': '同じグループの他の PC の一覧。名前、OS、オンラインか、アカウントとログインの可否、入っているエージェント、hangar のバージョンを返す。outdated が true の PC は hangar が古く、起動先にできない',
   'mcp.device.unknown': '「{device}」という PC は見つかりません。使えるのは: {names}',
   'mcp.device.outdated': '{device} の hangar が古いため、このリクエストを受けられません。先に {device} の hangar を更新してください',

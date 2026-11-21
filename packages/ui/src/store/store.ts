@@ -652,6 +652,8 @@ export function outsideOpenOf(store: Store, session: SessionDto): 'attach' | 'ad
  * 作業中のもの、付けた後に動き出して問いで待っているもの（quietLive が waiting のまま返す）、未読のあるものは載せる。動き出した結果を見落とさないためである。
  */
 function tucked(s: SessionDto): boolean {
+  // ミュートした会話（静かな会話）は、動いていても入力待ちでもサイドバーに載せない（2026-11-21）。
+  if ((s.mutedAt ?? null) !== null) return true;
   if (s.state?.status !== 'paused' || (s.unread?.count ?? 0) > 0) return false;
   const live = quietLive(liveWithLimit(s.live, s.limit), s.state.status, s.woke);
   return live !== 'busy' && live !== 'waiting';
@@ -678,6 +680,8 @@ export function liveSessionIds(store: Store): string[] {
  * 問いで待っている最中に区切りを付けても Claude は止まらず（休みではないので）、一覧の live は waiting のまま残るが、利用者はもう答えないと決めているからである。
  */
 export function awaitsAnswer(s: SessionDto): boolean {
+  // ミュートした会話は答えを待っていても知らせない。
+  if ((s.mutedAt ?? null) !== null) return false;
   return liveFilterOf(quietLive(liveWithLimit(s.live, s.limit), s.state?.status, s.woke), false) === 'waiting';
 }
 
@@ -686,6 +690,7 @@ export function awaitsAnswer(s: SessionDto): boolean {
  * Home の要対応と、ホームの項目の数が使う。OS の通知と Dock のバッジは、動いている PC が出すので、awaitsAnswer（この PC の live）のままにする。
  */
 export function awaitsAnswerAnywhere(s: SessionDto): boolean {
+  if ((s.mutedAt ?? null) !== null) return false;
   return liveFilterOf(quietLive(liveWithLimit(countedLive(s), s.limit), s.state?.status, s.woke), false) === 'waiting';
 }
 

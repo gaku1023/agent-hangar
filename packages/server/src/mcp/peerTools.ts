@@ -89,6 +89,7 @@ export async function createRemoteSessionTool(deps: ToolDeps, ctx: ToolContext, 
     account: str(args.account) ?? '', permissionMode, model: str(args.model) ?? '', prompt: str(args.prompt) ?? '',
     ...(str(args.effort) ? { effort: str(args.effort)! } : {}), ...(modeArg ? { mode: modeArg } : {}),
     ...(bool(args.auto_approve) === true ? { autoApprove: true } : {}), ...(str(args.name) ? { name: str(args.name)! } : {}),
+    ...(bool(args.silent) === true ? { silent: true } : {}),
     callerAccount: callerAccountName(deps, ctx.sessionId, kind),
   };
   // 呼び出し元と同じプロジェクトだけ、承認なしで起こせる。人が画面から起こす経路はここを通らない（D8）。

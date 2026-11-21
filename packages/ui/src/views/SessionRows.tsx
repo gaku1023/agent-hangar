@@ -101,6 +101,11 @@ function holdsFocus(el: Element | null, host: HTMLElement | null): boolean {
  * badgeAction を渡すと、行の状態の札がそのタブへ移るボタンになる（Home の ★）。
  * statusColumn が偽なら、状態の列（F1）を畳む。状態がどれも同じ一覧（Done のタブなど）で使う。動きの点は、列があれば札の中に、無ければ行の頭に置く。
  */
+/** ミュートした会話の印（試作の L1）。未読の丸が出ない代わりに、右端にベルの斜線を置く。語は添えない。 */
+export function MutedMark(props: { label: string }) {
+  return <span className="row-muted" title={props.label}><Icon name="bellOff" label={props.label} /></span>;
+}
+
 export function SessionRows(props: RowsSource & { /** 一覧の高さ。省くと器（.screen-fill など）から受け取る。 */ height?: number | string; variant: RowVariant; emptyText?: string; /** 行が無いときの札。あれば emptyText の代わりに出す。 */ emptyNode?: ReactNode; autoFocus?: boolean; id?: string; page?: number; statusColumn?: boolean; badgeAction?: (status: StatusFilter) => UiAction; /** 並びの替わりを知らせる範囲（VirtualList の scope）。タブ、条件、ページが替わったら替える。 */ scope?: string; /** 行の末尾（スクロールの中）に置くもの。行が 0 件のときも出す。 */ foot?: ReactNode }) {
   const emit = useEmit();
   const t = useT();
@@ -286,6 +291,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
       <span className="row-when">
         {r.transcript === 'expiring' && <span className="row-soon">{t('row.soon.delete')}</span>}
         {r.transcript === 'gone' && <span className="row-gone" title={goneLabel}><Icon name="transcriptGone" label={goneLabel} /></span>}
+        {r.muted && <MutedMark label={r.muted} />}
         {r.interrupted && <span className="row-interrupted" title={r.interrupted.title}>{r.interrupted.label}<span className="sr-only">{` ${r.interrupted.title}`}</span></span>}
         {/* 止まっている理由があれば、右端の語をそれに替える（「許可待ち」「使用制限 · 16:50」「リセット済み」、試作の L1）。 */}
         {r.live && liveWord(t, r) !== null && <span className="row-live" data-live={r.reason === 'limit' ? 'limit' : r.live === 'waiting' ? 'waiting' : 'busy'} aria-hidden="true">{liveWord(t, r)}</span>}

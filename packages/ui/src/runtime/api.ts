@@ -272,6 +272,7 @@ export type ApiClient = {
   viewing?(client: string, sessionId: string | null): Promise<void>;
   markUnread(sessionId: string): Promise<void>;
   setPinned(sessionId: string, pinned: boolean): Promise<void>;
+  setMuted(sessionId: string, muted: boolean): Promise<void>;
   launchSettings(sessionId: string): Promise<SessionLaunchSettingsDto>;
   /** プロジェクトの指示とメモリ。あるファイルだけが来る。 */
   instructions(projectId: string): Promise<InstructionsDto>;
@@ -530,6 +531,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     viewing: (client, sessionId) => post('/api/viewing', { client, sessionId }),
     markUnread: (sessionId) => post(`/api/sessions/${sessionId}/unread`, {}),
     setPinned: (sessionId, pinned) => post(`/api/sessions/${sessionId}/pin`, { pinned }),
+    setMuted: (sessionId, muted) => post(`/api/sessions/${sessionId}/mute`, { muted }),
     launchSettings: (sessionId) => call(`/api/sessions/${sessionId}/launch-settings`),
     instructions: (projectId) => call(`/api/projects/${projectId}/instructions`),
     openInstruction: (projectId, kind, once) => post(`/api/projects/${projectId}/instructions/open`, { kind, ...(once ? { once } : {}) }),

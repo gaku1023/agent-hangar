@@ -103,6 +103,18 @@ describe('PeerLaunchInbox', () => {
     expect(start.mock.calls[2]![0]).toEqual({ projectId: 'project-a', launchedBy: 'session', agent: 'codex', mode: 'full-access', prompt: 'TODO の先頭をやって' });
   });
 
+  it('silent の頼みは、起こした会話をミュートする。付いていなければしない', async () => {
+    const db = openDb(':memory:');
+    for (const id of ['s-new', 's-two']) upsertShared(db, 'sessions', { id, provider: 'claude-code', provider_session_id: `u-${id}`, cwd: '/w', home_device: 'pc-b' }, 'pc-b');
+    let n = 0;
+    const { inbox, post } = await setup({ db, start: () => started(n++ === 0 ? 's-new' : 's-two') });
+    await inbox.receive(await post('m1', request({ silent: true })));
+    await inbox.receive(await post('m2', request({})));
+    const mutedAt = (id: string) => (db.prepare('select muted_at from session_states where session_id = ?').get(id) as { muted_at: number | null } | undefined)?.muted_at ?? null;
+    expect(mutedAt('s-new')).not.toBeNull();
+    expect(mutedAt('s-two')).toBeNull();
+  });
+
   it('Claude Code の permissionMode default は受けて、start に default を渡す', async () => {
     const { inbox, post, start, answerOf } = await setup();
     await inbox.receive(await post('d1', request({ permissionMode: 'default' })));

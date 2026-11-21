@@ -10,6 +10,7 @@ import { claudeTranscriptSource } from '../provider/claude-code/transcript/sourc
 import { addIntent } from '../live/intents.ts';
 import { buildMobileFeed, feedCaps, LAST_USED_SQL, type FeedSources } from './feed.ts';
 import { saveRemoteUrl } from './remoteUrl.ts';
+import { setSessionMuted } from '../sessions/states.ts';
 
 const ME = 'pc-me';
 const OTHER = 'pc-other';
@@ -62,6 +63,15 @@ describe('buildMobileFeed', () => {
     expect(buildMobileFeed(src(db)).caps).toEqual({ asks: true, images: true, effort: true, launchExtras: true });
   });
 
+  it('ミュートした会話は、入力待ちでも要対応（waiting）に載せない。スマホへの通知はこの差分から出るので', () => {
+    const db = seed();
+    session(db, 's1', { name: '会話 1' });
+    run(db, 'run1', 's1');
+    setSessionMuted(db, ME, 's1', true, NOW);
+    const feed = buildMobileFeed(src(db, { live: [liveOf('s1', { status: 'waiting', waitingFor: 'question', statusAt: NOW - 5000 })] }));
+    expect(feed.live).toHaveLength(1);
+    expect(feed.live[0]!.status).toBe('idle');
+  });
   it('入力待ちの run は waiting に問いの文が入り、300 字で切られる', () => {
     const db = seed();
     session(db, 's1', { name: '会話 1' });

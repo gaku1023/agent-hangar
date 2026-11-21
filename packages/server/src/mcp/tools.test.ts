@@ -1101,6 +1101,19 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
     expect(parentOf('sNew')).toBeUndefined();
   });
 
+  it('create_session は silent: true のときだけ、起こした会話をミュートする（呼んだ会話から引き継がない）', async () => {
+    // 本物の runs.start は起こす前に会話の行を作る（runs/manager.ts）。ここでは偽の start の代わりに置く。
+    upsertShared(db, 'sessions', { id: 'sNew', provider: 'claude-code', provider_session_id: 'uNew', cwd: '/w', home_device: 'd' }, 'd');
+    const mutedAt = (id: string) => (db.prepare('select muted_at from session_states where session_id = ?').get(id) as { muted_at: number | null } | undefined)?.muted_at ?? null;
+    await call('create_session', { project_id: 'p1', silent: true }, scoped());
+    expect(mutedAt('sNew')).not.toBeNull();
+    db.prepare('update session_states set muted_at = null').run();
+    // 呼んだ会話がミュートでも、指定しなければ普通の会話として起こす。
+    db.prepare("insert into session_states (session_id, muted_at, updated_at, origin_device) values (?, 1, 1, 'd') on conflict(session_id) do update set muted_at = 1").run(alphaId);
+    await call('create_session', { project_id: 'p1' }, scoped());
+    expect(mutedAt('sNew')).toBeNull();
+  });
+
   it('create_session は、会話から呼ばれたら人のいない起動（session）として起こし、引き継ぎと共通の URL では付けない', async () => {
     await call('create_session', { project_id: 'p1' }, scoped());
     expect(started.at(-1)!.launchedBy).toBe('session');

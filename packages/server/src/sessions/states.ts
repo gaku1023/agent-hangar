@@ -39,6 +39,8 @@ type StateRow = {
   restored_at: number | null;
   /** ピン留めした時刻（版 43）。null なら留めていない。状態の書き込みでは触らない（setSessionPinned）。 */
   pinned_at: number | null;
+  /** ミュートした時刻（版 67）。null ならミュートしていない。状態の書き込みでは触らない（setSessionMuted）。 */
+  muted_at: number | null;
   updated_at: number; deleted_at: number | null; origin_device: string;
 };
 /** DTO に写すのに要る列。db/queries.ts の左結合の行も、この形に詰め直して渡す。 */
@@ -179,6 +181,24 @@ export function setSessionPinned(db: Db, deviceId: string, sessionId: string, pi
   // 押し直しでは書かない。留めた時刻は並びの順なので、変えると行が動く。
   if ((cur?.pinned_at ?? null) !== null === pinned) return;
   write(db, deviceId, sessionId, { pinned_at: pinned ? now : null }, Math.max(now, (cur?.updated_at ?? 0) + 1));
+}
+
+/**
+ * ミュート（静かな会話、2026-11-21）を書く。ミュートした会話は未読・OS・スマホの知らせを出さず（live/unread.ts の入口の守り）、サイドバーに載らない。
+ * プロジェクトの一覧、検索、get_transcript には残る。押し直しでは書かない。ミュートしたら残っていた未読を消す（settleUnread と同じ理由）。
+ * 行の updated_at の決め方はピン留めと同じ（setSessionPinned）。
+ */
+export function setSessionMuted(db: Db, deviceId: string, sessionId: string, muted: boolean, now = Date.now()): void {
+  const cur = db.prepare('select muted_at, updated_at from session_states where session_id = ?').get(sessionId) as Pick<StateRow, 'updated_at' | 'muted_at'> | undefined;
+  if ((cur?.muted_at ?? null) !== null === muted) return;
+  write(db, deviceId, sessionId, { muted_at: muted ? now : null }, Math.max(now, (cur?.updated_at ?? 0) + 1));
+  if (muted) markSeen(db, sessionId);
+}
+
+/** ミュートした会話か。行が無ければ false。 */
+export function isSessionMuted(db: Db, sessionId: string): boolean {
+  const r = db.prepare('select muted_at from session_states where session_id = ? and deleted_at is null').get(sessionId) as { muted_at: number | null } | undefined;
+  return (r?.muted_at ?? null) !== null;
 }
 
 export function setSessionTrashed(db: Db, deviceId: string, sessionId: string, at: number | null, now = Date.now()): void {

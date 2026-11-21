@@ -5,6 +5,7 @@ import type { Account } from '../config/accounts.ts';
 import { accountOfSession, displayName } from '../db/queries.ts';
 import type { Db } from '../db/open.ts';
 import { latestIntent } from '../live/intents.ts';
+import { isSessionMuted } from '../sessions/states.ts';
 
 /** Done を受信箱に残す長さ。「今日」の絞り込みはスマホが自分の日付でするので、PC は少し広めに入れる。 */
 export const DONE_WINDOW_MS = 36 * 3_600_000;
@@ -155,7 +156,8 @@ export function buildMobileFeed(src: FeedSources): MobileFeed {
       projectName: s.project_name ?? '',
       title: titleOf(s, l),
       accountId: accountOf(s),
-      status: l.status,
+      // ミュートした会話（静かな会話）は要対応に入れない。スマホへの通知は要対応に新しく入った会話から出るためである（publisher.ts）。
+      status: l.status === 'waiting' && isSessionMuted(db, s.id) ? 'idle' : l.status,
       statusAt: l.statusAt ?? r.started_at,
       startedAt: r.started_at,
       waiting: waitingOf(db, s.id, l),

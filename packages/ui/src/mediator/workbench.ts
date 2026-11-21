@@ -70,6 +70,7 @@ export function workbenchStep(state: State, store: Store, input: Input): Step | 
     case 'todo.add': return i.text.trim() ? { state, effects: [{ kind: 'api.addTodo', projectId: i.projectId, text: i.text.trim() }, { kind: 'focus', target: 'todoInput' }] } : { state, effects: [] };
     case 'session.spawn.detach': return { state, effects: [{ kind: 'api.detachSpawn', id: i.id }] };
     case 'session.pin': return { state, effects: [{ kind: 'api.setPinned', id: i.id, pinned: i.pinned }] };
+    case 'session.mute': return { state, effects: [{ kind: 'api.setMuted', id: i.id, muted: i.muted }] };
     case 'session.duplicate': return { state, effects: [{ kind: 'api.loadDuplicate', id: i.id }] };
     // 開いている会話を未読に戻したときは、戻した未読がすぐ既読にならないよう、離れるまで印を持つ（screen.ts の seenStep）。
     case 'session.unread.mark': return { state: { ...state, unreadKept: state.screen.name === 'session' && state.screen.id === i.id ? i.id : state.unreadKept }, effects: [{ kind: 'api.markUnread', id: i.id }] };

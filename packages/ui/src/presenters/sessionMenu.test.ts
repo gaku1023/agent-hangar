@@ -37,13 +37,22 @@ describe('セッションのメニューの中身（presentSessionMenu）', () =
     const s = session({ state: { status: 'done', setBy: 'user', setAt: NOW, note: null, returnOn: null, candidate: null } as SessionDto['state'] });
     const m = presentSessionMenu(storeWith(s), s, ja);
     expect(m).toMatchObject({ id: 's1', name: 'ログイン画面の直し', status: 'done', stop: null, moveBlocked: null, resumeHere: null });
-    expect(keys(m)).toEqual(['active', 'paused', 'done', 'archived', 'markUnread', 'pin', 'duplicate', 'splitRight', 'splitDown', 'move', 'copyId', 'delete']);
+    expect(keys(m)).toEqual(['active', 'paused', 'done', 'archived', 'markUnread', 'pin', 'mute', 'duplicate', 'splitRight', 'splitDown', 'move', 'copyId', 'delete']);
+  });
+  it('ミュートの項目はピン留めの隣に置き、押すたびに語と向きが入れ替わる。ミュート中は「未読に戻す」を出さない', () => {
+    const s = session({});
+    const m = presentSessionMenu(storeWith(s), s, ja);
+    expect(entry(m, 'mute')).toMatchObject({ label: 'ミュートする', icon: 'bellOff', disabled: null, send: { type: 'session.mute', id: 's1', muted: true } });
+    const q = session({ mutedAt: NOW });
+    const mq = presentSessionMenu(storeWith(q), q, ja);
+    expect(entry(mq, 'mute')).toMatchObject({ label: 'ミュートを解除する', icon: 'bell', send: { type: 'session.mute', id: 's1', muted: false } });
+    expect(keys(mq)).not.toContain('markUnread');
   });
   it('hangar で動いている会話は停止を押せ、削除は出さない（止めると出る）', () => {
     const s = session({ live: 'busy' });
     const m = presentSessionMenu(storeWith(s, { runs: { r1: run() }, tabs: { t2: shellTab('t2') } }), s, ja);
     expect(m.stop).toEqual({ runId: 'r1', working: true, aside: false, shellTabs: 1 });
-    expect(keys(m)).toEqual(['active', 'paused', 'done', 'archived', 'markUnread', 'pin', 'duplicate', 'splitRight', 'splitDown', 'move', 'copyId', 'stop']);
+    expect(keys(m)).toEqual(['active', 'paused', 'done', 'archived', 'markUnread', 'pin', 'mute', 'duplicate', 'splitRight', 'splitDown', 'move', 'copyId', 'stop']);
     expect(entry(m, 'stop')).toMatchObject({ label: '停止', danger: true, disabled: null, send: { type: 'session.kill', runId: 'r1', working: true, aside: false, shellTabs: 1 } });
   });
   it('外部ターミナルで動いている会話は、停止を外部ターミナルの理由で押せず、削除は出さない', () => {
@@ -134,8 +143,8 @@ describe('セッションのメニューの項目（sessionMenuEntries）', () =
     expect(del).toMatchObject({ separatorBefore: true, disabled: null, send: { type: 'session.delete.open', id: 's1' } });
   });
   it('英語の画面では英語の短い語にする', () => {
-    expect(sessionMenuEntries(en, base({ stop: 'external' })).map((x) => x.label)).toEqual(['Active', 'Paused', 'Done', 'Archived', 'Mark as Unread', 'Pin', 'New Session with Same Settings…', 'Split Right', 'Split Down', 'Change project…', 'Copy session ID', 'Stop']);
-    expect(sessionMenuEntries(en, base()).map((x) => x.label)).toEqual(['Active', 'Paused', 'Done', 'Archived', 'Mark as Unread', 'Pin', 'New Session with Same Settings…', 'Split Right', 'Split Down', 'Change project…', 'Copy session ID', 'Delete…']);
+    expect(sessionMenuEntries(en, base({ stop: 'external' })).map((x) => x.label)).toEqual(['Active', 'Paused', 'Done', 'Archived', 'Mark as Unread', 'Pin', 'Mute', 'New Session with Same Settings…', 'Split Right', 'Split Down', 'Change project…', 'Copy session ID', 'Stop']);
+    expect(sessionMenuEntries(en, base()).map((x) => x.label)).toEqual(['Active', 'Paused', 'Done', 'Archived', 'Mark as Unread', 'Pin', 'Mute', 'New Session with Same Settings…', 'Split Right', 'Split Down', 'Change project…', 'Copy session ID', 'Delete…']);
   });
 });
 
@@ -143,7 +152,7 @@ describe('画面の分割の項目（sessionMenuEntries）', () => {
   const base = (over: Partial<SessionMenuProps> = {}): SessionMenuProps => ({ id: 's1', name: 'n', status: null, resumeHere: null, stop: null, moveBlocked: null, ...over });
   it('「右に分割して開く」「下に分割して開く」が、操作中のペイン（target は null）へ向けた pane.open を出す', () => {
     const e = sessionMenuEntries(ja, base());
-    expect(e.slice(7, 9)).toMatchObject([
+    expect(e.slice(8, 10)).toMatchObject([
       { key: 'splitRight', label: '右に分割して開く', send: { type: 'pane.open', sessionId: 's1', target: null, side: 'right' }, disabled: null },
       { key: 'splitDown', label: '下に分割して開く', send: { type: 'pane.open', sessionId: 's1', target: null, side: 'down' }, disabled: null },
     ]);
@@ -155,8 +164,8 @@ describe('画面の分割の項目（sessionMenuEntries）', () => {
   });
   it('そのセッションが木にあるときは、分割のまとまりの先頭に「表示中のペインへ移動」（pane.focus）が付く。木に無ければ出ない', () => {
     const e = sessionMenuEntries(ja, base({ pane: 'p7' }));
-    expect(e[7]).toMatchObject({ key: 'goToPane', label: '表示中のペインへ移動', send: { type: 'pane.focus', pane: 'p7' }, disabled: null });
-    expect(e.slice(8, 10).map((x) => x.key)).toEqual(['splitRight', 'splitDown']);
+    expect(e[8]).toMatchObject({ key: 'goToPane', label: '表示中のペインへ移動', send: { type: 'pane.focus', pane: 'p7' }, disabled: null });
+    expect(e.slice(9, 11).map((x) => x.key)).toEqual(['splitRight', 'splitDown']);
     expect(e[4]!.separatorBefore).toBe(true);
     expect(e[5]!.separatorBefore).toBeFalsy();
     expect(sessionMenuEntries(ja, base({ pane: null })).map((x) => x.key)).not.toContain('goToPane');
@@ -166,6 +175,6 @@ describe('画面の分割の項目（sessionMenuEntries）', () => {
     expect(sessionMenuEntries(ja, base({ resumeHere: { disabled: null } })).slice(0, 2).map((x) => x.key)).toEqual(['resumeHere', 'active']);
   });
   it('英語の画面では Split Right、Split Down、Go to Pane', () => {
-    expect(sessionMenuEntries(en, base({ pane: 'p1' })).slice(7, 10).map((x) => x.label)).toEqual(['Go to Pane', 'Split Right', 'Split Down']);
+    expect(sessionMenuEntries(en, base({ pane: 'p1' })).slice(8, 11).map((x) => x.label)).toEqual(['Go to Pane', 'Split Right', 'Split Down']);
   });
 });

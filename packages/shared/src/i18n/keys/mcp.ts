@@ -87,6 +87,7 @@ export const mcpKeys = {
   'mcp.createSession.addDirsParam': [],
   'mcp.createSession.permissionModeParam': [],
   'mcp.createSession.deviceParam': [],
+  'mcp.createSession.silentParam': [],
   'mcp.tool.listDevices': [],
   'mcp.device.unknown': ['device', 'names'],
   'mcp.device.outdated': ['device'],

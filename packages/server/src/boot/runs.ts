@@ -28,6 +28,8 @@ import { hasMarkedIdle, ParkWatch, parkedSessionIds } from '../sessions/park.ts'
 import { getSession, setParkingSwitch } from '../db/queries.ts';
 import { paceNotices, StopNoticeWatch } from '../sessions/stopNotices.ts';
 import { UnreadHold } from '../live/unreadHold.ts';
+import { guardMutedUnread } from '../live/unread.ts';
+import { isSessionMuted } from '../sessions/states.ts';
 import { NotifyFallback } from '../live/notifyFallback.ts';
 import { lastReply } from '../mcp/waitTool.ts';
 import { paneOpsFor, type PaneOps } from '../tmux/pane.ts';
@@ -288,6 +290,8 @@ export function bootRuns(
   stopNotices.subscribeAppNotice();
   // notify_user の OS とスマホの通知は、done と ask ならターンを抜けるまで預かる。返答を書き終えてから届くようにするためである。
   // 入力待ちの見張りより先に出し、merge（返答と入力待ちを 1 通に）が同じ変わり目で重なりを見られるようにする。
+  // ミュートした会話（静かな会話）の知らせは、どの購読にも渡さない（live/unread.ts の入口の守り）。
+  guardMutedUnread((id) => isSessionMuted(db, id));
   const unreadHold = new UnreadHold({ db, live: () => live.current() });
   unreadHold.start();
   live.onChange(() => { try { unreadHold.check(); } catch (e) { console.error('[unread] could not release held notices', e instanceof Error ? e.message : e); } notices.onLiveChange(); });
