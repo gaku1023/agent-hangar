@@ -431,6 +431,26 @@ describe('流れ（peerChat.update）', () => {
     ]);
   });
 
+  it('位置がずれて言い換わった札（replaces が前の askId）は、前の札を外して 1 枚にし、全体を差し替えて流す', async () => {
+    const b = askItem('u2@ask:B', 'B');
+    answers.push(() => ok(state([item('u1'), askItem('u1@ask:A', 'A')])));
+    answers.push(() => ok(state([item('u2'), { ...b, ask: { ...b.ask!, replaces: 'A' } }])));
+    await viewer.open(SID, { viewer: 'v1' });
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    const last = updates().at(-1)!;
+    expect(last.replace).toBe(true);
+    expect(last.items.map((i) => i.ask?.askId ?? i.uuid)).toEqual(['u1', 'u2', 'B']);
+  });
+
+  it('replaces の前の札に答えが付いていれば外さない', async () => {
+    const b = askItem('u2@ask:B', 'B');
+    answers.push(() => ok(state([item('u1'), askItem('u1@ask:A', 'A', true)])));
+    answers.push(() => ok(state([item('u2'), { ...b, ask: { ...b.ask!, replaces: 'A' } }])));
+    await viewer.open(SID, { viewer: 'v1' });
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    expect(updates().map((u) => u.items.map((i) => i.ask?.askId ?? i.uuid))).toEqual([['u1', 'A'], ['u2', 'B']]);
+  });
+
   it('位置が違う札は、前の札に答えが無くても別の札として重ねる', async () => {
     answers.push(() => ok(state([askItem('u1@ask:A', 'A')])));
     answers.push(() => ok(state([item('u2'), askItem('u2@ask:B', 'B')])));

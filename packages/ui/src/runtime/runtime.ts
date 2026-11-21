@@ -312,6 +312,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       return unconfirmed;
     },
     failed: (sessionId) => dispatch({ kind: 'runtime', event: { type: 'peerAnswer.failed', sessionId } }),
+    delivered: (sessionId) => dispatch({ kind: 'runtime', event: { type: 'peerAnswer.delivered', sessionId } }),
   });
   /** 統括の柱の読み込みと送信（runtime/orchestrator.ts）。本文が伸びたら、下の applyServerEvent のあとで読み直す。 */
   const orchestrator = createOrchestratorRunner({

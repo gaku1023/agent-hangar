@@ -18,6 +18,7 @@ export type RuntimeEvent =
   | { type: 'ws.open' } | { type: 'ws.close'; at: number } | { type: 'hash.changed'; route: Route; moved?: number; /** 履歴の段が動いた後の、戻れるか・進めるか。runtime が URL の変化を受けたときだけ添える。 */ history?: { back: boolean; forward: boolean } }
   | { type: 'api.failed'; message: string; holdMs?: number; /** あれば、トーストに「エージェントで調査…」を付ける。 */ investigate?: InvestigateContext } | { type: 'search.done'; params: SearchParamsDto }
   | { type: 'peerAnswer.failed'; sessionId: string }
+  | { type: 'peerAnswer.delivered'; sessionId: string }
   | { type: 'launch.done'; sessionId: string; runId: string } | { type: 'launch.failed'; message: string; /** 起動が、リンクの場所のファイルの衝突だけで断られた（修復のダイアログを開ける）。 */ linkConflict?: LinkConflictRef }
   // 準備が問い（ask）で止まった、または利用者がやめた（cancel）。どちらも失敗ではない。message はサーバの文で、閉じた後に問いで止まったときだけ知らせる。
   | { type: 'launch.halted'; why: 'ask' | 'cancel'; message: string }
@@ -320,7 +321,7 @@ export type SessionViewState = {
  * 右下の知らせ 1 枚。openPrompt があるのは、エージェントが open_in_hangar で会話を見てほしいと求めた知らせ（session.openPrompt）で、
  * 開く先の会話と求めた会話を持ち、描き方は presenters/toasts.ts の OpenPromptCardProps が決める（message は札を描けないときの代わりの文）。
  */
-export type Toast = { id: string; level: 'info' | 'error'; message: string; holdMs?: number; action?: { label: string; send: UiAction; title?: string }; openPrompt?: { sessionId: string; deviceId: string; fromSessionId: string | null } };
+export type Toast = { id: string; level: 'info' | 'error'; message: string; holdMs?: number; /** ほかの PC への答えが届かなかった知らせの会話。あとで答えが通ったら外す。 */ peerAnswer?: string; action?: { label: string; send: UiAction; title?: string }; openPrompt?: { sessionId: string; deviceId: string; fromSessionId: string | null } };
 /**
  * まとめて再開（中断の群）の進み。queued は順番待ち、active は再開を頼んで返事を待っているもの、failed は断られた理由（セッションの id から）。
  * 同時に頼むのは RESUME_CONCURRENCY 本までである。

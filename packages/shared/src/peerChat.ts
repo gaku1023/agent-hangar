@@ -64,6 +64,12 @@ export type PeerChatAsk = {
    * 問いが 1 つの札には付けない。
    */
   step?: PeerChatAskStep;
+  /**
+   * この札が言い換えた前の札の askId（元の PC が、拠り所が決まって askId を言い換えたと見たとき）。
+   * 札を呼ぶ前の一言が後から載ると、札の位置（uuid の @ask: より前）がずれ、見る側は位置で同じ札と分からない。
+   * 見る側はこれを見て、答えの無い前の札を外し、同じ問いを 2 枚並べない。
+   */
+  replaces?: string;
 };
 
 export type PeerChatAskStep = { index: number; total: number; submit?: true };
@@ -361,12 +367,14 @@ function readAsk(v: unknown): PeerChatAsk | null {
   if (typeof v.multi !== 'boolean' || typeof v.allowText !== 'boolean') return null;
   // 印は false のときだけ意味を持つ。true は印の無いのと同じ（読み捨てる）。型の違うものは断る。
   if (v.answerable !== undefined && typeof v.answerable !== 'boolean') return null;
+  if (!optStr(v.replaces)) return null;
   const a = v.answered;
   if (a !== undefined && !(isObj(a) && isDevice(a.by) && isStr(a.label) && isTime(a.at))) return null;
   const out: PeerChatAsk = { askId: v.askId, kind: v.kind, options: (v.options as { key: string; label: string }[]).map((o) => ({ key: o.key, label: o.label })), multi: v.multi, allowText: v.allowText };
   if (v.tool !== undefined) out.tool = v.tool as string;
   if (v.input !== undefined) out.input = v.input as string;
   if (v.answerable === false) out.answerable = false;
+  if (v.replaces !== undefined) out.replaces = v.replaces as string;
   // タブの印は見せるためだけのもの。形の違うものは断らずに読み捨てる。
   const st = v.step;
   if (isObj(st) && Number.isInteger(st.index) && Number.isInteger(st.total) && (st.index as number) >= 1 && (st.index as number) <= (st.total as number) && (st.submit === undefined || st.submit === true)) {
