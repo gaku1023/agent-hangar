@@ -44,25 +44,58 @@ export function secretEnvBody(vars: Record<string, string>): string {
   return body;
 }
 
-/** その run の秘密の環境を 0600 で書き、置き場を 0700 にして、ファイルの場所を返す。 */
-export function writeSecretEnv(home: string, runId: string, vars: Record<string, string>, platform: NodeJS.Platform = process.platform): string {
-  const file = secretEnvPath(home, runId);
-  const body = secretEnvBody(vars);
+/**
+ * 包みへ引数のファイルの場所を渡す変数の名前。
+ * 長い最初の指示を tmux の引数に入れると「command too long」で断られるので（launch/command.ts の ARGV_INLINE_MAX）、
+ * エージェントの引数を run ごとのファイルに書き、包みが読んで消してから起こす。
+ * 中身は最初の指示や注入の文で、人の目に触れる argv と同じものだが、秘密の環境と同じ置き場と掃除に乗せる。
+ */
+export const ARGV_FILE_VAR = 'HANGAR_ARGV_FILE';
+
+/** その run の引数のファイル。 */
+export function argvFilePath(home: string, runId: string): string {
+  return path.join(home, SECRET_ENV_DIR, `${safeName(runId)}.argv`);
+}
+
+/** 中身。引数は改行や引用符を含むので、各引数の後ろに NUL を置く。NUL は引数に入らないので、入っていれば断る。 */
+export function argvFileBody(argv: readonly string[]): string {
+  for (const a of argv) if (a.includes('\0')) throw new Error('an argument has a NUL');
+  return argv.map((a) => `${a}\0`).join('');
+}
+
+/** その run の引数を 0600 で書き、ファイルの場所を返す。 */
+export function writeArgvFile(home: string, runId: string, argv: readonly string[], platform: NodeJS.Platform = process.platform): string {
+  const file = argvFilePath(home, runId);
+  const body = argvFileBody(argv);
+  writePrivate(file, body, platform);
+  return file;
+}
+
+/** 置き場を 0700 にして、0600 で書く。 */
+function writePrivate(file: string, body: string, platform: NodeJS.Platform): void {
   const dir = path.dirname(file);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   ensureMode(dir, 0o700, platform);
   fs.writeFileSync(file, body, { mode: 0o600 });
   // mode は新しく作るときにしか効かないので、既にある分は直す。
   ensureMode(file, 0o600, platform);
+}
+
+/** その run の秘密の環境を 0600 で書き、置き場を 0700 にして、ファイルの場所を返す。 */
+export function writeSecretEnv(home: string, runId: string, vars: Record<string, string>, platform: NodeJS.Platform = process.platform): string {
+  const file = secretEnvPath(home, runId);
+  writePrivate(file, secretEnvBody(vars), platform);
   return file;
 }
 
-/** その run の秘密の環境を消す。無くても何も言わない。 */
+/** その run の秘密の環境と引数のファイルを消す。無くても何も言わない。 */
 export function removeSecretEnv(home: string, runId: string): void {
-  try {
-    fs.rmSync(secretEnvPath(home, runId), { force: true });
-  } catch {
-    // 消せなかった分は次の起動の掃除で当たる。
+  for (const file of [secretEnvPath(home, runId), argvFilePath(home, runId)]) {
+    try {
+      fs.rmSync(file, { force: true });
+    } catch {
+      // 消せなかった分は次の起動の掃除で当たる。
+    }
   }
 }
 
@@ -81,7 +114,7 @@ export function pruneSecretEnvs(home: string, aliveRunIds: Iterable<string>): st
   }
   const removed: string[] = [];
   for (const name of names) {
-    const m = /^([^.]+)\.env$/.exec(name);
+    const m = /^([^.]+)\.(?:env|argv)$/.exec(name);
     if (!m || alive.has(m[1]!)) continue;
     try {
       fs.rmSync(path.join(dir, name), { force: true });

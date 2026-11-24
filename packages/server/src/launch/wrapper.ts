@@ -19,15 +19,34 @@ export const WRAPPER_NAME_WIN = 'hangar-run.mjs';
  * tee は書き手が全部閉じるまで終わらないので、claude の残した子が標準エラーを握り続けても、2 秒で見切る。
  * macOS の bash 3.2 でも動くように、プロセス置換を exec でつないで $! を取り、kill -0 で待つ（3.2 の wait はこれを待てない）。
  * HANGAR_SECRET_ENV があれば、そのファイルの `名前=値` を環境に入れてから消し、HANGAR_SECRET_ENV そのものは渡さない（launch/secretEnv.ts）。
+ * HANGAR_ARGV_FILE があれば、起こすコマンドと引数を NUL 区切りでそのファイルから読んで消す。長い最初の指示を tmux の引数に入れないため（launch/command.ts の ARGV_INLINE_MAX）。
+ * 読めなければ起こさずに 127 で終わる。引数の欠けたエージェントを起こすと、指示の無い会話が始まって気づきにくい。
  */
 export function wrapperScript(): string {
   return [
     '#!/usr/bin/env bash',
     '# agent-hangar: claude をラップして終了コードと標準エラーをログに残す。',
     '# 使い方: hangar-run.sh <logfile> <command> [args...]',
+    '# HANGAR_ARGV_FILE があれば、<command> [args...] は NUL 区切りでそのファイルから読む。',
     'LOG="$1"; shift',
     'mkdir -p "$(dirname "$LOG")"',
     'stamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }',
+    'if [ -n "${HANGAR_ARGV_FILE:-}" ]; then',
+    '  set --',
+    '  if [ -r "$HANGAR_ARGV_FILE" ]; then',
+    "    while IFS= read -r -d '' a; do set -- \"$@\" \"$a\"; done < \"$HANGAR_ARGV_FILE\"",
+    '    unset a',
+    '  fi',
+    '  rm -f "$HANGAR_ARGV_FILE"',
+    '  unset HANGAR_ARGV_FILE',
+    '  if [ "$#" -eq 0 ]; then',
+    '    printf \'%s argv file missing\\n\' "$(stamp)" >> "$LOG"',
+    '    printf \'%s exit=127\\n\' "$(stamp)" >> "$LOG"',
+    '    printf \'\\n[agent-hangar] 起動の引数のファイルを読めませんでした。ログ: %s\\nEnter でこの画面を閉じます。\' "$LOG"',
+    '    read -r _',
+    '    exit 127',
+    '  fi',
+    'fi',
     'printf \'%s start pid=%s cmd=%s\\n\' "$(stamp)" "$$" "$1" >> "$LOG"',
     'if [ -n "${HANGAR_SECRET_ENV:-}" ]; then',
     '  if [ -r "$HANGAR_SECRET_ENV" ]; then',

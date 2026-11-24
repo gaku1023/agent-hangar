@@ -10,7 +10,7 @@ import { which } from '../config/tools.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { ensureWrapperScript, MAX_RUN_LOGS, pruneRunLogs, runLogPath, wrapperScript, wrapperScriptWin } from './wrapper.ts';
 import { expectMode, posixDescribe, posixIt } from '../../test/platform.ts';
-import { writeSecretEnv } from './secretEnv.ts';
+import { writeArgvFile, writeSecretEnv } from './secretEnv.ts';
 
 let home: string;
 beforeEach(() => {
@@ -140,6 +140,29 @@ posixDescribe('ラッパーの引用（bash を直接呼ぶ）', () => {
     expect(r.status).toBe(0);
     expect(r.stdout).toBe('unset');
     expect(fs.readFileSync(log, 'utf8')).toContain('secret env missing');
+  });
+
+  // 長い最初の指示は tmux の引数に入れず、ファイルから包みが読む（#817）。
+  it('HANGAR_ARGV_FILE のファイルから引数を読んで起こし、ファイルを消し、HANGAR_ARGV_FILE そのものは渡さない', () => {
+    const wrapper = ensureWrapperScript(home);
+    const long = 'あ'.repeat(8000);
+    const args = ['sh', '-c', 'printf "%s|" "$@" "${HANGAR_ARGV_FILE-unset}"', 'x', "1 行目\n2 行目 'q' \"w\" $HOME", '', long];
+    const file = writeArgvFile(home, 'ra', args);
+    const log = runLogPath(home, 'ra');
+    const r = spawnSync('env', [`HANGAR_ARGV_FILE=${file}`, 'bash', wrapper, log], { encoding: 'utf8' });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe(`1 行目\n2 行目 'q' "w" $HOME||${long}|unset|`);
+    expect(fs.existsSync(file)).toBe(false);
+    expect(fs.readFileSync(log, 'utf8')).toMatch(/start pid=\d+ cmd=sh$/m);
+  });
+
+  it('HANGAR_ARGV_FILE のファイルが無ければ、起こさずに 127 で終わり、そのことをログに残す', () => {
+    const wrapper = ensureWrapperScript(home);
+    const log = runLogPath(home, 'rb');
+    const r = spawnSync('env', [`HANGAR_ARGV_FILE=${path.join(home, 'run-env', 'none.argv')}`, 'bash', wrapper, log], { encoding: 'utf8', input: '\n' });
+    expect(r.status).toBe(127);
+    expect(fs.readFileSync(log, 'utf8')).toContain('argv file missing');
+    expect(fs.readFileSync(log, 'utf8')).toMatch(/exit=127$/m);
   });
 
   it('HANGAR_SECRET_ENV が無ければ、今までどおり何も足さない', () => {
@@ -342,6 +365,28 @@ describe('hangar-run.mjs（Node の包み）', () => {
     expect(r.status).toBe(0);
     expect(r.stdout.trim()).toBe('unset');
     expect(fs.readFileSync(log, 'utf8')).toContain('secret env missing');
+  });
+
+  it('HANGAR_ARGV_FILE のファイルから引数を読んで起こし、ファイルを消し、HANGAR_ARGV_FILE そのものは渡さない', () => {
+    const h = tmpHome();
+    const out = path.join(h, 'args.json');
+    const script = path.join(h, 'echo-args.cjs');
+    fs.writeFileSync(script, `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify([process.argv.slice(2), process.env.HANGAR_ARGV_FILE ?? null]))`);
+    const args = ['--append-system-prompt', '1 行目\n2 行目 "引用"', '', 'あ'.repeat(8000)];
+    const file = writeArgvFile(h, 'r10', [process.execPath, script, ...args]);
+    const log = path.join(h, 'run-10.log');
+    const r = spawnSync(process.execPath, [RUN_MJS, log], { encoding: 'utf8', env: { ...process.env, HANGAR_ARGV_FILE: file } });
+    expect(r.status).toBe(0);
+    expect(JSON.parse(fs.readFileSync(out, 'utf8'))).toEqual([args, null]);
+    expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it('HANGAR_ARGV_FILE のファイルが無ければ、起こさずに 127 で終わり、そのことをログに残す', () => {
+    const h = tmpHome();
+    const log = path.join(h, 'run-11.log');
+    const r = spawnSync(process.execPath, [RUN_MJS, log], { encoding: 'utf8', input: '\n', env: { ...process.env, HANGAR_ARGV_FILE: path.join(h, 'none.argv') } });
+    expect(r.status).toBe(127);
+    expect(fs.readFileSync(log, 'utf8')).toContain('argv file missing');
   });
 
   it('起こせないコマンドは 127 で終わり、理由をログに残す', () => {

@@ -19,6 +19,7 @@ import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
 import { writeFakeTool } from '../../test/fake-bin.ts';
 import { TMUX, removeDirsWhenIdle, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { tmuxPaneOps, type PaneOps } from '../tmux/pane.ts';
+import { argvFilePath } from '../launch/secretEnv.ts';
 import { MuxServers } from '../tmux/servers.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { RUN_DROPPED_ENV } from '../launch/env.ts';
@@ -282,6 +283,29 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(rm.listAlive().runs.map((x) => x.id)).toEqual([r.run.id]);
     expect(rm.getRun(r.run.id)?.tmuxName).toBe(r.run.tmuxName);
     expect(rm.getTab(r.run.id)?.kind).toBe('agent');
+  });
+
+  // tmux のクライアントからサーバへ送る 1 通は約 16KB まで。最初の指示と注入の文を引数に入れると「command too long」で起動できなかった（#817）。
+  it('長い最初の指示でも起動でき、引数はファイルで包みに渡して、tmux の引数には載せない', async () => {
+    const opened: string[][] = [];
+    const base = tmuxPaneOps(tmux!);
+    const rm = make({ panes: { ...base, open: (o) => { opened.push(o.command); base.open(o); } } });
+    const prompt = `長い指示\n${'あいうえお「引用」\'単\' $HOME\n'.repeat(1500)}終わり`;
+    const r = await rm.start({ projectId: 'p1', prompt });
+    const args = await launchedArgs(r.run.id);
+    expect(args.at(-2)).toBe(prompt);
+    expect(opened[0]!.join(' ')).not.toContain('長い指示');
+    expect(opened[0]!.join(' ')).toContain(`HANGAR_ARGV_FILE=${argvFilePath(home, r.run.id)}`);
+    expect(fs.existsSync(argvFilePath(home, r.run.id))).toBe(false);
+  });
+
+  it('短い起動では、今までどおり引数を tmux のコマンドに並べる', async () => {
+    const opened: string[][] = [];
+    const base = tmuxPaneOps(tmux!);
+    const rm = make({ panes: { ...base, open: (o) => { opened.push(o.command); base.open(o); } } });
+    await rm.start({ projectId: 'p1', prompt: 'やって' });
+    expect(opened[0]!.join(' ')).not.toContain('HANGAR_ARGV_FILE');
+    expect(opened[0]!.at(-1)).toBe('やって');
   });
 
   it('人のいない起動元（予定、別の会話）なら、区切りの問いの代わりに問いで止まらない段を指示に入れる。知らない値は人の起動として読む', async () => {
@@ -2563,11 +2587,17 @@ describe('tmux のパスの実物を起動の前に確かめる（tmux 不要）
 describe('ほかの PC で進めた会話の再開とフォーク（tmux 不要）', () => {
   /** 開いたペインの作業ディレクトリとコマンドを覚える偽の画面。 */
   const capturing = () => {
-    const opened: { cwd: string; command: string[] }[] = [];
-    const panes: PaneOps = { open: (o) => { opened.push({ cwd: o.cwd, command: o.command }); }, close: () => {}, list: () => [], capture: () => '', sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {} };
+    const opened: { cwd: string; command: string[]; env?: Record<string, string> }[] = [];
+    const panes: PaneOps = { open: (o) => { opened.push({ cwd: o.cwd, command: o.command, env: o.env }); }, close: () => {}, list: () => [], capture: () => '', sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {} };
     return { panes, opened };
   };
-  const promptOf = (command: string[]) => command[command.indexOf('--append-system-prompt') + 1]!;
+  // 引き継ぎの段で長くなった起動は、引数をファイルで包みに渡す（launch/command.ts の ARGV_INLINE_MAX）。そのときはファイルから読む。
+  // 場所は、macOS と Linux では起動コマンドの env に、Windows ではセッションの環境に入る。
+  const promptOf = (o: { command: string[]; env?: Record<string, string> }) => {
+    const file = o.env?.HANGAR_ARGV_FILE ?? o.command.find((a) => a.startsWith('HANGAR_ARGV_FILE='))?.slice('HANGAR_ARGV_FILE='.length);
+    const argv = file ? readArgs(file) : o.command;
+    return argv[argv.indexOf('--append-system-prompt') + 1]!;
+  };
   /** work-pc（Windows）で作って動かした会話。この PC（d）の場所は cwd である。 */
   const seedRemote = () => {
     upsertShared(db, 'devices', { id: 'd', name: 'this-mac', platform: 'darwin', last_seen_at: 1 }, 'd');
@@ -2585,7 +2615,7 @@ describe('ほかの PC で進めた会話の再開とフォーク（tmux 不要�
     const p = capturing();
     make({ panes: p.panes }).resume(id);
     expect(p.opened[0]!.cwd).toBe(path.join(cwd, 'pkg'));
-    const prompt = promptOf(p.opened[0]!.command);
+    const prompt = promptOf(p.opened[0]!);
     expect(prompt).toContain(`この会話は work-pc（Windows）で`);
     expect(prompt).toContain(`現在は this-mac（macOS）の ${path.join(cwd, 'pkg')} で続けています。`);
     expect(prompt).toContain(`プロジェクト：alpha（${path.join(cwd, 'pkg')}）`);
@@ -2601,8 +2631,8 @@ describe('ほかの PC で進めた会話の再開とフォーク（tmux 不要�
     rm.kill(r.run.id);
     const again = capturing();
     make({ panes: again.panes, now: () => 20 }).resume(id);
-    expect(promptOf(again.opened[0]!.command)).not.toContain('この会話は work-pc');
-    expect(promptOf(again.opened[0]!.command)).toContain('このプロジェクトは 2 台の PC で使っています。');
+    expect(promptOf(again.opened[0]!)).not.toContain('この会話は work-pc');
+    expect(promptOf(again.opened[0]!)).toContain('このプロジェクトは 2 台の PC で使っています。');
   });
 
   it('fork は読み替えた cwd で新しい行を作り、引き継ぎは元の会話で決める', () => {
@@ -2611,7 +2641,7 @@ describe('ほかの PC で進めた会話の再開とフォーク（tmux 不要�
     const f = make({ panes: p.panes }).fork(id);
     expect(p.opened[0]!.cwd).toBe(path.join(cwd, 'pkg'));
     expect((db.prepare('select cwd from sessions where id = ?').get(f.sessionId) as { cwd: string }).cwd).toBe(path.join(cwd, 'pkg'));
-    expect(promptOf(p.opened[0]!.command)).toContain('この会話は work-pc（Windows）で');
+    expect(promptOf(p.opened[0]!)).toContain('この会話は work-pc（Windows）で');
   });
 
   it('移した会話をフォークすると、新しい会話にも移した印を写す。起こす場所は元の cwd の読み替えのまま', () => {
@@ -2652,8 +2682,8 @@ describe('ほかの PC で進めた会話の再開とフォーク（tmux 不要�
     const p = capturing();
     make({ panes: p.panes }).resume(id);
     expect(p.opened[0]!.cwd).toBe(cwd);
-    expect(promptOf(p.opened[0]!.command)).not.toContain('この会話は');
-    expect(promptOf(p.opened[0]!.command)).not.toContain('台の PC');
+    expect(promptOf(p.opened[0]!)).not.toContain('この会話は');
+    expect(promptOf(p.opened[0]!)).not.toContain('台の PC');
   });
 });
 

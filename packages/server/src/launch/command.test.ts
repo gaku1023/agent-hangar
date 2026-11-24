@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runCommand, shellTabCommand } from './command.ts';
+import { ARGV_INLINE_MAX, commandBytes, runCommand, shellTabCommand } from './command.ts';
 
 describe('runCommand', () => {
   it('macOS と Linux は env で HANGAR_RUN_ID を渡し、bash で包みを起こす', () => {
@@ -32,6 +32,22 @@ describe('runCommand', () => {
     const r = runCommand({ runId: 'r1', wrapper: 'C:\\h\\bin\\hangar-run.mjs', log: 'C:\\h\\logs\\run-r1.log', command: ['oc.exe'], platform: 'win32', node: 'node.exe', secretEnvFile: 'C:\\h\\run-env\\r1.env' });
     expect(r.command).toEqual(['node.exe', 'C:\\h\\bin\\hangar-run.mjs', 'C:\\h\\logs\\run-r1.log', 'oc.exe']);
     expect(r.env).toEqual({ HANGAR_RUN_ID: 'r1', HANGAR_SECRET_ENV: 'C:\\h\\run-env\\r1.env' });
+  });
+  // tmux のクライアントからサーバへ送る 1 通は約 16KB まで。長い最初の指示を引数に入れると「command too long」で断られる（#817）。
+  // そこでエージェントの引数はファイルに書き、場所だけを HANGAR_ARGV_FILE で包みに渡す。包みが読んで消す。
+  it('引数のファイルは、macOS と Linux では場所だけを env で包みに渡し、エージェントの引数を並べない', () => {
+    const r = runCommand({ runId: 'r1', wrapper: '/h/bin/hangar-run.sh', log: '/h/logs/run-r1.log', command: ['/x/claude', '-p', 'やること'], platform: 'darwin', unset: ['A'], argvFile: '/h/run-env/r1.argv' });
+    expect(r.command).toEqual(['env', '-u', 'A', 'HANGAR_RUN_ID=r1', 'HANGAR_ARGV_FILE=/h/run-env/r1.argv', 'bash', '/h/bin/hangar-run.sh', '/h/logs/run-r1.log']);
+    expect(r.env).toEqual({});
+  });
+  it('引数のファイルは、Windows ではセッションの環境で場所だけを渡す', () => {
+    const r = runCommand({ runId: 'r1', wrapper: 'C:\\h\\bin\\hangar-run.mjs', log: 'C:\\h\\logs\\run-r1.log', command: ['claude.exe', '-p', 'やること'], platform: 'win32', node: 'node.exe', argvFile: 'C:\\h\\run-env\\r1.argv' });
+    expect(r.command).toEqual(['node.exe', 'C:\\h\\bin\\hangar-run.mjs', 'C:\\h\\logs\\run-r1.log']);
+    expect(r.env).toEqual({ HANGAR_RUN_ID: 'r1', HANGAR_ARGV_FILE: 'C:\\h\\run-env\\r1.argv' });
+  });
+  it('commandBytes は UTF-8 のバイトで数え、引数の区切りも 1 バイトに数える。上限は tmux の 1 通より十分小さい', () => {
+    expect(commandBytes(['ab', 'あ'])).toBe(2 + 1 + 3 + 1);
+    expect(ARGV_INLINE_MAX).toBeLessThanOrEqual(8192);
   });
 });
 

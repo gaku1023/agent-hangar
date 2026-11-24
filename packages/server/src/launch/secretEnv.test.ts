@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { expectMode } from '../../test/platform.ts';
-import { pruneSecretEnvs, removeSecretEnv, SECRET_ENV_DIR, secretEnvBody, secretEnvPath, writeSecretEnv } from './secretEnv.ts';
+import { argvFileBody, argvFilePath, pruneSecretEnvs, removeSecretEnv, SECRET_ENV_DIR, secretEnvBody, secretEnvPath, writeArgvFile, writeSecretEnv } from './secretEnv.ts';
 
 let home: string;
 beforeEach(() => {
@@ -52,7 +52,31 @@ describe('writeSecretEnv', () => {
   });
 });
 
+// 長い最初の指示を tmux の引数に入れない（#817）。引数は改行や引用符を含むので、NUL で区切る。
+describe('引数のファイル', () => {
+  it('argvFileBody は各引数の後ろに NUL を置き、NUL を含む引数は断る', () => {
+    expect(argvFileBody(['/x/claude', '1 行目\n2 行目 "q"', ''])).toBe('/x/claude\u00001 行目\n2 行目 "q"\u0000\u0000');
+    expect(() => argvFileBody(['a\u0000b'])).toThrow();
+  });
+  it('writeArgvFile は run-env/<run>.argv に 0600 で書く', () => {
+    const file = writeArgvFile(home, 'run1', ['a', 'b']);
+    expect(file).toBe(argvFilePath(home, 'run1'));
+    expect(file).toBe(path.join(home, SECRET_ENV_DIR, 'run1.argv'));
+    expect(fs.readFileSync(file, 'utf8')).toBe('a\u0000b\u0000');
+    expectMode(file, 0o600);
+    expect(() => argvFilePath(home, '../x')).toThrow();
+  });
+});
+
 describe('removeSecretEnv と pruneSecretEnvs', () => {
+  it('引数のファイルも、run の終わりと掃除で消す', () => {
+    const argv = writeArgvFile(home, 'run1', ['a']);
+    removeSecretEnv(home, 'run1');
+    expect(fs.existsSync(argv)).toBe(false);
+    writeArgvFile(home, 'alive', ['a']);
+    writeArgvFile(home, 'gone', ['a']);
+    expect(pruneSecretEnvs(home, ['alive'])).toEqual(['gone.argv']);
+  });
   it('その run のファイルを消す。無くても投げない', () => {
     const file = writeSecretEnv(home, 'run1', { A: 'x' });
     removeSecretEnv(home, 'run1');

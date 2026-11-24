@@ -145,7 +145,7 @@ CLI の `launch-cli.ts` の `TEXT` も同じ順にする（nvm-windows の行は
 `hangar start` も、サーバを子プロセスとして立てる。
 子を起こす Node は、シェルの探し方を通らず、CLI 自身を動かしている Node（`process.execPath`）である。
 配布版は `cli.mjs` の隣の `server.mjs` を、リポジトリでは `packages/server/src/main.ts` を tsx で起こし、`HANGAR_PORT` と `HANGAR_PARENT_PID` を渡す。
-サーバは起動の最初に、受け渡しの値（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`、`HANGAR_LAUNCHER`）を読んでから、それらと、Claude Code が子に立てる印と、サーバが読まない hangar の変数（`HANGAR_RUN_ID`、`HANGAR_UNSET_ENV`、`HANGAR_SECRET_ENV`、`HANGAR_CLOUD_DIR`、`HANGAR_LAUNCHED`）を自分の環境から消す（`launch/env.ts`）。
+サーバは起動の最初に、受け渡しの値（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`、`HANGAR_LAUNCHER`）を読んでから、それらと、Claude Code が子に立てる印と、サーバが読まない hangar の変数（`HANGAR_RUN_ID`、`HANGAR_UNSET_ENV`、`HANGAR_SECRET_ENV`、`HANGAR_ARGV_FILE`、`HANGAR_CLOUD_DIR`、`HANGAR_LAUNCHED`）を自分の環境から消す（`launch/env.ts`）。
 殻も、サーバを起こすときに同じ名前を外してから自分の値を入れる（`server.rs` の `INHERITED_ENV_DROPPED`。サーバの正本との一致は試験で縛る）。
 アプリを Claude Code のセッションの Bash から `open` で起こすと、呼び手の環境がそのまま殻とサーバに入り、サーバが起こす tmux サーバの全体の環境と、サーバが直に起こす claude（`--help`、`agents --json`、要約の `-p`、`auth status`）にまで届くためである。
 `/health` の `ready` が真になってから、鍵付きの URL を印字する。
@@ -2525,6 +2525,10 @@ tmux で `claude` を直接起動すると異常終了時の出力が失われ�
 起動コマンドの `env` は、Claude Code が子に立てる印（`CLAUDECODE`、`CLAUDE_CODE_CHILD_SESSION`、`CLAUDE_CODE_SESSION_ID` など。一覧は `provider/claude-code/compat/childEnv.ts`）と、サーバが読み終えた hangar の受け渡しの変数（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`、`HANGAR_LAUNCHER`）と `HANGAR_CLOUD_DIR`、`HANGAR_LAUNCHED` を `-u` で外す。
 Windows は名前を包みへ `HANGAR_UNSET_ENV` で渡し、包みが消してから claude を起こす。
 秘密の環境（opencode の TUI のパスワード）があるときだけ、`env` に `HANGAR_SECRET_ENV=<0600 のファイル>` を足す（「opencode の起動」の節）。
+起動コマンドが 8KB（UTF-8、`launch/command.ts` の `ARGV_INLINE_MAX`）を超えるときは、エージェントのコマンドと引数を並べず、NUL 区切りで 0600 のファイル `<HANGAR_HOME>/run-env/<runId>.argv` に書き、場所だけを `HANGAR_ARGV_FILE` で渡す（Windows はセッションの環境）。
+tmux のクライアントからサーバへ送る 1 通は約 16KB（`MAX_IMSGSIZE`）で、長い最初の指示と注入の文を引数に並べると、tmux が「command too long」で断っていた（#817）。
+包みは読んだらファイルを消し、`HANGAR_ARGV_FILE` そのものは渡さない。読めなければエージェントを起こさずに 127 で終わる。指示の欠けた会話を黙って始めないためである。
+消し損ねた分は、秘密の環境と同じく run の終わりと次の起動の掃除で落とす。短い起動は今までどおり引数を並べる。
 tmux の新しいセッションは、`PATH` のほかは tmux サーバの全体の環境を継ぐ（`PATH` は下に書くとおり起こした側の値になる）。tmux サーバを Claude Code のセッションの中から起こしていると、全体の環境に別のセッションの印が残る。
 印を持って始まった claude は、そのセッションの子として振る舞う（再開の一覧と履歴から外れる、裏のセッションと見なす、別のセッションの名前やソケットを使う）。
 2026-10-08 に、利用者の既定の tmux サーバでこの状態を見つけた。

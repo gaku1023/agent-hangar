@@ -1,4 +1,4 @@
-import { SECRET_ENV_VAR } from './secretEnv.ts';
+import { ARGV_FILE_VAR, SECRET_ENV_VAR } from './secretEnv.ts';
 
 // tmux のセッションの中で起こすコマンドの組み立て。OS で変わるのは、包みの起こし方と、シェルのタブの中身である。
 
@@ -12,13 +12,32 @@ import { SECRET_ENV_VAR } from './secretEnv.ts';
  * secretEnvFile は秘密の環境を書いた 0600 のファイル（launch/secretEnv.ts）。場所だけを HANGAR_SECRET_ENV で包みに渡し、包みが読んで消す。
  * 値そのものは argv にも tmux のセッションの環境にも載せない。
  */
-export function runCommand(o: { runId: string; wrapper: string; log: string; command: string[]; platform?: NodeJS.Platform; node?: string; unset?: readonly string[]; secretEnvFile?: string }): { command: string[]; env: Record<string, string> } {
+export function runCommand(o: { runId: string; wrapper: string; log: string; command: string[]; platform?: NodeJS.Platform; node?: string; unset?: readonly string[]; secretEnvFile?: string; argvFile?: string }): { command: string[]; env: Record<string, string> } {
   const unset = o.unset ?? [];
-  const secret: Record<string, string> = o.secretEnvFile ? { [SECRET_ENV_VAR]: o.secretEnvFile } : {};
+  const secret: Record<string, string> = {
+    ...(o.secretEnvFile ? { [SECRET_ENV_VAR]: o.secretEnvFile } : {}),
+    ...(o.argvFile ? { [ARGV_FILE_VAR]: o.argvFile } : {}),
+  };
+  // argvFile があれば、エージェントの引数は包みがそのファイルから読む。ここには並べない。
+  const agent = o.argvFile ? [] : o.command;
   if ((o.platform ?? process.platform) === 'win32') {
-    return { command: [o.node ?? process.execPath, o.wrapper, o.log, ...o.command], env: { HANGAR_RUN_ID: o.runId, ...(unset.length > 0 ? { HANGAR_UNSET_ENV: unset.join(';') } : {}), ...secret } };
+    return { command: [o.node ?? process.execPath, o.wrapper, o.log, ...agent], env: { HANGAR_RUN_ID: o.runId, ...(unset.length > 0 ? { HANGAR_UNSET_ENV: unset.join(';') } : {}), ...secret } };
   }
-  return { command: ['env', ...unset.flatMap((n) => ['-u', n]), `HANGAR_RUN_ID=${o.runId}`, ...Object.entries(secret).map(([k, v]) => `${k}=${v}`), 'bash', o.wrapper, o.log, ...o.command], env: {} };
+  return { command: ['env', ...unset.flatMap((n) => ['-u', n]), `HANGAR_RUN_ID=${o.runId}`, ...Object.entries(secret).map(([k, v]) => `${k}=${v}`), 'bash', o.wrapper, o.log, ...agent], env: {} };
+}
+
+/**
+ * tmux のコマンドに引数を並べてよい長さの上限（UTF-8 のバイト）。
+ * tmux のクライアントからサーバへ送る 1 通は約 16KB（MAX_IMSGSIZE）で、コマンドのほかに作業の場所と -e の環境も同じ 1 通に入る。
+ * 注入の文を含む Claude のいつもの起動は 7KB ほどなので、それは今までどおり並べ、残りの 8KB を環境と作業の場所に空けておく。
+ * 最初の指示や注入の文で超えると、tmux は「command too long」で断る（#817）。
+ * これを超える起動は、エージェントの引数をファイルに書いて包みに読ませる（launch/secretEnv.ts の writeArgvFile）。
+ */
+export const ARGV_INLINE_MAX = 8192;
+
+/** コマンドの長さ。UTF-8 のバイトに、引数の区切りを 1 つずつ足す。 */
+export function commandBytes(command: readonly string[]): number {
+  return command.reduce((n, a) => n + Buffer.byteLength(a, 'utf8') + 1, 0);
 }
 
 /**
