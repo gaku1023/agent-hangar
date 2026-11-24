@@ -14,12 +14,12 @@ import { ensureSession, findSession } from '../indexer/write.ts';
 import { DEFAULT_INJECTION_PARTS, renderCodexInjectionEntries, renderInjectionEntries, renderOpencodeInjectionEntries, type InjectionParts } from '../launch/injection.ts';
 import { remoteControlName } from '../provider/claude-code/launch/remoteControl.ts';
 import { pruneMcpConfigs, removeMcpConfig } from '../provider/claude-code/launch/mcpConfig.ts';
-import { runCommand, shellTabCommand } from '../launch/command.ts';
+import { ARGV_INLINE_MAX, commandBytes, runCommand, shellTabCommand } from '../launch/command.ts';
 import { RUN_DROPPED_ENV } from '../launch/env.ts';
 import { needsShell } from '../platform/exec.ts';
 import { toolPathIssue } from '../config/readiness.ts';
 import { ensureWrapperScript, pruneRunLogs, runLogPath } from '../launch/wrapper.ts';
-import { pruneSecretEnvs, removeSecretEnv, secretEnvPath, writeSecretEnv } from '../launch/secretEnv.ts';
+import { argvFilePath, pruneSecretEnvs, removeSecretEnv, secretEnvPath, writeArgvFile, writeSecretEnv } from '../launch/secretEnv.ts';
 import { promptMentionsDrops } from '../prompt/drops.ts';
 import { assignSession, normalizeDir } from '../projects/registry.ts';
 import { isUnder } from '../platform/paths.ts';
@@ -657,7 +657,10 @@ export class RunManager {
     const plan = o.plan(env);
     // 秘密の変数は argv にも tmux の環境にも載せない。run ごとの 0600 のファイルに書き、場所だけを包みに渡す（launch/secretEnv.ts）。
     const secretEnvFile = plan.secretEnv && Object.keys(plan.secretEnv).length > 0 ? secretEnvPath(this.deps.home, runId) : undefined;
-    const wrapped = runCommand({ runId, wrapper, log, command: plan.argv, unset: plan.unset, secretEnvFile });
+    // 最初の指示や注入の文で長くなった起動は、引数をファイルで包みに渡す。tmux は長いコマンドを「command too long」で断る（#817）。
+    const inline = runCommand({ runId, wrapper, log, command: plan.argv, unset: plan.unset, secretEnvFile });
+    const argvFile = commandBytes(inline.command) > ARGV_INLINE_MAX ? argvFilePath(this.deps.home, runId) : undefined;
+    const wrapped = argvFile ? runCommand({ runId, wrapper, log, command: plan.argv, unset: plan.unset, secretEnvFile, argvFile }) : inline;
     // クイックセッションの置き場と、同意を得た作業フォルダでは、信頼の確認を出さずに始められるよう、起こすアカウントの設定に前もって書く。
     // 書けなくても（Claude Code がロックを握っている、設定が壊れているなど）起動は止めない。そのときは claude がいつもどおり確認を出す。
     try {
@@ -672,6 +675,7 @@ export class RunManager {
     upsertShared(this.db, 'runs', { id: runId, session_id: o.sessionId, device_id: this.deps.deviceId, kind: o.kind, tmux_name: tmuxName, pid: null, launch_params: JSON.stringify(stored), started_at: now, ended_at: null, end_reason: null, heartbeat_at: now }, this.deps.deviceId);
     try {
       if (secretEnvFile) writeSecretEnv(this.deps.home, runId, plan.secretEnv!, this.deps.platform);
+      if (argvFile) writeArgvFile(this.deps.home, runId, plan.argv, this.deps.platform);
       panes.open({ name: tmuxName, cwd: o.cwd, command: wrapped.command, env: withUtf8Locale({ ...env, ...plan.env, ...wrapped.env }) });
       // ターミナルからこの run につなぐ人のための設定。サーバ全体の設定なので、サーバが起き直した後にも効くよう起動のたびに確かめる。
       panes.prepareForOutsideTerminals();

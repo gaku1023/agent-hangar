@@ -19,6 +19,7 @@ import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
 import { writeFakeTool } from '../../test/fake-bin.ts';
 import { TMUX, removeDirsWhenIdle, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { tmuxPaneOps, type PaneOps } from '../tmux/pane.ts';
+import { argvFilePath } from '../launch/secretEnv.ts';
 import { MuxServers } from '../tmux/servers.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { RUN_DROPPED_ENV } from '../launch/env.ts';
@@ -282,6 +283,29 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(rm.listAlive().runs.map((x) => x.id)).toEqual([r.run.id]);
     expect(rm.getRun(r.run.id)?.tmuxName).toBe(r.run.tmuxName);
     expect(rm.getTab(r.run.id)?.kind).toBe('agent');
+  });
+
+  // tmux のクライアントからサーバへ送る 1 通は約 16KB まで。最初の指示と注入の文を引数に入れると「command too long」で起動できなかった（#817）。
+  it('長い最初の指示でも起動でき、引数はファイルで包みに渡して、tmux の引数には載せない', async () => {
+    const opened: string[][] = [];
+    const base = tmuxPaneOps(tmux!);
+    const rm = make({ panes: { ...base, open: (o) => { opened.push(o.command); base.open(o); } } });
+    const prompt = `長い指示\n${'あいうえお「引用」\'単\' $HOME\n'.repeat(1500)}終わり`;
+    const r = await rm.start({ projectId: 'p1', prompt });
+    const args = await launchedArgs(r.run.id);
+    expect(args.at(-2)).toBe(prompt);
+    expect(opened[0]!.join(' ')).not.toContain('長い指示');
+    expect(opened[0]!.join(' ')).toContain(`HANGAR_ARGV_FILE=${argvFilePath(home, r.run.id)}`);
+    expect(fs.existsSync(argvFilePath(home, r.run.id))).toBe(false);
+  });
+
+  it('短い起動では、今までどおり引数を tmux のコマンドに並べる', async () => {
+    const opened: string[][] = [];
+    const base = tmuxPaneOps(tmux!);
+    const rm = make({ panes: { ...base, open: (o) => { opened.push(o.command); base.open(o); } } });
+    await rm.start({ projectId: 'p1', prompt: 'やって' });
+    expect(opened[0]!.join(' ')).not.toContain('HANGAR_ARGV_FILE');
+    expect(opened[0]!.at(-1)).toBe('やって');
   });
 
   it('人のいない起動元（予定、別の会話）なら、区切りの問いの代わりに問いで止まらない段を指示に入れる。知らない値は人の起動として読む', async () => {
@@ -2567,7 +2591,12 @@ describe('ほかの PC で進めた会話の再開とフォーク（tmux 不要�
     const panes: PaneOps = { open: (o) => { opened.push({ cwd: o.cwd, command: o.command }); }, close: () => {}, list: () => [], capture: () => '', sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {} };
     return { panes, opened };
   };
-  const promptOf = (command: string[]) => command[command.indexOf('--append-system-prompt') + 1]!;
+  // 引き継ぎの段で長くなった起動は、引数をファイルで包みに渡す（launch/command.ts の ARGV_INLINE_MAX）。そのときはファイルから読む。
+  const promptOf = (command: string[]) => {
+    const file = command.find((a) => a.startsWith('HANGAR_ARGV_FILE='))?.slice('HANGAR_ARGV_FILE='.length);
+    const argv = file ? readArgs(file) : command;
+    return argv[argv.indexOf('--append-system-prompt') + 1]!;
+  };
   /** work-pc（Windows）で作って動かした会話。この PC（d）の場所は cwd である。 */
   const seedRemote = () => {
     upsertShared(db, 'devices', { id: 'd', name: 'this-mac', platform: 'darwin', last_seen_at: 1 }, 'd');

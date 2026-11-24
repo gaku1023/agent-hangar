@@ -7,8 +7,24 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const [log, cmd, ...args] = process.argv.slice(2);
-if (!log || !cmd) {
+const [log, ...given] = process.argv.slice(2);
+// HANGAR_ARGV_FILE があれば、起こすコマンドと引数は NUL 区切りでそのファイルから読んで消す。
+// 長い最初の指示を tmux の引数に入れないためである（launch/command.ts の ARGV_INLINE_MAX）。
+const argvFile = process.env.HANGAR_ARGV_FILE;
+delete process.env.HANGAR_ARGV_FILE;
+let argvMissing = false;
+let argv = given;
+if (argvFile) {
+  try {
+    argv = fs.readFileSync(argvFile, 'utf8').split('\0').slice(0, -1);
+  } catch {
+    argv = [];
+  }
+  argvMissing = argv.length === 0;
+  try { fs.rmSync(argvFile, { force: true }); } catch { /* 残った分は hangar の掃除が消す。 */ }
+}
+const [cmd, ...args] = argv;
+if (!log || (!cmd && !argvMissing)) {
   process.stderr.write('usage: hangar-run.mjs <logfile> <command> [args...]\n');
   process.exit(2);
 }
@@ -25,7 +41,7 @@ try { fs.mkdirSync(path.dirname(log), { recursive: true }); } catch (e) { cannot
 const append = (text) => {
   try { fs.appendFileSync(log, text); } catch (e) { cannotLog(e); }
 };
-append(`${stamp()} start pid=${process.pid} cmd=${cmd}\n`);
+append(`${stamp()} start pid=${process.pid} cmd=${cmd ?? ''}\n`);
 
 const finish = (code) => {
   append(`${stamp()} exit=${code}\n`);
@@ -57,17 +73,24 @@ if (secretFile) {
 for (const name of (process.env.HANGAR_UNSET_ENV ?? '').split(';').filter(Boolean)) delete process.env[name];
 delete process.env.HANGAR_UNSET_ENV;
 
-// 標準入力と標準出力は端末をそのまま渡す。標準エラーだけ受け取って、画面とログの両方へ流す。
-const child = spawn(cmd, args, { stdio: ['inherit', 'inherit', 'pipe'], windowsHide: false });
-child.stderr.on('data', (d) => {
-  process.stderr.write(d);
-  append(d);
-});
-child.on('error', (e) => {
-  append(`${stamp()} spawn failed: ${e.message}\n`);
-  process.stderr.write(`[agent-hangar] 起動できませんでした: ${e.message}\n`);
+// 引数のファイルを読めなければ起こさない。引数の欠けたエージェントを起こすと、指示の無い会話が始まって気づきにくい。
+if (argvMissing) {
+  append(`${stamp()} argv file missing\n`);
+  process.stderr.write('[agent-hangar] 起動の引数のファイルを読めませんでした。\n');
   finish(127);
-});
-child.on('close', (code, signal) => finish(code ?? (signal ? 1 : 0)));
-// Ctrl+C は子が受けて自分で終わる。包みが先に死ぬと終了コードを記録できない。
-process.on('SIGINT', () => {});
+} else {
+  // 標準入力と標準出力は端末をそのまま渡す。標準エラーだけ受け取って、画面とログの両方へ流す。
+  const child = spawn(cmd, args, { stdio: ['inherit', 'inherit', 'pipe'], windowsHide: false });
+  child.stderr.on('data', (d) => {
+    process.stderr.write(d);
+    append(d);
+  });
+  child.on('error', (e) => {
+    append(`${stamp()} spawn failed: ${e.message}\n`);
+    process.stderr.write(`[agent-hangar] 起動できませんでした: ${e.message}\n`);
+    finish(127);
+  });
+  child.on('close', (code, signal) => finish(code ?? (signal ? 1 : 0)));
+  // Ctrl+C は子が受けて自分で終わる。包みが先に死ぬと終了コードを記録できない。
+  process.on('SIGINT', () => {});
+}
