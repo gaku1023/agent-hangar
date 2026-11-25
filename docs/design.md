@@ -2279,6 +2279,10 @@ TUI の `/models` の切り替えは、選んだ時点では TUI の中だけに
 右欄のモデルの札は、返答を待たずに送信の時点で切り替わる。選んだだけで送っていない間は、前のモデルのままである。
 文脈の量は `SessionStatsDto.contextTokens` で画面に渡る。
 サブエージェント（opencode の子の会話）の本文はまだ写さない。
+子は `parentID` で親に結ばれる別の会話で、親の本文には task ツール（`input.description`、`state.content` の `task_id: ses_…` と `<task_result>`）が残る。
+右欄の NowCard のレーンは、この task の呼び出しと結果だけから組む（`live/digest.ts` の `opencodeAgentsOf`）。serve への問い合わせは足さない。
+結果がまだ無ければ running、結果があれば done、道具のエラーなら error である。中断（`aborted`）は Claude の終わりの知らせの killed と同じく、done のまま endNote を `killed`（停止済み）にする。
+子の本文を持たないので、レーンの `last` は null、`linked` は偽である（押しても開く本文が無い）。
 
 ### opencode の寿命
 
