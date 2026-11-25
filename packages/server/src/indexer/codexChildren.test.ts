@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { codexTranscriptSource } from '../provider/codex/transcript/source.ts';
@@ -30,7 +31,7 @@ function indexLikeOldVersion(ids: string[]): void {
   const reader = source();
   const when: Record<string, string> = { [P]: '2026-11-25T20-14-16', [A]: '2026-11-25T20-14-35', [B]: '2026-11-25T20-14-36' };
   for (const id of ids) {
-    const p = `${home}/${rolloutName(id, when[id]).rel}`;
+    const p = path.join(home, rolloutName(id, when[id]).rel);
     indexFile(db, { path: p, sessionId: id, agentId: null, deviceId: null }, { deviceId: 'd', reader });
   }
 }
@@ -74,7 +75,7 @@ describe('前の版が独立した会話として索引した子を、起動時�
   });
 
   it('親が手元の索引に無い子は、独立した会話のまま残す（行を消さない）', async () => {
-    fs.rmSync(`${home}/${rolloutName(P, '2026-11-25T20-14-16').rel}`);
+    fs.rmSync(path.join(home, rolloutName(P, '2026-11-25T20-14-16').rel));
     indexLikeOldVersion([A]);
     const s = svc();
     await s.start();
@@ -108,7 +109,7 @@ describe('前の版が独立した会話として索引した子を、起動時�
   });
 
   it('付け替えの印を立てたあとに親が入った子も、親の下で読み直される', async () => {
-    fs.rmSync(`${home}/${rolloutName(P, '2026-11-25T20-14-16').rel}`);
+    fs.rmSync(path.join(home, rolloutName(P, '2026-11-25T20-14-16').rel));
     indexLikeOldVersion([A]);
     const a = svc();
     await a.start();
@@ -123,7 +124,7 @@ describe('前の版が独立した会話として索引した子を、起動時�
 
   it('手元のファイルが消えた行が 1 本あっても、済みの印は立つ', async () => {
     indexLikeOldVersion([P, A, B]);
-    fs.rmSync(`${home}/${rolloutName(B, '2026-11-25T20-14-36').rel}`);
+    fs.rmSync(path.join(home, rolloutName(B, '2026-11-25T20-14-36').rel));
     const s = svc();
     await s.start();
     s.stop();
