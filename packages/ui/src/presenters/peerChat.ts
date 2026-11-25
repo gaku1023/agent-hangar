@@ -1,5 +1,5 @@
 import { contextGaugeOf, type ContextGauge } from './contextGauge.ts';
-import { FOLDER_TRUST_TOOL, stopReasonOf, type PeerChatCard, type PeerChatItem, type PeerChatReason, type PeerChatStatus, type SessionDto, type TranscriptEvent } from '@agent-hangar/shared';
+import { FOLDER_TRUST_TOOL, stopReasonOf, type PeerChatAsk, type PeerChatCard, type PeerChatItem, type PeerChatReason, type PeerChatStatus, type SessionDto, type TranscriptEvent } from '@agent-hangar/shared';
 import type { Translate } from '@agent-hangar/shared';
 import type { Store } from '../store/store.ts';
 import { emptySlice, joinedItems, type PeerChatSlice } from '../store/peerChat.ts';
@@ -12,11 +12,22 @@ import { peerChatDeviceName } from './peerChatDevice.ts';
 /**
  * ほかの PC の Claude Code の会話をチャットの形で見る画面（views/PeerChatPane.tsx）の描き分け。
  * 画面は state を読まず、ここで決めた値だけを描く。
- * 対象は、ほかの PC の Claude Code の会話だけである。Codex と opencode の会話、相手の hangar が古いとき、見続けられないときは null で、読み取り専用のトランスクリプトのまま。
+ * 対象は、ほかの PC の会話（Claude Code、Codex、opencode）である。相手の hangar が古いとき、見続けられないときは null で、読み取り専用のトランスクリプトのまま。
  */
 
 /** 会話の中の札の 1 行。手元の会話のフォルダの信頼の札も同じ形にして、PeerChatCard を使い回す。 */
 export type PeerChatAskRow = Extract<PeerChatRow, { kind: 'ask' }>;
+/**
+ * 許可と質問の札の部品（views/AskCard.tsx）が描く値。peer chat の列、本文の真上の帯、ホームの行で同じものを使う。
+ * hostOnly は、この画面から答えられない札の案内の文（答えられる札と、答えが付いた札は null）。
+ * secret は入力を伏せ字にし、答えの行に値を残さない。textKind・min・max は数の欄の確かめ。
+ */
+export type AskCardModel = {
+  askId: string; askKind: 'permission' | 'question'; title: string; /** 札の理由。命令の下に小さく出す。 */ reason?: string | null; header: string | null; input: string | null;
+  options: { key: string; label: string; description?: string }[]; multi: boolean; allowText: boolean;
+  secret: boolean; textKind: 'number' | 'integer' | null; min: number | null; max: number | null;
+  answered: string | null; hostOnly: string | null; /** 答えを送って結果を待っている。 */ pending: boolean; /** 受け付けない設定の PC。押せない。 */ locked: boolean;
+};
 
 export type PeerChatRow =
   | { kind: 'user'; key: string; text: string; from: string | null }
@@ -25,7 +36,7 @@ export type PeerChatRow =
   // 続けて呼んだ 2 本以上のツールのまとめ（本文の画面の「ツール呼び出し N 回」と同じ）。key は先頭のツールの key のままにし、2 本目が来ても入る動きを出し直さない。
   | { kind: 'tools'; key: string; label: string; failed: string | null; items: { key: string; name: string; summary: string; ok: boolean }[] }
   | { kind: 'system'; key: string; text: string }
-  | { kind: 'ask'; key: string; askId: string; askKind: 'permission' | 'question'; title: string; input: string | null; options: { key: string; label: string; description?: string }[]; multi: boolean; allowText: boolean; answered: string | null; /** 元の PC で答える札（この PC からは答えられない）。案内の文。答えられる札と、答えが付いた札は null。 */ hostOnly: string | null; /** 答えを送って結果を待っている。 */ pending: boolean; /** 受け付けない設定の PC。押せない。 */ locked: boolean }
+  | ({ kind: 'ask'; key: string } & AskCardModel)
   | { kind: 'queued'; key: string; queueId: string; text: string; images: number; tag: string; from: string | null; mine: boolean; delivering: boolean; rushing: boolean };
 
 /** 送る口の形。send は今すぐ渡る、queue はターンが止まるまで預かる、resume は止まっている会話を再開して渡す、blocked は送れない。 */
@@ -65,11 +76,11 @@ export type PeerChatView = {
 };
 
 /**
- * ほかの PC の Claude Code の会話か（ここで見張りを始めてよいか）。
+ * ほかの PC の会話か（Claude Code・Codex・opencode。相手が受けるかはサーバが決める。ここで見張りを始めてよいか）。
  * ほかの PC で動いている（lock）、手元に本文が無い（remoteOnly）に加え、ほかの PC に手元より新しい続きがある会話（newerElsewhere。A → B → A で、B で止まっていて手元に古い写しが残る）も含める。
  */
 export function isPeerChatCandidate(s: SessionDto | undefined): boolean {
-  return !!s && s.provider === 'claude-code' && (s.lock !== null || s.remoteOnly || s.newerElsewhere === true);
+  return !!s && (s.lock !== null || s.remoteOnly || s.newerElsewhere === true);
 }
 
 const STATUS_KEY = { busy: 'peerChat.status.busy', idle: 'peerChat.status.idle', waiting: 'peerChat.status.waiting', stopped: 'peerChat.status.stopped' } as const;
@@ -105,16 +116,30 @@ export function permissionWord(t: Translate, label: string): string | null {
   return null;
 }
 
+/**
+ * 答えの記録の文。
+ * 元の PC の手元で答えた札は、選んだ行が分からない（label が空）。
+ * 伏せる入力は、値も選んだ行も出さない。
+ * 許可の文が英数字で始まるときは、「で」との間に半角空白を置く（「Mac で 1 回だけ許可」）。
+ */
+export function answeredText(t: Translate, kind: 'permission' | 'question', secret: boolean, device: string, label: string): string {
+  if (secret) return t('peerChat.ask.answeredSecret', { device });
+  if (label === '') return t('peerChat.ask.answeredHere', { device });
+  if (kind === 'permission') {
+    // 画面の選択肢の文（Yes、No …）は固定の語にする。
+    // Codex・opencode のように日本語の文で来る許可は、その文のまま「<PC> で<文>」にする。合わない英語の文は引用する。
+    const word = permissionWord(t, label) ?? (/[^\x00-\x7f]/.test(label) ? label : null);
+    if (word !== null) return t(/^[0-9A-Za-z]/.test(word) ? 'peerChat.ask.answeredPermissionAscii' : 'peerChat.ask.answeredPermission', { device, label: word });
+  }
+  return t('peerChat.ask.answeredQuestion', { device, label });
+}
+
 function answerLine(t: Translate, it: PeerChatItem, mine: { label: string; deviceName: string } | null): string | null {
   // この PC から送って、相手の返事を待っている札は、選んだ答えで答えた形に見せる。
   const a = it.ask?.answered ?? (mine ? { by: { deviceName: mine.deviceName }, label: mine.label } : null);
   if (!a) return null;
-  // 元の PC の手元で答えた札は、選んだ行が分からない（label が空）。
-  if (a.label === '') return t('peerChat.ask.answeredHere', { device: a.by.deviceName });
-  // フォルダの信頼の選択肢（Yes, I trust this folder）は許可の語にせず、画面のまま引用する。
-  const word = it.ask!.kind === 'permission' && it.ask!.tool !== FOLDER_TRUST_TOOL ? permissionWord(t, a.label) : null;
-  // 許可の文が決めた形に合うときは語で、合わないとき（と質問）は元の文を引用する。
-  return word !== null ? t('peerChat.ask.answeredPermission', { device: a.by.deviceName, label: word }) : t('peerChat.ask.answeredQuestion', { device: a.by.deviceName, label: a.label });
+  // ディレクトリの信頼の選択肢（Yes, I trust this folder）は許可の語にせず、画面のまま引用する。
+  return answeredText(t, it.ask!.tool === FOLDER_TRUST_TOOL ? 'question' : it.ask!.kind, it.ask!.secret === true, a.by.deviceName, a.label);
 }
 
 /**
@@ -153,11 +178,16 @@ function foldTools(rows: PeerChatRow[], t: Translate): PeerChatRow[] {
   return out;
 }
 
+/** 札の部品（views/AskCard.tsx）が描く値にする。peer chat の列と、この PC の札（本文の真上の帯、ホームの行）で共用する。 */
+export function askModelOf(t: Translate, ask: PeerChatAsk, o: { text?: string | null; answered: string | null; hostOnly: string | null; pending: boolean; locked: boolean }): AskCardModel {
+  return { askId: ask.askId, askKind: ask.kind, title: t(ask.tool === FOLDER_TRUST_TOOL ? 'stop.folder.trust' : ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), reason: ask.title ?? null, header: ask.header ?? null, input: ask.input ?? o.text ?? null, options: ask.options, multi: ask.multi, allowText: ask.allowText, secret: ask.secret === true, textKind: ask.textKind ?? null, min: ask.min ?? null, max: ask.max ?? null, answered: o.answered, hostOnly: o.hostOnly, pending: o.pending, locked: o.locked };
+}
+
 function rowOf(t: Translate,it: PeerChatItem, slice: PeerChatSlice, index: number, device: string, myName: string): PeerChatRow {
   if (it.ask) {
     const pick = slice.answering.includes(it.ask.askId) ? slice.picked[it.ask.askId] : undefined;
     const answered = answerLine(t, it, pick !== undefined ? { label: pick, deviceName: myName } : null) ?? (staleAsk(slice, index) ? t('peerChat.ask.closed') : null);
-    return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.tool === FOLDER_TRUST_TOOL ? 'stop.folder.trust' : it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, answered, hostOnly: answered === null && it.ask.answerable === false ? t('peerChat.ask.unanswerable', { device }) : null, pending: slice.answering.includes(it.ask.askId), locked: slice.locked };
+    return { kind: 'ask', key: `ask:${it.ask.askId}`, ...askModelOf(t, it.ask, { text: it.text, answered, hostOnly: answered === null && it.ask.answerable === false ? t('peerChat.ask.unanswerable', { device }) : null, pending: slice.answering.includes(it.ask.askId), locked: slice.locked }) };
   }
   switch (it.kind) {
     case 'user': return { kind: 'user', key: it.uuid, text: it.text, from: it.from ? t('peerChat.log.sentFrom', { device: it.from.deviceName }) : null };

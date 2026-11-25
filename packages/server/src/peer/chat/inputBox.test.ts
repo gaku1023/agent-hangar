@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { inputEmptyFromCapture, inputReadyFromCapture } from './inputBox.ts';
+import { inputEmptyFor, inputEmptyFromCapture, inputReadyFor, inputReadyFromCapture } from './inputBox.ts';
+import { CODEX_EMPTY_AFTER_TURNS, CODEX_TYPED } from './inputBox.codex.fixtures.ts';
+import { OPENCODE_EMPTY_AFTER_TURN, OPENCODE_TYPED } from './inputBox.opencode.fixtures.ts';
 import { MAC_DRAFT, MAC_GHOST, SYNTHETIC_FAINT_CHIP, WIN_CHIP_IMAGE, WIN_CHIP_PASTE, WIN_BUSY_WITH_DRAFT, WIN_DRAFT, WIN_EMPTY_AFTER_TURN, WIN_GHOST_FRESH, WIN_MULTILINE, WIN_NAMED_DRAFT, WIN_NAMED_EMPTY } from './inputBox.fixtures.ts';
 
 const RULE = '─'.repeat(40);
@@ -107,5 +109,23 @@ describe('inputReadyFromCapture（hangar の知らせを打ってよい画面か
   it('色付きの画面でも札を読む', () => {
     const styled = QUESTION.split('\n').map((l) => `\x1b[0m${l}\x1b[0m`).join('\n');
     expect(inputReadyFromCapture(styled)).toBe(false);
+  });
+});
+
+describe('inputEmptyFor と inputReadyFor（provider で分ける）', () => {
+  it('Claude の見本は claude-code で空、codex と opencode の読み手では空と言わない', () => {
+    expect(inputEmptyFor('claude-code', WIN_EMPTY_AFTER_TURN)).toBe(true);
+    expect(inputEmptyFor('codex', WIN_EMPTY_AFTER_TURN)).toBe(false);
+    expect(inputEmptyFor('opencode', WIN_EMPTY_AFTER_TURN)).toBe(false);
+    expect(inputReadyFor('claude-code', WIN_EMPTY_AFTER_TURN)).toBe(true);
+    expect(inputReadyFor('claude-code', WIN_DRAFT)).toBe(false);
+  });
+
+  it('Codex の › と opencode の ┃ は、空のときだけ ready（札は呼び出し側が登録の待ちで見る）', () => {
+    expect(inputReadyFor('codex', CODEX_EMPTY_AFTER_TURNS)).toBe(true);
+    expect(inputReadyFor('codex', CODEX_TYPED)).toBe(false);
+    expect(inputReadyFor('opencode', OPENCODE_EMPTY_AFTER_TURN)).toBe(true);
+    expect(inputReadyFor('opencode', OPENCODE_TYPED)).toBe(false);
+    expect(inputReadyFor('unknown', CODEX_EMPTY_AFTER_TURNS)).toBe(false);
   });
 });

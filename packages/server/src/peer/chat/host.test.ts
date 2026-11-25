@@ -22,8 +22,11 @@ import {
 import { sanitizeInput } from '../../mcp/screenTools.ts';
 import type { PaneKey } from '../../tmux/pane.ts';
 import { WIN_BUSY_WITH_DRAFT, WIN_DRAFT, WIN_EMPTY_AFTER_TURN } from './inputBox.fixtures.ts';
+import { CODEX_EMPTY_AFTER_TURNS, CODEX_TYPED, CODEX_WORKING } from './inputBox.codex.fixtures.ts';
+import { OPENCODE_EMPTY_AFTER_TURN, OPENCODE_TYPED } from './inputBox.opencode.fixtures.ts';
 import { EDIT_SUBDIR } from './fileDialogs.fixtures.ts';
 import { createPeerChatHost, type PeerChatHost } from './host.ts';
+import { toPeerChatAsk, type AgentAskPort, type AgentAskQuestion, type AgentAskReply, type AgentPendingAsk } from '../../agent/pendingAsk.ts';
 import type { HostPane, HostSession, PeerChatHostDeps, PeerChatHostEvent } from './hostTypes.ts';
 
 // ---- 偽の世界 ----
@@ -181,10 +184,10 @@ describe('PeerChatHost: 入口と断り', () => {
     expect(s.w.events).toEqual([]);
   });
 
-  it('この PC に無い会話は session-unknown、Claude Code 以外は not-claude', async () => {
+  it('この PC に無い会話は session-unknown、host が受けない provider は not-claude（Codex と opencode は受ける）', async () => {
     const s = await setup({ session: null });
     expect(await s.ask(tailOp())).toEqual({ ok: false, reason: 'session-unknown' });
-    s.w.session = idleSession({ provider: 'codex' });
+    s.w.session = idleSession({ provider: 'gemini' as never });
     for (const op of [tailOp(), send('x'), { t: 'interrupt' } as PeerChatOp, { t: 'files', query: '' } as PeerChatOp]) expect(await s.ask(op)).toEqual({ ok: false, reason: 'not-claude' });
   });
 
@@ -1085,14 +1088,17 @@ describe('PeerChatHost: この PC の中からの答え（統括の answer_ask �
     expect((await s.host.local.answer('s1', ask.askId, ['1'])).ok).toBe(true);
   });
 
-  it('この PC の会話でない、Claude Code でない会話には、札を返さず答えない', async () => {
-    for (const over of [{ lock: true }, { provider: 'codex' as const }]) {
-      const s = await setup({ session: { ...permSession(), ...over } });
-      s.w.pane.plain = PERMISSION_SCREEN;
-      expect(s.host.local.currentAsk('s1')).toBeNull();
-      expect(await s.host.local.answer('s1', 'x', ['1'])).toEqual({ ok: false, reason: 'session-unknown' });
-      expect(s.w.pane.events).toEqual([]);
-    }
+  it('この PC の会話でない会話には、札を返さず答えない。札の口の無い Codex の会話にも、Claude の画面の札は読まず、打たない', async () => {
+    const s1 = await setup({ session: { ...permSession(), lock: true } });
+    s1.w.pane.plain = PERMISSION_SCREEN;
+    expect(s1.host.local.currentAsk('s1')).toBeNull();
+    expect(await s1.host.local.answer('s1', 'x', ['1'])).toEqual({ ok: false, reason: 'session-unknown' });
+    const s2 = await setup({ session: { ...permSession(), provider: 'codex' } });
+    s2.w.pane.plain = PERMISSION_SCREEN;
+    expect(s2.host.local.currentAsk('s1')).toBeNull();
+    expect(await s2.host.local.answer('s1', 'x', ['1'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(s1.w.pane.events).toEqual([]);
+    expect(s2.w.pane.events).toEqual([]);
   });
 });
 
@@ -1148,5 +1154,309 @@ describe('PeerChatHost: 送り主ごとの入り切り（スマホと PC）', ()
     const s = await setup();
     expect(await s.askPhone(send('pic', [{ n: 0, mime: 'image/png', bytes: 10 }]))).toEqual({ ok: false, reason: 'too-large' });
     expect(s.w.sent).toEqual([]);
+  });
+});
+
+
+// ---- Codex と opencode ----
+
+describe.each([
+  ['codex', CODEX_EMPTY_AFTER_TURNS, CODEX_TYPED],
+  ['opencode', OPENCODE_EMPTY_AFTER_TURN, OPENCODE_TYPED],
+] as const)('PeerChatHost: %s の会話', (provider, EMPTY, TYPED) => {
+  const agentSession = (over: Partial<HostSession> = {}) => idleSession({ provider, ...over });
+
+  it('not-claude を返さない。入力欄が空で札が無ければ、止まっているときにすぐ渡す', async () => {
+    const s = await setup({ session: agentSession() });
+    s.w.pane.styled = EMPTY;
+    expect(await s.ask(send('hello'))).toMatchObject({ ok: true });
+    await settle(() => s.w.sent.length === 1);
+    expect(s.w.sent).toEqual(['hello']);
+  });
+
+  it('打ちかけがあれば渡さない。消えたら渡す', async () => {
+    const s = await setup({ session: agentSession() });
+    s.w.pane.styled = TYPED;
+    await s.ask(send('later'));
+    await new Promise((x) => setTimeout(x, 60));
+    expect(s.w.sent).toEqual([]);
+    s.w.pane.styled = EMPTY;
+    await settle(() => s.w.sent.length === 1);
+  });
+
+  it('登録の待ち（waitingFor）か許可の札が出ている間は、入力欄が空でも渡さない。札が閉じたら渡す', async () => {
+    const s = await setup({ session: agentSession({ live: 'waiting', waitingFor: 'permission' }) });
+    s.w.pane.styled = EMPTY;
+    await s.ask(send('not now'));
+    await new Promise((x) => setTimeout(x, 60));
+    expect(s.w.sent).toEqual([]);
+    s.w.session = agentSession({ live: 'idle', waitingFor: null });
+    s.host.turnChanged();
+    await settle(() => s.w.sent.length === 1);
+    expect(s.w.sent).toEqual(['not now']);
+  });
+
+  it('rush は API で中断してから渡す。Escape は打たない', async () => {
+    const calls: string[] = [];
+    const s = await setup({ session: agentSession({ live: 'busy' }), deps: { interruptApi: async (id, p) => { calls.push(`${id}:${p}`); return true; } } });
+    s.w.pane.styled = EMPTY;
+    const queueId = ((await s.ask(send('now'))) as { queueId: string }).queueId;
+    await new Promise((x) => setTimeout(x, 40));
+    expect(s.w.sent).toEqual([]);
+    expect(await s.ask({ t: 'rush', queueId })).toEqual({ ok: true });
+    expect(calls).toEqual([`s1:${provider}`]);
+    expect(s.w.pane.events).toEqual([]);
+    s.w.session = agentSession({ live: 'idle' });
+    await settle(() => s.w.sent.length === 1);
+  });
+
+  it('API が使えない（false、投げる、口が無い）ときは Escape に落ちる', async () => {
+    for (const interruptApi of [async () => false, async () => { throw new Error('down'); }, undefined]) {
+      const s = await setup({ session: agentSession({ live: 'busy' }), deps: interruptApi ? { interruptApi } : {} });
+      expect(await s.ask({ t: 'interrupt' })).toEqual({ ok: true });
+      expect(s.w.pane.events).toEqual(['key:escape']);
+    }
+  });
+
+  it('止まっていれば interrupt は何も打たない。札が出ているときは ask-mismatch', async () => {
+    const calls: string[] = [];
+    const s = await setup({ session: agentSession(), deps: { interruptApi: async () => { calls.push('x'); return true; } } });
+    expect(await s.ask({ t: 'interrupt' })).toEqual({ ok: true });
+    s.w.session = agentSession({ live: 'busy', waitingFor: 'question' });
+    expect(await s.ask({ t: 'interrupt' })).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(calls).toEqual([]);
+    expect(s.w.pane.events).toEqual([]);
+  });
+
+  it('commands は空の一覧、switch-account は account-unavailable', async () => {
+    const s = await setup({ session: agentSession(), deps: { switchAccount: async () => 'ok' } });
+    expect(await s.ask({ t: 'commands' })).toEqual({ ok: true, commands: [] });
+    expect(await s.ask({ t: 'switch-account', account: 'work' })).toEqual({ ok: false, reason: 'account-unavailable' });
+  });
+
+  it('持ち主でない PC は、Claude と同じく session-unknown で断る', async () => {
+    const s = await setup({ session: agentSession({ lock: true }) });
+    expect(await s.ask(send('x'))).toEqual({ ok: false, reason: 'session-unknown' });
+    expect(await s.host.rush('s1')).toEqual({ ok: false, reason: 'session-unknown' });
+  });
+
+  it('resume-send は止まった会話を再開（deps.resume）し、画面が使えてから渡す', async () => {
+    const s = await setup({ session: agentSession({ live: null }), run: null });
+    s.w.pane.styled = EMPTY;
+    const r = await s.ask({ t: 'resume-send', text: 'wake up', images: [] });
+    expect(r).toMatchObject({ ok: true });
+    await settle(() => s.w.sent.length === 1);
+    expect(s.w.resumed).toBe(1);
+    expect(s.w.sent).toEqual(['wake up']);
+  });
+});
+
+describe('PeerChatHost: Claude の commands と作業中の Codex', () => {
+  it('Codex の作業中（入力欄は出ている）でも、busy の間は預かる', async () => {
+    const s = await setup({ session: idleSession({ provider: 'codex', live: 'busy' }) });
+    s.w.pane.styled = CODEX_WORKING;
+    await s.ask(send('queued'));
+    await new Promise((x) => setTimeout(x, 60));
+    expect(s.w.sent).toEqual([]);
+  });
+});
+
+// ---- Codex と opencode の札 ----
+
+const PERM_CHOICES = [
+  { key: 'once', label: '今回だけ', scope: 'once' as const },
+  { key: 'session', label: '以後も', scope: 'session' as const },
+  { key: 'deny', label: '許可しない', scope: 'deny' as const },
+];
+const permAsk = (provider: 'codex' | 'opencode' = 'codex', over: Partial<AgentPendingAsk> = {}): AgentPendingAsk => ({
+  provider, stableId: 'appr-1', api: { requestKey: '7', method: 'item/commandExecution/requestApproval' }, kind: 'permission', tool: 'Bash', input: 'npm test', description: null, choices: PERM_CHOICES, questions: [], ...over,
+});
+const q = (id: string, over: Partial<AgentAskQuestion> = {}): AgentAskQuestion => ({ id, text: `question ${id}`, kind: 'choice', options: [{ key: 'a', label: 'A' }, { key: 'b', label: 'B' }], multi: false, allowText: false, required: true, ...over });
+const questionAsk = (qs: AgentAskQuestion[], over: Partial<AgentPendingAsk> = {}): AgentPendingAsk => ({ provider: 'codex', stableId: 'req-1', api: { requestKey: '8', method: 'item/tool/requestUserInput' }, kind: 'question', choices: [], questions: qs, ...over });
+
+/** 偽の札の口。cur を差し替えて「いま出ている要求」を動かす。answer の結果は next で決める。 */
+type FakePort = { cur: AgentPendingAsk | null; next: 'ok' | 'gone' | 'unreachable'; calls: { ask: AgentPendingAsk; reply: AgentAskReply }[]; port: AgentAskPort };
+function fakePort(cur: AgentPendingAsk | null): FakePort {
+  const f: FakePort = {
+    cur,
+    next: 'ok',
+    calls: [],
+    port: {
+      current: () => f.cur,
+      answer: async (_sid: string, ask: AgentPendingAsk, reply: AgentAskReply) => {
+        f.calls.push({ ask, reply });
+        if (f.next === 'ok') f.cur = null;
+        return f.next;
+      },
+    },
+  };
+  return f;
+}
+
+type ScreenAnswer = NonNullable<NonNullable<PeerChatHostDeps['agentAsk']>['screenAnswer']>;
+
+async function agentSetup(provider: 'codex' | 'opencode', cur: AgentPendingAsk | null, o: { screen?: ScreenAnswer } = {}) {
+  const port = fakePort(cur);
+  const screenCalls: unknown[][] = [];
+  const screen = o.screen;
+  const s = await setup({
+    session: idleSession({ provider, live: 'waiting', waitingFor: 'permission' }),
+    deps: { agentAsk: { ports: { [provider]: port.port }, ...(screen ? { screenAnswer: async (...a: Parameters<ScreenAnswer>) => { screenCalls.push(a); return screen(...a); } } : {}) } },
+  });
+  const askOf = async () => s.state(await s.ask(tailOp())).items.at(-1)!.ask!;
+  const answer = (askId: string, keys: string[], text?: string) => s.ask({ t: 'answer', askId, keys, ...(text !== undefined ? { text } : {}) });
+  return { s, port, screenCalls, askOf, answer };
+}
+
+describe.each(['codex', 'opencode'] as const)('PeerChatHost: %s の札（API で答える）', (provider) => {
+  it('許可の札が出て、答えると API に 1 回送り、answered を記録する（画面には何も打たない）', async () => {
+    const a = await agentSetup(provider, permAsk(provider));
+    const ask = await a.askOf();
+    expect(ask).toMatchObject({ askId: toPeerChatAsk(permAsk(provider), {}).askId, kind: 'permission', tool: 'Bash', input: 'npm test' });
+    expect(ask.options.map((o) => o.key)).toEqual(['once', 'session', 'deny']);
+    expect(await a.answer(ask.askId, ['once'])).toEqual({ ok: true });
+    expect(a.port.calls).toEqual([{ ask: permAsk(provider), reply: { kind: 'permission', choice: 'once' } }]);
+    expect(a.s.w.pane.events).toEqual([]);
+    const after = a.s.state(await a.s.ask(tailOp())).items.filter((i) => i.ask);
+    expect(after.at(-1)!.ask!.answered).toMatchObject({ by: { deviceId: 'pc-b' }, label: '今回だけ' });
+    expect(await a.answer(ask.askId, ['once'])).toEqual({ ok: false, reason: 'already-answered' });
+    expect(a.port.calls.length).toBe(1);
+  });
+
+  it('手元の口（local）も同じ札と答えの道を通る', async () => {
+    const a = await agentSetup(provider, permAsk(provider));
+    const ask = a.s.host.local.currentAsk('s1')!;
+    expect(ask.askId).toBe(toPeerChatAsk(permAsk(provider), {}).askId);
+    expect(await a.s.host.local.answer('s1', ask.askId, ['deny'])).toEqual({ ok: true, label: '許可しない' });
+    expect(a.port.calls[0]!.reply).toEqual({ kind: 'permission', choice: 'deny' });
+  });
+
+  it("'gone'（先に別の道で解かれた）は already-answered。札に無い選択肢は ask-mismatch で API に送らない", async () => {
+    const a = await agentSetup(provider, permAsk(provider));
+    const ask = await a.askOf();
+    expect(await a.answer(ask.askId, ['nope'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(await a.answer(ask.askId, ['once', 'deny'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(await a.answer('old-ask', ['once'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(a.port.calls).toEqual([]);
+    a.port.next = 'gone';
+    expect(await a.answer(ask.askId, ['once'])).toEqual({ ok: false, reason: 'already-answered' });
+  });
+
+  it("'unreachable' なら画面の道の口を呼び、'ok' なら answered を記録する", async () => {
+    const a = await agentSetup(provider, permAsk(provider), { screen: async () => 'ok' });
+    a.port.next = 'unreachable';
+    const ask = await a.askOf();
+    expect(await a.answer(ask.askId, ['session'])).toEqual({ ok: true });
+    expect(a.screenCalls).toEqual([[provider, 's1', permAsk(provider), { kind: 'permission', choice: 'session' }]]);
+    a.port.cur = null; // 画面で答えれば、要求は解かれる。
+    expect(a.s.state(await a.s.ask(tailOp())).items.filter((i) => i.ask).at(-1)!.ask!.answered).toMatchObject({ label: '以後も' });
+  });
+
+  it("'unreachable' でも、画面の口が 'mismatch' か無ければ ask-mismatch。api が無い札は最初から画面の道へ（口が無ければ answerable: false）", async () => {
+    const a = await agentSetup(provider, permAsk(provider), { screen: async () => 'mismatch' });
+    a.port.next = 'unreachable';
+    const ask = await a.askOf();
+    expect(await a.answer(ask.askId, ['once'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    const b = await agentSetup(provider, permAsk(provider));
+    b.port.next = 'unreachable';
+    expect(await b.answer((await b.askOf()).askId, ['once'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    const c = await agentSetup(provider, permAsk(provider, { api: null }));
+    expect((await c.askOf()).answerable).toBe(false);
+    expect(await c.answer((await c.askOf()).askId, ['once'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(c.port.calls).toEqual([]);
+    const d = await agentSetup(provider, permAsk(provider, { api: null }), { screen: async () => 'ok' });
+    expect((await d.askOf()).answerable).toBeUndefined();
+    expect(await d.answer((await d.askOf()).askId, ['once'])).toEqual({ ok: true });
+    expect(d.port.calls).toEqual([]);
+  });
+
+  it('画面の道へ移る直前に要求がもう無ければ、画面の口を呼ばず already-answered', async () => {
+    const a = await agentSetup(provider, permAsk(provider), { screen: async () => 'ok' });
+    const ask = await a.askOf();
+    a.port.port.answer = async () => { a.port.cur = null; return 'unreachable'; };
+    expect(await a.answer(ask.askId, ['once'])).toEqual({ ok: false, reason: 'already-answered' });
+    expect(a.screenCalls).toEqual([]);
+  });
+
+  it('問いが 3 つ。1 問ずつ答え、最後に API を 1 回だけ呼ぶ。step、header、secret が札に載り、secret の答えは label に残さない', async () => {
+    const qs = [q('q1', { header: 'First' }), q('q2', { kind: 'text', options: [], allowText: true, secret: true }), q('q3')];
+    const a = await agentSetup(provider, questionAsk(qs, { provider }));
+    const c1 = await a.askOf();
+    expect(c1).toMatchObject({ kind: 'question', header: 'First', step: { index: 1, total: 3 } });
+    expect(a.s.state(await a.s.ask(tailOp())).items.at(-1)!.text).toBe('question q1');
+    expect(await a.answer(c1.askId, ['b'])).toEqual({ ok: true });
+    const c2 = await a.askOf();
+    expect(c2).toMatchObject({ secret: true, allowText: true, step: { index: 2, total: 3 } });
+    expect(c2.askId).not.toBe(c1.askId);
+    expect(await a.answer(c2.askId, [], 'hunter2')).toEqual({ ok: true });
+    const c3 = await a.askOf();
+    expect(c3.step).toEqual({ index: 3, total: 3, submit: true });
+    expect(a.port.calls).toEqual([]);
+    expect(await a.answer(c3.askId, ['a'])).toEqual({ ok: true });
+    expect(a.port.calls.length).toBe(1);
+    expect(a.port.calls[0]!.reply).toEqual({ kind: 'question', answers: { q1: 'b', q2: 'hunter2', q3: 'a' } });
+    const items = a.s.state(await a.s.ask(tailOp())).items.filter((i) => i.ask);
+    expect(items.map((i) => i.ask!.answered?.label)).toContain('B');
+    expect(JSON.stringify(items)).not.toContain('hunter2');
+    expect(items.find((i) => i.ask!.askId === c2.askId)!.ask!.answered!.label).toBe('');
+  });
+
+  it('検査に通らない答え（選択肢に無い、必須の空）は ask-mismatch で、貯めない', async () => {
+    const a = await agentSetup(provider, questionAsk([q('q1'), q('q2')], { provider }));
+    const c1 = await a.askOf();
+    expect(await a.answer(c1.askId, [])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(await a.answer(c1.askId, ['zzz'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect((await a.askOf()).askId).toBe(c1.askId);
+  });
+
+  it('途中で要求が消えたら、貯めた答えを捨てる（同じ札がまた出ても 1 問目から）。別の札に替わったときも捨てる', async () => {
+    const ask = questionAsk([q('q1'), q('q2')], { provider });
+    const a = await agentSetup(provider, ask);
+    const c1 = await a.askOf();
+    await a.answer(c1.askId, ['a']);
+    expect((await a.askOf()).step).toEqual({ index: 2, total: 2, submit: true });
+    a.port.cur = null;
+    expect((await a.s.ask(tailOp())).ok).toBe(true);
+    a.port.cur = ask;
+    expect((await a.askOf()).askId).toBe(c1.askId);
+    await a.answer(c1.askId, ['a']);
+    a.port.cur = { ...ask, stableId: 'req-2' };
+    expect((await a.askOf()).step).toEqual({ index: 1, total: 2 });
+    expect(a.port.calls).toEqual([]);
+  });
+
+  it("最後の問いで 'gone' なら already-answered。'unreachable' で、問いが複数なら画面の道へは落とさない", async () => {
+    const a = await agentSetup(provider, questionAsk([q('q1'), q('q2')], { provider }), { screen: async () => 'ok' });
+    await a.answer((await a.askOf()).askId, ['a']);
+    a.port.next = 'unreachable';
+    expect(await a.answer((await a.askOf()).askId, ['b'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(a.screenCalls).toEqual([]);
+    a.port.next = 'gone';
+    expect(await a.answer((await a.askOf()).askId, ['b'])).toEqual({ ok: false, reason: 'already-answered' });
+  });
+
+  it('問い 1 つの選択は、unreachable なら画面の道へ落とせる。複数選択の問いは落とさない', async () => {
+    const a = await agentSetup(provider, questionAsk([q('q1')], { provider }), { screen: async () => 'ok' });
+    a.port.next = 'unreachable';
+    expect(await a.answer((await a.askOf()).askId, ['a'])).toEqual({ ok: true });
+    expect(a.screenCalls).toEqual([[provider, 's1', questionAsk([q('q1')], { provider }), { kind: 'question', answers: { q1: 'a' } }]]);
+    const m = await agentSetup(provider, questionAsk([q('q1', { multi: true })], { provider }), { screen: async () => 'ok' });
+    m.port.next = 'unreachable';
+    expect(await m.answer((await m.askOf()).askId, ['a', 'b'])).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(m.screenCalls).toEqual([]);
+  });
+
+  it('必須でない問いは空の答えで飛ばせて、送る答えに入らない（default があれば入る）', async () => {
+    const a = await agentSetup(provider, questionAsk([q('q1', { required: false }), q('q2', { required: false, default: 'x', kind: 'text', options: [], allowText: true }), q('q3')], { provider }));
+    await a.answer((await a.askOf()).askId, []);
+    await a.answer((await a.askOf()).askId, []);
+    await a.answer((await a.askOf()).askId, ['b']);
+    expect(a.port.calls[0]!.reply).toEqual({ kind: 'question', answers: { q2: 'x', q3: 'b' } });
+  });
+
+  it('札が無いときは、tail に札が出ず、答えは ask-mismatch', async () => {
+    const a = await agentSetup(provider, null);
+    expect(a.s.state(await a.s.ask(tailOp())).items.some((i) => i.ask)).toBe(false);
+    expect(await a.answer('x', ['once'])).toEqual({ ok: false, reason: 'ask-mismatch' });
   });
 });

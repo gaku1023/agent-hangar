@@ -29,6 +29,8 @@ export function peerChatStep(state: State, store: Store, input: Input): Step | n
   if (input.kind !== 'action') return null;
   const a = input.action;
   switch (a.type) {
+    case 'ask.answer': return { state, effects: [{ kind: 'localAsk', command: { op: 'answer', sessionId: a.sessionId, askId: a.askId, keys: a.keys, ...(a.text !== undefined ? { text: a.text } : {}) } }] };
+    case 'ask.settle': return { state, effects: [{ kind: 'localAsk', command: { op: 'settle', sessionId: a.sessionId } }] };
     case 'peerChat.open': return { state, effects: [{ kind: 'peerChat', command: { op: 'open', sessionId: a.sessionId, viewer: a.viewer } }] };
     case 'peerChat.close': return { state, effects: [{ kind: 'peerChat', command: { op: 'close', sessionId: a.sessionId, viewer: a.viewer } }] };
     case 'peerChat.send': return { state, effects: [{ kind: 'peerChat', command: { op: 'send', sessionId: a.sessionId, body: a.body } }] };

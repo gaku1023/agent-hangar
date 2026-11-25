@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { deriveEpochKeys, openPeerChatReply, peerChatExpiresAt, randomEpochKey, sealPeerChat, type LiveSessionDto, type PeerChatOp, type PeerChatReply, type PeerKeyring } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/write.ts';
-import { accountNameOf, bootPeerChat, switchAccountOf, type PeerChatParts } from './peerChat.ts';
+import { accountNameOf, agentAskOf, bootPeerChat, interruptApiOf, switchAccountOf, type PeerChatParts } from './peerChat.ts';
 
 const ME = 'pc-a';
 const PEER = 'pc-b';
@@ -15,6 +15,7 @@ let accept: boolean;
 let parts: PeerChatParts;
 let session: string;
 let events: unknown[];
+let screen: { text: string; keys: string[] } | null;
 let seq = 0;
 
 beforeEach(async () => {
@@ -27,9 +28,10 @@ beforeEach(async () => {
   live = [{ sessionId: 'u1', status: 'busy', name: null, nameSource: null, cwd: '/w', pid: 1 }];
   accept = true;
   events = [];
+  screen = null;
   parts = bootPeerChat({
     home: { db, device: { id: ME, name: 'Win' } as never, settings: { get current() { return { peerChatAcceptFromPeers: accept } as never; } }, home: '/tmp/hangar-home', language: () => 'ja' },
-    runs: { runs: { sendInput: async () => {}, resumeWith: async () => { throw new Error('not here'); } } as never, mux: () => null },
+    runs: { runs: { sendInput: async () => {}, resumeWith: async () => { throw new Error('not here'); } } as never, mux: () => (screen ? ({ capturePane: () => screen!.text, captureStyled: async () => null, sendKeys: (_n: string, k: string) => { screen!.keys.push(k); screen!.text = ' > '; }, listSessions: () => [] } as never) : null) },
     delivery: { live: { current: () => live, onChange: () => () => {} }, hub: { broadcast: (ev) => { events.push(ev); } } },
     sync: { peerLink: () => ({ api: {} as never, ring: async () => ring, reread: async () => {} }) },
     now: () => NOW,
@@ -84,6 +86,20 @@ describe('bootPeerChat', () => {
   });
 });
 
+describe('フォルダの信頼の札（手元の画面の札の道）', () => {
+  const TRUST = ' Accessing workspace:\n\n /w\n\n Quick safety check: Is this a project you created or one you trust?\n\n ❯ 1. Yes, I trust this folder\n   2. No, exit\n\n Enter to confirm · Esc to cancel\n';
+  it('信頼の確認の行（waiting、FolderTrust）の会話で session.ask を流し、札に答えると画面にキーを打つ', async () => {
+    screen = { text: TRUST, keys: [] };
+    live = [{ sessionId: 'u1', status: 'waiting', name: null, nameSource: null, cwd: '/w', pid: 0, waitingFor: 'permission', permission: { tool: 'FolderTrust', input: '/w', description: null } }];
+    parts.asks.checkAll();
+    const ev = events.find((e) => (e as { type?: string }).type === 'session.ask') as { sessionId: string; ask: { askId: string; tool: string } };
+    expect(ev).toMatchObject({ sessionId: session, ask: { tool: 'FolderTrust', input: '/w' } });
+    const r = await parts.host.local.answer(session, ev.ask.askId, ['1']);
+    expect(r).toEqual({ ok: true, label: 'Yes, I trust this folder' });
+    expect(screen.keys).toContain('Enter');
+  });
+});
+
 describe('accountNameOf（state.account）', () => {
   const store = { get: (id: string) => ({ primary: { name: '会社' }, 'acc-2': { name: '大学' } } as Record<string, { name: string }>)[id] ?? null } as never;
 
@@ -121,5 +137,41 @@ describe('switchAccountOf（ほかの PC からの switch-account）', () => {
   it('付け替えが投げれば resume-failed', async () => {
     const fn = switchAccountOf({ switchAccount: async () => { throw new Error('same account'); } }, { store, auth: authOf({ 'acc-1': true }) });
     expect(await fn('s1', '会社')).toBe('resume-failed');
+  });
+});
+
+describe('agentAskOf と interruptApiOf', () => {
+  const psid = (id: string): string | null => (id === 's1' ? 'thr-1' : null);
+
+  it('札の口は hangar の会話の ID を provider の会話の ID に引き換える。引き換えられない会話は札が無く、答えは unreachable', async () => {
+    const seen: string[] = [];
+    const codexLive = { askHandle: (id: string) => { seen.push(id); return { pending: [], rpc: {} as never }; } };
+    const a = agentAskOf({ codexLive }, psid)!;
+    expect(a.ports.opencode).toBeUndefined();
+    expect(a.ports.codex!.current('s1')).toBeNull();
+    expect(seen).toEqual(['thr-1']);
+    expect(a.ports.codex!.current('nope')).toBeNull();
+    expect(await a.ports.codex!.answer('nope', {} as never, { kind: 'permission', choice: 'once' })).toBe('unreachable');
+    expect(seen).toEqual(['thr-1']);
+    expect(agentAskOf({}, psid)).toBeUndefined();
+  });
+
+  it('opencode は client.interrupt を、Codex は今のターンの ID で turn/interrupt を呼ぶ。引けないとき・ターンが無いときは false', async () => {
+    const interrupted: string[] = [];
+    const requests: unknown[] = [];
+    let turnId: string | null = 'turn-1';
+    const opencode = { pendingOf: (id: string) => (id === 'thr-1' ? { client: { interrupt: async (x: string) => { interrupted.push(x); } } as never, perms: [], forms: [] } : null) };
+    const codexLive = { turnHandle: () => ({ turnId, rpc: { isClosed: false, request: async (...a: unknown[]) => { requests.push(a); } } as never }) };
+    const f = interruptApiOf({ opencode, codexLive }, psid);
+    expect(await f('s1', 'opencode')).toBe(true);
+    expect(interrupted).toEqual(['thr-1']);
+    expect(await f('s1', 'codex')).toBe(true);
+    expect(requests).toEqual([['turn/interrupt', { threadId: 'thr-1', turnId: 'turn-1' }]]);
+    turnId = null;
+    expect(await f('s1', 'codex')).toBe(false);
+    expect(await f('nope', 'codex')).toBe(false);
+    expect(await f('nope', 'opencode')).toBe(false);
+    expect(await f('s1', 'claude-code')).toBe(false);
+    expect(await interruptApiOf({}, psid)('s1', 'codex')).toBe(false);
   });
 });

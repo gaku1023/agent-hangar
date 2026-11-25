@@ -15,7 +15,7 @@ import { syncStatusOf } from './common.ts';
 import { toSettingsDto } from './settings.ts';
 
 /** 起動時の取得が使う依存。画面の最初の状態を 1 回で返すので、ほかの経路より広い。 */
-export type BootstrapRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'deviceName' | 'version' | 'live' | 'settings' | 'runs' | 'summary' | 'indexer' | 'retention' | 'cloudUsage' | 'accounts' | 'devices' | 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass' | 'syncDiskShort' | 'configBundle' | 'peerQueued' | 'remoteShell'>;
+export type BootstrapRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'deviceName' | 'version' | 'live' | 'settings' | 'runs' | 'summary' | 'indexer' | 'retention' | 'cloudUsage' | 'accounts' | 'devices' | 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass' | 'syncDiskShort' | 'configBundle' | 'peerQueued' | 'peerAsks' | 'remoteShell'>;
 
 /** 起動時の取得。画面が最初に読む状態を、1 回の応答にまとめて返す。 */
 export function bootstrapRoutes(api: Hono, deps: BootstrapRouteDeps): void {
@@ -59,6 +59,8 @@ export function bootstrapRoutes(api: Hono, deps: BootstrapRouteDeps): void {
       ...(deps.configBundle ? { configSync: deps.configBundle.dto() } : {}),
       // ほかの PC から来た文の預かり。画面を開き直しても、渡すまでは帯と印を出し続けるために運ぶ。
       ...(deps.peerQueued ? { peerQueued: deps.peerQueued() } : {}),
+      // この PC の会話の、いま出ている札。画面を開き直しても、答えるまでは札を出し続けるために運ぶ。
+      ...(deps.peerAsks ? { peerAsks: deps.peerAsks() } : {}),
       // 開いている SSH のシェルタブと上書きの Host 名。どちらも手元だけの表で、同期しない。
       ...(deps.remoteShell ? { remoteTabs: deps.remoteShell.tabs(), remoteHosts: deps.remoteShell.hosts() } : {}),
     };

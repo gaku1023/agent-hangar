@@ -274,13 +274,14 @@ export type ApiClient = {
   answerDeleteApproval(id: string, answer: 'approve' | 'reject' | 'dismiss'): Promise<unknown>;
   /** ほかの PC から預かった文の先頭を、ターンを中断して渡す。断り（預かりが無い、札が出ている）は ok: false で返る。 */
   rushPeerQueue(sessionId: string): Promise<unknown>;
+  /** この PC の会話の札に答える（POST /api/sessions/:id/ask/answer）。断りは ok: false で返る。 */
+  answerLocalAsk(sessionId: string, body: { askId: string; keys: string[]; text?: string }): Promise<import('./localAsk.ts').LocalAskAnswerResult>;
   /** 開いたセッションを既読にする（未読の数を 0 にする）。 */
   markSeen(sessionId: string): Promise<void>;
   /** いま前に出して見ている会話を送る（null は見ていない）。client は画面ごとの鍵。古いサーバでは 404 になるだけで、呼ぶ側は捨てる。 */
   viewing?(client: string, sessionId: string | null): Promise<void>;
   markUnread(sessionId: string): Promise<void>;
   /** フォルダの信頼の確認へ答える。札の askId を取り直し、key（Yes が 1、No が 2）を送る。札が無い、断られたときは投げる。 */
-  answerTrust(sessionId: string, key: string): Promise<void>;
   setPinned(sessionId: string, pinned: boolean): Promise<void>;
   setMuted(sessionId: string, muted: boolean): Promise<void>;
   launchSettings(sessionId: string): Promise<SessionLaunchSettingsDto>;
@@ -538,16 +539,12 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     rotateEventUrl: (id) => post(`/api/events/bindings/${encodeURIComponent(id)}/rotate-url`),
     eventRepoHook: (repo) => call(`/api/events/repo-hook/${repo.split('/').map(encodeURIComponent).join('/')}`),
     answerDeleteApproval: (id, answer) => post(`/api/delete-approvals/${encodeURIComponent(id)}/${answer}`),
+    answerLocalAsk: (sessionId, body) => post(`/api/sessions/${encodeURIComponent(sessionId)}/ask/answer`, body),
     rushPeerQueue: (sessionId) => post(`/api/sessions/${encodeURIComponent(sessionId)}/peer-queue/rush`),
     dismissOverlap: (sessionId, other, paths) => post(`/api/sessions/${sessionId}/overlap/dismiss`, { with: other, paths }),
     markSeen: (sessionId) => post(`/api/sessions/${sessionId}/seen`, {}),
     viewing: (client, sessionId) => post('/api/viewing', { client, sessionId }),
     markUnread: (sessionId) => post(`/api/sessions/${sessionId}/unread`, {}),
-    answerTrust: async (sessionId, key) => {
-      const { ask } = await call<{ ask: { askId: string } | null }>(`/api/sessions/${sessionId}/trust`);
-      if (!ask) throw new Error('trust-ask-gone');
-      await post(`/api/sessions/${sessionId}/trust`, { askId: ask.askId, key });
-    },
     setPinned: (sessionId, pinned) => post(`/api/sessions/${sessionId}/pin`, { pinned }),
     setMuted: (sessionId, muted) => post(`/api/sessions/${sessionId}/mute`, { muted }),
     launchSettings: (sessionId) => call(`/api/sessions/${sessionId}/launch-settings`),

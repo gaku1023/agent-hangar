@@ -1,3 +1,4 @@
+import { presentLocalAskBand, type LocalAskBandProps } from './localAsk.ts';
 import { contextGaugeOf, type ContextGauge } from './contextGauge.ts';
 import { resumeHereOf } from './resumeHere.ts';
 import { agentOfSession } from './agentIcon.ts';
@@ -5,7 +6,7 @@ import { asideOf } from '../lib/aside.ts';
 import { gitDetailRows, gitUnsafeFix, presentGitChip, presentGitFiles, type GitChipProps, type GitFilesView } from './git.ts';
 import { openForLabel, openLabel } from './editor.ts';
 import { baseName, splitLast } from '../lib/paths.ts';
-import { AGENT_DISPLAY_NAME, AGENT_UI_CAPS, DEFAULT_AGENT_KIND, FOLDER_TRUST_TOOL, stopReasonOf, translateEnglishOf, type LiveStatus, type NonDefaultAgentKind, type RunDto, type RunKind, type SessionDto, type SessionFilesDto, type SettingsDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type UiAction } from '@agent-hangar/shared';
+import { AGENT_DISPLAY_NAME, AGENT_UI_CAPS, DEFAULT_AGENT_KIND, stopReasonOf, translateEnglishOf, type LiveStatus, type NonDefaultAgentKind, type RunDto, type RunKind, type SessionDto, type SessionFilesDto, type SettingsDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type UiAction } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
 import { finishedReplies } from './termReplies.ts';
@@ -19,7 +20,7 @@ import { noteView, presentTool, relPath, type ToolView } from './tools.ts';
 import { turnsText } from './stats.ts';
 import { translatorOf } from './i18n.ts';
 import { presentPeerShell, type PeerShellProps } from './remoteShell.ts';
-import { isPeerChatCandidate, presentPeerCard, presentPeerChat, presentPeerToc, type PeerChatAskRow, type PeerChatView, type PeerToc } from './peerChat.ts';
+import { isPeerChatCandidate, presentPeerCard, presentPeerChat, presentPeerToc, type PeerChatView, type PeerToc } from './peerChat.ts';
 import { interruptMark } from './interrupted.ts';
 import { presentOverlap, type OverlapProps } from './overlap.ts';
 import { projectDisplayName } from './projectName.ts';
@@ -80,6 +81,8 @@ function spawnedChildrenOf(store: Store, id: string, t: Translate): SpawnedChild
 export type SessionProps = { id: string; name: string; parent: ParentLink | null; live: LiveStatus | null; aside: boolean;
   /** 止まっている理由（shared の stopReasonOf）。見出しの点と端末の縁を替える。無ければ null。 */
   reason?: StopReason | null;
+  /** 開いている会話の札（許可と質問）。ターミナルの真上の帯に出す。無ければ null か無し。 */
+  ask?: LocalAskBandProps | null;
   /** 見出しの名前の横に出す、要約の 1 文。無ければ null。 */
   oneLiner: string | null;
   /**
@@ -93,7 +96,7 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   spawnedFrom?: SpawnedFromView | null;
   /** このセッションが起こしたセッション（起動の古い順）。無ければ空、省けば出さない。 */
   spawned?: SpawnedChild[];
-  hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; /** フォルダの信頼の確認が出ている間の札（ターミナルの上の帯の代わり）。無ければ null。 */ trust: PeerChatAskRow | null; canResume: boolean; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean; lock: SessionLockProps | null; remoteOnly: boolean; canResumeHere: boolean; outsideOpen: 'attach' | 'adopt' | null;
+  hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean; lock: SessionLockProps | null; remoteOnly: boolean; canResumeHere: boolean; outsideOpen: 'attach' | 'adopt' | null;
   /** この PC にプロジェクトのフォルダが無いほかの PC の会話の、押せない理由と場所を指定する先（presenters/resumeHere.ts）。省けば null として読む。 */
   noRoot?: { reason: string; projectId: string } | null;
   /** ほかの PC に引き継がれたことを伝える見出しの下の 1 行（SessionDto.takenOver）。引き継がれていなければ null、省けば出さない。 */
@@ -574,23 +577,13 @@ export function sessionAddressLine(store: Store, id: string): string | null {
   return t(s.live === null ? 'session.address.lineEnded' : 'session.address.line', { name, id });
 }
 
-/**
- * フォルダの信頼の確認（Claude Code が会話の前に出す）の札。live が入力待ちで、許可の道具が FolderTrust のときだけ出す。
- * 別の PC の画面と同じ札の形にして、選択肢は確認の画面のラベルのまま（key は Yes が 1、No が 2）にする。
- * sending は答えを送っている間で、二度押しさせない。
- */
-function trustCardOf(t: Translate, s: SessionDto, sending: boolean): PeerChatAskRow | null {
-  if (s.live !== 'waiting' || s.permission?.tool !== FOLDER_TRUST_TOOL) return null;
-  return { kind: 'ask', key: 'trust', askId: 'trust', askKind: 'permission', title: t('stop.folder.trust'), input: s.permission.input || null, options: [{ key: '1', label: 'Yes, I trust this folder' }, { key: '2', label: 'No, exit' }], multi: false, allowText: false, answered: null, hostOnly: null, pending: sending, locked: false };
-}
-
 export function presentSession(state: State, store: Store, now: number, id: string): SessionProps {
   const s = store.sessions[id];
   const t = translatorOf(store);
   const view = state.sessionView[id] ?? defaultSessionView();
   // ターンの少ない終わった会話は、右の欄をはじめ畳み、その画面だけの開閉（tocPeek）に従う。
   const transcriptOpen = tocFolds(store, view, id, state.orchestratorOpen) ? view.tocPeek : view.transcriptOpen;
-  const base = { id, parent: null, live: null, aside: false, oneLiner: null, hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen, trustHint: false, trust: null, canResume: false, summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, turnRows: [], turnsComplete: true, turnsPending: false, turnCount: null, loadingOlder: false, openTurnItems: [], turnJump: null, termReplies: [], promptJump: false, strip: null, lead: null, badges: [], details: [], git: null, account: null, gone: null, jump: null, hasNewer: false, actions: { primary: openEditor(openLabel(t, store.settings)), menu: [] }, transcriptBand: null };
+  const base = { id, parent: null, live: null, aside: false, oneLiner: null, hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen, trustHint: false, canResume: false, summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, turnRows: [], turnsComplete: true, turnsPending: false, turnCount: null, loadingOlder: false, openTurnItems: [], turnJump: null, termReplies: [], promptJump: false, strip: null, lead: null, badges: [], details: [], git: null, account: null, gone: null, jump: null, hasNewer: false, actions: { primary: openEditor(openLabel(t, store.settings)), menu: [] }, transcriptBand: null };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
@@ -697,7 +690,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     promptJump: agentKind !== null && AGENT_UI_CAPS[agentKind].promptJump,
     jump: view.jump,
     run: run ? { id: run.id, kind: run.kind, alive: run.endedAt === null, started: relativeTime(t, run.startedAt, now) } : null,
-    tabs, selectedTab, trustHint: alive && s.live === null, trust: alive ? trustCardOf(t, s, store.trustSending[id] === true) : null,
+    tabs, selectedTab, trustHint: alive && s.live === null,
     // 他端末が動かしている間は再開もフォークもさせない。手元に写ししか無いセッションも同じである。
     // 手元で続けたいときは「この PC で再開」に回して、本文を降ろしてから新しい run を立てる。
     canResume: s.hasTranscript && !pending && idle && s.lock === null && !s.remoteOnly,
@@ -717,5 +710,5 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     peerChat: isPeerChatCandidate(s) ? { watch: true, view: presentPeerChat(store, id, t), card: presentPeerCard(store, id, t, { now, clock: (ts) => when(ts).slice(0, 5) }), toc: presentPeerToc(store, id, t, { clock: when }), ...(store.peerChat[id]?.phase === 'fallback' && store.peerChat[id]?.fallback === 'worker-outdated' ? { workerOutdated: true } : {}) } : { watch: false, view: null },
   };
   props.endedLine = run !== null || agentKind === null ? null : pending ? AGENT_TEXT[agentKind].endedPending : props.canResume ? AGENT_TEXT[agentKind].endedLine : null;
-  return { ...props, actions: sessionActions({ ...props, summaryOff }, t, openLabel(t, store.settings)) };
+  return { ...props, ask: presentLocalAskBand(store, id, t), actions: sessionActions({ ...props, summaryOff }, t, openLabel(t, store.settings)) };
 }

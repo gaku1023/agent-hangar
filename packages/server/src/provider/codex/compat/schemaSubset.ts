@@ -9,7 +9,7 @@ export type SchemaMethod = {
   /** request は ClientRequest、notification は ServerNotification、serverRequest は ServerRequest の中の包み。 */
   kind: 'request' | 'notification' | 'serverRequest';
   method: string;
-  /** 答えの定義の名前（`v2/ThreadStartResponse` のように、定義の置き場の道）。要求の答えを読むものだけ。 */
+  /** 答えの定義の名前（`v2/ThreadStartResponse` のように、定義の置き場の道）。要求の答えを読むものと、サーバからの要求へ hangar が返す応答（serverRequest。provider/codex/answer.ts が書く形）。 */
   response?: string;
 };
 
@@ -33,11 +33,11 @@ export const HANGAR_CODEX_METHODS: readonly SchemaMethod[] = [
   { kind: 'notification', method: 'turn/completed' },
   { kind: 'notification', method: 'account/rateLimits/updated' },
   { kind: 'notification', method: 'serverRequest/resolved' },
-  { kind: 'serverRequest', method: 'item/commandExecution/requestApproval' },
-  { kind: 'serverRequest', method: 'item/fileChange/requestApproval' },
-  { kind: 'serverRequest', method: 'item/permissions/requestApproval' },
-  { kind: 'serverRequest', method: 'item/tool/requestUserInput' },
-  { kind: 'serverRequest', method: 'mcpServer/elicitation/request' },
+  { kind: 'serverRequest', method: 'item/commandExecution/requestApproval', response: 'CommandExecutionRequestApprovalResponse' },
+  { kind: 'serverRequest', method: 'item/fileChange/requestApproval', response: 'FileChangeRequestApprovalResponse' },
+  { kind: 'serverRequest', method: 'item/permissions/requestApproval', response: 'PermissionsRequestApprovalResponse' },
+  { kind: 'serverRequest', method: 'item/tool/requestUserInput', response: 'ToolRequestUserInputResponse' },
+  { kind: 'serverRequest', method: 'mcpServer/elicitation/request', response: 'McpServerElicitationRequestResponse' },
 ];
 
 export type SchemaSubset = {

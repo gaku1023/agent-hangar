@@ -130,10 +130,27 @@ const rowsOf = (r: unknown): Record<string, unknown>[] => {
  * 許可を待っている 1 件（`GET /api/permission/request` と `permission.asked` の data）。
  * action は道具の名前（2.x の Bash は `shell`）、resources は許すかを聞いている中身（shell なら命令の全文）である。
  */
-export type OpencodePermissionRequest = { id: string; sessionID: string; action: string; resources: string[] };
+export type OpencodePermissionRequest = { id: string; sessionID: string; action: string; resources: string[]; save?: string[]; message?: string };
 
-/** form（question の道具など）の 1 項目。description が問いの文、title は短い見出しである。 */
-export type OpencodeFormField = { key: string; title?: string; description?: string };
+/** 欄の選択肢（Form.Option）。 */
+export type OpencodeFormOption = { value: string; label: string; description?: string };
+/** 欄の出る条件（Form.When）。ほかの欄の値との等しい・等しくない。 */
+export type OpencodeFormWhen = { key: string; op: 'eq' | 'neq'; value: string | number | boolean };
+
+/**
+ * form（question の道具など）の 1 項目。description が問いの文、title は短い見出しである。
+ * type は string、number、integer、boolean、multiselect、external（opencode 2.2.0）。2.1.4 の見本には type が無い。
+ * min と max は API の minimum と maximum、url は external の欄のものである。
+ */
+export type OpencodeFormField = {
+  key: string; title?: string; description?: string;
+  type?: string; options?: OpencodeFormOption[]; custom?: boolean; required?: boolean; hidden?: boolean;
+  when?: OpencodeFormWhen[]; default?: unknown; min?: number; max?: number; minItems?: number; maxItems?: number; url?: string;
+};
+
+/** 返信の結果。ok＝受け付けた（204）、gone＝もう解かれていた（404、409）、unreachable＝届かない・断られた（つながらない、401、5xx、400）。 */
+export type OpencodeReplyResult = 'ok' | 'gone' | 'unreachable';
+export type OpencodePermissionDecision = 'once' | 'always' | 'reject';
 
 /**
  * 答えを待っている form の 1 件（`GET /api/form` と `form.created` の data.form）。
@@ -412,6 +429,25 @@ export class OpencodeClient {
     return (Array.isArray(r?.data) ? r.data : []).flatMap((x) => { const f = formOf(x); return f ? [f] : []; });
   }
 
+  /** 許可の確認に答える（`POST /api/session/{sid}/permission/{requestID}/reply`）。sid は要求の中の sessionID（サブエージェントの会話でもありうる）。 */
+  replyPermission(sid: string, requestID: string, decision: OpencodePermissionDecision, message?: string): Promise<OpencodeReplyResult> {
+    return this.reply(`/api/session/${encodeURIComponent(sid)}/permission/${encodeURIComponent(requestID)}/reply`, { decision, ...(message !== undefined ? { message } : {}) });
+  }
+
+  /** form に答える（`POST /api/session/{sid}/form/{formID}/reply`）。answer は欄の key から値。 */
+  replyForm(sid: string, formID: string, answer: Record<string, string | number | boolean | string[]>): Promise<OpencodeReplyResult> {
+    return this.reply(`/api/session/${encodeURIComponent(sid)}/form/${encodeURIComponent(formID)}/reply`, { answer });
+  }
+
+  private async reply(p: string, body: unknown): Promise<OpencodeReplyResult> {
+    try {
+      await this.request('POST', p, body);
+      return 'ok';
+    } catch (e) {
+      return e instanceof OpencodeApiError && (e.status === 404 || e.status === 409) ? 'gone' : 'unreachable';
+    }
+  }
+
   /**
    * 会話の本文の 1 ページ（`GET /api/session/{id}/message`）。メッセージは新しい順に並ぶ。
    * next は次の（より古い）ページの印で、無ければ null。2.1.4 は最後のページの後にもう 1 つ空のページを返し、その印が null になる。
@@ -473,7 +509,10 @@ export function permissionRequestOf(v: unknown): OpencodePermissionRequest | nul
   const action = str(v.action);
   if (!id || !sessionID || !action) return null;
   const resources = Array.isArray(v.resources) ? v.resources.filter((x): x is string => typeof x === 'string') : [];
-  return { id, sessionID, action, resources };
+  const out: OpencodePermissionRequest = { id, sessionID, action, resources };
+  if (Array.isArray(v.save)) out.save = v.save.filter((x): x is string => typeof x === 'string');
+  if (typeof v.message === 'string' && v.message !== '') out.message = v.message;
+  return out;
 }
 
 /** form の 1 件を読む。API の答えと `form.created` の data.form は同じ形である。読めなければ null。 */
@@ -482,12 +521,48 @@ export function formOf(v: unknown): OpencodeForm | null {
   const id = str(v.id);
   const sessionID = str(v.sessionID);
   if (!id || !sessionID) return null;
-  const fields = (Array.isArray(v.fields) ? v.fields : []).flatMap((f): OpencodeFormField[] => {
-    if (!isObj(f) || !str(f.key)) return [];
-    return [{ key: f.key as string, ...(str(f.title) ? { title: f.title as string } : {}), ...(str(f.description) ? { description: f.description as string } : {}) }];
-  });
+  const fields = (Array.isArray(v.fields) ? v.fields : []).flatMap((f): OpencodeFormField[] => (isObj(f) && str(f.key) ? [fieldOf(f)] : []));
   const m = isObj(v.metadata) ? v.metadata : null;
   const tool = m && isObj(m.tool) && str(m.tool.id) ? { id: m.tool.id as string } : undefined;
   const metadata = m ? { ...(str(m.kind) ? { kind: m.kind as string } : {}), ...(tool ? { tool } : {}) } : undefined;
   return { id, sessionID, title: str(v.title) ?? '', ...(metadata ? { metadata } : {}), fields };
+}
+
+
+const fnum = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+
+/** form の 1 欄を読む。読めない付随の欄（形の合わない options や when）は落とす。 */
+function fieldOf(f: Record<string, unknown>): OpencodeFormField {
+  const out: OpencodeFormField = { key: f.key as string };
+  if (str(f.title)) out.title = f.title as string;
+  if (str(f.description)) out.description = f.description as string;
+  if (str(f.type)) out.type = f.type as string;
+  if (Array.isArray(f.options)) {
+    out.options = f.options.flatMap((o): OpencodeFormOption[] => {
+      if (!isObj(o) || typeof o.value !== 'string' || typeof o.label !== 'string') return [];
+      return [{ value: o.value, label: o.label, ...(str(o.description) ? { description: o.description as string } : {}) }];
+    });
+  }
+  if (typeof f.custom === 'boolean') out.custom = f.custom;
+  if (typeof f.required === 'boolean') out.required = f.required;
+  if (typeof f.hidden === 'boolean') out.hidden = f.hidden;
+  if (Array.isArray(f.when)) {
+    out.when = f.when.flatMap((w): OpencodeFormWhen[] => {
+      if (!isObj(w) || !str(w.key) || (w.op !== 'eq' && w.op !== 'neq')) return [];
+      const value = w.value;
+      if (typeof value !== 'string' && typeof value !== 'boolean' && typeof value !== 'number') return [];
+      return [{ key: w.key as string, op: w.op, value }];
+    });
+  }
+  if (f.default !== undefined) out.default = f.default;
+  const min = fnum(f.minimum);
+  if (min !== undefined) out.min = min;
+  const max = fnum(f.maximum);
+  if (max !== undefined) out.max = max;
+  const minItems = fnum(f.minItems);
+  if (minItems !== undefined) out.minItems = minItems;
+  const maxItems = fnum(f.maxItems);
+  if (maxItems !== undefined) out.maxItems = maxItems;
+  if (str(f.url)) out.url = f.url as string;
+  return out;
 }

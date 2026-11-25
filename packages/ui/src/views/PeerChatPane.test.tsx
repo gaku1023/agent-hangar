@@ -149,12 +149,13 @@ describe('会話の中の札（3A）', () => {
     expect(screen.getByRole('button', { name: '2. 拒否' })).toBeDisabled();
   });
 
-  it('答えが付くと、札は閉じて答えの行（「Mac で許可」）に変わる', () => {
+  it('答えが付くと、札は閉じて答えの行（「Mac で許可」）に変わる', async () => {
     const { update, container } = mount(viewOf({ status: 'waiting', items: [ask()] }));
     expect(screen.queryByText('Mac で許可')).toBeNull();
     update(viewOf({ status: 'busy', items: [ask(true)] }));
     expect(screen.getByText('Mac で許可')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '1. 許可' })).toBeNull();
+    // 選択肢は collapseOut で畳んでから外れる。
+    await waitFor(() => expect(screen.queryByRole('button', { name: '1. 許可' })).toBeNull());
     expect(container.querySelector('.pchat-ask')).toHaveAttribute('data-done', 'true');
     expect(container.querySelectorAll('.pchat-ask')).toHaveLength(1);
   });

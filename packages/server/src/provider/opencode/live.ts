@@ -120,6 +120,12 @@ export class OpencodeLive implements LiveSource, AskFeed {
     if (this.drop(providerSessionId)) this.rebuild();
   }
 
+  /** いま答えを待っている許可と form（写しの持っているまま）と、答えを送る client。写しに無い会話は null。札の面（answer.ts）が使う。 */
+  pendingOf(providerSessionId: string): { client: OpencodeClient; perms: OpencodePermissionRequest[]; forms: OpencodeForm[] } | null {
+    const c = this.conns.get(providerSessionId);
+    return c ? { client: c.client, perms: [...c.perms.values()], forms: [...c.forms.values()] } : null;
+  }
+
   start(): void {
     if (this.started) return;
     this.started = true;

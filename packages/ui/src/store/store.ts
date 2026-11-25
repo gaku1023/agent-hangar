@@ -6,6 +6,7 @@ import { asideOf } from '../lib/aside.ts';
 import { sameValue } from '../lib/same.ts';
 import { initialCloudMember, reduceCloudMember, type CloudMemberState } from './cloudMember.ts';
 import { initialUpdate, type UpdateState } from './update.ts';
+import { askUpdated, asksOf, type LocalAsk } from './localAsk.ts';
 import { applyUpdate as applyPeerChatUpdate, type PeerChatSlice } from './peerChat.ts';
 import { confirmPeerAnswer, reconcilePeerAnswer, type PeerAnswerHold } from './peerAnswer.ts';
 import { emptyOrchestrator, type OrchestratorSlice } from './orchestrator.ts';
@@ -105,7 +106,8 @@ export type Store = {
   /** ほかの PC の会話の札にこの PC から答えて、相手の返事を待たずに待ちを外している会話（store/peerAnswer.ts）。 */
   peerAnswered: Record<string, PeerAnswerHold>;
   /** フォルダの信頼の確認へ答えを送っている会話（札の二度押しを止める。断られたら外す）。 */
-  trustSending: Record<string, true>;
+  /** この PC の会話の、いま出ている札（store/localAsk.ts）。bootstrap の peerAsks と session.ask で入る。 */
+  localAsks: Record<string, LocalAsk>;
   /** 統括の柱が読む状態（store/orchestrator.ts）。 */
   orchestrator: OrchestratorSlice;
   /** 机の音声の今の状態（GET /api/voice と事象 voice.state）。まだ読めていないか、読めなかったときは null（画面は今のマイクのまま）。 */
@@ -253,7 +255,7 @@ export function initialStore(): Store {
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     todos: {}, instructions: {}, artifacts: {}, artifactAddError: null, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerTest: null,
-    cloudUsage: null, sync: null, deleteApprovals: [], peerQueued: {}, peerDelivered: {}, remoteTabs: {}, remoteHosts: {}, peerChat: {}, peerAnswered: {}, trustSending: {}, orchestrator: emptyOrchestrator(), voice: null, voiceCatalog: null, schedules: [], eventTrigger: EMPTY_EVENT_TRIGGER, heldEvents: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
+    cloudUsage: null, sync: null, deleteApprovals: [], peerQueued: {}, peerDelivered: {}, remoteTabs: {}, remoteHosts: {}, peerChat: {}, peerAnswered: {}, localAsks: {}, orchestrator: emptyOrchestrator(), voice: null, voiceCatalog: null, schedules: [], eventTrigger: EMPTY_EVENT_TRIGGER, heldEvents: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
     readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, peers: null, launchPreps: {}, opencodeProviders: null, desktop: false, canRestoreHistory: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null, sharePreview: {},
     update: initialUpdate(),
@@ -272,7 +274,7 @@ const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object
  * 差し替えると、終了した run のスクロールバックを見ている最中に画面が変わってしまう。
  */
 export function applyBootstrap(store: Store, b: BootstrapDto): Store {
-  return { ...store, bootstrapped: true, peerAnswered: {}, peerQueued: b.peerQueued ?? {}, remoteTabs: byId(b.remoteTabs ?? []), remoteHosts: b.remoteHosts ?? {}, deleteApprovals: b.deleteApprovals, schedules: b.schedules ?? [], version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home, interrupted: b.interrupted };
+  return { ...store, bootstrapped: true, peerAnswered: {}, localAsks: asksOf(b.peerAsks), peerQueued: b.peerQueued ?? {}, remoteTabs: byId(b.remoteTabs ?? []), remoteHosts: b.remoteHosts ?? {}, deleteApprovals: b.deleteApprovals, schedules: b.schedules ?? [], version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home, interrupted: b.interrupted };
 }
 
 /** 鍵を 1 つ外す。無ければ同じ物を返す。 */
@@ -391,6 +393,7 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
       if (ev.queued.length === 0) return ev.sessionId in store.peerQueued ? { ...store, peerQueued: without(store.peerQueued, ev.sessionId) } : store;
       return sameValue(store.peerQueued[ev.sessionId], ev.queued) ? store : { ...store, peerQueued: { ...store.peerQueued, [ev.sessionId]: ev.queued } };
     }
+    case 'session.ask': return askUpdated(store, ev.sessionId, ev.ask);
     case 'peerChat.delivered': return { ...store, peerDelivered: { ...store.peerDelivered, [ev.sessionId]: { from: ev.from, at: ev.at } } };
     case 'peerChat.update': {
       // 見ていない会話の更新は捨てる（画面を閉じたあとに届いた分）。

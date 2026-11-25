@@ -25,7 +25,7 @@ export const DEVICE_OPENCODE_MODELS_MAX = 300;
  * 統括の設定は PC ごとで同期しないので、ほかの PC はこの欄で統括の会話を見分け、サイドバーから外す（docs/design.md「統括」）。
  * 系譜が無い PC と、この欄を知らない古い版は持たない。
  */
-export type DeviceStatus = { accounts: DeviceAccountStatus[]; agents: string[]; lan_ips: string[]; ssh_host_key: string | null; hangar_version: string; opencode?: DeviceOpencodeStatus; orchestrator_ids?: string[]; /** SSH のシェルタブの宛先に要る様子（ユーザー名、ホスト公開鍵、端末の多重化、ログインシェル）。この欄を知らない古い版は持たない。 */ ssh?: DeviceSshStatus; /** Tailscale の IPv4（100.64/10）。無い PC と古い版は持たない。 */ tailnet_ips?: string[] };
+export type DeviceStatus = { accounts: DeviceAccountStatus[]; agents: string[]; lan_ips: string[]; ssh_host_key: string | null; hangar_version: string; opencode?: DeviceOpencodeStatus; orchestrator_ids?: string[]; /** SSH のシェルタブの宛先に要る様子（ユーザー名、ホスト公開鍵、端末の多重化、ログインシェル）。この欄を知らない古い版は持たない。 */ ssh?: DeviceSshStatus; /** Tailscale の IPv4（100.64/10）。無い PC と古い版は持たない。 */ tailnet_ips?: string[]; /** この PC の host が peer chat で受ける provider の一覧（PEER_CHAT_AGENT_PROVIDERS）。この欄を知らない古い版は持たない。 */ peer_chat_agents?: string[] };
 
 /** 載せる統括の系譜の上限。系譜は今の 1 本と前の 20 件（ORCHESTRATOR_HISTORY_MAX）なので、余裕を見た数で切る。 */
 export const DEVICE_ORCHESTRATOR_IDS_MAX = 64;
@@ -63,7 +63,8 @@ export function parseDeviceStatus(raw: string | null | undefined): DeviceStatus 
   const orchestratorIds = orchestratorIdsOf(o.orchestrator_ids);
   const ssh = parseSshStatus(o.ssh);
   const tailnetIps = Array.isArray(o.tailnet_ips) ? o.tailnet_ips.filter((x): x is string => isStr(x) && x !== '') : [];
-  return { accounts, agents: o.agents.filter(isStr), lan_ips: o.lan_ips.filter(isStr), ssh_host_key: isStr(o.ssh_host_key) ? o.ssh_host_key : null, hangar_version: o.hangar_version, ...(opencode ? { opencode } : {}), ...(orchestratorIds.length > 0 ? { orchestrator_ids: orchestratorIds } : {}), ...(ssh ? { ssh } : {}), ...(tailnetIps.length > 0 ? { tailnet_ips: tailnetIps } : {}) };
+  const peerChatAgents = Array.isArray(o.peer_chat_agents) ? o.peer_chat_agents.filter((x): x is string => isStr(x) && x !== '') : [];
+  return { accounts, agents: o.agents.filter(isStr), lan_ips: o.lan_ips.filter(isStr), ssh_host_key: isStr(o.ssh_host_key) ? o.ssh_host_key : null, hangar_version: o.hangar_version, ...(opencode ? { opencode } : {}), ...(orchestratorIds.length > 0 ? { orchestrator_ids: orchestratorIds } : {}), ...(ssh ? { ssh } : {}), ...(tailnetIps.length > 0 ? { tailnet_ips: tailnetIps } : {}), ...(peerChatAgents.length > 0 ? { peer_chat_agents: peerChatAgents } : {}) };
 }
 
 /** ssh の欄を読む。形が違えば欄ごと無いことにする（ほかの欄は活かす）。 */
@@ -104,3 +105,6 @@ function parseOpencodeStatus(v: unknown): DeviceOpencodeStatus | null {
   });
   return { modes, models, providers, defaultModel: isStr(o.defaultModel) ? o.defaultModel : null };
 }
+
+/** この版の host が peer chat で受ける provider。DeviceStatus.peer_chat_agents に載せる。 */
+export const PEER_CHAT_AGENT_PROVIDERS = ['claude-code', 'codex', 'opencode'] as const;

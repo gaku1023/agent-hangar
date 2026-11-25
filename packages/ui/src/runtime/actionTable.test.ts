@@ -49,22 +49,8 @@ describe('表の鍵', () => {
       'opencode.options', 'opencode.providers.custom', 'opencode.providers.disconnect', 'opencode.providers.key', 'opencode.providers.load', 'opencode.providers.login', 'opencode.providers.login.cancel', 'opencode.providers.login.code', 'opencode.providers.login.poll', 'opencode.providers.model',
       'overlap.dismiss', 'peerQueue.rush', 'project.git.load', 'project.headless.load', 'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
       'schedule.delete', 'schedule.run', 'session.delete', 'session.move', 'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.state.reject', 'session.tryNow', 'setupGuide.openEditor', 'share.preview', 'summarizer.test', 'summary.regenerate',
-      'sync.now', 'sync.pause', 'trust.answer', 'voice.catalog.load', 'voice.engine', 'voice.preview',
+      'sync.now', 'sync.pause', 'voice.catalog.load', 'voice.engine', 'voice.preview',
     ]);
-  });
-});
-
-describe('ディレクトリの信頼の確認', () => {
-  it('答えると、送っている間は札を押せなくし、API には会話と key を渡す', async () => {
-    const answerTrust = vi.fn(async () => {});
-    const r = await runRow({ type: 'trust.answer', sessionId: 's1', key: '1' }, fakeApi({ answerTrust }));
-    expect(answerTrust.mock.calls).toEqual([['s1', '1']]);
-    expect(r.during.trustSending).toEqual({ s1: true });
-  });
-  it('断られたら、また押せるように送っている印を外す（知らせは出さない）', async () => {
-    const answerTrust = vi.fn(async () => { throw new Error('ask-mismatch'); });
-    const r = await runRow({ type: 'trust.answer', sessionId: 's1', key: '2' }, fakeApi({ answerTrust }));
-    expect(r.store.trustSending).toEqual({});
   });
 });
 

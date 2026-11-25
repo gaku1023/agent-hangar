@@ -1,4 +1,4 @@
-import type { PeerChatDevice, PeerChatQueued, PeerChatReadEvent, PeerChatUpdate } from './peerChat.ts';
+import type { PeerChatAsk, PeerChatDevice, PeerChatQueued, PeerChatReadEvent, PeerChatUpdate } from './peerChat.ts';
 import type { ScheduleDto } from './schedule.ts';
 import type { TakeoverDto, DeleteApprovalDto, AccountsDto, ArtifactDto, CloudUsageDto, ConfigSyncDto, DeviceDto, IndexProgressDto, InterruptedDto, JoinApproverState, JoinRequestView, LiveSessionDto, PhoneLaunchDto, ProjectDto, RetentionDto, RunDto, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
 
@@ -76,6 +76,11 @@ export type ServerEvent =
    * 預かった、渡し始めた、渡した、取り消された、10 分で捨てた、会話が消えた、のどれでも配る。
    */
   | { type: 'peerChat.queue'; sessionId: string; queued: PeerChatQueued[] }
+  /**
+   * この PC の会話の札（許可と質問。Claude Code、Codex、opencode）が出た、替わった、閉じた。ask は今の札で、閉じたら null。
+   * 同じ札は流さない。最初の状態は bootstrap の peerAsks。答えは POST /api/sessions/:id/ask/answer。
+   */
+  | { type: 'session.ask'; sessionId: string; ask: PeerChatAsk | null }
   /** ほかの PC から来た文を、この PC の入力欄へ渡した。1 件につき 1 回だけ配る（「{device} から送信しました」の札）。from は送り主、at は渡した時刻。 */
   | { type: 'peerChat.delivered'; sessionId: string; from: PeerChatDevice; at: number }
   /**

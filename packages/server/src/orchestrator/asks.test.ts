@@ -59,6 +59,13 @@ function addRun(sessionId: string, device = 'd'): void {
     .run(`run-${sessionId}`, sessionId, device, 'start', `hangar-${sessionId}`, 1, w.now, '{}', 1, device);
 }
 const waiting = (sessionId: string, over: Partial<LiveSessionDto> = {}): LiveSessionDto => ({ sessionId, status: 'waiting', name: null, nameSource: null, cwd: '/w', pid: 1, statusAt: 100, waitingFor: 'permission', ...over });
+const CODEX_OPTIONS = [
+  { key: 'once', label: '1 回だけ許可' },
+  { key: 'session', label: 'この会話中のみ許可' },
+  { key: 'deny', label: '許可せず続行' },
+  { key: 'cancel', label: '許可せず中断' },
+];
+const codexAsk = (askId: string, tool: string, input: string): PeerChatAsk => ({ askId, kind: 'permission', tool, input, options: CODEX_OPTIONS, multi: false, allowText: false });
 const permAsk = (askId: string, tool: string, input: string): PeerChatAsk => ({ askId, kind: 'permission', tool, input, options: OPTIONS, multi: false, allowText: false });
 
 beforeEach(() => {
@@ -86,11 +93,14 @@ describe('list_pending_asks', () => {
     const { asks } = svc().list('orch');
     expect(asks.map((a) => a.session_id).sort()).toEqual(['s1', 's2', 's3']);
   });
-  it('Claude Code の札は答えられ、Codex と opencode は answerable: false', () => {
+  it('Claude Code の札は答えられる。Codex と opencode も、口に札があれば答えられる', () => {
+    w.asks.set('s2', codexAsk('peer-s2', 'Bash', 'ls'));
+    w.asks.set('s3', codexAsk('peer-s3', 'bash', 'ls'));
     const { asks } = svc().list('orch');
     expect(asks.find((a) => a.session_id === 's1')).toMatchObject({ title: 'ログイン修正', kind: 'permission', tool: 'Read', input: '/w/a.txt', description: 'read a', answerable: true, since: 100, options: OPTIONS });
-    expect(asks.find((a) => a.session_id === 's2')).toMatchObject({ answerable: false, tool: 'Bash' });
-    expect(asks.find((a) => a.session_id === 's3')).toMatchObject({ answerable: false });
+    expect(asks.find((a) => a.session_id === 's2')).toMatchObject({ answerable: true, tool: 'Bash', options: CODEX_OPTIONS.map(({ key, label }) => ({ key, label })) });
+    expect(asks.find((a) => a.session_id === 's2')).not.toHaveProperty('unanswerable');
+    expect(asks.find((a) => a.session_id === 's3')).toMatchObject({ answerable: true });
   });
   it('方針が空なら auto_tools は読み取りと検索の 4 つ', () => {
     expect(svc().list('orch').policy).toEqual({ text: null, auto_tools: ['Read', 'Glob', 'Grep', 'LS'] });
@@ -151,9 +161,11 @@ describe('list_pending_asks', () => {
       expect(w.typed).toEqual([]);
     });
   });
-  it('Codex と opencode は理由を agent にする', () => {
-    expect(askOf('s2').unanswerable).toEqual({ reason: 'agent', device: 'MacBook' });
-    expect(askOf('s3').unanswerable?.reason).toBe('agent');
+  it('Codex と opencode も、口に札が無ければ、Claude Code と同じ理由（agent は使わない）で載せる', () => {
+    addRun('s2');
+    addRun('s3');
+    expect(askOf('s2')).toMatchObject({ answerable: false, unanswerable: { reason: 'not-on-screen', device: 'MacBook' } });
+    expect(askOf('s3').unanswerable?.reason).toBe('not-on-screen');
   });
   it('画面の札が読めても答えられない形なら、理由を screen にする', () => {
     w.asks.set('s1', { ...permAsk('peer-s1', 'Read', '/w/a.txt'), answerable: false });
@@ -202,9 +214,26 @@ describe('answer_ask(by: policy)', () => {
     expect(await svc().answer('orch', { ...policy(), askId: own, by: 'user' })).toEqual({ ok: false, reason: 'not-allowed' });
     expect(w.typed).toEqual([]);
   });
-  it('答えられない会話（Codex）は not-answerable', async () => {
+  it('口に札が無い Codex の会話は not-answerable', async () => {
     expect(await svc().answer('orch', { ...policy(), askId: askOf('s2').ask_id })).toEqual({ ok: false, reason: 'not-answerable' });
     expect(w.typed).toEqual([]);
+  });
+  it('Codex の札：方針は once だけ押せる。session・deny・cancel は not-allowed', async () => {
+    w.policy = { text: '', autoTools: ['Bash'], updatedAt: 1 };
+    w.asks.set('s2', codexAsk('peer-s2', 'Bash', 'ls'));
+    for (const key of ['session', 'deny', 'cancel']) {
+      expect(await svc().answer('orch', { ...policy(), askId: askOf('s2').ask_id, option: key })).toEqual({ ok: false, reason: 'not-allowed' });
+    }
+    expect(w.typed).toEqual([]);
+    w.result = { ok: true, label: '1 回だけ許可' };
+    expect(await svc().answer('orch', { ...policy(), askId: askOf('s2').ask_id, option: 'once' })).toEqual({ ok: true, label: '1 回だけ許可' });
+    expect(w.typed).toEqual([{ sessionId: 's2', askId: 'peer-s2', keys: ['once'] }]);
+  });
+  it('opencode の札：by: user は session も押せる', async () => {
+    w.asks.set('s3', codexAsk('peer-s3', 'bash', 'ls'));
+    w.result = { ok: true, label: 'この会話中のみ許可' };
+    expect(await svc().answer('orch', { askId: askOf('s3').ask_id, option: 'session', by: 'user' })).toMatchObject({ ok: true });
+    expect(w.typed).toEqual([{ sessionId: 's3', askId: 'peer-s3', keys: ['session'] }]);
   });
   it('画面の札が違えば ask-mismatch で、記録を消す', async () => {
     w.result = { ok: false, reason: 'ask-mismatch' };

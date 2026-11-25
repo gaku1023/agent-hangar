@@ -1,6 +1,7 @@
 import type { AgentKind, LiveAsideDto, LiveDigestDto, LiveStatus, PeerChatCommand, PeerChatFile, PermissionAskDto, PeerKeyring, ServerEvent, SessionActivityDto, SessionLimitDto, TranscriptEvent, WaitKind } from '@agent-hangar/shared';
 import type { HookDecisions } from '../../sessions/hookDecisions.ts';
 import type { AnswerPane } from './answer.ts';
+import type { AgentAskDeps } from './agentAsk.ts';
 import type { TailDeps } from './tail.ts';
 
 /** ほかの PC に見せる会話の素性（元の PC の登録と索引から、呼び出し側が組む）。 */
@@ -119,6 +120,8 @@ export type PeerChatHostDeps = {
    * 許可と質問の札は host が画面から組んで渡す。
    */
   readTranscript: TailDeps['readTranscript'];
+  /** 本文の読み口。渡せば readTranscript より先に使う（会話の provider で Claude の jsonl と codex、opencode の索引を選ぶ。tailSource.ts の routedTailSource）。 */
+  source?: TailDeps['source'];
   cache?: TailDeps['cache'];
   /**
    * 入力欄へ貼って確定する。
@@ -142,6 +145,18 @@ export type PeerChatHostDeps = {
    */
   accountName?(sessionId: string): string | null;
   switchAccount?(sessionId: string, accountName: string): Promise<'ok' | 'account-unavailable' | 'resume-failed'>;
+  /**
+   * Codex と opencode の走っているターンを API で止める（Codex は turn/interrupt、opencode は POST /api/session/{id}/interrupt）。
+   * 止めにいったら true。口が無い、つながらない、止める相手が居ないときは false か投げる（host は画面の Escape に落ちる）。
+   * 無い組み立てでは、Escape だけで止める。
+   */
+  interruptApi?(sessionId: string, provider: AgentKind): Promise<boolean>;
+  /**
+   * Codex と opencode の札の口（agentAsk.ts）。hangar の会話の ID で引ける口を provider ごとに渡す。
+   * 無い provider の会話は札を出さず、答えない。
+   * screenAnswer は画面の道（codexDialog.ts、opencodeDialog.ts）。無ければ、API で届かない札は ask-mismatch で断る（answerable: false）。
+   */
+  agentAsk?: AgentAskDeps;
   /**
    * 頼み主が置いた画像の封（GET /peer/blobs/:askId/:n?from=）。
    * 取れなければ投げる。

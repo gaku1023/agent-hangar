@@ -1233,6 +1233,103 @@ Claude Code が user として書くが利用者の発言ではない 2 つの�
 - 会話の画面が読み取り専用に落ちている間（`fallback`）は頼めないので、ヘッダの切り替えは会話を指さず、この PC のいまのアカウントの切り替えにする。
 - この op を知らない古い元の PC は頼みを開けずに答えないので、見る側は待ちが切れて `expired` になる。
 
+ほかの PC の会話の対象は、Claude Code に加えて Codex と opencode である（2026-11-26）。
+読む、送る、中断する、札に答える、の 4 つが 3 つの provider で同じ画面と同じ頼み（`PeerChatRequest`）で通る。
+provider ごとに違うのは、本文の読み口と、札の口と、画面の読み方だけである。
+
+**版の門。**
+見る側が Codex と opencode の会話を peer chat で開くのは、相手の様子（`DeviceStatus`）の `peer_chat_agents` にその provider があるときだけである（`peer/chat/viewTarget.ts`）。
+`peer_chat_agents` は、その PC の host が peer chat で受ける provider の一覧（`PEER_CHAT_AGENT_PROVIDERS`、いまは `claude-code`、`codex`、`opencode`）で、`boot` の様子の組み立てが載せる。
+欄の無い古い相手は、Codex と opencode の会話を今までの画面（`not-remote` と同じ扱い）で見せる。
+版の番号で比べないのは、rc を見ない比べ方では 0.23.0-rc.1 とその前の版を区別できないからである。
+`PeerChatStatus` は今までの 4 値のままで、古い host は Codex と opencode の会話に `not-claude` を返す。見る側は門で、そもそも頼まない。
+host は、`peer_chat_agents` の provider の会話（この PC が持ち主で、ロックも引き取りも無いもの）だけを受け、ほかは `not-claude` で断る。
+
+**本文の読み口。**
+項目の組み立て（`peer/chat/items.ts`）は provider を知らない。`TailRow`（id、利用者の発言の行か、`TranscriptEvent` の並び）の並びだけを見る。
+行を作る層が `TailSource`（`peer/chat/tailSource.ts`）で、`key` は読まずに作れる変わった印、`read` は全体（または末尾の上限まで）の行である。
+- Claude Code：jsonl をバイト位置で読み、行の id は uuid。
+- Codex と opencode：索引（`event_index`）を `readEvents` で読み、行の id は `s<seq>`（1 つの事象が 1 行。ひとつの行から 2 つ目以降に出る項目は `<id>:<番号>`）。`key` は主線（`parent_agent` が空）の `max(seq)|件数` を SQL 1 本で作る。
+- どちらを使うかは会話の `sessions.provider` で選ぶ（`routedTailSource`）。記録が無ければ Claude Code の道に落とす。
+- 索引の読み口は末尾から `PEER_CHAT_INDEX_READ_MAX_EVENTS`（20,000 件）だけを読む。手前は読まないので、`after` からも届かず、`after` が見つからないときと同じ `truncated` になる。
+- 項目の id が `s<seq>` なので、`after` と `older` の覚えは元の PC の seq のままである。手元に降ろした写しの seq は元の PC のものと同じとは限らないので、写しから続きを頼む近道は Codex と opencode では使わない。
+- 索引に本文が書き足されたら（`boot/indexing.ts` の `onAppended`）、host が待っている `tail` を起こす（`host.poke`）。索引が変化の知らせなので、Claude Code のように jsonl の stat を一定の間隔で見ない。
+- 終わっていない返答は索引に写さないので、長い 1 手順の途中は 2 秒で届かないことがある。
+
+運びの欄の足し分は、本文と札の両方で、次の形である。見る側の検証は知らない欄を捨て、形の違う欄は欄ごと落とす（札は捨てない）。
+- `PeerChatAsk.secret`：伏せる自由記述（Codex の `isSecret`）。
+- `PeerChatAsk.header`：問いの見出し（Codex の `header`、opencode の `title`）。上限は UTF-8 で 512 バイト（`PEER_CHAT_ASK_HEADER_MAX_BYTES`）。
+- `PeerChatAsk.textKind`、`min`、`max`：数の欄。`askTextValid` が、有限の数であること、`integer` なら整数であること、範囲の内側であることを確かめる。見る側（画面とスマホ）が送る前に、元の PC も受けるときに、同じ決まりで確かめる。
+
+**札の口。**
+Codex と opencode の札は、Claude Code のように画面から読まず、provider の口から読む。
+形は 2 つある（`agent/pendingAsk.ts`）。
+- `AgentPendingAsk`：札の安定した名前（`stableId`。Codex は `approvalId` か `itemId`、opencode は許可と form の ID）、API で答えるのに要るもの（`api`。無ければ画面の道へ）、種類（許可か質問）、許可の選択肢（`choices`。各 `scope` は `once`、`session`、`deny`、`deny-stop`）、質問（`questions`。`kind` は `choice`、`text`、`number`、`integer`、`boolean`、`external`。`when`、`hidden`、`default`、`required`、`min`、`max` を持てる）。
+- `AgentAskPort`：`current(sessionId)` で今の要求を返し、`answer(sessionId, ask, reply)` で `'ok'`（確定）、`'gone'`（もう解かれていた）、`'unreachable'`（API で届かない）を返す。
+
+`askId`（`agentAskId`）は `sha256(JSON [kind, provider, stableId, step.index, step.submit])` の先頭 24 桁である。Claude Code の `peerAskId` と同じ作りにそろえ、接続ごとに変わる JSON-RPC の ID や `requestKey` は種にしない。
+問いが複数ある質問は 1 問ずつの札にし（`step`）、答えるたびにタブが進んで別の `askId` になる。
+
+答えの流れは `peer/chat/agentAsk.ts` の `AgentAsks` が持つ。
+- 見せる札は、口の今の要求と貯めた答えから作る（`toPeerChatAsk`）。口が札を出さない、または別の札（`stableId` が違う）に替われば、貯めた答えを捨てる。
+- 問いが複数ある札は、1 問ずつ答えを貯め（メモリだけ、会話ごとに 1 つ）、最後の問いで口へ 1 回だけ送る。`when` が偽の問いと `hidden` の問いは飛ばし、`default` を入れて送る。飛ばした問いに貯めた答えは捨てる。
+- 答えの検査（`checkAnswer`）は、選択肢にないキー、単一選択で 2 つ以上、複数選択の `minItems` と `maxItems`、数の欄の形と範囲、`required` を見て、合わなければ `ask-mismatch` で断る。送るのに成功してからか、続きがあるときだけ貯める。
+- 同じ会話の答えは 1 つずつ流す（会話ごとの鎖）。2 台から同じ問いに答えが来ても、後の答えが先の結果を見てから動く。先の答えが記録された後で、同じ札に答えがあれば `already-answered` で断る。
+- 口の答えが `unreachable`（または `api` が無い）なら、画面の道へ落とす。移る直前に要求をもう一度見て、消えていれば `already-answered` にする（resolved が遅れて来たときに二重に答えない）。API と画面の道を同じ札に両方打つことはしない。
+- 画面の道で答えるのは、許可と、選択肢を 1 つ選ぶだけの質問 1 つ（複数選択、伏せる欄、自由記述を添えた答えは除く）に限る（`screenAnswerable`）。それ以外で API が届かない札は `answerable: false` で見せ、押せない形にする。
+- 見る側に出す選択肢は、並びの番号で元のキーへ引き直す。見せるときに長さと重なりを直したためである。
+
+Codex の口（`provider/codex/answer.ts`）は、app-server の接続（`CodexRpc.respond`）で、サーバからの要求の応答を書く（以前は答えなかった。「Codex の状態と許可」の節）。
+- 命令とファイルの変更は `{ decision }`（`accept`、`acceptForSession`、`decline`、`cancel`）。選択肢は要求の `availableDecisions` があれば従い、無ければ 4 つ。
+- 権限の追加は、求められた `permissions` をそのまま許す（`scope` は once なら `turn`、session なら `session`）か、断るなら `{ permissions: {} }`。決定は 3 つで、中断は無い。
+- `requestUserInput` は問いごとに `{ answers }` を書く。選択肢の番号は label に戻し、それ以外の文字列は自由記述として送る。
+- MCP の問い合わせは、欄の無いものだけ、承認、断る、キャンセルの 3 択で答える。欄のあるもの（form の欄、url）は答えず、`external` にする。
+- 応答を書いたあと、`serverRequest/resolved` を 3 秒（`CODEX_RESOLVE_WAIT_MS`）まで待つ。来たら `ok`。来ないまま要求が残っていれば `unreachable`（画面の道へ）。来ないうえに要求が消えていれば `gone`（先に別の接続で解かれた）。書く前に要求が無ければ `gone`。接続が閉じている、答えを作れない札は `unreachable` である。
+
+opencode の口（`provider/opencode/answer.ts`）は、serve の API に答えを 1 回で送る（`OpencodeClient.replyPermission`、`replyForm`）。
+- 許可は `POST /api/session/{sid}/permission/{id}/reply`、form は `POST /api/session/{sid}/form/{id}/reply`。`sid` は要求の中の `sessionID` で、サブエージェントの会話でもありうる。
+- 結果は、204 が `ok`、404 と 409 が `gone`、つながらない、401、400、5xx は `unreachable` である。
+- 許可の選択肢は 3 つ（`once`、`always`、`reject`）。opencode に「止める」は無く、`reject` で作業が止まる（実機で確かめた）。
+- `always` は、別の会話でも、serve の起こし直しの後でも効く長い規則として残る（実機で確かめた）。文言は「今後も常に許可」にし、説明に「ほかの会話でも」と書く。
+- form の欄は型に写す（`string`、`number`、`integer`、`boolean`、`multiselect`）。`required` が無い欄は、`question` の道具の form なら必須、ほかは任意にする。知らない型の欄は `external` にし、それを含む form は答えない（答えられない札にして、ターミナルを開く）。
+
+画面の道（`peer/chat/agentScreen.ts`）は、会話の生きている run の画面を `capture-pane -p -e` で読み（`codexDialog.ts`、`opencodeDialog.ts`。純粋な関数）、札と照合してからキーを打つ。
+- 照合できない、画面に該当の選択肢が無い、打ってはならない答えのときは何も打たず、`ask-mismatch` で断る（`mismatch`）。Codex の命令の承認の画面には「この会話中のみ許可」と「許可せず続行」の行が無いので、その選択は打たずに断る。
+- 名前のあるキー（Enter、Escape、矢印、Tab）は `sendKey`、1 文字は `sendText` で打つ。tmux と psmux で同じ口である。
+- opencode は、選ばれている釦を背景色で見分ける。既定が「1 回だけ許可」であることを塗りで確かめてから打ち、塗りが読めなければ打たない。Windows の見本は無く、色の出方が違えば許可は打たない（安全側）。
+
+選択肢の文言は、許可の種類ごとに provider の定数（`CODEX_CHOICE_TEXT`、`OPENCODE_PERMISSION_CHOICES`）に持つ。
+- Codex：1 回だけ許可、この会話中のみ許可、許可せず続行、許可せず中断。
+- opencode：1 回だけ許可、今後も常に許可、許可せず中断。
+- 真偽の問いは「はい」と「いいえ」（`AGENT_BOOLEAN_CHOICES`）の 2 つで、押すとそのまま答える。
+- 各選択肢に説明（`description`）を持たせ、見る側は label の下に出す。
+
+伏せる自由記述（`secret`）の答えは、記録に値も選んだ行も残さない（`label` は空）。見る側は「〜で入力完了」だけを出す。スマホの `ChatScreen` も、入力を `password` にし、答えた後は値を出さず「入力完了」だけにする。
+
+その他の頼みの違い。
+- 送る：入力欄が空かの読み方を provider で分ける（`inputBox.ts` の `inputEmptyFor`）。札が出ているかは、Claude Code は画面の形で分かるが、Codex と opencode は登録の待ち（`waitingFor`、`permission`）で見る（`hostSend.ts` の `inputEmptyOf`）。
+- 中断：Codex と opencode は API を先に使う（Codex は `turn/interrupt` と、`turn/started` で覚えた `turnId`、opencode は `POST /api/session/{id}/interrupt`）。口が無い、つながらない、`turnId` が分からないときは画面の Escape に落ちる。札が出ている間は `ask-mismatch` で断り、何も打たない。
+- `commands`（`/` の候補）は、Claude のスキルの一覧なので、Codex と opencode には空で返す。
+- `switch-account` は Claude のアカウントの話なので、Codex と opencode は `account-unavailable` で断る。
+
+**手元の口。**
+この PC の画面が、この PC の会話（Claude Code、Codex、opencode）の札を読んで答える口を持つ（`http/routes/sessionAsk.ts`）。
+- `GET /api/sessions/:id/ask`：いま出ている札（`PeerChatAsk`）か `null`（`host.local.currentAsk`）。
+- `POST /api/sessions/:id/ask/answer`：`{ askId, keys, text? }`。`host.local.answer` を通るので、ほかの PC や統括の答えと同じ照合と記録になる。断りは 200 の本文（`ok: false` と peer chat と同じ `reason`）で返し、画面は読み直す。形が合わない要求だけが 400、大きすぎる本文は 413。`/api` の認証の下にあり、MCP の秘密では呼べない。
+- WebSocket の `session.ask`（`{ sessionId, ask }`）：札が出た、替わった、閉じた（`ask` が `null`）ときだけ流す（`boot/askWatch.ts`）。同じ札は流さない。実行中の一覧が変わるたびに、待っている会話と覚えている会話を読み直す。
+- bootstrap の `peerAsks`（会話の ID から札）が最初の状態である。この項目を知らない古いサーバは返さないので、読む側は空として読む。
+- `host.local` の持ち主の判定（`ownedHere`）は、host が受ける provider なら Claude Code に限らない。
+
+**画面。**
+札の選択肢の部品（`views/AskCard.tsx`）を 1 つにして、ほかの PC の会話の列、本文の真上の帯、ホームの行の 3 か所で共用する（2026-11-26 に試作で選んだ）。
+- 手元で答える主な場所は、本文の真上の帯である。セッション画面の見出しの下、タブの行とターミナルの上で、右の欄（目次と `NowCard`）の左の列にだけ出す。札が無い間は高さ 0 になる。札には、命令の下に理由の行（Codex の reason、opencode の message、Claude の description）を出し、「許可せず中断」は危険の色で描く。右の欄の現在の札（`NowCard`）は今までの要約のままにし、選択肢を出さない。帯には Claude Code の会話の札も出し、同じ部品と同じ答え方（`answerCurrent`）を通す。
+- ホームの要対応の行は、行の下に開いて、その場で答える。「答える」で開き、選択肢は横並びにする。
+- 許可の選択肢は、Codex が 4 つ、opencode は「止める」が無いので 3 つで、description を各行の下に出す。問いが複数ある質問は、Claude Code と同じ 1 問ずつのタブ（`step`）で出す。真偽の欄は 2 つの選択肢で、押すとそのまま答える。
+- 答えられない札（`answerable: false`）は選択肢を出さず、「ターミナルを開く」のボタンにする（ほかの PC の会話では元の PC の端末をこの PC から開けないので、案内の一行にする）。
+- 動きは `motionKit` の既定にそろえる。札は答えると `collapseOut` で閉じ、答えの記録が `growIn` で開く。ホームの行の札は `growIn` で開く。
+- 答えの記録は「<PC の名前> で <選んだ label>」で、伏せる入力は「<PC の名前> で入力完了」だけにする。
+- ほかの PC の会話の画面は、`PeerChatCard` が `AskCard` を使う。Claude 専用の制限（Claude Code の会話だけを出す条件）は外した。
+
 ほかの PC の会話の画面から、その PC のシェルを SSH で開くタブも持つ（「ほかの PC の会話のシェルタブ（SSH）」の節）。
 端末だけが SSH で直に流れ、会話の操作はクラウドを通る。
 
@@ -1640,7 +1737,8 @@ daemon は起きないので、`--no-daemon` は付けない。
 接続は `CodexRpc`（JSON-RPC over WebSocket）が持つ。
 `initialize` と `initialized` まで済ませてから返し、`request`、`notify`、型つきの購読（`on('thread/started' | 'thread/status/changed' | 'thread/name/updated' | 'turn/started' | 'turn/completed', …)`）、生の通知の `onAny`、サーバからの要求の `onServerRequest` を持つ。
 薄い口は `threadStart`、`threadResume`、`turnStart`、`turnInterrupt`、`threadLoadedList`。
-hangar の接続は、承認などのサーバからの要求に答える口を持たない（決定 5。TUI が答える。答えなくても TUI の承認は進む）。
+hangar の接続は、ふだんは承認などのサーバからの要求に答えない（TUI が答える。答えなくても TUI の承認は進む）。
+別の PC と手元の画面から札に答えるときだけ、`respond` と `respondError` で応答を書く（決定 5 を改めた。2026-11-26。「ほかの PC の Codex と opencode の会話」）。
 
 初期プロンプトが無いときの ID は、`watchStartedThread` が `thread/started` から拾う。
 `--remote` の TUI がつないだ時点（利用者の入力の前）に、全接続へ届く。
@@ -1688,7 +1786,10 @@ hangar の外の会話は `track` されないので、行も状態も持たな�
 | `item/tool/requestUserInput` | 質問。最初の問いの文。AskUserQuestion の hook と同じ形（asked と answered）で流す |
 | `mcpServer/elicitation/request` | 質問。message |
 
-hangar の接続は承認の要求に答えない。答えは TUI で行う（決定 5）。
+hangar の接続は、ふだんは承認の要求に答えず、答えは TUI で行う。
+peer chat の札（別の PC と手元の画面）に答えるときだけ、要求の生の中身（`CodexPending.raw`）を使って応答を書き（`provider/codex/answer.ts`）、`serverRequest/resolved` を 3 秒まで待って確かめる。
+応答の形は選択肢の種類ごとに決まる（命令とファイルの変更は `decision`、権限の追加は `permissions` と `scope`、`requestUserInput` は問いごとの `answers`、MCP の問い合わせは `action`）。
+要求の写しは、答えるために `requestUserInput` の全部の問い（見出し `header`、伏せる `isSecret` を含む）と、決定の一覧（`availableDecisions` があれば）も持つ。
 要求が TUI で解かれたら、写しからも消す。消える契機は、`serverRequest/resolved`、待ちの旗が消えたこと（取りこぼしても直る。旗が付く前に要求が先に届く順でも新しい要求を消さないよう、旗が「あった状態から無くなった」ときにだけ見る）、`turn/completed`、休みへの status である。問いが消えたら answered を流す。
 
 接続が閉じた（TUI を閉じて app-server を止めた、app-server が落ちた）ら、行ごと外す。「実行中」は残さない。`start()` のあとは、app-server の pid が消えたことも 3 秒おきに見て、同じく外す。
@@ -2134,6 +2235,7 @@ opencode は `OPENCODE_CONFIG_CONTENT` を利用者の設定とプロジェク�
 agent ごとの許可は見ない。opencode はそれを上の段の規則より後に足すので、重ねても利用者の規則が勝つ。
 設定の `opencodePermissionPreset`（既定は入り）で切れる。起こすたびに設定とファイルを読み直す。
 設定の画面は、利用者の設定に許可の鍵があれば（`GET /api/opencode/status` の `configPermissions`）、スイッチを無効にして注記を出す。
+ひな形で ask になった許可には、hangar の画面から「今後も常に許可」（`always`）でも答えられる。`always` は長く残る規則なので、ひな形を重ねた後でも、許可した種類は聞かれなくなる（「opencode の状態」の節）。
 
 MCP の接続は `GET /api/mcp?location[directory]=<dir>` で見る（`location` を JSON の文字列で渡すと 400 になる）。
 つながる前に最初のプロンプトを送ると、1 歩目の Code Mode の目録に hangar の道具が載らないので待つ。
@@ -2290,7 +2392,13 @@ driver は、`materialize` で会話を作ったら、その会話と serve を�
 許可と問いは `asks.subscribe` で流す。
 受けるのは配る層（`boot/delivery.ts`）で、hook の受け口と同じ書き手で書く（`sessions/agentAsks.ts` から、問いは `sessions/questionHook.ts`、許可は `sessions/permissionAsks.ts`）。
 問いは form の最初の項目の説明を問いの文にし、道具の呼び出しの ID（`metadata.tool.id`）で出入りを結ぶ。form が消えたら答えたと流す。
-答えはターミナルで行う。hangar から `…/reply` は送らない。
+答えはターミナルのほかに、peer chat の札（別の PC と手元の画面）から送れる（2026-11-26）。
+許可は `POST /api/session/{sid}/permission/{id}/reply`、form は `POST /api/session/{sid}/form/{id}/reply` で、`sid` は要求の中の `sessionID` である。
+204 は受け付け、404 と 409 はもう解かれていた（`gone`）、つながらない、401、400、5xx は届かない（`unreachable`。画面の道へ落ちる）。
+許可の選択肢は 1 回だけ（`once`）、今後も常に（`always`）、中断（`reject`）の 3 つで、opencode に「止める」は無い。`reject` は作業を止める（実機で確かめた）。
+`always` は、別の会話でも、serve の起こし直しの後でも効く長い規則として残る（実機で確かめた）ので、文言は「今後も常に許可」にし、説明に「ほかの会話でも」と書く。許可のひな形（「opencode の許可のひな形」の節）が ask にした種類も、`always` で許せば以後は聞かれない。
+form は、欄の型（`string`、`number`、`integer`、`boolean`、`multiselect`）に合わせて値を作って送る。知らない型の欄を含む form は、hangar では答えず、端末で答える。
+手順は「ほかの PC の Codex と opencode の会話」にまとめて書いた。
 
 ### エージェントのアイコン
 
@@ -2648,7 +2756,7 @@ shell を通さない exec の形（`command` に node、`args` に台本と MCP
 - hook を持たない run（入れる前の版で起こした run、外の端末、`disableAllHooks`）には待ちが無いので、今までどおり画面だけで答える。
 - 利用者の設定の `PermissionRequest` の hook が先に決定を返したときは、そちらが効き、hangar の待ちは登録が待ちを抜けて閉じる。
 - 本物の claude を偽の API で動かす試験（`launch/hookWait.real.test.ts`）が、allow、No、質問の答え、画面で先に答えたときの待ちの閉じ方を確かめる。claude と tmux が無い環境では飛ばす。
-- Codex と opencode は、hangar は答えない（決定 5）のまま。
+- Codex と opencode には hook が無い。札の答えは、provider の口（Codex は app-server の応答、opencode は serve の reply）から、peer chat の宿主が送る。
 `--mcp-config` と `--add-dir` は可変長オプションで、直後の位置引数を飲み込む。
 起動コマンドの組み立てでは、可変長オプションを他のオプションの前に置き、初期プロンプトは必ず末尾に置く（フェーズ 0 の検証で、逆順にすると初期プロンプトが設定ファイル名として解釈されて即時終了した）。
 tmux で `claude` を直接起動すると異常終了時の出力が失われるので、薄いラッパースクリプトを介して起動し、終了コードと標準エラーをログに残してから tmux セッションを閉じる。
@@ -3205,6 +3313,9 @@ hook はサーバの手元に預け（`sessions/permissionAsks.ts`、DB にも�
 API がすぐ返すと、Claude Code は呼び出しの行を、時刻の早い初めの発言の行より先に本文へ書くことがあり、seq だけで切ると許可待ちの間の手の行も、許可の後の「答えが出ているか」も見落とすためである（使用制限の行の `foldLimit` と同じ並びの入れ替わり）。
 hook を持たない run（外部ターミナル）では中身が届かないので、「許可を待っています（内容はターミナルに表示されています）」と言う。
 Notification の hook は約 6 秒遅れて決まった文言しか運ばないので使わない。
+Codex と opencode の許可待ちと質問も、同じ語（許可待ち、入力待ち）で止まっている理由に出る。
+手元の画面では、その札に、本文の真上の帯とホームの行の選択肢で答えられる（「ほかの PC の Codex と opencode の会話」の節）。
+右の欄の現在の札（`NowCard`）は今までの要約のままにし、選択肢は出さない。
 
 **使用制限。**
 Claude Code は使用制限に当たると、本文に合成の assistant 行を書く（`error: "rate_limit"`、`quotaLimits.rateLimitType` と `quotaLimits.resetsAt`、時刻は秒）。
@@ -3927,9 +4038,9 @@ hangar は、次の置き場で claude を起こす直前に、起こすアカ�
 - **live への重ね**：確認が出ている間、`FolderTrustLive`（`LiveHub` の写しの 1 つ）が、その会話に入力待ちの行（`waiting`、waitingFor は `permission`、`permission.tool` は `FolderTrust`、input はパス、pid は 0）を足す。登録の行が現れたら `LiveHub` が重なった確認の行を捨てる。pid 0 の行は `linkRegistry` が run の pid に書かない。この行は実行中の一覧を通るので、サイドバーの入力待ち、`runs.live_status`（別の PC への配信、`shareLive`）、デスクトップ通知が、ふつうの許可待ちと同じ道で動く。
 - **札**：別の PC へ配る札は `PeerPendingAsk`（`kind` は `permission`、`tool` は `FolderTrust`、`input` はパス、`options` は画面の行のラベル）で、`pendingAskFrom` が画面から組む。新しい `kind` は足さない（古い見る側の検証が答え全体を断るため）。本文が無くても札の項目は `items` に載り、状態は `waiting` になる。
 - **答え**：番号の無い画面があるので、`answerAsk` はこの札だけ番号のキーを使わない。画面を読み直し、フォルダのパスと選んだ行が札と合うことを確かめ、カーソルの行との差だけ `up` か `down` を打ち、カーソルが着いたのを確かめてから `Enter` を打つ。確認が画面から消えたら答えたことにする（`No, exit` は claude が終わる）。カーソルが読めないときは何も打たずに断る。PermissionRequest の hook は無いので、hook の答えは使わない。
-- **手元の画面**：`GET /api/sessions/:id/trust` が `{ ask }`（信頼の札か null）を返し、`POST /api/sessions/:id/trust`（本文 `{ askId, key }`）が答える。答えは別の PC と同じ答え手と記録を通るので、同じ札に 2 度は打たない。MCP の `answer_ask` と mobile の札も同じ答え手を通る。
-- **画面の見せ方**：札は題名を「フォルダの信頼」、本文をパス、選択肢を画面のラベルのまま「1. Yes, I trust this folder」「2. No, exit」とする。答えた後の一行は質問の札と同じ形（`{device} で「{label}」`）で、許可の語（許可、拒否）には直さない。別の PC の会話の画面は `PeerChatCard` がそのまま描く。
-  手元の会話の画面は、live が入力待ちで `permission.tool` が `FolderTrust` の間だけ、ターミナルのタブの上の「信頼確認が出たらターミナルで回答」の帯の代わりに、同じ `PeerChatCard` の札を `TerminalPane` に置く（`presentSession` の `trust`）。押すと UiAction `trust.answer` が、`GET` で札の askId を取り直して `POST` する。送っている間は `store.trustSending` で二度押しを止め、断られたら外してまた押せる。札の出入りは帯と同じ `growIn`・`collapseOut`・`usePresence` を使う。live がまだ無い起動直後は、今までの帯のままである。
+- **手元の画面**：手元の会話の札と同じ道（`boot/askWatch.ts` が流す `session.ask`、答えは `POST /api/sessions/:id/ask/answer`）を通る。専用の口は持たない。答えは別の PC と同じ答え手と記録を通るので、同じ札に 2 度は打たない。MCP の `answer_ask` と mobile の札も同じ答え手を通る。
+- **画面の見せ方**：札は題名を「ディレクトリの信頼」、本文をパス、選択肢を画面のラベルのまま「1. Yes, I trust this folder」「2. No, exit」とする。答えた後の一行は質問の札と同じ形（`{device} で「{label}」`）で、許可の語（許可、拒否）には直さない。別の PC の会話の画面は `PeerChatCard` がそのまま描く。
+  手元の会話の画面は、ほかの手元の札と同じ共通の帯（`AskBand`、ターミナルのタブの上にも出る）に、`AskCard` の札を出す（`presentLocalAsk`。題名は `stop.folder.trust`、答えた後の一行は `localAnsweredLine` が質問の形にする）。live がまだ無い起動直後は、今までの「信頼確認が出たらターミナルで回答」の帯のままである。
   道具の名前（`FolderTrust`）は利用者に見せない。右の欄の現在の札、ホームの行、知らせの札、統括の許可の行、デスクトップ通知は、`permissionToolLabel`（shared の `stopReason.ts`）で「フォルダの信頼」（en は `Folder trust`）に言い換える。
 
 作業フォルダの信頼は、セットアップのすゝめが利用者の同意を取ってから `hangar workspace set <dir> --trust` で頼む（`POST /api/workspace/trust`）。
@@ -6139,6 +6250,9 @@ Claude Code の保持期間がユーザー設定に無い（既定の 30 日）�
 アカウントが 2 件以上なら、アカウントごとに小見出し（色、名前、5 時間の使用率。5 時間の枠が無ければ週の使用率）を置く。使用率が高ければ「使用制限に達するかもしれません」、未ログインなら「未ログイン」と「ログイン」を添える。
 「再開しない」と「閉じる」は、「元に戻す」の付いたトーストを出す。
 実行中の行で、同じファイルを別のセッションと編集しているもの（「同じファイルの編集の警告」）は、右端に琥珀の札（「同じファイル 2」）を置き、押すと中身が開く。帯の「実行中」の錠剤には琥珀の点を足す。件数には入れない。
+要対応の行は、行の下に開いて、その場で札に答えられる（2026-11-26）。
+「答える」で開き、選択肢は横並びの丸いボタンにする。許可は Claude Code、Codex、opencode のどれでも同じ形で、説明（`description`）を各行の下に出す。
+答えられない札は選択肢を出さず、「ターミナルを開く」にする。札の部品は本文の真上の帯とほかの PC の会話の列と同じ（`AskCard`）で、開くときは `growIn`、答えると `collapseOut` で閉じる。
 要対応は、入力待ち（`waiting`）のセッションと、今日戻る Paused の合計である。
 入力待ちには許可待ちと、使用制限のリセット済みも入る（「止まっている理由」の節）。使用制限でリセットを待っているものは、登録がアイドルなので実行中に入る。
 Done と Archived にしたセッションは、live が `waiting` のままでも要対応に数えない（`store.ts` の `awaitsAnswer`、入力待ちの知らせと同じ数え方）。
@@ -7171,6 +7285,7 @@ Paused は戻ってくるものなので外さない。
 新たに入力待ちになったセッションは、右下に 1 件 1 枚のカードとして積む。
 カードには赤い縦の帯、名前、待っている時間、プロジェクト、問い（2 行まで、取れなければ「入力を待っています」）、「ターミナルで答える」を置く。
 どこを押しても、そのセッションを開いてターミナルにフォーカスする（`session.open` の `focus: 'terminal'`）。
+カードに選択肢は出さない。開いた先の本文の真上の帯で、Claude Code、Codex、opencode のどの札にも答えられる。
 カードは入力待ちが解けるまで残し、時間では消さず、閉じるボタンも持たない。
 解けたら下げる。
 そのセッションを開いたときも下げ、離れた後もその入力待ちでは積み直さない。
@@ -9502,6 +9617,12 @@ Worker は、断ったものも含めたすべての応答に、同じ見出し�
 整数として読めない値も版 0 として読む。
 Worker の `/health` は `{ ok, version, compat }` を返し、サーバの `/health` も `compat` を返す。
 
+**peer chat の対象の門。**
+端末どうしの peer chat で、相手が Codex と opencode の会話を受けるかは、`COMPAT_VERSION` ではなく、相手の様子（`DeviceStatus`）の `peer_chat_agents`（その host が受ける provider の一覧）で決める（2026-11-26）。
+rc を見ない版の比べ方では、0.23.0-rc.1 とその前の版を区別できないためである。
+見る側は、相手の一覧にその provider が無ければ、そもそも頼まず、今までの画面にする。欄を知らない古い相手は、一覧が空として読まれる。
+`COMPAT_VERSION` は上げない。
+
 **Worker の下限。**
 Worker は、端末に求める下限 `MIN_DEVICE_COMPAT`（`packages/cloud/src/compat.ts`）を持つ。
 下限より古い端末の要求には、スキーマの用意にも認証にも進まずに、426 と `{ error: 'upgrade required', minCompat, compat }` を返す。
@@ -10752,12 +10873,13 @@ PC が決まらないとき、読めなかったときは、頁を開かずに�
 選択肢は縦に 1 列で、各行は「番号. label」を太字、その下に説明（`description`）を薄い色（`--ink-3`）で全文を折り返して出す。説明の無い選択肢は label だけである。複数選択で選んだ行は `--accent-soft` の地と `--accent` の枠で見せる。
 選択肢の説明は、hook の入力（`AskUserQuestion` の `options[].description`）から運ぶ。画面から作った札には、hook の札の選択肢のうち label が一致するものにだけ重ねる（`peer/chat/hostView.ts` の `withDescriptions`）。札と画面の照合と askId は label だけを使い続け、説明では変わらない。長さは UTF-8 で 512 バイトまで（`PEER_CHAT_ASK_DESCRIPTION_MAX_BYTES`）。
 思考は、jsonl の `thinking` ブロックのうち本文があるものを、返答と同じ流れに `kind: 'thinking'` の項目として出す（上限は返答と同じ 8KiB。署名だけで本文が空のものは出さない）。画面は返答と同じ形（`pchat-ai`、Markdown）で描き、区別を付けない。古い受け手は知らない kind で状態ごと捨てるので、互換の備えは作らず、2 台を同時に入れ替える（2026-11-26）。
-Codex と opencode の会話は peer chat の対象外（会話の本文を読む口が Claude Code の jsonl だけ）なので、この 2 つの運びはまだ無い。
 `input` が偽の PC、または PC の画面でしか答えられない札（`answerable: false`）は、選択肢を押せない形で見せる。
+宿主は Codex と opencode の会話も同じ頼みで受ける（スマホの頼みには、宿主が受ける provider の門は掛けない。門は PC どうしの見る側の判断である）。
+伏せる欄（`secret`）は入力を `password` にし、答えた後は値を出さず「入力完了」だけにする。数の欄（`textKind`）は、`askTextValid` で数として合わない、または範囲の外のときは送れず、見出し（`header`）は問いの上に出す。
 中断は、`input` が真で、会話が作業中のときだけ頁の右上に出す。
 通知から開いたときは、頁を最初に問いの位置まで送り、札を `riseIn` で軽く浮かせる。
 入力欄に焦点は移さない（iOS は通知から開いた直後の焦点でキーボードを出さないことが多く、機種で振る舞いが割れる）。
-opencode と Codex の札、`caps.chat` の無い PC の札は、今までどおり Remote Control を開くか、PC で答える。
+スマホの受信箱が会話の頁を開くのは、今は `caps.chat` のある PC の Claude Code の会話の札だけである（`chatTarget.ts`）。Codex と opencode の札、`caps.chat` の無い PC の札は、今までどおり Remote Control を開くか、PC で答える。
 
 **端末ローカルの表。**
 スマホ向けに、端末ローカルの表を 2 つ足し、そのうち `mobile_launches` には後の版で列を足した（版 31 と 33）。
@@ -11280,9 +11402,10 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
 - **答え方：** ペインへのキー入力で、peer chat の宿主の答え手（`peer/chat/host.ts` の `local`）を通す。
   ほかの PC からの答えと同じ照合（札の道具と主な引数）と記録を通るので、同じ札に 2 度は打たず、利用者やスマホが先に答えれば打たずに断る。
   ほかの PC からの頼みの入り切り（`peerChatAcceptFromPeers`）には縛られない。
-  答えられるのはこの PC の Claude Code の会話だけで、Codex と opencode と画面で読めない札は `answerable: false` で載せ、統括は伝えるだけにする。
+  答えられるのはこの PC の Claude Code、Codex、opencode の会話である（2026-11-26 に Codex と opencode を足した）。札の口（`host.local.currentAsk`）が札を返さない会話は `answerable: false` で載せ、統括は伝えるだけにする。
+  方針（`by: 'policy'`）で押せる許可は、Claude Code は「Yes」の行、Codex と opencode は `key` が `once`（1 回だけ許可）の行だけである。「この会話中のみ許可」と「今後も常に許可」は、利用者の答え（`by: 'user'`）でだけ押せる。
   答えられない札には `unanswerable: { reason, device }` を添え、統括が「どこで答えればよいか」を言えるようにする。
-  `reason` は `agent`（Codex と opencode）、`outside-hangar`（この PC の hangar の run が無い。hangar の外の端末で動いている）、`not-on-screen`（hangar の画面はあるが札がまだ読めない）、`screen`（画面の札は読めたが統括が押せない形）で、`device` はこの PC の名前である。
+  `reason` は `agent`（型に残すが、いまは使わない）、`outside-hangar`（この PC の hangar の run が無い。hangar の外の端末で動いている）、`not-on-screen`（hangar の画面はあるが札がまだ読めない）、`screen`（画面の札は読めたが統括が押せない形）で、`device` はこの PC の名前である。
   画面の札が読めない質問でも、本文と選択肢は hook と本文に残った問いから出す（`agent/waiting.ts` の `pendingQuestionOf`。文は `session_activity`、選択肢はその呼び出しの入力の最初の問いの `options`）。
   2026-11-17 に、質問が出て 2〜3 秒の、画面に札がまだ描かれていない間に一覧を引き、本文も選択肢も空で伝えたことがあった。`not-on-screen` は数秒おいて引き直せば答えられることがある。
   `ask_id` は hangar の会話の id と、答え手の askId（札の道具の呼び出しから決まる）から作る。

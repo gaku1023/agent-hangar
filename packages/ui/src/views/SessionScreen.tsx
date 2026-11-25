@@ -2,6 +2,7 @@ import { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 
 import { PEER_CHAT_MIN_WORKER_COMPAT } from '@agent-hangar/shared';
 import { useBackgroundEmit, useEmit } from '../action/chain.tsx';
 import type { SessionAction, SessionActionId, SessionProps } from '../presenters/session.ts';
+import { AskBand } from './AskBand.tsx';
 import { EndedAgentLine, EndedFacts } from './EndedFacts.tsx';
 import { InvestigateButton } from './InvestigateButton.tsx';
 import { NowCard } from './NowCard.tsx';
@@ -287,7 +288,7 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
       // 終わった run は、タブの印と再開のボタンが見せるので、案内では言い直さない。
       const hint = agentTab && props.trustHint ? t('session.screen.trustHint') : null;
       const transcript = agentTab && run.alive && props.transcriptBand ? { when: props.transcriptBand.when, onLatest: () => emit({ type: 'turn.latest', sessionId: id, runId: run.id }) } : null;
-      return <TerminalPane key={tabId} tabId={tabId} hint={hint} trust={agentTab ? props.trust : null} onTrustAnswer={(key) => emit({ type: 'trust.answer', sessionId: id, key })} live={props.live} aside={props.aside} reason={props.reason ?? null} agent={agentTab} transcript={transcript} peer={agentTab ? props.peerOrigin ?? null : null} onPeerRush={() => emit({ type: 'peerQueue.rush', sessionId: id })} replies={agentTab && run.alive ? props.termReplies ?? null : null} />;
+      return <TerminalPane key={tabId} tabId={tabId} hint={hint} live={props.live} aside={props.aside} reason={props.reason ?? null} agent={agentTab} transcript={transcript} peer={agentTab ? props.peerOrigin ?? null : null} onPeerRush={() => emit({ type: 'peerQueue.rush', sessionId: id })} replies={agentTab && run.alive ? props.termReplies ?? null : null} />;
     };
     // 分割は .c-main の中でさらに 2 列に割る。高さは .c-main から 100% で伝わる。
     const terminals = props.split ? <SplitPane left={terminal(props.split.left)} right={terminal(props.split.right)} /> : terminal(props.selectedTab);
@@ -298,7 +299,8 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
             全文は左のターミナルと重なるので、押したターンだけを開き、左もそこへ跳ばす。
             .c-body は縦の flex で窓の残りの高さを全部受け取る（session.css）。
             タブの列は本体の 1 行目に入れ、右の列はその行から下端までを占める。列の頭の畳むボタンと、畳んだ後の「目次 N」が同じ右上に来る。 */}
-        <div ref={boxRef} className="c-body" data-strip="true" data-folded={tocOpen ? undefined : 'true'} data-narrow={narrow ? 'true' : undefined} style={bodyStyle}>
+        <div ref={boxRef} className="c-body" data-strip="true" data-ask-row="true" data-folded={tocOpen ? undefined : 'true'} data-narrow={narrow ? 'true' : undefined} style={bodyStyle}>
+          <AskBand ask={props.ask ?? null} />
           <TabStrip sessionId={id} tabs={props.tabs} canAdd={run.alive} canSplit={props.canSplit} split={props.split !== null} trailing={tocOpen || pv ? null : opener} />
           <div className="c-main">{terminals}</div>
           {toc}

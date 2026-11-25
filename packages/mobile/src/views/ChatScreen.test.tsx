@@ -127,6 +127,31 @@ describe('ChatScreen', () => {
     expect(screen.getByText('Mac で答えてください')).toBeTruthy();
   });
 
+  it('伏せる欄（secret）は password で、答えた後は値を出さず「入力完了」だけにする', async () => {
+    const f = fake(state([permission({ kind: 'question', options: [], allowText: true, secret: true, header: 'API キー', input: undefined })]));
+    await show(f);
+    expect(await screen.findByText('API キー')).toBeTruthy();
+    const input = screen.getByPlaceholderText('他の答えを書く') as HTMLInputElement;
+    expect(input.type).toBe('password');
+    fireEvent.change(input, { target: { value: 'sk-secret' } });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '答える' })));
+    expect(f.ops.find((o) => o.t === 'answer')).toEqual({ t: 'answer', askId: 'k1', keys: [], text: 'sk-secret' });
+    await waitFor(() => expect(screen.getByText('入力完了')).toBeTruthy());
+    expect(screen.queryByText('sk-secret')).toBeNull();
+  });
+
+  it('数の欄は、数として合わない・範囲の外のときは送れない', async () => {
+    await show(fake(state([permission({ kind: 'question', options: [], allowText: true, textKind: 'integer', min: 1, max: 5, input: undefined })])));
+    const input = (await screen.findByPlaceholderText('他の答えを書く')) as HTMLInputElement;
+    const send = screen.getByRole('button', { name: '答える' });
+    for (const bad of ['x', '2.5', '9']) {
+      fireEvent.change(input, { target: { value: bad } });
+      expect(send, bad).toBeDisabled();
+    }
+    fireEvent.change(input, { target: { value: '3' } });
+    expect(send).toBeEnabled();
+  });
+
   it('中断は作業中のときだけ出て、interrupt を送る', async () => {
     const f = fake(() => state([as('a1', 'x')], { status: 'busy' }));
     await show(f);

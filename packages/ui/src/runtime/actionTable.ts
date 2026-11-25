@@ -200,11 +200,6 @@ export const actionTable = {
   'deleteApproval.answer': (i) => call((api) => api.answerDeleteApproval(i.id, i.answer)),
   // 預かりの中断して渡す。渡した結果は peerChat.queue と peerChat.delivered で届くので、返り値は Store に入れない。
   'peerQueue.rush': (i) => call((api) => api.rushPeerQueue(i.sessionId)),
-  // フォルダの信頼の確認への答え。送っている間は札を押せなくし、断られたら外してまた押せるようにする（失敗の知らせは出さない。札が残るので押し直せる）。
-  'trust.answer': (i) => call((api) => api.answerTrust(i.sessionId, i.key), {
-    before: (store) => ({ ...store, trustSending: { ...store.trustSending, [i.sessionId]: true } }),
-    failed: (store) => { const { [i.sessionId]: _, ...rest } = store.trustSending; return { ...store, trustSending: rest }; },
-  }),
   // 同じファイルの編集の「このファイルでは表示しない」。写しは見張りが書き直し、session.upsert で消える。
   'overlap.dismiss': (i) => call((api) => api.dismissOverlap(i.sessionId, i.with, i.paths)),
   // 起動前の準備をやめる。やめる直前に準備が済んでいた（走っていない）ときの 404 は、利用者に見せることではないので黙る。

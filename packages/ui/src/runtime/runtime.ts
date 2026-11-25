@@ -28,6 +28,7 @@ import { applyGit, shownLive, aliveRunOf, appendSearchResult, configPartsToLoad,
 import { AccountLinkConflictApiError, ApiConflictError, ApiNotFoundError, LaunchPrepAskApiError, LaunchPrepCancelledApiError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient, type EventsQuery } from './api.ts';
 import { nestedInspect } from '../store/folderInspect.ts';
 import type { DesktopBridge } from './desktop.ts';
+import { createLocalAskRunner } from './localAsk.ts';
 import { actionCall, isTableAction, type ApiCall, type TableAction } from './actionTable.ts';
 import { createGitWatch } from './gitWatch.ts';
 import type { Notifier } from './notifier.ts';
@@ -314,6 +315,15 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     },
     failed: (sessionId) => dispatch({ kind: 'runtime', event: { type: 'peerAnswer.failed', sessionId } }),
     delivered: (sessionId) => dispatch({ kind: 'runtime', event: { type: 'peerAnswer.delivered', sessionId } }),
+  });
+  /** この PC の会話の札への答え（runtime/localAsk.ts）。断りの知らせと、通ったあとの片付けは、ほかの PC の札への答えと同じ。 */
+  const localAsk = createLocalAskRunner({
+    answer: (sessionId, body) => deps.api.answerLocalAsk(sessionId, body),
+    get: () => store,
+    set: (next) => setStore(next),
+    failed: (sessionId) => dispatch({ kind: 'runtime', event: { type: 'peerAnswer.failed', sessionId } }),
+    delivered: (sessionId) => dispatch({ kind: 'runtime', event: { type: 'peerAnswer.delivered', sessionId } }),
+    t: () => tr(),
   });
   /** 統括の柱の読み込みと送信（runtime/orchestrator.ts）。本文が伸びたら、下の applyServerEvent のあとで読み直す。 */
   const orchestrator = createOrchestratorRunner({
@@ -973,6 +983,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'update': updater?.run(e.command); return;
       case 'cloudMember': cloudMember.run(e.command); return;
       case 'peerChat': peerChat.run(e.command); return;
+      case 'localAsk': void localAsk.run(e.command); return;
       case 'orchestrator': void orchestrator.run(e.command); return;
       case 'api.addTodo': deps.api.addTodo(e.projectId, e.text).catch(fail); return;
       case 'api.todo': todoCall(deps.api, e.call).catch(fail); return;

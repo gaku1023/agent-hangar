@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Context, Hono } from 'hono';
-import { FOLDER_TRUST_TOOL, liveFilterOf, liveWithLimit, quietLive, splitFtsTokens, type PromoteResultDto, type SearchParamsDto, type SessionStateDto, type SessionStatus, type WakeOn } from '@agent-hangar/shared';
+import { liveFilterOf, liveWithLimit, quietLive, splitFtsTokens, type PromoteResultDto, type SearchParamsDto, type SessionStateDto, type SessionStatus, type WakeOn } from '@agent-hangar/shared';
 import { touchRow } from '../../db/notify.ts';
 import { countHeadless, getProject, isHeadlessSql, listSessions } from '../../db/queries.ts';
 import { EDIT_TOOLS } from '../../indexer/write.ts';
@@ -359,25 +359,6 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     if (sessionId !== null && (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > 100)) return c.json({ error: tr('http.request.badShape') }, 400);
     noteViewing(client, sessionId);
     return c.body(null, 204);
-  });
-  // 会話の前に出るフォルダの信頼の確認（Claude Code が新しいフォルダで出す）。登録も本文も無いので、手元の画面はここで札を読み、答える。
-  // 別の PC の画面が使う札と同じものを、この PC の答え手（peer/chat/answer.ts）へ通す。札が無ければ ask は null。
-  api.get('/sessions/:id/trust', (c) => {
-    const ask = deps.askLocal?.currentAsk(c.req.param('id')) ?? null;
-    return c.json({ ask: ask?.tool === FOLDER_TRUST_TOOL ? ask : null });
-  });
-  // key は札の選択肢の key（Yes が 1、No が 2）。答えられなければ 409 で reason を返す（ask-mismatch、already-answered、session-unknown）。
-  api.post('/sessions/:id/trust', async (c) => {
-    if (!deps.askLocal) return c.json({ error: tr('http.request.badShape') }, 404);
-    const b = await readJson(c, BODY_LIMITS.default);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
-    const v = b.value as { askId?: unknown; key?: unknown } | null;
-    if (typeof v?.askId !== 'string' || typeof v.key !== 'string') return c.json({ error: tr('http.request.badShape') }, 400);
-    const id = c.req.param('id');
-    // 札の道具を確かめる。信頼の確認以外の札は、ここからは答えさせない（許可の札は別の道で答える）。
-    if (deps.askLocal.currentAsk(id)?.tool !== FOLDER_TRUST_TOOL) return c.json({ ok: false, reason: 'ask-mismatch' }, 409);
-    const r = await deps.askLocal.answer(id, v.askId, [v.key]);
-    return r.ok ? c.json({ ok: true, label: r.label }) : c.json({ ok: false, reason: r.reason }, 409);
   });
   // 未読に戻す。既存の未読の表に積むだけで、OS とスマホへは知らせない。
   api.post('/sessions/:id/unread', (c) => {

@@ -1,8 +1,9 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { translator, type UiAction, type ProjectDto, type ReadinessDto, type SessionDto } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
 import { presentHomeBand, type AttentionCard, type BandGroup, type ConfirmCard, type ReturnCard, type RunningCard } from '../presenters/home.ts';
+import type { AskCardModel } from '../presenters/peerChat.ts';
 import { presentReadiness } from '../presenters/readiness.ts';
 import { presentUnresolved } from '../presenters/unresolved.ts';
 import { initialStore } from '../store/store.ts';
@@ -515,5 +516,39 @@ describe('HomeBand の統括の未読', () => {
     expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
     localStorage.removeItem('hangar.orchestrator.open');
     resetOrchestratorOpen();
+  });
+});
+
+describe('HomeBand の要対応の行で答える', () => {
+  const askRow = (over: Partial<AskCardModel> = {}): AskCardModel => ({
+    askId: 'k1', askKind: 'permission', title: '許可', header: null, input: 'ls -la',
+    options: [{ key: 'once', label: '1 回だけ許可', description: '説明' }, { key: 'deny', label: '許可せず中断' }], multi: false, allowText: false,
+    secret: false, textKind: null, min: null, max: null, answered: null, hostOnly: null, pending: false, locked: false, ...over,
+  });
+  const withAsk = { ...none, attention: [{ ...waiting('a'), ask: askRow() }] };
+
+  it('札があれば「答える」は端末を開かず、行の下に札を開く。選択肢を押すと ask.answer を送る', () => {
+    const { onAction, container } = mount(withAsk);
+    expect(container.querySelector('.crow-ask')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /答える/ }));
+    expect(onAction).not.toHaveBeenCalled();
+    expect(container.querySelector('.crow-ask')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /1 回だけ許可/ }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'ask.answer', sessionId: 'a', askId: 'k1', keys: ['once'] });
+  });
+
+  it('もう一度「答える」を押すと札を閉じる', async () => {
+    const { container } = mount(withAsk);
+    const btn = screen.getByRole('button', { name: /^答える/ });
+    fireEvent.click(btn);
+    expect(container.querySelector('.crow-ask')).not.toBeNull();
+    fireEvent.click(btn);
+    await waitFor(() => expect(container.querySelector('.crow-ask')).toBeNull());
+  });
+
+  it('札が無いときは今のまま端末を開く', () => {
+    const { onAction } = mount({ ...none, attention: [waiting('a')] });
+    fireEvent.click(screen.getByRole('button', { name: /ターミナルで回答/ }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.open', id: 'a', focus: 'terminal' });
   });
 });
