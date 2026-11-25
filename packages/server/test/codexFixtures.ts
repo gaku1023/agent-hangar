@@ -10,6 +10,11 @@ export const CODEX_ONE_TURN = { file: 'paginated-one-turn.jsonl', id: '00000000-
 export const CODEX_TOOLS = { file: 'paginated-tools.jsonl', id: '00000000-0000-7000-8000-000000000002' } as const;
 export const CODEX_LEGACY = { file: 'legacy-synthetic.jsonl', id: '00000000-0000-7000-8000-000000000003' } as const;
 
+/** 親 1 本と、親が起こした子 2 本（codex-cli 0.171.0 の実物から、id・アカウント・パス・指示文を置き換えて必要な行だけ取った）。子の session_meta に parent_thread_id がある。 */
+export const CODEX_SUBAGENT_PARENT = { file: 'subagent-parent.jsonl', id: '00000000-0000-7000-8000-000000000010' } as const;
+export const CODEX_SUBAGENT_A = { file: 'subagent-child-a.jsonl', id: '00000000-0000-7000-8000-000000000011' } as const;
+export const CODEX_SUBAGENT_B = { file: 'subagent-child-b.jsonl', id: '00000000-0000-7000-8000-000000000012' } as const;
+
 export const fixtureBytes = (name: string): Buffer => fs.readFileSync(path.join(FIXTURE_CODEX_DIR, name));
 export const fixtureRecords = (name: string): Record<string, any>[] =>
   fixtureBytes(name).toString('utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));

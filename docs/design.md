@@ -1255,6 +1255,22 @@ zstd の展開は純 JS の `fzstd` を `zstd.ts` の 1 か所に閉じ、展開
 会話の `cwd` は、最後の `thread_settings_applied` を優先し、なければ `turn_context` と `session_meta` から読む。プロジェクトへの振り分けは、既存の `assignSessions` が cwd で行う。
 題名は最初の実際の入力から作る（threads の title と `session_index.jsonl` は読まない）。
 
+Codex のサブエージェント（子）は、別の rollout として書かれる。
+子の先頭の `session_meta.payload.parent_thread_id` が親の id で、`id` は子自身である（`session_id` は親と同じ）。
+親の rollout には子の会話は入らず、子は Code Mode の `exec` の JS の中（`tools.multi_agent_v1__spawn_agent`、`wait_agent`）で起こされる。
+終わりは親の user の発言 `<subagent_notification>{"agent_path":"<子の id>","status":{"completed":"<最後の返答>"}}` として届く。
+status は codex の `AgentStatus` に合わせ、`completed` と `errored` は `{ "<名前>": 本文 }`、`pending_init`・`running`・`interrupted`・`shutdown`・`not_found` は文字列で来る。
+発見の段（`transcript/subagent.ts` の `parentThreadOf`）で、各 rollout の先頭 1 行だけを読んで親を知る（先頭は書き換わらないのでパスごとに覚える。圧縮された本文は先頭だけ展開する）。
+子は一覧の独立した会話にせず、Claude の `subagents/agent-*.jsonl` と同じく、`TranscriptFile` の `sessionId` を親、`agentId` を子の id にして、親の会話の下に索引する（`event_index.parent_agent`）。
+鍵は `rolloutKey`（子は親の id と子の id）で、同じ親の子を会話の重複として捨てない。
+取り込みの上限は親の数で数え、子は親が入るときに添える。`liveFiles` は親の主線と子の本文を返す。
+先頭がまだ書かれていない rollout の見張りの通知は、親か主線か決められないので無視し、次の書き込みの通知で読み直す。
+同期の上げ手（`sync/uploader.ts` の Codex の掃き出し）は `agent_id` が空の本文だけを上げるので、子の本文は今のところ別の PC へ渡らない。
+ライブの要約（`live/digest.ts`）は Codex の会話だけ `live/codexAgents.ts` で NowCard のサブエージェントの行を組む。
+元は子の索引（題は子の最初の指示、時刻は子の rollout の最初と最後、最後の手は子の末尾の道具の呼び出し）と、主線の `<subagent_notification>` である。
+状態は知らせで決め、`completed` は done、`errored` は error、`interrupted` などそのほかの終わりは done にして `endNote` に status を残し、知らせが無ければ running にする。
+そのターンに動いた子か、そのターンに知らせが届いた子を、終わったあとも done で残す。
+
 許可と質問の面（`AskSource`）は、hook の本文を読む口（`parseHook`）と、流してくる口（`subscribe`）のどちらかを持つ。
 Claude は前者で、hook の受け口（`mcp/app.ts` の `/mcp/s/<sessionId>/hook`）は、URL のセッションの `sessions.provider` から driver を引き、その `parseHook` で本文を読む。
 受け口は hook の形を知らず、読んだ問いと許可を書くのは hangar の側（`sessions/questionHook.ts`、`sessions/permissionAsks.ts`）である。

@@ -1,6 +1,7 @@
 import { isTurnPrompt, stepKind, stepLine, type LiveAgentDto, type LiveDigestDto, type TranscriptEvent } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { readEvents } from '../transcript/read.ts';
+import { codexAgentsOf } from './codexAgents.ts';
 import { latestIntent } from './intents.ts';
 
 type Call = Extract<TranscriptEvent, { kind: 'tool_call' }>;
@@ -227,7 +228,9 @@ export function buildLiveDigest(db: Db, sessionId: string, opts: { mainCap?: num
   const start = turnStart(db, sessionId);
   const main = start ? mainSince(db, sessionId, start.seq, opts.mainCap ?? MAIN_CAP) : [];
   const since = start?.ts ?? 0;
-  const agents = start ? [...agentsOf(db, sessionId, main, since), ...opencodeAgentsOf(main)] : [];
+  // Codex の子は呼び出しの結果に id が出ないので、索引と知らせから組む（codexAgents.ts）。
+  const codex = (db.prepare('select provider from sessions where id = ?').get(sessionId) as { provider: string } | undefined)?.provider === 'codex';
+  const agents = !start ? [] : codex ? codexAgentsOf(db, sessionId, main, since) : [...agentsOf(db, sessionId, main, since), ...opencodeAgentsOf(main)];
   const it = latestIntent(db, sessionId);
   const stepsSince = (at: number) => (db.prepare("select count(*) c from event_index where session_id = ? and kind = 'tool_call' and ts > ?").get(sessionId, at) as { c: number }).c;
   const intent = it ? { text: it.text, at: it.at, stepsSince: stepsSince(it.at), inThisTurn: start?.ts == null || it.at >= start.ts } : null;

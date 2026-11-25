@@ -489,7 +489,7 @@ export class TranscriptUploader {
     const known = this.deps.db.prepare("select 1 from sessions where provider = 'codex' and provider_session_id = ? and deleted_at is null").get(sessionUuid) !== undefined;
     if (!known || !AGENT_SYNC.codex.isSessionId(sessionUuid)) return [];
     const src = this.codexSource();
-    const f = src ? listRolloutFiles(src.home).files.find((x) => x.sessionId === sessionUuid) : undefined;
+    const f = src ? listRolloutFiles(src.home).files.find((x) => x.sessionId === sessionUuid && x.agentId === null) : undefined;
     return f ? [{ provider: 'codex', path: f.path, sessionId: sessionUuid, agentId: null }] : [];
   }
 

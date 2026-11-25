@@ -86,7 +86,7 @@ function findLocal(db: Db, codexHome: string, sessionId: string, threadId: strin
     const p = resolvePhysical(logical);
     if (p) return { logical, physical: p.path, compressed: p.compressed };
   }
-  const found = listRolloutFiles(codexHome).files.find((f) => f.sessionId === threadId);
+  const found = listRolloutFiles(codexHome).files.find((f) => f.sessionId === threadId && f.agentId === null);
   const p = found ? resolvePhysical(found.path) : null;
   return found && p ? { logical: found.path, physical: p.path, compressed: p.compressed } : null;
 }
