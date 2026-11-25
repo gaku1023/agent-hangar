@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { RemoteShellFailure } from '@agent-hangar/shared';
 import { fingerprintOfPublicKey } from '../config/deviceStatus.ts';
 
 /**
@@ -10,9 +11,6 @@ import { fingerprintOfPublicKey } from '../config/deviceStatus.ts';
  * ssh の -o の組と、相手の PC で動かすコマンドの引用（PowerShell と POSIX）がここにある。
  * どの argv にも kill-server は入れない。相手の tmux・psmux のサーバには hangar 本体も載っているため。
  */
-
-// TODO: packages/shared に RemoteShellFailure の型ができたら、この定義を import に差し替える。
-export type RemoteShellFailure = 'no-sshd' | 'unreachable' | 'auth' | 'host-key' | 'no-mux' | 'no-client' | 'outdated' | 'dropped' | 'bad-cwd';
 
 export type RemoteShellKind = 'posix' | 'powershell' | 'pwsh' | 'cmd';
 export interface RemoteMux { kind: string; path: string }
