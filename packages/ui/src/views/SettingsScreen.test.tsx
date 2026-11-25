@@ -1677,19 +1677,19 @@ describe('設定の説明は見出しの横の ⓘ に畳む（lean-labels の�
 describe('context の量の色の境目（使用量の節）', () => {
   it('黄と赤の境目を K 単位で出す', () => {
     render(ui(at('usage', { contextBounds: { warnK: 300, alertK: 400 } })));
-    expect(screen.getByRole('spinbutton', { name: '黄に変わる context の量' })).toHaveValue(300);
-    expect(screen.getByRole('spinbutton', { name: '赤に変わる context の量' })).toHaveValue(400);
+    expect(screen.getByRole('spinbutton', { name: 'コンテキストの黄の閾値' })).toHaveValue(300);
+    expect(screen.getByRole('spinbutton', { name: 'コンテキストの赤の閾値' })).toHaveValue(400);
   });
   it('打ち終えたら、トークン数に直して保存する。範囲外は送らない', () => {
     vi.useFakeTimers();
     try {
       const onAction = vi.fn();
       render(ui(at('usage', { contextBounds: { warnK: 300, alertK: 400 } }), onAction));
-      fireEvent.change(screen.getByRole('spinbutton', { name: '黄に変わる context の量' }), { target: { value: '250' } });
+      fireEvent.change(screen.getByRole('spinbutton', { name: 'コンテキストの黄の閾値' }), { target: { value: '250' } });
       act(() => { vi.advanceTimersByTime(1000); });
       expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { contextWarnTokens: 250_000 } });
       onAction.mockClear();
-      fireEvent.change(screen.getByRole('spinbutton', { name: '赤に変わる context の量' }), { target: { value: '0' } });
+      fireEvent.change(screen.getByRole('spinbutton', { name: 'コンテキストの赤の閾値' }), { target: { value: '0' } });
       act(() => { vi.advanceTimersByTime(1000); });
       expect(onAction).not.toHaveBeenCalled();
     } finally { vi.useRealTimers(); }
