@@ -118,7 +118,8 @@ export function useLaunchChoice(o: LaunchChoiceOpts) {
     if (o.dir) return DIR + o.dir;
     // サーバも scratch を projectId より優先する。選んでいない（一覧に無い id を含む）ときはクイックセッションである。
     if (o.scratch) return SCRATCH;
-    return o.projectId && data.projects.some((p) => p.id === o.projectId) ? o.projectId : SCRATCH;
+    // この PC に置き場の無いプロジェクト（away）も選んでおく。置き場のある PC を選べば起こせ、この PC のままなら strayAway で起動だけを止める。
+    return o.projectId && (data.projects.some((p) => p.id === o.projectId) || (data.away ?? []).some((p) => p.id === o.projectId)) ? o.projectId : SCRATCH;
   });
   const scratch = choice === SCRATCH;
   const newDir = choice === NEW_DIR;

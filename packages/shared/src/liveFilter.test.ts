@@ -68,6 +68,13 @@ describe('isParked', () => {
     expect(isParked({ ...base, live: 'busy' })).toBe(false);
     expect(isParked({ ...base, live: 'waiting' })).toBe(false);
   });
+  it('裏だけ動いている（本体は空いていて、裏のシェルかサブエージェントだけが動いている）ものは真。Done は裏の作業も要らないと決めたもの', () => {
+    expect(isParked({ ...base, live: 'busy', aside: true })).toBe(true);
+    expect(isParked({ ...base, live: 'busy', aside: false })).toBe(false);
+    // Paused は裏の見張りを残すための印なので、裏だけでも止めない。
+    expect(isParked({ ...base, status: 'paused', live: 'busy', aside: true })).toBe(false);
+    expect(isParked({ ...base, live: 'waiting', aside: true })).toBe(false);
+  });
   it('動いていないものは偽。止まったものを言う語ではない', () => {
     expect(isParked({ ...base, live: null })).toBe(false);
   });

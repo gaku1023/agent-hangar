@@ -46,7 +46,7 @@ export type StatusFilter = NonNullable<SearchFilter['status']>;
  * op は何をしたときのエラーか、message はエラーの文。agent と accountId はエラーに絡むもの（分かれば）、sessionId は再開とフォークの元。
  * code はエラーのコード、files は絡むファイルの名前。どれも分かるときだけ付ける。
  */
-export type InvestigateErrorOp = 'launch' | 'resume' | 'fork' | 'accountSwitch' | 'accountLinks' | 'linkRepair' | 'accountAdd' | 'sync' | 'cloud' | 'summary' | 'editor' | 'opencodeProvider';
+export type InvestigateErrorOp = 'launch' | 'resume' | 'fork' | 'accountSwitch' | 'accountLinks' | 'linkRepair' | 'accountAdd' | 'sync' | 'cloud' | 'summary' | 'editor' | 'opencodeProvider' | 'remoteShell';
 /** エラーではない注意から調べるときの op。その場で直すボタンの無い注意にだけ置く（互換のずれ、空き不足、エージェントの版、クラウドの古い形式）。 */
 export type InvestigateNoticeOp = 'compat' | 'disk' | 'agentVersion' | 'cloudLegacy' | 'workerOutdated';
 export type InvestigateOp = InvestigateErrorOp | InvestigateNoticeOp;
@@ -60,7 +60,7 @@ export type WorkerFeature = 'launch' | 'sync' | 'config' | 'phone' | 'peerChat';
  * Worker が名乗った互換値と、この PC が Worker を setup した PC かは、依頼を組むときに Store の sync から読む。
  */
 export type InvestigateWorker = { feature: WorkerFeature; need?: number | null; have?: number | null };
-export type InvestigateContext = { op: InvestigateOp; message: string; agent?: AgentKind; accountId?: string; sessionId?: SessionId; code?: string; files?: string[]; worker?: InvestigateWorker };
+export type InvestigateContext = { op: InvestigateOp; message: string; agent?: AgentKind; accountId?: string; sessionId?: SessionId; code?: string; files?: string[]; worker?: InvestigateWorker; /** op が remoteShell のとき、つなげなかった相手の PC の名前と、つなごうとした宛先と、ssh の最後の 1 行。 */ remote?: { device: string; address?: string; detail?: string } };
 /**
  * 新しいセッションのダイアログを、中身を埋めて開くときの種（session.new.open の seed）。
  * request は依頼の文（欄で書き換えられる）、quote はエラーの引用（欄の中に分けて見せ、送るときに依頼の文の後に足す）。
@@ -306,7 +306,10 @@ export type UiAction =
   | { type: 'configSync.history.seen' }
   | { type: 'configSync.history.restore'; history: number; item?: string }
   | { type: 'summary.regenerate'; sessionId: SessionId }
-  | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
+  | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' | 'remote' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
+  // ほかの PC の会話の画面の SSH のシェルタブ。remote.select は選んだタブを替える（null はチャット本体へ戻す）。
+  // remote.sshHost は住所の上書き（null で解く）で、retryTabId があれば、保存できたあとにそのタブをつなぎ直す。
+  | { type: 'remote.select'; tabId: TabId | null } | { type: 'remote.sshHost'; deviceId: string; host: string | null; retryTabId?: TabId } | { type: 'remote.retry'; tabId: TabId }
   | { type: 'split.toggle' } | { type: 'split.resize'; ratio: number } | { type: 'transcript.toggle' }
   | { type: 'sidebar.toggle' }
   // 画面の分割（別のセッションを並べる）。ペインと分け目は ui の mediator/panes.ts の木。

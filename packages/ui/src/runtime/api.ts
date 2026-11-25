@@ -1,4 +1,4 @@
-import type { AutoApprovalDto, OrchestratorOrigin, OrchestratorStateDto, PeerChatOpIn, PeerChatOpResult, PeerChatViewDto, ScheduleInput, SchedulePatch, PeerDeviceDto, PeerLaunchBody, PeerLaunchOutcomeDto } from '@agent-hangar/shared';
+import type { RemoteTabDto, AutoApprovalDto, OrchestratorOrigin, OrchestratorStateDto, PeerChatOpIn, PeerChatOpResult, PeerChatViewDto, ScheduleInput, SchedulePatch, PeerDeviceDto, PeerLaunchBody, PeerLaunchOutcomeDto } from '@agent-hangar/shared';
 import type { TranslateResultDto } from '@agent-hangar/shared';
 import { LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE } from '@agent-hangar/shared';
 import type { AccountLinkConflictDto, LinkConflictsDto, EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
@@ -193,6 +193,12 @@ export type ApiClient = {
   peerLaunch(body: PeerLaunchBody): Promise<PeerLaunchOutcomeDto>;
   /** ほかの PC で動いている会話の停止を、その PC に頼む。置いたら requested、置く前に断れるものは refused と文を返す。 */
   peerStop(sessionId: string): Promise<PeerLaunchOutcomeDto>;
+  /** ほかの PC の会話の画面から SSH のシェルタブを開く（201 で RemoteTabDto）。 */
+  openRemoteTab(sessionId: string): Promise<RemoteTabDto>;
+  /** SSH のシェルタブを閉じる（204）。 */
+  closeRemoteTab(tabId: string): Promise<void>;
+  /** 別の PC への上書きの Host 名を置く。null で解く（204）。 */
+  putSshHost(deviceId: string, host: string | null): Promise<void>;
   /** 設定のプロバイダー（ベータ）。API キーは本文で送るだけで、応答には載らない。 */
   opencodeProviders(): Promise<OpencodeProvidersDto>;
   opencodeProviderKey(id: string, key: string): Promise<OpencodeProvidersDto>;
@@ -484,6 +490,9 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     voiceEngine: (source) => post('/api/voice/engine', { source }),
     peerLaunch: (body) => post('/api/peer-launch', body),
     peerStop: (sessionId) => post('/api/peer-stop', { sessionId }),
+    openRemoteTab: (sessionId) => post(`/api/sessions/${encodeURIComponent(sessionId)}/remote-tabs`),
+    closeRemoteTab: (tabId) => call(`/api/remote-tabs/${encodeURIComponent(tabId)}`, { method: 'DELETE' }),
+    putSshHost: (deviceId, host) => call(`/api/devices/${encodeURIComponent(deviceId)}/ssh-host`, { method: 'PUT', body: JSON.stringify({ host }) }),
     opencodeOptions: (dir, refresh) => call(`/api/opencode/options${qs({ dir, refresh: refresh ? '1' : null })}`),
     opencodeProviders: () => call('/api/opencode/providers'),
     opencodeProviderKey: (id, key) => post(`/api/opencode/providers/${encodeURIComponent(id)}/key`, { key }),

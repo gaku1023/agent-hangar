@@ -166,6 +166,11 @@ export type SessionDto = { id: string; provider: AgentKind; providerSessionId: s
    * closed は「終わった」を返し終えた結び付きで、入れ子の線を破線にする。この項目を知らない古いサーバは返さないので、読む側は null として読む。
    */
   spawnPeer: { parent: string | null; child: string | null; closed: boolean } | null;
+  /**
+   * 最後の run（started_at が最新）の PC の id。手元の PC か、run が無ければ null。
+   * 新規のダイアログが、止まった会話の PC を既定に選ぶのに使う。
+   */
+  lastDevice: string | null;
   /** 統括の会話にだけ付く印（設定の orchestrator.sessionId と同じ id）。DB の列は持たず、設定から導く。ほかの会話は鍵ごと送らない。 */
   role?: import('./orchestrator.ts').SessionRole;
   /**
@@ -256,7 +261,7 @@ export type PeerLaunchBody = {
 export type PeerLaunchOutcomeDto = { status: 'requested'; requestId: string; device: string } | { status: 'refused'; reason: string; message: string };
 /** 画面から、ほかの PC で動いている会話の停止を頼む本体（POST /api/peer-stop）。止める先の PC は会話のロックで決める。答えは PeerLaunchOutcomeDto と同じ形。 */
 export type PeerStopBody = { sessionId: string };
-export type BootstrapDto = { /** ほかの PC から来た文の、まだ渡していない預かり（会話の id ごと、古い順）。この項目を知らない古いサーバは返さないので、読む側は空として読む。 */ peerQueued?: Record<string, import('./peerChat.ts').PeerChatQueued[]>; schedules: ScheduleDto[]; device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; /** MCP の削除の依頼のうち、利用者の答えを待っているもの。 */ deleteApprovals: DeleteApprovalDto[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto; /** サーバのホーム（os.homedir()）。画面はホームの下の置き場を ~ に縮めるときにだけ使う。 */ home: string; /** 中断の群（InterruptedDto）。 */ interrupted: InterruptedDto | null; /** 会話の件数の集計。 */ sessionCounts: import('./sessionList.ts').SessionCountsDto; /** 一覧の 1 頁目（絞り込みなし、最近の 50 件）。2 回目の取得をせずに一覧を出すため。 */ firstPage: import('./sessionList.ts').ListPageDto };
+export type BootstrapDto = { /** 開いている SSH のシェルタブ（手元だけ）。この項目を知らない古いサーバは返さない。 */ remoteTabs?: import('./remoteShell.ts').RemoteTabDto[]; /** 別の PC ごとの上書きの Host 名（device id から Host 名）。 */ remoteHosts?: Record<string, string>; /** ほかの PC から来た文の、まだ渡していない預かり（会話の id ごと、古い順）。この項目を知らない古いサーバは返さないので、読む側は空として読む。 */ peerQueued?: Record<string, import('./peerChat.ts').PeerChatQueued[]>; schedules: ScheduleDto[]; device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; /** MCP の削除の依頼のうち、利用者の答えを待っているもの。 */ deleteApprovals: DeleteApprovalDto[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto; /** サーバのホーム（os.homedir()）。画面はホームの下の置き場を ~ に縮めるときにだけ使う。 */ home: string; /** 中断の群（InterruptedDto）。 */ interrupted: InterruptedDto | null; /** 会話の件数の集計。 */ sessionCounts: import('./sessionList.ts').SessionCountsDto; /** 一覧の 1 頁目（絞り込みなし、最近の 50 件）。2 回目の取得をせずに一覧を出すため。 */ firstPage: import('./sessionList.ts').ListPageDto };
 export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; total: number; nextSeq: number | null };
 /**
  * 実行中のセッションの右ペインに出すライブの要約。サーバが主線とサブエージェントを読んで作る。

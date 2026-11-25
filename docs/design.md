@@ -1212,6 +1212,9 @@ Claude Code が user として書くが利用者の発言ではない 2 つの�
 - 会話の画面が読み取り専用に落ちている間（`fallback`）は頼めないので、ヘッダの切り替えは会話を指さず、この PC のいまのアカウントの切り替えにする。
 - この op を知らない古い元の PC は頼みを開けずに答えないので、見る側は待ちが切れて `expired` になる。
 
+ほかの PC の会話の画面から、その PC のシェルを SSH で開くタブも持つ（「ほかの PC の会話のシェルタブ（SSH）」の節）。
+端末だけが SSH で直に流れ、会話の操作はクラウドを通る。
+
 ## Claude Code に固有の部分
 
 hangar は Claude Code に加えて opencode に対応する（2026-10-25、D7 を改める）。
@@ -3026,6 +3029,10 @@ pid だけで見ないのは、OS が pid を別のプロセスに使い回す�
 閉じたときに MCP の設定と秘密は消しているので、生き返った claude からは hangar の MCP を使えない。秘密は作り直せないので、これは受け入れる。
 ふつうは `exited` で、区切り（Done、Archived）を付けて止めたものは `parked`、利用者が止めたものは `killed`、ほかの PC から頼まれて止めたものは `taken_over` である。
 自動の停止（`sessions/park.ts` の `ParkWatch`）は、Done か Archived を付けたセッションの休みが 10 秒続いたら Claude を止める。
+本体が空いていて裏（シェル、サブエージェント）だけが動いている間（aside）も、休みと同じに数えて止める（2026-11-26 の決定）。
+Done と Archived は裏の作業も要らないと決めた印で、裏を残したいときは Paused にするからである。それまでは裏が 1 本残るだけで止まらず、サイドバーの「動いている」に残り続けた。
+画面のボタンで付けた Done も、会話の中で付けた Done も、確かめずに止める。
+登録はシェルだけの裏しか書かないので、見張りが読み直した登録には、写しの裏のサブエージェントの印を同じプロセスの作業中の行にだけ移す（`carryAside`）。
 Paused は止めない（2026-10-13 の決定。それまでは Paused も止めていた）。
 戻ってくる会話なので Claude を残す（shared の `isParked` が Done と Archived だけを真にする）。
 見張り（CI の待ちなど）を抱えたまま Paused にすることが多く、止めるとその見張りも消えるためである。
@@ -3247,6 +3254,140 @@ cmd.exe は引用符の中でも `%name%` を置き換えるので、`%` だけ�
 Windows でエディタ（`code.cmd` や `Code.exe` など）とブラウザ（`rundll32.exe` の `FileProtocolHandler`）を起こすときも、起こした窓が管を受け継ぎうるので、同じく `untilExit` で子の終わりに返す。
 `.app`（Windows の殻）から起こしたサーバでは、ターミナルもエディタもブラウザも殻の起こし役越しに起こし、Hangar を閉じても開いた窓は残る（「Tauri のシェル」の節）。
 
+ほかの PC の会話の画面のシェルタブは、手元の tmux ではなく相手の PC の mux に SSH でつなぐ別の仕組みである（次の節）。
+
+### ほかの PC の会話のシェルタブ（SSH）
+
+ほかの PC の会話の画面に、その PC のシェルを開くタブを足す（2026-11-25）。
+会話の持ち主の PC のディレクトリで、相手の端末の多重化（tmux、Windows は psmux）のセッションに入る。
+タブ列は「会話本体、シェルのタブ（開いた順）、＋」の順で、選んだタブは `SessionViewState` の `peerTab` に持つ。
+シェルのタブは会話の画面ごとに何本でも開ける。
+
+経路は、会話の操作と端末で分かれる。
+会話の操作（送る、答える、止める）はこれまでどおりクラウド（Worker）だけを通る。
+端末は、この PC のサーバが `ssh` を直に起こして相手の sshd へつなぐ。
+Worker は端末の中身を見ず、端末のために新しい口も持たない。
+手元の tmux は使わない（二重にならず、手元に tmux が無くても動き、失敗の理由を ssh の終了コードと stderr で分けられる）。
+ssh の出力は既存の端末の中継（`pty/relay.ts` の `pumpPty`。束ね、流量の制御、ack）にそのまま乗り、画面は手元の端末と同じ `TerminalPane` で描く。
+
+#### つなぐ手順
+
+1 回のつなぎ（`remote/link.ts` の `RemoteShellLink`）は次の順に進む。
+
+1. 宛先を決める（`remote/addresses.ts`）。
+   利用者が上書きの Host 名を置いていれば、それだけを使う（試さない）。
+   無ければ、前回つながった住所（メモリ）、相手の `lan_ips`、`tailnet_ips` の順に並べ、22 番へ TCP で 2 秒だけつないで、応えたものを応えた順に試す。
+   どれも応えなければ `unreachable` にする。
+2. ホスト鍵を用意する（`remote/hostKeys.ts`）。
+   hangar 専用の `~/.agent-hangar/ssh/known_hosts`（0600）に、PC ごとの別名 `hangar-peer-<id>` で 1 行を書く。
+   鍵は相手の `devices.status.ssh.host_pubkey` から取る。
+   無ければ（古い版の相手）`ssh-keyscan` で取り、同期の `ssh_host_key`（指紋）と合ったときだけ書く。合わなければ `host-key`、取れなければ `no-sshd` である。
+   上書きの Host 名のときは、`ssh -G` で hostname と port を引いてから keyscan する。
+   利用者自身の `~/.ssh/known_hosts` には触らない。
+3. 準備の ssh を打つ。tty なし、BatchMode で、相手の mux に `has-session`、無ければ `new-session -d -c <ディレクトリ>` で作り、`pane_current_path` を読んで、`hangar-prep created|existed match|mismatch` の 1 行を返させる。
+   作ったばかりで場所が違えば、`send-keys` で中のシェルに `cd` を打ち込む。
+   mux を動かせなければ終了コード 70 で `no-mux` にする。
+   理由の見分けは、この ssh の終了コードと stderr でする。
+4. 本番の `ssh -tt … <mux> -L hangar new-session -A -s hangar-ssh-<タブ id> -c '<ディレクトリ>'` を node-pty で起こす。
+   `-A` なので、セッションがあれば入り、無ければ作る。つなぎ直しも同じ命令である。
+
+相手の mux のサーバは、相手の hangar と同じ `-L hangar` に同居させ、名前を `hangar-ssh-<タブ id>` にする。
+相手の hangar のセッション（`hangar-<run>-…`）とは名前が重ならず、相手の hangar の画面には出ない。
+
+ssh の `-o` は次で固定する。
+`BatchMode=yes`、`StrictHostKeyChecking=yes`、`UserKnownHostsFile=専用`、`GlobalKnownHostsFile=空`、`HostKeyAlgorithms=ssh-ed25519`、`HostKeyAlias=hangar-peer-<id>`、`CheckHostIP=no`、`UpdateHostKeys=no`、`ConnectTimeout=8`、`ServerAliveInterval=15`、`ServerAliveCountMax=3`、`ControlMaster=no`、`LogLevel=ERROR`（OpenSSH 10.1 からの post-quantum の警告などを端末に混ぜない。失敗の見分けに使う文は error 以上で出るので残る。`WarnWeakCrypto=no` は Windows の ssh 9.5 が知らずに止まるので使わない）。
+`-l` は、相手の `ssh.user` があって上書きの Host 名が無いときだけ付ける。上書きの Host 名のときは `~/.ssh/config` の `User` に任せる。
+`-F none` と `IdentityFile` の指定は付けない。
+したがって、利用者の `~/.ssh/config`（`ProxyCommand`、`ProxyJump`、`IdentityFile`、ssh-agent）は効く。
+照合するのはホスト鍵だけで、hangar 専用の known_hosts と同期の鍵だけを信じる。
+パスワードやパスフレーズは訊かない（BatchMode）ので、鍵が通らなければ `auth` で止まる。
+ssh と ssh-keyscan は、macOS と Linux は `/usr/bin`、Windows は `System32\OpenSSH` のものを先に探す。
+
+引用は相手のシェルごとに変える（`remote/sshCommand.ts`。純粋な関数だけを置く）。
+- `posix`：単一引用符で包み、中の `'` は `'\''` にする。mux の絶対パスが無いときは `exec "$SHELL" -l -c '…'` で包み、ログインシェルから PATH を得る。準備の台本は `sh -c` に渡す（ログインシェルが fish でも動く）。
+- `powershell`・`pwsh`：`& '<psmux>' -L hangar …` の形にし、単一引用符の中の `'` は `''` にする。二重引用符は使わない。
+- `cmd`：`powershell -NoProfile -Command "…"` で包んで PowerShell と同じ台本を動かす。ディレクトリと mux のパスに `"` と `%` があれば断る。
+- どの形でも、ディレクトリに改行、NUL、制御文字があれば `bad-cwd` で断る。mux の対象は `=名前`（完全一致）で指す。
+- 相手のシェルの種類は `ssh.shell` から読む。無ければ（古い版の相手）`platform` が win32 なら `powershell`、それ以外は `posix` とみなす。
+
+#### 相手の様子（`devices.status`）
+
+つなぐのに要る材料は、各 PC が自分の様子（`devices.status`、`DeviceStatus`）に載せて同期する（`config/deviceStatus.ts` の `collectDeviceStatus`）。
+- `ssh`：`{ user, host_pubkey, mux, shell }`。`user` は ssh のユーザー名、`host_pubkey` は sshd の ed25519 のホスト公開鍵（無ければ null）、`mux` は端末の多重化の種類（`tmux` か `psmux`）と絶対パス（無ければ null）、`shell` は sshd の既定のシェル（`posix`、`powershell`、`pwsh`、`cmd`。Windows は `DefaultShell` の登録から読む）。
+- ホスト鍵（`host_pubkey` と `ssh_host_key`）は、まず `/etc/ssh`（Windows は `%ProgramData%\ssh`）の `ssh_host_ed25519_key.pub` から読む。Windows の OpenSSH はこの `.pub` も Administrators と SYSTEM だけに絞るので、管理者でない hangar には読めない。そのときは自分の sshd（`127.0.0.1`）を `ssh-keyscan -t ed25519` して取る（`ownHostKey`）。自分の PC に聞くので、取った鍵はそのまま信じる。sshd が止まっていれば null になる。
+- `tailnet_ips`：Tailscale の IPv4（100.64.0.0/10）。無い PC と古い版は持たない。
+- どちらも新しい欄で、古い版の相手には無い。読む側は知らない欄を読み飛ばし、`ssh` が無ければ keyscan と `platform` で補う。様子そのものが無い相手には、`outdated`（相手の hangar が古い）で断る。
+
+公開鍵を載せるのは、keyscan を毎回打たずに、指紋ではなく鍵そのものを known_hosts に書けるようにするためである。
+ホスト公開鍵は、相手の 22 番へつなげる誰でも `ssh-keyscan` で取れる値で、秘密ではない。
+様子の同期の行は E2E で封じてあるので（「E2E の作り直し」）、公開鍵を載せても新しく漏れるものは無い。
+
+#### 状態とつなぎ直し
+
+画面には WS `/ws/pty?tab=<タブ id>` の札 `{ t: 'remote', phase, … }` で伝える（`RemoteShellStatusMsg`）。
+- `connecting`：住所を決めて準備をしている間。タブの印が輪になる。
+- `ready`：本番の ssh が立った。つながった住所を `address` に添える。
+- `retrying`：切れて、次のやり直しを待っている。`attempt`（何回目か）、`retryAt`（次の時刻）、`reason`、`detail` を添える。端末は薄める（`data-dim`）。
+- `failed`：やり直しをやめた。`reason` と `detail` を添える。端末の中央に理由の塊（と上書きの住所の入力欄）を出し、「やり直す」で画面から `{ t: 'retry' }` を送ると最初からやり直す。
+
+ssh が切れたら、サーバの中で ssh だけを起こし直す。画面の WS は切らない。
+間は 1、2、4、8、16 秒の 5 回で、つながれば数え直す。5 回使い切ったら `failed`（`dropped`）にする。
+やり直しは住所の決め方から全部やり直すので、Wi-Fi が切り替わって住所が変わっても同じセッションに戻れる。
+本番の ssh の stderr が `auth` と `host-key` のときは、やり直さずに `failed` にする（やり直しても通らない）。
+準備の段階の `auth`、`host-key`、`bad-cwd`、`no-mux`、`no-client`、`outdated` も、次の住所を試さず、やり直さない。
+
+#### 閉じ方
+
+- ssh が終了コード 0 で終わったときは、tty なしの ssh で `has-session -t =名前` を 1 回打って見分ける（`hasSessionArgv`）。セッションが無ければ相手のシェルを `exit` したとみなし、タブを閉じる（画面の WS を `exited` で閉じ、手元の行を閉じて `remoteTab.closed` を流す）。残っていれば tmux の detach（C-b d）とみなし、タブを閉じずにすぐつなぎ直す。has-session が届かない（255）ときも、切れたときと同じくつなぎ直す。
+- 画面の WS が閉じたとき（画面を離れた、閉じた）は、ssh の子だけを止める（`detach`）。相手のセッションとタブの行は残るので、あとで開き直すと続きから入れる。
+- タブを閉じたとき（`DELETE /api/remote-tabs/:id`）だけ、別の ssh で `kill-session -t =hangar-ssh-<id>` を 1 回打ち、行を閉じる。
+  つないでいない（どの画面も開いていない）タブも、住所と鍵を用意して同じ命令を打つ。
+  届かなければ（宛先が決まらない、ssh が 255 で終わる）行に `kill_pending` を立てる。次にその PC へつながったときに、まとめて消す。
+- `kill-server` は組み立てない。相手の `-L hangar` のサーバには相手の hangar の会話も載っているので、サーバごと止めると巻き込む。試験で、どの命令にも `kill-server` が無いことを見張る。
+- この PC でその会話を再開したとき、または相手の PC で会話が終わったとき（`staleRemoteTabs` が前後の Store を比べて決める）は、画面が `tab.close` を出し、通常の閉じ方でそのシェルのタブを閉じ、相手のセッションも `kill-session` で消す。
+
+#### つながらないときの理由
+
+つなげなかった理由は次の 9 種で（`RemoteShellFailure`）、`detail` に stderr の最後の空でない 1 行を添える。
+画面は理由ごとの文（`remoteShell.reason.*`）と、診断の入口（`InvestigateErrorOp` の `remoteShell`。「エージェントで調査…」）を出す。
+- `no-sshd`：相手の 22 番が断る、または sshd の鍵を取れない（`Connection refused`、keyscan が空）。
+- `unreachable`：どの住所も 22 番に応えない、または届かない（タイムアウト、経路なし、名前が引けない）。
+- `auth`：鍵が通らない（`Permission denied`。BatchMode なので訊かない）。
+- `host-key`：鍵が同期の指紋と合わない、または `Host key verification failed`。
+- `no-mux`：相手に tmux・psmux が無い、または動かせない（コマンドが無い、準備が 70 で終わる）。
+- `no-client`：この PC に ssh が無い。
+- `outdated`：相手の hangar が古く、様子が無い。
+- `dropped`：つなぎが途中で切れて、やり直しも尽きた。
+- `bad-cwd`：ディレクトリが空、制御文字を含む、または cmd で引用できない。
+
+#### 手元だけの表
+
+どちらも同期しない（`remote/store.ts`、版 73）。
+
+```sql
+create table remote_tabs (
+  id text primary key, session_id text not null, device_id text not null,
+  remote_name text not null,      -- hangar-ssh-<id>
+  title text not null, created_at integer not null, closed_at integer,
+  kill_pending integer not null default 0
+);
+create table remote_ssh_hosts (device_id text primary key, host text not null, updated_at integer not null);
+```
+
+`remote_ssh_hosts` は PC ごとの上書きの Host 名で、タブの中の入力欄だけから置く。設定の画面には出さない。
+Host 名は ssh の引数に渡るので、頭の `-`、空白、引用符、制御文字は断る。
+
+#### API と出来事
+
+- `POST /api/sessions/:id/remote-tabs`：その会話の持ち主の PC へのタブを開き、`RemoteTabDto` を 201 で返す。持ち主が手元か、引けなければ 404。sshd の有無はここでは見ない（つなぐときに理由を出す）。
+- `DELETE /api/remote-tabs/:id`：タブを閉じる（上の閉じ方）。
+- `PUT /api/devices/:deviceId/ssh-host`：上書きの Host 名を置く。`{ host: null }` で外す。形が悪ければ 400。
+- WS `/ws/pty?tab=<タブ id>`：既存の端末の口を使う。サーバから `{ t: 'remote' }`、画面から `{ t: 'retry' }`。手元に tmux が無くても 101 になる。
+- `BootstrapDto` の `remoteTabs`（開いているタブ）と `remoteHosts`（device id から Host 名）。この項目を知らない古いサーバは返さないので、読む側は空として読む。
+- 出来事 `remoteTab.upsert`、`remoteTab.closed`、`remoteHost.changed`。
+
+スマホは範囲の外で、シェルのタブは出さない。
+
 ### 画面の分割
 
 セッション画面の本体を分け、別のセッションを並べて見られるようにする（2026-10-27）。
@@ -3430,6 +3571,7 @@ TODO を片付けたと判断したら、update_project の propose_done に TOD
 
 ```
 次の 3 つのどれかに当てはまったら、そのターンの終わりに AskUserQuestion で「このセッションをどうしますか」と聞いてください。選択肢は「Done にする」「Paused · <リマインダーの日付。時刻に意味があれば時刻も>（理由。何を確認しに戻るか）」「まだ続ける」です。
+裏で動かしているシェルやサブエージェントが残っていれば、Done にするとそれも止まることを問いに書き添えてください。残したい作業があるなら Paused を勧めてください。
 ・利用者が終わりを告げたとき（「ありがとう」「ここまで」「マージした」「今日はここまで」など）
 ・利用者が外の出来事（CI、レビュー、明日の確認など）を待つと言ったとき
 ・頼まれたことが全部済み、このセッションでやることはもう残っていないと、自分で判断したとき
@@ -5487,7 +5629,7 @@ Claude に渡す指示の段（`launch.injection.body`、`status`、`live`）と
 同じファイルを別のセッションと編集している行は、名前の後ろに琥珀の印だけを置き（語は出さない）、乗せると相手の名前を出す。並びは変えない。行の数に上限は無い。節は設定の上までの高さを使い、入りきらない分は、グループの並び（`.side-live-scroll`）をスクロールさせる。まだ下へ続くあいだは底を薄れさせる。2026-10-24 までは 8 件で切って「ほか N 件」を出していたが、高さを見ない数だったので、下が空いていても切れていた。動いているものが無ければ節ごと出さない。
 行はプロジェクトごとのグループに分ける（2026-10-24 の利用者の決定。行にプロジェクト名を添える案、2 段の行の案と試作で比べて選んだ）。グループの見出しはプロジェクト名だけで（動いている会話の数は出さない。2026-10-29 の利用者の決定）、プロジェクトの無いものは「未分類」にまとめる。
 未読（返答の終わりと `notify_user` の `progress` で積む数）のある行は、名前を太くし、名前の右に小さい丸で数を置く（`views/Sidebar.tsx` の `CountBubble`。ホームの項目の丸 `.nav-count` と同じ色と書体で、16px、字は 10px）。エージェントの札がある行では、丸は札の手前に置く。読み上げは「未読 N 件」である。畳んだ帯では出さない。決まりで未読をオフにすると、`notify_user` は未読の数を増やさないので出ない（すでにある数は残る）。丸は 0 から増えたら横に伸びて出て（`growIn`）、増えたら小さく跳ね（`bumpMark`）、0 に戻ったら畳んで消える（`collapseOut`、`usePresence`）。
-グループの順は別に持たず、覚えた並び（`sidebar.order`）の中でそのプロジェクトの行が先に出てくる順にし、グループの中は並びの順にする。新しく動き始めた行は、自分のグループの末尾に入る。初めてのプロジェクトなら、グループが末尾に増える。
+グループの順は別に持たず、覚えた並び（`sidebar.order`）の中でそのプロジェクトの会話が先に出てくる順にし、グループの中は並びの順にする。止まった会話の席も数える。動いている行だけで決めると、グループの先頭の会話を止めたときに、グループが次の行の席まで下がり、ほかのグループと入れ替わるためである。新しく動き始めた行は、自分のグループの末尾に入る。初めてのプロジェクトなら、グループが末尾に増える。
 見出しを押すとグループを畳み、もう一度押すと開く（`sidebar.fold`）。畳んだグループは端末ごとに localStorage（`sidebar.folded`）に残す。開き閉じは `FoldBox` の伸び縮み（`growIn` と `collapseOut`）で、見出しの矢印は `--dur-fast` で回る。畳んだグループに入力待ちがあれば、見出しを待ちの色にして件数の前に点を出し、読み上げにも待ちの数を添える。畳んでも待っていることを見落とさないためである。
 
 #### 起動元の入れ子
@@ -5501,6 +5643,16 @@ MCP の `create_session` で起こした会話（`SessionDto.spawnedBy` が起�
 引き継ぎ（`handoff: true`）で起こした会話は記録しないので、入れ子にも印にもならない。
 子が起動元と別のプロジェクトのときは、入れ子にせず、子のプロジェクトの群に独立した行で出す（2026-11-21、`spawnParentOf` が起動元とプロジェクトを比べて null を返す）。`session_spawns` の記録は残し、セッション画面の起動元へのリンクと子の札は、プロジェクトが違っても残す。
 起動元が Done か Archived の間は、子を入れ子にせず独立した行として並べ、起動元をサイドバーに薄く出すこともしない（`spawnParentOf`）。終わった会話の下に、動いている仕事を並べないためである。起動元の状態を戻せば入れ子に戻る。Paused は戻ってくる前提なので入れ子のままにする。セッション画面の起動元へのリンクと子の札は、どの会話から始まったかを失わないよう残す。
+
+#### 新規ダイアログを開いたときの PC
+
+新規ダイアログの PC のメニューは、開いた画面から決めた PC で始める（`presenters/newSession.ts` の `newSessionDefaultPeer`、判定は `presenters/peerChoice.ts` の `defaultPeerPick`。2026-11-26 の利用者の決定）。前回選んだ PC は覚えない。
+
+- 会話の画面から、その会話のプロジェクト（クイックセッションの会話ならクイックセッション）で開いたときは、その会話の PC を選ぶ。動いていればロックの PC、止まっていれば最後の run の PC（`SessionDto.lastDevice`。手元なら null）である。この PC で動いている会話なら、この PC。
+- プロジェクトがこの PC に無い（`resolved` が偽）ときは、プロジェクトの画面からでも、置き場のある PC を選ぶ。会話の PC、そのプロジェクトで最後に使われた会話の PC、PC の一覧の順に探す。
+- 選ぶのは頼める PC（`ready` で、そのプロジェクトの置き場がある）だけである。無ければこの PC のままにし、この PC に無いプロジェクトはクイックセッションに替えずに選んだまま残して、起動だけを止める（`strayAway`）。
+- 依頼の文やフォルダを埋めて開いたとき（調査、複製、フォルダから）は、この PC のまま。
+- PC の一覧（`GET /api/peers`）は、手元の DB の同期済みの様子を読むだけなので、つないだ時点で先に読み、開くたびにも読み直す。開いた後に一覧が届いて既定が変われば、PC のメニューに触れていない間だけ選び直す。
 
 #### 別の PC への起動の記録の終わり方
 
@@ -5524,7 +5676,7 @@ Home の要対応と、ホームの項目の入力待ちの数、プロジェク
 設定 `sidebarOtherPcs`（既定は入り、設定の一般に置く）が切なら、ロックで足した行だけをサイドバーから外す。この PC の親の下に出る別の PC の子と、ほかの画面の数は変えない。
 Home の実行中、プロジェクトの数、パレット、一覧の絞り込み、ペインのピッカーも同じ数え方に従う。停止・再開・削除の可否、更新前の注意、中断の数は、この PC の run だけで決める（`runningSessionIds`）。
 右クリックの「起動元から切り離す」は `DELETE /api/sessions/:id/spawn` で行を消す。入れ子もリンクも消え、起動元の状態が変わっても戻らない。
-見出しを掴んで上下に動かすとグループごと並べ替えられる。キーボードでは、見出しに焦点があるときに ⌥↑ と ⌥↓ で 1 つずつ動かす。確定は、グループをつないだ並びを `sidebar.order` で覚え直すことで行う。動きは行の 5A と同じで、掴んだグループは白い面と影で浮き、ほかのグループは掴んだグループの高さ分だけ滑ってよける（グループの高さはまちまちなので、掴んだときに各グループの上端と高さを測っておく）。入る席は、下へ動かすときは掴んだグループの下の端、上へ動かすときは上の端が、相手の真ん中を越えたかで決める。真ん中同士で比べると、行の多い背の高いグループを低いグループの下へ動かせない。
+見出しを掴んで上下に動かすとグループごと並べ替えられる。キーボードでは、見出しに焦点があるときに ⌥↑ と ⌥↓ で 1 つずつ動かす。確定は、グループをつないだ並びを `sidebar.order` で覚え直すことで行う。つなぐのは、止まった会話も含めた、そのプロジェクトの席（`seats`）である。動いている行だけを動かすと、止まった会話の席でグループの順が決まったまま戻ってしまう。動きは行の 5A と同じで、掴んだグループは白い面と影で浮き、ほかのグループは掴んだグループの高さ分だけ滑ってよける（グループの高さはまちまちなので、掴んだときに各グループの上端と高さを測っておく）。入る席は、下へ動かすときは掴んだグループの下の端、上へ動かすときは上の端が、相手の真ん中を越えたかで決める。真ん中同士で比べると、行の多い背の高いグループを低いグループの下へ動かせない。
 サイドバーの幅は、右の縁を掴んで 208px から 400px の間で変えられる（`views/SidebarGrip.tsx`、`sidebar.width`）。長い題名を読むためである（2026-10-26 の利用者の決定。試作で縁の見せ方を 3 案比べた）。
 縁はガラスの縁を挟む 8px の当たりで、普段は何も見せず、触れたときと掴んでいる間だけ細い線を出す。幅は端末ごとに localStorage（`sidebar.width`）に残し、縁のダブルクリックで 208px に戻す。焦点のある縁では ← → で 16px ずつ動かす。
 掴んでいる間は `.shell` の `--sidebar-w` を直に書き換え、状態機械は離したときに 1 回だけ回す（端末の左右の分割と同じ）。掴んでいる間は本文が動いている扱い（`layoutMotion`）にし、端末に毎フレーム寸法を合わせさせない。矢印とダブルクリックの変わり目は、開閉と同じく列と `--col1` を `--dur` で動かす。
@@ -8154,6 +8306,7 @@ AEAD の AAD に行の宛先を入れるのは、能動的な攻撃への守り�
 用途は、行の封（`hangar-e2e-v2/row`）、鍵名の HMAC（`/index`）、指紋（`/fp`）、本文の暗号（`/file`）、名簿の封（`/roster`）、PC どうしの封（`/peer`）である。
 PC どうしの封は、別の PC への起動の頼み、その答え、ターンが止まるたびの結果に使う（`packages/shared/src/e2e/peer.ts`）。
 別の PC へ届ける経路はクラウド（Worker）だけで、SSH の予備の経路は持たない（経路の選び方は `packages/server/src/peer/caller.ts` の `choosePeerRoute`）。
+これは会話の操作の経路の話で、ほかの PC の会話の画面のシェルタブの端末だけは SSH で直につなぐ（「ほかの PC の会話のシェルタブ（SSH）」の節）。
 送る前の断りは、Worker の互換値が `PEER_LAUNCH_MIN_WORKER_COMPAT` に届かないとき `worker-outdated`、相手の hangar が古いとき `device-outdated` で、両方のときは Worker を先に言う（Worker を直さない限り何も送れないため）。
 `worker-outdated` の文は Worker の互換値と必要な値を添え、互換値が手に入らないときは括弧を省く。
 新規ダイアログの PC のメニューは、同じ理由を `PeerDeviceDto.state` の `worker-outdated`（札は「クラウドが古い」）で見せる。

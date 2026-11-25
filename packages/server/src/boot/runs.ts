@@ -24,7 +24,7 @@ import { LaunchPreps } from '../runs/launchPrep.ts';
 import { RunManager } from '../runs/manager.ts';
 import { createLiveChangeHandler } from '../sessions/liveChange.ts';
 import { OVERLAP_TICK_MS, OverlapWatch } from '../sessions/overlap.ts';
-import { hasMarkedIdle, ParkWatch, parkedSessionIds } from '../sessions/park.ts';
+import { carryAside, hasMarkedIdle, ParkWatch, parkedSessionIds } from '../sessions/park.ts';
 import { getSession, setParkingSwitch } from '../db/queries.ts';
 import { paceNotices, StopNoticeWatch } from '../sessions/stopNotices.ts';
 import { UnreadHold } from '../live/unreadHold.ts';
@@ -215,8 +215,8 @@ export function bootRuns(
   // 読めなかったときは、何も止めない。
   const parkWatch = new ParkWatch({
     // 写しに候補（Done か Archived の付いた休みの会話）が無ければ、登録を読み直さない。待機中に 2 秒ごとに読まないためである。
-    // Claude は登録を見張りと同じ判定（消えたプロセスの残りを外す）で読み直し、opencode は状態の面の写し（serve の出来事の流れで持つので、読み直すものが無い）を足す。
-    parkedIds: () => { try { return hasMarkedIdle(db, live.current()) ? parkedSessionIds(db, [...delivery.claude.live.readNow(), ...delivery.agents.of('opencode').live.current()], device.id) : []; } catch { return []; } },
+    // Claude は登録を見張りと同じ判定（消えたプロセスの残りを外す）で読み直し、裏のサブエージェントだけが動いている印は写しから移し（carryAside）、opencode は状態の面の写し（serve の出来事の流れで持つので、読み直すものが無い）を足す。
+    parkedIds: () => { try { return hasMarkedIdle(db, live.current()) ? parkedSessionIds(db, [...carryAside(delivery.claude.live.readNow(), live.current()), ...delivery.agents.of('opencode').live.current()], device.id) : []; } catch { return []; } },
     stop: (id) => runs.park(id),
     // 設定の「Done と Archived にした会話を止める」。切っている間は止めず、一覧でも実行中として見せる（setParkingSwitch）。
     enabled: () => settings.current.autoPark !== false,
@@ -398,6 +398,7 @@ export function bootRuns(
         codex: { list: () => codexAccountStore.list(), auth: codexAuth, enabled: codexOn },
         agentUsable,
         agentKinds: AGENT_KINDS, version: VERSION,
+        tmuxPath: () => settings.current.tmuxPath,
         ...(opencode ? { opencode } : {}),
         // 統括の系譜。ほかの PC はこれで統括の会話を見分け、サイドバーから外す（統括の設定は同期しない）。切っても系譜は残る。
         orchestratorIds: () => orchestratorLineage(orchestratorOf(settings.current.orchestrator)),

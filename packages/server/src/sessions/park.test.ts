@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import type { LiveSession } from '../provider/claude-code/types.ts';
-import { hasMarkedIdle, ParkWatch, parkedSessionIds, statusChanged } from './park.ts';
+import { carryAside, hasMarkedIdle, ParkWatch, parkedSessionIds, statusChanged } from './park.ts';
 import { setSessionState } from './states.ts';
 
 const T = (iso: string) => Date.parse(iso);
@@ -42,10 +42,17 @@ describe('parkedSessionIds', () => {
     // s1 は休み、s2 は作業中、s3 は印なし。
     expect(parkedSessionIds(db, [live('u1'), live('u2', 'busy'), live('u3')])).toEqual(['s1']);
   });
-  it('裏だけ動いている会話（本体は空いていて、裏で Bash が動いている）は返さない。止めると裏の作業も消える', () => {
+  it('裏だけ動いている会話（本体は空いていて、裏でシェルかサブエージェントが動いている）も返す。Done は裏の作業も要らないと決めたもの', () => {
     const db = seed();
     setSessionState(db, 'd', 's1', { status: 'archived', setBy: 'conversation', now: SET_AT });
-    expect(parkedSessionIds(db, [{ ...live('u1', 'busy'), aside: { shell: true, agents: 0 } }])).toEqual([]);
+    setSessionState(db, 'd', 's2', { status: 'done', setBy: 'user', now: SET_AT });
+    setSessionState(db, 'd', 's3', { status: 'paused', note: 'CI', setBy: 'user', now: SET_AT });
+    expect(parkedSessionIds(db, [
+      { ...live('u1', 'busy'), aside: { shell: true, agents: 0 } },
+      { ...live('u2', 'busy'), aside: { shell: false, agents: 2 } },
+      { ...live('u3', 'busy'), aside: { shell: true, agents: 0 } },
+    ])).toEqual(['s1', 's2']);
+    expect(hasMarkedIdle(db, [{ ...live('u1', 'busy'), aside: { shell: true, agents: 0 } }])).toBe(true);
   });
   it('再開して開いたもの（印より後に起動）と、hangar が知らない会話は返さない', () => {
     const db = seed();
@@ -194,6 +201,22 @@ describe('ParkWatch', () => {
     watch.tick();
     s.now = 10_000;
     expect(watch.tick()).toEqual(['s2']);
+  });
+});
+
+describe('carryAside', () => {
+  it('読み直した登録の作業中の行に、写しの裏だけの印を移す。登録だけでは裏のサブエージェントが読めない', () => {
+    const fresh = [live('u1', 'busy'), live('u2', 'busy'), live('u3'), { ...live('u4', 'busy'), aside: { shell: true, agents: 0 } }];
+    const cached = [
+      { ...live('u1', 'busy'), aside: { shell: false, agents: 1 } },
+      // プロセスが入れ替わった（pid が違う）ものには移さない。
+      { ...live('u2', 'busy'), pid: 7, aside: { shell: false, agents: 1 } },
+      // 読み直したら休みになっていたものには移さない。
+      { ...live('u3', 'busy'), aside: { shell: false, agents: 1 } },
+      { ...live('u4', 'busy'), aside: { shell: false, agents: 3 } },
+    ];
+    const out = carryAside(fresh, cached);
+    expect(out.map((l) => l.aside ?? null)).toEqual([{ shell: false, agents: 1 }, null, null, { shell: true, agents: 0 }]);
   });
 });
 

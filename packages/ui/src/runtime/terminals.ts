@@ -1,4 +1,7 @@
+import type { RemoteShellStatusMsg } from '@agent-hangar/shared';
 import type { RewriteTerm } from './termRewrite.ts';
+/** SSH のシェルタブの、手元のサーバと相手のあいだの様子（WS の {t:'remote'} の札から t を除いたもの）。 */
+export type RemoteLink = Omit<RemoteShellStatusMsg, 't'>;
 export type TerminalStatus = 'connecting' | 'connected' | 'closed' | 'error';
 export type TerminalLike = { cols: number; rows: number; element: HTMLElement | null; open(el: HTMLElement): void; write(d: string, done?: () => void): void; onData(cb: (d: string) => void): { dispose(): void }; onResize(cb: (s: { cols: number; rows: number }) => void): { dispose(): void }; fit(): void; focus(): void; dispose(): void;
   /** WebGL の描画を付け外しする。外すと DOM の描画に戻る。open のあとにだけ呼ぶ。 */
@@ -39,6 +42,13 @@ export type TerminalHost = { connect(tabId: string): void; paste(tabId: string, 
    * 間隔は最初に戻す。
    */
   reconnect(tabId: string): void;
+  /**
+   * SSH のシェルタブの様子（最後に届いた {t:'remote'} の札）。札がまだ無いタブと、知らないタブは null。
+   * failed の間は自動でつなぎ直さない。つなぎ直すのは retry。
+   */
+  remote(tabId: string): RemoteLink | null;
+  /** failed の SSH のシェルタブを、手元のサーバにつなぎ直させる（WS の {t:'retry'}）。WS が閉じていれば新しくつなぐ。 */
+  retry(tabId: string): void;
   /** 最初のデータが届いたか。知らないタブは true（隠さない）。 */
   painted(tabId: string): boolean;
   /** 全部の端末の文字を 1px ずつ大きく、小さく、または既定に戻す。 */
@@ -97,7 +107,7 @@ const FOCUS_FRAMES = 10;
  * painted は最初のデータが届いたか（それまで画面は透明にしておく）。
  * timer と retryAt は待っている自動の試し。
  */
-type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[]; want: boolean; fails: number; dropped: boolean; gaveUp: boolean; detached: boolean; painted: boolean; timer: ReturnType<typeof setTimeout> | null; retryAt: number | null; pending: string; cancelWrite: (() => void) | null; lastWrite: number; unacked: number };
+type Entry = { term: TerminalLike; ws: WebSocket | null; status: TerminalStatus; opened: boolean; subs: { dispose(): void }[]; want: boolean; fails: number; dropped: boolean; gaveUp: boolean; detached: boolean; painted: boolean; remote: RemoteLink | null; timer: ReturnType<typeof setTimeout> | null; retryAt: number | null; pending: string; cancelWrite: (() => void) | null; lastWrite: number; unacked: number };
 
 /**
  * タブごとの xterm と WebSocket を React の外で持つ。
@@ -153,7 +163,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     if (!e) {
       const term = deps.createTerminal();
       term.setFontSize(fontSize);
-      e = { term, ws: null, status: 'closed', opened: false, subs: [], want: false, fails: 0, dropped: false, gaveUp: false, detached: false, painted: false, timer: null, retryAt: null, pending: '', cancelWrite: null, lastWrite: -Infinity, unacked: 0 };
+      e = { term, ws: null, status: 'closed', opened: false, subs: [], want: false, fails: 0, dropped: false, gaveUp: false, detached: false, painted: false, remote: null, timer: null, retryAt: null, pending: '', cancelWrite: null, lastWrite: -Infinity, unacked: 0 };
       entries.set(tabId, e);
     }
     return e;
@@ -214,6 +224,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
       try { parsed = JSON.parse(String(m.data)); } catch { return; }
       if (typeof parsed !== 'object' || parsed === null) return;
       const msg = parsed as { t?: unknown; d?: unknown; message?: unknown };
+      if (msg.t === 'remote') { const { t: _t, ...link } = parsed as RemoteShellStatusMsg; e.remote = link; notify(); return; }
       if (msg.t === 'data' && typeof msg.d === 'string') {
         // 最初の 1 通は待たずに書く。画面を見せる（painted）ときに、文字がもう書かれているようにするため。
         if (!e.painted) { queueWrite(e, msg.d); flushWrite(e); e.painted = true; notify(); }
@@ -234,6 +245,8 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
       flushWrite(e);
       if (e.status === 'error') { notify(); return; }
       setStatus(e, 'closed');
+      // SSH のシェルタブが failed のまま切れたときは、待っても同じ答えなので自動ではつながず、retry に任せる。
+      if (e.remote?.phase === 'failed') { notify(); return; }
       const exited = ev?.code === 1000 && ev.reason === 'exited';
       if (e.want && exited && (deps.alive?.(tabId) ?? true)) e.detached = true;
       if (e.want && !exited) {
@@ -268,6 +281,17 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
       if (e.status === 'error') e.status = 'closed';
       open(tabId, e);
     },
+    remote: (tabId) => entries.get(tabId)?.remote ?? null,
+    retry(tabId) {
+      const e = ensure(tabId);
+      e.want = true;
+      e.fails = 0; e.gaveUp = false; e.detached = false;
+      if (e.status === 'error') e.status = 'closed';
+      if (e.ws && e.ws.readyState === 1) { e.remote = { phase: 'connecting' }; send(e, { t: 'retry' }); notify(); return; }
+      // 閉じた WS には札を送れない。新しくつなぐと、サーバが最初から試す。
+      e.remote = null;
+      open(tabId, e);
+    },
     link(tabId) {
       const e = entries.get(tabId);
       return e ? { retryAt: e.retryAt, dropped: e.dropped, gaveUp: e.gaveUp, detached: e.detached } : { retryAt: null, dropped: false, gaveUp: false, detached: false };
@@ -275,7 +299,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     disconnect(tabId) {
       const e = entries.get(tabId);
       if (!e) return;
-      e.want = false; e.fails = 0; e.dropped = false; e.gaveUp = false; e.detached = false;
+      e.want = false; e.fails = 0; e.dropped = false; e.gaveUp = false; e.detached = false; e.remote = null;
       stopRetry(e);
       flushWrite(e);
       const ws = e.ws; e.ws = null;

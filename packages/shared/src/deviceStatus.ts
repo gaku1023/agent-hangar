@@ -1,3 +1,4 @@
+import type { DeviceSshStatus, RemoteMux } from './remoteShell.ts';
 import type { OpencodeModelOption, OpencodeModeOption, OpencodeProviderOption } from './opencodeOptions.ts';
 
 /** 各 PC が自分の様子として devices に載せるアカウント 1 件。logged_in が null なのは、まだ読めていない（未確認）こと。 */
@@ -24,7 +25,7 @@ export const DEVICE_OPENCODE_MODELS_MAX = 300;
  * 統括の設定は PC ごとで同期しないので、ほかの PC はこの欄で統括の会話を見分け、サイドバーから外す（docs/design.md「統括」）。
  * 系譜が無い PC と、この欄を知らない古い版は持たない。
  */
-export type DeviceStatus = { accounts: DeviceAccountStatus[]; agents: string[]; lan_ips: string[]; ssh_host_key: string | null; hangar_version: string; opencode?: DeviceOpencodeStatus; orchestrator_ids?: string[] };
+export type DeviceStatus = { accounts: DeviceAccountStatus[]; agents: string[]; lan_ips: string[]; ssh_host_key: string | null; hangar_version: string; opencode?: DeviceOpencodeStatus; orchestrator_ids?: string[]; /** SSH のシェルタブの宛先に要る様子（ユーザー名、ホスト公開鍵、端末の多重化、ログインシェル）。この欄を知らない古い版は持たない。 */ ssh?: DeviceSshStatus; /** Tailscale の IPv4（100.64/10）。無い PC と古い版は持たない。 */ tailnet_ips?: string[] };
 
 /** 載せる統括の系譜の上限。系譜は今の 1 本と前の 20 件（ORCHESTRATOR_HISTORY_MAX）なので、余裕を見た数で切る。 */
 export const DEVICE_ORCHESTRATOR_IDS_MAX = 64;
@@ -60,7 +61,23 @@ export function parseDeviceStatus(raw: string | null | undefined): DeviceStatus 
   }
   const opencode = parseOpencodeStatus(o.opencode);
   const orchestratorIds = orchestratorIdsOf(o.orchestrator_ids);
-  return { accounts, agents: o.agents.filter(isStr), lan_ips: o.lan_ips.filter(isStr), ssh_host_key: isStr(o.ssh_host_key) ? o.ssh_host_key : null, hangar_version: o.hangar_version, ...(opencode ? { opencode } : {}), ...(orchestratorIds.length > 0 ? { orchestrator_ids: orchestratorIds } : {}) };
+  const ssh = parseSshStatus(o.ssh);
+  const tailnetIps = Array.isArray(o.tailnet_ips) ? o.tailnet_ips.filter((x): x is string => isStr(x) && x !== '') : [];
+  return { accounts, agents: o.agents.filter(isStr), lan_ips: o.lan_ips.filter(isStr), ssh_host_key: isStr(o.ssh_host_key) ? o.ssh_host_key : null, hangar_version: o.hangar_version, ...(opencode ? { opencode } : {}), ...(orchestratorIds.length > 0 ? { orchestrator_ids: orchestratorIds } : {}), ...(ssh ? { ssh } : {}), ...(tailnetIps.length > 0 ? { tailnet_ips: tailnetIps } : {}) };
+}
+
+/** ssh の欄を読む。形が違えば欄ごと無いことにする（ほかの欄は活かす）。 */
+function parseSshStatus(v: unknown): DeviceSshStatus | null {
+  const o = rec(v);
+  if (!o || !isStr(o.user) || (o.host_pubkey !== null && !isStr(o.host_pubkey))) return null;
+  if (o.shell !== 'posix' && o.shell !== 'powershell' && o.shell !== 'pwsh' && o.shell !== 'cmd') return null;
+  let mux: RemoteMux | null = null;
+  if (o.mux !== null) {
+    const m = rec(o.mux);
+    if (!m || (m.kind !== 'tmux' && m.kind !== 'psmux') || !isStr(m.path)) return null;
+    mux = { kind: m.kind, path: m.path };
+  }
+  return { user: o.user, host_pubkey: o.host_pubkey, mux, shell: o.shell };
 }
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);

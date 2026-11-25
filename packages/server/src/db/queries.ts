@@ -84,6 +84,8 @@ type SessionRow = {
   // 最後に起こした run の終わり方と終わった時刻。run が無いか、まだ動いていれば null。
   last_end_reason: string | null;
   last_ended_at: number | null;
+  // 最後に起こした run の PC。run が無ければ null。
+  last_device: string | null;
   // 最後の run をこの PC が中断として記録していれば、その原因（interrupted_runs の cause）。
   last_interrupt_cause: InterruptCause | null;
   // 同じファイルの編集の写し（session_overlaps の payload）。無ければ null。
@@ -133,6 +135,7 @@ select s.*, (exists(select 1 from transcript_files t where t.session_id = s.id a
   ss.candidate_status ss_c_status, ss.candidate_note ss_c_note, ss.candidate_return_on ss_c_return_on, ss.candidate_return_time ss_c_return_time, ss.candidate_source ss_c_source, ss.candidate_at ss_c_at, ss.candidate_wake_on ss_c_wake_on,
   (select r.end_reason from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1) last_end_reason,
   (select r.ended_at from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1) last_ended_at,
+  (select r.device_id from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc, r.id desc limit 1) last_device,
   (select i.cause from interrupted_runs i where i.run_id = (select r.id from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1)) last_interrupt_cause,
   ov.payload overlap_payload,
   ss.pinned_at ss_pinned_at, ss.muted_at ss_muted_at, ss.unread_count unread_count, ss.unread_text unread_text, ss.unread_at unread_at, ss.unread_device unread_device,
@@ -347,7 +350,7 @@ export function processStartedAt(live: { procStart?: string } | undefined, alive
  * 動きは届いたもの（lock.live）を使い、まだ届いていなければ休みとみなす。作業中と入力待ちは手元と同じく外さない。
  */
 function remoteParked(r: SessionRow, lock: LockEntry | undefined): boolean {
-  return lock !== undefined && isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: lock.dto.live ?? 'idle', processStartedAt: lock.startedAt });
+  return lock !== undefined && isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: lock.dto.live ?? 'idle', aside: (lock.dto.aside ?? null) !== null, processStartedAt: lock.startedAt });
 }
 
 /**
@@ -444,7 +447,7 @@ function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto
     // ほかの PC でだけ動いている会話（この PC の登録が無く、ロックだけがある）は、その run の始まりより後に印を付けたら、
     // 向こうの PC が止めるのを待たずに parked にする。向こうの見張り（ParkWatch）は休みが 10 秒続いてから止める。
     parked: parking && (live
-      ? isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: live.status, processStartedAt: processStartedAt(live, runStarts.get(r.id) ?? null), limited: limit !== null && !limit.reset })
+      ? isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: live.status, aside: live.aside !== undefined, processStartedAt: processStartedAt(live, runStarts.get(r.id) ?? null), limited: limit !== null && !limit.reset })
       : remoteParked(r, locks.get(r.id))),
     // 止めた後に起こした run があれば、last_end_reason はその run のもの（動いている間は null）になるので偽に戻る。
     // 止めた後に付け直した印でも偽にする。その印のために止めたのではない。
@@ -466,6 +469,8 @@ function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto
     mutedAt: r.ss_muted_at,
     spawnedBy: r.spawned_by,
     spawnPeer: spawnPeerOf(r, self),
+    // 最後の run がほかの PC のときだけ、その PC。この PC を渡さなければ比べられないので null。
+    lastDevice: self && r.last_device !== null && r.last_device !== self ? r.last_device : null,
     // 統括の系譜の会話にだけ付ける。ほかは鍵ごと送らない。
     ...(isOrchestratorId(db, r.id) ? { role: 'orchestrator' as const } : {}),
     // 非対話の会話（isHeadlessSql）にだけ付ける。ほかは鍵ごと送らない。

@@ -52,6 +52,7 @@ export * from './providerPrep.ts';
 export * from './notifyPreference.ts';
 export * from './notifyInjection.ts';
 export * from './orchestrator.ts';
+export * from './remoteShell.ts';
 export * from './orchestratorState.ts';
 export * from './permissionPolicy.ts';
 export * from './voice.ts';

@@ -3,8 +3,10 @@ import type { LiveStatus, StopReason } from '@agent-hangar/shared';
 import type { TerminalHost } from '../runtime/terminals.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
+import { useEmit } from '../action/chain.tsx';
+import { presentRemoteShell } from '../presenters/remoteShell.ts';
 import { LAYOUT_MOVING_ATTR, LAYOUT_SETTLED, beginLayoutMotion, endLayoutMotion } from './primitives/layoutMotion.ts';
-import { collapseOut, growIn, motionOn } from './primitives/motionKit.ts';
+import { collapseOut, fadeIn, fadeOut, growIn, motionOn, resizeFrom, riseIn } from './primitives/motionKit.ts';
 import { usePresence } from './primitives/usePresence.ts';
 import { useNow } from './primitives/useNow.ts';
 import type { PeerOriginProps } from '../presenters/peerOrigin.ts';
@@ -15,6 +17,56 @@ export const TerminalHostContext = createContext<TerminalHost | null>(null);
 
 /** 「中断して渡す」を押したあと、何も動かなければ帯を元に戻すまでの長さ（サーバの急がせの PEER_QUEUE_RUSH_MS に少し足す）。 */
 const PEER_RUSH_SHOW_MS = 12_000;
+
+/** SSH のシェルタブの宛先。deviceName は札の名前、host は手元で上書きしている Host 名（無ければ null）。 */
+export type RemoteTarget = { deviceId: string; deviceName: string; host: string | null };
+
+/**
+ * SSH のシェルタブがつなげなかったときの、端末の中央の塊。
+ * 理由、相手の PC の名前、3 つの操作の順に並べる。「住所を変える」は塊をそのまま伸ばして、入力欄と「つなぐ」を足す（Enter でも決まる）。
+ * 入力欄を空にして決めると上書きを解く。
+ */
+function RemoteFailed(props: { tabId: string; target: RemoteTarget; why: string; reason: string; detail: string | null; address: string | null; leaving: boolean; boxRef: (el: HTMLDivElement | null) => void }) {
+  const emit = useEmit();
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(props.target.host ?? '');
+  const centerRef = useRef<HTMLDivElement | null>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const from = useRef<number | null>(null);
+  const toggle = () => { from.current = centerRef.current?.offsetHeight ?? null; setOpen((o) => !o); };
+  // 塊の高さを、開く前の高さから今の高さへ動かす。入力の行は下から入れる。
+  useLayoutEffect(() => {
+    const c = centerRef.current;
+    if (c && from.current !== null) resizeFrom(c, from.current);
+    from.current = null;
+    if (open && rowRef.current) { riseIn(rowRef.current); rowRef.current.querySelector('input')?.focus(); }
+  }, [open]);
+  useLayoutEffect(() => { if (centerRef.current) fadeIn(centerRef.current); }, []);
+  const go = () => {
+    emit({ type: 'remote.sshHost', deviceId: props.target.deviceId, host: value.trim() === '' ? null : value.trim(), retryTabId: props.tabId });
+    from.current = centerRef.current?.offsetHeight ?? null;
+    setOpen(false);
+  };
+  return (
+    <div ref={(el) => { centerRef.current = el; props.boxRef(el); }} className="term-remote-center" aria-hidden={props.leaving ? 'true' : undefined}>
+      <Icon name="warning" />
+      <b role={props.leaving ? undefined : 'alert'}>{props.why}</b>
+      <span className="term-remote-host">{props.target.host ?? props.address ?? props.target.deviceName}</span>
+      <div className="term-remote-row">
+        <button type="button" className="btn btn-primary" onClick={() => emit({ type: 'investigate.open', op: 'remoteShell', message: props.why, code: props.reason, remote: { device: props.target.deviceName, ...(props.address ? { address: props.address } : {}), ...(props.detail ? { detail: props.detail } : {}) } })}>{t('setupGuide.launch.button')}</button>
+        <button type="button" className="btn" aria-expanded={open} onClick={toggle}>{t('remoteShell.action.change')}</button>
+        <button type="button" className="btn btn-ghost" onClick={() => emit({ type: 'remote.retry', tabId: props.tabId })}>{t('remoteShell.action.retry')}</button>
+      </div>
+      {open && (
+        <div ref={rowRef} className="term-remote-addr">
+          <input type="text" spellCheck={false} autoComplete="off" aria-label={t('remoteShell.addr.field')} value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } }} />
+          <button type="button" className="btn btn-primary" onClick={go}>{t('remoteShell.action.go')}</button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * 次に自動でつなぐ時刻までの秒数を、1 秒ごとに数え直す。
@@ -47,7 +99,7 @@ export function liveEdge(live: LiveStatus | null, aside: boolean, reason: StopRe
  * peer は、ほかの PC から来た文の知らせ（Claude の枠にだけ渡す）。預かっている間は端末の下に帯を出し、渡した直後は右上に札を数秒出す。
  * replies は、訳を重ねる英語の返答（終わったターンのもの、古い順）。Claude の枠にだけ渡す（views/TermTranslate.tsx）。
  */
-export function TerminalPane(props: { tabId: string; hint: string | null; live: LiveStatus | null; aside?: boolean; reason?: StopReason | null; agent?: boolean; transcript?: { when: string; onLatest: () => void } | null; peer?: PeerOriginProps | null; /** 預かりの帯の「中断して渡す」。省くとボタンを出さない。 */ onPeerRush?: () => void; replies?: readonly string[] | null }) {
+export function TerminalPane(props: { tabId: string; hint: string | null; live: LiveStatus | null; aside?: boolean; reason?: StopReason | null; agent?: boolean; transcript?: { when: string; onLatest: () => void } | null; peer?: PeerOriginProps | null; /** 預かりの帯の「中断して渡す」。省くとボタンを出さない。 */ onPeerRush?: () => void; replies?: readonly string[] | null; /** SSH のシェルタブのときの宛先。つなげなかったときは暗幕の代わりに中央の塊を出し、つなぎ直している間は端末を薄める。 */ remote?: RemoteTarget }) {
   const host = useContext(TerminalHostContext);
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
@@ -123,7 +175,12 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
   const dropped = !failed && link.dropped && status !== 'connected';
   // tmux から抜けて閉じたが、run とタブは生きている。自動ではつながないので、つなぎ直す手を出す。
   const detached = !failed && !dropped && link.detached && status !== 'connected';
-  const off = failed || dropped || detached;
+  // SSH のシェルタブは、つなぎの様子を札（host.remote）で受ける。暗幕の代わりに中央の塊を出す。
+  const rface = props.remote ? presentRemoteShell(host?.remote(props.tabId) ?? null, props.remote.deviceName, t) : null;
+  const rFailed = useRef(rface);
+  if (rface?.phase === 'failed') rFailed.current = rface;
+  const remoteFailed = usePresence<HTMLDivElement>(rface?.phase === 'failed', (el) => (motionOn(el) ? fadeOut(el) : null));
+  const off = !props.remote && (failed || dropped || detached);
   const running = t(props.agent ? 'terminal.off.agentRunning' : 'terminal.off.shellRunning');
 
   // 帯が出ていても Esc は横取りしない。
@@ -134,7 +191,7 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
   // 縁はそのセッションの状態で灯る（base.css の .term-pane[data-live]）。
   // 終わったセッションと切れている間は灯さない。
   return (
-    <div ref={paneRef} className="term-pane" data-testid={`term-${props.tabId}`} data-live={liveEdge(props.live, props.aside === true, props.reason ?? null)} data-off={off ? 'true' : undefined}>
+    <div ref={paneRef} className="term-pane" data-testid={`term-${props.tabId}`} data-live={liveEdge(props.live, props.aside === true, props.reason ?? null)} data-off={off ? 'true' : undefined} data-dim={rface && (rface.dim || rface.phase === 'failed') ? 'true' : undefined}>
       {band.mounted && lastBand.current && (
         <div ref={band.ref} className="term-band" aria-hidden={band.leaving ? 'true' : undefined}>
           <Icon name="transcriptView" />
@@ -168,8 +225,11 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
           </div>
         </div>
       )}
-      {!off && status === 'closed' && <div className="term-status">{t('terminal.status.closed')}</div>}
-      {!off && status === 'connecting' && <div className="term-status">{t('terminal.status.connecting')}</div>}
+      {props.remote && remoteFailed.mounted && rFailed.current && (
+        <RemoteFailed tabId={props.tabId} target={props.remote} why={rFailed.current.why ?? ''} reason={rFailed.current.reason ?? 'dropped'} detail={rFailed.current.detail} address={rFailed.current.address} leaving={remoteFailed.leaving} boxRef={(el) => { remoteFailed.ref.current = el; }} />
+      )}
+      {!off && !props.remote && status === 'closed' && <div className="term-status">{t('terminal.status.closed')}</div>}
+      {!off && !props.remote && status === 'connecting' && <div className="term-status">{t('terminal.status.connecting')}</div>}
     </div>
   );
 }

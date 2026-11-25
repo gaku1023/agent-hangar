@@ -744,6 +744,15 @@ a:where(.btn) { color: inherit; }
 .tab-close:hover, .tab-add:hover { background: var(--surface-2); color: var(--ink); }
 .tab-selected .tab-close { color: var(--term-fg); }
 .tab-selected .tab-close:hover { color: var(--term-fg); background: rgba(255, 255, 255, 0.12); }
+/* ほかの PC の会話の画面の、チャット本体のタブ。選んだ間は、下の白い板（会話）とつなげて明るいままにする。 */
+.tab-chat.tab-selected, .tab-chat.tab-selected:hover { color: var(--ink); background: var(--surface); }
+.tab-chat.tab-selected .tab-close { color: var(--ink-2); }
+/* SSH のシェルタブの頭の印。つないでいる間は輪、つながったら端末の印（RemoteMark）。輪は暗い地では明るい色にする。 */
+.tab-mark { display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.tab-spin { width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--line-strong); border-top-color: var(--accent); animation: tab-spin var(--dur-spin) linear infinite; }
+.tab-selected .tab-spin { border-color: rgba(255, 255, 255, 0.25); border-top-color: var(--accent-hi); }
+.tab-chat.tab-selected .tab-spin { border-color: var(--line-strong); border-top-color: var(--accent); }
+@keyframes tab-spin { to { transform: rotate(360deg); } }
 /* 端末は墨色の不透明な板。ぼかしは掛けない（xterm の描画を重くしないため）。
    xterm のスクロールバーや装飾は z-index を持つので、isolation で重なりを板の中に閉じる。
    閉じないと、ヘッダの下をくぐったときに、それらが浮いたヘッダの上に描かれる。 */

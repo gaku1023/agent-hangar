@@ -1,8 +1,9 @@
+import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os, { type NetworkInterfaceInfo } from 'node:os';
 import path from 'node:path';
-import { DEVICE_OPENCODE_MODELS_MAX, orchestratorIdsOf, parseDeviceStatus, type DeviceAccountStatus, type DeviceOpencodeStatus, type DeviceStatus, type OpencodeOptionsDto, type PeerDeviceStatus } from '@agent-hangar/shared';
+import { DEVICE_OPENCODE_MODELS_MAX, orchestratorIdsOf, parseDeviceStatus, type DeviceAccountStatus, type DeviceOpencodeStatus, type DeviceSshStatus, type DeviceStatus, type RemoteShellKind, type OpencodeOptionsDto, type PeerDeviceStatus } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import type { DeviceInfo } from './paths.ts';
@@ -25,6 +26,10 @@ export type StatusSources = {
   opencode?: () => OpencodeOptionsDto | null;
   /** この PC が宿主になった統括の系譜（設定の orchestrator の sessionId と history）。省けば載せない。 */
   orchestratorIds?: () => readonly string[];
+  /** SSH のシェルタブの宛先に要る様子。省けば載せない。 */
+  ssh?: () => DeviceSshStatus | null;
+  /** Tailscale の IPv4（100.64.0.0/10）。省けば載せない。 */
+  tailnetIps?: () => string[];
 };
 
 /** ほかの PC に見せる opencode の一覧を取り直す間。取り直すと serve を起こすことがある（1〜2 秒）ので、様子の調べ直し（5 分）より長くする。 */
@@ -67,6 +72,8 @@ export function collectDeviceStatus(s: StatusSources): DeviceStatus {
   const agents = [...new Set(s.agents())].sort();
   const opencode = agents.includes('opencode') ? s.opencode?.() ?? null : null;
   const orchestratorIds = orchestratorIdsOf(s.orchestratorIds?.() ?? []);
+  const ssh = s.ssh?.() ?? null;
+  const tailnetIps = [...new Set(s.tailnetIps?.() ?? [])].sort();
   return {
     accounts: [...s.accounts()].sort(byName),
     agents,
@@ -75,6 +82,8 @@ export function collectDeviceStatus(s: StatusSources): DeviceStatus {
     hangar_version: s.version,
     ...(opencode ? { opencode: deviceOpencodeOf(opencode) } : {}),
     ...(orchestratorIds.length > 0 ? { orchestrator_ids: orchestratorIds } : {}),
+    ...(ssh ? { ssh } : {}),
+    ...(tailnetIps.length > 0 ? { tailnet_ips: tailnetIps } : {}),
   };
 }
 
@@ -94,6 +103,25 @@ export function lanIpv4s(ifaces: Record<string, Pick<NetworkInterfaceInfo, 'addr
     for (const i of list ?? []) {
       if ((i.family as string | number) !== 'IPv4' && (i.family as string | number) !== 4) continue;
       if (i.internal || !isPrivateV4(i.address)) continue;
+      out.add(i.address);
+    }
+  }
+  return [...out].sort();
+}
+
+const v4Parts = (ip: string): number[] | null => {
+  const p = ip.split('.').map(Number);
+  return p.length === 4 && p.every((n) => Number.isInteger(n) && n >= 0 && n <= 255) ? p : null;
+};
+
+/** Tailscale の IPv4（100.64.0.0/10）。lan の口の除外より前に、口の名前に依らず範囲で拾う（lan_ips には入れない）。 */
+export function tailnetIpv4s(ifaces: Record<string, Pick<NetworkInterfaceInfo, 'address' | 'family' | 'internal'>[] | undefined>): string[] {
+  const out = new Set<string>();
+  for (const list of Object.values(ifaces)) {
+    for (const i of list ?? []) {
+      if ((i.family as string | number) !== 'IPv4' && (i.family as string | number) !== 4) continue;
+      const p = v4Parts(i.address);
+      if (i.internal || !p || p[0] !== 100 || (p[1] as number) < 64 || (p[1] as number) > 127) continue;
       out.add(i.address);
     }
   }
@@ -121,6 +149,69 @@ export function hostKeyFingerprint(platform: NodeJS.Platform, env: NodeJS.Proces
     try { const fp = fingerprintOfPublicKey(read(file)); if (fp) return fp; } catch { /* 無い、または読めない */ }
   }
   return null;
+}
+
+/** ホスト公開鍵（ed25519）の base64。指紋（hostKeyFingerprint）と同じファイルと同じ鍵で、無ければ null。 */
+export function hostPublicKeyBase64(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, read: (file: string) => string = (f) => fs.readFileSync(f, 'utf8')): string | null {
+  for (const file of hostKeyPaths(platform, env)) {
+    try {
+      const m = /^\s*ssh-ed25519\s+([A-Za-z0-9+/]+={0,2})/.exec(read(file));
+      if (m?.[1] && fingerprintOfPublicKey(read(file))) return m[1];
+    } catch { /* 無い、または読めない */ }
+  }
+  return null;
+}
+
+/** 自分の sshd を ssh-keyscan した出力から ed25519 の公開鍵（base64）を取る。無ければ null。 */
+export function parseOwnKeyscan(stdout: string): string | null {
+  for (const line of stdout.split(/\r?\n/)) {
+    const m = /^\S+\s+ssh-ed25519\s+([A-Za-z0-9+/]+={0,2})\s*$/.exec(line.trim());
+    if (m?.[1] && fingerprintOfPublicKey(`ssh-ed25519 ${m[1]}`)) return m[1];
+  }
+  return null;
+}
+
+/**
+ * この PC の ssh のホスト鍵（公開鍵の base64 と指紋）。
+ * Windows の OpenSSH は鍵の .pub まで Administrators と SYSTEM だけに絞るので、管理者でない hangar には読めない。
+ * そのときは自分の sshd（127.0.0.1）を keyscan して取る。自分の PC に聞くので、取った鍵はそのまま信じてよい。
+ */
+export function ownHostKey(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, read: (file: string) => string, keyscan: () => string | null): { pubkey: string | null; fingerprint: string | null } {
+  const fromFile = hostPublicKeyBase64(platform, env, read);
+  const pubkey = fromFile ?? (platform === 'win32' ? keyscan() : null);
+  return { pubkey, fingerprint: pubkey ? fingerprintOfPublicKey(`ssh-ed25519 ${pubkey}`) : null };
+}
+
+/** 自分の sshd の ed25519 の鍵を keyscan で取る（Windows の System32\OpenSSH）。sshd が無い、止まっているときは null。 */
+function keyscanOwnSshd(env: NodeJS.ProcessEnv): string | null {
+  const dir = path.win32.join(env.SystemRoot ?? env.windir ?? 'C:\\Windows', 'System32', 'OpenSSH');
+  const exe = path.win32.join(dir, 'ssh-keyscan.exe');
+  try { return parseOwnKeyscan(execFileSync(fs.existsSync(exe) ? exe : 'ssh-keyscan.exe', ['-T', '3', '-t', 'ed25519', '127.0.0.1'], { encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })); } catch { return null; }
+}
+
+/** reg query HKLM\SOFTWARE\OpenSSH /v DefaultShell の出力から、DefaultShell の値（実行ファイルのパス）を取る。無ければ null。 */
+export function parseDefaultShell(out: string): string | null {
+  const m = /DefaultShell\s+REG_\w+\s+(.+?)\s*$/m.exec(out);
+  return m?.[1] ? m[1] : null;
+}
+
+/** 相手の sshd のログインシェル。Windows は DefaultShell（powershell.exe、pwsh.exe、無ければ cmd）、ほかは posix。 */
+export function sshShellOf(platform: NodeJS.Platform, defaultShell: () => string | null): RemoteShellKind {
+  if (platform !== 'win32') return 'posix';
+  let v: string | null = null;
+  try { v = defaultShell(); } catch { v = null; }
+  const exe = (v ?? '').replace(/^"|"$/g, '').split(/[\\/]/).pop()?.toLowerCase() ?? '';
+  return exe === 'powershell.exe' ? 'powershell' : exe === 'pwsh.exe' ? 'pwsh' : 'cmd';
+}
+
+/** status の ssh の欄。鍵が無い PC（sshd なし）も欄は残し、host_pubkey を null にする（ssh_host_key=null と同じ意味）。 */
+export function sshStatusOf(o: { platform: NodeJS.Platform; user: string; hostPubkey: string | null; tmuxPath: string | null; defaultShell: () => string | null }): DeviceSshStatus {
+  return { user: o.user, host_pubkey: o.hostPubkey, mux: o.tmuxPath ? { kind: o.platform === 'win32' ? 'psmux' : 'tmux', path: o.tmuxPath } : null, shell: sshShellOf(o.platform, o.defaultShell) };
+}
+
+/** レジストリから Windows の sshd の DefaultShell を読む。無ければ null。 */
+function readRegistryDefaultShell(): string | null {
+  try { return parseDefaultShell(execFileSync('reg', ['query', 'HKLM\\SOFTWARE\\OpenSSH', '/v', 'DefaultShell'], { encoding: 'utf8', timeout: 3000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })); } catch { return null; }
 }
 
 /**
@@ -163,7 +254,21 @@ export function liveStatusSources(o: {
   opencode?: () => OpencodeOptionsDto | null;
   /** 統括の系譜（設定の orchestrator から）。 */
   orchestratorIds?: () => readonly string[];
+  /** hangar が使う tmux（Windows は psmux）の絶対パス。設定の tmuxPath。 */
+  tmuxPath?: () => string | null;
+  /** DefaultShell の読み口（試験で差し替える）。 */
+  defaultShell?: () => string | null;
 }): StatusSources {
+  // レジストリは 1 度だけ読む（調べ直しは 5 分ごと）。
+  let shellCache: { v: string | null } | null = null;
+  const defaultShell = (): string | null => (shellCache ??= { v: (o.defaultShell ?? readRegistryDefaultShell)() }).v;
+  // 指紋と公開鍵は 1 回の調べ直しで 2 度引くので、短く持って keyscan を 1 回にする（sshd の起動や停止は次の調べ直しで拾う）。
+  let keyCache: { at: number; v: { pubkey: string | null; fingerprint: string | null } } | null = null;
+  const hostKey = () => {
+    const now = Date.now();
+    if (!keyCache || now - keyCache.at > 60_000) keyCache = { at: now, v: ownHostKey(process.platform, process.env, (f) => fs.readFileSync(f, 'utf8'), () => keyscanOwnSshd(process.env)) };
+    return keyCache.v;
+  };
   const rows = (agent: DeviceAccountStatus['agent'], store: AuthedStore): DeviceAccountStatus[] =>
     store.list().map((a) => {
       // まだ読んでいない認証は裏で読ませる。読めたら次の調べ直しで拾う。
@@ -174,7 +279,9 @@ export function liveStatusSources(o: {
     accounts: () => [...rows('claude-code', o.claude), ...(o.codex.enabled() ? rows('codex', o.codex) : [])],
     agents: () => o.agentKinds.filter((k) => o.agentUsable(k)),
     lanIps: () => lanIpv4s(os.networkInterfaces()),
-    hostKey: () => hostKeyFingerprint(process.platform, process.env),
+    hostKey: () => hostKey().fingerprint,
+    ssh: () => sshStatusOf({ platform: process.platform, user: os.userInfo().username, hostPubkey: hostKey().pubkey, tmuxPath: o.tmuxPath?.() ?? null, defaultShell }),
+    tailnetIps: () => tailnetIpv4s(os.networkInterfaces()),
     version: o.version,
     ...(o.opencode ? { opencode: o.opencode } : {}),
     ...(o.orchestratorIds ? { orchestratorIds: o.orchestratorIds } : {}),

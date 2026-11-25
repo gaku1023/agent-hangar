@@ -116,7 +116,12 @@ export type SideLiveRow = {
   /** 子を持つ行だけが持つ。open は子の列を開いているか、dots は子孫ごとの状態の丸（畳んだときに名前の右へ並べる）。 */
   nest?: { open: boolean; dots: NestDot[] } };
 /** 「実行中」のグループ。key はプロジェクトの id で、未分類は空の文字列。waiting は入力待ちの行の数（畳んだ見出しに出す）。 */
-export type SideLiveGroup = { key: string; name: string; open: boolean; waiting: number; rows: SideLiveRow[] };
+/**
+ * seats は、覚えた並びにあるこのプロジェクトの会話の id を並びの順にしたもの（止まった会話も含む）。
+ * グループを動かすときは、これをグループの順につないで覚え直す。止まった会話の席も動かさないと、グループの順が戻ってしまうからである。
+ * 無ければ（試験の形など）、動いている行だけを動かす。
+ */
+export type SideLiveGroup = { key: string; name: string; open: boolean; waiting: number; rows: SideLiveRow[]; seats?: string[] };
 /**
  * 起こした印を使う長さ。
  * 行が出ないまま残った印で、あとの普通の再開が光らないようにする。
@@ -236,8 +241,10 @@ const footDefs = (t: Translate): NavDef[] => [
  * 並びは覚えた順（state.sidebarOrder）だけで決め、状態や最後の活動では並べ直さない。動かすのは利用者の手だけである。
  * 覚えた並びにまだ無いもの（いま動き始めたもの）は、始めた順で末尾に置く。Mediator が同じ順で並びに書き足すので（sidebar.ts の sidebarLiveStep）、書き足す前と後で行は動かない。
  * 入力待ちになっても行は動かさない。待ちは色と太字と待った時間で知らせる。
- * 行はプロジェクトごとのグループに分ける。グループの順は、並びの中でそのプロジェクトの行が先に出てくる順で、グループの中は並びの順である。
- * グループの順を別に持たない。グループを動かしたときは、つないだ並びを sidebar.order で覚え直す（views/Sidebar.tsx）。
+ * 行はプロジェクトごとのグループに分ける。グループの中は並びの順である。
+ * グループの順は、覚えた並びの中でそのプロジェクトの会話が先に出てくる順で、止まった会話の席も数える。
+ * 動いている行だけで決めると、先頭の会話を止めたときに、グループが次の行の席まで下がってほかのグループと入れ替わるためである（再開すると戻る）。
+ * グループの順を別に持たない。グループを動かしたときは、止まった会話の席も含めてつないだ並び（seats）を sidebar.order で覚え直す（views/Sidebar.tsx）。
  * 行の数に上限は無く、入りきらない分は節の中でスクロールする。
  */
 function sideLive(state: State, store: Store, now: number): SideLiveProps {
@@ -318,11 +325,21 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
     if (kids.length > 0) row.nest = { open: !folded.has(spawnFoldKey(n.id)), dots: kids.map((k) => dotOf(k.id)) };
     byKey.set(key, [...byKey.get(key) ?? [], row]);
   });
+  // 覚えた並びを、会話のプロジェクトごとに分ける（消えた会話は数えない）。
+  const seatsOf = new Map<string, string[]>();
+  for (const id of state.sidebarOrder) {
+    const s = store.sessions[id];
+    if (!s) continue;
+    const k = s.projectId ?? '';
+    seatsOf.set(k, [...seatsOf.get(k) ?? [], id]);
+  }
+  const firstSeat = (key: string): number => { const id = seatsOf.get(key)?.[0]; return id === undefined ? Infinity : state.sidebarOrder.indexOf(id); };
   const groups = [...byKey].map(([key, rows]): SideLiveGroup => {
     const p = store.projects[key];
     const name = key === '' ? t('common.label.uncategorized') : p ? projectDisplayName(p, t) : t('common.label.noName');
-    return { key, name, open: !folded.has(key), waiting: rows.filter((r) => r.live === 'waiting').length, rows };
-  });
+    const seats = seatsOf.get(key) ?? [];
+    return { key, name, open: !folded.has(key), waiting: rows.filter((r) => r.live === 'waiting').length, rows, seats };
+  }).map((g, i) => ({ g, i, at: firstSeat(g.key) })).sort((a, b) => a.at - b.at || a.i - b.i).map((x) => x.g);
   const rows = groups.flatMap((g) => g.rows);
   const alive = rows.filter((r) => !r.dim);
   return { count: alive.length, ids: alive.map((r) => r.id), rows, groups, pins: pinned.map(rowOf) };

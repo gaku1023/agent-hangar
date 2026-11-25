@@ -5,7 +5,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { applyRemoteChange } from '../sync/apply.ts';
 import { touchDevice } from './devicePresence.ts';
-import { collectDeviceStatus, opencodeStatusFeed, fingerprintOfPublicKey, hostKeyFingerprint, hostKeyPaths, lanIpv4s, readPeerStatuses, refreshDeviceStatus, type StatusSources } from './deviceStatus.ts';
+import { collectDeviceStatus, opencodeStatusFeed, fingerprintOfPublicKey, hostKeyFingerprint, hostKeyPaths, hostPublicKeyBase64, ownHostKey, parseOwnKeyscan, lanIpv4s, parseDefaultShell, sshShellOf, sshStatusOf, tailnetIpv4s, readPeerStatuses, refreshDeviceStatus, type StatusSources } from './deviceStatus.ts';
 
 const sources = (over: Partial<StatusSources> = {}): StatusSources => ({
   accounts: () => [{ agent: 'claude-code', name: 'Main', logged_in: true }, { agent: 'codex', name: 'Work', logged_in: false }],
@@ -204,5 +204,72 @@ describe('別の PC の様子を読む', () => {
     expect(readPeerStatuses(db, 'self')[0]).toMatchObject({ outdated: false, status });
     applyRemoteChange(db, { ...base, rowId: 'q', deviceId: 'q', op: 'upsert', payload: { ...row, id: 'q', origin_device: 'q' } } as never, { ownDeviceId: 'self', skipOwn: true });
     expect(readPeerStatuses(db, 'self').find((r) => r.device_id === 'q')).toMatchObject({ outdated: true });
+  });
+});
+
+describe('SSH のシェルタブ向けの様子', () => {
+  const blob = Buffer.concat([Buffer.from([0, 0, 0, 11]), Buffer.from('ssh-ed25519'), Buffer.from([0, 0, 0, 32]), Buffer.alloc(32, 7)]);
+  const line = `ssh-ed25519 ${blob.toString('base64')} root@host\n`;
+  const v4 = (address: string, internal = false) => ({ address, family: 'IPv4' as const, internal });
+
+  it('tailnet の IP は 100.64.0.0/10 の IPv4 を口の名前に依らず拾い、lan_ips には入れない', () => {
+    const ifaces = { utun4: [v4('100.101.102.103')], Tailscale: [v4('100.64.0.1')], tailscale0: [v4('100.127.255.254')], en0: [v4('100.63.0.1'), v4('100.128.0.1'), v4('192.168.1.2')], lo: [v4('100.100.0.1', true)] };
+    expect(tailnetIpv4s(ifaces)).toEqual(['100.101.102.103', '100.127.255.254', '100.64.0.1']);
+    expect(lanIpv4s(ifaces)).toEqual(['192.168.1.2']);
+  });
+
+  it('ホスト公開鍵は指紋と同じ鍵の base64、読めなければ null', () => {
+    expect(hostPublicKeyBase64('linux', {}, () => line)).toBe(blob.toString('base64'));
+    expect(fingerprintOfPublicKey(line)).toBe(hostKeyFingerprint('linux', {}, () => line));
+    expect(hostPublicKeyBase64('linux', {}, () => { throw new Error('ENOENT'); })).toBeNull();
+  });
+
+  it('Windows では鍵ファイルが読めない（管理者だけの ACL）とき、自分の sshd を keyscan した鍵を使う', () => {
+    const denied = () => { throw new Error('EPERM'); };
+    const b64 = blob.toString('base64');
+    let scans = 0;
+    const scan = () => { scans++; return b64; };
+    expect(ownHostKey('win32', {}, denied, scan)).toEqual({ pubkey: b64, fingerprint: fingerprintOfPublicKey(line) });
+    expect(scans).toBe(1);
+    // ファイルが読めれば keyscan しない。
+    expect(ownHostKey('win32', {}, () => line, scan)).toEqual({ pubkey: b64, fingerprint: fingerprintOfPublicKey(line) });
+    expect(scans).toBe(1);
+    // Windows 以外は keyscan に落ちない。sshd が無ければ両方 null。
+    expect(ownHostKey('darwin', {}, denied, scan)).toEqual({ pubkey: null, fingerprint: null });
+    expect(ownHostKey('win32', {}, denied, () => null)).toEqual({ pubkey: null, fingerprint: null });
+    expect(scans).toBe(1);
+  });
+
+  it('自分の sshd の keyscan の結果から ed25519 の鍵を取る', () => {
+    const b64 = blob.toString('base64');
+    expect(parseOwnKeyscan(`# 127.0.0.1:22 SSH-2.0-OpenSSH_for_Windows_9.5\r\n127.0.0.1 ssh-ed25519 ${b64}\r\n`)).toBe(b64);
+    expect(parseOwnKeyscan('')).toBeNull();
+  });
+
+  it('DefaultShell の読み取り結果からシェルの種類を決める', () => {
+    expect(parseDefaultShell('    DefaultShell    REG_SZ    C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\r\n')).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+    expect(sshShellOf('win32', () => 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')).toBe('powershell');
+    expect(sshShellOf('win32', () => 'C:\\Program Files\\PowerShell\\7\\pwsh.exe')).toBe('pwsh');
+    expect(sshShellOf('win32', () => null)).toBe('cmd');
+    expect(sshShellOf('win32', () => 'C:\\Windows\\System32\\cmd.exe')).toBe('cmd');
+    expect(sshShellOf('darwin', () => { throw new Error('呼ばない'); })).toBe('posix');
+  });
+
+  it('ssh の欄はユーザー名、公開鍵、多重化、シェルを持ち、鍵が無くても欄は残る', () => {
+    expect(sshStatusOf({ platform: 'darwin', user: 'me', hostPubkey: null, tmuxPath: '/opt/homebrew/bin/tmux', defaultShell: () => null }))
+      .toEqual({ user: 'me', host_pubkey: null, mux: { kind: 'tmux', path: '/opt/homebrew/bin/tmux' }, shell: 'posix' });
+    expect(sshStatusOf({ platform: 'win32', user: 'me', hostPubkey: 'AAAA', tmuxPath: 'C:\\psmux.exe', defaultShell: () => null }).mux).toEqual({ kind: 'psmux', path: 'C:\\psmux.exe' });
+    expect(sshStatusOf({ platform: 'linux', user: 'me', hostPubkey: null, tmuxPath: null, defaultShell: () => null }).mux).toBeNull();
+  });
+
+  it('collectDeviceStatus は ssh と tailnet_ips を載せ、無ければ欄ごと省く。時刻は載せない', () => {
+    const ssh = { user: 'me', host_pubkey: 'AAAA', mux: null, shell: 'posix' as const };
+    const s = collectDeviceStatus(sources({ ssh: () => ssh, tailnetIps: () => ['100.64.0.2', '100.64.0.1', '100.64.0.2'] }));
+    expect(s.ssh).toEqual(ssh);
+    expect(s.tailnet_ips).toEqual(['100.64.0.1', '100.64.0.2']);
+    const bare = collectDeviceStatus(sources({ tailnetIps: () => [] }));
+    expect('ssh' in bare).toBe(false);
+    expect('tailnet_ips' in bare).toBe(false);
+    expect(JSON.stringify(s)).not.toMatch(/checked|time|at"/);
   });
 });

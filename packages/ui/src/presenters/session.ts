@@ -18,6 +18,7 @@ import { presentArtifactCard, type ArtifactCardProps } from './project.ts';
 import { noteView, presentTool, relPath, type ToolView } from './tools.ts';
 import { turnsText } from './stats.ts';
 import { translatorOf } from './i18n.ts';
+import { presentPeerShell, type PeerShellProps } from './remoteShell.ts';
 import { isPeerChatCandidate, presentPeerCard, presentPeerChat, presentPeerToc, type PeerChatView, type PeerToc } from './peerChat.ts';
 import { interruptMark } from './interrupted.ts';
 import { presentOverlap, type OverlapProps } from './overlap.ts';
@@ -38,7 +39,7 @@ export type TranscriptItem =
   | { kind: 'tool'; seq: number; summary: string; name: string; view: ToolView; raw: { input: string; result: string | null } | null; result: { text: string; isError: boolean } | null; when: string; subagent: { agentId: string; label: string } | null }
   | { kind: 'meta'; seq: number; name: string; json: string };
 /** agent は opencode の会話のエージェントのタブにだけ付け、公式ロゴと「opencode」を出す。Claude のタブはいまのまま（ロボットの印と「Claude」）。 */
-export type TabItemProps = { id: string; title: string; kind: 'agent' | 'shell'; agent?: NonDefaultAgentKind; selected: boolean; closable: boolean };
+export type TabItemProps = { id: string; title: string; kind: 'agent' | 'shell' | 'remote'; agent?: NonDefaultAgentKind; selected: boolean; closable: boolean; /** つないでいる途中。タブの印を輪にする（SSH のシェルタブ。画面が Host の札から足す）。 */ busy?: boolean };
 /** 目次の見出しの数。plus は、数えきれていない古い行が残ること。 */
 export type TurnCount = { n: number; plus: boolean };
 /** 目次の 1 行。head は左のターミナルの指示の行と突き合わせる書き出しで、跳ぶ要求にそのまま載る。 */
@@ -86,6 +87,8 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
    * watch が真の間、画面は見張りを張る。view が null の間（読み込み中、見続けられなかった）は、読み取り専用のトランスクリプトを出す。
    */
   peerChat?: { watch: boolean; view: PeerChatView | null; /** 右の欄の現在の札（元の PC の材料から組む）。無ければ右の欄を出さない。 */ card?: NowCardProps | null; /** 右の欄の目次（元の PC の turns から組む）。無ければ（古い相手）目次を出さない。 */ toc?: PeerToc | null; /** クラウドの Worker が古くて見張れず、読み取り専用のままになっている。見出しの下に帯を出す。 */ workerOutdated?: boolean };
+  /** ほかの PC の会話の画面のタブ列（チャット本体と SSH のシェルタブ）。peer chat の候補でなければ省く。 */
+  peerShell?: PeerShellProps;
   /** このセッションを起こしたセッション（SessionDto.spawnedBy）。store に無い、または起こされていなければ null、省けば出さない。 */
   spawnedFrom?: SpawnedFromView | null;
   /** このセッションが起こしたセッション（起動の古い順）。無ければ空、省けば出さない。 */
@@ -700,6 +703,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     fromScratch: s.fromScratch, canPromote: !!(s.projectId && store.projects[s.projectId]?.isScratch),
     split: right && selectedTab ? { left: selectedTab, right: right.id } : null, canSplit,
     gone, transcriptBand, peerOrigin: presentPeerOrigin(store, id, t),
+    ...(isPeerChatCandidate(s) ? { peerShell: presentPeerShell(store, id, view.peerTab, 'Claude', t) } : {}),
     peerChat: isPeerChatCandidate(s) ? { watch: true, view: presentPeerChat(store, id, t), card: presentPeerCard(store, id, t, { now, clock: (ts) => when(ts).slice(0, 5) }), toc: presentPeerToc(store, id, t, { clock: when }), ...(store.peerChat[id]?.phase === 'fallback' && store.peerChat[id]?.fallback === 'worker-outdated' ? { workerOutdated: true } : {}) } : { watch: false, view: null },
   };
   props.endedLine = run !== null || agentKind === null ? null : pending ? AGENT_TEXT[agentKind].endedPending : props.canResume ? AGENT_TEXT[agentKind].endedLine : null;

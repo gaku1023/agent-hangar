@@ -94,6 +94,23 @@ a.chip { color: var(--accent); text-decoration: none; }
    切れている間は板を暗く沈め、縁の灯を消し、中央に白いカードを置く。 */
 .term-pane[data-off] { animation: none; box-shadow: var(--term-lift); }
 .term-pane[data-off] .term-host { opacity: 0.28; filter: saturate(0.4); }
+/* SSH のシェルタブ。つなぎ直している間と、つなげなかった間は、端末を薄める。戻るときは --dur で濃くする。 */
+.term-pane[data-dim] .term-host { opacity: 0.28; filter: saturate(0.4); }
+.term-pane[data-dim] .term-host { transition: opacity var(--dur) var(--ease-out), filter var(--dur) var(--ease-out); }
+.term-remote-center { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 3.5); padding: calc(var(--u) * 6); text-align: center; color: var(--term-fg); }
+.term-remote-center > svg { width: 28px; height: 28px; color: var(--term-tool); }
+.term-remote-center > b { font-size: var(--fs-md); font-weight: 600; }
+.term-remote-host { display: inline-flex; align-items: center; height: 20px; padding: 0 calc(var(--u) * 2); border-radius: 6px; background: rgba(255, 255, 255, 0.1); font: var(--fs-xs) var(--font-mono); color: var(--term-fg); }
+.term-remote-row, .term-remote-addr { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: calc(var(--u) * 2); }
+.term-remote-addr { overflow: hidden; }
+.term-remote-addr input { width: 190px; height: var(--row-h); padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r); outline: none; font: var(--fs-sm) var(--font-mono); background: rgba(255, 255, 255, 0.1); color: var(--term-fg); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2); }
+.term-remote-addr input:focus { box-shadow: inset 0 0 0 1.5px var(--accent-hi); }
+/* 暗い面の上の従のボタン。明るい配色の既定のままだと、白が沈まない。 */
+.term-remote-center .btn:not(.btn-primary):not(.btn-ghost) { background: rgba(255, 255, 255, 0.1); color: var(--term-fg); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18); }
+.term-remote-center .btn:not(.btn-primary):hover { background: rgba(255, 255, 255, 0.18); }
+.term-remote-center .btn-ghost { color: var(--term-fg); }
+.term-remote-center .btn-ghost:hover { background: rgba(255, 255, 255, 0.12); color: var(--term-fg); }
+.c-body > .tabs + .c-main > .pchat-sheet:first-child { border-top-left-radius: 0; }
 .term-veil { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; padding: calc(var(--u) * 4); }
 .term-off-card { display: flex; flex-direction: column; align-items: center; gap: calc(var(--u) * 2); width: min(340px, 100%); padding: calc(var(--u) * 5) calc(var(--u) * 5.5) calc(var(--u) * 4.5); border-radius: 16px; background: var(--surface); box-shadow: 0 20px 40px -18px rgba(0, 0, 0, 0.6); text-align: center; color: var(--ink); }
 .term-off-ic { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: color-mix(in srgb, var(--error) 9%, var(--surface)); color: var(--error); }

@@ -45,6 +45,8 @@ const START_PRECISION_MS = 1000;
  * 真なら実行中に数えず、hangar が止められるものは止める。
  * Paused は偽にする。戻ってくる会話なので止めず、実行中のまま出す（2026-10-13 の決定。それまでは Paused も止めていた）。
  * 作業中と入力待ちは偽にする。本当に動いているものと答えを待つものは、印が付いていても見失わせない。
+ * ただし、本体が空いていて裏（シェル、サブエージェント）だけが動いているもの（aside）は休みと同じに扱う（2026-11-26 の決定）。
+ * Done・Archived は裏の作業も要らないと決めた印で、裏を残したいときは Paused にする。それまでは裏が 1 本残るだけで止まらず、サイドバーに残り続けた。
  * 導入時の一括 Done（setBy が import）は偽にする。利用者が区切ると決めたものではないので、動いている会話を巻き込まない。
  * 印より後に起動したプロセスは偽にする。再開して開いたものは、最初の発言で印が外れるまで動いているものとして扱う。
  * 起動時刻は秒に切り捨てて届くので、印の 1 秒以上前に起動したものだけを「前」と言う。
@@ -52,8 +54,9 @@ const START_PRECISION_MS = 1000;
  * 使用制限で止まっている間（limited、リセットの猶予の内）も偽にする。
  * 止めると、Claude Code が予約した自動の続きごと消えるからである。休みに見えても、リセットを待っている。
  */
-export function isParked(o: { status: SessionStatus | null; setBy: StateSetBy | null; setAt: number | null; live: LiveStatus | null; processStartedAt: number | null; limited?: boolean }): boolean {
-  if ((o.status !== 'done' && o.status !== 'archived') || o.setBy === 'import' || o.setAt === null || o.live !== 'idle' || o.limited) return false;
+export function isParked(o: { status: SessionStatus | null; setBy: StateSetBy | null; setAt: number | null; live: LiveStatus | null; processStartedAt: number | null; limited?: boolean; aside?: boolean }): boolean {
+  const resting = o.live === 'idle' || (o.live === 'busy' && o.aside === true);
+  if ((o.status !== 'done' && o.status !== 'archived') || o.setBy === 'import' || o.setAt === null || !resting || o.limited) return false;
   return o.processStartedAt !== null && o.processStartedAt + START_PRECISION_MS <= o.setAt;
 }
 

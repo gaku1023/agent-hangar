@@ -21,11 +21,31 @@ export function parkedSessionIds(db: Db, live: readonly LiveSession[], deviceId?
   const out: string[] = [];
   for (const l of live) {
     // 区切りの無いものは、セッションの行を組まずに外す。待機中に休みの会話が多くても軽くする。
-    if (l.status !== 'idle' || entries.get(keyOf(l)) !== 1 || !marked.has(keyOf(l))) continue;
+    if (!resting(l) || entries.get(keyOf(l)) !== 1 || !marked.has(keyOf(l))) continue;
     const row = db.prepare('select id from sessions where provider = ? and provider_session_id = ? and deleted_at is null').get(providerOf(l), l.sessionId) as { id: string } | undefined;
     if (row && getSession(db, [l], row.id, deviceId ? { deviceId } : {})?.parked) out.push(row.id);
   }
   return out;
+}
+
+/**
+ * 止める候補になる動きか。休みと、本体が空いていて裏（シェル、サブエージェント）だけが動いているもの（aside）。
+ * Done・Archived は裏の作業も要らないと決めた印なので、裏が残っていても止める（2026-11-26 の決定。shared の isParked と同じ）。
+ */
+const resting = (l: LiveSession): boolean => l.status === 'idle' || (l.status === 'busy' && l.aside !== undefined);
+
+/**
+ * 読み直した登録の作業中の行に、写し（足し付けの済んだ live.current()）の裏だけの印を移す。
+ * 登録はシェルだけの裏（shell）しか書かず、裏のサブエージェントは本文から推した印（live/aside.ts）でしか分からないためである。
+ * 移すのは、読み直しても作業中で、同じプロセス（pid）のものだけにする。休みに変わったものや、入れ替わったプロセスには古い印を付けない。
+ */
+export function carryAside(fresh: readonly LiveSession[], cached: readonly LiveSession[]): LiveSession[] {
+  const byKey = new Map(cached.filter((l) => l.aside).map((l) => [`${l.sessionId}\0${l.pid}`, l.aside!]));
+  return fresh.map((l) => {
+    if (l.status !== 'busy' || l.aside) return l;
+    const aside = byKey.get(`${l.sessionId}\0${l.pid}`);
+    return aside ? { ...l, aside } : l;
+  });
 }
 
 /** 行のエージェント（省けば Claude Code）。 */
@@ -35,12 +55,12 @@ const keyOf = (l: LiveSession): string => `${providerOf(l)}\0${l.sessionId}`;
 
 /** 休みの会話のうち、Done か Archived の付いたものの組（keyOf）。1 回の問い合わせで引く。 */
 function markedIdle(db: Db, live: readonly LiveSession[]): Set<string> {
-  const idle = [...new Set(live.filter((l) => l.status === 'idle').map((l) => l.sessionId))];
+  const idle = [...new Set(live.filter(resting).map((l) => l.sessionId))];
   if (idle.length === 0) return new Set();
   const rows = db.prepare(`select s.provider p, s.provider_session_id id from sessions s join session_states ss on ss.session_id = s.id and ss.deleted_at is null
     where s.deleted_at is null and ss.status in ('done', 'archived') and s.provider_session_id in (${idle.map(() => '?').join(',')})`).all(...idle) as { p: string; id: string }[];
   const marked = new Set(rows.map((r) => `${r.p}\0${r.id}`));
-  return new Set(live.filter((l) => l.status === 'idle' && marked.has(keyOf(l))).map(keyOf));
+  return new Set(live.filter((l) => resting(l) && marked.has(keyOf(l))).map(keyOf));
 }
 
 /**

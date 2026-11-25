@@ -1,4 +1,4 @@
-import { codexEnabledOf, opencodeEnabledOf, opencodeFallbackModel, type NewSessionSeed, type OpencodeOptionsDto, type PeerDeviceDto, type ProjectStatus, type Translate } from '@agent-hangar/shared';
+import { codexEnabledOf, opencodeEnabledOf, opencodeFallbackModel, type NewSessionSeed, type OpencodeOptionsDto, type PeerDeviceDto, type ProjectStatus, type SessionDto, type Translate } from '@agent-hangar/shared';
 import type { LaunchPrefs, NewSessionDraft, State } from '../mediator/types.ts';
 import { hasMultipleAccounts, type CodexOptionsState, type OpencodeOptionsState, type Store } from '../store/store.ts';
 import type { FolderInspectState } from '../store/folderInspect.ts';
@@ -7,6 +7,7 @@ import { approveText, isPickableAccount, loggedOutText, presentAccounts, present
 import { relativeTime } from './format.ts';
 import { translatorOf } from './i18n.ts';
 import { presentLaunchPrep, type LaunchPrepView } from './launchPrep.ts';
+import { defaultPeerPick } from './peerChoice.ts';
 
 export type NewSessionProject = { id: string; name: string; path: string | null; status: ProjectStatus; lastActivity: string };
 export type NewSessionProps = {
@@ -74,9 +75,14 @@ export type NewSessionProps = {
   prep?: LaunchPrepView | null;
   /**
    * ほかの PC（GET /api/peers）。1 台以上あるときだけ、ダイアログは見出しの右に PC のメニューを出す（案 1C）。無い、または省いたときは今までの見た目のまま。
-   * ダイアログは開いたときに peers.load を送って読む。
+   * つないだ時点で先に読み、ダイアログを開いたときにも読み直す（api.peers）。
    */
   peers?: PeerDeviceDto[];
+  /**
+   * 開いたときに選んでおく PC（peerChoice.ts の defaultPeerPick）。null はこの PC。
+   * 一覧が後から届いて値が変わったときは、利用者が PC のメニューに触れていなければ、ダイアログが選び直す。
+   */
+  defaultPeer?: string | null;
   /** Worker が最後に名乗った互換値（分からなければ null）。Worker が古い PC を選んだときの断りの文に添える。 */
   workerCompat?: number | null;
 };
@@ -178,6 +184,27 @@ export function presentLaunchChoice(store: Store, now: number, prefs: Record<str
   };
 }
 
+/**
+ * 新規のダイアログで選んでおく PC。会話の画面から、その会話のプロジェクト（クイックセッションならクイックセッション）で開いたときは、その会話の PC を先に見る。
+ * 動いていればロックの PC、止まっていれば最後に動いた PC（SessionDto.lastDevice）。この PC で動いている会話は、この PC である。
+ * 依頼の文やフォルダを埋めて開いたとき（調査、複製、フォルダから）は、この PC のまま。
+ */
+export function newSessionDefaultPeer(state: State, store: Store): string | null {
+  const o = state.overlay;
+  if (o.kind !== 'newSession' || o.seed || o.dir) return null;
+  const peers = store.peers ?? [];
+  if (peers.length === 0) return null;
+  const deviceOf = (s: SessionDto): string | null => s.live ? null : s.lock?.deviceId ?? s.lastDevice ?? null;
+  const screen = state.screen;
+  const here = store.sessions[screen.name === 'session' ? screen.id : ''];
+  const sameTarget = here && (o.scratch ? here.projectId === null || store.projects[here.projectId]?.isScratch === true : here.projectId === o.projectId);
+  const project = o.projectId ? store.projects[o.projectId] : undefined;
+  const projectDevices = o.projectId && !o.scratch
+    ? Object.values(store.sessions).filter((s) => s.projectId === o.projectId).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)).map(deviceOf)
+    : [];
+  return defaultPeerPick({ peers, projectId: o.projectId, scratch: o.scratch, here: !project || project.resolved, sessionDevice: sameTarget ? deviceOf(here) : null, projectDevices });
+}
+
 /** 起動ダイアログ。overlay が newSession のときだけ props を作る。 */
 export function presentNewSession(state: State, store: Store, now: number): NewSessionProps | null {
   if (state.overlay.kind !== 'newSession') return null;
@@ -195,6 +222,7 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
     dir: state.overlay.dir ?? null,
     prep: mark && prepDto ? presentLaunchPrep(prepDto, t, mark.model) : null,
     peers: store.peers ?? [],
+    defaultPeer: newSessionDefaultPeer(state, store),
     workerCompat: store.sync?.workerCompat ?? null,
   };
 }
