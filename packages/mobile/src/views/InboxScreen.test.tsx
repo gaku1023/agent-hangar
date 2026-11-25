@@ -557,10 +557,26 @@ describe('InboxScreen の会話の頁への入口', () => {
     expect(onOpenChat).not.toHaveBeenCalled();
   });
 
-  it('opencode の札は、caps.chat があっても頁に入らない', async () => {
+  it('caps.chat が agents を名乗らない古い PC の opencode の札は、頁に入らない', async () => {
     await serveFeeds([feedOf('pc-1', 'Mac', { caps: { asks: true, images: true, effort: true, chat: { input: true }, agents: ['claude-code', 'opencode'] }, live: [waiting('s-1', { agent: 'opencode' })] })]);
     const { container } = render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} onOpenChat={vi.fn()} />);
     await screen.findByText('project-a');
     expect((container.querySelector('[data-session-id="s-1"]') as HTMLElement).getAttribute('role')).toBeNull();
+    expect(screen.getByText('PC で答えてください')).toBeTruthy();
+  });
+
+  it('caps.chat.agents に入っている Codex と opencode の札は、押すと会話の頁の宛先を渡し、「開く」を出す', async () => {
+    await serveFeeds([feedOf('pc-1', 'Mac', { caps: { asks: true, images: true, effort: true, chat: { input: true, agents: ['claude-code', 'codex', 'opencode'] }, agents: ['claude-code', 'codex', 'opencode'] }, live: [waiting('s-1', { agent: 'codex' }), waiting('s-2', { agent: 'opencode' })] })]);
+    const onOpenChat = vi.fn();
+    const { container } = render(<InboxScreen pairing={pairing} keys={ring(key)} onUnpaired={vi.fn()} onOpenChat={onOpenChat} />);
+    await screen.findAllByText('project-a');
+    for (const id of ['s-1', 's-2']) {
+      const card = container.querySelector(`[data-session-id="${id}"]`) as HTMLElement;
+      expect(card.getAttribute('role')).toBe('button');
+      expect(card.textContent).toContain('開く ›');
+      fireEvent.click(card);
+      expect(onOpenChat).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: id, deviceId: 'pc-1', input: true }));
+    }
+    expect(screen.queryByText('PC で答えてください')).toBeNull();
   });
 });

@@ -384,7 +384,7 @@ function WaitingCard({ row, now, target, icons, chat, onOpenChat }: { row: Row; 
           <span className="wait-meta">{row.deviceName}</span>
           {kind && <span className="wait-kind">{kind}</span>}
         </span>
-        {opensRemote(row) ? <span className="wait-open">開く ›</span> : <span className="wait-pc">PC で答えてください</span>}
+        {chat || opensRemote(row) ? <span className="wait-open">開く ›</span> : <span className="wait-pc">PC で答えてください</span>}
       </div>
     </RowBox>
   );

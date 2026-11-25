@@ -54,8 +54,8 @@ describe('buildMobileFeed', () => {
     const db = seed();
     expect(buildMobileFeed(src(db)).caps?.chat).toBeUndefined();
     expect(buildMobileFeed(src(db, { chat: null })).caps?.chat).toBeUndefined();
-    expect(buildMobileFeed(src(db, { chat: { input: true } })).caps?.chat).toEqual({ input: true });
-    expect(buildMobileFeed(src(db, { chat: { input: false }, opencodeEnabled: true })).caps).toMatchObject({ chat: { input: false }, agents: ['claude-code', 'opencode'] });
+    expect(buildMobileFeed(src(db, { chat: { input: true } })).caps?.chat).toEqual({ input: true, agents: ['claude-code', 'codex', 'opencode'] });
+    expect(buildMobileFeed(src(db, { chat: { input: false }, opencodeEnabled: true })).caps).toMatchObject({ chat: { input: false, agents: ['claude-code', 'codex', 'opencode'] }, agents: ['claude-code', 'opencode'] });
   });
 
   it('この PC のできること（問い合わせ、画像、effort）を caps に全部 true で載せる', () => {
