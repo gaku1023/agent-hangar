@@ -6,7 +6,7 @@ import { settleAnswers, toPeerChatAsk, type AgentAskReply, type AgentPendingAsk 
 import { writeFakeCodex } from '../../../test/fake-codex.ts';
 import { codexAgentAsk, codexAnswerPayload, createCodexAskPort } from './answer.ts';
 import { CodexRpc, startAppServer, stopAppServer, type AppServerProcess, type CodexServerRequest } from './appServer.ts';
-import { codexPendingOf, type CodexPending } from './asks.ts';
+import { CODEX_CHOICE_TEXT, codexPendingOf, type CodexPending } from './asks.ts';
 import { codexBaseEnv } from './env.ts';
 import { createCodexLive } from './live.ts';
 
@@ -62,6 +62,12 @@ describe('要求の札への直し', () => {
     const form = codexAgentAsk(pend(6, 'mcpServer/elicitation/request', { serverName: 's', mode: 'form', message: 'Need', requestedSchema: { type: 'object', properties: { a: { type: 'string' } } } }));
     expect(form.questions[0]!.kind).toBe('external');
     expect(toPeerChatAsk(form, {}).answerable).toBe(false);
+  });
+
+  it('質問の札の input に今の問いの文が入る。許可の説明は同じ命令またはファイルに限る', () => {
+    const q = toPeerChatAsk(codexAgentAsk(pend(5, 'item/tool/requestUserInput', { questions: [{ id: 'q1', header: 'H', question: 'Which language?' }, { id: 'q2', header: 'H', question: 'Which file?' }] })), {});
+    expect(q.input).toBe('Which language?');
+    expect(CODEX_CHOICE_TEXT.session.description).toBe('同一の命令またはファイルへの再度の操作を、この会話中に限り確認なしで許可します。');
   });
 
   it('5 種の要求が PeerChatAsk になる。askId は接続し直して要求の id が変わっても変わらない', () => {

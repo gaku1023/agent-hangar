@@ -32,7 +32,7 @@ export type CodexPending =
 /** 許可の選択肢の文言（仮。後で Gemini に当てる）。 */
 export const CODEX_CHOICE_TEXT = {
   once: { label: '1 回だけ許可', description: 'この実行だけを許可します。' },
-  session: { label: 'この会話中のみ許可', description: 'この会話が終わるまで、同じ種類の操作を許可します。' },
+  session: { label: 'この会話中のみ許可', description: '同一の命令またはファイルへの再度の操作を、この会話中に限り確認なしで許可します。' },
   deny: { label: '許可せず続行', description: '実行せずに、作業を続けさせます。' },
   cancel: { label: '許可せず中断', description: '実行せずに、作業を止めます。' },
 } as const;
@@ -123,8 +123,15 @@ export function permissionsText(params: Record<string, unknown>): string {
   return lines.length ? lines.join('\n') : (str(params.cwd) ?? '');
 }
 
+/** ファイルの変更の許可の札の input。変更するファイルのパス（行ごと。item/started の changes から）、無ければ grantRoot、それも無ければ空。 */
+function fileChangeInput(p: Record<string, unknown>, changedPaths?: (itemId: string) => string[]): string {
+  const itemId = str(p.itemId);
+  const paths = itemId !== null && changedPaths ? changedPaths(itemId) : [];
+  return paths.length ? paths.join('\n') : (str(p.grantRoot) ?? '');
+}
+
 /** サーバからの要求を、待ちの 1 件にする。承認と質問でない要求、threadId の無い値は null。入口の値は形を信じない。 */
-export function codexPendingOf(r: CodexServerRequest): CodexPending | null {
+export function codexPendingOf(r: CodexServerRequest, changedPaths?: (itemId: string) => string[]): CodexPending | null {
   const p = rec(r.params);
   const threadId = str(p.threadId);
   if (threadId === null) return null;
@@ -134,7 +141,7 @@ export function codexPendingOf(r: CodexServerRequest): CodexPending | null {
     case 'item/commandExecution/requestApproval':
       return { ...base, stableId: str(p.approvalId) ?? str(p.itemId) ?? key, kind: 'permission', ask: { tool: 'Bash', input: str(p.command) ?? '', description: str(p.reason) }, choices: codexDecisionChoices(p) };
     case 'item/fileChange/requestApproval':
-      return { ...base, stableId: str(p.itemId) ?? key, kind: 'permission', ask: { tool: 'Edit', input: str(p.grantRoot) ?? '', description: str(p.reason) }, choices: codexDecisionChoices(p) };
+      return { ...base, stableId: str(p.itemId) ?? key, kind: 'permission', ask: { tool: 'Edit', input: fileChangeInput(p, changedPaths), description: str(p.reason) }, choices: codexDecisionChoices(p) };
     case 'item/permissions/requestApproval':
       return { ...base, stableId: str(p.itemId) ?? key, kind: 'permission', ask: { tool: 'Permissions', input: permissionsText(p), description: str(p.reason) }, choices: PERMISSIONS_CHOICES() };
     case 'item/tool/requestUserInput': {

@@ -62,6 +62,8 @@ type Conn = {
   statusAt: number;
   /** 待っている要求。key は要求の ID。 */
   pending: Map<string, CodexPending>;
+  /** item/started で見えたファイルの変更の項目 ID と、変更するパス（許可の札に出す）。 */
+  fileChanges: Map<string, string[]>;
   subscribed: boolean;
   subscribing: boolean;
   /** status を受けた回数。読み直しの答えより新しい通知を、古い答えで潰さないために使う。 */
@@ -96,7 +98,7 @@ export class CodexLive implements LiveSource, CodexAskFeed {
     if (this.conns.has(t.providerSessionId)) this.drop(t.providerSessionId);
     if (t.rpc.isClosed) return;
     const c: Conn = {
-      t, type: 'idle', flags: [], turnActive: false, turnId: null, status: 'idle', statusAt: this.now(), pending: new Map(),
+      t, type: 'idle', flags: [], turnActive: false, turnId: null, status: 'idle', statusAt: this.now(), pending: new Map(), fileChanges: new Map(),
       subscribed: t.subscribed === true, subscribing: false, statusSeq: 0, offs: [], timers: new Set(),
     };
     this.conns.set(t.providerSessionId, c);
@@ -197,6 +199,19 @@ export class CodexLive implements LiveSource, CodexAskFeed {
         this.update(c);
       }),
       rpc.onAny((n) => {
+        if (n.method === 'item/started') {
+          const p = typeof n.params === 'object' && n.params !== null ? n.params as { threadId?: unknown; item?: { type?: unknown; id?: unknown; changes?: unknown } } : {};
+          const it = p.item;
+          if ((p.threadId === undefined || p.threadId === id) && it?.type === 'fileChange' && typeof it.id === 'string' && Array.isArray(it.changes)) {
+            const paths = it.changes.map((x) => (typeof x === 'object' && x !== null ? (x as { path?: unknown }).path : undefined)).filter((x): x is string => typeof x === 'string' && x !== '');
+            if (paths.length) {
+              c.fileChanges.set(it.id, paths);
+              // 古い項目から捨てて、増え続けないようにする。
+              if (c.fileChanges.size > 50) c.fileChanges.delete(c.fileChanges.keys().next().value as string);
+            }
+          }
+          return;
+        }
         if (n.method !== 'serverRequest/resolved') return;
         const p = typeof n.params === 'object' && n.params !== null ? n.params as { threadId?: unknown; requestId?: unknown } : {};
         if (p.threadId !== undefined && p.threadId !== id) return;
@@ -209,7 +224,7 @@ export class CodexLive implements LiveSource, CodexAskFeed {
         this.update(c);
       }),
       rpc.onServerRequest((r) => {
-        const q = codexPendingOf(r);
+        const q = codexPendingOf(r, (itemId) => c.fileChanges.get(itemId) ?? []);
         if (!q || q.threadId !== id) return;
         c.pending.set(q.key, q);
         this.update(c);

@@ -61,6 +61,9 @@ describe('承認の要求の写し', () => {
   it('命令は Bash、ファイルの変更は Edit、権限は Permissions の許可の札にする', () => {
     expect(codexPendingOf(req('item/commandExecution/requestApproval', { command: 'rm x', reason: 'why' }))).toMatchObject({ key: '7', kind: 'permission', ask: { tool: 'Bash', input: 'rm x', description: 'why' } });
     expect(codexPendingOf(req('item/fileChange/requestApproval', { grantRoot: '/w', reason: null }))).toMatchObject({ kind: 'permission', ask: { tool: 'Edit', input: '/w', description: null } });
+    expect(codexPendingOf(req('item/fileChange/requestApproval', { reason: null }), () => ['/w/a.ts', '/w/b.ts'])).toMatchObject({ ask: { tool: 'Edit', input: '/w/a.ts\n/w/b.ts' } });
+    expect(codexPendingOf(req('item/fileChange/requestApproval', { grantRoot: '/w' }), () => [])).toMatchObject({ ask: { input: '/w' } });
+    expect(codexPendingOf(req('item/fileChange/requestApproval', {}), () => [])).toMatchObject({ ask: { input: '' } });
     expect(codexPendingOf(req('item/permissions/requestApproval', { cwd: '/w', permissions: { network: { enabled: true }, fileSystem: { write: ['/a', '/b'], read: ['/c'] } } }))).toMatchObject({ ask: { tool: 'Permissions', input: 'network\nwrite /a, /b\nread /c' } });
     expect(codexPendingOf(req('item/permissions/requestApproval', { cwd: '/w', permissions: {} }))).toMatchObject({ ask: { input: '/w' } });
   });
