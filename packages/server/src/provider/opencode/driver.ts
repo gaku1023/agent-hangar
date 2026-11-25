@@ -30,6 +30,8 @@ export type OpencodeDriverDeps = {
  * 同期の上げる側が、ターンの終わりを本文の書き出しの契機に使う（sync/opencodeTurnEnd.ts）。流れを別に開かないためである。
  */
 export type OpencodeDriver = AgentDriver & {
+  /** 写しの持っている許可と form と、答えを送る client（peer chat の札の口と、API での中断が使う。live.ts の pendingOf）。 */
+  pendingOf: OpencodeLive['pendingOf'];
   events: (cb: OpencodeEventListener) => () => void;
   /** モデルの長さが足りずに断られた失敗を、hangar の会話の ID で受ける（live.ts の onContextShort）。起動後の札に使う。 */
   contextShort: (cb: (hangarSessionId: string) => void) => () => void;
@@ -128,6 +130,7 @@ export function createOpencodeDriver(deps: OpencodeDriverDeps): OpencodeDriver {
       },
     },
     live,
+    pendingOf: (providerSessionId) => live.pendingOf(providerSessionId),
     transcript,
     events: (cb) => live.onEvent(cb),
     contextShort: (cb) => live.onContextShort((providerSessionId) => {

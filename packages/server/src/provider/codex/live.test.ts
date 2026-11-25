@@ -108,6 +108,15 @@ describe('状態の写し（接続のふり）', () => {
     rpc.emit('turn/completed', { threadId: T, turn: { id: 'u' } });
     expect(row(live)?.status).toBe('idle');
   });
+  it('turnHandle は動いているターンの ID を返し、終われば null。載せていない会話は null', () => {
+    const { live } = mk();
+    expect(live.turnHandle(T)?.turnId).toBeNull();
+    rpc.emit('turn/started', { threadId: T, turn: { id: 'turn-9' } });
+    expect(live.turnHandle(T)?.turnId).toBe('turn-9');
+    rpc.emit('turn/completed', { threadId: T, turn: { id: 'turn-9' } });
+    expect(live.turnHandle(T)?.turnId).toBeNull();
+    expect(live.turnHandle('nope')).toBeNull();
+  });
   it('旗 waitingOnApproval は許可の待ち、waitingOnUserInput は質問の待ち（要求の中身が無くても）', () => {
     const { live } = mk();
     rpc.emit('thread/status/changed', status('active', ['waitingOnApproval']));

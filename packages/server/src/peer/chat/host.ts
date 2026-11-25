@@ -22,6 +22,7 @@ import {
 } from '@agent-hangar/shared';
 import type { HookChoice } from '../../sessions/hookDecisions.ts';
 import { pendingAskFromHook } from './hookCard.ts';
+import { AgentAsks } from './agentAsk.ts';
 import { createPeerAnswerer, type AnswerPane, type AnswerResult, type InterruptResult } from './answer.ts';
 import { inputEmptyOf, resumeSendOp, sendOp, type SendDeps } from './hostSend.ts';
 import type { PeerChatHostDeps, PeerChatSender } from './hostTypes.ts';
@@ -146,7 +147,7 @@ export type PeerChatHost = {
 };
 
 export type PeerChatLocal = {
-  /** いま出ている札（ほかの PC に見せるのと同じ askId）。この PC の Claude Code の会話でなければ、または札が無ければ null。 */
+  /** いま出ている札（ほかの PC に見せるのと同じ askId）。この PC の会話でなければ、または札が無ければ null。 */
   currentAsk(sessionId: string): PeerChatAsk | null;
   /** 札が askId と同じと確かめてから keys と text で答える。答えた PC はこの PC として記録する。 */
   answer(sessionId: string, askId: string, keys: string[], text?: string): Promise<AnswerResult>;
@@ -221,6 +222,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     ...deps.queue,
   });
 
+  const agentAsks = deps.agentAsk ? new AgentAsks(deps.agentAsk) : undefined;
   const view = new ChatView({
     now: deps.now,
     sleep,
@@ -233,6 +235,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     ...(deps.artifactCount ? { artifactCount: deps.artifactCount } : {}),
     ...(deps.liveHints ? { liveHints: deps.liveHints } : {}),
     ...(deps.accountName ? { accountName: deps.accountName } : {}),
+    ...(agentAsks ? { agentAsks } : {}),
     tail: { readTranscript: deps.readTranscript, ...(deps.source ? { source: deps.source } : {}), ...(deps.cache ? { cache: deps.cache } : {}) },
     queued: (sessionId) => queue.list(sessionId),
     self: () => ({ deviceId: deps.deviceId, deviceName: deps.deviceName(deps.deviceId) }),
@@ -320,6 +323,23 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     return q.ok ? { ok: true } : refuse('queue-expired');
   }
 
+  /**
+   * Codex と opencode の答えを、会話ごとに 1 つずつ流す。
+   * 問いが複数ある札は、貯めた答えを順に進めるので、2 台から同じ問いに答えが来ても、後の答えが先の答えの結果を見てから動く。
+   */
+  const agentChains = new Map<string, Promise<unknown>>();
+  function agentAnswer(sessionId: string, provider: 'codex' | 'opencode', current: PeerChatAsk, keys: string[], text: string | undefined): Promise<AnswerResult> {
+    const run = async (): Promise<AnswerResult> => {
+      // 前の答えが記録された後で、同じ札にもう答えがあれば断る。
+      if (view.answeredAsk(sessionId, current.askId)) return { ok: false, reason: 'already-answered' };
+      return agentAsks!.answer(sessionId, provider, current, keys, text);
+    };
+    const next = (agentChains.get(sessionId) ?? Promise.resolve()).catch(() => undefined).then(run);
+    agentChains.set(sessionId, next);
+    void next.finally(() => { if (agentChains.get(sessionId) === next) agentChains.delete(sessionId); }).catch(() => undefined);
+    return next;
+  }
+
   /** ほかの PC からの答えと、この PC の中からの答え（local.answer）が通る道。 */
   async function answerCurrent(sessionId: string, from: PeerChatDevice, askId: string, keys: string[], text: string | undefined): Promise<AnswerResult> {
     // 手元で答えた札が、まだ tail に見られていなくても、記録にしてから見る。
@@ -332,7 +352,11 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     if (view.resolveAskId(askId, current.askId) !== current.askId) return { ok: false, reason: 'ask-mismatch' };
     if (current.askId !== askId && view.answeredAsk(sessionId, current.askId)) return { ok: false, reason: 'already-answered' };
     const asked = view.askItem(sessionId, current.askId);
-    const r = await answerer.answerAsk(sessionId, current, keys, text);
+    const provider = deps.session(sessionId)?.provider;
+    // Codex と opencode は札の口（API）を先に使い、届かなければ画面の道へ（agentAsk.ts）。Claude は今のまま（hook → 画面）。
+    const r = provider && provider !== 'claude-code' && agentAsks?.handles(provider)
+      ? await agentAnswer(sessionId, provider, current, keys, text)
+      : await answerer.answerAsk(sessionId, current, keys, text);
     if (!r.ok) return r;
     if (asked) view.recordAnswer(sessionId, asked, from, r.label);
     view.poke(sessionId);
@@ -344,23 +368,20 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     return r.ok ? { ok: true } : refuse(r.reason);
   }
 
-  /**
-   * この PC が持ち主の、host が受ける provider の会話か（dispatch の断りと同じ条件。入り切りの設定は見ない）。
-   * claudeOnly は、札の道（local.currentAsk と local.answer）用。Codex と opencode の札の振り分け（answerRouter）が入るまで Claude だけにする。
-   */
-  const ownedHere = (sessionId: string, claudeOnly = false): boolean => {
+  /** この PC が持ち主の、host が受ける provider の会話か（dispatch の断りと同じ条件。入り切りの設定は見ない）。 */
+  const ownedHere = (sessionId: string): boolean => {
     const session = deps.session(sessionId);
-    return !!session && (claudeOnly ? session.provider === 'claude-code' : peerChatAgent(session.provider)) && !session.lock && !session.newerElsewhere && !session.remoteOnly && !session.takenOver;
+    return !!session && peerChatAgent(session.provider) && !session.lock && !session.newerElsewhere && !session.remoteOnly && !session.takenOver;
   };
 
   const local: PeerChatLocal = {
     currentAsk(sessionId) {
-      if (!ownedHere(sessionId, true)) return null;
+      if (!ownedHere(sessionId)) return null;
       view.observe(sessionId);
       return view.currentAsk(sessionId);
     },
     answer(sessionId, askId, keys, text) {
-      if (!ownedHere(sessionId, true)) return Promise.resolve({ ok: false, reason: 'session-unknown' });
+      if (!ownedHere(sessionId)) return Promise.resolve({ ok: false, reason: 'session-unknown' });
       return answerCurrent(sessionId, { deviceId: deps.deviceId, deviceName: deps.deviceName(deps.deviceId) }, askId, keys, text);
     },
   };

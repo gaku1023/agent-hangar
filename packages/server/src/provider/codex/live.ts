@@ -56,6 +56,8 @@ type Conn = {
   flags: string[];
   /** `turn/started` から `turn/completed` まで（購読していれば）。 */
   turnActive: boolean;
+  /** 動いているターンの ID（`turn/started` の turn.id。終われば null）。API で止めるのに使う。 */
+  turnId: string | null;
   status: LiveStatus;
   statusAt: number;
   /** 待っている要求。key は要求の ID。 */
@@ -94,7 +96,7 @@ export class CodexLive implements LiveSource, CodexAskFeed {
     if (this.conns.has(t.providerSessionId)) this.drop(t.providerSessionId);
     if (t.rpc.isClosed) return;
     const c: Conn = {
-      t, type: 'idle', flags: [], turnActive: false, status: 'idle', statusAt: this.now(), pending: new Map(),
+      t, type: 'idle', flags: [], turnActive: false, turnId: null, status: 'idle', statusAt: this.now(), pending: new Map(),
       subscribed: t.subscribed === true, subscribing: false, statusSeq: 0, offs: [], timers: new Set(),
     };
     this.conns.set(t.providerSessionId, c);
@@ -109,6 +111,12 @@ export class CodexLive implements LiveSource, CodexAskFeed {
     if (!c) return null;
     const pending = [...c.pending.values()].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'permission' ? -1 : 1));
     return { pending, rpc: c.t.rpc };
+  }
+
+  /** 会話の動いているターンの ID と、止める口を書く接続。ターンが無い（または見ていない）ときは turnId が null。会話を載せていなければ null。 */
+  turnHandle(providerSessionId: string): { turnId: string | null; rpc: CodexRpcLike } | null {
+    const c = this.conns.get(providerSessionId);
+    return c ? { turnId: c.turnId, rpc: c.t.rpc } : null;
   }
 
   /** 会話を写しから外す。答えを待っていた問いは、答えたと流す（もう答えられない）。 */
@@ -178,11 +186,13 @@ export class CodexLive implements LiveSource, CodexAskFeed {
       rpc.on('turn/started', (p) => {
         if (p.threadId !== id) return;
         c.turnActive = true;
+        c.turnId = typeof p.turn?.id === 'string' ? p.turn.id : null;
         this.update(c);
       }),
       rpc.on('turn/completed', (p) => {
         if (p.threadId !== id) return;
         c.turnActive = false;
+        c.turnId = null;
         this.dropPending(c, () => true);
         this.update(c);
       }),
@@ -225,6 +235,7 @@ export class CodexLive implements LiveSource, CodexAskFeed {
     c.flags = active ? (s.activeFlags ?? []).filter((f): f is string => typeof f === 'string') : [];
     if (!active) {
       c.turnActive = false;
+      c.turnId = null;
       this.dropPending(c, () => true);
     } else {
       if (prev.includes(APPROVAL) && !c.flags.includes(APPROVAL)) this.dropPending(c, (q) => q.kind === 'permission');

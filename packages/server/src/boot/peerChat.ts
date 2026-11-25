@@ -1,9 +1,14 @@
 import path from 'node:path';
 import { PRIMARY_ACCOUNT_ID, peerChatAcceptOf, phoneChatAcceptOf, type PeerChatBellAsk, type PeerChatBellReply, type SessionDto } from '@agent-hangar/shared';
+import type { AgentAskPort } from '../agent/pendingAsk.ts';
 import type { LiveHub } from '../agent/liveHub.ts';
 import { onRowChange } from '../db/notify.ts';
 import { accountOfSession, getSession } from '../db/queries.ts';
 import { listFilesIn } from '../mobile/asks.ts';
+import { createCodexAskPort } from '../provider/codex/answer.ts';
+import type { CodexLive } from '../provider/codex/live.ts';
+import { createOpencodeAskPort } from '../provider/opencode/answer.ts';
+import type { OpencodeDriver } from '../provider/opencode/driver.ts';
 import { listPromptCommands } from '../provider/claude-code/prompt/commands.ts';
 import { sanitizeInput } from '../mcp/screenTools.ts';
 import { noteTurnStart } from '../mcp/waitTool.ts';
@@ -54,7 +59,11 @@ export type PeerChatParts = {
 export function bootPeerChat(p: {
   home: Pick<HomeParts, 'db' | 'device' | 'settings' | 'home' | 'language'>;
   runs: { runs: Pick<RunManager, 'sendInput' | 'resumeWith' | 'switchAccount'>; mux: RunsParts['mux']; accounts?: Pick<RunsParts['accounts'], 'store' | 'auth'> };
-  delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; /** 現在の札の材料（サブエージェントと意図）。無ければ別の PC の画面は右の欄を出さない。 */ digester?: Pick<LiveDigester, 'digest'>; hub: { broadcast(ev: PeerChatHostEvent): void }; hookDecisions?: PeerChatHostDeps['hookDecisions'] };
+  delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; /** 現在の札の材料（サブエージェントと意図）。無ければ別の PC の画面は右の欄を出さない。 */ digester?: Pick<LiveDigester, 'digest'>; hub: { broadcast(ev: PeerChatHostEvent): void }; hookDecisions?: PeerChatHostDeps['hookDecisions'];
+    /** Codex の状態の面と opencode の driver（札の口と API での中断に使う）。無ければ Codex と opencode の札を出さず、API で止めない。 */
+    codexLive?: Pick<CodexLive, 'askHandle' | 'turnHandle'>; opencode?: Pick<OpencodeDriver, 'pendingOf'>;
+    /** 画面の道で答える口（codexDialog.ts、opencodeDialog.ts を束ねたもの）。 */
+    screenAnswer?: NonNullable<PeerChatHostDeps['agentAsk']>['screenAnswer'] };
   sync: Pick<SyncParts, 'peerLink'>;
   now?: () => number;
 }): PeerChatParts {
@@ -74,6 +83,9 @@ export function bootPeerChat(p: {
   const artifactCount = db.prepare('select count(distinct v.artifact_id) c from artifact_versions v join artifacts a on a.id = v.artifact_id where v.session_id = ? and v.deleted_at is null and a.deleted_at is null');
   const deviceName = db.prepare('select name from devices where id = ? and deleted_at is null');
   const link = () => p.sync.peerLink();
+  const providerSessionIdOf = db.prepare('select provider_session_id psid from sessions where id = ? and deleted_at is null');
+  const psidOf = (sessionId: string): string | null => (providerSessionIdOf.get(sessionId) as { psid: string | null } | undefined)?.psid ?? null;
+  const agentAsk = agentAskOf(p.delivery, psidOf);
 
   const host = createPeerChatHost({
     deviceId,
@@ -125,6 +137,8 @@ export function bootPeerChat(p: {
     // 新しいセッションの欄（GET /api/prompt/commands）と同じ一覧。
     commands: (root) => listPromptCommands({ claudeDir: p.home.settings.current.claudeDir, projectPath: root, language: p.home.language() }),
     emit: (ev) => { p.delivery.hub.broadcast(ev); },
+    ...(agentAsk ? { agentAsk } : {}),
+    interruptApi: interruptApiOf(p.delivery, psidOf),
     ...(p.delivery.hookDecisions ? { hookDecisions: p.delivery.hookDecisions } : {}),
   });
 
@@ -186,5 +200,53 @@ export function switchAccountOf(runs: Pick<RunManager, 'switchAccount'>, account
       console.error('[peer-chat] could not switch the account of a session', e instanceof Error ? e.constructor.name : typeof e);
       return 'resume-failed';
     }
+  };
+}
+
+/**
+ * hangar の会話の ID で引ける札の口（peer/chat/agentAsk.ts）。
+ * provider 側の口は provider の会話の ID（Codex は thread の ID、opencode は会話の ID）で引くので、会話の行から引き換える。
+ * 行が無い、引き換えられないときは、札は無い（current は null）、答えは 'unreachable'（画面の道へ）。
+ */
+export function agentAskOf(
+  d: { codexLive?: Pick<CodexLive, 'askHandle'>; opencode?: Pick<OpencodeDriver, 'pendingOf'>; screenAnswer?: NonNullable<PeerChatHostDeps['agentAsk']>['screenAnswer'] },
+  psidOf: (sessionId: string) => string | null,
+): PeerChatHostDeps['agentAsk'] | undefined {
+  const wrap = (port: AgentAskPort): AgentAskPort => ({
+    current: (sessionId) => { const id = psidOf(sessionId); return id === null ? null : port.current(id); },
+    answer: async (sessionId, ask, reply) => { const id = psidOf(sessionId); return id === null ? 'unreachable' : port.answer(id, ask, reply); },
+  });
+  const ports: NonNullable<PeerChatHostDeps['agentAsk']>['ports'] = {};
+  if (d.codexLive) ports.codex = wrap(createCodexAskPort(d.codexLive));
+  if (d.opencode) { const oc = d.opencode; ports.opencode = wrap(createOpencodeAskPort({ pending: (id) => oc.pendingOf(id) })); }
+  if (!ports.codex && !ports.opencode) return undefined;
+  return { ports, ...(d.screenAnswer ? { screenAnswer: d.screenAnswer } : {}) };
+}
+
+/**
+ * Codex と opencode の走っているターンを API で止める（peer/chat/hostTypes.ts の interruptApi）。
+ * opencode は POST /api/session/{id}/interrupt、Codex は live の今のターンの ID で turn/interrupt。
+ * 止めにいったら true。会話が写しに無い、Codex でターンの ID が分からない（購読していない）ときは false（host は画面の Escape に落ちる）。
+ */
+export function interruptApiOf(
+  d: { codexLive?: Pick<CodexLive, 'turnHandle'>; opencode?: Pick<OpencodeDriver, 'pendingOf'> },
+  psidOf: (sessionId: string) => string | null,
+): NonNullable<PeerChatHostDeps['interruptApi']> {
+  return async (sessionId, provider) => {
+    const id = psidOf(sessionId);
+    if (id === null) return false;
+    if (provider === 'opencode') {
+      const h = d.opencode?.pendingOf(id);
+      if (!h) return false;
+      await h.client.interrupt(id);
+      return true;
+    }
+    if (provider === 'codex') {
+      const h = d.codexLive?.turnHandle(id);
+      if (!h || h.turnId === null || h.rpc.isClosed) return false;
+      await h.rpc.request('turn/interrupt', { threadId: id, turnId: h.turnId });
+      return true;
+    }
+    return false;
   };
 }

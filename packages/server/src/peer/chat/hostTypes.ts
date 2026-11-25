@@ -1,6 +1,7 @@
 import type { AgentKind, LiveAsideDto, LiveDigestDto, LiveStatus, PeerChatCommand, PeerChatFile, PermissionAskDto, PeerKeyring, ServerEvent, SessionActivityDto, SessionLimitDto, TranscriptEvent, WaitKind } from '@agent-hangar/shared';
 import type { HookDecisions } from '../../sessions/hookDecisions.ts';
 import type { AnswerPane } from './answer.ts';
+import type { AgentAskDeps } from './agentAsk.ts';
 import type { TailDeps } from './tail.ts';
 
 /** ほかの PC に見せる会話の素性（元の PC の登録と索引から、呼び出し側が組む）。 */
@@ -150,6 +151,12 @@ export type PeerChatHostDeps = {
    * 無い組み立てでは、Escape だけで止める。
    */
   interruptApi?(sessionId: string, provider: AgentKind): Promise<boolean>;
+  /**
+   * Codex と opencode の札の口（agentAsk.ts）。hangar の会話の ID で引ける口を provider ごとに渡す。
+   * 無い provider の会話は札を出さず、答えない。
+   * screenAnswer は画面の道（codexDialog.ts、opencodeDialog.ts）。無ければ、API で届かない札は ask-mismatch で断る（answerable: false）。
+   */
+  agentAsk?: AgentAskDeps;
   /**
    * 頼み主が置いた画像の封（GET /peer/blobs/:askId/:n?from=）。
    * 取れなければ投げる。

@@ -92,6 +92,14 @@ export type PeerPendingAsk = {
   answerable?: false;
   /** 問いが複数ある質問の、今のタブ（PeerChatAsk.step）。問いが 1 つの札は付けない。 */
   step?: PeerChatAskStep;
+  /**
+   * Codex と opencode の札（agent/pendingAsk.ts の toPeerChatAsk）が作った、見せる札そのもの。
+   * あれば askId の計算と、選択肢以外の欄の組み立てはこれに任せる（拠り所は使わない）。
+   * options と input は、Claude の札と同じく、ここで長さを抑える。
+   */
+  prebuilt?: PeerChatAsk;
+  /** 札の項目の text。prebuilt の札が自分で決める（質問の文など）。 */
+  text?: string;
 };
 
 /** 解析の結果を会話ごとに覚える入れ物。PEER_CHAT_TAIL_CACHE_MAX 件までで、古い順に捨てる。 */
@@ -153,6 +161,12 @@ function normalizeOptions(options: { key: string; label: string; description?: s
 }
 
 function buildAsk(pending: PeerPendingAsk, waiting: { toolId: string; name: string }[]): PeerChatAsk {
+  if (pending.prebuilt) {
+    const ask: PeerChatAsk = { ...pending.prebuilt, options: normalizeOptions(pending.prebuilt.options) };
+    if (ask.input !== undefined) ask.input = clipBytes(ask.input, PEER_CHAT_ASK_INPUT_MAX_BYTES);
+    if (pending.answerable === false) ask.answerable = false;
+    return ask;
+  }
   const anchor = [...waiting].reverse().find((w) => pending.tool !== undefined && w.name === pending.tool)?.toolId ?? '';
   const ask: PeerChatAsk = {
     askId: peerAskId(pending, anchor),
@@ -171,7 +185,7 @@ function buildAsk(pending: PeerPendingAsk, waiting: { toolId: string; name: stri
 const ASK_MARK = '@ask:';
 
 function askItem(ask: PeerChatAsk, pending: PeerPendingAsk, base: string | null, at: number): PeerChatItem {
-  const text = pending.kind === 'question' ? pending.question ?? '' : pending.description || pending.input || pending.tool || '';
+  const text = pending.text ?? (pending.kind === 'question' ? pending.question ?? '' : pending.description || pending.input || pending.tool || '');
   // 答えられない札（answerable が false）の uuid には ! を付ける。印が変わると uuid が変わり、同じ札でも after の続きとして流し直される（askId は変えない）。
   return { uuid: `${base ?? ''}${ASK_MARK}${ask.askId}${ask.answerable === false ? '!' : ''}`, at, kind: ask.kind, text: clipBytes(text, PEER_CHAT_ITEM_TEXT_MAX_BYTES), ask };
 }
