@@ -115,6 +115,8 @@ describe('wait_for_session', () => {
 
   it('省くと既定の上限まで待ち、上限を越えた指定は丸める', async () => {
     goLive({ status: 'busy' });
+    // 上限は 240 秒と 3600 秒。1 秒刻みだと DB を数千回読んで CI で 5 秒に迫るので、見に行く間隔だけ粗くする。
+    clock.pollMs = 30_000;
     await wait();
     expect(t - T0).toBeGreaterThanOrEqual(DEFAULT_WAIT_SECONDS * 1000);
     expect(t - T0).toBeLessThan((DEFAULT_WAIT_SECONDS + 2) * 1000);

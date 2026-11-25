@@ -59,7 +59,8 @@ export function noteTurnStart(db: Db, sessionId: string, mark: TurnMark): void {
   m.set(sessionId, { expectsReply: true, ...mark });
 }
 
-export type WaitClock = { now(): number; sleep(ms: number): Promise<void> };
+/** pollMs は見に行く間隔。省くと 1 秒。長い上限を偽の時計で通す試験が、見に行く回数を減らすために使う。 */
+export type WaitClock = { now(): number; sleep(ms: number): Promise<void>; pollMs?: number };
 const REAL_CLOCK: WaitClock = { now: () => Date.now(), sleep: (ms) => new Promise((r) => setTimeout(r, ms)) };
 
 export type WaitResult = {
@@ -189,6 +190,6 @@ export async function waitForSessionTool(deps: ToolDeps, ctx: ToolContext, args:
       }
     }
     if (now >= deadline) return done('timeout', { live, mark });
-    await clock.sleep(Math.min(POLL_MS, deadline - now));
+    await clock.sleep(Math.min(clock.pollMs ?? POLL_MS, deadline - now));
   }
 }
