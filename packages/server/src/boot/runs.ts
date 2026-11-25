@@ -42,7 +42,8 @@ import { accountNamerOf } from '../schedule/store.ts';
 import { codexAccounts } from '../provider/codex/account.ts';
 import { CodexAccountAuth } from '../provider/codex/accountAuth.ts';
 import { defaultCodexHome } from '../provider/codex/transcript/discover.ts';
-import { touchRow } from '../db/notify.ts';
+import { onRowChange, touchRow } from '../db/notify.ts';
+import { UsageShare } from '../usage/share.ts';
 import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
 import { AGENT_ENTRY } from '../agent/entry.ts';
@@ -222,12 +223,15 @@ export function bootRuns(
     enabled: () => settings.current.autoPark !== false,
   });
   setParkingSwitch(db, () => settings.current.autoPark !== false);
+  // 使用率はアカウントに付く値なので、別の PC で観測した分も同じ名前のアカウントに出す（表 account_usage）。
+  const usageShare = new UsageShare(db, device.id);
   const usage = new UsageTracker(db, {
+    share: { usage: usageShare, nameOf: (id) => accountStore.get(id)?.name ?? null },
     accountOf: (providerSessionId, configDir) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id), deviceId: device.id, accountOfDir: (d) => accountStore.byDir(d)?.id ?? null, primaryDir: claudeDir }, providerSessionId, configDir),
     compat: compatLog,
   });
   const codexOn = (): boolean => AGENT_ENTRY.codex.enabled(settings.current);
-  const agentUsage = new AgentUsageTracker({ enabled: codexOn });
+  const agentUsage = new AgentUsageTracker({ enabled: codexOn, share: { usage: usageShare, nameOf: (_agent, id) => codexAccountStore.get(id)?.name ?? null } });
   const codexAuth = new CodexAccountAuth({ usage: agentUsage, log: (l) => console.error(l) });
   const codexUsage = createCodexUsage({
     db, tracker: agentUsage, enabled: codexOn, log: (l) => console.error(l),
@@ -250,6 +254,8 @@ export function bootRuns(
   };
   // 予定の札に出すアカウントの表示名を、配る層が引けるようにする。
   delivery.publisher?.setAccountNamer(accountNamerOf(accounts));
+  // 別の PC の使用率が同期で降りてきたら、計器を配り直す。
+  onRowChange((c) => { if (c.db === db && c.table === 'account_usage' && c.origin === 'apply') accounts.broadcast(buildAccountsDto(accounts)); });
   // 認証を読み終えたとき、ログインが始まって終わったときに、画面へ配る。
   accountAuth.setOnChange(() => accounts.broadcast(buildAccountsDto(accounts)));
   // Codex の認証を読み終えたとき、ログインの状態が変わったとき（成功したら読み直す）も同じ道で配る。

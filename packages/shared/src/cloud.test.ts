@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { CLOUD_FREE_LIMITS, r2Included, decodeHeaderText, encodeFileKeyPath, encodeHeaderText, isAllowedJoinUrl, isHeaderSafe, isSafeKeyId, isSafeRelPath, MAX_ID_CHARS, MAX_JOIN_URL_CHARS, MAX_REL_PATH_CHARS, SHARED_TABLES, TABLE_PK } from './cloud.ts';
 
 describe('鍵と表', () => {
-  it('共有テーブルは 16 で、主キーは session_summaries と session_states と project_memos と config_snapshots だけが違う', () => {
-    expect(SHARED_TABLES).toHaveLength(17);
+  it('共有テーブルは 18 で、主キーは session_summaries と session_states と project_memos と config_snapshots だけが違う', () => {
+    expect(SHARED_TABLES).toHaveLength(18);
     expect(SHARED_TABLES).not.toContain('takeover_requests');
     expect(Object.keys(TABLE_PK).sort()).toEqual([...SHARED_TABLES].sort());
     expect(TABLE_PK.session_summaries).toBe('session_id');
@@ -14,7 +14,9 @@ describe('鍵と表', () => {
     // 設定の束（PC ごとに 1 行）。主キーは端末の ID で、子として親を持たない。
     expect(TABLE_PK.config_snapshots).toBe('device_id');
     // 引き継ぎの頼みと応答は、親を持たない一時の行なので末尾に置く。
-    expect(SHARED_TABLES.slice(-3)).toEqual(['takeovers', 'takeover_answers', 'session_spawns']);
+    expect(SHARED_TABLES.slice(-4)).toEqual(['takeovers', 'takeover_answers', 'session_spawns', 'account_usage']);
+    // アカウントの名前ごとの使用率（親を持たない）。
+    expect(TABLE_PK.account_usage).toBe('id');
   });
   it('引き継ぎの頼みと応答は共有表で運ぶ', () => {
     expect(SHARED_TABLES).toContain('takeovers');
