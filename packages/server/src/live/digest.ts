@@ -8,6 +8,8 @@ type Result = Extract<TranscriptEvent, { kind: 'tool_result' }>;
 type Stat = { agent: string; first: number | null; last: number | null };
 
 const AGENT_TOOLS = new Set(['Agent', 'Task']);
+/** opencode の子の会話を起こす道具。Claude の Task とは大文字小文字で分かれる。 */
+const OPENCODE_TASK = 'task';
 /** サブエージェントが呼び出し元へ報告を返す道具。 */
 const HANDBACK = 'SubagentHandback';
 /** 1 ターンで読む主線のイベントの上限。何千手も続く指揮役のターンでも、ここで打ち切る。 */
@@ -194,12 +196,37 @@ function agentsOf(db: Db, sessionId: string, main: TranscriptEvent[], since: num
   });
 }
 
+/**
+ * opencode の子の会話（task ツール）のレーン。
+ * 子の本文は写さない（docs/design.md「opencode のトランスクリプト」）ので、親の task の呼び出しと結果だけで組む。
+ * task の結果は子が終わってから返るので、結果が無ければ running、isError なら error、あれば done である。
+ * 子の会話の id は結果の `task_id: ses_…` から取る（無ければ呼び出しの id）。
+ */
+function opencodeAgentsOf(main: TranscriptEvent[]): LiveAgentDto[] {
+  const results = new Map(main.filter(isResult).map((r) => [r.toolId, r]));
+  return main.filter(isCall).filter((c) => c.name === OPENCODE_TASK).map((c): LiveAgentDto => {
+    const r = results.get(c.toolId) ?? null;
+    const input = isRec(c.input) ? c.input : {};
+    const text = r?.text ?? '';
+    const state: LiveAgentDto['state'] = !r ? 'running' : r.isError ? 'error' : 'done';
+    const interrupted = state === 'error' && /interrupt|abort/i.test(text);
+    const report = state === 'running' ? null : firstLine(tag(text, 'task_result') ?? text);
+    return {
+      agentId: /task_id:\s*(ses_\w+)/.exec(text)?.[1] ?? `tool:${c.toolId}`,
+      title: str(input.description) ?? c.summary, state,
+      startedAt: c.ts ?? null, lastAt: r?.ts ?? c.ts ?? null,
+      endNote: interrupted ? 'interrupted' : null,
+      last: null, report, linked: false,
+    };
+  });
+}
+
 /** 右ペインのライブの要約。今のターンの頭から読む。 */
 export function buildLiveDigest(db: Db, sessionId: string, opts: { mainCap?: number } = {}): LiveDigestDto {
   const start = turnStart(db, sessionId);
   const main = start ? mainSince(db, sessionId, start.seq, opts.mainCap ?? MAIN_CAP) : [];
   const since = start?.ts ?? 0;
-  const agents = start ? agentsOf(db, sessionId, main, since) : [];
+  const agents = start ? [...agentsOf(db, sessionId, main, since), ...opencodeAgentsOf(main)] : [];
   const it = latestIntent(db, sessionId);
   const stepsSince = (at: number) => (db.prepare("select count(*) c from event_index where session_id = ? and kind = 'tool_call' and ts > ?").get(sessionId, at) as { c: number }).c;
   const intent = it ? { text: it.text, at: it.at, stepsSince: stepsSince(it.at), inThisTurn: start?.ts == null || it.at >= start.ts } : null;
