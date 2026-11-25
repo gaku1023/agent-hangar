@@ -24,6 +24,7 @@ export const homeKeys = {
   'home.tryNow.notPaused': [],
   'home.band.reminderTime': ['time'],
   'home.band.answer': [],
+  'home.band.answerHere': [],
   'home.band.move': [],
   'home.band.open': [],
   'home.band.changeDate': [],

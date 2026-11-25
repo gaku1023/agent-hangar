@@ -28,3 +28,30 @@ describe('PeerChatState.card（現在の札の材料）', () => {
     expect('card' in stateOf({ ...base, card: 7 })).toBe(false);
   });
 });
+
+describe('askTextValid（数の欄の確かめ）', () => {
+  it('textKind が無ければ、空でない文なら通す', () => {
+    expect(shared.askTextValid({}, 'abc')).toBe(true);
+    expect(shared.askTextValid({}, '  ')).toBe(false);
+  });
+
+  it('number は有限の数で、min と max の内側だけ通す', () => {
+    const a = { textKind: 'number' as const, min: 0, max: 1 };
+    expect(shared.askTextValid(a, '0.5')).toBe(true);
+    expect(shared.askTextValid(a, ' 1 ')).toBe(true);
+    expect(shared.askTextValid(a, '1.1')).toBe(false);
+    expect(shared.askTextValid(a, '-0.1')).toBe(false);
+    expect(shared.askTextValid(a, 'abc')).toBe(false);
+    expect(shared.askTextValid(a, '1e999')).toBe(false);
+    expect(shared.askTextValid({ textKind: 'number' }, '-3.5')).toBe(true);
+  });
+
+  it('integer は整数だけを通す', () => {
+    const a = { textKind: 'integer' as const, min: 1, max: 10 };
+    expect(shared.askTextValid(a, '3')).toBe(true);
+    expect(shared.askTextValid(a, '3.5')).toBe(false);
+    expect(shared.askTextValid(a, '0')).toBe(false);
+    expect(shared.askTextValid(a, '11')).toBe(false);
+    expect(shared.askTextValid(a, '')).toBe(false);
+  });
+});

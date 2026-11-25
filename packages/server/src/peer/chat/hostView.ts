@@ -4,6 +4,7 @@ import { buildPeerChatCard } from './hostCard.ts';
 import { dialogMatches, isCommandTitle, parseDialog, strip, type Dialog, type DialogStep } from './answer.ts';
 import type { HostPane, HostSession } from './hostTypes.ts';
 import type { LiveDigestDto, PeerChatCard, TranscriptEvent } from '@agent-hangar/shared';
+import type { AgentAsks } from './agentAsk.ts';
 import { currentPendingAsk, onlyRepliesBetween, peerAskId, transcriptPosition, transcriptTail, transcriptTurnCount, type PeerPendingAsk, type TailDeps } from './tail.ts';
 
 /**
@@ -79,6 +80,8 @@ export type ViewDeps = {
   hookAsk?(sessionId: string): PeerPendingAsk | null;
   /** この PC で会話が動いているアカウントの名前（state.account）。分からなければ null。 */
   accountName?(sessionId: string): string | null;
+  /** Codex と opencode の札。あれば、この 2 つの会話の札は画面でなくこちらから作る。 */
+  agentAsks?: AgentAsks;
 };
 
 const jsonSize = (v: unknown): number => Buffer.byteLength(JSON.stringify(v));
@@ -212,6 +215,11 @@ export class ChatView {
    */
   pendingAsk(sessionId: string, fresh: boolean): PeerPendingAsk | null {
     const session = this.d.session(sessionId);
+    // Codex と opencode の札は、画面でなく札の口から作る（口が無ければ札は無い）。Claude の画面の読みを当てない。
+    if (session && session.provider !== 'claude-code') {
+      this.captured.delete(sessionId);
+      return this.d.agentAsks && this.d.agentAsks.handles(session.provider) ? this.d.agentAsks.pending(sessionId, session.provider) : null;
+    }
     if (!session || session.live !== 'waiting') {
       this.captured.delete(sessionId);
       return null;
@@ -344,7 +352,7 @@ export class ChatView {
     const to = askBase(now.uuid);
     if (from !== to && !onlyRepliesBetween(sessionId, from, to, this.tailDeps)) return false;
     const pending = this.pendingAsk(sessionId, false);
-    return pending !== null && peerAskId(pending, '') === prev.ask!.askId;
+    return pending !== null && pending.prebuilt === undefined && peerAskId(pending, '') === prev.ask!.askId;
   }
 
   private rememberRekey(from: string, to: string): void {

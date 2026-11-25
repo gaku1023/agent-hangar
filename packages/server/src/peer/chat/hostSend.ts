@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { MOBILE_IMAGE_MAX_BYTES, openPeerChatBlob, PEER_CHAT_BLOB_MAX_BYTES, PEER_CHAT_SEND_WAIT_DEFAULT_MS, type PeerBlobRef, type PeerChatDevice, type PeerChatReply, type PeerKeyring } from '@agent-hangar/shared';
 import { pruneDrops, saveDrop } from '../../prompt/drops.ts';
-import { inputEmptyFromCapture } from './inputBox.ts';
+import { inputEmptyFor } from './inputBox.ts';
 import type { ChatView } from './hostView.ts';
 import type { PeerChatHostDeps } from './hostTypes.ts';
 import type { PeerQueue } from './queue.ts';
@@ -139,6 +139,18 @@ export async function sendOp(s: SendDeps, ring: PeerKeyring | null, sessionId: s
   return bounded(s, waitMs, (late) => enqueue(s, ring, sessionId, askId, from, text, images, late));
 }
 
+/**
+ * その会話の入力欄が空で、渡してよいか。capture は色付きの画面。
+ * 入力欄の読み方は provider で分ける（inputEmptyFor）。
+ * 札が出ているかは、Claude は画面の形（入力欄の 1 行目が ❯ でない）で分かるが、Codex と opencode は登録の待ち（waitingFor、permission）で見る。
+ */
+export function inputEmptyOf(deps: Pick<PeerChatHostDeps, 'session'>, sessionId: string, capture: string): boolean {
+  const session = deps.session(sessionId);
+  const provider = session?.provider ?? 'claude-code';
+  if (!inputEmptyFor(provider, capture)) return false;
+  return provider === 'claude-code' || !session || (session.waitingFor === null && session.permission === null);
+}
+
 /** 画面が使える（動いていて、入力欄が空）か。 */
 async function ready(s: SendDeps, sessionId: string): Promise<boolean> {
   const run = s.deps.run(sessionId);
@@ -146,7 +158,7 @@ async function ready(s: SendDeps, sessionId: string): Promise<boolean> {
   if (!pane) return false;
   try {
     const cap = await pane.captureStyled();
-    return cap !== null && inputEmptyFromCapture(cap);
+    return cap !== null && inputEmptyOf(s.deps, sessionId, cap);
   } catch { return false; }
 }
 

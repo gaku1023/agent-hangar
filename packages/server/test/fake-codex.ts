@@ -15,7 +15,7 @@ const requireFromHere = createRequire(import.meta.url);
  * - 通知：thread/started（接続の URL の query に `tui=1&cwd=…` を付けた接続が来たとき、ephemeral:false を全接続へ。実物の TUI の接続の真似）、
  *   turn/start で thread/status/changed(active)、turn/started（購読した接続だけ）、少しあとに turn/completed と idle。
  *   最初のターンのあと ephemeral:true の thread/started を 1 つ（題名の生成の真似）。
- * - 入力の文の頭で振る舞いを変える（B4）。`ask:command`、`ask:file`、`ask:perm`、`ask:input`、`ask:mcp` は、承認や質問の要求を購読した接続へ送り、
+ * - 入力の文の頭で振る舞いを変える（B4）。`ask:command`、`ask:file`、`ask:perm`、`ask:input`、`ask:input3`（問い 3 つ）、`ask:mcp` は（末尾に `:noresolve` で応答に resolved を返さない、`:preempt` で先に別の接続が解く）、承認や質問の要求を購読した接続へ送り、
  *   status を waitingOnApproval か waitingOnUserInput にして待つ（実物の TUI の代わりに、どれかの接続が id つきの応答を返すと、serverRequest/resolved を全接続へ流し、status を戻して完了する）。
  *   `hang` は完了しない。`thread/read` は status を返す。`__resolve` を呼ぶ代わりに、接続は応答（{id, result}）を返すだけでよい。
  * - SIGTERM で止まる。`fakeGrandchild` の指定があれば、孫（長く眠る子）を 1 つ起こす（止め方の試験用）。
@@ -110,8 +110,9 @@ async function appServer(args) {
       const m = JSON.parse(data.toString());
       if (m.id !== undefined && m.method === undefined) {
         // サーバからの要求への応答（実物では TUI が返す）。
+        rlog({ ev: 'response', id: m.id, ...(m.error ? { error: m.error } : { result: m.result }) });
         const w = waiting.get(m.id);
-        if (w) { waiting.delete(m.id); w(); }
+        if (w) { waiting.delete(m.id); w(m); }
         return;
       }
       if (m.id === undefined) return;
@@ -180,7 +181,7 @@ async function appServer(args) {
           for (const c of t.subscribers) send(c, { method: 'turn/started', params: { threadId: p.threadId, turn } });
           if (first) { const eid = uuid(); threads.set(eid, { cwd: null, turns: 0, subscribers: new Set() }); setTimeout(() => broadcast('thread/started', { thread: threadBody(eid, true) }), 10); }
           const text = String(p.input?.[0]?.text ?? '');
-          const kind = text.startsWith('ask:') ? text.slice(4) : null;
+          const [kind, mode] = text.startsWith('ask:') ? text.slice(4).split(':') : [null, undefined];
           const setStatus = (status) => { t.status = status; broadcast('thread/status/changed', { threadId: p.threadId, status }); };
           const finish = () => {
             t.current = null;
@@ -198,15 +199,23 @@ async function appServer(args) {
                 file: ['item/fileChange/requestApproval', { ...common, grantRoot: '/w/out', reason: 'write outside' }, 'waitingOnApproval'],
                 perm: ['item/permissions/requestApproval', { ...common, cwd: t.cwd, reason: 'network please', permissions: { network: { enabled: true }, fileSystem: { write: ['/w/out'] } } }, 'waitingOnApproval'],
                 input: ['item/tool/requestUserInput', { ...common, isBlocking: true, questions: [{ id: 'q1', header: 'Pick', question: 'Which one?', options: [{ label: 'a', description: 'A' }] }] }, 'waitingOnUserInput'],
+                input3: ['item/tool/requestUserInput', { ...common, isBlocking: true, questions: [
+                  { id: 'q1', header: 'First', question: 'Which one?', options: [{ label: 'a', description: 'A' }, { label: 'b', description: 'B' }], isOther: true },
+                  { id: 'q2', header: 'Second', question: 'Token?', isSecret: true },
+                  { id: 'q3', header: 'Third', question: 'Pick again', options: [{ label: 'x', description: 'X' }] },
+                ] }, 'waitingOnUserInput'],
                 mcp: ['mcpServer/elicitation/request', { threadId: p.threadId, turnId: turn.id, serverName: 'srv', mode: 'form', message: 'Need a value', requestedSchema: {} }, 'waitingOnUserInput'],
               }[kind];
               setStatus({ type: 'active', activeFlags: [reqs[2]] });
               for (const c of t.subscribers) send(c, { id, method: reqs[0], params: reqs[1] });
-              waiting.set(id, () => {
+              const resolve = () => {
                 broadcast('serverRequest/resolved', { threadId: p.threadId, requestId: id });
                 setStatus({ type: 'active', activeFlags: [] });
                 setTimeout(finish, 30);
-              });
+              };
+              // mode: 'noresolve'＝応答を受けても resolved を返さない、'preempt'＝別の接続（TUI）が先に解いた。ふだんは応答で resolved を返す。
+              if (mode === 'preempt') { waiting.set(id, () => {}); setTimeout(resolve, 40); return; }
+              waiting.set(id, () => { if (mode !== 'noresolve') resolve(); });
             }, 10);
             return;
           }

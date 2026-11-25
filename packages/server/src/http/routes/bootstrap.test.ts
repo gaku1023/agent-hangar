@@ -38,6 +38,12 @@ describe('routes', () => {
     const r = await withQueue.request('/api/bootstrap', { headers: H });
     expect((await r.json()).peerQueued).toEqual(queued);
   });
+  it('札の口があれば、bootstrap が待っている札を運ぶ。口が無ければ項目ごと運ばない', async () => {
+    expect((await json(await get('/api/bootstrap'))).body).not.toHaveProperty('peerAsks');
+    const asks = { s1: { askId: 'A', kind: 'permission', options: [], multi: false, allowText: false } };
+    const r = await createApp({ ...t.deps, peerAsks: () => asks as never }).request('/api/bootstrap', { headers: H });
+    expect((await r.json()).peerAsks).toEqual(asks);
+  });
   it('bootstrap は runs と tabs と新しい settings を含む', async () => {
     const { body } = await json(await get('/api/bootstrap'));
     expect(body.runs).toEqual([run]);

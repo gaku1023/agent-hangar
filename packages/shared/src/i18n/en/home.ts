@@ -25,6 +25,7 @@ export const homeEn: AreaDictionary<typeof homeKeys> = {
   'home.tryNow.notPaused': 'This session is not Paused',
   'home.band.reminderTime': 'Reminder time {time}',
   'home.band.answer': 'Answer in terminal',
+  'home.band.answerHere': 'Answer',
   'home.band.move': 'Move to Hangar',
   'home.band.open': 'Open',
   'home.band.changeDate': 'Change date',

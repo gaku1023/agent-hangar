@@ -37,6 +37,14 @@
 .drawer-list { margin: 0; padding: 0; list-style: none; }
 .crow { display: flex; align-items: center; gap: calc(var(--u) * 2.5); height: var(--compact-row-h); padding: 0 calc(var(--u) * 2) 0 calc(var(--u) * 2.5); border-radius: var(--r); white-space: nowrap; min-width: 0; }
 .crow + .crow { border-top: 1px solid var(--line); border-radius: 0; }
+/* 要対応の行の下に開く札（views/HomeBand.tsx の RowAsk）。選択肢は横並びの丸ボタンで、説明は出さない。 */
+.crow-ask { list-style: none; padding: calc(var(--u) * 1.5) calc(var(--u) * 2) calc(var(--u) * 2.5) calc(var(--u) * 2.5); background: color-mix(in srgb, var(--waiting) 5%, var(--surface)); white-space: normal; min-width: 0; }
+.crow + .crow-ask, .crow-ask + .crow { border-top: 1px solid var(--line); border-radius: 0; }
+.crow-ask .pchat-ask { padding: 0; background: transparent; box-shadow: none; gap: calc(var(--u) * 1.5); }
+.crow-ask .pchat-ask-head { display: none; }
+.crow-ask .pchat-ask-acts:has(.pchat-opt) { flex-direction: row; flex-wrap: wrap; }
+.crow-ask .pchat-opt { width: auto; flex-direction: row; align-items: center; padding: calc(var(--u) * 1.5) calc(var(--u) * 3.5); border-radius: 999px; }
+.crow-ask .pchat-opt-desc { display: none; }
 .crow[data-k='wait'] { background: color-mix(in srgb, var(--waiting) 5%, var(--surface)); }
 .crow > .dot, .crow > .return-when, .crow > .home-cand, .crow > .cand-mark { flex: none; }
 /* エージェントの絵の枠（presenters/agentIcon.ts）。一覧の行（.row-agent）と同じ 20px で、どの行も名前の頭がそろう。 */

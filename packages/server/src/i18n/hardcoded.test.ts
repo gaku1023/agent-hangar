@@ -29,6 +29,7 @@ const LEFT = '利用者に見える文で、まだ鍵へ移していない。次
 
 /** ファイル（server/src からの相対）ごとの、直書きの日本語の行の数と、残す理由。 */
 const ALLOWED: Record<string, { lines: number; why: string }> = {
+  'agent/pendingAsk.ts': { lines: 2, why: LEFT },
   'boot/agents.ts': { lines: 2, why: LOG },
   'boot/bootError.ts': { lines: 1, why: LOG },
   'boot/home.ts': { lines: 3, why: LOG },
@@ -47,6 +48,7 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'http/testing.ts': { lines: 9, why: TEST_SUPPORT },
   'indexer/baseline.ts': { lines: 11, why: BASELINE },
   'launch/wrapper.ts': { lines: 5, why: FILE_BODY },
+  'peer/chat/dialogs.opencode.fixtures.ts': { lines: 1, why: 'opencode 2.2.0 の実機の画面から切り出した札の見本（試験だけが読む）。モデルの返答が日本語で写っている。文言ではない' },
   'peer/chat/inputBox.opencode.fixtures.ts': { lines: 1, why: 'opencode 2.2.0 の実機の画面から切り出した入力欄の見本（試験だけが読む）。モデルの返答が日本語で写っている。文言ではない' },
   'peer/chat/questionDialogs.fixtures.ts': { lines: 12, why: '実機の画面から切り出したものと、それに合わせて作ったものの、質問の札の見本（試験だけが読む）。文言ではない' },
   'peer/chat/questionDialogs.real.fixtures.ts': { lines: 6, why: 'Claude Code 2.1.326 と 2.1.332 の実機で写した、問いが複数ある質問の札（試験だけが読む）。文言ではない' },
@@ -57,6 +59,8 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'provider/claude-code/config/accountAuth.ts': { lines: 1, why: LOG },
   'provider/claude-code/config/statusline.ts': { lines: 1, why: FILE_BODY },
   'provider/claude-code/driver.ts': { lines: 1, why: INTERNAL },
+  'provider/codex/asks.ts': { lines: 7, why: LEFT },
+  'provider/opencode/answer.ts': { lines: 3, why: LEFT },
   'runs/manager.ts': { lines: 6, why: LOG },
   'runs/queries.ts': { lines: 1, why: LEFT },
   'sessions/autoDone.ts': { lines: 1, why: LOG },

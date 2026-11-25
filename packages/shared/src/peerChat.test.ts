@@ -446,6 +446,19 @@ describe('commands の答え（/ の候補）', () => {
 describe('選択肢の説明と思考の項目', () => {
   const withOptions = (options: unknown) => ({ ok: true as const, state: { ...state, items: [{ ...state.items[2]!, ask: { ...state.items[2]!.ask!, options } }] } });
 
+  it('札の足し欄（secret・header・textKind・min・max）を読み、壊れた欄は欄ごと落とす', () => {
+    const ask = (extra: Record<string, unknown>) => (shared.parsePeerChatReply({ ok: true, state: { ...state, items: [{ ...state.items[2]!, ask: { ...state.items[2]!.ask!, options: [{ key: '1', label: 'A' }], ...extra } }] } }) as { state: PeerChatState }).state.items[0]!.ask!;
+    const ok = ask({ secret: true, header: '名前', textKind: 'integer', min: 1, max: 9 });
+    expect(ok).toMatchObject({ secret: true, header: '名前', textKind: 'integer', min: 1, max: 9 });
+    const bad = ask({ secret: 'yes', header: 3, textKind: 'text', min: 1, max: 9 });
+    for (const k of ['secret', 'header', 'textKind', 'min', 'max']) expect(k in bad).toBe(false);
+    expect('header' in ask({ header: 'あ'.repeat(200) })).toBe(false);
+    expect('header' in ask({ header: '' })).toBe(false);
+    expect(ask({ textKind: 'number', min: 'x', max: null })).toMatchObject({ textKind: 'number' });
+    expect('min' in ask({ textKind: 'number', min: 'x' })).toBe(false);
+    expect(ask({}).options).toHaveLength(1);
+  });
+
   it('選択肢の description を読み取る。無い選択肢には欄を付けず、型の違うものは捨てる', () => {
     const r = shared.parsePeerChatReply(withOptions([{ key: '1', label: 'A', description: 'about A' }, { key: '2', label: 'B' }, { key: '3', label: 'C', description: 5 }])) as { state: PeerChatState };
     expect(r.state.items[0]!.ask!.options).toEqual([{ key: '1', label: 'A', description: 'about A' }, { key: '2', label: 'B' }, { key: '3', label: 'C' }]);

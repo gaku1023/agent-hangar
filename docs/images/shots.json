@@ -6,10 +6,11 @@
     "bytes": 984286
   },
   "attention": {
-    "commit": "7f4062e28dd307a4a215b3c449589d91213c78df",
-    "shotAt": "2026-11-25T13:18:46.695Z",
+    "commit": "42416cd81a4b79707347075b040471a472e91aed",
+    "shotAt": "2026-11-25T19:23:24.309Z",
     "file": "docs/images/attention.webp",
-    "bytes": 2927516
+    "bytes": 2326630,
+    "dirty": true
   },
   "drop": {
     "commit": "7f4062e28dd307a4a215b3c449589d91213c78df",

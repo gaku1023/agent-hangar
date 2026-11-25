@@ -55,6 +55,7 @@ import type { PeerParts } from './peer.ts';
 import type { PeerCallDeps } from '../peer/caller.ts';
 import { ownerOf, wakeOnOwner } from '../peer/screenWake.ts';
 import type { PeerChatHost } from '../peer/chat/host.ts';
+import type { AskWatch } from './askWatch.ts';
 
 /** createApp が返すアプリの fetch。listen した後に差し込むために型だけ取る。 */
 type Fetch = ReturnType<typeof createApp>['fetch'];
@@ -129,7 +130,7 @@ export function bootHttp(p: {
   /** 別の PC への起動の承認待ち（boot/peer.ts）。渡せば、承認の口と、MCP からの承認待ちの預け口を持つ。 */
   peer?: Pick<PeerParts, 'syncNow'>;
   /** ほかの PC の会話の頼みを受ける部品（boot/peerChat.ts）。渡せば、bootstrap が預かりを運ぶ。 */
-  peerChat?: { host: Pick<PeerChatHost, 'queued' | 'local' | 'rush'> };
+  peerChat?: { host: Pick<PeerChatHost, 'queued' | 'local' | 'rush'>; asks: Pick<AskWatch, 'snapshot' | 'check'> };
   /** 統括への出来事の送り込み（boot/orchestratorFeed.ts）。渡せば、統括を新しい会話へ切り替えられる（申し送りと引き継ぎを渡す口）。 */
   orchestratorFeed?: Pick<OrchestratorFeedParts, 'feed' | 'inputEmpty' | 'sendEvent' | 'handoffFacts'>;
 }): HttpParts {
@@ -341,7 +342,7 @@ export function bootHttp(p: {
     },
     ...(p.peerChat ? { peerQueued: () => p.peerChat!.host.queued(), peerRush: (id: string) => p.peerChat!.host.rush(id) } : {}),
     // 統括がこの PC の会話の札に答える口。ほかの PC の答えと同じ答え手と記録を通す（同じ札に 2 度打たない）。
-    ...(p.peerChat ? { askLocal: p.peerChat.host.local } : {}),
+    ...(p.peerChat ? { askLocal: p.peerChat.host.local, peerAsks: () => p.peerChat!.asks.snapshot(), askChanged: (id: string) => { p.peerChat!.asks.check(id); } } : {}),
     codexStatus: () => codex.status(),
     opencodeOptions: (dir, o) => p.opencode.options.get(dir, o),
     opencodeProviders: p.opencode.providers,

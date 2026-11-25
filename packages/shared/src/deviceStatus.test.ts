@@ -30,6 +30,12 @@ describe('parseDeviceStatus の ssh と tailnet_ips の欄', () => {
     expect(s?.tailnet_ips).toEqual(['100.64.0.1']);
   });
 
+  it('peer_chat_agents は文字列だけ残し、無い・型違いは欄ごと省く', () => {
+    expect(parseDeviceStatus(JSON.stringify({ ...base, peer_chat_agents: ['claude-code', 3, '', 'codex'] }))?.peer_chat_agents).toEqual(['claude-code', 'codex']);
+    expect('peer_chat_agents' in parseDeviceStatus(JSON.stringify({ ...base, peer_chat_agents: 'no' }))!).toBe(false);
+    expect('peer_chat_agents' in parseDeviceStatus(JSON.stringify(base))!).toBe(false);
+  });
+
   it('mux が null、host_pubkey が null でも読める。知らない欄は捨てる', () => {
     const s = parseDeviceStatus(JSON.stringify({ ...base, ssh: { user: 'u', host_pubkey: null, mux: null, shell: 'posix', extra: 1 } }));
     expect(s?.ssh).toEqual({ user: 'u', host_pubkey: null, mux: null, shell: 'posix' });

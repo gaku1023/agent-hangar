@@ -12,6 +12,7 @@ import type { AppDeps } from './deps.ts';
 import { artifactRoutes } from './routes/artifacts.ts';
 import { notifyRoutes } from './routes/notify.ts';
 import { peerChatRoutes } from './routes/peerChat.ts';
+import { sessionAskRoutes } from './routes/sessionAsk.ts';
 import { peerLaunchRoutes } from './routes/peerLaunch.ts';
 import { bootstrapRoutes } from './routes/bootstrap.ts';
 import { beforeLaunchOf } from './routes/common.ts';
@@ -158,6 +159,7 @@ export function createApp(deps: AppDeps): Hono {
   notifyRoutes(api, deps);
   peerLaunchRoutes(api, { ...deps, language });
   peerChatRoutes(api, deps);
+  sessionAskRoutes(api, deps);
   remoteShellRoutes(api, deps);
   gitRoutes(api, { ...deps, git: deps.git ?? new GitService({ db, deviceId, live: deps.live, broadcast: (git) => deps.hub.broadcast({ type: 'git.upsert', git }), exec: () => { const f = gitPath(); return f ? spawnGit(f) : null; } }) });
 

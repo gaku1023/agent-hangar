@@ -15,7 +15,7 @@ import type { GetLanguage } from '../i18n/language.ts';
 import { LocalCodex } from '../provider/codex/compat/version.ts';
 import { createCodexDriver, type CodexDriver } from '../provider/codex/driver.ts';
 import type { CodexUsage } from '../provider/codex/usage.ts';
-import { createCodexLive } from '../provider/codex/live.ts';
+import { createCodexLive, type CodexLive } from '../provider/codex/live.ts';
 import { findCodex } from '../config/tools.ts';
 import { createOpencodeDriver, type OpencodeDriver } from '../provider/opencode/driver.ts';
 import type { OpencodeServes } from '../provider/opencode/launch.ts';
@@ -49,6 +49,8 @@ export type AgentParts = {
    * 配る層（LiveHub、索引）にはまだ載せない。載せるのは段 B の後続（B4、B5）である。
    */
   codex: CodexDriver;
+  /** Codex の状態の面（peer chat の札の口と、API での中断が、待っている要求と動いているターンを引く）。codex の driver に差したものと同じ。 */
+  codexLive: CodexLive;
   /**
    * opencode の serve の管理（boot/opencode.ts）を driver に渡す。
    * serve の管理は、前の hangar が残した serve の掃除を待ち受けの後に始めるので、配る層より後で組む。それまでの起動は断る。
@@ -135,7 +137,7 @@ export function bootAgents(
     // Claude Code の指示と MCP の登録を渡すか。起こすたびに今の設定を読む。
     share: () => codexShareOf(home.settings.current),
   });
-  return { agents: agentsOf([claude, opencode, codex]), claude, opencode, codex, bindOpencodeServes: (s) => { serves = s; }, bindCodexUsage: (u) => { codexUsage = u; } };
+  return { agents: agentsOf([claude, opencode, codex]), claude, opencode, codex, codexLive: codexSurface.live, bindOpencodeServes: (s) => { serves = s; }, bindCodexUsage: (u) => { codexUsage = u; } };
 }
 
 /**

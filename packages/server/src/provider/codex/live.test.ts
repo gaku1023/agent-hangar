@@ -42,6 +42,9 @@ class StubRpc implements CodexRpcLike {
   onAny(h: (n: CodexNotification) => void): () => void { this.any.add(h); return () => this.any.delete(h); }
   onServerRequest(h: (r: CodexServerRequest) => void): () => void { this.reqs.add(h); return () => this.reqs.delete(h); }
   onClose(h?: () => void): void { if (h) this.closers.add(h); }
+  responses: { id: number | string; result?: unknown; error?: { code: number; message: string } }[] = [];
+  respond(id: number | string, result: unknown): void { this.responses.push({ id, result }); }
+  respondError(id: number | string, code: number, message: string): void { this.responses.push({ id, error: { code, message } }); }
   emit(method: string, params: unknown): void {
     for (const h of [...(this.typed.get(method) ?? [])]) h(params as never);
     for (const h of [...this.any]) h({ method, params });
@@ -104,6 +107,15 @@ describe('状態の写し（接続のふり）', () => {
     expect(row(live)?.status).toBe('busy');
     rpc.emit('turn/completed', { threadId: T, turn: { id: 'u' } });
     expect(row(live)?.status).toBe('idle');
+  });
+  it('turnHandle は動いているターンの ID を返し、終われば null。載せていない会話は null', () => {
+    const { live } = mk();
+    expect(live.turnHandle(T)?.turnId).toBeNull();
+    rpc.emit('turn/started', { threadId: T, turn: { id: 'turn-9' } });
+    expect(live.turnHandle(T)?.turnId).toBe('turn-9');
+    rpc.emit('turn/completed', { threadId: T, turn: { id: 'turn-9' } });
+    expect(live.turnHandle(T)?.turnId).toBeNull();
+    expect(live.turnHandle('nope')).toBeNull();
   });
   it('旗 waitingOnApproval は許可の待ち、waitingOnUserInput は質問の待ち（要求の中身が無くても）', () => {
     const { live } = mk();

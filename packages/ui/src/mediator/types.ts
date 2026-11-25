@@ -2,6 +2,7 @@ import type { RemoteTabDto, WakeOn, InvestigateContext, NewSessionSeed, PeerLaun
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { PanesState } from './panes.ts';
 import type { CloudMemberCommand } from '../runtime/cloudMember.ts';
+import type { LocalAskCommand } from '../runtime/localAsk.ts';
 import type { PeerChatCommand } from '../runtime/peerChat.ts';
 import type { OrchestratorCommand } from '../runtime/orchestrator.ts';
 import type { UpdateCommand } from '../runtime/updater.ts';
@@ -145,6 +146,8 @@ export type Effect =
   | { kind: 'cloudMember'; command: CloudMemberCommand }
   // ほかの PC の会話の見張りと操作。Runtime が runtime/peerChat.ts に渡し、結果は Store の peerChat に置く。
   | { kind: 'peerChat'; command: PeerChatCommand }
+  // この PC の会話の札への答えと、答えの記録の片付け。Runtime が runtime/localAsk.ts に渡し、結果は Store の localAsks に置く。
+  | { kind: 'localAsk'; command: LocalAskCommand }
   // 統括の柱の読み込みと送信。Runtime が runtime/orchestrator.ts に渡し、結果は Store の orchestrator に置く。
   | { kind: 'orchestrator'; command: OrchestratorCommand }
   // Dock（ブラウザならアプリ）のバッジに入力待ちの数を出す。

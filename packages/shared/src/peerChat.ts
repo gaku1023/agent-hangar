@@ -53,11 +53,21 @@ export type PeerChatAsk = {
   kind: 'permission' | 'question';
   tool?: string;
   input?: string;
+  /** 札の理由（Codex は reason、opencode は message、Claude Code は description）。命令の下に小さく出す。無ければ付けない。 */
+  title?: string;
   /** description は選択肢の説明（AskUserQuestion の options[].description）。無い選択肢には付けない。 */
   options: { key: string; label: string; description?: string }[];
   multi: boolean;
   allowText: boolean;
   answerable?: false;
+  /** 伏せる自由記述（Codex の isSecret）。見る側は入力を伏せ字にし、答えの記録には値を残さない。 */
+  secret?: true;
+  /** 問いの見出し（Codex の header、opencode の title）。 */
+  header?: string;
+  /** 数の欄。見る側も元の PC も min・max で確かめる。 */
+  textKind?: 'number' | 'integer';
+  min?: number;
+  max?: number;
   answered?: { by: PeerChatDevice; label: string; at: number };
   /**
    * 1 回の呼び出しに問いが複数ある質問の、今のタブ（index は 1 始まり、total は問いの数）。
@@ -73,6 +83,23 @@ export type PeerChatAsk = {
    */
   replaces?: string;
 };
+
+/**
+ * 自由記述の答えを送ってよいか。数の欄（textKind）は、有限の数で、整数の欄は整数で、min と max の内側のときだけ通す。
+ * 見る側（画面とスマホ）が送る前に確かめる。元の PC も同じ決まりで確かめる。
+ */
+export function askTextValid(ask: Pick<PeerChatAsk, 'textKind' | 'min' | 'max'>, text: string): boolean {
+  const s = text.trim();
+  if (s === '') return false;
+  if (ask.textKind === undefined) return true;
+  if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(s)) return false;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return false;
+  if (ask.textKind === 'integer' && !Number.isInteger(n)) return false;
+  if (ask.min !== undefined && n < ask.min) return false;
+  if (ask.max !== undefined && n > ask.max) return false;
+  return true;
+}
 
 export type PeerChatAskStep = { index: number; total: number; submit?: true };
 
@@ -334,6 +361,8 @@ export const PEER_CHAT_KEYS_MAX = 32;
 export const PEER_CHAT_KEY_MAX_CHARS = 64;
 /** files の問い合わせの長さ（文字数）。 */
 export const PEER_CHAT_QUERY_MAX_CHARS = 512;
+/** 札の見出し（header）の上限。選択肢の説明（description）と同じ 512 バイトで、越えたら欄ごと落とす。 */
+export const PEER_CHAT_ASK_HEADER_MAX_BYTES = 512;
 /** commands の答えに載せる候補の数と、説明 1 件の長さ（文字数）。スマホの / の候補と同じ。 */
 export const PEER_CHAT_COMMANDS_MAX = 200;
 export const PEER_CHAT_COMMAND_DESCRIPTION_MAX = 120;
@@ -491,8 +520,17 @@ function readAsk(v: unknown): PeerChatAsk | null {
   const out: PeerChatAsk = { askId: v.askId, kind: v.kind, options, multi: v.multi, allowText: v.allowText };
   if (v.tool !== undefined) out.tool = v.tool as string;
   if (v.input !== undefined) out.input = v.input as string;
+  if (isStr(v.title) && v.title !== '') out.title = v.title;
   if (v.answerable === false) out.answerable = false;
   if (v.replaces !== undefined) out.replaces = v.replaces as string;
+  // 足した欄は、形の違うものを欄ごと落とす（札は捨てない）。
+  if (v.secret === true) out.secret = true;
+  if (isStr(v.header) && v.header !== '' && byteLength(v.header) <= PEER_CHAT_ASK_HEADER_MAX_BYTES) out.header = v.header;
+  if (v.textKind === 'number' || v.textKind === 'integer') {
+    out.textKind = v.textKind;
+    if (typeof v.min === 'number' && Number.isFinite(v.min)) out.min = v.min;
+    if (typeof v.max === 'number' && Number.isFinite(v.max)) out.max = v.max;
+  }
   // タブの印は見せるためだけのもの。形の違うものは断らずに読み捨てる。
   const st = v.step;
   if (isObj(st) && Number.isInteger(st.index) && Number.isInteger(st.total) && (st.index as number) >= 1 && (st.index as number) <= (st.total as number) && (st.submit === undefined || st.submit === true)) {

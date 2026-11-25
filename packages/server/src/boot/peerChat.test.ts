@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { deriveEpochKeys, openPeerChatReply, peerChatExpiresAt, randomEpochKey, sealPeerChat, type LiveSessionDto, type PeerChatOp, type PeerChatReply, type PeerKeyring } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/write.ts';
-import { accountNameOf, bootPeerChat, switchAccountOf, type PeerChatParts } from './peerChat.ts';
+import { accountNameOf, agentAskOf, bootPeerChat, interruptApiOf, switchAccountOf, type PeerChatParts } from './peerChat.ts';
 
 const ME = 'pc-a';
 const PEER = 'pc-b';
@@ -121,5 +121,41 @@ describe('switchAccountOf（ほかの PC からの switch-account）', () => {
   it('付け替えが投げれば resume-failed', async () => {
     const fn = switchAccountOf({ switchAccount: async () => { throw new Error('same account'); } }, { store, auth: authOf({ 'acc-1': true }) });
     expect(await fn('s1', '会社')).toBe('resume-failed');
+  });
+});
+
+describe('agentAskOf と interruptApiOf', () => {
+  const psid = (id: string): string | null => (id === 's1' ? 'thr-1' : null);
+
+  it('札の口は hangar の会話の ID を provider の会話の ID に引き換える。引き換えられない会話は札が無く、答えは unreachable', async () => {
+    const seen: string[] = [];
+    const codexLive = { askHandle: (id: string) => { seen.push(id); return { pending: [], rpc: {} as never }; } };
+    const a = agentAskOf({ codexLive }, psid)!;
+    expect(a.ports.opencode).toBeUndefined();
+    expect(a.ports.codex!.current('s1')).toBeNull();
+    expect(seen).toEqual(['thr-1']);
+    expect(a.ports.codex!.current('nope')).toBeNull();
+    expect(await a.ports.codex!.answer('nope', {} as never, { kind: 'permission', choice: 'once' })).toBe('unreachable');
+    expect(seen).toEqual(['thr-1']);
+    expect(agentAskOf({}, psid)).toBeUndefined();
+  });
+
+  it('opencode は client.interrupt を、Codex は今のターンの ID で turn/interrupt を呼ぶ。引けないとき・ターンが無いときは false', async () => {
+    const interrupted: string[] = [];
+    const requests: unknown[] = [];
+    let turnId: string | null = 'turn-1';
+    const opencode = { pendingOf: (id: string) => (id === 'thr-1' ? { client: { interrupt: async (x: string) => { interrupted.push(x); } } as never, perms: [], forms: [] } : null) };
+    const codexLive = { turnHandle: () => ({ turnId, rpc: { isClosed: false, request: async (...a: unknown[]) => { requests.push(a); } } as never }) };
+    const f = interruptApiOf({ opencode, codexLive }, psid);
+    expect(await f('s1', 'opencode')).toBe(true);
+    expect(interrupted).toEqual(['thr-1']);
+    expect(await f('s1', 'codex')).toBe(true);
+    expect(requests).toEqual([['turn/interrupt', { threadId: 'thr-1', turnId: 'turn-1' }]]);
+    turnId = null;
+    expect(await f('s1', 'codex')).toBe(false);
+    expect(await f('nope', 'codex')).toBe(false);
+    expect(await f('nope', 'opencode')).toBe(false);
+    expect(await f('s1', 'claude-code')).toBe(false);
+    expect(await interruptApiOf({}, psid)('s1', 'codex')).toBe(false);
   });
 });

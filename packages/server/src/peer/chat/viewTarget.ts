@@ -1,3 +1,4 @@
+import { PEER_CHAT_AGENT_PROVIDERS } from '@agent-hangar/shared';
 import type { Db } from '../../db/open.ts';
 import { readPeerStatuses } from '../../config/deviceStatus.ts';
 import { aliveRunForSession } from '../../runs/queries.ts';
@@ -14,25 +15,29 @@ import type { ViewResolve } from './viewer.ts';
  * この PC なら not-remote。
  * 3. run の記録が無くても、ほかの PC から降ろした本文の写しがあれば、その PC。
  * なければ not-remote。
- * 対象は Claude Code の会話だけである（Codex と opencode は今の画面のまま）。
+ * 対象は Claude Code の会話と、相手の PC が受けると名乗った provider の会話である。
+ * Codex と opencode は、相手の様子の欄 peer_chat_agents にその provider があるときだけ入れる。
+ * 欄が無い古い相手は、今までどおりの画面（not-remote と同じ扱い）にする。
  */
 export function resolveViewTarget(db: Db, selfId: string, sessionId: string, now: number): ViewResolve {
   const s = db.prepare('select provider from sessions where id = ? and deleted_at is null').get(sessionId) as { provider: string } | undefined;
   if (!s) return { ok: false, reason: 'session-unknown' };
-  if (s.provider !== 'claude-code') return { ok: false, reason: 'not-claude' };
+  if (!(PEER_CHAT_AGENT_PROVIDERS as readonly string[]).includes(s.provider)) return { ok: false, reason: 'not-claude' };
   const alive = aliveRunForSession(db, sessionId, selfId, now);
   let device: string | null = alive?.deviceId ?? null;
   if (!alive) {
     const last = db.prepare('select device_id from runs where session_id = ? and deleted_at is null order by started_at desc limit 1').get(sessionId) as { device_id: string } | undefined;
     device = last?.device_id ?? null;
     if (device === null) {
-      const copy = db.prepare("select device_id from transcript_files where session_id = ? and agent_id is null and device_id is not null and agent = 'claude-code' order by mtime desc limit 1").get(sessionId) as { device_id: string } | undefined;
+      const copy = db.prepare("select device_id from transcript_files where session_id = ? and agent_id is null and device_id is not null and agent = ? order by mtime desc limit 1").get(sessionId, s.provider) as { device_id: string } | undefined;
       device = copy?.device_id ?? null;
     }
   }
   if (device === null || device === selfId) return { ok: false, reason: 'not-remote' };
   const peer = readPeerStatuses(db, selfId).find((p) => p.device_id === device);
   if (!peer) return { ok: false, reason: 'device-unknown' };
+  // Codex と opencode は、相手がその provider を受けると名乗っているときだけ。名乗らない古い相手は、今までどおりの画面にする。
+  if (s.provider !== 'claude-code' && !peer.status?.peer_chat_agents?.includes(s.provider)) return { ok: false, reason: 'not-remote' };
   return { ok: true, target: { deviceId: peer.device_id, deviceName: peer.name, hangarVersion: peer.status?.hangar_version ?? null, outdated: peer.outdated } };
 }
 
@@ -42,6 +47,9 @@ export function resolveViewTarget(db: Db, selfId: string, sessionId: string, now
  */
 export function localCursorOf(db: Db, sessionId: string): string | null {
   try {
+    // codex と opencode の項目の id は索引の seq（s<seq>）で、手元の写しの seq は元の PC の seq と同じとは限らない。
+    const p = (db.prepare('select provider from sessions where id = ?').get(sessionId) as { provider: string } | undefined)?.provider;
+    if (p === 'codex' || p === 'opencode') return null;
     return transcriptTail(sessionId, null, 1, { readTranscript: dbTranscriptReader(db, { copies: true }), pendingAsk: () => null }).cursor;
   } catch {
     return null;

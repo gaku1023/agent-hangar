@@ -1,3 +1,4 @@
+import { presentLocalAskBand, type LocalAskBandProps } from './localAsk.ts';
 import { contextGaugeOf, type ContextGauge } from './contextGauge.ts';
 import { resumeHereOf } from './resumeHere.ts';
 import { agentOfSession } from './agentIcon.ts';
@@ -80,6 +81,8 @@ function spawnedChildrenOf(store: Store, id: string, t: Translate): SpawnedChild
 export type SessionProps = { id: string; name: string; parent: ParentLink | null; live: LiveStatus | null; aside: boolean;
   /** 止まっている理由（shared の stopReasonOf）。見出しの点と端末の縁を替える。無ければ null。 */
   reason?: StopReason | null;
+  /** 開いている会話の札（許可と質問）。ターミナルの真上の帯に出す。無ければ null か無し。 */
+  ask?: LocalAskBandProps | null;
   /** 見出しの名前の横に出す、要約の 1 文。無ければ null。 */
   oneLiner: string | null;
   /**
@@ -707,5 +710,5 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     peerChat: isPeerChatCandidate(s) ? { watch: true, view: presentPeerChat(store, id, t), card: presentPeerCard(store, id, t, { now, clock: (ts) => when(ts).slice(0, 5) }), toc: presentPeerToc(store, id, t, { clock: when }), ...(store.peerChat[id]?.phase === 'fallback' && store.peerChat[id]?.fallback === 'worker-outdated' ? { workerOutdated: true } : {}) } : { watch: false, view: null },
   };
   props.endedLine = run !== null || agentKind === null ? null : pending ? AGENT_TEXT[agentKind].endedPending : props.canResume ? AGENT_TEXT[agentKind].endedLine : null;
-  return { ...props, actions: sessionActions({ ...props, summaryOff }, t, openLabel(t, store.settings)) };
+  return { ...props, ask: presentLocalAskBand(store, id, t), actions: sessionActions({ ...props, summaryOff }, t, openLabel(t, store.settings)) };
 }

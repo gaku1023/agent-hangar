@@ -170,6 +170,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   });
   // ほかの PC の会話の頼み（呼び鈴の chat の枠）。預かりと答えた記録はメモリだけに持つ。
   const peerChat = bootPeerChat({ home, runs, delivery, sync });
+  // 索引に本文が足されたら、codex と opencode の会話の待っている tail を起こす。
+  indexing.onAppended((id) => peerChat.onIndexed(id));
   // 外のできごと（#563）。
   // 受け箱から取った荷物を、開いて確かめ、事実にする。
   // 取った事実と断った印は dispatchEvents に渡り、結び付けに当てて動かす部品（EventDispatcher）が受ける。
