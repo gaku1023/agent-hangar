@@ -113,9 +113,6 @@ a:hover { text-decoration: underline; }
 .approval-stack { flex: none; position: sticky; top: 0; z-index: 1; }
 .del-approvals { flex: none; display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); box-sizing: border-box; width: 100%; max-width: var(--main-w); max-height: 40vh; overflow-y: auto; margin: 0 auto; padding: calc(var(--u) * 2) calc(var(--u) * 4) 0 var(--gutter-l); }
 .shell[data-wide] .del-approvals { max-width: none; }
-/* 本文の真上の札（views/AskBand.tsx）。削除の承認の帯と同じ幅と余白で、その下に並ぶ。 */
-.ask-band { flex: none; box-sizing: border-box; width: 100%; max-width: var(--main-w); max-height: 40vh; overflow-y: auto; margin: 0 auto; padding: calc(var(--u) * 2) calc(var(--u) * 4) 0 var(--gutter-l); }
-.shell[data-wide] .ask-band { max-width: none; }
 .del-approval { flex: none; display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--glass-bg-toast); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); overflow: hidden; }
 .del-approval-text { flex: 1; min-width: 0; }
 .del-approval-q { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

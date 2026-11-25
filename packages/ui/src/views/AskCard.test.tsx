@@ -16,6 +16,24 @@ function mount(row: AskCardModel, extra: { onOpenTerminal?: () => void } = {}) {
 }
 
 describe('AskCard（札の部品）', () => {
+  it('理由は命令の下に出す。命令と同じ文なら出さない', () => {
+    const { container, update } = mount(model({ askKind: 'permission', input: 'echo hi > a.txt', reason: 'テスト用のファイルを作るため' }));
+    const why = container.querySelector('.pchat-ask-why')!;
+    expect(why).toHaveTextContent('テスト用のファイルを作るため');
+    expect(container.querySelector('.pchat-ask-input')!.compareDocumentPosition(why) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    update(model({ askKind: 'permission', input: 'echo hi > a.txt', reason: 'echo hi > a.txt' }));
+    expect(container.querySelector('.pchat-ask-why')).toBeNull();
+    update(model({ askKind: 'permission', input: 'ls' }));
+    expect(container.querySelector('.pchat-ask-why')).toBeNull();
+  });
+
+  it('許可せず中断（key が cancel）の選択肢だけ危険の印を付ける', () => {
+    const { container } = mount(model({ askKind: 'permission', allowText: false, options: [{ key: 'once', label: '許可' }, { key: 'cancel', label: '許可せず中断' }] }));
+    expect(screen.getByRole('button', { name: '許可せず中断' })).toHaveAttribute('data-danger', 'true');
+    expect(screen.getByRole('button', { name: '許可' })).not.toHaveAttribute('data-danger');
+    expect(container.querySelectorAll('[data-danger]')).toHaveLength(1);
+  });
+
   it('header は問いの上に出す', () => {
     const { container } = mount(model({ header: 'API キー', input: 'キーを入れてください' }));
     const head = container.querySelector('.pchat-ask-header')!;

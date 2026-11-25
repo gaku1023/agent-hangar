@@ -197,6 +197,7 @@ export function toPeerChatAsk(ask: AgentPendingAsk, answers: AgentStoredAnswers)
     };
     if (ask.tool !== undefined) out.tool = ask.tool;
     if (ask.input !== undefined) out.input = ask.input;
+    if (ask.description) out.title = clipBytes(ask.description, PEER_CHAT_ASK_HEADER_MAX_BYTES);
     return out;
   }
   const cur = currentQuestion(ask, answers);

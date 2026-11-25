@@ -21,7 +21,7 @@ import { peerChatDeviceName } from './peerChatDevice.ts';
  * secret は入力を伏せ字にし、答えの行に値を残さない。textKind・min・max は数の欄の確かめ。
  */
 export type AskCardModel = {
-  askId: string; askKind: 'permission' | 'question'; title: string; header: string | null; input: string | null;
+  askId: string; askKind: 'permission' | 'question'; title: string; /** 札の理由。命令の下に小さく出す。 */ reason?: string | null; header: string | null; input: string | null;
   options: { key: string; label: string; description?: string }[]; multi: boolean; allowText: boolean;
   secret: boolean; textKind: 'number' | 'integer' | null; min: number | null; max: number | null;
   answered: string | null; hostOnly: string | null; /** 答えを送って結果を待っている。 */ pending: boolean; /** 受け付けない設定の PC。押せない。 */ locked: boolean;
@@ -177,7 +177,7 @@ function foldTools(rows: PeerChatRow[], t: Translate): PeerChatRow[] {
 
 /** 札の部品（views/AskCard.tsx）が描く値にする。peer chat の列と、この PC の札（本文の真上の帯、ホームの行）で共用する。 */
 export function askModelOf(t: Translate, ask: PeerChatAsk, o: { text?: string | null; answered: string | null; hostOnly: string | null; pending: boolean; locked: boolean }): AskCardModel {
-  return { askId: ask.askId, askKind: ask.kind, title: t(ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), header: ask.header ?? null, input: ask.input ?? o.text ?? null, options: ask.options, multi: ask.multi, allowText: ask.allowText, secret: ask.secret === true, textKind: ask.textKind ?? null, min: ask.min ?? null, max: ask.max ?? null, answered: o.answered, hostOnly: o.hostOnly, pending: o.pending, locked: o.locked };
+  return { askId: ask.askId, askKind: ask.kind, title: t(ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), reason: ask.title ?? null, header: ask.header ?? null, input: ask.input ?? o.text ?? null, options: ask.options, multi: ask.multi, allowText: ask.allowText, secret: ask.secret === true, textKind: ask.textKind ?? null, min: ask.min ?? null, max: ask.max ?? null, answered: o.answered, hostOnly: o.hostOnly, pending: o.pending, locked: o.locked };
 }
 
 function rowOf(t: Translate,it: PeerChatItem, slice: PeerChatSlice, index: number, device: string, myName: string): PeerChatRow {

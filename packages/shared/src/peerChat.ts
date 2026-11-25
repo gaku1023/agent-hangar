@@ -53,6 +53,8 @@ export type PeerChatAsk = {
   kind: 'permission' | 'question';
   tool?: string;
   input?: string;
+  /** 札の理由（Codex は reason、opencode は message、Claude Code は description）。命令の下に小さく出す。無ければ付けない。 */
+  title?: string;
   /** description は選択肢の説明（AskUserQuestion の options[].description）。無い選択肢には付けない。 */
   options: { key: string; label: string; description?: string }[];
   multi: boolean;
@@ -518,6 +520,7 @@ function readAsk(v: unknown): PeerChatAsk | null {
   const out: PeerChatAsk = { askId: v.askId, kind: v.kind, options, multi: v.multi, allowText: v.allowText };
   if (v.tool !== undefined) out.tool = v.tool as string;
   if (v.input !== undefined) out.input = v.input as string;
+  if (isStr(v.title) && v.title !== '') out.title = v.title;
   if (v.answerable === false) out.answerable = false;
   if (v.replaces !== undefined) out.replaces = v.replaces as string;
   // 足した欄は、形の違うものを欄ごと落とす（札は捨てない）。

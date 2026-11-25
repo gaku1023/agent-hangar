@@ -51,6 +51,7 @@ describe('toPeerChatAsk: permission', () => {
     expect(a.input).toBe('ls');
     expect(a.options.map((o) => o.key)).toEqual(['once', 'session', 'deny', 'cancel']);
     expect(a.options[0]!.description).toBe('この 1 回');
+    expect(a.title).toBe('list');
     expect(a.step).toBeUndefined();
     expect(a.answerable).toBeUndefined();
   });

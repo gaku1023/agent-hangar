@@ -436,6 +436,16 @@ describe('SessionScreen（実行中）', () => {
     expect([...side.children].map((c) => c.className.split(' ')[0])).toEqual(['toc-slot-head', 'now-card', 'toc-pane']);
     expect(within(side as HTMLElement).getByRole('region', { name: 'セッションの現在の状態' })).toBeInTheDocument();
   });
+  it('開いている会話の札の帯は、見出しの下のタブの列の上（目次の左の列）に出て、見出しの上には出ない', () => {
+    const ask = { sessionId: 's1', row: { askId: 'a1', askKind: 'permission' as const, title: '許可', reason: null, header: null, input: 'ls', options: [{ key: 'once', label: '1 回だけ許可' }], multi: false, allowText: false, secret: false, textKind: null, min: null, max: null, answered: null, hostOnly: null, pending: false, locked: false } };
+    const { container } = render(<ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} ask={ask} /></TerminalHostContext.Provider></ActionRoot>);
+    const band = container.querySelector('.ask-band')!;
+    expect(band.parentElement).toBe(container.querySelector('.c-body'));
+    expect(band.compareDocumentPosition(container.querySelector('.tabs')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelector('.c-main')!.contains(band)).toBe(false);
+    const head = container.querySelector('.c-body')!.previousElementSibling!;
+    expect(head.contains(band)).toBe(false);
+  });
   it('札は生きた run があるときだけで、終わった run には出さない', () => {
     const { container } = render(<ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} strip={null} run={{ ...running.run!, alive: false }} /></TerminalHostContext.Provider></ActionRoot>);
     expect(container.querySelector('.now-card')).toBeNull();

@@ -12,7 +12,6 @@ import { presentOverlap } from './overlap.ts';
 import { descendantsEnd, nestOrder, spawnFoldKey, spawnParentOf, type NestDot } from './spawnTree.ts';
 import { projectDisplayName } from './projectName.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
-import { presentLocalAskBand, type LocalAskBandProps } from './localAsk.ts';
 import { presentDeleteApprovals, type DeleteApprovalRow } from './deleteApprovals.ts';
 import { presentOrchestrator, presentOrchestratorNav, type OrchestratorNavProps, type OrchestratorPillarProps } from './orchestrator.ts';
 import { isPeerChatCandidate } from './peerChat.ts';
@@ -137,7 +136,7 @@ const wokenFresh = (state: State, id: string, now: number): boolean => state.wak
 export type SideLiveProps = { count: number; ids: string[]; rows: SideLiveRow[]; groups: SideLiveGroup[];
   /** ピン留めした会話（留めた順）。止まっていても並べ、グループと count と ids には入れない。一覧の上の固定の段に置く。 */
   pins: SideLiveRow[] };
-export type ShellProps = { approvals: DeleteApprovalRow[]; /** 開いている会話の札（許可と質問）。本文の真上の帯に出す。無ければ null か無し。 */ ask?: LocalAskBandProps | null; /** 統括の柱。統括が無効か、会話がまだ無ければ null か無し。 */ orchestrator?: OrchestratorPillarProps | null; /** サイドバーの上の「統括」の行。無効か会話がまだ無ければ null。 */ orchNav?: OrchestratorNavProps | null; live: SideLiveProps; /** サイドバーの戻る・進む。行けないほうを薄くする。 */ history: { back: boolean; forward: boolean }; sidebarCollapsed: boolean; sidebarWidth: number; /** 開いた統括の柱の幅（px）。 */ orchestratorWidth?: number; wide: boolean; nav: NavItem[]; foot: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; notices: NoticesProps; newSession: NewSessionTarget };
+export type ShellProps = { approvals: DeleteApprovalRow[]; /** 統括の柱。統括が無効か、会話がまだ無ければ null か無し。 */ orchestrator?: OrchestratorPillarProps | null; /** サイドバーの上の「統括」の行。無効か会話がまだ無ければ null。 */ orchNav?: OrchestratorNavProps | null; live: SideLiveProps; /** サイドバーの戻る・進む。行けないほうを薄くする。 */ history: { back: boolean; forward: boolean }; sidebarCollapsed: boolean; sidebarWidth: number; /** 開いた統括の柱の幅（px）。 */ orchestratorWidth?: number; wide: boolean; nav: NavItem[]; foot: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; notices: NoticesProps; newSession: NewSessionTarget };
 
 /**
  * 切れているあいだの帯。
@@ -484,7 +483,7 @@ export function presentShell(state: State, store: Store, now: number, tz?: strin
     const home = n.route.name === 'home';
     return { route: n.route, label: n.label, current: n.matches.includes(s.name), count: home ? waiting + unread : 0, waiting: home ? waiting : 0, unread: home ? unread : 0 };
   };
-  return { approvals: presentDeleteApprovals(store, t), ask: presentLocalAskBand(store, state.screen.name === 'session' ? state.screen.id : null, t), orchestrator: presentOrchestrator(store, t), orchNav: presentOrchestratorNav(store, t), history: state.history, sidebarCollapsed: state.sidebarCollapsed, sidebarWidth: state.sidebarWidth, orchestratorWidth: state.orchestratorWidth, wide: s.name === 'session', nav: navDefs(t).map(item), foot: footDefs(t).map(item), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), notices: presentNotices(state, store, now, tz), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
+  return { approvals: presentDeleteApprovals(store, t), orchestrator: presentOrchestrator(store, t), orchNav: presentOrchestratorNav(store, t), history: state.history, sidebarCollapsed: state.sidebarCollapsed, sidebarWidth: state.sidebarWidth, orchestratorWidth: state.orchestratorWidth, wide: s.name === 'session', nav: navDefs(t).map(item), foot: footDefs(t).map(item), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), notices: presentNotices(state, store, now, tz), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
 }
 
 /** 行の ctx。量があるときだけ持たせる。 */

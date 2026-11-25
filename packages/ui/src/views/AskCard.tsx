@@ -45,6 +45,7 @@ export function AskCard(props: { row: AskCardModel; onAnswer: (askId: string, ke
       <div className="pchat-ask-head"><span className="pchat-dot" data-tone="waiting" aria-hidden="true" />{row.title}</div>
       {row.header && <div className="pchat-ask-header">{row.header}</div>}
       {row.input && <pre className="pchat-ask-input">{row.input}</pre>}
+      {row.reason && row.reason !== row.input && <div className="pchat-ask-why">{row.reason}</div>}
       {done && <span ref={rec} className="pchat-ans pchat-in"><Icon name="check" />{row.answered}</span>}
       {body.mounted && (
         <div ref={body.ref} className="pchat-ask-body">
@@ -57,7 +58,7 @@ export function AskCard(props: { row: AskCardModel; onAnswer: (askId: string, ke
               {row.options.length > 0 && (
                 <div className="pchat-ask-acts" role="group" aria-label={t('peerChat.ask.answerLabel')}>
                   {row.options.map((o) => (
-                    <button key={o.key} type="button" className="pchat-opt" aria-pressed={row.multi ? picked.includes(o.key) : undefined} disabled={off}
+                    <button key={o.key} type="button" className="pchat-opt" aria-pressed={row.multi ? picked.includes(o.key) : undefined} data-danger={o.key === 'cancel' ? 'true' : undefined} disabled={off}
                       onClick={() => (row.multi ? toggle(o.key) : answer([o.key]))}>
                       <span className="pchat-opt-label">{row.multi || !/^\d+$/.test(o.key) ? '' : `${o.key}. `}{o.label}</span>
                       {o.description && <span className="pchat-opt-desc">{o.description}</span>}

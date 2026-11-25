@@ -39,6 +39,11 @@ describe('presentLocalAsk', () => {
     expect(presentLocalAsk(s, 's1', t(s))!.answered).toBe('Mac で 1 回だけ許可');
   });
 
+  it('札の理由（title）は reason に載る', () => {
+    const s = askUpdated(base(), 's1', ask({ title: 'テスト用のファイルを作るため' }));
+    expect(presentLocalAsk(s, 's1', t(s))!.reason).toBe('テスト用のファイルを作るため');
+  });
+
   it('帯は会話の id と札を持つ', () => {
     const s = askUpdated(base(), 's1', ask());
     expect(presentLocalAskBand(s, 's1', t(s))).toMatchObject({ sessionId: 's1', row: { askId: 'a1' } });
