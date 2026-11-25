@@ -164,13 +164,14 @@ export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: Confir
         title={codex ? t('confirm.switchAccount.codexTitle', { name }) : t('confirm.switchAccount.title', { name })}
         icon="warning"
         onClose={close}
-        footer={<>{cancel}<span className="spacer" /><button type="button" className="btn btn-primary" onClick={() => emit({ type: 'account.switchSession', sessionId: c.sessionId, accountId: c.accountId, working: c.working, confirmed: true, ...(codex ? { agent: 'codex' as const } : {}) })}>{t('confirm.switchAccount.action')}</button></>}
+        footer={<>{cancel}<span className="spacer" /><button type="button" className="btn btn-primary" onClick={() => emit({ type: 'account.switchSession', sessionId: c.sessionId, accountId: c.accountId, working: c.working, confirmed: true, ...(codex ? { agent: 'codex' as const } : {}), ...(c.peerAccount ? { peerAccount: c.peerAccount } : {}) })}>{t('confirm.switchAccount.action')}</button></>}
       >
         {codex ? <div className="muted">{slot(t('confirm.switchAccount.codexLead', { name: SLOT }), <b>{name}</b>)}</div> : (
           <>
             <div className="muted">{slot(t('confirm.switchAccount.lead', { name: SLOT }), <b>{name}</b>)}</div>
             {c.working && <div>{t('confirm.switchAccount.working')}</div>}
-            <div className="faint">{slot(t('confirm.switchAccount.default', { name: SLOT }), <b>{name}</b>)}</div>
+            {/* ほかの PC の会話は元の PC で付け替え、どちらの PC の既定も変えない。 */}
+            {!c.peerAccount && <div className="faint">{slot(t('confirm.switchAccount.default', { name: SLOT }), <b>{name}</b>)}</div>}
           </>
         )}
       </Dialog>

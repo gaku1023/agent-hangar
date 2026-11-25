@@ -18,6 +18,29 @@ const storeWith = (accounts: AccountsDto | null): Store => ({
 });
 const at = (screen: State['screen']): State => ({ ...initialState(), screen });
 
+describe('ほかの PC の会話の画面のアカウントの切り替え', () => {
+  const peerStore = (phase: 'live' | 'fallback' | null): Store => {
+    const base = storeWith(accountsFixture);
+    const p1 = { ...session('p1', 'claude-code'), live: null, lock: null, remoteOnly: true } as unknown as SessionDto;
+    const k1 = { ...base.sessions.k1, lock: null, remoteOnly: false } as unknown as SessionDto;
+    return { ...base, sessions: { ...base.sessions, k1, p1 }, peerChat: phase === null ? {} : { p1: { phase } as never } };
+  };
+  it('チャットで続けられる会話なら、会話を指したまま peer の印を付ける（切り替えは元の PC へ頼む）', () => {
+    const a = presentShell(at({ name: 'session', id: 'p1' }), peerStore('live'), NOW).account!;
+    expect(a.sessionId).toBe('p1');
+    expect(a.peer).toBe(true);
+  });
+  it('読み取り専用に落ちている（fallback）なら、会話を指さず、この PC のいまのアカウントの切り替えにする', () => {
+    const a = presentShell(at({ name: 'session', id: 'p1' }), peerStore('fallback'), NOW).account!;
+    expect(a.sessionId).toBeNull();
+    expect(a.peer).toBeFalsy();
+  });
+  it('この PC の会話には peer の印を付けない', () => {
+    const a = presentShell(at({ name: 'session', id: 'k1' }), peerStore('live'), NOW).account!;
+    expect(a.peer).toBeFalsy();
+  });
+});
+
 describe('ヘッダの面の Codex のアカウント（A7）', () => {
   it('ホームでは顔は Claude のいまのアカウントのまま、Codex の節はいまの Codex アカウントを指す', () => {
     const a = presentShell(initialState(), storeWith(codexAccountsFixture), NOW).account!;

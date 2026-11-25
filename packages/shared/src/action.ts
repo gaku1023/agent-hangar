@@ -386,7 +386,8 @@ export type UiAction =
   // add は名前だけで置き場を作り、続けてログインを始める。remove は一覧から外すだけで、置き場の中身は消さない。confirmed が無ければ先に確認を出す。
   | { type: 'accounts.load' }
   | { type: 'account.choose'; accountId: string; agent?: 'codex' }
-  | { type: 'account.switchSession'; sessionId: SessionId; accountId: string; working: boolean; confirmed?: boolean; agent?: 'codex' }
+  /** peerAccount は、ほかの PC の会話を付け替えるときのアカウントの名前（元の PC へ名前で頼む。peerChat の switch-account）。 */
+  | { type: 'account.switchSession'; sessionId: SessionId; accountId: string; working: boolean; confirmed?: boolean; agent?: 'codex'; peerAccount?: string }
   // 設定の「アカウントを足す…」のダイアログ。add は名前と場所（打ったまま。空ならサーバが名前から決める）で登録してログインを始める。
   // pick は「選ぶ…」で、開く場所を添える。preview は打つたびに足す前の確かめを読む（Store の accountPreview に入る）。
   // agent を付けると Codex のアカウントの操作になる（無ければ Claude Code）。login の method は Codex だけで、無ければブラウザで開く方法。

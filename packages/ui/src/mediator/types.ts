@@ -224,7 +224,7 @@ export type ConfirmRequest =
   // fromDialog は、未解決のプロジェクトのダイアログから来たこと。やめるとそのダイアログへ戻る。
   | { kind: 'unlinkProject'; projectId: string; fromDialog?: true }
   // 別のアカウントで再開する場面と、アカウントを一覧から外す場面。
-  | { kind: 'switchAccount'; sessionId: string; accountId: string; working: boolean; agent?: 'codex' }
+  | { kind: 'switchAccount'; sessionId: string; accountId: string; working: boolean; agent?: 'codex'; peerAccount?: string }
   | { kind: 'removeAccount'; accountId: string; agent?: 'codex' }
   // セッションを消す（本文をゴミ箱へ移し、同期しているほかの PC からも消す）前の確認（試作の 3A）。
   | { kind: 'deleteSession'; sessionId: string }

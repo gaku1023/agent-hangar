@@ -42,7 +42,7 @@ export type PeerChatParts = {
  */
 export function bootPeerChat(p: {
   home: Pick<HomeParts, 'db' | 'device' | 'settings' | 'home'>;
-  runs: { runs: Pick<RunManager, 'sendInput' | 'resumeWith'>; mux: RunsParts['mux'] };
+  runs: { runs: Pick<RunManager, 'sendInput' | 'resumeWith' | 'switchAccount'>; mux: RunsParts['mux']; accounts?: Pick<RunsParts['accounts'], 'store' | 'auth'> };
   delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub: { broadcast(ev: PeerChatHostEvent): void }; hookDecisions?: PeerChatHostDeps['hookDecisions'] };
   sync: Pick<SyncParts, 'peerLink'>;
   now?: () => number;
@@ -96,6 +96,7 @@ export function bootPeerChat(p: {
       await p.runs.runs.sendInput(tmuxName, sanitizeInput(text), true);
     },
     resume: (sessionId) => p.runs.runs.resumeWith(sessionId),
+    ...(p.runs.accounts ? { switchAccount: switchAccountOf(p.runs.runs, p.runs.accounts) } : {}),
     fetchBlob: (askId, from, n) => {
       const get = link()?.getBlob;
       return get ? get(askId, from, n) : Promise.reject(new Error('peer blobs are not available'));
@@ -127,5 +128,26 @@ export function bootPeerChat(p: {
       for (const off of offs.splice(0)) off();
       host.dispose();
     },
+  };
+}
+
+/**
+ * ほかの PC からの switch-account（peer/chat/hostTypes.ts の switchAccount）。
+ * アカウントの ID は PC ごとに違うので、名前で引く（別の PC への起動の accountByName と同じ決め方、boot/peer.ts）。
+ * 画面の切り替え（POST /api/sessions/:id/switch-account）と違い、この PC の既定のアカウントは変えない。
+ */
+export function switchAccountOf(runs: Pick<RunManager, 'switchAccount'>, accounts: Pick<RunsParts['accounts'], 'store' | 'auth'>): NonNullable<PeerChatHostDeps['switchAccount']> {
+  return async (sessionId, name) => {
+    const a = accounts.store.list().find((x) => x.name === name);
+    if (!a) return 'account-unavailable';
+    if (accounts.auth.get(a.id) === null) accounts.auth.ensureChecked(a);
+    if (accounts.auth.get(a.id)?.loggedIn === false) return 'account-unavailable';
+    try {
+      await runs.switchAccount(sessionId, a.id);
+      return 'ok';
+    } catch (e) {
+      console.error('[peer-chat] could not switch the account of a session', e instanceof Error ? e.constructor.name : typeof e);
+      return 'resume-failed';
+    }
   };
 }

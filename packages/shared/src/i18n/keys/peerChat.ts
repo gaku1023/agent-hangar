@@ -71,6 +71,7 @@ export const peerChatKeys = {
   'peerChat.refusal.tooLarge': [],
   'peerChat.refusal.rate': [],
   'peerChat.refusal.hostError': ['device'],
+  'peerChat.refusal.accountUnavailable': ['device'],
   'peerChat.refusal.tooMany': [],
   'peerChat.refusal.other': [],
 } as const satisfies MessageSpec;

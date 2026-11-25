@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { deriveEpochKeys, openPeerChatReply, peerChatExpiresAt, randomEpochKey, sealPeerChat, type LiveSessionDto, type PeerChatOp, type PeerChatReply, type PeerKeyring } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/write.ts';
-import { bootPeerChat, type PeerChatParts } from './peerChat.ts';
+import { bootPeerChat, switchAccountOf, type PeerChatParts } from './peerChat.ts';
 
 const ME = 'pc-a';
 const PEER = 'pc-b';
@@ -81,5 +81,30 @@ describe('bootPeerChat', () => {
     const { touchRow } = await import('../db/notify.ts');
     touchRow(db, 'sessions', session);
     expect(events.at(-1)).toMatchObject({ type: 'peerChat.queue', queued: [] });
+  });
+});
+
+describe('switchAccountOf（ほかの PC からの switch-account）', () => {
+  const store = { list: () => [{ id: 'acc-1', name: '会社' }, { id: 'acc-2', name: '個人' }] } as never;
+  const authOf = (loggedIn: Record<string, boolean | null>) => ({ get: (id: string) => (id in loggedIn ? { loggedIn: loggedIn[id] } : null), ensureChecked: () => {} }) as never;
+
+  it('名前でこの PC のアカウントを引き、その ID で付け替える', async () => {
+    const calls: [string, string][] = [];
+    const fn = switchAccountOf({ switchAccount: async (s, a) => { calls.push([s, a]); return {} as never; } }, { store, auth: authOf({ 'acc-2': true }) });
+    expect(await fn('s1', '個人')).toBe('ok');
+    expect(calls).toEqual([['s1', 'acc-2']]);
+  });
+
+  it('無い名前と、ログインしていないアカウントは account-unavailable で、付け替えない', async () => {
+    let called = 0;
+    const fn = switchAccountOf({ switchAccount: async () => { called++; return {} as never; } }, { store, auth: authOf({ 'acc-1': false }) });
+    expect(await fn('s1', '無い')).toBe('account-unavailable');
+    expect(await fn('s1', '会社')).toBe('account-unavailable');
+    expect(called).toBe(0);
+  });
+
+  it('付け替えが投げれば resume-failed', async () => {
+    const fn = switchAccountOf({ switchAccount: async () => { throw new Error('same account'); } }, { store, auth: authOf({ 'acc-1': true }) });
+    expect(await fn('s1', '会社')).toBe('resume-failed');
   });
 });
