@@ -830,7 +830,7 @@ describe('bootMobile', () => {
           const s = await bellSetup({ boot: { chat: chatHost(), home: { db: openDb(':memory:'), device: { id: 'pc-a', name: 'PC A' }, home: '/h', settings: { current } } } });
           cleanups.push(() => s.mobile.stop(), () => s.w.close());
           s.mobile.start();
-          expect((await feedOf(s)).caps?.chat).toEqual({ input });
+          expect((await feedOf(s)).caps?.chat).toEqual({ input, agents: ['claude-code', 'codex', 'opencode'] });
         }
       });
 

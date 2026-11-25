@@ -1,4 +1,4 @@
-import { AGENT_KINDS, addDays, clampText, isRemoteControlUrl, localDate, PRIMARY_ACCOUNT_ID, type Language, type LiveSessionDto, type MobileAccount, type MobileApproval, type MobileAgent, type MobileCaps, type MobileDoneItem, type MobileFeed, type MobileLiveItem, type MobileProject, type MobileReturnItem, type MobileUsage, type UsageDto } from '@agent-hangar/shared';
+import { AGENT_KINDS, addDays, PEER_CHAT_AGENT_PROVIDERS, clampText, isRemoteControlUrl, localDate, PRIMARY_ACCOUNT_ID, type Language, type LiveSessionDto, type MobileAccount, type MobileApproval, type MobileAgent, type MobileCaps, type MobileDoneItem, type MobileFeed, type MobileLiveItem, type MobileProject, type MobileReturnItem, type MobileUsage, type UsageDto } from '@agent-hangar/shared';
 import type { AgentKind } from '../agent/types.ts';
 import { waitingOf } from '../agent/waiting.ts';
 import type { Account } from '../config/accounts.ts';
@@ -100,7 +100,8 @@ export const FEED_CAPS: MobileCaps = { asks: true, images: true, effort: true, l
  * 古い PC は依頼の agent を断らずに Claude を起こしてしまうので、スマホは agents にそのエージェントのある PC にだけ、そのエージェントの依頼を出す。
  */
 export function feedCaps(opencodeEnabled: boolean, codexEnabled = false, chat: { input: boolean } | null = null): MobileCaps {
-  const base: MobileCaps = chat ? { ...FEED_CAPS, chat: { input: chat.input } } : FEED_CAPS;
+  // 会話の頁で受ける provider も添える（スマホは、ここに無い provider の行を頁に入れない）。
+  const base: MobileCaps = chat ? { ...FEED_CAPS, chat: { input: chat.input, agents: [...PEER_CHAT_AGENT_PROVIDERS] } } : FEED_CAPS;
   if (!opencodeEnabled && !codexEnabled) return base;
   return { ...base, agents: AGENT_KINDS.filter((k) => k === 'claude-code' || (k === 'opencode' && opencodeEnabled) || (k === 'codex' && codexEnabled)) };
 }

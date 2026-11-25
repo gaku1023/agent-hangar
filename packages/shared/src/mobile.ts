@@ -88,8 +88,9 @@ export type MobileProject = { id: string; name: string; lastUsedAt: number | nul
  * chat は、スマホの会話の頁（POST /m/chat）に答える PC の印である。Worker が版 13（PHONE_CHAT_MIN_WORKER_COMPAT）に届いたときだけ載せる。
  * input は設定「スマホからの送信を受ける」（phoneChatAccept）で、偽なら頁は読むだけにし、入力欄と中断を出さない。
  * 画像を送れる印は、PC が受けるようになってから chat に足す。
+ * chat.agents は、会話の頁で受ける provider（PEER_CHAT_AGENT_PROVIDERS）。無い古い PC は Claude Code の会話だけを受ける。
  */
-export type MobileCaps = { asks: boolean; images: boolean; effort: boolean; agents?: AgentKind[]; launchExtras?: boolean; chat?: { input: boolean } };
+export type MobileCaps = { asks: boolean; images: boolean; effort: boolean; agents?: AgentKind[]; launchExtras?: boolean; chat?: { input: boolean; agents?: string[] } };
 
 /** 1 台の PC が Worker に預ける受信箱の素。暗号化して置くので、Worker は中身を読めない。 */
 export type MobileFeed = {

@@ -2,11 +2,14 @@ import type { OpenTarget } from './push.ts';
 import type { InboxView, Row } from './inbox.ts';
 import type { ChatTarget } from './views/ChatScreen.tsx';
 
-/** 行の会話の頁を開けるか。caps.chat のある PC の Claude Code の会話だけ（opencode と Codex は今までどおり PC で答える）。 */
+/**
+ * 行の会話の頁を開けるか。caps.chat のある PC の Claude Code の会話と、caps.chat.agents にある provider（Codex、opencode）の会話。
+ * agents を名乗らない古い PC の Codex と opencode の行は、今までどおり PC で答える。
+ */
 export function chatTargetOf(view: InboxView, row: Row): ChatTarget | null {
-  if (row.agent !== null) return null;
   const chat = view.feeds.find((f) => f.deviceId === row.deviceId)?.caps?.chat;
   if (!chat) return null;
+  if (row.agent !== null && !(Array.isArray(chat.agents) && chat.agents.includes(row.agent))) return null;
   return { sessionId: row.sessionId, deviceId: row.deviceId, deviceName: row.deviceName, projectName: row.projectName, title: row.title, input: chat.input };
 }
 

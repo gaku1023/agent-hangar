@@ -428,6 +428,22 @@ type AskProps = {
   onAnswer: ItemProps['onAnswer'];
 };
 
+/**
+ * 選択肢の中身。番号の印は数字のキーにだけ付ける（Codex と opencode の once・deny などは印にしない）。
+ * 説明（description）は名前の下に小さく出す。
+ */
+function OptBody({ o }: { o: PeerChatAsk['options'][number] }): ReactNode {
+  return (
+    <>
+      {/^\d+$/.test(o.key) && <span className="k">{o.key}</span>}
+      <span className="ask-opt-lb">
+        <span>{o.label}</span>
+        {o.description && <span className="ask-opt-desc">{o.description}</span>}
+      </span>
+    </>
+  );
+}
+
 /** 許可と質問の札。選択肢のボタンは、答えると畳まれ、答えの 1 行が伸びて出る（collapseOut、growIn）。 */
 function AskCard({ item, ask, cls, style, input, hostOnly, unanswerable, busy, myLabel, onAnswer }: AskProps): ReactNode {
   const [picked, setPicked] = useState<string[]>([]);
@@ -450,6 +466,7 @@ function AskCard({ item, ask, cls, style, input, hostOnly, unanswerable, busy, m
       </div>
       {ask.header && <div className="ask-title">{ask.header}</div>}
       {ask.input && <div className="ask-in">{ask.input}</div>}
+      {ask.title && ask.title !== ask.input && <div className="ask-why">{ask.title}</div>}
       {!ask.input && item.text && ask.kind === 'question' && <div className="ask-in">{item.text}</div>}
       {opts.map((p) => (
         <Fold key={p.key} phase={p.phase}>
@@ -458,13 +475,11 @@ function AskCard({ item, ask, cls, style, input, hostOnly, unanswerable, busy, m
               {ask.options.map((o, n) =>
                 ask.multi ? (
                   <button key={o.key} type="button" className={`ask-opt${picked.includes(o.key) ? ' go' : ''}`} aria-pressed={picked.includes(o.key)} disabled={busy} onClick={() => setPicked((s) => (s.includes(o.key) ? s.filter((x) => x !== o.key) : [...s, o.key]))}>
-                    <span className="k">{o.key}</span>
-                    {o.label}
+                    <OptBody o={o} />
                   </button>
                 ) : (
-                  <button key={o.key} type="button" className={`ask-opt${n === 0 ? ' go' : ''}`} disabled={busy} onClick={() => void onAnswer(ask, [o.key], o.label)}>
-                    <span className="k">{o.key}</span>
-                    {o.label}
+                  <button key={o.key} type="button" className={`ask-opt${n === 0 ? ' go' : ''}`} data-danger={o.key === 'cancel' ? 'true' : undefined} disabled={busy} onClick={() => void onAnswer(ask, [o.key], o.label)}>
+                    <OptBody o={o} />
                   </button>
                 ),
               )}
@@ -486,8 +501,7 @@ function AskCard({ item, ask, cls, style, input, hostOnly, unanswerable, busy, m
             <div className="ask-opts ro">
               {ask.options.map((o) => (
                 <span key={o.key} className="ask-opt ro">
-                  <span className="k">{o.key}</span>
-                  {o.label}
+                  <OptBody o={o} />
                 </span>
               ))}
               <p className="ask-host">{input && ask.answerable === false ? unanswerable : hostOnly}</p>

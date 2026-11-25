@@ -152,6 +152,36 @@ describe('ChatScreen', () => {
     expect(send).toBeEnabled();
   });
 
+  it('Codex の札は理由を命令の下に、説明を各選択肢の下に出し、文字のキーの印は出さず、中断は危険の色にする', async () => {
+    const f = fake(state([permission({
+      tool: 'Bash',
+      input: 'npm test -w packages/server',
+      title: 'テストの実行にネットワークへの接続が要ります。',
+      options: [
+        { key: 'once', label: '1 回だけ許可', description: 'この実行だけを許可します。' },
+        { key: 'session', label: 'この会話中のみ許可' },
+        { key: 'cancel', label: '許可せず中断', description: '実行せずに、作業を止めます。' },
+      ],
+    })]));
+    await show(f);
+    const why = await screen.findByText('テストの実行にネットワークへの接続が要ります。');
+    expect(why.className).toBe('ask-why');
+    expect(screen.getByText('この実行だけを許可します。').className).toBe('ask-opt-desc');
+    const once = screen.getByRole('button', { name: /1 回だけ許可/ });
+    expect(once.textContent).not.toContain('once');
+    expect(screen.getByRole('button', { name: /許可せず中断/ }).getAttribute('data-danger')).toBe('true');
+    expect(once.getAttribute('data-danger')).toBeNull();
+    await act(async () => fireEvent.click(once));
+    expect(f.ops.find((o) => o.t === 'answer')).toEqual({ t: 'answer', askId: 'k1', keys: ['once'] });
+  });
+
+  it('数字のキーの札は今までどおり番号の印を出し、理由が命令と同じなら重ねて出さない', async () => {
+    await show(fake(state([permission({ title: 'npm test' })])));
+    const yes = await screen.findByRole('button', { name: /はい/ });
+    expect(yes.querySelector('.k')?.textContent).toBe('1');
+    expect(screen.getAllByText('npm test')).toHaveLength(1);
+  });
+
   it('中断は作業中のときだけ出て、interrupt を送る', async () => {
     const f = fake(() => state([as('a1', 'x')], { status: 'busy' }));
     await show(f);

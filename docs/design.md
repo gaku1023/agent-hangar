@@ -10106,8 +10106,9 @@ waiting への変化だけは急ぎの書き込み（`isUrgentWrite`）にして
 クラウド同期の作り直し（E2E、互換の版 9）で、参加の秘密が無くなったので、スマホの接続と鍵も作り直した（「スマホの接続」「暗号の鍵と AAD」「スマホの解除」「互換の版 9」）。
 試験的の扱いをやめ、会話の頁（互換の版 13）と、PC の設定の目次の節「スマホ」を足した。
 スマホの画面は自分の Worker が配る小さな PWA（`packages/mobile`、React と Vite）で、PC の受信箱をスマホ向けに見せる。
-Claude Code の会話は、スマホの会話の頁で続きを読み、文を送り、許可と質問の札に答え、作業中のターンを中断できる（「会話の頁」）。
-opencode と Codex の会話、互換の版 13 に届かない PC や Worker の会話は、今までどおり Claude の Remote Control（`claude --remote-control`）で開くか、PC で答える。
+Claude Code、Codex、opencode の会話は、スマホの会話の頁で続きを読み、文を送り、許可と質問の札に答え、作業中のターンを中断できる（「会話の頁」）。
+Codex と opencode は、PC が `caps.chat.agents` でその provider を受けると名乗るときだけである。
+名乗らない古い PC の Codex と opencode の会話、互換の版 13 に届かない PC や Worker の会話は、今までどおり Claude の Remote Control（`claude --remote-control`）で開くか、PC で答える。
 スマホから会話の状態は変えない（Done や Paused にする操作は無い）。
 
 **範囲。**
@@ -10841,9 +10842,10 @@ PC の設定「スマホから会話に入力する」（`Settings.phoneChatAcce
 それでも切り替えを置くのは、PC どうしは切、スマホは入、のように分けたい人がいるからである。
 
 古い組み合わせ。
-PC は、Worker が名乗る版が `PHONE_CHAT_MIN_WORKER_COMPAT`（13）に届いたときだけ、受信箱の素の `caps` に `chat: { input }` を載せる。
+PC は、Worker が名乗る版が `PHONE_CHAT_MIN_WORKER_COMPAT`（13）に届いたときだけ、受信箱の素の `caps` に `chat: { input, agents }` を載せる。
+`agents` は宿主が会話の頁で受ける provider（`PEER_CHAT_AGENT_PROVIDERS`）で、PC どうしの `DeviceStatus.peer_chat_agents` と同じ一覧である。素は封じてあり、Worker と Durable Object は読まないので、クラウドの側は変えない。
 `input` は設定「スマホからの送信を受ける」で、設定を替えると素を組み直す（`config/settingsUpdate.ts`）。
-スマホは `caps.chat` のある PC の Claude Code の会話にだけ会話の頁を出し、ほかは今までどおり Remote Control を開く。
+スマホは `caps.chat` のある PC の Claude Code の会話と、`caps.chat.agents` にある provider の会話に会話の頁を出す。`agents` の無い古い PC の Codex と opencode の会話は、今までどおり PC で答える。
 `input` が偽なら、頁は読むだけにし、入力欄も中断も出さない。
 版 12 までの Worker は `/m/chat` を 404 で返す。
 
@@ -10864,7 +10866,7 @@ PC はスマホの通知（`PhoneNotice`）に、送った PC の ID（`deviceId
 PC が決まらないとき、読めなかったときは、頁を開かずに受信箱のその行に印だけを付ける（今までの振る舞い）。
 
 スマホの画面（`packages/mobile`）。
-入力待ちの札のうち、`caps.chat` のある PC の Claude Code の札だけが、リンクでなく押せる箱になり、押すと会話の頁が右から入る（設定の頁と同じ横の動き）。
+入力待ちの札のうち、会話の頁を開ける札（上の「古い組み合わせ」の条件）が、リンクでなく押せる箱になり、右下に「開く ›」を出し、押すと会話の頁が右から入る（設定の頁と同じ横の動き）。
 頁は上に会話の続き、下に入力欄を置く。
 続きは `POST /m/chat` の tail を長く待って（最初は待たず、あとは 20 秒）、返ったらすぐ次を頼む。
 頼みの間は最短 2 秒で、画面が見えている間だけ読む。
@@ -10873,7 +10875,7 @@ PC が決まらないとき、読めなかったときは、頁を開かずに�
 送った文は入力欄から薄い行として並び、同じ文が会話の項目として届いたら濃い行に替わる。
 送れなかったら薄い行を外し、文を入力欄に戻して断りの理由を出す。
 許可と質問の札は選択肢のボタンで、答えると選択肢の列が畳まれ（`collapseOut`）、答えの 1 行が伸びて出る（`growIn`）。
-選択肢は縦に 1 列で、各行は「番号. label」を太字、その下に説明（`description`）を薄い色（`--ink-3`）で全文を折り返して出す。説明の無い選択肢は label だけである。複数選択で選んだ行は `--accent-soft` の地と `--accent` の枠で見せる。
+選択肢は縦に 1 列で、各行は番号の印と label、その下に説明（`description`）を薄い色（`--ink-3`）で全文を折り返して出す。説明の無い選択肢は label だけである。番号の印は数字のキーにだけ付ける（Codex と opencode の `once`・`deny` などのキーは印にしない）。キーが `cancel` の選択肢（許可せず中断）は `--error` の文字色にする。札の理由（`title`）は、命令（`input`）と違うときだけ命令の下に小さく出す（PC の札と同じ並び、2026-11-26 に利用者が試作の案 A を選んだ）。複数選択で選んだ行は `--accent-soft` の地と `--accent` の枠で見せる。
 選択肢の説明は、hook の入力（`AskUserQuestion` の `options[].description`）から運ぶ。画面から作った札には、hook の札の選択肢のうち label が一致するものにだけ重ねる（`peer/chat/hostView.ts` の `withDescriptions`）。札と画面の照合と askId は label だけを使い続け、説明では変わらない。長さは UTF-8 で 512 バイトまで（`PEER_CHAT_ASK_DESCRIPTION_MAX_BYTES`）。
 思考は、jsonl の `thinking` ブロックのうち本文があるものを、返答と同じ流れに `kind: 'thinking'` の項目として出す（上限は返答と同じ 8KiB。署名だけで本文が空のものは出さない）。画面は返答と同じ形（`pchat-ai`、Markdown）で描き、区別を付けない。古い受け手は知らない kind で状態ごと捨てるので、互換の備えは作らず、2 台を同時に入れ替える（2026-11-26）。
 `input` が偽の PC、または PC の画面でしか答えられない札（`answerable: false`）は、選択肢を押せない形で見せる。
@@ -10882,7 +10884,7 @@ PC が決まらないとき、読めなかったときは、頁を開かずに�
 中断は、`input` が真で、会話が作業中のときだけ頁の右上に出す。
 通知から開いたときは、頁を最初に問いの位置まで送り、札を `riseIn` で軽く浮かせる。
 入力欄に焦点は移さない（iOS は通知から開いた直後の焦点でキーボードを出さないことが多く、機種で振る舞いが割れる）。
-スマホの受信箱が会話の頁を開くのは、今は `caps.chat` のある PC の Claude Code の会話の札だけである（`chatTarget.ts`）。Codex と opencode の札、`caps.chat` の無い PC の札は、今までどおり Remote Control を開くか、PC で答える。
+スマホの受信箱が会話の頁を開くかは `chatTarget.ts` が決める。`caps.chat` の無い PC の札と、`caps.chat.agents` に無い provider の札は、今までどおり Remote Control を開くか、PC で答える。
 
 **端末ローカルの表。**
 スマホ向けに、端末ローカルの表を 2 つ足し、そのうち `mobile_launches` には後の版で列を足した（版 31 と 33）。
