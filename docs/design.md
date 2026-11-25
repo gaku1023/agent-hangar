@@ -11166,7 +11166,9 @@ AI に「日本語で書き直して」と頼むと、その指摘と書き直�
   - 文は「英語の返答を日本語で見る」の 1 行だけ。plamo-translate が無いときは、薄い欄に `uv tool install plamo-translate` を添え、主ボタンは「エージェントで導入…」（tmux と claude があるとき。`translate.install` が、入れて入にしてよいかを聞く依頼と、入れるコマンドの引用を入れた新しいセッションのダイアログを開く。すゝめの `setupGuide.launch` と同じ作り）か、無ければ「コマンドをコピー」にする。あるときは主ボタン「有効にする」で `translateEnglish` を入にする。控えめなボタン「使わない」は `translateHintDeclined` を立てる。
   - サーバの準備の確かめ（`createReadiness`）は、`translate: { installed }` を返す。探すのは `translate/plamo.ts` の `findPlamoTranslate`（`~/.local/bin`、PATH、既知の置き場）で、Windows は見つかっても偽にする。
   - `docs/setup-guide.md` の 3d にも、macOS と Linux で plamo-translate を入れて翻訳を入にするかを聞く項を足した（初回のモデルの取得は約 5.8GB。入にするのは MCP の `update_settings`）。
-- 画面（`views/translateMsg.tsx`、2026-11-25 の試作の A）：返答と思考の 1 通ごとに、待つ間は文字の上に薄い光を流し、届いたら高さを滑らせて（`resizeFrom`）中身を薄く入れ替える（`fadeIn`）。右上の翻訳のアイコンで、その 1 通だけ原文に戻す。原文に戻したかは行の開閉と同じ置き場（part `orig`）に持つ。`useOpen` は使わない。検索や会話を開いたときの跳び先（revealed）で開いた扱いになり、最新の返答が原文のまま出てしまうからである。
+- 画面（`views/translateMsg.tsx`、2026-11-25 の試作の A）：返答と思考の 1 通ごとに、待つ間は文字の上に薄い光を流し、届いたら高さを滑らせて（`resizeFrom`）中身を薄く入れ替える（`fadeIn`）。右上の翻訳のアイコンで、その 1 通だけ原文に戻す。
+  思考は数が多く、返答の翻訳の順番を食うので、自動では訳さず原文のまま出す。Clamp の「すべて表示」で開いたとき（part `msg`）に訳しに行く。畳まれない短い思考は、翻訳のアイコンを「訳す」状態（`aria-pressed` が false）で出し、押したら訳す（押したかは part `go`）。訳が届いてからの動きは返答と同じで、覚えている訳があれば最初から訳文で出す。
+  返答（`.msg-assistant`）と思考（`.msg-thinking`）の幅は `min(100%, 62em)` にした（日本語で約 60 字）。2026-10-01 に決めた 76ch は英語の読みやすさだけで決めた値で、`ch` は半角 1 字なので日本語は約 38 字で折り返し、広い窓で左半分しか使わなかったためである。利用者の吹き出しは 80ch のまま。原文に戻したかは行の開閉と同じ置き場（part `orig`）に持つ。`useOpen` は使わない。検索や会話を開いたときの跳び先（revealed）で開いた扱いになり、最新の返答が原文のまま出てしまうからである。
 
 ## 決めた前提と未決事項
 
