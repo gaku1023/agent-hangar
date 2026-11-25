@@ -42,6 +42,15 @@ URL はジャーナルには出ません。
 `hangar service install --ephemeral` にすると、データの置き場を再起動で消える領域（`/run` 以下）にします。
 使い終えたら、機械ごと消す前に `hangar cloud leave` で参加を外してください（外さずに消した機械は、ほかの PC から `hangar cloud revoke <id>` で解除します。id は `hangar cloud devices` で見ます）。
 
+### Windows の WSL2 で動かすとき
+
+先に、ディストリビューションの `/etc/wsl.conf` で systemd を有効にします（`[boot]` に `systemd=true`）。
+
+WSL2 は、Windows 側で `wsl` のプロセスが 1 つも無くなると、約 1 分で VM ごと止まります。
+常駐のユニットを入れていても止まり、止まっている間はサーバーも会話も動きません。
+次に `wsl` を起こすと、linger によってサーバーはログインなしで戻ります。
+止めずに置くには、`wsl -d <ディストリビューション名> --exec sleep infinity` のように、`wsl` のプロセスを Windows 側に 1 つ残してください（ログオン時に動くタスクにしておくなど）。
+
 ## 3. エージェントを入れてログインする
 
 使うものだけでかまいません。ログインは、その利用者として一度やります。
@@ -83,9 +92,12 @@ Hangar 側では、設定の「Enable opencode」を入れます（`opencodeEnab
 
 ## 4. 動くか確かめる
 
-作業のフォルダで 1 本だけ回します。
+作業のフォルダをプロジェクトに登録してから、そこで 1 本だけ回します。
+登録していないフォルダで `hangar run` を打つと、プロジェクトが見つからないと断られます。
 
 ```sh
+mkdir -p ~/work
+hangar project add ~/work
 cd ~/work
 hangar run --agent claude-code "reply with just: pong"
 ```
@@ -125,4 +137,10 @@ Debian 12（arm64、root 以外、Docker 上の systemd）で、次を実物で�
 - ユニットの再起動後も会話が残ること（利用者のユニット、system、ephemeral、root の拒否）。
 - Claude Code、Codex、opencode の 3 つで 1 ターンが返ること。
 
-未確認：x64 の実機、実物のクラウドへの参加、機械の再起動後の再開、実際のタグでのリリース。
+Windows の WSL2 の Ubuntu 24.04（x64、root 以外）で、試しの版の Release から次を確かめています。
+
+- `install.sh` で入れる、`hangar service install` で常駐させる。
+- `wsl --shutdown` のあと、ログインなしでサーバーが戻ること。
+- opencode で 1 ターンが返り、サーバーの再起動のあとも会話が残って続きが返ること。
+
+未確認：実物のクラウドへの参加、WSL 以外の機械の再起動後の再開。
