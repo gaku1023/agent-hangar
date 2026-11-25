@@ -5,6 +5,7 @@ import { wakePaused } from './sessions/wakePaused.ts';
 import { ScheduleRunner } from './schedule/runner.ts';
 import path from 'node:path';
 import { createFtsTailBackfill } from './search/ftsTailBackfill.ts';
+import { createContextBackfill } from './indexer/contextBackfill.ts';
 import { fileURLToPath } from 'node:url';
 import { CLOSE_DEADLINE_MS, STOP_WATCHDOG_MS } from './boot/budget.ts';
 import { bootDelivery } from './boot/delivery.ts';
@@ -239,6 +240,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 版 66 より前の索引の行へ、末尾の区切りを背面で少しずつ足す（search/ftsTailBackfill.ts）。
   const ftsTail = createFtsTailBackfill(home.db, { onError: (e) => { console.error('[index] fts tail backfill failed', e instanceof Error ? e.constructor.name : typeof e); } });
   ftsTail.start();
+  // 版 72 より前に入った会話の文脈の量を、本文の末尾から背面で一度だけ埋める（indexer/contextBackfill.ts）。
+  const contextFill = createContextBackfill(home.db, { onError: (e) => { console.error('[index] context backfill failed', e instanceof Error ? e.constructor.name : typeof e); } });
+  contextFill.start();
   summary.startAutoDone();
   // 使っていない LM Studio のモデルを外す見張り（provider/opencode/localModels/idleUnload.ts）。
   const idleUnload = new IdleUnloadWatch({
@@ -286,6 +290,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       runs.stopParkTimer();
       summary.stopAutoDone();
       ftsTail.stop();
+      contextFill.stop();
       idleUnload.stop();
       runs.stopPresence();
       sync.stopTimers();

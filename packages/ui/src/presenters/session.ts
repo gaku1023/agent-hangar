@@ -1,3 +1,4 @@
+import { contextGaugeOf, type ContextGauge } from './contextGauge.ts';
 import { resumeHereOf } from './resumeHere.ts';
 import { agentOfSession } from './agentIcon.ts';
 import { asideOf } from '../lib/aside.ts';
@@ -131,6 +132,8 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   transcriptBand: { when: string } | null;
   /** ほかの PC から来た文の預かりの帯と、渡した直後の札（presenters/peerOrigin.ts）。Claude の枠にだけ出す。無ければ null か無し。 */
   peerOrigin?: PeerOriginProps | null;
+  /** 今の context の量（状態の行の右端の label）。量が無ければ無し。 */
+  ctx?: ContextGauge | null;
   /** 現在の札（右の欄の上）。生きた run があるときだけ。 */
   strip: NowCardProps | null;
   /** 現在の札の「同じファイルを編集中」の 1 節（presenters/overlap.ts）。重なりが無ければ null。 */
@@ -669,7 +672,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     spawnedFrom: spawnedFromOf(store, s, t), spawned: spawnedChildrenOf(store, id, t),
     oneLiner: s.summary?.oneLiner ? s.summary.oneLiner : null, hasTranscript: s.hasTranscript,
     items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: olderLeft, hasNewer: slice ? slice.nextSeq !== null : false, notFound: false,
-    strip, overlap: alive ? presentOverlap(store, id, now) : null, lead, badges: presentSessionBadges(s, now, t),
+    ctx: contextGaugeOf(s.stats, store.settings ?? {}), strip, overlap: alive ? presentOverlap(store, id, now) : null, lead, badges: presentSessionBadges(s, now, t),
     statusPick: gone ? null : { value: s.state?.status ?? 'active', ...statusMark(t, s.state, s.stats, s.summary, s.lastActivityAt) },
     // git の行は (i) の終わりに足す（ブランチ、worktree、作業ツリーの未コミット、このセッションの変更）。
     details: [...presentDetails(s, run, account, t, liveOf(store, s)?.address ?? null), ...gitDetailRows(t, store.git, id, store.sessions, store.gitChanges[id])],

@@ -67,6 +67,8 @@ type Acc = {
   userTurns: number; input: number; output: number;
   /** 記録ごとの費用の和と、最後の文脈の量（RecordFacts.costUsd、contextTokens）。持たない束では undefined のまま。 */
   cost?: number; contextTokens?: number;
+  /** 主線の最後の記録の文脈の量とそのモデル。session_stats.context_tokens と context_model に書く（statusline が無い会話の表示用）。 */
+  recordContext?: number; recordContextModel?: string;
   /** 記録が持つモデルの文脈の長さ（RecordFacts.contextSize）。contextSizeOf が引けないときの代わりに使う。 */
   contextSize?: number;
   /** 束にモデルの切り替え（RecordFacts.modelSelected）があった。 */
@@ -251,7 +253,11 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
       const entry = entrypointKind(f.entrypoint);
       if (entry !== null) acc.entry[entry] = true;
       if (f.costUsd !== undefined) acc.cost = (acc.cost ?? 0) + f.costUsd;
-      if (f.contextTokens !== undefined) acc.contextTokens = f.contextTokens;
+      // Claude の文脈の量は statusline が live_stats に書くので、そこへは渡さない（記録の値は session_stats だけに書く）。
+      if (f.contextTokens !== undefined) {
+        if (b.agentId === null) { acc.recordContext = f.contextTokens; acc.recordContextModel = f.model ?? acc.recordContextModel; }
+        if (b.agent !== 'claude-code') acc.contextTokens = f.contextTokens;
+      }
       if (f.contextSize !== undefined) acc.contextSize = f.contextSize;
       if (f.usage) {
         acc.input += f.usage.input; acc.output += f.usage.output;
@@ -385,12 +391,13 @@ function writeSessionStats(db: Db, sessionId: string, acc: Acc, reset: boolean):
   const st = stmt(db, 'select * from session_stats where session_id = ?').get(sessionId) as Record<string, unknown> | undefined;
   const base = reset || !st ? { turns: 0, input_tokens: 0, output_tokens: 0 } : { turns: st.turns as number, input_tokens: st.input_tokens as number, output_tokens: st.output_tokens as number };
   const headless = nextHeadless((st?.headless as number | null | undefined) ?? null, acc.entry, reset || !st);
-  stmt(db, `insert into session_stats (session_id, turns, model, effort, pr_url, input_tokens, output_tokens, first_ts, last_ts, last_prompt, last_turn_ts, headless) values (?,?,?,?,?,?,?,?,?,?,?,?)
-    on conflict(session_id) do update set turns = excluded.turns, model = excluded.model, effort = excluded.effort, pr_url = excluded.pr_url, input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens, first_ts = excluded.first_ts, last_ts = excluded.last_ts, last_prompt = excluded.last_prompt, last_turn_ts = excluded.last_turn_ts, headless = excluded.headless`)
+  stmt(db, `insert into session_stats (session_id, turns, model, effort, pr_url, input_tokens, output_tokens, first_ts, last_ts, last_prompt, last_turn_ts, headless, context_tokens, context_model) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    on conflict(session_id) do update set turns = excluded.turns, model = excluded.model, effort = excluded.effort, pr_url = excluded.pr_url, input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens, first_ts = excluded.first_ts, last_ts = excluded.last_ts, last_prompt = excluded.last_prompt, last_turn_ts = excluded.last_turn_ts, headless = excluded.headless, context_tokens = excluded.context_tokens, context_model = excluded.context_model`)
     .run(sessionId, base.turns + acc.userTurns, acc.model ?? (reset ? null : st?.model ?? null), acc.effort ?? (reset ? null : st?.effort ?? null), acc.prUrl ?? (reset ? null : st?.pr_url ?? null),
       base.input_tokens + acc.input, base.output_tokens + acc.output,
       acc.firstTs ?? (reset ? null : st?.first_ts ?? null), acc.lastTs ?? (reset ? null : st?.last_ts ?? null),
       acc.lastPrompt ?? (reset ? null : st?.last_prompt ?? null),
-      acc.lastTurnTs ?? (reset ? null : st?.last_turn_ts ?? null), headless);
+      acc.lastTurnTs ?? (reset ? null : st?.last_turn_ts ?? null), headless,
+      acc.recordContext ?? (reset ? null : st?.context_tokens ?? null), acc.recordContext !== undefined ? acc.recordContextModel ?? null : (reset ? null : st?.context_model ?? null));
   refreshFilesChanged(db, sessionId);
 }

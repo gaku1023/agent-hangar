@@ -1,5 +1,7 @@
 import { useEmit } from '../action/chain.tsx';
 import type { LeadCardProps } from '../presenters/session.ts';
+import type { ContextGauge } from '../presenters/contextGauge.ts';
+import { ContextLabel } from './primitives/ContextGauge.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 
@@ -11,7 +13,7 @@ import { useT } from './primitives/language.tsx';
  * 作成元（要約器とモデルと時刻）は行にせず、進捗の title で読む。
  * 要約も知らせも無ければ何も描かない（土台の要約は presenter が外している）。
  */
-export function SummaryCard(props: Pick<LeadCardProps, 'summary' | 'notice' | 'canRegenerate' | 'regenerate'> & { sessionId: string }) {
+export function SummaryCard(props: Pick<LeadCardProps, 'summary' | 'notice' | 'canRegenerate' | 'regenerate'> & { sessionId: string; ctx?: ContextGauge | null }) {
   const t = useT();
   const emit = useEmit();
   const { summary, notice } = props;
@@ -22,6 +24,7 @@ export function SummaryCard(props: Pick<LeadCardProps, 'summary' | 'notice' | 'c
       <div className="sc-head">
         <span className="sc-title">{title}</span>
         {summary && <span className="sc-progress" title={summary.sourceLine}>{summary.progress}</span>}
+        {props.ctx && <ContextLabel gauge={props.ctx} />}
       </div>
       {notice && <p className="sc-notice" data-kind={notice.kind} title={notice.title ?? undefined}>{notice.text}</p>}
       {summary && <p className="sc-body">{summary.body}</p>}

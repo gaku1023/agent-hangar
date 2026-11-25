@@ -62,7 +62,8 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, indexLabel: '3 セッション、2 プロジェクト', sessionCount: 3, projectCount: 2,
   tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', terminalOptions: [{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }], terminalDesc: '「ターミナルで開く」で使うアプリ。', terminalDescAlways: true, editor: editorProps(), commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: '/A/hangar cloud join <URL>', setupCloud: 'npm run hangar -- setup cloud' },
   summaryEngine: 'claude', summaryClaudeModel: 'haiku', 
-  summaryHourlyCap: 20, 
+  summaryHourlyCap: 20,
+  contextBounds: { warnK: 300, alertK: 400 },
   injection: { askStatusAtEnd: true, liveHints: true, remoteControl: true, defaultModel: null, full: presentInjection(translator('ja'), { askStatusAtEnd: true, liveHints: true, notifyUser: true }) },
   summarizerTest: null,
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
@@ -1670,5 +1671,27 @@ describe('設定の説明は見出しの横の ⓘ に畳む（lean-labels の�
     render(ui(at('summary')));
     expect(screen.queryByText('事後の要約を作成しません。')).toBeNull();
     expect(screen.getByText('Claude の使用量を消費します。')).toBeInTheDocument();
+  });
+});
+
+describe('context の量の色の境目（使用量の節）', () => {
+  it('黄と赤の境目を K 単位で出す', () => {
+    render(ui(at('usage', { contextBounds: { warnK: 300, alertK: 400 } })));
+    expect(screen.getByRole('spinbutton', { name: 'コンテキストの黄の閾値' })).toHaveValue(300);
+    expect(screen.getByRole('spinbutton', { name: 'コンテキストの赤の閾値' })).toHaveValue(400);
+  });
+  it('打ち終えたら、トークン数に直して保存する。範囲外は送らない', () => {
+    vi.useFakeTimers();
+    try {
+      const onAction = vi.fn();
+      render(ui(at('usage', { contextBounds: { warnK: 300, alertK: 400 } }), onAction));
+      fireEvent.change(screen.getByRole('spinbutton', { name: 'コンテキストの黄の閾値' }), { target: { value: '250' } });
+      act(() => { vi.advanceTimersByTime(1000); });
+      expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { contextWarnTokens: 250_000 } });
+      onAction.mockClear();
+      fireEvent.change(screen.getByRole('spinbutton', { name: 'コンテキストの赤の閾値' }), { target: { value: '0' } });
+      act(() => { vi.advanceTimersByTime(1000); });
+      expect(onAction).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
   });
 });

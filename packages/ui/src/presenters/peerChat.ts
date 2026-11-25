@@ -1,3 +1,4 @@
+import { contextGaugeOf, type ContextGauge } from './contextGauge.ts';
 import { stopReasonOf, type PeerChatCard, type PeerChatItem, type PeerChatReason, type PeerChatStatus, type SessionDto, type TranscriptEvent } from '@agent-hangar/shared';
 import type { Translate } from '@agent-hangar/shared';
 import type { Store } from '../store/store.ts';
@@ -32,6 +33,8 @@ export type PeerChatView = {
   device: string;
   status: PeerChatStatus | null;
   statusLabel: string;
+  /** 今の context の量（状態の隣の label）。無ければ無し。 */
+  ctx?: ContextGauge | null;
   /** 状態の点の色の種類（StatusDot と同じ向き）。 */
   tone: 'busy' | 'aside' | 'idle' | 'waiting' | 'ended';
   loading: boolean;
@@ -208,7 +211,7 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
   const hint = kind === 'queue' && slice.queued.length === 0 ? t(status === 'waiting' ? 'peerChat.composer.hintWaiting' : 'peerChat.composer.hintBusy') : kind === 'resume' ? t('peerChat.composer.hintStopped', { device }) : hostError ? t('peerChat.composer.hostError') : clockOff ? t('peerChat.composer.clock', { device }) : locked ? refusalText(t, 'refused-by-setting', device) : null;
   const statusLabel = offline ? t('peerChat.status.offline') : hostError ? t('peerChat.status.hostError') : clockOff ? t('peerChat.status.clock') : aside ? asideWord(t) : status ? t(STATUS_KEY[status]) : t('peerChat.log.loading');
   return {
-    sessionId, device, status, statusLabel,
+    sessionId, device, status, statusLabel, ctx: contextGaugeOf(s!.stats, store.settings ?? {}),
     tone: offline || hostError || clockOff || status === null ? 'ended' : aside ? 'aside' : TONE[status],
     loading: slice.phase === 'loading',
     rows,

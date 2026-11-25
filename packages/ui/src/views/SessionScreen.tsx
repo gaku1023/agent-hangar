@@ -175,7 +175,7 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
   };
   const reselectStatus = (status: NonNullable<typeof statusPick>['value']) => { if (status === 'paused') setStatus(status); };
   // 要約の札（S5）。書かれた要約か、作成中と失敗の知らせがあるときだけ描く（SummaryCard が自分で決める）。
-  const summaryCard = props.lead ? <SummaryCard sessionId={id} {...props.lead} /> : null;
+  const summaryCard = props.lead ? <SummaryCard sessionId={id} {...props.lead} ctx={props.ctx ?? null} /> : null;
   // 見出しの下の押せない理由の行など。大きな見出しの below と同じものを、ペインの見出しの下にも出す。
   // クラウドの Worker が古くて見張れず、ほかの PC の会話が読み取り専用のままのとき。直す入口を同じ行に置く。
   const workerLine = props.peerChat?.workerOutdated ? (
@@ -248,7 +248,7 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
         <div ref={(el) => { pane.ref.current = el; }} className="toc-slot-inner">
           {withStrip && <div className="toc-slot-head">{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}{toggle}</div>}
           {/* 現在の札はタブにもターミナルにもくっつけず、右の列の上に置く（中身はセッションのもので、タブを替えても変わらない）。 */}
-          {hasCard && props.strip && <NowCard sessionId={id} {...props.strip} overlap={props.overlap ?? null} git={props.git} />}
+          {hasCard && props.strip && <NowCard sessionId={id} {...props.strip} ctx={props.ctx ?? null} overlap={props.overlap ?? null} git={props.git} />}
           {/* 終わった画面の要約の札も、同じ場所（目次の上）に置き、目次といっしょに畳む。 */}
           {!hasCard && summaryCard}
           <TocPane>

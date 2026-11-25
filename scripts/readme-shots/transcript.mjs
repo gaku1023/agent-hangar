@@ -28,6 +28,8 @@ export class TranscriptWriter {
     this.parent = null;
     this.turn = 0;
     this.promptId = null;
+    /** 場面が決めた、今の context の量（トークン）。無ければ既定の小さな値。 */
+    this.contextTokens = null;
     fs.mkdirSync(path.dirname(file), { recursive: true });
     if (!fs.existsSync(file) && title) {
       this.#raw({ type: 'custom-title', customTitle: title, sessionId });
@@ -87,7 +89,7 @@ export class TranscriptWriter {
         content: [block],
         stop_reason: stop,
         stop_sequence: null,
-        usage: { input_tokens: 3, cache_creation_input_tokens: 1200, cache_read_input_tokens: 24000, output_tokens: 180 },
+        usage: { input_tokens: 3, cache_creation_input_tokens: 1200, cache_read_input_tokens: this.contextTokens ? this.contextTokens - 1383 : 24000, output_tokens: 180 },
       },
       requestId: 'req_' + crypto.randomBytes(10).toString('hex'),
     });

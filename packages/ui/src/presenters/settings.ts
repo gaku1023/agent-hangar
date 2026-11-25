@@ -1,5 +1,5 @@
 import { presentOpencodeProviders, type OpencodeProvidersProps } from './opencodeProviders.ts';
-import { eventTriggerOf, orchestratorOf, translateEnglishOf, type AgentKind, type CodexEffortOption, type CodexModelOption, type OpencodeModelOption, type OpencodeProviderOption, type OrchestratorSetting, peerChatAcceptOf, phoneChatAcceptOf, CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SharePreviewDto, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
+import { contextAlertTokensOf, contextWarnTokensOf, eventTriggerOf, orchestratorOf, translateEnglishOf, type AgentKind, type CodexEffortOption, type CodexModelOption, type OpencodeModelOption, type OpencodeProviderOption, type OrchestratorSetting, peerChatAcceptOf, phoneChatAcceptOf, CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SharePreviewDto, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
 import { canLaunchGuide } from './investigate.ts';
 import { presentNotifyRules, type NotifyRulesProps } from './notifyRules.ts';
 import type { SaveMark, State } from '../mediator/types.ts';
@@ -309,6 +309,8 @@ export type SettingsProps = {
   /** 要約に使う Claude のモデル。 */
   summaryClaudeModel: string;
   summaryHourlyCap: number;
+  /** context の量の色の境目（K 単位）。使用量の節で黄と赤の境目を決める。 */
+  contextBounds: { warnK: number; alertK: number };
   /** 連携の「hangar が起動する Claude Code に足すもの」。 */
   injection: InjectionSettingsProps;
   summarizerTest: SummarizerTestDto | null;
@@ -651,6 +653,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     summaryEngine, summaryClaudeModel: s?.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL,
     injection: { askStatusAtEnd: s?.askStatusAtEnd !== false, liveHints: s?.liveHints !== false, notifyUser: s?.notifyUser !== false, remoteControl: s?.remoteControl !== false, defaultModel: s?.defaultModel ?? null, full: presentInjection(t, { askStatusAtEnd: s?.askStatusAtEnd !== false, liveHints: s?.liveHints !== false, notifyUser: s?.notifyUser !== false }) },
     summaryHourlyCap: s?.summaryHourlyCap ?? 20,
+    contextBounds: { warnK: contextWarnTokensOf(s ?? {}) / 1000, alertK: contextAlertTokensOf(s ?? {}) / 1000 },
     summarizerTest: store.summarizerTest,
     statusline: store.statusline, usageAggregate: store.usageAggregate && { ...store.usageAggregate, projects: store.usageAggregate.projects.map((u) => { const p = u.projectId ? store.projects[u.projectId] : undefined; return p ? { ...u, name: projectDisplayName(p, t) } : u; }) },
     nodePath: s?.nodePath ?? '',

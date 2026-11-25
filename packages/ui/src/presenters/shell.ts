@@ -1,3 +1,4 @@
+import { contextGaugeOf, type ContextGauge } from './contextGauge.ts';
 import { asideOf } from '../lib/aside.ts';
 import { agentIconsOn, agentOfSession } from './agentIcon.ts';
 import { presentSessionMenu, type SessionMenuProps } from './sessionMenu.ts';
@@ -110,6 +111,8 @@ export type SideLiveRow = {
   rep?: string;
   /** この行が、別の PC で動く子（呼び出し元の下に入れ子になる）のとき、その PC の名前の札（案 3A）。ended は結び付きが終わったこと（線を破線にして灰色にする）。同じ PC の子と、相手の PC から見た子は持たない。 */
   peer?: { name: string; ended: boolean };
+  /** 今の context の量。状態の点のまわりの輪になる。量の無い行は持たない。 */
+  ctx?: ContextGauge;
   /** 子を持つ行だけが持つ。open は子の列を開いているか、dots は子孫ごとの状態の丸（畳んだときに名前の右へ並べる）。 */
   nest?: { open: boolean; dots: NestDot[] } };
 /** 「実行中」のグループ。key はプロジェクトの id で、未分類は空の文字列。waiting は入力待ちの行の数（畳んだ見出しに出す）。 */
@@ -271,14 +274,14 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
     if (lock) {
       const shown = quietLive(remoteLiveOf(lock), s.state?.status, s.woke);
       const reason = remoteReasonOf(lock, shown);
-      return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: asideOf(shown, remoteAsideOf(lock)) !== null, reason, ...waitedOf(remoteWaited(t, lock, shown, reason, now)), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, lockTitle: t(lock.stale ? 'session.lock.stale' : 'session.lock.running', { device: lock.deviceName }), ...(lock.stale ? { stale: true as const } : {}), ...(icons ? { agent: agentOfSession(store, s) } : {}), ...peerInOf(store, id, t), peer: { name: lock.deviceName, ended: lock.stale } };
+      return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: asideOf(shown, remoteAsideOf(lock)) !== null, reason, ...waitedOf(remoteWaited(t, lock, shown, reason, now)), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, lockTitle: t(lock.stale ? 'session.lock.stale' : 'session.lock.running', { device: lock.deviceName }), ...(lock.stale ? { stale: true as const } : {}), ...(icons ? { agent: agentOfSession(store, s) } : {}), ...peerInOf(store, id, t), peer: { name: lock.deviceName, ended: lock.stale }, ...ctxOf(store, s) };
     }
     const aside = asideOf(s.live, s.liveAside);
     // 点と「待ち N 分」は、入力待ちの数え方と同じ規則（shownLive）で決める。Done と Archived にした入力待ちは、行は残すが休みとして出す。
     // 停止の確認（stop.working）は本当の動きで決める。答えを待つ会話は、止めると問いが消える。
     const shown = quietLive(liveWithLimit(s.live, s.limit), s.state?.status, s.woke);
     const reason = shownReason(s, shown);
-    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, ...waitedOf(sideWaited(t, s, shown, reason, now)), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, ...(wokenFresh(state, id, now) ? { wake: true as const } : {}), overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null, ...(icons ? { agent: agentOfSession(store, s) } : {}), ...peerInOf(store, id, t), ...(s.spawnPeer?.child ? { peer: { name: s.spawnPeer.child, ended: s.spawnPeer.closed } } : {}) };
+    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, ...waitedOf(sideWaited(t, s, shown, reason, now)), current: id === current, menu: presentSessionMenu(store, s, t), unread: unreadOf(store, id)?.count ?? 0, ...(wokenFresh(state, id, now) ? { wake: true as const } : {}), overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null, ...(icons ? { agent: agentOfSession(store, s) } : {}), ...peerInOf(store, id, t), ...(s.spawnPeer?.child ? { peer: { name: s.spawnPeer.child, ended: s.spawnPeer.closed } } : {}), ...ctxOf(store, s) };
   };
   const folded = new Set(state.sidebarFolded);
   // 子が動いている起動元は、止まっていても薄い行として出す（子の列の根に要る）。起動元の連なりを上までたどる。
@@ -453,3 +456,9 @@ export function presentShell(state: State, store: Store, now: number, tz?: strin
   };
   return { approvals: presentDeleteApprovals(store, t), orchestrator: presentOrchestrator(store, t), orchNav: presentOrchestratorNav(store, t), history: state.history, sidebarCollapsed: state.sidebarCollapsed, sidebarWidth: state.sidebarWidth, orchestratorWidth: state.orchestratorWidth, wide: s.name === 'session', nav: navDefs(t).map(item), foot: footDefs(t).map(item), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), notices: presentNotices(state, store, now, tz), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
 }
+
+/** 行の ctx。量があるときだけ持たせる。 */
+const ctxOf = (store: Store, s: SessionDto): { ctx?: ContextGauge } => {
+  const g = contextGaugeOf(s.stats, store.settings ?? {});
+  return g ? { ctx: g } : {};
+};

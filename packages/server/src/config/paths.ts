@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isCodexInjection, orchestratorOf, voiceOf, type VoiceSetting, permissionPolicyOf, type PermissionPolicy, type OrchestratorSetting, type CodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isAutoDoneIdleDays, isIdleUnload, isLanguage, isLocalContext, isModelName, isOpencodeInjection, isSummaryEngine, newId, notifyPreferenceOf, type NotifyPreference, providerPrepsOf, terminalAppFor, type AutoDoneIdleDays, type ConfigApproval, isConfigKindsPatch, type ConfigKinds, type EditorSetting, type Language, type OpencodeInjection, type ProviderPrep, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
+import { isContextTokens, isCodexInjection, orchestratorOf, voiceOf, type VoiceSetting, permissionPolicyOf, type PermissionPolicy, type OrchestratorSetting, type CodexInjection, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isAutoDoneIdleDays, isIdleUnload, isLanguage, isLocalContext, isModelName, isOpencodeInjection, isSummaryEngine, newId, notifyPreferenceOf, type NotifyPreference, providerPrepsOf, terminalAppFor, type AutoDoneIdleDays, type ConfigApproval, isConfigKindsPatch, type ConfigKinds, type EditorSetting, type Language, type OpencodeInjection, type ProviderPrep, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
 import { isLoose } from '../platform/secure.ts';
 import { decideLanguage, osDisplayLanguage } from '../i18n/osLanguage.ts';
 import { migrateConfigKinds } from '../sync/config/kindMigration.ts';
@@ -158,6 +158,9 @@ export type Settings = {
   opencodeLocalContext?: number;
   /** 使っていないローカルのモデルを外すまでの分（IDLE_UNLOAD_CHOICES、0 は外さない）。 */
   opencodeIdleUnload?: number;
+  /** 文脈の量の色の境目（トークン）。黄と赤。項目が無いうちは既定（300000 と 400000）として読む。 */
+  contextWarnTokens?: number;
+  contextAlertTokens?: number;
   /** opencode の接続先ごとの準備のコマンド（起動前の準備）。この PC だけの設定で、同期しない。項目が無いうちは準備なしとして読む。読む側は providerPrepsOf を通す（null の項目は捨てる）。 */
   opencodeProviderPrep?: Record<string, ProviderPrep | null>;
   /** ほかの PC の画面からの送信（peer chat）を受けるか。この PC だけの設定で、同期しない。項目が無いうちは入りとして読む（peerChatAcceptOf）。 */
@@ -282,6 +285,7 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   for (const k of ['codexShareInstructions', 'codexShareMcp', 'opencodeShareInstructions', 'opencodeShareMcp'] as const) if (s[k] !== undefined && typeof s[k] !== 'boolean') delete s[k];
   if (s.opencodeLocalContext !== undefined && !isLocalContext(s.opencodeLocalContext)) delete s.opencodeLocalContext;
   if (s.opencodeIdleUnload !== undefined && !isIdleUnload(s.opencodeIdleUnload)) delete s.opencodeIdleUnload;
+  for (const k of ['contextWarnTokens', 'contextAlertTokens'] as const) if (s[k] !== undefined && !isContextTokens(s[k])) delete s[k];
   if (s.opencodeProviderPrep !== undefined) s.opencodeProviderPrep = providerPrepsOf(s.opencodeProviderPrep);
   if (s.peerChatAcceptFromPeers !== undefined && typeof s.peerChatAcceptFromPeers !== 'boolean') delete s.peerChatAcceptFromPeers;
   if (s.phoneChatAccept !== undefined && typeof s.phoneChatAccept !== 'boolean') delete s.phoneChatAccept;

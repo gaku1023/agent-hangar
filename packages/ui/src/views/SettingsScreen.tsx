@@ -34,6 +34,7 @@ import { UpdateSection } from './UpdateSection.tsx';
 import { SetupGuideCard } from './SetupGuideCard.tsx';
 import { SetRow } from './primitives/SetRow.tsx';
 import { Stepper } from './primitives/Stepper.tsx';
+import { ContextBounds } from './ContextBounds.tsx';
 import { Switch } from './primitives/Switch.tsx';
 import { InvestigateButton } from './InvestigateButton.tsx';
 import type { NotifyRulesProps } from '../presenters/notifyRules.ts';
@@ -705,6 +706,7 @@ export function SettingsScreen(props: SettingsProps) {
   const usage = (
     <>
       <section aria-label={cur.title}>
+        <ContextBounds warnK={props.contextBounds.warnK} alertK={props.contextBounds.alertK} />
         {props.usageAggregate === null && <div className="faint">{t('settings.info.usage.loading')}</div>}
         {props.usageAggregate && (
           <div className="grid2">

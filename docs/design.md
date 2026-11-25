@@ -556,6 +556,10 @@ Mediator の入力の型（`MediatedAction`）は表の kind を除いてある�
 - 時刻は相対表示（「3 分前」）を基本にし、ホバーで絶対時刻を出す。
 - 識別子、パス、時刻（04:28）、数だけの表示は等幅フォントで描く。数と仮名が混じる短い語（「12 分前」「1,222 件」「変更 5」）は本文の書体のまま、数字の幅だけをそろえる（`.num`）。
 - UI の一時状態（開いているタブ、分割、折りたたみ）は端末の localStorage に保存し、同期しない。
+- 会話ごとの今の context の量（`SessionStatsDto.contextTokens` と `contextSize`）は、`presenters/contextGauge.ts` の `contextGaugeOf` が段階（none・warn・alert）、輪の満ち具合、label（`448K/1000K`、窓が無ければ `448K`）に直す。境目は設定の `contextWarnTokens` と `contextAlertTokens`（既定 300K と 400K）で、窓がそれより小さいときは窓の 75% と 90%。置き場所は 4 つある。
+  - サイドバーの行：状態の点のまわりの輪（`ContextRing`）。段階で灰・黄・赤に替わり、満ち具合は `@property --p` の数の transition で伸びる。乗せると label が title で出る。別 PC の会話の行も同じ。量の無い行は点だけ。
+  - 会話の画面の状態の行の右端（`ContextLabel`、等幅の小さめの字で量の数字だけ太字）：この PC で動いている会話は現在の札の頭の行、止まった会話は要約の札の頭の行、別 PC の会話は枠の頭の状態の隣。opencode と Codex の会話は、現在の札の使用量の欄（`stripUsage`）がある間は欄を優先し、label を出さない。
+  - 設定の使用量の節に、黄と赤の境目を K 単位で入れる欄がある（打ち終えて 0.6 秒で保存する）。
 
 ## データモデル
 
@@ -1027,7 +1031,8 @@ create table session_stats (
   output_tokens integer not null default 0,
   first_ts integer, last_ts integer,
   last_prompt text,
-  last_turn_ts integer   -- 主線の発言と返答の時刻の最大（版 36）
+  last_turn_ts integer,  -- 主線の発言と返答の時刻の最大（版 36）
+  context_tokens integer, context_model text  -- 記録から出した文脈の量とそのモデル（版 72、下の節）
 );
 
 create table usage_snapshots (
@@ -2337,6 +2342,23 @@ Code Mode の `execute` は、中で呼んだ MCP の道具（`metadata.toolCall
 流れを別に開かないのは、serve 1 本に流れを 1 本にし、つなぎ直しを 1 か所に置くためである。
 契機は `session.step.ended`、`session.step.failed`、`session.text.ended`、`session.usage.updated`、`session.inbox.delivered`、`session.model.selected`、`session.execution.` の終わり（succeeded、failed、interrupted）と、つないだとき（つなぎ直しも）の `server.connected` で、続けて届いたものは 150 ミリ秒待って 1 回にまとめる。
 driver は、`materialize` で会話を作ったら載せて（`track`）すぐに読み、`release` では serve を止める前にもう一度読んでから外す。
+
+会話ごとの文脈の量と窓は、記録からも出す。
+statusline は動いている間しか届かないので、止まった会話、hangar の外で動かした会話、別の PC の会話の輪と数字は、記録から出した値で補う。
+Claude の記録は、返答（assistant）の `message.usage` から `contextTokens = input_tokens + cache_read_input_tokens + cache_creation_input_tokens + output_tokens` を付ける（statusline の台本と同じ 4 つの和）。
+サブエージェントの束（`agentId` がある束）の値では、本線を上書きしない。
+索引は主線の最後の値とそのときのモデルを、`session_stats` の `context_tokens` と `context_model` に書く。手元の本文（`applySessionFacts`）も、他端末の写し（`writeSessionStats`）も同じ口を通る。
+版 72 より前に入った会話は値が null のまま残るので、起動の後に背面で一度だけ（`indexer/contextBackfill.ts`）、値が null の Claude の会話（手元と他端末の写し）の本文を末尾から読んで埋め、変わった会話は名指しして画面へ知らせる。
+済んだ印は `settings_local` の `context_backfill_done` に覚え、値が見つからなかった会話は null のままにする。
+続きの束では最後の値で置き換え、値を持たない束は前の値を残し、作り直し（reset）では捨てて数え直す。
+Claude の記録の値は `session_live_stats` へは書かない（そこは statusline、opencode、Codex の持ち物である）。
+
+`SessionDto.stats` は次の順で決める。
+- `contextTokens`：`session_live_stats.context_used`、無ければ `session_stats.context_tokens`。
+- `contextSize`：`session_live_stats.context_size`、無ければ同じモデル（`[1m]` のような接尾辞も含めた前方一致）で statusline が最後に送った `context_size`、無ければ opts の `contextSizeOf` か `setContextSizeHook` の口でモデルから引いた値、どれも無ければ null。
+- `contextPercent`：上の 2 つから出す。窓が分からなければ null のまま。
+
+輪と数字の色の境目は、設定の `contextWarnTokens`（既定 300000、黄）と `contextAlertTokens`（既定 400000、赤）である。1000 から 1000 万までの整数だけを受ける。MCP の `update_settings` では、確認を経て変える。
 
 返答の費用と文脈の量は、事実（`RecordFacts` の `costUsd`、`contextTokens`）として持つ。
 書き手は、Claude が statusline から書くのと同じ `session_live_stats` に、モデル、文脈の量（最後の値）、費用（和）を書く。
