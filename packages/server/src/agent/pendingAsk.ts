@@ -213,6 +213,8 @@ export function toPeerChatAsk(ask: AgentPendingAsk, answers: AgentStoredAnswers)
     allowText: question.allowText,
   };
   if (ask.tool !== undefined) out.tool = ask.tool;
+  // Claude の質問の札と同じく、今の問いの文は input に載せる（手元の帯とホームの行はここから読む）。
+  if (question.text) out.input = question.text;
   if (step) out.step = step;
   if (question.header) out.header = clipBytes(question.header, PEER_CHAT_ASK_HEADER_MAX_BYTES);
   if (question.secret) out.secret = true;

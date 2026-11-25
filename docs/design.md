@@ -1300,6 +1300,8 @@ opencode の口（`provider/opencode/answer.ts`）は、serve の API に答え�
 
 選択肢の文言は、許可の種類ごとに provider の定数（`CODEX_CHOICE_TEXT`、`OPENCODE_PERMISSION_CHOICES`）に持つ。
 - Codex：1 回だけ許可、この会話中のみ許可、許可せず続行、許可せず中断。
+  「この会話中のみ許可」の説明は「同一の命令またはファイルへの再度の操作を、この会話中に限り確認なしで許可します。」である（acceptForSession は同じ命令、同じファイルにだけ効く）。
+  質問の札は、Claude と同じく、今の問いの文を `input` に載せる（手元の帯とホームの行がここから読む）。
 - opencode：1 回だけ許可、今後も常に許可、許可せず中断。
 - 真偽の問いは「はい」と「いいえ」（`AGENT_BOOLEAN_CHOICES`）の 2 つで、押すとそのまま答える。
 - 各選択肢に説明（`description`）を持たせ、見る側は label の下に出す。
@@ -1781,7 +1783,7 @@ hangar の外の会話は `track` されないので、行も状態も持たな�
 | 要求 | 写し |
 |---|---|
 | `item/commandExecution/requestApproval` | 許可。tool は `Bash`、input は命令、description は reason |
-| `item/fileChange/requestApproval` | 許可。tool は `Edit`、input は grantRoot、description は reason |
+| `item/fileChange/requestApproval` | 許可。tool は `Edit`、input は変更するファイルのパス（item/started の changes。複数なら行ごと）、無ければ grantRoot、description は reason |
 | `item/permissions/requestApproval` | 許可。tool は `Permissions`、input は network、書く場所、読む場所の行（無ければ cwd） |
 | `item/tool/requestUserInput` | 質問。最初の問いの文。AskUserQuestion の hook と同じ形（asked と answered）で流す |
 | `mcpServer/elicitation/request` | 質問。message |
