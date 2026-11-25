@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createEscState } from './escState.ts';
+import { createEscState, groundCut } from './escState.ts';
 
 describe('createEscState', () => {
   it('普通の文字と閉じたエスケープのあとは地の状態', () => {
@@ -48,5 +48,19 @@ describe('createEscState', () => {
     expect(s.ground()).toBe(false);
     s.feed('B');
     expect(s.ground()).toBe(true);
+  });
+});
+
+describe('groundCut', () => {
+  it('列の外で終われば全部、列の途中で終われば列の始まりの位置を返す', () => {
+    expect(groundCut('abc\x1b[1mdef')).toBe(10);
+    expect(groundCut('abc\x1b[1')).toBe(3);
+    expect(groundCut('ab\x1b]52;c;aGk=')).toBe(2);
+    expect(groundCut('ab\x1b')).toBe(2);
+    expect(groundCut('')).toBe(0);
+  });
+
+  it('途中の閉じた列は切らず、最後に開いた列の始まりで切る', () => {
+    expect(groundCut('\x1b[2Jx\x1b[3;4')).toBe(5);
   });
 });

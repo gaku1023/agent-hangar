@@ -22,6 +22,10 @@ const BULLETS = new Set(['⏺', '●', '•']);
 export const MIN_STREAM = 24;
 /** 頭が切れた返答で、見えている部分の列の長さの下限。返答の途中のどこからでも合いうるので、MIN_STREAM より厳しくする。 */
 export const MIN_CUT = 40;
+/** 札の重なった頭の 1 行だけが見えているとき、札より左で合わせる字数の下限。 */
+const MIN_PILL = 12;
+/** 画面の上の端に残った段落の終わりのかけらを、段落の終わりと合わせる字数の下限（空の行が続くことも条件にする）。 */
+const MIN_TAIL = 6;
 /** 画面で落ちたかけらとして飛ばしてよい長さ（返答の列の字数）。 */
 const SKIP_MAX = 120;
 /** 飛ばした先を探すときに合わせる字数。 */
@@ -59,21 +63,42 @@ function consume(line: string, r: string, pos: number, budget: number): { pos: n
   return { pos: j, skipped };
 }
 
-/** start の行から、返答の列の from 字目から読み始めて、読み切れたら最後の行を返す。 */
-function readFrom(lines: readonly string[] /* 行ごとの列（lineStreams） */, start: number, r: string, from = 0): number | null {
+/**
+ * start の行から、返答の列の from 字目から読み始める。
+ * 読み切れたら最後の行と done: true を返す。読み切る前に続かない行か画面の終わりに来たら、そこまでに読めた最後の行と読めた位置を返す。
+ */
+function readFrom(lines: readonly string[] /* 行ごとの列（lineStreams） */, start: number, r: string, from = 0): { end: number; pos: number; done: boolean } | null {
   const budget = Math.max(SKIP_MAX, Math.floor(r.length / 10));
   let pos = from;
   let skipped = 0;
+  let last: number | null = null;
   for (let k = start; k < lines.length; k++) {
     const s = lines[k]!;
     if (s === '') continue;
     const got = consume(s, r, pos, budget - skipped);
-    if (!got) return null;
+    if (!got) break;
     pos = got.pos;
     skipped += got.skipped;
-    if (pos >= r.length) return k;
+    last = k;
+    if (pos >= r.length) return { end: k, pos, done: true };
   }
-  return null;
+  return last === null ? null : { end: last, pos, done: false };
+}
+
+/** end の行の後ろで、返答がそれ以上見えないか（画面の終わり、または次の文字のある行が字下げの本文でない、か「Jump to bottom」の行）。 */
+function stopsAtEdge(lines: readonly string[], streams: readonly string[], end: number): boolean {
+  for (let k = end + 1; k < lines.length; k++) {
+    if (streams[k] === '') continue;
+    const line = lines[k]!;
+    return /Jump to bottom/.test(line) || !/^ {2}/.test(line);
+  }
+  return true;
+}
+
+/** 段落の頭になりうる行か。返答の頭（head）は印の行、続きの段落は空の行の次の字下げした行。 */
+function startsBlock(lines: readonly string[], k: number, head: boolean): boolean {
+  if (head) return startsReply(lines[k]!);
+  return /^ {2}\S/.test(lines[k]!) && (k === 0 || lines[k - 1]!.trim() === '');
 }
 
 /**
@@ -81,23 +106,61 @@ function readFrom(lines: readonly string[] /* 行ごとの列（lineStreams） *
  * 頭が画面の上に切れて、下の部分だけが見えているときは cut を真にする。
  * 見つからなければ null。
  */
-export function findReplyRange(lines: readonly string[], reply: string): { start: number; end: number; cut?: true } | null {
+/** 最後の行に重なった Claude Code の札（Jump to bottom）の桁の範囲。from から to の手前までが札。 */
+export type Keep = { from: number; to: number };
+export type ReplyRange = { start: number; end: number; cut?: true; cutEnd?: true; keep?: Keep };
+
+/** 行に重なった「Jump to bottom」の札の桁。無ければ null（札の行は英語なので、文字の位置と桁は同じ）。 */
+export function pillOf(line: string): Keep | null {
+  const at = line.indexOf('Jump to bottom');
+  if (at < 3) return null;
+  const arrow = line.indexOf('↓', at);
+  return { from: at - 1, to: arrow < 0 ? line.length : Math.min(line.length, arrow + 2) };
+}
+
+
+export function findReplyRange(lines: readonly string[], reply: string, opts: { head?: boolean } = {}): ReplyRange | null {
+  const head = opts.head ?? true;
   const r = replyStream(reply);
   if (r.length < MIN_STREAM) return null;
   const streams = lineStreams(lines);
+  let partial: ReplyRange | null = null;
   for (let k = lines.length - 1; k >= 0; k--) {
-    if (!startsReply(lines[k]!)) continue;
+    if (!startsBlock(lines, k, head)) continue;
     if (!streams[k]!.startsWith(r.slice(0, 1))) continue;
-    const end = readFrom(streams, k, r);
-    if (end !== null) return { start: k, end };
+    const got = readFrom(streams, k, r);
+    if (got?.done) return { start: k, end: got.end };
+    // 下が切れたもの（スクロールの途中で、終わりが画面の下か「Jump to bottom」の行に隠れた）。見えている頭の部分を返す。
+    // 続かなかった行が返答の続きらしい字下げの行なら、中身が食い違っている（描き直しで変わった）ので扱わない。画面の終わり、区切りの罫線、入力欄、「Jump to bottom」の行で止まったときだけにする。
+    if (got && !partial && got.pos >= MIN_CUT && stopsAtEdge(lines, streams, got.end)) {
+      partial = { start: k, end: got.end, cutEnd: true };
+      // すぐ下の行に「Jump to bottom」の札が重なっているなら、その行も範囲に入れ、札より左だけを書き換える（英語のかけらを残さない）。keep は札の左端の桁。
+      const next = lines[got.end + 1] ?? '';
+      const pill = pillOf(next);
+      if (pill && /^ {2,}\S/.test(next)) partial = { ...partial, end: got.end + 1, keep: pill };
+    }
+    // 頭の行そのものに札が重なっている（見えているのは頭の 1 行の左だけ）。札より左の文字が返答の頭と合えば、その 1 行を返す。
+    if (!partial) {
+      const pill = pillOf(lines[k]!);
+      const left = pill ? replyStream(Array.from(lines[k]!).slice(0, pill.from).join('')) : '';
+      if (pill && left.length >= MIN_PILL && r.startsWith(left) && stopsAtEdge(lines, streams, k)) partial = { start: k, end: k, cutEnd: true, keep: pill };
+    }
   }
-  // 頭が画面の上に切れたもの。画面のいちばん上の文字のある行が、返答の途中のどこかから終わりまで続いていれば、見えている範囲を返す。
-  const top = streams.findIndex((s) => s !== '');
-  if (top < 0 || startsReply(lines[top]!)) return null;
-  const first = streams[top]!;
-  for (let at = r.indexOf(first); at >= 0 && r.length - at >= MIN_CUT; at = r.indexOf(first, at + 1)) {
-    const end = readFrom(streams, top, r, at);
-    if (end !== null) return { start: top, end, cut: true };
+  if (partial) return partial;
+  // 頭が画面の上に切れたもの。上から数行（Claude Code が上に貼り付ける指示の行 ❯ は飛ばす）のどれかが、返答の途中から終わりまで続いていれば、見えている範囲を返す。
+  let tried = 0;
+  for (let top = 0; top < lines.length && tried < 1; top++) {
+    if (streams[top] === '' || lines[top]!.startsWith('❯')) continue;
+    tried++;
+    // 返答の頭の印の行なら、上の通しの照合で見つかっているはずなので扱わない。続きの段落の頭は、画面の 1 行目に来ると段落の頭と見分けがつかないので、ここでも試す。
+    if (head && startsReply(lines[top]!)) continue;
+    const first = streams[top]!;
+    for (let at = r.indexOf(first); at >= 0 && r.length - at >= MIN_CUT; at = r.indexOf(first, at + 1)) {
+      const got = readFrom(streams, top, r, at);
+      if (got?.done) return { start: top, end: got.end, cut: true };
+    }
+    // 画面のいちばん上に、段落の終わりの短いかけら（1 行）だけが残ったもの。英語のかけらを残さないよう、その 1 行を返す（訳は … になる）。
+    if (first.length >= MIN_TAIL && first.length < MIN_CUT && r.endsWith(first) && (lines[top + 1] ?? '').trim() === '') return { start: top, end: top, cut: true };
   }
   return null;
 }

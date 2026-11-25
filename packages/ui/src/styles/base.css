@@ -774,6 +774,10 @@ a:where(.btn) { color: inherit; }
 .term-tr-toggle[data-state='wait'] { cursor: default; animation: term-tr-wait var(--skel-period) ease-in-out infinite; }
 @keyframes term-tr-wait { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.9; } }
 @media (prefers-reduced-motion: reduce) { .term-tr-toggle[data-state='wait'] { animation: none; opacity: 0.5; } }
+/* 訳を待つ段落に重ねる光。会話の画面の訳を待つ文（.msg[data-translating]）と同じく、薄く暗い帯が左から右へ流れる。 */
+.term-tr-glow { pointer-events: none; background: linear-gradient(90deg, transparent 0 40%, color-mix(in srgb, var(--term-bg) 70%, transparent) 50%, transparent 60% 100%); background-size: 250% 100%; animation: term-tr-glow var(--skel-period) linear infinite; }
+@keyframes term-tr-glow { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+@media (prefers-reduced-motion: reduce) { .term-tr-glow { animation: none; background: color-mix(in srgb, var(--term-bg) 35%, transparent); } }
 .term-host[data-painted='false'] { opacity: 0; }
 .term-hint { padding: var(--u) calc(var(--u) * 3); background: var(--waiting); color: #fff; font-size: var(--fs-sm); }
 .term-status { position: absolute; right: calc(var(--u) * 2); bottom: calc(var(--u) * 2); font-size: var(--fs-xs); color: var(--term-fg); opacity: 0.7; }

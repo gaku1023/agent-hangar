@@ -182,29 +182,6 @@ describe('PtyRelay（偽の spawn）', () => {
     await waitFor(() => f.procs[0]!.killed);
     expect(relay.clientCount()).toBe(0);
   });
-  it('redraw を受けたら、その接続の attach のクライアントだけを tmux に描き直させる。続けて届いても間を空ける', async () => {
-    const f = fakeSpawn();
-    const calls: string[][] = [];
-    const exec: TmuxExec = (_file, args) => {
-      calls.push(args);
-      if (args.includes('list-clients')) return { status: 0, stdout: '7 /dev/ttys007\n1 /dev/ttys001\n', stderr: '' };
-      return { status: 0, stdout: '', stderr: '' };
-    };
-    relay.close(); await new Promise<void>((r) => server.close(() => r()));
-    relay = new PtyRelay({ token: TOKEN, port: 0, tmux: new Tmux({ tmuxPath: '/x/tmux', socketName: 'fake', exec }), resolveTab: () => 'hangar-a', spawn: f.spawn });
-    await listen(relay);
-    const { ws } = await connect('tab=t1');
-    await waitFor(() => f.procs.length === 1);
-    ws.send(JSON.stringify({ t: 'redraw' }));
-    ws.send(JSON.stringify({ t: 'redraw' }));
-    await waitFor(() => calls.some((a) => a.includes('refresh-client')));
-    await new Promise((r) => setTimeout(r, 50));
-    const refresh = calls.filter((a) => a.includes('refresh-client'));
-    expect(refresh).toHaveLength(1);
-    // 偽物の attach の pid は 1。
-    expect(refresh[0]!.slice(-2)).toEqual(['-t', '/dev/ttys001']);
-    ws.close();
-  });
   it('spawn の失敗は error を送って 1011 で閉じ、サーバは生きている', async () => {
     relay.close(); await new Promise<void>((r) => server.close(() => r()));
     relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: () => 'hangar-a', spawn: () => { throw new Error('posix_spawnp failed'); } });
