@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os, { type NetworkInterfaceInfo } from 'node:os';
 import path from 'node:path';
-import { DEVICE_OPENCODE_MODELS_MAX, orchestratorIdsOf, parseDeviceStatus, type DeviceAccountStatus, type DeviceOpencodeStatus, type DeviceSshStatus, type DeviceStatus, type RemoteShellKind, type OpencodeOptionsDto, type PeerDeviceStatus } from '@agent-hangar/shared';
+import { DEVICE_OPENCODE_MODELS_MAX, PEER_CHAT_AGENT_PROVIDERS, orchestratorIdsOf, parseDeviceStatus, type DeviceAccountStatus, type DeviceOpencodeStatus, type DeviceSshStatus, type DeviceStatus, type RemoteShellKind, type OpencodeOptionsDto, type PeerDeviceStatus } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import type { DeviceInfo } from './paths.ts';
@@ -84,6 +84,7 @@ export function collectDeviceStatus(s: StatusSources): DeviceStatus {
     ...(orchestratorIds.length > 0 ? { orchestrator_ids: orchestratorIds } : {}),
     ...(ssh ? { ssh } : {}),
     ...(tailnetIps.length > 0 ? { tailnet_ips: tailnetIps } : {}),
+    peer_chat_agents: [...PEER_CHAT_AGENT_PROVIDERS],
   };
 }
 

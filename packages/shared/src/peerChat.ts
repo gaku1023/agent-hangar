@@ -58,6 +58,14 @@ export type PeerChatAsk = {
   multi: boolean;
   allowText: boolean;
   answerable?: false;
+  /** 伏せる自由記述（Codex の isSecret）。見る側は入力を伏せ字にし、答えの記録には値を残さない。 */
+  secret?: true;
+  /** 問いの見出し（Codex の header、opencode の title）。 */
+  header?: string;
+  /** 数の欄。見る側も元の PC も min・max で確かめる。 */
+  textKind?: 'number' | 'integer';
+  min?: number;
+  max?: number;
   answered?: { by: PeerChatDevice; label: string; at: number };
   /**
    * 1 回の呼び出しに問いが複数ある質問の、今のタブ（index は 1 始まり、total は問いの数）。
@@ -334,6 +342,8 @@ export const PEER_CHAT_KEYS_MAX = 32;
 export const PEER_CHAT_KEY_MAX_CHARS = 64;
 /** files の問い合わせの長さ（文字数）。 */
 export const PEER_CHAT_QUERY_MAX_CHARS = 512;
+/** 札の見出し（header）の上限。選択肢の説明（description）と同じ 512 バイトで、越えたら欄ごと落とす。 */
+export const PEER_CHAT_ASK_HEADER_MAX_BYTES = 512;
 /** commands の答えに載せる候補の数と、説明 1 件の長さ（文字数）。スマホの / の候補と同じ。 */
 export const PEER_CHAT_COMMANDS_MAX = 200;
 export const PEER_CHAT_COMMAND_DESCRIPTION_MAX = 120;
@@ -493,6 +503,14 @@ function readAsk(v: unknown): PeerChatAsk | null {
   if (v.input !== undefined) out.input = v.input as string;
   if (v.answerable === false) out.answerable = false;
   if (v.replaces !== undefined) out.replaces = v.replaces as string;
+  // 足した欄は、形の違うものを欄ごと落とす（札は捨てない）。
+  if (v.secret === true) out.secret = true;
+  if (isStr(v.header) && v.header !== '' && byteLength(v.header) <= PEER_CHAT_ASK_HEADER_MAX_BYTES) out.header = v.header;
+  if (v.textKind === 'number' || v.textKind === 'integer') {
+    out.textKind = v.textKind;
+    if (typeof v.min === 'number' && Number.isFinite(v.min)) out.min = v.min;
+    if (typeof v.max === 'number' && Number.isFinite(v.max)) out.max = v.max;
+  }
   // タブの印は見せるためだけのもの。形の違うものは断らずに読み捨てる。
   const st = v.step;
   if (isObj(st) && Number.isInteger(st.index) && Number.isInteger(st.total) && (st.index as number) >= 1 && (st.index as number) <= (st.total as number) && (st.submit === undefined || st.submit === true)) {

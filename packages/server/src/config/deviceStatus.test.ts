@@ -21,7 +21,7 @@ describe('様子を組む', () => {
     const s = collectDeviceStatus(sources({ lanIps: () => ['192.168.0.9', '10.0.0.2'] }));
     expect(s).toEqual({
       accounts: [{ agent: 'claude-code', name: 'Main', logged_in: true }, { agent: 'codex', name: 'Work', logged_in: false }],
-      agents: ['claude-code', 'codex'], lan_ips: ['10.0.0.2', '192.168.0.9'], ssh_host_key: 'SHA256:abc', hangar_version: '1.2.3',
+      agents: ['claude-code', 'codex'], lan_ips: ['10.0.0.2', '192.168.0.9'], ssh_host_key: 'SHA256:abc', hangar_version: '1.2.3', peer_chat_agents: ['claude-code', 'codex', 'opencode'],
     });
   });
 
@@ -271,5 +271,9 @@ describe('SSH のシェルタブ向けの様子', () => {
     expect('ssh' in bare).toBe(false);
     expect('tailnet_ips' in bare).toBe(false);
     expect(JSON.stringify(s)).not.toMatch(/checked|time|at"/);
+  });
+
+  it('collectDeviceStatus は peer_chat_agents に host が受ける provider を載せる', () => {
+    expect(collectDeviceStatus(sources({})).peer_chat_agents).toEqual(['claude-code', 'codex', 'opencode']);
   });
 });
