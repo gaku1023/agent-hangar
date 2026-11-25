@@ -11,7 +11,10 @@ import {
   createTailCache,
   currentPendingAsk,
   dbTranscriptReader,
+  transcriptOlder,
   transcriptTail,
+  transcriptTurnCount,
+  transcriptTurns,
   type PeerPendingAsk,
   type TailDeps,
 } from './tail.ts';
@@ -475,5 +478,96 @@ describe('transcriptTail: 札の大きさと重複した行', () => {
     const lines = [u, asst(use('t1', 'Bash', { command: 'sleep 20' })), u];
     const r = transcriptTail('s', null, 200, deps(body(lines)));
     expect(r.items.map((i) => i.kind)).toEqual(['user']);
+  });
+});
+
+// ---- 古い分と目次 ----
+
+const bigText = (c: string): string => c.repeat(6000);
+
+describe('transcriptOlder', () => {
+  const lines = [user('q1'), asst(text('a1')), user('q2'), asst(text('a2')), user('q3'), asst(text('a3'))];
+  const ids = lines.map(uuidOf);
+
+  it('before の前の項目を古い順で返し、before は含めない', () => {
+    const r = transcriptOlder('s', { before: ids[4]! }, deps(body(lines)))!;
+    expect(r.items.map((i) => i.text)).toEqual(['q1', 'a1', 'q2', 'a2']);
+    expect(r.more).toBe(false);
+  });
+
+  it('予算に入らない古い分は落として more にする（新しい側から詰める）', () => {
+    const big = [user('q0'), ...Array.from({ length: 8 }, (_, i) => asst(text(bigText(String(i))))), user('last')];
+    const r = transcriptOlder('s', { before: uuidOf(big[9]!) }, deps(body(big)))!;
+    const size = Buffer.byteLength(JSON.stringify(r.items));
+    expect(size).toBeLessThanOrEqual(PEER_CHAT_TAIL_BYTE_BUDGET);
+    expect(r.more).toBe(true);
+    expect(r.items.at(-1)!.uuid).toBe(uuidOf(big[8]!));
+    expect(r.items.length).toBeLessThan(9);
+  });
+
+  it('before が先頭なら空で more なし。知らない uuid も空', () => {
+    expect(transcriptOlder('s', { before: ids[0]! }, deps(body(lines)))).toEqual({ items: [], more: false });
+    expect(transcriptOlder('s', { before: 'nope' }, deps(body(lines)))).toEqual({ items: [], more: false });
+    expect(transcriptOlder('s', { before: ids[1]! }, deps(null))).toEqual({ items: [], more: false });
+  });
+
+  it('from があれば、from から前向きに before の手前まで返す', () => {
+    const r = transcriptOlder('s', { before: ids[4]!, from: ids[2]! }, deps(body(lines)))!;
+    expect(r.items.map((i) => i.text)).toEqual(['q2', 'a2']);
+    expect(r.more).toBe(false);
+  });
+
+  it('from だけ（before が null）なら末尾まで。予算を超えたら後ろを落として more', () => {
+    const all = transcriptOlder('s', { before: null, from: ids[4]! }, deps(body(lines)))!;
+    expect(all.items.map((i) => i.text)).toEqual(['q3', 'a3']);
+    const big = [user('q0'), ...Array.from({ length: 8 }, (_, i) => asst(text(bigText(String(i)))))];
+    const r = transcriptOlder('s', { before: null, from: uuidOf(big[0]!) }, deps(body(big)))!;
+    expect(r.items[0]!.text).toBe('q0');
+    expect(r.more).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(r.items))).toBeLessThanOrEqual(PEER_CHAT_TAIL_BYTE_BUDGET);
+  });
+
+  it('結果待ちの道具より後ろは出さない（tail と同じ）', () => {
+    const l = [user('q'), asst(use('t1', 'Bash', { command: 'sleep' })), asst(text('after'))];
+    const r = transcriptOlder('s', { before: null, from: uuidOf(l[0]!) }, deps(body(l)))!;
+    expect(r.items.map((i) => i.kind)).toEqual(['user']);
+  });
+});
+
+describe('transcriptTurns / transcriptTurnCount', () => {
+  const lines = [user('first\nsecond line'), asst(use('t1', 'Bash', { command: 'ls' })), result('t1', 'x'), asst(use('t2', 'Read', { file_path: '/a' })), result('t2', 'x'), asst(text('done')), user('next'), asst(text('ok'))];
+
+  it('利用者の指示ごとの行を古い順で返す。text は 1 行目、tools は次の指示までの道具の数', () => {
+    const r = transcriptTurns('s', {}, deps(body(lines)));
+    expect(r.rows.map((x) => [x.uuid, x.text, x.tools])).toEqual([[uuidOf(lines[0]!), 'first', 2], [uuidOf(lines[6]!), 'next', 0]]);
+    expect(r.total).toBe(2);
+    expect(r.more).toBe(false);
+    expect(transcriptTurnCount('s', deps(body(lines)))).toBe(2);
+  });
+
+  it('before のターンより前だけを返す', () => {
+    const r = transcriptTurns('s', { before: uuidOf(lines[6]!) }, deps(body(lines)));
+    expect(r.rows.map((x) => x.text)).toEqual(['first']);
+    expect(r.total).toBe(2);
+  });
+
+  it('行の text は 200 バイトで切る', () => {
+    const r = transcriptTurns('s', {}, deps(body([user('あ'.repeat(500))])));
+    expect(Buffer.byteLength(r.rows[0]!.text)).toBeLessThanOrEqual(200);
+  });
+
+  it('多すぎれば新しい側から予算に詰め、古い行を落として more', () => {
+    const many = Array.from({ length: 500 }, (_, i) => user(`turn ${i} ${'x'.repeat(150)}`));
+    const r = transcriptTurns('s', {}, deps(body(many)));
+    expect(r.more).toBe(true);
+    expect(r.total).toBe(500);
+    expect(r.rows.at(-1)!.text.startsWith('turn 499')).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(r.rows))).toBeLessThanOrEqual(PEER_CHAT_TAIL_BYTE_BUDGET);
+    const older = transcriptTurns('s', { before: r.rows[0]!.uuid }, deps(body(many)));
+    expect(older.rows.at(-1)!.text.startsWith(`turn ${500 - r.rows.length - 1}`)).toBe(true);
+  });
+
+  it('本文が無ければ空', () => {
+    expect(transcriptTurns('s', {}, deps(null))).toEqual({ rows: [], total: 0, more: false });
   });
 });

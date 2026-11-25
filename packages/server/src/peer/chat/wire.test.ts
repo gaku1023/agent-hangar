@@ -32,6 +32,7 @@ beforeEach(async () => {
   attachPeerChatSocket(hub, {
     watchFromSocket: (socket, msg) => { socketOf.set(msg.viewer, socket); calls.push(`watch ${msg.sessionId} ${msg.viewer} ${String(msg.after)}`); },
     unwatch: (sessionId, viewer, socket) => { calls.push(`unwatch ${sessionId} ${viewer} ${socket === socketOf.get(viewer) ? 'own' : 'other'}`); },
+    readFromSocket: async (socket, msg) => { socketOf.set(msg.viewer, socket); calls.push(`read ${msg.sessionId} ${msg.viewer} ${msg.req} ${JSON.stringify(msg.op)}`); },
     dropSocket: (socket) => { calls.push(`drop ${[...socketOf].filter(([, s]) => s === socket).map(([v]) => v).join(',')}`); },
   });
   server = http.createServer();
@@ -55,6 +56,18 @@ describe('attachPeerChatSocket', () => {
     ws.send(JSON.stringify({ type: 'peerChat.unwatch', sessionId: 's1', viewer: 'tab-1' }));
     await until(() => calls.length === 3);
     expect(calls).toEqual(['watch s1 tab-1 undefined', 'watch s2 tab-1 u3', 'unwatch s1 tab-1 own']);
+  });
+
+  it('peerChat.read（older と turns）を見張りへ渡し、形の違う頼みは捨てる', async () => {
+    const ws = await connect();
+    ws.send(JSON.stringify({ type: 'peerChat.read', sessionId: 's1', viewer: 'tab-1', req: 'r1', op: { t: 'older', before: 'u3' } }));
+    ws.send(JSON.stringify({ type: 'peerChat.read', sessionId: 's1', viewer: 'tab-1', req: 'r2', op: { t: 'turns', before: 'u2' } }));
+    ws.send(JSON.stringify({ type: 'peerChat.read', sessionId: 's1', viewer: 'tab-1', req: 'r3', op: { t: 'send', text: 'x', images: [] } }));
+    ws.send(JSON.stringify({ type: 'peerChat.read', sessionId: 's1', viewer: 'tab-1', op: { t: 'turns' } }));
+    ws.send(JSON.stringify({ type: 'peerChat.read', sessionId: 's1', viewer: 'tab-1', req: 'r5', op: { t: 'older', before: null } }));
+    ws.send(JSON.stringify({ type: 'peerChat.unwatch', sessionId: 's1', viewer: 'tab-1' }));
+    await until(() => calls.length === 3);
+    expect(calls).toEqual(['read s1 tab-1 r1 {"t":"older","before":"u3"}', 'read s1 tab-1 r2 {"t":"turns","before":"u2"}', 'unwatch s1 tab-1 own']);
   });
 
   it('接続が切れたら、その接続で見始めた人を外す（画面を閉じたら見張りが止まる）', async () => {

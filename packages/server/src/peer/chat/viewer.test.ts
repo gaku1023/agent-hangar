@@ -151,6 +151,23 @@ beforeEach(async () => {
   clock.busy.current = () => viewer.inflight;
 });
 
+describe('ターンの数', () => {
+  it('state の turnCount を update に載せ、変わったときだけ流す（目次は頼み直されるまで送らない）', async () => {
+    answers.push(() => ok(state([item('u1')], { turnCount: 1 })));
+    const r = await viewer.open(SID, { viewer: 'v1' });
+    expect(r.ok && r.update.turnCount).toBe(1);
+    const n = events.length;
+    answers.push(() => ok(state([], { turnCount: 1 })));
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    expect(events.length).toBe(n);
+    answers.push(() => ok(state([], { turnCount: 2 })));
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    expect(events.length).toBe(n + 1);
+    expect(updates().at(-1)!.turnCount).toBe(2);
+    expect(asks.every((a) => a.req.op.t === 'tail')).toBe(true);
+  });
+});
+
 describe('見張りを始める（GET）', () => {
   it('手元の写しの最後の uuid から tail を頼み、返った状態を update にして返す', async () => {
     localCursor = 'local-9';
@@ -1013,6 +1030,44 @@ describe('ops', () => {
     await viewer.op(SID, { t: 'cancel', queueId: 'q1' });
     await viewer.op(SID, { t: 'interrupt' });
     expect(asks.map((a) => a.req.op)).toEqual([{ t: 'files', query: 'a' }, { t: 'answer', askId: 'A', keys: ['1'], text: 'x' }, { t: 'cancel', queueId: 'q1' }, { t: 'interrupt' }]);
+  });
+
+  it('older と turns の op をそのまま運び、答えの older と turns を返す', async () => {
+    const turns = { rows: [{ uuid: 'u1', at: 1, text: 'q', tools: 0 }], total: 1, more: false };
+    answers.push(() => ({ ok: true, older: { items: [item('u0')], more: true } }));
+    answers.push(() => ({ ok: true, turns }));
+    expect(await viewer.op(SID, { t: 'older', before: 'u1' })).toEqual({ ok: true, older: { items: [item('u0')], more: true } });
+    expect(await viewer.op(SID, { t: 'turns' })).toEqual({ ok: true, turns });
+    expect(asks.map((a) => a.req.op)).toEqual([{ t: 'older', before: 'u1' }, { t: 'turns' }]);
+  });
+
+  it('古い hangar が older と turns を知らず答えないときは、無いものとして ok で返し、しばらく頼み直さない', async () => {
+    answers.push(() => ({ status: 504 }));
+    expect(await viewer.op(SID, { t: 'turns' })).toEqual({ ok: true });
+    expect(asks).toHaveLength(1);
+    expect(await viewer.op(SID, { t: 'older', before: 'u1' })).toEqual({ ok: true });
+    expect(await viewer.op(SID, { t: 'turns' })).toEqual({ ok: true });
+    expect(asks).toHaveLength(1);
+    // 別の頼みは止めない。
+    answers.push(() => ({ ok: true, files: [] }));
+    expect(await viewer.op(SID, { t: 'files', query: '' })).toEqual({ ok: true, files: [] });
+    // しばらくたてば、また頼む。
+    await clock.advance(5 * 60_000 + 1);
+    answers.push(() => ({ ok: true, turns: { rows: [], total: 0, more: false } }));
+    expect(await viewer.op(SID, { t: 'turns' })).toEqual({ ok: true, turns: { rows: [], total: 0, more: false } });
+  });
+
+  it('peerChat.read（WebSocket）の答えを、viewer と req を付けた peerChat.read の知らせで流す', async () => {
+    answers.push(() => ({ ok: true, older: { items: [item('u0')], more: false } }));
+    await viewer.readFromSocket(3, { type: 'peerChat.read', sessionId: SID, viewer: 'v1', req: 'r1', op: { t: 'older', before: 'u1' } });
+    expect((events as unknown[]).at(-1)).toEqual({ type: 'peerChat.read', sessionId: SID, viewer: 'v1', req: 'r1', ok: true, older: { items: [item('u0')], more: false } });
+    await viewer.readFromSocket(3, { type: 'peerChat.read', sessionId: SID, viewer: 'v1', req: 'r2', op: { t: 'turns' } });
+    answers.push(() => ({ ok: false, reason: 'session-unknown' }));
+    await viewer.readFromSocket(3, { type: 'peerChat.read', sessionId: SID, viewer: 'v1', req: 'r3', op: { t: 'turns' } });
+    expect((events as unknown[]).at(-1)).toEqual({ type: 'peerChat.read', sessionId: SID, viewer: 'v1', req: 'r3', ok: false, reason: 'session-unknown' });
+    workerOk = false;
+    await viewer.readFromSocket(3, { type: 'peerChat.read', sessionId: SID, viewer: 'v1', req: 'r4', op: { t: 'turns' } });
+    expect((events as unknown[]).at(-1)).toMatchObject({ req: 'r4', ok: false, reason: 'worker-outdated' });
   });
 
   it('switch-account は名前を運び、止めて再開するのを待てるよう再開と同じ長さを待つ', async () => {

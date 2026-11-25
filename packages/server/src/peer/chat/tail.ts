@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import type { PeerChatAsk, PeerChatAskStep, PeerChatItem } from '@agent-hangar/shared';
+import { PEER_CHAT_TURN_TEXT_MAX_BYTES, type PeerChatAsk, type PeerChatAskStep, type PeerChatItem, type PeerChatOlder, type PeerChatTurn, type PeerChatTurns } from '@agent-hangar/shared';
 import type { Db } from '../../db/open.ts';
 import { splitLines } from '../../provider/claude-code/transcript/lines.ts';
 import { DROPPED_LINE_TYPES, normalizeRecord, toolSummary } from '../../provider/claude-code/transcript/normalize.ts';
@@ -432,4 +432,82 @@ function shrink(item: PeerChatItem, max: number): PeerChatItem {
     out = { ...item, text: clipBytes(item.text, limit) };
   }
   return out;
+}
+
+// ---- 古い分と目次 ----
+
+/**
+ * 古い分を読む（older の本体）。transcript の項目（札は含まない）の並びから、範囲を予算（PEER_CHAT_TAIL_BYTE_BUDGET）で切る。
+ * from が無ければ before の前を、新しい側から詰める（before は含まない）。
+ * from があれば from から前向きに、before の手前（null なら末尾）まで、古い側から詰める。
+ * 項目は古い順で、範囲に入りきらない分が残れば more。知らない uuid や本文が無いときは空で more なし。
+ * 最低 1 件は返す（大きくても本文を縮める）。
+ */
+export function transcriptOlder(sessionId: string, o: { before: string | null; from?: string }, deps: TailDeps): PeerChatOlder {
+  const { items: all } = settle(scanOf(sessionId, deps));
+  const empty: PeerChatOlder = { items: [], more: false };
+  let start = 0;
+  if (o.from !== undefined) {
+    start = all.findIndex((i) => i.uuid === o.from);
+    if (start === -1) return empty;
+  }
+  let end = all.length;
+  if (o.before !== null) {
+    end = all.findIndex((i) => i.uuid === o.before);
+    if (end === -1) return empty;
+  }
+  const range = all.slice(start, Math.max(start, end));
+  if (range.length === 0) return empty;
+  let budget = PEER_CHAT_TAIL_BYTE_BUDGET;
+  const kept: PeerChatItem[] = [];
+  const forward = o.from !== undefined;
+  for (let k = 0; k < range.length; k++) {
+    const it = forward ? range[k]! : range[range.length - 1 - k]!;
+    const size = jsonSize(it) + 1;
+    if (size > budget && kept.length > 0) break;
+    budget -= size;
+    kept.push(it);
+  }
+  if (!forward) kept.reverse();
+  if (kept.length === 1 && budget < 0) kept[0] = shrink(kept[0]!, PEER_CHAT_TAIL_BYTE_BUDGET - 1);
+  return { items: kept, more: kept.length < range.length };
+}
+
+/** 目次の行の元。利用者の指示の項目ごとに、次の指示までの道具の数を数える。 */
+function turnRowsOf(sessionId: string, deps: TailDeps): PeerChatTurn[] {
+  const rows: PeerChatTurn[] = [];
+  for (const it of settle(scanOf(sessionId, deps)).items) {
+    if (it.kind === 'user') rows.push({ uuid: it.uuid, at: it.at, text: clipBytes(oneLine(it.text, PEER_CHAT_TURN_TEXT_MAX_BYTES), PEER_CHAT_TURN_TEXT_MAX_BYTES), tools: 0 });
+    else if (it.kind === 'tool' && rows.length > 0) rows[rows.length - 1]!.tools++;
+  }
+  return rows;
+}
+
+/** 会話の全ターンの数（見る側の目次の頼み直しの合図。解析は覚えを使う）。 */
+export function transcriptTurnCount(sessionId: string, deps: TailDeps): number {
+  return settle(scanOf(sessionId, deps)).items.filter((i) => i.kind === 'user').length;
+}
+
+/**
+ * 目次の行（turns の本体）。
+ * before のターンより前だけを、新しい側から予算で詰めて古い順に返す。入りきらない古い行があれば more。
+ * total は会話の全ターンの数で、before に関わらない。
+ */
+export function transcriptTurns(sessionId: string, o: { before?: string }, deps: TailDeps): PeerChatTurns {
+  const all = turnRowsOf(sessionId, deps);
+  let end = all.length;
+  if (o.before !== undefined) {
+    const i = all.findIndex((r) => r.uuid === o.before);
+    if (i !== -1) end = i;
+  }
+  let budget = PEER_CHAT_TAIL_BYTE_BUDGET;
+  const kept: PeerChatTurn[] = [];
+  for (let i = end - 1; i >= 0; i--) {
+    const size = jsonSize(all[i]) + 1;
+    if (size > budget) break;
+    budget -= size;
+    kept.push(all[i]!);
+  }
+  kept.reverse();
+  return { rows: kept, total: all.length, more: kept.length < end };
 }

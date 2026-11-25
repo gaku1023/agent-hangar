@@ -1,7 +1,7 @@
 import { PEER_CHAT_REPLY_SEALED_MAX, peerAskBase, peerAskInsertIndex, type PeerChatAsk, type PeerChatAskStep, type PeerChatDevice, type PeerChatGone, type PeerChatItem, type PeerChatQueued, type PeerChatState, type PeerChatStatus } from '@agent-hangar/shared';
 import { dialogMatches, isCommandTitle, parseDialog, strip, type Dialog, type DialogStep } from './answer.ts';
 import type { HostPane, HostSession } from './hostTypes.ts';
-import { currentPendingAsk, onlyRepliesBetween, peerAskId, transcriptPosition, transcriptTail, type PeerPendingAsk, type TailDeps } from './tail.ts';
+import { currentPendingAsk, onlyRepliesBetween, peerAskId, transcriptPosition, transcriptTail, transcriptTurnCount, type PeerPendingAsk, type TailDeps } from './tail.ts';
 
 /**
  * 見る側へ返す会話の状態を作り、長いポーリング（tail）を待たせる。
@@ -412,7 +412,7 @@ export class ChatView {
     const status = this.status(sessionId);
     const queued = this.d.queued(sessionId).map((q) => ({ ...q, text: clipText(q.text, QUEUED_TEXT_MAX_BYTES) }));
     const sig = JSON.stringify([status, queued.map((q) => [q.queueId, q.state]), this.answers.filter((a) => a.sessionId === sessionId).map((a) => a.askId), gone.map((g) => g.queueId), this.pendingAsk(sessionId, false)?.answerable === false]);
-    const state: PeerChatState = { sessionId, status, items, queued, cursor: t.cursor, truncated: t.truncated, hostId: this.d.hostId };
+    const state: PeerChatState = { sessionId, status, items, queued, cursor: t.cursor, truncated: t.truncated, hostId: this.d.hostId, turnCount: transcriptTurnCount(sessionId, this.tailDeps) };
     if (gone.length > 0) state.gone = gone;
     return { state: fit(state), hasNew: t.items.length > 0, sig };
   }

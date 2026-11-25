@@ -102,6 +102,11 @@ const ERRORS_BEFORE_OFFLINE = 3;
  * 再開して送るは相手が会話を起こすので長い。
  */
 const OP_WAIT_MS = 10_000;
+/**
+ * older と turns を頼んで答えが来なかった（古い hangar はこの頼みを知らず、開けずに捨てる）相手を、この間だけ「読めない」として覚える。
+ * 覚えている間は頼まず、無いものとして返す（画面が毎回 10 秒待たされない）。
+ */
+const READ_UNSUPPORTED_KEEP_MS = 5 * 60_000;
 const RESUME_WAIT_MS = 20_000;
 
 /** 見る相手の PC（peer/chat/viewTarget.ts が DB から引く）。 */
@@ -167,7 +172,7 @@ export type PeerChatViewerDeps = {
    */
   localCursor(sessionId: string): string | null;
   readImage(ref: string): ViewImage | null;
-  publish(ev: Extract<ServerEvent, { type: 'peerChat.update' }>): void;
+  publish(ev: Extract<ServerEvent, { type: 'peerChat.update' | 'peerChat.read' }>): void;
   clock?: ViewerClock;
   newId?: () => string;
 };
@@ -217,6 +222,8 @@ class Watch {
   /** 見張りの周に割り込む口（起点を広げたとき、待っている問い合わせと待ちを捨てて、新しい起点から頼み直す）。 */
   private kicker = new AbortController();
   status: PeerChatStatus | null = null;
+  /** 元の PC が知らせた全ターンの数（変わったときだけ画面へ流す）。古い相手は null。 */
+  turnCount: number | null = null;
   queued: PeerChatQueued[] = [];
   link: PeerChatLink = 'online';
   replace = false;
@@ -375,6 +382,7 @@ class Watch {
       changed = true;
     }
     if (s.status !== this.status) { this.status = s.status; changed = true; }
+    if (s.turnCount !== undefined && s.turnCount !== this.turnCount) { this.turnCount = s.turnCount; changed = true; }
     if (sigOf(s.queued) !== sigOf(this.queued)) { this.queued = s.queued; changed = true; }
     // 渡せずに消えた預かり。元の PC は同じ印を数分のあいだ繰り返すので、queueId で覚えて 1 度だけ流す。
     for (const [id, g] of this.goneSeen) if (now - g.at > PEER_CHAT_GONE_KEEP_MS) this.goneSeen.delete(id);
@@ -414,6 +422,7 @@ class Watch {
     // 別の PC へ移ったので、貯めた項目は頭から。起点も頭に戻す（GET の startedAfter が、写しの続きと取り違えられないように）。
     this.startedAfter = null;
     this.status = null;
+    this.turnCount = null;
     this.queued = [];
     this.hostId = null;
     this.mine.clear();
@@ -424,13 +433,13 @@ class Watch {
   update(items: PeerChatItem[], replace: boolean, reason?: PeerChatReason): PeerChatUpdate {
     const gone = this.freshGone;
     this.freshGone = [];
-    return { sessionId: this.sessionId, link: this.link, replace, status: this.status, items, queued: this.queued, cursor: this.cursor, ...(gone.length ? { gone } : {}), ...(reason ? { reason } : {}) };
+    return { sessionId: this.sessionId, link: this.link, replace, status: this.status, items, queued: this.queued, cursor: this.cursor, ...(this.turnCount !== null ? { turnCount: this.turnCount } : {}), ...(gone.length ? { gone } : {}), ...(reason ? { reason } : {}) };
   }
 
   snapshot(now: number): PeerChatUpdate {
     const gone = this.recentGone(now);
     this.freshGone = [];
-    return { sessionId: this.sessionId, link: this.link, replace: this.replace, status: this.status, items: [...this.items.values()], queued: this.queued, cursor: this.cursor, ...(gone.length ? { gone } : {}) };
+    return { sessionId: this.sessionId, link: this.link, replace: this.replace, status: this.status, items: [...this.items.values()], queued: this.queued, cursor: this.cursor, ...(this.turnCount !== null ? { turnCount: this.turnCount } : {}), ...(gone.length ? { gone } : {}) };
   }
 }
 
@@ -438,6 +447,8 @@ export class PeerChatViewer {
   private readonly watches = new Map<string, Watch>();
   /** 会話ごとの、見張りを最後に止めた時刻。 */
   private readonly endedAt = new Map<string, number>();
+  /** older と turns に答えなかった相手の PC（端末 ID）と、その覚えの期限。 */
+  private readonly readUnsupported = new Map<string, number>();
   private readonly clock: ViewerClock;
   private readonly newId: () => string;
 
@@ -787,6 +798,11 @@ export class PeerChatViewer {
     let wire: PeerChatOp;
     let blobs: ViewImage[] | undefined;
     let waitMs = OP_WAIT_MS;
+    const reading = op.t === 'older' || op.t === 'turns';
+    if (reading) {
+      const until = this.readUnsupported.get(g.target.deviceId);
+      if (until !== undefined && this.clock.now() < until) return { ok: true };
+    }
     if (op.t === 'send' || op.t === 'resume-send') {
       if (Buffer.byteLength(op.text) > PEER_CHAT_TEXT_MAX_BYTES) return { ok: false, reason: 'too-large' };
       const refs = op.images ?? [];
@@ -804,7 +820,9 @@ export class PeerChatViewer {
     } else if (op.t === 'answer') {
       if (op.text !== undefined && Buffer.byteLength(op.text) > PEER_CHAT_TEXT_MAX_BYTES) return { ok: false, reason: 'too-large' };
       wire = { t: 'answer', askId: op.askId, keys: op.keys, ...(op.text !== undefined ? { text: op.text } : {}) };
-    } else if (op.t === 'cancel') wire = { t: 'cancel', queueId: op.queueId };
+    } else if (op.t === 'older') wire = { t: 'older', before: op.before, ...(op.from !== undefined ? { from: op.from } : {}) };
+    else if (op.t === 'turns') wire = { t: 'turns', ...(op.before !== undefined ? { before: op.before } : {}) };
+    else if (op.t === 'cancel') wire = { t: 'cancel', queueId: op.queueId };
     else if (op.t === 'rush') wire = { t: 'rush', queueId: op.queueId };
     else if (op.t === 'files') wire = { t: 'files', query: op.query };
     else if (op.t === 'commands') wire = { t: 'commands' };
@@ -824,10 +842,26 @@ export class PeerChatViewer {
       case 'offline': return { ok: false, reason: 'offline' };
       case 'rate': return { ok: false, reason: 'rate' };
       case 'too-large': return { ok: false, reason: 'too-large' };
-      case 'timeout': return { ok: false, reason: 'expired' };
+      case 'timeout':
+        // 古い hangar は older と turns を知らず、答えを返さない。見る側には「無い」と返し、しばらく頼まない。
+        if (reading) { this.readUnsupported.set(g.target.deviceId, this.clock.now() + READ_UNSUPPORTED_KEEP_MS); return { ok: true }; }
+        return { ok: false, reason: 'expired' };
       case 'gate': return { ok: false, reason: out.reason };
       default: return { ok: false, reason: 'unreachable' };
     }
+  }
+
+  /**
+   * WebSocket の peerChat.read（older と turns）。
+   * 答えを viewer と req を付けた peerChat.read の知らせで流す（見張りの update と同じく全接続に流れるので、画面が viewer と req で選ぶ）。
+   * 断りは ok が偽の知らせで返す。相手が古いときは ok が真で、older も turns も付かない。
+   */
+  async readFromSocket(_socket: number, msg: Extract<PeerChatClientMsg, { type: 'peerChat.read' }>): Promise<void> {
+    const head = { type: 'peerChat.read' as const, sessionId: msg.sessionId, viewer: msg.viewer, req: msg.req };
+    if (!isPeerChatViewerId(msg.viewer)) return;
+    const r = await this.op(msg.sessionId, msg.op);
+    if (!r.ok) this.deps.publish({ ...head, ok: false, reason: r.reason });
+    else this.deps.publish({ ...head, ok: true, ...(r.older ? { older: r.older } : {}), ...(r.turns ? { turns: r.turns } : {}) });
   }
 
   /** 操作の答えに付いた状態を、動いている見張りの貯めに取り込み、変わっていれば流す。 */
