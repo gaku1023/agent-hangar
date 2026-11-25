@@ -1,11 +1,11 @@
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
-import { PEER_CHAT_IMAGES_MAX, type PeerChatOpIn } from '@agent-hangar/shared';
+import { PEER_CHAT_IMAGES_MAX, type PeerChatOpIn, type PromptCommandDto } from '@agent-hangar/shared';
 import type { PeerChatView } from '../presenters/peerChat.ts';
 import { isComposing } from './ime.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { PromptAssistContext } from './primitives/promptAssist.ts';
-import { acceptText, attachmentFromPath, dropFileName, triggerAt, type Attachment } from './primitives/promptComposerModel.ts';
+import { acceptText, arrangeCommands, attachmentFromPath, dropFileName, triggerAt, type Attachment, type Trigger } from './primitives/promptComposerModel.ts';
 import { splitLast } from '../lib/paths.ts';
 
 /** 画像 1 枚の上限。元の PC の取り込みと同じ（5 MiB、PNG と JPEG と WebP）。 */
@@ -22,6 +22,7 @@ type Props = { view: PeerChatView; onSend: (body: PeerChatOpIn) => void; onTakeO
  * 作業中と入力待ちは「中断」（Esc の代わり）も出す。
  * 接続が切れているときは入力欄を閉じ、理由と「この PC で再開」を並べる（U8）。
  * 画像（4 枚まで）は貼り付けか添付ボタンで置き場へ送り、パスで渡す。@ は元の PC のプロジェクトのファイルを探して指す。
+ * / は元の PC のスキルとコマンドを候補に出す（新しいセッションの欄と同じ一覧と並び）。一覧は最初の / で 1 回だけ元の PC に問い、絞り込みは手元で行う。
  * 送った文は、すぐ欄から消す。断られたら、断りの理由とともに文が戻ってくる（view.restore）。
  */
 export function PeerChatComposer(props: Props) {
@@ -34,6 +35,8 @@ export function PeerChatComposer(props: Props) {
   const [uploading, setUploading] = useState(0);
   const [caret, setCaret] = useState(0);
   const [files, setFiles] = useState<{ query: string; list: string[] | 'failed' } | null>(null);
+  // / の候補。null はまだ問うていない、loading は問い中。会話ごとに 1 回だけ問う。
+  const [commands, setCommands] = useState<{ sessionId: string; list: PromptCommandDto[] | 'failed' | 'loading' } | null>(null);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -59,7 +62,22 @@ export function PeerChatComposer(props: Props) {
   }, [text]);
 
   const trigger = triggerAt(text, caret);
-  const mention = trigger && trigger.kind === '@' && dismissed !== `${trigger.start}:${trigger.query}` ? trigger : null;
+  const keyOf = (tr: Trigger) => `${tr.kind}${tr.start}:${tr.query}`;
+  const mention = trigger && trigger.kind === '@' && dismissed !== keyOf(trigger) ? trigger : null;
+  // スキルの名前に / は入らない。貼ったパス（/Users/x）では開かない（新しいセッションの欄と同じ）。
+  const slash = trigger && trigger.kind === '/' && !trigger.query.includes('/') && c.kind !== 'blocked' && dismissed !== keyOf(trigger) ? trigger : null;
+  const wantCommands = slash !== null;
+  useEffect(() => {
+    if (!wantCommands || (commands && commands.sessionId === view.sessionId)) return;
+    const ask = assist.peerCommands;
+    const sessionId = view.sessionId;
+    if (!ask) { setCommands({ sessionId, list: [] }); return; }
+    setCommands({ sessionId, list: 'loading' });
+    ask(sessionId).then((list) => setCommands((cur) => (cur?.sessionId === sessionId ? { sessionId, list } : cur)), () => setCommands((cur) => (cur?.sessionId === sessionId ? { sessionId, list: 'failed' } : cur)));
+  }, [assist, wantCommands, commands, view.sessionId]);
+  const commandList = commands && commands.sessionId === view.sessionId ? commands.list : 'loading';
+  const sections = slash && Array.isArray(commandList) ? arrangeCommands(t, commandList, slash.query) : [];
+  const flatCommands = sections.flatMap((sec) => sec.items.map((x) => x.name));
   const query = mention?.query ?? null;
   useEffect(() => {
     if (query === null) { setFiles(null); return; }
@@ -73,11 +91,14 @@ export function PeerChatComposer(props: Props) {
     return () => { live = false; clearTimeout(timer); };
   }, [assist, query, view.sessionId]);
   const list = files && files.query === query && Array.isArray(files.list) ? files.list : null;
-  const current = Math.min(active, Math.max((list?.length ?? 1) - 1, 0));
+  const shownCount = slash ? flatCommands.length : list?.length ?? 0;
+  const current = Math.min(active, Math.max(shownCount - 1, 0));
+  useEffect(() => { setActive(0); }, [trigger?.kind, trigger?.query]);
 
-  const accept = (path: string) => {
-    if (!mention) return;
-    const r = acceptText(text, caret, mention, path);
+  const accept = (value: string) => {
+    const tr = mention ?? slash;
+    if (!tr) return;
+    const r = acceptText(text, caret, tr, value);
     setText(r.text);
     setCaret(r.caret);
     requestAnimationFrame(() => { ta.current?.focus(); ta.current?.setSelectionRange(r.caret, r.caret); });
@@ -116,7 +137,13 @@ export function PeerChatComposer(props: Props) {
       if (e.key === 'ArrowUp') { e.preventDefault(); setActive((current - 1 + list.length) % list.length); return; }
       if ((e.key === 'Enter' || e.key === 'Tab') && !isComposing(e)) { e.preventDefault(); accept(list[current]!); return; }
     }
-    if (mention && e.key === 'Escape') { e.preventDefault(); setDismissed(`${mention.start}:${mention.query}`); return; }
+    if (slash && flatCommands.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setActive((current + 1) % flatCommands.length); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setActive((current - 1 + flatCommands.length) % flatCommands.length); return; }
+      if ((e.key === 'Enter' || e.key === 'Tab') && !isComposing(e)) { e.preventDefault(); accept(flatCommands[current]!); return; }
+    }
+    const open = mention ?? slash;
+    if (open && e.key === 'Escape') { e.preventDefault(); setDismissed(keyOf(open)); return; }
     if (e.key === 'Enter' && !e.shiftKey && !isComposing(e)) { e.preventDefault(); send(); }
   };
 
@@ -155,6 +182,29 @@ export function PeerChatComposer(props: Props) {
           onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)} onKeyDown={onKeyDown} onPaste={onPaste} />
         {c.canInterrupt && <button type="button" className="pchat-stop" onClick={() => props.onSend({ t: 'interrupt' })}>{t('peerChat.composer.interrupt')} <kbd>Esc</kbd></button>}
         <button type="button" className="pchat-send" data-kind={c.kind} disabled={!ready} onClick={send}>{c.sendLabel}<Icon name="seeAll" /></button>
+        {slash && (
+          <div className="pchat-mention" role="listbox" aria-label={t('composer.list.commandLabel')} onMouseDown={(e) => e.preventDefault()}>
+            {commandList === 'loading' && <div className="pchat-mention-empty">{t('common.state.loading')}</div>}
+            {commandList === 'failed' && <div className="pchat-mention-empty">{t('composer.list.failed')}</div>}
+            {Array.isArray(commandList) && flatCommands.length === 0 && <div className="pchat-mention-empty">{t('common.empty.noMatch')}</div>}
+            {(() => {
+              let index = 0;
+              return sections.map((sec) => (
+                <div key={sec.title ?? 'hit'} role={sec.title ? 'group' : undefined} aria-label={sec.title ?? undefined}>
+                  {sec.title && <div className="listbox-group-title">{sec.title}</div>}
+                  {sec.items.map((cmd) => {
+                    const i = index++;
+                    return (
+                      <div key={cmd.name} role="option" aria-selected={i === current} aria-label={`/${cmd.name}`} className="pchat-mention-opt" data-active={i === current ? 'true' : undefined} onMouseDown={(e) => { e.preventDefault(); if (e.button === 0) accept(cmd.name); }} onMouseMove={() => { if (i !== current) setActive(i); }}>
+                        <span className="pc-cmd">/{cmd.name}{cmd.argumentHint && <span className="pc-arg">{cmd.argumentHint}</span>}</span>{cmd.description && <small>{cmd.description}</small>}
+                      </div>
+                    );
+                  })}
+                </div>
+              ));
+            })()}
+          </div>
+        )}
         {mention && list && (
           <div className="pchat-mention" role="listbox" aria-label={t('peerChat.composer.mention')} onMouseDown={(e) => e.preventDefault()}>
             {list.length === 0 && <div className="pchat-mention-empty">{t('common.empty.noMatch')}</div>}

@@ -79,11 +79,11 @@ describe('POST /api/sessions/:id/peer-chat/ops', () => {
     expect(await (await post({ t: 'send', text: 'x' })).json()).toEqual({ ok: false, reason: 'offline' });
   });
 
-  it('answer、interrupt、cancel、files、resume-send を受ける。tail と知らない op は 400', async () => {
-    for (const op of [{ t: 'answer', askId: 'A', keys: ['1'], text: 'x' }, { t: 'interrupt' }, { t: 'cancel', queueId: 'q' }, { t: 'files', query: 'a' }, { t: 'resume-send', text: 'go' }, { t: 'switch-account', account: '会社' }]) {
+  it('answer、interrupt、cancel、files、commands、resume-send を受ける。tail と知らない op は 400', async () => {
+    for (const op of [{ t: 'answer', askId: 'A', keys: ['1'], text: 'x' }, { t: 'interrupt' }, { t: 'cancel', queueId: 'q' }, { t: 'files', query: 'a' }, { t: 'commands' }, { t: 'resume-send', text: 'go' }, { t: 'switch-account', account: '会社' }]) {
       expect((await post(op)).status).toBe(200);
     }
-    expect(ops).toHaveLength(6);
+    expect(ops).toHaveLength(7);
     expect((await post({ t: 'tail', after: null, waitMs: 0 })).status).toBe(400);
     expect((await post({ t: 'nope' })).status).toBe(400);
     expect((await post({ t: 'send' })).status).toBe(400);
@@ -91,7 +91,7 @@ describe('POST /api/sessions/:id/peer-chat/ops', () => {
     expect((await post({ t: 'answer', askId: 'A', keys: 'x' })).status).toBe(400);
     expect((await post({ t: 'switch-account', account: '' })).status).toBe(400);
     expect((await post('not json')).status).toBe(400);
-    expect(ops).toHaveLength(6);
+    expect(ops).toHaveLength(7);
   });
 
   it('rush（預けた文を中断して渡す）を queueId 付きで受ける。queueId が無ければ 400', async () => {

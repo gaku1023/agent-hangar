@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   deriveEpochKeys,
   PEER_CHAT_BLOB_MAX_BYTES,
+  PEER_CHAT_COMMAND_DESCRIPTION_MAX,
+  PEER_CHAT_COMMANDS_BYTES_MAX,
+  PEER_CHAT_COMMANDS_MAX,
   openPeerChatReply,
   peerChatExpiresAt,
   randomEpochKey,
@@ -107,6 +110,7 @@ async function setup(o: Partial<World> & { deps?: Partial<PeerChatHostDeps> } = 
     },
     dropsDir,
     files: async (root, q) => [{ path: `${root}:${q}`, changed: false }],
+    commands: (root) => [{ name: `skill-of:${root}`, description: 'd', argumentHint: null, source: 'project', uses: 0 }],
     emit: (ev) => { w.events.push(ev); },
     queue: { pollMs: 5, settleMs: 20 },
     recheckMs: 20,
@@ -566,6 +570,28 @@ describe('PeerChatHost: 再送と想定外の失敗', () => {
     expect(replay!.sealed).toBe(first!.sealed);
     await new Promise((r) => setTimeout(r, 60));
     expect(s.w.sent).toEqual([]);
+  });
+
+  it('commands は会話の場所の / の候補を返す。設定が切れていても読める', async () => {
+    const s = await setup({ acceptFromPeers: false });
+    expect(await s.ask({ t: 'commands' })).toEqual({ ok: true, commands: [{ name: 'skill-of:/proj', description: 'd', argumentHint: null, source: 'project', uses: 0 }] });
+  });
+
+  it('commands は説明を切り、数とバイト数の上限に収まるまで使った回数の少ないものから落とす（並びは保つ）', async () => {
+    const many = Array.from({ length: PEER_CHAT_COMMANDS_MAX + 50 }, (_, i) => ({ name: `s${i}`, description: 'あ'.repeat(500), argumentHint: null, source: 'user' as const, uses: i === 0 ? 0 : i % 7 }));
+    const s = await setup({ deps: { commands: () => many } });
+    const r = await s.ask({ t: 'commands' });
+    if (!r.ok || !r.commands) throw new Error('no commands');
+    expect(r.commands.length).toBeGreaterThan(0);
+    expect(r.commands.length).toBeLessThanOrEqual(PEER_CHAT_COMMANDS_MAX);
+    expect(Buffer.byteLength(JSON.stringify(r.commands))).toBeLessThanOrEqual(PEER_CHAT_COMMANDS_BYTES_MAX);
+    expect(r.commands.every((c) => c.description.length <= PEER_CHAT_COMMAND_DESCRIPTION_MAX)).toBe(true);
+    const idx = r.commands.map((c) => Number(c.name.slice(1)));
+    expect(idx).toEqual([...idx].sort((a, b) => a - b));
+    // 残ったものは、落ちたものより少なく使われていない。
+    const kept = new Set(idx);
+    const minKept = Math.min(...idx.map((i) => many[i]!.uses));
+    expect(many.filter((_, i) => !kept.has(i)).every((c) => c.uses <= minKept)).toBe(true);
   });
 
   it('host の中の想定外の失敗は host-error で返す（offline と取り違えない）', async () => {

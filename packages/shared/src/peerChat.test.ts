@@ -53,6 +53,7 @@ const ops: PeerChatRequest['op'][] = [
   { t: 'resume-send', text: '再開して送る', images: [img] },
   { t: 'cancel', queueId: 'q-7' },
   { t: 'files', query: 'src/' },
+  { t: 'commands' },
   { t: 'switch-account', account: '会社' },
 ];
 
@@ -390,5 +391,22 @@ describe('peerAskBase と peerAskInsertIndex（札の並び）', () => {
     expect(shared.peerAskInsertIndex([it0('u1'), it0('u2')], { uuid: 'zz@ask:A' }, true)).toBe(0);
     expect(shared.peerAskInsertIndex([it0('u1'), it0('u2')], { uuid: '@ask:A' })).toBe(0);
     expect(shared.peerAskInsertIndex([], { uuid: 'zz@ask:A' })).toBe(0);
+  });
+});
+
+describe('commands の答え（/ の候補）', () => {
+  const cmd = { name: 'review', description: '見直す', argumentHint: null, source: 'user', uses: 2 };
+  it('候補の並びが往復し、知らない欄は捨てる', () => {
+    expect(shared.parsePeerChatReply({ ok: true, commands: [{ ...cmd, extra: 1 }, { ...cmd, name: 'x:y', argumentHint: '[n]', source: 'plugin', uses: 0 }] }))
+      .toEqual({ ok: true, commands: [cmd, { ...cmd, name: 'x:y', argumentHint: '[n]', source: 'plugin', uses: 0 }] });
+  });
+  it('形が違う候補があれば答え全体を断る', () => {
+    for (const bad of [{ ...cmd, source: 'nope' }, { ...cmd, name: 3 }, { ...cmd, uses: '1' }, { ...cmd, argumentHint: 1 }, { ...cmd, description: null }]) {
+      expect(shared.parsePeerChatReply({ ok: true, commands: [bad] })).toBeNull();
+    }
+    expect(shared.parsePeerChatReply({ ok: true, commands: 'x' })).toBeNull();
+  });
+  it('commands の op は欄を持たない', () => {
+    expect(shared.parsePeerChatRequest({ v: 1, askId: 'a', expiresAt: 1, sessionId: 's', op: { t: 'commands', q: 1 } })?.op).toEqual({ t: 'commands' });
   });
 });
