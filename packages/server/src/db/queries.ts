@@ -347,7 +347,7 @@ export function processStartedAt(live: { procStart?: string } | undefined, alive
  * 動きは届いたもの（lock.live）を使い、まだ届いていなければ休みとみなす。作業中と入力待ちは手元と同じく外さない。
  */
 function remoteParked(r: SessionRow, lock: LockEntry | undefined): boolean {
-  return lock !== undefined && isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: lock.dto.live ?? 'idle', processStartedAt: lock.startedAt });
+  return lock !== undefined && isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: lock.dto.live ?? 'idle', aside: (lock.dto.aside ?? null) !== null, processStartedAt: lock.startedAt });
 }
 
 /**
@@ -444,7 +444,7 @@ function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto
     // ほかの PC でだけ動いている会話（この PC の登録が無く、ロックだけがある）は、その run の始まりより後に印を付けたら、
     // 向こうの PC が止めるのを待たずに parked にする。向こうの見張り（ParkWatch）は休みが 10 秒続いてから止める。
     parked: parking && (live
-      ? isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: live.status, processStartedAt: processStartedAt(live, runStarts.get(r.id) ?? null), limited: limit !== null && !limit.reset })
+      ? isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: live.status, aside: live.aside !== undefined, processStartedAt: processStartedAt(live, runStarts.get(r.id) ?? null), limited: limit !== null && !limit.reset })
       : remoteParked(r, locks.get(r.id))),
     // 止めた後に起こした run があれば、last_end_reason はその run のもの（動いている間は null）になるので偽に戻る。
     // 止めた後に付け直した印でも偽にする。その印のために止めたのではない。

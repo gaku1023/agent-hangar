@@ -28,7 +28,8 @@ const QUIET_NOTICE = /report was delivered to you as a message|has not reported 
  * - 主線の最後のターンが終わっている（turn_duration の後に、指示、知らせ、返答、手が無い）。
  * - その終わりが、動きが最後に変わった時刻（statusAt）より後である。新しい指示を送った直後は、指示がまだ索引に載っていないことがある。
  * - 終わってから ASIDE_SETTLE_MS 経っている。
- * 状態は busy のまま変えない。自動の停止、引き取りの断り、停止の確認は作業中として働き続ける。
+ * 状態は busy のまま変えない。引き取りの断りと停止の確認は作業中として働き続ける。
+ * 自動の停止だけは、Done・Archived を付けた会話の裏だけを休みと同じに扱って止める（sessions/park.ts の resting、2026-11-26）。
  */
 export class AsideReader {
   private readonly ends = new Map<string, { key: number | null; at: number | null }>();
