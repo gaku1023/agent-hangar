@@ -305,6 +305,20 @@ describe('PeerChatHost: 古い分と目次', () => {
   });
 });
 
+describe('PeerChatHost: 会話のアカウント', () => {
+  it('state にこの PC での会話のアカウントの名前を載せる（ID は PC ごとに違うので名前）', async () => {
+    const s = await setup({ deps: { accountName: (id) => (id === 's1' ? '大学' : null) } });
+    expect(s.state(await s.ask(tailOp())).account).toBe('大学');
+  });
+
+  it('名前が分からない（Claude でない会話、口の無い組み立て）ときは載せない', async () => {
+    const a = await setup({ deps: { accountName: () => null } });
+    expect('account' in a.state(await a.ask(tailOp()))).toBe(false);
+    const b = await setup();
+    expect('account' in b.state(await b.ask(tailOp()))).toBe(false);
+  });
+});
+
 describe('PeerChatHost: 起動ごとの印', () => {
   it('state に hostId を載せ、同じ host では変わらず、別の host（再起動）では変わる', async () => {
     const a = await setup();

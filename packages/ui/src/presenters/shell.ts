@@ -402,6 +402,14 @@ function codexUsage(t: Translate, c: AgentUsageDto, now: number): UsageProps {
   return { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(t, u.updatedAt, now), agent: { key: 'codex' } };
 }
 
+/**
+ * ほかの PC の会話のアカウントで、手元に同じ名前が無いときの顔。名前だけを出し、計器と札の中身は空にする。
+ * id は手元の一覧のどれとも重ならない値にする（面でどれも選ばれていない形になる）。
+ */
+function peerOnlyAccount(base: AccountView, name: string): AccountView {
+  return { ...base, id: `peer:${name}`, name, color: 'var(--ink-2)', primary: false, current: false, plan: null, email: null, fiveHour: null, sevenDay: null, updatedLabel: null, note: null, linkProblem: null, linkConflicts: [], login: null };
+}
+
 /** 使用率がまだ届いていないときの値。 */
 const NO_USAGE: UsageDto = { fiveHour: null, sevenDay: null, updatedAt: null };
 
@@ -429,9 +437,13 @@ function headerAccount(state: State, store: Store, now: number): { account: Head
   const peerCandidate = isPeerChatCandidate(screenSession);
   const peer = peerCandidate && screenId !== null && store.peerChat[screenId]?.phase !== 'fallback';
   const sessionId = screenAgent === 'opencode' || screenAgent === 'codex' || (peerCandidate && !peer) ? null : screenId;
-  const raw = (sessionId === null ? currentAccount(store) : accountOfSession(store, sessionId)) ?? accountList(store)[0]!;
+  // ほかの PC の会話のアカウントは、手元の対応表には無い。元の PC が知らせた名前で、同じ名前の手元のアカウントを引く。
+  // 名前が未着（読み込み中、古い相手）なら、いまのアカウント。手元に同じ名前が無ければ、名前だけの顔にして計器は空にする。
+  const peerName = peer ? store.peerChat[screenId!]?.account ?? null : null;
   const list = presentAccounts(store, now);
-  const claudeShown = list.find((a) => a.id === raw.id) ?? list[0]!;
+  const claudeShown = peerName !== null
+    ? list.find((a) => a.name === peerName) ?? peerOnlyAccount(list[0]!, peerName)
+    : list.find((a) => a.id === ((peer || sessionId === null ? currentAccount(store) : accountOfSession(store, sessionId)) ?? accountList(store)[0]!).id) ?? list[0]!;
   // Codex のアカウントが届いていれば、Codex の会話の画面では顔をその会話の Codex アカウントにする（ホームと Claude の会話はそのまま）。
   const codexList = presentCodexAccounts(store, now);
   const codexSessionId = screenAgent === 'codex' ? screenId : null;

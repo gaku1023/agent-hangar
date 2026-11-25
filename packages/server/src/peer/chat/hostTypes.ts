@@ -136,6 +136,11 @@ export type PeerChatHostDeps = {
    * この PC の既定のアカウントは変えない（頼んだのはほかの PC の人である）。
    * 無い組み立てでは resume-failed で断る。
    */
+  /**
+   * この PC で会話が動いているアカウントの名前（PeerChatState.account）。見る側のヘッダの顔に使う。
+   * Claude でない会話と、分からないときは null。無い組み立てでは載せない。
+   */
+  accountName?(sessionId: string): string | null;
   switchAccount?(sessionId: string, accountName: string): Promise<'ok' | 'account-unavailable' | 'resume-failed'>;
   /**
    * 頼み主が置いた画像の封（GET /peer/blobs/:askId/:n?from=）。

@@ -1179,6 +1179,11 @@ Claude Code が user として書くが利用者の発言ではない 2 つの�
 - 元の PC は同じ名前のアカウントを引き、画面の切り替えと同じ道（`RunManager.switchAccount`。動いていれば止め、消えるのを待って再開）で付け替える（`boot/peerChat.ts` の `switchAccountOf`）。元の PC の既定のアカウントは変えない。確認の「新しいセッションのデフォルトも…」の行も出さない。
 - 名前のアカウントが無いかログインしていなければ `account-unavailable`、付け替えに失敗すれば `resume-failed` で断り、会話の画面の下に理由を出す。送る系の頼みとして、`peerChatAcceptFromPeers` が切なら断る。
 
+ほかの PC の会話の画面のヘッダの顔（アカウントの名前と計器）は、元の PC でその会話が動いているアカウントにする。会話とアカウントの対応表（`AccountsDto.sessions`）は PC ごとにしか持たず、同期にも載らないので、手元の表を引くと、どの会話もメインのアカウントに落ちていた。
+- 元の PC は `tail` の状態に、その会話のアカウントの名前 `account` を載せる（`boot/peerChat.ts` の `accountNameOf`。最後の run のアカウントで、記録が無ければメイン。Claude でない会話は載せない）。ID は PC ごとに違うので名前で送る。
+- 見る側は変わったときだけ `peerChat.update` の `account` として流し、画面は `PeerChatSlice.account` に持つ。
+- 顔は同じ名前の手元のアカウントにし、計器もその値にする（`presenters/shell.ts` の `headerAccount`）。手元に同じ名前が無ければ、名前だけの顔にして計器は空にする（`peerOnlyAccount`）。名前が未着（読み込み中、古い相手）のときと読み取り専用の間は、この PC のいまのアカウントを出す。
+
 ほかの PC の会話は、元の PC から本文の末尾（約 40KB、`PEER_CHAT_TAIL_BYTE_BUDGET`）だけを受け取る。古い分と、ターンの目次を読む口が 2 つある（peer chat の頼みの `older` と `turns`）。
 - `older`：`{ t: 'older', before, from? }`。答えは `{ older: { items, more } }`。項目は `tail` と同じ `PeerChatItem` で、古い順、予算は同じ 40KB。札は出さない。
   `from` が無ければ `before`（項目の uuid、含めない）の前を新しい側から詰める（上へスクロールして古い分を足す）。

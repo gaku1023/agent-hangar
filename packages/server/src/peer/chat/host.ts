@@ -230,6 +230,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     ...(deps.turnEvents ? { turnEvents: deps.turnEvents } : {}),
     ...(deps.artifactCount ? { artifactCount: deps.artifactCount } : {}),
     ...(deps.liveHints ? { liveHints: deps.liveHints } : {}),
+    ...(deps.accountName ? { accountName: deps.accountName } : {}),
     tail: { readTranscript: deps.readTranscript, ...(deps.cache ? { cache: deps.cache } : {}) },
     queued: (sessionId) => queue.list(sessionId),
     self: () => ({ deviceId: deps.deviceId, deviceName: deps.deviceName(deps.deviceId) }),

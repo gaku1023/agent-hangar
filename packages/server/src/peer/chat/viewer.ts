@@ -225,6 +225,8 @@ class Watch {
   status: PeerChatStatus | null = null;
   /** 元の PC が知らせた全ターンの数（変わったときだけ画面へ流す）。古い相手は null。 */
   turnCount: number | null = null;
+  /** 元の PC での会話のアカウントの名前（state.account）。 */
+  account: string | null = null;
   queued: PeerChatQueued[] = [];
   link: PeerChatLink = 'online';
   replace = false;
@@ -387,6 +389,7 @@ class Watch {
     }
     if (s.status !== this.status) { this.status = s.status; changed = true; }
     if (s.turnCount !== undefined && s.turnCount !== this.turnCount) { this.turnCount = s.turnCount; changed = true; }
+    if (s.account !== undefined && s.account !== this.account) { this.account = s.account; changed = true; }
     // 札の材料は全体の値で、変われば（サブエージェントの出入り、裏だけへの移り、新しい手）項目が無くても流す。
     const cardSig = s.card ? JSON.stringify(s.card) : '';
     if (cardSig !== this.cardSig) { this.cardSig = cardSig; this.card = s.card ?? null; changed = true; }
@@ -430,6 +433,7 @@ class Watch {
     this.startedAfter = null;
     this.status = null;
     this.turnCount = null;
+    this.account = null;
     this.card = null;
     this.cardSig = '';
     this.queued = [];
@@ -442,13 +446,13 @@ class Watch {
   update(items: PeerChatItem[], replace: boolean, reason?: PeerChatReason): PeerChatUpdate {
     const gone = this.freshGone;
     this.freshGone = [];
-    return { sessionId: this.sessionId, link: this.link, replace, status: this.status, items, queued: this.queued, cursor: this.cursor, ...(this.turnCount !== null ? { turnCount: this.turnCount } : {}), ...(gone.length ? { gone } : {}), ...(this.card ? { card: this.card } : {}), ...(reason ? { reason } : {}) };
+    return { sessionId: this.sessionId, link: this.link, replace, status: this.status, items, queued: this.queued, cursor: this.cursor, ...(this.turnCount !== null ? { turnCount: this.turnCount } : {}), ...(this.account !== null ? { account: this.account } : {}), ...(gone.length ? { gone } : {}), ...(this.card ? { card: this.card } : {}), ...(reason ? { reason } : {}) };
   }
 
   snapshot(now: number): PeerChatUpdate {
     const gone = this.recentGone(now);
     this.freshGone = [];
-    return { sessionId: this.sessionId, link: this.link, replace: this.replace, status: this.status, items: [...this.items.values()], queued: this.queued, cursor: this.cursor, ...(this.turnCount !== null ? { turnCount: this.turnCount } : {}), ...(gone.length ? { gone } : {}), ...(this.card ? { card: this.card } : {}) };
+    return { sessionId: this.sessionId, link: this.link, replace: this.replace, status: this.status, items: [...this.items.values()], queued: this.queued, cursor: this.cursor, ...(this.turnCount !== null ? { turnCount: this.turnCount } : {}), ...(this.account !== null ? { account: this.account } : {}), ...(gone.length ? { gone } : {}), ...(this.card ? { card: this.card } : {}) };
   }
 }
 

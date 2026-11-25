@@ -168,6 +168,22 @@ describe('ターンの数', () => {
   });
 });
 
+describe('会話のアカウント', () => {
+  it('state の account を update に載せ、変わったときだけ流す', async () => {
+    answers.push(() => ok(state([item('u1')], { account: '大学' })));
+    const r = await viewer.open(SID, { viewer: 'v1' });
+    expect(r.ok && r.update.account).toBe('大学');
+    const n = events.length;
+    answers.push(() => ok(state([], { account: '大学' })));
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    expect(events.length).toBe(n);
+    answers.push(() => ok(state([], { account: '会社' })));
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    expect(events.length).toBe(n + 1);
+    expect(updates().at(-1)!.account).toBe('会社');
+  });
+});
+
 describe('見張りを始める（GET）', () => {
   it('手元の写しの最後の uuid から tail を頼み、返った状態を update にして返す', async () => {
     localCursor = 'local-9';

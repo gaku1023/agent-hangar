@@ -199,6 +199,11 @@ export type PeerChatState = {
    */
   turnCount?: number;
   /**
+   * 元の PC で、この会話が動いているアカウントの名前（ID は PC ごとに違うので名前）。
+   * 見る側はヘッダのアカウントの顔に、同じ名前の手元のアカウントを出す。Claude でない会話と古い相手は付かない。
+   */
+  account?: string;
+  /**
    * 現在の札の材料。実行中の会話にだけ付く。
    * 無い（古い相手、止まっている会話）ときは、見る側は右の欄を出さない。
    */
@@ -587,6 +592,8 @@ function readState(v: unknown): PeerChatState | null {
     if (!isNat(v.turnCount)) return null;
     out.turnCount = v.turnCount;
   }
+  // 会話のアカウントの名前は顔に出すだけなので、形が違えば欄だけ捨てる（状態ごと捨てない）。
+  if (isStr(v.account) && v.account.length > 0 && v.account.length <= PEER_CHAT_ACCOUNT_MAX_CHARS) out.account = v.account;
   if (v.card !== undefined) {
     const c = readCard(v.card);
     if (c) out.card = c;
@@ -816,6 +823,8 @@ export type PeerChatUpdate = {
   reason?: PeerChatReason;
   /** 元の PC が知らせた全ターンの数。変わったときだけ目次を頼み直す。古い相手は付かない。 */
   turnCount?: number;
+  /** 元の PC での会話のアカウントの名前（PeerChatState.account）。古い相手と Claude でない会話は付かない。 */
+  account?: string;
 };
 
 /** 相手の PC。 */
