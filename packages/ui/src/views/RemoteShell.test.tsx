@@ -45,6 +45,13 @@ describe('TerminalPane: SSH のシェルタブ', () => {
     expect(screen.getByRole('button', { name: t('remoteShell.action.change') })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: t('remoteShell.action.retry') })).toBeInTheDocument();
   });
+  it('札は見出しの PC 名を繰り返さず、試した接続先を出す（上書きの Host 名があればそれ）', () => {
+    const a = pane({ phase: 'failed', reason: 'unreachable', address: '192.168.3.40' });
+    expect(a.container.querySelector('.term-remote-host')).toHaveTextContent('192.168.3.40');
+    a.unmount();
+    const b = pane({ phase: 'failed', reason: 'unreachable', address: '192.168.3.40' }, { hostName: 'win-box' });
+    expect(b.container.querySelector('.term-remote-host')).toHaveTextContent('win-box');
+  });
   it('「もう一度」は remote.retry を出す', () => {
     const { actions } = pane({ phase: 'failed', reason: 'dropped' });
     fireEvent.click(screen.getByRole('button', { name: t('remoteShell.action.retry') }));

@@ -52,7 +52,7 @@ function RemoteFailed(props: { tabId: string; target: RemoteTarget; why: string;
     <div ref={(el) => { centerRef.current = el; props.boxRef(el); }} className="term-remote-center" aria-hidden={props.leaving ? 'true' : undefined}>
       <Icon name="warning" />
       <b role={props.leaving ? undefined : 'alert'}>{props.why}</b>
-      <span className="term-remote-host">{props.target.deviceName}</span>
+      <span className="term-remote-host">{props.target.host ?? props.address ?? props.target.deviceName}</span>
       <div className="term-remote-row">
         <button type="button" className="btn btn-primary" onClick={() => emit({ type: 'investigate.open', op: 'remoteShell', message: props.why, code: props.reason, remote: { device: props.target.deviceName, ...(props.address ? { address: props.address } : {}), ...(props.detail ? { detail: props.detail } : {}) } })}>{t('setupGuide.launch.button')}</button>
         <button type="button" className="btn" aria-expanded={open} onClick={toggle}>{t('remoteShell.action.change')}</button>
