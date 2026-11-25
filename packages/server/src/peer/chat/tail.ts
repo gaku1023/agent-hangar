@@ -1,9 +1,25 @@
 import { createHash } from 'node:crypto';
-import fs from 'node:fs';
-import { PEER_CHAT_TURN_TEXT_MAX_BYTES, type PeerChatAsk, type PeerChatAskStep, type PeerChatItem, type PeerChatOlder, type PeerChatTurn, type PeerChatTurns } from '@agent-hangar/shared';
-import type { Db } from '../../db/open.ts';
-import { splitLines } from '../../provider/claude-code/transcript/lines.ts';
-import { DROPPED_LINE_TYPES, normalizeRecord, toolSummary } from '../../provider/claude-code/transcript/normalize.ts';
+import type { PeerChatAsk, PeerChatAskStep, PeerChatItem, PeerChatOlder, PeerChatTurns } from '@agent-hangar/shared';
+import {
+  PEER_CHAT_ITEM_TEXT_MAX_BYTES,
+  PEER_CHAT_TAIL_BYTE_BUDGET,
+  buildScan,
+  clipBytes,
+  jsonSize,
+  olderIn,
+  onlyRepliesIn,
+  positionIn,
+  settle,
+  shrink,
+  turnsIn,
+  type Scan,
+} from './items.ts';
+import { claudeTailSource, type TailSource, type TranscriptHandle } from './tailSource.ts';
+
+// 本文の層は items.ts（TranscriptEvent の行 → 項目）と tailSource.ts（provider ごとの読み口）に分かれている。
+// 呼び出し側が今までどおり tail.ts から取れるように、ここから再出する。
+export { PEER_CHAT_ITEM_TEXT_MAX_BYTES, PEER_CHAT_TAIL_BYTE_BUDGET, PEER_CHAT_TOOL_SUMMARY_MAX, type Scan, type TailRow } from './items.ts';
+export { PEER_CHAT_TAIL_READ_MAX_BYTES, dbTranscriptReader, type TailSource, type TranscriptHandle } from './tailSource.ts';
 
 /**
  * Claude Code のトランスクリプト（jsonl）を、チャットの項目（PeerChatItem）に直して、after の後ろだけを返す。
@@ -39,10 +55,6 @@ import { DROPPED_LINE_TYPES, normalizeRecord, toolSummary } from '../../provider
  * 伸びたときは読み直す（途中からの解析はしない）。
  */
 
-/** 返す項目の JSON の大きさの目安（バイト）。答えの封の上限（64 KiB）に、base64 と封筒の増え分を足しても収まる値。 */
-export const PEER_CHAT_TAIL_BYTE_BUDGET = 40 * 1024;
-/** 項目 1 つの本文の上限（UTF-8 のバイト）。これを超える本文は切って末尾に … を付ける。 */
-export const PEER_CHAT_ITEM_TEXT_MAX_BYTES = 8 * 1024;
 /** 札の input の上限（UTF-8 のバイト）。 */
 export const PEER_CHAT_ASK_INPUT_MAX_BYTES = 2 * 1024;
 /** 札の選択肢の数の上限。超える分は落とす。 */
@@ -55,12 +67,8 @@ export const PEER_CHAT_ASK_DESCRIPTION_MAX_BYTES = 512;
 export const PEER_CHAT_ASK_KEY_MAX_BYTES = 32;
 /** 覚えておく会話の数の上限。 */
 export const PEER_CHAT_TAIL_CACHE_MAX = 8;
-/** 道具の要約の上限（文字）。 */
-export const PEER_CHAT_TOOL_SUMMARY_MAX = 160;
 /** 既定の limit（transcript の項目の数）。 */
 export const PEER_CHAT_TAIL_DEFAULT_LIMIT = 200;
-/** 本文のファイルを読む大きさの上限。これより大きいファイルは末尾だけを読み、手前の項目は after からも届かない（truncated になる）。 */
-export const PEER_CHAT_TAIL_READ_MAX_BYTES = 16 * 1024 * 1024;
 
 /**
  * いま画面に出ている許可か質問。
@@ -86,21 +94,15 @@ export type PeerPendingAsk = {
   step?: PeerChatAskStep;
 };
 
-/**
- * 本文のファイルの手がかり。
- * key は経路、大きさ、更新時刻から作る文字列で、変わっていなければ中身も変わっていないとみなす。
- * read はその中身（全部、または末尾）を返す。末尾だけのときは、先頭が行の頭から始まること。
- * read は key が合わないとき（初めて、または変わったとき）だけ呼ばれる。
- */
-export type TranscriptHandle = { key: string; read(): Buffer };
-
 /** 解析の結果を会話ごとに覚える入れ物。PEER_CHAT_TAIL_CACHE_MAX 件までで、古い順に捨てる。 */
 export type TailCache = Map<string, { key: string; scan: Scan }>;
 export const createTailCache = (): TailCache => new Map();
 
 export type TailDeps = {
-  /** セッションの本文（jsonl）の手がかり。無ければ null。 */
-  readTranscript(sessionId: string): TranscriptHandle | null;
+  /** セッションの本文（jsonl）の手がかり。無ければ null。Claude Code の読み口（claudeTailSource）を作るのに使う。source があればそちらが先。 */
+  readTranscript?(sessionId: string): TranscriptHandle | null;
+  /** 本文の読み口。渡せば readTranscript より先に使う（codex、opencode の読み口はここから差す）。 */
+  source?: TailSource;
   /** いま画面に出ている許可か質問。無ければ null。 */
   pendingAsk(sessionId: string): PeerPendingAsk | null;
   /** 渡せば、変わっていないファイルを読み直さない。渡さなければ毎回読む。 */
@@ -108,139 +110,6 @@ export type TailDeps = {
 };
 
 export type TailResult = { items: PeerChatItem[]; cursor: string | null; truncated: boolean };
-
-// ---- 本文の読み出し ----
-
-/**
- * 索引（transcript_files）から、この PC にある本体の jsonl の手がかりを作る。
- * 他の端末から降ろした写し（device_id がある）とサブエージェントのファイル（agent_id がある）は使わない。
- * ファイルが PEER_CHAT_TAIL_READ_MAX_BYTES より大きければ末尾だけを読み、最初の改行までを捨てて行の頭に合わせる。
- * 手がかりを作るときに stat だけをして、中身は読まない。
- * copies を真にすると、他の端末から降ろした写しも使う（見る側の PC が、手元の写しの最後の uuid を知るのに使う）。
- * mtime が新しいものを選ぶ。
- */
-export function dbTranscriptReader(db: Db, o: { copies?: boolean } = {}): (sessionId: string) => TranscriptHandle | null {
-  const find = db.prepare(`select path from transcript_files where session_id = ? and agent_id is null${o.copies ? "" : " and device_id is null"} and agent = 'claude-code' order by mtime desc limit 1`);
-  return (sessionId) => {
-    const row = find.get(sessionId) as { path: string } | undefined;
-    if (!row) return null;
-    try {
-      const st = fs.statSync(row.path);
-      return { key: `${row.path}|${st.size}|${st.mtimeMs}`, read: () => readTail(row.path) };
-    } catch { return null; }
-  };
-}
-
-function readTail(file: string): Buffer {
-  const size = fs.statSync(file).size;
-  if (size <= PEER_CHAT_TAIL_READ_MAX_BYTES) return fs.readFileSync(file);
-  const start = size - PEER_CHAT_TAIL_READ_MAX_BYTES;
-  const buf = Buffer.alloc(PEER_CHAT_TAIL_READ_MAX_BYTES);
-  const fd = fs.openSync(file, 'r');
-  try { fs.readSync(fd, buf, 0, buf.length, start); } finally { fs.closeSync(fd); }
-  const nl = buf.indexOf(10);
-  return nl === -1 ? Buffer.alloc(0) : buf.subarray(nl + 1);
-}
-
-// ---- 行から項目へ ----
-
-/** 項目 1 つ分の枠。道具の枠は、結果が来る（または中断が分かる）まで done が false である。 */
-type Slot = { done: boolean; item: PeerChatItem; toolId: string; name: string };
-
-const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-
-/** 文字列を UTF-8 で max バイトに収める。切ったら末尾に … を付ける。 */
-function clipBytes(s: string, max: number): string {
-  if (Buffer.byteLength(s) <= max) return s;
-  const cut = Buffer.from(s).subarray(0, max - 3).toString('utf8').replace(/�+$/, '');
-  return `${cut}…`;
-}
-
-function oneLine(s: string, max: number): string {
-  const first = s.split(/\r?\n/, 1)[0] ?? '';
-  return first.length > max ? `${first.slice(0, max - 1)}…` : first;
-}
-
-export type Scan = { slots: Slot[] };
-
-/**
- * jsonl の全体を読み、項目の並び（道具は結果が来たものから先の順）にする。
- * 同じ uuid の行は、先の 1 行だけを読む。
- * 中断の判定（userSpoke）より前に落とすので、再開で写された利用者の行が、開いている道具を閉じることはない。
- */
-function scan(buf: Buffer): Scan {
-  const slots: Slot[] = [];
-  const seenLines = new Set<string>();
-  const open = new Map<string, Slot>();
-
-  for (const l of splitLines(buf, 0).lines) {
-    if (l.text.startsWith('{"type":"api-request')) continue;
-    let raw: unknown;
-    try { raw = JSON.parse(l.text); } catch { continue; }
-    if (!isRec(raw)) continue;
-    if (typeof raw.type === 'string' && DROPPED_LINE_TYPES.has(raw.type)) continue;
-    if (raw.isSidechain === true || raw.isCompactSummary === true) continue;
-    const uuid = typeof raw.uuid === 'string' ? raw.uuid : null;
-    if (uuid === null || seenLines.has(uuid)) continue;
-    seenLines.add(uuid);
-
-    let k = 0;
-    const nextUuid = (): string => (k++ === 0 ? uuid : `${uuid}:${k - 1}`);
-    let userSpoke = false;
-    for (const ev of normalizeRecord(raw, 0, null)) {
-      const at = ev.ts ?? 0;
-      if (ev.kind === 'user') {
-        if (ev.text === '' || ev.text.trimStart().startsWith('[Request interrupted by user')) { if (raw.type === 'user') userSpoke = true; continue; }
-        if (raw.type === 'user') userSpoke = true;
-        const id = nextUuid();
-        slots.push({ done: true, toolId: '', name: '', item: { uuid: id, at, kind: 'user', text: clipBytes(ev.text, PEER_CHAT_ITEM_TEXT_MAX_BYTES) } });
-      } else if (ev.kind === 'assistant') {
-        if (ev.text === '') continue;
-        const id = nextUuid();
-        slots.push({ done: true, toolId: '', name: '', item: { uuid: id, at, kind: 'assistant', text: clipBytes(ev.text, PEER_CHAT_ITEM_TEXT_MAX_BYTES) } });
-      } else if (ev.kind === 'thinking') {
-        if (ev.text.trim() === '') continue;
-        const id = nextUuid();
-        slots.push({ done: true, toolId: '', name: '', item: { uuid: id, at, kind: 'thinking', text: clipBytes(ev.text, PEER_CHAT_ITEM_TEXT_MAX_BYTES) } });
-      } else if (ev.kind === 'tool_call') {
-        const id = nextUuid();
-        const summary = oneLine(toolSummary(ev.name, ev.input), PEER_CHAT_TOOL_SUMMARY_MAX);
-        const slot: Slot = { done: false, toolId: ev.toolId, name: ev.name, item: { uuid: id, at, kind: 'tool', text: summary, tool: { name: ev.name, summary, ok: true } } };
-        slots.push(slot);
-        if (ev.toolId) open.set(ev.toolId, slot);
-      } else if (ev.kind === 'tool_result') {
-        const slot = open.get(ev.toolId);
-        if (!slot) continue;
-        open.delete(ev.toolId);
-        slot.item.tool!.ok = !ev.isError;
-        slot.done = true;
-      }
-      // system、meta は出さない。
-    }
-    // 結果が来ないまま利用者が続けた道具は、中断されたものとして閉じる。
-    if (userSpoke) {
-      for (const slot of open.values()) {
-        slot.item.tool!.ok = false;
-        slot.done = true;
-      }
-      open.clear();
-    }
-  }
-  return { slots };
-}
-
-/** 結果の来ていない道具の呼び出しの手前までの項目と、その後ろで結果待ちの道具（札の拠り所を探すのに使う）。 */
-function settle(s: Scan): { items: PeerChatItem[]; waiting: Slot[] } {
-  const items: PeerChatItem[] = [];
-  let i = 0;
-  for (; i < s.slots.length; i++) {
-    const slot = s.slots[i]!;
-    if (!slot.done) break;
-    items.push(slot.item);
-  }
-  const waiting = s.slots.slice(i).filter((x) => !x.done);
-  return { items, waiting };
-}
 
 // ---- 許可と質問の札 ----
 
@@ -323,8 +192,7 @@ export function currentPendingAsk(sessionId: string, deps: TailDeps): PeerChatAs
  * 答えの記録の札が呼んだ位置が、返した範囲から落ちたのか、transcript に最初から無いのかを分けるのに使う（解析は覚えを使う）。
  */
 export function transcriptPosition(sessionId: string, uuid: string, deps: TailDeps): number {
-  if (uuid === '') return -1;
-  return settle(scanOf(sessionId, deps)).items.findIndex((i) => i.uuid === uuid);
+  return positionIn(settle(scanOf(sessionId, deps)).items, uuid);
 }
 
 /**
@@ -333,12 +201,7 @@ export function transcriptPosition(sessionId: string, uuid: string, deps: TailDe
  * 札を呼ぶ前の一言が tool_use より先に載ると、札の直前の項目がずれる。その間に道具や発言が無ければ、同じ札の言い換えと見てよい。
  */
 export function onlyRepliesBetween(sessionId: string, from: string, to: string, deps: TailDeps): boolean {
-  if (from === '' || to === '') return false;
-  const items = settle(scanOf(sessionId, deps)).items;
-  const i = items.findIndex((x) => x.uuid === from);
-  const j = items.findIndex((x) => x.uuid === to);
-  if (i === -1 || j <= i) return false;
-  return items.slice(i + 1, j + 1).every((x) => x.kind === 'assistant' || x.kind === 'thinking');
+  return onlyRepliesIn(settle(scanOf(sessionId, deps)).items, from, to);
 }
 
 /**
@@ -346,22 +209,29 @@ export function onlyRepliesBetween(sessionId: string, from: string, to: string, 
  * 覚えは PEER_CHAT_TAIL_CACHE_MAX 会話までで、一番長く使われていないものから捨てる。
  */
 function scanOf(sessionId: string, deps: TailDeps): Scan {
-  const handle = deps.readTranscript(sessionId);
-  if (!handle) { deps.cache?.delete(sessionId); return { slots: [] }; }
+  const source = sourceOf(deps);
+  const key = source?.key(sessionId) ?? null;
+  if (!source || key === null) { deps.cache?.delete(sessionId); return { slots: [] }; }
   const cache = deps.cache;
   const hit = cache?.get(sessionId);
-  if (cache && hit && hit.key === handle.key) {
+  if (cache && hit && hit.key === key) {
     cache.delete(sessionId);
     cache.set(sessionId, hit);
     return hit.scan;
   }
-  const result = scan(handle.read());
+  const result = buildScan(source.read(sessionId));
   if (cache) {
     cache.delete(sessionId);
-    cache.set(sessionId, { key: handle.key, scan: result });
+    cache.set(sessionId, { key, scan: result });
     while (cache.size > PEER_CHAT_TAIL_CACHE_MAX) cache.delete(cache.keys().next().value!);
   }
   return result;
+}
+
+/** deps の読み口。source を優先し、無ければ readTranscript から Claude Code の読み口を作る。 */
+function sourceOf(deps: TailDeps): TailSource | null {
+  if (deps.source) return deps.source;
+  return deps.readTranscript ? claudeTailSource(deps.readTranscript.bind(deps)) : null;
 }
 
 // ---- 本体 ----
@@ -427,23 +297,6 @@ function askItemOrNull(ask: PeerChatAsk | null, pending: PeerPendingAsk | null, 
   return ask && pending ? askItem(ask, pending, base, at) : null;
 }
 
-const jsonSize = (v: unknown): number => Buffer.byteLength(JSON.stringify(v));
-
-/** 縮めるときの max の下限（バイト）。札が大きくて余りが少ないときも、max が負や 0 にならないようにする。 */
-const SHRINK_MIN_MAX_BYTES = 1024;
-
-/** 項目の JSON が max バイトに収まるまで本文を縮める。max は SHRINK_MIN_MAX_BYTES より小さくしない。 */
-function shrink(item: PeerChatItem, max: number): PeerChatItem {
-  const cap = Math.max(max, SHRINK_MIN_MAX_BYTES);
-  let limit = Buffer.byteLength(item.text);
-  let out = item;
-  while (jsonSize(out) > cap && limit > 16) {
-    limit = Math.floor(limit / 2);
-    out = { ...item, text: clipBytes(item.text, limit) };
-  }
-  return out;
-}
-
 // ---- 古い分と目次 ----
 
 /**
@@ -454,43 +307,7 @@ function shrink(item: PeerChatItem, max: number): PeerChatItem {
  * 最低 1 件は返す（大きくても本文を縮める）。
  */
 export function transcriptOlder(sessionId: string, o: { before: string | null; from?: string }, deps: TailDeps): PeerChatOlder {
-  const { items: all } = settle(scanOf(sessionId, deps));
-  const empty: PeerChatOlder = { items: [], more: false };
-  let start = 0;
-  if (o.from !== undefined) {
-    start = all.findIndex((i) => i.uuid === o.from);
-    if (start === -1) return empty;
-  }
-  let end = all.length;
-  if (o.before !== null) {
-    end = all.findIndex((i) => i.uuid === o.before);
-    if (end === -1) return empty;
-  }
-  const range = all.slice(start, Math.max(start, end));
-  if (range.length === 0) return empty;
-  let budget = PEER_CHAT_TAIL_BYTE_BUDGET;
-  const kept: PeerChatItem[] = [];
-  const forward = o.from !== undefined;
-  for (let k = 0; k < range.length; k++) {
-    const it = forward ? range[k]! : range[range.length - 1 - k]!;
-    const size = jsonSize(it) + 1;
-    if (size > budget && kept.length > 0) break;
-    budget -= size;
-    kept.push(it);
-  }
-  if (!forward) kept.reverse();
-  if (kept.length === 1 && budget < 0) kept[0] = shrink(kept[0]!, PEER_CHAT_TAIL_BYTE_BUDGET - 1);
-  return { items: kept, more: kept.length < range.length };
-}
-
-/** 目次の行の元。利用者の指示の項目ごとに、次の指示までの道具の数を数える。 */
-function turnRowsOf(sessionId: string, deps: TailDeps): PeerChatTurn[] {
-  const rows: PeerChatTurn[] = [];
-  for (const it of settle(scanOf(sessionId, deps)).items) {
-    if (it.kind === 'user') rows.push({ uuid: it.uuid, at: it.at, text: clipBytes(oneLine(it.text, PEER_CHAT_TURN_TEXT_MAX_BYTES), PEER_CHAT_TURN_TEXT_MAX_BYTES), tools: 0 });
-    else if (it.kind === 'tool' && rows.length > 0) rows[rows.length - 1]!.tools++;
-  }
-  return rows;
+  return olderIn(settle(scanOf(sessionId, deps)).items, o);
 }
 
 /** 会話の全ターンの数（見る側の目次の頼み直しの合図。解析は覚えを使う）。 */
@@ -504,20 +321,5 @@ export function transcriptTurnCount(sessionId: string, deps: TailDeps): number {
  * total は会話の全ターンの数で、before に関わらない。
  */
 export function transcriptTurns(sessionId: string, o: { before?: string }, deps: TailDeps): PeerChatTurns {
-  const all = turnRowsOf(sessionId, deps);
-  let end = all.length;
-  if (o.before !== undefined) {
-    const i = all.findIndex((r) => r.uuid === o.before);
-    if (i !== -1) end = i;
-  }
-  let budget = PEER_CHAT_TAIL_BYTE_BUDGET;
-  const kept: PeerChatTurn[] = [];
-  for (let i = end - 1; i >= 0; i--) {
-    const size = jsonSize(all[i]) + 1;
-    if (size > budget) break;
-    budget -= size;
-    kept.push(all[i]!);
-  }
-  kept.reverse();
-  return { rows: kept, total: all.length, more: kept.length < end };
+  return turnsIn(settle(scanOf(sessionId, deps)).items, o);
 }
