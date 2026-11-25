@@ -1,9 +1,9 @@
-import type { TranscriptEvent } from '@agent-hangar/shared';
+import type { LiveSessionDto, TranscriptEvent } from '@agent-hangar/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { writeBatch } from '../indexer/write.ts';
 import type { IndexRecord } from './types.ts';
-import { pendingQuestionOf } from './waiting.ts';
+import { pendingQuestionOf, waitingOf } from './waiting.ts';
 
 /** 画面の札が読めないときの、hook と本文に残った問い（統括の list_pending_asks が使う）。 */
 
@@ -43,5 +43,16 @@ describe('pendingQuestionOf', () => {
     expect(pendingQuestionOf(db, id)).toBeNull();
     setActivity('x', 't1', 'Bash');
     expect(pendingQuestionOf(db, id)).toBeNull();
+  });
+});
+
+describe('waitingOf の許可の道具の名前', () => {
+  const live = (tool: string): LiveSessionDto => ({ sessionId: 'u', status: 'waiting', waitingFor: 'permission', name: null, nameSource: null, cwd: '/w', pid: 1, statusAt: 1, permission: { tool, input: '/w/app', description: null } });
+  it('FolderTrust は言語に合わせて言い換える（既定は日本語）', () => {
+    expect(waitingOf(db, id, live('FolderTrust'))?.text).toBe('ディレクトリの信頼: /w/app');
+    expect(waitingOf(db, id, live('FolderTrust'), 'en')?.text).toBe('Folder trust: /w/app');
+  });
+  it('ほかの道具はそのまま', () => {
+    expect(waitingOf(db, id, live('Bash'), 'en')?.text).toBe('Bash: /w/app');
   });
 });

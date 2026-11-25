@@ -2,6 +2,7 @@ import { sessionPhaseOf, turnPhaseOf, type LiveSessionDto, type MobileWaiting, t
 import { waitingOf } from '../agent/waiting.ts';
 import type { Db } from '../db/open.ts';
 import { getSession } from '../db/queries.ts';
+import { defaultLanguage } from '../i18n/language.ts';
 import { msg } from '../i18n/message.ts';
 import { aliveRunForSession } from '../runs/queries.ts';
 import { readEvents } from '../transcript/read.ts';
@@ -138,7 +139,7 @@ export async function waitForSessionTool(deps: ToolDeps, ctx: ToolContext, args:
     const reply = lastReply(deps.db, id);
     // 送った後の返答がまだ無ければ、前のターンの返答を今回の結果に見せない。
     const stale = o.mark !== undefined && o.mark.expectsReply !== false && (reply?.ts ?? 0) < o.mark.at;
-    const waiting = o.waiting ?? (state === 'waiting' && o.live ? waitingOf(deps.db, id, o.live) : null);
+    const waiting = o.waiting ?? (state === 'waiting' && o.live ? waitingOf(deps.db, id, o.live, (deps.language ?? defaultLanguage)()) : null);
     return {
       session_id: id, state, ...(o.reason ? { reason: o.reason } : {}), status: s?.live ?? null,
       phase: s ? sessionPhaseOf({ live: s.live, status: s.state?.status, parked: s.parked, woke: s.woke, providerSessionId: s.providerSessionId }) : null,

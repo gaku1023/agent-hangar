@@ -1,4 +1,4 @@
-import { AGENT_KINDS, addDays, PEER_CHAT_AGENT_PROVIDERS, clampText, isRemoteControlUrl, localDate, PRIMARY_ACCOUNT_ID, type LiveSessionDto, type MobileAccount, type MobileApproval, type MobileAgent, type MobileCaps, type MobileDoneItem, type MobileFeed, type MobileLiveItem, type MobileProject, type MobileReturnItem, type MobileUsage, type UsageDto } from '@agent-hangar/shared';
+import { AGENT_KINDS, addDays, PEER_CHAT_AGENT_PROVIDERS, clampText, isRemoteControlUrl, localDate, PRIMARY_ACCOUNT_ID, type Language, type LiveSessionDto, type MobileAccount, type MobileApproval, type MobileAgent, type MobileCaps, type MobileDoneItem, type MobileFeed, type MobileLiveItem, type MobileProject, type MobileReturnItem, type MobileUsage, type UsageDto } from '@agent-hangar/shared';
 import type { AgentKind } from '../agent/types.ts';
 import { waitingOf } from '../agent/waiting.ts';
 import type { Account } from '../config/accounts.ts';
@@ -18,6 +18,8 @@ export type FeedSources = {
   accounts: Account[];
   usageOf: (accountId: string) => UsageDto | null;
   now: number;
+  /** 待ちの文の言語。省略は既定（日本語）。 */
+  language?: Language;
   /** 「明日」を決める暦のタイムゾーン（IANA 名）。省略すると、この PC の手元の暦。 */
   tz?: string;
   /** 設定の「opencode を有効にする」。真のときだけ caps.agents に opencode を載せる。省略は切。 */
@@ -159,7 +161,7 @@ export function buildMobileFeed(src: FeedSources): MobileFeed {
       status: l.status === 'waiting' && isSessionMuted(db, s.id) ? 'idle' : l.status,
       statusAt: l.statusAt ?? r.started_at,
       startedAt: r.started_at,
-      waiting: waitingOf(db, s.id, l),
+      waiting: waitingOf(db, s.id, l, src.language),
       intent: clampText(latestIntent(db, s.id)?.text),
       // Remote Control は Claude だけのもの。ほかのエージェントの行は claude.ai へつながない。
       rcUrl: s.provider === 'claude-code' ? rcUrlOf(db, s.id, r.started_at) : null,
