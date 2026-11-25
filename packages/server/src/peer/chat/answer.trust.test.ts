@@ -44,7 +44,7 @@ describe('フォルダの信頼の札', () => {
   it('画面から permission の札を組む。道具は FolderTrust、input はパス、選択肢は画面のラベルで Yes が 1、No が 2', () => {
     const plain = pendingAskFrom(session, new FakeTrust('plain').capture())!;
     expect(plain).toMatchObject({ kind: 'permission', tool: 'FolderTrust', input: 'D:\\workspace\\ops', multi: false, allowText: false });
-    expect(plain.options).toEqual([{ key: '2', label: 'No, exit' }, { key: '1', label: 'Yes, I trust this folder' }]);
+    expect(plain.options).toEqual([{ key: '1', label: 'Yes, I trust this folder' }, { key: '2', label: 'No, exit' }]);
     expect(plain.answerable).toBeUndefined();
     const numbered = pendingAskFrom(session, new FakeTrust('numbered').capture())!;
     expect(numbered.options).toEqual([{ key: '1', label: 'Yes, I trust this folder' }, { key: '2', label: 'No, exit' }]);

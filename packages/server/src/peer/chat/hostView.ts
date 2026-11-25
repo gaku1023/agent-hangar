@@ -115,7 +115,7 @@ const CHAT_ROW = /^chat about this\b/i;
 export function pendingAskFrom(session: HostSession, screen: string): PeerPendingAsk | null {
   // 会話の前に出るフォルダの信頼の確認は、番号が無い形があり、登録も hook も無い。専用の札にする（key は Yes が 1、No が 2）。
   const trust = parseTrustDialog(screen);
-  if (trust) return { kind: 'permission', tool: FOLDER_TRUST_TOOL, input: trust.path, description: null, options: trust.options.map((o) => ({ key: o.key, label: o.label })), multi: false, allowText: false };
+  if (trust) return { kind: 'permission', tool: FOLDER_TRUST_TOOL, input: trust.path, description: null, options: trust.options.map((o) => ({ key: o.key, label: o.label })).sort((a, b) => a.key.localeCompare(b.key)), multi: false, allowText: false };
   const d = parseDialog(screen);
   if (!d) return null;
   const rows = d.options.filter((o) => !CHAT_ROW.test(o.first));

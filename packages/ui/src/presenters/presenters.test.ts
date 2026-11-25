@@ -645,6 +645,16 @@ describe('セッションの並び順', () => {
 });
 
 describe('presentSession（実行中）', () => {
+  it('手元の Claude Code の会話には上部の札の帯を出さない（ターミナルで答える）。Codex には出す', () => {
+    const store = storeWith();
+    store.runs = { r1: runDto('r1', 's1') };
+    const ask = { askId: 'k1', kind: 'permission' as const, tool: 'Bash', input: 'ls', options: [{ key: '1', label: 'Yes' }], multi: false, allowText: false };
+    store.localAsks = { s1: { ask, pending: false, answered: null, gone: false } };
+    expect(presentSession(initialState(), store, NOW, 's1').ask).toBeNull();
+    store.sessions.s1 = { ...store.sessions.s1!, provider: 'codex' };
+    expect(presentSession(initialState(), store, NOW, 's1').ask).toMatchObject({ sessionId: 's1', row: { askId: 'k1' } });
+  });
+
   it('run とタブと選択、信頼ダイアログの案内、再開の可否', () => {
     const store = storeWith();
     store.runs = { r1: runDto('r1', 's1') };

@@ -3177,6 +3177,19 @@ describe('フォルダの信頼の確認を見張る（tmux 不要）', () => {
     expect(trustLive.current()).toEqual([]);
   });
 
+  it('hangar を起こし直したとき、登録の無い生きた run の見張りを付け直す', async () => {
+    const timers = new FakeTimers();
+    upsertShared(db, 'sessions', { id: 's9', provider: 'claude-code', provider_session_id: 'u9', cwd, home_device: 'd' }, 'd');
+    upsertShared(db, 'runs', { id: 'r9', session_id: 's9', device_id: 'd', kind: 'start', tmux_name: 'hangar-r9', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
+    const state = { screen: TRUST, reads: 0 };
+    const trustLive = new FolderTrustLive();
+    const panes = { ...trustPanes(state), list: () => ['hangar-r9'] };
+    const rm = make({ panes, timers, trustLive, deviceId: 'd' });
+    rm.recoverAtStartup();
+    await timers.advance(1_500);
+    expect(trustLive.current()).toMatchObject([{ sessionId: 'u9', status: 'waiting', permission: { tool: 'FolderTrust' } }]);
+  });
+
   it('登録が現れたら外して止まる', async () => {
     const timers = new FakeTimers();
     const state = { screen: TRUST, reads: 0 };

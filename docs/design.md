@@ -1322,7 +1322,7 @@ opencode の口（`provider/opencode/answer.ts`）は、serve の API に答え�
 
 **画面。**
 札の選択肢の部品（`views/AskCard.tsx`）を 1 つにして、ほかの PC の会話の列、本文の真上の帯、ホームの行の 3 か所で共用する（2026-11-26 に試作で選んだ）。
-- 手元で答える主な場所は、本文の真上の帯である。セッション画面の見出しの下、タブの行とターミナルの上で、右の欄（目次と `NowCard`）の左の列にだけ出す。札が無い間は高さ 0 になる。札には、命令の下に理由の行（Codex の reason、opencode の message、Claude の description）を出し、「許可せず中断」は危険の色で描く。右の欄の現在の札（`NowCard`）は今までの要約のままにし、選択肢を出さない。帯には Claude Code の会話の札も出し、同じ部品と同じ答え方（`answerCurrent`）を通す。
+- 手元で答える主な場所は、本文の真上の帯である。セッション画面の見出しの下、タブの行とターミナルの上で、右の欄（目次と `NowCard`）の左の列にだけ出す。札が無い間は高さ 0 になる。札には、命令の下に理由の行（Codex の reason、opencode の message、Claude の description）を出し、「許可せず中断」は危険の色で描く。右の欄の現在の札（`NowCard`）は今までの要約のままにし、選択肢を出さない。手元の Claude Code の会話には帯を出さない（2026-11-26 に利用者が決めた）。Claude Code の札は、ターミナルでいつものように答えるためである。帯は Codex と opencode の会話だけで、ホームの行には Claude Code の札も出す。
 - ホームの要対応の行は、行の下に開いて、その場で答える。「答える」で開き、選択肢は横並びにする。
 - 許可の選択肢は、Codex が 4 つ、opencode は「止める」が無いので 3 つで、description を各行の下に出す。問いが複数ある質問は、Claude Code と同じ 1 問ずつのタブ（`step`）で出す。真偽の欄は 2 つの選択肢で、押すとそのまま答える。
 - 答えられない札（`answerable: false`）は選択肢を出さず、「ターミナルを開く」のボタンにする（ほかの PC の会話では元の PC の端末をこの PC から開けないので、案内の一行にする）。
@@ -4035,12 +4035,13 @@ hangar は、次の置き場で claude を起こす直前に、起こすアカ�
 `parseTrustDialog`（`provider/claude-code/screen/trustDialog.ts`）が両方を読み、フォルダのパス、選択肢の行（ラベルは画面そのまま）、カーソルのある行を返す。選択肢の key は、番号の有無や並びによらず Yes が 1、No が 2 である。
 
 - **見張り**：`RunManager.launch` が Claude Code の run を起こした後、`watchTrustDialog`（`runs/folderTrust.ts`）で画面を約 1.5 秒ごとに読む。登録の行（`claude.live`）が現れるか run が終わったら止める。
+  hangar を起こし直したときも、`recoverAtStartup` が、tmux に画面が残っていて登録のまだ無い Claude Code の run に見張りを付け直す。確認が出たまま再起動しても止まったままにしない。
 - **live への重ね**：確認が出ている間、`FolderTrustLive`（`LiveHub` の写しの 1 つ）が、その会話に入力待ちの行（`waiting`、waitingFor は `permission`、`permission.tool` は `FolderTrust`、input はパス、pid は 0）を足す。登録の行が現れたら `LiveHub` が重なった確認の行を捨てる。pid 0 の行は `linkRegistry` が run の pid に書かない。この行は実行中の一覧を通るので、サイドバーの入力待ち、`runs.live_status`（別の PC への配信、`shareLive`）、デスクトップ通知が、ふつうの許可待ちと同じ道で動く。
 - **札**：別の PC へ配る札は `PeerPendingAsk`（`kind` は `permission`、`tool` は `FolderTrust`、`input` はパス、`options` は画面の行のラベル）で、`pendingAskFrom` が画面から組む。新しい `kind` は足さない（古い見る側の検証が答え全体を断るため）。本文が無くても札の項目は `items` に載り、状態は `waiting` になる。
 - **答え**：番号の無い画面があるので、`answerAsk` はこの札だけ番号のキーを使わない。画面を読み直し、フォルダのパスと選んだ行が札と合うことを確かめ、カーソルの行との差だけ `up` か `down` を打ち、カーソルが着いたのを確かめてから `Enter` を打つ。確認が画面から消えたら答えたことにする（`No, exit` は claude が終わる）。カーソルが読めないときは何も打たずに断る。PermissionRequest の hook は無いので、hook の答えは使わない。
 - **手元の画面**：手元の会話の札と同じ道（`boot/askWatch.ts` が流す `session.ask`、答えは `POST /api/sessions/:id/ask/answer`）を通る。専用の口は持たない。答えは別の PC と同じ答え手と記録を通るので、同じ札に 2 度は打たない。MCP の `answer_ask` と mobile の札も同じ答え手を通る。
 - **画面の見せ方**：札は題名を「ディレクトリの信頼」、本文をパス、選択肢を画面のラベルのまま「1. Yes, I trust this folder」「2. No, exit」とする。答えた後の一行は質問の札と同じ形（`{device} で「{label}」`）で、許可の語（許可、拒否）には直さない。別の PC の会話の画面は `PeerChatCard` がそのまま描く。
-  手元の会話の画面は、ほかの手元の札と同じ共通の帯（`AskBand`、ターミナルのタブの上にも出る）に、`AskCard` の札を出す（`presentLocalAsk`。題名は `stop.folder.trust`、答えた後の一行は `localAnsweredLine` が質問の形にする）。live がまだ無い起動直後は、今までの「信頼確認が出たらターミナルで回答」の帯のままである。
+  手元の会話の画面には、上部の帯（`AskBand`）を出さない。手元の Claude Code の札は、ターミナルで答える（「ほかの PC の Codex と opencode の会話」の節の帯の決まり）。ホームの行には、ほかの札と同じく `presentLocalAsk` の札が出る（題名は `stop.folder.trust`、答えた後の一行は `localAnsweredLine` が質問の形にする）。live がまだ無い起動直後は、今までの「信頼確認が出たらターミナルで回答」の帯のままである。選択肢は、画面の並びによらず key の順（Yes が先）に並べる。
   道具の名前（`FolderTrust`）は利用者に見せない。右の欄の現在の札、ホームの行、知らせの札、統括の許可の行、デスクトップ通知は、`permissionToolLabel`（shared の `stopReason.ts`）で「フォルダの信頼」（en は `Folder trust`）に言い換える。
 
 作業フォルダの信頼は、セットアップのすゝめが利用者の同意を取ってから `hangar workspace set <dir> --trust` で頼む（`POST /api/workspace/trust`）。
@@ -7285,7 +7286,7 @@ Paused は戻ってくるものなので外さない。
 新たに入力待ちになったセッションは、右下に 1 件 1 枚のカードとして積む。
 カードには赤い縦の帯、名前、待っている時間、プロジェクト、問い（2 行まで、取れなければ「入力を待っています」）、「ターミナルで答える」を置く。
 どこを押しても、そのセッションを開いてターミナルにフォーカスする（`session.open` の `focus: 'terminal'`）。
-カードに選択肢は出さない。開いた先の本文の真上の帯で、Claude Code、Codex、opencode のどの札にも答えられる。
+カードに選択肢は出さない。開いた先では、Codex と opencode の札は本文の真上の帯で、Claude Code の札はターミナルで答える。
 カードは入力待ちが解けるまで残し、時間では消さず、閉じるボタンも持たない。
 解けたら下げる。
 そのセッションを開いたときも下げ、離れた後もその入力待ちでは積み直さない。

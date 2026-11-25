@@ -1748,6 +1748,18 @@ export class RunManager {
     // 前回サーバが落ちた拍子に残った設定と秘密も、ここで落とす。
     // tmux の上で生き残った run の分は残る。その claude は再起動後も同じ秘密で繋ぎに来る。
     const alive = listAliveRuns(this.db, this.deviceId);
+    // 信頼の確認の見張りは起こしたときにしか付かない。確認が出たまま hangar を起こし直すと、誰も見ずに止まったままになるので付け直す。
+    // 登録がまだ無い Claude Code の run だけが対象で、見張りは登録が現れたら自分で止まる。
+    const panes = this.deps.panes;
+    if (panes) {
+      const registered = new Set(this.deps.claude.live.current().map((l) => l.sessionId));
+      for (const run of alive) {
+        if (this.trustWatches.has(run.id) || !names.has(run.tmuxName) || this.providerOf(run.sessionId) !== DEFAULT_AGENT) continue;
+        const s = this.db.prepare('select provider_session_id, cwd from sessions where id = ?').get(run.sessionId) as { provider_session_id: string; cwd: string } | undefined;
+        if (!s || registered.has(s.provider_session_id)) continue;
+        this.watchTrust(run.id, run.sessionId, s.cwd, run.tmuxName, panes);
+      }
+    }
     this.pruneMcpConfigs(alive.map((r) => r.sessionId));
     this.pruneSecretEnvs(alive.map((r) => r.id));
     return out;
