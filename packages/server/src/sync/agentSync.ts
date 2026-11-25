@@ -173,6 +173,7 @@ export const AGENT_SYNC: Record<AgentKind, AgentSyncUnit> = {
     relays: false,
   },
   // Codex は rollout 1 ファイルを会話 1 つとして、thread の UUID で台帳と鍵名を引く（`codex/<端末>/<UUID>.jsonl.gz`）。
+  // 子（サブエージェント）の rollout は親の下の台帳の鍵（`codex/<端末>/<親>/subagents/<子>.jsonl.gz`）で上げる。写しの path は主線と同じ形（子の名前）で、降ろす側は先頭の parent_thread_id から親を知る。
   // 名前が .jsonl から .jsonl.zst に変わっても、アーカイブで置き場が変わっても、台帳と鍵名は 1 つのままである。
   // 降ろした写しは remote/<元の PC>/ の下に、写しの path のまま置く（codex/sessions/... か codex/archived_sessions/...）。
   // 削除の掃除（ゴミ箱の 30 日）は thread の UUID の形の ID だけを受ける（鍵名を求められない ID を外す）。
@@ -181,14 +182,18 @@ export const AGENT_SYNC: Record<AgentKind, AgentSyncUnit> = {
     ledgerKey(deviceId, sessionId, agentId) {
       if (!isSafeKeyId(deviceId)) throw new Error('invalid device id');
       if (!CODEX_THREAD_ID.test(sessionId)) throw new Error('invalid session id');
-      if (agentId !== null) throw new Error('codex has no separate subagent transcripts');
-      return `codex/${deviceId}/${sessionId}.jsonl.gz`;
+      if (agentId === null) return `codex/${deviceId}/${sessionId}.jsonl.gz`;
+      if (!CODEX_THREAD_ID.test(agentId)) throw new Error('invalid subagent id');
+      return `codex/${deviceId}/${sessionId}/subagents/${agentId}.jsonl.gz`;
     },
     idsOfLedgerKey(deviceId, ledgerKey) {
+      const child = /^codex\/([^/]+)\/([^/]+)\/subagents\/([^/]+)\.jsonl\.gz$/.exec(ledgerKey);
+      if (child) return child[1] === deviceId && CODEX_THREAD_ID.test(child[2]!) && CODEX_THREAD_ID.test(child[3]!) ? { uuid: child[2]!, agentId: child[3]! } : null;
       const m = /^codex\/([^/]+)\/([^/]+)\.jsonl\.gz$/.exec(ledgerKey);
       return m && m[1] === deviceId && CODEX_THREAD_ID.test(m[2]!) ? { uuid: m[2]!, agentId: null } : null;
     },
-    blobKey: (indexKey, deviceId, origin, sessionId) => codexBlobKey(indexKey, deviceId, origin, sessionId),
+    // 子の R2 の鍵名は、子の thread の UUID で求める（前の版が子を独立した会話として上げた鍵名と同じ。上げ直しは同じオブジェクトへの上書きで、ほかの PC に写しが二重に並ばない）。
+    blobKey: (indexKey, deviceId, origin, sessionId, agentId) => codexBlobKey(indexKey, deviceId, origin, agentId ?? sessionId),
     sessionOfPath: codexSessionOfPath,
     syncPath: null,
     remoteDir: 'codex',

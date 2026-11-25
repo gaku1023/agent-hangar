@@ -548,8 +548,16 @@ export class RemotePuller {
   private isTrashed(rel: string): boolean {
     const uuid = uuidOfTranscript(rel);
     if (uuid === '') return false;
-    return this.deps.db.prepare(`select 1 from sessions s join session_states st on st.session_id = s.id and st.deleted_at is null
-      where s.provider_session_id = ? and st.trashed_at is not null`).get(uuid) !== undefined;
+    const marked = this.deps.db.prepare(`select 1 from sessions s join session_states st on st.session_id = s.id and st.deleted_at is null
+      where s.provider_session_id = ? and st.trashed_at is not null`);
+    if (marked.get(uuid) !== undefined) return true;
+    // Codex の子（サブエージェント）の写しは、path の会話の ID が子の UUID である。親の印は、索引の行（agent_id が子）か、親と一緒にゴミ箱へ移した控えで引く。
+    if (agentOfSyncPath(rel)?.provider !== 'codex') return false;
+    return this.deps.db.prepare(`select 1 from (
+        select session_id from transcript_files where agent_id = @c
+        union select session_id from trashed_transcripts where path like @like escape '\\'
+      ) p join session_states st on st.session_id = p.session_id and st.deleted_at is null where st.trashed_at is not null`)
+      .get({ c: uuid, like: `%-${uuid}.jsonl%` }) !== undefined;
   }
 
   /**

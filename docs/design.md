@@ -1265,7 +1265,12 @@ status は codex の `AgentStatus` に合わせ、`completed` と `errored` は 
 鍵は `rolloutKey`（子は親の id と子の id）で、同じ親の子を会話の重複として捨てない。
 取り込みの上限は親の数で数え、子は親が入るときに添える。`liveFiles` は親の主線と子の本文を返す。
 先頭がまだ書かれていない rollout の見張りの通知は、親か主線か決められないので無視し、次の書き込みの通知で読み直す。
-同期の上げ手（`sync/uploader.ts` の Codex の掃き出し）は `agent_id` が空の本文だけを上げるので、子の本文は今のところ別の PC へ渡らない。
+同期は子も上げる（下の「Codex の本文」の子の節）。
+前の版が子を独立した会話として索引した行は、起動時に親の下へ付け替える（`indexer/codexChildren.ts` の `reparentCodexChildren`）。
+先頭に `parent_thread_id` を持つ rollout が独立した会話として入っていて、親が手元の索引にあれば、その rollout の索引（事象、検索、日別の使用量、読み進めた位置）を消し、独立した会話の行は論理削除する（同期で届いた行と同じく、ほかの PC でも一覧から外れる）。
+次の全走査が、親の下で先頭から読み直す。
+親が手元の索引に無い子は独立した会話のまま残す。
+済みの印は `settings_local` の `codexChildrenReparented` で、Codex を有効にして一巡したあとは調べ直さない。
 ライブの要約（`live/digest.ts`）は Codex の会話だけ `live/codexAgents.ts` で NowCard のサブエージェントの行を組む。
 元は子の索引（題は子の最初の指示、時刻は子の rollout の最初と最後、最後の手は子の末尾の道具の呼び出し）と、主線の `<subagent_notification>` である。
 状態は知らせで決め、`completed` は done、`errored` は error、`interrupted` などそのほかの終わりは done にして `endNote` に status を残し、知らせが無ければ running にする。
@@ -8232,7 +8237,7 @@ Claude の本文の鍵名と台帳の鍵は 1 字も変えない。
 | | Claude | opencode | Codex |
 | --- | --- | --- | --- |
 | 封じたメタの path | `projects/<フォルダ>/<UUID>.jsonl` | `opencode/<ID>.json` | `codex/sessions/YYYY/MM/DD/<名前>.jsonl` か `codex/archived_sessions/<名前>.jsonl` |
-| 台帳の鍵（`ledgerKeyFor`） | `transcripts/<端末>/<UUID>.jsonl.gz` | `opencode/<端末>/<ID>.json.gz` | `codex/<端末>/<UUID>.jsonl.gz` |
+| 台帳の鍵（`ledgerKeyFor`） | `transcripts/<端末>/<UUID>.jsonl.gz` | `opencode/<端末>/<ID>.json.gz` | `codex/<端末>/<UUID>.jsonl.gz`（子は `codex/<端末>/<親>/subagents/<子>.jsonl.gz`） |
 | R2 の鍵名の HMAC の入力 | `t:<元の PC>:<UUID>[:<サブエージェント>]` | `o:<元の PC>:<ID>`（`opencodeBlobKey`） | `x:<元の PC>:<UUID>`（`codexBlobKey`） |
 | kind | `transcript` | `transcript` | `transcript` |
 
@@ -8327,6 +8332,13 @@ Codex（ベータ）の本文は、`$CODEX_HOME` の rollout（`sessions/YYYY/MM
 鍵は thread の UUID（`provider_session_id`、名前の末尾）で、台帳の鍵は `codex/<端末>/<UUID>.jsonl.gz`、R2 の鍵名は `codexBlobKey`（`x:<元の PC>:<UUID>`）で求める。
 Claude と同じく、gzip して暗号化し、変化のたびに全体を上げ直し、指紋が前と同じなら PUT しない。
 rollout は追記だけで伸びる（実機の 0.164.0 で、先頭のバイト列が保たれたまま末尾に足されるのを確かめた）。
+
+子（サブエージェント）の rollout は、親の下の台帳の鍵 `codex/<端末>/<親の UUID>/subagents/<子の UUID>.jsonl.gz` で上げる（Claude の `subagents/agent-*.jsonl.gz` と同じ考え方）。
+R2 の鍵名（`x:<元の PC>:<子の UUID>`）と封じたメタの path（`codex/sessions/YYYY/MM/DD/<子の名前>.jsonl`）は、前の版が子を独立した会話として上げた形のまま変えない。
+変えると、古い版の PC が知らない path で降ろしに失敗し続け、上がり済みの子が二重に並ぶからである。
+降ろす側は path から子の UUID だけを知り（台帳の鍵は `codex/<元の PC>/<子の UUID>.jsonl.gz`）、親は写しの先頭の `parent_thread_id` から知る（発見の段と同じ）。
+削除は親に付く。親を消すとゴミ箱へ移すものに子の rollout と降ろした子の写しが入り、30 日の掃除は親の下の鍵（`blob_uploads` の `codex/<端末>/<親>/subagents/%`）から子の R2 の鍵名を求めて消す。
+前の版の PC は、子を独立した会話の rollout として降ろすだけで、壊れない。
 
 7 日を過ぎた rollout は、機能 `local_thread_store_compression` を入れると `.jsonl.zst` に圧縮される（0.164.0 の既定は切）。
 上げる側は、実体が `.jsonl.zst` なら展開してから指紋を取り、展開した jsonl を上げる。

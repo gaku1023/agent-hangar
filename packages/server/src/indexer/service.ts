@@ -6,6 +6,7 @@ import { upsertShared } from '../db/shared.ts';
 import type { AgentKind, FileTranscriptSource, IndexBatch, PromptHistory, PromptHistoryEntry, TranscriptFile, TranscriptSink, TranscriptSource } from '../agent/types.ts';
 import type { Timers } from '../sync/engine.ts';
 import { writeBaselineIfNeeded } from './baseline.ts';
+import { reparentCodexChildren } from './codexChildren.ts';
 import { backfillHeadless } from './headless.ts';
 import { forgetTranscriptFile, indexFile, isUnchanged, markTruncatedForReindex, type FileStat } from './indexFile.ts';
 import { ensureSession, storedOrigin, writeBatch, type ProcessStartOf } from './write.ts';
@@ -683,6 +684,8 @@ export class IndexerService {
     for (const t of this.opts.stored ?? []) t.start(this.storedSink);
     // 前の版が先頭からの索引を消してしまったファイルは、この全走査で先頭から読み直す。
     markTruncatedForReindex(this.opts.db);
+    // 前の版が独立した会話として索引した Codex の子（サブエージェント）は、この全走査より前に親の下へ付け替える。
+    if (this.sources.some((s) => s.agent === 'codex' && s.enabled?.() !== false)) reparentCodexChildren(this.opts.db, this.opts.deviceId);
     await this.fullScan();
     this.armSweep();
     this.noteLiveChanged();

@@ -45,16 +45,21 @@ async function targets(db: Db, ring: RowKeyring, deviceId: string, now: number):
   const providerOf = db.prepare('select provider from sessions where id = ?');
   const exact = db.prepare('select ledger_key ledgerKey, epoch from blob_uploads where ledger_key = ? order by epoch');
   for (const s of trashedLongAgo(db, now - TRASH_KEEP_MS)) {
-    // opencode の会話は export の 1 本、Codex の会話は rollout の 1 本だけ（サブエージェントの本文は分けない）。鍵名の求め方も Claude と違う。
+    // opencode の会話は export の 1 本、Codex の会話は rollout の 1 本と、親の下の子（サブエージェント）の rollout である。鍵名の求め方も Claude と違う。
     const provider = (providerOf.get(s.sessionId) as { provider: string } | undefined)?.provider;
     if (isExportAgent(provider) || provider === 'codex') {
       let key: string;
       try { key = AGENT_SYNC[provider].ledgerKey(deviceId, s.uuid, null); } catch { continue; }
-      for (const r of exact.all(key) as { ledgerKey: string; epoch: number }[]) {
+      const rows = provider === 'codex'
+        ? (pick.all(key, `${escapeLike(key.slice(0, -'.jsonl.gz'.length))}/subagents/%`) as { ledgerKey: string; epoch: number }[])
+        : (exact.all(key) as { ledgerKey: string; epoch: number }[]);
+      for (const r of rows) {
         const keys = ring.at(r.epoch);
         if (!keys) continue;
+        const ids = AGENT_SYNC[provider].idsOfLedgerKey(deviceId, r.ledgerKey);
+        if (!ids || ids.uuid !== s.uuid) continue;
         try {
-          out.push({ blobKey: await AGENT_SYNC[provider].blobKey(keys.index, deviceId, deviceId, s.uuid, null), ledgerKey: r.ledgerKey, epoch: r.epoch });
+          out.push({ blobKey: await AGENT_SYNC[provider].blobKey(keys.index, deviceId, deviceId, s.uuid, ids.agentId), ledgerKey: r.ledgerKey, epoch: r.epoch });
         } catch { /* 形の違う ID は鍵名にならない */ }
       }
       continue;
