@@ -556,10 +556,15 @@ function LiveSection(props: { live: SideLiveProps }) {
     // 外を押したときは、押した先にフォーカスを任せる。ほかは行へ戻す（止めて行が消えたら、戻す先は無い）。
     if (how !== 'outside' && id) section.current?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`)?.focus();
   };
-  /** グループをこの順に並べた並びを覚える。いまの並びと同じなら何もしない。 */
+  /**
+   * グループをこの順に並べた並びを覚える。いまの並びと同じなら何もしない。
+   * 止まった会話の席（seats）もグループといっしょに動かす。動いている行だけを動かすと、止まった席でグループの順が決まったままになるからである。
+   */
   const order = (groups: SideLiveGroup[]) => {
-    const ids = groups.flatMap((g) => g.rows.filter((r) => !r.dim).map((r) => r.id));
-    if (ids.some((id, i) => id !== liveNow.current.ids[i])) emit({ type: 'sidebar.order', ids });
+    const liveIds = (g: SideLiveGroup) => g.rows.filter((r) => !r.dim).map((r) => r.id);
+    const ids = groups.flatMap((g) => { const live = liveIds(g); return g.seats ? [...g.seats, ...live.filter((id) => !g.seats!.includes(id))] : live; });
+    const now = liveNow.current.groups.flatMap((g) => { const live = liveIds(g); return g.seats ? [...g.seats, ...live.filter((id) => !g.seats!.includes(id))] : live; });
+    if (ids.some((id, i) => id !== now[i])) emit({ type: 'sidebar.order', ids });
   };
   /** 浮いたグループを空いた席（取り消しなら元の席）へ --dur-fast で収め、収まってからグループの順を確定する。行の settle と同じ組み立てである。 */
   const gsettle = (cancel: boolean) => {

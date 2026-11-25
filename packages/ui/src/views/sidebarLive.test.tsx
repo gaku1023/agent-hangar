@@ -111,6 +111,16 @@ describe('サイドバーの「実行中」をプロジェクトごとに分け�
     expect(live.rows.map((r) => r.id)).toEqual(['b', 'e', 'a', 'd', 'c']);
     expect(live.count).toBe(5);
   });
+  it('グループの順は、覚えた並びにある止まった会話の席も数えて決める。先頭の会話を止めても、グループは元の位置に残る', () => {
+    const s = { ...storeWith([
+      session('a1', { projectId: 'p1', live: null }), session('b1', { projectId: 'p2' }), session('a2', { projectId: 'p1' }),
+    ]), projects: { p1: project('p1', 'web'), p2: project('p2', 'docs') } };
+    const live = liveOf(s, { ...at('projects'), sidebarOrder: ['a1', 'b1', 'a2'] });
+    expect(live.groups.map((g) => [g.key, g.rows.map((r) => r.id)])).toEqual([['p1', ['a2']], ['p2', ['b1']]]);
+    expect(live.ids).toEqual(['a2', 'b1']);
+    // グループを動かしたときに覚え直す席は、止まった会話の席も含めてグループの順に渡す。
+    expect(live.groups.map((g) => g.seats)).toEqual([['a1', 'a2'], ['b1']]);
+  });
   it('グループは開いた形で出し、畳んだグループ（sidebarFolded）だけを閉じる。待っている行の数を持つ', () => {
     const live = grouped({ ...at('projects'), sidebarFolded: ['p1'] });
     expect(live.groups.map((g) => [g.key, g.open, g.waiting])).toEqual([['p2', true, 0], ['p1', false, 1], ['', true, 1]]);
@@ -729,6 +739,15 @@ describe('「実行中」のグループ（Sidebar）', () => {
     fireEvent.keyDown(head('web'), { key: 'ArrowUp', altKey: true });
     fireEvent.keyDown(head('未分類'), { key: 'ArrowDown', altKey: true });
     expect(onAction).not.toHaveBeenCalled();
+  });
+  it('見出しの ⌥↑↓ は、止まった会話の席（seats）もグループといっしょに動かす', () => {
+    const groups: SideLiveGroup[] = [
+      { key: 'web', name: 'web', open: true, waiting: 0, rows: [row('a')], seats: ['x', 'a'] },
+      { key: 'docs', name: 'docs', open: true, waiting: 0, rows: [row('b')], seats: ['b'] },
+    ];
+    const { onAction } = mount({ count: 2, ids: ['a', 'b'], rows: groups.flatMap((g) => g.rows), groups, pins: [] });
+    fireEvent.keyDown(head('web'), { key: 'ArrowDown', altKey: true });
+    expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['b', 'x', 'a'] });
   });
   it('見出しを掴んで動かすとグループごと浮き、ほかのグループはその高さ分よける。離すとグループの順を確定し、離したあとの click では畳まない', () => {
     const { onAction } = mount(three());
