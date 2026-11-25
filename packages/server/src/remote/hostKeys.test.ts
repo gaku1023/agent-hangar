@@ -29,7 +29,8 @@ describe('ensureHostKeys', () => {
     const r = await ensureHostKeys(base({ hostPubkey: PUB }), { exec: mkExec('', calls) });
     expect(r).toEqual({ ok: true, knownHosts: path.join(dir, 'known_hosts'), emptyKnownHosts: path.join(dir, 'known_hosts.empty') });
     expect(kh()).toBe(`hangar-peer-d1 ssh-ed25519 ${PUB}\n`);
-    expect(fs.statSync(path.join(dir, 'known_hosts')).mode & 0o777).toBe(0o600);
+    // Windows は POSIX の権限のビットを持たない（chmod は読み取り専用の印だけ）。
+    if (process.platform !== 'win32') expect(fs.statSync(path.join(dir, 'known_hosts')).mode & 0o777).toBe(0o600);
     expect(fs.readFileSync(path.join(dir, 'known_hosts.empty'), 'utf8')).toBe('');
     expect(calls).toEqual([]);
     expect(fs.readdirSync(dir).sort()).toEqual(['known_hosts', 'known_hosts.empty']);
