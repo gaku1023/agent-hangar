@@ -1223,6 +1223,26 @@ alter table session_stats add column context_model text;
 create index session_live_stats_model on session_live_stats (model, updated_at);
 `;
 
+/** ほかの PC の会話から開く SSH のシェルタブ（手元だけの表、同期しない）と、PC ごとの上書きの Host 名。 */
+const V73_REMOTE_SHELL_SQL = `
+create table remote_tabs (
+  id text primary key,
+  session_id text not null,
+  device_id text not null,
+  remote_name text not null,
+  title text not null,
+  created_at integer not null,
+  closed_at integer,
+  kill_pending integer not null default 0
+);
+create index remote_tabs_open on remote_tabs (session_id, created_at) where closed_at is null;
+create table remote_ssh_hosts (
+  device_id text primary key,
+  host text not null,
+  updated_at integer not null
+);
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: BASELINE_VERSION, sql: BASELINE_SQL },
   { version: 17, sql: V17_SESSION_NOTES_SQL },
@@ -1280,4 +1300,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 70, sql: V70_RUN_LIVE_ASIDE_SQL },
   { version: 71, sql: V71_DROP_PEER_APPROVALS_SQL },
   { version: 72, sql: V72_SESSION_CONTEXT_SQL },
+  { version: 73, sql: V73_REMOTE_SHELL_SQL },
 ];
