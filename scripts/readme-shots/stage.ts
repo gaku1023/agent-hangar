@@ -48,7 +48,9 @@ async function demoPaths(ctx: BrowserContext, e: Env, mocks: ApiMock[]): Promise
       const json = typeof mock.json === 'function' ? (mock.json as (r: unknown) => unknown)({ url: req.url(), method: req.method(), body }) : mock.json;
       return route.fulfill({ status: mock.status ?? 200, contentType: 'application/json', body: JSON.stringify(json) });
     }
-    const res = await route.fetch({ url: back(req.url()), ...(body !== null ? { postData: back(body) } : {}) });
+    // 撮り終えて文脈を閉じた後に残った要求は、捨てる（捨てないと未処理の例外で台本が落ちる）。
+    const res = await route.fetch({ url: back(req.url()), ...(body !== null ? { postData: back(body) } : {}) }).catch(() => null);
+    if (!res) return;
     const type = res.headers()['content-type'] ?? '';
     if (!/json|text/.test(type)) return route.fulfill({ response: res });
     const patch = PATCHES.find((p) => p.match === url.pathname);

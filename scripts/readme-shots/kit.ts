@@ -36,7 +36,7 @@ export type LiveStep = {
   /** hangar の MCP の道具を呼ぶ。args の '@todo:<文言>' は、その文言の TODO の id になる。 */
   mcp?: { tool: string; args?: Record<string, unknown> };
 };
-export type LiveScript = { project: string; name: string; steps: LiveStep[] };
+export type LiveScript = { project: string; name: string; steps: LiveStep[]; /** 今の context の量（トークン）。輪と数の色を見せたい会話だけ指す。 */ context?: number };
 
 /** API の応答の差し替え。match は pathname（/api/usage など）。json は値か、要求を受ける関数。 */
 export type ApiMock = {

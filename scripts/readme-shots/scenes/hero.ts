@@ -17,6 +17,7 @@ const scene: Scene = {
     seed.live('hero', {
       project: 'photo-tagger',
       name: NAME,
+      context: 342_000,
       steps: [
         { gate: 'hero' },
         { user: '写真の EXIF から撮影日時を読んで、「2026-春」のようなタグを自動で付けられるようにしてください。', intent: '写真の EXIF の撮影日時から、季節のタグ（2026-春 など）を自動で付ける処理を足す。まず既存のタグ付けを読んでいる。' },

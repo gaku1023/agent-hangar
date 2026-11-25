@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { PAST, PROJECTS } from './data.mjs';
+import { CONTEXT_SIZE, CONTEXT_TOKENS, PAST, PROJECTS } from './data.mjs';
 import { api, type Env, prepare, requireBuilt, requireTools, startServer, teardown, waitHealthy } from './env.ts';
 import type { ApiMock, LiveScript, PastSession, Project, Scene, Seed } from './kit.ts';
 import { type Ids, OUT, shoot } from './stage.ts';
@@ -78,6 +78,11 @@ async function populate(e: Env, data: ReturnType<typeof collect>): Promise<Ids> 
   for (const [i, s] of data.past.entries()) {
     const id = ids.get(e.pastIds[i]!)!;
     pastIds[s.title] = id;
+    const ctx = CONTEXT_TOKENS[s.title as keyof typeof CONTEXT_TOKENS];
+    if (ctx !== undefined) {
+      // 文脈の量の輪を出すため、statusline が届いたことにする（量は見本の値、窓は 100 万）。
+      await api(e, 'POST', '/ingest/statusline', { session_id: e.pastIds[i], model: { id: 'claude-sonnet-5-5[1m]' }, context_window: { context_window_size: CONTEXT_SIZE, current_usage: { input_tokens: ctx } } });
+    }
     if (!s.state) continue;
     await api(e, 'PUT', `/sessions/${id}/state`, { status: s.state, ...(s.note ? { note: s.note } : {}) });
   }

@@ -112,6 +112,7 @@ async function resolveTodoRefs(v) {
 
 const tfile = transcriptPath(claudeDir, cwd, sessionId);
 const tw = new TranscriptWriter({ file: tfile, sessionId, cwd, title: name || undefined });
+tw.contextTokens = scenario?.context ?? null;
 
 async function type(text, ms = 16) {
   for (const ch of text) { out(ch); await sleep(ms); }
