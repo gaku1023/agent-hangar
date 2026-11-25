@@ -18,6 +18,16 @@ describe('mediator: ほかの PC の会話の操作は効果にして Runtime �
   });
 });
 
+describe('mediator: この PC の会話の札への答え', () => {
+  it('ask.answer と ask.settle は localAsk の効果になり、状態は変えない', () => {
+    const a = step({ type: 'ask.answer', sessionId: 's1', askId: 'a1', keys: ['once'] });
+    expect(a.effects).toEqual([{ kind: 'localAsk', command: { op: 'answer', sessionId: 's1', askId: 'a1', keys: ['once'] } }]);
+    expect(a.state).toEqual(initialState());
+    expect(step({ type: 'ask.answer', sessionId: 's1', askId: 'a1', keys: [], text: 'はい' }).effects).toEqual([{ kind: 'localAsk', command: { op: 'answer', sessionId: 's1', askId: 'a1', keys: [], text: 'はい' } }]);
+    expect(step({ type: 'ask.settle', sessionId: 's1' }).effects).toEqual([{ kind: 'localAsk', command: { op: 'settle', sessionId: 's1' } }]);
+  });
+});
+
 describe('mediator: ほかの PC の会話の目次と古い分', () => {
   it('turnsMore、older、jump は peerChat の効果になる', () => {
     expect(step({ type: 'peerChat.turnsMore', sessionId: 's1' }).effects).toEqual([{ kind: 'peerChat', command: { op: 'turnsMore', sessionId: 's1' } }]);

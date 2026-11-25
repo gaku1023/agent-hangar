@@ -31,6 +31,7 @@ export const peerChatKeys = {
   'peerChat.ask.wordAlways': [],
   'peerChat.ask.wordDeny': [],
   'peerChat.ask.answeredPermission': ['device', 'label'],
+  'peerChat.ask.answeredPermissionAscii': ['device', 'label'],
   'peerChat.ask.answeredQuestion': ['device', 'label'],
   'peerChat.ask.answeredHere': ['device'],
   'peerChat.ask.answeredSecret': ['device'],

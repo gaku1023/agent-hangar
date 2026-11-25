@@ -32,6 +32,7 @@ export const peerChatEn: AreaDictionary<typeof peerChatKeys> = {
   'peerChat.ask.wordAlways': 'Always allowed',
   'peerChat.ask.wordDeny': 'Denied',
   'peerChat.ask.answeredPermission': '{label} on {device}',
+  'peerChat.ask.answeredPermissionAscii': '{label} on {device}',
   'peerChat.ask.answeredQuestion': '"{label}" on {device}',
   'peerChat.ask.answeredHere': 'Answered on {device}',
   'peerChat.ask.answeredSecret': 'Entered on {device}',

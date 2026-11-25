@@ -15,7 +15,7 @@ type Extras = Pick<
   | 'renameProject' | 'live' | 'sessionFiles' | 'gitSessions' | 'sessionChanges' | 'sessionDiff' | 'sessionEdits' | 'projectGit' | 'headless' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'previewAccountDir' | 'sharePreview' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
   | 'codexAccounts' | 'setCurrentCodexAccount' | 'addCodexAccount' | 'previewCodexAccountDir' | 'updateCodexAccount' | 'removeCodexAccount' | 'loginCodexAccount' | 'cancelCodexAccountLogin' | 'refreshCodexAccount' | 'linkConflicts' | 'repairLinkConflicts'
-  | 'openRemoteTab' | 'closeRemoteTab' | 'putSshHost' | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen' | 'markUnread' | 'setPinned' | 'setMuted' | 'launchSettings' | 'rushPeerQueue' | 'eventBindings' | 'prClaims' | 'createEventBinding' | 'approveEventBinding' | 'deleteEventBinding' | 'answerPrClaim' | 'heldEvents' | 'runHeldEvents' | 'eventHookUrl' | 'rotateEventUrl' | 'eventRepoHook' | 'peers' | 'peerLaunch' | 'peerStop' | 'peerChatOpen' | 'peerChatOp' | 'orchestratorApprovals' | 'orchestratorSend' | 'orchestratorState' | 'orchestratorControl' | 'voice' | 'voiceHold' | 'voiceToggle' | 'voiceSpeak' | 'translate' | 'voiceStop' | 'voiceVoices' | 'voicePreview' | 'voiceEngine'
+  | 'openRemoteTab' | 'closeRemoteTab' | 'putSshHost' | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen' | 'markUnread' | 'setPinned' | 'setMuted' | 'launchSettings' | 'rushPeerQueue' | 'answerLocalAsk' | 'eventBindings' | 'prClaims' | 'createEventBinding' | 'approveEventBinding' | 'deleteEventBinding' | 'answerPrClaim' | 'heldEvents' | 'runHeldEvents' | 'eventHookUrl' | 'rotateEventUrl' | 'eventRepoHook' | 'peers' | 'peerLaunch' | 'peerStop' | 'peerChatOpen' | 'peerChatOp' | 'orchestratorApprovals' | 'orchestratorSend' | 'orchestratorState' | 'orchestratorControl' | 'voice' | 'voiceHold' | 'voiceToggle' | 'voiceSpeak' | 'translate' | 'voiceStop' | 'voiceVoices' | 'voicePreview' | 'voiceEngine'
 >;
 
 /** フェーズ 2 からフェーズ 4 で増えた API の偽物。
@@ -41,6 +41,7 @@ export function fakeApiExtras(): Extras {
     peers: vi.fn(async () => ({ peers: [] })),
     peerChatOpen: vi.fn(async () => ({ ok: false as const, reason: 'not-remote' as const })),
     peerChatOp: vi.fn(async () => ({ ok: true as const })),
+    answerLocalAsk: vi.fn(async () => ({ ok: true as const, label: '' })),
     orchestratorApprovals: vi.fn(async () => ({ approvals: [] })),
     voice: vi.fn(async () => ({ available: false, models: { state: 'missing' as const, progress: 0 }, mode: 'off' as const, phase: 'off' as const, caption: null, speakingId: null, toggled: false, meeting: false, callable: true })),
     voiceHold: vi.fn(async () => ({ ok: true })),

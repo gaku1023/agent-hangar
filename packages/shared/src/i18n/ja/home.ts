@@ -25,6 +25,7 @@ export const homeJa: AreaDictionary<typeof homeKeys> = {
   'home.tryNow.notPaused': 'この会話は Paused ではありません',
   'home.band.reminderTime': 'リマインダーの時刻 {time}',
   'home.band.answer': 'ターミナルで回答',
+  'home.band.answerHere': '答える',
   'home.band.move': 'hangar に移動',
   'home.band.open': '開く',
   'home.band.changeDate': '日付を変更',

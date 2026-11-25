@@ -262,3 +262,17 @@ describe('行（確認待ち）', () => {
     expect(presentHomeBand(none, ja).groups[3]!.headActions ?? []).toEqual([]);
   });
 });
+
+describe('presentHomeBand の札つきの入力待ち', () => {
+  const card = { askId: 'k1', askKind: 'permission' as const, title: '許可', header: null, input: 'ls', options: [{ key: 'once', label: '1 回だけ許可' }], multi: false, allowText: false, secret: false, textKind: null, min: null, max: null, answered: null, hostOnly: null, pending: false, locked: false };
+  it('札があれば行に札を載せ、「答える」は札を開く印を持つ（送るのは端末を開く形のまま）', () => {
+    const row = presentHomeBand({ ...none, attention: [waiting('a', { ask: card })] }, ja).groups[0]!.rows[0]!;
+    expect(row.answerCard).toEqual({ sessionId: 'a', row: card });
+    expect(row.actions[0]).toMatchObject({ id: 'answer', label: '答える', reveal: 'ask', send: { type: 'session.open', id: 'a', focus: 'terminal' } });
+  });
+  it('札が無い行には載せず、印も付けない', () => {
+    const row = presentHomeBand({ ...none, attention: [waiting('a')] }, ja).groups[0]!.rows[0]!;
+    expect(row.answerCard).toBeUndefined();
+    expect(row.actions[0]!.reveal).toBeUndefined();
+  });
+});

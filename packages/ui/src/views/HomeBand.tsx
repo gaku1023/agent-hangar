@@ -1,4 +1,5 @@
 import { Fragment, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { AskCard } from './AskCard.tsx';
 import { GitChip } from './GitChip.tsx';
 import { useEmit } from '../action/chain.tsx';
 import type { BandAction, BandGroup, BandLead, BandRow, BandSection, HomeBandProps } from '../presenters/home.ts';
@@ -240,6 +241,7 @@ function BandRowView(props: { row: BandRow; leaving?: boolean; rowRef?: (el: HTM
   const r = props.row;
   const open = r.open;
   const [menuAt, setMenuAt] = useState<MenuAnchor | null>(null);
+  const [askOpen, setAskOpen] = useState(false);
   const back = useRef<HTMLElement | null>(null);
   const li = useRef<HTMLLIElement | null>(null);
   const setLi = (el: HTMLLIElement | null) => { li.current = el; props.rowRef?.(el); };
@@ -265,6 +267,7 @@ function BandRowView(props: { row: BandRow; leaving?: boolean; rowRef?: (el: HTM
     show(pointAnchor(e.clientX, e.clientY));
   };
   return (
+    <>
     <li ref={setLi} className="crow" data-k={r.tone ?? (r.lead.kind === 'check' ? 'check' : r.lead.kind === 'place' ? 'place' : r.lead.kind === 'guide' ? 'guide' : undefined)} aria-hidden={props.leaving ? true : undefined} inert={props.leaving || undefined}
       data-menu={menuAt ? 'true' : undefined}
       onContextMenu={r.menu && !props.leaving ? onContextMenu : undefined}
@@ -291,9 +294,37 @@ function BandRowView(props: { row: BandRow; leaving?: boolean; rowRef?: (el: HTM
         {r.overlap && <OverlapChip overlap={r.overlap} name={r.name} />}
         {r.git && <GitChip id={r.git.id} chip={r.git.chip} />}
         {r.trail.map((x, i) => <span key={i} data-tone={x.tone}>{x.text}</span>)}
-        {r.actions.map((a) => <BandButton key={a.id} action={a} />)}
+        {r.actions.map((a) => (a.reveal ? <RevealButton key={a.id} action={a} open={askOpen} onToggle={() => setAskOpen((v) => !v)} /> : <BandButton key={a.id} action={a} />))}
       </span>
       {menuAt && r.menu && !props.leaving && <SessionMenuPop menu={r.menu} at={menuAt} onClose={closeMenu} />}
+    </li>
+    {r.answerCard && !props.leaving && <RowAsk card={r.answerCard} open={askOpen} />}
+    </>
+  );
+}
+
+/** 「答える」。押すと行の下の札を開閉する（端末は開かない）。 */
+function RevealButton(props: { action: BandAction; open: boolean; onToggle: () => void }) {
+  const a = props.action;
+  return <button type="button" className={bandButtonClass(a)} aria-label={a.ariaLabel} aria-expanded={props.open} disabled={a.disabled} onClick={props.onToggle}>{a.label}</button>;
+}
+
+/** 行の下に開く札。開くと growIn、閉じると collapseOut。選択肢は横並びの丸ボタン（styles/home.css）。 */
+function RowAsk(props: { card: NonNullable<BandRow['answerCard']>; open: boolean }) {
+  const emit = useEmit();
+  const { card } = props;
+  const box = usePresence<HTMLLIElement>(props.open, (el) => collapseOut(el));
+  const born = useRef(props.open);
+  useLayoutEffect(() => {
+    if (props.open && !born.current && box.ref.current) growIn(box.ref.current);
+    born.current = props.open;
+  }, [props.open]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!box.mounted) return null;
+  return (
+    <li ref={box.ref} className="crow-ask">
+      <AskCard row={card.row}
+        onAnswer={(askId, keys, text) => emit({ type: 'ask.answer', sessionId: card.sessionId, askId, keys, ...(text ? { text } : {}) })}
+        onOpenTerminal={() => emit({ type: 'session.open', id: card.sessionId, focus: 'terminal' })} />
     </li>
   );
 }

@@ -15,7 +15,7 @@ import { usePresence } from './primitives/usePresence.ts';
  * - header は問いの上に出す。secret の欄は伏せ字（password）にする。
  * - 数の欄（textKind）は、数として合わない、または min・max の外のときは送れない。
  * - 答えを送ってから札が閉じるまでの間（pending）は、同じ札へ 2 度送らない。受け付けない設定の PC（locked）では押せない。
- * - 答えられない札（hostOnly が非 null）は、選択肢を出さない。onOpenTerminal があれば「端末を開く」ボタン、無ければ案内の一行にする
+ * - 答えられない札（hostOnly が非 null）は、選択肢を出さない。onOpenTerminal があれば「ターミナルを開く」ボタン、無ければ案内の一行にする
  *   （ほかの PC の会話では、元の PC の端末をこの PC から開けない）。
  * - 答えると選択肢が collapseOut で閉じ、答えの記録が growIn で開く。
  */

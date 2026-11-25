@@ -1,5 +1,5 @@
 import { contextGaugeOf, type ContextGauge } from './contextGauge.ts';
-import { stopReasonOf, type PeerChatCard, type PeerChatItem, type PeerChatReason, type PeerChatStatus, type SessionDto, type TranscriptEvent } from '@agent-hangar/shared';
+import { stopReasonOf, type PeerChatAsk, type PeerChatCard, type PeerChatItem, type PeerChatReason, type PeerChatStatus, type SessionDto, type TranscriptEvent } from '@agent-hangar/shared';
 import type { Translate } from '@agent-hangar/shared';
 import type { Store } from '../store/store.ts';
 import { emptySlice, joinedItems, type PeerChatSlice } from '../store/peerChat.ts';
@@ -114,21 +114,29 @@ export function permissionWord(t: Translate, label: string): string | null {
   return null;
 }
 
+/**
+ * 答えの記録の文。
+ * 元の PC の手元で答えた札は、選んだ行が分からない（label が空）。
+ * 伏せる入力は、値も選んだ行も出さない。
+ * 許可の文が英数字で始まるときは、「で」との間に半角空白を置く（「Mac で 1 回だけ許可」）。
+ */
+export function answeredText(t: Translate, kind: 'permission' | 'question', secret: boolean, device: string, label: string): string {
+  if (secret) return t('peerChat.ask.answeredSecret', { device });
+  if (label === '') return t('peerChat.ask.answeredHere', { device });
+  if (kind === 'permission') {
+    // 画面の選択肢の文（Yes、No …）は固定の語にする。
+    // Codex・opencode のように日本語の文で来る許可は、その文のまま「<PC> で<文>」にする。合わない英語の文は引用する。
+    const word = permissionWord(t, label) ?? (/[^\x00-\x7f]/.test(label) ? label : null);
+    if (word !== null) return t(/^[0-9A-Za-z]/.test(word) ? 'peerChat.ask.answeredPermissionAscii' : 'peerChat.ask.answeredPermission', { device, label: word });
+  }
+  return t('peerChat.ask.answeredQuestion', { device, label });
+}
+
 function answerLine(t: Translate, it: PeerChatItem, mine: { label: string; deviceName: string } | null): string | null {
   // この PC から送って、相手の返事を待っている札は、選んだ答えで答えた形に見せる。
   const a = it.ask?.answered ?? (mine ? { by: { deviceName: mine.deviceName }, label: mine.label } : null);
   if (!a) return null;
-  // 元の PC の手元で答えた札は、選んだ行が分からない（label が空）。
-  // 伏せる入力は、値も選んだ行も出さない。
-  if (it.ask!.secret) return t('peerChat.ask.answeredSecret', { device: a.by.deviceName });
-  if (a.label === '') return t('peerChat.ask.answeredHere', { device: a.by.deviceName });
-  if (it.ask!.kind === 'permission') {
-    // 画面の選択肢の文（Yes、No …）は固定の語にする。
-    // Codex・opencode のように日本語の文で来る許可は、その文のまま「<PC> で<文>」にする。合わない英語の文は引用する。
-    const word = permissionWord(t, a.label) ?? (/[^\x00-\x7f]/.test(a.label) ? a.label : null);
-    if (word !== null) return t('peerChat.ask.answeredPermission', { device: a.by.deviceName, label: word });
-  }
-  return t('peerChat.ask.answeredQuestion', { device: a.by.deviceName, label: a.label });
+  return answeredText(t, it.ask!.kind, it.ask!.secret === true, a.by.deviceName, a.label);
 }
 
 /**
@@ -167,11 +175,16 @@ function foldTools(rows: PeerChatRow[], t: Translate): PeerChatRow[] {
   return out;
 }
 
+/** 札の部品（views/AskCard.tsx）が描く値にする。peer chat の列と、この PC の札（本文の真上の帯、ホームの行）で共用する。 */
+export function askModelOf(t: Translate, ask: PeerChatAsk, o: { text?: string | null; answered: string | null; hostOnly: string | null; pending: boolean; locked: boolean }): AskCardModel {
+  return { askId: ask.askId, askKind: ask.kind, title: t(ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), header: ask.header ?? null, input: ask.input ?? o.text ?? null, options: ask.options, multi: ask.multi, allowText: ask.allowText, secret: ask.secret === true, textKind: ask.textKind ?? null, min: ask.min ?? null, max: ask.max ?? null, answered: o.answered, hostOnly: o.hostOnly, pending: o.pending, locked: o.locked };
+}
+
 function rowOf(t: Translate,it: PeerChatItem, slice: PeerChatSlice, index: number, device: string, myName: string): PeerChatRow {
   if (it.ask) {
     const pick = slice.answering.includes(it.ask.askId) ? slice.picked[it.ask.askId] : undefined;
     const answered = answerLine(t, it, pick !== undefined ? { label: pick, deviceName: myName } : null) ?? (staleAsk(slice, index) ? t('peerChat.ask.closed') : null);
-    return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), header: it.ask.header ?? null, input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, secret: it.ask.secret === true, textKind: it.ask.textKind ?? null, min: it.ask.min ?? null, max: it.ask.max ?? null, answered, hostOnly: answered === null && it.ask.answerable === false ? t('peerChat.ask.unanswerable', { device }) : null, pending: slice.answering.includes(it.ask.askId), locked: slice.locked };
+    return { kind: 'ask', key: `ask:${it.ask.askId}`, ...askModelOf(t, it.ask, { text: it.text, answered, hostOnly: answered === null && it.ask.answerable === false ? t('peerChat.ask.unanswerable', { device }) : null, pending: slice.answering.includes(it.ask.askId), locked: slice.locked }) };
   }
   switch (it.kind) {
     case 'user': return { kind: 'user', key: it.uuid, text: it.text, from: it.from ? t('peerChat.log.sentFrom', { device: it.from.deviceName }) : null };

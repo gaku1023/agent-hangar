@@ -1,3 +1,5 @@
+import { presentLocalAsk } from './localAsk.ts';
+import type { AskCardModel } from './peerChat.ts';
 import { asideFree, asideHead, asideOf } from '../lib/aside.ts';
 import { presentGitChip, type GitChipProps } from './git.ts';
 import { setupGuidePrompt, candidateDaysLeft, isReturnOn, isReturnTime, limitKindText, liveWithLimit, overdueDays, quietLive, resetAtText, returnDue, returnPastMinutes, stopReasonOf, type CandidateSource, type UiAction, type LiveStatus, type AgentIconKind, type PermissionAskDto, type ProjectStatus, type SessionDto, type StopReason, type Translate } from '@agent-hangar/shared';
@@ -34,7 +36,10 @@ import { presentSessionList, type SessionListProps } from './sessions.ts';
  */
 export type AttentionCard = { id: string; name: string; projectName: string | null; waited: string; question: string; answer: 'terminal' | 'attach' | 'adopt' | null; reason?: StopReason | null; permission?: PermissionAskDto | null;
   /** エージェントの絵の種類（presenters/agentIcon.ts の rowAgent）。絵を出さないときは省く。 */
-  agent?: AgentIconKind | null };
+  agent?: AgentIconKind | null;
+  /** この PC の会話の札（許可と質問）。あれば「答える」は行の下に札を開き、無ければ端末を開く。答えられない札は載せない。 */
+  ask?: AskCardModel;
+};
 /**
  * 実行中の札。
  * intent は Claude がこのターンに書いた意図の 1 文で、書かれていなければ null である（右の欄の「いま」と同じもの。presenters/live.ts）。
@@ -161,7 +166,8 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
     const shown = reason === 'permission' || reason === 'reset' ? reason : null;
     const since = remoteLock && typeof remoteLock.liveAt === 'number' ? remoteLock.liveAt : shown === 'reset' && s.limit ? s.limit.resetsAt : s.lastActivityAt ?? now;
     const agent = rowAgent(store, s);
-    return { id: s.id, name: name(s), projectName: projectName(s), waited: durationLabel(t, Math.max(0, now - since)), question: s.activity?.question ?? noQuestionText(t), answer: aliveRunOf(store, s.id) ? 'terminal' as const : outsideOpenOf(store, s), reason: shown, permission: shown === 'permission' ? s.permission : null, ...(agent !== undefined ? { agent } : {}) };
+    const ask = presentLocalAsk(store, s.id, t);
+    return { id: s.id, name: name(s), projectName: projectName(s), waited: durationLabel(t, Math.max(0, now - since)), question: s.activity?.question ?? noQuestionText(t), answer: aliveRunOf(store, s.id) ? 'terminal' as const : outsideOpenOf(store, s), reason: shown, permission: shown === 'permission' ? s.permission : null, ...(agent !== undefined ? { agent } : {}), ...(ask !== null && ask.hostOnly === null ? { ask } : {}) };
   });
 
   const returning = returningCards(store, now, alive);
@@ -241,7 +247,9 @@ export type BandAction = { id: string; label: string; ariaLabel: string; primary
   /** 押す前に見せる一言（ボタンの title）。 */
   title?: string;
   /** send が clipboard.copy のとき、写せたら COPIED_MS のあいだ文字を「コピーしました」に替える（始める前の確認の「仕上げ」の行）。 */
-  copyFeedback?: boolean };
+  copyFeedback?: boolean;
+  /** 押すと send を送らず、行の下の札（BandRow.answerCard）を開閉する（要対応の「答える」）。 */
+  reveal?: 'ask' };
 /**
  * 行頭の印。dot は状態の点、tag は戻る日や提案の札（tone の due は戻る時点を過ぎて塗る、soon は時刻の前で文字だけ、cand は提案）、todo は TODO の完了の提案の印である。
  * check は始める前の確認の印で、色だけでなく形（✓、ⓘ、!、✗）でも分ける。label は読み上げの名前に添える状態の語である。
@@ -270,7 +278,7 @@ export type BandTrail = { text: string; tone?: 'wait' | 'busy' | 'limit' | 'unre
  * agent はセッションの行のエージェントの絵の種類で、行頭の印と名前の間に同じ幅の枠で置く（null は空の枠）。省けば枠ごと置かない。
  * どの群の行もこの形にするので、群を足すときに View を触らずに済む。
  */
-export type BandRow = { key: string; lead: BandLead; name: string; badge?: string | null; context: string | null; text: string; detail: string | null; tone: 'wait' | null; trail: BandTrail[]; open: UiAction | null; actions: BandAction[]; ask?: { tool: string; input: string } | null; agent?: AgentIconKind | null;
+export type BandRow = { /** 行の下に開く札（要対応の行）。 */ answerCard?: { sessionId: string; row: AskCardModel }; key: string; lead: BandLead; name: string; badge?: string | null; context: string | null; text: string; detail: string | null; tone: 'wait' | null; trail: BandTrail[]; open: UiAction | null; actions: BandAction[]; ask?: { tool: string; input: string } | null; agent?: AgentIconKind | null;
   /** 名前を押すと統括の柱を開く（統括の未読の行）。柱の開閉は View の状態なので、open（UiAction）ではなく印で渡す。 */
   opensOrchestrator?: true;
   /** 本文の頭に添える色の語（中断の行の「作業中だった」「再開中」「失敗」）。 */
@@ -325,7 +333,10 @@ function action(t: Translate, id: string, label: string, name: string, send: UiA
 
 function attentionRow(t: Translate, a: AttentionCard): BandRow {
   const row = attentionRowBody(t, a);
-  return a.agent !== undefined ? { ...row, agent: a.agent } : row;
+  const withAsk = a.ask !== undefined && a.answer === 'terminal'
+    ? { ...row, answerCard: { sessionId: a.id, row: a.ask }, actions: row.actions.map((x) => (x.id === 'answer' ? action(t, 'answer', t('home.band.answerHere'), a.name, x.send, 'primary') : x)).map((x) => (x.id === 'answer' ? { ...x, reveal: 'ask' as const } : x)) }
+    : row;
+  return a.agent !== undefined ? { ...withAsk, agent: a.agent } : withAsk;
 }
 
 function attentionRowBody(t: Translate, a: AttentionCard): BandRow {

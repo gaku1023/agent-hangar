@@ -3,11 +3,12 @@ import { addDays, localDate, translator } from '@agent-hangar/shared';
 import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPreviewDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageDto } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState, transition } from '../mediator/transition.ts';
-import type { PhoneLaunchDto, ServerEvent } from '@agent-hangar/shared';
+import type { PeerChatAsk, PhoneLaunchDto, ServerEvent } from '@agent-hangar/shared';
 import { accountsFixture, codexAccountsFixture, FIVE_RESETS, SEVEN_RESETS } from '../test/accounts.ts';
 import type { State } from '../mediator/types.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, setEventsLoading, type Store } from '../store/store.ts';
 import { emptySlice } from '../store/peerChat.ts';
+import { askUpdated } from '../store/localAsk.ts';
 import { absoluteTime, costLabel, percentLabel, relativeTime, resetsLabel, shortModel, tokensLabel } from './format.ts';
 import { presentConfirm } from './confirm.ts';
 import { presentHome, presentHomeScreen } from './home.ts';
@@ -38,6 +39,8 @@ function storeWith(): Store {
   s.sessions = { s1: session('s1', { live: 'busy' }), s2: session('s2', { lastActivityAt: NOW - 86_400_000 * 3 }), s3: session('s3', { projectId: null }) };
   return s;
 }
+
+const askStore = (store: Store, id: string, ask: PeerChatAsk): Store => askUpdated(store, id, ask);
 
 describe('format', () => {
   it('使用率の枠が戻る時刻は、今日なら時刻だけ、別の日なら日付を添える', () => {
@@ -266,6 +269,16 @@ describe('presentHome', () => {
     // hangar の run があれば、その端末で答える。
     store.runs = { rw1: runDto('rw1', 'w1') };
     expect(presentHome(initialState(), store, NOW).attention.find((c) => c.id === 'w1')!.answer).toBe('terminal');
+  });
+  it('この PC の札があれば、要対応の札に載せる。答えられない札は載せず、端末で答える', () => {
+    const store = homeStore();
+    store.runs = { rw1: runDto('rw1', 'w1') };
+    const ask = { askId: 'k1', kind: 'permission' as const, input: 'ls', options: [{ key: 'once', label: '1 回だけ許可' }], multi: false, allowText: false };
+    const a = presentHome(initialState(), askStore(store, 'w1', ask), NOW).attention;
+    expect(a.find((c) => c.id === 'w1')!.ask).toMatchObject({ askId: 'k1', hostOnly: null });
+    expect(a.find((c) => c.id === 'w2')!.ask).toBeUndefined();
+    const b = presentHome(initialState(), askStore(store, 'w1', { ...ask, answerable: false as const, options: [] }), NOW).attention;
+    expect(b.find((c) => c.id === 'w1')!.ask).toBeUndefined();
   });
   it('終わった run しか無い入力待ちは、hangar の端末で答えられない', () => {
     const store = homeStore();

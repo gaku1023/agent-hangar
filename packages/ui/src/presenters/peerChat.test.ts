@@ -351,6 +351,6 @@ describe('チャットを出さない会話は、今までの読み取り専用�
 
   it('Codex・opencode の許可の答え（label がそのまま日本語）は「<PC> で <label>」にする', () => {
     const a: PeerChatItem = { ...ask(), ask: { ...ask().ask!, options: [{ key: 'once', label: '1 回だけ許可' }], answered: { by: MAC, label: '1 回だけ許可', at: 9 } } };
-    expect(view(store({ status: 'busy', items: [a] }))!.rows[0]).toMatchObject({ answered: 'Mac で1 回だけ許可' });
+    expect(view(store({ status: 'busy', items: [a] }))!.rows[0]).toMatchObject({ answered: 'Mac で 1 回だけ許可' });
   });
 });

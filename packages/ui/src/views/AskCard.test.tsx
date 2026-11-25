@@ -69,11 +69,11 @@ describe('AskCard（札の部品）', () => {
     expect(screen.getByRole('button', { name: '答える' })).toBeDisabled();
   });
 
-  it('答えられない札は、openTerminal を渡すと選択肢を出さず「端末を開く」ボタンを出す', () => {
+  it('答えられない札は、openTerminal を渡すと選択肢を出さず「ターミナルを開く」ボタンを出す', () => {
     const onOpenTerminal = vi.fn();
     const { container } = mount(model({ askKind: 'permission', options: [{ key: 'once', label: '1 回だけ許可' }], allowText: false, hostOnly: '案内' }), { onOpenTerminal });
     expect(container.querySelector('.pchat-opt')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '端末を開く' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ターミナルを開く' }));
     expect(onOpenTerminal).toHaveBeenCalledTimes(1);
     expect(container.querySelector('.pchat-ask-hostonly')).toBeNull();
   });
@@ -81,7 +81,7 @@ describe('AskCard（札の部品）', () => {
   it('答えられない札は、openTerminal が無ければ今の案内の一行のまま', () => {
     const { container } = mount(model({ allowText: false, hostOnly: 'Mac の画面で答えると進みます' }));
     expect(container.querySelector('.pchat-ask-hostonly')).toHaveTextContent('Mac の画面で答えると進みます');
-    expect(screen.queryByRole('button', { name: '端末を開く' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'ターミナルを開く' })).toBeNull();
   });
 
   it('答えると選択肢が閉じ、答えの記録が出る', async () => {
