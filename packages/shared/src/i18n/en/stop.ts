@@ -9,6 +9,7 @@ export const stopEn: AreaDictionary<typeof stopKeys> = {
   'stop.kind.weekly': 'Weekly',
   'stop.kind.other': 'Usage limit',
   'stop.time.otherDay': '{date} {time}',
+  'stop.folder.trust': 'Folder trust',
   'stop.notify.permission': 'Needs permission: {tool} {input}',
   'stop.notify.permissionTool': 'Needs permission: {tool}',
   'stop.notify.permissionBare': 'Waiting for your permission',

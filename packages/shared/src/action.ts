@@ -188,6 +188,8 @@ export type UiAction =
   | { type: 'deleteApproval.answer'; id: string; answer: 'approve' | 'reject' | 'dismiss' }
   /** ほかの PC から預かった文を、走っているターンを中断して渡す（端末の下の帯）。 */
   | { type: 'peerQueue.rush'; sessionId: string }
+  /** フォルダの信頼の確認（会話の前に出る）への答え。key は選択肢の key（Yes が 1、No が 2）。札の askId は押したときに取り直す。 */
+  | { type: 'trust.answer'; sessionId: string; key: string }
   // 移す先を選ぶダイアログと、削除の確認を開く（セッションのメニューの「プロジェクトを変更…」と「削除…」）。決めたら session.move と session.delete を送る。
   | { type: 'session.move.open'; id: SessionId } | { type: 'session.delete.open'; id: SessionId }
   // 提案の確定と却下。確定で日を変えたときだけ returnOn を添える。returnTime はその日の時刻（HH:MM）で、returnOn と一緒のときだけ効く。

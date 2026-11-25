@@ -1,4 +1,4 @@
-import type { LimitKind, LiveStatus, PermissionAskDto, SessionActivityDto, SessionLimitDto, WaitKind } from './api.ts';
+import { FOLDER_TRUST_TOOL, type LimitKind, type LiveStatus, type PermissionAskDto, type SessionActivityDto, type SessionLimitDto, type WaitKind } from './api.ts';
 import type { Translate } from './i18n/t.ts';
 import { localDate, localTime } from './sessionState.ts';
 
@@ -101,8 +101,14 @@ export function matchesStopFilter(reason: StopReason | null, f: 'permission' | '
   return f === 'permission' ? reason === 'permission' : reason === 'limit' || reason === 'reset';
 }
 
+/** 許可の道具の名前を利用者に見せる形にする。フォルダの信頼の確認（FolderTrust）は「フォルダの信頼」に言い換え、ほかはそのまま。 */
+export function permissionToolLabel(t: Translate, tool: string): string {
+  return tool === FOLDER_TRUST_TOOL ? t('stop.folder.trust') : tool;
+}
+
 /** 許可待ちの通知の本文。道具と命令（無ければ道具だけ）。中身が届いていなければ「許可待ちです」。 */
 export function permissionNoticeText(t: Translate, p: PermissionAskDto | null): string {
   if (!p) return t('stop.notify.permissionBare');
-  return p.input ? t('stop.notify.permission', { tool: p.tool, input: p.input }) : t('stop.notify.permissionTool', { tool: p.tool });
+  const tool = permissionToolLabel(t, p.tool);
+  return p.input ? t('stop.notify.permission', { tool, input: p.input }) : t('stop.notify.permissionTool', { tool });
 }

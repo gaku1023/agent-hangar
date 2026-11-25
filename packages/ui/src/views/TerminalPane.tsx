@@ -12,6 +12,8 @@ import { useNow } from './primitives/useNow.ts';
 import type { PeerOriginProps } from '../presenters/peerOrigin.ts';
 import { PeerBadge, usePeerFlash } from './PeerOrigin.tsx';
 import { TermTranslations } from './TermTranslate.tsx';
+import { PeerChatCard } from './PeerChatCard.tsx';
+import type { PeerChatAskRow } from '../presenters/peerChat.ts';
 
 export const TerminalHostContext = createContext<TerminalHost | null>(null);
 
@@ -99,7 +101,7 @@ export function liveEdge(live: LiveStatus | null, aside: boolean, reason: StopRe
  * peer は、ほかの PC から来た文の知らせ（Claude の枠にだけ渡す）。預かっている間は端末の下に帯を出し、渡した直後は右上に札を数秒出す。
  * replies は、訳を重ねる英語の返答（終わったターンのもの、古い順）。Claude の枠にだけ渡す（views/TermTranslate.tsx）。
  */
-export function TerminalPane(props: { tabId: string; hint: string | null; live: LiveStatus | null; aside?: boolean; reason?: StopReason | null; agent?: boolean; transcript?: { when: string; onLatest: () => void } | null; peer?: PeerOriginProps | null; /** 預かりの帯の「中断して渡す」。省くとボタンを出さない。 */ onPeerRush?: () => void; replies?: readonly string[] | null; /** SSH のシェルタブのときの宛先。つなげなかったときは暗幕の代わりに中央の塊を出し、つなぎ直している間は端末を薄める。 */ remote?: RemoteTarget }) {
+export function TerminalPane(props: { tabId: string; hint: string | null; /** フォルダの信頼の確認の札。出ている間は、案内の帯の代わりに端末の上へ置く。 */ trust?: PeerChatAskRow | null; onTrustAnswer?: (key: string) => void; live: LiveStatus | null; aside?: boolean; reason?: StopReason | null; agent?: boolean; transcript?: { when: string; onLatest: () => void } | null; peer?: PeerOriginProps | null; /** 預かりの帯の「中断して渡す」。省くとボタンを出さない。 */ onPeerRush?: () => void; replies?: readonly string[] | null; /** SSH のシェルタブのときの宛先。つなげなかったときは暗幕の代わりに中央の塊を出し、つなぎ直している間は端末を薄める。 */ remote?: RemoteTarget }) {
   const host = useContext(TerminalHostContext);
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
@@ -115,6 +117,10 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
   const lastHint = useRef(props.hint);
   if (props.hint) lastHint.current = props.hint;
   const hint = usePresence<HTMLDivElement>(props.hint !== null, (el) => withLayout(() => collapseOut(el)));
+  // フォルダの信頼の札も、案内の帯と同じ動きで出入りする。出る間も中身を読めるよう、最後の札を控える。
+  const lastTrust = useRef(props.trust ?? null);
+  if (props.trust) lastTrust.current = props.trust;
+  const trust = usePresence<HTMLDivElement>(!!props.trust, (el) => withLayout(() => collapseOut(el)));
   const lastBand = useRef(props.transcript ?? null);
   if (props.transcript) lastBand.current = props.transcript;
   const band = usePresence<HTMLDivElement>(!!props.transcript, (el) => withLayout(() => collapseOut(el)));
@@ -134,7 +140,7 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
     return () => clearTimeout(timer);
   }, [rushing]);
   // 入るときは伸ばして、下の端末の面を押し下げる。最初の描画では動かさない。
-  const shown = useRef({ hint: props.hint !== null, band: !!props.transcript, peer: !!props.peer?.band });
+  const shown = useRef({ trust: !!props.trust, hint: props.hint !== null, band: !!props.transcript, peer: !!props.peer?.band });
   useLayoutEffect(() => {
     const p = paneRef.current;
     const grow = (el: HTMLElement | null) => {
@@ -144,13 +150,14 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
       beginLayoutMotion(p);
       a.finished.then(() => endLayoutMotion(p), () => endLayoutMotion(p));
     };
+    if (props.trust && !shown.current.trust) grow(trust.ref.current);
     if (props.hint !== null && !shown.current.hint) grow(hint.ref.current);
     if (props.transcript && !shown.current.band) grow(band.ref.current);
     if (props.peer?.band && !shown.current.peer) grow(peerBand.ref.current);
-    shown.current = { hint: props.hint !== null, band: !!props.transcript, peer: !!props.peer?.band };
+    shown.current = { trust: !!props.trust, hint: props.hint !== null, band: !!props.transcript, peer: !!props.peer?.band };
     // 入る向きの変わり目だけで動かすので、依存は有無だけにする。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.hint !== null, !!props.transcript, !!props.peer?.band]);
+  }, [!!props.trust, props.hint !== null, !!props.transcript, !!props.peer?.band]);
   useEffect(() => {
     const el = ref.current;
     if (!host || !el) return;
@@ -198,6 +205,11 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
           <b>{t('terminal.band.title')}</b>
           {lastBand.current.when && <span className="term-band-sub">{lastBand.current.when}</span>}
           <button type="button" className="btn" onClick={lastBand.current.onLatest}><Icon name="latest" />{t('terminal.band.latest')}</button>
+        </div>
+      )}
+      {trust.mounted && lastTrust.current && (
+        <div ref={trust.ref} className="term-trust" aria-hidden={trust.leaving ? 'true' : undefined}>
+          <PeerChatCard row={props.trust ?? lastTrust.current} onAnswer={(_askId, keys) => { if (!trust.leaving) props.onTrustAnswer?.(keys[0]!); }} />
         </div>
       )}
       {hint.mounted && <div ref={hint.ref} className="term-hint" role={hint.leaving ? undefined : 'status'}>{props.hint ?? lastHint.current}</div>}

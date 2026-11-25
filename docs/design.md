@@ -3928,6 +3928,9 @@ hangar は、次の置き場で claude を起こす直前に、起こすアカ�
 - **札**：別の PC へ配る札は `PeerPendingAsk`（`kind` は `permission`、`tool` は `FolderTrust`、`input` はパス、`options` は画面の行のラベル）で、`pendingAskFrom` が画面から組む。新しい `kind` は足さない（古い見る側の検証が答え全体を断るため）。本文が無くても札の項目は `items` に載り、状態は `waiting` になる。
 - **答え**：番号の無い画面があるので、`answerAsk` はこの札だけ番号のキーを使わない。画面を読み直し、フォルダのパスと選んだ行が札と合うことを確かめ、カーソルの行との差だけ `up` か `down` を打ち、カーソルが着いたのを確かめてから `Enter` を打つ。確認が画面から消えたら答えたことにする（`No, exit` は claude が終わる）。カーソルが読めないときは何も打たずに断る。PermissionRequest の hook は無いので、hook の答えは使わない。
 - **手元の画面**：`GET /api/sessions/:id/trust` が `{ ask }`（信頼の札か null）を返し、`POST /api/sessions/:id/trust`（本文 `{ askId, key }`）が答える。答えは別の PC と同じ答え手と記録を通るので、同じ札に 2 度は打たない。MCP の `answer_ask` と mobile の札も同じ答え手を通る。
+- **画面の見せ方**：札は題名を「フォルダの信頼」、本文をパス、選択肢を画面のラベルのまま「1. Yes, I trust this folder」「2. No, exit」とする。答えた後の一行は質問の札と同じ形（`{device} で「{label}」`）で、許可の語（許可、拒否）には直さない。別の PC の会話の画面は `PeerChatCard` がそのまま描く。
+  手元の会話の画面は、live が入力待ちで `permission.tool` が `FolderTrust` の間だけ、ターミナルのタブの上の「信頼確認が出たらターミナルで回答」の帯の代わりに、同じ `PeerChatCard` の札を `TerminalPane` に置く（`presentSession` の `trust`）。押すと UiAction `trust.answer` が、`GET` で札の askId を取り直して `POST` する。送っている間は `store.trustSending` で二度押しを止め、断られたら外してまた押せる。札の出入りは帯と同じ `growIn`・`collapseOut`・`usePresence` を使う。live がまだ無い起動直後は、今までの帯のままである。
+  道具の名前（`FolderTrust`）は利用者に見せない。右の欄の現在の札、ホームの行、知らせの札、統括の許可の行、デスクトップ通知は、`permissionToolLabel`（shared の `stopReason.ts`）で「フォルダの信頼」（en は `Folder trust`）に言い換える。
 
 作業フォルダの信頼は、セットアップのすゝめが利用者の同意を取ってから `hangar workspace set <dir> --trust` で頼む（`POST /api/workspace/trust`）。
 サーバは同意を設定（`trustedWorkspaceRoot`）に残し、作業フォルダそのものと直下の git のリポジトリを、登録したアカウントの全部の `.claude.json` に書く（`trustWorkspaceFolders`）。

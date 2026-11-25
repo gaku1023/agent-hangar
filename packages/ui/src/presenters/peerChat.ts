@@ -1,5 +1,5 @@
 import { contextGaugeOf, type ContextGauge } from './contextGauge.ts';
-import { stopReasonOf, type PeerChatCard, type PeerChatItem, type PeerChatReason, type PeerChatStatus, type SessionDto, type TranscriptEvent } from '@agent-hangar/shared';
+import { FOLDER_TRUST_TOOL, stopReasonOf, type PeerChatCard, type PeerChatItem, type PeerChatReason, type PeerChatStatus, type SessionDto, type TranscriptEvent } from '@agent-hangar/shared';
 import type { Translate } from '@agent-hangar/shared';
 import type { Store } from '../store/store.ts';
 import { emptySlice, joinedItems, type PeerChatSlice } from '../store/peerChat.ts';
@@ -14,6 +14,9 @@ import { peerChatDeviceName } from './peerChatDevice.ts';
  * 画面は state を読まず、ここで決めた値だけを描く。
  * 対象は、ほかの PC の Claude Code の会話だけである。Codex と opencode の会話、相手の hangar が古いとき、見続けられないときは null で、読み取り専用のトランスクリプトのまま。
  */
+
+/** 会話の中の札の 1 行。手元の会話のフォルダの信頼の札も同じ形にして、PeerChatCard を使い回す。 */
+export type PeerChatAskRow = Extract<PeerChatRow, { kind: 'ask' }>;
 
 export type PeerChatRow =
   | { kind: 'user'; key: string; text: string; from: string | null }
@@ -108,7 +111,8 @@ function answerLine(t: Translate, it: PeerChatItem, mine: { label: string; devic
   if (!a) return null;
   // 元の PC の手元で答えた札は、選んだ行が分からない（label が空）。
   if (a.label === '') return t('peerChat.ask.answeredHere', { device: a.by.deviceName });
-  const word = it.ask!.kind === 'permission' ? permissionWord(t, a.label) : null;
+  // フォルダの信頼の選択肢（Yes, I trust this folder）は許可の語にせず、画面のまま引用する。
+  const word = it.ask!.kind === 'permission' && it.ask!.tool !== FOLDER_TRUST_TOOL ? permissionWord(t, a.label) : null;
   // 許可の文が決めた形に合うときは語で、合わないとき（と質問）は元の文を引用する。
   return word !== null ? t('peerChat.ask.answeredPermission', { device: a.by.deviceName, label: word }) : t('peerChat.ask.answeredQuestion', { device: a.by.deviceName, label: a.label });
 }
@@ -153,7 +157,7 @@ function rowOf(t: Translate,it: PeerChatItem, slice: PeerChatSlice, index: numbe
   if (it.ask) {
     const pick = slice.answering.includes(it.ask.askId) ? slice.picked[it.ask.askId] : undefined;
     const answered = answerLine(t, it, pick !== undefined ? { label: pick, deviceName: myName } : null) ?? (staleAsk(slice, index) ? t('peerChat.ask.closed') : null);
-    return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, answered, hostOnly: answered === null && it.ask.answerable === false ? t('peerChat.ask.unanswerable', { device }) : null, pending: slice.answering.includes(it.ask.askId), locked: slice.locked };
+    return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.tool === FOLDER_TRUST_TOOL ? 'stop.folder.trust' : it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, answered, hostOnly: answered === null && it.ask.answerable === false ? t('peerChat.ask.unanswerable', { device }) : null, pending: slice.answering.includes(it.ask.askId), locked: slice.locked };
   }
   switch (it.kind) {
     case 'user': return { kind: 'user', key: it.uuid, text: it.text, from: it.from ? t('peerChat.log.sentFrom', { device: it.from.deviceName }) : null };

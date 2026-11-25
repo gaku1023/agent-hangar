@@ -1,6 +1,6 @@
 import { asideFree, asideHead, asideOf } from '../lib/aside.ts';
 import { presentGitChip, type GitChipProps } from './git.ts';
-import { setupGuidePrompt, candidateDaysLeft, isReturnOn, isReturnTime, limitKindText, liveWithLimit, overdueDays, quietLive, resetAtText, returnDue, returnPastMinutes, stopReasonOf, type CandidateSource, type UiAction, type LiveStatus, type AgentIconKind, type PermissionAskDto, type ProjectStatus, type SessionDto, type StopReason, type Translate } from '@agent-hangar/shared';
+import { permissionToolLabel, setupGuidePrompt, candidateDaysLeft, isReturnOn, isReturnTime, limitKindText, liveWithLimit, overdueDays, quietLive, resetAtText, returnDue, returnPastMinutes, stopReasonOf, type CandidateSource, type UiAction, type LiveStatus, type AgentIconKind, type PermissionAskDto, type ProjectStatus, type SessionDto, type StopReason, type Translate } from '@agent-hangar/shared';
 import { SEARCH_STEP, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
@@ -345,7 +345,7 @@ function attentionRowBody(t: Translate, a: AttentionCard): BandRow {
     const p = a.permission ?? null;
     // 中身（hook）が届いていなければ、ターミナルに出ていると言う。外部ターミナルの run は中身を受け取れない。
     const text = p ? p.description ?? '' : t('stop.permission.unknown');
-    return { key: `wait:${a.id}`, lead, name: a.name, context, text, detail: null, tone: 'wait', trail: [{ text: t('stop.waited.permission', { time: a.waited }), tone: 'wait' }], open, actions: [answer], ask: p ? { tool: p.tool, input: p.input } : null };
+    return { key: `wait:${a.id}`, lead, name: a.name, context, text, detail: null, tone: 'wait', trail: [{ text: t('stop.waited.permission', { time: a.waited }), tone: 'wait' }], open, actions: [answer], ask: p ? { tool: permissionToolLabel(t, p.tool), input: p.input } : null };
   }
   if (a.reason === 'reset') return { key: `wait:${a.id}`, lead, name: a.name, context, text: t('stop.notify.reset'), detail: null, tone: 'wait', trail: [{ text: t('stop.waited.reset', { time: a.waited }), tone: 'wait' }], open, actions: [answer] };
   return { key: `wait:${a.id}`, lead: { kind: 'dot', live: 'waiting', aside: false }, name: a.name, context, text: a.question, detail: null, tone: 'wait', trail: [{ text: t('home.band.waited', { time: a.waited }), tone: 'wait' }], open, actions: [answer] };

@@ -649,6 +649,21 @@ describe('presentSession（実行中）', () => {
     store.sessions.s1 = { ...store.sessions.s1!, live: null };
     expect(presentSession(initialState(), store, NOW, 's1').trustHint).toBe(true);
   });
+  it('フォルダの信頼の確認が出ている間は、帯の代わりに札（題名、パス、2 つの選択肢）を組む。送っている間は押せない', () => {
+    const store = storeWith();
+    store.runs = { r1: runDto('r1', 's1') };
+    store.tabs = { r1: tabDto('r1', 'r1', 'agent') };
+    expect(presentSession(initialState(), store, NOW, 's1').trust).toBeNull();
+    store.sessions.s1 = { ...store.sessions.s1!, live: 'waiting', waitingFor: 'permission', permission: { tool: 'FolderTrust', input: '/w/app', description: null } };
+    const p = presentSession(initialState(), store, NOW, 's1');
+    expect(p.trustHint).toBe(false);
+    expect(p.trust).toMatchObject({ kind: 'ask', title: 'フォルダの信頼', input: '/w/app', options: [{ key: '1', label: 'Yes, I trust this folder' }, { key: '2', label: 'No, exit' }], multi: false, allowText: false, answered: null, pending: false, locked: false });
+    store.trustSending = { s1: true };
+    expect(presentSession(initialState(), store, NOW, 's1').trust).toMatchObject({ pending: true });
+    // 普通の許可待ちは札にしない。
+    store.sessions.s1 = { ...store.sessions.s1!, permission: { tool: 'Bash', input: 'ls', description: null } };
+    expect(presentSession(initialState(), store, NOW, 's1').trust).toBeNull();
+  });
   it('選んでいたタブが閉じたら Claude タブに戻る', () => {
     const store = storeWith();
     store.runs = { r1: runDto('r1', 's1') };

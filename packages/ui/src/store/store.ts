@@ -104,6 +104,8 @@ export type Store = {
   peerChat: Record<string, PeerChatSlice>;
   /** ほかの PC の会話の札にこの PC から答えて、相手の返事を待たずに待ちを外している会話（store/peerAnswer.ts）。 */
   peerAnswered: Record<string, PeerAnswerHold>;
+  /** フォルダの信頼の確認へ答えを送っている会話（札の二度押しを止める。断られたら外す）。 */
+  trustSending: Record<string, true>;
   /** 統括の柱が読む状態（store/orchestrator.ts）。 */
   orchestrator: OrchestratorSlice;
   /** 机の音声の今の状態（GET /api/voice と事象 voice.state）。まだ読めていないか、読めなかったときは null（画面は今のマイクのまま）。 */
@@ -251,7 +253,7 @@ export function initialStore(): Store {
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     todos: {}, instructions: {}, artifacts: {}, artifactAddError: null, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerTest: null,
-    cloudUsage: null, sync: null, deleteApprovals: [], peerQueued: {}, peerDelivered: {}, remoteTabs: {}, remoteHosts: {}, peerChat: {}, peerAnswered: {}, orchestrator: emptyOrchestrator(), voice: null, voiceCatalog: null, schedules: [], eventTrigger: EMPTY_EVENT_TRIGGER, heldEvents: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
+    cloudUsage: null, sync: null, deleteApprovals: [], peerQueued: {}, peerDelivered: {}, remoteTabs: {}, remoteHosts: {}, peerChat: {}, peerAnswered: {}, trustSending: {}, orchestrator: emptyOrchestrator(), voice: null, voiceCatalog: null, schedules: [], eventTrigger: EMPTY_EVENT_TRIGGER, heldEvents: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
     readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, peers: null, launchPreps: {}, opencodeProviders: null, desktop: false, canRestoreHistory: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null, sharePreview: {},
     update: initialUpdate(),

@@ -12,6 +12,7 @@ export const stopKeys = {
   'stop.kind.weekly': [],
   'stop.kind.other': [],
   'stop.time.otherDay': ['date', 'time'],
+  'stop.folder.trust': [],
   'stop.notify.permission': ['tool', 'input'],
   'stop.notify.permissionTool': ['tool'],
   'stop.notify.permissionBare': [],

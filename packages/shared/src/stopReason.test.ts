@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { isParked, liveFilterOf, quietLive } from './liveFilter.ts';
 import { translator } from './i18n/t.ts';
-import { LIMIT_RESET_AUTO_GRACE_MS, LIMIT_RESET_GRACE_MS, limitKindOf, limitKindText, limitReset, liveWithLimit, resetAtText, stopReasonOf, waitKindOf } from './stopReason.ts';
+import { LIMIT_RESET_AUTO_GRACE_MS, LIMIT_RESET_GRACE_MS, limitKindOf, limitKindText, limitReset, liveWithLimit, permissionNoticeText, permissionToolLabel, resetAtText, stopReasonOf, waitKindOf } from './stopReason.ts';
+
+describe('permissionNoticeText のフォルダの信頼', () => {
+  it('道具の名前（FolderTrust）を言い換え、「フォルダの信頼」とパスで出す', () => {
+    const ja = translator('ja');
+    const en = translator('en');
+    expect(permissionNoticeText(ja, { tool: 'FolderTrust', input: '/w/app', description: null })).toBe('許可待ち：フォルダの信頼 /w/app');
+    expect(permissionNoticeText(en, { tool: 'FolderTrust', input: '/w/app', description: null })).toContain('Folder trust /w/app');
+    expect(permissionNoticeText(ja, { tool: 'Bash', input: 'ls', description: null })).toBe('許可待ち：Bash ls');
+    expect(permissionToolLabel(ja, 'FolderTrust')).toBe('フォルダの信頼');
+    expect(permissionToolLabel(ja, 'Edit')).toBe('Edit');
+  });
+});
 
 describe('waitKindOf', () => {
   it('Claude Code が許可として数える値は permission にする', () => {

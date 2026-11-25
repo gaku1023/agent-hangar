@@ -70,6 +70,11 @@ describe('presentHomeBand の止まっている理由（試作 stop-reason-proto
     expect(row.actions.map((a) => a.label)).toEqual(['ターミナルで許可']);
   });
 
+  it('フォルダの信頼の確認は、道具の名前を「フォルダの信頼」に言い換える', () => {
+    const row = presentHomeBand({ ...none, attention: [waiting('p', { reason: 'permission', permission: { tool: 'FolderTrust', input: '/w/app', description: null } })] }, ja).groups[0]!.rows[0]!;
+    expect(row.ask).toEqual({ tool: 'フォルダの信頼', input: '/w/app' });
+  });
+
   it('許可の中身が届いていなければ、ターミナルに出ていると言う', () => {
     const row = presentHomeBand({ ...none, attention: [waiting('p', { reason: 'permission', permission: null })] }, ja).groups[0]!.rows[0]!;
     expect(row.ask ?? null).toBeNull();

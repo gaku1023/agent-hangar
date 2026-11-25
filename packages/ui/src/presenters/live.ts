@@ -1,4 +1,4 @@
-import { AGENT_UI_CAPS, DEFAULT_AGENT_KIND, type AgentKind, limitKindText, resetAtText, stepKind, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type PermissionAskDto, type SessionActivityDto, type SessionLimitDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type WaitKind } from '@agent-hangar/shared';
+import { AGENT_UI_CAPS, DEFAULT_AGENT_KIND, FOLDER_TRUST_TOOL, permissionToolLabel, type AgentKind, limitKindText, resetAtText, stepKind, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type PermissionAskDto, type SessionActivityDto, type SessionLimitDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type WaitKind } from '@agent-hangar/shared';
 import { AGENT_TEXT } from './agentText.ts';
 import { baseName } from '../lib/paths.ts';
 import { contextTokensLabel, costLabel, durationLabel, percentLabel } from './format.ts';
@@ -203,7 +203,8 @@ function stopState(i: CardInput, t: Translate): Pick<NowCardProps, 'tone' | 'sta
   if (i.reason === 'permission') {
     const p = i.permission ?? null;
     // opencode の許可は道具の名前（shell など）を「許可を待っています · shell」の見出しにする（HANDOFF の 4 節）。
-    const head = AGENT_TEXT[i.agent ?? DEFAULT_AGENT_KIND].permissionHead(t, p ? p.tool : null);
+    // フォルダの信頼の確認は道具の名前を見せず、「フォルダの信頼」を見出しにする。
+    const head = p?.tool === FOLDER_TRUST_TOOL ? permissionToolLabel(t, p.tool) : AGENT_TEXT[i.agent ?? DEFAULT_AGENT_KIND].permissionHead(t, p ? p.tool : null);
     const stop: NowStop = p
       ? { kind: 'permission', head, command: p.input || null, why: p.description, hint: t('stop.card.permissionHint') }
       : { kind: 'permission', head, command: null, why: null, hint: t('stop.card.permissionUnknown') };

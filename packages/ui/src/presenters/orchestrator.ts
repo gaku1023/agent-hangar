@@ -1,4 +1,4 @@
-import { ORCHESTRATOR_CONTEXT_LIMIT, VOICE_MARK, VOICE_WINDOW_MARK, type OrchestratorStateDto, type Translate, type TranscriptEvent } from '@agent-hangar/shared';
+import { ORCHESTRATOR_CONTEXT_LIMIT, permissionToolLabel, VOICE_MARK, VOICE_WINDOW_MARK, type OrchestratorStateDto, type Translate, type TranscriptEvent } from '@agent-hangar/shared';
 import { contextTokensLabel } from './format.ts';
 import { unreadOf, type Store } from '../store/store.ts';
 import type { PeerChatRow } from './peerChat.ts';
@@ -123,7 +123,7 @@ export function presentOrchestrator(store: Store, t: Translate): OrchestratorPil
   return {
     sessionId, tone, statusLabel, ...kv,
     policy: store.settings?.permissionPolicy?.text ?? null,
-    approvals: store.orchestrator.approvals.map((a) => ({ id: a.id, sessionId: a.sessionId, title: a.title, tool: a.tool, head: headOf(a.input) })),
+    approvals: store.orchestrator.approvals.map((a) => ({ id: a.id, sessionId: a.sessionId, title: a.title, tool: permissionToolLabel(t, a.tool), head: headOf(a.input) })),
     rows, loading: !store.orchestrator.loaded, canSend: live !== null && !kv.keeper.stopped && !kv.keeper.switching, sending: store.orchestrator.sending, speak, voice: store.voice,
   };
 }

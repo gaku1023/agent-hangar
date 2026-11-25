@@ -11,6 +11,8 @@ import { FORBIDDEN_JA } from './forbiddenJa.ts';
 
 /** 古い語に見えても、用語集が別の意味で認める場所。鍵ごとに理由を添えて、ここだけ外す。 */
 const ALLOWED: Record<string, string> = {
+  // Claude Code の確認の画面の名前（Do you trust this folder）と、設計の節の名前に合わせた、利用者が選んだ文言。
+  'stop.folder.trust': 'フォルダの信頼（Claude Code の確認の名前）',
   // サーバのポートの話で、セッションの状態ではない。
   'settings.integrations.statusline.port': '動いている（サーバのプロセス）',
   // Claude に頼む指示の文で、検索の操作ではなく「誤りを見つける」の意味。

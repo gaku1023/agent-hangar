@@ -32,7 +32,7 @@ const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', r
     toolItem(1, 'Agent', { description: 'x' }, { text: 'done', isError: false }, { when: '10:01', subagent: { agentId: 'abc', label: 'Agent x' } }),
     toolItem(2, 'Edit', { file_path: '/a', old_string: 'a', new_string: 'b' }, { text: 'File not found', isError: true }, { when: '10:02' }),
     { kind: 'assistant', seq: 3, text: 'bye', when: '10:03' },
-  ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true,   summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null,
+  ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, trust: null, canResume: true,   summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null,
   turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, turnsPending: false, turnCount: { n: 104, plus: false }, loadingOlder: false, openTurnItems: [], turnJump: null, strip: null, lead: leadOf(), badges: [], details: [], gone: null, jump: null, hasNewer: false, promptJump: true,
   actions: { primary: { id: 'resume', label: '再開', disabled: null, note: null }, menu: [] }, transcriptBand: null, account: null };
 
@@ -661,6 +661,18 @@ describe('SessionScreen（実行中）', () => {
     const first = document.querySelector('.session-oneliner');
     rerender(<ActionRoot onAction={vi.fn()}><SS {...base} oneLiner="TWO" /></ActionRoot>);
     expect(document.querySelector('.session-oneliner')).not.toBe(first);
+  });
+  it('フォルダの信頼の札は帯の代わりに出て、押した選択肢の key を答えとして出す。送っている間は押せない', () => {
+    const trust = { kind: 'ask' as const, key: 'trust', askId: 'trust', askKind: 'permission' as const, title: 'フォルダの信頼', input: '/w/app', options: [{ key: '1', label: 'Yes, I trust this folder' }, { key: '2', label: 'No, exit' }], multi: false, allowText: false, answered: null, hostOnly: null, pending: false, locked: false };
+    const onAction = withHost(<SS {...running} live="waiting" trust={trust} />);
+    expect(document.querySelector('.term-hint')).toBeNull();
+    const card = screen.getByRole('group', { name: 'フォルダの信頼' });
+    expect(within(card).getByText('/w/app')).toBeInTheDocument();
+    fireEvent.click(within(card).getByRole('button', { name: '1. Yes, I trust this folder' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'trust.answer', sessionId: 's1', key: '1' });
+    cleanup();
+    withHost(<SS {...running} live="waiting" trust={{ ...trust, pending: true }} />);
+    expect(screen.getByRole('button', { name: '2. No, exit' })).toBeDisabled();
   });
   it('信頼ダイアログの案内と終了の表示（終了は言い直さない）', () => {
     withHost(<SS {...running} live={null} trustHint />);
