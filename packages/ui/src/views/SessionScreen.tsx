@@ -118,7 +118,8 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
       // 鍵は opencode の接続先の準備の進みを右下の札で受けるため。準備の無い再開では何も届かない。
       case 'resume': emit({ type: 'session.resume', id, prepKey: newPrepKey() }); return;
       // 確認の 1 枚（前の PC とこの PC）を出してから写す。確認に出すものは Mediator が取りに行く。
-      case 'resumeHere': emit({ type: 'session.resumeHere.open', id }); return;
+      // この PC にプロジェクトのフォルダが無ければ、先に場所の指定を開く（押せないまま止めない）。
+      case 'resumeHere': emit(props.noRoot ? { type: 'project.resolve.open', id: props.noRoot.projectId } : { type: 'session.resumeHere.open', id }); return;
       case 'openTerminal': if (run) emit({ type: 'session.openTerminalApp', runId: run.id, tabId: props.selectedTab ?? undefined }); return;
       // hangar の外で動いているあいだは本文しか見せられない。
       // 引き取りは外のターミナルの claude を終わらせるので、Mediator が確認に回す。

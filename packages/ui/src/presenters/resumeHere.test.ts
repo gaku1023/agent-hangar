@@ -20,12 +20,12 @@ describe('この PC で再開を押せるか（resumeHereOf）', () => {
     expect(resumeHereOf(storeWith(session({ remoteOnly: false })), session({ remoteOnly: false }), ja)).toBeNull();
   });
   it('この PC にプロジェクトの場所があれば押せる', () => {
-    expect(resumeHereOf(storeWith(session()), session(), ja)).toEqual({ disabled: null, noRoot: null });
+    expect(resumeHereOf(storeWith(session()), session(), ja)).toEqual({ noRoot: null });
   });
   it('この PC にプロジェクトの場所が無い（他の PC から届いただけ、見つからない）なら、理由と場所の指定の先を返す', () => {
     for (const unresolved of [{ kind: 'elsewhere' as const, previousPath: 'D:\\src\\notes-app', deviceName: 'work-pc' }, { kind: 'missing' as const, previousPath: '/gone', deviceName: null }]) {
       const s = session();
-      expect(resumeHereOf(storeWith(s, project({ resolved: false, path: null, unresolved })), s, ja)).toEqual({ disabled: NO_ROOT, noRoot: { reason: NO_ROOT, projectId: 'p1' } });
+      expect(resumeHereOf(storeWith(s, project({ resolved: false, path: null, unresolved })), s, ja)).toEqual({ noRoot: { reason: NO_ROOT, projectId: 'p1' } });
     }
   });
   it('プロジェクトに属さない会話とクイックセッションは、場所で止めない', () => {
@@ -35,9 +35,8 @@ describe('この PC で再開を押せるか（resumeHereOf）', () => {
   });
   it('他の PC で実行中（生きたロック）でも押せる（理由にしない）。場所が無ければ場所を理由にする', () => {
     const s = session({ lock: lock() });
-    expect(resumeHereOf(storeWith(s), s, ja)?.disabled).toBeNull();
+    expect(resumeHereOf(storeWith(s), s, ja)?.noRoot).toBeNull();
     const r = resumeHereOf(storeWith(s, project({ resolved: false, path: null, unresolved: { kind: 'elsewhere', previousPath: null, deviceName: null } })), s, ja)!;
-    expect(r.disabled).toBe(NO_ROOT);
     expect(r.noRoot).toEqual({ reason: NO_ROOT, projectId: 'p1' });
   });
 });
@@ -45,7 +44,7 @@ describe('この PC で再開を押せるか（resumeHereOf）', () => {
 describe('他の PC の続きの方が新しい会話（A → B → A）', () => {
   const back = session({ remoteOnly: false, newerElsewhere: true });
   it('手元にトランスクリプトがあっても「この PC で再開」を出す', () => {
-    expect(resumeHereOf(storeWith(back), back, ja)).toEqual({ disabled: null, noRoot: null });
+    expect(resumeHereOf(storeWith(back), back, ja)).toEqual({ noRoot: null });
   });
   it('見出しの主の操作を「この PC で再開」にし、素の再開は「…」に名前を替えて残す', () => {
     const p = presentSession(initialState(), storeWith(back), NOW, 's1');
@@ -54,7 +53,7 @@ describe('他の PC の続きの方が新しい会話（A → B → A）', () =>
     expect(resume).toMatchObject({ label: 'この PC のトランスクリプトのまま再開', disabled: null, note: '他の PC で進めた続きは反映されません' });
   });
   it('一覧の行の「⋯」にも「この PC で再開」を足す', () => {
-    expect(presentSessionRow(back, storeWith(back), NOW).resumeHere).toEqual({ disabled: null });
+    expect(presentSessionRow(back, storeWith(back), NOW).resumeHere).toEqual({ setLocation: null });
   });
   it('他の PC で実行中（生きたロック）でも押せる（確認の 1 枚で停止して引き継ぐ）', () => {
     const s = session({ remoteOnly: false, newerElsewhere: true, lock: lock() });
@@ -70,9 +69,9 @@ describe('他の PC の続きの方が新しい会話（A → B → A）', () =>
 
 describe('セッション画面の見出しと一覧の行', () => {
   const lost = project({ resolved: false, path: null, unresolved: { kind: 'elsewhere', previousPath: 'D:\\src\\notes-app', deviceName: 'work-pc' } });
-  it('場所が無ければ「この PC で再開」を押せなくし、見出しの下の理由と場所の指定の先を持つ', () => {
+  it('場所が無くても「この PC で再開」は押せ、見出しの下の理由と場所の指定の先を持つ', () => {
     const p = presentSession(initialState(), storeWith(session(), lost), NOW, 's1');
-    expect(p.actions.primary).toMatchObject({ id: 'resumeHere', disabled: NO_ROOT });
+    expect(p.actions.primary).toMatchObject({ id: 'resumeHere', disabled: null });
     expect(p.noRoot).toEqual({ reason: NO_ROOT, projectId: 'p1' });
     const ok = presentSession(initialState(), storeWith(session()), NOW, 's1');
     expect(ok.actions.primary).toMatchObject({ id: 'resumeHere', disabled: null });
@@ -82,9 +81,9 @@ describe('セッション画面の見出しと一覧の行', () => {
     const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: true, hasTranscript: true, canResume: false, canResumeHere: true, outsideOpen: null, canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false };
     expect(sessionActions(facts, ja).primary).toMatchObject({ id: 'resumeHere', disabled: null });
   });
-  it('一覧の行は、他の PC の会話にだけ「この PC で再開」を持ち、押せない理由を添える', () => {
-    expect(presentSessionRow(session(), storeWith(session(), lost), NOW).resumeHere).toEqual({ disabled: NO_ROOT });
-    expect(presentSessionRow(session(), storeWith(session()), NOW).resumeHere).toEqual({ disabled: null });
+  it('一覧の行は、他の PC の会話にだけ「この PC で再開」を持ち、場所が無ければ場所の指定の先を持つ', () => {
+    expect(presentSessionRow(session(), storeWith(session(), lost), NOW).resumeHere).toEqual({ setLocation: 'p1' });
+    expect(presentSessionRow(session(), storeWith(session()), NOW).resumeHere).toEqual({ setLocation: null });
     expect(presentSessionRow(session({ remoteOnly: false }), storeWith(session({ remoteOnly: false })), NOW).resumeHere).toBeUndefined();
   });
 });

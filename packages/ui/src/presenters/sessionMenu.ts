@@ -18,7 +18,7 @@ export type SessionMenuPeerStop = { peer: true; working: boolean; aside: boolean
  * moveBlocked は、移動を押せない理由。押せるなら null。
  * 削除は動いていない（stop が null の）ときだけ出す。動いている間は停止を出し、止めると削除に入れ替わる。
  */
-export type SessionMenuProps = { id: string; name: string; status: SessionStatus | null; resumeHere: { disabled: string | null } | null;
+export type SessionMenuProps = { id: string; name: string; status: SessionStatus | null; resumeHere: { setLocation: string | null } | null;
   /** 起動元（SessionDto.spawnedBy）が store にあるか。あれば「起動元から外す」を出す。 */
   spawned?: boolean;
   stop: SessionMenuStop | SessionMenuPeerStop | 'external' | null; moveBlocked: string | null;
@@ -74,7 +74,7 @@ export function presentSessionMenu(store: Store, s: SessionDto, t: Translate): S
     id: s.id,
     name: s.name ?? t('common.label.noName'),
     status: s.state?.status ?? null,
-    resumeHere: here ? { disabled: here.disabled } : null,
+    resumeHere: here ? { setLocation: here.noRoot?.projectId ?? null } : null,
     stop,
     moveBlocked: moveTargetIds(store, s.projectId).length === 0 ? t('row.menu.moveNone') : null,
     spawned: s.spawnedBy != null && store.sessions[s.spawnedBy] !== undefined,
@@ -121,7 +121,7 @@ export function sessionMenuEntries(t: Translate, m: SessionMenuProps): SessionMe
     { key: 'duplicate', label: t('row.menu.duplicate'), icon: 'duplicate', disabled: null, send: { type: 'session.duplicate', id: m.id } },
   ] satisfies SessionMenuEntry[]).map((e, i): SessionMenuEntry => (i === 0 ? { ...e, separatorBefore: true } : e));
   return [
-    ...(m.resumeHere ? [{ key: 'resumeHere', label: t('session.action.resumeHere'), icon: 'resumeHere' as const, disabled: m.resumeHere.disabled, send: { type: 'session.resumeHere.open', id: m.id } as const }] : []),
+    ...(m.resumeHere ? [{ key: 'resumeHere', label: t('session.action.resumeHere'), icon: 'resumeHere' as const, disabled: null, send: m.resumeHere.setLocation ? { type: 'project.resolve.open' as const, id: m.resumeHere.setLocation } : { type: 'session.resumeHere.open' as const, id: m.id } }] : []),
     ...states,
     ...keep,
     ...split,

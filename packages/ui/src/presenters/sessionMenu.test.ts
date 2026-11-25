@@ -174,7 +174,7 @@ describe('画面の分割の項目（sessionMenuEntries）', () => {
     expect(sessionMenuEntries(ja, base()).map((x) => x.key)).not.toContain('goToPane');
   });
   it('ほかの PC の会話では「この PC で再開」を、状態より先（先頭）に置く', () => {
-    expect(sessionMenuEntries(ja, base({ resumeHere: { disabled: null } })).slice(0, 2).map((x) => x.key)).toEqual(['resumeHere', 'active']);
+    expect(sessionMenuEntries(ja, base({ resumeHere: { setLocation: null } })).slice(0, 2).map((x) => x.key)).toEqual(['resumeHere', 'active']);
   });
   it('英語の画面では Split Right、Split Down、Go to Pane', () => {
     expect(sessionMenuEntries(en, base({ pane: 'p1' })).slice(8, 11).map((x) => x.label)).toEqual(['Go to Pane', 'Split Right', 'Split Down']);
