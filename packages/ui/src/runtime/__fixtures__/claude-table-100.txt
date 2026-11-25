@@ -1,0 +1,22 @@
+❯ Now in English, about 120 words: compare bold ideas with a markdown table of 2 rows (Tool |
+  Purpose), then a link to [tmux docs](https://example.com/tmux/wiki), then one sentence.
+
+⏺ Two common tools keep terminal sessions alive after you disconnect. Both let you detach and
+  reattach, but they differ in features and defaults.
+
+  ┌──────────┬──────────────────────────────────────────────────────────────────────────────────┐
+  │   Tool   │                                     Purpose                                      │
+  ├──────────┼──────────────────────────────────────────────────────────────────────────────────┤
+  │ tmux     │ Runs detachable sessions with multiple windows and panes, and offers a highly    │
+  │          │ configurable keybinding system.                                                  │
+  ├──────────┼──────────────────────────────────────────────────────────────────────────────────┤
+  │ GNU      │ Provides detachable sessions and window management on nearly every Unix system,  │
+  │ screen   │ with a simpler, older feature set.                                               │
+  └──────────┴──────────────────────────────────────────────────────────────────────────────────┘
+
+  Official documentation for tmux is available at tmux docs.
+
+  Choose tmux for modern workflows and split-pane layouts, and fall back to screen when it is the
+  only multiplexer installed on a server.
+
+✻ Crunched for 4s · done 8:08 PM

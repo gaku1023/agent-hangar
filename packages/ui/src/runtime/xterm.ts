@@ -8,6 +8,7 @@ import '@xterm/xterm/css/xterm.css';
 import { wrapComposition } from './compositionWrap.ts';
 import { createDesktopBridge } from './desktop.ts';
 import type { TerminalLike } from './terminals.ts';
+import { overlayOf } from './xtermOverlay.ts';
 import type { HangarLink } from './hangarLink.ts';
 import { activateLink, createLinkGate, linkOpener, linkProvidersOf, type LinkGate } from './terminalLinks.ts';
 import { clipboardProvider, createKeyHandler, guardEmptyCopy, terminalOptions } from './xtermSetup.ts';
@@ -90,5 +91,6 @@ export function createXterm(hangar?: (link: HangarLink) => void): TerminalLike {
       } catch { /* WebGL2 が使えない環境では DOM の描画のまま */ }
     },
     dispose: () => { gl = null; stopWrap(); term.dispose(); },
+    overlay: () => (term.element ? overlayOf(term) : null),
   };
 }

@@ -4,9 +4,10 @@ import { asideOf } from '../lib/aside.ts';
 import { gitDetailRows, gitUnsafeFix, presentGitChip, presentGitFiles, type GitChipProps, type GitFilesView } from './git.ts';
 import { openForLabel, openLabel } from './editor.ts';
 import { baseName, splitLast } from '../lib/paths.ts';
-import { AGENT_DISPLAY_NAME, AGENT_UI_CAPS, DEFAULT_AGENT_KIND, stopReasonOf, type LiveStatus, type NonDefaultAgentKind, type RunDto, type RunKind, type SessionDto, type SessionFilesDto, type SettingsDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type UiAction } from '@agent-hangar/shared';
+import { AGENT_DISPLAY_NAME, AGENT_UI_CAPS, DEFAULT_AGENT_KIND, stopReasonOf, translateEnglishOf, type LiveStatus, type NonDefaultAgentKind, type RunDto, type RunKind, type SessionDto, type SessionFilesDto, type SettingsDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type UiAction } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
+import { finishedReplies } from './termReplies.ts';
 import { accountOfSession, aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasMultipleAccounts, hasRunOf, outsideOpenOf, tabsOf, type Store } from '../store/store.ts';
 import { DEFAULT_DAYS, EXTEND_TO, transcriptMark } from './retention.ts';
 import { periodLabel } from './retentionDialog.ts';
@@ -97,6 +98,11 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   newerElsewhere?: boolean;
   /** 保持期間で本文が消えたとみられる会話の注記。そうでなければ null。 */
   gone: { note: string; canExtend: boolean; extendTo: number } | null;
+  /**
+   * 動いている会話のターミナルに訳を重ねる英語の返答（presenters/termReplies.ts）。古い順。
+   * 設定 translateEnglish が切のとき、生きた run が無いときは空。省けば空として読む。
+   */
+  termReplies?: string[];
   /** ターンの目次。古い順。turnsComplete は会話の最初の指示まで読み込んでいるか。 */
   turnRows: TurnRowProps[]; turnsComplete: boolean; turnsPending: boolean; turnCount: TurnCount | null; loadingOlder: boolean; openTurnItems: TranscriptItem[]; turnJump: { seq: number; status: TurnJumpStatus } | null;
   /**
@@ -568,7 +574,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const view = state.sessionView[id] ?? defaultSessionView();
   // ターンの少ない終わった会話は、右の欄をはじめ畳み、その画面だけの開閉（tocPeek）に従う。
   const transcriptOpen = tocFolds(store, view, id, state.orchestratorOpen) ? view.tocPeek : view.transcriptOpen;
-  const base = { id, parent: null, live: null, aside: false, oneLiner: null, hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen, trustHint: false, canResume: false, summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, turnRows: [], turnsComplete: true, turnsPending: false, turnCount: null, loadingOlder: false, openTurnItems: [], turnJump: null, promptJump: false, strip: null, lead: null, badges: [], details: [], git: null, account: null, gone: null, jump: null, hasNewer: false, actions: { primary: openEditor(openLabel(t, store.settings)), menu: [] }, transcriptBand: null };
+  const base = { id, parent: null, live: null, aside: false, oneLiner: null, hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen, trustHint: false, canResume: false, summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, turnRows: [], turnsComplete: true, turnsPending: false, turnCount: null, loadingOlder: false, openTurnItems: [], turnJump: null, termReplies: [], promptJump: false, strip: null, lead: null, badges: [], details: [], git: null, account: null, gone: null, jump: null, hasNewer: false, actions: { primary: openEditor(openLabel(t, store.settings)), menu: [] }, transcriptBand: null };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
@@ -670,6 +676,8 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     gitFix: gitUnsafeFix(store.git, id),
     git: store.git.sessions[id] ? { chip: presentGitChip(t, store.git, id, store.sessions), files: presentGitFiles(t, store.gitChanges[id]) } : null,
     turnRows, turnsComplete: complete, turnsPending, turnCount, loadingOlder: slice?.loadingOlder === true, openTurnItems, turnJump: view.turnJump,
+    // ターミナルの訳の板は、サブエージェントを見ている間も主線の返答に重ねる（ターミナルが描くのは主線である）。
+    termReplies: alive && translateEnglishOf(store.settings ?? {}) ? finishedReplies(mainEvents, s.live === 'busy') : [],
     promptJump: agentKind !== null && AGENT_UI_CAPS[agentKind].promptJump,
     jump: view.jump,
     run: run ? { id: run.id, kind: run.kind, alive: run.endedAt === null, started: relativeTime(t, run.startedAt, now) } : null,
