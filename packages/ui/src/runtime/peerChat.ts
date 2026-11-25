@@ -225,7 +225,9 @@ export function createPeerChatRunner(deps: PeerChatRunnerDeps): PeerChatRunner {
         if (body.t === 'answer') done = unpick(done, body.askId);
         if (body.t === 'rush') done = { ...done, rushing: done.rushing.filter((q) => q !== body.queueId) };
         // 取り消しが間に合わなかった（もう渡した、または預かりに無い）ときは、渡せなかったとは言わない。
-        if (!(r.reason === 'refused-by-setting')) done = showNotice(done, body.t === 'cancel' && r.reason === 'queue-expired' ? 'cancel-late' : r.reason);
+        // 中断して渡すの ask-mismatch は、元の PC に札が出ていて Escape を打たなかったこと（host.ts の rush）。
+        const shown = body.t === 'cancel' && r.reason === 'queue-expired' ? 'cancel-late' : body.t === 'rush' && r.reason === 'ask-mismatch' ? 'rush-ask-open' : r.reason;
+        if (!(r.reason === 'refused-by-setting')) done = showNotice(done, shown);
         // 送れなかった文は、入力欄へ戻す（画像も、置き場の名前のまま戻す）。
         return sends ? restoreText(done, text, images) : done;
       });

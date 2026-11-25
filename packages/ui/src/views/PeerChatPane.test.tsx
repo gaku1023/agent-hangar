@@ -275,7 +275,7 @@ describe('札の再び押せる状態と、受け付けない設定', () => {
     mount(viewOf({ status: 'waiting', items: [ask(false, { answerable: false })] }));
     expect(screen.queryByRole('button', { name: /許可/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /拒否/ })).toBeNull();
-    expect(screen.getByText('Mac で答えてください')).toBeInTheDocument();
+    expect(screen.getByText('この札は中身をここから確認できないため、答えられません。Mac の画面で答えると進みます')).toBeInTheDocument();
     // 印の無い札は、これまでどおり押せる。
     mount(viewOf({ status: 'waiting', items: [ask()] }));
     expect(screen.getAllByRole('button', { name: '1. 許可' })).toHaveLength(1);

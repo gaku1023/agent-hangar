@@ -222,9 +222,14 @@ export type Dialog = {
    * 選択肢に箱がある（複数選択）か。
    * */
   multi: boolean;
+  /**
+   * カーソル（❯）のある行の番号。
+   * 番号の行に ❯ が無ければ null（番号の無い Next や Submit の行にいるか、読めない）。
+   */
+  cursor: number | null;
 };
 
-const OPTION_RE = /^\s*(?:[❯>›]\s*)?(\d{1,2})\.\s+(?:\[([ ✔✓xX]?)\]\s*)?(\S.*?)\s*$/;
+const OPTION_RE = /^\s*([❯>›]\s*)?(\d{1,2})\.\s+(?:\[([ ✔✓xX]?)\]\s*)?(\S.*?)\s*$/;
 /**
  * 罫線の行。
  * 本物の罫線は左端（列 0）から始まる。
@@ -359,10 +364,10 @@ function titleAbove(lines: string[], topAbs: number): string | null {
  */
 export function parseDialog(screen: string): Dialog | null {
   const lines = screen.replace(/\r/g, '').split('\n');
-  const optionAt: { i: number; n: number; text: string; checked: boolean | null }[] = [];
+  const optionAt: { i: number; n: number; text: string; checked: boolean | null; here: boolean }[] = [];
   lines.forEach((line, i) => {
     const m = OPTION_RE.exec(line);
-    if (m) optionAt.push({ i, n: Number(m[1]), text: m[3]!, checked: m[2] === undefined ? null : m[2].trim() !== '' });
+    if (m) optionAt.push({ i, n: Number(m[2]), text: m[4]!, checked: m[3] === undefined ? null : m[3].trim() !== '', here: m[1] !== undefined });
   });
   // 最後の 1 番から、番号が 1 つずつ増える行を選択肢とする。
   // 罫線や説明の行が間に入ってもよい。
@@ -379,8 +384,9 @@ export function parseDialog(screen: string): Dialog | null {
   // 札の下には、必ず案内の行（Esc to cancel など）がある。
   // ただし問いが複数ある札の最後の確認のタブ（Ready to submit your answers? と Submit answers・Cancel）には、
   // 実機（2.1.326）で案内の行が出ない。その形だけは案内の行なしで札とみなす。
+  // 2.1.332 では「Ready to submit your answers?」の行も出ない。そのときは、頭の行（← … ✔ Submit →）の下に「Review your answers」の見出しがあることで見分ける。
   const submitTab = group.length === 2 && SUBMIT_ROW_RE.test(group[0]!.text) && /^cancel$/i.test(group[1]!.text.trim())
-    && lines.slice(Math.max(0, group[0]!.i - 4), group[0]!.i).some((l) => /ready to submit your answers\?/i.test(l));
+    && (lines.slice(Math.max(0, group[0]!.i - 4), group[0]!.i).some((l) => /ready to submit your answers\?/i.test(l)) || reviewBelowTabs(lines, group[0]!.i));
   if (!submitTab && !lines.slice(last.i + 1, last.i + 9).some((l) => FOOTER_RE.test(l))) return null;
 
   const first = group[0]!;
@@ -459,7 +465,22 @@ export function parseDialog(screen: string): Dialog | null {
     step,
     unanswered: chipLine && step ? questionTabs(chipLine).filter((t) => t.mark === '☐').length : 0,
     multi: options.some((o) => o.checked !== null),
+    cursor: group.find((g) => g.here)?.n ?? null,
   };
+}
+
+/**
+ * 行 at の上（ABOVE_LINES 行まで）に、頭の行（← … ✔ Submit →）と、その下の「Review your answers」の見出しがあるか。
+ * 見出しは左端から始まる 1 行だけを見る（会話の本文の引用は頭に空白か記号が付く）。
+ */
+function reviewBelowTabs(lines: string[], at: number): boolean {
+  let review = false;
+  for (let k = at - 1; k >= Math.max(0, at - ABOVE_LINES); k--) {
+    const l = lines[k]!;
+    if (/^review your answers\s*$/i.test(l)) review = true;
+    else if (CHIP_ONE_RE.test(l) && /✔\s*submit/i.test(l) && !OPTION_RE.test(l)) return review;
+  }
+  return false;
 }
 
 /** 頭の行の 1 つの箱と、その後ろの見出し。 */
@@ -633,10 +654,10 @@ export function dialogMatches(ask: PeerChatAsk, d: Dialog, cwd: string | null = 
  * 質問が複数ある札は、今のタブの問いだけに当てる（1 問ずつ答える）。
  * 札の上には前の問いの文（会話の本文や、確認のタブの答えの一覧）が残りうるので、上の一続きの文字でなく、今のタブの問いの文と、空白を除いて等しいことを求める。
  * 確認のタブかどうかも ask の step と合わせる。
- * タブの中の複数選択は、次のタブへの進み方を実機で確かめていないので、答えない。
+ * タブの中の複数選択も答える（進み方は answer の multi の手順。2.1.332 の実機で確かめた）。
  */
 function stepMatches(ask: PeerChatAsk, d: Dialog, step: DialogStep): boolean {
-  if (ask.kind !== 'question' || d.multi) return false;
+  if (ask.kind !== 'question') return false;
   if (ask.step && (ask.step.submit === true) !== step.submit) return false;
   const want = strip(ask.input ?? '');
   return want !== '' && strip(d.question) === want;
@@ -800,12 +821,26 @@ export function createPeerAnswerer(deps: PeerAnswererDeps): PeerAnswerer {
     }
     // 番号は数字 1 つで打つ。2 桁の行は 2 回のキーになり、別の行に当たるので断る。
     if (rows.some((r) => r!.n > 9) || (other && other.n > 9)) return refuse('ask-mismatch');
+    // 問いが複数ある札のタブの中の複数選択は、打つ前に手順を決める（決められなければ打たずに断る）。
+    const tabPlan = ask.kind === 'question' && ask.multi && dialog.step ? multiTabPlan(dialog, rows as DialogOption[]) : undefined;
+    if (tabPlan === null) return refuse('ask-mismatch');
 
     // ここから先は打つ。
     // 途中で止まっても、同じ札に 2 度は打たせない。
     remember(ask.askId);
     try {
-      if (ask.kind === 'permission' || !ask.multi) {
+      if (tabPlan) {
+        for (const n of tabPlan.toggles) pane.sendText(String(n));
+        if (hasText) {
+          for (let i = 0; i < tabPlan.toOther; i++) pane.sendKey('down');
+          pane.sendText(text!);
+          pane.sendKey('down');
+        } else {
+          for (let i = 0; i < tabPlan.toOther + 1; i++) pane.sendKey('down');
+        }
+        // 自由入力の下の行（Next か Submit）で Enter を押すと、次のタブか確認のタブへ進む。
+        pane.sendKey('enter');
+      } else if (ask.kind === 'permission' || !ask.multi) {
         if (hasText) {
           pane.sendText(String(other!.n));
           pane.sendText(text!);
@@ -842,6 +877,25 @@ export function createPeerAnswerer(deps: PeerAnswererDeps): PeerAnswerer {
     // 質問が複数ある札の問いに答えたら、確認のタブが出たときだけ続けて送る。
     if (dialog.step && !dialog.step.submit) await submitWhenAllAnswered(pane);
     return { ok: true, label: [...labels, ...(hasText ? [text!] : [])].join(', ') };
+  }
+
+  /**
+   * 問いが複数ある札の、タブの中の複数選択に答える手順を決める。
+   * 2.1.332 の実機（Mac の tmux と Windows の psmux）で確かめた動き：
+   * 数字のキーはその行の箱を付け外しし、カーソルは動かさない。
+   * 自由入力の行（Type something）は、カーソルをそこに置いて文字を打つと箱が付く。
+   * その下の番号の無い行（Next、最後の問いは Submit）で Enter を押すと、次のタブへ進む。
+   * toggles は打つ数字（選んだ行の箱が付き、ほかの行の箱が外れるように、今の印と違う行だけ）。
+   * toOther はカーソルから自由入力の行までの Down の数。
+   * カーソルが読めない、自由入力の行が無い、自由入力の行に手元の文字が入っている（箱が付いている）ときは null。
+   */
+  function multiTabPlan(d: Dialog, chosen: DialogOption[]): { toggles: number[]; toOther: number } | null {
+    const other = otherRow(d);
+    if (!other || other.checked !== false || d.cursor === null || d.cursor > other.n) return null;
+    const want = new Set(chosen.map((r) => r.n));
+    const toggles = d.options.filter((o) => o !== other && o.checked !== null && o.checked !== want.has(o.n)).map((o) => o.n);
+    if (toggles.some((n) => n > 9)) return null;
+    return { toggles, toOther: other.n - d.cursor };
   }
 
   /**

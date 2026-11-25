@@ -67,9 +67,10 @@ const REFUSAL_KEY = {
 } as const;
 
 /** 断りの理由を、入力欄のそばに出す一言にする。知らない理由は「送れませんでした」。 */
-export function refusalText(t: Translate, reason: PeerChatReason | 'gone' | 'cancel-late' | 'answer-timeout', device: string): string {
+export function refusalText(t: Translate, reason: PeerChatReason | 'gone' | 'cancel-late' | 'rush-ask-open' | 'answer-timeout', device: string): string {
   if (reason === 'gone') return t('peerChat.notice.gone');
   if (reason === 'cancel-late') return t('peerChat.notice.cancelLate');
+  if (reason === 'rush-ask-open') return t('peerChat.notice.rushAskOpen', { device });
   if (reason === 'answer-timeout') return t('peerChat.notice.answerTimeout', { device });
   const key = (REFUSAL_KEY as Record<string, (typeof REFUSAL_KEY)[keyof typeof REFUSAL_KEY]>)[reason];
   return key ? t(key, { device }) : t('peerChat.refusal.other');
@@ -139,7 +140,7 @@ function rowOf(t: Translate,it: PeerChatItem, slice: PeerChatSlice, index: numbe
   if (it.ask) {
     const pick = slice.answering.includes(it.ask.askId) ? slice.picked[it.ask.askId] : undefined;
     const answered = answerLine(t, it, pick !== undefined ? { label: pick, deviceName: myName } : null) ?? (staleAsk(slice, index) ? t('peerChat.ask.closed') : null);
-    return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, answered, hostOnly: answered === null && it.ask.answerable === false ? t('peerChat.ask.hostOnly', { device }) : null, pending: slice.answering.includes(it.ask.askId), locked: slice.locked };
+    return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, answered, hostOnly: answered === null && it.ask.answerable === false ? t('peerChat.ask.unanswerable', { device }) : null, pending: slice.answering.includes(it.ask.askId), locked: slice.locked };
   }
   switch (it.kind) {
     case 'user': return { kind: 'user', key: it.uuid, text: it.text, from: it.from ? t('peerChat.log.sentFrom', { device: it.from.deviceName }) : null };
