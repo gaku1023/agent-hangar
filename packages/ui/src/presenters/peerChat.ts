@@ -1,7 +1,8 @@
 import { stopReasonOf, type PeerChatCard, type PeerChatItem, type PeerChatReason, type PeerChatStatus, type SessionDto, type TranscriptEvent } from '@agent-hangar/shared';
 import type { Translate } from '@agent-hangar/shared';
 import type { Store } from '../store/store.ts';
-import { emptySlice, type PeerChatSlice } from '../store/peerChat.ts';
+import { emptySlice, joinedItems, type PeerChatSlice } from '../store/peerChat.ts';
+import type { TurnCount, TurnRowProps } from './session.ts';
 import { asideOf, asideWord } from '../lib/aside.ts';
 import { durationLabel } from './format.ts';
 import { presentNowCard, type NowCardProps } from './live.ts';
@@ -35,6 +36,12 @@ export type PeerChatView = {
   tone: 'busy' | 'aside' | 'idle' | 'waiting' | 'ended';
   loading: boolean;
   rows: PeerChatRow[];
+  /** さらに古い分が元の PC に残っている（本文の頭へ上スクロールで読み足す）。 */
+  hasOlder: boolean;
+  /** 古い分を読み足している間。 */
+  loadingOlder: boolean;
+  /** 目次の行を押して、本文のこの項目へ跳ぶ。n が増えるたびに 1 度跳ぶ。 */
+  jump: { uuid: string; n: number } | null;
   composer: {
     kind: PeerChatComposerKind;
     sendLabel: string;
@@ -183,7 +190,9 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
   // 本体は入力を受け付けていて、裏だけが動いている（元の PC が札の材料で知らせる。status は busy のまま）。手元の会話と同じ「バックグラウンドで作業中」で見せ、預かりの案内は出さない。
   const aside = status === 'busy' && slice.card?.aside != null;
   const myName = store.device?.name ?? '';
-  const rows: PeerChatRow[] = foldTools(slice.items.map((it, i) => rowOf(t, it, slice, i, device, myName)), t);
+  // 読み足した古い分を頭に足した本文。札の閉じ判定（staleAsk）も、この並びの中の位置で見る。
+  const all = { ...slice, items: joinedItems(slice) };
+  const rows: PeerChatRow[] = foldTools(all.items.map((it, i) => rowOf(t, it, all, i, device, myName)), t);
   for (const q of slice.queued) {
     const mine = myId !== null && q.from.deviceId === myId;
     const delivering = q.state === 'delivering';
@@ -203,6 +212,9 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
     tone: offline || hostError || clockOff || status === null ? 'ended' : aside ? 'aside' : TONE[status],
     loading: slice.phase === 'loading',
     rows,
+    hasOlder: slice.phase === 'live' && slice.olderMore && all.items.length > 0,
+    loadingOlder: slice.loadingOlder,
+    jump: slice.jump,
     composer: {
       kind, sendLabel,
       placeholder: t(offline ? 'peerChat.composer.placeholderOffline' : 'peerChat.composer.placeholder', { device }),
@@ -245,4 +257,43 @@ export function presentPeerCard(store: Store, sessionId: string, t: Translate, o
     reason: stopReasonOf({ live, waitingFor: c.waitingFor, activity: c.activity, permission: c.permission, limit: c.limit }), permission: c.permission, limit: c.limit, waitingFor: c.waitingFor, liveHints: c.hints,
   }, t);
   return { ...card, artifacts: { count: c.artifacts, items: [] } };
+}
+
+/** ほかの PC の会話の右の欄の目次（手元の TurnIndex の入力）。 */
+export type PeerToc = {
+  rows: TurnRowProps[];
+  /** 行の番号（seq）から、押したときに本文へ跳ぶ項目の uuid。 */
+  uuids: Record<number, string>;
+  /** さらに古い行が元の PC に残っている（さらに読む）。 */
+  hasMore: boolean;
+  /** さらに読む、または古い分を読み足している間。 */
+  loading: boolean;
+  /** 行を押して古い分を読み足している間の、その行。 */
+  busySeq: number | null;
+  count: TurnCount;
+  /** 最初の答えが届く前（仮の行を出す）。 */
+  pending: boolean;
+};
+
+/**
+ * ほかの PC の会話の目次。元の PC の turns の行（uuid、at、1 行目、道具の数）を、手元の目次の行の形に写す。
+ * 元の PC が全ターンの数（turnCount）を送ってこない（古い相手）ときと、見続けられないときは null で、目次を出さない。
+ * 行の番号（seq）は時刻を使い、同じ時刻がぶつかったら 1 ずつずらす（行の入る動きの識別に使う）。
+ */
+export function presentPeerToc(store: Store, sessionId: string, t: Translate, o: { clock: (ts: number) => string }): PeerToc | null {
+  void t;
+  const s = store.sessions[sessionId];
+  const slice = store.peerChat[sessionId];
+  if (!isPeerChatCandidate(s) || !slice || slice.phase !== 'live' || slice.turnCount === null) return null;
+  if (slice.turnsLoaded && slice.turns.length === 0) return null;
+  const uuids: Record<number, string> = {};
+  let prev = -Infinity;
+  const rows: TurnRowProps[] = slice.turns.map((r) => {
+    const seq = r.at > prev ? r.at : prev + 1;
+    prev = seq;
+    uuids[seq] = r.uuid;
+    return { seq, when: o.clock(r.at), text: r.text, head: r.text, tools: r.tools, open: false, band: [] };
+  });
+  const busy = slice.jumping === null ? null : rows.find((r) => uuids[r.seq] === slice.jumping)?.seq ?? null;
+  return { rows, uuids, hasMore: slice.turnsMore, loading: slice.loadingTurns || slice.jumping !== null, busySeq: busy, count: { n: slice.turnCount, plus: false }, pending: !slice.turnsLoaded };
 }

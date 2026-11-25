@@ -32,6 +32,9 @@ export function peerChatStep(state: State, store: Store, input: Input): Step | n
     case 'peerChat.open': return { state, effects: [{ kind: 'peerChat', command: { op: 'open', sessionId: a.sessionId, viewer: a.viewer } }] };
     case 'peerChat.close': return { state, effects: [{ kind: 'peerChat', command: { op: 'close', sessionId: a.sessionId, viewer: a.viewer } }] };
     case 'peerChat.send': return { state, effects: [{ kind: 'peerChat', command: { op: 'send', sessionId: a.sessionId, body: a.body } }] };
+    case 'peerChat.turnsMore': return { state, effects: [{ kind: 'peerChat', command: { op: 'turnsMore', sessionId: a.sessionId } }] };
+    case 'peerChat.older': return { state, effects: [{ kind: 'peerChat', command: { op: 'older', sessionId: a.sessionId } }] };
+    case 'peerChat.jump': return { state, effects: [{ kind: 'peerChat', command: { op: 'jump', sessionId: a.sessionId, uuid: a.uuid } }] };
     default: return null;
   }
 }

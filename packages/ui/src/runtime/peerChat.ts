@@ -1,11 +1,17 @@
 import type { PeerChatClientMsg, PeerChatItem, PeerChatOpIn, PeerChatOpResult, PeerChatReason, PeerChatViewDto } from '@agent-hangar/shared';
-import { applyState, applyUpdate, clearNotice, emptySlice, rememberMine, restoreText, showNotice, type PeerChatSlice } from '../store/peerChat.ts';
+import { applyOlder, applyState, applyTurns, applyUpdate, clearNotice, emptySlice, joinedItems, rememberMine, restoreText, showNotice, type PeerChatSlice } from '../store/peerChat.ts';
 
 /** 画面からの操作。Mediator が peerChat の効果にして渡す（mediator/peerChat.ts）。 */
 export type PeerChatCommand =
   | { op: 'open'; sessionId: string; viewer: string }
   | { op: 'close'; sessionId: string; viewer: string }
-  | { op: 'send'; sessionId: string; body: PeerChatOpIn };
+  | { op: 'send'; sessionId: string; body: PeerChatOpIn }
+  /** 目次のさらに古い行を頼む（先頭の行の uuid を before に付ける）。 */
+  | { op: 'turnsMore'; sessionId: string }
+  /** 本文を上へスクロールして、古い分を頭に足す。 */
+  | { op: 'older'; sessionId: string }
+  /** 目次の行を押した。本文に無ければ古い分を読み足してから、その項目へ跳ぶ。 */
+  | { op: 'jump'; sessionId: string; uuid: string };
 
 export type PeerChatRunnerDeps = {
   /** GET /api/sessions/:id/peer-chat。after は空文字で頭から取る。 */
@@ -44,6 +50,9 @@ const unpick = (s: PeerChatSlice, askId: string): PeerChatSlice => {
   const { [askId]: _, ...picked } = s.picked;
   return { ...s, answering: s.answering.filter((a) => a !== askId), picked };
 };
+
+/** 目次の行へ跳ぶための読み足しで、予算で入りきらないときに続きを頼む回数の上限（1 回は約 40KB）。 */
+const JUMP_ROUNDS_MAX = 8;
 
 /** 答えを送ったあと、相手の状態が動くのを待つ長さ。過ぎても動かなければ、答えが届かなかったとみなす。 */
 export const PEER_ANSWER_TIMEOUT_MS = 30_000;
@@ -142,6 +151,79 @@ export function createPeerChatRunner(deps: PeerChatRunnerDeps): PeerChatRunner {
     if (r.update.reason) return;
     const next = slice(sessionId);
     for (const v of next?.viewers ?? []) watch(sessionId, v, r.update.cursor);
+    syncTurns(sessionId);
+  }
+
+  /** 目次の頼みの最中の会話。 */
+  const turnFlight = new Set<string>();
+
+  /**
+   * 目次を頼む時機は、開いたときと、元の PC が知らせた turnCount が変わったときだけ（2 秒ごとには頼まない）。
+   * turnCount が無い（古い相手）ときは頼まない。頼みの最中に変わったら、終わってから 1 度だけ頼み直す。
+   */
+  function syncTurns(sessionId: string): void {
+    const s = slice(sessionId);
+    if (!s || s.phase !== 'live' || s.turnCount === null || s.turnCount === s.turnsFor || turnFlight.has(sessionId)) return;
+    void loadTurns(sessionId, null);
+  }
+
+  async function loadTurns(sessionId: string, before: string | null): Promise<void> {
+    const s0 = slice(sessionId);
+    if (!s0 || turnFlight.has(sessionId)) return;
+    turnFlight.add(sessionId);
+    write(sessionId, (s) => ({ ...s, loadingTurns: true, ...(before === null ? { turnsFor: s.turnCount } : {}) }));
+    let r: PeerChatOpResult;
+    try { r = await deps.op(sessionId, before === null ? { t: 'turns' } : { t: 'turns', before }); } catch { r = { ok: false, reason: failure() }; }
+    turnFlight.delete(sessionId);
+    // 断りと、目次を知らない古い相手（ok で turns が無い）は、行が無いまま仮の行をやめる。次は turnCount が変わったときに頼む。
+    write(sessionId, (s) => (r.ok && r.turns ? applyTurns(s, r.turns, before) : { ...s, loadingTurns: false, turnsLoaded: true }));
+    syncTurns(sessionId);
+  }
+
+  /** 本文の頭にある項目（uuid）。読み足しの before になる。 */
+  const firstUuid = (s: PeerChatSlice): string | null => joinedItems(s)[0]?.uuid ?? null;
+
+  async function loadOlder(sessionId: string): Promise<void> {
+    const s0 = slice(sessionId);
+    const first = s0 ? firstUuid(s0) : null;
+    if (!s0 || s0.phase !== 'live' || !s0.olderMore || s0.loadingOlder || s0.jumping !== null || first === null) return;
+    write(sessionId, (s) => ({ ...s, loadingOlder: true }));
+    let r: PeerChatOpResult;
+    try { r = await deps.op(sessionId, { t: 'older', before: first }); } catch { r = { ok: false, reason: failure() }; }
+    // 断りは more を変えない（もう一度上へ戻したら頼み直せる）。古い相手（older が付かない）は、無いものとして止める。
+    write(sessionId, (s) => (r.ok ? applyOlder(s, r.older?.items ?? [], r.older?.more ?? false) : { ...s, loadingOlder: false }));
+  }
+
+  async function jump(sessionId: string, uuid: string): Promise<void> {
+    const s0 = slice(sessionId);
+    if (!s0) return;
+    const toJump = (s: PeerChatSlice): PeerChatSlice => ({ ...s, jump: { uuid, n: (s.jump?.n ?? 0) + 1 } });
+    if (joinedItems(s0).some((i) => i.uuid === uuid)) { write(sessionId, toJump); return; }
+    const first = firstUuid(s0);
+    if (s0.phase !== 'live' || s0.loadingOlder || s0.jumping !== null || first === null) return;
+    write(sessionId, (s) => ({ ...s, jumping: uuid }));
+    // 行の頭から前向きに読む。予算で切れたら、読んだ最後の項目から続きを頼み、穴を作らずに頭へ足す。
+    let chunk: PeerChatItem[] = [];
+    let ok = true;
+    let from = uuid;
+    for (let round = 0; round < JUMP_ROUNDS_MAX; round++) {
+      let r: PeerChatOpResult;
+      try { r = await deps.op(sessionId, { t: 'older', before: first, from }); } catch { r = { ok: false, reason: failure() }; }
+      if (!r.ok || !r.older) { ok = false; break; }
+      const have = new Set(chunk.map((i) => i.uuid));
+      chunk = [...chunk, ...r.older.items.filter((i) => !have.has(i.uuid))];
+      const last = r.older.items[r.older.items.length - 1];
+      if (!r.older.more) break;
+      if (!last || last.uuid === from) { ok = false; break; }
+      from = last.uuid;
+      if (round === JUMP_ROUNDS_MAX - 1) ok = false;
+    }
+    write(sessionId, (s) => {
+      const done = { ...s, jumping: null };
+      if (!ok || !chunk.some((i) => i.uuid === uuid)) return done;
+      // 先頭より古い分が残っているかは、この頼みでは分からないので、そのまま持つ。
+      return toJump({ ...done, older: applyOlder(done, chunk, done.olderMore).older });
+    });
   }
 
   async function open(sessionId: string, viewer: string): Promise<void> {
@@ -256,10 +338,14 @@ export function createPeerChatRunner(deps: PeerChatRunnerDeps): PeerChatRunner {
         case 'open': void open(cmd.sessionId, cmd.viewer); return;
         case 'close': close(cmd.sessionId, cmd.viewer); return;
         case 'send': void send(cmd.sessionId, cmd.body); return;
+        case 'turnsMore': { const f = slice(cmd.sessionId)?.turns[0]; if (f && slice(cmd.sessionId)!.turnsMore) void loadTurns(cmd.sessionId, f.uuid); return; }
+        case 'older': void loadOlder(cmd.sessionId); return;
+        case 'jump': void jump(cmd.sessionId, cmd.uuid); return;
       }
     },
     rewatch,
     noteUpdate(sessionId) {
+      syncTurns(sessionId);
       const s = slice(sessionId);
       if (s && s.phase === 'fallback' && s.fallback === 'worker-outdated' && !retryTimers.has(sessionId)) retryLater(sessionId);
     },

@@ -1195,7 +1195,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // Worker の版が起動のあとに分かって使えるようになったときも、積まれていたかもしれないので読む。
       if (input.event.type === 'events.held' || (input.event.type === 'sync.status' && !couldHold && eventsAvailable(store.sync))) emit({ type: 'heldEvents.load' });
       // 見張りの途中で Worker の版が足りなくなった（reason が worker-outdated）会話は、間を空けて開き直す。
-      if (input.event.type === 'peerChat.update' && input.event.reason === 'worker-outdated') peerChat.noteUpdate(input.event.sessionId);
+      // 全ターンの数（turnCount）が変わった会話は、目次を頼み直す（noteUpdate が見分ける）。
+      if (input.event.type === 'peerChat.update') peerChat.noteUpdate(input.event.sessionId);
       // 統括の本文が伸びた。柱が見せる会話と記録を読み直す（柱を開いたことがある間だけ。load は会話が無ければ何もしない）。
       if (input.event.type === 'transcript.appended' && input.event.sessionId === store.settings?.orchestrator?.sessionId && store.orchestrator.loaded) void orchestrator.run({ op: 'load' });
       if (orchReload) void orchestrator.run({ op: 'load' });

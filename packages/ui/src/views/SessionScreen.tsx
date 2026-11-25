@@ -326,24 +326,34 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
   const transcript = <Transcript sessionId={id} items={props.items} hasMore={props.hasMore} loading={props.loading} follow={props.follow} live={props.live !== null} remaining={Math.max(props.total - props.loaded, 0)} jump={props.jump} hasNewer={props.hasNewer} groupTools={!props.showRaw} />;
 
   // ほかの PC の Claude Code の会話は、読み取り専用のトランスクリプトの代わりにチャットを出す。
-  // 元の PC が現在の札の材料を送ってきたときは、手元の会話と同じ右の欄（畳める器）に札を置く。目次は持たない（本文は元の PC のもの）。
-  // 札が無い間（古い相手、止まった会話）は右の欄を出さず、本文が全幅のままである。
+  // 元の PC が現在の札の材料を送ってきたときは、手元の会話と同じ右の欄（畳める器）に札を置く。
+  // 目次も、元の PC が全ターンの数（turnCount）を送ってきたときだけ、札の下に置く（行は元の PC の turns から写す）。札が無い間（入力待ち、終わった画面）は目次だけ。
+  // 札も目次も無い間（古い相手、止まった会話）は右の欄を出さず、本文が全幅のままである。
   // 読み込み中と見続けられなかったとき（view が無い間）は、今までのトランスクリプトのままにする。
   if (props.peerChat?.view) {
     const peerCard = props.peerChat.card ?? null;
+    const peerToc = props.peerChat.toc ?? null;
+    const peerSide = peerCard !== null || peerToc !== null;
     // 畳んでいる間は、状態の行の右端に開く札を置く（丸は札の状態の色）。分割のペインは見出しの側が開閉を持つ。
-    const peerOpener = peerCard && !tocOpen && !pv ? (
+    const peerOpener = peerSide && !tocOpen && !pv ? (
       <button type="button" className="btn btn-sm tab-pane-open" aria-expanded="false" aria-keyshortcuts={ariaKeyShortcuts('transcript.toggle')} aria-label={t('session.toc.shortcut')} title={t('session.toc.shortcut')} onClick={toggleToc}>
-        <span className="live-dot" data-tone={peerCard.tone} aria-hidden="true" />
+        {peerCard && <span className="live-dot" data-tone={peerCard.tone} aria-hidden="true" />}
         <Icon name="paneOpen" />{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}
       </button>
     ) : null;
-    const peerSlot = peerCard ? (
+    const peerSlot = peerSide ? (
       <div className="toc-slot" data-collapsed={tocOpen ? undefined : 'true'} data-leaving={pane.leaving ? 'true' : undefined} data-drawer={narrow ? 'true' : undefined}>
         {pane.mounted && (
           <div ref={(el) => { pane.ref.current = el; }} className="toc-slot-inner">
             <div className="toc-slot-head">{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}{toggle}</div>
-            <NowCard sessionId={id} {...peerCard} readOnly />
+            {peerCard && <NowCard sessionId={id} {...peerCard} readOnly />}
+            {peerToc && (
+              <TocPane>
+                <TurnIndex sessionId={id} runId={null} rows={peerToc.rows} complete openItems={[]} turnJump={null} hasMore={peerToc.hasMore} loading={peerToc.loading} count={peerToc.count} pending={peerToc.pending} agentId={null} busySeq={peerToc.busySeq}
+                  onOpen={(row) => { const uuid = peerToc.uuids[row.seq]; if (uuid) emit({ type: 'peerChat.jump', sessionId: id, uuid }); }}
+                  onLoadMore={() => emit({ type: 'peerChat.turnsMore', sessionId: id })} onLatest={() => {}} />
+              </TocPane>
+            )}
           </div>
         )}
       </div>
@@ -351,7 +361,7 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
     return (
       <div className="screen session-screen" data-variant={pv ? 'pane' : undefined}>
         {header}
-        <div ref={peerCard ? boxRef : undefined} className="c-body" data-toc={peerCard ? undefined : 'none'} data-narrow={peerCard && narrow ? 'true' : undefined} style={peerCard ? bodyStyle : undefined}>
+        <div ref={peerSide ? boxRef : undefined} className="c-body" data-toc={peerSide ? undefined : 'none'} data-narrow={peerSide && narrow ? 'true' : undefined} style={peerSide ? bodyStyle : undefined}>
           <div className="c-main"><section className="tr-sheet pchat-sheet"><PeerChatPane view={props.peerChat.view} trailing={peerOpener} /></section></div>
           {peerSlot}
         </div>

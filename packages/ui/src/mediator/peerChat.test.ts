@@ -18,6 +18,14 @@ describe('mediator: ほかの PC の会話の操作は効果にして Runtime �
   });
 });
 
+describe('mediator: ほかの PC の会話の目次と古い分', () => {
+  it('turnsMore、older、jump は peerChat の効果になる', () => {
+    expect(step({ type: 'peerChat.turnsMore', sessionId: 's1' }).effects).toEqual([{ kind: 'peerChat', command: { op: 'turnsMore', sessionId: 's1' } }]);
+    expect(step({ type: 'peerChat.older', sessionId: 's1' }).effects).toEqual([{ kind: 'peerChat', command: { op: 'older', sessionId: 's1' } }]);
+    expect(step({ type: 'peerChat.jump', sessionId: 's1', uuid: 'u9' }).effects).toEqual([{ kind: 'peerChat', command: { op: 'jump', sessionId: 's1', uuid: 'u9' } }]);
+  });
+});
+
 describe('mediator: ほかの PC への答えが届かなかった知らせ', () => {
   it('会話の名前を入れた知らせを積み、押すとその会話を開く', () => {
     const store = { ...initialStore(), sessions: { s1: sessionDto({ id: 's1', providerSessionId: 'u1', name: 'ビルドの直し', startedAt: 1, lastActivityAt: 1, hasTranscript: true }) } };
