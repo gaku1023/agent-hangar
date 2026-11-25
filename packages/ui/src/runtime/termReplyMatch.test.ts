@@ -71,8 +71,24 @@ describe('findReplyRange', () => {
     expect(findReplyRange(broken, REPLY)).toBeNull();
   });
 
-  it('頭が画面の外に切れているものは探さない', () => {
-    expect(findReplyRange(SCREEN.slice(5), REPLY)).toBeNull();
+  it('頭が画面の上に切れていても、画面の 1 行目から返答の終わりまで合えば、見えている範囲を返す（cut）', () => {
+    expect(findReplyRange(SCREEN.slice(5), REPLY)).toEqual({ start: 0, end: 20, cut: true });
+  });
+
+  it('頭が切れた側は、画面のいちばん上の文字のある行からしか始めない', () => {
+    expect(findReplyRange(['', ...SCREEN.slice(5)], REPLY)).toEqual({ start: 1, end: 21, cut: true });
+    expect(findReplyRange(['something unrelated on top', ...SCREEN.slice(5)], REPLY)).toBeNull();
+  });
+
+  it('頭が切れて見えている部分が短すぎるものは扱わない（取り違えやすいため）', () => {
+    expect(findReplyRange(SCREEN.slice(25, 26), REPLY)).toBeNull();
+    expect(findReplyRange(SCREEN.slice(24, 26), REPLY)).toEqual({ start: 0, end: 1, cut: true });
+  });
+
+  it('頭が切れていて、途中が食い違えば見つからない', () => {
+    const broken = SCREEN.slice(5);
+    broken[8] = '  - Each session has a label and something else entirely different now,';
+    expect(findReplyRange(broken, REPLY)).toBeNull();
   });
 
   it('終わりまで届かない（下が切れている）ものは見つからない', () => {
@@ -100,5 +116,18 @@ describe('findReplyRange（表）', () => {
   it.each([['claude-table-52.txt', 6, 30], ['claude-table-100.txt', 3, 19]])('%s', (file, start, end) => {
     const lines = read(file).split('\n');
     expect(findReplyRange(lines, reply)).toEqual({ start, end });
+  });
+});
+
+describe('findReplyRange（頭が切れた画面）', () => {
+  // 2026-11-25 に Claude Code 2.1.332 を幅 80、高さ 24 の tmux で動かし、長い返答の頭が画面の上に切れたところを capture-pane で採った。
+  const read = (f: string) => fs.readFileSync(new URL(`./__fixtures__/${f}`, import.meta.url), 'utf8').replace(/\n$/, '');
+  it('見えている返答の下の部分の範囲を返す', () => {
+    const lines = read('claude-cut-80.txt').split('\n');
+    expect(findReplyRange(lines, read('claude-cut-reply.md'))).toEqual({ start: 0, end: 15, cut: true });
+  });
+  it('ほかの返答とは合わない', () => {
+    const lines = read('claude-cut-80.txt').split('\n');
+    expect(findReplyRange(lines, read('claude-table-reply.md'))).toBeNull();
   });
 });

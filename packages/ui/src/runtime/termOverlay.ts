@@ -21,15 +21,18 @@ export type OverlayTerm = {
   onChange(cb: () => void): { dispose(): void };
 };
 
-/** 板を付けた返答。el は xterm が板を描くまで null。rows は板の行の数。 */
-export type PlacedReply = { text: string; el: HTMLElement | null; rows: number };
+/**
+ * 板を付けた返答。el は xterm が板を描くまで null。rows は板の行の数。
+ * cut は、返答の頭が画面の上に切れていて、板が下の部分だけを覆っていること。
+ */
+export type PlacedReply = { text: string; el: HTMLElement | null; rows: number; cut: boolean };
 
 /** 書き込みが止んでから探し直すまでの間。Claude Code の描き直しは何回にも分かれて届くので、まとめてから 1 度だけ探す。 */
 export const SCAN_DELAY_MS = 150;
 /** 板の左端。Claude Code は返答の印（⏺）を 1 桁目に置き、本文を 2 桁字下げする。印は見せたまま、本文だけを覆う。 */
 const INDENT = 2;
 
-type Placed = { text: string; marker: OverlayMarker; deco: OverlayDecoration; rows: readonly string[]; el: HTMLElement | null; sub: { dispose(): void } };
+type Placed = { text: string; marker: OverlayMarker; deco: OverlayDecoration; rows: readonly string[]; cut: boolean; el: HTMLElement | null; sub: { dispose(): void } };
 
 export function createReplyOverlays(term: OverlayTerm, onPlaced: (list: PlacedReply[]) => void) {
   let replies: string[] = [];
@@ -39,7 +42,7 @@ export function createReplyOverlays(term: OverlayTerm, onPlaced: (list: PlacedRe
 
   const emit = () => {
     if (dead) return;
-    onPlaced(replies.flatMap((text) => { const p = placed.get(text); return p ? [{ text, el: p.el, rows: p.rows.length }] : []; }));
+    onPlaced(replies.flatMap((text) => { const p = placed.get(text); return p ? [{ text, el: p.el, rows: p.rows.length, cut: p.cut }] : []; }));
   };
   const drop = (p: Placed) => {
     p.sub.dispose();
@@ -71,7 +74,7 @@ export function createReplyOverlays(term: OverlayTerm, onPlaced: (list: PlacedRe
       if (!marker) continue;
       const deco = term.decorate(marker, { x: INDENT, width: Math.max(1, term.cols - INDENT), height: range.end - range.start + 1 });
       if (!deco) { marker.dispose(); continue; }
-      const p: Placed = { text, marker, deco, rows: lines.slice(range.start, range.end + 1), el: null, sub: { dispose() {} } };
+      const p: Placed = { text, marker, deco, rows: lines.slice(range.start, range.end + 1), cut: range.cut === true, el: null, sub: { dispose() {} } };
       p.sub = deco.onRender((el) => { if (p.el === el) return; p.el = el; emit(); });
       placed.set(text, p);
       changed = true;

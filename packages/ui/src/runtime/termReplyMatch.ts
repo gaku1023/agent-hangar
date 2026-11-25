@@ -11,7 +11,8 @@
  * - 返答の列を最後まで読み切った行で終わる。その行の後ろに付いた飾り（「 · summary」など）は許す。
  * - 画面で落ちた短いかけら（リンクの URL など）は、返答の列の側で SKIP_MAX 字まで飛ばしてよい。飛ばした合計は、SKIP_MAX 字か返答の 1 割の多い方まで。
  * - 表は、セルが列の中で折り返すので、罫線で区切られた行の塊ごとに列の順へ並べ直してから読む（lineStreams）。
- * - 途中で続かなくなったら、その始まりは捨てる。頭が画面の上に切れたもの、下が切れたものは見つからない。
+ * - 途中で続かなくなったら、その始まりは捨てる。下が切れたものは見つからない。
+ * - 頭が画面の上に切れたもの（cut）は、画面のいちばん上の文字のある行を、返答の列の途中（その行の列が現れる所）から読み始め、返答の終わりまで読み切れたら見えている範囲を返す。見えている部分の列が MIN_CUT 字に満たないものは扱わない。
  * - 同じ返答が何度も見つかったら、いちばん下（新しい）を返す。
  */
 
@@ -19,6 +20,8 @@
 const BULLETS = new Set(['⏺', '●', '•']);
 /** 突き合わせる返答の列の長さの下限。短い返答は取り違えやすいので扱わない。 */
 export const MIN_STREAM = 24;
+/** 頭が切れた返答で、見えている部分の列の長さの下限。返答の途中のどこからでも合いうるので、MIN_STREAM より厳しくする。 */
+export const MIN_CUT = 40;
 /** 画面で落ちたかけらとして飛ばしてよい長さ（返答の列の字数）。 */
 const SKIP_MAX = 120;
 /** 飛ばした先を探すときに合わせる字数。 */
@@ -56,10 +59,10 @@ function consume(line: string, r: string, pos: number, budget: number): { pos: n
   return { pos: j, skipped };
 }
 
-/** start の行から返答を読み切れたら、最後の行を返す。 */
-function readFrom(lines: readonly string[] /* 行ごとの列（lineStreams） */, start: number, r: string): number | null {
+/** start の行から、返答の列の from 字目から読み始めて、読み切れたら最後の行を返す。 */
+function readFrom(lines: readonly string[] /* 行ごとの列（lineStreams） */, start: number, r: string, from = 0): number | null {
   const budget = Math.max(SKIP_MAX, Math.floor(r.length / 10));
-  let pos = 0;
+  let pos = from;
   let skipped = 0;
   for (let k = start; k < lines.length; k++) {
     const s = lines[k]!;
@@ -75,18 +78,26 @@ function readFrom(lines: readonly string[] /* 行ごとの列（lineStreams） *
 
 /**
  * 画面の行（lines、上から順）の中で、返答 reply が描かれている行の範囲を返す。両端を含む。
+ * 頭が画面の上に切れて、下の部分だけが見えているときは cut を真にする。
  * 見つからなければ null。
  */
-export function findReplyRange(lines: readonly string[], reply: string): { start: number; end: number } | null {
+export function findReplyRange(lines: readonly string[], reply: string): { start: number; end: number; cut?: true } | null {
   const r = replyStream(reply);
   if (r.length < MIN_STREAM) return null;
-  let streams: string[] | null = null;
+  const streams = lineStreams(lines);
   for (let k = lines.length - 1; k >= 0; k--) {
     if (!startsReply(lines[k]!)) continue;
-    streams ??= lineStreams(lines);
     if (!streams[k]!.startsWith(r.slice(0, 1))) continue;
     const end = readFrom(streams, k, r);
     if (end !== null) return { start: k, end };
+  }
+  // 頭が画面の上に切れたもの。画面のいちばん上の文字のある行が、返答の途中のどこかから終わりまで続いていれば、見えている範囲を返す。
+  const top = streams.findIndex((s) => s !== '');
+  if (top < 0 || startsReply(lines[top]!)) return null;
+  const first = streams[top]!;
+  for (let at = r.indexOf(first); at >= 0 && r.length - at >= MIN_CUT; at = r.indexOf(first, at + 1)) {
+    const end = readFrom(streams, top, r, at);
+    if (end !== null) return { start: top, end, cut: true };
   }
   return null;
 }

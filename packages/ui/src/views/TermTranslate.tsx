@@ -54,7 +54,7 @@ export function TermTranslations(props: { host: TerminalHost; tabId: string; rep
     if (next.has(text)) next.delete(text); else next.add(text);
     return next;
   });
-  return <>{placed.map((p) => p.el && createPortal(<ReplyBoard api={api} text={p.text} orig={orig.has(p.text)} onToggle={() => toggle(p.text)} fontSize={host.fontSize()} />, p.el, p.text))}</>;
+  return <>{placed.map((p) => p.el && createPortal(<ReplyBoard api={api} text={p.text} cut={p.cut} orig={orig.has(p.text)} onToggle={() => toggle(p.text)} fontSize={host.fontSize()} />, p.el, p.text))}</>;
 }
 
 /** xterm に渡さない操作。板の上の押し下げが tmux のマウスの操作や選択にならないようにする。 */
@@ -63,9 +63,10 @@ const SWALLOW = ['mousedown', 'mouseup', 'pointerdown', 'pointerup', 'dblclick']
 /**
  * 1 通分の板。
  * 板の高さは英語の行の範囲と同じで、xterm が決める。日本語の方が短ければ下を空け、収まらなければ板の中で切って下をぼかす。
+ * 返答の頭が画面の上に切れているとき（cut）は、見えているのは英語の下の部分なので、訳文の末尾を板の下端にそろえる。収まらなければ上を切ってぼかす。
  * 訳せなかったら何も描かず、英語のまま見せる。
  */
-function ReplyBoard(props: { api: TranslateApi; text: string; orig: boolean; onToggle: () => void; fontSize: number }) {
+function ReplyBoard(props: { api: TranslateApi; text: string; cut: boolean; orig: boolean; onToggle: () => void; fontSize: number }) {
   const t = useT();
   const { api, text } = props;
   // undefined は訳を待っている間、null は訳せなかったこと。
@@ -88,7 +89,9 @@ function ReplyBoard(props: { api: TranslateApi; text: string; orig: boolean; onT
     if (shown && !wasShown.current && board.current) fadeIn(board.current, '--dur-fast');
     wasShown.current = shown;
     const b = body.current;
-    setOver(b !== null && b.scrollHeight > b.clientHeight + 1);
+    // 下端にそろえたとき（cut）は上へはみ出し、scrollHeight に数えられないので、中身の高さで比べる。
+    const inner = b?.firstElementChild as HTMLElement | null | undefined;
+    setOver(!!b && !!inner && inner.offsetHeight > b.clientHeight + 1);
   }, [shown, ja]);
 
   // React の押下の扱いは根で受けるので、xterm の要素を通る前に止められない。板のボタンは DOM で直に受ける。
@@ -108,10 +111,10 @@ function ReplyBoard(props: { api: TranslateApi; text: string; orig: boolean; onT
   if (ja === null) return null;
   const label = t(props.orig ? 'transcript.translate.showTranslation' : 'transcript.translate.showOriginal');
   return (
-    <div className="term-tr" data-translating={ja === undefined ? 'true' : undefined} data-orig={props.orig ? 'true' : undefined} data-clipped={over ? 'true' : undefined} style={{ fontSize: `${props.fontSize}px` }}>
+    <div className="term-tr" data-translating={ja === undefined ? 'true' : undefined} data-cut={props.cut ? 'true' : undefined} data-orig={props.orig ? 'true' : undefined} data-clipped={over ? 'true' : undefined} style={{ fontSize: `${props.fontSize}px` }}>
       {shown && (
         <div ref={board} className="term-tr-board">
-          <div ref={body} className="term-tr-body"><Markdown text={ja} /></div>
+          <div ref={body} className="term-tr-body"><div className="term-tr-text"><Markdown text={ja} /></div></div>
         </div>
       )}
       {ready && (

@@ -8,11 +8,11 @@ import { TranslateContext, type TranslateApi } from './translateMsg.tsx';
 const A = 'The build passed on all five jobs, and the branch is ready to merge now.';
 const LINES = ['⏺ The build passed on all five jobs, and the branch is', '  ready to merge now.', '', '❯ '];
 
-function setup(opts: { api: TranslateApi | null; cached?: string }) {
+function setup(opts: { api: TranslateApi | null; cached?: string; lines?: string[] }) {
   const decos: { el: HTMLElement; disposed: boolean }[] = [];
   const term: OverlayTerm = {
     cols: 60,
-    lines: () => LINES,
+    lines: () => opts.lines ?? LINES,
     mark: (line) => ({ line, isDisposed: false, dispose() {} }),
     decorate() {
       const d = { el: document.createElement('div'), disposed: false };
@@ -88,5 +88,19 @@ describe('TermTranslations', () => {
     await act(async () => { await Promise.resolve(); });
     view.unmount();
     expect(decos[0]!.disposed).toBe(true);
+  });
+
+  it('頭が画面の上に切れた返答は、訳を板の下端にそろえる', async () => {
+    const api: TranslateApi = { cached: () => '覚えている訳です。', translate: vi.fn(async () => null) };
+    const { decos } = setup({ api, lines: ['  passed on all five jobs, and the branch is', '  ready to merge now.', '', '❯ '] });
+    await act(async () => { await Promise.resolve(); });
+    expect(decos[0]!.el.querySelector<HTMLElement>('.term-tr')!.dataset.cut).toBe('true');
+  });
+
+  it('頭が見えている返答は、上にそろえたまま', async () => {
+    const api: TranslateApi = { cached: () => '覚えている訳です。', translate: vi.fn(async () => null) };
+    const { decos } = setup({ api });
+    await act(async () => { await Promise.resolve(); });
+    expect(decos[0]!.el.querySelector<HTMLElement>('.term-tr')!.dataset.cut).toBeUndefined();
   });
 });

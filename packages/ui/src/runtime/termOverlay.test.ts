@@ -89,6 +89,16 @@ describe('createReplyOverlays', () => {
     o.dispose();
   });
 
+  it('頭が画面の上に切れた返答は、見えている行に板を付け、切れていることを渡す', () => {
+    const term = fakeTerm(['  passed on all five jobs, and the branch is', '  ready to merge now.', '', '❯ ']);
+    const seen: PlacedReply[][] = [];
+    const o = createReplyOverlays(term, (list) => seen.push(list));
+    o.setReplies([A]);
+    expect([term.decos[0]!.marker.line, term.decos[0]!.box.height]).toEqual([0, 2]);
+    expect(seen.at(-1)).toEqual([{ text: A, el: null, rows: 2, cut: true }]);
+    o.dispose();
+  });
+
   it('対象から外れた返答の板は外し、同じ対象を渡し直しても付け直さない', () => {
     const term = fakeTerm(screenWith(0));
     const o = createReplyOverlays(term, () => {});

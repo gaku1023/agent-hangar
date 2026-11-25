@@ -768,14 +768,18 @@ a:where(.btn) { color: inherit; }
    板は xterm の decoration で、英語の行の範囲と同じ高さを持つ。訳は端末の地の色で英語を覆い、端末の文字の色と sans の字で載せる。
    訳を待つ間は、英語の上を薄い帯が流れる（会話の記録の画面の .msg[data-translating] と同じ見え方）。
    板はポインタを通し、ホイールのスクロールや選択は端末に任せる。押せるのは右上のアイコンだけである。
-   日本語が収まらないときは板の中で切り、下をぼかす。 */
+   日本語が収まらないときは板の中で切り、下をぼかす。
+   返答の頭が画面の上に切れているとき（data-cut）は、訳文の末尾を板の下端にそろえ、収まらなければ上を切ってぼかす。 */
 .term-tr { position: absolute; inset: 0; pointer-events: none; font-family: var(--font-sans); color: var(--term-fg); }
 .term-tr[data-translating] { background: linear-gradient(90deg, transparent 0 40%, color-mix(in srgb, var(--term-bg) 70%, transparent) 50%, transparent 60% 100%); background-size: 250% 100%; animation: term-tr-sheen var(--skel-period) linear infinite; }
 @keyframes term-tr-sheen { from { background-position: 100% 0; } to { background-position: -150% 0; } }
 @media (prefers-reduced-motion: reduce) { .term-tr[data-translating] { animation: none; background: color-mix(in srgb, var(--term-bg) 35%, transparent); } }
 .term-tr-board { position: absolute; inset: 0; padding-right: 28px; background: var(--term-bg); overflow: hidden; }
 .term-tr-body { height: 100%; overflow: hidden; line-height: 1.5; }
-.term-tr[data-clipped] .term-tr-body { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5em), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5em), transparent); }
+.term-tr[data-clipped] .term-tr-body { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - min(2.5em, 40%)), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - min(2.5em, 40%)), transparent); }
+.term-tr[data-cut] .term-tr-body { display: flex; flex-direction: column; justify-content: flex-end; }
+.term-tr[data-cut] .term-tr-text { flex: none; }
+.term-tr[data-cut][data-clipped] .term-tr-body { -webkit-mask-image: linear-gradient(to top, #000 calc(100% - min(2.5em, 40%)), transparent); mask-image: linear-gradient(to top, #000 calc(100% - min(2.5em, 40%)), transparent); }
 .term-tr-body .md p, .term-tr-body .md ul, .term-tr-body .md ol, .term-tr-body .md pre { margin: 0 0 0.4em; }
 .term-tr-body .md h1, .term-tr-body .md h2, .term-tr-body .md h3, .term-tr-body .md h4, .term-tr-body .md h5, .term-tr-body .md h6 { font-size: 1em; margin: 0 0 0.3em; }
 .term-tr-body .md ul, .term-tr-body .md ol { padding-left: 1.4em; }
