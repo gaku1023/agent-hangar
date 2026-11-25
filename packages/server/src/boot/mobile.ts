@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type WebSocket from 'ws';
-import { codexEnabledOf, EVENT_INBOX_MIN_WORKER_COMPAT, MOBILE_BELL_MIN_WORKER_COMPAT, opencodeEnabledOf, PHONE_CHAT_MIN_WORKER_COMPAT, phoneChatAcceptOf, type PhoneChatBellAsk, type PeerBellKind, type PeerChatBellAsk, type PeerChatBellReply, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
+import { codexEnabledOf, languageOf, EVENT_INBOX_MIN_WORKER_COMPAT, MOBILE_BELL_MIN_WORKER_COMPAT, opencodeEnabledOf, PHONE_CHAT_MIN_WORKER_COMPAT, phoneChatAcceptOf, type PhoneChatBellAsk, type PeerBellKind, type PeerChatBellAsk, type PeerChatBellReply, type AccountsDto, type CloudDevicesDto, type MobileLaunchOut, type ServerEvent } from '@agent-hangar/shared';
 import type { AccountStore } from '../config/accounts.ts';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
@@ -103,7 +103,7 @@ type Link = { client: CloudClient; phoneKeys: PhoneKeySource };
  */
 export function bootMobile(p: {
   /** home は hangar の home（置き場 drops の親）。 */
-  home: { db: Db; device: { id: string; name: string }; home: string; settings?: { readonly current: Pick<Settings, 'opencodeEnabled' | 'codexEnabled' | 'phoneChatAccept'> } };
+  home: { db: Db; device: { id: string; name: string }; home: string; settings?: { readonly current: Pick<Settings, 'opencodeEnabled' | 'codexEnabled' | 'phoneChatAccept' | 'language'> } };
   /** hub は画面への配り口。スマホから起こした会話の右下の通知（phone.launch、試作 F1）を配る。無ければ配らない。 */
   delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub?: { broadcast(ev: Extract<ServerEvent, { type: 'phone.launch' }>): void } };
   runs: { runs: Pick<RunManager, 'start' | 'on'>; accounts: { store: Pick<AccountStore, 'list'>; usage: Pick<UsageTracker, 'of'>; broadcast: (accounts: AccountsDto) => void } };
@@ -214,6 +214,7 @@ export function bootMobile(p: {
     accounts: accounts.store.list(),
     usageOf: (id) => accounts.usage.of(id),
     now: Date.now(),
+    language: languageOf(p.home.settings?.current.language),
     opencodeEnabled: p.home.settings ? opencodeEnabledOf(p.home.settings.current) : false,
     // 見つからない Codex は caps に載せない（スマホに選ばせて agent-missing で断るより、段ごと出さない）。
     codexEnabled: codexOn(),
