@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fakeMotionTokens } from '../test/motion.ts';
 import { createTerminalHost, type TerminalHost, type TerminalLike } from '../runtime/terminals.ts';
 import { TerminalHostContext, TerminalPane } from './TerminalPane.tsx';
+import { TranslateContext } from './translateMsg.tsx';
 import { LAYOUT_MOVING_ATTR, LAYOUT_SETTLED } from './primitives/layoutMotion.ts';
 
 type FakeHost = TerminalHost & { mount: ReturnType<typeof vi.fn> };
@@ -251,6 +252,21 @@ describe('TerminalPane', () => {
     expect(mark()).toBe('idle');
     rerender(pane(null));
     expect(mark()).toBe('ended');
+  });
+
+  it('英語の返答を渡されたら、その行に訳の板を付ける。渡されなければ付けない', async () => {
+    const reply = 'The build passed on all five jobs, and the branch is ready to merge now.';
+    const decorate = vi.fn(() => ({ isDisposed: false, onRender: () => ({ dispose() {} }), dispose() {} }));
+    const term = { cols: 60, lines: () => ['⏺ The build passed on all five jobs, and the branch is', '  ready to merge now.'], mark: (line: number) => ({ line, isDisposed: false, dispose() {} }), decorate, onChange: () => ({ dispose() {} }) };
+    const host = { ...fakeHost(), overlay: () => term };
+    const api = { cached: () => null, translate: async () => null };
+    const pane = (replies: string[] | null) => <TranslateContext.Provider value={api}><TerminalHostContext.Provider value={host}><TerminalPane tabId="t1" hint={null} live="idle" agent replies={replies} /></TerminalHostContext.Provider></TranslateContext.Provider>;
+    const { rerender } = render(pane(null));
+    await act(async () => { await Promise.resolve(); });
+    expect(decorate).not.toHaveBeenCalled();
+    rerender(pane([reply]));
+    await act(async () => { await Promise.resolve(); });
+    expect(decorate).toHaveBeenCalledWith(expect.objectContaining({ line: 0 }), { x: 2, width: 58, height: 2 });
   });
 });
 

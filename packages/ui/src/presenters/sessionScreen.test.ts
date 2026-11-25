@@ -310,3 +310,19 @@ describe('起動元と起こしたセッション（spawnedBy）', () => {
     expect(present(many(me, other)).spawned).toEqual([]);
   });
 });
+
+describe('ターミナルに訳を重ねる返答（termReplies）', () => {
+  const EN = 'The build passed on all five jobs, and the branch is ready to merge now.';
+  const withReply = (on: boolean, r: RunDto | null) => {
+    const st = store(session({ live: 'idle' }), r);
+    st.settings = { translateEnglish: on } as SettingsDto;
+    return applyEventsPage(st, eventsKey('s1', null), { sessionId: 's1', events: [user(1, 'go'), { kind: 'assistant', seq: 2, text: EN, ts: NOW - 500 }], total: 2, nextSeq: null }, false, false);
+  };
+  it('設定が入で生きた run があれば、終わったターンの英語の返答を渡す', () => {
+    expect(present(withReply(true, run())).termReplies).toEqual([EN]);
+  });
+  it('設定が切か、run が終わっていれば空', () => {
+    expect(present(withReply(false, run())).termReplies).toEqual([]);
+    expect(present(withReply(true, run({ endedAt: NOW - 10 }))).termReplies).toEqual([]);
+  });
+});

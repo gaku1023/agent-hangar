@@ -1,3 +1,4 @@
+import type { OverlayTerm } from './termOverlay.ts';
 export type TerminalStatus = 'connecting' | 'connected' | 'closed' | 'error';
 export type TerminalLike = { cols: number; rows: number; element: HTMLElement | null; open(el: HTMLElement): void; write(d: string, done?: () => void): void; onData(cb: (d: string) => void): { dispose(): void }; onResize(cb: (s: { cols: number; rows: number }) => void): { dispose(): void }; fit(): void; focus(): void; dispose(): void;
   /** WebGL の描画を付け外しする。外すと DOM の描画に戻る。open のあとにだけ呼ぶ。 */
@@ -7,7 +8,9 @@ export type TerminalLike = { cols: number; rows: number; element: HTMLElement | 
   /** 打鍵として送る（xterm の input）。利用者が打ったのと同じく onData へ流れる。 */
   input(data: string): void;
   /** 文字の大きさ（px）を変える。合わせ直しは呼び手が fit で行う。 */
-  setFontSize(px: number): void };
+  setFontSize(px: number): void;
+  /** 返答の上に訳の板を付けるための口（runtime/termOverlay.ts）。開く前と、偽物の端末では無い。 */
+  overlay?(): OverlayTerm | null };
 /**
  * タブの接続の様子。
  * dropped は、つながっていた（またはつなごうとしていた）接続が思いがけず切れ、まだつなぎ直せていないこと。
@@ -42,6 +45,8 @@ export type TerminalHost = { connect(tabId: string): void; paste(tabId: string, 
   zoom(step: 'in' | 'out' | 'reset'): void;
   /** いまの文字の大きさ（px）。 */
   fontSize(): number;
+  /** 開いている端末の、訳の板を付けるための口（runtime/termOverlay.ts）。開いていなければ null。 */
+  overlay?(tabId: string): OverlayTerm | null;
   subscribe(cb: () => void): () => void; dispose(): void };
 
 /** 端末の文字の大きさを覚えておく localStorage の鍵。値は px の数そのもの。 */
@@ -320,6 +325,10 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     fontSize: () => fontSize,
     painted: (tabId) => entries.get(tabId)?.painted ?? true,
     status: (tabId) => entries.get(tabId)?.status ?? null,
+    overlay(tabId) {
+      const e = entries.get(tabId);
+      return e?.opened ? e.term.overlay?.() ?? null : null;
+    },
     fit: (tabId) => entries.get(tabId)?.term.fit(),
     focus(tabId) {
       const e = entries.get(tabId);
