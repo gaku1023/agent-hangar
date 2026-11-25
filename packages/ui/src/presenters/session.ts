@@ -710,5 +710,5 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     peerChat: isPeerChatCandidate(s) ? { watch: true, view: presentPeerChat(store, id, t), card: presentPeerCard(store, id, t, { now, clock: (ts) => when(ts).slice(0, 5) }), toc: presentPeerToc(store, id, t, { clock: when }), ...(store.peerChat[id]?.phase === 'fallback' && store.peerChat[id]?.fallback === 'worker-outdated' ? { workerOutdated: true } : {}) } : { watch: false, view: null },
   };
   props.endedLine = run !== null || agentKind === null ? null : pending ? AGENT_TEXT[agentKind].endedPending : props.canResume ? AGENT_TEXT[agentKind].endedLine : null;
-  return { ...props, ask: presentLocalAskBand(store, id, t), actions: sessionActions({ ...props, summaryOff }, t, openLabel(t, store.settings)) };
+  return { ...props, ask: s.provider === 'claude-code' ? null : presentLocalAskBand(store, id, t), actions: sessionActions({ ...props, summaryOff }, t, openLabel(t, store.settings)) };
 }

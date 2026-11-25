@@ -696,7 +696,7 @@ describe('フォルダの信頼の札（本文も登録も無い会話）', () =
     expect(state.status).toBe('waiting');
     const ask = state.items.at(-1)!.ask!;
     expect(ask).toMatchObject({ kind: 'permission', tool: 'FolderTrust', input: 'D:\\workspace\\ops' });
-    expect(ask.options).toEqual([{ key: '2', label: 'No, exit' }, { key: '1', label: 'Yes, I trust this folder' }]);
+    expect(ask.options).toEqual([{ key: '1', label: 'Yes, I trust this folder' }, { key: '2', label: 'No, exit' }]);
     expect(view.currentAsk('s1')?.askId).toBe(ask.askId);
   });
   it('live が waiting でなければ（重ねが外れた）札を出さない', () => {
