@@ -38,7 +38,9 @@ const SELF_RECORD_TOOLS: ReadonlySet<string> = new Set(['set_session_summary', '
  */
 export function guardWeakTurn(deps: Pick<ToolDeps, 'settings' | 'db'>, ctx: ToolContext, name: string, args: Record<string, unknown>): void {
   if (!isOrchestratorCtx(deps, ctx)) return;
-  if (TOOL_CLASSES[name as keyof typeof TOOL_CLASSES]?.kind === 'read' || SELF_RECORD_TOOLS.has(name)) return;
+  // propose_session_status はほかの会話も指せるので、自分を指すときだけ記録の道具として通す。
+  const self = name !== 'propose_session_status' || args.session_id === undefined || args.session_id === ctx.sessionId;
+  if (TOOL_CLASSES[name as keyof typeof TOOL_CLASSES]?.kind === 'read' || (SELF_RECORD_TOOLS.has(name) && self)) return;
   if (name === 'answer_ask' && args.by === 'policy') return;
   if (turnStrengthOf(deps.db, ctx.sessionId!) !== 'weak') return;
   throw new ToolError(msg('mcp.orchestrator.weakTurn'));

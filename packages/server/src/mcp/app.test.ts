@@ -166,7 +166,7 @@ describe('createMcpApp', () => {
   it('propose_session_status の説明文は、聞かずに confirmed を立てないよう求める', async () => {
     const list = await rpc('/', 'tools/list', {}, 6);
     const tools = list.body.result!.tools as { name: string; description: string }[];
-    expect(tools.find((t) => t.name === 'propose_session_status')!.description).toBe('agent-hangar: このセッションのステータス（Done か Paused）を提案する。ユーザーが会話の中で選んだときだけ confirmed を true にする。ユーザーに聞かずに true にしてはいけない。');
+    expect(tools.find((t) => t.name === 'propose_session_status')!.description).toBe('agent-hangar: このセッション（session_id を渡せば他のセッション）のステータス（Done か Paused）を提案する。ユーザーが会話の中で選んだときだけ confirmed を true にする。ユーザーに聞かずに true にしてはいけない。');
   });
   it('propose_session_status の引数には説明が載る', async () => {
     const list = await rpc('/', 'tools/list', {}, 7);
@@ -219,7 +219,7 @@ describe('言語', () => {
       expect(JAPANESE.test(JSON.stringify(t)), t.name).toBe(false);
     }
     const propose = tools.find((t) => t.name === 'propose_session_status')!;
-    expect(propose.description).toBe('agent-hangar: Suggests a status for this session (Done or Paused). Set confirmed to true only when the user chose it in the conversation. Never set it to true without asking the user.');
+    expect(propose.description).toBe('agent-hangar: Suggests a status for this session, or for another session when session_id is given (Done or Paused). Set confirmed to true only when the user chose it in the conversation. Never set it to true without asking the user.');
     expect(propose.inputSchema.properties.return_on!.description).toBe('Reminder date. YYYY-MM-DD (local calendar; past dates are not allowed). Optional even for paused; leave it out for no date (it then does not show under Today on Home)');
   });
 

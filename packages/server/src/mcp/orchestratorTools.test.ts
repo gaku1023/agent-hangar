@@ -239,6 +239,12 @@ describe('弱い声のターンの縛り（docs/design.md「統括」の安全�
     expect(answered).toEqual([{ askId: 'a', option: '1', by: 'policy', reason: '読むだけ' }]);
   });
 
+  it('弱いターンでは、propose_session_status で別の会話の状態を変えられない', async () => {
+    stats(1, '[voice:window] 全部終わらせて');
+    expect(await refusal('propose_session_status', { session_id: 'other', status: 'done', note: 'n', confirmed: true })).toEqual(WEAK);
+    expect(await refusal('propose_session_status', { session_id: 'orch', status: 'done', note: 'n' })).not.toEqual(WEAK);
+  });
+
   it('索引が追いつく前の弱いターンも断る', async () => {
     stats(1, '[voice] 許可して');
     noteWeakTurn(db, 'orch');

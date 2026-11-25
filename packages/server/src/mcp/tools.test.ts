@@ -1047,7 +1047,8 @@ describe('セッション別 URL は、書く道具の session_id を自分に�
 
   it('セッションを取る他の道具は、別のセッションを断る', () => {
     // open_in_hangar は知らせを出して URL を返すだけなので、どの会話でも指せる（上の試験）。
-    for (const [name, args] of SESSION_TOOL_CALLS.filter(([n]) => n !== 'get_transcript' && n !== 'open_in_hangar')) {
+    // propose_session_status は、止める・消すと同じく、ほかの会話を指せる（describe('propose_session_status')）。
+    for (const [name, args] of SESSION_TOOL_CALLS.filter(([n]) => n !== 'get_transcript' && n !== 'open_in_hangar' && n !== 'propose_session_status')) {
       expect(() => call(name, { ...args, session_id: otherId }, scoped())).toThrow(ToolError);
     }
     // 別のセッションの要約は書かれていない。
@@ -1269,10 +1270,17 @@ describe('propose_session_status', () => {
     const r = call('propose_session_status', { status: 'done', note: 'n', return_on: '2026-09-01', return_time: '09:00', confirmed: true }, scoped());
     expect(r.state).toMatchObject({ status: 'done', returnOn: null, returnTime: null, returnAt: null });
   });
-  it('共通の URL では session_id が要り、セッション別 URL では別のセッションを指せない', () => {
+  it('共通の URL では session_id が要り、セッション別 URL では省くと自分を指す', () => {
     expect(() => call('propose_session_status', { status: 'done', note: 'n' })).toThrow(/session_id/);
     expect(call('propose_session_status', { session_id: alphaId, status: 'done', note: 'n' }).outcome).toBe('proposed');
-    expect(() => call('propose_session_status', { session_id: 'other', status: 'done', note: 'n' }, scoped())).toThrow(ToolError);
+    expect(() => call('propose_session_status', { session_id: 'other', status: 'done', note: 'n' }, scoped())).toThrow(/セッションが見つかりません/);
+  });
+  it('セッション別 URL から、別のセッションを Done に確定できる（止める・消すと同じく、ほかの会話の片付けに使う）', () => {
+    const otherId = (db.prepare('select id from sessions where id != ? limit 1').get(alphaId) as { id: string }).id;
+    const r = call('propose_session_status', { session_id: otherId, status: 'done', note: '利用者が片付けを頼んだ', confirmed: true }, scoped());
+    expect(r).toMatchObject({ outcome: 'set', state: { status: 'done' } });
+    // 呼んだ側の状態は変わらない。
+    expect(call('propose_session_status', { status: 'done', note: 'n' }, scoped()).outcome).toBe('proposed');
   });
 });
 
