@@ -8,7 +8,9 @@ import '@xterm/xterm/css/xterm.css';
 import { wrapComposition } from './compositionWrap.ts';
 import { createDesktopBridge } from './desktop.ts';
 import type { TerminalLike } from './terminals.ts';
-import { overlayOf } from './xtermOverlay.ts';
+import { createEscState } from './escState.ts';
+import { rewriteOf, type RewriteDeps } from './xtermRewrite.ts';
+import { trackDrag } from './dragCells.ts';
 import type { HangarLink } from './hangarLink.ts';
 import { activateLink, createLinkGate, linkOpener, linkProvidersOf, type LinkGate } from './terminalLinks.ts';
 import { clipboardProvider, createKeyHandler, guardEmptyCopy, terminalOptions } from './xtermSetup.ts';
@@ -43,7 +45,14 @@ export function createXterm(hangar?: (link: HangarLink) => void): TerminalLike {
   term.unicode.activeVersion = '11';
   // 中のアプリや tmux のコピーモードが OSC 52 で写したものを、手元のクリップボードに書く。
   // navigator.clipboard は安全な文脈（127.0.0.1 は含まれる）にしか無いので、無ければ書かずに捨てる。
-  term.loadAddon(new ClipboardAddon(undefined, clipboardProvider((text) => navigator.clipboard.writeText(text))));
+  // 訳の上書き（termRewrite.ts）が付いている間は、ドラッグで写した英語を、画面に見えている訳に取り直してから書く。
+  let copyMap: Parameters<RewriteDeps['setCopyMap']>[0] = null;
+  let drag: ReturnType<typeof trackDrag> | null = null;
+  const copied = (text: string) => (copyMap ? copyMap(text, drag?.recent() ?? null) : text);
+  term.loadAddon(new ClipboardAddon(undefined, clipboardProvider((text) => navigator.clipboard.writeText(copied(text)))));
+  // 訳の上書きが、出力の列の途中や読み終わる前に差し込まないための見張り（xtermRewrite.ts）。
+  const esc = createEscState();
+  let pending = 0;
   // リンク。地の文の URL（web-links）も OSC 8 のハイパーリンクも、修飾キー付きのクリックでだけ開き、http と https のほかは開かない。
   // 下線とポインタは修飾キーを押している間だけ出す。
   const desktop = createDesktopBridge(window);
@@ -69,8 +78,24 @@ export function createXterm(hangar?: (link: HangarLink) => void): TerminalLike {
       if (term.element) guardEmptyCopy(term.element);
       // 変換中の文字をターミナルの右端で折り返し、下端を超える分は上へずらす（compositionWrap.ts）。捨てるときに止める。
       if (term.element) { stopWrap(); stopWrap = wrapComposition(term.element); }
+      // ドラッグの範囲を覚える。写しを画面に見えている訳に取り直すため（termRewrite.ts の mapCopy）。
+      if (term.element) {
+        drag?.dispose();
+        const screen = term.element.querySelector<HTMLElement>('.xterm-screen');
+        drag = trackDrag(term.element, window, (cx, cy) => {
+          const r = screen?.getBoundingClientRect();
+          if (!r || r.width === 0 || r.height === 0) return null;
+          const x = Math.min(term.cols - 1, Math.max(0, Math.floor(((cx - r.left) / r.width) * term.cols)));
+          const y = Math.min(term.rows - 1, Math.max(0, Math.floor(((cy - r.top) / r.height) * term.rows)));
+          return { x, y: term.buffer.active.viewportY + y };
+        });
+      }
     },
-    write: (d, cb) => term.write(d, cb),
+    write: (d, cb) => {
+      esc.feed(d);
+      pending++;
+      term.write(d, () => { pending--; cb?.(); });
+    },
     onData: (cb) => term.onData(cb),
     onResize: (cb) => term.onResize(cb),
     fit: () => { try { fit.fit(); } catch { /* 非表示のときは寸法が取れない */ } },
@@ -90,7 +115,7 @@ export function createXterm(hangar?: (link: HangarLink) => void): TerminalLike {
         gl = a;
       } catch { /* WebGL2 が使えない環境では DOM の描画のまま */ }
     },
-    dispose: () => { gl = null; stopWrap(); term.dispose(); },
-    overlay: () => (term.element ? overlayOf(term) : null),
+    dispose: () => { gl = null; stopWrap(); drag?.dispose(); drag = null; term.dispose(); },
+    rewrite: (redraw) => (term.element ? rewriteOf(term, { ground: () => esc.ground(), pending: () => pending, setCopyMap: (m) => { copyMap = m; }, redraw }) : null),
   };
 }

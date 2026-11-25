@@ -764,35 +764,16 @@ a:where(.btn) { color: inherit; }
    入力欄（textarea）も箱の幅に合わせて伸びるので、ターミナルの外へはみ出した分は .term-host で切り、外の箱が横に送られないようにする（clip は送れる箱を作らない）。 */
 .term-host .xterm .composition-view { height: auto !important; box-sizing: border-box; white-space: pre-wrap; word-break: break-all; overflow-wrap: anywhere; background: transparent; }
 .term-host .xterm .composition-text { background: #000; color: #fff; }
-/* ターミナルの英語の返答に重ねる訳の板（views/TermTranslate.tsx、2026-11-25 の試作の A）。
-   板は xterm の decoration で、英語の行の範囲と同じ高さを持つ。訳は端末の地の色で英語を覆い、端末の文字の色と sans の字で載せる。
-   訳を待つ間は、英語の上を薄い帯が流れる（会話の記録の画面の .msg[data-translating] と同じ見え方）。
-   板はポインタを通し、ホイールのスクロールや選択は端末に任せる。押せるのは右上のアイコンだけである。
-   日本語が収まらないときは板の中で切り、下をぼかす。
-   返答の頭が画面の上に切れているとき（data-cut）は、訳文の末尾を板の下端にそろえ、収まらなければ上を切ってぼかす。 */
-.term-tr { position: absolute; inset: 0; pointer-events: none; font-family: var(--font-sans); color: var(--term-fg); }
-.term-tr[data-translating] { background: linear-gradient(90deg, transparent 0 40%, color-mix(in srgb, var(--term-bg) 70%, transparent) 50%, transparent 60% 100%); background-size: 250% 100%; animation: term-tr-sheen var(--skel-period) linear infinite; }
-@keyframes term-tr-sheen { from { background-position: 100% 0; } to { background-position: -150% 0; } }
-@media (prefers-reduced-motion: reduce) { .term-tr[data-translating] { animation: none; background: color-mix(in srgb, var(--term-bg) 35%, transparent); } }
-.term-tr-board { position: absolute; inset: 0; padding-right: 28px; background: var(--term-bg); overflow: hidden; }
-.term-tr-body { height: 100%; overflow: hidden; line-height: 1.5; }
-.term-tr[data-clipped] .term-tr-body { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - min(2.5em, 40%)), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - min(2.5em, 40%)), transparent); }
-.term-tr[data-cut] .term-tr-body { display: flex; flex-direction: column; justify-content: flex-end; }
-.term-tr[data-cut] .term-tr-text { flex: none; }
-.term-tr[data-cut][data-clipped] .term-tr-body { -webkit-mask-image: linear-gradient(to top, #000 calc(100% - min(2.5em, 40%)), transparent); mask-image: linear-gradient(to top, #000 calc(100% - min(2.5em, 40%)), transparent); }
-.term-tr-body .md p, .term-tr-body .md ul, .term-tr-body .md ol, .term-tr-body .md pre { margin: 0 0 0.4em; }
-.term-tr-body .md h1, .term-tr-body .md h2, .term-tr-body .md h3, .term-tr-body .md h4, .term-tr-body .md h5, .term-tr-body .md h6 { font-size: 1em; margin: 0 0 0.3em; }
-.term-tr-body .md ul, .term-tr-body .md ol { padding-left: 1.4em; }
-/* 符号の塊と行の中の符号は、会話の記録の明るい色のままだと暗い端末の中で白い板になるので、端末の色に合わせる。 */
-.term-tr-body .codeblock { background: color-mix(in srgb, var(--term-fg) 6%, var(--term-bg)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--term-fg) 14%, transparent); }
-.term-tr-body .codeblock-h { border-bottom-color: color-mix(in srgb, var(--term-fg) 12%, transparent); color: color-mix(in srgb, var(--term-fg) 55%, transparent); }
-.term-tr-body .codeblock pre { color: var(--term-fg); }
-.term-tr-body .codeblock .ln { color: color-mix(in srgb, var(--term-fg) 40%, transparent); }
-.term-tr-body .md code { background: color-mix(in srgb, var(--term-fg) 12%, transparent); }
-.term-tr-toggle { position: absolute; top: 0; right: 2px; width: 22px; height: 22px; padding: 0; border: none; border-radius: 6px; background: transparent; display: grid; place-items: center; color: color-mix(in srgb, var(--term-fg) 55%, transparent); cursor: pointer; pointer-events: auto; transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+/* ターミナルの英語の返答の、原文と訳を切り替えるアイコン（views/TermTranslate.tsx）。
+   訳そのものは端末のマスに上書きするので（runtime/termRewrite.ts）、ここで描くのは返答の頭の行の右端のアイコンだけである。
+   アイコンは xterm の decoration で、1 行の高さを持つ。訳を待つ間は薄く脈打ち、押せない。 */
+.term-tr-toggle { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: none; border-radius: 6px; background: transparent; display: grid; place-items: center; color: color-mix(in srgb, var(--term-fg) 55%, transparent); cursor: pointer; pointer-events: auto; transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .term-tr-toggle svg { width: 14px; height: 14px; }
-.term-tr-toggle:hover { background: color-mix(in srgb, var(--term-fg) 14%, transparent); color: var(--term-fg); }
+.term-tr-toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--term-fg) 14%, transparent); color: var(--term-fg); }
 .term-tr-toggle[aria-pressed='true'] { color: var(--accent); }
+.term-tr-toggle[data-state='wait'] { cursor: default; animation: term-tr-wait var(--skel-period) ease-in-out infinite; }
+@keyframes term-tr-wait { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.9; } }
+@media (prefers-reduced-motion: reduce) { .term-tr-toggle[data-state='wait'] { animation: none; opacity: 0.5; } }
 .term-host[data-painted='false'] { opacity: 0; }
 .term-hint { padding: var(--u) calc(var(--u) * 3); background: var(--waiting); color: #fff; font-size: var(--fs-sm); }
 .term-status { position: absolute; right: calc(var(--u) * 2); bottom: calc(var(--u) * 2); font-size: var(--fs-xs); color: var(--term-fg); opacity: 0.7; }

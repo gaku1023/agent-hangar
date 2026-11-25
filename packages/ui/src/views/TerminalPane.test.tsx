@@ -254,11 +254,16 @@ describe('TerminalPane', () => {
     expect(mark()).toBe('ended');
   });
 
-  it('英語の返答を渡されたら、その行に訳の板を付ける。渡されなければ付けない', async () => {
+  it('英語の返答を渡されたら、その返答の頭の行の右端に原文と訳を切り替えるアイコンを付ける。渡されなければ付けない', async () => {
     const reply = 'The build passed on all five jobs, and the branch is ready to merge now.';
     const decorate = vi.fn(() => ({ isDisposed: false, onRender: () => ({ dispose() {} }), dispose() {} }));
-    const term = { cols: 60, lines: () => ['⏺ The build passed on all five jobs, and the branch is', '  ready to merge now.'], mark: (line: number) => ({ line, isDisposed: false, dispose() {} }), decorate, onChange: () => ({ dispose() {} }) };
-    const host = { ...fakeHost(), overlay: () => term };
+    const lines = ['⏺ The build passed on all five jobs, and the branch is', '  ready to merge now.'];
+    const term = {
+      cols: 60, lines: () => lines, cellsFrom: (l: number, x: number) => (lines[l] ?? '').slice(x).trimEnd(), cellsRange: (l: number, a: number, b: number) => (lines[l] ?? '').slice(a, b),
+      width: (s: string) => s.length, snapshot: () => '', paint: () => false, setCopyMap() {},
+      mark: (line: number) => ({ line, isDisposed: false, dispose() {} }), decorate, onChange: () => ({ dispose() {} }),
+    };
+    const host = { ...fakeHost(), rewrite: () => term };
     const api = { cached: () => null, translate: async () => null };
     const pane = (replies: string[] | null) => <TranslateContext.Provider value={api}><TerminalHostContext.Provider value={host}><TerminalPane tabId="t1" hint={null} live="idle" agent replies={replies} /></TerminalHostContext.Provider></TranslateContext.Provider>;
     const { rerender } = render(pane(null));
@@ -266,7 +271,7 @@ describe('TerminalPane', () => {
     expect(decorate).not.toHaveBeenCalled();
     rerender(pane([reply]));
     await act(async () => { await Promise.resolve(); });
-    expect(decorate).toHaveBeenCalledWith(expect.objectContaining({ line: 0 }), { x: 2, width: 58, height: 2 });
+    expect(decorate).toHaveBeenCalledWith(expect.objectContaining({ line: 0 }), { x: 58, width: 2 });
   });
 });
 
