@@ -3291,7 +3291,7 @@ ssh の出力は既存の端末の中継（`pty/relay.ts` の `pumpPty`。束ね
 相手の hangar のセッション（`hangar-<run>-…`）とは名前が重ならず、相手の hangar の画面には出ない。
 
 ssh の `-o` は次で固定する。
-`BatchMode=yes`、`StrictHostKeyChecking=yes`、`UserKnownHostsFile=専用`、`GlobalKnownHostsFile=空`、`HostKeyAlgorithms=ssh-ed25519`、`HostKeyAlias=hangar-peer-<id>`、`CheckHostIP=no`、`UpdateHostKeys=no`、`ConnectTimeout=8`、`ServerAliveInterval=15`、`ServerAliveCountMax=3`、`ControlMaster=no`。
+`BatchMode=yes`、`StrictHostKeyChecking=yes`、`UserKnownHostsFile=専用`、`GlobalKnownHostsFile=空`、`HostKeyAlgorithms=ssh-ed25519`、`HostKeyAlias=hangar-peer-<id>`、`CheckHostIP=no`、`UpdateHostKeys=no`、`ConnectTimeout=8`、`ServerAliveInterval=15`、`ServerAliveCountMax=3`、`ControlMaster=no`、`LogLevel=ERROR`（OpenSSH 10.1 からの post-quantum の警告などを端末に混ぜない。失敗の見分けに使う文は error 以上で出るので残る。`WarnWeakCrypto=no` は Windows の ssh 9.5 が知らずに止まるので使わない）。
 `-l` は、相手の `ssh.user` があって上書きの Host 名が無いときだけ付ける。上書きの Host 名のときは `~/.ssh/config` の `User` に任せる。
 `-F none` と `IdentityFile` の指定は付けない。
 したがって、利用者の `~/.ssh/config`（`ProxyCommand`、`ProxyJump`、`IdentityFile`、ssh-agent）は効く。

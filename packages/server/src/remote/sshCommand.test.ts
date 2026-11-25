@@ -52,7 +52,7 @@ describe('shellArgv', () => {
     const a = shellArgv(target(), win);
     const s = flat(a);
     expect(a[0]).toBe('-tt');
-    for (const o of ['BatchMode=yes', 'StrictHostKeyChecking=yes', 'HostKeyAlias=hangar-peer-dev1', 'CheckHostIP=no', 'UpdateHostKeys=no', 'ConnectTimeout=8', 'ServerAliveInterval=15', 'ServerAliveCountMax=3', 'ControlMaster=no', 'UserKnownHostsFile=/h/known_hosts', 'GlobalKnownHostsFile=/h/empty']) expect(a).toContain(o);
+    for (const o of ['BatchMode=yes', 'StrictHostKeyChecking=yes', 'HostKeyAlias=hangar-peer-dev1', 'CheckHostIP=no', 'UpdateHostKeys=no', 'ConnectTimeout=8', 'ServerAliveInterval=15', 'ServerAliveCountMax=3', 'ControlMaster=no', 'LogLevel=ERROR', 'UserKnownHostsFile=/h/known_hosts', 'GlobalKnownHostsFile=/h/empty']) expect(a).toContain(o);
     expect(s).not.toMatch(/-F |IdentityFile|kill-server/);
     expect(a).toContain('-l');
     expect(a[a.indexOf('-l') + 1]).toBe('u');
