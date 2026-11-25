@@ -66,11 +66,11 @@ describe('セッション画面: ほかの PC の Claude Code の会話', () => 
     expect(actions).toContainEqual(expect.objectContaining({ type: 'investigate.open', op: 'workerOutdated', worker: { feature: 'peerChat', need: 11 } }));
   });
 
-  it('Codex と opencode の会話は、見張りを頼まず、チャットも出さない', () => {
+  it('ほかの PC の Codex と opencode の会話は、見張りを頼み、チャットを出す', () => {
     for (const provider of ['codex', 'opencode'] as const) {
       const { actions, container, unmount } = screenOf(session({ provider }), { phase: 'live', status: 'idle' });
-      expect(actions.filter((a) => a.type === 'peerChat.open')).toEqual([]);
-      expect(container.querySelector('.pchat-pane')).toBeNull();
+      expect(actions.filter((a) => a.type === 'peerChat.open')).toHaveLength(1);
+      expect(container.querySelector('.pchat-pane'), provider).not.toBeNull();
       unmount();
     }
   });

@@ -211,10 +211,17 @@ describe('チャットを出さない会話は、今までの読み取り専用�
     expect(view(store({ phase: 'fallback', fallback: 'too-many' }))).toBeNull();
   });
 
-  it('Codex と opencode の会話は、見張りも張らない', () => {
+  it('ほかの PC の Codex と opencode の会話も、見張りを張ってチャットにする', () => {
     for (const provider of ['codex', 'opencode'] as const) {
+      expect(isPeerChatCandidate(session({ provider }))).toBe(true);
       const p = presentSession(initialState(), store(null, session({ provider })), NOW, 's1');
-      expect(p.peerChat).toEqual({ watch: false, view: null });
+      expect(p.peerChat).toMatchObject({ watch: true, view: { loading: true, device: 'Mac' } });
+    }
+  });
+
+  it('この PC の Codex と opencode の会話は、見張りを張らない', () => {
+    for (const provider of ['codex', 'opencode'] as const) {
+      expect(presentSession(initialState(), store(null, session({ provider, lock: null, remoteOnly: false })), NOW, 's1').peerChat).toEqual({ watch: false, view: null });
     }
   });
 
@@ -322,5 +329,28 @@ describe('チャットを出さない会話は、今までの読み取り専用�
     // 答えが付いた札は、答えの行を優先する（案内は出さない）。
     const answered = { ...unanswerable, ask: { ...unanswerable.ask, answered: { by: MAC, label: '', at: 9 } } };
     expect(view(store({ status: 'waiting', items: [answered] }))!.rows[0]).toMatchObject({ hostOnly: null, answered: 'Mac で答えました' });
+  });
+
+  it('札の見出し・伏せる印・数の欄の範囲を、行にそのまま載せる。無ければ載せない', () => {
+    const q = (extra: object): PeerChatItem => ({ ...ask(), kind: 'question', ask: { ...ask().ask!, kind: 'question', allowText: true, ...extra } });
+    const row = (it: PeerChatItem) => view(store({ status: 'waiting', items: [it] }))!.rows[0] as Record<string, unknown>;
+    expect(row(q({ header: 'API キー', secret: true, textKind: 'integer', min: 1, max: 9 }))).toMatchObject({ header: 'API キー', secret: true, textKind: 'integer', min: 1, max: 9 });
+    const plain = row(q({}));
+    expect(plain.header).toBeNull();
+    expect(plain.secret).toBe(false);
+    expect(plain.textKind).toBeNull();
+  });
+
+  it('伏せる欄の答えの行は、値を出さず「<PC> で入力完了」だけにする（この PC で答えた直後も）', () => {
+    const secret = (label: string): PeerChatItem => ({ ...ask(), kind: 'question', ask: { ...ask().ask!, kind: 'question', allowText: true, secret: true, answered: { by: MAC, label, at: 9 } } });
+    expect(view(store({ status: 'busy', items: [secret('sk-1234')] }))!.rows[0]).toMatchObject({ answered: 'Mac で入力完了' });
+    expect(view(store({ status: 'busy', items: [secret('')] }))!.rows[0]).toMatchObject({ answered: 'Mac で入力完了' });
+    const mine: PeerChatItem = { ...secret('x'), ask: { ...secret('x').ask!, answered: undefined } };
+    expect(view(store({ status: 'waiting', items: [mine], answering: ['ask-1'], picked: { 'ask-1': 'sk-1234' } }))!.rows[0]).toMatchObject({ answered: 'Win で入力完了' });
+  });
+
+  it('Codex・opencode の許可の答え（label がそのまま日本語）は「<PC> で <label>」にする', () => {
+    const a: PeerChatItem = { ...ask(), ask: { ...ask().ask!, options: [{ key: 'once', label: '1 回だけ許可' }], answered: { by: MAC, label: '1 回だけ許可', at: 9 } } };
+    expect(view(store({ status: 'busy', items: [a] }))!.rows[0]).toMatchObject({ answered: 'Mac で1 回だけ許可' });
   });
 });

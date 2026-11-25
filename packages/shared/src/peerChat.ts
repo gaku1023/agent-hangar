@@ -82,6 +82,23 @@ export type PeerChatAsk = {
   replaces?: string;
 };
 
+/**
+ * 自由記述の答えを送ってよいか。数の欄（textKind）は、有限の数で、整数の欄は整数で、min と max の内側のときだけ通す。
+ * 見る側（画面とスマホ）が送る前に確かめる。元の PC も同じ決まりで確かめる。
+ */
+export function askTextValid(ask: Pick<PeerChatAsk, 'textKind' | 'min' | 'max'>, text: string): boolean {
+  const s = text.trim();
+  if (s === '') return false;
+  if (ask.textKind === undefined) return true;
+  if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(s)) return false;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return false;
+  if (ask.textKind === 'integer' && !Number.isInteger(n)) return false;
+  if (ask.min !== undefined && n < ask.min) return false;
+  if (ask.max !== undefined && n > ask.max) return false;
+  return true;
+}
+
 export type PeerChatAskStep = { index: number; total: number; submit?: true };
 
 /**

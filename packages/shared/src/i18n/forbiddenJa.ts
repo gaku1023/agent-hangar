@@ -74,7 +74,8 @@ export const FORBIDDEN_JA: ReadonlyArray<{ pattern: RegExp; use: string }> = [
   { pattern: /延ばす/, use: '延長' },
   { pattern: /新しい版/, use: '新しいバージョン' },
   { pattern: /1 つにまとめる/, use: '統合' },
-  { pattern: /端末(?!トークン)/, use: 'PC' },
+  // 「端末を開く」は、答えられない札のボタン（利用者と決めた文言）。PC の意味ではなく、会話の端末（ターミナル）を指す。
+  { pattern: /端末(?!トークン|を開く)/, use: 'PC' },
   { pattern: /に出ています|と出ます|を出します/, use: '表示されています、表示します' },
   { pattern: /残(?:ります|します|るため|るもの)|に残し/, use: '保存する、保持する、削除されません' },
   { pattern: /指示書/, use: '適用内容' },

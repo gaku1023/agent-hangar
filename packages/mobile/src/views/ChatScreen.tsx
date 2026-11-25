@@ -1,5 +1,5 @@
 import { peerChatJa } from '@agent-hangar/shared/src/i18n/ja/peerChat.ts';
-import { PEER_CHAT_TEXT_MAX_BYTES, type PeerChatAsk, type PeerChatItem, type PeerChatOp, type PeerChatReply } from '@agent-hangar/shared/src/peerChat.ts';
+import { PEER_CHAT_TEXT_MAX_BYTES, askTextValid, type PeerChatAsk, type PeerChatItem, type PeerChatOp, type PeerChatReply } from '@agent-hangar/shared/src/peerChat.ts';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { CHAT_TAIL_WAIT_MS, applyChatState, chatCall, ChatError, emptyChat, type ChatFailure, type ChatState } from '../chat.ts';
 import type { UnpairedReason } from '../api.ts';
@@ -432,7 +432,10 @@ type AskProps = {
 function AskCard({ item, ask, cls, style, input, hostOnly, unanswerable, busy, myLabel, onAnswer }: AskProps): ReactNode {
   const [picked, setPicked] = useState<string[]>([]);
   const [text, setText] = useState('');
-  const doneLabel = ask.answered?.label ?? myLabel;
+  // 伏せる入力は、値も選んだ行も残さず「入力完了」だけにする。
+  const doneLabel = ask.secret && (ask.answered || myLabel !== null) ? peerChatJa['peerChat.ask.secretDone'] : (ask.answered?.label ?? myLabel);
+  const textOk = askTextValid(ask, text);
+  const invalid = ask.textKind !== undefined && text.trim() !== '' && !textOk;
   const doneBy = ask.answered?.by.deviceName ?? null;
   const canAnswer = input && ask.answerable !== false && !ask.answered && myLabel === null;
   const opts = usePresence(doneLabel === null ? OPEN : NONE, (k) => k);
@@ -445,6 +448,7 @@ function AskCard({ item, ask, cls, style, input, hostOnly, unanswerable, busy, m
         {head}
         {ask.step && ask.step.total > 1 ? ` ${ask.step.index}/${ask.step.total}` : ''}
       </div>
+      {ask.header && <div className="ask-title">{ask.header}</div>}
       {ask.input && <div className="ask-in">{ask.input}</div>}
       {!ask.input && item.text && ask.kind === 'question' && <div className="ask-in">{item.text}</div>}
       {opts.map((p) => (
@@ -471,8 +475,8 @@ function AskCard({ item, ask, cls, style, input, hostOnly, unanswerable, busy, m
               )}
               {ask.allowText && (
                 <div className="ask-text">
-                  <input className="input" value={text} placeholder={peerChatJa['peerChat.ask.textPlaceholder']} onChange={(e) => setText(e.target.value)} />
-                  <button type="button" className="ask-opt go" disabled={busy || !text.trim()} onClick={() => void onAnswer(ask, [], text.trim(), text.trim())}>
+                  <input className="input" type={ask.secret ? 'password' : 'text'} autoComplete={ask.secret ? 'off' : undefined} inputMode={ask.textKind === 'integer' ? 'numeric' : ask.textKind === 'number' ? 'decimal' : undefined} aria-invalid={invalid ? 'true' : undefined} value={text} placeholder={peerChatJa['peerChat.ask.textPlaceholder']} onChange={(e) => setText(e.target.value)} />
+                  <button type="button" className="ask-opt go" disabled={busy || !textOk} onClick={() => void onAnswer(ask, [], text.trim(), text.trim())}>
                     {peerChatJa['peerChat.ask.textSend']}
                   </button>
                 </div>

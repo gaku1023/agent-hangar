@@ -56,6 +56,9 @@
 .pchat-ask-head { display: flex; align-items: center; gap: calc(var(--u) * 2); font-size: var(--fs-xs); font-weight: 700; color: var(--waiting); }
 .pchat-ask[data-done='true'] .pchat-ask-head { color: var(--ink-3); }
 .pchat-ask[data-done='true'] .pchat-dot { background: var(--ended); }
+.pchat-ask-header { font-weight: 700; overflow-wrap: anywhere; }
+.pchat-ask-body { display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
+.pchat-ask-text input[aria-invalid='true'] { box-shadow: inset 0 0 0 1.5px var(--waiting); }
 .pchat-ask-input { margin: 0; padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--surface-2); font: var(--fs-sm) var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .pchat-ask-acts { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); }
 .pchat-ask-acts:has(.pchat-opt) { flex-direction: column; flex-wrap: nowrap; }

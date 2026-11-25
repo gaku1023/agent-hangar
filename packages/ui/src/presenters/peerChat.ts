@@ -12,8 +12,20 @@ import { peerChatDeviceName } from './peerChatDevice.ts';
 /**
  * ほかの PC の Claude Code の会話をチャットの形で見る画面（views/PeerChatPane.tsx）の描き分け。
  * 画面は state を読まず、ここで決めた値だけを描く。
- * 対象は、ほかの PC の Claude Code の会話だけである。Codex と opencode の会話、相手の hangar が古いとき、見続けられないときは null で、読み取り専用のトランスクリプトのまま。
+ * 対象は、ほかの PC の会話（Claude Code、Codex、opencode）である。相手の hangar が古いとき、見続けられないときは null で、読み取り専用のトランスクリプトのまま。
  */
+
+/**
+ * 許可と質問の札の部品（views/AskCard.tsx）が描く値。peer chat の列、本文の真上の帯、ホームの行で同じものを使う。
+ * hostOnly は、この画面から答えられない札の案内の文（答えられる札と、答えが付いた札は null）。
+ * secret は入力を伏せ字にし、答えの行に値を残さない。textKind・min・max は数の欄の確かめ。
+ */
+export type AskCardModel = {
+  askId: string; askKind: 'permission' | 'question'; title: string; header: string | null; input: string | null;
+  options: { key: string; label: string; description?: string }[]; multi: boolean; allowText: boolean;
+  secret: boolean; textKind: 'number' | 'integer' | null; min: number | null; max: number | null;
+  answered: string | null; hostOnly: string | null; /** 答えを送って結果を待っている。 */ pending: boolean; /** 受け付けない設定の PC。押せない。 */ locked: boolean;
+};
 
 export type PeerChatRow =
   | { kind: 'user'; key: string; text: string; from: string | null }
@@ -22,7 +34,7 @@ export type PeerChatRow =
   // 続けて呼んだ 2 本以上のツールのまとめ（本文の画面の「ツール呼び出し N 回」と同じ）。key は先頭のツールの key のままにし、2 本目が来ても入る動きを出し直さない。
   | { kind: 'tools'; key: string; label: string; failed: string | null; items: { key: string; name: string; summary: string; ok: boolean }[] }
   | { kind: 'system'; key: string; text: string }
-  | { kind: 'ask'; key: string; askId: string; askKind: 'permission' | 'question'; title: string; input: string | null; options: { key: string; label: string; description?: string }[]; multi: boolean; allowText: boolean; answered: string | null; /** 元の PC で答える札（この PC からは答えられない）。案内の文。答えられる札と、答えが付いた札は null。 */ hostOnly: string | null; /** 答えを送って結果を待っている。 */ pending: boolean; /** 受け付けない設定の PC。押せない。 */ locked: boolean }
+  | ({ kind: 'ask'; key: string } & AskCardModel)
   | { kind: 'queued'; key: string; queueId: string; text: string; images: number; tag: string; from: string | null; mine: boolean; delivering: boolean; rushing: boolean };
 
 /** 送る口の形。send は今すぐ渡る、queue はターンが止まるまで預かる、resume は止まっている会話を再開して渡す、blocked は送れない。 */
@@ -62,11 +74,11 @@ export type PeerChatView = {
 };
 
 /**
- * ほかの PC の Claude Code の会話か（ここで見張りを始めてよいか）。
+ * ほかの PC の会話か（Claude Code・Codex・opencode。相手が受けるかはサーバが決める。ここで見張りを始めてよいか）。
  * ほかの PC で動いている（lock）、手元に本文が無い（remoteOnly）に加え、ほかの PC に手元より新しい続きがある会話（newerElsewhere。A → B → A で、B で止まっていて手元に古い写しが残る）も含める。
  */
 export function isPeerChatCandidate(s: SessionDto | undefined): boolean {
-  return !!s && s.provider === 'claude-code' && (s.lock !== null || s.remoteOnly || s.newerElsewhere === true);
+  return !!s && (s.lock !== null || s.remoteOnly || s.newerElsewhere === true);
 }
 
 const STATUS_KEY = { busy: 'peerChat.status.busy', idle: 'peerChat.status.idle', waiting: 'peerChat.status.waiting', stopped: 'peerChat.status.stopped' } as const;
@@ -107,10 +119,16 @@ function answerLine(t: Translate, it: PeerChatItem, mine: { label: string; devic
   const a = it.ask?.answered ?? (mine ? { by: { deviceName: mine.deviceName }, label: mine.label } : null);
   if (!a) return null;
   // 元の PC の手元で答えた札は、選んだ行が分からない（label が空）。
+  // 伏せる入力は、値も選んだ行も出さない。
+  if (it.ask!.secret) return t('peerChat.ask.answeredSecret', { device: a.by.deviceName });
   if (a.label === '') return t('peerChat.ask.answeredHere', { device: a.by.deviceName });
-  const word = it.ask!.kind === 'permission' ? permissionWord(t, a.label) : null;
-  // 許可の文が決めた形に合うときは語で、合わないとき（と質問）は元の文を引用する。
-  return word !== null ? t('peerChat.ask.answeredPermission', { device: a.by.deviceName, label: word }) : t('peerChat.ask.answeredQuestion', { device: a.by.deviceName, label: a.label });
+  if (it.ask!.kind === 'permission') {
+    // 画面の選択肢の文（Yes、No …）は固定の語にする。
+    // Codex・opencode のように日本語の文で来る許可は、その文のまま「<PC> で<文>」にする。合わない英語の文は引用する。
+    const word = permissionWord(t, a.label) ?? (/[^\x00-\x7f]/.test(a.label) ? a.label : null);
+    if (word !== null) return t('peerChat.ask.answeredPermission', { device: a.by.deviceName, label: word });
+  }
+  return t('peerChat.ask.answeredQuestion', { device: a.by.deviceName, label: a.label });
 }
 
 /**
@@ -153,7 +171,7 @@ function rowOf(t: Translate,it: PeerChatItem, slice: PeerChatSlice, index: numbe
   if (it.ask) {
     const pick = slice.answering.includes(it.ask.askId) ? slice.picked[it.ask.askId] : undefined;
     const answered = answerLine(t, it, pick !== undefined ? { label: pick, deviceName: myName } : null) ?? (staleAsk(slice, index) ? t('peerChat.ask.closed') : null);
-    return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, answered, hostOnly: answered === null && it.ask.answerable === false ? t('peerChat.ask.unanswerable', { device }) : null, pending: slice.answering.includes(it.ask.askId), locked: slice.locked };
+    return { kind: 'ask', key: `ask:${it.ask.askId}`, askId: it.ask.askId, askKind: it.ask.kind, title: t(it.ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), header: it.ask.header ?? null, input: it.ask.input ?? it.text ?? null, options: it.ask.options, multi: it.ask.multi, allowText: it.ask.allowText, secret: it.ask.secret === true, textKind: it.ask.textKind ?? null, min: it.ask.min ?? null, max: it.ask.max ?? null, answered, hostOnly: answered === null && it.ask.answerable === false ? t('peerChat.ask.unanswerable', { device }) : null, pending: slice.answering.includes(it.ask.askId), locked: slice.locked };
   }
   switch (it.kind) {
     case 'user': return { kind: 'user', key: it.uuid, text: it.text, from: it.from ? t('peerChat.log.sentFrom', { device: it.from.deviceName }) : null };
