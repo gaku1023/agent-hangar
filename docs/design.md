@@ -3310,6 +3310,7 @@ ssh と ssh-keyscan は、macOS と Linux は `/usr/bin`、Windows は `System32
 
 つなぐのに要る材料は、各 PC が自分の様子（`devices.status`、`DeviceStatus`）に載せて同期する（`config/deviceStatus.ts` の `collectDeviceStatus`）。
 - `ssh`：`{ user, host_pubkey, mux, shell }`。`user` は ssh のユーザー名、`host_pubkey` は sshd の ed25519 のホスト公開鍵（無ければ null）、`mux` は端末の多重化の種類（`tmux` か `psmux`）と絶対パス（無ければ null）、`shell` は sshd の既定のシェル（`posix`、`powershell`、`pwsh`、`cmd`。Windows は `DefaultShell` の登録から読む）。
+- ホスト鍵（`host_pubkey` と `ssh_host_key`）は、まず `/etc/ssh`（Windows は `%ProgramData%\ssh`）の `ssh_host_ed25519_key.pub` から読む。Windows の OpenSSH はこの `.pub` も Administrators と SYSTEM だけに絞るので、管理者でない hangar には読めない。そのときは自分の sshd（`127.0.0.1`）を `ssh-keyscan -t ed25519` して取る（`ownHostKey`）。自分の PC に聞くので、取った鍵はそのまま信じる。sshd が止まっていれば null になる。
 - `tailnet_ips`：Tailscale の IPv4（100.64.0.0/10）。無い PC と古い版は持たない。
 - どちらも新しい欄で、古い版の相手には無い。読む側は知らない欄を読み飛ばし、`ssh` が無ければ keyscan と `platform` で補う。様子そのものが無い相手には、`outdated`（相手の hangar が古い）で断る。
 
