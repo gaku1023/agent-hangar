@@ -223,7 +223,7 @@ export function bootRuns(
   });
   setParkingSwitch(db, () => settings.current.autoPark !== false);
   const usage = new UsageTracker(db, {
-    accountOf: (providerSessionId) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id), deviceId: device.id }, providerSessionId),
+    accountOf: (providerSessionId, configDir) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id), deviceId: device.id, accountOfDir: (d) => accountStore.byDir(d)?.id ?? null, primaryDir: claudeDir }, providerSessionId, configDir),
     compat: compatLog,
   });
   const codexOn = (): boolean => AGENT_ENTRY.codex.enabled(settings.current);

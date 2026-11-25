@@ -74,6 +74,22 @@ export function ensureStatuslineHeaderFile(home: string, token: string): string 
 }
 
 /**
+ * スニペットが送る、claude の設定の置き場（CLAUDE_CONFIG_DIR）のヘッダ。
+ * statusline の payload にはアカウントが載らず、hangar の外で起こした claude（hangar の会話の中で起こした子の claude を含む）は
+ * 会話の id から run を引けない。statusline のコマンドは claude の環境で走るので、置き場はここで読める。
+ * 置き場は日本語を含みうるので、UTF-8 の base64 にして `b64:` を頭に付ける。空（変数が無い）は既定の置き場を指す。
+ */
+export const CONFIG_DIR_HEADER = 'X-Hangar-Claude-Config-Dir';
+
+/** ヘッダを置き場に戻す。ヘッダが無い（古いスニペット）か形が違えば undefined、空なら ''（既定の置き場）を返す。 */
+export function decodeConfigDirHeader(v: string | undefined | null): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  const m = /^b64:([A-Za-z0-9+/=]*)$/.exec(v.trim());
+  if (!m) return undefined;
+  return Buffer.from(m[1]!, 'base64').toString('utf8');
+}
+
+/**
  * 設計文書のスニペット。
  * 標準入力を読んでサーバへ背景で送り、同じ内容を元のスクリプトの標準入力に戻す。
  * ヘッダのファイルは HANGAR_HOME があればそこから読む。
@@ -97,8 +113,10 @@ export function statuslineSnippet(port: number): string {
     '__hangar_home="${HANGAR_HOME:-$HOME/.agent-hangar}"',
     `__hangar_header="$__hangar_home/${STATUSLINE_HEADER_FILE}"`,
     'if [ -r "$__hangar_header" ]; then',
+    `  __hangar_cfg=$(printf '%s' "\${CLAUDE_CONFIG_DIR:-}" | base64 | tr -d '\\n')`,
     `  printf '%s' "$__hangar_input" | curl -s -m 0.3 -X POST \\`,
     `    -H 'Content-Type: application/json' \\`,
+    `    -H "${CONFIG_DIR_HEADER}: b64:$__hangar_cfg" \\`,
     '    -H @"$__hangar_header" \\',
     `    --data-binary @- http://127.0.0.1:${port}/api/ingest/statusline >/dev/null 2>&1 &`,
     'fi',
@@ -242,6 +260,8 @@ export function powershellStatuslineSnippet(port: number): string {
     "    $__hangar_auth = ((Get-Content -LiteralPath $__hangar_header -Raw) -replace '^Authorization:\\s*', '').Trim()",
     `    $__hangar_req = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Post, 'http://127.0.0.1:${port}/api/ingest/statusline')`,
     "    $null = $__hangar_req.Headers.TryAddWithoutValidation('Authorization', $__hangar_auth)",
+    "    $__hangar_cfg = if ($env:CLAUDE_CONFIG_DIR) { [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($env:CLAUDE_CONFIG_DIR)) } else { '' }",
+    `    $null = $__hangar_req.Headers.TryAddWithoutValidation('${CONFIG_DIR_HEADER}', 'b64:' + $__hangar_cfg)`,
     "    $__hangar_req.Content = [System.Net.Http.StringContent]::new($__hangar_input, [System.Text.Encoding]::UTF8, 'application/json')",
     '    $__hangar_http = [System.Net.Http.HttpClient]::new()',
     '    $null = $__hangar_http.SendAsync($__hangar_req).Wait(300)',

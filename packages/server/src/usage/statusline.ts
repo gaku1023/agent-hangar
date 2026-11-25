@@ -71,10 +71,10 @@ export class UsageTracker {
   private lastAt = 0;
   private readonly now: () => number;
   private readonly keep: number;
-  private readonly accountOf: (providerSessionId: string | null) => string;
+  private readonly accountOf: (providerSessionId: string | null, configDir?: string | null) => string;
   private readonly compat: CompatSink;
 
-  constructor(private readonly db: Db, opts: { now?: () => number; keep?: number; accountOf?: (providerSessionId: string | null) => string; compat?: CompatSink } = {}) {
+  constructor(private readonly db: Db, opts: { now?: () => number; keep?: number; accountOf?: (providerSessionId: string | null, configDir?: string | null) => string; compat?: CompatSink } = {}) {
     this.now = opts.now ?? (() => Date.now());
     this.keep = opts.keep ?? 500;
     this.accountOf = opts.accountOf ?? (() => PRIMARY_ACCOUNT_ID);
@@ -112,11 +112,12 @@ export class UsageTracker {
     this.lastAt = (this.db.prepare('select max(at) at from usage_snapshots').get() as { at: number | null }).at ?? 0;
   }
 
-  ingest(raw: unknown): IngestResult | null {
+  /** configDir はスニペットが送った claude の設定の置き場。送らない古いスニペットでは undefined、既定の置き場では ''。 */
+  ingest(raw: unknown, configDir?: string | null): IngestResult | null {
     const p = parseStatusline(raw);
     if (!p) return null;
     for (const d of statuslineDrifts(raw)) this.compat.note(d);
-    const accountId = this.accountOf(p.providerSessionId);
+    const accountId = this.accountOf(p.providerSessionId, configDir);
     const at = Math.max(this.now(), this.lastAt + 1);
     this.lastAt = at;
     const write = this.db.transaction(() => {

@@ -123,7 +123,7 @@ describe('planSetup（書かずに、書く先と差分を返す）', () => {
     const p = planSetup('statusline-install', env);
     expect(p.state).toBe('ready');
     expect(p.files.map((f) => [f.op, f.what, f.where])).toEqual([['modify', 'statusline.add', 'head'], ['own', 'statusline.header', null]]);
-    expect(p.files[0]!.n).toBe(11);
+    expect(p.files[0]!.n).toBe(13);
     expect(p.files[0]!.lines[0]).toEqual({ k: 'ctx', t: '#!/bin/bash' });
     expect(p.files[0]!.lines[1]).toEqual({ k: 'add', t: STATUSLINE_MARKER });
     expect(p.backup).toBe(`${script}.bak-YYYYMMDDhhmmss`);

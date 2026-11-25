@@ -1,5 +1,6 @@
 import type { Hono } from 'hono';
 import { touchRow } from '../../db/notify.ts';
+import { CONFIG_DIR_HEADER, decodeConfigDirHeader } from '../../provider/claude-code/config/statusline.ts';
 import { aggregateUsage } from '../../usage/aggregate.ts';
 import { buildAccountsDto } from '../accounts.ts';
 import { translatorOf } from '../../i18n/message.ts';
@@ -21,7 +22,8 @@ export function usageRoutes(api: Hono, deps: UsageRouteDeps): void {
     if (text === null) return tooLargeResult(c, BODY_LIMITS.statusline, tr);
     let raw: unknown;
     try { raw = JSON.parse(text); } catch { return c.json({ error: tr('http.request.notJson') }, 400); }
-    const r = deps.usage.ingest(raw);
+    // 送り手の claude の設定の置き場。アカウントを決める手がかりにする（usage/accountOf.ts）。
+    const r = deps.usage.ingest(raw, decodeConfigDirHeader(c.req.header(CONFIG_DIR_HEADER)));
     if (!r) return c.json({ error: tr('usage.statusline.badPayload') }, 400);
     // 使用率は、動かしたアカウントの値として accounts.update で配る。最初のアカウントも同じ道で届く。
     if (r.usageChanged) accountsDeps.broadcast(buildAccountsDto(accountsDeps));
