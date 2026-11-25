@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { TranscriptFile } from '../../../agent/types.ts';
+import { statLogical } from './logical.ts';
+import { parentThreadOf } from './subagent.ts';
 
 // Codex の会話の置き場（$CODEX_HOME）の見分け方。
 // 本文は sessions/YYYY/MM/DD/rollout-<ローカル時刻>-<thread の UUID>.jsonl[.zst] で、アーカイブされたものは archived_sessions/ に平らに置かれる。
@@ -28,6 +30,20 @@ export function defaultCodexHome(env: NodeJS.ProcessEnv = process.env): string {
 export const sessionsDirOf = (codexHome: string): string => path.join(codexHome, 'sessions');
 export const archivedDirOf = (codexHome: string): string => path.join(codexHome, 'archived_sessions');
 
+/** 会話の鍵。子は親の id と自分の id で別の鍵にする（子は sessionId が親と同じ）。 */
+export const rolloutKey = (f: Pick<TranscriptFile, 'sessionId' | 'agentId'>): string => (f.agentId === null ? f.sessionId : `${f.sessionId}:${f.agentId}`);
+
+/**
+ * rollout の名前から本文を作る。先頭の session_meta に親があれば、親の会話のサブエージェント（sessionId が親、agentId が自分）にする。
+ * 先頭がまだ書かれていない（作られた直後で 1 行目が無い）ものは、親か主線か決められないので null を返す。
+ */
+function fileOf(logical: string, own: string): TranscriptFile | null {
+  const { known, parent, broken } = parentThreadOf(logical);
+  // 壊れて読めないものは主線として渡し、本文を読む段で error に出す。
+  if (!known && broken !== true) return null;
+  return parent === null ? { path: logical, sessionId: own, agentId: null, deviceId: null } : { path: logical, sessionId: parent, agentId: own, deviceId: null };
+}
+
 type Found = { file: TranscriptFile; localTime: string; archived: boolean };
 
 const isDir = (p: string): boolean => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
@@ -41,7 +57,9 @@ function collect(dir: string, sub: boolean, archived: boolean, into: Map<string,
       if (!n) continue;
       const logical = path.join(d, n.logicalName);
       // .jsonl と .jsonl.zst が並んでいても、論理パスは 1 つ。
-      if (!into.has(logical)) into.set(logical, { file: { path: logical, sessionId: n.sessionId, agentId: null, deviceId: null }, localTime: n.localTime, archived });
+      if (into.has(logical)) continue;
+      const file = fileOf(logical, n.sessionId);
+      if (file !== null) into.set(logical, { file, localTime: n.localTime, archived });
     }
   };
   if (!sub) { take(dir); return; }
@@ -72,10 +90,11 @@ export function listRolloutFiles(codexHome: string): { files: TranscriptFile[]; 
   const chosen = new Map<string, Found>();
   const drop: TranscriptFile[] = [];
   for (const f of sorted) {
-    const cur = chosen.get(f.file.sessionId);
-    if (!cur) { chosen.set(f.file.sessionId, f); continue; }
+    const key = rolloutKey(f.file);
+    const cur = chosen.get(key);
+    if (!cur) { chosen.set(key, f); continue; }
     // sessions を正にする。同じ側の重複は、新しく見つけた方（先に並んだ方）を残す。
-    if (cur.archived && !f.archived) { drop.push(cur.file); chosen.set(f.file.sessionId, f); } else drop.push(f.file);
+    if (cur.archived && !f.archived) { drop.push(cur.file); chosen.set(key, f); } else drop.push(f.file);
   }
   const keep = new Set([...chosen.values()].map((f) => f.file.path));
   return { files: sorted.filter((f) => keep.has(f.file.path)).map((f) => f.file), drop, sessionsVisible };
@@ -113,5 +132,9 @@ export function classifyCodexEntry(root: string, rel: string | null): CodexWatch
   if (parts.length === 0 || parts.includes('..')) return { kind: 'rescan' };
   const n = parseRolloutName(parts[parts.length - 1]!);
   if (!n) return { kind: 'ignore' };
-  return { kind: 'file', file: { path: path.join(root, ...parts.slice(0, -1), n.logicalName), sessionId: n.sessionId, agentId: null, deviceId: null } };
+  const logical = path.join(root, ...parts.slice(0, -1), n.logicalName);
+  // 本文がある rollout の先頭がまだ書かれていないときは、親か主線か決められない。次の書き込みの通知で読み直す（消えた本文は、そのまま名前で渡す）。
+  if (!parentThreadOf(logical).known && statLogical(logical) !== null) return { kind: 'ignore' };
+  // 消えた本文は known が偽でも名前で渡す（先頭が書かれていない本文は、上で除いてある）。
+  return { kind: 'file', file: fileOf(logical, n.sessionId) ?? { path: logical, sessionId: n.sessionId, agentId: null, deviceId: null } };
 }

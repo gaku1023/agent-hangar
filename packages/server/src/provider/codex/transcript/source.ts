@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import type { FileTranscriptSource, TranscriptFile, TranscriptSink } from '../../../agent/types.ts';
 import { readCodexBatch } from './batch.ts';
-import { archivedDirOf, classifyCodexEntry, listRemoteRolloutFiles, listRolloutFiles, parseRolloutName, sessionsDirOf, type CodexWatched } from './discover.ts';
+import { archivedDirOf, classifyCodexEntry, listRemoteRolloutFiles, listRolloutFiles, parseRolloutName, rolloutKey, sessionsDirOf, type CodexWatched } from './discover.ts';
 import { readHeadLine, statLogical } from './logical.ts';
 import { readCodexPage } from './page.ts';
 
@@ -66,7 +66,7 @@ export function codexTranscriptSource(o: {
   const watchFailReported = new Set<WatchKey>();
   let sink: TranscriptSink | null = null;
   /** 最後に歩いた置き場の、会話の ID から本文の論理パスへの表。実行中の会話の本文を引くのに使う。 */
-  let byId = new Map<string, TranscriptFile>();
+  let byId = new Map<string, TranscriptFile[]>();
   let listedAt = -Infinity;
   /** 最後に歩いた写しの、会話の ID から写しへの表。手元の本文が名指しされたとき、写しを外すのに使う。 */
   let remoteById = new Map<string, TranscriptFile[]>();
@@ -134,7 +134,7 @@ export function codexTranscriptSource(o: {
 
   const relist = (): { files: TranscriptFile[]; drop: TranscriptFile[]; sessionsVisible: boolean } => {
     const r = listRolloutFiles(o.codexHome());
-    byId = new Map(r.files.map((f) => [f.sessionId, f]));
+    byId = groupById(r.files);
     listedAt = now();
     return r;
   };
@@ -182,11 +182,13 @@ export function codexTranscriptSource(o: {
         return stats.get(p) ?? null;
       };
       const { local, remoteKeep, drop } = chooseCopies(localFiles, remote.files, { isYielded, statOf });
-      remoteById = groupById(remote.files);
+      remoteById = groupByKey(remote.files);
       const limit = o.importLimit ?? CODEX_IMPORT_LIMIT;
       let budget = limit;
       const index: TranscriptFile[] = [];
       for (const f of local) {
+        // 子（サブエージェント）は、親が索引に入るときだけ入る。上限には数えない。
+        if (f.agentId !== null) continue;
         // すでに索引に入ったものと、hangar が起こした実行中の会話は、上限に数えず常に入れる（さもないと、古い会話が上限で押し出されて消える）。
         const free = (isIndexed?.(f.path) ?? false) || (o.isLive?.(f.sessionId) ?? false);
         if (!free) {
@@ -196,6 +198,9 @@ export function codexTranscriptSource(o: {
         index.push(f);
         statOf(f.path);
       }
+      // 子は親の会話の本文として、親が入っているときに添える。
+      const inIndex = new Set(index.map((f) => f.sessionId));
+      for (const f of local) if (f.agentId !== null && inIndex.has(f.sessionId)) { index.push(f); statOf(f.path); }
       for (const f of remoteKeep) { index.push(f); statOf(f.path); }
       const kept = new Map<string, { size: number; mtimeMs: number } | null>();
       for (const f of index) kept.set(f.path, stats.get(f.path) ?? null);
@@ -208,16 +213,16 @@ export function codexTranscriptSource(o: {
       if (!o.enabled()) return none({ lost: false });
       // 手元の本文が現れたら、同じ会話の写しを外す（譲った会話は全件の見比べで新しい方を選ぶ）。
       const drop = file.deviceId === null && isYielded?.(file.sessionId) !== true
-        ? (remoteById.get(file.sessionId) ?? []).filter((r) => statLogical(r.path) !== null)
+        ? (remoteById.get(rolloutKey(file)) ?? []).filter((r) => statLogical(r.path) !== null)
         : [];
       return { index: [file], drop, stats: new Map([[file.path, stat]]), lost: false };
     },
 
     liveFiles(providerSessionId) {
       if (!o.enabled()) return [];
-      let f = byId.get(providerSessionId);
-      if (!f && now() - listedAt >= LIVE_RELIST_MS) f = relist().files.find((x) => x.sessionId === providerSessionId);
-      return f ? [f] : [];
+      let found = byId.get(providerSessionId);
+      if (!found && now() - listedAt >= LIVE_RELIST_MS) found = relist().files.filter((x) => x.sessionId === providerSessionId);
+      return found ?? [];
     },
 
     // 本文の無い会話の覚えは持たない（threads の title や session_index.jsonl は読まない）。
@@ -234,12 +239,22 @@ export function codexTranscriptSource(o: {
 
 const EMPTY_HISTORY = { index: new Map(), version: 0 };
 
+/** 会話の ID ごと。子（サブエージェント）も親の ID の下に入る。 */
 function groupById(files: TranscriptFile[]): Map<string, TranscriptFile[]> {
+  return groupBy(files, (f) => f.sessionId);
+}
+
+/** 本文ごと（子は親の ID と自分の ID）。同じ本文の手元と写しをまとめる。 */
+function groupByKey(files: TranscriptFile[]): Map<string, TranscriptFile[]> {
+  return groupBy(files, rolloutKey);
+}
+
+function groupBy(files: TranscriptFile[], key: (f: TranscriptFile) => string): Map<string, TranscriptFile[]> {
   const m = new Map<string, TranscriptFile[]>();
   for (const f of files) {
-    const g = m.get(f.sessionId);
+    const g = m.get(key(f));
     if (g) g.push(f);
-    else m.set(f.sessionId, [f]);
+    else m.set(key(f), [f]);
   }
   return m;
 }
@@ -253,14 +268,15 @@ function chooseCopies(
   remote: TranscriptFile[],
   o: { isYielded?: (id: string) => boolean; statOf: (p: string) => { mtimeMs: number } | null },
 ): { local: TranscriptFile[]; remoteKeep: TranscriptFile[]; drop: TranscriptFile[] } {
-  const byRemote = groupById(remote);
-  const localIds = new Set(local.map((f) => f.sessionId));
+  const byRemote = groupByKey(remote);
+  const localByKey = groupByKey(local);
   const drop: TranscriptFile[] = [];
   const remoteKeep: TranscriptFile[] = [];
   const localDropped = new Set<string>();
   for (const [id, copies] of byRemote) {
-    const mine = localIds.has(id) ? local.filter((f) => f.sessionId === id) : [];
-    const pool = mine.length > 0 && o.isYielded?.(id) !== true ? mine : [...mine, ...copies];
+    const mine = localByKey.get(id) ?? [];
+    const yielded = o.isYielded?.(copies[0]!.sessionId) === true;
+    const pool = mine.length > 0 && !yielded ? mine : [...mine, ...copies];
     const chosen = pool.reduce((a, b) => ((o.statOf(b.path)?.mtimeMs ?? 0) > (o.statOf(a.path)?.mtimeMs ?? 0) ? b : a));
     for (const f of [...mine, ...copies]) {
       if (f === chosen) { if (f.deviceId !== null) remoteKeep.push(f); continue; }

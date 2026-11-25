@@ -572,6 +572,24 @@ describe('削除したセッションの写し', () => {
     expect(fs.existsSync(remoteTranscriptPath(home, 'dev-b', rel))).toBe(false);
     expect(state.getNumber('filesSeq', 0)).toBe(1);
   });
+  it('Codex の子の写しは、先頭の parent_thread_id の親に削除の印があれば降ろさず、降ろしてあれば消す', async () => {
+    const PARENT = '00000000-0000-7000-8000-000000000010';
+    const CHILD = '00000000-0000-7000-8000-000000000011';
+    const crel = `codex/sessions/2026/11/25/rollout-2026-11-25T20-14-35-${CHILD}.jsonl`;
+    const body = `${JSON.stringify({ type: 'session_meta', payload: { id: CHILD, parent_thread_id: PARENT } })}\n`;
+    db.prepare("insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values ('sp', 'codex', ?, '/w/alpha', 'dev-b', 1, 'dev-b')").run(PARENT);
+    await putRemote('dev-b', crel, body);
+    // 印の前に降ろした写しは、印を受けた後の降ろしで消す。
+    const target = remoteTranscriptPath(home, 'dev-b', crel);
+    const p = make({ codexEnabled: () => true });
+    await p.pullNow();
+    expect(fs.existsSync(target)).toBe(true);
+    db.prepare("insert into session_states (session_id, trashed_at, updated_at, origin_device) values ('sp', 1, 1, 'dev-b')").run();
+    fs.rmSync(target);
+    state.set('filesSeq', null);
+    expect(await make({ codexEnabled: () => true }).pullNow()).toEqual({ downloaded: 0 });
+    expect(fs.existsSync(target)).toBe(false);
+  });
   it('ほかの PC で戻されたら、台帳に残る写しを降ろし直す', async () => {
     await putRemote('dev-b', rel, '{"a":1}\n');
     const p = make();

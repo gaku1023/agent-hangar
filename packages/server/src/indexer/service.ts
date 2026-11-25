@@ -6,6 +6,7 @@ import { upsertShared } from '../db/shared.ts';
 import type { AgentKind, FileTranscriptSource, IndexBatch, PromptHistory, PromptHistoryEntry, TranscriptFile, TranscriptSink, TranscriptSource } from '../agent/types.ts';
 import type { Timers } from '../sync/engine.ts';
 import { writeBaselineIfNeeded } from './baseline.ts';
+import { reparentCodexChildren } from './codexChildren.ts';
 import { backfillHeadless } from './headless.ts';
 import { forgetTranscriptFile, indexFile, isUnchanged, markTruncatedForReindex, type FileStat } from './indexFile.ts';
 import { ensureSession, storedOrigin, writeBatch, type ProcessStartOf } from './write.ts';
@@ -75,7 +76,7 @@ export type IndexerServiceOptions = {
 /** 進行中の走査に付ける段階。rebuild のときだけ rebuilding になる。 */
 type ScanPhase = 'indexing' | 'rebuilding';
 /** 索引に記録済みの、ファイルごとの大きさと更新時刻と版。 */
-type KnownRow = { size: number; mtime: number; indexer_version: number };
+type KnownRow = { size: number; mtime: number; indexer_version: number; agent_id: string | null };
 type DiscoveredFile = TranscriptFile;
 /** 本文のファイルと、それを受け持つ面。パスは面をまたいで重ならない。 */
 type Item = { file: DiscoveredFile; source: FileTranscriptSource };
@@ -226,7 +227,7 @@ export class IndexerService {
 
   /** 索引に記録済みの全ファイルの大きさと更新時刻と版を、1 回の問い合わせでまとめて引く。 */
   private knownFiles(): Map<string, KnownRow> {
-    const rows = stmt(this.opts.db, 'select path, size, mtime, indexer_version from transcript_files').all() as (KnownRow & { path: string })[];
+    const rows = stmt(this.opts.db, 'select path, size, mtime, indexer_version, agent_id from transcript_files').all() as (KnownRow & { path: string })[];
     return new Map(rows.map((r) => [r.path, r]));
   }
 
@@ -278,7 +279,8 @@ export class IndexerService {
     const { file, source } = item;
     const st = stat === undefined ? this.statOf(source, file.path) : stat;
     const row = known?.get(file.path);
-    if (st && row && isUnchanged(row, st)) {
+    // 行き先（agentId）が食い違う行は、indexFile が外して読み直す。
+    if (st && row && (row.agent_id ?? null) === (file.agentId ?? null) && isUnchanged(row, st)) {
       this.reportedErrors.delete(file.path);
       return false;
     }
@@ -683,6 +685,8 @@ export class IndexerService {
     for (const t of this.opts.stored ?? []) t.start(this.storedSink);
     // 前の版が先頭からの索引を消してしまったファイルは、この全走査で先頭から読み直す。
     markTruncatedForReindex(this.opts.db);
+    // 前の版が独立した会話として索引した Codex の子（サブエージェント）は、この全走査より前に親の下へ付け替える。
+    if (this.sources.some((s) => s.agent === 'codex' && s.enabled?.() !== false)) reparentCodexChildren(this.opts.db, this.opts.deviceId);
     await this.fullScan();
     this.armSweep();
     this.noteLiveChanged();

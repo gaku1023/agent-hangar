@@ -165,6 +165,9 @@ function parseSkip(raw: string): SkipRecord | null {
 }
 
 /** 取り残しの走査が引く 1 行。uuid は Claude のセッション ID（R2 の鍵に入る方）である。 */
+/** Codex の本文の台帳の鍵を、索引の行から求める SQL（主線は codex/<端末>/<UUID>.jsonl.gz、子は codex/<端末>/<親>/subagents/<子>.jsonl.gz）。AGENT_SYNC.codex.ledgerKey と同じ形。 */
+const CODEX_LEDGER_SQL = `(@head || s.provider_session_id || case when t.agent_id is null then '' else '/subagents/' || t.agent_id end || '.jsonl.gz')`;
+
 type SweepRow = { path: string; uuid: string; agentId: string | null; size: number };
 
 /** 流れていくバイト列の指紋を取るだけの通り道。中身は持たない。 */
@@ -433,11 +436,11 @@ export class TranscriptUploader {
    */
   private codexSweepStatement(): ReturnType<Db['prepare']> {
     this.codexSweepStmt ??= this.deps.db.prepare(`
-      select t.path as path, s.provider_session_id as uuid, t.size as size
+      select t.path as path, s.provider_session_id as uuid, t.agent_id as agentId, t.size as size
       from transcript_files t
       join sessions s on s.id = t.session_id
-      left join file_sync fs on fs.key = @head || s.provider_session_id || '.jsonl.gz'
-      where t.device_id is null and t.agent_id is null and s.provider = 'codex' and s.deleted_at is null and t.mtime >= @from and (fs.key is null or fs.size < t.size)
+      left join file_sync fs on fs.key = ${CODEX_LEDGER_SQL}
+      where t.device_id is null and s.provider = 'codex' and s.deleted_at is null and t.mtime >= @from and (fs.key is null or fs.size < t.size)
       order by t.mtime desc
       limit @limit`);
     return this.codexSweepStmt;
@@ -446,12 +449,12 @@ export class TranscriptUploader {
   /** Codex の本文の取り残しのうち、まだ上げていないものを積む。Codex を有効にしていなければ何もしない。戻り値は積んだ件数。 */
   private sweepCodex(limit: number): number {
     if (limit <= 0 || this.codexSource() === null) return 0;
-    const rows = this.codexSweepStatement().all({ head: `codex/${this.deps.deviceId}/`, from: this.transcriptFloor(), limit: Number.isFinite(limit) ? limit * SWEEP_SCAN_MULT : -1 }) as Omit<SweepRow, 'agentId'>[];
+    const rows = this.codexSweepStatement().all({ head: `codex/${this.deps.deviceId}/`, from: this.transcriptFloor(), limit: Number.isFinite(limit) ? limit * SWEEP_SCAN_MULT : -1 }) as SweepRow[];
     let queued = 0;
     for (const r of rows) {
       if (queued >= limit) break;
       if (this.pending.has(r.path)) continue;
-      const t: UploadTarget = { provider: 'codex', path: r.path, sessionId: r.uuid, agentId: null };
+      const t: UploadTarget = { provider: 'codex', path: r.path, sessionId: r.uuid, agentId: r.agentId };
       const key = this.ledgerKeyOf(t);
       if (key === null) continue;
       const rec = this.readSkip(key);
@@ -469,9 +472,9 @@ export class TranscriptUploader {
       select count(*) as n
       from transcript_files t
       join sessions s on s.id = t.session_id
-      left join file_sync fs on fs.key = @head || s.provider_session_id || '.jsonl.gz'
-      left join sync_state sk on sk.key = @skip || @head || s.provider_session_id || '.jsonl.gz'
-      where t.device_id is null and t.agent_id is null and s.provider = 'codex' and s.deleted_at is null and sk.key is null and t.mtime >= @from
+      left join file_sync fs on fs.key = ${CODEX_LEDGER_SQL}
+      left join sync_state sk on sk.key = @skip || ${CODEX_LEDGER_SQL}
+      where t.device_id is null and s.provider = 'codex' and s.deleted_at is null and sk.key is null and t.mtime >= @from
         and (fs.key is null or fs.size < t.size)`);
     const row = this.codexCountStmt.get({ head: `codex/${this.deps.deviceId}/`, from: this.transcriptFloor(), skip: SKIP_PREFIX }) as { n: number } | undefined;
     return row?.n ?? 0;
@@ -480,17 +483,18 @@ export class TranscriptUploader {
   /** この PC の Codex の会話の、手元の rollout（論理パス）。run の終わりと引き継ぎが会話の ID だけを渡してくるので、索引の台帳から引く。 */
   private codexTargets(sessionUuid: string): UploadTarget[] {
     if (this.codexSource() === null) return [];
-    this.codexFilesStmt ??= this.deps.db.prepare(`select t.path path from transcript_files t join sessions s on s.id = t.session_id
-      where s.provider = 'codex' and s.provider_session_id = ? and t.device_id is null and t.agent_id is null`);
-    const rows = this.codexFilesStmt.all(sessionUuid) as { path: string }[];
-    if (rows.length > 0) return rows.map((r) => ({ provider: 'codex', path: r.path, sessionId: sessionUuid, agentId: null }));
+    // 子（サブエージェント）の rollout も、親の会話の行（agent_id が子）に入っている。
+    this.codexFilesStmt ??= this.deps.db.prepare(`select t.path path, t.agent_id agentId from transcript_files t join sessions s on s.id = t.session_id
+      where s.provider = 'codex' and s.provider_session_id = ? and t.device_id is null`);
+    const rows = this.codexFilesStmt.all(sessionUuid) as { path: string; agentId: string | null }[];
+    if (rows.length > 0) return rows.map((r) => ({ provider: 'codex', path: r.path, sessionId: sessionUuid, agentId: r.agentId }));
     // 索引がまだ見ていない（開始直後、30 秒の窓の中の）会話は、$CODEX_HOME を走査して thread の UUID で探す。
     // 引き継ぎの頼みに答える前（sync/takeoverResponder.ts）に、1 度も上がっていない会話を上げるためである。Codex の会話の行があるときだけ探す。
     const known = this.deps.db.prepare("select 1 from sessions where provider = 'codex' and provider_session_id = ? and deleted_at is null").get(sessionUuid) !== undefined;
     if (!known || !AGENT_SYNC.codex.isSessionId(sessionUuid)) return [];
     const src = this.codexSource();
-    const f = src ? listRolloutFiles(src.home).files.find((x) => x.sessionId === sessionUuid) : undefined;
-    return f ? [{ provider: 'codex', path: f.path, sessionId: sessionUuid, agentId: null }] : [];
+    const found = src ? listRolloutFiles(src.home).files.filter((x) => x.sessionId === sessionUuid) : [];
+    return found.map((f) => ({ provider: 'codex', path: f.path, sessionId: sessionUuid, agentId: f.agentId }));
   }
 
   private codexFilesStmt: ReturnType<Db['prepare']> | null = null;
@@ -636,7 +640,7 @@ export class TranscriptUploader {
   /** 上げる 1 件の台帳の鍵。自分の本文は transcripts/<自分>/...（opencode と Codex はその行の鍵）、remote/ の写しは relay: の鍵である。使えなければ null。 */
   private ledgerKeyOf(f: UploadTarget): string | null {
     if (f.provider !== undefined && f.provider !== 'claude-code') {
-      try { return AGENT_SYNC[f.provider].ledgerKey(this.deps.deviceId, f.sessionId, null); } catch { return null; }
+      try { return AGENT_SYNC[f.provider].ledgerKey(this.deps.deviceId, f.sessionId, f.agentId); } catch { return null; }
     }
     if (!this.isRelay(f)) return this.safeKey(f.sessionId, f.agentId);
     const rel = this.relayRel(f);
@@ -758,10 +762,10 @@ export class TranscriptUploader {
     if (codex) {
       const src = this.codexSource();
       if (src === null) return 'skipped';
-      try { key = AGENT_SYNC.codex.ledgerKey(this.deps.deviceId, f.sessionId, null); } catch (e) { throw new PermanentUploadError(errorMessage(e)); }
+      try { key = AGENT_SYNC.codex.ledgerKey(this.deps.deviceId, f.sessionId, f.agentId); } catch (e) { throw new PermanentUploadError(errorMessage(e)); }
       // 置き場（sessions/YYYY/MM/DD/ か archived_sessions/）と名前から写しの path を組む。$CODEX_HOME の外と rollout でない名前は上げない。
       const r = codexSyncPathOfFile(src.home, f.path);
-      if (r === null || AGENT_SYNC.codex.sessionOfPath(r) !== f.sessionId) return 'skipped';
+      if (r === null || AGENT_SYNC.codex.sessionOfPath(r) !== (f.agentId ?? f.sessionId)) return 'skipped';
       rel = r;
       const phys = resolvePhysical(f.path);
       if (phys === null) return 'skipped';

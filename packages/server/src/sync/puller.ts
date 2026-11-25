@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { PULL_LIMIT, type FileEntry, type SyncDiskShortDto } from '@agent-hangar/shared';
+import { parentThreadOf } from '../provider/codex/transcript/subagent.ts';
 import { remoteRoot } from '../config/cloud.ts';
 import type { Db } from '../db/open.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
@@ -548,8 +549,26 @@ export class RemotePuller {
   private isTrashed(rel: string): boolean {
     const uuid = uuidOfTranscript(rel);
     if (uuid === '') return false;
+    const marked = this.deps.db.prepare(`select 1 from sessions s join session_states st on st.session_id = s.id and st.deleted_at is null
+      where s.provider_session_id = ? and st.trashed_at is not null`);
+    if (marked.get(uuid) !== undefined) return true;
+    // Codex の子（サブエージェント）の写しは、path の会話の ID が子の UUID である。親の印は、索引の行（agent_id が子）か、親と一緒にゴミ箱へ移した控えで引く。
+    if (agentOfSyncPath(rel)?.provider !== 'codex') return false;
+    return this.deps.db.prepare(`select 1 from (
+        select session_id from transcript_files where agent_id = @c
+        union select session_id from trashed_transcripts where path like @like escape '\\'
+      ) p join session_states st on st.session_id = p.session_id and st.deleted_at is null where st.trashed_at is not null`)
+      .get({ c: uuid, like: `%-${uuid}.jsonl%` }) !== undefined;
+  }
+
+  /** 降ろした Codex の子の写し（target）の先頭が指す親に、削除の印があるか。子でなければ偽。 */
+  private parentTrashed(rel: string, target: string): boolean {
+    if (agentOfSyncPath(rel)?.provider !== 'codex') return false;
+    let parent: string | null = null;
+    try { parent = parentThreadOf(target).parent; } catch { return false; }
+    if (parent === null) return false;
     return this.deps.db.prepare(`select 1 from sessions s join session_states st on st.session_id = s.id and st.deleted_at is null
-      where s.provider_session_id = ? and st.trashed_at is not null`).get(uuid) !== undefined;
+      where s.provider = 'codex' and s.provider_session_id = ? and st.trashed_at is not null`).get(parent) !== undefined;
   }
 
   /**
@@ -666,6 +685,11 @@ export class RemotePuller {
     // 索引化の選別が更新時刻で最新の写しを選ぶので、相手の mtime に合わせる。
     fs.utimesSync(target, new Date(e.mtime), new Date(e.mtime));
     if (stale !== null) fs.rmSync(stale, { force: true });
+    // Codex の子の写しは、親の削除の印をパスから引けない（パスの会話の ID が子）。降ろした写しの先頭の parent_thread_id で親を引き、印があれば置かずに消す。
+    if (this.parentTrashed(e.path, target)) {
+      fs.rmSync(target, { force: true });
+      return false;
+    }
     this.deps.db.prepare(`insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)
       on conflict(key) do update set path = excluded.path, device_id = excluded.device_id, sha256 = excluded.sha256, size = excluded.size, mtime = excluded.mtime, remote_seq = excluded.remote_seq, synced_at = excluded.synced_at`)
       .run(ledger, 'transcript', e.path, origin, e.sha256, e.size, e.mtime, e.seq, this.now());

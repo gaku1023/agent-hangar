@@ -798,4 +798,42 @@ describe('Codex の会話', () => {
     expect(service().checkRestores()).toEqual(['s-cx']);
     expect(ownUploads()).toEqual([]);
   });
+
+  describe('子（サブエージェント）の rollout', () => {
+    const CHILD = '0198a7c2-0000-7000-8000-00000000c1d1';
+    const CHILD_NAME = `rollout-2026-10-26T14-05-00-${CHILD}.jsonl`;
+    const CHILD_SYNC = `codex/sessions/2026/10/26/${CHILD_NAME}`;
+    const childFile = () => path.join(codexHome, 'sessions', '2026', '10', '26', CHILD_NAME);
+    const childRemote = () => path.join(remoteRoot, OTHER, ...CHILD_SYNC.split('/'));
+    beforeEach(() => {
+      fs.writeFileSync(childFile(), '{"type":"session_meta"}\n');
+      db.prepare('insert into transcript_files (path, session_id, agent_id, device_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?,?)')
+        .run(childFile(), 's-cx', CHILD, null, 1, 1, 1, 2);
+      fs.writeFileSync(childRemote(), '{"type":"session_meta"}\n');
+      db.prepare("insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?, 'transcript', ?, ?, 'x', 1, 1, 1, 1)").run(`codex/${OTHER}/${CHILD}.jsonl.gz`, CHILD_SYNC, OTHER);
+      db.prepare("insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?, 'transcript', ?, ?, 'x', 1, 1, 1, 1)").run(`codex/${DEV}/${THREAD}/subagents/${CHILD}.jsonl.gz`, CHILD_SYNC, DEV);
+    });
+
+    it('消すと、親と一緒に子の rollout もゴミ箱へ移し、降ろした子の写しも消す', async () => {
+      await service().deleteSession('s-cx');
+      expect([...binned.keys()].sort()).toEqual([childFile(), rollout()].sort());
+      expect(fs.existsSync(childFile())).toBe(false);
+      expect(fs.existsSync(childRemote())).toBe(false);
+    });
+
+    it('子の索引の行が手元に無い（写しだけの PC）ときも、写しの先頭の parent_thread_id で親を引いて子の写しを消す', async () => {
+      fs.writeFileSync(childRemote(), `${JSON.stringify({ type: 'session_meta', payload: { id: CHILD, parent_thread_id: THREAD } })}\n`);
+      db.prepare('delete from transcript_files where agent_id = ?').run(CHILD);
+      await service().deleteSession('s-cx');
+      expect(fs.existsSync(childRemote())).toBe(false);
+    });
+
+    it('ゴミ箱から戻すと、子の台帳の行も忘れて上げ直してもらう', async () => {
+      await service().deleteSession('s-cx');
+      fs.renameSync(binned.get(rollout())!, rollout());
+      fs.renameSync(binned.get(childFile())!, childFile());
+      expect(service().checkRestores()).toEqual(['s-cx']);
+      expect(ownUploads()).toEqual([]);
+    });
+  });
 });

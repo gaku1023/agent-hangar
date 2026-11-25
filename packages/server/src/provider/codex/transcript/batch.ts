@@ -61,7 +61,7 @@ export function readCodexBatch(file: TranscriptFile, from: number): FileBatch {
   return {
     agent: 'codex',
     providerSessionId: file.sessionId,
-    agentId: null,
+    agentId: file.agentId,
     cwd: settingsCwd ?? records.find((r) => r.facts.cwd)?.facts.cwd,
     reset: read.reset || from === 0,
     records,
