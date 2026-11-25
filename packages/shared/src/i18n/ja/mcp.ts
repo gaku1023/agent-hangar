@@ -126,7 +126,7 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.notifyPref.mergeParam': "返答と入力待ちを 1 通にまとめるか。省くと今の値を保つ",
   'mcp.tool.notifyUser': "ターンの終わりに呼ぶ必要はない（未読の印と知らせは hangar が付け、返答の最初の 1 文を添える）。呼ぶのは、ターンの途中でユーザーに見てほしいことがあるとき（kind は progress）と、AskUserQuestion を使わずに文で問いかけてターンを終えるとき（最後の返答を書く直前に 1 回、kind は ask）だけ。何が起きたか、何を聞いているかを 1 文（200 字まで）で書く。場面は kind で添える（done は済んだ、ask は判断が必要、progress は途中。省くと done）。hangar のそのセッションの未読の数が増え、ユーザーが決めた知らせ方に従って OS の通知とスマホの通知も出る。ユーザーがそのセッションを開くと既読になる。出し先は kind とユーザーの決まりで hangar が振り分けるので、to は渡さない。ユーザーがその場で出し先を言ったときだけ、to に 'unread'、'os'、'phone' の配列を渡す（例：スマホにだけなら ['phone']）。決まりでオフの出し先は、to があっても出ない。",
   'mcp.tool.setNotifyPreference': "ユーザーが知らせ方を言ったら呼ぶ。ユーザーの言葉を text に、出し先ごとの場面を unread・os・phone（'done'、'ask'、'progress' の配列、空の配列はオフ）に直して保存する。unread・os・phone は 3 つとも必須で、触れていない出し先は今の決まりのまま渡す。whileFocused と merge は、言われたときだけ渡す。保存したら、返った決まりをユーザーに読み返す。",
-  'mcp.tool.proposeSessionStatus': 'このセッションのステータス（Done か Paused）を提案する。ユーザーが会話の中で選んだときだけ confirmed を true にする。ユーザーに聞かずに true にしてはいけない。',
+  'mcp.tool.proposeSessionStatus': 'このセッション（session_id を渡せば他のセッション）のステータス（Done か Paused）を提案する。ユーザーが会話の中で選んだときだけ confirmed を true にする。ユーザーに聞かずに true にしてはいけない。',
   'mcp.tool.getUsage': 'Claude の 5 時間と 7 日のレート制限の使用率と最終更新時刻。ステータスラインから受信した最新の値。上の 3 項目はメインアカウントの値で、accounts にアカウントごとの値（名前、現在使っているか、同じ 3 項目）が並ぶ。',
   'mcp.tool.openInHangar': 'ユーザーにその会話を見てほしいときに呼ぶ（自分が create_session で起こした子など、どの会話でも指せる）。hangar の画面に、その会話を開く知らせが出る（画面は切り替わらない）。URL とディープリンクも返す。プロジェクトを指定したときは知らせを出さず、URL とディープリンクだけ返す。',
   'mcp.tool.stopSession': '別のセッションを停止する（再開は resume_session）。この PC で実行中の会話の run を、画面の停止と同じ処理で停止する。自分自身と、他の PC で実行中の会話は停止できない。聞かずに使ってよい。',

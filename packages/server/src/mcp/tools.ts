@@ -819,7 +819,9 @@ function rejectPastReturn(returnOn: string | null, returnTime: string | null, no
 }
 
 export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>, now = Date.now()) {
-  const id = sessionIdOf(ctx, args);
+  // 止める・消すと同じく、セッション別 URL からもほかの会話を指せる。MCP で立てた子や、利用者が片付けを頼んだ会話を、
+  // 呼んだ会話が Done・Paused にできるようにする。Done・Paused は画面で戻せるので、承認の帯は付けない。
+  const id = str(args.session_id) ?? sessionIdOf(ctx, args);
   requireSession(deps, id);
   const status = args.status;
   if (status !== 'done' && status !== 'paused') throw new ToolError(msg('mcp.sessionStatus.statusInvalid'));

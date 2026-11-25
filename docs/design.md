@@ -3920,6 +3920,9 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
 `send_to_session` と `read_session_screen` も、この枠に縛られず、ほかの `session_id` を受け付ける（2026-10-27、利用者の決定）。
 オーケストレータ役の Claude が、束ねるセッションの画面を見回り、指示を送るための道具だからである。
 送る側の書き込みの道具は「自分のセッションだけ」という決まりだったが、`send_to_session` に限って外した。
+`propose_session_status` も、ほかの `session_id` を受け付ける（2026-11-25、利用者の決定）。省けば今までどおり自分を指す。
+止めること（`stop_session`）と消すこと（`delete_session`）はほかの会話にできるのに、Done・Paused の印だけ付けられず、MCP で立てた子や利用者が片付けを頼んだ会話がサイドバーに残り、利用者が画面で 1 本ずつ押していたためである。
+Done・Paused は画面で戻せ、何も失われないので、承認の帯は付けない。統括の弱い声のターンでは、自分を指すときだけ記録の道具として通す。
 プロジェクトの枠は無い（2026-11-21）。
 セッション別 URL と統括の URL は、共通の `/mcp` と同じく、`list_projects`、`list_sessions`、`search_sessions`、`get_project`、`get_transcript`、`update_project`、`create_session`（クイックセッションを含む）、`create_schedule`、`update_schedule`、`open_in_hangar` が全プロジェクトに効く。
 一覧の結果は、共通の `/mcp` と同じ配列である。
@@ -11006,7 +11009,7 @@ Paused の確定（`PUT /api/sessions/:id/state`、`POST /api/sessions/:id/state
   1 分に 20 回を超えたら `rate-limited` で断り、統括の会話から利用者へ知らせる。
   `by: 'user'` と `set_permission_policy` は、統括の今のターンが利用者の入力で始まったときだけ通す（送り込みの印、下の項）。
   統括の今のターンが弱い声（`[voice:window]`、下の「声の由来」）で始まったときは、どの道具より先に縛る（`mcp/orchestratorTools.ts` の `guardWeakTurn`、`mcp/tools.ts` の `callTool` の入口）。
-  通すのは、`TOOL_CLASSES` の kind が `read` の道具、自分の記録の道具（`set_session_summary`、`set_turn_intent`、`notify_user`、`propose_session_status`）、`answer_ask` の `by: 'policy'` だけで、送信、起動、停止、予定、`answer_ask(by: 'user')`、`set_permission_policy` などは断る。
+  通すのは、`TOOL_CLASSES` の kind が `read` の道具、自分の記録の道具（`set_session_summary`、`set_turn_intent`、`notify_user`、自分を指す `propose_session_status`）、`answer_ask` の `by: 'policy'` だけで、送信、起動、停止、予定、`answer_ask(by: 'user')`、`set_permission_policy` などは断る。
   断りの文（`mcp.orchestrator.weakTurn`）は、統括が利用者へ「名前を付けて呼びかけるか、キーを使ってもう一度」と返せる中身にする。
   出来事のターンと利用者のターンには掛けない。
   記録は 90 日より古い行を書くときに捨てる。
