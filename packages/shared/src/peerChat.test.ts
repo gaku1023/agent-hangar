@@ -442,3 +442,20 @@ describe('commands の答え（/ の候補）', () => {
     expect(shared.parsePeerChatRequest({ v: 1, askId: 'a', expiresAt: 1, sessionId: 's', op: { t: 'commands', q: 1 } })?.op).toEqual({ t: 'commands' });
   });
 });
+
+describe('選択肢の説明と思考の項目', () => {
+  const withOptions = (options: unknown) => ({ ok: true as const, state: { ...state, items: [{ ...state.items[2]!, ask: { ...state.items[2]!.ask!, options } }] } });
+
+  it('選択肢の description を読み取る。無い選択肢には欄を付けず、型の違うものは捨てる', () => {
+    const r = shared.parsePeerChatReply(withOptions([{ key: '1', label: 'A', description: 'about A' }, { key: '2', label: 'B' }, { key: '3', label: 'C', description: 5 }])) as { state: PeerChatState };
+    expect(r.state.items[0]!.ask!.options).toEqual([{ key: '1', label: 'A', description: 'about A' }, { key: '2', label: 'B' }, { key: '3', label: 'C' }]);
+    expect('description' in r.state.items[0]!.ask!.options[1]!).toBe(false);
+  });
+
+  it('thinking の項目を読み取れる', () => {
+    const items = [{ uuid: 't1', at: NOW, kind: 'thinking', text: '考え中' }];
+    const r = shared.parsePeerChatReply({ ok: true, state: { ...state, items } }) as { state: PeerChatState };
+    expect(r.state.items).toEqual(items);
+    expect(shared.PEER_CHAT_ITEM_KINDS).toContain('thinking');
+  });
+});

@@ -161,6 +161,19 @@ function markUnanswerable(pending: PeerPendingAsk, d: Dialog, cwd: string): Peer
   return dialogMatches(probe, d, cwd || null) ? pending : { ...pending, answerable: false };
 }
 
+/**
+ * 画面から作った質問の札の選択肢に、hook の札の選択肢の説明（description）を重ねる。
+ * 画面の行には説明が出ないので、label が一致するものだけに付ける。
+ * 札と画面の照合と askId は label だけを使うので、説明を足しても変わらない。
+ */
+function withDescriptions(ask: PeerPendingAsk, hook: PeerPendingAsk): PeerPendingAsk {
+  if (ask.kind !== 'question' || hook.kind !== 'question') return ask;
+  const byLabel = new Map<string, string>();
+  for (const o of hook.options) if (o.description) byLabel.set(o.label, o.description);
+  if (byLabel.size === 0) return ask;
+  return { ...ask, options: ask.options.map((o) => { const d = byLabel.get(o.label); return d ? { ...o, description: d } : o; }) };
+}
+
 type AnswerRec = { askId: string; sessionId: string; item: PeerChatItem; at: number };
 type GoneRec = { sessionId: string; deviceId: string; gone: PeerChatGone; at: number };
 type DeliveryRec = { sessionId: string; from: PeerChatDevice; text: string; at: number };
@@ -219,6 +232,7 @@ export class ChatView {
     }
     // 画面から読めない札（ファイルの道具の札など）は、hook の入力から作った札で代える。答えは hook で返すので、画面の照合は要らない。
     if ((ask === null || ask.answerable === false) && fromHook) ask = fromHook;
+    else if (ask && fromHook) ask = withDescriptions(ask, fromHook);
     this.captured.set(sessionId, { at: t, sig, ask });
     if (this.captured.size > 64) this.captured.delete(this.captured.keys().next().value!);
     return ask;

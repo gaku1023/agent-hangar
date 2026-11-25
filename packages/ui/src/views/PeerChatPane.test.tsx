@@ -167,6 +167,21 @@ describe('会話の中の札（3A）', () => {
     expect(actions).toEqual([{ type: 'peerChat.send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['1', '3'] } }]);
   });
 
+  it('選択肢は縦に 1 列で、説明は label の下に全文を出す。説明の無い選択肢は label だけ', () => {
+    const { container } = mount(viewOf({ status: 'waiting', items: [{ ...ask(false, { kind: 'question', options: [{ key: '1', label: 'A', description: 'about A '.repeat(30).trim() }, { key: '2', label: 'B' }] }), kind: 'question' }] }));
+    const opts = container.querySelectorAll('.pchat-opt');
+    expect(opts).toHaveLength(2);
+    expect(opts[0]!.querySelector('.pchat-opt-label')!.textContent).toBe('1. A');
+    expect(opts[0]!.querySelector('.pchat-opt-desc')!.textContent).toBe('about A '.repeat(30).trim());
+    expect(opts[1]!.querySelector('.pchat-opt-desc')).toBeNull();
+  });
+
+  it('thinking の項目は、返答と同じ形（pchat-ai）で出す', () => {
+    const { container } = mount(viewOf({ status: 'busy', items: [{ uuid: 'th1', at: 3, kind: 'thinking', text: '考えています' }] }));
+    const el = container.querySelector('.pchat-ai')!;
+    expect(el.textContent).toContain('考えています');
+  });
+
   it('自由入力を許す質問は、書いた答えを text で送る', () => {
     const { actions } = mount(viewOf({ status: 'waiting', items: [{ ...ask(false, { kind: 'question', allowText: true }), kind: 'question' }] }));
     fireEvent.change(screen.getByLabelText('他の答えを書く'), { target: { value: '別の案で' } });

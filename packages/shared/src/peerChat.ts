@@ -38,7 +38,7 @@ export const phoneChatAcceptOf = (s: { phoneChatAccept?: boolean }): boolean => 
 
 export type PeerChatDevice = { deviceId: string; deviceName: string };
 
-export const PEER_CHAT_ITEM_KINDS = ['user', 'assistant', 'tool', 'permission', 'question', 'system'] as const;
+export const PEER_CHAT_ITEM_KINDS = ['user', 'assistant', 'tool', 'permission', 'question', 'system', 'thinking'] as const;
 export type PeerChatItemKind = (typeof PEER_CHAT_ITEM_KINDS)[number];
 
 /**
@@ -53,7 +53,8 @@ export type PeerChatAsk = {
   kind: 'permission' | 'question';
   tool?: string;
   input?: string;
-  options: { key: string; label: string }[];
+  /** description は選択肢の説明（AskUserQuestion の options[].description）。無い選択肢には付けない。 */
+  options: { key: string; label: string; description?: string }[];
   multi: boolean;
   allowText: boolean;
   answerable?: false;
@@ -475,13 +476,14 @@ const isDevice = (v: unknown): v is PeerChatDevice => isObj(v) && isStr(v.device
 function readAsk(v: unknown): PeerChatAsk | null {
   if (!isObj(v) || !isStr(v.askId) || (v.kind !== 'permission' && v.kind !== 'question') || !optStr(v.tool) || !optStr(v.input)) return null;
   if (!Array.isArray(v.options) || !v.options.every((o) => isObj(o) && isStr(o.key) && isStr(o.label))) return null;
+  const options = (v.options as { key: string; label: string; description?: unknown }[]).map((o) => (typeof o.description === 'string' && o.description !== '' ? { key: o.key, label: o.label, description: o.description } : { key: o.key, label: o.label }));
   if (typeof v.multi !== 'boolean' || typeof v.allowText !== 'boolean') return null;
   // 印は false のときだけ意味を持つ。true は印の無いのと同じ（読み捨てる）。型の違うものは断る。
   if (v.answerable !== undefined && typeof v.answerable !== 'boolean') return null;
   if (!optStr(v.replaces)) return null;
   const a = v.answered;
   if (a !== undefined && !(isObj(a) && isDevice(a.by) && isStr(a.label) && isTime(a.at))) return null;
-  const out: PeerChatAsk = { askId: v.askId, kind: v.kind, options: (v.options as { key: string; label: string }[]).map((o) => ({ key: o.key, label: o.label })), multi: v.multi, allowText: v.allowText };
+  const out: PeerChatAsk = { askId: v.askId, kind: v.kind, options, multi: v.multi, allowText: v.allowText };
   if (v.tool !== undefined) out.tool = v.tool as string;
   if (v.input !== undefined) out.input = v.input as string;
   if (v.answerable === false) out.answerable = false;

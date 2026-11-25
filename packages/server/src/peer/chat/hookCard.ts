@@ -7,7 +7,7 @@ import type { PeerPendingAsk } from './tail.ts';
  * 答えは hook で返すので、画面の行は要らない。
  *
  * - 許可：道具と主な引数と、Yes と No の 2 行。「いつも許可」とモードを替える行は、hook で言えないので出さない。
- * - 質問：問いが 1 問のときだけ。選択肢のラベルと、自由な文（Type something の行）を持つ。問いが複数ある質問は、画面の札（タブ）に任せる。
+ * - 質問：問いが 1 問のときだけ。選択肢のラベルと説明（description）と、自由な文（Type something の行）を持つ。問いが複数ある質問は、画面の札（タブ）に任せる。
  * 札にできない入力（主な引数が読めない道具、形の違う質問）は null にする。どの札とも照合できないからである。
  */
 export function pendingAskFromHook(d: HookDecisionInput, description: string | null): PeerPendingAsk | null {
@@ -18,7 +18,11 @@ export function pendingAskFromHook(d: HookDecisionInput, description: string | n
     if (typeof q.question !== 'string' || q.question === '' || !Array.isArray(q.options)) return null;
     const labels = q.options.map((o) => (o as { label?: unknown } | null)?.label);
     if (labels.length === 0 || labels.some((l) => typeof l !== 'string' || l === '')) return null;
-    return { kind: 'question', tool: 'AskUserQuestion', input: q.question, question: q.question, options: (labels as string[]).map((label, i) => ({ key: String(i + 1), label })), multi: q.multiSelect === true, allowText: true };
+    const options = (labels as string[]).map((label, i) => {
+      const desc = (q.options as { description?: unknown }[])[i]?.description;
+      return typeof desc === 'string' && desc !== '' ? { key: String(i + 1), label, description: desc } : { key: String(i + 1), label };
+    });
+    return { kind: 'question', tool: 'AskUserQuestion', input: q.question, question: q.question, options, multi: q.multiSelect === true, allowText: true };
   }
   if (d.input === '') return null;
   return { kind: 'permission', tool: d.tool, input: d.input, description, options: [{ key: 'allow', label: 'Yes' }, { key: 'deny', label: 'No' }], multi: false, allowText: false };

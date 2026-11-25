@@ -36,8 +36,11 @@ export function PeerChatCard(props: { row: AskRow; onAnswer: (askId: string, key
         <>
           <div className="pchat-ask-acts" role="group" aria-label={t('peerChat.ask.answerLabel')}>
             {row.options.map((o) => (
-              <button key={o.key} type="button" className="btn pchat-opt" data-primary={!row.multi && o.key === row.options[0]?.key ? 'true' : undefined} aria-pressed={row.multi ? picked.includes(o.key) : undefined} disabled={off}
-                onClick={() => (row.multi ? toggle(o.key) : answer([o.key]))}>{row.multi ? '' : `${o.key}. `}{o.label}</button>
+              <button key={o.key} type="button" className="pchat-opt" aria-pressed={row.multi ? picked.includes(o.key) : undefined} disabled={off}
+                onClick={() => (row.multi ? toggle(o.key) : answer([o.key]))}>
+                <span className="pchat-opt-label">{row.multi ? '' : `${o.key}. `}{o.label}</span>
+                {o.description && <span className="pchat-opt-desc">{o.description}</span>}
+              </button>
             ))}
           </div>
           {row.multi && <div className="pchat-ask-acts"><button type="button" className="btn btn-primary" disabled={off || picked.length === 0} onClick={() => answer(picked)}>{t('peerChat.ask.multiSend')}</button></div>}
