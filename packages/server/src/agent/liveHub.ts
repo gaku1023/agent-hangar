@@ -1,4 +1,5 @@
 import type { LiveSessionDto } from '@agent-hangar/shared';
+import { isFolderTrustRow } from '../runs/folderTrust.ts';
 import type { LiveSource } from './types.ts';
 
 /** 実行中の一覧に印を足す 1 段。now は読み直し 1 回の時刻で、どの段にも同じ値を渡す。 */
@@ -56,7 +57,10 @@ export class LiveHub {
     const parts = this.sources.map((s) => s.current());
     const m = this.merged;
     if (m && m.parts.length === parts.length && m.parts.every((p, i) => p === parts[i])) return m.live;
-    const live = parts.flat().sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+    const all = parts.flat();
+    // 信頼の確認の行（runs/folderTrust.ts）は、登録の行が現れたら捨てる（確認が消えた直後の 1 回が重ならないように）。
+    const taken = new Set(all.filter((l) => !isFolderTrustRow(l)).map((l) => l.sessionId));
+    const live = all.filter((l) => !isFolderTrustRow(l) || !taken.has(l.sessionId)).sort((a, b) => a.sessionId.localeCompare(b.sessionId));
     this.merged = { parts, live };
     return live;
   }

@@ -50,6 +50,7 @@ import { splitCodexTerminalArgs, splitOpencodeTerminalArgs, splitTerminalArgs, t
 import { handoverFacts, projectDeviceCount, resumeTarget, type ResumeTarget } from './handover.ts';
 import { Pacer } from '../platform/pacer.ts';
 import { saveRemoteUrl, watchRemoteUrl } from '../mobile/remoteUrl.ts';
+import { isFolderTrustRow, watchTrustDialog, type FolderTrustLive } from './folderTrust.ts';
 import type { Timers } from '../sync/engine.ts';
 
 /** 生きた run の heartbeat をこの間隔で更新する。手元だけの書き込みで、共有の changes には積まない（同期の版 6）。 */
@@ -152,7 +153,7 @@ export function agentEnabledLabel(agent: AgentKind): Message {
   return msg(AGENT_ENTRY[agent].enabledLabelKey ?? 'settings.label.opencodeEnabled');
 }
 
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** Remote Control の URL を拾う見張りと、包みの見張り（watchWrappers）の時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'>; /** そのエージェントを起こしてよいか（opencode は設定の opencodeEnabled）。渡さなければ Claude Code だけ。 */ agentEnabled?: (kind: AgentKind) => boolean; /** Claude Code 以外のエージェントの実行ファイル。見つからなければ null。Claude は claudeBin を使う。 */ agentBin?: (kind: AgentKind) => string | null; /** 外のターミナルで打ったそのエージェントのコマンドを受けるか（opencode は設定の opencodeIntercept）。渡さなければ受けない。Claude の包みはこれを見ない。 */ terminalIntercept?: (kind: AgentKind) => boolean; /** 起動前の準備の進みを配る口（runs/launchPrep.ts）。渡さなければ準備をしない。 */ preps?: LaunchPreps; /** 手元の状態を共有の行へ書くまで、idle と busy を保留する長さ（ms）。試験で差し替える。 */ liveShareHoldMs?: number; /** 統括（docs/design.md「統括」）の今の設定。渡せば、その会話の起動に専用の cwd、モデル、effort、役の文、permissions を足せる。渡さなければ統括を起こせない。 */ orchestrator?: () => OrchestratorSetting; /** 統括の指示文へ足す人格の名前と口調（設定の voice）。口調が空なら何も足さない。 */ orchestratorPersona?: () => { name: string; tone: string } | null };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; live?: Pick<LiveHub, 'current' | 'isLive'>; agents: Agents; claude: ClaudeDriver; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** Remote Control（--remote-control）を足してよいか。account は起こすアカウント、env はそのアカウントの置き場を足した後の、利用者が足した環境（呼び出し側が自分の環境と合わせて判定する）。渡さなければ足さない。 */ remoteControl?: (o: { account: Account | null; env: Record<string, string | undefined> }) => boolean; /** pid のプロセスが生きているか。試験で差し替える。渡さなければ platform/proc.ts の isAlive。 */ pidAlive?: (pid: number) => boolean; /** claude を起こす直前に、その置き場（CLAUDE_CONFIG_DIR、最初のアカウントは null）の .claude.json へ cwd のフォルダの信頼を書く（projects/folderTrust.ts の trustBeforeLaunch）。渡さなければ書かない。 */ trustFolder?: (configDir: string | null, cwd: string) => void; /** フォルダの信頼の確認（会話の前に出る）を実行中の一覧へ載せる写し（runs/folderTrust.ts）。渡さなければ確認を見張らない。 */ trustLive?: FolderTrustLive; /** Remote Control の URL を拾う見張りと、包みの見張り（watchWrappers）の時計。試験で差し替える。渡さなければ本物のタイマー。 */ timers?: Pick<Timers, 'setInterval' | 'clearInterval'>; /** そのエージェントを起こしてよいか（opencode は設定の opencodeEnabled）。渡さなければ Claude Code だけ。 */ agentEnabled?: (kind: AgentKind) => boolean; /** Claude Code 以外のエージェントの実行ファイル。見つからなければ null。Claude は claudeBin を使う。 */ agentBin?: (kind: AgentKind) => string | null; /** 外のターミナルで打ったそのエージェントのコマンドを受けるか（opencode は設定の opencodeIntercept）。渡さなければ受けない。Claude の包みはこれを見ない。 */ terminalIntercept?: (kind: AgentKind) => boolean; /** 起動前の準備の進みを配る口（runs/launchPrep.ts）。渡さなければ準備をしない。 */ preps?: LaunchPreps; /** 手元の状態を共有の行へ書くまで、idle と busy を保留する長さ（ms）。試験で差し替える。 */ liveShareHoldMs?: number; /** 統括（docs/design.md「統括」）の今の設定。渡せば、その会話の起動に専用の cwd、モデル、effort、役の文、permissions を足せる。渡さなければ統括を起こせない。 */ orchestrator?: () => OrchestratorSetting; /** 統括の指示文へ足す人格の名前と口調（設定の voice）。口調が空なら何も足さない。 */ orchestratorPersona?: () => { name: string; tone: string } | null };
 
 /** 起動の途中を知らせる口。onPending は ID を後で決める driver（opencode）が仮の行を作った直後に呼ぶ（準備の前）。 */
 export type LaunchHooks = { onPending?: (sessionId: string) => void };
@@ -219,6 +220,8 @@ export class RunManager {
   private readonly tr: Translate;
   /** --remote-control で起こした run の、URL を拾う見張りの止め口。run が終わったら止める。 */
   private remoteWatches = new Map<string, () => void>();
+  /** 信頼の確認を見張る run と、その会話の確認の行（providerSessionId）。 */
+  private trustWatches = new Map<string, { stop: () => void; providerSessionId: string }>();
   /** Claude の driver。attach のような Claude にしか無い起こし方に、直に使う。 */
   private readonly claude: ClaudeDriver;
   /** sessions.provider の値から driver を引く（agent/agents.ts）。 */
@@ -696,6 +699,7 @@ export class RunManager {
     this.pruneSecretEnvs(alive.map((r) => r.id));
     const result: LaunchResult = { run: getRun(this.db, runId)!, sessionId: o.sessionId, tabs: listTabs(this.db, runId) };
     if (plan.watchRemoteUrl) this.watchRemoteUrl(runId, o.sessionId, tmuxName, panes);
+    if (agent === DEFAULT_AGENT) this.watchTrust(runId, o.sessionId, o.cwd, tmuxName, panes);
     this.emit('runStarted', result);
     return result;
   }
@@ -724,6 +728,31 @@ export class RunManager {
     this.remoteWatches.set(runId, stop);
   }
 
+  /**
+   * 起こした claude が会話の前に出す「フォルダの信頼」の確認を見張る（runs/folderTrust.ts）。
+   * claude は確認に答えるまで登録も本文も作らず、live が無いまま止まって見える。
+   * 登録が現れるまで画面を読み、確認が出ている間、その会話を入力待ち（FolderTrust）として実行中の一覧へ載せる。
+   * 登録が現れるか run が終わったら止める。
+   */
+  private watchTrust(runId: string, sessionId: string, cwd: string, tmuxName: string, panes: PaneOps): void {
+    const trustLive = this.deps.trustLive;
+    if (!trustLive) return;
+    const s = this.db.prepare('select provider_session_id from sessions where id = ?').get(sessionId) as { provider_session_id: string } | undefined;
+    if (!s) return;
+    const psid = s.provider_session_id;
+    const timers = this.deps.timers ?? { setInterval, clearInterval };
+    const stop = watchTrustDialog({
+      capture: () => panes.capture(tmuxName),
+      registered: () => this.deps.claude.live.current().some((l) => l.sessionId === psid),
+      onDialog: (d) => {
+        if (d === null) trustLive.clear(psid);
+        else trustLive.set(psid, { cwd, path: d.path });
+      },
+      timers,
+    });
+    this.trustWatches.set(runId, { stop, providerSessionId: psid });
+  }
+
   /** run を終了として閉じる。すでに閉じていれば何もしない。 */
   private end(runId: string, reason: EndReason): RunDto | null {
     const row = this.db.prepare('select * from runs where id = ? and deleted_at is null').get(runId) as Record<string, unknown> | undefined;
@@ -738,6 +767,8 @@ export class RunManager {
     this.wrappersGone.delete(runId);
     this.remoteWatches.get(runId)?.();
     this.remoteWatches.delete(runId);
+    const trust = this.trustWatches.get(runId);
+    if (trust) { trust.stop(); this.deps.trustLive?.clear(trust.providerSessionId); this.trustWatches.delete(runId); }
     const run = getRun(this.db, runId)!;
     // claude はもう居ない。秘密の入った設定ファイルを残さず、秘密そのものも無効にする。
     removeMcpConfig(this.deps.home, run.sessionId);
@@ -1758,7 +1789,8 @@ export class RunManager {
     for (const run of listAliveRuns(this.db, this.deviceId)) {
       const s = this.db.prepare('select provider, provider_session_id from sessions where id = ?').get(run.sessionId) as { provider: string; provider_session_id: string } | undefined;
       const l = s ? byUuid.get(s.provider_session_id) : undefined;
-      if (!l || l.pid === run.pid) continue;
+      // 信頼の確認の行（pid が無い）は、claude の登録ではない。pid を書かない。
+      if (!l || l.pid === run.pid || isFolderTrustRow(l)) continue;
       // opencode の行の pid は serve の pid で、run のプロセス（TUI）ではない。書くと、TUI が閉じても serve が生きている間は stillRunning が真のままになり、run を閉じられない。
       if (this.servedByHangar(s!.provider)) continue;
       const row = this.db.prepare('select * from runs where id = ?').get(run.id) as Record<string, unknown>;
@@ -1916,6 +1948,8 @@ export class RunManager {
     this.wrapperWatch = null;
     for (const stop of this.remoteWatches.values()) stop();
     this.remoteWatches.clear();
+    for (const w of this.trustWatches.values()) { w.stop(); this.deps.trustLive?.clear(w.providerSessionId); }
+    this.trustWatches.clear();
   }
 
   /** 開いているシェルタブ。Claude が終了した run のタブも含める。 */

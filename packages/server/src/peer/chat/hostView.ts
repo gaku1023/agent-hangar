@@ -1,6 +1,7 @@
-import { PEER_CHAT_REPLY_SEALED_MAX, peerAskBase, peerAskInsertIndex, type PeerChatAsk, type PeerChatAskStep, type PeerChatDevice, type PeerChatGone, type PeerChatItem, type PeerChatQueued, type PeerChatState, type PeerChatStatus } from '@agent-hangar/shared';
+import { FOLDER_TRUST_TOOL, PEER_CHAT_REPLY_SEALED_MAX, peerAskBase, peerAskInsertIndex, type PeerChatAsk, type PeerChatAskStep, type PeerChatDevice, type PeerChatGone, type PeerChatItem, type PeerChatQueued, type PeerChatState, type PeerChatStatus } from '@agent-hangar/shared';
 import { createHash } from 'node:crypto';
 import { buildPeerChatCard } from './hostCard.ts';
+import { parseTrustDialog } from '../../provider/claude-code/screen/trustDialog.ts';
 import { dialogMatches, isCommandTitle, parseDialog, strip, type Dialog, type DialogStep } from './answer.ts';
 import type { HostPane, HostSession } from './hostTypes.ts';
 import type { LiveDigestDto, PeerChatCard, TranscriptEvent } from '@agent-hangar/shared';
@@ -109,6 +110,9 @@ const CHAT_ROW = /^chat about this\b/i;
  * 質問の input は問いの文（answer.ts が画面の問いと突き合わせる）。
  */
 export function pendingAskFrom(session: HostSession, screen: string): PeerPendingAsk | null {
+  // 会話の前に出るフォルダの信頼の確認は、番号が無い形があり、登録も hook も無い。専用の札にする（key は Yes が 1、No が 2）。
+  const trust = parseTrustDialog(screen);
+  if (trust) return { kind: 'permission', tool: FOLDER_TRUST_TOOL, input: trust.path, description: null, options: trust.options.map((o) => ({ key: o.key, label: o.label })), multi: false, allowText: false };
   const d = parseDialog(screen);
   if (!d) return null;
   const rows = d.options.filter((o) => !CHAT_ROW.test(o.first));

@@ -61,6 +61,12 @@ export type SessionWaitState = 'finished' | 'waiting' | 'timeout' | 'failed';
  */
 export type PermissionAskDto = { tool: string; input: string; description: string | null };
 /**
+ * フォルダの信頼の確認（Claude Code が会話の前に出す）の札の道具の名前。
+ * 登録も本文も無い間の確認なので hook は届かず、server が画面から読む。permission の tool と、別の PC へ配る札（PeerChatAsk）の tool に、この値を入れる。
+ * input はフォルダのパス、選択肢の key は Yes が 1、No が 2 である。
+ */
+export const FOLDER_TRUST_TOOL = 'FolderTrust';
+/**
  * 使用制限で止まっていること（本文の合成の assistant 行、error が rate_limit）。
  * kind は枠（5 時間、週、そのほか）、resetsAt はリセットの時刻（ミリ秒）。
  * auto は、Claude Code が自動の続きを予約したと本文に書いたこと。

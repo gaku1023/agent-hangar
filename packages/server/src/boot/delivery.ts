@@ -7,6 +7,7 @@ import { setOrchestratorSource } from '../db/queries.ts';
 import { orchestratorIdsSource } from '../orchestrator/peerLineage.ts';
 import { LiveDigester } from '../live/digest.ts';
 import { LiveHub } from '../agent/liveHub.ts';
+import { FolderTrustLive } from '../runs/folderTrust.ts';
 import { CompatLog, compatPath } from '../provider/claude-code/compat/log.ts';
 import { routeAgentAsk } from '../sessions/agentAsks.ts';
 import { HookDecisions } from '../sessions/hookDecisions.ts';
@@ -39,6 +40,8 @@ export type DeliveryParts = AgentParts & {
    * 作るだけで、読み始めるのは起動の手続きの中である。
    */
   live: LiveHub;
+  /** 会話の前に出るフォルダの信頼の確認を、入力待ちの行として実行中の一覧へ載せる写し（runs/folderTrust.ts）。見張りは RunManager が持つ。 */
+  folderTrust: FolderTrustLive;
   /** hook から届いた許可の確認（sessions/permissionAsks.ts）。登録の読み直しのたびに、入力待ちの登録へ中身を足す。 */
   permissionAsks: PermissionAsks;
   /** 許可の確認の同期の hook が答えを待つ表（sessions/hookDecisions.ts）。札に答える手（peer/chat）が決め、台本が受け取る。 */
@@ -83,6 +86,8 @@ export function bootDelivery(home: Pick<HomeParts, 'home' | 'db' | 'device' | 'c
   const live = new LiveHub({ enrich: [(l, now) => aside.apply(l, now), (l, now) => permissionAsks.apply(l, now), (l, now) => { hookDecisions.apply(l, now); return l; }, (l) => markRole(l)] });
   const agents = bootAgents(home, { compatLog, claudeVersion, enrich: (l) => live.enrich(l), registryIsGone: opts.registryIsGone });
   live.add(agents.claude.live);
+  // 信頼の確認の行。claude の登録より後に足す（同じ会話の登録の行が現れたら、LiveHub がこちらを捨てる）。
+  const folderTrust = new FolderTrustLive();
   // opencode の写し（serve の出来事の流れ）。会話を起こすまで行は無い。
   live.add(agents.opencode.live);
   // opencode は hook を持たないので、許可と問いは流れから受け、hook の受け口と同じ書き手で書く（sessions/agentAsks.ts）。
@@ -92,11 +97,12 @@ export function bootDelivery(home: Pick<HomeParts, 'home' | 'db' | 'device' | 'c
   agents.opencode.modelMissing((sessionId, model) => { publisher.broadcast({ type: 'opencode.modelMissing', sessionId, model }); });
   // Codex の写し（app-server の通知）。起こした会話だけが載る。許可と問いは opencode と同じ書き手で書く。
   live.add(agents.codex.live);
+  live.add(folderTrust);
   agents.codex.asks.subscribe?.((a) => { routeAgentAsk(db, agents.codex.kind, a, permissionAsks, Date.now()); });
   agents.opencode.asks.subscribe?.((a) => { routeAgentAsk(db, agents.opencode.kind, a, permissionAsks, Date.now()); });
   return {
     ...agents,
-    sockets, publisher, hub: publisher, toast: toastVia(publisher), compatLog, claudeVersion, live, digester, permissionAsks, hookDecisions, osNotices,
+    sockets, publisher, hub: publisher, toast: toastVia(publisher), compatLog, claudeVersion, live, folderTrust, digester, permissionAsks, hookDecisions, osNotices,
     stopPublishing: async () => {
       // 殻の長いポーリングを先に返す。開いたままの要求が、待ち受けを閉じるのを遅らせないためである。
       osNotices.close();

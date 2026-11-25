@@ -3,10 +3,10 @@ import type { Tmux } from './tmux.ts';
 
 /**
  * 名前で送るキー。文字として送れないものだけを挙げる。
- * escape と down は、ほかの PC からの答え（peer/chat/answer.ts）が使う。
+ * escape、down、up は、ほかの PC からの答え（peer/chat/answer.ts）が使う。
  * 数字と本文は文字なので sendText で送る。
  */
-export type PaneKey = 'ctrl+o' | 'enter' | 'escape' | 'down';
+export type PaneKey = 'ctrl+o' | 'enter' | 'escape' | 'down' | 'up';
 
 /**
  * run とシェルタブが動く画面（ペイン）に触る口。
@@ -56,7 +56,7 @@ export interface PaneOps {
 }
 
 /** tmux と psmux のキーの名前。 */
-const MUX_KEYS: Record<PaneKey, string> = { 'ctrl+o': 'C-o', enter: 'Enter', escape: 'Escape', down: 'Down' };
+const MUX_KEYS: Record<PaneKey, string> = { 'ctrl+o': 'C-o', enter: 'Enter', escape: 'Escape', down: 'Down', up: 'Up' };
 
 /**
  * tmux と psmux に共通の口。画面 1 つを、切り離したセッション 1 つにする。

@@ -680,3 +680,26 @@ describe('ChatView: 画面の質問の札に hook の選択肢の説明を重ね
     expect(without.options.every((o) => o.description === undefined)).toBe(true);
   });
 });
+
+describe('フォルダの信頼の札（本文も登録も無い会話）', () => {
+  const TRUST = ' Accessing workspace:\n\n D:\\workspace\\ops\n\n Quick safety check: Is this a project you created or one you trust?\n\n ❯ No, exit\n   Yes, I trust this folder\n\n Enter to confirm · Esc to cancel\n';
+  const make = (live: HostSession['live']) => new ChatView({
+    now: () => 1000, sleep: async () => undefined, recheckMs: 1000,
+    session: () => session({ live, permission: { tool: 'FolderTrust', input: 'D:\\workspace\\ops', description: null }, cwd: 'D:\\workspace\\ops' }),
+    run: () => ({ tmuxName: 'hangar-x' }),
+    pane: () => ({ capture: () => TRUST, sendKey: () => undefined, sendText: () => undefined, captureStyled: async () => null }),
+    tail: { readTranscript: () => null }, queued: () => [], self: () => ({ deviceId: 'pc-a', deviceName: 'Win' }), hostId: 'h',
+  });
+  it('本文が無くても、札の項目が items に載り、状態は waiting になる', () => {
+    const view = make('waiting');
+    const { state } = view.build('s1', 'pc-b', null);
+    expect(state.status).toBe('waiting');
+    const ask = state.items.at(-1)!.ask!;
+    expect(ask).toMatchObject({ kind: 'permission', tool: 'FolderTrust', input: 'D:\\workspace\\ops' });
+    expect(ask.options).toEqual([{ key: '2', label: 'No, exit' }, { key: '1', label: 'Yes, I trust this folder' }]);
+    expect(view.currentAsk('s1')?.askId).toBe(ask.askId);
+  });
+  it('live が waiting でなければ（重ねが外れた）札を出さない', () => {
+    expect(make(null).build('s1', 'pc-b', null).state.items).toEqual([]);
+  });
+});
