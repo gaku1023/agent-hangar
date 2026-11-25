@@ -1333,6 +1333,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           peerChat.rewatch();
           // 机の音声の今の状態。補助が無い・古いサーバで読めなければ null のまま（今のマイクの動き）。
           deps.api.voice().then((v) => { if (v) setStore({ ...store, voice: v }); }, () => {});
+          // ほかの PC の様子を先に読んでおく。新規のダイアログが開いた時点で既定の PC を選べるように（開くたびにも読み直す）。
+          deps.api.peers().then((r) => setStore({ ...store, peers: r.peers }), () => {});
         },
         // 切れた時刻を添える。Mediator は純粋な遷移なので、画面がいつから古いかを自分では測れない。
         onClose: () => dispatch({ kind: 'runtime', event: { type: 'ws.close', at: (deps.now ?? Date.now)() } }),

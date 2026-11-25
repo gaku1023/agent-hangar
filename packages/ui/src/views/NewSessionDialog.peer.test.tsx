@@ -161,6 +161,36 @@ describe('この PC に置き場の無いプロジェクト', () => {
     expect(screen.getByRole('button', { name: /^プロジェクト/ }).textContent).toContain('delta');
     expect(startButton(/^起動$/)).toBeDisabled();
   });
+  it('この PC に無いプロジェクトで開くと、既定の PC とそのプロジェクトを選んだまま始め、そのまま頼める', () => {
+    const actions = mount({ peers: [macWithDelta()], away, projectId: 'p4', defaultPeer: 'pc-b' });
+    expect(screen.getByRole('button', { name: '起動する PC' }).textContent).toContain('Mac');
+    expect(screen.getByRole('button', { name: /^プロジェクト/ }).textContent).toContain('delta');
+    fireEvent.click(startButton('Mac で起動'));
+    expect(actions.find((a) => a.type === 'session.new.submitPeer')).toMatchObject({ body: { device: 'pc-b', projectId: 'p4', scratch: false } });
+  });
+  it('頼める PC が無く既定がこの PC でも、この PC に無いプロジェクトをクイックセッションに替えず、起動だけを止める', () => {
+    mount({ peers: [macWithDelta()], away, projectId: 'p4', defaultPeer: null });
+    expect(screen.getByRole('button', { name: /^プロジェクト/ }).textContent).toContain('delta');
+    expect(startButton(/^起動$/)).toBeDisabled();
+  });
+});
+
+describe('開いたときの PC（defaultPeer）', () => {
+  const view = (over: Partial<NewSessionProps>) => <ActionRoot onAction={() => {}}><NewSessionDialog {...base} {...over} /></ActionRoot>;
+  const face = () => screen.getByRole('button', { name: '起動する PC' }).textContent;
+  it('既定の PC で始める', () => {
+    mount({ peers: [mac()], defaultPeer: 'pc-b' });
+    expect(face()).toContain('Mac');
+    expect(startButton('Mac で起動')).toBeEnabled();
+  });
+  it('一覧が後から届いて既定が変われば選び直す。PC のメニューに触れた後は上書きしない', () => {
+    const { rerender } = render(view({ peers: [], defaultPeer: null }));
+    rerender(view({ peers: [mac()], defaultPeer: 'pc-b' }));
+    expect(face()).toContain('Mac');
+    pick('起動する PC', 'この PC');
+    rerender(view({ peers: [mac(), old], defaultPeer: 'pc-c' }));
+    expect(face()).toContain('この PC');
+  });
 });
 
 describe('起動', () => {
