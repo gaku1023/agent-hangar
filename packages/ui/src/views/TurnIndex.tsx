@@ -32,6 +32,17 @@ export type TurnIndexProps = {
   agentId: string | null;
   /** 見出しの行の右端に置くもの。タブの列の無い画面（終わった後）で、右の列を畳むボタンが入る。 */
   trail?: ReactNode;
+  /**
+   * 行を押したときの動き。省くと手元の会話の動き（ターンを開いて、左のターミナルも跳ばす）。
+   * ほかの PC の会話は、本文の項目へ跳ぶ頼みに替える。
+   */
+  onOpen?: (row: TurnRowProps) => void;
+  /** 「古いターンを読み込む」を押したときの動き。省くと手元の会話の読み込み。 */
+  onLoadMore?: () => void;
+  /** 「最新へ移動」を押したときの動き。省くと手元の会話の動き。ほかの PC の会話は、一覧を末尾へ寄せるだけでよい。 */
+  onLatest?: () => void;
+  /** 古い分を読み足している間の行。番号が明滅し、押せない。 */
+  busySeq?: number | null;
 };
 
 /** 跳ばした結果の言い方の鍵。着いたときと待っている間は何も言わない。 */
@@ -192,6 +203,7 @@ export function TurnIndex(props: TurnIndexProps) {
 
   const open = (i: number) => {
     const row = props.rows[i]!;
+    if (props.onOpen) { props.onOpen(row); return; }
     const jump = props.runId && !row.open ? jumpWindow(props.rows.map((r) => r.head), i, props.complete) : null;
     emit({ type: 'turn.open', sessionId: props.sessionId, seq: row.seq, runId: jump ? props.runId : null, jump });
   };
@@ -226,15 +238,15 @@ export function TurnIndex(props: TurnIndexProps) {
         {props.trail && <><span className="spacer" />{props.trail}</>}
       </div>
       <div ref={listRef} className="turns-list" onScroll={measureEnd}>
-        {props.hasMore && <button className="btn turns-more" disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}><span ref={moreRef} className="turns-more-label">{moreLabel}</span></button>}
+        {props.hasMore && <button className="btn turns-more" disabled={props.loading} onClick={() => (props.onLoadMore ? props.onLoadMore() : emit({ type: 'transcript.loadMore', sessionId: props.sessionId }))}><span ref={moreRef} className="turns-more-label">{moreLabel}</span></button>}
         {props.rows.length === 0 && props.pending && Array.from({ length: 6 }, (_, i) => <div key={`skel${i}`} className="turn-skel" style={{ width: `${70 + ((i * 37) % 30)}%` }} aria-hidden="true" />)}
         {entries.map(({ item: r, key, leaving }) => {
           const i = props.rows.indexOf(r);
           const isOpen = r.open && !leaving;
           const bodyItems = (items: TranscriptItem[]) => items.filter((it) => it.seq !== r.seq).map((it) => <div key={it.seq} className="tr-row">{renderItem(props.sessionId, it)}</div>);
           return (
-            <div key={key} ref={(el) => { rowRef(key)(el); if (isOpen) openRef.current = el; }} className="turn" data-open={isOpen ? 'true' : undefined} aria-hidden={leaving ? 'true' : undefined}>
-              <button className="turn-row" aria-expanded={isOpen} title={r.text} tabIndex={!leaving && r.seq === stopSeq ? 0 : -1} disabled={leaving}
+            <div key={key} ref={(el) => { rowRef(key)(el); if (isOpen) openRef.current = el; }} className="turn" data-open={isOpen ? 'true' : undefined} data-busy={props.busySeq === r.seq ? 'true' : undefined} aria-hidden={leaving ? 'true' : undefined}>
+              <button className="turn-row" aria-expanded={isOpen} title={r.text} tabIndex={!leaving && r.seq === stopSeq ? 0 : -1} disabled={leaving || (props.busySeq ?? null) !== null}
                 onClick={() => open(i)} onFocus={() => setFocusSeq(r.seq)} onKeyDown={(e) => onRowKey(e, i)}>
                 <span className="turn-when mono">{r.when}</span>
                 <span className="turn-text">{firstLine(r.text)}</span>
@@ -257,7 +269,7 @@ export function TurnIndex(props: TurnIndexProps) {
       </div>
       {showLatest && (
         <div className="turns-foot">
-          <button className="btn" onClick={() => { emit({ type: 'turn.latest', sessionId: props.sessionId, runId: props.runId }); const el = listRef.current; if (el) el.scrollTop = el.scrollHeight; }}><Icon name="latest" />{t('session.toc.latest')}</button>
+          <button className="btn" onClick={() => { if (props.onLatest) props.onLatest(); else emit({ type: 'turn.latest', sessionId: props.sessionId, runId: props.runId }); const el = listRef.current; if (el) el.scrollTop = el.scrollHeight; }}><Icon name="latest" />{t('session.toc.latest')}</button>
         </div>
       )}
     </div>

@@ -39,7 +39,8 @@ export function PeerChatPane(props: { view: PeerChatView; /** 状態の行の右
         <span className="pchat-state"><span className="pchat-dot" data-tone={view.tone} aria-hidden="true" />{view.statusLabel}</span>
         {props.trailing}
       </div>
-      <PeerChatLog rows={view.rows} loading={view.loading}
+      <PeerChatLog rows={view.rows} loading={view.loading} hasMore={view.hasOlder} loadingOlder={view.loadingOlder} jump={view.jump}
+        onLoadOlder={() => emit({ type: 'peerChat.older', sessionId: id })}
         onCancel={(queueId) => emit({ type: 'peerChat.send', sessionId: id, body: { t: 'cancel', queueId } })}
         onRush={(queueId) => emit({ type: 'peerChat.send', sessionId: id, body: { t: 'rush', queueId } })}
         onAnswer={(askId, keys, text) => emit({ type: 'peerChat.send', sessionId: id, body: { t: 'answer', askId, keys, ...(text ? { text } : {}) } })} />

@@ -1,5 +1,5 @@
 import { peerAskInsertIndex } from '@agent-hangar/shared';
-import type { PeerChatCard, PeerChatGone, PeerChatItem, PeerChatLink, PeerChatQueued, PeerChatReason, PeerChatState, PeerChatStatus, PeerChatTargetDto, PeerChatUpdate } from '@agent-hangar/shared';
+import type { PeerChatCard, PeerChatGone, PeerChatItem, PeerChatLink, PeerChatQueued, PeerChatReason, PeerChatState, PeerChatStatus, PeerChatTargetDto, PeerChatTurn, PeerChatUpdate } from '@agent-hangar/shared';
 
 /**
  * ほかの PC の Claude Code の会話を、チャットの形で見ている 1 画面ぶんの状態。
@@ -37,13 +37,35 @@ export type PeerChatSlice = {
   notice: { n: number; reason: PeerChatReason | 'gone' | 'cancel-late' | 'rush-ask-open' | 'answer-timeout' } | null;
   /** 自分が預けた文（queueId から文へ）。渡せずに消えた知らせ（gone）で入力欄へ戻すために持つ。 */
   mine: Record<string, string>;
+  /**
+   * 上へ読み足した古い分（古い順）。items は末尾の窓で、tail の update と replace はそちらだけを書き換える。
+   * 画面に出す本文は joinedItems（older の後ろに items、同じ uuid は重ねない）。
+   */
+  older: PeerChatItem[];
+  /** さらに古い分が元の PC に残っているか。最初は分からないので true で、older の答えの more が偽になったら false。 */
+  olderMore: boolean;
+  loadingOlder: boolean;
+  /** 元の PC が知らせた全ターンの数。null（古い相手）のときは目次を頼まない。 */
+  turnCount: number | null;
+  /** 目次の行（古い順）。turnsMore は、さらに古い行が残っていること。 */
+  turns: PeerChatTurn[];
+  turnsMore: boolean;
+  /** 最初の目次の答えが済んだ（仮の行をやめる）。 */
+  turnsLoaded: boolean;
+  /** 最後に目次を頼んだときの turnCount。turnCount がこれと違えば頼み直す。 */
+  turnsFor: number | null;
+  loadingTurns: boolean;
+  /** 本文のこの項目へ跳ぶ。n が増えるたびに本文が 1 度跳ぶ。 */
+  jump: { uuid: string; n: number } | null;
+  /** 目次の行を押して、その古い分を読み足している間の uuid。 */
+  jumping: string | null;
 };
 
 /** 自分の預かりの控えの上限。古いものから捨てる。 */
 const MINE_MAX = 20;
 
 export function emptySlice(viewer: string): PeerChatSlice {
-  return { viewers: [viewer], phase: 'loading', fallback: null, device: null, link: 'online', status: null, card: null, items: [], queued: [], cursor: null, sending: false, answering: [], picked: {}, rushing: [], locked: false, restore: null, notice: null, mine: {} };
+  return { viewers: [viewer], phase: 'loading', fallback: null, device: null, link: 'online', status: null, card: null, items: [], queued: [], cursor: null, sending: false, answering: [], picked: {}, rushing: [], locked: false, restore: null, notice: null, mine: {}, older: [], olderMore: true, loadingOlder: false, turnCount: null, turns: [], turnsMore: false, turnsLoaded: false, turnsFor: null, loadingTurns: false, jump: null, jumping: null };
 }
 
 /**
@@ -82,8 +104,28 @@ function applyGone(s: PeerChatSlice, gone: PeerChatGone[] | undefined): PeerChat
 /** 最初の問い合わせ（GET）の答え、または WebSocket の更新を重ねる。reason があれば見続けられないので fallback にする。 */
 export function applyUpdate(s: PeerChatSlice, u: PeerChatUpdate): PeerChatSlice {
   if (u.reason) return { ...s, phase: 'fallback', fallback: u.reason, link: u.link };
-  const items = u.replace ? [...u.items] : upsertItems(s.items, u.items);
-  const next: PeerChatSlice = { ...s, phase: 'live', fallback: null, link: u.link, status: u.status ?? s.status, card: u.card ?? null, items, queued: u.queued, cursor: u.cursor ?? s.cursor };
+  let { older, olderMore } = s;
+  let incoming = u.items;
+  // 読み足した古い分にある項目（札の答えなど）は、その場で置き換え、末尾の窓へは足さない。
+  if (!u.replace && older.length > 0) {
+    const inTail = new Set(s.items.map((i) => i.uuid));
+    const inOlder = new Set(older.map((i) => i.uuid));
+    const byId = new Map(incoming.filter((i) => inOlder.has(i.uuid) && !inTail.has(i.uuid)).map((i) => [i.uuid, i]));
+    if (byId.size > 0) {
+      older = older.map((i) => byId.get(i.uuid) ?? i);
+      incoming = incoming.filter((i) => !byId.has(i.uuid));
+    }
+  }
+  const items = u.replace ? [...u.items] : upsertItems(s.items, incoming);
+  // 差し替えが、手元に読んだ分とつながる（重なる）ときは、重なる手前までを古い分に畳んで残す。つながらなければ継ぎ目に穴が空くので捨てる。
+  if (u.replace && (older.length > 0 || s.items.length > 0)) {
+    const now = new Set(items.map((i) => i.uuid));
+    const known = joinedItems(s);
+    const at = known.findIndex((i) => now.has(i.uuid));
+    if (at >= 0) older = known.slice(0, at);
+    else { older = []; olderMore = true; }
+  }
+  const next: PeerChatSlice = { ...s, phase: 'live', fallback: null, link: u.link, status: u.status ?? s.status, card: u.card ?? null, items, queued: u.queued, cursor: u.cursor ?? s.cursor, older, olderMore, turnCount: u.turnCount ?? s.turnCount };
   return applyGone(next, u.gone);
 }
 
@@ -113,4 +155,34 @@ export function showNotice(s: PeerChatSlice, reason: PeerChatReason | 'gone' | '
 /** 一言を消す。 */
 export function clearNotice(s: PeerChatSlice): PeerChatSlice {
   return s.notice === null ? s : { ...s, notice: null };
+}
+
+/** 画面に出す本文の項目（古い順）。読み足した古い分の後ろに末尾の窓を続け、同じ uuid は末尾の窓を採る。 */
+export function joinedItems(s: PeerChatSlice): PeerChatItem[] {
+  if (s.older.length === 0) return s.items;
+  const tail = new Set(s.items.map((i) => i.uuid));
+  return [...s.older.filter((i) => !tail.has(i.uuid)), ...s.items];
+}
+
+/** 古い分（古い順）を本文の頭に足す。すでにある項目は足さない。more は、さらに古い分が残っているか。 */
+export function applyOlder(s: PeerChatSlice, items: PeerChatItem[], more: boolean): PeerChatSlice {
+  const have = new Set(joinedItems(s).map((i) => i.uuid));
+  const fresh = items.filter((i) => !have.has(i.uuid));
+  return { ...s, older: [...fresh, ...s.older], olderMore: more, loadingOlder: false };
+}
+
+/**
+ * 目次の答えを重ねる。before が無い頁は最新の側で、前に読んだ古い行と重なれば古い行を残してつなぎ、重ならなければ差し替える。
+ * before がある頁は、その行より前の古い行で、頭に足す。
+ */
+export function applyTurns(s: PeerChatSlice, r: { rows: PeerChatTurn[]; total: number; more: boolean }, before: string | null): PeerChatSlice {
+  const done = { loadingTurns: false, turnsLoaded: true };
+  if (before !== null) {
+    const have = new Set(s.turns.map((t) => t.uuid));
+    return { ...s, ...done, turns: [...r.rows.filter((t) => !have.has(t.uuid)), ...s.turns], turnsMore: r.more };
+  }
+  const first = r.rows[0];
+  const at = first ? s.turns.findIndex((t) => t.uuid === first.uuid) : -1;
+  if (at >= 0) return { ...s, ...done, turns: [...s.turns.slice(0, at), ...r.rows] };
+  return { ...s, ...done, turns: [...r.rows], turnsMore: r.more };
 }

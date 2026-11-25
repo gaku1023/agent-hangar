@@ -841,6 +841,10 @@ a:where(.btn) { color: inherit; }
 .turn-row:hover { background: var(--surface-2); }
 .turn[data-open='true'] > .turn-row { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .turn-when { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+/* ほかの PC の会話で、押した行の古い分を読み足している間は、行の番号（時刻）が明滅する。 */
+.turn[data-busy='true'] .turn-when { animation: turn-busy var(--breathe-period) ease-in-out infinite; }
+@keyframes turn-busy { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .turn[data-busy='true'] .turn-when { animation: none; } }
 .turn-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .turn-tools { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
 .turn-body { display: flex; flex-direction: column; max-height: 55vh; overflow: auto; padding: calc(var(--u) * 2) calc(var(--u) * 2) var(--u); }
