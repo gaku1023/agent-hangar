@@ -1,7 +1,10 @@
-import type { PeerChatItem, PeerChatReason, PeerChatStatus, SessionDto } from '@agent-hangar/shared';
+import { stopReasonOf, type PeerChatCard, type PeerChatItem, type PeerChatReason, type PeerChatStatus, type SessionDto, type TranscriptEvent } from '@agent-hangar/shared';
 import type { Translate } from '@agent-hangar/shared';
 import type { Store } from '../store/store.ts';
 import { emptySlice, type PeerChatSlice } from '../store/peerChat.ts';
+import { asideOf, asideWord } from '../lib/aside.ts';
+import { durationLabel } from './format.ts';
+import { presentNowCard, type NowCardProps } from './live.ts';
 import { peerChatDeviceName } from './peerChatDevice.ts';
 
 /**
@@ -29,7 +32,7 @@ export type PeerChatView = {
   status: PeerChatStatus | null;
   statusLabel: string;
   /** 状態の点の色の種類（StatusDot と同じ向き）。 */
-  tone: 'busy' | 'idle' | 'waiting' | 'ended';
+  tone: 'busy' | 'aside' | 'idle' | 'waiting' | 'ended';
   loading: boolean;
   rows: PeerChatRow[];
   composer: {
@@ -154,6 +157,15 @@ function rowOf(t: Translate,it: PeerChatItem, slice: PeerChatSlice, index: numbe
 }
 
 /**
+ * 画面に出す状態。
+ * この PC から札に答えて、相手の返事を待っている間は、答えたあとの状態（許可は実行中、拒否は入力待ち）に見せる。
+ */
+function statusOf(store: Store, sessionId: string, slice: PeerChatSlice): PeerChatStatus | null {
+  const hold = store.peerAnswered[sessionId];
+  return hold && slice.status === 'waiting' ? hold.live : slice.status;
+}
+
+/**
  * 画面の描き分けを決める。
  * 作業中と入力待ち（許可や質問に答えるまで）は、送った文を預かる（預ける）。アイドルはそのまま渡す（送る）。
  * 停止中は「{device} で再開して送る」で、再開してから渡す。
@@ -167,8 +179,9 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
   const device = peerChatDeviceName(store, s!, slice);
   const myId = store.device?.id ?? null;
   // この PC から札に答えて、相手の返事を待っている間は、答えたあとの状態（許可は実行中、拒否は入力待ち）に見せる。
-  const hold = store.peerAnswered[sessionId];
-  const status = hold && slice.status === 'waiting' ? hold.live : slice.status;
+  const status = statusOf(store, sessionId, slice);
+  // 本体は入力を受け付けていて、裏だけが動いている（元の PC が札の材料で知らせる。status は busy のまま）。手元の会話と同じ「バックグラウンドで作業中」で見せ、預かりの案内は出さない。
+  const aside = status === 'busy' && slice.card?.aside != null;
   const myName = store.device?.name ?? '';
   const rows: PeerChatRow[] = foldTools(slice.items.map((it, i) => rowOf(t, it, slice, i, device, myName)), t);
   for (const q of slice.queued) {
@@ -181,13 +194,13 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
   const hostError = slice.link === 'host-error';
   const clockOff = slice.link === 'clock';
   const locked = slice.locked;
-  const kind: PeerChatComposerKind = offline || hostError || clockOff || locked ? 'blocked' : status === 'stopped' ? 'resume' : status === 'busy' || status === 'waiting' ? 'queue' : 'send';
+  const kind: PeerChatComposerKind = offline || hostError || clockOff || locked ? 'blocked' : status === 'stopped' ? 'resume' : (status === 'busy' && !aside) || status === 'waiting' ? 'queue' : 'send';
   const sendLabel = kind === 'resume' ? t('peerChat.composer.resume', { device }) : kind === 'queue' ? t('peerChat.composer.queue') : t('peerChat.composer.send');
   const hint = kind === 'queue' && slice.queued.length === 0 ? t(status === 'waiting' ? 'peerChat.composer.hintWaiting' : 'peerChat.composer.hintBusy') : kind === 'resume' ? t('peerChat.composer.hintStopped', { device }) : hostError ? t('peerChat.composer.hostError') : clockOff ? t('peerChat.composer.clock', { device }) : locked ? refusalText(t, 'refused-by-setting', device) : null;
-  const statusLabel = offline ? t('peerChat.status.offline') : hostError ? t('peerChat.status.hostError') : clockOff ? t('peerChat.status.clock') : status ? t(STATUS_KEY[status]) : t('peerChat.log.loading');
+  const statusLabel = offline ? t('peerChat.status.offline') : hostError ? t('peerChat.status.hostError') : clockOff ? t('peerChat.status.clock') : aside ? asideWord(t) : status ? t(STATUS_KEY[status]) : t('peerChat.log.loading');
   return {
     sessionId, device, status, statusLabel,
-    tone: offline || hostError || clockOff || status === null ? 'ended' : TONE[status],
+    tone: offline || hostError || clockOff || status === null ? 'ended' : aside ? 'aside' : TONE[status],
     loading: slice.phase === 'loading',
     rows,
     composer: {
@@ -197,10 +210,39 @@ export function presentPeerChat(store: Store, sessionId: string, t: Translate): 
       offline: offline ? t('peerChat.composer.offline', { device }) : null,
       canTakeOver: offline && isPeerChatCandidate(s),
       // 札が出ている間（waiting）は、Escape が札の断りになり、元の PC が ask-mismatch で断る。止めるボタンは出さない。
-      canInterrupt: !offline && !hostError && !clockOff && !locked && status === 'busy',
+      canInterrupt: !offline && !hostError && !clockOff && !locked && status === 'busy' && !aside,
       sending: slice.sending,
     },
     restore: slice.restore,
     notice: slice.notice ? { n: slice.notice.n, text: refusalText(t, slice.notice.reason, device) } : null,
   };
+}
+
+/** 札の材料の行を、presentNowCard が読む形（TranscriptEvent）に戻す。 */
+function cardEvents(c: PeerChatCard): TranscriptEvent[] {
+  return c.events.map((e): TranscriptEvent => e.kind === 'user' ? { kind: 'user', seq: e.seq, ...(e.ts !== undefined ? { ts: e.ts } : {}), text: e.text }
+    : e.kind === 'tool_call' ? { kind: 'tool_call', seq: e.seq, ...(e.ts !== undefined ? { ts: e.ts } : {}), toolId: e.toolId, name: e.name, input: e.input, summary: '' }
+      : { kind: 'tool_result', seq: e.seq, ...(e.ts !== undefined ? { ts: e.ts } : {}), toolId: e.toolId, text: '', isError: e.isError });
+}
+
+/**
+ * ほかの PC の会話の、右の欄の現在の札。
+ * 元の PC が送った材料（slice.card）を、手元の会話と同じ presentNowCard に通して組む。
+ * 材料が無い（古い相手、止まった会話、見続けられない）ときは null で、画面は右の欄を出さない。
+ * アーティファクトは数だけを持つ（本文は元の PC のもの）。
+ */
+export function presentPeerCard(store: Store, sessionId: string, t: Translate, o: { now: number; clock: (ts: number) => string }): NowCardProps | null {
+  const s = store.sessions[sessionId];
+  const slice = store.peerChat[sessionId];
+  if (!isPeerChatCandidate(s) || !slice || slice.phase === 'fallback' || !slice.card) return null;
+  const live = statusOf(store, sessionId, slice);
+  if (live === null || live === 'stopped') return null;
+  const c = slice.card;
+  const since = durationLabel(t, o.now - (s!.lastActivityAt ?? o.now));
+  const card = presentNowCard({
+    digest: c.digest, events: cardEvents(c), turnFrom: c.turnFrom, live, aside: asideOf(live, c.aside), activity: c.activity, now: o.now, viewingAgent: false, clock: o.clock,
+    idleFor: since, waited: since, artifacts: [], droppedCalls: c.droppedCalls ?? 0,
+    reason: stopReasonOf({ live, waitingFor: c.waitingFor, activity: c.activity, permission: c.permission, limit: c.limit }), permission: c.permission, limit: c.limit, waitingFor: c.waitingFor, liveHints: c.hints,
+  }, t);
+  return { ...card, artifacts: { count: c.artifacts, items: [] } };
 }

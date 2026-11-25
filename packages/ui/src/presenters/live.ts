@@ -24,6 +24,8 @@ export type LiveInput = {
   idleFor: string;
   /** 結果の表。呼び出し側が持っていれば渡し、無ければ presentNowCard が 1 回だけ作る。 */
   results?: ResultMap;
+  /** events に載せていない、今のターンの手の数（ほかの PC の会話は、直近の手だけを送ってくる）。手の数の表示に足す。 */
+  droppedCalls?: number;
 };
 
 /** 意図の帯を薄くする手数。仕様書の試作の値で、使ってみて見直す。 */
@@ -187,7 +189,7 @@ function stripSteps(i: LiveInput, results: ResultMap): { steps: CardStep[]; all:
     const mark: CardStep['mark'] = r?.isError ? 'fail' : !r && last && i.live === 'waiting' ? 'wait' : !r && last && i.live === 'busy' ? 'now' : 'done';
     return { key: String(c.seq), name: c.name, arg: argOf(c), mark };
   });
-  return { steps: rows.slice(-STRIP_STEPS), all: rows.slice(-STRIP_STEPS_ALL), total: rows.length };
+  return { steps: rows.slice(-STRIP_STEPS), all: rows.slice(-STRIP_STEPS_ALL), total: rows.length + (i.droppedCalls ?? 0) };
 }
 
 /** 今のターンの経過。ターンの頭からの最初の時刻を起点にする。時刻の付いた行が無ければ null。 */
@@ -254,7 +256,7 @@ function plainState(i: CardInput, t: Translate, results: ResultMap): Pick<NowCar
   if (i.live === 'busy' || running > 0) {
     // サブエージェントの transcript を開いている間は、呼び出しの数も経過もメイン会話のものではないので出さない。
     // 「ツール呼び出し n 回」はメイン会話の呼び出しの数。Agent の起こしは数え、hangar 自身の MCP は数えない。経過は今のターンの頭から。
-    const n = turnCalls(i, { agents: true }).length;
+    const n = turnCalls(i, { agents: true }).length + (i.droppedCalls ?? 0);
     const time = turnElapsed(i, t);
     const sub = i.viewingAgent ? '' : time === null ? t('session.strip.progressNoTime', { n }) : t('session.strip.progress', { n, time });
     return { tone: 'busy', state: t('session.strip.state.working'), sub, detail: null, question: false };

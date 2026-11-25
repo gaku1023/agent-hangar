@@ -29,7 +29,8 @@ const STEP_MARK = { done: '✓', now: '●', wait: '●', fail: '✕' } as const
  * 背は中身に合わせ、伸びるのはすぐ、縮むのは節目だけにする（useCardHeight と usePhaseKey）。
  * 中身（意図の折り返し、手の数、問い）のたびに縮めると、下の目次が押されて跳ねるためである。
  */
-export function NowCard(props: NowCardProps & { sessionId: string; overlap?: OverlapProps | null; /** git の札（試作の 2-3 の A）。押すと変更したファイルの一覧が開く。 */ git?: SessionGitView | null }) {
+export function NowCard(props: NowCardProps & { sessionId: string; overlap?: OverlapProps | null; /** git の札（試作の 2-3 の A）。押すと変更したファイルの一覧が開く。 */ git?: SessionGitView | null;
+  /** ほかの PC の会話の札。サブエージェントの行は押せず、アーティファクトは数だけを出す（本文は元の PC のもの）。 */ readOnly?: boolean }) {
   const t = useT();
   const dot = props.tone === 'wait' ? 'wait' : props.tone === 'busy' ? 'busy' : props.tone === 'aside' ? 'aside' : props.tone === 'limit' ? 'limit' : 'idle';
   // 許可待ちと使用制限は、点の代わりに盾と砂時計を置く（試作の N1）。
@@ -79,8 +80,8 @@ export function NowCard(props: NowCardProps & { sessionId: string; overlap?: Ove
         {(hidden > 0 || props.lanes.count > 0 || props.artifacts.count > 0 || props.git?.chip) && (
           <div className="nc-chips">
             {hidden > 0 && <AllSteps steps={props.stepsAll} hidden={hidden} />}
-            {props.lanes.count > 0 && <Lanes sessionId={props.sessionId} lanes={props.lanes} />}
-            {props.artifacts.count > 0 && <Artifacts items={props.artifacts.items} />}
+            {props.lanes.count > 0 && <Lanes sessionId={props.sessionId} lanes={props.lanes} readOnly={props.readOnly === true} />}
+            {props.artifacts.count > 0 && (props.readOnly ? <CountChip size="sm" label={t('session.strip.artifacts.label')} count={props.artifacts.count} icon="artifacts" /> : <Artifacts items={props.artifacts.items} />)}
             {props.git?.chip && <GitFilesPop sessionId={props.sessionId} chip={props.git.chip} files={props.git.files} />}
           </div>
         )}
@@ -223,7 +224,7 @@ function AllSteps(props: { steps: CardStep[]; hidden: number }) {
 }
 
 /** サブエージェントの札。灯は、失敗、実行中、完了のうち強い方の色。押すと 1 本ずつの一覧が開き、行を押すとその transcript を見る。 */
-function Lanes(props: { sessionId: string; lanes: NowCardProps['lanes'] }) {
+function Lanes(props: { sessionId: string; lanes: NowCardProps['lanes']; readOnly: boolean }) {
   const t = useT();
   const emit = useEmit();
   const label = t('session.strip.lanes.label');
@@ -236,7 +237,7 @@ function Lanes(props: { sessionId: string; lanes: NowCardProps['lanes'] }) {
           <ul className="nc-lanes">
             {props.lanes.items.map((l: CardLane) => (
               <li key={l.agentId}>
-                <button type="button" className="nc-lane-row" data-tone={l.tone} disabled={!l.selectable} title={l.title}
+                <button type="button" className="nc-lane-row" data-tone={l.tone} disabled={!l.selectable || props.readOnly} title={l.title}
                   onClick={() => { emit({ type: 'transcript.selectAgent', sessionId: props.sessionId, agentId: l.agentId }); close(); }}>
                   <span className="live-dot" data-tone={l.tone} aria-hidden="true" />
                   <span className="nc-lane-title">{l.title}<span className="sr-only"> {l.stateLabel}</span></span>

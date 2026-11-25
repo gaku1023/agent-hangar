@@ -7,6 +7,8 @@
 .pchat-state { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); margin-left: auto; font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; }
 .pchat-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--ended); }
 .pchat-dot[data-tone='busy'] { background: var(--busy); }
+.pchat-dot[data-tone='aside'] { background: var(--aside); }
+.pchat-bar > .tab-pane-open { margin-left: auto; }
 .pchat-dot[data-tone='idle'] { background: var(--idle); }
 .pchat-dot[data-tone='waiting'] { background: var(--waiting); }
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { useBackgroundEmit, useEmit } from '../action/chain.tsx';
 import type { PeerChatView } from '../presenters/peerChat.ts';
 import { PeerChatComposer } from './PeerChatComposer.tsx';
@@ -28,7 +28,7 @@ export function usePeerChatWatch(sessionId: string, enabled: boolean): void {
  * 上に PC の名前と状態の 1 行、真ん中に会話の列、下に入力欄を置く。
  * 描き分けは presenters/peerChat.ts が決める。ここは決まった値を並べ、操作を UiAction にして出すだけである。
  */
-export function PeerChatPane(props: { view: PeerChatView }) {
+export function PeerChatPane(props: { view: PeerChatView; /** 状態の行の右端に置くもの（右の欄を畳んでいる間の開く札）。 */ trailing?: ReactNode }) {
   const emit = useEmit();
   const { view } = props;
   const id = view.sessionId;
@@ -37,6 +37,7 @@ export function PeerChatPane(props: { view: PeerChatView }) {
       <div className="pchat-bar">
         <span className="pchat-pill">{view.device}</span>
         <span className="pchat-state"><span className="pchat-dot" data-tone={view.tone} aria-hidden="true" />{view.statusLabel}</span>
+        {props.trailing}
       </div>
       <PeerChatLog rows={view.rows} loading={view.loading}
         onCancel={(queueId) => emit({ type: 'peerChat.send', sessionId: id, body: { t: 'cancel', queueId } })}

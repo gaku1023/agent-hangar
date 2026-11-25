@@ -325,14 +325,35 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
   // 続けて呼んだツールは 1 行にまとめる（T1）。詳細表示の間は、今までどおり 1 件ずつにする。
   const transcript = <Transcript sessionId={id} items={props.items} hasMore={props.hasMore} loading={props.loading} follow={props.follow} live={props.live !== null} remaining={Math.max(props.total - props.loaded, 0)} jump={props.jump} hasNewer={props.hasNewer} groupTools={!props.showRaw} />;
 
-  // ほかの PC の Claude Code の会話は、読み取り専用のトランスクリプトの代わりにチャットを出す（目次の列は持たない）。
+  // ほかの PC の Claude Code の会話は、読み取り専用のトランスクリプトの代わりにチャットを出す。
+  // 元の PC が現在の札の材料を送ってきたときは、手元の会話と同じ右の欄（畳める器）に札を置く。目次は持たない（本文は元の PC のもの）。
+  // 札が無い間（古い相手、止まった会話）は右の欄を出さず、本文が全幅のままである。
   // 読み込み中と見続けられなかったとき（view が無い間）は、今までのトランスクリプトのままにする。
   if (props.peerChat?.view) {
+    const peerCard = props.peerChat.card ?? null;
+    // 畳んでいる間は、状態の行の右端に開く札を置く（丸は札の状態の色）。分割のペインは見出しの側が開閉を持つ。
+    const peerOpener = peerCard && !tocOpen && !pv ? (
+      <button type="button" className="btn btn-sm tab-pane-open" aria-expanded="false" aria-keyshortcuts={ariaKeyShortcuts('transcript.toggle')} aria-label={t('session.toc.shortcut')} title={t('session.toc.shortcut')} onClick={toggleToc}>
+        <span className="live-dot" data-tone={peerCard.tone} aria-hidden="true" />
+        <Icon name="paneOpen" />{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}
+      </button>
+    ) : null;
+    const peerSlot = peerCard ? (
+      <div className="toc-slot" data-collapsed={tocOpen ? undefined : 'true'} data-leaving={pane.leaving ? 'true' : undefined} data-drawer={narrow ? 'true' : undefined}>
+        {pane.mounted && (
+          <div ref={(el) => { pane.ref.current = el; }} className="toc-slot-inner">
+            <div className="toc-slot-head">{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}{toggle}</div>
+            <NowCard sessionId={id} {...peerCard} readOnly />
+          </div>
+        )}
+      </div>
+    ) : null;
     return (
       <div className="screen session-screen" data-variant={pv ? 'pane' : undefined}>
         {header}
-        <div className="c-body" data-toc="none">
-          <div className="c-main"><section className="tr-sheet pchat-sheet"><PeerChatPane view={props.peerChat.view} /></section></div>
+        <div ref={peerCard ? boxRef : undefined} className="c-body" data-toc={peerCard ? undefined : 'none'} data-narrow={peerCard && narrow ? 'true' : undefined} style={peerCard ? bodyStyle : undefined}>
+          <div className="c-main"><section className="tr-sheet pchat-sheet"><PeerChatPane view={props.peerChat.view} trailing={peerOpener} /></section></div>
+          {peerSlot}
         </div>
       </div>
     );
