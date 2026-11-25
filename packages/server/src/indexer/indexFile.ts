@@ -85,7 +85,13 @@ export function indexFile(db: Db, file: TranscriptFile, opts: IndexFileOptions):
   const version = opts.indexerVersion ?? INDEXER_VERSION;
   // 論理パスと実体が違うエージェントは、呼び手が実体の stat を渡す（索引の側が TranscriptFiles.stat で取る）。
   const stat = opts.stat ?? fs.statSync(file.path);
-  const tf = stmt(db, 'select * from transcript_files where path = ?').get(file.path) as TfRow | undefined;
+  let tf = stmt(db, 'select * from transcript_files where path = ?').get(file.path) as TfRow | undefined;
+  // 同じ位置の索引が、いまの行き先（sessionId と agentId）と食い違うなら、外して読み直す。
+  // 前の版が独立した会話として索引した Codex の子（agentId が null）は、いまは親の下の子として読む。その行が論理削除されていても、ここで外せば子が親の下に入る。
+  if (tf && (tf.agent_id ?? null) !== (file.agentId ?? null)) {
+    forgetTranscriptFile(db, file.path);
+    tf = undefined;
+  }
   const remote = opts.remote === true;
   // 論理削除したセッションと、行のまだ届いていない他端末の写しは、読まずに見送る（write.ts の skipWrite）。
   const known = tf

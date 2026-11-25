@@ -85,6 +85,25 @@ describe('Codex の会話のサブエージェントの行（digest の agents�
     expect(d.agents[1]).toMatchObject({ state: 'done', endNote: 'interrupted' });
   });
 
+  it('知らせの agent_path が子の UUID でなく名前（agent_nickname や agent_path）のときも、その子の終わりとして読む', async () => {
+    const named = (name: string) => (l: string, agent: string): string | null => {
+      if (agent !== CODEX_SUBAGENT_A.id) return l;
+      const r = JSON.parse(l) as { payload: { content: { text: string }[] } };
+      r.payload.content[0]!.text = status(name, { completed: 'named body' });
+      return JSON.stringify(r);
+    };
+    putParent(named('Agent-A')); putChildren();
+    const d = buildLiveDigest(db, await index());
+    expect(d.agents[0]).toMatchObject({ agentId: CODEX_SUBAGENT_A.id, state: 'done', report: 'named body' });
+    // 子の session_meta の agent_path（名前のパス）とも突き合わせる。
+    const childPath = `${home}/${rolloutName(CODEX_SUBAGENT_A.id, '2026-11-25T20-14-35').rel}`;
+    fs.writeFileSync(childPath, fs.readFileSync(childPath, 'utf8').replace('"agent_path": null', '"agent_path": "/root/reader"'));
+    putParent(named('/root/reader'));
+    db.close(); db = openDb(':memory:');
+    const d2 = buildLiveDigest(db, await index());
+    expect(d2.agents[0]).toMatchObject({ agentId: CODEX_SUBAGENT_A.id, state: 'done', report: 'named body' });
+  });
+
   it('子が無い会話は空', async () => {
     putRollout(home, rolloutName(CODEX_SUBAGENT_PARENT.id, '2026-11-25T20-14-16').rel, lines(CODEX_SUBAGENT_PARENT).filter((l) => !l.includes('subagent_notification')).join('\n') + '\n');
     expect(buildLiveDigest(db, await index()).agents).toEqual([]);

@@ -1,5 +1,6 @@
 import { stepKind, stepLine, type LiveAgentDto, type TranscriptEvent } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
+import { namesOfRollout } from '../provider/codex/transcript/subagent.ts';
 import { readEvents } from '../transcript/read.ts';
 
 // Codex の会話の NowCard に出す、サブエージェントの行。
@@ -99,11 +100,21 @@ function read(db: Db, sessionId: string, agentId: string): Tail {
  */
 export function codexAgentsOf(db: Db, sessionId: string, main: TranscriptEvent[], since: number): LiveAgentDto[] {
   const notes = notifications(main);
+  // 知らせの agent_path は、子の UUID のこともあれば、名前（agent_path や agent_nickname）のこともある。子の session_meta の名前とも突き合わせる。
+  const noteOf = (agent: string): Note | undefined => {
+    const direct = notes.get(agent);
+    if (direct) return direct;
+    if (notes.size === 0) return undefined;
+    const row = db.prepare('select path from transcript_files where session_id = ? and agent_id = ?').get(sessionId, agent) as { path: string } | undefined;
+    if (!row) return undefined;
+    for (const n of namesOfRollout(row.path)) { const hit = notes.get(n); if (hit) return hit; }
+    return undefined;
+  };
   return stats(db, sessionId)
-    .filter((s) => notes.has(s.agent) || (s.first ?? 0) >= since || (s.last ?? 0) >= since)
+    .filter((s) => noteOf(s.agent) !== undefined || (s.first ?? 0) >= since || (s.last ?? 0) >= since)
     .map((s): LiveAgentDto => {
       const t = read(db, sessionId, s.agent);
-      const note = notes.get(s.agent);
+      const note = noteOf(s.agent);
       const status = note?.status;
       const state: LiveAgentDto['state'] = status === undefined || status === 'running' || status === 'pending_init' ? 'running' : status === 'errored' ? 'error' : 'done';
       const body = note?.body ?? t.said;

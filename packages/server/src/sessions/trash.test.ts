@@ -821,6 +821,13 @@ describe('Codex の会話', () => {
       expect(fs.existsSync(childRemote())).toBe(false);
     });
 
+    it('子の索引の行が手元に無い（写しだけの PC）ときも、写しの先頭の parent_thread_id で親を引いて子の写しを消す', async () => {
+      fs.writeFileSync(childRemote(), `${JSON.stringify({ type: 'session_meta', payload: { id: CHILD, parent_thread_id: THREAD } })}\n`);
+      db.prepare('delete from transcript_files where agent_id = ?').run(CHILD);
+      await service().deleteSession('s-cx');
+      expect(fs.existsSync(childRemote())).toBe(false);
+    });
+
     it('ゴミ箱から戻すと、子の台帳の行も忘れて上げ直してもらう', async () => {
       await service().deleteSession('s-cx');
       fs.renameSync(binned.get(rollout())!, rollout());

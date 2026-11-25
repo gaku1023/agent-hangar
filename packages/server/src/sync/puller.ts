@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { PULL_LIMIT, type FileEntry, type SyncDiskShortDto } from '@agent-hangar/shared';
+import { parentThreadOf } from '../provider/codex/transcript/subagent.ts';
 import { remoteRoot } from '../config/cloud.ts';
 import type { Db } from '../db/open.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
@@ -560,6 +561,16 @@ export class RemotePuller {
       .get({ c: uuid, like: `%-${uuid}.jsonl%` }) !== undefined;
   }
 
+  /** 降ろした Codex の子の写し（target）の先頭が指す親に、削除の印があるか。子でなければ偽。 */
+  private parentTrashed(rel: string, target: string): boolean {
+    if (agentOfSyncPath(rel)?.provider !== 'codex') return false;
+    let parent: string | null = null;
+    try { parent = parentThreadOf(target).parent; } catch { return false; }
+    if (parent === null) return false;
+    return this.deps.db.prepare(`select 1 from sessions s join session_states st on st.session_id = s.id and st.deleted_at is null
+      where s.provider = 'codex' and s.provider_session_id = ? and st.trashed_at is not null`).get(parent) !== undefined;
+  }
+
   /**
    * そのセッション（Claude Code のセッション ID）の写しを降ろし直す。削除したセッションがほかの PC で戻されたときに呼ぶ（sessions/trash.ts）。
    * 台帳（file_sync）には頼らず、写しの一覧を先頭から引き直して、そのセッションの項目の最新を降ろす。
@@ -674,6 +685,11 @@ export class RemotePuller {
     // 索引化の選別が更新時刻で最新の写しを選ぶので、相手の mtime に合わせる。
     fs.utimesSync(target, new Date(e.mtime), new Date(e.mtime));
     if (stale !== null) fs.rmSync(stale, { force: true });
+    // Codex の子の写しは、親の削除の印をパスから引けない（パスの会話の ID が子）。降ろした写しの先頭の parent_thread_id で親を引き、印があれば置かずに消す。
+    if (this.parentTrashed(e.path, target)) {
+      fs.rmSync(target, { force: true });
+      return false;
+    }
     this.deps.db.prepare(`insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)
       on conflict(key) do update set path = excluded.path, device_id = excluded.device_id, sha256 = excluded.sha256, size = excluded.size, mtime = excluded.mtime, remote_seq = excluded.remote_seq, synced_at = excluded.synced_at`)
       .run(ledger, 'transcript', e.path, origin, e.sha256, e.size, e.mtime, e.seq, this.now());

@@ -95,4 +95,38 @@ describe('前の版が独立した会話として索引した子を、起動時�
     expect(rows('select * from transcript_files order by path')).toEqual(before);
     expect(sessionIds().filter((r) => r.deleted_at === null)).toHaveLength(1);
   });
+
+  it('前の版の PC が子の行に論理削除を書いて流した後でも、子の索引は親の下へ付け替わる（子が消えない）', async () => {
+    indexLikeOldVersion([P, A]);
+    db.prepare("update sessions set deleted_at = 5 where provider_session_id = ?").run(A);
+    const parentRow = one<{ id: string }>("select id from sessions where provider_session_id = ?", P);
+    const s = svc();
+    await s.start();
+    s.stop();
+    expect(rows<{ session_id: string; agent_id: string | null }>("select session_id, agent_id from transcript_files where agent = 'codex' order by agent_id").map((r) => [r.session_id === parentRow.id, r.agent_id])).toEqual([[true, null], [true, A], [true, B]]);
+    expect(one<{ n: number }>('select count(*) n from event_index where session_id = ? and parent_agent = ?', parentRow.id, A).n).toBeGreaterThan(0);
+  });
+
+  it('付け替えの印を立てたあとに親が入った子も、親の下で読み直される', async () => {
+    fs.rmSync(`${home}/${rolloutName(P, '2026-11-25T20-14-16').rel}`);
+    indexLikeOldVersion([A]);
+    const a = svc();
+    await a.start();
+    a.stop();
+    put(CODEX_SUBAGENT_PARENT, '2026-11-25T20-14-16');
+    const b = svc();
+    await b.start();
+    b.stop();
+    const parentRow = one<{ id: string }>("select id from sessions where provider_session_id = ?", P);
+    expect(rows<{ session_id: string; agent_id: string | null }>("select session_id, agent_id from transcript_files where agent = 'codex' order by agent_id").map((r) => [r.session_id === parentRow.id, r.agent_id])).toEqual([[true, null], [true, A], [true, B]]);
+  });
+
+  it('手元のファイルが消えた行が 1 本あっても、済みの印は立つ', async () => {
+    indexLikeOldVersion([P, A, B]);
+    fs.rmSync(`${home}/${rolloutName(B, '2026-11-25T20-14-36').rel}`);
+    const s = svc();
+    await s.start();
+    s.stop();
+    expect(one<{ n: number }>("select count(*) n from settings_local where key = 'codexChildrenReparented'").n).toBe(1);
+  });
 });

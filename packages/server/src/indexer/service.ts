@@ -76,7 +76,7 @@ export type IndexerServiceOptions = {
 /** 進行中の走査に付ける段階。rebuild のときだけ rebuilding になる。 */
 type ScanPhase = 'indexing' | 'rebuilding';
 /** 索引に記録済みの、ファイルごとの大きさと更新時刻と版。 */
-type KnownRow = { size: number; mtime: number; indexer_version: number };
+type KnownRow = { size: number; mtime: number; indexer_version: number; agent_id: string | null };
 type DiscoveredFile = TranscriptFile;
 /** 本文のファイルと、それを受け持つ面。パスは面をまたいで重ならない。 */
 type Item = { file: DiscoveredFile; source: FileTranscriptSource };
@@ -227,7 +227,7 @@ export class IndexerService {
 
   /** 索引に記録済みの全ファイルの大きさと更新時刻と版を、1 回の問い合わせでまとめて引く。 */
   private knownFiles(): Map<string, KnownRow> {
-    const rows = stmt(this.opts.db, 'select path, size, mtime, indexer_version from transcript_files').all() as (KnownRow & { path: string })[];
+    const rows = stmt(this.opts.db, 'select path, size, mtime, indexer_version, agent_id from transcript_files').all() as (KnownRow & { path: string })[];
     return new Map(rows.map((r) => [r.path, r]));
   }
 
@@ -279,7 +279,8 @@ export class IndexerService {
     const { file, source } = item;
     const st = stat === undefined ? this.statOf(source, file.path) : stat;
     const row = known?.get(file.path);
-    if (st && row && isUnchanged(row, st)) {
+    // 行き先（agentId）が食い違う行は、indexFile が外して読み直す。
+    if (st && row && (row.agent_id ?? null) === (file.agentId ?? null) && isUnchanged(row, st)) {
       this.reportedErrors.delete(file.path);
       return false;
     }

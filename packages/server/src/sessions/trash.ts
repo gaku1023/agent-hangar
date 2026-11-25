@@ -13,6 +13,7 @@ import { isAgentKind, isSafeKeyId } from '@agent-hangar/shared';
 import { AGENT_SYNC, isExportAgent } from '../sync/agentSync.ts';
 import { mangleCwd } from '../provider/claude-code/transcript/discover.ts';
 import { resolvePhysical } from '../provider/codex/transcript/logical.ts';
+import { parentThreadOf } from '../provider/codex/transcript/subagent.ts';
 import { setSessionTrashed } from './states.ts';
 import { forgetSpawnsOf } from './spawns.ts';
 import { forgetUnread } from '../live/unread.ts';
@@ -302,6 +303,15 @@ export class SessionTrash {
         const p = path.join(this.deps.remoteRoot, r.device_id, ...AGENT_SYNC.codex.remoteFile!(r.path, one));
         if (exists(p) && this.underRemote(p)) out.add(p);
       }
+    }
+    // 写しだけを持つ PC は子の索引の行が無い。降ろした写しの先頭の parent_thread_id が、この会話を指す子の写しも消す。
+    const copies = this.db.prepare("select path, device_id from file_sync where kind = 'transcript' and device_id <> ? and key like 'codex/%'").all(this.deps.deviceId) as { path: string; device_id: string }[];
+    for (const r of copies) {
+      const own = AGENT_SYNC.codex.sessionOfPath(r.path);
+      if (own === null || own === id || !isSafeKeyId(r.device_id)) continue;
+      let p: string;
+      try { p = path.join(this.deps.remoteRoot, r.device_id, ...AGENT_SYNC.codex.remoteFile!(r.path, own)); } catch { continue; }
+      if (exists(p) && this.underRemote(p) && parentThreadOf(p).parent === id) out.add(p);
     }
     return [...out];
   }
