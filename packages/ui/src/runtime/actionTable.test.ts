@@ -54,7 +54,7 @@ describe('表の鍵', () => {
   });
 });
 
-describe('フォルダの信頼の確認', () => {
+describe('ディレクトリの信頼の確認', () => {
   it('答えると、送っている間は札を押せなくし、API には会話と key を渡す', async () => {
     const answerTrust = vi.fn(async () => {});
     const r = await runRow({ type: 'trust.answer', sessionId: 's1', key: '1' }, fakeApi({ answerTrust }));

@@ -285,9 +285,9 @@ describe('チャットを出さない会話は、今までの読み取り専用�
     expect(ans('Yes', 'question').answered).toBe('Mac で「Yes」');
   });
 
-  it('フォルダの信頼の札は題名を「フォルダの信頼」にし、パスと画面のままの選択肢を出す。答えた行は質問の形で引用する', () => {
+  it('ディレクトリの信頼の札は題名を「ディレクトリの信頼」にし、パスと画面のままの選択肢を出す。答えた行は質問の形で引用する', () => {
     const trust = (answered = false): PeerChatItem => ({ uuid: 'k2', at: 4, kind: 'permission', text: '/w/app', ask: { askId: 'ask-t', kind: 'permission', tool: 'FolderTrust', input: '/w/app', options: [{ key: '1', label: 'Yes, I trust this folder' }, { key: '2', label: 'No, exit' }], multi: false, allowText: false, ...(answered ? { answered: { by: MAC, label: 'Yes, I trust this folder', at: 9 } } : {}) } });
-    expect(view(store({ status: 'waiting', items: [trust()] }))!.rows[0]).toMatchObject({ kind: 'ask', title: 'フォルダの信頼', input: '/w/app', options: [{ key: '1', label: 'Yes, I trust this folder' }, { key: '2', label: 'No, exit' }], answered: null });
+    expect(view(store({ status: 'waiting', items: [trust()] }))!.rows[0]).toMatchObject({ kind: 'ask', title: 'ディレクトリの信頼', input: '/w/app', options: [{ key: '1', label: 'Yes, I trust this folder' }, { key: '2', label: 'No, exit' }], answered: null });
     expect((view(store({ status: 'busy', items: [trust(true)] }))!.rows[0] as { answered: string }).answered).toBe('Mac で「Yes, I trust this folder」');
   });
 

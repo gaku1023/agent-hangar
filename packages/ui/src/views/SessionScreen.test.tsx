@@ -662,11 +662,11 @@ describe('SessionScreen（実行中）', () => {
     rerender(<ActionRoot onAction={vi.fn()}><SS {...base} oneLiner="TWO" /></ActionRoot>);
     expect(document.querySelector('.session-oneliner')).not.toBe(first);
   });
-  it('フォルダの信頼の札は帯の代わりに出て、押した選択肢の key を答えとして出す。送っている間は押せない', () => {
-    const trust = { kind: 'ask' as const, key: 'trust', askId: 'trust', askKind: 'permission' as const, title: 'フォルダの信頼', input: '/w/app', options: [{ key: '1', label: 'Yes, I trust this folder' }, { key: '2', label: 'No, exit' }], multi: false, allowText: false, answered: null, hostOnly: null, pending: false, locked: false };
+  it('ディレクトリの信頼の札は帯の代わりに出て、押した選択肢の key を答えとして出す。送っている間は押せない', () => {
+    const trust = { kind: 'ask' as const, key: 'trust', askId: 'trust', askKind: 'permission' as const, title: 'ディレクトリの信頼', input: '/w/app', options: [{ key: '1', label: 'Yes, I trust this folder' }, { key: '2', label: 'No, exit' }], multi: false, allowText: false, answered: null, hostOnly: null, pending: false, locked: false };
     const onAction = withHost(<SS {...running} live="waiting" trust={trust} />);
     expect(document.querySelector('.term-hint')).toBeNull();
-    const card = screen.getByRole('group', { name: 'フォルダの信頼' });
+    const card = screen.getByRole('group', { name: 'ディレクトリの信頼' });
     expect(within(card).getByText('/w/app')).toBeInTheDocument();
     fireEvent.click(within(card).getByRole('button', { name: '1. Yes, I trust this folder' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'trust.answer', sessionId: 's1', key: '1' });

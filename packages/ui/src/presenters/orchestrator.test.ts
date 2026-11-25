@@ -92,9 +92,9 @@ describe('presentOrchestrator', () => {
     const p = presentOrchestrator(store({ approvals: [{ id: 'a1', at: 5, sessionId: 's9', title: '調べもの', tool: 'Read', input: '/a/b/c.ts\nつづき', label: 'Yes', reason: '読むだけ', policyText: null }] }), ja)!;
     expect(p.approvals).toEqual([{ id: 'a1', sessionId: 's9', title: '調べもの', tool: 'Read', head: '/a/b/c.ts' }]);
   });
-  it('フォルダの信頼の行は、道具の名前（FolderTrust）を「フォルダの信頼」に言い換える', () => {
+  it('ディレクトリの信頼の行は、道具の名前（FolderTrust）を「ディレクトリの信頼」に言い換える', () => {
     const p = presentOrchestrator(store({ approvals: [{ id: 'a2', at: 5, sessionId: 's9', title: '調べもの', tool: 'FolderTrust', input: '/w/app', label: 'Yes, I trust this folder', reason: '', policyText: null }] }), ja)!;
-    expect(p.approvals[0]).toMatchObject({ tool: 'フォルダの信頼', head: '/w/app' });
+    expect(p.approvals[0]).toMatchObject({ tool: 'ディレクトリの信頼', head: '/w/app' });
   });
 });
 
