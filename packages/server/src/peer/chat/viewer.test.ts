@@ -1008,6 +1008,13 @@ describe('ops', () => {
     expect(asks.map((a) => a.req.op)).toEqual([{ t: 'files', query: 'a' }, { t: 'answer', askId: 'A', keys: ['1'], text: 'x' }, { t: 'cancel', queueId: 'q1' }, { t: 'interrupt' }]);
   });
 
+  it('switch-account は名前を運び、止めて再開するのを待てるよう再開と同じ長さを待つ', async () => {
+    answers.push(() => ({ ok: false, reason: 'account-unavailable' }));
+    expect(await viewer.op(SID, { t: 'switch-account', account: '会社' })).toEqual({ ok: false, reason: 'account-unavailable' });
+    expect(asks[0]!.req.op).toEqual({ t: 'switch-account', account: '会社' });
+    expect(asks[0]!.body.waitMs).toBe(20_000);
+  });
+
   it('二重の頼みを避けるため、頼みごとに askId を新しくする', async () => {
     await viewer.op(SID, { t: 'interrupt' });
     await viewer.op(SID, { t: 'interrupt' });

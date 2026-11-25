@@ -1,5 +1,5 @@
 import type { Hono } from 'hono';
-import { isPeerChatViewerId, PEER_CHAT_ID_MAX_CHARS, PEER_CHAT_KEYS_MAX, PEER_CHAT_KEY_MAX_CHARS, PEER_CHAT_QUERY_MAX_CHARS, type PeerChatOpIn } from '@agent-hangar/shared';
+import { isPeerChatViewerId, PEER_CHAT_ACCOUNT_MAX_CHARS, PEER_CHAT_ID_MAX_CHARS, PEER_CHAT_KEYS_MAX, PEER_CHAT_KEY_MAX_CHARS, PEER_CHAT_QUERY_MAX_CHARS, type PeerChatOpIn } from '@agent-hangar/shared';
 import type { AppDeps } from '../deps.ts';
 import { readJson } from './common.ts';
 
@@ -55,6 +55,8 @@ export function parseOpIn(v: unknown): PeerChatOpIn | null {
       return idLike(v.queueId) ? { t: 'rush', queueId: v.queueId } : null;
     case 'files':
       return isStr(v.query) && v.query.length <= PEER_CHAT_QUERY_MAX_CHARS ? { t: 'files', query: v.query } : null;
+    case 'switch-account':
+      return isStr(v.account) && v.account.length > 0 && v.account.length <= PEER_CHAT_ACCOUNT_MAX_CHARS ? { t: 'switch-account', account: v.account } : null;
     default:
       return null;
   }

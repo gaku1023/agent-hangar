@@ -49,6 +49,7 @@ import { PeerQueue, type TurnState } from './queue.ts';
  * - interrupt：走っているターンに Escape を打つ（answer.ts）。
  * - cancel：預かりの送り主だけが取り消せる。
  * - files：スマホの files と同じ本体。
+ * - switch-account：同じ名前のアカウントで再開し直す（deps.switchAccount、RunManager.switchAccount と同じ道）。
  *
  * 画面への知らせ（emit）。
  * 預かりが変わるたびに peerChat.queue、渡したときに peerChat.delivered を出す。
@@ -130,7 +131,7 @@ const refuse = (reason: Extract<PeerChatReply, { ok: false }>['reason']): PeerCh
  * cancel は入れない（送り主が自分の預かりを取り戻すだけで、この PC の入力には触れない。
  * 設定を切ったあとも、預けた文を取り戻せるようにする）。
  */
-const SENDING: ReadonlySet<PeerChatRequest['op']['t']> = new Set(['send', 'answer', 'interrupt', 'resume-send', 'rush']);
+const SENDING: ReadonlySet<PeerChatRequest['op']['t']> = new Set(['send', 'answer', 'interrupt', 'resume-send', 'rush', 'switch-account']);
 /** 中断（Escape）を打ってから、急がせを始めるまでの間。Claude が中断を受けて入力欄を空けるのを待つ。 */
 const RUSH_AFTER_ESCAPE_MS = 300;
 
@@ -311,7 +312,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     if (!session) return refuse('session-unknown');
     if (session.provider !== 'claude-code') return refuse('not-claude');
     // この PC が会話の持ち主でなければ（ほかの PC で動いている、続きが新しい、本文が無い、引き継がれた）、手元の古い写しを見せも動かしもしない。
-    if (session.lock || session.newerElsewhere || session.remoteOnly || session.takenOver) return refuse(op.t === 'resume-send' ? 'resume-failed' : 'session-unknown');
+    if (session.lock || session.newerElsewhere || session.remoteOnly || session.takenOver) return refuse(op.t === 'resume-send' || op.t === 'switch-account' ? 'resume-failed' : 'session-unknown');
     if (SENDING.has(op.t) && !deps.acceptFrom(sender.kind)) return refuse('refused-by-setting');
     // スマホからは、まず文だけを受ける（画像は、受信箱の素の caps に印を載せてから足す）。
     if (sender.kind === 'phone' && (op.t === 'send' || op.t === 'resume-send') && op.images.length > 0) return refuse('too-large');
@@ -342,6 +343,11 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
       case 'files': {
         if (!session.cwd) return refuse('session-unknown');
         return { ok: true, files: await deps.files(session.cwd, op.query) };
+      }
+      case 'switch-account': {
+        const r = deps.switchAccount ? await deps.switchAccount(sessionId, op.account) : 'resume-failed';
+        view.poke(sessionId);
+        return r === 'ok' ? { ok: true } : refuse(r);
       }
     }
   }

@@ -807,7 +807,11 @@ export class PeerChatViewer {
     } else if (op.t === 'cancel') wire = { t: 'cancel', queueId: op.queueId };
     else if (op.t === 'rush') wire = { t: 'rush', queueId: op.queueId };
     else if (op.t === 'files') wire = { t: 'files', query: op.query };
-    else wire = { t: 'interrupt' };
+    else if (op.t === 'switch-account') {
+      // 元の PC は、動いている claude を止め、消えるのを待ってから再開する。再開して送ると同じ長さを待つ。
+      wire = { t: 'switch-account', account: op.account };
+      waitMs = RESUME_WAIT_MS;
+    } else wire = { t: 'interrupt' };
     const out = await this.call(sessionId, g.target, wire, { waitMs, ...(blobs ? { blobs } : {}) });
     switch (out.kind) {
       case 'reply': {

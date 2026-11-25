@@ -63,6 +63,7 @@ const REFUSAL_KEY = {
   offline: 'peerChat.refusal.offline', 'refused-by-setting': 'peerChat.refusal.refusedBySetting', 'not-claude': 'peerChat.refusal.notClaude', 'session-unknown': 'peerChat.refusal.sessionUnknown',
   expired: 'peerChat.refusal.expired', 'already-answered': 'peerChat.refusal.alreadyAnswered', 'ask-mismatch': 'peerChat.refusal.askMismatch', 'resume-failed': 'peerChat.refusal.resumeFailed',
   'queue-expired': 'peerChat.refusal.queueExpired', 'too-large': 'peerChat.refusal.tooLarge', rate: 'peerChat.refusal.rate', 'host-error': 'peerChat.refusal.hostError', 'too-many': 'peerChat.refusal.tooMany',
+  'account-unavailable': 'peerChat.refusal.accountUnavailable',
 } as const;
 
 /** 断りの理由を、入力欄のそばに出す一言にする。知らない理由は「送れませんでした」。 */

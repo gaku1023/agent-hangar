@@ -72,6 +72,7 @@ export const peerChatEn: AreaDictionary<typeof peerChatKeys> = {
   'peerChat.refusal.tooLarge': 'The message or an image is too large',
   'peerChat.refusal.rate': 'Too many sends. Wait a moment',
   'peerChat.refusal.hostError': '{device} ran into a problem. Try again shortly',
+  'peerChat.refusal.accountUnavailable': 'No account with this name is signed in on {device}',
   'peerChat.refusal.tooMany': 'Too many conversations are being watched at once',
   'peerChat.refusal.other': 'It could not be sent',
 };

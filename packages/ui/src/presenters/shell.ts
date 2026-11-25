@@ -13,6 +13,7 @@ import { projectDisplayName } from './projectName.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 import { presentDeleteApprovals, type DeleteApprovalRow } from './deleteApprovals.ts';
 import { presentOrchestrator, presentOrchestratorNav, type OrchestratorNavProps, type OrchestratorPillarProps } from './orchestrator.ts';
+import { isPeerChatCandidate } from './peerChat.ts';
 import { presentPeerOrigin, type PeerOriginProps } from './peerOrigin.ts';
 import { presentNotices, type NoticesProps } from './notices.ts';
 import { presentSyncBadges } from './configKinds.ts';
@@ -46,7 +47,7 @@ export type UsageProps = { fiveHour: number | null; sevenDay: number | null; fiv
  * sessionId は Codex の会話の画面で開いている会話（ホームと Claude の会話では null）。
  */
 export type HeaderCodexAccounts = { list: AccountView[]; shownId: string; claudeShownId: string; sessionId: string | null; working: boolean };
-export type HeaderAccountProps = { shown: AccountView; /** 顔に出すアカウントのエージェント。顔の印になる。無ければ claude。 */ agent?: 'claude' | 'codex'; list: AccountView[]; sessionId: string | null; working: boolean; codex?: { usage: AgentUsageView; here: boolean } | null; codexAccounts?: HeaderCodexAccounts | null } | null;
+export type HeaderAccountProps = { shown: AccountView; /** 顔に出すアカウントのエージェント。顔の印になる。無ければ claude。 */ agent?: 'claude' | 'codex'; list: AccountView[]; sessionId: string | null; working: boolean; /** sessionId がほかの PC の会話（チャットで続ける）か。真なら切り替えを元の PC へ名前で頼む。 */ peer?: boolean; codex?: { usage: AgentUsageView; here: boolean } | null; codexAccounts?: HeaderCodexAccounts | null } | null;
 /**
  * 同期の一行は状態を示すだけで、操作は持たない。今すぐ同期、一時停止、PC を追加は設定の同期の群にある。
  * label は状態の語、title は label と件数を並べた全文で、狭いヘッダーで畳んだ部品もここから読める。
@@ -403,7 +404,11 @@ function headerAccount(state: State, store: Store, now: number): { account: Head
   const screenId = state.screen.name === 'session' ? state.screen.id : null;
   const screenSession = screenId === null ? undefined : store.sessions[screenId];
   const screenAgent = screenSession ? agentOfSession(store, screenSession) : null;
-  const sessionId = screenAgent === 'opencode' || screenAgent === 'codex' ? null : screenId;
+  // ほかの PC の会話は、この PC では再開できない（場所が無いことも多い）。チャットで続けられる間は元の PC へ頼み（peer）、
+  // 読み取り専用に落ちている間（fallback）は頼めないので、会話を指さず、この PC のいまのアカウントの切り替えにする。
+  const peerCandidate = isPeerChatCandidate(screenSession);
+  const peer = peerCandidate && screenId !== null && store.peerChat[screenId]?.phase !== 'fallback';
+  const sessionId = screenAgent === 'opencode' || screenAgent === 'codex' || (peerCandidate && !peer) ? null : screenId;
   const raw = (sessionId === null ? currentAccount(store) : accountOfSession(store, sessionId)) ?? accountList(store)[0]!;
   const list = presentAccounts(store, now);
   const claudeShown = list.find((a) => a.id === raw.id) ?? list[0]!;
@@ -425,7 +430,7 @@ function headerAccount(state: State, store: Store, now: number): { account: Head
   const codexCard = codex ? { usage: presentAgentUsage(t, codex, now), here: screenAgent === 'codex' } : null;
   const working = live === 'busy' || live === 'waiting';
   const codexAccounts: HeaderCodexAccounts | null = codexList.length === 0 ? null : { list: codexList, shownId: codexShownId ?? codexList[0]!.id, claudeShownId: claudeShown.id, sessionId: codexSessionId, working };
-  return { account: { shown, agent: codexShown ? 'codex' : 'claude', list, sessionId, working, codex: codexCard, ...(codexAccounts ? { codexAccounts } : {}) }, usage };
+  return { account: { shown, agent: codexShown ? 'codex' : 'claude', list, sessionId, working, ...(peer ? { peer: true } : {}), codex: codexCard, ...(codexAccounts ? { codexAccounts } : {}) }, usage };
 }
 
 /** tz は日付と時刻を言うときの時差で、省略すると端末の時差になる。 */

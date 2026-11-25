@@ -21,7 +21,7 @@ export type HostSession = {
   /**
    * この PC の手元が、いまの会話の持ち主でないことの印。
    * どれかが真なら、この PC の写しは古いか、ここで動かしてはならない。
-   * send、answer、interrupt、cancel、tail、files は session-unknown、resume-send は resume-failed で断る。
+   * send、answer、interrupt、cancel、tail、files は session-unknown、resume-send と switch-account は resume-failed で断る。
    * lock：ほかの PC で動いている。
    * newerElsewhere：ほかの PC に、この PC より新しい続きがある。
    * remoteOnly：この PC に本文が無い。
@@ -74,7 +74,7 @@ export type PeerChatHostDeps = {
   /**
    * 送り主の種類ごとの入り切り。
    * pc は設定 peerChatAcceptFromPeers（peerChatAcceptOf）、phone は設定 phoneChatAccept（phoneChatAcceptOf）を読む。
-   * 偽なら、その種類の送り主の送る系の頼み（send、answer、interrupt、resume-send、rush）を断り、預かっていた文は渡さずに捨てる。
+   * 偽なら、その種類の送り主の送る系の頼み（send、answer、interrupt、resume-send、rush、switch-account）を断り、預かっていた文は渡さずに捨てる。
    * cancel は断らない（預けた文を取り戻すだけ）。
    * 読む系（tail、files）は通す。
    */
@@ -112,6 +112,13 @@ export type PeerChatHostDeps = {
    * 投げれば resume-failed。
    */
   resume(sessionId: string): Promise<unknown>;
+  /**
+   * 会話を、この PC の同じ名前のアカウントで再開し直す（switch-account。動いていれば止めてから。RunManager.switchAccount と同じ道）。
+   * 名前のアカウントが無いかログインしていなければ account-unavailable、付け替えに失敗すれば resume-failed。
+   * この PC の既定のアカウントは変えない（頼んだのはほかの PC の人である）。
+   * 無い組み立てでは resume-failed で断る。
+   */
+  switchAccount?(sessionId: string, accountName: string): Promise<'ok' | 'account-unavailable' | 'resume-failed'>;
   /**
    * 頼み主が置いた画像の封（GET /peer/blobs/:askId/:n?from=）。
    * 取れなければ投げる。

@@ -8,6 +8,7 @@ import * as shared from './index.ts';
 import { COMPAT_VERSION } from './compat.ts';
 import { PEER_BELL_KINDS } from './peerCloud.ts';
 import {
+  PEER_CHAT_ACCOUNT_MAX_CHARS,
   aadPeerChat,
   aadPeerChatReply,
   checkPeerChatRequest,
@@ -52,6 +53,7 @@ const ops: PeerChatRequest['op'][] = [
   { t: 'resume-send', text: '再開して送る', images: [img] },
   { t: 'cancel', queueId: 'q-7' },
   { t: 'files', query: 'src/' },
+  { t: 'switch-account', account: '会社' },
 ];
 
 const state: PeerChatState = {
@@ -171,6 +173,9 @@ describe('頼みの形の検査', () => {
       req({ t: 'cancel' } as never),
       req({ t: 'files' } as never),
       req({ t: 'files', query: 3 } as never),
+      req({ t: 'switch-account' } as never),
+      req({ t: 'switch-account', account: '' }),
+      req({ t: 'switch-account', account: 'x'.repeat(PEER_CHAT_ACCOUNT_MAX_CHARS + 1) }),
     ];
     for (const b of bad) expect(parsePeerChatRequest(b), JSON.stringify(b)).toBeNull();
     for (const op of ops) expect(parsePeerChatRequest(req(op))).not.toBeNull();
@@ -263,8 +268,8 @@ describe('答えの封', () => {
     expect(shared.parsePeerChatReply(withAsk({ replaces: 3 }))).toBeNull();
   });
 
-  it('断りの理由は計画の 11 個', () => {
-    expect([...PEER_CHAT_REFUSALS]).toEqual(['offline', 'refused-by-setting', 'not-claude', 'session-unknown', 'expired', 'already-answered', 'ask-mismatch', 'resume-failed', 'queue-expired', 'too-large', 'rate', 'host-error']);
+  it('断りの理由は計画の 11 個と、switch-account の account-unavailable', () => {
+    expect([...PEER_CHAT_REFUSALS]).toEqual(['offline', 'refused-by-setting', 'not-claude', 'session-unknown', 'expired', 'already-answered', 'ask-mismatch', 'resume-failed', 'queue-expired', 'too-large', 'rate', 'host-error', 'account-unavailable']);
   });
 
   it('AAD が違えば開けず、形が不正な答えは封じも開けもしない', async () => {

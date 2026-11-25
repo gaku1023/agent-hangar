@@ -1147,6 +1147,13 @@ Claude Code が user として書くが利用者の発言ではない 2 つの�
 - 断られたとき（`refused-by-setting` は除く）と、送れても 30 秒（`PEER_ANSWER_TIMEOUT_MS`）のうちに届いた印もロックの変化も無いときは、相手の最新のロックに戻し、札をまた押せる形にして理由を出す。
   どの会話を見ていても気づけるよう、画面の下にも知らせ（押すとその会話を開く）を積む（`mediator/peerChat.ts` の `peerAnswer.failed`）。
 
+ほかの PC の会話の画面で、ヘッダからアカウントを選んだときは、この PC では再開しない（この PC にはプロジェクトの場所が無いことが多く、「プロジェクトのディレクトリがこの PC で見つかりません」で断られていた）。
+- 確認のあと、peer chat の `switch-account` の頼み（アカウントの名前）を元の PC へ送る。アカウントの ID は PC ごとに違うので、名前で頼む（別の PC への起動の `accountByName` と同じ決め方）。
+- 元の PC は同じ名前のアカウントを引き、画面の切り替えと同じ道（`RunManager.switchAccount`。動いていれば止め、消えるのを待って再開）で付け替える（`boot/peerChat.ts` の `switchAccountOf`）。元の PC の既定のアカウントは変えない。確認の「新しいセッションのデフォルトも…」の行も出さない。
+- 名前のアカウントが無いかログインしていなければ `account-unavailable`、付け替えに失敗すれば `resume-failed` で断り、会話の画面の下に理由を出す。送る系の頼みとして、`peerChatAcceptFromPeers` が切なら断る。
+- 会話の画面が読み取り専用に落ちている間（`fallback`）は頼めないので、ヘッダの切り替えは会話を指さず、この PC のいまのアカウントの切り替えにする。
+- この op を知らない古い元の PC は頼みを開けずに答えないので、見る側は待ちが切れて `expired` になる。
+
 ## Claude Code に固有の部分
 
 hangar は Claude Code に加えて opencode に対応する（2026-10-25、D7 を改める）。
@@ -10384,7 +10391,7 @@ PC の画面にも「〈スマホの名前〉から」と出る。
 PC の設定「スマホから会話に入力する」（`Settings.phoneChatAccept`、既定は入り）は、PC どうしの「ほかの PC からの入力を受け付ける」（`peerChatAcceptFromPeers`）と分ける。
 宿主は、送り主の種類（PC かスマホか）でどちらの設定を見るかを選ぶ（`acceptFrom(送り主)`）。
 頼みを断るとき、預かりを受けるとき、預かりを渡す直前の 3 か所で、同じ選び方をする。
-切のときは、読む頼み（tail、files）だけを通し、送る頼み（send、answer、interrupt、resume-send、rush）は `refused-by-setting` で断る。
+切のときは、読む頼み（tail、files）だけを通し、送る頼み（send、answer、interrupt、resume-send、rush、switch-account）は `refused-by-setting` で断る。
 スマホの頁は、切の PC では中断のボタンも出さない。
 スマホの鍵を持つ者は、もう全 PC で bypass の会話を起こせるので、会話に文を送れても守る境界は増えない（脅威モデルの「スマホの画面を差し替える」と同じ扱い）。
 それでも切り替えを置くのは、PC どうしは切、スマホは入、のように分けたい人がいるからである。

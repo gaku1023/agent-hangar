@@ -175,7 +175,12 @@ export type PeerChatOp =
   | { t: 'cancel'; queueId: string }
   /** 預けた文を、走っているターンを中断（Escape）してから渡す。送った PC だけができる。 */
   | { t: 'rush'; queueId: string }
-  | { t: 'files'; query: string };
+  | { t: 'files'; query: string }
+  /**
+   * 会話を、元の PC の同じ名前のアカウントで再開し直す（動いていれば止めてから）。
+   * アカウントの ID は PC ごとに違うので、名前で頼む。元の PC の既定のアカウントは変えない。
+   */
+  | { t: 'switch-account'; account: string };
 
 /**
  * 頼み（封の中身）。
@@ -186,9 +191,10 @@ export type PeerChatRequest = { v: 1; askId: string; expiresAt: number; sessionI
 /**
  * 断りの理由。
  * host-error は、元の PC の中の想定外の失敗である（つながっていないことを示す offline とは別）。
+ * account-unavailable は、switch-account の名前のアカウントが元の PC に無いか、ログインしていないとき。
  * 画面は「相手の PC で問題が起きた」と出し、つながっていないとは出さない。
  */
-export const PEER_CHAT_REFUSALS = ['offline', 'refused-by-setting', 'not-claude', 'session-unknown', 'expired', 'already-answered', 'ask-mismatch', 'resume-failed', 'queue-expired', 'too-large', 'rate', 'host-error'] as const;
+export const PEER_CHAT_REFUSALS = ['offline', 'refused-by-setting', 'not-claude', 'session-unknown', 'expired', 'already-answered', 'ask-mismatch', 'resume-failed', 'queue-expired', 'too-large', 'rate', 'host-error', 'account-unavailable'] as const;
 export type PeerChatRefusal = (typeof PEER_CHAT_REFUSALS)[number];
 
 /**
@@ -238,6 +244,8 @@ export const PEER_CHAT_KEYS_MAX = 32;
 export const PEER_CHAT_KEY_MAX_CHARS = 64;
 /** files の問い合わせの長さ（文字数）。 */
 export const PEER_CHAT_QUERY_MAX_CHARS = 512;
+/** switch-account の account（アカウントの名前）の長さの上限。 */
+export const PEER_CHAT_ACCOUNT_MAX_CHARS = 200;
 /** ID の欄（askId、sessionId、uuid、queueId）の長さ（文字数）。 */
 export const PEER_CHAT_ID_MAX_CHARS = 256;
 /**
@@ -324,6 +332,8 @@ function readOp(v: unknown): PeerChatOp | null {
       return isId(v.queueId) ? { t: 'rush', queueId: v.queueId } : null;
     case 'files':
       return isStr(v.query) && v.query.length <= PEER_CHAT_QUERY_MAX_CHARS ? { t: 'files', query: v.query } : null;
+    case 'switch-account':
+      return isStr(v.account) && v.account.length > 0 && v.account.length <= PEER_CHAT_ACCOUNT_MAX_CHARS ? { t: 'switch-account', account: v.account } : null;
     default:
       return null;
   }
@@ -678,7 +688,8 @@ export type PeerChatOpIn =
   | { t: 'interrupt' }
   | { t: 'cancel'; queueId: string }
   | { t: 'rush'; queueId: string }
-  | { t: 'files'; query: string };
+  | { t: 'files'; query: string }
+  | { t: 'switch-account'; account: string };
 
 /**
  * ops の答え。

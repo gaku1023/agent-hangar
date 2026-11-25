@@ -72,6 +72,7 @@ export const peerChatJa: AreaDictionary<typeof peerChatKeys> = {
   'peerChat.refusal.tooLarge': '文か画像が大きすぎます',
   'peerChat.refusal.rate': '送信が多すぎます。少し待ってください',
   'peerChat.refusal.hostError': '{device} で問題が起きました。しばらくしてからもう一度送ってください',
+  'peerChat.refusal.accountUnavailable': '{device} に同じ名前のアカウントがないか、ログインしていません',
   'peerChat.refusal.tooMany': '同時に見られる会話の数を超えています',
   'peerChat.refusal.other': '送れませんでした',
 };

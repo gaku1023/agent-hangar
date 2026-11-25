@@ -29,7 +29,7 @@ const SETTINGS = { name: 'settings', at: 'accounts' } as const;
  * 位置は place() で決め、Esc と外側の押下で閉じる。Esc ではボタンへフォーカスを戻す。
  */
 export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps>; children: ReactNode }) {
-  const { shown, list, sessionId, working, codex, codexAccounts } = props.account;
+  const { shown, list, sessionId, working, codex, codexAccounts, peer } = props.account;
   const agent = props.account.agent ?? 'claude';
   // Claude の節でいまの札。Codex の会話の画面では顔が Codex のアカウントなので、Claude の節は別に持つ。
   const claudeShownId = codexAccounts?.claudeShownId ?? shown.id;
@@ -86,7 +86,8 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
     if (blocked(a)) return;
     hide(true);
     if (a.id === claudeShownId) return;
-    emit(sessionId === null ? { type: 'account.choose', accountId: a.id } : { type: 'account.switchSession', sessionId, accountId: a.id, working });
+    // ほかの PC の会話は、アカウントの ID が PC ごとに違うので、名前で元の PC へ頼む。
+    emit(sessionId === null ? { type: 'account.choose', accountId: a.id } : { type: 'account.switchSession', sessionId, accountId: a.id, working, ...(peer ? { peerAccount: a.name } : {}) });
   };
 
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {

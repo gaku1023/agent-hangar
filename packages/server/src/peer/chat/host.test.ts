@@ -926,6 +926,41 @@ describe('PeerChatHost: resume-send', () => {
   });
 });
 
+describe('PeerChatHost: switch-account', () => {
+  it('名前を渡して付け替え、通れば ok で答える', async () => {
+    const got: [string, string][] = [];
+    const s = await setup({ deps: { switchAccount: async (sid, name) => { got.push([sid, name]); return 'ok'; } } });
+    expect(await s.ask({ t: 'switch-account', account: '会社' })).toMatchObject({ ok: true });
+    expect(got).toEqual([['s1', '会社']]);
+  });
+
+  it('付け替えの断り（無い名前、ログインしていない、起こせない）をそのまま返す', async () => {
+    for (const reason of ['account-unavailable', 'resume-failed'] as const) {
+      const s = await setup({ deps: { switchAccount: async () => reason } });
+      expect(await s.ask({ t: 'switch-account', account: 'x' })).toEqual({ ok: false, reason });
+    }
+  });
+
+  it('付け替えの口が無い組み立てでは resume-failed', async () => {
+    const s = await setup();
+    expect(await s.ask({ t: 'switch-account', account: 'x' })).toEqual({ ok: false, reason: 'resume-failed' });
+  });
+
+  it('送る系として、設定が切れていれば refused-by-setting で、付け替えない', async () => {
+    let called = 0;
+    const s = await setup({ acceptFromPeers: false, deps: { switchAccount: async () => { called++; return 'ok'; } } });
+    expect(await s.ask({ t: 'switch-account', account: 'x' })).toEqual({ ok: false, reason: 'refused-by-setting' });
+    expect(called).toBe(0);
+  });
+
+  it('この PC の会話でなければ resume-failed で、付け替えない', async () => {
+    let called = 0;
+    const s = await setup({ session: idleSession({ lock: true }), deps: { switchAccount: async () => { called++; return 'ok'; } } });
+    expect(await s.ask({ t: 'switch-account', account: 'x' })).toEqual({ ok: false, reason: 'resume-failed' });
+    expect(called).toBe(0);
+  });
+});
+
 describe('PeerChatHost: 答えの大きさ', () => {
   it('大きな預かりと本文があっても、封じられる大きさに収める', async () => {
     const s = await setup({ session: idleSession({ live: 'busy' }), lines: Array.from({ length: 300 }, (_, i) => asstLine(`line ${i} ${'x'.repeat(3000)}`)) });

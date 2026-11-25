@@ -2003,6 +2003,14 @@ describe('アカウント', () => {
     expect(b.state.launch).toEqual({ kind: 'submitting' });
     expect(b.effects).toEqual([{ kind: 'api.accounts.switchSession', sessionId: 's1', accountId: 'a1' }]);
   });
+  it('ほかの PC の会話の切り替えは、確認に名前を運び、承認したら元の PC へ switch-account を頼む（launch は動かさない）', () => {
+    const asked = run([action({ type: 'account.switchSession', sessionId: 'p1', accountId: 'a1', working: false, peerAccount: '個人' })]);
+    expect(asked.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'switchAccount', sessionId: 'p1', accountId: 'a1', working: false, peerAccount: '個人' } });
+    const b = run([action({ type: 'account.switchSession', sessionId: 'p1', accountId: 'a1', working: false, confirmed: true, peerAccount: '個人' })], asked.state);
+    expect(b.state.overlay).toEqual({ kind: 'none' });
+    expect(b.state.launch).toEqual({ kind: 'idle' });
+    expect(b.effects).toEqual([{ kind: 'peerChat', command: { op: 'send', sessionId: 'p1', body: { t: 'switch-account', account: '個人' } } }]);
+  });
   it('送信中の切り替え（承認）は何もしない', () => {
     const busy: State = { ...initialState(), launch: { kind: 'submitting' } };
     const r = run([action({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: false, confirmed: true })], busy);

@@ -24,7 +24,12 @@ export function accountsStep(state: State, input: Input): Step | null {
   switch (i.type) {
     case 'account.switchSession': {
       // 動いている claude を止めて別の置き場で再開するので、押しただけでは動かさず、先に確認を出す。
-      if (!i.confirmed) return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'switchAccount', sessionId: i.sessionId, accountId: i.accountId, working: i.working, ...(i.agent ? { agent: i.agent } : {}) } } }, effects: [] };
+      if (!i.confirmed) return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'switchAccount', sessionId: i.sessionId, accountId: i.accountId, working: i.working, ...(i.agent ? { agent: i.agent } : {}), ...(i.peerAccount ? { peerAccount: i.peerAccount } : {}) } } }, effects: [] };
+      // ほかの PC の会話は、元の PC が止めて再開する（peerChat の switch-account）。この PC では起こさないので launch は動かさず、断りは会話の画面の下に出る。
+      if (i.peerAccount) {
+        const closed = state.overlay.kind === 'confirm' ? { kind: 'none' as const } : state.overlay;
+        return { state: { ...state, overlay: closed }, effects: [{ kind: 'peerChat', command: { op: 'send', sessionId: i.sessionId, body: { t: 'switch-account', account: i.peerAccount } } }] };
+      }
       if (state.launch.kind === 'submitting') return { state, effects: [] };
       const overlay = state.overlay.kind === 'confirm' ? { kind: 'none' as const } : state.overlay;
       return { state: { ...state, overlay, launch: { kind: 'submitting' } }, effects: [{ kind: 'api.accounts.switchSession', sessionId: i.sessionId, accountId: i.accountId }] };
