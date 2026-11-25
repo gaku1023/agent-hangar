@@ -69,6 +69,18 @@ describe('裏だけ動いている（サブエージェント）', () => {
       expect(read([busy()], END + 10_000)).toEqual([busy()]);
     }
   });
+  it('報告がもう届いた知らせと、まだ報告していない途中の知らせは、本体の動きとみなさない', async () => {
+    // 2.1.332 では、サブエージェントの報告は SubagentHandback で先に届き、終わりの知らせはターンの終わりの後に来る。
+    // この知らせも、自分の裏の作業を待つ途中の知らせも、本体を起こさない（実物の記録で確かめた）。
+    const handedBack = user(12, '<task-notification>\n<task-id>aaa1</task-id>\n<status>completed</status>\n<summary>Agent "レビュー" finished</summary>\n<result>This agent\'s report was delivered to you as a message from "aaa1" (its SubagentHandback call). Read it there; it is not repeated here.\n</result>\n</task-notification>');
+    const interim = user(12, '<task-notification>\n<task-id>aaa1</task-id>\n<status>completed</status>\n<summary>Agent "レビュー" is waiting on its own background work</summary>\n<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>\n<result>This agent has not reported yet: it is waiting on its own background work and will deliver its report through SubagentHandback when that finishes.\n</result>\n</task-notification>');
+    // 終わった本は数えない。ほかの本がまだ動いていて、登録が busy のままの場面にあたる。
+    for (const [next, agents] of [[handedBack, 0], [interim, 1]] as const) {
+      db = openDb(':memory:'); // 同じ索引に書き直すと、本の数え方が前の場面を引きずる
+      await index([...launchAndEnd(), next]);
+      expect(read([busy()], END + 10_000)[0]!.aside).toEqual({ shell: false, agents });
+    }
+  });
   it('ターンの終わりの後に来た要約などの記録は、本体の動きとみなさない', async () => {
     await index([...launchAndEnd(), system(30, 'away_summary')]);
     expect(read([busy()], END + 10_000)[0]!.aside).toEqual({ shell: false, agents: 1 });

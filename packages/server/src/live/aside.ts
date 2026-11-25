@@ -12,6 +12,14 @@ export const ASIDE_SETTLE_MS = 2000;
 const LOOK_BACK = 40;
 /** 本体が動いた印になる種類。system は中身を読んで決める（バックグラウンドのタスクの知らせは本体を起こす）。 */
 const ACTIVE = new Set(['user', 'assistant', 'thinking', 'tool_call', 'tool_result']);
+/**
+ * 本体を起こさない <task-notification> の印。
+ * - 報告は SubagentHandback で先に届いていて、ここには繰り返さない、という終わりの知らせ（2.1.332）。ターンの終わりの後に来る。
+ * - サブエージェントが自分の裏の作業を待っていて、まだ報告していない、という途中の知らせ。
+ * どちらも、実物の記録では知らせのあとに API への要求が無かった。これを本体の動きと数えると、裏だけの間を作業中と見誤り、別の PC からの預かりが渡らない。
+ * 途中の知らせで本体が起きることもあるが、そのときは数秒で返答が本文に載り、裏だけの印はそこで外れる。
+ */
+const QUIET_NOTICE = /report was delivered to you as a message|has not reported yet/;
 
 /**
  * 本体（指揮役）は入力を受け付けていて、裏でサブエージェントなどだけが動いているかを、登録と本文から推す。
@@ -75,7 +83,10 @@ export class AsideReader {
       if (r.kind !== 'system') continue;
       const ev = readEvents(this.db, sessionId, { fromSeq: r.seq, limit: 1 }).events.find((e) => e.seq === r.seq);
       if (!ev || ev.kind !== 'system') continue;
-      if (ev.text.trimStart().startsWith('<task-notification>')) return null;
+      if (ev.text.trimStart().startsWith('<task-notification>')) {
+        if (QUIET_NOTICE.test(ev.text)) continue;
+        return null;
+      }
       if (ev.subtype === 'turn_duration') return ev.ts ?? null;
     }
     return null;
