@@ -29,9 +29,9 @@ export type { TranscriptFind };
 export function renderItem(sessionId: string, it: TranscriptItem, opts?: { fullReply?: boolean }): ReactNode {
   switch (it.kind) {
     case 'user': return <div className="msg msg-user"><Clamp seq={it.seq} part="msg" lines={estimateLines(it.text, 60)} shown={MSG_LINES} tone="accent" height>{() => <Hl text={it.text} />}</Clamp></div>;
-    // 返答と思考は、英語なら訳して見せる（translateMsg.tsx）。設定が切なら原文のまま。
+    // 返答は、英語なら見えたら訳して見せる。思考は開いたときに訳す（translateMsg.tsx）。設定が切なら原文のまま。
     case 'assistant': return <TranslatableMsg className="msg msg-assistant" seq={it.seq} text={it.text} clamp={!opts?.fullReply} />;
-    case 'thinking': return <TranslatableMsg className="msg msg-thinking" seq={it.seq} text={it.text} clamp />;
+    case 'thinking': return <TranslatableMsg className="msg msg-thinking" seq={it.seq} text={it.text} clamp lazy />;
     case 'system': return <div className="msg msg-system"><Hl text={it.text} /></div>;
     case 'tool': return <ToolItem sessionId={sessionId} item={it} />;
     case 'meta': return <div className="msg msg-system mono"><Hl text={`${it.name} ${it.json}`} /></div>;
@@ -47,14 +47,14 @@ const FALLBACK_VIEWPORT = 800;
 /** 本文は 60vh で頭打ちになるので、見積もりもそのあたりで止める。 */
 const ROW_MAX = 420;
 
-/** 測る前の高さの見積もり。ツールは畳んだ 1 行（まとめも畳んだ 1 行）、本文は 80 字で折り返した行数から当てる。 */
+/** 測る前の高さの見積もり。ツールは畳んだ 1 行（まとめも畳んだ 1 行）、本文は 60 字（返答の幅を広げたのに合わせた値）で折り返した行数から当てる。 */
 function estimateRow(row: TranscriptRow): number {
   const it = row.items[0]!;
   if (row.tools) return GAP + 24 + (row.items.length === 1 && it.kind === 'tool' && it.subagent ? 32 : 0);
   if (it.kind === 'tool') return GAP + 28 + (it.subagent ? 32 : 0);
   const text = it.kind === 'meta' ? `${it.name} ${it.json}` : it.text;
   let lines = 0;
-  for (const line of text.split('\n')) lines += Math.max(1, Math.ceil(line.length / 80));
+  for (const line of text.split('\n')) lines += Math.max(1, Math.ceil(line.length / 60));
   return GAP + Math.min(28 + lines * 20, ROW_MAX);
 }
 

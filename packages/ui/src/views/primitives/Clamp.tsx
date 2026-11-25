@@ -8,7 +8,7 @@ export const OUT_LINES = 12;
 /** 返答と指示を切る、その高さに収まる行数の見積もり。 */
 export const MSG_LINES = 15;
 /** 切っても隠れるのがこれより少なければ切らない。「残り 1 行」のために畳ませない。 */
-const SLACK = 3;
+export const SLACK = 3;
 
 /** 本文の見た目の行数の見積もり。76 字で折り返すとみなす。 */
 export function estimateLines(text: string, width = 76): number {
