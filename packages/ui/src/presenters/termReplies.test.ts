@@ -10,9 +10,15 @@ const ev = (kinds: [TranscriptEvent['kind'], string][]): TranscriptEvent[] =>
   kinds.map(([kind, text], seq) => (kind === 'tool_call' ? { kind, seq, toolId: 't', name: 'Bash', input: {}, summary: text } : { kind, seq, text } as TranscriptEvent));
 
 describe('finishedReplies', () => {
-  it('英語の返答だけを古い順に返し、日本語と思考は外す', () => {
-    const events = ev([['user', 'go'], ['thinking', EN1], ['assistant', EN1], ['user', 'next'], ['assistant', JA], ['assistant', EN2]]);
+  it('英語の返答だけを古い順に返し、日本語は外す', () => {
+    const events = ev([['user', 'go'], ['assistant', EN1], ['user', 'next'], ['assistant', JA], ['assistant', EN2]]);
     expect(finishedReplies(events, false)).toEqual([EN1, EN2]);
+  });
+
+  it('思考も返す（Claude Code は思考の要約を返答と同じ ● の行で出す）', () => {
+    const THINK = 'Session is up and the hangar tools are connected; I will wait for your word.';
+    const events = ev([['user', 'go'], ['thinking', THINK], ['assistant', EN1], ['user', 'next'], ['thinking', JA], ['assistant', EN2]]);
+    expect(finishedReplies(events, false)).toEqual([THINK, EN1, EN2]);
   });
 
   it('動いている間は、まだ終わっていないターン（最後の指示の後）の返答を外す', () => {
