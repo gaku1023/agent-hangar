@@ -26,4 +26,6 @@ export const transcriptKeys = {
   'transcript.more.older': ['n'],
   'transcript.more.newer': [],
   'transcript.more.unseen': ['n'],
+  'transcript.translate.showOriginal': [],
+  'transcript.translate.showTranslation': [],
 } as const satisfies MessageSpec;

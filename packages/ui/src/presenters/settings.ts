@@ -1,5 +1,5 @@
 import { presentOpencodeProviders, type OpencodeProvidersProps } from './opencodeProviders.ts';
-import { eventTriggerOf, orchestratorOf, type AgentKind, type CodexEffortOption, type CodexModelOption, type OpencodeModelOption, type OpencodeProviderOption, type OrchestratorSetting, peerChatAcceptOf, phoneChatAcceptOf, CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SharePreviewDto, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
+import { eventTriggerOf, orchestratorOf, translateEnglishOf, type AgentKind, type CodexEffortOption, type CodexModelOption, type OpencodeModelOption, type OpencodeProviderOption, type OrchestratorSetting, peerChatAcceptOf, phoneChatAcceptOf, CODEX_INJECTIONS, CODEX_VERIFIED_RANGE, codexEnabledOf, codexInjectionOf, codexInterceptOf, type CodexInjection, type CodexStatusDto, type AutoDoneIdleDays, DEFAULT_AUTO_DONE_IDLE_DAYS, DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, isAutoDoneIdleDays, KNOWN_EDITORS, type SharePreviewDto, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto, setupGuidePrompt, OPENCODE_INJECTIONS, OPENCODE_VERIFIED_RANGE, opencodeEnabledOf, opencodeInjectionOf, opencodeInterceptOf, opencodePermissionPresetOf, type OpencodeInjection, type OpencodeStatusDto, DEFAULT_LOCAL_CONTEXT, LOCAL_CONTEXT_CHOICES, localContextOf, DEFAULT_IDLE_UNLOAD, IDLE_UNLOAD_CHOICES, idleUnloadOf } from '@agent-hangar/shared';
 import { canLaunchGuide } from './investigate.ts';
 import { presentNotifyRules, type NotifyRulesProps } from './notifyRules.ts';
 import type { SaveMark, State } from '../mediator/types.ts';
@@ -337,6 +337,8 @@ export type SettingsProps = {
   notifyRules: NotifyRulesProps;
   /** ほかの PC で動いている会話をサイドバーに出すか。無ければ入りとして読む。 */
   sidebarOtherPcs?: boolean;
+  /** AI の英語の返答と思考を日本語で見せるか（plamo-translate）。無ければ切として読む。 */
+  translateEnglish?: boolean;
   /** ツールの節の先頭の psmux（tmux）の状態の行（段 6 の B3）。準備の確かめが届く前は null。 */
   mux?: MuxStatus | null;
   /**
@@ -667,6 +669,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     notify: { available: store.notify.available, on: store.notify.on, blocked: store.notify.blocked, ...(store.notify.ask ? { ask: true } : {}) },
     notifyRules: presentNotifyRules(t, s ?? null, platform),
     sidebarOtherPcs: s?.sidebarOtherPcs !== false,
+    translateEnglish: translateEnglishOf(s ?? {}),
     self: { autoDone: s?.autoDone !== false, autoDoneIdleDays: isAutoDoneIdleDays(s?.autoDoneIdleDays) ? s.autoDoneIdleDays : DEFAULT_AUTO_DONE_IDLE_DAYS, autoPark: s?.autoPark !== false },
     setupGuide: store.setupGuide ? { prompt: setupGuidePrompt(t, store.setupGuide), version: store.setupGuide.version, launch: canLaunchGuide(store) } : null,
   };

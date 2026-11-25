@@ -19,6 +19,7 @@ import { setupGuideRoutes } from './routes/setupGuide.ts';
 import { shareRoutes } from './routes/share.ts';
 import { orchestratorRoutes } from './routes/orchestrator.ts';
 import { voiceRoutes } from './routes/voice.ts';
+import { translateRoutes } from './routes/translate.ts';
 import { eventRoutes } from './routes/events.ts';
 import { scheduleRoutes } from './routes/schedules.ts';
 import { projectRoutes } from './routes/projects.ts';
@@ -146,6 +147,7 @@ export function createApp(deps: AppDeps): Hono {
   todoRoutes(api, deps);
   orchestratorRoutes(api, deps);
   voiceRoutes(api, deps);
+  translateRoutes(api, deps);
   scheduleRoutes(api, deps);
   eventRoutes(api, deps);
   instructionRoutes(api, deps);

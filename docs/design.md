@@ -11148,6 +11148,20 @@ MLX の build の中間物（DerivedData）は `~/Library/Caches/agent-hangar/vo
   - 補助が使えない環境（`VoiceStateDto.available` が偽、Windows）では、声の欄と試し聞きを出さず、聞き方と名前・読み・口調・速さだけにする。声の一覧も読まない。
   - 保存は設定の PATCH で `voice` の全体を送る（field は `voice`）。名前・読み・口調は欄を出たとき（blur）か 600ms の間のあとに保存し、速さは動かして 600ms のあとに保存する。shared の人格の決まり（`isVoicePatch`）に合わない値（空の名前、ひらがなでない読み、長い口調）は保存せず、欄には打った値を残す。保存の失敗は節の下に理由を出す。
 
+## 英語の返答の翻訳
+
+AI が英語で書いた返答と思考を、表示する側でローカルの翻訳にかけて日本語で見せる（設定 `translateEnglish`、この PC だけで同期しない、既定は切）。
+AI に「日本語で書き直して」と頼むと、その指摘と書き直しの分だけ会話の文脈が増える。表示する側で訳せば、エージェントには何も届かない。
+
+- 翻訳は PFN の `plamo-translate`（PLaMo 翻訳の CLI、既定のモデルは PLaMo 3 Translate 2B）に任せる。モデルは同梱しない（PLaMo Community License）。利用者が `uv tool install plamo-translate` などで入れておく。Windows は plamo-translate が動かない（WSL だけ）ので、使えないものとして扱う。
+- `plamo-translate server` は MCP のサーバ（streamable-http）で、道具 `plamo-translate` を 1 つ持つ。ポートはモデルを載せ終えてから決まり、一時フォルダ（`TMPDIR`、無ければ一時フォルダの下の `plamo-translate-<uid>`）の `plamo-translate-config.json` に書かれる。サーバ（`translate/plamo.ts`）はそのファイルからポートを読み、MCP のクライアントで道具を呼ぶ。入力は CLI と同じく、`input lang=English` と `output lang=Japanese` を頭に書いた 2 通で渡す。
+- 利用者が自分で起こしたサーバが居れば、それを使い、止めない。居なければ hangar が初めて訳すときに起こし（`detached`、`HANGAR_` の環境変数は渡さない）、10 分使わないか設定を切にしたら、1 分ごとの見回りで止める。止めないとモデルがメモリに残るためである。hangar の終わりにも止める。
+- 翻訳は 1 本ずつ順に回す。サーバが応答しなくなっていたら、1 度だけ起こし直してやり直す。起動は初回のモデルの取得（5.8GB）を見込んで 20 分まで待つ。
+- 訳はサーバのメモリに 500 件まで覚え（`translate/service.ts`、古いものから捨てる）、同じ文を同時に頼まれたら 1 回だけ訳す。hangar を起こし直すと忘れる。画面の側も Root が訳を覚え、行が窓から外れて戻ってきたときに頼み直さない。
+- 口は `POST /api/translate`（`{ text }` → `TranslateResultDto`）。設定が切なら `off`、plamo-translate が無ければ `unavailable`、失敗は `error` を、どれも 200 で返す。画面は訳せなかった文を原文のまま見せる。
+- 訳すのは、コードの塊・インラインのコード・URL を除いた地の文に英字が 24 字以上あり、かなと漢字が 1 割以下の文（`isEnglishText`）。40,000 字を超える文は訳さない（PLaMo 3 Translate は入力と出力を合わせて 32,768 トークンまで）。
+- 画面（`views/translateMsg.tsx`、2026-11-25 の試作の A）：返答と思考の 1 通ごとに、待つ間は文字の上に薄い光を流し、届いたら高さを滑らせて（`resizeFrom`）中身を薄く入れ替える（`fadeIn`）。右上の翻訳のアイコンで、その 1 通だけ原文に戻す。原文に戻したかは行の開閉と同じ置き場（part `orig`）に持つ。`useOpen` は使わない。検索や会話を開いたときの跳び先（revealed）で開いた扱いになり、最新の返答が原文のまま出てしまうからである。
+
 ## 決めた前提と未決事項
 
 インタビューで問わず、筆者が埋めた前提を列挙する。

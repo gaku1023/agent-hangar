@@ -296,6 +296,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       schedules.stop();
       web.orchestrator.stop();
       await web.voice.stop();
+      web.translator.stop();
       orchestratorFeed.stop();
       // 本文をゴミ箱へ移している最中の回は、DB を閉じる前に待ち切る。
       await trash.stop();
