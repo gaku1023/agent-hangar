@@ -93,7 +93,7 @@ export type CodexEventMap = {
 };
 export type CodexEventName = keyof CodexEventMap;
 
-/** サーバからの要求（承認など）。hangar の接続は答えない（TUI が答える）。 */
+/** サーバからの要求（承認など）。答えは TUI か、peer chat の札（answer.ts）が返す。 */
 export type CodexServerRequest = { id: string | number; method: string; params: unknown };
 export type CodexNotification = { method: string; params: unknown };
 
@@ -125,7 +125,7 @@ type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; time
 
 /**
  * app-server への WebSocket の接続 1 本。要求と応答、通知の購読を持つ。
- * 承認などのサーバからの要求は `onServerRequest` で見られるが、答える口は作らない（決定 5）。
+ * 承認などのサーバからの要求は `onServerRequest` で見られる。答える口は respond と respondError（peer chat の札。provider/codex/answer.ts）。
  */
 export class CodexRpc {
   private nextId = 1;
@@ -187,6 +187,18 @@ export class CodexRpc {
   notify(method: string, params?: unknown): void {
     if (this.closed) return;
     this.ws.send(JSON.stringify({ method, ...(params === undefined ? {} : { params }) }));
+  }
+
+  /** サーバからの要求（id つき）に、結果を返す。接続が閉じていれば投げる。 */
+  respond(id: number | string, result: unknown): void {
+    if (this.closed) throw new Error('app-server connection is closed');
+    this.ws.send(JSON.stringify({ id, result }));
+  }
+
+  /** サーバからの要求（id つき）に、エラーを返す。 */
+  respondError(id: number | string, code: number, message: string): void {
+    if (this.closed) throw new Error('app-server connection is closed');
+    this.ws.send(JSON.stringify({ id, error: { code, message } }));
   }
 
   /** 型つきの購読。外すための関数を返す。 */

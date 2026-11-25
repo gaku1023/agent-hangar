@@ -42,6 +42,9 @@ class StubRpc implements CodexRpcLike {
   onAny(h: (n: CodexNotification) => void): () => void { this.any.add(h); return () => this.any.delete(h); }
   onServerRequest(h: (r: CodexServerRequest) => void): () => void { this.reqs.add(h); return () => this.reqs.delete(h); }
   onClose(h?: () => void): void { if (h) this.closers.add(h); }
+  responses: { id: number | string; result?: unknown; error?: { code: number; message: string } }[] = [];
+  respond(id: number | string, result: unknown): void { this.responses.push({ id, result }); }
+  respondError(id: number | string, code: number, message: string): void { this.responses.push({ id, error: { code, message } }); }
   emit(method: string, params: unknown): void {
     for (const h of [...(this.typed.get(method) ?? [])]) h(params as never);
     for (const h of [...this.any]) h({ method, params });

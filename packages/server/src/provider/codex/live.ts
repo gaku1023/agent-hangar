@@ -16,12 +16,12 @@ import { CodexRpcError, type CodexRpc, type CodexThreadStatus } from './appServe
  * - `turn/started`・`turn/completed` と、承認の要求（サーバからの要求）、`serverRequest/resolved` は、スレッドを購読した接続にだけ届く。
  *   thread/start した接続は購読済み。TUI が作ったスレッドは、最初の active で `thread/resume {excludeTurns:true}` を送って購読する。
  *   入力の前は "no rollout found" で断られるので、短い間隔で再試行する。最初のターンの冒頭は取りこぼす。
- * - hangar の接続は承認の要求に答えない。答えは TUI で行う。要求が TUI で解かれたら（`serverRequest/resolved`、待ちの旗が消える、ターンの終わり、休み）、写しからも消す。
+ * - hangar の接続は、ふだんは承認の要求に答えない（答えは TUI で行う。peer chat の札だけ answer.ts が答える）。要求が TUI で解かれたら（`serverRequest/resolved`、待ちの旗が消える、ターンの終わり、休み）、写しからも消す。
  * - 接続が閉じた（TUI を閉じて app-server を止めた、app-server が落ちた）ら、行ごと外す。「実行中」は残さない。app-server の pid が消えたときも同じ。
  */
 
 /** 写しに使う接続の口。CodexRpc の一部。 */
-export type CodexRpcLike = Pick<CodexRpc, 'request' | 'on' | 'onAny' | 'onServerRequest' | 'onClose' | 'isClosed'>;
+export type CodexRpcLike = Pick<CodexRpc, 'request' | 'on' | 'onAny' | 'onServerRequest' | 'onClose' | 'isClosed' | 'respond' | 'respondError'>;
 
 /** 写しに載せる会話。providerSessionId は thread の ID（thread_id と session_id は同じ）。pid は app-server の pid。 */
 export type CodexLiveTarget = {
@@ -101,6 +101,14 @@ export class CodexLive implements LiveSource, CodexAskFeed {
     this.attach(c);
     this.rebuild();
     void this.resync(c);
+  }
+
+  /** 会話の待っている要求と、答えを書く接続。要求が無ければ空の配列。会話を載せていなければ null。許可を先に並べる。 */
+  askHandle(providerSessionId: string): { pending: CodexPending[]; rpc: CodexRpcLike } | null {
+    const c = this.conns.get(providerSessionId);
+    if (!c) return null;
+    const pending = [...c.pending.values()].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'permission' ? -1 : 1));
+    return { pending, rpc: c.t.rpc };
   }
 
   /** 会話を写しから外す。答えを待っていた問いは、答えたと流す（もう答えられない）。 */
