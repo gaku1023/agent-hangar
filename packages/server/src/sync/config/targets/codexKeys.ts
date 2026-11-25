@@ -1,6 +1,6 @@
 /**
  * Codex の config.toml の鍵の仕分け（設計書 3 章）。
- * 鍵の名前は codex-rs の config.schema.json（確かめた版 0.167.0、トップレベル 103 鍵）から写した。値は写していない。
+ * 鍵の名前は codex-rs の config.schema.json（確かめた版 0.172.0、トップレベル 106 鍵）から写した。値は写していない。
  * 表に無い鍵は「知らない鍵」で、運ばない。
  *
  * 項目の単位は、トップレベルの鍵、または表の 1 段下の鍵（`tui.theme`）。
@@ -48,8 +48,8 @@ const TABLES: Readonly<Record<string, Table>> = {
     'agents_overview_grouping', 'alternate_screen', 'animations', 'auto_recap', 'copy_on_select', 'copy_on_select_clear_selection', 'disable_paste_burst', 'effects',
     'fullscreen_transcript', 'keymap', 'mouse_scroll_speed', 'notification_condition', 'notification_method', 'notifications', 'pet', 'pet_anchor', 'presets',
     'question_esc_back', 'raw_output_mode', 'rendering', 'resume_cwd', 'right_click_paste', 'session_picker_view', 'show_server_version_notice', 'show_tooltips',
-    'status_line', 'status_line_use_colors', 'terminal_resize_reflow_max_rows', 'terminal_title', 'theme', 'vim_mode_default',
-  ), model_availability_nux: 'state', screen_reader_detection_done: 'state' } },
+    'status_line', 'status_line_use_colors', 'terminal_resize_reflow_max_rows', 'terminal_title', 'theme', 'vim_mode_default', 'collapse_turn_details', 'sidebar_width_percent',
+  ), model_availability_nux: 'state', screen_reader_detection_done: 'state', default_hosts: 'machine', status_line_provider: 'machine' } },
   features: { sub: {}, open: 'boolean' },
   memories: { sub: carry('consolidation_model', 'consolidation_service_tier', 'dedicated_tools', 'disable_on_external_context', 'dual_write', 'extract_model', 'generate_memories', 'max_raw_memories_for_consolidation', 'max_rollout_age_days', 'max_rollouts_per_startup', 'max_unused_days', 'min_rate_limit_remaining_percent', 'min_rollout_idle_hours', 'use_memories', 'version') },
   desktop: { sub: {}, open: 'any' },
@@ -61,7 +61,10 @@ const TABLES: Readonly<Record<string, Table>> = {
   history: { sub: carry('max_bytes', 'persistence') },
   ghost_snapshot: { sub: carry('disable_warnings', 'ignore_large_untracked_dirs', 'ignore_large_untracked_files') },
   windows: { sub: carry('allow_mxc', 'sandbox') },
-  tools: { sub: carry('experimental_request_user_input', 'update_plan', 'web_search') },
+  tools: { sub: carry('client_search_provider', 'experimental_request_user_input', 'update_plan', 'web_search') },
+  code_mode: { sub: carry('heartbeat_interval_s') },
+  responses: { sub: carry('process_mode') },
+  rollout_trace: { sub: carry('max_bytes', 'max_payload_bytes') },
   auto_review: { sub: carry('circuit_break_action', 'conversation_history_max_output_tokens', 'experimental_conversation_history_prompt', 'experimental_policy_template', 'extra_policy', 'policy', 'timeout_ms') },
   browser_use: { sub: carry('allow_history_access', 'default_origin_policy', 'origins') },
   computer_use: { sub: carry('default_app_access', 'macos', 'windows') },

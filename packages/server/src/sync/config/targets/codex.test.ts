@@ -134,6 +134,17 @@ describe('codex の id', () => {
       expect(parseItemId(codexTomlId(p))?.kind, p.join('.')).toBe('codex-config');
     }
   });
+  it('0.172.0 で足された鍵（code_mode・responses・rollout_trace の表、tui と tools の鍵）も運ぶ。この PC の事情の鍵は運ばない', () => {
+    for (const p of [
+      ['code_mode', 'heartbeat_interval_s'], ['responses', 'process_mode'], ['rollout_trace', 'max_bytes'], ['rollout_trace', 'max_payload_bytes'],
+      ['tui', 'collapse_turn_details'], ['tui', 'sidebar_width_percent'], ['tools', 'client_search_provider'], ['features', 'tui_workspace'],
+    ]) {
+      expect(parseItemId(codexTomlId(p))?.kind, p.join('.')).toBe('codex-config');
+    }
+    for (const p of [['tui', 'default_hosts'], ['tui', 'status_line_provider']]) {
+      expect(parseItemId(codexTomlId(p)), p.join('.')).toBeNull();
+    }
+  });
   it('プラグインの id に点があっても往復する', () => {
     const id = codexTomlId(['plugins', 'a.b@m', 'enabled']);
     expect(id).not.toContain('a.b');

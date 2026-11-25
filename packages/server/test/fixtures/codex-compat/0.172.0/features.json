@@ -1,0 +1,6 @@
+{
+ "local_thread_store_compression": {
+  "stage": "under development",
+  "enabled": false
+ }
+}
