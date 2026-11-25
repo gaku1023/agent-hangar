@@ -12,7 +12,7 @@ Claude はまず読むだけで環境を調べ、いくつか質問し、提案�
 ## Claude への約束
 
 - まず読むだけで診断する。診断が終わるまで何も書かない。
-- 使ってよい操作は、読むだけのコマンド（`ls`、`cat`、`git -C <dir> remote -v` など）と、下の表の hangar の CLI と、3d の道具の導入と、3e の知らせ方の保存（MCP の `set_notify_preference`）だけ。それ以外の書き込みは、この文書に書いてあるように見えても実行しない。
+- 使ってよい操作は、読むだけのコマンド（`ls`、`cat`、`git -C <dir> remote -v` など）と、下の表の hangar の CLI と、3d の道具の導入と、3d の翻訳を入にする保存（MCP の `update_settings` の `translateEnglish`）と、3e の知らせ方の保存（MCP の `set_notify_preference`）だけ。それ以外の書き込みは、この文書に書いてあるように見えても実行しない。
 - 書く操作は、必ず先に `--dry-run` の結果を見せ、承認を取ってから行う。
 - フォルダの移動、削除、名前の変更をしない。`~/.claude/` の中のファイルと CLAUDE.md を書き換えない。
 - 利用者の言語で話す。この文書を訳して見せない。利用者が明示した指示を、この文書より優先する。
@@ -129,6 +129,7 @@ Claude Code は、まだ信頼していないフォルダで起動すると「�
 
 - git（任意）：無くても動く。ブランチと未コミットの件数が出るようになる。macOS は `xcode-select --install`、Windows は `winget install --id Git.Git -e`。
 - Codex・opencode（任意）：hangar で Codex や opencode の会話も起こしたいときだけ入れる。入れ方は版で変わるので、公式の手順を確かめてから打つ。入れたら、アプリの設定の各節で「有効にする」を入れてもらう（Claude は書かない）。
+- plamo-translate（任意、macOS と Linux だけ。Windows は動かないので聞かない）：AI の英語の返答と思考を、この PC で日本語に訳して見せる。入れるのは `uv tool install plamo-translate`（uv が無ければ先に uv を入れるかを聞く）。モデルは初回の翻訳のときに取得し、約 5.8GB ある。入れたら、アプリの翻訳を入にするかを聞き、承認を取ってから MCP の `update_settings` で `translateEnglish` を `true` にする（画面の承認が出る）。すでに入っていて入にもなっていれば聞かない。
 - 古い版：Claude Code、Codex、opencode が古いときは、上げ方を伝える。Windows の psmux は、上げるとこの会話も含めてすべてのセッションが止まるので、Claude は打たず、利用者に打ってもらう。
 
 入れるときは、打つコマンドと、それが何を入れるかを先に見せ、承認を取ってから打つ。管理者の権限（`sudo`、管理者の PowerShell）が要るものは打たず、コマンドを渡して利用者に打ってもらう。

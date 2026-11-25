@@ -1,6 +1,6 @@
 import { DEFAULT_AGENT_KIND, isAgentKind, type InvestigateContext, type LaunchParams, type NonDefaultAgentKind, type SessionLaunchSettingsDto, type UiAction } from '@agent-hangar/shared';
 import { translatorOf } from '../presenters/i18n.ts';
-import { investigateSeed, setupGuideSeed } from '../presenters/investigate.ts';
+import { investigateSeed, setupGuideSeed, translateInstallSeed } from '../presenters/investigate.ts';
 import type { Store } from '../store/store.ts';
 import { overlayReplaceable } from './overlay.ts';
 import type { Effect, Input, LaunchPrefs, LaunchPrepMark, NewSessionDraft, State, Step } from './types.ts';
@@ -242,6 +242,9 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
       if (!seed) return { state, effects: [] };
       return launchStep(state, store, { kind: 'action', action: { type: 'session.new.open', scratch: true, seed } });
     }
+    case 'translate.install':
+      // ホームの翻訳の行から。plamo-translate を入れる依頼を入れたクイックセッションのダイアログを開く（すぐには起動しない）。
+      return launchStep(state, store, { kind: 'action', action: { type: 'session.new.open', scratch: true, seed: translateInstallSeed(store) } });
     case 'opencode.providers.manage': {
       // ダイアログから来たときだけ、戻る先を覚える。ダイアログを閉じて、設定の opencode の面へ移る。
       const o = state.overlay;

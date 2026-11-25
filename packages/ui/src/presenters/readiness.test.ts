@@ -4,7 +4,7 @@ import { SETTINGS_SECTIONS, settingsSectionOf, translator } from '@agent-hangar/
 import { initialState } from '../mediator/transition.ts';
 import { initialStore } from '../store/store.ts';
 import { presentSettings } from './settings.ts';
-import { clientPlatform, liveReadiness, muxInstallCommand, muxName, notifyBlockedKey, presentMux, presentMuxGuide, presentReadiness, READINESS_AT, readinessPending, toolLine, workspaceLine, type ReadinessKey } from './readiness.ts';
+import { clientPlatform, liveReadiness, muxInstallCommand, muxName, notifyBlockedKey, presentMux, presentMuxGuide, presentReadiness, READINESS_AT, readinessPending, toolLine, translateAskOf, workspaceLine, type ReadinessKey } from './readiness.ts';
 
 const READY: ReadinessDto = {
   tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
@@ -342,8 +342,68 @@ describe('始める前の確認の通知の行（9c）', () => {
   });
 });
 
+// 翻訳の行は通知の行と同じ作りの任意の行で、機能があること自体に気付いてもらうために出す（2026-11-25 の試作の H1）。
+describe('始める前の確認の翻訳の行', () => {
+  const NO = { ...READY, translate: { installed: false } };
+  const HAS = { ...READY, translate: { installed: true } };
+  const setup = (translateAsk: boolean) => ({ desktop: true, running: null, translateAsk });
+  const rowOf = (r: ReadinessDto, tr = ja, platform = 'darwin', ask = true) => presentReadiness(r, tr, platform, 'idle', setup(ask))!.group.rows.find((x) => x.key === 'ready:translate');
+  it('plamo-translate が無く tmux と claude があれば、入れるコマンドを薄く添え、主ボタンは「エージェントで導入…」で種付きのダイアログを開く', () => {
+    const row = rowOf(NO)!;
+    expect(row).toMatchObject({ name: '翻訳', badge: '任意', text: '英語の返答を日本語で見る', detail: 'uv tool install plamo-translate', lead: { kind: 'check', tone: 'soft' } });
+    expect(row.actions.map((a) => [a.label, a.primary, a.ghost, a.send])).toEqual([
+      ['エージェントで導入…', true, false, { type: 'translate.install' }],
+      ['使わない', false, true, { type: 'settings.update', patch: { translateHintDeclined: true } }],
+    ]);
+    expect(presentReadiness(NO, ja, 'darwin', 'idle', setup(true))!.group.rows.at(-1)!.key).toBe('ready:translate');
+  });
+  it('tmux か claude が無ければ起動できないので、コマンドのコピーにする', () => {
+    const noClaude: ReadinessDto = { ...NO, tools: { ...NO.tools, claude: { path: null, ok: false, problem: 'unset', version: null } } };
+    const row = rowOf(noClaude)!;
+    expect(row.actions.map((a) => [a.label, a.send])).toContainEqual(['コマンドをコピー', { type: 'clipboard.copy', text: 'uv tool install plamo-translate' }]);
+    expect(row.actions[0]!.primary).toBe(true);
+  });
+  it('plamo-translate があれば、主ボタンは「有効にする」で翻訳を入にする', () => {
+    const row = rowOf(HAS)!;
+    expect(row.detail).toBeNull();
+    expect(row.actions.map((a) => [a.label, a.primary, a.ghost, a.send])).toEqual([
+      ['有効にする', true, false, { type: 'settings.update', patch: { translateEnglish: true } }],
+      ['使わない', false, true, { type: 'settings.update', patch: { translateHintDeclined: true } }],
+    ]);
+  });
+  it('出す条件を満たさない（translateAsk が偽、または Windows）ときは行を出さない', () => {
+    expect(rowOf(NO, ja, 'darwin', false)).toBeUndefined();
+    expect(presentReadiness(NO, ja, 'win32', 'idle', setup(true))?.group.rows.some((r) => r.key === 'ready:translate') ?? false).toBe(false);
+    expect(presentReadiness(READY, ja)!.group.rows.some((r) => r.key === 'ready:translate')).toBe(false);
+  });
+  it('通知の行と同じく、ほかが全部済んでも答えるまで群を残し、件数に数える', () => {
+    const b = presentReadiness({ ...ALL_OK, translate: { installed: true } }, ja, 'darwin', 'idle', setup(true))!;
+    expect(b.group.rows.map((r) => r.key)).toEqual(['ready:translate']);
+    expect(b.group.count).toBe(1);
+    expect(presentReadiness(ALL_OK, ja, 'darwin', 'idle', setup(false))).toBeNull();
+  });
+  it('English でも出す', () => {
+    const row = rowOf(HAS, en)!;
+    expect(row).toMatchObject({ name: 'Translation', badge: 'Optional' });
+    expect(row.actions.map((a) => a.label)).toEqual(['Turn on', 'No thanks']);
+    expect(rowOf(NO, en)!.actions[0]!.label).toBe('Install with an agent…');
+  });
+  it('translateAskOf：Windows 以外で、翻訳が切で、断っておらず、サーバが翻訳の確かめを返すときだけ真', () => {
+    expect(translateAskOf({}, HAS, 'darwin')).toBe(true);
+    expect(translateAskOf({}, HAS, 'linux')).toBe(true);
+    expect(translateAskOf({}, HAS, 'win32')).toBe(false);
+    expect(translateAskOf({ translateEnglish: true }, HAS, 'darwin')).toBe(false);
+    expect(translateAskOf({ translateHintDeclined: true }, HAS, 'darwin')).toBe(false);
+    expect(translateAskOf({}, READY, 'darwin')).toBe(false);
+    expect(translateAskOf(null, HAS, 'darwin')).toBe(false);
+  });
+  it('設定の一般の節を指す', () => {
+    expect(READINESS_AT.translate).toBe('general');
+  });
+});
+
 describe('帯の行から設定の欄への対応（READINESS_AT）', () => {
-  const KEYS: ReadinessKey[] = ['tmux', 'claude', 'workspace', 'projects', 'git', 'mcp', 'statusline', 'editor', 'compat', 'notify'];
+  const KEYS: ReadinessKey[] = ['tmux', 'claude', 'workspace', 'projects', 'git', 'mcp', 'statusline', 'editor', 'compat', 'notify', 'translate'];
   it('帯の行のすべてが、設定の節を持つ', () => {
     expect(Object.keys(READINESS_AT).sort()).toEqual([...KEYS].sort());
     for (const k of KEYS) expect(SETTINGS_SECTIONS).toContain(settingsSectionOf(READINESS_AT[k]));
