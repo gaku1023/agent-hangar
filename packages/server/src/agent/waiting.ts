@@ -1,4 +1,4 @@
-import { clampText, type LiveSessionDto, type MobileWaiting, type TranscriptEvent } from '@agent-hangar/shared';
+import { clampText, DEFAULT_LANGUAGE, permissionToolLabel, translator, type Language, type LiveSessionDto, type MobileWaiting, type TranscriptEvent } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { readEvents } from '../transcript/read.ts';
 
@@ -14,9 +14,10 @@ import { readEvents } from '../transcript/read.ts';
  * 許可の待ちでは、前の AskUserQuestion の問いが残っていても許可の中身を出す。
  * 問いの待ちでは、AskUserQuestion でない許可の中身を問いとして出さない。
  * Claude Code の版によっては AskUserQuestion の待ちに permission を書くので、許可の中身が AskUserQuestion なら問いとして扱う。
+ * 道具の名前は利用者に見せる形にする（FolderTrust は「ディレクトリの信頼」）。言語は呼び手が渡し、無ければ既定（日本語）。
  * 許可でない待ち（other）で、最後の呼び出しにもう答えが出ていれば、その問いは済んだものなので出さない（staleWait）。
  */
-export function waitingOf(db: Db, sessionId: string, live: LiveSessionDto): MobileWaiting | null {
+export function waitingOf(db: Db, sessionId: string, live: LiveSessionDto, language: Language = DEFAULT_LANGUAGE): MobileWaiting | null {
   if (live.status !== 'waiting') return null;
   const act = db.prepare('select tool, tool_id, question from session_activity where session_id = ?').get(sessionId) as { tool: string; tool_id: string; question: string | null } | undefined;
   const asked = act?.tool === 'AskUserQuestion' && act.question ? act.question : null;
@@ -25,8 +26,9 @@ export function waitingOf(db: Db, sessionId: string, live: LiveSessionDto): Mobi
   const asking = live.waitingFor === 'question' || p?.tool === 'AskUserQuestion';
   if (asking) return { kind: 'question', text: clampText(question) ?? '' };
   if (p) {
+    const tool = permissionToolLabel(translator(language), p.tool);
     const body = p.input.trim() || (p.description ?? '').trim();
-    return { kind: live.waitingFor ?? 'permission', text: clampText(body ? `${p.tool}: ${body}` : p.tool) ?? '' };
+    return { kind: live.waitingFor ?? 'permission', text: clampText(body ? `${tool}: ${body}` : tool) ?? '' };
   }
   if (question) return { kind: 'question', text: clampText(question) ?? '' };
   return { kind: live.waitingFor ?? 'other', text: '' };
