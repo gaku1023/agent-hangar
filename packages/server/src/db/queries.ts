@@ -55,6 +55,9 @@ type SessionRow = {
   ls_used: number | null;
   ls_size: number | null;
   ls_cost: number | null;
+  /** 記録から出した文脈の量とそのモデル（session_stats.context_tokens、context_model）。 */
+  st_ctx: number | null;
+  st_ctx_model: string | null;
   a_tool: string | null;
   a_summary: string | null;
   a_question: string | null;
@@ -122,7 +125,7 @@ select s.*, (exists(select 1 from transcript_files t where t.session_id = s.id a
   p.is_scratch project_is_scratch,
   (select r.path from project_roots r join projects sp on sp.id = r.project_id where r.device_id = s.home_device and sp.is_scratch = 1 and sp.deleted_at is null and r.deleted_at is null order by r.updated_at desc limit 1) scratch_root,
   m.title sum_title, m.one_liner sum_one, m.body sum_body, m.state sum_state, m.next_steps sum_next, m.source sum_source, m.source_id sum_source_id, m.source_model sum_model, m.based_on_turns sum_turns, m.updated_at sum_updated,
-  st.turns st_turns, st.last_turn_ts st_last_turn, st.model st_model, st.effort st_effort, st.files_changed st_files, st.pr_url st_pr, st.input_tokens st_in, st.output_tokens st_out,
+  st.turns st_turns, st.last_turn_ts st_last_turn, st.model st_model, st.effort st_effort, st.files_changed st_files, st.pr_url st_pr, st.input_tokens st_in, st.output_tokens st_out, st.context_tokens st_ctx, st.context_model st_ctx_model,
   ls.model ls_model, ls.effort ls_effort, ls.context_used ls_used, ls.context_size ls_size, ls.cost_usd ls_cost, a.tool a_tool, a.summary a_summary, a.question a_question,
   lim.kind lim_kind, lim.resets_at lim_resets_at, lim.auto lim_auto,
   sn.name sn_name,
@@ -183,6 +186,19 @@ function parseNextSteps(raw: string | null): string[] {
   }
 }
 
+let contextSizeHook: ((model: string) => number | null) | null = null;
+/** モデルの文脈の窓を引く口を、全ての一覧と取得に効く形でつなぐ（起動時に 1 回。opencode のモデルの一覧から引く）。 */
+export function setContextSizeHook(fn: ((model: string) => number | null) | null): void { contextSizeHook = fn; }
+
+/**
+ * そのモデルについて statusline が最後に送った文脈の窓の大きさ。Claude のモデル名は `[1m]` のような接尾辞が付くことがあるので、前方一致も見る。
+ * 止まった会話は statusline が届かないので、同じモデルの別の会話の値で窓を出す。
+ */
+function lastWindowOf(db: Db, model: string): number | null {
+  const row = db.prepare('select context_size s from session_live_stats where (model = ? or model like ?) and context_size is not null order by updated_at desc limit 1').get(model, `${model}[%`) as { s: number } | undefined;
+  return row?.s ?? null;
+}
+
 /** コンテキスト使用率。分母が無いか 0 なら null。 */
 export function contextPercent(used: number | null, size: number | null): number | null {
   if (used === null || size === null || size <= 0) return null;
@@ -198,6 +214,8 @@ export type SessionQueryOptions = {
   projectId?: string; ids?: string[]; deviceId?: string; spawnedBy?: string; now?: () => number; includeHeadless?: boolean;
   /** 非対話の会話（isHeadlessSql）だけを返す。limit と offset で頁に分ける（何千件にもなるため）。 */
   onlyHeadless?: boolean; limit?: number; offset?: number;
+  /** モデルの文脈の窓を引く口。statusline が窓を送っていない会話の contextSize の最後の頼みで、無ければ setContextSizeHook の口を使う。 */
+  contextSizeOf?: (model: string) => number | null;
 };
 
 /** 非対話の会話（isHeadlessSql）の数。projectId があればそのプロジェクトの分。削除済みは数えない。 */
@@ -352,7 +370,7 @@ function limitOf(r: SessionRow, live: LiveSessionDto | undefined, now: number): 
   return { kind: r.lim_kind, resetsAt: r.lim_resets_at, auto: r.lim_auto === 1, reset: limitReset(r.lim_resets_at, now, r.lim_auto === 1) };
 }
 
-function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, LockEntry>, runStarts: Map<string, number>, now: number, parking: boolean, newer: Set<string>, taken: Map<string, { deviceName: string; at: number }>, self?: string): SessionDto {
+function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, LockEntry>, runStarts: Map<string, number>, now: number, parking: boolean, newer: Set<string>, taken: Map<string, { deviceName: string; at: number }>, self?: string, contextSizeOf?: (model: string) => number | null): SessionDto {
   const live = liveMap.get(r.provider_session_id);
   const limit = limitOf(r, live, now);
   const summary: SessionSummaryDto | null = r.sum_title !== null
@@ -369,6 +387,10 @@ function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto
         updatedAt: r.sum_updated ?? 0,
       }
     : null;
+  // 文脈の量：statusline の値、無ければ記録から出した値。窓：statusline の値、無ければ同じモデルで statusline が最後に送った値、無ければモデルの一覧から引く値。
+  const ctxUsed = r.ls_used ?? r.st_ctx;
+  const ctxModel = r.ls_model ?? r.st_ctx_model ?? r.st_model;
+  const ctxSize = r.ls_size ?? (ctxModel === null ? null : lastWindowOf(db, ctxModel) ?? contextSizeOf?.(ctxModel) ?? contextSizeHook?.(ctxModel) ?? null);
   // statusline の値を優先し、無いときだけ索引の値を使う。
   const stats: SessionStatsDto = {
     turns: r.st_turns ?? 0,
@@ -378,9 +400,10 @@ function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto
     prUrl: r.st_pr,
     inputTokens: r.st_in ?? 0,
     outputTokens: r.st_out ?? 0,
-    contextPercent: contextPercent(r.ls_used, r.ls_size),
+    contextPercent: contextPercent(ctxUsed, ctxSize),
     costUsd: r.ls_cost,
-    contextTokens: r.ls_used,
+    contextTokens: ctxUsed,
+    contextSize: ctxSize,
   };
   // クイックセッションの置き場の下で始まり、なお別のプロジェクトに属しているセッションを昇格の対象として印す。
   // cwd はそのセッションを持つ端末のパスなので、ルートも同じ端末のものだけを見る。
@@ -541,14 +564,14 @@ export function listSessions(db: Db, live: LiveSessionDto[], opts: SessionQueryO
   const parking = parkingOn(db);
   const newer = newerElsewhereSet(db, opts.deviceId);
   const taken = takenOverMap(db, opts.deviceId);
-  return rows.map((r) => toSessionDto(db, r, lm, locks, runStarts, now, parking, newer, taken, opts.deviceId));
+  return rows.map((r) => toSessionDto(db, r, lm, locks, runStarts, now, parking, newer, taken, opts.deviceId, opts.contextSizeOf));
 }
 
-export function getSession(db: Db, live: LiveSessionDto[], id: string, opts: { deviceId?: string; now?: () => number } = {}): SessionDto | null {
+export function getSession(db: Db, live: LiveSessionDto[], id: string, opts: { deviceId?: string; now?: () => number; contextSizeOf?: (model: string) => number | null } = {}): SessionDto | null {
   const r = db.prepare(`${SESSION_SELECT} and s.id = ?`).get(id) as SessionRow | undefined;
   if (!r) return null;
   const now = opts.now ? opts.now() : Date.now();
-  return toSessionDto(db, r, liveMapOf(live), lockMap(db, opts.deviceId, now), aliveRunStarts(db, opts.deviceId), now, parkingOn(db), newerElsewhereSet(db, opts.deviceId), takenOverMap(db, opts.deviceId), opts.deviceId);
+  return toSessionDto(db, r, liveMapOf(live), lockMap(db, opts.deviceId, now), aliveRunStarts(db, opts.deviceId), now, parkingOn(db), newerElsewhereSet(db, opts.deviceId), takenOverMap(db, opts.deviceId), opts.deviceId, opts.contextSizeOf);
 }
 
 /** Settings の端末一覧。最終確認の新しい順で、自端末に印を付ける。 */

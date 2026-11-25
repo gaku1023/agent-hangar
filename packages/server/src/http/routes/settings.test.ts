@@ -149,7 +149,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', summaryHourlyCap: 20, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, phoneChatAccept: true, eventTrigger: false, translateEnglish: false, translateHintDeclined: false, orchestrator: { enabled: false, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] }, voice: { mode: 'off', personaId: 'default', personas: [{ id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'kokoro:jf_alpha', voiceLabel: 'jf_alpha', speed: 1.2 }] }, permissionPolicy: null });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', summaryHourlyCap: 20, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, contextWarnTokens: 300000, contextAlertTokens: 400000, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, phoneChatAccept: true, eventTrigger: false, translateEnglish: false, translateHintDeclined: false, orchestrator: { enabled: false, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] }, voice: { mode: 'off', personaId: 'default', personas: [{ id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'kokoro:jf_alpha', voiceLabel: 'jf_alpha', speed: 1.2 }] }, permissionPolicy: null });
   });
   // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
   it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
@@ -417,6 +417,8 @@ describe('設定の往復', () => {
         ['opencodeShareMcp', true],
         ['opencodeLocalContext', 131072],
         ['opencodeIdleUnload', 0],
+        ['contextWarnTokens', 250000],
+        ['contextAlertTokens', 500000],
         ['opencodeProviderPrep', { gpu: { start: 'gpu up', stop: '', stopAfter: 15 } }],
         ['peerChatAcceptFromPeers', false],
         ['phoneChatAccept', false],
@@ -443,6 +445,8 @@ describe('設定の往復', () => {
       expect((await (await patch({ notifyPreference: null })).json()).notifyPreference).toBeNull();
       // 選べない分は断る。
       expect((await patch({ opencodeIdleUnload: 7 })).status).toBe(400);
+      expect((await patch({ contextWarnTokens: 0 })).status).toBe(400);
+      expect((await patch({ contextAlertTokens: 'x' })).status).toBe(400);
       // 受け口の項目が DTO の項目とそろっていることを、抜けが出たら落ちる形で見る。
       const dto = (await json(await get('/api/settings'))).body as SettingsDto;
       // 統括（orchestrator）は届いた項目を足して返す形なので、往復の表ではなく専用の試験で見る。

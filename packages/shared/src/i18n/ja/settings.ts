@@ -335,6 +335,8 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.label.opencodePermissionPreset': 'コマンド実行前に確認',
   'settings.label.opencodeLocalContext': 'ローカルモデルのコンテキスト長',
   'settings.label.opencodeIdleUnload': '使っていないモデルのアンロード',
+  'settings.label.contextWarnTokens': '文脈の量の黄の境目',
+  'settings.label.contextAlertTokens': '文脈の量の赤の境目',
   'settings.label.opencodeProviderPrep': '接続先の準備',
   'settings.label.peerChatAcceptFromPeers': '他の PC からの送信を受ける',
   'settings.label.phoneChatAccept': 'スマホからの送信を受ける',

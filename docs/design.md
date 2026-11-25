@@ -1027,7 +1027,8 @@ create table session_stats (
   output_tokens integer not null default 0,
   first_ts integer, last_ts integer,
   last_prompt text,
-  last_turn_ts integer   -- 主線の発言と返答の時刻の最大（版 36）
+  last_turn_ts integer,  -- 主線の発言と返答の時刻の最大（版 36）
+  context_tokens integer, context_model text  -- 記録から出した文脈の量とそのモデル（版 72、下の節）
 );
 
 create table usage_snapshots (
@@ -2337,6 +2338,21 @@ Code Mode の `execute` は、中で呼んだ MCP の道具（`metadata.toolCall
 流れを別に開かないのは、serve 1 本に流れを 1 本にし、つなぎ直しを 1 か所に置くためである。
 契機は `session.step.ended`、`session.step.failed`、`session.text.ended`、`session.usage.updated`、`session.inbox.delivered`、`session.model.selected`、`session.execution.` の終わり（succeeded、failed、interrupted）と、つないだとき（つなぎ直しも）の `server.connected` で、続けて届いたものは 150 ミリ秒待って 1 回にまとめる。
 driver は、`materialize` で会話を作ったら載せて（`track`）すぐに読み、`release` では serve を止める前にもう一度読んでから外す。
+
+会話ごとの文脈の量と窓は、記録からも出す。
+statusline は動いている間しか届かないので、止まった会話、hangar の外で動かした会話、別の PC の会話の輪と数字は、記録から出した値で補う。
+Claude の記録は、返答（assistant）の `message.usage` から `contextTokens = input_tokens + cache_read_input_tokens + cache_creation_input_tokens + output_tokens` を付ける（statusline の台本と同じ 4 つの和）。
+サブエージェントの束（`agentId` がある束）の値では、本線を上書きしない。
+索引は主線の最後の値とそのときのモデルを、`session_stats` の `context_tokens` と `context_model` に書く。手元の本文（`applySessionFacts`）も、他端末の写し（`writeSessionStats`）も同じ口を通る。
+続きの束では最後の値で置き換え、値を持たない束は前の値を残し、作り直し（reset）では捨てて数え直す。
+Claude の記録の値は `session_live_stats` へは書かない（そこは statusline、opencode、Codex の持ち物である）。
+
+`SessionDto.stats` は次の順で決める。
+- `contextTokens`：`session_live_stats.context_used`、無ければ `session_stats.context_tokens`。
+- `contextSize`：`session_live_stats.context_size`、無ければ同じモデル（`[1m]` のような接尾辞も含めた前方一致）で statusline が最後に送った `context_size`、無ければ opts の `contextSizeOf` か `setContextSizeHook` の口でモデルから引いた値、どれも無ければ null。
+- `contextPercent`：上の 2 つから出す。窓が分からなければ null のまま。
+
+輪と数字の色の境目は、設定の `contextWarnTokens`（既定 300000、黄）と `contextAlertTokens`（既定 400000、赤）である。1000 から 1000 万までの整数だけを受ける。MCP の `update_settings` では、確認を経て変える。
 
 返答の費用と文脈の量は、事実（`RecordFacts` の `costUsd`、`contextTokens`）として持つ。
 書き手は、Claude が statusline から書くのと同じ `session_live_stats` に、モデル、文脈の量（最後の値）、費用（和）を書く。

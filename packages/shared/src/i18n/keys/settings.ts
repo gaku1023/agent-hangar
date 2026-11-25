@@ -333,6 +333,8 @@ export const settingsKeys = {
   'settings.label.opencodePermissionPreset': [],
   'settings.label.opencodeLocalContext': [],
   'settings.label.opencodeIdleUnload': [],
+  'settings.label.contextWarnTokens': [],
+  'settings.label.contextAlertTokens': [],
   'settings.label.opencodeProviderPrep': [],
   'settings.label.peerChatAcceptFromPeers': [],
   'settings.label.phoneChatAccept': [],

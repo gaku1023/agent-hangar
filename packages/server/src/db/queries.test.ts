@@ -274,11 +274,37 @@ describe('フェーズ 3 の項目', () => {
     const again = getSession(db, live, alpha.id)!;
     expect(again.stats).toMatchObject({ model: 'claude-opus-4-1', effort: 'max', contextPercent: 25, costUsd: 0.1234 });
   });
-  it('文脈の量（context_used）も stats の contextTokens に乗り、無ければ null', () => {
+  it('文脈の量（context_used）も stats の contextTokens に乗り、無ければ記録の値', () => {
     const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;
-    expect(alpha.stats.contextTokens).toBeNull();
+    expect(alpha.stats.contextTokens).toEqual(expect.any(Number));
     db.prepare('insert into session_live_stats (provider_session_id, model, effort, context_used, context_size, cost_usd, updated_at) values (?,?,?,?,?,?,?)').run(SESSION_ALPHA, 'lmstudio/qwen3.8-27b', null, 13_600, null, 0, 1);
     expect(getSession(db, live, alpha.id)!.stats).toMatchObject({ contextTokens: 13_600, contextPercent: null, costUsd: 0 });
+  });
+  describe('記録から出した文脈の量（statusline が無い会話）', () => {
+    const alphaId = () => listSessions(db, []).find((s) => s.providerSessionId === SESSION_ALPHA)!.id;
+    const setRecord = (tokens: number | null, model: string | null) => db.prepare('update session_stats set context_tokens = ?, context_model = ? where session_id = ?').run(tokens, model, alphaId());
+    const liveRow = (sid: string, model: string, used: number | null, size: number | null, at = 1) =>
+      db.prepare('insert into session_live_stats (provider_session_id, model, effort, context_used, context_size, cost_usd, updated_at) values (?,?,?,?,?,?,?)').run(sid, model, null, used, size, null, at);
+    it('statusline が無ければ記録の値を使い、窓が分からなければ contextSize と割合は null', () => {
+      setRecord(448_000, 'claude-x');
+      expect(getSession(db, live, alphaId())!.stats).toMatchObject({ contextTokens: 448_000, contextSize: null, contextPercent: null });
+    });
+    it('窓は、同じモデルで statusline が最後に送った大きさから引く', () => {
+      setRecord(448_000, 'claude-x');
+      liveRow('other-1', 'claude-x', 10, 200_000, 1);
+      liveRow('other-2', 'claude-x', 10, 1_000_000, 5);
+      liveRow('other-3', 'claude-y', 10, 64_000, 9);
+      expect(getSession(db, live, alphaId())!.stats).toMatchObject({ contextTokens: 448_000, contextSize: 1_000_000, contextPercent: 44.8 });
+    });
+    it('statusline が窓を持つ会話は、その値を使う（記録より優先）', () => {
+      setRecord(1, 'claude-x');
+      liveRow(SESSION_ALPHA, 'claude-x', 50_000, 200_000);
+      expect(getSession(db, live, alphaId())!.stats).toMatchObject({ contextTokens: 50_000, contextSize: 200_000, contextPercent: 25 });
+    });
+    it('どちらも無ければ、渡された contextSizeOf でモデルから引く', () => {
+      setRecord(32_000, 'claude-z');
+      expect(getSession(db, live, alphaId(), { contextSizeOf: (m) => (m === 'claude-z' ? 128_000 : null) })!.stats).toMatchObject({ contextSize: 128_000, contextPercent: 25 });
+    });
   });
   it('cwd がちょうどクイックセッションの置き場なら fromScratch は偽', () => {
     upsertShared(db, 'projects', { id: 'scratch', name: 'クイックセッション', status: 'active', is_scratch: 1 }, 'd');

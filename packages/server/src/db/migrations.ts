@@ -1212,6 +1212,17 @@ const V70_RUN_LIVE_ASIDE_SQL = `
 alter table runs add column live_aside text;
 `;
 
+/**
+ * 版 72。session_stats に、記録から出した文脈の量（context_tokens）とそのモデル（context_model）を足す。
+ * statusline は動いている間しか届かないので、止まった会話、hangar の外で動かした会話、別 PC の会話の輪と数字はこの値で出す。
+ * 値は索引が最後の返答から付ける。今ある行は null のまま残り、次に本文が読み直されたときに埋まる。
+ */
+const V72_SESSION_CONTEXT_SQL = `
+alter table session_stats add column context_tokens integer;
+alter table session_stats add column context_model text;
+create index session_live_stats_model on session_live_stats (model, updated_at);
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: BASELINE_VERSION, sql: BASELINE_SQL },
   { version: 17, sql: V17_SESSION_NOTES_SQL },
@@ -1268,4 +1279,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 69, sql: V69_DEVICE_VIEWING_SQL },
   { version: 70, sql: V70_RUN_LIVE_ASIDE_SQL },
   { version: 71, sql: V71_DROP_PEER_APPROVALS_SQL },
+  { version: 72, sql: V72_SESSION_CONTEXT_SQL },
 ];

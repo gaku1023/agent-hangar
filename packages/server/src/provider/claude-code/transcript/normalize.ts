@@ -183,6 +183,8 @@ export function recordFacts(raw: unknown): RecordFacts {
       const effort = str(raw.effort); if (effort) facts.effort = effort;
       const u = isRec(msg?.usage) ? msg.usage : null;
       if (u) facts.usage = { input: num(u.input_tokens) + num(u.cache_creation_input_tokens) + num(u.cache_read_input_tokens), output: num(u.output_tokens) };
+      // 会話の今の文脈の量。statusline の台本と同じ 4 つの和（索引は主線の最後の値だけを使う）。
+      if (u) facts.contextTokens = num(u.input_tokens) + num(u.cache_read_input_tokens) + num(u.cache_creation_input_tokens) + num(u.output_tokens);
       break;
     }
     case 'user': {

@@ -1,3 +1,4 @@
+import { setContextSizeHook } from '../db/queries.ts';
 import { codexEnabledOf } from '@agent-hangar/shared';
 import { IndexerService } from '../indexer/service.ts';
 import { gitPath } from '../git/find.ts';
@@ -128,7 +129,7 @@ export function bootIndexing(
   return {
     onAppended: (listener) => { appendedListeners.push(listener); },
     indexer, git,
-    bindContextSize(of) { contextSize = of; },
+    bindContextSize(of) { contextSize = of; setContextSizeHook(of); },
     bindCodexRateLimits(on) { rateLimits = on; },
     onSettingsChanged() {
       // opencode の入り切りでも呼ばれるので、Codex の値が変わったときだけ見張りを付け替える。

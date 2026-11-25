@@ -127,7 +127,7 @@ describe('recordFacts', () => {
   });
   it('assistant からモデル、effort、トークンを取る', () => {
     const f = recordFacts({ ...base, type: 'assistant', effort: 'high', message: { role: 'assistant', model: 'claude-fable-5-1', content: [], usage: { input_tokens: 10, cache_creation_input_tokens: 100, cache_read_input_tokens: 1000, output_tokens: 20 } } });
-    expect(f).toEqual({ cwd: '/Users/me/workspace/alpha', ts: Date.parse(base.timestamp), model: 'claude-fable-5-1', effort: 'high', usage: { input: 1110, output: 20 }, isUserTurn: false });
+    expect(f).toEqual({ cwd: '/Users/me/workspace/alpha', ts: Date.parse(base.timestamp), model: 'claude-fable-5-1', effort: 'high', usage: { input: 1110, output: 20 }, contextTokens: 1130, isUserTurn: false });
   });
   it('メタ行から題名と名前と PR を取る', () => {
     expect(recordFacts({ type: 'ai-title', aiTitle: 'A' })).toMatchObject({ aiTitle: 'A' });
