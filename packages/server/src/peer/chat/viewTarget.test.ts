@@ -66,10 +66,27 @@ describe('resolveViewTarget', () => {
     expect(resolveViewTarget(db, ME, sid, NOW)).toEqual({ ok: false, reason: 'device-unknown' });
   });
 
-  it('Claude Code 以外の会話は not-claude、無い会話は session-unknown', () => {
-    const codex = ensureSession(db, 'x1', '/w', PEER, 'codex');
-    expect(resolveViewTarget(db, ME, codex, NOW)).toEqual({ ok: false, reason: 'not-claude' });
+  it('無い会話は session-unknown、host が受けない provider は not-claude', () => {
+    const odd = ensureSession(db, 'x1', '/w', PEER, 'gemini' as never);
+    expect(resolveViewTarget(db, ME, odd, NOW)).toEqual({ ok: false, reason: 'not-claude' });
     expect(resolveViewTarget(db, ME, 'nope', NOW)).toEqual({ ok: false, reason: 'session-unknown' });
+  });
+
+  it.each(['codex', 'opencode'] as const)('%s の会話は、相手が peer_chat_agents にその provider を載せているときだけ peer chat に入る。欄が無い古い相手は not-remote', (provider) => {
+    const other = ensureSession(db, `x-${provider}`, '/w', PEER, provider);
+    upsertShared(db, 'runs', { id: `rr-${provider}`, session_id: other, device_id: PEER, kind: 'start', tmux_name: 't', pid: null, launch_params: '{}', started_at: 1_000, ended_at: null, end_reason: null, heartbeat_at: NOW }, PEER);
+    // 欄が無い相手（今の status）
+    expect(resolveViewTarget(db, ME, other, NOW)).toEqual({ ok: false, reason: 'not-remote' });
+    // 別の provider だけを名乗る相手
+    upsertShared(db, 'devices', { id: PEER, name: 'Mac', platform: 'darwin', last_seen_at: NOW, status: JSON.stringify({ ...status, peer_chat_agents: ['claude-code', provider === 'codex' ? 'opencode' : 'codex'] }) }, PEER);
+    expect(resolveViewTarget(db, ME, other, NOW)).toEqual({ ok: false, reason: 'not-remote' });
+    upsertShared(db, 'devices', { id: PEER, name: 'Mac', platform: 'darwin', last_seen_at: NOW, status: JSON.stringify({ ...status, peer_chat_agents: ['claude-code', 'codex', 'opencode'] }) }, PEER);
+    expect(resolveViewTarget(db, ME, other, NOW)).toMatchObject({ ok: true, target: { deviceId: PEER } });
+  });
+
+  it('Claude の会話は、peer_chat_agents が無い相手でも peer chat に入る', () => {
+    run('r1', PEER, 1_000, false);
+    expect(resolveViewTarget(db, ME, sid, NOW)).toMatchObject({ ok: true });
   });
 });
 

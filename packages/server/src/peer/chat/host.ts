@@ -4,6 +4,7 @@ import {
   turnPhaseOf,
   appendPaths,
   checkPeerChatRequest,
+  PEER_CHAT_AGENT_PROVIDERS,
   PEER_CHAT_COMMAND_DESCRIPTION_MAX,
   PEER_CHAT_COMMANDS_BYTES_MAX,
   PEER_CHAT_COMMANDS_MAX,
@@ -21,9 +22,8 @@ import {
 } from '@agent-hangar/shared';
 import type { HookChoice } from '../../sessions/hookDecisions.ts';
 import { pendingAskFromHook } from './hookCard.ts';
-import { createPeerAnswerer, type AnswerPane, type AnswerResult } from './answer.ts';
-import { inputEmptyFromCapture } from './inputBox.ts';
-import { resumeSendOp, sendOp, type SendDeps } from './hostSend.ts';
+import { createPeerAnswerer, type AnswerPane, type AnswerResult, type InterruptResult } from './answer.ts';
+import { inputEmptyOf, resumeSendOp, sendOp, type SendDeps } from './hostSend.ts';
 import type { PeerChatHostDeps, PeerChatSender } from './hostTypes.ts';
 import { ChatView, RECHECK_MS } from './hostView.ts';
 import { transcriptOlder, transcriptTurns } from './tail.ts';
@@ -162,6 +162,8 @@ const SENDING: ReadonlySet<PeerChatRequest['op']['t']> = new Set(['send', 'answe
 /** 中断（Escape）を打ってから、急がせを始めるまでの間。Claude が中断を受けて入力欄を空けるのを待つ。 */
 const RUSH_AFTER_ESCAPE_MS = 300;
 
+const peerChatAgent = (provider: string): boolean => (PEER_CHAT_AGENT_PROVIDERS as readonly string[]).includes(provider);
+
 export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const paneOf = (sessionId: string) => {
@@ -196,7 +198,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     accepting: acceptsSender,
     inputEmpty: async (sessionId) => {
       const cap = await paneOf(sessionId)?.captureStyled();
-      return cap != null && inputEmptyFromCapture(cap);
+      return cap != null && inputEmptyOf(deps, sessionId, cap);
     },
     // 貼る直前にもう一度、入力欄が空であることを確かめる（人が打ち始めたら渡さず、預かりに戻す）。
     deliver: async (sessionId, text, _images, queueId, fromId) => {
@@ -206,7 +208,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
       const pane = paneOf(sessionId);
       if (!run || !pane) return false;
       const cap = await pane.captureStyled();
-      if (cap === null || !inputEmptyFromCapture(cap)) return false;
+      if (cap === null || !inputEmptyOf(deps, sessionId, cap)) return false;
       await deps.sendInput(sessionId, run.tmuxName, appendPaths(text, pathsByQueue.get(queueId) ?? []));
       return true;
     },
@@ -246,6 +248,29 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     now: deps.now,
     ...(deps.hookDecisions ? { hook: { decide: (runId: string, ask: PeerChatAsk, choice: HookChoice) => deps.hookDecisions!.decide(runId, ask, choice), delivered: (id: string) => deps.hookDecisions!.isDelivered(id), withdraw: (id: string) => { deps.hookDecisions!.withdraw(id); } } } : {}),
   });
+
+  /**
+   * 走っているターンを止める。
+   * Claude Code は画面の Escape（answerer）。
+   * Codex と opencode は API（deps.interruptApi）を先に使い、使えなければ（口が無い、投げた、false）Escape を打つ。
+   * 札が出ている間（登録の待ち）は ask-mismatch で断り、何も打たない。
+   */
+  async function interruptRun(sessionId: string): Promise<InterruptResult> {
+    const session = deps.session(sessionId);
+    if (!session) return { ok: false, reason: 'session-unknown' };
+    if (session.provider === 'claude-code') return answerer.interruptRun(sessionId);
+    if (session.waitingFor !== null || session.permission !== null) return { ok: false, reason: 'ask-mismatch' };
+    if (turnState(sessionId) !== 'busy') return { ok: true, sent: false };
+    if (deps.interruptApi) {
+      try {
+        if (await deps.interruptApi(sessionId, session.provider)) return { ok: true, sent: true };
+      } catch { /* 画面の Escape に落ちる */ }
+    }
+    const pane = paneOf(sessionId);
+    if (!pane) return { ok: false, reason: 'session-unknown' };
+    pane.sendKey('escape');
+    return { ok: true, sent: true };
+  }
 
   const forget = (queueId: string, remove: boolean): void => {
     const paths = pathsByQueue.get(queueId);
@@ -287,7 +312,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     const list = queue.list(sessionId);
     const item = by ? list.find((q) => q.queueId === by.queueId) : list[0];
     if (!item || item.state !== 'waiting' || (by && item.from.deviceId !== by.byDeviceId)) return refuse('queue-expired');
-    const r = await answerer.interruptRun(sessionId);
+    const r = await interruptRun(sessionId);
     if (!r.ok) return refuse(r.reason);
     if (r.sent) await sleep(RUSH_AFTER_ESCAPE_MS);
     const q = queue.rush(sessionId, by);
@@ -319,20 +344,23 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     return r.ok ? { ok: true } : refuse(r.reason);
   }
 
-  /** この PC が持ち主の Claude Code の会話か（dispatch の断りと同じ条件。入り切りの設定は見ない）。 */
-  const ownedHere = (sessionId: string): boolean => {
+  /**
+   * この PC が持ち主の、host が受ける provider の会話か（dispatch の断りと同じ条件。入り切りの設定は見ない）。
+   * claudeOnly は、札の道（local.currentAsk と local.answer）用。Codex と opencode の札の振り分け（answerRouter）が入るまで Claude だけにする。
+   */
+  const ownedHere = (sessionId: string, claudeOnly = false): boolean => {
     const session = deps.session(sessionId);
-    return !!session && session.provider === 'claude-code' && !session.lock && !session.newerElsewhere && !session.remoteOnly && !session.takenOver;
+    return !!session && (claudeOnly ? session.provider === 'claude-code' : peerChatAgent(session.provider)) && !session.lock && !session.newerElsewhere && !session.remoteOnly && !session.takenOver;
   };
 
   const local: PeerChatLocal = {
     currentAsk(sessionId) {
-      if (!ownedHere(sessionId)) return null;
+      if (!ownedHere(sessionId, true)) return null;
       view.observe(sessionId);
       return view.currentAsk(sessionId);
     },
     answer(sessionId, askId, keys, text) {
-      if (!ownedHere(sessionId)) return Promise.resolve({ ok: false, reason: 'session-unknown' });
+      if (!ownedHere(sessionId, true)) return Promise.resolve({ ok: false, reason: 'session-unknown' });
       return answerCurrent(sessionId, { deviceId: deps.deviceId, deviceName: deps.deviceName(deps.deviceId) }, askId, keys, text);
     },
   };
@@ -342,7 +370,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     const { sessionId, op } = req;
     const session = deps.session(sessionId);
     if (!session) return refuse('session-unknown');
-    if (session.provider !== 'claude-code') return refuse('not-claude');
+    if (!peerChatAgent(session.provider)) return refuse('not-claude');
     // この PC が会話の持ち主でなければ（ほかの PC で動いている、続きが新しい、本文が無い、引き継がれた）、手元の古い写しを見せも動かしもしない。
     if (session.lock || session.newerElsewhere || session.remoteOnly || session.takenOver) return refuse(op.t === 'resume-send' || op.t === 'switch-account' ? 'resume-failed' : 'session-unknown');
     if (SENDING.has(op.t) && !deps.acceptFrom(sender.kind)) return refuse('refused-by-setting');
@@ -363,7 +391,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
       case 'answer':
         return answerOp(sessionId, from, op);
       case 'interrupt': {
-        const r = await answerer.interruptRun(sessionId);
+        const r = await interruptRun(sessionId);
         view.poke(sessionId);
         return r.ok ? { ok: true } : refuse(r.reason);
       }
@@ -381,8 +409,11 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
         return { ok: true, files: await deps.files(session.cwd, op.query) };
       }
       case 'commands':
-        return { ok: true, commands: fitCommands(deps.commands(session.cwd || null)) };
+        // Codex と opencode の / の候補は、新しいセッションの欄の一覧（Claude のスキル）と別物なので、空で返す。
+        return { ok: true, commands: session.provider === 'claude-code' ? fitCommands(deps.commands(session.cwd || null)) : [] };
       case 'switch-account': {
+        // 付け替えは Claude のアカウントの話。Codex と opencode は断る。
+        if (session.provider !== 'claude-code') return refuse('account-unavailable');
         const r = deps.switchAccount ? await deps.switchAccount(sessionId, op.account) : 'resume-failed';
         view.poke(sessionId);
         return r === 'ok' ? { ok: true } : refuse(r);

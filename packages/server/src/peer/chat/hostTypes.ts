@@ -145,6 +145,12 @@ export type PeerChatHostDeps = {
   accountName?(sessionId: string): string | null;
   switchAccount?(sessionId: string, accountName: string): Promise<'ok' | 'account-unavailable' | 'resume-failed'>;
   /**
+   * Codex と opencode の走っているターンを API で止める（Codex は turn/interrupt、opencode は POST /api/session/{id}/interrupt）。
+   * 止めにいったら true。口が無い、つながらない、止める相手が居ないときは false か投げる（host は画面の Escape に落ちる）。
+   * 無い組み立てでは、Escape だけで止める。
+   */
+  interruptApi?(sessionId: string, provider: AgentKind): Promise<boolean>;
+  /**
    * 頼み主が置いた画像の封（GET /peer/blobs/:askId/:n?from=）。
    * 取れなければ投げる。
    */

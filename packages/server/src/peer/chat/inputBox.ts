@@ -177,3 +177,13 @@ export function inputReadyFromCapture(capture: string): boolean {
   if (!inputEmptyFromCapture(capture)) return false;
   return parseDialog(capture.replace(/\r\n/g, '\n').split('\n').map(plain).join('\n')) === null;
 }
+
+/**
+ * そのエージェントの画面に、hangar が文を打ってよいか（inputReadyFromCapture の provider 版）。
+ * Claude Code は札の読み手（parseDialog）も見る。
+ * Codex と opencode は、画面から札を読まず、入力欄が空かだけを見る（札が出ているかは、呼び出し側が登録の待ち waitingFor で見る）。
+ */
+export function inputReadyFor(agent: string, capture: string): boolean {
+  if (agent === 'claude-code') return inputReadyFromCapture(capture);
+  return inputEmptyFor(agent, capture);
+}

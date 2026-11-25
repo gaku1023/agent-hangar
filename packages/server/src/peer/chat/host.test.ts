@@ -22,6 +22,8 @@ import {
 import { sanitizeInput } from '../../mcp/screenTools.ts';
 import type { PaneKey } from '../../tmux/pane.ts';
 import { WIN_BUSY_WITH_DRAFT, WIN_DRAFT, WIN_EMPTY_AFTER_TURN } from './inputBox.fixtures.ts';
+import { CODEX_EMPTY_AFTER_TURNS, CODEX_TYPED, CODEX_WORKING } from './inputBox.codex.fixtures.ts';
+import { OPENCODE_EMPTY_AFTER_TURN, OPENCODE_TYPED } from './inputBox.opencode.fixtures.ts';
 import { EDIT_SUBDIR } from './fileDialogs.fixtures.ts';
 import { createPeerChatHost, type PeerChatHost } from './host.ts';
 import type { HostPane, HostSession, PeerChatHostDeps, PeerChatHostEvent } from './hostTypes.ts';
@@ -181,10 +183,10 @@ describe('PeerChatHost: 入口と断り', () => {
     expect(s.w.events).toEqual([]);
   });
 
-  it('この PC に無い会話は session-unknown、Claude Code 以外は not-claude', async () => {
+  it('この PC に無い会話は session-unknown、host が受けない provider は not-claude（Codex と opencode は受ける）', async () => {
     const s = await setup({ session: null });
     expect(await s.ask(tailOp())).toEqual({ ok: false, reason: 'session-unknown' });
-    s.w.session = idleSession({ provider: 'codex' });
+    s.w.session = idleSession({ provider: 'gemini' as never });
     for (const op of [tailOp(), send('x'), { t: 'interrupt' } as PeerChatOp, { t: 'files', query: '' } as PeerChatOp]) expect(await s.ask(op)).toEqual({ ok: false, reason: 'not-claude' });
   });
 
@@ -1147,6 +1149,110 @@ describe('PeerChatHost: 送り主ごとの入り切り（スマホと PC）', ()
   it('スマホからの画像は受けない（最初は文だけ）', async () => {
     const s = await setup();
     expect(await s.askPhone(send('pic', [{ n: 0, mime: 'image/png', bytes: 10 }]))).toEqual({ ok: false, reason: 'too-large' });
+    expect(s.w.sent).toEqual([]);
+  });
+});
+
+
+// ---- Codex と opencode ----
+
+describe.each([
+  ['codex', CODEX_EMPTY_AFTER_TURNS, CODEX_TYPED],
+  ['opencode', OPENCODE_EMPTY_AFTER_TURN, OPENCODE_TYPED],
+] as const)('PeerChatHost: %s の会話', (provider, EMPTY, TYPED) => {
+  const agentSession = (over: Partial<HostSession> = {}) => idleSession({ provider, ...over });
+
+  it('not-claude を返さない。入力欄が空で札が無ければ、止まっているときにすぐ渡す', async () => {
+    const s = await setup({ session: agentSession() });
+    s.w.pane.styled = EMPTY;
+    expect(await s.ask(send('hello'))).toMatchObject({ ok: true });
+    await settle(() => s.w.sent.length === 1);
+    expect(s.w.sent).toEqual(['hello']);
+  });
+
+  it('打ちかけがあれば渡さない。消えたら渡す', async () => {
+    const s = await setup({ session: agentSession() });
+    s.w.pane.styled = TYPED;
+    await s.ask(send('later'));
+    await new Promise((x) => setTimeout(x, 60));
+    expect(s.w.sent).toEqual([]);
+    s.w.pane.styled = EMPTY;
+    await settle(() => s.w.sent.length === 1);
+  });
+
+  it('登録の待ち（waitingFor）か許可の札が出ている間は、入力欄が空でも渡さない。札が閉じたら渡す', async () => {
+    const s = await setup({ session: agentSession({ live: 'waiting', waitingFor: 'permission' }) });
+    s.w.pane.styled = EMPTY;
+    await s.ask(send('not now'));
+    await new Promise((x) => setTimeout(x, 60));
+    expect(s.w.sent).toEqual([]);
+    s.w.session = agentSession({ live: 'idle', waitingFor: null });
+    s.host.turnChanged();
+    await settle(() => s.w.sent.length === 1);
+    expect(s.w.sent).toEqual(['not now']);
+  });
+
+  it('rush は API で中断してから渡す。Escape は打たない', async () => {
+    const calls: string[] = [];
+    const s = await setup({ session: agentSession({ live: 'busy' }), deps: { interruptApi: async (id, p) => { calls.push(`${id}:${p}`); return true; } } });
+    s.w.pane.styled = EMPTY;
+    const queueId = ((await s.ask(send('now'))) as { queueId: string }).queueId;
+    await new Promise((x) => setTimeout(x, 40));
+    expect(s.w.sent).toEqual([]);
+    expect(await s.ask({ t: 'rush', queueId })).toEqual({ ok: true });
+    expect(calls).toEqual([`s1:${provider}`]);
+    expect(s.w.pane.events).toEqual([]);
+    s.w.session = agentSession({ live: 'idle' });
+    await settle(() => s.w.sent.length === 1);
+  });
+
+  it('API が使えない（false、投げる、口が無い）ときは Escape に落ちる', async () => {
+    for (const interruptApi of [async () => false, async () => { throw new Error('down'); }, undefined]) {
+      const s = await setup({ session: agentSession({ live: 'busy' }), deps: interruptApi ? { interruptApi } : {} });
+      expect(await s.ask({ t: 'interrupt' })).toEqual({ ok: true });
+      expect(s.w.pane.events).toEqual(['key:escape']);
+    }
+  });
+
+  it('止まっていれば interrupt は何も打たない。札が出ているときは ask-mismatch', async () => {
+    const calls: string[] = [];
+    const s = await setup({ session: agentSession(), deps: { interruptApi: async () => { calls.push('x'); return true; } } });
+    expect(await s.ask({ t: 'interrupt' })).toEqual({ ok: true });
+    s.w.session = agentSession({ live: 'busy', waitingFor: 'question' });
+    expect(await s.ask({ t: 'interrupt' })).toEqual({ ok: false, reason: 'ask-mismatch' });
+    expect(calls).toEqual([]);
+    expect(s.w.pane.events).toEqual([]);
+  });
+
+  it('commands は空の一覧、switch-account は account-unavailable', async () => {
+    const s = await setup({ session: agentSession(), deps: { switchAccount: async () => 'ok' } });
+    expect(await s.ask({ t: 'commands' })).toEqual({ ok: true, commands: [] });
+    expect(await s.ask({ t: 'switch-account', account: 'work' })).toEqual({ ok: false, reason: 'account-unavailable' });
+  });
+
+  it('持ち主でない PC は、Claude と同じく session-unknown で断る', async () => {
+    const s = await setup({ session: agentSession({ lock: true }) });
+    expect(await s.ask(send('x'))).toEqual({ ok: false, reason: 'session-unknown' });
+    expect(await s.host.rush('s1')).toEqual({ ok: false, reason: 'session-unknown' });
+  });
+
+  it('resume-send は止まった会話を再開（deps.resume）し、画面が使えてから渡す', async () => {
+    const s = await setup({ session: agentSession({ live: null }), run: null });
+    s.w.pane.styled = EMPTY;
+    const r = await s.ask({ t: 'resume-send', text: 'wake up', images: [] });
+    expect(r).toMatchObject({ ok: true });
+    await settle(() => s.w.sent.length === 1);
+    expect(s.w.resumed).toBe(1);
+    expect(s.w.sent).toEqual(['wake up']);
+  });
+});
+
+describe('PeerChatHost: Claude の commands と作業中の Codex', () => {
+  it('Codex の作業中（入力欄は出ている）でも、busy の間は預かる', async () => {
+    const s = await setup({ session: idleSession({ provider: 'codex', live: 'busy' }) });
+    s.w.pane.styled = CODEX_WORKING;
+    await s.ask(send('queued'));
+    await new Promise((x) => setTimeout(x, 60));
     expect(s.w.sent).toEqual([]);
   });
 });
