@@ -2344,6 +2344,8 @@ statusline は動いている間しか届かないので、止まった会話、
 Claude の記録は、返答（assistant）の `message.usage` から `contextTokens = input_tokens + cache_read_input_tokens + cache_creation_input_tokens + output_tokens` を付ける（statusline の台本と同じ 4 つの和）。
 サブエージェントの束（`agentId` がある束）の値では、本線を上書きしない。
 索引は主線の最後の値とそのときのモデルを、`session_stats` の `context_tokens` と `context_model` に書く。手元の本文（`applySessionFacts`）も、他端末の写し（`writeSessionStats`）も同じ口を通る。
+版 72 より前に入った会話は値が null のまま残るので、起動の後に背面で一度だけ（`indexer/contextBackfill.ts`）、値が null の Claude の会話（手元と他端末の写し）の本文を末尾から読んで埋め、変わった会話は名指しして画面へ知らせる。
+済んだ印は `settings_local` の `context_backfill_done` に覚え、値が見つからなかった会話は null のままにする。
 続きの束では最後の値で置き換え、値を持たない束は前の値を残し、作り直し（reset）では捨てて数え直す。
 Claude の記録の値は `session_live_stats` へは書かない（そこは statusline、opencode、Codex の持ち物である）。
 
