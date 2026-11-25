@@ -18,7 +18,8 @@ import { deleteAutoApproval, insertAutoApproval } from './autoApprovals.ts';
  * - by: 'policy' は、方針の道具（無ければ読み取りと検索の 4 つ）の、許可の札の、「今回だけ許す」の行（Yes）だけを押せる。質問は押せない。
  *   押す前に記録を書き、書けなければ打たず、打てなければ記録を消す。1 分に ORCHESTRATOR_POLICY_RATE 回まで。
  * - by: 'user' は、統括の今のターンが利用者の入力で始まったときだけ通す（userTurn）。
- * - Claude Code の会話だけに答える。Codex と opencode は answerable: false で載せ、伝えるだけにする。
+ * - Claude Code、Codex、opencode の会話に答える（札は host.local の口から読む）。口に札が無い会話は answerable: false で載せ、伝えるだけにする。
+ * - Codex と opencode の by: 'policy' は、key が once の行（1 回だけ許可）だけを押せる。
  *
  * 答えられない札には、理由と PC の名前（unanswerable）を添え、統括が「どこで答えればよいか」を言えるようにする。
  * 画面の札が読めない質問でも、hook と本文に残った問い（session_activity と AskUserQuestion の呼び出しの入力）から、本文と選択肢を出す。
@@ -39,7 +40,7 @@ const ONE_TIME_ALLOW = /^yes$/i;
 
 /**
  * 統括が答えられない理由。
- * - agent：Codex と opencode の会話（統括は Claude Code の会話にだけ答える）。
+ * - agent：使わなくなった（Codex と opencode にも答えられるようになった。型は古い呼び手のために残す）。
  * - outside-hangar：hangar が起こしていない端末で動いている（この PC の hangar の画面が無い）。その端末で答えてもらう。
  * - not-on-screen：hangar の画面はあるが、札がまだ読めない（出た直後の描き途中など）。数秒おいて一覧を引き直すと答えられることがある。
  * - screen：画面の札は読めたが、中身が合わないか、統括が押せない形（タブの中の複数選択など）。
@@ -108,7 +109,10 @@ export type OrchestratorAsks = {
   userTurn(selfSessionId: string): boolean;
 };
 
-type Located = PendingAsk & { peerAskId: string | null };
+type Located = PendingAsk & { peerAskId: string | null; provider: string };
+
+/** 方針で押せる「今回だけ許す」の行。Claude Code は 1 行目（Yes）、Codex と opencode は key が once の行。 */
+const isOneTime = (provider: string, o: { key: string; label: string }): boolean => (provider === 'claude-code' ? ONE_TIME_ALLOW.test(o.label.trim()) : o.key === 'once');
 
 const hash = (parts: unknown[]): string => createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 24);
 
@@ -140,18 +144,18 @@ export function createOrchestratorAsks(deps: OrchestratorAsksDeps): Orchestrator
       const row = sessionRow.get(provider, l.sessionId) as { id: string; custom_title: string | null; name: string | null; ai_title: string | null; first_prompt: string | null; project: string | null } | undefined;
       if (!row) continue;
       const base = { session_id: row.id, title: displayName(row, l) ?? '', project: row.project, description: l.permission?.description ?? null, since: l.statusAt ?? null };
-      const ask = provider === 'claude-code' ? deps.local?.currentAsk(row.id) ?? null : null;
+      const ask = deps.local?.currentAsk(row.id) ?? null;
       if (ask) {
         const answerable = ask.answerable !== false;
         out.push({
-          ...base, ask_id: hash(['claude-code', row.id, ask.askId]), peerAskId: ask.askId, kind: ask.kind,
+          ...base, ask_id: hash([provider, row.id, ask.askId]), peerAskId: ask.askId, provider, kind: ask.kind,
           tool: ask.tool ?? l.permission?.tool ?? null, input: ask.input ?? null, options: ask.options.map((o) => ({ key: o.key, label: o.label })), answerable,
           ...(answerable ? {} : { unanswerable: why('screen') }),
           ...(ask.step ? { step: { ...ask.step } } : {}),
         });
         continue;
       }
-      // 答え手の無い会話（Codex、opencode）と、画面に札が読めない Claude Code の会話は、伝えるだけにする。
+      // 口に札が無い会話（画面に札が読めない Claude Code、まだ要求が届いていない Codex と opencode）は、伝えるだけにする。
       // 問いは hook と本文に残ったものから出す（答えるのは画面の札を見てからなので、ここで出す選択肢では押さない）。
       const kind = l.waitingFor;
       const tool = l.permission?.tool ?? null;
@@ -159,13 +163,13 @@ export function createOrchestratorAsks(deps: OrchestratorAsksDeps): Orchestrator
       const q = asking ? questionOf(row.id) : null;
       const input = q?.text ?? l.permission?.input ?? null;
       const options = (q?.options ?? []).map((label, i) => ({ key: String(i + 1), label }));
-      const reason: UnanswerableReason = provider !== 'claude-code' ? 'agent' : hasPane(row.id) ? 'not-on-screen' : 'outside-hangar';
-      out.push({ ...base, ask_id: hash([provider, row.id, kind, tool, l.permission?.input ?? null, l.statusAt ?? null]), peerAskId: null, kind, tool, input, options, answerable: false, unanswerable: why(reason) });
+      const reason: UnanswerableReason = hasPane(row.id) ? 'not-on-screen' : 'outside-hangar';
+      out.push({ ...base, ask_id: hash([provider, row.id, kind, tool, l.permission?.input ?? null, l.statusAt ?? null]), peerAskId: null, provider, kind, tool, input, options, answerable: false, unanswerable: why(reason) });
     }
     return out;
   }
 
-  const strip = ({ peerAskId: _p, ...a }: Located): PendingAsk => a;
+  const strip = ({ peerAskId: _p, provider: _v, ...a }: Located): PendingAsk => a;
 
   const wasAnswered = (askId: string): boolean => {
     const t = now();
@@ -210,7 +214,7 @@ export function createOrchestratorAsks(deps: OrchestratorAsksDeps): Orchestrator
       if (args.by === 'policy') {
         const policy = deps.policy();
         const allowed = ask.kind === 'permission' && ask.tool !== null && permissionAutoToolsOf(policy).includes(ask.tool)
-          && keys.length === 1 && ONE_TIME_ALLOW.test(chosen[0]!.label.trim()) && (args.text === undefined || args.text === '');
+          && keys.length === 1 && isOneTime(ask.provider, chosen[0]!) && (args.text === undefined || args.text === '');
         if (!allowed) return { ok: false, reason: 'not-allowed' };
         if (!rateOk()) return { ok: false, reason: 'rate-limited' };
         // 打つ前に書く。書けなければ投げて、打たない。

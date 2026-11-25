@@ -21,7 +21,9 @@ import type { LiveDigester } from '../live/digest.ts';
 import { aliveRunForSession } from '../runs/queries.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { Db } from '../db/open.ts';
+import { createAskWatch, type AskWatch, type SessionAskEvent } from './askWatch.ts';
 import type { HomeParts } from './home.ts';
+import { createAgentScreenAnswer } from '../peer/chat/agentScreen.ts';
 import { panesOf, type RunsParts } from './runs.ts';
 import type { SyncParts } from './sync.ts';
 
@@ -42,6 +44,8 @@ export type PeerChatParts = {
   stop(): void;
   /** 試験と確認のために、中の host を返す。 */
   host: PeerChatHost;
+  /** この PC の会話の札の変化を拾って session.ask を流す（boot/askWatch.ts）。bootstrap の peerAsks と、画面が答えた後の読み直しに使う。 */
+  asks: AskWatch;
   /**
    * 索引に本文が書き足されたときに呼ぶ（boot/indexing.ts の onAppended）。
    * codex と opencode の会話なら、待っている tail を起こす（本文の読み口が索引なので、書き終わりが変化の知らせになる）。
@@ -59,7 +63,7 @@ export type PeerChatParts = {
 export function bootPeerChat(p: {
   home: Pick<HomeParts, 'db' | 'device' | 'settings' | 'home' | 'language'>;
   runs: { runs: Pick<RunManager, 'sendInput' | 'resumeWith' | 'switchAccount'>; mux: RunsParts['mux']; accounts?: Pick<RunsParts['accounts'], 'store' | 'auth'> };
-  delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; /** 現在の札の材料（サブエージェントと意図）。無ければ別の PC の画面は右の欄を出さない。 */ digester?: Pick<LiveDigester, 'digest'>; hub: { broadcast(ev: PeerChatHostEvent): void }; hookDecisions?: PeerChatHostDeps['hookDecisions'];
+  delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; /** 現在の札の材料（サブエージェントと意図）。無ければ別の PC の画面は右の欄を出さない。 */ digester?: Pick<LiveDigester, 'digest'>; hub: { broadcast(ev: PeerChatHostEvent | SessionAskEvent): void }; hookDecisions?: PeerChatHostDeps['hookDecisions'];
     /** Codex の状態の面と opencode の driver（札の口と API での中断に使う）。無ければ Codex と opencode の札を出さず、API で止めない。 */
     codexLive?: Pick<CodexLive, 'askHandle' | 'turnHandle'>; opencode?: Pick<OpencodeDriver, 'pendingOf'>;
     /** 画面の道で答える口（codexDialog.ts、opencodeDialog.ts を束ねたもの）。 */
@@ -85,7 +89,17 @@ export function bootPeerChat(p: {
   const link = () => p.sync.peerLink();
   const providerSessionIdOf = db.prepare('select provider_session_id psid from sessions where id = ? and deleted_at is null');
   const psidOf = (sessionId: string): string | null => (providerSessionIdOf.get(sessionId) as { psid: string | null } | undefined)?.psid ?? null;
-  const agentAsk = agentAskOf(p.delivery, psidOf);
+  // 画面の道（既定）。会話の生きている run の画面を読み、読み手が決めたキーを打つ。
+  const screenAnswer = p.delivery.screenAnswer ?? createAgentScreenAnswer({
+    pane: (sessionId) => {
+      const run = aliveRunForSession(db, sessionId, deviceId, now());
+      const panes = run && run.deviceId === deviceId ? panesOf(p.runs.mux()) : null;
+      if (!run || !panes?.captureStyled) return null;
+      const name = run.tmuxName;
+      return { captureStyled: () => panes.captureStyled!(name), sendKey: (key) => panes.sendKey(name, key), sendText: (text) => panes.sendText(name, text) };
+    },
+  });
+  const agentAsk = agentAskOf({ ...p.delivery, screenAnswer }, psidOf);
 
   const host = createPeerChatHost({
     deviceId,
@@ -142,10 +156,27 @@ export function bootPeerChat(p: {
     ...(p.delivery.hookDecisions ? { hookDecisions: p.delivery.hookDecisions } : {}),
   });
 
+  // 札の変化。待っている会話（Claude Code の hook、Codex と opencode の要求も実行中の一覧の待ちに映る）と、覚えている会話を、一覧が変わるたびに読み直す。
+  const idOfProvider = db.prepare('select id from sessions where provider = ? and provider_session_id = ? and deleted_at is null');
+  const asks = createAskWatch({
+    currentAsk: (sessionId) => host.local.currentAsk(sessionId),
+    candidates: () => {
+      const out: string[] = [];
+      for (const l of p.delivery.live.current()) {
+        if (l.waitingFor !== 'permission' && l.waitingFor !== 'question') continue;
+        const row = idOfProvider.get(l.agent ?? 'claude-code', l.sessionId) as { id: string } | undefined;
+        if (row) out.push(row.id);
+      }
+      return out;
+    },
+    emit: (ev) => { p.delivery.hub.broadcast(ev); },
+  });
+
   let offs: (() => void)[] = [];
   const providerOf = db.prepare('select provider from sessions where id = ?');
   return {
     host,
+    asks,
     onIndexed: (sessionId) => {
       const provider = (providerOf.get(sessionId) as { provider: string } | undefined)?.provider;
       if (provider === 'codex' || provider === 'opencode') host.poke(sessionId);
@@ -155,7 +186,7 @@ export function bootPeerChat(p: {
       if (offs.length > 0) return;
       // 実行中の一覧が変わったら、ターンの状態が変わったかもしれない。
       // 預かりが渡せるか確かめ、待っている tail を起こす。
-      offs.push(p.delivery.live.onChange(() => { memo.clear(); host.turnChanged(); }));
+      offs.push(p.delivery.live.onChange(() => { memo.clear(); host.turnChanged(); asks.checkAll(); }));
       // 会話が消えた（ゴミ箱へ入れた）ら、その会話の預かりを捨てる。
       const gone = db.prepare('select 1 from sessions where id = ? and deleted_at is not null');
       offs.push(onRowChange((c) => {
