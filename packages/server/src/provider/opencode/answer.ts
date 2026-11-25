@@ -12,9 +12,9 @@ import type { OpencodeClient, OpencodeForm, OpencodeFormField, OpencodePermissio
  * session は opencode の `always` に当たる。always が会話の間だけか、project の保存された規則（/api/permission/saved）に残るかは未確認なので、文言は言い切らない。
  */
 export const OPENCODE_PERMISSION_CHOICES: AgentAskChoice[] = [
-  { key: 'once', label: '今回だけ許可', description: 'この操作を 1 回だけ許可します。', scope: 'once' },
-  { key: 'session', label: '以後も許可', description: '同じ種類の操作を、今後は確認せずに許可します。', scope: 'session' },
-  { key: 'deny', label: '許可しない', description: 'この操作を許可せず、断ります。', scope: 'deny' },
+  { key: 'once', label: '1 回だけ許可', description: 'この実行だけを許可します。', scope: 'once' },
+  { key: 'session', label: '今後も常に許可', description: '同じ種類の操作を、ほかの会話でも今後は確認せずに許可します。', scope: 'session' },
+  { key: 'deny', label: '許可せず中断', description: '実行せずに、作業を止めます。', scope: 'deny' },
 ];
 
 const DECISION: Record<'once' | 'session' | 'deny', OpencodePermissionDecision> = { once: 'once', session: 'always', deny: 'reject' };

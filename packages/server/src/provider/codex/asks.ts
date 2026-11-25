@@ -30,10 +30,10 @@ export type CodexPending =
 
 /** 許可の選択肢の文言（仮。後で Gemini に当てる）。 */
 export const CODEX_CHOICE_TEXT = {
-  once: { label: '今回だけ許可', description: 'この 1 回だけ実行する' },
-  session: { label: 'この会話の間は許可', description: 'この会話の間は、同じ操作を聞かない' },
-  deny: { label: '許可しない', description: '実行せずに Codex へ戻す' },
-  cancel: { label: '許可せず中断', description: '実行せず、会話を中断する' },
+  once: { label: '1 回だけ許可', description: 'この実行だけを許可します。' },
+  session: { label: 'この会話中のみ許可', description: 'この会話が終わるまで、同じ種類の操作を許可します。' },
+  deny: { label: '許可せず続行', description: '実行せずに、作業を続けさせます。' },
+  cancel: { label: '許可せず中断', description: '実行せずに、作業を止めます。' },
 } as const;
 /** 承認の要求のあと、ほかの接続が答えるまでの質問の見出し。MCP の問い合わせの選択肢の文言（仮）。 */
 export const CODEX_ELICITATION_TEXT = {
