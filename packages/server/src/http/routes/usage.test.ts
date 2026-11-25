@@ -37,6 +37,12 @@ describe('routes', () => {
     expect((await json(await get('/api/usage'))).body).toMatchObject({ fiveHour: { usedPercent: 47 } });
     expect((await json(await get(`/api/sessions/${await alphaId()}`))).body.stats.contextPercent).toBe(25);
     expect((await app.request('/api/ingest/statusline', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: 'not json' })).status).toBe(400);
+    // 送り手の claude の設定の置き場をヘッダから読んで渡す。ヘッダの無い古いスニペットでは undefined を渡す。
+    const ingest = vi.spyOn(usage, 'ingest');
+    await app.request('/api/ingest/statusline', { method: 'POST', headers: { ...H, 'content-type': 'application/json', 'X-Hangar-Claude-Config-Dir': `b64:${Buffer.from('/x/.claude-大学').toString('base64')}` }, body: JSON.stringify(second) });
+    expect(ingest).toHaveBeenLastCalledWith(second, '/x/.claude-大学');
+    await post('/api/ingest/statusline', second);
+    expect(ingest).toHaveBeenLastCalledWith(second, undefined);
     // 認証は他の /api と同じ。トークンが無ければ受け付けない。
     expect((await app.request('/api/ingest/statusline', { method: 'POST', body: '{}' })).status).toBe(401);
     // 集計は今日から遡る窓で数えるので、時計を fixture の日付（2026-09-01）の近くに止めて測る。

@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { appendStatuslineSnippet, ensureStatuslineHeaderFile, planStatuslineRemoval, planStatuslineSnippet, powershellStatuslineSnippet, PS_STATUSLINE_MARKER, removeStatuslineSnippet, resolveStatuslineScript, STATUSLINE_MARKER, statuslineHeaderPath, statuslineSnippet, statuslineSnippetFor, statuslineStatus, writeStatuslineHeaderFile } from './statusline.ts';
+import { appendStatuslineSnippet, decodeConfigDirHeader, ensureStatuslineHeaderFile, planStatuslineRemoval, planStatuslineSnippet, powershellStatuslineSnippet, PS_STATUSLINE_MARKER, removeStatuslineSnippet, resolveStatuslineScript, STATUSLINE_MARKER, statuslineHeaderPath, statuslineSnippet, statuslineSnippetFor, statuslineStatus, writeStatuslineHeaderFile } from './statusline.ts';
 import { expectMode, posixDescribe } from '../../../../test/platform.ts';
 
 let dir: string;
@@ -28,9 +28,9 @@ async function waitForFile(file: string, timeoutMs = 5000): Promise<void> {
 }
 
 /** スクリプトを bash で走らせ、標準出力を返す。curl は PATH の先頭を差し替えられる。 */
-function runScript(script: string, hangarHome: string, input: string, binDir?: string): Promise<string> {
+function runScript(script: string, hangarHome: string, input: string, binDir?: string, extraEnv: Record<string, string> = {}): Promise<string> {
   const PATH = binDir ? `${binDir}:${process.env.PATH ?? ''}` : (process.env.PATH ?? '');
-  const child = spawn('bash', [script], { env: { ...process.env, PATH, HANGAR_HOME: hangarHome }, stdio: ['pipe', 'pipe', 'ignore'] });
+  const child = spawn('bash', [script], { env: { ...process.env, PATH, HANGAR_HOME: hangarHome, ...extraEnv }, stdio: ['pipe', 'pipe', 'ignore'] });
   let out = '';
   child.stdout.setEncoding('utf8');
   child.stdout.on('data', (c: string) => (out += c));
@@ -74,6 +74,35 @@ describe('statuslineSnippet', () => {
     expect(s).toContain('if [ -r "$__hangar_header" ]; then');
     // 送らない場合でも、元のスクリプトへ標準入力を戻す行は if の外にある。
     expect(s.split('\n').at(-2)).toBe('exec <<<"$__hangar_input"');
+  });
+});
+
+describe('設定の置き場を送る', () => {
+  it('bash の形は CLAUDE_CONFIG_DIR を base64 にしてヘッダで送る', () => {
+    const s = statuslineSnippet(4177);
+    expect(s).toContain('"${CLAUDE_CONFIG_DIR:-}"');
+    expect(s).toContain('-H "X-Hangar-Claude-Config-Dir: b64:$__hangar_cfg"');
+  });
+
+  it('PowerShell の形も同じヘッダを送る', () => {
+    const s = powershellStatuslineSnippet(4177);
+    expect(s).toContain('$env:CLAUDE_CONFIG_DIR');
+    expect(s).toContain("'X-Hangar-Claude-Config-Dir'");
+  });
+
+  it('bash の形を実際に走らせると、置き場が base64 で読める（日本語の置き場も崩れない）', () => {
+    const s = statuslineSnippet(4177);
+    const line = s.split('\n').map((l) => l.trim()).find((l) => l.startsWith('__hangar_cfg='));
+    expect(line).toBeDefined();
+    const out = execFileSync('bash', ['-c', `${line}; printf '%s' "$__hangar_cfg"`], { env: { ...process.env, CLAUDE_CONFIG_DIR: '/Users/u/.claude-大学' } }).toString();
+    expect(decodeConfigDirHeader(`b64:${out}`)).toBe('/Users/u/.claude-大学');
+    const empty = execFileSync('bash', ['-c', `${line}; printf '%s' "$__hangar_cfg"`], { env: { ...process.env, CLAUDE_CONFIG_DIR: '' } }).toString();
+    expect(decodeConfigDirHeader(`b64:${empty}`)).toBe('');
+  });
+
+  it('ヘッダの読み：無ければ undefined、形が違えば undefined', () => {
+    expect(decodeConfigDirHeader(undefined)).toBeUndefined();
+    expect(decodeConfigDirHeader('/plain/path')).toBeUndefined();
   });
 });
 
@@ -189,12 +218,12 @@ posixDescribe('statusline のスニペットを実際に走らせる', () => {
 
   it('本物の curl で、本文と Authorization がそのまま届く', async () => {
     const hangarHome = hangarHomeWithHeader();
-    const got: { auth?: string; type?: string; body: string }[] = [];
+    const got: { auth?: string; type?: string; cfg?: string; body: string }[] = [];
     const server = createServer((req, res) => {
       let b = '';
       req.on('data', (c) => (b += c));
       req.on('end', () => {
-        got.push({ auth: req.headers.authorization, type: req.headers['content-type'], body: b });
+        got.push({ auth: req.headers.authorization, type: req.headers['content-type'], cfg: req.headers['x-hangar-claude-config-dir'] as string | undefined, body: b });
         res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
       });
     });
@@ -203,7 +232,7 @@ posixDescribe('statusline のスニペットを実際に走らせる', () => {
     try {
       const script = path.join(home, 'real.sh');
       fs.writeFileSync(script, `#!/usr/bin/env bash\n${statuslineSnippet(port)}cat\n`, { mode: 0o755 });
-      const out = await runScript(script, hangarHome, '{"session_id":"x"}');
+      const out = await runScript(script, hangarHome, '{"session_id":"x"}', undefined, { CLAUDE_CONFIG_DIR: '/Users/u/.claude-大学' });
       // 元のスクリプトには、読んだ標準入力が戻る（here-string なので末尾に改行が付く）。
       expect(out).toBe('{"session_id":"x"}\n');
       const until = Date.now() + 5000;
@@ -212,6 +241,8 @@ posixDescribe('statusline のスニペットを実際に走らせる', () => {
       expect(got[0]!.auth).toBe(`Bearer ${TOKEN}`);
       expect(got[0]!.type).toBe('application/json');
       expect(got[0]!.body).toBe('{"session_id":"x"}');
+      // claude の設定の置き場も届く（アカウントを決める手がかり）。
+      expect(decodeConfigDirHeader(got[0]!.cfg)).toBe('/Users/u/.claude-大学');
     } finally {
       await new Promise((r) => server.close(r));
     }
