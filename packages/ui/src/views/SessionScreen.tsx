@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { PEER_CHAT_MIN_WORKER_COMPAT } from '@agent-hangar/shared';
 import { useBackgroundEmit, useEmit } from '../action/chain.tsx';
 import type { SessionAction, SessionActionId, SessionProps } from '../presenters/session.ts';
@@ -26,7 +26,8 @@ import { usePresence } from './primitives/usePresence.ts';
 import { SpawnedFrom, SpawnedPills } from './SpawnedLinks.tsx';
 import { SplitPane } from './SplitPane.tsx';
 import { TabStrip } from './TabStrip.tsx';
-import { TerminalPane } from './TerminalPane.tsx';
+import { TerminalHostContext, TerminalPane } from './TerminalPane.tsx';
+import { remoteBusy } from '../presenters/remoteShell.ts';
 import { TocPane, TocToggle } from './TocPane.tsx';
 import { Transcript } from './Transcript.tsx';
 import { TurnIndex } from './TurnIndex.tsx';
@@ -55,6 +56,7 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
   const pv = props.variant === 'pane' ? props.pane ?? null : null;
   const emit = useEmit();
   const t = useT();
+  const termHost = useContext(TerminalHostContext);
   const reasonId = useId();
   // 狭いペイン（tiny）で、⋯ の「詳しく」から ⓘ の面を開く合図。増えるたびに ⓘ の面を開いた状態で作り直す。
   const [infoNonce, setInfoNonce] = useState(0);
@@ -358,11 +360,20 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
         )}
       </div>
     ) : null;
+    // タブ列は、チャット本体（Claude）と SSH のシェルタブ。つないでいる間の印の輪は、Host の札から足す。
+    // 開く札は、タブ列があるのでその右端に置く（本文の頭には置かない）。
+    const shells = props.peerShell?.shell ?? null;
+    const peerTabs = props.peerShell ? props.peerShell.tabs.map((x) => (x.kind === 'remote' ? { ...x, busy: remoteBusy(termHost?.remote(x.id) ?? null) } : x)) : null;
     return (
       <div className="screen session-screen" data-variant={pv ? 'pane' : undefined}>
         {header}
-        <div ref={peerSide ? boxRef : undefined} className="c-body" data-toc={peerSide ? undefined : 'none'} data-narrow={peerSide && narrow ? 'true' : undefined} style={peerSide ? bodyStyle : undefined}>
-          <div className="c-main"><section className="tr-sheet pchat-sheet"><PeerChatPane view={props.peerChat.view} trailing={peerOpener} /></section></div>
+        <div ref={peerSide ? boxRef : undefined} className="c-body" data-strip={peerTabs ? 'true' : undefined} data-folded={peerTabs && peerSide && !tocOpen ? 'true' : undefined} data-toc={peerSide ? undefined : 'none'} data-narrow={peerSide && narrow ? 'true' : undefined} style={peerSide ? bodyStyle : undefined}>
+          {peerTabs && <TabStrip sessionId={id} tabs={peerTabs} canAdd canSplit={false} split={false} showSplit={false} addKind="remote" trailing={peerSide && !tocOpen && !pv ? peerOpener : null} />}
+          <div className="c-main">
+            {shells
+              ? <TerminalPane key={shells.tabId} tabId={shells.tabId} hint={null} live={null} remote={{ deviceId: shells.deviceId, deviceName: shells.deviceName, host: shells.host }} />
+              : <section className="tr-sheet pchat-sheet"><PeerChatPane view={props.peerChat.view} trailing={peerTabs ? null : peerOpener} /></section>}
+          </div>
           {peerSlot}
         </div>
       </div>

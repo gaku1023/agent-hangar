@@ -22,12 +22,13 @@ import { readinessCompat } from '../presenters/compat.ts';
 import { translatorOf } from '../presenters/i18n.ts';
 import { clientPlatform, notifyBlockedKey, readinessComplete, readinessPending } from '../presenters/readiness.ts';
 import { unresolvedKind } from '../presenters/unresolved.ts';
-import type { FocusTarget, SessionViewState, TodoCall, TurnJumpStatus } from '../mediator/types.ts';
+import type { FocusTarget, MediatedAction, SessionViewState, TodoCall, TurnJumpStatus } from '../mediator/types.ts';
+import { staleRemoteTabs } from '../store/remoteShell.ts';
 import { applyGit, shownLive, aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, withoutProject, type ConfigDetailPart, type Store } from '../store/store.ts';
 import { AccountLinkConflictApiError, ApiConflictError, ApiNotFoundError, LaunchPrepAskApiError, LaunchPrepCancelledApiError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient, type EventsQuery } from './api.ts';
 import { nestedInspect } from '../store/folderInspect.ts';
 import type { DesktopBridge } from './desktop.ts';
-import { actionCall, isTableAction, type ApiCall } from './actionTable.ts';
+import { actionCall, isTableAction, type ApiCall, type TableAction } from './actionTable.ts';
 import { createGitWatch } from './gitWatch.ts';
 import type { Notifier } from './notifier.ts';
 import { createUpdateRunner } from './updater.ts';
@@ -475,6 +476,10 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
    * 終了した run の Claude タブには繋がない。
    */
   function resolveTab(sessionId: string, tabId: string | null): string | null {
+    // SSH のシェルタブは run のタブではない（手元に run が無い会話でも開ける）ので、開いている（ストアにある）ものはそのまま渡す。
+    // 指定が無いときは、選んでいる peerTab があればそれ。
+    const remote = tabId ?? state.sessionView[sessionId]?.peerTab ?? null;
+    if (remote !== null && store.remoteTabs[remote]?.sessionId === sessionId) return remote;
     const run = currentRunOf(store, sessionId);
     if (!run) return null;
     const open = tabsOf(store, run.id);
@@ -868,6 +873,28 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.closeTab(tab.runId, tab.id).then((t) => setStore(applyServerEvent(store, { type: 'tab.upsert', tab: t }))).catch(fail);
         return;
       }
+      case 'api.openRemoteTab':
+        deps.api.openRemoteTab(e.sessionId)
+          .then((tab) => {
+            setStore(applyServerEvent(store, { type: 'remoteTab.upsert', tab }));
+            dispatch({ kind: 'runtime', event: { type: 'remoteTab.opened', tab } });
+          })
+          .catch(fail);
+        return;
+      case 'api.closeRemoteTab':
+        // 閉じられたことは remoteTab.closed の出来事（HTTP の答えは本文なし）で知る。WS の出来事が先に来ても後に来ても同じ結果になる。
+        deps.api.closeRemoteTab(e.tabId).then(() => dispatch({ kind: 'server', event: { type: 'remoteTab.closed', id: e.tabId } })).catch(fail);
+        return;
+      case 'api.putSshHost':
+        deps.api.putSshHost(e.deviceId, e.host)
+          .then(() => {
+            dispatch({ kind: 'server', event: { type: 'remoteHost.changed', deviceId: e.deviceId, host: e.host } });
+            // 上書きを保存できたら、failed のタブをつなぎ直す。
+            if (e.retryTabId) deps.terminals.retry(e.retryTabId);
+          })
+          .catch(fail);
+        return;
+      case 'terminal.retry': deps.terminals.retry(e.tabId); return;
       case 'api.jumpToPrompt': {
         const done = (status: TurnJumpStatus) => dispatch({ kind: 'runtime', event: { type: 'turnJump.done', sessionId: e.sessionId, seq: e.seq, status } });
         deps.api.jumpToPrompt(e.runId, { heads: e.heads, index: e.index, from: e.from }).then((r) => done(r.found ? 'found' : r.reason)).catch((err) => { done('failed'); fail(err); });
@@ -887,6 +914,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'terminal.disconnect': deps.terminals.disconnect(e.tabId); return;
       case 'terminal.disconnectSession':
         for (const t of Object.values(store.tabs)) if (t.sessionId === e.sessionId) deps.terminals.disconnect(t.id);
+        for (const t of Object.values(store.remoteTabs)) if (t.sessionId === e.sessionId) deps.terminals.disconnect(t.id);
         return;
       case 'ws.connect': ws?.connect(); return;
       case 'ws.reconnectAfter': deps.setTimeout(() => ws?.connect(), e.ms); return;
@@ -1172,14 +1200,14 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     if (action.type === 'git.watch') { gitWatch.watch(action.key, action.sessionIds); return; }
     // プロジェクト画面のブランチと worktree は、git の表示の周期で読み直すので、周期を始めておく（セッションの行が無い画面でも回す）。
     if (action.type === 'project.git.load') gitWatch.start();
-    if (!isTableAction(action)) { dispatch({ kind: 'action', action }); return; }
-    const c = actionCall(action, store);
+    if (!isTableAction(action as UiAction)) { dispatch({ kind: 'action', action: action as MediatedAction }); return; }
+    const c = actionCall(action as TableAction, store);
     if (c) runCall(c);
   }
 
   function dispatch(input: Input): void {
     // 型では表の UiAction を渡せないが、型を外して渡されても Mediator へは入れない。
-    if (input.kind === 'action' && (isTableAction(input.action) || (input.action as UiAction).type === 'git.watch')) { emit(input.action); return; }
+    if (input.kind === 'action' && (isTableAction(input.action as UiAction) || (input.action as UiAction).type === 'git.watch')) { emit(input.action); return; }
     // 索引の走査がこの知らせで終わるかは、当てる前の Store でしか分からない。
     const indexDone = input.kind === 'server' && indexFinishedBy(store, input.event);
     // 同期で降りた、この PC に場所を持ったことが無いプロジェクトか。これも、当てる前の Store でしか分からない（初めて見る id かどうか）。
@@ -1189,7 +1217,10 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     const arrivedId = input.kind === 'server' && input.event.type === 'project.upsert' && arrivedFromSync(store, input.event.project) ? input.event.project.id : null;
     if (input.kind === 'server') {
       const couldHold = eventsAvailable(store.sync);
+      const prevStore = store;
       setStore(applyServerEvent(store, input.event));
+      // この PC で会話を再開した、または別の PC で終わったら、その会話の SSH のシェルタブも閉じる（計画 6 節 Q5。前後の Store を比べる staleRemoteTabs が決める）。
+      for (const id of staleRemoteTabs(prevStore, store, input.event)) emit({ type: 'tab.close', tabId: id });
       // 閉じている間のイベントが積まれた。
       // 山の中身は画面が読み直す（本文を知らせの道に載せない）。
       // Worker の版が起動のあとに分かって使えるようになったときも、積まれていたかもしれないので読む。

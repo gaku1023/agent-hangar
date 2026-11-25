@@ -68,6 +68,9 @@ export type ServerEvent =
   | { type: 'join.request'; request: JoinRequestView; expiresAt: number }
   /** スマホからの依頼でこの PC が会話を起こした。1 つの依頼につき 1 回だけ配る（右下の通知、試作 F1）。 */
   | { type: 'phone.launch'; launch: PhoneLaunchDto }
+  | { type: 'remoteTab.upsert'; tab: import('./remoteShell.ts').RemoteTabDto }
+  | { type: 'remoteTab.closed'; id: string }
+  | { type: 'remoteHost.changed'; deviceId: string; host: string | null }
   /**
    * ほかの PC から来た文の預かり（peer/chat/queue.ts）が変わった。sessionId の預かりの全体（古い順）を運ぶ。空なら帯を畳む。
    * 預かった、渡し始めた、渡した、取り消された、10 分で捨てた、会話が消えた、のどれでも配る。

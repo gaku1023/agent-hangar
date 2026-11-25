@@ -15,7 +15,7 @@ type Extras = Pick<
   | 'renameProject' | 'live' | 'sessionFiles' | 'gitSessions' | 'sessionChanges' | 'sessionDiff' | 'sessionEdits' | 'projectGit' | 'headless' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'previewAccountDir' | 'sharePreview' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
   | 'codexAccounts' | 'setCurrentCodexAccount' | 'addCodexAccount' | 'previewCodexAccountDir' | 'updateCodexAccount' | 'removeCodexAccount' | 'loginCodexAccount' | 'cancelCodexAccountLogin' | 'refreshCodexAccount' | 'linkConflicts' | 'repairLinkConflicts'
-  | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen' | 'markUnread' | 'setPinned' | 'setMuted' | 'launchSettings' | 'rushPeerQueue' | 'eventBindings' | 'prClaims' | 'createEventBinding' | 'approveEventBinding' | 'deleteEventBinding' | 'answerPrClaim' | 'heldEvents' | 'runHeldEvents' | 'eventHookUrl' | 'rotateEventUrl' | 'eventRepoHook' | 'peers' | 'peerLaunch' | 'peerStop' | 'peerChatOpen' | 'peerChatOp' | 'orchestratorApprovals' | 'orchestratorSend' | 'orchestratorState' | 'orchestratorControl' | 'voice' | 'voiceHold' | 'voiceToggle' | 'voiceSpeak' | 'translate' | 'voiceStop' | 'voiceVoices' | 'voicePreview' | 'voiceEngine'
+  | 'openRemoteTab' | 'closeRemoteTab' | 'putSshHost' | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen' | 'markUnread' | 'setPinned' | 'setMuted' | 'launchSettings' | 'rushPeerQueue' | 'eventBindings' | 'prClaims' | 'createEventBinding' | 'approveEventBinding' | 'deleteEventBinding' | 'answerPrClaim' | 'heldEvents' | 'runHeldEvents' | 'eventHookUrl' | 'rotateEventUrl' | 'eventRepoHook' | 'peers' | 'peerLaunch' | 'peerStop' | 'peerChatOpen' | 'peerChatOp' | 'orchestratorApprovals' | 'orchestratorSend' | 'orchestratorState' | 'orchestratorControl' | 'voice' | 'voiceHold' | 'voiceToggle' | 'voiceSpeak' | 'translate' | 'voiceStop' | 'voiceVoices' | 'voicePreview' | 'voiceEngine'
 >;
 
 /** フェーズ 2 からフェーズ 4 で増えた API の偽物。
@@ -56,6 +56,9 @@ export function fakeApiExtras(): Extras {
     orchestratorControl: vi.fn(async () => ({ ok: true })),
     peerLaunch: vi.fn(async () => ({ status: 'requested' as const, requestId: 'r1', device: 'Mac' })),
     peerStop: vi.fn(async () => ({ status: 'requested' as const, requestId: 'r2', device: 'Mac' })),
+    openRemoteTab: vi.fn(async () => ({ id: 'r1', sessionId: 's1', deviceId: 'd2', title: 'シェル', createdAt: 1 })),
+    closeRemoteTab: vi.fn(async () => undefined),
+    putSshHost: vi.fn(async () => undefined),
     // git の表示。一覧と画面を開くたびに取りに行くので、どのテストでも空の答えを返す。
     gitSessions: vi.fn(async () => ({ sessions: {}, trees: {} })),
     sessionChanges: vi.fn(async () => ({ state: 'nogit' as const, root: null, tree: null, files: [], others: [], othersCapped: false })),

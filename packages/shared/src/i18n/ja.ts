@@ -32,6 +32,7 @@ import { muxJa } from './ja/mux.ts';
 import { approveJa } from './ja/approve.ts';
 import { pauseJa } from './ja/pause.ts';
 import { peerChatJa } from './ja/peerChat.ts';
+import { remoteShellJa } from './ja/remoteShell.ts';
 import { platformJa } from './ja/platform.ts';
 import { projectJa } from './ja/project.ts';
 import { projectsJa } from './ja/projects.ts';
@@ -109,6 +110,7 @@ export const ja: Dictionary = {
   ...approveJa,
   ...pauseJa,
   ...peerChatJa,
+  ...remoteShellJa,
   ...platformJa,
   ...projectJa,
   ...projectsJa,

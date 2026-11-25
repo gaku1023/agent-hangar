@@ -1,3 +1,4 @@
+import { remoteShellRoutes } from './routes/remoteShell.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono } from 'hono';
@@ -157,6 +158,7 @@ export function createApp(deps: AppDeps): Hono {
   notifyRoutes(api, deps);
   peerLaunchRoutes(api, { ...deps, language });
   peerChatRoutes(api, deps);
+  remoteShellRoutes(api, deps);
   gitRoutes(api, { ...deps, git: deps.git ?? new GitService({ db, deviceId, live: deps.live, broadcast: (git) => deps.hub.broadcast({ type: 'git.upsert', git }), exec: () => { const f = gitPath(); return f ? spawnGit(f) : null; } }) });
 
   app.route('/api', api);

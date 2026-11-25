@@ -5,7 +5,7 @@ import { tocFolds } from '../presenters/tocFold.ts';
 import { paneShows } from './panes.ts';
 
 export function defaultSessionView(): SessionViewState {
-  return { agentId: null, showThinking: false, showRaw: false, follow: true, selectedTab: null, transcriptOpen: true, split: false, splitTab: null, openTurn: null, turnJump: null, jump: null, tocPeek: false };
+  return { agentId: null, showThinking: false, showRaw: false, follow: true, selectedTab: null, transcriptOpen: true, split: false, splitTab: null, openTurn: null, turnJump: null, jump: null, tocPeek: false, peerTab: null };
 }
 
 /**
@@ -113,6 +113,12 @@ function forgetJump(state: State, id: string, match: (runId: string) => boolean)
 const currentSession = (state: State): string | null => (state.screen.name === 'session' ? state.screen.id : null);
 const viewOf = (state: State, id: string) => state.sessionView[id] ?? defaultSessionView();
 
+/** peer chat の画面で SSH のシェルタブを選び、つないで、入力を向ける。 */
+function selectRemote(state: State, sessionId: string, tabId: string): Step {
+  const r = patch(state, sessionId, { peerTab: tabId });
+  return { state: r.state, effects: [...r.effects, { kind: 'terminal.connect', sessionId, tabId }, { kind: 'focus', target: 'terminal' }] };
+}
+
 /** sessionView 領域：セッション画面の一時状態とターミナル接続の開閉。localStorage に保存し、同期しない。 */
 export function sessionViewStep(state: State, store: Store, input: Input): Step | null {
   if (input.kind === 'server') {
@@ -137,6 +143,17 @@ export function sessionViewStep(state: State, store: Store, input: Input): Step 
         const fresh = forgetJump(state, ev.run.sessionId, (runId) => runId === ev.run.id);
         return { state: fresh, effects: [{ kind: 'terminal.disconnect', tabId: ev.run.id }] };
       }
+      case 'remoteTab.closed': {
+        // 選んでいた画面はチャット本体へ戻す。つなぎは、どの画面で閉じても（別の窓の出来事でも）切る。
+        let next = state;
+        const effects: Effect[] = [];
+        for (const [sid, v] of Object.entries(state.sessionView)) {
+          if (v.peerTab !== ev.id) continue;
+          const r = patch(next, sid, { peerTab: null });
+          next = r.state; effects.push(...r.effects);
+        }
+        return { state: next, effects: [...effects, { kind: 'terminal.disconnect', tabId: ev.id }] };
+      }
       case 'tab.upsert': {
         const t = ev.tab;
         if (t.closedAt !== null) {
@@ -155,6 +172,12 @@ export function sessionViewStep(state: State, store: Store, input: Input): Step 
       }
       default: return null;
     }
+  }
+  if (input.kind === 'runtime' && input.event.type === 'remoteTab.opened') {
+    // 開けたタブは、開いた会話の画面にいるときだけ選んでつなぐ（POST の間に別の画面へ移っていたら、タブだけ残す）。
+    const t = input.event.tab;
+    if (currentSession(state) !== t.sessionId) return { state, effects: [] };
+    return selectRemote(state, t.sessionId, t.id);
   }
   if (input.kind === 'runtime' && input.event.type === 'turnJump.done') {
     const e = input.event;
@@ -210,7 +233,15 @@ export function sessionViewStep(state: State, store: Store, input: Input): Step 
       if (tocFolds(store, v, sid, state.orchestratorOpen)) return local(state, sid, { tocPeek: !v.tocPeek });
       return patch(state, sid, { transcriptOpen: !v.transcriptOpen });
     }
+    case 'remote.select': {
+      const sid = currentSession(state);
+      if (!sid) return { state, effects: [] };
+      return i.tabId === null ? patch(state, sid, { peerTab: null }) : selectRemote(state, sid, i.tabId);
+    }
+    case 'remote.sshHost': return { state, effects: [{ kind: 'api.putSshHost', deviceId: i.deviceId, host: i.host, ...(i.retryTabId ? { retryTabId: i.retryTabId } : {}) }] };
+    case 'remote.retry': return { state, effects: [{ kind: 'terminal.retry', tabId: i.tabId }] };
     case 'tab.open': {
+      if (i.kind === 'remote') return { state, effects: [{ kind: 'api.openRemoteTab', sessionId: i.sessionId }] };
       if (i.kind === 'shell') return { state, effects: [{ kind: 'api.openTab', sessionId: i.sessionId }] };
       const r = patch(state, i.sessionId, { selectedTab: null });
       return { state: r.state, effects: [...r.effects, { kind: 'terminal.connect', sessionId: i.sessionId, tabId: null }, { kind: 'focus', target: 'terminal' }] };
@@ -218,6 +249,7 @@ export function sessionViewStep(state: State, store: Store, input: Input): Step 
     case 'tab.select': {
       const sid = currentSession(state);
       if (!sid) return { state, effects: [] };
+      if (i.tabId in store.remoteTabs) return selectRemote(state, sid, i.tabId);
       const cur = viewOf(state, sid);
       // 分割中に右のタブを選んだら左右を入れ替える。
       // そうでなければ左を差し替えるだけにする。
@@ -240,6 +272,8 @@ export function sessionViewStep(state: State, store: Store, input: Input): Step 
       return patch(state, sid, { split: true, splitTab: right.id });
     }
     case 'tab.close': {
+      // SSH のシェルタブは DELETE で閉じる。選びの戻しとつなぎの切断は、答えの remoteTab.closed で行う。
+      if (i.tabId in store.remoteTabs) return { state, effects: [{ kind: 'api.closeRemoteTab', tabId: i.tabId }] };
       const sid = currentSession(state);
       const close: Effect = { kind: 'api.closeTab', tabId: i.tabId };
       const p = sid ? closedTabPatch(viewOf(state, sid), i.tabId) : null;

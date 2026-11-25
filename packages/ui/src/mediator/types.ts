@@ -1,4 +1,4 @@
-import type { WakeOn, InvestigateContext, NewSessionSeed, PeerLaunchBody, LinkConflictsDto, ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, NonDefaultAgentKind, ProjectPlace, ProjectRailSection, ResolveAction, PhoneLaunchDto, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto, ScheduleInput, SchedulePatch } from '@agent-hangar/shared';
+import type { RemoteTabDto, WakeOn, InvestigateContext, NewSessionSeed, PeerLaunchBody, LinkConflictsDto, ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, NonDefaultAgentKind, ProjectPlace, ProjectRailSection, ResolveAction, PhoneLaunchDto, ResumeHerePlanDto, ResumeStray, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TakeoverDto, TodoDto, ProjectSameFolderDto, ScheduleInput, SchedulePatch } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { PanesState } from './panes.ts';
 import type { CloudMemberCommand } from '../runtime/cloudMember.ts';
@@ -19,6 +19,8 @@ export type RuntimeEvent =
   | { type: 'api.failed'; message: string; holdMs?: number; /** あれば、トーストに「エージェントで調査…」を付ける。 */ investigate?: InvestigateContext } | { type: 'search.done'; params: SearchParamsDto }
   | { type: 'peerAnswer.failed'; sessionId: string }
   | { type: 'peerAnswer.delivered'; sessionId: string }
+  // peer chat の画面で SSH のシェルタブを開けた（POST の答え）。画面はそのタブを選んでつなぐ。
+  | { type: 'remoteTab.opened'; tab: RemoteTabDto }
   | { type: 'launch.done'; sessionId: string; runId: string } | { type: 'launch.failed'; message: string; /** 起動が、リンクの場所のファイルの衝突だけで断られた（修復のダイアログを開ける）。 */ linkConflict?: LinkConflictRef }
   // 準備が問い（ask）で止まった、または利用者がやめた（cancel）。どちらも失敗ではない。message はサーバの文で、閉じた後に問いで止まったときだけ知らせる。
   | { type: 'launch.halted'; why: 'ask' | 'cancel'; message: string }
@@ -119,6 +121,9 @@ export type Effect =
   | { kind: 'api.killRun'; runId: string } | { kind: 'api.openTab'; sessionId: string } | { kind: 'api.closeTab'; tabId: string }
   | { kind: 'api.jumpToPrompt'; sessionId: string; runId: string; seq: number; heads: string[]; index: number; from: 'top' | 'bottom' }
   | { kind: 'api.leaveTranscript'; runId: string }
+  // SSH のシェルタブ。開く（POST）、閉じる（DELETE）、住所の上書き（PUT。retryTabId があれば保存のあとにつなぎ直す）、failed からのつなぎ直し（WS の {t:'retry'}）。
+  | { kind: 'api.openRemoteTab'; sessionId: string } | { kind: 'api.closeRemoteTab'; tabId: string }
+  | { kind: 'api.putSshHost'; deviceId: string; host: string | null; retryTabId?: string } | { kind: 'terminal.retry'; tabId: string }
   | { kind: 'terminal.connect'; sessionId: string; tabId: string | null } | { kind: 'terminal.disconnect'; tabId: string }
   | { kind: 'terminal.disconnectSession'; sessionId: string }
   | { kind: 'ws.connect' } | { kind: 'ws.reconnectAfter'; ms: number }
@@ -314,6 +319,8 @@ export type SessionViewState = {
   turnJump: { seq: number; status: TurnJumpStatus; runId: string } | null;
   /** 検索の結果から開いたときの跳び先。無ければ null。 */
   jump: JumpState | null;
+  /** peer chat の画面で選んでいる SSH のシェルタブ（RemoteTabDto の id）。null はチャット本体。 */
+  peerTab: string | null;
 };
 /** holdMs は info の出している長さ（ミリ秒）。省くと既定の長さ（INFO_TOAST_MS）。action はトーストの中のボタン（「元に戻す」）で、押すとその UiAction を出してトーストを閉じる。 */
 /** action の title は、ボタンに添える説明（「エージェントで調査…」）。 */

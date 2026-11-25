@@ -398,6 +398,7 @@ export function bootRuns(
         codex: { list: () => codexAccountStore.list(), auth: codexAuth, enabled: codexOn },
         agentUsable,
         agentKinds: AGENT_KINDS, version: VERSION,
+        tmuxPath: () => settings.current.tmuxPath,
         ...(opencode ? { opencode } : {}),
         // 統括の系譜。ほかの PC はこれで統括の会話を見分け、サイドバーから外す（統括の設定は同期しない）。切っても系譜は残る。
         orchestratorIds: () => orchestratorLineage(orchestratorOf(settings.current.orchestrator)),
