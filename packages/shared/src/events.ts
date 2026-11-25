@@ -1,4 +1,4 @@
-import type { PeerChatDevice, PeerChatQueued, PeerChatUpdate } from './peerChat.ts';
+import type { PeerChatDevice, PeerChatQueued, PeerChatReadEvent, PeerChatUpdate } from './peerChat.ts';
 import type { ScheduleDto } from './schedule.ts';
 import type { TakeoverDto, DeleteApprovalDto, AccountsDto, ArtifactDto, CloudUsageDto, ConfigSyncDto, DeviceDto, IndexProgressDto, InterruptedDto, JoinApproverState, JoinRequestView, LiveSessionDto, PhoneLaunchDto, ProjectDto, RetentionDto, RunDto, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
 
@@ -42,6 +42,7 @@ export type ServerEvent =
    * 見ている会話だけに流れる。
    */
   | ({ type: 'peerChat.update' } & PeerChatUpdate)
+  | ({ type: 'peerChat.read' } & PeerChatReadEvent)
   /** 設定の同期（作り直した実装）の状態。届いた変更、競合、送らなかった項目、適用の指示書が動いたときに配る。 */
   | { type: 'config.update'; configSync: ConfigSyncDto }
   | { type: 'retention.changed'; retention: RetentionDto }

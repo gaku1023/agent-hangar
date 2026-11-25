@@ -55,6 +55,11 @@ const ops: PeerChatRequest['op'][] = [
   { t: 'files', query: 'src/' },
   { t: 'commands' },
   { t: 'switch-account', account: '会社' },
+  { t: 'older', before: 'u9' },
+  { t: 'older', before: null, from: 'u2' },
+  { t: 'older', before: 'u9', from: 'u2' },
+  { t: 'turns' },
+  { t: 'turns', before: 'u9' },
 ];
 
 const state: PeerChatState = {
@@ -174,6 +179,13 @@ describe('頼みの形の検査', () => {
       req({ t: 'cancel' } as never),
       req({ t: 'files' } as never),
       req({ t: 'files', query: 3 } as never),
+      req({ t: 'older' } as never),
+      req({ t: 'older', before: null }),
+      req({ t: 'older', before: '' }),
+      req({ t: 'older', before: 'a', from: '' }),
+      req({ t: 'older', before: 3 } as never),
+      req({ t: 'turns', before: '' }),
+      req({ t: 'turns', before: 3 } as never),
       req({ t: 'switch-account' } as never),
       req({ t: 'switch-account', account: '' }),
       req({ t: 'switch-account', account: 'x'.repeat(PEER_CHAT_ACCOUNT_MAX_CHARS + 1) }),
@@ -243,9 +255,29 @@ describe('答えの封', () => {
       { ok: true, queueId: 'q-1' },
       { ok: true },
       { ok: true, files: [{ path: 'a.ts', changed: true }] },
+      { ok: true, older: { items: state.items, more: true } },
+      { ok: true, turns: { rows: [{ uuid: 'u1', at: NOW, text: 'やって', tools: 2 }], total: 5, more: true } },
+      { ok: true, state: { ...state, turnCount: 3 } },
       ...PEER_CHAT_REFUSALS.map((reason) => ({ ok: false as const, reason })),
     ];
     for (const r of replies) expect(await openPeerChatReply(ring, route, await sealPeerChatReply(ring, route, r)), JSON.stringify(r)).toEqual(r);
+  });
+
+  it('older、turns、turnCount の形が違う答えは断り、無い欄（古い相手）はそのまま読める', () => {
+    expect(shared.parsePeerChatReply({ ok: true, older: { items: [], more: 'x' } })).toBeNull();
+    expect(shared.parsePeerChatReply({ ok: true, older: { items: [{ uuid: 1 }], more: false } })).toBeNull();
+    expect(shared.parsePeerChatReply({ ok: true, turns: { rows: [{ uuid: 'a', at: 1, text: 't' }], total: 1, more: false } })).toBeNull();
+    expect(shared.parsePeerChatReply({ ok: true, turns: { rows: [], total: -1, more: false } })).toBeNull();
+    expect(shared.parsePeerChatReply({ ok: true, state: { ...state, turnCount: 'x' } })).toBeNull();
+    expect(shared.parsePeerChatReply({ ok: true, state })).toEqual({ ok: true, state });
+    expect('turnCount' in (shared.parsePeerChatReply({ ok: true, state }) as { state: PeerChatState }).state).toBe(false);
+  });
+
+  it('peerChat.read の頼みは older と turns だけを受ける', () => {
+    const good = { type: 'peerChat.read', sessionId: 's', viewer: 'v', req: 'r', op: { t: 'turns' } };
+    expect(shared.parsePeerChatClientMsg(JSON.stringify(good))).toEqual(good);
+    expect(shared.parsePeerChatClientMsg(JSON.stringify({ ...good, op: { t: 'older', before: 'u1', from: 'u0' } }))).toMatchObject({ op: { t: 'older', before: 'u1', from: 'u0' } });
+    for (const bad of [{ ...good, op: { t: 'interrupt' } }, { ...good, op: { t: 'older' } }, { ...good, req: undefined }]) expect(shared.parsePeerChatClientMsg(JSON.stringify(bad))).toBeNull();
   });
 
   it('札の answerable は false だけが往復し、印の無い古い形はそのまま読め、型違いは断る', async () => {

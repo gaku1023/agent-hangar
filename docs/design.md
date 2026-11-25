@@ -1152,6 +1152,20 @@ Claude Code が user として書くが利用者の発言ではない 2 つの�
 - 元の PC は同じ名前のアカウントを引き、画面の切り替えと同じ道（`RunManager.switchAccount`。動いていれば止め、消えるのを待って再開）で付け替える（`boot/peerChat.ts` の `switchAccountOf`）。元の PC の既定のアカウントは変えない。確認の「新しいセッションのデフォルトも…」の行も出さない。
 - 名前のアカウントが無いかログインしていなければ `account-unavailable`、付け替えに失敗すれば `resume-failed` で断り、会話の画面の下に理由を出す。送る系の頼みとして、`peerChatAcceptFromPeers` が切なら断る。
 
+ほかの PC の会話は、元の PC から本文の末尾（約 40KB、`PEER_CHAT_TAIL_BYTE_BUDGET`）だけを受け取る。古い分と、ターンの目次を読む口が 2 つある（peer chat の頼みの `older` と `turns`）。
+- `older`：`{ t: 'older', before, from? }`。答えは `{ older: { items, more } }`。項目は `tail` と同じ `PeerChatItem` で、古い順、予算は同じ 40KB。札は出さない。
+  `from` が無ければ `before`（項目の uuid、含めない）の前を新しい側から詰める（上へスクロールして古い分を足す）。
+  `from` があれば `from` から前向きに `before` の手前（`before` が `null` なら末尾）まで古い側から詰める（目次のターンの頭から読む）。
+  入りきらない分が範囲に残れば `more`。知らない uuid や本文が無いときは空で `more` なし（`peer/chat/tail.ts` の `transcriptOlder`）。
+- `turns`：`{ t: 'turns', before? }`。答えは `{ turns: { rows, total, more } }`。行は `PeerChatTurn`（`uuid` は利用者の指示の項目の uuid で `older` の `from` にそのまま使える、`at`、1 行目の `text`（200 バイトで切る）、次の指示までの道具の数 `tools`）。
+  手元の目次の行（`TurnRowProps`）の縮小版で、色帯と開いた印は持たない。`before` のターンより前だけを新しい側から予算で詰め、古い行を落としたら `more`。`total` は全ターンの数（`transcriptTurns`）。
+- 目次は 2 秒の見張りでは送らない。`tail` の状態に全ターンの数 `turnCount` だけを載せ、見る側の見張りが変わったときだけ `peerChat.update` の `turnCount` として流す。画面はそれが変わったときと開いたときにだけ `turns` を頼む。
+- 見る側の口は 2 つ。HTTP の `POST /api/sessions/:id/peer-chat/ops`（`older` と `turns` の本文をそのまま受ける）と、WebSocket の `peerChat.read`（`{ sessionId, viewer, req, op }`）。
+  WebSocket の答えは `peerChat.read` の知らせ（`{ sessionId, viewer, req, ok: true, older?, turns? }` か `{ ..., ok: false, reason }`）で、見張りの `update` と同じく全接続に流れるので、画面は `viewer` と `req` で自分の答えを選ぶ。
+- 読む系の頼みなので `peerChatAcceptFromPeers` が切でも答え、持ち主でない PC は `session-unknown` で断る。覚えは `tail` と同じ短い間だけ。
+- Worker の 1 分 120 回の枠は、見張り 1 本で 30 回使う。目次は要求されたときと `turnCount` が変わったときだけなので、見張りの周には足さない。
+- この 2 つを知らない古い元の PC は頼みを開けずに答えないので、見る側（`PeerChatViewer.op`）は待ちが切れたら断りにせず、`ok: true` で `older` も `turns` も付けずに返す（無いものとして扱う）。その相手には 5 分間、頼み直さない（画面が毎回 10 秒待たされない）。`turnCount` の無い状態を返す相手は、目次を頼まない。
+
 ほかの PC の会話の入力欄でも、`/` でスキルとコマンドの候補を出す（`PeerChatComposer`）。
 - 候補は元の PC のもの。peer chat の `commands` の頼みで、元の PC が新しいセッションの欄と同じ一覧（`listPromptCommands`。設定の `claudeDir` と会話の場所）を返す。読む系の頼みなので、`peerChatAcceptFromPeers` が切でも答える。
 - 答えは封の上限に収める。説明を 120 字で切り、200 件と JSON の 40,000 バイトを超える分を、使った回数の少ないものから落とす。残したものは元の並びのまま（`peer/chat/host.ts` の `fitCommands`）。

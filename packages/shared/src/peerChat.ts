@@ -154,6 +154,11 @@ export type PeerChatState = {
    * 無い（古い相手）ときは何もしない。
    */
   hostId?: string;
+  /**
+   * 会話の全ターンの数。見る側は、これが変わったときだけ turns を頼み直す。
+   * 無い（古い相手）ときは目次を頼まない。
+   */
+  turnCount?: number;
 };
 
 /**
@@ -164,6 +169,19 @@ export type PeerBlobRef = MobileImageRef;
 
 export type PeerChatOp =
   | { t: 'tail'; after: string | null; waitMs: number }
+  /**
+   * 古い分を読む（transcript の項目だけ。札は出ない）。
+   * from が無いとき、before の前の項目を、新しい側から PEER_CHAT_TAIL_BYTE_BUDGET の予算で返す（before は含まない）。
+   * from があるとき、from から前向きに、before の手前まで（before が null なら末尾まで）を予算で返す（目次のターンの頭から読む）。
+   * どちらも項目は古い順で、入りきらない分があれば more が真になる。
+   * 古い hangar はこの頼みを知らず、答えない。
+   */
+  | { t: 'older'; before: string | null; from?: string }
+  /**
+   * 会話のターン（利用者の指示）の目次の行を返す。
+   * before があれば、そのターンより前の行だけ。新しい側から PEER_CHAT_TAIL_BYTE_BUDGET の予算で返す。
+   */
+  | { t: 'turns'; before?: string }
   /**
    * waitMs は、頼み主が答えを待つ長さ（Worker に渡す waitMs と同じ値）。
    * 元の PC は、画像の取り込みと再開を含む全体をこの長さに収め、過ぎたら expired で断って何も預からない（頼み主が諦めたあとで預けて、二重に渡さないため）。
@@ -212,7 +230,20 @@ export type PeerChatFile = { path: string; changed: boolean };
  */
 export type PeerChatCommand = PromptCommandDto;
 
-export type PeerChatReply = { ok: true; state?: PeerChatState; queueId?: string; files?: PeerChatFile[]; commands?: PeerChatCommand[] } | { ok: false; reason: PeerChatRefusal };
+/**
+ * 目次の 1 行（ターン = 利用者の指示の項目）。
+ * uuid はその指示の項目の uuid（older の from にそのまま使える）。
+ * text は指示の 1 行目（PEER_CHAT_TURN_TEXT_MAX_BYTES で切る）、tools は次の指示までの道具の呼び出しの数。
+ */
+export type PeerChatTurn = { uuid: string; at: number; text: string; tools: number };
+/** turns の答え。rows は古い順、total は会話の全ターンの数、more は予算で落とした古い行があること。 */
+export type PeerChatTurns = { rows: PeerChatTurn[]; total: number; more: boolean };
+/** older の答え。items は古い順、more は予算で入りきらなかった分が範囲に残っていること。 */
+export type PeerChatOlder = { items: PeerChatItem[]; more: boolean };
+/** 目次の 1 行の text の上限（UTF-8 のバイト）。 */
+export const PEER_CHAT_TURN_TEXT_MAX_BYTES = 200;
+
+export type PeerChatReply = { ok: true; state?: PeerChatState; queueId?: string; files?: PeerChatFile[]; commands?: PeerChatCommand[]; older?: PeerChatOlder; turns?: PeerChatTurns } | { ok: false; reason: PeerChatRefusal };
 
 // ---- 上限 ----
 
@@ -328,6 +359,12 @@ function readOp(v: unknown): PeerChatOp | null {
     case 'tail':
       if (!(v.after === null || isId(v.after)) || !isNat(v.waitMs) || v.waitMs > PEER_CHAT_WAIT_MAX_MS) return null;
       return { t: 'tail', after: v.after as string | null, waitMs: v.waitMs };
+    case 'older':
+      if (!(v.before === null || isId(v.before)) || !(v.from === undefined || isId(v.from)) || (v.before === null && v.from === undefined)) return null;
+      return v.from === undefined ? { t: 'older', before: v.before as string | null } : { t: 'older', before: v.before as string | null, from: v.from };
+    case 'turns':
+      if (!(v.before === undefined || isId(v.before))) return null;
+      return v.before === undefined ? { t: 'turns' } : { t: 'turns', before: v.before };
     case 'send':
     case 'resume-send': {
       const images = readImages(v.images);
@@ -458,6 +495,10 @@ function readState(v: unknown): PeerChatState | null {
     if (!isStr(v.hostId)) return null;
     out.hostId = v.hostId;
   }
+  if (v.turnCount !== undefined) {
+    if (!isNat(v.turnCount)) return null;
+    out.turnCount = v.turnCount;
+  }
   return out;
 }
 
@@ -469,7 +510,7 @@ export function parsePeerChatReply(v: unknown): PeerChatReply | null {
   if (!isObj(v)) return null;
   if (v.ok === false) return isStr(v.reason) && REFUSALS.has(v.reason) ? { ok: false, reason: v.reason as PeerChatRefusal } : null;
   if (v.ok !== true) return null;
-  const out: { ok: true; state?: PeerChatState; queueId?: string; files?: PeerChatFile[]; commands?: PeerChatCommand[] } = { ok: true };
+  const out: { ok: true; state?: PeerChatState; queueId?: string; files?: PeerChatFile[]; commands?: PeerChatCommand[]; older?: PeerChatOlder; turns?: PeerChatTurns } = { ok: true };
   if (v.state !== undefined) {
     const s = readState(v.state);
     if (!s) return null;
@@ -491,6 +532,18 @@ export function parsePeerChatReply(v: unknown): PeerChatReply | null {
       cmds.push({ name: c.name, description: c.description, argumentHint: c.argumentHint, source: c.source as PromptCommandSource, uses: c.uses });
     }
     out.commands = cmds;
+  }
+  if (v.older !== undefined) {
+    if (!isObj(v.older) || !Array.isArray(v.older.items) || typeof v.older.more !== 'boolean') return null;
+    const items = v.older.items.map(readItem);
+    if (items.some((i) => !i)) return null;
+    out.older = { items: items as PeerChatItem[], more: v.older.more };
+  }
+  if (v.turns !== undefined) {
+    const t = v.turns;
+    if (!isObj(t) || !Array.isArray(t.rows) || !isNat(t.total) || typeof t.more !== 'boolean') return null;
+    if (!t.rows.every((r) => isObj(r) && isStr(r.uuid) && isTime(r.at) && isStr(r.text) && isNat(r.tools))) return null;
+    out.turns = { rows: (t.rows as PeerChatTurn[]).map((r) => ({ uuid: r.uuid, at: r.at, text: r.text, tools: r.tools })), total: t.total, more: t.more };
   }
   return out;
 }
@@ -667,6 +720,8 @@ export type PeerChatUpdate = {
   /** 渡せずに消えた預かり（今回新しく分かったもの。GET では数分以内のもの全部）。画面は queueId で重ねず、文を入力欄に戻す。 */
   gone?: PeerChatGone[];
   reason?: PeerChatReason;
+  /** 元の PC が知らせた全ターンの数。変わったときだけ目次を頼み直す。古い相手は付かない。 */
+  turnCount?: number;
 };
 
 /** 相手の PC。 */
@@ -686,7 +741,24 @@ export type PeerChatViewDto = { ok: true; device: PeerChatTargetDto; startedAfte
  */
 export type PeerChatClientMsg =
   | { type: 'peerChat.watch'; sessionId: string; viewer: string; after?: string | null }
-  | { type: 'peerChat.unwatch'; sessionId: string; viewer: string };
+  | { type: 'peerChat.unwatch'; sessionId: string; viewer: string }
+  /** 古い分と目次を読む（PeerChatReadIn）。答えは同じ req の ServerEvent peerChat.read で、全接続に流れる（viewer と req で受け取る）。 */
+  | { type: 'peerChat.read'; sessionId: string; viewer: string; req: string; op: PeerChatReadIn };
+
+/** 古い分と目次の頼み（PeerChatOp の older と turns と同じ形）。 */
+export type PeerChatReadIn = Extract<PeerChatOp, { t: 'older' | 'turns' }>;
+
+/** older と turns の頼みの形を検べる（HTTP の ops と WebSocket が使う）。形が違えば null。 */
+export function parsePeerChatReadIn(v: unknown): PeerChatReadIn | null {
+  const op = readOp(v);
+  return op && (op.t === 'older' || op.t === 'turns') ? op : null;
+}
+
+/**
+ * peerChat.read の答え（ServerEvent）。
+ * 相手が古くてこの頼みを知らないときは、ok が真で older も turns も付かない（無いものとして扱う）。
+ */
+export type PeerChatReadEvent = { sessionId: string; viewer: string; req: string } & ({ ok: true; older?: PeerChatOlder; turns?: PeerChatTurns } | { ok: false; reason: PeerChatReason });
 
 const VIEWER_RE = /^[A-Za-z0-9._:-]{1,64}$/;
 /** viewer の形（HTTP と WebSocket で同じ）。 */
@@ -701,6 +773,12 @@ export function parsePeerChatClientMsg(raw: string): PeerChatClientMsg | null {
   try { v = JSON.parse(raw); } catch { return null; }
   if (!isObj(v) || !isId(v.sessionId) || !isPeerChatViewerId(v.viewer)) return null;
   if (v.type === 'peerChat.unwatch') return { type: 'peerChat.unwatch', sessionId: v.sessionId, viewer: v.viewer };
+  if (v.type === 'peerChat.read') {
+    if (!isId(v.req)) return null;
+    const op = parsePeerChatReadIn(v.op);
+    if (!op) return null;
+    return { type: 'peerChat.read', sessionId: v.sessionId, viewer: v.viewer, req: v.req, op };
+  }
   if (v.type !== 'peerChat.watch') return null;
   if (v.after !== undefined && v.after !== null && !isId(v.after)) return null;
   return v.after === undefined ? { type: 'peerChat.watch', sessionId: v.sessionId, viewer: v.viewer } : { type: 'peerChat.watch', sessionId: v.sessionId, viewer: v.viewer, after: v.after };
@@ -719,14 +797,15 @@ export type PeerChatOpIn =
   | { t: 'rush'; queueId: string }
   | { t: 'files'; query: string }
   | { t: 'commands' }
-  | { t: 'switch-account'; account: string };
+  | { t: 'switch-account'; account: string }
+  | PeerChatReadIn;
 
 /**
  * ops の答え。
  * 元の PC の答え（PeerChatReply）に、見る側の断りの理由を足したもの。
  * ok が偽のときは、画面が入力欄に文を戻す。
  */
-export type PeerChatOpResult = { ok: true; state?: PeerChatState; queueId?: string; files?: PeerChatFile[]; commands?: PeerChatCommand[] } | { ok: false; reason: PeerChatReason };
+export type PeerChatOpResult = { ok: true; state?: PeerChatState; queueId?: string; files?: PeerChatFile[]; commands?: PeerChatCommand[]; older?: PeerChatOlder; turns?: PeerChatTurns } | { ok: false; reason: PeerChatReason };
 
 /** 見る側の PC が、見張りの 1 周で元の PC に頼む tail の待ち（ミリ秒）。 */
 export const PEER_CHAT_TAIL_WAIT_MS = PEER_CHAT_WAIT_MAX_MS;

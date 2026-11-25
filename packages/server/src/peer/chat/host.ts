@@ -26,6 +26,7 @@ import { inputEmptyFromCapture } from './inputBox.ts';
 import { resumeSendOp, sendOp, type SendDeps } from './hostSend.ts';
 import type { PeerChatHostDeps, PeerChatSender } from './hostTypes.ts';
 import { ChatView, RECHECK_MS } from './hostView.ts';
+import { transcriptOlder, transcriptTurns } from './tail.ts';
 import { PeerQueue, type TurnState } from './queue.ts';
 
 /**
@@ -346,6 +347,10 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     switch (op.t) {
       case 'tail':
         return { ok: true, state: await view.tail(sessionId, fromId, op.after, op.waitMs) };
+      case 'older':
+        return { ok: true, older: transcriptOlder(sessionId, { before: op.before, ...(op.from !== undefined ? { from: op.from } : {}) }, view.tailDeps) };
+      case 'turns':
+        return { ok: true, turns: transcriptTurns(sessionId, op.before !== undefined ? { before: op.before } : {}, view.tailDeps) };
       case 'send':
         return sendOp(sendDeps, ring, sessionId, req.askId, from, op.text, op.images, op.waitMs);
       case 'resume-send':
@@ -423,7 +428,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     // 覚えは期限の少し先まで残す（期限を過ぎた再送は expired で断られる）。時計のずれの幅までは延ばさない（延ばすと、忙しい見張りの覚えが上限を埋める）。
     // 読むだけの頼み（tail、files）は、再送されても害が無いので、短い間だけ覚える。
     const keep = req.expiresAt + SEEN_MARGIN_MS;
-    const until = req.op.t === 'tail' || req.op.t === 'files' || req.op.t === 'commands' ? Math.min(keep, t + SEEN_READ_KEEP_MS) : keep;
+    const until = req.op.t === 'tail' || req.op.t === 'files' || req.op.t === 'commands' || req.op.t === 'older' || req.op.t === 'turns' ? Math.min(keep, t + SEEN_READ_KEEP_MS) : keep;
     /** 断りを覚えて返す。覚えの上限に達していれば、覚えずに返す（頼み主 1 台が覚えを埋め尽くせないように）。 */
     const refused = (r: PeerChatReply): Promise<string | null> => {
       const reply = sealOrRefuse(sealer, r);

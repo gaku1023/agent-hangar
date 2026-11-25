@@ -275,6 +275,36 @@ describe('PeerChatHost: tail', () => {
   });
 });
 
+describe('PeerChatHost: 古い分と目次', () => {
+  it('tail の state に全ターンの数（turnCount）を載せる', async () => {
+    const s = await setup({ lines: [userLine('a'), asstLine('x'), userLine('b'), asstLine('y')] });
+    expect(s.state(await s.ask(tailOp())).turnCount).toBe(2);
+  });
+
+  it('turns は目次の行を、older は指定の前の項目を返す', async () => {
+    const lines = [userLine('a'), asstLine('x'), userLine('b'), asstLine('y')];
+    const s = await setup({ lines });
+    const t = await s.ask({ t: 'turns' });
+    expect(t.ok && t.turns?.rows.map((r) => r.text)).toEqual(['a', 'b']);
+    const second = t.ok ? t.turns!.rows[1]!.uuid : '';
+    const o = await s.ask({ t: 'older', before: second });
+    expect(o.ok && o.older?.items.map((i) => i.text)).toEqual(['a', 'x']);
+    const f = await s.ask({ t: 'older', before: null, from: second });
+    expect(f.ok && f.older?.items.map((i) => i.text)).toEqual(['b', 'y']);
+  });
+
+  it('持ち主でない PC では読ませない（session-unknown）', async () => {
+    const s = await setup({ session: idleSession({ lock: true } as never) });
+    expect(await s.ask({ t: 'turns' })).toEqual({ ok: false, reason: 'session-unknown' });
+    expect(await s.ask({ t: 'older', before: 'x' })).toEqual({ ok: false, reason: 'session-unknown' });
+  });
+
+  it('設定が切れていても読める（読むだけの頼み）', async () => {
+    const s = await setup({ acceptFromPeers: false });
+    expect((await s.ask({ t: 'turns' })).ok).toBe(true);
+  });
+});
+
 describe('PeerChatHost: 起動ごとの印', () => {
   it('state に hostId を載せ、同じ host では変わらず、別の host（再起動）では変わる', async () => {
     const a = await setup();

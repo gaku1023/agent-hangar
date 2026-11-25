@@ -79,6 +79,17 @@ describe('POST /api/sessions/:id/peer-chat/ops', () => {
     expect(await (await post({ t: 'send', text: 'x' })).json()).toEqual({ ok: false, reason: 'offline' });
   });
 
+  it('older と turns の op を受け、形の違うものは 400', async () => {
+    expect((await post({ t: 'older', before: 'u1' })).status).toBe(200);
+    expect((await post({ t: 'older', before: null, from: 'u0' })).status).toBe(200);
+    expect((await post({ t: 'turns' })).status).toBe(200);
+    expect((await post({ t: 'turns', before: 'u1' })).status).toBe(200);
+    expect(ops.map((o) => o.op)).toEqual([{ t: 'older', before: 'u1' }, { t: 'older', before: null, from: 'u0' }, { t: 'turns' }, { t: 'turns', before: 'u1' }]);
+    expect((await post({ t: 'older' })).status).toBe(400);
+    expect((await post({ t: 'older', before: null })).status).toBe(400);
+    expect((await post({ t: 'turns', before: 3 })).status).toBe(400);
+  });
+
   it('answer、interrupt、cancel、files、commands、resume-send を受ける。tail と知らない op は 400', async () => {
     for (const op of [{ t: 'answer', askId: 'A', keys: ['1'], text: 'x' }, { t: 'interrupt' }, { t: 'cancel', queueId: 'q' }, { t: 'files', query: 'a' }, { t: 'commands' }, { t: 'resume-send', text: 'go' }, { t: 'switch-account', account: '会社' }]) {
       expect((await post(op)).status).toBe(200);
