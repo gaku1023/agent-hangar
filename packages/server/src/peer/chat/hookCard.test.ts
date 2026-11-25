@@ -14,6 +14,11 @@ describe('pendingAskFromHook', () => {
     expect(pendingAskFromHook(uq(q), null)).toEqual({ kind: 'question', tool: 'AskUserQuestion', input: 'Which?', question: 'Which?', options: [{ key: '1', label: 'A' }, { key: '2', label: 'B' }], multi: true, allowText: true });
   });
 
+  it('質問の選択肢の description を運ぶ。空や文字でないものは付けない', () => {
+    const q = [{ question: 'Which?', options: [{ label: 'A', description: 'about A' }, { label: 'B', description: '' }, { label: 'C', description: 3 }, { label: 'D' }] }];
+    expect(pendingAskFromHook(uq(q), null)!.options).toEqual([{ key: '1', label: 'A', description: 'about A' }, { key: '2', label: 'B' }, { key: '3', label: 'C' }, { key: '4', label: 'D' }]);
+  });
+
   it('問いが 2 つ以上の質問と、形の違う入力は札にしない（画面の札だけにする）', () => {
     expect(pendingAskFromHook(uq([{ question: 'a', options: [{ label: 'x' }] }, { question: 'b', options: [{ label: 'y' }] }]), null)).toBeNull();
     expect(pendingAskFromHook(uq([{ question: 'a' }]), null)).toBeNull();

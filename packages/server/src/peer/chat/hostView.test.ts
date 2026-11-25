@@ -655,3 +655,28 @@ describe('ChatView: 画面から読めない札の代わりに hook の札', () 
     expect(view('● done\n\n❯ \n', () => null).currentAsk('s1')).toBeNull();
   });
 });
+
+describe('ChatView: 画面の質問の札に hook の選択肢の説明を重ねる', () => {
+  const SELF = { deviceId: 'pc-a', deviceName: 'Win' };
+  const SCREEN = [' ☐ Pick', '', ' Which one?', '', ' ❯ 1. Alpha', '   2. Beta', '   3. Type something.', '', ' Enter to select · Esc to cancel'].join('\n') + '\n';
+  const hook = {
+    kind: 'question' as const, tool: 'AskUserQuestion', input: 'Which one?', question: 'Which one?', multi: false, allowText: true,
+    options: [{ key: '1', label: 'Alpha', description: 'first' }, { key: '2', label: 'Gamma', description: 'no match' }],
+  };
+  const view = (hookAsk: () => typeof hook | null) => new ChatView({
+    now: () => 1000, sleep: async () => undefined, recheckMs: 1000,
+    session: () => session({ live: 'waiting', activity: { question: 'Which one?' } as HostSession['activity'] }), run: () => ({ tmuxName: 't' }),
+    pane: () => ({ capture: () => SCREEN, captureStyled: async () => SCREEN, sendKey: () => {}, sendText: () => {} }),
+    tail: { readTranscript: () => null }, queued: () => [], self: () => SELF, hostId: 'h', hookAsk,
+  });
+
+  it('label が一致する選択肢にだけ description を付け、askId は説明の有無で変わらない', () => {
+    const withDesc = view(() => hook).pendingAsk('s1', true)!;
+    const without = view(() => null).pendingAsk('s1', true)!;
+    expect(withDesc.options.map((o) => o.description)).toEqual(['first', undefined]);
+    expect(withDesc.options.map((o) => o.label)).toEqual(['Alpha', 'Beta']);
+    expect('description' in withDesc.options[1]!).toBe(false);
+    expect(view(() => hook).currentAsk('s1')!.askId).toBe(view(() => null).currentAsk('s1')!.askId);
+    expect(without.options.every((o) => o.description === undefined)).toBe(true);
+  });
+});

@@ -18,7 +18,9 @@ import { DROPPED_LINE_TYPES, normalizeRecord, toolSummary } from '../../provider
  * 道具の呼び出しと結果（tool）を見せる。名前と主な引数の 1 行の要約と、成否だけを持つ。
  * 出ている許可と質問（permission、question）を見せる。トランスクリプトには出ないので、呼び出し側が渡す（PeerPendingAsk）。
  *
- * 見せないもの。thinking、meta、system、raw のブロック、サブエージェント（sidechain）の中身、要約の継続の行、ローカルコマンド。
+ * 思考（thinking）の本文があるものは、返答と同じ流れに thinking の項目として出す（上限は返答と同じ）。本文が空のもの（署名だけ）は出さない。
+ *
+ * 見せないもの。meta、system、raw のブロック、サブエージェント（sidechain）の中身、要約の継続の行、ローカルコマンド。
  *
  * 項目の uuid。
  * 1 つの行から出る最初の項目は行の uuid、2 つ目からは `<uuid>:<番号>` にする。
@@ -47,6 +49,8 @@ export const PEER_CHAT_ASK_INPUT_MAX_BYTES = 2 * 1024;
 export const PEER_CHAT_ASK_OPTIONS_MAX = 16;
 /** 札の選択肢の label の上限（UTF-8 のバイト）。 */
 export const PEER_CHAT_ASK_LABEL_MAX_BYTES = 256;
+/** 札の選択肢の説明（description）の上限（UTF-8 のバイト）。 */
+export const PEER_CHAT_ASK_DESCRIPTION_MAX_BYTES = 512;
 /** 札の選択肢の key の上限（UTF-8 のバイト）。 */
 export const PEER_CHAT_ASK_KEY_MAX_BYTES = 32;
 /** 覚えておく会話の数の上限。 */
@@ -73,7 +77,7 @@ export type PeerPendingAsk = {
   description?: string | null;
   /** 質問の文。 */
   question?: string | null;
-  options: { key: string; label: string }[];
+  options: { key: string; label: string; description?: string }[];
   multi: boolean;
   allowText: boolean;
   /** この PC が画面の札を照合して答えられないとき false（PeerChatAsk.answerable）。答えられるときは付けない。 */
@@ -194,6 +198,10 @@ function scan(buf: Buffer): Scan {
         if (ev.text === '') continue;
         const id = nextUuid();
         slots.push({ done: true, toolId: '', name: '', item: { uuid: id, at, kind: 'assistant', text: clipBytes(ev.text, PEER_CHAT_ITEM_TEXT_MAX_BYTES) } });
+      } else if (ev.kind === 'thinking') {
+        if (ev.text.trim() === '') continue;
+        const id = nextUuid();
+        slots.push({ done: true, toolId: '', name: '', item: { uuid: id, at, kind: 'thinking', text: clipBytes(ev.text, PEER_CHAT_ITEM_TEXT_MAX_BYTES) } });
       } else if (ev.kind === 'tool_call') {
         const id = nextUuid();
         const summary = oneLine(toolSummary(ev.name, ev.input), PEER_CHAT_TOOL_SUMMARY_MAX);
@@ -207,7 +215,7 @@ function scan(buf: Buffer): Scan {
         slot.item.tool!.ok = !ev.isError;
         slot.done = true;
       }
-      // thinking、system、meta は出さない。
+      // system、meta は出さない。
     }
     // 結果が来ないまま利用者が続けた道具は、中断されたものとして閉じる。
     if (userSpoke) {
@@ -260,16 +268,18 @@ export function peerAskId(ask: PeerPendingAsk, anchor: string): string {
 /**
  * 選択肢を、数と長さを抑えたうえで、key を一意で空でないものに直す。
  * label は画面の文そのままで、上限を超えるときだけ切る。
+ * description は付いているものだけ PEER_CHAT_ASK_DESCRIPTION_MAX_BYTES で切って持つ（askId には入れない）。
  * 数は PEER_CHAT_ASK_OPTIONS_MAX までで、超える分は落とす。
  */
-function normalizeOptions(options: { key: string; label: string }[]): { key: string; label: string }[] {
+function normalizeOptions(options: { key: string; label: string; description?: string }[]): { key: string; label: string; description?: string }[] {
   const used = new Set<string>();
   return options.slice(0, PEER_CHAT_ASK_OPTIONS_MAX).map((o, i) => {
     const wanted = clipBytes(o.key, PEER_CHAT_ASK_KEY_MAX_BYTES);
     let key = wanted !== '' && !used.has(wanted) ? wanted : String(i + 1);
     for (let n = i + 1; used.has(key); n++) key = String(n + 1);
     used.add(key);
-    return { key, label: clipBytes(o.label, PEER_CHAT_ASK_LABEL_MAX_BYTES) };
+    const label = clipBytes(o.label, PEER_CHAT_ASK_LABEL_MAX_BYTES);
+    return o.description ? { key, label, description: clipBytes(o.description, PEER_CHAT_ASK_DESCRIPTION_MAX_BYTES) } : { key, label };
   });
 }
 
@@ -328,7 +338,7 @@ export function onlyRepliesBetween(sessionId: string, from: string, to: string, 
   const i = items.findIndex((x) => x.uuid === from);
   const j = items.findIndex((x) => x.uuid === to);
   if (i === -1 || j <= i) return false;
-  return items.slice(i + 1, j + 1).every((x) => x.kind === 'assistant');
+  return items.slice(i + 1, j + 1).every((x) => x.kind === 'assistant' || x.kind === 'thinking');
 }
 
 /**

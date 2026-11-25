@@ -4,7 +4,9 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../../db/open.ts';
 import {
+  PEER_CHAT_ASK_DESCRIPTION_MAX_BYTES,
   PEER_CHAT_ASK_LABEL_MAX_BYTES,
+  PEER_CHAT_ITEM_TEXT_MAX_BYTES,
   PEER_CHAT_ASK_OPTIONS_MAX,
   PEER_CHAT_TAIL_BYTE_BUDGET,
   PEER_CHAT_TAIL_CACHE_MAX,
@@ -44,15 +46,33 @@ const permissionAsk = (over: Partial<PeerPendingAsk> = {}): PeerPendingAsk => ({
 // ---- 試験 ----
 
 describe('transcriptTail: 対応づけ', () => {
-  it('利用者の文と Claude の返事を user と assistant にし、thinking は出さない', () => {
+  it('利用者の文と Claude の返事を user と assistant にし、thinking は thinking の項目にする（本文が空のものは出さない）', () => {
     const u = user('hello');
-    const a = asst({ type: 'thinking', thinking: 'secret', signature: 'x' }, text('hi there'));
+    const a = asst({ type: 'thinking', thinking: 'let me think', signature: 'x' }, { type: 'thinking', thinking: '', signature: 'y' }, text('hi there'));
     const r = transcriptTail('s', null, 200, deps(body([u, a])));
-    expect(r.items.map((i) => [i.kind, i.text])).toEqual([['user', 'hello'], ['assistant', 'hi there']]);
+    expect(r.items.map((i) => [i.kind, i.text])).toEqual([['user', 'hello'], ['thinking', 'let me think'], ['assistant', 'hi there']]);
     expect(r.items[0]!.uuid).toBe(uuidOf(u));
     expect(r.items[1]!.uuid).toBe(uuidOf(a));
+    expect(r.items[2]!.uuid).toBe(`${uuidOf(a)}:1`);
     expect(r.items[0]!.at).toBe(Date.parse('2026-01-01T00:00:00.000Z'));
-    expect(JSON.stringify(r)).not.toContain('secret');
+  });
+
+  it('thinking 1 件の本文は返答と同じ上限（8 KiB）で切る', () => {
+    const r = transcriptTail('s', null, 200, deps(body([user('x'), asst({ type: 'thinking', thinking: 'あ'.repeat(5000), signature: 's' })])));
+    const t = r.items.find((i) => i.kind === 'thinking')!;
+    expect(Buffer.byteLength(t.text)).toBeLessThanOrEqual(PEER_CHAT_ITEM_TEXT_MAX_BYTES);
+    expect(t.text.endsWith('…')).toBe(true);
+  });
+
+  it('札の選択肢の description は 512 バイトで切り、無い選択肢には欄を付けない。askId は説明で変わらない', () => {
+    const q = (description: string | undefined): PeerPendingAsk => ({ kind: 'question', tool: 'AskUserQuestion', question: 'Which?', options: [{ key: '1', label: 'A', ...(description !== undefined ? { description } : {}) }, { key: '2', label: 'B' }], multi: false, allowText: true });
+    const base = [user('go')];
+    const a = transcriptTail('s', null, 200, deps(body(base), q('い'.repeat(400)))).items.at(-1)!.ask!;
+    expect(Buffer.byteLength(a.options[0]!.description!)).toBeLessThanOrEqual(PEER_CHAT_ASK_DESCRIPTION_MAX_BYTES);
+    expect(a.options[0]!.description!.endsWith('…')).toBe(true);
+    expect('description' in a.options[1]!).toBe(false);
+    const b = transcriptTail('s', null, 200, deps(body(base), q(undefined))).items.at(-1)!.ask!;
+    expect(b.askId).toBe(a.askId);
   });
 
   it('tool_use と tool_result を 1 つの tool 項目にし、名前と主な引数と成否を持つ', () => {
@@ -343,7 +363,7 @@ describe('実際の Claude Code のトランスクリプト', () => {
     expect(r.items.length).toBeGreaterThan(3);
     expect(new Set(r.items.map((i) => i.uuid)).size).toBe(r.items.length);
     for (const i of r.items) {
-      expect(['user', 'assistant', 'tool']).toContain(i.kind);
+      expect(['user', 'assistant', 'tool', 'thinking']).toContain(i.kind);
       expect(i.tool === undefined || typeof i.tool.ok === 'boolean').toBe(true);
     }
     expect(r.items[0]!.kind).toBe('user');

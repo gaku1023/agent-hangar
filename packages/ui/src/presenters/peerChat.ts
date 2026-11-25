@@ -22,7 +22,7 @@ export type PeerChatRow =
   // 続けて呼んだ 2 本以上のツールのまとめ（本文の画面の「ツール呼び出し N 回」と同じ）。key は先頭のツールの key のままにし、2 本目が来ても入る動きを出し直さない。
   | { kind: 'tools'; key: string; label: string; failed: string | null; items: { key: string; name: string; summary: string; ok: boolean }[] }
   | { kind: 'system'; key: string; text: string }
-  | { kind: 'ask'; key: string; askId: string; askKind: 'permission' | 'question'; title: string; input: string | null; options: { key: string; label: string }[]; multi: boolean; allowText: boolean; answered: string | null; /** 元の PC で答える札（この PC からは答えられない）。案内の文。答えられる札と、答えが付いた札は null。 */ hostOnly: string | null; /** 答えを送って結果を待っている。 */ pending: boolean; /** 受け付けない設定の PC。押せない。 */ locked: boolean }
+  | { kind: 'ask'; key: string; askId: string; askKind: 'permission' | 'question'; title: string; input: string | null; options: { key: string; label: string; description?: string }[]; multi: boolean; allowText: boolean; answered: string | null; /** 元の PC で答える札（この PC からは答えられない）。案内の文。答えられる札と、答えが付いた札は null。 */ hostOnly: string | null; /** 答えを送って結果を待っている。 */ pending: boolean; /** 受け付けない設定の PC。押せない。 */ locked: boolean }
   | { kind: 'queued'; key: string; queueId: string; text: string; images: number; tag: string; from: string | null; mine: boolean; delivering: boolean; rushing: boolean };
 
 /** 送る口の形。send は今すぐ渡る、queue はターンが止まるまで預かる、resume は止まっている会話を再開して渡す、blocked は送れない。 */
@@ -157,6 +157,8 @@ function rowOf(t: Translate,it: PeerChatItem, slice: PeerChatSlice, index: numbe
   }
   switch (it.kind) {
     case 'user': return { kind: 'user', key: it.uuid, text: it.text, from: it.from ? t('peerChat.log.sentFrom', { device: it.from.deviceName }) : null };
+    // 思考は返答と同じ形で出す（区別を付けない）。
+    case 'thinking':
     case 'assistant': return { kind: 'assistant', key: it.uuid, text: it.text };
     case 'tool': {
       const name = it.tool?.name ?? '';
