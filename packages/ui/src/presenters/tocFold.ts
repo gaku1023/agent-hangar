@@ -18,7 +18,7 @@ export const FEW_TURNS = 2;
  * 要約の札が無く、ターンが FEW_TURNS 以下なら、目次はほとんど空なので「目次 N」の札に畳んでおく。
  * そのときの開閉は保存する transcriptOpen を使わず、その画面だけの tocPeek で持つ。
  * presentSession と mediator の transcript.toggle が同じ判定を使う（⌘J の行き先を揃えるため）。
- * 実行中（run がある）、サブエージェントを見ている間、本文の無い会話は畳まない。
+ * 実行中（run がある、または別の PC で動いていて peer chat の状態が止まっていない）、サブエージェントを見ている間、本文の無い会話は畳まない。
  * ただし統括の柱が開いている間は、これらも含めてどの会話も畳む（pillarOpen。State の orchestratorOpen）。
  */
 export function tocFolds(store: Store, view: SessionViewState, id: string, pillarOpen: boolean): boolean {
@@ -26,6 +26,9 @@ export function tocFolds(store: Store, view: SessionViewState, id: string, pilla
   if (pillarOpen) return true;
   const s = store.sessions[id];
   if (!s || !s.hasTranscript || view.agentId !== null || currentRunOf(store, id) !== null) return false;
+  // 別の PC で動いている会話も実行中として畳まない（手元に run が無いので、見ている peer chat の状態で見分ける）。
+  const peer = store.peerChat[id]?.status ?? null;
+  if (peer !== null && peer !== 'stopped') return false;
   if (hasSummaryCard(s, store.summaryPending[id] === true, store.summaryFailed[id] ?? null)) return false;
   return s.stats.turns <= FEW_TURNS;
 }
