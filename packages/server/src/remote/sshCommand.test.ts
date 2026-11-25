@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
-  classifySshFailure, closeArgv, cdArgv, hostAlias, isIpv4, keyscanArgs, knownHostsText, matchingHostKey, parsePrepareMark,
+  classifySshFailure, closeArgv, hasSessionArgv, cdArgv, hostAlias, isIpv4, keyscanArgs, knownHostsText, matchingHostKey, parsePrepareMark,
   parseKeyscan, prepareArgv, shellArgv, sshBinaries, sshOptionPath, type SshTarget,
 } from './sshCommand.ts';
 
@@ -127,6 +127,15 @@ describe('prepare, cd, close', () => {
       expect(flat(a)).not.toContain('kill-server');
     }
   });
+    it('checks one session by exact name without tty and never touches the server', () => {
+      for (const p of [posix, ps]) {
+        const a = hasSessionArgv(target(), p);
+        expect(a[0]).toBe('-T');
+        expect(lastOf(a)).toMatch(/has-session -t '?=hangar-ssh-t1/);
+        expect(flat(a)).not.toContain('kill-server');
+      }
+      expect(lastOf(hasSessionArgv(target(), posix))).toContain("'=hangar-ssh-t1'");
+    });
 });
 
 describe('classifySshFailure', () => {

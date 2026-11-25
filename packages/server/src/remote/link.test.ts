@@ -285,13 +285,41 @@ describe('RemoteShellLink: つなぎ直し', () => {
     expect(h.clock.timers.size).toBe(0);
   });
 
-  it('シェルが 0 で終わったら、やり直さず onEnded', async () => {
-    const h = harness();
+  const hasCalls = (h: Harness) => h.calls.filter((c) => c.args[c.args.length - 1]?.includes('has-session') && !c.args[c.args.length - 1]!.includes('hangar-prep'));
+  it('0 で終わり、セッションが無ければ onEnded（kill はしない、やり直さない）', async () => {
+    const h = harness({ replies: (c) => (c.args[c.args.length - 1]!.match(/^(?!.*hangar-prep).*has-session/s) ? { code: 1 } : undefined) });
     await h.link.start();
     h.ptys[0]!.exit(0);
+    await h.link.whenIdle();
+    expect(hasCalls(h)).toHaveLength(1);
+    expect(hasCalls(h)[0]!.args[0]).toBe('-T');
+    expect(killCalls(h)).toHaveLength(0);
     expect(h.ended()).toBe(1);
     expect(h.clock.timers.size).toBe(0);
     expect(h.msgs.at(-1)?.phase).toBe('ready');
+  });
+
+  it('0 で終わってもセッションが残っていれば detach とみなし、閉じずにすぐつなぎ直す', async () => {
+    const h = harness();
+    await h.link.start();
+    h.ptys[0]!.exit(0);
+    await h.link.whenIdle();
+    expect(h.ended()).toBe(0);
+    expect(h.msgs.at(-1)).toMatchObject({ phase: 'retrying', attempt: 1, reason: 'dropped' });
+    h.clock.tick();
+    await h.link.whenIdle();
+    expect(h.ptys).toHaveLength(2);
+    expect(h.msgs.at(-1)?.phase).toBe('ready');
+    expect(h.ended()).toBe(0);
+  });
+
+  it('0 のあとの has-session が届かない（255）ときは dropped と同じつなぎ直し', async () => {
+    const h = harness({ replies: (c) => (c.args[c.args.length - 1]!.match(/^(?!.*hangar-prep).*has-session/s) ? { code: 255, stderr: 'ssh: connect to host x port 22: Operation timed out' } : undefined) });
+    await h.link.start();
+    h.ptys[0]!.exit(0);
+    await h.link.whenIdle();
+    expect(h.ended()).toBe(0);
+    expect(h.msgs.at(-1)).toMatchObject({ phase: 'retrying', attempt: 1 });
   });
 
   it('retry() で failed から最初からやり直す', async () => {

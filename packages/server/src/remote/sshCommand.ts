@@ -222,6 +222,12 @@ export function cdArgv(t: SshTarget, spec: RemoteSpec): string[] {
   return sshArgv('-T', t, wrap(spec, script));
 }
 
+/** 生きているかの確かめ：tty なしで、その 1 つのセッションの有無だけを見る（有れば 0、無ければ 1）。 */
+export function hasSessionArgv(t: SshTarget, spec: RemoteSpec): string[] {
+  checkSpec(spec);
+  return sshArgv('-T', t, wrap(spec, muxLine(spec, `has-session -t ${targetOf(spec)}`)));
+}
+
 /** 閉じる：その 1 つのセッションだけを消す。kill-server は組み立てない。 */
 export function closeArgv(t: SshTarget, spec: RemoteSpec): string[] {
   checkSpec(spec);

@@ -7,7 +7,7 @@ import type { Db } from '../db/open.ts';
 import type { PtyProcess, PtySpawn } from '../pty/relay.ts';
 import { createAddressBook, resolveAddresses, type AddressProbe } from './addresses.ts';
 import { ensureHostKeys, type HostKeyInput, type HostKeyResult } from './hostKeys.ts';
-import { cdArgv, classifySshFailure, closeArgv, parsePrepareMark, prepareArgv, RemoteCommandError, shellArgv, sshBinaries, type RemoteSpec, type SshTarget } from './sshCommand.ts';
+import { cdArgv, classifySshFailure, closeArgv, hasSessionArgv, parsePrepareMark, prepareArgv, RemoteCommandError, shellArgv, sshBinaries, type RemoteSpec, type SshTarget } from './sshCommand.ts';
 import { listPendingKills, markKillDone, setKillPending } from './store.ts';
 
 /**
@@ -39,7 +39,7 @@ export type RemoteShellLinkOptions = {
   rows: number;
   onStatus(m: RemoteShellStatusMsg): void;
   onData(d: string): void;
-  /** 相手のシェルが 0 で終わった（利用者が exit した）。やり直さない。 */
+  /** 相手のシェルが 0 で終わり、セッションも無かった（利用者が exit した）。やり直さない。 */
   onEnded?(): void;
 };
 
@@ -284,7 +284,7 @@ export class RemoteShellLink {
     p.onExit(({ exitCode }) => {
       if (g !== this.gen || this.closed) return;
       this.pty = null;
-      if (exitCode === 0) { this.opts.onEnded?.(); return; }
+      if (exitCode === 0) { void this.afterCleanExit(g, target, spec); return; }
       const c = classifySshFailure(exitCode, tail);
       if (c.reason === 'auth' || c.reason === 'host-key') { this.emit({ t: 'remote', phase: 'failed', reason: c.reason, ...(c.detail ? { detail: c.detail } : {}) }); return; }
       this.retries = 0;
@@ -294,13 +294,25 @@ export class RemoteShellLink {
     this.emit({ t: 'remote', phase: 'ready', address });
   }
 
-  /** 切れた後のやり直しの 1 回を予約する。5 回使い切ったら failed（dropped）。 */
-  private scheduleRetry(reason: RemoteShellFailure, detail: string): void {
+  /**
+   * 本番の ssh が 0 で終わった。シェルの exit なら相手のセッションは無く、tmux の detach なら残っている。
+   * 別の ssh（tty なし）で有無を見て、残っていれば閉じずにすぐつなぎ直す。届かなければ dropped と同じ道。
+   */
+  private async afterCleanExit(g: number, target: SshTarget, spec: RemoteSpec): Promise<void> {
+    let code = 255;
+    try { code = (await this.exec(this.ssh, hasSessionArgv(target, spec), { timeoutMs: SIDE_TIMEOUT_MS })).code; } catch { code = 255; }
+    if (g !== this.gen || this.closed) return;
+    if (code === 0 || code === 255) { this.retries = 0; this.scheduleRetry('dropped', '', 0); return; }
+    this.opts.onEnded?.();
+  }
+
+  /** 切れた後のやり直しの 1 回を予約する。5 回使い切ったら failed（dropped）。firstDelay は 1 回目だけの間の上書き。 */
+  private scheduleRetry(reason: RemoteShellFailure, detail: string, firstDelay?: number): void {
     if (this.retries >= RETRY_DELAYS_MS.length) {
       this.emit({ t: 'remote', phase: 'failed', reason: 'dropped', ...(detail ? { detail } : {}) });
       return;
     }
-    const delay = RETRY_DELAYS_MS[this.retries]!;
+    const delay = this.retries === 0 && firstDelay !== undefined ? firstDelay : RETRY_DELAYS_MS[this.retries]!;
     this.retries += 1;
     const attempt = this.retries;
     this.emit({ t: 'remote', phase: 'retrying', attempt, retryAt: this.timers.now() + delay, reason, ...(detail ? { detail } : {}) });
