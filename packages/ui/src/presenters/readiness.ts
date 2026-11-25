@@ -128,17 +128,29 @@ export function liveReadiness(r: ReadinessDto, projects: readonly { isScratch: b
 /**
  * 始める前の確認の行の名前。git とエディタは 0.5.0 で足した任意の行で、古いサーバの答えには無い。
  * notify は OS の通知の許可をまだ尋ねていないときだけの任意の行で、サーバの答えではなく画面の Store（notify.ask）から足す（2026-10-13 の決定、9c）。
+ * translate は英語の返答の翻訳（plamo-translate）に気付いてもらう任意の行で、通知の行と同じく画面の側の条件（translateAskOf）で足す（2026-11-25 の決定、試作の H1）。
  */
-export type ReadinessKey = 'tmux' | 'claude' | 'workspace' | 'projects' | 'git' | 'mcp' | 'statusline' | 'editor' | 'compat' | 'notify';
+export type ReadinessKey = 'tmux' | 'claude' | 'workspace' | 'projects' | 'git' | 'mcp' | 'statusline' | 'editor' | 'compat' | 'notify' | 'translate';
 /**
  * 帯の行ごとの、直す場所（設定の開く先）。「設定を開く」はここを指して開く（節の中の欄まで移って目立たせる）。
  * 全部の行が節を持つ（試験が縛る）。MCP とステータスラインは命令をコピーする行なので、欄までは指さず連携の節にする。
  */
 export const READINESS_AT: Record<ReadinessKey, SettingsAt> = {
-  tmux: 'tmux', claude: 'claude', workspace: 'workspace', projects: 'workspace', git: 'environment', mcp: 'agentClaude', statusline: 'agentClaude', editor: 'editor', compat: 'compat', notify: 'general',
+  tmux: 'tmux', claude: 'claude', workspace: 'workspace', projects: 'workspace', git: 'environment', mcp: 'agentClaude', statusline: 'agentClaude', editor: 'editor', compat: 'compat', notify: 'general', translate: 'general',
 };
+/** plamo-translate を入れるコマンド（uv tool）。 */
+export const PLAMO_INSTALL_COMMAND = 'uv tool install plamo-translate';
+
+/**
+ * 任意の行「翻訳」を出すか。Windows 以外で、翻訳が切で、「使わない」をまだ選んでいなくて、サーバが翻訳の確かめを返しているとき（古いサーバは返さない）。
+ * 入にした行は消え、使わないを選んだ行は二度と出ない。
+ */
+export function translateAskOf(settings: { translateEnglish?: boolean; translateHintDeclined?: boolean } | null | undefined, r: ReadinessDto, platform: string): boolean {
+  return platform !== 'win32' && !!settings && settings.translateEnglish !== true && settings.translateHintDeclined !== true && r.translate !== undefined;
+}
+
 /** 任意の行。無くても始められるので、残りがこれだけになったら帯ごと消す（設計書 2.11.4）。通知の行だけは例外で、答えるまで群を残す（presentReadiness）。 */
-const OPTIONAL: ReadonlySet<ReadinessKey> = new Set(['git', 'mcp', 'statusline', 'editor', 'notify']);
+const OPTIONAL: ReadonlySet<ReadinessKey> = new Set(['git', 'mcp', 'statusline', 'editor', 'notify', 'translate']);
 /** 行の調子。info は止めていない知らせ（未確認のバージョン）で、済んだものに数える。soft は弱い印で、任意の行と、プロジェクトが 0 件の行に使う。 */
 type Tone = 'ok' | 'info' | 'soft' | 'ng';
 /** 確認の 1 行の事実。文は、帯の行にするときに辞書から引く。 */
@@ -306,6 +318,19 @@ function readinessRows(r: ReadinessDto, t: Translate, platform: string, check: M
         act = toSettings('editor');
         break;
       }
+      case 'translate': {
+        text = t('home.ready.translate.text');
+        const decline = (): BandAction => ({ id: 'decline', label: t('home.ready.translate.decline'), ariaLabel: t('home.band.actionFor', { action: t('home.ready.translate.decline'), name: name('translate') }), primary: false, ghost: true, send: { type: 'settings.update', patch: { translateHintDeclined: true } } });
+        extra = [decline()];
+        if (r.translate?.installed) {
+          act = action(t('home.ready.translate.enable'), name('translate'), { type: 'settings.update', patch: { translateEnglish: true } }, true);
+          break;
+        }
+        // 無いときは入れるコマンドを添える。tmux と claude があれば、エージェントに入れてもらうダイアログを開く。
+        detail = PLAMO_INSTALL_COMMAND;
+        act = r.tools.tmux.ok && r.tools.claude.ok ? action(t('home.ready.translate.install'), name('translate'), { type: 'translate.install' }, true) : { ...copy('translate', PLAMO_INSTALL_COMMAND), primary: true };
+        break;
+      }
       case 'notify':
         text = t('home.ready.notify.text');
         act = action(t('home.ready.notify.allow'), name('notify'), { type: 'notify.set', on: true }, true);
@@ -333,8 +358,9 @@ function readinessRows(r: ReadinessDto, t: Translate, platform: string, check: M
         text = e.state === 'app' ? t('home.ready.editor.appOnly', { name, path: e.path ?? '' }) : t('home.ready.editor.ok', { name, path: e.path ?? '' });
         break;
       }
-      // 通知の行は尋ね終えたら消えるので、済んだ行にはならない。
-      case 'notify': break;
+      // 通知と翻訳の行は答え終えたら消えるので、済んだ行にはならない。
+      case 'notify':
+      case 'translate': break;
       case 'compat': text = c.tone === 'info' ? t('home.ready.compat.unverified', { local: summary?.localVersion ?? '', verified: summary?.verifiedVersion ?? '' }) : t('home.ready.compat.ok', { version: summary?.verifiedVersion ?? '' }); break;
     }
     const tone = c.tone === 'info' ? 'info' : 'ok';
@@ -367,13 +393,15 @@ export function readinessQuoteLines(r: ReadinessDto, t: Translate, platform: str
  * 互換のずれは、直すものとして残る（任意の札は付けない）。
  * 右端のボタンは 1 つで、「設定を開く」か「コマンドをコピー」である。殻の中では、MCP とステータスラインの行を設定の連携の節と同じボタン（setup.run）にする。
  */
-type ReadinessSetup = { desktop: boolean; running: SetupTarget | null; notifyAsk?: boolean; guide?: string | null; /** 「仕上げ」の行で、すゝめをセッションのダイアログで開けるか（tmux と claude がある）。偽なら一言をコピーさせる。 */ launch?: boolean };
+type ReadinessSetup = { desktop: boolean; running: SetupTarget | null; notifyAsk?: boolean; /** 任意の行「翻訳」を足すか（translateAskOf）。 */ translateAsk?: boolean; guide?: string | null; /** 「仕上げ」の行で、すゝめをセッションのダイアログで開けるか（tmux と claude がある）。偽なら一言をコピーさせる。 */ launch?: boolean };
 
 export function presentReadiness(r: ReadinessDto, t: Translate, platform: string = clientPlatform(), check: MuxCheck = 'idle', setup: ReadinessSetup = { desktop: false, running: null }): ReadinessBand | null {
   // OS の通知の許可をまだ尋ねていなければ、任意の行「通知」を足す。押したときだけ OS に尋ねる（notify.set の on）。
   // この行だけは、答える（許可するか要らないを押す）まで群を残す。ほかの任意の行と違い、放っておくと通知が届かないまま気付けないからである。
-  if (!readinessPending(r) && !setup.notifyAsk) return null;
-  const checks: Check[] = [...checksOf(r), ...(setup.notifyAsk ? [{ key: 'notify' as const, ok: false, tone: 'soft' as const }] : [])];
+  // 翻訳の行も同じ扱いで、答える（有効にするか使わないを押す）まで群を残す。
+  const translateRow = setup.translateAsk === true && platform !== 'win32';
+  if (!readinessPending(r) && !setup.notifyAsk && !translateRow) return null;
+  const checks: Check[] = [...checksOf(r), ...(setup.notifyAsk ? [{ key: 'notify' as const, ok: false, tone: 'soft' as const }] : []), ...(translateRow ? [{ key: 'translate' as const, ok: false, tone: 'soft' as const }] : [])];
   const { name, fixRow, doneRow } = readinessRows(r, t, platform, check, setup);
   const todo = checks.filter((c) => !c.ok).sort((a, b) => Number(OPTIONAL.has(a.key)) - Number(OPTIONAL.has(b.key)));
   const done = checks.filter((c) => c.ok);

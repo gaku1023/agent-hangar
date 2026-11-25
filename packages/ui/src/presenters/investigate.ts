@@ -4,7 +4,7 @@ import type { Store } from '../store/store.ts';
 import { AGENT_TEXT } from './agentText.ts';
 import { osLabel } from './cloudMember.ts';
 import { translatorOf } from './i18n.ts';
-import { liveReadiness, readinessQuoteLines } from './readiness.ts';
+import { liveReadiness, PLAMO_INSTALL_COMMAND, readinessQuoteLines } from './readiness.ts';
 
 type AccountAgent = 'claude-code' | 'codex';
 
@@ -104,4 +104,13 @@ export function setupGuideSeed(store: Store, platform: string = clientPlatform()
   const lines = [...readinessQuoteLines(liveReadiness(store.readiness, Object.values(store.projects)), t, platform), `hangar ${store.version} / ${osLabel(platform)}`];
   const accounts = pickAccounts(store, null, null);
   return { request: setupGuidePrompt(t, store.setupGuide), quote: lines.join('\n'), ...(accounts ? { accounts } : {}), tone: 'info' };
+}
+
+/**
+ * ホームの翻訳の行の「エージェントで入れる…」（translate.install）で開く新しいセッションのダイアログの種。
+ * 依頼の文は plamo-translate を入れて、入ったら翻訳を入にしてよいか聞くこと。引用は入れるコマンドである。
+ */
+export function translateInstallSeed(store: Store): NewSessionSeed {
+  const accounts = pickAccounts(store, null, null);
+  return { request: translatorOf(store)('home.ready.translate.request'), quote: PLAMO_INSTALL_COMMAND, ...(accounts ? { accounts } : {}), tone: 'info' };
 }

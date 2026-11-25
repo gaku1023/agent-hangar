@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { IDLE_STOP_MS, PlamoTranslator, PlamoUnavailableError, type PlamoDeps, type PlamoProc } from './plamo.ts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { findPlamoTranslate, IDLE_STOP_MS, PlamoTranslator, PlamoUnavailableError, type PlamoDeps, type PlamoProc } from './plamo.ts';
 
 type World = {
   deps: PlamoDeps;
@@ -154,5 +157,18 @@ describe('PlamoTranslator', () => {
     };
     await expect(t.translate('b')).resolves.toBe('訳:b');
     expect(w.spawned).toHaveLength(2);
+  });
+});
+
+describe('findPlamoTranslate', () => {
+  it('PATH と ~/.local/bin から plamo-translate を探し、無ければ null', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'plamo-find-'));
+    try {
+      expect(findPlamoTranslate({ PATH: '' }, home, [])).toBeNull();
+      fs.mkdirSync(path.join(home, '.local', 'bin'), { recursive: true });
+      const bin = path.join(home, '.local', 'bin', 'plamo-translate');
+      fs.writeFileSync(bin, '#!/bin/sh\n', { mode: 0o755 });
+      expect(findPlamoTranslate({ PATH: '' }, home, [])).toBe(bin);
+    } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
 });

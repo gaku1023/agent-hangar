@@ -207,6 +207,12 @@ describe('hangarCommandPrefix', () => {
 });
 
 describe('createReadiness', () => {
+  it('plamo-translate が見つかるかを translate.installed で返す。Windows では見つかっても偽', async () => {
+    const mk = (findPlamo: () => string | null, platform?: NodeJS.Platform) => createReadiness({ settings: () => baseSettings(), claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', findPlamo, ...(platform ? { platform } : {}) })();
+    expect((await mk(() => '/x/plamo-translate')).translate).toEqual({ installed: true });
+    expect((await mk(() => null)).translate).toEqual({ installed: false });
+    expect((await mk(() => '/x/plamo-translate', 'win32')).translate).toEqual({ installed: false });
+  });
   it('ツール、ワークスペース、MCP、statusline、コマンドを 1 つにまとめて返す', async () => {
     const tmux = fakeTool('tmux', 'tmux 3.4');
     const claude = fakeTool('claude', '2.3.1 (Claude Code)');

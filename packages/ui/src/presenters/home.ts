@@ -11,7 +11,8 @@ import { durationLabel, percentLabel, relativeTime, shortenPaths } from './forma
 import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
-import { liveReadiness, presentReadiness } from './readiness.ts';
+import { liveReadiness, presentReadiness, translateAskOf } from './readiness.ts';
+import { clientPlatform } from '../keys.ts';
 import { canLaunchGuide } from './investigate.ts';
 import { presentInterrupted } from './interrupted.ts';
 import { withOverlaps } from './overlap.ts';
@@ -501,7 +502,7 @@ export function presentHomeScreen(state: State, store: Store, now: number): Home
   const t = translatorOf(store);
   // 準備の確かめは起動のたびに取る。届くまで、また届いても直すものが無ければ、確認の群は出さない。
   // プロジェクトの行は、画面が持っているプロジェクトの数で決める（登録した直後に、準備の確かめを取り直す前でも行を消す）。
-  const ready = store.readiness ? presentReadiness(liveReadiness(store.readiness, Object.values(store.projects)), t, undefined, state.muxCheck, { desktop: store.desktop, running: state.setupRunning, notifyAsk: store.notify.ask === true, guide: store.setupGuide ? setupGuidePrompt(t, store.setupGuide) : null, launch: canLaunchGuide(store) }) : null;
+  const ready = store.readiness ? presentReadiness(liveReadiness(store.readiness, Object.values(store.projects)), t, undefined, state.muxCheck, { desktop: store.desktop, running: state.setupRunning, notifyAsk: store.notify.ask === true, translateAsk: translateAskOf(store.settings, store.readiness, clientPlatform()), guide: store.setupGuide ? setupGuidePrompt(t, store.setupGuide) : null, launch: canLaunchGuide(store) }) : null;
   const band0 = presentHomeBand(presentHome(state, store, now), t);
   // 実行中の行に、同じファイルの編集の札を重ねる（presenters/overlap.ts）。
   const base = { ...band0, groups: band0.groups.map((g) => withOverlaps(g, store, now)) };

@@ -149,7 +149,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', summaryHourlyCap: 20, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, phoneChatAccept: true, eventTrigger: false, translateEnglish: false, orchestrator: { enabled: false, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] }, voice: { mode: 'off', personaId: 'default', personas: [{ id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'kokoro:jf_alpha', voiceLabel: 'jf_alpha', speed: 1.2 }] }, permissionPolicy: null });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, trustedWorkspaceRoot: null, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', summaryHourlyCap: 20, configApproval: 'each', configBundleSync: false, configTargets: {}, configKinds: configKindsOf({}), askStatusAtEnd: true, liveHints: true, notifyUser: true, unreadBadge: true, sidebarOtherPcs: true, unreadOs: true, unreadPhone: true, notifyPreference: null, autoDone: true, autoDoneIdleDays: 7, autoPark: true, remoteControl: true, defaultModel: null, nodePath: null, claudePath: null, codexPath: null, opencodePath: null, language: 'ja', codexEnabled: false, codexInjection: 'minimal', codexIntercept: false, opencodeEnabled: false, opencodeInjection: 'minimal', opencodeIntercept: false, opencodePermissionPreset: true, opencodeLocalContext: 65536, opencodeIdleUnload: 5, opencodeProviderPrep: {}, codexShareInstructions: true, codexShareMcp: false, opencodeShareInstructions: true, opencodeShareMcp: false, peerChatAcceptFromPeers: true, phoneChatAccept: true, eventTrigger: false, translateEnglish: false, translateHintDeclined: false, orchestrator: { enabled: false, sessionId: null, agent: 'claude-code', model: 'sonnet', effort: 'medium', account: null, history: [] }, voice: { mode: 'off', personaId: 'default', personas: [{ id: 'default', name: 'ハンガー', reading: 'はんがー', tone: '', voice: 'kokoro:jf_alpha', voiceLabel: 'jf_alpha', speed: 1.2 }] }, permissionPolicy: null });
   });
   // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
   it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
@@ -422,6 +422,7 @@ describe('設定の往復', () => {
         ['phoneChatAccept', false],
         ['eventTrigger', true],
         ['translateEnglish', true],
+        ['translateHintDeclined', true],
         ['nodePath', exe('node')],
         ['claudePath', exe('claude')],
         ['codexPath', exe('codex')],
@@ -626,6 +627,12 @@ describe('設定の往復', () => {
     expect((await (await patch({ translateEnglish: true })).json()).translateEnglish).toBe(true);
     for (const v of ['true', 1, null]) expect([v, (await patch({ translateEnglish: v })).status]).toEqual([v, 400]);
     expect((await json(await get('/api/settings'))).body.translateEnglish).toBe(true);
+  });
+  it('翻訳の誘いを断った印は、既定が偽で、真を保存でき、真偽値でない値は断る', async () => {
+    expect((await json(await get('/api/settings'))).body.translateHintDeclined).toBe(false);
+    expect((await (await patch({ translateHintDeclined: true })).json()).translateHintDeclined).toBe(true);
+    for (const v of ['true', 1, null]) expect([v, (await patch({ translateHintDeclined: v })).status]).toEqual([v, 400]);
+    expect((await json(await get('/api/settings'))).body.translateHintDeclined).toBe(true);
   });
   it('他の PC からの送信を受ける設定は、既定が入で、切を保存でき、真偽値でない値は断る', async () => {
     expect((await json(await get('/api/settings'))).body.peerChatAcceptFromPeers).toBe(true);
