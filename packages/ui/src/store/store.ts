@@ -150,7 +150,7 @@ export type Store = {
   opencodeOptions: OpencodeOptionsState | null;
   /** 新しいセッションで Codex を選んだときのモデルと推論の段階（GET /api/codex/options）。頼む前は null。 */
   codexOptions: CodexOptionsState | null;
-  /** 新しいセッションのダイアログの PC の選択（GET /api/peers）。ほかの PC の様子で、ダイアログを開いたときに読む。読む前は null。 */
+  /** 新しいセッションのダイアログの PC の選択（GET /api/peers）。ほかの PC の様子で、つないだ時点とダイアログを開いたときに読む。読む前は null。 */
   peers: PeerDeviceDto[] | null;
   /**
    * 起動前の準備の進み（launch.prep、docs/design.md「起動前の準備」）。鍵（起動の要求に添えた prepKey）ごとに全体を持つ。

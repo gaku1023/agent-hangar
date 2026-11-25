@@ -10,7 +10,7 @@ import { applyEventsPage, applySubagents, eventsKey, initialStore, setEventsLoad
 import { absoluteTime, costLabel, percentLabel, relativeTime, resetsLabel, shortModel, tokensLabel } from './format.ts';
 import { presentConfirm } from './confirm.ts';
 import { presentHome, presentHomeScreen } from './home.ts';
-import { newSessionTarget, opencodeAgentNote, opencodeModelChoice, presentNewSession } from './newSession.ts';
+import { newSessionDefaultPeer, newSessionTarget, opencodeAgentNote, opencodeModelChoice, presentNewSession } from './newSession.ts';
 import { presentArtifactCard, presentProject } from './project.ts';
 import { candidateLabel, presentSessionRow, returnOnLabel } from './row.ts';
 import { buildItems, presentSession, presentSessionBadges, sessionActions, summarizerLabel, type SessionProps } from './session.ts';
@@ -835,6 +835,43 @@ describe('newSessionTarget', () => {
     store.sessions = { ...store.sessions, sc: session('sc', { projectId: 'scratch' }) };
     expect(newSessionTarget(at({ name: 'project', id: 'scratch' }), store)).toEqual({ scratch: true });
     expect(newSessionTarget(at({ name: 'session', id: 'sc' }), store)).toEqual({ scratch: true });
+  });
+});
+
+describe('newSessionDefaultPeer（開いたときの PC）', () => {
+  const win = { id: 'win', name: 'Win', platform: 'win32', state: 'ready' as const, accounts: [], agents: ['claude-code'], projects: ['alpha', 'far'] };
+  const opened = (screen: State['screen'], projectId: string | null, over: Partial<Extract<State['overlay'], { kind: 'newSession' }>> = {}): State => ({ ...initialState(), screen, overlay: { kind: 'newSession', projectId, scratch: false, ...over } });
+  const lock: SessionLockDto = { deviceId: 'win', deviceName: 'Win', runId: 'r', heartbeatAt: 1, stale: false };
+  const withPeers = () => {
+    const store = storeWith();
+    store.peers = [win];
+    store.projects = { ...store.projects, far: { ...project('far'), path: null, resolved: false } };
+    return store;
+  };
+  it('会話が別の PC で動いている、または最後に動いたのが別の PC なら、その PC。この PC で動いていれば、この PC', () => {
+    const store = withPeers();
+    store.sessions = { ...store.sessions, s1: session('s1', { lock }) };
+    expect(newSessionDefaultPeer(opened({ name: 'session', id: 's1' }, 'alpha'), store)).toBe('win');
+    expect(presentNewSession(opened({ name: 'session', id: 's1' }, 'alpha'), store, NOW)?.defaultPeer).toBe('win');
+    store.sessions = { ...store.sessions, s1: session('s1', { lastDevice: 'win' }) };
+    expect(newSessionDefaultPeer(opened({ name: 'session', id: 's1' }, 'alpha'), store)).toBe('win');
+    store.sessions = { ...store.sessions, s1: session('s1', { lastDevice: null }) };
+    expect(newSessionDefaultPeer(opened({ name: 'session', id: 's1' }, 'alpha'), store)).toBeNull();
+  });
+  it('会話と違うプロジェクトで開いたとき（サイドバーの ＋ など）は、会話の PC を見ない', () => {
+    const store = withPeers();
+    store.sessions = { ...store.sessions, s1: session('s1', { lock }) };
+    expect(newSessionDefaultPeer(opened({ name: 'session', id: 's1' }, 'beta'), store)).toBeNull();
+  });
+  it('この PC に無いプロジェクトは、プロジェクトの画面からでも置き場のある PC', () => {
+    expect(newSessionDefaultPeer(opened({ name: 'project', id: 'far' }, 'far'), withPeers())).toBe('win');
+  });
+  it('依頼の文やフォルダを埋めて開いたとき、ほかの PC の一覧がまだ無いときは、この PC', () => {
+    const store = withPeers();
+    expect(newSessionDefaultPeer(opened({ name: 'project', id: 'far' }, 'far', { dir: '/w/far/x' }), store)).toBeNull();
+    expect(newSessionDefaultPeer(opened({ name: 'project', id: 'far' }, 'far', { seed: { text: 'x' } as never }), store)).toBeNull();
+    store.peers = null;
+    expect(newSessionDefaultPeer(opened({ name: 'project', id: 'far' }, 'far'), store)).toBeNull();
   });
 });
 

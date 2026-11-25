@@ -51,9 +51,14 @@ export function NewSessionDialog(props: NewSessionProps) {
   // 埋めて開いたとき（「エージェントで調査…」）は、下書きの代わりに依頼の文を入れる。下書きは読まず、閉じても書かない（残したまま次に戻す）。
   const seed = props.seed ?? null;
   const draft = seed ? null : props.draft;
-  // 選んだ別の PC（案 1C）。毎回この PC から始める（覚えない）。ほかの PC が無いときは、メニューごと出さない。
+  // 選んだ別の PC（案 1C）。開いた画面から決めた既定（defaultPeer）で始め、前回の選びは覚えない。ほかの PC が無いときは、メニューごと出さない。
+  // 一覧が開いた後に届いて既定が変わったら、PC のメニューに触れていない間だけ選び直す。
   const peers: PeerDeviceDto[] = props.peers ?? [];
-  const [peerId, setPeerId] = useState<string | null>(null);
+  const defaultPeer = props.defaultPeer ?? null;
+  const [peerId, setPeerIdState] = useState<string | null>(defaultPeer);
+  const [peerTouched, setPeerTouched] = useState(false);
+  const setPeerId = (id: string | null) => { setPeerTouched(true); setPeerIdState(id); };
+  useEffect(() => { if (!peerTouched) setPeerIdState(defaultPeer); }, [defaultPeer, peerTouched]);
   // 「この会話の続きから」。元の会話から分岐して始める。別の PC には頼めないので、続きからにする間はこの PC に戻す。
   const forkSeed = seed?.fork ?? null;
   const [continuing, setContinuing] = useState(false);

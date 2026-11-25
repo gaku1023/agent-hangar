@@ -1,6 +1,37 @@
 import { describe, expect, it } from 'vitest';
 import type { PeerDeviceDto } from '@agent-hangar/shared';
-import { peerAccountOptions, peerAccountPick, peerAgentState, peerMark, peerProjectState, type PeerAccountRow } from './peerChoice.ts';
+import { defaultPeerPick, peerAccountOptions, peerAccountPick, peerAgentState, peerMark, peerProjectState, type PeerAccountRow } from './peerChoice.ts';
+
+describe('defaultPeerPick（ダイアログを開いたときに選んでおく PC）', () => {
+  const win = peer({ id: 'win', name: 'Win', projects: ['p1', 'away'] });
+  const mac = peer({ id: 'mac2', name: 'Mac2', projects: ['away'] });
+  const base = { peers: [win, mac], projectId: 'p1' as string | null, scratch: false, here: true, sessionDevice: null as string | null, projectDevices: [] as (string | null)[] };
+  it('手元にあり、会話もこの PC なら、この PC（null）', () => {
+    expect(defaultPeerPick(base)).toBeNull();
+  });
+  it('会話が別の PC のものなら、その PC', () => {
+    expect(defaultPeerPick({ ...base, sessionDevice: 'win' })).toBe('win');
+  });
+  it('クイックセッションの会話でも、会話の PC', () => {
+    expect(defaultPeerPick({ ...base, projectId: null, scratch: true, sessionDevice: 'mac2' })).toBe('mac2');
+  });
+  it('会話の PC が頼めない、またはプロジェクトの置き場が無ければ、この PC', () => {
+    expect(defaultPeerPick({ ...base, peers: [{ ...win, state: 'offline' }, mac], sessionDevice: 'win' })).toBeNull();
+    expect(defaultPeerPick({ ...base, sessionDevice: 'mac2' })).toBeNull();
+    expect(defaultPeerPick({ ...base, sessionDevice: 'gone' })).toBeNull();
+  });
+  it('手元に無いプロジェクトは、置き場のある PC。会話の PC を先に、次にプロジェクトで最後に使った PC、無ければ一覧の順', () => {
+    const away = { ...base, projectId: 'away', here: false };
+    expect(defaultPeerPick(away)).toBe('win');
+    expect(defaultPeerPick({ ...away, sessionDevice: 'mac2' })).toBe('mac2');
+    expect(defaultPeerPick({ ...away, projectDevices: [null, 'mac2', 'win'] })).toBe('mac2');
+    expect(defaultPeerPick({ ...away, sessionDevice: 'win', projectDevices: ['mac2'] })).toBe('win');
+  });
+  it('手元に無いプロジェクトで、置き場のある PC がどれも頼めなければ、この PC', () => {
+    expect(defaultPeerPick({ ...base, projectId: 'away', here: false, peers: [{ ...win, state: 'worker-outdated' }, { ...mac, state: 'offline' }] })).toBeNull();
+    expect(defaultPeerPick({ ...base, projectId: 'nowhere', here: false })).toBeNull();
+  });
+});
 
 const peer = (over: Partial<PeerDeviceDto> = {}): PeerDeviceDto => ({
   id: 'pc-b', name: 'Mac', platform: 'darwin', state: 'ready',

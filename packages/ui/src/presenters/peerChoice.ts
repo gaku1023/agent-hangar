@@ -19,6 +19,25 @@ export function peerProjectState(p: PeerDeviceDto, projectId: string | null): Pe
   return projectId === null || p.projects.includes(projectId) ? 'ok' : 'missing';
 }
 
+/**
+ * ダイアログを開いたときに選んでおく PC。null はこの PC。
+ * 頼める（ready で、そのプロジェクトの置き場がある）PC だけを選ぶ。頼めなければこの PC のまま（黙って別の PC に替えない）。
+ * - 会話の画面から開き、その会話が別の PC で動いている、または最後に動いたのが別の PC なら、その PC（sessionDevice）。
+ * - プロジェクトがこの PC に無い（here が偽）なら、置き場のある PC。会話の PC、プロジェクトの会話で最後に使った PC（projectDevices、新しい順、null は手元）、一覧の順で選ぶ。
+ */
+export function defaultPeerPick(o: { peers: PeerDeviceDto[]; projectId: string | null; scratch: boolean; here: boolean; sessionDevice: string | null; projectDevices: (string | null)[] }): string | null {
+  const target = o.scratch ? null : o.projectId;
+  const usable = (id: string | null) => o.peers.find((p) => p.id === id && p.state === 'ready' && peerProjectState(p, target) === 'ok')?.id ?? null;
+  const fromSession = usable(o.sessionDevice);
+  if (fromSession) return fromSession;
+  if (o.scratch || o.projectId === null || o.here) return null;
+  for (const d of o.projectDevices) {
+    const id = usable(d);
+    if (id) return id;
+  }
+  return o.peers.map((p) => usable(p.id)).find((id) => id !== null) ?? null;
+}
+
 export function peerAgentState(p: PeerDeviceDto, agent: string): PeerItemState {
   return p.agents.includes(agent) ? 'ok' : 'missing';
 }

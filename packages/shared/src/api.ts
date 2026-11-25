@@ -166,6 +166,11 @@ export type SessionDto = { id: string; provider: AgentKind; providerSessionId: s
    * closed は「終わった」を返し終えた結び付きで、入れ子の線を破線にする。この項目を知らない古いサーバは返さないので、読む側は null として読む。
    */
   spawnPeer: { parent: string | null; child: string | null; closed: boolean } | null;
+  /**
+   * 最後の run（started_at が最新）の PC の id。手元の PC か、run が無ければ null。
+   * 新規のダイアログが、止まった会話の PC を既定に選ぶのに使う。
+   */
+  lastDevice: string | null;
   /** 統括の会話にだけ付く印（設定の orchestrator.sessionId と同じ id）。DB の列は持たず、設定から導く。ほかの会話は鍵ごと送らない。 */
   role?: import('./orchestrator.ts').SessionRole;
   /**
