@@ -114,7 +114,7 @@ describe('prepare, cd, close', () => {
   it('cd argv per shell', () => {
     const p = lastOf(cdArgv(target(), posix));
     expect(p).toContain('send-keys');
-    expect(p).toContain('=hangar-ssh-t1');
+    expect(p).toMatch(/'?=hangar-ssh-t1/);
     expect(p).toContain(`cd -- '\\''/w/x y'\\''; clear`);
     const w = lastOf(cdArgv(target(), ps));
     expect(w).toContain(`Set-Location -LiteralPath ''C:\\w\\o''''k''; Clear-Host`);
@@ -123,7 +123,7 @@ describe('prepare, cd, close', () => {
     for (const p of [posix, ps]) {
       const a = closeArgv(target(), p);
       expect(a[0]).toBe('-T');
-      expect(lastOf(a)).toContain('kill-session -t =hangar-ssh-t1');
+      expect(lastOf(a)).toMatch(/kill-session -t '?=hangar-ssh-t1/);
       expect(flat(a)).not.toContain('kill-server');
     }
   });
