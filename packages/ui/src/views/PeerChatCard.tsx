@@ -38,7 +38,7 @@ export function PeerChatCard(props: { row: AskRow; onAnswer: (askId: string, key
             {row.options.map((o) => (
               <button key={o.key} type="button" className="pchat-opt" aria-pressed={row.multi ? picked.includes(o.key) : undefined} disabled={off}
                 onClick={() => (row.multi ? toggle(o.key) : answer([o.key]))}>
-                <span className="pchat-opt-label">{row.multi ? '' : `${o.key}. `}{o.label}</span>
+                <span className="pchat-opt-label">{row.multi || !/^\d+$/.test(o.key) ? '' : `${o.key}. `}{o.label}</span>
                 {o.description && <span className="pchat-opt-desc">{o.description}</span>}
               </button>
             ))}

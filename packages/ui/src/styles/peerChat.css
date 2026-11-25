@@ -60,10 +60,11 @@
 .pchat-ask-acts { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); }
 .pchat-ask-acts:has(.pchat-opt) { flex-direction: column; flex-wrap: nowrap; }
 .pchat-opt { display: flex; flex-direction: column; align-items: flex-start; gap: calc(var(--u) * 0.5); width: 100%; padding: calc(var(--u) * 2) calc(var(--u) * 3); border: 0; border-radius: var(--r); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line-strong); font: inherit; color: inherit; text-align: left; cursor: pointer; transition: background var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out); }
+.pchat-opt:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--accent); }
 .pchat-opt:disabled { cursor: default; opacity: 0.6; }
 .pchat-opt[aria-pressed='true'] { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
 .pchat-opt-label { font-weight: 700; overflow-wrap: anywhere; }
-.pchat-opt-desc { font-size: var(--fs-xs); color: var(--ink-3); white-space: pre-wrap; overflow-wrap: anywhere; }
+.pchat-opt-desc { font-size: var(--fs-sm); color: var(--ink-3); white-space: pre-wrap; overflow-wrap: anywhere; }
 .pchat-ask-text { display: flex; gap: calc(var(--u) * 1.5); }
 .pchat-ask-text input { flex: 1; min-width: 0; height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 0; border-radius: var(--r); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); font: inherit; color: inherit; }
 .pchat-ask-text input:focus { outline: none; box-shadow: inset 0 0 0 1.5px var(--accent); }

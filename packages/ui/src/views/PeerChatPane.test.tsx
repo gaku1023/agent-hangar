@@ -176,6 +176,12 @@ describe('会話の中の札（3A）', () => {
     expect(opts[1]!.querySelector('.pchat-opt-desc')).toBeNull();
   });
 
+  it('key が番号でない選択肢（hook の許可の allow・deny）は、頭に key を付けない', () => {
+    const { container } = mount(viewOf({ status: 'waiting', items: [ask(false, { options: [{ key: 'allow', label: 'Yes' }, { key: 'deny', label: 'No' }] })] }));
+    const labels = [...container.querySelectorAll('.pchat-opt-label')].map((e) => e.textContent);
+    expect(labels).toEqual(['Yes', 'No']);
+  });
+
   it('thinking の項目は、返答と同じ形（pchat-ai）で出す', () => {
     const { container } = mount(viewOf({ status: 'busy', items: [{ uuid: 'th1', at: 3, kind: 'thinking', text: '考えています' }] }));
     const el = container.querySelector('.pchat-ai')!;
