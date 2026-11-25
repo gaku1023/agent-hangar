@@ -32,6 +32,7 @@ import { muxEn } from './en/mux.ts';
 import { approveEn } from './en/approve.ts';
 import { pauseEn } from './en/pause.ts';
 import { peerChatEn } from './en/peerChat.ts';
+import { remoteShellEn } from './en/remoteShell.ts';
 import { platformEn } from './en/platform.ts';
 import { projectEn } from './en/project.ts';
 import { projectsEn } from './en/projects.ts';
@@ -109,6 +110,7 @@ export const en: Dictionary = {
   ...approveEn,
   ...pauseEn,
   ...peerChatEn,
+  ...remoteShellEn,
   ...platformEn,
   ...projectEn,
   ...projectsEn,

@@ -52,6 +52,7 @@ export function investigateSeed(store: Store, ctx: InvestigateContext, platform:
       t('newSession.investigate.line.error', { text: ctx.message }),
     ])),
     ...(ctx.code ? [t('newSession.investigate.line.code', { text: ctx.code })] : []),
+    ...(ctx.remote ? [t('newSession.investigate.line.remoteDevice', { text: ctx.remote.device }), ...(ctx.remote.address ? [t('newSession.investigate.line.remoteAddress', { text: ctx.remote.address })] : []), ...(ctx.remote.detail ? [t('newSession.investigate.line.remoteDetail', { text: ctx.remote.detail })] : [])] : []),
     ...(ctx.files?.length ? [t('newSession.investigate.line.files', { text: ctx.files.join(t('common.list.separator')) })] : []),
     ...(agent ? [t('newSession.investigate.line.agent', { text: t(AGENT_TEXT[agent].launchLabel) })] : []),
     ...(account ? [t('newSession.investigate.line.account', { name: account.name, dir: account.dir })] : []),

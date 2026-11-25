@@ -22,7 +22,7 @@ import { readinessCompat } from '../presenters/compat.ts';
 import { translatorOf } from '../presenters/i18n.ts';
 import { clientPlatform, notifyBlockedKey, readinessComplete, readinessPending } from '../presenters/readiness.ts';
 import { unresolvedKind } from '../presenters/unresolved.ts';
-import type { FocusTarget, MediatedAction, RemoteAction, SessionViewState, TodoCall, TurnJumpStatus } from '../mediator/types.ts';
+import type { FocusTarget, MediatedAction, SessionViewState, TodoCall, TurnJumpStatus } from '../mediator/types.ts';
 import { staleRemoteTabs } from '../store/remoteShell.ts';
 import { applyGit, shownLive, aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, withoutProject, type ConfigDetailPart, type Store } from '../store/store.ts';
 import { AccountLinkConflictApiError, ApiConflictError, ApiNotFoundError, LaunchPrepAskApiError, LaunchPrepCancelledApiError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, StrayProcessApiError, type ApiClient, type EventsQuery } from './api.ts';
@@ -102,7 +102,7 @@ export type RuntimeDeps = {
 };
 
 export type Runtime = {
-  dispatch(input: Input): void; emit(action: UiAction | RemoteAction): void;
+  dispatch(input: Input): void; emit(action: UiAction): void;
   getState(): State; getStore(): Store;
   subscribe(cb: () => void): () => void;
   /** アプリの中に戻る先があるか。画面端の矢印を出すかどうかの判断に使う。 */
@@ -1195,7 +1195,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
    * View の UiAction を受ける。
    * 表にあれば、Mediator を通さずに API を呼ぶ。無ければ、今までどおり Mediator へ渡す。
    */
-  function emit(action: UiAction | RemoteAction): void {
+  function emit(action: UiAction): void {
     // 見えている行の git（0.5.0）。場所ごとに覚え、まとめて取る。
     if (action.type === 'git.watch') { gitWatch.watch(action.key, action.sessionIds); return; }
     // プロジェクト画面のブランチと worktree は、git の表示の周期で読み直すので、周期を始めておく（セッションの行が無い画面でも回す）。

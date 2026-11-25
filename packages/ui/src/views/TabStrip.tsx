@@ -1,11 +1,13 @@
-import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { TabItemProps } from '../presenters/session.ts';
 import { AgentIcon } from './primitives/AgentIcon.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { ariaKeyShortcuts, shortcutHint } from '../keys.ts';
+import { fadeIn } from './primitives/motionKit.ts';
 import { useMotionList } from './primitives/useMotionList.ts';
+import { PEER_CHAT_TAB } from '../presenters/remoteShell.ts';
 
 /**
  * タブ 0 が Claude、以降がシェル。並び替えは持たない。
@@ -15,8 +17,23 @@ import { useMotionList } from './primitives/useMotionList.ts';
  * 追加と分割のボタンは別の操作なので、Tab の止まり先に残す。
  * 選ぶとフォーカスはターミナルへ移るので、矢印で移るだけでは選ばない（手動の選択）。
  */
-export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAdd: boolean; canSplit: boolean; split: boolean; trailing?: ReactNode }) {
+/**
+ * SSH のシェルタブの頭の印。つないでいる間は輪、つながったら端末の印に替える（替わるときは --dur-fast で現す）。
+ * 輪は選んだタブ（暗い地）と選んでいないタブ（明るい地）で色を替える（base.css の .tab-spin）。
+ */
+function RemoteMark(props: { busy: boolean; label: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const first = useRef(true);
+  useLayoutEffect(() => {
+    if (first.current) { first.current = false; return; }
+    if (ref.current) fadeIn(ref.current, '--dur-fast');
+  }, [props.busy]);
+  return <span ref={ref} className="tab-mark">{props.busy ? <span className="tab-spin" role="img" aria-label={props.label} /> : <Icon name="shell" />}</span>;
+}
+
+export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAdd: boolean; canSplit: boolean; split: boolean; trailing?: ReactNode; /** 分割の札を出すか。省くと出す（peer chat の画面は分割しない）。 */ showSplit?: boolean; /** 「+」が開くタブの種類。省くとシェル。 */ addKind?: 'shell' | 'remote' }) {
   const emit = useEmit();
+  const select = (id: string) => emit(id === PEER_CHAT_TAB ? { type: 'remote.select', tabId: null } : { type: 'tab.select', tabId: id });
   const tr = useT();
   // タブの出入り。足したタブは幅も伸ばして隣を押し、閉じたタブは畳んでから外す。
   // セッションが替わる描画は、前のセッションのタブを畳まず入れ替える。
@@ -38,12 +55,12 @@ export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAd
       listRef.current?.querySelectorAll<HTMLElement>('[role="tab"]')[to]?.focus();
       return;
     }
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); emit({ type: 'tab.select', tabId: props.tabs[i]!.id }); }
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(props.tabs[i]!.id); }
   };
 
   // タブの頭の印。Claude Code 以外のタブはそのエージェントの公式ロゴで、選んだタブ（板と同じ墨色）には暗い地用、選んでいないタブ（白い地）には明るい地用を置く。
   // 名前は隣の語が言うので、絵は読み上げから外す。
-  const mark = (t: TabItemProps) => (t.agent
+  const mark = (t: TabItemProps) => (t.kind === 'remote' ? <RemoteMark busy={t.busy === true} label={tr('remoteShell.tab.connecting')} /> : t.agent
     ? <AgentIcon kind={t.agent} tone={t.selected ? 'dark' : 'light'} decorative />
     : <Icon name={t.kind === 'agent' ? 'agent' : 'shell'} />);
 
@@ -65,16 +82,16 @@ export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAd
         }
         const i = props.tabs.indexOf(t);
         return (
-          <div key={key} ref={tabRef(key)} className={`tab${t.selected ? ' tab-selected' : ''}`} role="tab" aria-selected={t.selected} tabIndex={t.id === stopId ? 0 : -1}
-            onClick={() => emit({ type: 'tab.select', tabId: t.id })} onFocus={() => setFocusId(t.id)} onKeyDown={(e) => onTabKey(e, i)}>
+          <div key={key} ref={tabRef(key)} className={`tab${t.selected ? ' tab-selected' : ''}${t.id === PEER_CHAT_TAB ? ' tab-chat' : ''}`} role="tab" aria-selected={t.selected} tabIndex={t.id === stopId ? 0 : -1}
+            onClick={() => select(t.id)} onFocus={() => setFocusId(t.id)} onKeyDown={(e) => onTabKey(e, i)}>
             {mark(t)}<span>{t.title}</span>
             {t.closable && <button className="tab-close" tabIndex={-1} aria-label={tr('terminal.tab.close', { title: t.title })} onClick={(e) => { e.stopPropagation(); emit({ type: 'tab.close', tabId: t.id }); }}><Icon name="close" /></button>}
           </div>
         );
       })}
-      {props.canAdd && <button className="tab-add" aria-label={tr('terminal.tab.addShell')} onClick={() => emit({ type: 'tab.open', sessionId: props.sessionId, kind: 'shell' })}><Icon name="add" /></button>}
+      {props.canAdd && <button className="tab-add" aria-label={tr('terminal.tab.addShell')} onClick={() => emit({ type: 'tab.open', sessionId: props.sessionId, kind: props.addKind ?? 'shell' })}><Icon name="add" /></button>}
       {/* 横に並べるのはタブが 2 つ以上あるときだけ押せる。左は選択中のタブ、右は Mediator が選ぶ。 */}
-      <button className="btn tab-action" aria-label={tr('terminal.tab.split')} aria-pressed={props.split} aria-keyshortcuts={ariaKeyShortcuts('split.toggle')} disabled={!props.canSplit} title={props.canSplit ? tr('terminal.tab.splitTitle', { keys: shortcutHint(tr, 'split.toggle', '⌘\\') }) : tr('terminal.tab.splitNeedsTwo')} onClick={() => emit({ type: 'split.toggle' })}><Icon name="split" /></button>
+      {props.showSplit !== false && <button className="btn tab-action" aria-label={tr('terminal.tab.split')} aria-pressed={props.split} aria-keyshortcuts={ariaKeyShortcuts('split.toggle')} disabled={!props.canSplit} title={props.canSplit ? tr('terminal.tab.splitTitle', { keys: shortcutHint(tr, 'split.toggle', '⌘\\') }) : tr('terminal.tab.splitNeedsTwo')} onClick={() => emit({ type: 'split.toggle' })}><Icon name="split" /></button>}
       {/* 右の欄を閉じている間の、開くボタン（設計書 ②）。帯の右端に寄せる。 */}
       {props.trailing && <span className="tabs-trailing">{props.trailing}</span>}
     </div>

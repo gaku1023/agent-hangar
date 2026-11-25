@@ -35,6 +35,8 @@ import type { TerminalHost } from './runtime/terminals.ts';
 import { clientPlatform, isMacClient, matchKey } from './keys.ts';
 import { createLiftDetector, createSwipeDetector, swipeModeOf, SWIPE_IDLE_MS, SWIPE_RELEASE_GAP_MS, SWIPE_STALE_HIDE_MS } from './swipe.ts';
 import { currentRunOf, tabsOf } from './store/store.ts';
+import { remoteTabsOf } from './store/remoteShell.ts';
+import { isPeerChatCandidate } from './presenters/peerChat.ts';
 import { CommandPalette } from './views/CommandPalette.tsx';
 import { usePaletteFound } from './views/usePaletteFound.ts';
 import { createFindStore, FindRoot } from './views/findStore.tsx';
@@ -187,6 +189,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const shortcutView = sessionId ? state.sessionView[sessionId] ?? defaultSessionView() : null;
   const selectedTabId = shortcutView?.selectedTab ?? shortcutTabs[0]?.id ?? null;
   // peer chat の画面で選んでいる SSH のシェルタブ。ストアに無い（閉じた）ものは数えない。
+  // ほかの PC の会話の画面では、⌘1 がチャット本体、⌘2 からが SSH のシェルタブ。id は開いた順に「,」でつなぐ（効果の依存に配列を置かないため）。
+  const peerShortcutIds = sessionId && !shortcutRun && isPeerChatCandidate(store.sessions[sessionId]) ? remoteTabsOf(store, sessionId).map((x) => x.id).join(',') : null;
   const peerTabId = shortcutView?.peerTab && store.remoteTabs[shortcutView.peerTab] ? shortcutView.peerTab : null;
   // TabStrip の分割ボタンと同じ条件で、タブが 2 つ無いときは ⌘\ を出さない。
   const canSplit = shortcutTabs.length >= 2;
@@ -271,7 +275,15 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       });
       switch (id) {
         case 'tab.select': {
-          const t = shortcutTabs[Number(e.key) - 1];
+          const n = Number(e.key) - 1;
+          // ほかの PC の会話の画面は、1 番がチャット本体、2 番からが SSH のシェルタブ。
+          if (peerShortcutIds !== null) {
+            if (n === 0) { take(); rt.emit({ type: 'remote.select', tabId: null }); return; }
+            const r = peerShortcutIds.split(',')[n - 1];
+            if (r) { take(); rt.emit({ type: 'tab.select', tabId: r }); }
+            return;
+          }
+          const t = shortcutTabs[n];
           if (t) { take(); rt.emit({ type: 'tab.select', tabId: t.id }); }
           return;
         }
@@ -366,7 +378,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rt, overlayKind, sessionId, shortcutRun, shortcutTabs, selectedTabId, peerTabId, canSplit, orchAvailable, newProjectId, newScratch, props.terminals, transcriptShown, finds, reload]);
+  }, [rt, overlayKind, sessionId, shortcutRun, shortcutTabs, selectedTabId, peerTabId, peerShortcutIds, canSplit, orchAvailable, newProjectId, newScratch, props.terminals, transcriptShown, finds, reload]);
 
   // 確認や入力のあるダイアログの裏では、スワイプで画面を移さない（Mediator の canMoveBehind と同じ規則）。
   // Mediator も nav.back を捨てるが、それだけだと矢印が出て「動いた」と見えてしまうので、手勢そのものを受けない。

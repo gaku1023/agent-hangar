@@ -82,19 +82,7 @@ export type RuntimeEvent =
  */
 /** Runtime が自分で受ける UiAction。git.watch は取り直しの周期を持つので、表にも Mediator にも置かない（runtime/gitWatch.ts）。 */
 export type RuntimeAction = Extract<UiAction, { type: 'git.watch' }>;
-export type MediatedAction = Exclude<UiAction, TableAction | RuntimeAction> | RemoteAction;
-
-/**
- * SSH のシェルタブの操作。shared の UiAction にはまだ無いので、画面側でここに置く（shared に移したらここは消す）。
- * tab.open の remote は peer chat の画面の「+」。tab.close と tab.select は UiAction のまま、remote のタブの id でも通る。
- * remote.select は、選んだタブを替える（null はチャット本体へ戻す）。
- * remote.sshHost は住所の上書き（null で解く）で、retryTabId があれば、保存できたあとにそのタブをつなぎ直す。
- */
-export type RemoteAction =
-  | { type: 'tab.open'; sessionId: string; kind: 'remote' }
-  | { type: 'remote.select'; tabId: string | null }
-  | { type: 'remote.sshHost'; deviceId: string; host: string | null; retryTabId?: string }
-  | { type: 'remote.retry'; tabId: string };
+export type MediatedAction = Exclude<UiAction, TableAction | RuntimeAction>;
 
 export type Input =
   | { kind: 'action'; action: MediatedAction }
