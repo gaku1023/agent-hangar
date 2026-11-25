@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createReplyRewrites, fitRows, plainOf, REWRITE_DELAY_MS, wrapCells, type CopyDrag, type PlacedReply, type RewriteTerm } from './termRewrite.ts';
+import { createReplyRewrites, fitRows, plainOf, REWRITE_DELAY_MS, shadeRow, wrapCells, type CopyDrag, type PlacedReply, type RewriteTerm } from './termRewrite.ts';
 
 const A = 'The build passed on all five jobs, and the branch is ready to merge now.';
 const B = 'I changed the width of the sidebar and added a test for the narrow case.';
@@ -10,38 +10,74 @@ const JA_B = '横の欄の幅を変え、狭い場合の試験を足した。';
 const w = (s: string) => Array.from(s).reduce((n, ch) => n + (/[　-鿿＀-￯]/.test(ch) ? 2 : 1), 0);
 
 type FakeMarker = { line: number; isDisposed: boolean; dispose(): void };
-type FakeDeco = { marker: FakeMarker; box: { x: number; width: number }; isDisposed: boolean; el: HTMLElement; render(): void; onRender(cb: (el: HTMLElement) => void): { dispose(): void }; dispose(): void };
+type FakeDeco = { marker: FakeMarker; box: { x: number; width: number; height?: number }; glow: boolean; isDisposed: boolean; el: HTMLElement; render(): void; onRender(cb: (el: HTMLElement) => void): { dispose(): void }; dispose(): void };
 
-/** 行の文字の列だけを持つ偽物の端末。paint は SGR を落として行の x 桁目から右を書き換える（偽物では 1 文字を 1 桁とみなす）。 */
+/**
+ * 偽物の端末。英語の本当の画面（影、truth）と、見えている画面（view）の 2 枚を持つ。
+ * set は中のアプリが描いたこととして両方を同じにし、paint は見えている画面だけを書き換える（SGR は選択の色だけを桁ごとに覚える）。
+ * 文字は 1 文字を 1 つの位置とみなし、選択の色だけは全角を 2 桁に数える。
+ */
 function fakeTerm(initial: string[], cols = 80) {
-  let lines = [...initial];
+  let truth = [...initial];
+  let view = [...initial];
+  let tShade = new Map<number, string[]>();
+  let vShade = new Map<number, string[]>();
   const change = new Set<() => void>();
   const decos: FakeDeco[] = [];
   let ground = true;
   let copyMap: ((t: string, drag: CopyDrag | null) => string) | null = null;
-  const term: RewriteTerm & { set(next: string[]): void; decos: FakeDeco[]; paints: number; setGround(v: boolean): void; copy(t: string, drag?: CopyDrag | null): string; now(): string[] } = {
+  const fire = () => { for (const cb of change) cb(); };
+  const term: RewriteTerm & { set(next: string[], shown?: string[]): void; setView(next: string[]): void; select(line: number, x0: number, x1: number, sh: string): void; viewShade(line: number): string[]; decos: FakeDeco[]; paints: number; setGround(v: boolean): void; copy(t: string, drag?: CopyDrag | null): string; now(): string[] } = {
     cols,
     decos,
     paints: 0,
-    lines: () => lines,
-    now: () => lines,
-    cellsFrom: (line, x) => (lines[line] ?? '').slice(x).trimEnd(),
-    cellsRange: (line, x0, x1) => (lines[line] ?? '').slice(x0, x1),
+    lines: () => truth,
+    now: () => view,
+    cellsFrom: (line, x) => (view[line] ?? '').slice(x).trimEnd(),
+    cellsRange: (line, x0, x1) => (view[line] ?? '').slice(x0, x1),
     width: w,
-    snapshot: (line, x) => `\x1b[1m${(lines[line] ?? '').slice(x)}\x1b[0m`,
+    shades(line, x0, x1, from) {
+      const row = (from === 'truth' ? tShade : vShade).get(line) ?? [];
+      return Array.from({ length: x1 - x0 }, (_, n) => row[x0 + n] ?? '');
+    },
+    snapshot: (line, x) => `\x1b[1m${(truth[line] ?? '').slice(x)}\x1b[0m`,
     paint(x, rows) {
       if (!ground) return false;
       term.paints++;
-      lines = [...lines];
-      for (const r of rows) lines[r.line] = `${(lines[r.line] ?? '').slice(0, x).padEnd(x)}${r.seq.replace(/\x1b\[[0-9;]*m/g, '')}`.trimEnd();
+      view = [...view];
+      for (const r of rows) {
+        const sh: string[] = [];
+        let col = x;
+        let cur = '';
+        let text = '';
+        for (const part of r.seq.split(/(\x1b\[[0-9;]*m)/)) {
+          const m = /^\x1b\[([0-9;]*)m$/.exec(part);
+          if (m) { cur = m[1]!.replace(/^0;?/, ''); continue; }
+          for (const ch of Array.from(part)) { for (let k = 0; k < w(ch); k++) sh[col++] = cur; text += ch; }
+        }
+        vShade.set(r.line, sh);
+        view[r.line] = `${(view[r.line] ?? '').slice(0, x).padEnd(x)}${text}`.trimEnd();
+      }
       return true;
     },
-    set(next) { lines = [...next]; for (const cb of change) cb(); },
+    set(next, shown = next) { truth = [...next]; view = [...shown]; tShade = new Map(); vShade = new Map(); fire(); },
+    setView(next) { view = [...next]; fire(); },
+    select(line, x0, x1, sh) {
+      // 中のアプリが選択の色で英語を描き直した。
+      const row = [...(tShade.get(line) ?? [])];
+      for (let x = x0; x < x1; x++) row[x] = sh;
+      tShade.set(line, row);
+      vShade.set(line, [...row]);
+      view = [...view];
+      view[line] = truth[line]!;
+      fire();
+    },
+    viewShade: (line) => vShade.get(line) ?? [],
     setGround(v) { ground = v; },
     mark(line) { const m: FakeMarker = { line, isDisposed: false, dispose() { m.isDisposed = true; m.line = -1; } }; return m; },
     decorate(marker, box) {
       const subs = new Set<(el: HTMLElement) => void>();
-      const d: FakeDeco = { marker: marker as FakeMarker, box, isDisposed: false, el: {} as HTMLElement, render() { for (const cb of subs) cb(d.el); }, onRender(cb) { subs.add(cb); return { dispose: () => subs.delete(cb) }; }, dispose() { d.isDisposed = true; } };
+      const d: FakeDeco = { marker: marker as FakeMarker, box, glow: !!box.glow, isDisposed: false, el: {} as HTMLElement, render() { for (const cb of subs) cb(d.el); }, onRender(cb) { subs.add(cb); return { dispose: () => subs.delete(cb) }; }, dispose() { d.isDisposed = true; } };
       decos.push(d);
       return d;
     },
@@ -99,9 +135,12 @@ describe('createReplyRewrites', () => {
     expect(term.now()[2]).toBe('⏺ The build passed on all five jobs, and the branch is');
     expect(seen.at(-1)!.map((p) => p.state)).toEqual(['wait', 'wait']);
     // アイコンは頭の行の右端の 2 桁に置く。
-    expect(term.decos.map((d) => [d.marker.line, d.box])).toEqual([[5, { x: 78, width: 2 }], [2, { x: 78, width: 2 }]]);
+    expect(term.decos.filter((d) => !d.glow).map((d) => [d.marker.line, d.box]).sort()).toEqual([[2, { x: 78, width: 2 }], [5, { x: 78, width: 2 }]]);
+    // 訳を待つ段落には、本文の幅いっぱいに光を重ねる。
+    expect(term.decos.filter((d) => d.glow && !d.isDisposed).map((d) => [d.marker.line, d.box]).sort()).toEqual([[2, { x: 2, width: 76, height: 2, glow: true }], [5, { x: 2, width: 76, height: 2, glow: true }]]);
     t.settle();
     await vi.advanceTimersByTimeAsync(0);
+    expect(term.decos.filter((d) => d.glow && !d.isDisposed)).toEqual([]);
     expect(term.now().slice(2, 7)).toEqual(['⏺ ビルドは5つのジョブすべてで通り、枝はマージできる。', '', '', '⏺ 横の欄の幅を変え、狭い場合の試験を足した。', '']);
     expect(seen.at(-1)!.map((p) => p.state)).toEqual(['ja', 'ja']);
     o.dispose();
@@ -186,36 +225,59 @@ describe('createReplyRewrites', () => {
     o.dispose();
   });
 
-  it('書いた訳が行ごと上へずれたら、書き直さずに付いていく', async () => {
+  it('スクロールで訳ごと行が上へずれただけなら、書き直さずにアイコンを付いていかせる', async () => {
     const term = fakeTerm(screen(2));
-    const seen: PlacedReply[][] = [];
-    const o = createReplyRewrites(term, api({ [A]: JA_A }, { cached: true }), (l) => seen.push(l));
+    const o = createReplyRewrites(term, api({ [A]: JA_A }, { cached: true }), () => {});
     o.setReplies([A]);
     const paints = term.paints;
-    term.set(term.now().slice(1));
-    await vi.advanceTimersByTimeAsync(REWRITE_DELAY_MS);
+    // 影は英語のまま 1 行ずれ、見える端末は訳のまま 1 行ずれた。
+    term.set(screen(1), term.now().slice(1));
     expect(term.paints).toBe(paints);
-    expect(term.decos.filter((d) => !d.isDisposed).map((d) => d.marker.line)).toEqual([1]);
+    expect(term.now()[1]).toContain('ビルド');
+    expect(term.decos.filter((d) => !d.isDisposed && !d.glow).map((d) => d.marker.line)).toEqual([1]);
     o.dispose();
   });
 
-  it('訳も英語も見つからなくなったら（行の一部だけが英語で描き直されて混ざった）、tmux に描き直しを頼む', async () => {
+  it('アプリが英語で描き直すと、描かれる前の突き合わせで訳に戻す（待たない）', () => {
     const term = fakeTerm(screen(2));
-    const redraw = vi.fn();
-    term.redraw = redraw;
+    const o = createReplyRewrites(term, api({ [A]: JA_A }, { cached: true }), () => {});
+    o.setReplies([A]);
+    term.set(screen(1));
+    expect(term.now()[1]).toContain('ビルド');
+    o.dispose();
+  });
+
+  it('行の一部だけが英語で描き直されて訳と混ざっても、影の英語から段落を探して訳に戻す', () => {
+    const term = fakeTerm(screen(2));
     const o = createReplyRewrites(term, api({ [A]: JA_A }, { cached: true }), () => {});
     o.setReplies([A]);
     const mixed = term.now().slice();
     mixed[2] = '⏺ The build passed on 5つのジョブすべてで通り、枝は';
-    term.set(mixed);
-    await vi.advanceTimersByTimeAsync(REWRITE_DELAY_MS);
-    expect(redraw).toHaveBeenCalledTimes(1);
-    // tmux が英語で全部描き直したら、もう一度上書きする。
-    term.set(screen(2));
-    await vi.advanceTimersByTimeAsync(REWRITE_DELAY_MS);
-    expect(term.now()[2]).toContain('ビルド');
-    expect(redraw).toHaveBeenCalledTimes(1);
+    term.setView(mixed);
+    expect(term.now()[2]).toBe('⏺ ビルドは5つのジョブすべてで通り、枝はマージできる。');
     o.dispose();
+  });
+
+  it('訳の行を中のアプリが選択の色で描いたら、同じ桁の訳の文字に色を移す。選択が外れたら色も外す', () => {
+    const term = fakeTerm(screen(2));
+    const o = createReplyRewrites(term, api({ [A]: JA_A }, { cached: true }), () => {});
+    o.setReplies([A]);
+    // 2 行目の 4〜9 桁と、3 行目（訳では空いた行）の 2〜12 桁を選んだ。
+    term.select(2, 4, 10, '48;5;30');
+    expect(term.now()[2]).toContain('ビルド');
+    expect(term.viewShade(2).slice(2, 12)).toEqual(['', '', '48;5;30', '48;5;30', '48;5;30', '48;5;30', '48;5;30', '48;5;30', '', '']);
+    term.select(3, 2, 12, '7');
+    expect(term.now()[3]).toBe('');
+    expect(term.viewShade(3).slice(2)).toEqual(Array<string>(10).fill('7'));
+    // 選択が外れた（中のアプリが英語を色なしで描き直した）。
+    term.set(screen(2));
+    expect(term.now()[2]).toContain('ビルド');
+    expect(term.viewShade(2).filter(Boolean)).toEqual([]);
+    o.dispose();
+  });
+
+  it('全角の文字が選択の境にまたがれば、文字の左の桁の色にそろえる', () => {
+    expect(shadeRow('あいう', ['', 'x', 'x', 'x', '', ''], (ch) => w(ch))).toEqual({ seq: 'あ\x1b[0;xmい\x1b[0mう', cols: ['', '', 'x', 'x', '', ''] });
   });
 
   it('外すと訳を英語に戻し、アイコンとコピーの差し替えも外す', () => {

@@ -6,6 +6,21 @@
  */
 type State = 'ground' | 'esc' | 'escInter' | 'csi' | 'str' | 'strEsc';
 
+/**
+ * 地の状態から読み始めて、最後が列の途中で終わっていれば、その列の始まりの位置を返す。地の状態で終われば d.length。
+ * 端末へは列の切れ目より前だけを渡し、残りは次の出力とつないで渡すために使う（runtime/xterm.ts）。
+ */
+export function groundCut(d: string): number {
+  const e = createEscState();
+  let start = d.length;
+  for (let i = 0; i < d.length; i++) {
+    const was = e.ground();
+    e.feed(d[i]!);
+    if (was && !e.ground()) start = i;
+  }
+  return e.ground() ? d.length : start;
+}
+
 export function createEscState() {
   let st: State = 'ground';
   return {

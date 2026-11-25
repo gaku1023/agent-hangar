@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { findReplyRange, replyStream } from './termReplyMatch.ts';
+import { findReplyRange, pillOf, replyStream } from './termReplyMatch.ts';
 
 // 2026-11-25 に Claude Code 2.1.332 を幅 80 の tmux で動かし、capture-pane で採った画面と、会話の JSONL の本文。
 const REPLY = '## What is a tmux session?\n\nA tmux session is a background terminal workspace that keeps running after you disconnect. Each session contains one or more windows, and each window can be split into panes that run shell programs.\n\n- Sessions keep running when you close your terminal or lose an SSH connection, so long jobs such as builds, downloads, and training runs are not killed by a network drop or a closed laptop lid.\n- Each session has a name, and you can keep several sessions going at once, list them, and switch between them.\n- Windows and panes let you arrange several shells side by side inside one session.\n\nTo use one, you usually:\n\n1. Create a named session with `tmux new -s work`, then detach from it with `Ctrl-b d`.\n2. Reconnect later with `tmux attach -t work` (or plain `tmux attach` if there is only one session) to pick up where you left off.\n\nIn short, a tmux session is a detachable terminal workspace: you can leave it running and return to it whenever you need.';
@@ -80,9 +80,14 @@ describe('findReplyRange', () => {
     expect(findReplyRange(['something unrelated on top', ...SCREEN.slice(5)], REPLY)).toBeNull();
   });
 
-  it('頭が切れて見えている部分が短すぎるものは扱わない（取り違えやすいため）', () => {
-    expect(findReplyRange(SCREEN.slice(25, 26), REPLY)).toBeNull();
+  it('画面のいちばん上に段落の終わりのかけらが 1 行だけ残れば、その行を返す。かけらが短すぎれば扱わない（取り違えやすいため）', () => {
+    expect(findReplyRange(SCREEN.slice(25, 27), REPLY)).toEqual({ start: 0, end: 0, cut: true });
     expect(findReplyRange(SCREEN.slice(24, 26), REPLY)).toEqual({ start: 0, end: 1, cut: true });
+    expect(findReplyRange(['  need.', ''], REPLY)).toBeNull();
+  });
+
+  it('上に貼り付いた指示の行（❯）は飛ばして、その下から頭の切れた返答を探す', () => {
+    expect(findReplyRange(['❯ Without using any tools, answer in English', ...SCREEN.slice(5)], REPLY)).toEqual({ start: 1, end: 21, cut: true });
   });
 
   it('頭が切れていて、途中が食い違えば見つからない', () => {
@@ -91,8 +96,27 @@ describe('findReplyRange', () => {
     expect(findReplyRange(broken, REPLY)).toBeNull();
   });
 
-  it('終わりまで届かない（下が切れている）ものは見つからない', () => {
-    expect(findReplyRange(SCREEN.slice(0, 15), REPLY)).toBeNull();
+  it('下が画面の端で切れていれば、見えている頭の部分を返す（cutEnd）', () => {
+    expect(findReplyRange(SCREEN.slice(0, 15), REPLY)).toEqual({ start: 3, end: 14, cutEnd: true });
+  });
+
+  it('下が切れたあとに、返答の続きらしい字下げの行が食い違って続けば見つからない（描き直しで中身が変わった）', () => {
+    expect(findReplyRange([...SCREEN.slice(0, 15), '    something entirely different is drawn here now'], REPLY)).toBeNull();
+  });
+
+  it('すぐ下の行に「Jump to bottom」の札が重なれば、その行も入れて札の桁を keep で返す', () => {
+    const lines = [...SCREEN.slice(0, 15), '    se Jump to bottom ↓'];
+    expect(findReplyRange(lines, REPLY)).toEqual({ start: 3, end: 15, cutEnd: true, keep: { from: 6, to: 23 } });
+    expect(pillOf(lines[15]!)).toEqual({ from: 6, to: 23 });
+    expect(pillOf(SCREEN[5]!)).toBeNull();
+  });
+
+  it('続きの段落（head: false）は、空の行の次の字下げした行から始める', () => {
+    const para = 'To use one, you usually:';
+    expect(findReplyRange(SCREEN, `${para} and something`, { head: false })).toBeNull();
+    const body = 'In short, a tmux session is a detachable terminal workspace: you can leave it running and return to it whenever you need.';
+    expect(findReplyRange(SCREEN, body, { head: false })).toEqual({ start: 24, end: 25 });
+    expect(findReplyRange(SCREEN, body)).toBeNull();
   });
 
   it('入力欄の行（❯）からは始めない', () => {

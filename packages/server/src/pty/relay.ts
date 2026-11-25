@@ -37,23 +37,6 @@ export const FLOW_LOW_CHARS = 16 * 1024;
 /** close フレームに応えない相手を待つ上限。これを過ぎたら接続を切り、pty を落とす。 */
 const CLOSE_GRACE_MS = 500;
 
-/** 描き直しの頼み（redraw）を受け付ける間。続けて届いても、この間に 1 度だけ描き直させる。 */
-export const REDRAW_MIN_MS = 500;
-
-/**
- * その接続の attach のクライアントだけを、tmux に描き直させる（refresh-client）。
- * UI は英語の返答のマスを訳で上書きする（docs/design.md「英語の返答の翻訳」のターミナルの節）。
- * tmux は自分が覚えている画面との差分だけを送るので、上書きした行の一部だけが英語で描き直されると、英語と訳の混ざった行が残る。
- * そのときに UI が頼み、tmux が覚えている画面（本当の中身）を全部描き直させる。
- * クライアントは attach のプロセスの pid で引く。引けない（psmux など）ときは何もしない。
- */
-async function refreshClient(tmux: Tmux, pid: number): Promise<void> {
-  const list = await tmux.runAsync('list-clients', '-F', '#{client_pid} #{client_name}');
-  if (list.code !== 0) return;
-  const name = list.stdout.split('\n').map((l) => l.trim().split(' ')).find(([p]) => p === String(pid))?.[1];
-  if (name) await tmux.runAsync('refresh-client', '-t', name);
-}
-
 function killQuietly(p: Pick<PtyProcess, 'kill'>): void {
   try { p.kill(); } catch { /* 既に終わっている */ }
 }
@@ -180,13 +163,7 @@ export class PtyRelay {
     }
     this.clients.set(ws, p);
     this.names.set(ws, tmuxName);
-    let lastRedraw = -Infinity;
-    const pump = pumpPty(ws, p, this.coalesce(), (m) => {
-      if (m.t === 'redraw' && !control && Date.now() - lastRedraw >= REDRAW_MIN_MS) {
-        lastRedraw = Date.now();
-        void refreshClient(tmux, p.pid).catch(() => { /* 描き直せなくても端末は止めない */ });
-      }
-    });
+    const pump = pumpPty(ws, p, this.coalesce(), () => { /* ほかの札は受けない */ });
     this.flushers.set(ws, pump.flush);
     p.onData((d) => { pump.push(d); });
     p.onExit(() => {

@@ -12,8 +12,8 @@ export type TerminalLike = { cols: number; rows: number; element: HTMLElement | 
   input(data: string): void;
   /** 文字の大きさ（px）を変える。合わせ直しは呼び手が fit で行う。 */
   setFontSize(px: number): void;
-  /** 返答のマスを訳で上書きするための口（runtime/termRewrite.ts）。redraw は tmux に画面を描き直させる。開く前と、偽物の端末では無い。 */
-  rewrite?(redraw: () => void): RewriteTerm | null };
+  /** 返答のマスを訳で上書きするための口（runtime/termRewrite.ts）。開く前と、偽物の端末では無い。 */
+  rewrite?(): RewriteTerm | null };
 /**
  * タブの接続の様子。
  * dropped は、つながっていた（またはつなごうとしていた）接続が思いがけず切れ、まだつなぎ直せていないこと。
@@ -352,7 +352,7 @@ export function createTerminalHost(deps: { wsUrl: (tabId: string) => string; cre
     rewrite(tabId) {
       const e = entries.get(tabId);
       if (!e?.opened) return null;
-      return e.term.rewrite?.(() => send(e, { t: 'redraw' })) ?? null;
+      return e.term.rewrite?.() ?? null;
     },
     fit: (tabId) => entries.get(tabId)?.term.fit(),
     focus(tabId) {

@@ -8,7 +8,7 @@ import '@xterm/xterm/css/xterm.css';
 import { wrapComposition } from './compositionWrap.ts';
 import { createDesktopBridge } from './desktop.ts';
 import type { TerminalLike } from './terminals.ts';
-import { createEscState } from './escState.ts';
+import { createEscState, groundCut } from './escState.ts';
 import { rewriteOf, type RewriteDeps } from './xtermRewrite.ts';
 import { trackDrag } from './dragCells.ts';
 import type { HangarLink } from './hangarLink.ts';
@@ -35,6 +35,9 @@ function linkGate(): LinkGate {
  * 本物の xterm.js。テストでは TerminalLike の偽物を使うので、このファイルは main.tsx だけが読む。
  * hangar は、hangar 自身のリンク（hangarLink.ts）を押されたときの行き先で、いまのペインでその会話を開く。
  */
+/** 列の途中で切れた出力の残りを、続きを待たずに渡すまでの間。 */
+const CARRY_MS = 50;
+
 export function createXterm(hangar?: (link: HangarLink) => void): TerminalLike {
   const css = getComputedStyle(document.documentElement);
   const term = new Terminal(terminalOptions({ background: css.getPropertyValue('--term-bg').trim() || '#1c1b2e', foreground: css.getPropertyValue('--term-fg').trim() || '#e8e6f0' }));
@@ -53,6 +56,17 @@ export function createXterm(hangar?: (link: HangarLink) => void): TerminalLike {
   // 訳の上書きが、出力の列の途中や読み終わる前に差し込まないための見張り（xtermRewrite.ts）。
   const esc = createEscState();
   let pending = 0;
+  // 影の端末。同じ出力を、訳を書かずにそのまま読ませる。英語の本当の画面を持ち、訳の上書きが探す元と書き戻す元にする（termRewrite.ts）。
+  // 開かない（描かない）ので軽い。寸法は見える端末に合わせる。
+  const truth = new Terminal({ ...terminalOptions({ background: '#000', foreground: '#fff' }), cols: term.cols, rows: term.rows });
+  truth.loadAddon(new Unicode11Addon());
+  truth.unicode.activeVersion = '11';
+  term.onResize(({ cols, rows }) => { try { truth.resize(cols, rows); } catch { /* 捨てたあと */ } });
+  let carry = '';
+  let carryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 出力を読み終えたときに、描かれる前に呼ぶもの（訳の上書き）。 */
+  const afterWrite = new Set<() => void>();
+  const truthCore = (truth as unknown as { _core?: { writeSync?(d: string): void } })._core;
   // リンク。地の文の URL（web-links）も OSC 8 のハイパーリンクも、修飾キー付きのクリックでだけ開き、http と https のほかは開かない。
   // 下線とポインタは修飾キーを押している間だけ出す。
   const desktop = createDesktopBridge(window);
@@ -91,10 +105,23 @@ export function createXterm(hangar?: (link: HangarLink) => void): TerminalLike {
         });
       }
     },
-    write: (d, cb) => {
+    write: (raw, cb) => {
+      // 列の途中で切れた出力は、切れ目から後ろを次の出力とつないで渡す。
+      // 端末に渡す出力がいつも列の外で終わるので、読み終えたその場で訳を書ける（列の続きを待つ間に英語が描かれない）。
+      if (carryTimer) { clearTimeout(carryTimer); carryTimer = null; }
+      const all = carry + raw;
+      const cut = groundCut(all);
+      const d = all.slice(0, cut);
+      carry = all.slice(cut);
+      // 続きが来ないときのために、少し待っても残っていればそのまま渡す。
+      if (carry) carryTimer = setTimeout(() => { carryTimer = null; const rest = carry; carry = ''; if (rest) { esc.feed(rest); if (truthCore?.writeSync) truthCore.writeSync(rest); else truth.write(rest); pending++; term.write(rest, () => { pending--; }); } }, CARRY_MS);
+      if (!d) { cb?.(); return; }
       esc.feed(d);
       pending++;
-      term.write(d, () => { pending--; cb?.(); });
+      // 影には同じ出力を先に読ませ終える（見える端末を読み終えたときに、英語の本当の画面がそろっているように）。
+      if (truthCore?.writeSync) truthCore.writeSync(d); else truth.write(d);
+      // 読み終えたときの呼び出しは、xterm が描く（次の描画の枠）より前に来る。ここで訳を書けば、英語が描かれずに済む。
+      term.write(d, () => { pending--; if (pending === 0) for (const f of afterWrite) f(); cb?.(); });
     },
     onData: (cb) => term.onData(cb),
     onResize: (cb) => term.onResize(cb),
@@ -115,7 +142,7 @@ export function createXterm(hangar?: (link: HangarLink) => void): TerminalLike {
         gl = a;
       } catch { /* WebGL2 が使えない環境では DOM の描画のまま */ }
     },
-    dispose: () => { gl = null; stopWrap(); drag?.dispose(); drag = null; term.dispose(); },
-    rewrite: (redraw) => (term.element ? rewriteOf(term, { ground: () => esc.ground(), pending: () => pending, setCopyMap: (m) => { copyMap = m; }, redraw }) : null),
+    dispose: () => { gl = null; stopWrap(); drag?.dispose(); drag = null; afterWrite.clear(); truth.dispose(); term.dispose(); },
+    rewrite: () => (term.element ? rewriteOf(term, { ground: () => esc.ground(), pending: () => pending, setCopyMap: (m) => { copyMap = m; }, truth, afterWrite: (f) => { afterWrite.add(f); return { dispose: () => { afterWrite.delete(f); } }; } }) : null),
   };
 }
