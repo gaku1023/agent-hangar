@@ -208,14 +208,15 @@ function opencodeAgentsOf(main: TranscriptEvent[]): LiveAgentDto[] {
     const r = results.get(c.toolId) ?? null;
     const input = isRec(c.input) ? c.input : {};
     const text = r?.text ?? '';
-    const state: LiveAgentDto['state'] = !r ? 'running' : r.isError ? 'error' : 'done';
-    const interrupted = state === 'error' && /interrupt|abort/i.test(text);
-    const report = state === 'running' ? null : firstLine(tag(text, 'task_result') ?? text);
+    // 止められた本は、Claude の終わりの知らせの killed と同じく、赤にせず done と「停止済み」にする（LiveAgentDto の endNote）。
+    const interrupted = !!r?.isError && /interrupt|abort/i.test(text);
+    const state: LiveAgentDto['state'] = !r ? 'running' : interrupted ? 'done' : r.isError ? 'error' : 'done';
+    const report = state === 'running' || interrupted ? null : firstLine(tag(text, 'task_result') ?? text);
     return {
       agentId: /task_id:\s*(ses_\w+)/.exec(text)?.[1] ?? `tool:${c.toolId}`,
       title: str(input.description) ?? c.summary, state,
       startedAt: c.ts ?? null, lastAt: r?.ts ?? c.ts ?? null,
-      endNote: interrupted ? 'interrupted' : null,
+      endNote: interrupted ? 'killed' : null,
       last: null, report, linked: false,
     };
   });

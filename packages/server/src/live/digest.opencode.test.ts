@@ -44,7 +44,7 @@ describe('opencode の子の会話（task ツール）のレーン', () => {
     expect(agents.map((a) => [a.title, a.state, a.endNote])).toEqual([
       ['行列を調べる', 'done', null],
       ['壊れる担当', 'error', null],
-      ['止められた担当', 'error', 'interrupted'],
+      ['止められた担当', 'done', 'killed'],
       ['動いている担当', 'running', null],
     ]);
   });
