@@ -137,6 +137,9 @@ function commonOptions(t: SshTarget): string[] {
     ...opt('ServerAliveInterval', String(SERVER_ALIVE_INTERVAL_SEC)),
     ...opt('ServerAliveCountMax', String(SERVER_ALIVE_COUNT_MAX)),
     ...opt('ControlMaster', 'no'),
+    // 警告（OpenSSH 10.1 からの post-quantum の 3 行など）を端末に混ぜない。失敗の見分けに使う文は error 以上で出るので残る。
+    // WarnWeakCrypto=no は Windows の ssh 9.5 が知らない設定で止まるので使わない。
+    ...opt('LogLevel', 'ERROR'),
   ];
 }
 
