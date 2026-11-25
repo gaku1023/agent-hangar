@@ -783,6 +783,12 @@ a:where(.btn) { color: inherit; }
 .term-tr-body .md p, .term-tr-body .md ul, .term-tr-body .md ol, .term-tr-body .md pre { margin: 0 0 0.4em; }
 .term-tr-body .md h1, .term-tr-body .md h2, .term-tr-body .md h3, .term-tr-body .md h4, .term-tr-body .md h5, .term-tr-body .md h6 { font-size: 1em; margin: 0 0 0.3em; }
 .term-tr-body .md ul, .term-tr-body .md ol { padding-left: 1.4em; }
+/* 符号の塊と行の中の符号は、会話の記録の明るい色のままだと暗い端末の中で白い板になるので、端末の色に合わせる。 */
+.term-tr-body .codeblock { background: color-mix(in srgb, var(--term-fg) 6%, var(--term-bg)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--term-fg) 14%, transparent); }
+.term-tr-body .codeblock-h { border-bottom-color: color-mix(in srgb, var(--term-fg) 12%, transparent); color: color-mix(in srgb, var(--term-fg) 55%, transparent); }
+.term-tr-body .codeblock pre { color: var(--term-fg); }
+.term-tr-body .codeblock .ln { color: color-mix(in srgb, var(--term-fg) 40%, transparent); }
+.term-tr-body .md code { background: color-mix(in srgb, var(--term-fg) 12%, transparent); }
 .term-tr-toggle { position: absolute; top: 0; right: 2px; width: 22px; height: 22px; padding: 0; border: none; border-radius: 6px; background: transparent; display: grid; place-items: center; color: color-mix(in srgb, var(--term-fg) 55%, transparent); cursor: pointer; pointer-events: auto; transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .term-tr-toggle svg { width: 14px; height: 14px; }
 .term-tr-toggle:hover { background: color-mix(in srgb, var(--term-fg) 14%, transparent); color: var(--term-fg); }
