@@ -1,8 +1,8 @@
 import path from 'node:path';
-import { peerChatAcceptOf, phoneChatAcceptOf, type PeerChatBellAsk, type PeerChatBellReply, type SessionDto } from '@agent-hangar/shared';
+import { PRIMARY_ACCOUNT_ID, peerChatAcceptOf, phoneChatAcceptOf, type PeerChatBellAsk, type PeerChatBellReply, type SessionDto } from '@agent-hangar/shared';
 import type { LiveHub } from '../agent/liveHub.ts';
 import { onRowChange } from '../db/notify.ts';
-import { getSession } from '../db/queries.ts';
+import { accountOfSession, getSession } from '../db/queries.ts';
 import { listFilesIn } from '../mobile/asks.ts';
 import { listPromptCommands } from '../provider/claude-code/prompt/commands.ts';
 import { sanitizeInput } from '../mcp/screenTools.ts';
@@ -14,6 +14,7 @@ import { turnEventsReader } from '../peer/chat/turnEvents.ts';
 import type { LiveDigester } from '../live/digest.ts';
 import { aliveRunForSession } from '../runs/queries.ts';
 import type { RunManager } from '../runs/manager.ts';
+import type { Db } from '../db/open.ts';
 import type { HomeParts } from './home.ts';
 import { panesOf, type RunsParts } from './runs.ts';
 import type { SyncParts } from './sync.ts';
@@ -105,6 +106,7 @@ export function bootPeerChat(p: {
     },
     resume: (sessionId) => p.runs.runs.resumeWith(sessionId),
     ...(p.runs.accounts ? { switchAccount: switchAccountOf(p.runs.runs, p.runs.accounts) } : {}),
+    ...(p.runs.accounts ? { accountName: accountNameOf(db, deviceId, (id) => sessionOf(id)?.provider ?? null, p.runs.accounts) } : {}),
     fetchBlob: (askId, from, n) => {
       const get = link()?.getBlob;
       return get ? get(askId, from, n) : Promise.reject(new Error('peer blobs are not available'));
@@ -138,6 +140,17 @@ export function bootPeerChat(p: {
       for (const off of offs.splice(0)) off();
       host.dispose();
     },
+  };
+}
+
+/**
+ * この PC で会話が動いているアカウントの名前（peer/chat/hostTypes.ts の accountName）。
+ * 最後の run のアカウント（画面の対応と同じ accountOfSession）で、run に記録が無ければメイン。Claude でない会話は null。
+ */
+export function accountNameOf(db: Db, deviceId: string, provider: (sessionId: string) => string | null, accounts: Pick<RunsParts['accounts'], 'store'>): NonNullable<PeerChatHostDeps['accountName']> {
+  return (sessionId) => {
+    if (provider(sessionId) !== 'claude-code') return null;
+    return accounts.store.get(accountOfSession(db, sessionId, deviceId) ?? PRIMARY_ACCOUNT_ID)?.name ?? null;
   };
 }
 

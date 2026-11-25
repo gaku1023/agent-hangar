@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { deriveEpochKeys, openPeerChatReply, peerChatExpiresAt, randomEpochKey, sealPeerChat, type LiveSessionDto, type PeerChatOp, type PeerChatReply, type PeerKeyring } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/write.ts';
-import { bootPeerChat, switchAccountOf, type PeerChatParts } from './peerChat.ts';
+import { accountNameOf, bootPeerChat, switchAccountOf, type PeerChatParts } from './peerChat.ts';
 
 const ME = 'pc-a';
 const PEER = 'pc-b';
@@ -81,6 +81,21 @@ describe('bootPeerChat', () => {
     const { touchRow } = await import('../db/notify.ts');
     touchRow(db, 'sessions', session);
     expect(events.at(-1)).toMatchObject({ type: 'peerChat.queue', queued: [] });
+  });
+});
+
+describe('accountNameOf（state.account）', () => {
+  const store = { get: (id: string) => ({ primary: { name: '会社' }, 'acc-2': { name: '大学' } } as Record<string, { name: string }>)[id] ?? null } as never;
+
+  it('最後の run のアカウントの名前を返し、記録が無ければメインの名前', () => {
+    const fn = accountNameOf(db, ME, () => 'claude-code', { store });
+    expect(fn(session)).toBe('会社');
+    db.prepare('insert into runs (id, session_id, device_id, kind, tmux_name, started_at, heartbeat_at, launch_params, updated_at, origin_device) values (?,?,?,?,?,?,?,?,?,?)').run('run-2', session, ME, 'resume', 'hangar-run-2', 2, NOW, JSON.stringify({ account: 'acc-2' }), 2, ME);
+    expect(fn(session)).toBe('大学');
+  });
+
+  it('Claude でない会話は null', () => {
+    expect(accountNameOf(db, ME, () => 'codex', { store })(session)).toBeNull();
   });
 });
 

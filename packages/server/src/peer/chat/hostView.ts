@@ -77,6 +77,8 @@ export type ViewDeps = {
    * 画面から札が読めないか、答えられない札のとき、代わりに使う。hook の待ちが無ければ null。
    */
   hookAsk?(sessionId: string): PeerPendingAsk | null;
+  /** この PC で会話が動いているアカウントの名前（state.account）。分からなければ null。 */
+  accountName?(sessionId: string): string | null;
 };
 
 const jsonSize = (v: unknown): number => Buffer.byteLength(JSON.stringify(v));
@@ -443,6 +445,8 @@ export class ChatView {
     const state: PeerChatState = { sessionId, status, items, queued, cursor: t.cursor, truncated: t.truncated, hostId: this.d.hostId, turnCount: transcriptTurnCount(sessionId, this.tailDeps) };
     if (gone.length > 0) state.gone = gone;
     if (card) state.card = card;
+    const account = this.d.accountName?.(sessionId) ?? null;
+    if (account !== null) state.account = account;
     return { state: fit(state), hasNew: t.items.length > 0, sig };
   }
 

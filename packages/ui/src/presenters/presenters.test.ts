@@ -7,6 +7,7 @@ import type { PhoneLaunchDto, ServerEvent } from '@agent-hangar/shared';
 import { accountsFixture, codexAccountsFixture, FIVE_RESETS, SEVEN_RESETS } from '../test/accounts.ts';
 import type { State } from '../mediator/types.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, setEventsLoading, type Store } from '../store/store.ts';
+import { emptySlice } from '../store/peerChat.ts';
 import { absoluteTime, costLabel, percentLabel, relativeTime, resetsLabel, shortModel, tokensLabel } from './format.ts';
 import { presentConfirm } from './confirm.ts';
 import { presentHome, presentHomeScreen } from './home.ts';
@@ -1238,6 +1239,35 @@ describe('presentShell のアカウント', () => {
     expect(p.usage).toMatchObject({ fiveHour: 12, sevenDay: 9 });
     // 並びと current は、画面に関わらず、いまのアカウント（会社）のまま。
     expect(p.account?.list.map((a) => [a.id, a.current])).toEqual([['primary', true], ['a1', false]]);
+  });
+  describe('ほかの PC の会話', () => {
+    const peerLock: SessionLockDto = { deviceId: 'dev-b', deviceName: 'win', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false };
+    const peerStore = (account: string | null, phase: 'live' | 'fallback' = 'live'): Store => {
+      const store = two();
+      store.sessions = { ...store.sessions, p1: session('p1', { lock: peerLock, remoteOnly: true, transcriptMtime: null }) };
+      store.peerChat = { ...store.peerChat, p1: { ...emptySlice('v1'), phase, account } };
+      return store;
+    };
+    it('元の PC が知らせたアカウントの名前で、同じ名前の手元のアカウントを顔と計器に出す（手元の対応表は見ない）', () => {
+      const p = presentShell(at({ name: 'session', id: 'p1' }), peerStore('大学'), NOW);
+      expect(p.account?.shown.id).toBe('a1');
+      expect(p.account?.shown.name).toBe('大学');
+      expect(p.account?.peer).toBe(true);
+      expect(p.usage).toMatchObject({ fiveHour: 12, sevenDay: 9 });
+    });
+    it('手元に同じ名前のアカウントが無ければ、名前だけを出して計器は空にする', () => {
+      const p = presentShell(at({ name: 'session', id: 'p1' }), peerStore('研究室'), NOW);
+      expect(p.account?.shown.name).toBe('研究室');
+      expect(p.account?.list.some((a) => a.id === p.account?.shown.id)).toBe(false);
+      expect(p.usage).toMatchObject({ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null });
+    });
+    it('名前が届いていない（古い相手、読み込み中）ときと、読み取り専用のときは、いまのアカウントを出す', () => {
+      const none = presentShell(at({ name: 'session', id: 'p1' }), { ...peerStore(null), accounts: { ...accountsFixture, currentId: 'a1' } }, NOW);
+      expect(none.account?.shown.id).toBe('a1');
+      const fallback = presentShell(at({ name: 'session', id: 'p1' }), { ...peerStore('会社', 'fallback'), accounts: { ...accountsFixture, currentId: 'a1' } }, NOW);
+      expect(fallback.account?.shown.id).toBe('a1');
+      expect(fallback.account?.sessionId).toBeNull();
+    });
   });
   it('2 件・セッション画面で対応に無いセッションは、最初のアカウントを出す', () => {
     const p = presentShell(at({ name: 'session', id: 's1' }), { ...two(), accounts: { ...accountsFixture, currentId: 'a1' } }, NOW);

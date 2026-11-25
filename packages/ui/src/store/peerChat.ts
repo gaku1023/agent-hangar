@@ -47,6 +47,8 @@ export type PeerChatSlice = {
   loadingOlder: boolean;
   /** 元の PC が知らせた全ターンの数。null（古い相手）のときは目次を頼まない。 */
   turnCount: number | null;
+  /** 元の PC で会話が動いているアカウントの名前（update.account）。ヘッダの顔に使う。null は未着か古い相手。 */
+  account: string | null;
   /** 目次の行（古い順）。turnsMore は、さらに古い行が残っていること。 */
   turns: PeerChatTurn[];
   turnsMore: boolean;
@@ -65,7 +67,7 @@ export type PeerChatSlice = {
 const MINE_MAX = 20;
 
 export function emptySlice(viewer: string): PeerChatSlice {
-  return { viewers: [viewer], phase: 'loading', fallback: null, device: null, link: 'online', status: null, card: null, items: [], queued: [], cursor: null, sending: false, answering: [], picked: {}, rushing: [], locked: false, restore: null, notice: null, mine: {}, older: [], olderMore: true, loadingOlder: false, turnCount: null, turns: [], turnsMore: false, turnsLoaded: false, turnsFor: null, loadingTurns: false, jump: null, jumping: null };
+  return { viewers: [viewer], phase: 'loading', fallback: null, device: null, link: 'online', status: null, card: null, items: [], queued: [], cursor: null, sending: false, answering: [], picked: {}, rushing: [], locked: false, restore: null, notice: null, mine: {}, older: [], olderMore: true, loadingOlder: false, turnCount: null, account: null, turns: [], turnsMore: false, turnsLoaded: false, turnsFor: null, loadingTurns: false, jump: null, jumping: null };
 }
 
 /**
@@ -125,7 +127,7 @@ export function applyUpdate(s: PeerChatSlice, u: PeerChatUpdate): PeerChatSlice 
     if (at >= 0) older = known.slice(0, at);
     else { older = []; olderMore = true; }
   }
-  const next: PeerChatSlice = { ...s, phase: 'live', fallback: null, link: u.link, status: u.status ?? s.status, card: u.card ?? null, items, queued: u.queued, cursor: u.cursor ?? s.cursor, older, olderMore, turnCount: u.turnCount ?? s.turnCount };
+  const next: PeerChatSlice = { ...s, phase: 'live', fallback: null, link: u.link, status: u.status ?? s.status, card: u.card ?? null, items, queued: u.queued, cursor: u.cursor ?? s.cursor, older, olderMore, turnCount: u.turnCount ?? s.turnCount, account: u.account ?? s.account };
   return applyGone(next, u.gone);
 }
 
