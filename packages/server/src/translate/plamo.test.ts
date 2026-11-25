@@ -161,7 +161,8 @@ describe('PlamoTranslator', () => {
 });
 
 describe('findPlamoTranslate', () => {
-  it('PATH と ~/.local/bin から plamo-translate を探し、無ければ null', () => {
+  // Windows では実行できるファイルを拡張子で探すので、拡張子の無い台本は見つからない。plamo-translate は Windows では使わない扱いなので、ここは macOS と Linux だけで確かめる。
+  it.skipIf(process.platform === 'win32')('PATH と ~/.local/bin から plamo-translate を探し、無ければ null', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'plamo-find-'));
     try {
       expect(findPlamoTranslate({ PATH: '' }, home, [])).toBeNull();
