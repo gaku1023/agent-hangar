@@ -5,14 +5,14 @@ import { absoluteTime, relativeTime } from './format.ts';
 import { unresolvedKind } from './unresolved.ts';
 
 /**
- * 「この PC で再開」を押せるか（ほかの PC で進めた会話）。
- * disabled は押せない理由で、この PC にプロジェクトのフォルダが無いことを言う。
- * ほかの PC で実行中（生きたロック）は理由にしない。押すと、停止して引き継ぐ確認の 1 枚が出る。
+ * 「この PC で再開」を出すか（ほかの PC で進めた会話）。いつも押せる。
+ * この PC にプロジェクトのフォルダが無いときは、押すと場所の指定のダイアログを開く（noRoot の projectId）。押せないまま理由だけ出すと行き止まりになる。
+ * ほかの PC で実行中（生きたロック）でも押せる。押すと、停止して引き継ぐ確認の 1 枚が出る。
  * noRoot は、この PC にプロジェクトのフォルダが無いときの理由と、場所を指定する先のプロジェクト。セッション画面は見出しの下に常に出す（1a）。
  * プロジェクトに属さない会話とクイックセッションは、場所では止めない（サーバは前の cwd で起こす）。
  * ほかの PC の会話（写しだけか、ほかの PC のロックがあるか、ほかの PC の続きの方が新しい）でなければ null。
  */
-export type ResumeHereFacts = { disabled: string | null; noRoot: { reason: string; projectId: string } | null };
+export type ResumeHereFacts = { noRoot: { reason: string; projectId: string } | null };
 
 export function resumeHereOf(store: Store, s: SessionDto, t: Translate): ResumeHereFacts | null {
   // 古いサーバの行や試験の行は lock を持たないことがあるので、無いものとして読む。
@@ -23,7 +23,7 @@ export function resumeHereOf(store: Store, s: SessionDto, t: Translate): ResumeH
   const lost = p !== undefined && unresolvedKind(p) !== null;
   const reason = t('session.action.resumeHereNoRoot');
   const noRoot = lost ? { reason, projectId: p.id } : null;
-  return { disabled: noRoot ? reason : null, noRoot };
+  return { noRoot };
 }
 
 /**

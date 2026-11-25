@@ -493,21 +493,23 @@ describe('セッションの状態の札と「⋯」', () => {
     expect(onAction).toHaveBeenCalledWith({ type: 'session.state.set', id: 'a', status: 'done' });
     expect(opened(onAction)).toEqual([]);
   });
-  it('ほかの PC の会話の「⋯」には、先頭に「この PC で再開」を置き、押せないときは理由を添える', () => {
+  it('ほかの PC の会話の「⋯」には、先頭に「この PC で再開」を置き、場所が無ければ押すと場所の指定を開く', () => {
     mount([sr('c')]);
     fireEvent.click(screen.getByRole('button', { name: '名前 c のメニュー' }));
     expect(labels()).not.toContain('この PC で再開');
     cleanup();
-    const onAction = mount([sr('a', { resumeHere: { disabled: null } }), sr('b', { resumeHere: { disabled: 'この PC にこのプロジェクトのフォルダがありません。先に場所を指定してください。' } })]);
+    const onAction = mount([sr('a', { resumeHere: { setLocation: null } }), sr('b', { resumeHere: { setLocation: 'p9' } })]);
     fireEvent.click(screen.getByRole('button', { name: '名前 a のメニュー' }));
     expect(labels()).toEqual(['この PC で再開', '未読に戻す', 'ピン留めする', 'ミュートする', '同じ設定で新しいセッション…', '右に分割して開く', '下に分割して開く', 'プロジェクトを変更…', 'セッション ID をコピー', '削除…']);
     fireEvent.click(screen.getAllByRole('menuitem')[0]!);
     expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere.open', id: 'a' });
     expect(opened(onAction)).toEqual([]);
     fireEvent.click(screen.getByRole('button', { name: '名前 b のメニュー' }));
-    const blocked = screen.getAllByRole('menuitem')[0]!;
-    expect(blocked).toHaveAttribute('aria-disabled', 'true');
-    expect(blocked).toHaveTextContent('この PC にこのプロジェクトのフォルダがありません。先に場所を指定してください。');
+    const lost = screen.getAllByRole('menuitem')[0]!;
+    expect(lost).not.toHaveAttribute('aria-disabled', 'true');
+    expect(lost).toHaveTextContent(/^この PC で再開$/);
+    fireEvent.click(lost);
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'p9' });
   });
   it('いまの状態に ✓ を付け、選び直しても何も送らない。ほかの状態と Active へは移れる', () => {
     const onAction = mount([sr('a', { state: 'done' }), sr('b')]);

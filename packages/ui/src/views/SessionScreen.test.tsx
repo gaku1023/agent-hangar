@@ -808,14 +808,16 @@ describe('フェーズ 4 のセッション画面', () => {
     fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere.open', id: 's1' });
   });
-  it('この PC にプロジェクトのフォルダが無ければ、この PC で再開を押せなくし、見出しの下に理由と場所の指定を常に出す', () => {
+  it('この PC にプロジェクトのフォルダが無ければ、この PC で再開を押すと場所の指定を開き、見出しの下に理由と場所の指定を常に出す', () => {
     const onAction = vi.fn();
     const reason = 'この PC にこのプロジェクトのディレクトリがありません。先にパスを指定してください。';
     render(<ActionRoot onAction={onAction}><SS {...base} canResume={false} remoteOnly canResumeHere noRoot={{ reason, projectId: 'p1' }} /></ActionRoot>);
     const button = screen.getByRole('button', { name: 'この PC で再開' });
-    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).not.toHaveAttribute('aria-disabled', 'true');
     fireEvent.click(button);
     expect(onAction).not.toHaveBeenCalledWith({ type: 'session.resumeHere.open', id: 's1' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'p1' });
+    onAction.mockClear();
     const line = document.querySelector('.session-reason')!;
     expect(line).toHaveTextContent(reason);
     fireEvent.click(screen.getByRole('button', { name: 'パスを指定' }));

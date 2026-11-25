@@ -50,7 +50,7 @@ export type SessionRowProps = { id: string; name: string; oneLiner: string; proj
   /** hangar が自動で付けた Done（set_by が import）。札の頭に ✦ を置き、枠を点線にする（4a、試作の A）。 */
   autoDone?: boolean;
   /** ほかの PC の会話の「この PC で再開」（行の「⋯」の項目）。disabled は押せない理由。ほかの PC の会話でなければ省く。 */
-  resumeHere?: { disabled: string | null };
+  resumeHere?: { setLocation: string | null };
   /** 中断の印（右端の「中断」）。ステータスの無いセッションで、最後の run が中断で終わり、いま終わっているものだけが持つ。title は原因と時刻。 */
   interrupted?: { label: string; title: string };
   /** ミュートした会話（静かな会話）の印の名前（右端のベルの斜線、試作の L1）。ミュートしていなければ持たない。 */
@@ -146,7 +146,7 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
   if (excerpt) row.excerpt = excerpt;
   if (s.spawnPeer?.child) row.peer = { name: s.spawnPeer.child, ended: s.spawnPeer.closed };
   const here = resumeHereOf(store, s, t);
-  if (here) row.resumeHere = { disabled: here.disabled };
+  if (here) row.resumeHere = { setLocation: here.noRoot?.projectId ?? null };
   row.menu = presentSessionMenu(store, s, t);
   if (s.interrupted && row.live === null && row.runId === null && !status) row.interrupted = interruptMark(t, s.interrupted, now);
   if ((s.mutedAt ?? null) !== null) row.muted = t('row.mark.muted');
