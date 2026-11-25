@@ -106,4 +106,12 @@ describe('失敗のトーストに「エージェントで調査…」', () => {
     // 写しが無ければ何もしない。
     expect(transition(base(), store, action({ type: 'setupGuide.launch' })).state.overlay).toEqual(base().overlay);
   });
+
+  it('翻訳の行の「エージェントで導入…」は、入れる依頼を入れたクイックセッションのダイアログを開く', () => {
+    const r = transition(base(), store, action({ type: 'translate.install' }));
+    expect(r.state.overlay).toMatchObject({ kind: 'newSession', projectId: null, scratch: true, seed: { tone: 'info', quote: 'uv tool install plamo-translate' } });
+    const o = r.state.overlay as Extract<State['overlay'], { kind: 'newSession' }>;
+    expect(o.seed?.request).toContain('plamo-translate');
+    expect(o.seed?.accounts).toEqual({ 'claude-code': 'primary', codex: 'primary' });
+  });
 });

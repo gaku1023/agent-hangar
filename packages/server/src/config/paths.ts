@@ -168,6 +168,8 @@ export type Settings = {
   eventTrigger?: boolean;
   /** AI の英語の返答と思考を、ローカルの PLaMo 翻訳で日本語にして見せるか。この PC だけの設定で、同期しない。項目が無いうちは切として読む（translateEnglishOf）。 */
   translateEnglish?: boolean;
+  /** ホームの始める前の確認の翻訳の行で「使わない」を選んだか。この PC だけの設定で、同期しない。項目が無いうちは偽として読む。 */
+  translateHintDeclined?: boolean;
   /** 統括（全セッションを統括する常駐の会話）の設定。この PC だけで、同期しない。項目が無いうちは切（orchestratorOf）。 */
   orchestrator?: OrchestratorSetting;
   /** 机の音声の設定（聞き方、人格）。この PC だけで、同期しない。項目が無いうちは既定（voiceOf）。 */
@@ -285,6 +287,7 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   if (s.phoneChatAccept !== undefined && typeof s.phoneChatAccept !== 'boolean') delete s.phoneChatAccept;
   if (s.eventTrigger !== undefined && typeof s.eventTrigger !== 'boolean') delete s.eventTrigger;
   if (s.translateEnglish !== undefined && typeof s.translateEnglish !== 'boolean') delete s.translateEnglish;
+  if (s.translateHintDeclined !== undefined && typeof s.translateHintDeclined !== 'boolean') delete s.translateHintDeclined;
   // 統括の設定は形を検査する。オブジェクトでなければ項目ごと捨て、あれば取れない値だけ既定に寄せる。
   if (s.orchestrator !== undefined) {
     if (s.orchestrator !== null && typeof s.orchestrator === 'object' && !Array.isArray(s.orchestrator)) s.orchestrator = orchestratorOf(s.orchestrator);

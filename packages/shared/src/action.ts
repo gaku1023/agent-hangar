@@ -155,6 +155,8 @@ export type UiAction =
   | { type: 'setupGuide.openEditor'; once?: KnownEditorId }
   // セットアップのすゝめを、準備の状況を引用に入れたクイックセッションのダイアログで開く（tmux と claude があるときだけ置く）。
   | { type: 'setupGuide.launch' }
+  // ホームの始める前の確認の翻訳の行から。plamo-translate を入れる依頼を入れたクイックセッションのダイアログを開く（tmux と claude があるときだけ置く）。
+  | { type: 'translate.install' }
   | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.add'; projectId: ProjectId; url: string } | { type: 'artifact.openEditor'; id: ArtifactId; once?: KnownEditorId }
   // seq と q は検索の結果から開くときの跳び先（抜粋の seq と検索語）。
   | { type: 'session.open'; id: SessionId; focus?: 'terminal'; seq?: number; q?: string }

@@ -207,12 +207,17 @@ async function withClient<T>(port: number, ms: number, f: (c: Client) => Promise
   }
 }
 
+/** plamo-translate を探す。`~/.local/bin`（uv tool の置き場）、PATH、既知の置き場の順に見る。無ければ null。 */
+export function findPlamoTranslate(env: NodeJS.ProcessEnv = process.env, homeDir: string = os.homedir(), known: string[] = knownDirs()): string | null {
+  return findInDirs('plamo-translate', [path.join(homeDir, '.local', 'bin'), ...splitPathEnv(env.PATH), ...known]);
+}
+
 /** 実物の口。 */
 export function realPlamoDeps(log?: (msg: string) => void): PlamoDeps {
   const env = process.env;
   return {
     platform: process.platform,
-    find: () => findInDirs('plamo-translate', [path.join(os.homedir(), '.local', 'bin'), ...splitPathEnv(env.PATH), ...knownDirs()]),
+    find: () => findPlamoTranslate(env),
     spawn: (bin) => {
       // hangar の秘密（HANGAR_ で始まるもの）は渡さない。TMPDIR は継ぐ（設定ファイルの場所を hangar と合わせるため）。
       const childEnv = Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith('HANGAR_')));

@@ -11,6 +11,7 @@ import type { Settings } from './paths.ts';
 import { statuslineStatus } from '../provider/claude-code/config/statusline.ts';
 import { isCommandName, isExecutableFile, needsShell } from '../platform/exec.ts';
 import { findOnPath } from './tools.ts';
+import { findPlamoTranslate } from '../translate/plamo.ts';
 import { createNodeCheck, isFullPath, nodeBuildIssue, type NodeCheck } from './node.ts';
 
 // 準備の確かめ。
@@ -158,6 +159,8 @@ export type ReadinessOptions = {
    * 渡さなければ、道具の行で読んだ設定の claude の版を使う。
    */
   compatLocalVersion?: () => Promise<string | null>;
+  /** plamo-translate を探す（translate/plamo.ts）。既定は `~/.local/bin`、PATH、既知の置き場を見る。Windows では動かないので、見つかっても入っていないとして返す。 */
+  findPlamo?: () => string | null;
   /** git を探す（git/find.ts）。既定は PATH と既知の置き場（Windows は Git for Windows の場所）を見る。 */
   findGit?: () => string | null;
   /** 選んだエディタで開けるか（external/api.ts の editors の current）。渡さなければエディタの行を持たない。 */
@@ -228,6 +231,7 @@ export function createReadiness(o: ReadinessOptions): () => Promise<ReadinessDto
       workspace: { path: s.workspaceRoot, exists, projectCount: exists ? workspaceProjectCount(o.db, o.deviceId, root) : 0 },
       projects: { resolved, candidates: resolved === 0 ? o.candidateCount?.() ?? 0 : 0 },
       mcp: { registered: readMcpRegistration(o.claudeJson), file: o.claudeJson },
+      translate: { installed: platform !== 'win32' && (o.findPlamo ?? (() => findPlamoTranslate(process.env, homeDir)))() !== null },
       statusline: statuslineStatus(o.claudeDir, homeDir),
       commands: { mcp: `${prefix} mcp install`, statusline: `${prefix} statusline install`, shell, join: `${prefix} cloud join <URL>` },
       // 口が無ければ、上で読んだ claude の版と同じものを使う（同じ claude を 2 度起こさない）。

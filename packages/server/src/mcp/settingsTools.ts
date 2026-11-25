@@ -36,7 +36,7 @@ export const SETTING_TIERS: Record<keyof SettingsDto | WriteOnlyKey, SettingTier
   // 受けない
   claudeDir: 'refused', tmuxPath: 'refused', nodePath: 'refused', claudePath: 'refused', codexPath: 'refused', opencodePath: 'refused',
   editor: 'refused', opencodeProviderPrep: 'refused',
-  summaryApiKey: 'refused', trustedWorkspaceRoot: 'refused', permissionPolicy: 'refused',
+  summaryApiKey: 'refused', trustedWorkspaceRoot: 'refused', translateHintDeclined: 'refused', permissionPolicy: 'refused',
   configApproval: 'refused', configTargets: 'refused', dryRun: 'refused',
 };
 
