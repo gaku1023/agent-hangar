@@ -42,6 +42,9 @@ export function resolveViewTarget(db: Db, selfId: string, sessionId: string, now
  */
 export function localCursorOf(db: Db, sessionId: string): string | null {
   try {
+    // codex と opencode の項目の id は索引の seq（s<seq>）で、手元の写しの seq は元の PC の seq と同じとは限らない。
+    const p = (db.prepare('select provider from sessions where id = ?').get(sessionId) as { provider: string } | undefined)?.provider;
+    if (p === 'codex' || p === 'opencode') return null;
     return transcriptTail(sessionId, null, 1, { readTranscript: dbTranscriptReader(db, { copies: true }), pendingAsk: () => null }).cursor;
   } catch {
     return null;

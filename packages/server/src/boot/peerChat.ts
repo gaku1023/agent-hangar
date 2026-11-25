@@ -10,6 +10,7 @@ import { noteTurnStart } from '../mcp/waitTool.ts';
 import { createPeerChatHost, type PeerChatHost } from '../peer/chat/host.ts';
 import type { HostPane, HostSession, PeerChatHostDeps, PeerChatHostEvent } from '../peer/chat/hostTypes.ts';
 import { createTailCache, dbTranscriptReader } from '../peer/chat/tail.ts';
+import { claudeTailSource, indexTailSource, routedTailSource } from '../peer/chat/tailSource.ts';
 import { turnEventsReader } from '../peer/chat/turnEvents.ts';
 import type { LiveDigester } from '../live/digest.ts';
 import { aliveRunForSession } from '../runs/queries.ts';
@@ -36,6 +37,12 @@ export type PeerChatParts = {
   stop(): void;
   /** 試験と確認のために、中の host を返す。 */
   host: PeerChatHost;
+  /**
+   * 索引に本文が書き足されたときに呼ぶ（boot/indexing.ts の onAppended）。
+   * codex と opencode の会話なら、待っている tail を起こす（本文の読み口が索引なので、書き終わりが変化の知らせになる）。
+   * claude-code は jsonl の stat を RECHECK_MS ごとに見る今の作りのままで、起こさない。
+   */
+  onIndexed(sessionId: string): void;
 };
 
 /**
@@ -97,6 +104,8 @@ export function bootPeerChat(p: {
     artifactCount: (id) => (artifactCount.get(id) as { c: number }).c,
     liveHints: () => p.home.settings.current.liveHints !== false,
     readTranscript: dbTranscriptReader(db),
+    // codex と opencode は索引（event_index と readEvents）から読む。claude-code は今のまま jsonl。
+    source: routedTailSource(db, claudeTailSource(dbTranscriptReader(db)), indexTailSource(db)),
     cache: createTailCache(),
     // 貼る前に印を残す。
     // mcp/screenTools.ts の sendToSessionTool と同じで、wait_for_session が前のターンの idle を終わりと読まないためである。
@@ -120,8 +129,13 @@ export function bootPeerChat(p: {
   });
 
   let offs: (() => void)[] = [];
+  const providerOf = db.prepare('select provider from sessions where id = ?');
   return {
     host,
+    onIndexed: (sessionId) => {
+      const provider = (providerOf.get(sessionId) as { provider: string } | undefined)?.provider;
+      if (provider === 'codex' || provider === 'opencode') host.poke(sessionId);
+    },
     handle: (frame) => host.handle(frame),
     start() {
       if (offs.length > 0) return;

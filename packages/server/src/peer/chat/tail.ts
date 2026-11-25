@@ -19,7 +19,7 @@ import { claudeTailSource, type TailSource, type TranscriptHandle } from './tail
 // 本文の層は items.ts（TranscriptEvent の行 → 項目）と tailSource.ts（provider ごとの読み口）に分かれている。
 // 呼び出し側が今までどおり tail.ts から取れるように、ここから再出する。
 export { PEER_CHAT_ITEM_TEXT_MAX_BYTES, PEER_CHAT_TAIL_BYTE_BUDGET, PEER_CHAT_TOOL_SUMMARY_MAX, type Scan, type TailRow } from './items.ts';
-export { PEER_CHAT_TAIL_READ_MAX_BYTES, dbTranscriptReader, type TailSource, type TranscriptHandle } from './tailSource.ts';
+export { PEER_CHAT_INDEX_READ_MAX_EVENTS, PEER_CHAT_TAIL_READ_MAX_BYTES, dbTranscriptReader, indexTailSource, routedTailSource, type TailSource, type TranscriptHandle } from './tailSource.ts';
 
 /**
  * Claude Code のトランスクリプト（jsonl）を、チャットの項目（PeerChatItem）に直して、after の後ろだけを返す。

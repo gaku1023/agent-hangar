@@ -83,6 +83,16 @@ describe('localCursorOf', () => {
     expect(localCursorOf(db, sid)).toBe('22222222-2222-4222-8222-222222222222');
   });
 
+  it('codex と opencode は null（項目の id が索引の seq で、元の PC と同じとは限らない）', () => {
+    for (const provider of ['codex', 'opencode'] as const) {
+      const other = ensureSession(db, `x-${provider}`, '/w', PEER, provider);
+      const p = path.join(dir, `${provider}.jsonl`);
+      fs.writeFileSync(p, `${line('11111111-1111-4111-8111-111111111111', 'a')}\n`);
+      db.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version, device_id, agent) values (?,?,null,1,5,1,1,?,?)').run(p, other, PEER, 'claude-code');
+      expect(localCursorOf(db, other)).toBeNull();
+    }
+  });
+
   it('写しが無い、読めない、空なら null', () => {
     expect(localCursorOf(db, sid)).toBeNull();
     file(path.join(dir, 'missing.jsonl'), PEER, 5);

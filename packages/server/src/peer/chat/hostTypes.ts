@@ -119,6 +119,8 @@ export type PeerChatHostDeps = {
    * 許可と質問の札は host が画面から組んで渡す。
    */
   readTranscript: TailDeps['readTranscript'];
+  /** 本文の読み口。渡せば readTranscript より先に使う（会話の provider で Claude の jsonl と codex、opencode の索引を選ぶ。tailSource.ts の routedTailSource）。 */
+  source?: TailDeps['source'];
   cache?: TailDeps['cache'];
   /**
    * 入力欄へ貼って確定する。

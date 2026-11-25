@@ -231,7 +231,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     ...(deps.artifactCount ? { artifactCount: deps.artifactCount } : {}),
     ...(deps.liveHints ? { liveHints: deps.liveHints } : {}),
     ...(deps.accountName ? { accountName: deps.accountName } : {}),
-    tail: { readTranscript: deps.readTranscript, ...(deps.cache ? { cache: deps.cache } : {}) },
+    tail: { readTranscript: deps.readTranscript, ...(deps.source ? { source: deps.source } : {}), ...(deps.cache ? { cache: deps.cache } : {}) },
     queued: (sessionId) => queue.list(sessionId),
     self: () => ({ deviceId: deps.deviceId, deviceName: deps.deviceName(deps.deviceId) }),
     // 起動ごとに替わる印。預かりはメモリだけなので、再起動を見る側に知らせる。

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import type { Db } from '../../db/open.ts';
 import { splitLines } from '../../provider/claude-code/transcript/lines.ts';
 import { DROPPED_LINE_TYPES, normalizeRecord } from '../../provider/claude-code/transcript/normalize.ts';
+import { readEvents } from '../../transcript/read.ts';
 import type { TailRow } from './items.ts';
 
 /**
@@ -78,6 +79,62 @@ export function claudeRowsOf(buf: Buffer): TailRow[] {
     rows.push({ id: uuid, isUserLine: raw.type === 'user', events: normalizeRecord(raw, 0, null) });
   }
   return rows;
+}
+
+// ---- codex と opencode（索引 event_index と readEvents） ----
+
+/**
+ * 索引から読む本文の事象の数の上限（主線）。
+ * Claude の読み口は大きさ（PEER_CHAT_TAIL_READ_MAX_BYTES）で末尾を切るが、索引の側は事象の数で切る。
+ * 末尾からこの数だけを読み、手前は読まない（項目の組み立ては全件の走査なので、大きな会話で全部は読まない）。
+ * 手前の項目は after からも届かず、after が見つからないときと同じ truncated になる。
+ */
+export const PEER_CHAT_INDEX_READ_MAX_EVENTS = 20_000;
+
+/** readEvents の 1 ページの大きさ（stored.ts の MAX_LIMIT 以下）。 */
+const INDEX_PAGE = 2000;
+
+/**
+ * codex と opencode の読み口。本文は索引の読み手（transcript/read.ts の readEvents。Codex は readCodexPage、opencode は readStoredPage）で読む。
+ * 行の id は `s<seq>`、1 つの事象が 1 行で、利用者の発言（user）の行だけが isUserLine である。
+ * key は主線（parent_agent が空）の `max(seq)|件数` で、SQL 1 本で作る（本文は読まない）。主線の行が無ければ null。
+ * 読む範囲は末尾の maxEvents 件。窓の頭の seq は、seq の降順で maxEvents 番目の行から引く（seq に抜けがあっても件数で切れる）。
+ * そこから fromSeq でページをたどる。
+ */
+export function indexTailSource(db: Db, o: { maxEvents?: number } = {}): TailSource {
+  const max = o.maxEvents ?? PEER_CHAT_INDEX_READ_MAX_EVENTS;
+  const keyOf = db.prepare('select max(seq) m, count(*) c from event_index where session_id = ? and parent_agent is null');
+  const startOf = db.prepare('select seq from event_index where session_id = ? and parent_agent is null order by seq desc limit 1 offset ?');
+  return {
+    key: (sessionId) => {
+      const r = keyOf.get(sessionId) as { m: number | null; c: number };
+      return r.c === 0 || r.m === null ? null : `${r.m}|${r.c}`;
+    },
+    read: (sessionId) => {
+      const head = startOf.get(sessionId, max - 1) as { seq: number } | undefined;
+      let fromSeq: number | null = head?.seq ?? 0;
+      const rows: TailRow[] = [];
+      while (fromSeq !== null) {
+        const page = readEvents(db, sessionId, { fromSeq, limit: INDEX_PAGE });
+        for (const ev of page.events) rows.push({ id: `s${ev.seq}`, isUserLine: ev.kind === 'user', events: [ev] });
+        fromSeq = page.nextSeq;
+      }
+      return rows;
+    },
+  };
+}
+
+/**
+ * 会話の provider（sessions.provider）で読み口を選ぶ。codex と opencode は index、それ以外は claude。
+ * 会話の記録が無ければ claude の道に落とす（今までと同じ）。
+ */
+export function routedTailSource(db: Db, claude: TailSource, index: TailSource): TailSource {
+  const find = db.prepare('select provider from sessions where id = ?');
+  const pick = (sessionId: string): TailSource => {
+    const p = (find.get(sessionId) as { provider: string } | undefined)?.provider;
+    return p === 'codex' || p === 'opencode' ? index : claude;
+  };
+  return { key: (sessionId) => pick(sessionId).key(sessionId), read: (sessionId) => pick(sessionId).read(sessionId) };
 }
 
 /**
