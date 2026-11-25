@@ -8,7 +8,7 @@ import { remoteSessionName } from './sshCommand.ts';
 import { closeRemoteTab, getRemoteHost, getRemoteTab, insertRemoteTab, listOpenRemoteTabs, listRemoteHosts, setRemoteHost, type RemoteTabRow } from './store.ts';
 
 /**
- * SSH のシェルタブの持ち主（docs/design.md「SSH のシェルタブ」）。
+ * SSH のシェルタブの持ち主（docs/design.md「ほかの PC の会話のシェルタブ（SSH）」）。
  * タブの行（手元だけの表）を開け閉めし、画面の WS ごとに RemoteShellLink を 1 本ずつ作る。
  * WS が閉じたら link を detach して相手のセッションを残し、タブを閉じたときだけ kill-session を打つ。
  */

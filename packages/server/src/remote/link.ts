@@ -11,7 +11,7 @@ import { cdArgv, classifySshFailure, closeArgv, hasSessionArgv, parsePrepareMark
 import { listPendingKills, markKillDone, setKillPending } from './store.ts';
 
 /**
- * 別 PC のシェルタブの 1 本のつなぎ（docs/design.md「SSH のシェルタブ」）。
+ * 別 PC のシェルタブの 1 本のつなぎ（docs/design.md「ほかの PC の会話のシェルタブ（SSH）」）。
  * 住所を決め、ホスト鍵を用意し、tty なしの準備の ssh で相手の mux のセッションを作ってから、本番の ssh を pty で起こす。
  * 切れたら 1、2、4、8、16 秒の間を置いて最初から 5 回やり直し、だめなら failed（dropped）にして retry() を待つ。
  * 閉じたら別の ssh で kill-session を 1 回打ち、届かなければ kill_pending を立てて、次にその PC へつながったときに消す。
