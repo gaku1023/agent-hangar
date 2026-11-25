@@ -558,7 +558,7 @@ Mediator の入力の型（`MediatedAction`）は表の kind を除いてある�
 - UI の一時状態（開いているタブ、分割、折りたたみ）は端末の localStorage に保存し、同期しない。
 - 会話ごとの今の context の量（`SessionStatsDto.contextTokens` と `contextSize`）は、`presenters/contextGauge.ts` の `contextGaugeOf` が段階（none・warn・alert）、輪の満ち具合、label（`448K/1000K`、窓が無ければ `448K`）に直す。境目は設定の `contextWarnTokens` と `contextAlertTokens`（既定 300K と 400K）で、窓がそれより小さいときは窓の 75% と 90%。置き場所は 4 つある。
   - サイドバーの行：状態の点のまわりの輪（`ContextRing`）。段階で灰・黄・赤に替わり、満ち具合は `@property --p` の数の transition で伸びる。乗せると label が title で出る。別 PC の会話の行も同じ。量の無い行は点だけ。
-  - 会話の画面の状態の行の右端（`ContextLabel`、等幅の小さめの字で量の数字だけ太字）：この PC で動いている会話は現在の札の頭の行、止まった会話は要約の札の頭の行、別 PC の会話は枠の頭の状態の隣。opencode と Codex の会話は、現在の札の使用量の欄（`stripUsage`）がある間は欄を優先し、label を出さない。
+  - 会話の画面の状態の行の右端（`ContextLabel`、等幅の小さめの字で量の数字だけ太字）：この PC で動いている会話は現在の札の頭の行、止まった会話は要約の札の頭の行、別 PC の会話も、右の欄に現在の札があれば手元と同じ札の頭の行に出し、札の無い間（古い相手、止まった会話）だけ枠の頭の状態の隣に出す（どこで動いていても同じ位置に見えるように）。現在の札では label を頭の行の右上に浮かせ（float）、状態と補足はそのまわりを流すので、補足の長さで label の位置は動かない。opencode と Codex の会話は、現在の札の使用量の欄（`stripUsage`）がある間は欄を優先し、label を出さない。
   - 設定の使用量の節に、黄と赤の境目を K 単位で入れる欄がある（打ち終えて 0.6 秒で保存する）。
 
 ## データモデル
@@ -732,6 +732,22 @@ create table config_snapshots (
   bundle_size integer not null,
   item_count integer not null,
   manifest text,                                  -- 目録 [[項目の id, 指紋, 大きさ], …] の JSON。96 KiB を超えるときは null（束の中に同じ目録がある）
+  updated_at integer not null, deleted_at integer, origin_device text not null
+);
+```
+
+アカウントの使用率（5 時間と週）を 2 台で分ける `account_usage` は、マイグレーション version 74 で足した（2026-11-26）。
+`SHARED_TABLES` の末尾に置き、外部キーも `check` も付けない。
+アカウントの一覧は PC ごとの設定（`accounts.json`）なので、主キーは `<agent>:<アカウントの名前>` にして名前で結ぶ（`usage/share.ts` の `usageShareId`）。
+仕組みは「使用量」の節の「別の PC の観測」である。
+
+```sql
+create table account_usage (
+  id text primary key,                            -- claude:<名前> か codex:<名前>
+  agent text not null, account_name text not null,
+  five_hour text, seven_day text,                 -- RateWindowDto の JSON。無い窓は null
+  plan text,                                      -- Codex の planType。Claude は null
+  observed_at integer not null,                   -- 観測した時刻。読む側は手元の観測と比べて新しい方を出す
   updated_at integer not null, deleted_at integer, origin_device text not null
 );
 ```
@@ -4940,6 +4956,18 @@ tmux の役の道具（Windows は psmux、ほかは tmux）は、設定の `tmu
 唯一の供給源が statusline の渡してくる `cost` で、日ごとの内訳を持たないためである。
 プロジェクト別の推定コストは、窓に入ったセッションについて 1 件につき一度だけ足す。
 
+### 別の PC の観測
+
+使用率はアカウントに付く値で、どの PC で使っても同じ枠が減る。
+ところが観測は手元の statusline（Claude）と app-server・rollout（Codex）にしか届かないので、別の PC だけで使った分は手元の計器に出なかった（2026-11-26 まで）。
+そこで、観測した使用率を共有表 `account_usage` にアカウントの名前ごとに 1 行で書き、2 台で同期する（`usage/share.ts` の `UsageShare`）。
+
+- 書く：`UsageTracker.ingest` と `AgentUsageTracker.set` が受けた観測を、共有表の値と窓（使用率と戻る時刻）か plan が食い違うときだけ書く。statusline は数秒ごとに届くので、同じ値では書かない。表にある観測より古い観測では書き直さない。名前は手元のアカウントの一覧から引き、引けなければ書かない。
+- 読む：`UsageTracker.of` と `AgentUsageTracker.of` は、手元の観測と、同じ名前の共有表の行のうち、観測の時刻（`updatedAt` と `observed_at`）が新しい方を返す。ゲージの「最終更新」は別の PC の観測の時刻になる。
+- 配る：同期で `account_usage` の行が降りてきたら（`onRowChange` の `apply`）、`accounts.update` を配り直す（`boot/runs.ts`）。
+- 2 台の時計がずれていると、新しい方の判定もずれる。ずれは同期の後勝ちと同じ扱いで、次に使用率が変わった観測で揃い直す。
+- 名前を変えたアカウントは、変えた後の名前の行から読み書きする。前の名前の行は残るが、どのアカウントからも読まれない。
+
 ## 検索
 
 ホームの一覧は検索画面を兼ねる（セッションの一覧の画面は無くなった）。
@@ -4990,6 +5018,7 @@ trigram は 3 文字未満の語に一致できないので、3 文字未満の�
 trigram の 12 トークンは 14 文字ほどで、当たりが本文の頭に近いと本文の頭から切るので、語が途中で切れることがある（短い依頼や長い語で起きる）。
 画面は抜粋の中の検索語に印を付けるので、`snippet()` の抜粋が語を 1 つも丸ごと含まないときは、本文から最初の長い語の前後 60 文字を切り出し直す（`fitSnippet`）。
 意味検索は初版では持たない。
+
 
 ### 名前と要約の照合
 

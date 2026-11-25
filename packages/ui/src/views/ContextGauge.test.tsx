@@ -41,6 +41,13 @@ describe('会話の画面の状態の行の右端の label', () => {
     expect(el.querySelector('b')).toHaveTextContent('448K');
     expect(el).toHaveAttribute('data-level', 'alert');
   });
+  it('label は頭の行の最初の子に置く（右上に浮かせ、状態と補足の長さで位置が動かない）', () => {
+    const { container } = mount(<NowCard sessionId="s1" {...card} sub="ツール呼び出し 29 回 · 4 分" ctx={gauge} />);
+    const head = container.querySelector('.nc-head')!;
+    expect(head.firstElementChild).toHaveClass('ctx-label');
+    expect(head.querySelector(':scope > .nc-state')).not.toBeNull();
+    expect(head.querySelector(':scope > .nc-sub')).toHaveTextContent('ツール呼び出し 29 回');
+  });
   it('opencode など使用量の欄があるときは、重ねて出さない', () => {
     const { container } = mount(<NowCard sessionId="s1" {...card} usage={{ percent: 34, percentLabel: '34%', chips: [] }} ctx={gauge} />);
     expect(container.querySelector('.ctx-label')).toBeNull();

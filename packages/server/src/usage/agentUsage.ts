@@ -1,4 +1,5 @@
 import { usageAt, type AgentUsageDto, type AgentUsagesDto, type RateWindowDto } from '@agent-hangar/shared';
+import { differsFromShared, type UsageShareLink } from './share.ts';
 
 /** Claude 以外のエージェントで枠を持てるもの。 */
 export type UsageAgent = keyof AgentUsagesDto;
@@ -13,6 +14,8 @@ export type AgentUsageOptions = {
   now?: () => number;
   /** 設定でそのエージェントを有効にしているか。切の間は受けず、返さない。 */
   enabled?: () => boolean;
+  /** 別の PC と枠を分ける口（usage/share.ts）。nameOf はエージェントとアカウントの id から名前を引く。 */
+  share?: UsageShareLink<(agent: UsageAgent, accountId: string) => string | null>;
 };
 
 const keyOf = (agent: UsageAgent, accountId: string): string => `${agent}\u0000${accountId}`;
@@ -31,8 +34,10 @@ export class AgentUsageTracker {
   private readonly listeners = new Set<() => void>();
   private readonly now: () => number;
   private readonly enabled: () => boolean;
+  private readonly share: UsageShareLink<(agent: UsageAgent, accountId: string) => string | null> | null;
 
   constructor(o: AgentUsageOptions = {}) {
+    this.share = o.share ?? null;
     this.now = o.now ?? (() => Date.now());
     this.enabled = o.enabled ?? (() => true);
   }
@@ -48,6 +53,9 @@ export class AgentUsageTracker {
       plan: w.plan ?? prev?.plan ?? null, updatedAt: at,
     };
     this.state.set(key, next);
+    const name = this.share?.nameOf(agent, accountId);
+    // 共有表と同じ値なら書かない（変わったときだけ別の PC へ送る）。
+    if (name && differsFromShared(this.share!.usage.read(agent, name), next)) this.share!.usage.publish(agent, name, { fiveHour: next.fiveHour, sevenDay: next.sevenDay, plan: next.plan, observedAt: at });
     if (!prev || !same(prev.fiveHour, next.fiveHour) || !same(prev.sevenDay, next.sevenDay) || prev.plan !== next.plan) for (const cb of [...this.listeners]) cb();
     return true;
   }
@@ -62,10 +70,19 @@ export class AgentUsageTracker {
 
   of(agent: UsageAgent, accountId: string = PRIMARY_ACCOUNT_ID): AgentUsageDto | null {
     if (!this.enabled()) return null;
-    const s = this.state.get(keyOf(agent, accountId));
+    const s = this.merged(agent, accountId);
     if (!s) return null;
     const u = usageAt(s, this.now());
     return u === s ? s : { ...u, plan: s.plan };
+  }
+
+  /** 手元の観測と、同じ名前のアカウントの別の PC の観測（共有表）のうち、新しい方。 */
+  private merged(agent: UsageAgent, accountId: string): AgentUsageDto | null {
+    const local = this.state.get(keyOf(agent, accountId)) ?? null;
+    const name = this.share?.nameOf(agent, accountId);
+    const shared = name ? this.share!.usage.read(agent, name) : null;
+    if (!shared || (local?.updatedAt != null && local.updatedAt >= shared.observedAt)) return local;
+    return { fiveHour: shared.fiveHour, sevenDay: shared.sevenDay, plan: shared.plan ?? local?.plan ?? null, updatedAt: shared.observedAt };
   }
 
   /** 配る形。codexAccountId は、いまの Codex アカウント（渡さなければ最初のアカウント）。何も無ければ undefined（AccountsDto に項目ごと付けない）。 */

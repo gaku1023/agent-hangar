@@ -1243,6 +1243,28 @@ create table remote_ssh_hosts (
 );
 `;
 
+/**
+ * 版 74。アカウントの使用率（5 時間と週）を、アカウントの名前ごとに 1 行で 2 台に共有する表。
+ * 使用率はアカウントに付く値だが、届くのは手元の statusline（Claude）と app-server・rollout（Codex）だけなので、別の PC で使った分が手元の計器に出なかった。
+ * 主キーは `<agent>:<アカウントの名前>`（usage/share.ts の usageShareId）。アカウントの一覧は PC ごとの設定なので、名前で結ぶ（#846 の顔と同じ）。
+ * 窓は RateWindowDto の JSON（無い窓は null）。observed_at は観測の時刻で、読む側は手元の観測と比べて新しい方を出す。
+ * 同期する表には check を付けない。古い版の PC は知らない表の行を捨てる（sync/apply.ts）。
+ */
+const V74_ACCOUNT_USAGE_SQL = `
+create table account_usage (
+  id text primary key,
+  agent text not null,
+  account_name text not null,
+  five_hour text,
+  seven_day text,
+  plan text,
+  observed_at integer not null,
+  updated_at integer not null,
+  deleted_at integer,
+  origin_device text not null
+);
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: BASELINE_VERSION, sql: BASELINE_SQL },
   { version: 17, sql: V17_SESSION_NOTES_SQL },
@@ -1301,4 +1323,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 71, sql: V71_DROP_PEER_APPROVALS_SQL },
   { version: 72, sql: V72_SESSION_CONTEXT_SQL },
   { version: 73, sql: V73_REMOTE_SHELL_SQL },
+  { version: 74, sql: V74_ACCOUNT_USAGE_SQL },
 ];
