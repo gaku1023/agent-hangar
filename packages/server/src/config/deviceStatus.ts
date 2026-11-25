@@ -162,6 +162,33 @@ export function hostPublicKeyBase64(platform: NodeJS.Platform, env: NodeJS.Proce
   return null;
 }
 
+/** 自分の sshd を ssh-keyscan した出力から ed25519 の公開鍵（base64）を取る。無ければ null。 */
+export function parseOwnKeyscan(stdout: string): string | null {
+  for (const line of stdout.split(/\r?\n/)) {
+    const m = /^\S+\s+ssh-ed25519\s+([A-Za-z0-9+/]+={0,2})\s*$/.exec(line.trim());
+    if (m?.[1] && fingerprintOfPublicKey(`ssh-ed25519 ${m[1]}`)) return m[1];
+  }
+  return null;
+}
+
+/**
+ * この PC の ssh のホスト鍵（公開鍵の base64 と指紋）。
+ * Windows の OpenSSH は鍵の .pub まで Administrators と SYSTEM だけに絞るので、管理者でない hangar には読めない。
+ * そのときは自分の sshd（127.0.0.1）を keyscan して取る。自分の PC に聞くので、取った鍵はそのまま信じてよい。
+ */
+export function ownHostKey(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, read: (file: string) => string, keyscan: () => string | null): { pubkey: string | null; fingerprint: string | null } {
+  const fromFile = hostPublicKeyBase64(platform, env, read);
+  const pubkey = fromFile ?? (platform === 'win32' ? keyscan() : null);
+  return { pubkey, fingerprint: pubkey ? fingerprintOfPublicKey(`ssh-ed25519 ${pubkey}`) : null };
+}
+
+/** 自分の sshd の ed25519 の鍵を keyscan で取る（Windows の System32\OpenSSH）。sshd が無い、止まっているときは null。 */
+function keyscanOwnSshd(env: NodeJS.ProcessEnv): string | null {
+  const dir = path.win32.join(env.SystemRoot ?? env.windir ?? 'C:\\Windows', 'System32', 'OpenSSH');
+  const exe = path.win32.join(dir, 'ssh-keyscan.exe');
+  try { return parseOwnKeyscan(execFileSync(fs.existsSync(exe) ? exe : 'ssh-keyscan.exe', ['-T', '3', '-t', 'ed25519', '127.0.0.1'], { encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })); } catch { return null; }
+}
+
 /** reg query HKLM\SOFTWARE\OpenSSH /v DefaultShell の出力から、DefaultShell の値（実行ファイルのパス）を取る。無ければ null。 */
 export function parseDefaultShell(out: string): string | null {
   const m = /DefaultShell\s+REG_\w+\s+(.+?)\s*$/m.exec(out);
@@ -235,6 +262,13 @@ export function liveStatusSources(o: {
   // レジストリは 1 度だけ読む（調べ直しは 5 分ごと）。
   let shellCache: { v: string | null } | null = null;
   const defaultShell = (): string | null => (shellCache ??= { v: (o.defaultShell ?? readRegistryDefaultShell)() }).v;
+  // 指紋と公開鍵は 1 回の調べ直しで 2 度引くので、短く持って keyscan を 1 回にする（sshd の起動や停止は次の調べ直しで拾う）。
+  let keyCache: { at: number; v: { pubkey: string | null; fingerprint: string | null } } | null = null;
+  const hostKey = () => {
+    const now = Date.now();
+    if (!keyCache || now - keyCache.at > 60_000) keyCache = { at: now, v: ownHostKey(process.platform, process.env, (f) => fs.readFileSync(f, 'utf8'), () => keyscanOwnSshd(process.env)) };
+    return keyCache.v;
+  };
   const rows = (agent: DeviceAccountStatus['agent'], store: AuthedStore): DeviceAccountStatus[] =>
     store.list().map((a) => {
       // まだ読んでいない認証は裏で読ませる。読めたら次の調べ直しで拾う。
@@ -245,8 +279,8 @@ export function liveStatusSources(o: {
     accounts: () => [...rows('claude-code', o.claude), ...(o.codex.enabled() ? rows('codex', o.codex) : [])],
     agents: () => o.agentKinds.filter((k) => o.agentUsable(k)),
     lanIps: () => lanIpv4s(os.networkInterfaces()),
-    hostKey: () => hostKeyFingerprint(process.platform, process.env),
-    ssh: () => sshStatusOf({ platform: process.platform, user: os.userInfo().username, hostPubkey: hostPublicKeyBase64(process.platform, process.env), tmuxPath: o.tmuxPath?.() ?? null, defaultShell }),
+    hostKey: () => hostKey().fingerprint,
+    ssh: () => sshStatusOf({ platform: process.platform, user: os.userInfo().username, hostPubkey: hostKey().pubkey, tmuxPath: o.tmuxPath?.() ?? null, defaultShell }),
     tailnetIps: () => tailnetIpv4s(os.networkInterfaces()),
     version: o.version,
     ...(o.opencode ? { opencode: o.opencode } : {}),

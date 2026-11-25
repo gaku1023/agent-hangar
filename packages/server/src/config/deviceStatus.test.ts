@@ -5,7 +5,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { applyRemoteChange } from '../sync/apply.ts';
 import { touchDevice } from './devicePresence.ts';
-import { collectDeviceStatus, opencodeStatusFeed, fingerprintOfPublicKey, hostKeyFingerprint, hostKeyPaths, hostPublicKeyBase64, lanIpv4s, parseDefaultShell, sshShellOf, sshStatusOf, tailnetIpv4s, readPeerStatuses, refreshDeviceStatus, type StatusSources } from './deviceStatus.ts';
+import { collectDeviceStatus, opencodeStatusFeed, fingerprintOfPublicKey, hostKeyFingerprint, hostKeyPaths, hostPublicKeyBase64, ownHostKey, parseOwnKeyscan, lanIpv4s, parseDefaultShell, sshShellOf, sshStatusOf, tailnetIpv4s, readPeerStatuses, refreshDeviceStatus, type StatusSources } from './deviceStatus.ts';
 
 const sources = (over: Partial<StatusSources> = {}): StatusSources => ({
   accounts: () => [{ agent: 'claude-code', name: 'Main', logged_in: true }, { agent: 'codex', name: 'Work', logged_in: false }],
@@ -222,6 +222,28 @@ describe('SSH のシェルタブ向けの様子', () => {
     expect(hostPublicKeyBase64('linux', {}, () => line)).toBe(blob.toString('base64'));
     expect(fingerprintOfPublicKey(line)).toBe(hostKeyFingerprint('linux', {}, () => line));
     expect(hostPublicKeyBase64('linux', {}, () => { throw new Error('ENOENT'); })).toBeNull();
+  });
+
+  it('Windows では鍵ファイルが読めない（管理者だけの ACL）とき、自分の sshd を keyscan した鍵を使う', () => {
+    const denied = () => { throw new Error('EPERM'); };
+    const b64 = blob.toString('base64');
+    let scans = 0;
+    const scan = () => { scans++; return b64; };
+    expect(ownHostKey('win32', {}, denied, scan)).toEqual({ pubkey: b64, fingerprint: fingerprintOfPublicKey(line) });
+    expect(scans).toBe(1);
+    // ファイルが読めれば keyscan しない。
+    expect(ownHostKey('win32', {}, () => line, scan)).toEqual({ pubkey: b64, fingerprint: fingerprintOfPublicKey(line) });
+    expect(scans).toBe(1);
+    // Windows 以外は keyscan に落ちない。sshd が無ければ両方 null。
+    expect(ownHostKey('darwin', {}, denied, scan)).toEqual({ pubkey: null, fingerprint: null });
+    expect(ownHostKey('win32', {}, denied, () => null)).toEqual({ pubkey: null, fingerprint: null });
+    expect(scans).toBe(1);
+  });
+
+  it('自分の sshd の keyscan の結果から ed25519 の鍵を取る', () => {
+    const b64 = blob.toString('base64');
+    expect(parseOwnKeyscan(`# 127.0.0.1:22 SSH-2.0-OpenSSH_for_Windows_9.5\r\n127.0.0.1 ssh-ed25519 ${b64}\r\n`)).toBe(b64);
+    expect(parseOwnKeyscan('')).toBeNull();
   });
 
   it('DefaultShell の読み取り結果からシェルの種類を決める', () => {
