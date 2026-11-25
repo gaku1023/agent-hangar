@@ -4,6 +4,9 @@
 /* 利用者の指示は右寄せの青い吹き出しのまま。Claude の返答は吹き出しをやめ、白い面に地の文として描く（M2）。 */
 .msg { max-width: 80ch; padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); word-break: break-word; line-height: 1.6; }
 .msg-user { background: var(--accent); color: var(--accent-ink); align-self: flex-end; border-bottom-right-radius: 5px; white-space: pre-wrap; }
+/* 貼り付けた部分。左の線で本人の文と分ける（試作 A、2026-11-26）。 */
+.msg-user .paste { border-left: 2px solid rgba(255, 255, 255, 0.55); padding-left: calc(var(--u) * 2.5); margin: 2px 0 calc(var(--u) * 2.5); color: rgba(255, 255, 255, 0.88); }
+.msg-user .paste:last-child { margin-bottom: 2px; }
 .msg-assistant { align-self: stretch; max-width: min(100%, 62em); padding: var(--u) 2px; }
 .msg-thinking { align-self: stretch; max-width: min(100%, 62em); padding: var(--u) 2px; color: var(--ink-3); font-style: italic; }
 .msg-system { color: var(--ink-3); font-size: var(--fs-xs); align-self: center; white-space: pre-wrap; }

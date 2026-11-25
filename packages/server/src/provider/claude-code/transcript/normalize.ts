@@ -1,4 +1,4 @@
-import type { Attachment, TranscriptEvent } from '@agent-hangar/shared';
+import { stripPasted, type Attachment, type TranscriptEvent } from '@agent-hangar/shared';
 
 // Claude Code の jsonl の形を知っているのはこのファイルだけである。
 // ここで TranscriptEvent に正規化し、UI や索引には元の形を渡さない。
@@ -228,7 +228,7 @@ export type IndexText = { seq: number; role: 'user' | 'assistant' | 'tool'; text
 export function indexTexts(events: TranscriptEvent[]): IndexText[] {
   const out: IndexText[] = [];
   for (const e of events) {
-    if (e.kind === 'user' && e.text) out.push({ seq: e.seq, role: 'user', text: e.text });
+    if (e.kind === 'user' && e.text) out.push({ seq: e.seq, role: 'user', text: stripPasted(e.text) });
     else if (e.kind === 'assistant' && e.text) out.push({ seq: e.seq, role: 'assistant', text: e.text });
     else if (e.kind === 'tool_call') {
       const command = isRec(e.input) ? str(e.input.command) : undefined;

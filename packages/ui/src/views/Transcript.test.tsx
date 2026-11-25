@@ -472,4 +472,14 @@ describe('Transcript の本文', () => {
     expect(container.querySelector('.msg-user')?.textContent).toBe('**そのまま**');
     cleanup();
   });
+  it('貼り付けのタグを出さず、貼り付けは帯に、本人の文はその下に描く', () => {
+    const text = '\n\n<pasted_content id="bf73">\nTOB の比例配分\n</pasted_content id="bf73">\n\n対応することある？';
+    const its: TranscriptItem[] = [{ kind: 'user', seq: 0, text, when: '10:00' }];
+    const { container } = render(<ActionRoot onAction={vi.fn()}><Transcript sessionId="s1" items={its} hasMore={false} loading={false} follow={false} live={false} remaining={0} /></ActionRoot>);
+    const msg = container.querySelector('.msg-user')!;
+    expect(msg.textContent).not.toContain('pasted_content');
+    expect(msg.querySelector('.paste')?.textContent).toBe('TOB の比例配分');
+    expect(msg.textContent).toBe('TOB の比例配分対応することある？');
+    cleanup();
+  });
 });

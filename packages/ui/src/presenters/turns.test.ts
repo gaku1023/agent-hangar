@@ -9,6 +9,10 @@ const res = (seq: number, toolId: string): TranscriptEvent => ({ kind: 'tool_res
 const sys = (seq: number, text: string): TranscriptEvent => ({ kind: 'system', seq, ts: 1, text });
 
 describe('buildTurns', () => {
+  it('目次の文は貼り付けのタグを出さず、本人の文を先に出す', () => {
+    const text = '\n\n<pasted_content id="ed45">\n話が行き来する\n</pasted_content id="ed45">\n\nこれは指摘として言うべき';
+    expect(buildTurns([{ kind: 'user', seq: 1, text }])[0]!.text).toBe('これは指摘として言うべき');
+  });
   const events = [
     sys(0, '<local-command-caveat>Caveat</local-command-caveat>'),
     u(1, '最初の指示です\n2 行目'),

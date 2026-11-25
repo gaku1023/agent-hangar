@@ -1,4 +1,4 @@
-import { newId } from '@agent-hangar/shared';
+import { newId, utteranceHead } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
 import { pathRefId } from '../db/pathRef.ts';
@@ -237,7 +237,7 @@ export function writeBatch(db: Db, b: IndexBatch, opts: WriteOptions): WriteResu
       // 要約で続けた会話の頭は、利用者の発言ではない（normalize で system の compact_summary になる）。指示の数にも書き出しにも入れない。
       if (f.isUserTurn && !events.some((e) => e.kind === 'system' && e.subtype === 'compact_summary')) {
         const text = events.find((e) => e.kind === 'user');
-        const head = text && text.kind === 'user' ? text.text.slice(0, 200) : '';
+        const head = text && text.kind === 'user' ? utteranceHead(text.text).slice(0, 200) : '';
         acc.userTurns += 1;
         if (acc.firstPrompt === undefined) acc.firstPrompt = head;
         acc.lastPrompt = head;

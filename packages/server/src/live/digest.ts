@@ -1,4 +1,4 @@
-import { isTurnPrompt, stepKind, stepLine, type LiveAgentDto, type LiveDigestDto, type TranscriptEvent } from '@agent-hangar/shared';
+import { isTurnPrompt, utteranceHead, stepKind, stepLine, type LiveAgentDto, type LiveDigestDto, type TranscriptEvent } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { readEvents } from '../transcript/read.ts';
 import { codexAgentsOf } from './codexAgents.ts';
@@ -132,7 +132,7 @@ function promptTitle(db: Db, sessionId: string, agentId: string): string {
   } catch (e) {
     if (!isEnoent(e)) throw e;
   }
-  return (first && first.kind === 'user' ? firstLine(first.text, 40) : null) ?? agentId;
+  return (first && first.kind === 'user' ? firstLine(utteranceHead(first.text), 40) : null) ?? agentId;
 }
 
 /**

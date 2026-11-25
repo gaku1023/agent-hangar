@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
+import { pastedParts } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { JumpState } from '../mediator/types.ts';
 import { findIn, type TranscriptFind } from '../presenters/find.ts';
@@ -26,9 +27,16 @@ export type { TranscriptFind };
  * ただし終わったセッションでは、結論を読みに開くので Claude の返答は畳まず全文で出す（fullReply、2026-10-16 の利用者の決定）。
  * 利用者の長い貼り付けと思考は、終わった後も畳む。
  */
+function UserText(props: { text: string }) {
+  const parts = pastedParts(props.text);
+  if (parts.length === 1 && !parts[0]!.paste) return <Hl text={props.text} />;
+  return <>{parts.map((p, i) => (p.paste ? <div key={i} className="paste"><Hl text={p.text} /></div> : <div key={i}><Hl text={p.text} /></div>))}</>;
+}
+
 export function renderItem(sessionId: string, it: TranscriptItem, opts?: { fullReply?: boolean }): ReactNode {
   switch (it.kind) {
-    case 'user': return <div className="msg msg-user"><Clamp seq={it.seq} part="msg" lines={estimateLines(it.text, 60)} shown={MSG_LINES} tone="accent" height>{() => <Hl text={it.text} />}</Clamp></div>;
+    // 貼り付け（Claude Code が <pasted_content> で包んだ部分）はタグを外し、左に線を引いた帯にして本人の文と分ける。
+    case 'user': return <div className="msg msg-user"><Clamp seq={it.seq} part="msg" lines={estimateLines(it.text, 60)} shown={MSG_LINES} tone="accent" height>{() => <UserText text={it.text} />}</Clamp></div>;
     // 返答は、英語なら見えたら訳して見せる。思考は開いたときに訳す（translateMsg.tsx）。設定が切なら原文のまま。
     case 'assistant': return <TranslatableMsg className="msg msg-assistant" seq={it.seq} text={it.text} clamp={!opts?.fullReply} />;
     case 'thinking': return <TranslatableMsg className="msg msg-thinking" seq={it.seq} text={it.text} clamp lazy />;

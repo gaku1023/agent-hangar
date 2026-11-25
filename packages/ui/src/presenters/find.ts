@@ -1,3 +1,4 @@
+import { pastedParts } from '@agent-hangar/shared';
 import { countHits } from './highlight.ts';
 import { mdLeaves, parseMarkdown } from './markdown.ts';
 import type { TranscriptItem } from './session.ts';
@@ -32,7 +33,8 @@ function markdownLeaves(text: string): string[] {
 /** 1 行の文字の葉。描く順に並べる。 */
 export function itemLeaves(it: TranscriptItem): string[] {
   switch (it.kind) {
-    case 'user': case 'system': return [it.text];
+    case 'user': return pastedParts(it.text).map((p) => p.text);
+    case 'system': return [it.text];
     case 'assistant': case 'thinking': return markdownLeaves(it.text);
     case 'tool': return toolLeaves(it.view);
     case 'meta': return [`${it.name} ${it.json}`];

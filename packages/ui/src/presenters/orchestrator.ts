@@ -1,4 +1,4 @@
-import { ORCHESTRATOR_CONTEXT_LIMIT, permissionToolLabel, VOICE_MARK, VOICE_WINDOW_MARK, type OrchestratorStateDto, type Translate, type TranscriptEvent } from '@agent-hangar/shared';
+import { ORCHESTRATOR_CONTEXT_LIMIT, permissionToolLabel, stripPasted, VOICE_MARK, VOICE_WINDOW_MARK, type OrchestratorStateDto, type Translate, type TranscriptEvent } from '@agent-hangar/shared';
 import { contextTokensLabel } from './format.ts';
 import { unreadOf, type Store } from '../store/store.ts';
 import type { PeerChatRow } from './peerChat.ts';
@@ -50,7 +50,7 @@ export function orchestratorRows(events: readonly TranscriptEvent[]): { rows: Pe
       last = null;
       if (turn !== 'hangar') voiceOn = turn === 'voice';
       if (turn === 'hangar') continue;
-      const text = (turn === 'voice' ? e.text.slice(voiceTagOf(e.text)!.length) : e.text).trim();
+      const text = stripPasted(turn === 'voice' ? e.text.slice(voiceTagOf(e.text)!.length) : e.text).trim();
       if (text !== '') rows.push({ kind: 'user', key: String(e.seq), text, from: null });
     } else if (e.kind === 'assistant') {
       if (turn === 'hangar' || e.text.trim() === '') continue;
