@@ -7,7 +7,8 @@ import type { CodexServerRequest } from './appServer.ts';
 /**
  * Codex の許可と質問の面（docs/design.md「Codex の状態と許可」）。
  * 承認と質問は、app-server が購読した接続へ送ってくるサーバからの要求（`item/commandExecution/requestApproval` など）である。
- * hangar の接続は答えない（答えは TUI で行う）。ここは要求の中身を、画面の札と agent/waiting.ts の語彙の形に直すだけにする。
+ * ふだん hangar の接続は答えない（答えは TUI で行う）。答えるのは、peer chat と手元の札で利用者が選んだときだけで、応答は answer.ts が書く。
+ * ここは要求の中身を、画面の札と agent/waiting.ts の語彙の形に直すだけにする。
  * 許可の道具の名前は Claude に合わせる（命令は `Bash`、ファイルの変更は `Edit`、権限の追加は `Permissions`）。質問は AskUserQuestion の hook と同じ形で流す。
  */
 
