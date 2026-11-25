@@ -2,6 +2,7 @@ import { PRIMARY_ACCOUNT_ID, type RateWindowDto, type UsageDto, usageAt } from '
 import type { Db } from '../db/open.ts';
 import { resetsAtMs, statuslineDrifts } from '../provider/claude-code/compat/statusline.ts';
 import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types.ts';
+import { differsFromShared, type UsageShareLink } from './share.ts';
 
 // Claude Code が statusLine コマンドの標準入力に渡す JSON を読む。
 // 形はフェーズ 0 の spike 04 で観察したもので、無い項目は null にする。
@@ -73,8 +74,11 @@ export class UsageTracker {
   private readonly keep: number;
   private readonly accountOf: (providerSessionId: string | null, configDir?: string | null) => string;
   private readonly compat: CompatSink;
+  private readonly share: UsageShareLink<(accountId: string) => string | null> | null;
 
-  constructor(private readonly db: Db, opts: { now?: () => number; keep?: number; accountOf?: (providerSessionId: string | null, configDir?: string | null) => string; compat?: CompatSink } = {}) {
+  /** share は別の PC と使用率を分ける口（usage/share.ts）。渡さなければ手元の観測だけを持つ。 */
+  constructor(private readonly db: Db, opts: { now?: () => number; keep?: number; accountOf?: (providerSessionId: string | null, configDir?: string | null) => string; compat?: CompatSink; share?: UsageShareLink<(accountId: string) => string | null> } = {}) {
+    this.share = opts.share ?? null;
     this.now = opts.now ?? (() => Date.now());
     this.keep = opts.keep ?? 500;
     this.accountOf = opts.accountOf ?? (() => PRIMARY_ACCOUNT_ID);
@@ -85,7 +89,23 @@ export class UsageTracker {
   /** 最初のアカウントの値。事後の要約の止める判定と、古い呼び手が使う。 */
   current(): UsageDto { return this.of(PRIMARY_ACCOUNT_ID); }
   /** 戻る時刻を過ぎた窓は 0% として返す（usageAt）。持っている値そのものは次の payload まで変えない。 */
-  of(accountId: string): UsageDto { return usageAt(this.state.get(accountId) ?? EMPTY, this.now()); }
+  of(accountId: string): UsageDto { return usageAt(this.merged(accountId), this.now()); }
+
+  /**
+   * 手元の観測と、同じ名前のアカウントの別の PC の観測（共有表）のうち、新しい方。
+   * 使用率はアカウントに付く値なので、別の PC で使った分は手元の statusline には届かない。
+   */
+  private merged(accountId: string): UsageDto {
+    const local = this.state.get(accountId) ?? EMPTY;
+    const shared = this.sharedOf(accountId);
+    if (!shared || (local.updatedAt !== null && local.updatedAt >= shared.observedAt)) return local;
+    return { fiveHour: shared.fiveHour, sevenDay: shared.sevenDay, updatedAt: shared.observedAt };
+  }
+
+  private sharedOf(accountId: string) {
+    const name = this.share?.nameOf(accountId);
+    return name ? this.share!.usage.read('claude', name) : null;
+  }
 
   /**
    * アカウントごとに新しい順に読み、両方の窓が埋まるか行が尽きるまで辿る。
@@ -142,6 +162,9 @@ export class UsageTracker {
       const next: UsageDto = { fiveHour, sevenDay: p.rateLimits.sevenDay ?? before.sevenDay, updatedAt: at };
       usageChanged = !sameWindow(next.fiveHour, before.fiveHour) || !sameWindow(next.sevenDay, before.sevenDay) || before.updatedAt === null;
       this.state.set(accountId, next);
+      const name = this.share?.nameOf(accountId);
+      // 共有表と同じ値なら書かない。payload は数秒ごとに届くので、変わったときだけ別の PC へ送る。
+      if (name && differsFromShared(this.share!.usage.read('claude', name), next)) this.share!.usage.publish('claude', name, { fiveHour: next.fiveHour, sevenDay: next.sevenDay, plan: null, observedAt: at });
     }
     return { usage: this.of(accountId), usageChanged, providerSessionId: p.providerSessionId, accountId };
   }
