@@ -61,9 +61,10 @@ describe('dialogMatches: 問いが複数ある札', () => {
     expect(dialogMatches(ASK_SUBMIT, parseDialog(MANY_SUBMIT)!)).toBe(true);
   });
 
-  it('問いが複数ある札の複数選択のタブは、合わない（答えない）', () => {
+  it('問いが複数ある札の複数選択のタブは、multi の ask だけが合う（答え方は answer.manyMulti.test.ts）', () => {
     const screen = MANY_TAB1.replace('1. 使う', '1. [ ] 使う').replace('2. 使わない', '2. [ ] 使わない');
-    expect(dialogMatches({ ...ASK1, multi: true }, parseDialog(screen)!)).toBe(false);
+    expect(dialogMatches({ ...ASK1, multi: true }, parseDialog(screen)!)).toBe(true);
+    expect(dialogMatches(ASK1, parseDialog(screen)!)).toBe(false);
   });
 });
 

@@ -246,6 +246,11 @@ describe('チャットを出さない会話は、今までの読み取り専用�
     expect(v.notice).toEqual({ n: 1, text: 'すでに渡したため取り消せません' });
   });
 
+  it('中断して渡すが質問の札で止められなかった（rush-ask-open）ときは、答えれば渡ると出す', () => {
+    const v = view(store({ status: 'waiting', notice: { n: 1, reason: 'rush-ask-open' } }))!;
+    expect(v.notice).toEqual({ n: 1, text: 'Mac で質問が開いているため、中断できませんでした。質問に答えると、預けた文が渡ります' });
+  });
+
   it('時計のずれ（link が clock）は、入力欄を閉じ、時計を合わせるよう一言を出す。つながっていない表示にはしない', () => {
     const v = view(store({ status: 'busy', link: 'clock' }))!;
     expect(v).toMatchObject({ statusLabel: '時計が合いません', tone: 'ended', composer: { kind: 'blocked', offline: null, canInterrupt: false, canTakeOver: false } });
@@ -309,7 +314,7 @@ describe('チャットを出さない会話は、今までの読み取り専用�
 
   it('元の PC が答えられないと印を付けた札（answerable が false）は、元の PC で答える案内を出す。印の無い札は出さない', () => {
     const unanswerable = { ...ask(), ask: { ...ask().ask!, answerable: false as const } };
-    expect(view(store({ status: 'waiting', items: [unanswerable] }))!.rows[0]).toMatchObject({ hostOnly: 'Mac で答えてください' });
+    expect(view(store({ status: 'waiting', items: [unanswerable] }))!.rows[0]).toMatchObject({ hostOnly: 'この札は中身をここから確認できないため、答えられません。Mac の画面で答えると進みます' });
     expect(view(store({ status: 'waiting', items: [ask()] }))!.rows[0]).toMatchObject({ hostOnly: null });
     // 閉じた札（入力待ちでなくなった、後ろに項目が続いた）にも案内は出さない。
     expect(view(store({ status: 'idle', items: [unanswerable] }))!.rows[0]).toMatchObject({ hostOnly: null, answered: '確認は終わりました' });

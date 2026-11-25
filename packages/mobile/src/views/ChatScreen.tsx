@@ -279,6 +279,7 @@ export function ChatScreen({ target, pairing, phoneKey, skewMs, leaving, onClose
   const empty = phase === 'live' && chat.items.length === 0 && locals.length === 0;
   const sub = [target.projectName, target.deviceName].filter(Boolean).join(' · ');
   const hostOnly = peerChatJa['peerChat.ask.hostOnly'].replace('{device}', target.deviceName);
+  const unanswerable = peerChatJa['peerChat.ask.unanswerable'].replace('{device}', target.deviceName);
 
   return (
     <div className={`chat ${leaving ? 'leaving' : ''}`} role="dialog" aria-modal="true" aria-label={target.title || target.projectName} inert={leaving}>
@@ -315,6 +316,7 @@ export function ChatScreen({ target, pairing, phoneKey, skewMs, leaving, onClose
               focus={!!target.focusAsk && !focusDone.current && !!it.ask && !it.ask.answered}
               input={target.input}
               hostOnly={hostOnly}
+              unanswerable={unanswerable}
               busyAsk={!!it.ask && answering.includes(it.ask.askId)}
               myLabel={it.ask ? (answered[it.ask.askId] ?? null) : null}
               onAnswer={answer}
@@ -375,6 +377,7 @@ type ItemProps = {
   focus: boolean;
   input: boolean;
   hostOnly: string;
+  unanswerable: string;
   busyAsk: boolean;
   myLabel: string | null;
   onAnswer: (ask: PeerChatAsk, keys: string[], label: string, text?: string) => Promise<void>;
@@ -383,9 +386,9 @@ type ItemProps = {
 /** 届いたばかりの項目の浮かせ方（riseIn、一度に来たものは 40ms ずつ遅らせる）。 */
 const riseStyle = (n: number | null): CSSProperties | undefined => (n === null ? undefined : { animationDelay: `${n * 40}ms` });
 
-function ChatItem({ item, rise, focus, input, hostOnly, busyAsk, myLabel, onAnswer }: ItemProps): ReactNode {
+function ChatItem({ item, rise, focus, input, hostOnly, unanswerable, busyAsk, myLabel, onAnswer }: ItemProps): ReactNode {
   const cls = rise === null ? '' : ' m-rise';
-  if (item.ask) return <AskCard item={item} ask={item.ask} cls={rise === null && !focus ? '' : ' m-rise'} style={riseStyle(rise ?? 0)} input={input} hostOnly={hostOnly} busy={busyAsk} myLabel={myLabel} onAnswer={onAnswer} />;
+  if (item.ask) return <AskCard item={item} ask={item.ask} cls={rise === null && !focus ? '' : ' m-rise'} style={riseStyle(rise ?? 0)} input={input} hostOnly={hostOnly} unanswerable={unanswerable} busy={busyAsk} myLabel={myLabel} onAnswer={onAnswer} />;
   if (item.kind === 'user') {
     return (
       <div className={`it-user${cls}`} style={riseStyle(rise)}>
@@ -419,13 +422,14 @@ type AskProps = {
   style: CSSProperties | undefined;
   input: boolean;
   hostOnly: string;
+  unanswerable: string;
   busy: boolean;
   myLabel: string | null;
   onAnswer: ItemProps['onAnswer'];
 };
 
 /** 許可と質問の札。選択肢のボタンは、答えると畳まれ、答えの 1 行が伸びて出る（collapseOut、growIn）。 */
-function AskCard({ item, ask, cls, style, input, hostOnly, busy, myLabel, onAnswer }: AskProps): ReactNode {
+function AskCard({ item, ask, cls, style, input, hostOnly, unanswerable, busy, myLabel, onAnswer }: AskProps): ReactNode {
   const [picked, setPicked] = useState<string[]>([]);
   const [text, setText] = useState('');
   const doneLabel = ask.answered?.label ?? myLabel;
@@ -482,7 +486,7 @@ function AskCard({ item, ask, cls, style, input, hostOnly, busy, myLabel, onAnsw
                   {o.label}
                 </span>
               ))}
-              <p className="ask-host">{hostOnly}</p>
+              <p className="ask-host">{input && ask.answerable === false ? unanswerable : hostOnly}</p>
             </div>
           )}
         </Fold>

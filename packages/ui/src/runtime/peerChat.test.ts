@@ -296,6 +296,15 @@ describe('送る・預ける・取り消す', () => {
     expect(t.slice().notice?.reason).toBe('cancel-late');
   });
 
+  it('中断して渡すが札で断られた（ask-mismatch）ときは、質問が開いているので止められなかったと出す', async () => {
+    const t = await opened(async () => ({ ok: false, reason: 'ask-mismatch' }));
+    t.push(update({ queued: [queued('q1', 'あとで')] }));
+    t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'rush', queueId: 'q1' } });
+    await t.tick();
+    expect(t.slice().notice?.reason).toBe('rush-ask-open');
+    expect(t.slice().rushing).toEqual([]);
+  });
+
   it('渡せずに消えた自分の預かり（gone）は、文を入力欄へ戻し、同じ queueId は 1 度だけ', async () => {
     const t = await opened(async () => ({ ok: true, queueId: 'q9' }));
     t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'send', text: '預けた文' } });
@@ -413,7 +422,7 @@ describe('受け付けない設定と、断られた答え', () => {
     expect(t.slice().rushing).toEqual(['q1']);
     release();
     await t.tick();
-    expect(t.slice()).toMatchObject({ rushing: [], notice: { reason: 'ask-mismatch' } });
+    expect(t.slice()).toMatchObject({ rushing: [], notice: { reason: 'rush-ask-open' } });
     fail = 'throw';
     t.runner.run({ op: 'send', sessionId: 's1', body: { t: 'answer', askId: 'ask-1', keys: ['1'] } });
     release();

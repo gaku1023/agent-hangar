@@ -4,6 +4,7 @@ import { createPeerAnswerer, type AnswerPane } from './answer.ts';
 import { EDIT_NARROW_SPACES, EDIT_OUTSIDE, EDIT_RELATIVE, EDIT_SUBDIR, NOTEBOOK_EDIT, READ_OUTSIDE, WRITE_NARROW_TRUNCATED, WRITE_NEW, WRITE_OVERWRITE } from './fileDialogs.fixtures.ts';
 import { readPermissionHook } from '../../provider/claude-code/hooks/permission.ts';
 import { ChatView, pendingAskFrom, UNANSWERABLE_RECHECK_MS } from './hostView.ts';
+import { REAL_MANY_MULTI_TAB1 } from './questionDialogs.real.fixtures.ts';
 import type { HostSession } from './hostTypes.ts';
 import { currentPendingAsk, peerAskId } from './tail.ts';
 import { createHash } from 'node:crypto';
@@ -49,6 +50,41 @@ describe('ChatView.answeredAsk は会話ごと', () => {
 });
 
 describe('pendingAskFrom', () => {
+  it('問いが複数ありタブの中が複数選択の札（Windows の実機）も、答えられる札にする', () => {
+    const a = pendingAskFrom(session({ waitingFor: 'question' }), REAL_MANY_MULTI_TAB1)!;
+    expect(a).toMatchObject({ kind: 'question', question: '果物はどれ？', multi: true, allowText: true, step: { index: 1, total: 2 } });
+    expect(a.options.map((o) => o.label)).toEqual(['りんご', 'みかん', 'ぶどう']);
+    expect(a.answerable).toBeUndefined();
+  });
+
+  it('長い問いが縦線で折り返す、タブの中の複数選択の札（2026-11-25 に答えられなかった画面の形。文は差し替えた）も、答えられる札にする', () => {
+    const screen = [
+      '─'.repeat(120),
+      '←  ☐ 進める  ☐ 順番  ✔ Submit  →',
+      '',
+      '│ 案のどれを進めますか？ 1〜3 は手元の作業だけで済みます（1 と 2',
+      '│ は一覧と表を作る作業で、外の仕組みには触りません）。',
+      '',
+      '❯ 1. [ ] 1 明日の作業の準備',
+      '         明日の朝までに、…',
+      '  2. [ ] 2 申込みの段取り',
+      '  3. [ ] 3 年の額の表',
+      '  4. [ ] 5 止まりの原因',
+      '  5. [ ] Type something',
+      '     Next',
+      '─'.repeat(120),
+      '  6. Chat about this',
+      '',
+      'Enter to select · Tab/Arrow keys to navigate · Esc to cancel',
+      '',
+    ].join('\n');
+    const a = pendingAskFrom(session({ waitingFor: 'question' }), screen)!;
+    expect(a.question).toBe('案のどれを進めますか？ 1〜3 は手元の作業だけで済みます（1 と 2 は一覧と表を作る作業で、外の仕組みには触りません）。');
+    expect(a.multi).toBe(true);
+    expect(a.options).toHaveLength(4);
+    expect(a.answerable).toBeUndefined();
+  });
+
   const perm = [' Bash command', ' mock desc', RULE, ' ls -la', RULE, ' Do you want to proceed?', ' ❯ 1. Yes', '   2. No', ' Esc to cancel'].join('\n');
 
   it('許可は、画面の行の文を label にし、番号を key にする', () => {
