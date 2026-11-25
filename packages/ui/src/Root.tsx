@@ -186,6 +186,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const shortcutTabs = shortcutRun ? tabsOf(store, shortcutRun.id) : [];
   const shortcutView = sessionId ? state.sessionView[sessionId] ?? defaultSessionView() : null;
   const selectedTabId = shortcutView?.selectedTab ?? shortcutTabs[0]?.id ?? null;
+  // peer chat の画面で選んでいる SSH のシェルタブ。ストアに無い（閉じた）ものは数えない。
+  const peerTabId = shortcutView?.peerTab && store.remoteTabs[shortcutView.peerTab] ? shortcutView.peerTab : null;
   // TabStrip の分割ボタンと同じ条件で、タブが 2 つ無いときは ⌘\ を出さない。
   const canSplit = shortcutTabs.length >= 2;
   // 統括の柱があるか（有効で、会話がある）。⌘⇧J はあるときだけ開け閉めする。
@@ -280,6 +282,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
           take();
           // ダイアログやパレットを開いている間は、裏のタブを閉じない（⌘I と同じ扱い）。
           if (overlayKind !== 'none') return;
+          // peer chat の画面で SSH のシェルタブを選んでいるときは、それを閉じる（閉じるとチャット本体へ戻る）。
+          if (peerTabId !== null) { rt.emit({ type: 'tab.close', tabId: peerTabId }); return; }
           // 対象は、打鍵を受けた枠か、最後にフォーカスのあった枠のタブにする。
           // 覚えた枠がもう出ていなければ（別のタブや別のセッションに移った後）、選択中のタブに戻す。
           const remembered = focusedPane.current && document.querySelector(`.term-host[data-tab="${CSS.escape(focusedPane.current)}"]`) ? focusedPane.current : null;
@@ -362,7 +366,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rt, overlayKind, sessionId, shortcutRun, shortcutTabs, selectedTabId, canSplit, orchAvailable, newProjectId, newScratch, props.terminals, transcriptShown, finds, reload]);
+  }, [rt, overlayKind, sessionId, shortcutRun, shortcutTabs, selectedTabId, peerTabId, canSplit, orchAvailable, newProjectId, newScratch, props.terminals, transcriptShown, finds, reload]);
 
   // 確認や入力のあるダイアログの裏では、スワイプで画面を移さない（Mediator の canMoveBehind と同じ規則）。
   // Mediator も nav.back を捨てるが、それだけだと矢印が出て「動いた」と見えてしまうので、手勢そのものを受けない。

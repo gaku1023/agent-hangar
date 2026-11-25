@@ -1,4 +1,4 @@
-import type { SessionLockDto } from '@agent-hangar/shared';
+import type { RemoteTabDto, SessionLockDto } from '@agent-hangar/shared';
 import type { EventBindingDto, HeldEventDto, PrClaimDto, ScheduleDto } from '@agent-hangar/shared';
 import type { DeleteApprovalDto, PeerChatDevice, PeerChatQueued, PeerDeviceDto } from '@agent-hangar/shared';
 import { liveFilterOf, liveWithLimit, quietLive, remoteAsideOf, remoteLiveOf, sessionLiveFilter, shownLive, shownReason, type LiveFilter, type PermissionAskDto, type StopReason } from '@agent-hangar/shared';
@@ -96,6 +96,10 @@ export type Store = {
   peerQueued: Record<string, PeerChatQueued[]>;
   /** ほかの PC から来た文を渡した直後の知らせ（会話の id ごとの最後の 1 件）。at は渡した時刻で、札を出し直す鍵に使う。 */
   peerDelivered: Record<string, { from: PeerChatDevice; at: number }>;
+  /** 開いている SSH のシェルタブ（手元だけ。id から）。bootstrap と remoteTab.upsert・remoteTab.closed で入る。 */
+  remoteTabs: Record<string, RemoteTabDto>;
+  /** 別の PC ごとの上書きの Host 名（device id から）。bootstrap と remoteHost.changed で入る。 */
+  remoteHosts: Record<string, string>;
   /** ほかの PC の会話を見ている画面の状態（セッションごと。store/peerChat.ts）。 */
   peerChat: Record<string, PeerChatSlice>;
   /** ほかの PC の会話の札にこの PC から答えて、相手の返事を待たずに待ちを外している会話（store/peerAnswer.ts）。 */
@@ -247,7 +251,7 @@ export function initialStore(): Store {
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     todos: {}, instructions: {}, artifacts: {}, artifactAddError: null, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerTest: null,
-    cloudUsage: null, sync: null, deleteApprovals: [], peerQueued: {}, peerDelivered: {}, peerChat: {}, peerAnswered: {}, orchestrator: emptyOrchestrator(), voice: null, voiceCatalog: null, schedules: [], eventTrigger: EMPTY_EVENT_TRIGGER, heldEvents: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
+    cloudUsage: null, sync: null, deleteApprovals: [], peerQueued: {}, peerDelivered: {}, remoteTabs: {}, remoteHosts: {}, peerChat: {}, peerAnswered: {}, orchestrator: emptyOrchestrator(), voice: null, voiceCatalog: null, schedules: [], eventTrigger: EMPTY_EVENT_TRIGGER, heldEvents: [], devices: [], configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
     readiness: null, setupGuide: null, compat: null, opencodeStatus: null, codexStatus: null, opencodeOptions: null, codexOptions: null, peers: null, launchPreps: {}, opencodeProviders: null, desktop: false, canRestoreHistory: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, workspaceChildren: null, pickedFolder: null, folderInspect: null, accountPreview: null, sharePreview: {},
     update: initialUpdate(),
@@ -266,7 +270,7 @@ const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object
  * 差し替えると、終了した run のスクロールバックを見ている最中に画面が変わってしまう。
  */
 export function applyBootstrap(store: Store, b: BootstrapDto): Store {
-  return { ...store, bootstrapped: true, peerAnswered: {}, peerQueued: b.peerQueued ?? {}, deleteApprovals: b.deleteApprovals, schedules: b.schedules ?? [], version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home, interrupted: b.interrupted };
+  return { ...store, bootstrapped: true, peerAnswered: {}, peerQueued: b.peerQueued ?? {}, remoteTabs: byId(b.remoteTabs ?? []), remoteHosts: b.remoteHosts ?? {}, deleteApprovals: b.deleteApprovals, schedules: b.schedules ?? [], version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home, interrupted: b.interrupted };
 }
 
 /** 鍵を 1 つ外す。無ければ同じ物を返す。 */
@@ -339,6 +343,20 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     case 'index.progress': return sameValue(store.index, ev.progress) ? store : { ...store, index: ev.progress };
     case 'run.started': return applyLaunch(store, { run: ev.run, sessionId: ev.run.sessionId, tabs: ev.tabs });
     case 'run.upsert': case 'run.ended': return sameValue(store.runs[ev.run.id], ev.run) ? store : { ...store, runs: { ...store.runs, [ev.run.id]: ev.run } };
+    case 'remoteTab.upsert': return sameValue(store.remoteTabs[ev.tab.id], ev.tab) ? store : { ...store, remoteTabs: { ...store.remoteTabs, [ev.tab.id]: ev.tab } };
+    case 'remoteTab.closed': {
+      if (!(ev.id in store.remoteTabs)) return store;
+      const { [ev.id]: _gone, ...remoteTabs } = store.remoteTabs;
+      return { ...store, remoteTabs };
+    }
+    case 'remoteHost.changed': {
+      if (ev.host === null) {
+        if (!(ev.deviceId in store.remoteHosts)) return store;
+        const { [ev.deviceId]: _gone, ...remoteHosts } = store.remoteHosts;
+        return { ...store, remoteHosts };
+      }
+      return store.remoteHosts[ev.deviceId] === ev.host ? store : { ...store, remoteHosts: { ...store.remoteHosts, [ev.deviceId]: ev.host } };
+    }
     case 'tab.upsert': return sameValue(store.tabs[ev.tab.id], ev.tab) ? store : { ...store, tabs: { ...store.tabs, [ev.tab.id]: ev.tab } };
     case 'transcript.appended': {
       const out = { ...store.events };
@@ -781,6 +799,8 @@ export function currentRunOf(store: Store, sessionId: string): RunDto | null {
  * 端末の自動のつなぎ直しが、終わったタブを叩き続けないために使う。
  */
 export function tabAlive(store: Store, tabId: string): boolean {
+  // SSH のシェルタブは run を持たない。開いている（remoteTabs にある）間だけ生きている。
+  if (tabId in store.remoteTabs) return true;
   const tab = store.tabs[tabId];
   const run = tab ? store.runs[tab.runId] : undefined;
   if (!tab || !run || tab.closedAt !== null) return false;
