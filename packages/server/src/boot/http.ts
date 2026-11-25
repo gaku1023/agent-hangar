@@ -3,12 +3,14 @@ import { serve } from '@hono/node-server';
 import type http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { isAgentKind, orchestratorOf, voiceOf, PEER_CHAT_MIN_HANGAR_VERSION, type SettingsDto } from '@agent-hangar/shared';
+import { isAgentKind, orchestratorOf, translateEnglishOf, voiceOf, PEER_CHAT_MIN_HANGAR_VERSION, type SettingsDto } from '@agent-hangar/shared';
 import { OrchestratorKeeper } from '../orchestrator/keeper.ts';
 import { orchestratorResumable } from '../orchestrator/resumable.ts';
 import { sendToOrchestrator } from '../http/routes/orchestrator.ts';
 import { VoiceHelper, resolveVoiceBin } from '../voice/helper.ts';
 import { VoiceService } from '../voice/service.ts';
+import { PlamoTranslator, realPlamoDeps } from '../translate/plamo.ts';
+import { TranslateService } from '../translate/service.ts';
 import { toSettingsDto } from '../http/routes/settings.ts';
 import { attachPeerChatSocket } from '../peer/chat/wire.ts';
 import { readDropImage } from '../peer/chat/viewImage.ts';
@@ -104,6 +106,8 @@ export type HttpParts = {
   orchestrator: OrchestratorKeeper;
   /** 机の音声のサービス。閉じるときに stop() を呼ぶ。補助が無い環境では何も起こさない。 */
   voice: VoiceService;
+  /** 翻訳のサーバの見張り。閉じるときに stop() を呼び、hangar が起こした plamo-translate を止める。 */
+  translator: PlamoTranslator;
 };
 
 /**
@@ -205,6 +209,10 @@ export function bootHttp(p: {
   orchestrator.onState((state) => { delivery.hub.broadcast({ type: 'orchestrator.state', state }); });
   // 統括の文脈が太ったら、送り込みの側が idle を見て、新しい会話への切り替え（reason auto）を頼む（docs/design.md「統括」の太ったとき）。
   p.orchestratorFeed?.feed.bindFresh(() => orchestrator.fresh('auto').ok);
+  // AI の英語の返答と思考の翻訳（translate/）。plamo-translate のサーバは訳すときに起こし、使わなければ止める。
+  const plamo = new PlamoTranslator(realPlamoDeps((m) => { console.log(`[translate] ${m}`); }), () => translateEnglishOf(home.settings.current));
+  plamo.startWatch();
+  const translate = new TranslateService(plamo, () => translateEnglishOf(home.settings.current));
   // 机の音声（voice/service.ts）。補助は常に聞くのときと、押す・切り替え・読み上げ・準備が来たときだけ起こす。
   const voiceBin = resolveVoiceBin(process.env, process.platform, fs.existsSync);
   const titles = db.prepare('select coalesce(n.name, s.custom_title, s.ai_title, s.first_prompt) t from sessions s left join session_notes n on n.session_id = s.id where s.deleted_at is null order by s.last_activity_at desc limit 100');
@@ -242,6 +250,7 @@ export function bootHttp(p: {
   const peerCallOf = (): PeerCallDeps => ({ link: () => (sync.canCarryPeer() ? sync.peerLink() : null), workerOk: () => sync.canCarryPeer(), workerCompat: () => sync.workerCompat(), creator: () => sync.creator(), version: VERSION });
   const app = createApp({
     voice,
+    translate,
     orchestratorKeeper: orchestrator,
     peerChat,
     // 同期は起動のあとに始まることがある（boot/sync.ts）。同期の部品は呼ぶたびに引く。
@@ -341,5 +350,5 @@ export function bootHttp(p: {
   relay.attach(server, '/ws/pty');
   // 経路を握る側は path が違えば黙って返すので、最後に未知の経路を切る番人を置く。
   guardUpgrades(server);
-  return { stopRelay: () => relay.close(), stopPeerChat: () => peerChat.stop(), orchestrator, voice };
+  return { stopRelay: () => relay.close(), stopPeerChat: () => peerChat.stop(), orchestrator, voice, translator: plamo };
 }

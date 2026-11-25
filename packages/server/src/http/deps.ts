@@ -15,6 +15,7 @@ import type { OsNoticeFeed } from '../sessions/stopNotices.ts';
 import type { SessionTrash } from '../sessions/trash.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { VoiceService } from '../voice/service.ts';
+import type { TranslateService } from '../translate/service.ts';
 import type { MobileLink } from '../mobile/pairer.ts';
 import type { ConfigSyncService } from '../sync/config/service.ts';
 import type { SyncEngine } from '../sync/engine.ts';
@@ -116,6 +117,8 @@ export type AppDeps = {
   runs: RunsApi;
   /** 机の音声のサービス（voice/service.ts）。補助が無い build や環境では渡さず、GET /api/voice は available が偽、動かす口は 409。 */
   voice?: Pick<VoiceService, 'state' | 'hold' | 'toggle' | 'speak' | 'stopSpeaking' | 'prepare' | 'osVoices' | 'preview' | 'personaName'>;
+  /** AI の英語の返答と思考の翻訳（translate/service.ts）。無ければ POST /api/translate は unavailable を返す。 */
+  translate?: Pick<TranslateService, 'translate'>;
   /** 声の一覧と「エンジンを開く」の外とのやりとり（voice/catalog.ts）。試験で差し替える。無ければ実物（fetch、process.env、open -a）。 */
   voiceEngine?: { fetch?: typeof fetch; env?: NodeJS.ProcessEnv; timeoutMs?: number; platform?: NodeJS.Platform; exec?: (file: string, args: string[]) => Promise<unknown> };
   /** 定期の実行（schedule/runner.ts）。画面の「今すぐ実行」が呼ぶ。 */

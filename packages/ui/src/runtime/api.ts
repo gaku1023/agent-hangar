@@ -1,4 +1,5 @@
 import type { AutoApprovalDto, OrchestratorOrigin, OrchestratorStateDto, PeerChatOpIn, PeerChatOpResult, PeerChatViewDto, ScheduleInput, SchedulePatch, PeerDeviceDto, PeerLaunchBody, PeerLaunchOutcomeDto } from '@agent-hangar/shared';
+import type { TranslateResultDto } from '@agent-hangar/shared';
 import { LAUNCH_PREP_ASK_CODE, LAUNCH_PREP_CANCELLED_CODE } from '@agent-hangar/shared';
 import type { AccountLinkConflictDto, LinkConflictsDto, EditorMissingDto, EditorsDto, EditorTestDto, JoinApproverState, KnownEditorId, RecoveryKeyDraftDto, SetupGuideDto } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, HeadlessPageDto, ProjectGitDto, SessionChangesDto, SessionEditsDto, SessionLaunchSettingsDto } from '@agent-hangar/shared';
@@ -181,6 +182,8 @@ export type ApiClient = {
   voiceHold(on: boolean): Promise<unknown>;
   voiceToggle(on: boolean): Promise<unknown>;
   voiceSpeak(id: string, text: string): Promise<unknown>;
+  /** AI の英語の返答と思考を訳す（POST /api/translate）。 */
+  translate(text: string): Promise<TranslateResultDto>;
   voiceStop(): Promise<unknown>;
   /** 声の一覧（出どころごとの話者）。補助が無ければ 409 で投げる。 */
   voiceVoices(): Promise<import('@agent-hangar/shared').VoiceCatalog>;
@@ -474,6 +477,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     voiceHold: (on) => post('/api/voice/hold', { on }),
     voiceToggle: (on) => post('/api/voice/toggle', { on }),
     voiceSpeak: (id, text) => post('/api/voice/speak', { id, text }),
+    translate: (text) => post<TranslateResultDto>('/api/translate', { text }),
     voiceStop: () => post('/api/voice/stop'),
     voiceVoices: () => call('/api/voice/voices'),
     voicePreview: (voice, speed) => post('/api/voice/preview', { voice, speed }),

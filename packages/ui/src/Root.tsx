@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { useRuntime } from './hooks/useRuntime.ts';
+import { translateEnglishOf } from '@agent-hangar/shared';
 import { ActionRoot } from './action/chain.tsx';
 import { SessionLinkContext } from './views/primitives/Markdown.tsx';
 import { canMoveBehind } from './mediator/screen.ts';
@@ -79,6 +80,7 @@ import { editorName, presentEditorMissing } from './presenters/editor.ts';
 import { EditorMissing } from './views/EditorMissing.tsx';
 import { PromptAssistContext, type PromptAssist } from './views/primitives/promptAssist.ts';
 import { EventHookApiContext, type EventHookApi } from './views/eventHookApi.ts';
+import { TranslateContext, type TranslateApi } from './views/translateMsg.tsx';
 import { ToastStack } from './views/ToastStack.tsx';
 import { useNow } from './views/primitives/useNow.ts';
 
@@ -148,6 +150,23 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       repoHook: (repo) => api.eventRepoHook(repo).then((r) => r.hook),
     };
   }, [props.api, rt]);
+
+  // AI の英語の返答と思考の翻訳（views/translateMsg.tsx）。設定が切なら null を配り、本文は何も訳さない。
+  // 訳は Root が覚える。本文の行は窓から外れると外れるので、戻ってきたときに訳し直さないため。
+  const translateOn = translateEnglishOf(store.settings ?? {});
+  const [translations] = useState(() => new Map<string, string>());
+  const translateApi = useMemo<TranslateApi | null>(() => {
+    if (!translateOn) return null;
+    const api = props.api ?? apiFromRuntime(rt);
+    return {
+      cached: (text) => translations.get(text) ?? null,
+      translate: (text) => api.translate(text).then((r) => {
+        if (r.status !== 'ok') return null;
+        translations.set(text, r.text);
+        return r.text;
+      }, () => null),
+    };
+  }, [translateOn, props.api, rt, translations]);
 
   // パレットの入力の文字は Root が持つ。
   // ダイアログの外へ出ない一時の値なので、Mediator には入れない。
@@ -572,11 +591,13 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
           <PaneOfContext.Provider value={paneOf}>
           <PromptAssistContext.Provider value={promptAssist}>
            <EventHookApiContext.Provider value={eventHookApi}>
+           <TranslateContext.Provider value={translateApi}>
             <LanguageRoot language={storeLanguage(store)}>
               <EditorNameRoot name={editorName(store.settings)}>
                 <FindRoot store={finds}><Shell {...shell} overlays={overlays}>{body}</Shell></FindRoot>
               </EditorNameRoot>
             </LanguageRoot>
+           </TranslateContext.Provider>
            </EventHookApiContext.Provider>
           </PromptAssistContext.Provider>
           </PaneOfContext.Provider>

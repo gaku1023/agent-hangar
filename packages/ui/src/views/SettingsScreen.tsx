@@ -323,6 +323,9 @@ export function SettingsScreen(props: SettingsProps) {
       <NotifyRulesRow rules={props.notifyRules} />
       <SetRow title={t('settings.label.sidebarOtherPcs')}
         control={<Switch label={t('settings.label.sidebarOtherPcs')} checked={props.sidebarOtherPcs !== false} onChange={(next) => setNow({ sidebarOtherPcs: next })} />} />
+      {/* AI の英語を表示の側で訳す（translateMsg.tsx）。訳すのは本文の見た目だけなので、サイドバーの出し方の下に置く。 */}
+      <SetRow title={t('settings.label.translateEnglish')} info={t('settings.general.translateEnglish.info')}
+        control={<Switch label={t('settings.label.translateEnglish')} checked={props.translateEnglish === true} onChange={(next) => setNow({ translateEnglish: next })} />} />
       {/* 切り替えた時点で保存する。iTerm2 は初回に macOS の自動化の許可ダイアログが出るので、その案内は行に常に出す。選択肢は画面を開いている OS のものだけ。 */}
       <SetRow title={t('settings.general.terminal.title')} desc={props.terminalDescAlways ? props.terminalDesc : undefined} info={props.terminalDescAlways ? undefined : props.terminalDesc}
         control={<Segmented label={t('settings.general.terminal.title')} value={props.terminalApp} options={props.terminalOptions.map((o) => ({ ...o, lead: <Icon name={TERMINAL_ICON[o.value]} /> }))} onChange={(v) => setNow({ terminalApp: v as TerminalApp })} />} />

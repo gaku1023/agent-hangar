@@ -15,7 +15,7 @@ type Extras = Pick<
   | 'renameProject' | 'live' | 'sessionFiles' | 'gitSessions' | 'sessionChanges' | 'sessionDiff' | 'sessionEdits' | 'projectGit' | 'headless' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'previewAccountDir' | 'sharePreview' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
   | 'codexAccounts' | 'setCurrentCodexAccount' | 'addCodexAccount' | 'previewCodexAccountDir' | 'updateCodexAccount' | 'removeCodexAccount' | 'loginCodexAccount' | 'cancelCodexAccountLogin' | 'refreshCodexAccount' | 'linkConflicts' | 'repairLinkConflicts'
-  | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen' | 'markUnread' | 'setPinned' | 'setMuted' | 'launchSettings' | 'rushPeerQueue' | 'eventBindings' | 'prClaims' | 'createEventBinding' | 'approveEventBinding' | 'deleteEventBinding' | 'answerPrClaim' | 'heldEvents' | 'runHeldEvents' | 'eventHookUrl' | 'rotateEventUrl' | 'eventRepoHook' | 'peers' | 'peerLaunch' | 'peerStop' | 'peerChatOpen' | 'peerChatOp' | 'orchestratorApprovals' | 'orchestratorSend' | 'orchestratorState' | 'orchestratorControl' | 'voice' | 'voiceHold' | 'voiceToggle' | 'voiceSpeak' | 'voiceStop' | 'voiceVoices' | 'voicePreview' | 'voiceEngine'
+  | 'dismissInterrupted' | 'dismissOverlap' | 'markSeen' | 'markUnread' | 'setPinned' | 'setMuted' | 'launchSettings' | 'rushPeerQueue' | 'eventBindings' | 'prClaims' | 'createEventBinding' | 'approveEventBinding' | 'deleteEventBinding' | 'answerPrClaim' | 'heldEvents' | 'runHeldEvents' | 'eventHookUrl' | 'rotateEventUrl' | 'eventRepoHook' | 'peers' | 'peerLaunch' | 'peerStop' | 'peerChatOpen' | 'peerChatOp' | 'orchestratorApprovals' | 'orchestratorSend' | 'orchestratorState' | 'orchestratorControl' | 'voice' | 'voiceHold' | 'voiceToggle' | 'voiceSpeak' | 'translate' | 'voiceStop' | 'voiceVoices' | 'voicePreview' | 'voiceEngine'
 >;
 
 /** フェーズ 2 からフェーズ 4 で増えた API の偽物。
@@ -46,6 +46,7 @@ export function fakeApiExtras(): Extras {
     voiceHold: vi.fn(async () => ({ ok: true })),
     voiceToggle: vi.fn(async () => ({ ok: true })),
     voiceSpeak: vi.fn(async () => ({ ok: true })),
+    translate: vi.fn(async () => ({ status: 'off' as const })),
     voiceStop: vi.fn(async () => ({ ok: true })),
     voiceVoices: vi.fn(async () => ({ sources: [] })),
     voicePreview: vi.fn(async () => ({ ok: true })),

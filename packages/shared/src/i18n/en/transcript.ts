@@ -27,4 +27,6 @@ export const transcriptEn: AreaDictionary<typeof transcriptKeys> = {
   'transcript.more.older': 'Load older lines ({n} left)',
   'transcript.more.newer': 'Load newer lines',
   'transcript.more.unseen': '{n} new {n|line|lines}',
+  'transcript.translate.showOriginal': 'Show original',
+  'transcript.translate.showTranslation': 'Show translation',
 };

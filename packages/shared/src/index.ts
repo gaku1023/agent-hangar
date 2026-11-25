@@ -38,6 +38,7 @@ export * from './mobile.ts';
 export * from './peerCloud.ts';
 export * from './eventInbox.ts';
 export * from './eventTrigger.ts';
+export * from './translate.ts';
 export * from './peerChat.ts';
 export * from './mobileCrypto.ts';
 export * from './e2e/index.ts';

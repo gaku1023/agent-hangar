@@ -1,4 +1,4 @@
-import { Lock, Zap, CircleDot, CopyPlus, Pin, PinOff, AppWindow, Archive,Bell, BellOff, BookOpen, Calendar, ChefHat, ClipboardList, FlaskConical, Gamepad2, Image, Inbox, Mail, NotebookPen, Server, Shield, Sigma, Smartphone, ArrowDown, ArrowDownToLine, ArrowRight, ArrowUp, Ban, Bot, Brain, CaseSensitive, ChartColumn, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleAlert, CircleCheck, CirclePause, CircleX, Clock, Ellipsis, Equal, FilePlus, Layers, ScrollText, Unplug, Cloud, Code, Columns2, Command, Copy, Download, ExternalLink, FileDiff, FileJson2, FilePenLine, FileText, FileX2, Folder, FolderInput, FolderOpen, FolderPlus, FolderSearch, FolderUp, GitBranch, GitFork, Headset, House, Info, ListChecks, ListFilter, Map as MapIcon, MessageCircle, MessageCircleQuestion, Monitor, MessagesSquare, Maximize2, Mic, Minimize2, Rows2, Minus, PanelLeft, PanelRightClose, PanelRightOpen, Paperclip, Pencil, Play, Plug, Plus, RefreshCw, RotateCcw, RotateCw, Search, Settings, Settings2, ShieldAlert, SlidersHorizontal, SkipForward, Sparkles, Sprout, Square, SquareTerminal, SquareX, Terminal, TextSearch, Trash2, TriangleAlert, Undo2, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
+import { Languages, Lock, Zap, CircleDot, CopyPlus, Pin, PinOff, AppWindow, Archive,Bell, BellOff, BookOpen, Calendar, ChefHat, ClipboardList, FlaskConical, Gamepad2, Image, Inbox, Mail, NotebookPen, Server, Shield, Sigma, Smartphone, ArrowDown, ArrowDownToLine, ArrowRight, ArrowUp, Ban, Bot, Brain, CaseSensitive, ChartColumn, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleAlert, CircleCheck, CirclePause, CircleX, Clock, Ellipsis, Equal, FilePlus, Layers, ScrollText, Unplug, Cloud, Code, Columns2, Command, Copy, Download, ExternalLink, FileDiff, FileJson2, FilePenLine, FileText, FileX2, Folder, FolderInput, FolderOpen, FolderPlus, FolderSearch, FolderUp, GitBranch, GitFork, Headset, House, Info, ListChecks, ListFilter, Map as MapIcon, MessageCircle, MessageCircleQuestion, Monitor, MessagesSquare, Maximize2, Mic, Minimize2, Rows2, Minus, PanelLeft, PanelRightClose, PanelRightOpen, Paperclip, Pencil, Play, Plug, Plus, RefreshCw, RotateCcw, RotateCw, Search, Settings, Settings2, ShieldAlert, SlidersHorizontal, SkipForward, Sparkles, Sprout, Square, SquareTerminal, SquareX, Terminal, TextSearch, Trash2, TriangleAlert, Undo2, Unlink, Workflow, Wrench, X, type LucideIcon } from 'lucide-react';
 import type { ArtifactIconName } from '../../presenters/artifactIcon.ts';
 
 /** hangar の言葉からアイコンへの対応。View は lucide-react を直接 import せず、ここだけを通す。 */
@@ -86,6 +86,7 @@ const ICONS = {
   // 設定と初回の確認リスト。
   // alert（CircleAlert）は上の共通の並びにあるものを使う。
   copy: Copy,
+  translate: Languages,
   mic: Mic,
   markUnread: CircleDot,
   pin: Pin,

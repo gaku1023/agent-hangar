@@ -12,10 +12,10 @@ import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { keyLabel } from '../keys.ts';
 import { isComposing } from './ime.ts';
-import { Markdown } from './primitives/Markdown.tsx';
 import { ToolGroup } from './ToolGroup.tsx';
 import { ToolItem } from './ToolItem.tsx';
 import { HitsContext, OpenContext, type OpenStore } from './transcriptOpen.tsx';
+import { TranslatableMsg } from './translateMsg.tsx';
 
 export type { TranscriptFind };
 
@@ -29,9 +29,9 @@ export type { TranscriptFind };
 export function renderItem(sessionId: string, it: TranscriptItem, opts?: { fullReply?: boolean }): ReactNode {
   switch (it.kind) {
     case 'user': return <div className="msg msg-user"><Clamp seq={it.seq} part="msg" lines={estimateLines(it.text, 60)} shown={MSG_LINES} tone="accent" height>{() => <Hl text={it.text} />}</Clamp></div>;
-    case 'assistant': if (opts?.fullReply) return <div className="msg msg-assistant"><Markdown text={it.text} /></div>;
-      return <div className="msg msg-assistant"><Clamp seq={it.seq} part="msg" lines={estimateLines(it.text)} shown={MSG_LINES} height>{() => <Markdown text={it.text} />}</Clamp></div>;
-    case 'thinking': return <div className="msg msg-thinking"><Clamp seq={it.seq} part="msg" lines={estimateLines(it.text)} shown={MSG_LINES} height>{() => <Markdown text={it.text} />}</Clamp></div>;
+    // 返答と思考は、英語なら訳して見せる（translateMsg.tsx）。設定が切なら原文のまま。
+    case 'assistant': return <TranslatableMsg className="msg msg-assistant" seq={it.seq} text={it.text} clamp={!opts?.fullReply} />;
+    case 'thinking': return <TranslatableMsg className="msg msg-thinking" seq={it.seq} text={it.text} clamp />;
     case 'system': return <div className="msg msg-system"><Hl text={it.text} /></div>;
     case 'tool': return <ToolItem sessionId={sessionId} item={it} />;
     case 'meta': return <div className="msg msg-system mono"><Hl text={`${it.name} ${it.json}`} /></div>;

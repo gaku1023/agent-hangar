@@ -27,4 +27,6 @@ export const transcriptJa: AreaDictionary<typeof transcriptKeys> = {
   'transcript.more.older': '古い行を読み込む（残り {n} 件）',
   'transcript.more.newer': '新しい行を読み込む',
   'transcript.more.unseen': '新着 {n} 件',
+  'transcript.translate.showOriginal': '原文を表示',
+  'transcript.translate.showTranslation': '訳文を表示',
 };
