@@ -151,6 +151,47 @@ export class RemoteShellLink {
     if (!ok) setKillPending(this.deps.db, this.opts.tabId, true);
   }
 
+  /** 画面の WS が閉じた。ssh の子だけを止め、相手のセッションは残す。この link はもう使わない。 */
+  detach(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.stopChild();
+  }
+
+  /**
+   * つないでいない link でタブを閉じる（どの画面も開いていないタブの DELETE）。
+   * 本番の ssh は起こさず、住所と鍵だけを用意して kill-session を打つ。宛先が決まらなければ kill_pending を立てる。
+   */
+  async closeUnattached(): Promise<void> {
+    if (this.closed) return;
+    if (!this.target) this.target = await this.findTarget().catch(() => null);
+    await this.close();
+  }
+
+  private async findTarget(): Promise<SshTarget | null> {
+    const st = this.opts.status;
+    if (!st) return null;
+    if (!(this.deps.hasClient ?? (() => sshClientAvailable(this.platform, this.env)))()) return null;
+    const lastGood = this.deps.addressBook.get(this.opts.deviceId);
+    const res = await resolveAddresses({ lan_ips: st.lan_ips, tailnet_ips: st.tailnet_ips ?? [], override: this.opts.override, ...(lastGood ? { lastGood } : {}) }, this.deps.probe ? { probe: this.deps.probe } : {});
+    if (!res.ok) return null;
+    for (const address of res.addresses) {
+      const t = await this.targetFor(address);
+      if (t.ok) return t.target;
+    }
+    return null;
+  }
+
+  /** その住所の鍵を用意して、ssh の宛先を組む。 */
+  private async targetFor(address: string): Promise<{ ok: true; target: SshTarget } | { ok: false; reason: 'no-sshd' | 'host-key' }> {
+    const st = this.opts.status!;
+    const keys = await (this.deps.hostKeys ?? ensureHostKeys)({
+      deviceId: this.opts.deviceId, address, port: 22, override: this.opts.override, sshHostKey: st.ssh_host_key, hostPubkey: st.ssh?.host_pubkey ?? null, dir: this.sshDir, platform: this.platform,
+    });
+    if (!keys.ok) return { ok: false, reason: keys.reason };
+    return { ok: true, target: { deviceId: this.opts.deviceId, host: address, user: this.opts.override ? null : (st.ssh?.user ?? null), knownHosts: keys.knownHosts, emptyKnownHosts: keys.emptyKnownHosts, platform: this.platform } };
+  }
+
   private begin(): Promise<void> {
     this.retries = 0;
     const g = ++this.gen;
@@ -206,12 +247,9 @@ export class RemoteShellLink {
   }
 
   private async tryAddress(g: number, address: string, spec: RemoteSpec): Promise<Attempt> {
-    const st = this.opts.status!;
-    const keys = await (this.deps.hostKeys ?? ensureHostKeys)({
-      deviceId: this.opts.deviceId, address, port: 22, override: this.opts.override, sshHostKey: st.ssh_host_key, hostPubkey: st.ssh?.host_pubkey ?? null, dir: this.sshDir, platform: this.platform,
-    });
-    if (!keys.ok) return { ok: false, reason: keys.reason, fatal: keys.reason === 'host-key' };
-    const target: SshTarget = { deviceId: this.opts.deviceId, host: address, user: this.opts.override ? null : (st.ssh?.user ?? null), knownHosts: keys.knownHosts, emptyKnownHosts: keys.emptyKnownHosts, platform: this.platform };
+    const t = await this.targetFor(address);
+    if (!t.ok) return { ok: false, reason: t.reason, fatal: t.reason === 'host-key' };
+    const { target } = t;
     let prepArgs: string[];
     try { prepArgs = prepareArgv(target, spec); } catch { return { ok: false, reason: 'unreachable', fatal: false }; }
     const prep = await this.exec(this.ssh, prepArgs, { timeoutMs: PREPARE_TIMEOUT_MS });

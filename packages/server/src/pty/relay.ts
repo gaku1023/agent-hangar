@@ -10,7 +10,12 @@ export type PtyProcess = { pid: number; onData(cb: (d: string) => void): void; o
   /** 受け手が読み切れていない間、出力を止める。持たない pty は止めない（擬似端末の attach）。 */
   pause?(): void; resume?(): void };
 export type PtySpawn = (file: string, args: string[], opts: { name: string; cols: number; rows: number; cwd: string; env: NodeJS.ProcessEnv }) => PtyProcess;
-type Deps = { token: string; /** 待ち受けているポート。許可する Origin をここから組み立てる。 */ port: number; /** hangar の tmux のサーバの組（tmux/servers.ts）。Tmux 1 つなら、そのサーバだけを使う。 */ tmux: Tmux | MuxServers | null; resolveTab: (tabId: string) => string | null; spawn: PtySpawn; /** コントロールモード（tmux/control.ts）でつなぐタブか。シェルのタブだけを真にする。渡さなければ、どのタブも擬似端末の attach。 */ controlTab?: (tabId: string) => boolean; /** コントロールモードのつなぎ。試験で差し替える。 */ controlSpawn?: (tmux: Tmux, name: string) => PtyProcess; /** attach が終わった（tmux の画面が閉じたかもしれない）。run の見張りを急がせる（RunManager.stir）。 */ onExit?: () => void; /** 出力をまとめて送る窓と上限。試験で差し替える。 */ coalesce?: { windowMs: number; maxBytes: number } };
+/** SSH のシェルタブの 1 本のつなぎに、relay が渡すもの（remote/service.ts）。 */
+export type RemoteShellIo = { onStatus(m: import('@agent-hangar/shared').RemoteShellStatusMsg): void; onData(d: string): void; onEnded(): void };
+/** relay から操る、WS 1 本ぶんのつなぎ。detach は ssh の子だけを止め、相手のセッションを残す。 */
+export type RemoteShellHandle = { start(): Promise<void>; retry(): Promise<void>; write(d: string): void; resize(cols: number, rows: number): void; detach(): void };
+export type RemoteShellConnector = { open(io: RemoteShellIo): RemoteShellHandle };
+type Deps = { token: string; /** SSH のシェルタブなら、そのつなぎ口。tmux の検査より先に分ける（tmux が無い PC でも開ける）。 */ remote?: (tabId: string) => RemoteShellConnector | null; /** 待ち受けているポート。許可する Origin をここから組み立てる。 */ port: number; /** hangar の tmux のサーバの組（tmux/servers.ts）。Tmux 1 つなら、そのサーバだけを使う。 */ tmux: Tmux | MuxServers | null; resolveTab: (tabId: string) => string | null; spawn: PtySpawn; /** コントロールモード（tmux/control.ts）でつなぐタブか。シェルのタブだけを真にする。渡さなければ、どのタブも擬似端末の attach。 */ controlTab?: (tabId: string) => boolean; /** コントロールモードのつなぎ。試験で差し替える。 */ controlSpawn?: (tmux: Tmux, name: string) => PtyProcess; /** attach が終わった（tmux の画面が閉じたかもしれない）。run の見張りを急がせる（RunManager.stir）。 */ onExit?: () => void; /** 出力をまとめて送る窓と上限。試験で差し替える。 */ coalesce?: { windowMs: number; maxBytes: number } };
 
 /**
  * pty の出力をまとめて送る窓（ミリ秒）。
@@ -49,15 +54,64 @@ async function refreshClient(tmux: Tmux, pid: number): Promise<void> {
   if (name) await tmux.runAsync('refresh-client', '-t', name);
 }
 
-function killQuietly(p: PtyProcess): void {
+function killQuietly(p: Pick<PtyProcess, 'kill'>): void {
   try { p.kill(); } catch { /* 既に終わっている */ }
+}
+
+type ClientMsg = { t?: string; d?: unknown; cols?: unknown; rows?: unknown; n?: unknown };
+type PumpSink = { write(d: string): void; resize(cols: number, rows: number): void; pause?(): void; resume?(): void };
+
+/**
+ * pty の出力を WS に流す部分（束ね、流量、ack）と、画面からの入力・大きさ・ack の受け取り。tmux のタブと SSH のシェルタブで共有する。
+ * push で出力を渡し、flush で貯めを出し切り、drop で捨てる。data、resize、ack 以外の札は other に回す。
+ */
+export function pumpPty(ws: WebSocket, sink: PumpSink, coalesce: { windowMs: number; maxBytes: number }, other: (m: ClientMsg) => void): { push(d: string): void; flush(): void; drop(): void } {
+  const { windowMs, maxBytes } = coalesce;
+  let buf = '';
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let lastSent = -Infinity;
+  // 送った量と、画面が描き終えた量。ack を返す画面だけが数える。
+  let sent = 0;
+  let acked = 0;
+  let flowOn = false;
+  let stopped = false;
+  const settle = (): void => {
+    if (!flowOn) return;
+    const behind = sent - acked;
+    if (!stopped && behind > FLOW_HIGH_CHARS) { stopped = true; sink.pause?.(); }
+    else if (stopped && behind < FLOW_LOW_CHARS) { stopped = false; sink.resume?.(); }
+  };
+  const send = (d: string): void => { ws.send(JSON.stringify({ t: 'data', d })); sent += d.length; settle(); };
+  const drop = (): void => { buf = ''; if (timer !== null) clearTimeout(timer); timer = null; };
+  const flush = (): void => {
+    const d = buf;
+    drop();
+    if (d !== '' && ws.readyState === ws.OPEN) { send(d); lastSent = Date.now(); }
+  };
+  const push = (d: string): void => {
+    if (ws.readyState !== ws.OPEN) return;
+    const now = Date.now();
+    if (buf === '' && timer === null && now - lastSent >= windowMs) { send(d); lastSent = now; return; }
+    buf += d;
+    if (buf.length >= maxBytes) { flush(); return; }
+    if (timer === null) timer = setTimeout(flush, Math.max(0, lastSent + windowMs - now));
+  };
+  ws.on('message', (raw) => {
+    let m: ClientMsg;
+    try { m = JSON.parse(raw.toString()) as ClientMsg; } catch { return; }
+    if (m.t === 'resize' && Number.isInteger(m.cols) && Number.isInteger(m.rows) && (m.cols as number) > 0 && (m.rows as number) > 0) sink.resize(m.cols as number, m.rows as number);
+    else if (m.t === 'data' && typeof m.d === 'string') sink.write(m.d);
+    else if (m.t === 'ack' && Number.isInteger(m.n) && (m.n as number) > 0) { flowOn = true; acked = Math.min(acked + (m.n as number), sent); settle(); }
+    else other(m);
+  });
+  return { push, flush, drop };
 }
 
 /** /ws/pty?tab=<tabId> で node-pty の `tmux attach` を中継する。複数のクライアントが同じ tmux セッションに attach してよい。 */
 export class PtyRelay {
   private wss = new WebSocketServer({ noServer: true });
   /** 接続と、その接続が抱えている tmux attach の pty。close で確実に回収するために紐づけて持つ。 */
-  private clients = new Map<WebSocket, PtyProcess>();
+  private clients = new Map<WebSocket, Pick<PtyProcess, 'kill'>>();
   /** 接続ごとの tmux 名。note が宛先の画面に attach している接続を引くために持つ。 */
   private names = new Map<WebSocket, string>();
   /** 接続ごとの貯めの吐き出し。note など、貯めの後ろに文を足す前に先に出すために持つ。 */
@@ -93,9 +147,11 @@ export class PtyRelay {
       // トークンはヘッダかクッキーだけで受ける。クエリに置くと Referer や代理のログに秘密が残る。
       const token = tokenFromRequest(headers, req.headers.cookie);
       if (!originAllowed(req.headers.origin, this.deps.port) || token !== this.deps.token) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return; }
-      const name = this.deps.resolveTab(url.searchParams.get('tab') ?? '');
-      if (!name || !this.deps.tmux) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); socket.destroy(); return; }
       const tabId = url.searchParams.get('tab') ?? '';
+      const remote = this.deps.remote?.(tabId) ?? null;
+      if (remote) { this.wss.handleUpgrade(req, socket, head, (ws) => this.serveRemote(ws, remote)); return; }
+      const name = this.deps.resolveTab(tabId);
+      if (!name || !this.deps.tmux) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); socket.destroy(); return; }
       this.wss.handleUpgrade(req, socket, head, (ws) => this.serve(ws, name, this.deps.controlTab?.(tabId) ?? false));
     });
   }
@@ -124,56 +180,48 @@ export class PtyRelay {
     }
     this.clients.set(ws, p);
     this.names.set(ws, tmuxName);
-    const { windowMs, maxBytes } = this.deps.coalesce ?? { windowMs: COALESCE_WINDOW_MS, maxBytes: COALESCE_MAX_BYTES };
-    let buf = '';
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let lastSent = -Infinity;
-    // 送った量と、画面が描き終えた量。ack を返す画面だけが数える。
-    let sent = 0;
-    let acked = 0;
-    let flowOn = false;
-    let stopped = false;
     let lastRedraw = -Infinity;
-    const settle = (): void => {
-      if (!flowOn) return;
-      const behind = sent - acked;
-      if (!stopped && behind > FLOW_HIGH_CHARS) { stopped = true; p.pause?.(); }
-      else if (stopped && behind < FLOW_LOW_CHARS) { stopped = false; p.resume?.(); }
-    };
-    const send = (d: string): void => { ws.send(JSON.stringify({ t: 'data', d })); sent += d.length; settle(); };
-    const drop = (): void => { buf = ''; if (timer !== null) clearTimeout(timer); timer = null; };
-    const flush = (): void => {
-      const d = buf;
-      drop();
-      if (d !== '' && ws.readyState === ws.OPEN) { send(d); lastSent = Date.now(); }
-    };
-    this.flushers.set(ws, flush);
-    p.onData((d) => {
-      if (ws.readyState !== ws.OPEN) return;
-      const now = Date.now();
-      if (buf === '' && timer === null && now - lastSent >= windowMs) { send(d); lastSent = now; return; }
-      buf += d;
-      if (buf.length >= maxBytes) { flush(); return; }
-      if (timer === null) timer = setTimeout(flush, Math.max(0, lastSent + windowMs - now));
-    });
-    p.onExit(() => {
-      flush();
-      if (ws.readyState === ws.OPEN) ws.close(1000, 'exited');
-      this.deps.onExit?.();
-    });
-    ws.on('message', (raw) => {
-      let m: { t?: string; d?: unknown; cols?: unknown; rows?: unknown; n?: unknown };
-      try { m = JSON.parse(raw.toString()) as typeof m; } catch { return; }
-      if (m.t === 'resize' && Number.isInteger(m.cols) && Number.isInteger(m.rows) && (m.cols as number) > 0 && (m.rows as number) > 0) p.resize(m.cols as number, m.rows as number);
-      else if (m.t === 'data' && typeof m.d === 'string') p.write(m.d);
-      else if (m.t === 'ack' && Number.isInteger(m.n) && (m.n as number) > 0) { flowOn = true; acked = Math.min(acked + (m.n as number), sent); settle(); }
-      else if (m.t === 'redraw' && !control && Date.now() - lastRedraw >= REDRAW_MIN_MS) {
+    const pump = pumpPty(ws, p, this.coalesce(), (m) => {
+      if (m.t === 'redraw' && !control && Date.now() - lastRedraw >= REDRAW_MIN_MS) {
         lastRedraw = Date.now();
         void refreshClient(tmux, p.pid).catch(() => { /* 描き直せなくても端末は止めない */ });
       }
     });
+    this.flushers.set(ws, pump.flush);
+    p.onData((d) => { pump.push(d); });
+    p.onExit(() => {
+      pump.flush();
+      if (ws.readyState === ws.OPEN) ws.close(1000, 'exited');
+      this.deps.onExit?.();
+    });
     // 殺すのは attach しているクライアントだけで、tmux セッションはそのまま残す。
-    ws.on('close', () => { drop(); this.flushers.delete(ws); this.clients.delete(ws); this.names.delete(ws); killQuietly(p); });
+    ws.on('close', () => { pump.drop(); this.flushers.delete(ws); this.clients.delete(ws); this.names.delete(ws); killQuietly(p); });
+  }
+
+  private coalesce(): { windowMs: number; maxBytes: number } {
+    return this.deps.coalesce ?? { windowMs: COALESCE_WINDOW_MS, maxBytes: COALESCE_MAX_BYTES };
+  }
+
+  /**
+   * SSH のシェルタブ（remote/service.ts）。WS 1 本につき link を 1 本起こし、出力は tmux のタブと同じ束ねと流量で送る。
+   * 様子は {t:'remote'} の札で送り、{t:'retry'} を link に渡す。WS が閉じたら link を detach し、相手のセッションは残す。
+   * link は流れを止められない（pause を持たない）ので、ack は数えるだけになる。
+   */
+  private serveRemote(ws: WebSocket, connector: RemoteShellConnector): void {
+    let handle: RemoteShellHandle | null = null;
+    const pump = pumpPty(ws, { write: (d) => handle?.write(d), resize: (c, r) => handle?.resize(c, r) }, this.coalesce(), (m) => {
+      if (m.t === 'retry') void handle?.retry();
+    });
+    handle = connector.open({
+      onStatus: (m) => { pump.flush(); if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m)); },
+      onData: (d) => { pump.push(d); },
+      onEnded: () => { pump.flush(); if (ws.readyState === ws.OPEN) ws.close(1000, 'exited'); },
+    });
+    const h = handle;
+    this.clients.set(ws, { kill: () => { h.detach(); } });
+    this.flushers.set(ws, pump.flush);
+    ws.on('close', () => { pump.drop(); this.flushers.delete(ws); this.clients.delete(ws); h.detach(); });
+    void h.start().catch((e: unknown) => { console.error('[remote] could not start the remote shell', e instanceof Error ? e.message : String(e)); });
   }
 
   clientCount(): number { return this.clients.size; }

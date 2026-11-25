@@ -371,3 +371,47 @@ describe('RemoteShellLink: 閉じる', () => {
   });
 });
 
+describe('RemoteShellLink: 外す（WS が閉じた）と、つながずに閉じる', () => {
+  const withTab = (id: string) => {
+    const db = openDb(':memory:');
+    insertRemoteTab(db, { id, sessionId: 's1', deviceId: 'dev1', remoteName: `hangar-ssh-${id}`, title: 'shell', createdAt: 1 });
+    return db;
+  };
+
+  it('detach は ssh の子だけを止め、kill-session を打たず、kill_pending も立てない。後の出力と切れも拾わない', async () => {
+    const db = withTab('tab1');
+    const h = harness({ db });
+    await h.link.start();
+    const n = h.msgs.length;
+    h.link.detach();
+    h.ptys[0]!.emit('late');
+    h.ptys[0]!.exit(255);
+    expect(h.ptys[0]!.killed).toBe(true);
+    expect(killCalls(h)).toHaveLength(0);
+    expect(getRemoteTab(db, 'tab1')?.killPending).toBe(false);
+    expect(h.data).toEqual([]);
+    expect(h.msgs.length).toBe(n);
+    expect(h.clock.timers.size).toBe(0);
+  });
+
+  it('closeUnattached は本番の ssh を起こさず、住所と鍵だけ用意して kill-session を 1 回打つ', async () => {
+    const db = withTab('tab1');
+    const h = harness({ db });
+    await h.link.closeUnattached();
+    expect(h.ptys).toHaveLength(0);
+    expect(prepCalls(h)).toHaveLength(0);
+    expect(killCalls(h)).toHaveLength(1);
+    expect(hostOf(killCalls(h)[0]!)).toBe('192.168.3.40');
+    expect(getRemoteTab(db, 'tab1')?.killPending).toBe(false);
+    expect(h.msgs).toEqual([]);
+  });
+
+  it('closeUnattached で住所が引けなければ kill_pending を立てる', async () => {
+    const db = withTab('tab1');
+    const h = harness({ db, probe: { '192.168.3.40': false } });
+    await h.link.closeUnattached();
+    expect(killCalls(h)).toHaveLength(0);
+    expect(getRemoteTab(db, 'tab1')?.killPending).toBe(true);
+  });
+});
+

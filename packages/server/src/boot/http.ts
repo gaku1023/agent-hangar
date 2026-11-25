@@ -33,6 +33,7 @@ import { LocalCodex } from '../provider/codex/compat/version.ts';
 import { LocalOpencode } from '../provider/opencode/compat/version.ts';
 import { nodePtySpawn } from '../pty/nodePty.ts';
 import { PtyRelay } from '../pty/relay.ts';
+import { bootRemoteShell } from './remoteShell.ts';
 import { sessionRunsAnywhere } from '../runs/announce.ts';
 import { resumeHereFor } from '../sync/resumeHere.ts';
 import { compareOpencodeForResume } from '../sync/opencodeResume.ts';
@@ -137,7 +138,9 @@ export function bootHttp(p: {
   const { server, port } = listening;
   // 終了した run の Claude のタブには繋がせない。attachTarget がその判断を持つ。
   // attach が終わったら、画面が閉じたかもしれないので run の見張りを急がせる（待機中の見張りは間が空く）。
-  const relay = new PtyRelay({ token: home.token, port, tmux: runs.mux(), resolveTab: (id) => runs.runs.attachTarget(id)?.tmuxName ?? null, spawn: nodePtySpawn, controlTab: (id) => runs.runs.attachTarget(id)?.kind === 'shell', onExit: () => runs.runs.stir() });
+  // ほかの PC の会話の画面から開く SSH のシェルタブ。relay は tmux のタブより先にこちらへ分ける（手元に tmux が無くても開ける）。
+  const remoteShell = bootRemoteShell({ db, selfId: device.id, spawn: nodePtySpawn, broadcast: (ev) => { delivery.hub.broadcast(ev); } });
+  const relay = new PtyRelay({ token: home.token, port, tmux: runs.mux(), remote: (id) => remoteShell.connector(id), resolveTab: (id) => runs.runs.attachTarget(id)?.tmuxName ?? null, spawn: nodePtySpawn, controlTab: (id) => runs.runs.attachTarget(id)?.kind === 'shell', onExit: () => runs.runs.stir() });
   // 引き継がれて止める claude の端末へ、止める理由の 1 行を差し込めるようにする。
   takeover.setNotePane((tmuxName, text) => { relay.note(tmuxName, text); });
   // 配布版（Tauri のバンドル）では UI の置き場所を環境変数 HANGAR_UI_DIST で受ける。
@@ -253,6 +256,7 @@ export function bootHttp(p: {
     translate,
     orchestratorKeeper: orchestrator,
     peerChat,
+    remoteShell,
     // 同期は起動のあとに始まることがある（boot/sync.ts）。同期の部品は呼ぶたびに引く。
     cloudUsage: { current: () => sync.cloudUsage.current(), refresh: () => sync.cloudUsage.refresh() },
     accounts: runs.accounts,
@@ -350,5 +354,5 @@ export function bootHttp(p: {
   relay.attach(server, '/ws/pty');
   // 経路を握る側は path が違えば黙って返すので、最後に未知の経路を切る番人を置く。
   guardUpgrades(server);
-  return { stopRelay: () => relay.close(), stopPeerChat: () => peerChat.stop(), orchestrator, voice, translator: plamo };
+  return { stopRelay: () => { remoteShell.stop(); relay.close(); }, stopPeerChat: () => peerChat.stop(), orchestrator, voice, translator: plamo };
 }

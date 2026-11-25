@@ -8,7 +8,7 @@ import WebSocket from 'ws';
 import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { hangarMux } from '../tmux/servers.ts';
 import { Tmux, type TmuxExec } from '../tmux/tmux.ts';
-import { PtyRelay, type PtyProcess, type PtySpawn } from './relay.ts';
+import { PtyRelay, type PtyProcess, type PtySpawn, type RemoteShellConnector } from './relay.ts';
 
 type Msg = { t: string; d?: string; message?: string };
 type FakeProc = PtyProcess & { written: string[]; sizes: number[][]; killed: boolean; emitData: (d: string) => void; emitExit: () => void };
@@ -145,6 +145,85 @@ describe('PtyRelay の流量の制御（ack）', () => {
     for (let i = 0; i < 20; i++) p.emitData('x'.repeat(10_000));
     await waitFor(() => msgs.length === 20);
     expect(calls).toEqual([]);
+  });
+});
+
+describe('PtyRelay の SSH のシェルタブ（remote）', () => {
+  type Io = Parameters<RemoteShellConnector['open']>[0];
+  function fakeRemote() {
+    const calls: string[] = [];
+    let io: Io | null = null;
+    const connector: RemoteShellConnector = {
+      open: (i) => {
+        io = i;
+        return {
+          start: async () => { calls.push('start'); i.onStatus({ t: 'remote', phase: 'connecting' }); },
+          retry: async () => { calls.push('retry'); },
+          write: (d) => { calls.push(`write:${d}`); },
+          resize: (c, r) => { calls.push(`resize:${c}x${r}`); },
+          detach: () => { calls.push('detach'); },
+        };
+      },
+    };
+    return { calls, connector, io: () => io! };
+  }
+  async function setup(tmux: Tmux | null) {
+    const r = fakeRemote();
+    const f = fakeSpawn();
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: () => null, spawn: f.spawn, remote: (id) => (id === 'rt1' ? r.connector : null), coalesce: { windowMs: 0, maxBytes: 1 } });
+    await listen(relay);
+    return { r, f };
+  }
+
+  it('tmux が null でも remote のタブは 101 でつながり、札を送る。知らないタブは 404', async () => {
+    const { r, f } = await setup(null);
+    await expect(connect('tab=nope')).rejects.toThrow(/404/);
+    const c = await connect('tab=rt1');
+    await waitFor(() => c.msgs.length === 1);
+    expect(c.msgs[0]).toEqual({ t: 'remote', phase: 'connecting' });
+    expect(r.calls).toEqual(['start']);
+    expect(f.procs).toHaveLength(0);
+    c.ws.close();
+  });
+  it('入力・大きさ・retry を link に渡し、出力は data で送る', async () => {
+    const { r } = await setup(null);
+    const c = await connect('tab=rt1');
+    await waitFor(() => r.calls.length === 1);
+    c.ws.send(JSON.stringify({ t: 'data', d: 'ls\r' }));
+    c.ws.send(JSON.stringify({ t: 'resize', cols: 90, rows: 30 }));
+    c.ws.send(JSON.stringify({ t: 'retry' }));
+    await waitFor(() => r.calls.length === 4);
+    expect(r.calls).toEqual(['start', 'write:ls\r', 'resize:90x30', 'retry']);
+    r.io().onData('hello');
+    await waitFor(() => c.msgs.length === 2);
+    expect(c.msgs[1]).toEqual({ t: 'data', d: 'hello' });
+    c.ws.close();
+  });
+  it('WS を閉じたら link を detach する（相手のセッションは残す）', async () => {
+    const { r } = await setup(null);
+    const c = await connect('tab=rt1');
+    await waitFor(() => r.calls.length === 1);
+    c.ws.close();
+    await waitFor(() => r.calls.includes('detach'));
+  });
+  it('相手のシェルが終わったら 1000 exited で閉じる', async () => {
+    const { r } = await setup(null);
+    const c = await connect('tab=rt1');
+    await waitFor(() => r.calls.length === 1);
+    r.io().onData('bye');
+    r.io().onEnded();
+    expect(await c.closed).toBe(1000);
+    expect(c.msgs.at(-1)).toEqual({ t: 'data', d: 'bye' });
+  });
+  it('remote のタブは tmux のタブより先に分ける', async () => {
+    const r = fakeRemote();
+    const f = fakeSpawn();
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux: new Tmux({ tmuxPath: '/x/tmux', socketName: 'fake' }), resolveTab: () => 'hangar-a', spawn: f.spawn, remote: () => r.connector });
+    await listen(relay);
+    const c = await connect('tab=rt1');
+    await waitFor(() => r.calls.length === 1);
+    expect(f.procs).toHaveLength(0);
+    c.ws.close();
   });
 });
 
