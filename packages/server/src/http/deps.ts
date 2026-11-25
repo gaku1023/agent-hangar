@@ -131,7 +131,7 @@ export type AppDeps = {
   external: ExternalApi;
   /** git の表示。渡さなければ、ここで作る（試験は実物の git を使う）。組み立てる側は、本文の伸びで読み直す同じものを渡す。 */
   git?: GitApi;
-  usage: { current(): UsageDto; ingest(raw: unknown): { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null; accountId: string } | null };
+  usage: { current(): UsageDto; ingest(raw: unknown, configDir?: string | null): { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null; accountId: string } | null };
   summary: SummaryApi;
   /** セッションの削除（sessions/trash.ts）。本文を OS のゴミ箱へ移し、削除の印を書く。 */
   trash: Pick<SessionTrash, 'deleteSession'>;
