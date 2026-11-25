@@ -90,7 +90,7 @@ export const newSessionJa: AreaDictionary<typeof newSessionKeys> = {
   'newSession.investigate.line.code': 'エラーコード：{text}',
   'newSession.investigate.line.files': 'ファイル：{text}',
   'newSession.investigate.line.remoteDevice': '他の PC: {text}',
-  'newSession.investigate.line.remoteAddress': '宛先: {text}',
+  'newSession.investigate.line.remoteAddress': '接続先: {text}',
   'newSession.investigate.line.remoteDetail': 'ssh の最後の 1 行: {text}',
   'newSession.investigate.line.agent': 'エージェント：{text}',
   'newSession.investigate.line.account': 'アカウント：{name}（{dir}）',
