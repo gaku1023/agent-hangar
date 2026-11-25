@@ -1,4 +1,4 @@
-import type { AgentKind, LiveStatus, PeerChatCommand, PeerChatFile, PermissionAskDto, PeerKeyring, ServerEvent, SessionActivityDto, WaitKind } from '@agent-hangar/shared';
+import type { AgentKind, LiveAsideDto, LiveDigestDto, LiveStatus, PeerChatCommand, PeerChatFile, PermissionAskDto, PeerKeyring, ServerEvent, SessionActivityDto, SessionLimitDto, TranscriptEvent, WaitKind } from '@agent-hangar/shared';
 import type { HookDecisions } from '../../sessions/hookDecisions.ts';
 import type { AnswerPane } from './answer.ts';
 import type { TailDeps } from './tail.ts';
@@ -13,6 +13,10 @@ export type HostSession = {
   live: LiveStatus | null;
   /** 本体は入力を受け付けていて、裏の作業（シェル、サブエージェント）だけが動いている（登録の aside）。預かりは止まっているときと同じに渡す。 */
   aside: boolean;
+  /** 登録の aside の中身（裏のシェルとサブエージェントの数）。現在の札の材料に載せる。無ければ裏の中身は分からないものとして読む。 */
+  liveAside?: LiveAsideDto | null;
+  /** 使用制限で止まっていること。現在の札の材料に載せる。 */
+  limit?: SessionLimitDto | null;
   waitingFor: WaitKind | null;
   permission: PermissionAskDto | null;
   activity: SessionActivityDto | null;
@@ -96,6 +100,20 @@ export type PeerChatHostDeps = {
    */
   run(sessionId: string): { tmuxName: string } | null;
   pane(tmuxName: string): HostPane | null;
+  /**
+   * 現在の札（NowCard）の材料を取る口（LiveDigester.digest）。
+   * 無ければ（組み立てが渡さない、古い構成）、状態に札の材料を付けない。見る側は右の欄を出さない。
+   */
+  digest?(sessionId: string): LiveDigestDto;
+  /**
+   * 今のターンの主線の行（呼び出しと答え、頭の発言）。fromSeq は digest.turnStartSeq。
+   * 長いターンは新しい側だけを返し、落とした手の数を dropped に入れる。
+   */
+  turnEvents?(sessionId: string, fromSeq: number | null): { events: TranscriptEvent[]; dropped: number };
+  /** この会話のアーティファクトの数（札のチップ）。 */
+  artifactCount?(sessionId: string): number;
+  /** 設定「ターンの意図と操作の短い説明を送る」（liveHints）が入りか。省けば入り。 */
+  liveHints?(): boolean;
   /**
    * 本文（jsonl）の手がかりと解析の覚え。
    * 許可と質問の札は host が画面から組んで渡す。

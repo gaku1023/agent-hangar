@@ -20,7 +20,7 @@
 import { openPeerPayload, PeerUnknownEpochError, sealPeerPayload, type PeerKeyring, type PeerRoute } from './e2e/peer.ts';
 import { E2eOpenError } from './e2e/seal.ts';
 import { openBytes, sealBytes } from './mobileCrypto.ts';
-import type { PromptCommandDto, PromptCommandSource } from './api.ts';
+import type { LiveAsideDto, LiveDigestDto, PermissionAskDto, PromptCommandDto, PromptCommandSource, SessionActivityDto, SessionLimitDto, WaitKind } from './api.ts';
 import { MOBILE_IMAGE_MAX_BYTES, MOBILE_IMAGES_PER_LAUNCH, MOBILE_REPLY_MAX_BYTES, type MobileImageRef } from './mobile.ts';
 
 /**
@@ -138,6 +138,45 @@ export type PeerChatStatus = (typeof PEER_CHAT_STATUSES)[number];
  */
 export type PeerChatGone = { queueId: string; reason: 'queue-expired' | 'session-unknown' };
 
+
+/**
+ * 現在の札（NowCard）の材料の大きさの上限（バイト）。
+ * 本文の項目を押し出さないよう、札は自前の小さな上限を持つ。超えたら元の PC が縮め、縮めきれなければ付けない。
+ */
+export const PEER_CHAT_CARD_MAX_BYTES = 16 * 1024;
+/** 札の材料に載せる、今のターンの手（呼び出し）の数の上限。札が出すのは直近 30 回までである。 */
+export const PEER_CHAT_CARD_CALLS_MAX = 30;
+
+/**
+ * 札の材料に載せるトランスクリプトの行。
+ * 見る側の presenter（presentNowCard）が読む形のうち、札に要る欄だけを持つ。
+ * tool_call の input は、引数の短い形（argOf）が読む欄だけに縮めてある。
+ */
+export type PeerChatCardEvent =
+  | { kind: 'user'; seq: number; ts?: number; text: string }
+  | { kind: 'tool_call'; seq: number; ts?: number; toolId: string; name: string; input: Record<string, string> }
+  | { kind: 'tool_result'; seq: number; ts?: number; toolId: string; isError: boolean };
+
+/**
+ * 現在の札の材料。見る側が手元の会話と同じ presenter（presentNowCard）に通して札を組む。
+ * aside は本体が入力を受け付けていて裏だけが動いていること（status は busy のまま）。
+ * digest はサブエージェントの行と意図、events は今のターンの頭の発言と直近の手と答え、droppedCalls は events より前に落とした手の数である。
+ * hints は元の PC が意図を書かせる設定か。artifacts は札に出す数である。
+ */
+export type PeerChatCard = {
+  aside: LiveAsideDto | null;
+  digest: LiveDigestDto;
+  turnFrom: number;
+  events: PeerChatCardEvent[];
+  droppedCalls?: number;
+  waitingFor: WaitKind | null;
+  permission: PermissionAskDto | null;
+  limit: SessionLimitDto | null;
+  activity: SessionActivityDto | null;
+  artifacts: number;
+  hints: boolean;
+};
+
 export type PeerChatState = {
   sessionId: string;
   status: PeerChatStatus;
@@ -159,6 +198,11 @@ export type PeerChatState = {
    * 無い（古い相手）ときは目次を頼まない。
    */
   turnCount?: number;
+  /**
+   * 現在の札の材料。実行中の会話にだけ付く。
+   * 無い（古い相手、止まっている会話）ときは、見る側は右の欄を出さない。
+   */
+  card?: PeerChatCard;
 };
 
 /**
@@ -480,6 +524,50 @@ function readQueued(v: unknown): PeerChatQueued | null {
   return { queueId: v.queueId, from: { deviceId: v.from.deviceId, deviceName: v.from.deviceName }, text: v.text, images: v.images, at: v.at, state: v.state };
 }
 
+const nullOr = (f: (x: unknown) => boolean) => (v: unknown): boolean => v === null || f(v);
+const isAgentDto = (a: unknown): boolean => isObj(a) && isStr(a.agentId) && isStr(a.title) && (a.state === 'running' || a.state === 'done' || a.state === 'error')
+  && nullOr(isTime)(a.startedAt) && nullOr(isTime)(a.lastAt) && nullOr(isStr)(a.report) && nullOr(isStr)(a.endNote) && typeof a.linked === 'boolean'
+  && nullOr((l) => isObj(l) && isStr(l.text) && typeof l.mono === 'boolean' && isStr(l.kind) && typeof l.isError === 'boolean')(a.last);
+const isDigest = (d: unknown): d is LiveDigestDto => isObj(d) && isStr(d.sessionId) && nullOr(isTime)(d.turnStartSeq)
+  && nullOr((i) => isObj(i) && isStr(i.text) && isTime(i.at) && isNat(i.stepsSince) && typeof i.inThisTurn === 'boolean')(d.intent)
+  && Array.isArray(d.agents) && d.agents.every(isAgentDto);
+const isCardEvent = (e: unknown): e is PeerChatCardEvent => {
+  if (!isObj(e) || !isTime(e.seq) || !(e.ts === undefined || isTime(e.ts))) return false;
+  if (e.kind === 'user') return isStr(e.text);
+  if (e.kind === 'tool_call') return isStr(e.toolId) && isStr(e.name) && isObj(e.input) && Object.values(e.input).every(isStr);
+  return e.kind === 'tool_result' && isStr(e.toolId) && typeof e.isError === 'boolean';
+};
+
+/**
+ * 札の材料の形を検べる。
+ * 形が違えば null（札だけを捨てる。状態の残りは読む。新旧の版が混ざっても会話の画面を壊さないため）。
+ */
+function readCard(v: unknown): PeerChatCard | null {
+  if (!isObj(v) || !(v.aside === null || (isObj(v.aside) && typeof v.aside.shell === 'boolean' && isNat(v.aside.agents)))) return null;
+  if (!isDigest(v.digest) || !isTime(v.turnFrom) || !Array.isArray(v.events) || !v.events.every(isCardEvent)) return null;
+  if (!(v.droppedCalls === undefined || isNat(v.droppedCalls)) || !isNat(v.artifacts) || typeof v.hints !== 'boolean') return null;
+  if (!(v.waitingFor === null || v.waitingFor === 'permission' || v.waitingFor === 'question' || v.waitingFor === 'other')) return null;
+  const p = v.permission;
+  if (!(p === null || (isObj(p) && isStr(p.tool) && isStr(p.input) && (p.description === null || isStr(p.description))))) return null;
+  const l = v.limit;
+  if (!(l === null || (isObj(l) && (l.kind === 'five_hour' || l.kind === 'weekly' || l.kind === 'other') && isTime(l.resetsAt) && typeof l.auto === 'boolean' && typeof l.reset === 'boolean'))) return null;
+  const a = v.activity;
+  if (!(a === null || (isObj(a) && isStr(a.tool) && isStr(a.summary) && (a.question === null || isStr(a.question))))) return null;
+  const out = v as unknown as PeerChatCard;
+  // 知らない欄は捨てた写しを返す。
+  return {
+    aside: out.aside === null ? null : { shell: out.aside.shell, agents: out.aside.agents },
+    digest: { sessionId: out.digest.sessionId, turnStartSeq: out.digest.turnStartSeq, intent: out.digest.intent, agents: out.digest.agents },
+    turnFrom: out.turnFrom, events: out.events, ...(out.droppedCalls !== undefined ? { droppedCalls: out.droppedCalls } : {}),
+    waitingFor: out.waitingFor, permission: out.permission, limit: out.limit, activity: out.activity, artifacts: out.artifacts, hints: out.hints,
+  };
+}
+
+/** 状態の札の材料を読む。付いていなければ undefined、形が違えば null（札だけ捨てる）。 */
+export function parsePeerChatCard(v: unknown): PeerChatCard | null {
+  return readCard(v);
+}
+
 function readState(v: unknown): PeerChatState | null {
   if (!isObj(v) || !isStr(v.sessionId) || !isStr(v.status) || !STATUSES.has(v.status)) return null;
   if (!Array.isArray(v.items) || !Array.isArray(v.queued) || !(v.cursor === null || isStr(v.cursor)) || typeof v.truncated !== 'boolean') return null;
@@ -498,6 +586,10 @@ function readState(v: unknown): PeerChatState | null {
   if (v.turnCount !== undefined) {
     if (!isNat(v.turnCount)) return null;
     out.turnCount = v.turnCount;
+  }
+  if (v.card !== undefined) {
+    const c = readCard(v.card);
+    if (c) out.card = c;
   }
   return out;
 }
@@ -719,6 +811,8 @@ export type PeerChatUpdate = {
   cursor: string | null;
   /** 渡せずに消えた預かり（今回新しく分かったもの。GET では数分以内のもの全部）。画面は queueId で重ねず、文を入力欄に戻す。 */
   gone?: PeerChatGone[];
+  /** 現在の札の材料（PeerChatState.card）。そのときの全体で、無ければ札は無い。 */
+  card?: PeerChatCard;
   reason?: PeerChatReason;
   /** 元の PC が知らせた全ターンの数。変わったときだけ目次を頼み直す。古い相手は付かない。 */
   turnCount?: number;

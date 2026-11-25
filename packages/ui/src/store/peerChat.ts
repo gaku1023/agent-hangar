@@ -1,5 +1,5 @@
 import { peerAskInsertIndex } from '@agent-hangar/shared';
-import type { PeerChatGone, PeerChatItem, PeerChatLink, PeerChatQueued, PeerChatReason, PeerChatState, PeerChatStatus, PeerChatTargetDto, PeerChatUpdate } from '@agent-hangar/shared';
+import type { PeerChatCard, PeerChatGone, PeerChatItem, PeerChatLink, PeerChatQueued, PeerChatReason, PeerChatState, PeerChatStatus, PeerChatTargetDto, PeerChatUpdate } from '@agent-hangar/shared';
 
 /**
  * ほかの PC の Claude Code の会話を、チャットの形で見ている 1 画面ぶんの状態。
@@ -19,6 +19,8 @@ export type PeerChatSlice = {
   device: PeerChatTargetDto | null;
   link: PeerChatLink;
   status: PeerChatStatus | null;
+  /** 元の PC が送ってきた現在の札の材料。送ってこない（古い相手、止まった会話）ときは null で、画面は右の欄を出さない。 */
+  card: PeerChatCard | null;
   items: PeerChatItem[];
   queued: PeerChatQueued[];
   cursor: string | null;
@@ -41,7 +43,7 @@ export type PeerChatSlice = {
 const MINE_MAX = 20;
 
 export function emptySlice(viewer: string): PeerChatSlice {
-  return { viewers: [viewer], phase: 'loading', fallback: null, device: null, link: 'online', status: null, items: [], queued: [], cursor: null, sending: false, answering: [], picked: {}, rushing: [], locked: false, restore: null, notice: null, mine: {} };
+  return { viewers: [viewer], phase: 'loading', fallback: null, device: null, link: 'online', status: null, card: null, items: [], queued: [], cursor: null, sending: false, answering: [], picked: {}, rushing: [], locked: false, restore: null, notice: null, mine: {} };
 }
 
 /**
@@ -81,13 +83,13 @@ function applyGone(s: PeerChatSlice, gone: PeerChatGone[] | undefined): PeerChat
 export function applyUpdate(s: PeerChatSlice, u: PeerChatUpdate): PeerChatSlice {
   if (u.reason) return { ...s, phase: 'fallback', fallback: u.reason, link: u.link };
   const items = u.replace ? [...u.items] : upsertItems(s.items, u.items);
-  const next: PeerChatSlice = { ...s, phase: 'live', fallback: null, link: u.link, status: u.status ?? s.status, items, queued: u.queued, cursor: u.cursor ?? s.cursor };
+  const next: PeerChatSlice = { ...s, phase: 'live', fallback: null, link: u.link, status: u.status ?? s.status, card: u.card ?? null, items, queued: u.queued, cursor: u.cursor ?? s.cursor };
   return applyGone(next, u.gone);
 }
 
 /** 操作の答えに付いてきた全体（send などの state）を重ねる。項目は重ね書き、状態と預かりは全体の値。 */
 export function applyState(s: PeerChatSlice, st: PeerChatState): PeerChatSlice {
-  return { ...s, status: st.status, items: upsertItems(s.items, st.items), queued: st.queued, cursor: st.cursor ?? s.cursor };
+  return { ...s, status: st.status, card: st.card ?? null, items: upsertItems(s.items, st.items), queued: st.queued, cursor: st.cursor ?? s.cursor };
 }
 
 /** 自分の預かりの文を控える。 */

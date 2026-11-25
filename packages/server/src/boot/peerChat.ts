@@ -10,6 +10,8 @@ import { noteTurnStart } from '../mcp/waitTool.ts';
 import { createPeerChatHost, type PeerChatHost } from '../peer/chat/host.ts';
 import type { HostPane, HostSession, PeerChatHostDeps, PeerChatHostEvent } from '../peer/chat/hostTypes.ts';
 import { createTailCache, dbTranscriptReader } from '../peer/chat/tail.ts';
+import { turnEventsReader } from '../peer/chat/turnEvents.ts';
+import type { LiveDigester } from '../live/digest.ts';
 import { aliveRunForSession } from '../runs/queries.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { HomeParts } from './home.ts';
@@ -44,7 +46,7 @@ export type PeerChatParts = {
 export function bootPeerChat(p: {
   home: Pick<HomeParts, 'db' | 'device' | 'settings' | 'home' | 'language'>;
   runs: { runs: Pick<RunManager, 'sendInput' | 'resumeWith' | 'switchAccount'>; mux: RunsParts['mux']; accounts?: Pick<RunsParts['accounts'], 'store' | 'auth'> };
-  delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub: { broadcast(ev: PeerChatHostEvent): void }; hookDecisions?: PeerChatHostDeps['hookDecisions'] };
+  delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; /** 現在の札の材料（サブエージェントと意図）。無ければ別の PC の画面は右の欄を出さない。 */ digester?: Pick<LiveDigester, 'digest'>; hub: { broadcast(ev: PeerChatHostEvent): void }; hookDecisions?: PeerChatHostDeps['hookDecisions'] };
   sync: Pick<SyncParts, 'peerLink'>;
   now?: () => number;
 }): PeerChatParts {
@@ -61,6 +63,7 @@ export function bootPeerChat(p: {
     if (memo.size > 64) memo.delete(memo.keys().next().value!);
     return s;
   };
+  const artifactCount = db.prepare('select count(distinct v.artifact_id) c from artifact_versions v join artifacts a on a.id = v.artifact_id where v.session_id = ? and v.deleted_at is null and a.deleted_at is null');
   const deviceName = db.prepare('select name from devices where id = ? and deleted_at is null');
   const link = () => p.sync.peerLink();
 
@@ -72,7 +75,7 @@ export function bootPeerChat(p: {
     deviceName: (id) => (deviceName.get(id) as { name: string } | undefined)?.name ?? id.slice(0, 8),
     session: (sessionId): HostSession | null => {
       const s = sessionOf(sessionId);
-      return s ? { provider: s.provider, live: s.live, aside: s.liveAside !== null, waitingFor: s.waitingFor, permission: s.permission, activity: s.activity, cwd: s.cwd, lock: s.lock !== null, newerElsewhere: s.newerElsewhere, remoteOnly: s.remoteOnly, takenOver: s.takenOver !== null } : null;
+      return s ? { provider: s.provider, live: s.live, aside: s.liveAside !== null, liveAside: s.liveAside, limit: s.limit, waitingFor: s.waitingFor, permission: s.permission, activity: s.activity, cwd: s.cwd, lock: s.lock !== null, newerElsewhere: s.newerElsewhere, remoteOnly: s.remoteOnly, takenOver: s.takenOver !== null } : null;
     },
     run: (sessionId) => {
       const run = aliveRunForSession(db, sessionId, deviceId, now());
@@ -88,6 +91,10 @@ export function bootPeerChat(p: {
         sendText: (text) => panes.sendText(tmuxName, text),
       };
     },
+    ...(p.delivery.digester ? { digest: (id: string) => p.delivery.digester!.digest(id) } : {}),
+    turnEvents: turnEventsReader(db),
+    artifactCount: (id) => (artifactCount.get(id) as { c: number }).c,
+    liveHints: () => p.home.settings.current.liveHints !== false,
     readTranscript: dbTranscriptReader(db),
     cache: createTailCache(),
     // 貼る前に印を残す。

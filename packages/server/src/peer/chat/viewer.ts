@@ -27,6 +27,7 @@ import {
   type PeerChatState,
   type PeerChatStatus,
   type PeerChatTargetDto,
+  type PeerChatCard,
   type PeerChatUpdate,
   type PeerChatViewDto,
   type PeerKeyring,
@@ -231,6 +232,9 @@ class Watch {
   rewound = false;
   /** 元の PC の起動ごとの印（state.hostId）。替われば再起動である。 */
   private hostId: string | null = null;
+  /** 元の PC が最後に送った現在の札の材料。送ってこなければ（古い相手、止まった会話）null。 */
+  card: PeerChatCard | null = null;
+  private cardSig = '';
   /** この PC が預けて、まだ預かりにあると知っている（または send の答えで知った）文の queueId。再起動で消えた文を見つけるために持つ。 */
   private readonly mine = new Set<string>();
   private readonly goneSeen = new Map<string, { reason: PeerChatGone['reason']; at: number }>();
@@ -383,6 +387,9 @@ class Watch {
     }
     if (s.status !== this.status) { this.status = s.status; changed = true; }
     if (s.turnCount !== undefined && s.turnCount !== this.turnCount) { this.turnCount = s.turnCount; changed = true; }
+    // 札の材料は全体の値で、変われば（サブエージェントの出入り、裏だけへの移り、新しい手）項目が無くても流す。
+    const cardSig = s.card ? JSON.stringify(s.card) : '';
+    if (cardSig !== this.cardSig) { this.cardSig = cardSig; this.card = s.card ?? null; changed = true; }
     if (sigOf(s.queued) !== sigOf(this.queued)) { this.queued = s.queued; changed = true; }
     // 渡せずに消えた預かり。元の PC は同じ印を数分のあいだ繰り返すので、queueId で覚えて 1 度だけ流す。
     for (const [id, g] of this.goneSeen) if (now - g.at > PEER_CHAT_GONE_KEEP_MS) this.goneSeen.delete(id);
@@ -423,6 +430,8 @@ class Watch {
     this.startedAfter = null;
     this.status = null;
     this.turnCount = null;
+    this.card = null;
+    this.cardSig = '';
     this.queued = [];
     this.hostId = null;
     this.mine.clear();
@@ -433,13 +442,13 @@ class Watch {
   update(items: PeerChatItem[], replace: boolean, reason?: PeerChatReason): PeerChatUpdate {
     const gone = this.freshGone;
     this.freshGone = [];
-    return { sessionId: this.sessionId, link: this.link, replace, status: this.status, items, queued: this.queued, cursor: this.cursor, ...(this.turnCount !== null ? { turnCount: this.turnCount } : {}), ...(gone.length ? { gone } : {}), ...(reason ? { reason } : {}) };
+    return { sessionId: this.sessionId, link: this.link, replace, status: this.status, items, queued: this.queued, cursor: this.cursor, ...(this.turnCount !== null ? { turnCount: this.turnCount } : {}), ...(gone.length ? { gone } : {}), ...(this.card ? { card: this.card } : {}), ...(reason ? { reason } : {}) };
   }
 
   snapshot(now: number): PeerChatUpdate {
     const gone = this.recentGone(now);
     this.freshGone = [];
-    return { sessionId: this.sessionId, link: this.link, replace: this.replace, status: this.status, items: [...this.items.values()], queued: this.queued, cursor: this.cursor, ...(this.turnCount !== null ? { turnCount: this.turnCount } : {}), ...(gone.length ? { gone } : {}) };
+    return { sessionId: this.sessionId, link: this.link, replace: this.replace, status: this.status, items: [...this.items.values()], queued: this.queued, cursor: this.cursor, ...(this.turnCount !== null ? { turnCount: this.turnCount } : {}), ...(gone.length ? { gone } : {}), ...(this.card ? { card: this.card } : {}) };
   }
 }
 

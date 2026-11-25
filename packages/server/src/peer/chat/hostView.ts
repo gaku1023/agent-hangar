@@ -1,6 +1,9 @@
 import { PEER_CHAT_REPLY_SEALED_MAX, peerAskBase, peerAskInsertIndex, type PeerChatAsk, type PeerChatAskStep, type PeerChatDevice, type PeerChatGone, type PeerChatItem, type PeerChatQueued, type PeerChatState, type PeerChatStatus } from '@agent-hangar/shared';
+import { createHash } from 'node:crypto';
+import { buildPeerChatCard } from './hostCard.ts';
 import { dialogMatches, isCommandTitle, parseDialog, strip, type Dialog, type DialogStep } from './answer.ts';
 import type { HostPane, HostSession } from './hostTypes.ts';
+import type { LiveDigestDto, PeerChatCard, TranscriptEvent } from '@agent-hangar/shared';
 import { currentPendingAsk, onlyRepliesBetween, peerAskId, transcriptPosition, transcriptTail, transcriptTurnCount, type PeerPendingAsk, type TailDeps } from './tail.ts';
 
 /**
@@ -58,6 +61,11 @@ export type ViewDeps = {
   session(sessionId: string): HostSession | null;
   run(sessionId: string): { tmuxName: string } | null;
   pane(tmuxName: string): HostPane | null;
+  /** 現在の札の材料の口（hostTypes.ts の PeerChatHostDeps と同じ）。digest が無ければ札を付けない。 */
+  digest?(sessionId: string): LiveDigestDto;
+  turnEvents?(sessionId: string, fromSeq: number | null): { events: TranscriptEvent[]; dropped: number };
+  artifactCount?(sessionId: string): number;
+  liveHints?(): boolean;
   tail: Omit<TailDeps, 'pendingAsk'>;
   queued(sessionId: string): PeerChatQueued[];
   /** この PC（手元で札に答えた記録の by に使う）。 */
@@ -231,6 +239,23 @@ export class ChatView {
   askItem(sessionId: string, askId: string): PeerChatItem | null {
     const last = transcriptTail(sessionId, null, 1, this.freshDeps).items.at(-1);
     return last?.ask?.askId === askId ? last : null;
+  }
+
+  /**
+   * 現在の札（NowCard）の材料。
+   * 動いている会話で、digest の口があるときだけ。無ければ undefined（見る側は右の欄を出さない）。
+   * 組み立ては見る側の presenter に任せ、ここは材料を刈って渡すだけである（hostCard.ts）。
+   */
+  card(sessionId: string): PeerChatCard | undefined {
+    const session = this.d.session(sessionId);
+    if (!this.d.digest || !session || this.status(sessionId) === 'stopped') return undefined;
+    let card: PeerChatCard | null = null;
+    try {
+      const digest = this.d.digest(sessionId);
+      const t = this.d.turnEvents?.(sessionId, digest.turnStartSeq) ?? { events: [], dropped: 0 };
+      card = buildPeerChatCard({ session, digest, events: t.events, dropped: t.dropped, artifacts: this.d.artifactCount?.(sessionId) ?? 0, hints: this.d.liveHints?.() ?? true });
+    } catch { card = null; }
+    return card ?? undefined;
   }
 
   status(sessionId: string): PeerChatStatus {
@@ -411,9 +436,13 @@ export class ChatView {
     const gone = this.gone.filter((g) => g.sessionId === sessionId && g.deviceId === deviceId).map((g) => g.gone);
     const status = this.status(sessionId);
     const queued = this.d.queued(sessionId).map((q) => ({ ...q, text: clipText(q.text, QUEUED_TEXT_MAX_BYTES) }));
-    const sig = JSON.stringify([status, queued.map((q) => [q.queueId, q.state]), this.answers.filter((a) => a.sessionId === sessionId).map((a) => a.askId), gone.map((g) => g.queueId), this.pendingAsk(sessionId, false)?.answerable === false]);
+    const card = this.card(sessionId);
+    // 札の材料が変わったら（サブエージェントの出入り、裏だけへの移り、新しい手）、本文が変わらなくても待ちを返す。
+    const cardSig = card ? createHash('sha1').update(JSON.stringify(card)).digest('base64') : null;
+    const sig = JSON.stringify([status, queued.map((q) => [q.queueId, q.state]), this.answers.filter((a) => a.sessionId === sessionId).map((a) => a.askId), gone.map((g) => g.queueId), this.pendingAsk(sessionId, false)?.answerable === false, cardSig]);
     const state: PeerChatState = { sessionId, status, items, queued, cursor: t.cursor, truncated: t.truncated, hostId: this.d.hostId, turnCount: transcriptTurnCount(sessionId, this.tailDeps) };
     if (gone.length > 0) state.gone = gone;
+    if (card) state.card = card;
     return { state: fit(state), hasNew: t.items.length > 0, sig };
   }
 

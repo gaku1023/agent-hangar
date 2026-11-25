@@ -1132,3 +1132,36 @@ describe('ops', () => {
     expect(updates().at(-1)!.items.map((i) => [i.uuid, !!i.ask?.answered])).toEqual([['u1@ask:A', true]]);
   });
 });
+
+describe('現在の札の材料（card）', () => {
+  const card = (agents: number) => ({
+    aside: null, turnFrom: 1, events: [], waitingFor: null, permission: null, limit: null, activity: null, artifacts: 0, hints: true,
+    digest: { sessionId: SID, turnStartSeq: 1, intent: null, agents: Array.from({ length: agents }, (_, i) => ({ agentId: `a${i}`, title: 't', state: 'running' as const, startedAt: 1, lastAt: null, last: null, report: null, endNote: null, linked: true })) },
+  });
+
+  it('札の材料を update に載せる。項目が無くても、札の材料が変われば流し、同じなら流さない', async () => {
+    answers.push(() => ok(state([item('u1')], { card: card(0) })));
+    answers.push(() => ok(state([], { cursor: 'u1', card: card(0) })));
+    answers.push(() => ok(state([], { cursor: 'u1', card: card(1) })));
+    await viewer.open(SID, { viewer: 'v1' });
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    expect(updates().map((u) => [u.items.length, u.card?.digest.agents.length])).toEqual([[1, 0], [0, 1]]);
+  });
+
+  it('札の材料を送ってこない相手（古い hangar）では、update に card を付けない。付いていた札は外れる', async () => {
+    answers.push(() => ok(state([item('u1')], { card: card(0) })));
+    answers.push(() => ok(state([], { cursor: 'u1' })));
+    await viewer.open(SID, { viewer: 'v1' });
+    await clock.advance(PEER_CHAT_MIN_GAP_MS);
+    const ups = updates();
+    expect(ups[0]!.card).toBeDefined();
+    expect('card' in ups[1]!).toBe(false);
+  });
+
+  it('GET（snapshot）にも最後の札の材料を載せる', async () => {
+    answers.push(() => ok(state([item('u1')], { card: card(2) })));
+    const r = await viewer.open(SID, { viewer: 'v1' });
+    expect(r).toMatchObject({ ok: true, update: { card: { digest: { agents: [{}, {}] } } } });
+  });
+});
