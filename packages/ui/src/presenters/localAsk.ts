@@ -1,4 +1,4 @@
-import type { PeerChatAsk, Translate } from '@agent-hangar/shared';
+import { FOLDER_TRUST_TOOL, type PeerChatAsk, type Translate } from '@agent-hangar/shared';
 import type { Store } from '../store/store.ts';
 import { answeredText, askModelOf, type AskCardModel } from './peerChat.ts';
 
@@ -25,5 +25,5 @@ export function presentLocalAskBand(store: Store, sessionId: string | null, t: T
 
 /** 答えが通ったあとの記録の文（「Mac で 1 回だけ許可」）。 */
 export function localAnsweredLine(t: Translate, ask: PeerChatAsk, label: string, device: string): string {
-  return answeredText(t, ask.kind, ask.secret === true, device, label);
+  return answeredText(t, ask.tool === FOLDER_TRUST_TOOL ? 'question' : ask.kind, ask.secret === true, device, label);
 }

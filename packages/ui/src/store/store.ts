@@ -105,6 +105,7 @@ export type Store = {
   peerChat: Record<string, PeerChatSlice>;
   /** ほかの PC の会話の札にこの PC から答えて、相手の返事を待たずに待ちを外している会話（store/peerAnswer.ts）。 */
   peerAnswered: Record<string, PeerAnswerHold>;
+  /** フォルダの信頼の確認へ答えを送っている会話（札の二度押しを止める。断られたら外す）。 */
   /** この PC の会話の、いま出ている札（store/localAsk.ts）。bootstrap の peerAsks と session.ask で入る。 */
   localAsks: Record<string, LocalAsk>;
   /** 統括の柱が読む状態（store/orchestrator.ts）。 */

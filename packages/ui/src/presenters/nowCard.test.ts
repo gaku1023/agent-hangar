@@ -25,6 +25,10 @@ describe('現在の札の止まっている理由（試作 stop-reason-proto の
     expect(s).toMatchObject({ tone: 'wait', state: '許可待ち', sub: '4 分', detail: null, question: false });
     expect(s.stop).toEqual({ kind: 'permission', head: 'Claude が求めている許可 · Bash', command: 'rm -rf ./build/cache', why: '古いキャッシュを消す', hint: 'ターミナルで許可するか拒否してください' });
   });
+  it('ディレクトリの信頼の確認は、道具の名前ではなく「ディレクトリの信頼」とパスで出す', () => {
+    const s = present({ live: 'waiting', reason: 'permission', permission: { tool: 'FolderTrust', input: '/w/app', description: null } });
+    expect(s.stop).toMatchObject({ kind: 'permission', head: 'ディレクトリの信頼', command: '/w/app', why: null });
+  });
   it('許可の中身が届いていなければ、ターミナルに出ていると言う', () => {
     expect(present({ live: 'waiting', reason: 'permission', permission: null }).stop).toEqual({ kind: 'permission', head: 'Claude が求めている許可', command: null, why: null, hint: '何の許可かはターミナルに表示されています。hangar の外で起動したセッションからは内容を取得できません。' });
   });

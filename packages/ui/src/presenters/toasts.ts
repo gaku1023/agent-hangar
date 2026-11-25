@@ -1,6 +1,6 @@
 import { overlayReplaceable } from '../mediator/overlay.ts';
 import type { State, Toast } from '../mediator/types.ts';
-import { providerFactOf, settingsSectionOf, stopReasonOf, type Translate } from '@agent-hangar/shared';
+import { permissionToolLabel, providerFactOf, settingsSectionOf, stopReasonOf, type Translate } from '@agent-hangar/shared';
 import { PERMISSION_BYPASS, permissionLabel } from '../views/primitives/permissionModel.ts';
 import { projectDisplayName } from './projectName.ts';
 import { presentSessionMenu, type SessionMenuStop } from './sessionMenu.ts';
@@ -164,7 +164,7 @@ export function presentToasts(state: State, store: Store, now: number): ToastsPr
     if (!s || shownOnScreen(state, id)) return [];
     const reason = stopReasonOf(s);
     const name = s.name ?? t('common.label.noName');
-    if (reason === 'permission') return [{ sessionId: s.id, name, waited: durationLabel(t, now - (s.lastActivityAt ?? now)), question: null, reason, ask: s.permission ? { tool: s.permission.tool, input: s.permission.input } : null }];
+    if (reason === 'permission') return [{ sessionId: s.id, name, waited: durationLabel(t, now - (s.lastActivityAt ?? now)), question: null, reason, ask: s.permission ? { tool: permissionToolLabel(t, s.permission.tool), input: s.permission.input } : null }];
     if (reason === 'reset') return [{ sessionId: s.id, name, waited: durationLabel(t, Math.max(0, now - (s.limit?.resetsAt ?? now))), question: t('stop.notify.reset'), reason, ask: null }];
     return [{ sessionId: s.id, name, waited: durationLabel(t, now - (s.lastActivityAt ?? now)), question: s.activity?.question ?? null, reason: null, ask: null }];
   });

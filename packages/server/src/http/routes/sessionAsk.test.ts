@@ -54,6 +54,13 @@ describe('POST /api/sessions/:id/ask/answer', () => {
     expect(answers).toEqual([{ id: 's1', askId: 'A1', keys: ['once'], text: 'x' }]);
     expect(changed).toEqual(['s1']);
   });
+  it('ディレクトリの信頼の札も、同じ口で読み、答えは同じ answerer（host.local.answer）へ渡る', async () => {
+    ask = { askId: 'T1', kind: 'permission', tool: 'FolderTrust', input: '/w/app', options: [{ key: '1', label: 'Yes, I trust this folder' }, { key: '2', label: 'No, exit' }], multi: false, allowText: false };
+    expect(await (await get()).json()).toEqual(ask);
+    result = { ok: true, label: 'Yes, I trust this folder' };
+    expect(await (await post({ askId: 'T1', keys: ['1'] })).json()).toEqual({ ok: true, label: 'Yes, I trust this folder' });
+    expect(answers).toEqual([{ id: 's1', askId: 'T1', keys: ['1'] }]);
+  });
   it('断りも 200 の本文で、peer chat と同じ理由の値のまま返す', async () => {
     for (const reason of ['ask-mismatch', 'already-answered', 'session-unknown'] as const) {
       result = { ok: false, reason };

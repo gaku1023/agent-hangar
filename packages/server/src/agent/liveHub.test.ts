@@ -102,3 +102,17 @@ describe('LiveHub', () => {
     expect(new LiveHub().enrich([entry('s1')])).toEqual([entry('s1')]);
   });
 });
+
+describe('LiveHub と信頼の確認の行', () => {
+  const trust = (sessionId: string): LiveSessionDto => ({ sessionId, status: 'waiting', name: null, nameSource: null, cwd: '/w', pid: 0, waitingFor: 'permission', permission: { tool: 'FolderTrust', input: '/w', description: null } });
+  it('登録の行が無ければ確認の行を載せ、同じ会話の登録の行が現れたら確認の行を捨てる', () => {
+    const reg = fakeSource([]);
+    const tr = fakeSource([trust('s1')]);
+    const hub = new LiveHub();
+    hub.add(reg.source);
+    hub.add(tr.source);
+    expect(hub.current()).toEqual([trust('s1')]);
+    reg.set([entry('s1', 7)]);
+    expect(hub.current()).toEqual([entry('s1', 7)]);
+  });
+});

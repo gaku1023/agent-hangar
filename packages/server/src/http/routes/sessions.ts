@@ -31,7 +31,7 @@ import { wokeSince } from '../../sessions/wake.ts';
 import { wakePaused } from '../../sessions/wakePaused.ts';
 
 /** セッションの経路が使う依存。 */
-export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh' | 'trash' | 'schedules' | 'events' | 'retention' | 'wakeOwner'> & LanguageDeps;
+export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh' | 'trash' | 'schedules' | 'events' | 'retention' | 'wakeOwner' | 'askLocal'> & LanguageDeps;
 
 /** セッションの状態として受け付ける値。Active は null で表す。 */
 const SESSION_STATUSES = new Set(['paused', 'done', 'archived']);

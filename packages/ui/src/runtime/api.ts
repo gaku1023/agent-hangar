@@ -281,6 +281,7 @@ export type ApiClient = {
   /** いま前に出して見ている会話を送る（null は見ていない）。client は画面ごとの鍵。古いサーバでは 404 になるだけで、呼ぶ側は捨てる。 */
   viewing?(client: string, sessionId: string | null): Promise<void>;
   markUnread(sessionId: string): Promise<void>;
+  /** フォルダの信頼の確認へ答える。札の askId を取り直し、key（Yes が 1、No が 2）を送る。札が無い、断られたときは投げる。 */
   setPinned(sessionId: string, pinned: boolean): Promise<void>;
   setMuted(sessionId: string, muted: boolean): Promise<void>;
   launchSettings(sessionId: string): Promise<SessionLaunchSettingsDto>;

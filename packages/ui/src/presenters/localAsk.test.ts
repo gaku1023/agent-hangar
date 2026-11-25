@@ -44,6 +44,13 @@ describe('presentLocalAsk', () => {
     expect(presentLocalAsk(s, 's1', t(s))!.reason).toBe('テスト用のファイルを作るため');
   });
 
+  it('ディレクトリの信頼の札は、題名が「ディレクトリの信頼」で、答えの記録は質問の形（「」つき）になる', () => {
+    const trust = ask({ askId: 'a2', tool: 'FolderTrust', input: '/w/app', options: [{ key: '1', label: 'Yes, I trust this folder' }, { key: '2', label: 'No, exit' }] });
+    const s = askUpdated(base(), 's1', trust);
+    expect(presentLocalAsk(s, 's1', t(s))).toMatchObject({ title: 'ディレクトリの信頼', input: '/w/app', options: [{ key: '1' }, { key: '2' }] });
+    expect(localAnsweredLine(t(s), trust, 'Yes, I trust this folder', 'Mac')).toBe('Mac で「Yes, I trust this folder」');
+  });
+
   it('帯は会話の id と札を持つ', () => {
     const s = askUpdated(base(), 's1', ask());
     expect(presentLocalAskBand(s, 's1', t(s))).toMatchObject({ sessionId: 's1', row: { askId: 'a1' } });

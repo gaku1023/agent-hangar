@@ -1,4 +1,5 @@
-import type { PeerChatAsk, PeerChatRefusal } from '@agent-hangar/shared';
+import { FOLDER_TRUST_TOOL, type PeerChatAsk, type PeerChatRefusal } from '@agent-hangar/shared';
+import { parseTrustDialog, trustMoves } from '../../provider/claude-code/screen/trustDialog.ts';
 import type { PaneKey, PaneOps } from '../../tmux/pane.ts';
 import type { HookChoice } from '../../sessions/hookDecisions.ts';
 import { hookChoiceOf } from './hookAnswer.ts';
@@ -785,6 +786,9 @@ export function createPeerAnswerer(deps: PeerAnswererDeps): PeerAnswerer {
     if (chosen.some((o) => !o)) return refuse('ask-mismatch');
     const labels = chosen.map((o) => o!.label);
 
+    // 会話の前に出るフォルダの信頼の確認は、番号が無い形があり、hook も無い。専用の道で答える。
+    if (ask.tool === FOLDER_TRUST_TOOL) return answerTrust(pane, ask, keys[0]!, labels[0]!, refuse);
+
     const dialog = parseDialog(pane.capture());
     const cwd = deps.cwd?.(runId) ?? null;
     if (!dialog || !dialogMatches(ask, dialog, cwd)) {
@@ -877,6 +881,34 @@ export function createPeerAnswerer(deps: PeerAnswererDeps): PeerAnswerer {
     // 質問が複数ある札の問いに答えたら、確認のタブが出たときだけ続けて送る。
     if (dialog.step && !dialog.step.submit) await submitWhenAllAnswered(pane);
     return { ok: true, label: [...labels, ...(hasText ? [text!] : [])].join(', ') };
+  }
+
+  /**
+   * フォルダの信頼の確認に答える。画面を読み直し、確認が同じフォルダのもので、選んだ行がそこにあるときだけ打つ。
+   * カーソルのある行と選んだ行の差だけ up か down を送り、カーソルが選んだ行に着いたのを確かめてから Enter を送る。
+   * 番号の無い画面があるので、番号のキーは使わない。確認が画面から消えたら答えたことにする（No は claude が終わる）。
+   * カーソルが読めないときは、何も打たずに断る（No に当たると claude が終わる）。
+   */
+  async function answerTrust(pane: AnswerPane, ask: PeerChatAsk, key: string, label: string, refuse: (r: AnswerRefusal, sent?: boolean) => AnswerResult): Promise<AnswerResult> {
+    const d = parseTrustDialog(pane.capture());
+    if (!d || strip(d.path) !== strip(ask.input ?? '')) return refuse('ask-mismatch');
+    const row = d.options.find((o) => o.key === key);
+    const to = d.options.findIndex((o) => o.key === key);
+    if (!row || strip(row.label) !== strip(label)) return refuse('ask-mismatch');
+    const moves = trustMoves(d, key);
+    if (!moves) return refuse('ask-mismatch');
+    remember(ask.askId);
+    for (let i = 0; i < moves.count; i++) pane.sendKey(moves.key);
+    if (moves.count > 0 && !(await waitUntil(pane, (s) => parseTrustDialog(s)?.cursor === to, CLOSE_WAIT_MS))) return refuse('ask-mismatch', true);
+    pane.sendKey('enter');
+    // 確認が閉じたことを確かめる。No で claude が終わると画面も無くなるので、読めなくなったことも閉じたとみなす。
+    for (let waited = 0; ; waited += CLOSE_STEP_MS) {
+      let screen = '';
+      try { screen = pane.capture(); } catch { return { ok: true, label }; }
+      if (parseTrustDialog(screen) === null) return { ok: true, label };
+      if (waited >= CLOSE_WAIT_MS) return refuse('ask-mismatch', true);
+      await sleep(CLOSE_STEP_MS);
+    }
   }
 
   /**

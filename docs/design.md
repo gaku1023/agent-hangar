@@ -2779,7 +2779,8 @@ tmux の新しいセッションは、`PATH` のほかは tmux サーバの全�
 利用者が立てる設定（`CLAUDE_CONFIG_DIR`、`CLAUDE_CODE_USE_BEDROCK`、`CLAUDE_CODE_EFFORT_LEVEL`、`ANTHROPIC_*` など）は外さない。
 シェルタブも、同じ名前を `env -u` で外してからログインシェルを起こす。Windows の PowerShell の前には `env` を置けないので、Windows のシェルタブは外さない。
 hangar のセッションでは `tmux set-option -t <name> status off` でステータス行を隠す。
-まだ信頼していないディレクトリで Claude を起動すると最初に信頼確認ダイアログが出るので、起動直後はターミナルを前面に出し、ダイアログが出ている旨を表示する。
+まだ信頼していないディレクトリで Claude を起動すると最初に信頼確認ダイアログが出る。
+この間は登録も本文も無いので、hangar が画面を読んで入力待ち（waitingFor が permission、道具が FolderTrust）として扱い、別の PC からも答えられる札にする（「フォルダの信頼」の節の「確認が出たとき」）。
 クイックセッションの置き場と、同意を得た作業フォルダでは、hangar が前もって信頼済みにするので出ない（「フォルダの信頼」の節）。
 node-pty の prebuild は補助バイナリ `spawn-helper` に実行権限が無い状態で展開されることがあるため、サーバの起動時に権限を確認して直し、spawn の失敗は捕まえて接続だけを閉じる。
 tmux は `which tmux` で得た絶対パスを設定に保存して spawn する。
@@ -4026,6 +4027,21 @@ hangar は、次の置き場で claude を起こす直前に、起こすアカ�
 控えは `~/.agent-hangar/backups/claude.json-trust-<時刻>` の名前で取り、新しいものから 5 つだけ残して古いものを消す。MCP の登録の控え（`claude.json-<時刻>`）には触らない。
 設定ファイルが無い置き場（まだ一度も claude を起こしていないアカウント）には作らない。登録しただけで置き場のフォルダがまだ無いアカウントも同じく、書かずに「設定ファイルが無い」として返す。Claude Code の初回の流れより先にファイルを置かないためで、そのときは claude がいつもどおり尋ねる。
 書けなくても（ロックが取れない、JSON が壊れているなど）起動は止めない。
+
+##### 確認が出たとき
+
+前もって信頼を書けなかったフォルダ（同意の無い作業フォルダ、書き込みに失敗した置き場）では、claude が会話の前に確認を出し、答えるまで登録（`~/.claude/sessions`）も本文も作らない。
+画面は 2 つの形がある。2.x は番号が無く、カーソルの初期位置が `No, exit` にある（`Enter to confirm · Esc to cancel`）。2.1.295 ごろは `1. Yes, I trust this folder` と `2. No, exit` の番号付きである。
+`parseTrustDialog`（`provider/claude-code/screen/trustDialog.ts`）が両方を読み、フォルダのパス、選択肢の行（ラベルは画面そのまま）、カーソルのある行を返す。選択肢の key は、番号の有無や並びによらず Yes が 1、No が 2 である。
+
+- **見張り**：`RunManager.launch` が Claude Code の run を起こした後、`watchTrustDialog`（`runs/folderTrust.ts`）で画面を約 1.5 秒ごとに読む。登録の行（`claude.live`）が現れるか run が終わったら止める。
+- **live への重ね**：確認が出ている間、`FolderTrustLive`（`LiveHub` の写しの 1 つ）が、その会話に入力待ちの行（`waiting`、waitingFor は `permission`、`permission.tool` は `FolderTrust`、input はパス、pid は 0）を足す。登録の行が現れたら `LiveHub` が重なった確認の行を捨てる。pid 0 の行は `linkRegistry` が run の pid に書かない。この行は実行中の一覧を通るので、サイドバーの入力待ち、`runs.live_status`（別の PC への配信、`shareLive`）、デスクトップ通知が、ふつうの許可待ちと同じ道で動く。
+- **札**：別の PC へ配る札は `PeerPendingAsk`（`kind` は `permission`、`tool` は `FolderTrust`、`input` はパス、`options` は画面の行のラベル）で、`pendingAskFrom` が画面から組む。新しい `kind` は足さない（古い見る側の検証が答え全体を断るため）。本文が無くても札の項目は `items` に載り、状態は `waiting` になる。
+- **答え**：番号の無い画面があるので、`answerAsk` はこの札だけ番号のキーを使わない。画面を読み直し、フォルダのパスと選んだ行が札と合うことを確かめ、カーソルの行との差だけ `up` か `down` を打ち、カーソルが着いたのを確かめてから `Enter` を打つ。確認が画面から消えたら答えたことにする（`No, exit` は claude が終わる）。カーソルが読めないときは何も打たずに断る。PermissionRequest の hook は無いので、hook の答えは使わない。
+- **手元の画面**：手元の会話の札と同じ道（`boot/askWatch.ts` が流す `session.ask`、答えは `POST /api/sessions/:id/ask/answer`）を通る。専用の口は持たない。答えは別の PC と同じ答え手と記録を通るので、同じ札に 2 度は打たない。MCP の `answer_ask` と mobile の札も同じ答え手を通る。
+- **画面の見せ方**：札は題名を「ディレクトリの信頼」、本文をパス、選択肢を画面のラベルのまま「1. Yes, I trust this folder」「2. No, exit」とする。答えた後の一行は質問の札と同じ形（`{device} で「{label}」`）で、許可の語（許可、拒否）には直さない。別の PC の会話の画面は `PeerChatCard` がそのまま描く。
+  手元の会話の画面は、ほかの手元の札と同じ共通の帯（`AskBand`、ターミナルのタブの上にも出る）に、`AskCard` の札を出す（`presentLocalAsk`。題名は `stop.folder.trust`、答えた後の一行は `localAnsweredLine` が質問の形にする）。live がまだ無い起動直後は、今までの「信頼確認が出たらターミナルで回答」の帯のままである。
+  道具の名前（`FolderTrust`）は利用者に見せない。右の欄の現在の札、ホームの行、知らせの札、統括の許可の行、デスクトップ通知は、`permissionToolLabel`（shared の `stopReason.ts`）で「フォルダの信頼」（en は `Folder trust`）に言い換える。
 
 作業フォルダの信頼は、セットアップのすゝめが利用者の同意を取ってから `hangar workspace set <dir> --trust` で頼む（`POST /api/workspace/trust`）。
 サーバは同意を設定（`trustedWorkspaceRoot`）に残し、作業フォルダそのものと直下の git のリポジトリを、登録したアカウントの全部の `.claude.json` に書く（`trustWorkspaceFolders`）。

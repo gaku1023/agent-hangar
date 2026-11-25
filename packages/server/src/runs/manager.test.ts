@@ -32,6 +32,7 @@ import { claudeDriverFor } from '../boot/agents.ts';
 import { claudeTranscriptSource } from '../provider/claude-code/transcript/source.ts';
 import { liveSourceOf } from '../../test/fake-live.ts';
 import { RunAccounts } from './accounts.ts';
+import { FolderTrustLive } from './folderTrust.ts';
 import { RUN_STIR_MS, RunManager } from './manager.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { realProcOps, type ProcOps } from '../provider/claude-code/process/procs.ts';
@@ -3146,6 +3147,86 @@ describe('Remote Control の URL を画面から拾う（tmux 不要）', () => 
     rm.resume(id);
     await timers.advance(2_000);
     expect(rows()).toEqual([{ session_id: id, url: URL_A, at: timers.now }]);
+  });
+});
+
+describe('フォルダの信頼の確認を見張る（tmux 不要）', () => {
+  const TRUST = ' Accessing workspace:\n\n D:\\workspace\\ops\n\n Quick safety check: Is this a project you created or one you trust?\n\n ❯ No, exit\n   Yes, I trust this folder\n\n Enter to confirm · Esc to cancel\n';
+  const trustPanes = (state: { screen: string; reads: number }) => {
+    const panes: PaneOps = {
+      open: () => {}, close: () => {}, list: () => [], sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {},
+      capture: () => { state.reads++; return state.screen; },
+    };
+    return panes;
+  };
+  const psid = (sessionId: string) => (db.prepare('select provider_session_id p from sessions where id = ?').get(sessionId) as { p: string }).p;
+
+  it('登録が無い間、1.5 秒ごとに画面を読み、確認を入力待ちの行として載せる。画面から消えたら外す', async () => {
+    const timers = new FakeTimers();
+    const state = { screen: 'starting', reads: 0 };
+    const trustLive = new FolderTrustLive();
+    const rm = make({ panes: trustPanes(state), timers, trustLive });
+    const r = await rm.start({ projectId: 'p1' });
+    await timers.advance(1_500);
+    expect(trustLive.current()).toEqual([]);
+    state.screen = TRUST;
+    await timers.advance(1_500);
+    expect(trustLive.current()).toMatchObject([{ sessionId: psid(r.sessionId), status: 'waiting', waitingFor: 'permission', permission: { tool: 'FolderTrust', input: 'D:\\workspace\\ops' } }]);
+    state.screen = '❯ ';
+    await timers.advance(1_500);
+    expect(trustLive.current()).toEqual([]);
+  });
+
+  it('登録が現れたら外して止まる', async () => {
+    const timers = new FakeTimers();
+    const state = { screen: TRUST, reads: 0 };
+    const trustLive = new FolderTrustLive();
+    let registered = false;
+    const rm = make({ panes: trustPanes(state), timers, trustLive, live: () => (registered ? [{ sessionId: psidNow(), status: 'idle', name: null, nameSource: null, cwd, pid: 9 }] : []) });
+    const psidNow = () => (db.prepare('select provider_session_id p from sessions order by rowid desc limit 1').get() as { p: string }).p;
+    await rm.start({ projectId: 'p1' });
+    await timers.advance(1_500);
+    expect(trustLive.current()).toHaveLength(1);
+    registered = true;
+    await timers.advance(1_500);
+    expect(trustLive.current()).toEqual([]);
+    expect(timers.pendingCount()).toBe(0);
+    const reads = state.reads;
+    await timers.advance(10_000);
+    expect(state.reads).toBe(reads);
+  });
+
+  it('run が終わったら見張りを止め、確認の行を外す', async () => {
+    const timers = new FakeTimers();
+    const state = { screen: TRUST, reads: 0 };
+    const trustLive = new FolderTrustLive();
+    const rm = make({ panes: trustPanes(state), timers, trustLive });
+    const r = await rm.start({ projectId: 'p1' });
+    await timers.advance(1_500);
+    expect(trustLive.current()).toHaveLength(1);
+    rm.kill(r.run.id);
+    expect(trustLive.current()).toEqual([]);
+    expect(timers.pendingCount()).toBe(0);
+  });
+
+  it('確認の行が一覧に載ると、別の PC へ配る runs.live_status が waiting になり、pid は書かない', async () => {
+    const timers = new FakeTimers();
+    const state = { screen: TRUST, reads: 0 };
+    const trustLive = new FolderTrustLive();
+    const rm = make({ panes: trustPanes(state), timers, trustLive, now: () => timers.now });
+    const r = await rm.start({ projectId: 'p1' });
+    await timers.advance(1_500);
+    rm.linkRegistry(trustLive.current());
+    const row = db.prepare('select live_status, live_reason, pid from runs where id = ?').get(r.run.id) as { live_status: string | null; live_reason: string | null; pid: number | null };
+    expect(row).toEqual({ live_status: 'waiting', live_reason: 'permission', pid: null });
+  });
+
+  it('trustLive を渡さなければ見張らない', async () => {
+    const timers = new FakeTimers();
+    const state = { screen: TRUST, reads: 0 };
+    await make({ panes: trustPanes(state), timers }).start({ projectId: 'p1' });
+    await timers.advance(10_000);
+    expect(state.reads).toBe(0);
   });
 });
 

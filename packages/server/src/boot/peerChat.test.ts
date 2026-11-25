@@ -15,6 +15,7 @@ let accept: boolean;
 let parts: PeerChatParts;
 let session: string;
 let events: unknown[];
+let screen: { text: string; keys: string[] } | null;
 let seq = 0;
 
 beforeEach(async () => {
@@ -27,9 +28,10 @@ beforeEach(async () => {
   live = [{ sessionId: 'u1', status: 'busy', name: null, nameSource: null, cwd: '/w', pid: 1 }];
   accept = true;
   events = [];
+  screen = null;
   parts = bootPeerChat({
     home: { db, device: { id: ME, name: 'Win' } as never, settings: { get current() { return { peerChatAcceptFromPeers: accept } as never; } }, home: '/tmp/hangar-home', language: () => 'ja' },
-    runs: { runs: { sendInput: async () => {}, resumeWith: async () => { throw new Error('not here'); } } as never, mux: () => null },
+    runs: { runs: { sendInput: async () => {}, resumeWith: async () => { throw new Error('not here'); } } as never, mux: () => (screen ? ({ capturePane: () => screen!.text, captureStyled: async () => null, sendKeys: (_n: string, k: string) => { screen!.keys.push(k); screen!.text = ' > '; }, listSessions: () => [] } as never) : null) },
     delivery: { live: { current: () => live, onChange: () => () => {} }, hub: { broadcast: (ev) => { events.push(ev); } } },
     sync: { peerLink: () => ({ api: {} as never, ring: async () => ring, reread: async () => {} }) },
     now: () => NOW,
@@ -81,6 +83,20 @@ describe('bootPeerChat', () => {
     const { touchRow } = await import('../db/notify.ts');
     touchRow(db, 'sessions', session);
     expect(events.at(-1)).toMatchObject({ type: 'peerChat.queue', queued: [] });
+  });
+});
+
+describe('フォルダの信頼の札（手元の画面の札の道）', () => {
+  const TRUST = ' Accessing workspace:\n\n /w\n\n Quick safety check: Is this a project you created or one you trust?\n\n ❯ 1. Yes, I trust this folder\n   2. No, exit\n\n Enter to confirm · Esc to cancel\n';
+  it('信頼の確認の行（waiting、FolderTrust）の会話で session.ask を流し、札に答えると画面にキーを打つ', async () => {
+    screen = { text: TRUST, keys: [] };
+    live = [{ sessionId: 'u1', status: 'waiting', name: null, nameSource: null, cwd: '/w', pid: 0, waitingFor: 'permission', permission: { tool: 'FolderTrust', input: '/w', description: null } }];
+    parts.asks.checkAll();
+    const ev = events.find((e) => (e as { type?: string }).type === 'session.ask') as { sessionId: string; ask: { askId: string; tool: string } };
+    expect(ev).toMatchObject({ sessionId: session, ask: { tool: 'FolderTrust', input: '/w' } });
+    const r = await parts.host.local.answer(session, ev.ask.askId, ['1']);
+    expect(r).toEqual({ ok: true, label: 'Yes, I trust this folder' });
+    expect(screen.keys).toContain('Enter');
   });
 });
 

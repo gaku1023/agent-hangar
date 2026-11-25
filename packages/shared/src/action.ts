@@ -188,6 +188,7 @@ export type UiAction =
   | { type: 'deleteApproval.answer'; id: string; answer: 'approve' | 'reject' | 'dismiss' }
   /** ほかの PC から預かった文を、走っているターンを中断して渡す（端末の下の帯）。 */
   | { type: 'peerQueue.rush'; sessionId: string }
+  /** フォルダの信頼の確認（会話の前に出る）への答え。key は選択肢の key（Yes が 1、No が 2）。札の askId は押したときに取り直す。 */
   /** この PC の会話の札（許可と質問）に、この画面から答える。本文の真上の帯とホームの行が送る。 */
   | { type: 'ask.answer'; sessionId: string; askId: string; keys: string[]; text?: string }
   /** 答えの記録を出し終えた札を片付ける（帯が一定の間だけ見せたあと）。 */

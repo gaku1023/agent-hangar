@@ -1,5 +1,5 @@
 import { contextGaugeOf, type ContextGauge } from './contextGauge.ts';
-import { stopReasonOf, type PeerChatAsk, type PeerChatCard, type PeerChatItem, type PeerChatReason, type PeerChatStatus, type SessionDto, type TranscriptEvent } from '@agent-hangar/shared';
+import { FOLDER_TRUST_TOOL, stopReasonOf, type PeerChatAsk, type PeerChatCard, type PeerChatItem, type PeerChatReason, type PeerChatStatus, type SessionDto, type TranscriptEvent } from '@agent-hangar/shared';
 import type { Translate } from '@agent-hangar/shared';
 import type { Store } from '../store/store.ts';
 import { emptySlice, joinedItems, type PeerChatSlice } from '../store/peerChat.ts';
@@ -15,6 +15,8 @@ import { peerChatDeviceName } from './peerChatDevice.ts';
  * 対象は、ほかの PC の会話（Claude Code、Codex、opencode）である。相手の hangar が古いとき、見続けられないときは null で、読み取り専用のトランスクリプトのまま。
  */
 
+/** 会話の中の札の 1 行。手元の会話のフォルダの信頼の札も同じ形にして、PeerChatCard を使い回す。 */
+export type PeerChatAskRow = Extract<PeerChatRow, { kind: 'ask' }>;
 /**
  * 許可と質問の札の部品（views/AskCard.tsx）が描く値。peer chat の列、本文の真上の帯、ホームの行で同じものを使う。
  * hostOnly は、この画面から答えられない札の案内の文（答えられる札と、答えが付いた札は null）。
@@ -136,7 +138,8 @@ function answerLine(t: Translate, it: PeerChatItem, mine: { label: string; devic
   // この PC から送って、相手の返事を待っている札は、選んだ答えで答えた形に見せる。
   const a = it.ask?.answered ?? (mine ? { by: { deviceName: mine.deviceName }, label: mine.label } : null);
   if (!a) return null;
-  return answeredText(t, it.ask!.kind, it.ask!.secret === true, a.by.deviceName, a.label);
+  // ディレクトリの信頼の選択肢（Yes, I trust this folder）は許可の語にせず、画面のまま引用する。
+  return answeredText(t, it.ask!.tool === FOLDER_TRUST_TOOL ? 'question' : it.ask!.kind, it.ask!.secret === true, a.by.deviceName, a.label);
 }
 
 /**
@@ -177,7 +180,7 @@ function foldTools(rows: PeerChatRow[], t: Translate): PeerChatRow[] {
 
 /** 札の部品（views/AskCard.tsx）が描く値にする。peer chat の列と、この PC の札（本文の真上の帯、ホームの行）で共用する。 */
 export function askModelOf(t: Translate, ask: PeerChatAsk, o: { text?: string | null; answered: string | null; hostOnly: string | null; pending: boolean; locked: boolean }): AskCardModel {
-  return { askId: ask.askId, askKind: ask.kind, title: t(ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), reason: ask.title ?? null, header: ask.header ?? null, input: ask.input ?? o.text ?? null, options: ask.options, multi: ask.multi, allowText: ask.allowText, secret: ask.secret === true, textKind: ask.textKind ?? null, min: ask.min ?? null, max: ask.max ?? null, answered: o.answered, hostOnly: o.hostOnly, pending: o.pending, locked: o.locked };
+  return { askId: ask.askId, askKind: ask.kind, title: t(ask.tool === FOLDER_TRUST_TOOL ? 'stop.folder.trust' : ask.kind === 'permission' ? 'peerChat.ask.permission' : 'peerChat.ask.question'), reason: ask.title ?? null, header: ask.header ?? null, input: ask.input ?? o.text ?? null, options: ask.options, multi: ask.multi, allowText: ask.allowText, secret: ask.secret === true, textKind: ask.textKind ?? null, min: ask.min ?? null, max: ask.max ?? null, answered: o.answered, hostOnly: o.hostOnly, pending: o.pending, locked: o.locked };
 }
 
 function rowOf(t: Translate,it: PeerChatItem, slice: PeerChatSlice, index: number, device: string, myName: string): PeerChatRow {

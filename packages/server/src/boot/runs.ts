@@ -131,7 +131,7 @@ export type RunsParts = {
  */
 export function bootRuns(
   home: Pick<HomeParts, 'home' | 'token' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language' | 'life'>,
-  delivery: Pick<DeliveryParts, 'hub' | 'live' | 'agents' | 'claude' | 'bindCodexUsage' | 'compatLog' | 'claudeVersion' | 'osNotices'> & Partial<Pick<DeliveryParts, 'publisher'>>,
+  delivery: Pick<DeliveryParts, 'hub' | 'live' | 'agents' | 'claude' | 'bindCodexUsage' | 'compatLog' | 'claudeVersion' | 'osNotices'> & Partial<Pick<DeliveryParts, 'publisher' | 'folderTrust'>>,
   listening: { host: string; port: number },
   o: { serverDir: string; launcher?: string },
 ): RunsParts {
@@ -179,6 +179,8 @@ export function bootRuns(
     live,
     // driver は配る層と一緒に組んである（boot/agents.ts）。
     agents: delivery.agents, claude: delivery.claude,
+    // 会話の前に出るフォルダの信頼の確認を見張り、入力待ちとして一覧へ載せる。
+    ...(delivery.folderTrust ? { trustLive: delivery.folderTrust } : {}),
     accounts: new RunAccounts({ db, claudeDir, store: accountStore, deviceId: device.id, codex: { store: codexAccountStore, primaryDir: codexPrimaryDir } }),
     compat: compatLog,
     // Claude に渡す指示とシェルタブの名前を、設定の言語で出す。
