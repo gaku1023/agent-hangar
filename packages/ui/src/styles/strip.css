@@ -13,8 +13,11 @@
 .now-card[data-tone='limit'] { box-shadow: var(--surface-shadow), inset 3px 0 0 var(--limit); }
 /* 札の灯は静止させる（D3）。動いていることは、手が増えることで分かる。 */
 .now-card .live-dot { animation: none; }
-.nc-head { display: flex; flex-wrap: wrap; align-items: center; column-gap: calc(var(--u) * 1.5); row-gap: 2px; min-width: 0; }
-.nc-state { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); font-weight: 600; }
+/* 頭の行。量（.ctx-label）は右上に浮かせ、状態と補足は文字の流れで並べる。補足は塊のまま次の行へ回り、2 行目は全幅を使う。 */
+.nc-head { display: flow-root; min-width: 0; line-height: 1.5; }
+.nc-head > .ctx-label { float: right; margin-left: calc(var(--u) * 1.5); }
+.nc-state { display: inline; margin-right: calc(var(--u) * 1.5); font-weight: 600; }
+.nc-state > .live-dot, .nc-state > .reason-glyph { margin-right: calc(var(--u) * 1.5); vertical-align: 0.05em; }
 .nc-state[data-tone='wait'] { color: var(--waiting); }
 .nc-state[data-tone='busy'] { color: color-mix(in srgb, var(--busy) 60%, var(--ink)); }
 .nc-state[data-tone='limit'] { color: var(--limit); }
@@ -29,7 +32,8 @@
 .nc-stop-hint { margin: 2px 0 0; font-size: var(--fs-xs); line-height: 1.5; color: var(--ink-3); }
 .nc-stop-meter { display: block; height: 4px; margin-top: 2px; border-radius: 4px; background: color-mix(in srgb, var(--limit) 22%, var(--surface)); overflow: hidden; }
 .nc-stop-meter > i { display: block; height: 100%; background: var(--limit); }
-.nc-sub { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+/* 補足は途中で折らず、入らなければ状態の下の行へ回す（それでも入らなければ末尾を省く）。 */
+.nc-sub { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .nc-detail { margin: 0; line-height: 1.55; color: var(--ink-2); }
 /* 入力待ちの問い。札の中で一番目立たせる。 */
 .nc-question { margin: 0; padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border-radius: var(--r); background: color-mix(in srgb, var(--waiting) 7%, var(--surface)); font-size: var(--fs); line-height: 1.5; color: var(--ink); }

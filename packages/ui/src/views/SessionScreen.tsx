@@ -348,7 +348,8 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
         {pane.mounted && (
           <div ref={(el) => { pane.ref.current = el; }} className="toc-slot-inner">
             <div className="toc-slot-head">{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}{toggle}</div>
-            {peerCard && <NowCard sessionId={id} {...peerCard} readOnly />}
+            {/* context の量は、手元の会話と同じく札の状態の行の右端に出す（チャットの状態の行からは外す）。 */}
+            {peerCard && <NowCard sessionId={id} {...peerCard} ctx={props.peerChat.view.ctx ?? null} readOnly />}
             {peerToc && (
               <TocPane>
                 <TurnIndex sessionId={id} runId={null} rows={peerToc.rows} complete openItems={[]} turnJump={null} hasMore={peerToc.hasMore} loading={peerToc.loading} count={peerToc.count} pending={peerToc.pending} agentId={null} busySeq={peerToc.busySeq}
@@ -372,7 +373,7 @@ export function SessionScreen(props: SessionProps & { variant?: 'pane'; pane?: P
           <div className="c-main">
             {shells
               ? <TerminalPane key={shells.tabId} tabId={shells.tabId} hint={null} live={null} remote={{ deviceId: shells.deviceId, deviceName: shells.deviceName, host: shells.host }} />
-              : <section className="tr-sheet pchat-sheet"><PeerChatPane view={props.peerChat.view} trailing={peerTabs ? null : peerOpener} /></section>}
+              : <section className="tr-sheet pchat-sheet"><PeerChatPane view={peerCard ? { ...props.peerChat.view, ctx: null } : props.peerChat.view} trailing={peerTabs ? null : peerOpener} /></section>}
           </div>
           {peerSlot}
         </div>

@@ -46,13 +46,14 @@ export function NowCard(props: NowCardProps & { sessionId: string; overlap?: Ove
   return (
     <section ref={card} className="now-card" data-tone={props.tone} aria-label={t('session.strip.label')}>
       <div ref={body} className="nc-body">
+        {/* context の量は頭の行の右上に浮かせ、状態と補足はそのまわりを流す（補足の長さで量の位置が動かず、2 行目は全幅を使う）。 */}
         <div className="nc-head">
+          {props.ctx && props.usage === null && <ContextLabel gauge={props.ctx} />}
           <span className="nc-state" data-tone={props.tone}>
             {glyph ? <ReasonGlyph reason={glyph} /> : <span className="live-dot" data-tone={dot} aria-hidden="true" />}
             <span role="status">{props.state}</span>
           </span>
           {props.sub && <span className="nc-sub">{props.sub}</span>}
-          {props.ctx && props.usage === null && <ContextLabel gauge={props.ctx} />}
         </div>
         {props.detail !== null && (props.question
           ? <p className="nc-question" key={props.detail}><span className="nc-question-label">{props.questionLabel}</span><span className="nc-question-text">{props.detail}</span></p>

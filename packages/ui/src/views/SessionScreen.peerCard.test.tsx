@@ -63,6 +63,21 @@ describe('セッション画面: ほかの PC の会話の右の欄（現在の�
     expect(container.querySelector('.toc-pane')).toBeNull();
   });
 
+  it('context の量は、札があれば手元の会話と同じく札の状態の行の右端に出し、チャットの状態の行には出さない', () => {
+    const st = build({ card: card() }, session({ stats: { ...stats, contextTokens: 151_000, contextSize: 200_000 } as never }));
+    const props = presentSession(initialState(), st, NOW, 's1');
+    const { container } = render(<LanguageRoot language="ja"><ActionRoot onAction={() => {}} background={() => {}}><SessionScreen {...props} /></ActionRoot></LanguageRoot>);
+    expect(container.querySelector('.now-card .nc-head .ctx-label')).toHaveTextContent('151K/200K');
+    expect(container.querySelector('.pchat-bar .ctx-label')).toBeNull();
+  });
+
+  it('札が無い間は、context の量をチャットの状態の行に残す', () => {
+    const st = build({ card: null }, session({ stats: { ...stats, contextTokens: 151_000, contextSize: 200_000 } as never }));
+    const props = presentSession(initialState(), st, NOW, 's1');
+    const { container } = render(<LanguageRoot language="ja"><ActionRoot onAction={() => {}} background={() => {}}><SessionScreen {...props} /></ActionRoot></LanguageRoot>);
+    expect(container.querySelector('.pchat-bar .ctx-label')).toHaveTextContent('151K/200K');
+  });
+
   it('札の材料が無い間（古い相手、止まった会話）は、右の欄を出さず、本文が全幅のまま', () => {
     const { container } = screenOf({ card: null });
     expect(container.querySelector('.toc-slot')).toBeNull();
