@@ -10,6 +10,7 @@ import { useT } from './primitives/language.tsx';
 import { anywhereKeys, ariaKeyShortcuts, KEYMAP } from '../keys.ts';
 import type { MenuAnchor, MenuCloseHow } from './primitives/MenuButton.tsx';
 import { SessionMenuPop } from './sessionMenu.tsx';
+import { ContextRing } from './primitives/ContextGauge.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import { FoldBox } from './primitives/FoldBox.tsx';
 import { CountBubble } from './primitives/CountBubble.tsx';
@@ -407,6 +408,7 @@ function RowList(props: { rows: SideLiveRow[]; menuId: string | null; openMenu: 
           onPointerDown={(e) => onPointerDown(e, r)} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}>
           {/* 子を持つ行は、乗せたとき（と焦点のあるとき）だけ、丸の席が開閉の印に替わる。押すと子の列を開閉し、行の他の所は今まで通りセッションへ移る。 */}
           <span className="side-live-seat" data-fold={nest ? 'true' : undefined}>
+            {r.ctx && <ContextRing gauge={r.ctx} />}
             <StatusDot status={r.live} aside={r.aside} reason={r.reason} />
             {nest && (
               <button type="button" className="side-live-fold" aria-expanded={nest.open} aria-controls={body} aria-label={t('sidebar.live.nest', { name: r.name })}

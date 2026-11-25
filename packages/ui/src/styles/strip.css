@@ -158,3 +158,10 @@
 .pop-row dd:has(> .detail-value) { display: flex; align-items: baseline; gap: calc(var(--u) * 1); }
 .pop-row dd > .detail-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .pop-row dd > .detail-value ~ * { flex: none; }
+
+/* 今の context の量（状態の行の右端の label、試作の案 3）。等幅の小さめの字で、量の数字だけ太字にする。色は輪（base.css の .ctx-ring）と同じ段階で、移るのは 0.4 秒ほど。 */
+.ctx-label { flex: none; margin-left: auto; font-family: var(--font-mono); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; color: var(--ink-3); white-space: nowrap; transition: color var(--dur) var(--ease-out); }
+.ctx-label > b { font-weight: 600; }
+.ctx-label[data-level='warn'] { color: color-mix(in srgb, var(--ctx-warn) 75%, var(--ink)); }
+.ctx-label[data-level='alert'] { color: var(--ctx-alert); }
+.pchat-bar > .ctx-label { margin-left: 0; }

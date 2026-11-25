@@ -891,3 +891,13 @@ a:where(.btn) { color: inherit; }
 .nav-orch-dot[data-tone='waiting'] { background: var(--waiting); }
 .nav-orch .nav-count { margin-left: 0; }
 .shell[data-sidebar='collapsed'] .nav-orch-dot { position: absolute; right: 6px; bottom: 6px; margin: 0; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9); }
+
+/* サイドバーの行の context の輪（試作の案 C）。丸の席（8px）の外へ 3.5px ずつ張り出す 15px の輪で、行の高さと並びは変わらない。
+   満ち具合は --p（0 から 100）を数として登録して、変わるとき滑らかに伸ばす。色は段階（none・warn・alert）で替わる。
+   中は抜くので、縁は行の地（選んだ行の白も、乗せたときの色も）がそのまま見える。reduced motion では --dur が 0 になり、動かない。 */
+@property --p { syntax: '<number>'; inherits: false; initial-value: 0; }
+.ctx-ring { --c: var(--ctx-ring); position: absolute; left: -3.5px; top: -3.5px; width: 15px; height: 15px; border-radius: 50%; background: conic-gradient(var(--c) calc(var(--p) * 1%), var(--ctx-track) 0); -webkit-mask: radial-gradient(circle, transparent 5.5px, black 6px); mask: radial-gradient(circle, transparent 5.5px, black 6px); transition: --p var(--dur) var(--ease-out); }
+.ctx-ring[data-level='warn'] { --c: var(--ctx-warn); }
+.ctx-ring[data-level='alert'] { --c: var(--ctx-alert); }
+/* 開閉の印に替わる席では、丸と同じく輪も隠す。 */
+.side-live-row:hover .side-live-seat[data-fold='true'] > .ctx-ring, .side-live-row:focus-within .side-live-seat[data-fold='true'] > .ctx-ring { opacity: 0; }

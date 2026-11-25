@@ -25,6 +25,11 @@
   --limit: #4f6185;
   --limit-soft: #e9edf5;
   --ended: #9a968e;
+  /* 今の context の量の輪と label（サイドバーの行、状態の行）。段階は黄と赤で、灰はまだ余裕のあること。 */
+  --ctx-ring: #a3abc2;
+  --ctx-track: #e1e5ef;
+  --ctx-warn: #c98a00;
+  --ctx-alert: #d0453a;
   --error: #b3261e;
   --st-active: #2a57b8;
   --st-active-soft: #e8eefc;

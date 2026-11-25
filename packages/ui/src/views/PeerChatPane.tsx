@@ -1,3 +1,4 @@
+import { ContextLabel } from './primitives/ContextGauge.tsx';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { useBackgroundEmit, useEmit } from '../action/chain.tsx';
 import type { PeerChatView } from '../presenters/peerChat.ts';
@@ -37,6 +38,7 @@ export function PeerChatPane(props: { view: PeerChatView; /** 状態の行の右
       <div className="pchat-bar">
         <span className="pchat-pill">{view.device}</span>
         <span className="pchat-state"><span className="pchat-dot" data-tone={view.tone} aria-hidden="true" />{view.statusLabel}</span>
+        {view.ctx && <ContextLabel gauge={view.ctx} />}
         {props.trailing}
       </div>
       <PeerChatLog rows={view.rows} loading={view.loading} hasMore={view.hasOlder} loadingOlder={view.loadingOlder} jump={view.jump}

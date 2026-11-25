@@ -6,6 +6,8 @@ import type { ArtifactCardProps } from '../presenters/project.ts';
 import { OverlapBlock } from './OverlapPopover.tsx';
 import type { SessionGitView } from '../presenters/session.ts';
 import { GitFilesPop } from './GitFiles.tsx';
+import type { ContextGauge } from '../presenters/contextGauge.ts';
+import { ContextLabel } from './primitives/ContextGauge.tsx';
 import { CountChip } from './primitives/Chip.tsx';
 import { ArtifactIcon, Icon } from './primitives/Icon.tsx';
 import { fadeIn, motionOn } from './primitives/motionKit.ts';
@@ -30,6 +32,7 @@ const STEP_MARK = { done: '✓', now: '●', wait: '●', fail: '✕' } as const
  * 中身（意図の折り返し、手の数、問い）のたびに縮めると、下の目次が押されて跳ねるためである。
  */
 export function NowCard(props: NowCardProps & { sessionId: string; overlap?: OverlapProps | null; /** git の札（試作の 2-3 の A）。押すと変更したファイルの一覧が開く。 */ git?: SessionGitView | null;
+  /** 今の context の量。状態の行の右端に出す（opencode など使用量の欄があるときは、そちらを優先して出さない）。 */ ctx?: ContextGauge | null;
   /** ほかの PC の会話の札。サブエージェントの行は押せず、アーティファクトは数だけを出す（本文は元の PC のもの）。 */ readOnly?: boolean }) {
   const t = useT();
   const dot = props.tone === 'wait' ? 'wait' : props.tone === 'busy' ? 'busy' : props.tone === 'aside' ? 'aside' : props.tone === 'limit' ? 'limit' : 'idle';
@@ -49,6 +52,7 @@ export function NowCard(props: NowCardProps & { sessionId: string; overlap?: Ove
             <span role="status">{props.state}</span>
           </span>
           {props.sub && <span className="nc-sub">{props.sub}</span>}
+          {props.ctx && props.usage === null && <ContextLabel gauge={props.ctx} />}
         </div>
         {props.detail !== null && (props.question
           ? <p className="nc-question" key={props.detail}><span className="nc-question-label">{props.questionLabel}</span><span className="nc-question-text">{props.detail}</span></p>

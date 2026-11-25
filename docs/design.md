@@ -556,6 +556,10 @@ Mediator の入力の型（`MediatedAction`）は表の kind を除いてある�
 - 時刻は相対表示（「3 分前」）を基本にし、ホバーで絶対時刻を出す。
 - 識別子、パス、時刻（04:28）、数だけの表示は等幅フォントで描く。数と仮名が混じる短い語（「12 分前」「1,222 件」「変更 5」）は本文の書体のまま、数字の幅だけをそろえる（`.num`）。
 - UI の一時状態（開いているタブ、分割、折りたたみ）は端末の localStorage に保存し、同期しない。
+- 会話ごとの今の context の量（`SessionStatsDto.contextTokens` と `contextSize`）は、`presenters/contextGauge.ts` の `contextGaugeOf` が段階（none・warn・alert）、輪の満ち具合、label（`448K/1000K`、窓が無ければ `448K`）に直す。境目は設定の `contextWarnTokens` と `contextAlertTokens`（既定 300K と 400K）で、窓がそれより小さいときは窓の 75% と 90%。置き場所は 4 つある。
+  - サイドバーの行：状態の点のまわりの輪（`ContextRing`）。段階で灰・黄・赤に替わり、満ち具合は `@property --p` の数の transition で伸びる。乗せると label が title で出る。別 PC の会話の行も同じ。量の無い行は点だけ。
+  - 会話の画面の状態の行の右端（`ContextLabel`、等幅の小さめの字で量の数字だけ太字）：この PC で動いている会話は現在の札の頭の行、止まった会話は要約の札の頭の行、別 PC の会話は枠の頭の状態の隣。opencode と Codex の会話は、現在の札の使用量の欄（`stripUsage`）がある間は欄を優先し、label を出さない。
+  - 設定の使用量の節に、黄と赤の境目を K 単位で入れる欄がある（打ち終えて 0.6 秒で保存する）。
 
 ## データモデル
 
