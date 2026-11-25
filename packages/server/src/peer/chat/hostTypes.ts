@@ -1,4 +1,4 @@
-import type { AgentKind, LiveStatus, PeerChatFile, PermissionAskDto, PeerKeyring, ServerEvent, SessionActivityDto, WaitKind } from '@agent-hangar/shared';
+import type { AgentKind, LiveStatus, PeerChatCommand, PeerChatFile, PermissionAskDto, PeerKeyring, ServerEvent, SessionActivityDto, WaitKind } from '@agent-hangar/shared';
 import type { HookDecisions } from '../../sessions/hookDecisions.ts';
 import type { AnswerPane } from './answer.ts';
 import type { TailDeps } from './tail.ts';
@@ -128,6 +128,11 @@ export type PeerChatHostDeps = {
   dropsDir: string;
   /** `@` の候補（スマホの files と同じ本体、mobile/asks.ts の listFilesIn）。 */
   files(root: string, query: string): Promise<PeerChatFile[]>;
+  /**
+   * `/` の候補（新しいセッションの欄と同じ一覧、listPromptCommands）。root は会話の場所で、無ければ自分のとプラグインと組み込みだけ。
+   * 数とバイト数の上限での切り詰めは host が行う。
+   */
+  commands(root: string | null): PeerChatCommand[];
   /**
    * 画面への知らせ。
    * 省けば配らない。

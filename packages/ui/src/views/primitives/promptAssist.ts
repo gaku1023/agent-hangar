@@ -12,6 +12,8 @@ export type PromptAssist = {
   existing(paths: string[]): Promise<string[]>;
   /** ほかの PC の会話の @ の候補（元の PC のプロジェクトのファイル。peer-chat の files）。無ければ候補は出さない。 */
   peerFiles?(sessionId: string, query: string): Promise<string[]>;
+  /** ほかの PC の会話の / の候補（元の PC のスキルとコマンド。peer-chat の commands）。断られたら投げる。無ければ候補は出さない。 */
+  peerCommands?(sessionId: string): Promise<PromptCommandDto[]>;
   notify(message: string): void;
 };
 

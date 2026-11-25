@@ -4,11 +4,15 @@ import {
   turnPhaseOf,
   appendPaths,
   checkPeerChatRequest,
+  PEER_CHAT_COMMAND_DESCRIPTION_MAX,
+  PEER_CHAT_COMMANDS_BYTES_MAX,
+  PEER_CHAT_COMMANDS_MAX,
   openPeerChat,
   sealPeerChatReply,
   type PeerChatBellAsk,
   type PeerChatAsk,
   type PeerChatBellReply,
+  type PeerChatCommand,
   type PeerChatDevice,
   type PeerChatQueued,
   type PeerChatReply,
@@ -49,6 +53,7 @@ import { PeerQueue, type TurnState } from './queue.ts';
  * - interrupt：走っているターンに Escape を打つ（answer.ts）。
  * - cancel：預かりの送り主だけが取り消せる。
  * - files：スマホの files と同じ本体。
+ * - commands：新しいセッションの欄と同じ `/` の候補（fitCommands で上限に収める）。
  * - switch-account：同じ名前のアカウントで再開し直す（deps.switchAccount、RunManager.switchAccount と同じ道）。
  *
  * 画面への知らせ（emit）。
@@ -67,6 +72,27 @@ import { PeerQueue, type TurnState } from './queue.ts';
  * 断りの覚え（答えが小さい）は、別の上限を持つ。
  */
 const SEEN_PER_SENDER = 160;
+
+/**
+ * commands の答えを、数（PEER_CHAT_COMMANDS_MAX）とバイト数（PEER_CHAT_COMMANDS_BYTES_MAX）の上限に収める。
+ * 説明は PEER_CHAT_COMMAND_DESCRIPTION_MAX 字で切る。
+ * 落とすのは使った回数の少ないものから（同じ回数なら後ろから）で、残したものは元の並び（プロジェクト、自分の、プラグイン、組み込み）のまま返す。
+ */
+export function fitCommands(rows: PeerChatCommand[]): PeerChatCommand[] {
+  const clipped = rows.map((c) => (c.description.length > PEER_CHAT_COMMAND_DESCRIPTION_MAX ? { ...c, description: `${c.description.slice(0, PEER_CHAT_COMMAND_DESCRIPTION_MAX - 1)}…` } : c));
+  const byUse = clipped.map((c, i) => ({ c, i })).sort((a, b) => b.c.uses - a.c.uses || a.i - b.i);
+  const kept: { c: PeerChatCommand; i: number }[] = [];
+  // 区切りの [ ] と、件ごとの , の分。
+  let bytes = 2;
+  for (const x of byUse) {
+    if (kept.length >= PEER_CHAT_COMMANDS_MAX) break;
+    const n = Buffer.byteLength(JSON.stringify(x.c)) + 1;
+    if (bytes + n > PEER_CHAT_COMMANDS_BYTES_MAX) continue;
+    bytes += n;
+    kept.push(x);
+  }
+  return kept.sort((a, b) => a.i - b.i).map((x) => x.c);
+}
 /** 覚えを期限より先まで残す余裕。 */
 const SEEN_MARGIN_MS = 5_000;
 /** 読むだけの頼みの覚えの寿命。 */
@@ -344,6 +370,8 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
         if (!session.cwd) return refuse('session-unknown');
         return { ok: true, files: await deps.files(session.cwd, op.query) };
       }
+      case 'commands':
+        return { ok: true, commands: fitCommands(deps.commands(session.cwd || null)) };
       case 'switch-account': {
         const r = deps.switchAccount ? await deps.switchAccount(sessionId, op.account) : 'resume-failed';
         view.poke(sessionId);
@@ -395,7 +423,7 @@ export function createPeerChatHost(deps: PeerChatHostDeps): PeerChatHost {
     // 覚えは期限の少し先まで残す（期限を過ぎた再送は expired で断られる）。時計のずれの幅までは延ばさない（延ばすと、忙しい見張りの覚えが上限を埋める）。
     // 読むだけの頼み（tail、files）は、再送されても害が無いので、短い間だけ覚える。
     const keep = req.expiresAt + SEEN_MARGIN_MS;
-    const until = req.op.t === 'tail' || req.op.t === 'files' ? Math.min(keep, t + SEEN_READ_KEEP_MS) : keep;
+    const until = req.op.t === 'tail' || req.op.t === 'files' || req.op.t === 'commands' ? Math.min(keep, t + SEEN_READ_KEEP_MS) : keep;
     /** 断りを覚えて返す。覚えの上限に達していれば、覚えずに返す（頼み主 1 台が覚えを埋め尽くせないように）。 */
     const refused = (r: PeerChatReply): Promise<string | null> => {
       const reply = sealOrRefuse(sealer, r);

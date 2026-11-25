@@ -994,6 +994,13 @@ describe('ops', () => {
     expect(await viewer.op(SID, { t: 'send', text: 'x' })).toEqual({ ok: false, reason: 'too-large' });
   });
 
+  it('commands の op を運び、候補をそのまま返す', async () => {
+    const cmd = { name: 'review', description: 'd', argumentHint: null, source: 'user' as const, uses: 1 };
+    answers.push(() => ({ ok: true, commands: [cmd] }));
+    expect(await viewer.op(SID, { t: 'commands' })).toEqual({ ok: true, commands: [cmd] });
+    expect(asks.map((a) => a.req.op)).toEqual([{ t: 'commands' }]);
+  });
+
   it('大きすぎる文は頼まずに too-large', async () => {
     expect(await viewer.op(SID, { t: 'send', text: 'あ'.repeat(12_000) })).toEqual({ ok: false, reason: 'too-large' });
     expect(asks).toHaveLength(0);

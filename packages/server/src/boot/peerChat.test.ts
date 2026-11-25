@@ -28,7 +28,7 @@ beforeEach(async () => {
   accept = true;
   events = [];
   parts = bootPeerChat({
-    home: { db, device: { id: ME, name: 'Win' } as never, settings: { get current() { return { peerChatAcceptFromPeers: accept } as never; } }, home: '/tmp/hangar-home' },
+    home: { db, device: { id: ME, name: 'Win' } as never, settings: { get current() { return { peerChatAcceptFromPeers: accept } as never; } }, home: '/tmp/hangar-home', language: () => 'ja' },
     runs: { runs: { sendInput: async () => {}, resumeWith: async () => { throw new Error('not here'); } } as never, mux: () => null },
     delivery: { live: { current: () => live, onChange: () => () => {} }, hub: { broadcast: (ev) => { events.push(ev); } } },
     sync: { peerLink: () => ({ api: {} as never, ring: async () => ring, reread: async () => {} }) },

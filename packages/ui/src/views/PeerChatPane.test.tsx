@@ -214,6 +214,30 @@ describe('@ と画像', () => {
     expect(box().value).toBe('見て @src/app/main.ts ');
   });
 
+  it('/ を打つと元の PC のスキルの候補を出し、Enter で入れる。打ち進めても問い直さない', async () => {
+    const cmd = (name: string, description: string, uses = 0) => ({ name, description, argumentHint: null, source: 'user' as const, uses });
+    const peerCommands = vi.fn(async () => [cmd('review', '見直す'), cmd('deploy', '配る', 3)]);
+    mount(viewOf({ status: 'idle' }), assist({ peerCommands }));
+    type('/');
+    expect(await screen.findByRole('option', { name: /\/deploy/ })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /\/review/ })).toBeInTheDocument();
+    type('/rev');
+    await waitFor(() => expect(screen.queryByRole('option', { name: /\/deploy/ })).toBeNull());
+    expect(screen.getByRole('option', { name: /\/review/ })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(box(), { key: 'Enter' });
+    expect(box().value).toBe('/review ');
+    expect(peerCommands).toHaveBeenCalledTimes(1);
+    expect(peerCommands).toHaveBeenCalledWith('s1');
+  });
+
+  it('/ の候補は、文の途中の語（パスなど）では出さない', async () => {
+    const peerCommands = vi.fn(async () => [{ name: 'review', description: '', argumentHint: null, source: 'user' as const, uses: 0 }]);
+    mount(viewOf({ status: 'idle' }), assist({ peerCommands }));
+    type('/Users/x');
+    await act(async () => {});
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
   it('画像を添付すると置き場へ送り、パスで渡す。形と大きさの決まりに合わないものは断る', async () => {
     const upload = vi.fn(async (f: File) => ({ path: `/h/drops/1-1-${f.name}`, name: f.name, size: f.size }));
     const { actions, container } = mount(viewOf({ status: 'idle' }), assist({ upload }));

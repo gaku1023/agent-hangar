@@ -20,6 +20,7 @@
 import { openPeerPayload, PeerUnknownEpochError, sealPeerPayload, type PeerKeyring, type PeerRoute } from './e2e/peer.ts';
 import { E2eOpenError } from './e2e/seal.ts';
 import { openBytes, sealBytes } from './mobileCrypto.ts';
+import type { PromptCommandDto, PromptCommandSource } from './api.ts';
 import { MOBILE_IMAGE_MAX_BYTES, MOBILE_IMAGES_PER_LAUNCH, MOBILE_REPLY_MAX_BYTES, type MobileImageRef } from './mobile.ts';
 
 /**
@@ -176,6 +177,8 @@ export type PeerChatOp =
   /** 預けた文を、走っているターンを中断（Escape）してから渡す。送った PC だけができる。 */
   | { t: 'rush'; queueId: string }
   | { t: 'files'; query: string }
+  /** `/` の候補（元の PC のスキルとコマンド。新しいセッションの欄と同じ一覧）。 */
+  | { t: 'commands' }
   /**
    * 会話を、元の PC の同じ名前のアカウントで再開し直す（動いていれば止めてから）。
    * アカウントの ID は PC ごとに違うので、名前で頼む。元の PC の既定のアカウントは変えない。
@@ -203,7 +206,13 @@ export type PeerChatRefusal = (typeof PEER_CHAT_REFUSALS)[number];
  */
 export type PeerChatFile = { path: string; changed: boolean };
 
-export type PeerChatReply = { ok: true; state?: PeerChatState; queueId?: string; files?: PeerChatFile[] } | { ok: false; reason: PeerChatRefusal };
+/**
+ * commands の答えの 1 件。
+ * 新しいセッションの欄の候補（PromptCommandDto）と同じ形で、説明は元の PC が PEER_CHAT_COMMAND_DESCRIPTION_MAX 字で切る。
+ */
+export type PeerChatCommand = PromptCommandDto;
+
+export type PeerChatReply = { ok: true; state?: PeerChatState; queueId?: string; files?: PeerChatFile[]; commands?: PeerChatCommand[] } | { ok: false; reason: PeerChatRefusal };
 
 // ---- 上限 ----
 
@@ -244,6 +253,14 @@ export const PEER_CHAT_KEYS_MAX = 32;
 export const PEER_CHAT_KEY_MAX_CHARS = 64;
 /** files の問い合わせの長さ（文字数）。 */
 export const PEER_CHAT_QUERY_MAX_CHARS = 512;
+/** commands の答えに載せる候補の数と、説明 1 件の長さ（文字数）。スマホの / の候補と同じ。 */
+export const PEER_CHAT_COMMANDS_MAX = 200;
+export const PEER_CHAT_COMMAND_DESCRIPTION_MAX = 120;
+/**
+ * commands の答えの JSON のバイト数の上限。
+ * 封（gzip しない、base64url で 4/3 倍）が PEER_CHAT_REPLY_SEALED_MAX（64 KiB）に収まるよう、余裕を見て決める。元の PC は超える分を後ろから落とす。
+ */
+export const PEER_CHAT_COMMANDS_BYTES_MAX = 40_000;
 /** switch-account の account（アカウントの名前）の長さの上限。 */
 export const PEER_CHAT_ACCOUNT_MAX_CHARS = 200;
 /** ID の欄（askId、sessionId、uuid、queueId）の長さ（文字数）。 */
@@ -289,6 +306,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 const optStr = (v: unknown): boolean => v === undefined || isStr(v);
 const MIMES: ReadonlySet<string> = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const REFUSALS: ReadonlySet<string> = new Set(PEER_CHAT_REFUSALS);
+const COMMAND_SOURCES: ReadonlySet<string> = new Set<PromptCommandSource>(['project', 'user', 'plugin', 'builtin']);
 const KINDS: ReadonlySet<string> = new Set(PEER_CHAT_ITEM_KINDS);
 const STATUSES: ReadonlySet<string> = new Set(PEER_CHAT_STATUSES);
 const encoder = new TextEncoder();
@@ -332,6 +350,8 @@ function readOp(v: unknown): PeerChatOp | null {
       return isId(v.queueId) ? { t: 'rush', queueId: v.queueId } : null;
     case 'files':
       return isStr(v.query) && v.query.length <= PEER_CHAT_QUERY_MAX_CHARS ? { t: 'files', query: v.query } : null;
+    case 'commands':
+      return { t: 'commands' };
     case 'switch-account':
       return isStr(v.account) && v.account.length > 0 && v.account.length <= PEER_CHAT_ACCOUNT_MAX_CHARS ? { t: 'switch-account', account: v.account } : null;
     default:
@@ -449,7 +469,7 @@ export function parsePeerChatReply(v: unknown): PeerChatReply | null {
   if (!isObj(v)) return null;
   if (v.ok === false) return isStr(v.reason) && REFUSALS.has(v.reason) ? { ok: false, reason: v.reason as PeerChatRefusal } : null;
   if (v.ok !== true) return null;
-  const out: { ok: true; state?: PeerChatState; queueId?: string; files?: PeerChatFile[] } = { ok: true };
+  const out: { ok: true; state?: PeerChatState; queueId?: string; files?: PeerChatFile[]; commands?: PeerChatCommand[] } = { ok: true };
   if (v.state !== undefined) {
     const s = readState(v.state);
     if (!s) return null;
@@ -462,6 +482,15 @@ export function parsePeerChatReply(v: unknown): PeerChatReply | null {
   if (v.files !== undefined) {
     if (!Array.isArray(v.files) || !v.files.every((f) => isObj(f) && isStr(f.path) && typeof f.changed === 'boolean')) return null;
     out.files = (v.files as PeerChatFile[]).map((f) => ({ path: f.path, changed: f.changed }));
+  }
+  if (v.commands !== undefined) {
+    if (!Array.isArray(v.commands)) return null;
+    const cmds: PeerChatCommand[] = [];
+    for (const c of v.commands) {
+      if (!isObj(c) || !isStr(c.name) || !isStr(c.description) || !(c.argumentHint === null || isStr(c.argumentHint)) || !isStr(c.source) || !COMMAND_SOURCES.has(c.source) || typeof c.uses !== 'number' || !Number.isFinite(c.uses)) return null;
+      cmds.push({ name: c.name, description: c.description, argumentHint: c.argumentHint, source: c.source as PromptCommandSource, uses: c.uses });
+    }
+    out.commands = cmds;
   }
   return out;
 }
@@ -689,6 +718,7 @@ export type PeerChatOpIn =
   | { t: 'cancel'; queueId: string }
   | { t: 'rush'; queueId: string }
   | { t: 'files'; query: string }
+  | { t: 'commands' }
   | { t: 'switch-account'; account: string };
 
 /**
@@ -696,7 +726,7 @@ export type PeerChatOpIn =
  * 元の PC の答え（PeerChatReply）に、見る側の断りの理由を足したもの。
  * ok が偽のときは、画面が入力欄に文を戻す。
  */
-export type PeerChatOpResult = { ok: true; state?: PeerChatState; queueId?: string; files?: PeerChatFile[] } | { ok: false; reason: PeerChatReason };
+export type PeerChatOpResult = { ok: true; state?: PeerChatState; queueId?: string; files?: PeerChatFile[]; commands?: PeerChatCommand[] } | { ok: false; reason: PeerChatReason };
 
 /** 見る側の PC が、見張りの 1 周で元の PC に頼む tail の待ち（ミリ秒）。 */
 export const PEER_CHAT_TAIL_WAIT_MS = PEER_CHAT_WAIT_MAX_MS;

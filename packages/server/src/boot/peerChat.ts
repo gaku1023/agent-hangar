@@ -4,6 +4,7 @@ import type { LiveHub } from '../agent/liveHub.ts';
 import { onRowChange } from '../db/notify.ts';
 import { getSession } from '../db/queries.ts';
 import { listFilesIn } from '../mobile/asks.ts';
+import { listPromptCommands } from '../provider/claude-code/prompt/commands.ts';
 import { sanitizeInput } from '../mcp/screenTools.ts';
 import { noteTurnStart } from '../mcp/waitTool.ts';
 import { createPeerChatHost, type PeerChatHost } from '../peer/chat/host.ts';
@@ -41,7 +42,7 @@ export type PeerChatParts = {
  * 預かりと答えた記録はメモリだけに持つ（再起動では残さない）。
  */
 export function bootPeerChat(p: {
-  home: Pick<HomeParts, 'db' | 'device' | 'settings' | 'home'>;
+  home: Pick<HomeParts, 'db' | 'device' | 'settings' | 'home' | 'language'>;
   runs: { runs: Pick<RunManager, 'sendInput' | 'resumeWith' | 'switchAccount'>; mux: RunsParts['mux']; accounts?: Pick<RunsParts['accounts'], 'store' | 'auth'> };
   delivery: { live: Pick<LiveHub, 'current' | 'onChange'>; hub: { broadcast(ev: PeerChatHostEvent): void }; hookDecisions?: PeerChatHostDeps['hookDecisions'] };
   sync: Pick<SyncParts, 'peerLink'>;
@@ -103,6 +104,8 @@ export function bootPeerChat(p: {
     },
     dropsDir: path.join(p.home.home, 'drops'),
     files: (root, q) => listFilesIn(root, q),
+    // 新しいセッションの欄（GET /api/prompt/commands）と同じ一覧。
+    commands: (root) => listPromptCommands({ claudeDir: p.home.settings.current.claudeDir, projectPath: root, language: p.home.language() }),
     emit: (ev) => { p.delivery.hub.broadcast(ev); },
     ...(p.delivery.hookDecisions ? { hookDecisions: p.delivery.hookDecisions } : {}),
   });
