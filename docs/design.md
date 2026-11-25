@@ -6422,6 +6422,7 @@ hangar が自動で付けた状態は、札の頭に ✦ を置き、説明は�
 終わった画面で、要約の札が無く、ターンが 2 つ以下なら、右の列ははじめ畳み、「目次 N」の札にしておく（`presenters/tocFold.ts` の `tocFolds`）。
 そのときの開閉は保存する開閉（`transcriptOpen`）を使わず、その画面だけの開閉（`tocPeek`、保存しない）で持つ。札を押すか ⌘J で開き、セッション画面を開き直すと畳んだ形に戻る。
 `transcript.toggle` は mediator が同じ判定で行き先を振り分けるので、⌘J が保存する開閉を書き換えることはない。要約の札があるか、ターンが 3 つ以上なら、今までどおり保存する開閉に従う。
+別の PC で動いている会話は、手元に run が無くても終わった画面ではないので畳まない。見ている peer chat の状態が止まっていない（busy、idle、waiting）ことで見分ける（2026-11-25。1 ターン目で裏のサブエージェントを待つ会話を開くと、札と目次が畳まれていた）。
 統括の柱が開いている間は、どの会話も（実行中でも、ターンが多くても）右の列を畳む。
 柱の開閉は views が localStorage に持つので、柱が変わるたびに `orchestrator.pillar` で mediator の `State.orchestratorOpen` へ写し、`tocFolds` の引数（`pillarOpen`）として presenter と mediator が同じ判定を使う。
 畳んでいる間の開閉は上の `tocPeek` で持ち、保存した開閉（`transcriptOpen`）は書き換えない。柱を閉じると、覗いていた分（`tocPeek`、ペインの `panes.tocPeek`）も捨てて、各会話は保存した開閉に戻る。
