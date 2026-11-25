@@ -1,4 +1,4 @@
-import { AGENT_UI_CAPS, DEFAULT_AGENT_KIND, FOLDER_TRUST_TOOL, permissionToolLabel, type AgentKind, limitKindText, resetAtText, stepKind, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type PermissionAskDto, type SessionActivityDto, type SessionLimitDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type WaitKind } from '@agent-hangar/shared';
+import { AGENT_UI_CAPS, utteranceHead, DEFAULT_AGENT_KIND, FOLDER_TRUST_TOOL, permissionToolLabel, type AgentKind, limitKindText, resetAtText, stepKind, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type PermissionAskDto, type SessionActivityDto, type SessionLimitDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type WaitKind } from '@agent-hangar/shared';
 import { AGENT_TEXT } from './agentText.ts';
 import { baseName } from '../lib/paths.ts';
 import { contextTokensLabel, costLabel, durationLabel, percentLabel } from './format.ts';
@@ -280,7 +280,7 @@ function turnRequest(i: LiveInput, t: Translate): { text: string; ts: number | u
   for (const e of i.events) {
     if (e.seq < i.turnFrom) continue;
     if (e.kind === 'user') {
-      const text = e.text.trim();
+      const text = utteranceHead(e.text).trim();
       if (text) return { text: [...text].slice(0, REQUEST_MAX).join(''), ts: e.ts };
       if (e.attachments?.length) return { text: t('session.strip.requestImage'), ts: e.ts };
       continue;

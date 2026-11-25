@@ -1,4 +1,4 @@
-import { PEER_CHAT_TURN_TEXT_MAX_BYTES, type PeerChatItem, type PeerChatOlder, type PeerChatTurn, type PeerChatTurns, type TranscriptEvent } from '@agent-hangar/shared';
+import { PEER_CHAT_TURN_TEXT_MAX_BYTES, utteranceHead, type PeerChatItem, type PeerChatOlder, type PeerChatTurn, type PeerChatTurns, type TranscriptEvent } from '@agent-hangar/shared';
 import { toolSummary } from '../../provider/claude-code/transcript/normalize.ts';
 
 /**
@@ -181,7 +181,7 @@ export function olderIn(all: PeerChatItem[], o: { before: string | null; from?: 
 export function turnRowsIn(items: PeerChatItem[]): PeerChatTurn[] {
   const rows: PeerChatTurn[] = [];
   for (const it of items) {
-    if (it.kind === 'user') rows.push({ uuid: it.uuid, at: it.at, text: clipBytes(oneLine(it.text, PEER_CHAT_TURN_TEXT_MAX_BYTES), PEER_CHAT_TURN_TEXT_MAX_BYTES), tools: 0 });
+    if (it.kind === 'user') rows.push({ uuid: it.uuid, at: it.at, text: clipBytes(oneLine(utteranceHead(it.text), PEER_CHAT_TURN_TEXT_MAX_BYTES), PEER_CHAT_TURN_TEXT_MAX_BYTES), tools: 0 });
     else if (it.kind === 'tool' && rows.length > 0) rows[rows.length - 1]!.tools++;
   }
   return rows;

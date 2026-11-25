@@ -159,6 +159,11 @@ describe('recordFacts', () => {
 });
 
 describe('indexTexts', () => {
+  it('利用者の発言の貼り付けタグは索引に入れず、中身は入れる', () => {
+    const text = '\n\n<pasted_content id="bf73">\nTOB の比例配分\n</pasted_content id="bf73">\n\n対応することある？';
+    expect(indexTexts([{ kind: 'user', seq: 1, text }])).toEqual([{ seq: 1, role: 'user', text: 'TOB の比例配分\n対応することある？' }]);
+  });
+
   it('user と assistant の本文、tool_call の要約とコマンドだけを返す', () => {
     const texts = indexTexts([
       { kind: 'user', seq: 0, text: 'u' },

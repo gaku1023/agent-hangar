@@ -1,4 +1,4 @@
-import { isTurnPrompt, MAX_JUMP_HEADS, promptHead, type TranscriptEvent } from '@agent-hangar/shared';
+import { isTurnPrompt, MAX_JUMP_HEADS, promptHead, utteranceHead, type TranscriptEvent } from '@agent-hangar/shared';
 
 /**
  * ターンの目次。利用者が打った指示ごとに会話を区切る。
@@ -31,7 +31,7 @@ export function buildTurns(events: TranscriptEvent[]): Turn[] {
     if (text !== null) {
       const prev = turns[turns.length - 1];
       if (prev) prev.to = e.seq;
-      turns.push({ seq: e.seq, from: e.seq, to: Infinity, ts: e.ts, text, head: promptHead(text), tools: 0 });
+      turns.push({ seq: e.seq, from: e.seq, to: Infinity, ts: e.ts, text: utteranceHead(text), head: promptHead(text), tools: 0 });
     } else if (e.kind === 'tool_call' && turns.length > 0) {
       turns[turns.length - 1]!.tools++;
     }

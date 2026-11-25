@@ -1,6 +1,6 @@
 import { sessionTitleOf } from '../sessions/notes.ts';
 import path from 'node:path';
-import type { SessionSummaryDto } from '@agent-hangar/shared';
+import { utteranceHead, type SessionSummaryDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { EDIT_TOOLS } from './write.ts';
@@ -48,7 +48,7 @@ export function writeBaselineIfNeeded(db: Db, sessionId: string, deviceId: strin
   const st = stmt(db, 'select turns, last_prompt from session_stats where session_id = ?').get(sessionId) as { turns: number; last_prompt: string | null } | undefined;
   const marks = EDIT_TOOLS.map(() => '?').join(',');
   const files = (stmt(db, `select distinct file_path f from event_index where session_id = ? and tool_name in (${marks}) and file_path is not null order by seq`).all(sessionId, ...EDIT_TOOLS) as { f: string }[]).map((r) => r.f);
-  const sum = buildBaselineSummary({ aiTitle: s.ai_title, name: sessionTitleOf(db, sessionId), firstPrompt: s.first_prompt, lastPrompt: st?.last_prompt ?? null, files, turns: st?.turns ?? 0, startedAt: s.started_at, lastActivityAt: s.last_activity_at, running });
+  const sum = buildBaselineSummary({ aiTitle: s.ai_title, name: sessionTitleOf(db, sessionId), firstPrompt: s.first_prompt === null ? null : utteranceHead(s.first_prompt), lastPrompt: st?.last_prompt ? utteranceHead(st.last_prompt) : null, files, turns: st?.turns ?? 0, startedAt: s.started_at, lastActivityAt: s.last_activity_at, running });
   const row: Record<string, unknown> = { session_id: sessionId, title: sum.title, one_liner: sum.oneLiner, body: sum.body, state: sum.state, next_steps: JSON.stringify(sum.nextSteps), source: sum.source, source_id: null, source_model: null, based_on_turns: sum.basedOnTurns };
   // 走査のたびに同じ要約を書き直すと changes が増えるので、列がすべて同じなら書かない。
   if (existing && existing.deleted_at === null && Object.entries(row).every(([k, v]) => existing[k] === v)) return false;

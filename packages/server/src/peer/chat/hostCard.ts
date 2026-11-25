@@ -1,4 +1,4 @@
-import { PEER_CHAT_CARD_CALLS_MAX, PEER_CHAT_CARD_MAX_BYTES, type LiveAgentDto, type LiveDigestDto, type PeerChatCard, type PeerChatCardEvent, type TranscriptEvent } from '@agent-hangar/shared';
+import { PEER_CHAT_CARD_CALLS_MAX, utteranceHead, PEER_CHAT_CARD_MAX_BYTES, type LiveAgentDto, type LiveDigestDto, type PeerChatCard, type PeerChatCardEvent, type TranscriptEvent } from '@agent-hangar/shared';
 import type { HostSession } from './hostTypes.ts';
 
 /**
@@ -45,7 +45,7 @@ function compactInput(input: unknown): Record<string, string> {
 function eventsOf(events: TranscriptEvent[], turnFrom: number, calls: number): PeerChatCardEvent[] {
   const out: PeerChatCardEvent[] = [];
   const head = events.find((e) => e.kind === 'user' && e.seq >= turnFrom);
-  if (head && head.kind === 'user') out.push({ kind: 'user', seq: head.seq, ...(head.ts !== undefined ? { ts: head.ts } : {}), text: clip(head.text.trim(), REQUEST_MAX_CHARS) });
+  if (head && head.kind === 'user') out.push({ kind: 'user', seq: head.seq, ...(head.ts !== undefined ? { ts: head.ts } : {}), text: clip(utteranceHead(head.text).trim(), REQUEST_MAX_CHARS) });
   const keep = events.filter((e) => e.kind === 'tool_call').slice(-calls);
   const ids = new Set(keep.map((e) => (e.kind === 'tool_call' ? e.toolId : '')));
   for (const e of events) {

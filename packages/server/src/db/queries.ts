@@ -1,4 +1,4 @@
-import { isParked, limitReset, PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
+import { isParked, limitReset, PRIMARY_ACCOUNT_ID, utteranceHead } from '@agent-hangar/shared';
 import type { CandidateSource, DeviceDto, InterruptCause, LimitKind, LiveAsideDto, LiveSessionDto, LiveStatus, StopReason, SessionLimitDto, SessionOverlapDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionStatus, SessionSummaryDto, StateSetBy } from '@agent-hangar/shared';
 import { isStrictlyUnder } from '../platform/paths.ts';
 import { parseStartTime as parseProcStart } from '../platform/proc.ts';
@@ -171,7 +171,7 @@ export function displayName(
   if (s.custom_title) return s.custom_title;
   if (s.name) return s.name;
   if (s.ai_title) return s.ai_title;
-  if (s.first_prompt) return [...s.first_prompt].slice(0, 40).join('');
+  if (s.first_prompt) return [...utteranceHead(s.first_prompt)].slice(0, 40).join('');
   return null;
 }
 
@@ -422,7 +422,7 @@ function toSessionDto(db: Db, r: SessionRow, liveMap: Map<string, LiveSessionDto
     name: displayName({ custom_title: r.custom_title, name: r.sn_name, ai_title: r.ai_title, first_prompt: r.first_prompt }, live),
     cwd: r.cwd,
     fromScratch: underScratch && r.project_is_scratch !== 1,
-    firstPrompt: r.first_prompt,
+    firstPrompt: r.first_prompt === null ? null : utteranceHead(r.first_prompt),
     aiTitle: r.ai_title,
     startedAt: r.started_at,
     lastActivityAt: r.activity_at,
