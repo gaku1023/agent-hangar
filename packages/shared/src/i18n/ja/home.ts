@@ -102,7 +102,7 @@ export const homeJa: AreaDictionary<typeof homeKeys> = {
   'home.ready.name.translate': '翻訳',
   'home.ready.translate.text': '英語の返答を日本語で見る',
   'home.ready.translate.enable': '有効にする',
-  'home.ready.translate.install': 'エージェントで入れる…',
+  'home.ready.translate.install': 'エージェントで導入…',
   'home.ready.translate.decline': '使わない',
   'home.ready.translate.request': 'plamo-translate を入れて。入ったら、hangar の設定の翻訳を入にしてよいか聞いて',
   'home.ready.git.text': 'git が見つかりません。無くても使えますが、ブランチと未コミットの件数は表示されません',

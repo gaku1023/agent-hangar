@@ -348,11 +348,11 @@ describe('始める前の確認の翻訳の行', () => {
   const HAS = { ...READY, translate: { installed: true } };
   const setup = (translateAsk: boolean) => ({ desktop: true, running: null, translateAsk });
   const rowOf = (r: ReadinessDto, tr = ja, platform = 'darwin', ask = true) => presentReadiness(r, tr, platform, 'idle', setup(ask))!.group.rows.find((x) => x.key === 'ready:translate');
-  it('plamo-translate が無く tmux と claude があれば、入れるコマンドを薄く添え、主ボタンは「エージェントで入れる…」で種付きのダイアログを開く', () => {
+  it('plamo-translate が無く tmux と claude があれば、入れるコマンドを薄く添え、主ボタンは「エージェントで導入…」で種付きのダイアログを開く', () => {
     const row = rowOf(NO)!;
     expect(row).toMatchObject({ name: '翻訳', badge: '任意', text: '英語の返答を日本語で見る', detail: 'uv tool install plamo-translate', lead: { kind: 'check', tone: 'soft' } });
     expect(row.actions.map((a) => [a.label, a.primary, a.ghost, a.send])).toEqual([
-      ['エージェントで入れる…', true, false, { type: 'translate.install' }],
+      ['エージェントで導入…', true, false, { type: 'translate.install' }],
       ['使わない', false, true, { type: 'settings.update', patch: { translateHintDeclined: true } }],
     ]);
     expect(presentReadiness(NO, ja, 'darwin', 'idle', setup(true))!.group.rows.at(-1)!.key).toBe('ready:translate');

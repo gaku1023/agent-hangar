@@ -107,7 +107,7 @@ export function setupGuideSeed(store: Store, platform: string = clientPlatform()
 }
 
 /**
- * ホームの翻訳の行の「エージェントで入れる…」（translate.install）で開く新しいセッションのダイアログの種。
+ * ホームの翻訳の行の「エージェントで導入…」（translate.install）で開く新しいセッションのダイアログの種。
  * 依頼の文は plamo-translate を入れて、入ったら翻訳を入にしてよいか聞くこと。引用は入れるコマンドである。
  */
 export function translateInstallSeed(store: Store): NewSessionSeed {
