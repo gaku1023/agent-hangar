@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { writeFakeTool } from '../../test/fake-bin.ts';
-import { findInDirs, isCommandName, knownDirs, MUX_NAMES, needsShell, pathExts, resolveNpmExeShim, splitPathEnv } from './exec.ts';
+import { findInDirs, isCommandName, knownDirs, MUX_NAMES, needsShell, pathExts, resolveCodexNpmShim, resolveNpmExeShim, splitPathEnv } from './exec.ts';
 
 const dirs: string[] = [];
 const tmp = (): string => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-exec-')); dirs.push(d); return d; };
@@ -139,5 +139,46 @@ describe('resolveNpmExeShim', () => {
     expect(resolveNpmExeShim(good, 'darwin')).toBe(good);
     expect(resolveNpmExeShim(path.join(dir, 'opencode.exe'), 'win32')).toBe(path.join(dir, 'opencode.exe'));
     expect(resolveNpmExeShim(path.join(dir, 'nothing.cmd'), 'win32')).toBe(path.join(dir, 'nothing.cmd'));
+  });
+});
+
+describe('resolveCodexNpmShim', () => {
+  // @openai/codex の cmd-shim は node の台本（bin/codex.js）を指し、台本が対の包み（@openai/codex-win32-x64）の vendor の codex.exe を起こす。
+  const shim = `@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n\r\nIF EXIST "%dp0%\\node.exe" (\r\n  SET "_prog=%dp0%\\node.exe"\r\n) ELSE (\r\n  SET "_prog=node"\r\n  SET PATHEXT=%PATHEXT:;.JS;=;%\r\n)\r\n\r\nendLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js" %*\r\n`;
+  const put = (file: string) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, ''); return file; };
+  const setup = () => {
+    const dir = tmp();
+    const cmd = path.join(dir, 'codex.cmd');
+    fs.writeFileSync(cmd, shim);
+    return { dir, cmd, pkg: path.join(dir, 'node_modules', '@openai', 'codex') };
+  };
+  const vendor = (root: string, plat: string, triple: string) => path.join(root, 'node_modules', '@openai', plat, 'vendor', triple, 'bin', 'codex.exe');
+
+  it('包みの中に入れ子で入った対の包み（npm の既定）の codex.exe を返す', () => {
+    const { cmd, pkg } = setup();
+    const exe = put(vendor(pkg, 'codex-win32-x64', 'x86_64-pc-windows-msvc'));
+    expect(resolveCodexNpmShim(cmd, 'win32', 'x64')).toBe(exe);
+  });
+
+  it('node_modules の直下に引き上げられた対の包み、arm64、古い版の包みの中の vendor も読む', () => {
+    const a = setup();
+    const hoisted = put(vendor(a.dir, 'codex-win32-arm64', 'aarch64-pc-windows-msvc'));
+    expect(resolveCodexNpmShim(a.cmd, 'win32', 'arm64')).toBe(hoisted);
+    const b = setup();
+    const old = put(path.join(b.pkg, 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe'));
+    expect(resolveCodexNpmShim(b.cmd, 'win32', 'x64')).toBe(old);
+  });
+
+  it('codex.exe が無い、codex の包みでない、Windows でない、.cmd でない、はそのまま返す', () => {
+    const { dir, cmd, pkg } = setup();
+    expect(resolveCodexNpmShim(cmd, 'win32', 'x64')).toBe(cmd);
+    put(vendor(pkg, 'codex-win32-x64', 'x86_64-pc-windows-msvc'));
+    expect(resolveCodexNpmShim(cmd, 'darwin', 'x64')).toBe(cmd);
+    expect(resolveCodexNpmShim(cmd, 'win32', 'ia32')).toBe(cmd);
+    const other = path.join(dir, 'other.cmd');
+    fs.writeFileSync(other, shim.replace('@openai\\codex\\bin\\codex.js', '@foo\\bar\\bin\\bar.js'));
+    expect(resolveCodexNpmShim(other, 'win32', 'x64')).toBe(other);
+    expect(resolveCodexNpmShim(path.join(dir, 'codex.exe'), 'win32', 'x64')).toBe(path.join(dir, 'codex.exe'));
+    expect(resolveCodexNpmShim(path.join(dir, 'nothing.cmd'), 'win32', 'x64')).toBe(path.join(dir, 'nothing.cmd'));
   });
 });

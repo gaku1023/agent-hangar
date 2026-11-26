@@ -95,21 +95,57 @@ const SHIM_MAX_BYTES = 64 * 1024;
  */
 export function resolveNpmExeShim(file: string, platform: NodeJS.Platform = process.platform): string {
   if (platform !== 'win32' || !/\.cmd$/i.test(file)) return file;
-  let text: string;
-  try {
-    if (fs.statSync(file).size > SHIM_MAX_BYTES) return file;
-    text = fs.readFileSync(file, 'utf8');
-  } catch {
-    return file;
-  }
+  const text = readShim(file);
+  if (text === null) return file;
   // 包みの最後の起動の行の、%dp0%（古い包みは %~dp0）から見た .exe の場所。後ろに %* が続くものだけを見る。
-  const all = [...text.matchAll(/"%~?dp0%?\\([^"\r\n]+?\.exe)"\s*%\*/gi)];
-  const rel = all.at(-1)?.[1];
+  const rel = [...text.matchAll(/"%~?dp0%?\\([^"\r\n]+?\.exe)"\s*%\*/gi)].at(-1)?.[1];
   if (!rel) return file;
   const target = path.join(path.dirname(file), ...rel.split(/[\\/]+/));
+  return isFile(target) ? target : file;
+}
+
+/** Codex の対の包みの名前と、vendor の下の置き場の名前（@openai/codex の bin/codex.js の表と同じ）。 */
+const CODEX_WIN_TARGET: Partial<Record<string, { pkg: string; triple: string }>> = {
+  x64: { pkg: 'codex-win32-x64', triple: 'x86_64-pc-windows-msvc' },
+  arm64: { pkg: 'codex-win32-arm64', triple: 'aarch64-pc-windows-msvc' },
+};
+
+/**
+ * npm で入れた Codex（@openai/codex）の .cmd の包みから、本体の codex.exe の場所を返す。読めなければ file をそのまま返す。
+ * 包みは node の台本（`node_modules\@openai\codex\bin\codex.js`）を指すので、resolveNpmExeShim では .exe に読み替えられない。
+ * 台本は対の包み（@openai/codex-win32-x64 など）の `vendor/<triple>/bin/codex.exe` を起こすだけなので、その .exe を直に起こす。
+ * 対の包みは @openai/codex の中に入れ子で入る（npm の既定）か、node_modules の直下に引き上げられる。古い版は @openai/codex の中の vendor に持つ。
+ */
+export function resolveCodexNpmShim(file: string, platform: NodeJS.Platform = process.platform, arch: string = process.arch): string {
+  if (platform !== 'win32' || !/\.cmd$/i.test(file)) return file;
+  const target = CODEX_WIN_TARGET[arch];
+  if (!target) return file;
+  const text = readShim(file);
+  if (text === null || !/"%~?dp0%?\\node_modules\\@openai\\codex\\bin\\codex\.js"\s*%\*/i.test(text)) return file;
+  const root = path.join(path.dirname(file), 'node_modules');
+  const pkg = path.join(root, '@openai', 'codex');
+  const tail = ['vendor', target.triple, 'bin', 'codex.exe'];
+  const candidates = [
+    path.join(pkg, 'node_modules', '@openai', target.pkg, ...tail),
+    path.join(root, '@openai', target.pkg, ...tail),
+    path.join(pkg, ...tail),
+  ];
+  return candidates.find(isFile) ?? file;
+}
+
+function readShim(file: string): string | null {
   try {
-    return fs.statSync(target).isFile() ? target : file;
+    if (fs.statSync(file).size > SHIM_MAX_BYTES) return null;
+    return fs.readFileSync(file, 'utf8');
   } catch {
-    return file;
+    return null;
+  }
+}
+
+function isFile(p: string): boolean {
+  try {
+    return fs.statSync(p).isFile();
+  } catch {
+    return false;
   }
 }
