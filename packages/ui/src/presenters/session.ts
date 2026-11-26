@@ -9,7 +9,7 @@ import { baseName, splitLast } from '../lib/paths.ts';
 import { AGENT_DISPLAY_NAME, AGENT_UI_CAPS, DEFAULT_AGENT_KIND, stopReasonOf, translateEnglishOf, type LiveStatus, type NonDefaultAgentKind, type RunDto, type RunKind, type SessionDto, type SessionFilesDto, type SettingsDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type UiAction } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
-import { finishedReplies } from './termReplies.ts';
+import { finishedReplies, pendingAskTexts } from './termReplies.ts';
 import { accountOfSession, aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasMultipleAccounts, hasRunOf, outsideOpenOf, tabsOf, type Store } from '../store/store.ts';
 import { DEFAULT_DAYS, EXTEND_TO, transcriptMark } from './retention.ts';
 import { periodLabel } from './retentionDialog.ts';
@@ -110,6 +110,8 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
    * 設定 translateEnglish が切のとき、生きた run が無いときは空。省けば空として読む。
    */
   termReplies?: string[];
+  /** 動いている会話のターミナルの、答えを待っている質問の札で訳す英語の文（問いと選択肢の説明。presenters/termReplies.ts の pendingAskTexts）。 */
+  termFields?: string[];
   /** ターンの目次。古い順。turnsComplete は会話の最初の指示まで読み込んでいるか。 */
   turnRows: TurnRowProps[]; turnsComplete: boolean; turnsPending: boolean; turnCount: TurnCount | null; loadingOlder: boolean; openTurnItems: TranscriptItem[]; turnJump: { seq: number; status: TurnJumpStatus } | null;
   /**
@@ -687,6 +689,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     turnRows, turnsComplete: complete, turnsPending, turnCount, loadingOlder: slice?.loadingOlder === true, openTurnItems, turnJump: view.turnJump,
     // ターミナルの訳の板は、サブエージェントを見ている間も主線の返答に重ねる（ターミナルが描くのは主線である）。
     termReplies: alive && translateEnglishOf(store.settings ?? {}) ? finishedReplies(mainEvents, s.live === 'busy') : [],
+    termFields: alive && translateEnglishOf(store.settings ?? {}) ? pendingAskTexts(mainEvents) : [],
     promptJump: agentKind !== null && AGENT_UI_CAPS[agentKind].promptJump,
     jump: view.jump,
     run: run ? { id: run.id, kind: run.kind, alive: run.endedAt === null, started: relativeTime(t, run.startedAt, now) } : null,

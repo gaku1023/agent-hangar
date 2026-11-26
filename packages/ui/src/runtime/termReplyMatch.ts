@@ -187,3 +187,40 @@ export function lineStreams(lines: readonly string[]): string[] {
   }
   return out;
 }
+
+/** 札の文の範囲。x は文の頭の桁（行の頭の字下げと左の縦線の後ろ）。 */
+export type FieldRange = { start: number; end: number; x: number };
+/** 札の文の列の長さの下限。頭の桁でも合わせるので、返答より短くてよい。 */
+export const MIN_FIELD = 12;
+/** 札の問いの左の縦線（Claude Code は │ を 1 桁目に置き、1 桁空けて問いを書く）。 */
+const FIELD_PREFIX = /^ *(?:[│┃▏▌] +)? */;
+
+/**
+ * 画面の行の中で、質問の札（AskUserQuestion）の文 text が描かれている行の範囲を返す（docs/design.md「英語の返答の翻訳」の質問の札）。
+ * 問いは「│ 」の内側から、選択肢の説明は 5 桁の字下げの後ろから描かれる。文の頭は行の頭（字下げと縦線の後ろ）に限り、続く行も同じ桁から始まることを求める。
+ * 問いの行は │ で始まるので、表の行と取り違えないよう lineStreams は使わず、行ごとに頭を落として列にする。
+ * 同じ文がいくつもあれば、いちばん下（札は画面の下にある）を返す。見つからなければ null。
+ */
+export function findFieldRange(lines: readonly string[], text: string): FieldRange | null {
+  const r = replyStream(text);
+  if (r.length < MIN_FIELD) return null;
+  const heads = lines.map((l) => FIELD_PREFIX.exec(l)![0].length);
+  const streams = lines.map((l, k) => replyStream(l.slice(heads[k])));
+  const budget = Math.max(SKIP_MAX, Math.floor(r.length / 10));
+  for (let k = lines.length - 1; k >= 0; k--) {
+    const first = streams[k]!;
+    if (first === '' || !r.startsWith(first.slice(0, Math.min(first.length, SKIP_PROBE)))) continue;
+    const x = heads[k]!;
+    let pos = 0;
+    let skipped = 0;
+    for (let j = k; j < lines.length; j++) {
+      if (streams[j] === '' || heads[j] !== x) break;
+      const got = consume(streams[j]!, r, pos, budget - skipped);
+      if (!got) break;
+      pos = got.pos;
+      skipped += got.skipped;
+      if (pos >= r.length) return { start: k, end: j, x };
+    }
+  }
+  return null;
+}

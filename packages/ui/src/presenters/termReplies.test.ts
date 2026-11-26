@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TranscriptEvent } from '@agent-hangar/shared';
-import { finishedReplies } from './termReplies.ts';
+import { finishedReplies, pendingAskTexts } from './termReplies.ts';
 
 const EN1 = 'The build passed on all five jobs, and the branch is ready to merge now.';
 const EN2 = 'I changed the width of the sidebar and added a test for the narrow case.';
@@ -42,5 +42,31 @@ describe('finishedReplies', () => {
     expect(out.length).toBe(12);
     expect(out[out.length - 1]).toBe(many[29]);
     expect(new Set(out).size).toBe(out.length);
+  });
+});
+
+describe('pendingAskTexts', () => {
+  const ask = (seq: number, toolId: string, questions: unknown): TranscriptEvent => ({ kind: 'tool_call', seq, toolId, name: 'AskUserQuestion', input: { questions }, summary: '' });
+  const Q = 'What should I do with this session now that the release is out?';
+  const D1 = 'The release is finished and the check stays recorded as unverified.';
+  const qs = [{ question: Q, header: 'Session', options: [{ label: 'Done', description: D1 }, { label: 'Paused', description: '明日また見る' }, { label: 'Keep going' }] }];
+
+  it('答えを待っている札の、英語の問いと選択肢の説明を返す。選択肢の名前と日本語は外す', () => {
+    expect(pendingAskTexts([{ kind: 'assistant', seq: 0, text: EN1 }, ask(1, 'a1', qs)])).toEqual([Q, D1]);
+  });
+
+  it('答えた札（同じ toolId の結果がある）は返さない', () => {
+    expect(pendingAskTexts([ask(1, 'a1', qs), { kind: 'tool_result', seq: 2, toolId: 'a1', text: 'Done', isError: false }])).toEqual([]);
+  });
+
+  it('動いている間でも、札で答えを待っていれば、そのターンの返答は書き終わっているので返す', () => {
+    const events: TranscriptEvent[] = [{ kind: 'user', seq: 0, text: 'go' }, { kind: 'assistant', seq: 1, text: EN1 }, ask(2, 'a1', qs)];
+    expect(finishedReplies(events, true)).toEqual([EN1]);
+    expect(finishedReplies([...events, { kind: 'tool_result', seq: 3, toolId: 'a1', text: 'Done', isError: false }], true)).toEqual([]);
+  });
+
+  it('形の崩れた入力では何も返さない', () => {
+    expect(pendingAskTexts([ask(1, 'a1', 'oops')])).toEqual([]);
+    expect(pendingAskTexts([ask(1, 'a1', [{ question: 3 }])])).toEqual([]);
   });
 });

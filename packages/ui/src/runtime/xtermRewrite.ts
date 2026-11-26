@@ -85,6 +85,17 @@ export function rewriteOf(term: Terminal, deps: RewriteDeps): RewriteTerm {
       }
       return out;
     },
+    style(line, x) {
+      const c = deps.truth.buffer.active.getLine(line)?.getCell(x);
+      if (!c) return '';
+      const a: string[] = [];
+      if (c.isBold()) a.push('1');
+      if (c.isDim()) a.push('2');
+      if (c.isItalic()) a.push('3');
+      if (c.isFgRGB()) { const v = c.getFgColor(); a.push(`38;2;${(v >> 16) & 255};${(v >> 8) & 255};${v & 255}`); }
+      else if (c.isFgPalette()) a.push(`38;5;${c.getFgColor()}`);
+      return a.join(';');
+    },
     snapshot(line, x) {
       const row = deps.truth.buffer.active.getLine(line);
       if (!row) return '';
@@ -131,6 +142,8 @@ export function rewriteOf(term: Terminal, deps: RewriteDeps): RewriteTerm {
       if (!d) return null;
       // 訳を待つ段落の光（styles の .term-tr-glow）。押せないので、選択やクリックはその下の端末へ通す。
       if (box.glow) d.onRender((el) => { el.classList.add('term-tr-glow'); });
+      // 訳が届いた行に重ねて消していく幕（.term-tr-veil）。行ごとの遅れは animation-delay で付ける。
+      if (box.veil !== undefined) { const delay = `${box.veil}ms`; d.onRender((el) => { el.classList.add('term-tr-veil'); el.style.animationDelay = delay; }); }
       // xterm は代わりの画面（tmux に attach した Claude のタブ）では decoration を隠し、位置も合わせ直さない。
       // そこで、描かれるたびに、画面の中にあるものは出して、位置と寸法をセルの大きさから当て直す。
       d.onRender((el) => {

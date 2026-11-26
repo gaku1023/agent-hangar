@@ -787,6 +787,12 @@ a:where(.btn) { color: inherit; }
 .term-tr-glow { pointer-events: none; background: linear-gradient(90deg, transparent 0 40%, color-mix(in srgb, var(--term-bg) 70%, transparent) 50%, transparent 60% 100%); background-size: 250% 100%; animation: term-tr-glow var(--skel-period) linear infinite; }
 @keyframes term-tr-glow { from { background-position: 100% 0; } to { background-position: -150% 0; } }
 @media (prefers-reduced-motion: reduce) { .term-tr-glow { animation: none; background: color-mix(in srgb, var(--term-bg) 35%, transparent); } }
+/* 訳が届いた行に重ねる、端末の背景の色の幕（termRewrite.ts のにじみ）。訳を暗く見せてから、FADE_MS（480ms）で消える。
+   文字の色を書き換えずに幕の濃さだけを動かすのは、WebGL の文字の画像の置き場を溢れさせないため。
+   曲線は試作の「ゆっくり」と同じ 3 次の ease-out（--ease-out は頭が速すぎ、0.1 秒でほぼ消えた）。 */
+.term-tr-veil { pointer-events: none; background: var(--term-bg); opacity: 0; animation: term-tr-veil var(--dur-veil) cubic-bezier(0.33, 1, 0.68, 1) backwards; }
+@keyframes term-tr-veil { from { opacity: 0.75; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .term-tr-veil { animation: none; } }
 .term-host[data-painted='false'] { opacity: 0; }
 .term-hint { padding: var(--u) calc(var(--u) * 3); background: var(--waiting); color: #fff; font-size: var(--fs-sm); }
 .term-status { position: absolute; right: calc(var(--u) * 2); bottom: calc(var(--u) * 2); font-size: var(--fs-xs); color: var(--term-fg); opacity: 0.7; }
