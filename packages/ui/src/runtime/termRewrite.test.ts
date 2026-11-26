@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createReplyRewrites, fitRows, plainOf, REWRITE_DELAY_MS, shadeRow, wrapCells, type CopyDrag, type PlacedReply, type RewriteTerm } from './termRewrite.ts';
+import { createReplyRewrites, FADE_FRAME_MS, FADE_MS, FADE_STAGGER_MS, fitRows, plainOf, REWRITE_DELAY_MS, shadeRow, wrapCells, type CopyDrag, type PlacedReply, type RewriteTerm } from './termRewrite.ts';
 
 const A = 'The build passed on all five jobs, and the branch is ready to merge now.';
 const B = 'I changed the width of the sidebar and added a test for the narrow case.';
@@ -289,5 +289,76 @@ describe('createReplyRewrites', () => {
     expect(term.now()[2]).toContain('The build');
     expect(term.decos.every((d) => d.isDisposed)).toBe(true);
     expect(term.copy('⏺ The build passed on all five jobs, and the branch is')).toContain('The build');
+  });
+
+  describe('訳が届いたときのにじみ', () => {
+    const fade = { from: '#000000', to: '#ffffff' };
+    const tinted = (sh: readonly string[]) => sh.some((s) => /(^|;)38;2;/.test(s ?? ''));
+
+    it('待っていた段落に訳が届くと、暗い色から書き、時間とともに明るくして、最後はふつうの色に戻す', async () => {
+      const term = fakeTerm(screen(2));
+      let clock = 0;
+      const t = api({ [A]: JA_A });
+      const o = createReplyRewrites(term, t, () => {}, { fade, now: () => clock });
+      o.setReplies([A]);
+      t.settle();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(term.now()[2]).toContain('ビルド');
+      const first = term.viewShade(2).find((s) => /38;2;/.test(s ?? ''));
+      expect(first).toBeDefined();
+      // 途中では、初めより明るい色で書き直す。
+      clock = FADE_MS / 2;
+      await vi.advanceTimersByTimeAsync(FADE_FRAME_MS);
+      const mid = term.viewShade(2).find((s) => /38;2;/.test(s ?? ''));
+      expect(mid).toBeDefined();
+      expect(mid).not.toBe(first);
+      // 終われば色を外す（端末のふつうの文字の色）。文字は訳のまま。
+      clock = FADE_MS * 3;
+      await vi.advanceTimersByTimeAsync(FADE_FRAME_MS);
+      expect(tinted(term.viewShade(2))).toBe(false);
+      expect(term.now()[2]).toContain('ビルド');
+      // 動きが終われば、見回りを繰り返さない。
+      const paints = term.paints;
+      await vi.advanceTimersByTimeAsync(500);
+      expect(term.paints).toBe(paints);
+      o.dispose();
+    });
+
+    it('初めて見えた時に訳が手元にあれば（会話を開いた、先に訳しておいた段落へスクロールした）、にじませずに書く', () => {
+      const term = fakeTerm(screen(2));
+      const o = createReplyRewrites(term, api({ [A]: JA_A }, { cached: true }), () => {}, { fade, now: () => 0 });
+      o.setReplies([A]);
+      expect(term.now()[2]).toContain('ビルド');
+      expect(tinted(term.viewShade(2))).toBe(false);
+      o.dispose();
+    });
+
+    it('fade が無ければ（動きを減らす設定）、待っていた段落でもにじませない', async () => {
+      const term = fakeTerm(screen(2));
+      const t = api({ [A]: JA_A });
+      const o = createReplyRewrites(term, t, () => {}, { fade: null, now: () => 0 });
+      o.setReplies([A]);
+      t.settle();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(term.now()[2]).toContain('ビルド');
+      expect(tinted(term.viewShade(2))).toBe(false);
+      o.dispose();
+    });
+
+    it('下の行ほど遅れて明るくなる', async () => {
+      const term = fakeTerm(screen(2), 30);
+      let clock = 0;
+      const t = api({ [A]: `${JA_A}${JA_A}` });
+      const o = createReplyRewrites(term, t, () => {}, { fade, now: () => clock });
+      o.setReplies([A]);
+      t.settle();
+      await vi.advanceTimersByTimeAsync(0);
+      clock = FADE_MS + FADE_STAGGER_MS / 2;
+      await vi.advanceTimersByTimeAsync(FADE_FRAME_MS);
+      // 1 行目は明るくなりきり、2 行目はまだ少し暗い。
+      expect(tinted(term.viewShade(2))).toBe(false);
+      expect(tinted(term.viewShade(3))).toBe(true);
+      o.dispose();
+    });
   });
 });

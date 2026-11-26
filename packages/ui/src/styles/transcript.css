@@ -12,12 +12,14 @@
 .msg-system { color: var(--ink-3); font-size: var(--fs-xs); align-self: center; white-space: pre-wrap; }
 
 /* 英語の返答と思考の翻訳（translateMsg.tsx、2026-11-25 の試作の A）。
-   訳を待つ間は文字の上を薄い光が流れ、届いたら訳文に入れ替わる。右上の切り替えは、訳文を見ている間は青く出し続け、原文に戻すと行に乗ったときだけ出す。 */
+   訳を待つ段落は文字の上を薄い光が流れ、届いた段落から訳文に入れ替わる。右上の切り替えは、訳文を見ている間は青く出し続け、原文に戻すと行に乗ったときだけ出す。 */
 .msg[data-translated], .msg[data-offer] { position: relative; padding-right: 30px; }
-.msg[data-translating] .msg-body { background: linear-gradient(90deg, currentColor 0 40%, color-mix(in srgb, currentColor 35%, transparent) 50%, currentColor 60% 100%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: msg-sheen var(--skel-period) linear infinite; }
-.msg[data-translating] .msg-body code { -webkit-text-fill-color: currentColor; }
+.msg[data-translating]:not([data-split]) .msg-body, .msg-block[data-translating] { background: linear-gradient(90deg, currentColor 0 40%, color-mix(in srgb, currentColor 35%, transparent) 50%, currentColor 60% 100%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; animation: msg-sheen var(--skel-period) linear infinite; }
+.msg[data-translating]:not([data-split]) .msg-body code, .msg-block[data-translating] code { -webkit-text-fill-color: currentColor; }
+/* 段落ずつ訳文にするとき（data-split）は段落を別々に描き、間は段落の間（.md p）と同じに空ける。 */
+.msg-block + .msg-block { margin-top: calc(var(--u) * 2); }
 @keyframes msg-sheen { from { background-position: 100% 0; } to { background-position: -150% 0; } }
-@media (prefers-reduced-motion: reduce) { .msg[data-translating] .msg-body { animation: none; -webkit-text-fill-color: currentColor; opacity: 0.6; } }
+@media (prefers-reduced-motion: reduce) { .msg[data-translating]:not([data-split]) .msg-body, .msg-block[data-translating] { animation: none; -webkit-text-fill-color: currentColor; opacity: 0.6; } }
 .msg-translate { position: absolute; top: 2px; right: 0; width: 24px; height: 24px; padding: 0; border: none; background: transparent; border-radius: 6px; display: grid; place-items: center; color: var(--ink-3); opacity: 0; cursor: pointer; transition: opacity var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
 .msg-translate svg { width: 15px; height: 15px; }
 .msg:hover > .msg-translate, .msg-translate:focus-visible, .msg-translate[aria-pressed='true'] { opacity: 1; }

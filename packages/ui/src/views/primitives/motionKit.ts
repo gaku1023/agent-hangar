@@ -15,10 +15,10 @@ const enterFrames = (el: Element): Keyframe[] => [
   { opacity: 1, transform: 'none', filter: 'none' },
 ];
 
-/** 入る形。delay は ms で、トークンから読んだ値を渡す。 */
-export function riseIn(el: HTMLElement, delay = 0): Animation | null {
+/** 入る形。delay は ms で、トークンから読んだ値を渡す。token は長さ（訳が届いた段落は --dur-reveal でゆっくり入る）。 */
+export function riseIn(el: HTMLElement, delay = 0, token: DurationToken = '--dur'): Animation | null {
   if (!motionOn(el)) return null;
-  return el.animate(enterFrames(el), { duration: motionMs('--dur', el), delay, easing: motionEase('--ease-out', el), fill: 'backwards' });
+  return el.animate(enterFrames(el), { duration: motionMs(token, el), delay, easing: motionEase('--ease-out', el), fill: 'backwards' });
 }
 
 /**

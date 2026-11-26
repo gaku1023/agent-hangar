@@ -102,6 +102,8 @@
   /* 待ちの輪が 1 周する長さ。 */
   --dur-spin: 900ms;
   --dur: 420ms;
+  /* 訳が届いた段落の入り（translateMsg.tsx）。2026-11-26 の試作で利用者が「ゆっくり」（--dur の 2 倍）を選んだ。 */
+  --dur-reveal: 840ms;
   --dur-exit: 250ms;
   /* 札の入れ替え（新しいセッションのエージェントの切り替え、M1）。消える札が薄れる長さと、新しい札を 1 枚ずつずらす間。 */
   --dur-swap: 150ms;
@@ -120,5 +122,5 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root { --dur-fast: 0ms; --dur: 0ms; --dur-exit: 0ms; --dur-swap: 0ms; --stagger: 0ms; --rise: 0px; --blur-in: 0px; }
+  :root { --dur-fast: 0ms; --dur: 0ms; --dur-exit: 0ms; --dur-swap: 0ms; --dur-reveal: 0ms; --stagger: 0ms; --rise: 0px; --blur-in: 0px; }
 }

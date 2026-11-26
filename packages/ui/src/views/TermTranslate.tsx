@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { TerminalHost } from '../runtime/terminals.ts';
 import { createReplyRewrites, type PlacedReply, type ReplyState } from '../runtime/termRewrite.ts';
 import { Icon } from './primitives/Icon.tsx';
+import { motionOn } from './primitives/motionKit.ts';
 import { useT } from './primitives/language.tsx';
 import { TranslateContext } from './translateMsg.tsx';
 
@@ -31,7 +32,8 @@ export function TermTranslations(props: { host: TerminalHost; tabId: string; rep
       if (dead || ctl.current) return;
       const term = host.rewrite?.(tabId);
       if (!term) return;
-      ctl.current = createReplyRewrites(term, api, (list) => { if (!dead) setPlaced(list); });      ctl.current.setOriginal(origRef.current);
+      ctl.current = createReplyRewrites(term, api, (list) => { if (!dead) setPlaced(list); }, { fade: termFade() });
+      ctl.current.setOriginal(origRef.current);
       ctl.current.setReplies(replies.current);
     };
     open();
@@ -59,6 +61,13 @@ export function TermTranslations(props: { host: TerminalHost; tabId: string; rep
 }
 
 /** xterm に渡さない操作。アイコンの押し下げが tmux のマウスの操作や選択にならないようにする。 */
+/** 訳が届いたときのにじみの色（端末の背景と文字の色。runtime/xterm.ts と同じ値）。動きを減らす設定なら null。 */
+function termFade() {
+  if (!motionOn()) return null;
+  const css = getComputedStyle(document.documentElement);
+  return { from: css.getPropertyValue('--term-bg').trim() || '#1c1b2e', to: css.getPropertyValue('--term-fg').trim() || '#e8e6f0' };
+}
+
 const SWALLOW = ['mousedown', 'mouseup', 'pointerdown', 'pointerup', 'dblclick'] as const;
 
 /**
