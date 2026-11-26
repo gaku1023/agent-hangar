@@ -38,6 +38,29 @@ function sgrOf(c: IBufferCell): string {
   return a.join(';');
 }
 
+/** xterm の既定の 16 色（配色で上書きしていない色）。 */
+const ANSI16 = [0x2e3436, 0xcc0000, 0x4e9a06, 0xc4a000, 0x3465a4, 0x75507b, 0x06989a, 0xd3d7cf, 0x555753, 0xef2929, 0x8ae234, 0xfce94f, 0x729fcf, 0xad7fa8, 0x34e2e2, 0xeeeeec];
+const CUBE = [0, 95, 135, 175, 215, 255];
+
+/** 256 色の番号を RGB にする（16 から 231 は 6 段の立方体、232 から 255 は灰色）。 */
+export function paletteRgb(n: number): number {
+  if (n < 16) return ANSI16[n] ?? 0xffffff;
+  if (n < 232) { const k = n - 16; return (CUBE[Math.floor(k / 36)]! << 16) | (CUBE[Math.floor(k / 6) % 6]! << 8) | CUBE[k % 6]!; }
+  const g = 8 + 10 * (n - 232);
+  return (g << 16) | (g << 8) | g;
+}
+
+function hexRgb(hex: string | undefined): number {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex?.trim() ?? '');
+  return m ? parseInt(m[1]!, 16) : 0xe8e6f0;
+}
+
+function mixWithBg(fg: number, bg: number): number {
+  const ch = (v: number, s: number) => (v >> s) & 255;
+  const mix = (s: number) => Math.round((ch(fg, s) + ch(bg, s)) / 2) << s;
+  return mix(16) | mix(8) | mix(0);
+}
+
 /** セルの選択の色（背景の色と反転）を SGR の引数にする。無ければ空。 */
 function shadeOf(c: IBufferCell): string {
   const a: string[] = [];
@@ -84,6 +107,21 @@ export function rewriteOf(term: Terminal, deps: RewriteDeps): RewriteTerm {
         prev = sh;
       }
       return out;
+    },
+    style(line, x) {
+      const row = deps.truth.buffer.active.getLine(line);
+      const c = row?.getCell(x);
+      if (!c) return { sgr: '', rgb: null };
+      const a: string[] = [];
+      if (c.isBold()) a.push('1');
+      if (c.isDim()) a.push('2');
+      if (c.isItalic()) a.push('3');
+      let rgb: number | null = null;
+      if (c.isFgRGB()) { rgb = c.getFgColor(); a.push(`38;2;${(rgb >> 16) & 255};${(rgb >> 8) & 255};${rgb & 255}`); }
+      else if (c.isFgPalette()) { rgb = paletteRgb(c.getFgColor()); a.push(`38;5;${c.getFgColor()}`); }
+      // xterm は薄い文字を半分の濃さで描く。にじみの行き先も、背景と半々に混ぜた色にする。
+      if (c.isDim()) rgb = mixWithBg(rgb ?? hexRgb(term.options.theme?.foreground), hexRgb(term.options.theme?.background));
+      return { sgr: a.join(';'), rgb: rgb === null ? null : `#${rgb.toString(16).padStart(6, '0')}` };
     },
     snapshot(line, x) {
       const row = deps.truth.buffer.active.getLine(line);

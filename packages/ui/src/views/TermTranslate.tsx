@@ -12,7 +12,7 @@ import { TranslateContext } from './translateMsg.tsx';
  * 上書きは runtime/termRewrite.ts に任せ、ここは返答ごとの「原文に戻す」アイコンを描く。
  * 設定が切（TranslateContext が null）なら何もしない。
  */
-export function TermTranslations(props: { host: TerminalHost; tabId: string; replies: readonly string[] }) {
+export function TermTranslations(props: { host: TerminalHost; tabId: string; replies: readonly string[]; fields?: readonly string[] }) {
   const { host, tabId } = props;
   const api = useContext(TranslateContext);
   const [placed, setPlaced] = useState<PlacedReply[]>([]);
@@ -20,6 +20,8 @@ export function TermTranslations(props: { host: TerminalHost; tabId: string; rep
   const [orig, setOrig] = useState<ReadonlySet<string>>(() => new Set());
   const replies = useRef(props.replies);
   replies.current = props.replies;
+  const fields = useRef(props.fields ?? []);
+  fields.current = props.fields ?? [];
   const origRef = useRef(orig);
   origRef.current = orig;
   const ctl = useRef<ReturnType<typeof createReplyRewrites> | null>(null);
@@ -35,6 +37,7 @@ export function TermTranslations(props: { host: TerminalHost; tabId: string; rep
       ctl.current = createReplyRewrites(term, api, (list) => { if (!dead) setPlaced(list); }, { fade: termFade() });
       ctl.current.setOriginal(origRef.current);
       ctl.current.setReplies(replies.current);
+      ctl.current.setFields(fields.current);
     };
     open();
     queueMicrotask(open);
@@ -49,6 +52,7 @@ export function TermTranslations(props: { host: TerminalHost; tabId: string; rep
   }, [api, host, tabId]);
 
   useEffect(() => { ctl.current?.setReplies(props.replies); }, [props.replies]);
+  useEffect(() => { ctl.current?.setFields(props.fields ?? []); }, [props.fields]);
   useEffect(() => { ctl.current?.setOriginal(orig); }, [orig]);
 
   if (!api) return null;

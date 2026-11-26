@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { findReplyRange, pillOf, replyStream } from './termReplyMatch.ts';
+import { findFieldRange, findReplyRange, pillOf, replyStream } from './termReplyMatch.ts';
 
 // 2026-11-25 に Claude Code 2.1.332 を幅 80 の tmux で動かし、capture-pane で採った画面と、会話の JSONL の本文。
 const REPLY = '## What is a tmux session?\n\nA tmux session is a background terminal workspace that keeps running after you disconnect. Each session contains one or more windows, and each window can be split into panes that run shell programs.\n\n- Sessions keep running when you close your terminal or lose an SSH connection, so long jobs such as builds, downloads, and training runs are not killed by a network drop or a closed laptop lid.\n- Each session has a name, and you can keep several sessions going at once, list them, and switch between them.\n- Windows and panes let you arrange several shells side by side inside one session.\n\nTo use one, you usually:\n\n1. Create a named session with `tmux new -s work`, then detach from it with `Ctrl-b d`.\n2. Reconnect later with `tmux attach -t work` (or plain `tmux attach` if there is only one session) to pick up where you left off.\n\nIn short, a tmux session is a detachable terminal workspace: you can leave it running and return to it whenever you need.';
@@ -153,5 +153,45 @@ describe('findReplyRange（頭が切れた画面）', () => {
   it('ほかの返答とは合わない', () => {
     const lines = read('claude-cut-80.txt').split('\n');
     expect(findReplyRange(lines, read('claude-table-reply.md'))).toBeNull();
+  });
+});
+
+// 2026-11-26 に Claude Code 2.1.332 を幅 110 の tmux で動かし、AskUserQuestion の札を capture-pane で採った画面。
+const CARD = [
+  '──────────────────────────────────────────────────────────────────────────────────────────────────────────────',
+  ' ☐ Session',
+  '',
+  '│ Both reverse-direction checks passed (answering Windows Codex and opencode cards from the Mac). The Codex',
+  '│ bug found during them is fixed and shipped as v0.23.1. What should I do with this session?',
+  '',
+  '❯ 1. Done',
+  '     The release is finished. The mobile check stays recorded in memory as unverified.',
+  '  2. Paused',
+  '     Come back tomorrow to check the conversation page on a real phone.',
+  '  3. Keep going',
+  '     Carry on in this session (e.g. walk through the mobile check together).',
+  '  4. Type something.',
+  '──────────────────────────────────────────────────────────────────────────────────────────────────────────────',
+  '  5. Chat about this',
+];
+const Q = 'Both reverse-direction checks passed (answering Windows Codex and opencode cards from the Mac). The Codex bug found during them is fixed and shipped as v0.23.1. What should I do with this session?';
+
+describe('findFieldRange', () => {
+  it('札の問いは │ の内側から、折り返した行まで返す', () => {
+    expect(findFieldRange(CARD, Q)).toEqual({ start: 3, end: 4, x: 2 });
+  });
+
+  it('選択肢の説明は、字下げの後ろから返す', () => {
+    expect(findFieldRange(CARD, 'Come back tomorrow to check the conversation page on a real phone.')).toEqual({ start: 9, end: 9, x: 5 });
+  });
+
+  it('文の途中から始まる行や、画面に無い文は見つけない', () => {
+    expect(findFieldRange(CARD, 'checks passed (answering Windows Codex and opencode cards from the Mac).')).toBeNull();
+    expect(findFieldRange(CARD, 'Nothing like this is on the screen at all today.')).toBeNull();
+  });
+
+  it('同じ文がいくつもあれば、いちばん下を返す（指示の欄に同じ文を書いたときなど）', () => {
+    const lines = ['  The release is finished. The mobile check stays recorded in memory as unverified.', ...CARD];
+    expect(findFieldRange(lines, 'The release is finished. The mobile check stays recorded in memory as unverified.')).toEqual({ start: 8, end: 8, x: 5 });
   });
 });

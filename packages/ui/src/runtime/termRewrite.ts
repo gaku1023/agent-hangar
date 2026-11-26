@@ -1,4 +1,4 @@
-import { findReplyRange, type Keep, type ReplyRange } from './termReplyMatch.ts';
+import { findFieldRange, findReplyRange, type Keep, type ReplyRange } from './termReplyMatch.ts';
 
 /**
  * ターミナルの英語の返答のマスを、日本語の訳で直に上書きする（docs/design.md「英語の返答の翻訳」のターミナルの節）。
@@ -27,6 +27,11 @@ export type RewriteTerm = {
    * truth は影の端末（中のアプリが選択を描いた英語）、view は見えている端末。
    */
   shades(line: number, x0: number, x1: number, from: 'truth' | 'view'): string[];
+  /**
+   * 影の端末の buffer の行の x 桁目の、文字の飾りと色（sgr は太字・薄さ・文字の色などの SGR の引数。背景と反転は含めない。ふつうの文字なら空）。
+   * rgb は見えている文字の色（#rrggbb。薄さも混ぜた後の色）で、端末のふつうの文字の色なら null。質問の札の文を、元の色のまま訳で書くため。
+   */
+  style(line: number, x: number): { sgr: string; rgb: string | null };
   /** buffer の行の x 桁目から右を、色と飾りごと書き戻せる列にする（原文に戻すため）。 */
   snapshot(line: number, x: number): string;
   /**
@@ -81,11 +86,11 @@ const rgbOf = (hex: string): [number, number, number] | null => {
   return m ? [parseInt(m[1]!, 16), parseInt(m[2]!, 16), parseInt(m[3]!, 16)] : null;
 };
 
-/** にじみの経過 ms から、文字の色の SGR の引数を返す。終わっていれば空（ふつうの色）。 */
-export function fadeCode(fade: RewriteFade, elapsed: number): string {
+/** にじみの経過 ms から、文字の色の SGR の引数を返す。to はにじみの行き先の色（無ければふつうの文字の色）。終わっていれば空（元の色）。 */
+export function fadeCode(fade: RewriteFade, elapsed: number, to?: string | null): string {
   if (!fade || elapsed >= FADE_MS) return '';
   const a = rgbOf(fade.from);
-  const b = rgbOf(fade.to);
+  const b = rgbOf(to ?? fade.to);
   if (!a || !b) return '';
   const t = Math.max(0, elapsed) / FADE_MS;
   const k = FADE_START + (1 - FADE_START) * (1 - (1 - t) ** 3);
@@ -124,13 +129,14 @@ export function clipCells(row: string, width: number, cellWidth: (ch: string) =>
  * 全角の文字は左の桁の色にそろえる。文字の後ろも、選択の色が続く桁までは空白に色を付けて埋める。
  * seq は端末へ流す列、cols は書いたあとの桁ごとの色（見えている端末と比べるため）。
  */
-export function shadeRow(row: string, shades: readonly string[], cellWidth: (ch: string) => number, fg = ''): { seq: string; cols: string[] } {
+export function shadeRow(row: string, shades: readonly string[], cellWidth: (ch: string) => number, fg = '', base = ''): { seq: string; cols: string[] } {
   let seq = '';
   let cur = '';
   const cols: string[] = shades.map(() => '');
   let c = 0;
-  // fg は文字の色（訳が届いたときのにじみ）。選択の色と一緒に毎回付け直す（\x1b[0m で外れるため）。
-  const codeOf = (sh: string) => [sh, fg].filter(Boolean).join(';');
+  // base は元の文字の飾りと色（質問の札の文）、fg は文字の色（訳が届いたときのにじみ。base の色より後に置いて勝たせる）。
+  // 選択の色と一緒に毎回付け直す（\x1b[0m で外れるため）。
+  const codeOf = (sh: string) => [base, sh, fg].filter(Boolean).join(';');
   const put = (ch: string, cw: number) => {
     const sh = shades[c] ?? '';
     const code = codeOf(sh);
@@ -247,6 +253,8 @@ export function createReplyRewrites(term: RewriteTerm, api: TranslateFn, onPlace
   let wasWaiting = new Set<string>();
   /** にじませている段落のまとまり（鍵をつないだもの）と、始めた時刻。 */
   const fades = new Map<string, number>();
+  /** 質問の札で訳す文（問いと選択肢の説明）。 */
+  let fields: string[] = [];
   /** 行ごとに、いま書いてある文字の色（にじみの途中の色。ふつうの色なら無い）。 */
   let tints = new Map<number, string>();
   let replies: string[] = [];
@@ -289,14 +297,14 @@ export function createReplyRewrites(term: RewriteTerm, api: TranslateFn, onPlace
   const glows = new Map<string, { marker: RewriteMarker; deco: RewriteDecoration }>();
   const dropGlow = (k: string) => { const g = glows.get(k); if (!g) return; g.deco.dispose(); g.marker.dispose(); glows.delete(k); };
   /** 光を、待つ段落の範囲（spans）にだけ置く。同じ範囲に置いたものはそのまま残す（光の動きを途切れさせない）。 */
-  const setGlows = (spans: readonly { start: number; end: number }[], width: number) => {
-    const want = new Map(spans.map((r) => [`${r.start}:${r.end - r.start + 1}`, r]));
+  const setGlows = (spans: readonly { start: number; end: number; x: number; width: number }[]) => {
+    const want = new Map(spans.map((r) => [`${r.start}:${r.end - r.start + 1}:${r.x}:${r.width}`, r]));
     for (const [k, g] of [...glows]) if (!want.has(k) || g.marker.isDisposed || g.deco.isDisposed) dropGlow(k);
     for (const [k, r] of want) {
       if (glows.has(k)) continue;
       const marker = term.mark(r.start);
       if (!marker) continue;
-      const deco = term.decorate(marker, { x: INDENT, width, height: r.end - r.start + 1, glow: true });
+      const deco = term.decorate(marker, { x: r.x, width: r.width, height: r.end - r.start + 1, glow: true });
       if (!deco) { marker.dispose(); continue; }
       glows.set(k, { marker, deco });
     }
@@ -369,19 +377,19 @@ export function createReplyRewrites(term: RewriteTerm, api: TranslateFn, onPlace
     }
 
     // あるべき行を決める。
-    const desired = new Map<number, { text: string; seq: string; cols: string[]; keep?: Keep; fg: string }>();
+    const desired = new Map<number, { x: number; text: string; seq: string; cols: string[]; keep?: Keep; fg: string }>();
     const at = now();
     const nowWaiting = new Set<string>();
     let fading = false;
     const nextPainted = new Map<string, Painted>();
-    const waiting: { start: number; end: number }[] = [];
+    const waiting: { start: number; end: number; x: number; width: number }[] = [];
     for (const g of groups) {
       const reply = g[0]!.u.reply;
       const start = g[0]!.range.start;
       const end = g[g.length - 1]!.range.end;
       if (orig.has(reply)) { put(reply, start, 'orig'); continue; }
       const outs = g.map((f) => translated(f.u.key));
-      if (outs.some((o) => o === undefined)) { put(reply, start, 'wait'); waiting.push({ start, end }); for (const f of g) nowWaiting.add(f.u.key); continue; }
+      if (outs.some((o) => o === undefined)) { put(reply, start, 'wait'); waiting.push({ start, end, x: INDENT, width }); for (const f of g) nowWaiting.add(f.u.key); continue; }
       if (outs.every((o) => o === null)) continue;
       const body: string[] = [];
       g.forEach((f, n) => {
@@ -406,26 +414,54 @@ export function createReplyRewrites(term: RewriteTerm, api: TranslateFn, onPlace
         const fg = t0 === undefined ? '' : fadeCode(fade, at - t0 - n * FADE_STAGGER_MS);
         if (fg) fading = true;
         const { seq, cols } = shadeRow(r, term.shades(start + n, INDENT, right, 'truth'), cellW, fg);
-        desired.set(start + n, { text: r, seq, cols, keep: k, fg });
+        desired.set(start + n, { x: INDENT, text: r, seq, cols, keep: k, fg });
       });
       nextPainted.set(text, { text, reply, keys, line: start, ja: rows, enSeq: [], keep });
       put(reply, start, 'ja');
     }
 
+    // 質問の札の文（docs/design.md「英語の返答の翻訳」の質問の札）。文の頭の桁から右を、元の文字の飾りと色のまま訳で書く。アイコンは置かない。
+    for (const f of fields) {
+      const range = findFieldRange(lines, f);
+      if (!range || overlaps(range.start, range.end)) continue;
+      taken.push([range.start, range.end]);
+      const fw = Math.max(1, term.cols - range.x - 1);
+      const out = translated(f);
+      if (out === undefined) { waiting.push({ start: range.start, end: range.end, x: range.x, width: fw }); nowWaiting.add(f); continue; }
+      if (out === null) continue;
+      const rows = fitRows(wrapCells(plainOf(out), fw, cellW), range.end - range.start + 1, false);
+      const st = term.style(range.start, range.x);
+      const text = `field\u0000${f}`;
+      if (fade && !fades.has(text) && wasWaiting.has(f)) fades.set(text, at);
+      const t0 = fades.get(text);
+      if (t0 !== undefined && at - t0 >= FADE_MS + FADE_STAGGER_MS * (rows.length - 1)) fades.delete(text);
+      rows.forEach((r, n) => {
+        const fg = t0 === undefined ? '' : fadeCode(fade, at - t0 - n * FADE_STAGGER_MS, st.rgb);
+        if (fg) fading = true;
+        const { seq, cols } = shadeRow(r, term.shades(range.start + n, range.x, range.x + fw, 'truth'), cellW, fg, st.sgr);
+        desired.set(range.start + n, { x: range.x, text: r, seq, cols, fg });
+      });
+    }
+
     // 見えている行を、あるべき行に合わせる。
-    const visibleOf = (line: number, keep?: Keep) => (keep ? term.cellsRange(line, INDENT, keep.from) : term.cellsFrom(line, INDENT)).trimEnd();
+    const visibleOf = (line: number, x: number, keep?: Keep) => (keep ? term.cellsRange(line, x, keep.from) : term.cellsFrom(line, x)).trimEnd();
     const writes: { x: number; line: number; seq: string; keep?: Keep }[] = [];
-    const sameShades = (line: number, cols: readonly string[]) => term.shades(line, INDENT, INDENT + cols.length, 'view').every((sh, n) => sh === cols[n]);
-    for (const [line, d] of desired) if (visibleOf(line, d.keep) !== d.text.trimEnd() || !sameShades(line, d.cols) || (tints.get(line) ?? '') !== d.fg) writes.push({ x: INDENT, line, seq: d.seq, keep: d.keep });
+    const sameShades = (line: number, x: number, cols: readonly string[]) => term.shades(line, x, x + cols.length, 'view').every((sh, n) => sh === cols[n]);
+    for (const [line, d] of desired) if (visibleOf(line, d.x, d.keep) !== d.text.trimEnd() || !sameShades(line, d.x, d.cols) || (tints.get(line) ?? '') !== d.fg) writes.push({ x: d.x, line, seq: d.seq, keep: d.keep });
     // 前に訳を書いた行で、もう訳を書かない行は、英語の本当の中身（影の端末）を行の頭から書き戻す。
     for (const line of touched) if (!desired.has(line) && term.cellsFrom(line, 0) !== (lines[line] ?? '').trimEnd()) writes.push({ x: 0, line, seq: term.snapshot(line, 0) });
     if (writes.length > 0) {
-      const ja = writes.filter((w) => w.x === INDENT);
-      const en = writes.filter((w) => w.x === 0);
-      const jaOk = ja.length === 0 || term.paint(INDENT, ja);
-      const ok = jaOk && (en.length === 0 || term.paint(0, en));
+      // 訳は書く桁ごとに（返答は 2 桁目、札の文はその頭の桁）、英語の書き戻しは行の頭から書く。
+      const en = writes.filter((w) => w.x === 0 && !desired.has(w.line));
+      const ja = writes.filter((w) => !en.includes(w));
+      let ok = true;
+      for (const x of new Set(ja.map((w) => w.x))) {
+        const part = ja.filter((w) => w.x === x);
+        if (!ok || !term.paint(x, part)) { ok = false; continue; }
+        for (const w of part) { const fg = desired.get(w.line)!.fg; if (fg) tints.set(w.line, fg); else tints.delete(w.line); }
+      }
+      if (ok && en.length > 0) ok = term.paint(0, en);
       if (!ok) retry = true;
-      if (jaOk) for (const w of ja) { const fg = desired.get(w.line)!.fg; if (fg) tints.set(w.line, fg); else tints.delete(w.line); }
     }
     tints = new Map([...tints].filter(([line]) => desired.has(line)));
     wasWaiting = nowWaiting;
@@ -433,7 +469,7 @@ export function createReplyRewrites(term: RewriteTerm, api: TranslateFn, onPlace
     painted.clear();
     for (const [k, v] of nextPainted) painted.set(k, v);
 
-    setGlows(waiting, width);
+    setGlows(waiting);
     for (const [reply, w] of want) changed = place(reply, w.line, w.state) || changed;
     for (const s0 of [...spots.values()]) if (!want.has(s0.text)) { dropSpot(s0); changed = true; }
     if (changed) emit();
@@ -482,6 +518,13 @@ export function createReplyRewrites(term: RewriteTerm, api: TranslateFn, onPlace
       // 段落の訳を先に頼んでおく。スクロールで初めて見えた段落が、訳の届くまで英語で出るのを避けるため。
       // 翻訳は後から頼んだものを先に訳す（後入れ先出し）ので、古い順に頼み、新しい返答から訳されるようにする。
       for (const u of units) translated(u.key);
+      scan();
+    },
+    /** 質問の札で訳す文（問いと選択肢の説明）。同じ中身を渡し直しても見直さない。 */
+    setFields(next: readonly string[]) {
+      if (next.length === fields.length && next.every((x, n) => x === fields[n])) return;
+      fields = [...next];
+      for (const f of fields) translated(f);
       scan();
     },
     /** 原文に戻した返答。 */

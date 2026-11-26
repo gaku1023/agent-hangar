@@ -1,10 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createReplyRewrites, FADE_FRAME_MS, FADE_MS, FADE_STAGGER_MS, fitRows, plainOf, REWRITE_DELAY_MS, shadeRow, wrapCells, type CopyDrag, type PlacedReply, type RewriteTerm } from './termRewrite.ts';
+import { createReplyRewrites, FADE_FRAME_MS, fadeCode, FADE_MS, FADE_STAGGER_MS, fitRows, plainOf, REWRITE_DELAY_MS, shadeRow, wrapCells, type CopyDrag, type PlacedReply, type RewriteTerm } from './termRewrite.ts';
 
 const A = 'The build passed on all five jobs, and the branch is ready to merge now.';
 const B = 'I changed the width of the sidebar and added a test for the narrow case.';
 const JA_A = 'ビルドは5つのジョブすべてで通り、枝はマージできる。';
 const JA_B = '横の欄の幅を変え、狭い場合の試験を足した。';
+
+/** SGR の引数から、選択の色（反転と背景）だけを残す。 */
+function onlyShade(code: string): string {
+  const t = code.split(';').filter((x) => x !== '');
+  const out: string[] = [];
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] === '38') { i += t[i + 1] === '2' ? 4 : 2; continue; }
+    if (t[i] === '48') { const n = t[i + 1] === '2' ? 5 : 3; out.push(t.slice(i, i + n).join(';')); i += n - 1; continue; }
+    if (t[i] === '7') out.push('7');
+  }
+  return out.join(';');
+}
 
 /** 全角を 2 桁に数える偽物の幅。 */
 const w = (s: string) => Array.from(s).reduce((n, ch) => n + (/[　-鿿＀-￯]/.test(ch) ? 2 : 1), 0);
@@ -27,7 +39,8 @@ function fakeTerm(initial: string[], cols = 80) {
   let ground = true;
   let copyMap: ((t: string, drag: CopyDrag | null) => string) | null = null;
   const fire = () => { for (const cb of change) cb(); };
-  const term: RewriteTerm & { set(next: string[], shown?: string[]): void; setView(next: string[]): void; select(line: number, x0: number, x1: number, sh: string): void; viewShade(line: number): string[]; decos: FakeDeco[]; paints: number; setGround(v: boolean): void; copy(t: string, drag?: CopyDrag | null): string; now(): string[] } = {
+  const styles = new Map<string, { sgr: string; rgb: string | null }>();
+  const term: RewriteTerm & { setStyle(line: number, x: number, st: { sgr: string; rgb: string | null }): void; set(next: string[], shown?: string[]): void; setView(next: string[]): void; select(line: number, x0: number, x1: number, sh: string): void; viewShade(line: number): string[]; viewCode(line: number): string[]; decos: FakeDeco[]; paints: number; setGround(v: boolean): void; copy(t: string, drag?: CopyDrag | null): string; now(): string[] } = {
     cols,
     decos,
     paints: 0,
@@ -38,8 +51,11 @@ function fakeTerm(initial: string[], cols = 80) {
     width: w,
     shades(line, x0, x1, from) {
       const row = (from === 'truth' ? tShade : vShade).get(line) ?? [];
-      return Array.from({ length: x1 - x0 }, (_, n) => row[x0 + n] ?? '');
+      // 本物の端末と同じく、選択の色（背景と反転）だけを返す。文字の色と飾りは落とす。
+      return Array.from({ length: x1 - x0 }, (_, n) => onlyShade(row[x0 + n] ?? ''));
     },
+    style: (line, x) => styles.get(`${line}:${x}`) ?? { sgr: '', rgb: null },
+    setStyle(line, x, st) { styles.set(`${line}:${x}`, st); },
     snapshot: (line, x) => `\x1b[1m${(truth[line] ?? '').slice(x)}\x1b[0m`,
     paint(x, rows) {
       if (!ground) return false;
@@ -73,6 +89,7 @@ function fakeTerm(initial: string[], cols = 80) {
       fire();
     },
     viewShade: (line) => vShade.get(line) ?? [],
+    viewCode: (line) => vShade.get(line) ?? [],
     setGround(v) { ground = v; },
     mark(line) { const m: FakeMarker = { line, isDisposed: false, dispose() { m.isDisposed = true; m.line = -1; } }; return m; },
     decorate(marker, box) {
@@ -358,6 +375,51 @@ describe('createReplyRewrites', () => {
       // 1 行目は明るくなりきり、2 行目はまだ少し暗い。
       expect(tinted(term.viewShade(2))).toBe(false);
       expect(tinted(term.viewShade(3))).toBe(true);
+      o.dispose();
+    });
+  });
+
+  describe('質問の札', () => {
+    const Q = 'Both reverse-direction checks passed (answering Windows Codex and opencode cards). What should I do with this session?';
+    const D = 'The release is finished. The mobile check stays recorded in memory as unverified.';
+    const JQ = '逆向きの確かめは2つとも通りました。このセッションをどうしますか？';
+    const JD = 'リリースは済みました。スマホの確かめは未確認として残ります。';
+    const card = () => ['──────────', ' ☐ Session', '', '│ Both reverse-direction checks passed (answering Windows Codex and opencode cards).', '│ What should I do with this session?', '', '❯ 1. Done', '     The release is finished. The mobile check stays recorded in memory as unverified.', '  2. Paused', '──────────'];
+
+    it('問いは │ の内側から、説明は字下げの後ろから訳で書き、元の文字の色と飾りを付けて書く。選択肢の名前は触らない', () => {
+      const term = fakeTerm(card(), 90);
+      term.setStyle(3, 2, { sgr: '1;38;5;231', rgb: '#ffffff' });
+      term.setStyle(7, 5, { sgr: '38;5;246', rgb: '#949494' });
+      const o = createReplyRewrites(term, api({ [Q]: JQ, [D]: JD }, { cached: true }), () => {});
+      o.setReplies([]);
+      o.setFields([Q, D]);
+      expect(term.now().slice(3, 9)).toEqual([`│ ${JQ}`, '│', '', '❯ 1. Done', `     ${JD}`, '  2. Paused']);
+      expect(term.viewCode(3)[2]).toBe('1;38;5;231');
+      expect(term.viewCode(7)[5]).toBe('38;5;246');
+      // 札にはアイコンを置かない。
+      expect(term.decos.filter((d) => !d.glow)).toEqual([]);
+      o.dispose();
+      expect(term.now()[3]).toContain('Both reverse');
+    });
+
+    it('待つ間は札の文の幅に光を重ね、届いたら元の文字の色へ向かってにじませる', async () => {
+      const term = fakeTerm(card(), 90);
+      term.setStyle(7, 5, { sgr: '38;5;246', rgb: '#949494' });
+      let clock = 0;
+      const t = api({ [D]: JD });
+      const o = createReplyRewrites(term, t, () => {}, { fade: { from: '#000000', to: '#ffffff' }, now: () => clock });
+      o.setReplies([]);
+      o.setFields([D]);
+      expect(term.decos.filter((d) => d.glow && !d.isDisposed).map((d) => [d.marker.line, d.box])).toEqual([[7, { x: 5, width: 84, height: 1, glow: true }]]);
+      t.settle();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(term.now()[7]).toBe(`     ${JD}`);
+      expect(term.viewCode(7)[5]).toMatch(/^38;5;246;38;2;/);
+      clock = FADE_MS * 3;
+      await vi.advanceTimersByTimeAsync(FADE_FRAME_MS);
+      expect(term.viewCode(7)[5]).toBe('38;5;246');
+      // 色が #949494 に収まる（白へは行かない）ことは、終わる直前の色で見る。
+      expect(fadeCode({ from: '#000000', to: '#ffffff' }, FADE_MS - 1, '#949494')).toMatch(/^38;2;14[0-9];14[0-9];14[0-9]$/);
       o.dispose();
     });
   });

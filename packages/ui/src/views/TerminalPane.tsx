@@ -97,9 +97,9 @@ export function liveEdge(live: LiveStatus | null, aside: boolean, reason: StopRe
  * agent は Claude のタブか。
  * transcript は、目次から跳ばした Claude が transcript を見せている間の帯（Claude の枠にだけ渡す）。
  * peer は、ほかの PC から来た文の知らせ（Claude の枠にだけ渡す）。預かっている間は端末の下に帯を出し、渡した直後は右上に札を数秒出す。
- * replies は、訳を重ねる英語の返答（終わったターンのもの、古い順）。Claude の枠にだけ渡す（views/TermTranslate.tsx）。
+ * replies は、訳を重ねる英語の返答（終わったターンのもの、古い順）。fields は、答えを待っている質問の札で訳す英語の文。Claude の枠にだけ渡す（views/TermTranslate.tsx）。
  */
-export function TerminalPane(props: { tabId: string; hint: string | null; live: LiveStatus | null; aside?: boolean; reason?: StopReason | null; agent?: boolean; transcript?: { when: string; onLatest: () => void } | null; peer?: PeerOriginProps | null; /** 預かりの帯の「中断して渡す」。省くとボタンを出さない。 */ onPeerRush?: () => void; replies?: readonly string[] | null; /** SSH のシェルタブのときの宛先。つなげなかったときは暗幕の代わりに中央の塊を出し、つなぎ直している間は端末を薄める。 */ remote?: RemoteTarget }) {
+export function TerminalPane(props: { tabId: string; hint: string | null; live: LiveStatus | null; aside?: boolean; reason?: StopReason | null; agent?: boolean; transcript?: { when: string; onLatest: () => void } | null; peer?: PeerOriginProps | null; /** 預かりの帯の「中断して渡す」。省くとボタンを出さない。 */ onPeerRush?: () => void; replies?: readonly string[] | null; fields?: readonly string[] | null; /** SSH のシェルタブのときの宛先。つなげなかったときは暗幕の代わりに中央の塊を出し、つなぎ直している間は端末を薄める。 */ remote?: RemoteTarget }) {
   const host = useContext(TerminalHostContext);
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
@@ -203,7 +203,7 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
       {hint.mounted && <div ref={hint.ref} className="term-hint" role={hint.leaving ? undefined : 'status'}>{props.hint ?? lastHint.current}</div>}
       {/* key を付けて、タブが変わったら枠ごと作り直す。前のタブの xterm の要素を残さないためである。 */}
       <div key={props.tabId} ref={ref} className="term-host" data-tab={props.tabId} data-painted={host?.painted(props.tabId) === false ? 'false' : undefined} onClick={() => host?.focus(props.tabId)} />
-      {host && props.replies && props.replies.length > 0 && <TermTranslations host={host} tabId={props.tabId} replies={props.replies} />}
+      {host && ((props.replies?.length ?? 0) > 0 || (props.fields?.length ?? 0) > 0) && <TermTranslations host={host} tabId={props.tabId} replies={props.replies ?? []} fields={props.fields ?? []} />}
       {peerBand.mounted && lastPeer.current && (
         <div ref={peerBand.ref} className="term-peer-band" data-testid="peer-band" role={peerBand.leaving ? undefined : 'status'} aria-hidden={peerBand.leaving ? 'true' : undefined}>
           {rushing ? <span className="term-peer-spin" aria-hidden="true" /> : <Icon name="reminder" />}
