@@ -260,7 +260,7 @@ describe('TerminalPane', () => {
     const lines = ['⏺ The build passed on all five jobs, and the branch is', '  ready to merge now.'];
     const term = {
       cols: 60, lines: () => lines, cellsFrom: (l: number, x: number) => (lines[l] ?? '').slice(x).trimEnd(), cellsRange: (l: number, a: number, b: number) => (lines[l] ?? '').slice(a, b),
-      width: (s: string) => s.length, shades: () => [], style: () => ({ sgr: '', rgb: null }), snapshot: () => '', paint: () => false, setCopyMap() {},
+      width: (s: string) => s.length, shades: () => [], style: () => '', snapshot: () => '', paint: () => false, setCopyMap() {},
       mark: (line: number) => ({ line, isDisposed: false, dispose() {} }), decorate, onChange: () => ({ dispose() {} }),
     };
     const host = { ...fakeHost(), rewrite: () => term };

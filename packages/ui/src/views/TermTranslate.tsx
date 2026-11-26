@@ -34,7 +34,7 @@ export function TermTranslations(props: { host: TerminalHost; tabId: string; rep
       if (dead || ctl.current) return;
       const term = host.rewrite?.(tabId);
       if (!term) return;
-      ctl.current = createReplyRewrites(term, api, (list) => { if (!dead) setPlaced(list); }, { fade: termFade() });
+      ctl.current = createReplyRewrites(term, api, (list) => { if (!dead) setPlaced(list); }, { fade: motionOn() });
       ctl.current.setOriginal(origRef.current);
       ctl.current.setReplies(replies.current);
       ctl.current.setFields(fields.current);
@@ -65,13 +65,6 @@ export function TermTranslations(props: { host: TerminalHost; tabId: string; rep
 }
 
 /** xterm に渡さない操作。アイコンの押し下げが tmux のマウスの操作や選択にならないようにする。 */
-/** 訳が届いたときのにじみの色（端末の背景と文字の色。runtime/xterm.ts と同じ値）。動きを減らす設定なら null。 */
-function termFade() {
-  if (!motionOn()) return null;
-  const css = getComputedStyle(document.documentElement);
-  return { from: css.getPropertyValue('--term-bg').trim() || '#1c1b2e', to: css.getPropertyValue('--term-fg').trim() || '#e8e6f0' };
-}
-
 const SWALLOW = ['mousedown', 'mouseup', 'pointerdown', 'pointerup', 'dblclick'] as const;
 
 /**

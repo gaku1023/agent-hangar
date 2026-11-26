@@ -19,7 +19,7 @@ function setup(opts: { api: TranslateApi | null }) {
     cellsRange: (line, x0, x1) => (lines[line] ?? '').slice(x0, x1),
     width: (s) => Array.from(s).length,
     shades: (_line, x0, x1) => Array<string>(x1 - x0).fill(''),
-    style: () => ({ sgr: '', rgb: null }),
+    style: () => '',
     snapshot: (line, x) => (LINES[line] ?? '').slice(x),
     paint(x, rows) {
       lines = [...lines];

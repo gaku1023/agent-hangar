@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createReplyRewrites, FADE_FRAME_MS, fadeCode, FADE_MS, FADE_STAGGER_MS, fitRows, plainOf, REWRITE_DELAY_MS, shadeRow, wrapCells, type CopyDrag, type PlacedReply, type RewriteTerm } from './termRewrite.ts';
+import { createReplyRewrites, FADE_MS, FADE_STAGGER_MS, fitRows, plainOf, REWRITE_DELAY_MS, shadeRow, wrapCells, type CopyDrag, type PlacedReply, type RewriteTerm } from './termRewrite.ts';
 
 const A = 'The build passed on all five jobs, and the branch is ready to merge now.';
 const B = 'I changed the width of the sidebar and added a test for the narrow case.';
@@ -22,7 +22,7 @@ function onlyShade(code: string): string {
 const w = (s: string) => Array.from(s).reduce((n, ch) => n + (/[　-鿿＀-￯]/.test(ch) ? 2 : 1), 0);
 
 type FakeMarker = { line: number; isDisposed: boolean; dispose(): void };
-type FakeDeco = { marker: FakeMarker; box: { x: number; width: number; height?: number }; glow: boolean; isDisposed: boolean; el: HTMLElement; render(): void; onRender(cb: (el: HTMLElement) => void): { dispose(): void }; dispose(): void };
+type FakeDeco = { marker: FakeMarker; box: { x: number; width: number; height?: number; veil?: number }; glow: boolean; isDisposed: boolean; el: HTMLElement; render(): void; onRender(cb: (el: HTMLElement) => void): { dispose(): void }; dispose(): void };
 
 /**
  * 偽物の端末。英語の本当の画面（影、truth）と、見えている画面（view）の 2 枚を持つ。
@@ -39,8 +39,8 @@ function fakeTerm(initial: string[], cols = 80) {
   let ground = true;
   let copyMap: ((t: string, drag: CopyDrag | null) => string) | null = null;
   const fire = () => { for (const cb of change) cb(); };
-  const styles = new Map<string, { sgr: string; rgb: string | null }>();
-  const term: RewriteTerm & { setStyle(line: number, x: number, st: { sgr: string; rgb: string | null }): void; set(next: string[], shown?: string[]): void; setView(next: string[]): void; select(line: number, x0: number, x1: number, sh: string): void; viewShade(line: number): string[]; viewCode(line: number): string[]; decos: FakeDeco[]; paints: number; setGround(v: boolean): void; copy(t: string, drag?: CopyDrag | null): string; now(): string[] } = {
+  const styles = new Map<string, string>();
+  const term: RewriteTerm & { setStyle(line: number, x: number, st: string): void; set(next: string[], shown?: string[]): void; setView(next: string[]): void; select(line: number, x0: number, x1: number, sh: string): void; viewShade(line: number): string[]; viewCode(line: number): string[]; decos: FakeDeco[]; paints: number; setGround(v: boolean): void; copy(t: string, drag?: CopyDrag | null): string; now(): string[] } = {
     cols,
     decos,
     paints: 0,
@@ -54,7 +54,7 @@ function fakeTerm(initial: string[], cols = 80) {
       // 本物の端末と同じく、選択の色（背景と反転）だけを返す。文字の色と飾りは落とす。
       return Array.from({ length: x1 - x0 }, (_, n) => onlyShade(row[x0 + n] ?? ''));
     },
-    style: (line, x) => styles.get(`${line}:${x}`) ?? { sgr: '', rgb: null },
+    style: (line, x) => styles.get(`${line}:${x}`) ?? '',
     setStyle(line, x, st) { styles.set(`${line}:${x}`, st); },
     snapshot: (line, x) => `\x1b[1m${(truth[line] ?? '').slice(x)}\x1b[0m`,
     paint(x, rows) {
@@ -309,73 +309,63 @@ describe('createReplyRewrites', () => {
   });
 
   describe('訳が届いたときのにじみ', () => {
-    const fade = { from: '#000000', to: '#ffffff' };
-    const tinted = (sh: readonly string[]) => sh.some((s) => /(^|;)38;2;/.test(s ?? ''));
+    const veils = (term: ReturnType<typeof fakeTerm>) => term.decos.filter((d) => d.box.veil !== undefined && !d.isDisposed).map((d) => [d.marker.line, d.box.x, d.box.veil]);
+    const colored = (term: ReturnType<typeof fakeTerm>, line: number) => term.viewCode(line).some((s) => /(^|;)38;/.test(s ?? ''));
 
-    it('待っていた段落に訳が届くと、暗い色から書き、時間とともに明るくして、最後はふつうの色に戻す', async () => {
+    it('待っていた段落に訳が届くと、訳はふつうの色で書き、行ごとに遅らせた幕を重ねて、消え終わったら外す', async () => {
       const term = fakeTerm(screen(2));
-      let clock = 0;
       const t = api({ [A]: JA_A });
-      const o = createReplyRewrites(term, t, () => {}, { fade, now: () => clock });
+      const o = createReplyRewrites(term, t, () => {}, { fade: true });
       o.setReplies([A]);
       t.settle();
       await vi.advanceTimersByTimeAsync(0);
       expect(term.now()[2]).toContain('ビルド');
-      const first = term.viewShade(2).find((s) => /38;2;/.test(s ?? ''));
-      expect(first).toBeDefined();
-      // 途中では、初めより明るい色で書き直す。
-      clock = FADE_MS / 2;
-      await vi.advanceTimersByTimeAsync(FADE_FRAME_MS);
-      const mid = term.viewShade(2).find((s) => /38;2;/.test(s ?? ''));
-      expect(mid).toBeDefined();
-      expect(mid).not.toBe(first);
-      // 終われば色を外す（端末のふつうの文字の色）。文字は訳のまま。
-      clock = FADE_MS * 3;
-      await vi.advanceTimersByTimeAsync(FADE_FRAME_MS);
-      expect(tinted(term.viewShade(2))).toBe(false);
-      expect(term.now()[2]).toContain('ビルド');
-      // 動きが終われば、見回りを繰り返さない。
+      // 文字の色は書き換えない（WebGL の文字の画像の置き場を溢れさせない）。
+      expect(colored(term, 2)).toBe(false);
+      expect(veils(term)).toEqual([[2, 2, 0], [3, 2, FADE_STAGGER_MS]]);
       const paints = term.paints;
-      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(FADE_MS + FADE_STAGGER_MS + 60);
+      expect(veils(term)).toEqual([]);
+      // 幕を消す間に書き直さない。
       expect(term.paints).toBe(paints);
+      // 描き直されても、二度はにじませない。
+      term.set(screen(2));
+      await vi.advanceTimersByTimeAsync(REWRITE_DELAY_MS);
+      expect(veils(term)).toEqual([]);
       o.dispose();
     });
 
-    it('初めて見えた時に訳が手元にあれば（会話を開いた、先に訳しておいた段落へスクロールした）、にじませずに書く', () => {
+    it('初めて見えた時に訳が手元にあれば（会話を開いた、先に訳しておいた段落へスクロールした）、にじませない', () => {
       const term = fakeTerm(screen(2));
-      const o = createReplyRewrites(term, api({ [A]: JA_A }, { cached: true }), () => {}, { fade, now: () => 0 });
+      const o = createReplyRewrites(term, api({ [A]: JA_A }, { cached: true }), () => {}, { fade: true });
       o.setReplies([A]);
       expect(term.now()[2]).toContain('ビルド');
-      expect(tinted(term.viewShade(2))).toBe(false);
+      expect(veils(term)).toEqual([]);
       o.dispose();
     });
 
-    it('fade が無ければ（動きを減らす設定）、待っていた段落でもにじませない', async () => {
+    it('fade が偽なら（動きを減らす設定）、待っていた段落でもにじませない', async () => {
       const term = fakeTerm(screen(2));
       const t = api({ [A]: JA_A });
-      const o = createReplyRewrites(term, t, () => {}, { fade: null, now: () => 0 });
+      const o = createReplyRewrites(term, t, () => {}, { fade: false });
       o.setReplies([A]);
       t.settle();
       await vi.advanceTimersByTimeAsync(0);
       expect(term.now()[2]).toContain('ビルド');
-      expect(tinted(term.viewShade(2))).toBe(false);
+      expect(veils(term)).toEqual([]);
       o.dispose();
     });
 
-    it('下の行ほど遅れて明るくなる', async () => {
-      const term = fakeTerm(screen(2), 30);
-      let clock = 0;
-      const t = api({ [A]: `${JA_A}${JA_A}` });
-      const o = createReplyRewrites(term, t, () => {}, { fade, now: () => clock });
+    it('外すと、残っている幕も外す', async () => {
+      const term = fakeTerm(screen(2));
+      const t = api({ [A]: JA_A });
+      const o = createReplyRewrites(term, t, () => {}, { fade: true });
       o.setReplies([A]);
       t.settle();
       await vi.advanceTimersByTimeAsync(0);
-      clock = FADE_MS + FADE_STAGGER_MS / 2;
-      await vi.advanceTimersByTimeAsync(FADE_FRAME_MS);
-      // 1 行目は明るくなりきり、2 行目はまだ少し暗い。
-      expect(tinted(term.viewShade(2))).toBe(false);
-      expect(tinted(term.viewShade(3))).toBe(true);
+      expect(veils(term).length).toBeGreaterThan(0);
       o.dispose();
+      expect(veils(term)).toEqual([]);
     });
   });
 
@@ -388,8 +378,8 @@ describe('createReplyRewrites', () => {
 
     it('問いは │ の内側から、説明は字下げの後ろから訳で書き、元の文字の色と飾りを付けて書く。選択肢の名前は触らない', () => {
       const term = fakeTerm(card(), 90);
-      term.setStyle(3, 2, { sgr: '1;38;5;231', rgb: '#ffffff' });
-      term.setStyle(7, 5, { sgr: '38;5;246', rgb: '#949494' });
+      term.setStyle(3, 2, '1;38;5;231');
+      term.setStyle(7, 5, '38;5;246');
       const o = createReplyRewrites(term, api({ [Q]: JQ, [D]: JD }, { cached: true }), () => {});
       o.setReplies([]);
       o.setFields([Q, D]);
@@ -402,24 +392,19 @@ describe('createReplyRewrites', () => {
       expect(term.now()[3]).toContain('Both reverse');
     });
 
-    it('待つ間は札の文の幅に光を重ね、届いたら元の文字の色へ向かってにじませる', async () => {
+    it('待つ間は札の文の幅に光を重ね、届いたら文の頭の桁から幕を重ねる', async () => {
       const term = fakeTerm(card(), 90);
-      term.setStyle(7, 5, { sgr: '38;5;246', rgb: '#949494' });
-      let clock = 0;
+      term.setStyle(7, 5, '38;5;246');
       const t = api({ [D]: JD });
-      const o = createReplyRewrites(term, t, () => {}, { fade: { from: '#000000', to: '#ffffff' }, now: () => clock });
+      const o = createReplyRewrites(term, t, () => {}, { fade: true });
       o.setReplies([]);
       o.setFields([D]);
       expect(term.decos.filter((d) => d.glow && !d.isDisposed).map((d) => [d.marker.line, d.box])).toEqual([[7, { x: 5, width: 84, height: 1, glow: true }]]);
       t.settle();
       await vi.advanceTimersByTimeAsync(0);
       expect(term.now()[7]).toBe(`     ${JD}`);
-      expect(term.viewCode(7)[5]).toMatch(/^38;5;246;38;2;/);
-      clock = FADE_MS * 3;
-      await vi.advanceTimersByTimeAsync(FADE_FRAME_MS);
       expect(term.viewCode(7)[5]).toBe('38;5;246');
-      // 色が #949494 に収まる（白へは行かない）ことは、終わる直前の色で見る。
-      expect(fadeCode({ from: '#000000', to: '#ffffff' }, FADE_MS - 1, '#949494')).toMatch(/^38;2;14[0-9];14[0-9];14[0-9]$/);
+      expect(term.decos.filter((d) => d.box.veil !== undefined && !d.isDisposed).map((d) => [d.marker.line, d.box])).toEqual([[7, { x: 5, width: 84, height: 1, veil: 0 }]]);
       o.dispose();
     });
   });
