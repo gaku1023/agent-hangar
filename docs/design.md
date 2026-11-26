@@ -1684,6 +1684,10 @@ Codex を足す作業の段 B の 1 つ目（計画の B1）で、設定のス�
 入口の表 `AGENT_ENTRY` の codex の行は、`enabled`、`intercept`、`bin`（`findCodex`）、断る文の欄名、シェルの包みと一覧を組み直す欄を持つ。
 
 場所は `config/tools.ts` の `findCodex` が、PATH と既知の置き場から探す。
+Windows で npm で入れた Codex は、PATH に `codex.cmd`（npm の cmd-shim の包み）が置かれ、包みは node の台本（`node_modules\@openai\codex\bin\codex.js`）を指す。
+台本は、対の包み（`@openai/codex-win32-x64`、arm64 は `@openai/codex-win32-arm64`）の `vendor/<triple>/bin/codex.exe` を起こすだけなので、`findCodex` はその `codex.exe` を返す（`platform/exec.ts` の `resolveCodexNpmShim`）。
+対の包みは `@openai/codex` の中に入れ子で入る（npm の既定）か、`node_modules` の直下に引き上げられるので両方を見て、古い版の `@openai/codex/vendor` も見る。
+見つからなければ `.cmd` のまま返し、起動の入口が「.cmd のため使えません」で断る（opencode と同じ扱い）。
 ChatGPT.app に同梱の codex は使わない。版が利用者の入れたものと別で、確かめた版を持てないためである。
 確かめた版の範囲は `@agent-hangar/shared` の `CODEX_VERIFIED_RANGE`（`0.172.x`）の 1 か所に持つ。
 範囲の外でも起動は止めず、知らせの種を出すだけにする（決定 8）。

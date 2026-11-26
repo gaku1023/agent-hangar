@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import type { Settings } from './paths.ts';
-import { findInDirs, knownDirs, MUX_NAMES, resolveNpmExeShim, splitPathEnv } from '../platform/exec.ts';
+import { findInDirs, knownDirs, MUX_NAMES, resolveCodexNpmShim, resolveNpmExeShim, splitPathEnv } from '../platform/exec.ts';
 
 /** PATH を読む。Windows の環境変数は大文字小文字を区別しないが、試験が渡す素のオブジェクトは区別する。 */
 const pathOf = (env: NodeJS.ProcessEnv): string | undefined => env.PATH ?? env.Path;
@@ -50,11 +50,12 @@ export function findOpencode(env: NodeJS.ProcessEnv = process.env): string | nul
 /**
  * codex を探す（ベータ）。PATH と既知の置き場だけを見る。ChatGPT.app の同梱の codex は使わない（版が利用者の入れたものと別で、hangar の確かめた版を持てないため）。
  * 設定には場所を埋めない。見つけた場所は、版を読むたびと起動のたびにこれで引き直す。
+ * Windows で npm で入れた Codex の codex.cmd は node の台本を指すので、本体の codex.exe へ読み替える（platform/exec.ts の resolveCodexNpmShim）。
  */
 export function findCodex(env: NodeJS.ProcessEnv = process.env): string | null {
   if (binPaths.codexPath) return binPaths.codexPath;
   const found = which('codex', env);
-  return found === null ? null : resolveNpmExeShim(found);
+  return found === null ? null : resolveCodexNpmShim(resolveNpmExeShim(found));
 }
 
 /** tmux の役を担う道具を探す。Windows では psmux を先に見る。 */
