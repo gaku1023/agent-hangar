@@ -81,7 +81,9 @@ describe('TranslatableMsg', () => {
       const api = fakeApi();
       const { container } = withOpens(api, true);
       await waitFor(() => expect(container.textContent).toContain(JA));
-      expect(api.translate).toHaveBeenCalledWith(LONG);
+      // 段落ごとに頼む。
+      expect(api.translate).toHaveBeenCalledTimes(40);
+      expect(api.translate).toHaveBeenCalledWith(LONG.split('\n\n')[0]);
     });
   });
 
@@ -116,5 +118,43 @@ describe('TranslatableMsg', () => {
     await waitFor(() => expect(container.querySelector('[data-translating]')).toBeNull());
     expect(container.textContent).toContain(EN);
     expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  describe('段落ずつ', () => {
+    const P1 = 'I delayed the removal until the next sync, so the row no longer jumps.';
+    const P2 = 'The test for the narrow sidebar now covers the case where the badge wraps.';
+    const J1 = '削除を次の同期まで遅らせたので、行がジャンプしなくなりました。';
+    const J2 = '狭い横の欄の試験で、札が折り返す場合も見るようにしました。';
+    const LONG2 = `${P1}\n\n${P2}`;
+
+    it('段落ごとに訳を頼み、届いた段落から訳文に置き換える。待つ印は届いていない段落にだけ残す', async () => {
+      const waits = new Map<string, (v: string | null) => void>();
+      const api = fakeApi({ translate: vi.fn((t: string) => new Promise<string | null>((r) => { waits.set(t, r); })) });
+      const { container } = show(api, LONG2);
+      // 下の段落から頼む（翻訳は後から頼んだものを先に訳すので、上の段落から届く）。
+      expect(api.translate.mock.calls.map((c) => c[0])).toEqual([P2, P1]);
+      waits.get(P1)!(J1);
+      await waitFor(() => expect(container.textContent).toContain(J1));
+      expect(container.textContent).toContain(P2);
+      expect(container.querySelector('.msg-assistant')!.getAttribute('data-translating')).toBe('true');
+      const blocks = [...container.querySelectorAll('.msg-block')];
+      expect(blocks.map((b) => b.getAttribute('data-translating'))).toEqual([null, 'true']);
+      // 訳文が 1 つでも届けば、原文に戻す切り替えを出す。
+      expect(screen.getByRole('button', { name: '原文を表示' })).toBeTruthy();
+      waits.get(P2)!(J2);
+      await waitFor(() => expect(container.textContent).toContain(J2));
+      expect(container.querySelector('[data-translating]')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: '原文を表示' }));
+      expect(container.textContent).toContain(P1);
+      expect(container.textContent).toContain(P2);
+    });
+
+    it('覚えている段落は待たずに訳文で出し、残りの段落だけを頼む', async () => {
+      const api = fakeApi({ cached: (t) => (t === P1 ? J1 : null), translate: vi.fn(async () => J2) });
+      const { container } = show(api, LONG2);
+      expect(container.textContent).toContain(J1);
+      expect(api.translate.mock.calls.map((c) => c[0])).toEqual([P2]);
+      await waitFor(() => expect(container.textContent).toContain(J2));
+    });
   });
 });

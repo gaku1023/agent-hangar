@@ -61,6 +61,38 @@ export type ReplyState = 'wait' | 'ja' | 'orig';
 /** アイコンを置いた返答。el は xterm が板を描くまで null。 */
 export type PlacedReply = { text: string; state: ReplyState; el: HTMLElement | null };
 
+/**
+ * 訳が届いたときのにじみ（2026-11-26 の試作で利用者が「にじみ」の「ゆっくり」を選んだ）。
+ * 待っていた段落に訳が届いたら、訳を暗い色で書き、FADE_MS かけてふつうの文字の色まで明るくする。下の行ほど FADE_STAGGER_MS ずつ遅らせる。
+ * 文字は最初から訳のままで、色だけを書き直す。動く間は FADE_FRAME_MS ごとに見回る。
+ */
+export const FADE_MS = 480;
+export const FADE_STAGGER_MS = 60;
+export const FADE_FRAME_MS = 16;
+/** にじみの始まりの明るさ（背景の色から文字の色までのうちの割合）。 */
+const FADE_START = 0.25;
+
+/** にじみの色。端末の背景の色と文字の色（#rrggbb）。null ならにじませない（動きを減らす設定）。 */
+export type RewriteFade = { from: string; to: string } | null;
+export type RewriteOptions = { fade?: RewriteFade; now?: () => number };
+
+const rgbOf = (hex: string): [number, number, number] | null => {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim());
+  return m ? [parseInt(m[1]!, 16), parseInt(m[2]!, 16), parseInt(m[3]!, 16)] : null;
+};
+
+/** にじみの経過 ms から、文字の色の SGR の引数を返す。終わっていれば空（ふつうの色）。 */
+export function fadeCode(fade: RewriteFade, elapsed: number): string {
+  if (!fade || elapsed >= FADE_MS) return '';
+  const a = rgbOf(fade.from);
+  const b = rgbOf(fade.to);
+  if (!a || !b) return '';
+  const t = Math.max(0, elapsed) / FADE_MS;
+  const k = FADE_START + (1 - FADE_START) * (1 - (1 - t) ** 3);
+  const c = a.map((x, i) => Math.round(x + (b[i]! - x) * k));
+  return `38;2;${c[0]};${c[1]};${c[2]}`;
+}
+
 /** 出力が流れ続けるときに、最初の変化から見回りまで待つ上限。 */
 export const REWRITE_DELAY_MS = 120;
 /** 書き込みの最中で書けなかったときに、もう一度見るまでの間。 */
@@ -92,14 +124,17 @@ export function clipCells(row: string, width: number, cellWidth: (ch: string) =>
  * 全角の文字は左の桁の色にそろえる。文字の後ろも、選択の色が続く桁までは空白に色を付けて埋める。
  * seq は端末へ流す列、cols は書いたあとの桁ごとの色（見えている端末と比べるため）。
  */
-export function shadeRow(row: string, shades: readonly string[], cellWidth: (ch: string) => number): { seq: string; cols: string[] } {
+export function shadeRow(row: string, shades: readonly string[], cellWidth: (ch: string) => number, fg = ''): { seq: string; cols: string[] } {
   let seq = '';
   let cur = '';
   const cols: string[] = shades.map(() => '');
   let c = 0;
+  // fg は文字の色（訳が届いたときのにじみ）。選択の色と一緒に毎回付け直す（\x1b[0m で外れるため）。
+  const codeOf = (sh: string) => [sh, fg].filter(Boolean).join(';');
   const put = (ch: string, cw: number) => {
     const sh = shades[c] ?? '';
-    if (sh !== cur) { seq += sh ? `\x1b[0;${sh}m` : '\x1b[0m'; cur = sh; }
+    const code = codeOf(sh);
+    if (code !== cur) { seq += code ? `\x1b[0;${code}m` : '\x1b[0m'; cur = code; }
     seq += ch;
     for (let k = 0; k < cw && c + k < cols.length; k++) cols[c + k] = sh;
     c += cw;
@@ -205,7 +240,15 @@ type Spot = { text: string; line: number; state: ReplyState; marker: RewriteMark
 
 export type TranslateFn = { cached(text: string): string | null; translate(text: string): Promise<string | null> };
 
-export function createReplyRewrites(term: RewriteTerm, api: TranslateFn, onPlaced: (list: PlacedReply[]) => void) {
+export function createReplyRewrites(term: RewriteTerm, api: TranslateFn, onPlaced: (list: PlacedReply[]) => void, opts: RewriteOptions = {}) {
+  const fade = opts.fade ?? null;
+  const now = opts.now ?? (() => performance.now());
+  /** 前の見回りで訳を待っていた段落の鍵。ここから訳を書いたら、にじませる。 */
+  let wasWaiting = new Set<string>();
+  /** にじませている段落のまとまり（鍵をつないだもの）と、始めた時刻。 */
+  const fades = new Map<string, number>();
+  /** 行ごとに、いま書いてある文字の色（にじみの途中の色。ふつうの色なら無い）。 */
+  let tints = new Map<number, string>();
   let replies: string[] = [];
   let units: Unit[] = [];
   let orig = new Set<string>();
@@ -326,7 +369,10 @@ export function createReplyRewrites(term: RewriteTerm, api: TranslateFn, onPlace
     }
 
     // あるべき行を決める。
-    const desired = new Map<number, { text: string; seq: string; cols: string[]; keep?: Keep }>();
+    const desired = new Map<number, { text: string; seq: string; cols: string[]; keep?: Keep; fg: string }>();
+    const at = now();
+    const nowWaiting = new Set<string>();
+    let fading = false;
     const nextPainted = new Map<string, Painted>();
     const waiting: { start: number; end: number }[] = [];
     for (const g of groups) {
@@ -335,7 +381,7 @@ export function createReplyRewrites(term: RewriteTerm, api: TranslateFn, onPlace
       const end = g[g.length - 1]!.range.end;
       if (orig.has(reply)) { put(reply, start, 'orig'); continue; }
       const outs = g.map((f) => translated(f.u.key));
-      if (outs.some((o) => o === undefined)) { put(reply, start, 'wait'); waiting.push({ start, end }); continue; }
+      if (outs.some((o) => o === undefined)) { put(reply, start, 'wait'); waiting.push({ start, end }); for (const f of g) nowWaiting.add(f.u.key); continue; }
       if (outs.every((o) => o === null)) continue;
       const body: string[] = [];
       g.forEach((f, n) => {
@@ -347,15 +393,21 @@ export function createReplyRewrites(term: RewriteTerm, api: TranslateFn, onPlace
       const rows = fitRows(body, height, g[0]!.range.cut === true);
       // 札（Jump to bottom）の重なった最後の行は、札より左に収まるように切り、空白で札の手前まで埋める。札は残し、札より右は消す。
       if (keep) rows[rows.length - 1] = clipCells(rows[rows.length - 1]!, keep.from - INDENT, cellW);
+      const keys = g.map((f) => f.u.key);
+      const text = keys.join('\u0000');
+      // 待っていた段落に訳が届いた。にじませ始める。
+      if (fade && !fades.has(text) && keys.some((k) => wasWaiting.has(k))) fades.set(text, at);
+      const t0 = fades.get(text);
+      if (t0 !== undefined && at - t0 >= FADE_MS + FADE_STAGGER_MS * (rows.length - 1)) fades.delete(text);
       // 中のアプリが選択を描いていれば（影の端末の同じ桁の背景と反転）、その色を訳の文字に移す。選んだことが見えるように。
       rows.forEach((r, n) => {
         const k = keep && n === rows.length - 1 ? keep : undefined;
         const right = k ? k.from : INDENT + width;
-        const { seq, cols } = shadeRow(r, term.shades(start + n, INDENT, right, 'truth'), cellW);
-        desired.set(start + n, { text: r, seq, cols, keep: k });
+        const fg = t0 === undefined ? '' : fadeCode(fade, at - t0 - n * FADE_STAGGER_MS);
+        if (fg) fading = true;
+        const { seq, cols } = shadeRow(r, term.shades(start + n, INDENT, right, 'truth'), cellW, fg);
+        desired.set(start + n, { text: r, seq, cols, keep: k, fg });
       });
-      const keys = g.map((f) => f.u.key);
-      const text = keys.join('\u0000');
       nextPainted.set(text, { text, reply, keys, line: start, ja: rows, enSeq: [], keep });
       put(reply, start, 'ja');
     }
@@ -364,15 +416,19 @@ export function createReplyRewrites(term: RewriteTerm, api: TranslateFn, onPlace
     const visibleOf = (line: number, keep?: Keep) => (keep ? term.cellsRange(line, INDENT, keep.from) : term.cellsFrom(line, INDENT)).trimEnd();
     const writes: { x: number; line: number; seq: string; keep?: Keep }[] = [];
     const sameShades = (line: number, cols: readonly string[]) => term.shades(line, INDENT, INDENT + cols.length, 'view').every((sh, n) => sh === cols[n]);
-    for (const [line, d] of desired) if (visibleOf(line, d.keep) !== d.text.trimEnd() || !sameShades(line, d.cols)) writes.push({ x: INDENT, line, seq: d.seq, keep: d.keep });
+    for (const [line, d] of desired) if (visibleOf(line, d.keep) !== d.text.trimEnd() || !sameShades(line, d.cols) || (tints.get(line) ?? '') !== d.fg) writes.push({ x: INDENT, line, seq: d.seq, keep: d.keep });
     // 前に訳を書いた行で、もう訳を書かない行は、英語の本当の中身（影の端末）を行の頭から書き戻す。
     for (const line of touched) if (!desired.has(line) && term.cellsFrom(line, 0) !== (lines[line] ?? '').trimEnd()) writes.push({ x: 0, line, seq: term.snapshot(line, 0) });
     if (writes.length > 0) {
       const ja = writes.filter((w) => w.x === INDENT);
       const en = writes.filter((w) => w.x === 0);
-      const ok = (ja.length === 0 || term.paint(INDENT, ja)) && (en.length === 0 || term.paint(0, en));
+      const jaOk = ja.length === 0 || term.paint(INDENT, ja);
+      const ok = jaOk && (en.length === 0 || term.paint(0, en));
       if (!ok) retry = true;
+      if (jaOk) for (const w of ja) { const fg = desired.get(w.line)!.fg; if (fg) tints.set(w.line, fg); else tints.delete(w.line); }
     }
+    tints = new Map([...tints].filter(([line]) => desired.has(line)));
+    wasWaiting = nowWaiting;
     touched = new Set([...desired.keys()].concat(retry ? [...touched] : []));
     painted.clear();
     for (const [k, v] of nextPainted) painted.set(k, v);
@@ -382,6 +438,7 @@ export function createReplyRewrites(term: RewriteTerm, api: TranslateFn, onPlace
     for (const s0 of [...spots.values()]) if (!want.has(s0.text)) { dropSpot(s0); changed = true; }
     if (changed) emit();
     if (retry) kick(RETRY_MS);
+    else if (fading) kick(FADE_FRAME_MS);
   };
 
   /**
