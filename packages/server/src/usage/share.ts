@@ -52,6 +52,18 @@ export class UsageShare {
   }
 }
 
+/** 共有表のうち、そのエージェントの全行。キーはアカウントの名前。手元に無い名前の顔（AccountsDto.peerUsage）に使う。 */
+export function sharedUsagesOf(db: Db, agent: ShareAgent): Map<string, SharedUsage> {
+  const rows = db.prepare('select account_name, five_hour, seven_day, plan, observed_at from account_usage where agent = ? and deleted_at is null').all(agent) as
+    { account_name: unknown; five_hour: unknown; seven_day: unknown; plan: unknown; observed_at: unknown }[];
+  const out = new Map<string, SharedUsage>();
+  for (const r of rows) {
+    if (typeof r.account_name !== 'string' || typeof r.observed_at !== 'number') continue;
+    out.set(r.account_name, { fiveHour: windowOf(r.five_hour), sevenDay: windowOf(r.seven_day), plan: typeof r.plan === 'string' ? r.plan : null, observedAt: r.observed_at });
+  }
+  return out;
+}
+
 /** 呼び手（UsageTracker、AgentUsageTracker）に渡す口。nameOf はアカウントの id から名前を引く。引けなければ共有しない。 */
 export type UsageShareLink<NameOf> = { usage: UsageShare; nameOf: NameOf };
 

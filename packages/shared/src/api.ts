@@ -379,7 +379,12 @@ export type AccountsDto = { currentId: string; accounts: AccountDto[]; sessions:
   /** Codex のアカウント。codexEnabled が切なら付けない。 */
   codex?: AgentAccountsDto;
   /** Claude 以外のエージェントの枠（AgentUsagesDto）。何も無ければ項目ごと付けない。この項目を知らない古いサーバは送らず、古い画面は読まない。 */
-  agents?: AgentUsagesDto };
+  agents?: AgentUsagesDto;
+  /**
+   * 手元に無い名前の Claude のアカウントの使用率。キーはアカウントの名前で、ほかの PC が観測して共有表（account_usage）に書いた値である。
+   * ほかの PC の会話の顔が手元に無い名前のとき、計器をこの値で作る。行が無ければ項目ごと付けない。
+   */
+  peerUsage?: Record<string, UsageDto> };
 /** 最初のアカウント（既定の置き場）の id。 */
 export const PRIMARY_ACCOUNT_ID = 'primary';
 /**
