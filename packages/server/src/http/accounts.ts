@@ -1,5 +1,5 @@
 import type { Context, Hono } from 'hono';
-import type { AccountDirPreviewDto, AccountsDto } from '@agent-hangar/shared';
+import type { AccountDirPreviewDto, AccountsDto, UsageDto } from '@agent-hangar/shared';
 import type { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
 import { ensureAccountLinks, inspectAccountLinks, LINKED_ENTRIES, linkProblemMessage } from '../provider/claude-code/config/accountLinks.ts';
 import { AccountError, PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
@@ -9,6 +9,7 @@ import { causeOf, errorText, msg, render, translatorOf, type Message } from '../
 import { sessionAccounts } from '../db/queries.ts';
 import { RunError, type RunManager } from '../runs/manager.ts';
 import type { AgentUsageTracker } from '../usage/agentUsage.ts';
+import { sharedUsagesOf } from '../usage/share.ts';
 import type { UsageTracker } from '../usage/statusline.ts';
 import { fixableConflicts } from '../platform/links.ts';
 import { linkConflictsOf, parseRepair, repairLinks, type LinkRepairTarget } from './linkRepair.ts';
@@ -69,6 +70,7 @@ export function buildAccountsDto(deps: AccountsDeps, opts: { checkLinks?: boolea
   for (const [sid, aid] of Object.entries(sessionAccounts(deps.db, deps.deviceId))) if (known.has(aid)) sessions[sid] = aid;
   const codex = buildCodexAccountsDto(deps, opts);
   const agents = deps.agentUsage?.all(codex?.currentId);
+  const peerUsage = peerUsageOf(deps.db, new Set(list.map((a) => a.name)));
   return {
     currentId: deps.store.current().id,
     accounts: list.map((a) => ({
@@ -77,7 +79,15 @@ export function buildAccountsDto(deps: AccountsDeps, opts: { checkLinks?: boolea
     sessions,
     ...(codex ? { codex } : {}),
     ...(agents ? { agents } : {}),
+    ...(peerUsage ? { peerUsage } : {}),
   };
+}
+
+/** 共有表の Claude の行のうち、手元に無い名前のものだけを UsageDto にする。1 件も無ければ null。 */
+function peerUsageOf(db: Db, localNames: Set<string>): Record<string, UsageDto> | null {
+  const out: Record<string, UsageDto> = {};
+  for (const [name, u] of sharedUsagesOf(db, 'claude')) if (!localNames.has(name)) out[name] = { fiveHour: u.fiveHour, sevenDay: u.sevenDay, updatedAt: u.observedAt };
+  return Object.keys(out).length === 0 ? null : out;
 }
 
 /** セッションが起動したとき（新規・再開・フォーク・ターミナルから）に accounts.update を配る。新しい run のアカウントが sessions に載るため。リンクは点検しない。 */

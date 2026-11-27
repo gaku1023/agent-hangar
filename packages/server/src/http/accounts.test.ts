@@ -11,6 +11,7 @@ import { upsertShared } from '../db/shared.ts';
 import { ensureSession } from '../indexer/write.ts';
 import { RunError, type RunListener } from '../runs/manager.ts';
 import { AgentUsageTracker } from '../usage/agentUsage.ts';
+import { UsageShare } from '../usage/share.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { accountsRoutes, announceAccountsOnRunStarted, buildAccountsDto, type AccountsDeps } from './accounts.ts';
 
@@ -318,6 +319,20 @@ describe('agents（Claude 以外のエージェントの枠）', () => {
     const t = new AgentUsageTracker({ now: () => 10 });
     t.set('codex', { fiveHour: { usedPercent: 5, resetsAt: 100 }, sevenDay: null, plan: 'plus' }, 9);
     expect(buildAccountsDto({ ...deps, agentUsage: t }).agents).toEqual({ codex: { fiveHour: { usedPercent: 5, resetsAt: 100 }, sevenDay: null, updatedAt: 9, plan: 'plus' } });
+  });
+});
+
+describe('peerUsage（手元に無い名前のアカウントの、ほかの PC から届いた使用率）', () => {
+  it('共有表に行が無ければ peerUsage を付けない', () => {
+    expect('peerUsage' in buildAccountsDto(deps)).toBe(false);
+  });
+  it('手元に無い Claude のアカウント名だけを、名前ごとに付ける（手元の名前と Codex の行は入れない）', () => {
+    const share = new UsageShare(db, 'dev-b');
+    const w = (p: number) => ({ usedPercent: p, resetsAt: 1000 });
+    share.publish('claude', '研究室', { fiveHour: w(2), sevenDay: w(53), plan: null, observedAt: 50 });
+    share.publish('claude', store.list()[0]!.name, { fiveHour: w(9), sevenDay: null, plan: null, observedAt: 60 });
+    share.publish('codex', '別室', { fiveHour: null, sevenDay: w(16), plan: 'free', observedAt: 70 });
+    expect(buildAccountsDto(deps).peerUsage).toEqual({ 研究室: { fiveHour: w(2), sevenDay: w(53), updatedAt: 50 } });
   });
 });
 

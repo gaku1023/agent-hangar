@@ -403,11 +403,13 @@ function codexUsage(t: Translate, c: AgentUsageDto, now: number): UsageProps {
 }
 
 /**
- * ほかの PC の会話のアカウントで、手元に同じ名前が無いときの顔。名前だけを出し、計器と札の中身は空にする。
+ * ほかの PC の会話のアカウントで、手元に同じ名前が無いときの顔。名前を出し、札の中身は空にする。
+ * 計器は、ほかの PC が共有表に書いた使用率（AccountsDto.peerUsage）が届いていればその値で作り、無ければ空にする。
  * id は手元の一覧のどれとも重ならない値にする（面でどれも選ばれていない形になる）。
  */
-function peerOnlyAccount(base: AccountView, name: string): AccountView {
-  return { ...base, id: `peer:${name}`, name, color: 'var(--ink-2)', primary: false, current: false, plan: null, email: null, fiveHour: null, sevenDay: null, updatedLabel: null, note: null, linkProblem: null, linkConflicts: [], login: null };
+function peerOnlyAccount(t: Translate, base: AccountView, name: string, usage: UsageDto | undefined, now: number): AccountView {
+  const g = usage ? presentAgentUsage(t, { ...usage, plan: null }, now) : null;
+  return { ...base, id: `peer:${name}`, name, color: 'var(--ink-2)', primary: false, current: false, plan: null, email: null, fiveHour: g?.fiveHour ?? null, sevenDay: g?.sevenDay ?? null, updatedLabel: g?.updatedLabel ?? null, note: null, linkProblem: null, linkConflicts: [], login: null };
 }
 
 /** 使用率がまだ届いていないときの値。 */
@@ -438,11 +440,11 @@ function headerAccount(state: State, store: Store, now: number): { account: Head
   const peer = peerCandidate && screenId !== null && store.peerChat[screenId]?.phase !== 'fallback';
   const sessionId = screenAgent === 'opencode' || screenAgent === 'codex' || (peerCandidate && !peer) ? null : screenId;
   // ほかの PC の会話のアカウントは、手元の対応表には無い。元の PC が知らせた名前で、同じ名前の手元のアカウントを引く。
-  // 名前が未着（読み込み中、古い相手）なら、いまのアカウント。手元に同じ名前が無ければ、名前だけの顔にして計器は空にする。
+  // 名前が未着（読み込み中、古い相手）なら、いまのアカウント。手元に同じ名前が無ければ、名前の顔にして、計器は共有表から届いた値（無ければ空）にする。
   const peerName = peer ? store.peerChat[screenId!]?.account ?? null : null;
   const list = presentAccounts(store, now);
   const claudeShown = peerName !== null
-    ? list.find((a) => a.name === peerName) ?? peerOnlyAccount(list[0]!, peerName)
+    ? list.find((a) => a.name === peerName) ?? peerOnlyAccount(t, list[0]!, peerName, store.accounts?.peerUsage?.[peerName], now)
     : list.find((a) => a.id === ((peer || sessionId === null ? currentAccount(store) : accountOfSession(store, sessionId)) ?? accountList(store)[0]!).id) ?? list[0]!;
   // Codex のアカウントが届いていれば、Codex の会話の画面では顔をその会話の Codex アカウントにする（ホームと Claude の会話はそのまま）。
   const codexList = presentCodexAccounts(store, now);

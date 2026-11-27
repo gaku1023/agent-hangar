@@ -1284,6 +1284,15 @@ describe('presentShell のアカウント', () => {
       expect(p.account?.list.some((a) => a.id === p.account?.shown.id)).toBe(false);
       expect(p.usage).toMatchObject({ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null });
     });
+    it('手元に無い名前でも、ほかの PC から届いた使用率（peerUsage）があれば計器をその値で作る', () => {
+      const store = peerStore('研究室');
+      store.accounts = { ...store.accounts!, peerUsage: { 研究室: { fiveHour: { usedPercent: 2, resetsAt: NOW + 3_600_000 }, sevenDay: { usedPercent: 53, resetsAt: NOW + 86_400_000 }, updatedAt: NOW - 60_000 } } };
+      const p = presentShell(at({ name: 'session', id: 'p1' }), store, NOW);
+      expect(p.account?.shown.name).toBe('研究室');
+      expect(p.account?.shown.fiveHour?.percent).toBe(2);
+      expect(p.usage).toMatchObject({ fiveHour: 2, sevenDay: 53 });
+      expect(p.usage.updatedLabel).not.toBeNull();
+    });
     it('名前が届いていない（古い相手、読み込み中）ときと、読み取り専用のときは、いまのアカウントを出す', () => {
       const none = presentShell(at({ name: 'session', id: 'p1' }), { ...peerStore(null), accounts: { ...accountsFixture, currentId: 'a1' } }, NOW);
       expect(none.account?.shown.id).toBe('a1');
