@@ -4075,6 +4075,8 @@ cwd の実体がクイックセッションの外を指すシンボリックリ�
 本文ファイルの cwd は変わらないので、昇格後にこのセッションを再開すると cwd はクイックセッションのままである。
 再開ボタンにはその注意を添える。
 
+会話の中からは、MCP の `promote_session` が同じ処理を呼ぶ（「MCP とローカル API」の節）。同じ名前のフォルダが既にあるときは、`create_project` で既存のフォルダとして登録する。
+
 ## セッション要約
 
 一覧とヘッダーに「このセッションは何をしていたか」を出すために、**セッション要約** を持つ。
@@ -4388,6 +4390,13 @@ Done・Paused は画面で戻せ、何も失われないので、承認の帯は
   `refused` は、書かれると任意のコマンドが動く項目（道具のパス、`claudeDir`、`editor`、`opencodeProviderPrep`）、会話を外へ出せる項目（`lmStudioUrl`、`allowExternalSummarizer`）、鍵、専用の道具か画面にしか書かせない項目（`permissionPolicy`、`trustedWorkspaceRoot`、古い項目）で、`confirmed` があっても受けない。
   鍵を全部先に見て、知らない鍵か `refused` の鍵が 1 つでもあれば何も書かずに断る。
   書くのは画面と同じ `PATCH /api/settings` の処理で、認証の層を外した設定の経路だけの Hono に投げる（`http/app.ts` の `settingsAccessOf`）。値の検査、保存、画面への配りはそちらのままで、検査に落ちたらその文で断る。
+- `create_project({ name?, path?, git_init?, confirmed? })`：プロジェクトを作る（#870、2026-11-27）。`path` に既存のフォルダの絶対パスを渡すとそのフォルダを登録し、省くと作成場所の下に `name` のフォルダを作る（`git_init` は省けば真）。登録済みのフォルダなら作らずに `already_registered` でそのプロジェクトを返す。
+  `confirmed: true` が無ければ何も作らず、作る場所（`proposed` の `action`、`name`、`path`）を返す。確かめ方は `update_settings` の `confirm` と同じで、守れるのはうっかりの作成までである（利用者がこの型を選んだ）。
+  名前と相対パスと作成場所の空は、聞く前に断る。書くのは画面と同じ `POST /api/projects`（`newDir` か `dir`）の処理で、認証の層を外した経路だけの Hono に投げる（`http/app.ts` の `projectAccessOf`）。入れ子の断り、未分類の会話の紐づけ、画面への配りはそちらのままである。返り値の `project_id` で、`create_session`（`handoff: true`）から新しいプロジェクトに引き継げる。
+- `promote_session({ session_id?, name, git_init?, move_files?, confirmed? })`：クイックセッションを昇格する（#870）。`session_id` を省くと呼んだ会話自身で、セッション別 URL ではほかの会話を指せない（`sessionIdOf`）。`git_init` と `move_files` は画面の既定と同じく真である。
+  クイックセッションでない会話と、フォルダ名にならない名前は、聞く前に断る。`confirmed` の扱いは `create_project` と同じで、実行は画面と同じ `POST /api/sessions/:id/promote` の処理に投げる。
+  run が生きていればファイルは移らない（「クイックセッションと昇格」の節）。自分自身を昇格したときは必ずそうなるので、`moved: false` と理由に、ファイルが残った場所 `files_left_in` を添える。
+  同じ名前のフォルダがあって 409 になったときは、その文に、`create_project` の `path` でそのフォルダを登録して引き継ぐ道を添えて断る。
 - `set_session_memo` は 0.4.0 で道具ごと外した（セッションのノートを外したため。要約の `set_session_summary` と Paused の戻る日が役を担う）。
   update_project の `append_memo` のように引数ごと外した場合は、MCP の層が未知の引数として捨てる。こちらは道具が 1 つの仕事しか持たないので、外した後の一覧に無い道具を呼ばれても MCP の層が isError で返す。
   外す前の一覧を覚えた Claude が呼んでも、MCP の層が書かずに `isError`（道具が無い）で返す。モデルにこの道具を使うよう指示したことも無い。

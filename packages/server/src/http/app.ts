@@ -39,6 +39,7 @@ import { gitPath } from '../git/find.ts';
 import { spawnGit } from '../git/status.ts';
 import { todoRoutes } from './routes/todos.ts';
 import { usageRoutes } from './routes/usage.ts';
+import { isUnderScratch } from '../projects/scratch.ts';
 
 /**
  * HTTP の層の組み立て。
@@ -165,7 +166,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.route('/api', api);
   // MCP は自前の認証と Origin の検査を持つので、/api の認証を通さずに直接 mount する。
-  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, trash: deps.trash, usage: () => deps.usage.current(), accounts: deps.accounts, ...(deps.peerCall ? { peer: deps.peerCall } : {}), ...(deps.accounts.codex ? { codexAccounts: deps.accounts.codex.store } : {}), language, settings: deps.settings, openPrompt: (ev) => { deps.hub.broadcast(ev); }, saveNotifyPreference: (p) => { const s = deps.updateSettings({ notifyPreference: p }); deps.hub.broadcast({ type: 'settings.changed', settings: toSettingsDto(s), keys: ['notifyPreference'] }); }, settingsAccess: settingsAccessOf(deps), savePermissionPolicy: permissionPolicySaver({ updateSettings: deps.updateSettings, broadcast: (ev) => { deps.hub.broadcast(ev); }, toDto: toSettingsDto }), ...(deps.askLocal ? { askLocal: deps.askLocal } : {}), openUrl: (u) => deps.external.openUrl(u), ...(deps.permissionAsks ? { permissionAsks: deps.permissionAsks } : {}), ...(deps.hookDecisions ? { hookDecisions: deps.hookDecisions } : {}), ...(deps.asksOf ? { asksOf: deps.asksOf } : {}), ...(deps.holdUnread ? { holdUnread: true } : {}), ...(deps.orchestratorKeeper ? { orchestratorHandoff: (id: string, text: string) => deps.orchestratorKeeper!.receiveHandoff(id, text) } : {}) }));
+  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, trash: deps.trash, usage: () => deps.usage.current(), accounts: deps.accounts, ...(deps.peerCall ? { peer: deps.peerCall } : {}), ...(deps.accounts.codex ? { codexAccounts: deps.accounts.codex.store } : {}), language, settings: deps.settings, openPrompt: (ev) => { deps.hub.broadcast(ev); }, saveNotifyPreference: (p) => { const s = deps.updateSettings({ notifyPreference: p }); deps.hub.broadcast({ type: 'settings.changed', settings: toSettingsDto(s), keys: ['notifyPreference'] }); }, settingsAccess: settingsAccessOf(deps), projectAccess: projectAccessOf(deps), savePermissionPolicy: permissionPolicySaver({ updateSettings: deps.updateSettings, broadcast: (ev) => { deps.hub.broadcast(ev); }, toDto: toSettingsDto }), ...(deps.askLocal ? { askLocal: deps.askLocal } : {}), openUrl: (u) => deps.external.openUrl(u), ...(deps.permissionAsks ? { permissionAsks: deps.permissionAsks } : {}), ...(deps.hookDecisions ? { hookDecisions: deps.hookDecisions } : {}), ...(deps.asksOf ? { asksOf: deps.asksOf } : {}), ...(deps.holdUnread ? { holdUnread: true } : {}), ...(deps.orchestratorKeeper ? { orchestratorHandoff: (id: string, text: string) => deps.orchestratorKeeper!.receiveHandoff(id, text) } : {}) }));
 
   if (deps.uiDist) {
     const dist = path.resolve(deps.uiDist);
@@ -197,6 +198,31 @@ export function createApp(deps: AppDeps): Hono {
     });
   }
   return app;
+}
+
+/**
+ * MCP のプロジェクトを作る道具（mcp/projectTools.ts）の口。
+ * 書くのは画面と同じ POST /api/projects と POST /api/sessions/:id/promote の処理で、認証の層を外したその経路だけの Hono に投げる。
+ * 名前と場所の検査、未分類の会話の紐づけ、画面への配りは、画面から呼んだときと同じになる。
+ */
+function projectAccessOf(deps: AppDeps): NonNullable<ToolDeps['projectAccess']> {
+  const routes = new Hono();
+  projectRoutes(routes, deps);
+  sessionRoutes(routes, deps);
+  const post = async (url: string, body: Record<string, unknown>) => {
+    const res = await routes.request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const json = (await res.json()) as Record<string, unknown>;
+    return res.ok ? { ok: true as const, status: res.status, body: json } : { ok: false as const, status: res.status, error: typeof json.error === 'string' ? json.error : `HTTP ${res.status}` };
+  };
+  return {
+    workspaceRoot: () => deps.settings().workspaceRoot,
+    quickDir: (sessionId) => {
+      const r = deps.db.prepare('select cwd from sessions where id = ? and deleted_at is null').get(sessionId) as { cwd: string } | undefined;
+      return r && isUnderScratch(deps.home, r.cwd) ? r.cwd : null;
+    },
+    createProject: (body) => post('/projects', body),
+    promoteSession: (sessionId, body) => post(`/sessions/${encodeURIComponent(sessionId)}/promote`, body),
+  };
 }
 
 /**

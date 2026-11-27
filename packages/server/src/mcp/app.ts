@@ -108,6 +108,8 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   reg('update_schedule', D(tr('mcp.tool.updateSchedule')), { schedule_id: z.string(), enabled: z.boolean().optional().describe(tr('mcp.schedule.enabledParam')), ...scheduleArgs, kind: scheduleArgs.kind.optional(), prompt: z.string().optional() });
   reg('get_settings', D(tr('mcp.tool.getSettings')), {});
   reg('update_settings', D(tr('mcp.tool.updateSettings')), { changes: z.record(z.string(), z.unknown()).describe(tr('mcp.settings.changesParam')), confirmed: z.boolean().optional().describe(tr('mcp.settings.confirmedParam')) });
+  reg('create_project', D(tr('mcp.tool.createProject')), { name: z.string().optional().describe(tr('mcp.project.nameParam')), path: z.string().optional().describe(tr('mcp.project.pathParam')), git_init: z.boolean().optional().describe(tr('mcp.project.gitInitParam')), confirmed: z.boolean().optional().describe(tr('mcp.project.confirmedParam')) });
+  reg('promote_session', D(tr('mcp.tool.promoteSession')), { session_id: z.string().optional().describe(tr('mcp.project.sessionParam')), name: z.string().describe(tr('mcp.project.nameParam')), git_init: z.boolean().optional().describe(tr('mcp.project.gitInitParam')), move_files: z.boolean().optional().describe(tr('mcp.project.moveFilesParam')), confirmed: z.boolean().optional().describe(tr('mcp.project.confirmedParam')) });
   reg('claim_pr', D(tr('mcp.tool.claimPr')), { session_id: z.string().optional(), repo: z.string().describe(tr('mcp.event.repoParam')), pr: z.number().int().describe(tr('mcp.event.prParam')) });
   // 元と動きの形の検査は道具に任せ、断りの文で足りない所を名指しする。
   reg('draft_event_binding', D(tr('mcp.tool.draftEventBinding')), {

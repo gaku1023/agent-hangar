@@ -32,6 +32,7 @@ import type { PeerChatLocal } from '../peer/chat/host.ts';
 import type { HookDecisions } from '../sessions/hookDecisions.ts';
 import { createScheduleTool, listSchedulesTool, updateScheduleTool } from './scheduleTools.ts';
 import { getSettingsTool, updateSettingsTool, type SettingsToolDeps } from './settingsTools.ts';
+import { createProjectTool, promoteSessionTool, type ProjectToolDeps } from './projectTools.ts';
 import { readSessionScreenTool, sendToSessionTool } from './screenTools.ts';
 import { noteTurnStart, waitForSessionTool } from './waitTool.ts';
 
@@ -71,6 +72,8 @@ export type ToolDeps = {
   saveNotifyPreference?: (p: NotifyPreference) => void;
   /** 設定の道具（settingsTools.ts）の口。画面と同じ形で読み、画面と同じ PATCH /api/settings の処理で書く。無ければ get_settings と update_settings は知らない道具として断る。 */
   settingsAccess?: Omit<SettingsToolDeps, 'language'>;
+  /** プロジェクトを作る道具（projectTools.ts）の口。画面と同じ POST /api/projects と POST /api/sessions/:id/promote の処理で書く。無ければ create_project と promote_session は知らない道具として断る。 */
+  projectAccess?: Omit<ProjectToolDeps, 'language'>;
   /** 統括の許可の道具の芯（orchestrator/asks.ts）。無ければ createMcpApp が askLocal から作る。統括の URL 以外からは使わない。 */
   orchestratorAsks?: OrchestratorAsks;
   /** この PC の Claude Code の会話の札に答える口（peer/chat/host.ts の local）。無ければ統括はどの札にも答えられない（answerable: false）。 */
@@ -126,6 +129,7 @@ export const TOOL_NAMES = [
   'send_to_session', 'read_session_screen', 'wait_for_session', 'notify_user', 'set_notify_preference',
   'list_schedules', 'create_schedule', 'update_schedule',
   'claim_pr', 'draft_event_binding', 'get_settings', 'update_settings',
+  'create_project', 'promote_session',
 ] as const;
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
@@ -896,6 +900,20 @@ function settingsOf(deps: ToolDeps, name: string): SettingsToolDeps {
   return { ...deps.settingsAccess, ...(deps.language ? { language: deps.language } : {}) };
 }
 
+/** プロジェクトを作る道具の口。無ければ知らない道具として断る。 */
+function projectsOf(deps: ToolDeps, name: string): ProjectToolDeps {
+  if (!deps.projectAccess) throw new ToolError(msg('mcp.error.unknownTool', { name }));
+  return { ...deps.projectAccess, ...(deps.language ? { language: deps.language } : {}) };
+}
+
+/** 昇格する会話。セッション別 URL では自分だけ、共通 URL では session_id が要る（sessionIdOf）。 */
+function promoteSessionOf(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
+  const access = projectsOf(deps, 'promote_session');
+  const id = sessionIdOf(ctx, args);
+  requireSession(deps, id);
+  return promoteSessionTool(access, id, args);
+}
+
 /** 作者への問い合わせの口。共通 URL でもセッション別 URL でも、枠に関わりなく使える（プロジェクトもセッションも指さない）。 */
 function reportOf(deps: ToolDeps, name: string): NonNullable<ToolDeps['report']> {
   if (!deps.report) throw new ToolError(msg('mcp.error.unknownTool', { name }));
@@ -940,6 +958,8 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'draft_event_binding': return draftEventBindingTool(deps, ctx, args);
     case 'get_settings': return getSettingsTool(settingsOf(deps, name));
     case 'update_settings': return updateSettingsTool(settingsOf(deps, name), args);
+    case 'create_project': return createProjectTool(projectsOf(deps, name), args);
+    case 'promote_session': return promoteSessionOf(deps, ctx, args);
     default:
       // 統括だけの道具。統括の URL でなければ、知らない道具と同じ断りを返す（orchestratorTools.ts）。
       if (isOrchestratorToolName(name)) return callOrchestratorTool(deps, ctx, name, args);

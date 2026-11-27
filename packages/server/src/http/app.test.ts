@@ -6,6 +6,7 @@ import { COMPAT_VERSION } from '@agent-hangar/shared';
 import type { ServerEvent } from '@agent-hangar/shared';
 import { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
+import { quickSessionsRoot } from '../projects/scratch.ts';
 import type { Db } from '../db/open.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
@@ -328,6 +329,38 @@ describe('アカウントの取り付け', () => {
     expect(bad.text).toContain('値の形式が正しくありません');
     const refused = await mcp('update_settings', { changes: { claudePath: '/tmp/evil' }, confirmed: true });
     expect(refused.isError).toBe(true);
+  });
+
+  it('MCP の create_project と promote_session は、confirmed のときだけ画面と同じ経路で作る（#870）', async () => {
+    const mcp = async (name: string, args: unknown) => {
+      const res = await app.request('/mcp', { method: 'POST', headers: { ...H, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) });
+      const text = await res.text();
+      const json = (res.headers.get('content-type') ?? '').includes('text/event-stream') ? text.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim())[0]! : text;
+      const r = (JSON.parse(json) as { result: { content: { text: string }[]; isError?: boolean } }).result;
+      return { isError: r.isError === true, body: r.isError ? r.content[0]!.text : JSON.parse(r.content[0]!.text) as Record<string, unknown> };
+    };
+    const projects = async () => ((await (await get('/api/projects')).json()) as { id: string; path: string | null }[]);
+    const existing = path.join(ws, 'gamma');
+    fs.mkdirSync(existing);
+    const before = (await projects()).length;
+    const asked = await mcp('create_project', { name: 'gamma', path: existing });
+    expect(asked.body).toMatchObject({ status: 'needs_confirmation', proposed: { action: 'register', path: existing } });
+    expect(await projects()).toHaveLength(before);
+    const made = await mcp('create_project', { name: 'gamma', path: existing, confirmed: true });
+    expect(made.body).toMatchObject({ status: 'created', name: 'gamma' });
+    expect((await projects()).map((p) => p.id)).toContain((made.body as { project_id: string }).project_id);
+    expect((await mcp('create_project', { path: existing, confirmed: true })).body).toMatchObject({ status: 'already_registered' });
+    expect((await mcp('create_project', { path: path.join(ws, 'nope'), confirmed: true })).isError).toBe(true);
+
+    // 昇格はクイックセッションだけ。alpha はプロジェクトの会話なので、聞く前に断る。
+    const alpha = ((await (await get('/api/sessions')).json()) as { id: string; providerSessionId: string }[]).find((s) => s.providerSessionId === SESSION_ALPHA)!.id;
+    expect((await mcp('promote_session', { session_id: alpha, name: 'newp' })).isError).toBe(true);
+    db.prepare('update sessions set cwd = ? where id = ?').run(path.join(quickSessionsRoot(ws), 'q1'), alpha);
+    expect((await mcp('promote_session', { session_id: alpha, name: 'newp' })).body).toMatchObject({ status: 'needs_confirmation', proposed: { session_id: alpha, name: 'newp', move_files: true } });
+    expect((await mcp('promote_session', { session_id: alpha, name: 'newp', confirmed: true })).body).toMatchObject({ status: 'promoted', project_id: list0ProjectId(), moved: true });
+    const taken = await mcp('promote_session', { session_id: alpha, name: 'taken', confirmed: true });
+    expect(taken.isError).toBe(true);
+    expect(taken.body).toContain('create_project');
   });
 
   it('アカウントの切り替えは、resume と同じく起動の前に同期の取り込みを待つ', async () => {
